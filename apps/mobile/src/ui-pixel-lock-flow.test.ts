@@ -69,7 +69,7 @@ describe("UI Pixel Lock source contract", () => {
       ["app/expenses/new.tsx", "BottomSheetFrame"],
       ["app/expenses/new.tsx", "showHandle={false}"],
       ["app/expenses/new.tsx", "quickExpenseCategories"],
-      ["app/expenses/new.tsx", "quickExpensePixelScale = 0.96"],
+      ["app/expenses/new.tsx", "quickExpensePixelScale = 0.88"],
       ["app/expenses/new.tsx", "quickExpenseScaleHorizontalOffset = 4"],
       ["app/expenses/new.tsx", "quickExpenseScaleVerticalOffset = 11"],
       ["app/expenses/new.tsx", "quickExpensePixelFrameStyle"],
@@ -251,15 +251,20 @@ describe("UI Pixel Lock source contract", () => {
     expect(launchSource).toContain("splashScreenId");
     expect(launchSource).toContain("introHoldMs");
     expect(launchSource).toContain("introImageStyle");
-    expect(launchSource).toContain("splashPixelScale = 1.27");
-    expect(launchSource).toContain("splashPixelVerticalOffset = -22");
+    expect(launchSource).toContain("SplashPixelStyles.groupScale");
+    expect(launchSource).toContain("SplashPixelStyles.topOffset");
     expect(launchSource).toContain("splashPixelFrameStyle");
     expect(launchSource).toContain("paddingTop: 112");
-    expect(launchSource).toContain("marginTop: 72");
+    expect(launchSource).toContain("SplashPixelStyles.introImageMarginTop");
     expect(launchSource).toContain("stageIndex < 0 ? introHoldMs");
     expect(launchSource).toContain("accessibilityLabel={splashScreenId}");
     expect(launchSource).not.toContain(">SPL-001</Text>");
     expect(launchSource).not.toContain("<BrandLogo");
+
+    const splashPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/SplashPixelStyles.ts"), "utf8");
+    expect(splashPixelStyleSource).toContain('groupScale: pixelNumber("SPL-001", "groupScale", 1.22)');
+    expect(splashPixelStyleSource).toContain('topOffset: pixelNumber("SPL-001", "topOffset", -16)');
+    expect(splashPixelStyleSource).toContain('introImageMarginTop: pixelNumber("SPL-001", "introImageMarginTop", 72)');
 
     for (const asset of ["growth_fetus.png", "growth_baby.png", "growth_toddler.png", "growth_elementary.png", "growth_middle.png", "growth_high.png"]) {
       expect(existsSync(join(mobileRoot, "assets/illustrations", asset)), `${asset} should exist`).toBe(true);
