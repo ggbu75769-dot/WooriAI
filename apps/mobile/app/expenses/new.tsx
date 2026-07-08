@@ -7,6 +7,7 @@ import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, PrimaryButton, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
+import { QuickExpensePixelStyles } from "../../src/pixelLock/styles";
 
 const quickExpenseScreenId = "pixel-screen-EXP-001 EXP-001";
 const quickExpenseAmountPreview = "₩ 38,500";
@@ -21,16 +22,15 @@ const quickExpenseCategories = [
   { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "⊕", label: "기타" }
 ];
 
-const quickExpensePixelScale = 0.88;
-const quickExpenseScaleHorizontalOffset = 4;
-const quickExpenseScaleVerticalOffset = 11;
-const quickExpensePixelFrameStyle = {
-  transform: [
-    { translateX: quickExpenseScaleHorizontalOffset },
-    { translateY: quickExpenseScaleVerticalOffset },
-    { scale: quickExpensePixelScale }
-  ]
-} as const;
+function quickExpensePixelFrameStyle() {
+  return {
+    transform: [
+      { translateX: QuickExpensePixelStyles.horizontalOffset },
+      { translateY: QuickExpensePixelStyles.topOffset },
+      { scale: QuickExpensePixelStyles.scale }
+    ]
+  } as const;
+}
 
 const quickExpenseStatusBarStyle = StyleSheet.create({
   container: {
@@ -228,7 +228,7 @@ export default function NewExpenseScreen() {
 
   return (
     <AppScreen>
-      <View style={quickExpensePixelFrameStyle}>
+      <View style={quickExpensePixelFrameStyle()}>
         <BottomSheetFrame
           title=""
           showHandle={false}

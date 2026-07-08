@@ -1,11 +1,31 @@
 import { pixelNumber } from "../overrides";
 
 export const QuickExpensePixelStyles = {
-  topOffset: pixelNumber("EXP-001", "topOffset", 11),
-  screenPadding: pixelNumber("EXP-001", "screenPadding", 24),
-  chipHeight: pixelNumber("EXP-001", "chipHeight", 0),
-  chipGap: pixelNumber("EXP-001", "chipGap", 0),
-  inputCardHeight: pixelNumber("EXP-001", "inputCardHeight", 0),
-  ctaHeight: pixelNumber("EXP-001", "ctaHeight", 56),
-  ctaBottomInset: pixelNumber("EXP-001", "ctaBottomInset", 0)
+  get horizontalOffset() {
+    return pixelNumber("EXP-001", "horizontalOffset", 0);
+  },
+  get topOffset() {
+    return pixelNumber("EXP-001", "topOffset", -40);
+  },
+  get scale() {
+    return pixelNumber("EXP-001", "scale", 0.84);
+  },
+  get screenPadding() {
+    return pixelNumber("EXP-001", "screenPadding", 24);
+  },
+  get chipHeight() {
+    return pixelNumber("EXP-001", "chipHeight", 0);
+  },
+  get chipGap() {
+    return pixelNumber("EXP-001", "chipGap", 0);
+  },
+  get inputCardHeight() {
+    return pixelNumber("EXP-001", "inputCardHeight", 0);
+  },
+  get ctaHeight() {
+    return pixelNumber("EXP-001", "ctaHeight", 56);
+  },
+  get ctaBottomInset() {
+    return pixelNumber("EXP-001", "ctaBottomInset", 0);
+  }
 } as const;

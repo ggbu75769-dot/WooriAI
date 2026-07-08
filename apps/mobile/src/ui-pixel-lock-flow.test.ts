@@ -69,9 +69,9 @@ describe("UI Pixel Lock source contract", () => {
       ["app/expenses/new.tsx", "BottomSheetFrame"],
       ["app/expenses/new.tsx", "showHandle={false}"],
       ["app/expenses/new.tsx", "quickExpenseCategories"],
-      ["app/expenses/new.tsx", "quickExpensePixelScale = 0.88"],
-      ["app/expenses/new.tsx", "quickExpenseScaleHorizontalOffset = 4"],
-      ["app/expenses/new.tsx", "quickExpenseScaleVerticalOffset = 11"],
+      ["app/expenses/new.tsx", "QuickExpensePixelStyles.scale"],
+      ["app/expenses/new.tsx", "QuickExpensePixelStyles.horizontalOffset"],
+      ["app/expenses/new.tsx", "QuickExpensePixelStyles.topOffset"],
       ["app/expenses/new.tsx", "quickExpensePixelFrameStyle"],
       ["app/expenses/new.tsx", "₩ 38,500"],
       ["app/expenses/new.tsx", "2025. 05. 24 (토)"],
@@ -147,6 +147,11 @@ describe("UI Pixel Lock source contract", () => {
     expect(quickExpenseSource).toContain("quickExpenseCategoryGridStyle");
     expect(quickExpenseSource).toContain("quickExpenseCategoryTileStyle");
     expect(quickExpenseCrop).toMatchObject({ x: 790, y: 222, width: 230, height: 600 });
+
+    const quickExpensePixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/QuickExpensePixelStyles.ts"), "utf8");
+    expect(quickExpensePixelStyleSource).toContain('return pixelNumber("EXP-001", "scale", 0.84)');
+    expect(quickExpensePixelStyleSource).toContain('return pixelNumber("EXP-001", "topOffset", -40)');
+    expect(quickExpensePixelStyleSource).toContain('return pixelNumber("EXP-001", "horizontalOffset", 0)');
 
     for (const expectedCategory of ["기저귀", "분유/유제품", "식비", "의류", "약품/교통", "병원/약", "교육/도서", "기타"]) {
       expect(quickExpenseSource).toContain(expectedCategory);
