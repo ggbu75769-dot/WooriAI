@@ -1,0 +1,757 @@
+﻿Title,Body,Labels,Milestone
+[BOOT-001] 현재 repo 구조와 Phase 3 산출물을 대조하고 누락 파일 목록을 작성한다.,"Area: Bootstrap
+Priority: P0
+Target: repo/docs
+Dependencies: 없음
+
+Description:
+현재 repo 구조와 Phase 3 산출물을 대조하고 누락 파일 목록을 작성한다.
+
+Acceptance:
+docs/dev/source-lock.md 생성
+
+Codex Batch: Batch 00","phase4,p0,bootstrap",MVP v1.0
+"[BOOT-002] pnpm-workspace.yaml, turbo.json, package scripts, tsconfig b","Area: Bootstrap
+Priority: P0
+Target: root
+Dependencies: BOOT-001
+
+Description:
+pnpm-workspace.yaml, turbo.json, package scripts, tsconfig base를 생성한다.
+
+Acceptance:
+pnpm install 후 workspace 인식
+
+Codex Batch: Batch 01","phase4,p0,bootstrap",MVP v1.0
+"[BOOT-003] postgres, redis, minio, api용 docker-compose.yml을 만든다.","Area: Bootstrap
+Priority: P0
+Target: infra/docker
+Dependencies: BOOT-002
+
+Description:
+postgres, redis, minio, api용 docker-compose.yml을 만든다.
+
+Acceptance:
+docker compose up -d 성공
+
+Codex Batch: Batch 01","phase4,p0,bootstrap",MVP v1.0
+[BOOT-004] .env.example과 scripts/check-env.ts를 작성한다.,"Area: Bootstrap
+Priority: P0
+Target: root
+Dependencies: BOOT-002
+
+Description:
+.env.example과 scripts/check-env.ts를 작성한다.
+
+Acceptance:
+필수 env 누락 시 명확한 오류
+
+Codex Batch: Batch 01","phase4,p0,bootstrap",MVP v1.0
+"[BOOT-005] lint, typecheck, unit test, build dry-run CI를 구성한다.","Area: Bootstrap
+Priority: P0
+Target: .github/workflows
+Dependencies: BOOT-002
+
+Description:
+lint, typecheck, unit test, build dry-run CI를 구성한다.
+
+Acceptance:
+PR에서 CI가 실행됨
+
+Codex Batch: Batch 01","phase4,p0,bootstrap",MVP v1.0
+[DOC-001] Do Not Change 계약을 repo에 복사하고 README에서 참조한다.,"Area: Documentation
+Priority: P0
+Target: docs/dev
+Dependencies: BOOT-001
+
+Description:
+Do Not Change 계약을 repo에 복사하고 README에서 참조한다.
+
+Acceptance:
+변경 금지 항목이 문서화됨
+
+Codex Batch: Batch 00","phase4,p0,documentation",MVP v1.0
+"[DOMAIN-001] auth_provider, member_role, child_stage_code, item_status 등 ","Area: Domain
+Priority: P0
+Target: packages/domain
+Dependencies: BOOT-002
+
+Description:
+auth_provider, member_role, child_stage_code, item_status 등 enum을 고정한다.
+
+Acceptance:
+API/mobile/admin이 동일 enum import
+
+Codex Batch: Batch 02","phase4,p0,domain",MVP v1.0
+[DOMAIN-002] 임신 주차/출생 후 개월/수동 단계 계산기를 구현한다.,"Area: Domain
+Priority: P0
+Target: packages/domain
+Dependencies: DOMAIN-001
+
+Description:
+임신 주차/출생 후 개월/수동 단계 계산기를 구현한다.
+
+Acceptance:
+BR-002/003/004 테스트 통과
+
+Codex Batch: Batch 02","phase4,p0,domain",MVP v1.0
+[DOMAIN-003] 추천 점수 계산기를 구현한다. 수수료율은 점수 변수로 사용하지 않는다.,"Area: Domain
+Priority: P0
+Target: packages/domain
+Dependencies: DOMAIN-001
+
+Description:
+추천 점수 계산기를 구현한다. 수수료율은 점수 변수로 사용하지 않는다.
+
+Acceptance:
+BR-301~305 테스트 통과
+
+Codex Batch: Batch 02","phase4,p0,domain",MVP v1.0
+"[DOMAIN-004] 원화 금액, Asia/Seoul 월 경계, 날짜 제한 유틸을 구현한다.","Area: Domain
+Priority: P0
+Target: packages/domain
+Dependencies: DOMAIN-001
+
+Description:
+원화 금액, Asia/Seoul 월 경계, 날짜 제한 유틸을 구현한다.
+
+Acceptance:
+월 경계/미래 날짜 테스트 통과
+
+Codex Batch: Batch 02","phase4,p0,domain",MVP v1.0
+[DOMAIN-005] OpenAPI DTO 또는 Zod schema를 공유 패키지로 정리한다.,"Area: Contracts
+Priority: P0
+Target: packages/contracts
+Dependencies: DOMAIN-001
+
+Description:
+OpenAPI DTO 또는 Zod schema를 공유 패키지로 정리한다.
+
+Acceptance:
+API 요청/응답 타입을 앱에서 사용
+
+Codex Batch: Batch 02","phase4,p0,contracts",MVP v1.0
+[DB-001] Phase 3 DB 설계를 schema.prisma로 반영한다.,"Area: Database
+Priority: P0
+Target: apps/api/prisma
+Dependencies: BOOT-002
+
+Description:
+Phase 3 DB 설계를 schema.prisma로 반영한다.
+
+Acceptance:
+Prisma validate 통과
+
+Codex Batch: Batch 03","phase4,p0,database",MVP v1.0
+[DB-002] 초기 migration을 생성하고 PostgreSQL에 적용한다.,"Area: Database
+Priority: P0
+Target: apps/api/prisma/migrations
+Dependencies: DB-001
+
+Description:
+초기 migration을 생성하고 PostgreSQL에 적용한다.
+
+Acceptance:
+migrate dev/deploy 성공
+
+Codex Batch: Batch 03","phase4,p0,database",MVP v1.0
+[DB-003] 기본 12개 카테고리 seed를 작성한다.,"Area: Database
+Priority: P0
+Target: seed
+Dependencies: DB-002
+
+Description:
+기본 12개 카테고리 seed를 작성한다.
+
+Acceptance:
+카테고리 중복 없이 재실행 가능
+
+Codex Batch: Batch 03","phase4,p0,database",MVP v1.0
+[DB-004] 시기별 준비템 seed를 작성한다.,"Area: Database
+Priority: P0
+Target: seed
+Dependencies: DB-003
+
+Description:
+시기별 준비템 seed를 작성한다.
+
+Acceptance:
+필수/편의/선택, 안 사도 되는 경우 필드 포함
+
+Codex Batch: Batch 03","phase4,p0,database",MVP v1.0
+[DB-005] 개발용 product_links seed를 작성한다. 실제 제휴 링크는 넣지 않는다.,"Area: Database
+Priority: P0
+Target: seed
+Dependencies: DB-004
+
+Description:
+개발용 product_links seed를 작성한다. 실제 제휴 링크는 넣지 않는다.
+
+Acceptance:
+affiliate/sponsored flag 테스트 가능
+
+Codex Batch: Batch 03","phase4,p0,database",MVP v1.0
+"[DB-006] soft delete, unique, FK, indexes를 확인한다.","Area: Database
+Priority: P0
+Target: db
+Dependencies: DB-002
+
+Description:
+soft delete, unique, FK, indexes를 확인한다.
+
+Acceptance:
+중복/권한/조회 성능 기준 충족
+
+Codex Batch: Batch 03","phase4,p0,database",MVP v1.0
+[API-001] NestJS app bootstrap과 /api/v1 prefix를 설정한다.,"Area: API Common
+Priority: P0
+Target: apps/api
+Dependencies: BOOT-002
+
+Description:
+NestJS app bootstrap과 /api/v1 prefix를 설정한다.
+
+Acceptance:
+GET /health OK
+
+Codex Batch: Batch 04","phase4,p0,api-common",MVP v1.0
+"[API-002] ValidationPipe, GlobalExceptionFilter, ErrorResponse를 구현한다.","Area: API Common
+Priority: P0
+Target: apps/api/common
+Dependencies: API-001
+
+Description:
+ValidationPipe, GlobalExceptionFilter, ErrorResponse를 구현한다.
+
+Acceptance:
+400/401/403/500 응답 형식 통일
+
+Codex Batch: Batch 04","phase4,p0,api-common",MVP v1.0
+[API-003] OAuth login dev stub + token pair 발급을 구현한다.,"Area: Auth API
+Priority: P0
+Target: modules/auth
+Dependencies: API-002, DB-001
+
+Description:
+OAuth login dev stub + token pair 발급을 구현한다.
+
+Acceptance:
+/auth/oauth-login 동작
+
+Codex Batch: Batch 04","phase4,p0,auth-api",MVP v1.0
+"[API-004] refresh token, logout, auth guard를 구현한다.","Area: Auth API
+Priority: P0
+Target: modules/auth
+Dependencies: API-003
+
+Description:
+refresh token, logout, auth guard를 구현한다.
+
+Acceptance:
+토큰 만료/재발급 테스트 통과
+
+Codex Batch: Batch 04","phase4,p0,auth-api",MVP v1.0
+[API-005] household membership/role guard를 구현한다.,"Area: RBAC
+Priority: P0
+Target: common/guards
+Dependencies: API-004
+
+Description:
+household membership/role guard를 구현한다.
+
+Acceptance:
+owner/co_parent/viewer 권한 테스트
+
+Codex Batch: Batch 04","phase4,p0,rbac",MVP v1.0
+[API-006] 필수/선택 동의 저장 및 버전 조회 API를 구현한다.,"Area: Consents API
+Priority: P0
+Target: modules/consents
+Dependencies: API-004
+
+Description:
+필수/선택 동의 저장 및 버전 조회 API를 구현한다.
+
+Acceptance:
+필수 동의 없이는 온보딩 불가
+
+Codex Batch: Batch 05","phase4,p0,consents-api",MVP v1.0
+[API-007] 아이 프로필 생성/조회/수정 API를 구현한다.,"Area: Children API
+Priority: P0
+Target: modules/children
+Dependencies: API-005, DOMAIN-002
+
+Description:
+아이 프로필 생성/조회/수정 API를 구현한다.
+
+Acceptance:
+stage 계산값 반환
+
+Codex Batch: Batch 05","phase4,p0,children-api",MVP v1.0
+[API-008] prepared item 상태와 첫 예산 설정 API를 연결한다.,"Area: Onboarding API
+Priority: P0
+Target: modules/children/items/budgets
+Dependencies: API-007
+
+Description:
+prepared item 상태와 첫 예산 설정 API를 연결한다.
+
+Acceptance:
+온보딩 완료 후 home summary 가능
+
+Codex Batch: Batch 05","phase4,p0,onboarding-api",MVP v1.0
+"[APP-001] Expo Router, QueryClient, Zustand store, theme tokens를 구성한다.","Area: Mobile Foundation
+Priority: P0
+Target: apps/mobile
+Dependencies: BOOT-002
+
+Description:
+Expo Router, QueryClient, Zustand store, theme tokens를 구성한다.
+
+Acceptance:
+앱 실행 및 네비게이션 동작
+
+Codex Batch: Batch 05","phase4,p0,mobile-foundation",MVP v1.0
+[APP-002] AUTH-001 로그인/약관 동의 화면을 구현한다.,"Area: Mobile Auth
+Priority: P0
+Target: apps/mobile/app/(auth)
+Dependencies: APP-001, API-003
+
+Description:
+AUTH-001 로그인/약관 동의 화면을 구현한다.
+
+Acceptance:
+필수 동의 전 계속 비활성
+
+Codex Batch: Batch 05","phase4,p0,mobile-auth",MVP v1.0
+[APP-003] ONB-001~004 화면과 API 연결을 구현한다.,"Area: Mobile Onboarding
+Priority: P0
+Target: apps/mobile/app/(onboarding)
+Dependencies: APP-002, API-007
+
+Description:
+ONB-001~004 화면과 API 연결을 구현한다.
+
+Acceptance:
+4단계 이하로 HOME-001 진입
+
+Codex Batch: Batch 05","phase4,p0,mobile-onboarding",MVP v1.0
+"[APP-004] session, selectedChild, onboardingProgress store를 구현한다.","Area: Mobile State
+Priority: P0
+Target: apps/mobile/src/stores
+Dependencies: APP-001
+
+Description:
+session, selectedChild, onboardingProgress store를 구현한다.
+
+Acceptance:
+재실행 시 세션/온보딩 상태 유지
+
+Codex Batch: Batch 05","phase4,p0,mobile-state",MVP v1.0
+[EXPAPI-001] 지출 생성 API를 구현한다.,"Area: Expenses API
+Priority: P0
+Target: modules/expenses
+Dependencies: API-005, DB-003
+
+Description:
+지출 생성 API를 구현한다.
+
+Acceptance:
+금액 0보다 큰 정수, 미래 날짜 제한
+
+Codex Batch: Batch 06","phase4,p0,expenses-api",MVP v1.0
+[EXPAPI-002] 지출 목록/상세/수정/soft delete API를 구현한다.,"Area: Expenses API
+Priority: P0
+Target: modules/expenses
+Dependencies: EXPAPI-001
+
+Description:
+지출 목록/상세/수정/soft delete API를 구현한다.
+
+Acceptance:
+삭제 후 리포트 제외 + audit log
+
+Codex Batch: Batch 06","phase4,p0,expenses-api",MVP v1.0
+[BUDAPI-001] 월 예산 조회/수정 API를 구현한다.,"Area: Budgets API
+Priority: P0
+Target: modules/budgets
+Dependencies: API-005
+
+Description:
+월 예산 조회/수정 API를 구현한다.
+
+Acceptance:
+Asia/Seoul 기준 월 예산
+
+Codex Batch: Batch 06","phase4,p0,budgets-api",MVP v1.0
+[REPAPI-001] 월별/누적/카테고리 집계 API를 구현한다.,"Area: Reports API
+Priority: P0
+Target: modules/reports
+Dependencies: EXPAPI-002, BUDAPI-001
+
+Description:
+월별/누적/카테고리 집계 API를 구현한다.
+
+Acceptance:
+홈과 동일한 월 사용액
+
+Codex Batch: Batch 06","phase4,p0,reports-api",MVP v1.0
+[HOMEAPI-001] 홈 요약 API를 구현한다.,"Area: Home API
+Priority: P0
+Target: modules/home
+Dependencies: REPAPI-001
+
+Description:
+홈 요약 API를 구현한다.
+
+Acceptance:
+누적/월예산/추천템/최근기록 반환
+
+Codex Batch: Batch 06","phase4,p0,home-api",MVP v1.0
+[APP-EXP-001] 빠른 지출 기록 화면을 구현한다.,"Area: Mobile Expense
+Priority: P0
+Target: EXP-001
+Dependencies: APP-003, EXPAPI-001
+
+Description:
+빠른 지출 기록 화면을 구현한다.
+
+Acceptance:
+품목→금액→저장 10초 가능
+
+Codex Batch: Batch 06","phase4,p0,mobile-expense",MVP v1.0
+[APP-EXP-002] 기록 리스트와 상세 수정/삭제 화면을 구현한다.,"Area: Mobile Expense
+Priority: P0
+Target: EXP-004/003
+Dependencies: APP-EXP-001, EXPAPI-002
+
+Description:
+기록 리스트와 상세 수정/삭제 화면을 구현한다.
+
+Acceptance:
+수정/삭제 후 홈/리포트 일치
+
+Codex Batch: Batch 06","phase4,p0,mobile-expense",MVP v1.0
+[APP-HOME-001] 홈 대시보드를 구현한다.,"Area: Mobile Home
+Priority: P0
+Target: HOME-001
+Dependencies: HOMEAPI-001, APP-EXP-001
+
+Description:
+홈 대시보드를 구현한다.
+
+Acceptance:
+빈 홈 금지, 저장 후 즉시 갱신
+
+Codex Batch: Batch 06","phase4,p0,mobile-home",MVP v1.0
+[APP-REP-001] 월별/누적 리포트 화면을 구현한다.,"Area: Mobile Reports
+Priority: P0
+Target: REP-001/002
+Dependencies: REPAPI-001
+
+Description:
+월별/누적 리포트 화면을 구현한다.
+
+Acceptance:
+삭제/선물 제외 집계 일치
+
+Codex Batch: Batch 06","phase4,p0,mobile-reports",MVP v1.0
+[ITEMAPI-001] 아이 단계 기준 준비템 목록 API를 구현한다.,"Area: Items API
+Priority: P0
+Target: modules/items
+Dependencies: DOMAIN-003, DB-004
+
+Description:
+아이 단계 기준 준비템 목록 API를 구현한다.
+
+Acceptance:
+이미 준비/필요없음 지금 필요 제외
+
+Codex Batch: Batch 07","phase4,p0,items-api",MVP v1.0
+[ITEMAPI-002] 준비템 상세/상태 변경 API를 구현한다.,"Area: Items API
+Priority: P0
+Target: modules/items
+Dependencies: ITEMAPI-001
+
+Description:
+준비템 상세/상태 변경 API를 구현한다.
+
+Acceptance:
+상태 변경 즉시 추천/홈 반영
+
+Codex Batch: Batch 07","phase4,p0,items-api",MVP v1.0
+[COMAPI-001] 상품 링크 조회와 affiliate_clicks 저장 API를 구현한다.,"Area: Commerce API
+Priority: P0
+Target: modules/commerce
+Dependencies: ITEMAPI-002
+
+Description:
+상품 링크 조회와 affiliate_clicks 저장 API를 구현한다.
+
+Acceptance:
+클릭 로그에 user/child/item/product/platform 저장
+
+Codex Batch: Batch 07","phase4,p0,commerce-api",MVP v1.0
+[APP-ITEM-001] 준비템 목록 탭/카드/상태 변경 UI를 구현한다.,"Area: Mobile Items
+Priority: P0
+Target: ITEM-001
+Dependencies: ITEMAPI-001
+
+Description:
+준비템 목록 탭/카드/상태 변경 UI를 구현한다.
+
+Acceptance:
+필수도 배지, 상태 버튼 노출
+
+Codex Batch: Batch 07","phase4,p0,mobile-items",MVP v1.0
+[APP-ITEM-002] 준비템 상세 화면을 구현한다.,"Area: Mobile Items
+Priority: P0
+Target: ITEM-002
+Dependencies: ITEMAPI-002
+
+Description:
+준비템 상세 화면을 구현한다.
+
+Acceptance:
+왜 필요한지/안 사도 되는 경우/가격대 표시
+
+Codex Batch: Batch 07","phase4,p0,mobile-items",MVP v1.0
+[APP-COM-001] 구매 링크 바텀시트와 외부 링크 열기를 구현한다.,"Area: Mobile Commerce
+Priority: P0
+Target: ITEM-003
+Dependencies: COMAPI-001
+
+Description:
+구매 링크 바텀시트와 외부 링크 열기를 구현한다.
+
+Acceptance:
+구매 CTA 인접 제휴 고지 필수
+
+Codex Batch: Batch 07","phase4,p0,mobile-commerce",MVP v1.0
+[APP-COM-002] 구매 후 기록 유도 화면을 구현한다.,"Area: Mobile Commerce
+Priority: P1
+Target: ITEM-004
+Dependencies: APP-COM-001
+
+Description:
+구매 후 기록 유도 화면을 구현한다.
+
+Acceptance:
+샀나요? → 기록/상태 업데이트 가능
+
+Codex Batch: Batch 07","phase4,p1,mobile-commerce",MVP v1.0
+[FAMAPI-001] 가족 멤버 목록/역할 조회 API를 구현한다.,"Area: Family API
+Priority: P1
+Target: modules/households
+Dependencies: API-005
+
+Description:
+가족 멤버 목록/역할 조회 API를 구현한다.
+
+Acceptance:
+viewer는 리포트만 가능
+
+Codex Batch: Batch 08","phase4,p1,family-api",MVP v1.0
+[FAMAPI-002] 초대 링크 생성/만료/수락 API를 구현한다.,"Area: Family API
+Priority: P1
+Target: modules/households
+Dependencies: FAMAPI-001
+
+Description:
+초대 링크 생성/만료/수락 API를 구현한다.
+
+Acceptance:
+초대 토큰 만료와 재공유 처리
+
+Codex Batch: Batch 08","phase4,p1,family-api",MVP v1.0
+[FAMAPP-001] 가족 관리와 초대 역할 선택 화면을 구현한다.,"Area: Mobile Family
+Priority: P1
+Target: FAM-001/002
+Dependencies: FAMAPI-001
+
+Description:
+가족 관리와 초대 역할 선택 화면을 구현한다.
+
+Acceptance:
+관리자만 초대/삭제 가능
+
+Codex Batch: Batch 08","phase4,p1,mobile-family",MVP v1.0
+[FAMAPP-002] 초대 수락 플로우를 구현한다.,"Area: Mobile Family
+Priority: P1
+Target: FAM-003
+Dependencies: FAMAPI-002
+
+Description:
+초대 수락 플로우를 구현한다.
+
+Acceptance:
+수락 후 같은 아이 가계부 접근
+
+Codex Batch: Batch 08","phase4,p1,mobile-family",MVP v1.0
+[IMPAPI-001] xlsx/csv 업로드 시작 API와 파일 제한을 구현한다.,"Area: Import API
+Priority: P1
+Target: modules/imports
+Dependencies: API-005
+
+Description:
+xlsx/csv 업로드 시작 API와 파일 제한을 구현한다.
+
+Acceptance:
+10MB/2,000행 제한, 형식 검증
+
+Codex Batch: Batch 09","phase4,p1,import-api",MVP v1.0
+[IMPAPI-002] AI 분석 stub/worker와 import_rows preview 생성을 구현한다.,"Area: Import Worker
+Priority: P1
+Target: workers
+Dependencies: IMPAPI-001
+
+Description:
+AI 분석 stub/worker와 import_rows preview 생성을 구현한다.
+
+Acceptance:
+0.70 미만 기본 미선택, 중복 후보 표시
+
+Codex Batch: Batch 09","phase4,p1,import-worker",MVP v1.0
+[IMPAPI-003] 선택 행 confirm → expenses 생성 API를 구현한다.,"Area: Import API
+Priority: P1
+Target: modules/imports
+Dependencies: IMPAPI-002
+
+Description:
+선택 행 confirm → expenses 생성 API를 구현한다.
+
+Acceptance:
+사용자 승인 전 expenses 저장 금지
+
+Codex Batch: Batch 09","phase4,p1,import-api",MVP v1.0
+[IMPAPP-001] 엑셀 업로드 시작/분석 진행 화면을 구현한다.,"Area: Mobile Import
+Priority: P1
+Target: IMP-001/002
+Dependencies: IMPAPI-001
+
+Description:
+엑셀 업로드 시작/분석 진행 화면을 구현한다.
+
+Acceptance:
+업로드 전 개인정보 안내
+
+Codex Batch: Batch 09","phase4,p1,mobile-import",MVP v1.0
+[IMPAPP-002] 분석 미리보기/가져오기 완료 화면을 구현한다.,"Area: Mobile Import
+Priority: P1
+Target: IMP-003/004
+Dependencies: IMPAPI-002/003
+
+Description:
+분석 미리보기/가져오기 완료 화면을 구현한다.
+
+Acceptance:
+선택 행만 가져오고 리포트 즉시 반영
+
+Codex Batch: Batch 09","phase4,p1,mobile-import",MVP v1.0
+[ADM-001] Next.js Admin shell과 admin auth placeholder를 구성한다.,"Area: Admin
+Priority: P0
+Target: apps/admin
+Dependencies: BOOT-002
+
+Description:
+Next.js Admin shell과 admin auth placeholder를 구성한다.
+
+Acceptance:
+내부 관리자만 접근
+
+Codex Batch: Batch 10","phase4,p0,admin",MVP v1.0
+[ADM-002] 준비템 CMS CRUD를 구현한다.,"Area: Admin
+Priority: P0
+Target: ADM-002
+Dependencies: ITEMAPI-001
+
+Description:
+준비템 CMS CRUD를 구현한다.
+
+Acceptance:
+안 사도 되는 경우 필수 필드 처리
+
+Codex Batch: Batch 10","phase4,p0,admin",MVP v1.0
+[ADM-003] 상품 링크/제휴/스폰서 관리 화면을 구현한다.,"Area: Admin
+Priority: P0
+Target: ADM-003
+Dependencies: COMAPI-001
+
+Description:
+상품 링크/제휴/스폰서 관리 화면을 구현한다.
+
+Acceptance:
+링크/고지 앱 배포 없이 수정
+
+Codex Batch: Batch 10","phase4,p0,admin",MVP v1.0
+[ADM-004] 고지/정책 문구 관리 화면을 구현한다.,"Area: Admin
+Priority: P0
+Target: ADM-004
+Dependencies: ADM-001
+
+Description:
+고지/정책 문구 관리 화면을 구현한다.
+
+Acceptance:
+제휴/영양제/스폰서 문구 관리
+
+Codex Batch: Batch 10","phase4,p0,admin",MVP v1.0
+"[SET-001] 설정, 개인정보/동의, 데이터 삭제/탈퇴 플로우를 구현한다.","Area: Settings
+Priority: P0
+Target: SET-001~004
+Dependencies: APP-003, API-006
+
+Description:
+설정, 개인정보/동의, 데이터 삭제/탈퇴 플로우를 구현한다.
+
+Acceptance:
+삭제 범위/영향 2단계 확인
+
+Codex Batch: Batch 10","phase4,p0,settings",MVP v1.0
+"[QA-001] unit test: domain, API services, recommendation, RBAC를 작성한다.","Area: QA
+Priority: P0
+Target: tests
+Dependencies: Batch 06~10
+
+Description:
+unit test: domain, API services, recommendation, RBAC를 작성한다.
+
+Acceptance:
+핵심 도메인 테스트 통과
+
+Codex Batch: Batch 11","phase4,p0,qa",MVP v1.0
+[QA-002] API e2e: auth→onboarding→expense→report→item click를 작성한다.,"Area: QA
+Priority: P0
+Target: tests/e2e
+Dependencies: QA-001
+
+Description:
+API e2e: auth→onboarding→expense→report→item click를 작성한다.
+
+Acceptance:
+핵심 루프 e2e 통과
+
+Codex Batch: Batch 11","phase4,p0,qa",MVP v1.0
+[QA-003] 앱 수동 QA 스크립트를 docs/qa에 작성한다.,"Area: QA
+Priority: P1
+Target: mobile tests
+Dependencies: APP 완료
+
+Description:
+앱 수동 QA 스크립트를 docs/qa에 작성한다.
+
+Acceptance:
+QA Runbook과 동일 플로우 검증
+
+Codex Batch: Batch 11","phase4,p1,qa",MVP v1.0
+"[REL-001] 버전, env, migration, legal, analytics, rollback 체크리스트를 완료한다.","Area: Release
+Priority: P0
+Target: release
+Dependencies: QA-002
+
+Description:
+버전, env, migration, legal, analytics, rollback 체크리스트를 완료한다.
+
+Acceptance:
+Release Checklist all green
+
+Codex Batch: Batch 11","phase4,p0,release",MVP v1.0

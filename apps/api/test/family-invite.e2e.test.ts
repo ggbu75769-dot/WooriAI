@@ -1,0 +1,228 @@
+import type { INestApplication } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
+import request from "supertest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AppModule } from "../src/app.module";
+import { configureApiApp } from "../src/bootstrap";
+
+const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+async function login(app: INestApplication, providerToken: string) {
+  const response = await request(app.getHttpServer())
+    .post("/api/v1/auth/oauth-login")
+    .send({ provider: "kakao", providerToken })
+    .expect(200);
+
+  return response.body.tokens.accessToken as string;
+}
+
+async function householdIdFor(app: INestApplication, accessToken: string) {
+  return (
+    await request(app.getHttpServer())
+      .get("/api/v1/me")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+  ).body.households[0].id as string;
+}
+
+async function completeOwnerOnboarding(app: INestApplication, accessToken: string) {
+  const householdId = await householdIdFor(app, accessToken);
+
+  await request(app.getHttpServer())
+    .put("/api/v1/consents")
+    .set("Authorization", `Bearer ${accessToken}`)
+    .send({
+      consents: [
+        { type: "terms", version: "2026-07-06", accepted: true },
+        { type: "privacy", version: "2026-07-06", accepted: true }
+      ]
+    })
+    .expect(200);
+
+  const childId = (
+    await request(app.getHttpServer())
+      .post("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        householdId,
+        nickname: "튼튼이",
+        stageMode: "manual",
+        manualStage: "infant_4_6"
+      })
+      .expect(200)
+  ).body.id as string;
+
+  await request(app.getHttpServer())
+    .post(`/api/v1/children/${childId}/prepared-items`)
+    .set("Authorization", `Bearer ${accessToken}`)
+    .send({ itemTemplateIds: [] })
+    .expect(200);
+
+  await request(app.getHttpServer())
+    .put(`/api/v1/children/${childId}/budget`)
+    .set("Authorization", `Bearer ${accessToken}`)
+    .send({ yearMonth: "2026-07-01", amountKrw: 300000 })
+    .expect(200);
+
+  return { householdId, childId };
+}
+
+function tokenFromInviteUrl(inviteUrl: string) {
+  const token = inviteUrl.split("/invite/")[1];
+  expect(token).toBeTruthy();
+  return token;
+}
+
+describe("Family invites and household RBAC", () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    process.env.JWT_ACCESS_SECRET = "test-access-secret";
+    process.env.JWT_REFRESH_SECRET = "test-refresh-secret";
+    process.env.WOORIAI_STAGE_TODAY = "2026-07-06";
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule]
+    }).compile();
+
+    app = moduleRef.createNestApplication();
+    configureApiApp(app);
+    await app.init();
+  });
+
+  afterEach(async () => {
+    delete process.env.WOORIAI_STAGE_TODAY;
+    await app.close();
+  });
+
+  it("lets an owner invite a co-parent whose expense is reflected in the same child report", async () => {
+    const ownerToken = await login(app, "batch08-owner");
+    const { householdId, childId } = await completeOwnerOnboarding(app, ownerToken);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/households/${householdId}/members`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.members).toEqual([
+          expect.objectContaining({
+            householdId,
+            role: "owner",
+            status: "active"
+          })
+        ]);
+      });
+
+    const inviteResponse = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "co_parent", channel: "link" })
+      .expect(200);
+
+    expect(inviteResponse.body).toMatchObject({
+      inviteUrl: expect.stringContaining("/invite/"),
+      expiresAt: expect.any(String)
+    });
+    const inviteToken = tokenFromInviteUrl(inviteResponse.body.inviteUrl);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/invites/${inviteToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({
+          householdName: "우리 가족",
+          role: "co_parent",
+          expiresAt: inviteResponse.body.expiresAt
+        });
+      });
+
+    const coParentToken = await login(app, "batch08-co-parent");
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${inviteToken}/accept`)
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.household).toMatchObject({
+          id: householdId,
+          name: "우리 가족",
+          role: "co_parent"
+        });
+      });
+
+    await request(app.getHttpServer())
+      .get("/api/v1/children")
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.children).toEqual([expect.objectContaining({ id: childId })]);
+      });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .send({
+        categoryId,
+        amountKrw: 42000,
+        spentOn: "2026-07-06",
+        itemName: "공동부모 기저귀",
+        paymentMethod: "card"
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalExpenseKrw).toBe(42000);
+      });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .send({ role: "viewer", channel: "link" })
+      .expect(403);
+  });
+
+  it("allows viewer report access but blocks viewer expense writes and invite creation", async () => {
+    const ownerToken = await login(app, "batch08-viewer-owner");
+    const { householdId, childId } = await completeOwnerOnboarding(app, ownerToken);
+    const viewerInvite = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "viewer", channel: "link" })
+      .expect(200);
+
+    const viewerToken = await login(app, "batch08-viewer");
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${tokenFromInviteUrl(viewerInvite.body.inviteUrl)}/accept`)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.household.role).toBe("viewer");
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .send({
+        categoryId,
+        amountKrw: 12000,
+        spentOn: "2026-07-06",
+        itemName: "viewer blocked",
+        paymentMethod: "card"
+      })
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .send({ role: "co_parent", channel: "link" })
+      .expect(403);
+  });
+});

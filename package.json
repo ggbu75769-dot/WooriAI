@@ -1,0 +1,31 @@
+{
+  "name": "wooriai",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "build": "pnpm typecheck:scripts && turbo run build",
+    "lint": "pnpm typecheck:scripts && turbo run lint",
+    "typecheck": "pnpm typecheck:scripts && turbo run typecheck",
+    "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json",
+    "test": "turbo run test",
+    "check:env": "tsx scripts/check-env.ts",
+    "check:env:example": "tsx scripts/check-env.ts --file .env.example --allow-placeholders",
+    "contracts:generate": "tsx scripts/generate-openapi-types.ts",
+    "release:gate": "tsx scripts/release-gate.ts",
+    "ui:ref:analyze": "tsx scripts/ui-pixel-lock.ts analyze",
+    "ui:ref:crop": "tsx scripts/ui-pixel-lock.ts crop",
+    "ui:screenshot": "tsx scripts/ui-pixel-lock.ts screenshot",
+    "ui:visual-diff": "tsx scripts/ui-pixel-lock.ts diff",
+    "ui:visual-report": "tsx scripts/ui-pixel-lock.ts report",
+    "ui:pixel-lock": "tsx scripts/ui-pixel-lock.ts all"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "sharp": "^0.35.3",
+    "tsx": "^4.19.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

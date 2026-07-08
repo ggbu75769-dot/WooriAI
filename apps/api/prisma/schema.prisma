@@ -1,0 +1,481 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AuthProvider {
+  kakao
+  apple
+  google
+
+  @@map("auth_provider")
+}
+
+enum UserStatus {
+  active
+  withdrawn
+  blocked
+
+  @@map("user_status")
+}
+
+enum MemberRole {
+  owner
+  co_parent
+  viewer
+  gift_participant
+
+  @@map("member_role")
+}
+
+enum MemberStatus {
+  pending
+  active
+  removed
+  left
+
+  @@map("member_status")
+}
+
+enum ChildStageMode {
+  pregnant
+  born
+  manual
+
+  @@map("child_stage_mode")
+}
+
+enum ChildStageCode {
+  pregnancy_early
+  pregnancy_mid
+  pregnancy_late
+  newborn_0_3
+  infant_4_6
+  infant_7_12
+  toddler_1_3
+  kid_4_7
+  elementary
+  middle_school
+
+  @@map("child_stage_code")
+}
+
+enum ExpenseSource {
+  manual
+  excel_import
+  purchase_followup
+  admin
+
+  @@map("expense_source")
+}
+
+enum ExpenseType {
+  expense
+  gift
+  refund
+
+  @@map("expense_type")
+}
+
+enum PaymentMethod {
+  unknown
+  cash
+  card
+  transfer
+  mobile_pay
+
+  @@map("payment_method")
+}
+
+enum NecessityLevel {
+  essential
+  convenience
+  optional
+
+  @@map("necessity_level")
+}
+
+enum ItemStatus {
+  not_prepared
+  prepared
+  gifted
+  not_needed
+  interested
+
+  @@map("item_status")
+}
+
+enum ProductPlatform {
+  coupang
+  naver
+  custom
+
+  @@map("product_platform")
+}
+
+enum ImportStatus {
+  uploaded
+  analyzing
+  preview_ready
+  confirmed
+  failed
+  cancelled
+
+  @@map("import_status")
+}
+
+model User {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  authProvider    AuthProvider @map("auth_provider")
+  providerUserId  String       @map("provider_user_id") @db.VarChar(191)
+  email           String?      @db.VarChar(320)
+  phone           String?      @db.VarChar(32)
+  displayName     String?      @map("display_name") @db.VarChar(80)
+  profileImageUrl String?      @map("profile_image_url") @db.Text
+  status          UserStatus   @default(active)
+  lastLoginAt     DateTime?    @map("last_login_at") @db.Timestamptz(6)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime?    @map("deleted_at") @db.Timestamptz(6)
+
+  @@unique([authProvider, providerUserId], map: "uq_users_provider")
+  @@index([email], map: "idx_users_email")
+  @@index([deletedAt], map: "idx_users_deleted_at")
+  @@map("users")
+}
+
+model UserDevice {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String   @map("user_id") @db.Uuid
+  platform            String   @db.VarChar(20)
+  deviceIdHash        String?  @map("device_id_hash") @db.VarChar(128)
+  pushToken           String?  @map("push_token") @db.Text
+  notificationEnabled Boolean  @default(false) @map("notification_enabled")
+  appVersion          String?  @map("app_version") @db.VarChar(32)
+  osVersion           String?  @map("os_version") @db.VarChar(64)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([userId], map: "idx_user_devices_user_id")
+  @@map("user_devices")
+}
+
+model Household {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String    @db.VarChar(80)
+  ownerUserId    String    @map("owner_user_id") @db.Uuid
+  defaultChildId String?   @map("default_child_id") @db.Uuid
+  status         String    @default("active") @db.VarChar(20)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([ownerUserId], map: "idx_households_owner_user_id")
+  @@map("households")
+}
+
+model HouseholdMember {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId     String       @map("household_id") @db.Uuid
+  userId          String       @map("user_id") @db.Uuid
+  role            MemberRole
+  status          MemberStatus @default(active)
+  invitedByUserId String?      @map("invited_by_user_id") @db.Uuid
+  joinedAt        DateTime?    @map("joined_at") @db.Timestamptz(6)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([householdId, userId], map: "uq_household_members_user")
+  @@index([userId], map: "idx_household_members_user_id")
+  @@index([householdId, role, status], map: "idx_household_members_household_role")
+  @@map("household_members")
+}
+
+model HouseholdInvite {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId      String     @map("household_id") @db.Uuid
+  invitedByUserId  String     @map("invited_by_user_id") @db.Uuid
+  role             MemberRole
+  inviteTokenHash  String     @unique @map("invite_token_hash") @db.VarChar(128)
+  channel          String     @db.VarChar(20)
+  status           String     @default("pending") @db.VarChar(20)
+  expiresAt        DateTime   @map("expires_at") @db.Timestamptz(6)
+  acceptedByUserId String?    @map("accepted_by_user_id") @db.Uuid
+  acceptedAt       DateTime?  @map("accepted_at") @db.Timestamptz(6)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([householdId, status], map: "idx_household_invites_household_status")
+  @@index([expiresAt], map: "idx_household_invites_expires_at")
+  @@map("household_invites")
+}
+
+model Child {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId     String          @map("household_id") @db.Uuid
+  nickname        String          @db.VarChar(60)
+  stageMode       ChildStageMode  @map("stage_mode")
+  dueDate         DateTime?       @map("due_date") @db.Date
+  birthDate       DateTime?       @map("birth_date") @db.Date
+  manualStage     ChildStageCode? @map("manual_stage")
+  gender          String?         @db.VarChar(20)
+  profileImageUrl String?         @map("profile_image_url") @db.Text
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([householdId], map: "idx_children_household_id")
+  @@index([stageMode], map: "idx_children_stage_mode")
+  @@map("children")
+}
+
+model Category {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  parentCategoryId String?  @map("parent_category_id") @db.Uuid
+  code             String   @unique @db.VarChar(50)
+  name             String   @db.VarChar(50)
+  iconName         String?  @map("icon_name") @db.VarChar(50)
+  displayOrder     Int      @default(0) @map("display_order")
+  isSystem         Boolean  @default(true) @map("is_system")
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([active, displayOrder], map: "idx_categories_active_order")
+  @@map("categories")
+}
+
+model ItemTemplate {
+  id                        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                      String         @unique @db.VarChar(80)
+  name                      String         @db.VarChar(80)
+  categoryId                String?        @map("category_id") @db.Uuid
+  necessityLevel            NecessityLevel @map("necessity_level")
+  timingLabel               String?        @map("timing_label") @db.VarChar(80)
+  priceMinKrw               Int?           @map("price_min_krw")
+  priceMaxKrw               Int?           @map("price_max_krw")
+  reasonText                String         @map("reason_text") @db.Text
+  skipReasonText            String?        @map("skip_reason_text") @db.Text
+  usedSecondhandOk          Boolean        @default(false) @map("used_secondhand_ok")
+  safetyNote                String?        @map("safety_note") @db.Text
+  medicalDisclaimerRequired Boolean        @default(false) @map("medical_disclaimer_required")
+  displayOrder              Int            @default(0) @map("display_order")
+  active                    Boolean        @default(true)
+  createdAt                 DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([active, displayOrder], map: "idx_item_templates_active_order")
+  @@map("item_templates")
+}
+
+model ItemTemplateStage {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  itemTemplateId String         @map("item_template_id") @db.Uuid
+  stageCode      ChildStageCode @map("stage_code")
+  priorityWeight Int            @default(0) @map("priority_weight")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([itemTemplateId, stageCode], map: "uq_item_template_stage")
+  @@index([stageCode, priorityWeight], map: "idx_item_template_stages_stage")
+  @@map("item_template_stages")
+}
+
+model Expense {
+  id                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId          String        @map("household_id") @db.Uuid
+  childId              String        @map("child_id") @db.Uuid
+  createdByUserId      String        @map("created_by_user_id") @db.Uuid
+  categoryId           String        @map("category_id") @db.Uuid
+  amountKrw            Int           @map("amount_krw")
+  spentOn              DateTime      @map("spent_on") @db.Date
+  itemName             String        @map("item_name") @db.VarChar(120)
+  merchant             String?       @db.VarChar(120)
+  paymentMethod        PaymentMethod @default(unknown) @map("payment_method")
+  expenseType          ExpenseType   @default(expense) @map("expense_type")
+  source               ExpenseSource @default(manual)
+  memo                 String?       @db.Text
+  linkedItemTemplateId String?       @map("linked_item_template_id") @db.Uuid
+  linkedProductLinkId  String?       @map("linked_product_link_id") @db.Uuid
+  importJobId          String?       @map("import_job_id") @db.Uuid
+  deletedAt            DateTime?     @map("deleted_at") @db.Timestamptz(6)
+  deletedByUserId      String?       @map("deleted_by_user_id") @db.Uuid
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([childId, spentOn], map: "idx_expenses_child_spent_on")
+  @@index([householdId, childId], map: "idx_expenses_household_child")
+  @@index([categoryId], map: "idx_expenses_category")
+  @@map("expenses")
+}
+
+model Budget {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  childId         String   @map("child_id") @db.Uuid
+  yearMonth       DateTime @map("year_month") @db.Date
+  amountKrw       Int      @map("amount_krw")
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([childId, yearMonth], map: "uq_budgets_child_month")
+  @@index([childId, yearMonth], map: "idx_budgets_child_month")
+  @@map("budgets")
+}
+
+model ChildItemStatus {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  childId        String     @map("child_id") @db.Uuid
+  itemTemplateId String     @map("item_template_id") @db.Uuid
+  status         ItemStatus @default(not_prepared)
+  expenseId      String?    @map("expense_id") @db.Uuid
+  statusNote     String?    @map("status_note") @db.VarChar(200)
+  updatedByUserId String    @map("updated_by_user_id") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([childId, itemTemplateId], map: "uq_child_item_status")
+  @@index([childId, status], map: "idx_child_item_statuses_child_status")
+  @@map("child_item_statuses")
+}
+
+model ProductLink {
+  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  itemTemplateId       String          @map("item_template_id") @db.Uuid
+  platform             ProductPlatform
+  title                String          @db.VarChar(160)
+  url                  String          @db.Text
+  affiliateUrl         String?         @map("affiliate_url") @db.Text
+  affiliatePartnerCode String?         @map("affiliate_partner_code") @db.VarChar(80)
+  isAffiliate          Boolean         @default(false) @map("is_affiliate")
+  isSponsored          Boolean         @default(false) @map("is_sponsored")
+  sponsorLabel         String?         @map("sponsor_label") @db.VarChar(80)
+  priceSnapshotKrw     Int?            @map("price_snapshot_krw")
+  displayOrder         Int             @default(0) @map("display_order")
+  active               Boolean         @default(true)
+  disclosureText       String?         @map("disclosure_text") @db.VarChar(200)
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([itemTemplateId, platform, active], map: "idx_product_links_item_platform")
+  @@index([active, displayOrder], map: "idx_product_links_active_order")
+  @@map("product_links")
+}
+
+model AffiliateClick {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String          @map("user_id") @db.Uuid
+  householdId    String          @map("household_id") @db.Uuid
+  childId        String          @map("child_id") @db.Uuid
+  itemTemplateId String          @map("item_template_id") @db.Uuid
+  productLinkId  String          @map("product_link_id") @db.Uuid
+  platform       ProductPlatform
+  subId          String?         @map("sub_id") @db.VarChar(128)
+  referrerScreenId String?       @map("referrer_screen_id") @db.VarChar(50)
+  ipHash         String?         @map("ip_hash") @db.VarChar(128)
+  userAgent      String?         @map("user_agent") @db.Text
+  clickedAt      DateTime        @default(now()) @map("clicked_at") @db.Timestamptz(6)
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([productLinkId, clickedAt], map: "idx_affiliate_clicks_product_clicked")
+  @@index([childId, clickedAt], map: "idx_affiliate_clicks_child_clicked")
+  @@map("affiliate_clicks")
+}
+
+model ImportJob {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  householdId    String       @map("household_id") @db.Uuid
+  childId        String       @map("child_id") @db.Uuid
+  fileName       String       @map("file_name") @db.VarChar(255)
+  fileType       String       @map("file_type") @db.VarChar(10)
+  fileSizeBytes  BigInt       @map("file_size_bytes") @db.BigInt
+  status         ImportStatus
+  sourceFileUrl  String?      @map("source_file_url") @db.Text
+  rowCount       Int?         @map("row_count")
+  candidateCount Int?         @map("candidate_count")
+  importedCount  Int?         @map("imported_count")
+  skippedCount   Int?         @map("skipped_count")
+  errorCode      String?      @map("error_code") @db.VarChar(80)
+  approvedAt     DateTime?    @map("approved_at") @db.Timestamptz(6)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?    @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([childId, status], map: "idx_import_jobs_child_status")
+  @@map("import_jobs")
+}
+
+model ImportRow {
+  id                          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  importJobId                 String   @map("import_job_id") @db.Uuid
+  rowIndex                    Int      @map("row_index")
+  rawJson                     Json     @map("raw_json") @db.JsonB
+  parsedDate                  DateTime? @map("parsed_date") @db.Date
+  parsedItemName              String?  @map("parsed_item_name") @db.VarChar(120)
+  parsedAmountKrw             Int?     @map("parsed_amount_krw")
+  categoryId                  String?  @map("category_id") @db.Uuid
+  merchant                    String?  @db.VarChar(120)
+  confidence                  Decimal  @default(0) @db.Decimal(4, 3)
+  duplicateCandidateExpenseId String?  @map("duplicate_candidate_expense_id") @db.Uuid
+  selected                    Boolean  @default(false)
+  validationStatus            String   @default("ready") @map("validation_status") @db.VarChar(30)
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([importJobId, rowIndex], map: "uq_import_rows_row_index")
+  @@index([importJobId, selected], map: "idx_import_rows_job_selected")
+  @@map("import_rows")
+}
+
+model Consent {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  consentType String    @map("consent_type") @db.VarChar(60)
+  version     String    @db.VarChar(30)
+  accepted    Boolean
+  acceptedAt  DateTime? @map("accepted_at") @db.Timestamptz(6)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
+  ipHash      String?   @map("ip_hash") @db.VarChar(128)
+  userAgent   String?   @map("user_agent") @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([userId, consentType, version], map: "uq_consents_user_type_version")
+  @@map("consents")
+}
+
+model Attachment {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId      String    @map("household_id") @db.Uuid
+  childId          String    @map("child_id") @db.Uuid
+  expenseId        String?   @map("expense_id") @db.Uuid
+  uploadedByUserId String    @map("uploaded_by_user_id") @db.Uuid
+  fileUrl          String    @map("file_url") @db.Text
+  fileType         String    @map("file_type") @db.VarChar(30)
+  fileSizeBytes    BigInt    @map("file_size_bytes") @db.BigInt
+  metadataJson     Json?     @map("metadata_json") @db.JsonB
+  status           String    @default("active") @db.VarChar(30)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("attachments")
+}
+
+model AuditLog {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorUserId String?   @map("actor_user_id") @db.Uuid
+  householdId String?   @map("household_id") @db.Uuid
+  action      String    @db.VarChar(80)
+  targetType  String    @map("target_type") @db.VarChar(80)
+  targetId    String?   @map("target_id") @db.Uuid
+  beforeJson  Json?     @map("before_json") @db.JsonB
+  afterJson   Json?     @map("after_json") @db.JsonB
+  ipHash      String?   @map("ip_hash") @db.VarChar(128)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([householdId, createdAt], map: "idx_audit_logs_household_created")
+  @@index([targetType, targetId], map: "idx_audit_logs_target")
+  @@map("audit_logs")
+}

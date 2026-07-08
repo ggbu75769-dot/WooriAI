@@ -1,0 +1,526 @@
+{
+  "package": "wooriai_handoff_package_v0_5",
+  "generated_date": "2026-07-06",
+  "total_files_without_manifest": 72,
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "source": "generated",
+      "size_bytes": 4784,
+      "sha256": "6bc58a25293c529856c737996e258de9d8794ed2db25f98ff881fe41b3c53a3d",
+      "note": "Generated Codex instruction"
+    },
+    {
+      "path": "CODEX_START_HERE.md",
+      "source": "generated",
+      "size_bytes": 4784,
+      "sha256": "6bc58a25293c529856c737996e258de9d8794ed2db25f98ff881fe41b3c53a3d",
+      "note": "Generated Codex instruction"
+    },
+    {
+      "path": "MANIFEST.csv",
+      "source": "generated",
+      "size_bytes": 15532,
+      "sha256": "973c872b8e95e569d1854b54214b2f8d5979afceaedd4c7d7853e26bf0e4aae0",
+      "note": "Generated manifest"
+    },
+    {
+      "path": "MANIFEST.json",
+      "source": "generated",
+      "size_bytes": 23117,
+      "sha256": "f2623f5aad68817ced6812cb3146788451f573078275b59863172aabf1bf5615",
+      "note": "Generated manifest"
+    },
+    {
+      "path": "README.md",
+      "source": "generated",
+      "size_bytes": 1964,
+      "sha256": "e36711a7ff6045683275f7883e6298ef76d5ae6069b24294409f5aab848546ee",
+      "note": "Generated package README"
+    },
+    {
+      "path": "codex/CODEX_START_PROMPT.md",
+      "source": "generated",
+      "size_bytes": 4784,
+      "sha256": "6bc58a25293c529856c737996e258de9d8794ed2db25f98ff881fe41b3c53a3d",
+      "note": "Generated Codex instruction"
+    },
+    {
+      "path": "codex/EXECUTION_ORDER.md",
+      "source": "generated",
+      "size_bytes": 570,
+      "sha256": "605006383ea0ed676c1f1456c61dc40cab9205a6b14cf158c5b44be58a1c7e87",
+      "note": "Generated Codex instruction"
+    },
+    {
+      "path": "codex/HANDOFF_RULES.md",
+      "source": "generated",
+      "size_bytes": 457,
+      "sha256": "cf324fab81df5e592b22bb0ed62591398bc06dc50aa864f5c816580cd3188c7e",
+      "note": "Generated Codex instruction"
+    },
+    {
+      "path": "codex/README.md",
+      "source": "generated",
+      "size_bytes": 447,
+      "sha256": "7a65fa24b094f2b9e0177bdd5dd2cdd6228d2558f0bc39605ac4ebab652efb88",
+      "note": "Generated Codex instruction"
+    },
+    {
+      "path": "docs/0_원본아이디어/README.md",
+      "source": "generated",
+      "size_bytes": 241,
+      "sha256": "909b47302cde1fe449d7bf9e82da77f4b04bc421ec0dfe5ff5a19c0677a106ed",
+      "note": "Generated README"
+    },
+    {
+      "path": "docs/0_원본아이디어/아이_가계부_어플_설계.txt",
+      "source": "/mnt/data/아이 가계부 어플 설계.txt",
+      "size_bytes": 41632,
+      "sha256": "55bf7c91ed6271082737c095635421c41a044aa02dad1537b5d6acc39fedebc2",
+      "note": "Original service idea uploaded by user"
+    },
+    {
+      "path": "docs/1차/README.md",
+      "source": "generated",
+      "size_bytes": 238,
+      "sha256": "c890c62725e4d92d66626cbc9e06f57f6b6ff7e4e9ed22bc47f2ed62805e4a25",
+      "note": "Generated README"
+    },
+    {
+      "path": "docs/1차/previews/docx_contact_sheet.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/1781b05dfab94016a46149afcbaca02f/mnt/data/wooriai_docx_render/contact_sheet.png",
+      "size_bytes": 647398,
+      "sha256": "d8c273e720ac313aa239044a79a9f102cc7c5c28f64f25a3dca90c2a15614063",
+      "note": "Phase 1 rendered preview"
+    },
+    {
+      "path": "docs/1차/previews/docx_contact_sheet_20.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/1781b05dfab94016a46149afcbaca02f/mnt/data/wooriai_docx_render/contact_sheet_20.png",
+      "size_bytes": 719436,
+      "sha256": "7409eb24c8226a78afdef14698548023558f87d09f419f3959878782d9890653",
+      "note": "Phase 1 rendered preview"
+    },
+    {
+      "path": "docs/1차/previews/docx_page_6.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/1781b05dfab94016a46149afcbaca02f/mnt/data/wooriai_docx_render/page-6.png",
+      "size_bytes": 20848,
+      "sha256": "8303cc8505c020a3594ee2604baa438d2ab588564c739bd3701f39068400c49c",
+      "note": "Phase 1 rendered preview"
+    },
+    {
+      "path": "docs/1차/previews/xlsx_preview_features.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/1781b05dfab94016a46149afcbaca02f/mnt/data/xlsx_preview_features.png",
+      "size_bytes": 277512,
+      "sha256": "1edc0487f3dbab10390f393bf4335f69e6986f60a20ce3dcf5872595fe27c104",
+      "note": "Phase 1 rendered preview"
+    },
+    {
+      "path": "docs/1차/previews/xlsx_preview_rules.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/1781b05dfab94016a46149afcbaca02f/mnt/data/xlsx_preview_rules.png",
+      "size_bytes": 171333,
+      "sha256": "df53572a3805ce515e7361905acdb16182efbcf9e9e104f1f4730aff1196c924",
+      "note": "Phase 1 rendered preview"
+    },
+    {
+      "path": "docs/1차/previews/xlsx_preview_summary.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/1781b05dfab94016a46149afcbaca02f/mnt/data/xlsx_preview_summary.png",
+      "size_bytes": 97520,
+      "sha256": "706c1e31df94a0311c5cec9bc0eb04b512ab7fc05235b52dee03cc834c0a6fb2",
+      "note": "Phase 1 rendered preview"
+    },
+    {
+      "path": "docs/1차/previews/xlsx_preview_summary_full.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/1781b05dfab94016a46149afcbaca02f/mnt/data/xlsx_preview_summary_full.png",
+      "size_bytes": 113389,
+      "sha256": "d03075e6c438ac22bfe8a3cdfe169177ad710f21f02e000a3f91cd1a14fbe7b1",
+      "note": "Phase 1 rendered preview"
+    },
+    {
+      "path": "docs/1차/관리표/wooriai_feature_rules_backlog_v0_1.xlsx",
+      "source": "/mnt/data/wooriai_feature_rules_backlog_v0_1.xlsx",
+      "size_bytes": 26089,
+      "sha256": "b5ed1fbbee527fca4859d0694f85ffa4ab9d2bb2ad7019e259d428c4444aeebb",
+      "note": "Phase 1 feature/rule backlog workbook"
+    },
+    {
+      "path": "docs/1차/제품기획_문서/wooriai_product_docs_v0_1.docx",
+      "source": "/mnt/data/wooriai_product_docs_v0_1.docx",
+      "size_bytes": 71276,
+      "sha256": "e34a03270ca6aacc9d728e852d8b4eb9151cb5e2c50795e82378cdcf8bd8deb5",
+      "note": "Phase 1 integrated product planning docs"
+    },
+    {
+      "path": "docs/2차/README.md",
+      "source": "generated",
+      "size_bytes": 298,
+      "sha256": "f3b50eaff3d84d68aeb88eed5d9b98e1ccf089de4458daa709e4a89da8fdd518",
+      "note": "Generated README"
+    },
+    {
+      "path": "docs/2차/packages/wooriai_phase2_images_v0_2.zip",
+      "source": "/mnt/data/wooriai_phase2_images_v0_2.zip",
+      "size_bytes": 1134687,
+      "sha256": "4bd37b1dec5c221d8ce57ffd3a0d871f2ea29190728acf3cf42e340cdc20d7af",
+      "note": "Original Phase 2 images zip package"
+    },
+    {
+      "path": "docs/2차/previews/docx_contact_sheet.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/870fa5383b934b3e910dc51b1ba70ef8/mnt/data/wooriai_ux_docx_render/contact_sheet.png",
+      "size_bytes": 403075,
+      "sha256": "b3d333b54e7e3bacc2f18cd8285474c22e3ca95d90ffeda0682a8c2841541bf8",
+      "note": "Phase 2 rendered preview"
+    },
+    {
+      "path": "docs/2차/previews/docx_page_9.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/870fa5383b934b3e910dc51b1ba70ef8/mnt/data/wooriai_ux_docx_render/page-9.png",
+      "size_bytes": 341174,
+      "sha256": "769fbac07d92d74bf472341db8f0304bfa8c5fa3a9debf24f104feaab0d5d0b5",
+      "note": "Phase 2 rendered preview"
+    },
+    {
+      "path": "docs/2차/관리표/wooriai_phase2_screen_definition_tables_v0_2.xlsx",
+      "source": "/mnt/data/wooriai_phase2_screen_definition_tables_v0_2.xlsx",
+      "size_bytes": 40521,
+      "sha256": "45af8ccd0fa7add52161f85b156113444c4304c004acaf125fd5085706a3c6b3",
+      "note": "Phase 2 screen definition workbook"
+    },
+    {
+      "path": "docs/2차/이미지_산출물/assets/01_user_flow_overview.png",
+      "source": "/mnt/data/wooriai_phase2_assets/01_user_flow_overview.png",
+      "size_bytes": 167669,
+      "sha256": "e47b48dbd94e85a7a7338ead4e02f2b880c29653e6b4d667ac5b1f54f02a123c",
+      "note": "Phase 2 generated asset"
+    },
+    {
+      "path": "docs/2차/이미지_산출물/assets/02_ia_screen_map.png",
+      "source": "/mnt/data/wooriai_phase2_assets/02_ia_screen_map.png",
+      "size_bytes": 114405,
+      "sha256": "ff16354ad1a821a0f510171a8464aba8bfa89a8ca249fdcd91ae71cbc3544989",
+      "note": "Phase 2 generated asset"
+    },
+    {
+      "path": "docs/2차/이미지_산출물/assets/03_screen_state_model.png",
+      "source": "/mnt/data/wooriai_phase2_assets/03_screen_state_model.png",
+      "size_bytes": 101837,
+      "sha256": "3449001026e763bd6f154fc202414e9185a0abeaca8b5ab2c7d09c9baa8b5759",
+      "note": "Phase 2 generated asset"
+    },
+    {
+      "path": "docs/2차/이미지_산출물/assets/04_wireframe_contact_sheet.png",
+      "source": "/mnt/data/wooriai_phase2_assets/04_wireframe_contact_sheet.png",
+      "size_bytes": 336090,
+      "sha256": "e6c62bd5002f59611c76e256f7350306b099da3c392f5ed5b8b66a450bb8ffc0",
+      "note": "Phase 2 generated asset"
+    },
+    {
+      "path": "docs/2차/이미지_산출물/assets/05_hifi_reference_contact_sheet.png",
+      "source": "/mnt/data/wooriai_phase2_assets/05_hifi_reference_contact_sheet.png",
+      "size_bytes": 189821,
+      "sha256": "b986e735560027c1313fb812e9842ac59b57b43ba243af9977aa01eee5bf0a0e",
+      "note": "Phase 2 generated asset"
+    },
+    {
+      "path": "docs/2차/프롬프트/wooriai_phase2_ui_image_prompts_v0_2.md",
+      "source": "/mnt/data/wooriai_phase2_ui_image_prompts_v0_2.md",
+      "size_bytes": 6986,
+      "sha256": "6482cb7c9f7679a6364b54336fea8f67fe2445457367e6dc9e2ca3505877a1aa",
+      "note": "Phase 2 UI image generation prompts"
+    },
+    {
+      "path": "docs/2차/화면고정_문서/wooriai_phase2_screen_design_docs_v0_2.docx",
+      "source": "/mnt/data/wooriai_phase2_screen_design_docs_v0_2.docx",
+      "size_bytes": 922684,
+      "sha256": "5077e9bd013af70a57c801a83f3927e55bc41c744fe05e7847d6f0da1f4b54c4",
+      "note": "Phase 2 screen fixed docs"
+    },
+    {
+      "path": "docs/3차/README.md",
+      "source": "generated",
+      "size_bytes": 325,
+      "sha256": "cd57c2479f1600a3351c74b7970b4477e850edae9da81fbaa4d9c9d87d11fe2e",
+      "note": "Generated README"
+    },
+    {
+      "path": "docs/3차/db_api/wooriai_phase3_openapi_v0_3.yaml",
+      "source": "/mnt/data/wooriai_phase3_openapi_v0_3.yaml",
+      "size_bytes": 59399,
+      "sha256": "16a2937d20a01cf38b4777a968e4f08b42a93e194cdd4a9acd4340d41dba20cb",
+      "note": "Phase 3 OpenAPI 3.1 spec"
+    },
+    {
+      "path": "docs/3차/db_api/wooriai_phase3_project_structure_v0_3.md",
+      "source": "/mnt/data/wooriai_phase3_project_structure_v0_3.md",
+      "size_bytes": 6052,
+      "sha256": "e1336e8c38679a8f88e25f32f12d8395cdcabd6b76f3e48752160a4a1e5f11d7",
+      "note": "Phase 3 project structure"
+    },
+    {
+      "path": "docs/3차/db_api/wooriai_phase3_schema_v0_3.sql",
+      "source": "/mnt/data/wooriai_phase3_schema_v0_3.sql",
+      "size_bytes": 18751,
+      "sha256": "e12c6c5f688ae85921d4e7a99ab8b8938c2b663a1a7d1f43f8027ee3e0b82f0c",
+      "note": "Phase 3 PostgreSQL schema"
+    },
+    {
+      "path": "docs/3차/diagrams/wooriai_phase3_architecture_v0_3.png",
+      "source": "/mnt/data/wooriai_phase3_architecture_v0_3.png",
+      "size_bytes": 110662,
+      "sha256": "ce1e32706ce3dd22ad93a35166e2a67ebf0b1590dbe3ae3103f2fea20ad81f8d",
+      "note": "Phase 3 architecture diagram"
+    },
+    {
+      "path": "docs/3차/diagrams/wooriai_phase3_erd_v0_3.mmd",
+      "source": "/mnt/data/wooriai_phase3_erd_v0_3.mmd",
+      "size_bytes": 1804,
+      "sha256": "6e469f0abf679ca3124831db00d2e6b6ef0683451e64e49863a2767cfc50d9a1",
+      "note": "Phase 3 ERD Mermaid source"
+    },
+    {
+      "path": "docs/3차/diagrams/wooriai_phase3_erd_v0_3.png",
+      "source": "/mnt/data/wooriai_phase3_erd_v0_3.png",
+      "size_bytes": 246751,
+      "sha256": "010104676a3332314597efcb580bca8532c9aa7e9a120d7ee5ede0b88213335c",
+      "note": "Phase 3 ERD diagram"
+    },
+    {
+      "path": "docs/3차/diagrams/wooriai_phase3_state_flow_v0_3.png",
+      "source": "/mnt/data/wooriai_phase3_state_flow_v0_3.png",
+      "size_bytes": 58753,
+      "sha256": "08782d52bbed05e1b2e23e2038725798f10c008ed37ffac2554a4595658c3ffa",
+      "note": "Phase 3 state flow diagram"
+    },
+    {
+      "path": "docs/3차/packages/wooriai_phase3_dev_package_v0_3.zip",
+      "source": "/mnt/data/wooriai_phase3_dev_package_v0_3.zip",
+      "size_bytes": 925897,
+      "sha256": "5587ecdbff76b8053007f2754234ab63760590ea32a2c2dd373011b5649e837f",
+      "note": "Original Phase 3 package zip"
+    },
+    {
+      "path": "docs/3차/previews/01_erd_overview_v0_3.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/6dc67a89dbc749ff9fdcb1ee2dcce2f9/mnt/data/wooriai_phase3_assets/01_erd_overview_v0_3.png",
+      "size_bytes": 106916,
+      "sha256": "80c6de4cd43709181488afb2a32090f388c8e688f81e54adf0ea6b5c26341430",
+      "note": "Phase 3 rendered preview"
+    },
+    {
+      "path": "docs/3차/previews/02_architecture_overview_v0_3.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/6dc67a89dbc749ff9fdcb1ee2dcce2f9/mnt/data/wooriai_phase3_assets/02_architecture_overview_v0_3.png",
+      "size_bytes": 114273,
+      "sha256": "898b2afc5fbcaf476df2ef60734341de74b7c46fc20a1ab72e7680daf9b1ebc2",
+      "note": "Phase 3 rendered preview"
+    },
+    {
+      "path": "docs/3차/previews/docx_contact_sheet.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/6dc67a89dbc749ff9fdcb1ee2dcce2f9/mnt/data/wooriai_phase3_docx_render/contact_sheet.png",
+      "size_bytes": 589643,
+      "sha256": "c4922112064ad9a971519d0e4ba548537b683a1fa23359f7d02af9328242e800",
+      "note": "Phase 3 rendered preview"
+    },
+    {
+      "path": "docs/3차/previews/docx_page_10.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/6dc67a89dbc749ff9fdcb1ee2dcce2f9/mnt/data/wooriai_phase3_docx_render/page-10.png",
+      "size_bytes": 295298,
+      "sha256": "c91df5b775a5b65014a3ffb3375423b5aef0cd77a9257f0e9aa6a715ea87c364",
+      "note": "Phase 3 rendered preview"
+    },
+    {
+      "path": "docs/3차/previews/docx_page_15.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/6dc67a89dbc749ff9fdcb1ee2dcce2f9/mnt/data/wooriai_phase3_docx_render/page-15.png",
+      "size_bytes": 206169,
+      "sha256": "406cea0cf7e7d7933c223336d4899f124e36a23c20b901964c8b24d1755dd23c",
+      "note": "Phase 3 rendered preview"
+    },
+    {
+      "path": "docs/3차/previews/docx_page_5.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/6dc67a89dbc749ff9fdcb1ee2dcce2f9/mnt/data/wooriai_phase3_docx_render/page-5.png",
+      "size_bytes": 279348,
+      "sha256": "5ad7532168c3006703836e1ab8510585b3b8ddcf29f8187c7c5a12db698e41b8",
+      "note": "Phase 3 rendered preview"
+    },
+    {
+      "path": "docs/3차/previews/docx_page_9.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/6dc67a89dbc749ff9fdcb1ee2dcce2f9/mnt/data/wooriai_phase3_docx_render/page-9.png",
+      "size_bytes": 351650,
+      "sha256": "ccad5a3c67a3693513583d8d1bbf031ad85f35331e72534a91634c5929cc07d3",
+      "note": "Phase 3 rendered preview"
+    },
+    {
+      "path": "docs/3차/previews/xlsx_api_preview.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/6dc67a89dbc749ff9fdcb1ee2dcce2f9/mnt/data/wooriai_phase3_xlsx_api_preview.png",
+      "size_bytes": 282344,
+      "sha256": "48373de024a230a001756311017eded72588a24c1e4e1fc7b8824af3988570b6",
+      "note": "Phase 3 rendered preview"
+    },
+    {
+      "path": "docs/3차/개발고정_문서/wooriai_phase3_dev_fixed_docs_v0_3.docx",
+      "source": "/mnt/data/wooriai_phase3_dev_fixed_docs_v0_3.docx",
+      "size_bytes": 470283,
+      "sha256": "b4f0d82c8c4a9fd2eb1056ae7031cf93a885fc7590cc693fc1a6dfe2d2544974",
+      "note": "Phase 3 development fixed docs"
+    },
+    {
+      "path": "docs/3차/관리표/wooriai_phase3_dev_tables_v0_3.xlsx",
+      "source": "/mnt/data/wooriai_phase3_dev_tables_v0_3.xlsx",
+      "size_bytes": 53231,
+      "sha256": "3036e3caeb41764362f874095990c2e21454549ca3d842e3575fa5191e884640",
+      "note": "Phase 3 development tables"
+    },
+    {
+      "path": "docs/4차/Codex_실행고정_문서/wooriai_phase4_codex_execution_docs_v0_4.docx",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_docs_v0_4.docx",
+      "size_bytes": 57522,
+      "sha256": "3c7269430978f821bfc55fb5a4c0e2b31237c63fd5275c34f0d72fd56f3a04a3",
+      "note": "Phase 4 Codex execution fixed docs"
+    },
+    {
+      "path": "docs/4차/README.md",
+      "source": "generated",
+      "size_bytes": 585,
+      "sha256": "c186dc85b6047e8b5bd1b3be1eebfb476c6a0fe48be4a895bda1bdc437c14b01",
+      "note": "Generated README"
+    },
+    {
+      "path": "docs/4차/contracts/acceptance_criteria_contract_v0_4.yaml",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/acceptance_criteria_contract_v0_4.yaml",
+      "size_bytes": 4572,
+      "sha256": "c63820d61550979c40b951b3f06a34ca495f6e1e92ffbfb8551b52e74bea74c1",
+      "note": "Phase 4 Codex YAML contract"
+    },
+    {
+      "path": "docs/4차/contracts/do_not_change_contract_v0_4.yaml",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/do_not_change_contract_v0_4.yaml",
+      "size_bytes": 3926,
+      "sha256": "5aedb94991f10507eee8b690b0ca3685823203cd47c20cc1176544ce214f44c2",
+      "note": "Phase 4 Codex YAML contract"
+    },
+    {
+      "path": "docs/4차/packages/wooriai_phase4_codex_execution_package_v0_4.zip",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_package_v0_4.zip",
+      "size_bytes": 119875,
+      "sha256": "6f7a80b9ae18f0381369d886936a9f8cc5a625565acfb90bf918ee73e44c6ebe",
+      "note": "Original Phase 4 Codex package zip"
+    },
+    {
+      "path": "docs/4차/previews/docx_contact_sheet.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/0451d8e3d6af4df5bd431b69dabbe342/mnt/data/wooriai_phase4_docx_render/contact_sheet.png",
+      "size_bytes": 318451,
+      "sha256": "b2bdd94621debb13cf42036fa20cb095f6de03547afc8ea442d9f71ffb647c80",
+      "note": "Phase 4 rendered preview"
+    },
+    {
+      "path": "docs/4차/previews/docx_page_3.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/0451d8e3d6af4df5bd431b69dabbe342/mnt/data/wooriai_phase4_docx_render/page-3.png",
+      "size_bytes": 326788,
+      "sha256": "9214dd6b754bbf26baa7cec53fdb4045025dd24b06d39496694dcef74d14281d",
+      "note": "Phase 4 rendered preview"
+    },
+    {
+      "path": "docs/4차/previews/docx_page_7.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/0451d8e3d6af4df5bd431b69dabbe342/mnt/data/wooriai_phase4_docx_render/page-7.png",
+      "size_bytes": 328912,
+      "sha256": "65e1bc320091839f9f261ee036699684d5f5bbcf2268e717cb8f2a60e21dc6ec",
+      "note": "Phase 4 rendered preview"
+    },
+    {
+      "path": "docs/4차/previews/docx_page_8.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/0451d8e3d6af4df5bd431b69dabbe342/mnt/data/wooriai_phase4_docx_render/page-8.png",
+      "size_bytes": 333561,
+      "sha256": "2e4b17d49056f34adfe67e2a79d6f14861a76d7ac81aa9ceb7d8feaa1ebfe8cc",
+      "note": "Phase 4 rendered preview"
+    },
+    {
+      "path": "docs/4차/previews/xlsx_summary_preview.png",
+      "source": "/mnt/data/user-wJcZvuKiGC30yLLoupiMpSc9/0451d8e3d6af4df5bd431b69dabbe342/mnt/data/wooriai_phase4_xlsx_summary_preview.png",
+      "size_bytes": 45042,
+      "sha256": "2243d6a02dcb64822c1336abce7e0ce824c7fda46e2446941b76bb7bfcd9d911",
+      "note": "Phase 4 rendered preview"
+    },
+    {
+      "path": "docs/4차/prompts/01_codex_master_instruction_v0_4.md",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/01_codex_master_instruction_v0_4.md",
+      "size_bytes": 3660,
+      "sha256": "0118baa7213ea452aca14e9f2d9c55fd338f90c34d59582066207cb45f0a5515",
+      "note": "Phase 4 Codex prompt/instruction markdown"
+    },
+    {
+      "path": "docs/4차/prompts/02_implementation_plan_v0_4.md",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/02_implementation_plan_v0_4.md",
+      "size_bytes": 3422,
+      "sha256": "3addc922d7d678fc3c0b0e87092240d96e22c7084cc338922271f3376826e81d",
+      "note": "Phase 4 Codex prompt/instruction markdown"
+    },
+    {
+      "path": "docs/4차/prompts/03_task_breakdown_v0_4.md",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/03_task_breakdown_v0_4.md",
+      "size_bytes": 11383,
+      "sha256": "0e06a3256e1144354f7d3d4eec0945cfc13b066b214dfe9d7467e0c6ba971cdb",
+      "note": "Phase 4 Codex prompt/instruction markdown"
+    },
+    {
+      "path": "docs/4차/prompts/04_do_not_change_v0_4.md",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/04_do_not_change_v0_4.md",
+      "size_bytes": 3673,
+      "sha256": "791bb6794993fa36e46b71720d9be991765eba4228bb02215a7abd582808cd70",
+      "note": "Phase 4 Codex prompt/instruction markdown"
+    },
+    {
+      "path": "docs/4차/prompts/05_acceptance_criteria_v0_4.md",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/05_acceptance_criteria_v0_4.md",
+      "size_bytes": 3842,
+      "sha256": "fa96d5a86428726b98b716e9ea637139c0e405fda010e6268f9869afd9314806",
+      "note": "Phase 4 Codex prompt/instruction markdown"
+    },
+    {
+      "path": "docs/4차/prompts/06_qa_runbook_v0_4.md",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/06_qa_runbook_v0_4.md",
+      "size_bytes": 3988,
+      "sha256": "4268547fbebec42689e7632fc0a2e178d14f3da46c9a461882ff5f1cde510394",
+      "note": "Phase 4 Codex prompt/instruction markdown"
+    },
+    {
+      "path": "docs/4차/prompts/07_release_checklist_v0_4.md",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/07_release_checklist_v0_4.md",
+      "size_bytes": 2346,
+      "sha256": "8f55d25c464750ea83030850ad72cb4ea67bc169980321526387a1a388dbbc9d",
+      "note": "Phase 4 Codex prompt/instruction markdown"
+    },
+    {
+      "path": "docs/4차/prompts/08_codex_iteration_prompts_v0_4.md",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/08_codex_iteration_prompts_v0_4.md",
+      "size_bytes": 2759,
+      "sha256": "4ea53657a21e3349aa23401014afb45ff7ec58988312e59d504d461568c9327f",
+      "note": "Phase 4 Codex prompt/instruction markdown"
+    },
+    {
+      "path": "docs/4차/tickets/manifest_v0_4.json",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/manifest_v0_4.json",
+      "size_bytes": 679,
+      "sha256": "ed9ae9bbcd28417e948c24fd2fc705caba59c9acf23b6d453bec39d4de431068",
+      "note": "Phase 4 manifest JSON"
+    },
+    {
+      "path": "docs/4차/tickets/release_checklist_v0_4.csv",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/release_checklist_v0_4.csv",
+      "size_bytes": 1975,
+      "sha256": "bc8ac7a9d7b0bd414553bceb05f0ba2691985d72d0c23a5095b6c52d03eab7a3",
+      "note": "Phase 4 execution CSV"
+    },
+    {
+      "path": "docs/4차/tickets/task_breakdown_github_issues_v0_4.csv",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_v0_4/task_breakdown_github_issues_v0_4.csv",
+      "size_bytes": 20905,
+      "sha256": "49990c8c14e8a8aabe9dbd3a263459e315f2befc0b92e7068a7db8222ae4dfe0",
+      "note": "Phase 4 execution CSV"
+    },
+    {
+      "path": "docs/4차/관리표/wooriai_phase4_codex_execution_tables_v0_4.xlsx",
+      "source": "/mnt/data/wooriai_phase4_codex_execution_tables_v0_4.xlsx",
+      "size_bytes": 37098,
+      "sha256": "1288848724976ceda7510aad9d042c03e3d2347e236ef28fa8dff8528eb3d2df",
+      "note": "Phase 4 Codex execution tables"
+    }
+  ],
+  "total_files": 74
+}

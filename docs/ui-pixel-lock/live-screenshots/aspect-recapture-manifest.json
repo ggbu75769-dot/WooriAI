@@ -1,0 +1,154 @@
+[
+  {
+    "id": "splash",
+    "route": "/launch-animation",
+    "refWidth": 250,
+    "refHeight": 590,
+    "wait": 700,
+    "viewport": {
+      "width": 390,
+      "height": 920
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/launch-animation",
+      "innerHeight": 920,
+      "innerWidth": 390,
+      "text": "우리아이\n아이의 모든 순간, 우리가 함께 기록하고 응원할게요."
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/splash.png"
+  },
+  {
+    "id": "home",
+    "route": "/(tabs)",
+    "refWidth": 250,
+    "refHeight": 590,
+    "wait": 1400,
+    "viewport": {
+      "width": 390,
+      "height": 920
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/",
+      "innerHeight": 920,
+      "innerWidth": 390,
+      "text": "HOME-001\n다온이 24개월\n우리 아이에게 해준 것을 따뜻하게 기록해요.\n🔔\n이번 달 지출\n1,245,700원\n예산 1,600,000원\n78%\n▣\n지출 기록\n☆\n추천템\n▥\n성장 리포트\n☰\n더보기\n예산의 78% "
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/home.png"
+  },
+  {
+    "id": "quick-expense",
+    "route": "/expenses/new",
+    "refWidth": 250,
+    "refHeight": 590,
+    "wait": 1400,
+    "viewport": {
+      "width": 390,
+      "height": 920
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/expenses/new",
+      "innerHeight": 920,
+      "innerWidth": 390,
+      "text": "9:41\n×\n지출 기록\n2025. 05. 24 (토)\n▣\n▱\n기저귀\n▤\n분유/유제품\n⌘\n식비\n⌂\n의류\n▭\n약품/교통\n▣\n병원/약\n▥\n교육/도서\n⊕\n기타\n결제 수단\n▣ 카카오뱅크\n›\n저장하기"
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/quick-expense.png"
+  },
+  {
+    "id": "recommendation",
+    "route": "/(tabs)/items",
+    "refWidth": 205,
+    "refHeight": 668,
+    "wait": 1400,
+    "viewport": {
+      "width": 390,
+      "height": 1271
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/items",
+      "innerHeight": 1271,
+      "innerWidth": 390,
+      "text": "ITEM-001\n추천\n지금 시기에 필요한 준비를 따뜻하게 정리했어요.\n0-6개월\n6-12개월\n12-24개월\n24개월+\n12-24개월 맞춤\n이 시기에 꼭 필요한 추천템\n추천 순위에는 제휴수수료율을 직접 반영하지 않아요"
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/recommendation.png"
+  },
+  {
+    "id": "product-detail",
+    "route": "/items/[itemTemplateId]",
+    "refWidth": 206,
+    "refHeight": 668,
+    "wait": 1400,
+    "viewport": {
+      "width": 390,
+      "height": 1265
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/items/[itemTemplateId]",
+      "innerHeight": 1266,
+      "innerWidth": 390,
+      "text": "ITEM-002 · ITEM-003 · ITEM-004\n네이처러브 기저귀 팬티형\n★ 4.8 (2,154)\n42,900원\n최저가 42,900원 ~ 48,900원\n가격 비교\n제품 정보\n제휴\n제휴 링크\n우리아이몰\n무료배송"
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/product-detail.png"
+  },
+  {
+    "id": "family",
+    "route": "/family",
+    "refWidth": 205,
+    "refHeight": 668,
+    "wait": 1400,
+    "viewport": {
+      "width": 390,
+      "height": 1271
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/family",
+      "innerHeight": 1271,
+      "innerWidth": 390,
+      "text": "FAM-001\n가족 공유\n아이에게 해준 기록을 가족이 함께 남겨요.\n엄\n아\n할\n초대 코드 DAON2026\n함께 기록하는 우리 가족\n보호자와 가족 구성원이 같은 아이 기록을 보고, 필요한 준비템과 지출 흐름을 함께 확"
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/family.png"
+  },
+  {
+    "id": "excel-preview",
+    "route": "/import",
+    "refWidth": 205,
+    "refHeight": 668,
+    "wait": 1400,
+    "viewport": {
+      "width": 390,
+      "height": 1271
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/import",
+      "innerHeight": 1271,
+      "innerWidth": 390,
+      "text": "IMP-001 / IMP-002\nExcel import beta\nPrivacy notice before upload\nCheck the preview first. Rows are not saved as expenses"
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/excel-preview.png"
+  },
+  {
+    "id": "report",
+    "route": "/(tabs)/reports",
+    "refWidth": 175,
+    "refHeight": 668,
+    "wait": 1400,
+    "viewport": {
+      "width": 390,
+      "height": 1489
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/reports",
+      "innerHeight": 1490,
+      "innerWidth": 390,
+      "text": "REP-001 · REP-002\n리포트\n이번 달 기록이 아이의 성장 리포트가 돼요.\n월간\n분기\n연간\n월간\n분기\n연간\n총 지출\n0원\n카테고리 비중\n기저귀/위생 34%\n식비/간식 24%\n분유/유제품 17%\n지난달 대비\n"
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/report.png"
+  }
+]

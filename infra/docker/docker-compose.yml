@@ -1,0 +1,72 @@
+name: wooriai-local
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: wooriai_dev
+      POSTGRES_USER: wooriai
+      POSTGRES_PASSWORD: wooriai_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - wooriai_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wooriai -d wooriai_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: wooriai-local
+      MINIO_ROOT_PASSWORD: change-me-local-only
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - wooriai_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: node:20-alpine
+    working_dir: /workspace
+    command: ["sh", "-c", "echo 'WooriAI API skeleton container ready'; sleep infinity"]
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://wooriai:wooriai_dev_password@postgres:5432/wooriai_dev
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: wooriai-local
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../..:/workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+volumes:
+  wooriai_postgres_data:
+  wooriai_minio_data:

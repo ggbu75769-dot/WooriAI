@@ -1,0 +1,53 @@
+{
+  "capturedAt": "2026-07-08T00:27:30Z",
+  "platform": "android",
+  "device": {
+    "avdName": "wooriai_pixel_5_api35",
+    "model": "sdk_gphone64_x86_64",
+    "androidVersion": "15",
+    "screenSize": "1080x2340",
+    "density": 440
+  },
+  "app": {
+    "packageName": "com.anonymous.wooriai",
+    "activity": "com.anonymous.wooriai/.MainActivity",
+    "apkPath": "apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk",
+    "apkSha256": "08557a41d9ba1e0f418579dd64773beea1433688bf00a92a161d2640c01102dd"
+  },
+  "runtime": {
+    "metroUrl": "http://localhost:8081",
+    "adbReverse": "tcp:8081 tcp:8081",
+    "bundleLog": "Android Bundled 27450ms node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.js (1162 modules)"
+  },
+  "screenshots": [
+    {
+      "id": "launch-animation-native",
+      "file": "docs/ui-pixel-lock/native-screenshots/home.png",
+      "width": 1080,
+      "height": 2340,
+      "sha256": "05180bda72031becd205b714b01961584d15e46e230c139eaf3df70adcb78fb4",
+      "notes": "Native Android render of the launch animation screen before tapping Start."
+    },
+    {
+      "id": "auth-001-native",
+      "file": "docs/ui-pixel-lock/native-screenshots/after-start.png",
+      "width": 1080,
+      "height": 2340,
+      "sha256": "95b2e8abe65bef6c8cc323dcdb1e9461a7228fa214c9637047f07c82b332902b",
+      "notes": "Native Android render after tapping Start; stops at AUTH-001 without external Kakao auth."
+    }
+  ],
+  "commands": [
+    "sdkmanager --uninstall \"ndk;26.1.10909125\" && sdkmanager \"ndk;26.1.10909125\"",
+    "gradlew.bat :app:assembleDebug --no-daemon --console=plain --stacktrace",
+    "adb -s emulator-5554 install -r apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk",
+    "adb -s emulator-5554 reverse tcp:8081 tcp:8081",
+    "adb -s emulator-5554 shell am start -n com.anonymous.wooriai/.MainActivity",
+    "adb -s emulator-5554 shell screencap -p /sdcard/wooriai-native-home.png",
+    "adb -s emulator-5554 shell screencap -p /sdcard/wooriai-native-after-start.png"
+  ],
+  "limitations": [
+    "This is local Android debug APK evidence, not an EAS/store internal release build.",
+    "Kakao login was not completed, so native proof covers launch and AUTH-001 only."
+  ]
+}

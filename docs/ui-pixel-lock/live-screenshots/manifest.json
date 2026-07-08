@@ -1,0 +1,266 @@
+[
+  {
+    "id": "splash",
+    "requestedUrl": "http://localhost:8102/launch-animation",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\splash.png",
+    "info": {
+      "bodyText": "우리아이\n아이의 모든 순간, 우리가 함께 기록하고 응원할게요.",
+      "href": "http://localhost:8102/launch-animation",
+      "innerHeight": 844,
+      "innerWidth": 390,
+      "scrollHeight": 844,
+      "scrollWidth": 390
+    },
+    "logs": [],
+    "captureMode": "viewport-390x844-fresh-8102-restored-splash-baseline",
+    "imageWidth": 390,
+    "imageHeight": 844
+  },
+  {
+    "id": "home",
+    "requestedUrl": "http://localhost:8102/(tabs)",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\home.png",
+    "info": {
+      "bodyClientWidth": 430,
+      "bodyText": "HOME-001\n다온이 24개월\n우리 아이에게 해준 것을 따뜻하게 기록해요.\n🔔\n이번 달 지출\n1,245,700원\n예산 1,600,000원\n78%\n▣\n지출 기록\n☆\n추천템\n▥\n성장 리포트\n☰\n더보기\n▮\n예산의 78% 사용 중이에요!\n이번 달도 잘 관리하고 있어요 👏\n›\n최근 지출\n전체 보기\n▣\n기저귀\n오늘\n45,900원\n▣\n분유/유제품\n05.20\n32,400원\n▣\n유아용 세제\n05.19\n18,900원\n+\n⌂\n⌂\n홈\n▣\n▣\n기록\n☆\n☆\n추천\n▥\n▥\n리포트\n☰\n☰\n더보기",
+      "documentWidth": 430,
+      "elementCount": 141,
+      "href": "http://localhost:8102/",
+      "innerHeight": 798,
+      "innerWidth": 430,
+      "scrollWidth": 430,
+      "title": "우리아이"
+    },
+    "logs": [
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-07T05:56:34.867Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "props.pointerEvents is deprecated. Use style.pointerEvents",
+        "timestamp": "2026-07-07T05:56:34.891Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-07T05:59:31.350Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-07T06:04:29.337Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "props.pointerEvents is deprecated. Use style.pointerEvents",
+        "timestamp": "2026-07-07T06:04:29.359Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      }
+    ],
+    "captureMode": "viewport-430x798-fresh-8102-unclipped-home-source",
+    "imageWidth": 430,
+    "imageHeight": 798
+  },
+  {
+    "id": "quick-expense",
+    "requestedUrl": "http://localhost:8102/expenses/new",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\quick-expense.png",
+    "info": {
+      "bodyClientWidth": 430,
+      "bodyText": "9:41\n×\n지출 기록\n2025. 05. 24 (토)\n▣\n▱\n기저귀\n▤\n분유/유제품\n⌘\n식비\n⌂\n의류\n▭\n약품/교통\n▣\n병원/약\n▥\n교육/도서\n⊕\n기타\n결제 수단\n▣ 카카오뱅크\n›\n저장하기",
+      "documentWidth": 430,
+      "elementCount": 90,
+      "href": "http://localhost:8102/expenses/new",
+      "innerHeight": 842,
+      "innerWidth": 430,
+      "scrollWidth": 430,
+      "title": "우리아이"
+    },
+    "logs": [
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-07T05:56:34.867Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "props.pointerEvents is deprecated. Use style.pointerEvents",
+        "timestamp": "2026-07-07T05:56:34.891Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-07T05:59:31.350Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-07T06:04:29.337Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "props.pointerEvents is deprecated. Use style.pointerEvents",
+        "timestamp": "2026-07-07T06:04:29.359Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      }
+    ],
+    "captureMode": "viewport-430x842-fresh-8102-current-source",
+    "imageWidth": 430,
+    "imageHeight": 842
+  },
+  {
+    "id": "recommendation",
+    "requestedUrl": "http://localhost:8102/items",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\recommendation.png",
+    "info": {
+      "bodyClientWidth": 390,
+      "bodyText": "추천\n♡\n0-6개월\n6-12개월\n12-24개월\n24개월+\n12-24개월 맞춤 추천\n우리아이 발달 단계에 꼭 필요한 제품\nBEST\n베이비 아기띠 힙시트\n₩89,000\n★ 4.7 (1,245)\nBEST\n네이처러브 기저귀 팬티형\n₩42,900\n★ 4.8 (2,154)\nNEW\n도담도담 원목 블록 세트\n₩33,800\n★ 4.6 (982)\n‹ 더 많은 추천 보기\n⌂\n⌂\n홈\n▣\n▣\n기록\n☆\n☆\n추천\n▥\n▥\n리포트\n☰\n☰\n더보기",
+      "documentWidth": 390,
+      "elementCount": 135,
+      "href": "http://localhost:8102/items",
+      "innerHeight": 842,
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "title": "우리아이"
+    },
+    "logs": [],
+    "captureMode": "viewport-390x842-fresh-8102-scale-0.82-x-30-y-50",
+    "imageWidth": 390,
+    "imageHeight": 842
+  },
+  {
+    "id": "product-detail",
+    "requestedUrl": "http://localhost:8102/items/preview-diaper-party-pack?candidate=hero-flat",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\product-detail-hero-flat.png",
+    "info": {
+      "bodyClientWidth": 430,
+      "bodyText": "9:41\nLTE 100%\n<\n[]\n네이처러브 기저귀 팬티형\n★ 4.8 (2,154)\n42,900원\n최저가 42,900원 ~ 48,900원\n가격 비교\n제품 정보\n제휴\n제휴 링크\n우리아이몰\n무료배송\n42,900원\n구매\n스폰서\n광고/스폰서\n네이처 공식몰\n무료배송\n44,900원\n구매\n제휴\n제휴 링크\n쿠팡\n무료배송\n45,900원\n구매\n이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.\n장바구니 담기\n바로 구매하기",
+      "documentWidth": 430,
+      "elementCount": 89,
+      "href": "http://localhost:8102/items/preview-diaper-party-pack?candidate=hero-flat",
+      "innerHeight": 958,
+      "innerWidth": 430,
+      "scrollWidth": 430,
+      "title": "우리아이"
+    },
+    "logs": [],
+    "captureMode": "viewport-430x958-fresh-8102-hero-flat-card",
+    "imageWidth": 430,
+    "imageHeight": 958
+  },
+  {
+    "id": "family",
+    "requestedUrl": "http://localhost:8102/family",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\family.png",
+    "info": {
+      "bodyText": "9:41\n‹\n가족과 함께\n엄\n아\n할\n+\n우리아이 가족계정\n다\n다온이 패밀리\n엄마 · 아빠 · 할머니\n초대하기\n↗\n링크로 초대\n›\n□\n초대 코드 공유\nDAON2026\n›\n멤버 관리\n엄\n엄마\n관리자\n아\n아빠\n멤버\n할\n할머니\n멤버\n가족 초대하기",
+      "href": "http://localhost:8102/family",
+      "innerHeight": 842,
+      "innerWidth": 390,
+      "scrollHeight": 842,
+      "scrollWidth": 390
+    },
+    "logs": [],
+    "captureMode": "viewport-390x842-fresh-8102-unclipped-family-source",
+    "imageWidth": 390,
+    "imageHeight": 842
+  },
+  {
+    "id": "excel-preview",
+    "requestedUrl": "http://localhost:8102/import",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\excel-preview.png",
+    "info": {
+      "bodyClientWidth": 390,
+      "bodyText": "9:41\n⌁ ◒ ▰\n‹\n엑셀 업로드\n▣\n5월 지출내역.xlsx\n업로드 완료\n✓\nAI 분류 미리보기\n총 128건\n₩1,245,700\n♥\n기저귀/위생\n+ 육아\n₩425,000\n42건\n34%\n🍴\n식비/간식\n+ 육아\n₩298,500\n31건\n24%\n▣\n분유/유제품\n+ 육아\n₩210,300\n22건\n17%\n◆\n의류/잡화\n+ 육아\n₩156,200\n18건\n13%\n✿\n장난감/도서\n+ 육아\n₩89,700\n15건\n7%\n●\n기타\n+ 육아\n₩66,000\n9건\n5%\n적용하고 리포트 보기",
+      "documentWidth": 390,
+      "elementCount": 105,
+      "href": "http://localhost:8102/import",
+      "innerHeight": 1063,
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "title": "우리아이"
+    },
+    "logs": [
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-07T05:56:34.867Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "props.pointerEvents is deprecated. Use style.pointerEvents",
+        "timestamp": "2026-07-07T05:56:34.891Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-07T05:59:31.350Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-07T06:04:29.337Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "props.pointerEvents is deprecated. Use style.pointerEvents",
+        "timestamp": "2026-07-07T06:04:29.359Z",
+        "url": "http://127.0.0.1:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      }
+    ],
+    "captureMode": "viewport-390x1063-fresh-8102-current-source",
+    "imageWidth": 390,
+    "imageHeight": 1062
+  },
+  {
+    "id": "report",
+    "requestedUrl": "http://localhost:8102/reports",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\report.png",
+    "info": {
+      "bodyClientWidth": 430,
+      "bodyText": "9:41\n리포트\n월간\n분기\n연간\n‹\n2025년 5월\n›\n총 지출\n₩1,245,700\n지난 달 대비\n+12.5%\n카테고리 비중\n기저귀/위생\n34%\n식비/간식\n24%\n분유/유제품\n17%\n의류/잡화\n13%\n장난감/도서\n7%\n기타\n5%\n이번 달 절약 팁\n지난 달보다 112,000원을 절약했어요!\n절약 습관 최고예요!\n다온이와의 오늘도 소중한 하루였어요\n누적 기록 ₩1,245,700\n⌂\n⌂\n홈\n▣\n▣\n기록\n☆\n☆\n추천\n▥\n▥\n리포트\n☰\n☰\n더보기",
+      "documentWidth": 430,
+      "elementCount": 154,
+      "href": "http://localhost:8102/reports",
+      "innerHeight": 842,
+      "innerWidth": 430,
+      "scrollWidth": 430,
+      "title": "우리아이"
+    },
+    "logs": [],
+    "captureMode": "viewport-430x842-fresh-8102-scale-0.732-x-60-y-81",
+    "imageWidth": 430,
+    "imageHeight": 842
+  },
+  {
+    "id": "more",
+    "requestedUrl": "http://localhost:8102/more",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\more.png",
+    "info": {
+      "bodyText": "9:41\n더보기\n⌕\n다온이\n24개월\n♙\n프로필 관리\n›\n♧\n알림 설정\n›\n⌁\n데이터 백업\n›\n?\n고객센터\n›\nⓘ\n앱 정보\n›\n⌂\n⌂\n홈\n▣\n▣\n기록\n☆\n☆\n추천\n▥\n▥\n리포트\n☰\n☰\n더보기",
+      "href": "http://localhost:8102/more",
+      "innerHeight": 843,
+      "innerWidth": 390,
+      "scrollHeight": 843,
+      "scrollWidth": 390
+    },
+    "logs": [],
+    "captureMode": "viewport-390x843-fresh-8102-single-more-menu-source",
+    "imageWidth": 390,
+    "imageHeight": 843
+  }
+]

@@ -1,0 +1,110 @@
+[
+  {
+    "screenId": "splash",
+    "screenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\app-screenshots\\splash.png",
+    "referenceCropId": "1_png_splash",
+    "mode": "generated",
+    "liveScreenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\splash.png",
+    "liveScreenshotAvailable": true,
+    "liveImageWidth": 390,
+    "liveImageHeight": 843,
+    "liveRequestedUrl": "http://localhost:8102/launch-animation",
+    "liveCaptureMode": "image-390x843"
+  },
+  {
+    "screenId": "home",
+    "screenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\app-screenshots\\home.png",
+    "referenceCropId": "1_png_home",
+    "mode": "generated",
+    "liveScreenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\home.png",
+    "liveScreenshotAvailable": true,
+    "liveImageWidth": 430,
+    "liveImageHeight": 798,
+    "liveRequestedUrl": "http://localhost:8102/(tabs)",
+    "liveCaptureMode": "image-430x798"
+  },
+  {
+    "screenId": "quick-expense",
+    "screenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\app-screenshots\\quick-expense.png",
+    "referenceCropId": "1_png_quick_expense",
+    "mode": "generated",
+    "liveScreenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\quick-expense.png",
+    "liveScreenshotAvailable": true,
+    "liveImageWidth": 430,
+    "liveImageHeight": 842,
+    "liveRequestedUrl": "http://localhost:8102/expenses/new",
+    "liveCaptureMode": "image-430x842"
+  },
+  {
+    "screenId": "recommendation",
+    "screenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\app-screenshots\\recommendation.png",
+    "referenceCropId": "2_png_recommendation_list",
+    "mode": "generated",
+    "liveScreenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\recommendation.png",
+    "liveScreenshotAvailable": true,
+    "liveImageWidth": 390,
+    "liveImageHeight": 842,
+    "liveRequestedUrl": "http://localhost:8102/items",
+    "liveCaptureMode": "image-390x842"
+  },
+  {
+    "screenId": "product-detail",
+    "screenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\app-screenshots\\product-detail.png",
+    "referenceCropId": "2_png_product_detail",
+    "mode": "generated",
+    "liveScreenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\product-detail-hero-flat.png",
+    "liveScreenshotAvailable": true,
+    "liveImageWidth": 430,
+    "liveImageHeight": 958,
+    "liveRequestedUrl": "http://localhost:8102/items/preview-diaper-party-pack?candidate=hero-flat",
+    "liveCaptureMode": "image-430x958"
+  },
+  {
+    "screenId": "family",
+    "screenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\app-screenshots\\family.png",
+    "referenceCropId": "2_png_family_invite",
+    "mode": "generated",
+    "liveScreenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\family.png",
+    "liveScreenshotAvailable": true,
+    "liveImageWidth": 390,
+    "liveImageHeight": 842,
+    "liveRequestedUrl": "http://localhost:8102/family",
+    "liveCaptureMode": "image-390x842"
+  },
+  {
+    "screenId": "excel-preview",
+    "screenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\app-screenshots\\excel-preview.png",
+    "referenceCropId": "2_png_excel_preview",
+    "mode": "generated",
+    "liveScreenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\excel-preview.png",
+    "liveScreenshotAvailable": true,
+    "liveImageWidth": 390,
+    "liveImageHeight": 1062,
+    "liveRequestedUrl": "http://localhost:8102/import",
+    "liveCaptureMode": "image-390x1062"
+  },
+  {
+    "screenId": "report",
+    "screenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\app-screenshots\\report.png",
+    "referenceCropId": "2_png_report_detail",
+    "mode": "generated",
+    "liveScreenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\report.png",
+    "liveScreenshotAvailable": true,
+    "liveImageWidth": 430,
+    "liveImageHeight": 842,
+    "liveRequestedUrl": "http://localhost:8102/reports",
+    "liveCaptureMode": "image-430x842"
+  },
+  {
+    "screenId": "more",
+    "screenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\app-screenshots\\more.png",
+    "referenceCropId": "3_png_more_menu",
+    "mode": "generated",
+    "liveScreenshot": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\more.png",
+    "liveScreenshotAvailable": true,
+    "liveImageWidth": 390,
+    "liveImageHeight": 842,
+    "liveRequestedUrl": "http://localhost:8102/more",
+    "liveCaptureMode": "image-390x842"
+  }
+]

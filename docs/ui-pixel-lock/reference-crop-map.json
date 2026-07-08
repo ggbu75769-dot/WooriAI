@@ -1,0 +1,269 @@
+{
+  "sourceResolution": {
+    "width": 1491,
+    "height": 1055
+  },
+  "crops": [
+    {
+      "id": "1_png_splash",
+      "source": "docs/0_원본아이디어/1.png",
+      "x": 20,
+      "y": 225,
+      "width": 250,
+      "height": 590,
+      "notes": "Splash/start card with logo, warm family illustration, page dots, ivory background."
+    },
+    {
+      "id": "1_png_onboarding",
+      "source": "docs/0_원본아이디어/1.png",
+      "x": 286,
+      "y": 225,
+      "width": 250,
+      "height": 590,
+      "notes": "Status-selection onboarding with soft cards and coral CTA."
+    },
+    {
+      "id": "1_png_home",
+      "source": "docs/0_원본아이디어/1.png",
+      "x": 548,
+      "y": 225,
+      "width": 250,
+      "height": 590,
+      "notes": "Home dashboard with coral hero card, quick actions, recent expenses, FAB nav."
+    },
+    {
+      "id": "1_png_quick_expense",
+      "source": "docs/0_원본아이디어/1.png",
+      "x": 790,
+      "y": 222,
+      "width": 230,
+      "height": 600,
+      "notes": "Quick expense input surface with large amount, category chips, memo, payment row; adjusted to isolate the phone screen without the neighboring recommendation crop."
+    },
+    {
+      "id": "1_png_recommendation",
+      "source": "docs/0_원본아이디어/1.png",
+      "x": 1045,
+      "y": 225,
+      "width": 205,
+      "height": 590,
+      "notes": "Recommendation list with stage chips and product cards."
+    },
+    {
+      "id": "1_png_report",
+      "source": "docs/0_원본아이디어/1.png",
+      "x": 1265,
+      "y": 225,
+      "width": 205,
+      "height": 590,
+      "notes": "Report screen with segmented control, line chart, donut chart, family message card."
+    },
+    {
+      "id": "1_png_growth_strip",
+      "source": "docs/0_원본아이디어/1.png",
+      "x": 345,
+      "y": 25,
+      "width": 1110,
+      "height": 180,
+      "notes": "Top growth-stage strip: fetus, baby, toddler, elementary, middle, high school."
+    },
+    {
+      "id": "2_png_home",
+      "source": "docs/0_원본아이디어/2.png",
+      "x": 1290,
+      "y": 225,
+      "width": 185,
+      "height": 480,
+      "notes": "Launch storyboard final home transition."
+    },
+    {
+      "id": "2_png_quick_expense_bottom_sheet",
+      "source": "docs/0_원본아이디어/3.png",
+      "x": 236,
+      "y": 255,
+      "width": 205,
+      "height": 668,
+      "notes": "Home dimmed behind quick expense bottom sheet."
+    },
+    {
+      "id": "2_png_recommendation_list",
+      "source": "docs/0_원본아이디어/3.png",
+      "x": 454,
+      "y": 255,
+      "width": 205,
+      "height": 668,
+      "notes": "Recommendation list screen with hero recommendation banner and product cards."
+    },
+    {
+      "id": "2_png_product_detail",
+      "source": "docs/0_원본아이디어/3.png",
+      "x": 666,
+      "y": 255,
+      "width": 206,
+      "height": 668,
+      "notes": "Product detail with comparison rows and fixed bottom CTAs."
+    },
+    {
+      "id": "2_png_family_invite",
+      "source": "docs/0_원본아이디어/3.png",
+      "x": 878,
+      "y": 255,
+      "width": 205,
+      "height": 668,
+      "notes": "Family sharing/invite screen with avatars, invite code, role chips."
+    },
+    {
+      "id": "2_png_excel_preview",
+      "source": "docs/0_원본아이디어/3.png",
+      "x": 1090,
+      "y": 255,
+      "width": 205,
+      "height": 668,
+      "notes": "Excel upload AI preview with category distribution and confirm CTA."
+    },
+    {
+      "id": "2_png_report_detail",
+      "source": "docs/0_원본아이디어/3.png",
+      "x": 1298,
+      "y": 255,
+      "width": 175,
+      "height": 668,
+      "notes": "Detailed report with line and donut chart cards."
+    },
+    {
+      "id": "3_png_design_system",
+      "source": "docs/0_원본아이디어/4.png",
+      "x": 5,
+      "y": 5,
+      "width": 1480,
+      "height": 260,
+      "notes": "Brand, color, typography, icon, and illustration system."
+    },
+    {
+      "id": "3_png_components",
+      "source": "docs/0_원본아이디어/4.png",
+      "x": 5,
+      "y": 285,
+      "width": 1480,
+      "height": 465,
+      "notes": "Buttons, inputs, tabs, category chips, cards, nav, bottom sheet, toast, empty state."
+    },
+    {
+      "id": "3_png_mobile_samples",
+      "source": "docs/0_원본아이디어/4.png",
+      "x": 810,
+      "y": 775,
+      "width": 660,
+      "height": 245,
+      "notes": "Light-mode mini UI samples for splash, record list, growth report, more menu."
+    },
+    {
+      "id": "3_png_more_menu",
+      "source": "docs/0_원본아이디어/4.png",
+      "x": 1296,
+      "y": 770,
+      "width": 185,
+      "height": 255,
+      "notes": "Single more/settings mini-screen crop used for the More route visual comparison."
+    },
+    {
+      "id": "4_png_animation_logo",
+      "source": "docs/0_원본아이디어/2.png",
+      "x": 28,
+      "y": 225,
+      "width": 170,
+      "height": 480,
+      "notes": "Launch frame 01 logo with page dots."
+    },
+    {
+      "id": "4_png_animation_fetus",
+      "source": "docs/0_원본아이디어/2.png",
+      "x": 208,
+      "y": 225,
+      "width": 170,
+      "height": 480,
+      "notes": "Launch frame 02 fetus."
+    },
+    {
+      "id": "4_png_animation_baby",
+      "source": "docs/0_원본아이디어/2.png",
+      "x": 388,
+      "y": 225,
+      "width": 170,
+      "height": 480,
+      "notes": "Launch frame 03 baby."
+    },
+    {
+      "id": "4_png_animation_toddler",
+      "source": "docs/0_원본아이디어/2.png",
+      "x": 572,
+      "y": 225,
+      "width": 170,
+      "height": 480,
+      "notes": "Launch frame 04 toddler."
+    },
+    {
+      "id": "4_png_animation_elementary",
+      "source": "docs/0_원본아이디어/2.png",
+      "x": 752,
+      "y": 225,
+      "width": 170,
+      "height": 480,
+      "notes": "Launch frame 05 elementary student."
+    },
+    {
+      "id": "4_png_animation_middle",
+      "source": "docs/0_원본아이디어/2.png",
+      "x": 936,
+      "y": 225,
+      "width": 170,
+      "height": 480,
+      "notes": "Launch frame 06 middle school student."
+    },
+    {
+      "id": "4_png_animation_high",
+      "source": "docs/0_원본아이디어/2.png",
+      "x": 1115,
+      "y": 225,
+      "width": 170,
+      "height": 480,
+      "notes": "Launch frame 07 high school student."
+    },
+    {
+      "id": "4_png_animation_home",
+      "source": "docs/0_원본아이디어/2.png",
+      "x": 1290,
+      "y": 225,
+      "width": 185,
+      "height": 480,
+      "notes": "Launch frame 08 home entry."
+    },
+    {
+      "id": "asset_logo_mark",
+      "source": "docs/0_원본아이디어/4.png",
+      "x": 35,
+      "y": 50,
+      "width": 95,
+      "height": 95,
+      "notes": "Baby-line logo crop for app mark."
+    },
+    {
+      "id": "asset_family",
+      "source": "docs/0_원본아이디어/3.png",
+      "x": 1040,
+      "y": 0,
+      "width": 270,
+      "height": 215,
+      "notes": "Warm parent-and-baby illustration for splash and empty states."
+    },
+    {
+      "id": "asset_toddler",
+      "source": "docs/0_원본아이디어/1.png",
+      "x": 682,
+      "y": 35,
+      "width": 165,
+      "height": 135,
+      "notes": "Toddler illustration for home and recommendations."
+    }
+  ]
+}

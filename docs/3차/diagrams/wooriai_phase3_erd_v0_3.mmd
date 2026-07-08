@@ -1,0 +1,64 @@
+erDiagram
+    users ||--o{ user_devices : has
+    users ||--o{ household_members : joins
+    users ||--o{ consents : accepts
+    users ||--o{ audit_logs : acts
+    households ||--o{ household_members : has
+    households ||--o{ household_invites : invites
+    households ||--o{ children : owns
+    children ||--o{ expenses : has
+    children ||--o{ budgets : has
+    categories ||--o{ expenses : classifies
+    categories ||--o{ item_templates : groups
+    item_templates ||--o{ item_template_stages : maps
+    item_templates ||--o{ child_item_statuses : tracked_by
+    children ||--o{ child_item_statuses : has_status
+    item_templates ||--o{ product_links : recommends
+    product_links ||--o{ affiliate_clicks : clicked
+    users ||--o{ affiliate_clicks : clicks
+    children ||--o{ affiliate_clicks : context
+    children ||--o{ import_jobs : imports
+    import_jobs ||--o{ import_rows : previews
+    import_jobs ||--o{ expenses : confirms
+    expenses ||--o{ attachments : attaches
+
+    users {
+      uuid id PK
+      auth_provider auth_provider
+      varchar provider_user_id
+      user_status status
+    }
+    households {
+      uuid id PK
+      varchar name
+      uuid owner_user_id FK
+    }
+    children {
+      uuid id PK
+      uuid household_id FK
+      varchar nickname
+      child_stage_mode stage_mode
+      date due_date
+      date birth_date
+    }
+    expenses {
+      uuid id PK
+      uuid child_id FK
+      integer amount_krw
+      date spent_on
+      varchar item_name
+      timestamptz deleted_at
+    }
+    item_templates {
+      uuid id PK
+      varchar code
+      varchar name
+      necessity_level necessity_level
+    }
+    product_links {
+      uuid id PK
+      uuid item_template_id FK
+      product_platform platform
+      boolean is_affiliate
+      boolean is_sponsored
+    }

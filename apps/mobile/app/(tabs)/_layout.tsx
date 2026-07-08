@@ -1,0 +1,45 @@
+import { Tabs } from "expo-router";
+import { Text } from "react-native";
+import { theme } from "../../src/theme";
+
+const tabs = {
+  index: { title: "홈", icon: "⌂" },
+  records: { title: "기록", icon: "▣" },
+  items: { title: "추천", icon: "☆" },
+  reports: { title: "리포트", icon: "▥" },
+  more: { title: "더보기", icon: "☰" }
+} as const;
+
+function icon(name: keyof typeof tabs, focused: boolean) {
+  return (
+    <Text style={{ color: focused ? theme.colors.mainCoral : theme.colors.gray600, fontSize: 19 }}>
+      {tabs[name].icon}
+    </Text>
+  );
+}
+
+export default function TabsLayout() {
+  return (
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: theme.colors.mainCoral,
+        tabBarInactiveTintColor: theme.colors.gray600,
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "700" },
+        tabBarStyle: {
+          backgroundColor: theme.colors.white,
+          borderTopColor: "rgba(74, 63, 53, 0.08)",
+          height: 72,
+          paddingBottom: 10,
+          paddingTop: 8
+        }
+      }}
+    >
+      <Tabs.Screen name="index" options={{ title: tabs.index.title, tabBarIcon: ({ focused }) => icon("index", focused) }} />
+      <Tabs.Screen name="records" options={{ title: tabs.records.title, tabBarIcon: ({ focused }) => icon("records", focused) }} />
+      <Tabs.Screen name="items" options={{ title: tabs.items.title, tabBarIcon: ({ focused }) => icon("items", focused) }} />
+      <Tabs.Screen name="reports" options={{ title: tabs.reports.title, tabBarIcon: ({ focused }) => icon("reports", focused) }} />
+      <Tabs.Screen name="more" options={{ title: tabs.more.title, tabBarIcon: ({ focused }) => icon("more", focused) }} />
+    </Tabs>
+  );
+}

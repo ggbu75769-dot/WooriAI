@@ -1,0 +1,22 @@
+{
+  "version": "v0.4",
+  "date": "2026-07-05",
+  "files": [
+    "00_README_v0_4.md",
+    "01_codex_master_instruction_v0_4.md",
+    "02_implementation_plan_v0_4.md",
+    "03_task_breakdown_v0_4.md",
+    "04_do_not_change_v0_4.md",
+    "05_acceptance_criteria_v0_4.md",
+    "06_qa_runbook_v0_4.md",
+    "07_release_checklist_v0_4.md",
+    "08_codex_iteration_prompts_v0_4.md",
+    "acceptance_criteria_contract_v0_4.yaml",
+    "do_not_change_contract_v0_4.yaml",
+    "manifest_v0_4.json",
+    "release_checklist_v0_4.csv",
+    "task_breakdown_github_issues_v0_4.csv",
+    "wooriai_phase4_codex_execution_docs_v0_4.docx",
+    "wooriai_phase4_codex_execution_tables_v0_4.xlsx"
+  ]
+}

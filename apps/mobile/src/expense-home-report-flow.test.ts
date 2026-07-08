@@ -1,0 +1,51 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const mobileRoot = process.cwd();
+
+describe("Batch 06 mobile expense, home, budget, and report contract", () => {
+  it("exposes the expense/home/report API client functions", async () => {
+    const client = await import("./api/client");
+
+    expect(client.createExpense).toEqual(expect.any(Function));
+    expect(client.listExpenses).toEqual(expect.any(Function));
+    expect(client.getExpense).toEqual(expect.any(Function));
+    expect(client.updateExpense).toEqual(expect.any(Function));
+    expect(client.deleteExpense).toEqual(expect.any(Function));
+    expect(client.getBudget).toEqual(expect.any(Function));
+    expect(client.getHome).toEqual(expect.any(Function));
+    expect(client.getMonthlyReport).toEqual(expect.any(Function));
+    expect(client.getCumulativeReport).toEqual(expect.any(Function));
+    expect(client.getCategoryReport).toEqual(expect.any(Function));
+  });
+
+  it("creates the locked Batch 06 route files without changing the bottom tabs", () => {
+    const routeExpectations = [
+      ["app/(tabs)/_layout.tsx", "홈"],
+      ["app/(tabs)/_layout.tsx", "기록"],
+      ["app/(tabs)/_layout.tsx", "추천"],
+      ["app/(tabs)/_layout.tsx", "리포트"],
+      ["app/(tabs)/_layout.tsx", "더보기"],
+      ["app/(tabs)/index.tsx", "HOME-001"],
+      ["app/(tabs)/index.tsx", "getHome"],
+      ["app/(tabs)/records.tsx", "EXP-004"],
+      ["app/(tabs)/records.tsx", "listExpenses"],
+      ["app/expenses/new.tsx", "EXP-001"],
+      ["app/expenses/new.tsx", "createExpense"],
+      ["app/expenses/[expenseId].tsx", "EXP-003"],
+      ["app/expenses/[expenseId].tsx", "deleteExpense"],
+      ["app/budget.tsx", "BUD-001"],
+      ["app/(tabs)/reports.tsx", "REP-001"],
+      ["app/(tabs)/reports.tsx", "REP-002"],
+      ["app/(tabs)/reports.tsx", "getMonthlyReport"],
+      ["app/(tabs)/reports.tsx", "getCumulativeReport"]
+    ];
+
+    for (const [relativePath, expectedText] of routeExpectations) {
+      const filePath = join(mobileRoot, relativePath);
+      expect(existsSync(filePath), `${relativePath} should exist`).toBe(true);
+      expect(existsSync(filePath) ? readFileSync(filePath, "utf8") : "").toContain(expectedText);
+    }
+  });
+});

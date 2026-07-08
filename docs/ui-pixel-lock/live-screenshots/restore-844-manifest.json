@@ -1,0 +1,53 @@
+[
+  {
+    "id": "splash",
+    "route": "/launch-animation",
+    "wait": 700,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/launch-animation",
+      "innerHeight": 844,
+      "innerWidth": 390,
+      "text": "우리아이\n아이의 모든 순간, 우리가 함께 기록하고 응원할게요."
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/splash.png"
+  },
+  {
+    "id": "home",
+    "route": "/(tabs)",
+    "wait": 1400,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/",
+      "innerHeight": 844,
+      "innerWidth": 390,
+      "text": "HOME-001\n다온이 24개월\n우리 아이에게 해준 것을 따뜻하게 기록해요.\n🔔\n이번 달 지출\n1,245,700원\n예산 1,600,000원\n78%\n▣\n지출 기록\n☆\n추천템\n▥\n성"
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/home.png"
+  },
+  {
+    "id": "product-detail",
+    "route": "/items/[itemTemplateId]",
+    "wait": 1400,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "observed": {
+      "documentWidth": 390,
+      "href": "http://localhost:8099/items/[itemTemplateId]",
+      "innerHeight": 844,
+      "innerWidth": 390,
+      "text": "ITEM-002 · ITEM-003 · ITEM-004\n네이처러브 기저귀 팬티형\n★ 4.8 (2,154)\n42,900원\n최저가 42,900원 ~ 48,900원\n가격 비교\n제품 정보"
+    },
+    "screenshot": "F:/WooriAI/docs/ui-pixel-lock/live-screenshots/product-detail.png"
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "우리아이",
+    "slug": "wooriai",
+    "scheme": "wooriai",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-router",
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "android": {
+      "package": "com.anonymous.wooriai",
+      "usesCleartextTraffic": true
+    }
+  }
+}

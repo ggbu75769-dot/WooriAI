@@ -1,0 +1,90 @@
+import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { createDtoValidationPipe } from "../bootstrap";
+import { JwtAuthGuard } from "../common/guards/auth.guard";
+import type { AuthenticatedRequest } from "../common/types/authenticated-request";
+import { HouseholdRuntimeService } from "../households/household-runtime.service";
+import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { SettingsConfirmationDto } from "./dto/settings.dto";
+
+function assertConfirmation(actual: string, expected: string) {
+  if (actual !== expected) {
+    throw new BadRequestException({
+      code: "SETTINGS_CONFIRMATION_REQUIRED",
+      message: "Confirmation text does not match."
+    });
+  }
+}
+
+@Controller("settings")
+@UseGuards(JwtAuthGuard)
+export class SettingsController {
+  constructor(
+    @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
+    @Inject(HouseholdRuntimeService) private readonly households: HouseholdRuntimeService
+  ) {}
+
+  @Get("privacy")
+  privacy(@Req() request: AuthenticatedRequest) {
+    return this.store.getPrivacySettings(request.user!);
+  }
+
+  @Post("children/:childId/delete-preview")
+  @HttpCode(200)
+  childDeletePreview(@Req() request: AuthenticatedRequest, @Param("childId") childId: string) {
+    return this.store.previewChildProfileDeletion(request.user!, childId);
+  }
+
+  @Post("children/:childId/delete-confirm")
+  @HttpCode(200)
+  childDeleteConfirm(
+    @Req() request: AuthenticatedRequest,
+    @Param("childId") childId: string,
+    @Body(createDtoValidationPipe(SettingsConfirmationDto)) body: SettingsConfirmationDto
+  ) {
+    return this.store.confirmChildProfileDeletion(request.user!, childId, body.confirmationText);
+  }
+
+  @Post("households/:householdId/leave-preview")
+  @HttpCode(200)
+  householdLeavePreview(@Param("householdId") householdId: string) {
+    return {
+      flowId: "household_leave",
+      householdId,
+      requiresSecondStep: true,
+      confirmationText: "LEAVE HOUSEHOLD",
+      impact: ["shared child data is no longer accessible from this account"]
+    };
+  }
+
+  @Post("households/:householdId/leave-confirm")
+  @HttpCode(200)
+  householdLeaveConfirm(
+    @Req() request: AuthenticatedRequest,
+    @Param("householdId") householdId: string,
+    @Body(createDtoValidationPipe(SettingsConfirmationDto)) body: SettingsConfirmationDto
+  ) {
+    assertConfirmation(body.confirmationText, "LEAVE HOUSEHOLD");
+    return this.households.leaveHousehold(request.user!, householdId);
+  }
+
+  @Post("account/delete-preview")
+  @HttpCode(200)
+  accountDeletePreview() {
+    return {
+      flowId: "account_delete",
+      requiresSecondStep: true,
+      confirmationText: "DELETE ACCOUNT",
+      impact: ["account access stops", "active household memberships are left"]
+    };
+  }
+
+  @Post("account/delete-confirm")
+  @HttpCode(200)
+  accountDeleteConfirm(
+    @Req() request: AuthenticatedRequest,
+    @Body(createDtoValidationPipe(SettingsConfirmationDto)) body: SettingsConfirmationDto
+  ) {
+    assertConfirmation(body.confirmationText, "DELETE ACCOUNT");
+    return this.households.withdrawUser(request.user!);
+  }
+}

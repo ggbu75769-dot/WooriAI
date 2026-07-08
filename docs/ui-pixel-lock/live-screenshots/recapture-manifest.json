@@ -1,0 +1,84 @@
+[
+  {
+    "id": "recommendation",
+    "requestedUrl": "http://localhost:8099/items",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\recommendation.png",
+    "info": {
+      "bodyText": "ITEM-001\n추천\n지금 시기에 필요한 준비를 따뜻하게 정리했어요.\n0-6개월\n6-12개월\n12-24개월\n24개월+\n12-24개월 맞춤\n이 시기에 꼭 필요한 추천템\n추천 순위에는 제휴수수료율을 직접 반영하지 않아요.\nBEST\n기저귀 파티팩\n32,900원부터\n준비했어요\n괜찮아요\n관심\n아기 목욕 의자\n29,000원대\n준비했어요\n괜찮아요\n선물 받음\n원목 블록 세트\n선물/구매 기록 가능\n준비했어요\n괜찮아요\n⌂\n⌂\n홈\n▣\n▣\n기록\n☆\n☆\n추천\n▥\n▥\n리포트\n☰\n☰\n더보기",
+      "elementCount": 141,
+      "href": "http://localhost:8099/items",
+      "title": "우리아이"
+    },
+    "logs": [
+      {
+        "level": "warn",
+        "message": "props.pointerEvents is deprecated. Use style.pointerEvents",
+        "timestamp": "2026-07-06T14:24:56.605Z",
+        "url": "http://localhost:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      },
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-06T14:24:56.620Z",
+        "url": "http://localhost:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      }
+    ]
+  },
+  {
+    "id": "product-detail",
+    "requestedUrl": "http://localhost:8099/items/preview-diaper-party-pack",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\product-detail.png",
+    "info": {
+      "bodyText": "ITEM-002 · ITEM-003 · ITEM-004\n기저귀 파티팩\n12-24개월 필수 준비\nessential\n기저귀 파티팩\n소모가 빠른 물건이라 월별 예산과 함께 준비 상태를 체크하기 좋아요.\n제품 정보\n넘겨도 되는 경우: 가정에 충분한 재고가 있거나 선물로 받은 경우\n피부에 닿는 제품은 사이즈와 소재를 확인해 주세요.\n위생과 안전 확인이 꼭 필요해요.\n가격 비교\n제휴\n이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.\n제휴 최저가 보기\n무료배송\n32,900원 - 48,900원\n구매\n스폰서\n스폰서 상품이며 구매 CTA 근처에 광고/제휴 고지를 표시합니다.\n스폰서 추천 묶음\n무료배송\n32,900원 - 48,900원\n구매\n장바구니 담기\n바로 구매하기\n이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
+      "elementCount": 72,
+      "href": "http://localhost:8099/items/preview-diaper-party-pack",
+      "title": "우리아이"
+    },
+    "logs": [
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-06T14:25:00.566Z",
+        "url": "http://localhost:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      }
+    ]
+  },
+  {
+    "id": "family",
+    "requestedUrl": "http://localhost:8099/family",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\family.png",
+    "info": {
+      "bodyText": "FAM-001\n가족 공유\n아이에게 해준 기록을 가족이 함께 남겨요.\n엄\n아\n할\n초대 코드 DAON2026\n함께 기록하는 우리 가족\n보호자와 가족 구성원이 같은 아이 기록을 보고, 필요한 준비템과 지출 흐름을 함께 확인합니다.\n초대 링크 만들기\n♡\n공동부모 빠른 초대\n권한은 co_parent로 생성되고 초대 링크로 공유돼요.\n보내기\n엄마\nowner\nactive\n아빠\nco_parent\nactive\n할머니\nviewer\npending",
+      "elementCount": 67,
+      "href": "http://localhost:8099/family",
+      "title": "우리아이"
+    },
+    "logs": [
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-06T14:25:04.603Z",
+        "url": "http://localhost:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      }
+    ]
+  },
+  {
+    "id": "quick-expense",
+    "requestedUrl": "http://localhost:8099/expenses/new",
+    "filePath": "F:\\WooriAI\\docs\\ui-pixel-lock\\live-screenshots\\quick-expense.png",
+    "info": {
+      "bodyText": "EXP-001\n지출 기록\n10초 안에 남길 수 있게 꼭 필요한 것만 담았어요.\n빠른 지출 입력\n금액\n기저귀\n분유/유제품\n식비\n의류\n병원\n기타\n날짜\n2026. 07. 06 (월)\n결제 수단\n카드\n저장하기",
+      "elementCount": 60,
+      "href": "http://localhost:8099/expenses/new",
+      "title": "우리아이"
+    },
+    "logs": [
+      {
+        "level": "warn",
+        "message": "\"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "timestamp": "2026-07-06T14:25:08.636Z",
+        "url": "http://localhost:8099/node_modules/.pnpm/expo-router@4.0.22_54f4152751baf76920bcfc7d78729c7e/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable"
+      }
+    ]
+  }
+]
