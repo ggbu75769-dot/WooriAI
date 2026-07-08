@@ -1,5 +1,6 @@
 import { router } from "expo-router";
 import { Image, Pressable, Text, View } from "react-native";
+import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
 import { theme } from "../../src/theme";
 import { AppScreen } from "../../src/ui";
 
@@ -30,7 +31,7 @@ function MorePixelStatusBar() {
 
 function MoreMenuRow({ icon, title, route }: { icon: string; title: string; route: MoreMenuRoute }) {
   return (
-    <Pressable onPress={() => router.push(route)} style={moreMenuRowStyle}>
+    <Pressable onPress={() => router.push(route)} style={moreMenuRowStyle()}>
       <Text style={moreMenuIconStyle}>{icon}</Text>
       <Text style={moreMenuTitleStyle}>{title}</Text>
       <Text style={moreMenuChevronStyle}>›</Text>
@@ -41,7 +42,7 @@ function MoreMenuRow({ icon, title, route }: { icon: string; title: string; rout
 export default function MoreScreen() {
   return (
     <AppScreen>
-      <View accessibilityLabel={moreReferenceScreenId} style={moreReferenceFrameStyle}>
+      <View accessibilityLabel={moreReferenceScreenId} style={moreReferenceFrameStyle()}>
         <MorePixelStatusBar />
 
         <View style={moreHeaderRowStyle}>
@@ -52,14 +53,14 @@ export default function MoreScreen() {
         </View>
 
         <Pressable onPress={() => router.push("/family")} style={moreProfileCardStyle}>
-          <Image source={moreAvatarImage} style={moreAvatarStyle} resizeMode="cover" />
+          <Image source={moreAvatarImage} style={moreAvatarStyle()} resizeMode="cover" />
           <View style={{ flex: 1 }}>
             <Text style={moreChildNameStyle}>다온이</Text>
             <Text style={moreChildAgeStyle}>24개월</Text>
           </View>
         </Pressable>
 
-        <View style={moreMenuGroupStyle}>
+        <View style={moreMenuGroupStyle()}>
           {moreMenuRows.map((row) => (
             <MoreMenuRow key={row.title} icon={row.icon} title={row.title} route={row.route} />
           ))}
@@ -69,10 +70,14 @@ export default function MoreScreen() {
   );
 }
 
-const moreReferenceFrameStyle = {
-  gap: 18,
-  paddingTop: 0
-} as const;
+function moreReferenceFrameStyle() {
+  return {
+    gap: 18 + MoreSettingsPixelStyles.rowGap,
+    marginHorizontal: MoreSettingsPixelStyles.screenPadding - theme.spacing.screen,
+    paddingTop: 0,
+    transform: [{ translateX: MoreSettingsPixelStyles.horizontalOffset }, { translateY: MoreSettingsPixelStyles.topOffset }]
+  } as const;
+}
 
 const moreStatusBarStyle = {
   alignItems: "center",
@@ -147,11 +152,13 @@ const moreProfileCardStyle = {
   paddingVertical: 2
 } as const;
 
-const moreAvatarStyle = {
-  borderRadius: 24,
-  height: 48,
-  width: 48
-} as const;
+function moreAvatarStyle() {
+  return {
+    borderRadius: MoreSettingsPixelStyles.avatarSize / 2,
+    height: MoreSettingsPixelStyles.avatarSize,
+    width: MoreSettingsPixelStyles.avatarSize
+  } as const;
+}
 
 const moreChildNameStyle = {
   color: theme.colors.brown,
@@ -167,23 +174,27 @@ const moreChildAgeStyle = {
   lineHeight: 18
 } as const;
 
-const moreMenuGroupStyle = {
-  backgroundColor: theme.colors.white,
-  borderColor: "rgba(74, 63, 53, 0.08)",
-  borderRadius: 20,
-  borderWidth: 1,
-  overflow: "hidden"
-} as const;
+function moreMenuGroupStyle() {
+  return {
+    backgroundColor: theme.colors.white,
+    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderRadius: MoreSettingsPixelStyles.cardRadius,
+    borderWidth: 1,
+    overflow: "hidden"
+  } as const;
+}
 
-const moreMenuRowStyle = {
-  alignItems: "center",
-  borderBottomColor: "rgba(74, 63, 53, 0.08)",
-  borderBottomWidth: 1,
-  flexDirection: "row",
-  gap: 10,
-  minHeight: 44,
-  paddingHorizontal: 14
-} as const;
+function moreMenuRowStyle() {
+  return {
+    alignItems: "center",
+    borderBottomColor: "rgba(74, 63, 53, 0.08)",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: MoreSettingsPixelStyles.rowHeight,
+    paddingHorizontal: 14
+  } as const;
+}
 
 const moreMenuIconStyle = {
   color: theme.colors.gray600,

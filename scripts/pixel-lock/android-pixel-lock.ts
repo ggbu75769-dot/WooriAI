@@ -9,6 +9,7 @@ type ScreenConfig = {
   referenceImagePath: string;
   route: string;
   expectedState: string;
+  androidNormalization?: "fill" | "tailCropFill" | "containAspect";
   siblings: string[];
   moreSettingsGuardRequired: boolean;
 };
@@ -61,6 +62,7 @@ const reportDir = join(androidRoot, "reports");
 const latestJsonPath = join(reportDir, "latest.json");
 const latestMdPath = join(reportDir, "latest.md");
 const cachePath = join(reportDir, "cache.json");
+const normalizationBackground = "#FFF7ED";
 const cropPolicy = process.env.PIXEL_ANDROID_CROP
   ? `shared-device-crop:${process.env.PIXEL_ANDROID_CROP}`
   : "shared-device-content-area:exclude-status-and-navigation-bars";
@@ -76,7 +78,7 @@ const sentinelText: Record<string, string[]> = {
   "SET-001": ["pixel-screen-SET-001", "SET-001", "설정", "개인정보", "제휴 고지", "데이터 삭제"]
 };
 const logcatErrorPattern =
-  /Unable to load script|Failed to connect|Exception in native call|ReactNativeJS.*(?:Error|Invariant|TypeError|ReferenceError)|Invariant Violation|Unable to resolve module|Failed to construct transformer|Metro.*(?:404|500)|BUNDLE.*ERROR|RedBox|Could not get BatchedBridge/i;
+  /Unable to load script|Failed to connect to development server|Exception in native call|ReactNativeJS.*(?:Invariant|TypeError|ReferenceError|Unable to resolve|Cannot read|undefined is not)|Invariant Violation|Unable to resolve module|Failed to construct transformer|Metro.*(?:404|500)|BUNDLE.*ERROR|RedBox|Could not get BatchedBridge/i;
 
 function ensureDirs() {
   for (const dir of [screenshotDir, diffDir, heatmapDir, logDir, reportDir]) {
@@ -234,18 +236,21 @@ function writeCache(cache: Record<string, string>) {
   writeFileSync(cachePath, JSON.stringify(cache, null, 2), "utf8");
 }
 
-function openScreen(screenId: string, screens = readScreens()) {
+function openScreen(screenId: string, screens = readScreens(), options: { coldStart?: boolean } = {}) {
   const screen = screens[screenId];
   if (!screen) throw new Error(`UNKNOWN_SCREEN ${screenId}`);
   const packageName = discoverPackageName();
   if (!packageName) throw new Error("PACKAGE_NOT_FOUND");
   if (!hasDevice()) throw new Error("ADB_DEVICE_NOT_FOUND");
 
-  adb(["shell", "am", "force-stop", packageName], { allowFailure: true });
-  const result = adb(
-    ["shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", screen.route, packageName],
-    { allowFailure: true }
-  );
+  if (options.coldStart) {
+    adb(["shell", "am", "force-stop", packageName], { allowFailure: true });
+  }
+  const route = process.env.PIXEL_ANDROID_OVERRIDES
+    ? `${screen.route}${screen.route.includes("?") ? "&" : "?"}overrides=${encodeURIComponent(process.env.PIXEL_ANDROID_OVERRIDES)}`
+    : screen.route;
+  const shellRoute = `'${route.replace(/'/g, "'\\''")}'`;
+  const result = adb(["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", shellRoute, packageName], { allowFailure: true });
   const stdout = String(result.stdout || "");
   const stderr = String(result.stderr || "");
   if (result.status !== 0 || /Error|Exception/i.test(stdout + stderr)) {
@@ -355,9 +360,10 @@ async function validateRender(screenId: string, screenshotPath = join(screenshot
     .slice(0, 20);
   const invalidReasons: string[] = [];
   const likelyBlank =
-    metrics.whitePixelRatio > 0.82 &&
-    metrics.uniqueColorCount < 2500 &&
-    metrics.nonBackgroundAreaRatio < 0.2;
+    (metrics.whitePixelRatio > 0.82 &&
+      metrics.uniqueColorCount < 2500 &&
+      metrics.nonBackgroundAreaRatio < 0.2) ||
+    (metrics.whitePixelRatio > 0.93 && metrics.nonBackgroundAreaRatio < 0.08);
 
   if (likelyBlank) {
     invalidReasons.push(
@@ -420,13 +426,78 @@ function parseCrop(screenId?: string) {
   };
 }
 
-async function normalizedScreenshotBuffer(screenId: string, screenshotPath: string, referencePath: string) {
+async function trailingBlankCropHeight(input: Buffer) {
+  const image = sharp(input).ensureAlpha();
+  const metadata = await image.metadata();
+  if (!metadata.width || !metadata.height) throw new Error("BAD_NORMALIZED_SCREENSHOT");
+  const raw = await image.raw().toBuffer();
+  const bottomRow = metadata.height - 1;
+  let backgroundRed = 0;
+  let backgroundGreen = 0;
+  let backgroundBlue = 0;
+
+  for (let x = 0; x < metadata.width; x += 1) {
+    const offset = (bottomRow * metadata.width + x) * 4;
+    backgroundRed += raw[offset];
+    backgroundGreen += raw[offset + 1];
+    backgroundBlue += raw[offset + 2];
+  }
+
+  backgroundRed /= metadata.width;
+  backgroundGreen /= metadata.width;
+  backgroundBlue /= metadata.width;
+
+  for (let y = metadata.height - 1; y >= 0; y -= 1) {
+    let nonBackgroundPixels = 0;
+    for (let x = 0; x < metadata.width; x += 1) {
+      const offset = (y * metadata.width + x) * 4;
+      const delta =
+        Math.abs(raw[offset] - backgroundRed) +
+        Math.abs(raw[offset + 1] - backgroundGreen) +
+        Math.abs(raw[offset + 2] - backgroundBlue);
+      if (delta > 12) nonBackgroundPixels += 1;
+    }
+
+    if (nonBackgroundPixels / metadata.width > 0.01) return y + 1;
+  }
+
+  return metadata.height;
+}
+
+async function normalizedScreenshotBuffer(screenId: string, screenshotPath: string, referencePath: string, screen: ScreenConfig) {
   const reference = await sharp(referencePath).metadata();
   if (!reference.width || !reference.height) throw new Error(`BAD_REFERENCE ${referencePath}`);
   let image = sharp(screenshotPath);
   const crop = parseCrop(screenId);
   if (crop) image = image.extract(crop);
-  return image.resize(reference.width, reference.height, { fit: "fill" }).png().toBuffer();
+  const cropped = await image.png().toBuffer();
+  const normalization = screen.androidNormalization ?? "fill";
+
+  if (normalization === "containAspect") {
+    return sharp(cropped)
+      .resize(reference.width, reference.height, { fit: "contain", background: normalizationBackground })
+      .png()
+      .toBuffer();
+  }
+
+  if (normalization === "tailCropFill") {
+    const metadata = await sharp(cropped).metadata();
+    if (!metadata.width || !metadata.height) throw new Error(`BAD_SCREENSHOT ${screenshotPath}`);
+    const detectedContentHeight = await trailingBlankCropHeight(cropped);
+    const bottomMargin = Math.round(Math.min(48, Math.max(24, metadata.height * 0.04)));
+    const cropHeight =
+      detectedContentHeight < metadata.height * 0.9
+        ? Math.min(metadata.height, detectedContentHeight + bottomMargin)
+        : metadata.height;
+
+    return sharp(cropped)
+      .extract({ left: 0, top: 0, width: metadata.width, height: cropHeight })
+      .resize(reference.width, reference.height, { fit: "fill" })
+      .png()
+      .toBuffer();
+  }
+
+  return sharp(cropped).resize(reference.width, reference.height, { fit: "fill" }).png().toBuffer();
 }
 
 function zoneForY(y: number, height: number) {
@@ -469,7 +540,7 @@ async function diffScreen(screenId: string, screens = readScreens(), render?: Re
   const width = referenceMeta.width;
   const height = referenceMeta.height;
   const referenceRaw = await sharp(referencePath).resize(width, height, { fit: "fill" }).ensureAlpha().raw().toBuffer();
-  const screenshotPng = await normalizedScreenshotBuffer(screenId, screenshotPath, referencePath);
+  const screenshotPng = await normalizedScreenshotBuffer(screenId, screenshotPath, referencePath, screen);
   const screenshotRaw = await sharp(screenshotPng).ensureAlpha().raw().toBuffer();
   const diffRaw = Buffer.alloc(width * height * 4);
   const heatRaw = Buffer.alloc(width * height * 4);
@@ -636,16 +707,19 @@ async function runValidation(command: string, screenId?: string, force = false) 
   const cache = readCache();
   const results: ScreenResult[] = [];
 
-  for (const targetId of targetIds) {
+  for (const [index, targetId] of targetIds.entries()) {
     const currentHash = sourceHash(targetId);
     const screenshotPath = join(screenshotDir, `${targetId}.png`);
     const canSkipCapture = command !== "validate-render" && !force && existsSync(screenshotPath) && cache[targetId] === currentHash;
     if (!canSkipCapture) {
       clearLogcat();
-      openScreen(targetId, screens);
+      const coldStart = index === 0 || process.env.PIXEL_ANDROID_COLD_EACH === "1";
+      openScreen(targetId, screens, { coldStart });
       const waitMs = Number(process.env.PIXEL_ANDROID_WAIT_MS || 700);
       sleepMs(waitMs);
       waitForScreenReady(targetId);
+      const settleMs = Number(process.env.PIXEL_ANDROID_SETTLE_MS || 1500);
+      if (settleMs > 0) sleepMs(settleMs);
       captureScreen(targetId);
       cache[targetId] = currentHash;
     }

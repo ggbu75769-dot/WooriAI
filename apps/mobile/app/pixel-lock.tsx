@@ -19,8 +19,28 @@ const pixelLockRoutes = {
   "SET-001": "/(tabs)/more"
 } as const;
 
+type PixelLockOverrideMap = Record<string, Record<string, number>>;
+
+function applyPixelLockOverrides(rawOverrides?: string) {
+  const globalWithOverrides = globalThis as typeof globalThis & {
+    __WOORIAI_PIXEL_LOCK_OVERRIDES__?: PixelLockOverrideMap;
+  };
+
+  if (!rawOverrides) {
+    globalWithOverrides.__WOORIAI_PIXEL_LOCK_OVERRIDES__ = {};
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(decodeURIComponent(rawOverrides)) as PixelLockOverrideMap;
+    globalWithOverrides.__WOORIAI_PIXEL_LOCK_OVERRIDES__ = parsed;
+  } catch {
+    globalWithOverrides.__WOORIAI_PIXEL_LOCK_OVERRIDES__ = {};
+  }
+}
+
 export default function PixelLockLauncher() {
-  const params = useLocalSearchParams<{ screen?: string }>();
+  const params = useLocalSearchParams<{ screen?: string; overrides?: string }>();
   const rootNavigationState = useRootNavigationState();
   const clearSession = useSessionStore((state) => state.clearSession);
   const clearSelectedChildId = useSelectedChildStore((state) => state.clearSelectedChildId);
@@ -32,12 +52,13 @@ export default function PixelLockLauncher() {
   useEffect(() => {
     if (!__DEV__ || !rootNavigationState?.key) return;
     LogBox.ignoreAllLogs(true);
+    applyPixelLockOverrides(String(params.overrides ?? ""));
     clearSession();
     clearSelectedChildId();
     resetOnboarding();
     const timer = setTimeout(() => router.replace(href), 0);
     return () => clearTimeout(timer);
-  }, [clearSelectedChildId, clearSession, href, resetOnboarding, rootNavigationState?.key]);
+  }, [clearSelectedChildId, clearSession, href, params.overrides, resetOnboarding, rootNavigationState?.key]);
 
   if (!__DEV__) {
     return <Redirect href="/" />;
