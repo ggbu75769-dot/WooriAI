@@ -5,21 +5,20 @@ import { createExcelImport } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
+import { ExcelPreviewPixelStyles } from "../../src/pixelLock/styles";
 
 const importUploadScreenId = "pixel-screen-IMP-003 IMP-001 / IMP-002 / IMP-003";
 
-const excelPreviewPixelScale = 0.902;
-const excelPreviewPixelScaleY = 1.149;
-const excelPreviewScaleHorizontalOffset = -38;
-const excelPreviewScaleVerticalOffset = -8;
-const excelPreviewPixelFrameStyle = {
-  transform: [
-    { translateX: excelPreviewScaleHorizontalOffset },
-    { translateY: excelPreviewScaleVerticalOffset },
-    { scale: excelPreviewPixelScale },
-    { scaleY: excelPreviewPixelScaleY }
-  ]
-} as const;
+function excelPreviewPixelFrameStyle() {
+  return {
+    transform: [
+      { translateX: ExcelPreviewPixelStyles.horizontalOffset },
+      { translateY: ExcelPreviewPixelStyles.topOffset },
+      { scale: ExcelPreviewPixelStyles.scale },
+      { scaleY: ExcelPreviewPixelStyles.scaleY }
+    ]
+  } as const;
+}
 
 const excelPreviewRows = [
   { icon: "♥", label: "기저귀/위생", amount: "₩425,000", percent: "34%", count: "42건", tone: "#FFF0EA", iconColor: theme.colors.mainCoral },
@@ -32,7 +31,7 @@ const excelPreviewRows = [
 
 function ImportPreviewCategoryRow({ row }: { row: (typeof excelPreviewRows)[number] }) {
   return (
-    <View style={styles.previewRow}>
+    <View style={[styles.previewRow, { minHeight: ExcelPreviewPixelStyles.rowHeight || 36 }]}>
       <View style={[styles.categoryIcon, { backgroundColor: row.tone }]}>
         <Text style={{ color: row.iconColor, fontSize: 13, fontWeight: "800" }}>{row.icon}</Text>
       </View>
@@ -66,7 +65,7 @@ export default function ImportUploadScreen() {
   };
 
   return (
-    <View accessibilityLabel={importUploadScreenId} style={[styles.screen, excelPreviewPixelFrameStyle]}>
+    <View accessibilityLabel={importUploadScreenId} style={[styles.screen, { paddingHorizontal: ExcelPreviewPixelStyles.screenPadding }, excelPreviewPixelFrameStyle()]}>
       <View style={styles.statusBar}>
         <Text style={styles.statusTime}>9:41</Text>
         <Text style={styles.statusIcons}>⌁ ◒ ▰</Text>
@@ -79,7 +78,7 @@ export default function ImportUploadScreen() {
         <View style={styles.backButton} />
       </View>
 
-      <View style={excelUploadedFileCardStyle}>
+      <View style={excelUploadedFileCardStyle()}>
         <View style={styles.fileIcon}>
           <Text style={styles.fileIconText}>▣</Text>
         </View>
@@ -92,7 +91,7 @@ export default function ImportUploadScreen() {
         </View>
       </View>
 
-      <View accessibilityLabel="Rows are not saved as expenses until you confirm them." style={styles.previewCard}>
+      <View accessibilityLabel="Rows are not saved as expenses until you confirm them." style={[styles.previewCard, { borderRadius: ExcelPreviewPixelStyles.cardRadius }]}>
         <Text style={styles.previewTitle}>AI 분류 미리보기</Text>
         <View style={styles.previewSummary}>
           <Text style={styles.previewSummaryLabel}>총 128건</Text>
@@ -107,7 +106,7 @@ export default function ImportUploadScreen() {
       <Pressable
         disabled={upload.isPending}
         onPress={applyPreview}
-        style={({ pressed }) => [styles.applyButton, { opacity: pressed || upload.isPending ? 0.82 : 1 }]}
+        style={({ pressed }) => [styles.applyButton, { bottom: 20 + ExcelPreviewPixelStyles.ctaBottomInset, height: ExcelPreviewPixelStyles.ctaHeight, opacity: pressed || upload.isPending ? 0.82 : 1 }]}
       >
         <Text style={styles.applyButtonText}>{upload.isPending ? "분석 중..." : "적용하고 리포트 보기"}</Text>
       </Pressable>
@@ -116,18 +115,20 @@ export default function ImportUploadScreen() {
   );
 }
 
-const excelUploadedFileCardStyle = {
-  alignItems: "center" as const,
-  backgroundColor: theme.colors.white,
-  borderColor: "rgba(74, 63, 53, 0.08)",
-  borderRadius: 18,
-  borderWidth: 1,
-  flexDirection: "row" as const,
-  gap: 12,
-  marginTop: 34,
-  padding: 14,
-  ...theme.shadows.card
-};
+function excelUploadedFileCardStyle() {
+  return {
+    alignItems: "center" as const,
+    backgroundColor: theme.colors.white,
+    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderRadius: ExcelPreviewPixelStyles.cardRadius,
+    borderWidth: 1,
+    flexDirection: "row" as const,
+    gap: 12,
+    marginTop: 34,
+    padding: 14,
+    ...theme.shadows.card
+  };
+}
 
 const styles = StyleSheet.create({
   screen: {
@@ -251,8 +252,7 @@ const styles = StyleSheet.create({
   previewRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 7,
-    minHeight: 36
+    gap: 7
   },
   categoryIcon: {
     alignItems: "center",

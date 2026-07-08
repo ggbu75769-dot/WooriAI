@@ -77,6 +77,18 @@ const sentinelText: Record<string, string[]> = {
   "IMP-003": ["pixel-screen-IMP-003", "IMP-003", "미리보기", "저장"],
   "SET-001": ["pixel-screen-SET-001", "SET-001", "설정", "개인정보", "제휴 고지", "데이터 삭제"]
 };
+const asciiSentinelText: Record<string, string[]> = {
+  "SPL-001": ["pixel-screen-SPL-001", "SPL-001"],
+  "HOME-001": ["pixel-screen-HOME-001", "HOME-001"],
+  "EXP-001": ["pixel-screen-EXP-001", "EXP-001"],
+  "ITEM-001": ["pixel-screen-ITEM-001", "ITEM-001"],
+  "ITEM-002": ["pixel-screen-ITEM-002", "ITEM-002"],
+  "REP-001": ["pixel-screen-REP-001", "REP-001"],
+  "FAM-001": ["pixel-screen-FAM-001", "FAM-001"],
+  "IMP-003": ["pixel-screen-IMP-003", "IMP-003"],
+  "SET-001": ["pixel-screen-SET-001", "SET-001"]
+};
+
 const logcatErrorPattern =
   /Unable to load script|Failed to connect to development server|Exception in native call|ReactNativeJS.*(?:Error|Invariant|TypeError|ReferenceError|Unable to resolve|Cannot read|undefined is not|No routes found)|JavascriptException|FATAL EXCEPTION|Invariant Violation|Unable to resolve module|Failed to construct transformer|Metro.*(?:404|500)|BUNDLE.*ERROR|RedBox|Could not get BatchedBridge/i;
 
@@ -306,7 +318,7 @@ function dumpWindowXmlText() {
 
 function dumpUiAutomator(screenId: string) {
   const xmlPath = join(logDir, `${screenId}-window.xml`);
-  const expected = sentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
+  const expected = asciiSentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
   let text = "";
   for (let attempt = 0; attempt < 5; attempt += 1) {
     text = dumpWindowXmlText();
@@ -330,7 +342,7 @@ function sleepMs(ms: number) {
 }
 
 function waitForScreenReady(screenId: string) {
-  const expected = sentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
+  const expected = asciiSentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
   const timeoutMs = Number(process.env.PIXEL_ANDROID_READY_TIMEOUT_MS || 90_000);
   const intervalMs = Number(process.env.PIXEL_ANDROID_READY_POLL_MS || 1_000);
   const startedAt = Date.now();
@@ -383,7 +395,7 @@ function isLikelyBlankOrShell(metrics: { whitePixelRatio: number; uniqueColorCou
 }
 
 async function validateRender(screenId: string, screenshotPath = join(screenshotDir, `${screenId}.png`)): Promise<RenderValidation> {
-  const expected = sentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
+  const expected = asciiSentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
   const metrics = await imageBlanknessMetrics(screenshotPath);
   const { xmlPath, text: xmlText } = dumpUiAutomator(screenId);
   const { logcatPath, text: logcatText } = captureLogcat(screenId);

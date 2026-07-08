@@ -206,15 +206,21 @@ describe("UI Pixel Lock source contract", () => {
     expect(importSource).toContain("excelPreviewRows");
     expect(importSource).toContain("ImportPreviewCategoryRow");
     expect(importSource).toContain("excelUploadedFileCardStyle");
-    expect(importSource).toContain("excelPreviewPixelScale = 0.902");
-    expect(importSource).toContain("excelPreviewPixelScaleY = 1.149");
-    expect(importSource).toContain("excelPreviewScaleHorizontalOffset = -38");
-    expect(importSource).toContain("excelPreviewScaleVerticalOffset = -8");
+    expect(importSource).toContain("ExcelPreviewPixelStyles.scale");
+    expect(importSource).toContain("ExcelPreviewPixelStyles.scaleY");
+    expect(importSource).toContain("ExcelPreviewPixelStyles.horizontalOffset");
+    expect(importSource).toContain("ExcelPreviewPixelStyles.topOffset");
     expect(importSource).toContain("excelPreviewPixelFrameStyle");
     expect(importSource).toContain("AI 분류 미리보기");
     expect(importSource).toContain("적용하고 리포트 보기");
     expect(importSource).toContain("createExcelImport");
     expect(importSource).toContain("Rows are not saved as expenses");
+
+    const excelPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/ExcelPreviewPixelStyles.ts"), "utf8");
+    expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "scale", 0.58)');
+    expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "scaleY", 1.08)');
+    expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "horizontalOffset", 40)');
+    expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "ctaBottomInset", 56)');
   });
 
   it("locks the more route to the compact single-screen reference menu", () => {
