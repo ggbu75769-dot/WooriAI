@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Animated, Image, Text, View } from "react-native";
 import { AppScreen, PrimaryButton, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
+
+declare const __DEV__: boolean;
 
 const splashScreenId = "SPL-001";
 const introHoldMs = 3600;
@@ -26,15 +28,23 @@ const animationStages = [
 ];
 
 export default function LaunchAnimationScreen() {
+  const params = useLocalSearchParams<{ pixelLock?: string }>();
   const [stageIndex, setStageIndex] = useState(-1);
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.88)).current;
+  const isPixelLockMode = __DEV__ && String(params.pixelLock ?? "") === "1";
   const currentStage = stageIndex < 0 ? intro : animationStages[stageIndex];
   const isFinalStage = stageIndex === animationStages.length - 1;
   const pagerDots = stageIndex < 0 ? ["intro", "record", "report"] : animationStages.map((stage) => stage.label);
   const activeDotIndex = stageIndex < 0 ? 0 : stageIndex;
 
   useEffect(() => {
+    if (isPixelLockMode) {
+      opacity.setValue(1);
+      scale.setValue(1);
+      return;
+    }
+
     opacity.setValue(0);
     scale.setValue(0.88);
 
@@ -61,7 +71,7 @@ export default function LaunchAnimationScreen() {
     }, stageIndex < 0 ? introHoldMs : 520);
 
     return () => clearTimeout(timer);
-  }, [opacity, scale, stageIndex]);
+  }, [isPixelLockMode, opacity, scale, stageIndex]);
 
   const finish = () => router.replace("/login");
 

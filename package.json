@@ -18,7 +18,16 @@
     "ui:screenshot": "tsx scripts/ui-pixel-lock.ts screenshot",
     "ui:visual-diff": "tsx scripts/ui-pixel-lock.ts diff",
     "ui:visual-report": "tsx scripts/ui-pixel-lock.ts report",
-    "ui:pixel-lock": "tsx scripts/ui-pixel-lock.ts all"
+    "ui:pixel-lock": "tsx scripts/ui-pixel-lock.ts all",
+    "pixel:android": "tsx scripts/pixel-lock/android-pixel-lock.ts android",
+    "pixel:android:all": "tsx scripts/pixel-lock/android-pixel-lock.ts android",
+    "pixel:android:screen": "tsx scripts/pixel-lock/android-pixel-lock.ts screen",
+    "pixel:android:guard": "tsx scripts/pixel-lock/android-pixel-lock.ts guard",
+    "pixel:open": "tsx scripts/pixel-lock/android-pixel-lock.ts open",
+    "pixel:capture": "tsx scripts/pixel-lock/android-pixel-lock.ts capture",
+    "pixel:diff": "tsx scripts/pixel-lock/android-pixel-lock.ts diff",
+    "pixel:tune": "tsx scripts/pixel-lock/android-pixel-lock.ts tune",
+    "pixel:report": "tsx scripts/pixel-lock/android-pixel-lock.ts report"
   },
   "devDependencies": {
     "@types/node": "^20.17.10",

@@ -90,11 +90,10 @@ const gateCommands: GateCommand[] = [
 
 function runGateCommand(gateCommand: GateCommand) {
   const startedAt = Date.now();
-  const executable = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : gateCommand.command;
-  const args =
-    process.platform === "win32"
-      ? ["/d", "/s", "/c", ["pnpm.cmd", ...gateCommand.args].map(windowsQuote).join(" ")]
-      : gateCommand.args;
+  const pnpmArgs = ["exec", "--yes", "pnpm@11.7.0", "--", ...gateCommand.args];
+  const npmCliPath = process.env.npm_execpath;
+  const executable = npmCliPath ? process.execPath : "npm";
+  const args = npmCliPath ? [npmCliPath, ...pnpmArgs] : pnpmArgs;
   const result = spawnSync(executable, args, {
     cwd: process.cwd(),
     encoding: "utf8",
@@ -106,7 +105,7 @@ function runGateCommand(gateCommand: GateCommand) {
     durationMs,
     status: result.status ?? 1,
     stdout: result.stdout ?? "",
-    stderr: result.stderr ?? ""
+    stderr: `${result.stderr ?? ""}${result.error ? String(result.error) : ""}`
   };
 }
 
