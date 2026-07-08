@@ -30,6 +30,7 @@ Project: `F:\WooriAI`
 - Prefer RN Metro over Expo web/dev server for the existing debug APK; prior Expo attempts returned `index.bundle` 404.
 - RN Metro requires `@react-native-community/cli@15.0.1` in `apps/mobile`.
 - Keep Pixel Lock, Gradle, and native build artifacts blocked in `apps/mobile/metro.config.js`.
+- CI Metro does not watch source edits; restart Metro after source changes, or use `PIXEL_ANDROID_OVERRIDES` only for temporary candidate measurement.
 
 ## Screens
 - `SPL-001`: Splash, ref `docs/ui-pixel-lock/reference-crops/1_png_splash.png`

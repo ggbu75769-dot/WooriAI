@@ -269,6 +269,21 @@ function captureScreen(screenId: string) {
   return outputPath;
 }
 
+async function captureStableScreen(screenId: string) {
+  const outputPath = join(screenshotDir, `${screenId}.png`);
+  const timeoutMs = Number(process.env.PIXEL_ANDROID_CAPTURE_READY_TIMEOUT_MS || 45_000);
+  const intervalMs = Number(process.env.PIXEL_ANDROID_CAPTURE_READY_POLL_MS || 1_000);
+  const startedAt = Date.now();
+
+  while (true) {
+    captureScreen(screenId);
+    const metrics = await imageBlanknessMetrics(outputPath);
+    if (!isLikelyBlankOrShell(metrics)) return outputPath;
+    if (Date.now() - startedAt >= timeoutMs) return outputPath;
+    sleepMs(intervalMs);
+  }
+}
+
 function clearLogcat() {
   adb(["logcat", "-c"], { allowFailure: true });
 }
@@ -347,6 +362,16 @@ async function imageBlanknessMetrics(screenshotPath: string) {
   };
 }
 
+function isLikelyBlankOrShell(metrics: { whitePixelRatio: number; uniqueColorCount: number; nonBackgroundAreaRatio: number }) {
+  return (
+    (metrics.whitePixelRatio > 0.82 &&
+      metrics.uniqueColorCount < 2500 &&
+      metrics.nonBackgroundAreaRatio < 0.2) ||
+    (metrics.whitePixelRatio > 0.93 && metrics.nonBackgroundAreaRatio < 0.08) ||
+    (metrics.uniqueColorCount < 500 && metrics.nonBackgroundAreaRatio < 0.04)
+  );
+}
+
 async function validateRender(screenId: string, screenshotPath = join(screenshotDir, `${screenId}.png`)): Promise<RenderValidation> {
   const expected = sentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
   const metrics = await imageBlanknessMetrics(screenshotPath);
@@ -359,11 +384,7 @@ async function validateRender(screenId: string, screenshotPath = join(screenshot
     .filter((line) => logcatErrorPattern.test(line))
     .slice(0, 20);
   const invalidReasons: string[] = [];
-  const likelyBlank =
-    (metrics.whitePixelRatio > 0.82 &&
-      metrics.uniqueColorCount < 2500 &&
-      metrics.nonBackgroundAreaRatio < 0.2) ||
-    (metrics.whitePixelRatio > 0.93 && metrics.nonBackgroundAreaRatio < 0.08);
+  const likelyBlank = isLikelyBlankOrShell(metrics);
 
   if (likelyBlank) {
     invalidReasons.push(
@@ -720,7 +741,7 @@ async function runValidation(command: string, screenId?: string, force = false) 
       waitForScreenReady(targetId);
       const settleMs = Number(process.env.PIXEL_ANDROID_SETTLE_MS || 1500);
       if (settleMs > 0) sleepMs(settleMs);
-      captureScreen(targetId);
+      await captureStableScreen(targetId);
       cache[targetId] = currentHash;
     }
     const render = await validateRender(targetId, screenshotPath);
