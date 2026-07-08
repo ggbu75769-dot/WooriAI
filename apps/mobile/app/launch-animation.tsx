@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Animated, Image, Text, View } from "react-native";
 import { AppScreen, PrimaryButton, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
+import { SplashPixelStyles } from "../src/pixelLock/styles";
 
 declare const __DEV__: boolean;
 
@@ -10,12 +11,14 @@ const splashScreenId = "pixel-screen-SPL-001 SPL-001";
 const introHoldMs = 3600;
 const splashLogo = require("../assets/illustrations/logo_mark.png");
 const intro = { label: "intro", source: require("../assets/illustrations/family.png") };
-const introImageStyle = { height: 320, marginTop: 72, width: 390 };
+const introImageStyle = {
+  height: SplashPixelStyles.introImageHeight,
+  marginTop: SplashPixelStyles.introImageMarginTop,
+  width: 390
+};
 const stageImageStyle = { height: 210, width: 210 };
-const splashPixelScale = 1.27;
-const splashPixelVerticalOffset = -22;
 const splashPixelFrameStyle = {
-  transform: [{ translateY: splashPixelVerticalOffset }, { scale: splashPixelScale }]
+  transform: [{ translateY: SplashPixelStyles.topOffset }, { scale: SplashPixelStyles.groupScale }]
 } as const;
 const animationStages = [
   { label: "로고", source: require("../assets/illustrations/growth_logo.png") },
@@ -77,11 +80,11 @@ export default function LaunchAnimationScreen() {
 
   return (
     <AppScreen>
-      <View style={[{ alignItems: "center", flex: 1, gap: 10, justifyContent: "flex-start", paddingTop: 112 }, splashPixelFrameStyle]}>
+      <View style={[{ alignItems: "center", flex: 1, gap: SplashPixelStyles.logoGap, justifyContent: "flex-start", paddingTop: 112 }, splashPixelFrameStyle]}>
         <Image
           accessibilityLabel={splashScreenId}
           source={splashLogo}
-          style={{ height: 64, width: 64 }}
+          style={{ height: SplashPixelStyles.logoSize, width: SplashPixelStyles.logoSize }}
           resizeMode="cover"
         />
         <Text style={{ color: theme.colors.mainCoral, fontSize: 25, fontWeight: "800" }}>우리아이</Text>
@@ -100,7 +103,7 @@ export default function LaunchAnimationScreen() {
           <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800" }}>{currentStage.label}</Text>
         ) : null}
 
-        <View style={{ flexDirection: "row", gap: 6 }}>
+        <View style={{ flexDirection: "row", gap: SplashPixelStyles.pagerGap }}>
           {pagerDots.map((stage, index) => (
             <View
               key={stage}

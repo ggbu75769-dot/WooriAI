@@ -63,7 +63,7 @@ const latestMdPath = join(reportDir, "latest.md");
 const cachePath = join(reportDir, "cache.json");
 const cropPolicy = process.env.PIXEL_ANDROID_CROP
   ? `shared-device-crop:${process.env.PIXEL_ANDROID_CROP}`
-  : "full-adb-screencap-resized-to-reference";
+  : "shared-device-content-area:exclude-status-and-navigation-bars";
 const sentinelText: Record<string, string[]> = {
   "SPL-001": ["pixel-screen-SPL-001", "SPL-001", "우리아이"],
   "HOME-001": ["pixel-screen-HOME-001", "HOME-001", "우리아이", "뽀미", "3,482,000원", "+ 지출 기록하기"],
@@ -108,10 +108,11 @@ function parseArgs(argv: string[]) {
   return { args, positional };
 }
 
-function run(command: string, args: string[], options: { binary?: boolean; allowFailure?: boolean } = {}) {
+function run(command: string, args: string[], options: { binary?: boolean; allowFailure?: boolean; timeoutMs?: number } = {}) {
   const result = spawnSync(command, args, {
     encoding: options.binary ? "buffer" : "utf8",
-    maxBuffer: 1024 * 1024 * 32
+    maxBuffer: 1024 * 1024 * 32,
+    timeout: options.timeoutMs ?? 60_000
   });
   if (result.status !== 0 && !options.allowFailure) {
     const stderr = Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8") : result.stderr;
@@ -283,8 +284,32 @@ function dumpUiAutomator(screenId: string) {
   return { xmlPath, text };
 }
 
+function readWindowXml() {
+  adb(["shell", "uiautomator", "dump", "/sdcard/window.xml"], { allowFailure: true });
+  const result = adb(["shell", "cat", "/sdcard/window.xml"], { allowFailure: true });
+  return String(result.stdout || "");
+}
+
 function compactText(text: string) {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function sleepMs(ms: number) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function waitForScreenReady(screenId: string) {
+  const expected = sentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
+  const timeoutMs = Number(process.env.PIXEL_ANDROID_READY_TIMEOUT_MS || 90_000);
+  const intervalMs = Number(process.env.PIXEL_ANDROID_READY_POLL_MS || 1_000);
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const xml = compactText(readWindowXml());
+    if (expected.some((sentinel) => xml.includes(sentinel))) return true;
+    sleepMs(intervalMs);
+  }
+  return false;
 }
 
 async function imageBlanknessMetrics(screenshotPath: string) {
@@ -357,21 +382,48 @@ async function validateRender(screenId: string, screenshotPath = join(screenshot
   };
 }
 
-function parseCrop() {
-  const raw = process.env.PIXEL_ANDROID_CROP;
-  if (!raw) return null;
-  const parts = raw.split(",").map((part) => Number(part.trim()));
-  if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part))) {
-    throw new Error("PIXEL_ANDROID_CROP must be x,y,width,height");
-  }
-  return { left: parts[0], top: parts[1], width: parts[2], height: parts[3] };
+function parseBounds(value: string) {
+  const match = value.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
+  if (!match) return null;
+  return {
+    left: Number(match[1]),
+    top: Number(match[2]),
+    right: Number(match[3]),
+    bottom: Number(match[4])
+  };
 }
 
-async function normalizedScreenshotBuffer(screenshotPath: string, referencePath: string) {
+function parseCrop(screenId?: string) {
+  const raw = process.env.PIXEL_ANDROID_CROP;
+  if (raw) {
+    const parts = raw.split(",").map((part) => Number(part.trim()));
+    if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part))) {
+      throw new Error("PIXEL_ANDROID_CROP must be x,y,width,height");
+    }
+    return { left: parts[0], top: parts[1], width: parts[2], height: parts[3] };
+  }
+  if (!screenId) return null;
+  const xmlPath = join(logDir, `${screenId}-window.xml`);
+  if (!existsSync(xmlPath)) return null;
+  const xml = readFileSync(xmlPath, "utf8");
+  const statusMatch = xml.match(/<node[^>]+resource-id="android:id\/statusBarBackground"[^>]+>/);
+  const navMatch = xml.match(/<node[^>]+resource-id="android:id\/navigationBarBackground"[^>]+>/);
+  const statusBounds = statusMatch ? parseBounds(statusMatch[0]) : null;
+  const navBounds = navMatch ? parseBounds(navMatch[0]) : null;
+  if (!statusBounds || !navBounds) return null;
+  return {
+    left: 0,
+    top: statusBounds.bottom,
+    width: navBounds.right,
+    height: navBounds.top - statusBounds.bottom
+  };
+}
+
+async function normalizedScreenshotBuffer(screenId: string, screenshotPath: string, referencePath: string) {
   const reference = await sharp(referencePath).metadata();
   if (!reference.width || !reference.height) throw new Error(`BAD_REFERENCE ${referencePath}`);
   let image = sharp(screenshotPath);
-  const crop = parseCrop();
+  const crop = parseCrop(screenId);
   if (crop) image = image.extract(crop);
   return image.resize(reference.width, reference.height, { fit: "fill" }).png().toBuffer();
 }
@@ -416,7 +468,7 @@ async function diffScreen(screenId: string, screens = readScreens(), render?: Re
   const width = referenceMeta.width;
   const height = referenceMeta.height;
   const referenceRaw = await sharp(referencePath).resize(width, height, { fit: "fill" }).ensureAlpha().raw().toBuffer();
-  const screenshotPng = await normalizedScreenshotBuffer(screenshotPath, referencePath);
+  const screenshotPng = await normalizedScreenshotBuffer(screenId, screenshotPath, referencePath);
   const screenshotRaw = await sharp(screenshotPng).ensureAlpha().raw().toBuffer();
   const diffRaw = Buffer.alloc(width * height * 4);
   const heatRaw = Buffer.alloc(width * height * 4);
@@ -591,7 +643,8 @@ async function runValidation(command: string, screenId?: string, force = false) 
       clearLogcat();
       openScreen(targetId, screens);
       const waitMs = Number(process.env.PIXEL_ANDROID_WAIT_MS || 700);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+      sleepMs(waitMs);
+      waitForScreenReady(targetId);
       captureScreen(targetId);
       cache[targetId] = currentHash;
     }
