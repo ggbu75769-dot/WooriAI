@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Redirect, router, useLocalSearchParams, useRootNavigationState } from "expo-router";
+import { LogBox } from "react-native";
 import { useOnboardingProgressStore } from "../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
@@ -30,6 +31,7 @@ export default function PixelLockLauncher() {
 
   useEffect(() => {
     if (!__DEV__ || !rootNavigationState?.key) return;
+    LogBox.ignoreAllLogs(true);
     clearSession();
     clearSelectedChildId();
     resetOnboarding();

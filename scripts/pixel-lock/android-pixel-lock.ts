@@ -241,6 +241,7 @@ function openScreen(screenId: string, screens = readScreens()) {
   if (!packageName) throw new Error("PACKAGE_NOT_FOUND");
   if (!hasDevice()) throw new Error("ADB_DEVICE_NOT_FOUND");
 
+  adb(["shell", "am", "force-stop", packageName], { allowFailure: true });
   const result = adb(
     ["shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", screen.route, packageName],
     { allowFailure: true }
