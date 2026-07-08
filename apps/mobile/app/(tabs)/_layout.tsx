@@ -1,5 +1,6 @@
 import { Tabs } from "expo-router";
 import { Text } from "react-native";
+import { BottomTabPixelStyles } from "../../src/pixelLock/styles";
 import { theme } from "../../src/theme";
 
 const tabs = {
@@ -12,7 +13,7 @@ const tabs = {
 
 function icon(name: keyof typeof tabs, focused: boolean) {
   return (
-    <Text style={{ color: focused ? theme.colors.mainCoral : theme.colors.gray600, fontSize: 19 }}>
+    <Text style={{ color: focused ? theme.colors.mainCoral : theme.colors.gray600, fontSize: BottomTabPixelStyles.iconSize }}>
       {tabs[name].icon}
     </Text>
   );
@@ -25,13 +26,13 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: theme.colors.mainCoral,
         tabBarInactiveTintColor: theme.colors.gray600,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "700" },
+        tabBarLabelStyle: { fontSize: BottomTabPixelStyles.labelSize, fontWeight: "700" },
         tabBarStyle: {
           backgroundColor: theme.colors.white,
           borderTopColor: "rgba(74, 63, 53, 0.08)",
-          height: 72,
-          paddingBottom: 10,
-          paddingTop: 8
+          height: BottomTabPixelStyles.height,
+          paddingBottom: BottomTabPixelStyles.paddingBottom,
+          paddingTop: BottomTabPixelStyles.paddingTop
         }
       }}
     >

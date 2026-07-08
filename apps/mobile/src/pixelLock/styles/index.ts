@@ -5,5 +5,6 @@ export { ItemListPixelStyles } from "./ItemListPixelStyles";
 export { ProductDetailPixelStyles } from "./ProductDetailPixelStyles";
 export { ReportPixelStyles } from "./ReportPixelStyles";
 export { FamilyPixelStyles } from "./FamilyPixelStyles";
+export { BottomTabPixelStyles } from "./BottomTabPixelStyles";
 export { ExcelPreviewPixelStyles } from "./ExcelPreviewPixelStyles";
 export { MoreSettingsPixelStyles } from "./MoreSettingsPixelStyles";

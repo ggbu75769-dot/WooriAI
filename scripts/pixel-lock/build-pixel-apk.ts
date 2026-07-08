@@ -38,21 +38,12 @@ function findAndroidSdk() {
   return candidates.find((candidate) => existsSync(join(candidate, "platform-tools"))) || "";
 }
 
-function quoteCmdArg(value: string) {
-  if (!/[\s"&|<>^]/.test(value)) return value;
-  return `"${value.replace(/"/g, '\\"')}"`;
-}
-
 function run(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) {
-  const isWindowsBatch = process.platform === "win32" && /\.bat$/i.test(command);
-  const spawnCommand = isWindowsBatch ? process.env.ComSpec || "cmd.exe" : command;
-  const spawnArgs = isWindowsBatch
-    ? ["/d", "/s", "/c", `"${command}" ${args.map(quoteCmdArg).join(" ")}`]
-    : args;
-  const result = spawnSync(spawnCommand, spawnArgs, {
+  const result = spawnSync(command, args, {
     cwd,
     env,
     encoding: "utf8",
+    shell: process.platform === "win32",
     maxBuffer: 1024 * 1024 * 32,
     timeout: 1000 * 60 * 15
   });

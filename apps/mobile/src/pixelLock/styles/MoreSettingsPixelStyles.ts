@@ -2,13 +2,13 @@ import { pixelNumber } from "../overrides";
 
 export const MoreSettingsPixelStyles = {
   get topOffset() {
-    return pixelNumber("SET-001", "topOffset", 0);
+    return pixelNumber("SET-001", "topOffset", 30);
   },
   get horizontalOffset() {
-    return pixelNumber("SET-001", "horizontalOffset", 0);
+    return pixelNumber("SET-001", "horizontalOffset", 30);
   },
   get screenPadding() {
-    return pixelNumber("SET-001", "screenPadding", 24);
+    return pixelNumber("SET-001", "screenPadding", 32);
   },
   get cardRadius() {
     return pixelNumber("SET-001", "cardRadius", 20);
