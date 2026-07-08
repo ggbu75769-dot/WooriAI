@@ -77,7 +77,8 @@ function main() {
   };
   if (!env.JAVA_HOME) throw new Error("JAVA_HOME_NOT_FOUND: install JDK 17 or set JAVA_HOME.");
   if (!env.ANDROID_HOME) throw new Error("ANDROID_SDK_NOT_FOUND: install Android SDK or set ANDROID_HOME.");
-  const args = ["assembleRelease", "-PreactNativeArchitectures=x86_64", "--rerun-tasks"];
+  const args = ["assembleRelease", "-PreactNativeArchitectures=x86_64"];
+  if (process.env.PIXEL_ANDROID_RERUN_TASKS === "1") args.push("--rerun-tasks");
   run(gradlew, args, androidDir, env);
   if (!existsSync(apkPath)) throw new Error(`PIXEL_APK_MISSING ${apkPath}`);
   const report = {

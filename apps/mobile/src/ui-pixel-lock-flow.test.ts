@@ -262,9 +262,9 @@ describe("UI Pixel Lock source contract", () => {
     expect(launchSource).not.toContain("<BrandLogo");
 
     const splashPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/SplashPixelStyles.ts"), "utf8");
-    expect(splashPixelStyleSource).toContain('groupScale: pixelNumber("SPL-001", "groupScale", 1.22)');
-    expect(splashPixelStyleSource).toContain('topOffset: pixelNumber("SPL-001", "topOffset", -16)');
-    expect(splashPixelStyleSource).toContain('introImageMarginTop: pixelNumber("SPL-001", "introImageMarginTop", 72)');
+    expect(splashPixelStyleSource).toContain('return pixelNumber("SPL-001", "groupScale", 1)');
+    expect(splashPixelStyleSource).toContain('return pixelNumber("SPL-001", "topOffset", -40)');
+    expect(splashPixelStyleSource).toContain('return pixelNumber("SPL-001", "introImageMarginTop", 56)');
 
     for (const asset of ["growth_fetus.png", "growth_baby.png", "growth_toddler.png", "growth_elementary.png", "growth_middle.png", "growth_high.png"]) {
       expect(existsSync(join(mobileRoot, "assets/illustrations", asset)), `${asset} should exist`).toBe(true);
