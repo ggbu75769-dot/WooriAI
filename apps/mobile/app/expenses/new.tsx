@@ -21,7 +21,7 @@ const quickExpenseCategories = [
   { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "⊕", label: "기타" }
 ];
 
-const quickExpensePixelScale = 0.96;
+const quickExpensePixelScale = 0.88;
 const quickExpenseScaleHorizontalOffset = 4;
 const quickExpenseScaleVerticalOffset = 11;
 const quickExpensePixelFrameStyle = {
