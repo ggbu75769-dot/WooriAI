@@ -24,6 +24,12 @@ Project: `F:\WooriAI`
 - Known package: `com.anonymous.wooriai`.
 - ADB is auto-discovered from `ADB_PATH`, PATH, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or `C:\Users\nj970\AppData\Local\Android\Sdk\platform-tools\adb.exe`.
 - Artifacts: `artifacts/pixel-lock/android/{screenshots,diffs,heatmaps,logs,reports}`.
+- If no device exists, use isolated AVD home `F:\WooriAI\.android-avd`; user-home `C:\Users\nj970\.android\avd` is a broken link on this machine.
+- Blank white adb captures mean Android JS delivery failed; do not tune against those scores.
+- This bare RN debug APK needs React Native Metro or an embedded debug JS bundle before screenshots are meaningful.
+- Prefer RN Metro over Expo web/dev server for the existing debug APK; prior Expo attempts returned `index.bundle` 404.
+- RN Metro requires `@react-native-community/cli@15.0.1` in `apps/mobile`.
+- Keep Pixel Lock, Gradle, and native build artifacts blocked in `apps/mobile/metro.config.js`.
 
 ## Screens
 - `SPL-001`: Splash, ref `docs/ui-pixel-lock/reference-crops/1_png_splash.png`
@@ -58,6 +64,7 @@ Project: `F:\WooriAI`
 - Product detail viewport changes worsened.
 - Product detail large coral CTA worsened.
 - Product detail hero height changes worsened.
+- Blank white adb shell captures are JS delivery failures, not visual tuning data.
 
 ## Done Criteria
 - `npm run pixel:android` passes using adb screencaps only.

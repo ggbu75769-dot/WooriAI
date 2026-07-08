@@ -3,9 +3,17 @@
 ## Full Gate
 1. Connect/start Android device or emulator.
 2. Ensure app is installed.
-3. Run `npm run pixel:android`.
-4. Read compact result at `artifacts/pixel-lock/android/reports/latest.md`.
-5. Full gate fails if any screen score is above `0.0500`.
+3. Confirm the app is rendering a non-blank React Native screen; blank white adb captures mean JS delivery failed.
+4. Run `npm run pixel:android`.
+5. Read compact result at `artifacts/pixel-lock/android/reports/latest.md`.
+6. Full gate fails if any screen score is above `0.0500`.
+
+## Android JS Delivery
+- Existing debug APK is a bare React Native debug build; it needs React Native Metro or an embedded debug JS bundle.
+- Expo web/dev server attempts returned `index.bundle` 404 and are not a valid final validation path.
+- RN Metro needs `@react-native-community/cli@15.0.1`.
+- If Metro hangs on Windows, check `apps/mobile/metro.config.js` artifact exclusions before tuning UI.
+- Do not use scores from blank app shell captures.
 
 ## One Screen
 1. Run `npm run pixel:android:screen -- IMP-003`.

@@ -50,3 +50,5 @@
 48. Do not reread all docs unless a contract question requires it.
 49. Prefer targeted `rg` and JSON reports.
 50. Final answer must separate functional local PASS from visual Pixel Lock status.
+51. Current Android blocker: debug APK installs, but blank white adb captures show JS delivery is not working yet.
+52. Do not tune UI until a non-blank adb screenshot is captured.

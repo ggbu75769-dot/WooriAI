@@ -29,27 +29,34 @@
 - Added debug-only `/pixel-lock?screen=<SCREEN_ID>` launcher route.
 - Added pixel-lock style/override scaffold for future candidate tuning.
 - Verified `npm run pixel:android` writes `artifacts/pixel-lock/android/reports/latest.json` and `.md`.
-- Current `pixel:android` status: `BLOCKED` because `adb devices` reports no connected device/emulator.
 - Verified `npm run pixel:tune -- --screen IMP-003` writes candidate scaffold under `artifacts/pixel-lock/android/reports/`.
 - Verified `npm run pixel:report` prints compact latest report.
 - Fixed `npm run release:gate` so it resolves pnpm through npm's own CLI path instead of assuming `pnpm.cmd` is on PATH.
 - Verified `npm run release:gate`: PASS at `2026-07-08T04:58:10.759Z`.
+- Created isolated AVD home at `F:\WooriAI\.android-avd` because `C:\Users\nj970\.android\avd` is a broken link.
+- Created and booted `wooriai_pixel_5_api35`; Android device info: `sdk_gphone64_x86_64`, Android 15, `1080x2340`, density `440`.
+- Installed `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
+- First real adb capture produced blank white app shell because JS bundle was not loaded.
+- Metro via Expo CLI returned web/manifest behavior and `index.bundle` 404 for this bare RN debug APK.
+- Added `@react-native-community/cli@15.0.1` to `mobile` dev dependencies to run RN Metro.
+- RN Metro starts, but bundle compilation is still blocked by monorepo/pnpm resolver/watch behavior; tuning is not meaningful until a non-blank RN screen is captured.
+- Updated `apps/mobile/metro.config.js` to exclude Pixel Lock, Gradle, and native build artifacts from Metro watch scope.
 
 ## Latest Android Report
 | Screen | Score | Status | Note |
 | --- | ---: | --- | --- |
-| SPL-001 | 1.0000 | blocked | ADB_DEVICE_NOT_FOUND |
-| HOME-001 | 1.0000 | blocked | ADB_DEVICE_NOT_FOUND |
-| EXP-001 | 1.0000 | blocked | ADB_DEVICE_NOT_FOUND |
-| ITEM-001 | 1.0000 | blocked | ADB_DEVICE_NOT_FOUND |
-| ITEM-002 | 1.0000 | blocked | ADB_DEVICE_NOT_FOUND |
-| REP-001 | 1.0000 | blocked | ADB_DEVICE_NOT_FOUND |
-| FAM-001 | 1.0000 | blocked | ADB_DEVICE_NOT_FOUND |
-| IMP-003 | 1.0000 | blocked | ADB_DEVICE_NOT_FOUND |
-| SET-001 | 1.0000 | blocked | ADB_DEVICE_NOT_FOUND |
+| SPL-001 | 0.2674 | fail | blank app shell, not a valid UI score |
+| HOME-001 | 0.2409 | fail | blank app shell, not a valid UI score |
+| EXP-001 | 0.1306 | fail | blank app shell, not a valid UI score |
+| ITEM-001 | 0.1313 | fail | blank app shell, not a valid UI score |
+| ITEM-002 | 0.2167 | fail | blank app shell, not a valid UI score |
+| REP-001 | 0.1325 | fail | blank app shell, not a valid UI score |
+| FAM-001 | 0.0912 | fail | blank app shell, not a valid UI score |
+| IMP-003 | 0.1264 | fail | blank app shell, not a valid UI score |
+| SET-001 | 0.0656 | fail | blank app shell, not a valid UI score |
 
 ## Next
-1. Connect or start Android emulator/device.
-2. Install/open app.
-3. Run `npm run pixel:android`.
-4. If baseline captures are produced, tune Phase A screens: `SPL-001`, `IMP-003`, `EXP-001`.
+1. Fix Android JS delivery first: either make RN Metro serve `index.bundle` reliably under pnpm, or build a pixel-lock debug APK with an embedded dev bundle.
+2. Confirm a non-blank `HOME-001` adb screenshot.
+3. Re-run `npm run pixel:android`.
+4. If valid screen captures are produced, tune Phase A screens: `SPL-001`, `IMP-003`, `EXP-001`.
