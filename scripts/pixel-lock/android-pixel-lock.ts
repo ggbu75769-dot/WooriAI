@@ -78,7 +78,7 @@ const sentinelText: Record<string, string[]> = {
   "SET-001": ["pixel-screen-SET-001", "SET-001", "설정", "개인정보", "제휴 고지", "데이터 삭제"]
 };
 const logcatErrorPattern =
-  /Unable to load script|Failed to connect to development server|Exception in native call|ReactNativeJS.*(?:Invariant|TypeError|ReferenceError|Unable to resolve|Cannot read|undefined is not)|Invariant Violation|Unable to resolve module|Failed to construct transformer|Metro.*(?:404|500)|BUNDLE.*ERROR|RedBox|Could not get BatchedBridge/i;
+  /Unable to load script|Failed to connect to development server|Exception in native call|ReactNativeJS.*(?:Error|Invariant|TypeError|ReferenceError|Unable to resolve|Cannot read|undefined is not|No routes found)|JavascriptException|FATAL EXCEPTION|Invariant Violation|Unable to resolve module|Failed to construct transformer|Metro.*(?:404|500)|BUNDLE.*ERROR|RedBox|Could not get BatchedBridge/i;
 
 function ensureDirs() {
   for (const dir of [screenshotDir, diffDir, heatmapDir, logDir, reportDir]) {
@@ -296,19 +296,29 @@ function captureLogcat(screenId: string) {
   return { logcatPath, text };
 }
 
-function dumpUiAutomator(screenId: string) {
-  const xmlPath = join(logDir, `${screenId}-window.xml`);
+function dumpWindowXmlText() {
+  adb(["shell", "rm", "-f", "/sdcard/window.xml"], { allowFailure: true });
   adb(["shell", "uiautomator", "dump", "/sdcard/window.xml"], { allowFailure: true });
   const result = adb(["shell", "cat", "/sdcard/window.xml"], { allowFailure: true });
   const text = String(result.stdout || "");
+  return text.includes("<hierarchy") ? text : "";
+}
+
+function dumpUiAutomator(screenId: string) {
+  const xmlPath = join(logDir, `${screenId}-window.xml`);
+  const expected = sentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
+  let text = "";
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    text = dumpWindowXmlText();
+    if (expected.some((sentinel) => text.includes(sentinel))) break;
+    if (attempt < 4) sleepMs(500);
+  }
   writeFileSync(xmlPath, text, "utf8");
   return { xmlPath, text };
 }
 
 function readWindowXml() {
-  adb(["shell", "uiautomator", "dump", "/sdcard/window.xml"], { allowFailure: true });
-  const result = adb(["shell", "cat", "/sdcard/window.xml"], { allowFailure: true });
-  return String(result.stdout || "");
+  return dumpWindowXmlText();
 }
 
 function compactText(text: string) {

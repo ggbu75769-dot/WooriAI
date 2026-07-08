@@ -4,7 +4,7 @@ Project: `F:\WooriAI`
 
 ## Fast Context
 - Functional gate is already green; remaining work is Android-native UI Pixel Lock.
-- Final visual evidence must be installed Android app + `adb exec-out screencap -p`.
+- Final visual evidence must be installed Android app + adb `screencap`.
 - Browser, Expo web, Playwright webpage screenshots are not final evidence.
 - Do not use full-screen reference screenshots as UI/backgrounds.
 - Use real React Native/Expo components and deterministic fixture data.
@@ -12,6 +12,7 @@ Project: `F:\WooriAI`
 ## Commands
 - Release gate: `npm run release:gate`
 - Full Android pixel gate: `npm run pixel:android`
+- Embedded Pixel Lock APK: `npm run pixel:android:build-apk`
 - One screen + SET guard: `npm run pixel:android:screen -- SPL-001`
 - Open installed app screen: `npm run pixel:open -- --screen SPL-001`
 - Capture only: `npm run pixel:capture -- --screen SPL-001`
@@ -27,6 +28,9 @@ Project: `F:\WooriAI`
 - If no device exists, use isolated AVD home `F:\WooriAI\.android-avd`; user-home `C:\Users\nj970\.android\avd` is a broken link on this machine.
 - Blank white adb captures mean Android JS delivery failed; do not tune against those scores.
 - This bare RN debug APK needs React Native Metro or an embedded debug JS bundle before screenshots are meaningful.
+- `npm run pixel:android:build-apk` builds a release-like APK with `EXPO_PUBLIC_PIXEL_LOCK=1` and embedded JS for Metro-free adb validation experiments.
+- Embedded export runs from workspace root; root `app.config.js` pins Expo Router to `apps/mobile/app`.
+- This device uses `adb shell screencap -p /sdcard/...` + `adb pull`; prior `adb exec-out screencap -p` returned a white Surface while RN content was visible.
 - Prefer RN Metro over Expo web/dev server for the existing debug APK; prior Expo attempts returned `index.bundle` 404.
 - RN Metro requires `@react-native-community/cli@15.0.1` in `apps/mobile`.
 - Keep Pixel Lock, Gradle, and native build artifacts blocked in `apps/mobile/metro.config.js`.

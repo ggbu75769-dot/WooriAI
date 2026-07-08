@@ -7,6 +7,8 @@ import { useSessionStore } from "../src/stores/session.store";
 
 declare const __DEV__: boolean;
 
+const pixelLockEnabled = __DEV__ || process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
+
 const pixelLockRoutes = {
   "SPL-001": "/launch-animation?pixelLock=1",
   "HOME-001": "/(tabs)",
@@ -50,7 +52,7 @@ export default function PixelLockLauncher() {
   const href = pixelLockRoutes[screenId as keyof typeof pixelLockRoutes] ?? pixelLockRoutes["SPL-001"];
 
   useEffect(() => {
-    if (!__DEV__ || !rootNavigationState?.key) return;
+    if (!pixelLockEnabled || !rootNavigationState?.key) return;
     LogBox.ignoreAllLogs(true);
     applyPixelLockOverrides(String(params.overrides ?? ""));
     clearSession();
@@ -60,7 +62,7 @@ export default function PixelLockLauncher() {
     return () => clearTimeout(timer);
   }, [clearSelectedChildId, clearSession, href, params.overrides, resetOnboarding, rootNavigationState?.key]);
 
-  if (!__DEV__) {
+  if (!pixelLockEnabled) {
     return <Redirect href="/" />;
   }
 
