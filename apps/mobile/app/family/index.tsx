@@ -4,29 +4,29 @@ import { Pressable, Text, View } from "react-native";
 import { createInvite, listHouseholdMembers } from "../../src/api/client";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, FamilyAvatarGroup, PrimaryButton, StatusBadge } from "../../src/ui";
+import { AppScreen, Card, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
+import { FamilyPixelStyles } from "../../src/pixelLock/styles";
 
 const previewMembers = [
-  { id: "preview-mom", displayName: "엄마", role: "owner", status: "active" },
-  { id: "preview-dad", displayName: "아빠", role: "co_parent", status: "active" },
-  { id: "preview-grandma", displayName: "할머니", role: "viewer", status: "pending" }
+  { id: "preview-mom", avatar: "엄", displayName: "엄마 (나)", role: "owner", status: "active" },
+  { id: "preview-dad", avatar: "아", displayName: "아빠", role: "co_parent", status: "active" },
+  { id: "preview-grandma", avatar: "할", displayName: "할머니", role: "viewer", status: "pending" }
 ] as const;
 
 const familyReferenceScreenId = "pixel-screen-FAM-001 FAM-001";
-const familyReferenceScale = 1;
-const familyReferenceHorizontalOffset = 0;
-const familyReferenceVerticalOffset = 0;
-const familyReferenceFrameStyle = {
-  gap: 16,
-  transform: [
-    { translateX: familyReferenceHorizontalOffset },
-    { translateY: familyReferenceVerticalOffset },
-    { scale: familyReferenceScale }
-  ]
-} as const;
+function familyReferenceFrameStyle() {
+  return {
+    gap: 16,
+    transform: [
+      { translateX: FamilyPixelStyles.horizontalOffset },
+      { translateY: FamilyPixelStyles.topOffset },
+      { scale: FamilyPixelStyles.scale }
+    ]
+  } as const;
+}
 const familyInviteRows = [
   { icon: "↗", title: "링크로 초대", value: "" },
-  { icon: "□", title: "초대 코드 공유", value: "DAON2026" }
+  { icon: "□", title: "초대 코드 공유", value: "DAON2025" }
 ] as const;
 
 function FamilyPixelStatusBar() {
@@ -70,6 +70,7 @@ export default function FamilyScreen() {
     }
   });
   const visibleMembers = members.data?.members ?? previewMembers;
+  const avatarNames = visibleMembers.map((member) => ("avatar" in member ? member.avatar : member.displayName));
   const openInvite = () => {
     if (accessToken && householdId) quickInvite.mutate();
     else router.push("/family/invite");
@@ -77,7 +78,7 @@ export default function FamilyScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={familyReferenceScreenId} style={familyReferenceFrameStyle}>
+      <View accessibilityLabel={familyReferenceScreenId} style={familyReferenceFrameStyle()}>
         <FamilyPixelStatusBar />
 
         <View style={familyHeaderRowStyle}>
@@ -86,7 +87,7 @@ export default function FamilyScreen() {
         </View>
 
         <View style={familyAvatarRowStyle}>
-          <FamilyAvatarGroup names={visibleMembers.map((member) => member.displayName)} />
+          <FamilyAvatarGroup names={avatarNames} />
           <Pressable onPress={openInvite} style={familyPlusButtonStyle}>
             <Text style={familyPlusTextStyle}>+</Text>
           </Pressable>
@@ -95,7 +96,7 @@ export default function FamilyScreen() {
         <Card style={familyProfileCardStyle}>
           <Text style={familyProfileTitleStyle}>우리아이 가족계정</Text>
           <View style={familyProfileBodyStyle}>
-            <FamilyAvatarGroup names={["다온"]} />
+            <FamilyAvatarGroup names={["다"]} />
             <View>
               <Text style={familyProfileNameStyle}>다온이 패밀리</Text>
               <Text style={familyProfileMetaStyle}>엄마 · 아빠 · 할머니</Text>
@@ -114,14 +115,16 @@ export default function FamilyScreen() {
         <View style={familyMemberGroupStyle}>
           {visibleMembers.map((member) => (
             <View key={member.id} style={familyMemberRowStyle}>
-              <FamilyAvatarGroup names={[member.displayName]} />
+              <FamilyAvatarGroup names={["avatar" in member ? member.avatar : member.displayName]} />
               <Text style={familyMemberNameStyle}>{member.displayName}</Text>
               <StatusBadge label={member.role === "owner" ? "관리자" : "멤버"} tone={member.role === "owner" ? "warning" : "neutral"} />
             </View>
           ))}
         </View>
 
-        <PrimaryButton label="가족 초대하기" onPress={openInvite} />
+        <Pressable onPress={openInvite} style={familyInviteButtonStyle}>
+          <Text style={familyInviteButtonTextStyle}>가족 초대하기</Text>
+        </Pressable>
       </View>
     </AppScreen>
   );
@@ -311,5 +314,21 @@ const familyMemberNameStyle = {
   color: theme.colors.brown,
   flex: 1,
   fontSize: 15,
+  fontWeight: "800"
+} as const;
+
+const familyInviteButtonStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.white,
+  borderColor: "rgba(74, 63, 53, 0.12)",
+  borderRadius: 16,
+  borderWidth: 1,
+  height: 52,
+  justifyContent: "center"
+} as const;
+
+const familyInviteButtonTextStyle = {
+  color: theme.colors.brown,
+  fontSize: 14,
   fontWeight: "800"
 } as const;

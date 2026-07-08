@@ -1,10 +1,28 @@
 import { pixelNumber } from "../overrides";
 
 export const FamilyPixelStyles = {
-  topOffset: pixelNumber("FAM-001", "topOffset", 0),
-  cardRadius: pixelNumber("FAM-001", "cardRadius", 22),
-  roleCardHeight: pixelNumber("FAM-001", "roleCardHeight", 0),
-  roleCardGap: pixelNumber("FAM-001", "roleCardGap", 0),
-  inviteRowHeight: pixelNumber("FAM-001", "inviteRowHeight", 0),
-  iconSize: pixelNumber("FAM-001", "iconSize", 0)
+  get horizontalOffset() {
+    return pixelNumber("FAM-001", "horizontalOffset", 0);
+  },
+  get topOffset() {
+    return pixelNumber("FAM-001", "topOffset", -20);
+  },
+  get scale() {
+    return pixelNumber("FAM-001", "scale", 0.78);
+  },
+  get cardRadius() {
+    return pixelNumber("FAM-001", "cardRadius", 22);
+  },
+  get roleCardHeight() {
+    return pixelNumber("FAM-001", "roleCardHeight", 0);
+  },
+  get roleCardGap() {
+    return pixelNumber("FAM-001", "roleCardGap", 0);
+  },
+  get inviteRowHeight() {
+    return pixelNumber("FAM-001", "inviteRowHeight", 0);
+  },
+  get iconSize() {
+    return pixelNumber("FAM-001", "iconSize", 0);
+  }
 } as const;

@@ -96,9 +96,9 @@ describe("UI Pixel Lock source contract", () => {
       ["app/(tabs)/reports.tsx", "SegmentedControl"],
       ["app/(tabs)/reports.tsx", "LineChartCard"],
       ["app/(tabs)/reports.tsx", "DonutChartCard"],
-      ["app/family/index.tsx", "familyReferenceScale = 1"],
-      ["app/family/index.tsx", "familyReferenceHorizontalOffset = 0"],
-      ["app/family/index.tsx", "familyReferenceVerticalOffset = 0"],
+      ["app/family/index.tsx", "FamilyPixelStyles.scale"],
+      ["app/family/index.tsx", "FamilyPixelStyles.horizontalOffset"],
+      ["app/family/index.tsx", "FamilyPixelStyles.topOffset"],
       ["app/family/index.tsx", "familyReferenceFrameStyle"],
       ["app/family/index.tsx", "FamilyPixelStatusBar"],
       ["app/family/index.tsx", "familyInviteRows"],
@@ -109,6 +109,10 @@ describe("UI Pixel Lock source contract", () => {
       const filePath = join(mobileRoot, relativePath);
       expect(readFileSync(filePath, "utf8")).toContain(expectedText);
     }
+
+    const familyPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/FamilyPixelStyles.ts"), "utf8");
+    expect(familyPixelStyleSource).toContain('return pixelNumber("FAM-001", "scale", 0.78)');
+    expect(familyPixelStyleSource).toContain('return pixelNumber("FAM-001", "topOffset", -20)');
 
     for (const asset of ["recommendation_baby_carrier.png", "recommendation_diaper.png", "recommendation_blocks.png"]) {
       expect(existsSync(join(mobileRoot, "assets/illustrations", asset)), `${asset} should exist`).toBe(true);
