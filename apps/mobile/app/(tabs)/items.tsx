@@ -7,6 +7,7 @@ import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton } from "../../src/ui";
 import { theme } from "../../src/theme";
+import { ItemListPixelStyles } from "../../src/pixelLock/styles";
 
 const toddlerImage = require("../../assets/illustrations/toddler.png");
 const recommendationBabyCarrierImage = require("../../assets/illustrations/recommendation_baby_carrier.png");
@@ -16,16 +17,15 @@ const tabOptions = ["0-6개월", "6-12개월", "12-24개월", "24개월+"] as co
 const recommendationScreenId = "pixel-screen-ITEM-001 ITEM-001";
 const recommendationHorizontalOffset = 0;
 const recommendationVerticalOffset = 0;
-const recommendationPixelScale = 0.82;
-const recommendationScaleHorizontalOffset = -30;
-const recommendationScaleVerticalOffset = -50;
-const recommendationPixelScaleFrameStyle = {
-  transform: [
-    { translateX: recommendationScaleHorizontalOffset },
-    { translateY: recommendationScaleVerticalOffset },
-    { scale: recommendationPixelScale }
-  ]
-} as const;
+function recommendationPixelScaleFrameStyle() {
+  return {
+    transform: [
+      { translateX: ItemListPixelStyles.horizontalOffset },
+      { translateY: ItemListPixelStyles.topOffset },
+      { scale: ItemListPixelStyles.scale }
+    ]
+  } as const;
+}
 const recommendationPixelFrameStyle = {
   gap: 14,
   transform: [{ translateX: recommendationHorizontalOffset }, { translateY: recommendationVerticalOffset }]
@@ -117,7 +117,7 @@ export default function ItemsScreen() {
 
   return (
     <AppScreen>
-      <View style={recommendationPixelScaleFrameStyle}>
+      <View style={recommendationPixelScaleFrameStyle()}>
         <View accessibilityLabel={recommendationScreenId} style={recommendationPixelFrameStyle}>
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
             <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>추천</Text>

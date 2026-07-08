@@ -82,9 +82,9 @@ describe("UI Pixel Lock source contract", () => {
       ["app/(tabs)/items.tsx", "recommendationBlocksImage"],
       ["app/(tabs)/items.tsx", "recommendationHorizontalOffset = 0"],
       ["app/(tabs)/items.tsx", "recommendationVerticalOffset = 0"],
-      ["app/(tabs)/items.tsx", "recommendationPixelScale = 0.82"],
-      ["app/(tabs)/items.tsx", "recommendationScaleHorizontalOffset = -30"],
-      ["app/(tabs)/items.tsx", "recommendationScaleVerticalOffset = -50"],
+      ["app/(tabs)/items.tsx", "ItemListPixelStyles.scale"],
+      ["app/(tabs)/items.tsx", "ItemListPixelStyles.horizontalOffset"],
+      ["app/(tabs)/items.tsx", "ItemListPixelStyles.topOffset"],
       ["app/(tabs)/items.tsx", "recommendationPixelScaleFrameStyle"],
       ["app/(tabs)/items.tsx", "recommendationPixelFrameStyle"],
       ["app/items/[itemTemplateId].tsx", "ProductComparisonRow"],
@@ -113,6 +113,11 @@ describe("UI Pixel Lock source contract", () => {
     const familyPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/FamilyPixelStyles.ts"), "utf8");
     expect(familyPixelStyleSource).toContain('return pixelNumber("FAM-001", "scale", 0.78)');
     expect(familyPixelStyleSource).toContain('return pixelNumber("FAM-001", "topOffset", -20)');
+
+    const itemListPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/ItemListPixelStyles.ts"), "utf8");
+    expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "scale", 0.48)');
+    expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "topOffset", -30)');
+    expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "horizontalOffset", 0)');
 
     for (const asset of ["recommendation_baby_carrier.png", "recommendation_diaper.png", "recommendation_blocks.png"]) {
       expect(existsSync(join(mobileRoot, "assets/illustrations", asset)), `${asset} should exist`).toBe(true);
