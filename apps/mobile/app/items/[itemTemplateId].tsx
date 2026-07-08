@@ -18,7 +18,7 @@ import {
 import { theme } from "../../src/theme";
 
 const productImage = require("../../assets/illustrations/product_diaper_pack.png");
-const productDetailScreenId = "ITEM-002 · ITEM-003 · ITEM-004";
+const productDetailScreenId = "pixel-screen-ITEM-002 ITEM-002 · ITEM-003 · ITEM-004";
 const productDetailHeaderSpacerStyle = { minHeight: 0 } as const;
 const productDetailViewportOffset = 8;
 const productDetailHorizontalOffset = 0;

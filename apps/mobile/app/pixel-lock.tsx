@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams, useRootNavigationState } from "expo-router";
 import { useOnboardingProgressStore } from "../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
@@ -20,6 +20,7 @@ const pixelLockRoutes = {
 
 export default function PixelLockLauncher() {
   const params = useLocalSearchParams<{ screen?: string }>();
+  const rootNavigationState = useRootNavigationState();
   const clearSession = useSessionStore((state) => state.clearSession);
   const clearSelectedChildId = useSelectedChildStore((state) => state.clearSelectedChildId);
   const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
@@ -28,12 +29,13 @@ export default function PixelLockLauncher() {
   const href = pixelLockRoutes[screenId as keyof typeof pixelLockRoutes] ?? pixelLockRoutes["SPL-001"];
 
   useEffect(() => {
-    if (!__DEV__) return;
+    if (!__DEV__ || !rootNavigationState?.key) return;
     clearSession();
     clearSelectedChildId();
     resetOnboarding();
-    router.replace(href);
-  }, [clearSelectedChildId, clearSession, href, resetOnboarding]);
+    const timer = setTimeout(() => router.replace(href), 0);
+    return () => clearTimeout(timer);
+  }, [clearSelectedChildId, clearSession, href, resetOnboarding, rootNavigationState?.key]);
 
   if (!__DEV__) {
     return <Redirect href="/" />;

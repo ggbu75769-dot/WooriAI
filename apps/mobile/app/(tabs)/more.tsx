@@ -4,7 +4,7 @@ import { theme } from "../../src/theme";
 import { AppScreen } from "../../src/ui";
 
 const moreAvatarImage = require("../../assets/illustrations/toddler.png");
-const moreReferenceScreenId = "SET-001 · FAM-001 · IMP-001";
+const moreReferenceScreenId = "pixel-screen-SET-001 SET-001 · FAM-001 · IMP-001";
 const moreMenuRows = [
   { icon: "♙", title: "프로필 관리", route: "/family" },
   { icon: "♧", title: "알림 설정", route: "/settings" },

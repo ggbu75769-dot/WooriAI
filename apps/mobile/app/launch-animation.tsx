@@ -6,7 +6,7 @@ import { theme } from "../src/theme";
 
 declare const __DEV__: boolean;
 
-const splashScreenId = "SPL-001";
+const splashScreenId = "pixel-screen-SPL-001 SPL-001";
 const introHoldMs = 3600;
 const splashLogo = require("../assets/illustrations/logo_mark.png");
 const intro = { label: "intro", source: require("../assets/illustrations/family.png") };

@@ -19,7 +19,6 @@ const pixelLockBlockList = [
   ".pixel-lock-avd",
   "artifacts",
   "backups",
-  "apps/mobile/.expo",
   "apps/mobile/android"
 ].map((name) => new RegExp(`${escapeRegex(path.resolve(workspaceRoot, name))}[/\\\\].*`));
 config.resolver.blockList = new RegExp(

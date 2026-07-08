@@ -26,11 +26,27 @@ type ScreenResult = {
   name: string;
   score: number;
   pass: boolean;
+  status: "PASS" | "FAIL" | "INVALID" | "BLOCKED";
+  renderValid: boolean;
   screenshot: string;
   diff: string;
   heatmap: string;
   zones?: Record<string, number>;
+  render?: RenderValidation;
   error?: string;
+};
+
+type RenderValidation = {
+  renderValid: boolean;
+  invalidReasons: string[];
+  whitePixelRatio: number;
+  uniqueColorCount: number;
+  nonBackgroundAreaRatio: number;
+  sentinelsExpected: string[];
+  sentinelsFound: string[];
+  uiautomatorXml: string;
+  logcatPath: string;
+  logcatErrors: string[];
 };
 
 const repoRoot = process.cwd();
@@ -48,6 +64,19 @@ const cachePath = join(reportDir, "cache.json");
 const cropPolicy = process.env.PIXEL_ANDROID_CROP
   ? `shared-device-crop:${process.env.PIXEL_ANDROID_CROP}`
   : "full-adb-screencap-resized-to-reference";
+const sentinelText: Record<string, string[]> = {
+  "SPL-001": ["pixel-screen-SPL-001", "SPL-001", "우리아이"],
+  "HOME-001": ["pixel-screen-HOME-001", "HOME-001", "우리아이", "뽀미", "3,482,000원", "+ 지출 기록하기"],
+  "EXP-001": ["pixel-screen-EXP-001", "EXP-001", "지출", "기록"],
+  "ITEM-001": ["pixel-screen-ITEM-001", "ITEM-001", "추천", "우리아이"],
+  "ITEM-002": ["pixel-screen-ITEM-002", "ITEM-002", "제휴", "구매"],
+  "REP-001": ["pixel-screen-REP-001", "REP-001", "리포트"],
+  "FAM-001": ["pixel-screen-FAM-001", "FAM-001", "가족", "초대"],
+  "IMP-003": ["pixel-screen-IMP-003", "IMP-003", "미리보기", "저장"],
+  "SET-001": ["pixel-screen-SET-001", "SET-001", "설정", "개인정보", "제휴 고지", "데이터 삭제"]
+};
+const logcatErrorPattern =
+  /Unable to load script|Failed to connect|Exception in native call|ReactNativeJS.*(?:Error|Invariant|TypeError|ReferenceError)|Invariant Violation|Unable to resolve module|Failed to construct transformer|Metro.*(?:404|500)|BUNDLE.*ERROR|RedBox|Could not get BatchedBridge/i;
 
 function ensureDirs() {
   for (const dir of [screenshotDir, diffDir, heatmapDir, logDir, reportDir]) {
@@ -226,10 +255,106 @@ function openScreen(screenId: string, screens = readScreens()) {
 function captureScreen(screenId: string) {
   if (!hasDevice()) throw new Error("ADB_DEVICE_NOT_FOUND");
   const outputPath = join(screenshotDir, `${screenId}.png`);
-  const result = adb(["exec-out", "screencap", "-p"], { binary: true });
-  const buffer = Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout || "");
-  writeFileSync(outputPath, buffer);
+  const remotePath = `/sdcard/wooriai-pixel-${screenId}.png`;
+  adb(["shell", "screencap", "-p", remotePath]);
+  adb(["pull", remotePath, outputPath]);
+  adb(["shell", "rm", remotePath], { allowFailure: true });
   return outputPath;
+}
+
+function clearLogcat() {
+  adb(["logcat", "-c"], { allowFailure: true });
+}
+
+function captureLogcat(screenId: string) {
+  const logcatPath = join(logDir, `${screenId}-logcat.txt`);
+  const result = adb(["logcat", "-d", "-t", "1200"], { allowFailure: true });
+  const text = String(result.stdout || result.stderr || "");
+  writeFileSync(logcatPath, text, "utf8");
+  return { logcatPath, text };
+}
+
+function dumpUiAutomator(screenId: string) {
+  const xmlPath = join(logDir, `${screenId}-window.xml`);
+  adb(["shell", "uiautomator", "dump", "/sdcard/window.xml"], { allowFailure: true });
+  const result = adb(["shell", "cat", "/sdcard/window.xml"], { allowFailure: true });
+  const text = String(result.stdout || "");
+  writeFileSync(xmlPath, text, "utf8");
+  return { xmlPath, text };
+}
+
+function compactText(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+async function imageBlanknessMetrics(screenshotPath: string) {
+  const image = sharp(screenshotPath).ensureAlpha();
+  const metadata = await image.metadata();
+  if (!metadata.width || !metadata.height) throw new Error(`BAD_SCREENSHOT ${screenshotPath}`);
+  const raw = await image.raw().toBuffer();
+  const total = metadata.width * metadata.height;
+  const colors = new Set<number>();
+  const quantizedCounts = new Map<number, number>();
+  let white = 0;
+
+  for (let index = 0; index < total; index += 1) {
+    const offset = index * 4;
+    const red = raw[offset];
+    const green = raw[offset + 1];
+    const blue = raw[offset + 2];
+    if (red >= 245 && green >= 245 && blue >= 245) white += 1;
+    colors.add((red << 16) | (green << 8) | blue);
+    const quantized = ((red >> 4) << 8) | ((green >> 4) << 4) | (blue >> 4);
+    quantizedCounts.set(quantized, (quantizedCounts.get(quantized) || 0) + 1);
+  }
+
+  const dominantCount = Math.max(...quantizedCounts.values());
+  return {
+    whitePixelRatio: Number((white / total).toFixed(6)),
+    uniqueColorCount: colors.size,
+    nonBackgroundAreaRatio: Number((1 - dominantCount / total).toFixed(6))
+  };
+}
+
+async function validateRender(screenId: string, screenshotPath = join(screenshotDir, `${screenId}.png`)): Promise<RenderValidation> {
+  const expected = sentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
+  const metrics = await imageBlanknessMetrics(screenshotPath);
+  const { xmlPath, text: xmlText } = dumpUiAutomator(screenId);
+  const { logcatPath, text: logcatText } = captureLogcat(screenId);
+  const searchable = compactText(`${xmlText}\n${logcatText}`);
+  const sentinelsFound = expected.filter((sentinel) => searchable.includes(sentinel));
+  const logcatErrors = logcatText
+    .split(/\r?\n/)
+    .filter((line) => logcatErrorPattern.test(line))
+    .slice(0, 20);
+  const invalidReasons: string[] = [];
+  const likelyBlank =
+    metrics.whitePixelRatio > 0.82 &&
+    metrics.uniqueColorCount < 2500 &&
+    metrics.nonBackgroundAreaRatio < 0.2;
+
+  if (likelyBlank) {
+    invalidReasons.push(
+      `blank_or_shell white=${metrics.whitePixelRatio.toFixed(4)} unique=${metrics.uniqueColorCount} nonBg=${metrics.nonBackgroundAreaRatio.toFixed(4)}`
+    );
+  }
+  if (sentinelsFound.length === 0) {
+    invalidReasons.push(`missing_sentinel expected=${expected.join("|")}`);
+  }
+  if (logcatErrors.length > 0) {
+    invalidReasons.push("logcat_js_or_bundle_error");
+  }
+
+  return {
+    renderValid: invalidReasons.length === 0,
+    invalidReasons,
+    ...metrics,
+    sentinelsExpected: expected,
+    sentinelsFound,
+    uiautomatorXml: xmlPath,
+    logcatPath,
+    logcatErrors
+  };
 }
 
 function parseCrop() {
@@ -260,7 +385,7 @@ function zoneForY(y: number, height: number) {
   return "bottom-tab/footer";
 }
 
-async function diffScreen(screenId: string, screens = readScreens()): Promise<ScreenResult> {
+async function diffScreen(screenId: string, screens = readScreens(), render?: RenderValidation): Promise<ScreenResult> {
   const screen = screens[screenId];
   if (!screen) throw new Error(`UNKNOWN_SCREEN ${screenId}`);
   const screenshotPath = join(screenshotDir, `${screenId}.png`);
@@ -269,6 +394,22 @@ async function diffScreen(screenId: string, screens = readScreens()): Promise<Sc
   const heatmapPath = join(heatmapDir, `${screenId}.png`);
   if (!existsSync(screenshotPath)) throw new Error(`SCREENSHOT_MISSING ${screenshotPath}`);
   if (!existsSync(referencePath)) throw new Error(`REFERENCE_MISSING ${referencePath}`);
+
+  if (render && !render.renderValid) {
+    return {
+      screenId,
+      name: screen.name,
+      score: 1,
+      pass: false,
+      status: "INVALID",
+      renderValid: false,
+      screenshot: screenshotPath,
+      diff: diffPath,
+      heatmap: heatmapPath,
+      render,
+      error: render.invalidReasons.join("; ")
+    };
+  }
 
   const referenceMeta = await sharp(referencePath).metadata();
   if (!referenceMeta.width || !referenceMeta.height) throw new Error(`BAD_REFERENCE ${referencePath}`);
@@ -328,9 +469,12 @@ async function diffScreen(screenId: string, screens = readScreens()): Promise<Sc
     name: screen.name,
     score,
     pass: score <= threshold,
+    status: score <= threshold ? "PASS" : "FAIL",
+    renderValid: render?.renderValid ?? true,
     screenshot: screenshotPath,
     diff: diffPath,
     heatmap: heatmapPath,
+    render,
     zones
   };
 }
@@ -345,6 +489,7 @@ function targetsFor(command: string, screenId?: string) {
     const withGuard = target?.moreSettingsGuardRequired ? [screenId, "SET-001"] : [screenId];
     return Array.from(new Set(withGuard));
   }
+  if (command === "validate-render") return [screenId];
   return [screenId];
 }
 
@@ -369,17 +514,27 @@ function writeReports(device: DeviceInfo, results: ScreenResult[], status = "OK"
     `- Crop policy: ${cropPolicy}`,
     `- Threshold: ${threshold.toFixed(4)}`,
     "",
-    "| Screen | Score | Pass | Top zones |",
-    "| --- | ---: | --- | --- |",
+    "| Screen | Render | Score | Status | Evidence |",
+    "| --- | --- | ---: | --- | --- |",
     ...results.map((result) => {
-      const zones = result.zones
+      const evidence = result.status === "INVALID"
+        ? [
+            result.error || "invalid render",
+            result.render?.sentinelsFound.length ? `sentinel:${result.render.sentinelsFound.join(",")}` : "",
+            result.render
+              ? `white:${result.render.whitePixelRatio.toFixed(4)} unique:${result.render.uniqueColorCount} nonBg:${result.render.nonBackgroundAreaRatio.toFixed(4)}`
+              : ""
+          ]
+            .filter(Boolean)
+            .join("; ")
+        : result.zones
         ? Object.entries(result.zones)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 2)
             .map(([zone, score]) => `${zone}:${score.toFixed(4)}`)
             .join(", ")
         : result.error || "";
-      return `| ${result.screenId} ${result.name} | ${result.score.toFixed(4)} | ${result.pass ? "PASS" : "FAIL"} | ${zones} |`;
+      return `| ${result.screenId} ${result.name} | ${result.renderValid ? "valid" : "invalid"} | ${result.score.toFixed(4)} | ${result.status} | ${evidence} |`;
     })
   ];
   writeFileSync(latestMdPath, `${lines.join("\n")}\n`, "utf8");
@@ -409,6 +564,8 @@ function blockedReport(error: unknown, targetIds?: string[]) {
     name: screens[screenId]?.name ?? screenId,
     score: 1,
     pass: false,
+    status: "BLOCKED" as const,
+    renderValid: false,
     screenshot: join(screenshotDir, `${screenId}.png`),
     diff: join(diffDir, `${screenId}.png`),
     heatmap: join(heatmapDir, `${screenId}.png`),
@@ -429,19 +586,26 @@ async function runValidation(command: string, screenId?: string, force = false) 
   for (const targetId of targetIds) {
     const currentHash = sourceHash(targetId);
     const screenshotPath = join(screenshotDir, `${targetId}.png`);
-    const canSkipCapture = !force && existsSync(screenshotPath) && cache[targetId] === currentHash;
+    const canSkipCapture = command !== "validate-render" && !force && existsSync(screenshotPath) && cache[targetId] === currentHash;
     if (!canSkipCapture) {
+      clearLogcat();
       openScreen(targetId, screens);
       const waitMs = Number(process.env.PIXEL_ANDROID_WAIT_MS || 700);
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
       captureScreen(targetId);
       cache[targetId] = currentHash;
     }
-    results.push(await diffScreen(targetId, screens));
+    const render = await validateRender(targetId, screenshotPath);
+    results.push(await diffScreen(targetId, screens, render));
   }
 
   writeCache(cache);
-  writeReports(device, results, results.every((result) => result.pass) ? "PASS" : "FAIL");
+  const status = results.some((result) => result.status === "INVALID")
+    ? "INVALID"
+    : results.every((result) => result.pass)
+      ? "PASS"
+      : "FAIL";
+  writeReports(device, results, status);
   return results;
 }
 
@@ -495,8 +659,8 @@ async function main() {
     }
     if (command === "diff") {
       ensureDirs();
-      const result = await diffScreen(screenId);
-      writeReports(deviceInfo(discoverPackageName()), [result], result.pass ? "PASS" : "FAIL");
+      const result = await diffScreen(screenId, readScreens(), await validateRender(screenId));
+      writeReports(deviceInfo(discoverPackageName()), [result], result.status);
       printLatest();
       return;
     }

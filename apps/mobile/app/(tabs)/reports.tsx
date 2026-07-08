@@ -7,7 +7,7 @@ import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
 import { theme } from "../../src/theme";
 
-const reportReferenceScreenId = "REP-001 · REP-002";
+const reportReferenceScreenId = "pixel-screen-REP-001 REP-001 · REP-002";
 const previewReportTotalKrw = 1_245_700;
 const previewCumulativeTotalKrw = 1_245_700;
 const reportReferenceHorizontalOffset = -16;

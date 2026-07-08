@@ -3,6 +3,7 @@ node_modules/
 .turbo/
 .android-avd/
 .gradle-home/
+.toolcache/
 dist/
 coverage/
 .next/

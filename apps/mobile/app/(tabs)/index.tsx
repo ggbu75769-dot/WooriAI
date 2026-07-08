@@ -160,7 +160,7 @@ export default function HomeScreen() {
 
   return (
     <AppScreen>
-      <View style={homePixelScaleFrameStyle}>
+      <View accessibilityLabel="pixel-screen-HOME-001" testID="pixel-screen-HOME-001" style={homePixelScaleFrameStyle}>
         <View style={homePixelFrameStyle}>
           <ScreenHeader
             eyebrow="HOME-001"

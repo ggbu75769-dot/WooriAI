@@ -6,7 +6,7 @@ import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 
-const importUploadScreenId = "IMP-001 / IMP-002";
+const importUploadScreenId = "pixel-screen-IMP-003 IMP-001 / IMP-002 / IMP-003";
 
 const excelPreviewPixelScale = 0.902;
 const excelPreviewPixelScaleY = 1.149;

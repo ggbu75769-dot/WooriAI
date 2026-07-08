@@ -8,7 +8,7 @@ import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, PrimaryButton, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
 
-const quickExpenseScreenId = "EXP-001";
+const quickExpenseScreenId = "pixel-screen-EXP-001 EXP-001";
 const quickExpenseAmountPreview = "₩ 38,500";
 const quickExpenseCategories = [
   { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "▱", label: "기저귀" },

@@ -1,20 +1,20 @@
 # WooriAI Release Gate Evidence
 
-Generated: 2026-07-08T06:00:43.441Z
+Generated: 2026-07-08T08:52:48.460Z
 Mode: executed
 
 | Gate | Command | Result | Duration |
 | --- | --- | --- | --- |
-| Install | `pnpm install --frozen-lockfile` | PASS | 6940ms |
-| Env example | `pnpm check:env:example` | PASS | 5747ms |
-| Prisma validate | `pnpm --filter api prisma:validate` | PASS | 8528ms |
-| Prisma generate | `pnpm --filter api prisma:generate` | PASS | 8588ms |
-| Lint | `pnpm lint` | PASS | 14572ms |
-| Typecheck | `pnpm typecheck` | PASS | 13997ms |
-| All tests | `pnpm test` | PASS | 11275ms |
-| API e2e | `pnpm --filter api test:e2e` | PASS | 17959ms |
-| Build dry-run | `pnpm build` | PASS | 14811ms |
-| Peer dependencies | `pnpm peers check` | PASS | 6164ms |
+| Install | `pnpm install --frozen-lockfile` | PASS | 3778ms |
+| Env example | `pnpm check:env:example` | PASS | 4025ms |
+| Prisma validate | `pnpm --filter api prisma:validate` | PASS | 6233ms |
+| Prisma generate | `pnpm --filter api prisma:generate` | PASS | 5952ms |
+| Lint | `pnpm lint` | PASS | 9884ms |
+| Typecheck | `pnpm typecheck` | PASS | 12510ms |
+| All tests | `pnpm test` | PASS | 7832ms |
+| API e2e | `pnpm --filter api test:e2e` | PASS | 15638ms |
+| Build dry-run | `pnpm build` | PASS | 14067ms |
+| Peer dependencies | `pnpm peers check` | PASS | 3490ms |
 
 ## Notes
 

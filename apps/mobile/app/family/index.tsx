@@ -12,7 +12,7 @@ const previewMembers = [
   { id: "preview-grandma", displayName: "할머니", role: "viewer", status: "pending" }
 ] as const;
 
-const familyReferenceScreenId = "FAM-001";
+const familyReferenceScreenId = "pixel-screen-FAM-001 FAM-001";
 const familyReferenceScale = 1;
 const familyReferenceHorizontalOffset = 0;
 const familyReferenceVerticalOffset = 0;
