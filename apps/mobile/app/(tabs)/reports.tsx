@@ -6,22 +6,22 @@ import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
 import { theme } from "../../src/theme";
+import { ReportPixelStyles } from "../../src/pixelLock/styles";
 
 const reportReferenceScreenId = "pixel-screen-REP-001 REP-001 · REP-002";
 const previewReportTotalKrw = 1_245_700;
 const previewCumulativeTotalKrw = 1_245_700;
 const reportReferenceHorizontalOffset = -16;
 const reportReferenceVerticalOffset = -4;
-const reportReferenceScale = 0.732;
-const reportReferenceScaleHorizontalOffset = -60;
-const reportReferenceScaleVerticalOffset = -81;
-const reportReferenceScaleFrameStyle = {
-  transform: [
-    { translateX: reportReferenceScaleHorizontalOffset },
-    { translateY: reportReferenceScaleVerticalOffset },
-    { scale: reportReferenceScale }
-  ]
-} as const;
+function reportReferenceScaleFrameStyle() {
+  return {
+    transform: [
+      { translateX: ReportPixelStyles.horizontalOffset },
+      { translateY: ReportPixelStyles.topOffset },
+      { scale: ReportPixelStyles.scale }
+    ]
+  } as const;
+}
 
 function formatKrw(value: number) {
   return `₩${value.toLocaleString("ko-KR")}`;
@@ -60,7 +60,7 @@ export default function ReportsScreen() {
 
   return (
     <AppScreen>
-      <View style={reportReferenceScaleFrameStyle}>
+      <View style={reportReferenceScaleFrameStyle()}>
         <View accessibilityLabel={reportReferenceScreenId} style={reportReferenceFrameStyle}>
           <ReportPixelStatusBar />
           <Text style={reportReferenceHeaderStyle}>리포트</Text>

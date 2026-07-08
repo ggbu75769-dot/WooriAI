@@ -1,11 +1,28 @@
 import { pixelNumber } from "../overrides";
 
 export const ReportPixelStyles = {
-  topOffset: pixelNumber("REP-001", "topOffset", -81),
-  scale: pixelNumber("REP-001", "scale", 0.732),
-  cardRadius: pixelNumber("REP-001", "cardRadius", 22),
-  chartCardHeight: pixelNumber("REP-001", "chartCardHeight", 0),
-  chartBarWidth: pixelNumber("REP-001", "chartBarWidth", 0),
-  chartBarGap: pixelNumber("REP-001", "chartBarGap", 0),
-  rowHeight: pixelNumber("REP-001", "rowHeight", 0)
+  get horizontalOffset() {
+    return pixelNumber("REP-001", "horizontalOffset", -60);
+  },
+  get topOffset() {
+    return pixelNumber("REP-001", "topOffset", -81);
+  },
+  get scale() {
+    return pixelNumber("REP-001", "scale", 0.732);
+  },
+  get cardRadius() {
+    return pixelNumber("REP-001", "cardRadius", 22);
+  },
+  get chartCardHeight() {
+    return pixelNumber("REP-001", "chartCardHeight", 0);
+  },
+  get chartBarWidth() {
+    return pixelNumber("REP-001", "chartBarWidth", 0);
+  },
+  get chartBarGap() {
+    return pixelNumber("REP-001", "chartBarGap", 0);
+  },
+  get rowHeight() {
+    return pixelNumber("REP-001", "rowHeight", 0);
+  }
 } as const;

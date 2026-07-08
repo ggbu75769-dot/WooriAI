@@ -195,9 +195,9 @@ describe("UI Pixel Lock source contract", () => {
     expect(reportSource).toContain("reportReferenceHeaderStyle");
     expect(reportSource).toContain("reportReferenceHorizontalOffset = -16");
     expect(reportSource).toContain("reportReferenceVerticalOffset = -4");
-    expect(reportSource).toContain("reportReferenceScale = 0.732");
-    expect(reportSource).toContain("reportReferenceScaleHorizontalOffset = -60");
-    expect(reportSource).toContain("reportReferenceScaleVerticalOffset = -81");
+    expect(reportSource).toContain("ReportPixelStyles.scale");
+    expect(reportSource).toContain("ReportPixelStyles.horizontalOffset");
+    expect(reportSource).toContain("ReportPixelStyles.topOffset");
     expect(reportSource).toContain("reportReferenceScaleFrameStyle");
     expect(reportSource).toContain("reportReferencePeriodRowStyle");
     expect(reportSource).toContain("previewReportTotalKrw");
@@ -207,6 +207,11 @@ describe("UI Pixel Lock source contract", () => {
     expect(reportSource).toContain("DonutChartCard");
     expect(reportSource).not.toContain('ScreenHeader eyebrow="REP-001');
     expect(reportSource).not.toContain('["월간", "분기", "연간"].map');
+
+    const reportPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/ReportPixelStyles.ts"), "utf8");
+    expect(reportPixelStyleSource).toContain('return pixelNumber("REP-001", "scale", 0.732)');
+    expect(reportPixelStyleSource).toContain('return pixelNumber("REP-001", "topOffset", -81)');
+    expect(reportPixelStyleSource).toContain('return pixelNumber("REP-001", "horizontalOffset", -60)');
   });
 
   it("locks the excel import route to the reference preview-before-save surface", () => {
