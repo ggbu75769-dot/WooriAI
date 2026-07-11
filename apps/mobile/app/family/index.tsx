@@ -1,10 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Pressable, Text, View } from "react-native";
-import { createInvite, listHouseholdMembers } from "../../src/api/client";
+import { Alert, Pressable, Text, View } from "react-native";
+import {
+  createInvite,
+  listHouseholdMembers,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_SESSION_TOKEN,
+  LOCAL_USER_ID,
+  removeHouseholdMember
+} from "../../src/api/client";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
+import { AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
 import { FamilyPixelStyles } from "../../src/pixelLock/styles";
 
 const previewMembers = [
@@ -29,19 +36,6 @@ const familyInviteRows = [
   { icon: "□", title: "초대 코드 공유", value: "DAON2025" }
 ] as const;
 
-function FamilyPixelStatusBar() {
-  return (
-    <View style={familyStatusBarStyle}>
-      <Text style={familyStatusTextStyle}>9:41</Text>
-      <View style={familySignalGroupStyle}>
-        <View style={familySignalDotStyle} />
-        <View style={familySignalPillStyle} />
-        <View style={familyBatteryStyle} />
-      </View>
-    </View>
-  );
-}
-
 function FamilyInviteRow({ icon, title, value, onPress }: { icon: string; title: string; value?: string; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={familyInviteRowStyle}>
@@ -55,34 +49,84 @@ function FamilyInviteRow({ icon, title, value, onPress }: { icon: string; title:
 
 export default function FamilyScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
-  const householdId = useSessionStore((state) => state.defaultHouseholdId);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const sessionUserId = useSessionStore((state) => state.userId);
+  const userId = sessionUserId ?? (isTestSession ? LOCAL_USER_ID : null);
+  const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
+  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const queryClient = useQueryClient();
+  const hasSession = Boolean(authToken && householdId);
   const members = useQuery({
     queryKey: ["household-members", householdId],
-    enabled: Boolean(accessToken && householdId),
-    queryFn: () => listHouseholdMembers(accessToken!, householdId!)
+    enabled: hasSession,
+    queryFn: () => listHouseholdMembers(authToken!, householdId!)
   });
   const quickInvite = useMutation({
-    mutationFn: () => createInvite(accessToken!, householdId!, "co_parent", "link"),
+    mutationFn: () => createInvite(authToken!, householdId!, "co_parent", "link"),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
       router.push("/family/invite");
     }
   });
-  const visibleMembers = members.data?.members ?? previewMembers;
+  const removeMember = useMutation({
+    mutationFn: (memberId: string) => removeHouseholdMember(authToken!, householdId!, memberId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["household-members"] });
+    }
+  });
+
+  if (hasSession && (members.isLoading || !members.data)) {
+    return (
+      <AppScreen>
+        <EmptyStateCard title="가족 정보를 불러오고 있어요." actionLabel="잠시만요" />
+      </AppScreen>
+    );
+  }
+
+  if (hasSession && members.isError) {
+    return (
+      <AppScreen>
+        <EmptyStateCard
+          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+          actionLabel="다시 시도"
+          onPress={() => members.refetch()}
+        />
+      </AppScreen>
+    );
+  }
+
+  const visibleMembers = hasSession ? members.data!.members : previewMembers;
   const avatarNames = visibleMembers.map((member) => ("avatar" in member ? member.avatar : member.displayName));
+  const myRole = hasSession ? visibleMembers.find((member) => "userId" in member && member.userId === userId)?.role : undefined;
+  const canManageMembers = hasSession && myRole === "owner";
   const openInvite = () => {
-    if (accessToken && householdId) quickInvite.mutate();
+    if (authToken && householdId) quickInvite.mutate();
     else router.push("/family/invite");
+  };
+  const confirmRemoveMember = (memberId: string, memberDisplayName: string) => {
+    Alert.alert(`${memberDisplayName}님을 삭제할까요?`, "가족 구성원에서 삭제해요.", [
+      { text: "취소", style: "cancel" },
+      {
+        text: "삭제",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert("정말 삭제할까요?", "삭제하면 되돌릴 수 없어요.", [
+            { text: "취소", style: "cancel" },
+            { text: "삭제할게요", style: "destructive", onPress: () => removeMember.mutate(memberId) }
+          ]);
+        }
+      }
+    ]);
   };
 
   return (
     <AppScreen>
       <View accessibilityLabel={familyReferenceScreenId} style={familyReferenceFrameStyle()}>
-        <FamilyPixelStatusBar />
-
         <View style={familyHeaderRowStyle}>
-          <Text style={familyBackStyle}>‹</Text>
+          <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={12} onPress={() => router.back()}>
+            <Text style={familyBackStyle}>‹</Text>
+          </Pressable>
           <Text style={familyTitleStyle}>가족과 함께</Text>
         </View>
 
@@ -118,6 +162,17 @@ export default function FamilyScreen() {
               <FamilyAvatarGroup names={["avatar" in member ? member.avatar : member.displayName]} />
               <Text style={familyMemberNameStyle}>{member.displayName}</Text>
               <StatusBadge label={member.role === "owner" ? "관리자" : "멤버"} tone={member.role === "owner" ? "warning" : "neutral"} />
+              {canManageMembers && "userId" in member && member.userId !== userId ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${member.displayName} 삭제`}
+                  disabled={removeMember.isPending}
+                  onPress={() => confirmRemoveMember(member.id, member.displayName)}
+                  hitSlop={8}
+                >
+                  <Text style={familyMemberDeleteStyle}>삭제</Text>
+                </Pressable>
+              ) : null}
             </View>
           ))}
         </View>
@@ -129,46 +184,6 @@ export default function FamilyScreen() {
     </AppScreen>
   );
 }
-
-const familyStatusBarStyle = {
-  alignItems: "center",
-  flexDirection: "row",
-  justifyContent: "space-between",
-  minHeight: 14
-} as const;
-
-const familyStatusTextStyle = {
-  color: theme.colors.gray900,
-  fontSize: 11,
-  fontWeight: "800"
-} as const;
-
-const familySignalGroupStyle = {
-  alignItems: "center",
-  flexDirection: "row",
-  gap: 5
-} as const;
-
-const familySignalDotStyle = {
-  backgroundColor: theme.colors.gray900,
-  borderRadius: 4,
-  height: 7,
-  width: 7
-} as const;
-
-const familySignalPillStyle = {
-  backgroundColor: theme.colors.gray900,
-  borderRadius: 5,
-  height: 8,
-  width: 10
-} as const;
-
-const familyBatteryStyle = {
-  backgroundColor: theme.colors.gray900,
-  borderRadius: 2,
-  height: 8,
-  width: 14
-} as const;
 
 const familyHeaderRowStyle = {
   alignItems: "center",
@@ -315,6 +330,12 @@ const familyMemberNameStyle = {
   flex: 1,
   fontSize: 15,
   fontWeight: "800"
+} as const;
+
+const familyMemberDeleteStyle = {
+  color: theme.colors.danger,
+  fontSize: 13,
+  fontWeight: "700"
 } as const;
 
 const familyInviteButtonStyle = {

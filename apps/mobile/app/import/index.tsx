@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { createExcelImport } from "../../src/api/client";
+import { createExcelImport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -50,14 +50,16 @@ function ImportPreviewCategoryRow({ row }: { row: (typeof excelPreviewRows)[numb
 
 export default function ImportUploadScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const upload = useMutation({
-    mutationFn: () => createExcelImport(accessToken!, childId!, "wooriai-import.csv"),
+    mutationFn: () => createExcelImport(authToken!, childId!, "wooriai-import.csv"),
     onSuccess: (job) => {
       router.push(`/import/${job.id}`);
     }
   });
-  const canUpload = Boolean(accessToken && childId);
+  const canUpload = Boolean(authToken && childId);
   const applyPreview = () => {
     if (canUpload) {
       upload.mutate();
@@ -66,10 +68,6 @@ export default function ImportUploadScreen() {
 
   return (
     <View accessibilityLabel={importUploadScreenId} style={[styles.screen, { paddingHorizontal: ExcelPreviewPixelStyles.screenPadding }, excelPreviewPixelFrameStyle()]}>
-      <View style={styles.statusBar}>
-        <Text style={styles.statusTime}>9:41</Text>
-        <Text style={styles.statusIcons}>⌁ ◒ ▰</Text>
-      </View>
       <View style={styles.navigationBar}>
         <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
           <Text style={styles.backIcon}>‹</Text>
@@ -110,7 +108,9 @@ export default function ImportUploadScreen() {
       >
         <Text style={styles.applyButtonText}>{upload.isPending ? "분석 중..." : "적용하고 리포트 보기"}</Text>
       </Pressable>
-      {upload.error ? <Text style={{ color: theme.colors.danger }}>Upload failed</Text> : null}
+      {upload.error ? (
+        <Text style={{ color: theme.colors.danger }}>업로드하지 못했어요. 잠시 후 다시 시도해 주세요.</Text>
+      ) : null}
     </View>
   );
 }
@@ -137,22 +137,6 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     paddingHorizontal: 20,
     paddingTop: 8
-  },
-  statusBar: {
-    alignItems: "center",
-    flexDirection: "row",
-    height: 28,
-    justifyContent: "space-between"
-  },
-  statusTime: {
-    color: theme.colors.textPrimary,
-    fontSize: 12,
-    fontWeight: "800"
-  },
-  statusIcons: {
-    color: theme.colors.textPrimary,
-    fontSize: 11,
-    fontWeight: "700"
   },
   navigationBar: {
     alignItems: "center",

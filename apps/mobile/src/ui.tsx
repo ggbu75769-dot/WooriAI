@@ -537,15 +537,28 @@ const donutSegmentPalette = [
   theme.colors.gray300
 ] as const;
 
-export function LineChartCard({ title, value }: { title: string; value: string }) {
+export function LineChartCard({
+  title,
+  value,
+  deltaLabel
+}: {
+  title: string;
+  value: string;
+  deltaLabel?: string | null;
+}) {
+  const showDelta = deltaLabel !== null;
+  const deltaText = deltaLabel ?? "+12.5%";
+
   return (
     <Card style={{ gap: 8 }}>
       <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{title}</Text>
       <Text style={{ color: theme.colors.gray900, fontSize: 28, fontWeight: "800", lineHeight: 34 }}>{value}</Text>
-      <View style={{ flexDirection: "row", gap: 5 }}>
-        <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>지난 달 대비</Text>
-        <Text style={[textStyles.caption, { color: theme.colors.mainCoral, fontWeight: "800" }]}>+12.5%</Text>
-      </View>
+      {showDelta ? (
+        <View style={{ flexDirection: "row", gap: 5 }}>
+          <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>지난 달 대비</Text>
+          <Text style={[textStyles.caption, { color: theme.colors.mainCoral, fontWeight: "800" }]}>{deltaText}</Text>
+        </View>
+      ) : null}
       <View style={{ backgroundColor: "#FFF4EE", borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }}>
         {[25, 50, 75].map((top) => (
           <View key={top} style={{ backgroundColor: "rgba(255, 107, 82, 0.08)", height: 1, left: 0, position: "absolute", right: 0, top }} />
@@ -586,7 +599,23 @@ export function LineChartCard({ title, value }: { title: string; value: string }
   );
 }
 
-export function DonutChartCard({ title }: { title: string }) {
+export function DonutChartCard({
+  title,
+  segments
+}: {
+  title: string;
+  segments?: Array<{ label: string; amountKrw: number }>;
+}) {
+  const legendItems = segments
+    ? (() => {
+        const total = segments.reduce((sum, segment) => sum + segment.amountKrw, 0);
+        return segments.map((segment) => ({
+          label: segment.label,
+          percent: total > 0 ? `${Math.round((segment.amountKrw / total) * 100)}%` : "0%"
+        }));
+      })()
+    : reportCategoryLegend.map(([label, percent]) => ({ label, percent }));
+
   return (
     <Card style={{ flexDirection: "row", gap: 14 }}>
       <View style={{ alignItems: "center", height: 96, justifyContent: "center", width: 96 }}>
@@ -607,11 +636,11 @@ export function DonutChartCard({ title }: { title: string }) {
       </View>
       <View style={{ flex: 1, gap: 5 }}>
         <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "700" }]}>{title}</Text>
-        {reportCategoryLegend.map(([label, percent], index) => (
-          <View key={label} style={{ alignItems: "center", flexDirection: "row", gap: 6 }}>
-            <View style={{ backgroundColor: donutSegmentPalette[index], borderRadius: 4, height: 8, width: 8 }} />
-            <Text style={[textStyles.caption, { color: theme.colors.gray600, flex: 1 }]}>{label}</Text>
-            <Text style={[textStyles.caption, { color: theme.colors.gray600, fontWeight: "700" }]}>{percent}</Text>
+        {legendItems.map((item, index) => (
+          <View key={`${item.label}-${index}`} style={{ alignItems: "center", flexDirection: "row", gap: 6 }}>
+            <View style={{ backgroundColor: donutSegmentPalette[index % donutSegmentPalette.length], borderRadius: 4, height: 8, width: 8 }} />
+            <Text style={[textStyles.caption, { color: theme.colors.gray600, flex: 1 }]}>{item.label}</Text>
+            <Text style={[textStyles.caption, { color: theme.colors.gray600, fontWeight: "700" }]}>{item.percent}</Text>
           </View>
         ))}
       </View>

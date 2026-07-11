@@ -5,10 +5,10 @@ export const FamilyPixelStyles = {
     return pixelNumber("FAM-001", "horizontalOffset", 0);
   },
   get topOffset() {
-    return pixelNumber("FAM-001", "topOffset", -20);
+    return pixelNumber("FAM-001", "topOffset", 0);
   },
   get scale() {
-    return pixelNumber("FAM-001", "scale", 0.78);
+    return pixelNumber("FAM-001", "scale", 1);
   },
   get cardRadius() {
     return pixelNumber("FAM-001", "cardRadius", 22);

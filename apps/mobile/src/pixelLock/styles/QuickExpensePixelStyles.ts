@@ -5,10 +5,10 @@ export const QuickExpensePixelStyles = {
     return pixelNumber("EXP-001", "horizontalOffset", 0);
   },
   get topOffset() {
-    return pixelNumber("EXP-001", "topOffset", -40);
+    return pixelNumber("EXP-001", "topOffset", 0);
   },
   get scale() {
-    return pixelNumber("EXP-001", "scale", 0.84);
+    return pixelNumber("EXP-001", "scale", 1);
   },
   get screenPadding() {
     return pixelNumber("EXP-001", "screenPadding", 24);

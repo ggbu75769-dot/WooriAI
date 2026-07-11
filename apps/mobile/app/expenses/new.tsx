@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { createExpense } from "../../src/api/client";
+import { getSeoulToday } from "@wooriai/domain";
+import { createExpense, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, PrimaryButton, Toast } from "../../src/ui";
@@ -11,6 +12,9 @@ import { QuickExpensePixelStyles } from "../../src/pixelLock/styles";
 
 const quickExpenseScreenId = "pixel-screen-EXP-001 EXP-001";
 const quickExpenseAmountPreview = "₩ 38,500";
+// Fixed date used only when there's no session (preview / pixel-lock capture mode) so the
+// pixel-lock reference screenshot stays deterministic across runs. See src/android-native-ui-quality.test.ts.
+const previewExpenseDate = { iso: "2025-05-24", label: "2025. 05. 24 (토)" };
 const quickExpenseCategories = [
   { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "▱", label: "기저귀" },
   { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "▤", label: "분유/유제품" },
@@ -21,6 +25,20 @@ const quickExpenseCategories = [
   { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "▥", label: "교육/도서" },
   { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "⊕", label: "기타" }
 ];
+const quickExpensePaymentMethods = [
+  { value: "card", label: "▣ 카카오뱅크" },
+  { value: "cash", label: "현금" },
+  { value: "transfer", label: "계좌 이체" },
+  { value: "mobile_pay", label: "모바일 결제" }
+] as const;
+
+function formatExpenseDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const weekday = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
+  return { iso: `${year}-${month}-${day}`, label: `${year}. ${month}. ${day} (${weekday})` };
+}
 
 function quickExpensePixelFrameStyle() {
   return {
@@ -31,76 +49,6 @@ function quickExpensePixelFrameStyle() {
     ]
   } as const;
 }
-
-const quickExpenseStatusBarStyle = StyleSheet.create({
-  container: {
-    alignItems: "center",
-    flexDirection: "row",
-    height: 20,
-    justifyContent: "space-between",
-    left: -14,
-    position: "absolute",
-    right: -14,
-    top: -18,
-    zIndex: 2
-  },
-  symbols: {
-    color: theme.colors.gray900,
-    fontSize: 10,
-    fontWeight: "800"
-  },
-  rightCluster: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 5
-  },
-  signalBars: {
-    alignItems: "flex-end",
-    flexDirection: "row",
-    gap: 1,
-    height: 8
-  },
-  signalBar: {
-    backgroundColor: theme.colors.gray900,
-    borderRadius: 1,
-    width: 2
-  },
-  wifiDot: {
-    backgroundColor: theme.colors.gray900,
-    borderRadius: 4,
-    height: 7,
-    opacity: 0.82,
-    width: 7
-  },
-  battery: {
-    alignItems: "center",
-    borderColor: theme.colors.gray900,
-    borderRadius: 2,
-    borderWidth: 1,
-    flexDirection: "row",
-    height: 7,
-    justifyContent: "center",
-    width: 15
-  },
-  batteryFill: {
-    backgroundColor: theme.colors.gray900,
-    borderRadius: 1,
-    height: 4,
-    width: 10
-  },
-  batteryNub: {
-    backgroundColor: theme.colors.gray900,
-    borderRadius: 1,
-    height: 3,
-    marginLeft: 1,
-    width: 2
-  },
-  time: {
-    color: theme.colors.gray900,
-    fontSize: 11,
-    fontWeight: "800"
-  }
-});
 
 const quickExpenseCategoryGridStyle = StyleSheet.create({
   grid: {
@@ -153,28 +101,6 @@ const quickExpenseCategoryTileStyle = StyleSheet.create({
 
 type QuickExpenseCategory = (typeof quickExpenseCategories)[number];
 
-function QuickExpenseStatusBar() {
-  return (
-    <View pointerEvents="none" style={quickExpenseStatusBarStyle.container}>
-      <Text style={quickExpenseStatusBarStyle.time}>9:41</Text>
-      <View style={quickExpenseStatusBarStyle.rightCluster}>
-        <View style={quickExpenseStatusBarStyle.signalBars}>
-          <View style={[quickExpenseStatusBarStyle.signalBar, { height: 3 }]} />
-          <View style={[quickExpenseStatusBarStyle.signalBar, { height: 5 }]} />
-          <View style={[quickExpenseStatusBarStyle.signalBar, { height: 7 }]} />
-        </View>
-        <View style={quickExpenseStatusBarStyle.wifiDot} />
-        <View style={{ alignItems: "center", flexDirection: "row" }}>
-          <View style={quickExpenseStatusBarStyle.battery}>
-            <View style={quickExpenseStatusBarStyle.batteryFill} />
-          </View>
-          <View style={quickExpenseStatusBarStyle.batteryNub} />
-        </View>
-      </View>
-    </View>
-  );
-}
-
 function ExpenseCategoryIconButton({
   category,
   onPress,
@@ -201,21 +127,27 @@ export default function NewExpenseScreen() {
   const [amountText, setAmountText] = useState("38500");
   const [memo, setMemo] = useState("");
   const [selectedCategory, setSelectedCategory] = useState(quickExpenseCategories[0]);
+  const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
   const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const [today] = useState(() => new Date(`${getSeoulToday()}T00:00:00`));
+  const expenseDate = authToken ? formatExpenseDate(today) : previewExpenseDate;
+  const paymentMethod = quickExpensePaymentMethods[paymentMethodIndex];
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
   const saveExpense = useMutation({
     mutationFn: () => {
       const amountKrw = Number(amountText);
-      if (!accessToken || !childId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim()) {
+      if (!authToken || !childId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim()) {
         throw new Error("invalid expense");
       }
-      return createExpense(accessToken, childId, {
+      return createExpense(authToken, childId, {
         categoryId: selectedCategory.id,
         amountKrw,
-        spentOn: "2026-07-06",
+        spentOn: expenseDate.iso,
         itemName,
-        paymentMethod: "card",
+        paymentMethod: paymentMethod.value,
         memo
       });
     },
@@ -243,7 +175,6 @@ export default function NewExpenseScreen() {
             position: "relative"
           }}
         >
-        <QuickExpenseStatusBar />
         <View accessibilityLabel={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 40 }}>
           <Pressable onPress={() => router.back()} style={{ minWidth: 36 }}>
             <Text style={{ color: theme.colors.gray900, fontSize: 24 }}>×</Text>
@@ -263,8 +194,7 @@ export default function NewExpenseScreen() {
           }}
         >
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
-            <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>2025. 05. 24 (토)</Text>
-            <Text style={{ color: theme.colors.gray600, fontSize: 18 }}>▣</Text>
+            <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>{expenseDate.label}</Text>
           </View>
           <View style={{ backgroundColor: "rgba(74, 63, 53, 0.12)", height: 1 }} />
           <TextInput
@@ -308,6 +238,9 @@ export default function NewExpenseScreen() {
         />
 
         <Pressable
+          accessibilityLabel="결제 수단 변경"
+          accessibilityRole="button"
+          onPress={() => setPaymentMethodIndex((value) => (value + 1) % quickExpensePaymentMethods.length)}
           style={{
             backgroundColor: theme.colors.white,
             borderColor: "rgba(74, 63, 53, 0.10)",
@@ -320,7 +253,7 @@ export default function NewExpenseScreen() {
         >
           <View style={{ gap: 8 }}>
             <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>결제 수단</Text>
-            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>▣ 카카오뱅크</Text>
+            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>{paymentMethod.label}</Text>
           </View>
           <Text style={{ color: theme.colors.gray600, fontSize: 18 }}>›</Text>
         </Pressable>
@@ -330,7 +263,11 @@ export default function NewExpenseScreen() {
         </View>
 
         {saveExpense.isError ? <Toast message="금액과 항목을 확인해 주세요." /> : null}
-          <PrimaryButton label={saveExpense.isPending ? "저장 중" : "저장하기"} onPress={() => saveExpense.mutate()} />
+          <PrimaryButton
+            disabled={saveExpense.isPending}
+            label={saveExpense.isPending ? "저장 중" : "저장하기"}
+            onPress={() => saveExpense.mutate()}
+          />
         </BottomSheetFrame>
       </View>
     </AppScreen>

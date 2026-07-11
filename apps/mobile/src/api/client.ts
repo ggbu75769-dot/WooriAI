@@ -1,6 +1,27 @@
+import * as localBackend from "./local-backend";
+import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./local-fixtures";
+
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api/v1";
 const DEFAULT_YEAR_MONTH = "2026-07";
 const DEFAULT_YEAR_MONTH_DATE = "2026-07-01";
+
+/**
+ * Token used by screens when `isTestSession` is true. The session store's real `accessToken`
+ * always stays null for a local test session (see src/stores/session.store.ts and
+ * src/test-login-flow.test.ts) -- screens instead pass this constant so client.ts can route
+ * the call to the in-memory/persisted local backend instead of a real HTTP request.
+ */
+export const LOCAL_SESSION_TOKEN = "wooriai-local-session";
+
+export { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID };
+
+function isLocalToken(token?: string | null): boolean {
+  return token === LOCAL_SESSION_TOKEN;
+}
+
+function local<T>(factory: () => T): Promise<T> {
+  return Promise.resolve().then(factory);
+}
 
 type RequestOptions = {
   token?: string | null;
@@ -54,6 +75,13 @@ export type CumulativeReport = {
 export type CategoryReport = {
   childId: string;
   categories: Array<{ categoryId: string; amountKrw: number; count: number }>;
+};
+
+export type YearlyReport = {
+  childId: string;
+  year: string;
+  totalExpenseKrw: number;
+  monthlyTotals: Array<{ yearMonth: string; totalExpenseKrw: number }>;
 };
 
 export type ItemStatus = "not_prepared" | "prepared" | "gifted" | "not_needed" | "interested";
@@ -202,6 +230,7 @@ export async function oauthLogin(provider: "kakao" | "apple" | "google") {
 }
 
 export function upsertConsents(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.upsertConsents());
   return requestJson<{ success: boolean }>("/consents", {
     method: "PUT",
     token,
@@ -225,10 +254,12 @@ export function createChild(
     manualStage?: string | null;
   }
 ) {
+  if (isLocalToken(token)) return local(() => localBackend.createChild({ nickname: body.nickname }));
   return requestJson<{ id: string }>("/children", { method: "POST", token, body });
 }
 
 export function setPreparedItems(token: string, childId: string, itemTemplateIds: string[]) {
+  if (isLocalToken(token)) return local(() => localBackend.setPreparedItems(childId, itemTemplateIds));
   return requestJson<{ updatedCount: number }>(`/children/${childId}/prepared-items`, {
     method: "POST",
     token,
@@ -236,8 +267,26 @@ export function setPreparedItems(token: string, childId: string, itemTemplateIds
   });
 }
 
-export function getBudget(token: string, childId: string, yearMonth = DEFAULT_YEAR_MONTH) {
-  return requestJson<Budget>(`/children/${childId}/budget?yearMonth=${yearMonth}`, { token });
+/**
+ * Resolves to `null` (instead of rejecting) when no budget has been set for the month yet --
+ * both the local backend and the real API surface this as a 404/"not found" condition, which
+ * is a normal "budget not set" state for screens to render, not an error to show a retry card for.
+ */
+export async function getBudget(token: string, childId: string, yearMonth = DEFAULT_YEAR_MONTH): Promise<Budget | null> {
+  if (isLocalToken(token)) {
+    try {
+      return await local(() => localBackend.getBudget(childId, yearMonth));
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("월 예산을 찾을 수 없어요")) return null;
+      throw error;
+    }
+  }
+  try {
+    return await requestJson<Budget>(`/children/${childId}/budget?yearMonth=${yearMonth}`, { token });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("BUDGET_NOT_FOUND")) return null;
+    throw error;
+  }
 }
 
 export function upsertBudget(
@@ -246,6 +295,7 @@ export function upsertBudget(
   amountKrw: number,
   yearMonth = DEFAULT_YEAR_MONTH_DATE
 ) {
+  if (isLocalToken(token)) return local(() => localBackend.upsertBudget(childId, amountKrw, yearMonth));
   return requestJson<Budget>(`/children/${childId}/budget`, {
     method: "PUT",
     token,
@@ -254,6 +304,7 @@ export function upsertBudget(
 }
 
 export function getHome(token: string, childId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getHome(childId));
   return requestJson<HomeSummary>(`/home?childId=${childId}`, { token });
 }
 
@@ -271,6 +322,7 @@ export function createExpense(
     linkedItemTemplateId?: string;
   }
 ) {
+  if (isLocalToken(token)) return local(() => localBackend.createExpense(childId, body));
   return requestJson<Expense>(`/children/${childId}/expenses`, {
     method: "POST",
     token,
@@ -279,6 +331,7 @@ export function createExpense(
 }
 
 export function listExpenses(token: string, childId: string, yearMonth = DEFAULT_YEAR_MONTH) {
+  if (isLocalToken(token)) return local(() => localBackend.listExpenses(childId, yearMonth));
   return requestJson<{ expenses: Expense[]; totalAmountKrw: number }>(
     `/children/${childId}/expenses?yearMonth=${yearMonth}`,
     { token }
@@ -286,6 +339,7 @@ export function listExpenses(token: string, childId: string, yearMonth = DEFAULT
 }
 
 export function getExpense(token: string, expenseId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getExpense(expenseId));
   return requestJson<Expense>(`/expenses/${expenseId}`, { token });
 }
 
@@ -294,10 +348,12 @@ export function updateExpense(
   expenseId: string,
   body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo">>
 ) {
+  if (isLocalToken(token)) return local(() => localBackend.updateExpense(expenseId, body));
   return requestJson<Expense>(`/expenses/${expenseId}`, { method: "PATCH", token, body });
 }
 
 export function deleteExpense(token: string, expenseId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.deleteExpense(expenseId));
   return requestJson<{ success: boolean }>(`/expenses/${expenseId}`, {
     method: "DELETE",
     token
@@ -305,17 +361,25 @@ export function deleteExpense(token: string, expenseId: string) {
 }
 
 export function getMonthlyReport(token: string, childId: string, yearMonth = DEFAULT_YEAR_MONTH) {
+  if (isLocalToken(token)) return local(() => localBackend.getMonthlyReport(childId, yearMonth));
   return requestJson<MonthlyReport>(`/children/${childId}/reports/monthly?yearMonth=${yearMonth}`, {
     token
   });
 }
 
 export function getCumulativeReport(token: string, childId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getCumulativeReport(childId));
   return requestJson<CumulativeReport>(`/children/${childId}/reports/cumulative`, { token });
 }
 
 export function getCategoryReport(token: string, childId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getCategoryReport(childId));
   return requestJson<CategoryReport>(`/children/${childId}/reports/category`, { token });
+}
+
+export function getYearlyReport(token: string, childId: string, year: number) {
+  if (isLocalToken(token)) return local(() => localBackend.getYearlyReport(childId, year));
+  return requestJson<YearlyReport>(`/children/${childId}/reports/yearly?year=${year}`, { token });
 }
 
 export function listItems(
@@ -323,10 +387,12 @@ export function listItems(
   childId: string,
   tab: "now" | "soon" | "prepared" | "not_needed" = "now"
 ) {
+  if (isLocalToken(token)) return local(() => localBackend.listItems(childId, tab));
   return requestJson<{ items: ItemSummary[] }>(`/children/${childId}/items?tab=${tab}`, { token });
 }
 
 export function getItemDetail(token: string, childId: string, itemTemplateId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getItemDetail(childId, itemTemplateId));
   return requestJson<ItemDetail>(`/children/${childId}/items/${itemTemplateId}`, { token });
 }
 
@@ -337,6 +403,7 @@ export function updateItemStatus(
   status: ItemStatus,
   expenseId?: string
 ) {
+  if (isLocalToken(token)) return local(() => localBackend.updateItemStatus(childId, itemTemplateId, status, expenseId));
   return requestJson<ItemSummary>(`/children/${childId}/items/${itemTemplateId}/status`, {
     method: "PATCH",
     token,
@@ -350,6 +417,7 @@ export function clickProductLink(
   childId: string,
   referrerScreenId = "ITEM-003"
 ) {
+  if (isLocalToken(token)) return local(() => localBackend.clickProductLink(productLinkId, childId, referrerScreenId));
   return requestJson<AffiliateClickResponse>(`/product-links/${productLinkId}/click`, {
     method: "POST",
     token,
@@ -358,7 +426,16 @@ export function clickProductLink(
 }
 
 export function listHouseholdMembers(token: string, householdId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listHouseholdMembers(householdId));
   return requestJson<{ members: HouseholdMember[] }>(`/households/${householdId}/members`, { token });
+}
+
+export function removeHouseholdMember(token: string, householdId: string, memberId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.removeHouseholdMember(householdId, memberId));
+  return requestJson<{ success: boolean }>(`/households/${householdId}/members/${memberId}`, {
+    method: "DELETE",
+    token
+  });
 }
 
 export function createInvite(
@@ -367,6 +444,7 @@ export function createInvite(
   role: InviteRole,
   channel: InviteChannel = "link"
 ) {
+  if (isLocalToken(token)) return local(() => localBackend.createInvite(householdId, role, channel));
   return requestJson<InviteResponse>(`/households/${householdId}/invites`, {
     method: "POST",
     token,
@@ -375,10 +453,13 @@ export function createInvite(
 }
 
 export function getInvite(token: string) {
+  const localInvite = localBackend.findLocalInvite(token);
+  if (localInvite) return local(() => localBackend.getInvitePreview(token));
   return requestJson<InvitePreview>(`/invites/${token}`);
 }
 
 export function acceptInvite(accessToken: string, token: string) {
+  if (isLocalToken(accessToken)) return local(() => localBackend.acceptInvite(token));
   return requestJson<AcceptInviteResponse>(`/invites/${token}/accept`, {
     method: "POST",
     token: accessToken
@@ -386,6 +467,7 @@ export function acceptInvite(accessToken: string, token: string) {
 }
 
 export function createExcelImport(token: string, childId: string, fileName = "wooriai-import.csv") {
+  if (isLocalToken(token)) return local(() => localBackend.createExcelImport(childId, fileName));
   return requestJson<ImportJob>(`/children/${childId}/imports/excel`, {
     method: "POST",
     token,
@@ -394,10 +476,12 @@ export function createExcelImport(token: string, childId: string, fileName = "wo
 }
 
 export function getImportJob(token: string, importJobId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getImportJob(importJobId));
   return requestJson<ImportJob>(`/imports/${importJobId}`, { token });
 }
 
 export function listImportRows(token: string, importJobId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listImportRows(importJobId));
   return requestJson<{ rows: ImportRow[] }>(`/imports/${importJobId}/rows`, { token });
 }
 
@@ -407,6 +491,7 @@ export function updateImportRow(
   rowId: string,
   body: Partial<Pick<ImportRow, "selected" | "categoryId" | "parsedItemName" | "parsedAmountKrw">>
 ) {
+  if (isLocalToken(token)) return local(() => localBackend.updateImportRow(importJobId, rowId, body));
   return requestJson<ImportRow>(`/imports/${importJobId}/rows/${rowId}`, {
     method: "PATCH",
     token,
@@ -415,6 +500,7 @@ export function updateImportRow(
 }
 
 export function confirmImport(token: string, importJobId: string, selectedRowIds: string[]) {
+  if (isLocalToken(token)) return local(() => localBackend.confirmImport(importJobId, selectedRowIds));
   return requestJson<ConfirmImportResponse>(`/imports/${importJobId}/confirm`, {
     method: "POST",
     token,
@@ -423,10 +509,12 @@ export function confirmImport(token: string, importJobId: string, selectedRowIds
 }
 
 export function getPrivacySettings(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getPrivacySettings());
   return requestJson<PrivacySettings>("/settings/privacy", { token });
 }
 
 export function previewChildProfileDeletion(token: string, childId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.previewChildProfileDeletion(childId));
   return requestJson<SettingsPreview>(`/settings/children/${childId}/delete-preview`, {
     method: "POST",
     token
@@ -434,6 +522,7 @@ export function previewChildProfileDeletion(token: string, childId: string) {
 }
 
 export function confirmChildProfileDeletion(token: string, childId: string, confirmationText: string) {
+  if (isLocalToken(token)) return local(() => localBackend.confirmChildProfileDeletion(childId, confirmationText));
   return requestJson<SettingsConfirmResponse>(`/settings/children/${childId}/delete-confirm`, {
     method: "POST",
     token,
@@ -442,13 +531,24 @@ export function confirmChildProfileDeletion(token: string, childId: string, conf
 }
 
 export function previewHouseholdLeave(token: string, householdId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.previewHouseholdLeave(householdId));
   return requestJson<SettingsPreview>(`/settings/households/${householdId}/leave-preview`, {
     method: "POST",
     token
   });
 }
 
+export function confirmHouseholdLeave(token: string, householdId: string, confirmationText: string) {
+  if (isLocalToken(token)) return local(() => localBackend.confirmHouseholdLeave(householdId, confirmationText));
+  return requestJson<SettingsConfirmResponse>(`/settings/households/${householdId}/leave-confirm`, {
+    method: "POST",
+    token,
+    body: { confirmationText }
+  });
+}
+
 export function previewAccountDeletion(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.previewAccountDeletion());
   return requestJson<SettingsPreview>("/settings/account/delete-preview", {
     method: "POST",
     token
@@ -456,6 +556,7 @@ export function previewAccountDeletion(token: string) {
 }
 
 export function confirmAccountDeletion(token: string, confirmationText: string) {
+  if (isLocalToken(token)) return local(() => localBackend.confirmAccountDeletion(confirmationText));
   return requestJson<SettingsConfirmResponse>("/settings/account/delete-confirm", {
     method: "POST",
     token,

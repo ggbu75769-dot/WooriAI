@@ -18,7 +18,7 @@ describe("Batch 07 mobile items and commerce contract", () => {
     const routeExpectations = [
       ["app/(tabs)/_layout.tsx", "홈"],
       ["app/(tabs)/_layout.tsx", "기록"],
-      ["app/(tabs)/_layout.tsx", "추천"],
+      ["app/(tabs)/_layout.tsx", "준비템"],
       ["app/(tabs)/_layout.tsx", "리포트"],
       ["app/(tabs)/_layout.tsx", "더보기"],
       ["app/(tabs)/items.tsx", "ITEM-001"],

@@ -24,7 +24,7 @@ describe("UI Pixel Lock source contract", () => {
   it("uses the image-locked visual navigation labels while preserving existing route modules", () => {
     const layoutSource = readFileSync(join(mobileRoot, "app/(tabs)/_layout.tsx"), "utf8");
 
-    for (const expectedLabel of ["홈", "기록", "추천", "리포트", "더보기"]) {
+    for (const expectedLabel of ["홈", "기록", "준비템", "리포트", "더보기"]) {
       expect(layoutSource).toContain(expectedLabel);
     }
 
@@ -74,7 +74,7 @@ describe("UI Pixel Lock source contract", () => {
       ["app/expenses/new.tsx", "QuickExpensePixelStyles.topOffset"],
       ["app/expenses/new.tsx", "quickExpensePixelFrameStyle"],
       ["app/expenses/new.tsx", "₩ 38,500"],
-      ["app/expenses/new.tsx", "2025. 05. 24 (토)"],
+      ["app/expenses/new.tsx", "formatExpenseDate(today)"],
       ["app/(tabs)/items.tsx", "ProductCard"],
       ["app/(tabs)/items.tsx", "CategoryChip"],
       ["app/(tabs)/items.tsx", "recommendationBabyCarrierImage"],
@@ -100,7 +100,6 @@ describe("UI Pixel Lock source contract", () => {
       ["app/family/index.tsx", "FamilyPixelStyles.horizontalOffset"],
       ["app/family/index.tsx", "FamilyPixelStyles.topOffset"],
       ["app/family/index.tsx", "familyReferenceFrameStyle"],
-      ["app/family/index.tsx", "FamilyPixelStatusBar"],
       ["app/family/index.tsx", "familyInviteRows"],
       ["app/family/index.tsx", "FamilyInviteRow"]
     ];
@@ -111,12 +110,12 @@ describe("UI Pixel Lock source contract", () => {
     }
 
     const familyPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/FamilyPixelStyles.ts"), "utf8");
-    expect(familyPixelStyleSource).toContain('return pixelNumber("FAM-001", "scale", 0.78)');
-    expect(familyPixelStyleSource).toContain('return pixelNumber("FAM-001", "topOffset", -20)');
+    expect(familyPixelStyleSource).toContain('return pixelNumber("FAM-001", "scale", 1)');
+    expect(familyPixelStyleSource).toContain('return pixelNumber("FAM-001", "topOffset", 0)');
 
     const itemListPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/ItemListPixelStyles.ts"), "utf8");
-    expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "scale", 0.48)');
-    expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "topOffset", -30)');
+    expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "scale", 1)');
+    expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "topOffset", 0)');
     expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "horizontalOffset", 0)');
 
     for (const asset of ["recommendation_baby_carrier.png", "recommendation_diaper.png", "recommendation_blocks.png"]) {
@@ -129,17 +128,22 @@ describe("UI Pixel Lock source contract", () => {
 
     expect(homeSource).toContain("homeBudgetNudgeStyle");
     expect(homeSource).toContain("homeBudgetNudgeArrowStyle");
-    expect(homeSource).toContain("homeHorizontalOffset = 0");
-    expect(homeSource).toContain("homeVerticalOffset = 0");
-    expect(homeSource).toContain("homePixelScale = 1");
-    expect(homeSource).toContain("homePixelScaleX = 1");
-    expect(homeSource).toContain("homeScaleHorizontalOffset = 0");
-    expect(homeSource).toContain("homeScaleVerticalOffset = 0");
+    expect(homeSource).toContain("HomePixelStyles.horizontalOffset");
+    expect(homeSource).toContain("HomePixelStyles.topOffset");
+    expect(homeSource).toContain("HomePixelStyles.scale");
+    expect(homeSource).toContain("HomePixelStyles.scaleX");
+    expect(homeSource).toContain("HomePixelStyles.scaleHorizontalOffset");
+    expect(homeSource).toContain("HomePixelStyles.scaleVerticalOffset");
     expect(homeSource).toContain("homePixelScaleFrameStyle");
     expect(homeSource).toContain("homePixelFrameStyle");
     expect(homeSource).toContain('router.push("/(tabs)/items")');
     expect(homeSource).not.toContain("ProductCard");
     expect(homeSource).not.toContain("toddlerImage");
+
+    const homePixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/HomePixelStyles.ts"), "utf8");
+    expect(homePixelStyleSource).toContain('return pixelNumber("HOME-001", "scale", 1)');
+    expect(homePixelStyleSource).toContain('return pixelNumber("HOME-001", "topOffset", 0)');
+    expect(homePixelStyleSource).toContain('return pixelNumber("HOME-001", "horizontalOffset", 0)');
   });
 
   it("locks the quick expense category picker to the reference icon grid", () => {
@@ -147,19 +151,19 @@ describe("UI Pixel Lock source contract", () => {
     const cropMap = JSON.parse(readFileSync(join(repoRoot, "docs/ui-pixel-lock/reference-crop-map.json"), "utf8"));
     const quickExpenseCrop = cropMap.crops.find((crop: { id: string }) => crop.id === "1_png_quick_expense");
 
-    expect(quickExpenseSource).toContain("QuickExpenseStatusBar");
+    expect(quickExpenseSource).not.toContain("QuickExpenseStatusBar");
     expect(quickExpenseSource).not.toContain("QuickExpenseAdjacentPreview");
-    expect(quickExpenseSource).toContain("quickExpenseStatusBarStyle");
+    expect(quickExpenseSource).not.toContain("quickExpenseStatusBarStyle");
     expect(quickExpenseSource).not.toContain("quickExpenseAdjacentPreviewStyle");
-    expect(quickExpenseSource).toContain("9:41");
+    expect(quickExpenseSource).not.toContain("9:41");
     expect(quickExpenseSource).toContain("ExpenseCategoryIconButton");
     expect(quickExpenseSource).toContain("quickExpenseCategoryGridStyle");
     expect(quickExpenseSource).toContain("quickExpenseCategoryTileStyle");
     expect(quickExpenseCrop).toMatchObject({ x: 790, y: 222, width: 230, height: 600 });
 
     const quickExpensePixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/QuickExpensePixelStyles.ts"), "utf8");
-    expect(quickExpensePixelStyleSource).toContain('return pixelNumber("EXP-001", "scale", 0.84)');
-    expect(quickExpensePixelStyleSource).toContain('return pixelNumber("EXP-001", "topOffset", -40)');
+    expect(quickExpensePixelStyleSource).toContain('return pixelNumber("EXP-001", "scale", 1)');
+    expect(quickExpensePixelStyleSource).toContain('return pixelNumber("EXP-001", "topOffset", 0)');
     expect(quickExpensePixelStyleSource).toContain('return pixelNumber("EXP-001", "horizontalOffset", 0)');
 
     for (const expectedCategory of ["기저귀", "분유/유제품", "식비", "의류", "약품/교통", "병원/약", "교육/도서", "기타"]) {
@@ -174,10 +178,10 @@ describe("UI Pixel Lock source contract", () => {
     expect(productDetailSource).toContain("productDetailHeaderSpacerStyle");
     expect(productDetailSource).toContain("productDetailHeaderSpacerStyle = { minHeight: 0 }");
     expect(productDetailSource).toContain("productDetailViewportOffset = 8");
-    expect(productDetailSource).toContain("productDetailHorizontalOffset = 0");
-    expect(productDetailSource).toContain("productDetailReferenceScale = 0.806");
-    expect(productDetailSource).toContain("productDetailReferenceScaleX = 1.35");
-    expect(productDetailSource).toContain("productDetailReferenceScaleVerticalOffset = -40");
+    expect(productDetailSource).toContain("ProductDetailPixelStyles.horizontalOffset");
+    expect(productDetailSource).toContain("ProductDetailPixelStyles.scale");
+    expect(productDetailSource).toContain("ProductDetailPixelStyles.scaleX");
+    expect(productDetailSource).toContain("ProductDetailPixelStyles.topOffset");
     expect(productDetailSource).toContain("productDetailReferenceScaleFrameStyle");
     expect(productDetailSource).toContain("productDetailFrameStyle");
     expect(productDetailSource).toContain("productDetailHeroCardStyle");
@@ -185,9 +189,15 @@ describe("UI Pixel Lock source contract", () => {
     expect(productDetailSource).toContain('boxShadow: "none"');
     expect(productDetailSource).toContain("productDetailInfoCardStyle");
     expect(productDetailSource).toContain("marginTop: -8");
-    expect(productDetailSource).toContain("productDetailStatusBarStyle");
+
+    const productDetailStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/ProductDetailPixelStyles.ts"), "utf8");
+    expect(productDetailStyleSource).toContain('return pixelNumber("ITEM-002", "scale", 1)');
+    expect(productDetailStyleSource).toContain('return pixelNumber("ITEM-002", "scaleX", 1)');
+    expect(productDetailStyleSource).toContain('return pixelNumber("ITEM-002", "topOffset", 0)');
+    expect(productDetailStyleSource).toContain('return pixelNumber("ITEM-002", "horizontalOffset", 0)');
+    expect(productDetailSource).not.toContain("productDetailStatusBarStyle");
     expect(productDetailSource).toContain("productDetailFloatingControlsStyle");
-    expect(productDetailSource).toContain("ProductDetailScreenChrome");
+    expect(productDetailSource).toContain("ProductDetailNavigation");
     expect(productDetailSource).not.toContain('ScreenHeader eyebrow="ITEM-002');
   });
 
@@ -196,7 +206,7 @@ describe("UI Pixel Lock source contract", () => {
 
     expect(reportSource).toContain("reportReferenceScreenId");
     expect(reportSource).toContain("accessibilityLabel={reportReferenceScreenId}");
-    expect(reportSource).toContain("ReportPixelStatusBar");
+    expect(reportSource).not.toContain("ReportPixelStatusBar");
     expect(reportSource).toContain("reportReferenceHeaderStyle");
     expect(reportSource).toContain("reportReferenceHorizontalOffset = -16");
     expect(reportSource).toContain("reportReferenceVerticalOffset = -4");
@@ -207,16 +217,17 @@ describe("UI Pixel Lock source contract", () => {
     expect(reportSource).toContain("reportReferencePeriodRowStyle");
     expect(reportSource).toContain("previewReportTotalKrw");
     expect(reportSource).toContain("onChange={setPeriod}");
-    expect(reportSource).toContain("2025년 5월");
+    expect(reportSource).toContain("reportMonthLabel");
+    expect(reportSource).toContain("getMonthlyReport(authToken!, childId!, reportYearMonth)");
     expect(reportSource).toContain("LineChartCard");
     expect(reportSource).toContain("DonutChartCard");
     expect(reportSource).not.toContain('ScreenHeader eyebrow="REP-001');
     expect(reportSource).not.toContain('["월간", "분기", "연간"].map');
 
     const reportPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/ReportPixelStyles.ts"), "utf8");
-    expect(reportPixelStyleSource).toContain('return pixelNumber("REP-001", "scale", 0.732)');
-    expect(reportPixelStyleSource).toContain('return pixelNumber("REP-001", "topOffset", -81)');
-    expect(reportPixelStyleSource).toContain('return pixelNumber("REP-001", "horizontalOffset", -60)');
+    expect(reportPixelStyleSource).toContain('return pixelNumber("REP-001", "scale", 1)');
+    expect(reportPixelStyleSource).toContain('return pixelNumber("REP-001", "topOffset", 0)');
+    expect(reportPixelStyleSource).toContain('return pixelNumber("REP-001", "horizontalOffset", 0)');
   });
 
   it("locks the excel import route to the reference preview-before-save surface", () => {
@@ -236,9 +247,9 @@ describe("UI Pixel Lock source contract", () => {
     expect(importSource).toContain("Rows are not saved as expenses");
 
     const excelPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/ExcelPreviewPixelStyles.ts"), "utf8");
-    expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "scale", 0.58)');
-    expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "scaleY", 1.08)');
-    expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "horizontalOffset", 40)');
+    expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "scale", 1)');
+    expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "scaleY", 1)');
+    expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "horizontalOffset", 0)');
     expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "ctaBottomInset", 56)');
   });
 
@@ -246,7 +257,7 @@ describe("UI Pixel Lock source contract", () => {
     const moreSource = readFileSync(join(mobileRoot, "app/(tabs)/more.tsx"), "utf8");
 
     expect(moreSource).toContain("moreReferenceScreenId");
-    expect(moreSource).toContain("MorePixelStatusBar");
+    expect(moreSource).not.toContain("MorePixelStatusBar");
     expect(moreSource).toContain("moreMenuRows");
     expect(moreSource).toContain("MoreMenuRow");
     expect(moreSource).toContain("moreReferenceFrameStyle");

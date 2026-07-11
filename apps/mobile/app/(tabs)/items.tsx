@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Image, Text, View, type ImageSourcePropType } from "react-native";
-import { listItems, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import { listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton } from "../../src/ui";
@@ -96,24 +96,48 @@ function getRecommendationDisplay(item: ItemSummary | RecommendationPreviewItem,
 export default function ItemsScreen() {
   const [stageLabel, setStageLabel] = useState<(typeof tabOptions)[number]>("12-24개월");
   const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
   const items = useQuery({
     queryKey: ["items", childId, "now", stageLabel],
-    enabled: Boolean(accessToken && childId),
-    queryFn: () => listItems(accessToken!, childId!, "now")
+    enabled: Boolean(authToken && childId),
+    queryFn: () => listItems(authToken!, childId!, "now")
   });
   const updateStatus = useMutation({
     mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; status: ItemStatus }) =>
-      updateItemStatus(accessToken!, childId!, itemTemplateId, status),
+      updateItemStatus(authToken!, childId!, itemTemplateId, status),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
     }
   });
-  const visibleItems = items.data?.items ?? previewItems;
-  const showEmptyState = items.data ? items.data.items.length === 0 : false;
-  const canUpdateStatus = Boolean(accessToken && childId);
+  const hasSession = Boolean(authToken && childId);
+
+  if (hasSession && (items.isLoading || !items.data)) {
+    return (
+      <AppScreen>
+        <EmptyStateCard title="추천템을 불러오고 있어요." actionLabel="잠시만요" />
+      </AppScreen>
+    );
+  }
+
+  if (hasSession && items.isError) {
+    return (
+      <AppScreen>
+        <EmptyStateCard
+          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+          actionLabel="다시 시도"
+          onPress={() => items.refetch()}
+        />
+      </AppScreen>
+    );
+  }
+
+  const visibleItems = hasSession ? items.data!.items : previewItems;
+  const showEmptyState = hasSession ? visibleItems.length === 0 : false;
+  const canUpdateStatus = hasSession;
 
   return (
     <AppScreen>

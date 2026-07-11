@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Text, Pressable, ScrollView, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import {
   confirmAccountDeletion,
   confirmChildProfileDeletion,
+  confirmHouseholdLeave,
   getPrivacySettings,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_SESSION_TOKEN,
   previewAccountDeletion,
   previewChildProfileDeletion,
   previewHouseholdLeave,
@@ -12,92 +15,318 @@ import {
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
+import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
 
-function PreviewBox({ preview }: { preview?: SettingsPreview }) {
+const flowCopy = {
+  child_profile_delete: {
+    title: "아이 프로필 삭제",
+    description: "이 아이의 지출 기록과 준비 목록이 함께 삭제돼요.",
+    previewLabel: "삭제 전 확인하기",
+    confirmLabel: "아이 프로필 삭제하기"
+  },
+  household_leave: {
+    title: "가구 탈퇴",
+    description: "가구에서 나가면 공유 데이터에 더 이상 접근할 수 없어요.",
+    previewLabel: "탈퇴 전 확인하기",
+    confirmLabel: "가구 탈퇴하기"
+  },
+  account_delete: {
+    title: "계정 삭제",
+    description: "계정과 모든 데이터가 영구적으로 삭제돼요.",
+    previewLabel: "삭제 전 확인하기",
+    confirmLabel: "계정 삭제하기"
+  }
+} as const;
+
+const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
+const actionFailedText = "처리하지 못했어요. 잠시 후 다시 시도해 주세요.";
+
+function DangerButton({
+  label,
+  onPress,
+  disabled
+}: {
+  label: string;
+  onPress?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        dangerButtonStyle,
+        disabled ? dangerButtonDisabledStyle : null,
+        pressed && !disabled ? { opacity: 0.86 } : null
+      ]}
+    >
+      <Text style={dangerButtonTextStyle}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function PreviewSummary({ preview }: { preview?: SettingsPreview }) {
   if (!preview) return null;
   return (
-    <View style={{ backgroundColor: theme.colors.primary100, borderRadius: 8, gap: 6, padding: 14 }}>
-      <Text style={{ fontWeight: "700" }}>{preview.flowId}</Text>
-      <Text>requiresSecondStep: {preview.requiresSecondStep ? "yes" : "no"}</Text>
-      <Text>Type {preview.confirmationText} to confirm.</Text>
+    <View style={previewBoxStyle}>
+      <Text style={previewTitleStyle}>진행하면 이렇게 돼요</Text>
       {preview.impact.map((line) => (
-        <Text key={line} style={{ color: theme.colors.textSecondary }}>
-          {line}
+        <Text key={line} style={previewLineStyle}>
+          · {line}
         </Text>
       ))}
+      {preview.requiresSecondStep ? (
+        <Text style={previewNoticeStyle}>한 번 더 확인한 다음에 진행할 수 있어요.</Text>
+      ) : null}
     </View>
   );
 }
 
 export default function PrivacySettingsScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
-  const householdId = useSessionStore((state) => state.defaultHouseholdId);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
+  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const clearSession = useSessionStore((state) => state.clearSession);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const clearChild = useSelectedChildStore((state) => state.clearSelectedChildId);
   const queryClient = useQueryClient();
+
   const privacy = useQuery({
     queryKey: ["privacy-settings"],
-    enabled: Boolean(accessToken),
-    queryFn: () => getPrivacySettings(accessToken!)
+    enabled: Boolean(authToken),
+    queryFn: () => getPrivacySettings(authToken!)
   });
+
   const childPreview = useMutation({
-    mutationFn: () => previewChildProfileDeletion(accessToken!, childId!)
+    mutationFn: () => previewChildProfileDeletion(authToken!, childId!)
   });
   const childDelete = useMutation({
-    mutationFn: () => confirmChildProfileDeletion(accessToken!, childId!, "DELETE CHILD"),
+    mutationFn: () => confirmChildProfileDeletion(authToken!, childId!, childPreview.data?.confirmationText ?? ""),
     onSuccess: async () => {
       clearChild();
+      childPreview.reset();
       await queryClient.invalidateQueries({ queryKey: ["children"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
+      Alert.alert("완료됐어요", "아이 프로필을 삭제했어요.");
     }
   });
+
   const householdPreview = useMutation({
-    mutationFn: () => previewHouseholdLeave(accessToken!, householdId!)
+    mutationFn: () => previewHouseholdLeave(authToken!, householdId!)
   });
+  const householdLeave = useMutation({
+    mutationFn: () => confirmHouseholdLeave(authToken!, householdId!, householdPreview.data?.confirmationText ?? ""),
+    onSuccess: async () => {
+      householdPreview.reset();
+      clearChild();
+      await queryClient.invalidateQueries({ queryKey: ["household-members"] });
+      await queryClient.invalidateQueries({ queryKey: ["home"] });
+      Alert.alert("완료됐어요", "가구에서 나갔어요.");
+    }
+  });
+
   const accountPreview = useMutation({
-    mutationFn: () => previewAccountDeletion(accessToken!)
+    mutationFn: () => previewAccountDeletion(authToken!)
   });
   const accountDelete = useMutation({
-    mutationFn: () => confirmAccountDeletion(accessToken!, "DELETE ACCOUNT"),
-    onSuccess: () => clearSession()
+    mutationFn: () => confirmAccountDeletion(authToken!, accountPreview.data?.confirmationText ?? ""),
+    onSuccess: () => {
+      Alert.alert("완료됐어요", "계정을 삭제했어요.");
+      clearSession();
+    }
   });
 
+  const confirmChildDelete = () => {
+    if (!childPreview.data || childDelete.isPending) return;
+    Alert.alert("정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", [
+      { text: "취소", style: "cancel" },
+      { text: "삭제", style: "destructive", onPress: () => childDelete.mutate() }
+    ]);
+  };
+
+  const confirmHouseholdLeaveAction = () => {
+    if (!householdPreview.data || householdLeave.isPending) return;
+    Alert.alert("정말 나갈까요?", "이 작업은 되돌릴 수 없어요.", [
+      { text: "취소", style: "cancel" },
+      { text: "나가기", style: "destructive", onPress: () => householdLeave.mutate() }
+    ]);
+  };
+
+  const confirmAccountDelete = () => {
+    if (!accountPreview.data || accountDelete.isPending) return;
+    Alert.alert("정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", [
+      { text: "취소", style: "cancel" },
+      { text: "삭제", style: "destructive", onPress: () => accountDelete.mutate() }
+    ]);
+  };
+
+  const flows = privacy.data?.flows ?? [];
+
   return (
-    <ScrollView style={{ backgroundColor: theme.colors.background, flex: 1 }}>
-      <View style={{ gap: 14, padding: 24 }}>
-        <Text style={{ color: theme.colors.textSecondary }}>SET-003 / SET-004</Text>
-        <Text style={{ color: theme.colors.textPrimary, fontSize: 24, fontWeight: "700" }}>
-          Privacy and deletion
-        </Text>
-        {(privacy.data?.flows ?? []).map((flow) => (
-          <View key={flow.id} style={{ backgroundColor: theme.colors.surface, borderRadius: 8, gap: 6, padding: 14 }}>
-            <Text style={{ fontWeight: "700" }}>{flow.title}</Text>
-            <Text>{flow.confirmationText}</Text>
-          </View>
-        ))}
+    <AppScreen>
+      <View testID="screen-SET-003" accessibilityLabel="screen-SET-003" style={{ gap: theme.spacing.section }}>
+        <ScreenHeader eyebrow="설정" title="약관 및 개인정보" subtitle="동의 내역과 삭제 · 탈퇴를 관리해요" />
 
-        <Pressable onPress={() => childPreview.mutate()} disabled={!accessToken || !childId}>
-          <Text>Preview child profile deletion</Text>
-        </Pressable>
-        <PreviewBox preview={childPreview.data} />
-        <Pressable onPress={() => childDelete.mutate()} disabled={!childPreview.data}>
-          <Text style={{ color: theme.colors.danger }}>Confirm child profile deletion</Text>
-        </Pressable>
+        {privacy.isLoading ? (
+          <Card>
+            <Text style={mutedTextStyle}>불러오는 중이에요...</Text>
+          </Card>
+        ) : null}
 
-        <Pressable onPress={() => householdPreview.mutate()} disabled={!accessToken || !householdId}>
-          <Text>Preview household leave</Text>
-        </Pressable>
-        <PreviewBox preview={householdPreview.data} />
+        {privacy.isError ? (
+          <Card style={{ gap: 10 }}>
+            <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text>
+            <SecondaryButton label="다시 시도" onPress={() => privacy.refetch()} />
+          </Card>
+        ) : null}
 
-        <Pressable onPress={() => accountPreview.mutate()} disabled={!accessToken}>
-          <Text>Preview account deletion</Text>
-        </Pressable>
-        <PreviewBox preview={accountPreview.data} />
-        <Pressable onPress={() => accountDelete.mutate()} disabled={!accountPreview.data}>
-          <Text style={{ color: theme.colors.danger }}>Confirm account deletion</Text>
-        </Pressable>
+        {!privacy.isLoading && !privacy.isError && flows.length === 0 ? (
+          <EmptyStateCard title="표시할 항목이 없어요" actionLabel="새로고침" onPress={() => privacy.refetch()} />
+        ) : null}
       </View>
-    </ScrollView>
+
+      <View testID="screen-SET-004" accessibilityLabel="screen-SET-004" style={{ gap: theme.spacing.gap }}>
+        <Card style={{ gap: 10 }}>
+          <View style={rowHeaderStyle}>
+            <Text style={dangerTitleStyle}>{flowCopy.child_profile_delete.title}</Text>
+            <StatusBadge label="위험" tone="warning" />
+          </View>
+          <Text style={mutedTextStyle}>{flowCopy.child_profile_delete.description}</Text>
+          <SecondaryButton
+            label={childPreview.isPending ? "확인하는 중..." : flowCopy.child_profile_delete.previewLabel}
+            disabled={!authToken || !childId || childPreview.isPending}
+            onPress={() => childPreview.mutate()}
+          />
+          {childPreview.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+          <PreviewSummary preview={childPreview.data} />
+          {childPreview.data ? (
+            <DangerButton
+              label={childDelete.isPending ? "삭제하는 중..." : flowCopy.child_profile_delete.confirmLabel}
+              disabled={childDelete.isPending}
+              onPress={confirmChildDelete}
+            />
+          ) : null}
+          {childDelete.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
+        </Card>
+
+        <Card style={{ gap: 10 }}>
+          <View style={rowHeaderStyle}>
+            <Text style={dangerTitleStyle}>{flowCopy.household_leave.title}</Text>
+            <StatusBadge label="주의" tone="warning" />
+          </View>
+          <Text style={mutedTextStyle}>{flowCopy.household_leave.description}</Text>
+          <SecondaryButton
+            label={householdPreview.isPending ? "확인하는 중..." : flowCopy.household_leave.previewLabel}
+            disabled={!authToken || !householdId || householdPreview.isPending}
+            onPress={() => householdPreview.mutate()}
+          />
+          {householdPreview.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+          <PreviewSummary preview={householdPreview.data} />
+          {householdPreview.data ? (
+            <DangerButton
+              label={householdLeave.isPending ? "나가는 중..." : flowCopy.household_leave.confirmLabel}
+              disabled={householdLeave.isPending}
+              onPress={confirmHouseholdLeaveAction}
+            />
+          ) : null}
+          {householdLeave.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
+        </Card>
+
+        <Card style={{ gap: 10 }}>
+          <View style={rowHeaderStyle}>
+            <Text style={dangerTitleStyle}>{flowCopy.account_delete.title}</Text>
+            <StatusBadge label="위험" tone="warning" />
+          </View>
+          <Text style={mutedTextStyle}>{flowCopy.account_delete.description}</Text>
+          <SecondaryButton
+            label={accountPreview.isPending ? "확인하는 중..." : flowCopy.account_delete.previewLabel}
+            disabled={!authToken || accountPreview.isPending}
+            onPress={() => accountPreview.mutate()}
+          />
+          {accountPreview.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+          <PreviewSummary preview={accountPreview.data} />
+          {accountPreview.data ? (
+            <DangerButton
+              label={accountDelete.isPending ? "삭제하는 중..." : flowCopy.account_delete.confirmLabel}
+              disabled={accountDelete.isPending}
+              onPress={confirmAccountDelete}
+            />
+          ) : null}
+          {accountDelete.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
+        </Card>
+      </View>
+    </AppScreen>
   );
 }
+
+const rowHeaderStyle = {
+  alignItems: "center",
+  flexDirection: "row",
+  gap: 8,
+  justifyContent: "space-between"
+} as const;
+
+const dangerTitleStyle = {
+  color: theme.colors.brown,
+  flex: 1,
+  fontSize: 15,
+  fontWeight: "800"
+} as const;
+
+const mutedTextStyle = {
+  color: theme.colors.gray600,
+  fontSize: 13,
+  lineHeight: 20
+} as const;
+
+const previewBoxStyle = {
+  backgroundColor: theme.colors.peach,
+  borderRadius: theme.radii.small,
+  gap: 4,
+  padding: 12
+} as const;
+
+const previewTitleStyle = {
+  color: theme.colors.brown,
+  fontSize: 13,
+  fontWeight: "800"
+} as const;
+
+const previewLineStyle = {
+  color: theme.colors.brown,
+  fontSize: 12,
+  lineHeight: 18
+} as const;
+
+const previewNoticeStyle = {
+  color: theme.colors.mainCoral,
+  fontSize: 12,
+  fontWeight: "700",
+  marginTop: 4
+} as const;
+
+const pendingNoticeStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  fontStyle: "italic"
+} as const;
+
+const dangerButtonStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.danger,
+  borderRadius: theme.radii.button,
+  height: theme.ctaHeight,
+  justifyContent: "center"
+} as const;
+
+const dangerButtonDisabledStyle = {
+  backgroundColor: theme.colors.gray300
+} as const;
+
+const dangerButtonTextStyle = {
+  color: theme.colors.white,
+  fontSize: 15,
+  fontWeight: "700"
+} as const;

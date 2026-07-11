@@ -1,44 +1,101 @@
 import { useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { useMutation } from "@tanstack/react-query";
+import { Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
-import { upsertBudget } from "../../src/api/client";
+import { LOCAL_SESSION_TOKEN, upsertBudget } from "../../src/api/client";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
+import { AppScreen, Card, PrimaryButton, ScreenHeader, TextButton, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
 
+const onboardingBudgetScreenId = "ONB-004";
+
+function toDigits(value: string) {
+  return value.replace(/[^0-9]/g, "");
+}
+
+function formatAmount(digits: string) {
+  if (!digits) return "";
+  return Number(digits).toLocaleString("ko-KR");
+}
+
 export default function BudgetScreen() {
-  const [amountText, setAmountText] = useState("500000");
+  const [amountDigits, setAmountDigits] = useState("500000");
   const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const completeStep = useOnboardingProgressStore((state) => state.completeStep);
   const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
 
-  async function save() {
-    const amountKrw = Number(amountText);
-    if (!accessToken || !selectedChildId || !Number.isInteger(amountKrw) || amountKrw <= 0) return;
-    await upsertBudget(accessToken, selectedChildId, amountKrw);
+  const amountKrw = Number(amountDigits || "0");
+  const amountError = amountDigits.length > 0 && amountKrw <= 0 ? "0보다 큰 금액을 입력해 주세요." : null;
+  const canSave = !amountError && amountKrw > 0 && Boolean(authToken && selectedChildId);
+
+  const save = useMutation({
+    mutationFn: () => {
+      if (!authToken || !selectedChildId || !Number.isInteger(amountKrw) || amountKrw <= 0) {
+        throw new Error("invalid budget");
+      }
+      return upsertBudget(authToken, selectedChildId, amountKrw);
+    },
+    onSuccess: () => {
+      completeStep("ONB-004");
+      markHomeReached();
+      router.replace("/(tabs)");
+    }
+  });
+
+  function skip() {
     completeStep("ONB-004");
     markHomeReached();
     router.replace("/(tabs)");
   }
 
   return (
-    <View style={{ backgroundColor: theme.colors.background, flex: 1, gap: 12, padding: 24 }}>
-      <Text style={{ fontSize: 22, fontWeight: "700" }}>월 예산</Text>
-      <Text>ONB-004</Text>
-      <TextInput
-        keyboardType="number-pad"
-        onChangeText={setAmountText}
-        style={{ backgroundColor: theme.colors.surface, borderRadius: 8, padding: 14 }}
-        value={amountText}
-      />
-      <Pressable
-        onPress={save}
-        style={{ backgroundColor: theme.colors.primary500, borderRadius: 8, padding: 16 }}
-      >
-        <Text>홈으로 가기</Text>
-      </Pressable>
-    </View>
+    <AppScreen>
+      <View accessibilityLabel={onboardingBudgetScreenId} testID="screen-ONB-004" style={{ gap: theme.spacing.section }}>
+        <ScreenHeader
+          eyebrow="마지막 단계"
+          title="한 달 예산을 정해주세요"
+          subtitle="나중에 예산 화면에서 언제든 바꿀 수 있어요."
+        />
+
+        <Card style={{ gap: 6 }}>
+          <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+            월 예산
+          </Text>
+          <View style={{ alignItems: "center", flexDirection: "row", gap: 6 }}>
+            <TextInput
+              keyboardType="number-pad"
+              onChangeText={(value) => setAmountDigits(toDigits(value))}
+              style={{
+                color: theme.colors.brown,
+                fontSize: 24,
+                fontWeight: "800",
+                paddingVertical: 6
+              }}
+              value={formatAmount(amountDigits)}
+            />
+            <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>원</Text>
+          </View>
+          {amountError ? (
+            <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{amountError}</Text>
+          ) : null}
+        </Card>
+
+        {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." /> : null}
+
+        <View style={{ gap: theme.spacing.gap }}>
+          <PrimaryButton
+            disabled={!canSave || save.isPending}
+            label={save.isPending ? "저장하는 중" : "예산 저장하고 시작하기"}
+            onPress={() => save.mutate()}
+          />
+          <TextButton disabled={save.isPending} label="나중에 설정할게요" onPress={skip} style={{ alignSelf: "center" }} />
+        </View>
+      </View>
+    </AppScreen>
   );
 }

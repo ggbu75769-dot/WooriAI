@@ -16,19 +16,6 @@ const moreMenuRows = [
 
 type MoreMenuRoute = (typeof moreMenuRows)[number]["route"];
 
-function MorePixelStatusBar() {
-  return (
-    <View style={moreStatusBarStyle}>
-      <Text style={moreStatusTextStyle}>9:41</Text>
-      <View style={moreSignalGroupStyle}>
-        <View style={moreSignalDotStyle} />
-        <View style={moreSignalPillStyle} />
-        <View style={moreBatteryStyle} />
-      </View>
-    </View>
-  );
-}
-
 function MoreMenuRow({ icon, title, route }: { icon: string; title: string; route: MoreMenuRoute }) {
   return (
     <Pressable onPress={() => router.push(route)} style={moreMenuRowStyle()}>
@@ -43,8 +30,6 @@ export default function MoreScreen() {
   return (
     <AppScreen>
       <View accessibilityLabel={moreReferenceScreenId} style={moreReferenceFrameStyle()}>
-        <MorePixelStatusBar />
-
         <View style={moreHeaderRowStyle}>
           <Text style={moreTitleStyle}>더보기</Text>
           <Pressable onPress={() => router.push("/settings")} style={moreSearchButtonStyle}>
@@ -78,46 +63,6 @@ function moreReferenceFrameStyle() {
     transform: [{ translateX: MoreSettingsPixelStyles.horizontalOffset }, { translateY: MoreSettingsPixelStyles.topOffset }]
   } as const;
 }
-
-const moreStatusBarStyle = {
-  alignItems: "center",
-  flexDirection: "row",
-  justifyContent: "space-between",
-  minHeight: 14
-} as const;
-
-const moreStatusTextStyle = {
-  color: theme.colors.gray900,
-  fontSize: 11,
-  fontWeight: "800"
-} as const;
-
-const moreSignalGroupStyle = {
-  alignItems: "center",
-  flexDirection: "row",
-  gap: 5
-} as const;
-
-const moreSignalDotStyle = {
-  backgroundColor: theme.colors.gray900,
-  borderRadius: 4,
-  height: 7,
-  width: 7
-} as const;
-
-const moreSignalPillStyle = {
-  backgroundColor: theme.colors.gray900,
-  borderRadius: 5,
-  height: 8,
-  width: 10
-} as const;
-
-const moreBatteryStyle = {
-  backgroundColor: theme.colors.gray900,
-  borderRadius: 2,
-  height: 8,
-  width: 14
-} as const;
 
 const moreHeaderRowStyle = {
   alignItems: "center",

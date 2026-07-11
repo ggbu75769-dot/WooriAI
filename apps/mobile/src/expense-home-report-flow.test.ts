@@ -24,7 +24,7 @@ describe("Batch 06 mobile expense, home, budget, and report contract", () => {
     const routeExpectations = [
       ["app/(tabs)/_layout.tsx", "홈"],
       ["app/(tabs)/_layout.tsx", "기록"],
-      ["app/(tabs)/_layout.tsx", "추천"],
+      ["app/(tabs)/_layout.tsx", "준비템"],
       ["app/(tabs)/_layout.tsx", "리포트"],
       ["app/(tabs)/_layout.tsx", "더보기"],
       ["app/(tabs)/index.tsx", "HOME-001"],

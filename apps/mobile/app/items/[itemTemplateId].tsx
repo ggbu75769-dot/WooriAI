@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Image, Linking, Text, View } from "react-native";
-import { clickProductLink, getItemDetail, updateItemStatus, type ItemDetail, type ProductLink } from "../../src/api/client";
+import { Image, Linking, Pressable, Share, Text, View } from "react-native";
+import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ProductLink } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
   AffiliateDisclosure,
   AppScreen,
   Card,
+  EmptyStateCard,
   PrimaryButton,
   ProductComparisonRow,
   SecondaryButton,
@@ -16,52 +17,51 @@ import {
   Toast
 } from "../../src/ui";
 import { theme } from "../../src/theme";
+import { ProductDetailPixelStyles } from "../../src/pixelLock/styles/ProductDetailPixelStyles";
 
 const productImage = require("../../assets/illustrations/product_diaper_pack.png");
 const productDetailScreenId = "pixel-screen-ITEM-002 ITEM-002 · ITEM-003 · ITEM-004";
 const productDetailHeaderSpacerStyle = { minHeight: 0 } as const;
 const productDetailViewportOffset = 8;
-const productDetailHorizontalOffset = 0;
-const productDetailReferenceScale = 0.806;
-const productDetailReferenceScaleX = 1.35;
-const productDetailReferenceScaleVerticalOffset = -40;
-const productDetailReferenceScaleFrameStyle = {
-  transform: [{ translateY: productDetailReferenceScaleVerticalOffset }, { scale: productDetailReferenceScale }, { scaleX: productDetailReferenceScaleX }]
-} as const;
-const productDetailFrameStyle = {
-  gap: theme.spacing.section,
-  transform: [{ translateX: productDetailHorizontalOffset }]
-};
-const productDetailHeroCardStyle = {
-  alignItems: "center",
-  backgroundColor: theme.colors.beige,
-  borderColor: "transparent",
-  borderWidth: 0,
-  boxShadow: "none",
-  elevation: 0,
-  marginTop: -12 + productDetailViewportOffset,
-  padding: 10,
-  shadowOpacity: 0
-} as const;
-const productDetailHeroImageStyle = {
-  borderRadius: 22,
-  height: 215,
-  width: "100%"
-} as const;
-const productDetailInfoCardStyle = {
-  gap: 12,
-  marginTop: -8
-} as const;
-const productDetailStatusBarStyle = {
-  alignItems: "center",
-  flexDirection: "row",
-  justifyContent: "space-between",
-  left: -8,
-  position: "absolute",
-  right: -8,
-  top: -12 + productDetailViewportOffset,
-  zIndex: 4
-} as const;
+function productDetailReferenceScaleFrameStyle() {
+  return {
+    transform: [{ translateY: ProductDetailPixelStyles.topOffset }, { scale: ProductDetailPixelStyles.scale }, { scaleX: ProductDetailPixelStyles.scaleX }]
+  } as const;
+}
+function productDetailFrameStyle() {
+  return {
+    gap: ProductDetailPixelStyles.cardGap,
+    transform: [{ translateX: ProductDetailPixelStyles.horizontalOffset }]
+  };
+}
+function productDetailHeroCardStyle() {
+  return {
+    alignItems: "center",
+    backgroundColor: theme.colors.beige,
+    borderColor: "transparent",
+    borderRadius: ProductDetailPixelStyles.cardRadius,
+    borderWidth: 0,
+    boxShadow: "none",
+    elevation: 0,
+    marginTop: -12 + productDetailViewportOffset,
+    padding: 10,
+    shadowOpacity: 0
+  } as const;
+}
+function productDetailHeroImageStyle() {
+  return {
+    borderRadius: ProductDetailPixelStyles.cardRadius,
+    height: ProductDetailPixelStyles.heroHeight,
+    width: "100%"
+  } as const;
+}
+function productDetailInfoCardStyle() {
+  return {
+    borderRadius: ProductDetailPixelStyles.cardRadius,
+    gap: ProductDetailPixelStyles.cardGap,
+    marginTop: -8
+  };
+}
 const productDetailFloatingControlsStyle = {
   alignItems: "center",
   flexDirection: "row",
@@ -69,7 +69,7 @@ const productDetailFloatingControlsStyle = {
   left: -4,
   position: "absolute",
   right: -4,
-  top: 50 + productDetailViewportOffset,
+  top: 8 + productDetailViewportOffset,
   zIndex: 4
 } as const;
 const productDetailChromeButtonStyle = {
@@ -81,21 +81,15 @@ const productDetailChromeButtonStyle = {
   width: 34
 } as const;
 
-function ProductDetailScreenChrome() {
+function ProductDetailNavigation({ onShare }: { onShare: () => void }) {
   return (
-    <View pointerEvents="none">
-      <View style={productDetailStatusBarStyle}>
-        <Text style={{ color: theme.colors.gray900, fontSize: 12, fontWeight: "800" }}>9:41</Text>
-        <Text style={{ color: theme.colors.gray900, fontSize: 10, fontWeight: "800" }}>LTE 100%</Text>
-      </View>
-      <View style={productDetailFloatingControlsStyle}>
-        <View style={productDetailChromeButtonStyle}>
+    <View style={productDetailFloatingControlsStyle}>
+        <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" onPress={() => router.back()} style={productDetailChromeButtonStyle}>
           <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800" }}>{"<"}</Text>
-        </View>
-        <View style={productDetailChromeButtonStyle}>
+        </Pressable>
+        <Pressable accessibilityLabel="공유하기" accessibilityRole="button" onPress={onShare} style={productDetailChromeButtonStyle}>
           <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>[]</Text>
-        </View>
-      </View>
+        </Pressable>
     </View>
   );
 }
@@ -151,17 +145,19 @@ export default function ItemDetailScreen() {
   const params = useLocalSearchParams<{ itemTemplateId?: string }>();
   const itemTemplateId = String(params.itemTemplateId ?? "");
   const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const [clickedTitle, setClickedTitle] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const detail = useQuery({
     queryKey: ["item-detail", childId, itemTemplateId],
-    enabled: Boolean(accessToken && childId && itemTemplateId),
-    queryFn: () => getItemDetail(accessToken!, childId!, itemTemplateId)
+    enabled: Boolean(authToken && childId && itemTemplateId),
+    queryFn: () => getItemDetail(authToken!, childId!, itemTemplateId)
   });
 
   const markPrepared = useMutation({
-    mutationFn: () => updateItemStatus(accessToken!, childId!, itemTemplateId, "prepared"),
+    mutationFn: () => updateItemStatus(authToken!, childId!, itemTemplateId, "prepared"),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
@@ -170,14 +166,36 @@ export default function ItemDetailScreen() {
   });
 
   const clickLink = useMutation({
-    mutationFn: (productLinkId: string) => clickProductLink(accessToken!, productLinkId, childId!, "ITEM-003"),
+    mutationFn: (productLinkId: string) => clickProductLink(authToken!, productLinkId, childId!, "ITEM-003"),
     onSuccess: async (result) => {
       setClickedTitle(result.disclosureText ?? "구매 링크");
       await Linking.openURL(result.redirectUrl);
     }
   });
-  const visibleDetail = detail.data ?? previewDetail(itemTemplateId);
-  const canCallLinkApi = Boolean(accessToken && childId);
+  const hasSession = Boolean(authToken && childId && itemTemplateId);
+
+  if (hasSession && (detail.isLoading || !detail.data)) {
+    return (
+      <AppScreen>
+        <EmptyStateCard title="상품 정보를 불러오고 있어요." actionLabel="잠시만요" />
+      </AppScreen>
+    );
+  }
+
+  if (hasSession && detail.isError) {
+    return (
+      <AppScreen>
+        <EmptyStateCard
+          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+          actionLabel="다시 시도"
+          onPress={() => detail.refetch()}
+        />
+      </AppScreen>
+    );
+  }
+
+  const visibleDetail = hasSession ? detail.data! : previewDetail(itemTemplateId);
+  const canCallLinkApi = hasSession;
   const handleProductLinkPress = (link: ProductLink) => {
     if (canCallLinkApi) {
       clickLink.mutate(link.id);
@@ -188,16 +206,20 @@ export default function ItemDetailScreen() {
 
   return (
     <AppScreen>
-      <View style={productDetailReferenceScaleFrameStyle}>
-        <View style={productDetailFrameStyle}>
-          <ProductDetailScreenChrome />
+      <View style={productDetailReferenceScaleFrameStyle()}>
+        <View style={productDetailFrameStyle()}>
+          <ProductDetailNavigation
+            onShare={() => {
+              void Share.share({ message: `${visibleDetail.name} · ${visibleDetail.priceBandText}` });
+            }}
+          />
           <View accessibilityLabel={productDetailScreenId} style={productDetailHeaderSpacerStyle} />
 
-          <Card style={productDetailHeroCardStyle}>
-            <Image source={productImage} style={productDetailHeroImageStyle} resizeMode="cover" />
+          <Card style={productDetailHeroCardStyle()}>
+            <Image source={productImage} style={productDetailHeroImageStyle()} resizeMode="cover" />
           </Card>
 
-          <Card style={productDetailInfoCardStyle}>
+          <Card style={productDetailInfoCardStyle()}>
             <Text style={{ color: theme.colors.brown, fontSize: 21, fontWeight: "800" }}>{visibleDetail.name}</Text>
             <Text style={{ color: theme.colors.warning, fontSize: 13, fontWeight: "800" }}>★ 4.8 (2,154)</Text>
             <Text style={{ color: theme.colors.gray900, fontSize: 26, fontWeight: "800" }}>42,900원</Text>
@@ -245,7 +267,7 @@ export default function ItemDetailScreen() {
               <SecondaryButton
                 label="이미 준비로 표시"
                 onPress={() => {
-                  if (accessToken && childId) markPrepared.mutate();
+                  if (authToken && childId) markPrepared.mutate();
                 }}
               />
               <SecondaryButton label="지출도 기록하기" onPress={() => router.push("/expenses/new")} />

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { Animated, Image, Text, View } from "react-native";
 import { AppScreen, PrimaryButton, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
 import { SplashPixelStyles } from "../src/pixelLock/styles";
+import { useSessionStore } from "../src/stores/session.store";
 
 declare const __DEV__: boolean;
 
@@ -38,10 +39,12 @@ function splashPixelFrameStyle() {
 
 export default function LaunchAnimationScreen() {
   const params = useLocalSearchParams<{ pixelLock?: string }>();
+  const isTestSession = useSessionStore((state) => state.isTestSession);
   const [stageIndex, setStageIndex] = useState(-1);
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.88)).current;
   const isPixelLockMode = (__DEV__ || process.env.EXPO_PUBLIC_PIXEL_LOCK === "1") && String(params.pixelLock ?? "") === "1";
+  const isLoginlessTestMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1" && String(params.pixelLock ?? "") !== "1";
   const currentStage = stageIndex < 0 ? intro : animationStages[stageIndex];
   const isFinalStage = stageIndex === animationStages.length - 1;
   const pagerDots = stageIndex < 0 ? ["intro", "record", "report"] : animationStages.map((stage) => stage.label);
@@ -83,6 +86,14 @@ export default function LaunchAnimationScreen() {
   }, [isPixelLockMode, opacity, scale, stageIndex]);
 
   const finish = () => router.replace("/login");
+
+  if (isTestSession && !isPixelLockMode) {
+    return <Redirect href="/(tabs)" />;
+  }
+
+  if (isLoginlessTestMode) {
+    return <Redirect href="/pixel-lock?screen=HOME-001" />;
+  }
 
   return (
     <AppScreen>

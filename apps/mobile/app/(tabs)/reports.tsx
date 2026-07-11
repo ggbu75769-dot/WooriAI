@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { StyleSheet, Text, View } from "react-native";
-import { getCumulativeReport, getMonthlyReport } from "../../src/api/client";
+import { useEffect, useState } from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { router } from "expo-router";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { getCategoryReport, getCumulativeReport, getMonthlyReport, getYearlyReport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
@@ -27,55 +28,147 @@ function formatKrw(value: number) {
   return `₩${value.toLocaleString("ko-KR")}`;
 }
 
-function ReportPixelStatusBar() {
-  return (
-    <View style={reportReferenceStatusBarStyle}>
-      <Text style={reportReferenceStatusTextStyle}>9:41</Text>
-      <View style={reportReferenceSignalGroupStyle}>
-        <View style={reportReferenceSignalDotStyle} />
-        <View style={reportReferenceSignalPillStyle} />
-        <View style={reportReferenceBatteryStyle} />
-      </View>
-    </View>
-  );
+function formatWon(value: number) {
+  return `${value.toLocaleString("ko-KR")}원`;
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function addYears(date: Date, years: number) {
+  return new Date(date.getFullYear() + years, date.getMonth(), 1);
+}
+
+function startOfQuarter(date: Date) {
+  return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1);
+}
+
+function yearMonthOf(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 export default function ReportsScreen() {
   const [period, setPeriod] = useState("월간");
+  const [monthOffset, setMonthOffset] = useState(0);
   const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const hasSession = Boolean(authToken && childId);
+
+  // Reset navigation offset whenever the selected period changes so "다음/이전"
+  // always starts from the current month/quarter/year for the newly selected unit.
+  useEffect(() => {
+    setMonthOffset(0);
+  }, [period]);
+
+  const baseDate = hasSession ? new Date() : new Date(2025, 4, 1);
+
+  const reportDate = period === "월간" ? addMonths(baseDate, monthOffset) : baseDate;
+  const reportYearMonth = `${reportDate.getFullYear()}-${String(reportDate.getMonth() + 1).padStart(2, "0")}`;
+  const reportMonthLabel = `${reportDate.getFullYear()}년 ${reportDate.getMonth() + 1}월`;
+
+  const quarterStart = period === "분기" ? addMonths(startOfQuarter(baseDate), monthOffset * 3) : startOfQuarter(baseDate);
+  const quarterMonths = [quarterStart, addMonths(quarterStart, 1), addMonths(quarterStart, 2)];
+  const quarterLabel = `${quarterStart.getFullYear()}년 ${Math.floor(quarterStart.getMonth() / 3) + 1}분기`;
+
+  const yearStart = period === "연간" ? addYears(new Date(baseDate.getFullYear(), 0, 1), monthOffset) : new Date(baseDate.getFullYear(), 0, 1);
+  const yearLabel = `${yearStart.getFullYear()}년`;
+
+  const periodLabel = period === "월간" ? reportMonthLabel : period === "분기" ? quarterLabel : yearLabel;
+
+  const previousMonthDate = addMonths(reportDate, -1);
+  const previousMonthYearMonth = yearMonthOf(previousMonthDate);
+
   const monthly = useQuery({
-    queryKey: ["report", "monthly", childId],
-    enabled: Boolean(accessToken && childId),
-    queryFn: () => getMonthlyReport(accessToken!, childId!)
+    queryKey: ["report", "monthly", childId, reportYearMonth],
+    enabled: Boolean(authToken && childId),
+    queryFn: () => getMonthlyReport(authToken!, childId!, reportYearMonth)
+  });
+  const previousMonth = useQuery({
+    queryKey: ["report", "monthly", childId, previousMonthYearMonth],
+    enabled: Boolean(authToken && childId && period === "월간"),
+    queryFn: () => getMonthlyReport(authToken!, childId!, previousMonthYearMonth)
   });
   const cumulative = useQuery({
     queryKey: ["report", "cumulative", childId],
-    enabled: Boolean(accessToken && childId),
-    queryFn: () => getCumulativeReport(accessToken!, childId!)
+    enabled: Boolean(authToken && childId),
+    queryFn: () => getCumulativeReport(authToken!, childId!)
+  });
+  const category = useQuery({
+    queryKey: ["report", "category", childId],
+    enabled: Boolean(authToken && childId),
+    queryFn: () => getCategoryReport(authToken!, childId!)
+  });
+  const quarterQueries = useQueries({
+    queries: quarterMonths.map((date) => {
+      const ym = yearMonthOf(date);
+      return {
+        queryKey: ["report", "monthly", childId, ym],
+        enabled: Boolean(authToken && childId && period === "분기"),
+        queryFn: () => getMonthlyReport(authToken!, childId!, ym)
+      };
+    })
+  });
+  const yearly = useQuery({
+    queryKey: ["report", "yearly", childId, yearStart.getFullYear()],
+    enabled: Boolean(authToken && childId && period === "연간"),
+    queryFn: () => getYearlyReport(authToken!, childId!, yearStart.getFullYear())
   });
 
   const monthlyTotal = monthly.data?.totalExpenseKrw ?? previewReportTotalKrw;
   const cumulativeTotal = cumulative.data?.totalExpenseKrw ?? previewCumulativeTotalKrw;
 
+  const quarterTotal = quarterQueries.reduce((sum, query) => sum + (query.data?.totalExpenseKrw ?? 0), 0);
+  const quarterIsLoading = quarterQueries.some((query) => query.isLoading);
+  const quarterIsError = quarterQueries.some((query) => query.isError);
+  const refetchQuarter = () => quarterQueries.forEach((query) => query.refetch());
+
+  const activeIsLoading = period === "월간" ? monthly.isLoading : period === "분기" ? quarterIsLoading : yearly.isLoading;
+  const activeIsError = period === "월간" ? monthly.isError : period === "분기" ? quarterIsError : yearly.isError;
+  const activeTotal = period === "월간" ? monthly.data?.totalExpenseKrw : period === "분기" ? quarterTotal : yearly.data?.totalExpenseKrw;
+  const refetchActive = () => {
+    if (period === "월간") monthly.refetch();
+    else if (period === "분기") refetchQuarter();
+    else yearly.refetch();
+  };
+
+  // The delta/tip comparisons only make sense against last month while the 월간 tab is active.
+  const hasDeltaData = hasSession && period === "월간" && monthly.isSuccess && previousMonth.isSuccess;
+  const deltaPercent =
+    hasDeltaData && previousMonth.data!.totalExpenseKrw > 0
+      ? Math.round(((monthly.data!.totalExpenseKrw - previousMonth.data!.totalExpenseKrw) / previousMonth.data!.totalExpenseKrw) * 1000) / 10
+      : null;
+  const deltaLabel = !hasSession ? undefined : deltaPercent === null ? null : `${deltaPercent > 0 ? "+" : ""}${deltaPercent}%`;
+
+  const categoryData = category.data?.categories ?? [];
+  const categorySegments = category.data
+    ? categoryData.map((entry) => ({ label: entry.categoryId, amountKrw: entry.amountKrw }))
+    : undefined;
+
+  const tipDeltaKrw = hasDeltaData ? previousMonth.data!.totalExpenseKrw - monthly.data!.totalExpenseKrw : null;
+  const showTip = hasSession && period === "월간" && tipDeltaKrw !== null && tipDeltaKrw !== 0;
+
   return (
     <AppScreen>
       <View style={reportReferenceScaleFrameStyle()}>
         <View accessibilityLabel={reportReferenceScreenId} style={reportReferenceFrameStyle}>
-          <ReportPixelStatusBar />
           <Text style={reportReferenceHeaderStyle}>리포트</Text>
 
           <SegmentedControl options={["월간", "분기", "연간"]} value={period} onChange={setPeriod} />
 
           <View style={reportReferencePeriodRowStyle}>
-            <Text style={reportReferencePeriodArrowStyle}>‹</Text>
-            <Text style={reportReferencePeriodTextStyle}>2025년 5월</Text>
-            <Text style={reportReferencePeriodArrowStyle}>›</Text>
+            <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
+              <Text style={reportReferencePeriodArrowStyle}>‹</Text>
+            </Pressable>
+            <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
+            <Pressable accessibilityLabel="다음 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
+              <Text style={reportReferencePeriodArrowStyle}>›</Text>
+            </Pressable>
           </View>
 
-          {monthly.isLoading ? (
-            <EmptyStateCard title="리포트를 불러오고 있어요." actionLabel="잠시만요" />
-          ) : (
+          {!hasSession ? (
             <>
               <LineChartCard title="총 지출" value={formatKrw(monthlyTotal)} />
               <DonutChartCard title="카테고리 비중" />
@@ -91,6 +184,67 @@ export default function ReportsScreen() {
                 <Text style={reportReferenceMemoryBodyStyle}>누적 기록 {formatKrw(cumulativeTotal)}</Text>
               </Card>
             </>
+          ) : activeIsLoading ? (
+            <EmptyStateCard title="리포트를 불러오고 있어요." actionLabel="잠시만요" />
+          ) : activeIsError ? (
+            <EmptyStateCard
+              title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+              actionLabel="다시 시도"
+              onPress={refetchActive}
+            />
+          ) : (
+            <>
+              <LineChartCard title="총 지출" value={formatKrw(activeTotal ?? 0)} deltaLabel={deltaLabel} />
+
+              {category.isLoading ? (
+                <EmptyStateCard title="카테고리 정보를 불러오고 있어요." actionLabel="잠시만요" />
+              ) : category.isError ? (
+                <EmptyStateCard
+                  title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+                  actionLabel="다시 시도"
+                  onPress={() => category.refetch()}
+                />
+              ) : categoryData.length === 0 ? (
+                <EmptyStateCard
+                  title="첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
+                  actionLabel="지출 기록하기"
+                  onPress={() => router.push("/expenses/new")}
+                />
+              ) : (
+                <DonutChartCard title="카테고리 비중" segments={categorySegments} />
+              )}
+
+              {showTip ? (
+                <Card style={reportReferenceTipCardStyle}>
+                  <Text style={reportReferenceTipTitleStyle}>이번 달 절약 팁</Text>
+                  {tipDeltaKrw !== null && tipDeltaKrw > 0 ? (
+                    <>
+                      <Text style={reportReferenceTipBodyStyle}>지난 달보다 {formatWon(tipDeltaKrw)}을 절약했어요!</Text>
+                      <Text style={reportReferenceTipBodyStyle}>절약 습관 최고예요!</Text>
+                    </>
+                  ) : (
+                    <Text style={reportReferenceTipBodyStyle}>
+                      지난 달보다 {formatWon(Math.abs(tipDeltaKrw ?? 0))} 더 썼어요. 다음 구매 전에 같이 확인해 볼까요?
+                    </Text>
+                  )}
+                </Card>
+              ) : null}
+
+              {cumulative.isLoading ? (
+                <EmptyStateCard title="누적 기록을 불러오고 있어요." actionLabel="잠시만요" />
+              ) : cumulative.isError ? (
+                <EmptyStateCard
+                  title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+                  actionLabel="다시 시도"
+                  onPress={() => cumulative.refetch()}
+                />
+              ) : cumulative.data ? (
+                <Card style={reportReferenceMemoryCardStyle}>
+                  <Text style={reportReferenceMemoryTitleStyle}>오늘도 소중한 하루였어요</Text>
+                  <Text style={reportReferenceMemoryBodyStyle}>누적 기록 {formatKrw(cumulative.data.totalExpenseKrw)}</Text>
+                </Card>
+              ) : null}
+            </>
           )}
         </View>
       </View>
@@ -102,46 +256,6 @@ const reportReferenceFrameStyle = {
   gap: 18,
   transform: [{ translateX: reportReferenceHorizontalOffset }, { translateY: reportReferenceVerticalOffset }]
 };
-
-const reportReferenceStatusBarStyle = {
-  alignItems: "center",
-  flexDirection: "row",
-  justifyContent: "space-between",
-  minHeight: 15
-} as const;
-
-const reportReferenceStatusTextStyle = {
-  color: theme.colors.gray900,
-  fontSize: 11,
-  fontWeight: "800"
-} as const;
-
-const reportReferenceSignalGroupStyle = {
-  alignItems: "center",
-  flexDirection: "row",
-  gap: 5
-} as const;
-
-const reportReferenceSignalDotStyle = {
-  backgroundColor: theme.colors.gray900,
-  borderRadius: 4,
-  height: 7,
-  width: 7
-} as const;
-
-const reportReferenceSignalPillStyle = {
-  backgroundColor: theme.colors.gray900,
-  borderRadius: 5,
-  height: 8,
-  width: 10
-} as const;
-
-const reportReferenceBatteryStyle = {
-  backgroundColor: theme.colors.gray900,
-  borderRadius: 2,
-  height: 8,
-  width: 14
-} as const;
 
 const reportReferenceHeaderStyle = {
   color: theme.colors.gray900,

@@ -2,16 +2,16 @@ import { pixelNumber } from "../overrides";
 
 export const ExcelPreviewPixelStyles = {
   get horizontalOffset() {
-    return pixelNumber("IMP-003", "horizontalOffset", 40);
+    return pixelNumber("IMP-003", "horizontalOffset", 0);
   },
   get topOffset() {
-    return pixelNumber("IMP-003", "topOffset", -8);
+    return pixelNumber("IMP-003", "topOffset", 0);
   },
   get scale() {
-    return pixelNumber("IMP-003", "scale", 0.58);
+    return pixelNumber("IMP-003", "scale", 1);
   },
   get scaleY() {
-    return pixelNumber("IMP-003", "scaleY", 1.08);
+    return pixelNumber("IMP-003", "scaleY", 1);
   },
   get screenPadding() {
     return pixelNumber("IMP-003", "screenPadding", 24);

@@ -5,10 +5,10 @@ export const ItemListPixelStyles = {
     return pixelNumber("ITEM-001", "horizontalOffset", 0);
   },
   get topOffset() {
-    return pixelNumber("ITEM-001", "topOffset", -30);
+    return pixelNumber("ITEM-001", "topOffset", 0);
   },
   get scale() {
-    return pixelNumber("ITEM-001", "scale", 0.48);
+    return pixelNumber("ITEM-001", "scale", 1);
   },
   get tabHeight() {
     return pixelNumber("ITEM-001", "tabHeight", 0);

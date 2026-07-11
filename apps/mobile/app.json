@@ -14,8 +14,7 @@
       "typedRoutes": true
     },
     "android": {
-      "package": "com.anonymous.wooriai",
-      "usesCleartextTraffic": true
+      "package": "com.anonymous.wooriai"
     }
   }
 }

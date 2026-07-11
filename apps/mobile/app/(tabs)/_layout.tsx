@@ -6,7 +6,7 @@ import { theme } from "../../src/theme";
 const tabs = {
   index: { title: "홈", icon: "⌂" },
   records: { title: "기록", icon: "▣" },
-  items: { title: "추천", icon: "☆" },
+  items: { title: "준비템", icon: "☆" },
   reports: { title: "리포트", icon: "▥" },
   more: { title: "더보기", icon: "☰" }
 } as const;
@@ -40,7 +40,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="records" options={{ title: tabs.records.title, tabBarIcon: ({ focused }) => icon("records", focused) }} />
       <Tabs.Screen name="items" options={{ title: tabs.items.title, tabBarIcon: ({ focused }) => icon("items", focused) }} />
       <Tabs.Screen name="reports" options={{ title: tabs.reports.title, tabBarIcon: ({ focused }) => icon("reports", focused) }} />
-      <Tabs.Screen name="more" options={{ title: tabs.more.title, tabBarIcon: ({ focused }) => icon("more", focused) }} />
+      <Tabs.Screen name="more" options={{ href: null }} />
     </Tabs>
   );
 }

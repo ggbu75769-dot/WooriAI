@@ -166,7 +166,11 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
-  packages/domain: {}
+  packages/domain:
+    dependencies:
+      '@babel/runtime':
+        specifier: ^8.0.0
+        version: 8.0.0
 
   packages/test-utils: {}
 

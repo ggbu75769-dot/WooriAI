@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { getHome } from "../../src/api/client";
+import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
   AppScreen,
   Card,
+  EmptyStateCard,
   FloatingActionButton,
   HeroSummaryCard,
   ListRow,
@@ -14,25 +15,25 @@ import {
   ScreenHeader
 } from "../../src/ui";
 import { theme } from "../../src/theme";
+import { HomePixelStyles } from "../../src/pixelLock/styles/HomePixelStyles";
 
-const homeHorizontalOffset = 0;
-const homeVerticalOffset = 0;
-const homePixelScale = 1;
-const homePixelScaleX = 1;
-const homeScaleHorizontalOffset = 0;
-const homeScaleVerticalOffset = 0;
-const homePixelScaleFrameStyle = {
-  transform: [
-    { translateX: homeScaleHorizontalOffset },
-    { translateY: homeScaleVerticalOffset },
-    { scale: homePixelScale },
-    { scaleX: homePixelScaleX }
-  ]
-} as const;
-const homePixelFrameStyle = {
-  gap: theme.spacing.section,
-  transform: [{ translateX: homeHorizontalOffset }, { translateY: homeVerticalOffset }]
-};
+function homePixelScaleFrameStyle() {
+  return {
+    transform: [
+      { translateX: HomePixelStyles.scaleHorizontalOffset },
+      { translateY: HomePixelStyles.scaleVerticalOffset },
+      { scale: HomePixelStyles.scale },
+      { scaleX: HomePixelStyles.scaleX }
+    ]
+  } as const;
+}
+
+function homePixelFrameStyle() {
+  return {
+    gap: theme.spacing.section,
+    transform: [{ translateX: HomePixelStyles.horizontalOffset }, { translateY: HomePixelStyles.topOffset }]
+  };
+}
 
 const homeBudgetNudgeStyle = StyleSheet.create({
   card: {
@@ -146,24 +147,46 @@ function formatKrw(value: number) {
 
 export default function HomeScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const home = useQuery({
     queryKey: ["home", childId],
-    enabled: Boolean(accessToken && childId),
-    queryFn: () => getHome(accessToken!, childId!)
+    enabled: Boolean(authToken && childId),
+    queryFn: () => getHome(authToken!, childId!)
   });
+  const hasSession = Boolean(authToken && childId);
 
-  const visibleHome = home.data ?? previewHome;
+  if (hasSession && (home.isLoading || !home.data)) {
+    return (
+      <AppScreen>
+        <EmptyStateCard title="홈 정보를 불러오고 있어요." actionLabel="잠시만요" />
+      </AppScreen>
+    );
+  }
+
+  if (hasSession && home.isError) {
+    return (
+      <AppScreen>
+        <EmptyStateCard
+          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+          actionLabel="다시 시도"
+          onPress={() => home.refetch()}
+        />
+      </AppScreen>
+    );
+  }
+
+  const visibleHome = hasSession ? home.data! : previewHome;
   const monthlyUsed = visibleHome.monthly.usedAmountKrw;
   const budget = visibleHome.monthly.amountKrw;
   const progress = Math.round(Math.min(100, Math.max(0, (monthlyUsed / Math.max(1, budget)) * 100)));
 
   return (
     <AppScreen>
-      <View accessibilityLabel="pixel-screen-HOME-001" testID="pixel-screen-HOME-001" style={homePixelScaleFrameStyle}>
-        <View style={homePixelFrameStyle}>
+      <View accessibilityLabel="pixel-screen-HOME-001" testID="pixel-screen-HOME-001" style={homePixelScaleFrameStyle()}>
+        <View style={homePixelFrameStyle()}>
           <ScreenHeader
-            eyebrow="HOME-001"
             title={`${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`}
             subtitle="우리 아이에게 해준 것을 따뜻하게 기록해요."
             action={<Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>🔔</Text>}
@@ -198,7 +221,18 @@ export default function HomeScreen() {
             </Card>
           </Pressable>
 
-          <ScreenHeader title="최근 지출" action={<Text style={{ color: theme.colors.brown, fontSize: 12, fontWeight: "700" }}>전체 보기</Text>} />
+          <ScreenHeader
+            title="최근 지출"
+            action={
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="최근 지출 전체 보기"
+                onPress={() => router.push("/(tabs)/records")}
+              >
+                <Text style={{ color: theme.colors.brown, fontSize: 12, fontWeight: "700" }}>전체 보기</Text>
+              </Pressable>
+            }
+          />
           {visibleHome.recentExpenses.slice(0, 3).map((expense) => (
             <ListRow
               key={expense.id}

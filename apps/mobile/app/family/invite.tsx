@@ -1,59 +1,147 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Pressable, Text, View } from "react-native";
-import { createInvite, type InviteRole } from "../../src/api/client";
+import { Pressable, Share, Text, View } from "react-native";
+import { createInvite, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN, type InviteRole } from "../../src/api/client";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
+import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
 
-const roles: Array<{ role: InviteRole; label: string }> = [
-  { role: "co_parent", label: "공동부모" },
-  { role: "viewer", label: "보기 전용" },
-  { role: "gift_participant", label: "선물 참여" }
+const roleOptions: Array<{ role: InviteRole; label: string; description: string }> = [
+  { role: "co_parent", label: "공동부모", description: "지출 기록과 예산을 함께 관리할 수 있어요" },
+  { role: "viewer", label: "보기 전용", description: "기록만 확인할 수 있어요" },
+  { role: "gift_participant", label: "선물 참여", description: "선물 준비 목록만 함께 볼 수 있어요" }
 ];
+
+const createFailedText = "초대 링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
 
 export default function FamilyInviteScreen() {
   const [role, setRole] = useState<InviteRole>("co_parent");
   const accessToken = useSessionStore((state) => state.accessToken);
-  const householdId = useSessionStore((state) => state.defaultHouseholdId);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
+  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+
   const invite = useMutation({
-    mutationFn: () => createInvite(accessToken!, householdId!, role, "link")
+    mutationFn: () => createInvite(authToken!, householdId!, role, "link")
   });
 
+  const handleShare = async () => {
+    if (!invite.data) return;
+    try {
+      await Share.share({ message: `우리아이 가족 초대 링크: ${invite.data.inviteUrl}` });
+    } catch {
+      // user cancelled the share sheet
+    }
+  };
+
   return (
-    <View style={{ backgroundColor: theme.colors.background, flex: 1, gap: 14, padding: 24 }}>
-      <Text style={{ color: theme.colors.textSecondary }}>FAM-002</Text>
-      <Text style={{ fontSize: 24, fontWeight: "700" }}>가족 초대</Text>
-      {roles.map((option) => (
-        <Pressable
-          key={option.role}
-          onPress={() => setRole(option.role)}
-          style={{
-            backgroundColor: role === option.role ? theme.colors.primary100 : theme.colors.surface,
-            borderRadius: 8,
-            padding: 14
-          }}
-        >
-          <Text>{option.label}</Text>
-        </Pressable>
-      ))}
-      <Pressable
-        onPress={() => invite.mutate()}
-        style={{
-          alignItems: "center",
-          backgroundColor: theme.colors.primary500,
-          borderRadius: 8,
-          height: theme.ctaHeight,
-          justifyContent: "center"
-        }}
-      >
-        <Text style={{ fontWeight: "700" }}>초대 링크 생성</Text>
-      </Pressable>
-      {invite.data ? (
-        <View style={{ backgroundColor: theme.colors.surface, borderRadius: 8, gap: 8, padding: 14 }}>
-          <Text>{invite.data.inviteUrl}</Text>
-          <Text>만료 {invite.data.expiresAt}</Text>
-        </View>
-      ) : null}
-    </View>
+    <AppScreen>
+      <View testID="screen-FAM-002" accessibilityLabel="screen-FAM-002" style={{ gap: theme.spacing.section }}>
+        <ScreenHeader eyebrow="가족 관리" title="가족 초대" subtitle="함께할 역할을 선택하고 초대 링크를 만들어요" />
+
+        <Card style={{ gap: 8 }}>
+          {roleOptions.map((option) => (
+            <Pressable
+              key={option.role}
+              disabled={invite.isPending}
+              onPress={() => setRole(option.role)}
+              style={[roleRowStyle, role === option.role ? roleRowSelectedStyle : null]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={role === option.role ? roleLabelSelectedStyle : roleLabelStyle}>{option.label}</Text>
+                <Text style={roleDescriptionStyle}>{option.description}</Text>
+              </View>
+              {role === option.role ? <Text style={roleCheckStyle}>✓</Text> : null}
+            </Pressable>
+          ))}
+        </Card>
+
+        {!householdId ? <Text style={mutedTextStyle}>가구 정보가 없어서 초대를 만들 수 없어요.</Text> : null}
+
+        <PrimaryButton
+          label={invite.isPending ? "링크 만드는 중..." : "초대 링크 만들기"}
+          disabled={!authToken || !householdId || invite.isPending}
+          onPress={() => invite.mutate()}
+        />
+
+        {invite.isError ? <Text style={{ color: theme.colors.danger }}>{createFailedText}</Text> : null}
+
+        {invite.data ? (
+          <Card style={{ gap: 10 }}>
+            <Text style={inviteSuccessTitleStyle}>초대 링크가 준비됐어요</Text>
+            <Text style={inviteLinkStyle}>{invite.data.inviteUrl}</Text>
+            <Text style={inviteExpiryStyle}>만료 {invite.data.expiresAt}</Text>
+            <SecondaryButton label="링크 공유하기" onPress={handleShare} />
+            {isTestSession ? (
+              <Text style={mutedTextStyle}>테스트 모드예요. 이 초대 링크는 실제로 전송되지 않아요.</Text>
+            ) : null}
+          </Card>
+        ) : null}
+      </View>
+    </AppScreen>
   );
 }
+
+const roleRowStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.white,
+  borderColor: theme.colors.gray300,
+  borderRadius: theme.radii.small,
+  borderWidth: 1,
+  flexDirection: "row",
+  gap: 10,
+  paddingHorizontal: 14,
+  paddingVertical: 12
+} as const;
+
+const roleRowSelectedStyle = {
+  backgroundColor: theme.colors.primary100,
+  borderColor: theme.colors.mainCoral
+} as const;
+
+const roleLabelStyle = {
+  color: theme.colors.brown,
+  fontSize: 14,
+  fontWeight: "700"
+} as const;
+
+const roleLabelSelectedStyle = {
+  color: theme.colors.mainCoral,
+  fontSize: 14,
+  fontWeight: "800"
+} as const;
+
+const roleDescriptionStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  marginTop: 2
+} as const;
+
+const roleCheckStyle = {
+  color: theme.colors.mainCoral,
+  fontSize: 16,
+  fontWeight: "800"
+} as const;
+
+const mutedTextStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12
+} as const;
+
+const inviteSuccessTitleStyle = {
+  color: theme.colors.brown,
+  fontSize: 14,
+  fontWeight: "800"
+} as const;
+
+const inviteLinkStyle = {
+  color: theme.colors.mainCoral,
+  fontSize: 13,
+  fontWeight: "700"
+} as const;
+
+const inviteExpiryStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12
+} as const;
