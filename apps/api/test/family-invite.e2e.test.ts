@@ -225,4 +225,98 @@ describe("Family invites and household RBAC", () => {
       .send({ role: "co_parent", channel: "link" })
       .expect(403);
   });
+
+  it("lets an owner force-remove a member; blocks non-owners and self-removal, and revokes access", async () => {
+    const ownerToken = await login(app, "batch08-remove-owner");
+    const { householdId, childId } = await completeOwnerOnboarding(app, ownerToken);
+
+    const coParentInvite = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "co_parent", channel: "link" })
+      .expect(200);
+    const coParentToken = await login(app, "batch08-remove-co-parent");
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${tokenFromInviteUrl(coParentInvite.body.inviteUrl)}/accept`)
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .expect(200);
+
+    const viewerInvite = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "viewer", channel: "link" })
+      .expect(200);
+    const viewerToken = await login(app, "batch08-remove-viewer");
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${tokenFromInviteUrl(viewerInvite.body.inviteUrl)}/accept`)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .expect(200);
+
+    const membersBefore = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/households/${householdId}/members`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .expect(200)
+    ).body.members as Array<{ id: string; role: string }>;
+
+    const ownerMemberId = membersBefore.find((member) => member.role === "owner")!.id;
+    const coParentMemberId = membersBefore.find((member) => member.role === "co_parent")!.id;
+    const viewerMemberId = membersBefore.find((member) => member.role === "viewer")!.id;
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/members/${viewerMemberId}`)
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/members/${coParentMemberId}`)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/members/${ownerMemberId}`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("HOUSEHOLD_MEMBER_REMOVE_OWNER_FORBIDDEN");
+      });
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/members/00000000-0000-4000-8000-000000000000`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(404);
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/members/${coParentMemberId}`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ success: true });
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/households/${householdId}/members`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.members.map((member: { id: string }) => member.id)).not.toContain(coParentMemberId);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .send({
+        categoryId,
+        amountKrw: 10000,
+        spentOn: "2026-07-06",
+        itemName: "removed member blocked",
+        paymentMethod: "card"
+      })
+      .expect(403);
+  });
 });

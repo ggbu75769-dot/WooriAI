@@ -135,6 +135,18 @@ export const reportMonthlySchema = z.object({
   categoryTop: z.array(z.record(z.unknown()))
 });
 
+export const reportYearlySchema = z.object({
+  childId: uuidSchema,
+  year: z.string().regex(/^\d{4}$/),
+  totalExpenseKrw: z.number().int().min(0),
+  monthlyTotals: z.array(
+    z.object({
+      yearMonth: z.string().regex(/^\d{4}-\d{2}$/),
+      totalExpenseKrw: z.number().int().min(0)
+    })
+  ).length(12)
+});
+
 export const importJobSchema = z.object({
   id: uuidSchema,
   status: importStatusSchema,
@@ -162,3 +174,4 @@ export type HomeSummaryDto = z.infer<typeof homeSummarySchema>;
 export type ImportRowDto = z.infer<typeof importRowSchema>;
 export type ItemSummaryDto = z.infer<typeof itemSummarySchema>;
 export type ProductLinkDto = z.infer<typeof productLinkSchema>;
+export type YearlyReportDto = z.infer<typeof reportYearlySchema>;

@@ -3,7 +3,7 @@ import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
-import { YearMonthQueryDto } from "./dto/query.dto";
+import { YearMonthQueryDto, YearQueryDto } from "./dto/query.dto";
 
 @Controller("children/:childId/reports")
 @UseGuards(JwtAuthGuard)
@@ -17,6 +17,15 @@ export class ReportsController {
     @Query(createDtoValidationPipe(YearMonthQueryDto)) query: YearMonthQueryDto
   ) {
     return this.store.getMonthlyReport(request.user!, childId, query.yearMonth);
+  }
+
+  @Get("yearly")
+  yearly(
+    @Req() request: AuthenticatedRequest,
+    @Param("childId") childId: string,
+    @Query(createDtoValidationPipe(YearQueryDto)) query: YearQueryDto
+  ) {
+    return this.store.getYearlyReport(request.user!, childId, query.year);
   }
 
   @Get("cumulative")

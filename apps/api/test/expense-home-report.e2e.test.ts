@@ -284,6 +284,126 @@ describe("Expense, budget, home, and report API", () => {
       });
   });
 
+  it("aggregates a full 12-month yearly report while excluding soft-deleted and gift expenses", async () => {
+    const providerToken = "batch-yearly-report";
+    const accessToken = await login(app, providerToken);
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const januaryExpense = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          categoryId,
+          amountKrw: 20000,
+          spentOn: "2026-01-15",
+          itemName: "1월 기저귀",
+          paymentMethod: "card"
+        })
+        .expect(200)
+    ).body as { id: string };
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        categoryId,
+        amountKrw: 30000,
+        spentOn: "2026-07-06",
+        itemName: "7월 기저귀",
+        paymentMethod: "card"
+      })
+      .expect(200);
+
+    const marchExpenseToDelete = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          categoryId,
+          amountKrw: 15000,
+          spentOn: "2026-03-10",
+          itemName: "3월 삭제 예정",
+          paymentMethod: "card"
+        })
+        .expect(200)
+    ).body as { id: string };
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/expenses/${marchExpenseToDelete.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+
+    const tokenService = moduleRef.get(TokenService);
+    const store = moduleRef.get(OnboardingStoreService) as OnboardingStoreService & {
+      createExpense: (
+        user: ReturnType<TokenService["createDevUser"]>,
+        childId: string,
+        input: {
+          categoryId: string;
+          amountKrw: number;
+          spentOn: string;
+          itemName: string;
+          paymentMethod: "unknown";
+          expenseType: "gift";
+        }
+      ) => unknown;
+    };
+    store.createExpense(tokenService.createDevUser("kakao", providerToken), childId, {
+      categoryId,
+      amountKrw: 99999,
+      spentOn: "2026-02-01",
+      itemName: "2월 선물",
+      paymentMethod: "unknown",
+      expenseType: "gift"
+    });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/yearly?year=2026`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.childId).toBe(childId);
+        expect(body.year).toBe("2026");
+        expect(body.monthlyTotals).toHaveLength(12);
+        expect(body.monthlyTotals.map((month: { yearMonth: string }) => month.yearMonth)).toEqual([
+          "2026-01",
+          "2026-02",
+          "2026-03",
+          "2026-04",
+          "2026-05",
+          "2026-06",
+          "2026-07",
+          "2026-08",
+          "2026-09",
+          "2026-10",
+          "2026-11",
+          "2026-12"
+        ]);
+        expect(body.monthlyTotals[0]).toEqual({ yearMonth: "2026-01", totalExpenseKrw: 20000 });
+        expect(body.monthlyTotals[1]).toEqual({ yearMonth: "2026-02", totalExpenseKrw: 0 });
+        expect(body.monthlyTotals[2]).toEqual({ yearMonth: "2026-03", totalExpenseKrw: 0 });
+        expect(body.monthlyTotals[6]).toEqual({ yearMonth: "2026-07", totalExpenseKrw: 30000 });
+        const sumOfMonths = body.monthlyTotals.reduce(
+          (sum: number, month: { totalExpenseKrw: number }) => sum + month.totalExpenseKrw,
+          0
+        );
+        expect(body.totalExpenseKrw).toBe(sumOfMonths);
+        expect(body.totalExpenseKrw).toBe(50000);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/yearly`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.year).toBe("2026");
+        expect(body.totalExpenseKrw).toBe(50000);
+      });
+
+    expect(januaryExpense.id).toEqual(expect.any(String));
+  });
+
   async function expectTotals(
     accessToken: string,
     childId: string,

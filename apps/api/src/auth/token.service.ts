@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { AuthProvider } from "@wooriai/domain";
+import { requireSecret } from "../common/config/require-secret";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { HouseholdRuntimeService } from "../households/household-runtime.service";
 
@@ -114,10 +115,10 @@ export class TokenService {
   }
 
   private accessSecret() {
-    return process.env.JWT_ACCESS_SECRET ?? "wooriai-dev-access-secret";
+    return requireSecret("JWT_ACCESS_SECRET", "wooriai-dev-access-secret");
   }
 
   private refreshSecret() {
-    return process.env.JWT_REFRESH_SECRET ?? "wooriai-dev-refresh-secret";
+    return requireSecret("JWT_REFRESH_SECRET", "wooriai-dev-refresh-secret");
   }
 }

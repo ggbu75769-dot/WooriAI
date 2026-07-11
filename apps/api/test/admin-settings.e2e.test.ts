@@ -143,6 +143,20 @@ describe("Admin CMS and settings APIs", () => {
         expect(body).toMatchObject({ key: "affiliate_purchase", text: "Batch10 affiliate disclosure near CTA." });
       });
 
+    await request(app.getHttpServer())
+      .post("/api/v1/admin/product-links")
+      .set("x-admin-token", adminToken)
+      .send({
+        itemTemplateId: itemTemplate.id,
+        platform: "custom",
+        title: "Malicious scheme link",
+        url: "javascript:alert(1)",
+        isAffiliate: false,
+        isSponsored: false,
+        active: true
+      })
+      .expect(400);
+
     const productLink = (
       await request(app.getHttpServer())
         .post("/api/v1/admin/product-links")
@@ -158,6 +172,12 @@ describe("Admin CMS and settings APIs", () => {
         })
         .expect(200)
     ).body as { id: string };
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/product-links/${productLink.id}`)
+      .set("x-admin-token", adminToken)
+      .send({ url: "data:text/html,evil" })
+      .expect(400);
 
     await request(app.getHttpServer())
       .patch(`/api/v1/admin/product-links/${productLink.id}`)

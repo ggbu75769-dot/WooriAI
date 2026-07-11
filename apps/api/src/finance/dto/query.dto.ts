@@ -10,3 +10,9 @@ export class HomeQueryDto {
   @IsUUID()
   childId!: string;
 }
+
+export class YearQueryDto {
+  @IsOptional()
+  @Matches(/^\d{4}$/)
+  year?: string;
+}

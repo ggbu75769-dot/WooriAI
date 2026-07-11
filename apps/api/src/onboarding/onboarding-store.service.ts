@@ -20,6 +20,7 @@ import {
 } from "@wooriai/domain";
 import { itemTemplateSeeds, productLinkSeeds } from "../../prisma/seed-data";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
+import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
 
 type ConsentDefinition = {
   type: string;
@@ -742,9 +743,12 @@ export class OnboardingStoreService {
     };
     this.affiliateClicks.push(click);
 
+    const redirectUrl = productLink.affiliateUrl ?? productLink.url;
+    this.requireHttpUrl(redirectUrl);
+
     return {
       clickId: click.id,
-      redirectUrl: productLink.affiliateUrl ?? productLink.url,
+      redirectUrl,
       disclosureText: productLink.disclosureText ?? undefined
     };
   }
@@ -761,6 +765,25 @@ export class OnboardingStoreService {
       totalExpenseKrw: this.totalExpenseKrw(expenses),
       budgetAmountKrw: budget?.amountKrw ?? null,
       categoryTop: this.categoryBreakdown(expenses)
+    };
+  }
+
+  getYearlyReport(user: AuthenticatedUser, childId: string, year = this.currentYear()) {
+    this.requireChildAccess(user, childId);
+    const normalizedYear = this.requireValidYear(year);
+    const monthlyTotals = Array.from({ length: 12 }, (_, index) => {
+      const yearMonth = `${normalizedYear}-${String(index + 1).padStart(2, "0")}`;
+      return {
+        yearMonth,
+        totalExpenseKrw: this.totalExpenseKrw(this.expensesForChild(childId, yearMonth))
+      };
+    });
+
+    return {
+      childId,
+      year: normalizedYear,
+      totalExpenseKrw: monthlyTotals.reduce((sum, month) => sum + month.totalExpenseKrw, 0),
+      monthlyTotals
     };
   }
 
@@ -877,6 +900,10 @@ export class OnboardingStoreService {
     if (!input.platform || !input.title?.trim() || !input.url?.trim()) {
       throw new BadRequestException({ code: "ADMIN_PRODUCT_LINK_REQUIRED", message: "Product link fields are required." });
     }
+    this.requireHttpUrl(input.url);
+    if (input.affiliateUrl) {
+      this.requireHttpUrl(input.affiliateUrl);
+    }
     const link: ProductLinkRecord = {
       id: randomUUID(),
       itemTemplateId: input.itemTemplateId,
@@ -912,6 +939,10 @@ export class OnboardingStoreService {
     this.requireItemTemplateAnyStatus(updated.itemTemplateId);
     if (!updated.title || !updated.url) {
       throw new BadRequestException({ code: "ADMIN_PRODUCT_LINK_REQUIRED", message: "Product link fields are required." });
+    }
+    this.requireHttpUrl(updated.url);
+    if (updated.affiliateUrl) {
+      this.requireHttpUrl(updated.affiliateUrl);
     }
     const index = this.productLinks.findIndex((link) => link.id === productLinkId);
     this.productLinks[index] = updated;
@@ -1481,6 +1512,17 @@ export class OnboardingStoreService {
     return getSeoulMonthRange(process.env.WOORIAI_STAGE_TODAY ?? getSeoulToday()).yearMonth;
   }
 
+  private currentYear() {
+    return this.currentYearMonth().slice(0, 4);
+  }
+
+  private requireValidYear(year: string) {
+    if (!/^\d{4}$/.test(year)) {
+      throw new BadRequestException({ code: "YEAR_INVALID", message: "연도를 다시 확인해 주세요." });
+    }
+    return year;
+  }
+
   private referenceNow() {
     return process.env.WOORIAI_STAGE_TODAY
       ? new Date(`${process.env.WOORIAI_STAGE_TODAY}T00:00:00+09:00`)
@@ -1510,6 +1552,15 @@ export class OnboardingStoreService {
       throw new BadRequestException({
         code: "EXPENSE_AMOUNT_INVALID",
         message: "금액은 0보다 큰 원화 정수만 입력할 수 있어요."
+      });
+    }
+  }
+
+  private requireHttpUrl(value: string) {
+    if (!isHttpOrHttpsUrl(value)) {
+      throw new BadRequestException({
+        code: "PRODUCT_LINK_URL_SCHEME_INVALID",
+        message: "상품 링크 주소는 http 또는 https로 시작해야 해요."
       });
     }
   }

@@ -100,6 +100,32 @@ export class HouseholdRuntimeService {
     };
   }
 
+  removeMember(user: AuthenticatedUser, householdId: string, memberId: string) {
+    this.assertOwner(user, householdId);
+    const household = this.requireHousehold(householdId);
+    const member = [...this.membersByKey.values()].find(
+      (record) => record.householdId === householdId && record.id === memberId
+    );
+
+    if (!member || member.status === "removed" || member.status === "left") {
+      throw new NotFoundException({ code: "HOUSEHOLD_MEMBER_NOT_FOUND", message: "Household member was not found." });
+    }
+
+    if (member.userId === household.ownerUserId) {
+      throw new BadRequestException({
+        code: "HOUSEHOLD_MEMBER_REMOVE_OWNER_FORBIDDEN",
+        message: "Owners cannot remove themselves. Use the leave or account deletion flow instead."
+      });
+    }
+
+    const before = this.toMemberDto(member);
+    const now = new Date().toISOString();
+    const updated: MemberRecord = { ...member, status: "removed", updatedAt: now };
+    this.membersByKey.set(this.memberKey(householdId, member.userId), updated);
+
+    return { success: true, before, after: this.toMemberDto(updated), householdId };
+  }
+
   leaveHousehold(user: AuthenticatedUser, householdId: string) {
     this.assertMember(user, householdId);
     const member = this.membersByKey.get(this.memberKey(householdId, user.id));
@@ -135,15 +161,7 @@ export class HouseholdRuntimeService {
         .filter((member) => member.householdId === householdId)
         .filter((member) => member.status === "active" || member.status === "pending")
         .sort((left, right) => roleOrder(left.role) - roleOrder(right.role))
-        .map((member) => ({
-          id: member.id,
-          householdId: member.householdId,
-          userId: member.userId,
-          displayName: member.displayName,
-          role: member.role,
-          status: member.status,
-          joinedAt: member.joinedAt
-        }))
+        .map((member) => this.toMemberDto(member))
     };
   }
 
@@ -225,6 +243,18 @@ export class HouseholdRuntimeService {
           role: member.role
         };
       });
+  }
+
+  private toMemberDto(member: MemberRecord) {
+    return {
+      id: member.id,
+      householdId: member.householdId,
+      userId: member.userId,
+      displayName: member.displayName,
+      role: member.role,
+      status: member.status,
+      joinedAt: member.joinedAt
+    };
   }
 
   private assertMember(user: AuthenticatedUser, householdId: string) {

@@ -18,6 +18,7 @@ import {
   type NecessityLevel,
   type ProductPlatform
 } from "@wooriai/domain";
+import { IsHttpUrl } from "../../common/validation/is-http-url.decorator";
 
 export class AdminCreateItemTemplateDto {
   @IsString()
@@ -136,10 +137,12 @@ export class AdminCreateProductLinkDto {
   title!: string;
 
   @IsUrl({ require_tld: false })
+  @IsHttpUrl()
   url!: string;
 
   @IsOptional()
   @IsUrl({ require_tld: false })
+  @IsHttpUrl()
   affiliateUrl?: string;
 
   @IsOptional()
@@ -175,10 +178,12 @@ export class AdminUpdateProductLinkDto {
 
   @IsOptional()
   @IsUrl({ require_tld: false })
+  @IsHttpUrl()
   url?: string;
 
   @IsOptional()
   @IsUrl({ require_tld: false })
+  @IsHttpUrl()
   affiliateUrl?: string;
 
   @IsOptional()

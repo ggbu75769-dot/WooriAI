@@ -5,7 +5,8 @@ import {
   importRowSchema,
   itemSummarySchema,
   moneyKrwSchema,
-  productLinkSchema
+  productLinkSchema,
+  reportYearlySchema
 } from "./schemas";
 
 describe("shared contract schemas", () => {
@@ -83,5 +84,30 @@ describe("shared contract schemas", () => {
         validationStatus: "ready"
       }).selected
     ).toBe(false);
+  });
+
+  it("requires all 12 months in the yearly report contract", () => {
+    const monthlyTotals = Array.from({ length: 12 }, (_, index) => ({
+      yearMonth: `2026-${String(index + 1).padStart(2, "0")}`,
+      totalExpenseKrw: 0
+    }));
+
+    expect(
+      reportYearlySchema.parse({
+        childId: "66666666-6666-4666-8666-666666666666",
+        year: "2026",
+        totalExpenseKrw: 0,
+        monthlyTotals
+      }).monthlyTotals
+    ).toHaveLength(12);
+
+    expect(() =>
+      reportYearlySchema.parse({
+        childId: "66666666-6666-4666-8666-666666666666",
+        year: "2026",
+        totalExpenseKrw: 0,
+        monthlyTotals: monthlyTotals.slice(0, 11)
+      })
+    ).toThrow();
   });
 });

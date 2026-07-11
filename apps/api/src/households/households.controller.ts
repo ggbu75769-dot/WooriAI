@@ -1,5 +1,6 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
+import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { CreateInviteDto } from "./dto/household.dto";
@@ -7,12 +8,35 @@ import { HouseholdRuntimeService } from "./household-runtime.service";
 
 @Controller()
 export class HouseholdsController {
-  constructor(@Inject(HouseholdRuntimeService) private readonly households: HouseholdRuntimeService) {}
+  constructor(
+    @Inject(HouseholdRuntimeService) private readonly households: HouseholdRuntimeService,
+    @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService
+  ) {}
 
   @Get("households/:householdId/members")
   @UseGuards(JwtAuthGuard)
   listMembers(@Req() request: AuthenticatedRequest, @Param("householdId") householdId: string) {
     return this.households.listMembers(request.user!, householdId);
+  }
+
+  @Delete("households/:householdId/members/:memberId")
+  @UseGuards(JwtAuthGuard)
+  async removeMember(
+    @Req() request: AuthenticatedRequest,
+    @Param("householdId") householdId: string,
+    @Param("memberId") memberId: string
+  ) {
+    const result = this.households.removeMember(request.user!, householdId, memberId);
+    await this.auditLogger.record({
+      actorUserId: request.user!.id,
+      householdId: result.householdId,
+      action: "household.member.remove",
+      targetType: "household_member",
+      targetId: memberId,
+      before: result.before,
+      after: result.after
+    });
+    return { success: true };
   }
 
   @Post("households/:householdId/invites")
