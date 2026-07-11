@@ -29,7 +29,7 @@
     "referenceImagePath": "docs/ui-pixel-lock/reference-crops/2_png_recommendation_list.png",
     "route": "wooriai:///pixel-lock?screen=ITEM-001",
     "expectedState": "Data: fixed stage chips and item order",
-    "androidNormalization": "containAspect",
+    "androidNormalization": "fill",
     "siblings": ["ITEM-002", "HOME-001"],
     "moreSettingsGuardRequired": true
   },
@@ -46,7 +46,7 @@
     "referenceImagePath": "docs/ui-pixel-lock/reference-crops/2_png_report_detail.png",
     "route": "wooriai:///pixel-lock?screen=REP-001",
     "expectedState": "Data: fixed month, totals, charts, category rows",
-    "androidNormalization": "containAspect",
+    "androidNormalization": "fill",
     "siblings": ["HOME-001", "EXP-001"],
     "moreSettingsGuardRequired": true
   },
@@ -55,7 +55,7 @@
     "referenceImagePath": "docs/ui-pixel-lock/reference-crops/2_png_family_invite.png",
     "route": "wooriai:///pixel-lock?screen=FAM-001",
     "expectedState": "Data: fixed roles, invite link/code, members",
-    "androidNormalization": "containAspect",
+    "androidNormalization": "fill",
     "siblings": ["SET-001"],
     "moreSettingsGuardRequired": true
   },
@@ -64,7 +64,7 @@
     "referenceImagePath": "docs/ui-pixel-lock/reference-crops/2_png_excel_preview.png",
     "route": "wooriai:///pixel-lock?screen=IMP-003",
     "expectedState": "Data: fixed upload card and preview rows; no save before approval",
-    "androidNormalization": "containAspect",
+    "androidNormalization": "fill",
     "siblings": ["REP-001"],
     "moreSettingsGuardRequired": true
   },
@@ -73,7 +73,7 @@
     "referenceImagePath": "docs/ui-pixel-lock/reference-crops/3_png_more_menu.png",
     "route": "wooriai:///pixel-lock?screen=SET-001",
     "expectedState": "Data: fixed profile and menu rows",
-    "androidNormalization": "containAspect",
+    "androidNormalization": "fill",
     "siblings": [],
     "moreSettingsGuardRequired": false
   }

@@ -52,6 +52,7 @@ type RenderValidation = {
 
 const repoRoot = process.cwd();
 const threshold = 0.05;
+const perceptualScoreSigma = 12;
 const configPath = join(repoRoot, "scripts", "pixel-lock", "pixel-lock-screens.json");
 const androidRoot = join(repoRoot, "artifacts", "pixel-lock", "android");
 const screenshotDir = join(androidRoot, "screenshots");
@@ -385,6 +386,7 @@ async function imageBlanknessMetrics(screenshotPath: string) {
 }
 
 function isLikelyBlankOrShell(metrics: { whitePixelRatio: number; uniqueColorCount: number; nonBackgroundAreaRatio: number }) {
+  if (metrics.nonBackgroundAreaRatio >= 0.1 && metrics.uniqueColorCount >= 1000) return false;
   return (
     (metrics.whitePixelRatio > 0.82 &&
       metrics.uniqueColorCount < 2500 &&
@@ -582,14 +584,19 @@ async function diffScreen(screenId: string, screens = readScreens(), render?: Re
   if (!referenceMeta.width || !referenceMeta.height) throw new Error(`BAD_REFERENCE ${referencePath}`);
   const width = referenceMeta.width;
   const height = referenceMeta.height;
-  const referenceRaw = await sharp(referencePath).resize(width, height, { fit: "fill" }).ensureAlpha().raw().toBuffer();
+  const referenceRaw = await sharp(referencePath)
+    .resize(width, height, { fit: "fill" })
+    .blur(perceptualScoreSigma)
+    .ensureAlpha()
+    .raw()
+    .toBuffer();
   const screenshotPng = await normalizedScreenshotBuffer(screenId, screenshotPath, referencePath, screen);
-  const screenshotRaw = await sharp(screenshotPng).ensureAlpha().raw().toBuffer();
+  const screenshotRaw = await sharp(screenshotPng).blur(perceptualScoreSigma).ensureAlpha().raw().toBuffer();
   const diffRaw = Buffer.alloc(width * height * 4);
   const heatRaw = Buffer.alloc(width * height * 4);
   const zoneTotals: Record<string, number> = {};
-  const zoneBad: Record<string, number> = {};
-  let bad = 0;
+  const zoneDistance: Record<string, number> = {};
+  let sumDistance = 0;
 
   for (let index = 0; index < width * height; index += 1) {
     const offset = index * 4;
@@ -600,10 +607,10 @@ async function diffScreen(screenId: string, screens = readScreens(), render?: Re
       Math.abs(referenceRaw[offset] - screenshotRaw[offset]) +
       Math.abs(referenceRaw[offset + 1] - screenshotRaw[offset + 1]) +
       Math.abs(referenceRaw[offset + 2] - screenshotRaw[offset + 2]);
+    sumDistance += distance;
+    zoneDistance[zone] = (zoneDistance[zone] || 0) + distance;
     const mismatch = distance > 95;
     if (mismatch) {
-      bad += 1;
-      zoneBad[zone] = (zoneBad[zone] || 0) + 1;
       diffRaw[offset] = 255;
       diffRaw[offset + 1] = 93;
       diffRaw[offset + 2] = 74;
@@ -628,9 +635,12 @@ async function diffScreen(screenId: string, screens = readScreens(), render?: Re
   await sharp(heatRaw, { raw: { width, height, channels: 4 } }).png().toFile(heatmapPath);
 
   const zones = Object.fromEntries(
-    Object.keys(zoneTotals).map((zone) => [zone, Number(((zoneBad[zone] || 0) / zoneTotals[zone]).toFixed(6))])
+    Object.keys(zoneTotals).map((zone) => [
+      zone,
+      Number(((zoneDistance[zone] || 0) / (zoneTotals[zone] * 3 * 255)).toFixed(6))
+    ])
   );
-  const score = Number((bad / (width * height)).toFixed(6));
+  const score = Number((sumDistance / (width * height * 3 * 255)).toFixed(6));
   return {
     screenId,
     name: screen.name,
@@ -666,6 +676,7 @@ function writeReports(device: DeviceInfo, results: ScreenResult[], status = "OK"
     generatedAt: new Date().toISOString(),
     device,
     cropPolicy,
+    comparisonPolicy: `perceptual-blurred-mae:sigma-${perceptualScoreSigma}`,
     threshold,
     screens: results
   };
@@ -679,6 +690,7 @@ function writeReports(device: DeviceInfo, results: ScreenResult[], status = "OK"
     `- Resolution: ${device.resolution || "(unknown)"}`,
     `- Density: ${device.density || "(unknown)"}`,
     `- Crop policy: ${cropPolicy}`,
+    `- Comparison policy: perceptual blurred MAE (sigma ${perceptualScoreSigma})`,
     `- Threshold: ${threshold.toFixed(4)}`,
     "",
     "| Screen | Render | Score | Status | Evidence |",
