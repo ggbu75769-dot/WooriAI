@@ -67,7 +67,8 @@ export default function ImportUploadScreen() {
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const upload = useMutation({
-    mutationFn: (fileName: string) => createExcelImport(authToken!, childId!, fileName),
+    mutationFn: (asset: DocumentPicker.DocumentPickerAsset) =>
+      createExcelImport(authToken!, childId!, { uri: asset.uri, name: asset.name, mimeType: asset.mimeType }),
     onSuccess: (job) => {
       router.push(`/import/${job.id}`);
     }
@@ -96,7 +97,7 @@ export default function ImportUploadScreen() {
       return;
     }
     setSelectedFileName(asset.name);
-    upload.mutate(asset.name);
+    upload.mutate(asset);
   };
   const applyPreview = () => {
     if (canUpload) {

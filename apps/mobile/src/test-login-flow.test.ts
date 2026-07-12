@@ -57,8 +57,9 @@ describe("Android local test login", () => {
     expect(loginSource).toContain("markHomeReached");
   });
 
-  it("enables local test login in the standalone Android APK", () => {
+  it("enables local test login in the standalone Android APK profile only", () => {
     const buildSource = readFileSync(join(mobileRoot, "..", "..", "scripts/build-android-apk.ts"), "utf8");
-    expect(buildSource).toContain('EXPO_PUBLIC_TEST_LOGIN: "1"');
+    expect(buildSource).toContain('standalone: "1"');
+    expect(buildSource).toContain('production: "0"');
   });
 });

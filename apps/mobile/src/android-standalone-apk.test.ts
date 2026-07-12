@@ -16,12 +16,51 @@ describe("standalone Android APK build", () => {
 
     const buildScript = readFileSync(buildScriptPath, "utf8");
     expect(buildScript).toContain('EXPO_PUBLIC_PIXEL_LOCK: "0"');
-    expect(buildScript).toContain('EXPO_PUBLIC_TEST_LOGIN: "1"');
+    expect(buildScript).toContain('standalone: "1"');
+    expect(buildScript).toContain('production: "0"');
     expect(buildScript).toContain('EXPO_ROUTER_APP_ROOT: "apps/mobile/app"');
     expect(buildScript).toContain('"assembleRelease"');
     expect(buildScript).toContain('"--rerun-tasks"');
     expect(buildScript).not.toContain("reactNativeArchitectures=x86_64");
-    expect(buildScript).toContain("wooriai-0.0.0-release.apk");
+    expect(buildScript).toContain("wooriai-0.0.0-release-${profile}.apk");
     expect(readFileSync(appBuildGradlePath, "utf8")).toContain('extraPackagerArgs = ["--max-workers", "1"]');
+  });
+
+  it("defaults to the standalone (test-login) profile when no --profile flag is given", () => {
+    const buildScriptPath = join(repoRoot, "scripts", "build-android-apk.ts");
+    const buildScript = readFileSync(buildScriptPath, "utf8");
+
+    expect(buildScript).toContain('const requested = flagValue ?? inlineValue ?? process.env.BUILD_PROFILE ?? "standalone";');
+  });
+
+  it("requires EXPO_PUBLIC_API_BASE_URL for the production profile instead of silently building against localhost", () => {
+    const buildScriptPath = join(repoRoot, "scripts", "build-android-apk.ts");
+    const buildScript = readFileSync(buildScriptPath, "utf8");
+
+    expect(buildScript).toContain('profile === "production" && !apiBaseUrl');
+    expect(buildScript).toContain("EXPO_PUBLIC_API_BASE_URL_REQUIRED");
+  });
+
+  it("blocks cleartext traffic except for local development hosts", () => {
+    const networkSecurityConfigPath = join(
+      mobileRoot,
+      "android",
+      "app",
+      "src",
+      "main",
+      "res",
+      "xml",
+      "network_security_config.xml"
+    );
+    expect(existsSync(networkSecurityConfigPath)).toBe(true);
+    const networkSecurityConfig = readFileSync(networkSecurityConfigPath, "utf8");
+    expect(networkSecurityConfig).toContain('cleartextTrafficPermitted="false"');
+    expect(networkSecurityConfig).toContain(">10.0.2.2<");
+    expect(networkSecurityConfig).toContain(">localhost<");
+
+    const manifestPath = join(mobileRoot, "android", "app", "src", "main", "AndroidManifest.xml");
+    expect(readFileSync(manifestPath, "utf8")).toContain(
+      'android:networkSecurityConfig="@xml/network_security_config"'
+    );
   });
 });

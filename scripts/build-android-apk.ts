@@ -7,8 +7,32 @@ const androidDir = join(repoRoot, "apps", "mobile", "android");
 const gradleUserHome = join(repoRoot, ".gradle-home");
 const gradlew = join(androidDir, process.platform === "win32" ? "gradlew.bat" : "gradlew");
 const builtApkPath = join(androidDir, "app", "build", "outputs", "apk", "release", "app-release.apk");
-const artifactPath = join(repoRoot, "artifacts", "android", "wooriai-0.0.0-release.apk");
-const reportPath = join(repoRoot, "artifacts", "android", "wooriai-0.0.0-release.json");
+
+type BuildProfile = "standalone" | "production";
+
+// "standalone" is the existing demo build: local test login is force-enabled so the APK is
+// usable without a real backend. "production" is a real-user build: test login must be off and
+// a real API base URL is required so the app can never silently ship pointed at localhost.
+const profileTestLoginEnv: Record<BuildProfile, "1" | "0"> = {
+  standalone: "1",
+  production: "0"
+};
+
+function parseProfile(): BuildProfile {
+  const args = process.argv.slice(2);
+  const flagIndex = args.indexOf("--profile");
+  const flagValue = flagIndex !== -1 ? args[flagIndex + 1] : undefined;
+  const inlineArg = args.find((arg) => arg.startsWith("--profile="));
+  const inlineValue = inlineArg ? inlineArg.slice("--profile=".length) : undefined;
+  // No flag/env at all preserves the historical default (standalone) so existing callers of
+  // `pnpm android:build-apk` keep working unchanged.
+  const requested = flagValue ?? inlineValue ?? process.env.BUILD_PROFILE ?? "standalone";
+
+  if (requested !== "standalone" && requested !== "production") {
+    throw new Error(`UNKNOWN_BUILD_PROFILE: "${requested}" (expected "standalone" or "production")`);
+  }
+  return requested;
+}
 
 function findJavaHome() {
   if (process.env.JAVA_HOME && existsSync(process.env.JAVA_HOME)) return process.env.JAVA_HOME;
@@ -36,21 +60,34 @@ function findAndroidSdk() {
 function main() {
   if (!existsSync(gradlew)) throw new Error(`GRADLEW_NOT_FOUND ${gradlew}`);
 
+  const profile = parseProfile();
+  const artifactPath = join(repoRoot, "artifacts", "android", `wooriai-0.0.0-release-${profile}.apk`);
+  const reportPath = join(repoRoot, "artifacts", "android", `wooriai-0.0.0-release-${profile}.json`);
+
   const javaHome = findJavaHome();
   const androidSdk = findAndroidSdk();
   if (!javaHome) throw new Error("JAVA_HOME_NOT_FOUND: install JDK 17 or set JAVA_HOME.");
   if (!androidSdk) throw new Error("ANDROID_SDK_NOT_FOUND: install Android SDK or set ANDROID_HOME.");
 
+  const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+  if (profile === "production" && !apiBaseUrl) {
+    throw new Error(
+      "EXPO_PUBLIC_API_BASE_URL_REQUIRED: the production profile refuses to build without a real API base URL " +
+        "(set EXPO_PUBLIC_API_BASE_URL) -- otherwise the app would silently fall back to the localhost dev default."
+    );
+  }
+
   const env = {
     ...process.env,
     EXPO_PUBLIC_PIXEL_LOCK: "0",
-    EXPO_PUBLIC_TEST_LOGIN: "1",
+    EXPO_PUBLIC_TEST_LOGIN: profileTestLoginEnv[profile],
     EXPO_ROUTER_APP_ROOT: "apps/mobile/app",
     NODE_ENV: "production",
     JAVA_HOME: javaHome,
     ANDROID_HOME: androidSdk,
     ANDROID_SDK_ROOT: androidSdk,
-    GRADLE_USER_HOME: process.env.GRADLE_USER_HOME || gradleUserHome
+    GRADLE_USER_HOME: process.env.GRADLE_USER_HOME || gradleUserHome,
+    ...(apiBaseUrl ? { EXPO_PUBLIC_API_BASE_URL: apiBaseUrl } : {})
   };
   const args = ["assembleRelease", "--rerun-tasks"];
   const result = spawnSync(gradlew, args, {
@@ -73,10 +110,12 @@ function main() {
     JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
+        profile,
         env: {
           EXPO_PUBLIC_PIXEL_LOCK: "0",
-          EXPO_PUBLIC_TEST_LOGIN: "1",
-          EXPO_ROUTER_APP_ROOT: "apps/mobile/app"
+          EXPO_PUBLIC_TEST_LOGIN: profileTestLoginEnv[profile],
+          EXPO_ROUTER_APP_ROOT: "apps/mobile/app",
+          ...(apiBaseUrl ? { EXPO_PUBLIC_API_BASE_URL: apiBaseUrl } : {})
         },
         task: args.join(" "),
         apkPath: artifactPath
@@ -87,7 +126,7 @@ function main() {
     "utf8"
   );
 
-  console.log(`Standalone APK: ${artifactPath}`);
+  console.log(`${profile === "standalone" ? "Standalone" : "Production"} APK: ${artifactPath}`);
   console.log(`Report: ${reportPath}`);
 }
 

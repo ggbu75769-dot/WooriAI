@@ -1,6 +1,7 @@
 import { getSeoulMonthRange, getSeoulToday } from "@wooriai/domain";
 import * as localBackend from "./local-backend";
 import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./local-fixtures";
+import { useSessionStore } from "../stores/session.store";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api/v1";
 
@@ -210,7 +211,63 @@ export type SettingsConfirmResponse = {
   flowId: string;
 };
 
-async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
+/** Thrown by refreshAccessToken so callers can tell an expired/invalid refresh token (401) apart
+ * from a network failure -- only the former should clear the session. */
+class RefreshHttpError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/**
+ * Single-flight refresh: concurrent 401s that land while a refresh is already in progress all
+ * await the same in-flight promise instead of each redeeming the refresh token themselves. This
+ * matters because the API's refresh tokens are single-use (rotated/revoked on redemption) -- a
+ * second concurrent redemption would fail with 401 even though the first one succeeded.
+ */
+let refreshPromise: Promise<{ accessToken: string; refreshToken: string }> | null = null;
+
+async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+  const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken })
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new RefreshHttpError(response.status, JSON.stringify(data));
+  }
+  return data as { accessToken: string; refreshToken: string };
+}
+
+function performSingleFlightRefresh(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken(refreshToken)
+      .then((refreshed) => {
+        // Persisting the rotated tokens *inside* the shared single-flight promise
+        // chain -- before it resolves -- guarantees the store is already updated
+        // by the time any awaiter (or a subsequent, independent refresh cycle
+        // that starts once `refreshPromise` is cleared below) can run. Without
+        // this, each awaiter used to call setTokens itself after waking up, which
+        // left a window where a fresh 401 landing right as this promise settles
+        // could read the store's still-old (already single-use, now invalid)
+        // refreshToken and kick off a doomed refresh with it.
+        useSessionStore.getState().setTokens(refreshed.accessToken, refreshed.refreshToken);
+        return refreshed;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+async function requestJson<T>(path: string, options: RequestOptions = {}, isRetry = false): Promise<T> {
+  // Network failures (fetch rejecting -- offline, DNS, etc.) are distinct from a resolved 401
+  // response: only a resolved 401 should trigger a refresh attempt, so a rejected fetch is
+  // rethrown immediately without touching the refresh flow.
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
@@ -219,6 +276,67 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
     },
     body: options.body ? JSON.stringify(options.body) : undefined
   });
+
+  const canAttemptRefresh = response.status === 401 && !isRetry && options.token && !isLocalToken(options.token);
+  if (canAttemptRefresh) {
+    const session = useSessionStore.getState();
+    const currentRefreshToken = session.refreshToken;
+    if (currentRefreshToken) {
+      try {
+        const refreshed = await performSingleFlightRefresh(currentRefreshToken);
+        return requestJson<T>(path, { ...options, token: refreshed.accessToken }, true);
+      } catch (refreshError) {
+        if (refreshError instanceof RefreshHttpError && refreshError.status === 401) {
+          useSessionStore.getState().clearSession();
+        }
+        // Falls through to the original 401 response below, whether the refresh failed due to
+        // an expired/invalid refresh token or a network error while refreshing.
+      }
+    }
+  }
+
+  const data = (await response.json()) as T;
+  if (!response.ok) {
+    throw new Error(JSON.stringify(data));
+  }
+  return data;
+}
+
+/**
+ * Multipart counterpart to requestJson, used only by createExcelImport's real-backend path.
+ * Shares the same single-flight 401/refresh retry behavior as requestJson (see there for the
+ * network-error-vs-401 and single-retry rules) but sends a FormData body instead of JSON --
+ * fetch sets the multipart boundary Content-Type header itself when given a FormData body, so
+ * none is set explicitly here.
+ */
+async function requestMultipartJson<T>(
+  path: string,
+  options: { token?: string | null; formData: FormData },
+  isRetry = false
+): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
+    },
+    body: options.formData as unknown as BodyInit
+  });
+
+  const canAttemptRefresh = response.status === 401 && !isRetry && options.token && !isLocalToken(options.token);
+  if (canAttemptRefresh) {
+    const session = useSessionStore.getState();
+    const currentRefreshToken = session.refreshToken;
+    if (currentRefreshToken) {
+      try {
+        const refreshed = await performSingleFlightRefresh(currentRefreshToken);
+        return requestMultipartJson<T>(path, { ...options, token: refreshed.accessToken }, true);
+      } catch (refreshError) {
+        if (refreshError instanceof RefreshHttpError && refreshError.status === 401) {
+          useSessionStore.getState().clearSession();
+        }
+      }
+    }
+  }
 
   const data = (await response.json()) as T;
   if (!response.ok) {
@@ -484,13 +602,26 @@ export function acceptInvite(accessToken: string, token: string) {
   });
 }
 
-export function createExcelImport(token: string, childId: string, fileName = "wooriai-import.csv") {
-  if (isLocalToken(token)) return local(() => localBackend.createExcelImport(childId, fileName));
-  return requestJson<ImportJob>(`/children/${childId}/imports/excel`, {
-    method: "POST",
-    token,
-    body: { fileName }
-  });
+/** Minimal shape of an expo-document-picker asset needed to upload the picked file's bytes. */
+export type PickedImportFile = {
+  uri: string;
+  name: string;
+  mimeType?: string | null;
+};
+
+export function createExcelImport(token: string, childId: string, file: PickedImportFile) {
+  if (isLocalToken(token)) return local(() => localBackend.createExcelImport(childId, file.name));
+
+  const formData = new FormData();
+  // React Native's FormData accepts this {uri, name, type} shape for file parts; the DOM
+  // FormData/File types don't model it, hence the cast.
+  formData.append(
+    "file",
+    { uri: file.uri, name: file.name, type: file.mimeType || "application/octet-stream" } as unknown as Blob
+  );
+  formData.append("fileName", file.name);
+
+  return requestMultipartJson<ImportJob>(`/children/${childId}/imports/excel`, { token, formData });
 }
 
 export function getImportJob(token: string, importJobId: string) {

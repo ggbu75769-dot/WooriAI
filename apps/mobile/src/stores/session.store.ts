@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { ensureLocalBackendSeeded } from "../api/local-backend";
 import { LOCAL_CHILD_ID } from "../api/local-fixtures";
-import { persistStorage } from "./persist-storage";
+import { secureSessionStorage } from "./secure-session-storage";
 import { useSelectedChildStore } from "./selected-child.store";
 
 export type SessionState = {
@@ -17,6 +17,7 @@ export type SessionState = {
     userId: string;
     defaultHouseholdId?: string | null;
   }) => void;
+  setTokens: (accessToken: string, refreshToken: string) => void;
   startTestSession: () => void;
   clearSession: () => void;
 };
@@ -37,6 +38,7 @@ export const useSessionStore = create<SessionState>()(
           defaultHouseholdId: session.defaultHouseholdId ?? null,
           isTestSession: false
         }),
+      setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
       startTestSession: () => {
         ensureLocalBackendSeeded();
         if (!useSelectedChildStore.getState().selectedChildId) {
@@ -61,7 +63,7 @@ export const useSessionStore = create<SessionState>()(
     }),
     {
       name: "wooriai-session",
-      storage: createJSONStorage(() => persistStorage)
+      storage: createJSONStorage(() => secureSessionStorage)
     }
   )
 );
