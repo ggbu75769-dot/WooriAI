@@ -1,0 +1,12 @@
+-- Round 4: in-memory domain stores (onboarding, households, expenses, imports,
+-- commerce) move to Postgres/Prisma. Most tables needed by that migration already
+-- exist from 000001_init; this migration only adds the single column that in-memory
+-- domain logic needs but has no existing DB equivalent for.
+--
+-- `children.prepared_items_set_at`: the onboarding "prepared items" step must be
+-- distinguishable from "never ran" vs. "ran with an empty/all-invalid selection".
+-- child_item_statuses rows alone can't represent that (an empty or all-invalid
+-- submission writes zero status rows), so a plain timestamp marker on the child
+-- itself records "this step was completed at least once", independent of how many
+-- (if any) of the submitted item template ids turned out to be valid.
+ALTER TABLE children ADD COLUMN IF NOT EXISTS prepared_items_set_at timestamptz;

@@ -1,5 +1,13 @@
 import { PrismaClient } from "@prisma/client";
-import { categorySeeds, itemTemplateSeeds, productLinkSeeds } from "./seed-data";
+import { hashAdminPassword } from "../src/admin/admin-password";
+import {
+  categorySeeds,
+  disclosureSeeds,
+  importStubCategorySeeds,
+  itemTemplateSeeds,
+  mobileCategoryAliasSeeds,
+  productLinkSeeds
+} from "./seed-data";
 
 const prisma = new PrismaClient();
 
@@ -22,6 +30,43 @@ async function seedCategories() {
         isSystem: true,
         active: true
       }
+    });
+  }
+
+  // See MobileCategoryAliasSeed's doc comment (prisma/seed-data.ts): these keep the
+  // mobile app's hardcoded quick-expense `categoryId` literals valid against the
+  // server-side "categoryId must exist in categories" check, without disturbing the
+  // locked 12-category list above (seed-data.test.ts asserts that list exactly).
+  for (const alias of [...mobileCategoryAliasSeeds, ...importStubCategorySeeds]) {
+    await prisma.category.upsert({
+      where: { id: alias.id },
+      update: {
+        code: alias.code,
+        name: alias.name,
+        iconName: alias.iconName,
+        displayOrder: alias.displayOrder,
+        isSystem: false,
+        active: true
+      },
+      create: {
+        id: alias.id,
+        code: alias.code,
+        name: alias.name,
+        iconName: alias.iconName,
+        displayOrder: alias.displayOrder,
+        isSystem: false,
+        active: true
+      }
+    });
+  }
+}
+
+async function seedDisclosures() {
+  for (const disclosure of disclosureSeeds) {
+    await prisma.disclosure.upsert({
+      where: { key: disclosure.key },
+      update: { text: disclosure.text, active: true },
+      create: { key: disclosure.key, text: disclosure.text, active: true }
     });
   }
 }
@@ -146,10 +191,54 @@ async function seedProductLinks() {
   }
 }
 
+async function seedAdminUsers() {
+  const email = process.env.ADMIN_SEED_EMAIL;
+  const password = process.env.ADMIN_SEED_PASSWORD;
+  const nodeEnv = process.env.NODE_ENV;
+
+  if (email && password) {
+    await upsertAdminUser(email, password);
+    return;
+  }
+
+  if (nodeEnv !== "production") {
+    // Convenience default for local development only; never used when
+    // NODE_ENV=production and the seed env vars are unset (see the warning below).
+    await upsertAdminUser("admin@wooriai.local", "wooriai-dev-admin");
+    return;
+  }
+
+  console.warn(
+    "Skipping admin user seed: ADMIN_SEED_EMAIL/ADMIN_SEED_PASSWORD are not set and NODE_ENV=production, " +
+      "so no dev-default admin account will be created."
+  );
+}
+
+async function upsertAdminUser(email: string, password: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  await prisma.adminUser.upsert({
+    where: { email: normalizedEmail },
+    update: {
+      passwordHash: hashAdminPassword(password),
+      role: "admin",
+      active: true
+    },
+    create: {
+      email: normalizedEmail,
+      passwordHash: hashAdminPassword(password),
+      displayName: "Admin",
+      role: "admin",
+      active: true
+    }
+  });
+}
+
 async function main() {
   await seedCategories();
   await seedItemTemplates();
   await seedProductLinks();
+  await seedDisclosures();
+  await seedAdminUsers();
 }
 
 main()

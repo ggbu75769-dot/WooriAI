@@ -41,6 +41,31 @@ export type ProductLinkSeed = {
   disclosureText: string | null;
 };
 
+export type DisclosureSeed = {
+  key: string;
+  text: string;
+};
+
+export type MobileCategoryAliasSeed = {
+  /**
+   * Fixed id, matched byte-for-byte against apps/mobile/src/categories.ts'
+   * `categoryCatalog` entries. The mobile quick-expense tiles hardcode these UUID
+   * literals client-side rather than fetching a canonical id from the server (see
+   * that file's comments), so `POST /children/:childId/expenses` from the mobile
+   * app always carries one of these exact ids. Round 4 adds server-side validation
+   * that `categoryId` must reference an existing `categories` row; without seeding
+   * these exact ids too, every mobile-originated expense would 400. These are kept
+   * separate from `categorySeeds` (the locked 12) since two mobile tiles
+   * intentionally share one taxonomy code ("분유/유제품" and "식비" both map to
+   * `feeding_babyfood`), which the unique-per-code canonical list can't represent.
+   */
+  id: string;
+  code: string;
+  name: string;
+  iconName: string;
+  displayOrder: number;
+};
+
 export const categorySeeds: CategorySeed[] = [
   { code: "pregnancy_mother", name: "임신/산모", iconName: "mother", displayOrder: 10 },
   { code: "hospital_checkup", name: "병원/검사", iconName: "hospital", displayOrder: 20 },
@@ -175,6 +200,51 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     displayOrder: 70,
     active: true,
     stageCodes: ["infant_7_12", "toddler_1_3"]
+  }
+];
+
+export const disclosureSeeds: DisclosureSeed[] = [
+  {
+    key: "affiliate_purchase",
+    text: "Purchases through affiliate links may generate a commission for WooriAI."
+  },
+  {
+    key: "sponsored_product",
+    text: "Sponsored products are marked separately from general recommendations."
+  },
+  {
+    key: "nutrition_supplement",
+    text: "Nutrition and supplement content is informational and is not medical advice."
+  }
+];
+
+// Mirrors apps/mobile/src/categories.ts `categoryCatalog` exactly (id, code, label -> name).
+// See MobileCategoryAliasSeed's doc comment for why these live outside categorySeeds.
+export const mobileCategoryAliasSeeds: MobileCategoryAliasSeed[] = [
+  { id: "c0a7e901-0000-4c01-8c01-c47e900ec001", code: "mobile_diaper_hygiene", name: "기저귀", iconName: "diaper", displayOrder: 1001 },
+  { id: "c0a7e901-0000-4c02-8c02-c47e900ec002", code: "mobile_feeding_dairy", name: "분유/유제품", iconName: "bottle", displayOrder: 1002 },
+  { id: "c0a7e901-0000-4c03-8c03-c47e900ec003", code: "mobile_feeding_meal", name: "식비", iconName: "bottle", displayOrder: 1003 },
+  { id: "c0a7e901-0000-4c04-8c04-c47e900ec004", code: "mobile_clothes_laundry", name: "의류", iconName: "clothes", displayOrder: 1004 },
+  { id: "c0a7e901-0000-4c05-8c05-c47e900ec005", code: "mobile_outing_mobility", name: "약품/교통", iconName: "stroller", displayOrder: 1005 },
+  { id: "c0a7e901-0000-4c06-8c06-c47e900ec006", code: "mobile_hospital_checkup", name: "병원/약", iconName: "hospital", displayOrder: 1006 },
+  { id: "c0a7e901-0000-4c07-8c07-c47e900ec007", code: "mobile_toys_books", name: "교육/도서", iconName: "book", displayOrder: 1007 },
+  { id: "c0a7e901-0000-4c08-8c08-c47e900ec008", code: "mobile_etc", name: "기타", iconName: "more", displayOrder: 1008 }
+];
+
+/**
+ * `defaultImportCategoryId` in src/onboarding/onboarding-store.service.ts's Excel
+ * import stub-row generator (used until real parsing lands) hardcodes this same id
+ * for every stub row. Round 4's "categoryId must exist in categories" validation
+ * (see requireExistingCategory) means confirming an import job now needs this id to
+ * resolve too, or every stub-derived expense would 400 on confirm.
+ */
+export const importStubCategorySeeds: MobileCategoryAliasSeed[] = [
+  {
+    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    code: "import_stub_default",
+    name: "가져오기 기본",
+    iconName: "more",
+    displayOrder: 1009
   }
 ];
 
