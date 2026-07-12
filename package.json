@@ -9,6 +9,7 @@
     "typecheck": "pnpm typecheck:scripts && turbo run typecheck",
     "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json",
     "test": "turbo run test",
+    "db": "tsx scripts/db.ts",
     "check:env": "tsx scripts/check-env.ts",
     "check:env:example": "tsx scripts/check-env.ts --file .env.example --allow-placeholders",
     "contracts:generate": "tsx scripts/generate-openapi-types.ts",

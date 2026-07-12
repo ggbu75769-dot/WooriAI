@@ -9,6 +9,25 @@ on:
 jobs:
   bootstrap-checks:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: wooriai_dev
+          POSTGRES_USER: wooriai
+          POSTGRES_PASSWORD: wooriai_dev_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wooriai -d wooriai_dev"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://wooriai:wooriai_dev_password@localhost:5432/wooriai_dev
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,6 +48,12 @@ jobs:
 
       - name: Check example env
         run: pnpm check:env:example
+
+      - name: Prisma migrate deploy
+        run: pnpm --filter api prisma:deploy
+
+      - name: Prisma seed
+        run: pnpm --filter api seed
 
       - name: Lint
         run: pnpm lint
