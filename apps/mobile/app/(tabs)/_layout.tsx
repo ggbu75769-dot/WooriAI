@@ -33,7 +33,11 @@ export default function TabsLayout() {
     }
 
     if (!hasReachedHome && !isTestSession) {
-      return <Redirect href="/onboarding/child-status" />;
+      // MOB-101: defer to "/" instead of hardcoding ONB-001 -- app/index.tsx is the single
+      // place that checks server onboarding progress and can route straight to the resume
+      // screen (ONB-006) or the correct interrupted step, instead of always restarting the
+      // flow from the top.
+      return <Redirect href="/" />;
     }
   }
 

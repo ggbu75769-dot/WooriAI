@@ -56,6 +56,10 @@ export default function ChildProfileScreen() {
   const householdId = session.defaultHouseholdId ?? (session.isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const draft = useOnboardingProgressStore((state) => state.childDraft);
   const completeStep = useOnboardingProgressStore((state) => state.completeStep);
+  const getOrCreateChildCreateIdempotencyKey = useOnboardingProgressStore(
+    (state) => state.getOrCreateChildCreateIdempotencyKey
+  );
+  const clearChildCreateIdempotencyKey = useOnboardingProgressStore((state) => state.clearChildCreateIdempotencyKey);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
 
   const nicknameError = nickname.trim().length === 0 ? "태명 또는 별명을 입력해 주세요." : null;
@@ -77,19 +81,28 @@ export default function ChildProfileScreen() {
         throw new Error("missing manual stage selection");
       }
       const trimmedDate = dateText.trim();
-      const child = await createChild(authToken, {
-        householdId,
-        nickname: nickname.trim(),
-        stageMode: draft.stageMode,
-        dueDate: draft.stageMode === "pregnant" && trimmedDate ? trimmedDate : undefined,
-        birthDate: draft.stageMode === "born" && trimmedDate ? trimmedDate : undefined,
-        manualStage: draft.stageMode === "manual" ? manualStage : undefined
-      });
+      // MOB-101: reuse the same Idempotency-Key across retries of this submission (network
+      // retry, or a resumed app restarting the mutation) so the server never creates a second
+      // child for the household -- see round5a-sprint1-plan.md §4.
+      const idempotencyKey = getOrCreateChildCreateIdempotencyKey();
+      const child = await createChild(
+        authToken,
+        {
+          householdId,
+          nickname: nickname.trim(),
+          stageMode: draft.stageMode,
+          dueDate: draft.stageMode === "pregnant" && trimmedDate ? trimmedDate : undefined,
+          birthDate: draft.stageMode === "born" && trimmedDate ? trimmedDate : undefined,
+          manualStage: draft.stageMode === "manual" ? manualStage : undefined
+        },
+        idempotencyKey
+      );
       return child;
     },
     onSuccess: (child) => {
       setSelectedChildId(child.id);
       completeStep("ONB-002");
+      clearChildCreateIdempotencyKey();
       router.push("/onboarding/prepared-items");
     }
   });
