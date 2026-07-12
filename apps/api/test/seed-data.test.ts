@@ -22,6 +22,9 @@ async function loadSeedData() {
       necessityLevel: string;
       reasonText: string;
       skipReasonText?: string | null;
+      safetyNote?: string | null;
+      medicalDisclaimerRequired: boolean;
+      active: boolean;
       stageCodes: string[];
     }>;
     productLinkSeeds: Array<{
@@ -37,6 +40,32 @@ async function loadSeedData() {
     }>;
   }>;
 }
+
+// Original 7 batch-03 items were seeded before every item was required to have a
+// product link; they're grandfathered out of the "every item needs a link" rule
+// added when the catalog was expanded to cover all life stages (see below).
+const LEGACY_ITEM_CODES_WITHOUT_LINK_REQUIREMENT = [
+  "pregnancy_vitamin",
+  "car_seat",
+  "diaper_stock",
+  "baby_bath",
+  "stroller",
+  "baby_food_maker",
+  "first_books"
+];
+
+const ALL_STAGE_CODES = [
+  "pregnancy_early",
+  "pregnancy_mid",
+  "pregnancy_late",
+  "newborn_0_3",
+  "infant_4_6",
+  "infant_7_12",
+  "toddler_1_3",
+  "kid_4_7",
+  "elementary",
+  "middle_school"
+];
 
 describe("Batch 03 seed data", () => {
   it("defines the locked 12 categories without duplicates", async () => {
@@ -104,5 +133,72 @@ describe("Batch 03 seed data", () => {
     expect(seedScript).toContain("upsert");
     expect(seedScript).toContain("findFirst");
     expect(seedScript).not.toContain("expenses");
+  });
+
+  it("covers every child stage with at least 5 active prepared items", async () => {
+    const { itemTemplateSeeds } = await loadSeedData();
+    const activeItems = itemTemplateSeeds.filter((item) => item.active);
+
+    for (const stageCode of ALL_STAGE_CODES) {
+      const count = activeItems.filter((item) => item.stageCodes.includes(stageCode)).length;
+      expect(count, `stage ${stageCode} should be covered by >=5 active items, found ${count}`).toBeGreaterThanOrEqual(5);
+    }
+  });
+
+  it("requires skip guidance for every convenience/optional item", async () => {
+    const { itemTemplateSeeds } = await loadSeedData();
+
+    const nonEssential = itemTemplateSeeds.filter(
+      (item) => item.necessityLevel === "convenience" || item.necessityLevel === "optional"
+    );
+
+    for (const item of nonEssential) {
+      expect(
+        Boolean(item.skipReasonText && item.skipReasonText.trim().length > 0),
+        `${item.code} (${item.necessityLevel}) must have skipReasonText`
+      ).toBe(true);
+    }
+  });
+
+  it("requires a safety note whenever a medical disclaimer is required", async () => {
+    const { itemTemplateSeeds } = await loadSeedData();
+
+    const medicalItems = itemTemplateSeeds.filter((item) => item.medicalDisclaimerRequired);
+    expect(medicalItems.length).toBeGreaterThan(0);
+
+    for (const item of medicalItems) {
+      expect(
+        Boolean(item.safetyNote && item.safetyNote.trim().length > 0),
+        `${item.code} has medicalDisclaimerRequired=true but no safetyNote`
+      ).toBe(true);
+    }
+  });
+
+  it("gives every non-legacy item at least one product link", async () => {
+    const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
+
+    const linkedCodes = new Set(productLinkSeeds.map((link) => link.itemTemplateCode));
+    const itemsRequiringLinks = itemTemplateSeeds.filter(
+      (item) => !LEGACY_ITEM_CODES_WITHOUT_LINK_REQUIREMENT.includes(item.code)
+    );
+
+    for (const item of itemsRequiringLinks) {
+      expect(linkedCodes.has(item.code), `${item.code} should have >=1 product link`).toBe(true);
+    }
+  });
+
+  it("has no duplicate item template codes", async () => {
+    const { itemTemplateSeeds } = await loadSeedData();
+    const codes = itemTemplateSeeds.map((item) => item.code);
+
+    expect(new Set(codes).size).toBe(codes.length);
+  });
+
+  it("uses https URLs for every product link", async () => {
+    const { productLinkSeeds } = await loadSeedData();
+
+    for (const link of productLinkSeeds) {
+      expect(link.url.startsWith("https://"), `${link.itemTemplateCode} link must use https`).toBe(true);
+    }
   });
 });
