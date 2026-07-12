@@ -14,6 +14,21 @@ const roleLabel: Record<string, string> = {
 
 const loadFailedText = "초대 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
 const acceptFailedText = "가족에 참여하지 못했어요. 잠시 후 다시 시도해 주세요.";
+const alreadyMemberText = "이미 이 가족의 구성원이에요.";
+
+// requestJson throws `new Error(JSON.stringify(body))`, so the server's error code (e.g.
+// HOUSEHOLD_ALREADY_MEMBER from a 409) lives inside the message string. Retrying can never
+// succeed for that case, so it gets a dedicated copy instead of the generic retry nudge.
+function acceptErrorText(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  return message.includes("ALREADY_MEMBER") ? alreadyMemberText : acceptFailedText;
+}
+
+function formatInviteExpiry(isoDate: string) {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return `${date.getMonth() + 1}월 ${date.getDate()}일까지 유효해요`;
+}
 
 export default function AcceptInviteScreen() {
   const params = useLocalSearchParams<{ token?: string }>();
@@ -62,12 +77,12 @@ export default function AcceptInviteScreen() {
           <Card style={{ gap: 8 }}>
             <Text style={inviteHouseholdNameStyle}>{invite.data.householdName}</Text>
             <Text style={inviteRoleStyle}>{roleLabel[invite.data.role] ?? invite.data.role}</Text>
-            <Text style={inviteExpiryStyle}>만료 {invite.data.expiresAt}</Text>
+            <Text style={inviteExpiryStyle}>{formatInviteExpiry(invite.data.expiresAt)}</Text>
           </Card>
         ) : null}
 
         {!authToken ? <Text style={mutedTextStyle}>로그인 후 가족에 참여할 수 있어요.</Text> : null}
-        {accept.isError ? <Text style={{ color: theme.colors.danger }}>{acceptFailedText}</Text> : null}
+        {accept.isError ? <Text style={{ color: theme.colors.danger }}>{acceptErrorText(accept.error)}</Text> : null}
 
         <PrimaryButton
           label={accept.isPending ? "참여하는 중..." : "가족에 참여하기"}

@@ -65,6 +65,24 @@ export function isFutureSeoulDate(dateOnly: string, now: Date = new Date()): boo
   return dateOnly > getSeoulToday(now);
 }
 
+export function isValidCalendarDate(dateOnly: string): boolean {
+  if (!DATE_ONLY_PATTERN.test(dateOnly)) {
+    return false;
+  }
+
+  const [yearText, monthText, dayText] = dateOnly.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }

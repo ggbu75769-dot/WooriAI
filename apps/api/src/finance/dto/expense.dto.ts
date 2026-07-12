@@ -2,6 +2,8 @@ import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLeng
 import { PAYMENT_METHODS, type PaymentMethod } from "@wooriai/domain";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const creatableExpenseTypes = ["expense", "gift"] as const;
+type CreatableExpenseType = (typeof creatableExpenseTypes)[number];
 
 export class CreateExpenseDto {
   @IsUUID()
@@ -16,11 +18,12 @@ export class CreateExpenseDto {
 
   @IsString()
   @IsNotEmpty()
-  @MaxLength(120)
+  @MaxLength(100)
   itemName!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   merchant?: string;
 
   @IsOptional()
@@ -29,11 +32,16 @@ export class CreateExpenseDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   memo?: string;
 
   @IsOptional()
   @IsUUID()
   linkedItemTemplateId?: string;
+
+  @IsOptional()
+  @IsIn([...creatableExpenseTypes])
+  expenseType?: CreatableExpenseType;
 }
 
 export class UpdateExpenseDto {
@@ -53,10 +61,15 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  @MaxLength(120)
+  @MaxLength(100)
   itemName?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   memo?: string;
+
+  @IsOptional()
+  @IsIn([...creatableExpenseTypes])
+  expenseType?: CreatableExpenseType;
 }

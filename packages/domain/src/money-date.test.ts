@@ -4,7 +4,8 @@ import {
   getSeoulMonthRange,
   getSeoulToday,
   isFutureSeoulDate,
-  isMoneyKrw
+  isMoneyKrw,
+  isValidCalendarDate
 } from "./money-date";
 
 describe("money rules", () => {
@@ -38,5 +39,24 @@ describe("Asia/Seoul date rules", () => {
     const now = new Date("2026-07-05T15:30:00.000Z");
     expect(isFutureSeoulDate("2026-07-06", now)).toBe(false);
     expect(isFutureSeoulDate("2026-07-07", now)).toBe(true);
+  });
+});
+
+describe("isValidCalendarDate", () => {
+  it("rejects calendar-impossible dates that pass a naive format regex", () => {
+    expect(isValidCalendarDate("2026-02-31")).toBe(false);
+    expect(isValidCalendarDate("2026-13-01")).toBe(false);
+    expect(isValidCalendarDate("2026-04-31")).toBe(false);
+  });
+
+  it("accepts real calendar dates, including leap-year Feb 29", () => {
+    expect(isValidCalendarDate("2028-02-29")).toBe(true);
+    expect(isValidCalendarDate("2026-07-06")).toBe(true);
+  });
+
+  it("rejects malformed strings", () => {
+    expect(isValidCalendarDate("2026-2-31")).toBe(false);
+    expect(isValidCalendarDate("not-a-date")).toBe(false);
+    expect(isValidCalendarDate("2026-02-30")).toBe(false);
   });
 });

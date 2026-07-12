@@ -14,6 +14,12 @@ const roleOptions: Array<{ role: InviteRole; label: string; description: string 
 
 const createFailedText = "초대 링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
 
+function formatInviteExpiry(isoDate: string) {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return `${date.getMonth() + 1}월 ${date.getDate()}일까지 유효해요`;
+}
+
 export default function FamilyInviteScreen() {
   const [role, setRole] = useState<InviteRole>("co_parent");
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -71,7 +77,7 @@ export default function FamilyInviteScreen() {
           <Card style={{ gap: 10 }}>
             <Text style={inviteSuccessTitleStyle}>초대 링크가 준비됐어요</Text>
             <Text style={inviteLinkStyle}>{invite.data.inviteUrl}</Text>
-            <Text style={inviteExpiryStyle}>만료 {invite.data.expiresAt}</Text>
+            <Text style={inviteExpiryStyle}>{formatInviteExpiry(invite.data.expiresAt)}</Text>
             <SecondaryButton label="링크 공유하기" onPress={handleShare} />
             {isTestSession ? (
               <Text style={mutedTextStyle}>테스트 모드예요. 이 초대 링크는 실제로 전송되지 않아요.</Text>

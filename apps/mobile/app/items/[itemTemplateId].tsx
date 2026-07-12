@@ -297,7 +297,12 @@ export default function ItemDetailScreen() {
                   if (authToken && childId) markPrepared.mutate();
                 }}
               />
-              <SecondaryButton label="지출도 기록하기" onPress={() => router.push("/expenses/new")} />
+              <SecondaryButton
+                label="지출도 기록하기"
+                onPress={() =>
+                  router.push({ pathname: "/expenses/new", params: { itemName: visibleDetail.name, itemTemplateId } })
+                }
+              />
             </Card>
           ) : null}
         </View>

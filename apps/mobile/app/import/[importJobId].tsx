@@ -12,7 +12,6 @@ import {
   type ImportJob,
   type ImportRow
 } from "../../src/api/client";
-import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
@@ -82,7 +81,6 @@ export default function ImportPreviewScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
-  const childId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
   const [completionSummary, setCompletionSummary] = useState<ConfirmImportResponse | null>(null);
 
@@ -114,9 +112,14 @@ export default function ImportPreviewScreen() {
     onSuccess: async (result) => {
       setCompletionSummary(result);
       await queryClient.invalidateQueries({ queryKey: ["import-job", importJobId] });
-      await queryClient.invalidateQueries({ queryKey: ["home", childId] });
-      await queryClient.invalidateQueries({ queryKey: ["expenses", childId] });
-      await queryClient.invalidateQueries({ queryKey: ["monthly-report", childId] });
+      // Import confirmation changes expense totals that feed every report tab (monthly,
+      // category, cumulative, yearly all share the "report" key prefix), plus the home
+      // summary, the records list, and budget "used" tracking — invalidate all of them so
+      // nothing goes stale after a confirm.
+      await queryClient.invalidateQueries({ queryKey: ["report"] });
+      await queryClient.invalidateQueries({ queryKey: ["home"] });
+      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      await queryClient.invalidateQueries({ queryKey: ["budget"] });
     }
   });
 

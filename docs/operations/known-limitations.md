@@ -32,6 +32,11 @@
 | 지출 수정 화면 날짜/카테고리 편집 UI 부재 | `app/expenses/[expenseId].tsx` | API는 지원, UI 미노출 |
 | 더보기 라벨-동작 불일치, 가족 하드코딩 이름/코드 | `app/(tabs)/more.tsx`, `app/family/index.tsx` | 픽셀락 고정 데모 데이터(P2) |
 | refresh 토큰 무효화/회전 없음 | `auth.service.ts` logout | 탈취 시 30일 유효(DB 전환 시 블랙리스트 도입) |
+| 카테고리 리포트가 전체 기간 고정 | `getCategoryReport`에 기간 파라미터 없음 | UI는 "전체 기간 카테고리 비중"으로 정직 표기(개선 라운드 2) — 서버 기간 파라미터는 후속 |
+| 도넛 원호가 근사 표현 | `src/ui.tsx` DonutChartCard | 원호 색·개수는 범례와 일치, 정확한 비율 원호는 SVG 의존성 필요(범례 %는 실데이터) |
+| `isValidCalendarDate` 로컬 복제 | new.tsx / [expenseId].tsx / local-backend.ts / domain | 알고리즘 동일(모순 없음) — domain 함수로 통합은 후속 정리 |
+| 앱 정보 버전 하드코딩 | `more.tsx` "버전 0.0.0" | expo-constants 연동은 후속 |
+| 알림 데이터 소스 없음 | `app/notifications.tsx` | 정직한 빈 상태 화면(가짜 알림 없음) — 실 알림은 푸시 인프라 필요 |
 
 ## D. 런타임 재검증이 남은 항목 (실기기·인프라 의존)
 

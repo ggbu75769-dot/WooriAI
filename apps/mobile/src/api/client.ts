@@ -334,6 +334,7 @@ export function createExpense(
     paymentMethod?: "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
     memo?: string;
     linkedItemTemplateId?: string;
+    expenseType?: "expense" | "gift";
   }
 ) {
   if (isLocalToken(token)) return local(() => localBackend.createExpense(childId, body));
@@ -361,7 +362,7 @@ export function getExpense(token: string, expenseId: string) {
 export function updateExpense(
   token: string,
   expenseId: string,
-  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo">>
+  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>
 ) {
   if (isLocalToken(token)) return local(() => localBackend.updateExpense(expenseId, body));
   return requestJson<Expense>(`/expenses/${expenseId}`, { method: "PATCH", token, body });

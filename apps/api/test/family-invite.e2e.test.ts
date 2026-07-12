@@ -184,6 +184,41 @@ describe("Family invites and household RBAC", () => {
       .expect(403);
   });
 
+  it("rejects an existing active member re-accepting an invite instead of overwriting their role (owner lockout regression)", async () => {
+    const ownerToken = await login(app, "batch08-self-invite-owner");
+    const { householdId } = await completeOwnerOnboarding(app, ownerToken);
+
+    const viewerInvite = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "viewer", channel: "link" })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${tokenFromInviteUrl(viewerInvite.body.inviteUrl)}/accept`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(409)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("HOUSEHOLD_ALREADY_MEMBER");
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/households/${householdId}/members`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.members).toEqual([
+          expect.objectContaining({ householdId, role: "owner", status: "active" })
+        ]);
+      });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "co_parent", channel: "link" })
+      .expect(200);
+  });
+
   it("allows viewer report access but blocks viewer expense writes and invite creation", async () => {
     const ownerToken = await login(app, "batch08-viewer-owner");
     const { householdId, childId } = await completeOwnerOnboarding(app, ownerToken);

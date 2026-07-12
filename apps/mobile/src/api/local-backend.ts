@@ -261,6 +261,26 @@ function requireMoneyKrw(value: unknown): number {
   }
 }
 
+// Additive defense-in-depth: `isFutureSeoulDate` only checks the YYYY-MM-DD pattern and a
+// lexicographic string compare, so a calendar-invalid date like "2026-02-31" would otherwise
+// slip through as "not future" if today is later in the year. Mirrors the same calendar check
+// the mobile date-picker UI runs client-side (see app/expenses/new.tsx) so a malformed manual
+// date entry can never persist even if a client bypasses/skips its own validation.
+function assertValidCalendarDate(dateOnly: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
+  if (!match) {
+    throw new Error("날짜를 다시 확인해 주세요.");
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  const isValid = date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+  if (!isValid) {
+    throw new Error("존재하지 않는 날짜예요.");
+  }
+}
+
 function assertNotFutureDate(spentOn: string) {
   let future: boolean;
   try {
@@ -396,6 +416,7 @@ export function createExpense(
   if (!itemName) {
     throw new Error("품목명을 입력해 주세요.");
   }
+  assertValidCalendarDate(body.spentOn);
   assertNotFutureDate(body.spentOn);
   const amountKrw = requireMoneyKrw(body.amountKrw);
   const now = new Date().toISOString();
@@ -437,7 +458,7 @@ export function getExpense(expenseId: string): Expense {
 
 export function updateExpense(
   expenseId: string,
-  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo">>
+  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>
 ): Expense {
   const expense = requireExpense(expenseId);
   const updated: LocalExpenseRecord = { ...expense };
@@ -445,6 +466,7 @@ export function updateExpense(
   if (body.categoryId !== undefined) updated.categoryId = body.categoryId;
   if (body.amountKrw !== undefined) updated.amountKrw = requireMoneyKrw(body.amountKrw);
   if (body.spentOn !== undefined) {
+    assertValidCalendarDate(body.spentOn);
     assertNotFutureDate(body.spentOn);
     updated.spentOn = body.spentOn;
   }
@@ -454,6 +476,7 @@ export function updateExpense(
     updated.itemName = itemName;
   }
   if (body.memo !== undefined) updated.memo = cleanOptionalText(body.memo ?? undefined);
+  if (body.expenseType !== undefined) updated.expenseType = body.expenseType;
   updated.updatedAt = new Date().toISOString();
 
   useLocalBackendStore.setState((state) => ({

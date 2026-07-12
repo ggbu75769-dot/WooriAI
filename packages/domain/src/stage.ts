@@ -1,4 +1,5 @@
 import { type ChildStageCode, type ChildStageMode, isChildStageCode } from "./enums";
+import { getSeoulToday } from "./money-date";
 
 const MANUAL_STAGE_LABELS: Record<ChildStageCode, string> = {
   pregnancy_early: "임신 초기",
@@ -67,7 +68,7 @@ export function calculateChildStage(input: CalculateChildStageInput): Calculated
     };
   }
 
-  const today = input.today ?? toDateOnly(new Date());
+  const today = input.today ?? getSeoulToday();
 
   if (input.stageMode === "pregnant") {
     const daysRemaining = differenceInCalendarDays(input.dueDate, today);
@@ -164,10 +165,6 @@ function parseDateOnly(value: string): { year: number; month: number; day: numbe
     month: Number(match[2]),
     day: Number(match[3])
   };
-}
-
-function toDateOnly(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }
 
 function clamp(value: number, min: number, max: number): number {

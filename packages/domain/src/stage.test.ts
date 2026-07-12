@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { calculateChildStage } from "./stage";
 
 describe("calculateChildStage", () => {
@@ -75,5 +75,36 @@ describe("calculateChildStage", () => {
       manual: true,
       recommendationAccuracyNotice: "수동 단계라 추천 정확도가 조금 낮을 수 있어요."
     });
+  });
+});
+
+describe("calculateChildStage default today (Seoul-based)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("uses the Seoul calendar day, not UTC, when today is not provided", () => {
+    // 2026-07-06T15:30:00Z is 2026-07-07 00:30 KST — a UTC/Seoul day-boundary case.
+    vi.setSystemTime(new Date("2026-07-06T15:30:00.000Z"));
+
+    const result = calculateChildStage({ stageMode: "born", birthDate: "2026-06-07" });
+
+    expect(result).toMatchObject({ ageMonths: 1 });
+  });
+
+  it("still respects an explicitly provided today (no regression for existing callers)", () => {
+    vi.setSystemTime(new Date("2026-07-06T15:30:00.000Z"));
+
+    const result = calculateChildStage({
+      stageMode: "born",
+      birthDate: "2026-06-07",
+      today: "2026-07-06"
+    });
+
+    expect(result).toMatchObject({ ageMonths: 0 });
   });
 });

@@ -11,7 +11,7 @@ export class UpdateImportRowDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(120)
+  @MaxLength(100)
   parsedItemName?: string;
 
   @IsOptional()

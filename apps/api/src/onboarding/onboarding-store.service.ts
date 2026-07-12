@@ -6,6 +6,7 @@ import {
   getSeoulMonthRange,
   getSeoulToday,
   isFutureSeoulDate,
+  isValidCalendarDate,
   sortRecommendedItems,
   type ChildStageCode,
   type ChildStageMode,
@@ -66,6 +67,7 @@ type ExpenseRecord = {
   linkedItemTemplateId?: string | null;
   expenseType: ExpenseType;
   source: ExpenseSource;
+  createdByUserId: string;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
@@ -186,6 +188,7 @@ export type UpdateExpenseInput = {
   spentOn?: string;
   itemName?: string;
   memo?: string | null;
+  expenseType?: ExpenseType;
 };
 
 export type CreateImportJobInput = {
@@ -480,6 +483,9 @@ export class OnboardingStoreService {
       throw new BadRequestException({ code: "EXPENSE_ITEM_NAME_REQUIRED", message: "품목명을 입력해 주세요." });
     }
     this.assertNotFutureDate(input.spentOn);
+    if (input.linkedItemTemplateId) {
+      this.requireExistingItemTemplateAnyStatus(input.linkedItemTemplateId);
+    }
 
     const expense: ExpenseRecord = {
       id: randomUUID(),
@@ -495,6 +501,7 @@ export class OnboardingStoreService {
       linkedItemTemplateId: input.linkedItemTemplateId ?? null,
       expenseType: input.expenseType ?? "expense",
       source: input.source ?? "manual",
+      createdByUserId: user.id,
       createdAt: now,
       updatedAt: now,
       deletedAt: null
@@ -535,6 +542,7 @@ export class OnboardingStoreService {
       updated.itemName = itemName;
     }
     if (input.memo !== undefined) updated.memo = this.cleanOptionalText(input.memo ?? undefined);
+    if (input.expenseType !== undefined) updated.expenseType = input.expenseType;
 
     updated.updatedAt = new Date().toISOString();
     this.expensesById.set(expenseId, updated);
@@ -714,6 +722,9 @@ export class OnboardingStoreService {
   ) {
     this.requireChildAccess(user, childId, true);
     this.requireItemTemplate(itemTemplateId);
+    if (expenseId) {
+      this.requireExpenseBelongsToChild(user, expenseId, childId);
+    }
     this.setChildItemStatus(user, childId, itemTemplateId, status, expenseId);
     return this.toItemSummaryDto(childId, this.requireItemTemplate(itemTemplateId));
   }
@@ -730,6 +741,9 @@ export class OnboardingStoreService {
     }
     this.requireItemTemplate(productLink.itemTemplateId);
 
+    const redirectUrl = productLink.affiliateUrl ?? productLink.url;
+    this.requireHttpUrl(redirectUrl);
+
     const click: AffiliateClickEntry = {
       id: randomUUID(),
       userId: user.id,
@@ -742,9 +756,6 @@ export class OnboardingStoreService {
       clickedAt: new Date().toISOString()
     };
     this.affiliateClicks.push(click);
-
-    const redirectUrl = productLink.affiliateUrl ?? productLink.url;
-    this.requireHttpUrl(redirectUrl);
 
     return {
       clickId: click.id,
@@ -1016,11 +1027,18 @@ export class OnboardingStoreService {
     this.assertConfirmation(confirmationText, "DELETE CHILD");
     const child = this.requireChildAccess(user, childId, true);
     const now = new Date().toISOString();
+    const expensesToDelete = this.expensesForChild(childId);
     this.childrenById.set(childId, { ...child, deletedAt: now });
-    for (const expense of this.expensesForChild(childId)) {
+    for (const expense of expensesToDelete) {
       this.expensesById.set(expense.id, { ...expense, deletedAt: now, updatedAt: now });
     }
-    return { success: true, flowId: "child_profile_delete" };
+    return {
+      success: true,
+      flowId: "child_profile_delete",
+      householdId: child.householdId,
+      deletedExpenseCount: expensesToDelete.length,
+      deletedAt: now
+    };
   }
 
   private childrenForUser(user: AuthenticatedUser) {
@@ -1052,6 +1070,17 @@ export class OnboardingStoreService {
     return expense;
   }
 
+  private requireExpenseBelongsToChild(user: AuthenticatedUser, expenseId: string, childId: string) {
+    const expense = this.requireExpenseAccess(user, expenseId, true);
+    if (expense.childId !== childId) {
+      throw new ForbiddenException({
+        code: "EXPENSE_CHILD_MISMATCH",
+        message: "지출 기록이 해당 아이 소속이 아니에요."
+      });
+    }
+    return expense;
+  }
+
   private requireImportJobAccess(user: AuthenticatedUser, importJobId: string, edit = false) {
     const job = this.importJobsById.get(importJobId);
     if (!job) {
@@ -1076,6 +1105,15 @@ export class OnboardingStoreService {
       throw new NotFoundException({ code: "ITEM_NOT_FOUND", message: "Item template was not found." });
     }
     return item;
+  }
+
+  private requireExistingItemTemplateAnyStatus(itemTemplateId: string) {
+    if (!this.itemTemplates.some((template) => template.id === itemTemplateId)) {
+      throw new BadRequestException({
+        code: "EXPENSE_LINKED_ITEM_TEMPLATE_INVALID",
+        message: "연결된 준비템을 찾을 수 없어요."
+      });
+    }
   }
 
   private requireProductLinkAnyStatus(productLinkId: string) {
@@ -1141,7 +1179,8 @@ export class OnboardingStoreService {
       merchant: expense.merchant ?? null,
       memo: expense.memo ?? null,
       expenseType: expense.expenseType,
-      source: expense.source
+      source: expense.source,
+      createdByUserId: expense.createdByUserId
     };
   }
 
@@ -1530,6 +1569,13 @@ export class OnboardingStoreService {
   }
 
   private assertNotFutureDate(spentOn: string) {
+    if (!isValidCalendarDate(spentOn)) {
+      throw new BadRequestException({
+        code: "EXPENSE_DATE_INVALID",
+        message: "날짜를 다시 확인해 주세요."
+      });
+    }
+
     try {
       if (isFutureSeoulDate(spentOn, this.referenceNow())) {
         throw new BadRequestException({
@@ -1541,7 +1587,7 @@ export class OnboardingStoreService {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException({ code: "DATE_INVALID", message: "날짜를 다시 확인해 주세요." });
+      throw new BadRequestException({ code: "EXPENSE_DATE_INVALID", message: "날짜를 다시 확인해 주세요." });
     }
   }
 

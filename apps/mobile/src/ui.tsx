@@ -1,6 +1,8 @@
 import type React from "react";
+import { useState } from "react";
 import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { theme } from "./theme";
 
 type ChildrenProps = {
@@ -519,6 +521,11 @@ const lineChartSegments = lineChartPoints.slice(1).map((point, index) => {
   };
 });
 
+const lineChartHeight = 104;
+const lineChartPaddingTop = 10;
+const lineChartPaddingBottom = 20;
+const lineChartFallbackWidth = 280;
+
 const reportCategoryLegend = [
   ["기저귀/위생", "34%"],
   ["식비/간식", "24%"],
@@ -540,14 +547,26 @@ const donutSegmentPalette = [
 export function LineChartCard({
   title,
   value,
-  deltaLabel
+  deltaLabel,
+  points
 }: {
   title: string;
   value: string;
   deltaLabel?: string | null;
+  points?: number[];
 }) {
   const showDelta = deltaLabel !== null;
   const deltaText = deltaLabel ?? "+12.5%";
+
+  // Only draw real geometry once real data (2+ amounts) is supplied — otherwise fall back to
+  // the fixed decorative points/segments untouched so the no-session preview render (pixel-lock
+  // capture) stays byte-for-byte identical to before.
+  const hasRealData = Array.isArray(points) && points.length >= 2;
+  const [measuredWidth, setMeasuredWidth] = useState(lineChartFallbackWidth);
+  const activePoints = hasRealData
+    ? normalizeLineChartPoints(points!, measuredWidth, lineChartHeight, lineChartPaddingTop, lineChartPaddingBottom)
+    : lineChartPoints;
+  const activeSegments = hasRealData ? lineChartSegmentsFor(activePoints) : lineChartSegments;
 
   return (
     <Card style={{ gap: 8 }}>
@@ -559,13 +578,16 @@ export function LineChartCard({
           <Text style={[textStyles.caption, { color: theme.colors.mainCoral, fontWeight: "800" }]}>{deltaText}</Text>
         </View>
       ) : null}
-      <View style={{ backgroundColor: "#FFF4EE", borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }}>
+      <View
+        onLayout={hasRealData ? (event) => setMeasuredWidth(event.nativeEvent.layout.width) : undefined}
+        style={{ backgroundColor: "#FFF4EE", borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }}
+      >
         {[25, 50, 75].map((top) => (
           <View key={top} style={{ backgroundColor: "rgba(255, 107, 82, 0.08)", height: 1, left: 0, position: "absolute", right: 0, top }} />
         ))}
-        {lineChartSegments.map((segment, index) => (
+        {activeSegments.map((segment, index) => (
           <View
-            key={`${segment.x}-${segment.y}`}
+            key={`${segment.x}-${segment.y}-${index}`}
             style={{
               backgroundColor: theme.colors.mainCoral,
               borderRadius: 3,
@@ -578,19 +600,19 @@ export function LineChartCard({
             }}
           />
         ))}
-        {lineChartPoints.map((point, index) => (
+        {activePoints.map((point, index) => (
           <View
-            key={`${point.x}-${point.y}`}
+            key={`${point.x}-${point.y}-${index}`}
             style={{
               backgroundColor: theme.colors.mainCoral,
               borderColor: theme.colors.white,
               borderRadius: 5,
               borderWidth: 2,
-              height: index === lineChartPoints.length - 1 ? 12 : 9,
+              height: index === activePoints.length - 1 ? 12 : 9,
               left: point.x - 4,
               position: "absolute",
               top: point.y - 4,
-              width: index === lineChartPoints.length - 1 ? 12 : 9
+              width: index === activePoints.length - 1 ? 12 : 9
             }}
           />
         ))}
@@ -616,16 +638,35 @@ export function DonutChartCard({
       })()
     : reportCategoryLegend.map(([label, percent]) => ({ label, percent }));
 
+  // The arc is drawn with a border-quadrant trick (no SVG/conic-gradient dependency available
+  // in this app), which can only express four fixed 90° wedges rather than an arbitrary
+  // proportional sweep. When real segments are supplied, map the legend's own colors onto
+  // those four wedges (merging down when there are fewer than four categories) so the arc's
+  // visible slice count and colors always match the legend beside it, instead of always
+  // showing the same four decorative colors regardless of the real data.
+  const arcColors = segments
+    ? (() => {
+        const colors = segments.map((_, index) => donutSegmentPalette[index % donutSegmentPalette.length]);
+        if (colors.length <= 1) {
+          const only = colors[0] ?? donutSegmentPalette[0];
+          return [only, only, only, only];
+        }
+        if (colors.length === 2) return [colors[0], colors[0], colors[1], colors[1]];
+        if (colors.length === 3) return [colors[0], colors[1], colors[2], colors[2]];
+        return [colors[0], colors[1], colors[2], colors[3]];
+      })()
+    : [donutSegmentPalette[0], donutSegmentPalette[2], donutSegmentPalette[3], donutSegmentPalette[4]];
+
   return (
     <Card style={{ flexDirection: "row", gap: 14 }}>
       <View style={{ alignItems: "center", height: 96, justifyContent: "center", width: 96 }}>
         <View
           style={{
-            borderBottomColor: donutSegmentPalette[3],
-            borderColor: donutSegmentPalette[0],
-            borderLeftColor: donutSegmentPalette[4],
+            borderBottomColor: arcColors[2],
+            borderColor: arcColors[0],
+            borderLeftColor: arcColors[3],
             borderRadius: 48,
-            borderRightColor: donutSegmentPalette[2],
+            borderRightColor: arcColors[1],
             borderWidth: 16,
             height: 96,
             transform: [{ rotate: "-22deg" }],

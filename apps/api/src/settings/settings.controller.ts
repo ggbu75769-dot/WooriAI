@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
+import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { HouseholdRuntimeService } from "../households/household-runtime.service";
@@ -20,7 +21,8 @@ function assertConfirmation(actual: string, expected: string) {
 export class SettingsController {
   constructor(
     @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
-    @Inject(HouseholdRuntimeService) private readonly households: HouseholdRuntimeService
+    @Inject(HouseholdRuntimeService) private readonly households: HouseholdRuntimeService,
+    @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService
   ) {}
 
   @Get("privacy")
@@ -36,12 +38,21 @@ export class SettingsController {
 
   @Post("children/:childId/delete-confirm")
   @HttpCode(200)
-  childDeleteConfirm(
+  async childDeleteConfirm(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Body(createDtoValidationPipe(SettingsConfirmationDto)) body: SettingsConfirmationDto
   ) {
-    return this.store.confirmChildProfileDeletion(request.user!, childId, body.confirmationText);
+    const result = this.store.confirmChildProfileDeletion(request.user!, childId, body.confirmationText);
+    await this.auditLogger.record({
+      actorUserId: request.user!.id,
+      householdId: result.householdId,
+      action: "child_profile.delete",
+      targetType: "child_profile",
+      targetId: childId,
+      after: { deletedExpenseCount: result.deletedExpenseCount, deletedAt: result.deletedAt }
+    });
+    return { success: result.success, flowId: result.flowId };
   }
 
   @Post("households/:householdId/leave-preview")

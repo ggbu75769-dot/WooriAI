@@ -92,6 +92,43 @@ describe("Local test-mode backend data layer", () => {
     expect(after).toBe(before);
   });
 
+  it("rejects a manually entered future date the same way an automatic future date is rejected", () => {
+    const futureDate = `${Number(getSeoulToday().slice(0, 4)) + 1}-06-15`;
+    expect(() =>
+      localBackend.createExpense(childId, {
+        categoryId: "local-category-diaper",
+        amountKrw: 15_000,
+        spentOn: futureDate,
+        itemName: "직접 입력한 미래 지출"
+      })
+    ).toThrow();
+  });
+
+  it("rejects a calendar-invalid date such as 2026-02-31", () => {
+    expect(() =>
+      localBackend.createExpense(childId, {
+        categoryId: "local-category-diaper",
+        amountKrw: 15_000,
+        spentOn: "2026-02-31",
+        itemName: "존재하지 않는 날짜 지출"
+      })
+    ).toThrow();
+  });
+
+  it("rejects updating an expense to a calendar-invalid or future date", () => {
+    const created = localBackend.createExpense(childId, {
+      categoryId: "local-category-diaper",
+      amountKrw: 12_000,
+      spentOn: getSeoulToday(),
+      itemName: "수정 대상 지출"
+    });
+
+    expect(() => localBackend.updateExpense(created.id, { spentOn: "2026-02-31" })).toThrow();
+
+    const futureDate = `${Number(getSeoulToday().slice(0, 4)) + 1}-01-15`;
+    expect(() => localBackend.updateExpense(created.id, { spentOn: futureDate })).toThrow();
+  });
+
   it("does not create expenses from an import job until it is confirmed, and only imports the selected rows", () => {
     const job = localBackend.createExcelImport(childId, "wooriai-import.csv");
     const totalBeforeConfirm = localBackend.listExpenses(childId).expenses.length;

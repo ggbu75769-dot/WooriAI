@@ -42,15 +42,18 @@ export type CategoryCatalogEntry = {
  * - "교육/도서" maps to `toys_books` (장난감/책 explicitly covers "책"/books) rather than
  *   `care_education` (돌봄/교육, which is care-centric rather than book/education-material centric).
  */
+// Ids are fixed v4-shaped UUID literals (not slugs) because the real API's DTOs validate
+// `categoryId` with @IsUUID; a readable slug like "cat-diaper_hygiene" would 400 on the real
+// server path. The trailing hex pair encodes the tile index so the literals stay deterministic.
 export const categoryCatalog: CategoryCatalogEntry[] = [
-  { id: "cat-diaper_hygiene", code: "diaper_hygiene", label: "기저귀", icon: "▱" },
-  { id: "cat-feeding_babyfood", code: "feeding_babyfood", label: "분유/유제품", icon: "▤" },
-  { id: "cat-feeding_babyfood-meal", code: "feeding_babyfood", label: "식비", icon: "⌘" },
-  { id: "cat-clothes_laundry", code: "clothes_laundry", label: "의류", icon: "⌂" },
-  { id: "cat-outing_mobility", code: "outing_mobility", label: "약품/교통", icon: "▭" },
-  { id: "cat-hospital_checkup", code: "hospital_checkup", label: "병원/약", icon: "▣" },
-  { id: "cat-toys_books", code: "toys_books", label: "교육/도서", icon: "▥" },
-  { id: "cat-etc", code: "etc", label: "기타", icon: "⊕" }
+  { id: "c0a7e901-0000-4c01-8c01-c47e900ec001", code: "diaper_hygiene", label: "기저귀", icon: "▱" },
+  { id: "c0a7e901-0000-4c02-8c02-c47e900ec002", code: "feeding_babyfood", label: "분유/유제품", icon: "▤" },
+  { id: "c0a7e901-0000-4c03-8c03-c47e900ec003", code: "feeding_babyfood", label: "식비", icon: "⌘" },
+  { id: "c0a7e901-0000-4c04-8c04-c47e900ec004", code: "clothes_laundry", label: "의류", icon: "⌂" },
+  { id: "c0a7e901-0000-4c05-8c05-c47e900ec005", code: "outing_mobility", label: "약품/교통", icon: "▭" },
+  { id: "c0a7e901-0000-4c06-8c06-c47e900ec006", code: "hospital_checkup", label: "병원/약", icon: "▣" },
+  { id: "c0a7e901-0000-4c07-8c07-c47e900ec007", code: "toys_books", label: "교육/도서", icon: "▥" },
+  { id: "c0a7e901-0000-4c08-8c08-c47e900ec008", code: "etc", label: "기타", icon: "⊕" }
 ];
 
 /**

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
 import { deleteExpense, getExpense, LOCAL_SESSION_TOKEN, updateExpense } from "../../src/api/client";
+import { categoryCatalog } from "../../src/categories";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
+import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const expenseDetailScreenId = "EXP-003";
@@ -16,6 +18,48 @@ function toDigits(value: string) {
 function formatAmount(digits: string) {
   if (!digits) return "";
   return Number(digits).toLocaleString("ko-KR");
+}
+
+function formatExpenseDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const weekday = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
+  return { iso: `${year}-${month}-${day}`, label: `${year}. ${month}. ${day} (${weekday})` };
+}
+
+// Calendar-valid check for a user-typed YYYY-MM-DD string -- `new Date(year, month-1, day)`
+// silently rolls invalid days (e.g. 2026-02-31) into the following month, so we re-derive the
+// parts from the constructed Date and require them to match the input exactly.
+function isValidCalendarDate(dateOnly: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+function validateExpenseDateInput(dateOnly: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return "YYYY-MM-DD 형식으로 입력해 주세요.";
+  if (!isValidCalendarDate(dateOnly)) return "존재하지 않는 날짜예요.";
+  try {
+    if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";
+  } catch {
+    return "날짜를 다시 확인해 주세요.";
+  }
+  return null;
+}
+
+function buildRecentDateChips(today: Date) {
+  return Array.from({ length: 14 }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(date.getDate() - index);
+    const formatted = formatExpenseDate(date);
+    const shortLabel = index === 0 ? "오늘" : index === 1 ? "어제" : index === 2 ? "그제" : `${date.getMonth() + 1}/${date.getDate()}`;
+    return { iso: formatted.iso, shortLabel };
+  });
 }
 
 export default function ExpenseDetailScreen() {
@@ -33,25 +77,42 @@ export default function ExpenseDetailScreen() {
   const [itemName, setItemName] = useState("");
   const [amountDigits, setAmountDigits] = useState("");
   const [memo, setMemo] = useState("");
+  const [spentOnIso, setSpentOnIso] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [customDateMode, setCustomDateMode] = useState(false);
+  const [customDateText, setCustomDateText] = useState("");
+  const [today] = useState(() => new Date(`${getSeoulToday()}T00:00:00`));
+  const recentDateChips = buildRecentDateChips(today);
 
   useEffect(() => {
     if (!expense.data) return;
     setItemName(expense.data.itemName);
     setAmountDigits(String(expense.data.amountKrw));
     setMemo(expense.data.memo ?? "");
+    setSpentOnIso(expense.data.spentOn);
+    setCategoryId(expense.data.categoryId);
   }, [expense.data]);
 
   const amountKrw = Number(amountDigits || "0");
   const itemNameError = itemName.trim().length === 0 ? "품목을 입력해 주세요." : null;
   const amountError = amountDigits.length > 0 && amountKrw <= 0 ? "0보다 큰 금액을 입력해 주세요." : null;
-  const canSave = !itemNameError && !amountError && amountKrw > 0 && Boolean(authToken && expenseId);
+  const dateInputError = customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
+  const spentOnLabel = spentOnIso ? formatExpenseDate(new Date(`${spentOnIso}T00:00:00`)).label : "";
+  const canSave = !itemNameError && !amountError && !dateInputError && amountKrw > 0 && Boolean(authToken && expenseId);
 
   const save = useMutation({
     mutationFn: () => {
-      if (!authToken || !expenseId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim()) {
+      if (!authToken || !expenseId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
         throw new Error("invalid expense");
       }
-      return updateExpense(authToken, expenseId, { amountKrw, itemName: itemName.trim(), memo });
+      return updateExpense(authToken, expenseId, {
+        amountKrw,
+        itemName: itemName.trim(),
+        memo,
+        spentOn: spentOnIso || undefined,
+        categoryId: categoryId || undefined
+      });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries();
@@ -148,6 +209,103 @@ export default function ExpenseDetailScreen() {
                 {amountError ? (
                   <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{amountError}</Text>
                 ) : null}
+              </View>
+
+              <View style={{ gap: 6 }}>
+                <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+                  날짜
+                </Text>
+                <Pressable
+                  accessibilityLabel="지출 날짜 변경"
+                  accessibilityRole="button"
+                  onPress={() => setShowDatePicker((value) => !value)}
+                  style={{
+                    alignItems: "center",
+                    backgroundColor: theme.colors.beige,
+                    borderRadius: theme.radii.small,
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    minHeight: theme.touchTarget,
+                    paddingHorizontal: 14
+                  }}
+                >
+                  <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
+                    {spentOnLabel}
+                  </Text>
+                  <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>
+                    {showDatePicker ? "닫기" : "날짜 변경"}
+                  </Text>
+                </Pressable>
+                {showDatePicker ? (
+                  <View style={{ gap: 8 }}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                      {recentDateChips.map((chip) => (
+                        <CategoryChip
+                          key={chip.iso}
+                          label={chip.shortLabel}
+                          selected={!customDateMode && chip.iso === spentOnIso}
+                          onPress={() => {
+                            setSpentOnIso(chip.iso);
+                            setCustomDateMode(false);
+                            setCustomDateText("");
+                          }}
+                        />
+                      ))}
+                    </ScrollView>
+                    <Pressable onPress={() => setCustomDateMode((value) => !value)}>
+                      <Text style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}>
+                        {customDateMode ? "최근 날짜에서 선택" : "직접 입력"}
+                      </Text>
+                    </Pressable>
+                    {customDateMode ? (
+                      <View style={{ gap: 6 }}>
+                        <TextInput
+                          keyboardType="numbers-and-punctuation"
+                          onChangeText={(value) => {
+                            const cleaned = value.replace(/[^0-9-]/g, "").slice(0, 10);
+                            setCustomDateText(cleaned);
+                            if (cleaned.length > 0) {
+                              const error = validateExpenseDateInput(cleaned);
+                              if (!error) setSpentOnIso(cleaned);
+                            }
+                          }}
+                          placeholder="YYYY-MM-DD"
+                          style={{
+                            backgroundColor: theme.colors.beige,
+                            borderColor: dateInputError ? theme.colors.danger : "transparent",
+                            borderRadius: theme.radii.small,
+                            borderWidth: 1,
+                            color: theme.colors.brown,
+                            minHeight: theme.touchTarget,
+                            paddingHorizontal: 14
+                          }}
+                          value={customDateText}
+                        />
+                        {dateInputError ? (
+                          <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>
+                            {dateInputError}
+                          </Text>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={{ gap: 6 }}>
+                <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+                  카테고리
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {categoryCatalog.map((category) => (
+                    <CategoryChip
+                      key={category.id}
+                      label={`${category.icon} ${category.label}`}
+                      selected={category.id === categoryId}
+                      onPress={() => setCategoryId(category.id)}
+                    />
+                  ))}
+                </ScrollView>
               </View>
 
               <View style={{ gap: 6 }}>

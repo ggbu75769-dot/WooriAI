@@ -1,5 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Image, Pressable, Text, View } from "react-native";
+import { Alert, Image, Pressable, Text, View } from "react-native";
+import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { useSelectedChildStore } from "../../src/stores/selected-child.store";
+import { useSessionStore } from "../../src/stores/session.store";
 import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
 import { theme } from "../../src/theme";
 import { AppScreen } from "../../src/ui";
@@ -14,11 +18,13 @@ const moreMenuRows = [
   { icon: "ⓘ", title: "앱 정보", route: "/settings/privacy" }
 ] as const;
 
-type MoreMenuRoute = (typeof moreMenuRows)[number]["route"];
+const previewProfile = { nickname: "다온이", stageLabel: "24개월" };
 
-function MoreMenuRow({ icon, title, route }: { icon: string; title: string; route: MoreMenuRoute }) {
+const appInfoText = "버전 0.0.0 · com.anonymous.wooriai";
+
+function MoreMenuRow({ icon, title, onPress }: { icon: string; title: string; onPress: () => void }) {
   return (
-    <Pressable onPress={() => router.push(route)} style={moreMenuRowStyle()}>
+    <Pressable onPress={onPress} style={moreMenuRowStyle()}>
       <Text style={moreMenuIconStyle}>{icon}</Text>
       <Text style={moreMenuTitleStyle}>{title}</Text>
       <Text style={moreMenuChevronStyle}>›</Text>
@@ -27,12 +33,47 @@ function MoreMenuRow({ icon, title, route }: { icon: string; title: string; rout
 }
 
 export default function MoreScreen() {
+  const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const hasSession = Boolean(authToken && childId);
+  const home = useQuery({
+    queryKey: ["home", childId],
+    enabled: hasSession,
+    queryFn: () => getHome(authToken!, childId!)
+  });
+  const visibleProfile = hasSession && home.data ? home.data.child : previewProfile;
+
+  const handleSearchPress = () => {
+    router.push(hasSession ? "/(tabs)/records" : "/settings");
+  };
+
+  const sessionMenuRows = [
+    { icon: "♙", title: "프로필 관리", onPress: () => router.push("/family") },
+    { icon: "♧", title: "알림 설정", onPress: () => router.push("/notifications") },
+    { icon: "⌁", title: "엑셀 가져오기", onPress: () => router.push("/import") },
+    { icon: "?", title: "약관 및 개인정보", onPress: () => router.push("/settings/privacy") },
+    { icon: "ⓘ", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }
+  ];
+  const previewMenuRowActions = moreMenuRows.map((row) => ({
+    icon: row.icon,
+    title: row.title,
+    onPress: () => router.push(row.route)
+  }));
+  const visibleMenuRows = hasSession ? sessionMenuRows : previewMenuRowActions;
+
   return (
     <AppScreen>
       <View accessibilityLabel={moreReferenceScreenId} style={moreReferenceFrameStyle()}>
         <View style={moreHeaderRowStyle}>
           <Text style={moreTitleStyle}>더보기</Text>
-          <Pressable onPress={() => router.push("/settings")} style={moreSearchButtonStyle}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={hasSession ? "기록 검색" : "설정"}
+            onPress={handleSearchPress}
+            style={moreSearchButtonStyle}
+          >
             <Text style={moreSearchTextStyle}>⌕</Text>
           </Pressable>
         </View>
@@ -40,14 +81,14 @@ export default function MoreScreen() {
         <Pressable onPress={() => router.push("/family")} style={moreProfileCardStyle}>
           <Image source={moreAvatarImage} style={moreAvatarStyle()} resizeMode="cover" />
           <View style={{ flex: 1 }}>
-            <Text style={moreChildNameStyle}>다온이</Text>
-            <Text style={moreChildAgeStyle}>24개월</Text>
+            <Text style={moreChildNameStyle}>{visibleProfile.nickname}</Text>
+            <Text style={moreChildAgeStyle}>{visibleProfile.stageLabel}</Text>
           </View>
         </Pressable>
 
         <View style={moreMenuGroupStyle()}>
-          {moreMenuRows.map((row) => (
-            <MoreMenuRow key={row.title} icon={row.icon} title={row.title} route={row.route} />
+          {visibleMenuRows.map((row) => (
+            <MoreMenuRow key={row.title} icon={row.icon} title={row.title} onPress={row.onPress} />
           ))}
         </View>
       </View>

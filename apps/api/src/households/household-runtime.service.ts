@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { MemberRole } from "@wooriai/domain";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 
@@ -204,6 +204,15 @@ export class HouseholdRuntimeService {
     this.registerUserHouseholds(user);
     const invite = this.requirePendingInvite(token);
     const household = this.requireHousehold(invite.householdId);
+
+    const existingMember = this.membersByKey.get(this.memberKey(invite.householdId, user.id));
+    if (existingMember && existingMember.status === "active") {
+      throw new ConflictException({
+        code: "HOUSEHOLD_ALREADY_MEMBER",
+        message: "이미 가족 구성원이에요. 초대를 다시 수락할 필요가 없어요."
+      });
+    }
+
     const now = new Date().toISOString();
 
     this.membersByKey.set(this.memberKey(invite.householdId, user.id), {

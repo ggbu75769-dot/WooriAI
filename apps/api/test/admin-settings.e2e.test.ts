@@ -1,9 +1,10 @@
 import type { INestApplication } from "@nestjs/common";
-import { Test } from "@nestjs/testing";
+import { Test, type TestingModule } from "@nestjs/testing";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
+import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 
 const adminToken = "dev-admin-token";
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -66,6 +67,7 @@ async function completeOnboarding(app: INestApplication, accessToken: string) {
 
 describe("Admin CMS and settings APIs", () => {
   let app: INestApplication;
+  let moduleRef: TestingModule;
 
   beforeEach(async () => {
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
@@ -73,7 +75,7 @@ describe("Admin CMS and settings APIs", () => {
     process.env.WOORIAI_ADMIN_TOKEN = adminToken;
     process.env.WOORIAI_STAGE_TODAY = "2026-07-06";
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule]
     }).compile();
 
@@ -222,6 +224,18 @@ describe("Admin CMS and settings APIs", () => {
     const { householdId, childId } = await completeOnboarding(app, accessToken);
 
     await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        categoryId,
+        amountKrw: 15000,
+        spentOn: "2026-07-06",
+        itemName: "삭제될 지출",
+        paymentMethod: "card"
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
       .get("/api/v1/settings/privacy")
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
@@ -268,6 +282,20 @@ describe("Admin CMS and settings APIs", () => {
       .get(`/api/v1/children/${childId}`)
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(404);
+
+    const auditLogger = moduleRef.get(AuditLoggerService);
+    expect(auditLogger.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorUserId: expect.any(String),
+          householdId,
+          action: "child_profile.delete",
+          targetType: "child_profile",
+          targetId: childId,
+          after: expect.objectContaining({ deletedExpenseCount: 1, deletedAt: expect.any(String) })
+        })
+      ])
+    );
 
     await request(app.getHttpServer())
       .post(`/api/v1/settings/households/${householdId}/leave-preview`)

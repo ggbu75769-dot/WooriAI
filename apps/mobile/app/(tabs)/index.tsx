@@ -180,7 +180,30 @@ export default function HomeScreen() {
   const visibleHome = hasSession ? home.data! : previewHome;
   const monthlyUsed = visibleHome.monthly.usedAmountKrw;
   const budget = visibleHome.monthly.amountKrw;
-  const progress = Math.round(Math.min(100, Math.max(0, (monthlyUsed / Math.max(1, budget)) * 100)));
+  const rawProgress = (monthlyUsed / Math.max(1, budget)) * 100;
+  const progress = Math.round(Math.min(100, Math.max(0, rawProgress)));
+  // budget === 0 means "no budget set" (home API returns amountKrw: 0 then) -- never call
+  // that state "over budget"; strict > also avoids "₩0 초과" when spending equals the budget.
+  const isOverBudget = hasSession && budget > 0 && monthlyUsed > budget;
+  const overAmount = monthlyUsed - budget;
+  const budgetNudgeTitle = isOverBudget
+    ? `예산을 ${formatKrw(overAmount)} 초과했어요.`
+    : `예산의 ${progress}% 사용 중이에요!`;
+  const budgetNudgeSubtitle = isOverBudget
+    ? "이번 달 지출을 확인해 볼까요? 😥"
+    : "이번 달도 잘 관리하고 있어요 👏";
+  const bellAction = hasSession ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="알림"
+      hitSlop={10}
+      onPress={() => router.push("/notifications")}
+    >
+      <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>🔔</Text>
+    </Pressable>
+  ) : (
+    <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>🔔</Text>
+  );
 
   return (
     <AppScreen>
@@ -189,7 +212,7 @@ export default function HomeScreen() {
           <ScreenHeader
             title={`${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`}
             subtitle="우리 아이에게 해준 것을 따뜻하게 기록해요."
-            action={<Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>🔔</Text>}
+            action={bellAction}
           />
 
           <HeroSummaryCard
@@ -212,8 +235,8 @@ export default function HomeScreen() {
                 <Text style={homeBudgetNudgeStyle.icon}>▮</Text>
               </View>
               <View style={homeBudgetNudgeStyle.copy}>
-                <Text style={homeBudgetNudgeStyle.title}>예산의 {progress}% 사용 중이에요!</Text>
-                <Text style={homeBudgetNudgeStyle.subtitle}>이번 달도 잘 관리하고 있어요 👏</Text>
+                <Text style={homeBudgetNudgeStyle.title}>{budgetNudgeTitle}</Text>
+                <Text style={homeBudgetNudgeStyle.subtitle}>{budgetNudgeSubtitle}</Text>
               </View>
               <View style={homeBudgetNudgeArrowStyle.button}>
                 <Text style={homeBudgetNudgeArrowStyle.glyph}>›</Text>

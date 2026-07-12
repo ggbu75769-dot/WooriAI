@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { getSeoulToday } from "@wooriai/domain";
 import { getCategoryReport, getCumulativeReport, getMonthlyReport, getYearlyReport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryNameFor } from "../../src/categories";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -64,7 +65,9 @@ export default function ReportsScreen() {
     setMonthOffset(0);
   }, [period]);
 
-  const baseDate = hasSession ? new Date() : new Date(2025, 4, 1);
+  // Use the Seoul-local calendar day (not the device's local timezone) so report periods
+  // line up with the server, which computes "이번 달/분기/연도" in KST.
+  const baseDate = hasSession ? new Date(`${getSeoulToday()}T00:00:00`) : new Date(2025, 4, 1);
 
   const reportDate = period === "월간" ? addMonths(baseDate, monthOffset) : baseDate;
   const reportYearMonth = `${reportDate.getFullYear()}-${String(reportDate.getMonth() + 1).padStart(2, "0")}`;
@@ -118,6 +121,20 @@ export default function ReportsScreen() {
     queryFn: () => getYearlyReport(authToken!, childId!, yearStart.getFullYear())
   });
 
+  // Trailing 6 months (current month included) feeding the 월간 tab's line chart, following
+  // the same useQueries pattern as quarterQueries above.
+  const monthlyTrendMonths = Array.from({ length: 6 }, (_, index) => addMonths(reportDate, index - 5));
+  const monthlyTrendQueries = useQueries({
+    queries: monthlyTrendMonths.map((date) => {
+      const ym = yearMonthOf(date);
+      return {
+        queryKey: ["report", "monthly", childId, ym],
+        enabled: Boolean(authToken && childId && period === "월간"),
+        queryFn: () => getMonthlyReport(authToken!, childId!, ym)
+      };
+    })
+  });
+
   const monthlyTotal = monthly.data?.totalExpenseKrw ?? previewReportTotalKrw;
   const cumulativeTotal = cumulative.data?.totalExpenseKrw ?? previewCumulativeTotalKrw;
 
@@ -151,6 +168,21 @@ export default function ReportsScreen() {
   const tipDeltaKrw = hasDeltaData ? previousMonth.data!.totalExpenseKrw - monthly.data!.totalExpenseKrw : null;
   const showTip = hasSession && period === "월간" && tipDeltaKrw !== null && tipDeltaKrw !== 0;
 
+  // Real per-period amounts for the line chart's trend, only once every underlying query for
+  // the active tab has resolved (otherwise leave undefined so LineChartCard keeps its
+  // decorative placeholder line instead of drawing a series full of zeros mid-fetch).
+  const monthlyTrendPoints =
+    period === "월간" && monthlyTrendQueries.every((query) => query.isSuccess)
+      ? monthlyTrendQueries.map((query) => query.data!.totalExpenseKrw)
+      : undefined;
+  const quarterPoints =
+    period === "분기" && quarterQueries.every((query) => query.isSuccess)
+      ? quarterQueries.map((query) => query.data!.totalExpenseKrw)
+      : undefined;
+  const yearlyPoints =
+    period === "연간" && yearly.isSuccess ? yearly.data!.monthlyTotals.map((entry) => entry.totalExpenseKrw) : undefined;
+  const activePoints = period === "월간" ? monthlyTrendPoints : period === "분기" ? quarterPoints : yearlyPoints;
+
   return (
     <AppScreen>
       <View style={reportReferenceScaleFrameStyle()}>
@@ -160,13 +192,37 @@ export default function ReportsScreen() {
           <SegmentedControl options={["월간", "분기", "연간"]} value={period} onChange={setPeriod} />
 
           <View style={reportReferencePeriodRowStyle}>
-            <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
-              <Text style={reportReferencePeriodArrowStyle}>‹</Text>
-            </Pressable>
-            <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
-            <Pressable accessibilityLabel="다음 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
-              <Text style={reportReferencePeriodArrowStyle}>›</Text>
-            </Pressable>
+            {period === "월간" ? (
+              <>
+                <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
+                  <Text style={reportReferencePeriodArrowStyle}>‹</Text>
+                </Pressable>
+                <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
+                <Pressable accessibilityLabel="다음 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
+                  <Text style={reportReferencePeriodArrowStyle}>›</Text>
+                </Pressable>
+              </>
+            ) : period === "분기" ? (
+              <>
+                <Pressable accessibilityLabel="이전 분기" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
+                  <Text style={reportReferencePeriodArrowStyle}>‹</Text>
+                </Pressable>
+                <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
+                <Pressable accessibilityLabel="다음 분기" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
+                  <Text style={reportReferencePeriodArrowStyle}>›</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable accessibilityLabel="이전 연도" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
+                  <Text style={reportReferencePeriodArrowStyle}>‹</Text>
+                </Pressable>
+                <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
+                <Pressable accessibilityLabel="다음 연도" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
+                  <Text style={reportReferencePeriodArrowStyle}>›</Text>
+                </Pressable>
+              </>
+            )}
           </View>
 
           {!hasSession ? (
@@ -195,7 +251,7 @@ export default function ReportsScreen() {
             />
           ) : (
             <>
-              <LineChartCard title="총 지출" value={formatKrw(activeTotal ?? 0)} deltaLabel={deltaLabel} />
+              <LineChartCard title="총 지출" value={formatKrw(activeTotal ?? 0)} deltaLabel={deltaLabel} points={activePoints} />
 
               {category.isLoading ? (
                 <EmptyStateCard title="카테고리 정보를 불러오고 있어요." actionLabel="잠시만요" />
@@ -212,7 +268,10 @@ export default function ReportsScreen() {
                   onPress={() => router.push("/expenses/new")}
                 />
               ) : (
-                <DonutChartCard title="카테고리 비중" segments={categorySegments} />
+                // getCategoryReport has no period parameter (see src/api/client.ts), so this
+                // breakdown is always all-time, regardless of which report tab is active.
+                // Label it honestly rather than implying it matches the 월간/분기/연간 period above.
+                <DonutChartCard title="전체 기간 카테고리 비중" segments={categorySegments} />
               )}
 
               {showTip ? (

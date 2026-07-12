@@ -93,6 +93,13 @@ describe("Expense, budget, home, and report API", () => {
     const accessToken = await login(app, "batch06-expense");
     const { childId, householdId } = await completeOnboarding(app, accessToken);
 
+    const userId = (
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.user.id as string;
+
     await request(app.getHttpServer())
       .get(`/api/v1/home?childId=${childId}`)
       .set("Authorization", `Bearer ${accessToken}`)
@@ -134,7 +141,8 @@ describe("Expense, budget, home, and report API", () => {
             merchant: "맘마마트",
             memo: "첫 기록",
             expenseType: "expense",
-            source: "manual"
+            source: "manual",
+            createdByUserId: userId
           });
         })
     ).body as { id: string };
@@ -240,6 +248,35 @@ describe("Expense, budget, home, and report API", () => {
         expect(body.error.code).toBe("EXPENSE_FUTURE_DATE");
       });
 
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        categoryId,
+        amountKrw: 12000,
+        spentOn: "2026-02-31",
+        itemName: "달력상 불가능한 날짜"
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("EXPENSE_DATE_INVALID");
+      });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        categoryId,
+        amountKrw: 12000,
+        spentOn: "2026-07-06",
+        itemName: "존재하지 않는 준비템",
+        linkedItemTemplateId: "99999999-9999-4999-8999-999999999999"
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("EXPENSE_LINKED_ITEM_TEMPLATE_INVALID");
+      });
+
     const tokenService = moduleRef.get(TokenService);
     const store = moduleRef.get(OnboardingStoreService) as OnboardingStoreService & {
       createExpense: (
@@ -281,6 +318,78 @@ describe("Expense, budget, home, and report API", () => {
       .expect(({ body }) => {
         expect(body.totalExpenseKrw).toBe(0);
         expect(body.categoryTop).toEqual([]);
+      });
+  });
+
+  it("creates a gift expense through the public create-expense API and excludes it from home and report totals", async () => {
+    const accessToken = await login(app, "batch06-gift-api");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const giftExpense = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          categoryId,
+          amountKrw: 75000,
+          spentOn: "2026-07-06",
+          itemName: "선물 받은 유모차",
+          expenseType: "gift"
+        })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ expenseType: "gift" });
+        })
+    ).body as { id: string };
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/home?childId=${childId}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalExpenseKrw).toBe(0);
+        expect(body.monthly.usedAmountKrw).toBe(0);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalExpenseKrw).toBe(0);
+        expect(body.categoryTop).toEqual([]);
+      });
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${giftExpense.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ expenseType: "expense" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ id: giftExpense.id, expenseType: "expense" });
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/home?childId=${childId}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalExpenseKrw).toBe(75000);
+      });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        categoryId,
+        amountKrw: 10000,
+        spentOn: "2026-07-06",
+        itemName: "지출 타입 오류",
+        expenseType: "refund"
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
       });
   });
 

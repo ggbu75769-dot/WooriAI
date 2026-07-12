@@ -59,11 +59,12 @@ export const createExpenseRequestSchema = z.object({
   categoryId: uuidSchema,
   amountKrw: moneyKrwSchema,
   spentOn: dateOnlySchema,
-  itemName: z.string().min(1).max(120),
-  merchant: z.string().optional(),
+  itemName: z.string().min(1).max(100),
+  merchant: z.string().max(100).optional(),
   paymentMethod: paymentMethodSchema.default("unknown"),
-  memo: z.string().optional(),
-  linkedItemTemplateId: uuidSchema.optional()
+  memo: z.string().max(500).optional(),
+  linkedItemTemplateId: uuidSchema.optional(),
+  expenseType: z.enum(["expense", "gift"]).default("expense")
 });
 
 export const expenseSchema = z.object({
@@ -76,7 +77,8 @@ export const expenseSchema = z.object({
   merchant: z.string().nullable().optional(),
   memo: z.string().nullable().optional(),
   expenseType: expenseTypeSchema.default("expense"),
-  source: expenseSourceSchema.default("manual")
+  source: expenseSourceSchema.default("manual"),
+  createdByUserId: uuidSchema.optional()
 });
 
 export const budgetSchema = z.object({
@@ -85,6 +87,13 @@ export const budgetSchema = z.object({
   amountKrw: moneyKrwSchema,
   usedAmountKrw: z.number().int(),
   remainingAmountKrw: z.number().int()
+});
+
+// Home summary reports a budget of 0 (rather than omitting it) when no monthly
+// budget has been set yet, so its amountKrw allows 0 unlike the strict
+// moneyKrwSchema-backed budgetSchema used by the dedicated budget endpoints.
+export const homeMonthlyBudgetSchema = budgetSchema.extend({
+  amountKrw: z.number().int().min(0)
 });
 
 export const itemSummarySchema = z.object({
@@ -116,7 +125,7 @@ export const itemDetailSchema = itemSummarySchema.extend({
 export const homeSummarySchema = z.object({
   child: childSchema,
   totalExpenseKrw: z.number().int().min(0),
-  monthly: budgetSchema,
+  monthly: homeMonthlyBudgetSchema,
   recommendedItems: z.array(itemSummarySchema),
   recentExpenses: z.array(expenseSchema)
 });
@@ -159,7 +168,7 @@ export const importRowSchema = z.object({
   id: uuidSchema,
   rowIndex: z.number().int().min(0),
   parsedDate: dateOnlySchema.optional(),
-  parsedItemName: z.string().optional(),
+  parsedItemName: z.string().max(100).optional(),
   parsedAmountKrw: moneyKrwSchema.optional(),
   categoryId: uuidSchema.optional(),
   confidence: z.number().min(0).max(1),

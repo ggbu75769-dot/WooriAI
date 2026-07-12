@@ -33,11 +33,11 @@ export default function SettingsScreen() {
         <Card style={{ gap: 6 }}>
           <View style={summaryRowStyle}>
             <Text style={summaryLabelStyle}>현재 가구</Text>
-            <Text style={summaryValueStyle}>{householdId ?? "연결된 가구가 없어요"}</Text>
+            <Text style={summaryValueStyle}>{householdId ? "연결됨" : "연결된 가구가 없어요"}</Text>
           </View>
           <View style={summaryRowStyle}>
             <Text style={summaryLabelStyle}>선택된 아이</Text>
-            <Text style={summaryValueStyle}>{childId ?? "선택된 아이가 없어요"}</Text>
+            <Text style={summaryValueStyle}>{childId ? "선택됨" : "선택된 아이가 없어요"}</Text>
           </View>
         </Card>
       </View>

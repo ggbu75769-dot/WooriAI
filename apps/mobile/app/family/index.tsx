@@ -7,7 +7,8 @@ import {
   LOCAL_HOUSEHOLD_ID,
   LOCAL_SESSION_TOKEN,
   LOCAL_USER_ID,
-  removeHouseholdMember
+  removeHouseholdMember,
+  type InviteRole
 } from "../../src/api/client";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -63,7 +64,7 @@ export default function FamilyScreen() {
     queryFn: () => listHouseholdMembers(authToken!, householdId!)
   });
   const quickInvite = useMutation({
-    mutationFn: () => createInvite(authToken!, householdId!, "co_parent", "link"),
+    mutationFn: (role: InviteRole) => createInvite(authToken!, householdId!, role, "link"),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
       router.push("/family/invite");
@@ -101,8 +102,15 @@ export default function FamilyScreen() {
   const myRole = hasSession ? visibleMembers.find((member) => "userId" in member && member.userId === userId)?.role : undefined;
   const canManageMembers = hasSession && myRole === "owner";
   const openInvite = () => {
-    if (authToken && householdId) quickInvite.mutate();
-    else router.push("/family/invite");
+    if (!(authToken && householdId)) {
+      router.push("/family/invite");
+      return;
+    }
+    Alert.alert("어떤 역할로 초대할까요?", "함께할 역할을 선택해 주세요.", [
+      { text: "취소", style: "cancel" },
+      { text: "공동부모", onPress: () => quickInvite.mutate("co_parent") },
+      { text: "보기 전용", onPress: () => quickInvite.mutate("viewer") }
+    ]);
   };
   const confirmRemoveMember = (memberId: string, memberDisplayName: string) => {
     Alert.alert(`${memberDisplayName}님을 삭제할까요?`, "가족 구성원에서 삭제해요.", [
@@ -140,17 +148,19 @@ export default function FamilyScreen() {
         <Card style={familyProfileCardStyle}>
           <Text style={familyProfileTitleStyle}>우리아이 가족계정</Text>
           <View style={familyProfileBodyStyle}>
-            <FamilyAvatarGroup names={["다"]} />
+            <FamilyAvatarGroup names={hasSession ? avatarNames : ["다"]} />
             <View>
-              <Text style={familyProfileNameStyle}>다온이 패밀리</Text>
-              <Text style={familyProfileMetaStyle}>엄마 · 아빠 · 할머니</Text>
+              <Text style={familyProfileNameStyle}>{hasSession ? "우리 가족" : "다온이 패밀리"}</Text>
+              <Text style={familyProfileMetaStyle}>
+                {hasSession ? visibleMembers.map((member) => member.displayName).join(" · ") : "엄마 · 아빠 · 할머니"}
+              </Text>
             </View>
           </View>
         </Card>
 
         <Text style={familySectionTitleStyle}>초대하기</Text>
         <View style={familyInviteGroupStyle}>
-          {familyInviteRows.map((row) => (
+          {(hasSession ? familyInviteRows.filter((row) => row.title !== "초대 코드 공유") : familyInviteRows).map((row) => (
             <FamilyInviteRow key={row.title} icon={row.icon} title={row.title} value={row.value} onPress={openInvite} />
           ))}
         </View>

@@ -252,4 +252,118 @@ describe("Items, commerce, and affiliate API", () => {
       ])
     );
   });
+
+  it("rejects an item status update whose expenseId belongs to a different child", async () => {
+    const accessToken = await login(app, "batch07-item-expense-mismatch");
+    const { childId, householdId } = await completeOnboarding(app, accessToken);
+
+    const otherChildId = (
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          householdId,
+          nickname: "다른 아이",
+          stageMode: "manual",
+          manualStage: "infant_4_6"
+        })
+        .expect(200)
+    ).body.id as string;
+
+    const otherChildExpense = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${otherChildId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          categoryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          amountKrw: 20000,
+          spentOn: "2026-07-06",
+          itemName: "다른 아이 지출",
+          paymentMethod: "card"
+        })
+        .expect(200)
+    ).body as { id: string };
+
+    const nowItems = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items as ItemSummary[];
+    const carSeat = nowItems.find((item) => item.name === "카시트");
+    expect(carSeat).toBeDefined();
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/children/${childId}/items/${carSeat!.id}/status`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ status: "prepared", expenseId: otherChildExpense.id })
+      .expect(403)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("EXPENSE_CHILD_MISMATCH");
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/items?tab=prepared`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.items).toEqual([]);
+      });
+  });
+
+  it("does not record a click log entry when the redirect URL fails scheme validation", async () => {
+    const accessToken = await login(app, "batch07-click-order");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const nowItems = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items as ItemSummary[];
+    const carSeat = nowItems.find((item) => item.name === "카시트");
+    expect(carSeat).toBeDefined();
+
+    const carSeatDetail = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items/${carSeat!.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as { productLinks: ProductLink[] };
+    const affiliateLink = carSeatDetail.productLinks.find((link) => link.isAffiliate);
+    expect(affiliateLink).toBeDefined();
+
+    // Simulate a stored link whose redirect URL is unsafe (e.g. legacy data or a bypassed
+    // guard) to prove clickProductLink validates the URL before recording the click log,
+    // rather than logging first and only rejecting the redirect afterward.
+    const store = moduleRef.get(OnboardingStoreService) as OnboardingStoreService & {
+      affiliateClickEntries: Array<{ productLinkId: string }>;
+    };
+    const internalStore = store as unknown as {
+      productLinks: Array<{ id: string; url: string; affiliateUrl: string | null }>;
+    };
+    const storedLink = internalStore.productLinks.find((link) => link.id === affiliateLink!.id)!;
+    const originalUrl = storedLink.url;
+    const originalAffiliateUrl = storedLink.affiliateUrl;
+    storedLink.url = "javascript:alert(1)";
+    storedLink.affiliateUrl = null;
+
+    try {
+      await request(app.getHttpServer())
+        .post(`/api/v1/product-links/${affiliateLink!.id}/click`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ childId, referrerScreenId: "ITEM-003" })
+        .expect(400)
+        .expect(({ body }) => {
+          expect(body.error.code).toBe("PRODUCT_LINK_URL_SCHEME_INVALID");
+        });
+
+      expect(
+        store.affiliateClickEntries.some((entry) => entry.productLinkId === affiliateLink!.id)
+      ).toBe(false);
+    } finally {
+      storedLink.url = originalUrl;
+      storedLink.affiliateUrl = originalAffiliateUrl;
+    }
+  });
 });
