@@ -102,7 +102,8 @@ export const itemSummarySchema = z.object({
   necessityLevel: necessityLevelSchema,
   status: itemStatusSchema,
   timingLabel: z.string().optional(),
-  priceBandText: z.string().optional()
+  priceBandText: z.string().optional(),
+  stageCodes: z.array(childStageCodeSchema).optional()
 });
 
 export const productLinkSchema = z.object({

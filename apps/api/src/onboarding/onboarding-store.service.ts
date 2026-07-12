@@ -1315,7 +1315,8 @@ export class OnboardingStoreService {
       necessityLevel: item.necessityLevel,
       status,
       timingLabel: item.timingLabel,
-      priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw)
+      priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw),
+      stageCodes: item.stageCodes
     };
   }
 

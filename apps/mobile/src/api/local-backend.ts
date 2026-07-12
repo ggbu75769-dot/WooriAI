@@ -602,7 +602,8 @@ function toItemSummaryDto(item: (typeof localItemTemplateFixtures)[number]): Ite
     necessityLevel: item.necessityLevel,
     status: itemStatusFor(item.id),
     timingLabel: item.timingLabel,
-    priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw)
+    priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw),
+    stageCodes: item.stageCodes
   };
 }
 

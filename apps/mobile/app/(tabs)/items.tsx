@@ -8,6 +8,7 @@ import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton } from "../../src/ui";
 import { theme } from "../../src/theme";
 import { ItemListPixelStyles } from "../../src/pixelLock/styles";
+import { itemMatchesBand } from "../../src/items/stage-bands";
 
 const toddlerImage = require("../../assets/illustrations/toddler.png");
 const recommendationBabyCarrierImage = require("../../assets/illustrations/recommendation_baby_carrier.png");
@@ -137,7 +138,7 @@ export default function ItemsScreen() {
 
   const visibleItems = hasSession ? items.data!.items : previewItems;
   const stageFilteredItems = hasSession
-    ? visibleItems.filter((item) => !item.timingLabel || item.timingLabel === stageLabel)
+    ? visibleItems.filter((item) => itemMatchesBand(item, stageLabel))
     : visibleItems;
   const showEmptyState = hasSession ? stageFilteredItems.length === 0 : false;
   const canUpdateStatus = hasSession;
@@ -159,7 +160,7 @@ export default function ItemsScreen() {
 
           <View style={{ backgroundColor: theme.colors.beige, borderRadius: 22, minHeight: 92, overflow: "hidden", padding: 15 }}>
             <View style={{ maxWidth: 210 }}>
-              <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800", lineHeight: 24 }}>12-24개월 맞춤 추천</Text>
+              <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800", lineHeight: 24 }}>{stageLabel} 맞춤 추천</Text>
               <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18, marginTop: 7 }}>
                 우리아이 발달 단계에 꼭 필요한 제품
               </Text>

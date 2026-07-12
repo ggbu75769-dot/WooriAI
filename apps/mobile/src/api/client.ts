@@ -1,4 +1,4 @@
-import { getSeoulMonthRange, getSeoulToday } from "@wooriai/domain";
+import { getSeoulMonthRange, getSeoulToday, type ChildStageCode } from "@wooriai/domain";
 import * as localBackend from "./local-backend";
 import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./local-fixtures";
 import { useSessionStore } from "../stores/session.store";
@@ -106,6 +106,7 @@ export type ItemSummary = {
   status: ItemStatus;
   timingLabel?: string;
   priceBandText?: string;
+  stageCodes?: ChildStageCode[];
 };
 
 export type ProductLink = {
