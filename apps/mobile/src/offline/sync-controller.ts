@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import type { QueryClient } from "@tanstack/react-query";
 import { getSyncChanges } from "../api/client";
+import { bucketSyncLatencyMs, trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { isCurrentlyOnline, startConnectivityWatcher } from "./connectivity";
 import { SERVER_CONFIRMED_MESSAGE } from "./messages";
 import { createMemoryOfflineStore } from "./memory-offline-store";
@@ -125,12 +126,22 @@ function emitFlashMessage(text: string) {
 async function attemptFlush(token: string, queryClient: QueryClient): Promise<FlushSummary> {
   const store = await getOfflineStore();
   const remote = createClientRemoteExpenseApi(token);
+  const startedAt = Date.now();
   const summary = await flushOutbox(store, remote);
   await refreshSnapshot();
   if (summary.synced > 0) {
     await queryClient.invalidateQueries({ queryKey: ["expenses"] });
     await queryClient.invalidateQueries({ queryKey: ["home"] });
     emitFlashMessage(SERVER_CONFIRMED_MESSAGE);
+    // ANA-101 (round5a-sprint2-plan.md §5): fires once per flush pass that
+    // actually confirmed at least one write with the server, not once. A
+    // no-op while analytics opt-in is OFF (its default) -- see
+    // src/analytics/flag.ts.
+    trackAndFlushAnalyticsEvent(token, {
+      eventName: "expense_synced",
+      payload: { latencyBucket: bucketSyncLatencyMs(Date.now() - startedAt) },
+      platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+    });
   }
   return summary;
 }

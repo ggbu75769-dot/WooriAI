@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Text, TextInput, View } from "react-native";
+import { Platform, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { LOCAL_SESSION_TOKEN, upsertBudget } from "../../src/api/client";
+import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -33,6 +34,20 @@ export default function BudgetScreen() {
   const amountError = amountDigits.length > 0 && amountKrw <= 0 ? "0보다 큰 금액을 입력해 주세요." : null;
   const canSave = !amountError && amountKrw > 0 && Boolean(authToken && selectedChildId);
 
+  // ANA-101 (round5a-sprint2-plan.md §5): the last onboarding step reaching
+  // /(tabs) -- via either a saved budget or an explicit skip -- is the single
+  // "onboarding completed" moment. trackAndFlushAnalyticsEvent is a no-op
+  // while analytics opt-in is OFF (its default), so this has no effect until
+  // ANA-102 turns consent on.
+  function trackOnboardingCompleted() {
+    const stepCount = useOnboardingProgressStore.getState().completedStepIds.length;
+    trackAndFlushAnalyticsEvent(authToken, {
+      eventName: "onboarding_completed",
+      payload: { stepCount },
+      platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+    });
+  }
+
   const save = useMutation({
     mutationFn: () => {
       if (!authToken || !selectedChildId || !Number.isInteger(amountKrw) || amountKrw <= 0) {
@@ -43,6 +58,7 @@ export default function BudgetScreen() {
     onSuccess: () => {
       completeStep("ONB-004");
       markHomeReached();
+      trackOnboardingCompleted();
       router.replace("/(tabs)");
     }
   });
@@ -50,6 +66,7 @@ export default function BudgetScreen() {
   function skip() {
     completeStep("ONB-004");
     markHomeReached();
+    trackOnboardingCompleted();
     router.replace("/(tabs)");
   }
 
