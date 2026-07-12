@@ -1,14 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Image, Text, View, type ImageSourcePropType } from "react-native";
-import { listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton } from "../../src/ui";
 import { theme } from "../../src/theme";
 import { ItemListPixelStyles } from "../../src/pixelLock/styles";
-import { itemMatchesBand } from "../../src/items/stage-bands";
+import { itemMatchesBand, resolveDefaultStageLabel } from "../../src/items/stage-bands";
+
+const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 
 const toddlerImage = require("../../assets/illustrations/toddler.png");
 const recommendationBabyCarrierImage = require("../../assets/illustrations/recommendation_baby_carrier.png");
@@ -96,6 +98,7 @@ function getRecommendationDisplay(item: ItemSummary | RecommendationPreviewItem,
 
 export default function ItemsScreen() {
   const [stageLabel, setStageLabel] = useState<(typeof tabOptions)[number]>("12-24개월");
+  const [hasManualStageSelection, setHasManualStageSelection] = useState(false);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -106,6 +109,26 @@ export default function ItemsScreen() {
     enabled: Boolean(authToken && childId),
     queryFn: () => listItems(authToken!, childId!, "now")
   });
+  // Default the selected chip to the child's actual current stage once it's known, unless the
+  // pixel-lock capture is running, we're in the loginless test session (fixture data must render
+  // deterministically), or the user already tapped a chip. Falls back to "12-24개월" otherwise.
+  const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode && !isTestSession;
+  const home = useQuery({
+    queryKey: ["home", childId],
+    enabled: shouldResolveChildStage,
+    queryFn: () => getHome(authToken!, childId!)
+  });
+  useEffect(() => {
+    setStageLabel(
+      resolveDefaultStageLabel({
+        currentStage: home.data?.child.currentStage,
+        isPixelLockMode,
+        isTestSession,
+        hasManualSelection: hasManualStageSelection,
+        fallback: "12-24개월"
+      })
+    );
+  }, [home.data, isTestSession, hasManualStageSelection]);
   const updateStatus = useMutation({
     mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; status: ItemStatus }) =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
@@ -154,7 +177,15 @@ export default function ItemsScreen() {
 
           <View style={{ flexDirection: "row", gap: 6, marginHorizontal: -12 }}>
             {tabOptions.map((option) => (
-              <CategoryChip key={option} label={option} selected={option === stageLabel} onPress={() => setStageLabel(option)} />
+              <CategoryChip
+                key={option}
+                label={option}
+                selected={option === stageLabel}
+                onPress={() => {
+                  setHasManualStageSelection(true);
+                  setStageLabel(option);
+                }}
+              />
             ))}
           </View>
 
