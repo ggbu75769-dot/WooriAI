@@ -113,4 +113,32 @@ describe("Batch 07 mobile items and commerce contract", () => {
     // reasonText itself is never gated: it is always present per the design contract.
     expect(withoutSkipReason.reasonText ? "shown" : null).toBe("shown");
   });
+
+  it("falls back to a share-link + retry UI when Linking.openURL fails, using only the RN built-in Share module (COM-106)", () => {
+    const productDetailSource = readFileSync(join(mobileRoot, "app/items/[itemTemplateId].tsx"), "utf8");
+
+    // No new dependency (e.g. expo-clipboard) may be introduced for this fallback.
+    expect(productDetailSource).not.toContain("expo-clipboard");
+    expect(productDetailSource).not.toContain("Clipboard");
+
+    // Uses RN's built-in Share module (already imported for the header share button).
+    expect(productDetailSource).toContain('import { Image, Linking, Pressable, Share, Text, View } from "react-native";');
+
+    // Fallback state is set from the catch branch of the click-open flow (covers both a
+    // thrown openURL and canOpenURL() resolving false, since the `throw` is unconditional
+    // for canOpen === false and openURL failures both land in the same catch).
+    expect(productDetailSource).toContain("linkOpenFallback");
+    expect(productDetailSource).toMatch(/catch\s*{\s*setClickedTitle\([^)]*\);\s*setLinkOpenFallback\(\{ redirectUrl: result\.redirectUrl, disclosureText: result\.disclosureText \}\);\s*}/);
+
+    // Retry re-attempts Linking.openURL against the same stored redirect URL.
+    expect(productDetailSource).toContain("const retryOpenFallbackLink = async () => {");
+    expect(productDetailSource).toMatch(/retryOpenFallbackLink[\s\S]*?Linking\.canOpenURL\(linkOpenFallback\.redirectUrl\)[\s\S]*?Linking\.openURL\(linkOpenFallback\.redirectUrl\)/);
+
+    // Share uses RN's Share.share (not a new dependency) with the redirect URL as the message.
+    expect(productDetailSource).toContain("const shareFallbackLink = () => {");
+    expect(productDetailSource).toMatch(/shareFallbackLink[\s\S]*?Share\.share\(\{ message: linkOpenFallback\.redirectUrl \}\)/);
+
+    // The fallback card renders both a share action and a "다시 시도" (retry) action.
+    expect(productDetailSource).toMatch(/{linkOpenFallback \? \([\s\S]*?링크 공유하기[\s\S]*?다시 시도[\s\S]*?\) : null}/);
+  });
 });

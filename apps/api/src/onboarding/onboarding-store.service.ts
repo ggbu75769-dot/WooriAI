@@ -24,6 +24,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
 import { parseImportFile, type ParsedImportRow } from "../imports/import-parser";
+import { hashClickIp, isAllowedAffiliateUrl, PRODUCT_LINK_NOT_FOUND_ERROR } from "../items-commerce/affiliate-link-guard.util";
 
 type DbClient = Prisma.TransactionClient;
 
@@ -807,7 +808,12 @@ export class OnboardingStoreService {
     return this.toItemSummaryDto(item, status);
   }
 
-  async clickProductLink(user: AuthenticatedUser, productLinkId: string, input: { childId: string; referrerScreenId?: string }) {
+  async clickProductLink(
+    user: AuthenticatedUser,
+    productLinkId: string,
+    input: { childId: string; referrerScreenId?: string },
+    requestMeta?: { ip?: string; userAgent?: string }
+  ) {
     const child = await this.requireChildAccess(user, input.childId);
     const productLink = await this.prisma.productLink.findFirst({ where: { id: productLinkId, active: true } });
     if (!productLink) {
@@ -817,16 +823,29 @@ export class OnboardingStoreService {
 
     const redirectUrl = productLink.affiliateUrl ?? productLink.url;
     this.requireHttpUrl(redirectUrl);
+    // COM-106: same allowlist check as the public GET /r/:code redirect (§4). A disallowed
+    // domain returns the same 404 as "link not found" — see PRODUCT_LINK_NOT_FOUND_ERROR's
+    // doc comment for why the codes are unified — and the click is not logged.
+    if (!isAllowedAffiliateUrl(redirectUrl)) {
+      throw new NotFoundException(PRODUCT_LINK_NOT_FOUND_ERROR);
+    }
 
+    // subId is a self-generated uuid (never derived from user/child identifiers) reused as
+    // the row's own id, per round5a-sprint2-plan.md §4's "subId=clickId — PII 금지".
+    const clickId = randomUUID();
     const click = await this.prisma.affiliateClick.create({
       data: {
+        id: clickId,
         userId: user.id,
         householdId: child.householdId,
         childId: input.childId,
         itemTemplateId: productLink.itemTemplateId,
         productLinkId: productLink.id,
         platform: productLink.platform,
-        referrerScreenId: input.referrerScreenId
+        referrerScreenId: input.referrerScreenId,
+        subId: clickId,
+        ipHash: hashClickIp(requestMeta?.ip),
+        userAgent: requestMeta?.userAgent ?? null
       }
     });
 

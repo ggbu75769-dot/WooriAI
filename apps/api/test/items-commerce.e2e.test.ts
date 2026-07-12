@@ -220,6 +220,7 @@ describe("Items, commerce, and affiliate API", () => {
     const clickResponse = await request(app.getHttpServer())
       .post(`/api/v1/product-links/${affiliateLink!.id}/click`)
       .set("Authorization", `Bearer ${accessToken}`)
+      .set("User-Agent", "wooriai-e2e-test-agent/1.0")
       .send({ childId, referrerScreenId: "ITEM-003" })
       .expect(200);
 
@@ -244,6 +245,70 @@ describe("Items, commerce, and affiliate API", () => {
         })
       ])
     );
+
+    // COM-106: subId is a self-generated uuid (same value as the row's own id) rather than
+    // anything derived from the user/child, and ipHash/userAgent are populated without ever
+    // storing the raw client IP.
+    const loggedClick = affiliateClickEntries.find((entry) => entry.id === clickResponse.body.clickId)!;
+    expect(loggedClick.subId).toBe(clickResponse.body.clickId);
+    expect(loggedClick.ipHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(loggedClick.userAgent).toBe("wooriai-e2e-test-agent/1.0");
+  });
+
+  it("rejects a click on a product link whose target domain is not on the affiliate allowlist, and does not log it", async () => {
+    const accessToken = await login(app, "batch07-click-domain-blocked");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const nowItems = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items as ItemSummary[];
+    const carSeat = nowItems.find((item) => item.name === "카시트");
+    expect(carSeat).toBeDefined();
+
+    const carSeatDetail = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items/${carSeat!.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as { productLinks: ProductLink[] };
+    const affiliateLink = carSeatDetail.productLinks.find((link) => link.isAffiliate);
+    expect(affiliateLink).toBeDefined();
+
+    // The dev/test allowlist fallback includes example.com so seeded fixtures normally pass;
+    // point this link at a domain nowhere near the allowlist (including lookalikes such as
+    // "coupang.com.evil.com") to exercise the rejection path.
+    const prisma = moduleRef.get(PrismaService);
+    const storedLink = await prisma.productLink.findUniqueOrThrow({ where: { id: affiliateLink!.id } });
+    const originalUrl = storedLink.url;
+    const originalAffiliateUrl = storedLink.affiliateUrl;
+    await prisma.productLink.update({
+      where: { id: affiliateLink!.id },
+      data: { url: "https://coupang.com.evil-lookalike.net/x", affiliateUrl: "https://coupang.com.evil-lookalike.net/x" }
+    });
+
+    try {
+      await request(app.getHttpServer())
+        .post(`/api/v1/product-links/${affiliateLink!.id}/click`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ childId, referrerScreenId: "ITEM-003" })
+        .expect(404)
+        .expect(({ body }) => {
+          // Same code as "link not found" so a disallowed domain can't be distinguished
+          // from an unknown link id.
+          expect(body.error.code).toBe("PRODUCT_LINK_NOT_FOUND");
+        });
+
+      const clickEntries = await prisma.affiliateClick.findMany({ where: { productLinkId: affiliateLink!.id, childId } });
+      expect(clickEntries).toHaveLength(0);
+    } finally {
+      await prisma.productLink.update({
+        where: { id: affiliateLink!.id },
+        data: { url: originalUrl, affiliateUrl: originalAffiliateUrl }
+      });
+    }
   });
 
   it("rejects an item status update whose expenseId belongs to a different child", async () => {

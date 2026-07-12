@@ -149,6 +149,10 @@ export default function ItemDetailScreen() {
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const [clickedTitle, setClickedTitle] = useState<string | null>(null);
+  // COM-106 fallback: when Linking.openURL fails (or canOpenURL is false), keep the
+  // redirect URL around so we can offer "링크 공유하기" (Share.share) and "다시 시도"
+  // instead of leaving the user stuck with just an error message.
+  const [linkOpenFallback, setLinkOpenFallback] = useState<{ redirectUrl: string; disclosureText?: string } | null>(null);
   const queryClient = useQueryClient();
   const detail = useQuery({
     queryKey: ["item-detail", childId, itemTemplateId],
@@ -169,18 +173,40 @@ export default function ItemDetailScreen() {
     mutationFn: (productLinkId: string) => clickProductLink(authToken!, productLinkId, childId!, "ITEM-003"),
     onSuccess: async (result) => {
       setClickedTitle(result.disclosureText ?? "구매 링크");
+      setLinkOpenFallback(null);
       try {
         const canOpen = await Linking.canOpenURL(result.redirectUrl);
         if (!canOpen) throw new Error("cannot-open-url");
         await Linking.openURL(result.redirectUrl);
       } catch {
-        setClickedTitle("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");
+        setClickedTitle("링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.");
+        setLinkOpenFallback({ redirectUrl: result.redirectUrl, disclosureText: result.disclosureText });
       }
     },
     onError: () => {
       setClickedTitle("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");
+      setLinkOpenFallback(null);
     }
   });
+
+  const retryOpenFallbackLink = async () => {
+    if (!linkOpenFallback) return;
+    try {
+      const canOpen = await Linking.canOpenURL(linkOpenFallback.redirectUrl);
+      if (!canOpen) throw new Error("cannot-open-url");
+      await Linking.openURL(linkOpenFallback.redirectUrl);
+      setClickedTitle(linkOpenFallback.disclosureText ?? "구매 링크");
+      setLinkOpenFallback(null);
+    } catch {
+      setClickedTitle("링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.");
+    }
+  };
+
+  const shareFallbackLink = () => {
+    if (!linkOpenFallback) return;
+    void Share.share({ message: linkOpenFallback.redirectUrl });
+  };
+
   const hasSession = Boolean(authToken && childId && itemTemplateId);
 
   if (hasSession && (detail.isLoading || !detail.data)) {
@@ -319,6 +345,16 @@ export default function ItemDetailScreen() {
                   router.push({ pathname: "/expenses/new", params: { itemName: visibleDetail.name, itemTemplateId } })
                 }
               />
+            </Card>
+          ) : null}
+
+          {linkOpenFallback ? (
+            <Card style={{ backgroundColor: theme.colors.beige }}>
+              <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>
+                링크를 자동으로 열지 못했어요.
+              </Text>
+              <SecondaryButton label="링크 공유하기" onPress={shareFallbackLink} />
+              <PrimaryButton label="다시 시도" onPress={() => void retryOpenFallbackLink()} />
             </Card>
           ) : null}
         </View>

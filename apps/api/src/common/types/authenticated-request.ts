@@ -33,4 +33,8 @@ export type AuthenticatedRequest = {
   // AdminAuthGuard's cookie-session branch. Used by the MFA-disable endpoint to
   // revoke every *other* session without invalidating the one making the request.
   adminSessionId?: string;
+  // Populated by the real Express request at runtime (declared optional here since
+  // this type also stands in for hand-built request fixtures in unit tests). Used by
+  // COM-106's affiliate click logging to compute a salted IP hash — never the raw IP.
+  ip?: string;
 };

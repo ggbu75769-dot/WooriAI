@@ -17,6 +17,10 @@ export class CommerceController {
     @Param("productLinkId") productLinkId: string,
     @Body(createDtoValidationPipe(ProductLinkClickDto)) body: ProductLinkClickDto
   ) {
-    return await this.store.clickProductLink(request.user!, productLinkId, body);
+    const userAgentHeader = request.headers?.["user-agent"];
+    return await this.store.clickProductLink(request.user!, productLinkId, body, {
+      ip: request.ip,
+      userAgent: Array.isArray(userAgentHeader) ? userAgentHeader[0] : userAgentHeader
+    });
   }
 }
