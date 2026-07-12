@@ -486,7 +486,7 @@ export default function NewExpenseScreen() {
           </Pressable>
         ) : null}
 
-        {saveExpense.isError ? <Toast message="금액과 항목을 확인해 주세요." /> : null}
+        {saveExpense.isError ? <Toast message="금액과 항목을 확인해 주세요." tone="error" /> : null}
           <PrimaryButton
             disabled={saveExpense.isPending || isAmountInvalid}
             label={saveExpense.isPending ? "저장 중" : "저장하기"}

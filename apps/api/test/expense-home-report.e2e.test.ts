@@ -513,6 +513,76 @@ describe("Expense, budget, home, and report API", () => {
     expect(januaryExpense.id).toEqual(expect.any(String));
   });
 
+  it("scopes the category report to a given month when yearMonth is provided, and to all time otherwise", async () => {
+    const accessToken = await login(app, "batch-category-report");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const otherCategoryId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        categoryId,
+        amountKrw: 20000,
+        spentOn: "2026-06-10",
+        itemName: "6월 기저귀",
+        paymentMethod: "card"
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        categoryId: otherCategoryId,
+        amountKrw: 30000,
+        spentOn: "2026-07-06",
+        itemName: "7월 분유",
+        paymentMethod: "card"
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.childId).toBe(childId);
+        expect(body.categories).toEqual([
+          { categoryId: otherCategoryId, amountKrw: 30000, count: 1 }
+        ]);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?yearMonth=2026-06`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categories).toEqual([{ categoryId, amountKrw: 20000, count: 1 }]);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categories.sort((left: { amountKrw: number }, right: { amountKrw: number }) => right.amountKrw - left.amountKrw)).toEqual(
+          [
+            { categoryId: otherCategoryId, amountKrw: 30000, count: 1 },
+            { categoryId, amountKrw: 20000, count: 1 }
+          ]
+        );
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?yearMonth=bad-format`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+  });
+
   async function expectTotals(
     accessToken: string,
     childId: string,

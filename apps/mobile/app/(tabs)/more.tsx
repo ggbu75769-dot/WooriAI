@@ -19,6 +19,9 @@ const moreMenuRows = [
 ] as const;
 
 const previewProfile = { nickname: "다온이", stageLabel: "24개월" };
+// Shown only while a real/test session's home query is still loading, so the no-session preview
+// profile above never flashes on screen for a signed-in user before their real data arrives.
+const loadingProfile = { nickname: "...", stageLabel: "..." };
 
 const appInfoText = "버전 0.0.0 · com.anonymous.wooriai";
 
@@ -43,7 +46,7 @@ export default function MoreScreen() {
     enabled: hasSession,
     queryFn: () => getHome(authToken!, childId!)
   });
-  const visibleProfile = hasSession && home.data ? home.data.child : previewProfile;
+  const visibleProfile = hasSession ? (home.data?.child ?? loadingProfile) : previewProfile;
 
   const handleSearchPress = () => {
     router.push(hasSession ? "/(tabs)/records" : "/settings");

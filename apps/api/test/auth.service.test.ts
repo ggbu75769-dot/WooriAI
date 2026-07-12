@@ -2,11 +2,16 @@ import { NotImplementedException } from "@nestjs/common";
 import { afterEach, describe, expect, it } from "vitest";
 import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 import { AuthService } from "../src/auth/auth.service";
+import { RefreshTokenRevocationService } from "../src/auth/refresh-token-revocation.service";
 import { TokenService } from "../src/auth/token.service";
 import { HouseholdRuntimeService } from "../src/households/household-runtime.service";
 
 function createAuthService() {
-  return new AuthService(new AuditLoggerService(), new TokenService(new HouseholdRuntimeService()));
+  return new AuthService(
+    new AuditLoggerService(),
+    new TokenService(new HouseholdRuntimeService()),
+    new RefreshTokenRevocationService()
+  );
 }
 
 describe("AuthService oauthLogin production guard", () => {

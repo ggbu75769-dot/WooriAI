@@ -89,7 +89,32 @@
 
 검수(diff-reviewer) P2 4건 반영: 예산 미설정 시 "초과" 오발동 가드, 지출 수정 화면 Seoul 기준 날짜, 카테고리 카탈로그 id를 UUID 리터럴로(실 API @IsUUID 통과), ALREADY_MEMBER 409 전용 문구.
 
-## 5. 실행하지 않은 것 (사유)
+## 5. 개선 라운드 3 — 출시 퀄리티 APK 검증 + 픽셀락 재측정 (2026-07-12)
+
+라운드 3(온보딩 마감 / 관리자 CMS / 기간별 카테고리 리포트·토큰 회전 / 엑셀 실파일 선택) 반영 APK를 clean install 후 검증했다.
+
+| 산출물 | 값 |
+|---|---|
+| APK SHA-256 | `25373634f31b2283a777384ebc3105f301b1d9dd687324cb5451edfd959d1afc` (64,718,362 B) |
+| 게이트 | `release:gate` PASS (mobile 81 / api 53 / admin 9 / contracts 8 / domain 19+) |
+
+| # | 시나리오 | 결과 |
+|---|---|---|
+| 1 | 준비템 상태 변경(UUID fixture) — "지금 필요"에서 즉시 제거 | PASS |
+| 2 | 엑셀 CTA "엑셀 파일 선택하기" → **시스템 파일 선택기 열림**(expo-document-picker 네이티브 링크 실증) | PASS |
+| 3 | **실제 CSV 파일 선택 → 업로드 → 검수 화면(IMP-004) 진입, 낮은 신뢰도 배지·선택 가져오기 CTA** | PASS |
+| 4 | 홈/로그인/재실행 기본 플로우 회귀 없음 | PASS |
+
+### 픽셀락 9화면 재측정 (이전 세션들이 수행 못 했던 항목)
+
+- 기기: 기준과 동일 프로필 AVD(1080×2340, 440dpi, Android 15), 픽셀락 APK(`PIXEL_ANDROID_RERUN_TASKS=1`로 신선한 번들 강제).
+- **결과: 9/9 PASS, 기준 리포트와 점수 완전 동일** — SPL 0.0230 / HOME 0.0421 / EXP 0.0408 / ITEM-001 0.0466 / ITEM-002 0.0491 / REP 0.0396 / FAM 0.0362 / IMP 0.0450 / SET 0.0218 (임계 0.05).
+- 의미: 3개 라운드의 모든 기능 수정에도 픽셀락 preview 렌더가 픽셀 수준으로 보존됨을 실측 증명.
+- 운영 노트: `pixel:android:build-apk`는 직전에 다른 env로 빌드된 JS 번들을 Gradle 캐시로 재사용할 수 있다 — 픽셀락 측정 전에는 반드시 `PIXEL_ANDROID_RERUN_TASKS=1`로 빌드하고, 측정 캐시(`artifacts/pixel-lock/android/reports/cache.json`)를 비울 것. 또한 에뮬레이터 구동 중 전체 게이트 실행은 Windows 메모리 고갈로 flaky할 수 있어 게이트의 테스트 단계를 `--concurrency=1`로 직렬화했다(scripts/release-gate.ts).
+
+검수(diff-reviewer) 반영: P1 2건(document-picker SDK 버전 정합 ~13.0.3, 준비템 fixture id UUID화로 실 API 400 방지), P2 1건(관리자 수정 폼에서 선택 필드 clear 가능), P3 3건(차트 점 중심 정렬, 피커 예외 처리·.xls 타입 제거, 에러 토스트 tone).
+
+## 6. 실행하지 않은 것 (사유)
 
 - 실 OAuth 로그인, 실 API 서버(https) 연결 빌드, DB 영속 — 외부 키/인프라 의존([known-limitations](../operations/known-limitations.md)).
 - Android 픽셀락 점수 재측정(`pnpm pixel:android`) — perceptual diff는 별도 캡처 워크스트림. 이번 수정은 세션 있음 경로만 변경하여 preview(픽셀락 캡처) 경로는 바이트 보존(계약 테스트 통과).

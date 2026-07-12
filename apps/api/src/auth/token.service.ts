@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { AuthProvider } from "@wooriai/domain";
 import { requireSecret } from "../common/config/require-secret";
@@ -11,6 +11,13 @@ type SignedPayload = AuthenticatedUser & {
   exp: number;
   iat: number;
   type: TokenType;
+  jti?: string;
+};
+
+export type RefreshTokenVerification = {
+  user: AuthenticatedUser;
+  jti: string | null;
+  exp: number;
 };
 
 function base64UrlEncode(value: string) {
@@ -67,11 +74,12 @@ export class TokenService {
   }
 
   verifyAccessToken(token: string) {
-    return this.verifyToken(token, "access", this.accessSecret());
+    return this.verifyToken(token, "access", this.accessSecret()).user;
   }
 
-  verifyRefreshToken(token: string) {
-    return this.verifyToken(token, "refresh", this.refreshSecret());
+  verifyRefreshToken(token: string): RefreshTokenVerification {
+    const { user, payload } = this.verifyToken(token, "refresh", this.refreshSecret());
+    return { user, jti: payload.jti ?? null, exp: payload.exp };
   }
 
   private signToken(user: AuthenticatedUser, type: TokenType, expiresInSeconds: number) {
@@ -81,14 +89,19 @@ export class TokenService {
       ...user,
       type,
       iat: now,
-      exp: now + expiresInSeconds
+      exp: now + expiresInSeconds,
+      ...(type === "refresh" ? { jti: randomUUID() } : {})
     } satisfies SignedPayload);
     const signingInput = `${header}.${payload}`;
     const secret = type === "access" ? this.accessSecret() : this.refreshSecret();
     return `${signingInput}.${hmacSha256(signingInput, secret)}`;
   }
 
-  private verifyToken(token: string, expectedType: TokenType, secret: string): AuthenticatedUser {
+  private verifyToken(
+    token: string,
+    expectedType: TokenType,
+    secret: string
+  ): { user: AuthenticatedUser; payload: SignedPayload } {
     const [header, payload, signature] = token.split(".");
     if (!header || !payload || !signature) {
       throw new UnauthorizedException("토큰을 다시 확인해주세요.");
@@ -105,13 +118,15 @@ export class TokenService {
       throw new UnauthorizedException("토큰을 다시 확인해주세요.");
     }
 
-    return this.householdRuntime.enrichUser({
+    const user = this.householdRuntime.enrichUser({
       id: parsed.id,
       displayName: parsed.displayName,
       email: parsed.email,
       status: parsed.status,
       households: parsed.households
     });
+
+    return { user, payload: parsed };
   }
 
   private accessSecret() {

@@ -100,11 +100,20 @@ export default function ReportsScreen() {
     enabled: Boolean(authToken && childId),
     queryFn: () => getCumulativeReport(authToken!, childId!)
   });
+  // 분기/연간 탭은 기간 파라미터 없이 전체 기간 카테고리 비중을 그대로 보여준다.
   const category = useQuery({
     queryKey: ["report", "category", childId],
-    enabled: Boolean(authToken && childId),
+    enabled: Boolean(authToken && childId && period !== "월간"),
     queryFn: () => getCategoryReport(authToken!, childId!)
   });
+  // 월간 탭은 선택된 월의 카테고리 비중만 보여준다 (서버가 yearMonth 필터를 지원).
+  const monthlyCategory = useQuery({
+    queryKey: ["report", "category", childId, reportYearMonth],
+    enabled: Boolean(authToken && childId && period === "월간"),
+    queryFn: () => getCategoryReport(authToken!, childId!, reportYearMonth)
+  });
+  const activeCategory = period === "월간" ? monthlyCategory : category;
+  const categoryCardTitle = period === "월간" ? `${reportDate.getMonth() + 1}월 카테고리 비중` : "전체 기간 카테고리 비중";
   const quarterQueries = useQueries({
     queries: quarterMonths.map((date) => {
       const ym = yearMonthOf(date);
@@ -160,8 +169,8 @@ export default function ReportsScreen() {
       : null;
   const deltaLabel = !hasSession ? undefined : deltaPercent === null ? null : `${deltaPercent > 0 ? "+" : ""}${deltaPercent}%`;
 
-  const categoryData = category.data?.categories ?? [];
-  const categorySegments = category.data
+  const categoryData = activeCategory.data?.categories ?? [];
+  const categorySegments = activeCategory.data
     ? categoryData.map((entry) => ({ label: categoryNameFor(entry.categoryId), amountKrw: entry.amountKrw }))
     : undefined;
 
@@ -253,13 +262,13 @@ export default function ReportsScreen() {
             <>
               <LineChartCard title="총 지출" value={formatKrw(activeTotal ?? 0)} deltaLabel={deltaLabel} points={activePoints} />
 
-              {category.isLoading ? (
+              {activeCategory.isLoading ? (
                 <EmptyStateCard title="카테고리 정보를 불러오고 있어요." actionLabel="잠시만요" />
-              ) : category.isError ? (
+              ) : activeCategory.isError ? (
                 <EmptyStateCard
                   title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
                   actionLabel="다시 시도"
-                  onPress={() => category.refetch()}
+                  onPress={() => activeCategory.refetch()}
                 />
               ) : categoryData.length === 0 ? (
                 <EmptyStateCard
@@ -268,10 +277,9 @@ export default function ReportsScreen() {
                   onPress={() => router.push("/expenses/new")}
                 />
               ) : (
-                // getCategoryReport has no period parameter (see src/api/client.ts), so this
-                // breakdown is always all-time, regardless of which report tab is active.
-                // Label it honestly rather than implying it matches the 월간/분기/연간 period above.
-                <DonutChartCard title="전체 기간 카테고리 비중" segments={categorySegments} />
+                // 월간 탭은 getCategoryReport에 yearMonth를 전달해 해당 월만 집계하고,
+                // 분기/연간 탭은 기간 파라미터 없이 전체 기간 비중을 그대로 보여준다.
+                <DonutChartCard title={categoryCardTitle} segments={categorySegments} />
               )}
 
               {showTip ? (

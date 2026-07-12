@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { getSeoulToday } from "@wooriai/domain";
 import * as localBackend from "./api/local-backend";
-import { LOCAL_CHILD_ID } from "./api/local-fixtures";
+import { LOCAL_CHILD_ID, LOCAL_ITEM_DIAPER } from "./api/local-fixtures";
 
 const childId = LOCAL_CHILD_ID;
 
@@ -176,13 +176,13 @@ describe("Local test-mode backend data layer", () => {
   });
 
   it("keeps the item status change reflected on subsequent reads", () => {
-    const updated = localBackend.updateItemStatus(childId, "local-item-diaper", "prepared");
+    const updated = localBackend.updateItemStatus(childId, LOCAL_ITEM_DIAPER, "prepared");
     expect(updated.status).toBe("prepared");
 
     const preparedList = localBackend.listItems(childId, "prepared").items;
-    expect(preparedList.some((item) => item.id === "local-item-diaper")).toBe(true);
+    expect(preparedList.some((item) => item.id === LOCAL_ITEM_DIAPER)).toBe(true);
 
     const nowList = localBackend.listItems(childId, "now").items;
-    expect(nowList.some((item) => item.id === "local-item-diaper")).toBe(false);
+    expect(nowList.some((item) => item.id === LOCAL_ITEM_DIAPER)).toBe(false);
   });
 });

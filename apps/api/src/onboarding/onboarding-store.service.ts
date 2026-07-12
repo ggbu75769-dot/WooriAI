@@ -818,11 +818,12 @@ export class OnboardingStoreService {
     };
   }
 
-  getCategoryReport(user: AuthenticatedUser, childId: string) {
+  getCategoryReport(user: AuthenticatedUser, childId: string, yearMonth?: string) {
     this.requireChildAccess(user, childId);
+    const normalizedMonth = yearMonth ? getSeoulMonthRange(yearMonth).yearMonth : undefined;
     return {
       childId,
-      categories: this.categoryBreakdown(this.expensesForChild(childId))
+      categories: this.categoryBreakdown(this.expensesForChild(childId, normalizedMonth))
     };
   }
 

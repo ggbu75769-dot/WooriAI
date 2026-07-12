@@ -329,7 +329,7 @@ export default function ExpenseDetailScreen() {
             </Card>
 
             {save.isError || remove.isError ? (
-              <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." />
+              <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" />
             ) : null}
 
             <PrimaryButton

@@ -12,6 +12,11 @@ export type LineChartSegment = {
   y: number;
 };
 
+// Matches the largest point marker LineChartCard draws (the final point renders at 12px
+// diameter, i.e. 6px radius). The chart's plot area clips overflow, so without insetting the
+// x-range by this radius the first and last dots get their outer edge cut off.
+const POINT_RADIUS = 6;
+
 // Turns a series of raw amounts into pixel coordinates for the line chart's plot area.
 export function normalizeLineChartPoints(
   values: number[],
@@ -26,9 +31,10 @@ export function normalizeLineChartPoints(
   const maxValue = Math.max(...values);
   const range = maxValue - minValue;
   const usableHeight = Math.max(height - paddingTop - paddingBottom, 0);
+  const usableWidth = Math.max(width - POINT_RADIUS * 2, 0);
 
   return values.map((rawValue, index) => {
-    const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
+    const x = values.length === 1 ? width / 2 : POINT_RADIUS + (index / (values.length - 1)) * usableWidth;
     // A flat (all-equal, including all-zero) series renders as a flat mid-height line
     // rather than dividing by zero.
     const normalized = range === 0 ? 0.5 : (rawValue - minValue) / range;

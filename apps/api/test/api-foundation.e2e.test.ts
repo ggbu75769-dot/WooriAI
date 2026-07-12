@@ -109,4 +109,67 @@ describe("API foundation", () => {
         expect(body).toEqual({ success: true });
       });
   });
+
+  it("rotates the refresh token on use and rejects reuse of the previous refresh token", async () => {
+    const loginResponse = await request(app.getHttpServer())
+      .post("/api/v1/auth/oauth-login")
+      .send({ provider: "kakao", providerToken: "rotation-user" })
+      .expect(200);
+
+    const originalRefreshToken = loginResponse.body.tokens.refreshToken as string;
+
+    const firstRefresh = await request(app.getHttpServer())
+      .post("/api/v1/auth/refresh")
+      .send({ refreshToken: originalRefreshToken })
+      .expect(200);
+
+    const rotatedRefreshToken = firstRefresh.body.refreshToken as string;
+    expect(rotatedRefreshToken).not.toBe(originalRefreshToken);
+
+    await request(app.getHttpServer())
+      .post("/api/v1/auth/refresh")
+      .send({ refreshToken: originalRefreshToken })
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("UNAUTHORIZED");
+      });
+
+    await request(app.getHttpServer())
+      .post("/api/v1/auth/refresh")
+      .send({ refreshToken: rotatedRefreshToken })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.accessToken).toEqual(expect.any(String));
+        expect(body.refreshToken).toEqual(expect.any(String));
+      });
+  });
+
+  it("invalidates the refresh token passed to logout so it can no longer be refreshed", async () => {
+    const loginResponse = await request(app.getHttpServer())
+      .post("/api/v1/auth/oauth-login")
+      .send({ provider: "kakao", providerToken: "logout-invalidate-user" })
+      .expect(200);
+
+    const { accessToken, refreshToken } = loginResponse.body.tokens as {
+      accessToken: string;
+      refreshToken: string;
+    };
+
+    await request(app.getHttpServer())
+      .post("/api/v1/auth/logout")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ refreshToken })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ success: true });
+      });
+
+    await request(app.getHttpServer())
+      .post("/api/v1/auth/refresh")
+      .send({ refreshToken })
+      .expect(401)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("UNAUTHORIZED");
+      });
+  });
 });

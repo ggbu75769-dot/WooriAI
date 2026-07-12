@@ -1,0 +1,207 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.pageHeader h1 {
+  font-size: 22px;
+  margin: 0 0 4px;
+}
+
+.pageHeader p {
+  color: #7a7a7a;
+  font-size: 14px;
+  margin: 0;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  padding: 20px;
+}
+
+.card h2 {
+  font-size: 16px;
+  margin: 0 0 16px;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  border-collapse: collapse;
+  min-width: 640px;
+  width: 100%;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid #f0e6d8;
+  font-size: 13px;
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  color: #7a7a7a;
+  font-weight: 600;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.formGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  color: #242424;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field input[type="text"],
+.field input[type="number"],
+.field input[type="url"],
+.field select,
+.field textarea {
+  border: 1px solid #e0d9cf;
+  border-radius: 8px;
+  font-size: 14px;
+  padding: 8px 10px;
+}
+
+.field textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.hint {
+  color: #7a7a7a;
+  font-size: 12px;
+}
+
+.checkboxRow {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.checkboxRow label {
+  font-size: 13px;
+}
+
+.stageGrid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.stageOption {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.primaryButton {
+  background: #ff8a3d;
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 16px;
+}
+
+.primaryButton:disabled {
+  background: #e0d9cf;
+  cursor: not-allowed;
+}
+
+.secondaryButton {
+  background: #ffffff;
+  border: 1px solid #e0d9cf;
+  border-radius: 8px;
+  color: #242424;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 9px 16px;
+}
+
+.secondaryButton:disabled {
+  color: #b8b8b8;
+  cursor: not-allowed;
+}
+
+.badge {
+  background: #f0e6d8;
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.badgeActive {
+  background: #e4f4e6;
+  color: #2a7a3a;
+}
+
+.badgeInactive {
+  background: #f5e4e4;
+  color: #a13030;
+}
+
+.errorBanner {
+  background: #fdecea;
+  border-radius: 8px;
+  color: #a13030;
+  font-size: 13px;
+  padding: 12px;
+}
+
+.successBanner {
+  background: #e4f4e6;
+  border-radius: 8px;
+  color: #2a7a3a;
+  font-size: 13px;
+  padding: 12px;
+}
+
+.emptyState {
+  color: #7a7a7a;
+  font-size: 14px;
+  padding: 16px 0;
+}
+
+.retryButton {
+  background: transparent;
+  border: 1px solid #a13030;
+  border-radius: 8px;
+  color: #a13030;
+  cursor: pointer;
+  font-size: 13px;
+  margin-left: 8px;
+  padding: 4px 10px;
+}

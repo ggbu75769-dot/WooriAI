@@ -2,11 +2,24 @@ import { describe, expect, it } from "vitest";
 import { normalizeLineChartPoints } from "./lineChartMath";
 
 describe("LineChartCard point normalization", () => {
-  it("maps values onto the full chart width with even horizontal spacing", () => {
+  it("maps values onto the chart width, inset by the point radius, with even horizontal spacing", () => {
     const points = normalizeLineChartPoints([10, 20, 30, 40], 300);
 
     expect(points).toHaveLength(4);
-    expect(points.map((point) => point.x)).toEqual([0, 100, 200, 300]);
+    expect(points.map((point) => point.x)).toEqual([6, 102, 198, 294]);
+  });
+
+  it("insets the first and last point so their marker radius does not get clipped", () => {
+    const pointRadius = 6;
+    const width = 260;
+    const points = normalizeLineChartPoints([100, 250, 80, 400, 300], width);
+
+    expect(points[0].x).toBe(pointRadius);
+    expect(points[points.length - 1].x).toBe(width - pointRadius);
+    for (const point of points) {
+      expect(point.x).toBeGreaterThanOrEqual(pointRadius);
+      expect(point.x).toBeLessThanOrEqual(width - pointRadius);
+    }
   });
 
   it("puts the highest value at the smallest y (closest to the top of the plot area)", () => {

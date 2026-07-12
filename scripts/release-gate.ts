@@ -61,9 +61,12 @@ const gateCommands: GateCommand[] = [
   {
     id: "test",
     label: "All tests",
-    display: "pnpm test",
+    // --concurrency=1 serializes the per-package vitest runs: running all 8 packages'
+    // suites in parallel exhausts Windows process/handle resources under load (emulator,
+    // AV scans) and produces flaky "spawn UNKNOWN"/CSPRNG aborts unrelated to the code.
+    display: "pnpm test --concurrency=1",
     command: "pnpm",
-    args: ["test"]
+    args: ["test", "--concurrency=1"]
   },
   {
     id: "api-e2e",

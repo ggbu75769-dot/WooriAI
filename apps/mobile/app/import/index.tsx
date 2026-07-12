@@ -1,11 +1,22 @@
+import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
+import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { createExcelImport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { validateImportFile } from "../../src/import-file-validation";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { ExcelPreviewPixelStyles } from "../../src/pixelLock/styles";
+
+// No "application/vnd.ms-excel" (.xls): validateImportFile only accepts .csv/.xlsx, so
+// offering .xls in the picker would invite a selection that always gets rejected.
+const importDocumentPickerTypes = [
+  "text/csv",
+  "text/comma-separated-values",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+];
 
 const importUploadScreenId = "pixel-screen-IMP-003 IMP-001 / IMP-002 / IMP-003";
 
@@ -53,16 +64,43 @@ export default function ImportUploadScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const upload = useMutation({
-    mutationFn: () => createExcelImport(authToken!, childId!, "wooriai-import.csv"),
+    mutationFn: (fileName: string) => createExcelImport(authToken!, childId!, fileName),
     onSuccess: (job) => {
       router.push(`/import/${job.id}`);
     }
   });
   const canUpload = Boolean(authToken && childId);
+  const pickAndUpload = async () => {
+    setValidationMessage(null);
+    let result: DocumentPicker.DocumentPickerResult;
+    try {
+      result = await DocumentPicker.getDocumentAsync({
+        type: importDocumentPickerTypes,
+        copyToCacheDirectory: true
+      });
+    } catch {
+      // The system picker can throw (e.g. no document provider available); surface it as a
+      // user-facing message instead of an unhandled rejection.
+      setValidationMessage("파일 선택 창을 열지 못했어요. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+    if (result.canceled) return;
+    const asset = result.assets?.[0];
+    if (!asset) return;
+    const validation = validateImportFile(asset.name, asset.size);
+    if (!validation.ok) {
+      setValidationMessage(validation.message);
+      return;
+    }
+    setSelectedFileName(asset.name);
+    upload.mutate(asset.name);
+  };
   const applyPreview = () => {
     if (canUpload) {
-      upload.mutate();
+      pickAndUpload();
     }
   };
 
@@ -81,7 +119,7 @@ export default function ImportUploadScreen() {
           <Text style={styles.fileIconText}>▣</Text>
         </View>
         <View style={styles.fileTextColumn}>
-          <Text style={styles.fileName}>5월 지출내역.xlsx</Text>
+          <Text style={styles.fileName}>{canUpload && selectedFileName ? selectedFileName : "5월 지출내역.xlsx"}</Text>
           <Text style={styles.fileStatus}>업로드 완료</Text>
         </View>
         <View style={styles.fileCheck}>
@@ -106,8 +144,11 @@ export default function ImportUploadScreen() {
         onPress={applyPreview}
         style={({ pressed }) => [styles.applyButton, { bottom: 20 + ExcelPreviewPixelStyles.ctaBottomInset, height: ExcelPreviewPixelStyles.ctaHeight, opacity: pressed || upload.isPending ? 0.82 : 1 }]}
       >
-        <Text style={styles.applyButtonText}>{upload.isPending ? "분석 중..." : "적용하고 리포트 보기"}</Text>
+        <Text style={styles.applyButtonText}>
+          {upload.isPending ? "분석 중..." : canUpload ? "엑셀 파일 선택하기" : "적용하고 리포트 보기"}
+        </Text>
       </Pressable>
+      {validationMessage ? <Text style={{ color: theme.colors.danger }}>{validationMessage}</Text> : null}
       {upload.error ? (
         <Text style={{ color: theme.colors.danger }}>업로드하지 못했어요. 잠시 후 다시 시도해 주세요.</Text>
       ) : null}

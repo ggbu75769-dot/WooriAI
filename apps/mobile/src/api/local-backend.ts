@@ -548,9 +548,10 @@ export function getCumulativeReport(childId: string): CumulativeReport {
   };
 }
 
-export function getCategoryReport(childId: string): CategoryReport {
+export function getCategoryReport(childId: string, yearMonth?: string): CategoryReport {
   ensureSeeded();
-  return { childId, categories: categoryBreakdown(expensesForChild(childId)) };
+  const normalizedMonth = yearMonth ? budgetKey(yearMonth) : undefined;
+  return { childId, categories: categoryBreakdown(expensesForChild(childId, normalizedMonth)) };
 }
 
 export function getYearlyReport(childId: string, year: number): YearlyReport {

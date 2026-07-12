@@ -3,6 +3,7 @@ import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { AuthService } from "./auth.service";
+import { LogoutDto } from "./dto/logout.dto";
 import { OAuthLoginDto } from "./dto/oauth-login.dto";
 import { RefreshTokenDto } from "./dto/refresh-token.dto";
 
@@ -25,8 +26,11 @@ export class AuthController {
   @Post("auth/logout")
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
-  logout(@Req() request: AuthenticatedRequest) {
-    return this.authService.logout(request.user!);
+  logout(
+    @Req() request: AuthenticatedRequest,
+    @Body(createDtoValidationPipe(LogoutDto)) body: LogoutDto
+  ) {
+    return this.authService.logout(request.user!, body.refreshToken);
   }
 
   @Get("me")

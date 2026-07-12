@@ -389,9 +389,10 @@ export function getCumulativeReport(token: string, childId: string) {
   return requestJson<CumulativeReport>(`/children/${childId}/reports/cumulative`, { token });
 }
 
-export function getCategoryReport(token: string, childId: string) {
-  if (isLocalToken(token)) return local(() => localBackend.getCategoryReport(childId));
-  return requestJson<CategoryReport>(`/children/${childId}/reports/category`, { token });
+export function getCategoryReport(token: string, childId: string, yearMonth?: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getCategoryReport(childId, yearMonth));
+  const query = yearMonth ? `?yearMonth=${yearMonth}` : "";
+  return requestJson<CategoryReport>(`/children/${childId}/reports/category${query}`, { token });
 }
 
 export function getYearlyReport(token: string, childId: string, year: number) {

@@ -1,24 +1,30 @@
+import Link from "next/link";
+
 export default function AdminHomePage() {
   const sections = [
     {
       id: "ADM-002",
       title: "Item templates",
-      description: "Create and update preparation items, including required skip copy for non-essential items."
+      description: "Create and update preparation items, including required skip copy for non-essential items.",
+      href: "/items"
     },
     {
       id: "ADM-003",
       title: "Product links",
-      description: "Manage product URLs, affiliate flags, sponsored markers, and CTA-adjacent disclosure overrides."
+      description: "Manage product URLs, affiliate flags, sponsored markers, and CTA-adjacent disclosure overrides.",
+      href: "/links"
     },
     {
       id: "ADM-004",
       title: "Disclosures",
-      description: "Update affiliate, sponsored, and nutrition/supplement policy copy without a mobile app deploy."
+      description: "Update affiliate, sponsored, and nutrition/supplement policy copy without a mobile app deploy.",
+      href: "/disclosures"
     },
     {
       id: "ADM-004",
       title: "Click summary",
-      description: "Review affiliate click totals by platform from the admin analytics endpoint."
+      description: "Review affiliate click totals by platform from the admin analytics endpoint.",
+      href: "/clicks"
     }
   ];
 
@@ -36,6 +42,7 @@ export default function AdminHomePage() {
             <p style={{ color: "#7A7A7A" }}>{section.id}</p>
             <h2>{section.title}</h2>
             <p>{section.description}</p>
+            <Link href={section.href}>바로가기</Link>
           </article>
         ))}
       </section>

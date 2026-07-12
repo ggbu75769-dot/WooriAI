@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { LOCAL_SESSION_TOKEN, setPreparedItems } from "../../src/api/client";
+import { LOCAL_ITEM_CARRIER, LOCAL_ITEM_DIAPER } from "../../src/api/local-fixtures";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -11,8 +12,14 @@ import { theme } from "../../src/theme";
 
 const onboardingPreparedItemsScreenId = "ONB-003";
 
+// These option ids must match real item template rows so that a check here actually flips that
+// item's status server-side. The previous placeholder id ("11111111-...") did not correspond to
+// any item template in the standalone test-mode local backend (see src/api/local-fixtures.ts),
+// so setPreparedItems silently applied nothing for it in test mode -- swap in the local backend's
+// real fixture ids instead.
 const preparedItemOptions = [
-  { id: "11111111-1111-4111-8111-111111111111", icon: "🚗", label: "카시트" }
+  { id: LOCAL_ITEM_DIAPER, icon: "🧷", label: "기저귀" },
+  { id: LOCAL_ITEM_CARRIER, icon: "🎒", label: "아기띠" }
 ];
 
 export default function PreparedItemsScreen() {
@@ -95,7 +102,7 @@ export default function PreparedItemsScreen() {
           나중에 준비템 탭에서 언제든 다시 체크할 수 있어요.
         </Text>
 
-        {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." /> : null}
+        {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
 
         <PrimaryButton
           disabled={save.isPending || !authToken || !selectedChildId}

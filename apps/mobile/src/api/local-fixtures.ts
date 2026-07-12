@@ -99,9 +99,12 @@ export type LocalItemTemplateFixture = {
   stageCodes: ChildStageCode[];
 };
 
-export const LOCAL_ITEM_DIAPER = "local-item-diaper";
-export const LOCAL_ITEM_CARRIER = "local-item-carrier";
-export const LOCAL_ITEM_BLOCKS = "local-item-blocks";
+// UUID-shaped literals (not slugs): the real API validates item template ids with @IsUUID
+// (e.g. PreparedItemsDto), so screens that send these ids in a real session would 400 on a
+// readable slug. The trailing hex digit encodes the fixture index for determinism.
+export const LOCAL_ITEM_DIAPER = "10ca11fe-0000-4a01-8a01-f1c7deb0a001";
+export const LOCAL_ITEM_CARRIER = "10ca11fe-0000-4a02-8a02-f1c7deb0a002";
+export const LOCAL_ITEM_BLOCKS = "10ca11fe-0000-4a03-8a03-f1c7deb0a003";
 
 export const localItemTemplateFixtures: LocalItemTemplateFixture[] = [
   {

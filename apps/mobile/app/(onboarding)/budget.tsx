@@ -85,7 +85,7 @@ export default function BudgetScreen() {
           ) : null}
         </Card>
 
-        {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." /> : null}
+        {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
 
         <View style={{ gap: theme.spacing.gap }}>
           <PrimaryButton

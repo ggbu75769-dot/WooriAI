@@ -34,7 +34,11 @@ export class ReportsController {
   }
 
   @Get("category")
-  category(@Req() request: AuthenticatedRequest, @Param("childId") childId: string) {
-    return this.store.getCategoryReport(request.user!, childId);
+  category(
+    @Req() request: AuthenticatedRequest,
+    @Param("childId") childId: string,
+    @Query(createDtoValidationPipe(YearMonthQueryDto)) query: YearMonthQueryDto
+  ) {
+    return this.store.getCategoryReport(request.user!, childId, query.yearMonth);
   }
 }

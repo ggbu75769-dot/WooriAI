@@ -2,15 +2,32 @@ import { useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
+import { CHILD_STAGE_CODES, type ChildStageCode, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
 import { createChild, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
+import { AppScreen, Card, CategoryChip, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const onboardingChildProfileScreenId = "ONB-002";
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+// Domain's stage.ts defines an equivalent MANUAL_STAGE_LABELS map but does not export it from
+// the package entrypoint, so this screen defines its own Korean label mapping to reuse the
+// domain's ChildStageCode values as the manual-selection chip list.
+const CHILD_STAGE_LABELS: Record<ChildStageCode, string> = {
+  pregnancy_early: "임신 초기",
+  pregnancy_mid: "임신 중기",
+  pregnancy_late: "임신 후기",
+  newborn_0_3: "신생아 (0-3개월)",
+  infant_4_6: "영아 (4-6개월)",
+  infant_7_12: "영아 (7-12개월)",
+  toddler_1_3: "유아 (1-3세)",
+  kid_4_7: "유아 (4-7세)",
+  elementary: "초등학생",
+  middle_school: "중학생"
+};
 
 function dateFieldLabel(stageMode: string | null) {
   if (stageMode === "pregnant") return "출산 예정일 (선택)";
@@ -18,9 +35,22 @@ function dateFieldLabel(stageMode: string | null) {
   return null;
 }
 
+// Birth dates (stageMode "born") must not be in the future -- a due date (stageMode "pregnant")
+// is expected to be in the future and is allowed to be in the past too (the parent may already
+// have given birth), so only the calendar-validity check applies there.
+function computeDateError(stageMode: string | null, rawValue: string): string | null {
+  const trimmed = rawValue.trim();
+  if (trimmed.length === 0) return null;
+  if (!isoDatePattern.test(trimmed)) return "날짜는 YYYY-MM-DD 형식으로 입력해 주세요.";
+  if (!isValidCalendarDate(trimmed)) return "실제 존재하는 날짜인지 확인해 주세요.";
+  if (stageMode === "born" && isFutureSeoulDate(trimmed)) return "출생일은 오늘보다 미래일 수 없어요.";
+  return null;
+}
+
 export default function ChildProfileScreen() {
   const [nickname, setNickname] = useState("튼튼이");
   const [dateText, setDateText] = useState("");
+  const [manualStage, setManualStage] = useState<ChildStageCode | null>(null);
   const session = useSessionStore();
   const authToken = session.accessToken ?? (session.isTestSession ? LOCAL_SESSION_TOKEN : null);
   const householdId = session.defaultHouseholdId ?? (session.isTestSession ? LOCAL_HOUSEHOLD_ID : null);
@@ -29,16 +59,22 @@ export default function ChildProfileScreen() {
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
 
   const nicknameError = nickname.trim().length === 0 ? "태명 또는 별명을 입력해 주세요." : null;
-  const dateError = dateText.trim().length > 0 && !isoDatePattern.test(dateText.trim())
-    ? "날짜는 YYYY-MM-DD 형식으로 입력해 주세요."
-    : null;
+  const dateError = useMemo(() => computeDateError(draft.stageMode, dateText), [draft.stageMode, dateText]);
   const dateLabel = useMemo(() => dateFieldLabel(draft.stageMode), [draft.stageMode]);
-  const canSave = !nicknameError && !dateError && Boolean(authToken && householdId && draft.stageMode);
+  const manualStageError = draft.stageMode === "manual" && !manualStage ? "아이 단계를 하나 선택해 주세요." : null;
+  const canSave =
+    !nicknameError &&
+    !dateError &&
+    !manualStageError &&
+    Boolean(authToken && householdId && draft.stageMode);
 
   const save = useMutation({
     mutationFn: async () => {
       if (!authToken || !householdId || !draft.stageMode) {
         throw new Error("missing onboarding context");
+      }
+      if (draft.stageMode === "manual" && !manualStage) {
+        throw new Error("missing manual stage selection");
       }
       const trimmedDate = dateText.trim();
       const child = await createChild(authToken, {
@@ -47,7 +83,7 @@ export default function ChildProfileScreen() {
         stageMode: draft.stageMode,
         dueDate: draft.stageMode === "pregnant" && trimmedDate ? trimmedDate : undefined,
         birthDate: draft.stageMode === "born" && trimmedDate ? trimmedDate : undefined,
-        manualStage: draft.stageMode === "manual" ? "infant_4_6" : undefined
+        manualStage: draft.stageMode === "manual" ? manualStage : undefined
       });
       return child;
     },
@@ -117,9 +153,30 @@ export default function ChildProfileScreen() {
               )}
             </View>
           ) : null}
+
+          {draft.stageMode === "manual" ? (
+            <View style={{ gap: 6 }}>
+              <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+                아이 단계 선택
+              </Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {CHILD_STAGE_CODES.map((code) => (
+                  <CategoryChip
+                    key={code}
+                    label={CHILD_STAGE_LABELS[code]}
+                    selected={manualStage === code}
+                    onPress={() => setManualStage(code)}
+                  />
+                ))}
+              </View>
+              {manualStageError ? (
+                <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{manualStageError}</Text>
+              ) : null}
+            </View>
+          ) : null}
         </Card>
 
-        {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." /> : null}
+        {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
 
         <PrimaryButton
           disabled={!canSave || save.isPending}

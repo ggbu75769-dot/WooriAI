@@ -1,0 +1,131 @@
+.loadingScreen {
+  align-items: center;
+  background: #fff8f1;
+  color: #7a7a7a;
+  display: flex;
+  height: 100vh;
+  justify-content: center;
+}
+
+.loginScreen {
+  align-items: center;
+  background: #fff8f1;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.loginCard {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 360px;
+  padding: 32px;
+  width: 100%;
+}
+
+.loginCard h1 {
+  color: #242424;
+  font-size: 20px;
+  margin: 0;
+}
+
+.loginCard p {
+  color: #7a7a7a;
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.tokenInput {
+  border: 1px solid #e0d9cf;
+  border-radius: 8px;
+  font-size: 14px;
+  padding: 10px 12px;
+}
+
+.primaryButton {
+  background: #ff8a3d;
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 12px;
+}
+
+.primaryButton:disabled {
+  background: #e0d9cf;
+  cursor: not-allowed;
+}
+
+.errorText {
+  color: #d0402a;
+  font-size: 13px;
+  margin: 0;
+}
+
+.shell {
+  background: #fff8f1;
+  color: #242424;
+  min-height: 100vh;
+}
+
+.header {
+  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid #f0e6d8;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 16px 24px;
+}
+
+.brand {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.navLink {
+  border-radius: 999px;
+  color: #7a7a7a;
+  font-size: 14px;
+  padding: 8px 14px;
+  text-decoration: none;
+}
+
+.navLink:hover {
+  background: #fff2e2;
+}
+
+.navLinkActive {
+  background: #ff8a3d;
+  color: #ffffff;
+}
+
+.logoutButton {
+  background: transparent;
+  border: 1px solid #e0d9cf;
+  border-radius: 8px;
+  color: #7a7a7a;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+.main {
+  margin: 0 auto;
+  max-width: 1080px;
+  padding: 24px;
+}

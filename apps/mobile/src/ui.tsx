@@ -600,22 +600,29 @@ export function LineChartCard({
             }}
           />
         ))}
-        {activePoints.map((point, index) => (
-          <View
-            key={`${point.x}-${point.y}-${index}`}
-            style={{
-              backgroundColor: theme.colors.mainCoral,
-              borderColor: theme.colors.white,
-              borderRadius: 5,
-              borderWidth: 2,
-              height: index === activePoints.length - 1 ? 12 : 9,
-              left: point.x - 4,
-              position: "absolute",
-              top: point.y - 4,
-              width: index === activePoints.length - 1 ? 12 : 9
-            }}
-          />
-        ))}
+        {activePoints.map((point, index) => {
+          const dotSize = index === activePoints.length - 1 ? 12 : 9;
+          // Real data: center the dot on its coordinate so the edge inset from
+          // normalizeLineChartPoints keeps the whole dot inside the clipped card.
+          // Decorative fallback keeps the original -4 offset (pixel-lock preview).
+          const dotOffset = hasRealData ? dotSize / 2 : 4;
+          return (
+            <View
+              key={`${point.x}-${point.y}-${index}`}
+              style={{
+                backgroundColor: theme.colors.mainCoral,
+                borderColor: theme.colors.white,
+                borderRadius: 5,
+                borderWidth: 2,
+                height: dotSize,
+                left: point.x - dotOffset,
+                position: "absolute",
+                top: point.y - dotOffset,
+                width: dotSize
+              }}
+            />
+          );
+        })}
       </View>
     </Card>
   );
@@ -698,10 +705,11 @@ export function EmptyStateCard({ title, actionLabel, onPress }: { title: string;
   );
 }
 
-export function Toast({ message }: { message: string }) {
+export function Toast({ message, tone = "success" }: { message: string; tone?: "success" | "error" }) {
+  const isError = tone === "error";
   return (
     <View style={{ backgroundColor: theme.colors.white, borderRadius: 18, flexDirection: "row", gap: 10, padding: 14, ...theme.shadows.card }}>
-      <Text style={{ color: theme.colors.success }}>✓</Text>
+      <Text style={{ color: isError ? theme.colors.danger : theme.colors.success }}>{isError ? "⚠" : "✓"}</Text>
       <Text style={[textStyles.body2, { color: theme.colors.brown }]}>{message}</Text>
     </View>
   );
