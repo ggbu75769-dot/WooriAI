@@ -1,7 +1,8 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Req, UseGuards, UseInterceptors } from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import { HouseholdRoleGuard, RequireHouseholdRoles } from "../common/guards/household-role.guard";
+import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { CreateChildDto, UpdateChildDto } from "./dto/child.dto";
 import { PreparedItemsDto } from "./dto/prepared-items.dto";
@@ -21,6 +22,7 @@ export class ChildrenController {
   @HttpCode(200)
   @UseGuards(JwtAuthGuard, HouseholdRoleGuard)
   @RequireHouseholdRoles("owner", "co_parent")
+  @UseInterceptors(IdempotencyInterceptor)
   async create(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(CreateChildDto)) body: CreateChildDto

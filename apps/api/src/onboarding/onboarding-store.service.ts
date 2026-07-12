@@ -323,27 +323,84 @@ export class OnboardingStoreService {
     }
   }
 
+  /**
+   * MOB-101 (round5a-sprint1-plan.md §4): the "server progress state" the design calls for is
+   * derived directly from the real onboarding resources (consents, the household's child,
+   * childItemStatus rows, budget) instead of a separate progress-tracking table -- those
+   * resources ARE the saved state for each step, so deriving from them can never drift out of
+   * sync with what actually got created, and there is nothing to reconcile after a
+   * create/upsert. `canRestart` follows the conservative rule from the onboarding resume
+   * screen (ONB-006): once a child has been created for the household, "처음부터" is no longer
+   * offered (only "이어서 하기") to avoid orphaning or duplicating that child; before a child
+   * exists there's nothing to lose by restarting.
+   */
   async onboardingStatus(user: AuthenticatedUser) {
-    if (!(await this.hasRequiredConsents(user))) {
-      return { completed: false, nextStep: "consents" };
+    const consentsAccepted = await this.hasRequiredConsents(user);
+    if (!consentsAccepted) {
+      return this.onboardingStatusResult("consents", true, {
+        consentsAccepted: false,
+        child: null,
+        preparedItemsCount: null,
+        budget: null
+      });
     }
 
     const children = await this.childrenForUser(user);
     if (children.length === 0) {
-      return { completed: false, nextStep: "child-profile" };
+      return this.onboardingStatusResult("child-profile", true, {
+        consentsAccepted: true,
+        child: null,
+        preparedItemsCount: null,
+        budget: null
+      });
     }
 
     const selectedChild = children[0];
+    const childSummary = this.toChildDto(selectedChild);
     if (!selectedChild.preparedItemsSetAt) {
-      return { completed: false, nextStep: "prepared-items" };
+      return this.onboardingStatusResult("prepared-items", false, {
+        consentsAccepted: true,
+        child: childSummary,
+        preparedItemsCount: null,
+        budget: null
+      });
     }
 
-    const hasBudget = await this.prisma.budget.findFirst({ where: { childId: selectedChild.id } });
-    if (!hasBudget) {
-      return { completed: false, nextStep: "budget" };
+    const preparedItemsCount = await this.prisma.childItemStatus.count({ where: { childId: selectedChild.id } });
+    const budget = await this.prisma.budget.findFirst({ where: { childId: selectedChild.id } });
+    if (!budget) {
+      return this.onboardingStatusResult("budget", false, {
+        consentsAccepted: true,
+        child: childSummary,
+        preparedItemsCount,
+        budget: null
+      });
     }
 
-    return { completed: true, nextStep: "home" };
+    return {
+      completed: true,
+      nextStep: "home",
+      canRestart: false,
+      summary: {
+        consentsAccepted: true,
+        child: childSummary,
+        preparedItemsCount,
+        budget: { yearMonth: fromDateOnly(budget.yearMonth), amountKrw: budget.amountKrw }
+      }
+    };
+  }
+
+  private onboardingStatusResult(
+    nextStep: "consents" | "child-profile" | "prepared-items" | "budget",
+    canRestart: boolean,
+    summary: {
+      consentsAccepted: boolean;
+      child: ReturnType<OnboardingStoreService["toChildDto"]> | null;
+      preparedItemsCount: number | null;
+      budget: { yearMonth: string; amountKrw: number } | null;
+    }
+  ) {
+    return { completed: false, nextStep, canRestart, summary };
   }
 
   async createChild(user: AuthenticatedUser, input: CreateChildInput) {

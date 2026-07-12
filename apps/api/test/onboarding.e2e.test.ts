@@ -55,7 +55,12 @@ describe("Auth and onboarding API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
-        expect(body).toEqual({ completed: false, nextStep: "consents" });
+        expect(body).toEqual({
+          completed: false,
+          nextStep: "consents",
+          canRestart: true,
+          summary: { consentsAccepted: false, child: null, preparedItemsCount: null, budget: null }
+        });
       });
 
     await request(app.getHttpServer())
@@ -100,18 +105,30 @@ describe("Auth and onboarding API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
-        expect(body).toEqual({ completed: false, nextStep: "child-profile" });
+        expect(body).toEqual({
+          completed: false,
+          nextStep: "child-profile",
+          canRestart: true,
+          summary: { consentsAccepted: true, child: null, preparedItemsCount: null, budget: null }
+        });
       });
+
+    // MOB-101: same Idempotency-Key resubmitted (app retry after a lost response, or a
+    // resume-flow re-render before the previous request settled) must return the same child
+    // instead of creating a duplicate one.
+    const createChildBody = {
+      householdId,
+      nickname: "튼튼이",
+      stageMode: "pregnant",
+      dueDate: "2026-08-31"
+    };
+    const idempotencyKey = randomUUID();
 
     const childResponse = await request(app.getHttpServer())
       .post("/api/v1/children")
       .set("Authorization", `Bearer ${accessToken}`)
-      .send({
-        householdId,
-        nickname: "튼튼이",
-        stageMode: "pregnant",
-        dueDate: "2026-08-31"
-      })
+      .set("Idempotency-Key", idempotencyKey)
+      .send(createChildBody)
       .expect(200);
 
     expect(childResponse.body).toMatchObject({
@@ -123,6 +140,14 @@ describe("Auth and onboarding API", () => {
     });
 
     const childId = childResponse.body.id as string;
+
+    const replayedChildResponse = await request(app.getHttpServer())
+      .post("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send(createChildBody)
+      .expect(200);
+    expect(replayedChildResponse.body.id).toBe(childId);
 
     await request(app.getHttpServer())
       .get("/api/v1/children")
@@ -161,7 +186,17 @@ describe("Auth and onboarding API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
-        expect(body).toEqual({ completed: false, nextStep: "budget" });
+        expect(body).toEqual({
+          completed: false,
+          nextStep: "budget",
+          canRestart: false,
+          summary: {
+            consentsAccepted: true,
+            child: expect.objectContaining({ id: childId, nickname: "반짝이" }),
+            preparedItemsCount: 0,
+            budget: null
+          }
+        });
       });
 
     await request(app.getHttpServer())
@@ -184,7 +219,17 @@ describe("Auth and onboarding API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
-        expect(body).toEqual({ completed: true, nextStep: "home" });
+        expect(body).toEqual({
+          completed: true,
+          nextStep: "home",
+          canRestart: false,
+          summary: {
+            consentsAccepted: true,
+            child: expect.objectContaining({ id: childId, nickname: "반짝이" }),
+            preparedItemsCount: 0,
+            budget: { yearMonth: "2026-07-01", amountKrw: 500000 }
+          }
+        });
       });
   });
 
@@ -223,6 +268,75 @@ describe("Auth and onboarding API", () => {
       .expect(400)
       .expect(({ body }) => {
         expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+  });
+
+  // MOB-101: the onboarding resume screen (ONB-006) only offers "처음부터 시작" while no child
+  // has been created yet for the household -- once a child exists, restarting risks orphaning
+  // it or (if the user re-enters child-profile) creating a duplicate, so canRestart flips to
+  // false and stays false for the rest of onboarding.
+  it("flips onboarding status canRestart to false once a child exists, and rejects a reused Idempotency-Key sent with a different body", async () => {
+    const accessToken = await login(app);
+    await request(app.getHttpServer())
+      .put("/api/v1/consents")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        consents: [
+          { type: "terms", version: "2026-07-06", accepted: true },
+          { type: "privacy", version: "2026-07-06", accepted: true }
+        ]
+      })
+      .expect(200);
+
+    const householdId = (
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.households[0].id as string;
+
+    await request(app.getHttpServer())
+      .get("/api/v1/onboarding/status")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.canRestart).toBe(true);
+      });
+
+    const idempotencyKey = randomUUID();
+    await request(app.getHttpServer())
+      .post("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send({ householdId, nickname: "튼튼이", stageMode: "manual", manualStage: "infant_4_6" })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get("/api/v1/onboarding/status")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.canRestart).toBe(false);
+      });
+
+    // Same key, different body (a second, distinct child) is a genuine conflict, not a retry --
+    // must not silently create a second child under cover of the first key.
+    await request(app.getHttpServer())
+      .post("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .set("Idempotency-Key", idempotencyKey)
+      .send({ householdId, nickname: "다른아이", stageMode: "manual", manualStage: "toddler_1_3" })
+      .expect(409)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("IDEMPOTENCY_KEY_CONFLICT");
+      });
+
+    await request(app.getHttpServer())
+      .get("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.children).toHaveLength(1);
       });
   });
 });
