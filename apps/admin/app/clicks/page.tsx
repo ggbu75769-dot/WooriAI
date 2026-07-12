@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PRODUCT_PLATFORM_LABELS, getAffiliateClickSummary, isAuthError, type ClickSummary } from "../../src/lib/admin-api";
-import { useAdminToken } from "../../src/lib/admin-token-context";
+import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
 function platformLabel(platform: string): string {
@@ -10,30 +10,30 @@ function platformLabel(platform: string): string {
 }
 
 export default function ClickSummaryPage() {
-  const { token, clearToken } = useAdminToken();
+  const { session, clearSession } = useAdminSession();
   const [summary, setSummary] = useState<ClickSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadSummary = useCallback(async () => {
-    if (!token) return;
+    if (!session) return;
     setLoadError(null);
     try {
-      const result = await getAffiliateClickSummary(token);
+      const result = await getAffiliateClickSummary();
       setSummary(result);
     } catch (error) {
       if (isAuthError(error)) {
-        clearToken();
+        clearSession();
         return;
       }
       setLoadError("클릭 통계를 불러오지 못했어요.");
     }
-  }, [token, clearToken]);
+  }, [session, clearSession]);
 
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
 
-  if (!token) return null;
+  if (!session) return null;
 
   return (
     <div className={styles.page}>

@@ -1,6 +1,7 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { PrismaClient } from "@prisma/client";
+import { generate as generateTotp } from "otplib";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hashAdminPassword } from "../src/admin/admin-password";
@@ -44,7 +45,12 @@ describe.skipIf(!dbAvailable)("Admin RBAC (real Postgres)", () => {
       update: {
         passwordHash: hashAdminPassword(password),
         role,
-        active: true
+        active: true,
+        // Reset any MFA state left by a previous run of this suite so each test
+        // starts from "just logged in, not yet enrolled" as expected below.
+        totpSecret: null,
+        mfaEnabledAt: null,
+        mfaRecoveryCodes: []
       },
       create: {
         email,
@@ -56,12 +62,65 @@ describe.skipIf(!dbAvailable)("Admin RBAC (real Postgres)", () => {
     });
   }
 
-  async function loginAdmin(email: string, password: string) {
-    const response = await request(app.getHttpServer())
+  function parseSetCookies(response: request.Response): Record<string, string> {
+    const raw = response.headers["set-cookie"];
+    const setCookieHeaders: string[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    const cookies: Record<string, string> = {};
+    for (const header of setCookieHeaders) {
+      const [pair] = header.split(";");
+      const separatorIndex = pair.indexOf("=");
+      if (separatorIndex === -1) continue;
+      cookies[pair.slice(0, separatorIndex).trim()] = pair.slice(separatorIndex + 1).trim();
+    }
+    return cookies;
+  }
+
+  function cookieHeader(cookies: Record<string, string>): string {
+    return Object.entries(cookies)
+      .map(([name, value]) => `${name}=${value}`)
+      .join("; ");
+  }
+
+  /**
+   * SEC-101/102: logs in, then completes TOTP enrollment (every admin created by
+   * `createAdmin` starts unregistered) so the returned session can reach
+   * MFA-gated admin routes — mirrors the real login -> forced-enrollment flow.
+   * Returns the cookie header + CSRF token to attach to subsequent requests.
+   */
+  async function loginAndEnroll(email: string, password: string): Promise<{ cookie: string; csrfToken: string }> {
+    const loginResponse = await request(app.getHttpServer())
       .post("/api/v1/admin/auth/login")
       .send({ email, password })
       .expect(200);
-    return response.body.accessToken as string;
+    expect(loginResponse.body.mfaRequired).toBe(false);
+
+    let cookies = parseSetCookies(loginResponse);
+    let cookie = cookieHeader(cookies);
+    let csrfToken = cookies.admin_csrf;
+
+    const setupStart = await request(app.getHttpServer())
+      .post("/api/v1/admin/auth/mfa/setup/start")
+      .set("Cookie", cookie)
+      .set("X-CSRF-Token", csrfToken)
+      .expect(200);
+    const secret = setupStart.body.secret as string;
+    const code = await generateTotp({ secret });
+
+    const setupVerify = await request(app.getHttpServer())
+      .post("/api/v1/admin/auth/mfa/setup/verify")
+      .set("Cookie", cookie)
+      .set("X-CSRF-Token", csrfToken)
+      .send({ code })
+      .expect(200);
+    expect(Array.isArray(setupVerify.body.recoveryCodes)).toBe(true);
+
+    // setup/verify doesn't rotate the session, but re-derive from the freshest
+    // Set-Cookie response anyway in case any endpoint ever does.
+    cookies = { ...cookies, ...parseSetCookies(setupVerify) };
+    cookie = cookieHeader(cookies);
+    csrfToken = cookies.admin_csrf;
+
+    return { cookie, csrfToken };
   }
 
   it("rejects an unknown or wrong-password login", async () => {
@@ -82,12 +141,13 @@ describe.skipIf(!dbAvailable)("Admin RBAC (real Postgres)", () => {
     await createAdmin("editor-rbac2@wooriai.local", "editor-password-1", "editor");
     await createAdmin("analyst-rbac2@wooriai.local", "analyst-password-1", "analyst");
 
-    const editorToken = await loginAdmin("editor-rbac2@wooriai.local", "editor-password-1");
-    const analystToken = await loginAdmin("analyst-rbac2@wooriai.local", "analyst-password-1");
+    const editor = await loginAndEnroll("editor-rbac2@wooriai.local", "editor-password-1");
+    const analyst = await loginAndEnroll("analyst-rbac2@wooriai.local", "analyst-password-1");
 
     const created = await request(app.getHttpServer())
       .post("/api/v1/admin/item-templates")
-      .set("Authorization", `Bearer ${editorToken}`)
+      .set("Cookie", editor.cookie)
+      .set("X-CSRF-Token", editor.csrfToken)
       .send({
         name: "RBAC test item",
         necessityLevel: "essential",
@@ -98,13 +158,14 @@ describe.skipIf(!dbAvailable)("Admin RBAC (real Postgres)", () => {
     // analyst can read...
     await request(app.getHttpServer())
       .get("/api/v1/admin/item-templates")
-      .set("Authorization", `Bearer ${analystToken}`)
+      .set("Cookie", analyst.cookie)
       .expect(200);
 
     // ...but cannot create/update.
     await request(app.getHttpServer())
       .post("/api/v1/admin/item-templates")
-      .set("Authorization", `Bearer ${analystToken}`)
+      .set("Cookie", analyst.cookie)
+      .set("X-CSRF-Token", analyst.csrfToken)
       .send({
         name: "Should be forbidden",
         necessityLevel: "essential",
@@ -114,7 +175,8 @@ describe.skipIf(!dbAvailable)("Admin RBAC (real Postgres)", () => {
 
     await request(app.getHttpServer())
       .patch(`/api/v1/admin/item-templates/${created.body.id}`)
-      .set("Authorization", `Bearer ${analystToken}`)
+      .set("Cookie", analyst.cookie)
+      .set("X-CSRF-Token", analyst.csrfToken)
       .send({ reasonText: "Analyst attempted update." })
       .expect(403);
 
@@ -135,13 +197,13 @@ describe.skipIf(!dbAvailable)("Admin RBAC (real Postgres)", () => {
 
   it("deactivated admin users are rejected even with a previously-valid token", async () => {
     const admin = await createAdmin("deactivated-rbac@wooriai.local", "deactivated-password-1", "editor");
-    const token = await loginAdmin("deactivated-rbac@wooriai.local", "deactivated-password-1");
+    const { cookie } = await loginAndEnroll("deactivated-rbac@wooriai.local", "deactivated-password-1");
 
     await prisma.adminUser.update({ where: { id: admin.id }, data: { active: false } });
 
     await request(app.getHttpServer())
       .get("/api/v1/admin/item-templates")
-      .set("Authorization", `Bearer ${token}`)
+      .set("Cookie", cookie)
       .expect(401);
 
     // Restore active state so a rerun of this suite against a persistent database

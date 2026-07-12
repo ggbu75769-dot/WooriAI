@@ -15,7 +15,7 @@ import {
   type ProductPlatform
 } from "../../src/lib/admin-api";
 import { isHttpUrl } from "../../src/lib/validation";
-import { useAdminToken } from "../../src/lib/admin-token-context";
+import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
 type LinkFormState = {
@@ -212,7 +212,7 @@ function LinkFormFields({
 }
 
 export default function ProductLinksPage() {
-  const { token, clearToken } = useAdminToken();
+  const { session, clearSession } = useAdminSession();
   const [itemTemplates, setItemTemplates] = useState<ItemTemplate[]>([]);
   const [links, setLinks] = useState<ProductLink[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -228,27 +228,27 @@ export default function ProductLinksPage() {
   const [editError, setEditError] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
-    if (!token) return;
+    if (!session) return;
     setLoadError(null);
     try {
-      const [linkResult, itemResult] = await Promise.all([listProductLinks(token), listItemTemplates(token)]);
+      const [linkResult, itemResult] = await Promise.all([listProductLinks(), listItemTemplates()]);
       setLinks(linkResult.links);
       setItemTemplates(itemResult.items);
       setCreateForm((current) => (current.itemTemplateId ? current : emptyLinkForm(itemResult.items[0]?.id ?? "")));
     } catch (error) {
       if (isAuthError(error)) {
-        clearToken();
+        clearSession();
         return;
       }
       setLoadError("상품 링크 목록을 불러오지 못했어요.");
     }
-  }, [token, clearToken]);
+  }, [session, clearSession]);
 
   useEffect(() => {
     loadAll();
   }, [loadAll]);
 
-  if (!token) return null;
+  if (!session) return null;
 
   const itemNameById = (id: string) => itemTemplates.find((item) => item.id === id)?.name ?? id;
 
@@ -262,13 +262,13 @@ export default function ProductLinksPage() {
     setCreateError(null);
     setCreateSuccess(false);
     try {
-      const created = await createProductLink(token, toProductLinkInput(createForm, "create"));
+      const created = await createProductLink(toProductLinkInput(createForm, "create"));
       setLinks((current) => (current ? [created, ...current] : [created]));
       setCreateForm(emptyLinkForm(itemTemplates[0]?.id ?? ""));
       setCreateSuccess(true);
     } catch (error) {
       if (isAuthError(error)) {
-        clearToken();
+        clearSession();
         return;
       }
       setCreateError("저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요.");
@@ -298,12 +298,12 @@ export default function ProductLinksPage() {
     setEditSubmitting(true);
     setEditError(null);
     try {
-      const updated = await updateProductLink(token, editingId, toProductLinkInput(editForm, "edit"));
+      const updated = await updateProductLink(editingId, toProductLinkInput(editForm, "edit"));
       setLinks((current) => (current ? current.map((link) => (link.id === editingId ? updated : link)) : current));
       setEditingId(null);
     } catch (error) {
       if (isAuthError(error)) {
-        clearToken();
+        clearSession();
         return;
       }
       setEditError("저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요.");

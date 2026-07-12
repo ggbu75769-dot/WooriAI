@@ -1,5 +1,8 @@
 // Admin CMS API client. Talks to the NestJS admin endpoints under `/admin/*`
-// using the `x-admin-token` header for auth. No runtime dependency beyond `fetch`.
+// through the Next.js same-origin rewrite proxy (see next.config.js) using an
+// HttpOnly `admin_session` cookie for auth (SEC-102) and a double-submit
+// `X-CSRF-Token` header on state-changing requests. No runtime dependency
+// beyond `fetch`.
 
 export type NecessityLevel = "essential" | "convenience" | "optional";
 export const NECESSITY_LEVELS: NecessityLevel[] = ["essential", "convenience", "optional"];
@@ -117,10 +120,31 @@ export type ProductLinkInput = {
   active?: boolean;
 };
 
-const DEFAULT_API_BASE_URL = "http://localhost:3000/api/v1";
+// Same-origin `/api/v1` (relative, no host) so every request goes through the
+// next.config.js rewrite (`/api/v1/:path*` -> the real API), which is what
+// makes the `admin_session`/`admin_csrf` cookies same-origin in the first
+// place. Only overridden for setups that intentionally call the API
+// cross-origin (uncommon; loses that same-origin cookie simplicity).
+const DEFAULT_API_BASE_URL = "/api/v1";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+}
+
+const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const CSRF_COOKIE_NAME = "admin_csrf";
+const CSRF_HEADER_NAME = "X-CSRF-Token";
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = `${name}=`;
+  for (const part of document.cookie.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) {
+      return decodeURIComponent(trimmed.slice(prefix.length));
+    }
+  }
+  return null;
 }
 
 export class AdminApiError extends Error {
@@ -135,33 +159,19 @@ export class AdminApiError extends Error {
   }
 }
 
-// `token` is the opaque, prefixed value produced by admin-token-context.tsx:
-// "jwt:<admin JWT>" for a real admin login, or "legacy:<shared secret>" for the
-// dev/test-only x-admin-token fallback. This keeps every exported function below
-// unaware of which auth mode is active.
-function authHeaders(token: string): Record<string, string> {
-  if (token.startsWith("jwt:")) {
-    return { Authorization: `Bearer ${token.slice("jwt:".length)}` };
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...(init?.headers as Record<string, string> ?? {}) };
+  if (STATE_CHANGING_METHODS.has(method)) {
+    const csrfToken = readCookie(CSRF_COOKIE_NAME);
+    if (csrfToken) {
+      headers[CSRF_HEADER_NAME] = csrfToken;
+    }
   }
-  if (token.startsWith("legacy:")) {
-    return { "x-admin-token": token.slice("legacy:".length) };
-  }
-  // Backward-compatible fallback for any pre-existing unprefixed token (shouldn't
-  // occur once admin-token-context.tsx always writes a prefixed value).
-  return { "x-admin-token": token };
-}
 
-async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl()}${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(token),
-        ...(init?.headers ?? {})
-      }
-    });
+    response = await fetch(`${apiBaseUrl()}${path}`, { ...init, method, credentials: "include", headers });
   } catch {
     throw new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.");
   }
@@ -183,113 +193,110 @@ async function request<T>(path: string, token: string, init?: RequestInit): Prom
   }
 
   if (!response.ok) {
+    const errorBody = body && typeof body === "object" ? (body as Record<string, unknown>).error : undefined;
     const code =
-      body && typeof body === "object" && "code" in (body as Record<string, unknown>)
-        ? String((body as Record<string, unknown>).code)
+      errorBody && typeof errorBody === "object" && "code" in (errorBody as Record<string, unknown>)
+        ? String((errorBody as Record<string, unknown>).code)
         : undefined;
-    throw new AdminApiError(response.status, "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.", code);
+    const message =
+      errorBody && typeof errorBody === "object" && "message" in (errorBody as Record<string, unknown>)
+        ? String((errorBody as Record<string, unknown>).message)
+        : "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.";
+    throw new AdminApiError(response.status, message, code);
   }
 
   return (body ?? ({} as unknown)) as T;
 }
 
-export function listItemTemplates(token: string) {
-  return request<{ items: ItemTemplate[] }>("/admin/item-templates", token);
+export function listItemTemplates() {
+  return request<{ items: ItemTemplate[] }>("/admin/item-templates");
 }
 
-export function createItemTemplate(token: string, input: ItemTemplateInput) {
-  return request<ItemTemplate>("/admin/item-templates", token, {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
+export function createItemTemplate(input: ItemTemplateInput) {
+  return request<ItemTemplate>("/admin/item-templates", { method: "POST", body: JSON.stringify(input) });
 }
 
-export function updateItemTemplate(token: string, itemTemplateId: string, input: ItemTemplateInput) {
-  return request<ItemTemplate>(`/admin/item-templates/${itemTemplateId}`, token, {
+export function updateItemTemplate(itemTemplateId: string, input: ItemTemplateInput) {
+  return request<ItemTemplate>(`/admin/item-templates/${itemTemplateId}`, {
     method: "PATCH",
     body: JSON.stringify(input)
   });
 }
 
-export function listProductLinks(token: string) {
-  return request<{ links: ProductLink[] }>("/admin/product-links", token);
+export function listProductLinks() {
+  return request<{ links: ProductLink[] }>("/admin/product-links");
 }
 
-export function createProductLink(token: string, input: ProductLinkInput) {
-  return request<ProductLink>("/admin/product-links", token, {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
+export function createProductLink(input: ProductLinkInput) {
+  return request<ProductLink>("/admin/product-links", { method: "POST", body: JSON.stringify(input) });
 }
 
-export function updateProductLink(token: string, productLinkId: string, input: ProductLinkInput) {
-  return request<ProductLink>(`/admin/product-links/${productLinkId}`, token, {
+export function updateProductLink(productLinkId: string, input: ProductLinkInput) {
+  return request<ProductLink>(`/admin/product-links/${productLinkId}`, {
     method: "PATCH",
     body: JSON.stringify(input)
   });
 }
 
-export function listDisclosures(token: string) {
-  return request<{ disclosures: Disclosure[] }>("/admin/disclosures", token);
+export function listDisclosures() {
+  return request<{ disclosures: Disclosure[] }>("/admin/disclosures");
 }
 
-export function updateDisclosure(token: string, key: string, text: string) {
-  return request<Disclosure>(`/admin/disclosures/${encodeURIComponent(key)}`, token, {
+export function updateDisclosure(key: string, text: string) {
+  return request<Disclosure>(`/admin/disclosures/${encodeURIComponent(key)}`, {
     method: "PUT",
     body: JSON.stringify({ text })
   });
 }
 
-export function getAffiliateClickSummary(token: string) {
-  return request<ClickSummary>("/admin/affiliate-clicks/summary", token);
+export function getAffiliateClickSummary() {
+  return request<ClickSummary>("/admin/affiliate-clicks/summary");
 }
 
+/** Session-expiry only: a role-forbidden (RBAC), CSRF, or MFA-setup-required 403
+ * is not "log the admin out", so this intentionally checks 401 alone. */
 export function isAuthError(error: unknown): boolean {
-  return error instanceof AdminApiError && (error.status === 401 || error.status === 403);
+  return error instanceof AdminApiError && error.status === 401;
 }
 
-export type AdminLoginResult = {
-  accessToken: string;
-  expiresIn: number;
-  admin: { id: string; email: string; displayName: string; role: "admin" | "editor" | "analyst" };
-};
+export type AdminProfile = { id: string; email: string; displayName: string; role: "admin" | "editor" | "analyst" };
 
-export async function adminLogin(email: string, password: string): Promise<AdminLoginResult> {
-  let response: Response;
-  try {
-    response = await fetch(`${apiBaseUrl()}/admin/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
-    });
-  } catch {
-    throw new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.");
-  }
+export type AdminLoginResult =
+  | { mfaRequired: true; mfaToken: string; expiresIn: number }
+  | { mfaRequired: false; admin: AdminProfile; mfaEnabled: boolean };
 
-  let text = "";
-  try {
-    text = await response.text();
-  } catch {
-    text = "";
-  }
+export function adminLogin(email: string, password: string) {
+  return request<AdminLoginResult>("/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+}
 
-  let body: unknown = null;
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = null;
-    }
-  }
+export function adminVerifyMfaLogin(mfaToken: string, code: string) {
+  return request<Extract<AdminLoginResult, { mfaRequired: false }>>("/admin/auth/mfa/verify-login", {
+    method: "POST",
+    body: JSON.stringify({ mfaToken, code })
+  });
+}
 
-  if (!response.ok) {
-    const code =
-      body && typeof body === "object" && "code" in (body as Record<string, unknown>)
-        ? String((body as Record<string, unknown>).code)
-        : undefined;
-    const message = code === "ADMIN_LOGIN_RATE_LIMITED" ? "너무 많이 시도했어요. 잠시 후 다시 시도해 주세요." : "이메일 또는 비밀번호를 다시 확인해 주세요.";
-    throw new AdminApiError(response.status, message, code);
-  }
+export function adminMe() {
+  return request<{ admin: AdminProfile; mfaEnabled: boolean }>("/admin/auth/me");
+}
 
-  return body as AdminLoginResult;
+export function adminLogout() {
+  return request<{ success: true }>("/admin/auth/logout", { method: "POST" });
+}
+
+export function adminMfaSetupStart() {
+  return request<{ otpauthUrl: string; secret: string; email: string }>("/admin/auth/mfa/setup/start", {
+    method: "POST"
+  });
+}
+
+export function adminMfaSetupVerify(code: string) {
+  return request<{ recoveryCodes: string[] }>("/admin/auth/mfa/setup/verify", {
+    method: "POST",
+    body: JSON.stringify({ code })
+  });
+}
+
+export function adminMfaDisable(code: string) {
+  return request<{ success: true }>("/admin/auth/mfa/disable", { method: "POST", body: JSON.stringify({ code }) });
 }

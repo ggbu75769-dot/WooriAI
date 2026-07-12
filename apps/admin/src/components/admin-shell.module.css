@@ -69,6 +69,31 @@
   margin: 0;
 }
 
+.hint {
+  color: #7a7a7a;
+  font-size: 13px;
+  margin: 0;
+  word-break: break-all;
+}
+
+.recoveryList {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, 1fr);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recoveryCode {
+  background: #fff2e2;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 13px;
+  padding: 6px 8px;
+  text-align: center;
+}
+
 .loginForm {
   display: flex;
   flex-direction: column;

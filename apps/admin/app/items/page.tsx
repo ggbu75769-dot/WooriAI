@@ -15,7 +15,7 @@ import {
   type ItemTemplateInput,
   type NecessityLevel
 } from "../../src/lib/admin-api";
-import { useAdminToken } from "../../src/lib/admin-token-context";
+import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
 type ItemFormState = {
@@ -248,7 +248,7 @@ function ItemFormFields({
 }
 
 export default function ItemTemplatesPage() {
-  const { token, clearToken } = useAdminToken();
+  const { session, clearSession } = useAdminSession();
   const [items, setItems] = useState<ItemTemplate[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -263,25 +263,25 @@ export default function ItemTemplatesPage() {
   const [editError, setEditError] = useState<string | null>(null);
 
   const loadItems = useCallback(async () => {
-    if (!token) return;
+    if (!session) return;
     setLoadError(null);
     try {
-      const result = await listItemTemplates(token);
+      const result = await listItemTemplates();
       setItems(result.items);
     } catch (error) {
       if (isAuthError(error)) {
-        clearToken();
+        clearSession();
         return;
       }
       setLoadError("준비템 목록을 불러오지 못했어요.");
     }
-  }, [token, clearToken]);
+  }, [session, clearSession]);
 
   useEffect(() => {
     loadItems();
   }, [loadItems]);
 
-  if (!token) return null;
+  if (!session) return null;
 
   const handleCreate = async () => {
     const validationMessage = validateItemForm(createForm);
@@ -293,13 +293,13 @@ export default function ItemTemplatesPage() {
     setCreateError(null);
     setCreateSuccess(false);
     try {
-      const created = await createItemTemplate(token, toItemTemplateInput(createForm, "create"));
+      const created = await createItemTemplate(toItemTemplateInput(createForm, "create"));
       setItems((current) => (current ? [created, ...current] : [created]));
       setCreateForm(emptyItemForm());
       setCreateSuccess(true);
     } catch (error) {
       if (isAuthError(error)) {
-        clearToken();
+        clearSession();
         return;
       }
       setCreateError("저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요.");
@@ -329,12 +329,12 @@ export default function ItemTemplatesPage() {
     setEditSubmitting(true);
     setEditError(null);
     try {
-      const updated = await updateItemTemplate(token, editingId, toItemTemplateInput(editForm, "edit"));
+      const updated = await updateItemTemplate(editingId, toItemTemplateInput(editForm, "edit"));
       setItems((current) => (current ? current.map((item) => (item.id === editingId ? updated : item)) : current));
       setEditingId(null);
     } catch (error) {
       if (isAuthError(error)) {
-        clearToken();
+        clearSession();
         return;
       }
       setEditError("저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요.");

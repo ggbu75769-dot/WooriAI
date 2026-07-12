@@ -1,85 +1,63 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { adminMe, type AdminProfile } from "./admin-api";
 
-const STORAGE_KEY = "wooriai_admin_token";
+// SEC-102: replaces the previous browser-storage-held Bearer/legacy-token
+// context. Auth now lives entirely in the HttpOnly `admin_session` cookie set
+// by the API (see admin-cookies.ts on the backend) — nothing secret is held in
+// browser storage or JS memory here. `session` is just a client-side cache of
+// "am I logged in, and has this admin finished MFA enrollment", refreshed via
+// GET /admin/auth/me (which itself relies on the ambient cookie).
+export type AdminSession = { admin: AdminProfile; mfaEnabled: boolean };
 
-// The exposed `token` stays a single opaque string so every admin-api.ts call site
-// (listItemTemplates(token), createItemTemplate(token, ...), etc.) is unaffected by
-// the auth mode. Internally it's prefixed with "jwt:" or "legacy:" so admin-api.ts's
-// request() helper knows whether to send it as `Authorization: Bearer` (the real
-// per-admin JWT from POST /admin/auth/login) or the legacy dev/test-only
-// `x-admin-token` header.
-const JWT_PREFIX = "jwt:";
-const LEGACY_PREFIX = "legacy:";
-
-type AdminTokenContextValue = {
-  token: string | null;
+type AdminSessionContextValue = {
+  session: AdminSession | null;
   isReady: boolean;
-  isLegacyToken: boolean;
-  setJwtToken: (token: string) => void;
-  setLegacyToken: (token: string) => void;
-  clearToken: () => void;
+  refresh: () => Promise<void>;
+  setSession: (session: AdminSession) => void;
+  clearSession: () => void;
 };
 
-const AdminTokenContext = createContext<AdminTokenContextValue | null>(null);
+const AdminSessionContext = createContext<AdminSessionContextValue | null>(null);
 
 export function AdminTokenProvider({ children }: { children: ReactNode }) {
-  const [token, setTokenState] = useState<string | null>(null);
+  const [session, setSessionState] = useState<AdminSession | null>(null);
   const [isReady, setIsReady] = useState(false);
 
+  const refresh = useCallback(async () => {
+    try {
+      const me = await adminMe();
+      setSessionState({ admin: me.admin, mfaEnabled: me.mfaEnabled });
+    } catch {
+      setSessionState(null);
+    } finally {
+      setIsReady(true);
+    }
+  }, []);
+
   useEffect(() => {
-    try {
-      const stored = window.sessionStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setTokenState(stored);
-      }
-    } catch {
-      // sessionStorage may be unavailable (e.g. privacy mode); fall back to in-memory only.
-    }
-    setIsReady(true);
+    refresh();
+    // Only on mount: the cookie itself (not this effect) is the source of
+    // truth for whether the browser is still authenticated.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const persist = useCallback((next: string) => {
-    setTokenState(next);
-    try {
-      window.sessionStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      // ignore storage failures; the token still works in-memory for this tab session.
-    }
-  }, []);
+  const setSession = useCallback((next: AdminSession) => setSessionState(next), []);
+  const clearSession = useCallback(() => setSessionState(null), []);
 
-  const setJwtToken = useCallback((next: string) => persist(`${JWT_PREFIX}${next}`), [persist]);
-  const setLegacyToken = useCallback((next: string) => persist(`${LEGACY_PREFIX}${next}`), [persist]);
-
-  const clearToken = useCallback(() => {
-    setTokenState(null);
-    try {
-      window.sessionStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const value = useMemo<AdminTokenContextValue>(
-    () => ({
-      token,
-      isReady,
-      isLegacyToken: token?.startsWith(LEGACY_PREFIX) ?? false,
-      setJwtToken,
-      setLegacyToken,
-      clearToken
-    }),
-    [token, isReady, setJwtToken, setLegacyToken, clearToken]
+  const value = useMemo<AdminSessionContextValue>(
+    () => ({ session, isReady, refresh, setSession, clearSession }),
+    [session, isReady, refresh, setSession, clearSession]
   );
 
-  return <AdminTokenContext.Provider value={value}>{children}</AdminTokenContext.Provider>;
+  return <AdminSessionContext.Provider value={value}>{children}</AdminSessionContext.Provider>;
 }
 
-export function useAdminToken(): AdminTokenContextValue {
-  const context = useContext(AdminTokenContext);
+export function useAdminSession(): AdminSessionContextValue {
+  const context = useContext(AdminSessionContext);
   if (!context) {
-    throw new Error("useAdminToken must be used within an AdminTokenProvider");
+    throw new Error("useAdminSession must be used within an AdminTokenProvider");
   }
   return context;
 }

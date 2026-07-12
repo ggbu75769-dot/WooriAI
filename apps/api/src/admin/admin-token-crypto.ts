@@ -74,3 +74,56 @@ export function verifyAdminAccessToken(token: string): AdminAccessTokenPayload {
 
   return parsed;
 }
+
+/**
+ * SEC-101 §8 "택1" for the password->TOTP intermediate step: a short-lived signed
+ * token (not a DB-backed pending session row) carried by the client between
+ * POST /admin/auth/login and POST /admin/auth/mfa/verify-login. Stateless by
+ * design -- admin_sessions has no "pending" state column to add (schema/migration
+ * changes are out of scope for this task), and a signed token needs no cleanup
+ * job for abandoned logins the way a DB row would.
+ */
+export const ADMIN_MFA_PENDING_TOKEN_TTL_SECONDS = 5 * 60;
+
+export type AdminMfaPendingTokenPayload = {
+  type: "admin_mfa_pending";
+  adminId: string;
+  iat: number;
+  exp: number;
+};
+
+export function signAdminMfaPendingToken(params: { adminId: string }): { token: string; expiresIn: number } {
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64UrlJson({ alg: "HS256", typ: "JWT" });
+  const payload = base64UrlJson({
+    type: "admin_mfa_pending",
+    adminId: params.adminId,
+    iat: now,
+    exp: now + ADMIN_MFA_PENDING_TOKEN_TTL_SECONDS
+  } satisfies AdminMfaPendingTokenPayload);
+  const signingInput = `${header}.${payload}`;
+  return {
+    token: `${signingInput}.${hmacSha256(signingInput, accessSecret())}`,
+    expiresIn: ADMIN_MFA_PENDING_TOKEN_TTL_SECONDS
+  };
+}
+
+export function verifyAdminMfaPendingToken(token: string): AdminMfaPendingTokenPayload {
+  const [header, payload, signature] = token.split(".");
+  if (!header || !payload || !signature) {
+    throw new UnauthorizedException({ code: "ADMIN_MFA_TOKEN_INVALID", message: "다시 로그인해주세요." });
+  }
+
+  const signingInput = `${header}.${payload}`;
+  if (!safeCompare(signature, hmacSha256(signingInput, accessSecret()))) {
+    throw new UnauthorizedException({ code: "ADMIN_MFA_TOKEN_INVALID", message: "다시 로그인해주세요." });
+  }
+
+  const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as AdminMfaPendingTokenPayload;
+  const now = Math.floor(Date.now() / 1000);
+  if (parsed.type !== "admin_mfa_pending" || parsed.exp <= now) {
+    throw new UnauthorizedException({ code: "ADMIN_MFA_TOKEN_INVALID", message: "다시 로그인해주세요." });
+  }
+
+  return parsed;
+}

@@ -2,17 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { isAuthError, listDisclosures, updateDisclosure, type Disclosure } from "../../src/lib/admin-api";
-import { useAdminToken } from "../../src/lib/admin-token-context";
+import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
 function DisclosureRow({
   disclosure,
-  token,
   onSaved,
   onAuthError
 }: {
   disclosure: Disclosure;
-  token: string;
   onSaved: (next: Disclosure) => void;
   onAuthError: () => void;
 }) {
@@ -30,7 +28,7 @@ function DisclosureRow({
     setError(null);
     setSaved(false);
     try {
-      const next = await updateDisclosure(token, disclosure.key, text.trim());
+      const next = await updateDisclosure(disclosure.key, text.trim());
       onSaved(next);
       setSaved(true);
     } catch (err) {
@@ -62,7 +60,7 @@ function DisclosureRow({
 }
 
 export default function DisclosuresPage() {
-  const { token, clearToken } = useAdminToken();
+  const { session, clearSession } = useAdminSession();
   const [disclosures, setDisclosures] = useState<Disclosure[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -72,25 +70,25 @@ export default function DisclosuresPage() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   const loadDisclosures = useCallback(async () => {
-    if (!token) return;
+    if (!session) return;
     setLoadError(null);
     try {
-      const result = await listDisclosures(token);
+      const result = await listDisclosures();
       setDisclosures(result.disclosures);
     } catch (error) {
       if (isAuthError(error)) {
-        clearToken();
+        clearSession();
         return;
       }
       setLoadError("고지 문구 목록을 불러오지 못했어요.");
     }
-  }, [token, clearToken]);
+  }, [session, clearSession]);
 
   useEffect(() => {
     loadDisclosures();
   }, [loadDisclosures]);
 
-  if (!token) return null;
+  if (!session) return null;
 
   const handleAddKey = async () => {
     const key = newKey.trim();
@@ -109,13 +107,13 @@ export default function DisclosuresPage() {
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await updateDisclosure(token, key, newText.trim());
+      const created = await updateDisclosure(key, newText.trim());
       setDisclosures((current) => (current ? [...current, created] : [created]));
       setNewKey("");
       setNewText("");
     } catch (error) {
       if (isAuthError(error)) {
-        clearToken();
+        clearSession();
         return;
       }
       setCreateError("저장하지 못했어요. 다시 시도해 주세요.");
@@ -165,8 +163,7 @@ export default function DisclosuresPage() {
         <DisclosureRow
           key={disclosure.key}
           disclosure={disclosure}
-          token={token}
-          onAuthError={clearToken}
+          onAuthError={clearSession}
           onSaved={(next) =>
             setDisclosures((current) => (current ? current.map((entry) => (entry.key === next.key ? next : entry)) : current))
           }
