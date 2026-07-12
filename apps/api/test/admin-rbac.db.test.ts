@@ -137,17 +137,25 @@ describe.skipIf(!dbAvailable)("Admin RBAC (real Postgres)", () => {
       .expect(401);
   });
 
-  it("lets an editor create item templates, blocks an analyst, and blocks unauthenticated requests", async () => {
+  // COM-103 (round5a-sprint2-plan.md §3): the direct item-template write
+  // endpoints are admin-only now -- an editor's only path to a live change is
+  // draft -> submit -> a *different* admin's approve-publish via
+  // /admin/content-revisions (covered by content-revisions.e2e.test.ts).
+  // This test therefore creates via an admin account and asserts editor is
+  // blocked from the direct endpoints exactly like analyst is.
+  it("lets an admin create item templates directly, blocks editor/analyst direct writes, and blocks unauthenticated requests", async () => {
+    await createAdmin("admin-rbac2@wooriai.local", "admin-password-1", "admin");
     await createAdmin("editor-rbac2@wooriai.local", "editor-password-1", "editor");
     await createAdmin("analyst-rbac2@wooriai.local", "analyst-password-1", "analyst");
 
+    const admin = await loginAndEnroll("admin-rbac2@wooriai.local", "admin-password-1");
     const editor = await loginAndEnroll("editor-rbac2@wooriai.local", "editor-password-1");
     const analyst = await loginAndEnroll("analyst-rbac2@wooriai.local", "analyst-password-1");
 
     const created = await request(app.getHttpServer())
       .post("/api/v1/admin/item-templates")
-      .set("Cookie", editor.cookie)
-      .set("X-CSRF-Token", editor.csrfToken)
+      .set("Cookie", admin.cookie)
+      .set("X-CSRF-Token", admin.csrfToken)
       .send({
         name: "RBAC test item",
         necessityLevel: "essential",
@@ -179,6 +187,32 @@ describe.skipIf(!dbAvailable)("Admin RBAC (real Postgres)", () => {
       .set("X-CSRF-Token", analyst.csrfToken)
       .send({ reasonText: "Analyst attempted update." })
       .expect(403);
+
+    // Editor is also blocked from the direct-write endpoints (COM-103) -- must
+    // use POST /admin/content-revisions instead.
+    await request(app.getHttpServer())
+      .post("/api/v1/admin/item-templates")
+      .set("Cookie", editor.cookie)
+      .set("X-CSRF-Token", editor.csrfToken)
+      .send({
+        name: "Editor direct create should be forbidden",
+        necessityLevel: "essential",
+        reasonText: "Editor should not be able to create this directly."
+      })
+      .expect(403)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("ADMIN_FORBIDDEN");
+      });
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/item-templates/${created.body.id}`)
+      .set("Cookie", editor.cookie)
+      .set("X-CSRF-Token", editor.csrfToken)
+      .send({ reasonText: "Editor direct update should be forbidden." })
+      .expect(403)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("ADMIN_FORBIDDEN");
+      });
 
     // No credentials at all.
     await request(app.getHttpServer()).get("/api/v1/admin/item-templates").expect(403);

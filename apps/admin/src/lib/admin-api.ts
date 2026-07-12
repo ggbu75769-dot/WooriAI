@@ -87,7 +87,7 @@ export type ItemTemplate = {
   productLinks: ProductLink[];
 };
 
-export type Disclosure = { key: string; text: string };
+export type Disclosure = { id: string | null; key: string; text: string };
 
 export type ClickSummary = {
   totalClicks: number;
@@ -299,4 +299,97 @@ export function adminMfaSetupVerify(code: string) {
 
 export function adminMfaDisable(code: string) {
   return request<{ success: true }>("/admin/auth/mfa/disable", { method: "POST", body: JSON.stringify({ code }) });
+}
+
+// COM-103: CMS draft -> review -> publish workflow. editor sessions route
+// items/links/disclosures saves through these instead of the direct
+// create/update endpoints above (see app/items,links,disclosures/page.tsx and
+// app/reviews/page.tsx).
+export type ContentRevisionEntityType = "item_template" | "product_link" | "disclosure";
+// "publishing" is a short-lived internal state between an approve-publish/
+// rollback CAS claim and the live write completing (see the API's M-2
+// diff-review follow-up) -- included so a GET polled mid-flight round-trips
+// through this type without falling outside the union.
+export type ContentRevisionStatus = "draft" | "in_review" | "publishing" | "published" | "rejected" | "archived";
+
+export type ContentRevision = {
+  id: string;
+  entityType: ContentRevisionEntityType;
+  entityId: string | null;
+  revisionNo: number;
+  payload: Record<string, unknown>;
+  status: ContentRevisionStatus;
+  authorAdminId: string;
+  reviewerAdminId: string | null;
+  reviewNote: string | null;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  publishedAt: string | null;
+  scheduledFor: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ContentRevisionDetail = ContentRevision & { live: Record<string, unknown> | null };
+
+export function listContentRevisions(filter?: {
+  entityType?: ContentRevisionEntityType;
+  entityId?: string;
+  status?: ContentRevisionStatus;
+}) {
+  const params = new URLSearchParams();
+  if (filter?.entityType) params.set("entityType", filter.entityType);
+  if (filter?.entityId) params.set("entityId", filter.entityId);
+  if (filter?.status) params.set("status", filter.status);
+  const qs = params.toString();
+  return request<{ revisions: ContentRevision[] }>(`/admin/content-revisions${qs ? `?${qs}` : ""}`);
+}
+
+export function getContentRevision(id: string) {
+  return request<ContentRevisionDetail>(`/admin/content-revisions/${id}`);
+}
+
+export function createContentRevision(input: {
+  entityType: ContentRevisionEntityType;
+  entityId?: string;
+  payload: Record<string, unknown>;
+}) {
+  return request<ContentRevision>("/admin/content-revisions", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateContentRevisionDraft(id: string, payload: Record<string, unknown>) {
+  return request<ContentRevision>(`/admin/content-revisions/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ payload })
+  });
+}
+
+export function submitContentRevision(id: string) {
+  return request<ContentRevision>(`/admin/content-revisions/${id}/submit`, { method: "POST" });
+}
+
+export function approvePublishContentRevision(id: string) {
+  return request<ContentRevision>(`/admin/content-revisions/${id}/approve-publish`, { method: "POST" });
+}
+
+export function rejectContentRevision(id: string, note: string) {
+  return request<ContentRevision>(`/admin/content-revisions/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ note })
+  });
+}
+
+export function rollbackContentRevision(id: string) {
+  return request<ContentRevision>(`/admin/content-revisions/${id}/rollback`, { method: "POST" });
+}
+
+/** Convenience: draft-create then immediately submit for review, the shape
+ * every editor save flow needs (create+submit is always paired in this CMS). */
+export async function draftAndSubmitContentRevision(input: {
+  entityType: ContentRevisionEntityType;
+  entityId?: string;
+  payload: Record<string, unknown>;
+}) {
+  const draft = await createContentRevision(input);
+  return await submitContentRevision(draft.id);
 }

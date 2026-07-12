@@ -1,17 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { isAuthError, listDisclosures, updateDisclosure, type Disclosure } from "../../src/lib/admin-api";
+import {
+  draftAndSubmitContentRevision,
+  isAuthError,
+  listDisclosures,
+  updateDisclosure,
+  type Disclosure
+} from "../../src/lib/admin-api";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
+// COM-103: an editor's save goes through draft -> submit for review instead of
+// writing disclosures directly (PUT /admin/disclosures/:key is admin-only now).
 function DisclosureRow({
   disclosure,
+  isEditor,
   onSaved,
+  onDraftSubmitted,
   onAuthError
 }: {
   disclosure: Disclosure;
+  isEditor: boolean;
   onSaved: (next: Disclosure) => void;
+  onDraftSubmitted: () => void;
   onAuthError: () => void;
 }) {
   const [text, setText] = useState(disclosure.text);
@@ -28,8 +40,17 @@ function DisclosureRow({
     setError(null);
     setSaved(false);
     try {
-      const next = await updateDisclosure(disclosure.key, text.trim());
-      onSaved(next);
+      if (isEditor) {
+        await draftAndSubmitContentRevision({
+          entityType: "disclosure",
+          entityId: disclosure.id ?? undefined,
+          payload: { key: disclosure.key, text: text.trim() }
+        });
+        onDraftSubmitted();
+      } else {
+        const next = await updateDisclosure(disclosure.key, text.trim());
+        onSaved(next);
+      }
       setSaved(true);
     } catch (err) {
       if (isAuthError(err)) {
@@ -45,14 +66,15 @@ function DisclosureRow({
   return (
     <div className={styles.card}>
       <h2>{disclosure.key}</h2>
+      {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
       <div className={styles.field}>
         <textarea value={text} onChange={(event) => setText(event.target.value)} />
       </div>
       {error ? <p className={styles.errorBanner}>{error}</p> : null}
-      {saved ? <p className={styles.successBanner}>저장했어요.</p> : null}
+      {saved ? <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p> : null}
       <div className={styles.actions}>
         <button type="button" className={styles.primaryButton} onClick={handleSave} disabled={saving}>
-          {saving ? "저장 중..." : "저장"}
+          {saving ? "저장 중..." : isEditor ? "검토 요청" : "저장"}
         </button>
       </div>
     </div>
@@ -68,6 +90,7 @@ export default function DisclosuresPage() {
   const [newText, setNewText] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [createSuccess, setCreateSuccess] = useState(false);
 
   const loadDisclosures = useCallback(async () => {
     if (!session) return;
@@ -90,6 +113,10 @@ export default function DisclosuresPage() {
 
   if (!session) return null;
 
+  // COM-103: an editor's save goes through draft -> submit for review instead
+  // of writing disclosures directly.
+  const isEditor = session.admin.role === "editor";
+
   const handleAddKey = async () => {
     const key = newKey.trim();
     if (!key) {
@@ -106,11 +133,17 @@ export default function DisclosuresPage() {
     }
     setCreating(true);
     setCreateError(null);
+    setCreateSuccess(false);
     try {
-      const created = await updateDisclosure(key, newText.trim());
-      setDisclosures((current) => (current ? [...current, created] : [created]));
+      if (isEditor) {
+        await draftAndSubmitContentRevision({ entityType: "disclosure", payload: { key, text: newText.trim() } });
+      } else {
+        const created = await updateDisclosure(key, newText.trim());
+        setDisclosures((current) => (current ? [...current, created] : [created]));
+      }
       setNewKey("");
       setNewText("");
+      setCreateSuccess(true);
     } catch (error) {
       if (isAuthError(error)) {
         clearSession();
@@ -131,6 +164,7 @@ export default function DisclosuresPage() {
 
       <section className={styles.card}>
         <h2>새 고지 문구 키 추가</h2>
+        {isEditor ? <p className={styles.hint}>편집자 계정은 바로 저장하지 않고, 검토 요청을 관리자에게 보내요.</p> : null}
         <div className={styles.formGrid}>
           <div className={styles.field}>
             <label htmlFor="new-disclosure-key">키</label>
@@ -142,9 +176,12 @@ export default function DisclosuresPage() {
           <textarea id="new-disclosure-text" value={newText} onChange={(event) => setNewText(event.target.value)} />
         </div>
         {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
+        {createSuccess ? (
+          <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
+        ) : null}
         <div className={styles.actions}>
           <button type="button" className={styles.primaryButton} onClick={handleAddKey} disabled={creating}>
-            {creating ? "저장 중..." : "추가"}
+            {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
           </button>
         </div>
       </section>
@@ -163,7 +200,9 @@ export default function DisclosuresPage() {
         <DisclosureRow
           key={disclosure.key}
           disclosure={disclosure}
+          isEditor={isEditor}
           onAuthError={clearSession}
+          onDraftSubmitted={() => {}}
           onSaved={(next) =>
             setDisclosures((current) => (current ? current.map((entry) => (entry.key === next.key ? next : entry)) : current))
           }

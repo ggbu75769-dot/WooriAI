@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { href: "/items", label: "준비템 관리" },
   { href: "/links", label: "상품 링크 관리" },
   { href: "/disclosures", label: "제휴 고지 문구" },
+  { href: "/reviews", label: "콘텐츠 검토" },
   { href: "/clicks", label: "클릭 통계" }
 ];
 

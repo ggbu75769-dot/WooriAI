@@ -25,6 +25,12 @@ export default function AdminHomePage() {
       title: "Click summary",
       description: "Review affiliate click totals by platform from the admin analytics endpoint.",
       href: "/clicks"
+    },
+    {
+      id: "ADM-005",
+      title: "Content review",
+      description: "Review editor-submitted drafts, diff against the live copy, and approve, reject, or roll back.",
+      href: "/reviews"
     }
   ];
 

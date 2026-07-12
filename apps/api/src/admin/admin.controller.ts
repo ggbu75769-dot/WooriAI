@@ -3,6 +3,7 @@ import { createDtoValidationPipe } from "../bootstrap";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { PrismaService } from "../prisma/prisma.service";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import {
   AdminCreateItemTemplateDto,
@@ -22,7 +23,8 @@ function actorId(request: AuthenticatedRequest) {
 export class AdminController {
   constructor(
     @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
-    @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService
+    @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService,
+    @Inject(PrismaService) private readonly prisma: PrismaService
   ) {}
 
   @Get("item-templates")
@@ -30,9 +32,13 @@ export class AdminController {
     return await this.store.adminListItemTemplates();
   }
 
+  // COM-103: direct-write item-template/product-link/disclosure endpoints are
+  // admin-only now -- editor changes must go through
+  // POST/PATCH /admin/content-revisions (draft -> submit -> admin
+  // approve-publish). See ContentRevisionsController.
   @Post("item-templates")
   @HttpCode(200)
-  @RequireAdminRoles("admin", "editor")
+  @RequireAdminRoles("admin")
   async createItemTemplate(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(AdminCreateItemTemplateDto)) body: AdminCreateItemTemplateDto
@@ -49,7 +55,7 @@ export class AdminController {
   }
 
   @Patch("item-templates/:itemTemplateId")
-  @RequireAdminRoles("admin", "editor")
+  @RequireAdminRoles("admin")
   async updateItemTemplate(
     @Req() request: AuthenticatedRequest,
     @Param("itemTemplateId") itemTemplateId: string,
@@ -73,7 +79,7 @@ export class AdminController {
 
   @Post("product-links")
   @HttpCode(200)
-  @RequireAdminRoles("admin", "editor")
+  @RequireAdminRoles("admin")
   async createProductLink(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(AdminCreateProductLinkDto)) body: AdminCreateProductLinkDto
@@ -90,7 +96,7 @@ export class AdminController {
   }
 
   @Patch("product-links/:productLinkId")
-  @RequireAdminRoles("admin", "editor")
+  @RequireAdminRoles("admin")
   async updateProductLink(
     @Req() request: AuthenticatedRequest,
     @Param("productLinkId") productLinkId: string,
@@ -107,13 +113,21 @@ export class AdminController {
     return result;
   }
 
+  // COM-103: enriches the store's {key, text} rows with each disclosure's
+  // internal id (not exposed by OnboardingStoreService#adminListDisclosures,
+  // which is off-limits to edit in this task) so the admin web CMS can address
+  // an existing disclosure by entityId when drafting a content revision for it
+  // -- see content-revisions.service.ts and apps/admin's disclosures page.
   @Get("disclosures")
   async listDisclosures() {
-    return await this.store.adminListDisclosures();
+    const result = await this.store.adminListDisclosures();
+    const rows = await this.prisma.disclosure.findMany({ select: { id: true, key: true } });
+    const idByKey = new Map(rows.map((row) => [row.key, row.id]));
+    return { disclosures: result.disclosures.map((entry) => ({ id: idByKey.get(entry.key) ?? null, ...entry })) };
   }
 
   @Put("disclosures/:key")
-  @RequireAdminRoles("admin", "editor")
+  @RequireAdminRoles("admin")
   async updateDisclosure(
     @Req() request: AuthenticatedRequest,
     @Param("key") key: string,

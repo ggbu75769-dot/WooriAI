@@ -5,6 +5,7 @@ import {
   PRODUCT_PLATFORMS,
   PRODUCT_PLATFORM_LABELS,
   createProductLink,
+  draftAndSubmitContentRevision,
   isAuthError,
   listItemTemplates,
   listProductLinks,
@@ -250,6 +251,10 @@ export default function ProductLinksPage() {
 
   if (!session) return null;
 
+  // COM-103: an editor's save goes through draft -> submit for review instead
+  // of writing product_links directly (that endpoint is admin-only now).
+  const isEditor = session.admin.role === "editor";
+
   const itemNameById = (id: string) => itemTemplates.find((item) => item.id === id)?.name ?? id;
 
   const handleCreate = async () => {
@@ -262,8 +267,15 @@ export default function ProductLinksPage() {
     setCreateError(null);
     setCreateSuccess(false);
     try {
-      const created = await createProductLink(toProductLinkInput(createForm, "create"));
-      setLinks((current) => (current ? [created, ...current] : [created]));
+      if (isEditor) {
+        await draftAndSubmitContentRevision({
+          entityType: "product_link",
+          payload: toProductLinkInput(createForm, "create") as Record<string, unknown>
+        });
+      } else {
+        const created = await createProductLink(toProductLinkInput(createForm, "create"));
+        setLinks((current) => (current ? [created, ...current] : [created]));
+      }
       setCreateForm(emptyLinkForm(itemTemplates[0]?.id ?? ""));
       setCreateSuccess(true);
     } catch (error) {
@@ -298,8 +310,16 @@ export default function ProductLinksPage() {
     setEditSubmitting(true);
     setEditError(null);
     try {
-      const updated = await updateProductLink(editingId, toProductLinkInput(editForm, "edit"));
-      setLinks((current) => (current ? current.map((link) => (link.id === editingId ? updated : link)) : current));
+      if (isEditor) {
+        await draftAndSubmitContentRevision({
+          entityType: "product_link",
+          entityId: editingId,
+          payload: toProductLinkInput(editForm, "edit") as Record<string, unknown>
+        });
+      } else {
+        const updated = await updateProductLink(editingId, toProductLinkInput(editForm, "edit"));
+        setLinks((current) => (current ? current.map((link) => (link.id === editingId ? updated : link)) : current));
+      }
       setEditingId(null);
     } catch (error) {
       if (isAuthError(error)) {
@@ -325,12 +345,15 @@ export default function ProductLinksPage() {
           <p className={styles.emptyState}>먼저 준비템을 등록해야 상품 링크를 연결할 수 있어요.</p>
         ) : (
           <>
+            {isEditor ? <p className={styles.hint}>편집자 계정은 바로 저장하지 않고, 검토 요청을 관리자에게 보내요.</p> : null}
             <LinkFormFields form={createForm} onChange={setCreateForm} itemTemplates={itemTemplates} idPrefix="create" />
             {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
-            {createSuccess ? <p className={styles.successBanner}>저장했어요.</p> : null}
+            {createSuccess ? (
+              <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
+            ) : null}
             <div className={styles.actions}>
               <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
-                {creating ? "저장 중..." : "추가"}
+                {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
               </button>
             </div>
           </>
@@ -402,6 +425,7 @@ export default function ProductLinksPage() {
                             itemTemplates={itemTemplates}
                             idPrefix={`edit-${link.id}`}
                           />
+                          {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
                           {editError ? <p className={styles.errorBanner}>{editError}</p> : null}
                           <div className={styles.actions}>
                             <button
@@ -410,7 +434,7 @@ export default function ProductLinksPage() {
                               onClick={handleEditSave}
                               disabled={editSubmitting}
                             >
-                              {editSubmitting ? "저장 중..." : "저장"}
+                              {editSubmitting ? "저장 중..." : isEditor ? "검토 요청" : "저장"}
                             </button>
                             <button type="button" className={styles.secondaryButton} onClick={cancelEdit} disabled={editSubmitting}>
                               취소
