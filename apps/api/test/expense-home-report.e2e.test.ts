@@ -1,5 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
@@ -90,7 +91,7 @@ describe("Expense, budget, home, and report API", () => {
   });
 
   it("keeps expense list, budget, home, and reports on the same totals through update and soft delete", async () => {
-    const accessToken = await login(app, "batch06-expense");
+    const accessToken = await login(app, `batch06-expense-${randomUUID()}`);
     const { childId, householdId } = await completeOnboarding(app, accessToken);
 
     const userId = (
@@ -216,7 +217,7 @@ describe("Expense, budget, home, and report API", () => {
   });
 
   it("rejects invalid expense input and excludes gift expenses from default totals", async () => {
-    const providerToken = "batch06-validation";
+    const providerToken = `batch06-validation-${randomUUID()}`;
     const accessToken = await login(app, providerToken);
     const { childId } = await completeOnboarding(app, accessToken);
 
@@ -280,7 +281,7 @@ describe("Expense, budget, home, and report API", () => {
     const tokenService = moduleRef.get(TokenService);
     const store = moduleRef.get(OnboardingStoreService) as OnboardingStoreService & {
       createExpense: (
-        user: ReturnType<TokenService["createDevUser"]>,
+        user: Awaited<ReturnType<TokenService["createDevUser"]>>,
         childId: string,
         input: {
           categoryId: string;
@@ -290,10 +291,10 @@ describe("Expense, budget, home, and report API", () => {
           paymentMethod: "unknown";
           expenseType: "gift";
         }
-      ) => unknown;
+      ) => Promise<unknown>;
     };
 
-    store.createExpense(tokenService.createDevUser("kakao", providerToken), childId, {
+    await store.createExpense(await tokenService.createDevUser("kakao", providerToken), childId, {
       categoryId,
       amountKrw: 75000,
       spentOn: "2026-07-06",
@@ -322,7 +323,7 @@ describe("Expense, budget, home, and report API", () => {
   });
 
   it("creates a gift expense through the public create-expense API and excludes it from home and report totals", async () => {
-    const accessToken = await login(app, "batch06-gift-api");
+    const accessToken = await login(app, `batch06-gift-api-${randomUUID()}`);
     const { childId } = await completeOnboarding(app, accessToken);
 
     const giftExpense = (
@@ -394,7 +395,7 @@ describe("Expense, budget, home, and report API", () => {
   });
 
   it("aggregates a full 12-month yearly report while excluding soft-deleted and gift expenses", async () => {
-    const providerToken = "batch-yearly-report";
+    const providerToken = `batch-yearly-report-${randomUUID()}`;
     const accessToken = await login(app, providerToken);
     const { childId } = await completeOnboarding(app, accessToken);
 
@@ -446,7 +447,7 @@ describe("Expense, budget, home, and report API", () => {
     const tokenService = moduleRef.get(TokenService);
     const store = moduleRef.get(OnboardingStoreService) as OnboardingStoreService & {
       createExpense: (
-        user: ReturnType<TokenService["createDevUser"]>,
+        user: Awaited<ReturnType<TokenService["createDevUser"]>>,
         childId: string,
         input: {
           categoryId: string;
@@ -456,9 +457,9 @@ describe("Expense, budget, home, and report API", () => {
           paymentMethod: "unknown";
           expenseType: "gift";
         }
-      ) => unknown;
+      ) => Promise<unknown>;
     };
-    store.createExpense(tokenService.createDevUser("kakao", providerToken), childId, {
+    await store.createExpense(await tokenService.createDevUser("kakao", providerToken), childId, {
       categoryId,
       amountKrw: 99999,
       spentOn: "2026-02-01",
@@ -514,9 +515,14 @@ describe("Expense, budget, home, and report API", () => {
   });
 
   it("scopes the category report to a given month when yearMonth is provided, and to all time otherwise", async () => {
-    const accessToken = await login(app, "batch-category-report");
+    const accessToken = await login(app, `batch-category-report-${randomUUID()}`);
     const { childId } = await completeOnboarding(app, accessToken);
-    const otherCategoryId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    // Round 4 validates that categoryId references an existing categories row (see
+    // requireExistingCategory in onboarding-store.service.ts), so this needs a real
+    // seeded id rather than an arbitrary UUID. This is one of the deterministic
+    // mobile-category-alias ids seeded in prisma/seed-data.ts (mobileCategoryAliasSeeds),
+    // distinct from `categoryId` (the import-stub default id) used elsewhere in this file.
+    const otherCategoryId = "c0a7e901-0000-4c04-8c04-c47e900ec004";
 
     await request(app.getHttpServer())
       .post(`/api/v1/children/${childId}/expenses`)

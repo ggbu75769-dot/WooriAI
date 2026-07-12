@@ -11,15 +11,15 @@ export class ConsentsController {
   constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
 
   @Get()
-  list(@Req() request: AuthenticatedRequest) {
-    return this.store.listConsents(request.user!);
+  async list(@Req() request: AuthenticatedRequest) {
+    return await this.store.listConsents(request.user!);
   }
 
   @Put()
-  upsert(
+  async upsert(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(UpsertConsentsDto)) body: UpsertConsentsDto
   ) {
-    return this.store.upsertConsents(request.user!, body.consents);
+    return await this.store.upsertConsents(request.user!, body.consents);
   }
 }

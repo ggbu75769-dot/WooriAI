@@ -1,5 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
@@ -7,10 +8,12 @@ import { configureApiApp } from "../src/bootstrap";
 
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
+// See admin-settings.e2e.test.ts's login() comment: a random suffix keeps dev-login
+// isolated per test run against the persistent Postgres database.
 async function login(app: INestApplication, providerToken: string) {
   const response = await request(app.getHttpServer())
     .post("/api/v1/auth/oauth-login")
-    .send({ provider: "kakao", providerToken })
+    .send({ provider: "kakao", providerToken: `${providerToken}-${randomUUID()}` })
     .expect(200);
 
   return response.body.tokens.accessToken as string;

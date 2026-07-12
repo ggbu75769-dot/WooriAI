@@ -1,111 +1,120 @@
-import { randomUUID } from "node:crypto";
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { createHash, randomBytes } from "node:crypto";
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { MemberRole } from "@wooriai/domain";
+import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 
-type MemberStatus = "pending" | "active" | "removed" | "left";
 type InviteChannel = "kakao" | "sms" | "link";
-type InviteStatus = "pending" | "accepted" | "expired" | "revoked";
 type InviteRole = Exclude<MemberRole, "owner">;
 
-type HouseholdRecord = {
-  id: string;
-  name: string;
-  ownerUserId: string;
-  status: "active" | "archived";
-};
+const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
-type MemberRecord = {
-  id: string;
-  householdId: string;
-  userId: string;
-  displayName: string;
-  role: MemberRole;
-  status: MemberStatus;
-  invitedByUserId?: string | null;
-  joinedAt: string;
-  createdAt: string;
-  updatedAt: string;
-};
+function hashInviteToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
 
-type InviteRecord = {
-  id: string;
-  householdId: string;
-  invitedByUserId: string;
-  role: InviteRole;
-  channel: InviteChannel;
-  status: InviteStatus;
-  token: string;
-  expiresAt: string;
-  acceptedByUserId?: string | null;
-  acceptedAt?: string | null;
-  createdAt: string;
-};
-
+/**
+ * Postgres-backed household/member/invite runtime, replacing the earlier in-memory
+ * Maps. Authorization checks (assertOwner/assertMember) still read from the
+ * already-DB-enriched `AuthenticatedUser.households` on the request (populated by
+ * `enrichUser` below on every token verification), so they don't need their own
+ * extra query.
+ */
 @Injectable()
 export class HouseholdRuntimeService {
-  private readonly householdsById = new Map<string, HouseholdRecord>();
-  private readonly membersByKey = new Map<string, MemberRecord>();
-  private readonly invitesByToken = new Map<string, InviteRecord>();
-  private readonly withdrawnUserIds = new Set<string>();
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  registerUserHouseholds(user: AuthenticatedUser) {
-    const now = new Date().toISOString();
-    for (const household of user.households) {
-      if (!this.householdsById.has(household.id)) {
-        this.householdsById.set(household.id, {
-          id: household.id,
-          name: household.name ?? "우리 가족",
-          ownerUserId: household.role === "owner" ? user.id : "",
-          status: "active"
-        });
-      }
+  /**
+   * Dev-login entry point (see TokenService.createDevUser / AuthService.oauthLogin):
+   * upserts the `users` row for this provider+providerUserId, and — only on a
+   * user's very first login (no active membership anywhere yet) — creates their
+   * default household and an `owner` membership for it. Runs as a single
+   * transaction so a crash between the user upsert and household/member creation
+   * can never leave a user with no household.
+   */
+  async ensureDevUser(provider: string, providerUserId: string, displayName = "개발 사용자"): Promise<AuthenticatedUser> {
+    const normalizedProviderUserId = providerUserId.slice(0, 191);
 
-      const householdRecord = this.householdsById.get(household.id)!;
-      if (!householdRecord.ownerUserId && household.role === "owner") {
-        householdRecord.ownerUserId = user.id;
-      }
-
-      const key = this.memberKey(household.id, user.id);
-      if (!this.membersByKey.has(key)) {
-        this.membersByKey.set(key, {
-          id: randomUUID(),
-          householdId: household.id,
-          userId: user.id,
-          displayName: user.displayName,
-          role: household.role,
+    const userId = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.upsert({
+        where: {
+          authProvider_providerUserId: {
+            authProvider: provider as never,
+            providerUserId: normalizedProviderUserId
+          }
+        },
+        update: {
+          lastLoginAt: new Date()
+        },
+        create: {
+          authProvider: provider as never,
+          providerUserId: normalizedProviderUserId,
+          displayName,
           status: "active",
-          invitedByUserId: null,
-          joinedAt: now,
-          createdAt: now,
-          updatedAt: now
+          lastLoginAt: new Date()
+        }
+      });
+
+      if (user.status === "active") {
+        const existingMembership = await tx.householdMember.findFirst({
+          where: { userId: user.id, status: "active" }
         });
+
+        if (!existingMembership) {
+          const household = await tx.household.create({
+            data: { name: "우리 가족", ownerUserId: user.id }
+          });
+          await tx.householdMember.create({
+            data: {
+              householdId: household.id,
+              userId: user.id,
+              role: "owner",
+              status: "active",
+              joinedAt: new Date()
+            }
+          });
+        }
       }
-    }
+
+      return user.id;
+    });
+
+    return this.enrichUser({ id: userId, displayName, email: null, status: "active", households: [] });
   }
 
-  enrichUser(user: AuthenticatedUser): AuthenticatedUser {
-    if (this.withdrawnUserIds.has(user.id)) {
-      return { ...user, status: "withdrawn", households: [] };
+  /**
+   * Rebuilds the trustworthy parts of an `AuthenticatedUser` (status, households)
+   * straight from the database rather than trusting whatever a decoded JWT payload
+   * says — membership changes (removal, leaving, withdrawal) must take effect
+   * immediately, not only once a token happens to expire.
+   */
+  async enrichUser(user: AuthenticatedUser): Promise<AuthenticatedUser> {
+    const row = await this.prisma.user.findUnique({ where: { id: user.id } });
+    if (!row || row.status !== "active") {
+      return {
+        id: user.id,
+        displayName: row?.displayName ?? user.displayName,
+        email: row?.email ?? user.email,
+        status: row?.status ?? "withdrawn",
+        households: []
+      };
     }
 
-    this.registerUserHouseholds(user);
     return {
-      ...user,
-      households: this.householdsForUser(user.id).map((membership) => ({
-        id: membership.id,
-        name: membership.name,
-        role: membership.role
-      }))
+      id: row.id,
+      displayName: row.displayName ?? user.displayName,
+      email: row.email,
+      status: row.status,
+      households: await this.householdsForUser(row.id)
     };
   }
 
-  removeMember(user: AuthenticatedUser, householdId: string, memberId: string) {
+  async removeMember(user: AuthenticatedUser, householdId: string, memberId: string) {
     this.assertOwner(user, householdId);
-    const household = this.requireHousehold(householdId);
-    const member = [...this.membersByKey.values()].find(
-      (record) => record.householdId === householdId && record.id === memberId
-    );
+    const household = await this.requireHousehold(householdId);
+    const member = await this.prisma.householdMember.findFirst({
+      where: { id: memberId, householdId }
+    });
 
     if (!member || member.status === "removed" || member.status === "left") {
       throw new NotFoundException({ code: "HOUSEHOLD_MEMBER_NOT_FOUND", message: "Household member was not found." });
@@ -118,94 +127,111 @@ export class HouseholdRuntimeService {
       });
     }
 
-    const before = this.toMemberDto(member);
-    const now = new Date().toISOString();
-    const updated: MemberRecord = { ...member, status: "removed", updatedAt: now };
-    this.membersByKey.set(this.memberKey(householdId, member.userId), updated);
+    const before = await this.toMemberDto(member);
+    const updated = await this.prisma.householdMember.update({
+      where: { id: member.id },
+      data: { status: "removed" }
+    });
 
-    return { success: true, before, after: this.toMemberDto(updated), householdId };
+    return { success: true, before, after: await this.toMemberDto(updated), householdId };
   }
 
-  leaveHousehold(user: AuthenticatedUser, householdId: string) {
+  async leaveHousehold(user: AuthenticatedUser, householdId: string) {
     this.assertMember(user, householdId);
-    const member = this.membersByKey.get(this.memberKey(householdId, user.id));
+    const member = await this.prisma.householdMember.findUnique({
+      where: { householdId_userId: { householdId, userId: user.id } }
+    });
     if (!member) {
       throw new NotFoundException({ code: "HOUSEHOLD_MEMBER_NOT_FOUND", message: "Household member was not found." });
     }
-    const now = new Date().toISOString();
-    this.membersByKey.set(this.memberKey(householdId, user.id), {
-      ...member,
-      status: "left",
-      updatedAt: now
+    await this.prisma.householdMember.update({
+      where: { id: member.id },
+      data: { status: "left" }
     });
     return { success: true, flowId: "household_leave" };
   }
 
-  withdrawUser(user: AuthenticatedUser) {
-    const now = new Date().toISOString();
-    this.withdrawnUserIds.add(user.id);
-    for (const member of [...this.membersByKey.values()].filter((record) => record.userId === user.id)) {
-      this.membersByKey.set(this.memberKey(member.householdId, member.userId), {
-        ...member,
-        status: "left",
-        updatedAt: now
+  /**
+   * Withdraws the account: marks the user withdrawn and leaves every active/pending
+   * household membership, in one transaction so a partial failure can never leave a
+   * withdrawn user still listed as an active household member.
+   */
+  async withdrawUser(user: AuthenticatedUser) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: user.id }, data: { status: "withdrawn" } });
+      await tx.householdMember.updateMany({
+        where: { userId: user.id, status: { in: ["active", "pending"] } },
+        data: { status: "left" }
       });
-    }
+    });
     return { success: true, flowId: "account_delete" };
   }
 
-  listMembers(user: AuthenticatedUser, householdId: string) {
+  async listMembers(user: AuthenticatedUser, householdId: string) {
     this.assertMember(user, householdId);
-    return {
-      members: [...this.membersByKey.values()]
-        .filter((member) => member.householdId === householdId)
-        .filter((member) => member.status === "active" || member.status === "pending")
-        .sort((left, right) => roleOrder(left.role) - roleOrder(right.role))
-        .map((member) => this.toMemberDto(member))
-    };
+    const members = await this.prisma.householdMember.findMany({
+      where: { householdId, status: { in: ["active", "pending"] } }
+    });
+    const sorted = [...members].sort((left, right) => roleOrder(left.role) - roleOrder(right.role));
+    return { members: await Promise.all(sorted.map((member) => this.toMemberDto(member))) };
   }
 
-  createInvite(user: AuthenticatedUser, householdId: string, role: InviteRole, channel: InviteChannel) {
+  async createInvite(user: AuthenticatedUser, householdId: string, role: InviteRole, channel: InviteChannel) {
     this.assertOwner(user, householdId);
-    const household = this.requireHousehold(householdId);
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 7);
-    const token = randomUUID().replaceAll("-", "");
-    const invite: InviteRecord = {
-      id: randomUUID(),
-      householdId,
-      invitedByUserId: user.id,
-      role,
-      channel,
-      status: "pending",
-      token,
-      expiresAt: expiresAt.toISOString(),
-      createdAt: now.toISOString()
-    };
-    this.invitesByToken.set(token, invite);
+    const household = await this.requireHousehold(householdId);
+    const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+    const token = randomBytes(24).toString("hex");
+
+    await this.prisma.householdInvite.create({
+      data: {
+        householdId,
+        invitedByUserId: user.id,
+        role,
+        channel,
+        status: "pending",
+        inviteTokenHash: hashInviteToken(token),
+        expiresAt
+      }
+    });
+
     return {
       inviteUrl: `https://wooriai.local/invite/${token}`,
-      expiresAt: invite.expiresAt,
+      expiresAt: expiresAt.toISOString(),
       householdName: household.name
     };
   }
 
-  getInvite(token: string) {
-    const invite = this.requirePendingInvite(token);
-    const household = this.requireHousehold(invite.householdId);
+  async getInvite(token: string) {
+    const invite = await this.requirePendingInvite(token);
+    const household = await this.requireHousehold(invite.householdId);
     return {
       householdName: household.name,
       role: invite.role,
-      expiresAt: invite.expiresAt
+      expiresAt: invite.expiresAt.toISOString()
     };
   }
 
-  acceptInvite(user: AuthenticatedUser, token: string) {
-    this.registerUserHouseholds(user);
-    const invite = this.requirePendingInvite(token);
-    const household = this.requireHousehold(invite.householdId);
+  /**
+   * Creates the accepting member row and marks the invite accepted in one
+   * transaction, so a crash between the two writes can never leave an invite
+   * marked "accepted" without a corresponding membership (or vice versa).
+   *
+   * The first statement inside the transaction is a compare-and-swap
+   * (`pending` -> `accepted`) `updateMany`. This closes a race where two different
+   * users (or a double-submit from the same user) both pass the pre-transaction
+   * `requirePendingInvite` check (both read the invite as still pending before
+   * either has written to it) and would otherwise both create/activate a
+   * membership from a single-use invite token. With the CAS, only the request that
+   * wins the `updateMany` proceeds to touch membership rows; the loser gets the
+   * same `INVITE_NOT_PENDING` error a sequential re-accept already produced.
+   */
+  async acceptInvite(user: AuthenticatedUser, token: string) {
+    const invite = await this.requirePendingInvite(token);
+    const household = await this.requireHousehold(invite.householdId);
 
-    const existingMember = this.membersByKey.get(this.memberKey(invite.householdId, user.id));
+    const existingMember = await this.prisma.householdMember.findUnique({
+      where: { householdId_userId: { householdId: invite.householdId, userId: user.id } }
+    });
     if (existingMember && existingMember.status === "active") {
       throw new ConflictException({
         code: "HOUSEHOLD_ALREADY_MEMBER",
@@ -213,24 +239,34 @@ export class HouseholdRuntimeService {
       });
     }
 
-    const now = new Date().toISOString();
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.householdInvite.updateMany({
+        where: { id: invite.id, status: "pending" },
+        data: { status: "accepted", acceptedByUserId: user.id, acceptedAt: now }
+      });
+      if (claimed.count === 0) {
+        throw new BadRequestException({ code: "INVITE_NOT_PENDING", message: "사용할 수 없는 초대 링크예요." });
+      }
 
-    this.membersByKey.set(this.memberKey(invite.householdId, user.id), {
-      id: randomUUID(),
-      householdId: invite.householdId,
-      userId: user.id,
-      displayName: user.displayName,
-      role: invite.role,
-      status: "active",
-      invitedByUserId: invite.invitedByUserId,
-      joinedAt: now,
-      createdAt: now,
-      updatedAt: now
+      if (existingMember) {
+        await tx.householdMember.update({
+          where: { id: existingMember.id },
+          data: { role: invite.role, status: "active", invitedByUserId: invite.invitedByUserId, joinedAt: now }
+        });
+      } else {
+        await tx.householdMember.create({
+          data: {
+            householdId: invite.householdId,
+            userId: user.id,
+            role: invite.role,
+            status: "active",
+            invitedByUserId: invite.invitedByUserId,
+            joinedAt: now
+          }
+        });
+      }
     });
-
-    invite.status = "accepted";
-    invite.acceptedByUserId = user.id;
-    invite.acceptedAt = now;
 
     return {
       household: {
@@ -241,28 +277,43 @@ export class HouseholdRuntimeService {
     };
   }
 
-  private householdsForUser(userId: string) {
-    return [...this.membersByKey.values()]
-      .filter((member) => member.userId === userId && member.status === "active")
+  private async householdsForUser(userId: string) {
+    const memberships = await this.prisma.householdMember.findMany({
+      where: { userId, status: "active" }
+    });
+    if (memberships.length === 0) return [];
+
+    const households = await this.prisma.household.findMany({
+      where: { id: { in: memberships.map((member) => member.householdId) }, deletedAt: null }
+    });
+    const householdById = new Map(households.map((household) => [household.id, household]));
+
+    return memberships
       .map((member) => {
-        const household = this.requireHousehold(member.householdId);
-        return {
-          id: household.id,
-          name: household.name,
-          role: member.role
-        };
-      });
+        const household = householdById.get(member.householdId);
+        if (!household) return null;
+        return { id: household.id, name: household.name, role: member.role };
+      })
+      .filter((entry): entry is { id: string; name: string; role: MemberRole } => Boolean(entry));
   }
 
-  private toMemberDto(member: MemberRecord) {
+  private async toMemberDto(member: {
+    id: string;
+    householdId: string;
+    userId: string;
+    role: MemberRole;
+    status: string;
+    joinedAt: Date | null;
+  }) {
+    const memberUser = await this.prisma.user.findUnique({ where: { id: member.userId } });
     return {
       id: member.id,
       householdId: member.householdId,
       userId: member.userId,
-      displayName: member.displayName,
+      displayName: memberUser?.displayName ?? "",
       role: member.role,
       status: member.status,
-      joinedAt: member.joinedAt
+      joinedAt: member.joinedAt?.toISOString() ?? null
     };
   }
 
@@ -280,30 +331,31 @@ export class HouseholdRuntimeService {
     }
   }
 
-  private requireHousehold(householdId: string) {
-    const household = this.householdsById.get(householdId);
-    if (!household || household.status !== "active") {
+  private async requireHousehold(householdId: string) {
+    const household = await this.prisma.household.findUnique({ where: { id: householdId } });
+    if (!household || household.deletedAt || household.status !== "active") {
       throw new NotFoundException({ code: "HOUSEHOLD_NOT_FOUND", message: "가족을 찾을 수 없어요." });
     }
     return household;
   }
 
-  private requirePendingInvite(token: string) {
-    const invite = this.invitesByToken.get(token);
+  private async requirePendingInvite(token: string) {
+    const invite = await this.prisma.householdInvite.findUnique({
+      where: { inviteTokenHash: hashInviteToken(token) }
+    });
     if (!invite) {
       throw new NotFoundException({ code: "INVITE_NOT_FOUND", message: "초대 링크를 찾을 수 없어요." });
     }
-    if (new Date(invite.expiresAt).getTime() <= Date.now()) {
+
+    if (invite.expiresAt.getTime() <= Date.now() && invite.status === "pending") {
+      await this.prisma.householdInvite.update({ where: { id: invite.id }, data: { status: "expired" } });
       invite.status = "expired";
     }
+
     if (invite.status !== "pending") {
       throw new BadRequestException({ code: "INVITE_NOT_PENDING", message: "사용할 수 없는 초대 링크예요." });
     }
     return invite;
-  }
-
-  private memberKey(householdId: string, userId: string) {
-    return `${householdId}:${userId}`;
   }
 }
 

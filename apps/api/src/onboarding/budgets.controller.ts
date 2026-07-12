@@ -18,20 +18,20 @@ export class BudgetsController {
   constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
 
   @Get()
-  get(
+  async get(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Query(createDtoValidationPipe(BudgetQueryDto)) query: BudgetQueryDto
   ) {
-    return this.store.getBudget(request.user!, childId, query.yearMonth);
+    return await this.store.getBudget(request.user!, childId, query.yearMonth);
   }
 
   @Put()
-  upsert(
+  async upsert(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Body(createDtoValidationPipe(UpsertBudgetDto)) body: UpsertBudgetDto
   ) {
-    return this.store.upsertBudget(request.user!, childId, body.yearMonth, body.amountKrw);
+    return await this.store.upsertBudget(request.user!, childId, body.yearMonth, body.amountKrw);
   }
 }

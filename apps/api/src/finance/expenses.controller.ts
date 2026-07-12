@@ -13,22 +13,22 @@ export class ChildExpensesController {
   constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
 
   @Get()
-  list(
+  async list(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Query(createDtoValidationPipe(YearMonthQueryDto)) query: YearMonthQueryDto
   ) {
-    return this.store.listExpenses(request.user!, childId, query.yearMonth);
+    return await this.store.listExpenses(request.user!, childId, query.yearMonth);
   }
 
   @Post()
   @HttpCode(200)
-  create(
+  async create(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Body(createDtoValidationPipe(CreateExpenseDto)) body: CreateExpenseDto
   ) {
-    return this.store.createExpense(request.user!, childId, body);
+    return await this.store.createExpense(request.user!, childId, body);
   }
 }
 
@@ -41,22 +41,22 @@ export class ExpensesController {
   ) {}
 
   @Get(":expenseId")
-  get(@Req() request: AuthenticatedRequest, @Param("expenseId") expenseId: string) {
-    return this.store.getExpense(request.user!, expenseId);
+  async get(@Req() request: AuthenticatedRequest, @Param("expenseId") expenseId: string) {
+    return await this.store.getExpense(request.user!, expenseId);
   }
 
   @Patch(":expenseId")
-  update(
+  async update(
     @Req() request: AuthenticatedRequest,
     @Param("expenseId") expenseId: string,
     @Body(createDtoValidationPipe(UpdateExpenseDto)) body: UpdateExpenseDto
   ) {
-    return this.store.updateExpense(request.user!, expenseId, body);
+    return await this.store.updateExpense(request.user!, expenseId, body);
   }
 
   @Delete(":expenseId")
   async delete(@Req() request: AuthenticatedRequest, @Param("expenseId") expenseId: string) {
-    const result = this.store.deleteExpense(request.user!, expenseId);
+    const result = await this.store.deleteExpense(request.user!, expenseId);
     await this.auditLogger.record({
       actorUserId: request.user!.id,
       householdId: result.householdId,

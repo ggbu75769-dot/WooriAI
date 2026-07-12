@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { randomBytes, randomUUID } from "node:crypto";
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import {
   assertMoneyKrw,
   calculateChildStage,
@@ -19,9 +20,11 @@ import {
   type PaymentMethod,
   type ProductPlatform
 } from "@wooriai/domain";
-import { itemTemplateSeeds, productLinkSeeds } from "../../prisma/seed-data";
+import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
+
+type DbClient = Prisma.TransactionClient;
 
 type ConsentDefinition = {
   type: string;
@@ -30,55 +33,44 @@ type ConsentDefinition = {
   title: string;
 };
 
-type ConsentRecord = ConsentDefinition & {
-  accepted: boolean;
-  acceptedAt: string | null;
-};
-
-type ChildRecord = {
+type ChildRow = {
   id: string;
   householdId: string;
   nickname: string;
   stageMode: ChildStageMode;
-  dueDate?: string | null;
-  birthDate?: string | null;
-  manualStage?: ChildStageCode | null;
-  deletedAt?: string | null;
+  dueDate: Date | null;
+  birthDate: Date | null;
+  manualStage: ChildStageCode | null;
+  preparedItemsSetAt: Date | null;
+  deletedAt: Date | null;
 };
 
-type BudgetRecord = {
-  childId: string;
-  yearMonth: string;
-  amountKrw: number;
-  updatedAt: string;
-};
-
-type ExpenseRecord = {
+type ExpenseRow = {
   id: string;
   childId: string;
   householdId: string;
   categoryId: string;
   amountKrw: number;
-  spentOn: string;
+  spentOn: Date;
   itemName: string;
-  merchant?: string | null;
+  merchant: string | null;
   paymentMethod: PaymentMethod;
-  memo?: string | null;
-  linkedItemTemplateId?: string | null;
+  memo: string | null;
+  linkedItemTemplateId: string | null;
   expenseType: ExpenseType;
   source: ExpenseSource;
   createdByUserId: string;
-  createdAt: string;
-  updatedAt: string;
-  deletedAt?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
 };
 
-type ItemTemplateRecord = {
+type ItemTemplateRow = {
   id: string;
   code: string;
   name: string;
   necessityLevel: NecessityLevel;
-  timingLabel: string;
+  timingLabel: string | null;
   priceMinKrw: number | null;
   priceMaxKrw: number | null;
   reasonText: string;
@@ -87,10 +79,11 @@ type ItemTemplateRecord = {
   safetyNote: string | null;
   displayOrder: number;
   active: boolean;
-  stageCodes: ChildStageCode[];
 };
 
-type ProductLinkRecord = {
+type ItemTemplateWithStages = ItemTemplateRow & { stageCodes: ChildStageCode[] };
+
+type ProductLinkRow = {
   id: string;
   itemTemplateId: string;
   platform: ProductPlatform;
@@ -104,53 +97,18 @@ type ProductLinkRecord = {
   active: boolean;
 };
 
-type ChildItemStatusRecord = {
-  childId: string;
-  itemTemplateId: string;
-  status: ItemStatus;
-  expenseId?: string | null;
-  updatedByUserId: string;
-  updatedAt: string;
-};
-
-type ImportJobRecord = {
-  id: string;
-  childId: string;
-  householdId: string;
-  createdByUserId: string;
-  status: ImportStatus;
-  fileName: string;
-  rowCount: number;
-  candidateCount: number;
-  importedCount: number;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type ImportRowRecord = {
+type ImportRowRow = {
   id: string;
   importJobId: string;
   rowIndex: number;
-  parsedDate?: string;
-  parsedItemName?: string;
-  parsedAmountKrw?: number;
-  categoryId?: string;
-  confidence: number;
+  parsedDate: Date | null;
+  parsedItemName: string | null;
+  parsedAmountKrw: number | null;
+  categoryId: string | null;
+  confidence: Prisma.Decimal | number;
   selected: boolean;
-  validationStatus: string;
   userReviewed: boolean;
-};
-
-export type AffiliateClickEntry = {
-  id: string;
-  userId: string;
-  householdId: string;
-  childId: string;
-  itemTemplateId: string;
-  productLinkId: string;
-  platform: ProductPlatform;
-  referrerScreenId?: string;
-  clickedAt: string;
+  validationStatus: string;
 };
 
 type CreateChildInput = {
@@ -241,21 +199,6 @@ const defaultImportCategoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const importMaxFileSizeBytes = 10 * 1024 * 1024;
 const importMaxRows = 2000;
 
-const defaultDisclosures = [
-  {
-    key: "affiliate_purchase",
-    text: "Purchases through affiliate links may generate a commission for WooriAI."
-  },
-  {
-    key: "sponsored_product",
-    text: "Sponsored products are marked separately from general recommendations."
-  },
-  {
-    key: "nutrition_supplement",
-    text: "Nutrition and supplement content is informational and is not medical advice."
-  }
-];
-
 const consentDefinitions: ConsentDefinition[] = [
   { type: "terms", version: "2026-07-06", required: true, title: "서비스 이용약관" },
   { type: "privacy", version: "2026-07-06", required: true, title: "개인정보 처리 동의" },
@@ -268,12 +211,6 @@ function memberRoleFor(user: AuthenticatedUser, householdId: string): MemberRole
 
 function canEdit(role: MemberRole | null) {
   return role === "owner" || role === "co_parent";
-}
-
-function deterministicUuid(value: string) {
-  const hash = createHash("sha256").update(value).digest("hex");
-  const variant = ((Number.parseInt(hash[16] ?? "0", 16) & 0x3) | 0x8).toString(16);
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-${variant}${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
 function priceBandText(priceMinKrw: number | null, priceMaxKrw: number | null) {
@@ -289,473 +226,528 @@ function priceBandText(priceMinKrw: number | null, priceMaxKrw: number | null) {
   return `${priceMaxKrw!.toLocaleString("ko-KR")}원 이하`;
 }
 
+function toDateOnly(dateOnly: string): Date {
+  return new Date(`${dateOnly.slice(0, 10)}T00:00:00.000Z`);
+}
+
+function fromDateOnly(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeChildInput(input: {
+  stageMode: ChildStageMode;
+  dueDate?: string;
+  birthDate?: string;
+  manualStage?: ChildStageCode;
+}) {
+  if (input.stageMode === "pregnant" && !input.dueDate) {
+    throw new BadRequestException({ code: "CHILD_STAGE_INPUT_REQUIRED", message: "출산 예정일을 입력해 주세요." });
+  }
+  if (input.stageMode === "born" && !input.birthDate) {
+    throw new BadRequestException({ code: "CHILD_STAGE_INPUT_REQUIRED", message: "아이 생년월일을 입력해 주세요." });
+  }
+  if (input.stageMode === "manual" && !input.manualStage) {
+    throw new BadRequestException({ code: "CHILD_STAGE_INPUT_REQUIRED", message: "아이 단계를 선택해 주세요." });
+  }
+}
+
+/**
+ * Postgres-backed onboarding/finance/commerce store, replacing the earlier
+ * in-memory Maps. Class name and every public method signature/response shape are
+ * unchanged from the in-memory version; every method is now async.
+ */
 @Injectable()
 export class OnboardingStoreService {
-  private readonly consentsByUserId = new Map<string, ConsentRecord[]>();
-  private readonly childrenById = new Map<string, ChildRecord>();
-  private readonly preparedItemIdsByChildId = new Map<string, Set<string>>();
-  private readonly budgetsByChildMonth = new Map<string, BudgetRecord>();
-  private readonly expensesById = new Map<string, ExpenseRecord>();
-  private readonly childItemStatusesByKey = new Map<string, ChildItemStatusRecord>();
-  private readonly importJobsById = new Map<string, ImportJobRecord>();
-  private readonly importRowsByJobId = new Map<string, ImportRowRecord[]>();
-  private readonly disclosuresByKey = new Map(defaultDisclosures.map((disclosure) => [disclosure.key, disclosure]));
-  private readonly itemTemplates = itemTemplateSeeds.map<ItemTemplateRecord>((item) => ({
-    id: deterministicUuid(`item-template:${item.code}`),
-    code: item.code,
-    name: item.name,
-    necessityLevel: item.necessityLevel,
-    timingLabel: item.timingLabel,
-    priceMinKrw: item.priceMinKrw,
-    priceMaxKrw: item.priceMaxKrw,
-    reasonText: item.reasonText,
-    skipReasonText: item.skipReasonText,
-    usedSecondhandOk: item.usedSecondhandOk,
-    safetyNote: item.safetyNote,
-    displayOrder: item.displayOrder,
-    active: item.active,
-    stageCodes: item.stageCodes as ChildStageCode[]
-  }));
-  private readonly productLinks = productLinkSeeds.map<ProductLinkRecord>((link) => {
-    const itemTemplateId = this.itemTemplateIdByCode(link.itemTemplateCode);
-    return {
-      id: deterministicUuid(`product-link:${link.itemTemplateCode}:${link.platform}:${link.title}`),
-      itemTemplateId,
-      platform: link.platform,
-      title: link.title,
-      url: link.url,
-      affiliateUrl: link.affiliateUrl,
-      isAffiliate: link.isAffiliate,
-      isSponsored: link.isSponsored,
-      disclosureText: link.disclosureText,
-      displayOrder: link.displayOrder,
-      active: link.active
-    };
-  });
-  private readonly affiliateClicks: AffiliateClickEntry[] = [];
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  get affiliateClickEntries() {
-    return [...this.affiliateClicks];
-  }
-
-  listConsents(user: AuthenticatedUser) {
-    const saved = this.consentsByUserId.get(user.id) ?? [];
+  async listConsents(user: AuthenticatedUser) {
+    const saved = await this.prisma.consent.findMany({ where: { userId: user.id } });
     return {
       consents: consentDefinitions.map((definition) => {
         const record = saved.find(
-          (consent) => consent.type === definition.type && consent.version === definition.version
+          (consent) => consent.consentType === definition.type && consent.version === definition.version
         );
         return {
           ...definition,
           accepted: record?.accepted ?? false,
-          acceptedAt: record?.acceptedAt ?? null
+          acceptedAt: record?.acceptedAt?.toISOString() ?? null
         };
       })
     };
   }
 
-  upsertConsents(
-    user: AuthenticatedUser,
-    consents: Array<{ type: string; version: string; accepted: boolean }>
-  ) {
-    const current = this.listConsents(user).consents;
-    const now = new Date().toISOString();
-    const next = current.map((definition) => {
+  async upsertConsents(user: AuthenticatedUser, consents: Array<{ type: string; version: string; accepted: boolean }>) {
+    const current = (await this.listConsents(user)).consents;
+    const now = new Date();
+    for (const definition of current) {
       const incoming = consents.find(
         (consent) => consent.type === definition.type && consent.version === definition.version
       );
-      return incoming
-        ? { ...definition, accepted: incoming.accepted, acceptedAt: incoming.accepted ? now : null }
-        : definition;
-    });
-    this.consentsByUserId.set(user.id, next);
+      if (!incoming) continue;
+      await this.prisma.consent.upsert({
+        where: {
+          userId_consentType_version: {
+            userId: user.id,
+            consentType: definition.type,
+            version: definition.version
+          }
+        },
+        update: {
+          accepted: incoming.accepted,
+          acceptedAt: incoming.accepted ? now : null,
+          revokedAt: incoming.accepted ? null : now
+        },
+        create: {
+          userId: user.id,
+          consentType: definition.type,
+          version: definition.version,
+          accepted: incoming.accepted,
+          acceptedAt: incoming.accepted ? now : null
+        }
+      });
+    }
     return { success: true };
   }
 
-  hasRequiredConsents(user: AuthenticatedUser) {
-    return this
-      .listConsents(user)
-      .consents.filter((consent) => consent.required)
-      .every((consent) => consent.accepted);
+  async hasRequiredConsents(user: AuthenticatedUser) {
+    const { consents } = await this.listConsents(user);
+    return consents.filter((consent) => consent.required).every((consent) => consent.accepted);
   }
 
-  assertRequiredConsents(user: AuthenticatedUser) {
-    if (!this.hasRequiredConsents(user)) {
-      throw new ForbiddenException({
-        code: "CONSENT_REQUIRED",
-        message: "필수 약관과 개인정보 동의가 필요해요."
-      });
+  async assertRequiredConsents(user: AuthenticatedUser) {
+    if (!(await this.hasRequiredConsents(user))) {
+      throw new ForbiddenException({ code: "CONSENT_REQUIRED", message: "필수 약관과 개인정보 동의가 필요해요." });
     }
   }
 
-  onboardingStatus(user: AuthenticatedUser) {
-    if (!this.hasRequiredConsents(user)) {
+  async onboardingStatus(user: AuthenticatedUser) {
+    if (!(await this.hasRequiredConsents(user))) {
       return { completed: false, nextStep: "consents" };
     }
 
-    const children = this.childrenForUser(user);
+    const children = await this.childrenForUser(user);
     if (children.length === 0) {
       return { completed: false, nextStep: "child-profile" };
     }
 
     const selectedChild = children[0];
-    if (!this.preparedItemIdsByChildId.has(selectedChild.id)) {
+    if (!selectedChild.preparedItemsSetAt) {
       return { completed: false, nextStep: "prepared-items" };
     }
 
-    if (![...this.budgetsByChildMonth.values()].some((budget) => budget.childId === selectedChild.id)) {
+    const hasBudget = await this.prisma.budget.findFirst({ where: { childId: selectedChild.id } });
+    if (!hasBudget) {
       return { completed: false, nextStep: "budget" };
     }
 
     return { completed: true, nextStep: "home" };
   }
 
-  createChild(user: AuthenticatedUser, input: CreateChildInput) {
-    this.assertRequiredConsents(user);
+  async createChild(user: AuthenticatedUser, input: CreateChildInput) {
+    await this.assertRequiredConsents(user);
     const role = memberRoleFor(user, input.householdId);
     if (!canEdit(role)) {
       throw new ForbiddenException({ code: "FORBIDDEN", message: "아이 프로필을 만들 권한이 없어요." });
     }
 
-    const child = this.normalizeChild({ id: randomUUID(), ...input });
-    this.childrenById.set(child.id, child);
-    return this.toChildDto(child);
+    normalizeChildInput(input);
+    const created = await this.prisma.child.create({
+      data: {
+        householdId: input.householdId,
+        nickname: input.nickname,
+        stageMode: input.stageMode,
+        dueDate: input.dueDate ? toDateOnly(input.dueDate) : null,
+        birthDate: input.birthDate ? toDateOnly(input.birthDate) : null,
+        manualStage: input.manualStage ?? null
+      }
+    });
+    return this.toChildDto(created);
   }
 
-  listChildren(user: AuthenticatedUser) {
-    return { children: this.childrenForUser(user).map((child) => this.toChildDto(child)) };
+  async listChildren(user: AuthenticatedUser) {
+    const children = await this.childrenForUser(user);
+    return { children: children.map((child) => this.toChildDto(child)) };
   }
 
-  getChild(user: AuthenticatedUser, childId: string) {
-    return this.toChildDto(this.requireChildAccess(user, childId));
+  async getChild(user: AuthenticatedUser, childId: string) {
+    return this.toChildDto(await this.requireChildAccess(user, childId));
   }
 
-  updateChild(user: AuthenticatedUser, childId: string, input: UpdateChildInput) {
-    const child = this.requireChildAccess(user, childId, true);
+  async updateChild(user: AuthenticatedUser, childId: string, input: UpdateChildInput) {
+    const child = await this.requireChildAccess(user, childId, true);
     const definedInput = Object.fromEntries(
       Object.entries(input).filter(([, value]) => value !== undefined)
     ) as UpdateChildInput;
-    const updated = this.normalizeChild({ ...child, ...definedInput });
-    this.childrenById.set(childId, updated);
+
+    normalizeChildInput({
+      stageMode: child.stageMode,
+      dueDate: definedInput.dueDate ?? (child.dueDate ? fromDateOnly(child.dueDate) : undefined),
+      birthDate: definedInput.birthDate ?? (child.birthDate ? fromDateOnly(child.birthDate) : undefined),
+      manualStage: definedInput.manualStage ?? child.manualStage ?? undefined
+    });
+
+    const updated = await this.prisma.child.update({
+      where: { id: childId },
+      data: {
+        ...(definedInput.nickname !== undefined ? { nickname: definedInput.nickname } : {}),
+        ...(definedInput.dueDate !== undefined ? { dueDate: toDateOnly(definedInput.dueDate) } : {}),
+        ...(definedInput.birthDate !== undefined ? { birthDate: toDateOnly(definedInput.birthDate) } : {}),
+        ...(definedInput.manualStage !== undefined ? { manualStage: definedInput.manualStage } : {})
+      }
+    });
     return this.toChildDto(updated);
   }
 
-  setPreparedItems(user: AuthenticatedUser, childId: string, itemTemplateIds: string[]) {
-    this.requireChildAccess(user, childId, true);
-    const uniqueItemTemplateIds = new Set(itemTemplateIds);
-    this.preparedItemIdsByChildId.set(childId, uniqueItemTemplateIds);
-    for (const itemTemplateId of uniqueItemTemplateIds) {
-      if (this.itemTemplates.some((item) => item.id === itemTemplateId)) {
-        this.setChildItemStatus(user, childId, itemTemplateId, "prepared");
+  /**
+   * Transactional: marks the child's onboarding "prepared items" step complete
+   * (`preparedItemsSetAt`) and upserts a `child_item_statuses` row for every
+   * submitted id that resolves to a real, existing item template — both in the
+   * same transaction, so a crash partway through can never record the step as done
+   * without its status rows (or vice versa).
+   */
+  async setPreparedItems(user: AuthenticatedUser, childId: string, itemTemplateIds: string[]) {
+    await this.requireChildAccess(user, childId, true);
+    const uniqueItemTemplateIds = [...new Set(itemTemplateIds)];
+    const existing = await this.prisma.itemTemplate.findMany({
+      where: { id: { in: uniqueItemTemplateIds } },
+      select: { id: true }
+    });
+    const validIds = new Set(existing.map((item) => item.id));
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.child.update({ where: { id: childId }, data: { preparedItemsSetAt: new Date() } });
+      for (const itemTemplateId of uniqueItemTemplateIds) {
+        if (!validIds.has(itemTemplateId)) continue;
+        await tx.childItemStatus.upsert({
+          where: { childId_itemTemplateId: { childId, itemTemplateId } },
+          update: { status: "prepared", updatedByUserId: user.id },
+          create: { childId, itemTemplateId, status: "prepared", updatedByUserId: user.id }
+        });
       }
-    }
-    return { updatedCount: uniqueItemTemplateIds.size };
+    });
+
+    return { updatedCount: uniqueItemTemplateIds.length };
   }
 
-  getBudget(user: AuthenticatedUser, childId: string, yearMonth = this.currentYearMonth()) {
-    this.requireChildAccess(user, childId);
+  async getBudget(user: AuthenticatedUser, childId: string, yearMonth = this.currentYearMonth()) {
+    await this.requireChildAccess(user, childId);
     const normalizedMonth = getSeoulMonthRange(yearMonth).yearMonth;
-    const budget = this.budgetsByChildMonth.get(this.budgetKey(childId, normalizedMonth));
+    const budget = await this.prisma.budget.findUnique({
+      where: { childId_yearMonth: { childId, yearMonth: toDateOnly(normalizedMonth) } }
+    });
     if (!budget) {
       throw new NotFoundException({ code: "BUDGET_NOT_FOUND", message: "월 예산을 찾을 수 없어요." });
     }
     return this.toBudgetDto(childId, normalizedMonth, budget.amountKrw);
   }
 
-  upsertBudget(user: AuthenticatedUser, childId: string, yearMonth: string, amountKrw: number) {
-    this.requireChildAccess(user, childId, true);
+  async upsertBudget(user: AuthenticatedUser, childId: string, yearMonth: string, amountKrw: number) {
+    await this.requireChildAccess(user, childId, true);
     const normalizedMonth = getSeoulMonthRange(yearMonth).yearMonth;
-    const budget = {
-      childId,
-      yearMonth: normalizedMonth,
-      amountKrw: this.requireMoneyKrw(amountKrw),
-      updatedAt: new Date().toISOString()
-    };
-    this.budgetsByChildMonth.set(this.budgetKey(childId, normalizedMonth), budget);
+    const amount = this.requireMoneyKrw(amountKrw);
+    const budget = await this.prisma.budget.upsert({
+      where: { childId_yearMonth: { childId, yearMonth: toDateOnly(normalizedMonth) } },
+      update: { amountKrw: amount },
+      create: { childId, yearMonth: toDateOnly(normalizedMonth), amountKrw: amount, createdByUserId: user.id }
+    });
     return this.toBudgetDto(childId, normalizedMonth, budget.amountKrw);
   }
 
-  createExpense(user: AuthenticatedUser, childId: string, input: CreateExpenseInput) {
-    const child = this.requireChildAccess(user, childId, true);
-    const now = new Date().toISOString();
-    const itemName = input.itemName.trim();
-    if (!itemName) {
-      throw new BadRequestException({ code: "EXPENSE_ITEM_NAME_REQUIRED", message: "품목명을 입력해 주세요." });
-    }
-    this.assertNotFutureDate(input.spentOn);
-    if (input.linkedItemTemplateId) {
-      this.requireExistingItemTemplateAnyStatus(input.linkedItemTemplateId);
-    }
-
-    const expense: ExpenseRecord = {
-      id: randomUUID(),
-      childId,
-      householdId: child.householdId,
-      categoryId: input.categoryId,
-      amountKrw: this.requireMoneyKrw(input.amountKrw),
-      spentOn: input.spentOn,
-      itemName,
-      merchant: this.cleanOptionalText(input.merchant),
-      paymentMethod: input.paymentMethod ?? "unknown",
-      memo: this.cleanOptionalText(input.memo),
-      linkedItemTemplateId: input.linkedItemTemplateId ?? null,
-      expenseType: input.expenseType ?? "expense",
-      source: input.source ?? "manual",
-      createdByUserId: user.id,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null
-    };
-
-    this.expensesById.set(expense.id, expense);
-    return this.toExpenseDto(expense);
+  async createExpense(user: AuthenticatedUser, childId: string, input: CreateExpenseInput) {
+    const child = await this.requireChildAccess(user, childId, true);
+    const created = await this.insertExpense(this.prisma, child.householdId, childId, user, input);
+    return this.toExpenseDto(created);
   }
 
-  listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string) {
-    this.requireChildAccess(user, childId);
-    const expenses = this.expensesForChild(childId, yearMonth);
+  async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string) {
+    await this.requireChildAccess(user, childId);
+    const expenses = await this.expensesForChild(childId, yearMonth);
     return {
       expenses: expenses.map((expense) => this.toExpenseDto(expense)),
       totalAmountKrw: this.totalExpenseKrw(expenses)
     };
   }
 
-  getExpense(user: AuthenticatedUser, expenseId: string) {
-    return this.toExpenseDto(this.requireExpenseAccess(user, expenseId));
+  async getExpense(user: AuthenticatedUser, expenseId: string) {
+    return this.toExpenseDto(await this.requireExpenseAccess(user, expenseId));
   }
 
-  updateExpense(user: AuthenticatedUser, expenseId: string, input: UpdateExpenseInput) {
-    const expense = this.requireExpenseAccess(user, expenseId, true);
-    const updated: ExpenseRecord = { ...expense };
+  async updateExpense(user: AuthenticatedUser, expenseId: string, input: UpdateExpenseInput) {
+    const expense = await this.requireExpenseAccess(user, expenseId, true);
+    const data: Prisma.ExpenseUpdateInput = {};
 
-    if (input.categoryId !== undefined) updated.categoryId = input.categoryId;
-    if (input.amountKrw !== undefined) updated.amountKrw = this.requireMoneyKrw(input.amountKrw);
+    if (input.categoryId !== undefined) {
+      await this.requireExistingCategory(input.categoryId);
+      data.categoryId = input.categoryId;
+    }
+    if (input.amountKrw !== undefined) data.amountKrw = this.requireMoneyKrw(input.amountKrw);
     if (input.spentOn !== undefined) {
       this.assertNotFutureDate(input.spentOn);
-      updated.spentOn = input.spentOn;
+      data.spentOn = toDateOnly(input.spentOn);
     }
     if (input.itemName !== undefined) {
       const itemName = input.itemName.trim();
       if (!itemName) {
         throw new BadRequestException({ code: "EXPENSE_ITEM_NAME_REQUIRED", message: "품목명을 입력해 주세요." });
       }
-      updated.itemName = itemName;
+      data.itemName = itemName;
     }
-    if (input.memo !== undefined) updated.memo = this.cleanOptionalText(input.memo ?? undefined);
-    if (input.expenseType !== undefined) updated.expenseType = input.expenseType;
+    if (input.memo !== undefined) data.memo = this.cleanOptionalText(input.memo ?? undefined);
+    if (input.expenseType !== undefined) data.expenseType = input.expenseType;
 
-    updated.updatedAt = new Date().toISOString();
-    this.expensesById.set(expenseId, updated);
+    const updated = await this.prisma.expense.update({ where: { id: expense.id }, data });
     return this.toExpenseDto(updated);
   }
 
-  deleteExpense(user: AuthenticatedUser, expenseId: string) {
-    const expense = this.requireExpenseAccess(user, expenseId, true);
+  async deleteExpense(user: AuthenticatedUser, expenseId: string) {
+    const expense = await this.requireExpenseAccess(user, expenseId, true);
     const before = this.toExpenseDto(expense);
-    const deleted: ExpenseRecord = {
-      ...expense,
-      deletedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    this.expensesById.set(expenseId, deleted);
+    const now = new Date();
+    const deleted = await this.prisma.expense.update({
+      where: { id: expense.id },
+      data: { deletedAt: now, deletedByUserId: user.id }
+    });
     return {
       success: true,
       householdId: deleted.householdId,
       before,
-      after: { ...before, deletedAt: deleted.deletedAt }
+      after: { ...before, deletedAt: deleted.deletedAt?.toISOString() ?? null }
     };
   }
 
-  createImportJob(user: AuthenticatedUser, childId: string, input: CreateImportJobInput = {}) {
-    const child = this.requireChildAccess(user, childId, true);
+  async createImportJob(user: AuthenticatedUser, childId: string, input: CreateImportJobInput = {}) {
+    const child = await this.requireChildAccess(user, childId, true);
     const fileName = this.requireAcceptedImportFile(input);
-    const now = new Date().toISOString();
-    const job: ImportJobRecord = {
-      id: randomUUID(),
-      childId,
-      householdId: child.householdId,
-      createdByUserId: user.id,
-      status: "preview_ready",
-      fileName,
-      rowCount: 0,
-      candidateCount: 0,
-      importedCount: 0,
-      createdAt: now,
-      updatedAt: now
-    };
-    const rows = this.createStubImportRows(job.id);
-    job.rowCount = rows.length;
-    job.candidateCount = rows.filter((row) => row.confidence >= 0.7).length;
 
-    this.importJobsById.set(job.id, job);
-    this.importRowsByJobId.set(job.id, rows);
+    const job = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.importJob.create({
+        data: {
+          childId,
+          householdId: child.householdId,
+          userId: user.id,
+          status: "preview_ready",
+          fileName,
+          fileType: (fileName.split(".").pop() ?? "csv").toLowerCase(),
+          fileSizeBytes: BigInt(Math.max(1, input.fileSizeBytes ?? 0)),
+          rowCount: 0,
+          candidateCount: 0,
+          importedCount: 0
+        }
+      });
+
+      const rows = this.buildStubImportRows(created.id);
+      for (const row of rows) {
+        await tx.importRow.create({
+          data: {
+            id: row.id,
+            importJobId: row.importJobId,
+            rowIndex: row.rowIndex,
+            rawJson: {},
+            parsedDate: row.parsedDate,
+            parsedItemName: row.parsedItemName,
+            parsedAmountKrw: row.parsedAmountKrw,
+            categoryId: row.categoryId,
+            confidence: row.confidence,
+            selected: row.selected,
+            userReviewed: row.userReviewed,
+            validationStatus: row.validationStatus
+          }
+        });
+      }
+
+      const candidateCount = rows.filter((row) => Number(row.confidence) >= 0.7).length;
+      return tx.importJob.update({
+        where: { id: created.id },
+        data: { rowCount: rows.length, candidateCount }
+      });
+    });
+
     return this.toImportJobDto(job);
   }
 
-  getImportJob(user: AuthenticatedUser, importJobId: string) {
-    return this.toImportJobDto(this.requireImportJobAccess(user, importJobId));
+  async getImportJob(user: AuthenticatedUser, importJobId: string) {
+    return this.toImportJobDto(await this.requireImportJobAccess(user, importJobId));
   }
 
-  listImportRows(user: AuthenticatedUser, importJobId: string) {
-    this.requireImportJobAccess(user, importJobId);
-    return {
-      rows: (this.importRowsByJobId.get(importJobId) ?? []).map((row) => this.toImportRowDto(row))
-    };
+  async listImportRows(user: AuthenticatedUser, importJobId: string) {
+    await this.requireImportJobAccess(user, importJobId);
+    const rows = await this.prisma.importRow.findMany({ where: { importJobId }, orderBy: { rowIndex: "asc" } });
+    return { rows: rows.map((row) => this.toImportRowDto(row)) };
   }
 
-  updateImportRow(
-    user: AuthenticatedUser,
-    importJobId: string,
-    rowId: string,
-    input: UpdateImportRowInput
-  ) {
-    const job = this.requireImportJobAccess(user, importJobId, true);
+  async updateImportRow(user: AuthenticatedUser, importJobId: string, rowId: string, input: UpdateImportRowInput) {
+    const job = await this.requireImportJobAccess(user, importJobId, true);
     if (job.status !== "preview_ready") {
       throw new BadRequestException({ code: "IMPORT_NOT_EDITABLE", message: "Import preview can no longer be edited." });
     }
 
-    const rows = this.importRowsByJobId.get(importJobId) ?? [];
-    const rowIndex = rows.findIndex((row) => row.id === rowId);
-    if (rowIndex === -1) {
+    const current = await this.prisma.importRow.findFirst({ where: { id: rowId, importJobId } });
+    if (!current) {
       throw new NotFoundException({ code: "IMPORT_ROW_NOT_FOUND", message: "Import preview row was not found." });
     }
 
-    const current = rows[rowIndex];
-    const updated: ImportRowRecord = {
+    const merged: ImportRowRow = {
       ...current,
       categoryId: input.categoryId ?? current.categoryId,
       parsedItemName:
-        input.parsedItemName === undefined ? current.parsedItemName : this.cleanOptionalText(input.parsedItemName) ?? undefined,
+        input.parsedItemName === undefined ? current.parsedItemName : this.cleanOptionalText(input.parsedItemName) ?? null,
       parsedAmountKrw: input.parsedAmountKrw ?? current.parsedAmountKrw,
       selected: input.selected ?? current.selected,
       userReviewed: true
     };
-    updated.validationStatus = this.validationStatusForImportRow(updated);
-    if (updated.validationStatus !== "valid") {
-      updated.selected = false;
-    }
+    const validationStatus = this.validationStatusForImportRow(merged);
+    const selected = validationStatus === "valid" ? merged.selected : false;
 
-    rows[rowIndex] = updated;
-    this.importRowsByJobId.set(importJobId, rows);
-    this.importJobsById.set(importJobId, { ...job, updatedAt: new Date().toISOString() });
+    const updated = await this.prisma.importRow.update({
+      where: { id: rowId },
+      data: {
+        categoryId: merged.categoryId,
+        parsedItemName: merged.parsedItemName,
+        parsedAmountKrw: merged.parsedAmountKrw,
+        selected,
+        userReviewed: true,
+        validationStatus
+      }
+    });
     return this.toImportRowDto(updated);
   }
 
-  confirmImport(user: AuthenticatedUser, importJobId: string, input: ConfirmImportInput = {}) {
-    const job = this.requireImportJobAccess(user, importJobId, true);
+  /**
+   * Transactional: creates every importable selected row as an expense and marks
+   * the import job confirmed in one Prisma transaction, so a failure partway
+   * through (e.g. an invalid categoryId on one row) rolls back every expense this
+   * confirm would otherwise have created, rather than leaving a partial import.
+   *
+   * The first statement inside the transaction is a compare-and-swap
+   * (`preview_ready` -> `confirmed`) `updateMany`. This closes a race where two
+   * concurrent confirm requests for the same import job both pass the
+   * pre-transaction `job.status !== "preview_ready"` check (both read the row
+   * before either has written to it) and would otherwise both insert the same
+   * expenses. With the CAS, only the request that wins the `updateMany` proceeds to
+   * insert; the loser gets the exact same `IMPORT_NOT_CONFIRMABLE` error a
+   * sequential double-confirm already produced before this fix.
+   */
+  async confirmImport(user: AuthenticatedUser, importJobId: string, input: ConfirmImportInput = {}) {
+    const job = await this.requireImportJobAccess(user, importJobId, true);
     if (job.status !== "preview_ready") {
       throw new BadRequestException({ code: "IMPORT_NOT_CONFIRMABLE", message: "Import job is not ready to confirm." });
     }
 
     const selectedRowIds = new Set(input.selectedRowIds ?? []);
     const hasExplicitSelection = selectedRowIds.size > 0;
-    const rows = this.importRowsByJobId.get(importJobId) ?? [];
+    const rows = await this.prisma.importRow.findMany({ where: { importJobId } });
     const selectedRows = rows.filter((row) => (hasExplicitSelection ? selectedRowIds.has(row.id) : row.selected));
     const importableRows = selectedRows.filter((row) => this.validationStatusForImportRow(row) === "valid");
 
-    for (const row of importableRows) {
-      this.createExpense(user, job.childId, {
-        categoryId: row.categoryId!,
-        amountKrw: row.parsedAmountKrw!,
-        spentOn: row.parsedDate!,
-        itemName: row.parsedItemName!,
-        paymentMethod: "unknown",
-        source: "excel_import"
+    const importedCount = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.importJob.updateMany({
+        where: { id: importJobId, status: "preview_ready" },
+        data: { status: "confirmed" }
       });
-    }
+      if (claimed.count === 0) {
+        throw new BadRequestException({ code: "IMPORT_NOT_CONFIRMABLE", message: "Import job is not ready to confirm." });
+      }
 
-    const confirmedJob: ImportJobRecord = {
-      ...job,
-      status: "confirmed",
-      importedCount: importableRows.length,
-      updatedAt: new Date().toISOString()
-    };
-    this.importJobsById.set(importJobId, confirmedJob);
+      for (const row of importableRows) {
+        await this.insertExpense(tx, job.householdId, job.childId, user, {
+          categoryId: row.categoryId!,
+          amountKrw: row.parsedAmountKrw!,
+          spentOn: fromDateOnly(row.parsedDate!),
+          itemName: row.parsedItemName!,
+          paymentMethod: "unknown",
+          source: "excel_import"
+        });
+      }
+
+      await tx.importJob.update({
+        where: { id: importJobId },
+        data: { importedCount: importableRows.length }
+      });
+
+      return importableRows.length;
+    });
+
     return {
-      importedCount: importableRows.length,
-      skippedCount: selectedRows.length - importableRows.length
+      importedCount,
+      skippedCount: selectedRows.length - importedCount
     };
   }
 
-  getHome(user: AuthenticatedUser, childId: string) {
-    const child = this.requireChildAccess(user, childId);
+  async getHome(user: AuthenticatedUser, childId: string) {
+    const child = await this.requireChildAccess(user, childId);
     const yearMonth = this.currentYearMonth();
-    const budget = this.budgetsByChildMonth.get(this.budgetKey(childId, yearMonth));
-    const recentExpenses = this.expensesForChild(childId).slice(0, 3);
+    const budget = await this.prisma.budget.findUnique({
+      where: { childId_yearMonth: { childId, yearMonth: toDateOnly(yearMonth) } }
+    });
+    const recentExpenses = (await this.expensesForChild(childId)).slice(0, 3);
 
     return {
       child: this.toChildDto(child),
-      totalExpenseKrw: this.totalExpenseKrw(this.expensesForChild(childId)),
-      monthly: this.toBudgetDto(childId, yearMonth, budget?.amountKrw ?? 0),
-      recommendedItems: this.recommendedItemsForChild(childId).slice(0, 3),
+      totalExpenseKrw: this.totalExpenseKrw(await this.expensesForChild(childId)),
+      monthly: await this.toBudgetDto(childId, yearMonth, budget?.amountKrw ?? 0),
+      recommendedItems: (await this.recommendedItemsForChild(childId)).slice(0, 3),
       recentExpenses: recentExpenses.map((expense) => this.toExpenseDto(expense))
     };
   }
 
-  listItems(user: AuthenticatedUser, childId: string, tab: ItemTab = "now") {
-    this.requireChildAccess(user, childId);
-    return { items: this.itemsForChild(childId, tab).map((item) => this.toItemSummaryDto(childId, item)) };
+  async listItems(user: AuthenticatedUser, childId: string, tab: ItemTab = "now") {
+    await this.requireChildAccess(user, childId);
+    const items = await this.itemsForChild(childId, tab);
+    return { items: items.map(({ item, status }) => this.toItemSummaryDto(item, status)) };
   }
 
-  getItemDetail(user: AuthenticatedUser, childId: string, itemTemplateId: string) {
-    this.requireChildAccess(user, childId);
-    const item = this.requireItemTemplate(itemTemplateId);
+  async getItemDetail(user: AuthenticatedUser, childId: string, itemTemplateId: string) {
+    await this.requireChildAccess(user, childId);
+    const item = await this.requireItemTemplate(itemTemplateId);
+    const status = await this.itemStatusFor(childId, itemTemplateId);
+    const links = await this.prisma.productLink.findMany({
+      where: { itemTemplateId: item.id, active: true },
+      orderBy: { displayOrder: "asc" }
+    });
+    const disclosures = await this.disclosuresByKey();
+
     return {
-      ...this.toItemSummaryDto(childId, item),
+      ...this.toItemSummaryDto(item, status),
       reasonText: item.reasonText,
       skipReasonText: item.skipReasonText,
       usedSecondhandOk: item.usedSecondhandOk,
       safetyNote: item.safetyNote,
-      productLinks: this.productLinks
-        .filter((link) => link.itemTemplateId === item.id && link.active)
-        .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map((link) => this.toProductLinkDto(link))
+      productLinks: links.map((link) => this.toProductLinkDto(link, disclosures))
     };
   }
 
-  updateItemStatus(
-    user: AuthenticatedUser,
-    childId: string,
-    itemTemplateId: string,
-    status: ItemStatus,
-    expenseId?: string
-  ) {
-    this.requireChildAccess(user, childId, true);
-    this.requireItemTemplate(itemTemplateId);
+  async updateItemStatus(user: AuthenticatedUser, childId: string, itemTemplateId: string, status: ItemStatus, expenseId?: string) {
+    await this.requireChildAccess(user, childId, true);
+    const item = await this.requireItemTemplate(itemTemplateId);
     if (expenseId) {
-      this.requireExpenseBelongsToChild(user, expenseId, childId);
+      await this.requireExpenseBelongsToChild(user, expenseId, childId);
     }
-    this.setChildItemStatus(user, childId, itemTemplateId, status, expenseId);
-    return this.toItemSummaryDto(childId, this.requireItemTemplate(itemTemplateId));
+    await this.setChildItemStatus(user, childId, itemTemplateId, status, expenseId);
+    return this.toItemSummaryDto(item, status);
   }
 
-  clickProductLink(
-    user: AuthenticatedUser,
-    productLinkId: string,
-    input: { childId: string; referrerScreenId?: string }
-  ) {
-    const child = this.requireChildAccess(user, input.childId);
-    const productLink = this.productLinks.find((link) => link.id === productLinkId && link.active);
+  async clickProductLink(user: AuthenticatedUser, productLinkId: string, input: { childId: string; referrerScreenId?: string }) {
+    const child = await this.requireChildAccess(user, input.childId);
+    const productLink = await this.prisma.productLink.findFirst({ where: { id: productLinkId, active: true } });
     if (!productLink) {
       throw new NotFoundException({ code: "PRODUCT_LINK_NOT_FOUND", message: "상품 링크를 찾을 수 없어요." });
     }
-    this.requireItemTemplate(productLink.itemTemplateId);
+    await this.requireItemTemplate(productLink.itemTemplateId);
 
     const redirectUrl = productLink.affiliateUrl ?? productLink.url;
     this.requireHttpUrl(redirectUrl);
 
-    const click: AffiliateClickEntry = {
-      id: randomUUID(),
-      userId: user.id,
-      householdId: child.householdId,
-      childId: input.childId,
-      itemTemplateId: productLink.itemTemplateId,
-      productLinkId: productLink.id,
-      platform: productLink.platform,
-      referrerScreenId: input.referrerScreenId,
-      clickedAt: new Date().toISOString()
-    };
-    this.affiliateClicks.push(click);
+    const click = await this.prisma.affiliateClick.create({
+      data: {
+        userId: user.id,
+        householdId: child.householdId,
+        childId: input.childId,
+        itemTemplateId: productLink.itemTemplateId,
+        productLinkId: productLink.id,
+        platform: productLink.platform,
+        referrerScreenId: input.referrerScreenId
+      }
+    });
 
     return {
       clickId: click.id,
@@ -764,30 +756,50 @@ export class OnboardingStoreService {
     };
   }
 
-  getMonthlyReport(user: AuthenticatedUser, childId: string, yearMonth = this.currentYearMonth()) {
-    this.requireChildAccess(user, childId);
+  async getMonthlyReport(user: AuthenticatedUser, childId: string, yearMonth = this.currentYearMonth()) {
+    await this.requireChildAccess(user, childId);
     const normalizedMonth = getSeoulMonthRange(yearMonth).yearMonth;
-    const expenses = this.expensesForChild(childId, normalizedMonth);
-    const budget = this.budgetsByChildMonth.get(this.budgetKey(childId, normalizedMonth));
+    const range = getSeoulMonthRange(normalizedMonth);
+    const [totalExpenseKrw, budget, categoryTop] = await Promise.all([
+      this.sumExpenses(childId, range),
+      this.prisma.budget.findUnique({ where: { childId_yearMonth: { childId, yearMonth: toDateOnly(normalizedMonth) } } }),
+      this.categoryBreakdown(childId, range)
+    ]);
 
     return {
       childId,
       yearMonth: normalizedMonth,
-      totalExpenseKrw: this.totalExpenseKrw(expenses),
+      totalExpenseKrw,
       budgetAmountKrw: budget?.amountKrw ?? null,
-      categoryTop: this.categoryBreakdown(expenses)
+      categoryTop
     };
   }
 
-  getYearlyReport(user: AuthenticatedUser, childId: string, year = this.currentYear()) {
-    this.requireChildAccess(user, childId);
+  async getYearlyReport(user: AuthenticatedUser, childId: string, year = this.currentYear()) {
+    await this.requireChildAccess(user, childId);
     const normalizedYear = this.requireValidYear(year);
+    const rows = await this.prisma.expense.findMany({
+      where: {
+        childId,
+        deletedAt: null,
+        expenseType: "expense",
+        spentOn: {
+          gte: new Date(`${normalizedYear}-01-01T00:00:00.000Z`),
+          lt: new Date(`${Number(normalizedYear) + 1}-01-01T00:00:00.000Z`)
+        }
+      },
+      select: { spentOn: true, amountKrw: true }
+    });
+
+    const totalsByMonth = new Map<string, number>();
+    for (const row of rows) {
+      const key = fromDateOnly(row.spentOn).slice(0, 7);
+      totalsByMonth.set(key, (totalsByMonth.get(key) ?? 0) + row.amountKrw);
+    }
+
     const monthlyTotals = Array.from({ length: 12 }, (_, index) => {
       const yearMonth = `${normalizedYear}-${String(index + 1).padStart(2, "0")}`;
-      return {
-        yearMonth,
-        totalExpenseKrw: this.totalExpenseKrw(this.expensesForChild(childId, yearMonth))
-      };
+      return { yearMonth, totalExpenseKrw: totalsByMonth.get(yearMonth) ?? 0 };
     });
 
     return {
@@ -798,117 +810,117 @@ export class OnboardingStoreService {
     };
   }
 
-  getCumulativeReport(user: AuthenticatedUser, childId: string) {
-    this.requireChildAccess(user, childId);
-    const expenses = this.expensesForChild(childId).filter((expense) => expense.expenseType === "expense");
-    const yearly = new Map<string, { year: string; amountKrw: number; count: number }>();
+  async getCumulativeReport(user: AuthenticatedUser, childId: string) {
+    await this.requireChildAccess(user, childId);
+    const rows = await this.prisma.expense.findMany({
+      where: { childId, deletedAt: null, expenseType: "expense" },
+      select: { spentOn: true, amountKrw: true }
+    });
 
-    for (const expense of expenses) {
-      const year = expense.spentOn.slice(0, 4);
+    const yearly = new Map<string, { year: string; amountKrw: number; count: number }>();
+    for (const row of rows) {
+      const year = fromDateOnly(row.spentOn).slice(0, 4);
       const current = yearly.get(year) ?? { year, amountKrw: 0, count: 0 };
-      current.amountKrw += expense.amountKrw;
+      current.amountKrw += row.amountKrw;
       current.count += 1;
       yearly.set(year, current);
     }
 
     return {
       childId,
-      totalExpenseKrw: this.totalExpenseKrw(expenses),
+      totalExpenseKrw: rows.reduce((sum, row) => sum + row.amountKrw, 0),
       yearly: [...yearly.values()].sort((left, right) => right.year.localeCompare(left.year))
     };
   }
 
-  getCategoryReport(user: AuthenticatedUser, childId: string, yearMonth?: string) {
-    this.requireChildAccess(user, childId);
-    const normalizedMonth = yearMonth ? getSeoulMonthRange(yearMonth).yearMonth : undefined;
+  async getCategoryReport(user: AuthenticatedUser, childId: string, yearMonth?: string) {
+    await this.requireChildAccess(user, childId);
+    const range = yearMonth ? getSeoulMonthRange(yearMonth) : undefined;
     return {
       childId,
-      categories: this.categoryBreakdown(this.expensesForChild(childId, normalizedMonth))
+      categories: await this.categoryBreakdown(childId, range)
     };
   }
 
-  adminListItemTemplates() {
-    return { items: this.itemTemplates.map((item) => this.toAdminItemDetailDto(item)) };
+  async adminListItemTemplates() {
+    const items = await this.listItemTemplatesWithStages(false);
+    const links = await this.prisma.productLink.findMany();
+    const disclosures = await this.disclosuresByKey();
+    const linksByItem = this.groupBy(links, (link) => link.itemTemplateId);
+    return { items: items.map((item) => this.toAdminItemDetailDto(item, linksByItem.get(item.id) ?? [], disclosures)) };
   }
 
-  adminCreateItemTemplate(input: AdminItemTemplateInput) {
-    const item = this.normalizeAdminItemTemplateInput({
-      name: input.name,
-      categoryId: input.categoryId,
-      necessityLevel: input.necessityLevel,
-      timingLabel: input.timingLabel,
-      priceMinKrw: input.priceMinKrw,
-      priceMaxKrw: input.priceMaxKrw,
-      reasonText: input.reasonText,
-      skipReasonText: input.skipReasonText,
-      usedSecondhandOk: input.usedSecondhandOk,
-      safetyNote: input.safetyNote,
-      stageCodes: input.stageCodes,
-      active: input.active
+  async adminCreateItemTemplate(input: AdminItemTemplateInput) {
+    const normalized = this.normalizeAdminItemTemplateInput(input, {});
+    const created = await this.prisma.$transaction(async (tx) => {
+      const item = await tx.itemTemplate.create({
+        data: {
+          code: `admin_${Date.now()}_${randomBytes(3).toString("hex")}`,
+          name: normalized.name!,
+          categoryId: input.categoryId ?? null,
+          necessityLevel: normalized.necessityLevel!,
+          timingLabel: normalized.timingLabel ?? "",
+          priceMinKrw: normalized.priceMinKrw ?? null,
+          priceMaxKrw: normalized.priceMaxKrw ?? null,
+          reasonText: normalized.reasonText!,
+          skipReasonText: normalized.skipReasonText ?? null,
+          usedSecondhandOk: normalized.usedSecondhandOk ?? false,
+          safetyNote: normalized.safetyNote ?? null,
+          displayOrder: await this.nextItemDisplayOrder(tx),
+          active: normalized.active ?? true
+        }
+      });
+      await this.replaceItemTemplateStages(tx, item.id, normalized.stageCodes ?? (["infant_4_6"] as ChildStageCode[]));
+      return item;
     });
-    const record: ItemTemplateRecord = {
-      id: randomUUID(),
-      code: `admin_${Date.now()}_${this.itemTemplates.length + 1}`,
-      name: item.name!,
-      necessityLevel: item.necessityLevel!,
-      timingLabel: item.timingLabel ?? "",
-      priceMinKrw: item.priceMinKrw ?? null,
-      priceMaxKrw: item.priceMaxKrw ?? null,
-      reasonText: item.reasonText!,
-      skipReasonText: item.skipReasonText ?? null,
-      usedSecondhandOk: item.usedSecondhandOk ?? false,
-      safetyNote: item.safetyNote ?? null,
-      displayOrder: this.nextItemDisplayOrder(),
-      active: item.active ?? true,
-      stageCodes: item.stageCodes ?? (["infant_4_6"] as ChildStageCode[])
-    };
-    this.itemTemplates.push(record);
-    return this.toAdminItemDetailDto(record);
+
+    const withStages = await this.requireItemTemplateAnyStatus(created.id);
+    return this.toAdminItemDetailDto(withStages, [], await this.disclosuresByKey());
   }
 
-  adminUpdateItemTemplate(itemTemplateId: string, input: AdminItemTemplateInput) {
-    const item = this.requireItemTemplateAnyStatus(itemTemplateId);
-    const next = this.normalizeAdminItemTemplateInput({
-      name: input.name ?? item.name,
-      necessityLevel: input.necessityLevel ?? item.necessityLevel,
-      timingLabel: input.timingLabel ?? item.timingLabel,
-      priceMinKrw: input.priceMinKrw ?? item.priceMinKrw,
-      priceMaxKrw: input.priceMaxKrw ?? item.priceMaxKrw,
-      reasonText: input.reasonText ?? item.reasonText,
-      skipReasonText: input.skipReasonText ?? item.skipReasonText,
-      usedSecondhandOk: input.usedSecondhandOk ?? item.usedSecondhandOk,
-      safetyNote: input.safetyNote ?? item.safetyNote,
-      stageCodes: input.stageCodes ?? item.stageCodes,
-      active: input.active ?? item.active
+  async adminUpdateItemTemplate(itemTemplateId: string, input: AdminItemTemplateInput) {
+    const item = await this.requireItemTemplateAnyStatus(itemTemplateId);
+    const normalized = this.normalizeAdminItemTemplateInput(input, item);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.itemTemplate.update({
+        where: { id: itemTemplateId },
+        data: {
+          name: normalized.name!,
+          categoryId: input.categoryId ?? undefined,
+          necessityLevel: normalized.necessityLevel!,
+          timingLabel: normalized.timingLabel ?? "",
+          priceMinKrw: normalized.priceMinKrw ?? null,
+          priceMaxKrw: normalized.priceMaxKrw ?? null,
+          reasonText: normalized.reasonText!,
+          skipReasonText: normalized.skipReasonText ?? null,
+          usedSecondhandOk: normalized.usedSecondhandOk ?? false,
+          safetyNote: normalized.safetyNote ?? null,
+          active: normalized.active ?? true
+        }
+      });
+      if (normalized.stageCodes) {
+        await this.replaceItemTemplateStages(tx, itemTemplateId, normalized.stageCodes);
+      }
+      return row;
     });
-    const updated: ItemTemplateRecord = {
-      ...item,
-      name: next.name!,
-      necessityLevel: next.necessityLevel!,
-      timingLabel: next.timingLabel ?? "",
-      priceMinKrw: next.priceMinKrw ?? null,
-      priceMaxKrw: next.priceMaxKrw ?? null,
-      reasonText: next.reasonText!,
-      skipReasonText: next.skipReasonText ?? null,
-      usedSecondhandOk: next.usedSecondhandOk ?? false,
-      safetyNote: next.safetyNote ?? null,
-      active: next.active ?? true,
-      stageCodes: next.stageCodes ?? item.stageCodes
-    };
-    const index = this.itemTemplates.findIndex((record) => record.id === itemTemplateId);
-    this.itemTemplates[index] = updated;
-    return this.toAdminItemDetailDto(updated);
+
+    const withStages = await this.requireItemTemplateAnyStatus(updated.id);
+    const links = await this.prisma.productLink.findMany({ where: { itemTemplateId } });
+    return this.toAdminItemDetailDto(withStages, links, await this.disclosuresByKey());
   }
 
-  adminListProductLinks() {
-    return { links: this.productLinks.map((link) => this.toAdminProductLinkDto(link)) };
+  async adminListProductLinks() {
+    const links = await this.prisma.productLink.findMany();
+    const disclosures = await this.disclosuresByKey();
+    return { links: links.map((link) => this.toAdminProductLinkDto(link, disclosures)) };
   }
 
-  adminCreateProductLink(input: AdminProductLinkInput) {
+  async adminCreateProductLink(input: AdminProductLinkInput) {
     if (!input.itemTemplateId) {
       throw new BadRequestException({ code: "ADMIN_ITEM_TEMPLATE_REQUIRED", message: "Item template is required." });
     }
-    this.requireItemTemplateAnyStatus(input.itemTemplateId);
+    await this.requireItemTemplateAnyStatus(input.itemTemplateId);
     if (!input.platform || !input.title?.trim() || !input.url?.trim()) {
       throw new BadRequestException({ code: "ADMIN_PRODUCT_LINK_REQUIRED", message: "Product link fields are required." });
     }
@@ -916,81 +928,92 @@ export class OnboardingStoreService {
     if (input.affiliateUrl) {
       this.requireHttpUrl(input.affiliateUrl);
     }
-    const link: ProductLinkRecord = {
-      id: randomUUID(),
-      itemTemplateId: input.itemTemplateId,
-      platform: input.platform,
-      title: input.title.trim(),
-      url: input.url.trim(),
-      affiliateUrl: this.cleanOptionalText(input.affiliateUrl ?? undefined),
-      isAffiliate: input.isAffiliate ?? false,
-      isSponsored: input.isSponsored ?? false,
-      disclosureText: this.cleanOptionalText(input.disclosureText ?? undefined),
-      displayOrder: this.nextProductLinkDisplayOrder(input.itemTemplateId),
-      active: input.active ?? true
-    };
-    this.productLinks.push(link);
-    return this.toAdminProductLinkDto(link);
+
+    const link = await this.prisma.productLink.create({
+      data: {
+        itemTemplateId: input.itemTemplateId,
+        platform: input.platform,
+        title: input.title.trim(),
+        url: input.url.trim(),
+        affiliateUrl: this.cleanOptionalText(input.affiliateUrl ?? undefined),
+        isAffiliate: input.isAffiliate ?? false,
+        isSponsored: input.isSponsored ?? false,
+        disclosureText: this.cleanOptionalText(input.disclosureText ?? undefined),
+        displayOrder: await this.nextProductLinkDisplayOrder(input.itemTemplateId),
+        active: input.active ?? true
+      }
+    });
+    return this.toAdminProductLinkDto(link, await this.disclosuresByKey());
   }
 
-  adminUpdateProductLink(productLinkId: string, input: AdminProductLinkInput) {
-    const current = this.requireProductLinkAnyStatus(productLinkId);
-    const updated: ProductLinkRecord = {
-      ...current,
-      itemTemplateId: input.itemTemplateId ?? current.itemTemplateId,
-      platform: input.platform ?? current.platform,
-      title: input.title === undefined ? current.title : input.title.trim(),
-      url: input.url === undefined ? current.url : input.url.trim(),
-      affiliateUrl: input.affiliateUrl === undefined ? current.affiliateUrl : this.cleanOptionalText(input.affiliateUrl ?? undefined),
-      isAffiliate: input.isAffiliate ?? current.isAffiliate,
-      isSponsored: input.isSponsored ?? current.isSponsored,
-      disclosureText:
-        input.disclosureText === undefined ? current.disclosureText : this.cleanOptionalText(input.disclosureText ?? undefined),
-      active: input.active ?? current.active
-    };
-    this.requireItemTemplateAnyStatus(updated.itemTemplateId);
-    if (!updated.title || !updated.url) {
+  async adminUpdateProductLink(productLinkId: string, input: AdminProductLinkInput) {
+    const current = await this.requireProductLinkAnyStatus(productLinkId);
+    const itemTemplateId = input.itemTemplateId ?? current.itemTemplateId;
+    await this.requireItemTemplateAnyStatus(itemTemplateId);
+
+    const title = input.title === undefined ? current.title : input.title.trim();
+    const url = input.url === undefined ? current.url : input.url.trim();
+    if (!title || !url) {
       throw new BadRequestException({ code: "ADMIN_PRODUCT_LINK_REQUIRED", message: "Product link fields are required." });
     }
-    this.requireHttpUrl(updated.url);
-    if (updated.affiliateUrl) {
-      this.requireHttpUrl(updated.affiliateUrl);
+    this.requireHttpUrl(url);
+    const affiliateUrl =
+      input.affiliateUrl === undefined ? current.affiliateUrl : this.cleanOptionalText(input.affiliateUrl ?? undefined);
+    if (affiliateUrl) {
+      this.requireHttpUrl(affiliateUrl);
     }
-    const index = this.productLinks.findIndex((link) => link.id === productLinkId);
-    this.productLinks[index] = updated;
-    return this.toAdminProductLinkDto(updated);
+
+    const updated = await this.prisma.productLink.update({
+      where: { id: productLinkId },
+      data: {
+        itemTemplateId,
+        platform: input.platform ?? current.platform,
+        title,
+        url,
+        affiliateUrl,
+        isAffiliate: input.isAffiliate ?? current.isAffiliate,
+        isSponsored: input.isSponsored ?? current.isSponsored,
+        disclosureText:
+          input.disclosureText === undefined ? current.disclosureText : this.cleanOptionalText(input.disclosureText ?? undefined),
+        active: input.active ?? current.active
+      }
+    });
+    return this.toAdminProductLinkDto(updated, await this.disclosuresByKey());
   }
 
-  adminListDisclosures() {
-    return { disclosures: [...this.disclosuresByKey.values()] };
+  async adminListDisclosures() {
+    const rows = await this.prisma.disclosure.findMany({ orderBy: { key: "asc" } });
+    return { disclosures: rows.map((row) => ({ key: row.key, text: row.text })) };
   }
 
-  adminUpdateDisclosure(key: string, text: string) {
+  async adminUpdateDisclosure(key: string, text: string) {
     const cleanedText = text.trim();
     if (!cleanedText) {
       throw new BadRequestException({ code: "ADMIN_DISCLOSURE_REQUIRED", message: "Disclosure text is required." });
     }
-    const disclosure = { key, text: cleanedText };
-    this.disclosuresByKey.set(key, disclosure);
-    return disclosure;
+    const row = await this.prisma.disclosure.upsert({
+      where: { key },
+      update: { text: cleanedText },
+      create: { key, text: cleanedText }
+    });
+    return { key: row.key, text: row.text };
   }
 
-  adminAffiliateClickSummary() {
-    const byPlatform = new Map<string, { platform: string; count: number }>();
-    for (const click of this.affiliateClicks) {
-      const current = byPlatform.get(click.platform) ?? { platform: click.platform, count: 0 };
-      current.count += 1;
-      byPlatform.set(click.platform, current);
-    }
+  async adminAffiliateClickSummary() {
+    const grouped = await this.prisma.affiliateClick.groupBy({
+      by: ["platform"],
+      _count: { _all: true }
+    });
+    const totalClicks = grouped.reduce((sum, group) => sum + group._count._all, 0);
     return {
-      totalClicks: this.affiliateClicks.length,
-      byPlatform: [...byPlatform.values()]
+      totalClicks,
+      byPlatform: grouped.map((group) => ({ platform: group.platform, count: group._count._all }))
     };
   }
 
-  getPrivacySettings(user: AuthenticatedUser) {
+  async getPrivacySettings(user: AuthenticatedUser) {
     return {
-      consents: this.listConsents(user).consents,
+      consents: (await this.listConsents(user)).consents,
       flows: [
         {
           id: "account_delete",
@@ -1014,8 +1037,8 @@ export class OnboardingStoreService {
     };
   }
 
-  previewChildProfileDeletion(user: AuthenticatedUser, childId: string) {
-    this.requireChildAccess(user, childId, true);
+  async previewChildProfileDeletion(user: AuthenticatedUser, childId: string) {
+    await this.requireChildAccess(user, childId, true);
     return {
       flowId: "child_profile_delete",
       requiresSecondStep: true,
@@ -1024,31 +1047,86 @@ export class OnboardingStoreService {
     };
   }
 
-  confirmChildProfileDeletion(user: AuthenticatedUser, childId: string, confirmationText: string) {
+  /**
+   * Transactional: soft-deletes the child and bulk soft-deletes every one of its
+   * non-deleted expenses in one transaction, so a crash partway through can never
+   * leave a deleted child with still-active expense rows (which would otherwise
+   * keep counting toward reports/budgets for a child the user can no longer see).
+   */
+  async confirmChildProfileDeletion(user: AuthenticatedUser, childId: string, confirmationText: string) {
     this.assertConfirmation(confirmationText, "DELETE CHILD");
-    const child = this.requireChildAccess(user, childId, true);
-    const now = new Date().toISOString();
-    const expensesToDelete = this.expensesForChild(childId);
-    this.childrenById.set(childId, { ...child, deletedAt: now });
-    for (const expense of expensesToDelete) {
-      this.expensesById.set(expense.id, { ...expense, deletedAt: now, updatedAt: now });
-    }
+    const child = await this.requireChildAccess(user, childId, true);
+    const now = new Date();
+
+    const deletedExpenseCount = await this.prisma.$transaction(async (tx) => {
+      await tx.child.update({ where: { id: childId }, data: { deletedAt: now } });
+      const result = await tx.expense.updateMany({
+        where: { childId, deletedAt: null },
+        data: { deletedAt: now, deletedByUserId: user.id }
+      });
+      return result.count;
+    });
+
     return {
       success: true,
       flowId: "child_profile_delete",
       householdId: child.householdId,
-      deletedExpenseCount: expensesToDelete.length,
-      deletedAt: now
+      deletedExpenseCount,
+      deletedAt: now.toISOString()
     };
   }
 
-  private childrenForUser(user: AuthenticatedUser) {
-    const householdIds = new Set(user.households.map((household) => household.id));
-    return [...this.childrenById.values()].filter((child) => !child.deletedAt && householdIds.has(child.householdId));
+  // ---------------------------------------------------------------------------
+  // internal helpers
+  // ---------------------------------------------------------------------------
+
+  private async insertExpense(
+    client: DbClient,
+    householdId: string,
+    childId: string,
+    user: AuthenticatedUser,
+    input: CreateExpenseInput
+  ): Promise<ExpenseRow> {
+    const itemName = input.itemName.trim();
+    if (!itemName) {
+      throw new BadRequestException({ code: "EXPENSE_ITEM_NAME_REQUIRED", message: "품목명을 입력해 주세요." });
+    }
+    this.assertNotFutureDate(input.spentOn);
+    await this.requireExistingCategory(input.categoryId, client);
+    if (input.linkedItemTemplateId) {
+      await this.requireExistingItemTemplateAnyStatus(input.linkedItemTemplateId, client);
+    }
+
+    return client.expense.create({
+      data: {
+        householdId,
+        childId,
+        createdByUserId: user.id,
+        categoryId: input.categoryId,
+        amountKrw: this.requireMoneyKrw(input.amountKrw),
+        spentOn: toDateOnly(input.spentOn),
+        itemName,
+        merchant: this.cleanOptionalText(input.merchant),
+        paymentMethod: input.paymentMethod ?? "unknown",
+        memo: this.cleanOptionalText(input.memo),
+        linkedItemTemplateId: input.linkedItemTemplateId ?? null,
+        expenseType: input.expenseType ?? "expense",
+        source: input.source ?? "manual"
+      }
+    });
   }
 
-  private requireChildAccess(user: AuthenticatedUser, childId: string, edit = false) {
-    const child = this.childrenById.get(childId);
+  private async childrenForUser(user: AuthenticatedUser): Promise<ChildRow[]> {
+    const householdIds = user.households.map((household) => household.id);
+    if (householdIds.length === 0) return [];
+    return this.prisma.child.findMany({
+      where: { householdId: { in: householdIds }, deletedAt: null },
+      orderBy: { createdAt: "asc" }
+    });
+  }
+
+  private async requireChildAccess(user: AuthenticatedUser, childId: string, edit = false): Promise<ChildRow> {
+    const child = await this.prisma.child.findUnique({ where: { id: childId } });
     if (!child || child.deletedAt) {
       throw new NotFoundException({ code: "CHILD_NOT_FOUND", message: "아이 프로필을 찾을 수 없어요." });
     }
@@ -1061,99 +1139,108 @@ export class OnboardingStoreService {
     return child;
   }
 
-  private requireExpenseAccess(user: AuthenticatedUser, expenseId: string, edit = false) {
-    const expense = this.expensesById.get(expenseId);
+  private async requireExpenseAccess(user: AuthenticatedUser, expenseId: string, edit = false): Promise<ExpenseRow> {
+    const expense = await this.prisma.expense.findUnique({ where: { id: expenseId } });
     if (!expense || expense.deletedAt) {
       throw new NotFoundException({ code: "EXPENSE_NOT_FOUND", message: "지출 기록을 찾을 수 없어요." });
     }
 
-    this.requireChildAccess(user, expense.childId, edit);
+    await this.requireChildAccess(user, expense.childId, edit);
     return expense;
   }
 
-  private requireExpenseBelongsToChild(user: AuthenticatedUser, expenseId: string, childId: string) {
-    const expense = this.requireExpenseAccess(user, expenseId, true);
+  private async requireExpenseBelongsToChild(user: AuthenticatedUser, expenseId: string, childId: string) {
+    const expense = await this.requireExpenseAccess(user, expenseId, true);
     if (expense.childId !== childId) {
-      throw new ForbiddenException({
-        code: "EXPENSE_CHILD_MISMATCH",
-        message: "지출 기록이 해당 아이 소속이 아니에요."
-      });
+      throw new ForbiddenException({ code: "EXPENSE_CHILD_MISMATCH", message: "지출 기록이 해당 아이 소속이 아니에요." });
     }
     return expense;
   }
 
-  private requireImportJobAccess(user: AuthenticatedUser, importJobId: string, edit = false) {
-    const job = this.importJobsById.get(importJobId);
+  private async requireImportJobAccess(user: AuthenticatedUser, importJobId: string, edit = false) {
+    const job = await this.prisma.importJob.findUnique({ where: { id: importJobId } });
     if (!job) {
       throw new NotFoundException({ code: "IMPORT_JOB_NOT_FOUND", message: "Import job was not found." });
     }
-
-    this.requireChildAccess(user, job.childId, edit);
+    await this.requireChildAccess(user, job.childId, edit);
     return job;
   }
 
-  private requireItemTemplate(itemTemplateId: string) {
-    const item = this.itemTemplates.find((template) => template.id === itemTemplateId && template.active);
-    if (!item) {
+  private async requireItemTemplate(itemTemplateId: string): Promise<ItemTemplateWithStages> {
+    const item = await this.itemTemplateWithStages(itemTemplateId);
+    if (!item || !item.active) {
       throw new NotFoundException({ code: "ITEM_NOT_FOUND", message: "준비템을 찾을 수 없어요." });
     }
     return item;
   }
 
-  private requireItemTemplateAnyStatus(itemTemplateId: string) {
-    const item = this.itemTemplates.find((template) => template.id === itemTemplateId);
+  private async requireItemTemplateAnyStatus(itemTemplateId: string): Promise<ItemTemplateWithStages> {
+    const item = await this.itemTemplateWithStages(itemTemplateId);
     if (!item) {
       throw new NotFoundException({ code: "ITEM_NOT_FOUND", message: "Item template was not found." });
     }
     return item;
   }
 
-  private requireExistingItemTemplateAnyStatus(itemTemplateId: string) {
-    if (!this.itemTemplates.some((template) => template.id === itemTemplateId)) {
+  private async requireExistingItemTemplateAnyStatus(itemTemplateId: string, client: DbClient = this.prisma) {
+    const exists = await client.itemTemplate.findUnique({ where: { id: itemTemplateId }, select: { id: true } });
+    if (!exists) {
+      throw new BadRequestException({ code: "EXPENSE_LINKED_ITEM_TEMPLATE_INVALID", message: "연결된 준비템을 찾을 수 없어요." });
+    }
+  }
+
+  private async requireExistingCategory(categoryId: string, client: DbClient = this.prisma) {
+    const exists = await client.category.findUnique({ where: { id: categoryId }, select: { id: true } });
+    if (!exists) {
       throw new BadRequestException({
-        code: "EXPENSE_LINKED_ITEM_TEMPLATE_INVALID",
-        message: "연결된 준비템을 찾을 수 없어요."
+        code: "VALIDATION_ERROR",
+        message: "존재하지 않는 카테고리예요. 카테고리를 다시 선택해 주세요."
       });
     }
   }
 
-  private requireProductLinkAnyStatus(productLinkId: string) {
-    const link = this.productLinks.find((record) => record.id === productLinkId);
+  private async requireProductLinkAnyStatus(productLinkId: string): Promise<ProductLinkRow> {
+    const link = await this.prisma.productLink.findUnique({ where: { id: productLinkId } });
     if (!link) {
       throw new NotFoundException({ code: "PRODUCT_LINK_NOT_FOUND", message: "Product link was not found." });
     }
     return link;
   }
 
-  private normalizeChild(input: ChildRecord): ChildRecord {
-    if (input.stageMode === "pregnant" && !input.dueDate) {
-      throw new BadRequestException({
-        code: "CHILD_STAGE_INPUT_REQUIRED",
-        message: "출산 예정일을 입력해 주세요."
-      });
-    }
-    if (input.stageMode === "born" && !input.birthDate) {
-      throw new BadRequestException({
-        code: "CHILD_STAGE_INPUT_REQUIRED",
-        message: "아이 생년월일을 입력해 주세요."
-      });
-    }
-    if (input.stageMode === "manual" && !input.manualStage) {
-      throw new BadRequestException({
-        code: "CHILD_STAGE_INPUT_REQUIRED",
-        message: "아이 단계를 선택해 주세요."
-      });
-    }
-    return input;
+  private async itemTemplateWithStages(itemTemplateId: string): Promise<ItemTemplateWithStages | null> {
+    const item = await this.prisma.itemTemplate.findUnique({ where: { id: itemTemplateId } });
+    if (!item) return null;
+    const stages = await this.prisma.itemTemplateStage.findMany({
+      where: { itemTemplateId },
+      orderBy: { priorityWeight: "desc" }
+    });
+    return { ...item, stageCodes: stages.map((stage) => stage.stageCode) };
   }
 
-  private toChildDto(child: ChildRecord) {
+  private async listItemTemplatesWithStages(activeOnly: boolean): Promise<ItemTemplateWithStages[]> {
+    const items = await this.prisma.itemTemplate.findMany({
+      where: activeOnly ? { active: true } : undefined,
+      orderBy: { displayOrder: "asc" }
+    });
+    if (items.length === 0) return [];
+    const stages = await this.prisma.itemTemplateStage.findMany({
+      where: { itemTemplateId: { in: items.map((item) => item.id) } },
+      orderBy: { priorityWeight: "desc" }
+    });
+    const stagesByItem = this.groupBy(stages, (stage) => stage.itemTemplateId);
+    return items.map((item) => ({
+      ...item,
+      stageCodes: (stagesByItem.get(item.id) ?? []).map((stage) => stage.stageCode)
+    }));
+  }
+
+  private toChildDto(child: ChildRow) {
     const today = process.env.WOORIAI_STAGE_TODAY;
     const calculated =
       child.stageMode === "pregnant"
-        ? calculateChildStage({ stageMode: "pregnant", dueDate: child.dueDate!, today })
+        ? calculateChildStage({ stageMode: "pregnant", dueDate: fromDateOnly(child.dueDate!), today })
         : child.stageMode === "born"
-          ? calculateChildStage({ stageMode: "born", birthDate: child.birthDate!, today })
+          ? calculateChildStage({ stageMode: "born", birthDate: fromDateOnly(child.birthDate!), today })
           : calculateChildStage({ stageMode: "manual", manualStage: child.manualStage!, today });
 
     return {
@@ -1161,21 +1248,21 @@ export class OnboardingStoreService {
       householdId: child.householdId,
       nickname: child.nickname,
       stageMode: child.stageMode,
-      dueDate: child.dueDate ?? null,
-      birthDate: child.birthDate ?? null,
+      dueDate: child.dueDate ? fromDateOnly(child.dueDate) : null,
+      birthDate: child.birthDate ? fromDateOnly(child.birthDate) : null,
       manualStage: child.manualStage ?? null,
       currentStage: calculated.stageCode,
       stageLabel: calculated.stageLabel
     };
   }
 
-  private toExpenseDto(expense: ExpenseRecord) {
+  private toExpenseDto(expense: ExpenseRow) {
     return {
       id: expense.id,
       childId: expense.childId,
       categoryId: expense.categoryId,
       amountKrw: expense.amountKrw,
-      spentOn: expense.spentOn,
+      spentOn: fromDateOnly(expense.spentOn),
       itemName: expense.itemName,
       merchant: expense.merchant ?? null,
       memo: expense.memo ?? null,
@@ -1185,8 +1272,9 @@ export class OnboardingStoreService {
     };
   }
 
-  private toBudgetDto(childId: string, yearMonth: string, amountKrw: number) {
-    const usedAmountKrw = this.totalExpenseKrw(this.expensesForChild(childId, yearMonth));
+  private async toBudgetDto(childId: string, yearMonth: string, amountKrw: number) {
+    const range = getSeoulMonthRange(yearMonth);
+    const usedAmountKrw = await this.sumExpenses(childId, range);
     return {
       childId,
       yearMonth,
@@ -1196,29 +1284,29 @@ export class OnboardingStoreService {
     };
   }
 
-  private toItemSummaryDto(childId: string, item: ItemTemplateRecord) {
+  private toItemSummaryDto(item: ItemTemplateWithStages, status: ItemStatus) {
     return {
       id: item.id,
       name: item.name,
       necessityLevel: item.necessityLevel,
-      status: this.itemStatusFor(childId, item.id),
+      status,
       timingLabel: item.timingLabel,
       priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw)
     };
   }
 
-  private toProductLinkDto(link: ProductLinkRecord) {
+  private toProductLinkDto(link: ProductLinkRow, disclosures: Map<string, string>) {
     return {
       id: link.id,
       platform: link.platform,
       title: link.title,
       isAffiliate: link.isAffiliate,
       isSponsored: link.isSponsored,
-      disclosureText: link.disclosureText ?? this.defaultDisclosureFor(link)
+      disclosureText: link.disclosureText ?? this.defaultDisclosureFor(link, disclosures)
     };
   }
 
-  private toAdminItemDetailDto(item: ItemTemplateRecord) {
+  private toAdminItemDetailDto(item: ItemTemplateWithStages, links: ProductLinkRow[], disclosures: Map<string, string>) {
     return {
       id: item.id,
       name: item.name,
@@ -1232,14 +1320,13 @@ export class OnboardingStoreService {
       safetyNote: item.safetyNote,
       active: item.active,
       stageCodes: item.stageCodes,
-      productLinks: this.productLinks
-        .filter((link) => link.itemTemplateId === item.id)
+      productLinks: [...links]
         .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map((link) => this.toAdminProductLinkDto(link))
+        .map((link) => this.toAdminProductLinkDto(link, disclosures))
     };
   }
 
-  private toAdminProductLinkDto(link: ProductLinkRecord) {
+  private toAdminProductLinkDto(link: ProductLinkRow, disclosures: Map<string, string>) {
     return {
       id: link.id,
       itemTemplateId: link.itemTemplateId,
@@ -1249,214 +1336,241 @@ export class OnboardingStoreService {
       affiliateUrl: link.affiliateUrl,
       isAffiliate: link.isAffiliate,
       isSponsored: link.isSponsored,
-      disclosureText: link.disclosureText ?? this.defaultDisclosureFor(link),
+      disclosureText: link.disclosureText ?? this.defaultDisclosureFor(link, disclosures),
       active: link.active
     };
   }
 
-  private toImportJobDto(job: ImportJobRecord) {
+  private toImportJobDto(job: {
+    id: string;
+    status: ImportStatus;
+    rowCount: number | null;
+    candidateCount: number | null;
+    importedCount: number | null;
+  }) {
     return {
       id: job.id,
       status: job.status,
-      rowCount: job.rowCount,
-      candidateCount: job.candidateCount,
-      importedCount: job.importedCount
+      rowCount: job.rowCount ?? 0,
+      candidateCount: job.candidateCount ?? 0,
+      importedCount: job.importedCount ?? 0
     };
   }
 
-  private toImportRowDto(row: ImportRowRecord) {
+  private toImportRowDto(row: ImportRowRow) {
     return {
       id: row.id,
       rowIndex: row.rowIndex,
-      parsedDate: row.parsedDate,
-      parsedItemName: row.parsedItemName,
-      parsedAmountKrw: row.parsedAmountKrw,
-      categoryId: row.categoryId,
-      confidence: row.confidence,
+      parsedDate: row.parsedDate ? fromDateOnly(row.parsedDate) : undefined,
+      parsedItemName: row.parsedItemName ?? undefined,
+      parsedAmountKrw: row.parsedAmountKrw ?? undefined,
+      categoryId: row.categoryId ?? undefined,
+      confidence: Number(row.confidence),
       selected: row.selected,
       validationStatus: row.validationStatus
     };
   }
 
-  private expensesForChild(childId: string, yearMonth?: string) {
+  private async expensesForChild(childId: string, yearMonth?: string): Promise<ExpenseRow[]> {
     const range = yearMonth ? getSeoulMonthRange(yearMonth) : null;
-    return [...this.expensesById.values()]
-      .filter((expense) => expense.childId === childId)
-      .filter((expense) => !expense.deletedAt)
-      .filter(
-        (expense) =>
-          !range ||
-          (expense.spentOn >= range.startInclusive && expense.spentOn < range.endExclusive)
-      )
-      .sort(
-        (left, right) =>
-          right.spentOn.localeCompare(left.spentOn) || right.createdAt.localeCompare(left.createdAt)
-      );
+    return this.prisma.expense.findMany({
+      where: {
+        childId,
+        deletedAt: null,
+        ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {})
+      },
+      orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }]
+    });
   }
 
-  private totalExpenseKrw(expenses: ExpenseRecord[]) {
-    return expenses
-      .filter((expense) => expense.expenseType === "expense")
-      .reduce((sum, expense) => sum + expense.amountKrw, 0);
+  private totalExpenseKrw(expenses: ExpenseRow[]) {
+    return expenses.filter((expense) => expense.expenseType === "expense").reduce((sum, expense) => sum + expense.amountKrw, 0);
   }
 
-  private categoryBreakdown(expenses: ExpenseRecord[]) {
-    const byCategory = new Map<string, { categoryId: string; amountKrw: number; count: number }>();
-    for (const expense of expenses.filter((record) => record.expenseType === "expense")) {
-      const current = byCategory.get(expense.categoryId) ?? {
-        categoryId: expense.categoryId,
-        amountKrw: 0,
-        count: 0
-      };
-      current.amountKrw += expense.amountKrw;
-      current.count += 1;
-      byCategory.set(expense.categoryId, current);
-    }
-    return [...byCategory.values()].sort((left, right) => right.amountKrw - left.amountKrw);
+  private async sumExpenses(childId: string, range: { startInclusive: string; endExclusive: string }) {
+    const result = await this.prisma.expense.aggregate({
+      where: {
+        childId,
+        deletedAt: null,
+        expenseType: "expense",
+        spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) }
+      },
+      _sum: { amountKrw: true }
+    });
+    return result._sum.amountKrw ?? 0;
   }
 
-  private itemsForChild(childId: string, tab: ItemTab) {
-    const child = this.childrenById.get(childId);
+  private async categoryBreakdown(childId: string, range?: { startInclusive: string; endExclusive: string }) {
+    const grouped = await this.prisma.expense.groupBy({
+      by: ["categoryId"],
+      where: {
+        childId,
+        deletedAt: null,
+        expenseType: "expense",
+        ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {})
+      },
+      _sum: { amountKrw: true },
+      _count: { _all: true }
+    });
+
+    return grouped
+      .map((group) => ({
+        categoryId: group.categoryId,
+        amountKrw: group._sum.amountKrw ?? 0,
+        count: group._count._all
+      }))
+      .sort((left, right) => right.amountKrw - left.amountKrw);
+  }
+
+  private async itemsForChild(childId: string, tab: ItemTab): Promise<Array<{ item: ItemTemplateWithStages; status: ItemStatus }>> {
+    const child = await this.prisma.child.findUnique({ where: { id: childId } });
     if (!child) return [];
+
     const stageCode = this.toChildDto(child).currentStage as ChildStageCode;
-    const activeItems = this.itemTemplates.filter((item) => item.active);
+    const activeItems = await this.listItemTemplatesWithStages(true);
+    const statuses = await this.prisma.childItemStatus.findMany({ where: { childId } });
+    const statusByItem = new Map(statuses.map((row) => [row.itemTemplateId, row.status]));
+    const statusFor = (itemId: string): ItemStatus => statusByItem.get(itemId) ?? "not_prepared";
 
     if (tab === "prepared") {
       return activeItems
-        .filter((item) => this.itemStatusFor(childId, item.id) === "prepared")
-        .sort((left, right) => left.displayOrder - right.displayOrder);
+        .filter((item) => statusFor(item.id) === "prepared")
+        .sort((left, right) => left.displayOrder - right.displayOrder)
+        .map((item) => ({ item, status: statusFor(item.id) }));
     }
 
     if (tab === "not_needed") {
       return activeItems
-        .filter((item) => this.itemStatusFor(childId, item.id) === "not_needed")
-        .sort((left, right) => left.displayOrder - right.displayOrder);
+        .filter((item) => statusFor(item.id) === "not_needed")
+        .sort((left, right) => left.displayOrder - right.displayOrder)
+        .map((item) => ({ item, status: statusFor(item.id) }));
     }
 
-    const stageMatcher = tab === "now"
-      ? (item: ItemTemplateRecord) => item.stageCodes.includes(stageCode)
-      : (item: ItemTemplateRecord) => !item.stageCodes.includes(stageCode);
+    const stageMatcher =
+      tab === "now"
+        ? (item: ItemTemplateWithStages) => item.stageCodes.includes(stageCode)
+        : (item: ItemTemplateWithStages) => !item.stageCodes.includes(stageCode);
 
-    return this.sortItemsForRecommendation(
-      activeItems
-        .filter(stageMatcher)
-        .filter((item) => {
-          const status = this.itemStatusFor(childId, item.id);
-          return status === "not_prepared" || status === "interested";
-        }),
-      childId,
-      stageCode
-    );
-  }
+    const candidates = activeItems.filter(stageMatcher).filter((item) => {
+      const status = statusFor(item.id);
+      return status === "not_prepared" || status === "interested";
+    });
 
-  private recommendedItemsForChild(childId: string) {
-    return this.itemsForChild(childId, "now").map((item) => this.toItemSummaryDto(childId, item));
-  }
-
-  private sortItemsForRecommendation(items: ItemTemplateRecord[], childId: string, stageCode: ChildStageCode) {
     const sorted = sortRecommendedItems(
-      items.map((item) => ({
+      candidates.map((item) => ({
         id: item.id,
         stageMatches: item.stageCodes.includes(stageCode),
         necessityLevel: item.necessityLevel,
-        status: this.itemStatusFor(childId, item.id),
+        status: statusFor(item.id),
         budgetFits: true,
-        userInterest: this.itemStatusFor(childId, item.id) === "interested",
+        userInterest: statusFor(item.id) === "interested",
         displayOrder: item.displayOrder
       }))
     );
-    const itemById = new Map(items.map((item) => [item.id, item]));
+    const itemById = new Map(candidates.map((item) => [item.id, item]));
     return sorted
-      .map((item) => itemById.get(item.id))
-      .filter((item): item is ItemTemplateRecord => Boolean(item))
+      .map((entry) => itemById.get(entry.id))
+      .filter((item): item is ItemTemplateWithStages => Boolean(item))
       .sort((left, right) => {
-        const leftScoreIndex = sorted.findIndex((item) => item.id === left.id);
-        const rightScoreIndex = sorted.findIndex((item) => item.id === right.id);
-        return leftScoreIndex - rightScoreIndex || left.displayOrder - right.displayOrder;
-      });
+        const leftIndex = sorted.findIndex((entry) => entry.id === left.id);
+        const rightIndex = sorted.findIndex((entry) => entry.id === right.id);
+        return leftIndex - rightIndex || left.displayOrder - right.displayOrder;
+      })
+      .map((item) => ({ item, status: statusFor(item.id) }));
   }
 
-  private itemStatusFor(childId: string, itemTemplateId: string): ItemStatus {
-    return this.childItemStatusesByKey.get(this.childItemStatusKey(childId, itemTemplateId))?.status ?? "not_prepared";
+  private async recommendedItemsForChild(childId: string) {
+    const items = await this.itemsForChild(childId, "now");
+    return items.map(({ item, status }) => this.toItemSummaryDto(item, status));
   }
 
-  private setChildItemStatus(
+  private async itemStatusFor(childId: string, itemTemplateId: string): Promise<ItemStatus> {
+    const row = await this.prisma.childItemStatus.findUnique({
+      where: { childId_itemTemplateId: { childId, itemTemplateId } }
+    });
+    return row?.status ?? "not_prepared";
+  }
+
+  private async setChildItemStatus(
     user: AuthenticatedUser,
     childId: string,
     itemTemplateId: string,
     status: ItemStatus,
     expenseId?: string | null
   ) {
-    this.childItemStatusesByKey.set(this.childItemStatusKey(childId, itemTemplateId), {
-      childId,
-      itemTemplateId,
-      status,
-      expenseId: expenseId ?? null,
-      updatedByUserId: user.id,
-      updatedAt: new Date().toISOString()
+    await this.prisma.childItemStatus.upsert({
+      where: { childId_itemTemplateId: { childId, itemTemplateId } },
+      update: { status, expenseId: expenseId ?? null, updatedByUserId: user.id },
+      create: { childId, itemTemplateId, status, expenseId: expenseId ?? null, updatedByUserId: user.id }
     });
   }
 
-  private childItemStatusKey(childId: string, itemTemplateId: string) {
-    return `${childId}:${itemTemplateId}`;
+  private async disclosuresByKey(): Promise<Map<string, string>> {
+    const rows = await this.prisma.disclosure.findMany();
+    return new Map(rows.map((row) => [row.key, row.text]));
   }
 
-  private itemTemplateIdByCode(code: string) {
-    return deterministicUuid(`item-template:${code}`);
-  }
-
-  private normalizeAdminItemTemplateInput(input: AdminItemTemplateInput) {
-    if (!input.name?.trim() || !input.necessityLevel || !input.reasonText?.trim()) {
+  private normalizeAdminItemTemplateInput(input: AdminItemTemplateInput, existing: Partial<ItemTemplateWithStages>) {
+    const name = input.name ?? existing.name;
+    const necessityLevel = input.necessityLevel ?? existing.necessityLevel;
+    const reasonText = input.reasonText ?? existing.reasonText;
+    if (!name?.trim() || !necessityLevel || !reasonText?.trim()) {
       throw new BadRequestException({ code: "ADMIN_ITEM_TEMPLATE_REQUIRED", message: "Item template fields are required." });
     }
-    const skipReasonText = this.cleanOptionalText(input.skipReasonText ?? undefined);
-    if (input.necessityLevel !== "essential" && !skipReasonText) {
+    const skipReasonText = this.cleanOptionalText(input.skipReasonText ?? existing.skipReasonText ?? undefined);
+    if (necessityLevel !== "essential" && !skipReasonText) {
       throw new BadRequestException({
         code: "ADMIN_SKIP_REASON_REQUIRED",
         message: "Non-essential preparation items need skip guidance."
       });
     }
     return {
-      ...input,
-      name: input.name.trim(),
-      timingLabel: this.cleanOptionalText(input.timingLabel) ?? "",
-      reasonText: input.reasonText.trim(),
+      name: name.trim(),
+      necessityLevel,
+      timingLabel: this.cleanOptionalText(input.timingLabel ?? existing.timingLabel ?? undefined) ?? "",
+      priceMinKrw: input.priceMinKrw ?? existing.priceMinKrw ?? null,
+      priceMaxKrw: input.priceMaxKrw ?? existing.priceMaxKrw ?? null,
+      reasonText: reasonText.trim(),
       skipReasonText,
-      safetyNote: this.cleanOptionalText(input.safetyNote ?? undefined),
-      stageCodes: input.stageCodes?.length ? input.stageCodes : (["infant_4_6"] as ChildStageCode[])
+      usedSecondhandOk: input.usedSecondhandOk ?? existing.usedSecondhandOk ?? false,
+      safetyNote: this.cleanOptionalText(input.safetyNote ?? existing.safetyNote ?? undefined),
+      active: input.active ?? existing.active ?? true,
+      stageCodes: input.stageCodes?.length ? input.stageCodes : existing.stageCodes
     };
   }
 
-  private nextItemDisplayOrder() {
-    return Math.max(0, ...this.itemTemplates.map((item) => item.displayOrder)) + 10;
+  private async replaceItemTemplateStages(tx: DbClient, itemTemplateId: string, stageCodes: ChildStageCode[]) {
+    await tx.itemTemplateStage.deleteMany({ where: { itemTemplateId } });
+    for (const [index, stageCode] of stageCodes.entries()) {
+      await tx.itemTemplateStage.create({
+        data: { itemTemplateId, stageCode, priorityWeight: stageCodes.length - index }
+      });
+    }
   }
 
-  private nextProductLinkDisplayOrder(itemTemplateId: string) {
-    return Math.max(
-      0,
-      ...this.productLinks
-        .filter((link) => link.itemTemplateId === itemTemplateId)
-        .map((link) => link.displayOrder)
-    ) + 10;
+  private async nextItemDisplayOrder(client: DbClient) {
+    const max = await client.itemTemplate.aggregate({ _max: { displayOrder: true } });
+    return (max._max.displayOrder ?? 0) + 10;
   }
 
-  private defaultDisclosureFor(link: ProductLinkRecord) {
-    if (link.isSponsored) return this.disclosuresByKey.get("sponsored_product")?.text;
-    if (link.isAffiliate) return this.disclosuresByKey.get("affiliate_purchase")?.text;
+  private async nextProductLinkDisplayOrder(itemTemplateId: string) {
+    const max = await this.prisma.productLink.aggregate({
+      where: { itemTemplateId },
+      _max: { displayOrder: true }
+    });
+    return (max._max.displayOrder ?? 0) + 10;
+  }
+
+  private defaultDisclosureFor(link: { isSponsored: boolean; isAffiliate: boolean }, disclosures: Map<string, string>) {
+    if (link.isSponsored) return disclosures.get("sponsored_product");
+    if (link.isAffiliate) return disclosures.get("affiliate_purchase");
     return undefined;
   }
 
   private assertConfirmation(actual: string, expected: string) {
     if (actual !== expected) {
-      throw new BadRequestException({
-        code: "SETTINGS_CONFIRMATION_REQUIRED",
-        message: "Confirmation text does not match."
-      });
+      throw new BadRequestException({ code: "SETTINGS_CONFIRMATION_REQUIRED", message: "Confirmation text does not match." });
     }
-  }
-
-  private budgetKey(childId: string, yearMonth: string) {
-    return `${childId}:${getSeoulMonthRange(yearMonth).yearMonth}`;
   }
 
   private requireAcceptedImportFile(input: CreateImportJobInput) {
@@ -1481,56 +1595,63 @@ export class OnboardingStoreService {
     return fileName;
   }
 
-  private createStubImportRows(importJobId: string) {
-    const rows: Array<Omit<ImportRowRecord, "validationStatus">> = [
+  private buildStubImportRows(importJobId: string): ImportRowRow[] {
+    const rows: ImportRowRow[] = [
       {
         id: randomUUID(),
         importJobId,
         rowIndex: 0,
-        parsedDate: "2026-07-06",
+        parsedDate: toDateOnly("2026-07-06"),
         parsedItemName: "Imported diapers",
         parsedAmountKrw: 32000,
         categoryId: defaultImportCategoryId,
         confidence: 0.94,
         selected: true,
-        userReviewed: false
+        userReviewed: false,
+        validationStatus: "pending"
       },
       {
         id: randomUUID(),
         importJobId,
         rowIndex: 1,
-        parsedDate: "2026-07-05",
+        parsedDate: toDateOnly("2026-07-05"),
         parsedItemName: "Imported formula",
         parsedAmountKrw: 33000,
         categoryId: defaultImportCategoryId,
         confidence: 0.86,
         selected: true,
-        userReviewed: false
+        userReviewed: false,
+        validationStatus: "pending"
       },
       {
         id: randomUUID(),
         importJobId,
         rowIndex: 2,
-        parsedDate: "2026-07-04",
+        parsedDate: toDateOnly("2026-07-04"),
         parsedItemName: "Possible duplicate wipes",
         parsedAmountKrw: 9000,
         categoryId: defaultImportCategoryId,
         confidence: 0.62,
         selected: false,
-        userReviewed: false
+        userReviewed: false,
+        validationStatus: "pending"
       }
     ];
 
-    return rows.map((row) => {
-      const record: ImportRowRecord = { ...row, validationStatus: "pending" };
-      return { ...record, validationStatus: this.validationStatusForImportRow(record) };
-    });
+    return rows.map((row) => ({ ...row, validationStatus: this.validationStatusForImportRow(row) }));
   }
 
-  private validationStatusForImportRow(row: ImportRowRecord) {
+  private validationStatusForImportRow(row: {
+    parsedDate: Date | null;
+    parsedItemName: string | null;
+    parsedAmountKrw: number | null;
+    categoryId: string | null;
+    confidence: Prisma.Decimal | number;
+    userReviewed: boolean;
+  }) {
     if (!row.parsedDate) return "missing_date";
     try {
-      this.assertNotFutureDate(row.parsedDate);
+      this.assertNotFutureDate(fromDateOnly(row.parsedDate));
     } catch {
       return "invalid_date";
     }
@@ -1538,13 +1659,13 @@ export class OnboardingStoreService {
     if (!row.parsedItemName?.trim()) return "missing_item_name";
 
     try {
-      this.requireMoneyKrw(row.parsedAmountKrw);
+      this.requireMoneyKrw(row.parsedAmountKrw ?? undefined);
     } catch {
       return "invalid_amount";
     }
 
     if (!row.categoryId) return "missing_category";
-    if (!row.userReviewed && row.confidence < 0.7) return "low_confidence_duplicate_candidate";
+    if (!row.userReviewed && Number(row.confidence) < 0.7) return "low_confidence_duplicate_candidate";
     return "valid";
   }
 
@@ -1571,18 +1692,12 @@ export class OnboardingStoreService {
 
   private assertNotFutureDate(spentOn: string) {
     if (!isValidCalendarDate(spentOn)) {
-      throw new BadRequestException({
-        code: "EXPENSE_DATE_INVALID",
-        message: "날짜를 다시 확인해 주세요."
-      });
+      throw new BadRequestException({ code: "EXPENSE_DATE_INVALID", message: "날짜를 다시 확인해 주세요." });
     }
 
     try {
       if (isFutureSeoulDate(spentOn, this.referenceNow())) {
-        throw new BadRequestException({
-          code: "EXPENSE_FUTURE_DATE",
-          message: "미래 날짜의 지출은 저장할 수 없어요."
-        });
+        throw new BadRequestException({ code: "EXPENSE_FUTURE_DATE", message: "미래 날짜의 지출은 저장할 수 없어요." });
       }
     } catch (error) {
       if (error instanceof BadRequestException) {
@@ -1596,10 +1711,7 @@ export class OnboardingStoreService {
     try {
       return assertMoneyKrw(value);
     } catch {
-      throw new BadRequestException({
-        code: "EXPENSE_AMOUNT_INVALID",
-        message: "금액은 0보다 큰 원화 정수만 입력할 수 있어요."
-      });
+      throw new BadRequestException({ code: "EXPENSE_AMOUNT_INVALID", message: "금액은 0보다 큰 원화 정수만 입력할 수 있어요." });
     }
   }
 
@@ -1615,5 +1727,19 @@ export class OnboardingStoreService {
   private cleanOptionalText(value?: string) {
     const cleaned = value?.trim();
     return cleaned ? cleaned : null;
+  }
+
+  private groupBy<T, K>(items: T[], keyFn: (item: T) => K): Map<K, T[]> {
+    const map = new Map<K, T[]>();
+    for (const item of items) {
+      const key = keyFn(item);
+      const bucket = map.get(key);
+      if (bucket) {
+        bucket.push(item);
+      } else {
+        map.set(key, [item]);
+      }
+    }
+    return map;
   }
 }

@@ -13,42 +13,42 @@ export class ChildrenController {
   constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
 
   @Get()
-  list(@Req() request: AuthenticatedRequest) {
-    return this.store.listChildren(request.user!);
+  async list(@Req() request: AuthenticatedRequest) {
+    return await this.store.listChildren(request.user!);
   }
 
   @Post()
   @HttpCode(200)
   @UseGuards(JwtAuthGuard, HouseholdRoleGuard)
   @RequireHouseholdRoles("owner", "co_parent")
-  create(
+  async create(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(CreateChildDto)) body: CreateChildDto
   ) {
-    return this.store.createChild(request.user!, body);
+    return await this.store.createChild(request.user!, body);
   }
 
   @Get(":childId")
-  get(@Req() request: AuthenticatedRequest, @Param("childId") childId: string) {
-    return this.store.getChild(request.user!, childId);
+  async get(@Req() request: AuthenticatedRequest, @Param("childId") childId: string) {
+    return await this.store.getChild(request.user!, childId);
   }
 
   @Patch(":childId")
-  update(
+  async update(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Body(createDtoValidationPipe(UpdateChildDto)) body: UpdateChildDto
   ) {
-    return this.store.updateChild(request.user!, childId, body);
+    return await this.store.updateChild(request.user!, childId, body);
   }
 
   @Post(":childId/prepared-items")
   @HttpCode(200)
-  setPreparedItems(
+  async setPreparedItems(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Body(createDtoValidationPipe(PreparedItemsDto)) body: PreparedItemsDto
   ) {
-    return this.store.setPreparedItems(request.user!, childId, body.itemTemplateIds);
+    return await this.store.setPreparedItems(request.user!, childId, body.itemTemplateIds);
   }
 }

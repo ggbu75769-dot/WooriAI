@@ -9,7 +9,7 @@ export class OnboardingController {
   constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
 
   @Get("status")
-  status(@Req() request: AuthenticatedRequest) {
-    return this.store.onboardingStatus(request.user!);
+  async status(@Req() request: AuthenticatedRequest) {
+    return await this.store.onboardingStatus(request.user!);
   }
 }

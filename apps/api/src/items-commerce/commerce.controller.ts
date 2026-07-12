@@ -12,11 +12,11 @@ export class CommerceController {
 
   @Post(":productLinkId/click")
   @HttpCode(200)
-  click(
+  async click(
     @Req() request: AuthenticatedRequest,
     @Param("productLinkId") productLinkId: string,
     @Body(createDtoValidationPipe(ProductLinkClickDto)) body: ProductLinkClickDto
   ) {
-    return this.store.clickProductLink(request.user!, productLinkId, body);
+    return await this.store.clickProductLink(request.user!, productLinkId, body);
   }
 }

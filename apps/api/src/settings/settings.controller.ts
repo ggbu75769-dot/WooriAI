@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
+import { RefreshTokenStore } from "../auth/refresh-token.store";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
@@ -22,18 +23,19 @@ export class SettingsController {
   constructor(
     @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
     @Inject(HouseholdRuntimeService) private readonly households: HouseholdRuntimeService,
-    @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService
+    @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService,
+    @Inject(RefreshTokenStore) private readonly refreshTokenStore: RefreshTokenStore
   ) {}
 
   @Get("privacy")
-  privacy(@Req() request: AuthenticatedRequest) {
-    return this.store.getPrivacySettings(request.user!);
+  async privacy(@Req() request: AuthenticatedRequest) {
+    return await this.store.getPrivacySettings(request.user!);
   }
 
   @Post("children/:childId/delete-preview")
   @HttpCode(200)
-  childDeletePreview(@Req() request: AuthenticatedRequest, @Param("childId") childId: string) {
-    return this.store.previewChildProfileDeletion(request.user!, childId);
+  async childDeletePreview(@Req() request: AuthenticatedRequest, @Param("childId") childId: string) {
+    return await this.store.previewChildProfileDeletion(request.user!, childId);
   }
 
   @Post("children/:childId/delete-confirm")
@@ -43,7 +45,7 @@ export class SettingsController {
     @Param("childId") childId: string,
     @Body(createDtoValidationPipe(SettingsConfirmationDto)) body: SettingsConfirmationDto
   ) {
-    const result = this.store.confirmChildProfileDeletion(request.user!, childId, body.confirmationText);
+    const result = await this.store.confirmChildProfileDeletion(request.user!, childId, body.confirmationText);
     await this.auditLogger.record({
       actorUserId: request.user!.id,
       householdId: result.householdId,
@@ -69,13 +71,13 @@ export class SettingsController {
 
   @Post("households/:householdId/leave-confirm")
   @HttpCode(200)
-  householdLeaveConfirm(
+  async householdLeaveConfirm(
     @Req() request: AuthenticatedRequest,
     @Param("householdId") householdId: string,
     @Body(createDtoValidationPipe(SettingsConfirmationDto)) body: SettingsConfirmationDto
   ) {
     assertConfirmation(body.confirmationText, "LEAVE HOUSEHOLD");
-    return this.households.leaveHousehold(request.user!, householdId);
+    return await this.households.leaveHousehold(request.user!, householdId);
   }
 
   @Post("account/delete-preview")
@@ -91,11 +93,13 @@ export class SettingsController {
 
   @Post("account/delete-confirm")
   @HttpCode(200)
-  accountDeleteConfirm(
+  async accountDeleteConfirm(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(SettingsConfirmationDto)) body: SettingsConfirmationDto
   ) {
     assertConfirmation(body.confirmationText, "DELETE ACCOUNT");
-    return this.households.withdrawUser(request.user!);
+    const result = await this.households.withdrawUser(request.user!);
+    await this.refreshTokenStore.revokeAllForUser(request.user!.id);
+    return result;
   }
 }

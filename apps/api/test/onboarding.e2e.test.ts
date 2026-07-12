@@ -1,14 +1,19 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 
+// Round 4: dev-login persists a real users/households row per providerToken, and
+// this helper is called from two separate `it` blocks in this file plus reused
+// across test runs against the same persistent database. A random suffix keeps
+// every login isolated to its own fresh account/household.
 async function login(app: INestApplication) {
   const response = await request(app.getHttpServer())
     .post("/api/v1/auth/oauth-login")
-    .send({ provider: "kakao", providerToken: "onboarding-token" })
+    .send({ provider: "kakao", providerToken: `onboarding-token-${randomUUID()}` })
     .expect(200);
 
   return response.body.tokens.accessToken as string;

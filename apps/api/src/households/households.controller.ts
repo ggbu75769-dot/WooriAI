@@ -15,8 +15,8 @@ export class HouseholdsController {
 
   @Get("households/:householdId/members")
   @UseGuards(JwtAuthGuard)
-  listMembers(@Req() request: AuthenticatedRequest, @Param("householdId") householdId: string) {
-    return this.households.listMembers(request.user!, householdId);
+  async listMembers(@Req() request: AuthenticatedRequest, @Param("householdId") householdId: string) {
+    return await this.households.listMembers(request.user!, householdId);
   }
 
   @Delete("households/:householdId/members/:memberId")
@@ -26,7 +26,7 @@ export class HouseholdsController {
     @Param("householdId") householdId: string,
     @Param("memberId") memberId: string
   ) {
-    const result = this.households.removeMember(request.user!, householdId, memberId);
+    const result = await this.households.removeMember(request.user!, householdId, memberId);
     await this.auditLogger.record({
       actorUserId: request.user!.id,
       householdId: result.householdId,
@@ -42,23 +42,23 @@ export class HouseholdsController {
   @Post("households/:householdId/invites")
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
-  createInvite(
+  async createInvite(
     @Req() request: AuthenticatedRequest,
     @Param("householdId") householdId: string,
     @Body(createDtoValidationPipe(CreateInviteDto)) body: CreateInviteDto
   ) {
-    return this.households.createInvite(request.user!, householdId, body.role, body.channel);
+    return await this.households.createInvite(request.user!, householdId, body.role, body.channel);
   }
 
   @Get("invites/:token")
-  getInvite(@Param("token") token: string) {
-    return this.households.getInvite(token);
+  async getInvite(@Param("token") token: string) {
+    return await this.households.getInvite(token);
   }
 
   @Post("invites/:token/accept")
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
-  acceptInvite(@Req() request: AuthenticatedRequest, @Param("token") token: string) {
-    return this.households.acceptInvite(request.user!, token);
+  async acceptInvite(@Req() request: AuthenticatedRequest, @Param("token") token: string) {
+    return await this.households.acceptInvite(request.user!, token);
   }
 }

@@ -11,31 +11,31 @@ export class ItemsController {
   constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
 
   @Get()
-  list(
+  async list(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Query(createDtoValidationPipe(ListItemsQueryDto)) query: ListItemsQueryDto
   ) {
-    return this.store.listItems(request.user!, childId, query.tab);
+    return await this.store.listItems(request.user!, childId, query.tab);
   }
 
   @Get(":itemTemplateId")
-  detail(
+  async detail(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Param("itemTemplateId") itemTemplateId: string
   ) {
-    return this.store.getItemDetail(request.user!, childId, itemTemplateId);
+    return await this.store.getItemDetail(request.user!, childId, itemTemplateId);
   }
 
   @Patch(":itemTemplateId/status")
-  updateStatus(
+  async updateStatus(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Param("itemTemplateId") itemTemplateId: string,
     @Body(createDtoValidationPipe(UpdateItemStatusDto)) body: UpdateItemStatusDto
   ) {
-    return this.store.updateItemStatus(
+    return await this.store.updateItemStatus(
       request.user!,
       childId,
       itemTemplateId,

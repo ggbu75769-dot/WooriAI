@@ -1,15 +1,18 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
-import { OnboardingStoreService } from "../src/onboarding/onboarding-store.service";
+import { PrismaService } from "../src/prisma/prisma.service";
 
+// See admin-settings.e2e.test.ts's login() comment: a random suffix keeps dev-login
+// isolated per test run against the persistent Postgres database.
 async function login(app: INestApplication, providerToken: string) {
   const response = await request(app.getHttpServer())
     .post("/api/v1/auth/oauth-login")
-    .send({ provider: "kakao", providerToken })
+    .send({ provider: "kakao", providerToken: `${providerToken}-${randomUUID()}` })
     .expect(200);
 
   return response.body.tokens.accessToken as string;
@@ -226,19 +229,9 @@ describe("Items, commerce, and affiliate API", () => {
       disclosureText: expect.stringContaining("제휴")
     });
 
-    const store = moduleRef.get(OnboardingStoreService) as OnboardingStoreService & {
-      affiliateClickEntries: Array<{
-        id: string;
-        userId: string;
-        householdId: string;
-        childId: string;
-        itemTemplateId: string;
-        productLinkId: string;
-        platform: string;
-        referrerScreenId?: string;
-      }>;
-    };
-    expect(store.affiliateClickEntries).toEqual(
+    const prisma = moduleRef.get(PrismaService);
+    const affiliateClickEntries = await prisma.affiliateClick.findMany({ where: { productLinkId: affiliateLink!.id } });
+    expect(affiliateClickEntries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: clickResponse.body.clickId,
@@ -336,17 +329,14 @@ describe("Items, commerce, and affiliate API", () => {
     // Simulate a stored link whose redirect URL is unsafe (e.g. legacy data or a bypassed
     // guard) to prove clickProductLink validates the URL before recording the click log,
     // rather than logging first and only rejecting the redirect afterward.
-    const store = moduleRef.get(OnboardingStoreService) as OnboardingStoreService & {
-      affiliateClickEntries: Array<{ productLinkId: string }>;
-    };
-    const internalStore = store as unknown as {
-      productLinks: Array<{ id: string; url: string; affiliateUrl: string | null }>;
-    };
-    const storedLink = internalStore.productLinks.find((link) => link.id === affiliateLink!.id)!;
+    const prisma = moduleRef.get(PrismaService);
+    const storedLink = await prisma.productLink.findUniqueOrThrow({ where: { id: affiliateLink!.id } });
     const originalUrl = storedLink.url;
     const originalAffiliateUrl = storedLink.affiliateUrl;
-    storedLink.url = "javascript:alert(1)";
-    storedLink.affiliateUrl = null;
+    await prisma.productLink.update({
+      where: { id: affiliateLink!.id },
+      data: { url: "javascript:alert(1)", affiliateUrl: null }
+    });
 
     try {
       await request(app.getHttpServer())
@@ -358,12 +348,17 @@ describe("Items, commerce, and affiliate API", () => {
           expect(body.error.code).toBe("PRODUCT_LINK_URL_SCHEME_INVALID");
         });
 
-      expect(
-        store.affiliateClickEntries.some((entry) => entry.productLinkId === affiliateLink!.id)
-      ).toBe(false);
+      // Scoped to this test's own childId (fresh per run) rather than just
+      // productLinkId: product link ids come from deterministic seed data, so a
+      // productLinkId-only query would also match affiliate_clicks rows left behind
+      // by earlier runs of this same suite against the persistent test database.
+      const clickEntries = await prisma.affiliateClick.findMany({ where: { productLinkId: affiliateLink!.id, childId } });
+      expect(clickEntries).toHaveLength(0);
     } finally {
-      storedLink.url = originalUrl;
-      storedLink.affiliateUrl = originalAffiliateUrl;
+      await prisma.productLink.update({
+        where: { id: affiliateLink!.id },
+        data: { url: originalUrl, affiliateUrl: originalAffiliateUrl }
+      });
     }
   });
 });

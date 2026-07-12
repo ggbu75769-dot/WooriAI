@@ -1,5 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
@@ -9,10 +10,15 @@ import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 const adminToken = "dev-admin-token";
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
+// Round 4: dev-login now persists a real users/households row per providerToken
+// (instead of a per-process in-memory Map), so reusing the same literal
+// providerToken across test runs against a persistent database would reuse the
+// same account/household and leak state between runs. Appending a random suffix
+// keeps every login (even with the same descriptive prefix) isolated.
 async function login(app: INestApplication, providerToken: string) {
   const response = await request(app.getHttpServer())
     .post("/api/v1/auth/oauth-login")
-    .send({ provider: "kakao", providerToken })
+    .send({ provider: "kakao", providerToken: `${providerToken}-${randomUUID()}` })
     .expect(200);
 
   return response.body.tokens.accessToken as string;

@@ -9,10 +9,12 @@ import { HouseholdsModule } from "./households/households.module";
 import { ImportsModule } from "./imports/imports.module";
 import { ItemsCommerceModule } from "./items-commerce/items-commerce.module";
 import { OnboardingModule } from "./onboarding/onboarding.module";
+import { PrismaModule } from "./prisma/prisma.module";
 import { SettingsModule } from "./settings/settings.module";
 
 @Module({
   imports: [
+    PrismaModule,
     AdminModule,
     AuditModule,
     AuthModule,

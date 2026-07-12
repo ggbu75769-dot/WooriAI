@@ -11,10 +11,10 @@ export class HomeController {
   constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
 
   @Get()
-  get(
+  async get(
     @Req() request: AuthenticatedRequest,
     @Query(createDtoValidationPipe(HomeQueryDto)) query: HomeQueryDto
   ) {
-    return this.store.getHome(request.user!, query.childId);
+    return await this.store.getHome(request.user!, query.childId);
   }
 }

@@ -11,34 +11,34 @@ export class ReportsController {
   constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
 
   @Get("monthly")
-  monthly(
+  async monthly(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Query(createDtoValidationPipe(YearMonthQueryDto)) query: YearMonthQueryDto
   ) {
-    return this.store.getMonthlyReport(request.user!, childId, query.yearMonth);
+    return await this.store.getMonthlyReport(request.user!, childId, query.yearMonth);
   }
 
   @Get("yearly")
-  yearly(
+  async yearly(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Query(createDtoValidationPipe(YearQueryDto)) query: YearQueryDto
   ) {
-    return this.store.getYearlyReport(request.user!, childId, query.year);
+    return await this.store.getYearlyReport(request.user!, childId, query.year);
   }
 
   @Get("cumulative")
-  cumulative(@Req() request: AuthenticatedRequest, @Param("childId") childId: string) {
-    return this.store.getCumulativeReport(request.user!, childId);
+  async cumulative(@Req() request: AuthenticatedRequest, @Param("childId") childId: string) {
+    return await this.store.getCumulativeReport(request.user!, childId);
   }
 
   @Get("category")
-  category(
+  async category(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @Query(createDtoValidationPipe(YearMonthQueryDto)) query: YearMonthQueryDto
   ) {
-    return this.store.getCategoryReport(request.user!, childId, query.yearMonth);
+    return await this.store.getCategoryReport(request.user!, childId, query.yearMonth);
   }
 }

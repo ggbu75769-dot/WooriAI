@@ -45,13 +45,13 @@ export class ImportsController {
   @Post("children/:childId/imports/excel")
   @HttpCode(200)
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }))
-  createExcelImport(
+  async createExcelImport(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @UploadedFile() file: UploadedImportFile | undefined,
     @Body() body: Record<string, unknown>
   ) {
-    return this.store.createImportJob(request.user!, childId, {
+    return await this.store.createImportJob(request.user!, childId, {
       fileName: stringField(body.fileName) ?? file?.originalname,
       fileSizeBytes: file?.size ?? numberField(body.fileSizeBytes),
       estimatedRowCount: numberField(body.estimatedRowCount)
@@ -59,32 +59,32 @@ export class ImportsController {
   }
 
   @Get("imports/:importJobId")
-  getImportJob(@Req() request: AuthenticatedRequest, @Param("importJobId") importJobId: string) {
-    return this.store.getImportJob(request.user!, importJobId);
+  async getImportJob(@Req() request: AuthenticatedRequest, @Param("importJobId") importJobId: string) {
+    return await this.store.getImportJob(request.user!, importJobId);
   }
 
   @Get("imports/:importJobId/rows")
-  listImportRows(@Req() request: AuthenticatedRequest, @Param("importJobId") importJobId: string) {
-    return this.store.listImportRows(request.user!, importJobId);
+  async listImportRows(@Req() request: AuthenticatedRequest, @Param("importJobId") importJobId: string) {
+    return await this.store.listImportRows(request.user!, importJobId);
   }
 
   @Patch("imports/:importJobId/rows/:rowId")
-  updateImportRow(
+  async updateImportRow(
     @Req() request: AuthenticatedRequest,
     @Param("importJobId") importJobId: string,
     @Param("rowId") rowId: string,
     @Body(createDtoValidationPipe(UpdateImportRowDto)) body: UpdateImportRowDto
   ) {
-    return this.store.updateImportRow(request.user!, importJobId, rowId, body);
+    return await this.store.updateImportRow(request.user!, importJobId, rowId, body);
   }
 
   @Post("imports/:importJobId/confirm")
   @HttpCode(200)
-  confirmImport(
+  async confirmImport(
     @Req() request: AuthenticatedRequest,
     @Param("importJobId") importJobId: string,
     @Body(createDtoValidationPipe(ConfirmImportDto)) body: ConfirmImportDto
   ) {
-    return this.store.confirmImport(request.user!, importJobId, body);
+    return await this.store.confirmImport(request.user!, importJobId, body);
   }
 }
