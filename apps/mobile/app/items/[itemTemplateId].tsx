@@ -274,6 +274,22 @@ export default function ItemDetailScreen() {
             ))}
           </Card>
 
+          <Card>
+            <Text accessibilityRole="header" style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>
+              왜 필요해요?
+            </Text>
+            <Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 20 }}>{visibleDetail.reasonText}</Text>
+          </Card>
+
+          {visibleDetail.skipReasonText ? (
+            <Card>
+              <Text accessibilityRole="header" style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>
+                이런 경우엔 안 사도 돼요
+              </Text>
+              <Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 20 }}>{visibleDetail.skipReasonText}</Text>
+            </Card>
+          ) : null}
+
           <AffiliateDisclosure text={visibleDetail.productLinks[0]?.disclosureText} />
           <View style={{ flexDirection: "row", gap: 10 }}>
             <SecondaryButton label="장바구니 담기" onPress={() => setClickedTitle("장바구니에 담아두었어요.")} style={{ flex: 1 }} />
