@@ -1,5 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
@@ -52,7 +53,7 @@ describe("API foundation", () => {
   it("issues dev OAuth token pairs, refreshes them, and protects /me", async () => {
     const loginResponse = await request(app.getHttpServer())
       .post("/api/v1/auth/oauth-login")
-      .send({ provider: "kakao", providerToken: "dev-token", device: { platform: "ios" } })
+      .send({ provider: "kakao", providerToken: `dev-token-${randomUUID()}`, device: { platform: "ios" } })
       .expect(200);
 
     expect(loginResponse.body).toMatchObject({
@@ -113,7 +114,7 @@ describe("API foundation", () => {
   it("rotates the refresh token on use and rejects reuse of the previous refresh token", async () => {
     const loginResponse = await request(app.getHttpServer())
       .post("/api/v1/auth/oauth-login")
-      .send({ provider: "kakao", providerToken: "rotation-user" })
+      .send({ provider: "kakao", providerToken: `rotation-user-${randomUUID()}` })
       .expect(200);
 
     const originalRefreshToken = loginResponse.body.tokens.refreshToken as string;
@@ -134,20 +135,22 @@ describe("API foundation", () => {
         expect(body.error.code).toBe("UNAUTHORIZED");
       });
 
+    // Reuse of an already-rotated token is treated as a stolen/replayed token, so
+    // the entire session family is revoked (not just the reused token) — the
+    // legitimately-rotated successor token is invalidated too.
     await request(app.getHttpServer())
       .post("/api/v1/auth/refresh")
       .send({ refreshToken: rotatedRefreshToken })
-      .expect(200)
+      .expect(401)
       .expect(({ body }) => {
-        expect(body.accessToken).toEqual(expect.any(String));
-        expect(body.refreshToken).toEqual(expect.any(String));
+        expect(body.error.code).toBe("UNAUTHORIZED");
       });
   });
 
   it("invalidates the refresh token passed to logout so it can no longer be refreshed", async () => {
     const loginResponse = await request(app.getHttpServer())
       .post("/api/v1/auth/oauth-login")
-      .send({ provider: "kakao", providerToken: "logout-invalidate-user" })
+      .send({ provider: "kakao", providerToken: `logout-invalidate-user-${randomUUID()}` })
       .expect(200);
 
     const { accessToken, refreshToken } = loginResponse.body.tokens as {

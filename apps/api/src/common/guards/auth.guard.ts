@@ -20,14 +20,14 @@ function bearerTokenFrom(header: string | string[] | undefined) {
 export class JwtAuthGuard implements CanActivate {
   constructor(@Inject(TokenService) private readonly tokenService: TokenService) {}
 
-  canActivate(context: ExecutionContext) {
+  async canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = bearerTokenFrom(request.headers?.authorization);
     if (!token) {
       throw new UnauthorizedException("로그인이 필요해요.");
     }
 
-    const user = this.tokenService.verifyAccessToken(token);
+    const user = await this.tokenService.verifyAccessToken(token);
     if (user.status !== "active") {
       throw new UnauthorizedException("Account is no longer active.");
     }

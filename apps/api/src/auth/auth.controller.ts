@@ -13,24 +13,24 @@ export class AuthController {
 
   @Post("auth/oauth-login")
   @HttpCode(200)
-  oauthLogin(@Body(createDtoValidationPipe(OAuthLoginDto)) body: OAuthLoginDto) {
-    return this.authService.oauthLogin(body);
+  async oauthLogin(@Body(createDtoValidationPipe(OAuthLoginDto)) body: OAuthLoginDto) {
+    return await this.authService.oauthLogin(body);
   }
 
   @Post("auth/refresh")
   @HttpCode(200)
-  refresh(@Body(createDtoValidationPipe(RefreshTokenDto)) body: RefreshTokenDto) {
-    return this.authService.refresh(body.refreshToken);
+  async refresh(@Body(createDtoValidationPipe(RefreshTokenDto)) body: RefreshTokenDto) {
+    return await this.authService.refresh(body.refreshToken);
   }
 
   @Post("auth/logout")
   @HttpCode(200)
   @UseGuards(JwtAuthGuard)
-  logout(
+  async logout(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(LogoutDto)) body: LogoutDto
   ) {
-    return this.authService.logout(request.user!, body.refreshToken);
+    return await this.authService.logout(request.user!, body.refreshToken);
   }
 
   @Get("me")
