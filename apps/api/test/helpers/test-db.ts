@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
@@ -59,6 +60,30 @@ export function deployMigrations() {
     cwd: apiRoot,
     stdio: "inherit",
     env: process.env
+  });
+}
+
+/**
+ * Runs the idempotent seed (categories, item templates, product links,
+ * disclosures, dev admin). The dedicated test database starts empty, and the
+ * e2e suites assume this reference data exists just like a freshly
+ * bootstrapped dev environment.
+ */
+export function seedDatabase() {
+  const binName = process.platform === "win32" ? "tsx.CMD" : "tsx";
+  // tsx는 워크스페이스 루트 devDependency라 루트 node_modules/.bin에 호이스팅된다.
+  const candidates = [
+    join(apiRoot, "node_modules", ".bin", binName),
+    join(apiRoot, "..", "..", "node_modules", ".bin", binName)
+  ];
+  const tsxBin = candidates.find((candidate) => existsSync(candidate));
+  if (!tsxBin) {
+    throw new Error(`tsx 실행 파일을 찾을 수 없어요: ${candidates.join(", ")}`);
+  }
+  execSync(`"${tsxBin}" prisma/seed.ts`, {
+    cwd: apiRoot,
+    stdio: "inherit",
+    env: { ...process.env, NODE_ENV: process.env.NODE_ENV ?? "test" }
   });
 }
 

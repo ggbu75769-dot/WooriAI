@@ -45,6 +45,14 @@ const gateCommands: GateCommand[] = [
     env: { DATABASE_URL: devDatabaseUrl }
   },
   {
+    id: "db-start",
+    label: "Database up",
+    // Round 4: api 테스트가 실 PostgreSQL을 요구한다 (docker 또는 포터블 자동 감지).
+    display: "pnpm db start",
+    command: "pnpm",
+    args: ["db", "start"]
+  },
+  {
     id: "lint",
     label: "Lint",
     display: "pnpm lint",

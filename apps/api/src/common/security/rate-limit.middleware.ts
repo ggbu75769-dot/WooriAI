@@ -44,9 +44,23 @@ function requestIdOf(req: Request): string | undefined {
  */
 export function rateLimitMiddleware() {
   const buckets = new Map<string, Bucket>();
+  // 오래된 버킷을 주기적으로 청소해 유니크 IP가 많아도 맵이 무한히 자라지 않게 한다.
+  const PRUNE_THRESHOLD = 10_000;
+
+  function pruneExpired(now: number, windowMs: number) {
+    if (buckets.size < PRUNE_THRESHOLD) {
+      return;
+    }
+    for (const [key, bucket] of buckets) {
+      if (now - bucket.windowStart > windowMs) {
+        buckets.delete(key);
+      }
+    }
+  }
 
   function checkAndIncrement(key: string, max: number, windowMs: number): boolean {
     const now = Date.now();
+    pruneExpired(now, windowMs);
     const bucket = buckets.get(key);
     if (!bucket || now - bucket.windowStart > windowMs) {
       buckets.set(key, { count: 1, windowStart: now });

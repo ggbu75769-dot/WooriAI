@@ -1,7 +1,10 @@
 import { PrismaClient } from "@prisma/client";
-import { deployMigrations } from "./helpers/test-db";
+import { deployMigrations, seedDatabase } from "./helpers/test-db";
 
-const DEFAULT_DATABASE_URL = "postgresql://wooriai:wooriai_dev_password@localhost:5432/wooriai_dev";
+// 개발 DB(wooriai_dev)가 아니라 테스트 전용 DB를 기본값으로 쓴다 — 테스트가 만드는
+// 사용자/준비템/클릭 데이터가 로컬 앱 화면에 섞여 보이는 오염을 막기 위함이다.
+// CI나 다른 환경은 DATABASE_URL로 명시적으로 덮어쓸 수 있다.
+const DEFAULT_DATABASE_URL = "postgresql://wooriai:wooriai_dev_password@localhost:5432/wooriai_test";
 
 /**
  * Round 4 removed the in-memory fallback domain data used to have: every e2e/unit
@@ -37,9 +40,10 @@ export default async function globalSetup() {
 
   try {
     deployMigrations();
+    seedDatabase();
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    console.error(`\n[테스트 설정 실패] 마이그레이션 적용에 실패했어요.\n- 원인: ${reason}\n`);
+    console.error(`\n[테스트 설정 실패] 마이그레이션/시드 적용에 실패했어요.\n- 원인: ${reason}\n`);
     throw error;
   }
 }
