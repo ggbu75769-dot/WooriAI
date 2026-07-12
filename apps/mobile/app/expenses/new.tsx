@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
 import { createExpense, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
+import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, Toast } from "../../src/ui";
@@ -190,6 +191,50 @@ export default function NewExpenseScreen() {
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
 
+  // Restores a saved quick-expense draft on mount, so a user who closes the sheet mid-entry
+  // (e.g. interrupted by a call) doesn't lose what they typed. Skipped in pixel-lock capture
+  // mode, and skipped whenever the sheet was opened with an explicit prefill (typed item name
+  // or a "준비템 -> 지출도 기록하기" template link) so a stale draft never clobbers that intent.
+  // Runs once on mount only -- guard conditions are read from the initial render's closure.
+  useEffect(() => {
+    if (!authToken) return;
+    if (process.env.EXPO_PUBLIC_PIXEL_LOCK === "1") return;
+    if (prefilledItemName) return;
+    if (linkedItemTemplateId) return;
+    readQuickExpenseDraft().then((draft) => {
+      if (!draft) return;
+      setItemName(draft.itemName);
+      setAmountText(draft.amountText);
+      setMemo(draft.memo);
+      const matchedCategory = quickExpenseCategories.find((category) => category.id === draft.categoryId);
+      if (matchedCategory) setSelectedCategory(matchedCategory);
+      if (draft.spentOnIso) setExpenseDateIso(draft.spentOnIso);
+      setIsGift(draft.isGift);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced draft autosave: persists the in-progress quick-expense entry ~500ms after the
+  // last edit, so it can be restored by the effect above if the sheet is closed before saving.
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!authToken) return;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      writeQuickExpenseDraft({
+        itemName,
+        amountText,
+        memo,
+        categoryId: selectedCategory.id,
+        spentOnIso: expenseDateIso,
+        isGift
+      });
+    }, 500);
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
+  }, [itemName, amountText, memo, selectedCategory.id, expenseDateIso, isGift, authToken]);
+
   // Recent expense items for the "최근 품목" reuse chips -- reuses the existing listExpenses
   // query (current month) instead of a dedicated endpoint; deduped by itemName, capped at 5.
   const recentExpensesQuery = useQuery({
@@ -228,6 +273,7 @@ export default function NewExpenseScreen() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries();
+      clearQuickExpenseDraft();
       router.replace("/(tabs)/records");
     }
   });
@@ -259,7 +305,13 @@ export default function NewExpenseScreen() {
           }}
         >
         <View accessibilityLabel={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 40 }}>
-          <Pressable onPress={() => router.back()} style={{ minWidth: 36 }}>
+          <Pressable
+            onPress={() => {
+              clearQuickExpenseDraft();
+              router.back();
+            }}
+            style={{ minWidth: 36 }}
+          >
             <Text style={{ color: theme.colors.gray900, fontSize: 24 }}>×</Text>
           </Pressable>
           <Text style={{ color: theme.colors.gray900, fontSize: 18, fontWeight: "800" }}>지출 기록</Text>

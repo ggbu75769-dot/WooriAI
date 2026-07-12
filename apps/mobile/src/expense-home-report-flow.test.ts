@@ -48,4 +48,13 @@ describe("Batch 06 mobile expense, home, budget, and report contract", () => {
       expect(existsSync(filePath) ? readFileSync(filePath, "utf8") : "").toContain(expectedText);
     }
   });
+
+  it("lets the records list be filtered by category without changing the monthly total", () => {
+    const recordsSource = readFileSync(join(mobileRoot, "app/(tabs)/records.tsx"), "utf8");
+
+    expect(recordsSource).toContain("selectedCategoryId");
+    expect(recordsSource).toContain("CategoryChip");
+    expect(recordsSource).toContain("categoryCatalog");
+    expect(recordsSource).toContain("expenses.data.totalAmountKrw");
+  });
 });

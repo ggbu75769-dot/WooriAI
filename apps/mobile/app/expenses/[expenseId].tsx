@@ -79,6 +79,7 @@ export default function ExpenseDetailScreen() {
   const [memo, setMemo] = useState("");
   const [spentOnIso, setSpentOnIso] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [isGift, setIsGift] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDateMode, setCustomDateMode] = useState(false);
   const [customDateText, setCustomDateText] = useState("");
@@ -92,6 +93,7 @@ export default function ExpenseDetailScreen() {
     setMemo(expense.data.memo ?? "");
     setSpentOnIso(expense.data.spentOn);
     setCategoryId(expense.data.categoryId);
+    setIsGift(expense.data.expenseType === "gift");
   }, [expense.data]);
 
   const amountKrw = Number(amountDigits || "0");
@@ -111,7 +113,8 @@ export default function ExpenseDetailScreen() {
         itemName: itemName.trim(),
         memo,
         spentOn: spentOnIso || undefined,
-        categoryId: categoryId || undefined
+        categoryId: categoryId || undefined,
+        expenseType: isGift ? "gift" : "expense"
       });
     },
     onSuccess: async () => {
@@ -326,6 +329,41 @@ export default function ExpenseDetailScreen() {
                   value={memo}
                 />
               </View>
+
+              <Pressable
+                accessibilityLabel="선물로 받았어요"
+                accessibilityRole="checkbox"
+                onPress={() => setIsGift((value) => !value)}
+                style={{
+                  alignItems: "center",
+                  backgroundColor: theme.colors.white,
+                  borderColor: "rgba(74, 63, 53, 0.10)",
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  flexDirection: "row",
+                  gap: 10,
+                  padding: 14
+                }}
+              >
+                <View
+                  style={{
+                    alignItems: "center",
+                    backgroundColor: isGift ? theme.colors.mainCoral : theme.colors.white,
+                    borderColor: isGift ? theme.colors.mainCoral : theme.colors.gray300,
+                    borderRadius: 6,
+                    borderWidth: 2,
+                    height: 22,
+                    justifyContent: "center",
+                    width: 22
+                  }}
+                >
+                  {isGift ? <Text style={{ color: theme.colors.white, fontSize: 14, fontWeight: "900" }}>✓</Text> : null}
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>선물로 받았어요</Text>
+                  <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>선물은 지출 합계에 포함되지 않아요</Text>
+                </View>
+              </Pressable>
             </Card>
 
             {save.isError || remove.isError ? (

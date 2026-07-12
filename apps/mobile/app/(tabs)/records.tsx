@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { categoryCatalog } from "../../src/categories";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader } from "../../src/ui";
+import { AppScreen, Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const recordsScreenId = "EXP-004";
@@ -36,6 +37,7 @@ export default function RecordsScreen() {
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const [monthOffset, setMonthOffset] = useState(0);
   const [searchText, setSearchText] = useState("");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
 
   const baseDate = new Date(`${getSeoulToday()}T00:00:00`);
   const recordsDate = addMonths(baseDate, monthOffset);
@@ -50,6 +52,7 @@ export default function RecordsScreen() {
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const visibleExpenses = (expenses.data?.expenses ?? []).filter((expense) => {
+    if (selectedCategoryId && expense.categoryId !== selectedCategoryId) return false;
     if (!normalizedSearch) return true;
     const haystack = `${expense.itemName} ${expense.memo ?? ""}`.toLowerCase();
     return haystack.includes(normalizedSearch);
@@ -96,6 +99,18 @@ export default function RecordsScreen() {
           value={searchText}
         />
 
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          <CategoryChip label="전체" selected={selectedCategoryId === null} onPress={() => setSelectedCategoryId(null)} />
+          {categoryCatalog.map((category) => (
+            <CategoryChip
+              key={category.id}
+              label={`${category.icon} ${category.label}`}
+              selected={category.id === selectedCategoryId}
+              onPress={() => setSelectedCategoryId(category.id)}
+            />
+          ))}
+        </ScrollView>
+
         {expenses.isLoading ? (
           <EmptyStateCard title="기록을 불러오고 있어요." actionLabel="잠시만요" />
         ) : expenses.isError ? (
@@ -133,7 +148,14 @@ export default function RecordsScreen() {
               </View>
             </>
           ) : (
-            <EmptyStateCard title="검색 결과가 없어요." actionLabel="검색어 지우기" onPress={() => setSearchText("")} />
+            <EmptyStateCard
+              title={selectedCategoryId ? "이 카테고리의 기록이 없어요." : "검색 결과가 없어요."}
+              actionLabel={selectedCategoryId ? "카테고리 필터 해제" : "검색어 지우기"}
+              onPress={() => {
+                if (selectedCategoryId) setSelectedCategoryId(null);
+                else setSearchText("");
+              }}
+            />
           )
         ) : (
           <EmptyStateCard
