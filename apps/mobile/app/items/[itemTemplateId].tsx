@@ -169,7 +169,16 @@ export default function ItemDetailScreen() {
     mutationFn: (productLinkId: string) => clickProductLink(authToken!, productLinkId, childId!, "ITEM-003"),
     onSuccess: async (result) => {
       setClickedTitle(result.disclosureText ?? "구매 링크");
-      await Linking.openURL(result.redirectUrl);
+      try {
+        const canOpen = await Linking.canOpenURL(result.redirectUrl);
+        if (!canOpen) throw new Error("cannot-open-url");
+        await Linking.openURL(result.redirectUrl);
+      } catch {
+        setClickedTitle("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");
+      }
+    },
+    onError: () => {
+      setClickedTitle("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   });
   const hasSession = Boolean(authToken && childId && itemTemplateId);
@@ -221,9 +230,19 @@ export default function ItemDetailScreen() {
 
           <Card style={productDetailInfoCardStyle()}>
             <Text style={{ color: theme.colors.brown, fontSize: 21, fontWeight: "800" }}>{visibleDetail.name}</Text>
-            <Text style={{ color: theme.colors.warning, fontSize: 13, fontWeight: "800" }}>★ 4.8 (2,154)</Text>
-            <Text style={{ color: theme.colors.gray900, fontSize: 26, fontWeight: "800" }}>42,900원</Text>
-            <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>최저가 {visibleDetail.priceBandText}</Text>
+            {hasSession ? null : (
+              <Text style={{ color: theme.colors.warning, fontSize: 13, fontWeight: "800" }}>★ 4.8 (2,154)</Text>
+            )}
+            {hasSession ? (
+              <Text style={{ color: theme.colors.gray900, fontSize: 26, fontWeight: "800" }}>
+                {visibleDetail.priceBandText ?? "가격 정보 확인 중"}
+              </Text>
+            ) : (
+              <>
+                <Text style={{ color: theme.colors.gray900, fontSize: 26, fontWeight: "800" }}>42,900원</Text>
+                <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>최저가 {visibleDetail.priceBandText}</Text>
+              </>
+            )}
 
             <View style={{ borderBottomColor: theme.colors.gray300, borderBottomWidth: 1, flexDirection: "row", gap: 28, paddingTop: 8 }}>
               <Text style={{ borderBottomColor: theme.colors.gray900, borderBottomWidth: 2, color: theme.colors.brown, fontSize: 13, fontWeight: "800", paddingBottom: 9 }}>
@@ -240,7 +259,15 @@ export default function ItemDetailScreen() {
                 </View>
                 <ProductComparisonRow
                   seller={link.title}
-                  price={link.title === "우리아이몰" ? "42,900원" : link.title === "네이처 공식몰" ? "44,900원" : "45,900원"}
+                  price={
+                    hasSession
+                      ? visibleDetail.priceBandText ?? "가격 정보 확인 중"
+                      : link.title === "우리아이몰"
+                        ? "42,900원"
+                        : link.title === "네이처 공식몰"
+                          ? "44,900원"
+                          : "45,900원"
+                  }
                   onPress={() => handleProductLinkPress(link)}
                 />
               </View>

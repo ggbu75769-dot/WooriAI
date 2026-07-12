@@ -1,6 +1,7 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, NotImplementedException } from "@nestjs/common";
 import type { AuthProvider } from "@wooriai/domain";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
+import { isDevOrTestEnv } from "../common/config/require-secret";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { TokenService } from "./token.service";
 
@@ -19,6 +20,14 @@ export class AuthService {
   ) {}
 
   async oauthLogin(input: OAuthLoginInput) {
+    if (!isDevOrTestEnv()) {
+      throw new NotImplementedException({
+        code: "OAUTH_LOGIN_NOT_IMPLEMENTED",
+        message:
+          "OAuth provider token verification is not implemented yet; oauth-login is disabled outside development/test."
+      });
+    }
+
     const user = this.tokenService.createDevUser(input.provider, input.providerToken);
     await this.auditLogger.record({
       actorUserId: user.id,

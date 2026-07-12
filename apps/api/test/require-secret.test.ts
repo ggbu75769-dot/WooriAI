@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { requireSecret } from "../src/common/config/require-secret";
+import { assertRequiredSecretsConfigured, requireSecret } from "../src/common/config/require-secret";
 
 describe("requireSecret", () => {
   const envKey = "TEST_REQUIRE_SECRET";
@@ -15,7 +15,16 @@ describe("requireSecret", () => {
     delete process.env[envKey];
 
     expect(() => requireSecret(envKey, "dev-fallback")).toThrow(
-      `${envKey} must be set when NODE_ENV=production`
+      `${envKey} must be set unless NODE_ENV is "development" or "test" (current: production)`
+    );
+  });
+
+  it("throws a clear configuration error when NODE_ENV is unset (e.g. a misconfigured staging deploy)", () => {
+    delete process.env.NODE_ENV;
+    delete process.env[envKey];
+
+    expect(() => requireSecret(envKey, "dev-fallback")).toThrow(
+      `${envKey} must be set unless NODE_ENV is "development" or "test" (current: unset)`
     );
   });
 
@@ -26,10 +35,64 @@ describe("requireSecret", () => {
     expect(requireSecret(envKey, "dev-fallback")).toBe("configured-secret");
   });
 
-  it("falls back to the dev value outside production", () => {
+  it("falls back to the dev value in test", () => {
     process.env.NODE_ENV = "test";
     delete process.env[envKey];
 
     expect(requireSecret(envKey, "dev-fallback")).toBe("dev-fallback");
+  });
+
+  it("falls back to the dev value in development", () => {
+    process.env.NODE_ENV = "development";
+    delete process.env[envKey];
+
+    expect(requireSecret(envKey, "dev-fallback")).toBe("dev-fallback");
+  });
+});
+
+describe("assertRequiredSecretsConfigured", () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalNodeEnv;
+    delete process.env.JWT_ACCESS_SECRET;
+    delete process.env.JWT_REFRESH_SECRET;
+    delete process.env.WOORIAI_ADMIN_TOKEN;
+  });
+
+  it("fails boot when NODE_ENV is production and required secrets are missing", () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.JWT_ACCESS_SECRET;
+    delete process.env.JWT_REFRESH_SECRET;
+    delete process.env.WOORIAI_ADMIN_TOKEN;
+
+    expect(() => assertRequiredSecretsConfigured()).toThrow(/JWT_ACCESS_SECRET must be set/);
+  });
+
+  it("fails boot when NODE_ENV is unset and required secrets are missing", () => {
+    delete process.env.NODE_ENV;
+    delete process.env.JWT_ACCESS_SECRET;
+    delete process.env.JWT_REFRESH_SECRET;
+    delete process.env.WOORIAI_ADMIN_TOKEN;
+
+    expect(() => assertRequiredSecretsConfigured()).toThrow(/JWT_ACCESS_SECRET must be set/);
+  });
+
+  it("does not throw in test/development even when secrets are missing", () => {
+    process.env.NODE_ENV = "test";
+    delete process.env.JWT_ACCESS_SECRET;
+    delete process.env.JWT_REFRESH_SECRET;
+    delete process.env.WOORIAI_ADMIN_TOKEN;
+
+    expect(() => assertRequiredSecretsConfigured()).not.toThrow();
+  });
+
+  it("does not throw when all required secrets are explicitly configured", () => {
+    process.env.NODE_ENV = "production";
+    process.env.JWT_ACCESS_SECRET = "configured-access-secret";
+    process.env.JWT_REFRESH_SECRET = "configured-refresh-secret";
+    process.env.WOORIAI_ADMIN_TOKEN = "configured-admin-token";
+
+    expect(() => assertRequiredSecretsConfigured()).not.toThrow();
   });
 });

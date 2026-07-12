@@ -88,7 +88,7 @@ function getRecommendationDisplay(item: ItemSummary | RecommendationPreviewItem,
 
   return {
     badge: index === 0 ? "BEST" : statusLabel(item.status),
-    caption: recommendationPreviewCaptions[index % recommendationPreviewCaptions.length],
+    caption: undefined,
     image: recommendationPreviewImages[index % recommendationPreviewImages.length]
   };
 }
@@ -136,7 +136,10 @@ export default function ItemsScreen() {
   }
 
   const visibleItems = hasSession ? items.data!.items : previewItems;
-  const showEmptyState = hasSession ? visibleItems.length === 0 : false;
+  const stageFilteredItems = hasSession
+    ? visibleItems.filter((item) => !item.timingLabel || item.timingLabel === stageLabel)
+    : visibleItems;
+  const showEmptyState = hasSession ? stageFilteredItems.length === 0 : false;
   const canUpdateStatus = hasSession;
 
   return (
@@ -172,7 +175,7 @@ export default function ItemsScreen() {
             <EmptyStateCard title="지금 필요한 추천템이 없어요." actionLabel="홈으로 가기" onPress={() => router.push("/(tabs)")} />
           ) : (
             <View style={{ gap: 10 }}>
-              {visibleItems.map((item, index) => {
+              {stageFilteredItems.map((item, index) => {
                 const display = getRecommendationDisplay(item, index);
 
                 return (
@@ -205,7 +208,9 @@ export default function ItemsScreen() {
             </View>
           )}
 
-          <SecondaryButton label="‹ 더 많은 추천 보기" onPress={() => router.push("/(tabs)/items")} />
+          {hasSession ? null : (
+            <SecondaryButton label="‹ 더 많은 추천 보기" onPress={() => router.push("/(tabs)/items")} />
+          )}
         </View>
       </View>
     </AppScreen>

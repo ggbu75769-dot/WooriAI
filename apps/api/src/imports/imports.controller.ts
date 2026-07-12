@@ -44,7 +44,7 @@ export class ImportsController {
 
   @Post("children/:childId/imports/excel")
   @HttpCode(200)
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }))
   createExcelImport(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,

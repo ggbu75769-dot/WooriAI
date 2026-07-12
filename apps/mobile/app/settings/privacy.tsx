@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { router } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import {
   confirmAccountDeletion,
@@ -12,6 +13,7 @@ import {
   previewHouseholdLeave,
   type SettingsPreview
 } from "../../src/api/client";
+import { resetLocalBackend } from "../../src/api/local-backend";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -110,6 +112,7 @@ export default function PrivacySettingsScreen() {
       await queryClient.invalidateQueries({ queryKey: ["children"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
       Alert.alert("완료됐어요", "아이 프로필을 삭제했어요.");
+      router.replace("/onboarding/child-status");
     }
   });
 
@@ -124,6 +127,7 @@ export default function PrivacySettingsScreen() {
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
       Alert.alert("완료됐어요", "가구에서 나갔어요.");
+      router.replace("/onboarding/child-status");
     }
   });
 
@@ -134,7 +138,12 @@ export default function PrivacySettingsScreen() {
     mutationFn: () => confirmAccountDeletion(authToken!, accountPreview.data?.confirmationText ?? ""),
     onSuccess: () => {
       Alert.alert("완료됐어요", "계정을 삭제했어요.");
+      if (isTestSession) {
+        resetLocalBackend();
+      }
       clearSession();
+      clearChild();
+      router.replace("/launch-animation");
     }
   });
 

@@ -1,6 +1,8 @@
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { Text } from "react-native";
 import { BottomTabPixelStyles } from "../../src/pixelLock/styles";
+import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
+import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 
 const tabs = {
@@ -20,6 +22,21 @@ function icon(name: keyof typeof tabs, focused: boolean) {
 }
 
 export default function TabsLayout() {
+  const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const hasReachedHome = useOnboardingProgressStore((state) => state.hasReachedHome);
+  const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
+
+  if (!isPixelLockMode) {
+    if (!accessToken && !isTestSession) {
+      return <Redirect href="/launch-animation" />;
+    }
+
+    if (!hasReachedHome && !isTestSession) {
+      return <Redirect href="/onboarding/child-status" />;
+    }
+  }
+
   return (
     <Tabs
       screenOptions={{

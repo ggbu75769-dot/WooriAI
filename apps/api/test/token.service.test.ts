@@ -20,7 +20,20 @@ describe("TokenService production fail-fast secrets", () => {
     const user = tokenService.createDevUser("kakao", "prod-fail-fast-user");
 
     expect(() => tokenService.issueTokenPair(user)).toThrow(
-      "JWT_ACCESS_SECRET must be set when NODE_ENV=production"
+      /JWT_ACCESS_SECRET must be set unless NODE_ENV is "development" or "test"/
+    );
+  });
+
+  it("throws instead of using the dev fallback secret when NODE_ENV is unset", () => {
+    delete process.env.NODE_ENV;
+    delete process.env.JWT_ACCESS_SECRET;
+    delete process.env.JWT_REFRESH_SECRET;
+
+    const tokenService = new TokenService(new HouseholdRuntimeService());
+    const user = tokenService.createDevUser("kakao", "unset-env-user");
+
+    expect(() => tokenService.issueTokenPair(user)).toThrow(
+      /JWT_ACCESS_SECRET must be set unless NODE_ENV is "development" or "test"/
     );
   });
 

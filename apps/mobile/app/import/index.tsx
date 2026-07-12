@@ -89,7 +89,7 @@ export default function ImportUploadScreen() {
         </View>
       </View>
 
-      <View accessibilityLabel="Rows are not saved as expenses until you confirm them." style={[styles.previewCard, { borderRadius: ExcelPreviewPixelStyles.cardRadius }]}>
+      <View accessibilityLabel="검수 후 승인하기 전까지는 지출로 저장되지 않아요." style={[styles.previewCard, { borderRadius: ExcelPreviewPixelStyles.cardRadius }]}>
         <Text style={styles.previewTitle}>AI 분류 미리보기</Text>
         <View style={styles.previewSummary}>
           <Text style={styles.previewSummaryLabel}>총 128건</Text>

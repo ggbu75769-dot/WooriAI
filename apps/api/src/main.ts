@@ -2,8 +2,10 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { configureApiApp } from "./bootstrap";
+import { assertRequiredSecretsConfigured } from "./common/config/require-secret";
 
 export async function bootstrap() {
+  assertRequiredSecretsConfigured();
   const app = await NestFactory.create(AppModule);
   configureApiApp(app);
   const port = Number(process.env.PORT ?? 3000);

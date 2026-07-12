@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { createExpense, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { categoryCatalog } from "../../src/categories";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, PrimaryButton, Toast } from "../../src/ui";
@@ -15,16 +16,10 @@ const quickExpenseAmountPreview = "₩ 38,500";
 // Fixed date used only when there's no session (preview / pixel-lock capture mode) so the
 // pixel-lock reference screenshot stays deterministic across runs. See src/android-native-ui-quality.test.ts.
 const previewExpenseDate = { iso: "2025-05-24", label: "2025. 05. 24 (토)" };
-const quickExpenseCategories = [
-  { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "▱", label: "기저귀" },
-  { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "▤", label: "분유/유제품" },
-  { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "⌘", label: "식비" },
-  { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "⌂", label: "의류" },
-  { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "▭", label: "약품/교통" },
-  { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "▣", label: "병원/약" },
-  { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "▥", label: "교육/도서" },
-  { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", icon: "⊕", label: "기타" }
-];
+// Single source of truth for the 8 category tiles lives in src/categories.ts -- each entry
+// has a distinct, deterministic `id` so tapping different tiles records different categoryIds
+// (previously all 8 shared one literal id and broke category aggregation).
+const quickExpenseCategories = categoryCatalog;
 const quickExpensePaymentMethods = [
   { value: "card", label: "▣ 카카오뱅크" },
   { value: "cash", label: "현금" },
@@ -123,14 +118,18 @@ function ExpenseCategoryIconButton({
 }
 
 export default function NewExpenseScreen() {
-  const [itemName, setItemName] = useState("기저귀");
-  const [amountText, setAmountText] = useState("38500");
-  const [memo, setMemo] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState(quickExpenseCategories[0]);
-  const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  // Preview/pixel-lock capture (no session) keeps the fixed "기저귀"/"38500" seed so the
+  // reference screenshot stays deterministic. A real or test session starts blank so opening
+  // the sheet never silently records a 38,500원 지출 the user didn't enter (see save-button
+  // disabled guard below).
+  const [itemName, setItemName] = useState(() => (authToken ? "" : "기저귀"));
+  const [amountText, setAmountText] = useState(() => (authToken ? "" : "38500"));
+  const [memo, setMemo] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState(quickExpenseCategories[0]);
+  const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
   const [today] = useState(() => new Date(`${getSeoulToday()}T00:00:00`));
   const expenseDate = authToken ? formatExpenseDate(today) : previewExpenseDate;
   const paymentMethod = quickExpensePaymentMethods[paymentMethodIndex];
@@ -157,6 +156,12 @@ export default function NewExpenseScreen() {
     }
   });
   const formattedAmount = amountText === "38500" ? quickExpenseAmountPreview : `₩ ${Number(amountText || 0).toLocaleString("ko-KR")}`;
+  // Guards the one-tap quick-expense sheet: with a real/test session, the save button stays
+  // disabled until a positive amount has actually been entered, so opening the sheet can never
+  // by itself create an expense. Preview mode (authToken null) is unaffected -- amountText is
+  // always the fixed "38500" seed there, so isAmountInvalid is always false.
+  const amountKrwValue = Number(amountText);
+  const isAmountInvalid = Boolean(authToken) && (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0);
 
   return (
     <AppScreen>
@@ -264,7 +269,7 @@ export default function NewExpenseScreen() {
 
         {saveExpense.isError ? <Toast message="금액과 항목을 확인해 주세요." /> : null}
           <PrimaryButton
-            disabled={saveExpense.isPending}
+            disabled={saveExpense.isPending || isAmountInvalid}
             label={saveExpense.isPending ? "저장 중" : "저장하기"}
             onPress={() => saveExpense.mutate()}
           />

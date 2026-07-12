@@ -158,9 +158,22 @@ export const useLocalBackendStore = create<LocalBackendState>()(
   })
 );
 
+function wipeLocalBackendState() {
+  useLocalBackendStore.setState({ ...initialState, budgets: {}, expenses: [], itemStatuses: {}, importRows: {} });
+}
+
 /** Test-only helper: wipes the local backend so the next call reseeds from fixtures. */
 export function resetLocalBackendForTests() {
-  useLocalBackendStore.setState({ ...initialState, budgets: {}, expenses: [], itemStatuses: {}, importRows: {} });
+  wipeLocalBackendState();
+}
+
+/**
+ * Wipes the persisted local backend store (test-mode expenses, child, budgets, etc.) and clears the
+ * seeded flag. Call after an account deletion in a local test session so the next
+ * ensureLocalBackendSeeded() call reseeds cleanly instead of finding stale, pre-deletion data.
+ */
+export function resetLocalBackend() {
+  wipeLocalBackendState();
 }
 
 let localIdCounter = 0;

@@ -3,6 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { getCategoryReport, getCumulativeReport, getMonthlyReport, getYearlyReport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { categoryNameFor } from "../../src/categories";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
@@ -144,7 +145,7 @@ export default function ReportsScreen() {
 
   const categoryData = category.data?.categories ?? [];
   const categorySegments = category.data
-    ? categoryData.map((entry) => ({ label: entry.categoryId, amountKrw: entry.amountKrw }))
+    ? categoryData.map((entry) => ({ label: categoryNameFor(entry.categoryId), amountKrw: entry.amountKrw }))
     : undefined;
 
   const tipDeltaKrw = hasDeltaData ? previousMonth.data!.totalExpenseKrw - monthly.data!.totalExpenseKrw : null;

@@ -166,8 +166,11 @@ describe("UI Pixel Lock source contract", () => {
     expect(quickExpensePixelStyleSource).toContain('return pixelNumber("EXP-001", "topOffset", 0)');
     expect(quickExpensePixelStyleSource).toContain('return pixelNumber("EXP-001", "horizontalOffset", 0)');
 
+    // Category labels are the single source of truth in src/categories.ts (the catalog
+    // feeding new.tsx's picker), so assert against that file, not new.tsx comments.
+    const categoryCatalogSource = readFileSync(join(mobileRoot, "src/categories.ts"), "utf8");
     for (const expectedCategory of ["기저귀", "분유/유제품", "식비", "의류", "약품/교통", "병원/약", "교육/도서", "기타"]) {
-      expect(quickExpenseSource).toContain(expectedCategory);
+      expect(categoryCatalogSource).toContain(expectedCategory);
     }
   });
 
@@ -244,7 +247,7 @@ describe("UI Pixel Lock source contract", () => {
     expect(importSource).toContain("AI 분류 미리보기");
     expect(importSource).toContain("적용하고 리포트 보기");
     expect(importSource).toContain("createExcelImport");
-    expect(importSource).toContain("Rows are not saved as expenses");
+    expect(importSource).toContain("승인하기 전까지는 지출로 저장되지 않아요");
 
     const excelPixelStyleSource = readFileSync(join(mobileRoot, "src/pixelLock/styles/ExcelPreviewPixelStyles.ts"), "utf8");
     expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "scale", 1)');

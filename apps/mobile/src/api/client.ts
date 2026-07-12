@@ -1,9 +1,21 @@
+import { getSeoulMonthRange, getSeoulToday } from "@wooriai/domain";
 import * as localBackend from "./local-backend";
 import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./local-fixtures";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api/v1";
-const DEFAULT_YEAR_MONTH = "2026-07";
-const DEFAULT_YEAR_MONTH_DATE = "2026-07-01";
+
+/**
+ * Computed fresh on every call (never cached at module scope) so "이번 달" always tracks the
+ * current Asia/Seoul month -- a fixed module-level constant would freeze "this month" forever
+ * once the clock crossed into a new month (see money-date.ts for the Seoul-timezone helpers).
+ */
+function currentYearMonth(): string {
+  return getSeoulToday().slice(0, 7);
+}
+
+function currentYearMonthDate(): string {
+  return getSeoulMonthRange(currentYearMonth()).startInclusive;
+}
 
 /**
  * Token used by screens when `isTestSession` is true. The session store's real `accessToken`
@@ -272,17 +284,18 @@ export function setPreparedItems(token: string, childId: string, itemTemplateIds
  * both the local backend and the real API surface this as a 404/"not found" condition, which
  * is a normal "budget not set" state for screens to render, not an error to show a retry card for.
  */
-export async function getBudget(token: string, childId: string, yearMonth = DEFAULT_YEAR_MONTH): Promise<Budget | null> {
+export async function getBudget(token: string, childId: string, yearMonth?: string): Promise<Budget | null> {
+  const effectiveYearMonth = yearMonth ?? currentYearMonth();
   if (isLocalToken(token)) {
     try {
-      return await local(() => localBackend.getBudget(childId, yearMonth));
+      return await local(() => localBackend.getBudget(childId, effectiveYearMonth));
     } catch (error) {
       if (error instanceof Error && error.message.includes("월 예산을 찾을 수 없어요")) return null;
       throw error;
     }
   }
   try {
-    return await requestJson<Budget>(`/children/${childId}/budget?yearMonth=${yearMonth}`, { token });
+    return await requestJson<Budget>(`/children/${childId}/budget?yearMonth=${effectiveYearMonth}`, { token });
   } catch (error) {
     if (error instanceof Error && error.message.includes("BUDGET_NOT_FOUND")) return null;
     throw error;
@@ -293,13 +306,14 @@ export function upsertBudget(
   token: string,
   childId: string,
   amountKrw: number,
-  yearMonth = DEFAULT_YEAR_MONTH_DATE
+  yearMonth?: string
 ) {
-  if (isLocalToken(token)) return local(() => localBackend.upsertBudget(childId, amountKrw, yearMonth));
+  const effectiveYearMonth = yearMonth ?? currentYearMonthDate();
+  if (isLocalToken(token)) return local(() => localBackend.upsertBudget(childId, amountKrw, effectiveYearMonth));
   return requestJson<Budget>(`/children/${childId}/budget`, {
     method: "PUT",
     token,
-    body: { yearMonth, amountKrw }
+    body: { yearMonth: effectiveYearMonth, amountKrw }
   });
 }
 
@@ -330,10 +344,11 @@ export function createExpense(
   });
 }
 
-export function listExpenses(token: string, childId: string, yearMonth = DEFAULT_YEAR_MONTH) {
-  if (isLocalToken(token)) return local(() => localBackend.listExpenses(childId, yearMonth));
+export function listExpenses(token: string, childId: string, yearMonth?: string) {
+  const effectiveYearMonth = yearMonth ?? currentYearMonth();
+  if (isLocalToken(token)) return local(() => localBackend.listExpenses(childId, effectiveYearMonth));
   return requestJson<{ expenses: Expense[]; totalAmountKrw: number }>(
-    `/children/${childId}/expenses?yearMonth=${yearMonth}`,
+    `/children/${childId}/expenses?yearMonth=${effectiveYearMonth}`,
     { token }
   );
 }
@@ -360,9 +375,10 @@ export function deleteExpense(token: string, expenseId: string) {
   });
 }
 
-export function getMonthlyReport(token: string, childId: string, yearMonth = DEFAULT_YEAR_MONTH) {
-  if (isLocalToken(token)) return local(() => localBackend.getMonthlyReport(childId, yearMonth));
-  return requestJson<MonthlyReport>(`/children/${childId}/reports/monthly?yearMonth=${yearMonth}`, {
+export function getMonthlyReport(token: string, childId: string, yearMonth?: string) {
+  const effectiveYearMonth = yearMonth ?? currentYearMonth();
+  if (isLocalToken(token)) return local(() => localBackend.getMonthlyReport(childId, effectiveYearMonth));
+  return requestJson<MonthlyReport>(`/children/${childId}/reports/monthly?yearMonth=${effectiveYearMonth}`, {
     token
   });
 }

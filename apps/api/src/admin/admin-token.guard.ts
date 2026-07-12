@@ -1,4 +1,5 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from "@nestjs/common";
+import { safeCompare } from "../auth/token.service";
 import { requireSecret } from "../common/config/require-secret";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 
@@ -12,7 +13,7 @@ export class AdminTokenGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = headerValue(request.headers?.["x-admin-token"]);
     const expectedToken = requireSecret("WOORIAI_ADMIN_TOKEN", "dev-admin-token");
-    if (token !== expectedToken) {
+    if (typeof token !== "string" || !safeCompare(token, expectedToken)) {
       throw new ForbiddenException({ code: "ADMIN_FORBIDDEN", message: "Admin access is required." });
     }
     return true;

@@ -104,6 +104,6 @@ describe("Android native UI quality contract", () => {
     expect(expenseSource).toContain('"2025. 05. 24 (토)"');
     expect(expenseSource).toContain("getSeoulToday");
     expect(expenseSource).toContain("authToken ? formatExpenseDate(today) : previewExpenseDate");
-    expect(expenseSource).toContain('disabled={saveExpense.isPending}');
+    expect(expenseSource).toContain('disabled={saveExpense.isPending || isAmountInvalid}');
   });
 });
