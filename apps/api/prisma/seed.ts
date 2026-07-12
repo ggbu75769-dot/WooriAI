@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { hashAdminPassword } from "../src/admin/admin-password";
 import {
@@ -10,6 +11,13 @@ import {
 } from "./seed-data";
 
 const prisma = new PrismaClient();
+
+// COM-106: product_links.redirect_code는 NOT NULL UNIQUE opaque 코드. 기존 행이면
+// seedProductLinks가 이미 저장된 코드를 그대로 두므로 건드리지 않고, 신규 생성 시에만
+// 발급한다.
+function generateRedirectCode(): string {
+  return randomBytes(6).toString("hex");
+}
 
 async function seedCategories() {
   for (const category of categorySeeds) {
@@ -186,7 +194,9 @@ async function seedProductLinks() {
     if (existing) {
       await prisma.productLink.update({ where: { id: existing.id }, data });
     } else {
-      await prisma.productLink.create({ data });
+      // redirectCode is NOT NULL UNIQUE at the DB level; existing rows already have one
+      // from the 000007 migration backfill, so only newly created rows need one here.
+      await prisma.productLink.create({ data: { ...data, redirectCode: generateRedirectCode() } });
     }
   }
 }
@@ -214,23 +224,40 @@ async function seedAdminUsers() {
   );
 }
 
-async function upsertAdminUser(email: string, password: string) {
+async function upsertAdminUser(
+  email: string,
+  password: string,
+  role: "admin" | "editor" = "admin",
+  displayName = "Admin"
+) {
   const normalizedEmail = email.trim().toLowerCase();
   await prisma.adminUser.upsert({
     where: { email: normalizedEmail },
     update: {
       passwordHash: hashAdminPassword(password),
-      role: "admin",
+      role,
       active: true
     },
     create: {
       email: normalizedEmail,
       passwordHash: hashAdminPassword(password),
-      displayName: "Admin",
-      role: "admin",
+      displayName,
+      role,
       active: true
     }
   });
+}
+
+// COM-103: 작성자(editor)·승인자(admin) 분리 흐름을 로컬/테스트에서 검증하려면 admin
+// 외에 editor 역할 계정이 최소 1개 필요하다. 운영(production)에서는 시딩하지 않는다.
+async function seedEditorUsers() {
+  const nodeEnv = process.env.NODE_ENV;
+
+  if (nodeEnv === "production") {
+    return;
+  }
+
+  await upsertAdminUser("editor@wooriai.local", "wooriai-dev-editor", "editor", "Editor");
 }
 
 async function main() {
@@ -239,6 +266,7 @@ async function main() {
   await seedProductLinks();
   await seedDisclosures();
   await seedAdminUsers();
+  await seedEditorUsers();
 }
 
 main()

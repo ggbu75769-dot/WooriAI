@@ -366,6 +366,7 @@ model ProductLink {
   displayOrder         Int             @default(0) @map("display_order")
   active               Boolean         @default(true)
   disclosureText       String?         @map("disclosure_text") @db.VarChar(200)
+  redirectCode         String          @unique @default(dbgenerated("substr(md5(gen_random_uuid()::text), 1, 12)")) @map("redirect_code") @db.VarChar(16)
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -376,9 +377,13 @@ model ProductLink {
 
 model AffiliateClick {
   id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId         String          @map("user_id") @db.Uuid
-  householdId    String          @map("household_id") @db.Uuid
-  childId        String          @map("child_id") @db.Uuid
+  // Nullable since migration 000008 (round5a-sprint2-plan.md §4, COM-106): the public
+  // GET /r/:code redirect is unauthenticated, so an anonymous click has no logged-in
+  // user/household/child. The existing authenticated POST /product-links/:id/click
+  // path still fills these in.
+  userId         String?         @map("user_id") @db.Uuid
+  householdId    String?         @map("household_id") @db.Uuid
+  childId        String?         @map("child_id") @db.Uuid
   itemTemplateId String          @map("item_template_id") @db.Uuid
   productLinkId  String          @map("product_link_id") @db.Uuid
   platform       ProductPlatform
@@ -567,4 +572,59 @@ model AdminSession {
   @@index([adminUserId], map: "idx_admin_sessions_admin_user_id")
   @@index([expiresAt], map: "idx_admin_sessions_expires_at")
   @@map("admin_sessions")
+}
+
+model ContentRevision {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityType      String    @map("entity_type") @db.VarChar(32)
+  entityId        String?   @map("entity_id") @db.Uuid
+  revisionNo      Int       @map("revision_no")
+  payload         Json      @db.JsonB
+  status          String    @db.VarChar(16)
+  authorAdminId   String    @map("author_admin_id") @db.Uuid
+  reviewerAdminId String?   @map("reviewer_admin_id") @db.Uuid
+  reviewNote      String?   @map("review_note") @db.Text
+  submittedAt     DateTime? @map("submitted_at") @db.Timestamptz(6)
+  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz(6)
+  scheduledFor    DateTime? @map("scheduled_for") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([entityType, entityId, revisionNo], map: "uq_content_revisions_entity_revision")
+  @@index([status], map: "idx_content_revisions_status")
+  @@index([entityType, entityId], map: "idx_content_revisions_entity")
+  @@map("content_revisions")
+}
+
+model OauthTransaction {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider      String    @db.VarChar(16)
+  state         String    @unique @db.VarChar(64)
+  nonceHash     String    @map("nonce_hash") @db.VarChar(128)
+  codeChallenge String?   @map("code_challenge") @db.VarChar(128)
+  redirectUri   String    @map("redirect_uri") @db.Text
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt    DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([expiresAt], map: "idx_oauth_transactions_expires_at")
+  @@map("oauth_transactions")
+}
+
+model AnalyticsEvent {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventName       String   @map("event_name") @db.VarChar(64)
+  eventVersion    Int      @map("event_version")
+  eventId         String   @unique @map("event_id") @db.Uuid
+  occurredAt      DateTime @map("occurred_at") @db.Timestamptz(6)
+  receivedAt      DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  userAnonId      String?  @map("user_anon_id") @db.VarChar(64)
+  householdAnonId String?  @map("household_anon_id") @db.VarChar(64)
+  appVersion      String?  @map("app_version") @db.VarChar(32)
+  platform        String?  @db.VarChar(16)
+  payload         Json     @db.JsonB
+
+  @@index([eventName, occurredAt], map: "idx_analytics_events_name_occurred")
+  @@map("analytics_events")
 }
