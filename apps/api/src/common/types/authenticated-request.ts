@@ -12,10 +12,17 @@ export type AuthenticatedUser = {
   }>;
 };
 
+export type AuthenticatedAdmin = {
+  id: string;
+  email: string;
+  role: "admin" | "editor" | "analyst";
+};
+
 export type AuthenticatedRequest = {
   headers?: Record<string, string | string[] | undefined>;
   params?: Record<string, string | undefined>;
   query?: Record<string, string | undefined>;
   body?: Record<string, unknown>;
   user?: AuthenticatedUser;
+  adminUser?: AuthenticatedAdmin;
 };

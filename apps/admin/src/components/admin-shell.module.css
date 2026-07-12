@@ -69,6 +69,39 @@
   margin: 0;
 }
 
+.loginForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.legacyToggle {
+  background: transparent;
+  border: none;
+  color: #7a7a7a;
+  cursor: pointer;
+  font-size: 12px;
+  margin-top: 4px;
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+}
+
+.legacySection {
+  border-top: 1px solid #f0e6d8;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 12px;
+}
+
+.legacyHint {
+  color: #b08a5a;
+  font-size: 12px;
+  margin: 0;
+}
+
 .shell {
   background: #fff8f1;
   color: #242424;

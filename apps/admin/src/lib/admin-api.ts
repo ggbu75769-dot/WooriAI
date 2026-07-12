@@ -135,6 +135,22 @@ export class AdminApiError extends Error {
   }
 }
 
+// `token` is the opaque, prefixed value produced by admin-token-context.tsx:
+// "jwt:<admin JWT>" for a real admin login, or "legacy:<shared secret>" for the
+// dev/test-only x-admin-token fallback. This keeps every exported function below
+// unaware of which auth mode is active.
+function authHeaders(token: string): Record<string, string> {
+  if (token.startsWith("jwt:")) {
+    return { Authorization: `Bearer ${token.slice("jwt:".length)}` };
+  }
+  if (token.startsWith("legacy:")) {
+    return { "x-admin-token": token.slice("legacy:".length) };
+  }
+  // Backward-compatible fallback for any pre-existing unprefixed token (shouldn't
+  // occur once admin-token-context.tsx always writes a prefixed value).
+  return { "x-admin-token": token };
+}
+
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -142,7 +158,7 @@ async function request<T>(path: string, token: string, init?: RequestInit): Prom
       ...init,
       headers: {
         "Content-Type": "application/json",
-        "x-admin-token": token,
+        ...authHeaders(token),
         ...(init?.headers ?? {})
       }
     });
@@ -230,4 +246,50 @@ export function getAffiliateClickSummary(token: string) {
 
 export function isAuthError(error: unknown): boolean {
   return error instanceof AdminApiError && (error.status === 401 || error.status === 403);
+}
+
+export type AdminLoginResult = {
+  accessToken: string;
+  expiresIn: number;
+  admin: { id: string; email: string; displayName: string; role: "admin" | "editor" | "analyst" };
+};
+
+export async function adminLogin(email: string, password: string): Promise<AdminLoginResult> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl()}/admin/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+  } catch {
+    throw new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.");
+  }
+
+  let text = "";
+  try {
+    text = await response.text();
+  } catch {
+    text = "";
+  }
+
+  let body: unknown = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
+  }
+
+  if (!response.ok) {
+    const code =
+      body && typeof body === "object" && "code" in (body as Record<string, unknown>)
+        ? String((body as Record<string, unknown>).code)
+        : undefined;
+    const message = code === "ADMIN_LOGIN_RATE_LIMITED" ? "너무 많이 시도했어요. 잠시 후 다시 시도해 주세요." : "이메일 또는 비밀번호를 다시 확인해 주세요.";
+    throw new AdminApiError(response.status, message, code);
+  }
+
+  return body as AdminLoginResult;
 }
