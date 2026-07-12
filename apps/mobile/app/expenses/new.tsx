@@ -3,9 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
-import { createExpense, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
+import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
+import { createExpenseOffline } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, Toast } from "../../src/ui";
@@ -254,13 +256,20 @@ export default function NewExpenseScreen() {
     return chips;
   })();
 
+  // MOB-102 (round5a-sprint1-plan.md §3.2, §3.3): saves to the local offline store first --
+  // this always "succeeds" as soon as the local write lands, well before the server has
+  // confirmed anything, so the sheet shows OFFLINE_SAVED_MESSAGE here and never the
+  // server-confirmed copy (that one only fires later, from a background flush -- see
+  // src/offline/sync-controller.ts's flash-message wiring, surfaced on the records screen).
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const saveExpense = useMutation({
     mutationFn: () => {
       const amountKrw = Number(amountText);
       if (!authToken || !childId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
         throw new Error("invalid expense");
       }
-      return createExpense(authToken, childId, {
+      return createExpenseOffline(authToken, queryClient, {
+        childId,
         categoryId: selectedCategory.id,
         amountKrw,
         spentOn: expenseDate.iso,
@@ -272,9 +281,11 @@ export default function NewExpenseScreen() {
       });
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries();
       clearQuickExpenseDraft();
-      router.replace("/(tabs)/records");
+      setSavedMessage(OFFLINE_SAVED_MESSAGE);
+      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      await queryClient.invalidateQueries({ queryKey: ["home"] });
+      setTimeout(() => router.replace("/(tabs)/records"), 650);
     }
   });
   const formattedAmount = amountText === "38500" ? quickExpenseAmountPreview : `₩ ${Number(amountText || 0).toLocaleString("ko-KR")}`;
@@ -539,6 +550,7 @@ export default function NewExpenseScreen() {
         ) : null}
 
         {saveExpense.isError ? <Toast message="금액과 항목을 확인해 주세요." tone="error" /> : null}
+        {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}
           <PrimaryButton
             disabled={saveExpense.isPending || isAmountInvalid}
             label={saveExpense.isPending ? "저장 중" : "저장하기"}

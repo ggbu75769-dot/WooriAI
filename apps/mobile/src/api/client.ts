@@ -40,6 +40,7 @@ type RequestOptions = {
   token?: string | null;
   body?: unknown;
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  headers?: Record<string, string>;
 };
 
 export type Expense = {
@@ -53,6 +54,11 @@ export type Expense = {
   memo?: string | null;
   expenseType: "expense" | "gift" | "refund";
   source: "manual" | "excel_import" | "purchase_followup" | "admin";
+  // MOB-103 (round5a-sprint1-plan.md §2.1): optimistic-concurrency version, 1 on create, +1 on
+  // every update/soft-delete. Used by MOB-102's offline outbox as `expectedVersion` on
+  // update/delete -- see createExpenseWithIdempotency/updateExpenseWithVersion/
+  // deleteExpenseWithVersion below.
+  version: number;
 };
 
 export type Budget = {
@@ -212,6 +218,40 @@ export type SettingsConfirmResponse = {
   flowId: string;
 };
 
+export type OnboardingNextStep = "consents" | "child-profile" | "prepared-items" | "budget" | "home";
+
+export type OnboardingChildSummary = {
+  id: string;
+  nickname: string;
+  stageMode: string;
+  currentStage: string;
+  stageLabel: string;
+};
+
+/**
+ * MOB-101 (round5a-sprint1-plan.md §4): server-side source of truth for where a session left
+ * off in onboarding, so app restart / re-login / token refresh restores the exact right step
+ * instead of always restarting at ONB-001. `canRestart` is false once a child has been
+ * created for the household -- the "처음부터 시작" option on the resume screen (ONB-006) is
+ * only offered while nothing exists yet to duplicate or orphan.
+ */
+export type OnboardingProgress = {
+  completed: boolean;
+  nextStep: OnboardingNextStep;
+  canRestart: boolean;
+  summary: {
+    consentsAccepted: boolean;
+    child: OnboardingChildSummary | null;
+    preparedItemsCount: number | null;
+    budget: { yearMonth: string; amountKrw: number } | null;
+  };
+};
+
+export function getOnboardingProgress(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.onboardingStatus());
+  return requestJson<OnboardingProgress>("/onboarding/status", { token });
+}
+
 /** Thrown by refreshAccessToken so callers can tell an expired/invalid refresh token (401) apart
  * from a network failure -- only the former should clear the session. */
 class RefreshHttpError extends Error {
@@ -273,7 +313,8 @@ async function requestJson<T>(path: string, options: RequestOptions = {}, isRetr
     method: options.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...(options.headers ?? {})
     },
     body: options.body ? JSON.stringify(options.body) : undefined
   });
@@ -374,6 +415,12 @@ export function upsertConsents(token: string) {
   });
 }
 
+/**
+ * `idempotencyKey` (MOB-101, round5a-sprint1-plan.md §4): the onboarding-progress store hands
+ * out one stable key per child draft (see getOrCreateChildCreateIdempotencyKey) and reuses it
+ * across retries of the same child-profile submission, so a lost response / app restart mid
+ * request can safely resubmit without the server creating a second child for the household.
+ */
 export function createChild(
   token: string,
   body: {
@@ -383,10 +430,16 @@ export function createChild(
     dueDate?: string;
     birthDate?: string;
     manualStage?: string | null;
-  }
+  },
+  idempotencyKey?: string
 ) {
   if (isLocalToken(token)) return local(() => localBackend.createChild({ nickname: body.nickname }));
-  return requestJson<{ id: string }>("/children", { method: "POST", token, body });
+  return requestJson<{ id: string }>("/children", {
+    method: "POST",
+    token,
+    body,
+    headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined
+  });
 }
 
 export function setPreparedItems(token: string, childId: string, itemTemplateIds: string[]) {
@@ -493,6 +546,200 @@ export function deleteExpense(token: string, expenseId: string) {
     method: "DELETE",
     token
   });
+}
+
+// ---------------------------------------------------------------------------
+// MOB-102/MOB-103 (round5a-sprint1-plan.md §2.2, §2.3, §3) -- additive-only extensions for the
+// offline outbox (src/offline/*). These are new exports; none of the functions above are
+// touched or change signature. They carry `expectedVersion`/`Idempotency-Key` explicitly instead
+// of reusing createExpense/updateExpense/deleteExpense so those existing call sites/behavior
+// stay byte-for-byte unchanged.
+// ---------------------------------------------------------------------------
+
+export const EXPENSE_IDEMPOTENCY_HEADER = "Idempotency-Key";
+
+/** Mirrors the server's 409 VERSION_CONFLICT `current` field (design doc §2.2). */
+export type ExpenseConflictSnapshot = (Expense & { version: number }) | { id: string; deleted: true; version: number } | null;
+
+export class ExpenseVersionConflictError extends Error {
+  readonly current: ExpenseConflictSnapshot;
+  constructor(current: ExpenseConflictSnapshot) {
+    super("VERSION_CONFLICT");
+    this.name = "ExpenseVersionConflictError";
+    this.current = current;
+  }
+}
+
+export class ExpenseHttpError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+  constructor(status: number, body: unknown) {
+    super(`Expense request failed with status ${status}`);
+    this.name = "ExpenseHttpError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/** Bridges a LocalVersionConflictError thrown by the local-session backend into the same typed
+ * error shape a real 409 response produces, so callers (the offline sync engine) never need to
+ * branch on local vs. real session. */
+function rethrowAsExpenseError(error: unknown): never {
+  if (error instanceof localBackend.LocalVersionConflictError) {
+    throw new ExpenseVersionConflictError(error.current as ExpenseConflictSnapshot);
+  }
+  if (error instanceof Error) {
+    throw new ExpenseHttpError(422, { error: { code: "VALIDATION_ERROR", message: error.message } });
+  }
+  throw error;
+}
+
+type ExpenseRequestOptions = {
+  token?: string | null;
+  method?: "POST" | "PATCH" | "DELETE";
+  body?: unknown;
+  idempotencyKey?: string;
+};
+
+/**
+ * Fetch wrapper dedicated to the version-aware expense endpoints: unlike requestJson, this
+ * surfaces the HTTP status/body distinctly (as ExpenseVersionConflictError for 409, or
+ * ExpenseHttpError for any other non-2xx) instead of collapsing every failure into a single
+ * `Error(JSON.stringify(data))`, since the offline sync engine (src/offline/sync-engine.ts)
+ * needs to tell a version conflict apart from a permanent validation failure apart from a
+ * network error. Reuses the same single-flight refresh-on-401 flow as requestJson.
+ */
+async function requestExpenseJson<T>(path: string, options: ExpenseRequestOptions, isRetry = false): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...(options.idempotencyKey ? { [EXPENSE_IDEMPOTENCY_HEADER]: options.idempotencyKey } : {})
+    },
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined
+  });
+
+  const canAttemptRefresh = response.status === 401 && !isRetry && options.token && !isLocalToken(options.token);
+  if (canAttemptRefresh) {
+    const session = useSessionStore.getState();
+    const currentRefreshToken = session.refreshToken;
+    if (currentRefreshToken) {
+      try {
+        const refreshed = await performSingleFlightRefresh(currentRefreshToken);
+        return requestExpenseJson<T>(path, { ...options, token: refreshed.accessToken }, true);
+      } catch (refreshError) {
+        if (refreshError instanceof RefreshHttpError && refreshError.status === 401) {
+          useSessionStore.getState().clearSession();
+        }
+      }
+    }
+  }
+
+  const data = await response.json().catch(() => null);
+  if (response.status === 409) {
+    // H-1 fix: not every 409 on these endpoints is a VERSION_CONFLICT -- the shared
+    // IdempotencyInterceptor (apps/api/src/common/idempotency/idempotency.interceptor.ts) also
+    // 409s with IDEMPOTENCY_KEY_CONFLICT when the same Idempotency-Key is replayed with a
+    // different body, and that body has no `current` field at all. Only treat it as a version
+    // conflict when the server actually says so; anything else is a permanent HTTP failure like
+    // any other non-2xx, not a conflict the offline sync engine should try to resolve.
+    const conflictBody = data as { error?: { code?: string }; current?: ExpenseConflictSnapshot } | null;
+    if (conflictBody?.error?.code === "VERSION_CONFLICT") {
+      throw new ExpenseVersionConflictError(conflictBody.current ?? null);
+    }
+    throw new ExpenseHttpError(response.status, data);
+  }
+  if (!response.ok) {
+    throw new ExpenseHttpError(response.status, data);
+  }
+  return data as T;
+}
+
+export function createExpenseWithIdempotency(
+  token: string,
+  childId: string,
+  body: {
+    categoryId: string;
+    amountKrw: number;
+    spentOn: string;
+    itemName: string;
+    merchant?: string;
+    paymentMethod?: "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
+    memo?: string;
+    linkedItemTemplateId?: string;
+    expenseType?: "expense" | "gift";
+  },
+  idempotencyKey: string
+): Promise<Expense> {
+  if (isLocalToken(token)) {
+    return local(() => localBackend.createExpenseIdempotent(childId, body, idempotencyKey)).catch(rethrowAsExpenseError);
+  }
+  return requestExpenseJson<Expense>(`/children/${childId}/expenses`, {
+    token,
+    method: "POST",
+    body,
+    idempotencyKey
+  });
+}
+
+export function updateExpenseWithVersion(
+  token: string,
+  expenseId: string,
+  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>,
+  expectedVersion: number,
+  idempotencyKey: string
+): Promise<Expense> {
+  if (isLocalToken(token)) {
+    return local(() => localBackend.updateExpense(expenseId, body, expectedVersion)).catch(rethrowAsExpenseError);
+  }
+  return requestExpenseJson<Expense>(`/expenses/${expenseId}`, {
+    token,
+    method: "PATCH",
+    body: { ...body, expectedVersion },
+    idempotencyKey
+  });
+}
+
+export function deleteExpenseWithVersion(
+  token: string,
+  expenseId: string,
+  expectedVersion: number,
+  idempotencyKey: string
+): Promise<{ success: boolean }> {
+  if (isLocalToken(token)) {
+    return local(() => localBackend.deleteExpense(expenseId, expectedVersion)).catch(rethrowAsExpenseError);
+  }
+  return requestExpenseJson<{ success: boolean }>(`/expenses/${expenseId}?expectedVersion=${expectedVersion}`, {
+    token,
+    method: "DELETE",
+    idempotencyKey
+  });
+}
+
+export type SyncChange =
+  | { type: "expense"; op: "upsert"; data: Expense }
+  | { type: "expense"; op: "delete"; id: string; version: number; deletedAt: string };
+
+export type SyncChangesResult = {
+  changes: SyncChange[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+/**
+ * MOB-102/MOB-103 §2.3 delta sync -- kept intentionally minimal on the mobile side per the
+ * design doc's note that client-side delta pull is best-effort this sprint: the sync controller
+ * (src/offline/sync-controller.ts) uses this only for a single best-effort pull on app
+ * foreground/reconnect, not a persisted incremental cursor/merge pipeline.
+ */
+export function getSyncChanges(token: string, cursor?: string, limit?: number): Promise<SyncChangesResult> {
+  if (isLocalToken(token)) return local(() => localBackend.getSyncChanges());
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  if (limit) params.set("limit", String(limit));
+  const query = params.toString();
+  return requestJson<SyncChangesResult>(`/sync/changes${query ? `?${query}` : ""}`, { token });
 }
 
 export function getMonthlyReport(token: string, childId: string, yearMonth?: string) {

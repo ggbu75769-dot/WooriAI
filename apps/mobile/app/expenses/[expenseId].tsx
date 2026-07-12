@@ -3,8 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
-import { deleteExpense, getExpense, LOCAL_SESSION_TOKEN, updateExpense } from "../../src/api/client";
+import { getExpense, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
+import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
+import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
@@ -85,6 +87,13 @@ export default function ExpenseDetailScreen() {
   const [customDateText, setCustomDateText] = useState("");
   const [today] = useState(() => new Date(`${getSeoulToday()}T00:00:00`));
   const recentDateChips = buildRecentDateChips(today);
+  // MOB-102 (round5a-sprint1-plan.md §3.2, §3.4): an expense loaded here came from the normal
+  // server/local-session getExpense call, so it has no offline local_expenses row yet. Editing
+  // or deleting it needs to route through the same outbox/expectedVersion pipeline as an
+  // offline-authored expense, so it's "adopted" into the local table (as an already-synced row)
+  // the first time it loads -- see sync-controller.ts's adoptServerExpense.
+  const [localExpenseId, setLocalExpenseId] = useState<string | null>(null);
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!expense.data) return;
@@ -94,6 +103,8 @@ export default function ExpenseDetailScreen() {
     setSpentOnIso(expense.data.spentOn);
     setCategoryId(expense.data.categoryId);
     setIsGift(expense.data.expenseType === "gift");
+    setLocalExpenseId(null);
+    void adoptServerExpense(expense.data).then((row) => setLocalExpenseId(row.localId));
   }, [expense.data]);
 
   const amountKrw = Number(amountDigits || "0");
@@ -101,14 +112,14 @@ export default function ExpenseDetailScreen() {
   const amountError = amountDigits.length > 0 && amountKrw <= 0 ? "0보다 큰 금액을 입력해 주세요." : null;
   const dateInputError = customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
   const spentOnLabel = spentOnIso ? formatExpenseDate(new Date(`${spentOnIso}T00:00:00`)).label : "";
-  const canSave = !itemNameError && !amountError && !dateInputError && amountKrw > 0 && Boolean(authToken && expenseId);
+  const canSave = !itemNameError && !amountError && !dateInputError && amountKrw > 0 && Boolean(authToken && expenseId && localExpenseId);
 
   const save = useMutation({
     mutationFn: () => {
-      if (!authToken || !expenseId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
+      if (!authToken || !localExpenseId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
         throw new Error("invalid expense");
       }
-      return updateExpense(authToken, expenseId, {
+      return updateExpenseOffline(authToken, queryClient, localExpenseId, {
         amountKrw,
         itemName: itemName.trim(),
         memo,
@@ -118,19 +129,22 @@ export default function ExpenseDetailScreen() {
       });
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries();
-      router.replace("/(tabs)/records");
+      setSavedMessage(OFFLINE_SAVED_MESSAGE);
+      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      await queryClient.invalidateQueries({ queryKey: ["expense", expenseId] });
+      setTimeout(() => router.replace("/(tabs)/records"), 650);
     }
   });
 
   const remove = useMutation({
     mutationFn: () => {
-      if (!authToken || !expenseId) throw new Error("missing expense");
-      return deleteExpense(authToken, expenseId);
+      if (!authToken || !localExpenseId) throw new Error("missing expense");
+      return deleteExpenseOffline(authToken, queryClient, localExpenseId);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries();
-      router.replace("/(tabs)/records");
+      setSavedMessage(OFFLINE_SAVED_MESSAGE);
+      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      setTimeout(() => router.replace("/(tabs)/records"), 650);
     }
   });
 
@@ -369,6 +383,7 @@ export default function ExpenseDetailScreen() {
             {save.isError || remove.isError ? (
               <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" />
             ) : null}
+            {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}
 
             <PrimaryButton
               disabled={!canSave || save.isPending}

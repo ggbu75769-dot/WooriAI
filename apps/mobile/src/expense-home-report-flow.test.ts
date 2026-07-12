@@ -55,6 +55,14 @@ describe("Batch 06 mobile expense, home, budget, and report contract", () => {
     expect(recordsSource).toContain("selectedCategoryId");
     expect(recordsSource).toContain("CategoryChip");
     expect(recordsSource).toContain("categoryCatalog");
-    expect(recordsSource).toContain("expenses.data.totalAmountKrw");
+    // MOB-102 H-2 fix (round5a-sprint1-plan.md §3, diff review): the total card now reads
+    // `monthlyTotalKrw` (reconciled against outstanding local mutations -- see
+    // src/offline/expense-list-reconciliation.ts) instead of the raw
+    // `expenses.data.totalAmountKrw` server aggregate, but the underlying behavior this test
+    // guards -- the total card is computed from the full month's data, not the
+    // category/search-filtered `visibleExpenses` list -- is unchanged.
+    expect(recordsSource).toContain("formatKrw(monthlyTotalKrw)");
+    expect(recordsSource).toContain("reconcileMonthlyExpenses(");
+    expect(recordsSource).not.toContain("formatKrw(visibleExpenses");
   });
 });

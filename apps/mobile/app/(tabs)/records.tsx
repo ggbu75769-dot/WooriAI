@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
+import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
+import { subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader } from "../../src/ui";
+import { AppScreen, Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader, StatusBadge, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const recordsScreenId = "EXP-004";
@@ -38,6 +40,28 @@ export default function RecordsScreen() {
   const [monthOffset, setMonthOffset] = useState(0);
   const [searchText, setSearchText] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  // MOB-102 (round5a-sprint1-plan.md §3.3): flash message shown once a background flush confirms
+  // a write that was previously only saved locally -- see src/offline/sync-controller.ts.
+  const [confirmedFlash, setConfirmedFlash] = useState<string | null>(null);
+  // Recommended fix (diff review): track the dismiss timer in a ref so a message that arrives
+  // right before unmount (or a second message arriving before the first's timer fires) can never
+  // fire a setState after this screen is gone / clobber a still-pending timer.
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = subscribeOfflineFlashMessage((message) => {
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+      setConfirmedFlash(message.text);
+      flashTimerRef.current = setTimeout(() => {
+        setConfirmedFlash(null);
+        flashTimerRef.current = null;
+      }, 3200);
+    });
+    return () => {
+      unsubscribe();
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    };
+  }, []);
 
   const baseDate = new Date(`${getSeoulToday()}T00:00:00`);
   const recordsDate = addMonths(baseDate, monthOffset);
@@ -50,14 +74,43 @@ export default function RecordsScreen() {
     queryFn: () => listExpenses(authToken!, childId!, recordsYearMonth)
   });
 
+  // EXP-005: not-yet-synced local expenses for this child, so a record created/edited while
+  // offline shows up immediately even though the server hasn't confirmed it yet.
+  const syncSnapshot = useOfflineSyncSnapshot();
+  const unsyncedCount = syncSnapshot.counts.pending + syncSnapshot.counts.syncing + syncSnapshot.counts.failed + syncSnapshot.counts.conflict;
+
+  // H-2 fix: reconcile the server's listExpenses response with any not-yet-synced local rows for
+  // this month -- an edited/deleted *existing* server expense would otherwise show up twice (the
+  // stale server row + the local pending row) and double-count in the total. See
+  // src/offline/expense-list-reconciliation.ts (unit-tested) for the full rationale.
+  const childOfflineRows = childId ? syncSnapshot.rows.filter((row) => row.childId === childId) : [];
+  const { visibleServerExpenses: monthlyServerExpenses, offlinePendingRows, monthlyTotalKrw } = reconcileMonthlyExpenses(
+    expenses.data?.expenses ?? [],
+    childOfflineRows,
+    recordsYearMonth
+  );
+
   const normalizedSearch = searchText.trim().toLowerCase();
-  const visibleExpenses = (expenses.data?.expenses ?? []).filter((expense) => {
+  const visibleExpenses = monthlyServerExpenses.filter((expense) => {
     if (selectedCategoryId && expense.categoryId !== selectedCategoryId) return false;
     if (!normalizedSearch) return true;
     const haystack = `${expense.itemName} ${expense.memo ?? ""}`.toLowerCase();
     return haystack.includes(normalizedSearch);
   });
+  const visibleOfflineRows = offlinePendingRows.filter((row) => {
+    if (selectedCategoryId && row.payload.categoryId !== selectedCategoryId) return false;
+    if (!normalizedSearch) return true;
+    const haystack = `${row.payload.itemName} ${row.payload.memo ?? ""}`.toLowerCase();
+    return haystack.includes(normalizedSearch);
+  });
   const hasSearchQuery = normalizedSearch.length > 0;
+
+  function offlineStatusIcon(syncState: string) {
+    if (syncState === "conflict") return "⚠";
+    if (syncState === "failed") return "!";
+    if (syncState === "syncing") return "↻";
+    return "⏱";
+  }
 
   return (
     <AppScreen>
@@ -65,6 +118,23 @@ export default function RecordsScreen() {
         <ScreenHeader eyebrow="지출 기록" title="기록" subtitle="이번 달 지출 내역을 한눈에 확인해 보세요." />
 
         <PrimaryButton label="빠른 지출 기록" onPress={() => router.push("/expenses/new")} />
+
+        {confirmedFlash ? <Toast message={confirmedFlash} tone="success" /> : null}
+
+        {unsyncedCount > 0 ? (
+          <Pressable
+            accessibilityLabel="동기화 상태 보기"
+            accessibilityRole="button"
+            onPress={() => router.push("/sync-status")}
+            style={{ alignItems: "center", flexDirection: "row", gap: 8 }}
+          >
+            {syncSnapshot.counts.pending + syncSnapshot.counts.syncing > 0 ? (
+              <StatusBadge label={`대기 ${syncSnapshot.counts.pending + syncSnapshot.counts.syncing}`} tone="neutral" />
+            ) : null}
+            {syncSnapshot.counts.failed > 0 ? <StatusBadge label={`실패 ${syncSnapshot.counts.failed}`} tone="warning" /> : null}
+            {syncSnapshot.counts.conflict > 0 ? <StatusBadge label={`충돌 ${syncSnapshot.counts.conflict}`} tone="warning" /> : null}
+          </Pressable>
+        ) : null}
 
         <View
           style={{
@@ -119,19 +189,37 @@ export default function RecordsScreen() {
             actionLabel="다시 시도"
             onPress={() => expenses.refetch()}
           />
-        ) : expenses.data && expenses.data.expenses.length > 0 ? (
-          visibleExpenses.length > 0 ? (
+        ) : expenses.data && monthlyServerExpenses.length + offlinePendingRows.length > 0 ? (
+          visibleExpenses.length + visibleOfflineRows.length > 0 ? (
             <>
               <Card>
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
                   {recordsMonthLabel} 합계
                 </Text>
                 <Text style={{ color: theme.colors.brown, fontSize: 24, fontWeight: "800" }}>
-                  {formatKrw(expenses.data.totalAmountKrw)}
+                  {formatKrw(monthlyTotalKrw)}
                 </Text>
               </Card>
 
               <View style={{ gap: theme.spacing.gap }}>
+                {visibleOfflineRows.map((row) => (
+                  <ListRow
+                    key={row.localId}
+                    icon={offlineStatusIcon(row.syncState)}
+                    title={row.payload.itemName}
+                    subtitle={
+                      row.pendingDelete
+                        ? "삭제 대기 중"
+                        : row.syncState === "conflict"
+                          ? "다른 기기와 충돌 · 확인 필요"
+                          : row.syncState === "failed"
+                            ? "동기화 실패 · 확인 필요"
+                            : `동기화 대기 · ${formatSpentOn(row.payload.spentOn)}`
+                    }
+                    value={formatKrw(row.payload.amountKrw)}
+                    onPress={() => router.push("/sync-status")}
+                  />
+                ))}
                 {visibleExpenses.map((expense) => (
                   <ListRow
                     key={expense.id}

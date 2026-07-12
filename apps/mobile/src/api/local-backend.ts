@@ -69,7 +69,32 @@ type LocalExpenseRecord = {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  // MOB-103/MOB-102 (round5a-sprint1-plan.md §2.1, §2.2): mirrors the server's optimistic-
+  // concurrency `expenses.version` column -- 1 on create, +1 on every update/soft-delete. The
+  // mobile offline outbox (src/offline/*) sends this back as `expectedVersion` on update/delete.
+  version: number;
 };
+
+/**
+ * Local mirror of the server's 409 VERSION_CONFLICT `current` payload (design doc §2.2) --
+ * either the latest live expense (with version) or a soft-deleted tombstone.
+ */
+export type LocalConflictSnapshot =
+  | (Expense & { version: number })
+  | { id: string; deleted: true; version: number }
+  | null;
+
+/** Thrown by updateExpense/deleteExpense below when an `expectedVersion` no longer matches --
+ * the local-session (test mode) mirror of the real API's 409 VERSION_CONFLICT response. Caught
+ * and re-typed by src/api/client.ts's version-aware wrapper functions. */
+export class LocalVersionConflictError extends Error {
+  readonly current: LocalConflictSnapshot;
+  constructor(current: LocalConflictSnapshot) {
+    super("VERSION_CONFLICT");
+    this.name = "LocalVersionConflictError";
+    this.current = current;
+  }
+}
 
 type LocalChildRecord = {
   id: string;
@@ -128,12 +153,23 @@ type LocalBackendState = {
   budgets: Record<string, number>;
   expenses: LocalExpenseRecord[];
   itemStatuses: Record<string, { status: ItemStatus; expenseId: string | null }>;
+  // MOB-101: mirrors the server's `children.prepared_items_set_at` -- set once the
+  // prepared-items onboarding step is submitted (even with zero items checked), used by
+  // onboardingStatus() below to tell "step not reached yet" apart from "step done, nothing
+  // picked". Missing on already-persisted local backends (pre-MOB-101) defaults to false via
+  // the initialState merge, which just means those demo sessions replay that one step.
+  preparedItemsCompleted: boolean;
   members: LocalMemberRecord[];
   invites: LocalInviteRecord[];
   importJobs: LocalImportJobRecord[];
   importRows: Record<string, LocalImportRowRecord[]>;
   consents: Array<{ type: string; version: string; accepted: boolean }>;
   accountDeletedAt: string | null;
+  // MOB-102 (round5a-sprint1-plan.md §3.2): local mirror of the real API's Idempotency-Key
+  // interceptor for expense creation -- maps a client-supplied idempotency key to the expense id
+  // it produced, so the offline outbox replaying a create after a crash/retry never creates a
+  // second expense for the same key. See createExpenseIdempotent below.
+  idempotencyKeys: Record<string, string>;
 };
 
 const initialState: LocalBackendState = {
@@ -142,12 +178,14 @@ const initialState: LocalBackendState = {
   budgets: {},
   expenses: [],
   itemStatuses: {},
+  preparedItemsCompleted: false,
   members: [],
   invites: [],
   importJobs: [],
   importRows: {},
   consents: [],
-  accountDeletedAt: null
+  accountDeletedAt: null,
+  idempotencyKeys: {}
 };
 
 export const useLocalBackendStore = create<LocalBackendState>()(
@@ -159,7 +197,14 @@ export const useLocalBackendStore = create<LocalBackendState>()(
 );
 
 function wipeLocalBackendState() {
-  useLocalBackendStore.setState({ ...initialState, budgets: {}, expenses: [], itemStatuses: {}, importRows: {} });
+  useLocalBackendStore.setState({
+    ...initialState,
+    budgets: {},
+    expenses: [],
+    itemStatuses: {},
+    importRows: {},
+    idempotencyKeys: {}
+  });
 }
 
 /** Test-only helper: wipes the local backend so the next call reseeds from fixtures. */
@@ -232,7 +277,8 @@ function ensureSeeded() {
       source: seed.source,
       createdAt: now,
       updatedAt: now,
-      deletedAt: null
+      deletedAt: null,
+      version: 1
     };
   });
 
@@ -249,7 +295,8 @@ function ensureSeeded() {
     importJobs: [],
     importRows: {},
     consents: [],
-    accountDeletedAt: null
+    accountDeletedAt: null,
+    idempotencyKeys: {}
   });
 }
 
@@ -359,8 +406,26 @@ function toExpenseDto(expense: LocalExpenseRecord): Expense {
     merchant: expense.merchant,
     memo: expense.memo,
     expenseType: expense.expenseType,
-    source: expense.source
+    source: expense.source,
+    version: expense.version
   };
+}
+
+/** Snapshot used for LocalVersionConflictError.current -- mirrors the server's toDeletedExpenseSnapshot
+ * / toExpenseSnapshot (apps/api/src/finance/expense-snapshot.ts) for the local-session path. */
+function toConflictSnapshot(expense: LocalExpenseRecord): LocalConflictSnapshot {
+  if (expense.deletedAt) {
+    return { id: expense.id, deleted: true, version: expense.version };
+  }
+  return toExpenseDto(expense);
+}
+
+/** Unlike requireExpense, does not filter out soft-deleted rows -- needed so a version-conflict
+ * check against an already (soft-)deleted expense can still report the deleted tombstone as
+ * `current`, matching the server's 409 contract (design doc §2.2). */
+function findExpenseRaw(expenseId: string): LocalExpenseRecord | undefined {
+  ensureSeeded();
+  return useLocalBackendStore.getState().expenses.find((record) => record.id === expenseId);
 }
 
 function budgetKey(yearMonth: string): string {
@@ -436,11 +501,37 @@ export function createExpense(
     source: body.source ?? "manual",
     createdAt: now,
     updatedAt: now,
-    deletedAt: null
+    deletedAt: null,
+    version: 1
   };
 
   useLocalBackendStore.setState((state) => ({ expenses: [...state.expenses, record] }));
   return toExpenseDto(record);
+}
+
+/**
+ * MOB-102 (round5a-sprint1-plan.md §3.2): local-session mirror of the real API's
+ * Idempotency-Key interceptor for expense creation. The offline outbox flush always sends a
+ * per-mutation idempotency key; replaying the same key (e.g. after a crash between the local
+ * write and the response being recorded) returns the original expense instead of creating a
+ * duplicate.
+ */
+export function createExpenseIdempotent(
+  childId: string,
+  body: Parameters<typeof createExpense>[1],
+  idempotencyKey: string
+): Expense {
+  ensureSeeded();
+  const existingId = useLocalBackendStore.getState().idempotencyKeys[idempotencyKey];
+  if (existingId) {
+    const existing = useLocalBackendStore.getState().expenses.find((record) => record.id === existingId);
+    if (existing) return toExpenseDto(existing);
+  }
+  const created = createExpense(childId, body);
+  useLocalBackendStore.setState((state) => ({
+    idempotencyKeys: { ...state.idempotencyKeys, [idempotencyKey]: created.id }
+  }));
+  return created;
 }
 
 function requireExpense(expenseId: string): LocalExpenseRecord {
@@ -456,10 +547,25 @@ export function getExpense(expenseId: string): Expense {
   return toExpenseDto(requireExpense(expenseId));
 }
 
+/**
+ * `expectedVersion` (MOB-103, design doc §2.2): local-session mirror of ExpensesVersionService.
+ * Omitted -> legacy/no-conflict-check behavior (unchanged from before). Provided and mismatched
+ * (including against an already soft-deleted row) -> throws LocalVersionConflictError with the
+ * current snapshot, exactly like the real API's 409 VERSION_CONFLICT.
+ */
 export function updateExpense(
   expenseId: string,
-  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>
+  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>,
+  expectedVersion?: number
 ): Expense {
+  const raw = findExpenseRaw(expenseId);
+  if (!raw) {
+    throw new Error("지출 기록을 찾을 수 없어요.");
+  }
+  if (expectedVersion !== undefined && raw.version !== expectedVersion) {
+    throw new LocalVersionConflictError(toConflictSnapshot(raw));
+  }
+
   const expense = requireExpense(expenseId);
   const updated: LocalExpenseRecord = { ...expense };
 
@@ -478,6 +584,7 @@ export function updateExpense(
   if (body.memo !== undefined) updated.memo = cleanOptionalText(body.memo ?? undefined);
   if (body.expenseType !== undefined) updated.expenseType = body.expenseType;
   updated.updatedAt = new Date().toISOString();
+  updated.version = expense.version + 1;
 
   useLocalBackendStore.setState((state) => ({
     expenses: state.expenses.map((record) => (record.id === expenseId ? updated : record))
@@ -485,13 +592,47 @@ export function updateExpense(
   return toExpenseDto(updated);
 }
 
-export function deleteExpense(expenseId: string): { success: boolean } {
+export function deleteExpense(expenseId: string, expectedVersion?: number): { success: boolean } {
+  const raw = findExpenseRaw(expenseId);
+  if (!raw) {
+    throw new Error("지출 기록을 찾을 수 없어요.");
+  }
+  if (expectedVersion !== undefined && raw.version !== expectedVersion) {
+    throw new LocalVersionConflictError(toConflictSnapshot(raw));
+  }
+
   const expense = requireExpense(expenseId);
   const now = new Date().toISOString();
   useLocalBackendStore.setState((state) => ({
-    expenses: state.expenses.map((record) => (record.id === expenseId ? { ...record, deletedAt: now, updatedAt: now } : record))
+    expenses: state.expenses.map((record) =>
+      record.id === expenseId ? { ...record, deletedAt: now, updatedAt: now, version: record.version + 1 } : record
+    )
   }));
   return { success: true };
+}
+
+/**
+ * Minimal local-session mirror of `GET /v1/sync/changes` (design doc §2.3). Deliberately not a
+ * full keyset-paginated mirror -- MOB-102's mobile scope treats delta sync as best-effort (see
+ * src/offline/sync-controller.ts's foreground-reconnect handling), so this just snapshots every
+ * expense the local session currently knows about as a single page, ignoring `cursor`/`limit`.
+ */
+export function getSyncChanges(): {
+  changes: Array<
+    | { type: "expense"; op: "upsert"; data: Expense }
+    | { type: "expense"; op: "delete"; id: string; version: number; deletedAt: string }
+  >;
+  nextCursor: string | null;
+  hasMore: boolean;
+} {
+  ensureSeeded();
+  const expenses = useLocalBackendStore.getState().expenses;
+  const changes = expenses.map((record) =>
+    record.deletedAt
+      ? { type: "expense" as const, op: "delete" as const, id: record.id, version: record.version, deletedAt: record.deletedAt }
+      : { type: "expense" as const, op: "upsert" as const, data: toExpenseDto(record) }
+  );
+  return { changes, nextCursor: "local-sync-cursor", hasMore: false };
 }
 
 export function getBudget(childId: string, yearMonth: string): Budget {
@@ -1002,6 +1143,79 @@ export function createChild(body: { nickname: string }): { id: string } {
   return { id: LOCAL_CHILD_ID };
 }
 
+/**
+ * MOB-101: local-backend mirror of the real API's `GET /onboarding/status` (see
+ * OnboardingStoreService.onboardingStatus on the server) so the demo/test-mode path exercises
+ * the same {completed, nextStep, canRestart, summary} contract as a real session, even though
+ * the standalone test-login flow currently bypasses onboarding entirely via `isTestSession`
+ * (see session.store.ts / app/index.tsx).
+ */
+export function onboardingStatus(): {
+  completed: boolean;
+  nextStep: "consents" | "child-profile" | "prepared-items" | "budget" | "home";
+  canRestart: boolean;
+  summary: {
+    consentsAccepted: boolean;
+    child: { id: string; nickname: string; stageMode: string; currentStage: string; stageLabel: string } | null;
+    preparedItemsCount: number | null;
+    budget: { yearMonth: string; amountKrw: number } | null;
+  };
+} {
+  ensureSeeded();
+  const state = useLocalBackendStore.getState();
+  const consentsAccepted =
+    state.consents.some((consent) => consent.type === "terms" && consent.accepted) &&
+    state.consents.some((consent) => consent.type === "privacy" && consent.accepted);
+
+  if (!consentsAccepted) {
+    return {
+      completed: false,
+      nextStep: "consents",
+      canRestart: true,
+      summary: { consentsAccepted: false, child: null, preparedItemsCount: null, budget: null }
+    };
+  }
+
+  const child = state.child && !state.child.deletedAt ? state.child : null;
+  if (!child) {
+    return {
+      completed: false,
+      nextStep: "child-profile",
+      canRestart: true,
+      summary: { consentsAccepted: true, child: null, preparedItemsCount: null, budget: null }
+    };
+  }
+
+  const childSummary = { ...toChildDto(child), stageMode: "born" };
+  if (!state.preparedItemsCompleted) {
+    return {
+      completed: false,
+      nextStep: "prepared-items",
+      canRestart: false,
+      summary: { consentsAccepted: true, child: childSummary, preparedItemsCount: null, budget: null }
+    };
+  }
+
+  const preparedItemsCount = Object.keys(state.itemStatuses).length;
+  const yearMonth = getSeoulMonthRange(getSeoulToday()).yearMonth;
+  const amountKrw = state.budgets[yearMonth];
+  if (amountKrw === undefined) {
+    return {
+      completed: false,
+      nextStep: "budget",
+      canRestart: false,
+      summary: { consentsAccepted: true, child: childSummary, preparedItemsCount, budget: null }
+    };
+  }
+
+  return {
+    completed: true,
+    nextStep: "home",
+    canRestart: false,
+    summary: { consentsAccepted: true, child: childSummary, preparedItemsCount, budget: { yearMonth, amountKrw } }
+  };
+}
+
 export function setPreparedItems(_childId: string, itemTemplateIds: string[]): { updatedCount: number } {
   ensureSeeded();
   const unique = new Set(itemTemplateIds);
@@ -1012,7 +1226,7 @@ export function setPreparedItems(_childId: string, itemTemplateIds: string[]): {
         nextStatuses[itemTemplateId] = { status: "prepared", expenseId: null };
       }
     }
-    return { itemStatuses: nextStatuses };
+    return { itemStatuses: nextStatuses, preparedItemsCompleted: true };
   });
   return { updatedCount: unique.size };
 }
