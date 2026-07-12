@@ -48,6 +48,13 @@ export function configureApiApp(app: INestApplication) {
   // that fail during body parsing, before anything else runs.
   app.use(requestIdMiddleware());
 
+  // Rate limiting and security headers run before body parsing so a rejected
+  // (429) request never pays the 1MB parse cost, and even 413/429 responses
+  // carry the security headers and appear in the request log.
+  app.use(securityHeadersMiddleware());
+  app.use(requestLoggerMiddleware());
+  app.use(rateLimitMiddleware());
+
   // Runs before Nest's own default body-parser registration (which happens
   // inside app.init()/app.listen(), i.e. after this synchronous call
   // returns) and takes over json/urlencoded parsing at a 1MB limit -- Nest's
@@ -63,10 +70,6 @@ export function configureApiApp(app: INestApplication) {
   // non-HttpException branch and come back as a misleading 500 instead of a
   // 413.
   app.use(bodySizeErrorMiddleware());
-
-  app.use(requestLoggerMiddleware());
-  app.use(securityHeadersMiddleware());
-  app.use(rateLimitMiddleware());
 
   app.setGlobalPrefix("api/v1");
   app.useGlobalPipes(createDtoValidationPipe());

@@ -77,7 +77,7 @@ export async function parseImportFile(
   const referenceYear = options.referenceYear ?? new Date().getUTCFullYear();
 
   const fileType: "csv" | "xlsx" = extension === "xlsx" ? "xlsx" : "csv";
-  const grid = fileType === "xlsx" ? await parseXlsxGrid(buffer) : parseCsvGrid(buffer);
+  const grid = fileType === "xlsx" ? await parseXlsxGrid(buffer, maxRows) : parseCsvGrid(buffer);
 
   if (grid.length === 0) {
     throw new BadRequestException({ code: "IMPORT_FILE_INVALID", message: "가져올 데이터를 찾을 수 없어요." });
@@ -208,7 +208,7 @@ function tokenizeCsv(text: string): string[][] {
 // XLSX
 // ---------------------------------------------------------------------------
 
-async function parseXlsxGrid(buffer: Buffer): Promise<string[][]> {
+async function parseXlsxGrid(buffer: Buffer, maxRows: number): Promise<string[][]> {
   const workbook = new ExcelJS.Workbook();
   try {
     await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer);
@@ -221,8 +221,20 @@ async function parseXlsxGrid(buffer: Buffer): Promise<string[][]> {
     throw new BadRequestException({ code: "IMPORT_FILE_INVALID", message: "엑셀 파일에 시트가 없어요." });
   }
 
+  // 압축 폭탄 방어: 고압축 xlsx는 10MB 업로드 제한을 통과하고도 수십만 행으로
+  // 팽창할 수 있다. 행 축적을 상한(헤더 여유분 +1)에서 즉시 중단해 메모리 고갈을 막는다.
+  const rowCap = maxRows + 1;
+  if (sheet.rowCount > rowCap) {
+    throw new BadRequestException({ code: "IMPORT_TOO_MANY_ROWS", message: "Import files can include up to 2,000 rows." });
+  }
+
   const rows: string[][] = [];
+  let truncated = false;
   sheet.eachRow({ includeEmpty: false }, (row) => {
+    if (rows.length >= rowCap) {
+      truncated = true;
+      return;
+    }
     const cells: string[] = [];
     let maxCol = 0;
     row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
@@ -233,6 +245,10 @@ async function parseXlsxGrid(buffer: Buffer): Promise<string[][]> {
     }
     rows.push(cells);
   });
+
+  if (truncated) {
+    throw new BadRequestException({ code: "IMPORT_TOO_MANY_ROWS", message: "Import files can include up to 2,000 rows." });
+  }
 
   return rows;
 }

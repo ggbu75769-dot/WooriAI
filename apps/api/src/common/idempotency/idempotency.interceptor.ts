@@ -14,6 +14,9 @@ import { PrismaService } from "../../prisma/prisma.service";
 import type { AuthenticatedRequest } from "../types/authenticated-request";
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+// 예약(처리 중) 행의 수명. 핸들러 실행 중 프로세스가 죽어 응답이 기록되지 못한
+// 예약 행이 이 시간이 지나면 회수되어, 같은 키의 진짜 재시도가 영구히 막히지 않는다.
+const PENDING_TTL_MS = 60 * 1000;
 const RETRY_INTERVAL_MS = 50;
 const RETRY_ATTEMPTS = 60; // ~3s of total wait for a concurrent in-flight request to finish
 
@@ -68,10 +71,18 @@ export class IdempotencyInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const rawRequest = context.switchToHttp().getRequest<{ route?: { path?: string }; url?: string; method?: string }>();
+    const rawRequest = context
+      .switchToHttp()
+      .getRequest<{ route?: { path?: string }; originalUrl?: string; url?: string; method?: string }>();
+    // endpoint에는 라우트 패턴(:childId)을 쓰되, 해시에는 파라미터가 치환된 실제
+    // URL을 포함한다 — 같은 키+같은 body로 다른 리소스(childId 등)에 요청했을 때
+    // 첫 응답이 잘못 재생되지 않고 409(다른 요청)로 구분되게 하기 위함이다.
     const routePath = rawRequest.route?.path ?? rawRequest.url ?? "unknown";
     const endpoint = `${rawRequest.method ?? "POST"}:${routePath}`.slice(0, 120);
-    const requestHash = createHash("sha256").update(JSON.stringify(request.body ?? {})).digest("hex");
+    const actualPath = (rawRequest.originalUrl ?? rawRequest.url ?? "").split("?")[0];
+    const requestHash = createHash("sha256")
+      .update(`${actualPath}\n${JSON.stringify(request.body ?? {})}`)
+      .digest("hex");
 
     return from(this.handle(userId, endpoint, idemKey, requestHash, next));
   }
@@ -92,7 +103,12 @@ export class IdempotencyInterceptor implements NestInterceptor {
       const result = await lastValueFrom(next.handle());
       await this.prisma.idempotencyKey.update({
         where: { userId_endpoint_idemKey: { userId, endpoint, idemKey } },
-        data: { responseJson: (result ?? null) as Prisma.InputJsonValue, statusCode: 200 }
+        data: {
+          responseJson: (result ?? null) as Prisma.InputJsonValue,
+          statusCode: 200,
+          // 완료된 응답은 재생 가능 기간(24h) 동안 보존한다.
+          expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS)
+        }
       });
       return result;
     } catch (error) {
@@ -111,9 +127,17 @@ export class IdempotencyInterceptor implements NestInterceptor {
     requestHash: string
   ): Promise<{ outcome: "owner" } | { outcome: "replay" } | { outcome: "conflict" }> {
     try {
+      // 예약 단계에서는 짧은 TTL만 부여한다. 완료 시점에 24h로 연장되므로,
+      // 핸들러 도중 크래시로 응답이 기록되지 못한 예약 행은 곧 만료·회수된다.
       await this.prisma.idempotencyKey.create({
-        data: { userId, endpoint, idemKey, requestHash, expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS) }
+        data: { userId, endpoint, idemKey, requestHash, expiresAt: new Date(Date.now() + PENDING_TTL_MS) }
       });
+      // 확률적 전역 청소: 완료/예약 만료 행을 회수해 테이블 무한 성장을 막는다.
+      if (Math.random() < 0.02) {
+        void this.prisma.idempotencyKey
+          .deleteMany({ where: { expiresAt: { lt: new Date() } } })
+          .catch(() => undefined);
+      }
       return { outcome: "owner" };
     } catch (error) {
       if (!isUniqueConstraintViolation(error)) {
@@ -121,11 +145,21 @@ export class IdempotencyInterceptor implements NestInterceptor {
       }
       const existing = await this.prisma.idempotencyKey.findUnique({
         where: { userId_endpoint_idemKey: { userId, endpoint, idemKey } },
-        select: { requestHash: true, responseJson: true, statusCode: true }
+        select: { requestHash: true, responseJson: true, statusCode: true, expiresAt: true }
       });
       if (!existing) {
         // The reservation that won the race failed and was deleted between our
         // failed insert and this lookup; treat as a fresh attempt.
+        return this.reserve(userId, endpoint, idemKey, requestHash);
+      }
+      if (existing.expiresAt < new Date()) {
+        // 만료된 행(크래시로 남은 예약, 또는 24h 지난 완료 응답)은 회수하고
+        // 새 시도로 취급한다.
+        await this.prisma.idempotencyKey
+          .deleteMany({
+            where: { userId, endpoint, idemKey, expiresAt: { lt: new Date() } }
+          })
+          .catch(() => undefined);
         return this.reserve(userId, endpoint, idemKey, requestHash);
       }
       if (existing.requestHash !== requestHash) {

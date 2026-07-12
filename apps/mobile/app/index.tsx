@@ -31,9 +31,16 @@ export default function IndexScreen() {
       useSessionStore.persist.onFinishHydration(() => setHydrated(storesHydrated())),
       useOnboardingProgressStore.persist.onFinishHydration(() => setHydrated(storesHydrated()))
     ];
+    // Safety valve: zustand persist never fires onFinishHydration (and never flips
+    // hasHydrated) when the storage read itself rejects or the stored JSON is
+    // corrupt. Without a timeout the app would sit on a blank screen forever in
+    // that case -- after a short grace period we proceed with whatever state we
+    // have (no token -> the landing screen), which is always recoverable.
+    const fallback = setTimeout(() => setHydrated(true), 3000);
     // Hydration may have finished between the initial render and effect registration.
     setHydrated(storesHydrated());
     return () => {
+      clearTimeout(fallback);
       for (const unsubscribe of unsubscribes) {
         unsubscribe();
       }

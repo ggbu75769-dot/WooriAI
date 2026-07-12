@@ -1,47 +1,45 @@
 # 알려진 한계 (Known Limitations)
 
-작성: 2026-07-12 · 브랜치: codex/source-audit-standalone-apk
+갱신: 2026-07-12 (라운드 4) · 브랜치: codex/source-audit-standalone-apk
 
-이번 세션에서 **수정하지 않은 항목**과 그 사유. 대부분 코드로 해결할 수 없는 외부 의존성이거나, 문서상 의도된 개발 경계이거나, 대규모 재작성이 필요해 이번 범위를 벗어나는 것이다. 각 항목에 위험도와 필요한 후속 조치를 명시한다.
+라운드 4에서 해소된 항목은 제거했다. 남은 것은 (A) 외부 계정·키가 필요한 항목, (B) 위험도 낮은 후속 개선이다.
+
+## 라운드 4에서 해소됨 (참고)
+
+- ~~PostgreSQL 영속화~~ → 전 도메인 Prisma 전환 완료, 재시작 후 데이터 유지 검증.
+- ~~refresh 토큰 무효화/회전 없음~~ → hash 저장·1회용 회전·재사용 시 family 전체 무효화·동시 사용 CAS 차단.
+- ~~관리자 공용 토큰~~ → email/password + RBAC(admin/editor/analyst) + 감사 로그. 공용 토큰은 dev/test 전용.
+- ~~AI 임포트 스텁·파일 피커 미구현~~ → expo-document-picker + multipart 업로드 + 서버 실 CSV/XLSX 파싱(CP949, formula injection 방어, 중복 후보 탐지).
+- ~~Idempotency-Key 미처리~~ → 지출 생성·예산·import 승인에 적용.
+- ~~감사 로그 인메모리 휘발~~ → audit_logs 테이블 영속화.
+- ~~카테고리 리포트 전체 기간 고정~~ → 서버 기간 파라미터 지원.
+- ~~토큰 평문 AsyncStorage~~ → SecureStore + 1회 마이그레이션. 콜드 스타트 세션 복원 결함도 수정.
+- rate limit·security headers·body 제한·구조화 로깅·health/readiness 추가.
 
 ## A. 외부 계정·키·계약 (코드로 해결 불가)
 
-| 항목 | 영향 | 필요한 사용자 조치 | 조치 후 검증 |
-|---|---|---|---|
-| 실 Kakao/Apple/Google OAuth | 실 소셜 로그인 불가. 현재 dev 스텁, 프로덕션에선 501 차단 | 각 OAuth 콘솔에서 client id/secret 발급 → env 설정 + `auth.service.ts`에 실 검증 구현 | `POST /api/v1/auth/oauth-login`에 실 토큰으로 로그인 성공 |
-| PostgreSQL 영속화 | API 재시작 시 데이터 소실(인메모리) | `DATABASE_URL` + Prisma 마이그레이션 배포 | `prisma migrate deploy` 후 재시작 데이터 유지 |
-| 릴리즈 서명 keystore | 스토어 배포 불가(현재 debug keystore) | 릴리즈 keystore 발급 + Gradle signingConfig 연결 | 서명된 AAB 생성 및 Play Console 업로드 |
-| applicationId `com.anonymous.wooriai` | 스토어 등록 부적합 | 실제 패키지명으로 변경(네이티브 재빌드 필요) | 변경 후 assembleRelease 성공 |
-| 실 제휴/커머스 링크 | example.com dev 링크 | 제휴사 계약 + 실 URL 시드 | 클릭 시 실 판매처 이동 + 클릭 로그 |
-| 크래시·ANR·성능 모니터링 | 운영 관측 불가 | Sentry 등 SDK 연동 | 대시보드에 이벤트 수신 |
-
-## B. 문서상 의도된 개발 경계 (`01_codex_master_instruction_v0_4 §8`)
-
-- **AI 임포트 분석 스텁**: 엑셀/CSV 실제 내용 파싱은 규칙 기반 스텁. `apps/mobile/app/import/index.tsx`(IMP-001~003)는 픽셀락으로 고정된 데모 미리보기 화면(하드코딩 파일명 "5월 지출내역.xlsx", 총 128건 등)을 표시하고, "적용하고 리포트 보기"를 누르면 실제 import job(`/import/[importJobId]`)으로 이동해 신뢰도·승인 UI가 나온다. **승인 전 지출 미저장 안전장치는 실동작으로 검증됨.** 실제 파일 피커(expo-document-picker) 연동은 미구현.
-  - 위험: 낮음(안전장치 존재). 후속: expo-document-picker 연동 + 데모 카드 실데이터화.
-- **제휴 dev 링크 / OAuth dev 스텁**: 위 A 참조.
-
-## C. 대규모 재작성이 필요해 이번 범위 밖 (P2/P3)
-
-| 항목 | 위치 | 위험 |
+| 항목 | 영향 | 필요한 사용자 조치 |
 |---|---|---|
-| 아이 단계 계산 기본 '오늘'이 UTC | `packages/domain/src/stage.ts` | KST 00~09시 임신주차/개월 하루 오차 (낮음) |
-| gift 타입 지출 API 생성 경로 공백 | `CreateExpenseDto`에 expenseType 없음 | 선물 기록 UI 미노출(제외 로직은 일관) |
-| Idempotency-Key 미처리 | createExpense/upsertBudget | 네트워크 재시도 시 중복 생성 가능(UI는 연타 가드 있음) |
-| 감사 로그 인메모리 휘발 | `audit-logger.service.ts` | 재시작 시 삭제 이력 소실(DB 전환 시 해소) |
-| 지출 수정 화면 날짜/카테고리 편집 UI 부재 | `app/expenses/[expenseId].tsx` | API는 지원, UI 미노출 |
-| 더보기 라벨-동작 불일치, 가족 하드코딩 이름/코드 | `app/(tabs)/more.tsx`, `app/family/index.tsx` | 픽셀락 고정 데모 데이터(P2) |
-| refresh 토큰 무효화/회전 없음 | `auth.service.ts` logout | 탈취 시 30일 유효(DB 전환 시 블랙리스트 도입) |
-| 카테고리 리포트가 전체 기간 고정 | `getCategoryReport`에 기간 파라미터 없음 | UI는 "전체 기간 카테고리 비중"으로 정직 표기(개선 라운드 2) — 서버 기간 파라미터는 후속 |
-| 도넛 원호가 근사 표현 | `src/ui.tsx` DonutChartCard | 원호 색·개수는 범례와 일치, 정확한 비율 원호는 SVG 의존성 필요(범례 %는 실데이터) |
-| `isValidCalendarDate` 로컬 복제 | new.tsx / [expenseId].tsx / local-backend.ts / domain | 알고리즘 동일(모순 없음) — domain 함수로 통합은 후속 정리 |
-| 앱 정보 버전 하드코딩 | `more.tsx` "버전 0.0.0" | expo-constants 연동은 후속 |
-| 알림 데이터 소스 없음 | `app/notifications.tsx` | 정직한 빈 상태 화면(가짜 알림 없음) — 실 알림은 푸시 인프라 필요 |
+| 실 Kakao/Apple/Google OAuth | 실 소셜 로그인 불가. dev provider는 dev/test 한정, production은 501 | OAuth 콘솔 키 발급 → env 설정 + provider 토큰 검증 어댑터에 실 구현 연결 |
+| 운영 PostgreSQL | 로컬 docker/포터블로만 검증됨 | 운영 `DATABASE_URL` 주입 후 `prisma migrate deploy` |
+| 릴리즈 서명 keystore | debug keystore 서명 → 스토어 배포 불가 | keystore 발급 + Gradle signingConfig 연결 |
+| applicationId `com.anonymous.wooriai` | 스토어 등록 부적합 | 실제 패키지명으로 변경(native 재빌드) |
+| 실 제휴 링크 | 시드는 비제휴 dev 샘플 | 제휴 계약 + 관리자 CMS에서 실 URL 등록 |
+| 크래시·성능 모니터링 | 구조화 로그만 존재 | Sentry 등 SDK 키 연동 |
+| 푸시 알림 | 알림 화면은 정직한 빈 상태 | FCM 계정 + push provider 연동 |
+| 법적 운영자 정보 | 정책 문구 placeholder | 실 사업자 정보로 교체 |
 
-## D. 런타임 재검증이 남은 항목 (실기기·인프라 의존)
+## B. 후속 개선 (위험도 낮음)
 
-- 노치/펀치홀 기기 Safe Area, 키보드 가림, 큰 글꼴/작은 화면 글자 잘림, 다크모드 강제 기기 색상(앱 light 고정).
-- Android 픽셀락 점수 재측정(`pnpm pixel:android`) — perceptual 기준 회귀 확인.
-- 실 API 서버 연결 빌드(https, cleartext 차단), 실 DB 영속, 프로덕션 JWT/admin env.
+- 준비템 탭 기본 선택이 고정 "12-24개월"(픽셀락 승인 화면 기준) — 아이 단계 연동은 디자인 승인 후.
+- 아이 단계 계산 기본 '오늘'이 UTC (`packages/domain/src/stage.ts`) — KST 00~09시 하루 오차.
+- 지출 수정 화면에 날짜/카테고리 편집 UI 미노출 (API는 지원).
+- idempotency_keys 만료 행 정리는 로그인 시 refresh 토큰 정리와 달리 스케줄러 미구현 (24h TTL 필드는 존재).
+- 도넛 원호 근사 표현(범례 %는 실데이터), 앱 정보 버전 하드코딩, `isValidCalendarDate` 로컬 복제.
+- 관리자 계정 관리 API 미구현 — 계정 추가/역할 변경은 seed 또는 DB 직접 조작.
+- 대화형 알림/온보딩 이어하기 등 P1 항목 일부는 후속 라운드.
 
-이 문서의 항목 중 **치명·높음 등급의 미해결 결함은 없다.** 남은 것은 외부 의존성, 의도된 스텁 경계, 또는 위험도 중간 이하의 개선 항목이다.
+## C. 런타임 재검증이 남은 항목
+
+- 노치/펀치홀 Safe Area, 큰 글꼴, 다크모드 강제 기기.
+- 실기기(비에뮬레이터) 설치 검증.

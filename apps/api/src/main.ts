@@ -34,8 +34,10 @@ function handleShutdownSignal(appPromise: ReturnType<typeof bootstrap>) {
     try {
       const app = await appPromise;
       await app.close();
-    } finally {
       process.exit(0);
+    } catch {
+      // close 실패도 종료 코드로 드러낸다 (0으로 가리지 않음).
+      process.exit(1);
     }
   };
 }
