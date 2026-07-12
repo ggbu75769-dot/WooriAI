@@ -9,8 +9,47 @@ type InviteRole = Exclude<MemberRole, "owner">;
 
 const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
+// Fallback displayName for findOrCreateProviderUser callers (e.g. the real Kakao
+// exchange flow) that don't have a nickname claim to store. Deliberately distinct
+// from ensureDevUser's "개발 사용자" default, which stays specific to the dev
+// oauth-login stub (see findOrCreateProviderUser's doc comment).
+const DEFAULT_PROVIDER_DISPLAY_NAME = "우리아이 사용자";
+
 function hashInviteToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * True only for a P2002 unique-constraint violation on the users table's
+ * (authProvider, providerUserId) key — the one findOrCreateProviderUser's
+ * find-then-create can race on (see its doc comment).
+ *
+ * Prefers matching on `error.meta.target` (specific column/constraint names)
+ * when the driver provides it, but this repo's Postgres setup has been
+ * observed to return `meta.target: null` for this exact violation ("Unique
+ * constraint failed on the (not available)") — no column info at all. In that
+ * case, fall back to `meta.modelName === "User"`, which is still a safe,
+ * specific match: `attemptFindOrCreateProviderUser`'s transaction only ever
+ * calls `create` on User, Household, and HouseholdMember, and the latter two
+ * are always freshly created alongside their own brand-new id in the same
+ * call, so they can never themselves race into a P2002 here — only the users
+ * table's (authProvider, providerUserId) key can.
+ */
+function isProviderUserUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object" || (error as { code?: string }).code !== "P2002") {
+    return false;
+  }
+  const meta = (error as { meta?: { target?: unknown; modelName?: unknown } }).meta;
+  const target = meta?.target;
+  const targetText = Array.isArray(target) ? target.join(",") : typeof target === "string" ? target : "";
+  if (targetText) {
+    return (
+      targetText.includes("authProvider_providerUserId") ||
+      targetText.includes("uq_users_provider") ||
+      (targetText.includes("provider_user_id") && targetText.includes("auth_provider"))
+    );
+  }
+  return meta?.modelName === "User";
 }
 
 /**
@@ -28,32 +67,97 @@ export class HouseholdRuntimeService {
    * Dev-login entry point (see TokenService.createDevUser / AuthService.oauthLogin):
    * upserts the `users` row for this provider+providerUserId, and — only on a
    * user's very first login (no active membership anywhere yet) — creates their
-   * default household and an `owner` membership for it. Runs as a single
-   * transaction so a crash between the user upsert and household/member creation
-   * can never leave a user with no household.
+   * default household and an `owner` membership for it. Delegates to
+   * `findOrCreateProviderUser` (added for AUTH-101's real Kakao OIDC flow) so both
+   * entry points share the exact same household-bootstrap logic; this method's
+   * own signature/behavior is unchanged.
    */
   async ensureDevUser(provider: string, providerUserId: string, displayName = "개발 사용자"): Promise<AuthenticatedUser> {
-    const normalizedProviderUserId = providerUserId.slice(0, 191);
+    const { user } = await this.findOrCreateProviderUser({ provider, providerUserId, displayName });
+    return user;
+  }
+
+  /**
+   * General find-or-create by (authProvider, providerUserId) — the same unique
+   * key `ensureDevUser` upserts on, generalized for AUTH-101's real Kakao OIDC
+   * exchange flow (which also has an email/nickname claim to persist on first
+   * creation). Only on a brand-new user (no active membership anywhere yet) does
+   * this bootstrap their default household + `owner` membership, run in the same
+   * transaction as the user write so a crash between the two can never leave a
+   * user with no household.
+   *
+   * `email`/`displayName` are only written at creation time, never on a returning
+   * user's login — matches round5a-sprint2-plan.md §2's "같은 이메일 자동 병합
+   * 금지" principle: email is never used as a lookup key (the lookup is always
+   * provider+providerUserId), and an existing user's stored email/displayName
+   * isn't silently overwritten by whatever the provider claims on a later login.
+   *
+   * Race handling: the find-then-create below is not itself atomic, so two
+   * concurrent first-time logins for the same (provider, providerUserId) can
+   * both take the "not found" branch and both attempt `tx.user.create`. Postgres
+   * aborts the whole transaction of whichever one loses that unique-constraint
+   * race (P2002) — catching and retrying *inside* the same transaction doesn't
+   * work once a transaction has been aborted by the database, so the retry here
+   * re-runs the entire attempt (a fresh `$transaction` call) instead. On that
+   * retry, `findUnique` now sees the winner's row and takes the update branch,
+   * so the loser still gets a normal, consistent `isNewUser: false` result
+   * instead of a 500.
+   */
+  async findOrCreateProviderUser(params: {
+    provider: string;
+    providerUserId: string;
+    displayName?: string | null;
+    email?: string | null;
+  }): Promise<{ user: AuthenticatedUser; isNewUser: boolean }> {
+    const normalizedProviderUserId = params.providerUserId.slice(0, 191);
+    const displayName = params.displayName ?? DEFAULT_PROVIDER_DISPLAY_NAME;
+
+    try {
+      return await this.attemptFindOrCreateProviderUser(params.provider, normalizedProviderUserId, displayName, params.email);
+    } catch (error) {
+      if (!isProviderUserUniqueViolation(error)) {
+        throw error;
+      }
+      return this.attemptFindOrCreateProviderUser(params.provider, normalizedProviderUserId, displayName, params.email);
+    }
+  }
+
+  private async attemptFindOrCreateProviderUser(
+    provider: string,
+    normalizedProviderUserId: string,
+    displayName: string,
+    email: string | null | undefined
+  ): Promise<{ user: AuthenticatedUser; isNewUser: boolean }> {
+    let isNewUser = false;
 
     const userId = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.upsert({
+      const existing = await tx.user.findUnique({
         where: {
           authProvider_providerUserId: {
             authProvider: provider as never,
             providerUserId: normalizedProviderUserId
           }
-        },
-        update: {
-          lastLoginAt: new Date()
-        },
-        create: {
-          authProvider: provider as never,
-          providerUserId: normalizedProviderUserId,
-          displayName,
-          status: "active",
-          lastLoginAt: new Date()
         }
       });
+
+      const user = existing
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: { lastLoginAt: new Date() }
+          })
+        : await (async () => {
+            isNewUser = true;
+            return tx.user.create({
+              data: {
+                authProvider: provider as never,
+                providerUserId: normalizedProviderUserId,
+                displayName,
+                email: email ?? undefined,
+                status: "active",
+                lastLoginAt: new Date()
+              }
+            });
+          })();
 
       if (user.status === "active") {
         const existingMembership = await tx.householdMember.findFirst({
@@ -79,7 +183,14 @@ export class HouseholdRuntimeService {
       return user.id;
     });
 
-    return this.enrichUser({ id: userId, displayName, email: null, status: "active", households: [] });
+    const user = await this.enrichUser({
+      id: userId,
+      displayName,
+      email: email ?? null,
+      status: "active",
+      households: []
+    });
+    return { user, isNewUser };
   }
 
   /**
