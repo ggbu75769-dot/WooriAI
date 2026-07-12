@@ -11,6 +11,7 @@ import { ItemsCommerceModule } from "./items-commerce/items-commerce.module";
 import { OnboardingModule } from "./onboarding/onboarding.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SettingsModule } from "./settings/settings.module";
+import { SyncModule } from "./sync/sync.module";
 
 @Module({
   imports: [
@@ -24,7 +25,8 @@ import { SettingsModule } from "./settings/settings.module";
     ImportsModule,
     ItemsCommerceModule,
     OnboardingModule,
-    SettingsModule
+    SettingsModule,
+    SyncModule
   ]
 })
 export class AppModule {}

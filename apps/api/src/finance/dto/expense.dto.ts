@@ -1,4 +1,5 @@
 import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from "class-validator";
+import { Type } from "class-transformer";
 import { PAYMENT_METHODS, type PaymentMethod } from "@wooriai/domain";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -72,4 +73,16 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsIn([...creatableExpenseTypes])
   expenseType?: CreatableExpenseType;
+
+  /**
+   * Optimistic-concurrency guard (MOB-103, design doc §2.2). Omitted by legacy
+   * clients -- when absent, update behaves exactly as before (no conflict
+   * check). When present and it no longer matches the server's current
+   * `version`, the request 409s with VERSION_CONFLICT instead of applying.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
 }

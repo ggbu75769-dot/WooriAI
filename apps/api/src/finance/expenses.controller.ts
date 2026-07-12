@@ -18,14 +18,14 @@ import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
-import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
 import { CreateExpenseDto, UpdateExpenseDto } from "./dto/expense.dto";
-import { YearMonthQueryDto } from "./dto/query.dto";
+import { ExpenseDeleteQueryDto, YearMonthQueryDto } from "./dto/query.dto";
+import { ExpensesVersionService } from "./expenses.service";
 
 @Controller("children/:childId/expenses")
 @UseGuards(JwtAuthGuard)
 export class ChildExpensesController {
-  constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
+  constructor(@Inject(ExpensesVersionService) private readonly expenses: ExpensesVersionService) {}
 
   @Get()
   async list(
@@ -33,7 +33,7 @@ export class ChildExpensesController {
     @Param("childId") childId: string,
     @Query(createDtoValidationPipe(YearMonthQueryDto)) query: YearMonthQueryDto
   ) {
-    return await this.store.listExpenses(request.user!, childId, query.yearMonth);
+    return await this.expenses.listExpenses(request.user!, childId, query.yearMonth);
   }
 
   @Post()
@@ -44,7 +44,7 @@ export class ChildExpensesController {
     @Param("childId") childId: string,
     @Body(createDtoValidationPipe(CreateExpenseDto)) body: CreateExpenseDto
   ) {
-    return await this.store.createExpense(request.user!, childId, body);
+    return await this.expenses.createExpense(request.user!, childId, body);
   }
 }
 
@@ -52,27 +52,33 @@ export class ChildExpensesController {
 @UseGuards(JwtAuthGuard)
 export class ExpensesController {
   constructor(
-    @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
+    @Inject(ExpensesVersionService) private readonly expenses: ExpensesVersionService,
     @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService
   ) {}
 
   @Get(":expenseId")
   async get(@Req() request: AuthenticatedRequest, @Param("expenseId") expenseId: string) {
-    return await this.store.getExpense(request.user!, expenseId);
+    return await this.expenses.getExpense(request.user!, expenseId);
   }
 
   @Patch(":expenseId")
+  @UseInterceptors(IdempotencyInterceptor)
   async update(
     @Req() request: AuthenticatedRequest,
     @Param("expenseId") expenseId: string,
     @Body(createDtoValidationPipe(UpdateExpenseDto)) body: UpdateExpenseDto
   ) {
-    return await this.store.updateExpense(request.user!, expenseId, body);
+    return await this.expenses.updateExpense(request.user!, expenseId, body);
   }
 
   @Delete(":expenseId")
-  async delete(@Req() request: AuthenticatedRequest, @Param("expenseId") expenseId: string) {
-    const result = await this.store.deleteExpense(request.user!, expenseId);
+  @UseInterceptors(IdempotencyInterceptor)
+  async delete(
+    @Req() request: AuthenticatedRequest,
+    @Param("expenseId") expenseId: string,
+    @Query(createDtoValidationPipe(ExpenseDeleteQueryDto)) query: ExpenseDeleteQueryDto
+  ) {
+    const result = await this.expenses.deleteExpense(request.user!, expenseId, query.expectedVersion);
     await this.auditLogger.record({
       actorUserId: request.user!.id,
       householdId: result.householdId,

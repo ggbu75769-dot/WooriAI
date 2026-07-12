@@ -1,4 +1,5 @@
-import { IsOptional, IsUUID, Matches } from "class-validator";
+import { IsInt, IsOptional, IsUUID, Matches, Min } from "class-validator";
+import { Type } from "class-transformer";
 
 export class YearMonthQueryDto {
   @IsOptional()
@@ -15,4 +16,17 @@ export class YearQueryDto {
   @IsOptional()
   @Matches(/^\d{4}$/)
   year?: string;
+}
+
+/**
+ * DELETE /v1/expenses/:expenseId's optional expectedVersion, carried as a query
+ * param (chosen consistently over a DELETE body -- see design doc §2.2 and
+ * expenses.controller.ts).
+ */
+export class ExpenseDeleteQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
 }

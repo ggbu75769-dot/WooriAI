@@ -21,7 +21,21 @@ type ErrorResponseBody = {
   code?: string;
   message?: string | string[];
   details?: Record<string, unknown>;
+  [extra: string]: unknown;
 };
+
+// Every response field besides these is treated as an extra top-level sibling
+// of `error` (see below) rather than folded into it. Lets a specific thrown
+// exception (e.g. VERSION_CONFLICT's `current`, design doc
+// docs/5차/round5a-sprint1-plan.md §2.2) carry response data outside the
+// `error` envelope without changing the shape of every other error response.
+// `error`/`statusCode` are also excluded here (not just `code`/`message`/
+// `details`): Nest's built-in HttpException short form (e.g.
+// `new UnauthorizedException("...")`, used with no custom body object) always
+// synthesizes `{message, error, statusCode}` -- without excluding those two,
+// spreading `extra` would clobber our own `error` object with Nest's raw
+// `error` *string* (its generic HTTP reason phrase, e.g. "Unauthorized").
+const KNOWN_ERROR_BODY_KEYS = new Set(["code", "message", "details", "error", "statusCode"]);
 
 function requestIdFrom(request: HttpRequest) {
   const header = request.headers?.["x-request-id"];
@@ -78,13 +92,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           ? "FORBIDDEN"
           : defaultCode(statusCode));
 
+    const extra = Object.fromEntries(
+      Object.entries(exceptionBody).filter(([key]) => !KNOWN_ERROR_BODY_KEYS.has(key))
+    );
+
     response.status(statusCode).json({
       error: {
         code,
         message,
         details: exceptionBody.details,
         requestId: requestIdFrom(request)
-      }
+      },
+      ...extra
     });
   }
 }

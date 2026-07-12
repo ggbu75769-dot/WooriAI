@@ -8,7 +8,7 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "vitest run test/api-foundation.e2e.test.ts test/onboarding.e2e.test.ts test/expense-home-report.e2e.test.ts test/items-commerce.e2e.test.ts test/family-invite.e2e.test.ts test/import-excel.e2e.test.ts test/admin-settings.e2e.test.ts test/core-loop.e2e.test.ts",
+    "test:e2e": "vitest run test/api-foundation.e2e.test.ts test/onboarding.e2e.test.ts test/expense-home-report.e2e.test.ts test/items-commerce.e2e.test.ts test/family-invite.e2e.test.ts test/import-excel.e2e.test.ts test/admin-settings.e2e.test.ts test/admin-mfa-session.e2e.test.ts test/core-loop.e2e.test.ts test/sync-changes.e2e.test.ts",
     "prisma:generate": "prisma generate --schema prisma/schema.prisma",
     "prisma:validate": "prisma validate --schema prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma",
@@ -25,6 +25,7 @@
     "class-validator": "^0.14.1",
     "exceljs": "^4.4.0",
     "iconv-lite": "^0.7.3",
+    "otplib": "^13.4.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
