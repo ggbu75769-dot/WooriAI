@@ -313,6 +313,7 @@ model Expense {
   deletedByUserId      String?       @map("deleted_by_user_id") @db.Uuid
   createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  version              Int           @default(1)
 
   @@index([childId, spentOn], map: "idx_expenses_child_spent_on")
   @@index([householdId, childId], map: "idx_expenses_household_child")
@@ -508,15 +509,18 @@ model RefreshToken {
 }
 
 model AdminUser {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email        String    @unique @db.VarChar(320)
-  passwordHash String    @map("password_hash") @db.VarChar(255)
-  displayName  String    @map("display_name") @db.VarChar(80)
-  role         AdminRole
-  active       Boolean   @default(true)
-  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String    @unique @db.VarChar(320)
+  passwordHash     String    @map("password_hash") @db.VarChar(255)
+  displayName      String    @map("display_name") @db.VarChar(80)
+  role             AdminRole
+  active           Boolean   @default(true)
+  lastLoginAt      DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  totpSecret       String?   @map("totp_secret") @db.Text
+  mfaEnabledAt     DateTime? @map("mfa_enabled_at") @db.Timestamptz(6)
+  mfaRecoveryCodes Json?     @map("mfa_recovery_codes") @db.JsonB
 
   @@map("admin_users")
 }
@@ -547,4 +551,20 @@ model Disclosure {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("disclosures")
+}
+
+model AdminSession {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminUserId String    @map("admin_user_id") @db.Uuid
+  tokenHash   String    @unique @map("token_hash") @db.VarChar(128)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime  @map("last_seen_at") @db.Timestamptz(6)
+  ip          String?   @db.VarChar(64)
+  userAgent   String?   @map("user_agent") @db.Text
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  @@index([adminUserId], map: "idx_admin_sessions_admin_user_id")
+  @@index([expiresAt], map: "idx_admin_sessions_expires_at")
+  @@map("admin_sessions")
 }
