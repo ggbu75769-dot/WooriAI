@@ -15,6 +15,7 @@ import {
 import { FileInterceptor } from "@nestjs/platform-express";
 import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
+import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
 import { ConfirmImportDto, UpdateImportRowDto } from "./dto/import.dto";
@@ -22,6 +23,7 @@ import { ConfirmImportDto, UpdateImportRowDto } from "./dto/import.dto";
 type UploadedImportFile = {
   originalname?: string;
   size?: number;
+  buffer?: Buffer;
 };
 
 function stringField(value: unknown) {
@@ -54,7 +56,8 @@ export class ImportsController {
     return await this.store.createImportJob(request.user!, childId, {
       fileName: stringField(body.fileName) ?? file?.originalname,
       fileSizeBytes: file?.size ?? numberField(body.fileSizeBytes),
-      estimatedRowCount: numberField(body.estimatedRowCount)
+      estimatedRowCount: numberField(body.estimatedRowCount),
+      fileBuffer: file?.buffer
     });
   }
 
@@ -80,6 +83,7 @@ export class ImportsController {
 
   @Post("imports/:importJobId/confirm")
   @HttpCode(200)
+  @UseInterceptors(IdempotencyInterceptor)
   async confirmImport(
     @Req() request: AuthenticatedRequest,
     @Param("importJobId") importJobId: string,

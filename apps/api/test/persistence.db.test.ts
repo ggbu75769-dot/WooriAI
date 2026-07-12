@@ -140,14 +140,18 @@ describe.skipIf(!dbAvailable)("Round 4 persistence (real Postgres)", () => {
           .post(`/api/v1/children/${childId}/imports/excel`)
           .set("Authorization", `Bearer ${accessToken}`)
           .field("fileName", "rollback-test.csv")
-          .attach("file", Buffer.from("date,item,amount\n2026-07-06,rollback,1000\n"), "rollback-test.csv")
+          .attach(
+            "file",
+            Buffer.from("날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n2026-07-05,물티슈 구매,9000\n", "utf8"),
+            "rollback-test.csv"
+          )
           .expect(200)
       ).body as { id: string };
 
       const rows = await prisma.importRow.findMany({ where: { importJobId: job.id }, orderBy: { rowIndex: "asc" } });
       expect(rows.length).toBeGreaterThanOrEqual(2);
 
-      // Row 0 is a normal, genuinely-valid stub row (real seeded categoryId) that
+      // Row 0 is a normal, genuinely-valid real-parsed row (real seeded categoryId) that
       // confirmImport would otherwise import successfully on its own. Row 1 is
       // force-selected with a categoryId that references nothing in `categories` —
       // simulating a corrupted/legacy row (e.g. from data migrated before the

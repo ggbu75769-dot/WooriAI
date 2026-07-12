@@ -121,7 +121,11 @@ describe.skipIf(!dbAvailable)("Concurrency fixes (real Postgres)", () => {
         .post(`/api/v1/children/${childId}/imports/excel`)
         .set("Authorization", `Bearer ${accessToken}`)
         .field("fileName", "concurrency-import.csv")
-        .attach("file", Buffer.from("date,item,amount\n2026-07-06,diapers,32000\n"), "concurrency-import.csv")
+        .attach(
+          "file",
+          Buffer.from("날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n2026-07-05,분유 구매,33000\n", "utf8"),
+          "concurrency-import.csv"
+        )
         .expect(200)
     ).body as { id: string; candidateCount: number };
 

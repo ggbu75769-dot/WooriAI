@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Inject, Param, Put, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Put, Query, Req, UseGuards, UseInterceptors } from "@nestjs/common";
 import { IsOptional, Matches } from "class-validator";
 import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
+import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { UpsertBudgetDto } from "./dto/upsert-budget.dto";
 import { OnboardingStoreService } from "./onboarding-store.service";
@@ -27,6 +28,7 @@ export class BudgetsController {
   }
 
   @Put()
+  @UseInterceptors(IdempotencyInterceptor)
   async upsert(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,

@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import {
   assertMoneyKrw,
@@ -23,6 +23,7 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
+import { parseImportFile, type ParsedImportRow } from "../imports/import-parser";
 
 type DbClient = Prisma.TransactionClient;
 
@@ -109,6 +110,7 @@ type ImportRowRow = {
   selected: boolean;
   userReviewed: boolean;
   validationStatus: string;
+  duplicateCandidateExpenseId?: string | null;
 };
 
 type CreateChildInput = {
@@ -153,6 +155,7 @@ export type CreateImportJobInput = {
   fileName?: string;
   fileSizeBytes?: number;
   estimatedRowCount?: number;
+  fileBuffer?: Buffer;
 };
 
 export type UpdateImportRowInput = {
@@ -519,6 +522,27 @@ export class OnboardingStoreService {
     const child = await this.requireChildAccess(user, childId, true);
     const fileName = this.requireAcceptedImportFile(input);
 
+    if (!input.fileBuffer || input.fileBuffer.length === 0) {
+      throw new BadRequestException({ code: "IMPORT_FILE_REQUIRED", message: "Import file is required." });
+    }
+
+    const referenceYear = Number(this.currentYearMonth().slice(0, 4));
+    let parsed: Awaited<ReturnType<typeof parseImportFile>>;
+    try {
+      parsed = await parseImportFile(input.fileBuffer, fileName, { referenceYear, maxRows: importMaxRows });
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new BadRequestException({ code: "IMPORT_FILE_INVALID", message: "가져오기 파일을 읽을 수 없어요." });
+    }
+
+    if (parsed.rows.length === 0) {
+      throw new BadRequestException({ code: "IMPORT_FILE_INVALID", message: "가져올 데이터를 찾을 수 없어요." });
+    }
+
+    const rows = await this.buildImportRowsFromParsed(childId, parsed.rows);
+
     const job = await this.prisma.$transaction(async (tx) => {
       const created = await tx.importJob.create({
         data: {
@@ -527,20 +551,19 @@ export class OnboardingStoreService {
           userId: user.id,
           status: "preview_ready",
           fileName,
-          fileType: (fileName.split(".").pop() ?? "csv").toLowerCase(),
-          fileSizeBytes: BigInt(Math.max(1, input.fileSizeBytes ?? 0)),
+          fileType: parsed.fileType,
+          fileSizeBytes: BigInt(Math.max(1, input.fileSizeBytes ?? input.fileBuffer?.length ?? 0)),
           rowCount: 0,
           candidateCount: 0,
           importedCount: 0
         }
       });
 
-      const rows = this.buildStubImportRows(created.id);
       for (const row of rows) {
         await tx.importRow.create({
           data: {
             id: row.id,
-            importJobId: row.importJobId,
+            importJobId: created.id,
             rowIndex: row.rowIndex,
             rawJson: {},
             parsedDate: row.parsedDate,
@@ -548,6 +571,7 @@ export class OnboardingStoreService {
             parsedAmountKrw: row.parsedAmountKrw,
             categoryId: row.categoryId,
             confidence: row.confidence,
+            duplicateCandidateExpenseId: row.duplicateCandidateExpenseId ?? null,
             selected: row.selected,
             userReviewed: row.userReviewed,
             validationStatus: row.validationStatus
@@ -1595,50 +1619,62 @@ export class OnboardingStoreService {
     return fileName;
   }
 
-  private buildStubImportRows(importJobId: string): ImportRowRow[] {
-    const rows: ImportRowRow[] = [
-      {
-        id: randomUUID(),
-        importJobId,
-        rowIndex: 0,
-        parsedDate: toDateOnly("2026-07-06"),
-        parsedItemName: "Imported diapers",
-        parsedAmountKrw: 32000,
-        categoryId: defaultImportCategoryId,
-        confidence: 0.94,
-        selected: true,
-        userReviewed: false,
-        validationStatus: "pending"
-      },
-      {
-        id: randomUUID(),
-        importJobId,
-        rowIndex: 1,
-        parsedDate: toDateOnly("2026-07-05"),
-        parsedItemName: "Imported formula",
-        parsedAmountKrw: 33000,
-        categoryId: defaultImportCategoryId,
-        confidence: 0.86,
-        selected: true,
-        userReviewed: false,
-        validationStatus: "pending"
-      },
-      {
-        id: randomUUID(),
-        importJobId,
-        rowIndex: 2,
-        parsedDate: toDateOnly("2026-07-04"),
-        parsedItemName: "Possible duplicate wipes",
-        parsedAmountKrw: 9000,
-        categoryId: defaultImportCategoryId,
-        confidence: 0.62,
-        selected: false,
-        userReviewed: false,
-        validationStatus: "pending"
-      }
-    ];
+  /**
+   * Resolves each parser-produced row (pure text/number data, no DB access) into
+   * a persistable ImportRowRow: maps `categoryCode` -> a real seeded
+   * `categories.id` (falling back to `defaultImportCategoryId` when there's no
+   * keyword match or the code doesn't resolve), flags duplicate candidates
+   * against the child's existing non-deleted expenses (same date + amount), and
+   * computes each row's validationStatus/selected default from that.
+   */
+  private async buildImportRowsFromParsed(childId: string, parsedRows: ParsedImportRow[]): Promise<ImportRowRow[]> {
+    const categoryCodes = [...new Set(parsedRows.map((row) => row.categoryCode).filter((code): code is string => Boolean(code)))];
+    const categories = categoryCodes.length
+      ? await this.prisma.category.findMany({ where: { code: { in: categoryCodes } }, select: { id: true, code: true } })
+      : [];
+    const categoryIdByCode = new Map(categories.map((category) => [category.code, category.id]));
 
-    return rows.map((row) => ({ ...row, validationStatus: this.validationStatusForImportRow(row) }));
+    const candidateDates = [...new Set(parsedRows.filter((row) => row.dateIso && row.amountKrw != null).map((row) => row.dateIso!))];
+    const candidateAmounts = [
+      ...new Set(parsedRows.filter((row) => row.dateIso && row.amountKrw != null).map((row) => row.amountKrw!))
+    ];
+    const existingExpenses =
+      candidateDates.length && candidateAmounts.length
+        ? await this.prisma.expense.findMany({
+            where: {
+              childId,
+              deletedAt: null,
+              spentOn: { in: candidateDates.map((iso) => toDateOnly(iso)) },
+              amountKrw: { in: candidateAmounts }
+            },
+            select: { id: true, spentOn: true, amountKrw: true }
+          })
+        : [];
+    const existingExpenseIdByKey = new Map(
+      existingExpenses.map((expense) => [`${fromDateOnly(expense.spentOn)}|${expense.amountKrw}`, expense.id])
+    );
+
+    return parsedRows.map((row) => {
+      const categoryId = (row.categoryCode ? categoryIdByCode.get(row.categoryCode) : undefined) ?? defaultImportCategoryId;
+      const duplicateCandidateExpenseId =
+        row.dateIso && row.amountKrw != null ? existingExpenseIdByKey.get(`${row.dateIso}|${row.amountKrw}`) ?? null : null;
+
+      const base = {
+        id: randomUUID(),
+        importJobId: "",
+        rowIndex: row.rowIndex,
+        parsedDate: row.dateIso ? toDateOnly(row.dateIso) : null,
+        parsedItemName: row.itemName,
+        parsedAmountKrw: row.amountKrw,
+        categoryId,
+        confidence: row.confidence,
+        userReviewed: false,
+        duplicateCandidateExpenseId
+      };
+
+      const validationStatus = this.validationStatusForImportRow(base);
+      return { ...base, validationStatus, selected: validationStatus === "valid" };
+    });
   }
 
   private validationStatusForImportRow(row: {
@@ -1648,6 +1684,7 @@ export class OnboardingStoreService {
     categoryId: string | null;
     confidence: Prisma.Decimal | number;
     userReviewed: boolean;
+    duplicateCandidateExpenseId?: string | null;
   }) {
     if (!row.parsedDate) return "missing_date";
     try {
@@ -1665,6 +1702,7 @@ export class OnboardingStoreService {
     }
 
     if (!row.categoryId) return "missing_category";
+    if (!row.userReviewed && row.duplicateCandidateExpenseId) return "duplicate_candidate";
     if (!row.userReviewed && Number(row.confidence) < 0.7) return "low_confidence_duplicate_candidate";
     return "valid";
   }

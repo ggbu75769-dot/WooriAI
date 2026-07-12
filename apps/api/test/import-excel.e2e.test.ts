@@ -121,12 +121,19 @@ describe("Excel import beta API", () => {
         expect(body.totalAmountKrw).toBe(0);
       });
 
+    // Real CSV content: two clearly-categorized high-confidence rows (기저귀 ->
+    // diaper_hygiene, 분유 -> feeding_babyfood) and one uncategorized row whose
+    // item text matches no known keyword, which real parsing scores below the
+    // 0.7 confidence threshold (see import-parser.ts's computeConfidence).
+    const csvContent =
+      "날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n2026-07-05,분유 구매,33000\n2026-07-04,알수없는 결제,9000\n";
+
     const job = (
       await request(app.getHttpServer())
         .post(`/api/v1/children/${childId}/imports/excel`)
         .set("Authorization", `Bearer ${accessToken}`)
         .field("fileName", "wooriai-import.csv")
-        .attach("file", Buffer.from("date,item,amount\n2026-07-06,diapers,32000\n"), "wooriai-import.csv")
+        .attach("file", Buffer.from(csvContent, "utf8"), "wooriai-import.csv")
         .expect(200)
     ).body as ImportJob;
 

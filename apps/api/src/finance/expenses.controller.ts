@@ -1,7 +1,22 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+  UseInterceptors
+} from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
+import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
 import { CreateExpenseDto, UpdateExpenseDto } from "./dto/expense.dto";
@@ -23,6 +38,7 @@ export class ChildExpensesController {
 
   @Post()
   @HttpCode(200)
+  @UseInterceptors(IdempotencyInterceptor)
   async create(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
