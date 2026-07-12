@@ -53,45 +53,52 @@ describe("requireSecret", () => {
 describe("assertRequiredSecretsConfigured", () => {
   const originalNodeEnv = process.env.NODE_ENV;
 
+  const bootSecretKeys = [
+    "JWT_ACCESS_SECRET",
+    "JWT_REFRESH_SECRET",
+    "WOORIAI_ADMIN_TOKEN",
+    "AFFILIATE_ALLOWED_DOMAINS",
+    "AFFILIATE_CLICK_IP_SALT",
+    "ANALYTICS_ANON_SALT"
+  ] as const;
+
+  const deleteBootSecrets = () => {
+    for (const key of bootSecretKeys) {
+      delete process.env[key];
+    }
+  };
+
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
-    delete process.env.JWT_ACCESS_SECRET;
-    delete process.env.JWT_REFRESH_SECRET;
-    delete process.env.WOORIAI_ADMIN_TOKEN;
+    deleteBootSecrets();
   });
 
   it("fails boot when NODE_ENV is production and required secrets are missing", () => {
     process.env.NODE_ENV = "production";
-    delete process.env.JWT_ACCESS_SECRET;
-    delete process.env.JWT_REFRESH_SECRET;
-    delete process.env.WOORIAI_ADMIN_TOKEN;
+    deleteBootSecrets();
 
     expect(() => assertRequiredSecretsConfigured()).toThrow(/JWT_ACCESS_SECRET must be set/);
   });
 
   it("fails boot when NODE_ENV is unset and required secrets are missing", () => {
     delete process.env.NODE_ENV;
-    delete process.env.JWT_ACCESS_SECRET;
-    delete process.env.JWT_REFRESH_SECRET;
-    delete process.env.WOORIAI_ADMIN_TOKEN;
+    deleteBootSecrets();
 
     expect(() => assertRequiredSecretsConfigured()).toThrow(/JWT_ACCESS_SECRET must be set/);
   });
 
   it("does not throw in test/development even when secrets are missing", () => {
     process.env.NODE_ENV = "test";
-    delete process.env.JWT_ACCESS_SECRET;
-    delete process.env.JWT_REFRESH_SECRET;
-    delete process.env.WOORIAI_ADMIN_TOKEN;
+    deleteBootSecrets();
 
     expect(() => assertRequiredSecretsConfigured()).not.toThrow();
   });
 
   it("does not throw when all required secrets are explicitly configured", () => {
     process.env.NODE_ENV = "production";
-    process.env.JWT_ACCESS_SECRET = "configured-access-secret";
-    process.env.JWT_REFRESH_SECRET = "configured-refresh-secret";
-    process.env.WOORIAI_ADMIN_TOKEN = "configured-admin-token";
+    for (const key of bootSecretKeys) {
+      process.env[key] = `configured-${key.toLowerCase()}`;
+    }
 
     expect(() => assertRequiredSecretsConfigured()).not.toThrow();
   });

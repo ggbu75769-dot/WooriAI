@@ -41,4 +41,9 @@ export function assertRequiredSecretsConfigured(): void {
   requireSecret("JWT_ACCESS_SECRET", placeholder);
   requireSecret("JWT_REFRESH_SECRET", placeholder);
   requireSecret("WOORIAI_ADMIN_TOKEN", placeholder);
+  // 미설정 시 첫 클릭/분석 요청에서야 500이 나는 지연 실패를 부트 실패로 앞당긴다.
+  // (OAUTH_KAKAO_*는 카카오 실연동 활성화 전까지 부트 강제 대상에서 제외)
+  requireSecret("AFFILIATE_ALLOWED_DOMAINS", placeholder);
+  requireSecret("AFFILIATE_CLICK_IP_SALT", placeholder);
+  requireSecret("ANALYTICS_ANON_SALT", placeholder);
 }
