@@ -36,6 +36,32 @@ function local<T>(factory: () => T): Promise<T> {
   return Promise.resolve().then(factory);
 }
 
+/**
+ * Bug fix (round5a post-Sprint2 hotfix): a leftover/real (non-`LOCAL_SESSION_TOKEN`) session on
+ * a standalone/demo device has no reachable API_BASE_URL server, and plain `fetch()` against an
+ * unreachable "localhost"/dev host was observed (via on-device logcat repro) to hang for 60-90+
+ * seconds per attempt instead of failing fast with a connection error -- with react-query's
+ * default 3 retries, this left Home/준비템/리포트 stuck on their loading state indefinitely,
+ * which is exactly the "무한 로딩" bug this constant fixes. Every real HTTP call below is wrapped
+ * with this bound so a request that never settles is force-failed into the existing (already
+ * correct) error/재시도 UI instead of hanging forever. Local-session calls (`local()` above) are
+ * synchronous and unaffected.
+ */
+const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+
+/** Wraps `fetch` with an AbortController-based timeout so a hung/unreachable connection always
+ * settles (as a rejection) within `timeoutMs` instead of relying on the OS/network stack's own
+ * (sometimes much longer, or absent) timeout behavior. */
+function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 type RequestOptions = {
   token?: string | null;
   body?: unknown;
@@ -271,7 +297,7 @@ class RefreshHttpError extends Error {
 let refreshPromise: Promise<{ accessToken: string; refreshToken: string }> | null = null;
 
 async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
-  const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refreshToken })
@@ -309,7 +335,7 @@ async function requestJson<T>(path: string, options: RequestOptions = {}, isRetr
   // Network failures (fetch rejecting -- offline, DNS, etc.) are distinct from a resolved 401
   // response: only a resolved 401 should trigger a refresh attempt, so a rejected fetch is
   // rethrown immediately without touching the refresh flow.
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
@@ -356,13 +382,20 @@ async function requestMultipartJson<T>(
   options: { token?: string | null; formData: FormData },
   isRetry = false
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: "POST",
-    headers: {
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
+  // File uploads legitimately take longer than a plain JSON request -- a wider bound than
+  // DEFAULT_FETCH_TIMEOUT_MS still guarantees this settles instead of hanging forever, without
+  // punishing a real (slow-network) import upload.
+  const response = await fetchWithTimeout(
+    `${API_BASE_URL}${path}`,
+    {
+      method: "POST",
+      headers: {
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
+      },
+      body: options.formData as unknown as BodyInit
     },
-    body: options.formData as unknown as BodyInit
-  });
+    30_000
+  );
 
   const canAttemptRefresh = response.status === 401 && !isRetry && options.token && !isLocalToken(options.token);
   if (canAttemptRefresh) {
@@ -610,7 +643,7 @@ type ExpenseRequestOptions = {
  * network error. Reuses the same single-flight refresh-on-401 flow as requestJson.
  */
 async function requestExpenseJson<T>(path: string, options: ExpenseRequestOptions, isRetry = false): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
       "Content-Type": "application/json",

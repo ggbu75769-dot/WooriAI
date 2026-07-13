@@ -1,21 +1,28 @@
 import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
 import { getOnboardingProgress } from "../src/api/client";
+import { ensureLocalBackendSeeded } from "../src/api/local-backend";
+import { LOCAL_CHILD_ID } from "../src/api/local-fixtures";
 import { useOnboardingProgressStore } from "../src/stores/onboarding-progress.store";
 import { useOnboardingResumeStore } from "../src/stores/onboarding-resume.store";
+import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 
 declare const __DEV__: boolean;
 
 /**
- * The session store rehydrates from SecureStore (and the onboarding-progress store from
- * AsyncStorage) asynchronously. Redirecting before both finish would always see a null
- * accessToken on a cold start and dump a logged-in user back onto the landing screen,
- * so the index route must hold rendering until hydration completes.
+ * The session store rehydrates from SecureStore (and the onboarding-progress/selected-child
+ * stores from AsyncStorage) asynchronously. Redirecting before all three finish would always see
+ * a null accessToken/selectedChildId on a cold start and either dump a logged-in user back onto
+ * the landing screen or (MOB-107) send a test session to /(tabs) with no selectedChildId yet --
+ * every screen's `Boolean(authToken && childId)` query gate would then race the same hydration,
+ * so the index route must hold rendering until all three finish.
  */
 function storesHydrated() {
   return (
-    useSessionStore.persist.hasHydrated() && useOnboardingProgressStore.persist.hasHydrated()
+    useSessionStore.persist.hasHydrated() &&
+    useOnboardingProgressStore.persist.hasHydrated() &&
+    useSelectedChildStore.persist.hasHydrated()
   );
 }
 
@@ -35,6 +42,8 @@ export default function IndexScreen() {
   const hasReachedHome = useOnboardingProgressStore((state) => state.hasReachedHome);
   const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
   const setResumeProgress = useOnboardingResumeStore((state) => state.setProgress);
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
+  const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
   const [hydrated, setHydrated] = useState(storesHydrated);
   const [progressFetch, setProgressFetch] = useState<ProgressFetchState>("idle");
   const [hasResumeTarget, setHasResumeTarget] = useState(false);
@@ -45,7 +54,8 @@ export default function IndexScreen() {
     }
     const unsubscribes = [
       useSessionStore.persist.onFinishHydration(() => setHydrated(storesHydrated())),
-      useOnboardingProgressStore.persist.onFinishHydration(() => setHydrated(storesHydrated()))
+      useOnboardingProgressStore.persist.onFinishHydration(() => setHydrated(storesHydrated())),
+      useSelectedChildStore.persist.onFinishHydration(() => setHydrated(storesHydrated()))
     ];
     // Safety valve: zustand persist never fires onFinishHydration (and never flips
     // hasHydrated) when the storage read itself rejects or the stored JSON is
@@ -89,6 +99,24 @@ export default function IndexScreen() {
       })
       .finally(() => setProgressFetch("done"));
   }, [hydrated, isTestSession, accessToken, hasReachedHome, progressFetch, markHomeReached, setResumeProgress]);
+
+  /**
+   * MOB-107: a hydrated test session with no selectedChildId (e.g. an upgrade install whose
+   * `wooriai-selected-child` blob was missing/corrupt and got reset by that store's `migrate`)
+   * would otherwise redirect straight to /(tabs) below with every screen's
+   * `Boolean(authToken && childId)` query gate permanently false -- Home/준비템/리포트 would
+   * each silently fall back to their logged-out preview UI forever instead of showing real data,
+   * with no way for the user to recover short of reinstalling. The demo/test-session child is
+   * always the same well-known fixture id, so it's always safe to re-derive it here rather than
+   * leave the session stuck.
+   */
+  useEffect(() => {
+    if (!hydrated || !isTestSession || selectedChildId) {
+      return;
+    }
+    ensureLocalBackendSeeded();
+    setSelectedChildId(LOCAL_CHILD_ID);
+  }, [hydrated, isTestSession, selectedChildId, setSelectedChildId]);
 
   if (process.env.EXPO_PUBLIC_PIXEL_LOCK === "1") {
     return <Redirect href="/pixel-lock?screen=HOME-001" />;

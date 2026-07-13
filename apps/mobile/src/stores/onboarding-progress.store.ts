@@ -47,6 +47,41 @@ function generateIdempotencyKey(): string {
   return `onb-child-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+type OnboardingProgressData = Pick<
+  OnboardingProgressState,
+  "completedStepIds" | "hasReachedHome" | "childDraft" | "childCreateIdempotencyKey"
+>;
+
+const initialOnboardingData: OnboardingProgressData = {
+  completedStepIds: [],
+  hasReachedHome: false,
+  childDraft: initialDraft,
+  childCreateIdempotencyKey: null
+};
+
+/**
+ * MOB-107: defensive shape check for a persisted blob from an older app version. `childDraft`
+ * gained fields over time and `childCreateIdempotencyKey` didn't exist before Sprint1 -- rather
+ * than trust whatever shape is on disk, validate the fields this version actually reads/writes
+ * and fall back to safe defaults per-field so one corrupt/missing field can't crash the whole
+ * onboarding flow (e.g. `completeStep`'s `.includes` call on a non-array).
+ */
+function sanitizeOnboardingProgress(persisted: unknown): OnboardingProgressData {
+  if (!persisted || typeof persisted !== "object") return initialOnboardingData;
+  const candidate = persisted as Partial<OnboardingProgressData>;
+  const completedStepIds = Array.isArray(candidate.completedStepIds)
+    ? candidate.completedStepIds.filter((id): id is OnboardingScreenId => typeof id === "string")
+    : initialOnboardingData.completedStepIds;
+  const hasReachedHome = typeof candidate.hasReachedHome === "boolean" ? candidate.hasReachedHome : false;
+  const childDraft =
+    candidate.childDraft && typeof candidate.childDraft === "object"
+      ? { ...initialDraft, ...candidate.childDraft }
+      : initialDraft;
+  const childCreateIdempotencyKey =
+    typeof candidate.childCreateIdempotencyKey === "string" ? candidate.childCreateIdempotencyKey : null;
+  return { completedStepIds, hasReachedHome, childDraft, childCreateIdempotencyKey };
+}
+
 export const useOnboardingProgressStore = create<OnboardingProgressState>()(
   persist(
     (set, get) => ({
@@ -76,7 +111,15 @@ export const useOnboardingProgressStore = create<OnboardingProgressState>()(
     }),
     {
       name: "wooriai-onboarding-progress",
-      storage: createJSONStorage(() => persistStorage)
+      storage: createJSONStorage(() => persistStorage),
+      // MOB-107: bumped for the childCreateIdempotencyKey field (Sprint1/MOB-101) so `migrate`
+      // runs against anything written before it existed (round4 and earlier).
+      version: 1,
+      migrate: (persisted) => sanitizeOnboardingProgress(persisted),
+      merge: (persisted, current) => ({
+        ...current,
+        ...sanitizeOnboardingProgress(persisted)
+      })
     }
   )
 );

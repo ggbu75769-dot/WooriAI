@@ -23,7 +23,11 @@ describe("standalone Android APK build", () => {
     expect(buildScript).toContain('"--rerun-tasks"');
     expect(buildScript).not.toContain("reactNativeArchitectures=x86_64");
     expect(buildScript).toContain("wooriai-0.0.0-release-${profile}.apk");
-    expect(readFileSync(appBuildGradlePath, "utf8")).toContain('extraPackagerArgs = ["--max-workers", "1"]');
+    // 마지막 --entry-file 절대경로 override는 모노레포 serverRoot vs RN gradle plugin의
+    // 상대 entry 불일치를 우회하는 필수 구성 — docs/qa/round5a-apk-build-note.md 참조.
+    expect(readFileSync(appBuildGradlePath, "utf8")).toContain(
+      'extraPackagerArgs = ["--max-workers", "1", "--entry-file", "${projectRoot}/index.js"]'
+    );
   });
 
   it("defaults to the standalone (test-login) profile when no --profile flag is given", () => {

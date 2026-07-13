@@ -188,11 +188,109 @@ const initialState: LocalBackendState = {
   idempotencyKeys: {}
 };
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * MOB-107: `LocalExpenseRecord.version` (MOB-102/103, round5a-sprint1-plan.md §2.1/§2.2) didn't
+ * exist before Sprint1 -- an expense record persisted by round4 or earlier has no `version` at
+ * all. Downstream code (toExpenseDto, offline/sync-controller.ts's adoptServerExpense, the
+ * `expectedVersion` optimistic-concurrency checks) all assume `version` is a number, so an
+ * un-migrated `undefined` would silently corrupt version comparisons (e.g. `undefined >=
+ * expense.version` is always false). Backfilling to 1 (the value every fresh expense starts at)
+ * is a safe default: it only makes a stale-looking client seem "behind" by at most a real
+ * server/local edit, which the existing conflict-resolution flow already handles correctly.
+ */
+function sanitizeLocalExpenseRecord(value: unknown): LocalExpenseRecord | null {
+  if (!isPlainObject(value)) return null;
+  if (typeof value.id !== "string" || typeof value.childId !== "string" || typeof value.itemName !== "string") {
+    return null;
+  }
+  return {
+    id: value.id,
+    childId: value.childId,
+    categoryId: typeof value.categoryId === "string" ? value.categoryId : "",
+    amountKrw: typeof value.amountKrw === "number" ? value.amountKrw : 0,
+    spentOn: typeof value.spentOn === "string" ? value.spentOn : "",
+    itemName: value.itemName,
+    merchant: typeof value.merchant === "string" ? value.merchant : null,
+    memo: typeof value.memo === "string" ? value.memo : null,
+    paymentMethod: (typeof value.paymentMethod === "string" ? value.paymentMethod : "unknown") as PaymentMethod,
+    linkedItemTemplateId: typeof value.linkedItemTemplateId === "string" ? value.linkedItemTemplateId : null,
+    expenseType: (typeof value.expenseType === "string" ? value.expenseType : "expense") as ExpenseType,
+    source: (typeof value.source === "string" ? value.source : "manual") as ExpenseSource,
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : new Date(0).toISOString(),
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : new Date(0).toISOString(),
+    deletedAt: typeof value.deletedAt === "string" ? value.deletedAt : null,
+    // The actual backfill: anything that isn't already a finite number (missing, NaN, etc.)
+    // becomes 1, matching what createExpense stamps on every fresh record.
+    version: typeof value.version === "number" && Number.isFinite(value.version) ? value.version : 1
+  };
+}
+
+function sanitizeLocalChildRecord(value: unknown): LocalChildRecord | null {
+  if (!isPlainObject(value)) return null;
+  if (typeof value.id !== "string" || typeof value.nickname !== "string" || typeof value.birthDate !== "string") {
+    return null;
+  }
+  return {
+    id: value.id,
+    nickname: value.nickname,
+    birthDate: value.birthDate,
+    deletedAt: typeof value.deletedAt === "string" ? value.deletedAt : null
+  };
+}
+
+/**
+ * MOB-107: validates/repairs a persisted `wooriai-local-backend` blob field by field instead of
+ * trusting the shape wholesale. Any field that doesn't look right falls back to its safe default
+ * (matching `initialState`) rather than propagating a malformed value into `getHome`/`listItems`
+ * (etc.), which would otherwise throw and leave the Home/준비템/리포트 screens stuck -- see the
+ * "silent forever-loading" fix in app/(tabs)/index.tsx and items.tsx for the other half of this.
+ * `seeded` is deliberately preserved as-is (not reset) when the rest of the shape is plausible: a
+ * `false` here would make `ensureSeeded()` wipe and reseed a demo user's real expense history.
+ */
+function sanitizeLocalBackendState(persisted: unknown): LocalBackendState {
+  if (!isPlainObject(persisted)) return initialState;
+
+  const child = "child" in persisted ? sanitizeLocalChildRecord(persisted.child) : null;
+  const expenses = Array.isArray(persisted.expenses)
+    ? persisted.expenses.map(sanitizeLocalExpenseRecord).filter((record): record is LocalExpenseRecord => record !== null)
+    : [];
+
+  return {
+    seeded: typeof persisted.seeded === "boolean" ? persisted.seeded : false,
+    child,
+    budgets: isPlainObject(persisted.budgets) ? (persisted.budgets as Record<string, number>) : {},
+    expenses,
+    itemStatuses: isPlainObject(persisted.itemStatuses)
+      ? (persisted.itemStatuses as LocalBackendState["itemStatuses"])
+      : {},
+    preparedItemsCompleted: typeof persisted.preparedItemsCompleted === "boolean" ? persisted.preparedItemsCompleted : false,
+    members: Array.isArray(persisted.members) ? (persisted.members as LocalMemberRecord[]) : [],
+    invites: Array.isArray(persisted.invites) ? (persisted.invites as LocalInviteRecord[]) : [],
+    importJobs: Array.isArray(persisted.importJobs) ? (persisted.importJobs as LocalImportJobRecord[]) : [],
+    importRows: isPlainObject(persisted.importRows) ? (persisted.importRows as LocalBackendState["importRows"]) : {},
+    consents: Array.isArray(persisted.consents) ? (persisted.consents as LocalBackendState["consents"]) : [],
+    accountDeletedAt: typeof persisted.accountDeletedAt === "string" ? persisted.accountDeletedAt : null,
+    idempotencyKeys: isPlainObject(persisted.idempotencyKeys) ? (persisted.idempotencyKeys as Record<string, string>) : {}
+  };
+}
+
 export const useLocalBackendStore = create<LocalBackendState>()(
   persist(() => initialState, {
     name: "wooriai-local-backend",
     storage: createJSONStorage(() => persistStorage),
-    version: 1
+    // MOB-107: bumped from 1 -> 2 for the `version` field added to every expense record
+    // (MOB-102/103) plus `preparedItemsCompleted`/`idempotencyKeys` (MOB-101/102), none of which
+    // existed in round4 or earlier (all persisted at version 1) -- `migrate` backfills them.
+    version: 2,
+    migrate: (persisted) => sanitizeLocalBackendState(persisted),
+    merge: (persisted, current) => ({
+      ...current,
+      ...sanitizeLocalBackendState(persisted)
+    })
   })
 );
 
