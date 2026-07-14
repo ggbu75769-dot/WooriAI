@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = process.cwd();
+const mobileRoot = join(repoRoot, "apps", "mobile");
 const androidDir = join(repoRoot, "apps", "mobile", "android");
 const gradleUserHome = join(repoRoot, ".gradle-home");
 const reportPath = join(repoRoot, "artifacts", "pixel-lock", "android", "reports", "pixel-apk.json");
@@ -66,17 +67,35 @@ function run(command: string, args: string[], cwd: string, env: NodeJS.ProcessEn
 function ensurePixelGradleConfig() {
   if (!existsSync(appBuildGradlePath)) throw new Error(`ANDROID_BUILD_GRADLE_NOT_FOUND ${appBuildGradlePath}`);
   const current = readFileSync(appBuildGradlePath, "utf8");
-  const next = current
-    .replace(/root = file\([^)]+\)/, "root = file(workspaceRoot)")
-    .replace(/entryFile = file\([^)]+\)/, 'entryFile = file("${workspaceRoot}/apps/mobile/index.js")');
+  let next = current;
+  if (!/^def workspaceRoot\s*=/m.test(next)) {
+    next = next.replace(
+      /^def projectRoot\s*=.*$/m,
+      'def workspaceRoot = file("../../../..").getCanonicalFile().getAbsolutePath()\n' +
+        'def projectRoot = file("../..").getCanonicalFile().getAbsolutePath()'
+    );
+  }
+  if (!/^\s*root\s*=/m.test(next)) {
+    next = next.replace(/^react\s*\{\s*$/m, "react {\n    root = file(workspaceRoot)");
+  } else {
+    next = next.replace(/^\s*root\s*=.*$/m, "    root = file(workspaceRoot)");
+  }
+  next = next.replace(
+    /^\s*entryFile\s*=.*$/m,
+    '    entryFile = file("${workspaceRoot}/apps/mobile/index.js")'
+  );
+  if (!/^\s*extraPackagerArgs\s*=/m.test(next)) {
+    next = next.replace(
+      /^(\s*entryFile\s*=.*)$/m,
+      '$1\n    extraPackagerArgs = ["--max-workers", "1", "--entry-file", "${projectRoot}/index.js"]'
+    );
+  }
   if (next !== current) writeFileSync(appBuildGradlePath, next, "utf8");
 }
 
 function main() {
-  if (!existsSync(gradlew)) throw new Error(`GRADLEW_NOT_FOUND ${gradlew}`);
   const sourceCommit = gitOutput(["rev-parse", "HEAD"]);
   const dirty = gitOutput(["status", "--porcelain"]).length > 0;
-  ensurePixelGradleConfig();
   const env = {
     ...process.env,
     EXPO_PUBLIC_PIXEL_LOCK: "1",
@@ -89,6 +108,11 @@ function main() {
   };
   if (!env.JAVA_HOME) throw new Error("JAVA_HOME_NOT_FOUND: install JDK 17 or set JAVA_HOME.");
   if (!env.ANDROID_HOME) throw new Error("ANDROID_SDK_NOT_FOUND: install Android SDK or set ANDROID_HOME.");
+  if (!existsSync(gradlew)) {
+    run("pnpm", ["exec", "expo", "prebuild", "--platform", "android", "--no-install"], mobileRoot, env);
+  }
+  if (!existsSync(gradlew)) throw new Error(`GRADLEW_NOT_FOUND_AFTER_PREBUILD ${gradlew}`);
+  ensurePixelGradleConfig();
   const args = ["assembleRelease", "-PreactNativeArchitectures=x86_64"];
   if (process.env.PIXEL_ANDROID_RERUN_TASKS === "1") args.push("--rerun-tasks");
   run(gradlew, args, androidDir, env);
@@ -107,6 +131,7 @@ function main() {
     task: args.join(" "),
     apkPath
   };
+  mkdirSync(join(repoRoot, "artifacts", "pixel-lock", "android", "reports"), { recursive: true });
   writeFileSync(reportPath, JSON.stringify(report, null, 2), "utf8");
   console.log(`Pixel APK: ${apkPath}`);
   console.log(`Report: ${reportPath}`);

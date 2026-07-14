@@ -1,12 +1,14 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = process.cwd();
+const mobileRoot = join(repoRoot, "apps", "mobile");
 const androidDir = join(repoRoot, "apps", "mobile", "android");
 const gradleUserHome = join(repoRoot, ".gradle-home");
 const gradlew = join(androidDir, process.platform === "win32" ? "gradlew.bat" : "gradlew");
 const builtApkPath = join(androidDir, "app", "build", "outputs", "apk", "release", "app-release.apk");
+const appBuildGradlePath = join(androidDir, "app", "build.gradle");
 
 type BuildProfile = "standalone" | "production";
 
@@ -57,9 +59,48 @@ function findAndroidSdk() {
   return candidates.find((candidate) => existsSync(join(candidate, "platform-tools"))) || "";
 }
 
-function main() {
-  if (!existsSync(gradlew)) throw new Error(`GRADLEW_NOT_FOUND ${gradlew}`);
+function run(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) {
+  const result = spawnSync(command, args, {
+    cwd,
+    env,
+    encoding: "utf8",
+    shell: process.platform === "win32",
+    maxBuffer: 1024 * 1024 * 32,
+    timeout: 1000 * 60 * 20
+  });
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed\n${result.error?.message ?? ""}\n${result.stdout ?? ""}\n${result.stderr ?? ""}`);
+  }
+  return result;
+}
 
+function ensureWorkspaceGradleConfig() {
+  if (!existsSync(appBuildGradlePath)) throw new Error(`ANDROID_BUILD_GRADLE_NOT_FOUND ${appBuildGradlePath}`);
+  const current = readFileSync(appBuildGradlePath, "utf8");
+  let next = current;
+  if (!/^def workspaceRoot\s*=/m.test(next)) {
+    next = next.replace(
+      /^def projectRoot\s*=.*$/m,
+      'def workspaceRoot = file("../../../..").getCanonicalFile().getAbsolutePath()\n' +
+        'def projectRoot = file("../..").getCanonicalFile().getAbsolutePath()'
+    );
+  }
+  if (!/^\s*root\s*=/m.test(next)) {
+    next = next.replace(/^react\s*\{\s*$/m, "react {\n    root = file(workspaceRoot)");
+  } else {
+    next = next.replace(/^\s*root\s*=.*$/m, "    root = file(workspaceRoot)");
+  }
+  next = next.replace(/^\s*entryFile\s*=.*$/m, '    entryFile = file("${workspaceRoot}/apps/mobile/index.js")');
+  if (!/^\s*extraPackagerArgs\s*=/m.test(next)) {
+    next = next.replace(
+      /^(\s*entryFile\s*=.*)$/m,
+      '$1\n    extraPackagerArgs = ["--max-workers", "1", "--entry-file", "${projectRoot}/index.js"]'
+    );
+  }
+  if (next !== current) writeFileSync(appBuildGradlePath, next, "utf8");
+}
+
+function main() {
   const profile = parseProfile();
   const artifactPath = join(repoRoot, "artifacts", "android", `wooriai-0.0.0-release-${profile}.apk`);
   const reportPath = join(repoRoot, "artifacts", "android", `wooriai-0.0.0-release-${profile}.json`);
@@ -89,6 +130,11 @@ function main() {
     GRADLE_USER_HOME: process.env.GRADLE_USER_HOME || gradleUserHome,
     ...(apiBaseUrl ? { EXPO_PUBLIC_API_BASE_URL: apiBaseUrl } : {})
   };
+  if (!existsSync(gradlew)) {
+    run("pnpm", ["exec", "expo", "prebuild", "--platform", "android", "--no-install"], mobileRoot, env);
+  }
+  if (!existsSync(gradlew)) throw new Error(`GRADLEW_NOT_FOUND_AFTER_PREBUILD ${gradlew}`);
+  ensureWorkspaceGradleConfig();
   const args = ["assembleRelease", "--rerun-tasks"];
   const result = spawnSync(gradlew, args, {
     cwd: androidDir,

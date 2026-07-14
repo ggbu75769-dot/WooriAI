@@ -9,7 +9,8 @@
     "userInterfaceStyle": "light",
     "plugins": [
       "expo-router",
-      "expo-asset"
+      "expo-asset",
+      "./plugins/with-network-security-config"
     ],
     "experiments": {
       "typedRoutes": true

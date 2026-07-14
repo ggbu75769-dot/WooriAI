@@ -133,6 +133,7 @@ function startPortable() {
     );
   }
   if (!existsSync(portablePgData)) {
+    mkdirSync(resolve(repoRoot, ".toolcache"), { recursive: true });
     const pwFile = resolve(repoRoot, ".toolcache/pgpass.txt");
     writeFileSync(pwFile, dbPassword, "utf8");
     execFileSync(

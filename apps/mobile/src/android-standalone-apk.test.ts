@@ -9,7 +9,6 @@ describe("standalone Android APK build", () => {
   it("builds a fresh Metro-free release APK for Android devices", () => {
     const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
     const buildScriptPath = join(repoRoot, "scripts", "build-android-apk.ts");
-    const appBuildGradlePath = join(mobileRoot, "android", "app", "build.gradle");
 
     expect(packageJson.scripts["android:build-apk"]).toBe("tsx scripts/build-android-apk.ts");
     expect(existsSync(buildScriptPath)).toBe(true);
@@ -19,13 +18,12 @@ describe("standalone Android APK build", () => {
     expect(buildScript).toContain('standalone: "1"');
     expect(buildScript).toContain('production: "0"');
     expect(buildScript).toContain('EXPO_ROUTER_APP_ROOT: "apps/mobile/app"');
+    expect(buildScript).toContain('"prebuild", "--platform", "android", "--no-install"');
     expect(buildScript).toContain('"assembleRelease"');
     expect(buildScript).toContain('"--rerun-tasks"');
     expect(buildScript).not.toContain("reactNativeArchitectures=x86_64");
     expect(buildScript).toContain("wooriai-0.0.0-release-${profile}.apk");
-    // 마지막 --entry-file 절대경로 override는 모노레포 serverRoot vs RN gradle plugin의
-    // 상대 entry 불일치를 우회하는 필수 구성 — docs/qa/round5a-apk-build-note.md 참조.
-    expect(readFileSync(appBuildGradlePath, "utf8")).toContain(
+    expect(buildScript).toContain(
       'extraPackagerArgs = ["--max-workers", "1", "--entry-file", "${projectRoot}/index.js"]'
     );
   });
@@ -46,25 +44,17 @@ describe("standalone Android APK build", () => {
   });
 
   it("blocks cleartext traffic except for local development hosts", () => {
-    const networkSecurityConfigPath = join(
-      mobileRoot,
-      "android",
-      "app",
-      "src",
-      "main",
-      "res",
-      "xml",
-      "network_security_config.xml"
-    );
-    expect(existsSync(networkSecurityConfigPath)).toBe(true);
-    const networkSecurityConfig = readFileSync(networkSecurityConfigPath, "utf8");
+    const appConfig = JSON.parse(readFileSync(join(mobileRoot, "app.json"), "utf8"));
+    const pluginPath = join(mobileRoot, "plugins", "with-network-security-config.js");
+    expect(appConfig.expo.plugins).toContain("./plugins/with-network-security-config");
+    expect(existsSync(pluginPath)).toBe(true);
+
+    const networkSecurityConfig = readFileSync(pluginPath, "utf8");
     expect(networkSecurityConfig).toContain('cleartextTrafficPermitted="false"');
     expect(networkSecurityConfig).toContain(">10.0.2.2<");
     expect(networkSecurityConfig).toContain(">localhost<");
-
-    const manifestPath = join(mobileRoot, "android", "app", "src", "main", "AndroidManifest.xml");
-    expect(readFileSync(manifestPath, "utf8")).toContain(
-      'android:networkSecurityConfig="@xml/network_security_config"'
+    expect(networkSecurityConfig).toContain(
+      'application.$["android:networkSecurityConfig"] = "@xml/network_security_config"'
     );
   });
 });
