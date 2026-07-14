@@ -185,4 +185,36 @@ describe("Local test-mode backend data layer", () => {
     const nowList = localBackend.listItems(childId, "now").items;
     expect(nowList.some((item) => item.id === LOCAL_ITEM_DIAPER)).toBe(false);
   });
+
+  it("keeps multiple child profiles and their budget, expense, and item state separate", () => {
+    const second = localBackend.createChild({
+      nickname: "하린이",
+      stageMode: "manual",
+      manualStage: "infant_4_6"
+    });
+
+    expect(localBackend.listChildren().children.map((child) => child.id)).toEqual([childId, second.id]);
+    expect(localBackend.getChild(second.id)).toMatchObject({ nickname: "하린이", currentStage: "infant_4_6" });
+
+    localBackend.updateChild(second.id, { nickname: "하린", manualStage: "toddler_1_3" });
+    expect(localBackend.getChild(second.id)).toMatchObject({ nickname: "하린", currentStage: "toddler_1_3" });
+
+    expect(localBackend.getHome(second.id).totalExpenseKrw).toBe(0);
+    localBackend.createExpense(second.id, {
+      categoryId: "local-category-diaper",
+      amountKrw: 20_000,
+      spentOn: getSeoulToday(),
+      itemName: "둘째 지출"
+    });
+    expect(localBackend.getHome(second.id).totalExpenseKrw).toBe(20_000);
+    expect(localBackend.getHome(childId).totalExpenseKrw).not.toBe(20_000);
+
+    localBackend.upsertBudget(second.id, 300_000, currentYearMonth());
+    expect(localBackend.getBudget(second.id, currentYearMonth()).amountKrw).toBe(300_000);
+    expect(localBackend.getBudget(childId, currentYearMonth()).amountKrw).not.toBe(300_000);
+
+    localBackend.updateItemStatus(second.id, LOCAL_ITEM_DIAPER, "prepared");
+    expect(localBackend.listItems(second.id, "prepared").items.some((item) => item.id === LOCAL_ITEM_DIAPER)).toBe(true);
+    expect(localBackend.listItems(childId, "prepared").items.some((item) => item.id === LOCAL_ITEM_DIAPER)).toBe(false);
+  });
 });

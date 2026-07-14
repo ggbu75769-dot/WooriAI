@@ -210,7 +210,7 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
   });
 
   describe("local-backend.ts", () => {
-    it("backfills expense.version, preparedItemsCompleted, and idempotencyKeys from a round4-shaped blob, and getHome/listItems/getMonthlyReport all still resolve", async () => {
+    it("backfills expense.version, preparedItemsCompleted, idempotencyKeys, and additionalChildren from a round4-shaped blob, and getHome/listItems/getMonthlyReport all still resolve", async () => {
       const { persistStorage } = await loadModules();
       const { LOCAL_CHILD_ID } = await import("../api/local-fixtures");
 
@@ -264,6 +264,7 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
       const migrated = useLocalBackendStore.getState();
       expect(migrated.preparedItemsCompleted).toBe(false);
       expect(migrated.idempotencyKeys).toEqual({});
+      expect(migrated.additionalChildren).toEqual([]);
       expect(migrated.expenses[0].version).toBe(1);
       expect(migrated.seeded).toBe(true);
 

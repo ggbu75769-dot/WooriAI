@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getBudget, getHome } from "./client";
+import { LOCAL_CHILD_ID } from "./local-fixtures";
 import { useSessionStore } from "../stores/session.store";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api/v1";
@@ -202,7 +203,7 @@ describe("client.ts 401 handling and single-flight refresh", () => {
     const fetchMock = vi.fn(async () => jsonResponse(401, { message: "unauthorized" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getHome("wooriai-local-session", "child-1")).resolves.toBeDefined();
+    await expect(getHome("wooriai-local-session", LOCAL_CHILD_ID)).resolves.toBeDefined();
     // The local test token routes to the in-memory local backend, never touching fetch at all.
     expect(fetchMock).not.toHaveBeenCalled();
   });

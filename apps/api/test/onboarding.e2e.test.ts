@@ -339,4 +339,56 @@ describe("Auth and onboarding API", () => {
         expect(body.children).toHaveLength(1);
       });
   });
+
+  it("creates multiple child profiles and immediately applies a corrected stage mode", async () => {
+    const accessToken = await login(app);
+    await request(app.getHttpServer())
+      .put("/api/v1/consents")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        consents: [
+          { type: "terms", version: "2026-07-06", accepted: true },
+          { type: "privacy", version: "2026-07-06", accepted: true }
+        ]
+      })
+      .expect(200);
+
+    const householdId = (
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.households[0].id as string;
+
+    const first = await request(app.getHttpServer())
+      .post("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ householdId, nickname: "첫째", stageMode: "manual", manualStage: "infant_4_6" })
+      .expect(200);
+    const second = await request(app.getHttpServer())
+      .post("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ householdId, nickname: "둘째", stageMode: "manual", manualStage: "newborn_0_3" })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/children/${second.body.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ nickname: "둘째 수정", stageMode: "born", birthDate: "2025-07-14" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ id: second.body.id, nickname: "둘째 수정", stageMode: "born" });
+        expect(body.currentStage).not.toBe("newborn_0_3");
+      });
+
+    await request(app.getHttpServer())
+      .get("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.children.map((child: { id: string }) => child.id)).toEqual(
+          expect.arrayContaining([first.body.id, second.body.id])
+        );
+      });
+  });
 });
