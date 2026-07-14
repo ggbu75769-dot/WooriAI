@@ -182,7 +182,7 @@ export default function NewExpenseScreen() {
   const [amountText, setAmountText] = useState(() => (authToken ? "" : "38500"));
   const [memo, setMemo] = useState("");
   const [selectedCategory, setSelectedCategory] = useState(prefilledQuickItem?.category ?? categoryFor("diaper_hygiene"));
-  const [paymentMethodIndex, setPaymentMethodIndex] = useState(() => (showPaymentEvidence ? 1 : 0));
+  const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
   const [isGift, setIsGift] = useState(false);
   const [showAdditionalFields, setShowAdditionalFields] = useState(showPaymentEvidence);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -545,26 +545,28 @@ export default function NewExpenseScreen() {
         />
         </> : null}
 
-        <Pressable
-          accessibilityLabel={showPaymentEvidence ? "EXP-PAY-001 결제 수단 변경" : "결제 수단 변경"}
-          accessibilityRole="button"
-          onPress={() => setPaymentMethodIndex((value) => (value + 1) % paymentMethodOptions.length)}
-          style={{
-            backgroundColor: theme.colors.white,
-            borderColor: "rgba(74, 63, 53, 0.10)",
-            borderRadius: 14,
-            borderWidth: 1,
-            flexDirection: "row",
-            justifyContent: "space-between",
-            padding: 16
-          }}
-        >
-          <View style={{ gap: 8 }}>
-            <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>결제 수단</Text>
-            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>{paymentMethod.label}</Text>
-          </View>
-          <Text style={{ color: theme.colors.gray600, fontSize: 18 }}>›</Text>
-        </Pressable>
+        <View accessibilityLabel={showPaymentEvidence ? "EXP-PAY-001" : undefined}>
+          <Pressable
+            accessibilityLabel="결제 수단 변경"
+            accessibilityRole="button"
+            onPress={() => setPaymentMethodIndex((value) => (value + 1) % paymentMethodOptions.length)}
+            style={{
+              backgroundColor: theme.colors.white,
+              borderColor: "rgba(74, 63, 53, 0.10)",
+              borderRadius: 14,
+              borderWidth: 1,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              padding: 16
+            }}
+          >
+            <View style={{ gap: 8 }}>
+              <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>결제 수단</Text>
+              <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>{paymentMethod.label}</Text>
+            </View>
+            <Text style={{ color: theme.colors.gray600, fontSize: 18 }}>›</Text>
+          </Pressable>
+        </View>
 
         {authToken ? (
           <Pressable

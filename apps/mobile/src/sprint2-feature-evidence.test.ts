@@ -14,7 +14,9 @@ describe("Sprint 2 focused evidence IDs", () => {
   });
 
   it("EXP-PAY-001 exposes the payment selector in the real expense form", () => {
-    expect(source("app/expenses/new.tsx")).toContain('"EXP-PAY-001 결제 수단 변경"');
+    const expense = source("app/expenses/new.tsx");
+    expect(expense).toContain('"EXP-PAY-001"');
+    expect(expense).toContain('accessibilityLabel="결제 수단 변경"');
   });
 
   it("PROFILE-GENDER-001 keeps gender optional and declares that ranking ignores it", () => {
