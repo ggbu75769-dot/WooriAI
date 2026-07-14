@@ -475,6 +475,11 @@ export function createChild(
   });
 }
 
+export function listChildren(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listChildren());
+  return requestJson<{ children: OnboardingChildSummary[] }>("/children", { token });
+}
+
 export function setPreparedItems(token: string, childId: string, itemTemplateIds: string[]) {
   if (isLocalToken(token)) return local(() => localBackend.setPreparedItems(childId, itemTemplateIds));
   return requestJson<{ updatedCount: number }>(`/children/${childId}/prepared-items`, {

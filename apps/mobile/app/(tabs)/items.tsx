@@ -168,6 +168,9 @@ export default function ItemsScreen() {
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
             <View style={{ gap: 3 }}>
               <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>준비템</Text>
+              <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>
+                필요도와 준비 시기를 먼저 확인하고, 항목에서 필요한 이유를 볼 수 있어요.
+              </Text>
               {home.data?.child ? (
                 <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
                   {home.data.child.nickname} · {home.data.child.stageLabel}
@@ -229,9 +232,9 @@ export default function ItemsScreen() {
                 <View key={item.id} style={{ gap: 8 }}>
                   <ProductCard
                     title={item.name}
-                    price={item.priceBandText ? `예상 ${item.priceBandText}` : "가격 정보 없음"}
+                    price={`준비 시기 · ${item.timingLabel ?? "확인 필요"}`}
                     badge={necessityLabel(item.necessityLevel)}
-                    caption={`${item.timingLabel ?? "준비 시기 확인"} · ${statusLabel(item.status)}`}
+                    caption={`상태 · ${statusLabel(item.status)}`}
                     onPress={() => router.push(`/items/${item.id}`)}
                   />
                   {hasSession && (selectedTab === "now" || selectedTab === "soon") ? (

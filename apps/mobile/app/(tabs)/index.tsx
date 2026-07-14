@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Redirect, router } from "expo-router";
+import { Redirect, router, type Href } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { formatKrw } from "../../src/money";
@@ -127,15 +127,18 @@ export default function HomeScreen() {
 
           <View style={{ alignItems: "center", flexDirection: "row", gap: 10 }}>
             <Pressable
-              accessibilityLabel="아이 프로필"
+              accessibilityLabel="아이 전환"
               accessibilityRole="button"
-              onPress={() => router.push("/settings")}
+              onPress={() => router.push("/children" as Href)}
               style={{ alignItems: "center", flex: 1, flexDirection: "row", gap: 10, minHeight: theme.touchTarget }}
             >
               <AppIcon color={theme.colors.coral[600]} name="account-child-circle" size={36} />
               <View style={{ flex: 1, gap: 3 }}>
                 <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800" }}>{visibleHome.child.nickname}</Text>
-                <StatusBadge label={visibleHome.child.stageLabel} />
+                <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
+                  <StatusBadge label={visibleHome.child.stageLabel} />
+                  <Text style={{ color: theme.colors.coral[600], fontSize: 11, fontWeight: "700" }}>아이 전환⌄</Text>
+                </View>
               </View>
             </Pressable>
             <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/settings")} />

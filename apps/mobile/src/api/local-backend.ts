@@ -32,6 +32,7 @@ import type {
   ItemDetail,
   ItemSummary,
   MonthlyReport,
+  OnboardingChildSummary,
   PrivacySettings,
   ProductLink,
   SettingsConfirmResponse,
@@ -1312,6 +1313,11 @@ export function onboardingStatus(): {
     canRestart: false,
     summary: { consentsAccepted: true, child: childSummary, preparedItemsCount, budget: { yearMonth, amountKrw } }
   };
+}
+
+export function listChildren(): { children: OnboardingChildSummary[] } {
+  const child = onboardingStatus().summary.child;
+  return { children: child ? [child] : [] };
 }
 
 export function setPreparedItems(_childId: string, itemTemplateIds: string[]): { updatedCount: number } {

@@ -309,11 +309,13 @@ export default function NewExpenseScreen() {
   // Guards the one-tap quick-expense sheet: with a real/test session, the save button stays
   // disabled until a positive amount has actually been entered (and any manually-typed date is
   // valid), so opening the sheet can never by itself create an expense. Preview mode (authToken
-  // null) is unaffected -- amountText is always the fixed "38500" seed there, so isAmountInvalid
-  // is always false.
+  // null) is unaffected -- amountText/itemName use fixed preview seeds there, so isSaveInvalid
+  // is always false. A real/test session requires both the item name and a positive amount so
+  // the button state matches the mutation's actual validation contract.
   const amountKrwValue = Number(amountText);
-  const isAmountInvalid =
-    Boolean(authToken) && (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0 || Boolean(dateInputError));
+  const isSaveInvalid =
+    Boolean(authToken) &&
+    (!itemName.trim() || !amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0 || Boolean(dateInputError));
 
   return (
     <AppScreen>
@@ -477,6 +479,7 @@ export default function NewExpenseScreen() {
           </View>
         )}
 
+        <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>빠른 품목</Text>
         <View style={quickExpenseCategoryGridStyle.grid}>
           {quickExpenseItems.map((item) => {
             const selected = item.label === itemName;
@@ -601,7 +604,7 @@ export default function NewExpenseScreen() {
         {saveExpense.isError ? <Toast message="금액과 항목을 확인해 주세요." tone="error" /> : null}
         {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}
           <PrimaryButton
-            disabled={saveExpense.isPending || isAmountInvalid}
+            disabled={saveExpense.isPending || isSaveInvalid}
             label={saveExpense.isPending ? "저장 중" : "저장하기"}
             onPress={() => saveExpense.mutate()}
           />
