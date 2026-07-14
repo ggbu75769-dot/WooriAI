@@ -77,6 +77,7 @@ describe("Android native UI quality contract", () => {
   it("waits for the native tab bar to settle before taking Android evidence", () => {
     const pixelGateSource = source("../../scripts/pixel-lock/android-pixel-lock.ts");
     expect(pixelGateSource).toContain("process.env.PIXEL_ANDROID_SETTLE_MS || 5000");
+    expect(pixelGateSource).toContain('index === 0 || process.env.PIXEL_ANDROID_COLD_EACH !== "0"');
   });
 
   it("normalizes the tall Excel reference without center-shrinking the Android capture", () => {

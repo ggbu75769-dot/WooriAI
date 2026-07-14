@@ -771,7 +771,7 @@ async function runValidation(command: string, screenId?: string, force = false) 
       const coldStart =
         process.env.PIXEL_ANDROID_WARM_FIRST === "1"
           ? process.env.PIXEL_ANDROID_COLD_EACH === "1"
-          : index === 0 || process.env.PIXEL_ANDROID_COLD_EACH === "1";
+          : index === 0 || process.env.PIXEL_ANDROID_COLD_EACH !== "0";
       openScreen(targetId, screens, { coldStart });
       const waitMs = Number(process.env.PIXEL_ANDROID_WAIT_MS || 700);
       sleepMs(waitMs);
