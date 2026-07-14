@@ -38,6 +38,8 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(home).not.toContain("QuickActionIconButton");
     expect(home).not.toContain("FloatingActionButton");
     expect(home).not.toContain("다온이");
+    expect(home).toContain('accessibilityLabel="아이 전환"');
+    expect(home).toContain('router.push("/children" as Href)');
   });
 
   it("separates frequent expense items from accounting categories and uses neutral payment defaults", () => {
@@ -51,6 +53,8 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(expense).not.toContain("₩");
     expect(categories).toContain("보험·저축");
     expect(categories).not.toContain("약품/교통");
+    expect(expense).toContain("빠른 품목");
+    expect(expense).toContain("!itemName.trim()");
   });
 
   it("makes preparation status primary and removes unsupported commerce claims", () => {
@@ -66,6 +70,20 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(detail).toContain("visibleDetail.productLinks.length > 0");
     expect(detail).toContain("AffiliateDisclosure");
     expect(detail).toContain("검수된 구매 링크가 아직 없어요");
+    expect(items).toContain("필요도와 준비 시기를 먼저 확인하고");
+    expect(items).toContain("준비 시기 ·");
+  });
+
+  it("provides a real child switcher backed by the selected-child store", () => {
+    const home = source("app/(tabs)/index.tsx");
+    const switcher = source("app/children/index.tsx");
+    const client = source("src/api/client.ts");
+
+    expect(home).toContain('router.push("/children" as Href)');
+    expect(switcher).toContain("listChildren");
+    expect(switcher).toContain("setSelectedChildId(childId)");
+    expect(switcher).toContain('router.replace("/(tabs)")');
+    expect(client).toContain('requestJson<{ children: OnboardingChildSummary[] }>("/children"');
   });
 
   it("hides empty report charts and keeps import sample rows pixel-lock-only", () => {
