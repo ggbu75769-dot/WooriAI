@@ -396,11 +396,25 @@ function isLikelyBlankOrShell(metrics: { whitePixelRatio: number; uniqueColorCou
   );
 }
 
-async function validateRender(screenId: string, screenshotPath = join(screenshotDir, `${screenId}.png`)): Promise<RenderValidation> {
+async function validateRender(
+  screenId: string,
+  screenshotPath = join(screenshotDir, `${screenId}.png`),
+  refreshEvidence = true
+): Promise<RenderValidation> {
   const expected = asciiSentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
   const metrics = await imageBlanknessMetrics(screenshotPath);
-  const { xmlPath, text: xmlText } = dumpUiAutomator(screenId);
-  const { logcatPath, text: logcatText } = captureLogcat(screenId);
+  const xmlPath = join(logDir, `${screenId}-window.xml`);
+  const logcatPath = join(logDir, `${screenId}-logcat.txt`);
+  const xmlText = refreshEvidence
+    ? dumpUiAutomator(screenId).text
+    : existsSync(xmlPath)
+      ? readFileSync(xmlPath, "utf8")
+      : "";
+  const logcatText = refreshEvidence
+    ? captureLogcat(screenId).text
+    : existsSync(logcatPath)
+      ? readFileSync(logcatPath, "utf8")
+      : "";
   const searchable = compactText(`${xmlText}\n${logcatText}`);
   const sentinelsFound = expected.filter((sentinel) => searchable.includes(sentinel));
   const logcatErrors = logcatText
@@ -765,7 +779,15 @@ async function runValidation(command: string, screenId?: string, force = false) 
   for (const [index, targetId] of targetIds.entries()) {
     const currentHash = sourceHash(targetId);
     const screenshotPath = join(screenshotDir, `${targetId}.png`);
-    const canSkipCapture = command !== "validate-render" && !force && existsSync(screenshotPath) && cache[targetId] === currentHash;
+    const xmlPath = join(logDir, `${targetId}-window.xml`);
+    const logcatPath = join(logDir, `${targetId}-logcat.txt`);
+    const canSkipCapture =
+      command !== "validate-render" &&
+      !force &&
+      existsSync(screenshotPath) &&
+      existsSync(xmlPath) &&
+      existsSync(logcatPath) &&
+      cache[targetId] === currentHash;
     if (!canSkipCapture) {
       clearLogcat();
       const coldStart =
@@ -781,7 +803,7 @@ async function runValidation(command: string, screenId?: string, force = false) 
       await captureStableScreen(targetId);
       cache[targetId] = currentHash;
     }
-    const render = await validateRender(targetId, screenshotPath);
+    const render = await validateRender(targetId, screenshotPath, !canSkipCapture);
     results.push(await diffScreen(targetId, screens, render));
   }
 

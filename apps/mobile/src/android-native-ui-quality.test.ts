@@ -80,6 +80,14 @@ describe("Android native UI quality contract", () => {
     expect(pixelGateSource).toContain('index === 0 || process.env.PIXEL_ANDROID_COLD_EACH !== "0"');
   });
 
+  it("reuses the matching per-screen render evidence when an Android capture is cached", () => {
+    const pixelGateSource = source("../../scripts/pixel-lock/android-pixel-lock.ts");
+    expect(pixelGateSource).toContain("validateRender(targetId, screenshotPath, !canSkipCapture)");
+    expect(pixelGateSource).toContain('existsSync(xmlPath)');
+    expect(pixelGateSource).toContain('readFileSync(xmlPath, "utf8")');
+    expect(pixelGateSource).toContain('readFileSync(logcatPath, "utf8")');
+  });
+
   it("normalizes the tall Excel reference without center-shrinking the Android capture", () => {
     const config = JSON.parse(source("../../scripts/pixel-lock/pixel-lock-screens.json"));
     expect(config["IMP-003"].androidNormalization).toBe("fill");
