@@ -776,7 +776,7 @@ async function runValidation(command: string, screenId?: string, force = false) 
       const waitMs = Number(process.env.PIXEL_ANDROID_WAIT_MS || 700);
       sleepMs(waitMs);
       waitForScreenReady(targetId);
-      const settleMs = Number(process.env.PIXEL_ANDROID_SETTLE_MS || 1500);
+      const settleMs = Number(process.env.PIXEL_ANDROID_SETTLE_MS || 5000);
       if (settleMs > 0) sleepMs(settleMs);
       await captureStableScreen(targetId);
       cache[targetId] = currentHash;

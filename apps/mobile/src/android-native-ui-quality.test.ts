@@ -74,6 +74,11 @@ describe("Android native UI quality contract", () => {
     expect(pixelGateSource).toContain("metrics.nonBackgroundAreaRatio >= 0.1 && metrics.uniqueColorCount >= 1000");
   });
 
+  it("waits for the native tab bar to settle before taking Android evidence", () => {
+    const pixelGateSource = source("../../scripts/pixel-lock/android-pixel-lock.ts");
+    expect(pixelGateSource).toContain("process.env.PIXEL_ANDROID_SETTLE_MS || 5000");
+  });
+
   it("normalizes the tall Excel reference without center-shrinking the Android capture", () => {
     const config = JSON.parse(source("../../scripts/pixel-lock/pixel-lock-screens.json"));
     expect(config["IMP-003"].androidNormalization).toBe("fill");
