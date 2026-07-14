@@ -1,21 +1,27 @@
 import { useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Redirect, router } from "expo-router";
+import { Pressable, Text, View } from "react-native";
 import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { formatKrw } from "../../src/money";
+import { HomePixelStyles } from "../../src/pixelLock/styles/HomePixelStyles";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
+import { theme } from "../../src/theme";
 import {
+  AppIcon,
   AppScreen,
   Card,
+  CategoryChip,
   EmptyStateCard,
-  FloatingActionButton,
   HeroSummaryCard,
+  IconButton,
   ListRow,
-  QuickActionIconButton,
-  ScreenHeader
+  PrimaryButton,
+  SampleDataBanner,
+  StatusBadge
 } from "../../src/ui";
-import { theme } from "../../src/theme";
-import { HomePixelStyles } from "../../src/pixelLock/styles/HomePixelStyles";
+
+const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 
 function homePixelScaleFrameStyle() {
   return {
@@ -35,131 +41,56 @@ function homePixelFrameStyle() {
   };
 }
 
-const homeBudgetNudgeStyle = StyleSheet.create({
-  card: {
-    alignItems: "center",
-    backgroundColor: theme.colors.white,
-    borderRadius: 18,
-    flexDirection: "row",
-    gap: 12,
-    minHeight: 64,
-    paddingHorizontal: 14,
-    paddingVertical: 12
-  },
-  copy: {
-    flex: 1,
-    gap: 4
-  },
-  icon: {
-    color: theme.colors.mainCoral,
-    fontSize: 22,
-    fontWeight: "800"
-  },
-  iconBox: {
-    alignItems: "center",
-    backgroundColor: theme.colors.peach,
-    borderRadius: 14,
-    height: 40,
-    justifyContent: "center",
-    width: 40
-  },
-  subtitle: {
-    color: theme.colors.gray600,
-    fontSize: 12,
-    lineHeight: 18
-  },
-  title: {
-    color: theme.colors.brown,
-    fontSize: 14,
-    fontWeight: "800"
-  }
-});
-
-const homeBudgetNudgeArrowStyle = StyleSheet.create({
-  button: {
-    alignItems: "center",
-    backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.10)",
-    borderRadius: 16,
-    borderWidth: 1,
-    height: 34,
-    justifyContent: "center",
-    width: 34
-  },
-  glyph: {
-    color: theme.colors.brown,
-    fontSize: 22,
-    fontWeight: "800",
-    lineHeight: 24
-  }
-});
-
 const previewHome = {
-  child: { id: "preview-child-daon", nickname: "다온이", currentStage: "toddler", stageLabel: "24개월" },
+  child: { id: "pixel-child", nickname: "우리아이", currentStage: "toddler", stageLabel: "생후 24개월" },
   monthly: {
-    childId: "preview-child-daon",
-    yearMonth: "2025-05",
+    childId: "pixel-child",
+    yearMonth: "2026-07",
     amountKrw: 1_600_000,
-    usedAmountKrw: 1_245_700,
-    remainingAmountKrw: 354_300
+    usedAmountKrw: 428_000,
+    remainingAmountKrw: 1_172_000
   },
   recommendedItems: [
-    { id: "preview-diaper-party-pack", name: "네이처러브 기저귀 팬티형", status: "not_prepared" },
-    { id: "preview-baby-carrier", name: "베이비 아기띠 힙시트", status: "interested" }
+    { id: "preview-car-seat", name: "카시트", status: "not_prepared" },
+    { id: "preview-picture-book", name: "그림책", status: "interested" },
+    { id: "preview-training-cup", name: "연습용 컵", status: "not_prepared" }
   ],
   recentExpenses: [
     {
-      id: "preview-expense-diaper",
-      childId: "preview-child-daon",
-      categoryId: "preview-category-diaper",
-      amountKrw: 45_900,
-      spentOn: "오늘",
-      itemName: "기저귀",
-      expenseType: "expense",
-      source: "manual"
-    },
-    {
-      id: "preview-expense-formula",
-      childId: "preview-child-daon",
-      categoryId: "preview-category-formula",
-      amountKrw: 32_400,
-      spentOn: "05.20",
-      itemName: "분유/유제품",
-      expenseType: "expense",
-      source: "manual"
-    },
-    {
-      id: "preview-expense-cleanser",
-      childId: "preview-child-daon",
-      categoryId: "preview-category-cleanser",
-      amountKrw: 18_900,
-      spentOn: "05.19",
-      itemName: "유아용 세제",
+      id: "preview-expense-hospital",
+      childId: "pixel-child",
+      categoryId: "preview-category-hospital",
+      amountKrw: 11_111,
+      spentOn: "7월 13일",
+      itemName: "병원비",
       expenseType: "expense",
       source: "manual"
     }
   ]
 } as const;
 
-function formatKrw(value: number) {
-  return `${value.toLocaleString("ko-KR")}원`;
-}
+const frequentItems = ["기저귀", "병원비", "분유"] as const;
 
 export default function HomeScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const hasSession = Boolean(authToken && childId);
   const home = useQuery({
     queryKey: ["home", childId],
-    enabled: Boolean(authToken && childId),
+    enabled: hasSession,
     queryFn: () => getHome(authToken!, childId!)
   });
-  const hasSession = Boolean(authToken && childId);
 
-  if (hasSession && (home.isLoading || !home.data)) {
+  if (!hasSession && !isPixelLockMode) {
+    return <Redirect href="/onboarding/child-status" />;
+  }
+
+  if (hasSession && home.isLoading) {
     return (
       <AppScreen>
+        {isTestSession ? <SampleDataBanner /> : null}
         <EmptyStateCard title="홈 정보를 불러오고 있어요." actionLabel="잠시만요" />
       </AppScreen>
     );
@@ -168,8 +99,9 @@ export default function HomeScreen() {
   if (hasSession && home.isError) {
     return (
       <AppScreen>
+        {isTestSession ? <SampleDataBanner /> : null}
         <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+          title="홈 정보를 불러오지 못했어요."
           actionLabel="다시 시도"
           onPress={() => home.refetch()}
         />
@@ -177,97 +109,100 @@ export default function HomeScreen() {
     );
   }
 
-  const visibleHome = hasSession ? home.data! : previewHome;
+  const visibleHome = hasSession ? home.data : isPixelLockMode ? previewHome : null;
+  if (!visibleHome) {
+    return <Redirect href="/onboarding/child-status" />;
+  }
+
   const monthlyUsed = visibleHome.monthly.usedAmountKrw;
   const budget = visibleHome.monthly.amountKrw;
-  const rawProgress = (monthlyUsed / Math.max(1, budget)) * 100;
-  const progress = Math.round(Math.min(100, Math.max(0, rawProgress)));
-  // budget === 0 means "no budget set" (home API returns amountKrw: 0 then) -- never call
-  // that state "over budget"; strict > also avoids "₩0 초과" when spending equals the budget.
-  const isOverBudget = hasSession && budget > 0 && monthlyUsed > budget;
-  const overAmount = monthlyUsed - budget;
-  const budgetNudgeTitle = isOverBudget
-    ? `예산을 ${formatKrw(overAmount)} 초과했어요.`
-    : `예산의 ${progress}% 사용 중이에요!`;
-  const budgetNudgeSubtitle = isOverBudget
-    ? "이번 달 지출을 확인해 볼까요? 😥"
-    : "이번 달도 잘 관리하고 있어요 👏";
-  const bellAction = hasSession ? (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="알림"
-      hitSlop={10}
-      onPress={() => router.push("/notifications")}
-    >
-      <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>🔔</Text>
-    </Pressable>
-  ) : (
-    <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>🔔</Text>
-  );
+  const hasExpenses = monthlyUsed > 0 || visibleHome.recentExpenses.length > 0;
+  const progress = budget > 0 ? Math.round(Math.min(100, Math.max(0, (monthlyUsed / budget) * 100))) : 0;
 
   return (
     <AppScreen>
       <View accessibilityLabel="pixel-screen-HOME-001" testID="pixel-screen-HOME-001" style={homePixelScaleFrameStyle()}>
         <View style={homePixelFrameStyle()}>
-          <ScreenHeader
-            title={`${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`}
-            subtitle="우리 아이에게 해준 것을 따뜻하게 기록해요."
-            action={bellAction}
-          />
+          {isTestSession ? <SampleDataBanner /> : null}
 
-          <HeroSummaryCard
-            label="이번 달 지출"
-            amount={formatKrw(monthlyUsed)}
-            subtext={`예산 ${formatKrw(budget)}`}
-            progress={progress}
-          />
-
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <QuickActionIconButton icon="▣" label="지출 기록" onPress={() => router.push("/expenses/new")} />
-            <QuickActionIconButton icon="☆" label="추천템" onPress={() => router.push("/(tabs)/items")} />
-            <QuickActionIconButton icon="▥" label="성장 리포트" onPress={() => router.push("/(tabs)/reports")} />
-            <QuickActionIconButton icon="☰" label="더보기" onPress={() => router.push("/(tabs)/more")} />
+          <View style={{ alignItems: "center", flexDirection: "row", gap: 10 }}>
+            <Pressable
+              accessibilityLabel="아이 프로필"
+              accessibilityRole="button"
+              onPress={() => router.push("/settings")}
+              style={{ alignItems: "center", flex: 1, flexDirection: "row", gap: 10, minHeight: theme.touchTarget }}
+            >
+              <AppIcon color={theme.colors.coral[600]} name="account-child-circle" size={36} />
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800" }}>{visibleHome.child.nickname}</Text>
+                <StatusBadge label={visibleHome.child.stageLabel} />
+              </View>
+            </Pressable>
+            <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/settings")} />
           </View>
 
-          <Pressable onPress={() => router.push("/(tabs)/items")}>
-            <Card style={homeBudgetNudgeStyle.card}>
-              <View style={homeBudgetNudgeStyle.iconBox}>
-                <Text style={homeBudgetNudgeStyle.icon}>▮</Text>
-              </View>
-              <View style={homeBudgetNudgeStyle.copy}>
-                <Text style={homeBudgetNudgeStyle.title}>{budgetNudgeTitle}</Text>
-                <Text style={homeBudgetNudgeStyle.subtitle}>{budgetNudgeSubtitle}</Text>
-              </View>
-              <View style={homeBudgetNudgeArrowStyle.button}>
-                <Text style={homeBudgetNudgeArrowStyle.glyph}>›</Text>
-              </View>
-            </Card>
-          </Pressable>
-
-          <ScreenHeader
-            title="최근 지출"
-            action={
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="최근 지출 전체 보기"
-                onPress={() => router.push("/(tabs)/records")}
-              >
-                <Text style={{ color: theme.colors.brown, fontSize: 12, fontWeight: "700" }}>전체 보기</Text>
-              </Pressable>
-            }
-          />
-          {visibleHome.recentExpenses.slice(0, 3).map((expense) => (
-            <ListRow
-              key={expense.id}
-              icon="▣"
-              title={expense.itemName}
-              subtitle={expense.spentOn}
-              value={formatKrw(expense.amountKrw)}
-              onPress={() => router.push(`/expenses/${expense.id}`)}
+          {hasExpenses ? (
+            <HeroSummaryCard
+              label="이번 달 우리 아이 비용"
+              amount={formatKrw(monthlyUsed)}
+              subtext={budget > 0 ? `예산 ${formatKrw(budget)} 중` : "예산 미설정"}
+              progress={budget > 0 ? progress : null}
             />
-          ))}
+          ) : (
+            <EmptyStateCard
+              title="아직 지출 기록이 없어요. 첫 기록을 남기면 월 비용과 리포트를 만들어드릴게요."
+              actionLabel="첫 지출 기록하기"
+              onPress={() => router.push("/expenses/new")}
+            />
+          )}
 
-          <FloatingActionButton onPress={() => router.push("/expenses/new")} />
+          <View style={{ gap: 10 }}>
+            <Text style={{ color: theme.colors.brown, fontSize: 17, fontWeight: "800" }}>자주 기록해요</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {frequentItems.map((itemName) => (
+                <CategoryChip
+                  key={itemName}
+                  label={itemName}
+                  onPress={() => router.push({ pathname: "/expenses/new", params: { itemName } })}
+                />
+              ))}
+              <CategoryChip label="+ 직접 입력" onPress={() => router.push("/expenses/new")} />
+            </View>
+          </View>
+
+          <Card style={{ gap: 12 }}>
+            <View style={{ alignItems: "center", flexDirection: "row", gap: 10 }}>
+              <AppIcon color={theme.colors.coral[600]} name="package-variant-closed" />
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>이번 주 준비 현황</Text>
+                <Text style={{ color: theme.colors.gray600, fontSize: 13 }}>
+                  지금 필요한 준비템 {visibleHome.recommendedItems.length}개
+                </Text>
+              </View>
+            </View>
+            <PrimaryButton label="지금 필요한 준비템 보기" onPress={() => router.push("/(tabs)/items")} />
+          </Card>
+
+          {visibleHome.recentExpenses.length > 0 ? (
+            <View style={{ gap: 10 }}>
+              <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
+                <Text style={{ color: theme.colors.brown, fontSize: 17, fontWeight: "800" }}>최근 기록</Text>
+                <Pressable accessibilityLabel="최근 기록 전체 보기" onPress={() => router.push("/(tabs)/records")}>
+                  <Text style={{ color: theme.colors.coral[600], fontSize: 12, fontWeight: "700" }}>전체 보기</Text>
+                </Pressable>
+              </View>
+              {visibleHome.recentExpenses.slice(0, 3).map((expense) => (
+                <ListRow
+                  key={expense.id}
+                  icon={<AppIcon color={theme.colors.coral[600]} name="receipt" size={20} />}
+                  title={expense.itemName}
+                  subtitle={expense.spentOn}
+                  value={formatKrw(expense.amountKrw)}
+                  onPress={() => router.push(`/expenses/${expense.id}`)}
+                />
+              ))}
+            </View>
+          ) : null}
         </View>
       </View>
     </AppScreen>

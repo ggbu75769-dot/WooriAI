@@ -4,19 +4,16 @@ import { router } from "expo-router";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
-import { categoryCatalog } from "../../src/categories";
+import { categoryCatalog, categoryNameFor } from "../../src/categories";
+import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 import { subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader, StatusBadge, Toast } from "../../src/ui";
+import { AppIcon, AppScreen, Card, CategoryChip, EmptyStateCard, IconButton, ListRow, PrimaryButton, SampleDataBanner, ScreenHeader, StatusBadge, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const recordsScreenId = "EXP-004";
-
-function formatKrw(value: number) {
-  return `${value.toLocaleString("ko-KR")}원`;
-}
 
 function formatSpentOn(spentOn: string) {
   const parts = spentOn.split("-");
@@ -94,7 +91,7 @@ export default function RecordsScreen() {
   const visibleExpenses = monthlyServerExpenses.filter((expense) => {
     if (selectedCategoryId && expense.categoryId !== selectedCategoryId) return false;
     if (!normalizedSearch) return true;
-    const haystack = `${expense.itemName} ${expense.memo ?? ""}`.toLowerCase();
+    const haystack = `${expense.itemName} ${expense.memo ?? ""} ${expense.merchant ?? ""}`.toLowerCase();
     return haystack.includes(normalizedSearch);
   });
   const visibleOfflineRows = offlinePendingRows.filter((row) => {
@@ -104,18 +101,36 @@ export default function RecordsScreen() {
     return haystack.includes(normalizedSearch);
   });
   const hasSearchQuery = normalizedSearch.length > 0;
+  const hasAnyRecords = monthlyServerExpenses.length + offlinePendingRows.length > 0;
+  const groupedExpenses = visibleExpenses.reduce<Array<{ spentOn: string; totalKrw: number; expenses: typeof visibleExpenses }>>(
+    (groups, expense) => {
+      const current = groups[groups.length - 1];
+      if (current?.spentOn === expense.spentOn) {
+        current.expenses.push(expense);
+        current.totalKrw += expense.amountKrw;
+      } else {
+        groups.push({ spentOn: expense.spentOn, totalKrw: expense.amountKrw, expenses: [expense] });
+      }
+      return groups;
+    },
+    []
+  );
 
   function offlineStatusIcon(syncState: string) {
-    if (syncState === "conflict") return "⚠";
-    if (syncState === "failed") return "!";
-    if (syncState === "syncing") return "↻";
-    return "⏱";
+    const name = syncState === "conflict" ? "alert-circle-outline" : syncState === "failed" ? "alert-outline" : syncState === "syncing" ? "sync" : "clock-outline";
+    return <AppIcon color={syncState === "failed" || syncState === "conflict" ? theme.colors.warning : theme.colors.gray600} name={name} size={20} />;
   }
 
   return (
     <AppScreen>
       <View accessibilityLabel={recordsScreenId} testID="screen-EXP-004" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="지출 기록" title="기록" subtitle="이번 달 지출 내역을 한눈에 확인해 보세요." />
+        {isTestSession ? <SampleDataBanner /> : null}
+        <ScreenHeader
+          eyebrow="지출 기록"
+          title="기록"
+          subtitle="이번 달 지출 내역을 한눈에 확인해 보세요."
+          action={<IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/settings")} />}
+        />
 
         <PrimaryButton label="빠른 지출 기록" onPress={() => router.push("/expenses/new")} />
 
@@ -145,14 +160,16 @@ export default function RecordsScreen() {
           }}
         >
           <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
-            <Text style={{ color: theme.colors.gray900, fontSize: 22, fontWeight: "900" }}>‹</Text>
+            <AppIcon name="chevron-left" size={26} />
           </Pressable>
           <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
           <Pressable accessibilityLabel="다음 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
-            <Text style={{ color: theme.colors.gray900, fontSize: 22, fontWeight: "900" }}>›</Text>
+            <AppIcon name="chevron-right" size={26} />
           </Pressable>
         </View>
 
+        {hasAnyRecords ? (
+          <>
         <TextInput
           onChangeText={setSearchText}
           placeholder="품목명, 메모로 검색"
@@ -169,17 +186,19 @@ export default function RecordsScreen() {
           value={searchText}
         />
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
           <CategoryChip label="전체" selected={selectedCategoryId === null} onPress={() => setSelectedCategoryId(null)} />
           {categoryCatalog.map((category) => (
             <CategoryChip
               key={category.id}
-              label={`${category.icon} ${category.label}`}
+              label={category.label}
               selected={category.id === selectedCategoryId}
               onPress={() => setSelectedCategoryId(category.id)}
             />
           ))}
         </ScrollView>
+          </>
+        ) : null}
 
         {expenses.isLoading ? (
           <EmptyStateCard title="기록을 불러오고 있어요." actionLabel="잠시만요" />
@@ -189,12 +208,12 @@ export default function RecordsScreen() {
             actionLabel="다시 시도"
             onPress={() => expenses.refetch()}
           />
-        ) : expenses.data && monthlyServerExpenses.length + offlinePendingRows.length > 0 ? (
+        ) : expenses.data && hasAnyRecords ? (
           visibleExpenses.length + visibleOfflineRows.length > 0 ? (
             <>
               <Card>
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
-                  {recordsMonthLabel} 합계
+                  이번 달 비용 · {monthlyServerExpenses.length + offlinePendingRows.length}건
                 </Text>
                 <Text style={{ color: theme.colors.brown, fontSize: 24, fontWeight: "800" }}>
                   {formatKrw(monthlyTotalKrw)}
@@ -220,18 +239,23 @@ export default function RecordsScreen() {
                     onPress={() => router.push("/sync-status")}
                   />
                 ))}
-                {visibleExpenses.map((expense) => (
-                  <ListRow
-                    key={expense.id}
-                    title={expense.itemName}
-                    subtitle={
-                      expense.expenseType === "gift"
-                        ? `선물 · ${formatSpentOn(expense.spentOn)}`
-                        : formatSpentOn(expense.spentOn)
-                    }
-                    value={formatKrw(expense.amountKrw)}
-                    onPress={() => router.push(`/expenses/${expense.id}`)}
-                  />
+                {groupedExpenses.map((group) => (
+                  <View key={group.spentOn} style={{ gap: 8 }}>
+                    <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 4 }}>
+                      <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>{formatSpentOn(group.spentOn)}</Text>
+                      <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>{formatKrw(group.totalKrw)}</Text>
+                    </View>
+                    {group.expenses.map((expense) => (
+                      <ListRow
+                        key={expense.id}
+                        icon={<AppIcon color={theme.colors.coral[600]} name="receipt" size={20} />}
+                        title={expense.itemName}
+                        subtitle={`${categoryNameFor(expense.categoryId)}${expense.expenseType === "gift" ? " · 선물" : ""}`}
+                        value={formatKrw(expense.amountKrw)}
+                        onPress={() => router.push(`/expenses/${expense.id}`)}
+                      />
+                    ))}
+                  </View>
                 ))}
               </View>
             </>

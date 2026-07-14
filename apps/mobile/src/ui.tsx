@@ -1,4 +1,6 @@
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type React from "react";
+import type { ComponentProps } from "react";
 import { useState } from "react";
 import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
@@ -15,6 +17,75 @@ type PressableProps = {
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
 };
+
+export type AppIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
+
+export function AppIcon({
+  name,
+  size = 24,
+  color = theme.colors.brown
+}: {
+  name: AppIconName;
+  size?: number;
+  color?: string;
+}) {
+  return <MaterialCommunityIcons color={color} name={name} size={size} />;
+}
+
+export function IconButton({
+  accessibilityLabel,
+  icon,
+  onPress,
+  selected = false
+}: {
+  accessibilityLabel: string;
+  icon: AppIconName;
+  onPress?: () => void;
+  selected?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        alignItems: "center",
+        backgroundColor: selected ? theme.colors.coral[50] : "transparent",
+        borderRadius: 22,
+        height: theme.touchTarget,
+        justifyContent: "center",
+        opacity: pressed ? 0.72 : 1,
+        width: theme.touchTarget
+      })}
+    >
+      <AppIcon color={selected ? theme.colors.coral[600] : theme.colors.brown} name={icon} />
+    </Pressable>
+  );
+}
+
+export function SampleDataBanner() {
+  return (
+    <View
+      accessibilityLabel="샘플 데이터 안내"
+      style={{
+        alignItems: "center",
+        alignSelf: "stretch",
+        backgroundColor: theme.colors.sky,
+        borderRadius: theme.radii.small,
+        flexDirection: "row",
+        gap: 8,
+        minHeight: theme.touchTarget,
+        paddingHorizontal: 12
+      }}
+    >
+      <AppIcon color={theme.colors.semantic.info} name="flask-outline" size={18} />
+      <Text style={[textStyles.caption, { color: theme.colors.brown, flex: 1, fontWeight: "700" }]}>
+        샘플 데이터 · 실제 계정 정보와 분리되어 이 기기에만 저장돼요.
+      </Text>
+    </View>
+  );
+}
 
 const pixelLockWebStyleId = "wooriai-pixel-lock-web-styles";
 const webScrollHiddenStyle = {
@@ -294,7 +365,7 @@ export function HeroSummaryCard({
   label: string;
   amount: string;
   subtext: string;
-  progress: number;
+  progress?: number | null;
 }) {
   return (
     <View
@@ -310,9 +381,11 @@ export function HeroSummaryCard({
       <Text style={{ color: theme.colors.white, fontSize: 28, fontWeight: "800" }}>{amount}</Text>
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <Text style={[textStyles.caption, { color: theme.colors.white }]}>{subtext}</Text>
-        <Text style={[textStyles.caption, { color: theme.colors.white, fontWeight: "700" }]}>{progress}%</Text>
+        {progress == null ? null : (
+          <Text style={[textStyles.caption, { color: theme.colors.white, fontWeight: "700" }]}>{progress}%</Text>
+        )}
       </View>
-      <BudgetProgressBar value={progress} />
+      {progress == null ? null : <BudgetProgressBar value={progress} />}
     </View>
   );
 }
@@ -398,7 +471,7 @@ export function ListRow({
   value,
   onPress
 }: {
-  icon?: string;
+  icon?: React.ReactNode;
   title: string;
   subtitle?: string;
   value?: string;
@@ -407,7 +480,13 @@ export function ListRow({
   return (
     <Pressable onPress={onPress}>
       <Card style={{ alignItems: "center", flexDirection: "row", gap: 12, paddingVertical: 12 }}>
-        {icon ? <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text> : null}
+        {icon ? (
+          typeof icon === "string" ? (
+            <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text>
+          ) : (
+            <View style={{ alignItems: "center", justifyContent: "center", minWidth: 24 }}>{icon}</View>
+          )
+        ) : null}
         <View style={{ flex: 1 }}>
           <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700" }]}>{title}</Text>
           {subtitle ? <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{subtitle}</Text> : null}
@@ -437,7 +516,13 @@ export function ProductCard({
     <Pressable onPress={onPress}>
       <Card style={{ borderRadius: 18, flexDirection: "row", gap: 10, padding: 12 }}>
         <View style={{ backgroundColor: theme.colors.beige, borderRadius: 14, height: 64, overflow: "hidden", width: 64 }}>
-          {image ? <Image source={image} style={{ height: "100%", width: "100%" }} resizeMode="cover" /> : null}
+          {image ? (
+            <Image source={image} style={{ height: "100%", width: "100%" }} resizeMode="cover" />
+          ) : (
+            <View style={{ alignItems: "center", flex: 1, justifyContent: "center" }}>
+              <AppIcon color={theme.colors.coral[600]} name="package-variant-closed" size={28} />
+            </View>
+          )}
         </View>
         <View style={{ flex: 1, gap: 5 }}>
           {badge ? <StatusBadge label={badge} tone="warning" /> : null}

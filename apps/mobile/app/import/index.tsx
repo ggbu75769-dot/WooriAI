@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
-import { router } from "expo-router";
+import { Redirect, router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { createExcelImport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { validateImportFile } from "../../src/import-file-validation";
@@ -9,6 +9,7 @@ import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { ExcelPreviewPixelStyles } from "../../src/pixelLock/styles";
+import { AppIcon, SampleDataBanner, type AppIconName } from "../../src/ui";
 
 // No "application/vnd.ms-excel" (.xls): validateImportFile only accepts .csv/.xlsx, so
 // offering .xls in the picker would invite a selection that always gets rejected.
@@ -19,6 +20,7 @@ const importDocumentPickerTypes = [
 ];
 
 const importUploadScreenId = "pixel-screen-IMP-003 IMP-001 / IMP-002 / IMP-003";
+const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 
 function excelPreviewPixelFrameStyle() {
   return {
@@ -32,19 +34,19 @@ function excelPreviewPixelFrameStyle() {
 }
 
 const excelPreviewRows = [
-  { icon: "♥", label: "기저귀/위생", amount: "₩425,000", percent: "34%", count: "42건", tone: "#FFF0EA", iconColor: theme.colors.mainCoral },
-  { icon: "🍴", label: "식비/간식", amount: "₩298,500", percent: "24%", count: "31건", tone: "#FFF5D7", iconColor: theme.colors.warning },
-  { icon: "▣", label: "분유/유제품", amount: "₩210,300", percent: "17%", count: "22건", tone: theme.colors.mint, iconColor: theme.colors.secondary500 },
-  { icon: "◆", label: "의류/잡화", amount: "₩156,200", percent: "13%", count: "18건", tone: "#EAF7F2", iconColor: theme.colors.success },
-  { icon: "✿", label: "장난감/도서", amount: "₩89,700", percent: "7%", count: "15건", tone: "#FFECE6", iconColor: theme.colors.subCoral },
-  { icon: "●", label: "기타", amount: "₩66,000", percent: "5%", count: "9건", tone: "#ECECEC", iconColor: theme.colors.gray600 }
-];
+  { icon: "baby-face-outline", label: "기저귀·위생", amount: "425,000원", percent: "34%", count: "42건", tone: "#FFF0EA", iconColor: theme.colors.mainCoral },
+  { icon: "food-apple-outline", label: "수유·이유식", amount: "298,500원", percent: "24%", count: "31건", tone: "#FFF5D7", iconColor: theme.colors.warning },
+  { icon: "hospital-box-outline", label: "병원·건강", amount: "210,300원", percent: "17%", count: "22건", tone: theme.colors.mint, iconColor: theme.colors.secondary500 },
+  { icon: "tshirt-crew-outline", label: "의류·세탁", amount: "156,200원", percent: "13%", count: "18건", tone: "#EAF7F2", iconColor: theme.colors.success },
+  { icon: "toy-brick-outline", label: "장난감·책", amount: "89,700원", percent: "7%", count: "15건", tone: "#FFECE6", iconColor: theme.colors.subCoral },
+  { icon: "dots-horizontal-circle-outline", label: "기타", amount: "66,000원", percent: "5%", count: "9건", tone: "#ECECEC", iconColor: theme.colors.gray600 }
+] satisfies Array<{ icon: AppIconName; label: string; amount: string; percent: string; count: string; tone: string; iconColor: string }>;
 
 function ImportPreviewCategoryRow({ row }: { row: (typeof excelPreviewRows)[number] }) {
   return (
     <View style={[styles.previewRow, { minHeight: ExcelPreviewPixelStyles.rowHeight || 36 }]}>
       <View style={[styles.categoryIcon, { backgroundColor: row.tone }]}>
-        <Text style={{ color: row.iconColor, fontSize: 13, fontWeight: "800" }}>{row.icon}</Text>
+        <AppIcon color={row.iconColor} name={row.icon} size={17} />
       </View>
       <View style={styles.categoryLabelColumn}>
         <Text style={styles.categoryLabel}>{row.label}</Text>
@@ -74,6 +76,11 @@ export default function ImportUploadScreen() {
     }
   });
   const canUpload = Boolean(authToken && childId);
+  const showPixelPreview = isPixelLockMode && !canUpload;
+
+  if (!canUpload && !isPixelLockMode) {
+    return <Redirect href="/onboarding/child-status" />;
+  }
   const pickAndUpload = async () => {
     setValidationMessage(null);
     let result: DocumentPicker.DocumentPickerResult;
@@ -107,6 +114,7 @@ export default function ImportUploadScreen() {
 
   return (
     <View accessibilityLabel={importUploadScreenId} style={[styles.screen, { paddingHorizontal: ExcelPreviewPixelStyles.screenPadding }, excelPreviewPixelFrameStyle()]}>
+      {isTestSession ? <SampleDataBanner /> : null}
       <View style={styles.navigationBar}>
         <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
           <Text style={styles.backIcon}>‹</Text>
@@ -115,29 +123,37 @@ export default function ImportUploadScreen() {
         <View style={styles.backButton} />
       </View>
 
-      <View style={excelUploadedFileCardStyle()}>
+      {showPixelPreview || selectedFileName ? <View style={excelUploadedFileCardStyle()}>
         <View style={styles.fileIcon}>
-          <Text style={styles.fileIconText}>▣</Text>
+          <AppIcon color={theme.colors.mainCoral} name="file-excel-outline" size={22} />
         </View>
         <View style={styles.fileTextColumn}>
-          <Text style={styles.fileName}>{canUpload && selectedFileName ? selectedFileName : "5월 지출내역.xlsx"}</Text>
-          <Text style={styles.fileStatus}>업로드 완료</Text>
+          <Text style={styles.fileName}>{selectedFileName ?? "샘플 지출내역.xlsx"}</Text>
+          <Text style={styles.fileStatus}>{selectedFileName ? "분석 중" : "샘플 미리보기"}</Text>
         </View>
         <View style={styles.fileCheck}>
           <Text style={styles.fileCheckText}>✓</Text>
         </View>
-      </View>
+      </View> : null}
 
-      <View accessibilityLabel="검수 후 승인하기 전까지는 지출로 저장되지 않아요." style={[styles.previewCard, { borderRadius: ExcelPreviewPixelStyles.cardRadius }]}>
+      {showPixelPreview ? <View accessibilityLabel="검수 후 승인하기 전까지는 지출로 저장되지 않아요." style={[styles.previewCard, { borderRadius: ExcelPreviewPixelStyles.cardRadius }]}>
         <Text style={styles.previewTitle}>AI 분류 미리보기</Text>
         <View style={styles.previewSummary}>
           <Text style={styles.previewSummaryLabel}>총 128건</Text>
-          <Text style={styles.previewSummaryAmount}>₩1,245,700</Text>
+          <Text style={styles.previewSummaryAmount}>1,245,700원</Text>
         </View>
         {excelPreviewRows.map((row) => (
           <ImportPreviewCategoryRow key={row.label} row={row} />
         ))}
-      </View>
+      </View> : (
+        <View style={[styles.previewCard, { borderRadius: ExcelPreviewPixelStyles.cardRadius, marginTop: 34 }]}>
+          <AppIcon color={theme.colors.coral[600]} name="file-table-outline" size={36} />
+          <Text style={styles.previewTitle}>엑셀 또는 CSV 파일을 선택해 주세요.</Text>
+          <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 }}>
+            분석 결과를 미리 확인하고 승인하기 전에는 지출로 저장하지 않아요.
+          </Text>
+        </View>
+      )}
 
       <View style={styles.footerSpacer} />
       <Pressable
@@ -146,7 +162,7 @@ export default function ImportUploadScreen() {
         style={({ pressed }) => [styles.applyButton, { bottom: 20 + ExcelPreviewPixelStyles.ctaBottomInset, height: ExcelPreviewPixelStyles.ctaHeight, opacity: pressed || upload.isPending ? 0.82 : 1 }]}
       >
         <Text style={styles.applyButtonText}>
-          {upload.isPending ? "분석 중..." : canUpload ? "엑셀 파일 선택하기" : "적용하고 리포트 보기"}
+          {upload.isPending ? "분석 중..." : canUpload ? "엑셀 파일 선택하기" : "샘플 미리보기"}
         </Text>
       </Pressable>
       {validationMessage ? <Text style={{ color: theme.colors.danger }}>{validationMessage}</Text> : null}

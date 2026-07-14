@@ -80,6 +80,9 @@ export default function IndexScreen() {
     setProgressFetch("loading");
     getOnboardingProgress(accessToken)
       .then((progress) => {
+        if (progress.summary.child?.id) {
+          setSelectedChildId(progress.summary.child.id);
+        }
         if (progress.completed) {
           markHomeReached();
           return;
@@ -98,7 +101,7 @@ export default function IndexScreen() {
         // fallback per round5a-sprint1-plan.md §4).
       })
       .finally(() => setProgressFetch("done"));
-  }, [hydrated, isTestSession, accessToken, hasReachedHome, progressFetch, markHomeReached, setResumeProgress]);
+  }, [hydrated, isTestSession, accessToken, hasReachedHome, progressFetch, markHomeReached, setResumeProgress, setSelectedChildId]);
 
   /**
    * MOB-107: a hydrated test session with no selectedChildId (e.g. an upgrade install whose
@@ -139,5 +142,5 @@ export default function IndexScreen() {
     }
   }
 
-  return <Redirect href={hasReachedHome || isTestSession ? "/(tabs)" : "/onboarding/child-status"} />;
+  return <Redirect href={hasReachedHome ? "/(tabs)" : "/onboarding/child-status"} />;
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { Redirect, router } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import {
   createInvite,
@@ -12,7 +12,7 @@ import {
 } from "../../src/api/client";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
+import { AppIcon, AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, SampleDataBanner, StatusBadge } from "../../src/ui";
 import { FamilyPixelStyles } from "../../src/pixelLock/styles";
 
 const previewMembers = [
@@ -22,6 +22,7 @@ const previewMembers = [
 ] as const;
 
 const familyReferenceScreenId = "pixel-screen-FAM-001 FAM-001";
+const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 function familyReferenceFrameStyle() {
   return {
     gap: 16,
@@ -77,6 +78,10 @@ export default function FamilyScreen() {
     }
   });
 
+  if (!hasSession && !isPixelLockMode) {
+    return <Redirect href="/launch-animation" />;
+  }
+
   if (hasSession && (members.isLoading || !members.data)) {
     return (
       <AppScreen>
@@ -131,9 +136,10 @@ export default function FamilyScreen() {
   return (
     <AppScreen>
       <View accessibilityLabel={familyReferenceScreenId} style={familyReferenceFrameStyle()}>
+        {isTestSession ? <SampleDataBanner /> : null}
         <View style={familyHeaderRowStyle}>
           <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={12} onPress={() => router.back()}>
-            <Text style={familyBackStyle}>‹</Text>
+            <AppIcon name="chevron-left" size={26} />
           </Pressable>
           <Text style={familyTitleStyle}>가족과 함께</Text>
         </View>
@@ -148,9 +154,9 @@ export default function FamilyScreen() {
         <Card style={familyProfileCardStyle}>
           <Text style={familyProfileTitleStyle}>우리아이 가족계정</Text>
           <View style={familyProfileBodyStyle}>
-            <FamilyAvatarGroup names={hasSession ? avatarNames : ["다"]} />
+            <FamilyAvatarGroup names={hasSession ? avatarNames : ["우"]} />
             <View>
-              <Text style={familyProfileNameStyle}>{hasSession ? "우리 가족" : "다온이 패밀리"}</Text>
+              <Text style={familyProfileNameStyle}>{hasSession ? "우리 가족" : "샘플 가족"}</Text>
               <Text style={familyProfileMetaStyle}>
                 {hasSession ? visibleMembers.map((member) => member.displayName).join(" · ") : "엄마 · 아빠 · 할머니"}
               </Text>

@@ -1,15 +1,18 @@
 import { router } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
+import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, ListRow, ScreenHeader } from "../../src/ui";
+import { AppIcon, AppScreen, Card, ListRow, SampleDataBanner, ScreenHeader } from "../../src/ui";
 
 export default function SettingsScreen() {
   const householdId = useSessionStore((state) => state.defaultHouseholdId);
   const clearSession = useSessionStore((state) => state.clearSession);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const clearSelectedChild = useSelectedChildStore((state) => state.clearSelectedChildId);
+  const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
 
   const handleLogout = () => {
     Alert.alert("로그아웃 할까요?", "다시 로그인해야 이용할 수 있어요.", [
@@ -20,6 +23,7 @@ export default function SettingsScreen() {
         onPress: () => {
           clearSession();
           clearSelectedChild();
+          resetOnboarding();
           router.replace("/launch-animation");
         }
       }
@@ -29,6 +33,7 @@ export default function SettingsScreen() {
   return (
     <AppScreen>
       <View testID="screen-SET-001" accessibilityLabel="screen-SET-001" style={{ gap: theme.spacing.section }}>
+        {isTestSession ? <SampleDataBanner /> : null}
         <ScreenHeader eyebrow="설정" title="설정" subtitle="계정과 가족 정보를 관리해요" />
         <Card style={{ gap: 6 }}>
           <View style={summaryRowStyle}>
@@ -44,31 +49,31 @@ export default function SettingsScreen() {
 
       <View testID="screen-SET-002" accessibilityLabel="screen-SET-002" style={{ gap: theme.spacing.gap }}>
         <ListRow
-          icon="◐"
+          icon={<AppIcon color={theme.colors.coral[600]} name="account-child-outline" size={22} />}
           title="아이 · 가구 프로필"
           subtitle="아이 정보와 가구 구성을 확인해요"
           onPress={() => router.push("/family")}
         />
         <ListRow
-          icon="₩"
+          icon={<AppIcon color={theme.colors.coral[600]} name="wallet-outline" size={22} />}
           title="예산 수정"
           subtitle="이번 달 예산을 조정해요"
           onPress={() => router.push("/budget")}
         />
         <ListRow
-          icon="§"
+          icon={<AppIcon color={theme.colors.coral[600]} name="shield-lock-outline" size={22} />}
           title="약관 및 개인정보"
           subtitle="동의 내역과 삭제 · 탈퇴를 관리해요"
           onPress={() => router.push("/settings/privacy")}
         />
         <ListRow
-          icon="♥"
+          icon={<AppIcon color={theme.colors.coral[600]} name="account-group-outline" size={22} />}
           title="가족 관리"
           subtitle="초대와 멤버를 관리해요"
           onPress={() => router.push("/family")}
         />
         <ListRow
-          icon="⇩"
+          icon={<AppIcon color={theme.colors.coral[600]} name="file-excel-outline" size={22} />}
           title="데이터 가져오기"
           subtitle="엑셀 파일로 지출을 가져와요"
           onPress={() => router.push("/import")}

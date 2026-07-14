@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { Redirect, router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getCategoryReport, getCumulativeReport, getMonthlyReport, getYearlyReport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryNameFor } from "../../src/categories";
+import { formatKrw } from "../../src/money";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
+import { AppScreen, Card, DonutChartCard, EmptyStateCard, IconButton, LineChartCard, SampleDataBanner, SegmentedControl } from "../../src/ui";
 import { theme } from "../../src/theme";
 import { ReportPixelStyles } from "../../src/pixelLock/styles";
 
 const reportReferenceScreenId = "pixel-screen-REP-001 REP-001 · REP-002";
+const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 const previewReportTotalKrw = 1_245_700;
 const previewCumulativeTotalKrw = 1_245_700;
 const reportReferenceHorizontalOffset = -16;
@@ -24,10 +26,6 @@ function reportReferenceScaleFrameStyle() {
       { scale: ReportPixelStyles.scale }
     ]
   } as const;
-}
-
-function formatKrw(value: number) {
-  return `₩${value.toLocaleString("ko-KR")}`;
 }
 
 function formatWon(value: number) {
@@ -191,12 +189,22 @@ export default function ReportsScreen() {
   const yearlyPoints =
     period === "연간" && yearly.isSuccess ? yearly.data!.monthlyTotals.map((entry) => entry.totalExpenseKrw) : undefined;
   const activePoints = period === "월간" ? monthlyTrendPoints : period === "분기" ? quarterPoints : yearlyPoints;
+  const monthlyRecordCount = monthly.data?.categoryTop.reduce((sum, entry) => sum + entry.count, 0) ?? 0;
+  const hasEnoughAnalysis = period !== "월간" || monthlyRecordCount >= 3;
+
+  if (!hasSession && !isPixelLockMode) {
+    return <Redirect href="/onboarding/child-status" />;
+  }
 
   return (
     <AppScreen>
       <View style={reportReferenceScaleFrameStyle()}>
         <View accessibilityLabel={reportReferenceScreenId} style={reportReferenceFrameStyle}>
-          <Text style={reportReferenceHeaderStyle}>리포트</Text>
+          {isTestSession ? <SampleDataBanner /> : null}
+          <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
+            <Text style={reportReferenceHeaderStyle}>리포트</Text>
+            <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/settings")} />
+          </View>
 
           <SegmentedControl options={["월간", "분기", "연간"]} value={period} onChange={setPeriod} />
 
@@ -246,7 +254,7 @@ export default function ReportsScreen() {
               </Card>
 
               <Card style={reportReferenceMemoryCardStyle}>
-                <Text style={reportReferenceMemoryTitleStyle}>다온이와의 오늘도 소중한 하루였어요</Text>
+                <Text style={reportReferenceMemoryTitleStyle}>우리 아이와의 기록을 차곡차곡 모았어요</Text>
                 <Text style={reportReferenceMemoryBodyStyle}>누적 기록 {formatKrw(cumulativeTotal)}</Text>
               </Card>
             </>
@@ -258,11 +266,27 @@ export default function ReportsScreen() {
               actionLabel="다시 시도"
               onPress={refetchActive}
             />
+          ) : (activeTotal ?? 0) === 0 ? (
+            <EmptyStateCard
+              title="아직 리포트를 만들 기록이 없어요. 첫 지출을 남기면 이번 달 비용을 바로 정리해드려요."
+              actionLabel="지출 기록하기"
+              onPress={() => router.push("/expenses/new")}
+            />
           ) : (
             <>
-              <LineChartCard title="총 지출" value={formatKrw(activeTotal ?? 0)} deltaLabel={deltaLabel} points={activePoints} />
+              {hasEnoughAnalysis ? (
+                <LineChartCard title="이번 달 비용" value={formatKrw(activeTotal ?? 0)} deltaLabel={deltaLabel} points={activePoints} />
+              ) : (
+                <Card style={{ gap: 8 }}>
+                  <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>이번 달 비용</Text>
+                  <Text style={{ color: theme.colors.brown, fontSize: 28, fontWeight: "800" }}>{formatKrw(activeTotal ?? 0)}</Text>
+                  <Text style={{ color: theme.colors.gray600, fontSize: 13 }}>
+                    {3 - monthlyRecordCount}개 더 기록하면 카테고리 분석을 보여드려요.
+                  </Text>
+                </Card>
+              )}
 
-              {activeCategory.isLoading ? (
+              {!hasEnoughAnalysis ? null : activeCategory.isLoading ? (
                 <EmptyStateCard title="카테고리 정보를 불러오고 있어요." actionLabel="잠시만요" />
               ) : activeCategory.isError ? (
                 <EmptyStateCard

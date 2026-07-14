@@ -43,7 +43,7 @@ export default function LoginScreen() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const setSession = useSessionStore((state) => state.setSession);
   const startTestSession = useSessionStore((state) => state.startTestSession);
-  const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
+  const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
   const requiredAccepted = termsAccepted && privacyAccepted;
 
   async function login() {
@@ -52,6 +52,7 @@ export default function LoginScreen() {
     setIsLoginPending(true);
     try {
       const result = await oauthLogin("kakao");
+      resetOnboarding();
       setSession({
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
@@ -59,7 +60,7 @@ export default function LoginScreen() {
         defaultHouseholdId: result.user.households?.[0]?.id ?? null
       });
       await upsertConsents(result.tokens.accessToken);
-      router.replace("/onboarding/child-status");
+      router.replace("/");
     } catch {
       setLoginError("서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요.");
     } finally {
@@ -70,10 +71,10 @@ export default function LoginScreen() {
   function continueWithLogin() {
     if (!requiredAccepted || isLoginPending) return;
     if (isTestLoginEnabled) {
+      resetOnboarding();
       startTestSession();
-      markHomeReached();
       void upsertConsents(LOCAL_SESSION_TOKEN).catch(() => {});
-      router.replace("/(tabs)");
+      router.replace("/onboarding/child-status");
       return;
     }
     void login();

@@ -10,22 +10,37 @@ import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { createExpenseOffline } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, Toast } from "../../src/ui";
+import { formatKrw } from "../../src/money";
+import { AppIcon, AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, SampleDataBanner, Toast, type AppIconName } from "../../src/ui";
 import { theme } from "../../src/theme";
 import { QuickExpensePixelStyles } from "../../src/pixelLock/styles";
 
 const quickExpenseScreenId = "pixel-screen-EXP-001 EXP-001";
-const quickExpenseAmountPreview = "₩ 38,500";
+const quickExpenseAmountPreview = "38,500원";
 // Fixed date used only when there's no session (preview / pixel-lock capture mode) so the
 // pixel-lock reference screenshot stays deterministic across runs. See src/android-native-ui-quality.test.ts.
 const previewExpenseDate = { iso: "2025-05-24", label: "2025. 05. 24 (토)" };
-// Single source of truth for the 8 category tiles lives in src/categories.ts -- each entry
-// has a distinct, deterministic `id` so tapping different tiles records different categoryIds
-// (previously all 8 shared one literal id and broke category aggregation).
 const quickExpenseCategories = categoryCatalog;
+
+function categoryFor(code: (typeof categoryCatalog)[number]["code"]) {
+  return categoryCatalog.find((category) => category.code === code)!;
+}
+
+const quickExpenseItems: Array<{ label: string; icon: AppIconName; category: (typeof categoryCatalog)[number] }> = [
+  { label: "기저귀", icon: "baby-face-outline", category: categoryFor("diaper_hygiene") },
+  { label: "분유", icon: "baby-bottle-outline", category: categoryFor("feeding_babyfood") },
+  { label: "이유식", icon: "food-apple-outline", category: categoryFor("feeding_babyfood") },
+  { label: "병원비", icon: "hospital-box-outline", category: categoryFor("hospital_checkup") },
+  { label: "약", icon: "pill", category: categoryFor("hospital_checkup") },
+  { label: "의류", icon: "tshirt-crew-outline", category: categoryFor("clothes_laundry") },
+  { label: "장난감", icon: "toy-brick-outline", category: categoryFor("toys_books") },
+  { label: "책", icon: "book-open-page-variant-outline", category: categoryFor("toys_books") }
+];
+
 const quickExpensePaymentMethods = [
-  { value: "card", label: "▣ 카카오뱅크" },
+  { value: "unknown", label: "미지정" },
   { value: "cash", label: "현금" },
+  { value: "card", label: "카드" },
   { value: "transfer", label: "계좌 이체" },
   { value: "mobile_pay", label: "모바일 결제" }
 ] as const;
@@ -133,24 +148,24 @@ const quickExpenseCategoryTileStyle = StyleSheet.create({
   }
 });
 
-type QuickExpenseCategory = (typeof quickExpenseCategories)[number];
+type QuickExpenseItem = (typeof quickExpenseItems)[number];
 
 function ExpenseCategoryIconButton({
-  category,
+  item,
   onPress,
   selected
 }: {
-  category: QuickExpenseCategory;
+  item: QuickExpenseItem;
   onPress: () => void;
   selected: boolean;
 }) {
   return (
     <Pressable onPress={onPress} style={quickExpenseCategoryTileStyle.button}>
       <View style={[quickExpenseCategoryTileStyle.iconBox, selected ? quickExpenseCategoryTileStyle.iconBoxSelected : null]}>
-        <Text style={[quickExpenseCategoryTileStyle.iconText, selected ? quickExpenseCategoryTileStyle.iconTextSelected : null]}>{category.icon}</Text>
+        <AppIcon color={selected ? theme.colors.white : theme.colors.brown} name={item.icon} size={22} />
       </View>
       <Text numberOfLines={1} style={quickExpenseCategoryTileStyle.label}>
-        {category.label}
+        {item.label}
       </Text>
     </Pressable>
   );
@@ -160,6 +175,7 @@ export default function NewExpenseScreen() {
   const params = useLocalSearchParams<{ itemName?: string; itemTemplateId?: string }>();
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
   const prefilledItemName = params.itemName ? String(params.itemName) : "";
+  const prefilledQuickItem = quickExpenseItems.find((item) => item.label === prefilledItemName);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -171,9 +187,10 @@ export default function NewExpenseScreen() {
   const [itemName, setItemName] = useState(() => (authToken ? prefilledItemName : "기저귀"));
   const [amountText, setAmountText] = useState(() => (authToken ? "" : "38500"));
   const [memo, setMemo] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState(quickExpenseCategories[0]);
+  const [selectedCategory, setSelectedCategory] = useState(prefilledQuickItem?.category ?? categoryFor("diaper_hygiene"));
   const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
   const [isGift, setIsGift] = useState(false);
+  const [showAdditionalFields, setShowAdditionalFields] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDateMode, setCustomDateMode] = useState(false);
   const [customDateText, setCustomDateText] = useState("");
@@ -288,7 +305,7 @@ export default function NewExpenseScreen() {
       setTimeout(() => router.replace("/(tabs)/records"), 650);
     }
   });
-  const formattedAmount = amountText === "38500" ? quickExpenseAmountPreview : `₩ ${Number(amountText || 0).toLocaleString("ko-KR")}`;
+  const formattedAmount = amountText === "38500" ? quickExpenseAmountPreview : formatKrw(Number(amountText || 0));
   // Guards the one-tap quick-expense sheet: with a real/test session, the save button stays
   // disabled until a positive amount has actually been entered (and any manually-typed date is
   // valid), so opening the sheet can never by itself create an expense. Preview mode (authToken
@@ -315,6 +332,7 @@ export default function NewExpenseScreen() {
             position: "relative"
           }}
         >
+        {isTestSession ? <SampleDataBanner /> : null}
         <View accessibilityLabel={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 40 }}>
           <Pressable
             onPress={() => {
@@ -436,23 +454,76 @@ export default function NewExpenseScreen() {
           </View>
         ) : null}
 
+        {authToken ? (
+          <TextInput
+            onChangeText={setItemName}
+            placeholder="품목명 (예: 기저귀)"
+            style={{
+              backgroundColor: theme.colors.white,
+              borderColor: "rgba(74, 63, 53, 0.10)",
+              borderRadius: 14,
+              borderWidth: 1,
+              color: theme.colors.brown,
+              fontSize: 14,
+              fontWeight: "700",
+              minHeight: 48,
+              paddingHorizontal: 14
+            }}
+            value={itemName}
+          />
+        ) : (
+          <View style={{ display: "none" }}>
+            <TextInput onChangeText={setItemName} value={itemName} />
+          </View>
+        )}
+
         <View style={quickExpenseCategoryGridStyle.grid}>
-          {quickExpenseCategories.map((category) => {
-            const selected = category.label === selectedCategory.label;
+          {quickExpenseItems.map((item) => {
+            const selected = item.label === itemName;
             return (
               <ExpenseCategoryIconButton
-                key={`${category.id}-${category.label}`}
+                key={item.label}
                 selected={selected}
-                category={category}
+                item={item}
                 onPress={() => {
-                  setSelectedCategory(category);
-                  setItemName(category.label);
+                  setSelectedCategory(item.category);
+                  setItemName(item.label);
                 }}
               />
             );
           })}
         </View>
 
+        <Pressable
+          accessibilityLabel="추가 정보 열기"
+          accessibilityRole="button"
+          onPress={() => setShowAdditionalFields((value) => !value)}
+          style={{
+            alignItems: "center",
+            flexDirection: "row",
+            justifyContent: "space-between",
+            minHeight: theme.touchTarget,
+            paddingHorizontal: 4
+          }}
+        >
+          <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>추가 정보</Text>
+          <AppIcon name={showAdditionalFields ? "chevron-up" : "chevron-down"} size={22} />
+        </Pressable>
+
+        {showAdditionalFields ? <>
+        <View style={{ gap: 8 }}>
+          <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>카테고리</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
+            {quickExpenseCategories.map((category) => (
+              <CategoryChip
+                key={category.id}
+                label={category.label}
+                selected={selectedCategory.id === category.id}
+                onPress={() => setSelectedCategory(category)}
+              />
+            ))}
+          </ScrollView>
+        </View>
         <TextInput
           onChangeText={setMemo}
           placeholder="메모를 입력해 주세요 (선택)"
@@ -490,29 +561,6 @@ export default function NewExpenseScreen() {
         </Pressable>
 
         {authToken ? (
-          <TextInput
-            onChangeText={setItemName}
-            placeholder="품목명 (예: 기저귀)"
-            style={{
-              backgroundColor: theme.colors.white,
-              borderColor: "rgba(74, 63, 53, 0.10)",
-              borderRadius: 14,
-              borderWidth: 1,
-              color: theme.colors.brown,
-              fontSize: 14,
-              fontWeight: "700",
-              minHeight: 48,
-              paddingHorizontal: 14
-            }}
-            value={itemName}
-          />
-        ) : (
-          <View style={{ display: "none" }}>
-            <TextInput onChangeText={setItemName} value={itemName} />
-          </View>
-        )}
-
-        {authToken ? (
           <Pressable
             accessibilityLabel="선물로 받았어요"
             accessibilityRole="checkbox"
@@ -548,6 +596,7 @@ export default function NewExpenseScreen() {
             </View>
           </Pressable>
         ) : null}
+        </> : null}
 
         {saveExpense.isError ? <Toast message="금액과 항목을 확인해 주세요." tone="error" /> : null}
         {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}

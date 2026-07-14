@@ -1,25 +1,37 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
-import { Image, Text, View, type ImageSourcePropType } from "react-native";
+import { Redirect, router } from "expo-router";
+import { ScrollView, Text, View } from "react-native";
 import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import { itemMatchesBand, resolveDefaultStageLabel } from "../../src/items/stage-bands";
+import { ItemListPixelStyles } from "../../src/pixelLock/styles";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton } from "../../src/ui";
 import { theme } from "../../src/theme";
-import { ItemListPixelStyles } from "../../src/pixelLock/styles";
-import { itemMatchesBand, resolveDefaultStageLabel } from "../../src/items/stage-bands";
+import {
+  AppIcon,
+  AppScreen,
+  Card,
+  CategoryChip,
+  EmptyStateCard,
+  IconButton,
+  ProductCard,
+  SampleDataBanner,
+  SecondaryButton
+} from "../../src/ui";
 
 const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
-
-const toddlerImage = require("../../assets/illustrations/toddler.png");
-const recommendationBabyCarrierImage = require("../../assets/illustrations/recommendation_baby_carrier.png");
-const recommendationDiaperImage = require("../../assets/illustrations/recommendation_diaper.png");
-const recommendationBlocksImage = require("../../assets/illustrations/recommendation_blocks.png");
-const tabOptions = ["0-6개월", "6-12개월", "12-24개월", "24개월+"] as const;
+const stageOptions = ["0-6개월", "6-12개월", "12-24개월", "24개월+"] as const;
 const recommendationScreenId = "pixel-screen-ITEM-001 ITEM-001";
-const recommendationHorizontalOffset = 0;
-const recommendationVerticalOffset = 0;
+
+type ItemTab = "now" | "soon" | "prepared" | "not_needed";
+const statusTabs: Array<{ value: ItemTab; label: string }> = [
+  { value: "now", label: "지금 필요" },
+  { value: "soon", label: "곧 필요" },
+  { value: "prepared", label: "준비 완료" },
+  { value: "not_needed", label: "필요 없음" }
+];
+
 function recommendationPixelScaleFrameStyle() {
   return {
     transform: [
@@ -29,120 +41,107 @@ function recommendationPixelScaleFrameStyle() {
     ]
   } as const;
 }
-const recommendationPixelFrameStyle = {
-  gap: 14,
-  transform: [{ translateX: recommendationHorizontalOffset }, { translateY: recommendationVerticalOffset }]
-};
-type RecommendationPreviewItem = ItemSummary & {
-  badgeText: string;
-  caption: string;
-  image: ImageSourcePropType;
-};
-const recommendationPreviewImages = [recommendationBabyCarrierImage, recommendationDiaperImage, recommendationBlocksImage] as const;
-const recommendationPreviewCaptions = ["★ 4.7 (1,245)", "★ 4.8 (2,154)", "★ 4.6 (982)"] as const;
-const previewItems: RecommendationPreviewItem[] = [
+
+const previewItems: ItemSummary[] = [
   {
-    id: "preview-baby-carrier-hipseat",
-    name: "베이비 아기띠 힙시트",
+    id: "preview-car-seat",
+    name: "카시트",
     necessityLevel: "essential",
     status: "not_prepared",
-    timingLabel: "12-24개월",
-    priceBandText: "₩89,000",
-    badgeText: "BEST",
-    caption: recommendationPreviewCaptions[0],
-    image: recommendationBabyCarrierImage
+    timingLabel: "출산 전",
+    priceBandText: "150,000~800,000원",
+    stageCodes: ["toddler_1_3"]
   },
   {
-    id: "preview-naturelove-diaper",
-    name: "네이처러브 기저귀 팬티형",
+    id: "preview-baby-bath",
+    name: "아기 욕조",
     necessityLevel: "convenience",
-    status: "interested",
-    timingLabel: "12-24개월",
-    priceBandText: "₩42,900",
-    badgeText: "BEST",
-    caption: recommendationPreviewCaptions[1],
-    image: recommendationDiaperImage
-  },
-  {
-    id: "preview-wood-block-set",
-    name: "도담도담 원목 블록 세트",
-    necessityLevel: "optional",
-    status: "gifted",
-    timingLabel: "24개월+",
-    priceBandText: "₩33,800",
-    badgeText: "NEW",
-    caption: recommendationPreviewCaptions[2],
-    image: recommendationBlocksImage
+    status: "not_prepared",
+    timingLabel: "출산 전",
+    priceBandText: "20,000~80,000원",
+    stageCodes: ["toddler_1_3"]
   }
 ];
 
+function necessityLabel(level: ItemSummary["necessityLevel"]) {
+  if (level === "essential") return "필수";
+  if (level === "convenience") return "편의";
+  return "선택";
+}
+
 function statusLabel(status: ItemStatus) {
-  if (status === "prepared") return "이미 준비";
+  if (status === "prepared") return "준비 완료";
   if (status === "not_needed") return "필요 없음";
   if (status === "interested") return "관심";
   if (status === "gifted") return "선물 받음";
   return "준비 전";
 }
 
-function getRecommendationDisplay(item: ItemSummary | RecommendationPreviewItem, index: number) {
-  if ("image" in item) {
-    return { badge: item.badgeText, caption: item.caption, image: item.image };
-  }
-
-  return {
-    badge: index === 0 ? "BEST" : statusLabel(item.status),
-    caption: undefined,
-    image: recommendationPreviewImages[index % recommendationPreviewImages.length]
-  };
-}
-
 export default function ItemsScreen() {
-  const [stageLabel, setStageLabel] = useState<(typeof tabOptions)[number]>("12-24개월");
+  const [selectedTab, setSelectedTab] = useState<ItemTab>("now");
+  const [stageLabel, setStageLabel] = useState<(typeof stageOptions)[number]>("12-24개월");
   const [hasManualStageSelection, setHasManualStageSelection] = useState(false);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const hasSession = Boolean(authToken && childId);
   const queryClient = useQueryClient();
+
   const items = useQuery({
-    queryKey: ["items", childId, "now", stageLabel],
-    enabled: Boolean(authToken && childId),
+    queryKey: ["items", childId, selectedTab],
+    enabled: hasSession,
+    queryFn: () => listItems(authToken!, childId!, selectedTab)
+  });
+  const preparedItems = useQuery({
+    queryKey: ["items", childId, "prepared"],
+    enabled: hasSession,
+    queryFn: () => listItems(authToken!, childId!, "prepared")
+  });
+  const nowItems = useQuery({
+    queryKey: ["items", childId, "now"],
+    enabled: hasSession,
     queryFn: () => listItems(authToken!, childId!, "now")
   });
-  // Default the selected chip to the child's actual current stage once it's known, unless the
-  // pixel-lock capture is running, we're in the loginless test session (fixture data must render
-  // deterministically), or the user already tapped a chip. Falls back to "12-24개월" otherwise.
-  const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode && !isTestSession;
+  const soonItems = useQuery({
+    queryKey: ["items", childId, "soon"],
+    enabled: hasSession,
+    queryFn: () => listItems(authToken!, childId!, "soon")
+  });
   const home = useQuery({
     queryKey: ["home", childId],
-    enabled: shouldResolveChildStage,
+    enabled: hasSession,
     queryFn: () => getHome(authToken!, childId!)
   });
+
   useEffect(() => {
     setStageLabel(
       resolveDefaultStageLabel({
         currentStage: home.data?.child.currentStage,
         isPixelLockMode,
-        isTestSession,
+        isTestSession: false,
         hasManualSelection: hasManualStageSelection,
         fallback: "12-24개월"
       })
     );
-  }, [home.data, isTestSession, hasManualStageSelection]);
+  }, [home.data?.child.currentStage, hasManualStageSelection]);
+
   const updateStatus = useMutation({
     mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; status: ItemStatus }) =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["items"] });
-      await queryClient.invalidateQueries({ queryKey: ["home"] });
+      await queryClient.invalidateQueries({ queryKey: ["items", childId] });
+      await queryClient.invalidateQueries({ queryKey: ["home", childId] });
     }
   });
-  const hasSession = Boolean(authToken && childId);
 
-  if (hasSession && (items.isLoading || !items.data)) {
+  if (!hasSession && !isPixelLockMode) return <Redirect href="/onboarding/child-status" />;
+
+  if (hasSession && items.isLoading) {
     return (
       <AppScreen>
-        <EmptyStateCard title="추천템을 불러오고 있어요." actionLabel="잠시만요" />
+        {isTestSession ? <SampleDataBanner /> : null}
+        <EmptyStateCard title="준비템을 불러오고 있어요." actionLabel="잠시만요" />
       </AppScreen>
     );
   }
@@ -150,98 +149,108 @@ export default function ItemsScreen() {
   if (hasSession && items.isError) {
     return (
       <AppScreen>
-        <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
-          onPress={() => items.refetch()}
-        />
+        <EmptyStateCard title="준비템을 불러오지 못했어요." actionLabel="다시 시도" onPress={() => items.refetch()} />
       </AppScreen>
     );
   }
 
-  const visibleItems = hasSession ? items.data!.items : previewItems;
-  const stageFilteredItems = hasSession
-    ? visibleItems.filter((item) => itemMatchesBand(item, stageLabel))
-    : visibleItems;
-  const showEmptyState = hasSession ? stageFilteredItems.length === 0 : false;
-  const canUpdateStatus = hasSession;
+  const visibleItems = hasSession ? items.data?.items ?? [] : previewItems;
+  const stageFilteredItems = visibleItems.filter((item) => itemMatchesBand(item, stageLabel));
+  const preparedCount = preparedItems.data?.items.length ?? 0;
+  const remainingCount = (nowItems.data?.items.length ?? 0) + (soonItems.data?.items.length ?? 0);
+  const totalCount = preparedCount + remainingCount;
 
   return (
     <AppScreen>
       <View style={recommendationPixelScaleFrameStyle()}>
-        <View accessibilityLabel={recommendationScreenId} style={recommendationPixelFrameStyle}>
+        <View accessibilityLabel={recommendationScreenId} style={{ gap: 14 }}>
+          {isTestSession ? <SampleDataBanner /> : null}
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
-            <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>추천</Text>
-            <Text style={{ color: theme.colors.brown, fontSize: 18 }}>♡</Text>
+            <View style={{ gap: 3 }}>
+              <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>준비템</Text>
+              {home.data?.child ? (
+                <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
+                  {home.data.child.nickname} · {home.data.child.stageLabel}
+                </Text>
+              ) : null}
+            </View>
+            <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/settings")} />
           </View>
 
-          <View style={{ flexDirection: "row", gap: 6, marginHorizontal: -12 }}>
-            {tabOptions.map((option) => (
+          {hasSession && totalCount > 0 ? (
+            <Card style={{ gap: 8 }}>
+              <View style={{ alignItems: "center", flexDirection: "row", gap: 10 }}>
+                <AppIcon color={theme.colors.coral[600]} name="check-circle-outline" size={24} />
+                <Text style={{ color: theme.colors.brown, flex: 1, fontSize: 14, fontWeight: "800" }}>
+                  준비 완료 {preparedCount}개 · 남은 항목 {remainingCount}개
+                </Text>
+              </View>
+              <View style={{ backgroundColor: theme.colors.gray300, borderRadius: 999, height: 7, overflow: "hidden" }}>
+                <View
+                  style={{
+                    backgroundColor: theme.colors.coral[500],
+                    height: 7,
+                    width: `${Math.round((preparedCount / totalCount) * 100)}%`
+                  }}
+                />
+              </View>
+            </Card>
+          ) : null}
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
+            {statusTabs.map((tab) => (
+              <CategoryChip key={tab.value} label={tab.label} selected={selectedTab === tab.value} onPress={() => setSelectedTab(tab.value)} />
+            ))}
+          </ScrollView>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
+            {stageOptions.map((option) => (
               <CategoryChip
                 key={option}
                 label={option}
-                selected={option === stageLabel}
+                selected={stageLabel === option}
                 onPress={() => {
                   setHasManualStageSelection(true);
                   setStageLabel(option);
                 }}
               />
             ))}
-          </View>
+          </ScrollView>
 
-          <View style={{ backgroundColor: theme.colors.beige, borderRadius: 22, minHeight: 92, overflow: "hidden", padding: 15 }}>
-            <View style={{ maxWidth: 210 }}>
-              <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800", lineHeight: 24 }}>{stageLabel} 맞춤 추천</Text>
-              <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18, marginTop: 7 }}>
-                우리아이 발달 단계에 꼭 필요한 제품
-              </Text>
-            </View>
-            <Image
-              source={toddlerImage}
-              resizeMode="cover"
-              style={{ bottom: -8, height: 92, position: "absolute", right: 12, width: 74 }}
+          {stageFilteredItems.length === 0 ? (
+            <EmptyStateCard
+              title={selectedTab === "prepared" ? "아직 준비 완료한 항목이 없어요." : selectedTab === "not_needed" ? "필요 없음으로 정한 항목이 없어요." : "이 단계에 표시할 준비템이 없어요."}
+              actionLabel={selectedTab === "now" ? "다음 단계 보기" : "지금 필요한 항목 보기"}
+              onPress={() => setSelectedTab(selectedTab === "now" ? "soon" : "now")}
             />
-          </View>
-
-          {showEmptyState ? (
-            <EmptyStateCard title="지금 필요한 추천템이 없어요." actionLabel="홈으로 가기" onPress={() => router.push("/(tabs)")} />
           ) : (
             <View style={{ gap: 10 }}>
-              {stageFilteredItems.map((item, index) => {
-                const display = getRecommendationDisplay(item, index);
-
-                return (
-                  <View key={item.id} style={{ gap: 8 }}>
-                    <ProductCard
-                      title={item.name}
-                      price={item.priceBandText ?? "가격 정보 확인"}
-                      badge={display.badge}
-                      caption={display.caption}
-                      image={display.image}
-                      onPress={() => router.push(`/items/${item.id}`)}
-                    />
-                    {canUpdateStatus ? (
-                      <View style={{ flexDirection: "row", gap: 8 }}>
-                        <SecondaryButton
-                          label="준비했어요"
-                          onPress={() => updateStatus.mutate({ itemTemplateId: item.id, status: "prepared" })}
-                          style={{ flex: 1 }}
-                        />
-                        <SecondaryButton
-                          label="괜찮아요"
-                          onPress={() => updateStatus.mutate({ itemTemplateId: item.id, status: "not_needed" })}
-                          style={{ flex: 1 }}
-                        />
-                      </View>
-                    ) : null}
-                  </View>
-                );
-              })}
+              {stageFilteredItems.map((item) => (
+                <View key={item.id} style={{ gap: 8 }}>
+                  <ProductCard
+                    title={item.name}
+                    price={item.priceBandText ? `예상 ${item.priceBandText}` : "가격 정보 없음"}
+                    badge={necessityLabel(item.necessityLevel)}
+                    caption={`${item.timingLabel ?? "준비 시기 확인"} · ${statusLabel(item.status)}`}
+                    onPress={() => router.push(`/items/${item.id}`)}
+                  />
+                  {hasSession && (selectedTab === "now" || selectedTab === "soon") ? (
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <SecondaryButton
+                        label="준비했어요"
+                        onPress={() => updateStatus.mutate({ itemTemplateId: item.id, status: "prepared" })}
+                        style={{ flex: 1 }}
+                      />
+                      <SecondaryButton
+                        label="필요 없어요"
+                        onPress={() => updateStatus.mutate({ itemTemplateId: item.id, status: "not_needed" })}
+                        style={{ flex: 1 }}
+                      />
+                    </View>
+                  ) : null}
+                </View>
+              ))}
             </View>
-          )}
-
-          {hasSession ? null : (
-            <SecondaryButton label="‹ 더 많은 추천 보기" onPress={() => router.push("/(tabs)/items")} />
           )}
         </View>
       </View>
