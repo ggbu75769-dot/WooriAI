@@ -68,31 +68,28 @@ describe("UI Pixel Lock source contract", () => {
   it("migrates the primary mobile surfaces onto the pixel-lock component set", () => {
     const surfaceExpectations = [
       ["app/(tabs)/index.tsx", "HeroSummaryCard"],
-      ["app/(tabs)/index.tsx", "QuickActionIconButton"],
-      ["app/(tabs)/index.tsx", "FloatingActionButton"],
+      ["app/(tabs)/index.tsx", "SampleDataBanner"],
       ["app/(tabs)/index.tsx", "previewHome"],
-      ["app/(tabs)/index.tsx", "1_245_700"],
+      ["app/(tabs)/index.tsx", "isPixelLockMode ? previewHome : null"],
       ["app/expenses/new.tsx", "BottomSheetFrame"],
       ["app/expenses/new.tsx", "showHandle={false}"],
+      ["app/expenses/new.tsx", "quickExpenseItems"],
       ["app/expenses/new.tsx", "quickExpenseCategories"],
+      ["app/expenses/new.tsx", "SampleDataBanner"],
       ["app/expenses/new.tsx", "QuickExpensePixelStyles.scale"],
       ["app/expenses/new.tsx", "QuickExpensePixelStyles.horizontalOffset"],
       ["app/expenses/new.tsx", "QuickExpensePixelStyles.topOffset"],
       ["app/expenses/new.tsx", "quickExpensePixelFrameStyle"],
-      ["app/expenses/new.tsx", "₩ 38,500"],
+      ["app/expenses/new.tsx", "38,500원"],
       ["app/expenses/new.tsx", "formatExpenseDate(today)"],
       ["app/(tabs)/items.tsx", "ProductCard"],
       ["app/(tabs)/items.tsx", "CategoryChip"],
-      ["app/(tabs)/items.tsx", "recommendationBabyCarrierImage"],
-      ["app/(tabs)/items.tsx", "recommendationDiaperImage"],
-      ["app/(tabs)/items.tsx", "recommendationBlocksImage"],
-      ["app/(tabs)/items.tsx", "recommendationHorizontalOffset = 0"],
-      ["app/(tabs)/items.tsx", "recommendationVerticalOffset = 0"],
+      ["app/(tabs)/items.tsx", "statusTabs"],
+      ["app/(tabs)/items.tsx", "SampleDataBanner"],
       ["app/(tabs)/items.tsx", "ItemListPixelStyles.scale"],
       ["app/(tabs)/items.tsx", "ItemListPixelStyles.horizontalOffset"],
       ["app/(tabs)/items.tsx", "ItemListPixelStyles.topOffset"],
       ["app/(tabs)/items.tsx", "recommendationPixelScaleFrameStyle"],
-      ["app/(tabs)/items.tsx", "recommendationPixelFrameStyle"],
       ["app/items/[itemTemplateId].tsx", "ProductComparisonRow"],
       ["app/items/[itemTemplateId].tsx", "AffiliateDisclosure"],
       ["app/items/[itemTemplateId].tsx", "product_diaper_pack.png"],
@@ -124,16 +121,13 @@ describe("UI Pixel Lock source contract", () => {
     expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "topOffset", 0)');
     expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "horizontalOffset", 0)');
 
-    for (const asset of ["recommendation_baby_carrier.png", "recommendation_diaper.png", "recommendation_blocks.png"]) {
-      expect(existsSync(join(mobileRoot, "assets/illustrations", asset)), `${asset} should exist`).toBe(true);
-    }
   });
 
   it("keeps the home first viewport compact without an extra recommendation product card", () => {
     const homeSource = readFileSync(join(mobileRoot, "app/(tabs)/index.tsx"), "utf8");
 
-    expect(homeSource).toContain("homeBudgetNudgeStyle");
-    expect(homeSource).toContain("homeBudgetNudgeArrowStyle");
+    expect(homeSource).toContain("frequentItems");
+    expect(homeSource).toContain("SampleDataBanner");
     expect(homeSource).toContain("HomePixelStyles.horizontalOffset");
     expect(homeSource).toContain("HomePixelStyles.topOffset");
     expect(homeSource).toContain("HomePixelStyles.scale");
@@ -143,6 +137,8 @@ describe("UI Pixel Lock source contract", () => {
     expect(homeSource).toContain("homePixelScaleFrameStyle");
     expect(homeSource).toContain("homePixelFrameStyle");
     expect(homeSource).toContain('router.push("/(tabs)/items")');
+    expect(homeSource).not.toContain("QuickActionIconButton");
+    expect(homeSource).not.toContain("FloatingActionButton");
     expect(homeSource).not.toContain("ProductCard");
     expect(homeSource).not.toContain("toddlerImage");
 
@@ -175,9 +171,23 @@ describe("UI Pixel Lock source contract", () => {
     // Category labels are the single source of truth in src/categories.ts (the catalog
     // feeding new.tsx's picker), so assert against that file, not new.tsx comments.
     const categoryCatalogSource = readFileSync(join(mobileRoot, "src/categories.ts"), "utf8");
-    for (const expectedCategory of ["기저귀", "분유/유제품", "식비", "의류", "약품/교통", "병원/약", "교육/도서", "기타"]) {
+    for (const expectedCategory of [
+      "임신·산모",
+      "병원·건강",
+      "출산·산후",
+      "기저귀·위생",
+      "수유·이유식",
+      "의류·세탁",
+      "수면·가구",
+      "외출·이동",
+      "장난감·책",
+      "돌봄·교육",
+      "보험·저축",
+      "기타"
+    ]) {
       expect(categoryCatalogSource).toContain(expectedCategory);
     }
+    expect(categoryCatalogSource).not.toContain("약품/교통");
   });
 
   it("keeps product detail screen IDs accessible without rendering the source-lock eyebrow", () => {
@@ -250,8 +260,9 @@ describe("UI Pixel Lock source contract", () => {
     expect(importSource).toContain("ExcelPreviewPixelStyles.horizontalOffset");
     expect(importSource).toContain("ExcelPreviewPixelStyles.topOffset");
     expect(importSource).toContain("excelPreviewPixelFrameStyle");
+    expect(importSource).toContain("showPixelPreview");
     expect(importSource).toContain("AI 분류 미리보기");
-    expect(importSource).toContain("적용하고 리포트 보기");
+    expect(importSource).toContain("엑셀 파일 선택하기");
     expect(importSource).toContain("createExcelImport");
     expect(importSource).toContain("승인하기 전까지는 지출로 저장되지 않아요");
 
@@ -267,10 +278,12 @@ describe("UI Pixel Lock source contract", () => {
 
     expect(moreSource).toContain("moreReferenceScreenId");
     expect(moreSource).not.toContain("MorePixelStatusBar");
-    expect(moreSource).toContain("moreMenuRows");
+    expect(moreSource).toContain("const rows: MenuRow[]");
     expect(moreSource).toContain("MoreMenuRow");
+    expect(moreSource).toContain("SampleDataBanner");
     expect(moreSource).toContain("moreReferenceFrameStyle");
     expect(moreSource).toContain("moreProfileCardStyle");
+    expect(moreSource).not.toContain("previewProfile");
     expect(moreSource).not.toContain("ScreenHeader");
     expect(moreSource).not.toContain("PrimaryButton");
   });

@@ -75,11 +75,11 @@ describe("Batch 07 mobile items and commerce contract", () => {
     expect(skipHeadingBlock).toContain('accessibilityRole="header"');
     expect(skipHeadingBlock).toContain("이런 경우엔 안 사도 돼요");
 
-    // Affiliate CTA disclosure position/copy must be unchanged (still directly after the new
-    // sections, right before the cart/purchase buttons).
-    expect(productDetailSource).toMatch(
-      /\) : null}\s*<AffiliateDisclosure text={visibleDetail\.productLinks\[0\]\?\.disclosureText} \/>/
-    );
+    // Affiliate disclosure remains in the same conditional block as the purchase CTA; when no
+    // verified link exists, neither disclosure nor a dead purchase button is rendered.
+    expect(productDetailSource).toContain("<AffiliateDisclosure text={visibleDetail.productLinks[0]?.disclosureText} />");
+    expect(productDetailSource).toContain("visibleDetail.productLinks.length > 0");
+    expect(productDetailSource).toContain("검수된 구매 링크가 아직 없어요.");
     const affiliateDisclosureIndex = productDetailSource.indexOf("<AffiliateDisclosure");
     expect(affiliateDisclosureIndex).toBeGreaterThan(skipSectionIndex);
     expect(affiliateDisclosureIndex).toBeLessThan(ctaRowIndex);

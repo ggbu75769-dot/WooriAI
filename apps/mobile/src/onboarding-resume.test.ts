@@ -120,7 +120,7 @@ describe("MOB-101 onboarding resume contract", () => {
       // The already-onboarded fast path (test-login-flow.test.ts pins this exact substring) must
       // survive untouched -- the new server-progress check only runs for sessions that haven't
       // locally reached home yet.
-      expect(indexSource).toContain('hasReachedHome || isTestSession ? "/(tabs)"');
+      expect(indexSource).toContain('hasReachedHome ? "/(tabs)" : "/onboarding/child-status"');
     });
 
     it("has the (tabs) guard defer to '/' so a mid-onboarding deep link re-resolves through the resume-aware entry point", () => {

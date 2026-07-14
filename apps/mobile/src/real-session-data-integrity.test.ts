@@ -16,24 +16,28 @@ describe("Real session data integrity contract", () => {
   it("never falls back to preview/fixture data once a real session is present", () => {
     const homeSource = source("app/(tabs)/index.tsx");
     expect(homeSource).toContain("const hasSession = Boolean(authToken && childId);");
-    expect(homeSource).toContain("const visibleHome = hasSession ? home.data! : previewHome;");
+    expect(homeSource).toContain("const visibleHome = hasSession ? home.data : isPixelLockMode ? previewHome : null;");
+    expect(homeSource).toContain('if (!hasSession && !isPixelLockMode)');
     expect(homeSource).toContain("home.isLoading");
     expect(homeSource).toContain("home.isError");
 
     const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain("const visibleItems = hasSession ? items.data!.items : previewItems;");
+    expect(itemsSource).toContain("const visibleItems = hasSession ? items.data?.items ?? [] : previewItems;");
+    expect(itemsSource).toContain('if (!hasSession && !isPixelLockMode)');
 
     const itemDetailSource = source("app/items/[itemTemplateId].tsx");
     expect(itemDetailSource).toContain("const visibleDetail = hasSession ? detail.data! : previewDetail(itemTemplateId);");
+    expect(itemDetailSource).toContain('if (!hasSession && !isPixelLockMode)');
 
     const familySource = source("app/family/index.tsx");
     expect(familySource).toContain("const visibleMembers = hasSession ? members.data!.members : previewMembers;");
+    expect(familySource).toContain('if (!hasSession && !isPixelLockMode)');
   });
 
   it("wires the home screen's 전체 보기 action to the records list", () => {
     const homeSource = source("app/(tabs)/index.tsx");
 
-    expect(homeSource).toContain('accessibilityLabel="최근 지출 전체 보기"');
+    expect(homeSource).toContain('accessibilityLabel="최근 기록 전체 보기"');
     expect(homeSource).toContain('router.push("/(tabs)/records")');
   });
 

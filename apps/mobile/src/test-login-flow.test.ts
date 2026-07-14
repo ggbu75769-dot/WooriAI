@@ -29,10 +29,11 @@ describe("Android local test login", () => {
     expect(updated.isTestSession).toBe(true);
   });
 
-  it("admits a persisted local test session through the root route", () => {
+  it("requires a persisted local test session to finish onboarding before tabs", () => {
     const rootSource = readFileSync(join(mobileRoot, "app/index.tsx"), "utf8");
     expect(rootSource).toContain("isTestSession");
-    expect(rootSource).toContain('hasReachedHome || isTestSession ? "/(tabs)"');
+    expect(rootSource).toContain('hasReachedHome ? "/(tabs)" : "/onboarding/child-status"');
+    expect(rootSource).not.toContain('hasReachedHome || isTestSession ? "/(tabs)"');
   });
 
   it("leaves launch after the persisted test session hydrates asynchronously", () => {
@@ -54,7 +55,9 @@ describe("Android local test login", () => {
     expect(loginSource).toContain('accessibilityRole="checkbox"');
     expect(loginSource).toContain("테스트 계정으로 시작하기");
     expect(loginSource).toContain("startTestSession");
-    expect(loginSource).toContain("markHomeReached");
+    expect(loginSource).toContain("resetOnboarding");
+    expect(loginSource).toContain('router.replace("/onboarding/child-status")');
+    expect(loginSource).not.toContain("markHomeReached");
   });
 
   it("enables local test login in the standalone Android APK profile only", () => {
