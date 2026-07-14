@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
@@ -129,7 +129,7 @@ export default function RecordsScreen() {
           eyebrow="지출 기록"
           title="기록"
           subtitle="이번 달 지출 내역을 한눈에 확인해 보세요."
-          action={<IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/settings")} />}
+          action={<IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/profile" as Href)} />}
         />
 
         <PrimaryButton label="빠른 지출 기록" onPress={() => router.push("/expenses/new")} />

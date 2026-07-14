@@ -141,7 +141,7 @@ export default function HomeScreen() {
                 </View>
               </View>
             </Pressable>
-            <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/settings")} />
+            <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/profile" as Href)} />
           </View>
 
           {hasExpenses ? (

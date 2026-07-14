@@ -1,6 +1,7 @@
 import { Redirect, Tabs } from "expo-router";
 import { BottomTabPixelStyles } from "../../src/pixelLock/styles";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
+import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppIcon, type AppIconName } from "../../src/ui";
@@ -31,6 +32,7 @@ export default function TabsLayout() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const hasReachedHome = useOnboardingProgressStore((state) => state.hasReachedHome);
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 
   if (!isPixelLockMode) {
@@ -43,6 +45,10 @@ export default function TabsLayout() {
       // place that checks server onboarding progress and can route straight to the resume
       // screen (ONB-006) or the correct interrupted step, instead of always restarting the
       // flow from the top.
+      return <Redirect href="/" />;
+    }
+
+    if (!selectedChildId) {
       return <Redirect href="/" />;
     }
   }

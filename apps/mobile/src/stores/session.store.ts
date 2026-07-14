@@ -9,12 +9,18 @@ export type SessionState = {
   accessToken: string | null;
   refreshToken: string | null;
   userId: string | null;
+  displayName: string | null;
+  email: string | null;
+  authProvider: "kakao" | "apple" | "google" | "test" | null;
   defaultHouseholdId: string | null;
   isTestSession: boolean;
   setSession: (session: {
     accessToken: string;
     refreshToken: string;
     userId: string;
+    displayName?: string | null;
+    email?: string | null;
+    authProvider?: "kakao" | "apple" | "google" | null;
     defaultHouseholdId?: string | null;
   }) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
@@ -37,12 +43,12 @@ export type SessionState = {
  */
 type SessionData = Pick<
   SessionState,
-  "accessToken" | "refreshToken" | "userId" | "defaultHouseholdId" | "isTestSession"
+  "accessToken" | "refreshToken" | "userId" | "displayName" | "email" | "authProvider" | "defaultHouseholdId" | "isTestSession"
 >;
 
 function sanitizeSessionState<T extends SessionData>(state: T): T {
   if (process.env.EXPO_PUBLIC_TEST_LOGIN === "1" && state.accessToken) {
-    return { ...state, accessToken: null, refreshToken: null };
+    return { ...state, accessToken: null, refreshToken: null, displayName: null, email: null, authProvider: null };
   }
   return state;
 }
@@ -51,6 +57,9 @@ const initialSessionState: SessionData = {
   accessToken: null,
   refreshToken: null,
   userId: null,
+  displayName: null,
+  email: null,
+  authProvider: null,
   defaultHouseholdId: null,
   isTestSession: false
 };
@@ -66,6 +75,9 @@ function isPlausibleSessionShape(value: unknown): value is Partial<SessionData> 
     stringOrNull(candidate.accessToken) &&
     stringOrNull(candidate.refreshToken) &&
     stringOrNull(candidate.userId) &&
+    stringOrNull(candidate.displayName) &&
+    stringOrNull(candidate.email) &&
+    stringOrNull(candidate.authProvider) &&
     stringOrNull(candidate.defaultHouseholdId)
   );
 }
@@ -79,6 +91,9 @@ export const useSessionStore = create<SessionState>()(
           accessToken: session.accessToken,
           refreshToken: session.refreshToken,
           userId: session.userId,
+          displayName: session.displayName ?? null,
+          email: session.email ?? null,
+          authProvider: session.authProvider ?? null,
           defaultHouseholdId: session.defaultHouseholdId ?? null,
           isTestSession: false
         }),
@@ -92,6 +107,9 @@ export const useSessionStore = create<SessionState>()(
           accessToken: null,
           refreshToken: null,
           userId: null,
+          displayName: "테스트 사용자",
+          email: null,
+          authProvider: "test",
           defaultHouseholdId: null,
           isTestSession: true
         });
@@ -101,6 +119,9 @@ export const useSessionStore = create<SessionState>()(
           accessToken: null,
           refreshToken: null,
           userId: null,
+          displayName: null,
+          email: null,
+          authProvider: null,
           defaultHouseholdId: null,
           isTestSession: false
         })
@@ -111,7 +132,7 @@ export const useSessionStore = create<SessionState>()(
       // MOB-107: bump whenever this store's persisted shape changes so `migrate` below has a
       // chance to run against anything written by an older build (round4 and earlier wrote no
       // `version` at all, which zustand treats as version 0).
-      version: 1,
+      version: 2,
       migrate: (persisted) =>
         sanitizeSessionState(
           isPlausibleSessionShape(persisted)

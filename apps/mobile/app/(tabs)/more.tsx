@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Redirect, router } from "expo-router";
+import { Redirect, router, type Href } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
@@ -69,8 +69,8 @@ export default function MoreScreen() {
   if (!profile) return <Redirect href="/onboarding/child-status" />;
 
   const rows: MenuRow[] = [
-    { icon: "account-outline", title: "내 계정", subtitle: "로그인과 계정 정보를 관리해요", onPress: () => router.push("/settings") },
-    { icon: "account-child-outline", title: "아이 프로필", subtitle: "아이 정보와 성장 단계를 확인해요", onPress: () => router.push("/family") },
+    { icon: "account-outline", title: "내 계정", subtitle: "로그인과 계정 정보를 관리해요", onPress: () => router.push("/profile" as Href) },
+    { icon: "account-child-outline", title: "아이 프로필", subtitle: "아이 정보와 성장 단계를 확인해요", onPress: () => router.push("/children" as Href) },
     { icon: "account-group-outline", title: "가족", subtitle: "멤버와 권한, 초대를 관리해요", onPress: () => router.push("/family") },
     { icon: "wallet-outline", title: "비용 설정", subtitle: "예산과 기록 설정을 관리해요", onPress: () => router.push("/budget") },
     { icon: "file-excel-outline", title: "엑셀 가져오기", subtitle: "저장 전 미리보기로 확인해요", onPress: () => router.push("/import") },
@@ -84,7 +84,7 @@ export default function MoreScreen() {
         {isTestSession ? <SampleDataBanner /> : null}
         <Text style={moreTitleStyle}>내 프로필</Text>
 
-        <Pressable accessibilityRole="button" onPress={() => router.push("/family")} style={moreProfileCardStyle}>
+        <Pressable accessibilityRole="button" onPress={() => router.push("/children" as Href)} style={moreProfileCardStyle}>
           <AppIcon color={theme.colors.coral[600]} name="account-child-circle" size={52} />
           <View style={{ flex: 1, gap: 3 }}>
             <Text style={moreChildNameStyle}>{profile.nickname}</Text>

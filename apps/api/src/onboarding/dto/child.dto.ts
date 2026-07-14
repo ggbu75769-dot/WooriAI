@@ -29,6 +29,10 @@ export class CreateChildDto {
 
 export class UpdateChildDto {
   @IsOptional()
+  @IsIn([...CHILD_STAGE_MODES])
+  stageMode?: ChildStageMode;
+
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   nickname?: string;

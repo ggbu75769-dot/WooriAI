@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Redirect, router } from "expo-router";
+import { Redirect, router, type Href } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getCategoryReport, getCumulativeReport, getMonthlyReport, getYearlyReport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
@@ -203,7 +203,7 @@ export default function ReportsScreen() {
           {isTestSession ? <SampleDataBanner /> : null}
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
             <Text style={reportReferenceHeaderStyle}>리포트</Text>
-            <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/settings")} />
+            <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/profile" as Href)} />
           </View>
 
           <SegmentedControl options={["월간", "분기", "연간"]} value={period} onChange={setPeriod} />

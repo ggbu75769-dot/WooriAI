@@ -6,6 +6,7 @@ import {
   isFutureSeoulDate,
   sortRecommendedItems,
   type ChildStageCode,
+  type ChildStageMode,
   type ExpenseSource,
   type ExpenseType,
   type ImportStatus,
@@ -100,7 +101,10 @@ export class LocalVersionConflictError extends Error {
 type LocalChildRecord = {
   id: string;
   nickname: string;
-  birthDate: string;
+  stageMode: ChildStageMode;
+  dueDate: string | null;
+  birthDate: string | null;
+  manualStage: ChildStageCode | null;
   deletedAt: string | null;
 };
 
@@ -151,6 +155,7 @@ type LocalImportRowRecord = {
 type LocalBackendState = {
   seeded: boolean;
   child: LocalChildRecord | null;
+  additionalChildren: LocalChildRecord[];
   budgets: Record<string, number>;
   expenses: LocalExpenseRecord[];
   itemStatuses: Record<string, { status: ItemStatus; expenseId: string | null }>;
@@ -176,6 +181,7 @@ type LocalBackendState = {
 const initialState: LocalBackendState = {
   seeded: false,
   child: null,
+  additionalChildren: [],
   budgets: {},
   expenses: [],
   itemStatuses: {},
@@ -232,13 +238,17 @@ function sanitizeLocalExpenseRecord(value: unknown): LocalExpenseRecord | null {
 
 function sanitizeLocalChildRecord(value: unknown): LocalChildRecord | null {
   if (!isPlainObject(value)) return null;
-  if (typeof value.id !== "string" || typeof value.nickname !== "string" || typeof value.birthDate !== "string") {
+  if (typeof value.id !== "string" || typeof value.nickname !== "string") {
     return null;
   }
+  const stageMode = (typeof value.stageMode === "string" ? value.stageMode : "born") as ChildStageMode;
   return {
     id: value.id,
     nickname: value.nickname,
-    birthDate: value.birthDate,
+    stageMode,
+    dueDate: typeof value.dueDate === "string" ? value.dueDate : null,
+    birthDate: typeof value.birthDate === "string" ? value.birthDate : null,
+    manualStage: typeof value.manualStage === "string" ? (value.manualStage as ChildStageCode) : null,
     deletedAt: typeof value.deletedAt === "string" ? value.deletedAt : null
   };
 }
@@ -256,6 +266,11 @@ function sanitizeLocalBackendState(persisted: unknown): LocalBackendState {
   if (!isPlainObject(persisted)) return initialState;
 
   const child = "child" in persisted ? sanitizeLocalChildRecord(persisted.child) : null;
+  const additionalChildren = Array.isArray(persisted.additionalChildren)
+    ? persisted.additionalChildren
+        .map(sanitizeLocalChildRecord)
+        .filter((record): record is LocalChildRecord => record !== null)
+    : [];
   const expenses = Array.isArray(persisted.expenses)
     ? persisted.expenses.map(sanitizeLocalExpenseRecord).filter((record): record is LocalExpenseRecord => record !== null)
     : [];
@@ -263,6 +278,7 @@ function sanitizeLocalBackendState(persisted: unknown): LocalBackendState {
   return {
     seeded: typeof persisted.seeded === "boolean" ? persisted.seeded : false,
     child,
+    additionalChildren,
     budgets: isPlainObject(persisted.budgets) ? (persisted.budgets as Record<string, number>) : {},
     expenses,
     itemStatuses: isPlainObject(persisted.itemStatuses)
@@ -283,10 +299,9 @@ export const useLocalBackendStore = create<LocalBackendState>()(
   persist(() => initialState, {
     name: "wooriai-local-backend",
     storage: createJSONStorage(() => persistStorage),
-    // MOB-107: bumped from 1 -> 2 for the `version` field added to every expense record
-    // (MOB-102/103) plus `preparedItemsCompleted`/`idempotencyKeys` (MOB-101/102), none of which
-    // existed in round4 or earlier (all persisted at version 1) -- `migrate` backfills them.
-    version: 2,
+    // Version 3 adds `additionalChildren`; the sanitizer backfills it to an empty array while
+    // preserving the version-2 expense/onboarding migrations below.
+    version: 3,
     migrate: (persisted) => sanitizeLocalBackendState(persisted),
     merge: (persisted, current) => ({
       ...current,
@@ -385,8 +400,9 @@ function ensureSeeded() {
 
   useLocalBackendStore.setState({
     seeded: true,
-    child: { id: LOCAL_CHILD_ID, nickname: "다온이", birthDate, deletedAt: null },
-    budgets: { [yearMonth]: LOCAL_DEFAULT_BUDGET_KRW },
+    child: { id: LOCAL_CHILD_ID, nickname: "다온이", stageMode: "born", dueDate: null, birthDate, manualStage: null, deletedAt: null },
+    additionalChildren: [],
+    budgets: { [`${LOCAL_CHILD_ID}:${yearMonth}`]: LOCAL_DEFAULT_BUDGET_KRW },
     expenses,
     itemStatuses: {},
     members,
@@ -444,9 +460,17 @@ function cleanOptionalText(value?: string | null): string | null {
   return cleaned ? cleaned : null;
 }
 
-function requireChild(): LocalChildRecord {
+function activeChildren(): LocalChildRecord[] {
   ensureSeeded();
-  const child = useLocalBackendStore.getState().child;
+  const state = useLocalBackendStore.getState();
+  return [state.child, ...state.additionalChildren].filter(
+    (child): child is LocalChildRecord => Boolean(child && !child.deletedAt)
+  );
+}
+
+function requireChild(childId?: string): LocalChildRecord {
+  const children = activeChildren();
+  const child = childId ? children.find((candidate) => candidate.id === childId) : children[0];
   if (!child || child.deletedAt) {
     throw new Error("아이 프로필을 찾을 수 없어요.");
   }
@@ -454,18 +478,26 @@ function requireChild(): LocalChildRecord {
 }
 
 function toChildDto(child: LocalChildRecord) {
-  const calculated = calculateChildStage({ stageMode: "born", birthDate: child.birthDate, today: getSeoulToday() });
+  const calculated =
+    child.stageMode === "pregnant"
+      ? calculateChildStage({ stageMode: "pregnant", dueDate: child.dueDate!, today: getSeoulToday() })
+      : child.stageMode === "born"
+        ? calculateChildStage({ stageMode: "born", birthDate: child.birthDate!, today: getSeoulToday() })
+        : calculateChildStage({ stageMode: "manual", manualStage: child.manualStage!, today: getSeoulToday() });
   return {
     id: child.id,
     nickname: child.nickname,
+    stageMode: child.stageMode,
+    dueDate: child.dueDate,
+    birthDate: child.birthDate,
+    manualStage: child.manualStage,
     currentStage: calculated.stageCode,
     stageLabel: calculated.stageLabel
   };
 }
 
-function currentStageCode(): ChildStageCode {
-  const child = requireChild();
-  return calculateChildStage({ stageMode: "born", birthDate: child.birthDate, today: getSeoulToday() }).stageCode;
+function currentStageCode(childId: string): ChildStageCode {
+  return toChildDto(requireChild(childId)).currentStage;
 }
 
 function expensesForChild(childId: string, yearMonth?: string): LocalExpenseRecord[] {
@@ -531,6 +563,16 @@ function budgetKey(yearMonth: string): string {
   return getSeoulMonthRange(yearMonth).yearMonth;
 }
 
+function budgetStorageKey(childId: string, yearMonth: string): string {
+  return `${childId}:${budgetKey(yearMonth)}`;
+}
+
+function budgetAmountFor(childId: string, yearMonth: string): number | undefined {
+  const state = useLocalBackendStore.getState();
+  return state.budgets[budgetStorageKey(childId, yearMonth)] ??
+    (childId === LOCAL_CHILD_ID ? state.budgets[budgetKey(yearMonth)] : undefined);
+}
+
 function toBudgetDto(childId: string, yearMonth: string, amountKrw: number): Budget {
   const usedAmountKrw = totalExpenseKrw(expensesForChild(childId, yearMonth));
   return { childId, yearMonth, amountKrw, usedAmountKrw, remainingAmountKrw: amountKrw - usedAmountKrw };
@@ -541,9 +583,9 @@ function toBudgetDto(childId: string, yearMonth: string, amountKrw: number): Bud
 // ---------------------------------------------------------------------------
 
 export function getHome(childId: string): HomeSummary {
-  const child = requireChild();
+  const child = requireChild(childId);
   const yearMonth = getSeoulMonthRange(getSeoulToday()).yearMonth;
-  const budgetAmount = useLocalBackendStore.getState().budgets[budgetKey(yearMonth)] ?? 0;
+  const budgetAmount = budgetAmountFor(childId, yearMonth) ?? 0;
   const recentExpenses = expensesForChild(childId, undefined).slice(0, 3);
 
   return {
@@ -575,7 +617,7 @@ export function createExpense(
     source?: ExpenseSource;
   }
 ): Expense {
-  requireChild();
+  requireChild(childId);
   const itemName = body.itemName.trim();
   if (!itemName) {
     throw new Error("품목명을 입력해 주세요.");
@@ -735,9 +777,9 @@ export function getSyncChanges(): {
 }
 
 export function getBudget(childId: string, yearMonth: string): Budget {
-  ensureSeeded();
+  requireChild(childId);
   const normalizedMonth = budgetKey(yearMonth);
-  const amountKrw = useLocalBackendStore.getState().budgets[normalizedMonth];
+  const amountKrw = budgetAmountFor(childId, normalizedMonth);
   if (amountKrw === undefined) {
     throw new Error("월 예산을 찾을 수 없어요.");
   }
@@ -745,10 +787,12 @@ export function getBudget(childId: string, yearMonth: string): Budget {
 }
 
 export function upsertBudget(childId: string, amountKrw: number, yearMonth: string): Budget {
-  requireChild();
+  requireChild(childId);
   const normalizedMonth = budgetKey(yearMonth);
   const validAmount = requireMoneyKrw(amountKrw);
-  useLocalBackendStore.setState((state) => ({ budgets: { ...state.budgets, [normalizedMonth]: validAmount } }));
+  useLocalBackendStore.setState((state) => ({
+    budgets: { ...state.budgets, [budgetStorageKey(childId, normalizedMonth)]: validAmount }
+  }));
   return toBudgetDto(childId, normalizedMonth, validAmount);
 }
 
@@ -760,7 +804,7 @@ export function getMonthlyReport(childId: string, yearMonth: string): MonthlyRep
   ensureSeeded();
   const normalizedMonth = budgetKey(yearMonth);
   const expenses = expensesForChild(childId, normalizedMonth);
-  const budgetAmountKrw = useLocalBackendStore.getState().budgets[normalizedMonth] ?? null;
+  const budgetAmountKrw = budgetAmountFor(childId, normalizedMonth) ?? null;
   return {
     childId,
     yearMonth: normalizedMonth,
@@ -813,9 +857,16 @@ export function getYearlyReport(childId: string, year: number): YearlyReport {
 // Items
 // ---------------------------------------------------------------------------
 
-function itemStatusFor(itemTemplateId: string): ItemStatus {
+function itemStatusKey(childId: string, itemTemplateId: string): string {
+  return `${childId}:${itemTemplateId}`;
+}
+
+function itemStatusFor(childId: string, itemTemplateId: string): ItemStatus {
   ensureSeeded();
-  return useLocalBackendStore.getState().itemStatuses[itemTemplateId]?.status ?? "not_prepared";
+  const statuses = useLocalBackendStore.getState().itemStatuses;
+  return statuses[itemStatusKey(childId, itemTemplateId)]?.status ??
+    (childId === LOCAL_CHILD_ID ? statuses[itemTemplateId]?.status : undefined) ??
+    "not_prepared";
 }
 
 function requireItemTemplate(itemTemplateId: string) {
@@ -835,37 +886,37 @@ function priceBandText(priceMinKrw: number | null, priceMaxKrw: number | null): 
   return `${single.toLocaleString("ko-KR")}원`;
 }
 
-function toItemSummaryDto(item: (typeof localItemTemplateFixtures)[number]): ItemSummary {
+function toItemSummaryDto(childId: string, item: (typeof localItemTemplateFixtures)[number]): ItemSummary {
   return {
     id: item.id,
     name: item.name,
     necessityLevel: item.necessityLevel,
-    status: itemStatusFor(item.id),
+    status: itemStatusFor(childId, item.id),
     timingLabel: item.timingLabel,
     priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw),
     stageCodes: item.stageCodes
   };
 }
 
-export function listItems(_childId: string, tab: ItemTab = "now"): { items: ItemSummary[] } {
+export function listItems(childId: string, tab: ItemTab = "now"): { items: ItemSummary[] } {
   ensureSeeded();
-  const stageCode = currentStageCode();
+  const stageCode = currentStageCode(childId);
 
   if (tab === "prepared") {
     return {
       items: localItemTemplateFixtures
-        .filter((item) => itemStatusFor(item.id) === "prepared")
+        .filter((item) => itemStatusFor(childId, item.id) === "prepared")
         .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map(toItemSummaryDto)
+        .map((item) => toItemSummaryDto(childId, item))
     };
   }
 
   if (tab === "not_needed") {
     return {
       items: localItemTemplateFixtures
-        .filter((item) => itemStatusFor(item.id) === "not_needed")
+        .filter((item) => itemStatusFor(childId, item.id) === "not_needed")
         .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map(toItemSummaryDto)
+        .map((item) => toItemSummaryDto(childId, item))
     };
   }
 
@@ -875,7 +926,7 @@ export function listItems(_childId: string, tab: ItemTab = "now"): { items: Item
       : (item: (typeof localItemTemplateFixtures)[number]) => !item.stageCodes.includes(stageCode);
 
   const candidates = localItemTemplateFixtures.filter(stageMatcher).filter((item) => {
-    const status = itemStatusFor(item.id);
+    const status = itemStatusFor(childId, item.id);
     return status === "not_prepared" || status === "interested";
   });
 
@@ -884,9 +935,9 @@ export function listItems(_childId: string, tab: ItemTab = "now"): { items: Item
       id: item.id,
       stageMatches: item.stageCodes.includes(stageCode),
       necessityLevel: item.necessityLevel,
-      status: itemStatusFor(item.id),
+      status: itemStatusFor(childId, item.id),
       budgetFits: true,
-      userInterest: itemStatusFor(item.id) === "interested"
+      userInterest: itemStatusFor(childId, item.id) === "interested"
     }))
   );
 
@@ -895,10 +946,10 @@ export function listItems(_childId: string, tab: ItemTab = "now"): { items: Item
     .map((entry) => itemById.get(entry.id))
     .filter((item): item is (typeof localItemTemplateFixtures)[number] => Boolean(item));
 
-  return { items: ordered.map(toItemSummaryDto) };
+  return { items: ordered.map((item) => toItemSummaryDto(childId, item)) };
 }
 
-export function getItemDetail(_childId: string, itemTemplateId: string): ItemDetail {
+export function getItemDetail(childId: string, itemTemplateId: string): ItemDetail {
   ensureSeeded();
   const item = requireItemTemplate(itemTemplateId);
   const productLinks: ProductLink[] = localProductLinkFixtures
@@ -914,7 +965,7 @@ export function getItemDetail(_childId: string, itemTemplateId: string): ItemDet
     }));
 
   return {
-    ...toItemSummaryDto(item),
+    ...toItemSummaryDto(childId, item),
     reasonText: item.reasonText,
     skipReasonText: item.skipReasonText,
     usedSecondhandOk: item.usedSecondhandOk,
@@ -924,7 +975,7 @@ export function getItemDetail(_childId: string, itemTemplateId: string): ItemDet
 }
 
 export function updateItemStatus(
-  _childId: string,
+  childId: string,
   itemTemplateId: string,
   status: ItemStatus,
   expenseId?: string
@@ -932,9 +983,12 @@ export function updateItemStatus(
   ensureSeeded();
   const item = requireItemTemplate(itemTemplateId);
   useLocalBackendStore.setState((state) => ({
-    itemStatuses: { ...state.itemStatuses, [itemTemplateId]: { status, expenseId: expenseId ?? null } }
+    itemStatuses: {
+      ...state.itemStatuses,
+      [itemStatusKey(childId, itemTemplateId)]: { status, expenseId: expenseId ?? null }
+    }
   }));
-  return toItemSummaryDto(item);
+  return toItemSummaryDto(childId, item);
 }
 
 export function clickProductLink(productLinkId: string, _childId: string, _referrerScreenId?: string): AffiliateClickResponse {
@@ -1087,7 +1141,7 @@ function toImportJobDto(job: LocalImportJobRecord): ImportJob {
 }
 
 export function createExcelImport(childId: string, fileName: string): ImportJob {
-  requireChild();
+  requireChild(childId);
   const trimmedName = fileName.trim();
   if (!trimmedName) {
     throw new Error("가져올 파일을 선택해 주세요.");
@@ -1234,12 +1288,28 @@ export function upsertConsents(): { success: boolean } {
   return { success: true };
 }
 
-export function createChild(body: { nickname: string }): { id: string } {
+export function createChild(body: {
+  nickname: string;
+  stageMode: ChildStageMode;
+  dueDate?: string;
+  birthDate?: string;
+  manualStage?: ChildStageCode | null;
+}): { id: string } {
   ensureSeeded();
-  useLocalBackendStore.setState((state) => ({
-    child: state.child ? { ...state.child, nickname: body.nickname.trim() || state.child.nickname } : state.child
-  }));
-  return { id: LOCAL_CHILD_ID };
+  const nickname = body.nickname.trim();
+  if (!nickname) throw new Error("아이 이름을 입력해 주세요.");
+  const child: LocalChildRecord = {
+    id: generateLocalId("child"),
+    nickname,
+    stageMode: body.stageMode,
+    dueDate: body.dueDate ?? null,
+    birthDate: body.birthDate ?? null,
+    manualStage: body.manualStage ?? null,
+    deletedAt: null
+  };
+  toChildDto(child);
+  useLocalBackendStore.setState((state) => ({ additionalChildren: [...state.additionalChildren, child] }));
+  return { id: child.id };
 }
 
 /**
@@ -1255,7 +1325,7 @@ export function onboardingStatus(): {
   canRestart: boolean;
   summary: {
     consentsAccepted: boolean;
-    child: { id: string; nickname: string; stageMode: string; currentStage: string; stageLabel: string } | null;
+    child: OnboardingChildSummary | null;
     preparedItemsCount: number | null;
     budget: { yearMonth: string; amountKrw: number } | null;
   };
@@ -1285,7 +1355,7 @@ export function onboardingStatus(): {
     };
   }
 
-  const childSummary = { ...toChildDto(child), stageMode: "born" };
+  const childSummary = toChildDto(child);
   if (!state.preparedItemsCompleted) {
     return {
       completed: false,
@@ -1297,7 +1367,7 @@ export function onboardingStatus(): {
 
   const preparedItemsCount = Object.keys(state.itemStatuses).length;
   const yearMonth = getSeoulMonthRange(getSeoulToday()).yearMonth;
-  const amountKrw = state.budgets[yearMonth];
+  const amountKrw = budgetAmountFor(child.id, yearMonth);
   if (amountKrw === undefined) {
     return {
       completed: false,
@@ -1316,18 +1386,49 @@ export function onboardingStatus(): {
 }
 
 export function listChildren(): { children: OnboardingChildSummary[] } {
-  const child = onboardingStatus().summary.child;
-  return { children: child ? [child] : [] };
+  return { children: activeChildren().map(toChildDto) };
 }
 
-export function setPreparedItems(_childId: string, itemTemplateIds: string[]): { updatedCount: number } {
-  ensureSeeded();
+export function getChild(childId: string): OnboardingChildSummary {
+  return toChildDto(requireChild(childId));
+}
+
+export function updateChild(
+  childId: string,
+  body: {
+    nickname?: string;
+    stageMode?: ChildStageMode;
+    dueDate?: string;
+    birthDate?: string;
+    manualStage?: ChildStageCode;
+  }
+): OnboardingChildSummary {
+  const current = requireChild(childId);
+  const updated: LocalChildRecord = {
+    ...current,
+    ...(body.nickname !== undefined ? { nickname: body.nickname.trim() } : {}),
+    ...(body.stageMode !== undefined ? { stageMode: body.stageMode } : {}),
+    ...(body.dueDate !== undefined ? { dueDate: body.dueDate } : {}),
+    ...(body.birthDate !== undefined ? { birthDate: body.birthDate } : {}),
+    ...(body.manualStage !== undefined ? { manualStage: body.manualStage } : {})
+  };
+  if (!updated.nickname) throw new Error("아이 이름을 입력해 주세요.");
+  const dto = toChildDto(updated);
+  useLocalBackendStore.setState((state) => ({
+    child: state.child?.id === childId ? updated : state.child,
+    additionalChildren: state.additionalChildren.map((child) => (child.id === childId ? updated : child))
+  }));
+  return dto;
+}
+
+export function setPreparedItems(childId: string, itemTemplateIds: string[]): { updatedCount: number } {
+  requireChild(childId);
   const unique = new Set(itemTemplateIds);
   useLocalBackendStore.setState((state) => {
     const nextStatuses = { ...state.itemStatuses };
     for (const itemTemplateId of unique) {
       if (localItemTemplateFixtures.some((item) => item.id === itemTemplateId)) {
-        nextStatuses[itemTemplateId] = { status: "prepared", expenseId: null };
+        nextStatuses[itemStatusKey(childId, itemTemplateId)] = { status: "prepared", expenseId: null };
       }
     }
     return { itemStatuses: nextStatuses, preparedItemsCompleted: true };
@@ -1371,8 +1472,8 @@ function assertConfirmation(actual: string, expected: string) {
   }
 }
 
-export function previewChildProfileDeletion(_childId: string): SettingsPreview {
-  requireChild();
+export function previewChildProfileDeletion(childId: string): SettingsPreview {
+  requireChild(childId);
   return {
     flowId: "child_profile_delete",
     requiresSecondStep: true,
@@ -1383,10 +1484,13 @@ export function previewChildProfileDeletion(_childId: string): SettingsPreview {
 
 export function confirmChildProfileDeletion(childId: string, confirmationText: string): SettingsConfirmResponse {
   assertConfirmation(confirmationText, "DELETE CHILD");
-  requireChild();
+  requireChild(childId);
   const now = new Date().toISOString();
   useLocalBackendStore.setState((state) => ({
-    child: state.child ? { ...state.child, deletedAt: now } : state.child,
+    child: state.child?.id === childId ? { ...state.child, deletedAt: now } : state.child,
+    additionalChildren: state.additionalChildren.map((child) =>
+      child.id === childId ? { ...child, deletedAt: now } : child
+    ),
     expenses: state.expenses.map((expense) =>
       expense.childId === childId ? { ...expense, deletedAt: now, updatedAt: now } : expense
     )

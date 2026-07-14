@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Redirect, router } from "expo-router";
+import { Redirect, router, type Href } from "expo-router";
 import { ScrollView, Text, View } from "react-native";
 import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
 import { itemMatchesBand, resolveDefaultStageLabel } from "../../src/items/stage-bands";
@@ -177,7 +177,7 @@ export default function ItemsScreen() {
                 </Text>
               ) : null}
             </View>
-            <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/settings")} />
+            <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/profile" as Href)} />
           </View>
 
           {hasSession && totalCount > 0 ? (

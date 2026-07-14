@@ -1,5 +1,7 @@
-import { router } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { router, type Href } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
+import { resetLocalBackend } from "../../src/api/local-backend";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -13,6 +15,7 @@ export default function SettingsScreen() {
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const clearSelectedChild = useSelectedChildStore((state) => state.clearSelectedChildId);
   const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
+  const queryClient = useQueryClient();
 
   const handleLogout = () => {
     Alert.alert("로그아웃 할까요?", "다시 로그인해야 이용할 수 있어요.", [
@@ -21,6 +24,8 @@ export default function SettingsScreen() {
         text: "로그아웃",
         style: "destructive",
         onPress: () => {
+          if (isTestSession) resetLocalBackend();
+          queryClient.clear();
           clearSession();
           clearSelectedChild();
           resetOnboarding();
@@ -52,7 +57,7 @@ export default function SettingsScreen() {
           icon={<AppIcon color={theme.colors.coral[600]} name="account-child-outline" size={22} />}
           title="아이 · 가구 프로필"
           subtitle="아이 정보와 가구 구성을 확인해요"
-          onPress={() => router.push("/family")}
+          onPress={() => router.push("/children" as Href)}
         />
         <ListRow
           icon={<AppIcon color={theme.colors.coral[600]} name="wallet-outline" size={22} />}

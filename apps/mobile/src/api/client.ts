@@ -1,4 +1,4 @@
-import { getSeoulMonthRange, getSeoulToday, type ChildStageCode } from "@wooriai/domain";
+import { getSeoulMonthRange, getSeoulToday, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
 import * as localBackend from "./local-backend";
 import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./local-fixtures";
 import { useSessionStore } from "../stores/session.store";
@@ -249,7 +249,10 @@ export type OnboardingNextStep = "consents" | "child-profile" | "prepared-items"
 export type OnboardingChildSummary = {
   id: string;
   nickname: string;
-  stageMode: string;
+  stageMode: ChildStageMode;
+  dueDate: string | null;
+  birthDate: string | null;
+  manualStage: ChildStageCode | null;
   currentStage: string;
   stageLabel: string;
 };
@@ -424,6 +427,8 @@ export async function oauthLogin(provider: "kakao" | "apple" | "google") {
   return requestJson<{
     user: {
       id: string;
+      displayName: string;
+      email: string | null;
       households?: Array<{ id: string; name: string; role: string }>;
     };
     tokens: { accessToken: string; refreshToken: string; expiresIn: number };
@@ -459,14 +464,14 @@ export function createChild(
   body: {
     householdId: string;
     nickname: string;
-    stageMode: string;
+    stageMode: ChildStageMode;
     dueDate?: string;
     birthDate?: string;
-    manualStage?: string | null;
+    manualStage?: ChildStageCode | null;
   },
   idempotencyKey?: string
 ) {
-  if (isLocalToken(token)) return local(() => localBackend.createChild({ nickname: body.nickname }));
+  if (isLocalToken(token)) return local(() => localBackend.createChild(body));
   return requestJson<{ id: string }>("/children", {
     method: "POST",
     token,
@@ -478,6 +483,30 @@ export function createChild(
 export function listChildren(token: string) {
   if (isLocalToken(token)) return local(() => localBackend.listChildren());
   return requestJson<{ children: OnboardingChildSummary[] }>("/children", { token });
+}
+
+export function getChild(token: string, childId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getChild(childId));
+  return requestJson<OnboardingChildSummary>(`/children/${childId}`, { token });
+}
+
+export function updateChild(
+  token: string,
+  childId: string,
+  body: {
+    nickname?: string;
+    stageMode?: ChildStageMode;
+    dueDate?: string;
+    birthDate?: string;
+    manualStage?: ChildStageCode;
+  }
+) {
+  if (isLocalToken(token)) return local(() => localBackend.updateChild(childId, body));
+  return requestJson<OnboardingChildSummary>(`/children/${childId}`, {
+    method: "PATCH",
+    token,
+    body
+  });
 }
 
 export function setPreparedItems(token: string, childId: string, itemTemplateIds: string[]) {

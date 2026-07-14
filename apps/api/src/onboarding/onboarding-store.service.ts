@@ -125,6 +125,7 @@ type CreateChildInput = {
 
 type UpdateChildInput = {
   nickname?: string;
+  stageMode?: ChildStageMode;
   dueDate?: string;
   birthDate?: string;
   manualStage?: ChildStageCode;
@@ -441,7 +442,7 @@ export class OnboardingStoreService {
     ) as UpdateChildInput;
 
     normalizeChildInput({
-      stageMode: child.stageMode,
+      stageMode: definedInput.stageMode ?? child.stageMode,
       dueDate: definedInput.dueDate ?? (child.dueDate ? fromDateOnly(child.dueDate) : undefined),
       birthDate: definedInput.birthDate ?? (child.birthDate ? fromDateOnly(child.birthDate) : undefined),
       manualStage: definedInput.manualStage ?? child.manualStage ?? undefined
@@ -451,6 +452,7 @@ export class OnboardingStoreService {
       where: { id: childId },
       data: {
         ...(definedInput.nickname !== undefined ? { nickname: definedInput.nickname } : {}),
+        ...(definedInput.stageMode !== undefined ? { stageMode: definedInput.stageMode } : {}),
         ...(definedInput.dueDate !== undefined ? { dueDate: toDateOnly(definedInput.dueDate) } : {}),
         ...(definedInput.birthDate !== undefined ? { birthDate: toDateOnly(definedInput.birthDate) } : {}),
         ...(definedInput.manualStage !== undefined ? { manualStage: definedInput.manualStage } : {})

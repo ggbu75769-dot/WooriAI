@@ -57,6 +57,9 @@ export default function LoginScreen() {
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
         userId: result.user.id,
+        displayName: result.user.displayName,
+        email: result.user.email,
+        authProvider: "kakao",
         defaultHouseholdId: result.user.households?.[0]?.id ?? null
       });
       await upsertConsents(result.tokens.accessToken);
