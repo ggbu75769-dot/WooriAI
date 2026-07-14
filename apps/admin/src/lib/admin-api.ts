@@ -74,6 +74,7 @@ export type ProductLink = {
 export type ItemTemplate = {
   id: string;
   name: string;
+  shortReason: string;
   necessityLevel: NecessityLevel;
   status: string;
   timingLabel?: string;
@@ -82,9 +83,47 @@ export type ItemTemplate = {
   skipReasonText?: string | null;
   usedSecondhandOk: boolean;
   safetyNote?: string | null;
+  medicalDisclaimerRequired: boolean;
   active: boolean;
+  reviewedAt?: string | null;
+  nextReviewAt?: string | null;
+  sourceNote?: string | null;
+  contentStatus: "draft" | "reviewed" | "retired";
   stageCodes: ChildStageCode[];
   productLinks: ProductLink[];
+};
+
+export type CatalogCompleteness = {
+  totalCount: number;
+  reviewedActiveCount: number;
+  stageCoverage: Array<{ stageCode: ChildStageCode; activeCount: number }>;
+  commerceCoverage: {
+    activeLinkCount: number;
+    commerceEnabledCount: number;
+    zeroLinkCount: number;
+    oneLinkCount: number;
+    twoPlusLinkCount: number;
+  };
+  issues: {
+    missingStage: number;
+    missingReason: number;
+    missingSkipReason: number;
+    missingPrice: number;
+    missingMedicalSafety: number;
+    coreWithoutLinks: number;
+    staleReview: number;
+    imageMissing: number;
+    imageFieldSupported: boolean;
+  };
+  statusCounts: { draft: number; reviewed: number; retired: number };
+  publicationBlocked: boolean;
+  publicationBlockers: {
+    missingStage: number;
+    missingReason: number;
+    missingSkipReason: number;
+    invertedPrice: number;
+    missingMedicalSafety: number;
+  };
 };
 
 export type Disclosure = { id: string | null; key: string; text: string };
@@ -210,6 +249,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function listItemTemplates() {
   return request<{ items: ItemTemplate[] }>("/admin/item-templates");
+}
+
+export function getCatalogCompleteness() {
+  return request<CatalogCompleteness>("/admin/catalog-completeness");
 }
 
 export function createItemTemplate(input: ItemTemplateInput) {

@@ -163,7 +163,7 @@ export default function ItemsScreen() {
   return (
     <AppScreen>
       <View style={recommendationPixelScaleFrameStyle()}>
-        <View accessibilityLabel={recommendationScreenId} style={{ gap: 14 }}>
+        <View accessibilityLabel={`${recommendationScreenId} ITEM-CATALOG-001`} style={{ gap: 14 }}>
           {isTestSession ? <SampleDataBanner /> : null}
           <View style={{ alignItems: "center", flexDirection: "row", gap: 10, justifyContent: "space-between" }}>
             <View style={{ flex: 1, gap: 3 }}>
@@ -234,7 +234,7 @@ export default function ItemsScreen() {
                     title={item.name}
                     price={`준비 시기 · ${item.timingLabel ?? "확인 필요"}`}
                     badge={necessityLabel(item.necessityLevel)}
-                    caption={`상태 · ${statusLabel(item.status)}`}
+                    caption={item.shortReason ? `${item.shortReason} · ${statusLabel(item.status)}` : `상태 · ${statusLabel(item.status)}`}
                     onPress={() => router.push(`/items/${item.id}`)}
                   />
                   {hasSession && (selectedTab === "now" || selectedTab === "soon") ? (

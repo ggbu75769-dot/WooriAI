@@ -102,12 +102,18 @@ async function seedItemTemplates() {
         priceMinKrw: item.priceMinKrw,
         priceMaxKrw: item.priceMaxKrw,
         reasonText: item.reasonText,
+        shortReason: item.shortReason,
         skipReasonText: item.skipReasonText,
         usedSecondhandOk: item.usedSecondhandOk,
         safetyNote: item.safetyNote,
         medicalDisclaimerRequired: item.medicalDisclaimerRequired,
         displayOrder: item.displayOrder,
-        active: item.active
+        active: item.active,
+        reviewedAt: item.reviewedAt ? new Date(item.reviewedAt) : null,
+        reviewedByAdminId: item.reviewedByAdminId,
+        nextReviewAt: item.nextReviewAt ? new Date(item.nextReviewAt) : null,
+        sourceNote: item.sourceNote,
+        contentStatus: item.contentStatus
       },
       create: {
         code: item.code,
@@ -118,12 +124,18 @@ async function seedItemTemplates() {
         priceMinKrw: item.priceMinKrw,
         priceMaxKrw: item.priceMaxKrw,
         reasonText: item.reasonText,
+        shortReason: item.shortReason,
         skipReasonText: item.skipReasonText,
         usedSecondhandOk: item.usedSecondhandOk,
         safetyNote: item.safetyNote,
         medicalDisclaimerRequired: item.medicalDisclaimerRequired,
         displayOrder: item.displayOrder,
-        active: item.active
+        active: item.active,
+        reviewedAt: item.reviewedAt ? new Date(item.reviewedAt) : null,
+        reviewedByAdminId: item.reviewedByAdminId,
+        nextReviewAt: item.nextReviewAt ? new Date(item.nextReviewAt) : null,
+        sourceNote: item.sourceNote,
+        contentStatus: item.contentStatus
       }
     });
 

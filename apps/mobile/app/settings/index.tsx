@@ -66,6 +66,12 @@ export default function SettingsScreen() {
           onPress={() => router.push("/budget")}
         />
         <ListRow
+          icon={<AppIcon color={theme.colors.coral[600]} name="credit-card-outline" size={22} />}
+          title="결제수단"
+          subtitle="생활비 카드, 현금 등 내 결제수단을 관리해요"
+          onPress={() => router.push("/payment-methods" as Href)}
+        />
+        <ListRow
           icon={<AppIcon color={theme.colors.coral[600]} name="shield-lock-outline" size={22} />}
           title="약관 및 개인정보"
           subtitle="동의 내역과 삭제 · 탈퇴를 관리해요"

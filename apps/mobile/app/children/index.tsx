@@ -1,12 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href } from "expo-router";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import { listChildren, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { invalidateChildScopedQueries } from "../../src/children/query-cache";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppIcon, AppScreen, EmptyStateCard, IconButton, ListRow, SampleDataBanner, ScreenHeader, SecondaryButton } from "../../src/ui";
+import { AppScreen, EmptyStateCard, IconButton, ListRow, SampleDataBanner, ScreenHeader, SecondaryButton } from "../../src/ui";
 
 export default function ChildSwitcherScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -58,7 +58,22 @@ export default function ChildSwitcherScreen() {
               return (
                 <ListRow
                   key={child.id}
-                  icon={<AppIcon color={theme.colors.coral[600]} name="account-child-circle" size={24} />}
+                  icon={
+                    <View
+                      style={{
+                        alignItems: "center",
+                        backgroundColor: theme.colors.peach,
+                        borderRadius: 18,
+                        height: 36,
+                        justifyContent: "center",
+                        width: 36
+                      }}
+                    >
+                      <Text style={{ color: theme.colors.coral[600], fontSize: 16, fontWeight: "800" }}>
+                        {child.nickname.trim().slice(0, 1) || "아"}
+                      </Text>
+                    </View>
+                  }
                   title={child.nickname}
                   subtitle={child.stageLabel}
                   value={selected ? "현재 아이" : "전환"}

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { BadRequestException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import type { ContentStatus, Prisma } from "@prisma/client";
 import {
   assertMoneyKrw,
   calculateChildStage,
@@ -43,6 +43,8 @@ type ChildRow = {
   dueDate: Date | null;
   birthDate: Date | null;
   manualStage: ChildStageCode | null;
+  gender: string | null;
+  profileImageUrl: string | null;
   preparedItemsSetAt: Date | null;
   deletedAt: Date | null;
 };
@@ -57,6 +59,7 @@ type ExpenseRow = {
   itemName: string;
   merchant: string | null;
   paymentMethod: PaymentMethod;
+  paymentMethodId: string | null;
   memo: string | null;
   linkedItemTemplateId: string | null;
   expenseType: ExpenseType;
@@ -76,11 +79,17 @@ type ItemTemplateRow = {
   priceMinKrw: number | null;
   priceMaxKrw: number | null;
   reasonText: string;
+  shortReason: string;
   skipReasonText: string | null;
   usedSecondhandOk: boolean;
   safetyNote: string | null;
+  medicalDisclaimerRequired: boolean;
   displayOrder: number;
   active: boolean;
+  reviewedAt: Date | null;
+  nextReviewAt: Date | null;
+  sourceNote: string | null;
+  contentStatus: ContentStatus;
 };
 
 type ItemTemplateWithStages = ItemTemplateRow & { stageCodes: ChildStageCode[] };
@@ -121,6 +130,7 @@ type CreateChildInput = {
   dueDate?: string;
   birthDate?: string;
   manualStage?: ChildStageCode;
+  gender?: string;
 };
 
 type UpdateChildInput = {
@@ -129,6 +139,7 @@ type UpdateChildInput = {
   dueDate?: string;
   birthDate?: string;
   manualStage?: ChildStageCode;
+  gender?: string;
 };
 
 export type CreateExpenseInput = {
@@ -138,6 +149,7 @@ export type CreateExpenseInput = {
   itemName: string;
   merchant?: string;
   paymentMethod?: PaymentMethod;
+  paymentMethodId?: string;
   memo?: string;
   linkedItemTemplateId?: string;
   expenseType?: ExpenseType;
@@ -151,6 +163,8 @@ export type UpdateExpenseInput = {
   itemName?: string;
   memo?: string | null;
   expenseType?: ExpenseType;
+  paymentMethod?: PaymentMethod;
+  paymentMethodId?: string | null;
 };
 
 export type CreateImportJobInput = {
@@ -179,11 +193,14 @@ export type AdminItemTemplateInput = {
   priceMinKrw?: number | null;
   priceMaxKrw?: number | null;
   reasonText?: string;
+  shortReason?: string;
   skipReasonText?: string | null;
   usedSecondhandOk?: boolean;
   safetyNote?: string | null;
+  medicalDisclaimerRequired?: boolean;
   stageCodes?: ChildStageCode[];
   active?: boolean;
+  contentStatus?: ContentStatus;
 };
 
 export type AdminProductLinkInput = {
@@ -420,7 +437,8 @@ export class OnboardingStoreService {
         stageMode: input.stageMode,
         dueDate: input.dueDate ? toDateOnly(input.dueDate) : null,
         birthDate: input.birthDate ? toDateOnly(input.birthDate) : null,
-        manualStage: input.manualStage ?? null
+        manualStage: input.manualStage ?? null,
+        gender: this.cleanOptionalText(input.gender)
       }
     });
     return this.toChildDto(created);
@@ -455,10 +473,106 @@ export class OnboardingStoreService {
         ...(definedInput.stageMode !== undefined ? { stageMode: definedInput.stageMode } : {}),
         ...(definedInput.dueDate !== undefined ? { dueDate: toDateOnly(definedInput.dueDate) } : {}),
         ...(definedInput.birthDate !== undefined ? { birthDate: toDateOnly(definedInput.birthDate) } : {}),
-        ...(definedInput.manualStage !== undefined ? { manualStage: definedInput.manualStage } : {})
+        ...(definedInput.manualStage !== undefined ? { manualStage: definedInput.manualStage } : {}),
+        ...(definedInput.gender !== undefined ? { gender: this.cleanOptionalText(definedInput.gender) } : {})
       }
     });
     return this.toChildDto(updated);
+  }
+
+  async listUserPaymentMethods(user: AuthenticatedUser) {
+    const paymentMethods = await this.prisma.userPaymentMethod.findMany({
+      where: { userId: user.id },
+      orderBy: [{ active: "desc" }, { isDefault: "desc" }, { displayOrder: "asc" }, { createdAt: "asc" }]
+    });
+    return { paymentMethods: paymentMethods.map((method) => this.toUserPaymentMethodDto(method)) };
+  }
+
+  async createUserPaymentMethod(
+    user: AuthenticatedUser,
+    input: { type: PaymentMethod; label: string; isDefault?: boolean }
+  ) {
+    const label = this.normalizePaymentMethodLabel(input.label);
+    await this.assertPaymentMethodLabelAvailable(user.id, label);
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (input.isDefault) {
+        await this.lockUserPaymentMethodDefaults(tx, user.id);
+        await tx.userPaymentMethod.updateMany({
+          where: { userId: user.id, isDefault: true },
+          data: { isDefault: false }
+        });
+      }
+      const maxOrder = await tx.userPaymentMethod.aggregate({
+        where: { userId: user.id },
+        _max: { displayOrder: true }
+      });
+      return tx.userPaymentMethod.create({
+        data: {
+          userId: user.id,
+          type: input.type,
+          label,
+          isDefault: input.isDefault ?? false,
+          displayOrder: (maxOrder._max.displayOrder ?? -1) + 1
+        }
+      });
+    });
+    return this.toUserPaymentMethodDto(created);
+  }
+
+  async updateUserPaymentMethod(
+    user: AuthenticatedUser,
+    paymentMethodId: string,
+    input: { type?: PaymentMethod; label?: string; displayOrder?: number; isDefault?: boolean }
+  ) {
+    const existing = await this.requireUserPaymentMethod(user.id, paymentMethodId);
+    const label = input.label === undefined ? existing.label : this.normalizePaymentMethodLabel(input.label);
+    if (label !== existing.label) await this.assertPaymentMethodLabelAvailable(user.id, label, paymentMethodId);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (input.isDefault) {
+        await this.lockUserPaymentMethodDefaults(tx, user.id);
+        await tx.userPaymentMethod.updateMany({
+          where: { userId: user.id, isDefault: true, id: { not: paymentMethodId } },
+          data: { isDefault: false }
+        });
+      }
+      return tx.userPaymentMethod.update({
+        where: { id: paymentMethodId },
+        data: {
+          type: input.type,
+          label,
+          displayOrder: input.displayOrder,
+          isDefault: input.isDefault
+        }
+      });
+    });
+    return this.toUserPaymentMethodDto(updated);
+  }
+
+  async deactivateUserPaymentMethod(user: AuthenticatedUser, paymentMethodId: string) {
+    await this.requireUserPaymentMethod(user.id, paymentMethodId);
+    const updated = await this.prisma.userPaymentMethod.update({
+      where: { id: paymentMethodId },
+      data: { active: false, isDefault: false }
+    });
+    return this.toUserPaymentMethodDto(updated);
+  }
+
+  async setDefaultUserPaymentMethod(user: AuthenticatedUser, paymentMethodId: string) {
+    const existing = await this.requireUserPaymentMethod(user.id, paymentMethodId, true);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.lockUserPaymentMethodDefaults(tx, user.id);
+      await tx.userPaymentMethod.updateMany({
+        where: { userId: user.id, isDefault: true },
+        data: { isDefault: false }
+      });
+      return tx.userPaymentMethod.update({ where: { id: existing.id }, data: { isDefault: true } });
+    });
+    return this.toUserPaymentMethodDto(updated);
+  }
+
+  private async lockUserPaymentMethodDefaults(tx: DbClient, userId: string) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payment-method-default:${userId}`})::bigint)`;
   }
 
   /**
@@ -537,7 +651,7 @@ export class OnboardingStoreService {
 
   async updateExpense(user: AuthenticatedUser, expenseId: string, input: UpdateExpenseInput) {
     const expense = await this.requireExpenseAccess(user, expenseId, true);
-    const data: Prisma.ExpenseUpdateInput = {};
+    const data: Prisma.ExpenseUncheckedUpdateInput = {};
 
     if (input.categoryId !== undefined) {
       await this.requireExistingCategory(input.categoryId);
@@ -557,6 +671,22 @@ export class OnboardingStoreService {
     }
     if (input.memo !== undefined) data.memo = this.cleanOptionalText(input.memo ?? undefined);
     if (input.expenseType !== undefined) data.expenseType = input.expenseType;
+    if (input.paymentMethodId !== undefined) {
+      if (input.paymentMethodId === null) {
+        data.paymentMethodId = null;
+        data.paymentMethod = input.paymentMethod ?? "unknown";
+      } else {
+        const method = await this.requireUserPaymentMethod(
+          user.id,
+          input.paymentMethodId,
+          input.paymentMethodId !== expense.paymentMethodId
+        );
+        data.paymentMethodId = method.id;
+        data.paymentMethod = method.type;
+      }
+    } else if (input.paymentMethod !== undefined) {
+      data.paymentMethod = input.paymentMethod;
+    }
 
     const updated = await this.prisma.expense.update({ where: { id: expense.id }, data });
     return this.toExpenseDto(updated);
@@ -952,6 +1082,140 @@ export class OnboardingStoreService {
     return { items: items.map((item) => this.toAdminItemDetailDto(item, linksByItem.get(item.id) ?? [], disclosures)) };
   }
 
+  async listExpenseShortcuts(user: AuthenticatedUser, childId: string) {
+    await this.requireChildAccess(user, childId);
+    const now = this.referenceNow();
+    const since = new Date(now);
+    since.setUTCDate(since.getUTCDate() - 90);
+    const expenses = await this.prisma.expense.findMany({
+      where: {
+        childId,
+        deletedAt: null,
+        expenseType: "expense",
+        spentOn: { gte: toDateOnly(since.toISOString().slice(0, 10)) }
+      },
+      orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }],
+      select: { itemName: true, categoryId: true, amountKrw: true, spentOn: true }
+    });
+    const grouped = new Map<
+      string,
+      { itemName: string; categoryId: string; lastAmountKrw: number; lastSpentOn: Date; useCount: number }
+    >();
+    for (const expense of expenses) {
+      const key = `${expense.itemName.trim().toLocaleLowerCase("ko-KR")}|${expense.categoryId}`;
+      const current = grouped.get(key);
+      if (current) {
+        current.useCount += 1;
+      } else {
+        grouped.set(key, {
+          itemName: expense.itemName,
+          categoryId: expense.categoryId,
+          lastAmountKrw: expense.amountKrw,
+          lastSpentOn: expense.spentOn,
+          useCount: 1
+        });
+      }
+    }
+    const dayMs = 24 * 60 * 60 * 1000;
+    return {
+      shortcuts: [...grouped.values()]
+        .map((shortcut) => ({
+          ...shortcut,
+          score: shortcut.useCount * 100 + Math.max(0, 90 - Math.floor((now.getTime() - shortcut.lastSpentOn.getTime()) / dayMs))
+        }))
+        .sort((left, right) => right.score - left.score || right.lastSpentOn.getTime() - left.lastSpentOn.getTime())
+        .slice(0, 6)
+        .map(({ lastSpentOn: _lastSpentOn, score: _score, ...shortcut }) => shortcut)
+    };
+  }
+
+  async adminCatalogCompleteness() {
+    const [items, links] = await Promise.all([
+      this.listItemTemplatesWithStages(false),
+      this.prisma.productLink.findMany({ where: { active: true }, select: { itemTemplateId: true } })
+    ]);
+    const activeLinkCountByItemId = new Map<string, number>();
+    for (const link of links) {
+      activeLinkCountByItemId.set(link.itemTemplateId, (activeLinkCountByItemId.get(link.itemTemplateId) ?? 0) + 1);
+    }
+    const linkedItemIds = new Set(activeLinkCountByItemId.keys());
+    const reviewedActive = items.filter((item) => item.active && item.contentStatus === "reviewed");
+    const stageCodes: ChildStageCode[] = [
+      "pregnancy_early",
+      "pregnancy_mid",
+      "pregnancy_late",
+      "newborn_0_3",
+      "infant_4_6",
+      "infant_7_12",
+      "toddler_1_3",
+      "kid_4_7",
+      "elementary",
+      "middle_school"
+    ];
+    const stageCoverage = stageCodes.map((stageCode) => ({
+      stageCode,
+      activeCount: reviewedActive.filter((item) => item.stageCodes.includes(stageCode)).length
+    }));
+    const missingStage = items.filter((item) => item.stageCodes.length === 0);
+    const missingReason = items.filter((item) => !item.reasonText.trim());
+    const missingSkipReason = items.filter(
+      (item) => item.necessityLevel !== "essential" && !item.skipReasonText?.trim()
+    );
+    const missingPrice = items.filter((item) => item.priceMinKrw == null || item.priceMaxKrw == null);
+    const invertedPrice = items.filter(
+      (item) => item.priceMinKrw != null && item.priceMaxKrw != null && item.priceMinKrw > item.priceMaxKrw
+    );
+    const missingMedicalSafety = items.filter(
+      (item) => item.medicalDisclaimerRequired && !item.safetyNote?.trim()
+    );
+    const staleReview = items.filter(
+      (item) => !item.reviewedAt || (item.nextReviewAt != null && item.nextReviewAt.getTime() < Date.now())
+    );
+    const coreWithoutLinks = [...reviewedActive]
+      .sort((left, right) => left.displayOrder - right.displayOrder)
+      .slice(0, 40)
+      .filter((item) => !linkedItemIds.has(item.id));
+    const statusCounts = {
+      draft: items.filter((item) => item.contentStatus === "draft").length,
+      reviewed: items.filter((item) => item.contentStatus === "reviewed").length,
+      retired: items.filter((item) => item.contentStatus === "retired").length
+    };
+
+    return {
+      totalCount: items.length,
+      reviewedActiveCount: reviewedActive.length,
+      stageCoverage,
+      commerceCoverage: {
+        activeLinkCount: links.length,
+        commerceEnabledCount: reviewedActive.filter((item) => linkedItemIds.has(item.id)).length,
+        zeroLinkCount: reviewedActive.filter((item) => !linkedItemIds.has(item.id)).length,
+        oneLinkCount: reviewedActive.filter((item) => activeLinkCountByItemId.get(item.id) === 1).length,
+        twoPlusLinkCount: reviewedActive.filter((item) => (activeLinkCountByItemId.get(item.id) ?? 0) >= 2).length
+      },
+      issues: {
+        missingStage: missingStage.length,
+        missingReason: missingReason.length,
+        missingSkipReason: missingSkipReason.length,
+        missingPrice: missingPrice.length,
+        missingMedicalSafety: missingMedicalSafety.length,
+        coreWithoutLinks: coreWithoutLinks.length,
+        staleReview: staleReview.length,
+        imageMissing: items.length,
+        imageFieldSupported: false
+      },
+      statusCounts,
+      publicationBlocked:
+        missingStage.length + missingReason.length + missingSkipReason.length + invertedPrice.length + missingMedicalSafety.length > 0,
+      publicationBlockers: {
+        missingStage: missingStage.length,
+        missingReason: missingReason.length,
+        missingSkipReason: missingSkipReason.length,
+        invertedPrice: invertedPrice.length,
+        missingMedicalSafety: missingMedicalSafety.length
+      }
+    };
+  }
+
   async adminCreateItemTemplate(input: AdminItemTemplateInput) {
     const normalized = this.normalizeAdminItemTemplateInput(input, {});
     const created = await this.prisma.$transaction(async (tx) => {
@@ -965,14 +1229,18 @@ export class OnboardingStoreService {
           priceMinKrw: normalized.priceMinKrw ?? null,
           priceMaxKrw: normalized.priceMaxKrw ?? null,
           reasonText: normalized.reasonText!,
+          shortReason: normalized.shortReason!,
           skipReasonText: normalized.skipReasonText ?? null,
           usedSecondhandOk: normalized.usedSecondhandOk ?? false,
           safetyNote: normalized.safetyNote ?? null,
+          medicalDisclaimerRequired: normalized.medicalDisclaimerRequired ?? false,
           displayOrder: await this.nextItemDisplayOrder(tx),
-          active: normalized.active ?? true
+          active: normalized.active ?? true,
+          reviewedAt: new Date(),
+          contentStatus: normalized.contentStatus ?? "reviewed"
         }
       });
-      await this.replaceItemTemplateStages(tx, item.id, normalized.stageCodes ?? (["infant_4_6"] as ChildStageCode[]));
+      await this.replaceItemTemplateStages(tx, item.id, normalized.stageCodes!);
       return item;
     });
 
@@ -995,10 +1263,14 @@ export class OnboardingStoreService {
           priceMinKrw: normalized.priceMinKrw ?? null,
           priceMaxKrw: normalized.priceMaxKrw ?? null,
           reasonText: normalized.reasonText!,
+          shortReason: normalized.shortReason!,
           skipReasonText: normalized.skipReasonText ?? null,
           usedSecondhandOk: normalized.usedSecondhandOk ?? false,
           safetyNote: normalized.safetyNote ?? null,
-          active: normalized.active ?? true
+          medicalDisclaimerRequired: normalized.medicalDisclaimerRequired ?? false,
+          active: normalized.active ?? true,
+          contentStatus: normalized.contentStatus ?? item.contentStatus,
+          reviewedAt: new Date()
         }
       });
       if (normalized.stageCodes) {
@@ -1198,6 +1470,9 @@ export class OnboardingStoreService {
     if (input.linkedItemTemplateId) {
       await this.requireExistingItemTemplateAnyStatus(input.linkedItemTemplateId, client);
     }
+    const selectedPaymentMethod = input.paymentMethodId
+      ? await this.requireUserPaymentMethod(user.id, input.paymentMethodId, true, client)
+      : null;
 
     return client.expense.create({
       data: {
@@ -1209,7 +1484,8 @@ export class OnboardingStoreService {
         spentOn: toDateOnly(input.spentOn),
         itemName,
         merchant: this.cleanOptionalText(input.merchant),
-        paymentMethod: input.paymentMethod ?? "unknown",
+        paymentMethod: selectedPaymentMethod?.type ?? input.paymentMethod ?? "unknown",
+        paymentMethodId: selectedPaymentMethod?.id ?? null,
         memo: this.cleanOptionalText(input.memo),
         linkedItemTemplateId: input.linkedItemTemplateId ?? null,
         expenseType: input.expenseType ?? "expense",
@@ -1270,7 +1546,7 @@ export class OnboardingStoreService {
 
   private async requireItemTemplate(itemTemplateId: string): Promise<ItemTemplateWithStages> {
     const item = await this.itemTemplateWithStages(itemTemplateId);
-    if (!item || !item.active) {
+    if (!item || !item.active || item.contentStatus !== "reviewed") {
       throw new NotFoundException({ code: "ITEM_NOT_FOUND", message: "준비템을 찾을 수 없어요." });
     }
     return item;
@@ -1301,6 +1577,31 @@ export class OnboardingStoreService {
     }
   }
 
+  private async requireUserPaymentMethod(
+    userId: string,
+    paymentMethodId: string,
+    requireActive = false,
+    client: DbClient = this.prisma
+  ) {
+    const method = await client.userPaymentMethod.findFirst({
+      where: { id: paymentMethodId, userId, ...(requireActive ? { active: true } : {}) }
+    });
+    if (!method) {
+      throw new NotFoundException({ code: "PAYMENT_METHOD_NOT_FOUND", message: "결제수단을 찾을 수 없어요." });
+    }
+    return method;
+  }
+
+  private async assertPaymentMethodLabelAvailable(userId: string, label: string, excludeId?: string) {
+    const duplicate = await this.prisma.userPaymentMethod.findFirst({
+      where: { userId, label, ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { id: true }
+    });
+    if (duplicate) {
+      throw new BadRequestException({ code: "PAYMENT_METHOD_LABEL_DUPLICATE", message: "이미 사용 중인 결제수단 이름이에요." });
+    }
+  }
+
   private async requireProductLinkAnyStatus(productLinkId: string): Promise<ProductLinkRow> {
     const link = await this.prisma.productLink.findUnique({ where: { id: productLinkId } });
     if (!link) {
@@ -1321,7 +1622,7 @@ export class OnboardingStoreService {
 
   private async listItemTemplatesWithStages(activeOnly: boolean): Promise<ItemTemplateWithStages[]> {
     const items = await this.prisma.itemTemplate.findMany({
-      where: activeOnly ? { active: true } : undefined,
+      where: activeOnly ? { active: true, contentStatus: "reviewed" } : undefined,
       orderBy: { displayOrder: "asc" }
     });
     if (items.length === 0) return [];
@@ -1353,6 +1654,8 @@ export class OnboardingStoreService {
       dueDate: child.dueDate ? fromDateOnly(child.dueDate) : null,
       birthDate: child.birthDate ? fromDateOnly(child.birthDate) : null,
       manualStage: child.manualStage ?? null,
+      gender: child.gender ?? null,
+      profileImageUrl: child.profileImageUrl ?? null,
       currentStage: calculated.stageCode,
       stageLabel: calculated.stageLabel
     };
@@ -1367,6 +1670,8 @@ export class OnboardingStoreService {
       spentOn: fromDateOnly(expense.spentOn),
       itemName: expense.itemName,
       merchant: expense.merchant ?? null,
+      paymentMethod: expense.paymentMethod,
+      paymentMethodId: expense.paymentMethodId,
       memo: expense.memo ?? null,
       expenseType: expense.expenseType,
       source: expense.source,
@@ -1390,6 +1695,7 @@ export class OnboardingStoreService {
     return {
       id: item.id,
       name: item.name,
+      shortReason: item.shortReason,
       necessityLevel: item.necessityLevel,
       status,
       timingLabel: item.timingLabel,
@@ -1418,10 +1724,16 @@ export class OnboardingStoreService {
       timingLabel: item.timingLabel,
       priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw),
       reasonText: item.reasonText,
+      shortReason: item.shortReason,
       skipReasonText: item.skipReasonText,
       usedSecondhandOk: item.usedSecondhandOk,
       safetyNote: item.safetyNote,
+      medicalDisclaimerRequired: item.medicalDisclaimerRequired,
       active: item.active,
+      reviewedAt: item.reviewedAt,
+      nextReviewAt: item.nextReviewAt,
+      sourceNote: item.sourceNote,
+      contentStatus: item.contentStatus,
       stageCodes: item.stageCodes,
       productLinks: [...links]
         .sort((left, right) => left.displayOrder - right.displayOrder)
@@ -1627,18 +1939,35 @@ export class OnboardingStoreService {
         message: "Non-essential preparation items need skip guidance."
       });
     }
+    const stageCodes = input.stageCodes?.length ? input.stageCodes : existing.stageCodes;
+    if (!stageCodes?.length) {
+      throw new BadRequestException({ code: "ADMIN_STAGE_REQUIRED", message: "At least one child stage is required." });
+    }
+    const priceMinKrw = input.priceMinKrw ?? existing.priceMinKrw ?? null;
+    const priceMaxKrw = input.priceMaxKrw ?? existing.priceMaxKrw ?? null;
+    if (priceMinKrw != null && priceMaxKrw != null && priceMinKrw > priceMaxKrw) {
+      throw new BadRequestException({ code: "ADMIN_PRICE_RANGE_INVALID", message: "Minimum price cannot exceed maximum price." });
+    }
+    const medicalDisclaimerRequired = input.medicalDisclaimerRequired ?? existing.medicalDisclaimerRequired ?? false;
+    const safetyNote = this.cleanOptionalText(input.safetyNote ?? existing.safetyNote ?? undefined);
+    if (medicalDisclaimerRequired && !safetyNote) {
+      throw new BadRequestException({ code: "ADMIN_MEDICAL_SAFETY_REQUIRED", message: "Medical items need safety guidance." });
+    }
     return {
       name: name.trim(),
       necessityLevel,
       timingLabel: this.cleanOptionalText(input.timingLabel ?? existing.timingLabel ?? undefined) ?? "",
-      priceMinKrw: input.priceMinKrw ?? existing.priceMinKrw ?? null,
-      priceMaxKrw: input.priceMaxKrw ?? existing.priceMaxKrw ?? null,
+      priceMinKrw,
+      priceMaxKrw,
       reasonText: reasonText.trim(),
+      shortReason: (input.shortReason ?? existing.shortReason ?? reasonText).trim().slice(0, 160),
       skipReasonText,
       usedSecondhandOk: input.usedSecondhandOk ?? existing.usedSecondhandOk ?? false,
-      safetyNote: this.cleanOptionalText(input.safetyNote ?? existing.safetyNote ?? undefined),
+      safetyNote,
+      medicalDisclaimerRequired,
       active: input.active ?? existing.active ?? true,
-      stageCodes: input.stageCodes?.length ? input.stageCodes : existing.stageCodes
+      stageCodes,
+      contentStatus: input.contentStatus ?? existing.contentStatus ?? "reviewed"
     };
   }
 
@@ -1844,6 +2173,38 @@ export class OnboardingStoreService {
   private cleanOptionalText(value?: string) {
     const cleaned = value?.trim();
     return cleaned ? cleaned : null;
+  }
+
+  private normalizePaymentMethodLabel(value: string) {
+    const label = value.trim();
+    if (!label) {
+      throw new BadRequestException({ code: "PAYMENT_METHOD_LABEL_REQUIRED", message: "결제수단 이름을 입력해 주세요." });
+    }
+    if (/(?:\d[\s-]*){8,}/.test(label)) {
+      throw new BadRequestException({
+        code: "PAYMENT_METHOD_SENSITIVE_NUMBER_FORBIDDEN",
+        message: "카드번호나 계좌번호 대신 알아보기 쉬운 이름만 입력해 주세요."
+      });
+    }
+    return label;
+  }
+
+  private toUserPaymentMethodDto(method: {
+    id: string;
+    type: PaymentMethod;
+    label: string;
+    isDefault: boolean;
+    active: boolean;
+    displayOrder: number;
+  }) {
+    return {
+      id: method.id,
+      type: method.type,
+      label: method.label,
+      isDefault: method.isDefault,
+      active: method.active,
+      displayOrder: method.displayOrder
+    };
   }
 
   private groupBy<T, K>(items: T[], keyFn: (item: T) => K): Map<K, T[]> {

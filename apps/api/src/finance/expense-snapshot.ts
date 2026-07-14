@@ -26,6 +26,8 @@ export function toExpenseSnapshot(expense: PrismaExpense) {
     spentOn: fromDateOnly(expense.spentOn),
     itemName: expense.itemName,
     merchant: expense.merchant ?? null,
+    paymentMethod: expense.paymentMethod,
+    paymentMethodId: expense.paymentMethodId,
     memo: expense.memo ?? null,
     expenseType: expense.expenseType,
     source: expense.source,

@@ -49,9 +49,10 @@ describe("Sprint 1 profile and onboarding product contract", () => {
     expect(source("app/settings/index.tsx")).toContain("if (isTestSession) resetLocalBackend()");
   });
 
-  it("keeps payment defaults neutral until the separate payment-method model is implemented", () => {
+  it("keeps an explicit unspecified option beside user-registered payment methods", () => {
     const expense = source("app/expenses/new.tsx");
-    expect(expense).toContain('{ value: "unknown", label: "미지정" }');
+    expect(expense).toContain('{ id: null, type: "unknown" as const, label: "미지정", isDefault: false }');
+    expect(expense).toContain("listPaymentMethods");
     expect(expense).toContain("useState(0)");
   });
 });

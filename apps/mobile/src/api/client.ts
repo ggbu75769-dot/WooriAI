@@ -77,6 +77,8 @@ export type Expense = {
   spentOn: string;
   itemName: string;
   merchant?: string | null;
+  paymentMethod: "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
+  paymentMethodId?: string | null;
   memo?: string | null;
   expenseType: "expense" | "gift" | "refund";
   source: "manual" | "excel_import" | "purchase_followup" | "admin";
@@ -85,6 +87,22 @@ export type Expense = {
   // update/delete -- see createExpenseWithIdempotency/updateExpenseWithVersion/
   // deleteExpenseWithVersion below.
   version: number;
+};
+
+export type UserPaymentMethod = {
+  id: string;
+  type: "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
+  label: string;
+  isDefault: boolean;
+  active: boolean;
+  displayOrder: number;
+};
+
+export type ExpenseShortcut = {
+  itemName: string;
+  categoryId: string;
+  lastAmountKrw: number;
+  useCount: number;
 };
 
 export type Budget = {
@@ -134,6 +152,7 @@ export type ItemStatus = "not_prepared" | "prepared" | "gifted" | "not_needed" |
 export type ItemSummary = {
   id: string;
   name: string;
+  shortReason?: string;
   necessityLevel: "essential" | "convenience" | "optional";
   status: ItemStatus;
   timingLabel?: string;
@@ -253,6 +272,8 @@ export type OnboardingChildSummary = {
   dueDate: string | null;
   birthDate: string | null;
   manualStage: ChildStageCode | null;
+  gender: string | null;
+  profileImageUrl: string | null;
   currentStage: string;
   stageLabel: string;
 };
@@ -468,6 +489,7 @@ export function createChild(
     dueDate?: string;
     birthDate?: string;
     manualStage?: ChildStageCode | null;
+    gender?: string;
   },
   idempotencyKey?: string
 ) {
@@ -499,6 +521,7 @@ export function updateChild(
     dueDate?: string;
     birthDate?: string;
     manualStage?: ChildStageCode;
+    gender?: string;
   }
 ) {
   if (isLocalToken(token)) return local(() => localBackend.updateChild(childId, body));
@@ -561,6 +584,38 @@ export function getHome(token: string, childId: string) {
   return requestJson<HomeSummary>(`/home?childId=${childId}`, { token });
 }
 
+export function listPaymentMethods(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listPaymentMethods());
+  return requestJson<{ paymentMethods: UserPaymentMethod[] }>("/me/payment-methods", { token });
+}
+
+export function createPaymentMethod(
+  token: string,
+  body: Pick<UserPaymentMethod, "type" | "label"> & { isDefault?: boolean }
+) {
+  if (isLocalToken(token)) return local(() => localBackend.createPaymentMethod(body));
+  return requestJson<UserPaymentMethod>("/me/payment-methods", { method: "POST", token, body });
+}
+
+export function updatePaymentMethod(
+  token: string,
+  paymentMethodId: string,
+  body: Partial<Pick<UserPaymentMethod, "type" | "label" | "displayOrder" | "isDefault">>
+) {
+  if (isLocalToken(token)) return local(() => localBackend.updatePaymentMethod(paymentMethodId, body));
+  return requestJson<UserPaymentMethod>(`/me/payment-methods/${paymentMethodId}`, { method: "PATCH", token, body });
+}
+
+export function deactivatePaymentMethod(token: string, paymentMethodId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.deactivatePaymentMethod(paymentMethodId));
+  return requestJson<UserPaymentMethod>(`/me/payment-methods/${paymentMethodId}`, { method: "DELETE", token });
+}
+
+export function setDefaultPaymentMethod(token: string, paymentMethodId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.setDefaultPaymentMethod(paymentMethodId));
+  return requestJson<UserPaymentMethod>(`/me/payment-methods/${paymentMethodId}/default`, { method: "PUT", token });
+}
+
 export function createExpense(
   token: string,
   childId: string,
@@ -571,6 +626,7 @@ export function createExpense(
     itemName: string;
     merchant?: string;
     paymentMethod?: "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
+    paymentMethodId?: string;
     memo?: string;
     linkedItemTemplateId?: string;
     expenseType?: "expense" | "gift";
@@ -593,6 +649,11 @@ export function listExpenses(token: string, childId: string, yearMonth?: string)
   );
 }
 
+export function listExpenseShortcuts(token: string, childId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listExpenseShortcuts(childId));
+  return requestJson<{ shortcuts: ExpenseShortcut[] }>(`/children/${childId}/expense-shortcuts`, { token });
+}
+
 export function getExpense(token: string, expenseId: string) {
   if (isLocalToken(token)) return local(() => localBackend.getExpense(expenseId));
   return requestJson<Expense>(`/expenses/${expenseId}`, { token });
@@ -601,7 +662,7 @@ export function getExpense(token: string, expenseId: string) {
 export function updateExpense(
   token: string,
   expenseId: string,
-  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>
+  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType" | "paymentMethod" | "paymentMethodId">>
 ) {
   if (isLocalToken(token)) return local(() => localBackend.updateExpense(expenseId, body));
   return requestJson<Expense>(`/expenses/${expenseId}`, { method: "PATCH", token, body });
@@ -733,6 +794,7 @@ export function createExpenseWithIdempotency(
     itemName: string;
     merchant?: string;
     paymentMethod?: "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
+    paymentMethodId?: string;
     memo?: string;
     linkedItemTemplateId?: string;
     expenseType?: "expense" | "gift";
@@ -753,7 +815,7 @@ export function createExpenseWithIdempotency(
 export function updateExpenseWithVersion(
   token: string,
   expenseId: string,
-  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>,
+  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType" | "paymentMethod" | "paymentMethodId">>,
   expectedVersion: number,
   idempotencyKey: string
 ): Promise<Expense> {

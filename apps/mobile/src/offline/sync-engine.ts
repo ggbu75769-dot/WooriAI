@@ -583,6 +583,7 @@ export function diffExpenseFields(
     "merchant",
     "memo",
     "paymentMethod",
+    "paymentMethodId",
     "expenseType"
   ];
   return fields

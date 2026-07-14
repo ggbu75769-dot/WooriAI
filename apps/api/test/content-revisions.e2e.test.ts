@@ -132,7 +132,8 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
         payload: {
           name: "Content revision draft item",
           necessityLevel: "essential",
-          reasonText: "Drafted via COM-103 e2e."
+          reasonText: "Drafted via COM-103 e2e.",
+          stageCodes: ["infant_4_6"]
         }
       })
       .expect(200);
@@ -148,7 +149,8 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
         payload: {
           name: "Content revision draft item (edited)",
           necessityLevel: "essential",
-          reasonText: "Drafted via COM-103 e2e, then edited."
+          reasonText: "Drafted via COM-103 e2e, then edited.",
+          stageCodes: ["infant_4_6"]
         }
       })
       .expect(200);
@@ -398,7 +400,12 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
       .set("X-CSRF-Token", editor.csrfToken)
       .send({
         entityType: "item_template",
-        payload: { name: itemName, necessityLevel: "essential", reasonText: "M-2 race test." }
+        payload: {
+          name: itemName,
+          necessityLevel: "essential",
+          reasonText: "M-2 race test.",
+          stageCodes: ["infant_4_6"]
+        }
       })
       .expect(200);
 

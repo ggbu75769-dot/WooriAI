@@ -33,6 +33,7 @@ export type ExpensePayload = {
   merchant?: string | null;
   memo?: string | null;
   paymentMethod?: ExpensePaymentMethod;
+  paymentMethodId?: string | null;
   linkedItemTemplateId?: string | null;
   expenseType?: ExpenseKind;
 };

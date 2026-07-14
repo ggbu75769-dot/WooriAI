@@ -61,6 +61,10 @@ export class ExpensesVersionService {
     };
   }
 
+  async listExpenseShortcuts(user: AuthenticatedUser, childId: string) {
+    return this.store.listExpenseShortcuts(user, childId);
+  }
+
   async hydrateHome<T extends { recentExpenses: Array<{ id: string }> }>(home: T): Promise<T> {
     return { ...home, recentExpenses: await this.hydrateMany(home.recentExpenses) };
   }

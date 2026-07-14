@@ -42,13 +42,15 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(home).toContain('router.push("/children" as Href)');
   });
 
-  it("separates frequent expense items from accounting categories and uses neutral payment defaults", () => {
+  it("separates frequent expense items from accounting categories and uses registered payment methods", () => {
     const expense = source("app/expenses/new.tsx");
     const categories = source("src/categories.ts");
 
     expect(expense).toContain("quickExpenseItems");
     expect(expense).toContain("quickExpenseCategories");
-    expect(expense).toContain('{ value: "unknown", label: "미지정" }');
+    expect(expense).toContain('{ id: null, type: "unknown" as const, label: "미지정", isDefault: false }');
+    expect(expense).toContain("listPaymentMethods");
+    expect(expense).toContain("method.active");
     expect(expense).not.toContain("카카오뱅크");
     expect(expense).not.toContain("₩");
     expect(categories).toContain("보험·저축");

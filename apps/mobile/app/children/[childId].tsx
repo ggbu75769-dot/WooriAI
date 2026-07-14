@@ -41,7 +41,8 @@ export default function EditChildScreen() {
         stageMode: draft.stageMode,
         dueDate: draft.stageMode === "pregnant" ? draft.dueDate : undefined,
         birthDate: draft.stageMode === "born" ? draft.birthDate : undefined,
-        manualStage: draft.stageMode === "manual" ? draft.manualStage ?? undefined : undefined
+        manualStage: draft.stageMode === "manual" ? draft.manualStage ?? undefined : undefined,
+        gender: draft.gender
       });
     },
     onSuccess: async () => {
@@ -63,7 +64,8 @@ export default function EditChildScreen() {
     stageMode: child.data.stageMode,
     dueDate: child.data.dueDate ?? "",
     birthDate: child.data.birthDate ?? "",
-    manualStage: child.data.manualStage
+    manualStage: child.data.manualStage,
+    gender: child.data.gender ?? ""
   };
 
   return (

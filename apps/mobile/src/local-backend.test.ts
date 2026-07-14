@@ -217,4 +217,69 @@ describe("Local test-mode backend data layer", () => {
     expect(localBackend.listItems(second.id, "prepared").items.some((item) => item.id === LOCAL_ITEM_DIAPER)).toBe(true);
     expect(localBackend.listItems(childId, "prepared").items.some((item) => item.id === LOCAL_ITEM_DIAPER)).toBe(false);
   });
+
+  it("stores only a safe payment-method label and keeps past expense linkage after deactivation", () => {
+    expect(localBackend.listPaymentMethods().paymentMethods).toEqual([]);
+    expect(() =>
+      localBackend.createPaymentMethod({ type: "card", label: "1234-5678-9012-3456" })
+    ).toThrow();
+
+    const method = localBackend.createPaymentMethod({ type: "card", label: "생활비 카드", isDefault: true });
+    const expense = localBackend.createExpense(childId, {
+      categoryId: "local-category-diaper",
+      amountKrw: 25_000,
+      spentOn: getSeoulToday(),
+      itemName: "기저귀",
+      paymentMethodId: method.id
+    });
+    expect(expense).toMatchObject({ paymentMethod: "card", paymentMethodId: method.id });
+
+    localBackend.deactivatePaymentMethod(method.id);
+    expect(localBackend.getExpense(expense.id)).toMatchObject({ paymentMethodId: method.id });
+    expect(() =>
+      localBackend.createExpense(childId, {
+        categoryId: "local-category-diaper",
+        amountKrw: 1_000,
+        spentOn: getSeoulToday(),
+        itemName: "재사용 금지",
+        paymentMethodId: method.id
+      })
+    ).toThrow();
+  });
+
+  it("derives at most six recent shortcuts while leaving amount confirmation to the form", () => {
+    for (let index = 0; index < 3; index += 1) {
+      localBackend.createExpense(childId, {
+        categoryId: "local-category-diaper",
+        amountKrw: 40_000 + index,
+        spentOn: getSeoulToday(),
+        itemName: "반복 기저귀"
+      });
+    }
+    for (const [index, itemName] of ["분유", "물티슈", "간식", "병원", "도서", "장난감", "의류"].entries()) {
+      localBackend.createExpense(childId, {
+        categoryId: "local-category-diaper",
+        amountKrw: 10_000 + index,
+        spentOn: getSeoulToday(),
+        itemName
+      });
+    }
+
+    const shortcuts = localBackend.listExpenseShortcuts(childId).shortcuts;
+    expect(shortcuts).toHaveLength(6);
+    expect(shortcuts[0]).toMatchObject({ itemName: "반복 기저귀", useCount: 3 });
+    expect(shortcuts[0]).toHaveProperty("lastAmountKrw");
+    expect(shortcuts[0]).not.toHaveProperty("confirmedAmountKrw");
+  });
+
+  it("keeps gender optional and outside recommendation ranking inputs", () => {
+    const itemIdsBefore = localBackend.listItems(childId, "now").items.map((item) => item.id);
+    localBackend.updateChild(childId, { gender: "직접 입력값" });
+    const itemIdsAfter = localBackend.listItems(childId, "now").items.map((item) => item.id);
+
+    expect(localBackend.getChild(childId).gender).toBe("직접 입력값");
+    expect(itemIdsAfter).toEqual(itemIdsBefore);
+    localBackend.updateChild(childId, { gender: "" });
+    expect(localBackend.getChild(childId).gender).toBeNull();
+  });
 });

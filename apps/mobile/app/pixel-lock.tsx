@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Redirect, router, useLocalSearchParams, useRootNavigationState } from "expo-router";
+import { Redirect, router, useLocalSearchParams, useRootNavigationState, type Href } from "expo-router";
 import { LogBox } from "react-native";
 import { useOnboardingProgressStore } from "../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
@@ -18,7 +18,13 @@ const pixelLockRoutes = {
   "REP-001": "/(tabs)/reports",
   "FAM-001": "/family",
   "IMP-003": "/import",
-  "SET-001": "/(tabs)/more"
+  "SET-001": "/(tabs)/more",
+  "PAY-001": "/payment-methods?evidence=PAY-001",
+  "PAY-002": "/payment-methods?evidence=PAY-002",
+  "EXP-PAY-001": "/expenses/new?evidence=EXP-PAY-001",
+  "PROFILE-GENDER-001": "/children/new?evidence=PROFILE-GENDER-001",
+  "ITEM-CATALOG-001": "/(tabs)/items",
+  "ITEM-COVERAGE-001": "/catalog-coverage-evidence"
 } as const;
 
 type PixelLockOverrideMap = Record<string, Record<string, number>>;
@@ -58,7 +64,7 @@ export default function PixelLockLauncher() {
     clearSession();
     clearSelectedChildId();
     resetOnboarding();
-    const timer = setTimeout(() => router.replace(href), 0);
+    const timer = setTimeout(() => router.replace(href as Href), 0);
     return () => clearTimeout(timer);
   }, [clearSelectedChildId, clearSession, href, params.overrides, resetOnboarding, rootNavigationState?.key]);
 

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
-import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { listExpenseShortcuts, listPaymentMethods, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
@@ -36,14 +36,6 @@ const quickExpenseItems: Array<{ label: string; icon: AppIconName; category: (ty
   { label: "장난감", icon: "toy-brick-outline", category: categoryFor("toys_books") },
   { label: "책", icon: "book-open-page-variant-outline", category: categoryFor("toys_books") }
 ];
-
-const quickExpensePaymentMethods = [
-  { value: "unknown", label: "미지정" },
-  { value: "cash", label: "현금" },
-  { value: "card", label: "카드" },
-  { value: "transfer", label: "계좌 이체" },
-  { value: "mobile_pay", label: "모바일 결제" }
-] as const;
 
 function formatExpenseDate(date: Date) {
   const year = date.getFullYear();
@@ -172,7 +164,9 @@ function ExpenseCategoryIconButton({
 }
 
 export default function NewExpenseScreen() {
-  const params = useLocalSearchParams<{ itemName?: string; itemTemplateId?: string }>();
+  const params = useLocalSearchParams<{ itemName?: string; itemTemplateId?: string; evidence?: string }>();
+  const showPaymentEvidence =
+    process.env.EXPO_PUBLIC_PIXEL_LOCK === "1" && String(params.evidence ?? "") === "EXP-PAY-001";
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
   const prefilledItemName = params.itemName ? String(params.itemName) : "";
   const prefilledQuickItem = quickExpenseItems.find((item) => item.label === prefilledItemName);
@@ -188,9 +182,9 @@ export default function NewExpenseScreen() {
   const [amountText, setAmountText] = useState(() => (authToken ? "" : "38500"));
   const [memo, setMemo] = useState("");
   const [selectedCategory, setSelectedCategory] = useState(prefilledQuickItem?.category ?? categoryFor("diaper_hygiene"));
-  const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
+  const [paymentMethodIndex, setPaymentMethodIndex] = useState(() => (showPaymentEvidence ? 1 : 0));
   const [isGift, setIsGift] = useState(false);
-  const [showAdditionalFields, setShowAdditionalFields] = useState(false);
+  const [showAdditionalFields, setShowAdditionalFields] = useState(showPaymentEvidence);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDateMode, setCustomDateMode] = useState(false);
   const [customDateText, setCustomDateText] = useState("");
@@ -206,9 +200,27 @@ export default function NewExpenseScreen() {
   // either preview mode, chip-only selection, or an empty (not-yet-typed) custom field.
   const dateInputError =
     authToken && customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
-  const paymentMethod = quickExpensePaymentMethods[paymentMethodIndex];
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
+  const paymentMethodsQuery = useQuery({
+    queryKey: ["payment-methods"],
+    enabled: Boolean(authToken),
+    queryFn: () => listPaymentMethods(authToken!)
+  });
+  const paymentMethodOptions = [
+    { id: null, type: "unknown" as const, label: "미지정", isDefault: false },
+    ...(paymentMethodsQuery.data?.paymentMethods.filter((method) => method.active) ??
+      (showPaymentEvidence
+        ? [{ id: "pixel-payment-card", type: "card" as const, label: "생활비 카드", isDefault: true }]
+        : []))
+  ];
+  const paymentMethod = paymentMethodOptions[paymentMethodIndex] ?? paymentMethodOptions[0];
+
+  useEffect(() => {
+    if (paymentMethodIndex !== 0) return;
+    const defaultIndex = paymentMethodOptions.findIndex((method) => method.isDefault);
+    if (defaultIndex > 0) setPaymentMethodIndex(defaultIndex);
+  }, [paymentMethodIndex, paymentMethodOptions]);
 
   // Restores a saved quick-expense draft on mount, so a user who closes the sheet mid-entry
   // (e.g. interrupted by a call) doesn't lose what they typed. Skipped in pixel-lock capture
@@ -254,24 +266,12 @@ export default function NewExpenseScreen() {
     };
   }, [itemName, amountText, memo, selectedCategory.id, expenseDateIso, isGift, authToken]);
 
-  // Recent expense items for the "최근 품목" reuse chips -- reuses the existing listExpenses
-  // query (current month) instead of a dedicated endpoint; deduped by itemName, capped at 5.
-  const recentExpensesQuery = useQuery({
-    queryKey: ["expenses", "recent-items", childId],
+  const expenseShortcutsQuery = useQuery({
+    queryKey: ["expense-shortcuts", childId],
     enabled: Boolean(authToken && childId),
-    queryFn: () => listExpenses(authToken!, childId!)
+    queryFn: () => listExpenseShortcuts(authToken!, childId!)
   });
-  const recentItemChips = (() => {
-    const seen = new Set<string>();
-    const chips: Array<{ itemName: string; amountKrw: number; categoryId: string }> = [];
-    for (const expense of recentExpensesQuery.data?.expenses ?? []) {
-      if (seen.has(expense.itemName)) continue;
-      seen.add(expense.itemName);
-      chips.push({ itemName: expense.itemName, amountKrw: expense.amountKrw, categoryId: expense.categoryId });
-      if (chips.length >= 5) break;
-    }
-    return chips;
-  })();
+  const recentItemChips = expenseShortcutsQuery.data?.shortcuts ?? [];
 
   // MOB-102 (round5a-sprint1-plan.md §3.2, §3.3): saves to the local offline store first --
   // this always "succeeds" as soon as the local write lands, well before the server has
@@ -291,7 +291,8 @@ export default function NewExpenseScreen() {
         amountKrw,
         spentOn: expenseDate.iso,
         itemName,
-        paymentMethod: paymentMethod.value,
+        paymentMethod: paymentMethod.type,
+        ...(paymentMethod.id ? { paymentMethodId: paymentMethod.id } : {}),
         memo,
         expenseType: isGift ? "gift" : "expense",
         ...(linkedItemTemplateId ? { linkedItemTemplateId } : {})
@@ -443,10 +444,10 @@ export default function NewExpenseScreen() {
               {recentItemChips.map((chip) => (
                 <CategoryChip
                   key={chip.itemName}
-                  label={`${chip.itemName} · ${chip.amountKrw.toLocaleString("ko-KR")}원`}
-                  onPress={() => {
-                    setItemName(chip.itemName);
-                    setAmountText(String(chip.amountKrw));
+                   label={`${chip.itemName} · 지난번 ${chip.lastAmountKrw.toLocaleString("ko-KR")}원`}
+                   onPress={() => {
+                     setItemName(chip.itemName);
+                     setAmountText("");
                     const matchedCategory = quickExpenseCategories.find((category) => category.id === chip.categoryId);
                     if (matchedCategory) setSelectedCategory(matchedCategory);
                   }}
@@ -514,6 +515,7 @@ export default function NewExpenseScreen() {
         </Pressable>
 
         {showAdditionalFields ? <>
+        {!showPaymentEvidence ? <>
         <View style={{ gap: 8 }}>
           <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>카테고리</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
@@ -541,11 +543,12 @@ export default function NewExpenseScreen() {
           }}
           value={memo}
         />
+        </> : null}
 
         <Pressable
-          accessibilityLabel="결제 수단 변경"
+          accessibilityLabel={showPaymentEvidence ? "EXP-PAY-001 결제 수단 변경" : "결제 수단 변경"}
           accessibilityRole="button"
-          onPress={() => setPaymentMethodIndex((value) => (value + 1) % quickExpensePaymentMethods.length)}
+          onPress={() => setPaymentMethodIndex((value) => (value + 1) % paymentMethodOptions.length)}
           style={{
             backgroundColor: theme.colors.white,
             borderColor: "rgba(74, 63, 53, 0.10)",

@@ -16,6 +16,7 @@ export type ChildProfileDraft = {
   dueDate: string;
   birthDate: string;
   manualStage: ChildStageCode | null;
+  gender: string;
 };
 
 const stageModeOptions: Array<{ value: ChildStageMode; label: string }> = [
@@ -60,11 +61,19 @@ export function ChildProfileFields({
   onSubmit: (draft: ChildProfileDraft) => void;
 }) {
   const [draft, setDraft] = useState(initialValue);
+  const isCustomGender = Boolean(draft.gender && draft.gender !== "female" && draft.gender !== "male");
   const validationMessage = useMemo(() => {
     if (!draft.nickname.trim()) return "아이 이름이나 별명을 입력해 주세요.";
-    if (draft.stageMode === "pregnant") return dateError("출산 예정일", draft.dueDate, false);
-    if (draft.stageMode === "born") return dateError("출생일", draft.birthDate, true);
-    if (!draft.manualStage) return "현재 아이 단계를 선택해 주세요.";
+    const stageError =
+      draft.stageMode === "pregnant"
+        ? dateError("출산 예정일", draft.dueDate, false)
+        : draft.stageMode === "born"
+          ? dateError("출생일", draft.birthDate, true)
+          : !draft.manualStage
+            ? "현재 아이 단계를 선택해 주세요."
+            : null;
+    if (stageError) return stageError;
+    if (draft.gender === "custom") return "성별을 직접 입력해 주세요.";
     return null;
   }, [draft]);
 
@@ -92,6 +101,27 @@ export function ChildProfileFields({
             style={fieldStyle}
             value={draft.nickname}
           />
+        </View>
+
+        <View accessibilityLabel="PROFILE-GENDER-001" testID="evidence-PROFILE-GENDER-001" style={{ gap: 8 }}>
+          <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>성별 (선택)</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <CategoryChip label="입력하지 않음" selected={!draft.gender} onPress={() => setDraft((value) => ({ ...value, gender: "" }))} />
+            <CategoryChip label="여자아이" selected={draft.gender === "female"} onPress={() => setDraft((value) => ({ ...value, gender: "female" }))} />
+            <CategoryChip label="남자아이" selected={draft.gender === "male"} onPress={() => setDraft((value) => ({ ...value, gender: "male" }))} />
+            <CategoryChip label="직접 입력" selected={isCustomGender} onPress={() => setDraft((value) => ({ ...value, gender: "custom" }))} />
+          </View>
+          {isCustomGender ? (
+            <TextInput
+              accessibilityLabel="성별 직접 입력"
+              maxLength={20}
+              onChangeText={(gender) => setDraft((value) => ({ ...value, gender }))}
+              placeholder="직접 입력"
+              style={fieldStyle}
+              value={draft.gender === "custom" ? "" : draft.gender}
+            />
+          ) : null}
+          <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>추천 순위에는 성별을 사용하지 않아요.</Text>
         </View>
 
         <View style={{ gap: 8 }}>

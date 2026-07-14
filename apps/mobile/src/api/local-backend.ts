@@ -38,6 +38,7 @@ import type {
   ProductLink,
   SettingsConfirmResponse,
   SettingsPreview,
+  UserPaymentMethod,
   YearlyReport
 } from "./client";
 
@@ -65,6 +66,7 @@ type LocalExpenseRecord = {
   merchant: string | null;
   memo: string | null;
   paymentMethod: PaymentMethod;
+  paymentMethodId: string | null;
   linkedItemTemplateId: string | null;
   expenseType: ExpenseType;
   source: ExpenseSource;
@@ -105,6 +107,8 @@ type LocalChildRecord = {
   dueDate: string | null;
   birthDate: string | null;
   manualStage: ChildStageCode | null;
+  gender: string | null;
+  profileImageUrl: string | null;
   deletedAt: string | null;
 };
 
@@ -158,6 +162,7 @@ type LocalBackendState = {
   additionalChildren: LocalChildRecord[];
   budgets: Record<string, number>;
   expenses: LocalExpenseRecord[];
+  paymentMethods: UserPaymentMethod[];
   itemStatuses: Record<string, { status: ItemStatus; expenseId: string | null }>;
   // MOB-101: mirrors the server's `children.prepared_items_set_at` -- set once the
   // prepared-items onboarding step is submitted (even with zero items checked), used by
@@ -184,6 +189,7 @@ const initialState: LocalBackendState = {
   additionalChildren: [],
   budgets: {},
   expenses: [],
+  paymentMethods: [],
   itemStatuses: {},
   preparedItemsCompleted: false,
   members: [],
@@ -224,6 +230,7 @@ function sanitizeLocalExpenseRecord(value: unknown): LocalExpenseRecord | null {
     merchant: typeof value.merchant === "string" ? value.merchant : null,
     memo: typeof value.memo === "string" ? value.memo : null,
     paymentMethod: (typeof value.paymentMethod === "string" ? value.paymentMethod : "unknown") as PaymentMethod,
+    paymentMethodId: typeof value.paymentMethodId === "string" ? value.paymentMethodId : null,
     linkedItemTemplateId: typeof value.linkedItemTemplateId === "string" ? value.linkedItemTemplateId : null,
     expenseType: (typeof value.expenseType === "string" ? value.expenseType : "expense") as ExpenseType,
     source: (typeof value.source === "string" ? value.source : "manual") as ExpenseSource,
@@ -249,6 +256,8 @@ function sanitizeLocalChildRecord(value: unknown): LocalChildRecord | null {
     dueDate: typeof value.dueDate === "string" ? value.dueDate : null,
     birthDate: typeof value.birthDate === "string" ? value.birthDate : null,
     manualStage: typeof value.manualStage === "string" ? (value.manualStage as ChildStageCode) : null,
+    gender: typeof value.gender === "string" ? value.gender : null,
+    profileImageUrl: typeof value.profileImageUrl === "string" ? value.profileImageUrl : null,
     deletedAt: typeof value.deletedAt === "string" ? value.deletedAt : null
   };
 }
@@ -281,6 +290,9 @@ function sanitizeLocalBackendState(persisted: unknown): LocalBackendState {
     additionalChildren,
     budgets: isPlainObject(persisted.budgets) ? (persisted.budgets as Record<string, number>) : {},
     expenses,
+    paymentMethods: Array.isArray(persisted.paymentMethods)
+      ? (persisted.paymentMethods as UserPaymentMethod[])
+      : [],
     itemStatuses: isPlainObject(persisted.itemStatuses)
       ? (persisted.itemStatuses as LocalBackendState["itemStatuses"])
       : {},
@@ -301,7 +313,7 @@ export const useLocalBackendStore = create<LocalBackendState>()(
     storage: createJSONStorage(() => persistStorage),
     // Version 3 adds `additionalChildren`; the sanitizer backfills it to an empty array while
     // preserving the version-2 expense/onboarding migrations below.
-    version: 3,
+    version: 4,
     migrate: (persisted) => sanitizeLocalBackendState(persisted),
     merge: (persisted, current) => ({
       ...current,
@@ -386,6 +398,7 @@ function ensureSeeded() {
       merchant: null,
       memo: null,
       paymentMethod: seed.paymentMethod,
+      paymentMethodId: null,
       linkedItemTemplateId: null,
       expenseType: seed.expenseType,
       source: seed.source,
@@ -400,7 +413,7 @@ function ensureSeeded() {
 
   useLocalBackendStore.setState({
     seeded: true,
-    child: { id: LOCAL_CHILD_ID, nickname: "다온이", stageMode: "born", dueDate: null, birthDate, manualStage: null, deletedAt: null },
+    child: { id: LOCAL_CHILD_ID, nickname: "다온이", stageMode: "born", dueDate: null, birthDate, manualStage: null, gender: null, profileImageUrl: null, deletedAt: null },
     additionalChildren: [],
     budgets: { [`${LOCAL_CHILD_ID}:${yearMonth}`]: LOCAL_DEFAULT_BUDGET_KRW },
     expenses,
@@ -491,6 +504,8 @@ function toChildDto(child: LocalChildRecord) {
     dueDate: child.dueDate,
     birthDate: child.birthDate,
     manualStage: child.manualStage,
+    gender: child.gender ?? null,
+    profileImageUrl: child.profileImageUrl ?? null,
     currentStage: calculated.stageCode,
     stageLabel: calculated.stageLabel
   };
@@ -535,6 +550,8 @@ function toExpenseDto(expense: LocalExpenseRecord): Expense {
     spentOn: expense.spentOn,
     itemName: expense.itemName,
     merchant: expense.merchant,
+    paymentMethod: expense.paymentMethod,
+    paymentMethodId: expense.paymentMethodId,
     memo: expense.memo,
     expenseType: expense.expenseType,
     source: expense.source,
@@ -602,6 +619,132 @@ export function listExpenses(childId: string, yearMonth?: string): { expenses: E
   return { expenses: expenses.map(toExpenseDto), totalAmountKrw: totalExpenseKrw(expenses) };
 }
 
+export function listExpenseShortcuts(childId: string) {
+  const sinceIso = seoulDateMinusDays(getSeoulToday(), 90);
+  const grouped = new Map<
+    string,
+    { itemName: string; categoryId: string; lastAmountKrw: number; lastSpentOn: string; useCount: number }
+  >();
+  for (const expense of expensesForChild(childId).filter((entry) => entry.spentOn >= sinceIso)) {
+    const key = `${expense.itemName.trim().toLocaleLowerCase("ko-KR")}|${expense.categoryId}`;
+    const current = grouped.get(key);
+    if (current) current.useCount += 1;
+    else {
+      grouped.set(key, {
+        itemName: expense.itemName,
+        categoryId: expense.categoryId,
+        lastAmountKrw: expense.amountKrw,
+        lastSpentOn: expense.spentOn,
+        useCount: 1
+      });
+    }
+  }
+  return {
+    shortcuts: [...grouped.values()]
+      .sort((left, right) => right.useCount - left.useCount || right.lastSpentOn.localeCompare(left.lastSpentOn))
+      .slice(0, 6)
+      .map(({ lastSpentOn: _lastSpentOn, ...shortcut }) => shortcut)
+  };
+}
+
+function normalizePaymentMethodLabel(value: string) {
+  const label = value.trim();
+  if (!label) throw new Error("결제수단 이름을 입력해 주세요.");
+  if (/(?:\d[\s-]*){8,}/.test(label)) {
+    throw new Error("카드번호나 계좌번호 대신 알아보기 쉬운 이름만 입력해 주세요.");
+  }
+  return label;
+}
+
+function requireLocalPaymentMethod(paymentMethodId: string, requireActive = false) {
+  const method = useLocalBackendStore.getState().paymentMethods.find(
+    (entry) => entry.id === paymentMethodId && (!requireActive || entry.active)
+  );
+  if (!method) throw new Error("결제수단을 찾을 수 없어요.");
+  return method;
+}
+
+export function listPaymentMethods(): { paymentMethods: UserPaymentMethod[] } {
+  const paymentMethods = [...useLocalBackendStore.getState().paymentMethods].sort(
+    (left, right) =>
+      Number(right.active) - Number(left.active) ||
+      Number(right.isDefault) - Number(left.isDefault) ||
+      left.displayOrder - right.displayOrder
+  );
+  return { paymentMethods };
+}
+
+export function createPaymentMethod(
+  body: Pick<UserPaymentMethod, "type" | "label"> & { isDefault?: boolean }
+): UserPaymentMethod {
+  const label = normalizePaymentMethodLabel(body.label);
+  if (useLocalBackendStore.getState().paymentMethods.some((method) => method.label === label)) {
+    throw new Error("이미 사용 중인 결제수단 이름이에요.");
+  }
+  const methods = useLocalBackendStore.getState().paymentMethods;
+  const created: UserPaymentMethod = {
+    id: generateLocalId("payment-method"),
+    type: body.type,
+    label,
+    isDefault: body.isDefault ?? false,
+    active: true,
+    displayOrder: methods.reduce((max, method) => Math.max(max, method.displayOrder), -1) + 1
+  };
+  useLocalBackendStore.setState((state) => ({
+    paymentMethods: [
+      ...state.paymentMethods.map((method) => (created.isDefault ? { ...method, isDefault: false } : method)),
+      created
+    ]
+  }));
+  return created;
+}
+
+export function updatePaymentMethod(
+  paymentMethodId: string,
+  body: Partial<Pick<UserPaymentMethod, "type" | "label" | "displayOrder" | "isDefault">>
+): UserPaymentMethod {
+  const existing = requireLocalPaymentMethod(paymentMethodId);
+  const label = body.label === undefined ? existing.label : normalizePaymentMethodLabel(body.label);
+  if (
+    useLocalBackendStore.getState().paymentMethods.some(
+      (method) => method.id !== paymentMethodId && method.label === label
+    )
+  ) {
+    throw new Error("이미 사용 중인 결제수단 이름이에요.");
+  }
+  const updated = { ...existing, ...body, label };
+  useLocalBackendStore.setState((state) => ({
+    paymentMethods: state.paymentMethods.map((method) =>
+      method.id === paymentMethodId
+        ? updated
+        : body.isDefault
+          ? { ...method, isDefault: false }
+          : method
+    )
+  }));
+  return updated;
+}
+
+export function deactivatePaymentMethod(paymentMethodId: string): UserPaymentMethod {
+  const existing = requireLocalPaymentMethod(paymentMethodId);
+  const updated = { ...existing, active: false, isDefault: false };
+  useLocalBackendStore.setState((state) => ({
+    paymentMethods: state.paymentMethods.map((method) => (method.id === paymentMethodId ? updated : method))
+  }));
+  return updated;
+}
+
+export function setDefaultPaymentMethod(paymentMethodId: string): UserPaymentMethod {
+  const existing = requireLocalPaymentMethod(paymentMethodId, true);
+  const updated = { ...existing, isDefault: true };
+  useLocalBackendStore.setState((state) => ({
+    paymentMethods: state.paymentMethods.map((method) =>
+      method.id === paymentMethodId ? updated : { ...method, isDefault: false }
+    )
+  }));
+  return updated;
+}
+
 export function createExpense(
   childId: string,
   body: {
@@ -611,6 +754,7 @@ export function createExpense(
     itemName: string;
     merchant?: string;
     paymentMethod?: PaymentMethod;
+    paymentMethodId?: string;
     memo?: string;
     linkedItemTemplateId?: string;
     expenseType?: ExpenseType;
@@ -625,6 +769,9 @@ export function createExpense(
   assertValidCalendarDate(body.spentOn);
   assertNotFutureDate(body.spentOn);
   const amountKrw = requireMoneyKrw(body.amountKrw);
+  const selectedPaymentMethod = body.paymentMethodId
+    ? requireLocalPaymentMethod(body.paymentMethodId, true)
+    : null;
   const now = new Date().toISOString();
 
   const record: LocalExpenseRecord = {
@@ -636,7 +783,8 @@ export function createExpense(
     itemName,
     merchant: cleanOptionalText(body.merchant),
     memo: cleanOptionalText(body.memo),
-    paymentMethod: body.paymentMethod ?? "unknown",
+    paymentMethod: selectedPaymentMethod?.type ?? body.paymentMethod ?? "unknown",
+    paymentMethodId: selectedPaymentMethod?.id ?? null,
     linkedItemTemplateId: body.linkedItemTemplateId ?? null,
     expenseType: body.expenseType ?? "expense",
     source: body.source ?? "manual",
@@ -696,7 +844,7 @@ export function getExpense(expenseId: string): Expense {
  */
 export function updateExpense(
   expenseId: string,
-  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>,
+  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType" | "paymentMethod" | "paymentMethodId">>,
   expectedVersion?: number
 ): Expense {
   const raw = findExpenseRaw(expenseId);
@@ -724,6 +872,18 @@ export function updateExpense(
   }
   if (body.memo !== undefined) updated.memo = cleanOptionalText(body.memo ?? undefined);
   if (body.expenseType !== undefined) updated.expenseType = body.expenseType;
+  if (body.paymentMethodId !== undefined) {
+    if (body.paymentMethodId === null) {
+      updated.paymentMethodId = null;
+      updated.paymentMethod = body.paymentMethod ?? "unknown";
+    } else {
+      const method = requireLocalPaymentMethod(body.paymentMethodId, body.paymentMethodId !== expense.paymentMethodId);
+      updated.paymentMethodId = method.id;
+      updated.paymentMethod = method.type;
+    }
+  } else if (body.paymentMethod !== undefined) {
+    updated.paymentMethod = body.paymentMethod;
+  }
   updated.updatedAt = new Date().toISOString();
   updated.version = expense.version + 1;
 
@@ -1294,6 +1454,7 @@ export function createChild(body: {
   dueDate?: string;
   birthDate?: string;
   manualStage?: ChildStageCode | null;
+  gender?: string;
 }): { id: string } {
   ensureSeeded();
   const nickname = body.nickname.trim();
@@ -1305,6 +1466,8 @@ export function createChild(body: {
     dueDate: body.dueDate ?? null,
     birthDate: body.birthDate ?? null,
     manualStage: body.manualStage ?? null,
+    gender: body.gender?.trim() || null,
+    profileImageUrl: null,
     deletedAt: null
   };
   toChildDto(child);
@@ -1401,6 +1564,7 @@ export function updateChild(
     dueDate?: string;
     birthDate?: string;
     manualStage?: ChildStageCode;
+    gender?: string;
   }
 ): OnboardingChildSummary {
   const current = requireChild(childId);
@@ -1410,7 +1574,8 @@ export function updateChild(
     ...(body.stageMode !== undefined ? { stageMode: body.stageMode } : {}),
     ...(body.dueDate !== undefined ? { dueDate: body.dueDate } : {}),
     ...(body.birthDate !== undefined ? { birthDate: body.birthDate } : {}),
-    ...(body.manualStage !== undefined ? { manualStage: body.manualStage } : {})
+    ...(body.manualStage !== undefined ? { manualStage: body.manualStage } : {}),
+    ...(body.gender !== undefined ? { gender: body.gender.trim() || null } : {})
   };
   if (!updated.nickname) throw new Error("아이 이름을 입력해 주세요.");
   const dto = toChildDto(updated);

@@ -8,10 +8,12 @@ import {
   NECESSITY_LEVEL_LABELS,
   createItemTemplate,
   draftAndSubmitContentRevision,
+  getCatalogCompleteness,
   isAuthError,
   listItemTemplates,
   updateItemTemplate,
   type ChildStageCode,
+  type CatalogCompleteness,
   type ItemTemplate,
   type ItemTemplateInput,
   type NecessityLevel
@@ -251,6 +253,7 @@ function ItemFormFields({
 export default function ItemTemplatesPage() {
   const { session, clearSession } = useAdminSession();
   const [items, setItems] = useState<ItemTemplate[] | null>(null);
+  const [completeness, setCompleteness] = useState<CatalogCompleteness | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [createForm, setCreateForm] = useState<ItemFormState>(emptyItemForm());
@@ -267,8 +270,9 @@ export default function ItemTemplatesPage() {
     if (!session) return;
     setLoadError(null);
     try {
-      const result = await listItemTemplates();
+      const [result, completenessResult] = await Promise.all([listItemTemplates(), getCatalogCompleteness()]);
       setItems(result.items);
+      setCompleteness(completenessResult);
     } catch (error) {
       if (isAuthError(error)) {
         clearSession();
@@ -369,6 +373,34 @@ export default function ItemTemplatesPage() {
         <h1>준비템 관리</h1>
         <p>출산·육아 준비템을 등록하고 단계, 필수도, 가격대를 관리해요.</p>
       </div>
+
+      <section className={styles.card} data-evidence-id="ITEM-COVERAGE-001">
+        <h2>카탈로그 완성도</h2>
+        {!completeness && !loadError ? <p className={styles.emptyState}>완성도를 계산하는 중...</p> : null}
+        {completeness ? (
+          <>
+            <p className={completeness.publicationBlocked ? styles.errorBanner : styles.successBanner}>
+              게시 가드: {completeness.publicationBlocked ? "차단" : "통과"} · 검토·활성 {completeness.reviewedActiveCount}/{completeness.totalCount}
+            </p>
+            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+              {completeness.stageCoverage.map((entry) => (
+                <div key={entry.stageCode} className={styles.hint}>
+                  {CHILD_STAGE_LABELS[entry.stageCode]}: {entry.activeCount}개
+                </div>
+              ))}
+            </div>
+            <p className={styles.hint}>
+              단계 없음 {completeness.issues.missingStage} · 이유 없음 {completeness.issues.missingReason} · skip reason 없음 {completeness.issues.missingSkipReason} · 가격대 없음 {completeness.issues.missingPrice} · 안전 검토 필요 {completeness.issues.missingMedicalSafety} · 핵심 링크 없음 {completeness.issues.coreWithoutLinks} · 재검토 기한 경과 {completeness.issues.staleReview}
+            </p>
+            <p className={styles.hint}>
+              상태: draft {completeness.statusCounts.draft} / reviewed {completeness.statusCounts.reviewed} / retired {completeness.statusCounts.retired}. 이미지 필드는 아직 지원하지 않아 이미지 누락 수치는 게시 가드에 포함하지 않습니다.
+            </p>
+            <p className={styles.hint}>
+              구매 링크: 활성 {completeness.commerceCoverage.activeLinkCount}개 · 구매 가능 상품 {completeness.commerceCoverage.commerceEnabledCount}개 · 0개 {completeness.commerceCoverage.zeroLinkCount}개 / 1개 {completeness.commerceCoverage.oneLinkCount}개 / 2개 이상 {completeness.commerceCoverage.twoPlusLinkCount}개
+            </p>
+          </>
+        ) : null}
+      </section>
 
       <section className={styles.card}>
         <h2>새 준비템 추가</h2>

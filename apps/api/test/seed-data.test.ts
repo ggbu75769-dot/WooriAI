@@ -11,11 +11,12 @@ const seedScriptPath = join(prismaDir, "seed.ts");
 async function loadSeedData() {
   expect(existsSync(seedDataPath), `${seedDataPath} must exist`).toBe(true);
   if (!existsSync(seedDataPath)) {
-    return { categorySeeds: [], itemTemplateSeeds: [], productLinkSeeds: [] };
+    return { categorySeeds: [], commerceCoreItemCodes: [], itemTemplateSeeds: [], productLinkSeeds: [] };
   }
 
   return import(pathToFileURL(seedDataPath).href) as Promise<{
     categorySeeds: Array<{ code: string; name: string; iconName: string; displayOrder: number }>;
+    commerceCoreItemCodes: string[];
     itemTemplateSeeds: Array<{
       code: string;
       categoryCode: string;
@@ -40,19 +41,6 @@ async function loadSeedData() {
     }>;
   }>;
 }
-
-// Original 7 batch-03 items were seeded before every item was required to have a
-// product link; they're grandfathered out of the "every item needs a link" rule
-// added when the catalog was expanded to cover all life stages (see below).
-const LEGACY_ITEM_CODES_WITHOUT_LINK_REQUIREMENT = [
-  "pregnancy_vitamin",
-  "car_seat",
-  "diaper_stock",
-  "baby_bath",
-  "stroller",
-  "baby_food_maker",
-  "first_books"
-];
 
 const ALL_STAGE_CODES = [
   "pregnancy_early",
@@ -107,23 +95,40 @@ describe("Batch 03 seed data", () => {
     ).toBe(true);
   });
 
-  it("uses development-only product links with explicit affiliate and sponsored flags", async () => {
-    const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
+  it("enforces commerce policy A with explicit development and Naver comparison links", async () => {
+    const { commerceCoreItemCodes, itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
     const itemCodes = new Set(itemTemplateSeeds.map((item) => item.code));
+    const activeCounts = productLinkSeeds.reduce(
+      (counts, link) => counts.set(link.itemTemplateCode, (counts.get(link.itemTemplateCode) ?? 0) + 1),
+      new Map<string, number>()
+    );
 
-    expect(productLinkSeeds.length).toBeGreaterThanOrEqual(3);
+    expect(productLinkSeeds).toHaveLength(98);
+    expect(commerceCoreItemCodes).toHaveLength(40);
+    expect(commerceCoreItemCodes.every((code) => (activeCounts.get(code) ?? 0) >= 2)).toBe(true);
     expect(productLinkSeeds.every((link) => itemCodes.has(link.itemTemplateCode))).toBe(true);
     expect(productLinkSeeds.some((link) => link.isAffiliate)).toBe(true);
     expect(productLinkSeeds.some((link) => link.isSponsored && Boolean(link.sponsorLabel))).toBe(true);
-    expect(productLinkSeeds.every((link) => link.url.startsWith("https://example.com/dev/"))).toBe(true);
+    expect(
+      productLinkSeeds.every(
+        (link) =>
+          link.url.startsWith("https://example.com/dev/") ||
+          link.url.startsWith("https://shopping.naver.com/search/all?query=")
+      )
+    ).toBe(true);
+    expect(productLinkSeeds.filter((link) => link.platform === "naver")).toHaveLength(40);
+    expect(
+      productLinkSeeds
+        .filter((link) => link.platform === "naver")
+        .every((link) => !link.isAffiliate && !link.isSponsored && link.affiliateUrl == null)
+    ).toBe(true);
     expect(productLinkSeeds.every((link) => link.affiliatePartnerCode == null)).toBe(true);
     expect(
       productLinkSeeds
         .filter((link) => link.isAffiliate)
         .every((link) => link.disclosureText?.includes("제휴"))
     ).toBe(true);
-    expect(JSON.stringify(productLinkSeeds).toLowerCase()).not.toMatch(/secret|access_key|partner_id/);
-    expect(JSON.stringify(productLinkSeeds).toLowerCase()).not.toMatch(/coupang\.com|naver\.com/);
+    expect(JSON.stringify(productLinkSeeds).toLowerCase()).not.toMatch(/secret|access_key|partner_id|coupang\.com/);
   });
 
   it("keeps the seed script idempotent and out of expenses", () => {
@@ -135,13 +140,26 @@ describe("Batch 03 seed data", () => {
     expect(seedScript).not.toContain("expenses");
   });
 
-  it("covers every child stage with at least 5 active prepared items", async () => {
+  it("covers every child stage at the Sprint 2 minimum", async () => {
     const { itemTemplateSeeds } = await loadSeedData();
     const activeItems = itemTemplateSeeds.filter((item) => item.active);
 
+    const minimums: Record<string, number> = {
+      pregnancy_early: 15,
+      pregnancy_mid: 15,
+      pregnancy_late: 25,
+      newborn_0_3: 25,
+      infant_4_6: 18,
+      infant_7_12: 18,
+      toddler_1_3: 20,
+      kid_4_7: 18,
+      elementary: 15,
+      middle_school: 12
+    };
+
     for (const stageCode of ALL_STAGE_CODES) {
       const count = activeItems.filter((item) => item.stageCodes.includes(stageCode)).length;
-      expect(count, `stage ${stageCode} should be covered by >=5 active items, found ${count}`).toBeGreaterThanOrEqual(5);
+      expect(count, `stage ${stageCode} should be covered by >=${minimums[stageCode]} active items, found ${count}`).toBeGreaterThanOrEqual(minimums[stageCode]);
     }
   });
 
@@ -174,17 +192,13 @@ describe("Batch 03 seed data", () => {
     }
   });
 
-  it("gives every non-legacy item at least one product link", async () => {
+  it("keeps purchase links optional and never exposes a fake fallback CTA", async () => {
     const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
 
     const linkedCodes = new Set(productLinkSeeds.map((link) => link.itemTemplateCode));
-    const itemsRequiringLinks = itemTemplateSeeds.filter(
-      (item) => !LEGACY_ITEM_CODES_WITHOUT_LINK_REQUIREMENT.includes(item.code)
-    );
-
-    for (const item of itemsRequiringLinks) {
-      expect(linkedCodes.has(item.code), `${item.code} should have >=1 product link`).toBe(true);
-    }
+    expect(linkedCodes.size).toBeGreaterThanOrEqual(40);
+    expect(itemTemplateSeeds.some((item) => !linkedCodes.has(item.code))).toBe(true);
+    expect(productLinkSeeds.every((link) => linkedCodes.has(link.itemTemplateCode))).toBe(true);
   });
 
   it("has no duplicate item template codes", async () => {

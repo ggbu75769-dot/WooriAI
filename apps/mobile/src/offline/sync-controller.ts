@@ -200,6 +200,8 @@ export async function adoptServerExpense(expense: Expense): Promise<LocalExpense
     itemName: expense.itemName,
     merchant: expense.merchant,
     memo: expense.memo,
+    paymentMethod: expense.paymentMethod,
+    paymentMethodId: expense.paymentMethodId,
     expenseType: expense.expenseType === "refund" ? undefined : expense.expenseType
   };
   const timestamp = new Date().toISOString();
@@ -302,6 +304,7 @@ const EXPENSE_FIELD_LABELS: Record<string, string> = {
   merchant: "구매처",
   memo: "메모",
   paymentMethod: "결제 수단",
+  paymentMethodId: "사용자 결제 수단",
   expenseType: "구분"
 };
 

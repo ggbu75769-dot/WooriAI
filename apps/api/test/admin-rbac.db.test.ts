@@ -159,7 +159,8 @@ describe.skipIf(!dbAvailable)("Admin RBAC (real Postgres)", () => {
       .send({
         name: "RBAC test item",
         necessityLevel: "essential",
-        reasonText: "Needed for the RBAC db test."
+        reasonText: "Needed for the RBAC db test.",
+        stageCodes: ["infant_4_6"]
       })
       .expect(200);
 

@@ -18,6 +18,8 @@ function toExpensePatch(payload: ExpensePayload) {
     spentOn: payload.spentOn,
     itemName: payload.itemName,
     memo: payload.memo ?? undefined,
+    paymentMethod: payload.paymentMethod,
+    paymentMethodId: payload.paymentMethodId,
     expenseType: payload.expenseType
   };
 }
@@ -46,6 +48,8 @@ function toEngineConflictSnapshot(current: ExpenseConflictSnapshot): ConflictSna
       itemName: expense.itemName,
       merchant: expense.merchant,
       memo: expense.memo,
+      paymentMethod: expense.paymentMethod,
+      paymentMethodId: expense.paymentMethodId,
       expenseType: expense.expenseType === "refund" ? undefined : expense.expenseType
     }
   };
@@ -85,6 +89,7 @@ export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
             itemName: payload.itemName,
             merchant: payload.merchant ?? undefined,
             paymentMethod: payload.paymentMethod,
+            paymentMethodId: payload.paymentMethodId ?? undefined,
             memo: payload.memo ?? undefined,
             linkedItemTemplateId: payload.linkedItemTemplateId ?? undefined,
             expenseType: payload.expenseType

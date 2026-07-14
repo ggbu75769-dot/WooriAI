@@ -126,6 +126,34 @@ describe("sync-engine: recordLocalCreate + flushOutbox", () => {
     expect(calls[1].idempotencyKey).toBe(idempotencyKey);
   });
 
+  it("replays a Sprint 1 outbox payload that has no paymentMethodId", async () => {
+    const legacyPayload = { ...payload };
+    const created = await recordLocalCreate(store, legacyPayload);
+    let received: ExpensePayload | null = null;
+    const remote: RemoteExpenseApi = {
+      async createExpense(value) {
+        received = value;
+        return { id: "server-legacy", version: 1 };
+      },
+      async updateExpense() {
+        throw new Error("not used");
+      },
+      async deleteExpense() {
+        throw new Error("not used");
+      }
+    };
+
+    await expect(flushOutbox(store, remote)).resolves.toEqual({
+      synced: 1,
+      failed: 0,
+      conflicted: 0,
+      stoppedForNetwork: false
+    });
+    expect(received).toEqual(legacyPayload);
+    expect(received).not.toHaveProperty("paymentMethodId");
+    expect((await store.getLocalExpense(created.localId))?.canonicalId).toBe("server-legacy");
+  });
+
   it("creates 20 offline expenses and flushes them with zero duplicates", async () => {
     const created = [];
     for (let index = 0; index < 20; index += 1) {

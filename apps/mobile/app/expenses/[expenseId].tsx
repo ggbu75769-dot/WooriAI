@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
-import { getExpense, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { getExpense, listPaymentMethods, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
@@ -76,12 +76,18 @@ export default function ExpenseDetailScreen() {
     enabled: Boolean(authToken && expenseId),
     queryFn: () => getExpense(authToken!, expenseId)
   });
+  const paymentMethods = useQuery({
+    queryKey: ["payment-methods"],
+    enabled: Boolean(authToken),
+    queryFn: () => listPaymentMethods(authToken!)
+  });
   const [itemName, setItemName] = useState("");
   const [amountDigits, setAmountDigits] = useState("");
   const [memo, setMemo] = useState("");
   const [spentOnIso, setSpentOnIso] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [isGift, setIsGift] = useState(false);
+  const [paymentMethodId, setPaymentMethodId] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDateMode, setCustomDateMode] = useState(false);
   const [customDateText, setCustomDateText] = useState("");
@@ -103,6 +109,7 @@ export default function ExpenseDetailScreen() {
     setSpentOnIso(expense.data.spentOn);
     setCategoryId(expense.data.categoryId);
     setIsGift(expense.data.expenseType === "gift");
+    setPaymentMethodId(expense.data.paymentMethodId ?? null);
     setLocalExpenseId(null);
     void adoptServerExpense(expense.data).then((row) => setLocalExpenseId(row.localId));
   }, [expense.data]);
@@ -125,6 +132,7 @@ export default function ExpenseDetailScreen() {
         memo,
         spentOn: spentOnIso || undefined,
         categoryId: categoryId || undefined,
+        paymentMethodId,
         expenseType: isGift ? "gift" : "expense"
       });
     },
@@ -154,6 +162,22 @@ export default function ExpenseDetailScreen() {
       { text: "삭제", style: "destructive", onPress: () => remove.mutate() }
     ]);
   }
+
+  const registeredPaymentMethods = paymentMethods.data?.paymentMethods ?? [];
+  const currentInactivePaymentMethod = registeredPaymentMethods.find(
+    (method) => method.id === paymentMethodId && !method.active
+  );
+  const paymentMethodOptions = [
+    { id: null, label: "미지정", active: true },
+    ...registeredPaymentMethods.filter((method) => method.active),
+    ...(currentInactivePaymentMethod ? [currentInactivePaymentMethod] : [])
+  ];
+  const selectedPaymentMethod = paymentMethodOptions.find((method) => method.id === paymentMethodId) ?? paymentMethodOptions[0];
+  const cyclePaymentMethod = () => {
+    const currentIndex = paymentMethodOptions.findIndex((method) => method.id === selectedPaymentMethod.id);
+    const next = paymentMethodOptions[(currentIndex + 1) % paymentMethodOptions.length];
+    setPaymentMethodId(next.id);
+  };
 
   return (
     <AppScreen>
@@ -343,6 +367,26 @@ export default function ExpenseDetailScreen() {
                   value={memo}
                 />
               </View>
+
+              <Pressable
+                accessibilityLabel="결제수단 변경"
+                accessibilityRole="button"
+                onPress={cyclePaymentMethod}
+                style={{
+                  alignItems: "center",
+                  backgroundColor: theme.colors.beige,
+                  borderRadius: theme.radii.small,
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  minHeight: theme.touchTarget,
+                  paddingHorizontal: 14
+                }}
+              >
+                <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>결제수단</Text>
+                <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>
+                  {selectedPaymentMethod.label}{selectedPaymentMethod.active ? "" : " (숨김)"} ›
+                </Text>
+              </Pressable>
 
               <Pressable
                 accessibilityLabel="선물로 받았어요"

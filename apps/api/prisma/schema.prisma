@@ -99,6 +99,14 @@ enum NecessityLevel {
   @@map("necessity_level")
 }
 
+enum ContentStatus {
+  draft
+  reviewed
+  retired
+
+  @@map("content_status")
+}
+
 enum ItemStatus {
   not_prepared
   prepared
@@ -149,11 +157,30 @@ model User {
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  paymentMethods  UserPaymentMethod[]
 
   @@unique([authProvider, providerUserId], map: "uq_users_provider")
   @@index([email], map: "idx_users_email")
   @@index([deletedAt], map: "idx_users_deleted_at")
   @@map("users")
+}
+
+model UserPaymentMethod {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String        @map("user_id") @db.Uuid
+  type         PaymentMethod
+  label        String        @db.VarChar(80)
+  isDefault    Boolean       @default(false) @map("is_default")
+  active       Boolean       @default(true)
+  displayOrder Int           @default(0) @map("display_order")
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expenses     Expense[]
+
+  @@unique([userId, label], map: "uq_user_payment_methods_user_label")
+  @@index([userId, active, displayOrder], map: "idx_user_payment_methods_user_active_order")
+  @@map("user_payment_methods")
 }
 
 model UserDevice {
@@ -267,16 +294,23 @@ model ItemTemplate {
   priceMinKrw               Int?           @map("price_min_krw")
   priceMaxKrw               Int?           @map("price_max_krw")
   reasonText                String         @map("reason_text") @db.Text
+  shortReason               String         @map("short_reason") @db.VarChar(160)
   skipReasonText            String?        @map("skip_reason_text") @db.Text
   usedSecondhandOk          Boolean        @default(false) @map("used_secondhand_ok")
   safetyNote                String?        @map("safety_note") @db.Text
   medicalDisclaimerRequired Boolean        @default(false) @map("medical_disclaimer_required")
   displayOrder              Int            @default(0) @map("display_order")
   active                    Boolean        @default(true)
+  reviewedAt                DateTime?      @map("reviewed_at") @db.Timestamptz(6)
+  reviewedByAdminId         String?        @map("reviewed_by_admin_id") @db.Uuid
+  nextReviewAt              DateTime?      @map("next_review_at") @db.Timestamptz(6)
+  sourceNote                String?        @map("source_note") @db.Text
+  contentStatus             ContentStatus  @default(draft) @map("content_status")
   createdAt                 DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                 DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([active, displayOrder], map: "idx_item_templates_active_order")
+  @@index([contentStatus, active], map: "idx_item_templates_content_status_active")
   @@map("item_templates")
 }
 
@@ -303,6 +337,7 @@ model Expense {
   itemName             String        @map("item_name") @db.VarChar(120)
   merchant             String?       @db.VarChar(120)
   paymentMethod        PaymentMethod @default(unknown) @map("payment_method")
+  paymentMethodId      String?       @map("payment_method_id") @db.Uuid
   expenseType          ExpenseType   @default(expense) @map("expense_type")
   source               ExpenseSource @default(manual)
   memo                 String?       @db.Text
@@ -314,10 +349,12 @@ model Expense {
   createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   version              Int           @default(1)
+  userPaymentMethod    UserPaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
 
   @@index([childId, spentOn], map: "idx_expenses_child_spent_on")
   @@index([householdId, childId], map: "idx_expenses_household_child")
   @@index([categoryId], map: "idx_expenses_category")
+  @@index([paymentMethodId], map: "idx_expenses_payment_method_id")
   @@map("expenses")
 }
 

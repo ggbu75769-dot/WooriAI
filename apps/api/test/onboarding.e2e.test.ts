@@ -120,7 +120,8 @@ describe("Auth and onboarding API", () => {
       householdId,
       nickname: "튼튼이",
       stageMode: "pregnant",
-      dueDate: "2026-08-31"
+      dueDate: "2026-08-31",
+      gender: "female"
     };
     const idempotencyKey = randomUUID();
 
@@ -136,7 +137,9 @@ describe("Auth and onboarding API", () => {
       householdId,
       nickname: "튼튼이",
       stageMode: "pregnant",
-      currentStage: "pregnancy_late"
+      currentStage: "pregnancy_late",
+      gender: "female",
+      profileImageUrl: null
     });
 
     const childId = childResponse.body.id as string;
@@ -158,14 +161,30 @@ describe("Auth and onboarding API", () => {
         expect(body.children[0].id).toBe(childId);
       });
 
+    const itemIdsBeforeGenderChange = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items.map((item: { id: string }) => item.id) as string[];
+
     await request(app.getHttpServer())
       .patch(`/api/v1/children/${childId}`)
       .set("Authorization", `Bearer ${accessToken}`)
-      .send({ nickname: "반짝이" })
+      .send({ nickname: "반짝이", gender: "직접 입력값" })
       .expect(200)
       .expect(({ body }) => {
         expect(body.nickname).toBe("반짝이");
+        expect(body.gender).toBe("직접 입력값");
       });
+
+    const itemIdsAfterGenderChange = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items.map((item: { id: string }) => item.id) as string[];
+    expect(itemIdsAfterGenderChange).toEqual(itemIdsBeforeGenderChange);
 
     await request(app.getHttpServer())
       .post(`/api/v1/children/${childId}/prepared-items`)

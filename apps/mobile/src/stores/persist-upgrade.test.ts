@@ -266,6 +266,7 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
       expect(migrated.idempotencyKeys).toEqual({});
       expect(migrated.additionalChildren).toEqual([]);
       expect(migrated.expenses[0].version).toBe(1);
+      expect(migrated.expenses[0].paymentMethodId).toBeNull();
       expect(migrated.seeded).toBe(true);
 
       // The concrete Home/준비템/리포트 code paths must not throw against migrated data --
