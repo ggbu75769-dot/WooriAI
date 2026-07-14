@@ -165,10 +165,10 @@ export default function ItemsScreen() {
       <View style={recommendationPixelScaleFrameStyle()}>
         <View accessibilityLabel={recommendationScreenId} style={{ gap: 14 }}>
           {isTestSession ? <SampleDataBanner /> : null}
-          <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
-            <View style={{ gap: 3 }}>
+          <View style={{ alignItems: "center", flexDirection: "row", gap: 10, justifyContent: "space-between" }}>
+            <View style={{ flex: 1, gap: 3 }}>
               <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>준비템</Text>
-              <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>
+              <Text numberOfLines={2} style={{ color: theme.colors.gray600, fontSize: 11 }}>
                 필요도와 준비 시기를 먼저 확인하고, 항목에서 필요한 이유를 볼 수 있어요.
               </Text>
               {home.data?.child ? (
