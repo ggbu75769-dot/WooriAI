@@ -1,7 +1,7 @@
 # Sprint 1 profile and onboarding scope
 
 - Date: 2026-07-14
-- Status: locally implemented and test-verified; Android device evidence is tracked separately
+- Status: implemented and test-verified; required nine-screen Android Pixel Lock regression passed
 - Source of truth: this document describes only the Sprint 1 account, child-profile, onboarding, and navigation changes present in the repository
 
 ## Implemented scope
@@ -57,4 +57,4 @@ The 160-item catalog/content expansion is a separate content and data-validation
 
 ## Evidence boundary
 
-The test results above prove local contracts only. Final visual status requires a newly built embedded Android APK, installation on Android, adb `screencap` captures, all nine Pixel Lock scores at or below `0.0500`, and a passing release gate. Do not treat browser, Expo web, or the prior Sprint 0 APK as Sprint 1 visual evidence.
+The required nine-screen regression was reproduced from a newly built embedded Android APK at source commit `5fc7acc`, installed on Android, and captured through adb. All nine scores are at or below `0.0500`, and the release gate passes. See `docs/qa/evidence/sprint1-android-pixel-gate-2026-07-14.md`. PROFILE-001 and CHILD-001/002 do not yet have dedicated Pixel Lock screen IDs, so do not claim scored visual coverage for those routes.
