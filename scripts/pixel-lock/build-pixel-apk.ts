@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -9,6 +10,15 @@ const reportPath = join(repoRoot, "artifacts", "pixel-lock", "android", "reports
 const gradlew = join(androidDir, process.platform === "win32" ? "gradlew.bat" : "gradlew");
 const appBuildGradlePath = join(androidDir, "app", "build.gradle");
 const apkPath = join(androidDir, "app", "build", "outputs", "apk", "release", "app-release.apk");
+const appJsonPath = join(repoRoot, "apps", "mobile", "app.json");
+
+function gitOutput(args: string[]) {
+  const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(" ")} failed\n${result.stderr ?? ""}`);
+  }
+  return String(result.stdout ?? "").trim();
+}
 
 function findJavaHome() {
   if (process.env.JAVA_HOME && existsSync(process.env.JAVA_HOME)) return process.env.JAVA_HOME;
@@ -64,6 +74,8 @@ function ensurePixelGradleConfig() {
 
 function main() {
   if (!existsSync(gradlew)) throw new Error(`GRADLEW_NOT_FOUND ${gradlew}`);
+  const sourceCommit = gitOutput(["rev-parse", "HEAD"]);
+  const dirty = gitOutput(["status", "--porcelain"]).length > 0;
   ensurePixelGradleConfig();
   const env = {
     ...process.env,
@@ -81,8 +93,16 @@ function main() {
   if (process.env.PIXEL_ANDROID_RERUN_TASKS === "1") args.push("--rerun-tasks");
   run(gradlew, args, androidDir, env);
   if (!existsSync(apkPath)) throw new Error(`PIXEL_APK_MISSING ${apkPath}`);
+  const appConfig = JSON.parse(readFileSync(appJsonPath, "utf8"));
+  const apkSha256 = createHash("sha256").update(readFileSync(apkPath)).digest("hex");
   const report = {
     generatedAt: new Date().toISOString(),
+    sourceCommit,
+    dirty,
+    profile: "pixel-lock",
+    apkSha256,
+    packageName: appConfig.expo.android.package,
+    appVersion: appConfig.expo.version,
     env: { EXPO_PUBLIC_PIXEL_LOCK: "1", EXPO_ROUTER_APP_ROOT: "apps/mobile/app" },
     task: args.join(" "),
     apkPath
