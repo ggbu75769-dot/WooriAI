@@ -14,7 +14,9 @@ describe("Batch 05 mobile onboarding contract", () => {
       primary100: "#FFE6E0",
       secondary500: "#7DDCC7",
       background: "#FFF8F1",
-      textPrimary: "#242424"
+      // Round 5A D0 redirect (docs/5차/round5a-design-spec.md §D0): textPrimary now points at
+      // the new text.primary token ("#3D3733") instead of the pre-redesign "#242424" literal.
+      textPrimary: "#3D3733"
     });
     expect(onboardingSteps.map((step) => step.screenId)).toEqual([
       "ONB-001",

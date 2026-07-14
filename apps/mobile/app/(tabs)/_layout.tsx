@@ -5,18 +5,22 @@ import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 
+// D1 (docs/5차/round5a-design-spec.md §D1): one unified icon family, each tab an
+// outlined/filled glyph pair from the same geometric-shape set (consistent stroke weight and
+// proportion across all 5 tabs, replacing the previous mismatched one-off glyphs). Inactive tabs
+// render the outlined glyph; the active tab renders the filled glyph tinted coral-500.
 const tabs = {
-  index: { title: "홈", icon: "⌂" },
-  records: { title: "기록", icon: "▣" },
-  items: { title: "준비템", icon: "☆" },
-  reports: { title: "리포트", icon: "▥" },
-  more: { title: "더보기", icon: "☰" }
+  index: { title: "홈", outline: "○", filled: "●" },
+  records: { title: "기록", outline: "□", filled: "■" },
+  items: { title: "준비템", outline: "☆", filled: "★" },
+  reports: { title: "리포트", outline: "◇", filled: "◆" },
+  more: { title: "더보기", outline: "△", filled: "▲" }
 } as const;
 
 function icon(name: keyof typeof tabs, focused: boolean) {
   return (
-    <Text style={{ color: focused ? theme.colors.mainCoral : theme.colors.gray600, fontSize: BottomTabPixelStyles.iconSize }}>
-      {tabs[name].icon}
+    <Text style={{ color: focused ? theme.colors.coral[500] : theme.colors.gray600, fontSize: BottomTabPixelStyles.iconSize }}>
+      {focused ? tabs[name].filled : tabs[name].outline}
     </Text>
   );
 }
@@ -45,7 +49,7 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: theme.colors.mainCoral,
+        tabBarActiveTintColor: theme.colors.coral[500],
         tabBarInactiveTintColor: theme.colors.gray600,
         tabBarLabelStyle: { fontSize: BottomTabPixelStyles.labelSize, fontWeight: "700" },
         tabBarStyle: {

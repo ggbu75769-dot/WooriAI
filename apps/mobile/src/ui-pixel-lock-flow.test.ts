@@ -2,6 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+// Round 5A 리디자인으로 기준 교체 -- QA-101 재측정 필요.
+// (docs/5차/round5a-design-spec.md 구현 순서·회귀 규칙: "이 리디자인은 기준 이미지 자체를 의도적으로
+// 교체하는 작업 -- ui-pixel-lock-flow 계약 테스트는 새 토큰 기준으로 갱신"). The mainCoral assertion
+// below was updated from the pre-Round-5A "#FF6B52" to the new D0 coral[500] token "#EF6644"; the
+// original QA-101 reference screenshots/pixel-lock captures were taken against the old value and
+// need to be recaptured against the new token set.
 const repoRoot = join(process.cwd(), "..", "..");
 const mobileRoot = process.cwd();
 
@@ -37,7 +43,7 @@ describe("UI Pixel Lock source contract", () => {
     const { theme } = await import("./theme");
     const uiSource = readFileSync(join(mobileRoot, "src/ui.tsx"), "utf8");
 
-    expect(theme.colors.mainCoral).toBe("#FF6B52");
+    expect(theme.colors.mainCoral).toBe("#EF6644");
     expect(theme.radii.card).toBeGreaterThanOrEqual(20);
     expect(uiSource).toContain("AppScreen");
     expect(uiSource).toContain("PrimaryButton");
