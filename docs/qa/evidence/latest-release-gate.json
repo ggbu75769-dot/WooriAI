@@ -1,0 +1,94 @@
+{
+  "generatedAt": "2026-07-15T02:11:01.824Z",
+  "mode": "local-executed",
+  "results": [
+    {
+      "id": "install",
+      "label": "Install",
+      "command": "pnpm install --frozen-lockfile",
+      "result": "PASS",
+      "durationMs": 836,
+      "issues": []
+    },
+    {
+      "id": "env",
+      "label": "Env example",
+      "command": "pnpm check:env:example",
+      "result": "PASS",
+      "durationMs": 1372,
+      "issues": []
+    },
+    {
+      "id": "prisma-validate",
+      "label": "Prisma validate",
+      "command": "pnpm --filter api prisma:validate",
+      "result": "PASS",
+      "durationMs": 3481,
+      "issues": []
+    },
+    {
+      "id": "prisma-generate",
+      "label": "Prisma generate",
+      "command": "pnpm --filter api prisma:generate",
+      "result": "PASS",
+      "durationMs": 4117,
+      "issues": []
+    },
+    {
+      "id": "db-start",
+      "label": "Database up",
+      "command": "pnpm db start",
+      "result": "PASS",
+      "durationMs": 2253,
+      "issues": []
+    },
+    {
+      "id": "lint",
+      "label": "ESLint",
+      "command": "pnpm lint",
+      "result": "PASS",
+      "durationMs": 7783,
+      "issues": []
+    },
+    {
+      "id": "typecheck",
+      "label": "Typecheck",
+      "command": "pnpm typecheck",
+      "result": "PASS",
+      "durationMs": 4384,
+      "issues": []
+    },
+    {
+      "id": "test",
+      "label": "All tests",
+      "command": "pnpm test --concurrency=1 --force",
+      "result": "PASS",
+      "durationMs": 193045,
+      "issues": []
+    },
+    {
+      "id": "api-e2e",
+      "label": "API e2e",
+      "command": "pnpm --filter api test:e2e",
+      "result": "PASS",
+      "durationMs": 95343,
+      "issues": []
+    },
+    {
+      "id": "build",
+      "label": "Production builds",
+      "command": "pnpm build --force",
+      "result": "PASS",
+      "durationMs": 57215,
+      "issues": []
+    },
+    {
+      "id": "peers",
+      "label": "Peer dependencies",
+      "command": "pnpm peers check",
+      "result": "PASS",
+      "durationMs": 1021,
+      "issues": []
+    }
+  ]
+}

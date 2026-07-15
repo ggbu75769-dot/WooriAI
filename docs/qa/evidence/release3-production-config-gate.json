@@ -1,0 +1,187 @@
+{
+  "generatedAt": "2026-07-15T01:10:54.250Z",
+  "mode": "production-config",
+  "results": [
+    {
+      "id": "production-config",
+      "label": "Production config",
+      "command": "pnpm release:config",
+      "result": "FAIL",
+      "durationMs": 2,
+      "issues": [
+        {
+          "code": "ANDROID_PACKAGE_PLACEHOLDER",
+          "message": "Android package name must be approved and non-placeholder."
+        },
+        {
+          "code": "APP_VERSION_PLACEHOLDER",
+          "message": "Application version must be approved and non-placeholder."
+        },
+        {
+          "code": "NODE_ENV_NOT_PRODUCTION",
+          "message": "NODE_ENV must be production."
+        },
+        {
+          "code": "DEV_AUTH_NOT_DISABLED",
+          "message": "Development authentication must be explicitly disabled."
+        },
+        {
+          "code": "LEGAL_OPERATOR_PLACEHOLDER",
+          "message": "Approved legal operator information is required."
+        },
+        {
+          "code": "PRIVACY_POLICY_URL_INVALID",
+          "message": "PRIVACY_POLICY_URL must be an approved HTTPS URL."
+        },
+        {
+          "code": "TERMS_URL_INVALID",
+          "message": "TERMS_URL must be an approved HTTPS URL."
+        },
+        {
+          "code": "SUPPORT_URL_INVALID",
+          "message": "SUPPORT_URL must be an approved HTTPS URL."
+        },
+        {
+          "code": "STATUS_PAGE_URL_INVALID",
+          "message": "STATUS_PAGE_URL must be an approved HTTPS URL."
+        },
+        {
+          "code": "MOBILE_API_URL_INVALID",
+          "message": "EXPO_PUBLIC_API_BASE_URL must be an approved HTTPS URL."
+        },
+        {
+          "code": "REDIS_URL_INVALID",
+          "message": "A valid Redis URL is required for queues and distributed protection."
+        },
+        {
+          "code": "S3_ENDPOINT_INVALID",
+          "message": "S3_ENDPOINT must be an approved HTTPS URL."
+        },
+        {
+          "code": "S3_BUCKET_PLACEHOLDER",
+          "message": "S3_BUCKET must be production-managed."
+        },
+        {
+          "code": "S3_ACCESS_KEY_ID_PLACEHOLDER",
+          "message": "S3_ACCESS_KEY_ID must be production-managed."
+        },
+        {
+          "code": "S3_SECRET_ACCESS_KEY_PLACEHOLDER",
+          "message": "S3_SECRET_ACCESS_KEY must be production-managed."
+        },
+        {
+          "code": "KAKAO_CLIENT_ID_PLACEHOLDER",
+          "message": "Production Kakao client ID is required."
+        },
+        {
+          "code": "KAKAO_REDIRECT_INVALID",
+          "message": "Kakao redirects must include the approved exact app callback and no insecure URL."
+        },
+        {
+          "code": "FEATURE_ANALYTICS_DEFAULT_UNSAFE",
+          "message": "FEATURE_ANALYTICS_DEFAULT must default to false for production release."
+        },
+        {
+          "code": "FEATURE_AFFILIATE_DEFAULT_UNSAFE",
+          "message": "FEATURE_AFFILIATE_DEFAULT must default to false for production release."
+        },
+        {
+          "code": "FEATURE_IMPORT_DEFAULT_UNSAFE",
+          "message": "FEATURE_IMPORT_DEFAULT must default to false for production release."
+        },
+        {
+          "code": "FEATURE_NOTIFICATION_DEFAULT_UNSAFE",
+          "message": "FEATURE_NOTIFICATION_DEFAULT must default to false for production release."
+        },
+        {
+          "code": "ANALYTICS_OPT_IN_DEFAULT_UNSAFE",
+          "message": "Analytics consent must default to false."
+        },
+        {
+          "code": "AFFILIATE_ALLOWLIST_MISSING",
+          "message": "A production affiliate domain allowlist is required."
+        },
+        {
+          "code": "ANDROID_SIGNING_KEYSTORE_PATH_MISSING",
+          "message": "ANDROID_SIGNING_KEYSTORE_PATH must reference externally managed signing material."
+        },
+        {
+          "code": "ANDROID_SIGNING_KEY_ALIAS_MISSING",
+          "message": "ANDROID_SIGNING_KEY_ALIAS must reference externally managed signing material."
+        },
+        {
+          "code": "ANDROID_SIGNING_STORE_PASSWORD_ENV_MISSING",
+          "message": "ANDROID_SIGNING_STORE_PASSWORD_ENV must reference externally managed signing material."
+        },
+        {
+          "code": "ANDROID_SIGNING_KEY_PASSWORD_ENV_MISSING",
+          "message": "ANDROID_SIGNING_KEY_PASSWORD_ENV must reference externally managed signing material."
+        },
+        {
+          "code": "MIGRATION_HEAD_MISMATCH",
+          "message": "Expected migration head must equal the repository migration head."
+        },
+        {
+          "code": "CONTRACT_DRIFT_UNVERIFIED",
+          "message": "Generated contract drift check must pass."
+        },
+        {
+          "code": "JWT_ACCESS_SECRET_PLACEHOLDER",
+          "message": "JWT_ACCESS_SECRET must be injected from production secret storage."
+        },
+        {
+          "code": "JWT_REFRESH_SECRET_PLACEHOLDER",
+          "message": "JWT_REFRESH_SECRET must be injected from production secret storage."
+        },
+        {
+          "code": "AFFILIATE_CLICK_IP_SALT_PLACEHOLDER",
+          "message": "AFFILIATE_CLICK_IP_SALT must be injected from production secret storage."
+        },
+        {
+          "code": "ANALYTICS_ANON_SALT_PLACEHOLDER",
+          "message": "ANALYTICS_ANON_SALT must be injected from production secret storage."
+        },
+        {
+          "code": "PRIVACY_STATUS_TOKEN_SECRET_PLACEHOLDER",
+          "message": "PRIVACY_STATUS_TOKEN_SECRET must be injected from production secret storage."
+        },
+        {
+          "code": "PRIVACY_HASH_SALT_PLACEHOLDER",
+          "message": "PRIVACY_HASH_SALT must be injected from production secret storage."
+        },
+        {
+          "code": "DEVICE_ID_HASH_SALT_PLACEHOLDER",
+          "message": "DEVICE_ID_HASH_SALT must be injected from production secret storage."
+        },
+        {
+          "code": "RATE_LIMIT_KEY_SALT_PLACEHOLDER",
+          "message": "RATE_LIMIT_KEY_SALT must be injected from production secret storage."
+        },
+        {
+          "code": "INTERNAL_METRICS_TOKEN_PLACEHOLDER",
+          "message": "INTERNAL_METRICS_TOKEN must be injected from production secret storage."
+        },
+        {
+          "code": "OAUTH_MOCK_ADAPTER",
+          "message": "Production OAuth adapter must be http."
+        },
+        {
+          "code": "QUEUE_MOCK_ADAPTER",
+          "message": "Production queue adapter must be redis."
+        },
+        {
+          "code": "OBJECT_STORAGE_MOCK_ADAPTER",
+          "message": "Production object storage adapter must be s3-compatible."
+        },
+        {
+          "code": "PRIVACY_PROCESSOR_NOT_LIVE",
+          "message": "Production privacy processor mode must be live."
+        },
+        {
+          "code": "NOTIFICATION_PROVIDER_NOT_LIVE",
+          "message": "Production notification provider mode must be live."
+        }
+      ]
+    }
+  ]
+}
