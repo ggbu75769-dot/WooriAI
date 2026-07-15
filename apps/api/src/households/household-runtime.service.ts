@@ -49,7 +49,7 @@ function isProviderUserUniqueViolation(error: unknown): boolean {
       (targetText.includes("provider_user_id") && targetText.includes("auth_provider"))
     );
   }
-  return meta?.modelName === "User";
+  return meta?.modelName === "User" || meta?.modelName === "OAuthIdentity";
 }
 
 /**
@@ -131,14 +131,20 @@ export class HouseholdRuntimeService {
     let isNewUser = false;
 
     const userId = await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.user.findUnique({
-        where: {
-          authProvider_providerUserId: {
-            authProvider: provider as never,
-            providerUserId: normalizedProviderUserId
-          }
-        }
+      const providerKey = { provider: provider as never, providerSubject: normalizedProviderUserId };
+      const identity = await tx.oAuthIdentity.findUnique({
+        where: { provider_providerSubject: providerKey }
       });
+      const existing = identity
+        ? await tx.user.findUnique({ where: { id: identity.userId } })
+        : await tx.user.findUnique({
+            where: {
+              authProvider_providerUserId: {
+                authProvider: provider as never,
+                providerUserId: normalizedProviderUserId
+              }
+            }
+          });
 
       const user = existing
         ? await tx.user.update({
@@ -158,6 +164,17 @@ export class HouseholdRuntimeService {
               }
             });
           })();
+
+      await tx.oAuthIdentity.upsert({
+        where: { provider_providerSubject: providerKey },
+        create: {
+          userId: user.id,
+          ...providerKey,
+          emailAtLink: email ?? null,
+          updatedAt: new Date()
+        },
+        update: { lastVerifiedAt: new Date(), updatedAt: new Date() }
+      });
 
       if (user.status === "active") {
         const existingMembership = await tx.householdMember.findFirst({
@@ -249,6 +266,13 @@ export class HouseholdRuntimeService {
 
   async leaveHousehold(user: AuthenticatedUser, householdId: string) {
     this.assertMember(user, householdId);
+    const household = await this.requireHousehold(householdId);
+    if (household.ownerUserId === user.id) {
+      throw new ConflictException({
+        code: "OWNER_TRANSFER_REQUIRED",
+        message: "소유권을 이전하거나 가족을 삭제한 뒤 탈퇴해 주세요."
+      });
+    }
     const member = await this.prisma.householdMember.findUnique({
       where: { householdId_userId: { householdId, userId: user.id } }
     });
@@ -260,6 +284,83 @@ export class HouseholdRuntimeService {
       data: { status: "left" }
     });
     return { success: true, flowId: "household_leave" };
+  }
+
+  async transferOwnership(user: AuthenticatedUser, householdId: string, targetUserId: string) {
+    this.assertOwner(user, householdId);
+    if (targetUserId === user.id) {
+      throw new BadRequestException({ code: "OWNER_TRANSFER_TARGET_INVALID", message: "현재 소유자에게 이전할 수 없어요." });
+    }
+    const household = await this.requireHousehold(householdId);
+    if (household.ownerUserId !== user.id) {
+      throw new ConflictException({ code: "OWNERSHIP_CHANGED", message: "가족 소유자가 이미 변경됐어요." });
+    }
+    const target = await this.prisma.householdMember.findUnique({
+      where: { householdId_userId: { householdId, userId: targetUserId } }
+    });
+    if (!target || target.status !== "active" || target.role !== "co_parent") {
+      throw new BadRequestException({
+        code: "OWNER_TRANSFER_TARGET_INVALID",
+        message: "활성 공동 양육자에게만 소유권을 이전할 수 있어요."
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.household.updateMany({
+        where: {
+          id: householdId,
+          ownerUserId: user.id,
+          ownershipVersion: household.ownershipVersion,
+          deletedAt: null
+        },
+        data: { ownerUserId: targetUserId, ownershipVersion: { increment: 1 } }
+      });
+      if (claimed.count !== 1) {
+        throw new ConflictException({ code: "OWNERSHIP_CHANGED", message: "가족 소유자가 이미 변경됐어요." });
+      }
+      await tx.householdMember.update({
+        where: { householdId_userId: { householdId, userId: user.id } },
+        data: { role: "co_parent" }
+      });
+      await tx.householdMember.update({ where: { id: target.id }, data: { role: "owner" } });
+    });
+    return { success: true, householdId, previousOwnerUserId: user.id, ownerUserId: targetUserId };
+  }
+
+  async deleteHousehold(user: AuthenticatedUser, householdId: string) {
+    this.assertOwner(user, householdId);
+    const household = await this.requireHousehold(householdId);
+    if (household.ownerUserId !== user.id) {
+      throw new ConflictException({ code: "OWNERSHIP_CHANGED", message: "가족 소유자가 이미 변경됐어요." });
+    }
+    const activeMemberCount = await this.prisma.householdMember.count({
+      where: { householdId, status: "active" }
+    });
+    if (activeMemberCount > 1) {
+      throw new ConflictException({
+        code: "OWNER_TRANSFER_REQUIRED",
+        message: "다른 구성원이 있으면 소유권을 이전한 뒤 가족을 떠나야 해요."
+      });
+    }
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.household.updateMany({
+        where: { id: householdId, ownerUserId: user.id, ownershipVersion: household.ownershipVersion, deletedAt: null },
+        data: { status: "archived", deletedAt: now, ownershipVersion: { increment: 1 } }
+      });
+      if (claimed.count !== 1) throw new ConflictException({ code: "HOUSEHOLD_DELETE_RACE", message: "가족 상태가 변경됐어요." });
+      await tx.householdMember.updateMany({ where: { householdId, status: "active" }, data: { status: "left" } });
+      await tx.jobOutbox.create({
+        data: {
+          topic: "household.deletion.requested",
+          aggregateType: "household",
+          aggregateId: householdId,
+          dedupeKey: householdId,
+          payloadJson: { householdId }
+        }
+      });
+    });
+    return { success: true, householdId };
   }
 
   /**

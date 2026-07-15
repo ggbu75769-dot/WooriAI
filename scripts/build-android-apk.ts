@@ -102,8 +102,11 @@ function ensureWorkspaceGradleConfig() {
 
 function main() {
   const profile = parseProfile();
-  const artifactPath = join(repoRoot, "artifacts", "android", `wooriai-0.0.0-release-${profile}.apk`);
-  const reportPath = join(repoRoot, "artifacts", "android", `wooriai-0.0.0-release-${profile}.json`);
+  const appConfig = JSON.parse(readFileSync(join(mobileRoot, "app.json"), "utf8")) as {
+    expo: { version: string; android: { package: string; versionCode: number } };
+  };
+  const artifactPath = join(repoRoot, "artifacts", "android", `wooriai-${appConfig.expo.version}-release-${profile}.apk`);
+  const reportPath = join(repoRoot, "artifacts", "android", `wooriai-${appConfig.expo.version}-release-${profile}.json`);
 
   const javaHome = findJavaHome();
   const androidSdk = findAndroidSdk();
@@ -128,6 +131,7 @@ function main() {
     ANDROID_HOME: androidSdk,
     ANDROID_SDK_ROOT: androidSdk,
     GRADLE_USER_HOME: process.env.GRADLE_USER_HOME || gradleUserHome,
+    ...(profile === "standalone" ? { WOORIAI_ALLOW_DEBUG_RELEASE_SIGNING: "1" } : {}),
     ...(apiBaseUrl ? { EXPO_PUBLIC_API_BASE_URL: apiBaseUrl } : {})
   };
   if (!existsSync(gradlew)) {
@@ -157,6 +161,10 @@ function main() {
       {
         generatedAt: new Date().toISOString(),
         profile,
+        packageName: appConfig.expo.android.package,
+        appVersion: appConfig.expo.version,
+        versionCode: appConfig.expo.android.versionCode,
+        signing: profile === "standalone" ? "debug-internal-only" : "external-production",
         env: {
           EXPO_PUBLIC_PIXEL_LOCK: "0",
           EXPO_PUBLIC_TEST_LOGIN: profileTestLoginEnv[profile],

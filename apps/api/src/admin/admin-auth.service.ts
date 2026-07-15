@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { HttpException, HttpStatus, Inject, Injectable, type OnModuleDestroy, UnauthorizedException } from "@nestjs/common";
 import type { AdminUser } from "@prisma/client";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -6,6 +6,7 @@ import { AdminMfaService } from "./admin-mfa.service";
 import { AdminSessionService } from "./admin-session.service";
 import { hashAdminPassword, verifyAdminPassword } from "./admin-password";
 import { signAdminMfaPendingToken, verifyAdminMfaPendingToken } from "./admin-token-crypto";
+import { DistributedAttemptLimiter } from "../common/security/distributed-attempt-limiter";
 
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000;
@@ -17,47 +18,6 @@ const WINDOW_MS = 15 * 60 * 1000;
 // trivially distinguishable by timing (one does a full scrypt verify, the other does
 // none), which leaks which admin emails exist.
 const DUMMY_PASSWORD_HASH = hashAdminPassword("wooriai-dummy-password-for-constant-time-login");
-
-/**
- * In-memory brute-force limiter keyed by `email:ip`. Prototype-grade (no
- * persistence, no cross-instance sharing) — acceptable for the current
- * single-instance deployment; a durable/shared limiter can replace this later
- * without changing the AdminAuthService interface.
- */
-class LoginAttemptLimiter {
-  private readonly attempts = new Map<string, { count: number; windowStart: number }>();
-
-  assertAllowed(key: string) {
-    const entry = this.attempts.get(key);
-    if (!entry) {
-      return;
-    }
-    if (Date.now() - entry.windowStart > WINDOW_MS) {
-      this.attempts.delete(key);
-      return;
-    }
-    if (entry.count >= MAX_ATTEMPTS) {
-      throw new HttpException(
-        { code: "ADMIN_LOGIN_RATE_LIMITED", message: "너무 많이 시도했어요. 잠시 후 다시 시도해주세요." },
-        HttpStatus.TOO_MANY_REQUESTS
-      );
-    }
-  }
-
-  recordFailure(key: string) {
-    const now = Date.now();
-    const entry = this.attempts.get(key);
-    if (!entry || now - entry.windowStart > WINDOW_MS) {
-      this.attempts.set(key, { count: 1, windowStart: now });
-      return;
-    }
-    entry.count += 1;
-  }
-
-  reset(key: string) {
-    this.attempts.delete(key);
-  }
-}
 
 export type AdminProfile = { id: string; email: string; displayName: string; role: AdminUser["role"] };
 
@@ -74,8 +34,8 @@ function requestContext(ip: string | null, userAgent: string | null) {
 }
 
 @Injectable()
-export class AdminAuthService {
-  private readonly limiter = new LoginAttemptLimiter();
+export class AdminAuthService implements OnModuleDestroy {
+  private readonly limiter = new DistributedAttemptLimiter("admin-login", MAX_ATTEMPTS, WINDOW_MS);
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -84,10 +44,14 @@ export class AdminAuthService {
     @Inject(AdminMfaService) private readonly mfa: AdminMfaService
   ) {}
 
+  onModuleDestroy() {
+    this.limiter.close();
+  }
+
   async login(email: string, password: string, ip: string, userAgent: string | null): Promise<AdminLoginResult> {
     const normalizedEmail = email.trim().toLowerCase();
     const rateLimitKey = `${normalizedEmail}:${ip}`;
-    this.limiter.assertAllowed(rateLimitKey);
+    await this.limiter.assertAllowed(rateLimitKey, "ADMIN_LOGIN_RATE_LIMITED", "너무 많이 시도되었습니다. 잠시 후 다시 시도해주세요.");
 
     const admin = await this.prisma.adminUser.findUnique({ where: { email: normalizedEmail } });
     // Always runs a scrypt verification, even when no admin matches the email, so
@@ -97,7 +61,7 @@ export class AdminAuthService {
       : verifyAdminPassword(password, DUMMY_PASSWORD_HASH);
 
     if (!admin || !admin.active || !passwordOk) {
-      this.limiter.recordFailure(rateLimitKey);
+      await this.limiter.recordFailure(rateLimitKey);
       await this.auditLogger.record({
         action: "admin.login_failed",
         targetType: "admin_users",
@@ -112,7 +76,7 @@ export class AdminAuthService {
       });
     }
 
-    this.limiter.reset(rateLimitKey);
+    await this.limiter.reset(rateLimitKey);
     await this.prisma.adminUser.update({ where: { id: admin.id }, data: { lastLoginAt: new Date() } });
     await this.auditLogger.record({
       actorUserId: admin.id,
@@ -151,7 +115,7 @@ export class AdminAuthService {
 
     const { valid, recoveryCodeUsed } = await this.verifyMfaCode(admin, code);
     if (!valid) {
-      this.recordMfaFailure(admin.id);
+      await this.recordMfaFailure(admin.id);
       await this.auditLogger.record({
         actorUserId: admin.id,
         action: "admin.mfa_login_failed",
@@ -161,7 +125,7 @@ export class AdminAuthService {
       throw new UnauthorizedException({ code: "ADMIN_MFA_INVALID", message: "인증 코드를 다시 확인해주세요." });
     }
 
-    this.mfa.limiter.reset(admin.id);
+    await this.mfa.limiter.reset(admin.id);
     if (recoveryCodeUsed) {
       await this.auditLogger.record({
         actorUserId: admin.id,
@@ -210,13 +174,13 @@ export class AdminAuthService {
       );
     }
 
-    this.mfa.limiter.assertNotLocked(admin.id);
+    await this.mfa.limiter.assertAllowed(admin.id, "ADMIN_MFA_LOCKED", "인증 시도가 너무 많습니다. 15분 후 다시 시도해주세요.");
     const valid = await this.mfa.verifyTotp(admin.totpSecret, code);
     if (!valid) {
-      this.recordMfaFailure(admin.id);
+      await this.recordMfaFailure(admin.id);
       throw new UnauthorizedException({ code: "ADMIN_MFA_INVALID", message: "인증 코드를 다시 확인해주세요." });
     }
-    this.mfa.limiter.reset(admin.id);
+    await this.mfa.limiter.reset(admin.id);
 
     const { plain, hashed } = this.mfa.generateRecoveryCodes();
     await this.prisma.adminUser.update({
@@ -244,10 +208,10 @@ export class AdminAuthService {
 
     const { valid } = await this.verifyMfaCode(admin, code);
     if (!valid) {
-      this.recordMfaFailure(admin.id);
+      await this.recordMfaFailure(admin.id);
       throw new UnauthorizedException({ code: "ADMIN_MFA_INVALID", message: "인증 코드를 다시 확인해주세요." });
     }
-    this.mfa.limiter.reset(admin.id);
+    await this.mfa.limiter.reset(admin.id);
 
     await this.prisma.adminUser.update({
       where: { id: admin.id },
@@ -278,7 +242,7 @@ export class AdminAuthService {
   }
 
   private async verifyMfaCode(admin: AdminUser, code: string): Promise<{ valid: boolean; recoveryCodeUsed: boolean }> {
-    this.mfa.limiter.assertNotLocked(admin.id);
+    await this.mfa.limiter.assertAllowed(admin.id, "ADMIN_MFA_LOCKED", "인증 시도가 너무 많습니다. 15분 후 다시 시도해주세요.");
 
     if (admin.totpSecret && (await this.mfa.verifyTotp(admin.totpSecret, code))) {
       return { valid: true, recoveryCodeUsed: false };
@@ -296,9 +260,8 @@ export class AdminAuthService {
     return { valid: false, recoveryCodeUsed: false };
   }
 
-  private recordMfaFailure(adminId: string) {
-    this.mfa.limiter.recordFailure(adminId);
-    if (this.mfa.limiter.isNowLocked(adminId)) {
+  private async recordMfaFailure(adminId: string) {
+    if (await this.mfa.limiter.recordFailure(adminId)) {
       // Fire-and-forget: locking out an admin shouldn't be delayed by (or fail
       // because of) audit persistence, and the caller is about to throw either way.
       void this.auditLogger.record({

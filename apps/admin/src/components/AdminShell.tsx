@@ -20,12 +20,19 @@ const NAV_ITEMS = [
   { href: "/links", label: "상품 링크 관리" },
   { href: "/disclosures", label: "제휴 고지 문구" },
   { href: "/reviews", label: "콘텐츠 검토" },
-  { href: "/clicks", label: "클릭 통계" }
+  { href: "/clicks", label: "클릭 통계" },
+  { href: "/operations", label: "운영" }
 ];
+
+const PUBLIC_PATHS = new Set(["/privacy", "/terms", "/account-deletion", "/data-export", "/support"]);
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const { session, isReady } = useAdminSession();
   const pathname = usePathname();
+
+  if (PUBLIC_PATHS.has(pathname)) {
+    return <>{children}</>;
+  }
 
   if (!isReady) {
     return <div className={styles.loadingScreen}>불러오는 중...</div>;

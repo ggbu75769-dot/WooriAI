@@ -9,6 +9,7 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { GlobalExceptionFilter } from "./common/filters/global-exception.filter";
 import { requestIdMiddleware } from "./common/logging/request-id.middleware";
 import { requestLoggerMiddleware } from "./common/logging/request-logger.middleware";
+import { metricsMiddleware } from "./metrics/metrics.middleware";
 import { bodySizeErrorMiddleware } from "./common/security/body-size-error.middleware";
 import { rateLimitMiddleware } from "./common/security/rate-limit.middleware";
 import { securityHeadersMiddleware } from "./common/security/security-headers.middleware";
@@ -53,6 +54,7 @@ export function configureApiApp(app: INestApplication) {
   // carry the security headers and appear in the request log.
   app.use(securityHeadersMiddleware());
   app.use(requestLoggerMiddleware());
+  app.use(metricsMiddleware());
   app.use(rateLimitMiddleware());
 
   // Runs before Nest's own default body-parser registration (which happens

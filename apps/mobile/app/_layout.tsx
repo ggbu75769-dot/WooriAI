@@ -3,8 +3,11 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { LOCAL_SESSION_TOKEN } from "../src/api/client";
 import { useOfflineSyncLifecycle } from "../src/offline/sync-controller";
 import { useSessionStore } from "../src/stores/session.store";
+import { AppErrorBoundary } from "../src/crash/AppErrorBoundary";
+import { installGlobalCrashHandlers } from "../src/crash/crash-adapter";
 
 const queryClient = new QueryClient();
+installGlobalCrashHandlers();
 
 /**
  * MOB-102 (round5a-sprint1-plan.md §3.2 point 4): mounted once at the app root so the offline
@@ -22,9 +25,11 @@ function OfflineSyncLifecycle() {
 
 export default function RootLayout() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <OfflineSyncLifecycle />
-      <Stack screenOptions={{ headerShown: false }} />
-    </QueryClientProvider>
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <OfflineSyncLifecycle />
+        <Stack screenOptions={{ headerShown: false }} />
+      </QueryClientProvider>
+    </AppErrorBoundary>
   );
 }

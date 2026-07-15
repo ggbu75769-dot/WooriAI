@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { router } from "expo-router";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
-import { LOCAL_SESSION_TOKEN, oauthLogin, upsertConsents } from "../../src/api/client";
+import { LOCAL_SESSION_TOKEN, upsertConsents } from "../../src/api/client";
+import { completeOAuthLogin } from "../../src/auth/complete-oauth-login";
+import { startKakaoLogin } from "../../src/auth/kakao-login";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -41,7 +43,6 @@ export default function LoginScreen() {
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [isLoginPending, setIsLoginPending] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const setSession = useSessionStore((state) => state.setSession);
   const startTestSession = useSessionStore((state) => state.startTestSession);
   const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
   const requiredAccepted = termsAccepted && privacyAccepted;
@@ -51,21 +52,14 @@ export default function LoginScreen() {
     setLoginError(null);
     setIsLoginPending(true);
     try {
-      const result = await oauthLogin("kakao");
-      resetOnboarding();
-      setSession({
-        accessToken: result.tokens.accessToken,
-        refreshToken: result.tokens.refreshToken,
-        userId: result.user.id,
-        displayName: result.user.displayName,
-        email: result.user.email,
-        authProvider: "kakao",
-        defaultHouseholdId: result.user.households?.[0]?.id ?? null
-      });
-      await upsertConsents(result.tokens.accessToken);
-      router.replace("/");
-    } catch {
-      setLoginError("서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요.");
+      const result = await startKakaoLogin();
+      await completeOAuthLogin(result);
+    } catch (error) {
+      setLoginError(
+        error instanceof Error && error.message === "OAUTH_CANCELLED"
+          ? "카카오 로그인이 취소됐어요."
+          : "서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요."
+      );
     } finally {
       setIsLoginPending(false);
     }

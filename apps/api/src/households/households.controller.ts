@@ -3,7 +3,7 @@ import { createDtoValidationPipe } from "../bootstrap";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
-import { CreateInviteDto } from "./dto/household.dto";
+import { CreateInviteDto, TransferOwnershipDto } from "./dto/household.dto";
 import { HouseholdRuntimeService } from "./household-runtime.service";
 
 @Controller()
@@ -37,6 +37,49 @@ export class HouseholdsController {
       after: result.after
     });
     return { success: true };
+  }
+
+  @Post("households/:householdId/transfer-ownership")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async transferOwnership(
+    @Req() request: AuthenticatedRequest,
+    @Param("householdId") householdId: string,
+    @Body(createDtoValidationPipe(TransferOwnershipDto)) body: TransferOwnershipDto
+  ) {
+    const result = await this.households.transferOwnership(request.user!, householdId, body.targetUserId);
+    await this.auditLogger.record({
+      actorUserId: request.user!.id,
+      householdId,
+      action: "household.ownership.transfer",
+      targetType: "household",
+      targetId: householdId,
+      before: { ownerUserId: result.previousOwnerUserId },
+      after: { ownerUserId: result.ownerUserId }
+    });
+    return { success: true, ownerUserId: result.ownerUserId };
+  }
+
+  @Post("households/:householdId/leave")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async leave(@Req() request: AuthenticatedRequest, @Param("householdId") householdId: string) {
+    return await this.households.leaveHousehold(request.user!, householdId);
+  }
+
+  @Delete("households/:householdId")
+  @UseGuards(JwtAuthGuard)
+  async deleteHousehold(@Req() request: AuthenticatedRequest, @Param("householdId") householdId: string) {
+    const result = await this.households.deleteHousehold(request.user!, householdId);
+    await this.auditLogger.record({
+      actorUserId: request.user!.id,
+      householdId,
+      action: "household.delete.request",
+      targetType: "household",
+      targetId: householdId,
+      after: { deletionPending: true }
+    });
+    return result;
   }
 
   @Post("households/:householdId/invites")

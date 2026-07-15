@@ -1,5 +1,4 @@
 import type { NextFunction, Request, Response } from "express";
-import type { AuthenticatedRequest } from "../types/authenticated-request";
 
 const LEVEL_ORDER = { error: 0, warn: 1, info: 2, debug: 3 } as const;
 type LogLevel = keyof typeof LEVEL_ORDER;
@@ -36,8 +35,6 @@ export function requestLoggerMiddleware() {
       if (LEVEL_ORDER[level] > LEVEL_ORDER[configuredLevel()]) return;
 
       const requestIdHeader = req.headers["x-request-id"];
-      const authenticated = req as AuthenticatedRequest;
-
       const entry = {
         ts: new Date().toISOString(),
         level,
@@ -46,9 +43,8 @@ export function requestLoggerMiddleware() {
         path: req.path ?? req.url,
         status: res.statusCode,
         durationMs: Date.now() - start,
-        ...(authenticated.user?.id || authenticated.adminUser?.id
-          ? { userId: authenticated.user?.id ?? authenticated.adminUser?.id }
-          : {})
+        appVersion: process.env.APP_VERSION ?? "unknown",
+        environment: process.env.NODE_ENV ?? "unknown"
       };
 
       // eslint-disable-next-line no-console

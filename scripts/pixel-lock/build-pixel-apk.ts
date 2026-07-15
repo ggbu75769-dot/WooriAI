@@ -99,6 +99,7 @@ function main() {
   const env = {
     ...process.env,
     EXPO_PUBLIC_PIXEL_LOCK: "1",
+    WOORIAI_ALLOW_DEBUG_RELEASE_SIGNING: "1",
     EXPO_ROUTER_APP_ROOT: "apps/mobile/app",
     NODE_ENV: "production",
     JAVA_HOME: findJavaHome(),

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { hashAdminPassword } from "../src/admin/admin-password";
 import {
@@ -75,6 +75,67 @@ async function seedDisclosures() {
       where: { key: disclosure.key },
       update: { text: disclosure.text, active: true },
       create: { key: disclosure.key, text: disclosure.text, active: true }
+    });
+  }
+}
+
+const legalDocumentSeeds = [
+  {
+    documentType: "terms",
+    title: "서비스 이용약관 (법률 검토 전 템플릿)",
+    bodyMarkdown: "# 서비스 이용약관\n\n법률 검토와 운영자 승인이 필요한 출시 전 템플릿입니다.",
+    required: true
+  },
+  {
+    documentType: "privacy",
+    title: "개인정보 처리방침 (법률 검토 전 템플릿)",
+    bodyMarkdown: "# 개인정보 처리방침\n\n법률 검토와 운영자 승인이 필요한 출시 전 템플릿입니다.",
+    required: true
+  },
+  {
+    documentType: "marketing",
+    title: "소식 알림 동의 (운영 검토 전 템플릿)",
+    bodyMarkdown: "# 소식 알림 동의\n\n선택 동의이며 기본값은 동의하지 않음입니다.",
+    required: false
+  },
+  {
+    documentType: "analytics",
+    title: "서비스 분석 동의 (운영 검토 전 템플릿)",
+    bodyMarkdown: "# 서비스 분석 동의\n\n선택 동의이며 기본값은 동의하지 않음입니다.",
+    required: false
+  }
+] as const;
+
+async function seedLegalDocuments() {
+  for (const document of legalDocumentSeeds) {
+    const contentHash = createHash("sha256").update(document.bodyMarkdown).digest("hex");
+    await prisma.legalDocument.upsert({
+      where: {
+        documentType_locale_version: {
+          documentType: document.documentType,
+          locale: "ko-KR",
+          version: "2026-07-06"
+        }
+      },
+      update: {
+        title: document.title,
+        bodyMarkdown: document.bodyMarkdown,
+        contentHash,
+        required: document.required,
+        placeholder: true
+      },
+      create: {
+        documentType: document.documentType,
+        locale: "ko-KR",
+        version: "2026-07-06",
+        title: document.title,
+        bodyMarkdown: document.bodyMarkdown,
+        contentHash,
+        required: document.required,
+        placeholder: true,
+        effectiveAt: new Date("2026-07-06T00:00:00.000Z"),
+        publishedAt: new Date("2026-07-06T00:00:00.000Z")
+      }
     });
   }
 }
@@ -277,6 +338,7 @@ async function main() {
   await seedItemTemplates();
   await seedProductLinks();
   await seedDisclosures();
+  await seedLegalDocuments();
   await seedAdminUsers();
   await seedEditorUsers();
 }

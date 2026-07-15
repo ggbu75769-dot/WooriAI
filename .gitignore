@@ -4,6 +4,7 @@ node_modules/
 .android-avd/
 .gradle-home/
 .toolcache/
+.build/
 dist/
 coverage/
 .next/

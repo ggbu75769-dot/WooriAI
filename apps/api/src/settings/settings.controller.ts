@@ -1,11 +1,11 @@
 import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
-import { RefreshTokenStore } from "../auth/refresh-token.store";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { HouseholdRuntimeService } from "../households/household-runtime.service";
 import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { PrivacyService } from "../privacy/privacy.service";
 import { SettingsConfirmationDto } from "./dto/settings.dto";
 
 function assertConfirmation(actual: string, expected: string) {
@@ -24,7 +24,7 @@ export class SettingsController {
     @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
     @Inject(HouseholdRuntimeService) private readonly households: HouseholdRuntimeService,
     @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService,
-    @Inject(RefreshTokenStore) private readonly refreshTokenStore: RefreshTokenStore
+    @Inject(PrivacyService) private readonly privacyService: PrivacyService
   ) {}
 
   @Get("privacy")
@@ -98,8 +98,7 @@ export class SettingsController {
     @Body(createDtoValidationPipe(SettingsConfirmationDto)) body: SettingsConfirmationDto
   ) {
     assertConfirmation(body.confirmationText, "DELETE ACCOUNT");
-    const result = await this.households.withdrawUser(request.user!);
-    await this.refreshTokenStore.revokeAllForUser(request.user!.id);
-    return result;
+    await this.privacyService.requestDeletion(request.user!);
+    return { success: true, flowId: "account_delete" };
   }
 }

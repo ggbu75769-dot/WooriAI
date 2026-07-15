@@ -12,6 +12,6 @@
     "build": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "node -e \"console.log('@wooriai/config tests deferred to Batch 01 hardening')\""
+    "test": "vitest run"
   }
 }

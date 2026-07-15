@@ -224,7 +224,8 @@ const importMaxRows = 2000;
 const consentDefinitions: ConsentDefinition[] = [
   { type: "terms", version: "2026-07-06", required: true, title: "서비스 이용약관" },
   { type: "privacy", version: "2026-07-06", required: true, title: "개인정보 처리 동의" },
-  { type: "marketing", version: "2026-07-06", required: false, title: "소식 알림 동의" }
+  { type: "marketing", version: "2026-07-06", required: false, title: "소식 알림 동의" },
+  { type: "analytics", version: "2026-07-06", required: false, title: "서비스 분석 동의" }
 ];
 
 function memberRoleFor(user: AuthenticatedUser, householdId: string): MemberRole | null {
@@ -292,43 +293,133 @@ export class OnboardingStoreService {
         return {
           ...definition,
           accepted: record?.accepted ?? false,
-          acceptedAt: record?.acceptedAt?.toISOString() ?? null
+          acceptedAt: record?.acceptedAt?.toISOString() ?? null,
+          requiresReconfirmation: definition.required && !record?.accepted
         };
       })
     };
   }
 
-  async upsertConsents(user: AuthenticatedUser, consents: Array<{ type: string; version: string; accepted: boolean }>) {
-    const current = (await this.listConsents(user)).consents;
+  async upsertConsents(
+    user: AuthenticatedUser,
+    consents: Array<{ type: string; version: string; accepted: boolean }>,
+    context: {
+      source?: "mobile" | "web" | "admin";
+      appVersion?: string;
+      ipHash?: string;
+      userAgentHash?: string;
+    } = {}
+  ) {
     const now = new Date();
-    for (const definition of current) {
-      const incoming = consents.find(
-        (consent) => consent.type === definition.type && consent.version === definition.version
-      );
-      if (!incoming) continue;
-      await this.prisma.consent.upsert({
-        where: {
-          userId_consentType_version: {
+    await this.prisma.$transaction(async (tx) => {
+      for (const incoming of consents) {
+        const definition = consentDefinitions.find(
+          (candidate) => candidate.type === incoming.type && candidate.version === incoming.version
+        );
+        if (!definition) {
+          throw new BadRequestException({
+            code: "CONSENT_DOCUMENT_VERSION_INVALID",
+            message: "현재 제공 중인 동의 문서 버전이 아니에요."
+          });
+        }
+        const legalDocument = await tx.legalDocument.findUnique({
+          where: {
+            documentType_locale_version: {
+              documentType: definition.type,
+              locale: "ko-KR",
+              version: definition.version
+            }
+          }
+        });
+        if (!legalDocument?.publishedAt) {
+          throw new BadRequestException({
+            code: "CONSENT_DOCUMENT_NOT_PUBLISHED",
+            message: "동의 문서를 불러온 뒤 다시 시도해 주세요."
+          });
+        }
+
+        const existing = await tx.consent.findUnique({
+          where: {
+            userId_consentType_version: {
+              userId: user.id,
+              consentType: definition.type,
+              version: definition.version
+            }
+          }
+        });
+        await tx.consentEvent.create({
+          data: {
+            userId: user.id,
+            legalDocumentId: legalDocument.id,
+            action:
+              existing?.accepted === incoming.accepted
+                ? "acknowledged"
+                : incoming.accepted
+                  ? "accepted"
+                  : "revoked",
+            contentHash: legalDocument.contentHash,
+            source: context.source ?? "mobile",
+            appVersion: context.appVersion,
+            ipHash: context.ipHash,
+            userAgentHash: context.userAgentHash,
+            occurredAt: now
+          }
+        });
+        await tx.consent.upsert({
+          where: {
+            userId_consentType_version: {
+              userId: user.id,
+              consentType: definition.type,
+              version: definition.version
+            }
+          },
+          update: {
+            accepted: incoming.accepted,
+            acceptedAt: incoming.accepted ? existing?.acceptedAt ?? now : null,
+            revokedAt: incoming.accepted ? null : now,
+            ipHash: context.ipHash,
+            userAgent: context.userAgentHash
+          },
+          create: {
             userId: user.id,
             consentType: definition.type,
-            version: definition.version
+            version: definition.version,
+            accepted: incoming.accepted,
+            acceptedAt: incoming.accepted ? now : null,
+            revokedAt: incoming.accepted ? null : now,
+            ipHash: context.ipHash,
+            userAgent: context.userAgentHash
           }
-        },
-        update: {
-          accepted: incoming.accepted,
-          acceptedAt: incoming.accepted ? now : null,
-          revokedAt: incoming.accepted ? null : now
-        },
-        create: {
-          userId: user.id,
-          consentType: definition.type,
-          version: definition.version,
-          accepted: incoming.accepted,
-          acceptedAt: incoming.accepted ? now : null
-        }
-      });
-    }
+        });
+      }
+    });
     return { success: true };
+  }
+
+  async consentHistory(user: AuthenticatedUser) {
+    const events = await this.prisma.consentEvent.findMany({
+      where: { userId: user.id },
+      orderBy: { occurredAt: "desc" }
+    });
+    const documents = await this.prisma.legalDocument.findMany({
+      where: { id: { in: events.map((event) => event.legalDocumentId) } }
+    });
+    const byId = new Map(documents.map((document) => [document.id, document]));
+    return {
+      events: events.map((event) => {
+        const document = byId.get(event.legalDocumentId);
+        return {
+          id: event.id,
+          documentType: document?.documentType ?? "unknown",
+          version: document?.version ?? "unknown",
+          action: event.action,
+          contentHash: event.contentHash,
+          source: event.source,
+          appVersion: event.appVersion,
+          occurredAt: event.occurredAt.toISOString()
+        };
+      })
+    };
   }
 
   async hasRequiredConsents(user: AuthenticatedUser) {

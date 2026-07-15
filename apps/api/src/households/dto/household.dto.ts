@@ -1,4 +1,4 @@
-import { IsIn } from "class-validator";
+import { IsIn, IsUUID } from "class-validator";
 
 export class CreateInviteDto {
   @IsIn(["co_parent", "viewer", "gift_participant"])
@@ -6,4 +6,9 @@ export class CreateInviteDto {
 
   @IsIn(["kakao", "sms", "link"])
   channel!: "kakao" | "sms" | "link";
+}
+
+export class TransferOwnershipDto {
+  @IsUUID()
+  targetUserId!: string;
 }

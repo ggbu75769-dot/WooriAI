@@ -10,6 +10,8 @@ import { HttpKakaoOidcClient } from "./kakao/kakao-oidc-client.http";
 import { KAKAO_OIDC_CLIENT } from "./kakao/kakao-oidc-client";
 import { RefreshTokenStore } from "./refresh-token.store";
 import { TokenService } from "./token.service";
+import { KakaoOAuthProviderAdapter } from "./providers/kakao-oauth-provider.adapter";
+import { KAKAO_OAUTH_PROVIDER_ADAPTER } from "./providers/oauth-provider.adapter";
 
 @Module({
   imports: [AuditModule, HouseholdRuntimeModule],
@@ -20,8 +22,9 @@ import { TokenService } from "./token.service";
     TokenService,
     RefreshTokenStore,
     KakaoAuthService,
-    { provide: KAKAO_OIDC_CLIENT, useClass: HttpKakaoOidcClient }
+    { provide: KAKAO_OIDC_CLIENT, useClass: HttpKakaoOidcClient },
+    { provide: KAKAO_OAUTH_PROVIDER_ADAPTER, useClass: KakaoOAuthProviderAdapter }
   ],
-  exports: [AuthService, JwtAuthGuard, TokenService, RefreshTokenStore]
+  exports: [AuthService, JwtAuthGuard, TokenService, RefreshTokenStore, KAKAO_OAUTH_PROVIDER_ADAPTER]
 })
 export class AuthModule {}

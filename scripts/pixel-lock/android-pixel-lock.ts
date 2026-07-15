@@ -93,6 +93,23 @@ const asciiSentinelText: Record<string, string[]> = {
 const logcatErrorPattern =
   /Unable to load script|Failed to connect to development server|Exception in native call|ReactNativeJS.*(?:Error|Invariant|TypeError|ReferenceError|Unable to resolve|Cannot read|undefined is not|No routes found)|JavascriptException|FATAL EXCEPTION|Invariant Violation|Unable to resolve module|Failed to construct transformer|Metro.*(?:404|500)|BUNDLE.*ERROR|RedBox|Could not get BatchedBridge/i;
 
+function extractLogcatErrors(logcatText: string) {
+  const lines = logcatText.split(/\r?\n/);
+  return lines
+    .filter((line, index) => {
+      if (!logcatErrorPattern.test(line)) return false;
+      if (!/FATAL EXCEPTION/i.test(line)) return true;
+
+      const fatalBlock = lines.slice(index, index + 25).join("\n");
+      return !(
+        /com\.android\.commands\.uiautomator/i.test(fatalBlock) &&
+        /UiAutomationService .*already registered/i.test(fatalBlock)
+      );
+    })
+    .map((line) => line.trim())
+    .slice(0, 20);
+}
+
 function ensureDirs() {
   for (const dir of [screenshotDir, diffDir, heatmapDir, logDir, reportDir]) {
     mkdirSync(dir, { recursive: true });
@@ -417,10 +434,7 @@ async function validateRender(
       : "";
   const searchable = compactText(`${xmlText}\n${logcatText}`);
   const sentinelsFound = expected.filter((sentinel) => searchable.includes(sentinel));
-  const logcatErrors = logcatText
-    .split(/\r?\n/)
-    .filter((line) => logcatErrorPattern.test(line))
-    .slice(0, 20);
+  const logcatErrors = extractLogcatErrors(logcatText);
   const invalidReasons: string[] = [];
   const likelyBlank = isLikelyBlankOrShell(metrics);
 

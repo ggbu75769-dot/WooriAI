@@ -45,9 +45,9 @@ services:
       retries: 5
 
   api:
-    image: node:20-alpine
-    working_dir: /workspace
-    command: ["sh", "-c", "echo 'WooriAI API skeleton container ready'; sleep infinity"]
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
     environment:
       NODE_ENV: development
       PORT: 3000
@@ -55,10 +55,16 @@ services:
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://minio:9000
       S3_BUCKET: wooriai-local
+      S3_ACCESS_KEY_ID: wooriai-local
+      S3_SECRET_ACCESS_KEY: change-me-local-only
+      JWT_ACCESS_SECRET: change-me-local-only-access
+      JWT_REFRESH_SECRET: change-me-local-only-refresh
+      WOORIAI_ADMIN_TOKEN: dev-admin-token
+      AFFILIATE_ALLOWED_DOMAINS: coupang.com,link.coupang.com,smartstore.naver.com,shopping.naver.com,brand.naver.com
+      AFFILIATE_CLICK_IP_SALT: change-me-local-only
+      ANALYTICS_ANON_SALT: change-me-local-only
     ports:
       - "3000:3000"
-    volumes:
-      - ../..:/workspace
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,6 +72,52 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+
+  admin:
+    build:
+      context: ../..
+      dockerfile: infra/docker/admin.Dockerfile
+    environment:
+      ADMIN_API_PROXY_TARGET: http://api:3000
+    ports:
+      - "3001:3001"
+    depends_on:
+      api:
+        condition: service_started
+
+  publisher:
+    build:
+      context: ../..
+      dockerfile: infra/docker/publisher.Dockerfile
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://wooriai:wooriai_dev_password@postgres:5432/wooriai_dev
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: change-me-local-only-access
+      JWT_REFRESH_SECRET: change-me-local-only-refresh
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://wooriai:wooriai_dev_password@postgres:5432/wooriai_dev
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: change-me-local-only-access
+      JWT_REFRESH_SECRET: change-me-local-only-refresh
+      PRIVACY_PROCESSOR_MODE: mock
+      NOTIFICATION_PROVIDER_MODE: mock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   wooriai_postgres_data:

@@ -1,4 +1,4 @@
-import { IsIn, IsNotEmpty, IsNotEmptyObject, IsObject, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
+import { IsIn, IsISO8601, IsNotEmpty, IsNotEmptyObject, IsObject, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
 
 // COM-103: CMS draft -> review -> publish workflow (round5a-sprint2-plan.md §3).
 // entityType enumerates the live tables a content revision can target; payload
@@ -49,6 +49,11 @@ export class RejectContentRevisionDto {
   @IsNotEmpty()
   @MaxLength(500)
   note!: string;
+}
+
+export class ScheduleContentRevisionDto {
+  @IsISO8601({ strict: true })
+  scheduledFor!: string;
 }
 
 /**

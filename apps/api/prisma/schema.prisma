@@ -144,6 +144,64 @@ enum AdminRole {
   @@map("admin_role")
 }
 
+enum ConsentAction {
+  accepted
+  revoked
+  acknowledged
+
+  @@map("consent_action")
+}
+
+enum ConsentSource {
+  mobile
+  web
+  admin
+
+  @@map("consent_source")
+}
+
+enum PrivacyRequestType {
+  deletion
+  export
+  correction
+
+  @@map("privacy_request_type")
+}
+
+enum PrivacyRequestState {
+  requested
+  access_revoked
+  processor_delete_queued
+  purging
+  retained_exception
+  completed
+  failed
+  cancelled
+
+  @@map("privacy_request_state")
+}
+
+enum ProductLinkHealthState {
+  healthy
+  redirected
+  stale
+  failed
+  blocked
+
+  @@map("product_link_health_state")
+}
+
+enum NotificationDeliveryState {
+  queued
+  sending
+  sent
+  opened
+  failed
+  cancelled
+
+  @@map("notification_delivery_state")
+}
+
 model User {
   id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   authProvider    AuthProvider @map("auth_provider")
@@ -158,11 +216,30 @@ model User {
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime?    @map("deleted_at") @db.Timestamptz(6)
   paymentMethods  UserPaymentMethod[]
+  oauthIdentities OAuthIdentity[]
 
   @@unique([authProvider, providerUserId], map: "uq_users_provider")
   @@index([email], map: "idx_users_email")
   @@index([deletedAt], map: "idx_users_deleted_at")
   @@map("users")
+}
+
+model OAuthIdentity {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String       @map("user_id") @db.Uuid
+  provider        AuthProvider
+  providerSubject String       @map("provider_subject") @db.VarChar(191)
+  emailAtLink     String?      @map("email_at_link") @db.VarChar(320)
+  linkedAt        DateTime     @default(now()) @map("linked_at") @db.Timestamptz(6)
+  lastVerifiedAt  DateTime     @default(now()) @map("last_verified_at") @db.Timestamptz(6)
+  unlinkedAt      DateTime?    @map("unlinked_at") @db.Timestamptz(6)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject], map: "uq_oauth_identities_provider_subject")
+  @@index([userId, unlinkedAt], map: "idx_oauth_identities_user_unlinked")
+  @@map("oauth_identities")
 }
 
 model UserPaymentMethod {
@@ -194,6 +271,7 @@ model UserDevice {
   osVersion           String?  @map("os_version") @db.VarChar(64)
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  disabledAt          DateTime? @map("disabled_at") @db.Timestamptz(6)
 
   @@index([userId], map: "idx_user_devices_user_id")
   @@map("user_devices")
@@ -208,6 +286,7 @@ model Household {
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  ownershipVersion Int     @default(1) @map("ownership_version")
 
   @@index([ownerUserId], map: "idx_households_owner_user_id")
   @@map("households")
@@ -306,6 +385,8 @@ model ItemTemplate {
   nextReviewAt              DateTime?      @map("next_review_at") @db.Timestamptz(6)
   sourceNote                String?        @map("source_note") @db.Text
   contentStatus             ContentStatus  @default(draft) @map("content_status")
+  contentVersion            Int            @default(1) @map("content_version")
+  lastContentCheckAt        DateTime?      @map("last_content_check_at") @db.Timestamptz(6)
   createdAt                 DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                 DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -338,6 +419,7 @@ model Expense {
   merchant             String?       @db.VarChar(120)
   paymentMethod        PaymentMethod @default(unknown) @map("payment_method")
   paymentMethodId      String?       @map("payment_method_id") @db.Uuid
+  paymentMethodLabelSnapshot String? @map("payment_method_label_snapshot") @db.VarChar(80)
   expenseType          ExpenseType   @default(expense) @map("expense_type")
   source               ExpenseSource @default(manual)
   memo                 String?       @db.Text
@@ -400,6 +482,7 @@ model ProductLink {
   isSponsored          Boolean         @default(false) @map("is_sponsored")
   sponsorLabel         String?         @map("sponsor_label") @db.VarChar(80)
   priceSnapshotKrw     Int?            @map("price_snapshot_krw")
+  priceCheckedAt       DateTime?        @map("price_checked_at") @db.Timestamptz(6)
   displayOrder         Int             @default(0) @map("display_order")
   active               Boolean         @default(true)
   disclosureText       String?         @map("disclosure_text") @db.VarChar(200)
@@ -499,6 +582,82 @@ model Consent {
   @@map("consents")
 }
 
+model LegalDocument {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentType     String    @map("document_type") @db.VarChar(60)
+  locale           String    @default("ko-KR") @db.VarChar(20)
+  version          String    @db.VarChar(30)
+  title            String    @db.VarChar(160)
+  bodyMarkdown     String    @map("body_markdown") @db.Text
+  publicUrl        String?   @map("public_url") @db.Text
+  contentHash      String    @map("content_hash") @db.VarChar(64)
+  required         Boolean   @default(false)
+  placeholder      Boolean   @default(true)
+  effectiveAt      DateTime  @map("effective_at") @db.Timestamptz(6)
+  publishedAt      DateTime? @map("published_at") @db.Timestamptz(6)
+  retiredAt        DateTime? @map("retired_at") @db.Timestamptz(6)
+  createdByAdminId String?   @map("created_by_admin_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([documentType, locale, version], map: "uq_legal_documents_type_locale_version")
+  @@index([documentType, locale, effectiveAt], map: "idx_legal_documents_current")
+  @@map("legal_documents")
+}
+
+model ConsentEvent {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  legalDocumentId String        @map("legal_document_id") @db.Uuid
+  action          ConsentAction
+  contentHash     String        @map("content_hash") @db.VarChar(64)
+  source          ConsentSource
+  appVersion      String?       @map("app_version") @db.VarChar(32)
+  ipHash          String?       @map("ip_hash") @db.VarChar(128)
+  userAgentHash   String?       @map("user_agent_hash") @db.VarChar(128)
+  occurredAt      DateTime      @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  @@index([userId, occurredAt], map: "idx_consent_events_user_occurred")
+  @@index([legalDocumentId], map: "idx_consent_events_document")
+  @@map("consent_events")
+}
+
+model PrivacyRequest {
+  id                   String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String              @map("user_id") @db.Uuid
+  requestType          PrivacyRequestType  @map("request_type")
+  state                PrivacyRequestState @default(requested)
+  requestedAt          DateTime            @default(now()) @map("requested_at") @db.Timestamptz(6)
+  dueAt                DateTime?           @map("due_at") @db.Timestamptz(6)
+  accessRevokedAt      DateTime?           @map("access_revoked_at") @db.Timestamptz(6)
+  completedAt          DateTime?           @map("completed_at") @db.Timestamptz(6)
+  failureCode          String?             @map("failure_code") @db.VarChar(80)
+  retentionSummaryJson Json?               @map("retention_summary_json") @db.JsonB
+  statusTokenHash      String?             @unique @map("status_token_hash") @db.VarChar(128)
+  exportObjectKey      String?             @map("export_object_key") @db.Text
+  exportExpiresAt      DateTime?           @map("export_expires_at") @db.Timestamptz(6)
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([userId, requestType, state], map: "idx_privacy_requests_user_type_state")
+  @@index([state, requestedAt], map: "idx_privacy_requests_state_requested")
+  @@map("privacy_requests")
+}
+
+model PrivacyRequestEvent {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  privacyRequestId String               @map("privacy_request_id") @db.Uuid
+  previousState    PrivacyRequestState? @map("previous_state")
+  nextState        PrivacyRequestState  @map("next_state")
+  actorType        String               @map("actor_type") @db.VarChar(30)
+  eventCode        String               @map("event_code") @db.VarChar(80)
+  metadataJson     Json?                @map("metadata_json") @db.JsonB
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([privacyRequestId, createdAt], map: "idx_privacy_request_events_request_created")
+  @@map("privacy_request_events")
+}
+
 model Attachment {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   householdId      String    @map("household_id") @db.Uuid
@@ -563,6 +722,8 @@ model AdminUser {
   totpSecret       String?   @map("totp_secret") @db.Text
   mfaEnabledAt     DateTime? @map("mfa_enabled_at") @db.Timestamptz(6)
   mfaRecoveryCodes Json?     @map("mfa_recovery_codes") @db.JsonB
+  invitedByAdminId String?   @map("invited_by_admin_id") @db.Uuid
+  disabledAt       DateTime? @map("disabled_at") @db.Timestamptz(6)
 
   @@map("admin_users")
 }
@@ -625,6 +786,8 @@ model ContentRevision {
   reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz(6)
   publishedAt     DateTime? @map("published_at") @db.Timestamptz(6)
   scheduledFor    DateTime? @map("scheduled_for") @db.Timestamptz(6)
+  publishClaimedAt DateTime? @map("publish_claimed_at") @db.Timestamptz(6)
+  publishErrorCode String?   @map("publish_error_code") @db.VarChar(80)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -664,4 +827,213 @@ model AnalyticsEvent {
 
   @@index([eventName, occurredAt], map: "idx_analytics_events_name_occurred")
   @@map("analytics_events")
+}
+
+model JobOutbox {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  topic         String    @db.VarChar(80)
+  aggregateType String    @map("aggregate_type") @db.VarChar(80)
+  aggregateId   String    @map("aggregate_id") @db.VarChar(191)
+  dedupeKey     String    @map("dedupe_key") @db.VarChar(191)
+  schemaVersion Int       @default(1) @map("schema_version")
+  payloadJson   Json      @map("payload_json") @db.JsonB
+  traceId       String?   @map("trace_id") @db.VarChar(64)
+  visibleAt     DateTime  @default(now()) @map("visible_at") @db.Timestamptz(6)
+  publishedAt   DateTime? @map("published_at") @db.Timestamptz(6)
+  attemptCount  Int       @default(0) @map("attempt_count")
+  lastErrorCode String?   @map("last_error_code") @db.VarChar(80)
+  claimedAt     DateTime? @map("claimed_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([topic, dedupeKey], map: "uq_job_outbox_topic_dedupe")
+  @@index([publishedAt, visibleAt], map: "idx_job_outbox_pending_visible")
+  @@map("job_outbox")
+}
+
+model DeadLetterJob {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  originalJobId     String    @map("original_job_id") @db.VarChar(191)
+  topic             String    @db.VarChar(80)
+  dedupeKey         String    @map("dedupe_key") @db.VarChar(191)
+  payloadJson       Json      @map("payload_json") @db.JsonB
+  failureCode       String    @map("failure_code") @db.VarChar(80)
+  attempts          Int
+  firstFailedAt     DateTime  @map("first_failed_at") @db.Timestamptz(6)
+  lastFailedAt      DateTime  @map("last_failed_at") @db.Timestamptz(6)
+  resolvedAt        DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedByAdminId String?   @map("resolved_by_admin_id") @db.Uuid
+  resolutionNote    String?   @map("resolution_note") @db.VarChar(500)
+  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([topic, dedupeKey], map: "uq_dead_letter_jobs_topic_dedupe")
+  @@index([resolvedAt, lastFailedAt], map: "idx_dead_letter_jobs_open_failed")
+  @@map("dead_letter_jobs")
+}
+
+model ProcessedJob {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  topic       String   @db.VarChar(80)
+  dedupeKey   String   @map("dedupe_key") @db.VarChar(191)
+  resultCode  String   @map("result_code") @db.VarChar(80)
+  completedAt DateTime @default(now()) @map("completed_at") @db.Timestamptz(6)
+
+  @@unique([topic, dedupeKey], map: "uq_processed_jobs_topic_dedupe")
+  @@map("processed_jobs")
+}
+
+model QuickExpensePreset {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId      String    @map("household_id") @db.Uuid
+  userId           String?   @map("user_id") @db.Uuid
+  itemName         String    @map("item_name") @db.VarChar(120)
+  categoryId       String    @map("category_id") @db.Uuid
+  defaultAmountKrw Int?      @map("default_amount_krw")
+  paymentMethodId  String?   @map("payment_method_id") @db.Uuid
+  pinned           Boolean   @default(false)
+  useCount         Int       @default(0) @map("use_count")
+  lastUsedAt       DateTime? @map("last_used_at") @db.Timestamptz(6)
+  displayOrder     Int       @default(0) @map("display_order")
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([householdId, userId, archivedAt], map: "idx_quick_expense_presets_scope_active")
+  @@map("quick_expense_presets")
+}
+
+model SyncCursorState {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  householdId   String   @map("household_id") @db.Uuid
+  deviceIdHash  String   @map("device_id_hash") @db.VarChar(128)
+  cursor        String?  @db.Text
+  schemaVersion Int      @default(1) @map("schema_version")
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([userId, householdId, deviceIdHash], map: "uq_sync_cursor_states_scope_device")
+  @@map("sync_cursor_states")
+}
+
+model ItemContentSource {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  itemTemplateId String    @map("item_template_id") @db.Uuid
+  sourceType     String    @map("source_type") @db.VarChar(40)
+  title          String    @db.VarChar(200)
+  publicUrl      String    @map("public_url") @db.Text
+  publishedAt    DateTime? @map("published_at") @db.Timestamptz(6)
+  checkedAt      DateTime  @map("checked_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([itemTemplateId, checkedAt], map: "idx_item_content_sources_item_checked")
+  @@map("item_content_sources")
+}
+
+model ItemContextTag {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String  @unique @db.VarChar(60)
+  name         String  @db.VarChar(80)
+  active       Boolean @default(true)
+  displayOrder Int     @default(0) @map("display_order")
+
+  @@map("item_context_tags")
+}
+
+model ItemTemplateContextTag {
+  itemTemplateId String @map("item_template_id") @db.Uuid
+  contextTagId   String @map("context_tag_id") @db.Uuid
+  weight         Int    @default(0)
+
+  @@id([itemTemplateId, contextTagId])
+  @@map("item_template_context_tags")
+}
+
+model ProductLinkHealth {
+  productLinkId       String                 @id @map("product_link_id") @db.Uuid
+  state               ProductLinkHealthState @default(stale)
+  lastStatusCode      Int?                   @map("last_status_code")
+  finalDomain         String?                @map("final_domain") @db.VarChar(255)
+  checkedAt           DateTime?              @map("checked_at") @db.Timestamptz(6)
+  consecutiveFailures Int                    @default(0) @map("consecutive_failures")
+  priceCheckedAt      DateTime?              @map("price_checked_at") @db.Timestamptz(6)
+  disabledAt          DateTime?              @map("disabled_at") @db.Timestamptz(6)
+  failureReason       String?                @map("failure_reason") @db.VarChar(160)
+  updatedAt           DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("product_link_health")
+}
+
+model NotificationPreference {
+  userId          String   @id @map("user_id") @db.Uuid
+  familyEnabled   Boolean  @default(true) @map("family_enabled")
+  budgetEnabled   Boolean  @default(true) @map("budget_enabled")
+  syncEnabled     Boolean  @default(true) @map("sync_enabled")
+  stageEnabled    Boolean  @default(true) @map("stage_enabled")
+  serviceEnabled  Boolean  @default(true) @map("service_enabled")
+  marketingEnabled Boolean @default(false) @map("marketing_enabled")
+  quietHoursStart String?  @map("quiet_hours_start") @db.VarChar(5)
+  quietHoursEnd   String?  @map("quiet_hours_end") @db.VarChar(5)
+  timezone        String   @default("Asia/Seoul") @db.VarChar(64)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("notification_preferences")
+}
+
+model NotificationDelivery {
+  id          String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String                    @map("user_id") @db.Uuid
+  deviceId    String?                   @map("device_id") @db.Uuid
+  eventType   String                    @map("event_type") @db.VarChar(80)
+  dedupeKey   String                    @unique @map("dedupe_key") @db.VarChar(191)
+  state       NotificationDeliveryState @default(queued)
+  scheduledAt DateTime                  @map("scheduled_at") @db.Timestamptz(6)
+  sentAt      DateTime?                 @map("sent_at") @db.Timestamptz(6)
+  openedAt    DateTime?                 @map("opened_at") @db.Timestamptz(6)
+  failureCode String?                   @map("failure_code") @db.VarChar(80)
+  retryCount  Int                       @default(0) @map("retry_count")
+  createdAt   DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt], map: "idx_notification_deliveries_user_created")
+  @@index([state, scheduledAt], map: "idx_notification_deliveries_state_scheduled")
+  @@map("notification_deliveries")
+}
+
+model RemoteConfig {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  configKey   String   @unique @map("config_key") @db.VarChar(80)
+  valueJson   Json     @map("value_json") @db.JsonB
+  version     Int      @default(1)
+  active      Boolean  @default(true)
+  updatedByAdminId String? @map("updated_by_admin_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("remote_configs")
+}
+
+model SupportReport {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid
+  targetType  String   @map("target_type") @db.VarChar(40)
+  targetId    String?  @map("target_id") @db.Uuid
+  reasonCode  String   @map("reason_code") @db.VarChar(80)
+  state       String   @default("open") @db.VarChar(30)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([state, createdAt], map: "idx_support_reports_state_created")
+  @@map("support_reports")
+}
+
+model ReportIntegrityCheck {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  childId         String   @map("child_id") @db.Uuid
+  yearMonth       DateTime @map("year_month") @db.Date
+  ledgerTotalKrw  Int      @map("ledger_total_krw")
+  aggregateTotalKrw Int    @map("aggregate_total_krw")
+  matched         Boolean
+  checkedAt       DateTime @default(now()) @map("checked_at") @db.Timestamptz(6)
+
+  @@index([matched, checkedAt], map: "idx_report_integrity_checks_matched_checked")
+  @@map("report_integrity_checks")
 }

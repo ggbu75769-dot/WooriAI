@@ -7,6 +7,7 @@
  * needed for local HTTP dev. `ADMIN_API_PROXY_TARGET` points at the API's own
  * origin (server-side only; not exposed to the browser).
  */
+const path = require("path");
 const API_PROXY_TARGET = process.env.ADMIN_API_PROXY_TARGET ?? "http://localhost:3000";
 
 /**
@@ -21,6 +22,11 @@ const API_PROXY_TARGET = process.env.ADMIN_API_PROXY_TARGET ?? "http://localhost
  */
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Standalone tracing creates symlinks that require elevated Windows
+  // privileges. Local Windows builds still produce the real optimized `.next`
+  // artifact; Linux CI/container builds opt into the deployable standalone tree.
+  output: process.env.NEXT_STANDALONE === "1" ? "standalone" : undefined,
+  outputFileTracingRoot: path.join(__dirname, "../.."),
   async headers() {
     return [
       {

@@ -22,7 +22,8 @@ describe("standalone Android APK build", () => {
     expect(buildScript).toContain('"assembleRelease"');
     expect(buildScript).toContain('"--rerun-tasks"');
     expect(buildScript).not.toContain("reactNativeArchitectures=x86_64");
-    expect(buildScript).toContain("wooriai-0.0.0-release-${profile}.apk");
+    expect(buildScript).toContain("wooriai-${appConfig.expo.version}-release-${profile}.apk");
+    expect(buildScript).toContain('readFileSync(join(mobileRoot, "app.json"), "utf8")');
     expect(buildScript).toContain(
       'extraPackagerArgs = ["--max-workers", "1", "--entry-file", "${projectRoot}/index.js"]'
     );

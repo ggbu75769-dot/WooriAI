@@ -105,6 +105,20 @@ export type ExpenseShortcut = {
   useCount: number;
 };
 
+export type QuickExpensePreset = {
+  id: string;
+  householdId: string;
+  userId: string | null;
+  itemName: string;
+  categoryId: string;
+  defaultAmountKrw: number | null;
+  paymentMethodId: string | null;
+  pinned: boolean;
+  useCount: number;
+  lastUsedAt: string | null;
+  displayOrder: number;
+};
+
 export type Budget = {
   childId: string;
   yearMonth: string;
@@ -444,8 +458,7 @@ async function requestMultipartJson<T>(
   return data;
 }
 
-export async function oauthLogin(provider: "kakao" | "apple" | "google") {
-  return requestJson<{
+export type OAuthLoginResult = {
     user: {
       id: string;
       displayName: string;
@@ -454,9 +467,38 @@ export async function oauthLogin(provider: "kakao" | "apple" | "google") {
     };
     tokens: { accessToken: string; refreshToken: string; expiresIn: number };
     onboardingRequired: boolean;
-  }>("/auth/oauth-login", {
+};
+
+/** Development-only login retained for API tests and the isolated local fixture lane. */
+export async function oauthLogin(provider: "kakao" | "apple" | "google") {
+  return requestJson<OAuthLoginResult>("/auth/oauth-login", {
     method: "POST",
     body: { provider, providerToken: `dev-${provider}` }
+  });
+}
+
+export function prepareKakaoLogin(input: { redirectUri: string; codeChallenge: string }) {
+  return requestJson<{
+    transactionId: string;
+    state: string;
+    nonce: string;
+    authorizationUrl: string;
+  }>("/auth/kakao/prepare", {
+    method: "POST",
+    body: input
+  });
+}
+
+export function exchangeKakaoLogin(input: {
+  transactionId: string;
+  state: string;
+  code: string;
+  redirectUri: string;
+  codeVerifier: string;
+}) {
+  return requestJson<OAuthLoginResult>("/auth/kakao/exchange", {
+    method: "POST",
+    body: input
   });
 }
 
@@ -652,6 +694,36 @@ export function listExpenses(token: string, childId: string, yearMonth?: string)
 export function listExpenseShortcuts(token: string, childId: string) {
   if (isLocalToken(token)) return local(() => localBackend.listExpenseShortcuts(childId));
   return requestJson<{ shortcuts: ExpenseShortcut[] }>(`/children/${childId}/expense-shortcuts`, { token });
+}
+
+export function listQuickExpensePresets(token: string, householdId: string) {
+  if (isLocalToken(token)) return local(() => ({ presets: [] as QuickExpensePreset[] }));
+  return requestJson<{ presets: QuickExpensePreset[] }>(`/households/${householdId}/expense-presets`, { token });
+}
+
+export function createQuickExpensePreset(
+  token: string,
+  householdId: string,
+  body: {
+    itemName: string;
+    categoryId: string;
+    defaultAmountKrw?: number;
+    paymentMethodId?: string;
+    pinned?: boolean;
+  }
+) {
+  return requestJson<QuickExpensePreset>(`/households/${householdId}/expense-presets`, {
+    method: "POST",
+    token,
+    body
+  });
+}
+
+export function recordQuickExpensePresetUse(token: string, householdId: string, presetId: string) {
+  return requestJson<QuickExpensePreset>(`/households/${householdId}/expense-presets/${presetId}/use`, {
+    method: "POST",
+    token
+  });
 }
 
 export function getExpense(token: string, expenseId: string) {

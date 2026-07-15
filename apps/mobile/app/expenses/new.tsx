@@ -3,7 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
-import { listExpenseShortcuts, listPaymentMethods, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import {
+  listExpenseShortcuts,
+  listPaymentMethods,
+  listQuickExpensePresets,
+  LOCAL_SESSION_TOKEN,
+  recordQuickExpensePresetUse
+} from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
@@ -172,6 +178,7 @@ export default function NewExpenseScreen() {
   const prefilledQuickItem = quickExpenseItems.find((item) => item.label === prefilledItemName);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
+  const householdId = useSessionStore((state) => state.defaultHouseholdId);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   // Preview/pixel-lock capture (no session) keeps the fixed "기저귀"/"38500" seed so the
   // reference screenshot stays deterministic. A real or test session starts blank so opening
@@ -272,6 +279,12 @@ export default function NewExpenseScreen() {
     queryFn: () => listExpenseShortcuts(authToken!, childId!)
   });
   const recentItemChips = expenseShortcutsQuery.data?.shortcuts ?? [];
+  const presetsQuery = useQuery({
+    queryKey: ["expense-presets", householdId],
+    enabled: Boolean(authToken && householdId),
+    queryFn: () => listQuickExpensePresets(authToken!, householdId!)
+  });
+  const savedPresets = presetsQuery.data?.presets ?? [];
 
   // MOB-102 (round5a-sprint1-plan.md §3.2, §3.3): saves to the local offline store first --
   // this always "succeeds" as soon as the local write lands, well before the server has
@@ -434,6 +447,27 @@ export default function NewExpenseScreen() {
                 ) : null}
               </View>
             ) : null}
+          </View>
+        ) : null}
+
+        {authToken && savedPresets.length > 0 ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>고정 품목</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {savedPresets.map((preset) => (
+                <CategoryChip
+                  key={preset.id}
+                  label={`${preset.pinned ? "★ " : ""}${preset.itemName}${preset.defaultAmountKrw ? ` · ${preset.defaultAmountKrw.toLocaleString("ko-KR")}원` : ""}`}
+                  onPress={() => {
+                    setItemName(preset.itemName);
+                    if (preset.defaultAmountKrw) setAmountText(String(preset.defaultAmountKrw));
+                    const matchedCategory = quickExpenseCategories.find((category) => category.id === preset.categoryId);
+                    if (matchedCategory) setSelectedCategory(matchedCategory);
+                    if (householdId) void recordQuickExpensePresetUse(authToken, householdId, preset.id).catch(() => undefined);
+                  }}
+                />
+              ))}
+            </ScrollView>
           </View>
         ) : null}
 

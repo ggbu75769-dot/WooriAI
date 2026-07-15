@@ -17,6 +17,7 @@
     },
     "android": {
       "package": "com.anonymous.wooriai",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#DB4F2E"

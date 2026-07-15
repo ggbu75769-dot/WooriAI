@@ -251,6 +251,68 @@ export function listItemTemplates() {
   return request<{ items: ItemTemplate[] }>("/admin/item-templates");
 }
 
+export type DeadLetterJobSummary = {
+  id: string;
+  topic: string;
+  failureCode: string;
+  attempts: number;
+  lastFailedAt: string;
+};
+
+export type OperationsRuntime = {
+  nodeEnv: string;
+  adapters: Record<string, boolean>;
+  queues: { pendingOutbox: number; openDlq: number; failedPrivacy: number };
+};
+
+export function getOperationsRuntime() {
+  return request<OperationsRuntime>("/admin/operations/runtime");
+}
+
+export function listDeadLetterJobs() {
+  return request<{ jobs: DeadLetterJobSummary[] }>("/admin/jobs/dead-letter");
+}
+
+export function retryDeadLetterJob(id: string) {
+  return request<{ success: true }>(`/admin/jobs/dead-letter/${id}/retry`, { method: "POST", body: "{}" });
+}
+
+export function cancelDeadLetterJob(id: string) {
+  return request<{ success: true }>(`/admin/jobs/dead-letter/${id}/cancel`, { method: "POST", body: "{}" });
+}
+
+export function listPrivacyOperations() {
+  return request<{ requests: Array<{ id: string; requestType: string; state: string; requestedAt: string; failureCode: string | null }> }>("/admin/operations/privacy-requests");
+}
+
+export function retryPrivacyOperation(id: string) {
+  return request<{ success: true }>(`/admin/operations/privacy-requests/${id}/retry`, { method: "POST", body: "{}" });
+}
+
+export function getRemoteAppConfig() {
+  return request<Record<string, unknown>>("/app-config");
+}
+
+export function updateRemoteAppConfig(config: Record<string, unknown>) {
+  return request<Record<string, unknown>>("/admin/app-config", { method: "PATCH", body: JSON.stringify(config) });
+}
+
+export function listLinkHealthOperations() {
+  return request<{ links: Array<{ id: string; title: string; active: boolean; health: { state: string; checkedAt: string | null } | null }> }>("/admin/operations/link-health");
+}
+
+export function listScheduledOperations() {
+  return request<{ revisions: Array<{ id: string; entityType: string; status: string; scheduledFor: string; publishErrorCode: string | null }> }>("/admin/operations/scheduled-content");
+}
+
+export function getNotificationOperations() {
+  return request<{ states: Array<{ state: string; _count: { _all: number } }> }>("/admin/operations/notification-summary");
+}
+
+export function listIntegrityOperations() {
+  return request<{ checks: Array<{ id: string; childId: string; yearMonth: string; checkedAt: string }> }>("/admin/operations/integrity-mismatches");
+}
+
 export function getCatalogCompleteness() {
   return request<CatalogCompleteness>("/admin/catalog-completeness");
 }

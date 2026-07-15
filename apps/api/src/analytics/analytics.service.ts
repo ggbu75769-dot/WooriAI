@@ -29,6 +29,22 @@ export class AnalyticsService {
     const rejected: AnalyticsEventRejection[] = [];
     let accepted = 0;
 
+    const analyticsConsent = await this.prisma.consent.findUnique({
+      where: {
+        userId_consentType_version: {
+          userId: user.id,
+          consentType: "analytics",
+          version: "2026-07-06"
+        }
+      }
+    });
+    if (!analyticsConsent?.accepted || analyticsConsent.revokedAt) {
+      return {
+        accepted: 0,
+        rejected: rawEvents.map((_, index) => ({ index, reason: "ANALYTICS_CONSENT_REQUIRED" }))
+      };
+    }
+
     // Always server-derived from the authenticated user -- any user_anon_id /
     // household_anon_id a client might try to smuggle in is impossible here
     // anyway because analyticsEventEnvelopeSchema is .strict() and doesn't

@@ -4,6 +4,7 @@ import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { isDevOrTestEnv } from "../common/config/require-secret";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { RefreshTokenStore } from "./refresh-token.store";
+import { incrementOperationalMetric } from "../metrics/metrics.registry";
 import { TokenService } from "./token.service";
 
 type OAuthLoginInput = {
@@ -83,6 +84,7 @@ export class AuthService {
       // (or a client retried a rotation it thought had failed). Either way, the
       // whole session family is no longer trustworthy and must be fully revoked.
       await this.refreshTokenStore.revokeFamily(record.familyId);
+      incrementOperationalMetric("refresh_reuse_detected");
       throw new UnauthorizedException("토큰을 다시 확인해주세요.");
     }
 
@@ -104,6 +106,7 @@ export class AuthService {
       // the whole family (including whichever concurrent request "won" the
       // rotation, if any) and reject.
       await this.refreshTokenStore.revokeFamily(record.familyId);
+      incrementOperationalMetric("refresh_reuse_detected");
       throw new UnauthorizedException("토큰을 다시 확인해주세요.");
     }
 
