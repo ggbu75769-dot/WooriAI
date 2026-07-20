@@ -22,33 +22,35 @@ describe("D0 theme tokens", () => {
   it("defines the coral scale", async () => {
     const { theme } = await import("./theme");
     expect(theme.colors.coral).toEqual({
-      50: "#FFF3F0",
-      100: "#FFE4DD",
-      200: "#FFC9BB",
-      300: "#FFA88E",
-      400: "#F97B5C",
-      500: "#EF6644",
-      600: "#DB4F2E",
-      700: "#B93E23"
+      50: "#FFF4EF",
+      100: "#FFE4D8",
+      200: "#FFC8B5",
+      300: "#FFA58A",
+      400: "#F98060",
+      500: "#E85F3B",
+      600: "#C94627",
+      700: "#A93720",
+      800: "#862D1D",
+      900: "#67251B"
     });
   });
 
   it("defines cream, text, and semantic token groups", async () => {
     const { theme } = await import("./theme");
-    expect(theme.colors.cream).toEqual({ bg: "#FFF8F1", surface: "#FFFFFF", surfaceAlt: "#FFF9F3" });
-    expect(theme.colors.text).toEqual({ primary: "#3D3733", secondary: "#6E645C", tertiary: "#9C918A" });
+    expect(theme.colors.cream).toEqual({ bg: "#FFFDFC", surface: "#FFFFFF", surfaceAlt: "#F8F6F4" });
+    expect(theme.colors.text).toEqual({ primary: "#211E1C", secondary: "#5F5854", tertiary: "#7A716B" });
     expect(theme.colors.semantic).toEqual({
-      success: "#2E9E6B",
-      warning: "#E8A13A",
-      danger: "#D3382F",
-      info: "#5B7FA6"
+      success: "#16794B",
+      warning: "#B45309",
+      danger: "#B42318",
+      info: "#1D4ED8"
     });
   });
 
   it("redirects legacy flat color keys onto the new D0 tokens instead of deleting them", async () => {
     const { theme } = await import("./theme");
-    expect(theme.colors.mainCoral).toBe(theme.colors.coral[500]);
-    expect(theme.colors.subCoral).toBe(theme.colors.coral[400]);
+    expect(theme.colors.mainCoral).toBe(theme.colors.coral[600]);
+    expect(theme.colors.subCoral).toBe(theme.colors.coral[500]);
     expect(theme.colors.peach).toBe(theme.colors.coral[100]);
     expect(theme.colors.beige).toBe(theme.colors.cream.surfaceAlt);
     expect(theme.colors.brown).toBe(theme.colors.text.primary);
@@ -168,12 +170,12 @@ describe("D0 StageBadge component contract", () => {
 describe("D1 tab bar outlined/filled wiring", () => {
   const source = readSource("app/(tabs)/_layout.tsx");
 
-  it("keeps the 4 always-visible tab labels and the hidden more route", () => {
-    for (const label of ["홈", "기록", "준비템", "리포트", "더보기"]) {
+  it("keeps the five MOD_V1 tab labels visible", () => {
+    for (const label of ["홈", "기록", "준비템", "리포트", "프로필"]) {
       expect(source).toContain(label);
     }
     expect(source).toContain('name="more"');
-    expect(source).toContain("href: null");
+    expect(source).not.toContain("href: null");
   });
 
   it("defines an outlined (inactive) and filled (active) icon glyph pair per tab", () => {
@@ -182,8 +184,8 @@ describe("D1 tab bar outlined/filled wiring", () => {
     expect(source).toContain("focused ? tabs[name].filled : tabs[name].outline");
   });
 
-  it("tints the active tab with coral-500", () => {
-    expect(source).toContain("theme.colors.coral[500]");
-    expect(source).toContain("tabBarActiveTintColor: theme.colors.coral[500]");
+  it("tints the active tab with the canonical primary alias", () => {
+    expect(source).toContain("theme.colors.mainCoral");
+    expect(source).toContain("tabBarActiveTintColor: theme.colors.mainCoral");
   });
 });

@@ -1,0 +1,100 @@
+﻿{
+    "generatedAt":  "2026-07-19T12:09:13.5881574+00:00",
+    "apkSha256":  "C8FA8380AA9B688F2B85E05C57636BE6C029A804FDFE6930001272B3DC82D7C5",
+    "total":  10,
+    "passed":  10,
+    "minSeconds":  10.9,
+    "maxSeconds":  12.2,
+    "runs":  [
+                 {
+                     "run":  1,
+                     "visible":  true,
+                     "seconds":  11.6,
+                     "processAlive":  true,
+                     "processId":  "30703",
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  2,
+                     "visible":  true,
+                     "seconds":  11.5,
+                     "processAlive":  true,
+                     "processId":  "30844",
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  3,
+                     "visible":  true,
+                     "seconds":  11.2,
+                     "processAlive":  true,
+                     "processId":  "30976",
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  4,
+                     "visible":  true,
+                     "seconds":  11.5,
+                     "processAlive":  true,
+                     "processId":  "31108",
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  5,
+                     "visible":  true,
+                     "seconds":  11.5,
+                     "processAlive":  true,
+                     "processId":  "31241",
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  6,
+                     "visible":  true,
+                     "seconds":  12.2,
+                     "processAlive":  true,
+                     "processId":  "31368",
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  7,
+                     "visible":  true,
+                     "seconds":  10.9,
+                     "processAlive":  true,
+                     "processId":  "31501",
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  8,
+                     "visible":  true,
+                     "seconds":  11.7,
+                     "processAlive":  true,
+                     "processId":  "31638",
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  9,
+                     "visible":  true,
+                     "seconds":  12.2,
+                     "processAlive":  true,
+                     "processId":  "31771",
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  10,
+                     "visible":  true,
+                     "seconds":  11.8,
+                     "processAlive":  true,
+                     "processId":  "31902",
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 }
+             ]
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "project": "wooriai-release4c",
+  "scenarios": [
+    { "id": "WORKER-CRASH-01", "result": "PASS", "metrics": { "restartDelta": 1, "stuckClaims": 0 } },
+    { "id": "PUBLISHER-ACK-LOSS-03", "result": "PASS", "metrics": { "attempts": 1, "deliveries": 1, "duplicates": 0 } },
+    { "id": "CONFIG-ROLLOUT-04", "result": "PASS", "metrics": { "apiInstances": 2, "finalVersion": 2 } },
+    { "id": "CONFIG-REDIS-05", "result": "PASS", "metrics": { "crashes": 0, "finalVersion": 2 } },
+    { "id": "CONFIG-ROLLBACK-06", "result": "PASS", "metrics": { "finalVersion": 3 } },
+    { "id": "IMPORT-MISSING-OBJECT-09", "result": "PASS", "metrics": { "falseSuccess": 0, "recoveryStatus": 200 } }
+  ],
+  "shutdown": { "method": "docker compose stop", "containersRunning": 0, "volumesDeleted": false, "volumesPreserved": ["wooriai-release4c_wooriai_minio_data", "wooriai-release4c_postgres_data"], "otherProjectsTouched": false }
+}

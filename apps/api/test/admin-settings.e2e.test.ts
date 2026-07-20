@@ -327,12 +327,16 @@ describe("Admin CMS and settings APIs", () => {
       .send({ confirmationText: "DELETE ACCOUNT" })
       .expect(200)
       .expect(({ body }) => {
-        expect(body).toEqual({ success: true, flowId: "account_delete" });
+        expect(body).toEqual({
+          success: true,
+          flowId: "account_delete",
+          deletion: expect.objectContaining({ requestType: "deletion", state: "requested", dueAt: expect.any(String) })
+        });
       });
 
     await request(app.getHttpServer())
       .get("/api/v1/me")
       .set("Authorization", `Bearer ${accessToken}`)
-      .expect(401);
+      .expect(200);
   });
 });

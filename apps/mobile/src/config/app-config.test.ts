@@ -27,7 +27,23 @@ describe("mobile app config", () => {
       ...SAFE_APP_CONFIG,
       readOnlyMode: true,
       authProviders: ["kakao"],
-      featureFlags: { analytics: true, affiliate: true, import: true, notification: true },
+      featureFlags: {
+        ...SAFE_APP_CONFIG.featureFlags,
+        analytics: true,
+        affiliate: true,
+        import: true,
+        notification: true,
+        today_family_center: true,
+        preparation_calendar: true,
+        custom_bundles: true,
+        weekly_briefing: true,
+        receipt_assisted_entry: true,
+        expense_plan_link_suggestion: true,
+        recurring_purchase_prediction: true,
+        budget_variance_explanation: true,
+        external_recall_provider: true,
+        merchant_offer_comparison: true
+      },
       analyticsEnabled: true,
       affiliateEnabled: true,
       importEnabled: true,
@@ -38,6 +54,7 @@ describe("mobile app config", () => {
     expect(result.source).toBe("cache_fail_closed");
     expect(result.config.readOnlyMode).toBe(true);
     expect(result.config.authProviders).toEqual([]);
-    expect(Object.values(result.config.featureFlags)).toEqual([false, false, false, false]);
+    expect(Object.values(result.config.featureFlags)).toHaveLength(14);
+    expect(Object.values(result.config.featureFlags).every((enabled) => enabled === false)).toBe(true);
   });
 });

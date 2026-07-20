@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BASE_DELAY_MS, MAX_DELAY_MS, computeBackoffDelayMs, computeNextRetryAtIso } from "./backoff";
+import {
+  BASE_DELAY_MS,
+  MAX_AUTOMATIC_RETRY_ATTEMPTS,
+  MAX_DELAY_MS,
+  computeBackoffDelayMs,
+  computeNextRetryAtIso
+} from "./backoff";
 
 describe("offline outbox backoff", () => {
   it("doubles the delay on each successive attempt", () => {
@@ -23,5 +29,10 @@ describe("offline outbox backoff", () => {
     const now = "2026-07-12T00:00:00.000Z";
     const nextRetryAt = computeNextRetryAtIso(now, 1);
     expect(new Date(nextRetryAt).getTime() - new Date(now).getTime()).toBe(BASE_DELAY_MS);
+  });
+
+  it("uses a finite automatic retry cap", () => {
+    expect(MAX_AUTOMATIC_RETRY_ATTEMPTS).toBeGreaterThan(1);
+    expect(MAX_AUTOMATIC_RETRY_ATTEMPTS).toBeLessThanOrEqual(10);
   });
 });

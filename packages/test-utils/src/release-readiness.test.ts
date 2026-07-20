@@ -26,7 +26,7 @@ describe("Batch 11 release readiness artifacts", () => {
       "pnpm test",
       "test:e2e",
       "pnpm build",
-      "pnpm peers check",
+      "pnpm install --frozen-lockfile --strict-peer-dependencies --lockfile-only",
       "pnpm.cmd",
       "docs/qa/evidence/latest-release-gate.md"
     ]) {
@@ -70,6 +70,9 @@ describe("Batch 11 release readiness artifacts", () => {
     ]) {
       expect(script).toContain(requiredText);
     }
+
+    const androidScript = read("scripts/pixel-lock/android-pixel-lock.ts");
+    expect(androidScript).toContain('process.env.PIXEL_ANDROID_COLD_EACH === "1"');
   });
 
   it("publishes QA runbook, release checklist, rollback, accessibility, and coverage evidence docs", () => {

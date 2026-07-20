@@ -1,16 +1,23 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { BadRequestException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { ContentStatus, Prisma } from "@prisma/client";
+import { onboardingCompletionResponseSchema, onboardingStarterPreviewResponseSchema } from "@wooriai/contracts";
 import {
   assertMoneyKrw,
   calculateChildStage,
+  calculatePreparationLifecycle,
   getSeoulMonthRange,
   getSeoulToday,
   isFutureSeoulDate,
   isValidCalendarDate,
+  normalizeOnboardingCompletionInput,
+  onboardingStarterAvailability,
+  OnboardingContractError,
+  rankOnboardingStarterItems,
   sortRecommendedItems,
   type ChildStageCode,
   type ChildStageMode,
+  type ChildSex,
   type ExpenseSource,
   type ExpenseType,
   type ImportStatus,
@@ -22,18 +29,13 @@ import {
 } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
+import { findCurrentLegalDocuments, legalDocumentLocale, requiredLegalDocumentTypes } from "../legal/legal-document-policy";
 import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
 import { parseImportFile, type ParsedImportRow } from "../imports/import-parser";
 import { hashClickIp, isAllowedAffiliateUrl, PRODUCT_LINK_NOT_FOUND_ERROR } from "../items-commerce/affiliate-link-guard.util";
+import type { CompleteOnboardingDto, StarterItemsPreviewDto } from "./dto/complete-onboarding.dto";
 
 type DbClient = Prisma.TransactionClient;
-
-type ConsentDefinition = {
-  type: string;
-  version: string;
-  required: boolean;
-  title: string;
-};
 
 type ChildRow = {
   id: string;
@@ -43,9 +45,12 @@ type ChildRow = {
   dueDate: Date | null;
   birthDate: Date | null;
   manualStage: ChildStageCode | null;
-  gender: string | null;
+  stageOverride: boolean;
+  gender: ChildSex | null;
   profileImageUrl: string | null;
   preparedItemsSetAt: Date | null;
+  preparedStepState: "not_started" | "selected" | "skipped" | "completed_none";
+  onboardingCompletedAt: Date | null;
   deletedAt: Date | null;
 };
 
@@ -62,9 +67,12 @@ type ExpenseRow = {
   paymentMethodId: string | null;
   memo: string | null;
   linkedItemTemplateId: string | null;
+  linkedItemDefinitionId: string | null;
+  expenseCategoryV2Id: string | null;
   expenseType: ExpenseType;
   source: ExpenseSource;
   createdByUserId: string;
+  payerUserId: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -130,7 +138,7 @@ type CreateChildInput = {
   dueDate?: string;
   birthDate?: string;
   manualStage?: ChildStageCode;
-  gender?: string;
+  gender?: ChildSex;
 };
 
 type UpdateChildInput = {
@@ -139,7 +147,7 @@ type UpdateChildInput = {
   dueDate?: string;
   birthDate?: string;
   manualStage?: ChildStageCode;
-  gender?: string;
+  gender?: ChildSex;
 };
 
 export type CreateExpenseInput = {
@@ -152,7 +160,10 @@ export type CreateExpenseInput = {
   paymentMethodId?: string;
   memo?: string;
   linkedItemTemplateId?: string;
+  linkedItemDefinitionId?: string;
+  expenseCategoryV2Id?: string;
   expenseType?: ExpenseType;
+  payerUserId?: string;
   source?: ExpenseSource;
 };
 
@@ -165,6 +176,7 @@ export type UpdateExpenseInput = {
   expenseType?: ExpenseType;
   paymentMethod?: PaymentMethod;
   paymentMethodId?: string | null;
+  payerUserId?: string;
 };
 
 export type CreateImportJobInput = {
@@ -221,13 +233,6 @@ const defaultImportCategoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const importMaxFileSizeBytes = 10 * 1024 * 1024;
 const importMaxRows = 2000;
 
-const consentDefinitions: ConsentDefinition[] = [
-  { type: "terms", version: "2026-07-06", required: true, title: "서비스 이용약관" },
-  { type: "privacy", version: "2026-07-06", required: true, title: "개인정보 처리 동의" },
-  { type: "marketing", version: "2026-07-06", required: false, title: "소식 알림 동의" },
-  { type: "analytics", version: "2026-07-06", required: false, title: "서비스 분석 동의" }
-];
-
 function memberRoleFor(user: AuthenticatedUser, householdId: string): MemberRole | null {
   return user.households.find((household) => household.id === householdId)?.role ?? null;
 }
@@ -274,6 +279,47 @@ function normalizeChildInput(input: {
   }
 }
 
+function normalizeCompleteOnboardingInput(input: CompleteOnboardingDto) {
+  try {
+    return normalizeOnboardingCompletionInput({ ...input, budget: input.budget ?? null }, getSeoulToday());
+  } catch (error) {
+    if (!(error instanceof OnboardingContractError)) throw error;
+    const messages: Record<string, string> = {
+      ONBOARDING_PATH_INVALID: "시작 상태를 다시 선택해 주세요.",
+      CHILD_NAME_INVALID: "이름은 60자 이내로 입력해 주세요.",
+      CHILD_SEX_INVALID: "아이 정보를 다시 선택해 주세요.",
+      MANUAL_STAGE_INVALID: "성장 단계를 다시 선택해 주세요.",
+      BUDGET_INVALID: "예산 월과 금액을 다시 확인해 주세요.",
+      ONBOARDING_DRAFT_CONFLICT: "온보딩 정보가 변경되었어요. 다시 확인해 주세요.",
+      CHILD_NAME_REQUIRED: "태명 또는 아이 이름을 입력해 주세요.",
+      BIRTH_DATE_INVALID: "생일은 오늘 또는 이전의 실제 날짜여야 해요.",
+      DUE_DATE_INVALID: "실제 출산 예정일을 선택해 주세요.",
+      ONBOARDING_PATH_FIELDS_INCOMPATIBLE: "선택한 경로와 날짜를 다시 확인해 주세요.",
+      MANUAL_STAGE_REQUIRED: "직접 선택한 단계와 변경 사유를 확인해 주세요.",
+      PREPARED_STATE_INVALID: "선택 항목과 완료 방식을 다시 확인해 주세요."
+    };
+    throw new BadRequestException({ code: error.code, message: messages[error.code] });
+  }
+}
+
+function preparationLifecycleForDraft(input: StarterItemsPreviewDto | CompleteOnboardingDto["child"]) {
+  const lifecycle = calculatePreparationLifecycle({
+    stageMode: input.stageMode,
+    dueDate: input.dueDate ?? null,
+    birthDate: input.birthDate ?? null,
+    manualStage: input.manualStage ?? null,
+    today: getSeoulToday()
+  });
+  if (!lifecycle.available) {
+    throw new BadRequestException({ code: lifecycle.reason, message: "생애주기 정보를 다시 확인해 주세요." });
+  }
+  return lifecycle;
+}
+
+function isSerializableTransactionConflict(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2034");
+}
+
 /**
  * Postgres-backed onboarding/finance/commerce store, replacing the earlier
  * in-memory Maps. Class name and every public method signature/response shape are
@@ -284,17 +330,41 @@ export class OnboardingStoreService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async listConsents(user: AuthenticatedUser) {
-    const saved = await this.prisma.consent.findMany({ where: { userId: user.id } });
+    const documents = await findCurrentLegalDocuments(this.prisma, legalDocumentLocale());
+    const [saved, events] = await Promise.all([
+      this.prisma.consent.findMany({ where: { userId: user.id } }),
+      this.prisma.consentEvent.findMany({
+        where: { userId: user.id, legalDocumentId: { in: documents.map((document) => document.id) } },
+        orderBy: { occurredAt: "desc" }
+      })
+    ]);
+    const latestEventByDocument = new Map<string, (typeof events)[number]>();
+    for (const event of events) {
+      if (!latestEventByDocument.has(event.legalDocumentId)) latestEventByDocument.set(event.legalDocumentId, event);
+    }
+    const availableTypes = new Set(documents.map((document) => document.documentType));
     return {
-      consents: consentDefinitions.map((definition) => {
+      available: requiredLegalDocumentTypes.every((type) => availableTypes.has(type)),
+      consents: documents.map((document) => {
         const record = saved.find(
-          (consent) => consent.consentType === definition.type && consent.version === definition.version
+          (consent) => consent.consentType === document.documentType && consent.version === document.version
+        );
+        const latestEvent = latestEventByDocument.get(document.id);
+        const accepted = Boolean(
+          record?.accepted &&
+          latestEvent &&
+          latestEvent.action !== "revoked" &&
+          latestEvent.contentHash === document.contentHash
         );
         return {
-          ...definition,
-          accepted: record?.accepted ?? false,
+          type: document.documentType,
+          version: document.version,
+          contentHash: document.contentHash,
+          required: document.required,
+          title: document.title,
+          accepted,
           acceptedAt: record?.acceptedAt?.toISOString() ?? null,
-          requiresReconfirmation: definition.required && !record?.accepted
+          requiresReconfirmation: document.required && !accepted
         };
       })
     };
@@ -302,7 +372,7 @@ export class OnboardingStoreService {
 
   async upsertConsents(
     user: AuthenticatedUser,
-    consents: Array<{ type: string; version: string; accepted: boolean }>,
+    consents: Array<{ type: string; version: string; contentHash?: string; accepted: boolean }>,
     context: {
       source?: "mobile" | "web" | "admin";
       appVersion?: string;
@@ -312,29 +382,15 @@ export class OnboardingStoreService {
   ) {
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
+      const currentDocuments = await findCurrentLegalDocuments(tx, legalDocumentLocale(), now);
       for (const incoming of consents) {
-        const definition = consentDefinitions.find(
-          (candidate) => candidate.type === incoming.type && candidate.version === incoming.version
+        const legalDocument = currentDocuments.find(
+          (candidate) => candidate.documentType === incoming.type && candidate.version === incoming.version
         );
-        if (!definition) {
+        if (!legalDocument || (incoming.contentHash && incoming.contentHash !== legalDocument.contentHash)) {
           throw new BadRequestException({
             code: "CONSENT_DOCUMENT_VERSION_INVALID",
             message: "현재 제공 중인 동의 문서 버전이 아니에요."
-          });
-        }
-        const legalDocument = await tx.legalDocument.findUnique({
-          where: {
-            documentType_locale_version: {
-              documentType: definition.type,
-              locale: "ko-KR",
-              version: definition.version
-            }
-          }
-        });
-        if (!legalDocument?.publishedAt) {
-          throw new BadRequestException({
-            code: "CONSENT_DOCUMENT_NOT_PUBLISHED",
-            message: "동의 문서를 불러온 뒤 다시 시도해 주세요."
           });
         }
 
@@ -342,8 +398,8 @@ export class OnboardingStoreService {
           where: {
             userId_consentType_version: {
               userId: user.id,
-              consentType: definition.type,
-              version: definition.version
+              consentType: legalDocument.documentType,
+              version: legalDocument.version
             }
           }
         });
@@ -369,8 +425,8 @@ export class OnboardingStoreService {
           where: {
             userId_consentType_version: {
               userId: user.id,
-              consentType: definition.type,
-              version: definition.version
+              consentType: legalDocument.documentType,
+              version: legalDocument.version
             }
           },
           update: {
@@ -382,8 +438,8 @@ export class OnboardingStoreService {
           },
           create: {
             userId: user.id,
-            consentType: definition.type,
-            version: definition.version,
+            consentType: legalDocument.documentType,
+            version: legalDocument.version,
             accepted: incoming.accepted,
             acceptedAt: incoming.accepted ? now : null,
             revokedAt: incoming.accepted ? null : now,
@@ -423,8 +479,8 @@ export class OnboardingStoreService {
   }
 
   async hasRequiredConsents(user: AuthenticatedUser) {
-    const { consents } = await this.listConsents(user);
-    return consents.filter((consent) => consent.required).every((consent) => consent.accepted);
+    const { available, consents } = await this.listConsents(user);
+    return available && consents.filter((consent) => consent.required).every((consent) => consent.accepted);
   }
 
   async assertRequiredConsents(user: AuthenticatedUser) {
@@ -467,6 +523,25 @@ export class OnboardingStoreService {
 
     const selectedChild = children[0];
     const childSummary = this.toChildDto(selectedChild);
+    if (selectedChild.onboardingCompletedAt) {
+      const [preparedItemsCount, budget] = await Promise.all([
+        selectedChild.preparedStepState === "selected"
+          ? this.prisma.userItemPlan.count({ where: { childId: selectedChild.id, state: "owned" } })
+          : Promise.resolve(0),
+        this.prisma.budget.findFirst({ where: { childId: selectedChild.id } })
+      ]);
+      return {
+        completed: true,
+        nextStep: "home",
+        canRestart: false,
+        summary: {
+          consentsAccepted: true,
+          child: childSummary,
+          preparedItemsCount,
+          budget: budget ? { yearMonth: fromDateOnly(budget.yearMonth), amountKrw: budget.amountKrw } : null
+        }
+      };
+    }
     if (!selectedChild.preparedItemsSetAt) {
       return this.onboardingStatusResult("prepared-items", false, {
         consentsAccepted: true,
@@ -500,6 +575,213 @@ export class OnboardingStoreService {
     };
   }
 
+  async starterItemsPreview(user: AuthenticatedUser, input: StarterItemsPreviewDto) {
+    if (user.households.length === 0) {
+      throw new ForbiddenException({ code: "HOUSEHOLD_REQUIRED", message: "가족 계정을 먼저 확인해 주세요." });
+    }
+    const lifecycle = preparationLifecycleForDraft(input);
+    const items = await this.qualifiedStarterItems(lifecycle);
+    const availability = onboardingStarterAvailability(items.length);
+    return onboardingStarterPreviewResponseSchema.parse({
+      ...availability,
+      eligibleCount: items.length,
+      items: items.slice(0, 12).map(({ legacyItemTemplateId: _legacyItemTemplateId, ...item }) => item),
+      rankingPolicy: "lifecycle_then_onboarding_priority_then_necessity_then_canonical_code"
+    });
+  }
+
+  async completeOnboarding(user: AuthenticatedUser, input: CompleteOnboardingDto) {
+    await this.assertRequiredConsents(user);
+    const role = memberRoleFor(user, input.householdId);
+    if (!canEdit(role)) {
+      throw new ForbiddenException({ code: "FORBIDDEN", message: "온보딩을 완료할 권한이 없어요." });
+    }
+    const normalizedInput = normalizeCompleteOnboardingInput(input);
+    const childInput = normalizedInput.child;
+    const lifecycle = preparationLifecycleForDraft(childInput);
+    const selectedIds = normalizedInput.prepared.itemDefinitionIds;
+
+    const runCompletion = () => this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`onboarding-complete:${input.householdId}`})::bigint)`;
+      const existingChild = await tx.child.findFirst({ where: { householdId: input.householdId, deletedAt: null } });
+      if (existingChild) {
+        throw new ConflictException({ code: "ONBOARDING_ALREADY_COMPLETED", message: "이미 등록된 아이 정보가 있어요." });
+      }
+
+      const qualifiedItems = selectedIds.length > 0 ? await this.qualifiedStarterItems(lifecycle, tx, selectedIds) : [];
+      if (qualifiedItems.length !== selectedIds.length) {
+        const validIds = new Set(qualifiedItems.map((item) => item.id));
+        throw new ConflictException({
+          code: "STARTER_ITEMS_STALE",
+          message: "준비물 목록이 변경되었어요. 다시 확인해 주세요.",
+          invalidItemDefinitionIds: selectedIds.filter((id) => !validIds.has(id))
+        });
+      }
+
+      const child = await tx.child.create({
+        data: {
+          householdId: input.householdId,
+          nickname: childInput.nickname,
+          stageMode: childInput.stageMode,
+          dueDate: childInput.dueDate ? toDateOnly(childInput.dueDate) : null,
+          birthDate: childInput.birthDate ? toDateOnly(childInput.birthDate) : null,
+          manualStage: childInput.manualStage ?? null,
+          stageOverride: childInput.stageOverride,
+          gender: childInput.gender as ChildSex,
+          preparedItemsSetAt: new Date(),
+          preparedStepState: normalizedInput.prepared.state,
+          onboardingCompletedAt: new Date()
+        }
+      });
+
+      if (childInput.stageMode === "pregnant" || childInput.manualStage?.startsWith("pregnancy_")) {
+        await tx.motherProfile.create({
+          data: { householdId: input.householdId, userId: user.id, childId: child.id, dueDate: child.dueDate, active: true }
+        });
+      }
+
+      for (const item of qualifiedItems) {
+        const existingPlan = await tx.userItemPlan.findFirst({
+          where: { householdId: input.householdId, childId: child.id, itemDefinitionId: item.id }
+        });
+        if (!existingPlan) {
+          await tx.userItemPlan.create({
+            data: { householdId: input.householdId, childId: child.id, itemDefinitionId: item.id, state: "owned", ownedQuantity: 1 }
+          });
+        }
+        if (item.legacyItemTemplateId) {
+          await tx.childItemStatus.upsert({
+            where: { childId_itemTemplateId: { childId: child.id, itemTemplateId: item.legacyItemTemplateId } },
+            update: {},
+            create: { childId: child.id, itemTemplateId: item.legacyItemTemplateId, status: "prepared", updatedByUserId: user.id }
+          });
+        }
+      }
+
+      const budget = normalizedInput.budget
+        ? await tx.budget.upsert({
+            where: { childId_yearMonth: { childId: child.id, yearMonth: toDateOnly(getSeoulMonthRange(normalizedInput.budget.yearMonth).yearMonth) } },
+            update: {},
+            create: {
+              childId: child.id,
+              yearMonth: toDateOnly(getSeoulMonthRange(normalizedInput.budget.yearMonth).yearMonth),
+              amountKrw: this.requireMoneyKrw(normalizedInput.budget.amountKrw),
+              createdByUserId: user.id
+            }
+          })
+        : null;
+
+      await tx.household.updateMany({
+        where: { id: input.householdId, defaultChildId: null },
+        data: { defaultChildId: child.id }
+      });
+      await tx.auditLog.create({
+        data: {
+          actorUserId: user.id,
+          householdId: input.householdId,
+          action: "onboarding.complete",
+          targetType: "child",
+          targetId: child.id,
+          afterJson: {
+            draftVersion: normalizedInput.draftVersion,
+            preparedState: normalizedInput.prepared.state,
+            preparedCount: qualifiedItems.length,
+            budgetConfigured: Boolean(budget)
+          }
+        }
+      });
+
+      return onboardingCompletionResponseSchema.parse({
+        child: this.toChildDto(child),
+        prepared: { state: normalizedInput.prepared.state, appliedCount: qualifiedItems.length },
+        budget: budget ? { yearMonth: fromDateOnly(budget.yearMonth).slice(0, 7), amountKrw: budget.amountKrw } : null,
+        onboardingCompleted: true
+      });
+    }, { isolationLevel: "Serializable" });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await runCompletion();
+      } catch (error) {
+        if (!isSerializableTransactionConflict(error) || attempt === 2) throw error;
+      }
+    }
+    throw new Error("ONBOARDING_TRANSACTION_RETRY_EXHAUSTED");
+  }
+
+  private async qualifiedStarterItems(
+    lifecycle: { axis: "mother" | "child"; code: string },
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+    restrictToIds?: string[]
+  ) {
+    const rules = await client.itemLifecycleRule.findMany({
+      where: { axis: lifecycle.axis, lifecycleCode: lifecycle.code, ...(restrictToIds ? { itemDefinitionId: { in: restrictToIds } } : {}) }
+    });
+    const itemIds = [...new Set(rules.map((rule) => rule.itemDefinitionId))];
+    if (itemIds.length === 0) return [];
+    const [items, approvals, blockingRules, categoryLinks] = await Promise.all([
+      client.itemDefinition.findMany({
+        where: { id: { in: itemIds }, status: "published", onboardingEligible: true }
+      }),
+      client.catalogItemApproval.findMany({
+        where: { itemDefinitionId: { in: itemIds }, approvalType: "safety" }
+      }),
+      client.itemSafetyRule.findMany({
+        where: { itemDefinitionId: { in: itemIds }, blocksRecommendation: true }
+      }),
+      client.itemDefinitionCategory.findMany({
+        where: { itemDefinitionId: { in: itemIds }, isPrimary: true }
+      })
+    ]);
+    const nodeIds = [...new Set(categoryLinks.map((link) => link.catalogNodeId))];
+    const nodes = nodeIds.length > 0
+      ? await client.catalogNode.findMany({ where: { id: { in: nodeIds }, active: true } })
+      : [];
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const iconByItem = new Map(categoryLinks.map((link) => [
+      link.itemDefinitionId,
+      nodeById.get(link.catalogNodeId)?.iconKey ?? "package-variant-closed"
+    ]));
+    const categoryCodeByItem = new Map(categoryLinks.map((link) => [
+      link.itemDefinitionId,
+      nodeById.get(link.catalogNodeId)?.code ?? null
+    ]));
+    const priorityByItem = new Map(rules.map((rule) => [rule.itemDefinitionId, rule.priorityWeight]));
+    const now = new Date();
+    const qualifiedItems = items
+      .filter((item) => {
+        if (blockingRules.some((rule) => rule.itemDefinitionId === item.id && (!rule.expiresAt || rule.expiresAt > now))) return false;
+        if (item.safetyTier !== "high") return true;
+        return approvals.some((approval) =>
+          approval.itemDefinitionId === item.id &&
+          approval.revision === item.contentVersion &&
+          approval.contentHash === item.contentHash &&
+          (!approval.expiresAt || approval.expiresAt > now)
+        );
+      });
+
+    return rankOnboardingStarterItems(qualifiedItems.map((item) => ({
+      item,
+      id: item.id,
+      code: item.code,
+      lifecycleRelevance: priorityByItem.get(item.id) ?? 0,
+      onboardingPriority: item.onboardingPriority ?? 0,
+      necessity: item.necessity
+    })))
+      .map(({ item }) => item)
+      .map((item) => ({
+        id: item.id,
+        code: item.code,
+        categoryCode: categoryCodeByItem.get(item.id) ?? null,
+        nameKo: item.nameKo,
+        shortDescription: item.shortDescription,
+        iconKey: iconByItem.get(item.id) ?? "package-variant-closed",
+        safetyTier: item.safetyTier,
+        onboardingPriority: item.onboardingPriority,
+        legacyItemTemplateId: item.legacyItemTemplateId
+      }));
+  }
+
   private onboardingStatusResult(
     nextStep: "consents" | "child-profile" | "prepared-items" | "budget",
     canRestart: boolean,
@@ -521,16 +803,24 @@ export class OnboardingStoreService {
     }
 
     normalizeChildInput(input);
-    const created = await this.prisma.child.create({
-      data: {
-        householdId: input.householdId,
-        nickname: input.nickname,
-        stageMode: input.stageMode,
-        dueDate: input.dueDate ? toDateOnly(input.dueDate) : null,
-        birthDate: input.birthDate ? toDateOnly(input.birthDate) : null,
-        manualStage: input.manualStage ?? null,
-        gender: this.cleanOptionalText(input.gender)
+    const created = await this.prisma.$transaction(async (tx) => {
+      const child = await tx.child.create({
+        data: {
+          householdId: input.householdId,
+          nickname: input.nickname,
+          stageMode: input.stageMode,
+          dueDate: input.dueDate ? toDateOnly(input.dueDate) : null,
+          birthDate: input.birthDate ? toDateOnly(input.birthDate) : null,
+          manualStage: input.manualStage ?? null,
+          gender: input.gender ?? null
+        }
+      });
+      if (input.stageMode === "pregnant") {
+        await tx.motherProfile.create({
+          data: { householdId: input.householdId, childId: child.id, dueDate: child.dueDate, active: true }
+        });
       }
+      return child;
     });
     return this.toChildDto(created);
   }
@@ -557,16 +847,28 @@ export class OnboardingStoreService {
       manualStage: definedInput.manualStage ?? child.manualStage ?? undefined
     });
 
-    const updated = await this.prisma.child.update({
-      where: { id: childId },
-      data: {
-        ...(definedInput.nickname !== undefined ? { nickname: definedInput.nickname } : {}),
-        ...(definedInput.stageMode !== undefined ? { stageMode: definedInput.stageMode } : {}),
-        ...(definedInput.dueDate !== undefined ? { dueDate: toDateOnly(definedInput.dueDate) } : {}),
-        ...(definedInput.birthDate !== undefined ? { birthDate: toDateOnly(definedInput.birthDate) } : {}),
-        ...(definedInput.manualStage !== undefined ? { manualStage: definedInput.manualStage } : {}),
-        ...(definedInput.gender !== undefined ? { gender: this.cleanOptionalText(definedInput.gender) } : {})
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const nextChild = await tx.child.update({
+        where: { id: childId },
+        data: {
+          ...(definedInput.nickname !== undefined ? { nickname: definedInput.nickname } : {}),
+          ...(definedInput.stageMode !== undefined ? { stageMode: definedInput.stageMode } : {}),
+          ...(definedInput.dueDate !== undefined ? { dueDate: toDateOnly(definedInput.dueDate) } : {}),
+          ...(definedInput.birthDate !== undefined ? { birthDate: toDateOnly(definedInput.birthDate) } : {}),
+          ...(definedInput.manualStage !== undefined ? { manualStage: definedInput.manualStage } : {}),
+          ...(definedInput.gender !== undefined ? { gender: definedInput.gender } : {})
+        }
+      });
+      const motherProfile = await tx.motherProfile.findFirst({ where: { childId } });
+      if (motherProfile) {
+        await tx.motherProfile.update({
+          where: { id: motherProfile.id },
+          data: { dueDate: nextChild.dueDate, active: nextChild.stageMode === "pregnant" }
+        });
+      } else if (nextChild.stageMode === "pregnant") {
+        await tx.motherProfile.create({ data: { householdId: nextChild.householdId, childId, dueDate: nextChild.dueDate, active: true } });
       }
+      return nextChild;
     });
     return this.toChildDto(updated);
   }
@@ -727,6 +1029,16 @@ export class OnboardingStoreService {
     return this.toExpenseDto(created);
   }
 
+  async createExpenseWithTransaction(
+    client: Prisma.TransactionClient,
+    householdId: string,
+    childId: string,
+    user: AuthenticatedUser,
+    input: CreateExpenseInput
+  ) {
+    return this.insertExpense(client, householdId, childId, user, input);
+  }
+
   async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string) {
     await this.requireChildAccess(user, childId);
     const expenses = await this.expensesForChild(childId, yearMonth);
@@ -762,6 +1074,11 @@ export class OnboardingStoreService {
     }
     if (input.memo !== undefined) data.memo = this.cleanOptionalText(input.memo ?? undefined);
     if (input.expenseType !== undefined) data.expenseType = input.expenseType;
+    if (input.payerUserId !== undefined) {
+      const payer = await this.prisma.householdMember.findFirst({ where: { householdId: expense.householdId, userId: input.payerUserId, status: "active", role: { not: "gift_participant" } }, select: { userId: true } });
+      if (!payer) throw new ForbiddenException({ code: "EXPENSE_PAYER_FORBIDDEN", message: "Payer must be an active non-gift household member." });
+      data.payerUserId = payer.userId;
+    }
     if (input.paymentMethodId !== undefined) {
       if (input.paymentMethodId === null) {
         data.paymentMethodId = null;
@@ -1561,15 +1878,47 @@ export class OnboardingStoreService {
     if (input.linkedItemTemplateId) {
       await this.requireExistingItemTemplateAnyStatus(input.linkedItemTemplateId, client);
     }
+    if (input.linkedItemDefinitionId) {
+      const definition = await client.itemDefinition.findUnique({ where: { id: input.linkedItemDefinitionId }, select: { id: true } });
+      if (!definition) throw new BadRequestException({ code: "ITEM_DEFINITION_NOT_FOUND", message: "준비 품목을 찾을 수 없어요." });
+    }
+    let expenseCategoryV2Id = input.expenseCategoryV2Id;
+    if (expenseCategoryV2Id) {
+      const category = await client.expenseCategoryV2.findFirst({ where: { id: expenseCategoryV2Id, hidden: false, OR: [{ householdId: null }, { householdId }] }, select: { id: true } });
+      if (!category) throw new BadRequestException({ code: "EXPENSE_CATEGORY_V2_NOT_FOUND", message: "비용 분류를 찾을 수 없어요." });
+    } else if (input.linkedItemDefinitionId) {
+      expenseCategoryV2Id = (await client.itemExpenseCategoryMapping.findFirst({ where: { itemDefinitionId: input.linkedItemDefinitionId, isDefault: true }, select: { expenseCategoryId: true } }))?.expenseCategoryId;
+    }
+    if (!expenseCategoryV2Id) {
+      const legacy = await client.category.findUnique({ where: { id: input.categoryId }, select: { code: true } });
+      const categoryCodeMap: Record<string, string> = {
+        pregnancy_mother: "pregnancy_mother_health", birth_postpartum: "birth_postpartum",
+        hospital_checkup: "hospital_health", mobile_hospital_checkup: "hospital_health",
+        diaper_hygiene: "diaper_hygiene", mobile_diaper_hygiene: "diaper_hygiene",
+        feeding_babyfood: "feeding_food", mobile_feeding_dairy: "feeding_food", mobile_feeding_meal: "feeding_food",
+        clothes_laundry: "clothes_shoes_laundry", mobile_clothes_laundry: "clothes_shoes_laundry",
+        sleep_furniture: "sleep_furniture_storage", outing_mobility: "outing_mobility_travel",
+        mobile_outing_mobility: "outing_mobility_travel", toys_books: "play_books_development",
+        mobile_toys_books: "play_books_development", care_education: "care_education", insurance_savings: "insurance_savings"
+      };
+      const code = categoryCodeMap[legacy?.code ?? ""] ?? "other";
+      expenseCategoryV2Id = (await client.expenseCategoryV2.findFirst({ where: { householdId: null, code }, select: { id: true } }))?.id;
+    }
     const selectedPaymentMethod = input.paymentMethodId
       ? await this.requireUserPaymentMethod(user.id, input.paymentMethodId, true, client)
       : null;
+    const payerUserId = input.payerUserId ?? user.id;
+    if (payerUserId !== user.id) {
+      const payer = await client.householdMember.findFirst({ where: { householdId, userId: payerUserId, status: "active", role: { not: "gift_participant" } }, select: { userId: true } });
+      if (!payer) throw new ForbiddenException({ code: "EXPENSE_PAYER_FORBIDDEN", message: "Payer must be an active non-gift household member." });
+    }
 
     return client.expense.create({
       data: {
         householdId,
         childId,
         createdByUserId: user.id,
+        payerUserId,
         categoryId: input.categoryId,
         amountKrw: this.requireMoneyKrw(input.amountKrw),
         spentOn: toDateOnly(input.spentOn),
@@ -1579,6 +1928,8 @@ export class OnboardingStoreService {
         paymentMethodId: selectedPaymentMethod?.id ?? null,
         memo: this.cleanOptionalText(input.memo),
         linkedItemTemplateId: input.linkedItemTemplateId ?? null,
+        linkedItemDefinitionId: input.linkedItemDefinitionId ?? null,
+        expenseCategoryV2Id: expenseCategoryV2Id ?? null,
         expenseType: input.expenseType ?? "expense",
         source: input.source ?? "manual"
       }
@@ -1766,7 +2117,10 @@ export class OnboardingStoreService {
       memo: expense.memo ?? null,
       expenseType: expense.expenseType,
       source: expense.source,
-      createdByUserId: expense.createdByUserId
+      createdByUserId: expense.createdByUserId,
+      payerUserId: expense.payerUserId,
+      linkedItemDefinitionId: expense.linkedItemDefinitionId,
+      expenseCategoryV2Id: expense.expenseCategoryV2Id
     };
   }
 

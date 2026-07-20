@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T03:14:06.105Z",
+  "rule": "A production-profile embedded JS bundle fails when any forbidden runtime signature is present.",
+  "production": {
+    "artifactType": "apk",
+    "apkPath": "artifacts/android/wooriai-0.0.0-release-production.apk",
+    "apkBytes": 64878590,
+    "apkSha256": "40D6D22EF38BD717B170D6F4E805EE2B34704CCA69916FF0198AC18A9D438AB3",
+    "bundleBytes": 1759096,
+    "bundleSha256": "C5AC0FA5E8C9A9EA21C03B7C90D56FF5C627675CEDA74FFAD0BBD0F8A60A6FB7",
+    "findings": [
+      {
+        "id": "demo-data-leakage",
+        "matchedNeedles": [
+          "wooriai-local-backend",
+          "local-child-daon",
+          "local-household-daon"
+        ]
+      },
+      {
+        "id": "forced-auth-bypass",
+        "matchedNeedles": [
+          "wooriai-local-session",
+          "LOCAL_SESSION_TOKEN"
+        ]
+      },
+      {
+        "id": "pixel-fixture",
+        "matchedNeedles": [
+          "pixel-screen-"
+        ]
+      },
+      {
+        "id": "development-server",
+        "matchedNeedles": [
+          "http://10.0.2.2:3000"
+        ]
+      }
+    ],
+    "passed": false
+  },
+  "standalone": {
+    "artifactType": "apk",
+    "apkPath": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "apkBytes": 77623487,
+    "apkSha256": "F86674E456415E57D54585B5B9E51E62459CB4CB5B5BB2DC6B272225673CCAAA",
+    "bundleBytes": 2447852,
+    "bundleSha256": "84C13F5DF476E4D5B828F5116F2817D4FFB43338781B83A72F88BF2F75B82107",
+    "findings": [
+      {
+        "id": "demo-data-leakage",
+        "matchedNeedles": [
+          "wooriai-local-backend",
+          "local-child-daon",
+          "local-household-daon"
+        ]
+      },
+      {
+        "id": "forced-auth-bypass",
+        "matchedNeedles": [
+          "wooriai-local-session"
+        ]
+      },
+      {
+        "id": "pixel-fixture",
+        "matchedNeedles": [
+          "pixel-screen-"
+        ]
+      },
+      {
+        "id": "development-server",
+        "matchedNeedles": [
+          "http://localhost:3000"
+        ]
+      }
+    ],
+    "profile": "internal-standalone",
+    "intentionalAllowlist": [
+      "demo-data-leakage",
+      "forced-auth-bypass",
+      "pixel-fixture",
+      "development-server"
+    ],
+    "note": "This internal APK deliberately supports an on-device fixture backend. It is not a production/store artifact."
+  },
+  "signatures": [
+    {
+      "id": "demo-data-leakage",
+      "needles": [
+        "wooriai-local-backend",
+        "local-child-daon",
+        "local-household-daon"
+      ]
+    },
+    {
+      "id": "forced-auth-bypass",
+      "needles": [
+        "wooriai-local-session",
+        "LOCAL_SESSION_TOKEN"
+      ]
+    },
+    {
+      "id": "pixel-fixture",
+      "needles": [
+        "pixel-screen-",
+        "__WOORIAI_PIXEL_LOCK_OVERRIDES__"
+      ]
+    },
+    {
+      "id": "development-server",
+      "needles": [
+        "http://localhost:3000",
+        "http://10.0.2.2:3000"
+      ]
+    },
+    {
+      "id": "development-oauth-provider",
+      "needles": [
+        "dev-oauth",
+        "mock-oauth"
+      ]
+    },
+    {
+      "id": "sample-affiliate-url",
+      "needles": [
+        "example.com/catalog-test-affiliate"
+      ]
+    },
+    {
+      "id": "debug-menu",
+      "needles": [
+        "WOORIAI_DEBUG_MENU",
+        "debug-menu-route"
+      ]
+    },
+    {
+      "id": "mock-push-provider",
+      "needles": [
+        "mock-push-provider"
+      ]
+    },
+    {
+      "id": "test-only-endpoint",
+      "needles": [
+        "/test-only/",
+        "/__test__/"
+      ]
+    },
+    {
+      "id": "placeholder-legal-text",
+      "needles": [
+        "LEGAL_TEXT_PLACEHOLDER",
+        "약관 문구 준비 중"
+      ]
+    }
+  ]
+}

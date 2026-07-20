@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-20T08:56:11+09:00",
+  "qualification": "INTERNAL_TEST",
+  "productionCandidate": false,
+  "repository": {
+    "root": "F:/WooriAI",
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "startingDirty": { "total": 929, "trackedUnstaged": 187, "untracked": 742, "staged": 0 },
+    "currentDirtyBeforeFinalDocs": { "total": 631, "trackedUnstaged": 189, "untracked": 442, "staged": 0 },
+    "gitMutations": { "staged": false, "committed": false, "pushed": false, "deployed": false }
+  },
+  "runtime": {
+    "node": "20.20.2",
+    "pnpm": "10.28.1",
+    "device": "emulator-5554",
+    "avd": "wooriai_pixel_5_api35",
+    "androidApi": 35,
+    "abi": "x86_64",
+    "resolution": "1080x2340"
+  },
+  "verification": {
+    "startupBoundary": { "pass": 4, "total": 4 },
+    "mobile": { "testFiles": 81, "pass": 455, "total": 455, "typecheck": "PASS" },
+    "releaseGate": {
+      "generatedAt": "2026-07-19T23:30:16.135Z",
+      "pass": 11,
+      "total": 11,
+      "durationMs": 854380,
+      "reportSha256": "57FCF82FDCE89F155EA2D252BEC0F8929A092FB81A211391C68E7E6DD6A21B15"
+    }
+  },
+  "source": {
+    "fileCount": 900,
+    "nativeExplicitFileCount": 82,
+    "snapshotSha256": "F005E526FC59FE404C9460DF4C8841D5C5A49F06288610C40097004E974B46BA",
+    "verification": "VERIFIED_STABLE"
+  },
+  "artifact": {
+    "path": "F:/WooriAI/artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "bytes": 77310450,
+    "sha256": "63140D5FEE0E79D1379A463781F6489E0E789A540886535583E0FA67968A1DA8",
+    "hermesBytes": 2739164,
+    "hermesSha256": "82415330A925D27CBA75DC62AC4C2DF6B51EB9573750006536521CD33BBE1E82",
+    "cleanRequested": true,
+    "profile": "standalone",
+    "package": "com.anonymous.wooriai",
+    "versionName": "0.0.0",
+    "versionCode": 1,
+    "signer": "Android Debug",
+    "signerCertificateSha256": "fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c",
+    "storeArtifact": false
+  },
+  "installed": {
+    "pulledBasePath": "F:/WooriAI/artifacts/android/installed-base-final.apk",
+    "sha256": "63140D5FEE0E79D1379A463781F6489E0E789A540886535583E0FA67968A1DA8",
+    "byteIdentical": true,
+    "processAlivePass": 5,
+    "fatalMatches": 0,
+    "homeScreenshotSha256": "245124F0FF1E2B9DD3E5FEE9AF1333C92977FB342F97FF018EB2AF498C851584",
+    "itemsScreenshotSha256": "7571C756A0D9912602EA375AA88B35A159BABE6169328DB6E9B879BDFCE223D2"
+  },
+  "performance": {
+    "status": "NOT_QUALIFIED_AVD_BLOCKED",
+    "jankyFrames": "13/13",
+    "gpu4950msFrames": 12,
+    "fixedCaptureSecondsStillNativeSplash": [13, 20, 25]
+  },
+  "status": {
+    "sourceBoundary": "PASS",
+    "installedStability": "PASS",
+    "startupPerformance": "NOT_QUALIFIED_AVD_BLOCKED",
+    "physicalDevice": "NOT_RUN_BLOCKED",
+    "talkBack": "NOT_RUN_BLOCKED"
+  }
+}

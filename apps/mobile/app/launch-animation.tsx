@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { Animated, Image, Text, View } from "react-native";
+import { Animated, Image, StatusBar, Text, View } from "react-native";
 import { AppScreen, PrimaryButton, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
 import { SplashPixelStyles } from "../src/pixelLock/styles";
+import { isPixelLockBuild } from "../src/pixelLock/build-profile";
+import { pixelEvidenceId } from "../src/api/fixture-runtime";
 import { useSessionStore } from "../src/stores/session.store";
 
-declare const __DEV__: boolean;
-
-const splashScreenId = "pixel-screen-SPL-001 SPL-001";
+const splashScreenId = pixelEvidenceId("SPL-001 SPL-001");
 const introHoldMs = 3600;
 const splashLogo = require("../assets/illustrations/logo_mark.png");
 const intro = { label: "intro", source: require("../assets/illustrations/family.png") };
@@ -43,8 +43,9 @@ export default function LaunchAnimationScreen() {
   const [stageIndex, setStageIndex] = useState(-1);
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.88)).current;
-  const isPixelLockMode = (__DEV__ || process.env.EXPO_PUBLIC_PIXEL_LOCK === "1") && String(params.pixelLock ?? "") === "1";
-  const isLoginlessTestMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1" && String(params.pixelLock ?? "") !== "1";
+  const pixelLockBuild = isPixelLockBuild();
+  const isPixelLockMode = pixelLockBuild && String(params.pixelLock ?? "") === "1";
+  const isLoginlessTestMode = pixelLockBuild && String(params.pixelLock ?? "") !== "1";
   const currentStage = stageIndex < 0 ? intro : animationStages[stageIndex];
   const isFinalStage = stageIndex === animationStages.length - 1;
   const pagerDots = stageIndex < 0 ? ["intro", "record", "report"] : animationStages.map((stage) => stage.label);
@@ -97,6 +98,9 @@ export default function LaunchAnimationScreen() {
 
   return (
     <AppScreen>
+      {isPixelLockMode ? (
+        <StatusBar backgroundColor={theme.colors.background} barStyle="dark-content" translucent={false} />
+      ) : null}
       <View style={[{ alignItems: "center", flex: 1, gap: SplashPixelStyles.logoGap, justifyContent: "flex-start", paddingTop: 112 }, splashPixelFrameStyle()]}>
         <Image
           accessibilityLabel={splashScreenId}

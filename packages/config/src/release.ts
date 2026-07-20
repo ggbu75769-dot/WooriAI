@@ -52,8 +52,20 @@ export function validateProductionReleaseConfig(
   if (value(env, "NODE_ENV") !== "production") {
     add("NODE_ENV_NOT_PRODUCTION", "NODE_ENV must be production.");
   }
+  if (value(env, "WOORIAI_BUILD_PROFILE") !== "production") {
+    add("MOBILE_BUILD_PROFILE_NOT_PRODUCTION", "The mobile build profile must be production.");
+  }
+  if (value(env, "EXPO_PUBLIC_TEST_LOGIN") !== "0") {
+    add("MOBILE_TEST_LOGIN_NOT_DISABLED", "Test login must be explicitly disabled in production.");
+  }
+  if (value(env, "EXPO_PUBLIC_PIXEL_LOCK") !== "0") {
+    add("MOBILE_PIXEL_LOCK_NOT_DISABLED", "Pixel Lock fixture mode must be explicitly disabled in production.");
+  }
   if (value(env, "ENABLE_DEV_AUTH") !== "false") {
     add("DEV_AUTH_NOT_DISABLED", "Development authentication must be explicitly disabled.");
+  }
+  if (["1", "true"].includes(value(env, "CATALOG_INTERNAL_PREVIEW_ENABLED").toLowerCase())) {
+    add("CATALOG_INTERNAL_PREVIEW_ENABLED", "Internal catalog preview must be disabled in production.");
   }
   if (isMissingOrPlaceholder(value(env, "LEGAL_OPERATOR_NAME"))) {
     add("LEGAL_OPERATOR_PLACEHOLDER", "Approved legal operator information is required.");

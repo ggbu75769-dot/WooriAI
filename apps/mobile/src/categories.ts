@@ -1,4 +1,9 @@
-import { localCategoryNameKo } from "./api/local-fixtures";
+const legacyCategoryNameKo: Record<string, string> = {
+  "local-category-diaper": "기저귀",
+  "local-category-formula": "분유/유제품",
+  "local-category-detergent": "유아용 세제",
+  "local-category-import": "가져오기"
+};
 
 /**
  * Category codes seeded on the server -- see "5. SEED CATEGORIES" in
@@ -61,8 +66,8 @@ export function categoryNameFor(categoryId: string): string {
   const catalogMatch = categoryCatalog.find((entry) => entry.id === categoryId);
   if (catalogMatch) return catalogMatch.label;
 
-  const localMatch = localCategoryNameKo[categoryId];
-  if (localMatch) return localMatch;
+  const legacyMatch = legacyCategoryNameKo[categoryId];
+  if (legacyMatch) return legacyMatch;
 
   return "기타";
 }

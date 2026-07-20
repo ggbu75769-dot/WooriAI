@@ -175,6 +175,21 @@ describe("Local test-mode backend data layer", () => {
     expect(yearly.totalExpenseKrw).toBe(sumOfMonths);
   });
 
+  it("returns human-readable category names to the report instead of raw UUIDs", () => {
+    const categoryId = "c0a7e901-0000-4c01-8c01-c47e900ec001";
+    localBackend.createExpense(childId, {
+      categoryId,
+      amountKrw: 12_000,
+      spentOn: getSeoulToday(),
+      itemName: "기저귀"
+    });
+
+    const report = localBackend.getReportV2Categories(childId, "month", getSeoulToday());
+    expect(report.categories.find((category) => category.categoryId === categoryId)).toMatchObject({
+      categoryNameKo: "기저귀·위생"
+    });
+  });
+
   it("keeps the item status change reflected on subsequent reads", () => {
     const updated = localBackend.updateItemStatus(childId, LOCAL_ITEM_DIAPER, "prepared");
     expect(updated.status).toBe("prepared");
@@ -270,6 +285,19 @@ describe("Local test-mode backend data layer", () => {
     expect(shortcuts[0]).toMatchObject({ itemName: "반복 기저귀", useCount: 3 });
     expect(shortcuts[0]).toHaveProperty("lastAmountKrw");
     expect(shortcuts[0]).not.toHaveProperty("confirmedAmountKrw");
+  });
+
+  it("matches catalog initials and typo queries locally and reports missing items idempotently", () => {
+    for (const query of ["ㅋㅅㅌ", "카시드"]) {
+      const result = localBackend.listCatalogItems({ childId, query, limit: 10 });
+      expect(result.items.slice(0, 3).map((item) => item.nameKo), `query=${query}`).toContain("신생아용 카시트");
+      expect(result.items[0]?.searchMatch?.reason).toMatch(/initials|typo/);
+      expect(result.search).toMatchObject({ rawQueryStored: false });
+    }
+    const first = localBackend.reportMissingCatalogItem("없는 품목 예시");
+    const second = localBackend.reportMissingCatalogItem("없는 품목 예시");
+    expect(first).toMatchObject({ idempotent: false, report: { reasonCode: "missing_item", state: "open" } });
+    expect(second).toMatchObject({ idempotent: true, report: { id: first.report.id } });
   });
 
   it("keeps gender optional and outside recommendation ranking inputs", () => {

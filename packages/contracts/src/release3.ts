@@ -48,13 +48,28 @@ export const privacyRequestSchema = z.object({
   exportExpiresAt: z.string().datetime().nullable()
 }).strict();
 
+export const currentAccountDeletionResponseSchema = z.object({
+  deletion: privacyRequestSchema.extend({ requestType: z.literal("deletion") }).nullable()
+}).strict();
+export type CurrentAccountDeletionResponse = z.infer<typeof currentAccountDeletionResponseSchema>;
+
 export const transferOwnershipSchema = z.object({ targetUserId: z.string().uuid() }).strict();
 
 export const release3FeatureFlagsSchema = z.object({
   analytics: z.boolean(),
   affiliate: z.boolean(),
   import: z.boolean(),
-  notification: z.boolean()
+  notification: z.boolean(),
+  today_family_center: z.boolean(),
+  preparation_calendar: z.boolean(),
+  custom_bundles: z.boolean(),
+  weekly_briefing: z.boolean(),
+  receipt_assisted_entry: z.boolean(),
+  expense_plan_link_suggestion: z.boolean(),
+  recurring_purchase_prediction: z.boolean(),
+  budget_variance_explanation: z.boolean(),
+  external_recall_provider: z.boolean(),
+  merchant_offer_comparison: z.boolean()
 }).strict();
 
 export const appConfigSchema = z.object({

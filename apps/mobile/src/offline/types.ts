@@ -16,10 +16,17 @@
 
 export type SyncState = "pending" | "syncing" | "synced" | "failed" | "conflict";
 
+export type OfflineFailureKind =
+  | "auth_required"
+  | "permission_denied"
+  | "validation"
+  | "retry_exhausted"
+  | "migration_failed";
+
 export type MutationOperation = "create" | "update" | "delete";
 
 export type ExpensePaymentMethod = "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
-export type ExpenseKind = "expense" | "gift";
+export type ExpenseKind = "expense" | "gift" | "refund" | "support";
 
 /** The mutable expense fields an offline create/update carries -- mirrors CreateExpenseDto /
  * UpdateExpenseDto's field set (apps/api/src/finance/dto/expense.dto.ts) minus server-assigned
@@ -35,6 +42,8 @@ export type ExpensePayload = {
   paymentMethod?: ExpensePaymentMethod;
   paymentMethodId?: string | null;
   linkedItemTemplateId?: string | null;
+  linkedItemDefinitionId?: string | null;
+  expenseCategoryV2Id?: string | null;
   expenseType?: ExpenseKind;
 };
 
@@ -46,6 +55,9 @@ export type ConflictSnapshot =
   | null;
 
 export type LocalExpenseRow = {
+  /** Local user+household partition. Legacy rows use a quarantine scope and are never claimed
+   * by a later login. This value is local-only and is never sent to the API. */
+  scopeKey: string;
   localId: string;
   /** Server-assigned expense id once a create mutation has synced; null until then. */
   canonicalId: string | null;
@@ -59,11 +71,33 @@ export type LocalExpenseRow = {
   pendingDelete: boolean;
   conflictCurrent: ConflictSnapshot;
   lastError: string | null;
+  failureKind: OfflineFailureKind | null;
   createdAt: string;
   updatedAt: string;
 };
 
+export type LegacyQuarantineSummary = {
+  total: number;
+  awaitingReconciliation: number;
+  ambiguous: number;
+  corrupt: number;
+  duplicate: number;
+  alreadySynced: number;
+};
+
+export type LegacyQuarantineEntry = {
+  id: string;
+  sourceLocalId: string;
+  classification: "awaiting_reconciliation" | "ambiguous" | "corrupt" | "duplicate" | "already_synced";
+  reasonCode: string;
+  localExpenseJson: string;
+  outboxJson: string;
+  createdAt: string;
+};
+
 export type MutationOutboxRow = {
+  /** Must match the target local expense's scope. */
+  scopeKey: string;
   mutationId: string;
   idempotencyKey: string;
   operation: MutationOperation;
@@ -95,6 +129,8 @@ export type MutationOutboxRow = {
  * non-native (web/node) fallback.
  */
 export interface OfflineStore {
+  /** Every read and write through this store is limited to this exact local session scope. */
+  readonly scopeKey: string;
   insertLocalExpense(row: LocalExpenseRow): Promise<void>;
   getLocalExpense(localId: string): Promise<LocalExpenseRow | null>;
   updateLocalExpense(localId: string, patch: Partial<LocalExpenseRow>): Promise<void>;
@@ -108,6 +144,19 @@ export interface OfflineStore {
   /** All outbox rows in creation order (the order flush must send them in, per §3.2). */
   listOutboxMutations(): Promise<MutationOutboxRow[]>;
   listOutboxMutationsForLocalId(localId: string): Promise<MutationOutboxRow[]>;
+  getLegacyQuarantineSummary(): Promise<LegacyQuarantineSummary>;
+  listLegacyQuarantineEntries(limit: number): Promise<LegacyQuarantineEntry[]>;
+  updateLegacyQuarantineEntry(
+    id: string,
+    classification: LegacyQuarantineEntry["classification"],
+    reasonCode: string
+  ): Promise<void>;
+  deleteLegacyQuarantineEntry(id: string): Promise<void>;
+  restoreLegacyQuarantineEntry(
+    id: string,
+    row: LocalExpenseRow | null,
+    mutations: MutationOutboxRow[]
+  ): Promise<void>;
 }
 
 export function generateOfflineId(prefix: string): string {

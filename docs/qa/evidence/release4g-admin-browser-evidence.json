@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "release": "4G",
+  "generatedAt": "2026-07-17T08:07:00+09:00",
+  "runner": {
+    "package": "playwright-core",
+    "version": "1.61.1",
+    "dependencyScope": "root devDependency",
+    "browserDownload": false,
+    "assertionRunner": "Vitest 2.1.9",
+    "workerCount": 1,
+    "fileParallelism": false
+  },
+  "browser": {
+    "executable": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    "version": "150.0.7871.115",
+    "headless": true,
+    "video": false,
+    "screenshotsCreated": 0,
+    "tracesCreated": 0
+  },
+  "command": "pnpm test:admin-browser",
+  "exitCode": 0,
+  "testFiles": 2,
+  "tests": 4,
+  "passed": 4,
+  "failed": 0,
+  "scenarios": [
+    "password and MFA enrollment/login rejection/success",
+    "session expiration, logout, protected URL and CSRF rejection",
+    "author/editorial/domain/safety/publisher workflow",
+    "self-approval 403 and high-risk safety evidence",
+    "stale revision and concurrent publish one-winner",
+    "CSV and XLSX preview, formula rejection, partial failure and confirm",
+    "keyboard taxonomy reorder and stale-version input preservation",
+    "review, safety, source, user-report, offer and DLQ queue navigation"
+  ],
+  "serverPolicy": {
+    "apiPort": "ephemeral",
+    "adminPort": "ephemeral",
+    "isolatedContexts": true,
+    "productionAuthBypassed": false,
+    "fixedTestMfaSecret": true
+  },
+  "cleanup": {
+    "browserClosed": true,
+    "serversClosed": true,
+    "orphanChromeProcessesFromRunner": 0
+  },
+  "result": "PASS"
+}

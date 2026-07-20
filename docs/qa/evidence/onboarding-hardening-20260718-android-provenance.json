@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 3,
+  "status": "SUPERSEDED_BY_SELF_IMPLEMENT_SI006",
+  "supersededBy": "docs/operations/self-implement/evidence/20260720-0100/SI-006-provenance.json",
+  "generatedAt": "2026-07-19T15:50:50.628Z",
+  "generatedFor": "onboarding-hardening-20260718-html-redesign-startup-fix",
+  "branch": "codex/sprint2-catalog-payments",
+  "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+  "git": {
+    "dirtyWorktreePreserved": true,
+    "dirtyEntryCount": 929,
+    "stagedEntryCount": 0,
+    "dirtyManifestSha256": "8C7B25580010840F5EE7B085F1F4D4D5BA17C7C404E2256E6C1863FC158A28FE",
+    "stageCommitPushDeployPerformed": false
+  },
+  "source": {
+    "status": "SOURCE_VERIFIED_STABLE",
+    "fileCount": 889,
+    "nativeExplicitFileCount": 82,
+    "sourceSnapshotSha256": "CB4274EF975A2CEE27EC8328FAF6BCAD8EAD4C45869E8078E8982844FF67413D",
+    "mobileCompositeSha256": "EDCC6E43CE4E26F9DCE40FB5668448300D5FE7987999C1C1D740D1A123500645",
+    "domainCompositeSha256": "90F406E8F6546CB69839734107D4EBC5DD929723F97E7E73E07CB583A1411655",
+    "apiContractCompositeSha256": "83009ABCAC5236C724544F4CD933B4AE31AAF34BD4860FCE1476C13FF402C2A4",
+    "lockfileSha256": "80DCE6D38791BC947C64C736509F6381D6B3DA8FDB49BC308C9D8EF67CF5D608"
+  },
+  "apk": {
+    "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "sha256": "D82B3483D1A8F638B38B768A841092C031D914916A2EDC403FA54F29A16E24A4",
+    "installedBaseSha256": "D82B3483D1A8F638B38B768A841092C031D914916A2EDC403FA54F29A16E24A4",
+    "bytes": 77757107,
+    "hermesSha256": "49A21B26F395F91CD2926A8DF46417A27EE07347EEF38324B731F319C55C2995",
+    "buildReportSha256": "7E432C3E36E346FB791E92CFEEBA2C0D9B5777FB18F72F1DEB0C31E86146E701",
+    "sourceBinding": "BOUND",
+    "sourceSnapshotVerification": "VERIFIED_STABLE",
+    "profile": "standalone",
+    "embeddedPixelLockEnabled": false,
+    "embeddedTestLoginEnabled": true,
+    "architectures": ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"],
+    "packageName": "com.anonymous.wooriai",
+    "versionName": "0.0.0",
+    "versionCode": 1,
+    "debuggable": false,
+    "signing": "debug-internal-only",
+    "signerSha256": "fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c",
+    "qualification": "INTERNAL_TEST",
+    "productionCandidate": false,
+    "storeArtifact": false
+  },
+  "android": {
+    "serial": "emulator-5554",
+    "state": "device",
+    "model": "sdk_gphone64_x86_64",
+    "androidVersion": "15",
+    "apiLevel": 35,
+    "abi": "x86_64",
+    "resolution": "1080x2340",
+    "density": 440,
+    "upgradeInstallPreservedData": true,
+    "coldStartRuns": 5,
+    "fatalRuns": 0,
+    "homeBy12Seconds": 4,
+    "homeBy20Seconds": 5,
+    "restoredState": ["TestBaby", "생후 0개월", "예산 500,000원"],
+    "homeScreenshot": "docs/qa/evidence/html-redesign-android-20260719/standalone-final-cb4274/cold-batch/cold-3.png",
+    "homeScreenshotSha256": "1C57C55A93A2999CA83F70148B0FC52D6E6715766A4C5040520E3964A45BCFED",
+    "itemsScreenshot": "docs/qa/evidence/html-redesign-android-20260719/standalone-final-cb4274/items-grid-final.png",
+    "itemsScreenshotSha256": "5035F7540D4557E9C90B9545692D8F33FAB304D26EC69BE545A20DA43A39F8D2"
+  },
+  "verification": {
+    "mobileTypecheck": "PASS",
+    "mobileTests": "79 files / 450 tests PASS",
+    "uxContractStrict": "PASS",
+    "releaseGate": "11/11 PASS",
+    "releaseGateGeneratedAt": "2026-07-19T15:49:31.880Z",
+    "releaseGateSha256": "5CF9F7AC4A004C7CAEDBB7523CB2C03A1FD8D35A016D0BA3A72DD9B5A4167437"
+  },
+  "limits": {
+    "physicalDevice": "NOT_RUN_NO_DEVICE",
+    "talkBackHumanAuditoryQualification": "NOT_RUN",
+    "productionCatalogPublication": "NOT_CLAIMED",
+    "legacyPixelReferenceGate": "FAIL_OR_INVALID_AGAINST_SUPERSEDED_4_TAB_REFERENCES"
+  }
+}

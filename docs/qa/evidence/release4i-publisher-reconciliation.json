@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "provider": "mock",
+  "contract": { "stableIdempotencyKey": true, "persistentAttempt": true, "unknownReconciliation": true, "boundedRetry": true, "mockReportedAsLive": false },
+  "automated": { "postSuccessCrashIterations": 50, "failures": 0 },
+  "localStaging": { "failpointExitCode": 87, "deliveryId": "496b7a16-9c92-4f04-8e18-91d1a516e88e", "logicalEvents": 1, "providerAttempts": 1, "terminalDeliveries": 1, "userVisibleDuplicates": 0, "dlq": 0, "result": "PASS" },
+  "externalProvider": "EXTERNAL_BLOCKED"
+}

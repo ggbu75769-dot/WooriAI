@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "identity": ["importJobId", "actorId", "objectKey", "contentSha256", "fileType", "objectSize", "version", "applyAttempt"],
+  "states": ["created", "uploading", "uploaded", "previewing", "ready", "applying", "applied", "retryable_failure", "permanent_failure", "rolled_back", "orphaned", "missing_object"],
+  "failurePointsCovered": 12,
+  "automated": { "testFiles": 1, "tests": 3, "uploadDbMismatchIterations": 30, "applyResponseLossIterations": 30, "duplicateRevisions": 0, "falseSuccess": 0 },
+  "localStaging": { "adapter": "s3", "objects": 1, "jobs": 1, "previews": 1, "minioUnavailablePreviewStatus": 500, "falseSuccess": 0, "retryAfterRecoveryStatus": 200, "jobState": "ready", "objectHashMatched": true, "publishedCatalogCount": 0, "result": "PASS" },
+  "security": { "pathTraversalBlocked": true, "formulaInjectionBlocked": true, "oversizedInputBounded": true, "objectOwnershipChecked": true }
+}

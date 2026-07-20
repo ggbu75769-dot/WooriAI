@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "PARTIAL",
+  "actor": "owner/co-parent/Admin",
+  "input": "isolated PostgreSQL and connected API fixture",
+  "mission": "complete connected Golden Mission",
+  "evidence": [
+    "release5a-connected-golden.e2e.test.ts"
+  ],
+  "residual": [
+    "full two-API/two-worker Docker crash mission not rerun as one scenario"
+  ]
+}

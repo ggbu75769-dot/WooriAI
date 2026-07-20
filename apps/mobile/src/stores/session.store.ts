@@ -1,9 +1,10 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { ensureLocalBackendSeeded } from "../api/local-backend";
-import { LOCAL_CHILD_ID } from "../api/local-fixtures";
+import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "../api/fixture-identifiers";
+import { resolveOfflineScopeKey } from "../offline/session-scope";
+import { isTestLoginBuild } from "../pixelLock/build-profile";
 import { secureSessionStorage } from "./secure-session-storage";
-import { useSelectedChildStore } from "./selected-child.store";
+import { selectedChildScopeKey, useSelectedChildStore } from "./selected-child.store";
 
 export type SessionState = {
   accessToken: string | null;
@@ -24,7 +25,7 @@ export type SessionState = {
     defaultHouseholdId?: string | null;
   }) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
-  startTestSession: () => void;
+  startTestSession: () => Promise<void>;
   clearSession: () => void;
 };
 
@@ -47,7 +48,7 @@ type SessionData = Pick<
 >;
 
 function sanitizeSessionState<T extends SessionData>(state: T): T {
-  if (process.env.EXPO_PUBLIC_TEST_LOGIN === "1" && state.accessToken) {
+  if (isTestLoginBuild() && state.accessToken) {
     return { ...state, accessToken: null, refreshToken: null, displayName: null, email: null, authProvider: null };
   }
   return state;
@@ -84,9 +85,16 @@ function isPlausibleSessionShape(value: unknown): value is Partial<SessionData> 
 
 export const useSessionStore = create<SessionState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...initialSessionState,
-      setSession: (session) =>
+      setSession: (session) => {
+        const current = get();
+        const nextHouseholdId = session.defaultHouseholdId ?? null;
+        if (current.userId !== session.userId || current.defaultHouseholdId !== nextHouseholdId) {
+          useSelectedChildStore.getState().clearSelectedChildId();
+          void import("./onboarding-draft.store").then(({ clearOnboardingDraft }) => clearOnboardingDraft());
+        }
+        useSelectedChildStore.getState().activateScope(nextHouseholdId ? selectedChildScopeKey(session.userId, nextHouseholdId) : null);
         set({
           accessToken: session.accessToken,
           refreshToken: session.refreshToken,
@@ -94,15 +102,14 @@ export const useSessionStore = create<SessionState>()(
           displayName: session.displayName ?? null,
           email: session.email ?? null,
           authProvider: session.authProvider ?? null,
-          defaultHouseholdId: session.defaultHouseholdId ?? null,
+          defaultHouseholdId: nextHouseholdId,
           isTestSession: false
-        }),
+        });
+      },
       setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
       startTestSession: () => {
-        ensureLocalBackendSeeded();
-        if (!useSelectedChildStore.getState().selectedChildId) {
-          useSelectedChildStore.getState().setSelectedChildId(LOCAL_CHILD_ID);
-        }
+        useSelectedChildStore.getState().activateScope(selectedChildScopeKey(LOCAL_USER_ID, LOCAL_HOUSEHOLD_ID));
+        useSelectedChildStore.getState().clearSelectedChildId();
         set({
           accessToken: null,
           refreshToken: null,
@@ -113,8 +120,25 @@ export const useSessionStore = create<SessionState>()(
           defaultHouseholdId: null,
           isTestSession: true
         });
+        return Promise.all([
+          import("./onboarding-progress.store"),
+          import("./onboarding-draft.store"),
+          import("../api/fixture-runtime")
+        ]).then(([{ useOnboardingProgressStore }, { useOnboardingDraftStore }, { startLocalOnboardingSession }]) => {
+          useOnboardingProgressStore.getState().resetOnboarding();
+          useOnboardingDraftStore.getState().activateScope(LOCAL_USER_ID, LOCAL_HOUSEHOLD_ID);
+          startLocalOnboardingSession();
+        });
       },
-      clearSession: () =>
+      clearSession: () => {
+        const current = get();
+        const receiptScopeKey = resolveOfflineScopeKey(current);
+        if (receiptScopeKey) {
+          void import("../receipts/offline-draft").then(({ clearReceiptOfflineDraft }) => clearReceiptOfflineDraft(receiptScopeKey));
+        }
+        void import("./onboarding-draft.store").then(({ clearOnboardingDraft }) => clearOnboardingDraft());
+        useSelectedChildStore.getState().clearSelectedChildId();
+        useSelectedChildStore.getState().activateScope(null);
         set({
           accessToken: null,
           refreshToken: null,
@@ -124,7 +148,8 @@ export const useSessionStore = create<SessionState>()(
           authProvider: null,
           defaultHouseholdId: null,
           isTestSession: false
-        })
+        });
+      }
     }),
     {
       name: "wooriai-session",

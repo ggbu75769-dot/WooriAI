@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href } from "expo-router";
 import { Text, View } from "react-native";
-import { listChildren, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { listChildren, fixtureSessionToken } from "../../src/api/client";
 import { invalidateChildScopedQueries } from "../../src/children/query-cache";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -11,7 +11,7 @@ import { AppScreen, EmptyStateCard, IconButton, ListRow, SampleDataBanner, Scree
 export default function ChildSwitcherScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
   const queryClient = useQueryClient();

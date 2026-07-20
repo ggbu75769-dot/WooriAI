@@ -1,0 +1,651 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-16T07:49:45.672Z",
+  "verdict": {
+    "implementationAudit": "P0_P1_CLOSED_LOCAL",
+    "productFeatureMaturity": "MOSTLY_M2_SELECTED_M3",
+    "catalogStructuralCompleteness": "PASS",
+    "catalogReviewReadiness": "INVENTORY_COMPLETE_EXTERNAL_APPROVAL_REQUIRED",
+    "catalogPublishedCompleteness": "0_OF_408",
+    "adminOperations": "M2",
+    "installedAppUx": "CORE_SMOKE_AND_PIXEL_9_OF_9_FULL_ROUTE_MATRIX_PENDING",
+    "localStagingParity": "LOCAL_STAGING_PARITY",
+    "externalStaging": "NOT_VERIFIED",
+    "production": "NO_GO"
+  },
+  "source": {
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "upstream": null,
+    "finalWorktreeStatusSha256": "B5E7A4A371A2F403D6273F4AE5157981588B02F7E3544229A8FBDC2A5AF82063",
+    "buildTimeWorktreeStatusSha256": "27161ECDD4A44F5D09EBCA629FA0542C636AC8B960F846606BD4D6543D7DD1C9",
+    "mobileSourceTreeSha256": "113CAF809495E056E0B7971DDBA6418802C559013AE1F81C9B25AC9429C2B095",
+    "mobileBuildInputTreeSha256": "983D7FBEDF21A5F15564E5B3EACACD5CFCD5A90371F42ABD7A3EB38A5A4AF4DB",
+    "apiSourceTreeSha256": "1F8B34FAD7608784019DE8D196920AA34B477116C603DB2ACF10B278045E7FCB",
+    "contractsSourceTreeSha256": "5689AC9D60461D70EB116E18983C14D0D9C002DE4741D86B8AABCC1980DCC6D0",
+    "ownershipSummary": {
+      "totalPaths": 236,
+      "preExistingUser": 175,
+      "release4cTouched": 110,
+      "overlap": 49,
+      "cleanOwned": 61,
+      "deleted": 0
+    },
+    "noStageCommitPushDeployOrPublish": true
+  },
+  "migrations": {
+    "count": 31,
+    "head": "000031_release4c_preparation_context",
+    "fresh": "PASS",
+    "previousSnapshotUpgrade": "PASS",
+    "nMinusOneAndProductionRollback": "NOT_EXTERNALLY_VERIFIED"
+  },
+  "tests": {
+    "node": "20.20.2",
+    "packageManager": "pnpm 10.28.1",
+    "releaseGate": {
+      "passed": 11,
+      "total": 11,
+      "results": [
+        {
+          "id": "install",
+          "label": "Install",
+          "command": "pnpm install --frozen-lockfile",
+          "result": "PASS",
+          "durationMs": 1332,
+          "timeoutMs": 300000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "env",
+          "label": "Env example",
+          "command": "pnpm check:env:example",
+          "result": "PASS",
+          "durationMs": 883,
+          "timeoutMs": null,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "prisma-validate",
+          "label": "Prisma validate",
+          "command": "pnpm --filter api prisma:validate",
+          "result": "PASS",
+          "durationMs": 2397,
+          "timeoutMs": null,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "prisma-generate",
+          "label": "Prisma generate",
+          "command": "pnpm --filter api prisma:generate",
+          "result": "PASS",
+          "durationMs": 3242,
+          "timeoutMs": null,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "db-start",
+          "label": "Database up",
+          "command": "pnpm db start",
+          "result": "PASS",
+          "durationMs": 2627,
+          "timeoutMs": 180000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "lint",
+          "label": "ESLint",
+          "command": "pnpm lint",
+          "result": "PASS",
+          "durationMs": 19520,
+          "timeoutMs": 300000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "typecheck",
+          "label": "Typecheck",
+          "command": "pnpm typecheck",
+          "result": "PASS",
+          "durationMs": 35767,
+          "timeoutMs": 600000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "test",
+          "label": "All tests",
+          "command": "pnpm test --concurrency=1 --force",
+          "result": "PASS",
+          "durationMs": 346714,
+          "timeoutMs": 900000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "api-e2e",
+          "label": "API e2e",
+          "command": "pnpm --filter api test:e2e",
+          "result": "PASS",
+          "durationMs": 160280,
+          "timeoutMs": 600000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "build",
+          "label": "Production builds",
+          "command": "pnpm build --force",
+          "result": "PASS",
+          "durationMs": 81730,
+          "timeoutMs": 900000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "peers",
+          "label": "Peer dependencies",
+          "command": "pnpm install --frozen-lockfile --strict-peer-dependencies --lockfile-only",
+          "result": "PASS",
+          "durationMs": 848,
+          "timeoutMs": null,
+          "timedOut": false,
+          "issues": []
+        }
+      ]
+    },
+    "catalogAdminTargeted": "10_OF_10_PASS",
+    "appConfigTargeted": "2_OF_2_PASS",
+    "search": {
+      "queries": 200,
+      "successes": 200,
+      "p95Ms": 200.94,
+      "thresholdMs": 500
+    },
+    "secrets": "PASS",
+    "dependencyAudit": "PASS_AT_HIGH_THRESHOLD_8_MODERATE_REMAIN"
+  },
+  "builds": {
+    "api": "PASS",
+    "adminProduction": "PASS",
+    "mobileProductionExport": "PASS",
+    "productionContamination": "PASS",
+    "dockerApiImage": "sha256:e2a910e2207b3445edbf1b5d8bbab07425b4abe5e98b292a5326ed2c97ffd175"
+  },
+  "catalog": {
+    "counts": {
+      "catalogNodesByDepth": {
+        "category": 120,
+        "domain": 24,
+        "subcategory": 360
+      },
+      "canonicalItems": 408,
+      "statuses": {
+        "in_review": 408
+      },
+      "publishedContentPercentage": 0,
+      "aliases": 3278,
+      "productOffers": 0,
+      "itemsWithoutOffers": 408,
+      "highRiskItems": 84,
+      "contextRules": 578,
+      "distinctContextCodes": 25,
+      "coverageDecisionStates": {
+        "covered": 624,
+        "gap": 1200
+      },
+      "coverageApplicability": {
+        "optional": 156,
+        "recommended": 312,
+        "required": 156,
+        "review_needed": 1200
+      },
+      "coverageGapTypes": {
+        "missing_lifecycle_rule": 1200
+      },
+      "coverageUnclassifiedApplicability": 0,
+      "coverageExternalReviewBlockers": 1200
+    },
+    "integrity": {
+      "orphanCount": 0,
+      "taxonomyCycleCodes": [],
+      "invalidHierarchyRelations": [],
+      "duplicateCanonicalNames": [],
+      "aliasCollisions": [],
+      "primaryOtherItems": [],
+      "missingRequiredMetadata": [],
+      "publishedMissingRequiredMetadata": [],
+      "unsafePublishedItems": []
+    },
+    "review": {
+      "total": 408,
+      "structurallyValid": 408,
+      "editorialContentComplete": 408,
+      "sourceEvidenceAttached": 0,
+      "domainApproved": 0,
+      "safetyApprovedOrNotRequired": 324,
+      "approved": 0,
+      "published": 0,
+      "highRisk": 84,
+      "duplicateSuspicion": 0,
+      "status": {
+        "in_review": 408
+      },
+      "risk": {
+        "high": 84,
+        "normal": 266,
+        "elevated": 58
+      }
+    },
+    "publishedEndpointPolicy": "PUBLISHED_ONLY",
+    "selfApprovalOrAutomaticPublishPerformed": false
+  },
+  "coverage": {
+    "total": 1824,
+    "state": {
+      "gap": 1200,
+      "covered": 624
+    },
+    "applicability": {
+      "review_needed": 1200,
+      "required": 156,
+      "recommended": 312,
+      "optional": 156
+    },
+    "gapType": {
+      "missing_lifecycle_rule": 1200
+    },
+    "unclassified": 0,
+    "criticalRequiredGaps": 300,
+    "criticalRequiredExternalReviewBlocked": 300
+  },
+  "personaEvaluation": {
+    "personas": 20,
+    "lifecycleEmptyResults": 0,
+    "wrongLifecycleRecommendations": 0,
+    "expectedBundlesMissing": 0,
+    "installedAppPersonaRuns": 0,
+    "maturity": "M2"
+  },
+  "routes": {
+    "summary": {
+      "routeFiles": 37,
+      "scenariosPerRoute": 9,
+      "classifiedScenarios": 333,
+      "statusCounts": {
+        "code_present_runtime_verification_required": 116,
+        "runtime_verification_required": 52,
+        "not_applicable": 165
+      },
+      "runtimePassed": 0
+    },
+    "layoutMatrix": {
+      "widthsDp": [
+        320,
+        360,
+        390,
+        411,
+        430,
+        600,
+        840
+      ],
+      "fontScales": [
+        1,
+        1.3,
+        1.5
+      ],
+      "androidVersions": [
+        13,
+        14,
+        15
+      ],
+      "combinations": 63,
+      "status": "runtime_verification_required",
+      "assertions": [
+        "no_horizontal_overflow",
+        "no_right_side_excess_whitespace",
+        "safe_area",
+        "keyboard_avoidance",
+        "modal_and_bottom_sheet_bounds",
+        "long_korean_text",
+        "button_wrapping",
+        "card_width",
+        "chart_width",
+        "tab_bar"
+      ]
+    },
+    "installedSmoke": [
+      "fresh_install",
+      "test_login",
+      "onboarding",
+      "home",
+      "preparation",
+      "empty_report",
+      "process_restart"
+    ],
+    "fullRuntimeMatrixComplete": false
+  },
+  "accessibility": {
+    "pixelScreens": [
+      {
+        "screenId": "SPL-001",
+        "score": 0.022955,
+        "pass": true,
+        "renderValid": true
+      },
+      {
+        "screenId": "HOME-001",
+        "score": 0.002973,
+        "pass": true,
+        "renderValid": true
+      },
+      {
+        "screenId": "EXP-001",
+        "score": 0.005458,
+        "pass": true,
+        "renderValid": true
+      },
+      {
+        "screenId": "ITEM-001",
+        "score": 0.000154,
+        "pass": true,
+        "renderValid": true
+      },
+      {
+        "screenId": "ITEM-002",
+        "score": 0.048747,
+        "pass": true,
+        "renderValid": true
+      },
+      {
+        "screenId": "REP-001",
+        "score": 0.04608,
+        "pass": true,
+        "renderValid": true
+      },
+      {
+        "screenId": "FAM-001",
+        "score": 0.036221,
+        "pass": true,
+        "renderValid": true
+      },
+      {
+        "screenId": "IMP-003",
+        "score": 0.046019,
+        "pass": true,
+        "renderValid": true
+      },
+      {
+        "screenId": "SET-001",
+        "score": 0.019473,
+        "pass": true,
+        "renderValid": true
+      }
+    ],
+    "touchTargetSourceChecks": "PASS_WITH_RUNTIME_FOLLOWUP",
+    "talkBackFullRouteMatrix": "PENDING"
+  },
+  "reportV3": {
+    "code": true,
+    "contract": true,
+    "automatedTest": true,
+    "kstSelectorParity": true,
+    "giftRefundSupportSeparated": true,
+    "plannedActualSeparated": true,
+    "sparseForecastSuppressed": true,
+    "installedRuntime": "EMPTY_STATE_ONLY"
+  },
+  "localStaging": {
+    "classification": "LOCAL_STAGING_PARITY",
+    "topology": {
+      "postgres": 1,
+      "redis": 1,
+      "minio": 1,
+      "api": 2,
+      "worker": 2,
+      "publisher": 1,
+      "admin": 1
+    },
+    "remoteConfig": {
+      "replicaPorts": [
+        53100,
+        53101
+      ],
+      "source": "database",
+      "configVersion": 1,
+      "result": "PASS"
+    },
+    "mockOAuthReplay": "PASS",
+    "distributedRateLimit": "PASS",
+    "duplicateDeliveryDlq": "PASS",
+    "workerRestart": "PASS",
+    "scheduledPublishRace": "PASS"
+  },
+  "restoreDrill": {
+    "result": "PASS_LOCAL_NEW_DATABASE",
+    "backup": {
+      "path": "artifacts/db-backups/release4c-local-staging-31-migrations.sql",
+      "bytes": 2629924,
+      "sha256": "5B25EDE91379ABB849A361821F76B34C1EADD92316A2144455E93ACE9412BEA6"
+    },
+    "expectedSha256": "5B25EDE91379ABB849A361821F76B34C1EADD92316A2144455E93ACE9412BEA6",
+    "verified": {
+      "expenseTotal": 123456,
+      "planBudget": 150000,
+      "publishedItems": 1,
+      "approvals": 2,
+      "outboxRows": 2,
+      "migrations": 31
+    }
+  },
+  "android": {
+    "standalone": {
+      "classification": "INTERNAL_STANDALONE_NOT_PRODUCTION",
+      "apk": {
+        "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+        "fileName": "wooriai-0.0.0-release-standalone.apk",
+        "sizeBytes": 77585871,
+        "sha256": "08420343A9251E9667B72880560F57F29BAA944A54D4860BE14CA43F20AA3053",
+        "reportedPriorApkSha256": "D4F981041FBE60083D8CA2F90E5A58342A5A8C9D6B7340849E66945A22529422",
+        "unchangedArtifact": false,
+        "artifactClassification": "DIFFERENT_ARTIFACT",
+        "signing": {
+          "verified": true,
+          "certificateDn": "CN=Android Debug, OU=Android, O=Unknown, L=Unknown, ST=Unknown, C=US",
+          "certificateSha256": "FAC61745DC0903786FB9EDE62A962B399F7348F0BB6F899B8332667591033B9C",
+          "schemes": {
+            "v1": false,
+            "v2": true,
+            "v3": false,
+            "v4": false
+          },
+          "tool": "C:/Users/nj970/AppData/Local/Android/Sdk/build-tools/36.0.0/apksigner.bat"
+        },
+        "manifest": {
+          "packageName": "com.anonymous.wooriai",
+          "versionCode": "1",
+          "versionName": "0.0.0",
+          "minSdk": "24",
+          "targetSdk": "34",
+          "nativeAbis": [
+            "arm64-v8a",
+            "armeabi-v7a",
+            "x86",
+            "x86_64"
+          ],
+          "debuggable": false,
+          "testOnly": false,
+          "tool": "C:/Users/nj970/AppData/Local/Android/Sdk/build-tools/36.0.0/aapt2.exe"
+        },
+        "embeddedBundle": {
+          "path": "assets/index.android.bundle",
+          "bytes": 2375308,
+          "sha256": "C39A72869219B5449B72D0370EB6D031FEDDFD278BA63A41C1165680E2BCEF41"
+        },
+        "assetManifestHash": "B35BF6ECDED8E49A968F673A6D0E01589B809B017C98DBC11125DE90B56423F4",
+        "assets": [
+          {
+            "path": "assets/app.config",
+            "bytes": 521,
+            "sha256": "C3A8B93B829BA14BB9E7A2CE9A7A78E1BD3C6F976F696F916C88F6FA30BD6BF0"
+          },
+          {
+            "path": "assets/dexopt/baseline.prof",
+            "bytes": 8924,
+            "sha256": "029BF4F893EBCAFF640D6087C339386ECD3866967163CB732E4D0284952E23E1"
+          },
+          {
+            "path": "assets/dexopt/baseline.profm",
+            "bytes": 516,
+            "sha256": "F83E6E4F3DB9F62EEEADE756FA9C6209C2E7A5F0249671A4051676D69CAD197E"
+          },
+          {
+            "path": "assets/index.android.bundle",
+            "bytes": 2375308,
+            "sha256": "C39A72869219B5449B72D0370EB6D031FEDDFD278BA63A41C1165680E2BCEF41"
+          }
+        ]
+      },
+      "installedDevice": {
+        "model": "sdk_gphone64_x86_64",
+        "androidVersion": "15",
+        "freshInstall": true,
+        "clearData": true,
+        "testLogin": true,
+        "processRestart": true
+      },
+      "installedEvidence": [
+        {
+          "path": "artifacts/android/release4c-installed/cold-start.png",
+          "bytes": 827212,
+          "sha256": "50D5902FE63ED170F631F370B1BDA313F9707BF522DB120ABBA2CD90C9739E6F"
+        },
+        {
+          "path": "artifacts/android/release4c-installed/home.png",
+          "bytes": 147213,
+          "sha256": "829F6DE0AC2614290EC712D3810D61112A05592BDFE263085600A7B6790BF7A8"
+        },
+        {
+          "path": "artifacts/android/release4c-installed/preparation.png",
+          "bytes": 212775,
+          "sha256": "D810FC08AD6A523D86366B73EF5F70C19D409486B486004DFE4420F601E55AC9"
+        },
+        {
+          "path": "artifacts/android/release4c-installed/report-v3.png",
+          "bytes": 102364,
+          "sha256": "35BD490493E0EFAFAD6B62C82BF0D5A8E38DC1AB2C9ED82D3569E5EAE4DD7ABA"
+        },
+        {
+          "path": "artifacts/android/release4c-installed/process-restart-15s.png",
+          "bytes": 146546,
+          "sha256": "6872138A06888FE0E5F5A4C77A154282F2500A4CA8723E23C4F56165076A029C"
+        }
+      ]
+    },
+    "pixel": {
+      "classification": "INTERNAL_PIXEL_EVIDENCE_APK",
+      "apkSha256": "08ED15C0C5AF3CD78DE6E9E41EE3C14B81462517A2117DD4269E10A0DDF9F5AC",
+      "buildReport": {
+        "path": "artifacts/pixel-lock/android/reports/pixel-apk.json",
+        "bytes": 596,
+        "sha256": "1E6A8ECE767250952CF427EFDBD66B6D7B59A74368BA08BDC865B09F36102032"
+      },
+      "resultReport": {
+        "path": "artifacts/pixel-lock/android/reports/latest.json",
+        "bytes": 11641,
+        "sha256": "DDE14B8BD4E31D2F82892532E507CBD07F0F7C4FCF34EDEC7A720D0666E00B9F"
+      },
+      "status": "PASS",
+      "validScreens": 9,
+      "passedScreens": 9
+    }
+  },
+  "findings": {
+    "open": {
+      "p0": 0,
+      "p1": 0,
+      "p2": 1,
+      "p3": 0
+    },
+    "closed": {
+      "p0": 5,
+      "p1": 12,
+      "p2": 0,
+      "p3": 0
+    },
+    "externalBlocked": {
+      "p0": 0,
+      "p1": 0,
+      "p2": 1,
+      "p3": 0
+    },
+    "initialAudit": {
+      "p0": 4,
+      "p1": 10
+    },
+    "additionalFindingsDuringImplementation": {
+      "p0": 1,
+      "p1": 2,
+      "p2": 2
+    },
+    "p0": 0,
+    "p1": 0
+  },
+  "knownBlockers": [
+    "408 editorial approvals absent",
+    "84 high-risk external safety/domain approvals absent",
+    "1200 coverage cells remain review_needed",
+    "approved active Product Offer count is zero",
+    "complete 37-route installed state/accessibility matrix pending",
+    "complete installed persona runs pending",
+    "external staging and real providers not verified",
+    "production signing, AAB, Play beta and closed beta not performed"
+  ],
+  "evidence": [
+    {
+      "path": "docs/qa/evidence/release4c-findings.json",
+      "bytes": 16072,
+      "sha256": "FD2544F34BD3E0B9C387CC79665B896476530ADBE21ED1B0AEE890C4294C5121"
+    },
+    {
+      "path": "docs/qa/evidence/release4c-catalog-review-inventory.json",
+      "bytes": 1067911,
+      "sha256": "085C2D4A15DBCAD01539E7D16681B393CF3B8EB90A71F0B3B0A9944B17251B35"
+    },
+    {
+      "path": "docs/qa/evidence/release4c-coverage-matrix.json",
+      "bytes": 955540,
+      "sha256": "7CC87BFF64080C7652CCFF0C97C80AEF4F8645A2031A1EE6799EA02F585D0D90"
+    },
+    {
+      "path": "docs/qa/evidence/release4c-persona-evals.json",
+      "bytes": 78247,
+      "sha256": "4948D27EC6D390C0C91397615240804D681332DF5770D5915F40970AAD62E361"
+    },
+    {
+      "path": "apps/mobile/e2e/release4c-route-scenarios.json",
+      "bytes": 72519,
+      "sha256": "92ABADF12E097D87FAE174BA3990D879E2FF8ADC62AB17E8D164F80C406F875B"
+    },
+    {
+      "path": "artifacts/dev-snapshots/release4c-file-ownership.json",
+      "bytes": 103011,
+      "sha256": "7532D5324F67E5697B961168CAB4E8DD20B54C6547E691B5C2CFEED80AC2AAFD"
+    },
+    {
+      "path": "artifacts/android/release4c-build-provenance.json",
+      "bytes": 4713,
+      "sha256": "48FB2A30C9670E534F5A2E811C362D9C72712E49BCA39A21DEF61A3AF52277A5"
+    },
+    {
+      "path": "docs/qa/evidence/latest-release-gate.json",
+      "bytes": 2692,
+      "sha256": "5E3DF6BE9B8DEFB91938184ACEB71E275C3E123F45430D18C645A2C1E4AB745F"
+    }
+  ]
+}

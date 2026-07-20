@@ -1,0 +1,120 @@
+WooriAI Release 4 enhancement pre-existing working tree snapshot
+Captured: 2026-07-15T18:49:08.4029513+09:00
+Repository: F:\WooriAI
+Branch: codex/sprint2-catalog-payments
+HEAD: db7a7a455afec892b8fa1205e477dbe507a5931d
+Configured upstream: none
+
+Protection rule: every path below existed before this mission turn and must not be
+discarded, bulk-restored, cleaned, or accidentally staged as an unrelated change.
+
+git status --short (63 collapsed entries):
+ M apps/api/prisma/schema.prisma
+ M apps/api/prisma/seed.ts
+ M apps/api/scripts/catalog.ts
+ M apps/api/src/app.module.ts
+ M apps/api/src/common/filters/global-exception.filter.ts
+ M apps/api/src/finance/dto/expense.dto.ts
+ M apps/api/src/finance/expense-snapshot.ts
+ M apps/api/src/finance/finance.module.ts
+ M apps/api/src/jobs/job-handlers.service.ts
+ M apps/api/src/jobs/jobs.module.ts
+ M apps/api/src/onboarding/onboarding-store.service.ts
+ M apps/mobile/app/(tabs)/_layout.tsx
+ M apps/mobile/app/(tabs)/index.tsx
+ M apps/mobile/app/(tabs)/items.tsx
+ M apps/mobile/app/(tabs)/more.tsx
+ M apps/mobile/app/(tabs)/reports.tsx
+ M apps/mobile/app/expenses/new.tsx
+ M apps/mobile/app/family/index.tsx
+ M apps/mobile/app/import/index.tsx
+ M apps/mobile/app/items/[itemTemplateId].tsx
+ M apps/mobile/app/launch-animation.tsx
+ M apps/mobile/src/android-native-ui-quality.test.ts
+ M apps/mobile/src/api/client.ts
+ M apps/mobile/src/api/local-backend.ts
+ M apps/mobile/src/offline/remote-api.ts
+ M apps/mobile/src/offline/sync-controller.ts
+ M apps/mobile/src/offline/types.ts
+ M apps/mobile/src/real-session-data-integrity.test.ts
+ M apps/mobile/src/ui-pixel-lock-flow.test.ts
+ M apps/mobile/src/ui.tsx
+ M docs/qa/evidence/latest-release-gate.json
+ M docs/qa/evidence/latest-release-gate.md
+ M packages/contracts/src/index.ts
+ M packages/domain/src/enums.test.ts
+ M packages/domain/src/enums.ts
+ M packages/domain/src/index.ts
+ M packages/test-utils/src/release-gate-runner.test.ts
+ M packages/test-utils/src/release-readiness.test.ts
+ M scripts/db.ts
+ M scripts/pixel-lock/android-pixel-lock.ts
+ M scripts/release-gate.ts
+?? apps/api/prisma/migrations/000013_catalog_taxonomy/
+?? apps/api/prisma/migrations/000014_item_definition_v2/
+?? apps/api/prisma/migrations/000015_item_plan_status_v2/
+?? apps/api/prisma/migrations/000016_expense_taxonomy_v2/
+?? apps/api/prisma/migrations/000017_report_aggregate_v2/
+?? apps/api/prisma/migrations/000018_catalog_search_alias/
+?? apps/api/src/catalog-v2/
+?? apps/api/src/finance/dto/reports-v2.dto.ts
+?? apps/api/src/finance/reports-v2.controller.ts
+?? apps/api/src/finance/reports-v2.service.ts
+?? apps/api/test/catalog-v2.e2e.test.ts
+?? apps/api/test/release4-catalog.test.ts
+?? apps/api/test/reports-v2.e2e.test.ts
+?? apps/mobile/src/design-system/
+?? apps/mobile/src/preparation/
+?? apps/mobile/src/reports/
+?? docs/operations/product-redesign-development-completion-report-2026-07-15.md
+?? packages/contracts/src/release4-reports.test.ts
+?? packages/contracts/src/release4-reports.ts
+?? packages/contracts/src/release4.test.ts
+?? packages/contracts/src/release4.ts
+?? packages/domain/src/release4-catalog.ts
+
+Expanded untracked files (44):
+apps/api/prisma/migrations/000013_catalog_taxonomy/migration.sql
+apps/api/prisma/migrations/000014_item_definition_v2/migration.sql
+apps/api/prisma/migrations/000015_item_plan_status_v2/migration.sql
+apps/api/prisma/migrations/000016_expense_taxonomy_v2/migration.sql
+apps/api/prisma/migrations/000017_report_aggregate_v2/migration.sql
+apps/api/prisma/migrations/000018_catalog_search_alias/migration.sql
+apps/api/src/catalog-v2/admin-catalog-v2.controller.ts
+apps/api/src/catalog-v2/catalog-v2.controller.ts
+apps/api/src/catalog-v2/catalog-v2.module.ts
+apps/api/src/catalog-v2/catalog-v2.service.ts
+apps/api/src/catalog-v2/dto/catalog-v2.dto.ts
+apps/api/src/finance/dto/reports-v2.dto.ts
+apps/api/src/finance/reports-v2.controller.ts
+apps/api/src/finance/reports-v2.service.ts
+apps/api/test/catalog-v2.e2e.test.ts
+apps/api/test/release4-catalog.test.ts
+apps/api/test/reports-v2.e2e.test.ts
+apps/mobile/src/design-system/components/NoticeCard.tsx
+apps/mobile/src/design-system/components/PageHeader.tsx
+apps/mobile/src/design-system/components/ResponsiveGrid.tsx
+apps/mobile/src/design-system/components/ScreenScaffold.tsx
+apps/mobile/src/design-system/components/SectionCard.tsx
+apps/mobile/src/design-system/components/StatusChip.tsx
+apps/mobile/src/design-system/index.ts
+apps/mobile/src/design-system/release4-design-system.test.ts
+apps/mobile/src/design-system/tokens/breakpoint.ts
+apps/mobile/src/design-system/tokens/color.ts
+apps/mobile/src/design-system/tokens/elevation.ts
+apps/mobile/src/design-system/tokens/icon.ts
+apps/mobile/src/design-system/tokens/motion.ts
+apps/mobile/src/design-system/tokens/radius.ts
+apps/mobile/src/design-system/tokens/spacing.ts
+apps/mobile/src/design-system/tokens/typography.ts
+apps/mobile/src/preparation/Release4ItemDetailScreen.tsx
+apps/mobile/src/preparation/Release4PreparationScreen.tsx
+apps/mobile/src/preparation/release4-preparation.test.ts
+apps/mobile/src/reports/period-aggregation.test.ts
+apps/mobile/src/reports/period-aggregation.ts
+docs/operations/product-redesign-development-completion-report-2026-07-15.md
+packages/contracts/src/release4-reports.test.ts
+packages/contracts/src/release4-reports.ts
+packages/contracts/src/release4.test.ts
+packages/contracts/src/release4.ts
+packages/domain/src/release4-catalog.ts

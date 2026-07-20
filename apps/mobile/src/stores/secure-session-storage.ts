@@ -1,4 +1,5 @@
 import type { StateStorage } from "zustand/middleware";
+import { isTestLoginBuild } from "../pixelLock/build-profile";
 import { persistStorage } from "./persist-storage";
 
 /**
@@ -85,6 +86,18 @@ function parseEnvelope(raw: string): PersistedEnvelope | null {
   }
 }
 
+function withoutPersistedTokens(envelope: PersistedEnvelope): PersistedEnvelope {
+  const { accessToken: _accessToken, refreshToken: _refreshToken, ...state } = envelope.state ?? {};
+  return { ...envelope, state: { ...state, accessToken: null, refreshToken: null } };
+}
+
+function clearSecureTokensInBackground() {
+  void Promise.all([
+    secureRemoveItem(ACCESS_TOKEN_KEY),
+    secureRemoveItem(REFRESH_TOKEN_KEY)
+  ]);
+}
+
 /**
  * Reads the two token fields out of SecureStore, migrating any plaintext tokens still sitting
  * in the legacy AsyncStorage-persisted state (from before secure storage was introduced) into
@@ -126,6 +139,22 @@ export const secureSessionStorage: StateStorage = {
   async getItem(name) {
     const raw = await persistStorage.getItem(name);
 
+    // A standalone internal-test build never accepts a real access token. Waiting for the
+    // SecureStore native module here used to delay local-session hydration long enough for the
+    // navigation timeout to misclassify a persisted test session as logged out. Restore the
+    // non-sensitive local session directly from AsyncStorage and clear any stale token keys in
+    // the background. Production builds continue through the SecureStore path below.
+    if (isTestLoginBuild()) {
+      clearSecureTokensInBackground();
+      if (!raw) return null;
+      const envelope = parseEnvelope(raw);
+      if (!envelope) {
+        await persistStorage.removeItem(name);
+        return null;
+      }
+      return JSON.stringify(withoutPersistedTokens(envelope));
+    }
+
     if (!raw) {
       const [accessToken, refreshToken] = await Promise.all([
         secureGetItem(ACCESS_TOKEN_KEY),
@@ -136,7 +165,15 @@ export const secureSessionStorage: StateStorage = {
     }
 
     const envelope = parseEnvelope(raw);
-    if (!envelope || !envelope.state) return raw;
+    if (!envelope) {
+      await Promise.all([
+        secureRemoveItem(ACCESS_TOKEN_KEY),
+        secureRemoveItem(REFRESH_TOKEN_KEY),
+        persistStorage.removeItem(name)
+      ]);
+      return null;
+    }
+    if (!envelope.state) return raw;
 
     const { accessToken, refreshToken } = await readTokensWithMigration(name, envelope);
 
@@ -150,6 +187,12 @@ export const secureSessionStorage: StateStorage = {
     const envelope = parseEnvelope(value);
     if (!envelope || !envelope.state) {
       await persistStorage.setItem(name, value);
+      return;
+    }
+
+    if (isTestLoginBuild()) {
+      clearSecureTokensInBackground();
+      await persistStorage.setItem(name, JSON.stringify(withoutPersistedTokens(envelope)));
       return;
     }
 

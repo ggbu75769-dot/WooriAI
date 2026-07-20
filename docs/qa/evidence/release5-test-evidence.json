@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "tests": [
+    {
+      "command": "pnpm --filter api exec vitest run --maxWorkers=1 --minWorkers=1",
+      "result": "PASS",
+      "files": 63,
+      "tests": 283,
+      "repetition": "Release 5 targeted retries embedded (30x where specified)"
+    },
+    {
+      "command": "pnpm --filter mobile test",
+      "result": "PASS",
+      "files": 62,
+      "tests": 358
+    },
+    {
+      "command": "pnpm --filter admin test",
+      "result": "PASS",
+      "files": 7,
+      "tests": 34
+    },
+    {
+      "command": "pnpm --filter @wooriai/domain test",
+      "result": "PASS",
+      "files": 11,
+      "tests": 67
+    },
+    {
+      "command": "pnpm --filter @wooriai/contracts test",
+      "result": "PASS",
+      "files": 4,
+      "tests": 39
+    },
+    {
+      "command": "pnpm --filter @wooriai/config test",
+      "result": "PASS",
+      "files": 1,
+      "tests": 3
+    },
+    {
+      "command": "pnpm --filter @wooriai/test-utils test",
+      "result": "PASS",
+      "files": 3,
+      "tests": 15
+    },
+    {
+      "command": "pnpm test:admin-browser",
+      "result": "PASS_AFTER_TARGETED_FIX",
+      "files": 4,
+      "tests": 9,
+      "detail": "initial consolidated run passed 8/9 and exposed the browser harness auth ceiling; after a test-only bounded rate-budget fix the complete catalog file passed 4/4, while operations/authentication/Release 5 readiness retained their prior 5/5 pass"
+    },
+    {
+      "command": "pnpm release:gate",
+      "result": "PASS_BEFORE_FINAL_P2_FIXES",
+      "detail": [
+        {
+          "id": "install",
+          "label": "Install",
+          "command": "pnpm install --frozen-lockfile",
+          "result": "PASS",
+          "durationMs": 552,
+          "timeoutMs": 300000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "env",
+          "label": "Env example",
+          "command": "pnpm check:env:example",
+          "result": "PASS",
+          "durationMs": 734,
+          "timeoutMs": null,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "prisma-validate",
+          "label": "Prisma validate",
+          "command": "pnpm --filter api prisma:validate",
+          "result": "PASS",
+          "durationMs": 1593,
+          "timeoutMs": null,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "prisma-generate",
+          "label": "Prisma generate",
+          "command": "pnpm --filter api prisma:generate",
+          "result": "PASS",
+          "durationMs": 2026,
+          "timeoutMs": null,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "db-start",
+          "label": "Database up",
+          "command": "pnpm db start",
+          "result": "PASS",
+          "durationMs": 1314,
+          "timeoutMs": 180000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "lint",
+          "label": "ESLint",
+          "command": "pnpm lint",
+          "result": "PASS",
+          "durationMs": 7874,
+          "timeoutMs": 300000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "typecheck",
+          "label": "Typecheck",
+          "command": "pnpm typecheck",
+          "result": "PASS",
+          "durationMs": 11225,
+          "timeoutMs": 600000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "test",
+          "label": "All tests",
+          "command": "pnpm test --concurrency=1 --force",
+          "result": "PASS",
+          "durationMs": 219286,
+          "timeoutMs": 900000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "api-e2e",
+          "label": "API e2e",
+          "command": "pnpm --filter api test:e2e",
+          "result": "PASS",
+          "durationMs": 123967,
+          "timeoutMs": 600000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "build",
+          "label": "Production builds",
+          "command": "pnpm build --force",
+          "result": "PASS",
+          "durationMs": 47440,
+          "timeoutMs": 900000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "peers",
+          "label": "Peer dependencies",
+          "command": "pnpm install --frozen-lockfile --strict-peer-dependencies --lockfile-only",
+          "result": "PASS",
+          "durationMs": 489,
+          "timeoutMs": null,
+          "timedOut": false,
+          "issues": []
+        }
+      ]
+    },
+    {
+      "command": "post-gate current-source: lint, typecheck, mobile test/build, targeted Admin browser",
+      "result": "PASS",
+      "detail": "affected lanes rerun after receipt debounce and browser harness fixes; the prohibited full-suite repetition was not used"
+    },
+    {
+      "command": "pnpm release4:verify-db",
+      "result": "PASS"
+    },
+    {
+      "command": "pnpm security:secrets",
+      "result": "PASS"
+    },
+    {
+      "command": "pnpm security:audit",
+      "result": "PASS_HIGH_CRITICAL_ZERO",
+      "moderate": 5
+    },
+    {
+      "command": "pnpm catalog:audit (DATABASE_URL=wooriai_test)",
+      "result": "PASS"
+    },
+    {
+      "command": "pnpm release4:contamination:export",
+      "result": "PASS"
+    }
+  ],
+  "runtimeNotRun": [
+    "full TalkBack matrix",
+    "production-signed artifact",
+    "live providers",
+    "external staging"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "PARTIAL",
+  "passed": [
+    "Today Center aggregate request contract",
+    "Report v3 source contract",
+    "receipt/link/bundle idempotency",
+    "notification pagination 1000 rows",
+    "scoped query invalidation",
+    "custom bundle list uses constant 1 bundle + 1 item + 1 definition delegate read at both 10 and 500 rows"
+  ],
+  "notMeasured": [
+    "10-versus-500 instrumentation is not yet present for every Release 5 read endpoint"
+  ]
+}

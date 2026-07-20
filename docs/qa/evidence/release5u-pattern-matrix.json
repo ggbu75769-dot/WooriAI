@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "status": "PARTIAL_MOBBIN_ACCESS",
+  "actor": "Product Design Research Lead",
+  "input": "Mobbin public mobile flow corpus",
+  "mission": "synthesize patterns without copying",
+  "rows": [
+    {
+      "pattern": "onboarding",
+      "reference": "public-flow-1",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "persistent state plus label",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "selecting and choosing",
+      "reference": "public-flow-2",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "persistent state plus label",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "REJECT_COMMERCIAL_OR_PRODUCT_SPECIFIC_EXPRESSION"
+    },
+    {
+      "pattern": "editing profile",
+      "reference": "public-flow-3",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "persistent state plus label",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "logging and tracking",
+      "reference": "public-flow-4",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "persistent state plus label",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "adding and creating",
+      "reference": "public-flow-5",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "persistent state plus label",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "searching and finding",
+      "reference": "public-flow-6",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "persistent state plus label",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "setting up",
+      "reference": "public-flow-7",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "persistent state plus label",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "REJECT_COMMERCIAL_OR_PRODUCT_SPECIFIC_EXPRESSION"
+    },
+    {
+      "pattern": "switching account",
+      "reference": "public-flow-8",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "inviting teammates and friends",
+      "reference": "public-flow-9",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "reporting",
+      "reference": "public-flow-10",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "starting and completing",
+      "reference": "public-flow-11",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "verifying",
+      "reference": "public-flow-12",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "filtering and sorting",
+      "reference": "public-flow-13",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "switching view",
+      "reference": "public-flow-14",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "importing and exporting",
+      "reference": "public-flow-15",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "gifting",
+      "reference": "public-flow-16",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "REJECT_COMMERCIAL_OR_PRODUCT_SPECIFIC_EXPRESSION"
+    },
+    {
+      "pattern": "joining and accepting",
+      "reference": "public-flow-17",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "registering",
+      "reference": "public-flow-18",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "purchasing and ordering",
+      "reference": "public-flow-19",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "transferring money and donating",
+      "reference": "public-flow-20",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "REJECT_COMMERCIAL_OR_PRODUCT_SPECIFIC_EXPRESSION"
+    },
+    {
+      "pattern": "deleting and deactivating",
+      "reference": "public-flow-21",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "turning on and off",
+      "reference": "public-flow-22",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "creating account",
+      "reference": "public-flow-23",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    },
+    {
+      "pattern": "browsing tutorial",
+      "reference": "public-flow-24",
+      "hierarchy": "one primary task with progressive disclosure",
+      "primaryAction": "explicit completion",
+      "selectionFeedback": "pattern dependent",
+      "accessibilityRisk": "contrast, focus, touch target require local validation",
+      "decision": "ADOPT_PRINCIPLE_ONLY"
+    }
+  ]
+}

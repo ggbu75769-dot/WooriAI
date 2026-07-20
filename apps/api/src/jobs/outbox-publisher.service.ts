@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { hostname } from "node:os";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { createRelease3Queue, queueJobId, type JobQueue, type QueuedJobData } from "./queue";
@@ -20,6 +21,8 @@ function errorCode(error: unknown): string {
 
 @Injectable()
 export class OutboxPublisherService {
+  private readonly instanceId = process.env.SERVICE_INSTANCE_ID ?? hostname();
+
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async claimBatch(batchSize = 50): Promise<ClaimedOutboxRow[]> {
@@ -30,13 +33,14 @@ export class OutboxPublisherService {
         FROM job_outbox
         WHERE published_at IS NULL
           AND visible_at <= NOW()
-          AND (claimed_at IS NULL OR claimed_at < NOW() - INTERVAL '5 minutes')
+          AND (claim_expires_at IS NULL OR claim_expires_at < NOW())
         ORDER BY created_at ASC
         FOR UPDATE SKIP LOCKED
         LIMIT ${safeBatchSize}
       )
       UPDATE job_outbox AS outbox
-      SET claimed_at = NOW(), attempt_count = outbox.attempt_count + 1, updated_at = NOW()
+      SET claimed_at = NOW(), claimed_by = ${this.instanceId}, claim_expires_at = NOW() + INTERVAL '5 minutes',
+          attempt_count = outbox.attempt_count + 1, updated_at = NOW()
       FROM candidates
       WHERE outbox.id = candidates.id
       RETURNING outbox.id, outbox.topic, outbox.dedupe_key, outbox.schema_version,
@@ -67,7 +71,7 @@ export class OutboxPublisherService {
         });
         await this.prisma.jobOutbox.updateMany({
           where: { id: row.id, publishedAt: null },
-          data: { publishedAt: new Date(), claimedAt: null, lastErrorCode: null }
+          data: { publishedAt: new Date(), claimedAt: null, claimedBy: null, claimExpiresAt: null, lastErrorCode: null }
         });
         published += 1;
       } catch (error) {
@@ -76,6 +80,8 @@ export class OutboxPublisherService {
           where: { id: row.id, publishedAt: null },
           data: {
             claimedAt: null,
+            claimedBy: null,
+            claimExpiresAt: null,
             visibleAt: new Date(Date.now() + delaySeconds * 1000),
             lastErrorCode: errorCode(error)
           }

@@ -126,6 +126,9 @@ describe("Family invites and household RBAC", () => {
       inviteUrl: expect.stringContaining("/invite/"),
       expiresAt: expect.any(String)
     });
+    const inviteTtlMs = Date.parse(inviteResponse.body.expiresAt) - Date.now();
+    expect(inviteTtlMs).toBeGreaterThan(24 * 60 * 60 * 1000 - 10_000);
+    expect(inviteTtlMs).toBeLessThanOrEqual(24 * 60 * 60 * 1000);
     const inviteToken = tokenFromInviteUrl(inviteResponse.body.inviteUrl);
 
     await request(app.getHttpServer())

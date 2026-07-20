@@ -2,22 +2,23 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import {
+  cancelAccountDeletion,
   confirmAccountDeletion,
   confirmChildProfileDeletion,
   confirmHouseholdLeave,
+  getCurrentAccountDeletion,
   getPrivacySettings,
   LOCAL_HOUSEHOLD_ID,
-  LOCAL_SESSION_TOKEN,
+  fixtureSessionToken,
   previewAccountDeletion,
   previewChildProfileDeletion,
   previewHouseholdLeave,
   type SettingsPreview
 } from "../../src/api/client";
-import { resetLocalBackend } from "../../src/api/local-backend";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
+import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/design-system";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
 
 const flowCopy = {
   child_profile_delete: {
@@ -87,10 +88,9 @@ function PreviewSummary({ preview }: { preview?: SettingsPreview }) {
 export default function PrivacySettingsScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
-  const clearSession = useSessionStore((state) => state.clearSession);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const clearChild = useSelectedChildStore((state) => state.clearSelectedChildId);
   const queryClient = useQueryClient();
@@ -99,6 +99,11 @@ export default function PrivacySettingsScreen() {
     queryKey: ["privacy-settings"],
     enabled: Boolean(authToken),
     queryFn: () => getPrivacySettings(authToken!)
+  });
+  const currentDeletion = useQuery({
+    queryKey: ["account-deletion-current"],
+    enabled: Boolean(authToken),
+    queryFn: () => getCurrentAccountDeletion(authToken!)
   });
 
   const childPreview = useMutation({
@@ -136,16 +141,26 @@ export default function PrivacySettingsScreen() {
   });
   const accountDelete = useMutation({
     mutationFn: () => confirmAccountDeletion(authToken!, accountPreview.data?.confirmationText ?? ""),
-    onSuccess: () => {
-      Alert.alert("완료됐어요", "계정을 삭제했어요.");
-      if (isTestSession) {
-        resetLocalBackend();
-      }
-      clearSession();
-      clearChild();
-      router.replace("/launch-animation");
+    onSuccess: (response) => {
+      queryClient.setQueryData(["account-deletion-current"], { deletion: response.deletion ?? null });
+      Alert.alert("삭제 요청을 접수했어요", "7일 유예 기간 동안 계정과 데이터가 유지됩니다. 이 화면에서 요청을 취소할 수 있어요.");
     }
   });
+  const accountCancel = useMutation({
+    mutationFn: (requestId: string) => cancelAccountDeletion(authToken!, requestId),
+    onSuccess: () => {
+      queryClient.setQueryData(["account-deletion-current"], { deletion: null });
+      accountDelete.reset();
+      accountPreview.reset();
+      Alert.alert("삭제 요청을 취소했어요", "계정과 데이터는 그대로 유지됩니다.");
+    }
+  });
+
+  const activeDeletion = accountDelete.data?.deletion?.state === "requested"
+    ? accountDelete.data.deletion
+    : currentDeletion.data?.deletion?.state === "requested"
+      ? currentDeletion.data.deletion
+      : null;
 
   const confirmChildDelete = () => {
     if (!childPreview.data || childDelete.isPending) return;
@@ -165,7 +180,7 @@ export default function PrivacySettingsScreen() {
 
   const confirmAccountDelete = () => {
     if (!accountPreview.data || accountDelete.isPending) return;
-    Alert.alert("정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", [
+    Alert.alert("회원 탈퇴를 요청할까요?", "7일 동안 취소할 수 있고, 유예 기간이 지나면 로그인 접근이 중단되고 데이터 삭제가 시작돼요.", [
       { text: "취소", style: "cancel" },
       { text: "삭제", style: "destructive", onPress: () => accountDelete.mutate() }
     ]);
@@ -248,7 +263,7 @@ export default function PrivacySettingsScreen() {
             <Text style={dangerTitleStyle}>{flowCopy.account_delete.title}</Text>
             <StatusBadge label="위험" tone="warning" />
           </View>
-          <Text style={mutedTextStyle}>{flowCopy.account_delete.description}</Text>
+          <Text style={mutedTextStyle}>탈퇴 요청 후 7일 동안 계정과 데이터가 유지되며, 유예 기간 안에는 언제든 요청을 취소할 수 있어요.</Text>
           <SecondaryButton
             label={accountPreview.isPending ? "확인하는 중..." : flowCopy.account_delete.previewLabel}
             disabled={!authToken || accountPreview.isPending}
@@ -264,6 +279,16 @@ export default function PrivacySettingsScreen() {
             />
           ) : null}
           {accountDelete.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
+          {activeDeletion ? (
+            <View style={previewBoxStyle}>
+              <Text style={previewTitleStyle}>삭제 유예 중</Text>
+              <Text style={previewLineStyle}>요청 시각: {new Date(activeDeletion.requestedAt).toLocaleString("ko-KR")}</Text>
+              <Text style={previewLineStyle}>삭제 시작 예정: {activeDeletion.dueAt ? new Date(activeDeletion.dueAt).toLocaleString("ko-KR") : "확인 중"}</Text>
+              <Text style={previewNoticeStyle}>예정 시각 전까지 로그인과 데이터 이용이 유지돼요.</Text>
+              <SecondaryButton disabled={accountCancel.isPending} label={accountCancel.isPending ? "취소 처리 중..." : "회원 탈퇴 요청 취소"} onPress={() => accountCancel.mutate(activeDeletion.id)} />
+              {accountCancel.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
+            </View>
+          ) : null}
         </Card>
       </View>
     </AppScreen>

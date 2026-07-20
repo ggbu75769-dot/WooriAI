@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "status": "PARTIAL",
+  "completedWorkstreams": ["worker and publisher recovery", "Remote Config rollout and rollback", "MinIO import consistency", "Admin operations recovery UX", "current-source artifact recertification", "regression/query budgets and optional ADB check"],
+  "partialWorkstreams": [{ "name": "Local RC Golden Mission", "completed": "worker, publisher, Redis/config and MinIO fault phases", "missing": "full owner-to-co-parent-to-Report flow was not repeated in the same running fault stack" }],
+  "evidence": ["release4i-aim-traceability.json", "release4i-findings.json", "release4i-worker-recovery.json", "release4i-publisher-reconciliation.json", "release4i-remote-config-convergence.json", "release4i-import-object-consistency.json", "release4i-orphan-reconciliation.json", "release4i-operations-dashboard.json", "release4i-local-rc-mission.json", "release4i-local-staging-faults.json", "release4i-query-budget.json", "release4i-source-snapshot.json", "release4i-native-artifact-audit.json", "release4i-admin-browser-evidence.json", "release4i-test-evidence.json", "release4i-build-provenance.json", "release4i-file-ownership.json"],
+  "quality": { "openCodeP0": 0, "openCodeP1": 0, "releaseGate": "PASS", "adminBrowser": "PASS", "freshUpgradeDb": "PASS", "secretScan": "PASS", "dependencyHigh": 0, "dependencyCritical": 0, "productionContamination": "PASS", "gitDiffCheck": "PASS", "staged": 0 },
+  "catalog": { "canonical": 408, "inReview": 408, "published": 0, "highRisk": 84, "offers": 0 },
+  "adb": { "binaryFound": true, "authorizedDevices": 0, "newEmulatorsStarted": 0, "installs": 0, "result": "NOT_RUN_NO_DEVICE" },
+  "git": { "branch": "codex/sprint2-catalog-payments", "head": "db7a7a455afec892b8fa1205e477dbe507a5931d", "trackedStatusEntries": 138, "untrackedIndividualFiles": 284, "staged": 0, "commit": false, "push": false, "deploy": false, "publish": false }
+}

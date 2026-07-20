@@ -29,9 +29,12 @@ export function toExpenseSnapshot(expense: PrismaExpense) {
     paymentMethod: expense.paymentMethod,
     paymentMethodId: expense.paymentMethodId,
     memo: expense.memo ?? null,
+    linkedItemDefinitionId: expense.linkedItemDefinitionId,
+    expenseCategoryV2Id: expense.expenseCategoryV2Id,
     expenseType: expense.expenseType,
     source: expense.source,
     createdByUserId: expense.createdByUserId,
+    payerUserId: expense.payerUserId ?? expense.createdByUserId,
     version: expense.version
   };
 }

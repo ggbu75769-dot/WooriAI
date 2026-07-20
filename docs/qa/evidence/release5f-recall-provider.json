@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "safety operator",
+  "input": "signed provider events",
+  "mission": "dedupe/correct/review fail-closed",
+  "evidence": [
+    "release5f-external-readiness.db.test.ts:30x"
+  ],
+  "residual": [
+    "live provider credential EXTERNAL_BLOCKED"
+  ]
+}

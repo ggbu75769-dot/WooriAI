@@ -1,17 +1,20 @@
 # WooriAI Release Gate Evidence
 
-Generated: 2026-07-15T01:10:54.247Z
+Generated: 2026-07-18T02:27:55.419Z
 Mode: production-config
 
 | Gate | Command | Result | Duration |
 | --- | --- | --- | --- |
-| Production config | `pnpm release:config` | FAIL | 2ms |
+| Production config | `pnpm release:config` | FAIL | 4ms |
 
 ## Production configuration blockers
 
 - `ANDROID_PACKAGE_PLACEHOLDER`: Android package name must be approved and non-placeholder.
 - `APP_VERSION_PLACEHOLDER`: Application version must be approved and non-placeholder.
 - `NODE_ENV_NOT_PRODUCTION`: NODE_ENV must be production.
+- `MOBILE_BUILD_PROFILE_NOT_PRODUCTION`: The mobile build profile must be production.
+- `MOBILE_TEST_LOGIN_NOT_DISABLED`: Test login must be explicitly disabled in production.
+- `MOBILE_PIXEL_LOCK_NOT_DISABLED`: Pixel Lock fixture mode must be explicitly disabled in production.
 - `DEV_AUTH_NOT_DISABLED`: Development authentication must be explicitly disabled.
 - `LEGAL_OPERATOR_PLACEHOLDER`: Approved legal operator information is required.
 - `PRIVACY_POLICY_URL_INVALID`: PRIVACY_POLICY_URL must be an approved HTTPS URL.

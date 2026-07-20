@@ -1,8 +1,9 @@
 FROM node:20-alpine AS builder
 WORKDIR /workspace
-RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
+RUN corepack enable && corepack prepare pnpm@10.28.1 --activate
 COPY . .
 RUN pnpm install --frozen-lockfile
+RUN pnpm --filter api prisma:generate
 RUN pnpm --filter api build
 
 FROM node:20-alpine AS runtime

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "release": "4H",
+  "generatedAt": "2026-07-17T12:42:02+09:00",
+  "budgets": [
+    {"surface": "Report initial load", "contract": "one feature aggregate request", "observed": 1, "result": "PASS"},
+    {"surface": "planned Report source", "contract": "expense ledger reads", "observed": 0, "result": "PASS"},
+    {"surface": "actual Report source", "contract": "one shared ledger read", "observed": 1, "result": "PASS"},
+    {"surface": "Report aggregate/source", "contract": "full total is server total, not current page sum", "repetitions": 30, "result": "PASS"},
+    {"surface": "Admin queue mutation", "contract": "one mutation request and one affected queue refetch", "observed": {"mutation": 1, "queueRefetch": 1, "catalogItemRefetch": 0}, "result": "PASS"},
+    {"surface": "comment duplicate delivery", "contract": "one side effect per clientMutationId", "repetitions": 30, "result": "PASS"},
+    {"surface": "notification first page", "contract": "stable cursor without duplicate page", "fixtureRows": 1000, "missing": 0, "duplicates": 0, "result": "PASS"},
+    {"surface": "outbox reclaim", "contract": "one winner for expired claim", "claimers": 30, "winners": 1, "result": "PASS"},
+    {"surface": "scope invalidation", "contract": "affected household/child keys only", "result": "PASS"},
+    {"surface": "remote config", "contract": "database source retained through Redis restart", "apiInstances": 2, "versions": [1, 1], "result": "PASS_STATIC_VERSION"}
+  ],
+  "volume": {
+    "reportExpenses": 2000,
+    "notifications": 1000,
+    "rowPerQueryNPlusOneDetected": false
+  },
+  "wallClockGate": false
+}

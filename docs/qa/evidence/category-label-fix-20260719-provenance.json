@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-19T00:27:30.7341322Z",
+  "generatedFor": "category-only-onboarding-starter-item-labels",
+  "branch": "codex/sprint2-catalog-payments",
+  "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+  "dirtyWorktreePreserved": true,
+  "changeBoundary": [
+    "apps/mobile/src/onboarding/starter-items.ts",
+    "apps/mobile/src/api/local-backend.ts",
+    "apps/mobile/src/api/local-fixtures.ts",
+    "apps/mobile/src/onboarding-hardening.test.ts"
+  ],
+  "sourceSnapshot": {
+    "path": "docs/qa/evidence/release5v-source-snapshot.json",
+    "fileSha256": "3CF96F053345DEFA997715AD57D6305D54F670C4568D4D5FF39CC852FF3B8D78",
+    "sourceSnapshotSha256": "306E95F606459277796BBEC1B59E00070F6139A84B56432C1E0DC89095E384C4",
+    "fileCount": 878,
+    "nativeExplicitFileCount": 82
+  },
+  "validation": {
+    "regressionTests": "PASS, 2 files / 25 tests",
+    "mobileTypecheck": "PASS",
+    "fullReleaseGate": {
+      "status": "NOT_RERUN_AFTER_THIS_FOLLOWUP",
+      "previousGateSha256": "7AE0B791C5BA34C68136387B9DDDE13BCA88020DEC5A86FEAE44220C32230DCB"
+    }
+  },
+  "apk": {
+    "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "bytes": 69527638,
+    "sha256": "6173BBE234DE1D21DB18D6B294B7DBBB5612F90F8CD0F7C6E61AA7B1C8FD6FCB",
+    "buildReportSha256": "8202E612EED084B93CD77E4AF4B2DF221608F200B8D4FDEF6008457392697AE5",
+    "auditSha256": "F761B6791FF3D29054D1FBA7279AC9B255124B585013C17FD5EB61EC1B5FD50C",
+    "embeddedBundleBytes": 2696716,
+    "embeddedBundleSha256": "1433EA0B82D01F17C141D7A321E9653264193A23B26C0BF49EA63A773169A010",
+    "generatedBundleSha256": "1433EA0B82D01F17C141D7A321E9653264193A23B26C0BF49EA63A773169A010",
+    "sourceBinding": "BOUND",
+    "cleanBuild": true,
+    "architecture": "x86_64",
+    "qualification": "INTERNAL_TEST",
+    "productionCandidate": false
+  },
+  "installedAndroid": {
+    "serial": "emulator-5554",
+    "avd": "wooriai_pixel_5_api35",
+    "model": "sdk_gphone64_x86_64",
+    "packageName": "com.anonymous.wooriai",
+    "freshAppData": true,
+    "screen": "ONB-002",
+    "categoryLabelsPresent": [
+      "기저귀",
+      "아기띠",
+      "블록 세트"
+    ],
+    "productNameTokensAbsent": [
+      "네이처러브",
+      "팬티형",
+      "힙시트",
+      "도담도담",
+      "원목"
+    ],
+    "screenshot": {
+      "path": "docs/MOD_V1/evidence/android/43-category-only-starter-items.png",
+      "sha256": "1ED268C5EE0A18BBF9851B35FD849039A9F349CB65A4C12675C6ABA673912D0D"
+    },
+    "hierarchy": {
+      "path": "docs/MOD_V1/evidence/android/43-category-only-starter-items.xml",
+      "sha256": "1E966016B80FE49E7393A11F3B2B8237025660EE6080B0497EA71E3E43F9EDF6"
+    }
+  },
+  "productionClaims": {
+    "productionSigned": false,
+    "productionDeployed": false,
+    "productionCatalogPublished": false,
+    "storeQualified": false
+  }
+}

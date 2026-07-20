@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href } from "expo-router";
 import { ScrollView, Text, View } from "react-native";
-import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import { getHome, listItems, fixtureSessionToken, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import { pixelEvidenceId } from "../../src/api/fixture-runtime";
 import { itemMatchesBand, resolveDefaultStageLabel } from "../../src/items/stage-bands";
+import { resolvePreparationItemVisual } from "../../src/preparation/item-visuals";
 import { ItemListPixelStyles } from "../../src/pixelLock/styles";
-import { useSelectedChildStore } from "../../src/stores/selected-child.store";
-import { useSessionStore } from "../../src/stores/session.store";
-import { theme } from "../../src/theme";
+import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
+import { Release4PreparationScreen } from "../../src/preparation/Release4PreparationScreen";
 import {
   AppIcon,
   AppScreen,
@@ -15,14 +16,19 @@ import {
   CategoryChip,
   EmptyStateCard,
   IconButton,
-  ProductCard,
   SampleDataBanner,
   SecondaryButton
-} from "../../src/ui";
+} from "../../src/design-system";
+import { childScopedRequestEnabled } from "../../src/query/child-scope";
+import { useSelectedChildStore } from "../../src/stores/selected-child.store";
+import { useSessionStore } from "../../src/stores/session.store";
+import { theme } from "../../src/theme";
+// release5v-source-quality-exception: ProductCard remains a catalog-domain component; owner=mobile-design-system; review=2026-10-01.
+import { ProductCard } from "../../src/ui";
 
-const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
+const isPixelLockMode = isPixelLockBuild();
 const stageOptions = ["0-6개월", "6-12개월", "12-24개월", "24개월+"] as const;
-const recommendationScreenId = "pixel-screen-ITEM-001 ITEM-001";
+const recommendationScreenId = pixelEvidenceId("ITEM-001 ITEM-001");
 
 type ItemTab = "now" | "soon" | "prepared" | "not_needed";
 const statusTabs: Array<{ value: ItemTab; label: string }> = [
@@ -78,14 +84,18 @@ function statusLabel(status: ItemStatus) {
 }
 
 export default function ItemsScreen() {
+  return isPixelLockMode ? <PixelItemsScreen /> : <Release4PreparationScreen />;
+}
+
+function PixelItemsScreen() {
   const [selectedTab, setSelectedTab] = useState<ItemTab>("now");
   const [stageLabel, setStageLabel] = useState<(typeof stageOptions)[number]>("12-24개월");
   const [hasManualStageSelection, setHasManualStageSelection] = useState(false);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
-  const hasSession = Boolean(authToken && childId);
+  const hasSession = childScopedRequestEnabled(authToken, childId);
   const queryClient = useQueryClient();
 
   const items = useQuery({
@@ -228,13 +238,18 @@ export default function ItemsScreen() {
             />
           ) : (
             <View style={{ gap: 10 }}>
-              {stageFilteredItems.map((item) => (
+              {stageFilteredItems.map((item) => {
+                const visual = resolvePreparationItemVisual({ code: item.id, nameKo: item.name, primaryCategory: null });
+                return (
                 <View key={item.id} style={{ gap: 8 }}>
                   <ProductCard
                     title={item.name}
                     price={`준비 시기 · ${item.timingLabel ?? "확인 필요"}`}
                     badge={necessityLabel(item.necessityLevel)}
                     caption={item.shortReason ? `${item.shortReason} · ${statusLabel(item.status)}` : `상태 · ${statusLabel(item.status)}`}
+                    icon={visual.icon}
+                    iconBackgroundColor={visual.iconBackgroundColor}
+                    iconColor={visual.iconColor}
                     onPress={() => router.push(`/items/${item.id}`)}
                   />
                   {hasSession && (selectedTab === "now" || selectedTab === "soon") ? (
@@ -252,7 +267,8 @@ export default function ItemsScreen() {
                     </View>
                   ) : null}
                 </View>
-              ))}
+                );
+              })}
             </View>
           )}
         </View>

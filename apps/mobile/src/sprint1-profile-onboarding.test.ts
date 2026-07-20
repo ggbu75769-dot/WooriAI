@@ -6,7 +6,7 @@ const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
 describe("Sprint 1 profile and onboarding product contract", () => {
-  it("separates the account profile from child profiles and keeps profile one tap from every tab", () => {
+  it("separates the account profile from child profiles and keeps the profile hub as the fifth tab", () => {
     expect(existsSync(join(mobileRoot, "app/profile.tsx"))).toBe(true);
     const profile = source("app/profile.tsx");
     expect(profile).toContain('testID="screen-PROFILE-001"');
@@ -14,15 +14,17 @@ describe("Sprint 1 profile and onboarding product contract", () => {
     expect(profile).toContain('label="이메일"');
     expect(profile).toContain('label="로그인 방식"');
 
-    for (const screen of ["index.tsx", "records.tsx", "items.tsx", "reports.tsx"]) {
-      expect(source(`app/(tabs)/${screen}`), screen).toContain('router.push("/profile" as Href)');
-    }
+    const tabs = source("app/(tabs)/_layout.tsx");
+    expect(tabs).toContain('more: { title: "프로필"');
+    expect(tabs).toContain('<Tabs.Screen name="more"');
+    expect(tabs).not.toContain('name="more" options={{ href: null }}');
   });
 
   it("blocks direct tab entry when there is no selected child", () => {
     const layout = source("app/(tabs)/_layout.tsx");
     expect(layout).toContain("useSelectedChildStore");
-    expect(layout).toContain("if (!selectedChildId)");
+    expect(layout).toContain("if (!selectedChildInScope)");
+    expect(layout).toContain("selectedChildStoredScope === sessionScope");
     expect(layout).toContain('<Redirect href="/" />');
   });
 

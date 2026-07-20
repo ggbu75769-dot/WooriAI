@@ -1,0 +1,38 @@
+/* 우리아이 color tokens — source: uploads/wooriai-design-tokens-seed-v1.0.json (v1.0 seed)
+   + apps/mobile/src/theme.ts (current code coral scale kept as legacy aliases) */
+:root{
+/* Brand / Woori Coral */
+--brand-50:#FFF4EF;--brand-100:#FFE4D8;--brand-200:#FFC8B5;--brand-300:#FFA58A;--brand-400:#F98060;--brand-500:#E85F3B;--brand-600:#C94627;--brand-700:#A93720;--brand-800:#862D1D;--brand-900:#67251B;
+/* Support / Care Sage */
+--sage-50:#F0F9F6;--sage-100:#D9F0E8;--sage-200:#B8E0D2;--sage-300:#86C9B4;--sage-400:#51AA91;--sage-500:#2F8A73;--sage-600:#267A68;--sage-700:#1F6255;--sage-800:#1B4F45;--sage-900:#173F38;
+/* Warm neutrals */
+--warm-0:#FFFFFF;--warm-25:#FFFDFC;--warm-50:#F8F6F4;--warm-100:#F1EEEB;--warm-200:#E5DFDB;--warm-300:#D3CAC4;--warm-400:#A99E97;--warm-500:#7A716B;--warm-600:#5F5854;--warm-700:#443F3C;--warm-800:#2F2B29;--warm-900:#211E1C;
+/* Status reference */
+--blue-50:#EFF5FF;--blue-600:#2F6FED;--blue-700:#1D4ED8;
+--green-50:#ECF8F1;--green-600:#16794B;
+--amber-50:#FFF7E8;--amber-600:#B45309;
+--red-50:#FFF0EE;--red-600:#B42318;
+--purple-50:#F5F0FF;--purple-600:#7C3AED;
+/* Semantic — background */
+--bg-canvas:var(--warm-25);--bg-surface:var(--warm-0);--bg-subtle:var(--warm-50);--bg-inverse:var(--warm-900);
+/* Semantic — text */
+--text-primary:var(--warm-900);--text-secondary:var(--warm-600);--text-tertiary:var(--warm-500);--text-inverse:var(--warm-0);--text-brand:var(--brand-700);--text-danger:var(--red-600);
+/* Semantic — border */
+--border-default:var(--warm-200);--border-strong:var(--warm-300);--border-focus:var(--blue-600);--border-danger:var(--red-600);
+/* Semantic — action */
+--action-primary:var(--brand-600);--action-primary-pressed:var(--brand-700);--action-primary-text:var(--warm-0);--action-primary-soft:var(--brand-50);
+--action-secondary:var(--warm-0);--action-secondary-pressed:var(--warm-100);--action-secondary-text:var(--warm-900);--action-secondary-border:var(--warm-300);
+--action-disabled-bg:var(--warm-200);--action-disabled-text:var(--warm-400);
+/* Semantic — status */
+--status-info-surface:var(--blue-50);--status-info-content:var(--blue-700);
+--status-success-surface:var(--green-50);--status-success-content:var(--green-600);
+--status-warning-surface:var(--amber-50);--status-warning-content:var(--amber-600);
+--status-danger-surface:var(--red-50);--status-danger-content:var(--red-600);
+--status-review-surface:var(--purple-50);--status-review-content:var(--purple-600);
+/* Charts */
+--chart-1:var(--brand-600);--chart-2:var(--sage-600);--chart-3:var(--blue-600);--chart-4:var(--amber-600);--chart-5:var(--purple-600);--chart-6:var(--warm-500);
+/* Category palette (current code, theme.ts D0 warm-pastel, 10 fixed) */
+--cat-1:#F4A896;--cat-2:#F6C28B;--cat-3:#F2D48C;--cat-4:#C9D9A0;--cat-5:#9FCBB8;--cat-6:#8FC6D9;--cat-7:#A7B7E0;--cat-8:#C6A3D0;--cat-9:#E3A6C2;--cat-10:#C9A188;
+/* Legacy code aliases (apps/mobile/src/theme.ts) */
+--legacy-coral-500:#EF6644;--legacy-coral-400:#F97B5C;--legacy-cream-bg:#FFF8F1;--legacy-text-primary:#3D3733;
+}

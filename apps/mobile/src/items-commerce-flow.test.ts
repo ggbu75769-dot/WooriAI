@@ -1,17 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { clickProductLink, getItemDetail, listItems, updateItemStatus } from "./api/client";
 
 const mobileRoot = process.cwd();
 
 describe("Batch 07 mobile items and commerce contract", () => {
-  it("exposes item, status, and product-link API client functions", async () => {
-    const client = await import("./api/client");
-
-    expect(client.listItems).toEqual(expect.any(Function));
-    expect(client.getItemDetail).toEqual(expect.any(Function));
-    expect(client.updateItemStatus).toEqual(expect.any(Function));
-    expect(client.clickProductLink).toEqual(expect.any(Function));
+  it("exposes item, status, and product-link API client functions", () => {
+    expect(listItems).toEqual(expect.any(Function));
+    expect(getItemDetail).toEqual(expect.any(Function));
+    expect(updateItemStatus).toEqual(expect.any(Function));
+    expect(clickProductLink).toEqual(expect.any(Function));
   });
 
   it("creates locked item/commerce route files while preserving the fixed tabs", () => {
@@ -20,7 +19,7 @@ describe("Batch 07 mobile items and commerce contract", () => {
       ["app/(tabs)/_layout.tsx", "기록"],
       ["app/(tabs)/_layout.tsx", "준비템"],
       ["app/(tabs)/_layout.tsx", "리포트"],
-      ["app/(tabs)/_layout.tsx", "더보기"],
+      ["app/(tabs)/_layout.tsx", "프로필"],
       ["app/(tabs)/items.tsx", "ITEM-001"],
       ["app/(tabs)/items.tsx", "listItems"],
       ["app/(tabs)/items.tsx", "updateItemStatus"],

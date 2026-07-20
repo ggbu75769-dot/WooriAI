@@ -89,11 +89,7 @@ function timestamp() {
 }
 
 function sleepSeconds(seconds: number) {
-  execSync(
-    process.platform === "win32"
-      ? `timeout /t ${seconds} /nobreak >nul`
-      : `sleep ${seconds}`
-  );
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, seconds * 1000);
 }
 
 function waitForDockerHealthy(maxSeconds = 60) {

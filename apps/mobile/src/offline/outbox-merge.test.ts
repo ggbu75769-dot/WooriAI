@@ -12,6 +12,7 @@ const basePayload: ExpensePayload = {
 
 function mutation(overrides: Partial<MutationOutboxRow>): MutationOutboxRow {
   return {
+    scopeKey: "test-scope",
     mutationId: "mut-1",
     idempotencyKey: "idem-1",
     operation: "create",

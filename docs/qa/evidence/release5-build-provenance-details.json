@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:32:41.730Z",
+  "repository": {
+    "branch": "codex/sprint2-catalog-payments",
+    "commit": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "worktreeStatusSha256": "2639F705F32712D5EC91BF7FF5D5C6B7991AAD6BBEC6CA32A71D82EE391B1281",
+    "worktreeDirty": true
+  },
+  "source": {
+    "hashMethod": "SHA-256 over sorted records path\\0byteLength\\0fileSHA256 for current working-tree file bytes",
+    "mobileSourceTreeHash": "4FB424AECFC9E0F6F8A54CC67E2E59CE9E07C41CAB3EB2CD148B7A1B1ED8450F",
+    "mobileSourceFileCount": 189,
+    "mobileBuildInputTreeHash": "F201EF5E614C04319F48D465B7F9B9C8EA16E99D9B2D94B746751570A49084AB",
+    "mobileBuildInputFileCount": 261,
+    "mobileConfigHash": "3A4D994247B5562ECB88E17C70B8A473616D70E5614BBC2A597F0F54DE1F6243",
+    "mobileConfigFileCount": 4,
+    "gradleInputHash": "C53AEDC2AA6AE49D71A82D35152D688251EB29AC55EC54C011837A932A09A392",
+    "gradleInputFileCount": 81,
+    "apiSourceTreeHash": "CD002A82F3CD23135CB6B985707B76D9508952F39EB53DFD0A6930E794AA17A3",
+    "apiSourceFileCount": 212,
+    "apiBuildInputTreeHash": "EA375D9D78EF64B28DA9E80B0DB21F54B814B062D66E0065357095CD9B03AF5F",
+    "apiBuildInputFileCount": 302,
+    "contractsSourceTreeHash": "47C2CE88FD513E028D7C218D3F0B45BA2FB0F262DFA3CE0B9DD9EE05CE260675",
+    "contractsSourceFileCount": 9,
+    "contractsBuildInputTreeHash": "41D4909D57FE48E958C6AEBDE3E4CEBFB0691DCC2D50915DE2C3964629811C17",
+    "contractsBuildInputFileCount": 14,
+    "lockfileHash": "D1F04462275EEA5BAE9E118CA98F0A74EBCD27C15A273FB086446D64A54A350D"
+  },
+  "build": {
+    "profile": "standalone",
+    "buildVariant": "release",
+    "authProfile": "standalone-test-login",
+    "apiBaseUrlProfile": "not-recorded",
+    "pixelLockProfile": "normal-app",
+    "signingProfile": "debug-internal-only",
+    "buildGeneratedAt": "2026-07-17T13:31:42.917Z",
+    "gradleTask": "assembleRelease --rerun-tasks",
+    "metadataPath": "artifacts/android/wooriai-0.0.0-release-standalone.json",
+    "note": "Environment values and credentials are intentionally excluded; only non-secret profiles are recorded."
+  },
+  "apk": {
+    "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "fileName": "wooriai-0.0.0-release-standalone.apk",
+    "sizeBytes": 77643179,
+    "sha256": "50CACF8967D83E7C43169BD79B3B95E50B0A4D501033E8F05E9C6DD4A35B45CC",
+    "reportedPriorApkSha256": "BE56B676B9E643D2F73494E9F223B02E0D6B208A1F6F61C1D5AE265C40EF324C",
+    "unchangedArtifact": false,
+    "artifactClassification": "DIFFERENT_ARTIFACT",
+    "signing": {
+      "verified": true,
+      "certificateDn": "CN=Android Debug, OU=Android, O=Unknown, L=Unknown, ST=Unknown, C=US",
+      "certificateSha256": "FAC61745DC0903786FB9EDE62A962B399F7348F0BB6F899B8332667591033B9C",
+      "schemes": {
+        "v1": false,
+        "v2": true,
+        "v3": false,
+        "v4": false
+      },
+      "tool": "C:/Users/nj970/AppData/Local/Android/Sdk/build-tools/36.0.0/apksigner.bat"
+    },
+    "manifest": {
+      "packageName": "com.anonymous.wooriai",
+      "versionCode": "1",
+      "versionName": "0.0.0",
+      "minSdk": "24",
+      "targetSdk": "34",
+      "nativeAbis": [
+        "arm64-v8a",
+        "armeabi-v7a",
+        "x86",
+        "x86_64"
+      ],
+      "debuggable": null,
+      "testOnly": null,
+      "allowBackup": false,
+      "usesCleartextTraffic": false,
+      "permissions": [
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.INTERNET",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.VIBRATE",
+        "com.anonymous.wooriai.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+      ],
+      "dangerousPermissions": [],
+      "exportedComponents": [
+        {
+          "type": "activity",
+          "name": "com.anonymous.wooriai.MainActivity",
+          "exported": true,
+          "permission": null,
+          "deepLinks": [
+            {
+              "scheme": "wooriai",
+              "host": "oauth",
+              "path": "/kakao"
+            },
+            {
+              "scheme": "wooriai",
+              "host": "items",
+              "path": "/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}"
+            }
+          ]
+        },
+        {
+          "type": "receiver",
+          "name": "androidx.profileinstaller.ProfileInstallReceiver",
+          "exported": true,
+          "permission": "android.permission.DUMP",
+          "deepLinks": []
+        }
+      ],
+      "deepLinks": [
+        {
+          "component": "com.anonymous.wooriai.MainActivity",
+          "scheme": "wooriai",
+          "host": "oauth",
+          "path": "/kakao"
+        },
+        {
+          "component": "com.anonymous.wooriai.MainActivity",
+          "scheme": "wooriai",
+          "host": "items",
+          "path": "/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}"
+        }
+      ],
+      "tool": "C:/Users/nj970/AppData/Local/Android/Sdk/build-tools/36.0.0/aapt2.exe"
+    },
+    "embeddedBundle": {
+      "path": "assets/index.android.bundle",
+      "bytes": 2487284,
+      "sha256": "ED64957F8FE5212EA8F43E2D5E276EADD248F1520A2DD2E23353805E61B42C97"
+    },
+    "assetManifestHash": "14AD13CB7DE083A25D083410A437C57775E29F693DD507C1A2AFD4CD7B8561EB",
+    "assets": [
+      {
+        "path": "assets/app.config",
+        "bytes": 521,
+        "sha256": "C3A8B93B829BA14BB9E7A2CE9A7A78E1BD3C6F976F696F916C88F6FA30BD6BF0"
+      },
+      {
+        "path": "assets/dexopt/baseline.prof",
+        "bytes": 8924,
+        "sha256": "029BF4F893EBCAFF640D6087C339386ECD3866967163CB732E4D0284952E23E1"
+      },
+      {
+        "path": "assets/dexopt/baseline.profm",
+        "bytes": 516,
+        "sha256": "F83E6E4F3DB9F62EEEADE756FA9C6209C2E7A5F0249671A4051676D69CAD197E"
+      },
+      {
+        "path": "assets/index.android.bundle",
+        "bytes": 2487284,
+        "sha256": "ED64957F8FE5212EA8F43E2D5E276EADD248F1520A2DD2E23353805E61B42C97"
+      }
+    ]
+  },
+  "inspection": {
+    "toolsUsed": [
+      "git",
+      "tar",
+      "C:/Users/nj970/AppData/Local/Android/Sdk/build-tools/36.0.0/aapt2.exe",
+      "C:/Users/nj970/AppData/Local/Android/Sdk/build-tools/36.0.0/apksigner.bat"
+    ],
+    "unavailableOptionalTools": [
+      "bundletool",
+      "jadx"
+    ],
+    "gaps": []
+  }
+}

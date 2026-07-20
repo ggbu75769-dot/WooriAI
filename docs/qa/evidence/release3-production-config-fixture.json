@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-15T01:10:51.946Z",
+  "generatedAt": "2026-07-17T21:24:52.880Z",
   "mode": "production-config-fixture",
   "results": [
     {
@@ -7,7 +7,9 @@
       "label": "Production config fixture",
       "command": "pnpm release:config:fixture",
       "result": "PASS",
-      "durationMs": 2,
+      "durationMs": 1,
+      "timeoutMs": null,
+      "timedOut": false,
       "issues": []
     }
   ]

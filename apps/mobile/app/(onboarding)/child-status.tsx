@@ -1,115 +1,129 @@
-import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useRef, useState } from "react";
+import { Text, View } from "react-native";
 import { router } from "expo-router";
 import type { ChildStageMode } from "@wooriai/domain";
-import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
-import { AppScreen, Card, ScreenHeader } from "../../src/ui";
-import { theme } from "../../src/theme";
+import { useOnboardingDraftStore } from "../../src/stores/onboarding-draft.store";
+import { routeForOnboardingPath } from "../../src/onboarding/resume";
+import { BottomActionBar, ConfirmSheet, OnboardingScaffold as OnboardingScreenScaffold, RadioCard, ScreenHeader, StepProgress, Toast, semanticColors, spacing, typography, type AppIconName } from "../../src/design-system";
 
 const onboardingChildStatusScreenId = "ONB-001";
 
 const stageOptions: Array<{
   mode: ChildStageMode;
-  icon: string;
+  icon: AppIconName;
   title: string;
   description: string;
-  tint: string;
 }> = [
   {
     mode: "pregnant",
-    icon: "🤰",
+    icon: "human-pregnant",
     title: "임신 중이에요",
-    description: "출산 예정일에 맞춰 준비를 도와드릴게요.",
-    tint: theme.colors.peach
+    description: "출산 예정일에 맞춰 준비를 도와드릴게요."
   },
   {
     mode: "born",
-    icon: "👶",
+    icon: "baby-face-outline",
     title: "아이가 태어났어요",
-    description: "우리 아이 성장 단계에 맞는 정보를 보여드릴게요.",
-    tint: theme.colors.mint
+    description: "우리 아이 성장 단계에 맞는 정보를 보여드릴게요."
   },
   {
     mode: "manual",
-    icon: "🧸",
+    icon: "tune-variant",
     title: "단계를 직접 선택할게요",
-    description: "지금 상황에 맞는 단계를 나중에 골라주세요.",
-    tint: theme.colors.sky
+    description: "지금 상황에 맞는 단계를 나중에 골라주세요."
   }
 ];
 
 export default function ChildStatusScreen() {
-  const updateChildDraft = useOnboardingProgressStore((state) => state.updateChildDraft);
-  const completeStep = useOnboardingProgressStore((state) => state.completeStep);
-  const [selectedMode, setSelectedMode] = useState<ChildStageMode | null>(null);
-  const [isNavigating, setIsNavigating] = useState(false);
+  const selectedMode = useOnboardingDraftStore((state) => state.draft?.selectedPath ?? null);
+  const draft = useOnboardingDraftStore((state) => state.draft);
+  const selectPath = useOnboardingDraftStore((state) => state.selectPath);
+  const updateDraft = useOnboardingDraftStore((state) => state.updateDraft);
+  const [pendingMode, setPendingMode] = useState<ChildStageMode | null | undefined>(undefined);
+  const [scopeError, setScopeError] = useState(false);
+  const cardRefs = useRef<Partial<Record<ChildStageMode, View | null>>>({});
+  const returnFocusRef = useRef<View | null>(null);
 
   function choose(stageMode: ChildStageMode) {
-    if (isNavigating) return;
-    setSelectedMode(stageMode);
-    setIsNavigating(true);
-    updateChildDraft({ stageMode });
-    completeStep("ONB-001");
-    router.push("/onboarding/child-profile");
+    const hasPathSpecificInput = Boolean(draft?.dueDate || draft?.birthDate || draft?.manualStage);
+    if (selectedMode && selectedMode !== stageMode && hasPathSpecificInput) {
+      returnFocusRef.current = cardRefs.current[stageMode] ?? null;
+      setPendingMode(stageMode);
+      return;
+    }
+    setScopeError(!selectPath(stageMode));
   }
 
+  function next() {
+    if (!selectedMode) return;
+    updateDraft({ currentStep: selectedMode === "pregnant" ? "pregnant" : selectedMode === "born" ? "born" : "direct-stage" });
+    router.push(routeForOnboardingPath(selectedMode));
+  }
+
+  const cancelSelection = () => {
+    const hasPathSpecificInput = Boolean(draft?.dueDate || draft?.birthDate || draft?.manualStage);
+    returnFocusRef.current = selectedMode ? cardRefs.current[selectedMode] ?? null : null;
+    if (hasPathSpecificInput) setPendingMode(null);
+    else setScopeError(!selectPath(null));
+  };
+
   return (
-    <AppScreen>
-      <View accessibilityLabel={onboardingChildStatusScreenId} testID="screen-ONB-001" style={{ gap: theme.spacing.section }}>
+    <OnboardingScreenScaffold
+      footer={(
+        <BottomActionBar
+          onPrimary={next}
+          onText={selectedMode ? cancelSelection : undefined}
+          primaryDisabled={!selectedMode}
+          primaryLabel="다음"
+          textLabel={selectedMode ? "선택 취소" : undefined}
+        />
+      )}
+      testID="screen-ONB-001"
+    >
+      <View accessibilityLabel={onboardingChildStatusScreenId} testID="screen-ONB-001" style={{ gap: spacing.xl }}>
+        <StepProgress current={1} label="아이 정보" total={3} />
         <ScreenHeader
           eyebrow="아이 정보 시작하기"
           title="지금 상황을 알려주세요"
           subtitle="선택한 내용에 맞춰 다음 안내를 준비할게요."
         />
 
-        <View style={{ gap: theme.spacing.gap }}>
+        <View style={{ gap: spacing.xs }}>
+          <Text accessibilityRole="text" style={{ color: semanticColors.textSecondary, ...typography.body }}>
+            아이 정보를 설정해 주세요. 약 2분이면 끝나요.
+          </Text>
+        </View>
+
+        {scopeError ? <Toast message="선택 상태를 준비하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
+
+        <View accessibilityLabel="현재 상황 선택" accessibilityRole="radiogroup" style={{ gap: spacing.md }}>
           {stageOptions.map((option) => {
             const selected = selectedMode === option.mode;
             return (
-              <Pressable
+              <RadioCard
                 key={option.mode}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                disabled={isNavigating}
+                description={option.description}
+                icon={option.icon}
                 onPress={() => choose(option.mode)}
-              >
-                <Card
-                  style={[
-                    {
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: theme.spacing.gap,
-                      opacity: isNavigating && !selected ? 0.5 : 1
-                    },
-                    selected ? { borderColor: theme.colors.mainCoral, borderWidth: 2 } : null
-                  ]}
-                >
-                  <View
-                    style={{
-                      alignItems: "center",
-                      backgroundColor: option.tint,
-                      borderRadius: theme.radii.small,
-                      height: 48,
-                      justifyContent: "center",
-                      width: 48
-                    }}
-                  >
-                    <Text style={{ fontSize: 22 }}>{option.icon}</Text>
-                  </View>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
-                      {option.title}
-                    </Text>
-                    <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
-                      {option.description}
-                    </Text>
-                  </View>
-                </Card>
-              </Pressable>
+                ref={(node) => { cardRefs.current[option.mode] = node; }}
+                selected={selected}
+                title={option.title}
+              />
             );
           })}
         </View>
+        <ConfirmSheet
+          description="경로에만 필요한 날짜와 직접 선택 단계는 지워져요. 입력한 이름과 성별은 유지됩니다."
+          onCancel={() => setPendingMode(undefined)}
+          onConfirm={() => {
+            setScopeError(!selectPath(pendingMode ?? null));
+            setPendingMode(undefined);
+          }}
+          returnFocusRef={returnFocusRef}
+          title={pendingMode === null ? "선택을 취소할까요?" : "시작 선택을 변경할까요?"}
+          visible={pendingMode !== undefined}
+        />
       </View>
-    </AppScreen>
+    </OnboardingScreenScaffold>
   );
 }

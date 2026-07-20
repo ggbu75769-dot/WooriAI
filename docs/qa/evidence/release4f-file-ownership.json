@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T03:12:00+09:00",
+  "release": "4F",
+  "baseline": "artifacts/dev-snapshots/release4e-file-ownership.json",
+  "detail": "artifacts/dev-snapshots/release4f-file-ownership.json",
+  "method": "Compare current file existence and SHA-256 with the Release 4E final ownership manifest.",
+  "summary": {
+    "totalPaths": 332,
+    "release4fTouched": 68,
+    "overlap": 34,
+    "cleanOwned": 34,
+    "deletedPreExisting": 0
+  },
+  "policy": {
+    "preExistingPreserved": true,
+    "overlapRequiresHunkReview": true,
+    "autoStage": false,
+    "autoCommit": false,
+    "destructiveGit": false,
+    "outputManifestSelfHashExcluded": true
+  },
+  "note": "The detailed manifest records each path. Existing overlap files must not be staged as whole-file groups without hunk review."
+}

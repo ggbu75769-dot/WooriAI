@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T03:05:05+09:00",
+  "release": "4F",
+  "sourceKinds": [
+    "planned",
+    "unscheduled_planned",
+    "recurring_planned",
+    "actual_preparation",
+    "household_net",
+    "gift",
+    "refund",
+    "support"
+  ],
+  "scopeContract": {
+    "household": "same as aggregate request",
+    "child": "same childId as Report card",
+    "period": "same KST from/to and selector",
+    "giftParticipantFinancialAccess": "DENIED",
+    "backNavigation": "period, offset and selected section are preserved"
+  },
+  "queryEvidence": {
+    "initialReportFeatureRequests": 1,
+    "initialSource": "GET /reports/v3",
+    "plannedSourceExpenseLedgerReads": 0,
+    "plannedSourcePlanQueries": 1,
+    "actualSourceExpenseLedgerReads": 1,
+    "sourcePageSize": 50,
+    "volumeExpenseRows": 2000,
+    "volumeRecordCountReturned": 2000,
+    "aggregateListEquivalenceRuns": 30,
+    "aggregateListEquivalenceFailures": 0
+  },
+  "invalidationContract": {
+    "itemPlanMutation": ["preparation overview", "plan list", "Report planned sources", "Report V3 aggregate"],
+    "expenseMutation": ["expense list", "Report actual sources", "Report V3 aggregate", "budget summary"],
+    "refundOrSupportMutation": ["expense list", "Report net sources", "Report V3 aggregate"],
+    "recurringPlanMutation": ["item detail", "Report recurring sources", "Report V3 aggregate"],
+    "childSwitch": ["preparation", "expenses", "Report", "notifications"],
+    "ownerTransfer": ["family", "session permissions", "protected queries"],
+    "notificationRead": ["inbox", "unread count"],
+    "accountDelete": ["all current-scope queries", "offline state"]
+  },
+  "tests": [
+    "apps/api/src/finance/reports-v2.sources.test.ts",
+    "apps/api/test/release4-product-value.e2e.test.ts",
+    "apps/mobile/src/reports/source-navigation.test.ts",
+    "apps/mobile/src/query/mutation-invalidation.test.ts"
+  ],
+  "installedQualification": "NOT_RUN_NO_DEVICE"
+}

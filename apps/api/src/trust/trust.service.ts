@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateSupportReportDto, RegisterDeviceDto, UpdateNotificationPreferencesDto } from "./dto/trust.dto";
@@ -8,12 +8,13 @@ import type { CreateSupportReportDto, RegisterDeviceDto, UpdateNotificationPrefe
 export class TrustService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  getPreferences(user: AuthenticatedUser) {
-    return this.prisma.notificationPreference.upsert({
+  async getPreferences(user: AuthenticatedUser) {
+    const preference = await this.prisma.notificationPreference.upsert({
       where: { userId: user.id },
       create: { userId: user.id, marketingEnabled: false },
       update: {}
     });
+    return { ...preference, safetyEnabled: true, externalChannelAvailable: process.env.NOTIFICATION_PROVIDER_MODE === "live" };
   }
 
   async updatePreferences(user: AuthenticatedUser, input: UpdateNotificationPreferencesDto) {
@@ -25,11 +26,27 @@ export class TrustService {
         throw new BadRequestException({ code: "QUIET_HOURS_INVALID", message: "방해 금지 시각 형식이 올바르지 않아요." });
       }
     }
-    return await this.prisma.notificationPreference.upsert({
+    if (input.externalChannelEnabled && process.env.NOTIFICATION_PROVIDER_MODE !== "live") {
+      throw new BadRequestException({ code: "EXTERNAL_NOTIFICATION_UNAVAILABLE", message: "External notifications are not available in this environment." });
+    }
+    const current = await this.prisma.notificationPreference.upsert({
       where: { userId: user.id },
-      create: { userId: user.id, ...input, marketingEnabled: input.marketingEnabled ?? false },
-      update: input
+      create: { userId: user.id, marketingEnabled: false },
+      update: {}
     });
+    if (input.expectedVersion !== undefined && input.expectedVersion !== current.version) {
+      throw new ConflictException({ code: "NOTIFICATION_PREFERENCE_CONFLICT", message: "Notification preferences changed on another device." });
+    }
+    const { expectedVersion: _expectedVersion, ...data } = input;
+    const marketingOptInAt = input.marketingEnabled === true && current.marketingEnabled === false
+      ? new Date()
+      : undefined;
+    const changed = await this.prisma.notificationPreference.updateMany({
+      where: { userId: user.id, version: current.version },
+      data: { ...data, marketingOptInAt, timezone: "Asia/Seoul", version: { increment: 1 } }
+    });
+    if (changed.count !== 1) throw new ConflictException({ code: "NOTIFICATION_PREFERENCE_CONFLICT", message: "Notification preferences changed on another device." });
+    return this.getPreferences(user);
   }
 
   async registerDevice(user: AuthenticatedUser, input: RegisterDeviceDto) {

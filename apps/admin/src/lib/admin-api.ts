@@ -200,7 +200,8 @@ export class AdminApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(init?.headers as Record<string, string> ?? {}) };
+  const isMultipart = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  const headers: Record<string, string> = { ...(isMultipart ? {} : { "Content-Type": "application/json" }), ...(init?.headers as Record<string, string> ?? {}) };
   if (STATE_CHANGING_METHODS.has(method)) {
     const csrfToken = readCookie(CSRF_COOKIE_NAME);
     if (csrfToken) {
@@ -262,7 +263,34 @@ export type DeadLetterJobSummary = {
 export type OperationsRuntime = {
   nodeEnv: string;
   adapters: Record<string, boolean>;
-  queues: { pendingOutbox: number; openDlq: number; failedPrivacy: number };
+  services: Array<{ serviceType: string; instanceId: string; bootId: string; state: string; activeConfigVersion: number | null; configSource: string | null; restartCount: number; lastHeartbeatAt: string; stoppedAt: string | null; stale: boolean }>;
+  remoteConfig: { source: string; version: number | null; updatedAt: string | null };
+  storage: { state: string; adapter: string };
+  queues: {
+    pendingOutbox: number;
+    leasedOutbox: number;
+    failedOutbox: number;
+    oldestPendingAgeSeconds: number | null;
+    openDlq: number;
+    failedPrivacy: number;
+    unknownDeliveries: number;
+    imports: Array<{ state: string; _count: { _all: number } }>;
+  };
+};
+
+export type RemoteConfigOperations = {
+  active: { config: Record<string, unknown> & { configVersion: number }; source: string };
+  revisions: Array<{ version: number; contentHash: string; action: string; actorAdminId: string | null; reason: string; activatedAt: string }>;
+  instances: Array<{ instanceId: string; state: string; activeConfigVersion: number | null; configSource: string | null; lastHeartbeatAt: string; restartCount: number }>;
+};
+
+export type CatalogImportReconciliation = {
+  dryRun: boolean;
+  adapter: string;
+  scanned: { objects: number; jobs: number };
+  orphanObjects: Array<{ objectKey: string; size: number; lastModified: string | null }>;
+  missingObjectJobs: Array<{ id: string; state: string; version: number; objectKey: string | null }>;
+  staleJobs: Array<{ id: string; state: string; version: number; objectKey: string | null }>;
 };
 
 export function getOperationsRuntime() {
@@ -290,11 +318,27 @@ export function retryPrivacyOperation(id: string) {
 }
 
 export function getRemoteAppConfig() {
-  return request<Record<string, unknown>>("/app-config");
+  return request<RemoteConfigOperations>("/admin/app-config/operations");
 }
 
-export function updateRemoteAppConfig(config: Record<string, unknown>) {
-  return request<Record<string, unknown>>("/admin/app-config", { method: "PATCH", body: JSON.stringify(config) });
+export function updateRemoteAppConfig(input: { expectedVersion: number; reason: string; config: Record<string, unknown> }) {
+  return request<{ config: Record<string, unknown>; revision: { version: number } }>("/admin/app-config", { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function rollbackRemoteAppConfig(input: { expectedVersion: number; targetVersion: number; reason: string }) {
+  return request<{ config: Record<string, unknown>; revision: { version: number } }>("/admin/app-config/rollback", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function previewCatalogImportReconciliation() {
+  return request<CatalogImportReconciliation>("/admin/catalog/imports/reconciliation/preview", { method: "POST", body: JSON.stringify({ dryRun: true }) });
+}
+
+export function repairCatalogImport(importId: string, expectedVersion: number) {
+  return request<{ id: string; state: string; version: number }>(`/admin/catalog/imports/${encodeURIComponent(importId)}/reconcile`, { method: "POST", body: JSON.stringify({ expectedVersion }) });
+}
+
+export function cleanupCatalogImportOrphan(objectKey: string) {
+  return request<{ success: true }>("/admin/catalog/imports/reconciliation/orphans/cleanup", { method: "POST", body: JSON.stringify({ objectKey }) });
 }
 
 export function listLinkHealthOperations() {
@@ -307,6 +351,14 @@ export function listScheduledOperations() {
 
 export function getNotificationOperations() {
   return request<{ states: Array<{ state: string; _count: { _all: number } }> }>("/admin/operations/notification-summary");
+}
+
+export function listNotificationReconciliation() {
+  return request<{ deliveries: Array<{ id: string; eventType: string; state: "sending" | "unknown"; failureCode: string | null; retryCount: number; createdAt: string }> }>("/admin/operations/notification-reconciliation");
+}
+
+export function reconcileNotificationDelivery(id: string, expectedState: "sending" | "unknown") {
+  return request<{ code: string }>(`/admin/operations/notification-deliveries/${encodeURIComponent(id)}/reconcile`, { method: "POST", body: JSON.stringify({ expectedState }) });
 }
 
 export function listIntegrityOperations() {
@@ -497,4 +549,396 @@ export async function draftAndSubmitContentRevision(input: {
 }) {
   const draft = await createContentRevision(input);
   return await submitContentRevision(draft.id);
+}
+
+export type CatalogV2AdminItem = {
+  id: string;
+  code: string;
+  nameKo: string;
+  status: "draft" | "review_requested" | "editorial_review" | "domain_review" | "safety_review" | "changes_requested" | "approved" | "scheduled" | "in_review" | "published" | "suspended" | "recalled" | "archived" | "retired";
+  safetyTier: "normal" | "elevated" | "high";
+  targetSubject: "mother" | "child" | "caregiver" | "household" | "shared";
+  reviewedAt: string | null;
+  reviewedByAdminId: string | null;
+  lastEditedByAdminId: string | null;
+  contentVersion: number;
+  contentHash: string | null;
+  aliasCount: number;
+  openReportCount: number;
+  offerCount: number;
+};
+
+export type CatalogV2Coverage = {
+  summary: {
+    domains: number;
+    canonicalItems: number;
+    aliases: number;
+    highRiskAwaitingProfessionalReview: number;
+    matrix: Record<string, number>;
+    applicability: Record<string, number>;
+    gapTypes: Record<string, number>;
+    unclassifiedApplicability: number;
+    externalReviewBlockers: number;
+    publishBlocked: boolean;
+  };
+  cells: Array<{ id: string; lifecycleAxis: "mother" | "child"; lifecycleCode: string; contextCode: string; state: "covered" | "not_applicable" | "gap"; applicability: "required" | "recommended" | "optional" | "not_applicable" | "review_needed"; gapType: "missing_item" | "insufficient_depth" | "missing_lifecycle_rule" | "missing_context_rule" | "missing_source" | "review_blocked" | "taxonomy_mismatch" | "unclassified_applicability" | null; reason: string | null }>;
+};
+
+export type CatalogV2Queues = {
+  summary: Record<CatalogV2QueueKey, number>;
+  missingMetadata: Array<CatalogQueueTarget & { missingFields: Array<"shortDescription" | "reasonText" | "timingSummary" | "sourceSummary"> }>;
+  reviewRequired: Array<CatalogQueueTarget & { status: CatalogV2AdminItem["status"]; safetyTier: CatalogV2AdminItem["safetyTier"]; professionalReviewRequired: boolean }>;
+  expiredReviews: Array<CatalogQueueTarget & { safetyRuleId: string; severity: CatalogV2AdminItem["safetyTier"]; expiresAt: string }>;
+  duplicateCandidates: Array<{ normalizedName: string; targets: CatalogQueueTarget[] }>;
+  brokenOffers: Array<CatalogQueueTarget & { offerId: string; seller: string; productName: string; healthState: "healthy" | "stale" | "failed" | "blocked"; recallState: "clear" | "check_required" | "recalled" | "unknown"; healthCheckState: "available" | "queued" | "processing" | "dead_letter" | "unavailable"; retryEligible: boolean; retryBlockedReason: string | null; updatedAt: string }>;
+  staleOffers: Array<CatalogQueueTarget & { offerId: string; seller: string; productName: string; priceSnapshotKrw: number | null; priceCheckedAt: string | null; refreshAvailable: false; refreshBlockedReason: "PRICE_PROVIDER_NOT_CONNECTED" }>;
+  openReports: Array<{ itemId: string | null; itemCode: string | null; itemName: string; reportId: string; reasonCode: string; detail: string | null; createdAt: string }>;
+  capabilities: { offerHealthRetry: "legacy_product_link_only"; priceRefresh: false };
+};
+
+export type CatalogV2QueueKey = "missingMetadata" | "reviewRequired" | "expiredReviews" | "duplicateCandidates" | "brokenOffers" | "staleOffers" | "openReports";
+export type CatalogQueueTarget = { itemId: string; itemCode: string; itemName: string };
+
+export type CatalogTaxonomyNode = {
+  id: string;
+  code: string;
+  parentId: string | null;
+  level: "domain" | "category" | "subcategory";
+  nameKo: string;
+  description: string | null;
+  iconKey: string | null;
+  displayOrder: number;
+  active: boolean;
+  version: number;
+  depth: number;
+  directChildCount: number;
+  directItemCount: number;
+  descendantItemCount: number;
+};
+
+export type CatalogTaxonomyArchiveImpact = {
+  node: CatalogTaxonomyNode;
+  activeChildCount: number;
+  directItemCount: number;
+  coverageDecisionCount: number;
+  blockers: Array<{ code: "ACTIVE_CHILDREN" | "ITEM_MAPPINGS" | "COVERAGE_DECISIONS"; count: number }>;
+  canArchive: boolean;
+};
+
+export type CatalogTaxonomyReorderInput = {
+  parentId?: string;
+  nodes: Array<{ id: string; expectedVersion: number }>;
+};
+
+export type CatalogTaxonomyReorderPreview = {
+  parentId: string | null;
+  siblingCount: number;
+  changes: Array<{ id: string; code: string; nameKo: string; currentOrder: number; nextOrder: number; version: number }>;
+  canApply: boolean;
+  itemMappingsAffected: 0;
+  appliedCount?: number;
+};
+
+export type CatalogDraftImportRowInput = {
+  code?: string;
+  nameKo?: string;
+  shortDescription?: string;
+  reasonText?: string;
+  timingSummary?: string;
+  sourceSummary?: string;
+};
+
+export type CatalogDraftImportPreview = {
+  schemaVersion: 1;
+  mode: "existing-item-editorial-update";
+  summary: { total: number; valid: number; invalid: number };
+  rows: Array<{
+    rowNumber: number;
+    code: string;
+    valid: boolean;
+    errors: string[];
+    changes: Partial<Record<Exclude<keyof CatalogDraftImportRowInput, "code">, string>>;
+    expectedVersion?: number;
+    contentHash?: string;
+    expectedStatus?: CatalogV2AdminItem["status"];
+  }>;
+};
+
+export type CatalogDraftImportPreviewResponse = {
+  import: { id: string; state: "ready" | "rejected" | "applied" | "retryable_failure" | "permanent_failure" | "missing_object"; sourceName: string; rowCount: number; version: number };
+  preview: CatalogDraftImportPreview;
+  idempotent: boolean;
+};
+
+export type CatalogItemRevisionHistory = {
+  current: { id: string; contentVersion: number; contentHash: string | null };
+  revisions: Array<{ revision: number; contentHash: string; authoredByAdminId: string; createdAt: string }>;
+  approvals: Array<{ revision: number; contentHash: string; approvalType: "editorial" | "domain" | "safety"; reviewedByAdminId: string; evidenceUrl: string | null; evidenceTitle: string | null; expiresAt: string | null; createdAt: string }>;
+  events: Array<{ id: string; revision: number; contentHash: string; fromStatus: string; toStatus: string; actorAdminId: string; metadataJson: unknown; createdAt: string }>;
+};
+
+export type CatalogRollbackPreview = {
+  itemId: string;
+  currentRevision: number;
+  currentContentHash: string;
+  targetRevision: number;
+  targetContentHash: string;
+  resultRevision: number;
+  resultStatus: "draft";
+  invalidatesApprovals: true;
+  publishesDirectly: false;
+  changes: Array<{ field: string; current: unknown; restored: unknown }>;
+};
+
+export function listCatalogV2Items(filter?: { query?: string; status?: CatalogV2AdminItem["status"]; safetyTier?: CatalogV2AdminItem["safetyTier"] }) {
+  const params = new URLSearchParams({ limit: "50" });
+  if (filter?.query) params.set("query", filter.query);
+  if (filter?.status) params.set("status", filter.status);
+  if (filter?.safetyTier) params.set("safetyTier", filter.safetyTier);
+  return request<{ items: CatalogV2AdminItem[]; total: number; nextCursor: string | null }>(`/admin/catalog/items?${params.toString()}`);
+}
+
+export function getCatalogV2Coverage() {
+  return request<CatalogV2Coverage>("/admin/catalog/coverage");
+}
+
+export function getCatalogV2Queues() {
+  return request<CatalogV2Queues>("/admin/catalog/queues");
+}
+
+export function retryCatalogOfferHealth(offerId: string) {
+  return request<{ queued: true; alreadyQueued: boolean; outboxId: string; state: "queued" | "processing" }>(`/admin/catalog/offers/${encodeURIComponent(offerId)}/retry-health-check`, { method: "POST", body: "{}" });
+}
+
+export function approveCatalogOffer(offerId: string, expectedUpdatedAt: string) {
+  return request<{ id: string; active: true; approvedAt: string; approvedByAdminId: string }>(`/admin/catalog/offers/${encodeURIComponent(offerId)}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ expectedUpdatedAt })
+  });
+}
+
+export function resolveCatalogReports(reportIds: string[], note?: string) {
+  return request<{ resolvedCount: number; reportIds: string[]; resolvedAt: string }>("/admin/catalog/reports/resolve-batch", {
+    method: "POST",
+    body: JSON.stringify({ reportIds, ...(note?.trim() ? { note: note.trim() } : {}) })
+  });
+}
+
+export function getCatalogTaxonomyTree() {
+  return request<{ nodes: CatalogTaxonomyNode[] }>("/admin/catalog/taxonomy/tree");
+}
+
+export function createCatalogTaxonomyNode(input: {
+  code: string;
+  level: CatalogTaxonomyNode["level"];
+  parentId?: string;
+  nameKo: string;
+  description?: string;
+  iconKey?: string;
+}) {
+  return request<CatalogTaxonomyNode>("/admin/catalog/taxonomy/nodes", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateCatalogTaxonomyNode(nodeId: string, input: { expectedVersion: number; nameKo?: string; description?: string; iconKey?: string }) {
+  return request<CatalogTaxonomyNode>(`/admin/catalog/taxonomy/nodes/${encodeURIComponent(nodeId)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function previewCatalogTaxonomyArchive(nodeId: string) {
+  return request<CatalogTaxonomyArchiveImpact>(`/admin/catalog/taxonomy/nodes/${encodeURIComponent(nodeId)}/archive-preview`, { method: "POST" });
+}
+
+export function archiveCatalogTaxonomyNode(nodeId: string, expectedVersion: number) {
+  return request<CatalogTaxonomyNode>(`/admin/catalog/taxonomy/nodes/${encodeURIComponent(nodeId)}/archive`, {
+    method: "POST",
+    body: JSON.stringify({ expectedVersion })
+  });
+}
+
+export function previewCatalogTaxonomyReorder(input: CatalogTaxonomyReorderInput) {
+  return request<CatalogTaxonomyReorderPreview>("/admin/catalog/taxonomy/reorder-preview", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function applyCatalogTaxonomyReorder(input: CatalogTaxonomyReorderInput) {
+  return request<CatalogTaxonomyReorderPreview>("/admin/catalog/taxonomy/reorder", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function previewCatalogV2Import(input: { sourceName: string; sourceHash: string; rows: CatalogDraftImportRowInput[] }) {
+  return request<CatalogDraftImportPreviewResponse>("/admin/catalog/imports/preview", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function previewCatalogV2FileImport(file: File) {
+  const body = new FormData();
+  body.append("file", file, file.name);
+  return request<CatalogDraftImportPreviewResponse>("/admin/catalog/imports/file-preview", { method: "POST", body });
+}
+
+export function applyCatalogV2Import(importId: string, expectedVersion: number, rowNumbers: number[]) {
+  return request<{ import: { id: string; state: "applied"; version: number }; appliedCount: number; appliedRowNumbers: number[]; idempotent: boolean }>(
+    `/admin/catalog/imports/${encodeURIComponent(importId)}/apply`,
+    { method: "POST", body: JSON.stringify({ expectedVersion, rowNumbers }) }
+  );
+}
+
+export function catalogV2ImportErrorsUrl(importId: string) {
+  return `/api/v1/admin/catalog/imports/${encodeURIComponent(importId)}/errors.csv`;
+}
+
+export function getCatalogItemRevisions(itemId: string) {
+  return request<CatalogItemRevisionHistory>(`/admin/catalog/items/${encodeURIComponent(itemId)}/revisions`);
+}
+
+export function previewCatalogItemRollback(itemId: string, targetRevision: number, expectedVersion: number, contentHash: string) {
+  return request<CatalogRollbackPreview>(`/admin/catalog/items/${encodeURIComponent(itemId)}/revisions/${targetRevision}/rollback-preview`, {
+    method: "POST",
+    body: JSON.stringify({ expectedVersion, contentHash })
+  });
+}
+
+export function rollbackCatalogItem(itemId: string, targetRevision: number, expectedVersion: number, contentHash: string) {
+  return request<{ item: CatalogV2AdminItem; rollbackSourceRevision: number; approvalsInvalidated: true; publishesDirectly: false }>(`/admin/catalog/items/${encodeURIComponent(itemId)}/revisions/${targetRevision}/rollback`, {
+    method: "POST",
+    body: JSON.stringify({ expectedVersion, contentHash })
+  });
+}
+
+export function requestCatalogV2ItemReview(itemId: string, expectedVersion: number, contentHash: string) {
+  return request<CatalogV2AdminItem>(`/admin/catalog/items/${itemId}/request-review`, {
+    method: "POST",
+    body: JSON.stringify({ expectedVersion, contentHash })
+  });
+}
+
+export function reviewCatalogV2Item(itemId: string, input: {
+  reviewType: "editorial" | "domain" | "safety";
+  expectedVersion: number;
+  contentHash: string;
+  professionalReviewConfirmed?: boolean;
+  evidenceUrl?: string;
+  evidenceTitle?: string;
+  expiresAt?: string;
+}) {
+  return request<CatalogV2AdminItem>(`/admin/catalog/items/${itemId}/review`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function publishCatalogV2Item(itemId: string, expectedVersion: number, contentHash: string) {
+  return request<CatalogV2AdminItem>(`/admin/catalog/items/${itemId}/publish`, {
+    method: "POST",
+    body: JSON.stringify({ expectedVersion, contentHash })
+  });
+}
+
+export type Release5PilotWorklist = {
+  counts: { candidates: number; ready: number; missingEvidence: number; missingDomainApproval: number };
+  items: Array<{
+    id: string;
+    code: string;
+    nameKo: string;
+    contentVersion: number;
+    contentHash: string | null;
+    safetyTier: string;
+    status: string;
+    evidenceReady: boolean;
+    domainApproved: boolean;
+    ready: boolean;
+  }>;
+};
+
+export type Release5RecallWorklist = {
+  events: Array<{
+    id: string;
+    providerKey: string;
+    providerEventId: string;
+    providerVersion: number;
+    eventStatus: string;
+    title: string;
+    normalizedGuidance: string;
+    itemDefinitionId: string | null;
+    matchConfidence: number;
+    version: number;
+    occurredAt: string;
+  }>;
+};
+
+export type Release5LegalCandidate = {
+  documentType: "terms" | "privacy" | "marketing" | "analytics";
+  locale?: string;
+  version: string;
+  title: string;
+  bodyMarkdown: string;
+  publicUrl?: string;
+  required: boolean;
+  effectiveAt: string;
+};
+
+export type Release5MerchantRowInput = {
+  merchantIdentity: string;
+  itemDefinitionId: string;
+  productName: string;
+  publicUrl: string;
+  priceKrw: number;
+  currency: string;
+  stockState: "in_stock" | "out_of_stock" | "preorder" | "discontinued" | "unknown";
+  shipping?: Record<string, unknown>;
+  affiliate?: boolean;
+  disclosureText?: string;
+  priceCheckedAt: string;
+};
+
+export function getRelease5PilotWorklist() {
+  return request<Release5PilotWorklist>("/admin/release5/catalog/pilot-worklist");
+}
+
+export function getRelease5RecallWorklist() {
+  return request<Release5RecallWorklist>("/admin/release5/external/recalls/worklist");
+}
+
+export function previewRelease5LegalDocument(input: Release5LegalCandidate) {
+  return request<{ document: Release5LegalCandidate & { locale: string; publicUrl: string | null }; contentHash: string; validation: { valid: true; placeholder: false } }>(
+    "/admin/release5/legal/preview",
+    { method: "POST", body: JSON.stringify(input) }
+  );
+}
+
+export function importRelease5LegalDocument(input: Release5LegalCandidate) {
+  return request<{ id: string; revision: number; contentHash: string; publishedAt: string | null }>(
+    "/admin/release5/legal/documents",
+    { method: "POST", body: JSON.stringify(input) }
+  );
+}
+
+export function createRelease5EvidenceSource(itemId: string, input: {
+  sourceType: string;
+  title: string;
+  publicUrl: string;
+  publisher?: string;
+  revision: number;
+  applicableClaims: string[];
+  expiresAt?: string;
+  reviewDueAt?: string;
+}) {
+  return request<{ id: string; contentHash: string; status: string }>(
+    `/admin/release5/catalog/items/${encodeURIComponent(itemId)}/evidence`,
+    { method: "POST", body: JSON.stringify(input) }
+  );
+}
+
+export function previewRelease5PilotManifest(itemIds: string[]) {
+  return request<{ id: string; contentHash: string; itemIds: string[]; status: string }>(
+    "/admin/release5/catalog/pilot-manifests/preview",
+    { method: "POST", body: JSON.stringify({ itemIds }) }
+  );
+}
+
+export function previewRelease5MerchantFeed(sourceName: string, rows: Release5MerchantRowInput[]) {
+  return request<{
+    duplicate: boolean;
+    import: { id: string; state: string; sourceHash: string; resultJson: { valid: number; invalid: number } };
+    rows: Array<{ id: string; rowIndex: number; validationState: string; validationErrors: string[]; reviewState: string }>;
+  }>("/admin/release5/external/merchant-feeds/preview", {
+    method: "POST",
+    body: JSON.stringify({ sourceName, rows })
+  });
 }

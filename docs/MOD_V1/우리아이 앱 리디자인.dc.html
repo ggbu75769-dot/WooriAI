@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/design-system-063d125c-ebe1-4422-ba81-a1b0d9cfcd33/styles.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+<script src="_ds/design-system-063d125c-ebe1-4422-ba81-a1b0d9cfcd33/_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--warm-100,#F5EFE9)}a{color:var(--text-brand,#C94627)}a:hover{color:var(--brand-700,#A93A20)}</style>
+</helmet>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;font-family:var(--font-sans)">
+<div style="width:390px;height:780px;background:var(--bg-canvas);border-radius:28px;box-shadow:var(--shadow-overlay);overflow:hidden;display:flex;flex-direction:column;position:relative">
+  <div style="height:36px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font:600 12px/1 var(--font-sans);color:var(--text-primary)">
+    <span>9:41</span>
+    <span style="display:flex;gap:5px;align-items:center"><span class="mdi mdi-signal"></span><span class="mdi mdi-wifi"></span><span class="mdi mdi-battery-80"></span></span>
+  </div>
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column;position:relative">
+
+    <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+      <x-import component-from-global-scope="DesignSystem_063d12.ScreenScaffold" width="100%" height="100%" hint-size="100%,100%">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding-top:4px">
+          <x-import component-from-global-scope="DesignSystem_063d12.ChildContextSwitcher" name="{{ childName }}" stage-label="{{ stageLabel }}" hint-size="150px,48px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.IconButton" icon="bell-outline" label="알림" hint-size="44px,44px"></x-import>
+        </div>
+        <span style="font:400 13px/19px var(--font-sans);color:var(--text-secondary);margin-top:-12px">우리 아이에게 해준 것을 따뜻하게 기록해요.</span>
+        <x-import component-from-global-scope="DesignSystem_063d12.BudgetSummary" used-krw="{{ usedKrw }}" budget-krw="{{ budgetKrw }}" label="이번 달 지출" hint-size="100%,130px"></x-import>
+        <div style="display:flex;gap:8px">
+          <div role="button" onClick="{{ goRecords }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;min-height:68px">
+            <span style="width:44px;height:44px;border-radius:16px;background:var(--bg-surface);border:1px solid var(--border-default);box-shadow:var(--shadow-1);display:flex;align-items:center;justify-content:center;color:var(--text-primary)"><span class="mdi mdi-pencil-plus-outline" style="font-size:20px"></span></span>
+            <span style="font:700 11px/1.4 var(--font-sans)">지출 기록</span>
+          </div>
+          <div role="button" onClick="{{ goItems }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;min-height:68px">
+            <span style="width:44px;height:44px;border-radius:16px;background:var(--bg-surface);border:1px solid var(--border-default);box-shadow:var(--shadow-1);display:flex;align-items:center;justify-content:center;color:var(--text-primary)"><span class="mdi mdi-basket-outline" style="font-size:20px"></span></span>
+            <span style="font:700 11px/1.4 var(--font-sans)">준비템</span>
+          </div>
+          <div role="button" onClick="{{ goReports }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;min-height:68px">
+            <span style="width:44px;height:44px;border-radius:16px;background:var(--bg-surface);border:1px solid var(--border-default);box-shadow:var(--shadow-1);display:flex;align-items:center;justify-content:center;color:var(--text-primary)"><span class="mdi mdi-chart-box-outline" style="font-size:20px"></span></span>
+            <span style="font:700 11px/1.4 var(--font-sans)">리포트</span>
+          </div>
+          <div role="button" onClick="{{ goProfile }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;min-height:68px">
+            <span style="width:44px;height:44px;border-radius:16px;background:var(--bg-surface);border:1px solid var(--border-default);box-shadow:var(--shadow-1);display:flex;align-items:center;justify-content:center;color:var(--text-primary)"><span class="mdi mdi-account-circle-outline" style="font-size:20px"></span></span>
+            <span style="font:700 11px/1.4 var(--font-sans)">프로필</span>
+          </div>
+        </div>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" on-click="{{ goItems }}" dc-props="{{ rowCard }}" hint-size="100%,72px">
+          <span style="width:40px;height:40px;flex:none;border-radius:14px;background:var(--brand-50);color:var(--brand-600);display:flex;align-items:center;justify-content:center"><span class="mdi mdi-clipboard-check-outline" style="font-size:20px"></span></span>
+          <span style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font:800 14px/1.4 var(--font-sans)">지금 준비할 것 3개가 있어요</span>
+            <span style="font:400 12px/18px var(--font-sans);color:var(--text-secondary)">임신 후기 — 출산 가방을 챙겨볼까요?</span>
+          </span>
+          <span class="mdi mdi-chevron-right" style="font-size:22px;color:var(--text-tertiary)"></span>
+        </x-import>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font:700 18px/1.4 var(--font-sans)">최근 지출</span>
+          <span role="button" onClick="{{ goRecords }}" style="font:700 12px/1 var(--font-sans);color:var(--text-secondary);cursor:pointer">전체 보기</span>
+        </div>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ gap0 }}" hint-size="100%,180px">
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="hospital-box-outline" icon-bg="var(--cat-6)" icon-color="var(--warm-700)" title="산전 검진" subtitle="오늘 · 병원·건강" value="45,000원" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="pill" icon-bg="var(--cat-9)" icon-color="var(--warm-700)" title="철분제" subtitle="07.15 · 산모 케어" value="32,400원" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="tshirt-crew-outline" icon-bg="var(--cat-3)" icon-color="var(--warm-700)" title="배냇저고리" subtitle="07.12 · 의류·잡화" value="28,900원" badge="{{ badgeOwned }}" hint-size="100%,56px"></x-import>
+        </x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.SyncStatusBar" status="synced" hint-size="100%,32px"></x-import>
+      </x-import>
+    </sc-if>
+
+    <sc-if value="{{ isRecords }}" hint-placeholder-val="{{ false }}">
+      <x-import component-from-global-scope="DesignSystem_063d12.ScreenScaffold" width="100%" height="100%" hint-size="100%,100%">
+        <x-import component-from-global-scope="DesignSystem_063d12.TopAppBar" title="기록" hint-size="100%,56px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.TextField" label="" placeholder="품목·메모 검색" clearable="{{ false }}" dc-props="{{ mtNeg }}" hint-size="100%,52px"></x-import>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin:-6px 0">
+          <x-import component-from-global-scope="DesignSystem_063d12.FilterChip" label="전체" selected="{{ true }}" hint-size="52px,36px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.FilterChip" label="병원·건강" hint-size="76px,36px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.FilterChip" label="기저귀·위생" hint-size="86px,36px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.FilterChip" label="의류" hint-size="52px,36px"></x-import>
+        </div>
+        <span style="font:700 13px/1.4 var(--font-sans);color:var(--text-secondary)">7월 18일 금요일</span>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ gap0 }}" hint-size="100%,120px">
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="hospital-box-outline" icon-bg="var(--cat-6)" icon-color="var(--warm-700)" title="산전 검진" subtitle="병원·건강 · 엄마" value="45,000원" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="food-apple-outline" icon-bg="var(--cat-2)" icon-color="var(--warm-700)" title="과일" subtitle="식비 · 가족" value="18,600원" hint-size="100%,56px"></x-import>
+        </x-import>
+        <span style="font:700 13px/1.4 var(--font-sans);color:var(--text-secondary)">7월 15일 화요일</span>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ gap0 }}" hint-size="100%,176px">
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="pill" icon-bg="var(--cat-9)" icon-color="var(--warm-700)" title="철분제" subtitle="산모 케어" value="32,400원" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="tshirt-crew-outline" icon-bg="var(--cat-3)" icon-color="var(--warm-700)" title="배냇저고리" subtitle="의류·잡화" value="28,900원" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="gift-outline" icon-bg="var(--cat-5)" icon-color="var(--warm-700)" title="아기 모빌 (선물받음)" subtitle="장난감·도서" value="0원" hint-size="100%,56px"></x-import>
+        </x-import>
+        <div style="position:sticky;bottom:12px;align-self:flex-end">
+          <span role="button" aria-label="지출 기록 추가" onClick="{{ openRec }}" style="width:56px;height:56px;border-radius:28px;background:var(--action-primary);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-2);cursor:pointer"><span class="mdi mdi-plus" style="font-size:28px"></span></span>
+        </div>
+      </x-import>
+      <sc-if value="{{ recSheet }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ closeRec }}" style="position:absolute;inset:0;background:rgba(33,30,28,0.4);display:flex;flex-direction:column;justify-content:flex-end;z-index:5">
+          <div onClick="{{ stop }}">
+            <x-import component-from-global-scope="DesignSystem_063d12.BottomSheet" title="지출 기록" on-close="{{ closeRec }}" hint-size="100%,340px">
+              <x-import component-from-global-scope="DesignSystem_063d12.TextField" label="품목" placeholder="예: 배냇저고리" hint-size="100%,78px"></x-import>
+              <x-import component-from-global-scope="DesignSystem_063d12.MoneyField" label="금액" default-value="{{ zero }}" helper="영수증 금액 그대로 적어 주세요." hint-size="100%,98px"></x-import>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <x-import component-from-global-scope="DesignSystem_063d12.FilterChip" label="병원·건강" selected="{{ true }}" hint-size="76px,36px"></x-import>
+                <x-import component-from-global-scope="DesignSystem_063d12.FilterChip" label="의류·잡화" hint-size="76px,36px"></x-import>
+                <x-import component-from-global-scope="DesignSystem_063d12.FilterChip" label="산모 케어" hint-size="76px,36px"></x-import>
+              </div>
+              <x-import component-from-global-scope="DesignSystem_063d12.Button" on-click="{{ saveRec }}" dc-props="{{ fullW }}" hint-size="100%,52px">저장하기</x-import>
+            </x-import>
+          </div>
+        </div>
+      </sc-if>
+    </sc-if>
+
+    <sc-if value="{{ isItems }}" hint-placeholder-val="{{ false }}">
+      <x-import component-from-global-scope="DesignSystem_063d12.ScreenScaffold" width="100%" height="100%" hint-size="100%,100%">
+        <x-import component-from-global-scope="DesignSystem_063d12.TopAppBar" title="준비템" hint-size="100%,56px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.SegmentedTabs" options="{{ itemTabs }}" value="{{ itemTab }}" on-change="{{ setItemTab }}" hint-size="100%,44px"></x-import>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin:-6px 0">
+          <x-import component-from-global-scope="DesignSystem_063d12.FilterChip" label="임신 후기" selected="{{ true }}" hint-size="76px,36px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.FilterChip" label="신생아" hint-size="64px,36px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.FilterChip" label="안전 인증" hint-size="76px,36px"></x-import>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <sc-for list="{{ prepItems }}" as="it" hint-placeholder-count="9">
+            <x-import component-from-global-scope="DesignSystem_063d12.PreparationItemCard" icon="{{ it.icon }}" name="{{ it.name }}" status="{{ it.status }}" meta="{{ it.meta }}" on-press="{{ it.open }}" hint-size="100%,112px"></x-import>
+          </sc-for>
+        </div>
+        <span style="font:400 12px/18px var(--font-sans);color:var(--text-tertiary)">찾는 품목이 없나요? <a href="#" onClick="{{ prevent }}">누락 신고하기</a></span>
+      </x-import>
+      <sc-if value="{{ hasSheet }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ closeSheet }}" style="position:absolute;inset:0;background:rgba(33,30,28,0.4);display:flex;flex-direction:column;justify-content:flex-end;z-index:5">
+          <div onClick="{{ stop }}">
+            <x-import component-from-global-scope="DesignSystem_063d12.BottomSheet" title="{{ sheetName }}" on-close="{{ closeSheet }}" hint-size="100%,280px">
+              <span style="font:400 13px/20px var(--font-sans);color:var(--text-secondary)">준비 상태를 바꾸면 목록과 리포트에 바로 반영돼요.</span>
+              <x-import component-from-global-scope="DesignSystem_063d12.ItemStatusControl" value="{{ itemStatus }}" on-change="{{ setItemStatus }}" hint-size="100%,96px"></x-import>
+              <x-import component-from-global-scope="DesignSystem_063d12.Button" on-click="{{ saveItem }}" dc-props="{{ fullW }}" hint-size="100%,52px">저장</x-import>
+            </x-import>
+          </div>
+        </div>
+      </sc-if>
+    </sc-if>
+
+    <sc-if value="{{ isReports }}" hint-placeholder-val="{{ false }}">
+      <x-import component-from-global-scope="DesignSystem_063d12.ScreenScaffold" width="100%" height="100%" hint-size="100%,100%">
+        <x-import component-from-global-scope="DesignSystem_063d12.TopAppBar" title="리포트" hint-size="100%,56px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.SegmentedTabs" options="{{ periods }}" value="{{ period }}" on-change="{{ setPeriod }}" hint-size="100%,44px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.PeriodNavigator" label="2026년 7월" next-disabled="{{ true }}" hint-size="100%,44px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.ChartContainer" title="이번 달 요약" record-count="{{ recCount }}" summary="{{ reportSummary }}" table-columns="{{ tableCols }}" table-rows="{{ tableRows }}" hint-size="100%,320px">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ reportData }}" as="r" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="width:8px;height:8px;border-radius:2px;background:{{ r.color }};flex:none"></span>
+                <span style="width:76px;font:400 12px/1.5 var(--font-sans);color:var(--text-secondary)">{{ r.cat }}</span>
+                <span style="flex:1;height:8px;background:var(--warm-100);border-radius:999px"><span style="display:block;width:{{ r.width }};height:8px;background:{{ r.color }};border-radius:999px"></span></span>
+                <span style="font:600 12px/1 var(--font-sans);font-variant-numeric:tabular-nums;width:64px;text-align:right">{{ r.amount }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.ChartContainer" title="실제 지출 추이" record-count="{{ recCountOne }}" empty-title="아직 추이를 보여드릴 수 없어요" empty-description="두 달 이상 기록이 모이면 월별 추이를 보여드려요." empty-cta-label="지출 기록하기" hint-size="100%,200px"></x-import>
+      </x-import>
+    </sc-if>
+
+    <sc-if value="{{ isProfile }}" hint-placeholder-val="{{ false }}">
+      <x-import component-from-global-scope="DesignSystem_063d12.ScreenScaffold" width="100%" height="100%" hint-size="100%,100%">
+        <x-import component-from-global-scope="DesignSystem_063d12.TopAppBar" title="프로필" hint-size="100%,56px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ rowCard }}" hint-size="100%,84px">
+          <span style="width:52px;height:52px;flex:none;border-radius:50%;background:var(--brand-50);display:flex;align-items:center;justify-content:center"><img src="assets/logo_mark.png" width="34" height="34" alt=""></span>
+          <span style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font:800 17px/1.4 var(--font-sans)">{{ familyName }}</span>
+            <span style="font:400 12px/18px var(--font-sans);color:var(--text-secondary)">보호자 2명 · 아이 1명</span>
+          </span>
+          <x-import component-from-global-scope="DesignSystem_063d12.StatusChip" tone="brand" label="{{ stageLabel }}" hint-size="70px,26px"></x-import>
+        </x-import>
+        <span style="font:700 13px/1.4 var(--font-sans);color:var(--text-secondary);margin-bottom:-8px">아이 · 산모</span>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ gap0 }}" hint-size="100%,176px">
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="baby-face-outline" title="{{ childRowTitle }}" subtitle="{{ childRowSub }}" badge="{{ badgeSelected }}" on-press="{{ openChild }}" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="heart-outline" title="산모 프로필" subtitle="회복·케어 준비 안내" on-press="{{ noop }}" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="plus-circle-outline" title="아이 추가하기" subtitle="여러 아이를 한 계정에서 관리해요" on-press="{{ noop }}" hint-size="100%,56px"></x-import>
+        </x-import>
+        <span style="font:700 13px/1.4 var(--font-sans);color:var(--text-secondary);margin-bottom:-8px">가족</span>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ gap0 }}" hint-size="100%,120px">
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="account-multiple-outline" title="가족 구성원" subtitle="엄마(나) 관리자 · 아빠 기록 가능" value="2명" on-press="{{ openFamily }}" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="email-outline" title="가족 초대" subtitle="초대 링크로 지출을 함께 기록해요" on-press="{{ openFamily }}" hint-size="100%,56px"></x-import>
+        </x-import>
+        <span style="font:700 13px/1.4 var(--font-sans);color:var(--text-secondary);margin-bottom:-8px">예산 · 데이터</span>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ gap0 }}" hint-size="100%,120px">
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="wallet-outline" title="월 예산 설정" subtitle="매월 1일 기준으로 관리돼요" value="{{ budgetLabel }}" on-press="{{ openBudget }}" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="file-export-outline" title="지출 내역 가져오기 · 내보내기" subtitle="엑셀 파일 지원" on-press="{{ exportData }}" hint-size="100%,56px"></x-import>
+        </x-import>
+        <span style="font:700 13px/1.4 var(--font-sans);color:var(--text-secondary);margin-bottom:-8px">설정</span>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ gap0 }}" hint-size="100%,176px">
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="bell-outline" title="알림 설정" subtitle="{{ notifSummary }}" on-press="{{ openNotif }}" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="shield-lock-outline" title="개인정보 처리방침 · 약관" on-press="{{ noop }}" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="information-outline" title="앱 정보" value="v1.1.0" hint-size="100%,56px"></x-import>
+        </x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.SyncStatusBar" status="synced" hint-size="100%,32px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.Button" variant="tertiary" on-click="{{ logout }}" dc-props="{{ selfCenter }}" hint-size="100px,52px">로그아웃</x-import>
+      </x-import>
+    </sc-if>
+
+    <sc-if value="{{ isPvChild }}" hint-placeholder-val="{{ false }}">
+      <x-import component-from-global-scope="DesignSystem_063d12.ScreenScaffold" width="100%" height="100%" hint-size="100%,100%">
+        <x-import component-from-global-scope="DesignSystem_063d12.TopAppBar" title="아이 정보" eyebrow="프로필" on-back="{{ back }}" hint-size="100%,56px"></x-import>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0 4px">
+          <span style="width:96px;height:96px;border-radius:50%;background:var(--brand-50);display:flex;align-items:center;justify-content:center;overflow:hidden"><img src="assets/growth_baby.png" width="72" height="72" alt="아기 일러스트" style="object-fit:contain"></span>
+          <x-import component-from-global-scope="DesignSystem_063d12.StatusChip" tone="brand" label="{{ stageLabel }}" hint-size="70px,26px"></x-import>
+        </div>
+        <x-import component-from-global-scope="DesignSystem_063d12.TextField" label="이름 (태명)" default-value="{{ childName }}" placeholder="태명을 입력해 주세요" hint-size="100%,78px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.DateField" label="출산 예정일" default-value="2026-10-05" helper="예정일 기준으로 준비 시기를 알려드려요." hint-size="100%,98px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.Button" on-click="{{ saveChild }}" dc-props="{{ fullW }}" hint-size="100%,52px">저장하기</x-import>
+        <span style="font:400 12px/18px var(--font-sans);color:var(--text-tertiary);text-align:center">단계(임신 → 신생아 → 영유아)는 예정일에 맞춰 자동으로 바뀌어요.</span>
+      </x-import>
+    </sc-if>
+
+    <sc-if value="{{ isPvFamily }}" hint-placeholder-val="{{ false }}">
+      <x-import component-from-global-scope="DesignSystem_063d12.ScreenScaffold" width="100%" height="100%" hint-size="100%,100%">
+        <x-import component-from-global-scope="DesignSystem_063d12.TopAppBar" title="가족 관리" eyebrow="프로필" on-back="{{ back }}" hint-size="100%,56px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ gap0 }}" hint-size="100%,120px">
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="account-outline" title="엄마 (나)" subtitle="모든 기록·예산·가족 관리" badge="{{ badgeAdmin }}" hint-size="100%,56px"></x-import>
+          <x-import component-from-global-scope="DesignSystem_063d12.ListRow" icon="account-outline" title="아빠" subtitle="기록 작성·조회" badge="{{ badgeMember }}" on-press="{{ noop }}" hint-size="100%,56px"></x-import>
+        </x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ centerCard }}" hint-size="100%,240px">
+          <img src="assets/family.png" width="120" height="90" alt="가족 일러스트" style="object-fit:contain">
+          <span style="font:800 15px/1.4 var(--font-sans)">가족을 초대해 함께 기록해요</span>
+          <span style="font:400 12px/18px var(--font-sans);color:var(--text-secondary)">초대된 가족은 지출 기록과 준비 현황을<br>함께 보고 기록할 수 있어요.</span>
+          <span style="width:100%;display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg-subtle);border:1px dashed var(--border-strong);border-radius:12px;box-sizing:border-box">
+            <span style="flex:1;font:400 12px/1.4 var(--font-sans);color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left">woori.ai/invite/DAON-4F2K</span>
+          </span>
+          <x-import component-from-global-scope="DesignSystem_063d12.Button" icon="content-copy" on-click="{{ copyInvite }}" dc-props="{{ fullW }}" hint-size="100%,52px">초대 링크 복사</x-import>
+        </x-import>
+        <span style="font:400 12px/18px var(--font-sans);color:var(--text-tertiary)">초대 링크는 24시간 동안 유효해요. 권한은 언제든지 바꿀 수 있어요.</span>
+      </x-import>
+    </sc-if>
+
+    <sc-if value="{{ isPvBudget }}" hint-placeholder-val="{{ false }}">
+      <x-import component-from-global-scope="DesignSystem_063d12.ScreenScaffold" width="100%" height="100%" hint-size="100%,100%">
+        <x-import component-from-global-scope="DesignSystem_063d12.TopAppBar" title="월 예산 설정" eyebrow="프로필" on-back="{{ back }}" hint-size="100%,56px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.MoneyField" label="월 예산" value="{{ budgetDraft }}" on-change="{{ setBudgetDraft }}" helper="매월 1일 기준으로 관리돼요." hint-size="100%,98px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.Card" dc-props="{{ rowCard }}" hint-size="100%,72px">
+          <span style="width:40px;height:40px;flex:none;border-radius:14px;background:var(--status-info-surface);color:var(--status-info-content);display:flex;align-items:center;justify-content:center"><span class="mdi mdi-information-outline" style="font-size:20px"></span></span>
+          <span style="flex:1;display:flex;flex-direction:column;gap:2px">
+            <span style="font:700 13px/1.4 var(--font-sans)">이번 달 지출 389,700원</span>
+            <span style="font:400 12px/18px var(--font-sans);color:var(--text-secondary)">{{ budgetHint }}</span>
+          </span>
+        </x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.Button" on-click="{{ saveBudget }}" dc-props="{{ fullW }}" hint-size="100%,52px">저장하기</x-import>
+      </x-import>
+    </sc-if>
+
+    <sc-if value="{{ isPvNotif }}" hint-placeholder-val="{{ false }}">
+      <x-import component-from-global-scope="DesignSystem_063d12.ScreenScaffold" width="100%" height="100%" hint-size="100%,100%">
+        <x-import component-from-global-scope="DesignSystem_063d12.TopAppBar" title="알림 설정" eyebrow="프로필" on-back="{{ back }}" hint-size="100%,56px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.CheckCard" label="준비 시기 알림" icon="calendar-heart" checked="{{ notifPrep }}" on-change="{{ setNotifPrep }}" hint-size="100%,56px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.CheckCard" label="예산 초과 경고" icon="wallet-outline" checked="{{ notifBudget }}" on-change="{{ setNotifBudget }}" hint-size="100%,56px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.CheckCard" label="가족 활동 알림" icon="account-multiple-outline" checked="{{ notifFamily }}" on-change="{{ setNotifFamily }}" hint-size="100%,56px"></x-import>
+        <x-import component-from-global-scope="DesignSystem_063d12.CheckCard" label="소식 · 혜택 알림" icon="bell-ring-outline" checked="{{ notifMkt }}" on-change="{{ setNotifMkt }}" hint-size="100%,56px"></x-import>
+        <span style="font:400 12px/18px var(--font-sans);color:var(--text-tertiary)">준비 시기 알림은 아이 단계에 맞춰 필요한 때에만 보내드려요.</span>
+      </x-import>
+    </sc-if>
+
+    <sc-if value="{{ hasSnack }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;left:12px;right:12px;bottom:14px;z-index:9">
+        <x-import component-from-global-scope="DesignSystem_063d12.Snackbar" message="{{ snackMsg }}" action-label="닫기" on-action="{{ hideSnack }}" hint-size="100%,48px"></x-import>
+      </div>
+    </sc-if>
+  </div>
+  <x-import component-from-global-scope="DesignSystem_063d12.BottomNavigation" active="{{ tab }}" on-select="{{ setTab }}" hint-size="100%,64px"></x-import>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;460px&quot;,&quot;height&quot;:&quot;840px&quot;},&quot;childName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;다온이&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;아이 정보&quot;},&quot;stageLabel&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;임신 28주&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;아이 정보&quot;},&quot;familyName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;다온이네&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;아이 정보&quot;},&quot;monthlyBudget&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:500000,&quot;min&quot;:100000,&quot;max&quot;:3000000,&quot;step&quot;:50000,&quot;unit&quot;:&quot;원&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;예산&quot;}}">
+class Component extends DCLogic {
+  state = { tab: "홈", pv: "main", sheet: null, itemStatus: "알아보기", itemTab: "맞춤", period: "월", recSheet: false, snack: null, budget: null, budgetDraft: null, notif: { prep: true, budget: true, family: true, mkt: false } };
+  componentDidMount() {
+    if (!window.DesignSystem_063d12) {
+      this._t = setInterval(() => { if (window.DesignSystem_063d12) { clearInterval(this._t); this.forceUpdate(); } }, 120);
+    }
+  }
+  componentWillUnmount() { clearInterval(this._t); clearTimeout(this._sn); }
+  chip(tone, label) { const DS = window.DesignSystem_063d12; return DS ? React.createElement(DS.StatusChip, { tone, label }) : null; }
+  renderVals() {
+    const s = this.state, set = (p) => this.setState(p);
+    const DS = window.DesignSystem_063d12;
+    const budget = s.budget ?? (this.props.monthlyBudget ?? 500000);
+    const snack = (m) => { set({ snack: m }); clearTimeout(this._sn); this._sn = setTimeout(() => this.setState({ snack: null }), 2600); };
+    const prepData = [
+      ["baby-carriage", "유모차", "알아보기", "외출 시기부터"], ["car-child-seat", "카시트", "예정", "퇴원 시 필수"], ["baby-bottle-outline", "젖병", "보유", null],
+      ["bed-outline", "아기 침대", "주문", null], ["cradle-outline", "속싸개", "보유", null], ["thermometer", "체온계", "알아보기", "신생아 필수"],
+      ["bathtub-outline", "아기 욕조", "알아보기", null], ["tshirt-crew-outline", "배냇저고리", "보유", null], ["hand-wash-outline", "손수건", "예정", null]
+    ];
+    const repData = [["병원·건강", 145000, 37, "var(--chart-1)"], ["산모 케어", 98400, 25, "var(--chart-2)"], ["의류·잡화", 67900, 17, "var(--chart-3)"], ["식비·간식", 49800, 13, "var(--chart-4)"], ["기타", 28600, 8, "var(--chart-6)"]];
+    const notifOn = Object.entries({ "준비 시기": s.notif.prep, "예산": s.notif.budget, "가족": s.notif.family, "소식": s.notif.mkt }).filter(([, v]) => v).map(([k]) => k);
+    return {
+      childName: this.props.childName ?? "다온이",
+      familyName: this.props.familyName ?? "다온이네",
+      stageLabel: this.props.stageLabel ?? "임신 28주",
+      childRowTitle: (this.props.childName ?? "다온이") + " (태명)",
+      childRowSub: (this.props.stageLabel ?? "임신 28주") + " · 예정일 2026.10.05",
+      tab: s.tab, setTab: (t) => set({ tab: t, pv: "main" }),
+      isHome: s.tab === "홈", isRecords: s.tab === "기록", isItems: s.tab === "준비템", isReports: s.tab === "리포트",
+      isProfile: s.tab === "프로필" && s.pv === "main",
+      isPvChild: s.tab === "프로필" && s.pv === "child",
+      isPvFamily: s.tab === "프로필" && s.pv === "family",
+      isPvBudget: s.tab === "프로필" && s.pv === "budget",
+      isPvNotif: s.tab === "프로필" && s.pv === "notif",
+      goRecords: () => set({ tab: "기록" }), goItems: () => set({ tab: "준비템" }), goReports: () => set({ tab: "리포트" }), goProfile: () => set({ tab: "프로필", pv: "main" }),
+      openChild: () => set({ pv: "child" }), openFamily: () => set({ pv: "family" }), openBudget: () => set({ pv: "budget", budgetDraft: budget }), openNotif: () => set({ pv: "notif" }),
+      back: () => set({ pv: "main" }),
+      noop: () => snack("프로토타입에서는 준비 중인 화면이에요."),
+      logout: () => snack("로그아웃했어요. 다음에 또 만나요!"),
+      exportData: () => snack("지출 내역 파일을 준비했어요."),
+      copyInvite: () => snack("초대 링크를 복사했어요."),
+      saveChild: () => { set({ pv: "main" }); snack("아이 정보를 저장했어요."); },
+      usedKrw: 389700, budgetKrw: budget,
+      budgetLabel: budget.toLocaleString("ko-KR") + "원",
+      budgetHint: "예산 " + budget.toLocaleString("ko-KR") + "원의 " + Math.round(389700 / budget * 100) + "%를 사용했어요.",
+      budgetDraft: s.budgetDraft ?? budget, setBudgetDraft: (v) => set({ budgetDraft: v }),
+      saveBudget: () => { set({ budget: s.budgetDraft ?? budget, pv: "main" }); snack("월 예산을 저장했어요."); },
+      notifPrep: s.notif.prep, setNotifPrep: (v) => set({ notif: { ...s.notif, prep: v } }),
+      notifBudget: s.notif.budget, setNotifBudget: (v) => set({ notif: { ...s.notif, budget: v } }),
+      notifFamily: s.notif.family, setNotifFamily: (v) => set({ notif: { ...s.notif, family: v } }),
+      notifMkt: s.notif.mkt, setNotifMkt: (v) => set({ notif: { ...s.notif, mkt: v } }),
+      notifSummary: notifOn.length ? notifOn.join(" · ") + " 켜짐" : "모든 알림 꺼짐",
+      itemTabs: ["맞춤", "전체", "내 준비함"], itemTab: s.itemTab, setItemTab: (v) => set({ itemTab: v }),
+      prepItems: prepData.map(([icon, name, status, meta]) => ({ icon, name, status, meta: meta || undefined, open: () => set({ sheet: name, itemStatus: status }) })),
+      sheetName: s.sheet, hasSheet: !!s.sheet, closeSheet: () => set({ sheet: null }),
+      itemStatus: s.itemStatus, setItemStatus: (v) => set({ itemStatus: v }),
+      saveItem: () => { set({ sheet: null }); snack("준비 상태를 저장했어요."); },
+      recSheet: s.recSheet, openRec: () => set({ recSheet: true }), closeRec: () => set({ recSheet: false }),
+      saveRec: () => { set({ recSheet: false }); snack("기록을 저장했어요 👏"); },
+      periods: ["월", "분기", "연간"], period: s.period, setPeriod: (v) => set({ period: v }),
+      recCount: 9, recCountOne: 1, zero: 0,
+      reportSummary: DS ? React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+        React.createElement(DS.MoneyText, { amount: 389700, size: "xl" }),
+        React.createElement("span", { style: { font: "400 12px/18px var(--font-sans)", color: "var(--text-secondary)" } }, "예산 " + budget.toLocaleString("ko-KR") + "원의 " + Math.round(389700 / budget * 100) + "% · 지난달 대비 -12%")) : null,
+      tableCols: ["카테고리", "금액", "비율"],
+      tableRows: repData.map(([c, a, p]) => [c, a.toLocaleString("ko-KR") + "원", p + "%"]),
+      reportData: repData.map(([cat, a, p, color]) => ({ cat, color, width: p * 2.2 + "%", amount: a.toLocaleString("ko-KR") + "원" })),
+      badgeOwned: this.chip("success", "보유"),
+      badgeSelected: this.chip("success", "선택됨"),
+      badgeAdmin: this.chip("brand", "관리자"),
+      badgeMember: this.chip("success", "기록 가능"),
+      hasSnack: !!s.snack, snackMsg: s.snack, hideSnack: () => set({ snack: null }),
+      stop: (e) => e.stopPropagation(),
+      fullW: { style: { width: "100%" } },
+      rowCard: { style: { flexDirection: "row", alignItems: "center", gap: 12 } },
+      gap0: { style: { gap: 0 } },
+      mtNeg: { style: { marginTop: -16 } },
+      selfCenter: { style: { alignSelf: "center" } },
+      centerCard: { style: { alignItems: "center", textAlign: "center", gap: 10 } },
+      prevent: (e) => { e.preventDefault(); snack("누락 신고가 접수됐어요. 감사해요!"); }
+    };
+  }
+}
+</script>
+</body>
+</html>

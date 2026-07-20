@@ -53,17 +53,21 @@ describe("Release 3 product completion APIs", () => {
       .expect(200);
   });
 
-  it("keeps marketing notification opt-in off and removes a device token on disable", async () => {
+  it("keeps marketing opt-in off by default, records opt-in time, and removes a disabled device token", async () => {
     await request(app.getHttpServer())
       .get("/api/v1/notification-preferences")
       .set("Authorization", `Bearer ${token}`)
       .expect(200)
-      .expect(({ body }) => expect(body.marketingEnabled).toBe(false));
+      .expect(({ body }) => expect(body).toMatchObject({ marketingEnabled: false, marketingOptInAt: null }));
     await request(app.getHttpServer())
       .put("/api/v1/notification-preferences")
       .set("Authorization", `Bearer ${token}`)
-      .send({ quietHoursStart: "22:00", quietHoursEnd: "07:00", marketingEnabled: false })
-      .expect(200);
+      .send({ quietHoursStart: "22:00", quietHoursEnd: "07:00", marketingEnabled: true })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.marketingEnabled).toBe(true);
+        expect(Number.isNaN(Date.parse(body.marketingOptInAt))).toBe(false);
+      });
     const device = await request(app.getHttpServer())
       .post("/api/v1/devices")
       .set("Authorization", `Bearer ${token}`)

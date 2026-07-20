@@ -1,12 +1,15 @@
 import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
 import { getOnboardingProgress } from "../src/api/client";
-import { ensureLocalBackendSeeded } from "../src/api/local-backend";
-import { LOCAL_CHILD_ID } from "../src/api/local-fixtures";
+import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "../src/api/fixture-identifiers";
+import { routeForDraftCurrentStep } from "../src/onboarding/resume";
+import { useOnboardingDraftStore } from "../src/stores/onboarding-draft.store";
 import { useOnboardingProgressStore } from "../src/stores/onboarding-progress.store";
 import { useOnboardingResumeStore } from "../src/stores/onboarding-resume.store";
-import { useSelectedChildStore } from "../src/stores/selected-child.store";
+import { selectedChildScopeKey, useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
+import { AppScreen } from "../src/design-system/components/ApplicationPrimitives";
+import { LoadingState } from "../src/design-system/patterns/AsyncState";
 
 declare const __DEV__: boolean;
 
@@ -18,12 +21,16 @@ declare const __DEV__: boolean;
  * every screen's `Boolean(authToken && childId)` query gate would then race the same hydration,
  * so the index route must hold rendering until all three finish.
  */
-function storesHydrated() {
+function navigationStoresHydrated() {
   return (
     useSessionStore.persist.hasHydrated() &&
     useOnboardingProgressStore.persist.hasHydrated() &&
     useSelectedChildStore.persist.hasHydrated()
   );
+}
+
+function onboardingDraftHydrated() {
+  return useOnboardingDraftStore.persist.hasHydrated();
 }
 
 /**
@@ -39,12 +46,15 @@ type ProgressFetchState = "idle" | "loading" | "done";
 export default function IndexScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
+  const userId = useSessionStore((state) => state.userId);
+  const householdId = useSessionStore((state) => state.defaultHouseholdId);
+  const draft = useOnboardingDraftStore((state) => state.draft);
   const hasReachedHome = useOnboardingProgressStore((state) => state.hasReachedHome);
   const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
   const setResumeProgress = useOnboardingResumeStore((state) => state.setProgress);
-  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
-  const [hydrated, setHydrated] = useState(storesHydrated);
+  const [hydrated, setHydrated] = useState(navigationStoresHydrated);
+  const [draftHydrated, setDraftHydrated] = useState(onboardingDraftHydrated);
   const [progressFetch, setProgressFetch] = useState<ProgressFetchState>("idle");
   const [hasResumeTarget, setHasResumeTarget] = useState(false);
 
@@ -53,25 +63,45 @@ export default function IndexScreen() {
       return;
     }
     const unsubscribes = [
-      useSessionStore.persist.onFinishHydration(() => setHydrated(storesHydrated())),
-      useOnboardingProgressStore.persist.onFinishHydration(() => setHydrated(storesHydrated())),
-      useSelectedChildStore.persist.onFinishHydration(() => setHydrated(storesHydrated()))
+      useSessionStore.persist.onFinishHydration(() => setHydrated(navigationStoresHydrated())),
+      useOnboardingProgressStore.persist.onFinishHydration(() => setHydrated(navigationStoresHydrated())),
+      useSelectedChildStore.persist.onFinishHydration(() => setHydrated(navigationStoresHydrated()))
     ];
-    // Safety valve: zustand persist never fires onFinishHydration (and never flips
-    // hasHydrated) when the storage read itself rejects or the stored JSON is
-    // corrupt. Without a timeout the app would sit on a blank screen forever in
-    // that case -- after a short grace period we proceed with whatever state we
-    // have (no token -> the landing screen), which is always recoverable.
-    const fallback = setTimeout(() => setHydrated(true), 3000);
+    // Never interpret a slow store as an empty store: doing so can route a valid persisted
+    // session to onboarding or launch before its identity/scope arrives. Rejected/corrupt reads
+    // already resolve through the resilient adapters, so a timeout should retry only and keep
+    // the loading surface visible until all routing inputs have a settled value.
+    const retry = setTimeout(() => {
+      if (!navigationStoresHydrated()) {
+        void useSessionStore.persist.rehydrate();
+        void useOnboardingProgressStore.persist.rehydrate();
+        void useSelectedChildStore.persist.rehydrate();
+      }
+    }, 3000);
     // Hydration may have finished between the initial render and effect registration.
-    setHydrated(storesHydrated());
+    setHydrated(navigationStoresHydrated());
     return () => {
-      clearTimeout(fallback);
+      clearTimeout(retry);
       for (const unsubscribe of unsubscribes) {
         unsubscribe();
       }
     };
   }, [hydrated]);
+
+  useEffect(() => {
+    if (draftHydrated) return;
+    const unsubscribe = useOnboardingDraftStore.persist.onFinishHydration(() => {
+      setDraftHydrated(onboardingDraftHydrated());
+    });
+    const retry = setTimeout(() => {
+      if (!onboardingDraftHydrated()) void useOnboardingDraftStore.persist.rehydrate();
+    }, 3000);
+    setDraftHydrated(onboardingDraftHydrated());
+    return () => {
+      clearTimeout(retry);
+      unsubscribe();
+    };
+  }, [draftHydrated]);
 
   useEffect(() => {
     if (!hydrated || isTestSession || !accessToken || hasReachedHome || progressFetch !== "idle") {
@@ -103,44 +133,65 @@ export default function IndexScreen() {
       .finally(() => setProgressFetch("done"));
   }, [hydrated, isTestSession, accessToken, hasReachedHome, progressFetch, markHomeReached, setResumeProgress, setSelectedChildId]);
 
-  /**
-   * MOB-107: a hydrated test session with no selectedChildId (e.g. an upgrade install whose
-   * `wooriai-selected-child` blob was missing/corrupt and got reset by that store's `migrate`)
-   * would otherwise redirect straight to /(tabs) below with every screen's
-   * `Boolean(authToken && childId)` query gate permanently false -- Home/준비템/리포트 would
-   * each silently fall back to their logged-out preview UI forever instead of showing real data,
-   * with no way for the user to recover short of reinstalling. The demo/test-session child is
-   * always the same well-known fixture id, so it's always safe to re-derive it here rather than
-   * leave the session stuck.
-   */
   useEffect(() => {
-    if (!hydrated || !isTestSession || selectedChildId) {
-      return;
+    if (!hydrated || !draftHydrated) return;
+    const scopedUserId = userId ?? (isTestSession ? LOCAL_USER_ID : null);
+    const scopedHouseholdId = householdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+    if (scopedUserId && scopedHouseholdId) {
+      useOnboardingDraftStore.getState().activateScope(scopedUserId, scopedHouseholdId);
+      useSelectedChildStore.getState().activateScope(selectedChildScopeKey(scopedUserId, scopedHouseholdId));
     }
-    ensureLocalBackendSeeded();
-    setSelectedChildId(LOCAL_CHILD_ID);
-  }, [hydrated, isTestSession, selectedChildId, setSelectedChildId]);
-
-  if (process.env.EXPO_PUBLIC_PIXEL_LOCK === "1") {
-    return <Redirect href="/pixel-lock?screen=HOME-001" />;
-  }
+  }, [draftHydrated, householdId, hydrated, isTestSession, userId]);
 
   if (!hydrated) {
-    return null;
+    return (
+      <AppScreen>
+        <LoadingState
+          description="저장된 세션과 아이 정보를 확인하고 있어요."
+          title="시작 화면을 준비하고 있어요"
+        />
+      </AppScreen>
+    );
   }
 
   if (!accessToken && !isTestSession) {
     return <Redirect href="/launch-animation" />;
   }
 
+  if (hasReachedHome) {
+    return <Redirect href="/(tabs)" />;
+  }
+
   if (!isTestSession && !hasReachedHome) {
     if (progressFetch === "loading") {
-      return null;
+      return (
+        <AppScreen>
+          <LoadingState
+            description="마지막으로 진행한 온보딩 단계를 확인하고 있어요."
+            title="시작 화면을 준비하고 있어요"
+          />
+        </AppScreen>
+      );
     }
     if (progressFetch === "done" && hasResumeTarget) {
       return <Redirect href="/onboarding/resume" />;
     }
   }
 
-  return <Redirect href={hasReachedHome ? "/(tabs)" : "/onboarding/child-status"} />;
+  if (!draftHydrated) {
+    return (
+      <AppScreen>
+        <LoadingState
+          description="저장된 온보딩 정보를 안전하게 불러오고 있어요."
+          title="시작 화면을 준비하고 있어요."
+        />
+      </AppScreen>
+    );
+  }
+
+  return (
+    <Redirect
+      href={routeForDraftCurrentStep(draft?.currentStep ?? "child-status")}
+    />
+  );
 }

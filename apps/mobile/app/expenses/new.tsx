@@ -2,16 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
+import { getSeoulToday } from "@wooriai/domain";
 import {
   listExpenseShortcuts,
   listPaymentMethods,
   listQuickExpensePresets,
-  LOCAL_SESSION_TOKEN,
+  fixtureSessionToken,
   recordQuickExpensePresetUse
 } from "../../src/api/client";
+import { pixelEvidenceId } from "../../src/api/fixture-runtime";
 import { categoryCatalog } from "../../src/categories";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
+import { ExpenseAttributionField } from "../../src/expenses/ExpenseAttributionField";
+import { buildRecentExpenseDateChips, formatExpenseDate, validateExpenseDateInput, validateExpenseForm } from "../../src/expenses/form-contract";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { createExpenseOffline } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -20,8 +23,10 @@ import { formatKrw } from "../../src/money";
 import { AppIcon, AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, SampleDataBanner, Toast, type AppIconName } from "../../src/ui";
 import { theme } from "../../src/theme";
 import { QuickExpensePixelStyles } from "../../src/pixelLock/styles";
+import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
 
-const quickExpenseScreenId = "pixel-screen-EXP-001 EXP-001";
+const quickExpenseScreenId = pixelEvidenceId("EXP-001 EXP-001");
+const isPixelLockMode = isPixelLockBuild();
 const quickExpenseAmountPreview = "38,500원";
 // Fixed date used only when there's no session (preview / pixel-lock capture mode) so the
 // pixel-lock reference screenshot stays deterministic across runs. See src/android-native-ui-quality.test.ts.
@@ -42,50 +47,6 @@ const quickExpenseItems: Array<{ label: string; icon: AppIconName; category: (ty
   { label: "장난감", icon: "toy-brick-outline", category: categoryFor("toys_books") },
   { label: "책", icon: "book-open-page-variant-outline", category: categoryFor("toys_books") }
 ];
-
-function formatExpenseDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const weekday = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
-  return { iso: `${year}-${month}-${day}`, label: `${year}. ${month}. ${day} (${weekday})` };
-}
-
-// Calendar-valid check for a user-typed YYYY-MM-DD string: `new Date(year, month-1, day)` silently
-// rolls invalid days (e.g. 2026-02-31) into the following month, so we re-derive the parts from the
-// constructed Date and require them to match the input exactly.
-function isValidCalendarDate(dateOnly: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
-  if (!match) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(year, month - 1, day);
-  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-}
-
-// Validates a manually-typed expense date: format, calendar validity, then future-date rejection
-// (reusing the same isFutureSeoulDate the server/local-backend enforce so the two never disagree).
-function validateExpenseDateInput(dateOnly: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return "YYYY-MM-DD 형식으로 입력해 주세요.";
-  if (!isValidCalendarDate(dateOnly)) return "존재하지 않는 날짜예요.";
-  try {
-    if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";
-  } catch {
-    return "날짜를 다시 확인해 주세요.";
-  }
-  return null;
-}
-
-function buildRecentDateChips(today: Date) {
-  return Array.from({ length: 14 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(date.getDate() - index);
-    const formatted = formatExpenseDate(date);
-    const shortLabel = index === 0 ? "오늘" : index === 1 ? "어제" : index === 2 ? "그제" : `${date.getMonth() + 1}/${date.getDate()}`;
-    return { iso: formatted.iso, shortLabel };
-  });
-}
 
 function quickExpensePixelFrameStyle() {
   return {
@@ -170,16 +131,17 @@ function ExpenseCategoryIconButton({
 }
 
 export default function NewExpenseScreen() {
-  const params = useLocalSearchParams<{ itemName?: string; itemTemplateId?: string; evidence?: string }>();
+  const params = useLocalSearchParams<{ itemName?: string; itemTemplateId?: string; itemDefinitionId?: string; evidence?: string }>();
   const showPaymentEvidence =
-    process.env.EXPO_PUBLIC_PIXEL_LOCK === "1" && String(params.evidence ?? "") === "EXP-PAY-001";
+    isPixelLockBuild() && String(params.evidence ?? "") === "EXP-PAY-001";
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
+  const linkedItemDefinitionId = params.itemDefinitionId ? String(params.itemDefinitionId) : undefined;
   const prefilledItemName = params.itemName ? String(params.itemName) : "";
   const prefilledQuickItem = quickExpenseItems.find((item) => item.label === prefilledItemName);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const householdId = useSessionStore((state) => state.defaultHouseholdId);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   // Preview/pixel-lock capture (no session) keeps the fixed "기저귀"/"38500" seed so the
   // reference screenshot stays deterministic. A real or test session starts blank so opening
   // the sheet never silently records a 38,500원 지출 the user didn't enter (see save-button
@@ -202,7 +164,7 @@ export default function NewExpenseScreen() {
   const initialExpenseDate = authToken ? formatExpenseDate(today) : previewExpenseDate;
   const [expenseDateIso, setExpenseDateIso] = useState(() => initialExpenseDate.iso);
   const expenseDate = authToken ? formatExpenseDate(new Date(`${expenseDateIso}T00:00:00`)) : previewExpenseDate;
-  const recentDateChips = buildRecentDateChips(today);
+  const recentDateChips = buildRecentExpenseDateChips(today);
   // Only meaningful while a real/test session is picking a manually-typed date; null means
   // either preview mode, chip-only selection, or an empty (not-yet-typed) custom field.
   const dateInputError =
@@ -236,9 +198,9 @@ export default function NewExpenseScreen() {
   // Runs once on mount only -- guard conditions are read from the initial render's closure.
   useEffect(() => {
     if (!authToken) return;
-    if (process.env.EXPO_PUBLIC_PIXEL_LOCK === "1") return;
+    if (isPixelLockBuild()) return;
     if (prefilledItemName) return;
-    if (linkedItemTemplateId) return;
+    if (linkedItemTemplateId || linkedItemDefinitionId) return;
     readQuickExpenseDraft().then((draft) => {
       if (!draft) return;
       setItemName(draft.itemName);
@@ -294,28 +256,27 @@ export default function NewExpenseScreen() {
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const saveExpense = useMutation({
     mutationFn: () => {
-      const amountKrw = Number(amountText);
-      if (!authToken || !childId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
+      const validation = validateExpenseForm({ itemName, amountText, spentOn: expenseDate.iso });
+      if (!authToken || !childId || !validation.valid || Boolean(dateInputError)) {
         throw new Error("invalid expense");
       }
       return createExpenseOffline(authToken, queryClient, {
         childId,
         categoryId: selectedCategory.id,
-        amountKrw,
+        amountKrw: validation.amountKrw,
         spentOn: expenseDate.iso,
         itemName,
         paymentMethod: paymentMethod.type,
         ...(paymentMethod.id ? { paymentMethodId: paymentMethod.id } : {}),
         memo,
         expenseType: isGift ? "gift" : "expense",
-        ...(linkedItemTemplateId ? { linkedItemTemplateId } : {})
+        ...(linkedItemTemplateId ? { linkedItemTemplateId } : {}),
+        ...(linkedItemDefinitionId ? { linkedItemDefinitionId } : {})
       });
     },
     onSuccess: async () => {
       clearQuickExpenseDraft();
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
-      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      await queryClient.invalidateQueries({ queryKey: ["home"] });
       setTimeout(() => router.replace("/(tabs)/records"), 650);
     }
   });
@@ -326,14 +287,14 @@ export default function NewExpenseScreen() {
   // null) is unaffected -- amountText/itemName use fixed preview seeds there, so isSaveInvalid
   // is always false. A real/test session requires both the item name and a positive amount so
   // the button state matches the mutation's actual validation contract.
-  const amountKrwValue = Number(amountText);
+  const formValidation = validateExpenseForm({ itemName, amountText, spentOn: expenseDate.iso });
   const isSaveInvalid =
     Boolean(authToken) &&
-    (!itemName.trim() || !amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0 || Boolean(dateInputError));
+    (!formValidation.valid || Boolean(dateInputError));
 
   return (
     <AppScreen>
-      <View style={quickExpensePixelFrameStyle()}>
+      <View style={isPixelLockMode ? quickExpensePixelFrameStyle() : { gap: 14 }}>
         <BottomSheetFrame
           title=""
           showHandle={false}
@@ -351,13 +312,15 @@ export default function NewExpenseScreen() {
         {isTestSession ? <SampleDataBanner /> : null}
         <View accessibilityLabel={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 40 }}>
           <Pressable
+            accessibilityLabel="지출 기록 닫기"
+            accessibilityRole="button"
             onPress={() => {
               clearQuickExpenseDraft();
               router.back();
             }}
-            style={{ minWidth: 36 }}
+            style={{ alignItems: "center", justifyContent: "center", minHeight: 48, minWidth: 48 }}
           >
-            <Text style={{ color: theme.colors.gray900, fontSize: 24 }}>×</Text>
+            <AppIcon color={theme.colors.gray900} name="close" size={24} />
           </Pressable>
           <Text style={{ color: theme.colors.gray900, fontSize: 18, fontWeight: "800" }}>지출 기록</Text>
           <View style={{ width: 36 }} />
@@ -457,7 +420,7 @@ export default function NewExpenseScreen() {
               {savedPresets.map((preset) => (
                 <CategoryChip
                   key={preset.id}
-                  label={`${preset.pinned ? "★ " : ""}${preset.itemName}${preset.defaultAmountKrw ? ` · ${preset.defaultAmountKrw.toLocaleString("ko-KR")}원` : ""}`}
+                  label={`${preset.pinned ? "고정 · " : ""}${preset.itemName}${preset.defaultAmountKrw ? ` · ${preset.defaultAmountKrw.toLocaleString("ko-KR")}원` : ""}`}
                   onPress={() => {
                     setItemName(preset.itemName);
                     if (preset.defaultAmountKrw) setAmountText(String(preset.defaultAmountKrw));
@@ -550,6 +513,7 @@ export default function NewExpenseScreen() {
 
         {showAdditionalFields ? <>
         {!showPaymentEvidence ? <>
+        <ExpenseAttributionField />
         <View style={{ gap: 8 }}>
           <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>카테고리</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
@@ -598,7 +562,7 @@ export default function NewExpenseScreen() {
               <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>결제 수단</Text>
               <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>{paymentMethod.label}</Text>
             </View>
-            <Text style={{ color: theme.colors.gray600, fontSize: 18 }}>›</Text>
+            <AppIcon color={theme.colors.gray600} name="chevron-right" size={22} />
           </Pressable>
         </View>
 
@@ -630,7 +594,7 @@ export default function NewExpenseScreen() {
                 width: 22
               }}
             >
-              {isGift ? <Text style={{ color: theme.colors.white, fontSize: 14, fontWeight: "900" }}>✓</Text> : null}
+              {isGift ? <AppIcon color={theme.colors.white} name="check" size={15} /> : null}
             </View>
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>선물로 받았어요</Text>

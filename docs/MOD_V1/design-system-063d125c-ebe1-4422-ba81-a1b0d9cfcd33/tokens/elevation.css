@@ -1,0 +1,13 @@
+/* 우리아이 elevation + motion tokens — seed v1.0. Low elevation, warm-tinted shadows. */
+:root{
+--shadow-0:none;
+--shadow-1:0 1px 3px rgba(33,30,28,0.08);
+--shadow-2:0 4px 12px rgba(33,30,28,0.10);
+--shadow-overlay:0 12px 32px rgba(33,30,28,0.16);
+--elevation-border:1px solid var(--border-default);
+--duration-fast:120ms;/* @kind other */
+--duration-standard:180ms;/* @kind other */
+--duration-slow:240ms;/* @kind other */
+--ease-standard:cubic-bezier(0.2,0,0,1);/* @kind other */
+--ease-emphasized:cubic-bezier(0.2,0,0,1.2);/* @kind other */
+}

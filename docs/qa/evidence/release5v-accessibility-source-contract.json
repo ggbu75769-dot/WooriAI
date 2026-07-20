@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "SOURCE_VERIFIED",
+  "actor": "320dp and font-scale user",
+  "input": "pairwise source/render contracts",
+  "mission": "keep CTA, labels, selected/error/busy states accessible",
+  "sourceChecks": [
+    "48dp core controls",
+    "no CTA one-line truncation",
+    "selected accessibility state",
+    "date hint",
+    "long Korean render",
+    "scrolled bottom action"
+  ],
+  "runtimeOnly": [
+    "pixel clipping",
+    "TalkBack focus",
+    "native picker focus return"
+  ]
+}

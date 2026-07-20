@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "actor": "Design Systems Engineer",
+  "input": "research matrix, repository contracts, 51 routes",
+  "mission": "create a warm, stable, non-commercial family preparation language",
+  "adopted": [
+    "explicit selection then next",
+    "progressive disclosure",
+    "summary before commit",
+    "semantic status with text and icon",
+    "low elevation with surface/border hierarchy",
+    "one MaterialCommunityIcons family",
+    "header notification entry",
+    "four repository-locked primary tabs plus Family/Profile destinations"
+  ],
+  "rejected": [
+    "third-party screen copying",
+    "gender-coded pink/blue",
+    "emoji function icons",
+    "giant hero art",
+    "card flooding",
+    "commercial paywall framing",
+    "five-tab change that violates repository Pixel Lock contract"
+  ]
+}

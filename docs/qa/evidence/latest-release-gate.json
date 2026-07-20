@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-15T02:11:01.824Z",
+  "generatedAt": "2026-07-20T06:41:18.196Z",
   "mode": "local-executed",
   "results": [
     {
@@ -7,7 +7,9 @@
       "label": "Install",
       "command": "pnpm install --frozen-lockfile",
       "result": "PASS",
-      "durationMs": 836,
+      "durationMs": 72552,
+      "timeoutMs": 300000,
+      "timedOut": false,
       "issues": []
     },
     {
@@ -15,7 +17,9 @@
       "label": "Env example",
       "command": "pnpm check:env:example",
       "result": "PASS",
-      "durationMs": 1372,
+      "durationMs": 1870,
+      "timeoutMs": null,
+      "timedOut": false,
       "issues": []
     },
     {
@@ -23,7 +27,9 @@
       "label": "Prisma validate",
       "command": "pnpm --filter api prisma:validate",
       "result": "PASS",
-      "durationMs": 3481,
+      "durationMs": 4501,
+      "timeoutMs": null,
+      "timedOut": false,
       "issues": []
     },
     {
@@ -31,7 +37,9 @@
       "label": "Prisma generate",
       "command": "pnpm --filter api prisma:generate",
       "result": "PASS",
-      "durationMs": 4117,
+      "durationMs": 4382,
+      "timeoutMs": null,
+      "timedOut": false,
       "issues": []
     },
     {
@@ -39,7 +47,9 @@
       "label": "Database up",
       "command": "pnpm db start",
       "result": "PASS",
-      "durationMs": 2253,
+      "durationMs": 3385,
+      "timeoutMs": 180000,
+      "timedOut": false,
       "issues": []
     },
     {
@@ -47,7 +57,9 @@
       "label": "ESLint",
       "command": "pnpm lint",
       "result": "PASS",
-      "durationMs": 7783,
+      "durationMs": 18219,
+      "timeoutMs": 300000,
+      "timedOut": false,
       "issues": []
     },
     {
@@ -55,7 +67,9 @@
       "label": "Typecheck",
       "command": "pnpm typecheck",
       "result": "PASS",
-      "durationMs": 4384,
+      "durationMs": 21500,
+      "timeoutMs": 600000,
+      "timedOut": false,
       "issues": []
     },
     {
@@ -63,7 +77,9 @@
       "label": "All tests",
       "command": "pnpm test --concurrency=1 --force",
       "result": "PASS",
-      "durationMs": 193045,
+      "durationMs": 287456,
+      "timeoutMs": 900000,
+      "timedOut": false,
       "issues": []
     },
     {
@@ -71,7 +87,9 @@
       "label": "API e2e",
       "command": "pnpm --filter api test:e2e",
       "result": "PASS",
-      "durationMs": 95343,
+      "durationMs": 144183,
+      "timeoutMs": 600000,
+      "timedOut": false,
       "issues": []
     },
     {
@@ -79,15 +97,19 @@
       "label": "Production builds",
       "command": "pnpm build --force",
       "result": "PASS",
-      "durationMs": 57215,
+      "durationMs": 77851,
+      "timeoutMs": 900000,
+      "timedOut": false,
       "issues": []
     },
     {
       "id": "peers",
       "label": "Peer dependencies",
-      "command": "pnpm peers check",
+      "command": "pnpm install --frozen-lockfile --strict-peer-dependencies --lockfile-only",
       "result": "PASS",
-      "durationMs": 1021,
+      "durationMs": 1254,
+      "timeoutMs": null,
+      "timedOut": false,
       "issues": []
     }
   ]

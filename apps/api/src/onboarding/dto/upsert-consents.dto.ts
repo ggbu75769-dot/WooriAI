@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength, ValidateNested } from "class-validator";
+import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, ValidateNested } from "class-validator";
 
 export class ConsentInputDto {
   @IsString()
@@ -9,6 +9,10 @@ export class ConsentInputDto {
   @IsString()
   @IsNotEmpty()
   version!: string;
+
+  @IsOptional()
+  @Matches(/^[a-f0-9]{64}$/)
+  contentHash?: string;
 
   @IsBoolean()
   accepted!: boolean;

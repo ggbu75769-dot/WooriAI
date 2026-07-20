@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = process.cwd();
@@ -58,10 +58,12 @@ function main() {
 
   const env = {
     ...process.env,
+    NODE_PATH: [join(mobileRoot, "node_modules"), process.env.NODE_PATH].filter(Boolean).join(delimiter),
     NODE_ENV: "production",
     EXPO_PUBLIC_PIXEL_LOCK: "0",
     EXPO_PUBLIC_TEST_LOGIN: "0",
-    EXPO_ROUTER_APP_ROOT: "apps/mobile/app",
+    WOORIAI_BUILD_PROFILE: "production",
+    EXPO_ROUTER_APP_ROOT: "app",
     JAVA_HOME: javaHome,
     ANDROID_HOME: androidSdk,
     ANDROID_SDK_ROOT: androidSdk

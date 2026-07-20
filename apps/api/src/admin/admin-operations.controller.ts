@@ -7,8 +7,10 @@ import { PrismaService } from "../prisma/prisma.service";
 import { PrivacyService } from "../privacy/privacy.service";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { hashAdminPassword } from "./admin-password";
-import { CreateAdminAccountDto, PrivacyRetryDto, UpdateAdminRoleDto } from "./dto/admin-operations.dto";
+import { CreateAdminAccountDto, NotificationReconcileDto, PrivacyRetryDto, UpdateAdminRoleDto } from "./dto/admin-operations.dto";
 import { RequireAdminRoles } from "./require-admin-roles.decorator";
+import { CatalogImportStorageService } from "../catalog-v2/catalog-import-storage.service";
+import { NotificationDeliveryService } from "../jobs/notification-delivery.service";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PRIVACY_STATES = new Set<PrivacyRequestState>(["requested", "access_revoked", "processor_delete_queued", "purging", "retained_exception", "completed", "failed", "cancelled"]);
@@ -19,7 +21,9 @@ export class AdminOperationsController {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(PrivacyService) private readonly privacy: PrivacyService,
-    @Inject(AuditLoggerService) private readonly audit: AuditLoggerService
+    @Inject(AuditLoggerService) private readonly audit: AuditLoggerService,
+    @Inject(CatalogImportStorageService) private readonly objectStorage: CatalogImportStorageService,
+    @Inject(NotificationDeliveryService) private readonly notificationDelivery: NotificationDeliveryService
   ) {}
 
   @Get("privacy-requests")
@@ -98,6 +102,34 @@ export class AdminOperationsController {
     return { states: await this.prisma.notificationDelivery.groupBy({ by: ["state"], _count: { _all: true } }) };
   }
 
+  @Get("notification-reconciliation")
+  async notificationReconciliation() {
+    return {
+      deliveries: await this.prisma.notificationDelivery.findMany({
+        where: { state: { in: ["sending", "unknown"] } },
+        orderBy: { createdAt: "asc" },
+        take: 100,
+        select: { id: true, eventType: true, state: true, failureCode: true, retryCount: true, createdAt: true }
+      })
+    };
+  }
+
+  @Post("notification-deliveries/:id/reconcile")
+  @HttpCode(200)
+  @RequireAdminRoles("admin")
+  async reconcileNotification(
+    @Req() request: AuthenticatedRequest,
+    @Param("id") id: string,
+    @Body(createDtoValidationPipe(NotificationReconcileDto)) body: NotificationReconcileDto
+  ) {
+    const delivery = await this.prisma.notificationDelivery.findUnique({ where: { id }, select: { state: true } });
+    if (!delivery) throw new ConflictException({ code: "NOTIFICATION_DELIVERY_NOT_FOUND", message: "알림 전달 기록을 찾을 수 없어요." });
+    if (delivery.state !== body.expectedState) throw new ConflictException({ code: "NOTIFICATION_DELIVERY_STATE_CONFLICT", message: "알림 전달 상태가 변경됐어요." });
+    const result = await this.notificationDelivery.reconcile(id);
+    await this.audit.record({ actorUserId: request.adminUser!.id, action: "admin.notification_delivery.reconcile", targetType: "notification_deliveries", targetId: id, before: { state: body.expectedState }, after: result });
+    return result;
+  }
+
   @Get("integrity-mismatches")
   async integrityMismatches() {
     return { checks: await this.prisma.reportIntegrityCheck.findMany({
@@ -107,10 +139,22 @@ export class AdminOperationsController {
 
   @Get("runtime")
   async runtime() {
-    const [pendingOutbox, openDlq, failedPrivacy] = await Promise.all([
+    const now = new Date();
+    const [pendingOutbox, leasedOutbox, failedOutbox, oldestPending, openDlq, failedPrivacy, heartbeats, importStates, unknownDeliveries, storage, config] = await Promise.all([
       this.prisma.jobOutbox.count({ where: { publishedAt: null } }),
+      this.prisma.jobOutbox.count({ where: { publishedAt: null, claimExpiresAt: { gt: now } } }),
+      this.prisma.jobOutbox.count({ where: { publishedAt: null, lastErrorCode: { not: null } } }),
+      this.prisma.jobOutbox.findFirst({ where: { publishedAt: null }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
       this.prisma.deadLetterJob.count({ where: { resolvedAt: null, cancelledAt: null } }),
-      this.prisma.privacyRequest.count({ where: { state: "failed" } })
+      this.prisma.privacyRequest.count({ where: { state: "failed" } }),
+      this.prisma.serviceInstanceHeartbeat.findMany({
+        orderBy: [{ serviceType: "asc" }, { instanceId: "asc" }],
+        select: { serviceType: true, instanceId: true, bootId: true, state: true, activeConfigVersion: true, configSource: true, restartCount: true, lastHeartbeatAt: true, stoppedAt: true }
+      }),
+      this.prisma.catalogImport.groupBy({ by: ["state"], _count: { _all: true } }),
+      this.prisma.notificationDelivery.count({ where: { state: "unknown" } }),
+      this.objectStorage.health(),
+      this.prisma.remoteConfig.findUnique({ where: { configKey: "public_app_config" }, select: { version: true, active: true, updatedAt: true } })
     ]);
     return {
       nodeEnv: process.env.NODE_ENV ?? "unknown",
@@ -120,7 +164,22 @@ export class AdminOperationsController {
         notificationProviderConfigured: process.env.NOTIFICATION_PROVIDER_MODE === "live",
         privacyProcessorLive: process.env.PRIVACY_PROCESSOR_MODE === "live"
       },
-      queues: { pendingOutbox, openDlq, failedPrivacy }
+      services: heartbeats.map((heartbeat) => ({
+        ...heartbeat,
+        stale: heartbeat.state === "running" && now.getTime() - heartbeat.lastHeartbeatAt.getTime() > 30_000
+      })),
+      remoteConfig: { source: config?.active ? "database" : "safe_fallback", version: config?.active ? config.version : null, updatedAt: config?.updatedAt ?? null },
+      storage,
+      queues: {
+        pendingOutbox,
+        leasedOutbox,
+        failedOutbox,
+        oldestPendingAgeSeconds: oldestPending ? Math.max(0, Math.floor((now.getTime() - oldestPending.createdAt.getTime()) / 1000)) : null,
+        openDlq,
+        failedPrivacy,
+        unknownDeliveries,
+        imports: importStates
+      }
     };
   }
 

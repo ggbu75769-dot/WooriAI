@@ -1,6 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  DEFAULT_ANDROID_ARCHITECTURES,
+  createAndroidBuildPlan,
+  validateApkNativeLibraries
+} from "../../../scripts/android-build-plan";
+import {
+  evaluateArtifactSourceBinding,
+  verifyBuildSourceSnapshots
+} from "../../../scripts/lib/release5v-source-binding";
 
 const repoRoot = join(process.cwd(), "..", "..");
 const mobileRoot = process.cwd();
@@ -17,16 +26,79 @@ describe("standalone Android APK build", () => {
     expect(buildScript).toContain('EXPO_PUBLIC_PIXEL_LOCK: "0"');
     expect(buildScript).toContain('standalone: "1"');
     expect(buildScript).toContain('production: "0"');
-    expect(buildScript).toContain('EXPO_ROUTER_APP_ROOT: "apps/mobile/app"');
+    expect(buildScript).toContain('EXPO_ROUTER_APP_ROOT: "app"');
+    expect(buildScript).toContain('NODE_PATH: [join(mobileRoot, "node_modules"), process.env.NODE_PATH]');
     expect(buildScript).toContain('"prebuild", "--platform", "android", "--no-install"');
-    expect(buildScript).toContain('"assembleRelease"');
-    expect(buildScript).toContain('"--rerun-tasks"');
+    const androidDir = join(mobileRoot, "android");
+    const plan = createAndroidBuildPlan(androidDir, DEFAULT_ANDROID_ARCHITECTURES);
+    expect(plan.taskArgs).toEqual([
+      "assembleRelease",
+      "--max-workers=1",
+      "--no-parallel",
+      "-PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64"
+    ]);
+    expect(plan.generatedTargets).toEqual([
+      join(androidDir, "app", "build"),
+      join(androidDir, "build"),
+      join(androidDir, ".cxx"),
+      join(androidDir, "app", ".cxx")
+    ]);
+    expect(buildScript).toContain('process.argv.includes("--resume-after-clean")');
+    expect(buildScript).toContain('const args = resumeAfterClean ? plannedArgs : [...plannedArgs, "--rerun-tasks"]');
+    expect(buildScript).toContain("removeStaleSourceBundle");
+    expect(buildScript).toContain('"assets", "index.android.bundle"');
+    expect(buildScript).toContain("verifyEmbeddedBundle");
+    expect(buildScript).toContain("APK_EMBEDDED_BUNDLE_MISMATCH");
+    expect(buildScript).toContain("verifyEmbeddedAppConfig");
+    expect(buildScript).toContain("APK_EMBEDDED_APP_CONFIG_PROFILE_MISMATCH");
+    expect(buildScript).toContain("validateApkNativeLibraries");
+    expect(buildScript).toContain("computeRelease5vSourceSnapshot");
+    expect(buildScript).toContain("verifyBuildSourceSnapshots");
+    expect(buildScript).toContain("sourceSnapshotVerification");
     expect(buildScript).not.toContain("reactNativeArchitectures=x86_64");
     expect(buildScript).toContain("wooriai-${appConfig.expo.version}-release-${profile}.apk");
     expect(buildScript).toContain('readFileSync(join(mobileRoot, "app.json"), "utf8")');
     expect(buildScript).toContain(
-      'extraPackagerArgs = ["--max-workers", "1", "--entry-file", "${projectRoot}/index.js"]'
+      'extraPackagerArgs = ["--max-workers", "1", "--reset-cache", "--entry-file", "${projectRoot}/index.js"]'
     );
+  });
+
+  it("rejects an APK that advertises an ABI without the Expo native core needed at JS startup", () => {
+    expect(() => validateApkNativeLibraries([
+      "lib/arm64-v8a/libexpo-modules-core.so",
+      "lib/arm64-v8a/libhermes.so",
+      "lib/arm64-v8a/libreactnative.so",
+      "lib/x86_64/libhermes.so",
+      "lib/x86_64/libreactnative.so"
+    ])).toThrow(/APK_NATIVE_LIBRARY_INCOMPLETE.*x86_64.*libexpo-modules-core\.so/);
+  });
+
+  it("accepts only when every packaged ABI carries Expo core, Hermes, and React Native", () => {
+    expect(validateApkNativeLibraries([
+      "lib/arm64-v8a/libexpo-modules-core.so",
+      "lib/arm64-v8a/libhermes.so",
+      "lib/arm64-v8a/libreactnative.so",
+      "lib/x86_64/libexpo-modules-core.so",
+      "lib/x86_64/libhermes.so",
+      "lib/x86_64/libreactnative.so"
+    ])).toEqual({
+      abis: ["arm64-v8a", "x86_64"],
+      requiredLibraries: ["libexpo-modules-core.so", "libhermes.so", "libreactnative.so"]
+    });
+  });
+
+  it("rejects stale or mutable source provenance instead of trusting a reported hash", () => {
+    const expected = "A".repeat(64);
+    const changed = "B".repeat(64);
+
+    expect(() => verifyBuildSourceSnapshots(expected, changed, changed)).toThrow(
+      /SOURCE_SNAPSHOT_EXPECTED_MISMATCH/
+    );
+    expect(() => verifyBuildSourceSnapshots(undefined, expected, changed)).toThrow(
+      /SOURCE_CHANGED_DURING_ANDROID_BUILD/
+    );
+    expect(evaluateArtifactSourceBinding(expected, undefined, expected)).toBe("UNVERIFIED");
+    expect(evaluateArtifactSourceBinding(expected, "VERIFIED_STABLE", changed)).toBe("STALE");
   });
 
   it("defaults to the standalone (test-login) profile when no --profile flag is given", () => {
@@ -57,5 +129,55 @@ describe("standalone Android APK build", () => {
     expect(networkSecurityConfig).toContain(
       'application.$["android:networkSecurityConfig"] = "@xml/network_security_config"'
     );
+  });
+
+  it("always rebuilds the Pixel Lock release bundle instead of reusing a standalone bundle", () => {
+    const pixelBuildScript = readFileSync(join(repoRoot, "scripts", "pixel-lock", "build-pixel-apk.ts"), "utf8");
+
+    expect(pixelBuildScript).toContain("const args = resumeAfterTimeout");
+    expect(pixelBuildScript).toContain('NODE_PATH: [join(mobileRoot, "node_modules"), process.env.NODE_PATH]');
+    expect(pixelBuildScript).toContain(
+      '? ["assembleRelease", "-PreactNativeArchitectures=x86_64"]'
+    );
+    expect(pixelBuildScript).toContain(
+      ': ["assembleRelease", "-PreactNativeArchitectures=x86_64", "--rerun-tasks"]'
+    );
+    expect(pixelBuildScript).not.toContain('if (process.env.PIXEL_ANDROID_RERUN_TASKS === "1")');
+  });
+
+  it("models release-profile environment values as native build inputs", () => {
+    const gradleSource = readFileSync(join(mobileRoot, "android", "app", "build.gradle"), "utf8");
+    const metroSource = readFileSync(join(mobileRoot, "metro.config.js"), "utf8");
+
+    expect(gradleSource).toContain('task.name == "createBundleReleaseJsAndAssets"');
+    expect(gradleSource).toContain('task.inputs.property("wooriai.profile.${key}", value)');
+    expect(gradleSource).toContain('task.name == "generateReleaseBuildConfig"');
+    expect(gradleSource).toContain('System.getenv("EXPO_PUBLIC_PIXEL_LOCK") ?: "0"');
+    expect(gradleSource).toContain('System.getenv("EXPO_PUBLIC_TEST_LOGIN") ?: "0"');
+    expect(gradleSource).toContain('System.getenv("WOORIAI_BUILD_PROFILE") ?: "unset"');
+    expect(gradleSource).toContain('"--reset-cache"');
+    expect(metroSource).toContain("config.cacheVersion = bundleProfileCacheKey");
+    expect(metroSource).toContain('process.env.EXPO_PUBLIC_PIXEL_LOCK || "0"');
+    expect(metroSource).toContain('process.env.EXPO_PUBLIC_TEST_LOGIN || "0"');
+    expect(metroSource).toContain('process.env.WOORIAI_BUILD_PROFILE || "development"');
+  });
+
+  it("resolves mobile Expo config plugins from the workspace root after a frozen pnpm install", () => {
+    const rootAppConfig = readFileSync(join(repoRoot, "app.config.js"), "utf8");
+
+    expect(rootAppConfig).toContain('"expo-router": "./apps/mobile/node_modules/expo-router/app.plugin.js"');
+    expect(rootAppConfig).toContain('"expo-asset": "./apps/mobile/node_modules/expo-asset/app.plugin.js"');
+    expect(rootAppConfig).toContain('"./apps/mobile/plugins/with-network-security-config"');
+    expect(rootAppConfig).toContain("wooriaiBuildProfile: process.env.WOORIAI_BUILD_PROFILE");
+    expect(rootAppConfig).toContain('wooriaiPixelLockEnabled: process.env.EXPO_PUBLIC_PIXEL_LOCK === "1"');
+    expect(rootAppConfig).toContain('wooriaiTestLoginEnabled: process.env.EXPO_PUBLIC_TEST_LOGIN === "1"');
+    const mobileAppConfig = readFileSync(join(mobileRoot, "app.config.js"), "utf8");
+    expect(mobileAppConfig).toContain("wooriaiBuildProfile: process.env.WOORIAI_BUILD_PROFILE");
+    expect(mobileAppConfig).toContain('wooriaiPixelLockEnabled: process.env.EXPO_PUBLIC_PIXEL_LOCK === "1"');
+    expect(mobileAppConfig).toContain('wooriaiTestLoginEnabled: process.env.EXPO_PUBLIC_TEST_LOGIN === "1"');
+    const pixelProfileNativeSource = readFileSync(join(mobileRoot, "src", "pixelLock", "build-profile.native.ts"), "utf8");
+    expect(pixelProfileNativeSource).toContain("Constants.expoConfig?.extra");
+    expect(pixelProfileNativeSource).toContain("export function isPixelLockBuild()");
+    expect(pixelProfileNativeSource).toContain("export function isTestLoginBuild()");
   });
 });

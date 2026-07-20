@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "PASS",
+  "classification": [
+    "INTERNAL_TEST",
+    "DEBUG_CERTIFICATE",
+    "NOT_STORE_ARTIFACT",
+    "NOT_PRODUCTION_CANDIDATE"
+  ],
+  "sourceSnapshotSha256": "46358F0F5D51086DD1E62E90A2261FB28301A6499747EE781603E0DC7E598344",
+  "artifact": {
+    "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "sha256": "50CACF8967D83E7C43169BD79B3B95E50B0A4D501033E8F05E9C6DD4A35B45CC",
+    "sizeBytes": 77643179,
+    "hermesSha256": "ED64957F8FE5212EA8F43E2D5E276EADD248F1520A2DD2E23353805E61B42C97",
+    "package": "com.anonymous.wooriai",
+    "versionName": "0.0.0",
+    "versionCode": "1"
+  },
+  "signing": {
+    "verified": true,
+    "certificateDn": "CN=Android Debug, OU=Android, O=Unknown, L=Unknown, ST=Unknown, C=US",
+    "certificateSha256": "FAC61745DC0903786FB9EDE62A962B399F7348F0BB6F899B8332667591033B9C",
+    "schemes": {
+      "v1": false,
+      "v2": true,
+      "v3": false,
+      "v4": false
+    },
+    "tool": "C:/Users/nj970/AppData/Local/Android/Sdk/build-tools/36.0.0/apksigner.bat"
+  },
+  "manifest": {
+    "debuggable": null,
+    "allowBackup": false,
+    "usesCleartextTraffic": false,
+    "permissions": [
+      "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.ACCESS_WIFI_STATE",
+      "android.permission.INTERNET",
+      "android.permission.USE_BIOMETRIC",
+      "android.permission.USE_FINGERPRINT",
+      "android.permission.VIBRATE",
+      "com.anonymous.wooriai.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+    ],
+    "forbiddenPermissionsPresent": [],
+    "exportedComponents": [
+      {
+        "type": "activity",
+        "name": "com.anonymous.wooriai.MainActivity",
+        "exported": true,
+        "permission": null,
+        "deepLinks": [
+          {
+            "scheme": "wooriai",
+            "host": "oauth",
+            "path": "/kakao"
+          },
+          {
+            "scheme": "wooriai",
+            "host": "items",
+            "path": "/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}"
+          }
+        ]
+      },
+      {
+        "type": "receiver",
+        "name": "androidx.profileinstaller.ProfileInstallReceiver",
+        "exported": true,
+        "permission": "android.permission.DUMP",
+        "deepLinks": []
+      }
+    ],
+    "deepLinks": [
+      {
+        "component": "com.anonymous.wooriai.MainActivity",
+        "scheme": "wooriai",
+        "host": "oauth",
+        "path": "/kakao"
+      },
+      {
+        "component": "com.anonymous.wooriai.MainActivity",
+        "scheme": "wooriai",
+        "host": "items",
+        "path": "/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}"
+      }
+    ]
+  },
+  "productionProfile": "EXTERNAL_BLOCKED",
+  "contamination": "PASS"
+}

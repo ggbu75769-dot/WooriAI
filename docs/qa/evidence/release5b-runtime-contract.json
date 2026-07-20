@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "logged-out/deep-link user",
+  "input": "pending intent and session restore",
+  "mission": "bind once after scope validation",
+  "evidence": [
+    "pending-intent.test.ts",
+    "session-cache-boundary.test.ts",
+    "session-scope.test.ts"
+  ]
+}

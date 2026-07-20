@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "PASS_HIGH_CRITICAL_ZERO",
+  "counts": {
+    "critical": 0,
+    "high": 0,
+    "moderate": 5
+  },
+  "nextReviewDate": "2026-08-17",
+  "advisories": [
+    {
+      "id": "GHSA-5v7r-6r5c-r473",
+      "package": "file-type@20.4.1",
+      "path": "API via @nestjs/common",
+      "reachability": "no direct file-type import or ASF parsing path",
+      "disposition": "NOT_REACHABLE",
+      "fix": "file-type >=21.3.1"
+    },
+    {
+      "id": "GHSA-j47w-4g3g-c36v",
+      "package": "file-type@20.4.1",
+      "path": "API via @nestjs/common",
+      "reachability": "uploads use bounded explicit parsers; no file-type ZIP content-type parser call",
+      "disposition": "NOT_REACHABLE",
+      "fix": "file-type >=21.3.2"
+    },
+    {
+      "id": "GHSA-36xv-jgw5-4q75",
+      "package": "@nestjs/core@10.4.22",
+      "path": "API direct",
+      "reachability": "production framework is shipped; vulnerable downstream output pattern not identified in current code",
+      "disposition": "BLOCKED_BY_UPSTREAM",
+      "fix": "NestJS 11.1.18 requires coordinated major upgrade"
+    },
+    {
+      "id": "GHSA-gh4j-gqv2-49f6",
+      "package": "fast-xml-parser@4.5.7",
+      "path": "React Native community CLI doctor optional tooling",
+      "reachability": "build-time CLI only; not in Hermes bundle",
+      "disposition": "NOT_SHIPPED",
+      "fix": "upstream CLI dependency >=5.7.0"
+    },
+    {
+      "id": "GHSA-w5hq-g745-h8pq",
+      "package": "uuid@7/8",
+      "path": "ExcelJS and Expo CLI",
+      "reachability": "no v3/v5/v6 buffer API call in app code; Expo CLI not shipped",
+      "disposition": "NOT_REACHABLE",
+      "fix": "uuid >=11.1.1"
+    }
+  ]
+}

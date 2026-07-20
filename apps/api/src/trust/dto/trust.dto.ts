@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from "class-validator";
 
 export class UpdateNotificationPreferencesDto {
   @IsBoolean() @IsOptional() familyEnabled?: boolean;
@@ -7,8 +7,14 @@ export class UpdateNotificationPreferencesDto {
   @IsBoolean() @IsOptional() stageEnabled?: boolean;
   @IsBoolean() @IsOptional() serviceEnabled?: boolean;
   @IsBoolean() @IsOptional() marketingEnabled?: boolean;
+  @IsBoolean() @IsOptional() replacementEnabled?: boolean;
+  @IsBoolean() @IsOptional() recurringEnabled?: boolean;
+  @IsBoolean() @IsOptional() weeklyBriefingEnabled?: boolean;
+  @IsBoolean() @IsOptional() externalChannelEnabled?: boolean;
+  @IsIn(["off", "weekly", "biweekly"]) @IsOptional() weeklyFrequency?: "off" | "weekly" | "biweekly";
   @IsString() @MaxLength(5) @IsOptional() quietHoursStart?: string;
   @IsString() @MaxLength(5) @IsOptional() quietHoursEnd?: string;
+  @IsInt() @Min(1) @IsOptional() expectedVersion?: number;
 }
 
 export class RegisterDeviceDto {

@@ -48,7 +48,7 @@ export class AdminJobsController {
           payloadJson: job.payloadJson as Prisma.InputJsonValue,
           visibleAt: new Date()
         },
-        update: { publishedAt: null, claimedAt: null, visibleAt: new Date(), lastErrorCode: null }
+        update: { publishedAt: null, claimedAt: null, claimedBy: null, claimExpiresAt: null, visibleAt: new Date(), lastErrorCode: null }
       });
       await tx.deadLetterJob.update({
         where: { id },

@@ -1,181 +1,192 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href } from "expo-router";
-import { Alert, Pressable, Text, View } from "react-native";
-import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
-import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
+import type React from "react";
+import { Alert, Image, Pressable, Text, View } from "react-native";
+import {
+  fixtureSessionToken,
+  getBudget,
+  getHome,
+  getNotificationPreferences,
+  listChildren,
+  listHouseholdMembers,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_USER_ID
+} from "../../src/api/client";
+import { pixelEvidenceId, resetLocalBackend } from "../../src/api/fixture-runtime";
+import {
+  AppIcon,
+  AppScreen,
+  Card,
+  EmptyStateCard,
+  SampleDataBanner,
+  SecondaryButton,
+  StatusBadge,
+  SyncStatusBar,
+  TopAppBar,
+  type AppIconName
+} from "../../src/design-system";
+import { useConnectivityStatus } from "../../src/offline/connectivity";
+import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import { normalizeAppSyncStatus } from "../../src/offline/sync-display-state";
+import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
+import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppIcon, AppScreen, EmptyStateCard, SampleDataBanner, type AppIconName } from "../../src/ui";
+import appManifest from "../../app.json";
 
-const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
-const moreReferenceScreenId = "pixel-screen-SET-001 SET-001 · FAM-001 · IMP-001";
-const appInfoText = "버전 0.0.0 · com.anonymous.wooriai";
+const isPixelLockMode = isPixelLockBuild();
+const profileReferenceScreenId = pixelEvidenceId("PF-01 SET-001 · FAM-001 · IMP-001");
+const logoMark = require("../../assets/illustrations/logo_mark.png");
+const appVersion = appManifest.expo.version;
+const appPackage = appManifest.expo.android.package;
 
-type MenuRow = {
+type ProfileRowProps = {
   icon: AppIconName;
   title: string;
-  subtitle: string;
-  onPress: () => void;
+  subtitle?: string;
+  value?: string;
+  disabled?: boolean;
+  onPress?: () => void;
 };
 
-function MoreMenuRow({ icon, title, subtitle, onPress }: MenuRow) {
+function ProfileRow({ icon, title, subtitle, value, disabled, onPress }: ProfileRowProps) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={moreMenuRowStyle()}>
-      <AppIcon color={theme.colors.coral[600]} name={icon} size={22} />
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={moreMenuTitleStyle}>{title}</Text>
-        <Text style={moreMenuSubtitleStyle}>{subtitle}</Text>
+    <Pressable
+      accessibilityLabel={[title, value, subtitle].filter(Boolean).join(". ")}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled || !onPress}
+      onPress={onPress}
+      style={({ pressed }) => ({ alignItems: "center", borderBottomColor: theme.colors.gray300, borderBottomWidth: 1, flexDirection: "row", gap: 12, minHeight: 64, opacity: disabled ? 0.48 : pressed ? 0.76 : 1, paddingHorizontal: 14, paddingVertical: 8 })}
+    >
+      <View style={{ alignItems: "center", backgroundColor: theme.colors.coral[50], borderRadius: 20, height: 40, justifyContent: "center", width: 40 }}>
+        <AppIcon color={disabled ? theme.colors.text.tertiary : theme.colors.coral[700]} name={icon} size={22} />
       </View>
-      <AppIcon color={theme.colors.gray600} name="chevron-right" size={22} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ color: theme.colors.textPrimary, fontSize: 15, fontWeight: "700" }}>{title}</Text>
+        {subtitle ? <Text style={{ color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 }}>{subtitle}</Text> : null}
+      </View>
+      {value ? <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: "700" }}>{value}</Text> : null}
+      <AppIcon color={theme.colors.text.tertiary} name="chevron-right" size={21} />
     </Pressable>
   );
 }
 
-export default function MoreScreen() {
+function ProfileSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <Text accessibilityRole="header" style={{ color: theme.colors.textSecondary, fontSize: 13, fontWeight: "700" }}>{title}</Text>
+      <View style={{ backgroundColor: theme.colors.surface, borderColor: theme.colors.gray300, borderRadius: theme.radii.card, borderWidth: 1, overflow: "hidden" }}>{children}</View>
+    </View>
+  );
+}
+
+export default function ProfileHubScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const userId = useSessionStore((state) => state.userId);
+  const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
+  const clearSession = useSessionStore((state) => state.clearSession);
+  const token = accessToken ?? (isTestSession ? fixtureSessionToken : null);
+  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const effectiveUserId = userId ?? (isTestSession ? LOCAL_USER_ID : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
-  const hasSession = Boolean(authToken && childId);
-  const home = useQuery({
-    queryKey: ["home", childId],
-    enabled: hasSession,
-    queryFn: () => getHome(authToken!, childId!)
-  });
+  const clearSelectedChild = useSelectedChildStore((state) => state.clearSelectedChildId);
+  const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
+  const queryClient = useQueryClient();
+  const syncSnapshot = useOfflineSyncSnapshot();
+  const online = useConnectivityStatus();
+  const syncStatus = normalizeAppSyncStatus(syncSnapshot.counts, online);
+  const hasScope = Boolean(token && householdId && childId);
 
-  if (!hasSession && !isPixelLockMode) {
-    return <Redirect href="/launch-animation" />;
-  }
+  const home = useQuery({ queryKey: ["home", childId], enabled: hasScope, queryFn: () => getHome(token!, childId!) });
+  const children = useQuery({ queryKey: ["children", householdId], enabled: Boolean(token && householdId), queryFn: () => listChildren(token!) });
+  const members = useQuery({ queryKey: ["household-members", householdId], enabled: Boolean(token && householdId), queryFn: () => listHouseholdMembers(token!, householdId!) });
+  const budget = useQuery({ queryKey: ["budget", childId], enabled: Boolean(token && childId), queryFn: () => getBudget(token!, childId!) });
+  const notifications = useQuery({ queryKey: ["notification-preferences", householdId], enabled: Boolean(token && householdId && !isTestSession), queryFn: () => getNotificationPreferences(token!) });
 
-  if (hasSession && home.isLoading) {
-    return (
-      <AppScreen>
-        {isTestSession ? <SampleDataBanner /> : null}
-        <EmptyStateCard title="프로필을 불러오고 있어요." actionLabel="잠시만요" />
-      </AppScreen>
-    );
-  }
+  if (!token && !isPixelLockMode) return <Redirect href="/launch-animation" />;
+  if (!hasScope && !isPixelLockMode) return <Redirect href="/" />;
 
-  if (hasSession && home.isError) {
-    return (
-      <AppScreen>
-        <EmptyStateCard title="프로필을 불러오지 못했어요." actionLabel="다시 시도" onPress={() => home.refetch()} />
-      </AppScreen>
-    );
-  }
+  const loading = hasScope && (home.isLoading || children.isLoading || members.isLoading || budget.isLoading);
+  const failed = hasScope && (home.isError || children.isError || members.isError || budget.isError);
+  if (loading) return <AppScreen><EmptyStateCard title="프로필을 불러오고 있어요." actionLabel="잠시만요" /></AppScreen>;
+  if (failed) return <AppScreen><EmptyStateCard title="프로필을 불러오지 못했어요." actionLabel="다시 시도" onPress={() => { void home.refetch(); void children.refetch(); void members.refetch(); void budget.refetch(); }} /></AppScreen>;
 
-  const profile = hasSession ? home.data?.child : isPixelLockMode ? { nickname: "우리아이", stageLabel: "샘플 단계" } : null;
-  if (!profile) return <Redirect href="/onboarding/child-status" />;
+  const visibleChild = home.data?.child ?? (isPixelLockMode ? { id: "pixel-child", nickname: "우리아이", currentStage: "pregnancy_late", stageLabel: "임신 28주" } : null);
+  if (!visibleChild) return <Redirect href="/onboarding/child-status" />;
+  const activeMembers = members.data?.members.filter((member) => member.status === "active") ?? [];
+  const activeChildren = children.data?.children ?? [];
+  const ownRole = activeMembers.find((member) => member.userId === effectiveUserId)?.role ?? "viewer";
+  const canManage = ownRole === "owner";
+  const canEditFamilyData = ownRole === "owner" || ownRole === "co_parent";
+  const notificationSummary = isTestSession
+    ? "샘플 계정에서는 변경하지 않아요"
+    : notifications.data
+      ? [notifications.data.replacementEnabled ? "준비 시기" : null, notifications.data.budgetEnabled ? "예산" : null, notifications.data.familyEnabled ? "가족" : null, notifications.data.marketingEnabled ? "소식" : null].filter(Boolean).join(" · ") || "모든 선택 알림 꺼짐"
+      : "알림 상태 확인"
+  ;
 
-  const rows: MenuRow[] = [
-    { icon: "account-outline", title: "내 계정", subtitle: "로그인과 계정 정보를 관리해요", onPress: () => router.push("/profile" as Href) },
-    { icon: "account-child-outline", title: "아이 프로필", subtitle: "아이 정보와 성장 단계를 확인해요", onPress: () => router.push("/children" as Href) },
-    { icon: "account-group-outline", title: "가족", subtitle: "멤버와 권한, 초대를 관리해요", onPress: () => router.push("/family") },
-    { icon: "wallet-outline", title: "비용 설정", subtitle: "예산과 기록 설정을 관리해요", onPress: () => router.push("/budget") },
-    { icon: "file-excel-outline", title: "엑셀 가져오기", subtitle: "저장 전 미리보기로 확인해요", onPress: () => router.push("/import") },
-    { icon: "shield-lock-outline", title: "약관 및 개인정보", subtitle: "동의와 데이터 삭제를 관리해요", onPress: () => router.push("/settings/privacy") },
-    { icon: "information-outline", title: "앱 정보", subtitle: "버전과 서비스 정보를 확인해요", onPress: () => Alert.alert("앱 정보", appInfoText) }
-  ];
+  const logout = () => {
+    Alert.alert("로그아웃할까요?", "이 기기의 로그인 정보가 삭제돼요.", [
+      { text: "취소", style: "cancel" },
+      { text: "로그아웃", style: "destructive", onPress: () => {
+        if (isTestSession) resetLocalBackend();
+        queryClient.clear();
+        clearSession();
+        clearSelectedChild();
+        resetOnboarding();
+        router.replace("/launch-animation");
+      } }
+    ]);
+  };
 
   return (
     <AppScreen>
-      <View accessibilityLabel={moreReferenceScreenId} style={moreReferenceFrameStyle()}>
+      <View accessibilityLabel={profileReferenceScreenId} testID="screen-PF-01" style={{ gap: theme.spacing.section }}>
         {isTestSession ? <SampleDataBanner /> : null}
-        <Text style={moreTitleStyle}>내 프로필</Text>
+        <TopAppBar title="프로필" />
 
-        <Pressable accessibilityRole="button" onPress={() => router.push("/children" as Href)} style={moreProfileCardStyle}>
-          <AppIcon color={theme.colors.coral[600]} name="account-child-circle" size={52} />
-          <View style={{ flex: 1, gap: 3 }}>
-            <Text style={moreChildNameStyle}>{profile.nickname}</Text>
-            <Text style={moreChildAgeStyle}>{profile.stageLabel}</Text>
+        <Card style={{ alignItems: "center", flexDirection: "row", gap: 12, minHeight: 88 }}>
+          <View style={{ alignItems: "center", backgroundColor: theme.colors.coral[50], borderRadius: 28, height: 56, justifyContent: "center", width: 56 }}>
+            <Image accessibilityIgnoresInvertColors source={logoMark} style={{ height: 38, width: 38 }} resizeMode="contain" />
           </View>
-          <AppIcon color={theme.colors.gray600} name="chevron-right" size={22} />
-        </Pressable>
+          <View style={{ flex: 1, gap: 3 }}>
+            <Text style={{ color: theme.colors.textPrimary, fontSize: 18, fontWeight: "800" }}>{visibleChild.nickname}네</Text>
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>보호자 {activeMembers.length || 1}명 · 아이 {activeChildren.length || 1}명</Text>
+          </View>
+          <StatusBadge label={visibleChild.stageLabel} tone="brand" />
+        </Card>
 
-        <View style={moreMenuGroupStyle()}>
-          {rows.map((row) => (
-            <MoreMenuRow key={row.title} {...row} />
-          ))}
-        </View>
+        <ProfileSection title="아이 · 산모">
+          {activeChildren.length ? activeChildren.map((child) => (
+            <ProfileRow key={child.id} icon="baby-face-outline" title={child.nickname} subtitle={child.stageLabel} value={child.id === childId ? "선택됨" : undefined} onPress={() => router.push(`/children/${child.id}` as Href)} />
+          )) : <ProfileRow icon="baby-face-outline" title={visibleChild.nickname} subtitle={visibleChild.stageLabel} onPress={() => router.push(`/children/${visibleChild.id}` as Href)} />}
+          {visibleChild.currentStage.startsWith("pregnancy_") ? <ProfileRow icon="human-pregnant" title="산모 프로필" subtitle="회복·케어 준비를 함께 확인해요" onPress={() => router.push(`/children/${visibleChild.id}` as Href)} /> : null}
+          <ProfileRow icon="plus-circle-outline" title="아이 추가하기" subtitle="최대 5명까지 아이별로 관리해요" onPress={() => router.push("/children/new" as Href)} />
+        </ProfileSection>
+
+        <ProfileSection title="가족">
+          <ProfileRow disabled={!canManage} icon="account-multiple-outline" title="가족 구성원" subtitle={canManage ? "멤버와 권한을 관리해요" : "보기 전용 권한에서는 관리할 수 없어요"} value={`${activeMembers.length || 1}명`} onPress={() => router.push("/family")} />
+          <ProfileRow disabled={!canManage} icon="email-outline" title="가족 초대" subtitle="24시간 유효한 링크로 함께 기록해요" onPress={() => router.push("/family/invite")} />
+        </ProfileSection>
+
+        <ProfileSection title="예산 · 데이터">
+          <ProfileRow disabled={!canEditFamilyData} icon="wallet-outline" title="월 예산 설정" subtitle={canEditFamilyData ? "매월 1일 기준으로 관리돼요" : "보기 전용 권한에서는 변경할 수 없어요"} value={budget.data ? `${budget.data.amountKrw.toLocaleString("ko-KR")}원` : "미설정"} onPress={() => router.push("/budget")} />
+          <ProfileRow icon="file-excel-outline" title="지출 내역 가져오기" subtitle="xlsx·csv 파일을 저장 전 미리보기로 확인해요" onPress={() => router.push("/import")} />
+          <ProfileRow disabled icon="file-export-outline" title="지출 내역 내보내기" subtitle="현재 서버에서 제공하지 않아요" />
+        </ProfileSection>
+
+        <ProfileSection title="설정">
+          <ProfileRow icon="bell-outline" title="알림 설정" subtitle={notificationSummary} onPress={() => router.push("/notification-preferences" as Href)} />
+          <ProfileRow icon="shield-lock-outline" title="약관 · 개인정보 · 계정" subtitle="동의 내역과 회원 탈퇴 유예를 확인해요" onPress={() => router.push("/settings/privacy")} />
+          <ProfileRow icon="information-outline" title="앱 정보" value={`v${appVersion}`} onPress={() => Alert.alert("앱 정보", `우리아이 v${appVersion}\n${appPackage}`)} />
+        </ProfileSection>
+
+        <SyncStatusBar onPress={() => router.push("/sync-status" as Href)} status={syncStatus} />
+        <SecondaryButton label="로그아웃" onPress={logout} style={{ alignSelf: "center", minWidth: 120 }} />
       </View>
     </AppScreen>
   );
 }
-
-function moreReferenceFrameStyle() {
-  return {
-    gap: 18 + MoreSettingsPixelStyles.rowGap,
-    marginHorizontal: MoreSettingsPixelStyles.screenPadding - theme.spacing.screen,
-    paddingTop: 0,
-    transform: [{ translateX: MoreSettingsPixelStyles.horizontalOffset }, { translateY: MoreSettingsPixelStyles.topOffset }]
-  } as const;
-}
-
-const moreTitleStyle = {
-  color: theme.colors.gray900,
-  fontSize: 22,
-  fontWeight: "800",
-  lineHeight: 30
-} as const;
-
-const moreProfileCardStyle = {
-  alignItems: "center",
-  backgroundColor: theme.colors.white,
-  borderColor: "rgba(74, 63, 53, 0.08)",
-  borderRadius: MoreSettingsPixelStyles.cardRadius,
-  borderWidth: 1,
-  flexDirection: "row",
-  gap: 12,
-  minHeight: 76,
-  paddingHorizontal: 14
-} as const;
-
-const moreChildNameStyle = {
-  color: theme.colors.brown,
-  fontSize: 15,
-  fontWeight: "800",
-  lineHeight: 21
-} as const;
-
-const moreChildAgeStyle = {
-  color: theme.colors.gray600,
-  fontSize: 12,
-  fontWeight: "700",
-  lineHeight: 18
-} as const;
-
-function moreMenuGroupStyle() {
-  return {
-    backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.08)",
-    borderRadius: MoreSettingsPixelStyles.cardRadius,
-    borderWidth: 1,
-    overflow: "hidden"
-  } as const;
-}
-
-function moreMenuRowStyle() {
-  return {
-    alignItems: "center",
-    borderBottomColor: "rgba(74, 63, 53, 0.08)",
-    borderBottomWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    minHeight: Math.max(MoreSettingsPixelStyles.rowHeight, 62),
-    paddingHorizontal: 14,
-    paddingVertical: 9
-  } as const;
-}
-
-const moreMenuTitleStyle = {
-  color: theme.colors.brown,
-  fontSize: 14,
-  fontWeight: "700"
-} as const;
-
-const moreMenuSubtitleStyle = {
-  color: theme.colors.gray600,
-  fontSize: 11,
-  lineHeight: 16
-} as const;

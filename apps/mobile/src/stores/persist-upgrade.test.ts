@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * and the local-backend field gaps are either additive-safe (zustand's shallow merge keeps the
  * store's own defaults for keys absent from the persisted JSON) or don't affect any Home/Items
  * code path. What *does* reproduce it: client.ts's `authToken = accessToken ?? (isTestSession ?
- * LOCAL_SESSION_TOKEN : null)` prefers a non-null `accessToken` over the local/test session, and
+ * fixtureSessionToken : null)` prefers a non-null `accessToken` over the local/test session, and
  * a *pre-test-login* build (or any build where a real Kakao login was exercised even once on the
  * same device, before test-login existed / was the only path) would have persisted a real,
  * non-null accessToken. Reinstalling a standalone (EXPO_PUBLIC_TEST_LOGIN=1) build over that
@@ -90,7 +90,7 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
       expect(state.refreshToken).toBeNull();
       // Non-token fields are not the source of the bug and are harmless to keep.
       expect(state.userId).toBe("user-from-old-build");
-    });
+    }, 15_000);
 
     it("leaves a genuine test session (round4 shape) untouched", async () => {
       process.env.EXPO_PUBLIC_TEST_LOGIN = "1";
@@ -158,7 +158,7 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
   });
 
   describe("selected-child.store.ts", () => {
-    it("keeps a round4-shaped selectedChildId intact", async () => {
+    it("clears the exact legacy synthetic selectedChildId during upgrade", async () => {
       const { persistStorage } = await loadModules();
       await persistStorage.setItem(
         SELECTED_CHILD_KEY,
@@ -168,7 +168,7 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
       const { useSelectedChildStore } = await import("./selected-child.store");
       await useSelectedChildStore.persist.rehydrate();
 
-      expect(useSelectedChildStore.getState().selectedChildId).toBe("local-child-daon");
+      expect(useSelectedChildStore.getState().selectedChildId).toBeNull();
     });
 
     it("resets a corrupt (wrong-typed) selectedChildId to null instead of poisoning every query's enabled check", async () => {

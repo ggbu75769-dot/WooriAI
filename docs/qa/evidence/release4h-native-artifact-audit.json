@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "release": "4H",
+  "generatedAt": "2026-07-17T12:42:02+09:00",
+  "artifact": {
+    "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "classification": "internal-test-artifact",
+    "productionOrStoreArtifact": false,
+    "package": "com.anonymous.wooriai",
+    "versionName": "0.0.0",
+    "versionCode": 1,
+    "sizeBytes": 77625811,
+    "sha256": "EB0283D6B4E06EFB998596FD352E77D4D060B9FA87E8D9412586A0BA2FD50272",
+    "hermesSha256": "E7DC363C58AB44B72C2B26BB6DDB945BDDDEA7FFDFC19D89AA382DFE3358B849",
+    "certificateSha256": "FAC61745DC0903786FB9EDE62A962B399F7348F0BB6F899B8332667591033B9C",
+    "certificateDn": "CN=Android Debug, OU=Android, O=Unknown, L=Unknown, ST=Unknown, C=US"
+  },
+  "manifestFromBuiltApk": {
+    "allowBackup": false,
+    "usesCleartextTraffic": false,
+    "deepLinks": ["wooriai://oauth/kakao", "wooriai://items/<path>"],
+    "exportedComponents": [
+      "MainActivity: exported, typed deep links",
+      "ProfileInstallReceiver: exported with android.permission.DUMP"
+    ],
+    "dangerousPermissions": ["android.permission.READ_EXTERNAL_STORAGE", "android.permission.WRITE_EXTERNAL_STORAGE"],
+    "result": "FAIL_UNNECESSARY_LEGACY_STORAGE_PERMISSIONS"
+  },
+  "sourceRemediationAfterBuild": {
+    "implementation": ["apps/mobile/plugins/with-network-security-config.js", "apps/mobile/android/app/src/main/AndroidManifest.xml"],
+    "method": "manifest merger tools:node=remove for READ/WRITE_EXTERNAL_STORAGE",
+    "sourceContractTests": 4,
+    "sourceContractResult": "PASS",
+    "mergedManifestRegeneration": "NOT_COMPLETED_RESOURCE_LIMIT",
+    "apkRebuild": "NOT_RUN_BUILD_ONCE_POLICY",
+    "artifactCurrentAfterRemediation": false
+  },
+  "productionProfile": {
+    "anonymousApplicationIdRejected": true,
+    "placeholderVersionRejected": true,
+    "debugSigningRejected": true,
+    "testLoginRejected": true,
+    "fixtureBackendRejected": true,
+    "localhostOrPrivateApiRejected": true,
+    "cleartextRejected": true,
+    "actualApprovedConfiguration": "EXTERNAL_BLOCKED",
+    "productionSafeExportContamination": 0,
+    "result": "FAIL_CLOSED"
+  },
+  "staleProductionArtifact": {
+    "path": "artifacts/android/wooriai-0.0.0-release-production.apk",
+    "disposition": "DO_NOT_USE",
+    "contamination": "FAIL"
+  },
+  "qualification": "SOURCE_FIXED_NEW_APK_REQUIRED"
+}

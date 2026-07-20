@@ -4,6 +4,8 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { toExpenseSnapshot } from "../finance/expense-snapshot";
 import { decodeCursor, encodeCursor, InvalidCursorError } from "./cursor";
+import { idempotencyRequestHash } from "../common/idempotency/idempotency-request";
+import type { LegacyOfflineMutationDto } from "./dto/legacy-reconcile.dto";
 import { SYNC_DEFAULT_LIMIT } from "./dto/sync-query.dto";
 
 export type SyncChange =
@@ -75,6 +77,59 @@ export class SyncService {
     const nextCursor = last ? encodeCursor({ updatedAt: last.updatedAt, id: last.id }) : (cursor ?? null);
 
     return { changes, nextCursor, hasMore };
+  }
+
+  async reconcileLegacy(user: AuthenticatedUser, mutations: LegacyOfflineMutationDto[]) {
+    const results = [];
+    for (const mutation of mutations) {
+      const reservations = await this.prisma.idempotencyKey.findMany({
+        where: { userId: user.id, idemKey: mutation.idempotencyKey },
+        select: {
+          endpoint: true,
+          requestHash: true,
+          responseJson: true,
+          statusCode: true,
+          expiresAt: true
+        }
+      });
+      const allowedEndpoint = reservations.find((row) => {
+        if (!row.endpoint.startsWith(`${mutation.method}:`)) return false;
+        return mutation.method === "POST"
+          ? row.endpoint.includes("children/:childId/expenses")
+          : row.endpoint.includes("expenses/:expenseId");
+      });
+      if (!allowedEndpoint || allowedEndpoint.expiresAt < new Date()) {
+        results.push({
+          sourceLocalId: mutation.sourceLocalId,
+          sourceMutationId: mutation.sourceMutationId,
+          disposition: "ambiguous" as const,
+          reasonCode: "CURRENT_USER_IDEMPOTENCY_PROOF_NOT_FOUND"
+        });
+        continue;
+      }
+      const candidatePaths = [mutation.path, `/api/v1${mutation.path}`];
+      if (!candidatePaths.some((path) =>
+        idempotencyRequestHash(path, mutation.body) === allowedEndpoint.requestHash
+      )) {
+        results.push({
+          sourceLocalId: mutation.sourceLocalId,
+          sourceMutationId: mutation.sourceMutationId,
+          disposition: "ambiguous" as const,
+          reasonCode: "IDEMPOTENCY_REQUEST_HASH_MISMATCH"
+        });
+        continue;
+      }
+      results.push({
+        sourceLocalId: mutation.sourceLocalId,
+        sourceMutationId: mutation.sourceMutationId,
+        disposition: allowedEndpoint.statusCode == null ? "attributable" as const : "already_synced" as const,
+        reasonCode: allowedEndpoint.statusCode == null
+          ? "CURRENT_USER_PENDING_RESERVATION_MATCH"
+          : "CURRENT_USER_COMPLETED_REQUEST_MATCH",
+        response: allowedEndpoint.statusCode == null ? null : allowedEndpoint.responseJson
+      });
+    }
+    return { results };
   }
 
   private decodeOrThrow(cursor: string) {

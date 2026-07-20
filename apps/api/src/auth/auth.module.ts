@@ -12,6 +12,7 @@ import { RefreshTokenStore } from "./refresh-token.store";
 import { TokenService } from "./token.service";
 import { KakaoOAuthProviderAdapter } from "./providers/kakao-oauth-provider.adapter";
 import { KAKAO_OAUTH_PROVIDER_ADAPTER } from "./providers/oauth-provider.adapter";
+import { MockKakaoOAuthProviderAdapter } from "./providers/mock-kakao-oauth-provider.adapter";
 
 @Module({
   imports: [AuditModule, HouseholdRuntimeModule],
@@ -23,7 +24,14 @@ import { KAKAO_OAUTH_PROVIDER_ADAPTER } from "./providers/oauth-provider.adapter
     RefreshTokenStore,
     KakaoAuthService,
     { provide: KAKAO_OIDC_CLIENT, useClass: HttpKakaoOidcClient },
-    { provide: KAKAO_OAUTH_PROVIDER_ADAPTER, useClass: KakaoOAuthProviderAdapter }
+    {
+      provide: KAKAO_OAUTH_PROVIDER_ADAPTER,
+      inject: [KAKAO_OIDC_CLIENT],
+      useFactory: (oidcClient: HttpKakaoOidcClient) => {
+        if (process.env.OAUTH_PROVIDER_MODE === "mock") return new MockKakaoOAuthProviderAdapter();
+        return new KakaoOAuthProviderAdapter(oidcClient);
+      }
+    }
   ],
   exports: [AuthService, JwtAuthGuard, TokenService, RefreshTokenStore, KAKAO_OAUTH_PROVIDER_ADAPTER]
 })

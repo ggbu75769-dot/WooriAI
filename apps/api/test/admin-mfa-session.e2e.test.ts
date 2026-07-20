@@ -9,6 +9,7 @@ import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 import { PrismaService } from "../src/prisma/prisma.service";
+import { AdminAuthService } from "../src/admin/admin-auth.service";
 
 const PASSWORD = "sec101-e2e-password-1";
 
@@ -61,6 +62,15 @@ describe("Admin MFA + cookie session (SEC-101/SEC-102)", () => {
       data: { email, passwordHash: hashAdminPassword(PASSWORD), displayName: email, role, active: true }
     });
   }
+
+  it("returns one persisted MFA setup secret across 30 concurrent route mounts", async () => {
+    const admin = await createAdmin(freshEmail("sec101-setup-cas"));
+    const auth = moduleRef.get(AdminAuthService);
+    const results = await Promise.all(Array.from({ length: 30 }, () => auth.startMfaSetup(admin)));
+    const persisted = await prisma.adminUser.findUniqueOrThrow({ where: { id: admin.id } });
+    expect(new Set(results.map((result) => result.secret))).toEqual(new Set([persisted.totpSecret!]));
+    expect(results.every((result) => result.otpauthUrl.includes(persisted.totpSecret!))).toBe(true);
+  });
 
   it("logs in, forces MFA enrollment before any other admin route, then issues a cookie session usable through logout+revoke", async () => {
     const email = freshEmail("sec101-flow");

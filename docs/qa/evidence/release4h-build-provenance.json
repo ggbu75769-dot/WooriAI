@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "release": "4H",
+  "generatedAt": "2026-07-17T12:42:02+09:00",
+  "source": {
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "workingTreeDirty": true,
+    "buildTimeMobileSourceTreeHash": "E3601990B53B3515EEFB67796DFC97EFC1EC133FA495BB210363F283085185D7",
+    "buildTimeMobileBuildInputHash": "9AB0AA983DE7D67D4F5B1F38C11609871F9D083C9595EC0F72D306FBFFED2AF1",
+    "lockfileHash": "F6F5B5257A265C610876343BF735B77106E1DEDA104B0C7140D3DED524154DBF",
+    "postBuildSourceDelta": "storage permission removal was added after static APK inspection"
+  },
+  "build": {
+    "command": "npx -y pnpm@10.28.1 android:build-apk -- --profile standalone",
+    "exitCode": 0,
+    "buildCount": 1,
+    "profile": "standalone",
+    "variant": "release",
+    "authProfile": "standalone-test-login",
+    "signingProfile": "debug-internal-only",
+    "timestamp": "2026-07-17T03:30:34.999Z"
+  },
+  "artifact": {
+    "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "classification": "internal-test-artifact",
+    "productionOrStoreArtifact": false,
+    "package": "com.anonymous.wooriai",
+    "versionName": "0.0.0",
+    "versionCode": 1,
+    "sizeBytes": 77625811,
+    "sha256": "EB0283D6B4E06EFB998596FD352E77D4D060B9FA87E8D9412586A0BA2FD50272",
+    "hermesSha256": "E7DC363C58AB44B72C2B26BB6DDB945BDDDEA7FFDFC19D89AA382DFE3358B849",
+    "certificateSha256": "FAC61745DC0903786FB9EDE62A962B399F7348F0BB6F899B8332667591033B9C",
+    "artifactMatchesFinalSource": false,
+    "reason": "post-build manifest permission-removal source patch"
+  },
+  "productionExport": {
+    "contaminationFindings": 0,
+    "result": "PASS",
+    "approvedProductionConfiguration": "EXTERNAL_BLOCKED"
+  },
+  "adb": {
+    "binaryFound": true,
+    "authorizedDeviceCount": 0,
+    "newEmulatorsStarted": 0,
+    "installCount": 0,
+    "result": "NOT_RUN_NO_DEVICE_AND_ARTIFACT_NOT_CURRENT"
+  },
+  "authoritativeBuildTimeDetail": "artifacts/android/release4-build-provenance.json"
+}

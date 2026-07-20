@@ -1,6 +1,48 @@
-import { getSeoulMonthRange, getSeoulToday, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
-import * as localBackend from "./local-backend";
-import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./local-fixtures";
+import {
+  getSeoulMonthRange,
+  getSeoulToday
+} from "@wooriai/domain/money-date";
+import type { ChildStageCode, ChildStageMode } from "@wooriai/domain/enums";
+import type { ChildSex, OnboardingCompletionInput } from "@wooriai/domain/onboarding";
+import type {
+  PreparationRecommendationReasonCode,
+  PreparationRecommendationReasonParams
+} from "@wooriai/domain/preparation-lifecycle";
+import type { CatalogScenarioCode } from "@wooriai/domain/release4-catalog";
+import {
+  currentAccountDeletionResponseSchema,
+  onboardingCompletionRequestSchema,
+  onboardingCompletionResponseSchema,
+  onboardingProgressSchema,
+  onboardingStarterPreviewRequestSchema,
+  onboardingStarterPreviewResponseSchema,
+  type CustomBundleContract,
+  type OnboardingCompletionResponseContract,
+  type OnboardingChildSummaryContract,
+  type OnboardingProgressContract,
+  type OnboardingStarterItemContract,
+  type OnboardingStarterPreviewResponseContract,
+  type PreparationCalendarContract,
+  type ReceiptDraftContract,
+  type ReportCategoriesContract,
+  type ReportMembersContract,
+  type ReportPreparationContract,
+  type ReportRecurringContract,
+  type ReportSourceKind,
+  type ReportSourcesContract,
+  type ReportSummaryContract,
+  type ReportTrendContract,
+  type ReportV3Contract,
+  type TodayCenterContract,
+  type WeeklyBriefingContract
+} from "@wooriai/contracts";
+import {
+  fixtureRuntimeEnabled as internalFixtureRuntimeEnabled,
+  LOCAL_HOUSEHOLD_ID,
+  fixtureSessionToken,
+  LOCAL_USER_ID
+} from "./fixture-identifiers";
+import { fixtureBackend as localBackend } from "./fixture-backend-loader";
 import { useSessionStore } from "../stores/session.store";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api/v1";
@@ -24,20 +66,28 @@ function currentYearMonthDate(): string {
  * src/test-login-flow.test.ts) -- screens instead pass this constant so client.ts can route
  * the call to the in-memory/persisted local backend instead of a real HTTP request.
  */
-export const LOCAL_SESSION_TOKEN = "wooriai-local-session";
-
-export { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID };
+export { LOCAL_HOUSEHOLD_ID, fixtureSessionToken, LOCAL_USER_ID };
 
 function isLocalToken(token?: string | null): boolean {
-  return token === LOCAL_SESSION_TOKEN;
+  return internalFixtureRuntimeEnabled && token === fixtureSessionToken;
 }
 
 function local<T>(factory: () => T): Promise<T> {
-  return Promise.resolve().then(factory);
+  // Yield one native frame before evaluating the standalone backend. A microtask runs before
+  // React Native can commit its loading surface; a zero-delay task lets the UI paint first.
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      try {
+        resolve(factory());
+      } catch (error) {
+        reject(error);
+      }
+    }, 0);
+  });
 }
 
 /**
- * Bug fix (round5a post-Sprint2 hotfix): a leftover/real (non-`LOCAL_SESSION_TOKEN`) session on
+ * Bug fix (round5a post-Sprint2 hotfix): a leftover/real (non-`fixtureSessionToken`) session on
  * a standalone/demo device has no reachable API_BASE_URL server, and plain `fetch()` against an
  * unreachable "localhost"/dev host was observed (via on-device logcat repro) to hang for 60-90+
  * seconds per attempt instead of failing fast with a connection error -- with react-query's
@@ -80,14 +130,65 @@ export type Expense = {
   paymentMethod: "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
   paymentMethodId?: string | null;
   memo?: string | null;
-  expenseType: "expense" | "gift" | "refund";
-  source: "manual" | "excel_import" | "purchase_followup" | "admin";
+  linkedItemDefinitionId?: string | null;
+  expenseCategoryV2Id?: string | null;
+  expenseType: "expense" | "gift" | "refund" | "support";
+  source: "manual" | "excel_import" | "purchase_followup" | "receipt" | "admin";
+  payerUserId?: string | null;
   // MOB-103 (round5a-sprint1-plan.md §2.1): optimistic-concurrency version, 1 on create, +1 on
   // every update/soft-delete. Used by MOB-102's offline outbox as `expectedVersion` on
   // update/delete -- see createExpenseWithIdempotency/updateExpenseWithVersion/
   // deleteExpenseWithVersion below.
   version: number;
 };
+
+export class ApiClientError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly requestId?: string;
+  readonly details?: Record<string, unknown>;
+
+  constructor(
+    status: number,
+    code: string,
+    message = "요청을 처리하지 못했어요.",
+    requestId?: string,
+    details?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = "ApiClientError";
+    this.status = status;
+    this.code = code;
+    this.requestId = requestId;
+    this.details = details;
+  }
+}
+
+export function isApiErrorCode(error: unknown, ...codes: string[]) {
+  if (error instanceof ApiClientError) return codes.includes(error.code);
+  if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
+    return codes.includes(error.code);
+  }
+  // Local fixture errors predate the HTTP error envelope. Exact equality keeps this
+  // compatibility path typed and prevents screens from parsing arbitrary/raw messages.
+  return error instanceof Error && codes.includes(error.message);
+}
+
+function apiClientError(response: Response, data: unknown) {
+  const errorEnvelope = data && typeof data === "object" && "error" in data
+    ? (data as { error?: unknown }).error
+    : null;
+  const errorRecord = errorEnvelope && typeof errorEnvelope === "object"
+    ? errorEnvelope as { code?: unknown; message?: unknown; requestId?: unknown; details?: unknown }
+    : null;
+  const code = typeof errorRecord?.code === "string" ? errorRecord.code : `HTTP_${response.status}`;
+  const message = typeof errorRecord?.message === "string" ? errorRecord.message : "요청을 처리하지 못했어요.";
+  const requestId = typeof errorRecord?.requestId === "string" ? errorRecord.requestId : undefined;
+  const details = errorRecord?.details && typeof errorRecord.details === "object" && !Array.isArray(errorRecord.details)
+    ? errorRecord.details as Record<string, unknown>
+    : undefined;
+  return new ApiClientError(response.status, code, message, requestId, details);
+}
 
 export type UserPaymentMethod = {
   id: string;
@@ -133,7 +234,12 @@ export type HomeSummary = {
   monthly: Budget;
   recommendedItems: Array<{ id: string; name: string; status: string }>;
   recentExpenses: Expense[];
+  todayCenter?: TodayCenterContract | null;
 };
+
+export type OnboardingStarterItem = OnboardingStarterItemContract;
+
+export type CompleteOnboardingInput = OnboardingCompletionInput;
 
 export type MonthlyReport = {
   childId: string;
@@ -189,6 +295,284 @@ export type ItemDetail = ItemSummary & {
   usedSecondhandOk: boolean;
   safetyNote?: string | null;
   productLinks: ProductLink[];
+};
+
+export type CatalogPlanState =
+  | "not_considered"
+  | "need"
+  | "researching"
+  | "planned"
+  | "ordered"
+  | "owned"
+  | "borrowed"
+  | "rented"
+  | "gift_expected"
+  | "gifted"
+  | "not_needed"
+  | "replacement_needed"
+  | "replacement_due"
+  | "replaced"
+  | "ended"
+  | "retired";
+
+export type CatalogNodeSummary = {
+  id: string;
+  code: string;
+  parentId: string | null;
+  level: "domain" | "category" | "subcategory";
+  nameKo: string;
+  description: string | null;
+  iconKey: string | null;
+  displayOrder: number;
+};
+
+export type CatalogItemPlanSummary = {
+  id?: string;
+  state: CatalogPlanState;
+  desiredQuantity: number | null;
+  ownedQuantity: number | null;
+  quantityNeeded?: number | null;
+  quantityOwned?: number | null;
+  dueDate?: string | null;
+  acquisitionMode?: CatalogItemPlan["acquisitionMode"];
+  acquisitionType?: CatalogItemPlan["acquisitionMode"];
+  assignedUserId?: string | null;
+  budgetKrw?: number | null;
+  note?: string | null;
+  notes?: string | null;
+  size?: string | null;
+  variant?: string | null;
+  purchasedAt?: string | null;
+  openedAt?: string | null;
+  expiresAt?: string | null;
+  replacementDueAt?: string | null;
+  usageEndedAt?: string | null;
+  storageLocation?: string | null;
+  recurringIntervalDays?: number | null;
+  nextPurchaseDueAt?: string | null;
+  version?: number;
+};
+
+export type CatalogItemSummary = {
+  id: string;
+  code: string;
+  nameKo: string;
+  shortDescription: string;
+  targetSubject: "mother" | "child" | "caregiver" | "household" | "shared";
+  necessity: "required" | "recommended" | "conditional" | "optional";
+  recommendationState: "recommended" | "conditional" | "professional_review_required" | "not_recommended" | "recalled_or_blocked" | "retired";
+  timingSummary: string;
+  safetyTier: "normal" | "elevated" | "high";
+  safetyNote: string | null;
+  status:
+    | "draft"
+    | "in_review"
+    | "review_requested"
+    | "editorial_review"
+    | "domain_review"
+    | "safety_review"
+    | "changes_requested"
+    | "approved"
+    | "scheduled"
+    | "published"
+    | "suspended"
+    | "recalled"
+    | "archived"
+    | "retired";
+  primaryCategory: CatalogNodeSummary | null;
+  plan: CatalogItemPlanSummary | null;
+  searchMatch?: { score: number; reason: "canonical_exact" | "canonical_prefix" | "alias_exact" | "alias_contains" | "initials" | "typo" | "category"; matchedText: string };
+};
+
+export type CatalogProductOffer = {
+  id: string;
+  seller: string;
+  brand: string | null;
+  productName: string;
+  modelName: string | null;
+  publicUrl: string;
+  affiliateUrl: string | null;
+  isAffiliate: boolean;
+  isSponsored: boolean;
+  disclosureText: string | null;
+  priceSnapshotKrw: number | null;
+  priceCheckedAt: string | null;
+  stockState: "in_stock" | "out_of_stock" | "preorder" | "discontinued" | "unknown";
+  recallState: "clear" | "check_required" | "recalled" | "unknown";
+  healthState: "healthy" | "stale" | "failed" | "blocked";
+};
+
+export type CatalogComparison = {
+  item: { id: string; code: string; nameKo: string };
+  schema: { schemaCode: string | null; fields: Array<{ key: string; labelKo: string; valueType: "text" | "number" }> };
+  rankingPolicy: "catalog_display_order_only_no_affiliate_or_sponsor_signal";
+  offers: Array<{
+    id: string;
+    seller: string;
+    brand: string | null;
+    modelName: string | null;
+    productName: string;
+    publicUrl: string;
+    isAffiliate: boolean;
+    isSponsored: boolean;
+    disclosureText: string | null;
+    priceSnapshotKrw: number | null;
+    priceCheckedAt: string | null;
+    priceFreshness: "current" | "stale" | "unknown";
+    priceAgeDays: number | null;
+    stockState: CatalogProductOffer["stockState"];
+    recallState: "clear";
+    attributes: Record<string, string | number | boolean>;
+  }>;
+};
+
+export type CatalogItemDetail = CatalogItemSummary & {
+  reasonText: string;
+  skipReasonText: string | null;
+  quantityGuidance: string | null;
+  priceMinKrw: number | null;
+  priceMaxKrw: number | null;
+  secondhandPolicy: "allowed" | "inspect" | "avoid" | "prohibited";
+  rentalPolicy: "suitable" | "conditional" | "unsuitable";
+  medicalDisclaimerRequired: boolean;
+  categories: CatalogNodeSummary[];
+  lifecycles: Array<{ axis: "mother" | "child"; lifecycleCode: string; timingText: string | null }>;
+  contexts: Array<{ contextCode: string; weight: number; required: boolean }>;
+  offers: CatalogProductOffer[];
+  reviewPending: boolean;
+};
+
+export type CatalogItemPlan = {
+  id: string;
+  householdId: string;
+  childId: string | null;
+  motherProfileId: string | null;
+  itemDefinitionId: string;
+  state: CatalogPlanState;
+  desiredQuantity: number | null;
+  ownedQuantity: number | null;
+  dueDate: string | null;
+  acquisitionMode: "new_purchase" | "secondhand" | "rental" | "borrow" | "gift" | "existing" | "undecided" | null;
+  assignedUserId: string | null;
+  budgetKrw: number | null;
+  note: string | null;
+  linkedExpenseId: string | null;
+  quantityNeeded?: number | null;
+  quantityOwned?: number | null;
+  acquisitionType?: CatalogItemPlan["acquisitionMode"];
+  notes?: string | null;
+  size?: string | null;
+  variant?: string | null;
+  purchasedAt?: string | null;
+  openedAt?: string | null;
+  expiresAt?: string | null;
+  replacementDueAt?: string | null;
+  usageEndedAt?: string | null;
+  storageLocation?: string | null;
+  recurringIntervalDays?: number | null;
+  nextPurchaseDueAt?: string | null;
+  version: number;
+};
+
+export type CatalogItemPlanActivity = {
+  plan: CatalogItemPlan;
+  history: Array<{ id: string; actorUserId: string | null; actorDisplayName: string; fromVersion: number | null; toVersion: number; changesJson: Record<string, unknown>; createdAt: string }>;
+  comments: Array<{ id: string; authorUserId: string; authorDisplayName: string; body: string; createdAt: string; deletedAt: string | null }>;
+};
+
+export type CatalogTimelineBucket = "this_week" | "this_month" | "next_stage" | "overdue" | "completed" | "not_needed";
+
+export type CatalogTimelineItem = {
+  id: string;
+  code: string;
+  nameKo: string;
+  necessity: CatalogItemSummary["necessity"];
+  safetyTier: CatalogItemSummary["safetyTier"];
+  matchedContextCodes: CatalogScenarioCode[];
+  bucket: CatalogTimelineBucket;
+  dueWindow: {
+    start: string | null;
+    end: string | null;
+    label: string;
+    derivedFrom: "lifecycle" | "user_due" | "replacement" | "repeat_purchase";
+  };
+  recommendationReason: string;
+  recommendationReasonCode: PreparationRecommendationReasonCode;
+  recommendationReasonParams: PreparationRecommendationReasonParams;
+  plan: CatalogItemPlan | null;
+};
+
+export type CatalogTimelineResponse = {
+  context: {
+    childId?: string;
+    motherProfileId?: string;
+    lifecycleAxis: "mother" | "child";
+    lifecycleCode: string;
+    nextLifecycleCode: string | null;
+    selectedContextCodes: CatalogScenarioCode[];
+    derivedContextCodes: CatalogScenarioCode[];
+    activeContextCodes: CatalogScenarioCode[];
+    contextVersion: number;
+  };
+  generatedAt: string;
+  rankingPolicy: "necessity_and_lifecycle_only_no_offer_or_sponsor_signal";
+  buckets: Record<CatalogTimelineBucket, CatalogTimelineItem[]>;
+};
+
+export type PreparationContextResponse = {
+  childId: string | null;
+  motherProfileId: string | null;
+  contextCodes: CatalogScenarioCode[];
+  availableContextCodes: readonly CatalogScenarioCode[];
+  version: number;
+  updatedAt: string | null;
+};
+
+export type CatalogSafetyAlert = {
+  id: string;
+  itemDefinitionId: string;
+  userItemPlanId: string;
+  eventType: "blocked" | "recalled";
+  reason: string;
+  itemContentVersion: number;
+  state: "unread" | "acknowledged";
+  acknowledgedAt: string | null;
+  version: number;
+  createdAt: string;
+  planState: CatalogPlanState | null;
+  item: Pick<CatalogItemSummary, "id" | "code" | "nameKo" | "safetyTier" | "safetyNote" | "status"> | null;
+  actionGuidance: string;
+  sourceStatus: "official_or_professional_source_required";
+};
+
+export type CatalogBundle = {
+  id: string;
+  code: string;
+  nameKo: string;
+  description: string;
+  items: Array<CatalogItemSummary & { bundleNecessity: CatalogItemSummary["necessity"]; defaultQuantity: number | null }>;
+  progress: { totalCount: number; completedCount: number; percentage: number };
+};
+
+export type CatalogBundleApplyItem = {
+  itemId: string;
+  state: CatalogPlanState;
+  quantityNeeded?: number;
+  assignedUserId?: string;
+  dueDate?: string;
+  budgetKrw?: number;
+  note?: string;
+  expectedVersion?: number;
+};
+
+export type CatalogBundleApplyResponse = {
+  bundleId: string;
+  childId: string;
+  selectedCount: number;
+  excludedCount: number;
+  warnings: Array<{ code: "DUPLICATE_PURCHASE_RISK"; itemId: string; currentState: CatalogPlanState; requestedState: CatalogPlanState }>;
+  appliedCount: number;
+  plans: CatalogItemPlan[];
 };
 
 export type AffiliateClickResponse = {
@@ -275,22 +659,24 @@ export type SettingsPreview = {
 export type SettingsConfirmResponse = {
   success: boolean;
   flowId: string;
+  deletion?: AccountDeletionRequest;
+};
+
+export type AccountDeletionRequest = {
+  id: string;
+  requestType: "deletion";
+  state: "requested" | "access_revoked" | "processor_delete_queued" | "purging" | "retained_exception" | "completed" | "failed" | "cancelled";
+  requestedAt: string;
+  dueAt: string | null;
+  completedAt: string | null;
+  failureCode: string | null;
+  exportExpiresAt: string | null;
+  statusToken?: string;
 };
 
 export type OnboardingNextStep = "consents" | "child-profile" | "prepared-items" | "budget" | "home";
 
-export type OnboardingChildSummary = {
-  id: string;
-  nickname: string;
-  stageMode: ChildStageMode;
-  dueDate: string | null;
-  birthDate: string | null;
-  manualStage: ChildStageCode | null;
-  gender: string | null;
-  profileImageUrl: string | null;
-  currentStage: string;
-  stageLabel: string;
-};
+export type OnboardingChildSummary = OnboardingChildSummaryContract;
 
 /**
  * MOB-101 (round5a-sprint1-plan.md §4): server-side source of truth for where a session left
@@ -299,21 +685,12 @@ export type OnboardingChildSummary = {
  * created for the household -- the "처음부터 시작" option on the resume screen (ONB-006) is
  * only offered while nothing exists yet to duplicate or orphan.
  */
-export type OnboardingProgress = {
-  completed: boolean;
-  nextStep: OnboardingNextStep;
-  canRestart: boolean;
-  summary: {
-    consentsAccepted: boolean;
-    child: OnboardingChildSummary | null;
-    preparedItemsCount: number | null;
-    budget: { yearMonth: string; amountKrw: number } | null;
-  };
-};
+export type OnboardingProgress = OnboardingProgressContract;
 
 export function getOnboardingProgress(token: string) {
-  if (isLocalToken(token)) return local(() => localBackend.onboardingStatus());
-  return requestJson<OnboardingProgress>("/onboarding/status", { token });
+  if (isLocalToken(token)) return local(() => onboardingProgressSchema.parse(localBackend.onboardingStatus()));
+  return requestJson<unknown>("/onboarding/status", { token })
+    .then((response): OnboardingProgressContract => onboardingProgressSchema.parse(response));
 }
 
 /** Thrown by refreshAccessToken so callers can tell an expired/invalid refresh token (401) apart
@@ -401,9 +778,9 @@ async function requestJson<T>(path: string, options: RequestOptions = {}, isRetr
     }
   }
 
-  const data = (await response.json()) as T;
+  const data = (await response.json().catch(() => null)) as T;
   if (!response.ok) {
-    throw new Error(JSON.stringify(data));
+    throw apiClientError(response, data);
   }
   return data;
 }
@@ -451,9 +828,9 @@ async function requestMultipartJson<T>(
     }
   }
 
-  const data = (await response.json()) as T;
+  const data = (await response.json().catch(() => null)) as T;
   if (!response.ok) {
-    throw new Error(JSON.stringify(data));
+    throw apiClientError(response, data);
   }
   return data;
 }
@@ -467,6 +844,41 @@ export type OAuthLoginResult = {
     };
     tokens: { accessToken: string; refreshToken: string; expiresIn: number };
     onboardingRequired: boolean;
+};
+
+export type LegalDocument = {
+  documentType: "terms" | "privacy";
+  version: string;
+  locale: string;
+  title: string;
+  bodyMarkdown: string;
+  publicUrl: string | null;
+  contentHash: string;
+  effectiveAt: string;
+  publishedAt: string;
+  placeholder: false;
+};
+
+export type ConsentSelection = Pick<LegalDocument, "documentType" | "version" | "contentHash"> & {
+  accepted: true;
+};
+
+export type NotificationInboxItem = {
+  id: string;
+  eventType: string;
+  category: "safety" | "replacement" | "family" | "budget" | "invitation" | "service";
+  title: string;
+  body: string;
+  importance: "normal" | "critical";
+  route: "preparation" | "family" | "reports" | null;
+  navigation:
+    | { kind: "item"; householdId: string; childId: string; itemId: string }
+    | { kind: "family"; householdId: string }
+    | { kind: "reports"; householdId: string; childId: string }
+    | null;
+  requiresAcknowledgement: boolean;
+  read: boolean;
+  occurredAt: string;
 };
 
 /** Development-only login retained for API tests and the isolated local fixture lane. */
@@ -502,17 +914,37 @@ export function exchangeKakaoLogin(input: {
   });
 }
 
-export function upsertConsents(token: string) {
-  if (isLocalToken(token)) return local(() => localBackend.upsertConsents());
+export function getCurrentLegalDocuments(token?: string | null) {
+  if (isLocalToken(token)) return local(() => localBackend.getCurrentLegalDocuments());
+  return requestJson<LegalDocument[]>("/legal/documents/current", { token });
+}
+
+export function upsertConsents(token: string, consents: ConsentSelection[]) {
+  if (isLocalToken(token)) return local(() => localBackend.upsertConsents(consents));
   return requestJson<{ success: boolean }>("/consents", {
     method: "PUT",
     token,
     body: {
-      consents: [
-        { type: "terms", version: "2026-07-06", accepted: true },
-        { type: "privacy", version: "2026-07-06", accepted: true }
-      ]
+      consents: consents.map(({ documentType, ...consent }) => ({ type: documentType, ...consent }))
     }
+  });
+}
+
+export function listNotifications(token: string, cursor?: string, limit = 20) {
+  if (isLocalToken(token)) {
+    return local(() => ({ items: [] as NotificationInboxItem[], nextCursor: null as string | null }));
+  }
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return requestJson<{ items: NotificationInboxItem[]; nextCursor: string | null }>(`/notifications?${params.toString()}`, { token });
+}
+
+export function markNotificationsRead(token: string, ids: string[]) {
+  if (isLocalToken(token)) return local(() => ({ requestedCount: new Set(ids).size, changedCount: 0, readAt: new Date().toISOString() }));
+  return requestJson<{ requestedCount: number; changedCount: number; readAt: string }>("/notifications/read", {
+    method: "PUT",
+    token,
+    body: { ids }
   });
 }
 
@@ -542,6 +974,31 @@ export function createChild(
     body,
     headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined
   });
+}
+
+export function previewOnboardingStarterItems(
+  token: string,
+  body: { stageMode: ChildStageMode; dueDate?: string; birthDate?: string; manualStage?: ChildStageCode }
+) {
+  const request = onboardingStarterPreviewRequestSchema.parse(body);
+  if (isLocalToken(token)) {
+    return local(() => onboardingStarterPreviewResponseSchema.parse(localBackend.previewOnboardingStarterItems(request)));
+  }
+  return requestJson<unknown>("/onboarding/starter-items/preview", { method: "POST", token, body: request })
+    .then((response): OnboardingStarterPreviewResponseContract => onboardingStarterPreviewResponseSchema.parse(response));
+}
+
+export function completeOnboarding(token: string, body: CompleteOnboardingInput, idempotencyKey: string) {
+  if (isLocalToken(token)) {
+    return local(() => onboardingCompletionResponseSchema.parse(localBackend.completeOnboarding(body, idempotencyKey)));
+  }
+  const request = onboardingCompletionRequestSchema.parse(body);
+  return requestJson<unknown>("/onboarding/complete", {
+    method: "POST",
+    token,
+    body: request,
+    headers: { "Idempotency-Key": idempotencyKey }
+  }).then((response): OnboardingCompletionResponseContract => onboardingCompletionResponseSchema.parse(response));
 }
 
 export function listChildren(token: string) {
@@ -671,7 +1128,10 @@ export function createExpense(
     paymentMethodId?: string;
     memo?: string;
     linkedItemTemplateId?: string;
+    linkedItemDefinitionId?: string;
+    expenseCategoryV2Id?: string;
     expenseType?: "expense" | "gift";
+    payerUserId?: string;
   }
 ) {
   if (isLocalToken(token)) return local(() => localBackend.createExpense(childId, body));
@@ -869,6 +1329,8 @@ export function createExpenseWithIdempotency(
     paymentMethodId?: string;
     memo?: string;
     linkedItemTemplateId?: string;
+    linkedItemDefinitionId?: string;
+    expenseCategoryV2Id?: string;
     expenseType?: "expense" | "gift";
   },
   idempotencyKey: string
@@ -943,6 +1405,43 @@ export function getSyncChanges(token: string, cursor?: string, limit?: number): 
   return requestJson<SyncChangesResult>(`/sync/changes${query ? `?${query}` : ""}`, { token });
 }
 
+export type LegacyOfflineReconcileMutation = {
+  sourceLocalId: string;
+  sourceMutationId: string;
+  idempotencyKey: string;
+  method: "POST" | "PATCH" | "DELETE";
+  path: string;
+  body: Record<string, unknown>;
+};
+
+export type LegacyOfflineReconcileResult = {
+  sourceLocalId: string;
+  sourceMutationId: string;
+  disposition: "attributable" | "already_synced" | "ambiguous";
+  reasonCode: string;
+  response?: unknown;
+};
+
+export function reconcileLegacyOfflineMutations(
+  token: string,
+  mutations: LegacyOfflineReconcileMutation[]
+) {
+  if (isLocalToken(token)) {
+    return local(() => ({
+      results: mutations.map((mutation) => ({
+        sourceLocalId: mutation.sourceLocalId,
+        sourceMutationId: mutation.sourceMutationId,
+        disposition: "ambiguous" as const,
+        reasonCode: "LOCAL_FIXTURE_HAS_NO_SERVER_IDEMPOTENCY_LEDGER"
+      }))
+    }));
+  }
+  return requestJson<{ results: LegacyOfflineReconcileResult[] }>(
+    "/sync/offline/reconcile-legacy",
+    { method: "POST", token, body: { mutations } }
+  );
+}
+
 export function getMonthlyReport(token: string, childId: string, yearMonth?: string) {
   const effectiveYearMonth = yearMonth ?? currentYearMonth();
   if (isLocalToken(token)) return local(() => localBackend.getMonthlyReport(childId, effectiveYearMonth));
@@ -974,6 +1473,255 @@ export function listItems(
 ) {
   if (isLocalToken(token)) return local(() => localBackend.listItems(childId, tab));
   return requestJson<{ items: ItemSummary[] }>(`/children/${childId}/items?tab=${tab}`, { token });
+}
+
+export type ReportV2Period = "month" | "quarter" | "year";
+
+function reportV2Query(childId: string, period: ReportV2Period, anchor: string, extra = "") {
+  return `childId=${encodeURIComponent(childId)}&period=${period}&anchor=${encodeURIComponent(anchor)}${extra}`;
+}
+
+export function getReportV2Summary(token: string, childId: string, period: ReportV2Period, anchor: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getReportV2Summary(childId, period, anchor));
+  return requestJson<ReportSummaryContract>(`/reports/summary?${reportV2Query(childId, period, anchor)}`, { token });
+}
+
+export function getReportV2Categories(token: string, childId: string, period: ReportV2Period, anchor: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getReportV2Categories(childId, period, anchor));
+  return requestJson<ReportCategoriesContract>(`/reports/categories?${reportV2Query(childId, period, anchor)}`, { token });
+}
+
+export function getReportV2Trend(token: string, childId: string, period: ReportV2Period, anchor: string, unit: "day" | "month" = "month") {
+  if (isLocalToken(token)) return local(() => localBackend.getReportV2Trend(childId, period, anchor, unit));
+  return requestJson<ReportTrendContract>(`/reports/trend?${reportV2Query(childId, period, anchor, `&unit=${unit}`)}`, { token });
+}
+
+export function getReportV2Members(token: string, childId: string, period: ReportV2Period, anchor: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getReportV2Members(childId, period, anchor));
+  return requestJson<ReportMembersContract>(`/reports/members?${reportV2Query(childId, period, anchor)}`, { token });
+}
+
+export function getReportV2Preparation(token: string, childId: string, period: ReportV2Period, anchor: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getReportV2Preparation(childId, period, anchor));
+  return requestJson<ReportPreparationContract>(`/reports/preparation?${reportV2Query(childId, period, anchor)}`, { token });
+}
+
+export function getReportV2Recurring(token: string, childId: string, period: ReportV2Period, anchor: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getReportV2Recurring(childId, period, anchor));
+  return requestJson<ReportRecurringContract>(`/reports/recurring?${reportV2Query(childId, period, anchor)}`, { token });
+}
+
+export function getReportV3(token: string, childId: string, period: ReportV2Period, anchor: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getReportV3(childId, period, anchor));
+  return requestJson<ReportV3Contract>(`/reports/v3?${reportV2Query(childId, period, anchor)}`, { token });
+}
+
+export function getReportV3Sources(
+  token: string,
+  childId: string,
+  period: ReportV2Period,
+  anchor: string,
+  kind: ReportSourceKind,
+  cursor?: string,
+  limit = 30
+) {
+  if (isLocalToken(token)) {
+    return local(() => localBackend.getReportV3Sources(childId, period, anchor, kind, cursor, limit));
+  }
+  const extra = `&kind=${encodeURIComponent(kind)}&limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+  return requestJson<ReportSourcesContract>(
+    `/reports/v3/sources?${reportV2Query(childId, period, anchor, extra)}`,
+    { token }
+  );
+}
+
+export type CatalogListQuery = {
+  childId?: string;
+  motherProfileId?: string;
+  lifecycleAxis?: "mother" | "child";
+  lifecycleCode?: string;
+  domainCode?: string;
+  contextCode?: string;
+  necessity?: CatalogItemSummary["necessity"];
+  safetyTier?: CatalogItemSummary["safetyTier"];
+  secondhandPolicy?: "allowed" | "inspect" | "avoid" | "prohibited";
+  rentalPolicy?: "suitable" | "conditional" | "unsuitable";
+  state?: CatalogPlanState;
+  query?: string;
+  cursor?: string;
+  limit?: number;
+};
+
+export type CatalogMotherProfile = {
+  id: string;
+  householdId: string;
+  childId: string | null;
+  dueDate: string | null;
+  active: boolean;
+};
+
+export function listCatalogDomains(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listCatalogDomains());
+  return requestJson<{ domains: Array<CatalogNodeSummary & { children: Array<CatalogNodeSummary & { children: CatalogNodeSummary[] }> }> }>("/catalog/domains", { token });
+}
+
+export function getCatalogContexts(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getCatalogContexts());
+  return requestJson<{ motherProfiles: CatalogMotherProfile[] }>("/catalog/contexts", { token });
+}
+
+export function listCatalogItems(token: string, query: CatalogListQuery = {}) {
+  if (isLocalToken(token)) return local(() => localBackend.listCatalogItems(query));
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value !== undefined) params.set(key, String(value));
+  const suffix = params.toString();
+  return requestJson<{ items: CatalogItemSummary[]; nextCursor: string | null; total: number; search?: { normalizedQueryLength: number; matchedCount: number; rawQueryStored: false } }>(`/catalog/items${suffix ? `?${suffix}` : ""}`, { token });
+}
+
+export function getCatalogTimeline(token: string, childId?: string, motherProfileId?: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getCatalogTimeline(childId, motherProfileId));
+  const params = new URLSearchParams();
+  if (childId) params.set("childId", childId);
+  if (motherProfileId) params.set("motherProfileId", motherProfileId);
+  return requestJson<CatalogTimelineResponse>(`/catalog/timeline?${params.toString()}`, { token });
+}
+
+export function getPreparationContext(token: string, childId?: string, motherProfileId?: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getPreparationContext(childId, motherProfileId));
+  const params = new URLSearchParams();
+  if (childId) params.set("childId", childId);
+  if (motherProfileId) params.set("motherProfileId", motherProfileId);
+  return requestJson<PreparationContextResponse>(`/catalog/preparation-context?${params.toString()}`, { token });
+}
+
+export function updatePreparationContext(token: string, childId: string | undefined, motherProfileId: string | undefined, input: { contextCodes: CatalogScenarioCode[]; expectedVersion?: number }) {
+  if (isLocalToken(token)) return local(() => localBackend.updatePreparationContext(childId, motherProfileId, input));
+  const params = new URLSearchParams();
+  if (childId) params.set("childId", childId);
+  if (motherProfileId) params.set("motherProfileId", motherProfileId);
+  return requestJson<PreparationContextResponse>(`/catalog/preparation-context?${params.toString()}`, { method: "PUT", token, body: input });
+}
+
+export function getCatalogSafetyAlerts(token: string, childId?: string, motherProfileId?: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getCatalogSafetyAlerts(childId, motherProfileId));
+  const params = new URLSearchParams();
+  if (childId) params.set("childId", childId);
+  if (motherProfileId) params.set("motherProfileId", motherProfileId);
+  return requestJson<{ alerts: CatalogSafetyAlert[] }>(`/catalog/safety-alerts?${params.toString()}`, { token });
+}
+
+export function acknowledgeCatalogSafetyAlert(token: string, alertId: string, expectedVersion: number) {
+  if (isLocalToken(token)) return local(() => localBackend.acknowledgeCatalogSafetyAlert(alertId, expectedVersion));
+  return requestJson<CatalogSafetyAlert>(`/catalog/safety-alerts/${encodeURIComponent(alertId)}/acknowledge`, { method: "POST", token, body: { expectedVersion } });
+}
+
+export function listCatalogBundles(token: string, childId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listCatalogBundles(childId));
+  return requestJson<{ bundles: CatalogBundle[] }>(`/catalog/bundles?childId=${encodeURIComponent(childId)}`, { token });
+}
+
+export function applyCatalogBundle(token: string, childId: string, bundleId: string, input: { dryRun: boolean; items: CatalogBundleApplyItem[]; acknowledgeWarningItemIds?: string[] }) {
+  if (isLocalToken(token)) return local(() => localBackend.applyCatalogBundle(childId, bundleId, input));
+  return requestJson<CatalogBundleApplyResponse>(`/catalog/bundles/${encodeURIComponent(bundleId)}/apply?childId=${encodeURIComponent(childId)}`, { method: "POST", token, body: input });
+}
+
+export function searchCatalogItems(token: string, query: CatalogListQuery & { query: string }) {
+  if (isLocalToken(token)) return local(() => localBackend.listCatalogItems(query));
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value !== undefined) params.set(key, String(value));
+  return requestJson<{ items: CatalogItemSummary[]; nextCursor: string | null; total: number; search: { normalizedQueryLength: number; matchedCount: number; rawQueryStored: false } }>(`/catalog/search?${params.toString()}`, { token });
+}
+
+export function reportMissingCatalogItem(token: string, requestedName: string, detail?: string) {
+  if (isLocalToken(token)) return local(() => localBackend.reportMissingCatalogItem(requestedName, detail));
+  return requestJson<{ report: { id: string; reasonCode: "missing_item"; state: "open" }; idempotent: boolean }>("/catalog/missing-item-reports", { method: "POST", token, body: { requestedName, ...(detail ? { detail } : {}) } });
+}
+
+export function getCatalogItem(token: string, itemId: string, childId?: string, motherProfileId?: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getCatalogItem(itemId, childId, motherProfileId));
+  const params = new URLSearchParams();
+  if (childId) params.set("childId", childId);
+  if (motherProfileId) params.set("motherProfileId", motherProfileId);
+  const suffix = params.size ? `?${params.toString()}` : "";
+  return requestJson<CatalogItemDetail>(`/catalog/items/${itemId}${suffix}`, { token });
+}
+
+export function getCatalogItemComparison(token: string, itemId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getCatalogItemComparison(itemId));
+  return requestJson<CatalogComparison>(`/catalog/items/${encodeURIComponent(itemId)}/comparison`, { token });
+}
+
+export function putMotherItemPlan(
+  token: string,
+  motherProfileId: string,
+  itemId: string,
+  body: Parameters<typeof putItemPlan>[3]
+) {
+  if (isLocalToken(token)) return local(() => localBackend.putMotherCatalogItemPlan(motherProfileId, itemId, body));
+  return requestJson<CatalogItemPlan>(`/mother-profiles/${motherProfileId}/item-plans/${itemId}`, { method: "PUT", token, body });
+}
+
+export function listItemPlans(token: string, childId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listCatalogItemPlans(childId));
+  return requestJson<{ plans: CatalogItemPlan[] }>(`/children/${childId}/item-plans`, { token });
+}
+
+export function putItemPlan(
+  token: string,
+  childId: string,
+  itemId: string,
+  body: {
+    state: CatalogPlanState;
+    desiredQuantity?: number;
+    ownedQuantity?: number;
+    quantityNeeded?: number;
+    quantityOwned?: number;
+    dueDate?: string;
+    acquisitionMode?: CatalogItemPlan["acquisitionMode"];
+    acquisitionType?: CatalogItemPlan["acquisitionMode"];
+    assignedUserId?: string;
+    budgetKrw?: number;
+    note?: string;
+    notes?: string;
+    linkedExpenseId?: string;
+    size?: string;
+    variant?: string;
+    purchasedAt?: string;
+    openedAt?: string;
+    expiresAt?: string;
+    replacementDueAt?: string;
+    usageEndedAt?: string;
+    storageLocation?: string;
+    recurringIntervalDays?: number;
+    nextPurchaseDueAt?: string;
+    expectedVersion?: number;
+  }
+) {
+  if (isLocalToken(token)) return local(() => localBackend.putCatalogItemPlan(childId, itemId, body));
+  return requestJson<CatalogItemPlan>(`/children/${childId}/item-plans/${itemId}`, { method: "PUT", token, body });
+}
+
+export function getItemPlanActivity(token: string, childId: string, itemId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getCatalogItemPlanActivity(childId, itemId));
+  return requestJson<CatalogItemPlanActivity>(`/children/${childId}/item-plans/${itemId}/activity`, { token });
+}
+
+export function newClientMutationId() {
+  const bytes = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.map((value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export function addItemPlanComment(token: string, childId: string, itemId: string, body: string, clientMutationId = newClientMutationId()) {
+  if (isLocalToken(token)) return local(() => localBackend.addCatalogItemPlanComment(childId, itemId, body, clientMutationId));
+  return requestJson<CatalogItemPlanActivity["comments"][number]>(`/children/${childId}/item-plans/${itemId}/comments`, {
+    method: "POST",
+    token,
+    headers: { "Idempotency-Key": clientMutationId },
+    body: { body, clientMutationId }
+  });
 }
 
 export function getItemDetail(token: string, childId: string, itemTemplateId: string) {
@@ -1038,9 +1786,28 @@ export function createInvite(
 }
 
 export function getInvite(token: string) {
-  const localInvite = localBackend.findLocalInvite(token);
-  if (localInvite) return local(() => localBackend.getInvitePreview(token));
+  if (internalFixtureRuntimeEnabled) {
+    const localInvite = localBackend.findLocalInvite(token);
+    if (localInvite) return local(() => localBackend.getInvitePreview(token));
+  }
   return requestJson<InvitePreview>(`/invites/${token}`);
+}
+
+export function transferHouseholdOwnership(token: string, householdId: string, targetUserId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.transferHouseholdOwnership(householdId, targetUserId));
+  return requestJson<{ success: boolean; ownerUserId: string }>(`/households/${householdId}/transfer-ownership`, {
+    method: "POST",
+    token,
+    body: { targetUserId }
+  });
+}
+
+export function leaveHousehold(token: string, householdId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.leaveHousehold(householdId));
+  return requestJson<{ success: boolean; flowId: string }>(`/households/${householdId}/leave`, {
+    method: "POST",
+    token
+  });
 }
 
 export function acceptInvite(accessToken: string, token: string) {
@@ -1160,4 +1927,120 @@ export function confirmAccountDeletion(token: string, confirmationText: string) 
     token,
     body: { confirmationText }
   });
+}
+
+export function cancelAccountDeletion(token: string, requestId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.cancelAccountDeletion(requestId));
+  return requestJson<AccountDeletionRequest>(`/privacy/account-deletion/${requestId}/cancel`, { method: "POST", token });
+}
+
+export function getCurrentAccountDeletion(token: string) {
+  if (isLocalToken(token)) return local(() => ({ deletion: localBackend.getCurrentAccountDeletion() }));
+  return requestJson<unknown>("/privacy/account-deletion/current", { token })
+    .then((response) => currentAccountDeletionResponseSchema.parse(response));
+}
+
+export function getPreparationCalendar(token: string, householdId: string, month: string, childId?: string) {
+  if (isLocalToken(token)) return local<PreparationCalendarContract>(() => ({ month, timezone: "Asia/Seoul", events: [] }));
+  const query = new URLSearchParams({ month });
+  if (childId) query.set("childId", childId);
+  return requestJson<PreparationCalendarContract>(`/households/${householdId}/preparation-calendar?${query}`, { token });
+}
+
+export function listCustomBundles(token: string, householdId: string) {
+  if (isLocalToken(token)) return local<{ bundles: CustomBundleContract[] }>(() => ({ bundles: [] }));
+  return requestJson<{ bundles: CustomBundleContract[] }>(`/households/${householdId}/custom-bundles`, { token });
+}
+
+export function createCustomBundle(token: string, householdId: string, body: { title: string; scopeType: "child" | "household"; items: Array<{ itemDefinitionId: string; defaultQuantity?: number }> }) {
+  return requestJson<CustomBundleContract>(`/households/${householdId}/custom-bundles`, { method: "POST", token, body });
+}
+
+export function applyCustomBundle(token: string, householdId: string, bundleId: string, body: { childId: string; expectedVersion: number; idempotencyKey: string }) {
+  return requestJson<{ createdCount: number; existingCount: number }>(`/households/${householdId}/custom-bundles/${bundleId}/apply`, { method: "POST", token, body });
+}
+
+export function getWeeklyBriefing(token: string, householdId: string, referenceDate?: string) {
+  if (isLocalToken(token)) return local<WeeklyBriefingContract>(() => ({ id: "00000000-0000-4000-8000-000000000001", householdId, weekStart: getSeoulToday(), generatedAt: new Date().toISOString(), sourceHash: "0".repeat(64), sections: { safety: [], completed: 0, dueNextWeek: 0, unassigned: 0, financial: null } }));
+  return requestJson<WeeklyBriefingContract>(`/households/${householdId}/weekly-briefings/current${referenceDate ? `?referenceDate=${referenceDate}` : ""}`, { token });
+}
+
+export function createReceiptDraft(token: string, body: { childId: string; contentHash: string; fileName: string; mimeType: string; fileSizeBytes: number }) {
+  return requestJson<{ duplicate: boolean; providerMode?: "LOCAL_FIXTURE" | "EXTERNAL_BLOCKED"; draft: ReceiptDraftContract }>("/receipt-drafts", { method: "POST", token, body });
+}
+
+export function confirmReceiptDraft(token: string, draftId: string, body: { confirmed: true; idempotencyKey: string; expectedVersion: number; categoryId: string; amountKrw: number; spentOn: string; itemName: string; merchant?: string }) {
+  return requestJson<{ expenseId: string; duplicate: boolean }>(`/receipt-drafts/${draftId}/confirm`, { method: "POST", token, body });
+}
+
+export type NotificationPreferences = {
+  safetyEnabled: true;
+  familyEnabled: boolean;
+  marketingEnabled: boolean;
+  marketingOptInAt: string | null;
+  replacementEnabled: boolean;
+  recurringEnabled: boolean;
+  budgetEnabled: boolean;
+  weeklyBriefingEnabled: boolean;
+  externalChannelEnabled: boolean;
+  externalChannelAvailable: boolean;
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
+  timezone: "Asia/Seoul";
+  weeklyFrequency: "weekly" | "biweekly" | "off";
+  updatedAt?: string;
+  version: number;
+};
+
+export function getNotificationPreferences(token: string) {
+  return requestJson<NotificationPreferences>("/notification-preferences", { token });
+}
+
+export function updateNotificationPreferences(token: string, body: Partial<Omit<NotificationPreferences, "safetyEnabled" | "externalChannelAvailable" | "timezone" | "version">> & { expectedVersion: number }) {
+  return requestJson<NotificationPreferences>("/notification-preferences", { method: "PUT", token, body });
+}
+
+export type ExpensePlanLinkSuggestion = {
+  planId: string;
+  itemDefinitionId: string;
+  itemName: string;
+  reasonCodes: string[];
+  explanation: string;
+};
+
+export function getExpensePlanLinkSuggestions(token: string, expenseId: string) {
+  if (isLocalToken(token)) return local<{ expenseId: string; suggestions: ExpensePlanLinkSuggestion[] }>(() => ({ expenseId, suggestions: [] }));
+  return requestJson<{ expenseId: string; suggestions: ExpensePlanLinkSuggestion[] }>(`/expenses/${expenseId}/plan-link-suggestions`, { token });
+}
+
+export function linkExpensePlan(token: string, expenseId: string, body: { planId: string; expectedVersion: number; reasonCode: string }) {
+  return requestJson<{ expenseId: string; planId: string; linked: boolean; version: number; duplicate: boolean }>(`/expenses/${expenseId}/plan-link`, { method: "PUT", token, body });
+}
+
+export type RecurringPredictionResponse = {
+  planId: string;
+  confirmedDueDate: string | null;
+  prediction: { predictedDate: string; intervalDays: number; confidence: "low" | "medium" | "high" } | null;
+  predictionEnabled: boolean;
+  minimumPurchaseCount: number;
+  historyCount: number;
+  unavailableReason: string | null;
+};
+
+export function getRecurringPrediction(token: string, planId: string) {
+  return requestJson<RecurringPredictionResponse>(`/item-plans/${planId}/recurring-prediction`, { token });
+}
+
+export type BudgetVarianceExplanation = {
+  varianceKrw: number;
+  direction: "over" | "under" | "matched";
+  summary: string;
+  topDrivers: Array<{ name: string; actualKrw: number }>;
+  adjustments: { giftKrw: number; refundKrw: number; supportKrw: number };
+  basis: "report_v3_ledger_and_plan";
+};
+
+export function getBudgetVarianceExplanation(token: string, childId: string, period: "month" | "quarter" | "year", anchor: string) {
+  if (isLocalToken(token)) return local<{ explanation: BudgetVarianceExplanation | null; source: "report_v3" }>(() => ({ explanation: null, source: "report_v3" }));
+  return requestJson<{ explanation: BudgetVarianceExplanation | null; source: "report_v3" }>(`/reports/variance-explanation?childId=${childId}&period=${period}&anchor=${anchor}`, { token });
 }

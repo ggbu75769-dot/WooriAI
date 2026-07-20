@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "release": "4H",
+  "generatedAt": "2026-07-17T12:42:02+09:00",
+  "project": "wooriai-release4c",
+  "isolation": {
+    "otherProjectsTouched": false,
+    "volumesDeleted": false,
+    "broadDockerPrune": false
+  },
+  "topology": {
+    "postgres": 1,
+    "redis": 1,
+    "minio": 1,
+    "api": 2,
+    "worker": 2,
+    "publisher": 1
+  },
+  "scenarios": [
+    {
+      "id": "STAGING-API-RACE-01",
+      "result": "PARTIAL",
+      "evidence": "both API health and database-backed config were healthy; same-key HTTP mutation was covered by DB/API tests but not injected across both live ports"
+    },
+    {
+      "id": "STAGING-WORKER-RESTART-02",
+      "result": "PASS_WITH_ORCHESTRATION_LIMITATION",
+      "evidence": "expired lease has one DB claim winner; manual docker kill left the service exited until explicit start, after which the worker recovered"
+    },
+    {
+      "id": "STAGING-PUBLISHER-LOSS-03",
+      "result": "PARTIAL",
+      "evidence": "one fixture produced one logical outbox row, one published row and one processed delivery; post-provider pre-ack process loss was not injected"
+    },
+    {
+      "id": "STAGING-REDIS-04",
+      "result": "PASS",
+      "evidence": "after Redis restart both APIs returned source=database, version=1 and the same ETag"
+    },
+    {
+      "id": "STAGING-DB-TRANSIENT-05",
+      "result": "PASS_RECOVERY_ONLY",
+      "evidence": "after PostgreSQL restart both APIs recovered and returned database-backed config; partial transaction is covered by DB tests"
+    },
+    {
+      "id": "STAGING-MINIO-06",
+      "result": "PARTIAL",
+      "evidence": "MinIO restarted healthy and API stayed available; import false-success and orphan-object injection were not executed"
+    },
+    {
+      "id": "STAGING-REMOTE-CONFIG-07",
+      "result": "PARTIAL",
+      "evidence": "both APIs retained source=database/version=1 through Redis and DB restarts; N to N+1 convergence was not injected"
+    },
+    {
+      "id": "STAGING-SCHEDULER-08",
+      "result": "PASS_AUTOMATED_DB_RACE",
+      "evidence": "50 concurrent in-process claimers generated one logical visible effect per due key"
+    }
+  ],
+  "outboxFixture": {
+    "outboxLogicalEvents": 1,
+    "publishedRows": 1,
+    "processedDeliveries": 1,
+    "duplicates": 0,
+    "dedupeKey": "40b3f7f8-f4f2-4322-88bc-573d8ece81cb"
+  },
+  "remoteConfig": {
+    "source": "database",
+    "version": 1,
+    "apiInstancesConsistent": true
+  },
+  "shutdown": {
+    "allProjectContainers": "Exited (0)",
+    "volumesPreserved": ["wooriai-release4c_wooriai_minio_data", "wooriai-release4c_wooriai_postgres_data"]
+  },
+  "qualification": "LOCAL_STAGING_PARTIAL_NOT_EXTERNAL_STAGING"
+}

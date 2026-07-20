@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getBudget, getHome } from "./client";
+import { ApiClientError, getBudget, getHome } from "./client";
 import { LOCAL_CHILD_ID } from "./local-fixtures";
 import { useSessionStore } from "../stores/session.store";
 
@@ -168,7 +168,7 @@ describe("client.ts 401 handling and single-flight refresh", () => {
     expect(refreshTokenSeenAtRetry).toEqual(["new-refresh-token", "new-refresh-token"]);
   });
 
-  it("clears the session and propagates the original error when the refresh token itself is rejected with 401", async () => {
+  it("clears the session and exposes a typed safe error when the refresh token itself is rejected with 401", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url === `${API_BASE_URL}/home?childId=child-1`) {
         return jsonResponse(401, { message: "unauthorized" });
@@ -180,7 +180,14 @@ describe("client.ts 401 handling and single-flight refresh", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getHome("old-access-token", "child-1")).rejects.toThrow(/unauthorized/);
+    const failure = getHome("old-access-token", "child-1").catch((error) => error);
+    await expect(failure).resolves.toMatchObject({
+      name: "ApiClientError",
+      status: 401,
+      code: "HTTP_401",
+      message: "요청을 처리하지 못했어요."
+    });
+    expect(await failure).toBeInstanceOf(ApiClientError);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(useSessionStore.getState().accessToken).toBeNull();
@@ -197,6 +204,24 @@ describe("client.ts 401 handling and single-flight refresh", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     // The session's tokens are untouched -- a network error is not treated as an auth failure.
     expect(useSessionStore.getState().accessToken).toBe("old-access-token");
+  });
+
+  it("preserves safe request correlation fields from the API error envelope", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(409, {
+      error: {
+        code: "STARTER_ITEMS_STALE",
+        message: "준비물 목록이 변경됐어요.",
+        requestId: "request-123",
+        details: { invalidItemDefinitionIds: ["item-1"] }
+      }
+    })));
+
+    await expect(getHome("old-access-token", "child-1")).rejects.toMatchObject({
+      status: 409,
+      code: "STARTER_ITEMS_STALE",
+      requestId: "request-123",
+      details: { invalidItemDefinitionIds: ["item-1"] }
+    });
   });
 
   it("does not attempt a refresh for the local test-session token", async () => {

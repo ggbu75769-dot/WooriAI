@@ -27,10 +27,10 @@ export const CHILD_STAGE_CODES = [
 ] as const;
 export type ChildStageCode = (typeof CHILD_STAGE_CODES)[number];
 
-export const EXPENSE_SOURCES = ["manual", "excel_import", "purchase_followup", "admin"] as const;
+export const EXPENSE_SOURCES = ["manual", "excel_import", "purchase_followup", "receipt", "admin"] as const;
 export type ExpenseSource = (typeof EXPENSE_SOURCES)[number];
 
-export const EXPENSE_TYPES = ["expense", "gift", "refund"] as const;
+export const EXPENSE_TYPES = ["expense", "gift", "refund", "support"] as const;
 export type ExpenseType = (typeof EXPENSE_TYPES)[number];
 
 export const PAYMENT_METHODS = ["unknown", "cash", "card", "transfer", "mobile_pay"] as const;

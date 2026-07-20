@@ -1,5 +1,5 @@
 import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength } from "class-validator";
-import { CHILD_STAGE_CODES, CHILD_STAGE_MODES, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
+import { CHILD_SEX_VALUES, CHILD_STAGE_CODES, CHILD_STAGE_MODES, type ChildSex, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -9,6 +9,7 @@ export class CreateChildDto {
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(60)
   nickname!: string;
 
   @IsIn([...CHILD_STAGE_MODES])
@@ -27,9 +28,8 @@ export class CreateChildDto {
   manualStage?: ChildStageCode;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  gender?: string;
+  @IsIn([...CHILD_SEX_VALUES])
+  gender?: ChildSex;
 }
 
 export class UpdateChildDto {
@@ -40,6 +40,7 @@ export class UpdateChildDto {
   @IsOptional()
   @IsString()
   @IsNotEmpty()
+  @MaxLength(60)
   nickname?: string;
 
   @IsOptional()
@@ -55,7 +56,6 @@ export class UpdateChildDto {
   manualStage?: ChildStageCode;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  gender?: string;
+  @IsIn([...CHILD_SEX_VALUES])
+  gender?: ChildSex;
 }

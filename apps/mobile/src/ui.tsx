@@ -6,6 +6,8 @@ import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { theme } from "./theme";
+import { EmptyState as DesignEmptyState, ErrorState, LoadingState, ScreenScaffold } from "./design-system";
+import { isPixelLockBuild } from "./pixelLock/build-profile";
 
 type ChildrenProps = {
   children: React.ReactNode;
@@ -29,7 +31,15 @@ export function AppIcon({
   size?: number;
   color?: string;
 }) {
-  return <MaterialCommunityIcons color={color} name={name} size={size} />;
+  return (
+    <MaterialCommunityIcons
+      accessibilityElementsHidden
+      color={color}
+      importantForAccessibility="no"
+      name={name}
+      size={size}
+    />
+  );
 }
 
 export function IconButton({
@@ -119,6 +129,9 @@ function ensurePixelLockWebStyles() {
 }
 
 export function AppScreen({ children }: ChildrenProps) {
+  if (!isPixelLockBuild()) {
+    return <ScreenScaffold>{children}</ScreenScaffold>;
+  }
   ensurePixelLockWebStyles();
 
   return (
@@ -174,7 +187,13 @@ export function BrandLogo({ size = 56 }: { size?: number }) {
         ...theme.shadows.card
       }}
     >
-      <Text style={{ color: theme.colors.mainCoral, fontSize: Math.round(size * 0.54), fontWeight: "700" }}>⌁</Text>
+      <Image
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        resizeMode="contain"
+        source={require("../assets/illustrations/logo_mark.png")}
+        style={{ height: Math.round(size * 0.78), width: Math.round(size * 0.78) }}
+      />
     </View>
   );
 }
@@ -203,6 +222,9 @@ export function Card({ children, style }: ChildrenProps & { style?: StyleProp<Vi
 export function PrimaryButton({ label, onPress, disabled, style }: PressableProps) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -210,9 +232,11 @@ export function PrimaryButton({ label, onPress, disabled, style }: PressableProp
           alignItems: "center",
           backgroundColor: disabled ? theme.colors.gray300 : theme.colors.mainCoral,
           borderRadius: theme.radii.button,
-          height: theme.ctaHeight,
+          minHeight: theme.ctaHeight,
           justifyContent: "center",
-          opacity: pressed ? 0.86 : 1
+          opacity: pressed ? 0.86 : 1,
+          paddingHorizontal: 16,
+          paddingVertical: 10
         },
         style
       ]}
@@ -225,6 +249,9 @@ export function PrimaryButton({ label, onPress, disabled, style }: PressableProp
 export function SecondaryButton({ label, onPress, disabled, style }: PressableProps) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -249,7 +276,14 @@ export function SecondaryButton({ label, onPress, disabled, style }: PressablePr
 
 export function TextButton({ label, onPress, disabled, style }: PressableProps) {
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={[{ minHeight: theme.touchTarget, justifyContent: "center" }, style]}>
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[{ minHeight: theme.touchTarget, justifyContent: "center" }, style]}
+    >
       <Text style={{ color: disabled ? theme.colors.gray300 : theme.colors.mainCoral, fontWeight: "700" }}>{label}</Text>
     </Pressable>
   );
@@ -278,7 +312,7 @@ export function SegmentedControl({
   onChange?: (option: string) => void;
 }) {
   return (
-    <View style={{ backgroundColor: "#F5F0EA", borderRadius: theme.radii.pill, flexDirection: "row", padding: 4 }}>
+    <View style={{ backgroundColor: theme.colors.presentation.segmentedTrack, borderRadius: theme.radii.pill, flexDirection: "row", padding: 4 }}>
       {options.map((option) => (
         <Pressable
           key={option}
@@ -317,6 +351,10 @@ export function CategoryChip({
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ selected: Boolean(selected) }}
+      hitSlop={5}
       onPress={onPress}
       style={{
         alignItems: "center",
@@ -502,6 +540,9 @@ export function ProductCard({
   price,
   badge,
   image,
+  icon = "baby-face-outline",
+  iconBackgroundColor = theme.colors.coral[50],
+  iconColor = theme.colors.coral[700],
   caption,
   onPress
 }: {
@@ -509,18 +550,21 @@ export function ProductCard({
   price: string;
   badge?: string;
   image?: ImageSourcePropType;
+  icon?: AppIconName;
+  iconBackgroundColor?: string;
+  iconColor?: string;
   caption?: string;
   onPress?: () => void;
 }) {
   return (
     <Pressable onPress={onPress}>
       <Card style={{ borderRadius: 18, flexDirection: "row", gap: 10, padding: 12 }}>
-        <View style={{ backgroundColor: theme.colors.beige, borderRadius: 14, height: 64, overflow: "hidden", width: 64 }}>
+        <View style={{ backgroundColor: image ? theme.colors.beige : iconBackgroundColor, borderRadius: 14, height: 64, overflow: "hidden", width: 64 }}>
           {image ? (
             <Image source={image} style={{ height: "100%", width: "100%" }} resizeMode="cover" />
           ) : (
             <View style={{ alignItems: "center", flex: 1, justifyContent: "center" }}>
-              <AppIcon color={theme.colors.coral[600]} name="package-variant-closed" size={28} />
+              <AppIcon color={iconColor} name={icon} size={28} />
             </View>
           )}
         </View>
@@ -665,7 +709,7 @@ export function LineChartCard({
       ) : null}
       <View
         onLayout={hasRealData ? (event) => setMeasuredWidth(event.nativeEvent.layout.width) : undefined}
-        style={{ backgroundColor: "#FFF4EE", borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }}
+        style={{ backgroundColor: theme.colors.presentation.chartPlot, borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }}
       >
         {[25, 50, 75].map((top) => (
           <View key={top} style={{ backgroundColor: "rgba(255, 107, 82, 0.08)", height: 1, left: 0, position: "absolute", right: 0, top }} />
@@ -781,10 +825,20 @@ export function DonutChartCard({
   );
 }
 
-export function EmptyStateCard({ title, actionLabel, onPress }: { title: string; actionLabel: string; onPress?: () => void }) {
+export function EmptyStateCard({ title, description, actionLabel, onPress }: { title: string; description?: string; actionLabel: string; onPress?: () => void }) {
+  if (!isPixelLockBuild()) {
+    if (/불러오고|분석 중|저장하는 중/.test(title)) {
+      return <LoadingState title={title} />;
+    }
+    if (/못했|실패|오류/.test(title)) {
+      return <ErrorState actionLabel={onPress ? actionLabel : undefined} onAction={onPress} title={title} />;
+    }
+    return <DesignEmptyState actionLabel={onPress ? actionLabel : undefined} description={description} icon="inbox-outline" onAction={onPress} title={title} />;
+  }
   return (
     <Card style={{ alignItems: "center", backgroundColor: theme.colors.beige }}>
       <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700", textAlign: "center" }]}>{title}</Text>
+      {description ? <Text style={[textStyles.body2, { color: theme.colors.gray600, textAlign: "center" }]}>{description}</Text> : null}
       <SecondaryButton label={actionLabel} onPress={onPress} />
     </Card>
   );
@@ -794,7 +848,11 @@ export function Toast({ message, tone = "success" }: { message: string; tone?: "
   const isError = tone === "error";
   return (
     <View style={{ backgroundColor: theme.colors.white, borderRadius: 18, flexDirection: "row", gap: 10, padding: 14, ...theme.shadows.card }}>
-      <Text style={{ color: isError ? theme.colors.danger : theme.colors.success }}>{isError ? "⚠" : "✓"}</Text>
+      <AppIcon
+        color={isError ? theme.colors.danger : theme.colors.success}
+        name={isError ? "alert-circle-outline" : "check-circle-outline"}
+        size={20}
+      />
       <Text style={[textStyles.body2, { color: theme.colors.brown }]}>{message}</Text>
     </View>
   );

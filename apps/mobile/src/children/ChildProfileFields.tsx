@@ -97,7 +97,7 @@ export function ChildProfileFields({
             accessibilityLabel="아이 이름"
             maxLength={60}
             onChangeText={(nickname) => setDraft((value) => ({ ...value, nickname }))}
-            placeholder="예: 다온이"
+            placeholder="예: 하늘이"
             style={fieldStyle}
             value={draft.nickname}
           />

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "contract": { "dryRun": true, "confirmBeforeCleanup": true, "activeJobProtection": true, "idempotent": true, "auditEvent": true, "unrelatedObjectProtection": true },
+  "localDryRun": { "objectsScanned": 1, "jobsScanned": 1, "orphans": 0, "missingObjects": 0, "staleNonterminal": 0, "repaired": 0, "deleted": 0, "skippedActive": 0, "failed": 0, "result": "PASS" },
+  "automatedIterations": 30,
+  "failures": 0
+}

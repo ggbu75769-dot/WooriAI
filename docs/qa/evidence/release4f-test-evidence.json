@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T03:05:05+09:00",
+  "release": "4F",
+  "environment": {
+    "os": "Windows",
+    "systemNode": "v25.2.1",
+    "systemPnpm": "11.9.0",
+    "acceptanceNode": "v20.20.2",
+    "acceptancePnpm": "10.28.1",
+    "acceptanceRunner": "npx -y -p node@20.20.2 -p pnpm@10.28.1",
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d"
+  },
+  "baselineObservations": [
+    {
+      "command": "pnpm release4:contamination",
+      "result": "FAIL_EXPECTED_SOURCE_TREE_SIGNATURES",
+      "classification": "source tree contains explicit local/test adapters; this result was not hidden or weakened",
+      "authoritativeProductionCheck": "pnpm release4:contamination:export PASS"
+    },
+    {
+      "command": "pnpm 10 audit JSON",
+      "result": "HTTP_410",
+      "classification": "registry audit JSON endpoint behavior",
+      "fallback": "pnpm 11.9.0 final JSON classification; acceptance install and gate remained pnpm 10.28.1"
+    },
+    {
+      "command": "first owner-transfer 30-race fixture",
+      "result": "FAIL_HTTP_429",
+      "classification": "test fixture repeatedly used the login endpoint and correctly hit the rate limiter",
+      "fix": "create isolated users directly in the test database; production limiter unchanged",
+      "finalResult": "PASS_30_OF_30"
+    }
+  ],
+  "verification": [
+    {
+      "command": "npx -y -p node@20.20.2 -p pnpm@10.28.1 -- pnpm release:gate",
+      "result": "PASS",
+      "details": "11 of 11 stages",
+      "evidence": "docs/qa/evidence/latest-release-gate.json"
+    },
+    {
+      "command": "pnpm test --concurrency=1 --force",
+      "result": "PASS",
+      "details": "715 assertions: API 261, mobile 323, domain 41, admin 33, contracts 39, config 3, test-utils 15"
+    },
+    {
+      "command": "pnpm --filter api test",
+      "result": "PASS",
+      "details": "55 files, 261 tests"
+    },
+    {
+      "command": "pnpm --filter api test:e2e",
+      "result": "PASS",
+      "details": "20 files, 109 tests"
+    },
+    {
+      "command": "pnpm --filter mobile test",
+      "result": "PASS",
+      "details": "55 files, 323 tests"
+    },
+    {
+      "command": "pnpm --filter admin test",
+      "result": "PASS",
+      "details": "7 files, 33 tests"
+    },
+    {
+      "command": "pnpm typecheck",
+      "result": "PASS",
+      "details": "8 of 8 workspace tasks"
+    },
+    {
+      "command": "pnpm build --force",
+      "result": "PASS",
+      "details": "API, Admin and Android Expo export"
+    },
+    {
+      "command": "pnpm release4:verify-db",
+      "result": "PASS",
+      "details": "fresh and representative upgrade through 31 migrations, head 000031_release4c_preparation_context",
+      "evidence": "docs/qa/evidence/release4-database-verification.json"
+    },
+    {
+      "command": "pnpm security:secrets",
+      "result": "PASS",
+      "details": "high-confidence secret rules"
+    },
+    {
+      "command": "pnpm audit --prod --audit-level high",
+      "result": "PASS",
+      "details": "5 moderate, 0 high, 0 critical",
+      "evidence": "docs/qa/evidence/release4f-dependency-risk.json"
+    },
+    {
+      "command": "pnpm release4:contamination:export",
+      "result": "PASS",
+      "details": "production-profile Hermes bundle had zero forbidden findings",
+      "evidence": "docs/qa/evidence/release4-production-export-contamination.json"
+    },
+    {
+      "command": "SQLite migration failure boundaries",
+      "result": "PASS",
+      "details": "5 of 5 rollback and rerun, 30 reopen integrity checks",
+      "evidence": "docs/qa/evidence/release4f-sqlite-upgrade-evidence.json"
+    },
+    {
+      "command": "offline volume and repetition",
+      "result": "PASS",
+      "details": "500 pending rows, 50 response-lost cycles, 50 account switches",
+      "evidence": "docs/qa/evidence/release4f-offline-state-machine.json"
+    },
+    {
+      "command": "Report aggregate and source equivalence",
+      "result": "PASS",
+      "details": "2000-row fixture and 30 deterministic equivalence repetitions",
+      "evidence": "docs/qa/evidence/release4f-report-traceability.json"
+    },
+    {
+      "command": "notification volume and repetition",
+      "result": "PASS",
+      "details": "1000 equal-createdAt rows without pagination gaps or duplicates; 30 duplicate-read runs"
+    },
+    {
+      "command": "owner transfer CAS",
+      "result": "PASS",
+      "details": "30 of 30 one-result races"
+    },
+    {
+      "command": "catalog publish CAS",
+      "result": "PASS",
+      "details": "30 of 30 one-winner races"
+    },
+    {
+      "command": "lifecycle boundary and parity",
+      "result": "PASS",
+      "details": "30 deterministic repetitions"
+    },
+    {
+      "command": "Admin headless browser",
+      "result": "NOT_RUN_NO_RUNTIME",
+      "details": "repository runner and in-app browser control runtime unavailable; no framework or binary was added",
+      "evidence": "docs/qa/evidence/release4f-admin-browser-evidence.json"
+    },
+    {
+      "command": "adb devices -l",
+      "result": "NOT_RUN_NO_DEVICE",
+      "details": "ADB found, no authorized device, zero emulator starts and zero installs"
+    }
+  ]
+}

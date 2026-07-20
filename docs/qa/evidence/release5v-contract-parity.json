@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "PASS",
+  "actor": "API/mobile/local clients",
+  "input": "shared enums and serialized input",
+  "mission": "fail closed on unknown values",
+  "command": "pnpm release5v:contract-parity",
+  "values": {
+    "paths": [
+      "pregnant",
+      "born",
+      "manual"
+    ],
+    "sex": [
+      "male",
+      "female",
+      "unknown"
+    ],
+    "prepared": [
+      "not_started",
+      "selected",
+      "skipped",
+      "completed_none"
+    ]
+  },
+  "dateOnly": "YYYY-MM-DD",
+  "month": "YYYY-MM"
+}

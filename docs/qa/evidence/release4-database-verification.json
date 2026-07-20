@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-07-18T01:31:54.840Z",
+  "finishedAt": "2026-07-18T01:33:52.535Z",
+  "fresh": {
+    "migrationCount": 40,
+    "migrationHead": "000040_release5v_child_sex_contract",
+    "topLevelCategories": 24,
+    "level2Categories": 120,
+    "level3Categories": 360,
+    "canonicalItems": 408,
+    "aliases": 3278,
+    "highRiskItems": 84,
+    "publishedItems": 0,
+    "reviewRequiredItems": 408,
+    "orphanPrimaryItems": 0,
+    "expenseCategories": 14,
+    "scenarioCodes": 25
+  },
+  "upgrade": {
+    "migrationCount": 40,
+    "migrationHead": "000040_release5v_child_sex_contract",
+    "topLevelCategories": 24,
+    "level2Categories": 120,
+    "level3Categories": 360,
+    "canonicalItems": 409,
+    "aliases": 3279,
+    "highRiskItems": 84,
+    "publishedItems": 0,
+    "reviewRequiredItems": 409,
+    "orphanPrimaryItems": 0,
+    "expenseCategories": 14,
+    "scenarioCodes": 25,
+    "legacyExpensePreserved": true,
+    "legacyExpenseMapped": true,
+    "legacyItemPreserved": true,
+    "legacyPlanBackfilled": true
+  },
+  "result": "PASS"
+}

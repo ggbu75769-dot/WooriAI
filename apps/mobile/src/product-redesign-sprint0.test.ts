@@ -17,13 +17,13 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(login).not.toContain("markHomeReached");
   });
 
-  it("uses vector tab icons and preserves the locked four-tab information architecture", () => {
+  it("uses vector icons for the five MOD_V1 tabs", () => {
     const layout = source("app/(tabs)/_layout.tsx");
 
-    for (const label of ["홈", "기록", "준비템", "리포트"]) {
+    for (const label of ["홈", "기록", "준비템", "리포트", "프로필"]) {
       expect(layout).toContain(label);
     }
-    for (const icon of ["home", "notebook", "package-variant", "chart-bar"]) {
+    for (const icon of ["home", "notebook", "basket", "chart-box", "account-circle"]) {
       expect(layout).toContain(icon);
     }
     expect(layout).toContain("AppIcon");
@@ -34,11 +34,13 @@ describe("product redesign Sprint 0 source contract", () => {
 
     expect(home).toContain("isPixelLockMode ? previewHome : null");
     expect(home).toContain("SampleDataBanner");
-    expect(home).toContain("frequentItems");
+    expect(home).toContain("quickActions");
+    expect(home).toContain("BudgetSummary");
     expect(home).not.toContain("QuickActionIconButton");
     expect(home).not.toContain("FloatingActionButton");
     expect(home).not.toContain("다온이");
-    expect(home).toContain('accessibilityLabel="아이 전환"');
+    expect(home).toContain("<ChildSwitcher");
+    expect(source("src/design-system/components/CorePrimitives.tsx")).toContain(". 아이 전환");
     expect(home).toContain('router.push("/children" as Href)');
   });
 
@@ -56,7 +58,7 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(categories).toContain("보험·저축");
     expect(categories).not.toContain("약품/교통");
     expect(expense).toContain("빠른 품목");
-    expect(expense).toContain("!itemName.trim()");
+    expect(expense).toContain("validateExpenseForm({ itemName, amountText, spentOn: expenseDate.iso })");
   });
 
   it("makes preparation status primary and removes unsupported commerce claims", () => {

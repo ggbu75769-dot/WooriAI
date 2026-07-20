@@ -1,12 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { router, type Href } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
-import { resetLocalBackend } from "../../src/api/local-backend";
+import { resetLocalBackend } from "../../src/api/fixture-runtime";
+import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
+import { AppIcon, AppScreen, Card, ListRow, SampleDataBanner, ScreenHeader } from "../../src/design-system";
 import { theme } from "../../src/theme";
-import { AppIcon, AppScreen, Card, ListRow, SampleDataBanner, ScreenHeader } from "../../src/ui";
 
 export default function SettingsScreen() {
   const householdId = useSessionStore((state) => state.defaultHouseholdId);
@@ -53,6 +54,38 @@ export default function SettingsScreen() {
       </View>
 
       <View testID="screen-SET-002" accessibilityLabel="screen-SET-002" style={{ gap: theme.spacing.gap }}>
+        {!isPixelLockBuild() ? <>
+          <ListRow
+            icon={<AppIcon color={theme.colors.coral[600]} name="calendar-month-outline" size={22} />}
+            title="준비 캘린더"
+            subtitle="예정일, 교체일, 반복구매일을 확인해요"
+            onPress={() => router.push("/preparation-calendar" as Href)}
+          />
+          <ListRow
+            icon={<AppIcon color={theme.colors.coral[600]} name="package-variant" size={22} />}
+            title="사용자 정의 묶음"
+            subtitle="반복되는 준비를 묶어서 저장해요"
+            onPress={() => router.push("/custom-bundles" as Href)}
+          />
+          <ListRow
+            icon={<AppIcon color={theme.colors.coral[600]} name="calendar-week" size={22} />}
+            title="가족 주간 브리핑"
+            subtitle="한 주의 준비와 비용을 짧게 확인해요"
+            onPress={() => router.push("/weekly-briefing" as Href)}
+          />
+          <ListRow
+            icon={<AppIcon color={theme.colors.coral[600]} name="receipt" size={22} />}
+            title="영수증 빠른 입력"
+            subtitle="영수증을 선택하고 확인 후 지출로 저장해요"
+            onPress={() => router.push("/receipts/new" as Href)}
+          />
+          <ListRow
+            icon={<AppIcon color={theme.colors.coral[600]} name="bell-outline" size={22} />}
+            title="알림 설정"
+            subtitle="유형별 알림과 주간 브리핑을 조정해요"
+            onPress={() => router.push("/notification-preferences" as Href)}
+          />
+        </> : null}
         <ListRow
           icon={<AppIcon color={theme.colors.coral[600]} name="account-child-outline" size={22} />}
           title="아이 · 가구 프로필"

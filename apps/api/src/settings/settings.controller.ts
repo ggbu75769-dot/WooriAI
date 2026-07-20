@@ -87,7 +87,7 @@ export class SettingsController {
       flowId: "account_delete",
       requiresSecondStep: true,
       confirmationText: "DELETE ACCOUNT",
-      impact: ["account access stops", "active household memberships are left"]
+      impact: ["요청 후 7일 동안 계정과 데이터가 유지됩니다", "유예 기간 안에는 언제든 삭제 요청을 취소할 수 있습니다", "7일이 지나면 로그인 접근이 중단되고 데이터 삭제가 시작됩니다"]
     };
   }
 
@@ -98,7 +98,7 @@ export class SettingsController {
     @Body(createDtoValidationPipe(SettingsConfirmationDto)) body: SettingsConfirmationDto
   ) {
     assertConfirmation(body.confirmationText, "DELETE ACCOUNT");
-    await this.privacyService.requestDeletion(request.user!);
-    return { success: true, flowId: "account_delete" };
+    const deletion = await this.privacyService.requestDeletion(request.user!);
+    return { success: true, flowId: "account_delete", deletion };
   }
 }

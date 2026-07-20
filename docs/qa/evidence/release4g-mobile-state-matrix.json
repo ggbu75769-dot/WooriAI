@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "release": "4G",
+  "generatedAt": "2026-07-17T08:07:00+09:00",
+  "inventory": {
+    "source": "docs/qa/evidence/release4-ui-route-inventory.json",
+    "productionRoutes": 38,
+    "harnessOnlyRoutes": 2,
+    "blockingRoutes": 19,
+    "formerReportedRouteCount": 37,
+    "differenceReason": "apps/mobile/app/reports/sources.tsx is a production route added after the former inventory"
+  },
+  "scenarioMatrix": {
+    "source": "apps/mobile/e2e/release4c-route-scenarios.json",
+    "scenariosPerRoute": 9,
+    "classifiedCells": 342,
+    "codePresentRuntimeVerificationRequired": 126,
+    "runtimeVerificationRequired": 47,
+    "notApplicable": 169,
+    "runtimePassed": 0
+  },
+  "sourceContracts": {
+    "designSystemRoutes": 38,
+    "screenScaffoldRoutes": 38,
+    "rawColorLiterals": 0,
+    "unicodeIconLiterals": 0,
+    "coreTouchTargetMinimum": true,
+    "staticPossibleSub48Candidates": 37
+  },
+  "viewportFontContract": {
+    "pairs": [
+      {"widthDp": 320, "fontScale": 1},
+      {"widthDp": 320, "fontScale": 1.5},
+      {"widthDp": 360, "fontScale": 1.3},
+      {"widthDp": 412, "fontScale": 1.5},
+      {"widthDp": 600, "fontScale": 1.5},
+      {"widthDp": 840, "fontScale": 1.3}
+    ],
+    "componentTests": 6,
+    "passed": 6,
+    "claim": "component-tree and style contract only"
+  },
+  "accessibilityContract": {
+    "sharedControlRenderTests": 2,
+    "passed": 2,
+    "buttonRoleLabelState": true,
+    "longPrimaryTextCanGrow": true,
+    "categoryChipHitAreaAtLeast48Dp": true,
+    "actualTalkBackQualified": false,
+    "actualLayoutClippingQualified": false
+  },
+  "result": "PASS_CONTRACT_QUALIFICATION_RUNTIME_PENDING"
+}

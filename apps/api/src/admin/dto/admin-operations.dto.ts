@@ -28,3 +28,8 @@ export class AdminIdDto {
   @IsUUID()
   adminId!: string;
 }
+
+export class NotificationReconcileDto {
+  @IsIn(["sending", "unknown"])
+  expectedState!: "sending" | "unknown";
+}

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/design-system-063d125c-ebe1-4422-ba81-a1b0d9cfcd33/tokens/fonts.css">
+<style>body{margin:0;font-family:"Pretendard Variable",Pretendard,system-ui,sans-serif}a{color:#C94627}a:hover{color:#A93A20}</style>
+</helmet>
+<x-import component-from-global-scope="doc-page" from="./doc-page.js" size="a4" margin="16mm" hint-size="100%,1200px">
+  <div style="display:flex;flex-direction:column;gap:6px;border-bottom:3px solid #C94627;padding-bottom:16px">
+    <span style="font:600 11px/1 inherit;color:#C94627;letter-spacing:0.08em">우리아이 · WOORIAI</span>
+    <h1 style="margin:0;font:800 28px/1.25 inherit;letter-spacing:-0.02em;color:#211E1C">기능정의서 — 앱 리디자인 v2.0</h1>
+    <span style="font:400 12px/1.6 inherit;color:#6E6659">2026.07.19 · 함께 보기: <a href="화면정의서.dc.html">화면정의서</a> · <a href="와이어프레임.dc.html">와이어프레임</a> · <a href="우리아이 앱 리디자인.dc.html">인터랙티브 프로토타입</a></span>
+  </div>
+
+  <h2 style="font:800 17px/1.3 inherit;color:#211E1C;margin:24px 0 8px">1. 개요</h2>
+  <p style="margin:0;font:400 12.5px/1.7 inherit;color:#3E3A35">우리아이는 임신 준비부터 학령기까지 준비 품목·구매·보유 현황·가족 지출을 한 흐름으로 관리하는 가족 생활 운영 앱이에요. 본 리디자인의 범위는 <b>하단 5탭 구조 전환</b>과 <b>프로필 모듈 신설(F-PF)</b>, 그리고 기존 4개 탭의 정비예요. 우선순위: <b>P0</b> 출시 필수 · <b>P1</b> 후속 릴리스.</p>
+
+  <h2 style="font:800 17px/1.3 inherit;color:#211E1C;margin:24px 0 8px">2. 공통 · 셸 (F-COM)</h2>
+  <table style="width:100%;border-collapse:collapse;font:400 11.5px/1.6 inherit;color:#3E3A35">
+    <thead><tr>
+      <th style="text-align:left;padding:7px 10px;background:#211E1C;color:#fff;font:700 11px/1.4 inherit;width:86px">ID</th>
+      <th style="text-align:left;padding:7px 10px;background:#211E1C;color:#fff;font:700 11px/1.4 inherit;width:118px">기능명</th>
+      <th style="text-align:left;padding:7px 10px;background:#211E1C;color:#fff;font:700 11px/1.4 inherit">설명 · 정책</th>
+      <th style="text-align:left;padding:7px 10px;background:#211E1C;color:#fff;font:700 11px/1.4 inherit;width:44px">우선</th>
+      <th style="text-align:left;padding:7px 10px;background:#211E1C;color:#fff;font:700 11px/1.4 inherit;width:86px">연관 화면</th>
+    </tr></thead>
+    <tbody>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-COM-01</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">하단 내비 5탭</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">홈·기록·준비템·리포트·<b style="color:#C94627">프로필</b>. 프로필은 가장 오른쪽 고정. 탭 상태 유지(각 탭의 스크롤·서브 화면 보존), 재탭 시 루트로 복귀.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">전체</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-COM-02</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">아이 컨텍스트</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">모든 데이터(기록·준비템·리포트)는 선택된 아이 기준. 홈 스위처·프로필에서 전환. 전환은 즉시 반영.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">HOME · PF</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-COM-03</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">동기화 · 오프라인</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">쓰기 작업은 로컬 큐 후 동기화. SyncStatusBar로 상태 표시(synced/syncing/offline). 실패 시 입력 보존 + 재시도 안내.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">전체</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-COM-04</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">접근성</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">터치 48dp 이상, 색+라벨 병기, 차트에 동일 데이터 테이블 제공, reduce-motion 시 크로스페이드만.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">전체</td></tr>
+    </tbody>
+  </table>
+
+  <h2 style="font:800 17px/1.3 inherit;color:#211E1C;margin:24px 0 8px">3. 인증 · 온보딩 (F-AUTH · F-ONB)</h2>
+  <table style="width:100%;border-collapse:collapse;font:400 11.5px/1.6 inherit;color:#3E3A35">
+    <tbody>
+      <tr><td style="width:86px;padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-AUTH-01</td><td style="width:118px;padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">소셜 로그인</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">카카오·Apple. 필수 약관 미동의 시 CTA 비활성(동의 게이트).</td><td style="width:44px;padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="width:86px;padding:6px 10px;border-bottom:1px solid #E8E2DA">AUTH-01</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-ONB-01</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">온보딩 3단계</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">아이 정보(임신/육아 분기) → 준비 현황 12품목 그리드 → 월 예산(기본 500,000원, 실값 저장). 중도 이탈 시 마지막 단계 복원.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">ONB-01~03</td></tr>
+    </tbody>
+  </table>
+
+  <h2 style="font:800 17px/1.3 inherit;color:#211E1C;margin:24px 0 8px">4. 홈 · 기록 · 준비템 · 리포트 (F-HOME · F-REC · F-ITEM · F-REP)</h2>
+  <table style="width:100%;border-collapse:collapse;font:400 11.5px/1.6 inherit;color:#3E3A35">
+    <tbody>
+      <tr><td style="width:86px;padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-HOME-01</td><td style="width:118px;padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">이번 달 요약</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">사용액/예산/진행률 히어로. 예산 초과 시 danger 표시 + 경고 문구.</td><td style="width:44px;padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="width:86px;padding:6px 10px;border-bottom:1px solid #E8E2DA">HOME-01</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-HOME-02</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">준비 넛지</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">아이 단계 기준 "지금 준비할 것 n개" 카드. 0개면 미노출(가짜 넛지 금지).</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">HOME-01</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-REC-01</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">지출 기록 CRUD</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">품목·금액·카테고리·귀속(아이/엄마/가족)·메모. 바텀시트로 10초 내 추가. 수정·삭제는 행 탭.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">REC-01·02</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-REC-02</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">검색 · 필터</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">품목·메모 텍스트 검색 + 카테고리 칩. 결과 없음 상태 별도 정의.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">REC-01</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-ITEM-01</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">준비 체크리스트</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">단계별 맞춤 목록(맞춤/전체/내 준비함). 상태 8종: 알아보기→예정→주문→보유→대여→선물→교체→종료.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">ITEM-01·02</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-ITEM-02</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">누락 신고</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">찾는 품목이 없을 때 신고 접수. 접수 확인 스낵바.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P1</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">ITEM-01</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-REP-01</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">기간별 분석</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">월/분기/연간 카테고리 합계 + 예산 대비. 기록 3건 미만은 차트 미표시, 추이는 2개월 이상부터(데이터 성숙도 게이팅).</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">REP-01</td></tr>
+    </tbody>
+  </table>
+
+  <h2 style="font:800 17px/1.3 inherit;color:#C94627;margin:26px 0 8px;break-before:page">5. 프로필 모듈 — 신규 (F-PF)</h2>
+  <table style="width:100%;border-collapse:collapse;font:400 11.5px/1.6 inherit;color:#3E3A35">
+    <thead><tr>
+      <th style="text-align:left;padding:7px 10px;background:#C94627;color:#fff;font:700 11px/1.4 inherit;width:86px">ID</th>
+      <th style="text-align:left;padding:7px 10px;background:#C94627;color:#fff;font:700 11px/1.4 inherit;width:118px">기능명</th>
+      <th style="text-align:left;padding:7px 10px;background:#C94627;color:#fff;font:700 11px/1.4 inherit">설명 · 정책</th>
+      <th style="text-align:left;padding:7px 10px;background:#C94627;color:#fff;font:700 11px/1.4 inherit;width:44px">우선</th>
+      <th style="text-align:left;padding:7px 10px;background:#C94627;color:#fff;font:700 11px/1.4 inherit;width:86px">연관 화면</th>
+    </tr></thead>
+    <tbody>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-PF-01</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">프로필 허브</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">가족 요약 카드 + 4개 섹션(아이·산모/가족/예산·데이터/설정). 흩어져 있던 설정 진입점을 이곳으로 일원화.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">PF-01</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-PF-02</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">아이 프로필 관리</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">이름(태명)·예정일/생일 수정, 단계 자동 계산(임신→신생아→영유아→…→학령기). 예정일 변경 시 맞춤 준비템·알림 재계산.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">PF-02</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-PF-03</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">멀티 자녀</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">아이 추가(제한 5명)·전환·보관. 데이터는 아이별 분리, 리포트 합산 보기는 P1.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P1</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">PF-01·02</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-PF-04</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">산모 프로필</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">임신 단계에서만 노출. 회복·케어 준비 안내와 산모 케어 카테고리 연결.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P1</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">PF-01</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-PF-05</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">가족 초대</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">초대 링크 생성·복사(24시간 유효, 재생성 가능). 수락 시 가족 구성원으로 합류, 기본 권한 "기록 가능".</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">PF-03</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-PF-06</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">권한 관리</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">관리자/기록 가능/보기 전용 3단계. 변경·내보내기는 관리자만, 관리자는 최소 1명 유지. 보기 전용은 예산·가족 관리 진입 불가.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">PF-03</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-PF-07</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">월 예산 설정</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">금액 수정(0원 불가). 당월부터 적용, 과거 월 리포트는 당시 예산 유지. 홈·리포트 즉시 반영.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">PF-04</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-PF-08</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">알림 설정</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">준비 시기·예산 초과·가족 활동·소식/혜택 4종 토글, 즉시 저장. 마케팅은 기본 꺼짐(옵트인) + 동의 일시 기록.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">PF-05</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-PF-09</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">데이터 가져오기 · 내보내기</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">지출 내역 엑셀(xlsx) 내보내기·가져오기. 가져오기는 미리보기 → 확인 2단계, 실패 행 리포트 제공.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P1</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">PF-01</td></tr>
+      <tr><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font:700 10.5px/1.5 ui-monospace,monospace">F-PF-10</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">계정</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">로그아웃(확인 다이얼로그), 약관·개인정보 처리방침(웹뷰), 앱 정보. 회원 탈퇴는 유예 7일 + 데이터 삭제 안내.</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA;font-weight:700">P0</td><td style="padding:6px 10px;border-bottom:1px solid #E8E2DA">PF-01</td></tr>
+    </tbody>
+  </table>
+
+  <h2 style="font:800 17px/1.3 inherit;color:#211E1C;margin:24px 0 8px">6. 수용 기준 (프로필 모듈 발췌)</h2>
+  <ul style="margin:0;padding-left:18px;font:400 12px/1.75 inherit;color:#3E3A35">
+    <li>하단 탭이 5개이고 프로필이 가장 오른쪽에 위치하며, 어느 탭에서든 1탭으로 프로필 허브에 도달한다.</li>
+    <li>PF-04에서 예산을 저장하면 홈 히어로와 리포트 요약이 재진입 없이 즉시 갱신된다.</li>
+    <li>초대 링크는 발급 24시간 후 만료되고, 만료 링크 접근 시 재요청 안내가 노출된다.</li>
+    <li>마지막 관리자는 강등·내보내기가 불가하며 사유 문구가 노출된다.</li>
+    <li>알림 토글은 네트워크 실패 시 이전 상태로 롤백되고 입력 보존 문구가 노출된다.</li>
+    <li>모든 신규 화면의 터치 타깃이 48dp 이상이고, 상태가 색+라벨로 병기된다.</li>
+  </ul>
+</x-import>
+</x-dc>
+</body>
+</html>

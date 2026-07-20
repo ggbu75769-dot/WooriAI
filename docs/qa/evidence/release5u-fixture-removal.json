@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "status": "PASS",
+  "actor": "no-child and real Daon users",
+  "input": "legacy exact fingerprint and production Hermes",
+  "mission": "remove fixture only",
+  "discovered": [
+    "local backend legacy migration",
+    "selected-child persisted cache",
+    "test/pixel evidence metadata"
+  ],
+  "runtimeFix": [
+    "no default child",
+    "protected child request guard",
+    "exact local backend fingerprint",
+    "production local-ID cache purge"
+  ],
+  "realUserPreservation": "30x real-user-created 다온 preservation",
+  "contaminationEvidence": "release4-production-export-contamination.json"
+}

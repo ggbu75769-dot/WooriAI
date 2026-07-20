@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = process.cwd();
@@ -76,13 +76,13 @@ function ensurePixelGradleConfig() {
     );
   }
   if (!/^\s*root\s*=/m.test(next)) {
-    next = next.replace(/^react\s*\{\s*$/m, "react {\n    root = file(workspaceRoot)");
+    next = next.replace(/^react\s*\{\s*$/m, "react {\n    root = file(projectRoot)");
   } else {
-    next = next.replace(/^\s*root\s*=.*$/m, "    root = file(workspaceRoot)");
+    next = next.replace(/^\s*root\s*=.*$/m, "    root = file(projectRoot)");
   }
   next = next.replace(
     /^\s*entryFile\s*=.*$/m,
-    '    entryFile = file("${workspaceRoot}/apps/mobile/index.js")'
+    '    entryFile = file("${projectRoot}/index.js")'
   );
   if (!/^\s*extraPackagerArgs\s*=/m.test(next)) {
     next = next.replace(
@@ -94,13 +94,15 @@ function ensurePixelGradleConfig() {
 }
 
 function main() {
+  const resumeAfterTimeout = process.argv.includes("--resume-after-timeout");
   const sourceCommit = gitOutput(["rev-parse", "HEAD"]);
   const dirty = gitOutput(["status", "--porcelain"]).length > 0;
   const env = {
     ...process.env,
+    NODE_PATH: [join(mobileRoot, "node_modules"), process.env.NODE_PATH].filter(Boolean).join(delimiter),
     EXPO_PUBLIC_PIXEL_LOCK: "1",
     WOORIAI_ALLOW_DEBUG_RELEASE_SIGNING: "1",
-    EXPO_ROUTER_APP_ROOT: "apps/mobile/app",
+    EXPO_ROUTER_APP_ROOT: "app",
     NODE_ENV: "production",
     JAVA_HOME: findJavaHome(),
     ANDROID_HOME: findAndroidSdk(),
@@ -114,8 +116,15 @@ function main() {
   }
   if (!existsSync(gradlew)) throw new Error(`GRADLEW_NOT_FOUND_AFTER_PREBUILD ${gradlew}`);
   ensurePixelGradleConfig();
-  const args = ["assembleRelease", "-PreactNativeArchitectures=x86_64"];
-  if (process.env.PIXEL_ANDROID_RERUN_TASKS === "1") args.push("--rerun-tasks");
+  // The standalone and Pixel Lock profiles share Gradle's release task outputs but embed
+  // different EXPO_PUBLIC_PIXEL_LOCK values. Gradle does not model that environment variable as
+  // an input, so an up-to-date assembleRelease can silently reuse the standalone JS bundle and
+  // produce a Pixel APK that actually boots the production routes. The normal path always
+  // rebuilds task outputs. Resume is allowed only after that path timed out in the same workspace;
+  // the installed sentinel validation remains the final proof that the Pixel bundle was embedded.
+  const args = resumeAfterTimeout
+    ? ["assembleRelease", "-PreactNativeArchitectures=x86_64"]
+    : ["assembleRelease", "-PreactNativeArchitectures=x86_64", "--rerun-tasks"];
   run(gradlew, args, androidDir, env);
   if (!existsSync(apkPath)) throw new Error(`PIXEL_APK_MISSING ${apkPath}`);
   const appConfig = JSON.parse(readFileSync(appJsonPath, "utf8"));
@@ -128,7 +137,8 @@ function main() {
     apkSha256,
     packageName: appConfig.expo.android.package,
     appVersion: appConfig.expo.version,
-    env: { EXPO_PUBLIC_PIXEL_LOCK: "1", EXPO_ROUTER_APP_ROOT: "apps/mobile/app" },
+    env: { EXPO_PUBLIC_PIXEL_LOCK: "1", EXPO_ROUTER_APP_ROOT: "app" },
+    resumeAfterTimeout,
     task: args.join(" "),
     apkPath
   };

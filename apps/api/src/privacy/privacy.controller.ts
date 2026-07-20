@@ -22,6 +22,19 @@ export class PrivacyController {
     return await this.privacy.requestDeletion(request.user!);
   }
 
+  @Get("account-deletion/current")
+  @UseGuards(JwtAuthGuard)
+  async currentAccountDeletion(@Req() request: AuthenticatedRequest) {
+    return { deletion: await this.privacy.currentDeletion(request.user!) };
+  }
+
+  @Post("account-deletion/:requestId/cancel")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async cancelAccountDeletion(@Req() request: AuthenticatedRequest, @Param("requestId") requestId: string) {
+    return await this.privacy.cancelDeletion(request.user!, requestId);
+  }
+
   @Post("data-export")
   @HttpCode(202)
   @UseGuards(JwtAuthGuard)

@@ -1,12 +1,11 @@
 import { useEffect } from "react";
 import { Redirect, router } from "expo-router";
 import { Text, View } from "react-native";
-import { upsertConsents } from "../../src/api/client";
-import { routeForOnboardingNextStep } from "../../src/onboarding/resume";
+import { routeForDraftCurrentStep, routeForOnboardingNextStep } from "../../src/onboarding/resume";
+import { clearOnboardingDraft, useOnboardingDraftStore } from "../../src/stores/onboarding-draft.store";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useOnboardingResumeStore } from "../../src/stores/onboarding-resume.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
-import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
 import { theme } from "../../src/theme";
 
@@ -20,11 +19,11 @@ const nextStepLabels: Record<string, string> = {
 };
 
 export default function OnboardingResumeScreen() {
-  const accessToken = useSessionStore((state) => state.accessToken);
   const progress = useOnboardingResumeStore((state) => state.progress);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
   const completeStep = useOnboardingProgressStore((state) => state.completeStep);
   const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
+  const draft = useOnboardingDraftStore((state) => state.draft);
 
   // If this screen is reached without a freshly fetched progress (e.g. a deep link, or a
   // reloaded JS bundle that cleared the in-memory resume store), fall back to "/" so index.tsx
@@ -47,22 +46,19 @@ export default function OnboardingResumeScreen() {
     if (summary.child) {
       setSelectedChildId(summary.child.id);
       completeStep("ONB-001");
-      completeStep("ONB-002");
     }
     if (summary.preparedItemsCount !== null) {
+      completeStep("ONB-002");
+    }
+    if (summary.budget) {
       completeStep("ONB-003");
     }
-    if (nextStep === "consents" && accessToken) {
-      // Defensive resubmission: consents are stored as an idempotent upsert server-side, so
-      // resending them here is always safe -- this only matters if a previous login's
-      // upsertConsents call was lost to a network error after oauth-login already succeeded.
-      void upsertConsents(accessToken).catch(() => undefined);
-    }
-    router.replace(routeForOnboardingNextStep(nextStep));
+    router.replace(draft ? routeForDraftCurrentStep(draft.currentStep) : routeForOnboardingNextStep(nextStep));
   }
 
   function restartFromScratch() {
     resetOnboarding();
+    void clearOnboardingDraft();
     router.replace("/onboarding/child-status");
   }
 

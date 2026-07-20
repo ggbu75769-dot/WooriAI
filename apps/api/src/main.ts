@@ -3,6 +3,7 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { configureApiApp } from "./bootstrap";
 import { assertRequiredSecretsConfigured } from "./common/config/require-secret";
+import { ServiceHeartbeatService } from "./common/operations/service-heartbeat.service";
 
 export async function bootstrap() {
   assertRequiredSecretsConfigured();
@@ -11,6 +12,9 @@ export async function bootstrap() {
   app.enableShutdownHooks();
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port);
+  if (process.env.NODE_ENV !== "test" || process.env.SERVICE_HEARTBEAT_ENABLED === "1") {
+    await app.get(ServiceHeartbeatService).start("api");
+  }
   return app;
 }
 

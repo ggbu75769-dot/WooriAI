@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href } from "expo-router";
 import { Alert, Linking, View } from "react-native";
-import { resetLocalBackend } from "../src/api/local-backend";
+import { resetLocalBackend } from "../src/api/fixture-runtime";
 import { useOnboardingProgressStore } from "../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
@@ -66,6 +66,18 @@ export default function ProfileScreen() {
             title="아이 프로필"
             subtitle="아이 추가, 전환, 수정"
             onPress={() => router.push("/children" as Href)}
+          />
+          <ListRow
+            icon={<AppIcon color={theme.colors.coral[600]} name="account-group-outline" size={22} />}
+            title="가족"
+            subtitle="멤버, 역할, 초대와 소유자 이전"
+            onPress={() => router.push("/family" as Href)}
+          />
+          <ListRow
+            icon={<AppIcon color={theme.colors.coral[600]} name="bell-outline" size={22} />}
+            title="알림 설정"
+            subtitle="준비와 가족 알림을 관리해요"
+            onPress={() => router.push("/notification-preferences" as Href)}
           />
           <ListRow
             icon={<AppIcon color={theme.colors.coral[600]} name="shield-lock-outline" size={22} />}

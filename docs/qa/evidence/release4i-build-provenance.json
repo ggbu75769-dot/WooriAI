@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "source": { "branch": "codex/sprint2-catalog-payments", "head": "db7a7a455afec892b8fa1205e477dbe507a5931d", "workingTreeDirty": true, "sourceSnapshotSha256": "462C7B6BC32FA84433B40AA5503E40EB5988D46565AA11088D6AEC6B52FCC579", "sourceFileCount": 313, "lockfileSha256": "D1F04462275EEA5BAE9E118CA98F0A74EBCD27C15A273FB086446D64A54A350D" },
+  "build": { "command": "npx -y pnpm@10.28.1 android:build-apk -- --profile standalone", "exitCode": 0, "buildCount": 1, "profile": "standalone", "variant": "release", "authProfile": "standalone-test-login", "signingProfile": "debug-internal-only", "timestamp": "2026-07-17T08:26:47.048Z" },
+  "artifact": { "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk", "classification": "internal-test-artifact", "productionOrStoreArtifact": false, "sizeBytes": 77625755, "sha256": "E194822DF770D820F8272A549D73BFC1880DC7BB2E425B0FC5DA4395B2177303", "hermesSha256": "E7DC363C58AB44B72C2B26BB6DDB945BDDDEA7FFDFC19D89AA382DFE3358B849", "certificateSha256": "FAC61745DC0903786FB9EDE62A962B399F7348F0BB6F899B8332667591033B9C", "artifactMatchesFinalSource": true },
+  "productionExport": { "contaminationFindings": 0, "result": "PASS", "approvedProductionConfiguration": "EXTERNAL_BLOCKED" },
+  "staleArtifacts": [{ "sha256": "EB0283D6B4E06EFB998596FD352E77D4D060B9FA87E8D9412586A0BA2FD50272", "disposition": "STALE_REJECTED" }]
+}

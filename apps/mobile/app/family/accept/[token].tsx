@@ -1,13 +1,13 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Text, View } from "react-native";
-import { acceptInvite, getInvite, LOCAL_SESSION_TOKEN } from "../../../src/api/client";
+import { acceptInvite, getInvite, fixtureSessionToken } from "../../../src/api/client";
 import { useSessionStore } from "../../../src/stores/session.store";
 import { theme } from "../../../src/theme";
 import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../../src/ui";
 
 const roleLabel: Record<string, string> = {
-  co_parent: "공동부모",
+  co_parent: "기록 가능",
   viewer: "보기 전용",
   gift_participant: "선물 참여"
 };
@@ -35,7 +35,7 @@ export default function AcceptInviteScreen() {
   const token = String(params.token ?? "");
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
 
   const invite = useQuery({
     queryKey: ["invite", token],

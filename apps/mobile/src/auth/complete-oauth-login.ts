@@ -1,9 +1,12 @@
 import { router } from "expo-router";
-import { upsertConsents, type OAuthLoginResult } from "../api/client";
+import { upsertConsents, type ConsentSelection, type OAuthLoginResult } from "../api/client";
 import { useOnboardingProgressStore } from "../stores/onboarding-progress.store";
 import { useSessionStore } from "../stores/session.store";
 
-export async function completeOAuthLogin(result: OAuthLoginResult): Promise<void> {
+export async function completeOAuthLogin(
+  result: OAuthLoginResult,
+  consents?: ConsentSelection[]
+): Promise<void> {
   useOnboardingProgressStore.getState().resetOnboarding();
   useSessionStore.getState().setSession({
     accessToken: result.tokens.accessToken,
@@ -14,6 +17,10 @@ export async function completeOAuthLogin(result: OAuthLoginResult): Promise<void
     authProvider: "kakao",
     defaultHouseholdId: result.user.households?.[0]?.id ?? null
   });
-  await upsertConsents(result.tokens.accessToken);
-  router.replace("/");
+  if (consents) {
+    await upsertConsents(result.tokens.accessToken, consents);
+    router.replace("/");
+    return;
+  }
+  router.replace("/login");
 }

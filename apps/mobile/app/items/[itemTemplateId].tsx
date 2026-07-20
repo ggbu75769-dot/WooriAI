@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { Image, Linking, Pressable, Share, Text, View } from "react-native";
-import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ProductLink } from "../../src/api/client";
+import { clickProductLink, getItemDetail, fixtureSessionToken, updateItemStatus, type ItemDetail, type ProductLink } from "../../src/api/client";
+import { pixelEvidenceId } from "../../src/api/fixture-runtime";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -12,18 +13,21 @@ import {
   Card,
   EmptyStateCard,
   PrimaryButton,
-  ProductComparisonRow,
   SampleDataBanner,
   SecondaryButton,
   StatusBadge,
   Toast
-} from "../../src/ui";
+} from "../../src/design-system";
+// release5v-source-quality-exception: ProductComparisonRow remains a catalog-domain component; owner=mobile-design-system; review=2026-10-01.
+import { ProductComparisonRow } from "../../src/ui";
 import { theme } from "../../src/theme";
 import { ProductDetailPixelStyles } from "../../src/pixelLock/styles/ProductDetailPixelStyles";
+import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
+import { Release4ItemDetailScreen } from "../../src/preparation/Release4ItemDetailScreen";
 
 const productImage = require("../../assets/illustrations/product_diaper_pack.png");
-const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
-const productDetailScreenId = "pixel-screen-ITEM-002 ITEM-002 · ITEM-003 · ITEM-004";
+const isPixelLockMode = isPixelLockBuild();
+const productDetailScreenId = pixelEvidenceId("ITEM-002 ITEM-002 · ITEM-003 · ITEM-004");
 const productDetailHeaderSpacerStyle = { minHeight: 0 } as const;
 const productDetailViewportOffset = 8;
 function productDetailReferenceScaleFrameStyle() {
@@ -87,11 +91,11 @@ const productDetailChromeButtonStyle = {
 function ProductDetailNavigation({ onShare }: { onShare: () => void }) {
   return (
     <View style={productDetailFloatingControlsStyle}>
-        <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" onPress={() => router.back()} style={productDetailChromeButtonStyle}>
-          <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800" }}>{"<"}</Text>
+        <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={7} onPress={() => router.back()} style={productDetailChromeButtonStyle}>
+          <AppIcon color={theme.colors.brown} name="chevron-left" size={22} />
         </Pressable>
-        <Pressable accessibilityLabel="공유하기" accessibilityRole="button" onPress={onShare} style={productDetailChromeButtonStyle}>
-          <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>[]</Text>
+        <Pressable accessibilityLabel="공유하기" accessibilityRole="button" hitSlop={7} onPress={onShare} style={productDetailChromeButtonStyle}>
+          <AppIcon color={theme.colors.brown} name="share-variant-outline" size={20} />
         </Pressable>
     </View>
   );
@@ -145,11 +149,15 @@ function marker(link: ProductLink) {
 }
 
 export default function ItemDetailScreen() {
+  return isPixelLockMode ? <PixelItemDetailScreen /> : <Release4ItemDetailScreen />;
+}
+
+function PixelItemDetailScreen() {
   const params = useLocalSearchParams<{ itemTemplateId?: string }>();
   const itemTemplateId = String(params.itemTemplateId ?? "");
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const [clickedTitle, setClickedTitle] = useState<string | null>(null);
   // COM-106 fallback: when Linking.openURL fails (or canOpenURL is false), keep the

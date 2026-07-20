@@ -3,6 +3,7 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { OutboxPublisherService } from "./jobs/outbox-publisher.service";
 import { createRelease3Queue } from "./jobs/queue";
+import { ServiceHeartbeatService } from "./common/operations/service-heartbeat.service";
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -11,6 +12,7 @@ function delay(milliseconds: number) {
 async function main() {
   const context = await NestFactory.createApplicationContext(AppModule, { logger: ["error", "warn", "log"] });
   const publisher = context.get(OutboxPublisherService);
+  const heartbeat = context.get(ServiceHeartbeatService);
   const queue = createRelease3Queue();
   let stopping = false;
   const stop = () => { stopping = true; };
@@ -22,6 +24,7 @@ async function main() {
       queue.waitUntilReady(),
       delay(10_000).then(() => { throw new Error("REDIS_STARTUP_TIMEOUT"); })
     ]);
+    await heartbeat.start("publisher");
     while (!stopping) {
       const result = await publisher.publishBatch(queue);
       if (result.claimed > 0) {
@@ -37,6 +40,7 @@ async function main() {
       if (result.claimed === 0) await delay(Number(process.env.OUTBOX_POLL_INTERVAL_MS ?? 1000));
     }
   } finally {
+    await heartbeat.stop();
     await queue.close();
     await context.close();
   }

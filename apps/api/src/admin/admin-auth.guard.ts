@@ -54,7 +54,7 @@ export class AdminAuthGuard implements CanActivate {
       return this.activateWithSession(context, request, sessionToken, cookies);
     }
 
-    return this.legacyGuard.canActivate(context) as boolean;
+    return this.legacyGuard.canActivate(context);
   }
 
   private async activateWithSession(

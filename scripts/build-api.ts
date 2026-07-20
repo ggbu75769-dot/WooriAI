@@ -7,17 +7,14 @@ async function main() {
   const root = resolve(__dirname, "..");
   const tscOut = resolve(root, ".build/api-tsc");
   const outputDir = resolve(root, "apps/api/dist");
-  const packageManagerCli = process.env.npm_execpath;
+  const typescriptCli = resolve(root, "node_modules/typescript/bin/tsc");
 
   rmSync(tscOut, { recursive: true, force: true });
   rmSync(outputDir, { recursive: true, force: true });
   mkdirSync(outputDir, { recursive: true });
 
-  const executable = packageManagerCli ? process.execPath : process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  const args = packageManagerCli
-    ? [packageManagerCli, "exec", "tsc", "-p", "apps/api/tsconfig.build.json"]
-    : ["exec", "tsc", "-p", "apps/api/tsconfig.build.json"];
-  execFileSync(executable, args, {
+  if (!existsSync(typescriptCli)) throw new Error(`Local TypeScript CLI is missing: ${typescriptCli}`);
+  execFileSync(process.execPath, [typescriptCli, "-p", "apps/api/tsconfig.build.json"], {
     cwd: root,
     stdio: "inherit"
   });
@@ -45,6 +42,7 @@ async function main() {
       target: "node20",
       format: "cjs",
       external: [
+        "@aws-sdk/client-s3",
         "@nestjs/common",
         "@nestjs/core",
         "@nestjs/platform-express",

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "PASS",
+  "branch": "codex/sprint2-catalog-payments",
+  "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+  "statusEntries": 548,
+  "trackedStatusEntries": 156,
+  "untrackedStatusEntries": 392,
+  "staged": 0,
+  "deletedUserFiles": 0,
+  "commit": false,
+  "pushDeployPublish": false,
+  "actor": "repository owner",
+  "input": "dirty shared worktree",
+  "mission": "preserve pre-existing changes and stage nothing"
+}

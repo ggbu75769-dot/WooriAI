@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "new owner",
+  "input": "OnboardingDraft v1",
+  "mission": "create lifecycle/profile/prepared state atomically",
+  "noChildBeforeFinal": true,
+  "finalMutationCount": 1,
+  "transaction": "Prisma Serializable plus household advisory lock",
+  "idempotency": "Idempotency-Key replay and payload fingerprint",
+  "pathRules": {
+    "pregnant": [
+      "dueDate",
+      "sex"
+    ],
+    "born": [
+      "childName",
+      "birthDate",
+      "derived age",
+      "sex"
+    ],
+    "manual": [
+      "conditional date",
+      "manualStage",
+      "stageOverride",
+      "sex"
+    ]
+  },
+  "ageSourceOfTruth": "birthDate at KST reference date",
+  "auditOutbox": true
+}

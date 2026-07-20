@@ -30,7 +30,7 @@ describe("UI Pixel Lock source contract", () => {
   it("uses the image-locked visual navigation labels while preserving existing route modules", () => {
     const layoutSource = readFileSync(join(mobileRoot, "app/(tabs)/_layout.tsx"), "utf8");
 
-    for (const expectedLabel of ["홈", "기록", "준비템", "리포트", "더보기"]) {
+    for (const expectedLabel of ["홈", "기록", "준비템", "리포트", "프로필"]) {
       expect(layoutSource).toContain(expectedLabel);
     }
 
@@ -43,7 +43,7 @@ describe("UI Pixel Lock source contract", () => {
     const { theme } = await import("./theme");
     const uiSource = readFileSync(join(mobileRoot, "src/ui.tsx"), "utf8");
 
-    expect(theme.colors.mainCoral).toBe("#EF6644");
+    expect(theme.colors.mainCoral).toBe("#C94627");
     expect(theme.radii.card).toBeGreaterThanOrEqual(20);
     expect(uiSource).toContain("AppScreen");
     expect(uiSource).toContain("PrimaryButton");
@@ -67,7 +67,7 @@ describe("UI Pixel Lock source contract", () => {
 
   it("migrates the primary mobile surfaces onto the pixel-lock component set", () => {
     const surfaceExpectations = [
-      ["app/(tabs)/index.tsx", "HeroSummaryCard"],
+      ["app/(tabs)/index.tsx", "BudgetSummary"],
       ["app/(tabs)/index.tsx", "SampleDataBanner"],
       ["app/(tabs)/index.tsx", "previewHome"],
       ["app/(tabs)/index.tsx", "isPixelLockMode ? previewHome : null"],
@@ -126,16 +126,12 @@ describe("UI Pixel Lock source contract", () => {
   it("keeps the home first viewport compact without an extra recommendation product card", () => {
     const homeSource = readFileSync(join(mobileRoot, "app/(tabs)/index.tsx"), "utf8");
 
-    expect(homeSource).toContain("frequentItems");
+    expect(homeSource).toContain("quickActions");
+    expect(homeSource).toContain("BudgetSummary");
     expect(homeSource).toContain("SampleDataBanner");
-    expect(homeSource).toContain("HomePixelStyles.horizontalOffset");
-    expect(homeSource).toContain("HomePixelStyles.topOffset");
-    expect(homeSource).toContain("HomePixelStyles.scale");
-    expect(homeSource).toContain("HomePixelStyles.scaleX");
-    expect(homeSource).toContain("HomePixelStyles.scaleHorizontalOffset");
-    expect(homeSource).toContain("HomePixelStyles.scaleVerticalOffset");
-    expect(homeSource).toContain("homePixelScaleFrameStyle");
-    expect(homeSource).toContain("homePixelFrameStyle");
+    expect(homeSource).not.toContain("HomePixelStyles");
+    expect(homeSource).not.toContain("homePixelScaleFrameStyle");
+    expect(homeSource).not.toContain("homePixelFrameStyle");
     expect(homeSource).toContain('router.push("/(tabs)/items")');
     expect(homeSource).not.toContain("QuickActionIconButton");
     expect(homeSource).not.toContain("FloatingActionButton");
@@ -273,19 +269,20 @@ describe("UI Pixel Lock source contract", () => {
     expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "ctaBottomInset", 56)');
   });
 
-  it("locks the more route to the compact single-screen reference menu", () => {
+  it("uses the more route as the real MOD_V1 profile hub", () => {
     const moreSource = readFileSync(join(mobileRoot, "app/(tabs)/more.tsx"), "utf8");
 
-    expect(moreSource).toContain("moreReferenceScreenId");
-    expect(moreSource).not.toContain("MorePixelStatusBar");
-    expect(moreSource).toContain("const rows: MenuRow[]");
-    expect(moreSource).toContain("MoreMenuRow");
+    expect(moreSource).toContain('testID="screen-PF-01"');
+    expect(moreSource).toContain("listChildren");
+    expect(moreSource).toContain("listHouseholdMembers");
+    expect(moreSource).toContain("getBudget");
+    expect(moreSource).toContain("getNotificationPreferences");
     expect(moreSource).toContain("SampleDataBanner");
-    expect(moreSource).toContain("moreReferenceFrameStyle");
-    expect(moreSource).toContain("moreProfileCardStyle");
+    expect(moreSource).toContain("SyncStatusBar");
+    expect(moreSource).toContain("아이 · 산모");
+    expect(moreSource).toContain("예산 · 데이터");
     expect(moreSource).not.toContain("previewProfile");
-    expect(moreSource).not.toContain("ScreenHeader");
-    expect(moreSource).not.toContain("PrimaryButton");
+    expect(moreSource).not.toContain("moreReferenceFrameStyle");
   });
 
   it("provides a launch growth animation route with real stage assets and skip flow", () => {
@@ -312,6 +309,8 @@ describe("UI Pixel Lock source contract", () => {
     expect(launchSource).toContain("SplashPixelStyles.groupScale");
     expect(launchSource).toContain("SplashPixelStyles.topOffset");
     expect(launchSource).toContain("splashPixelFrameStyle");
+    expect(launchSource).toContain('barStyle="dark-content"');
+    expect(launchSource).toContain("backgroundColor={theme.colors.background}");
     expect(launchSource).toContain("paddingTop: 112");
     expect(launchSource).toContain("SplashPixelStyles.introImageMarginTop");
     expect(launchSource).toContain("stageIndex < 0 ? introHoldMs");

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "topology": { "postgres": 1, "redis": 1, "minio": 1, "api": 2, "worker": 2, "publisher": 1, "admin": 1, "oauth": "mock", "push": "mock" },
+  "phaseAConnectedProductMission": { "result": "PARTIAL", "reason": "existing automated Golden Mission evidence was retained, but the entire owner/co-parent preparation-to-report flow was not repeated in this same running stack" },
+  "phaseBWorkerCrash": "PASS",
+  "phaseCConfigRolloutRedisRollback": "PASS",
+  "phaseDImportStorageFailure": "PASS",
+  "phaseEPublisherAckLoss": "PASS",
+  "visibleDuplicates": 0,
+  "rawInfrastructureErrorsExposedToUsers": 0,
+  "qualification": "PARTIAL"
+}

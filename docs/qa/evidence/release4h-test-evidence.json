@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "release": "4H",
+  "generatedAt": "2026-07-17T12:42:02+09:00",
+  "environment": {
+    "systemNode": "25.2.1",
+    "systemPnpm": "11.9.0",
+    "qualificationPnpm": "10.28.1",
+    "pinnedNodeTarget": "20.20.2"
+  },
+  "commands": [
+    {"command": "mobile pending-intent and route-state targeted tests", "result": "PASS", "files": 2, "tests": 13, "failed": 0},
+    {"command": "domain duplicate-purchase and preparation-temporal tests", "result": "PASS", "files": 2, "tests": 22, "failed": 0},
+    {"command": "API catalog/reports/notifications/jobs targeted tests", "result": "PASS", "files": 4, "tests": 30, "failed": 0},
+    {"command": "npx -y pnpm@10.28.1 test:admin-browser", "result": "PASS", "files": 2, "tests": 5, "failed": 0, "workers": 1},
+    {"command": "npx -y pnpm@10.28.1 test --concurrency=1 --force", "result": "PASS", "workspaceTasks": 8, "tests": 770, "failed": 0, "note": "@wooriai/ui retains its existing deferred marker and contributes no tests"},
+    {"command": "npx -y pnpm@10.28.1 --filter api test:e2e", "result": "PASS", "files": 20, "tests": 111, "failed": 0},
+    {"command": "npx -y pnpm@10.28.1 lint", "result": "PASS", "failed": 0},
+    {"command": "npx -y pnpm@10.28.1 typecheck", "result": "PASS", "workspaceTasks": 8, "failed": 0},
+    {"command": "production-validation-profile build/export", "result": "PASS", "workspaceTasks": 8, "mobileHermesBytes": 3780000, "adminRoutes": 16},
+    {"command": "npx -y pnpm@10.28.1 release:gate", "result": "PASS", "gates": 11, "failed": 0},
+    {"command": "npx -y pnpm@10.28.1 release4:verify-db", "result": "PASS", "migrations": 32},
+    {"command": "npx -y pnpm@10.28.1 security:secrets", "result": "PASS"},
+    {"command": "npx -y pnpm@10.28.1 security:audit", "result": "PASS_POLICY", "moderate": 6, "high": 0, "critical": 0},
+    {"command": "npx -y pnpm@10.28.1 release4:contamination:export", "result": "PASS", "findings": 0},
+    {"command": "npx -y pnpm@10.28.1 catalog:audit", "result": "PASS_STRUCTURAL", "canonical": 408, "published": 0, "highRisk": 84},
+    {"command": "npx -y pnpm@10.28.1 android:build-apk -- --profile standalone", "result": "PASS_BUILD", "buildCount": 1},
+    {"command": "mobile native-profile-boundary targeted test after permission source fix", "result": "PASS", "files": 1, "tests": 4, "failed": 0}
+  ],
+  "firstFailuresPreserved": [
+    {"command": "initial direct pnpm baseline", "cause": "ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY", "disposition": "commands rerun with explicit repository pnpm 10.28.1"},
+    {"command": "release4:contamination against stale release-production.apk", "cause": "stale artifact contains forbidden fixture markers", "disposition": "DO_NOT_USE; current production-safe export passed"},
+    {"command": "processReleaseMainManifest attempt 1", "cause": "ANDROID_HOME was not set", "disposition": "rerun with explicit existing SDK"},
+    {"command": "processReleaseMainManifest attempt 2", "cause": "task exceeded 124 seconds with no updated merged manifest and continued consuming CPU", "disposition": "only the two task-owned Java processes were stopped; source test passed but native merge is not claimed"}
+  ],
+  "notRun": [
+    {"verification": "post-storage-permission-fix APK rebuild", "status": "NOT_RUN_BUILD_ONCE_POLICY"},
+    {"verification": "ADB installed smoke", "status": "NOT_RUN_NO_DEVICE_AND_ARTIFACT_NOT_CURRENT"},
+    {"verification": "actual TalkBack and pixel clipping", "status": "RUNTIME_ONLY"},
+    {"verification": "external staging", "status": "EXTERNAL_BLOCKED"}
+  ]
+}

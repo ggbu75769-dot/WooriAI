@@ -7,7 +7,10 @@ import {
 import { isAllowedAffiliateUrl } from "../items-commerce/affiliate-link-guard.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { PrivacyService } from "../privacy/privacy.service";
+import { ReportsV2Service } from "../finance/reports-v2.service";
+import { CatalogV2Service } from "../catalog-v2/catalog-v2.service";
 import { JobExecutionError } from "./job-errors";
+import { NotificationDeliveryService } from "./notification-delivery.service";
 import { checkPublicLink, SafeLinkCheckError } from "./safe-link-check";
 
 export type JobResult = { code: string; details?: Record<string, unknown> };
@@ -18,13 +21,22 @@ function requiredId(payload: Record<string, unknown>, key: string): string {
   return value;
 }
 
+const ACTIVE_TEMPORAL_PLAN_STATES = ["owned", "borrowed", "rented", "replacement_needed", "replacement_due"] as const;
+
+function dateOnlyUtc(value: Date | null) {
+  return value?.toISOString().slice(0, 10) ?? null;
+}
+
 @Injectable()
 export class JobHandlersService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(PrivacyService) private readonly privacy: PrivacyService,
     @Inject(ContentRevisionsService) private readonly contentRevisions: ContentRevisionsService,
-    @Inject(KAKAO_OAUTH_PROVIDER_ADAPTER) private readonly kakaoAdapter: OAuthProviderAdapter
+    @Inject(KAKAO_OAUTH_PROVIDER_ADAPTER) private readonly kakaoAdapter: OAuthProviderAdapter,
+    @Inject(ReportsV2Service) private readonly reportsV2: ReportsV2Service,
+    @Inject(CatalogV2Service) private readonly catalogV2: CatalogV2Service,
+    @Inject(NotificationDeliveryService) private readonly notificationDelivery: NotificationDeliveryService
   ) {}
 
   async handle(topic: string, payload: Record<string, unknown>): Promise<JobResult> {
@@ -40,6 +52,7 @@ export class JobHandlersService {
       case "cleanup.export_file": return await this.cleanupExportFiles();
       case "report.integrity_check": return await this.checkReport(payload);
       case "notification.send": return await this.sendNotification(payload);
+      case "preparation.temporal_due": return await this.enqueueTemporalDue(payload);
       case "import.parse":
         throw new JobExecutionError("IMPORT_QUEUE_HANDLER_NOT_CONNECTED", false);
       default:
@@ -52,6 +65,10 @@ export class JobHandlersService {
     let request = await this.prisma.privacyRequest.findUnique({ where: { id: requestId } });
     if (!request || request.requestType !== "deletion") throw new JobExecutionError("PRIVACY_REQUEST_NOT_FOUND", false);
     if (request.state === "completed") return { code: "ALREADY_COMPLETED" };
+    if (request.state === "cancelled") return { code: "DELETION_CANCELLED" };
+    if (request.state === "requested") {
+      request = await this.privacy.activateDueDeletion(requestId);
+    }
     if (request.state === "access_revoked") {
       request = await this.privacy.transition(requestId, "processor_delete_queued", "DELETE_JOB_ACCEPTED");
     }
@@ -79,6 +96,10 @@ export class JobHandlersService {
     await this.prisma.$transaction(async (tx) => {
       await tx.oAuthIdentity.deleteMany({ where: { userId: request!.userId } });
       await tx.userDevice.deleteMany({ where: { userId: request!.userId } });
+      await tx.receiptDraft.deleteMany({ where: { createdByUserId: request!.userId } });
+      await tx.todayActionPreference.deleteMany({ where: { userId: request!.userId } });
+      await tx.weeklyBriefing.deleteMany({ where: { userId: request!.userId } });
+      await tx.notificationPreference.deleteMany({ where: { userId: request!.userId } });
       await tx.user.update({
         where: { id: request!.userId },
         data: {
@@ -96,7 +117,23 @@ export class JobHandlersService {
         data: {
           state: "completed",
           completedAt,
-          retentionSummaryJson: { strategy: "pii_anonymized_shared_rows_retained" }
+          retentionSummaryJson: {
+            strategy: "pii_anonymized_shared_rows_retained",
+            release5: {
+              purgedUserPrivate: [
+                "receipt_drafts_and_extraction",
+                "today_action_preferences",
+                "weekly_briefings",
+                "notification_preferences"
+              ],
+              retainedSharedAuditWithAnonymizedUser: [
+                "custom_preparation_bundles",
+                "custom_bundle_applications",
+                "receipt_confirmations",
+                "expense_plan_link_events"
+              ]
+            }
+          }
         }
       });
       if (changed.count === 1) {
@@ -125,6 +162,35 @@ export class JobHandlersService {
     if (request.state === "processor_delete_queued" || request.state === "failed") {
       request = await this.privacy.transition(requestId, "purging", "EXPORT_BUILD_STARTED");
     }
+    const [
+      todayActionPreferences,
+      customPreparationBundles,
+      customBundleApplications,
+      weeklyBriefings,
+      notificationPreferences,
+      receiptDrafts,
+      receiptConfirmations,
+      expensePlanLinkEvents
+    ] = await Promise.all([
+      this.prisma.todayActionPreference.count({ where: { userId: request.userId } }),
+      this.prisma.customPreparationBundle.count({ where: { createdByUserId: request.userId } }),
+      this.prisma.customBundleApplication.count({ where: { requestedByUserId: request.userId } }),
+      this.prisma.weeklyBriefing.count({ where: { userId: request.userId } }),
+      this.prisma.notificationPreference.count({ where: { userId: request.userId } }),
+      this.prisma.receiptDraft.count({ where: { createdByUserId: request.userId } }),
+      this.prisma.receiptConfirmation.count({ where: { requestedByUserId: request.userId } }),
+      this.prisma.expensePlanLinkEvent.count({ where: { actorUserId: request.userId } })
+    ]);
+    const release5Datasets = [
+      { dataset: "today_action_preferences", recordCount: todayActionPreferences },
+      { dataset: "custom_preparation_bundles", recordCount: customPreparationBundles },
+      { dataset: "custom_bundle_applications", recordCount: customBundleApplications },
+      { dataset: "weekly_briefings", recordCount: weeklyBriefings },
+      { dataset: "notification_preferences", recordCount: notificationPreferences },
+      { dataset: "receipt_drafts_and_extraction", recordCount: receiptDrafts },
+      { dataset: "receipt_confirmations", recordCount: receiptConfirmations },
+      { dataset: "expense_plan_link_events", recordCount: expensePlanLinkEvents }
+    ];
     const expiresAt = new Date(Date.now() + Number(process.env.PRIVACY_EXPORT_TTL_HOURS ?? 24) * 60 * 60 * 1000);
     await this.prisma.privacyRequest.update({
       where: { id: requestId },
@@ -132,7 +198,12 @@ export class JobHandlersService {
         state: "completed",
         completedAt: new Date(),
         exportObjectKey: `mock/privacy-export/${requestId}.enc`,
-        exportExpiresAt: expiresAt
+        exportExpiresAt: expiresAt,
+        retentionSummaryJson: {
+          exportSchemaVersion: 5,
+          includedRelease5Datasets: release5Datasets,
+          localDeviceReceiptDrafts: "purged_on_logout_or_account_deletion_not_server_exported"
+        }
       }
     });
     await this.prisma.privacyRequestEvent.create({
@@ -169,7 +240,19 @@ export class JobHandlersService {
       const result = await this.contentRevisions.publishDue(id);
       if (result.status === "published") published += 1;
     }
-    return { code: "CONTENT_DUE_PROCESSED", details: { scanned: ids.length, published } };
+    const catalog = requestedId ? { scanned: 0, published: 0, concurrent: 0, blocked: 0, results: [] } : await this.catalogV2.publishDueItems();
+    return {
+      code: "CONTENT_DUE_PROCESSED",
+      details: {
+        legacy: { scanned: ids.length, published },
+        catalog: {
+          scanned: catalog.scanned,
+          published: catalog.published,
+          concurrent: catalog.concurrent,
+          blocked: catalog.blocked
+        }
+      }
+    };
   }
 
   private async checkProductLink(payload: Record<string, unknown>): Promise<JobResult> {
@@ -213,7 +296,11 @@ export class JobHandlersService {
         failureReason
       }
     });
-    return { code: `PRODUCT_LINK_${state.toUpperCase()}` };
+    const syncedOffers = await this.prisma.productOffer.updateMany({
+      where: { legacyProductLinkId: productLinkId },
+      data: { healthState: state === "failed" ? "failed" : "healthy" }
+    });
+    return { code: `PRODUCT_LINK_${state.toUpperCase()}`, details: { productOffersSynced: syncedOffers.count } };
   }
 
   private async cleanupOauthTransactions() {
@@ -242,29 +329,61 @@ export class JobHandlersService {
   private async checkReport(payload: Record<string, unknown>) {
     const childId = requiredId(payload, "childId");
     const yearMonthRaw = requiredId(payload, "yearMonth");
-    const yearMonth = new Date(`${yearMonthRaw.slice(0, 7)}-01T00:00:00.000Z`);
-    const nextMonth = new Date(Date.UTC(yearMonth.getUTCFullYear(), yearMonth.getUTCMonth() + 1, 1));
-    const ledger = await this.prisma.expense.aggregate({
-      where: { childId, deletedAt: null, spentOn: { gte: yearMonth, lt: nextMonth } },
-      _sum: { amountKrw: true }
-    });
-    const total = ledger._sum.amountKrw ?? 0;
-    await this.prisma.reportIntegrityCheck.create({
-      data: { childId, yearMonth, ledgerTotalKrw: total, aggregateTotalKrw: total, matched: true }
-    });
-    return { code: "REPORT_INTEGRITY_MATCHED" };
+    return this.reportsV2.refreshAndCheckIntegrity(childId, yearMonthRaw.slice(0, 7));
   }
 
   private async sendNotification(payload: Record<string, unknown>) {
     const deliveryId = requiredId(payload, "notificationDeliveryId");
     const delivery = await this.prisma.notificationDelivery.findUnique({ where: { id: deliveryId } });
     if (!delivery || ["sent", "cancelled"].includes(delivery.state)) return { code: "NOTIFICATION_ALREADY_FINAL" };
-    const mockMode = process.env.NOTIFICATION_PROVIDER_MODE !== "live" && process.env.NODE_ENV !== "production";
-    if (!mockMode) throw new JobExecutionError("NOTIFICATION_PROVIDER_NOT_CONFIGURED", false);
-    await this.prisma.notificationDelivery.update({
-      where: { id: deliveryId },
-      data: { state: "sent", sentAt: new Date(), failureCode: null }
-    });
-    return { code: "NOTIFICATION_SENT_MOCK_PROVIDER" };
+    if (delivery.householdId) {
+      const activeMembership = await this.prisma.householdMember.findFirst({
+        where: { householdId: delivery.householdId, userId: delivery.userId, status: "active" },
+        select: { userId: true }
+      });
+      if (!activeMembership) {
+        await this.prisma.notificationDelivery.update({
+          where: { id: delivery.id },
+          data: { state: "cancelled", failureCode: "MEMBERSHIP_REVOKED" }
+        });
+        return { code: "NOTIFICATION_CANCELLED_MEMBERSHIP_REVOKED" };
+      }
+    }
+    if (["replacement_due", "recurring_purchase_due"].includes(delivery.eventType)) {
+      const parts = delivery.dedupeKey.split(":");
+      const planId = parts.length === 5 && parts[0] === "preparation-due" ? parts[2] : null;
+      const dueKey = parts.length === 5 ? parts[3] : null;
+      const plan = planId ? await this.prisma.userItemPlan.findUnique({ where: { id: planId } }) : null;
+      const currentDueKey = delivery.eventType === "replacement_due"
+        ? dateOnlyUtc(plan?.replacementDueAt ?? null)
+        : dateOnlyUtc(plan?.nextPurchaseDueAt ?? null);
+      if (
+        !plan ||
+        !ACTIVE_TEMPORAL_PLAN_STATES.includes(plan.state as (typeof ACTIVE_TEMPORAL_PLAN_STATES)[number]) ||
+        plan.householdId !== delivery.householdId ||
+        plan.childId !== delivery.childId ||
+        plan.itemDefinitionId !== delivery.targetId ||
+        currentDueKey !== dueKey
+      ) {
+        await this.prisma.notificationDelivery.update({
+          where: { id: delivery.id },
+          data: { state: "cancelled", failureCode: "STALE_TEMPORAL_DUE" }
+        });
+        return { code: "NOTIFICATION_CANCELLED_STALE_TEMPORAL_DUE" };
+      }
+    }
+    const result = await this.notificationDelivery.deliver(deliveryId);
+    if (delivery.eventType === "catalog_report_resolved" && delivery.dedupeKey.startsWith("catalog-report:")) {
+      const reportId = delivery.dedupeKey.split(":")[1];
+      if (reportId) await this.prisma.catalogItemReport.updateMany({ where: { id: reportId, userId: delivery.userId }, data: { userNotifiedAt: new Date() } });
+    }
+    return result;
+  }
+
+  private async enqueueTemporalDue(payload: Record<string, unknown>) {
+    const raw = payload.referenceTime;
+    const referenceTime = typeof raw === "string" && !Number.isNaN(Date.parse(raw)) ? new Date(raw) : new Date();
+    const result = await this.catalogV2.enqueueTemporalDueNotifications(referenceTime);
+    return { code: "PREPARATION_TEMPORAL_DUE_SCANNED", details: result };
   }
 }

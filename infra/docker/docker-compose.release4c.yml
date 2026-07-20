@@ -1,0 +1,44 @@
+name: wooriai-release4c
+
+services:
+  postgres:
+    ports: !override
+      - "55432:5432"
+
+  redis:
+    ports: !override
+      - "56379:6379"
+
+  minio:
+    ports: !override
+      - "59000:9000"
+      - "59001:9001"
+
+  api:
+    ports: !override
+      - "53100-53101:3000"
+    environment:
+      NODE_ENV: development
+      APP_ENV: local_staging
+      OAUTH_PROVIDER_MODE: mock
+      OAUTH_KAKAO_REDIRECT_URIS: wooriai://oauth/kakao
+      CATALOG_INTERNAL_PREVIEW_ENABLED: "1"
+      NOTIFICATION_PROVIDER_MODE: mock
+
+  admin:
+    ports: !override
+      - "53102:3001"
+
+  publisher:
+    environment:
+      NODE_ENV: development
+      APP_ENV: local_staging
+
+  worker:
+    environment:
+      NODE_ENV: development
+      APP_ENV: local_staging
+      RELEASE4I_WORKER_CRASH_FAILPOINT: "1"
+      RELEASE4I_NOTIFICATION_ACK_FAILPOINT: "1"
+      PRIVACY_PROCESSOR_MODE: mock
+      NOTIFICATION_PROVIDER_MODE: mock

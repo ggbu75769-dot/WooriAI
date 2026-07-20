@@ -37,3 +37,24 @@
 | 제휴 고지 CTA 인접 | 상품 상세 구매 버튼 위 `AffiliateDisclosure` | APK |
 | 프로덕션 시크릿 fail-fast | `main.ts` 부팅 검증 | TEST |
 | 프로덕션 OAuth 차단 | `auth.service.ts` 501 | TEST |
+
+## Release 4E AIM extension (2026-07-17)
+
+The historical matrix above is retained. The current Actor/Input/Mission traceability source is
+`docs/qa/evidence/release4e-aim-traceability.json`, covering legal consent, onboarding resume,
+multi-child cache isolation, lifecycle parity, preparation, bundle, item CAS/privacy, search,
+offline expense, Report planned-only, notifications, owner transfer, privacy deletion, and Admin
+publish/import. All 15 scenarios passed their available automated layers. Admin headless browser
+qualification was unavailable, and installed Android smoke was not run because no device was
+connected.
+
+## Release 4F AIM extension (2026-07-17)
+
+Release 4F extends the same Actor/Input/Mission model with upgrade and recovery scenarios:
+`SQLITE-UPGRADE-01`, `SQLITE-AMBIGUOUS-02`, `SQLITE-CRASH-03`, `OFFLINE-AUTH-01`,
+`OFFLINE-CONFLICT-02`, `OFFLINE-RESPONSE-LOST-03`, `REPORT-TRACE-01`,
+`PRIVACY-DELETE-01`, `ADMIN-BROWSER-PUBLISH-01`, and `ADMIN-BROWSER-IMPORT-01`.
+Machine-readable contracts and results are in
+`docs/qa/evidence/release4f-aim-traceability.json`. SQLite, offline, Report, privacy, and API
+publish/import layers passed. Admin browser qualification is `NOT_RUN_NO_RUNTIME`; installed
+legacy upgrade qualification is `NOT_RUN_NO_DEVICE`.

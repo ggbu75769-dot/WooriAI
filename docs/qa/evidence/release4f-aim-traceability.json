@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T03:05:05+09:00",
+  "release": "4F",
+  "source": {
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "dirtyWorkingTreePreserved": true
+  },
+  "scenarios": [
+    {
+      "id": "SQLITE-UPGRADE-01",
+      "actor": "Release 4E 이전 설치를 사용하던 household owner",
+      "input": "scope 없는 pending expense와 exact idempotency metadata",
+      "mission": "기존 미동기화 지출을 다른 계정에 귀속하지 않고 복구한다",
+      "preconditions": "legacy SQLite schema version 0",
+      "expectedContract": "local migration은 quarantine하고 현재 사용자 서버 기록이 exact match일 때만 active scope로 복원한다",
+      "verificationLayer": ["domain unit", "real sqlite fixture", "API E2E", "mobile reconciliation unit"],
+      "existingTest": ["apps/mobile/src/offline/sqlite-upgrade.test.ts"],
+      "newRegressionTest": [
+        "apps/mobile/src/offline/legacy-reconciliation.test.ts",
+        "apps/api/test/legacy-offline-reconcile.e2e.test.ts"
+      ],
+      "result": "PASS_AUTOMATED",
+      "findingId": "R4F-SQLITE-001",
+      "residualRisk": "installed legacy APK upgrade was not run because no authorized device was connected"
+    },
+    {
+      "id": "SQLITE-AMBIGUOUS-02",
+      "actor": "같은 기기에서 여러 계정을 사용한 사용자",
+      "input": "현재 계정 소유권을 증명할 수 없는 unscoped legacy row",
+      "mission": "다른 계정 row의 노출과 전송을 막는다",
+      "preconditions": "current user idempotency proof 없음",
+      "expectedContract": "active scope 자동 귀속 금지, 자동 전송 금지, 상세 금액과 메모 비노출",
+      "verificationLayer": ["classifier unit", "API E2E", "mobile reconciliation unit", "component state contract"],
+      "existingTest": [],
+      "newRegressionTest": [
+        "apps/mobile/src/offline/sqlite-upgrade.test.ts",
+        "apps/mobile/src/offline/legacy-reconciliation.test.ts",
+        "apps/api/test/legacy-offline-reconcile.e2e.test.ts"
+      ],
+      "result": "PASS_AUTOMATED",
+      "findingId": "R4F-SQLITE-001",
+      "residualRisk": null
+    },
+    {
+      "id": "SQLITE-CRASH-03",
+      "actor": "기존 설치 사용자",
+      "input": "migration 5개 경계에서 transaction failure와 reopen",
+      "mission": "부분 적용 없이 DB를 다시 열고 migration을 재실행한다",
+      "preconditions": "legacy schema와 pending row 1건",
+      "expectedContract": "schema version 0과 원본 row가 rollback되고 다음 실행이 schema version 2로 완료된다",
+      "verificationLayer": ["real sqlite fixture", "failure injection", "30 reopen repetition"],
+      "existingTest": [],
+      "newRegressionTest": ["apps/mobile/src/offline/sqlite-upgrade.test.ts"],
+      "result": "PASS_AUTOMATED",
+      "findingId": "R4F-SQLITE-001",
+      "residualRisk": "Android SQLite runtime qualification remains unexecuted"
+    },
+    {
+      "id": "OFFLINE-AUTH-01",
+      "actor": "offline 지출을 저장한 owner",
+      "input": "reconnect 후 401, 동일 scope 재로그인",
+      "mission": "retry storm 없이 인증 후 다시 동기화한다",
+      "preconditions": "pending mutation과 expired session",
+      "expectedContract": "AUTH_REQUIRED로 자동 retry 중단, 동일 user-household scope에서만 수동 재시도",
+      "verificationLayer": ["state-machine unit", "sync controller unit", "mobile component contract"],
+      "existingTest": ["apps/mobile/src/offline/sync-engine.test.ts"],
+      "newRegressionTest": [
+        "apps/mobile/src/offline/sync-display-state.test.ts",
+        "apps/mobile/src/offline/offline-volume.test.ts"
+      ],
+      "result": "PASS_AUTOMATED",
+      "findingId": "R4F-OFFLINE-003",
+      "residualRisk": "installed reconnect smoke was not run"
+    },
+    {
+      "id": "OFFLINE-CONFLICT-02",
+      "actor": "두 기기에서 같은 지출을 수정한 co-parent",
+      "input": "stale version과 409 conflict",
+      "mission": "다른 사람의 변경을 덮어쓰지 않고 로컬 입력을 보존한다",
+      "preconditions": "server version is newer",
+      "expectedContract": "CONFLICT 상태, 최신 값 확인, 명시적 재시도 또는 취소",
+      "verificationLayer": ["sync engine unit", "mobile recovery UI contract"],
+      "existingTest": ["apps/mobile/src/offline/sync-engine.test.ts"],
+      "newRegressionTest": ["apps/mobile/src/offline/sync-display-state.test.ts"],
+      "result": "PASS_AUTOMATED",
+      "findingId": "R4F-OFFLINE-003",
+      "residualRisk": null
+    },
+    {
+      "id": "OFFLINE-RESPONSE-LOST-03",
+      "actor": "offline expense owner",
+      "input": "서버 commit 이후 응답 유실 50회",
+      "mission": "동일 지출이 두 번 생성되지 않게 한다",
+      "preconditions": "stable client idempotency key",
+      "expectedContract": "재시도는 같은 key를 사용하고 server record는 1개다",
+      "verificationLayer": ["volume unit", "idempotency contract"],
+      "existingTest": [],
+      "newRegressionTest": ["apps/mobile/src/offline/offline-volume.test.ts"],
+      "result": "PASS_50_OF_50",
+      "findingId": null,
+      "residualRisk": null
+    },
+    {
+      "id": "REPORT-TRACE-01",
+      "actor": "financial 권한이 있는 owner",
+      "input": "planned 120000, actual 80000, recurring 30000, unscheduled planned 포함",
+      "mission": "Report 합계의 준비 계획과 지출 원본을 확인한다",
+      "preconditions": "same child, household and KST period",
+      "expectedContract": "카드별 source route, aggregate와 list 합계 일치, back navigation 상태 보존",
+      "verificationLayer": ["API unit", "API E2E", "mobile navigation unit", "component behavior"],
+      "existingTest": ["apps/api/src/finance/reports-v2.test.ts"],
+      "newRegressionTest": [
+        "apps/api/src/finance/reports-v2.sources.test.ts",
+        "apps/mobile/src/reports/source-navigation.test.ts",
+        "apps/api/test/release4-product-value.e2e.test.ts"
+      ],
+      "result": "PASS_AUTOMATED",
+      "findingId": "R4F-REPORT-004",
+      "residualRisk": "populated installed Report drill-down was not run"
+    },
+    {
+      "id": "PRIVACY-DELETE-01",
+      "actor": "account owner",
+      "input": "current account deletion with scoped local rows and outbox",
+      "mission": "current scope local state를 제거하고 다른 계정 state는 보존한다",
+      "preconditions": "user A and user B scopes share one local backend",
+      "expectedContract": "A scope purge, query/session clear, B scope preservation, post-delete protected API denial",
+      "verificationLayer": ["offline scope unit", "privacy API E2E", "release gate regression"],
+      "existingTest": [
+        "apps/mobile/src/offline/session-scope.test.ts",
+        "apps/api/test/privacy.e2e.test.ts"
+      ],
+      "newRegressionTest": ["apps/mobile/src/offline/offline-volume.test.ts"],
+      "result": "PASS_AUTOMATED",
+      "findingId": null,
+      "residualRisk": null
+    },
+    {
+      "id": "ADMIN-BROWSER-PUBLISH-01",
+      "actor": "author, reviewer, safety reviewer, publisher",
+      "input": "revision, approval, stale hash, 30 concurrent publish races",
+      "mission": "역할 분리와 one-winner publish를 실제 계약으로 지킨다",
+      "preconditions": "published catalog remains 0 outside the isolated test fixture",
+      "expectedContract": "self approval 403, stale revision 409, concurrent publish one winner",
+      "verificationLayer": ["API E2E", "Admin render tests", "browser runtime qualification"],
+      "existingTest": ["apps/api/test/catalog-v2-admin.e2e.test.ts"],
+      "newRegressionTest": ["apps/api/test/catalog-v2-admin.e2e.test.ts"],
+      "result": "API_AND_RENDER_PASS_BROWSER_RUNTIME_BLOCKED",
+      "findingId": null,
+      "residualRisk": "RUNTIME_BLOCKED_NO_BROWSER"
+    },
+    {
+      "id": "ADMIN-BROWSER-IMPORT-01",
+      "actor": "import 권한이 있는 Admin operator",
+      "input": "CSV, XLSX, formula injection, partial failure, stale taxonomy version",
+      "mission": "preview와 apply를 분리하고 실패 row를 정확히 확인한다",
+      "preconditions": "existing import endpoints and fixtures",
+      "expectedContract": "formula non-execution, partial failure summary, server RBAC, no direct publish",
+      "verificationLayer": ["API E2E", "Admin render tests", "browser runtime qualification"],
+      "existingTest": ["apps/api/test/catalog-v2-admin.e2e.test.ts"],
+      "newRegressionTest": [],
+      "result": "API_AND_RENDER_PASS_BROWSER_RUNTIME_BLOCKED",
+      "findingId": null,
+      "residualRisk": "RUNTIME_BLOCKED_NO_BROWSER"
+    }
+  ]
+}

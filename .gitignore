@@ -2,6 +2,7 @@ node_modules/
 .pnpm-store/
 .turbo/
 .android-avd/
+.android-avd-home/
 .gradle-home/
 .toolcache/
 .build/
@@ -15,5 +16,6 @@ ios/
 .env.*
 !.env.example
 *.log
+*.apk
 *.tsbuildinfo
 artifacts/

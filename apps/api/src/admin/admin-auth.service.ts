@@ -150,14 +150,31 @@ export class AdminAuthService implements OnModuleDestroy {
       );
     }
 
-    // Idempotent: re-visiting the setup screen before finalizing reuses the same
-    // secret instead of rotating it, so a previously-scanned QR code stays valid.
-    const secret = admin.totpSecret ?? this.mfa.generateSecret();
-    if (secret !== admin.totpSecret) {
-      await this.prisma.adminUser.update({ where: { id: admin.id }, data: { totpSecret: secret } });
+    // The browser can issue overlapping setup requests while the route is
+    // mounting. Persist a secret with compare-and-set, then read the winner so
+    // every request renders the exact secret that verification will use.
+    if (!admin.totpSecret) {
+      const candidate = this.mfa.generateSecret();
+      await this.prisma.adminUser.updateMany({
+        where: { id: admin.id, totpSecret: null, mfaEnabledAt: null },
+        data: { totpSecret: candidate }
+      });
+    }
+    const current = await this.prisma.adminUser.findUniqueOrThrow({ where: { id: admin.id } });
+    if (current.mfaEnabledAt) {
+      throw new HttpException(
+        { code: "ADMIN_MFA_ALREADY_ENABLED", message: "이미 MFA가 등록되어 있어요. 먼저 해제한 뒤 다시 등록해주세요." },
+        HttpStatus.BAD_REQUEST
+      );
+    }
+    if (!current.totpSecret) {
+      throw new HttpException(
+        { code: "ADMIN_MFA_SETUP_UNAVAILABLE", message: "MFA 등록을 다시 시작해주세요." },
+        HttpStatus.CONFLICT
+      );
     }
 
-    return { otpauthUrl: this.mfa.buildOtpauthUrl(admin.email, secret), secret, email: admin.email };
+    return { otpauthUrl: this.mfa.buildOtpauthUrl(current.email, current.totpSecret), secret: current.totpSecret, email: current.email };
   }
 
   async verifyMfaSetup(admin: AdminUser, code: string): Promise<{ recoveryCodes: string[] }> {

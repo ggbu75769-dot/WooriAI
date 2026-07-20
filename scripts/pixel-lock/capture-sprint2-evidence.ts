@@ -82,7 +82,7 @@ function waitForEvidence(evidenceId: string): string {
 async function capture(evidenceId: string, appPackage: string) {
   adb(["logcat", "-c"], true);
   adb(["shell", "am", "force-stop", appPackage], true);
-  const route = `'wooriai:///pixel-lock?screen=${evidenceId}'`;
+  const route = `'wooriai://pixel-lock?screen=${evidenceId}'`;
   adb(["shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", route, appPackage]);
   const xml = waitForEvidence(evidenceId);
   sleep(1200);

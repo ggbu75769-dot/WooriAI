@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "sourceOfTruth": "database",
+  "versions": { "initial": 1, "rollout": 2, "rollback": 3, "monotonic": true },
+  "instances": [
+    { "id": "api-1", "activeVersionAfterRollout": 2, "activeVersionAfterRedisRestart": 2, "activeVersionAfterRollback": 3, "source": "database" },
+    { "id": "api-2", "activeVersionAfterRollout": 2, "activeVersionAfterRedisRestart": 2, "activeVersionAfterRollback": 3, "source": "database" }
+  ],
+  "validation": { "requiredKeys": true, "types": true, "ranges": true, "securityKeys": true, "testOnlyProductionKeysRejected": true, "invalidActivated": 0, "lastKnownGoodPreserved": true },
+  "cas": { "staleWriterConflict": true, "rollbackCreatesNewVersion": true, "auditActorReason": true },
+  "redisFailure": { "apiCrash": 0, "permissiveFallback": 0, "refreshStorm": 0, "result": "PASS" },
+  "automatedConvergenceIterations": 30,
+  "failures": 0
+}

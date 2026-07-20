@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-20T05:41:37+09:00",
+  "qualification": "INTERNAL_TEST",
+  "productionCandidate": false,
+  "repository": {
+    "root": "F:/WooriAI",
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "startingDirty": { "total": 929, "trackedUnstaged": 187, "untracked": 742, "staged": 0 },
+    "currentDirty": { "total": 942, "trackedUnstaged": 187, "untracked": 755, "staged": 0 },
+    "gitMutations": { "staged": false, "committed": false, "pushed": false, "deployed": false }
+  },
+  "runtime": {
+    "node": "20.20.2",
+    "pnpm": "10.28.1",
+    "device": "emulator-5554",
+    "avd": "wooriai_pixel_5_api35",
+    "androidApi": 35,
+    "abi": "x86_64"
+  },
+  "regression": {
+    "testFiles": [
+      "apps/mobile/src/android-startup-evaluation.test.ts",
+      "apps/mobile/src/android-standalone-apk.test.ts"
+    ],
+    "red": [
+      "native builders did not consistently use the mobile project owning metro.config.js",
+      "Pixel report retained EXPO_ROUTER_APP_ROOT=apps/mobile/app"
+    ],
+    "green": "2 files / 11 tests PASS"
+  },
+  "releaseGate": {
+    "generatedAt": "2026-07-19T20:19:13.077Z",
+    "pass": 11,
+    "total": 11,
+    "durationMs": 536404,
+    "timedOut": false
+  },
+  "source": {
+    "fileCount": 890,
+    "nativeExplicitFileCount": 82,
+    "snapshotSha256": "15C9FF8046AFD16AA8444D139474EA22E1CAFEF8C8F60107FBECE4C996373477",
+    "verification": "VERIFIED_STABLE"
+  },
+  "artifact": {
+    "path": "F:/WooriAI/artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "bytes": 77308226,
+    "sha256": "19AB0F1C048576716A3F326D90BD9F7DDA53037755B1E560A83314381387DA6E",
+    "hermesBytes": 2734804,
+    "hermesSha256": "1F0A2AEAD99EC711FCD293750D7A03951242D0B670560A2D5C6721FDBD549C6B",
+    "sourceBinding": "BOUND",
+    "profile": "standalone",
+    "package": "com.anonymous.wooriai",
+    "versionName": "0.0.0",
+    "versionCode": 1,
+    "signer": "Android Debug",
+    "storeArtifact": false
+  },
+  "installed": {
+    "pulledBasePath": "F:/WooriAI/artifacts/self-implement/20260720-si006/installed-base-native-root.apk",
+    "sha256": "19AB0F1C048576716A3F326D90BD9F7DDA53037755B1E560A83314381387DA6E",
+    "byteIdentical": true,
+    "homeRuns": [12.69, 13.39, 13.05, 13.11, 11.60],
+    "homePass": 5,
+    "processAlivePass": 5,
+    "fatalMatches": 0,
+    "screenshot": "F:/WooriAI/artifacts/self-implement/20260720-si006/qualified-native-root-final/home-5.png"
+  },
+  "experiment": {
+    "inlineRequires": "REJECTED_AND_REMOVED",
+    "reason": "installed cold-start timings worsened to 15.24-24.60 seconds"
+  },
+  "status": {
+    "buildSourceBoundary": "PASS",
+    "installedStability": "PASS",
+    "startupPerformance": "OPEN_NOT_FIXED",
+    "physicalDevice": "NOT_RUN_BLOCKED",
+    "talkBack": "NOT_RUN_BLOCKED"
+  }
+}

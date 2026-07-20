@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "diagnostics": ["API instance health", "Remote Config source/version", "worker/publisher heartbeat", "storage health", "outbox depth and oldest age", "leased/retry/permanent/DLQ counts", "import nonterminal/orphan/missing counts", "last reconciliation summary"],
+  "redacted": ["credentials", "connection strings", "provider tokens", "financial payloads", "raw container command lines"],
+  "roles": ["admin analyst read-only", "operations operator", "config operator", "import operator", "publisher"],
+  "actions": ["retry one failed outbox row", "reconcile one unknown delivery", "import reconciliation dry-run/repair", "Remote Config rollout/rollback"],
+  "browser": { "files": 1, "tests": 2, "mutationDuplicates": 0, "directUnauthorizedStatus": 403, "scopedRefresh": true, "globalRefetch": false, "screenshots": 0, "traces": 0, "result": "PASS" }
+}

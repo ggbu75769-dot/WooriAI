@@ -3,14 +3,19 @@ import { useQuery } from "@tanstack/react-query";
 import { router, type Href } from "expo-router";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { listExpenses, fixtureSessionToken } from "../../src/api/client";
 import { categoryCatalog, categoryNameFor } from "../../src/categories";
 import { formatKrw } from "../../src/money";
+import { expenseDetailRoute } from "../../src/navigation/routes";
+import { expenseCategoryVisual } from "../../src/preparation/item-visuals";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
+import { useConnectivityStatus } from "../../src/offline/connectivity";
 import { subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import { normalizeAppSyncStatus } from "../../src/offline/sync-display-state";
+import { childScopedRequestEnabled } from "../../src/query/child-scope";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppIcon, AppScreen, Card, CategoryChip, EmptyStateCard, IconButton, ListRow, PrimaryButton, SampleDataBanner, ScreenHeader, StatusBadge, Toast } from "../../src/ui";
+import { AppIcon, AppScreen, Card, CategoryChip, EmptyStateCard, ListRow, SampleDataBanner, StatusBadge, SyncStatusBar, Toast, TopAppBar } from "../../src/design-system";
 import { theme } from "../../src/theme";
 
 const recordsScreenId = "EXP-004";
@@ -32,7 +37,7 @@ function yearMonthOf(date: Date) {
 export default function RecordsScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const [monthOffset, setMonthOffset] = useState(0);
   const [searchText, setSearchText] = useState("");
@@ -67,14 +72,21 @@ export default function RecordsScreen() {
 
   const expenses = useQuery({
     queryKey: ["expenses", childId, recordsYearMonth],
-    enabled: Boolean(authToken && childId),
+    enabled: childScopedRequestEnabled(authToken, childId),
     queryFn: () => listExpenses(authToken!, childId!, recordsYearMonth)
   });
 
   // EXP-005: not-yet-synced local expenses for this child, so a record created/edited while
   // offline shows up immediately even though the server hasn't confirmed it yet.
   const syncSnapshot = useOfflineSyncSnapshot();
-  const unsyncedCount = syncSnapshot.counts.pending + syncSnapshot.counts.syncing + syncSnapshot.counts.failed + syncSnapshot.counts.conflict;
+  const online = useConnectivityStatus();
+  const syncStatus = normalizeAppSyncStatus(syncSnapshot.counts, online);
+  const unsyncedCount =
+    syncSnapshot.counts.pending +
+    syncSnapshot.counts.syncing +
+    syncSnapshot.counts.retryWait +
+    syncSnapshot.counts.failed +
+    syncSnapshot.counts.conflict;
 
   // H-2 fix: reconcile the server's listExpenses response with any not-yet-synced local rows for
   // this month -- an edited/deleted *existing* server expense would otherwise show up twice (the
@@ -125,14 +137,7 @@ export default function RecordsScreen() {
     <AppScreen>
       <View accessibilityLabel={recordsScreenId} testID="screen-EXP-004" style={{ gap: theme.spacing.section }}>
         {isTestSession ? <SampleDataBanner /> : null}
-        <ScreenHeader
-          eyebrow="지출 기록"
-          title="기록"
-          subtitle="이번 달 지출 내역을 한눈에 확인해 보세요."
-          action={<IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/profile" as Href)} />}
-        />
-
-        <PrimaryButton label="빠른 지출 기록" onPress={() => router.push("/expenses/new")} />
+        <TopAppBar title="기록" />
 
         {confirmedFlash ? <Toast message={confirmedFlash} tone="success" /> : null}
 
@@ -143,8 +148,8 @@ export default function RecordsScreen() {
             onPress={() => router.push("/sync-status")}
             style={{ alignItems: "center", flexDirection: "row", gap: 8 }}
           >
-            {syncSnapshot.counts.pending + syncSnapshot.counts.syncing > 0 ? (
-              <StatusBadge label={`대기 ${syncSnapshot.counts.pending + syncSnapshot.counts.syncing}`} tone="neutral" />
+            {syncSnapshot.counts.pending + syncSnapshot.counts.syncing + syncSnapshot.counts.retryWait > 0 ? (
+              <StatusBadge label={`대기 ${syncSnapshot.counts.pending + syncSnapshot.counts.syncing + syncSnapshot.counts.retryWait}`} tone="neutral" />
             ) : null}
             {syncSnapshot.counts.failed > 0 ? <StatusBadge label={`실패 ${syncSnapshot.counts.failed}`} tone="warning" /> : null}
             {syncSnapshot.counts.conflict > 0 ? <StatusBadge label={`충돌 ${syncSnapshot.counts.conflict}`} tone="warning" /> : null}
@@ -159,11 +164,11 @@ export default function RecordsScreen() {
             paddingHorizontal: 6
           }}
         >
-          <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
+          <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)} style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget }}>
             <AppIcon name="chevron-left" size={26} />
           </Pressable>
           <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
-          <Pressable accessibilityLabel="다음 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
+          <Pressable accessibilityLabel="다음 달" accessibilityRole="button" accessibilityState={{ disabled: monthOffset >= 0 }} disabled={monthOffset >= 0} hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)} style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget, opacity: monthOffset >= 0 ? 0.35 : 1 }}>
             <AppIcon name="chevron-right" size={26} />
           </Pressable>
         </View>
@@ -245,16 +250,20 @@ export default function RecordsScreen() {
                       <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>{formatSpentOn(group.spentOn)}</Text>
                       <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>{formatKrw(group.totalKrw)}</Text>
                     </View>
-                    {group.expenses.map((expense) => (
-                      <ListRow
-                        key={expense.id}
-                        icon={<AppIcon color={theme.colors.coral[600]} name="receipt" size={20} />}
-                        title={expense.itemName}
-                        subtitle={`${categoryNameFor(expense.categoryId)}${expense.expenseType === "gift" ? " · 선물" : ""}`}
-                        value={formatKrw(expense.amountKrw)}
-                        onPress={() => router.push(`/expenses/${expense.id}`)}
-                      />
-                    ))}
+                    {group.expenses.map((expense) => {
+                      const visual = expenseCategoryVisual(expense.categoryId);
+                      return (
+                        <ListRow
+                          key={expense.id}
+                          icon={<AppIcon color={visual.iconColor} name={visual.icon} size={20} />}
+                          iconBackgroundColor={visual.iconBackgroundColor}
+                          title={expense.itemName}
+                          subtitle={`${categoryNameFor(expense.categoryId)}${expense.expenseType === "gift" ? " · 선물" : ""}`}
+                          value={formatKrw(expense.amountKrw)}
+                          onPress={() => router.push(expenseDetailRoute(expense.id))}
+                        />
+                      );
+                    })}
                   </View>
                 ))}
               </View>
@@ -276,6 +285,10 @@ export default function RecordsScreen() {
             onPress={() => (hasSearchQuery ? setSearchText("") : router.push("/expenses/new"))}
           />
         )}
+        <Pressable accessibilityLabel="지출 기록 추가" accessibilityRole="button" onPress={() => router.push("/expenses/new")} style={({ pressed }) => ({ alignItems: "center", alignSelf: "flex-end", backgroundColor: theme.colors.mainCoral, borderRadius: 28, height: 56, justifyContent: "center", opacity: pressed ? 0.82 : 1, width: 56 })}>
+          <AppIcon color={theme.colors.white} name="plus" size={28} />
+        </Pressable>
+        <SyncStatusBar onPress={() => router.push("/sync-status" as Href)} status={syncStatus} />
       </View>
     </AppScreen>
   );

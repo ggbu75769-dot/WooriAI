@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "PASS",
+  "actor": "slow-network parent",
+  "input": "draft and final requests",
+  "mission": "avoid duplicate or child-scoped calls",
+  "assertions": {
+    "starterRequests": 1,
+    "finalMutations": 1,
+    "duplicateSideEffects": 1,
+    "rowRequests": 0,
+    "noChildScopedRequests": 0,
+    "rootInvalidations": 0,
+    "scopedInvalidationKeys": 6
+  },
+  "repetition": {
+    "duplicateSubmit": 30,
+    "noChild": 30
+  }
+}

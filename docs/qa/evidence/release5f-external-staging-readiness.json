@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T21:25:11.327Z",
+  "actor": "release_engineer",
+  "input": {
+    "profile": "local",
+    "credentialValuesIncluded": false
+  },
+  "mission": "Validate external staging prerequisites without exposing secret values.",
+  "status": "EXTERNAL_BLOCKED",
+  "failClosed": true,
+  "diagnosticsExposeSecrets": false,
+  "featureRequirements": {
+    "external_recall_provider": "DB-backed flag plus live mode and webhook secret",
+    "merchant_offer_comparison": "DB-backed flag plus live mode and merchant credential"
+  },
+  "checks": [
+    {
+      "id": "external_staging_core",
+      "requiredForLive": true,
+      "present": false,
+      "status": "EXTERNAL_BLOCKED",
+      "detail": "PostgreSQL, Redis, and object storage credentials"
+    },
+    {
+      "id": "oauth",
+      "requiredForLive": true,
+      "present": false,
+      "status": "EXTERNAL_BLOCKED",
+      "detail": "Live OAuth client identifiers"
+    },
+    {
+      "id": "push",
+      "requiredForLive": true,
+      "present": false,
+      "status": "EXTERNAL_BLOCKED",
+      "detail": "Live push provider mode and credential"
+    },
+    {
+      "id": "recall",
+      "requiredForLive": true,
+      "present": false,
+      "status": "EXTERNAL_BLOCKED",
+      "detail": "Live recall mode and webhook signature secret"
+    },
+    {
+      "id": "merchant",
+      "requiredForLive": true,
+      "present": false,
+      "status": "EXTERNAL_BLOCKED",
+      "detail": "Live merchant feed mode and credential"
+    },
+    {
+      "id": "signing",
+      "requiredForLive": true,
+      "present": false,
+      "status": "EXTERNAL_BLOCKED",
+      "detail": "Production Android signing configuration"
+    }
+  ],
+  "runbook": [
+    "Provision separate staging credentials and approved endpoints.",
+    "Run the production config validator before activating either DB-backed feature flag.",
+    "Verify OAuth, push, recall, object storage, and merchant adapter health without logging secrets.",
+    "Run the smoke manifest and restore drill; roll back by publishing a new Remote Config version."
+  ]
+}

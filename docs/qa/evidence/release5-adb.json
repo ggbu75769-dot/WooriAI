@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:34:22.2653381Z",
+  "adbBinary": "C:/Users/nj970/AppData/Local/Android/Sdk/platform-tools/adb.exe",
+  "authorizedDevices": 0,
+  "emulatorStarted": false,
+  "installCount": 0,
+  "smoke": "NOT_RUN_NO_DEVICE",
+  "artifactSha256": "50CACF8967D83E7C43169BD79B3B95E50B0A4D501033E8F05E9C6DD4A35B45CC",
+  "sourceSnapshotSha256": "46358F0F5D51086DD1E62E90A2261FB28301A6499747EE781603E0DC7E598344",
+  "reason": "adb devices -l reported no authorized device; the program forbids starting an emulator."
+}

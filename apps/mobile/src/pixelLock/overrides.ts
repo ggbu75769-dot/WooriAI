@@ -1,10 +1,7 @@
 import generatedOverrides from "./generated-overrides.json";
+import { isPixelLockBuild } from "./build-profile";
 
 type PixelLockOverrideMap = Record<string, Record<string, number>>;
-
-declare const __DEV__: boolean;
-
-const pixelLockStyleOverridesEnabled = __DEV__ || process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 
 function runtimeOverrides() {
   const globalWithOverrides = globalThis as typeof globalThis & {
@@ -14,7 +11,7 @@ function runtimeOverrides() {
 }
 
 export function pixelNumber(screenId: string, key: string, fallback: number) {
-  if (!pixelLockStyleOverridesEnabled) return fallback;
+  if (!isPixelLockBuild()) return fallback;
   const generated = generatedOverrides as PixelLockOverrideMap;
   const override = runtimeOverrides()[screenId]?.[key] ?? generated[screenId]?.[key];
   return Number.isFinite(override) ? override : fallback;

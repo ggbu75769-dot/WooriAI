@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "owner/co-parent",
+  "input": "purchase history",
+  "mission": "suppress sparse and explain confidence",
+  "evidence": [
+    "release5.test.ts",
+    "release5e-assisted.e2e.test.ts"
+  ]
+}

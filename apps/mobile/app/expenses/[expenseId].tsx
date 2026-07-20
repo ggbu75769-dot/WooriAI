@@ -2,74 +2,26 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
-import { getExpense, listPaymentMethods, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { getSeoulToday } from "@wooriai/domain";
+import { getExpense, getExpensePlanLinkSuggestions, linkExpensePlan, listPaymentMethods, fixtureSessionToken, type Expense } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
+import { ExpenseAttributionField } from "../../src/expenses/ExpenseAttributionField";
+import { buildRecentExpenseDateChips, formatExpenseAmountInput, formatExpenseDate, sanitizeExpenseAmountText, validateExpenseDateInput, validateExpenseForm } from "../../src/expenses/form-contract";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
+import { writableExpenseType } from "../../src/offline/expense-payload";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
+import { AppIcon, AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const expenseDetailScreenId = "EXP-003";
-
-function toDigits(value: string) {
-  return value.replace(/[^0-9]/g, "");
-}
-
-function formatAmount(digits: string) {
-  if (!digits) return "";
-  return Number(digits).toLocaleString("ko-KR");
-}
-
-function formatExpenseDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const weekday = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
-  return { iso: `${year}-${month}-${day}`, label: `${year}. ${month}. ${day} (${weekday})` };
-}
-
-// Calendar-valid check for a user-typed YYYY-MM-DD string -- `new Date(year, month-1, day)`
-// silently rolls invalid days (e.g. 2026-02-31) into the following month, so we re-derive the
-// parts from the constructed Date and require them to match the input exactly.
-function isValidCalendarDate(dateOnly: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
-  if (!match) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(year, month - 1, day);
-  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-}
-
-function validateExpenseDateInput(dateOnly: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return "YYYY-MM-DD 형식으로 입력해 주세요.";
-  if (!isValidCalendarDate(dateOnly)) return "존재하지 않는 날짜예요.";
-  try {
-    if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";
-  } catch {
-    return "날짜를 다시 확인해 주세요.";
-  }
-  return null;
-}
-
-function buildRecentDateChips(today: Date) {
-  return Array.from({ length: 14 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(date.getDate() - index);
-    const formatted = formatExpenseDate(date);
-    const shortLabel = index === 0 ? "오늘" : index === 1 ? "어제" : index === 2 ? "그제" : `${date.getMonth() + 1}/${date.getDate()}`;
-    return { iso: formatted.iso, shortLabel };
-  });
-}
 
 export default function ExpenseDetailScreen() {
   const params = useLocalSearchParams<{ expenseId?: string }>();
   const expenseId = String(params.expenseId ?? "");
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const queryClient = useQueryClient();
   const expense = useQuery({
     queryKey: ["expense", expenseId],
@@ -81,18 +33,23 @@ export default function ExpenseDetailScreen() {
     enabled: Boolean(authToken),
     queryFn: () => listPaymentMethods(authToken!)
   });
+  const linkSuggestions = useQuery({
+    queryKey: ["expense-plan-link-suggestions", expenseId, expense.data?.version],
+    enabled: Boolean(authToken && expense.data && !expense.data.linkedItemDefinitionId && !isTestSession),
+    queryFn: () => getExpensePlanLinkSuggestions(authToken!, expenseId)
+  });
   const [itemName, setItemName] = useState("");
   const [amountDigits, setAmountDigits] = useState("");
   const [memo, setMemo] = useState("");
   const [spentOnIso, setSpentOnIso] = useState("");
   const [categoryId, setCategoryId] = useState("");
-  const [isGift, setIsGift] = useState(false);
+  const [expenseType, setExpenseType] = useState<Expense["expenseType"]>("expense");
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDateMode, setCustomDateMode] = useState(false);
   const [customDateText, setCustomDateText] = useState("");
   const [today] = useState(() => new Date(`${getSeoulToday()}T00:00:00`));
-  const recentDateChips = buildRecentDateChips(today);
+  const recentDateChips = buildRecentExpenseDateChips(today);
   // MOB-102 (round5a-sprint1-plan.md §3.2, §3.4): an expense loaded here came from the normal
   // server/local-session getExpense call, so it has no offline local_expenses row yet. Editing
   // or deleting it needs to route through the same outbox/expectedVersion pipeline as an
@@ -108,22 +65,22 @@ export default function ExpenseDetailScreen() {
     setMemo(expense.data.memo ?? "");
     setSpentOnIso(expense.data.spentOn);
     setCategoryId(expense.data.categoryId);
-    setIsGift(expense.data.expenseType === "gift");
+    setExpenseType(expense.data.expenseType);
     setPaymentMethodId(expense.data.paymentMethodId ?? null);
     setLocalExpenseId(null);
     void adoptServerExpense(expense.data).then((row) => setLocalExpenseId(row.localId));
   }, [expense.data]);
 
-  const amountKrw = Number(amountDigits || "0");
-  const itemNameError = itemName.trim().length === 0 ? "품목을 입력해 주세요." : null;
-  const amountError = amountDigits.length > 0 && amountKrw <= 0 ? "0보다 큰 금액을 입력해 주세요." : null;
+  const formValidation = validateExpenseForm({ itemName, amountText: amountDigits, spentOn: spentOnIso });
+  const { amountKrw, itemNameError } = formValidation;
+  const amountError = amountDigits.length > 0 ? formValidation.amountError : null;
   const dateInputError = customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
   const spentOnLabel = spentOnIso ? formatExpenseDate(new Date(`${spentOnIso}T00:00:00`)).label : "";
-  const canSave = !itemNameError && !amountError && !dateInputError && amountKrw > 0 && Boolean(authToken && expenseId && localExpenseId);
+  const canSave = formValidation.valid && !dateInputError && Boolean(authToken && expenseId && localExpenseId);
 
   const save = useMutation({
     mutationFn: () => {
-      if (!authToken || !localExpenseId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
+      if (!authToken || !localExpenseId || !formValidation.valid || Boolean(dateInputError)) {
         throw new Error("invalid expense");
       }
       return updateExpenseOffline(authToken, queryClient, localExpenseId, {
@@ -133,13 +90,11 @@ export default function ExpenseDetailScreen() {
         spentOn: spentOnIso || undefined,
         categoryId: categoryId || undefined,
         paymentMethodId,
-        expenseType: isGift ? "gift" : "expense"
+        expenseType: writableExpenseType(expenseType)
       });
     },
     onSuccess: async () => {
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
-      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      await queryClient.invalidateQueries({ queryKey: ["expense", expenseId] });
       setTimeout(() => router.replace("/(tabs)/records"), 650);
     }
   });
@@ -151,8 +106,18 @@ export default function ExpenseDetailScreen() {
     },
     onSuccess: async () => {
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
-      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       setTimeout(() => router.replace("/(tabs)/records"), 650);
+    }
+  });
+  const linkPlan = useMutation({
+    mutationFn: (suggestion: { planId: string; reasonCodes: string[] }) => linkExpensePlan(authToken!, expenseId, {
+      planId: suggestion.planId,
+      expectedVersion: expense.data!.version,
+      reasonCode: suggestion.reasonCodes[0] ?? "explicit_item"
+    }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["expense", expenseId] });
+      await queryClient.invalidateQueries({ queryKey: ["report-v3"] });
     }
   });
 
@@ -238,10 +203,10 @@ export default function ExpenseDetailScreen() {
                 >
                   <TextInput
                     keyboardType="number-pad"
-                    onChangeText={(value) => setAmountDigits(toDigits(value))}
+                    onChangeText={(value) => setAmountDigits(sanitizeExpenseAmountText(value))}
                     placeholder="금액"
                     style={{ color: theme.colors.brown, flex: 1, fontSize: theme.typography.body1.fontSize }}
-                    value={formatAmount(amountDigits)}
+                    value={formatExpenseAmountInput(amountDigits)}
                   />
                   <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
                     원
@@ -349,6 +314,8 @@ export default function ExpenseDetailScreen() {
                 </ScrollView>
               </View>
 
+              <ExpenseAttributionField />
+
               <View style={{ gap: 6 }}>
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
                   메모 (선택)
@@ -383,46 +350,87 @@ export default function ExpenseDetailScreen() {
                 }}
               >
                 <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>결제수단</Text>
-                <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>
-                  {selectedPaymentMethod.label}{selectedPaymentMethod.active ? "" : " (숨김)"} ›
-                </Text>
+                <View style={{ alignItems: "center", flexDirection: "row", gap: 6 }}>
+                  <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>
+                    {selectedPaymentMethod.label}{selectedPaymentMethod.active ? "" : " (숨김)"}
+                  </Text>
+                  <AppIcon color={theme.colors.brown} name="chevron-right" size={20} />
+                </View>
               </Pressable>
 
-              <Pressable
-                accessibilityLabel="선물로 받았어요"
-                accessibilityRole="checkbox"
-                onPress={() => setIsGift((value) => !value)}
-                style={{
-                  alignItems: "center",
-                  backgroundColor: theme.colors.white,
-                  borderColor: "rgba(74, 63, 53, 0.10)",
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  flexDirection: "row",
-                  gap: 10,
-                  padding: 14
-                }}
-              >
+              {expenseType === "refund" || expenseType === "support" ? (
                 <View
+                  accessibilityLabel={`${expenseType === "refund" ? "환불" : "지원금"} 기록. 유형은 유지됩니다.`}
                   style={{
-                    alignItems: "center",
-                    backgroundColor: isGift ? theme.colors.mainCoral : theme.colors.white,
-                    borderColor: isGift ? theme.colors.mainCoral : theme.colors.gray300,
-                    borderRadius: 6,
-                    borderWidth: 2,
-                    height: 22,
-                    justifyContent: "center",
-                    width: 22
+                    backgroundColor: theme.colors.beige,
+                    borderRadius: 14,
+                    gap: 4,
+                    minHeight: theme.touchTarget,
+                    padding: 14
                   }}
                 >
-                  {isGift ? <Text style={{ color: theme.colors.white, fontSize: 14, fontWeight: "900" }}>✓</Text> : null}
+                  <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>
+                    {expenseType === "refund" ? "환불 기록" : "지원금 기록"}
+                  </Text>
+                  <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>
+                    금액과 메모를 수정해도 이 정산 유형은 유지돼요.
+                  </Text>
                 </View>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>선물로 받았어요</Text>
-                  <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>선물은 지출 합계에 포함되지 않아요</Text>
-                </View>
-              </Pressable>
+              ) : (
+                <Pressable
+                  accessibilityLabel="선물로 받았어요"
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: expenseType === "gift" }}
+                  onPress={() => setExpenseType((value) => value === "gift" ? "expense" : "gift")}
+                  style={{
+                    alignItems: "center",
+                    backgroundColor: theme.colors.white,
+                    borderColor: "rgba(74, 63, 53, 0.10)",
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    flexDirection: "row",
+                    gap: 10,
+                    minHeight: theme.touchTarget,
+                    padding: 14
+                  }}
+                >
+                  <View
+                    style={{
+                      alignItems: "center",
+                      backgroundColor: expenseType === "gift" ? theme.colors.mainCoral : theme.colors.white,
+                      borderColor: expenseType === "gift" ? theme.colors.mainCoral : theme.colors.gray300,
+                      borderRadius: 6,
+                      borderWidth: 2,
+                      height: 22,
+                      justifyContent: "center",
+                      width: 22
+                    }}
+                  >
+                    {expenseType === "gift" ? <AppIcon color={theme.colors.white} name="check" size={16} /> : null}
+                  </View>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>선물로 받았어요</Text>
+                    <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>선물은 지출 합계에 포함되지 않아요</Text>
+                  </View>
+                </Pressable>
+              )}
             </Card>
+
+            {!isTestSession && expense.data?.linkedItemDefinitionId ? (
+              <Card><Text style={{ color: theme.colors.brown, fontSize: 15, fontWeight: "800" }}>준비 계획과 연결됨</Text><Text style={{ color: theme.colors.gray600, fontSize: 13 }}>Report의 예정 대비 실제 비용에 바로 반영돼요.</Text></Card>
+            ) : !isTestSession && linkSuggestions.data?.suggestions.length ? (
+              <Card style={{ gap: 10 }}>
+                <Text style={{ color: theme.colors.brown, fontSize: 15, fontWeight: "800" }}>관련 준비 계획 제안</Text>
+                <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>자동 연결하지 않아요. 확인한 항목만 연결됩니다.</Text>
+                {linkSuggestions.data.suggestions.slice(0, 3).map((suggestion) => (
+                  <View key={suggestion.planId} style={{ gap: 6 }}>
+                    <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{suggestion.itemName}</Text>
+                    <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{suggestion.explanation}</Text>
+                    <SecondaryButton label="이 준비 계획과 연결" disabled={linkPlan.isPending} onPress={() => linkPlan.mutate(suggestion)} />
+                  </View>
+                ))}
+              </Card>
+            ) : null}
 
             {save.isError || remove.isError ? (
               <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" />

@@ -1,0 +1,1835 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T03:16:44.403Z",
+  "sourceHead": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+  "generatedFrom": "docs/qa/evidence/release4-ui-route-inventory.json",
+  "evidencePolicy": {
+    "automatedPassIsContractQualificationOnly": true,
+    "runtimePassRequiresInstalledAndroidEvidence": true,
+    "browserOrExpoWebIsFinalEvidence": false
+  },
+  "summary": {
+    "routeFiles": 38,
+    "scenariosPerRoute": 9,
+    "classifiedScenarios": 342,
+    "statusCounts": {
+      "AUTOMATED_PASS": 126,
+      "AUTOMATED_FAIL": 0,
+      "RUNTIME_ONLY": 47,
+      "NOT_APPLICABLE": 169,
+      "BLOCKED_EXTERNAL": 0
+    },
+    "runtimePassed": 0
+  },
+  "layoutMatrix": {
+    "widthsDp": [
+      320,
+      360,
+      390,
+      411,
+      430,
+      600,
+      840
+    ],
+    "fontScales": [
+      1,
+      1.3,
+      1.5
+    ],
+    "androidVersions": [
+      13,
+      14,
+      15
+    ],
+    "combinations": 63,
+    "status": "RUNTIME_ONLY",
+    "assertions": [
+      "no_horizontal_overflow",
+      "no_right_side_excess_whitespace",
+      "safe_area",
+      "keyboard_avoidance",
+      "modal_and_bottom_sheet_bounds",
+      "long_korean_text",
+      "button_wrapping",
+      "card_width",
+      "chart_width",
+      "tab_bar"
+    ]
+  },
+  "accessibilityMatrix": {
+    "status": "RUNTIME_ONLY",
+    "assertions": [
+      "label_role_state",
+      "focus_order",
+      "screen_reader_traversal",
+      "touch_target_48dp",
+      "color_independent_state",
+      "reduce_motion",
+      "font_scale_1_5",
+      "keyboard_avoidance",
+      "modal_focus_restore"
+    ]
+  },
+  "routes": [
+    {
+      "route": "/login",
+      "sourcePath": "apps/mobile/app/(auth)/login.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/budget",
+      "sourcePath": "apps/mobile/app/(onboarding)/budget.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "RUNTIME_ONLY",
+          "reason": "asynchronous route requires a deterministic loading state; no dedicated source-state signal was detected"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "RUNTIME_ONLY",
+          "reason": "monetary route requires deterministic large-value fixture and overflow verification"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/child-profile",
+      "sourcePath": "apps/mobile/app/(onboarding)/child-profile.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "RUNTIME_ONLY",
+          "reason": "asynchronous route requires a deterministic loading state; no dedicated source-state signal was detected"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/child-status",
+      "sourcePath": "apps/mobile/app/(onboarding)/child-status.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is synchronous and does not wait for remote or persisted data"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no asynchronous operation with a distinct recoverable error state"
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/prepared-items",
+      "sourcePath": "apps/mobile/app/(onboarding)/prepared-items.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "RUNTIME_ONLY",
+          "reason": "asynchronous route requires a deterministic loading state; no dedicated source-state signal was detected"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "RUNTIME_ONLY",
+          "reason": "catalog collection requires a deterministic large-list fixture and scroll verification"
+        }
+      }
+    },
+    {
+      "route": "/resume",
+      "sourcePath": "apps/mobile/app/(onboarding)/resume.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is synchronous and does not wait for remote or persisted data"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no asynchronous operation with a distinct recoverable error state"
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/",
+      "sourcePath": "apps/mobile/app/(tabs)/index.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "RUNTIME_ONLY",
+          "reason": "monetary route requires deterministic large-value fixture and overflow verification"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/items",
+      "sourcePath": "apps/mobile/app/(tabs)/items.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "RUNTIME_ONLY",
+          "reason": "catalog collection requires a deterministic large-list fixture and scroll verification"
+        }
+      }
+    },
+    {
+      "route": "/more",
+      "sourcePath": "apps/mobile/app/(tabs)/more.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "AUTOMATED_PASS",
+          "reason": "resource or role scoped route requires denied-access behavior; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/records",
+      "sourcePath": "apps/mobile/app/(tabs)/records.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "AUTOMATED_PASS",
+          "reason": "installed-app offline and reconnect behavior must be exercised; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "RUNTIME_ONLY",
+          "reason": "monetary route requires deterministic large-value fixture and overflow verification"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/reports",
+      "sourcePath": "apps/mobile/app/(tabs)/reports.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "RUNTIME_ONLY",
+          "reason": "monetary route requires deterministic large-value fixture and overflow verification"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/budget",
+      "sourcePath": "apps/mobile/app/budget.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "RUNTIME_ONLY",
+          "reason": "monetary route requires deterministic large-value fixture and overflow verification"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/children",
+      "sourcePath": "apps/mobile/app/children/index.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/children/new",
+      "sourcePath": "apps/mobile/app/children/new.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/children/[childId]",
+      "sourcePath": "apps/mobile/app/children/[childId].tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/expenses/new",
+      "sourcePath": "apps/mobile/app/expenses/new.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "RUNTIME_ONLY",
+          "reason": "asynchronous route requires a deterministic loading state; no dedicated source-state signal was detected"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "AUTOMATED_PASS",
+          "reason": "installed-app offline and reconnect behavior must be exercised; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "RUNTIME_ONLY",
+          "reason": "monetary route requires deterministic large-value fixture and overflow verification"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/expenses/[expenseId]",
+      "sourcePath": "apps/mobile/app/expenses/[expenseId].tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "AUTOMATED_PASS",
+          "reason": "installed-app offline and reconnect behavior must be exercised; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "authorization": {
+          "status": "RUNTIME_ONLY",
+          "reason": "resource or role scoped route requires denied-access behavior; no dedicated source-state signal was detected"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "RUNTIME_ONLY",
+          "reason": "monetary route requires deterministic large-value fixture and overflow verification"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/family/accept/[token]",
+      "sourcePath": "apps/mobile/app/family/accept/[token].tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "RUNTIME_ONLY",
+          "reason": "resource or role scoped route requires denied-access behavior; no dedicated source-state signal was detected"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/family",
+      "sourcePath": "apps/mobile/app/family/index.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "AUTOMATED_PASS",
+          "reason": "resource or role scoped route requires denied-access behavior; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/family/invite",
+      "sourcePath": "apps/mobile/app/family/invite.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "RUNTIME_ONLY",
+          "reason": "asynchronous route requires a deterministic loading state; no dedicated source-state signal was detected"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "RUNTIME_ONLY",
+          "reason": "resource or role scoped route requires denied-access behavior; no dedicated source-state signal was detected"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/import",
+      "sourcePath": "apps/mobile/app/import/index.tsx",
+      "renderedByDestination": true,
+      "scenarios": {
+        "normal": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route has no independent rendered state"
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "offline": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "long_content": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        }
+      }
+    },
+    {
+      "route": "/import/[importJobId]",
+      "sourcePath": "apps/mobile/app/import/[importJobId].tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "RUNTIME_ONLY",
+          "reason": "resource or role scoped route requires denied-access behavior; no dedicated source-state signal was detected"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "RUNTIME_ONLY",
+          "reason": "monetary route requires deterministic large-value fixture and overflow verification"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/",
+      "sourcePath": "apps/mobile/app/index.tsx",
+      "renderedByDestination": true,
+      "scenarios": {
+        "normal": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route has no independent rendered state"
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "offline": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "long_content": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        }
+      }
+    },
+    {
+      "route": "/items/[itemTemplateId]",
+      "sourcePath": "apps/mobile/app/items/[itemTemplateId].tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "RUNTIME_ONLY",
+          "reason": "resource or role scoped route requires denied-access behavior; no dedicated source-state signal was detected"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "RUNTIME_ONLY",
+          "reason": "monetary route requires deterministic large-value fixture and overflow verification"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/launch-animation",
+      "sourcePath": "apps/mobile/app/launch-animation.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is synchronous and does not wait for remote or persisted data"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no asynchronous operation with a distinct recoverable error state"
+        },
+        "offline": {
+          "status": "NOT_APPLICABLE",
+          "reason": "transition route cannot provide a useful offline data surface"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/notifications",
+      "sourcePath": "apps/mobile/app/notifications.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/oauth/kakao",
+      "sourcePath": "apps/mobile/app/oauth/kakao.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "RUNTIME_ONLY",
+          "reason": "asynchronous route requires a deterministic loading state; no dedicated source-state signal was detected"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "NOT_APPLICABLE",
+          "reason": "transition route cannot provide a useful offline data surface"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/onboarding/budget",
+      "sourcePath": "apps/mobile/app/onboarding/budget.tsx",
+      "renderedByDestination": true,
+      "scenarios": {
+        "normal": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route has no independent rendered state"
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "offline": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "long_content": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        }
+      }
+    },
+    {
+      "route": "/onboarding/child-profile",
+      "sourcePath": "apps/mobile/app/onboarding/child-profile.tsx",
+      "renderedByDestination": true,
+      "scenarios": {
+        "normal": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route has no independent rendered state"
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "offline": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "long_content": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        }
+      }
+    },
+    {
+      "route": "/onboarding/child-status",
+      "sourcePath": "apps/mobile/app/onboarding/child-status.tsx",
+      "renderedByDestination": true,
+      "scenarios": {
+        "normal": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route has no independent rendered state"
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "offline": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "long_content": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        }
+      }
+    },
+    {
+      "route": "/onboarding/prepared-items",
+      "sourcePath": "apps/mobile/app/onboarding/prepared-items.tsx",
+      "renderedByDestination": true,
+      "scenarios": {
+        "normal": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route has no independent rendered state"
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "offline": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "long_content": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        }
+      }
+    },
+    {
+      "route": "/onboarding/resume",
+      "sourcePath": "apps/mobile/app/onboarding/resume.tsx",
+      "renderedByDestination": true,
+      "scenarios": {
+        "normal": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route has no independent rendered state"
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "offline": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "long_content": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "redirect or re-export route delegates all rendered states to its destination"
+        }
+      }
+    },
+    {
+      "route": "/payment-methods",
+      "sourcePath": "apps/mobile/app/payment-methods.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "RUNTIME_ONLY",
+          "reason": "asynchronous route requires a deterministic loading state; no dedicated source-state signal was detected"
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/profile",
+      "sourcePath": "apps/mobile/app/profile.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is synchronous and does not wait for remote or persisted data"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no asynchronous operation with a distinct recoverable error state"
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/reports/sources",
+      "sourcePath": "apps/mobile/app/reports/sources.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/settings",
+      "sourcePath": "apps/mobile/app/settings/index.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is synchronous and does not wait for remote or persisted data"
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no asynchronous operation with a distinct recoverable error state"
+        },
+        "offline": {
+          "status": "RUNTIME_ONLY",
+          "reason": "installed-app offline and reconnect behavior must be exercised; no dedicated source-state signal was detected"
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/settings/privacy",
+      "sourcePath": "apps/mobile/app/settings/privacy.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route is a form, detail, transition, or static settings surface rather than an empty collection"
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "AUTOMATED_PASS",
+          "reason": "installed-app offline and reconnect behavior must be exercised; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "authorization": {
+          "status": "AUTOMATED_PASS",
+          "reason": "resource or role scoped route requires denied-access behavior; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    },
+    {
+      "route": "/sync-status",
+      "sourcePath": "apps/mobile/app/sync-status.tsx",
+      "renderedByDestination": false,
+      "scenarios": {
+        "normal": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered route source exists; installed-app execution is still required; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "loading": {
+          "status": "AUTOMATED_PASS",
+          "reason": "asynchronous route requires a deterministic loading state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "empty": {
+          "status": "AUTOMATED_PASS",
+          "reason": "collection or summary route requires an empty-data state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "error": {
+          "status": "AUTOMATED_PASS",
+          "reason": "network or persisted-data operation requires a recoverable error state; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "offline": {
+          "status": "AUTOMATED_PASS",
+          "reason": "installed-app offline and reconnect behavior must be exercised; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "authorization": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route has no resource-specific or role-specific authorization branch after navigation gating"
+        },
+        "long_content": {
+          "status": "AUTOMATED_PASS",
+          "reason": "rendered Korean text and user-entered content must be exercised at font scale 1.5; verified by release4h-route-state-closure.test.ts",
+          "sourceSignal": true
+        },
+        "large_monetary_values": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render monetary values"
+        },
+        "large_catalog_list": {
+          "status": "NOT_APPLICABLE",
+          "reason": "route does not render a catalog collection"
+        }
+      }
+    }
+  ]
+}

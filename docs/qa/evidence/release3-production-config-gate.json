@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-15T01:10:54.250Z",
+  "generatedAt": "2026-07-18T02:27:55.425Z",
   "mode": "production-config",
   "results": [
     {
@@ -7,7 +7,9 @@
       "label": "Production config",
       "command": "pnpm release:config",
       "result": "FAIL",
-      "durationMs": 2,
+      "durationMs": 4,
+      "timeoutMs": null,
+      "timedOut": false,
       "issues": [
         {
           "code": "ANDROID_PACKAGE_PLACEHOLDER",
@@ -20,6 +22,18 @@
         {
           "code": "NODE_ENV_NOT_PRODUCTION",
           "message": "NODE_ENV must be production."
+        },
+        {
+          "code": "MOBILE_BUILD_PROFILE_NOT_PRODUCTION",
+          "message": "The mobile build profile must be production."
+        },
+        {
+          "code": "MOBILE_TEST_LOGIN_NOT_DISABLED",
+          "message": "Test login must be explicitly disabled in production."
+        },
+        {
+          "code": "MOBILE_PIXEL_LOCK_NOT_DISABLED",
+          "message": "Pixel Lock fixture mode must be explicitly disabled in production."
         },
         {
           "code": "DEV_AUTH_NOT_DISABLED",

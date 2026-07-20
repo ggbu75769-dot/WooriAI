@@ -1,5 +1,6 @@
 import { Redirect } from "expo-router";
 import { Text, View } from "react-native";
+import { isPixelLockBuild } from "../src/pixelLock/build-profile";
 import { theme } from "../src/theme";
 import { AppScreen, Card, ScreenHeader } from "../src/ui";
 
@@ -17,7 +18,7 @@ const stageCoverage = [
 ] as const;
 
 export default function CatalogCoverageEvidenceScreen() {
-  if (process.env.EXPO_PUBLIC_PIXEL_LOCK !== "1") return <Redirect href="/" />;
+  if (!isPixelLockBuild()) return <Redirect href="/" />;
 
   return (
     <AppScreen>

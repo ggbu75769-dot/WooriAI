@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-16T16:45:00+09:00",
+  "repository": {
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "upstream": null
+  },
+  "policy": {
+    "auditInputIsNotProof": true,
+    "sourceEditFreezeThroughPhase2": true,
+    "p0MustClose": true,
+    "p1MustCloseOrBeExternalBlocked": true,
+    "selfApproval": false,
+    "automaticContentPublish": false
+  },
+  "findings": [
+    {
+      "id": "R4C-P0-001",
+      "severity": "P0",
+      "area": "Android build/provenance",
+      "userImpact": "A different APK could be presented as the installed and Pixel-verified artifact.",
+      "evidence": [
+        "artifacts/android/release4c-build-provenance.json",
+        "artifacts/android/release4c-installed/cold-start.png",
+        "artifacts/android/release4c-installed/home.png",
+        "artifacts/pixel-lock/android/reports/pixel-apk.json",
+        "artifacts/pixel-lock/android/reports/latest.json",
+        "docs/qa/evidence/release4c-manifest.json"
+      ],
+      "rootCause": "Prior evidence was regenerated independently without an immutable source/bundle/APK/certificate/install binding.",
+      "recommendedFix": "Generate final provenance after the APK build and bind installed and Pixel evidence hashes in the Release 4C manifest.",
+      "regressionTest": "scripts/generate-release4-provenance.ts rejects a missing embedded bundle and records the exact current APK, source-tree and certificate hashes; Android Pixel sentinel validation rejects invalid renders.",
+      "status": "closed",
+      "closure": "Standalone APK SHA-256 08420343A9251E9667B72880560F57F29BAA944A54D4860BE14CA43F20AA3053 is different from the supplied baseline, contains embedded Hermes C39A72869219B5449B72D0370EB6D031FEDDFD278BA63A41C1165680E2BCEF41, was fresh-installed, and is explicitly classified internal-only. Pixel APK SHA and 9 valid adb captures are separately bound."
+    },
+    {
+      "id": "R4C-P0-002",
+      "severity": "P0",
+      "area": "Editorial workflow / safety review",
+      "userImpact": "Self-approved or stale high-risk content could cross the public publish boundary.",
+      "evidence": [
+        "apps/api/prisma/migrations/000023_release4c_catalog_workflow/migration.sql",
+        "apps/api/src/catalog-v2/catalog-v2.service.ts",
+        "apps/api/test/catalog-v2-admin.e2e.test.ts"
+      ],
+      "rootCause": "The former four-state model lacked immutable revisions, content hashes, role-separated approvals and transition CAS.",
+      "recommendedFix": "Use revision-bound approvals, server transition allowlists, active reviewer roles, role separation and CAS publish.",
+      "regressionTest": "catalog-v2-admin E2E covers author/reviewer/publisher separation, inactive reviewer 403, stale revision/hash 409 and one-winner concurrent publish.",
+      "status": "closed",
+      "closure": "Additive workflow revisions, approvals, reviewer credentials and events enforce author != reviewer/publisher and high-risk safety reviewer != publisher; payload hash changes invalidate approvals."
+    },
+    {
+      "id": "R4C-P0-003",
+      "severity": "P0",
+      "area": "Household item plan authorization",
+      "userImpact": "Viewer or gift participants could mutate plans or link cross-household members and expenses.",
+      "evidence": [
+        "apps/api/src/catalog-v2/catalog-v2.service.ts",
+        "apps/api/test/catalog-v2.e2e.test.ts"
+      ],
+      "rootCause": "Mutation and foreign-key checks validated existence but not role and household scope.",
+      "recommendedFix": "Restrict mutations to owner/co_parent and validate assignee and expense scope.",
+      "regressionTest": "Catalog E2E role matrix denies viewer/gift mutation and cross-household assignee/expense identifiers.",
+      "status": "closed",
+      "closure": "Role-based mutation guards and same-household validation are enforced before create/update/delete."
+    },
+    {
+      "id": "R4C-P0-004",
+      "severity": "P0",
+      "area": "Report privacy",
+      "userImpact": "Gift participants could read sensitive household amounts and payer details.",
+      "evidence": [
+        "apps/api/src/finance/reports-v2.service.ts",
+        "apps/api/test/reports-v2.e2e.test.ts"
+      ],
+      "rootCause": "All active household roles received the same report projection.",
+      "recommendedFix": "Deny general reports to gift participants and expose only an explicit gift allowlist.",
+      "regressionTest": "Reports E2E allows owner/co_parent/viewer and returns 403 with no amount payload for gift_participant.",
+      "status": "closed",
+      "closure": "General Report V2/V3 endpoints fail closed for gift participants."
+    },
+    {
+      "id": "R4C-P0-005",
+      "severity": "P0",
+      "area": "Gift participant catalog projection",
+      "userImpact": "A gift-only list could expose inventory, memo, assignee, bundle and cost fields.",
+      "evidence": [
+        "apps/api/src/catalog-v2/catalog-v2.service.ts",
+        "apps/api/test/catalog-v2.e2e.test.ts"
+      ],
+      "rootCause": "The gift projection reused the full household item-plan DTO.",
+      "recommendedFix": "Return a dedicated allowlisted gift_expected projection.",
+      "regressionTest": "Gift projection E2E asserts item name and desired quantity are present and all sensitive fields are absent.",
+      "status": "closed",
+      "closure": "Gift participants receive only explicitly shared gift_expected item name and desired quantity."
+    },
+    {
+      "id": "R4C-P1-001",
+      "severity": "P1",
+      "area": "User item state concurrency",
+      "userImpact": "Concurrent clients could overwrite each other or surface a database error.",
+      "evidence": ["apps/api/src/catalog-v2/catalog-v2.service.ts", "apps/api/test/catalog-v2.e2e.test.ts"],
+      "rootCause": "Expected version was checked before an unconditional update.",
+      "recommendedFix": "Use updateMany CAS and normalize create races.",
+      "regressionTest": "Parallel same-version update yields one success and one 409; parallel create never returns 500 or duplicates.",
+      "status": "closed"
+    },
+    {
+      "id": "R4C-P1-002",
+      "severity": "P1",
+      "area": "Onboarding / maternal profile",
+      "userImpact": "A stale active pregnancy profile could continue driving recommendations after birth/manual transition.",
+      "evidence": ["apps/api/src/onboarding/onboarding-store.service.ts", "apps/api/test/onboarding.e2e.test.ts"],
+      "rootCause": "Child and maternal updates were not atomic and always reactivated the maternal profile.",
+      "recommendedFix": "Update atomically and activate only for pregnant stage.",
+      "regressionTest": "Pregnant-to-born/manual transition deactivates the maternal context in one transaction.",
+      "status": "closed"
+    },
+    {
+      "id": "R4C-P1-003",
+      "severity": "P1",
+      "area": "Catalog revision / taxonomy mapping",
+      "userImpact": "Concurrent editors could overwrite content or lose taxonomy ancestors.",
+      "evidence": ["apps/api/src/catalog-v2/catalog-v2.service.ts", "apps/api/test/catalog-v2-admin.e2e.test.ts"],
+      "rootCause": "Catalog edits lacked server version/hash CAS and complete ancestor derivation.",
+      "recommendedFix": "Persist revisions and derive the full primary taxonomy chain.",
+      "regressionTest": "Stale writes return 409; mapping update preserves one complete ancestor chain.",
+      "status": "closed"
+    },
+    {
+      "id": "R4C-P1-004",
+      "severity": "P1",
+      "area": "Catalog preview isolation",
+      "userImpact": "Unapproved content could leak from non-production-like deployments.",
+      "evidence": ["apps/api/src/catalog-v2/catalog-v2.controller.ts", "apps/api/test/catalog-v2.e2e.test.ts", "packages/config/src/release.test.ts"],
+      "rootCause": "Preview was inferred from NODE_ENV rather than an explicit privileged profile.",
+      "recommendedFix": "Keep public endpoints published-only and isolate internal preview behind explicit config and authorization.",
+      "regressionTest": "All public profiles return published-only; production contamination gate fails if preview/test flags enter the bundle.",
+      "status": "closed"
+    },
+    {
+      "id": "R4C-P1-005",
+      "severity": "P1",
+      "area": "Situation bundles",
+      "userImpact": "Named preparation scenarios could contain unrelated rotating items.",
+      "evidence": ["packages/domain/src/release4-catalog.ts", "packages/domain/src/release4-catalog.test.ts", "apps/api/test/catalog-v2.e2e.test.ts"],
+      "rootCause": "Bundle membership was generated from item slices rather than canonical item specifications.",
+      "recommendedFix": "Use deterministic canonical-code member specifications.",
+      "regressionTest": "Thirty bundles have explicit members, no duplicate rows and lifecycle/context consistency.",
+      "status": "closed"
+    },
+    {
+      "id": "R4C-P1-006",
+      "severity": "P1",
+      "area": "Admin import / revisions",
+      "userImpact": "Operators could not safely preview CSV/XLSX, bind imports to revisions or roll back edits.",
+      "evidence": ["apps/api/src/catalog-v2/catalog-import-file-parser.ts", "apps/api/src/catalog-v2/catalog-v2.service.ts", "apps/admin/app/catalog/page.tsx", "apps/api/test/catalog-v2-admin.e2e.test.ts"],
+      "rootCause": "The importer accepted only parsed JSON and catalog edits had no immutable history.",
+      "recommendedFix": "Add bounded CSV/XLSX parsing, manifest dry-run, revision/hash validation, partial reports and rollback as new revision.",
+      "regressionTest": "Parser security tests and Admin E2E cover formula/size/schema defenses, idempotency, stale revision and rollback-new-revision.",
+      "status": "closed"
+    },
+    {
+      "id": "R4C-P1-007",
+      "severity": "P1",
+      "area": "Catalog coverage",
+      "userImpact": "Coverage counts could not distinguish applicability from typed gaps.",
+      "evidence": ["apps/api/prisma/migrations/000024_release4c_coverage_applicability/migration.sql", "docs/qa/evidence/release4c-coverage-matrix.json"],
+      "rootCause": "Coverage stored only covered/not_applicable/gap.",
+      "recommendedFix": "Persist applicability, gap type and rationale with fail-closed review_needed.",
+      "regressionTest": "Coverage evidence reports 1,824 classified cells and unclassified=0.",
+      "status": "closed",
+      "closure": "1,200 unresolved gaps remain review_needed/external-review-blocked; this is not a completeness or approval claim."
+    },
+    {
+      "id": "R4C-P1-008",
+      "severity": "P1",
+      "area": "Product Offer freshness",
+      "userImpact": "An old price could be displayed as current.",
+      "evidence": ["apps/api/prisma/migrations/000030_product_offer_approval_comparison/migration.sql", "apps/mobile/src/preparation/Release4ItemDetailScreen.tsx", "apps/api/test/catalog-v2-admin.e2e.test.ts"],
+      "rootCause": "Price input did not require an observation timestamp.",
+      "recommendedFix": "Require observedAt, approval and freshness display.",
+      "regressionTest": "Price without observedAt is rejected and unapproved offers remain absent from public comparison.",
+      "status": "closed",
+      "closure": "Approved active offer count remains zero because no merchant approval data was supplied."
+    },
+    {
+      "id": "R4C-P1-009",
+      "severity": "P1",
+      "area": "Node 20 package-manager parity",
+      "userImpact": "The required runner could not reproduce installation or release gates.",
+      "evidence": ["package.json", "docs/qa/evidence/latest-release-gate.md"],
+      "rootCause": "pnpm 11 required a newer Node runtime.",
+      "recommendedFix": "Pin a lockfile-compatible pnpm supporting Node 20.",
+      "regressionTest": "Node 20.20.2 with pnpm 10.28.1 completes frozen install and all eleven release gates.",
+      "status": "closed"
+    },
+    {
+      "id": "R4C-P1-010",
+      "severity": "P1",
+      "area": "Release gate / mobile production build",
+      "userImpact": "A partial green subset could be mistaken for a complete release result.",
+      "evidence": ["scripts/release-gate.ts", "packages/test-utils/src/release-gate-runner.test.ts", "docs/qa/evidence/latest-release-gate.md"],
+      "rootCause": "The gate lacked deterministic build environment ownership and robust step diagnostics.",
+      "recommendedFix": "Own a non-secret HTTPS production fixture, bounded diagnostics and strict production contamination checks.",
+      "regressionTest": "Eleven of eleven gates pass; missing or HTTP production URLs still fail closed.",
+      "status": "closed"
+    },
+    {
+      "id": "R4C-P1-011",
+      "severity": "P1",
+      "area": "Scheduled catalog publishing",
+      "userImpact": "Scheduled items could remain unpublished or bypass fresh approval checks when the publisher runs.",
+      "evidence": ["apps/api/src/catalog-v2/catalog-v2.service.ts", "apps/api/src/jobs/job-handlers.service.ts", "apps/api/test/catalog-v2-admin.e2e.test.ts"],
+      "rootCause": "The publisher job handled only the legacy content path.",
+      "recommendedFix": "Revalidate role, revision, hash and approvals at due time and use CAS publish.",
+      "regressionTest": "Concurrent due-publish execution produces exactly one publish event and blocks stale/invalid approvals.",
+      "status": "closed"
+    },
+    {
+      "id": "R4C-P1-012",
+      "severity": "P1",
+      "area": "Remote config propagation",
+      "userImpact": "Every API replica silently served fallback config instead of the database-managed version.",
+      "evidence": ["apps/api/src/app-config/app-config.service.ts", "apps/api/test/release3-app-config.e2e.test.ts", "docs/5차/release4c-local-staging-evidence.md"],
+      "rootCause": "The service queried release3 while the migration/seed key was public_app_config.",
+      "recommendedFix": "Use the seeded canonical key and assert the response source.",
+      "regressionTest": "App-config E2E asserts X-Config-Source=database; local API ports 53100 and 53101 both return source=database/version=1.",
+      "status": "closed"
+    },
+    {
+      "id": "R4C-P2-001",
+      "severity": "P2",
+      "area": "Installed route/accessibility matrix",
+      "userImpact": "Some width, font-scale, screen-reader and non-happy-path defects may remain outside the nine Pixel screens and smoke flow.",
+      "evidence": ["apps/mobile/e2e/release4c-route-scenarios.json", "docs/5차/release4c-route-accessibility-matrix.md"],
+      "rootCause": "The route manifest classifies all states, but the available Android run covered only the core smoke path and nine Pixel routes.",
+      "recommendedFix": "Run all applicable route states on the 63 layout combinations and representative Android 13/14/15 devices with TalkBack.",
+      "regressionTest": "Every applicable route-state-layout cell carries installed evidence and no critical accessibility blocker.",
+      "status": "open"
+    },
+    {
+      "id": "R4C-P2-002",
+      "severity": "P2",
+      "area": "External catalog/staging/production qualification",
+      "userImpact": "The local implementation cannot establish expert content approval, real provider behavior or production recovery.",
+      "evidence": ["docs/5차/release4c-known-limitations.md"],
+      "rootCause": "No external reviewers, merchant data, staging accounts, production signing identity or Play beta were supplied.",
+      "recommendedFix": "Complete external review manifests and staged operational qualification without self-approval.",
+      "regressionTest": "External staging, real-provider, signed AAB, restore/rollback and closed-beta evidence must bind to the final release manifest.",
+      "status": "EXTERNAL_BLOCKED"
+    }
+  ],
+  "summary": {
+    "open": { "p0": 0, "p1": 0, "p2": 1, "p3": 0 },
+    "closed": { "p0": 5, "p1": 12, "p2": 0, "p3": 0 },
+    "externalBlocked": { "p0": 0, "p1": 0, "p2": 1, "p3": 0 },
+    "initialAudit": { "p0": 4, "p1": 10 },
+    "additionalFindingsDuringImplementation": { "p0": 1, "p1": 2, "p2": 2 },
+    "p0": 0,
+    "p1": 0
+  }
+}

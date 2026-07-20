@@ -6,7 +6,11 @@ const migrationHead = "000012_release3_foundation";
 function fixtureEnv(): Record<string, string> {
   return {
     NODE_ENV: "production",
+    WOORIAI_BUILD_PROFILE: "production",
+    EXPO_PUBLIC_TEST_LOGIN: "0",
+    EXPO_PUBLIC_PIXEL_LOCK: "0",
     ENABLE_DEV_AUTH: "false",
+    CATALOG_INTERNAL_PREVIEW_ENABLED: "0",
     LEGAL_OPERATOR_NAME: "Approved Operator",
     PRIVACY_POLICY_URL: "https://legal.wooriai.test/privacy",
     TERMS_URL: "https://legal.wooriai.test/terms",
@@ -71,5 +75,17 @@ describe("production release configuration", () => {
         migrationHead
       })
     ).toEqual([]);
+  });
+
+  it("rejects internal catalog preview in production", () => {
+    const env = fixtureEnv();
+    env.CATALOG_INTERNAL_PREVIEW_ENABLED = "1";
+    expect(
+      validateProductionReleaseConfig({
+        env,
+        mobile: { version: "3.0.0", android: { package: "app.wooriai.mobile", versionCode: 30000 } },
+        migrationHead
+      }).map((issue) => issue.code)
+    ).toContain("CATALOG_INTERNAL_PREVIEW_ENABLED");
   });
 });

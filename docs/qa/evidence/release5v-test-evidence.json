@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "PASS",
+  "commands": [
+    {
+      "command": "pnpm --filter api test",
+      "result": "PASS",
+      "assertions": "65 files / 288 tests"
+    },
+    {
+      "command": "pnpm --filter api test:e2e",
+      "result": "PASS",
+      "assertions": "22 files / 118 tests"
+    },
+    {
+      "command": "pnpm --filter mobile test",
+      "result": "PASS",
+      "assertions": "72 files / 397 tests"
+    },
+    {
+      "command": "pnpm --filter admin test",
+      "result": "PASS",
+      "assertions": "7 files / 34 tests"
+    },
+    {
+      "command": "pnpm --filter @wooriai/domain test",
+      "result": "PASS",
+      "assertions": "12 files / 74 tests"
+    },
+    {
+      "command": "pnpm --filter @wooriai/contracts test",
+      "result": "PASS",
+      "assertions": "4 files / 39 tests"
+    },
+    {
+      "command": "pnpm lint",
+      "result": "PASS",
+      "assertions": "0 warnings"
+    },
+    {
+      "command": "pnpm typecheck",
+      "result": "PASS",
+      "assertions": "8 workspaces"
+    },
+    {
+      "command": "pnpm release:gate",
+      "result": "PASS",
+      "assertions": "593 seconds; tests and builds"
+    },
+    {
+      "command": "pnpm release4:verify-db",
+      "result": "PASS",
+      "assertions": "fresh 40 and upgrade 12->40"
+    },
+    {
+      "command": "pnpm security:secrets",
+      "result": "PASS",
+      "assertions": "5 high-confidence rules"
+    },
+    {
+      "command": "pnpm security:audit",
+      "result": "PASS",
+      "assertions": "high/critical 0; moderate 5 reviewed"
+    },
+    {
+      "command": "pnpm catalog:audit (explicit wooriai_test)",
+      "result": "PASS",
+      "assertions": "408/408/0/84/0"
+    },
+    {
+      "command": "pnpm release4:contamination:export",
+      "result": "PASS",
+      "assertions": "Hermes production-profile export"
+    }
+  ]
+}

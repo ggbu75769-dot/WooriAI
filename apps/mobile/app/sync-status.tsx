@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, Text, View } from "react-native";
-import { LOCAL_SESSION_TOKEN } from "../src/api/client";
+import { fixtureSessionToken } from "../src/api/client";
 import {
   CONFLICT_BANNER_MESSAGE,
   CONFLICT_OPTION_ADOPT_SERVER_LABEL,
@@ -19,9 +19,12 @@ import {
   resolveConflictKeepMine,
   resolveConflictKeepServer,
   retryOfflineMutation,
+  retryLegacyQuarantineReconciliation,
+  type OfflineSyncDisplayRow,
   useOfflineSyncSnapshot
 } from "../src/offline/sync-controller";
-import type { ExpensePayload, LocalExpenseRow } from "../src/offline/types";
+import { groupSyncRecoveryRows, highestPriorityRecoveryState, resolveSyncDisplayState, syncDisplayMessage } from "../src/offline/sync-display-state";
+import type { ExpensePayload } from "../src/offline/types";
 import { useSessionStore } from "../src/stores/session.store";
 import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
@@ -32,14 +35,17 @@ function formatKrw(value: number) {
   return `${value.toLocaleString("ko-KR")}원`;
 }
 
-function SyncRow({ row, children }: { row: LocalExpenseRow; children?: React.ReactNode }) {
+function SyncRow({ row, children }: { row: OfflineSyncDisplayRow; children?: React.ReactNode }) {
+  const displayState = resolveSyncDisplayState(row);
   return (
     <Card style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{row.payload.itemName}</Text>
         <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{formatKrw(row.payload.amountKrw)}</Text>
       </View>
-      {row.lastError ? <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{row.lastError}</Text> : null}
+      <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
+        {syncDisplayMessage(displayState)}
+      </Text>
       {children}
     </Card>
   );
@@ -120,7 +126,7 @@ function ConflictFieldPicker({
   );
 }
 
-function ConflictRow({ row, token, queryClient }: { row: LocalExpenseRow; token: string; queryClient: ReturnType<typeof useQueryClient> }) {
+function ConflictRow({ row, token, queryClient }: { row: OfflineSyncDisplayRow; token: string; queryClient: ReturnType<typeof useQueryClient> }) {
   const [sideBySide, setSideBySide] = useState(false);
   if (!row.conflictCurrent || row.conflictCurrent.deleted) {
     return (
@@ -179,18 +185,59 @@ function ConflictRow({ row, token, queryClient }: { row: LocalExpenseRow; token:
 export default function SyncStatusScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const queryClient = useQueryClient();
   const snapshot = useOfflineSyncSnapshot();
+  const [busyLocalId, setBusyLocalId] = useState<string | null>(null);
+  const [reconciliationMessage, setReconciliationMessage] = useState<string | null>(null);
 
   useEffect(() => {
     void refreshOfflineSyncSnapshot();
   }, []);
 
-  const pendingRows = snapshot.rows.filter((row) => row.syncState === "pending" || row.syncState === "syncing");
-  const failedRows = snapshot.rows.filter((row) => row.syncState === "failed");
-  const conflictRows = snapshot.rows.filter((row) => row.syncState === "conflict");
-  const hasAny = pendingRows.length + failedRows.length + conflictRows.length > 0;
+  const groups = groupSyncRecoveryRows(snapshot.rows);
+  const pendingRows = [...groups.pending, ...groups.retryWait, ...groups.syncing];
+  const permanentRows = [...groups.permissionDenied, ...groups.permanentFailures];
+  const highestPriority = highestPriorityRecoveryState(groups, snapshot.quarantine.total);
+  const hasAny = highestPriority !== null;
+
+  async function retry(row: OfflineSyncDisplayRow) {
+    if (!authToken || busyLocalId) return;
+    setBusyLocalId(row.localId);
+    try {
+      await retryOfflineMutation(authToken, queryClient, row.localId);
+    } finally {
+      setBusyLocalId(null);
+    }
+  }
+
+  async function discard(row: OfflineSyncDisplayRow) {
+    if (busyLocalId) return;
+    setBusyLocalId(row.localId);
+    try {
+      await discardOfflineMutation(row.localId);
+    } finally {
+      setBusyLocalId(null);
+    }
+  }
+
+  async function reconcileQuarantine() {
+    if (!authToken || busyLocalId) return;
+    setBusyLocalId("legacy-quarantine");
+    setReconciliationMessage(null);
+    try {
+      const result = await retryLegacyQuarantineReconciliation(authToken);
+      setReconciliationMessage(
+        result.restored > 0
+          ? `서버에서 소유권이 확인된 기록 ${result.restored}건을 복원했어요.`
+          : "현재 계정 소유권이 새로 확인된 기록은 없어요."
+      );
+    } catch {
+      setReconciliationMessage("소유권을 다시 확인하지 못했어요. 연결을 확인하고 다시 시도해 주세요.");
+    } finally {
+      setBusyLocalId(null);
+    }
+  }
 
   return (
     <AppScreen>
@@ -199,34 +246,79 @@ export default function SyncStatusScreen() {
 
         <View style={{ flexDirection: "row", gap: 8 }}>
           <StatusBadge label={`대기 ${pendingRows.length}`} tone={pendingRows.length > 0 ? "warning" : "neutral"} />
-          <StatusBadge label={`실패 ${failedRows.length}`} tone={failedRows.length > 0 ? "warning" : "neutral"} />
-          <StatusBadge label={`충돌 ${conflictRows.length}`} tone={conflictRows.length > 0 ? "warning" : "neutral"} />
+          <StatusBadge label={`실패 ${permanentRows.length + groups.retryExhausted.length + groups.authRequired.length}`} tone={permanentRows.length + groups.retryExhausted.length + groups.authRequired.length > 0 ? "warning" : "neutral"} />
+          <StatusBadge label={`충돌 ${groups.conflicts.length}`} tone={groups.conflicts.length > 0 ? "warning" : "neutral"} />
         </View>
 
         {!hasAny ? <EmptyStateCard title="모든 기록이 동기화됐어요." actionLabel="닫기" onPress={() => router.back()} /> : null}
 
-        {conflictRows.length > 0 ? (
+        {snapshot.quarantine.total > 0 ? (
+          <Card style={{ gap: 8 }}>
+            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>
+              이전 버전 기록 {snapshot.quarantine.total}건을 안전하게 보관 중이에요.
+            </Text>
+            <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
+              계정 소유권을 확인할 수 없어 자동 전송하지 않습니다. 금액과 메모도 현재 계정에 표시하지 않아요.
+            </Text>
+            <SecondaryButton
+              disabled={!authToken || Boolean(busyLocalId)}
+              label={busyLocalId === "legacy-quarantine" ? "확인 중" : "서버에서 다시 확인"}
+              onPress={() => void reconcileQuarantine()}
+            />
+            {reconciliationMessage ? <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.gray600, fontSize: 12 }}>{reconciliationMessage}</Text> : null}
+          </Card>
+        ) : null}
+
+        {groups.authRequired.length > 0 ? (
+          <View style={{ gap: theme.spacing.gap }}>
+            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>로그인 필요</Text>
+            {groups.authRequired.map((row) => (
+              <SyncRow key={row.localId} row={row}>
+                <SecondaryButton label="로그인하기" onPress={() => router.push("/login")} />
+              </SyncRow>
+            ))}
+          </View>
+        ) : null}
+
+        {groups.conflicts.length > 0 ? (
           <View style={{ gap: theme.spacing.gap }}>
             <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>충돌</Text>
-            {conflictRows.map((row) => (
+            {groups.conflicts.map((row) => (
               <ConflictRow key={row.localId} row={row} token={authToken ?? ""} queryClient={queryClient} />
             ))}
           </View>
         ) : null}
 
-        {failedRows.length > 0 ? (
+        {groups.retryExhausted.length > 0 ? (
           <View style={{ gap: theme.spacing.gap }}>
-            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>실패</Text>
-            {failedRows.map((row) => (
+            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>자동 재시도 완료</Text>
+            {groups.retryExhausted.map((row) => (
               <SyncRow key={row.localId} row={row}>
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <SecondaryButton
                     label={SYNC_STATUS_RETRY_LABEL}
-                    onPress={() => authToken && retryOfflineMutation(authToken, queryClient, row.localId)}
+                    disabled={Boolean(busyLocalId)}
+                    onPress={() => void retry(row)}
                     style={{ flex: 1 }}
                   />
-                  <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} style={{ flex: 1 }} />
+                  <SecondaryButton disabled={Boolean(busyLocalId)} label={SYNC_STATUS_DISCARD_LABEL} onPress={() => void discard(row)} style={{ flex: 1 }} />
                 </View>
+              </SyncRow>
+            ))}
+          </View>
+        ) : null}
+
+        {permanentRows.length > 0 ? (
+          <View style={{ gap: theme.spacing.gap }}>
+            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>확인이 필요한 기록</Text>
+            {permanentRows.map((row) => (
+              <SyncRow key={row.localId} row={row}>
+                <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
+                  {row.failureKind === "permission_denied"
+                    ? "현재 계정에는 이 기록을 변경할 권한이 없어요."
+                    : "입력값을 확인해야 해 자동으로 다시 보내지 않아요."}
+                </Text>
+                <SecondaryButton disabled={Boolean(busyLocalId)} label={SYNC_STATUS_DISCARD_LABEL} onPress={() => void discard(row)} />
               </SyncRow>
             ))}
           </View>

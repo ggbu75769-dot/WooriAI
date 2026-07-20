@@ -2,6 +2,14 @@ import { createHash, randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { hashAdminPassword } from "../src/admin/admin-password";
 import {
+  childLifecycleCodes,
+  motherLifecycleCodes,
+  release4BundleDefinitions,
+  release4CatalogItems,
+  release4CatalogNodes,
+  validateRelease4Catalog
+} from "@wooriai/domain";
+import {
   categorySeeds,
   disclosureSeeds,
   importStubCategorySeeds,
@@ -137,6 +145,45 @@ async function seedLegalDocuments() {
         publishedAt: new Date("2026-07-06T00:00:00.000Z")
       }
     });
+  }
+  if (process.env.NODE_ENV === "test") {
+    for (const document of legalDocumentSeeds) {
+      const bodyMarkdown = `# ${document.title}\n\n테스트 환경에서 동의 계약을 검증하기 위한 문서입니다.`;
+      const contentHash = createHash("sha256").update(bodyMarkdown).digest("hex");
+      await prisma.legalDocument.upsert({
+        where: {
+          documentType_locale_version: {
+            documentType: document.documentType,
+            locale: "ko-KR-test",
+            version: "2026-07-06"
+          }
+        },
+        update: {
+          title: document.title,
+          bodyMarkdown,
+          publicUrl: null,
+          contentHash,
+          required: document.required,
+          placeholder: false,
+          effectiveAt: new Date("2026-07-06T00:00:00.000Z"),
+          publishedAt: new Date("2026-07-06T00:00:00.000Z"),
+          retiredAt: null
+        },
+        create: {
+          documentType: document.documentType,
+          locale: "ko-KR-test",
+          version: "2026-07-06",
+          title: document.title,
+          bodyMarkdown,
+          publicUrl: null,
+          contentHash,
+          required: document.required,
+          placeholder: false,
+          effectiveAt: new Date("2026-07-06T00:00:00.000Z"),
+          publishedAt: new Date("2026-07-06T00:00:00.000Z")
+        }
+      });
+    }
   }
 }
 
@@ -333,6 +380,321 @@ async function seedEditorUsers() {
   await upsertAdminUser("editor@wooriai.local", "wooriai-dev-editor", "editor", "Editor");
 }
 
+const expenseCategoryByDomain: Record<string, string> = {
+  C01: "pregnancy_mother_health",
+  C02: "pregnancy_mother_health",
+  C03: "pregnancy_mother_health",
+  C04: "pregnancy_mother_health",
+  C05: "birth_postpartum",
+  C06: "birth_postpartum",
+  C07: "feeding_food",
+  C08: "feeding_food",
+  C09: "sleep_furniture_storage",
+  C10: "diaper_hygiene",
+  C11: "diaper_hygiene",
+  C12: "hospital_health",
+  C13: "clothes_shoes_laundry",
+  C14: "clothes_shoes_laundry",
+  C15: "sleep_furniture_storage",
+  C16: "feeding_food",
+  C17: "outing_mobility_travel",
+  C18: "safety_emergency",
+  C19: "play_books_development",
+  C20: "play_books_development",
+  C21: "care_education",
+  C22: "outing_mobility_travel",
+  C23: "outing_mobility_travel",
+  C24: "service_rental"
+};
+
+async function seedRelease4Catalog() {
+  const validationErrors = validateRelease4Catalog();
+  if (validationErrors.length) throw new Error(validationErrors.join("\n"));
+
+  const nodeIdByCode = new Map<string, string>();
+  for (const node of release4CatalogNodes) {
+    const parentId = node.parentCode ? nodeIdByCode.get(node.parentCode) : null;
+    if (node.parentCode && !parentId) throw new Error(`Release 4 catalog parent missing: ${node.parentCode}`);
+    const saved = await prisma.catalogNode.upsert({
+      where: { code: node.code },
+      update: {
+        parentId,
+        level: node.level,
+        nameKo: node.nameKo,
+        displayOrder: node.displayOrder,
+        active: true,
+        version: 1
+      },
+      create: {
+        code: node.code,
+        parentId,
+        level: node.level,
+        nameKo: node.nameKo,
+        displayOrder: node.displayOrder,
+        active: true,
+        version: 1
+      },
+      select: { id: true }
+    });
+    nodeIdByCode.set(node.code, saved.id);
+  }
+
+  const expenseCategories = await prisma.expenseCategoryV2.findMany({
+    where: { householdId: null },
+    select: { id: true, code: true }
+  });
+  const expenseCategoryIdByCode = new Map(expenseCategories.map((category) => [category.code, category.id]));
+  const itemIdByCode = new Map<string, string>();
+
+  for (const [itemIndex, item] of release4CatalogItems.entries()) {
+    const safetyNote = item.safetyTier === "high"
+      ? "안전·의학 관련 조건은 판매 상품보다 전문가 확인과 최신 공공 지침 확인이 우선입니다."
+      : item.safetyTier === "elevated"
+        ? "사용 환경과 대상 연령을 확인하고 제조사 안전 안내를 따르세요."
+        : null;
+    const saved = await prisma.itemDefinition.upsert({
+      where: { code: item.code },
+      update: {
+        nameKo: item.nameKo,
+        shortDescription: `${item.nameKo}의 필요 여부와 준비 상태를 관리하는 일반 품목입니다.`,
+        targetSubject: item.targetSubject,
+        necessity: item.necessity,
+        recommendationState: item.recommendationState,
+        reasonText: `가족 상황에 따라 ${item.nameKo}의 필요 여부, 수량, 준비 시기를 검토하고 기록할 수 있습니다.`,
+        skipReasonText: "가족 상황과 사용 계획에 맞지 않으면 준비하지 않아도 됩니다.",
+        quantityGuidance: "가족 구성과 사용 빈도에 따라 수량을 정하세요.",
+        timingSummary: "연결된 생애주기와 실제 생활 계획을 함께 확인하세요.",
+        priceMinKrw: null,
+        priceMaxKrw: null,
+        priceCheckedAt: null,
+        secondhandPolicy: item.safetyTier === "normal" ? "allowed" : "inspect",
+        rentalPolicy: "conditional",
+        safetyTier: item.safetyTier,
+        safetyNote,
+        medicalDisclaimerRequired: item.safetyTier === "high",
+        sourceSummary: "Release 4 product design catalog; editorial and professional review pending.",
+        contentVersion: 1,
+        reviewedAt: null,
+        reviewedByAdminId: null,
+        status: "in_review",
+        displayOrder: itemIndex + 1
+      },
+      create: {
+        code: item.code,
+        nameKo: item.nameKo,
+        shortDescription: `${item.nameKo}의 필요 여부와 준비 상태를 관리하는 일반 품목입니다.`,
+        targetSubject: item.targetSubject,
+        necessity: item.necessity,
+        recommendationState: item.recommendationState,
+        reasonText: `가족 상황에 따라 ${item.nameKo}의 필요 여부, 수량, 준비 시기를 검토하고 기록할 수 있습니다.`,
+        skipReasonText: "가족 상황과 사용 계획에 맞지 않으면 준비하지 않아도 됩니다.",
+        quantityGuidance: "가족 구성과 사용 빈도에 따라 수량을 정하세요.",
+        timingSummary: "연결된 생애주기와 실제 생활 계획을 함께 확인하세요.",
+        secondhandPolicy: item.safetyTier === "normal" ? "allowed" : "inspect",
+        rentalPolicy: "conditional",
+        safetyTier: item.safetyTier,
+        safetyNote,
+        medicalDisclaimerRequired: item.safetyTier === "high",
+        sourceSummary: "Release 4 product design catalog; editorial and professional review pending.",
+        contentVersion: 1,
+        status: "in_review",
+        displayOrder: itemIndex + 1
+      },
+      select: { id: true }
+    });
+    itemIdByCode.set(item.code, saved.id);
+
+    await prisma.itemDefinitionCategory.deleteMany({ where: { itemDefinitionId: saved.id } });
+    await prisma.itemDefinitionCategory.createMany({
+      data: [
+        { itemDefinitionId: saved.id, catalogNodeId: nodeIdByCode.get(item.domainCode)!, displayOrder: 10 },
+        { itemDefinitionId: saved.id, catalogNodeId: nodeIdByCode.get(item.categoryCode)!, displayOrder: 20 },
+        { itemDefinitionId: saved.id, catalogNodeId: nodeIdByCode.get(item.subcategoryCode)!, isPrimary: true, displayOrder: 30 }
+      ]
+    });
+
+    await prisma.itemLifecycleRule.deleteMany({ where: { itemDefinitionId: saved.id } });
+    await prisma.itemLifecycleRule.createMany({
+      data: item.lifecycles.map((lifecycle, lifecycleIndex) => ({
+        itemDefinitionId: saved.id,
+        axis: lifecycle.axis,
+        lifecycleCode: lifecycle.code,
+        timingText: "해당 생애주기에서 필요 여부를 확인하세요.",
+        priorityWeight: item.lifecycles.length - lifecycleIndex
+      }))
+    });
+
+    const contextCodes = ["all", ...item.scenarioCodes];
+    await prisma.itemContextRule.deleteMany({
+      where: { itemDefinitionId: saved.id, contextCode: { notIn: contextCodes } }
+    });
+    for (const contextCode of contextCodes) {
+      await prisma.itemContextRule.upsert({
+        where: { itemDefinitionId_contextCode: { itemDefinitionId: saved.id, contextCode } },
+        update: { weight: 0, required: false },
+        create: { itemDefinitionId: saved.id, contextCode, weight: 0, required: false }
+      });
+    }
+
+    await prisma.itemSynonym.deleteMany({ where: { itemDefinitionId: saved.id } });
+    await prisma.itemSynonym.createMany({
+      data: item.aliases.map((alias) => ({
+        itemDefinitionId: saved.id,
+        synonym: alias,
+        normalizedSynonym: alias.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[\s\p{P}\p{S}]/gu, "")
+      })),
+      skipDuplicates: true
+    });
+
+    if (item.safetyTier === "high") {
+      await prisma.itemSafetyRule.upsert({
+        where: { itemDefinitionId_ruleCode: { itemDefinitionId: saved.id, ruleCode: "professional-review-gate" } },
+        update: {
+          severity: "high",
+          guidanceText: safetyNote!,
+          blocksRecommendation: true,
+          reviewedAt: null,
+          expiresAt: null
+        },
+        create: {
+          itemDefinitionId: saved.id,
+          ruleCode: "professional-review-gate",
+          severity: "high",
+          guidanceText: safetyNote!,
+          blocksRecommendation: true
+        }
+      });
+    }
+
+    const expenseCategoryCode = expenseCategoryByDomain[item.domainCode] ?? "other";
+    const expenseCategoryId = expenseCategoryIdByCode.get(expenseCategoryCode);
+    if (!expenseCategoryId) throw new Error(`Release 4 expense category missing: ${expenseCategoryCode}`);
+    await prisma.itemExpenseCategoryMapping.upsert({
+      where: {
+        itemDefinitionId_expenseCategoryId: {
+          itemDefinitionId: saved.id,
+          expenseCategoryId
+        }
+      },
+      update: { isDefault: true },
+      create: { itemDefinitionId: saved.id, expenseCategoryId, isDefault: true }
+    });
+  }
+
+  // Release 3 may contain reviewed catalog rows that are not part of the current
+  // canonical seed. Preserve those rows, but never leave them orphaned in the new
+  // taxonomy. The mapping is deterministic and remains in_review until an editor
+  // confirms the migrated classification.
+  const legacyDomainByCategory: Record<string, string> = {
+    pregnancy_mother: "C01",
+    birth_postpartum: "C06",
+    hospital_checkup: "C12",
+    diaper_hygiene: "C10",
+    feeding_babyfood: "C16",
+    clothes_laundry: "C13",
+    sleep_furniture: "C15",
+    outing_mobility: "C17",
+    toys_books: "C19",
+    care_education: "C21",
+    insurance_savings: "C24"
+  };
+  const orphanLegacyItems = await prisma.$queryRaw<Array<{ id: string; legacyCategoryCode: string | null }>>`
+    SELECT definition.id, category.code AS "legacyCategoryCode"
+    FROM item_definitions definition
+    JOIN item_templates template ON template.id = definition.legacy_item_template_id
+    LEFT JOIN categories category ON category.id = template.category_id
+    WHERE NOT EXISTS (
+      SELECT 1 FROM item_definition_categories mapping
+      WHERE mapping.item_definition_id = definition.id
+    )
+  `;
+  for (const legacy of orphanLegacyItems) {
+    const legacyCategory = legacy.legacyCategoryCode ?? "";
+    const domainCode = legacyDomainByCategory[legacyCategory] ?? "C24";
+    const level2 = release4CatalogNodes.find((node) => node.level === "category" && node.parentCode === domainCode);
+    const level3 = release4CatalogNodes.find((node) => node.level === "subcategory" && node.parentCode === level2?.code);
+    if (!level2 || !level3) throw new Error(`Release 4 legacy taxonomy fallback missing: ${domainCode}`);
+    await prisma.itemDefinitionCategory.createMany({
+      data: [
+        { itemDefinitionId: legacy.id, catalogNodeId: nodeIdByCode.get(domainCode)!, displayOrder: 10 },
+        { itemDefinitionId: legacy.id, catalogNodeId: nodeIdByCode.get(level2.code)!, displayOrder: 20 },
+        { itemDefinitionId: legacy.id, catalogNodeId: nodeIdByCode.get(level3.code)!, isPrimary: true, displayOrder: 30 }
+      ],
+      skipDuplicates: true
+    });
+    await prisma.itemContextRule.upsert({
+      where: { itemDefinitionId_contextCode: { itemDefinitionId: legacy.id, contextCode: "all" } },
+      update: { weight: 0, required: false },
+      create: { itemDefinitionId: legacy.id, contextCode: "all", weight: 0, required: false }
+    });
+    const expenseCategoryCode = expenseCategoryByDomain[domainCode] ?? "service_rental";
+    const expenseCategoryId = expenseCategoryIdByCode.get(expenseCategoryCode);
+    if (!expenseCategoryId) throw new Error(`Release 4 legacy expense category missing: ${expenseCategoryCode}`);
+    await prisma.itemExpenseCategoryMapping.upsert({
+      where: { itemDefinitionId_expenseCategoryId: { itemDefinitionId: legacy.id, expenseCategoryId } },
+      update: { isDefault: true },
+      create: { itemDefinitionId: legacy.id, expenseCategoryId, isDefault: true }
+    });
+  }
+
+  for (const [bundleIndex, definition] of release4BundleDefinitions.entries()) {
+    const nameKo = definition.nameKo;
+    const code = `R4-BUNDLE-${String(bundleIndex + 1).padStart(3, "0")}`;
+    const bundle = await prisma.itemBundle.upsert({
+      where: { code },
+      update: { nameKo, description: `${nameKo} 상황에서 준비 여부를 함께 확인하는 묶음입니다.`, status: "in_review", displayOrder: bundleIndex + 1 },
+      create: { code, nameKo, description: `${nameKo} 상황에서 준비 여부를 함께 확인하는 묶음입니다.`, status: "in_review", displayOrder: bundleIndex + 1 },
+      select: { id: true }
+    });
+    await prisma.itemBundleMember.deleteMany({ where: { bundleId: bundle.id } });
+    const members = definition.itemCodes.map((itemCode) => release4CatalogItems.find((item) => item.code === itemCode));
+    if (members.some((item) => !item)) throw new Error(`Release 4 bundle contains an unknown canonical item: ${nameKo}`);
+    await prisma.itemBundleMember.createMany({
+      data: members.map((item, memberIndex) => ({
+        bundleId: bundle.id,
+        itemDefinitionId: itemIdByCode.get(item!.code)!,
+        necessity: item!.necessity,
+        defaultQuantity: 1,
+        displayOrder: memberIndex + 1
+      }))
+    });
+  }
+
+  await prisma.catalogCoverageDecision.deleteMany({ where: { contextCode: "all" } });
+  const necessities = ["required", "recommended", "conditional", "optional"] as const;
+  const lifecycleCells = [
+    ...motherLifecycleCodes.map((code) => ({ axis: "mother" as const, code })),
+    ...childLifecycleCodes.map((code) => ({ axis: "child" as const, code }))
+  ];
+  await prisma.catalogCoverageDecision.createMany({
+    data: release4CatalogNodes
+      .filter((node) => node.level === "domain")
+      .flatMap((domain) => lifecycleCells.flatMap((lifecycle) => necessities.map((necessity) => {
+        const sameDomainNecessityExists = release4CatalogItems.some((item) => item.domainCode === domain.code && item.necessity === necessity);
+        const covered = release4CatalogItems.some((item) =>
+          item.domainCode === domain.code &&
+          item.necessity === necessity &&
+          item.lifecycles.some((rule) => rule.axis === lifecycle.axis && rule.code === lifecycle.code)
+        );
+        return {
+          domainNodeId: nodeIdByCode.get(domain.code)!,
+          lifecycleAxis: lifecycle.axis,
+          lifecycleCode: lifecycle.code,
+          contextCode: "all",
+          necessity,
+          state: covered ? "covered" as const : "gap" as const,
+          applicability: covered
+            ? necessity === "required" ? "required" as const : necessity === "optional" ? "optional" as const : "recommended" as const
+            : "review_needed" as const,
+          gapType: covered ? null : sameDomainNecessityExists ? "missing_lifecycle_rule" as const : "missing_item" as const,
+          reason: covered
+            ? "Release 4 canonical item coverage"
+            : "External editorial applicability review is required; no item or lifecycle rule was auto-created."
+        };
+      })))
+  });
+}
+
 async function main() {
   await seedCategories();
   await seedItemTemplates();
@@ -341,6 +703,7 @@ async function main() {
   await seedLegalDocuments();
   await seedAdminUsers();
   await seedEditorUsers();
+  await seedRelease4Catalog();
 }
 
 main()

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "status": "EXTERNAL_BLOCKED",
+  "actor": "new owner/co-parent",
+  "input": "published onboarding-eligible lifecycle catalog",
+  "mission": "select prepared items without unsafe exposure",
+  "internalQualification": {
+    "count": 12,
+    "multiSelect": true,
+    "appliedIdempotently30x": true
+  },
+  "production": {
+    "canonical": 408,
+    "inReview": 408,
+    "published": 0,
+    "highRisk": 84,
+    "eligible": 0,
+    "result": "EXTERNAL_BLOCKED_ONBOARDING_CATALOG"
+  },
+  "ranking": [
+    "lifecycle relevance",
+    "onboardingPriority",
+    "reviewed necessity",
+    "canonical ID"
+  ],
+  "states": [
+    "selected",
+    "skipped",
+    "completed_none"
+  ],
+  "offerIndependent": true
+}

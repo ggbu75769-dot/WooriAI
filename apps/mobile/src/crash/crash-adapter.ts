@@ -4,6 +4,7 @@ export type CrashContext = {
   appVersion: string;
   environment: string;
   fatal: boolean;
+  requestId?: string;
 };
 
 export interface CrashAdapter {
@@ -13,10 +14,19 @@ export interface CrashAdapter {
 let adapter: CrashAdapter = { capture: () => undefined };
 let handlersInstalled = false;
 
-function safeCode(error: unknown): { errorName: string; messageCode: string } {
+function safeCode(error: unknown): { errorName: string; messageCode: string; requestId?: string } {
   if (!(error instanceof Error)) return { errorName: "UnknownError", messageCode: "UNHANDLED_ERROR" };
-  const code = error.message.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 80).toUpperCase();
-  return { errorName: error.name.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 40), messageCode: code || "UNHANDLED_ERROR" };
+  const typed = error as Error & { code?: unknown; requestId?: unknown };
+  const rawCode = typeof typed.code === "string" ? typed.code : error.message;
+  const code = rawCode.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 80).toUpperCase();
+  const requestId = typeof typed.requestId === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(typed.requestId)
+    ? typed.requestId
+    : undefined;
+  return {
+    errorName: error.name.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 40),
+    messageCode: code || "UNHANDLED_ERROR",
+    ...(requestId ? { requestId } : {})
+  };
 }
 
 export function configureCrashAdapter(next: CrashAdapter | null) {

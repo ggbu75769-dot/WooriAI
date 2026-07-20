@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "merchant operator",
+  "input": "merchant feed",
+  "mission": "preview/review/publish with offer hidden by default",
+  "evidence": [
+    "release5f-external-readiness.db.test.ts"
+  ],
+  "residual": [
+    "approved merchant feed EXTERNAL_BLOCKED"
+  ]
+}

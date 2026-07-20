@@ -7,7 +7,7 @@ import type { AuthenticatedUser } from "../common/types/authenticated-request";
 type InviteChannel = "kakao" | "sms" | "link";
 type InviteRole = Exclude<MemberRole, "owner">;
 
-const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const INVITE_TTL_MS = 1000 * 60 * 60 * 24;
 
 // Fallback displayName for findOrCreateProviderUser callers (e.g. the real Kakao
 // exchange flow) that don't have a nickname claim to store. Deliberately distinct

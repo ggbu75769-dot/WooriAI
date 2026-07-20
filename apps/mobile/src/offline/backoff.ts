@@ -9,6 +9,10 @@
  */
 export const BASE_DELAY_MS = 2_000;
 export const MAX_DELAY_MS = 5 * 60 * 1_000;
+/** After this many consecutive transient failures, automatic retries stop until the user
+ * explicitly chooses retry. This prevents a permanently broken/session-expired request from
+ * growing its counter forever across every foreground/connectivity event. */
+export const MAX_AUTOMATIC_RETRY_ATTEMPTS = 5;
 
 export function computeBackoffDelayMs(attemptCount: number): number {
   const exponent = Math.max(0, attemptCount - 1);

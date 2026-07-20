@@ -1,19 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Redirect, router } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import {
   createInvite,
   listHouseholdMembers,
   LOCAL_HOUSEHOLD_ID,
-  LOCAL_SESSION_TOKEN,
+  fixtureSessionToken,
+  leaveHousehold,
   LOCAL_USER_ID,
   removeHouseholdMember,
+  transferHouseholdOwnership,
+  isApiErrorCode,
   type InviteRole
 } from "../../src/api/client";
+import { pixelEvidenceId } from "../../src/api/fixture-runtime";
+import { AppIcon, AppScreen, Card, EmptyStateCard, SampleDataBanner, StatusBadge } from "../../src/design-system";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppIcon, AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, SampleDataBanner, StatusBadge } from "../../src/ui";
+// release5v-source-quality-exception: FamilyAvatarGroup remains a family-domain visualization; owner=mobile-design-system; review=2026-10-01.
+import { FamilyAvatarGroup } from "../../src/ui";
 import { FamilyPixelStyles } from "../../src/pixelLock/styles";
+import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
 
 const previewMembers = [
   { id: "preview-mom", avatar: "엄", displayName: "엄마 (나)", role: "owner", status: "active" },
@@ -21,8 +29,8 @@ const previewMembers = [
   { id: "preview-grandma", avatar: "할", displayName: "할머니", role: "viewer", status: "pending" }
 ] as const;
 
-const familyReferenceScreenId = "pixel-screen-FAM-001 FAM-001";
-const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
+const familyReferenceScreenId = pixelEvidenceId("FAM-001 FAM-001");
+const isPixelLockMode = isPixelLockBuild();
 function familyReferenceFrameStyle() {
   return {
     gap: 16,
@@ -34,17 +42,17 @@ function familyReferenceFrameStyle() {
   } as const;
 }
 const familyInviteRows = [
-  { icon: "↗", title: "링크로 초대", value: "" },
-  { icon: "□", title: "초대 코드 공유", value: "DAON2025" }
+  { icon: "link-variant", title: "링크로 초대", value: "" },
+  { icon: "content-copy", title: "초대 코드 공유", value: "초대 링크에서 확인" }
 ] as const;
 
-function FamilyInviteRow({ icon, title, value, onPress }: { icon: string; title: string; value?: string; onPress: () => void }) {
+function FamilyInviteRow({ icon, title, value, onPress }: { icon: "link-variant" | "content-copy"; title: string; value?: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={familyInviteRowStyle}>
-      <Text style={familyInviteIconStyle}>{icon}</Text>
+    <Pressable accessibilityLabel={title} accessibilityRole="button" onPress={onPress} style={familyInviteRowStyle}>
+      <View style={familyInviteIconStyle}><AppIcon color={theme.colors.coral[600]} name={icon} size={22} /></View>
       <Text style={familyInviteTitleStyle}>{title}</Text>
       {value ? <Text style={familyInviteValueStyle}>{value}</Text> : null}
-      <Text style={familyInviteChevronStyle}>›</Text>
+      <View style={familyInviteChevronStyle}><AppIcon color={theme.colors.gray600} name="chevron-right" size={22} /></View>
     </Pressable>
   );
 }
@@ -52,12 +60,14 @@ function FamilyInviteRow({ icon, title, value, onPress }: { icon: string; title:
 export default function FamilyScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const sessionUserId = useSessionStore((state) => state.userId);
   const userId = sessionUserId ?? (isTestSession ? LOCAL_USER_ID : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const queryClient = useQueryClient();
+  const clearSession = useSessionStore((state) => state.clearSession);
+  const [selectedOwnerUserId, setSelectedOwnerUserId] = useState<string | null>(null);
   const hasSession = Boolean(authToken && householdId);
   const members = useQuery({
     queryKey: ["household-members", householdId],
@@ -76,6 +86,30 @@ export default function FamilyScreen() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
     }
+  });
+  const transferOwner = useMutation({
+    mutationFn: (targetUserId: string) => transferHouseholdOwnership(authToken!, householdId!, targetUserId),
+    onSuccess: async () => {
+      setSelectedOwnerUserId(null);
+      await queryClient.invalidateQueries({ queryKey: ["household-members", householdId] });
+    },
+    onError: (error) => {
+      Alert.alert(
+        "소유권을 이전하지 못했어요",
+        isApiErrorCode(error, "OWNERSHIP_CHANGED", "VERSION_CONFLICT")
+          ? "가족 정보가 먼저 변경됐어요. 최신 구성원을 다시 확인해 주세요."
+          : "대상 구성원의 역할과 현재 가족 상태를 확인해 주세요."
+      );
+    }
+  });
+  const leave = useMutation({
+    mutationFn: () => leaveHousehold(authToken!, householdId!),
+    onSuccess: () => {
+      queryClient.clear();
+      clearSession();
+      router.replace("/");
+    },
+    onError: () => Alert.alert("가족을 나가지 못했어요", "현재 권한과 가족 상태를 다시 확인해 주세요.")
   });
 
   if (!hasSession && !isPixelLockMode) {
@@ -106,6 +140,9 @@ export default function FamilyScreen() {
   const avatarNames = visibleMembers.map((member) => ("avatar" in member ? member.avatar : member.displayName));
   const myRole = hasSession ? visibleMembers.find((member) => "userId" in member && member.userId === userId)?.role : undefined;
   const canManageMembers = hasSession && myRole === "owner";
+  const eligibleOwners = hasSession
+    ? visibleMembers.filter((member) => "userId" in member && member.status === "active" && member.role === "co_parent" && member.userId !== userId)
+    : [];
   const openInvite = () => {
     if (!(authToken && householdId)) {
       router.push("/family/invite");
@@ -113,7 +150,7 @@ export default function FamilyScreen() {
     }
     Alert.alert("어떤 역할로 초대할까요?", "함께할 역할을 선택해 주세요.", [
       { text: "취소", style: "cancel" },
-      { text: "공동부모", onPress: () => quickInvite.mutate("co_parent") },
+      { text: "기록 가능", onPress: () => quickInvite.mutate("co_parent") },
       { text: "보기 전용", onPress: () => quickInvite.mutate("viewer") }
     ]);
   };
@@ -132,13 +169,35 @@ export default function FamilyScreen() {
       }
     ]);
   };
+  const confirmOwnerTransfer = () => {
+    const target = eligibleOwners.find((member) => "userId" in member && member.userId === selectedOwnerUserId);
+    if (!target || !("userId" in target)) return;
+    Alert.alert(
+      `${target.displayName}님에게 소유권을 이전할까요?`,
+      "소유권을 이전하면 선택한 구성원이 가족 설정과 구성원 관리를 담당합니다. 이전 후에는 현재 권한이 기록 가능으로 변경됩니다.",
+      [
+        { text: "취소", style: "cancel" },
+        { text: "소유권 이전", onPress: () => transferOwner.mutate(target.userId) }
+      ]
+    );
+  };
+  const confirmLeave = () => {
+    if (myRole === "owner" && eligibleOwners.length > 0) {
+      Alert.alert("먼저 소유권을 이전해 주세요", "다른 기록 가능 구성원이 있어요. 아래에서 새 관리자를 정한 뒤 가족을 나갈 수 있습니다.");
+      return;
+    }
+    Alert.alert("가족을 나갈까요?", "나간 뒤에는 이 가족의 준비 정보와 비용을 볼 수 없습니다.", [
+      { text: "취소", style: "cancel" },
+      { text: "가족 나가기", style: "destructive", onPress: () => leave.mutate() }
+    ]);
+  };
 
   return (
     <AppScreen>
-      <View accessibilityLabel={familyReferenceScreenId} style={familyReferenceFrameStyle()}>
+      <View accessibilityLabel={familyReferenceScreenId} style={isPixelLockMode ? familyReferenceFrameStyle() : { gap: 16 }}>
         {isTestSession ? <SampleDataBanner /> : null}
         <View style={familyHeaderRowStyle}>
-          <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={12} onPress={() => router.back()}>
+          <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={12} onPress={() => router.back()} style={{ alignItems: "center", justifyContent: "center", minHeight: 48, minWidth: 48 }}>
             <AppIcon name="chevron-left" size={26} />
           </Pressable>
           <Text style={familyTitleStyle}>가족과 함께</Text>
@@ -146,7 +205,13 @@ export default function FamilyScreen() {
 
         <View style={familyAvatarRowStyle}>
           <FamilyAvatarGroup names={avatarNames} />
-          <Pressable onPress={openInvite} style={familyPlusButtonStyle}>
+          <Pressable
+            accessibilityLabel="가족 초대하기"
+            accessibilityRole="button"
+            hitSlop={2}
+            onPress={openInvite}
+            style={familyPlusButtonStyle}
+          >
             <Text style={familyPlusTextStyle}>+</Text>
           </Pressable>
         </View>
@@ -177,7 +242,7 @@ export default function FamilyScreen() {
             <View key={member.id} style={familyMemberRowStyle}>
               <FamilyAvatarGroup names={["avatar" in member ? member.avatar : member.displayName]} />
               <Text style={familyMemberNameStyle}>{member.displayName}</Text>
-              <StatusBadge label={member.role === "owner" ? "관리자" : "멤버"} tone={member.role === "owner" ? "warning" : "neutral"} />
+              <StatusBadge label={member.role === "owner" ? "관리자" : member.role === "co_parent" ? "기록 가능" : member.role === "viewer" ? "보기 전용" : "선물 참여"} tone={member.role === "owner" ? "warning" : "neutral"} />
               {canManageMembers && "userId" in member && member.userId !== userId ? (
                 <Pressable
                   accessibilityRole="button"
@@ -185,6 +250,7 @@ export default function FamilyScreen() {
                   disabled={removeMember.isPending}
                   onPress={() => confirmRemoveMember(member.id, member.displayName)}
                   hitSlop={8}
+                  style={{ alignItems: "center", justifyContent: "center", minHeight: 48, minWidth: 48 }}
                 >
                   <Text style={familyMemberDeleteStyle}>삭제</Text>
                 </Pressable>
@@ -193,9 +259,55 @@ export default function FamilyScreen() {
           ))}
         </View>
 
+        {canManageMembers && eligibleOwners.length > 0 ? (
+          <Card style={{ gap: 12 }}>
+            <Text style={familyProfileTitleStyle}>소유권 이전</Text>
+            <Text style={familyProfileMetaStyle}>활성 기록 가능 구성원 한 명을 새 관리자로 선택하세요. 보기 전용과 선물 참여자는 선택할 수 없습니다.</Text>
+            <View style={{ gap: 8 }}>
+              {eligibleOwners.map((member) => "userId" in member ? (
+                <Pressable
+                  accessibilityLabel={`${member.displayName} 새 소유자로 선택`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selectedOwnerUserId === member.userId }}
+                  key={member.id}
+                  onPress={() => setSelectedOwnerUserId(member.userId)}
+                  style={{
+                    alignItems: "center",
+                    borderColor: selectedOwnerUserId === member.userId ? theme.colors.mainCoral : theme.colors.gray300,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    flexDirection: "row",
+                    gap: 10,
+                    minHeight: 48,
+                    paddingHorizontal: 12
+                  }}
+                >
+                  <AppIcon color={selectedOwnerUserId === member.userId ? theme.colors.mainCoral : theme.colors.gray600} name={selectedOwnerUserId === member.userId ? "radiobox-marked" : "radiobox-blank"} size={22} />
+                  <Text style={familyMemberNameStyle}>{member.displayName}</Text>
+                  <Text style={familyProfileMetaStyle}>기록 가능</Text>
+                </Pressable>
+              ) : null)}
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !selectedOwnerUserId || transferOwner.isPending }}
+              disabled={!selectedOwnerUserId || transferOwner.isPending}
+              onPress={confirmOwnerTransfer}
+              style={[familyInviteButtonStyle, { opacity: !selectedOwnerUserId || transferOwner.isPending ? 0.5 : 1 }]}
+            >
+              <Text style={familyInviteButtonTextStyle}>{transferOwner.isPending ? "이전 중..." : "선택한 구성원에게 소유권 이전"}</Text>
+            </Pressable>
+          </Card>
+        ) : null}
+
         <Pressable onPress={openInvite} style={familyInviteButtonStyle}>
           <Text style={familyInviteButtonTextStyle}>가족 초대하기</Text>
         </Pressable>
+        {hasSession ? (
+          <Pressable accessibilityRole="button" disabled={leave.isPending} onPress={confirmLeave} style={{ alignItems: "center", justifyContent: "center", minHeight: 48 }}>
+            <Text style={{ color: theme.colors.danger, fontSize: 13, fontWeight: "800" }}>{leave.isPending ? "처리 중..." : "가족 나가기"}</Text>
+          </Pressable>
+        ) : null}
       </View>
     </AppScreen>
   );
@@ -230,11 +342,11 @@ const familyPlusButtonStyle = {
   alignItems: "center",
   backgroundColor: theme.colors.white,
   borderColor: "rgba(74, 63, 53, 0.10)",
-  borderRadius: 22,
+  borderRadius: 24,
   borderWidth: 1,
-  height: 44,
+  height: 48,
   justifyContent: "center",
-  width: 44,
+  width: 48,
   ...theme.shadows.card
 } as const;
 
@@ -300,9 +412,8 @@ const familyInviteRowStyle = {
 } as const;
 
 const familyInviteIconStyle = {
-  color: theme.colors.gray600,
-  fontSize: 15,
-  width: 18
+  alignItems: "center",
+  width: 24
 } as const;
 
 const familyInviteTitleStyle = {
@@ -319,9 +430,8 @@ const familyInviteValueStyle = {
 } as const;
 
 const familyInviteChevronStyle = {
-  color: theme.colors.gray600,
-  fontSize: 18,
-  fontWeight: "700"
+  alignItems: "center",
+  width: 24
 } as const;
 
 const familyMemberGroupStyle = {

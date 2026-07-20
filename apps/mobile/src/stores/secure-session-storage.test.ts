@@ -23,9 +23,19 @@ describe("secureSessionStorage", () => {
 
   afterEach(() => {
     vi.doUnmock("expo-secure-store");
+    delete process.env.EXPO_PUBLIC_TEST_LOGIN;
   });
 
   describe("without a working expo-secure-store (default vitest/node environment)", () => {
+    it("discards a truncated persisted envelope instead of returning invalid JSON to zustand hydration", async () => {
+      const { persistStorage, secureSessionStorage } = await loadModules();
+
+      await persistStorage.setItem(STORAGE_NAME, '{"state":{"isTestSession":true');
+
+      await expect(secureSessionStorage.getItem(STORAGE_NAME)).resolves.toBeNull();
+      await expect(persistStorage.getItem(STORAGE_NAME)).resolves.toBeNull();
+    });
+
     it("migrates plaintext tokens found in the legacy AsyncStorage-persisted state exactly once", async () => {
       const { persistStorage, secureSessionStorage } = await loadModules();
 
@@ -151,6 +161,40 @@ describe("secureSessionStorage", () => {
       await secureSessionStorage.removeItem(STORAGE_NAME);
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("wooriai-session.accessToken");
       expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("wooriai-session.refreshToken");
+    });
+  });
+
+  describe("in the standalone local-test profile", () => {
+    it("restores the local session without waiting for SecureStore token reads", async () => {
+      process.env.EXPO_PUBLIC_TEST_LOGIN = "1";
+      const secureGet = vi.fn(async () => new Promise<string | null>(() => undefined));
+      vi.doMock("expo-secure-store", () => ({
+        getItemAsync: secureGet,
+        setItemAsync: vi.fn(async () => undefined),
+        deleteItemAsync: vi.fn(async () => undefined)
+      }));
+      const { persistStorage, secureSessionStorage } = await loadModules();
+      await persistStorage.setItem(
+        STORAGE_NAME,
+        JSON.stringify({
+          state: {
+            accessToken: "stale-access",
+            refreshToken: "stale-refresh",
+            isTestSession: true
+          },
+          version: 2
+        })
+      );
+
+      const restored = await secureSessionStorage.getItem(STORAGE_NAME);
+      const parsed = JSON.parse(restored!);
+
+      expect(parsed.state).toMatchObject({
+        accessToken: null,
+        refreshToken: null,
+        isTestSession: true
+      });
+      expect(secureGet).not.toHaveBeenCalled();
     });
   });
 });

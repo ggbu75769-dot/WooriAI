@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { persistStorage } from "../stores/persist-storage";
+import { zustandPersistStorage } from "../stores/persist-storage";
 
 export type AnalyticsConsentState = {
   enabled: boolean;
@@ -23,7 +23,7 @@ export const useAnalyticsConsentStore = create<AnalyticsConsentState>()(
     }),
     {
       name: "wooriai-analytics-consent",
-      storage: createJSONStorage(() => persistStorage)
+      storage: createJSONStorage(() => zustandPersistStorage)
     }
   )
 );

@@ -5,28 +5,24 @@ import { describe, expect, it } from "vitest";
 const mobileRoot = process.cwd();
 
 describe("Batch 05 mobile onboarding contract", () => {
-  it("defines the fixed theme tokens and four onboarding routes", async () => {
+  it("defines the MOD_V1 tokens and three visible onboarding stages", async () => {
     const { theme } = await import("./theme");
     const { onboardingSteps } = await import("./onboarding/steps");
 
     expect(theme.colors).toMatchObject({
-      primary500: "#FF8A7A",
-      primary100: "#FFE6E0",
-      secondary500: "#7DDCC7",
-      background: "#FFF8F1",
-      // Round 5A D0 redirect (docs/5차/round5a-design-spec.md §D0): textPrimary now points at
-      // the new text.primary token ("#3D3733") instead of the pre-redesign "#242424" literal.
-      textPrimary: "#3D3733"
+      primary500: "#C94627",
+      primary100: "#FFE4D8",
+      secondary500: "#267A68",
+      background: "#FFFDFC",
+      textPrimary: "#211E1C"
     });
     expect(onboardingSteps.map((step) => step.screenId)).toEqual([
       "ONB-001",
       "ONB-002",
-      "ONB-003",
-      "ONB-004"
+      "ONB-003"
     ]);
     expect(onboardingSteps.map((step) => step.route)).toEqual([
       "/onboarding/child-status",
-      "/onboarding/child-profile",
       "/onboarding/prepared-items",
       "/onboarding/budget"
     ]);
@@ -54,18 +50,18 @@ describe("Batch 05 mobile onboarding contract", () => {
     expect(useOnboardingProgressStore.getState().completedStepIds).toContain("ONB-001");
   });
 
-  it("creates AUTH-001 and ONB-001 through ONB-004 route files with the image-locked visual tabs", () => {
+  it("creates AUTH-001 and the three MOD_V1 onboarding stages with five visual tabs", () => {
     const routeExpectations = [
       ["app/(auth)/login.tsx", "AUTH-001"],
       ["app/(onboarding)/child-status.tsx", "ONB-001"],
-      ["app/(onboarding)/child-profile.tsx", "ONB-002"],
-      ["app/(onboarding)/prepared-items.tsx", "ONB-003"],
-      ["app/(onboarding)/budget.tsx", "ONB-004"],
+      ["app/(onboarding)/child-profile.tsx", "/onboarding/pregnant"],
+      ["app/(onboarding)/prepared-items.tsx", "ONB-002"],
+      ["app/(onboarding)/budget.tsx", "ONB-003"],
       ["app/(tabs)/_layout.tsx", "홈"],
       ["app/(tabs)/_layout.tsx", "기록"],
       ["app/(tabs)/_layout.tsx", "준비템"],
       ["app/(tabs)/_layout.tsx", "리포트"],
-      ["app/(tabs)/_layout.tsx", "더보기"]
+      ["app/(tabs)/_layout.tsx", "프로필"]
     ];
 
     for (const [relativePath, expectedText] of routeExpectations) {

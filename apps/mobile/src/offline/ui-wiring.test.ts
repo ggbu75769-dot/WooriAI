@@ -57,8 +57,10 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
 
   it("mounts the offline sync lifecycle (connectivity/foreground flush trigger) once at the app root", () => {
     const rootLayoutSource = source("app/_layout.tsx");
-    expect(rootLayoutSource).toContain("useOfflineSyncLifecycle");
-    expect(rootLayoutSource).toContain("<OfflineSyncLifecycle");
+    const lifecycleSource = source("src/offline/OfflineSyncLifecycle.tsx");
+    expect(rootLayoutSource).toContain('import("../src/offline/OfflineSyncLifecycle")');
+    expect(rootLayoutSource).toContain("<DeferredOfflineSyncLifecycle");
+    expect(lifecycleSource).toContain("useOfflineSyncLifecycle(token, scopeKey, client)");
   });
 
   it("mobile package.json declares the SDK-52-pinned expo-sqlite and expo-network dependencies", () => {

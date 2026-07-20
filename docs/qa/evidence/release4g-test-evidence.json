@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "release": "4G",
+  "generatedAt": "2026-07-17T08:07:00+09:00",
+  "environment": {
+    "systemNode": "25.2.1",
+    "systemPnpm": "11.9.0",
+    "qualificationNode": "20.20.2",
+    "qualificationPnpm": "10.28.1"
+  },
+  "commands": [
+    {
+      "command": "pnpm --filter mobile exec vitest run <12 Release 4G targeted files>",
+      "result": "PASS",
+      "files": 12,
+      "tests": 51,
+      "failed": 0
+    },
+    {
+      "command": "pnpm --filter api exec vitest run test/release3-phase4.e2e.test.ts test/catalog-v2-admin.e2e.test.ts test/notifications.e2e.test.ts test/legacy-offline-reconcile.e2e.test.ts",
+      "result": "PASS",
+      "files": 4,
+      "tests": 19,
+      "failed": 0
+    },
+    {
+      "command": "pnpm --filter @wooriai/domain exec vitest run src/preparation-lifecycle.test.ts",
+      "result": "PASS",
+      "files": 1,
+      "tests": 13,
+      "repetitions": 30,
+      "failed": 0
+    },
+    {
+      "command": "pnpm --filter api exec vitest run test/reports-v2.e2e.test.ts",
+      "result": "PASS",
+      "files": 1,
+      "tests": 6,
+      "equivalenceRepetitions": 30,
+      "failed": 0
+    },
+    {
+      "command": "pnpm test:admin-browser",
+      "result": "PASS",
+      "files": 2,
+      "tests": 4,
+      "failed": 0
+    },
+    {
+      "command": "pnpm test",
+      "result": "PASS",
+      "workspaceTasks": 8,
+      "tests": 728,
+      "failed": 0,
+      "note": "@wooriai/ui has no independent suite and reports its existing deferred marker"
+    },
+    {
+      "command": "pnpm --filter api test:e2e",
+      "result": "PASS",
+      "files": 20,
+      "tests": 109,
+      "failed": 0
+    },
+    {
+      "command": "pnpm ux:contract --strict && pnpm ux:scenarios",
+      "result": "PASS",
+      "routes": 38,
+      "scenarioCells": 342
+    },
+    {
+      "command": "pnpm lint",
+      "result": "PASS",
+      "failed": 0
+    },
+    {
+      "command": "pnpm typecheck",
+      "result": "PASS",
+      "workspaceTasks": 8,
+      "failed": 0
+    },
+    {
+      "command": "production-profile pnpm build --force",
+      "result": "PASS",
+      "workspaceTasks": 8,
+      "failed": 0
+    },
+    {
+      "command": "pnpm release:gate",
+      "result": "PASS",
+      "gates": 11,
+      "failed": 0
+    },
+    {
+      "command": "pnpm release4:verify-db",
+      "result": "PASS",
+      "freshMigrations": 32,
+      "upgradeFromMigration": 12,
+      "upgradeToMigration": 32
+    },
+    {
+      "command": "pnpm security:secrets",
+      "result": "PASS",
+      "highConfidenceRules": 5
+    },
+    {
+      "command": "pnpm audit --prod --json",
+      "result": "REVIEW_REQUIRED_MODERATE_ONLY",
+      "moderate": 6,
+      "high": 0,
+      "critical": 0
+    },
+    {
+      "command": "pnpm release4:contamination:export",
+      "result": "PASS",
+      "productionBundleFindings": 0
+    },
+    {
+      "command": "pnpm android:build-apk -- --profile standalone",
+      "result": "PASS",
+      "buildCount": 1
+    }
+  ],
+  "firstFailuresPreserved": [
+    {
+      "command": "reports-v2 targeted repetition",
+      "cause": "test requested limit=100 while DTO maximum is 50",
+      "fix": "test now uses the contract maximum",
+      "final": "PASS"
+    },
+    {
+      "command": "pnpm test",
+      "cause": "independent contract fixtures omitted new householdId/pageTotals",
+      "fix": "fixtures updated without weakening the schema",
+      "final": "PASS"
+    },
+    {
+      "command": "pnpm test",
+      "cause": "browser specs were discovered by the default API suite and timed out under DB-heavy load",
+      "fix": "browser specs excluded from default config and retained in the single-worker runner",
+      "final": "PASS"
+    },
+    {
+      "command": "pnpm ux:scenarios",
+      "cause": "generator hard-coded 37 routes while the current registry contains 38",
+      "fix": "scenario count derives from the inventory",
+      "final": "PASS"
+    },
+    {
+      "command": "pnpm build",
+      "cause": "production bundle correctly rejected a missing HTTPS API URL",
+      "fix": "rerun with the repository release-gate production validation profile",
+      "final": "PASS"
+    }
+  ],
+  "notRun": [
+    {
+      "verification": "ADB installed smoke",
+      "status": "NOT_RUN_NO_DEVICE"
+    },
+    {
+      "verification": "actual TalkBack and native clipping matrix",
+      "status": "RUNTIME_PENDING"
+    }
+  ]
+}

@@ -1,10 +1,11 @@
 import { Redirect, Tabs } from "expo-router";
 import { BottomTabPixelStyles } from "../../src/pixelLock/styles";
+import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
-import { useSelectedChildStore } from "../../src/stores/selected-child.store";
+import { selectedChildScopeKeyForSession, useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppIcon, type AppIconName } from "../../src/ui";
+import { AppIcon, type AppIconName } from "../../src/design-system/components/ApplicationPrimitives";
 
 // D1 (docs/5차/round5a-design-spec.md §D1): one unified icon family, each tab an
 // outlined/filled glyph pair from the same geometric-shape set (consistent stroke weight and
@@ -13,15 +14,15 @@ import { AppIcon, type AppIconName } from "../../src/ui";
 const tabs: Record<"index" | "records" | "items" | "reports" | "more", { title: string; outline: AppIconName; filled: AppIconName }> = {
   index: { title: "홈", outline: "home-outline", filled: "home" },
   records: { title: "기록", outline: "notebook-outline", filled: "notebook" },
-  items: { title: "준비템", outline: "package-variant-closed", filled: "package-variant" },
-  reports: { title: "리포트", outline: "chart-bar", filled: "chart-bar" },
-  more: { title: "더보기", outline: "account-circle-outline", filled: "account-circle" }
+  items: { title: "준비템", outline: "basket-outline", filled: "basket" },
+  reports: { title: "리포트", outline: "chart-box-outline", filled: "chart-box" },
+  more: { title: "프로필", outline: "account-circle-outline", filled: "account-circle" }
 };
 
 function icon(name: keyof typeof tabs, focused: boolean) {
   return (
     <AppIcon
-      color={focused ? theme.colors.coral[500] : theme.colors.gray600}
+      color={focused ? theme.colors.mainCoral : theme.colors.gray600}
       name={focused ? tabs[name].filled : tabs[name].outline}
       size={BottomTabPixelStyles.iconSize}
     />
@@ -31,9 +32,14 @@ function icon(name: keyof typeof tabs, focused: boolean) {
 export default function TabsLayout() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
+  const userId = useSessionStore((state) => state.userId);
+  const householdId = useSessionStore((state) => state.defaultHouseholdId);
   const hasReachedHome = useOnboardingProgressStore((state) => state.hasReachedHome);
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
-  const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
+  const selectedChildStoredScope = useSelectedChildStore((state) => state.selectedChildScopeKey);
+  const sessionScope = selectedChildScopeKeyForSession(userId, householdId, isTestSession);
+  const selectedChildInScope = selectedChildStoredScope === sessionScope ? selectedChildId : null;
+  const isPixelLockMode = isPixelLockBuild();
 
   if (!isPixelLockMode) {
     if (!accessToken && !isTestSession) {
@@ -48,7 +54,7 @@ export default function TabsLayout() {
       return <Redirect href="/" />;
     }
 
-    if (!selectedChildId) {
+    if (!selectedChildInScope) {
       return <Redirect href="/" />;
     }
   }
@@ -57,7 +63,7 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: theme.colors.coral[500],
+        tabBarActiveTintColor: theme.colors.mainCoral,
         tabBarInactiveTintColor: theme.colors.gray600,
         tabBarLabelStyle: { fontSize: BottomTabPixelStyles.labelSize, fontWeight: "700" },
         tabBarStyle: {
@@ -73,7 +79,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="records" options={{ title: tabs.records.title, tabBarIcon: ({ focused }) => icon("records", focused) }} />
       <Tabs.Screen name="items" options={{ title: tabs.items.title, tabBarIcon: ({ focused }) => icon("items", focused) }} />
       <Tabs.Screen name="reports" options={{ title: tabs.reports.title, tabBarIcon: ({ focused }) => icon("reports", focused) }} />
-      <Tabs.Screen name="more" options={{ href: null }} />
+      <Tabs.Screen name="more" options={{ title: tabs.more.title, tabBarIcon: ({ focused }) => icon("more", focused) }} />
     </Tabs>
   );
 }

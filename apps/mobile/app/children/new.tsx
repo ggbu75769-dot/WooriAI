@@ -2,9 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href, useLocalSearchParams } from "expo-router";
 import { useRef } from "react";
 import { View } from "react-native";
-import { createChild, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { createChild, LOCAL_HOUSEHOLD_ID, fixtureSessionToken } from "../../src/api/client";
 import { ChildProfileFields, type ChildProfileDraft } from "../../src/children/ChildProfileFields";
 import { invalidateChildScopedQueries } from "../../src/children/query-cache";
+import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -22,11 +23,11 @@ const initialValue: ChildProfileDraft = {
 export default function NewChildScreen() {
   const params = useLocalSearchParams<{ evidence?: string }>();
   const isPixelEvidence =
-    process.env.EXPO_PUBLIC_PIXEL_LOCK === "1" && String(params.evidence ?? "") === "PROFILE-GENDER-001";
+    isPixelLockBuild() && String(params.evidence ?? "") === "PROFILE-GENDER-001";
   const accessToken = useSessionStore((state) => state.accessToken);
   const defaultHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession || isPixelEvidence ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession || isPixelEvidence ? fixtureSessionToken : null);
   const householdId = defaultHouseholdId ?? (isTestSession || isPixelEvidence ? LOCAL_HOUSEHOLD_ID : null);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
   const queryClient = useQueryClient();
@@ -72,7 +73,7 @@ export default function NewChildScreen() {
           failed={create.isError}
           initialValue={
             isPixelEvidence
-              ? { ...initialValue, nickname: "다온이", birthDate: "2024-01-01", gender: "female" }
+              ? { ...initialValue, nickname: "검증용 아이", birthDate: "2024-01-01", gender: "female" }
               : initialValue
           }
           onSubmit={(draft) => create.mutate(draft)}

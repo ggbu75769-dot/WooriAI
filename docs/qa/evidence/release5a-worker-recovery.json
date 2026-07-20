@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "worker operator",
+  "input": "claimed/expired outbox events",
+  "mission": "recover once",
+  "evidence": [
+    "release3-jobs.db.test.ts",
+    "release4i-worker-failpoint.test.ts"
+  ]
+}

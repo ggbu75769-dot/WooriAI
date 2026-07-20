@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "release": "4H",
+  "generatedAt": "2026-07-17T12:42:02+09:00",
+  "implementation": [
+    "apps/mobile/src/navigation/pending-intent.ts",
+    "apps/mobile/app/_layout.tsx"
+  ],
+  "contracts": [
+    {"contract": "protected query waits for session and child hydration", "result": "PASS"},
+    {"contract": "logged-out deep link is held until authentication", "result": "PASS"},
+    {"contract": "authenticated pending intent is bound to the same user", "result": "PASS"},
+    {"contract": "household, child and item membership are rechecked", "result": "PASS"},
+    {"contract": "logout clears pending intent", "result": "PASS"},
+    {"contract": "stale asynchronous validation cannot navigate", "result": "PASS"},
+    {"contract": "unknown or inaccessible target falls back to notifications", "result": "PASS"}
+  ],
+  "tests": {
+    "files": ["apps/mobile/src/navigation/pending-intent.test.ts", "apps/mobile/src/release4h-route-state-closure.test.ts"],
+    "tests": 13,
+    "failed": 0
+  },
+  "nativeProcessDeath": "RUNTIME_ONLY"
+}

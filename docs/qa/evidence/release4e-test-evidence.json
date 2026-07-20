@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T00:15:00+09:00",
+  "environment": {
+    "os": "Windows",
+    "node": "v20.20.2",
+    "pnpm": "10.28.1",
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d"
+  },
+  "baselineObservations": [
+    {
+      "command": "pnpm --filter api test:e2e",
+      "firstResult": "TIMEOUT_AT_5_MINUTES",
+      "classification": "test harness timeout, not an assertion failure",
+      "finalResult": "PASS_19_FILES_106_TESTS"
+    },
+    {
+      "command": "pnpm build",
+      "firstResult": "FAIL_MISSING_PRODUCTION_HTTPS_API_BASE",
+      "classification": "expected production safety assertion; it was not weakened",
+      "finalResult": "PASS_IN_RELEASE_GATE_WITH_RELEASE_PROFILE"
+    },
+    {
+      "command": "pnpm --filter api prisma:validate",
+      "firstResult": "FAIL_DATABASE_URL_MISSING",
+      "classification": "environment input missing",
+      "finalResult": "PASS_WITH_LOCAL_VERIFICATION_DATABASE_URL"
+    },
+    {
+      "command": "pnpm catalog:performance",
+      "firstResult": "PASS_UNDER_SYSTEM_NODE_25",
+      "classification": "wrong runtime for acceptance evidence",
+      "finalResult": "PASS_UNDER_NODE_20_20_2"
+    }
+  ],
+  "verification": [
+    {
+      "command": "pnpm release:gate",
+      "result": "PASS",
+      "details": "11/11 stages including frozen install, Prisma, lint, typecheck, forced tests, API E2E, builds, and strict peers",
+      "evidence": "docs/qa/evidence/latest-release-gate.json"
+    },
+    {
+      "command": "pnpm test --concurrency=1 --force",
+      "result": "PASS",
+      "details": "685 assertions: API 251, mobile 304, domain 41, admin 33, contracts 38, config 3, test-utils 15"
+    },
+    {
+      "command": "pnpm --filter api test:e2e",
+      "result": "PASS",
+      "details": "19 files, 106 tests"
+    },
+    {
+      "command": "pnpm --filter api test",
+      "result": "PASS",
+      "details": "52 files, 251 tests"
+    },
+    {
+      "command": "pnpm --filter mobile test",
+      "result": "PASS",
+      "details": "49 files, 304 tests"
+    },
+    {
+      "command": "pnpm --filter admin test",
+      "result": "PASS",
+      "details": "7 files, 33 tests"
+    },
+    {
+      "command": "pnpm --filter @wooriai/domain test",
+      "result": "PASS",
+      "details": "8 files, 41 tests"
+    },
+    {
+      "command": "critical mobile repeats",
+      "result": "PASS",
+      "details": "4 files / 26 tests x10 = 260/260"
+    },
+    {
+      "command": "critical domain repeats",
+      "result": "PASS",
+      "details": "2 files / 18 tests x10 = 180/180"
+    },
+    {
+      "command": "critical API DB race repeats",
+      "result": "PASS",
+      "details": "3 files / 11 tests x10 = 110/110"
+    },
+    {
+      "command": "pnpm release4:verify-db",
+      "result": "PASS",
+      "details": "fresh and Release 3 upgrade through 31 migrations; legacy backfills preserved",
+      "evidence": "docs/qa/evidence/release4-database-verification.json"
+    },
+    {
+      "command": "pnpm release4:contamination:export",
+      "result": "PASS",
+      "details": "production Hermes bundle had zero forbidden findings",
+      "evidence": "docs/qa/evidence/release4-production-export-contamination.json"
+    },
+    {
+      "command": "pnpm catalog:audit",
+      "result": "PASS_STRUCTURAL_NOT_PUBLISHED",
+      "details": "408 canonical, 408 in_review, 0 published, 3278 aliases, 84 high risk, 0 offers, no integrity defects",
+      "evidence": "docs/qa/evidence/release4-catalog-audit.json"
+    },
+    {
+      "command": "pnpm catalog:performance",
+      "result": "PASS",
+      "details": "Node v20.20.2, 200 queries, zero misses, p95 235.68 ms",
+      "evidence": "docs/qa/evidence/release4-catalog-performance.json"
+    },
+    {
+      "command": "pnpm ux:contract --strict",
+      "result": "PASS",
+      "details": "37 routes and static core touch-target contracts passed; runtime qualification remains separate",
+      "evidence": "docs/qa/evidence/release4-ui-route-inventory.json"
+    },
+    {
+      "command": "pnpm security:secrets",
+      "result": "PASS",
+      "details": "five high-confidence rules; secret values were not printed"
+    },
+    {
+      "command": "pnpm security:audit",
+      "result": "PASS_AT_HIGH_THRESHOLD",
+      "details": "zero high/critical and eight moderate; JSON detail request returned registry HTTP 410",
+      "evidence": "docs/qa/evidence/release4e-security-audit.json"
+    },
+    {
+      "command": "pnpm android:build-apk",
+      "result": "PASS",
+      "details": "one internal standalone release-variant build with an internal debug certificate",
+      "evidence": "artifacts/android/release4e-build-provenance.json"
+    },
+    {
+      "command": "Admin headless browser",
+      "result": "NOT_AVAILABLE",
+      "details": "required Node REPL browser tool was not exposed; no new browser framework was added"
+    },
+    {
+      "command": "adb devices -l",
+      "result": "NOT_RUN_NO_DEVICE",
+      "details": "ADB found but no authorized device/emulator; no emulator start and no install"
+    }
+  ]
+}

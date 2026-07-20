@@ -29,6 +29,7 @@ describe("Release 3 app config", () => {
       featureFlags: expect.any(Object),
       configVersion: expect.any(Number)
     });
+    expect(first.headers["x-config-source"]).toBe("database");
     expect(first.headers.etag).toMatch(/^"[a-f0-9]{64}"$/);
     await request(app.getHttpServer())
       .get("/api/v1/app-config")
@@ -38,22 +39,39 @@ describe("Release 3 app config", () => {
 
   it("lets an admin update known flags and rejects unknown fields", async () => {
     const current = (await request(app.getHttpServer()).get("/api/v1/app-config").expect(200)).body;
-    const { updatedAt: _updatedAt, configVersion: _configVersion, ...body } = current;
+    const { updatedAt: _updatedAt, configVersion, ...body } = current;
     await request(app.getHttpServer())
       .patch("/api/v1/admin/app-config")
       .set("x-admin-token", "release3-config-admin")
-      .send({ ...body, emergencyMessage: "점검 안내" })
+      .send({ expectedVersion: configVersion, reason: "점검 안내 표시", config: { ...body, emergencyMessage: "점검 안내" } })
       .expect(200)
-      .expect(({ body: updated }) => expect(updated.emergencyMessage).toBe("점검 안내"));
+      .expect(({ body: updated }) => expect(updated.config.emergencyMessage).toBe("점검 안내"));
     await request(app.getHttpServer())
       .patch("/api/v1/admin/app-config")
       .set("x-admin-token", "release3-config-admin")
-      .send({ ...body, unknownDangerousFlag: true })
+      .send({ expectedVersion: configVersion + 1, reason: "잘못된 설정 검증", config: { ...body, unknownDangerousFlag: true } })
       .expect(400);
     await request(app.getHttpServer())
       .patch("/api/v1/admin/app-config")
       .set("x-admin-token", "release3-config-admin")
-      .send(body)
+      .send({ expectedVersion: configVersion, reason: "오래된 작성자 충돌", config: body })
+      .expect(409);
+
+    const rolledBack = await request(app.getHttpServer())
+      .post("/api/v1/admin/app-config/rollback")
+      .set("x-admin-token", "release3-config-admin")
+      .send({ expectedVersion: configVersion + 1, targetVersion: configVersion, reason: "점검 안내 설정 복원" })
       .expect(200);
+    expect(rolledBack.body.revision).toMatchObject({ version: configVersion + 2, action: "rollback" });
+    expect(rolledBack.body.config.emergencyMessage).toBe(body.emergencyMessage);
+
+    const operations = await request(app.getHttpServer())
+      .get("/api/v1/admin/app-config/operations")
+      .set("x-admin-token", "release3-config-admin")
+      .expect(200);
+    expect(operations.body.active.config.configVersion).toBe(configVersion + 2);
+    expect(operations.body.revisions.map((revision: { version: number }) => revision.version)).toEqual(
+      expect.arrayContaining([configVersion, configVersion + 1, configVersion + 2])
+    );
   });
 });

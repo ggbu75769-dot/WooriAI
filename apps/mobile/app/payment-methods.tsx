@@ -6,12 +6,13 @@ import {
   createPaymentMethod,
   deactivatePaymentMethod,
   listPaymentMethods,
-  LOCAL_SESSION_TOKEN,
+  fixtureSessionToken,
   setDefaultPaymentMethod,
   updatePaymentMethod,
   type UserPaymentMethod
 } from "../src/api/client";
 import { useSessionStore } from "../src/stores/session.store";
+import { isPixelLockBuild } from "../src/pixelLock/build-profile";
 import { theme } from "../src/theme";
 import { AppScreen, Card, CategoryChip, PrimaryButton, ScreenHeader, SecondaryButton, Toast } from "../src/ui";
 
@@ -44,10 +45,10 @@ const pixelPreviewPaymentMethods: UserPaymentMethod[] = [
 export default function PaymentMethodsScreen() {
   const params = useLocalSearchParams<{ evidence?: string }>();
   const evidenceId = String(params.evidence ?? "PAY-001");
-  const isPixelEvidence = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
+  const isPixelEvidence = isPixelLockBuild();
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const token = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const token = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const queryClient = useQueryClient();
   const [label, setLabel] = React.useState("");
   const [type, setType] = React.useState<UserPaymentMethod["type"]>("card");

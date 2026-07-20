@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { validateProductionReleaseConfig, type ReleaseConfigIssue } from "@wooriai/config";
 
 type GateCommand = {
@@ -10,6 +10,7 @@ type GateCommand = {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  timeoutMs?: number;
 };
 
 type GateResult = GateCommand & {
@@ -17,12 +18,13 @@ type GateResult = GateCommand & {
   status: number;
   stdout: string;
   stderr: string;
+  timedOut: boolean;
   issues?: ReleaseConfigIssue[];
 };
 
 const devDatabaseUrl = "postgresql://wooriai:wooriai_dev_password@localhost:5432/wooriai_dev";
 const gateCommands: GateCommand[] = [
-  { id: "install", label: "Install", display: "pnpm install --frozen-lockfile", command: "pnpm", args: ["install", "--frozen-lockfile"] },
+  { id: "install", label: "Install", display: "pnpm install --frozen-lockfile", command: "pnpm", args: ["install", "--frozen-lockfile"], timeoutMs: 5 * 60_000 },
   { id: "env", label: "Env example", display: "pnpm check:env:example", command: "pnpm", args: ["check:env:example"] },
   {
     id: "prisma-validate",
@@ -40,37 +42,76 @@ const gateCommands: GateCommand[] = [
     args: ["--filter", "api", "prisma:generate"],
     env: { DATABASE_URL: devDatabaseUrl }
   },
-  { id: "db-start", label: "Database up", display: "pnpm db start", command: "pnpm", args: ["db", "start"] },
-  { id: "lint", label: "ESLint", display: "pnpm lint", command: "pnpm", args: ["lint"] },
-  { id: "typecheck", label: "Typecheck", display: "pnpm typecheck", command: "pnpm", args: ["typecheck"] },
+  { id: "db-start", label: "Database up", display: "pnpm db start", command: "pnpm", args: ["db", "start"], timeoutMs: 3 * 60_000 },
+  { id: "lint", label: "ESLint", display: "pnpm lint", command: "pnpm", args: ["lint"], timeoutMs: 5 * 60_000 },
+  { id: "typecheck", label: "Typecheck", display: "pnpm typecheck", command: "pnpm", args: ["typecheck"], timeoutMs: 10 * 60_000 },
   {
     id: "test",
     label: "All tests",
     display: "pnpm test --concurrency=1 --force",
     command: "pnpm",
-    args: ["test", "--concurrency=1", "--force"]
+    args: ["test", "--concurrency=1", "--force"],
+    timeoutMs: 15 * 60_000
   },
-  { id: "api-e2e", label: "API e2e", display: "pnpm --filter api test:e2e", command: "pnpm", args: ["--filter", "api", "test:e2e"] },
-  { id: "build", label: "Production builds", display: "pnpm build --force", command: "pnpm", args: ["build", "--force"] },
-  { id: "peers", label: "Peer dependencies", display: "pnpm peers check", command: "pnpm", args: ["peers", "check"] }
+  { id: "api-e2e", label: "API e2e", display: "pnpm --filter api test:e2e", command: "pnpm", args: ["--filter", "api", "test:e2e"], timeoutMs: 10 * 60_000 },
+  {
+    id: "build",
+    label: "Production builds",
+    display: "pnpm build --force",
+    command: "pnpm",
+    args: ["build", "--force"],
+    timeoutMs: 15 * 60_000,
+    env: {
+      NODE_ENV: "production",
+      WOORIAI_BUILD_PROFILE: "production",
+      EXPO_PUBLIC_API_BASE_URL: "https://api.wooriai.test/api/v1",
+      EXPO_PUBLIC_TEST_LOGIN: "0",
+      EXPO_PUBLIC_PIXEL_LOCK: "0",
+      CATALOG_INTERNAL_PREVIEW_ENABLED: "0"
+    }
+  },
+  {
+    id: "peers",
+    label: "Peer dependencies",
+    display: "pnpm install --frozen-lockfile --strict-peer-dependencies --lockfile-only",
+    command: "pnpm",
+    args: ["install", "--frozen-lockfile", "--strict-peer-dependencies", "--lockfile-only"]
+  }
 ];
 
 function runGateCommand(gateCommand: GateCommand): GateResult {
   const startedAt = Date.now();
-  const packageManagerCliPath = process.env.npm_execpath;
-  const executable = packageManagerCliPath ? process.execPath : process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  const args = packageManagerCliPath ? [packageManagerCliPath, ...gateCommand.args] : gateCommand.args;
+  const packageManagerCliPathCandidate = process.env.npm_execpath;
+  const packageManagerCliPath = packageManagerCliPathCandidate
+    && /^pnpm(?:\.c?js)?$/i.test(basename(packageManagerCliPathCandidate))
+    ? packageManagerCliPathCandidate
+    : undefined;
+  const useWindowsCommandHost = !packageManagerCliPath && process.platform === "win32";
+  const executable = packageManagerCliPath
+    ? process.execPath
+    : useWindowsCommandHost
+      ? process.env.ComSpec ?? "cmd.exe"
+      : "pnpm";
+  const args = packageManagerCliPath
+    ? [packageManagerCliPath, ...gateCommand.args]
+    : useWindowsCommandHost
+      ? ["/d", "/s", "/c", "pnpm.cmd", ...gateCommand.args]
+      : gateCommand.args;
   const result = spawnSync(executable, args, {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: { ...process.env, ...gateCommand.env }
+    env: { ...process.env, ...gateCommand.env },
+    timeout: gateCommand.timeoutMs ?? 5 * 60_000,
+    killSignal: "SIGTERM"
   });
+  const timedOut = (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
   return {
     ...gateCommand,
     durationMs: Date.now() - startedAt,
-    status: result.status ?? 1,
+    status: timedOut ? 124 : result.status ?? 1,
     stdout: result.stdout ?? "",
-    stderr: `${result.stderr ?? ""}${result.error ? String(result.error) : ""}`
+    stderr: `${result.stderr ?? ""}${result.error ? String(result.error) : ""}`,
+    timedOut
   };
 }
 
@@ -85,7 +126,11 @@ function latestMigrationHead() {
 function fixtureEnvironment(migrationHead: string): Record<string, string> {
   return {
     NODE_ENV: "production",
+    WOORIAI_BUILD_PROFILE: "production",
+    EXPO_PUBLIC_TEST_LOGIN: "0",
+    EXPO_PUBLIC_PIXEL_LOCK: "0",
     ENABLE_DEV_AUTH: "false",
+    CATALOG_INTERNAL_PREVIEW_ENABLED: "0",
     LEGAL_OPERATOR_NAME: "Approved Operator",
     PRIVACY_POLICY_URL: "https://legal.wooriai.test/privacy",
     TERMS_URL: "https://legal.wooriai.test/terms",
@@ -149,6 +194,7 @@ function runProductionConfigGate(fixture: boolean): GateResult {
     status: issues.length === 0 ? 0 : 1,
     stdout: issues.length === 0 ? "Production configuration contract passed.\n" : "",
     stderr: issues.map((issue) => `${issue.code}: ${issue.message}`).join("\n"),
+    timedOut: false,
     issues
   };
 }
@@ -165,7 +211,7 @@ function markdownFor(results: GateResult[], mode: string, dryRun: boolean) {
   ];
 
   for (const result of results) {
-    const status = dryRun ? "NOT RUN" : result.status === 0 ? "PASS" : "FAIL";
+    const status = dryRun ? "NOT RUN" : result.timedOut ? "TIMEOUT" : result.status === 0 ? "PASS" : "FAIL";
     lines.push(`| ${result.label} | \`${result.display}\` | ${status} | ${result.durationMs}ms |`);
   }
 
@@ -205,6 +251,8 @@ function writeEvidence(results: GateResult[], mode: string, dryRun: boolean, bas
           command: result.display,
           result: dryRun ? "NOT_RUN" : result.status === 0 ? "PASS" : "FAIL",
           durationMs: result.durationMs,
+          timeoutMs: result.timeoutMs ?? null,
+          timedOut: result.timedOut,
           issues: result.issues ?? []
         }))
       },
@@ -228,7 +276,7 @@ function main() {
   if (production) results.push(runProductionConfigGate(fixture));
   for (const command of selectedCommands) {
     if (dryRun) {
-      results.push({ ...command, durationMs: 0, status: 0, stdout: "", stderr: "" });
+      results.push({ ...command, durationMs: 0, status: 0, stdout: "", stderr: "", timedOut: false });
       continue;
     }
     console.log(`[release:gate] ${command.display}`);

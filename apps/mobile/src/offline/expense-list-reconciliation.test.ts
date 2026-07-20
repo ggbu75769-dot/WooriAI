@@ -6,6 +6,7 @@ const childId = "child-1";
 
 function offlineRow(overrides: Partial<LocalExpenseRow>): LocalExpenseRow {
   return {
+    scopeKey: "test-scope",
     localId: "local-1",
     canonicalId: null,
     childId,
@@ -15,6 +16,7 @@ function offlineRow(overrides: Partial<LocalExpenseRow>): LocalExpenseRow {
     pendingDelete: false,
     conflictCurrent: null,
     lastError: null,
+    failureKind: null,
     createdAt: "2026-07-05T00:00:00.000Z",
     updatedAt: "2026-07-05T00:00:00.000Z",
     ...overrides

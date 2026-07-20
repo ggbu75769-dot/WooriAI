@@ -233,6 +233,9 @@ function sourceHash(screenId: string) {
   for (const relativePath of [
     "package.json",
     "scripts/pixel-lock/pixel-lock-screens.json",
+    "scripts/pixel-lock/android-pixel-lock.ts",
+    "scripts/pixel-lock/build-pixel-apk.ts",
+    "artifacts/pixel-lock/android/reports/pixel-apk.json",
     "apps/mobile/app",
     "apps/mobile/src",
     "apps/mobile/assets"
@@ -790,7 +793,17 @@ async function runValidation(command: string, screenId?: string, force = false) 
   const cache = readCache();
   const results: ScreenResult[] = [];
 
-  for (const [index, targetId] of targetIds.entries()) {
+  // Expo Router receives custom-scheme URLs reliably once the embedded React Native runtime is
+  // mounted. On this Android 15 AVD, a custom-scheme URL used as the process cold-start intent is
+  // normalized to the index route before linking subscribes, which made every requested screen
+  // capture HOME-001. Cold-start the known home route first, then deliver all target URLs warm.
+  if (targetIds.length > 0 && process.env.PIXEL_ANDROID_COLD_EACH !== "1") {
+    openScreen("HOME-001", screens, { coldStart: true });
+    sleepMs(Number(process.env.PIXEL_ANDROID_WAIT_MS || 700));
+    waitForScreenReady("HOME-001");
+  }
+
+  for (const targetId of targetIds) {
     const currentHash = sourceHash(targetId);
     const screenshotPath = join(screenshotDir, `${targetId}.png`);
     const xmlPath = join(logDir, `${targetId}-window.xml`);
@@ -804,10 +817,7 @@ async function runValidation(command: string, screenId?: string, force = false) 
       cache[targetId] === currentHash;
     if (!canSkipCapture) {
       clearLogcat();
-      const coldStart =
-        process.env.PIXEL_ANDROID_WARM_FIRST === "1"
-          ? process.env.PIXEL_ANDROID_COLD_EACH === "1"
-          : index === 0 || process.env.PIXEL_ANDROID_COLD_EACH !== "0";
+      const coldStart = process.env.PIXEL_ANDROID_COLD_EACH === "1";
       openScreen(targetId, screens, { coldStart });
       const waitMs = Number(process.env.PIXEL_ANDROID_WAIT_MS || 700);
       sleepMs(waitMs);
@@ -815,9 +825,12 @@ async function runValidation(command: string, screenId?: string, force = false) 
       const settleMs = Number(process.env.PIXEL_ANDROID_SETTLE_MS || 5000);
       if (settleMs > 0) sleepMs(settleMs);
       await captureStableScreen(targetId);
-      cache[targetId] = currentHash;
     }
     const render = await validateRender(targetId, screenshotPath, !canSkipCapture);
+    if (!canSkipCapture) {
+      if (render.renderValid) cache[targetId] = currentHash;
+      else delete cache[targetId];
+    }
     results.push(await diffScreen(targetId, screens, render));
   }
 

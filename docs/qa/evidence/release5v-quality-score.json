@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "SOURCE_VERIFIED",
+  "sourceVerifiedScore": 92,
+  "sourceMaximum": 94,
+  "runtimeReserveEarned": 0,
+  "runtimeReserveMaximum": 6,
+  "releaseQualifiedTotal": 92,
+  "categories": [
+    {
+      "category": "claim/source traceability",
+      "max": 12,
+      "score": 12,
+      "evidence": "22 claims mapped",
+      "deductedReason": null
+    },
+    {
+      "category": "onboarding correctness",
+      "max": 15,
+      "score": 15,
+      "evidence": "domain/API/mobile behavior tests",
+      "deductedReason": null
+    },
+    {
+      "category": "child/scope/privacy",
+      "max": 12,
+      "score": 12,
+      "evidence": "scope isolation and fixture fingerprint",
+      "deductedReason": null
+    },
+    {
+      "category": "Design System direct usage",
+      "max": 14,
+      "score": 13,
+      "evidence": "core 13 direct; 21 routes fully direct; secondary facade debt remains",
+      "deductedReason": "core 13 direct; 21 routes fully direct; secondary facade debt remains"
+    },
+    {
+      "category": "task efficiency and state UX",
+      "max": 10,
+      "score": 10,
+      "evidence": "single-flight and request budgets",
+      "deductedReason": null
+    },
+    {
+      "category": "accessibility source contract",
+      "max": 9,
+      "score": 8.5,
+      "evidence": "source/render pass; physical focus reserve",
+      "deductedReason": "source/render pass; physical focus reserve"
+    },
+    {
+      "category": "API/client/local parity",
+      "max": 10,
+      "score": 10,
+      "evidence": "deterministic verifier and 30x parity",
+      "deductedReason": null
+    },
+    {
+      "category": "build reproducibility",
+      "max": 8,
+      "score": 7.5,
+      "evidence": "manifest-bound internal build; no isolated clean-copy or production signing",
+      "deductedReason": "manifest-bound internal build; no isolated clean-copy or production signing"
+    },
+    {
+      "category": "security/dependency",
+      "max": 4,
+      "score": 4,
+      "evidence": "high/critical 0; five moderate reachability-reviewed",
+      "deductedReason": null
+    }
+  ],
+  "runtimeOnly": [
+    "native picker focus",
+    "real clipping",
+    "TalkBack",
+    "icons",
+    "process death/deep link",
+    "installed smoke"
+  ],
+  "claim95": false
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "PASS",
+  "actor": "mobile maintainer",
+  "input": "14 core source files",
+  "mission": "reject unsafe AST patterns",
+  "verifier": "TypeScript AST",
+  "findings": [],
+  "command": "pnpm mobile:source-quality"
+}

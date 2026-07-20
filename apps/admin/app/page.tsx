@@ -1,3 +1,4 @@
+import React from "react";
 import Link from "next/link";
 
 export default function AdminHomePage() {
@@ -39,8 +40,10 @@ export default function AdminHomePage() {
       <p style={{ color: "#7A7A7A" }}>ADM-001</p>
       <h1>WooriAI Admin CMS</h1>
       <section style={{ background: "#FFFFFF", borderRadius: 8, marginBottom: 20, padding: 20 }}>
-        <h2>Admin auth placeholder</h2>
-        <p>Internal admin requests use the x-admin-token header until production admin auth is connected.</p>
+        <h2>관리자 로그인과 보안</h2>
+        <p>관리자 로그인은 API가 발급한 HttpOnly 세션 쿠키를 사용하며, 브라우저 저장소에 인증 토큰을 보관하지 않습니다.</p>
+        <p>비밀번호 확인 뒤 등록된 관리자는 MFA 코드를 추가로 확인하고, 처음 로그인한 관리자는 다른 CMS 기능을 사용하기 전에 MFA 등록을 완료해야 합니다.</p>
+        <p>상태 변경 요청은 CSRF 쿠키와 요청 헤더를 함께 검증합니다. 개발·테스트 전용 API 호환 경로는 CMS의 production 인증 방식이 아닙니다.</p>
       </section>
       <section style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
         {sections.map((section) => (

@@ -3,70 +3,59 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CHILD_STAGE_CODES, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
 
-// child-profile.tsx (ONB-002) imports "react-native" transitively (via src/ui.tsx), which ships
-// untranspiled Flow syntax that Vitest's default parser cannot handle -- see the identical note
-// in src/lineChartMath.ts. So these are raw-source contract checks (matching the style already
-// used by src/onboarding-flow.test.ts) plus direct unit checks of the domain guard functions the
-// screen wires in, rather than a rendered-component test.
+// PathFormScreens imports React Native transitively, so these remain source-contract checks plus
+// direct domain assertions. The ONB-002 route itself must stay a dispatcher with no dormant
+// early-create implementation.
 const mobileRoot = process.cwd();
-const childProfileSource = readFileSync(
+const pathFormSource = readFileSync(join(mobileRoot, "src/onboarding/PathFormScreens.tsx"), "utf8");
+const childProfileRouteSource = readFileSync(
   join(mobileRoot, "app/(onboarding)/child-profile.tsx"),
   "utf8"
 );
 
-describe("ONB-002 manual stage selection (audit fix: was hardcoded to infant_4_6)", () => {
-  it("no longer hardcodes manualStage to a fixed stage code", () => {
-    expect(childProfileSource).not.toContain('manualStage: draft.stageMode === "manual" ? "infant_4_6"');
+describe("ONB-002 V2 manual-stage selection", () => {
+  it("does not hardcode manualStage to a fixed stage code", () => {
+    expect(pathFormSource).not.toContain('manualStage: draft.stageMode === "manual" ? "infant_4_6"');
   });
 
-  it("lets the user pick a manual stage and saves that selection", () => {
-    expect(childProfileSource).toContain("useState<ChildStageCode | null>(null)");
-    expect(childProfileSource).toContain("CHILD_STAGE_CODES.map");
-    expect(childProfileSource).toContain("setManualStage(code)");
-    expect(childProfileSource).toContain('manualStage: draft.stageMode === "manual" ? manualStage : undefined');
+  it("renders every domain stage and writes the selected value to the draft", () => {
+    expect(pathFormSource).toContain("CHILD_STAGE_CODES.map");
+    expect(pathFormSource).toContain("chooseStage(stage)");
+    expect(pathFormSource).toContain("manualStage,");
+    for (const code of CHILD_STAGE_CODES) expect(pathFormSource).toContain(code);
   });
 
-  it("blocks saving in manual mode until a stage is chosen", () => {
-    expect(childProfileSource).toContain("아이 단계를 하나 선택해 주세요.");
-    expect(childProfileSource).toContain("!manualStageError");
+  it("blocks continuation until stage, name, sex, and a valid date are ready", () => {
+    expect(pathFormSource).toContain("draft.manualStage && draft.childName.trim() && draft.sex");
+    expect(pathFormSource).toContain("primaryDisabled={!canContinue}");
   });
 
-  it("defines a Korean label for every domain ChildStageCode", () => {
-    for (const code of CHILD_STAGE_CODES) {
-      expect(childProfileSource).toContain(code);
-    }
-    // Spot-check the example label style called for in the audit ("신생아 (0-3개월)").
-    expect(childProfileSource).toContain("신생아 (0-3개월)");
+  it("keeps the route alias as a V2 dispatcher without legacy early child creation", () => {
+    expect(childProfileRouteSource).toContain("PathFormScreens.tsx");
+    expect(childProfileRouteSource).not.toContain("createChild(");
+    expect(childProfileRouteSource).not.toContain("LegacyChildProfileScreen");
   });
 });
 
-describe("ONB-002 birth date must reject future dates (audit fix: only format was checked)", () => {
-  it("wires isFutureSeoulDate and isValidCalendarDate from @wooriai/domain into the date guard", () => {
-    expect(childProfileSource).toContain("isFutureSeoulDate");
-    expect(childProfileSource).toContain("isValidCalendarDate");
-    expect(childProfileSource).toContain('stageMode === "born" && isFutureSeoulDate(trimmed)');
-    expect(childProfileSource).toContain("출생일은 오늘보다 미래일 수 없어요.");
+describe("ONB-002 V2 date guards", () => {
+  it("requires calendar-valid due and birth dates", () => {
+    expect(pathFormSource).toContain("!draft.birthDate || !isValidCalendarDate(draft.birthDate)");
+    expect(pathFormSource).toContain("draft.dueDate && isValidCalendarDate(draft.dueDate)");
   });
 
-  it("(domain contract) isFutureSeoulDate flags a birth date in the future", () => {
-    const farFutureDate = "2999-01-01";
-    expect(isFutureSeoulDate(farFutureDate)).toBe(true);
+  it("uses a local Seoul-today future guard and native picker maximum on born paths", () => {
+    expect(pathFormSource).toContain("draft.birthDate > getSeoulToday()");
+    expect(pathFormSource).toContain("maximumDate={new Date()}");
+    expect(pathFormSource).not.toContain("draft.dueDate > getSeoulToday()");
   });
 
-  it("(domain contract) isFutureSeoulDate allows a past date, which a due date must also accept", () => {
-    const pastDate = "2000-01-01";
-    expect(isFutureSeoulDate(pastDate)).toBe(false);
+  it("flags a future birth date in the domain contract", () => {
+    expect(isFutureSeoulDate("2999-01-01")).toBe(true);
+    expect(isFutureSeoulDate("2000-01-01")).toBe(false);
   });
 
-  it("(domain contract) isValidCalendarDate rejects an impossible calendar date like Feb 30", () => {
+  it("rejects impossible calendar dates", () => {
     expect(isValidCalendarDate("2026-02-30")).toBe(false);
     expect(isValidCalendarDate("2026-02-14")).toBe(true);
-  });
-
-  it("only applies the future-date rejection to born mode, not pregnant due dates", () => {
-    // The guard function only calls isFutureSeoulDate when stageMode === "born"; pregnant mode
-    // falls through to the calendar-validity check only, so a past due date is accepted.
-    const bornModeGuardOnly = /stageMode === "born" && isFutureSeoulDate/;
-    expect(bornModeGuardOnly.test(childProfileSource)).toBe(true);
   });
 });

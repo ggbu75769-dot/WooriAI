@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
-import { getBudget, getChild, listItems, LOCAL_SESSION_TOKEN, updateChild } from "../../src/api/client";
+import { getBudget, getChild, listItems, fixtureSessionToken, updateChild } from "../../src/api/client";
 import { ChildProfileFields, type ChildProfileDraft } from "../../src/children/ChildProfileFields";
 import { invalidateChildScopedQueries } from "../../src/children/query-cache";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -15,7 +15,7 @@ export default function EditChildScreen() {
   const childId = childIdParam ?? "";
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
   const queryClient = useQueryClient();
   const child = useQuery({

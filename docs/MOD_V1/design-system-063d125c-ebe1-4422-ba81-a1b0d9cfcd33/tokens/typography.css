@@ -1,0 +1,19 @@
+/* 우리아이 typography tokens — seed v1.0 §typography. Pretendard Variable primary. */
+:root{
+--font-sans:"Pretendard Variable",Pretendard,"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+/* style: size / line-height / weight / letter-spacing */
+--type-display-size:32px;--type-display-lh:40px;--type-display-weight:700;--type-display-ls:-0.4px;
+--type-title-lg-size:28px;--type-title-lg-lh:36px;--type-title-lg-weight:700;--type-title-lg-ls:-0.3px;
+--type-title-md-size:24px;--type-title-md-lh:32px;--type-title-md-weight:700;--type-title-md-ls:-0.2px;
+--type-heading-lg-size:20px;--type-heading-lg-lh:28px;--type-heading-lg-weight:700;--type-heading-lg-ls:-0.1px;
+--type-heading-md-size:18px;--type-heading-md-lh:26px;--type-heading-md-weight:700;--type-heading-md-ls:-0.1px;
+--type-body-lg-size:17px;--type-body-lg-lh:26px;--type-body-lg-weight:400;
+--type-body-md-size:15px;--type-body-md-lh:22px;--type-body-md-weight:400;
+--type-label-lg-size:15px;--type-label-lg-lh:22px;--type-label-lg-weight:700;
+--type-label-md-size:14px;--type-label-md-lh:20px;--type-label-md-weight:600;
+--type-caption-size:12px;--type-caption-lh:18px;--type-caption-weight:400;
+/* Money — always tabular numerals, "1,234,000원" format, 원 one step smaller */
+--type-money-xl-size:32px;--type-money-xl-lh:38px;--type-money-xl-weight:700;
+--type-money-lg-size:24px;--type-money-lg-lh:30px;--type-money-lg-weight:700;
+--type-money-md-size:18px;--type-money-md-lh:24px;--type-money-md-weight:700;
+}
