@@ -170,4 +170,43 @@ describe("legacy offline reconciliation request", () => {
       expect(restoreLegacyQuarantineEntry).not.toHaveBeenCalled();
     }
   });
+
+  it("stops after an in-flight batch loses session ownership and never restores local rows", async () => {
+    vi.mocked(reconcileLegacyOfflineMutations).mockReset();
+    const baseMutation = JSON.parse(entry.outboxJson) as Array<Record<string, unknown>>;
+    const manyMutations = Array.from({ length: 51 }, (_, index) => ({
+      ...baseMutation[0],
+      mutation_id: `mutation-${index}`,
+      idempotency_key: `idem-${index}`
+    }));
+    const batchedEntry = { ...entry, outboxJson: JSON.stringify(manyMutations) };
+    const restoreLegacyQuarantineEntry = vi.fn(async () => undefined);
+    const store = {
+      scopeKey: "v1:user-a:household-a",
+      listLegacyQuarantineEntries: vi.fn(async () => [batchedEntry]),
+      restoreLegacyQuarantineEntry
+    } as unknown as OfflineStore;
+    let resolveFirstBatch!: (value: { results: LegacyOfflineReconcileResult[] }) => void;
+    const firstBatch = new Promise<{ results: LegacyOfflineReconcileResult[] }>((resolve) => {
+      resolveFirstBatch = resolve;
+    });
+    vi.mocked(reconcileLegacyOfflineMutations).mockImplementationOnce(async () => firstBatch);
+    const controller = new AbortController();
+    let ownerActive = true;
+
+    const reconciliation = reconcileLegacyOfflineScope("owner-token", store, {
+      signal: controller.signal,
+      isActive: () => ownerActive
+    });
+    await vi.waitFor(() => expect(reconcileLegacyOfflineMutations).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(reconcileLegacyOfflineMutations).mock.calls[0]?.[2]).toBe(controller.signal);
+
+    ownerActive = false;
+    controller.abort();
+    resolveFirstBatch({ results: [] });
+
+    await expect(reconciliation).rejects.toMatchObject({ name: "RemoteSyncCancelledError" });
+    expect(reconcileLegacyOfflineMutations).toHaveBeenCalledTimes(1);
+    expect(restoreLegacyQuarantineEntry).not.toHaveBeenCalled();
+  });
 });

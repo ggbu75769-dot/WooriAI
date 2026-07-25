@@ -1,7 +1,7 @@
 import { LEGACY_UNSCOPED_SCOPE_KEY } from "./session-scope";
 import type { LegacyQuarantineEntry } from "./types";
 
-export const OFFLINE_SQLITE_SCHEMA_VERSION = 2;
+export const OFFLINE_SQLITE_SCHEMA_VERSION = 3;
 
 export type LegacyLocalExpenseSqlRow = {
   scope_key?: string | null;

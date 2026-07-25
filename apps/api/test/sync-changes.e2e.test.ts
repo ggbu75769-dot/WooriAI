@@ -230,4 +230,117 @@ describe("Delta sync API (/v1/sync/changes)", () => {
   it("requires authentication", async () => {
     await request(app.getHttpServer()).get("/api/v1/sync/changes").expect(401);
   });
+
+  it("v2 binds every page and tombstone to one authorized household", async () => {
+    const accessToken = await login("sync-v2-scope");
+    const { childId, householdId } = await completeOnboarding(accessToken);
+    const kept = await createExpense(accessToken, childId, "v2 유지");
+    const removed = await createExpense(accessToken, childId, "v2 삭제");
+    await request(app.getHttpServer())
+      .delete(`/api/v1/expenses/${removed.id}?expectedVersion=${removed.version}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/sync/v2/changes?householdId=${householdId}&limit=200`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+
+    expect(response.body.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          op: "upsert",
+          householdId,
+          childId,
+          data: expect.objectContaining({ id: kept.id })
+        }),
+        expect.objectContaining({
+          op: "delete",
+          householdId,
+          childId,
+          id: removed.id
+        })
+      ])
+    );
+  });
+
+  it("v2 rejects non-member households and cross-household cursors", async () => {
+    const userA = await login("sync-v2-user-a");
+    const scopeA = await completeOnboarding(userA);
+    await createExpense(userA, scopeA.childId, "가구 A");
+    const firstA = await request(app.getHttpServer())
+      .get(`/api/v1/sync/v2/changes?householdId=${scopeA.householdId}&limit=1`)
+      .set("Authorization", `Bearer ${userA}`)
+      .expect(200);
+
+    const userB = await login("sync-v2-user-b");
+    const scopeB = await completeOnboarding(userB);
+    await request(app.getHttpServer())
+      .get(`/api/v1/sync/v2/changes?householdId=${scopeA.householdId}`)
+      .set("Authorization", `Bearer ${userB}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .get(
+        `/api/v1/sync/v2/changes?householdId=${scopeB.householdId}&cursor=${encodeURIComponent(
+          firstA.body.nextCursor
+        )}`
+      )
+      .set("Authorization", `Bearer ${userB}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("SYNC_CURSOR_INVALID");
+      });
+  });
+
+  it("v2 holds an immutable baseline and picks up later writes on the next run", async () => {
+    const accessToken = await login("sync-v2-baseline");
+    const { childId, householdId } = await completeOnboarding(accessToken);
+    await createExpense(accessToken, childId, "기준선 1");
+    await createExpense(accessToken, childId, "기준선 2");
+
+    const first = await request(app.getHttpServer())
+      .get(`/api/v1/sync/v2/changes?householdId=${householdId}&limit=1`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    expect(first.body.hasMore).toBe(true);
+
+    const late = await createExpense(accessToken, childId, "다음 실행");
+    let cursor = first.body.nextCursor as string;
+    const currentRunIds = first.body.changes.map(
+      (change: { id?: string; data?: { id: string } }) => change.data?.id ?? change.id
+    );
+    for (let page = 0; page < 10; page += 1) {
+      const next = await request(app.getHttpServer())
+        .get(
+          `/api/v1/sync/v2/changes?householdId=${householdId}&limit=1&cursor=${encodeURIComponent(
+            cursor
+          )}`
+        )
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200);
+      currentRunIds.push(
+        ...next.body.changes.map(
+          (change: { id?: string; data?: { id: string } }) => change.data?.id ?? change.id
+        )
+      );
+      cursor = next.body.nextCursor;
+      if (!next.body.hasMore) break;
+    }
+    expect(currentRunIds).not.toContain(late.id);
+
+    const nextRun = await request(app.getHttpServer())
+      .get(
+        `/api/v1/sync/v2/changes?householdId=${householdId}&limit=200&cursor=${encodeURIComponent(
+          cursor
+        )}`
+      )
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      nextRun.body.changes.map(
+        (change: { id?: string; data?: { id: string } }) => change.data?.id ?? change.id
+      )
+    ).toContain(late.id);
+  });
 });

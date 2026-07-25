@@ -1,8 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { Redirect, router, type Href } from "expo-router";
 import { Pressable, Text, View } from "react-native";
-import { getHome } from "../../src/api/client";
-import { fixtureSessionToken, pixelEvidenceId } from "../../src/api/fixture-identifiers";
+import { getCatalogItem, getHome, listHouseholdMembers } from "../../src/api/client";
+import {
+  fixtureSessionToken,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_USER_ID,
+  pixelEvidenceId
+} from "../../src/api/fixture-identifiers";
 import { formatKrw } from "../../src/money";
 import { expenseDetailRoute } from "../../src/navigation/routes";
 import { expenseCategoryVisual } from "../../src/preparation/item-visuals";
@@ -28,6 +34,20 @@ import { childScopedRequestEnabled } from "../../src/query/child-scope";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
+import { resolveOfflineScopeKey } from "../../src/offline/session-scope";
+import {
+  canManagePurchaseFollowup,
+  loadVisiblePurchaseFollowup,
+  removePurchaseFollowup,
+  snoozePurchaseFollowup,
+  subscribePurchaseFollowups,
+  type PurchaseFollowup
+} from "../../src/purchase-followup/store";
+import { resolveVerifiedPurchaseRole } from "../../src/purchase-followup/access-context";
+import {
+  PurchaseFollowupCard,
+  purchaseExpenseRouteParams
+} from "../../src/purchase-followup/PurchaseFollowupCard";
 
 const isPixelLockMode = isPixelLockBuild();
 
@@ -67,11 +87,134 @@ const quickActions: Array<{ label: string; icon: AppIconName; route: Href }> = [
   { label: "프로필", icon: "account-circle-outline", route: "/(tabs)/more" }
 ];
 
+const frequentExpenseActions = [
+  { label: "기저귀", itemName: "기저귀" },
+  { label: "병원비", itemName: "병원비" },
+  { label: "분유", itemName: "분유" }
+] as const;
+
+function PixelHomeScreen() {
+  const progress = Math.round((previewHome.monthly.usedAmountKrw / previewHome.monthly.amountKrw) * 100);
+  const recentExpense = previewHome.recentExpenses[0];
+  const recentVisual = expenseCategoryVisual(recentExpense.categoryId);
+
+  return (
+    <AppScreen>
+      <View
+        accessibilityLabel={pixelEvidenceId("HOME-001")}
+        style={{ backgroundColor: theme.colors.coral[50], flex: 1, gap: theme.spacing.card, margin: -theme.spacing.screen, padding: theme.spacing.screen }}
+        testID={pixelEvidenceId("HOME-001")}
+      >
+        <View style={{ alignItems: "center", flexDirection: "row", minHeight: theme.touchTarget }}>
+          <Pressable
+            accessibilityLabel="아이 전환"
+            accessibilityRole="button"
+            onPress={() => router.push("/children" as Href)}
+            style={({ pressed }) => ({ alignItems: "center", flex: 1, flexDirection: "row", gap: 10, opacity: pressed ? 0.76 : 1 })}
+          >
+            <AppIcon color={theme.colors.coral[500]} name="account-child-circle" size={34} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={{ color: theme.colors.textPrimary, fontSize: 17, fontWeight: "800" }}>{previewHome.child.nickname}</Text>
+              <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: "700" }}>{previewHome.child.stageLabel}</Text>
+                <Text style={{ color: theme.colors.coral[500], fontSize: 11, fontWeight: "700" }}>아이 전환⌄</Text>
+              </View>
+            </View>
+          </Pressable>
+          <IconButton accessibilityLabel="내 프로필" icon="account-circle-outline" onPress={() => router.push("/(tabs)/more" as Href)} />
+        </View>
+
+        <View
+          accessibilityLabel={`이번 달 우리 아이 비용 ${formatKrw(previewHome.monthly.usedAmountKrw)}, 예산 사용률 ${progress}퍼센트`}
+          accessibilityRole="summary"
+          style={{ backgroundColor: theme.colors.subCoral, borderRadius: theme.radii.card, gap: 8, justifyContent: "center", minHeight: 140, padding: theme.spacing.card }}
+        >
+          <Text style={{ color: theme.colors.white, fontSize: 12, fontWeight: "700" }}>이번 달 우리 아이 비용</Text>
+          <Text style={{ color: theme.colors.white, fontSize: 27, fontWeight: "800" }}>{formatKrw(previewHome.monthly.usedAmountKrw)}</Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+            <Text style={{ color: theme.colors.white, fontSize: 11 }}>예산 {formatKrw(previewHome.monthly.amountKrw)} 중</Text>
+            <Text style={{ color: theme.colors.white, fontSize: 11, fontWeight: "800" }}>{progress}%</Text>
+          </View>
+          <View
+            accessibilityLabel={`예산 사용률 ${progress}퍼센트`}
+            accessibilityRole="progressbar"
+            accessibilityValue={{ max: 100, min: 0, now: progress }}
+            style={{ backgroundColor: theme.colors.coral[200], borderRadius: theme.radii.pill, height: 8, overflow: "hidden" }}
+          >
+            <View style={{ backgroundColor: theme.colors.white, borderRadius: theme.radii.pill, height: 8, width: `${progress}%` }} />
+          </View>
+        </View>
+
+        <View style={{ gap: 8 }}>
+          <Text accessibilityRole="header" style={{ color: theme.colors.textPrimary, fontSize: 16, fontWeight: "800" }}>자주 기록해요</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {frequentExpenseActions.map((action) => (
+              <PixelHomeActionChip key={action.label} label={action.label} onPress={() => router.push({ pathname: "/expenses/new", params: { itemName: action.itemName } })} />
+            ))}
+            <PixelHomeActionChip label="+ 직접 입력" onPress={() => router.push("/expenses/new")} />
+          </View>
+        </View>
+
+        <Card style={{ gap: 10, minHeight: 140, padding: 14 }}>
+          <View style={{ alignItems: "center", flexDirection: "row", gap: 10 }}>
+            <AppIcon color={theme.colors.coral[500]} name="package-variant-closed" size={21} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={{ color: theme.colors.textPrimary, fontSize: 15, fontWeight: "800" }}>이번 주 준비 현황</Text>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>지금 필요한 준비템 {previewHome.recommendedItems.length}개</Text>
+            </View>
+          </View>
+          <Pressable
+            accessibilityLabel="지금 필요한 준비템 보기"
+            accessibilityRole="button"
+            onPress={() => router.push("/(tabs)/items")}
+            style={({ pressed }) => ({ alignItems: "center", backgroundColor: theme.colors.subCoral, borderRadius: theme.radii.small, justifyContent: "center", minHeight: 52, opacity: pressed ? 0.82 : 1 })}
+          >
+            <Text style={{ color: theme.colors.white, fontSize: 14, fontWeight: "800" }}>지금 필요한 준비템 보기</Text>
+          </Pressable>
+        </Card>
+
+        <View style={{ gap: 8 }}>
+          <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
+            <Text accessibilityRole="header" style={{ color: theme.colors.textPrimary, fontSize: 16, fontWeight: "800" }}>최근 기록</Text>
+            <Pressable accessibilityLabel="최근 기록 전체 보기" accessibilityRole="button" onPress={() => router.push("/(tabs)/records")} style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget }}>
+              <Text style={{ color: theme.colors.coral[500], fontSize: 12, fontWeight: "700" }}>전체 보기</Text>
+            </Pressable>
+          </View>
+          <ListRow
+            icon={<AppIcon color={recentVisual.iconColor} name={recentVisual.icon} size={19} />}
+            iconBackgroundColor={recentVisual.iconBackgroundColor}
+            onPress={() => router.push(expenseDetailRoute(recentExpense.id))}
+            subtitle={recentExpense.spentOn}
+            title={recentExpense.itemName}
+            value={formatKrw(recentExpense.amountKrw)}
+          />
+        </View>
+      </View>
+    </AppScreen>
+  );
+}
+
+function PixelHomeActionChip({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => ({ alignItems: "center", backgroundColor: theme.colors.white, borderColor: theme.colors.gray300, borderRadius: theme.radii.pill, borderWidth: 1, flex: 1, justifyContent: "center", minHeight: theme.touchTarget, opacity: pressed ? 0.78 : 1, paddingHorizontal: 6 })}
+    >
+      <Text numberOfLines={1} style={{ color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export default function HomeScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
+  const currentUserId = useSessionStore((state) => state.userId);
   const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const selectedChildHouseholdId = useSelectedChildStore((state) => state.selectedChildHouseholdId);
+  const [purchaseFollowup, setPurchaseFollowup] = useState<PurchaseFollowup | null>(null);
   const syncSnapshot = useOfflineSyncSnapshot();
   const online = useConnectivityStatus();
   const syncStatus = normalizeAppSyncStatus(syncSnapshot.counts, online);
@@ -81,12 +224,68 @@ export default function HomeScreen() {
     enabled: hasSession,
     queryFn: () => getHome(authToken!, childId!)
   });
+  useEffect(() => {
+    const resolvedChild = home.data?.child;
+    if (
+      resolvedChild?.id === childId &&
+      resolvedChild.householdId &&
+      resolvedChild.householdId !== selectedChildHouseholdId
+    ) {
+      useSelectedChildStore.getState().setSelectedChildId(childId!, resolvedChild.householdId);
+    }
+  }, [childId, home.data?.child, selectedChildHouseholdId]);
+  const purchaseHouseholdId = isTestSession
+    ? LOCAL_HOUSEHOLD_ID
+    : home.data?.child.householdId ?? selectedChildHouseholdId ?? null;
+  const purchaseScopeKey = resolveOfflineScopeKey({
+    accessToken,
+    userId: currentUserId,
+    defaultHouseholdId: purchaseHouseholdId,
+    isTestSession,
+    testUserId: LOCAL_USER_ID,
+    testHouseholdId: LOCAL_HOUSEHOLD_ID
+  });
+  const followupItem = useQuery({
+    queryKey: ["purchase-followup-item", childId, purchaseFollowup?.itemDefinitionId],
+    enabled: Boolean(!isPixelLockMode && authToken && childId && purchaseFollowup),
+    queryFn: () => getCatalogItem(authToken!, purchaseFollowup!.itemDefinitionId, childId!)
+  });
+  const members = useQuery({
+    queryKey: ["household-members", purchaseHouseholdId],
+    enabled: Boolean(!isPixelLockMode && purchaseFollowup && authToken && purchaseHouseholdId && !isTestSession),
+    queryFn: () => listHouseholdMembers(authToken!, purchaseHouseholdId!)
+  });
 
+  useEffect(() => {
+    setPurchaseFollowup(null);
+    if (isPixelLockMode || !purchaseScopeKey || !childId) {
+      return;
+    }
+    let active = true;
+    const refresh = () => {
+      void loadVisiblePurchaseFollowup(purchaseScopeKey, childId).then((followup) => {
+        if (
+          active &&
+          useSelectedChildStore.getState().selectedChildId === childId
+        ) {
+          setPurchaseFollowup(followup);
+        }
+      }).catch(() => {
+        if (active) setPurchaseFollowup(null);
+      });
+    };
+    refresh();
+    const unsubscribe = subscribePurchaseFollowups(refresh);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [childId, purchaseScopeKey]);
   if (!hasSession && !isPixelLockMode) {
     return <Redirect href="/onboarding/child-status" />;
   }
 
-  if (hasSession && home.isLoading) {
+  if (hasSession && !isPixelLockMode && home.isLoading) {
     return (
       <AppScreen>
         {isTestSession ? <SampleDataBanner /> : null}
@@ -95,7 +294,7 @@ export default function HomeScreen() {
     );
   }
 
-  if (hasSession && home.isError) {
+  if (hasSession && !isPixelLockMode && home.isError) {
     return (
       <AppScreen>
         {isTestSession ? <SampleDataBanner /> : null}
@@ -113,8 +312,33 @@ export default function HomeScreen() {
     return <Redirect href="/onboarding/child-status" />;
   }
 
+  if (isPixelLockMode) {
+    return <PixelHomeScreen />;
+  }
+
   const monthlyUsed = visibleHome.monthly.usedAmountKrw;
   const budget = visibleHome.monthly.amountKrw;
+  const currentRole = childId
+    ? resolveVerifiedPurchaseRole({
+        expectedChildId: childId,
+        child: visibleHome.child,
+        queriedHouseholdId: purchaseHouseholdId,
+        currentUserId,
+        members: members.data?.members ?? []
+      })
+    : null;
+  const canHandlePurchaseFollowup = canManagePurchaseFollowup({
+    childContext: Boolean(childId),
+    isTestSession,
+    role: currentRole
+  });
+  const visiblePurchaseFollowup =
+    canHandlePurchaseFollowup &&
+    purchaseFollowup?.scopeKey === purchaseScopeKey &&
+    purchaseFollowup.childId === childId
+      ? purchaseFollowup
+      : null;
+  const followupItemName = followupItem.data?.nameKo ?? "확인한 준비템";
   return (
     <AppScreen>
       <View accessibilityLabel={pixelEvidenceId("HOME-001")} testID={pixelEvidenceId("HOME-001")}>
@@ -145,6 +369,22 @@ export default function HomeScreen() {
                 />
               ))}
             </Card>
+          ) : null}
+
+          {visiblePurchaseFollowup ? (
+            <PurchaseFollowupCard
+              followup={visiblePurchaseFollowup}
+              itemName={followupItemName}
+              onRecord={() => router.push(
+                purchaseExpenseRouteParams(
+                  visiblePurchaseFollowup,
+                  followupItem.data?.nameKo ?? ""
+                )
+              )}
+              onRemove={() => void removePurchaseFollowup(visiblePurchaseFollowup.intentId)}
+              onReviewSync={() => router.push("/sync-status" as Href)}
+              onSnooze={() => void snoozePurchaseFollowup(visiblePurchaseFollowup.intentId)}
+            />
           ) : null}
 
           <BudgetSummary budgetKrw={budget > 0 ? budget : null} usedKrw={monthlyUsed} />

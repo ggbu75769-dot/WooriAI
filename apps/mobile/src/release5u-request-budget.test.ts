@@ -13,15 +13,20 @@ describe("Release 5U no-child request budget", () => {
     expect(childScopedRequestEnabled("access", "child-1")).toBe(true);
   });
 
-  it("wires every core tab through the shared child-scope guard", () => {
+  it("guards every core tab before issuing child-scoped requests", () => {
     for (const relativePath of [
       "apps/mobile/app/(tabs)/index.tsx",
-      "apps/mobile/app/(tabs)/items.tsx",
       "apps/mobile/app/(tabs)/records.tsx",
       "apps/mobile/app/(tabs)/reports.tsx"
     ]) {
       const source = readFileSync(path.join(workspaceRoot, relativePath), "utf8");
       expect(source, relativePath).toContain("childScopedRequestEnabled");
     }
+
+    const itemRoute = readFileSync(path.join(workspaceRoot, "apps/mobile/app/(tabs)/items.tsx"), "utf8");
+    const preparationScreen = readFileSync(path.join(workspaceRoot, "apps/mobile/src/preparation/Release4PreparationScreen.tsx"), "utf8");
+    expect(itemRoute).toContain("Release4PreparationScreen");
+    expect(preparationScreen).toContain("const hasSession = Boolean(token && activeContextKey);");
+    expect(preparationScreen).toContain("enabled: hasSession");
   });
 });

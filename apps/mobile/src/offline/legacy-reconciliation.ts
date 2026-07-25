@@ -18,6 +18,18 @@ import type {
   OfflineStore,
   SyncState
 } from "./types";
+import { RemoteSyncCancelledError } from "./errors";
+
+export type LegacyReconciliationControl = {
+  signal?: AbortSignal;
+  isActive?: () => boolean;
+};
+
+function assertReconciliationActive(control?: LegacyReconciliationControl): void {
+  if (control?.signal?.aborted || control?.isActive?.() === false) {
+    throw new RemoteSyncCancelledError();
+  }
+}
 
 function parseJson<T>(value: string | null): T | null {
   if (value === null) return null;
@@ -186,24 +198,31 @@ function restoreEntry(
 
 export async function reconcileLegacyOfflineScope(
   token: string,
-  store: OfflineStore
+  store: OfflineStore,
+  control?: LegacyReconciliationControl
 ): Promise<{ restored: number; remaining: number }> {
+  assertReconciliationActive(control);
   const entries = await store.listLegacyQuarantineEntries(50);
+  assertReconciliationActive(control);
   if (entries.length === 0) return { restored: 0, remaining: 0 };
   const requests = buildLegacyReconciliationRequests(entries);
   if (requests.length === 0) return { restored: 0, remaining: entries.length };
   const results: LegacyOfflineReconcileResult[] = [];
   for (const batch of chunkLegacyReconciliationRequests(requests)) {
-    const response = await reconcileLegacyOfflineMutations(token, batch);
+    assertReconciliationActive(control);
+    const response = await reconcileLegacyOfflineMutations(token, batch, control?.signal);
+    assertReconciliationActive(control);
     results.push(...response.results);
   }
   let restored = 0;
   for (const entry of entries) {
+    assertReconciliationActive(control);
     const entryResults = results.filter(
       (result) => result.sourceLocalId === entry.sourceLocalId
     );
     const restore = restoreEntry(store.scopeKey, entry, entryResults);
     if (!restore) continue;
+    assertReconciliationActive(control);
     await store.restoreLegacyQuarantineEntry(entry.id, restore.row, restore.mutations);
     restored += 1;
   }

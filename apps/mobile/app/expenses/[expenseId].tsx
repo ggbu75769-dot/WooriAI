@@ -5,7 +5,6 @@ import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-nativ
 import { getSeoulToday } from "@wooriai/domain";
 import { getExpense, getExpensePlanLinkSuggestions, linkExpensePlan, listPaymentMethods, fixtureSessionToken, type Expense } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
-import { ExpenseAttributionField } from "../../src/expenses/ExpenseAttributionField";
 import { buildRecentExpenseDateChips, formatExpenseAmountInput, formatExpenseDate, sanitizeExpenseAmountText, validateExpenseDateInput, validateExpenseForm } from "../../src/expenses/form-contract";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { writableExpenseType } from "../../src/offline/expense-payload";
@@ -313,8 +312,6 @@ export default function ExpenseDetailScreen() {
                   ))}
                 </ScrollView>
               </View>
-
-              <ExpenseAttributionField />
 
               <View style={{ gap: 6 }}>
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>

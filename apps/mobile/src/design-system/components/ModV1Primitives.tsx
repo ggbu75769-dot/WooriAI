@@ -106,12 +106,19 @@ export const modV1ItemStatuses: ReadonlyArray<{ value: ModV1ItemStatus; label: s
   { value: "retired", label: "종료", icon: "archive-outline" }
 ];
 
+const modV1ItemStatusRows = Array.from(
+  { length: Math.ceil(modV1ItemStatuses.length / 2) },
+  (_, rowIndex) => modV1ItemStatuses.slice(rowIndex * 2, rowIndex * 2 + 2)
+);
+
 export function itemStatusLabel(value: string | null | undefined) {
   if (value === "borrowed") return "대여";
   if (value === "gift_expected") return "선물 예정";
+  if (value === "replacement_due") return "교체 시기";
   if (value === "replaced") return "교체 완료";
   if (value === "not_needed") return "필요 없음";
   if (value === "need") return "필요";
+  if (value === "ended") return "사용 종료";
   return modV1ItemStatuses.find((entry) => entry.value === value)?.label ?? "미정";
 }
 
@@ -139,12 +146,12 @@ export function PreparationItemCard({ title, status, icon = "baby-face-outline",
       accessibilityLabel={`${title}. 상태 ${label}${hint ? `. ${hint}` : ""}`}
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => ({ alignItems: "center", backgroundColor: semanticColors.surface, borderColor: semanticColors.border, borderRadius: radius.large, borderWidth: 1, gap: spacing.xs, justifyContent: "center", minHeight: 112, opacity: pressed ? 0.76 : 1, padding: spacing.sm })}
+      style={({ pressed }) => ({ alignItems: "center", backgroundColor: semanticColors.surface, borderColor: semanticColors.border, borderRadius: radius.large, borderWidth: 1, gap: spacing.xs, height: 148, justifyContent: "center", opacity: pressed ? 0.76 : 1, padding: spacing.sm })}
     >
       <View style={{ alignItems: "center", backgroundColor: iconBackgroundColor, borderRadius: radius.pill, height: 44, justifyContent: "center", width: 44 }}>
         <AppIcon color={iconColor} name={icon} size={24} />
       </View>
-      <Text numberOfLines={2} style={{ color: semanticColors.textPrimary, fontSize: 12, fontWeight: "700", textAlign: "center" }}>{title}</Text>
+      <Text maxFontSizeMultiplier={1.2} numberOfLines={2} style={{ color: semanticColors.textPrimary, fontSize: 12, fontWeight: "700", lineHeight: 17, minHeight: 34, textAlign: "center", textAlignVertical: "center" }}>{title}</Text>
       <View style={{ alignItems: "center", backgroundColor: statusVisual.backgroundColor, borderRadius: radius.pill, minHeight: 24, paddingHorizontal: spacing.xs, paddingVertical: spacing.xxs }}>
         <Text style={{ color: statusVisual.color, fontSize: 10, fontWeight: "700" }}>{label}</Text>
       </View>
@@ -154,23 +161,27 @@ export function PreparationItemCard({ title, status, icon = "baby-face-outline",
 
 export function ItemStatusControl({ value, onChange, disabled }: { value?: string | null; onChange: (value: ModV1ItemStatus) => void; disabled?: boolean }) {
   return (
-    <View accessibilityLabel="준비 상태" style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.xs }}>
-      {modV1ItemStatuses.map((entry) => {
-        const selected = value === entry.value || (entry.value === "rented" && value === "borrowed");
-        return (
-          <Pressable
-            accessibilityRole="radio"
-            accessibilityState={{ checked: selected, disabled }}
-            disabled={disabled}
-            key={entry.value}
-            onPress={() => onChange(entry.value)}
-            style={({ pressed }) => ({ alignItems: "center", backgroundColor: selected ? semanticColors.actionSecondary : semanticColors.surface, borderColor: selected ? semanticColors.actionPrimary : semanticColors.border, borderRadius: radius.medium, borderWidth: 1, flexBasis: "48%", flexDirection: "row", gap: spacing.xs, minHeight: 48, opacity: disabled ? 0.5 : pressed ? 0.76 : 1, paddingHorizontal: spacing.sm })}
-          >
-            <AppIcon color={selected ? semanticColors.actionPrimary : semanticColors.textSecondary} name={entry.icon} size={19} />
-            <Text style={{ color: selected ? semanticColors.actionPrimary : semanticColors.textPrimary, fontSize: 13, fontWeight: "700" }}>{entry.label}</Text>
-          </Pressable>
-        );
-      })}
+    <View accessibilityLabel="준비 상태" accessibilityRole="radiogroup" style={{ gap: spacing.xs }}>
+      {modV1ItemStatusRows.map((row) => (
+        <View key={row[0]!.value} style={{ flexDirection: "row", gap: spacing.xs }}>
+          {row.map((entry) => {
+            const selected = value === entry.value || (entry.value === "rented" && value === "borrowed");
+            return (
+              <Pressable
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected, disabled }}
+                disabled={disabled}
+                key={entry.value}
+                onPress={() => onChange(entry.value)}
+                style={({ pressed }) => ({ alignItems: "center", backgroundColor: selected ? semanticColors.actionSecondary : semanticColors.surface, borderColor: selected ? semanticColors.actionPrimary : semanticColors.border, borderRadius: radius.medium, borderWidth: 1, flex: 1, flexDirection: "row", gap: spacing.xs, height: 48, minWidth: 0, opacity: disabled ? 0.5 : pressed ? 0.76 : 1, paddingHorizontal: spacing.sm })}
+              >
+                <AppIcon color={selected ? semanticColors.actionPrimary : semanticColors.textSecondary} name={entry.icon} size={19} />
+                <Text style={{ color: selected ? semanticColors.actionPrimary : semanticColors.textPrimary, fontSize: 13, fontWeight: "700" }}>{entry.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ))}
     </View>
   );
 }

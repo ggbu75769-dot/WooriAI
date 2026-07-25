@@ -1,12 +1,10 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href } from "expo-router";
 import { Alert, Linking, View } from "react-native";
-import { resetLocalBackend } from "../src/api/fixture-runtime";
-import { useOnboardingProgressStore } from "../src/stores/onboarding-progress.store";
-import { useSelectedChildStore } from "../src/stores/selected-child.store";
+import { useCurrentSessionLogout } from "../src/auth/use-current-session-logout";
 import { useSessionStore } from "../src/stores/session.store";
 import { theme } from "../src/theme";
 import { AppIcon, AppScreen, InputField, ListRow, SampleDataBanner, ScreenHeader, SecondaryButton } from "../src/ui";
+import appManifest from "../app.json";
 
 const providerLabels = {
   kakao: "카카오",
@@ -14,6 +12,8 @@ const providerLabels = {
   google: "Google",
   test: "테스트 계정"
 } as const;
+const appVersion = appManifest.expo.version;
+const appPackage = appManifest.expo.android.package;
 
 export default function ProfileScreen() {
   const displayName = useSessionStore((state) => state.displayName);
@@ -21,32 +21,11 @@ export default function ProfileScreen() {
   const authProvider = useSessionStore((state) => state.authProvider);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const hasSession = useSessionStore((state) => Boolean(state.accessToken || state.isTestSession));
-  const clearSession = useSessionStore((state) => state.clearSession);
-  const clearSelectedChild = useSelectedChildStore((state) => state.clearSelectedChildId);
-  const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
-  const queryClient = useQueryClient();
+  const { confirmLogout, isLoggingOut } = useCurrentSessionLogout();
 
   if (!hasSession) {
     return <Redirect href="/launch-animation" />;
   }
-
-  const logout = () => {
-    Alert.alert("로그아웃할까요?", "이 기기의 로그인 정보가 삭제돼요.", [
-      { text: "취소", style: "cancel" },
-      {
-        text: "로그아웃",
-        style: "destructive",
-        onPress: () => {
-          if (isTestSession) resetLocalBackend();
-          queryClient.clear();
-          clearSession();
-          clearSelectedChild();
-          resetOnboarding();
-          router.replace("/launch-animation");
-        }
-      }
-    ]);
-  };
 
   return (
     <AppScreen>
@@ -94,12 +73,16 @@ export default function ProfileScreen() {
           <ListRow
             icon={<AppIcon color={theme.colors.coral[600]} name="information-outline" size={22} />}
             title="앱 정보"
-            subtitle="버전 0.0.0"
-            onPress={() => Alert.alert("앱 정보", "우리아이 0.0.0\ncom.anonymous.wooriai")}
+            subtitle={`버전 ${appVersion}`}
+            onPress={() => Alert.alert("앱 정보", `우리아이 ${appVersion}\n${appPackage}`)}
           />
         </View>
 
-        <SecondaryButton label="로그아웃" onPress={logout} />
+        <SecondaryButton
+          disabled={isLoggingOut}
+          label={isLoggingOut ? "로그아웃 중" : "로그아웃"}
+          onPress={confirmLogout}
+        />
       </View>
     </AppScreen>
   );

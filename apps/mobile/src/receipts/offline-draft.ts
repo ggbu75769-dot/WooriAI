@@ -33,6 +33,22 @@ type ReceiptDraftEnvelope = {
   drafts: Record<string, ReceiptOfflineDraft>;
 };
 
+export type ReceiptDraftStorageControl = {
+  assertActive?: () => void;
+};
+
+let receiptStorageQueue: Promise<void> = Promise.resolve();
+
+function withReceiptStorageLock<T>(work: () => Promise<T>): Promise<T> {
+  const operation = receiptStorageQueue.then(work, work);
+  receiptStorageQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+
+function assertStorageOwner(control?: ReceiptDraftStorageControl): void {
+  control?.assertActive?.();
+}
+
 function emptyEnvelope(): ReceiptDraftEnvelope {
   return { schemaVersion: 1, drafts: {} };
 }
@@ -106,25 +122,66 @@ export function createReceiptOfflineDraft(input: Omit<ReceiptOfflineDraft, "sche
 }
 
 export async function readReceiptOfflineDraft(scopeKey: string, quarantineId = String(Date.now())): Promise<ReceiptOfflineDraft | null> {
-  const envelope = await readEnvelope(quarantineId);
-  return envelope.drafts[scopeKey] ?? null;
+  return withReceiptStorageLock(async () => {
+    const envelope = await readEnvelope(quarantineId);
+    return envelope.drafts[scopeKey] ?? null;
+  });
 }
 
-export async function writeReceiptOfflineDraft(draft: ReceiptOfflineDraft, quarantineId = String(Date.now())): Promise<void> {
+export async function writeReceiptOfflineDraft(
+  draft: ReceiptOfflineDraft,
+  quarantineId = String(Date.now()),
+  control?: ReceiptDraftStorageControl
+): Promise<void> {
   if (!isReceiptDraft(draft)) throw new Error("Invalid receipt draft");
-  const envelope = await readEnvelope(quarantineId);
-  envelope.drafts[draft.scopeKey] = draft;
-  await persistStorage.setItem(RECEIPT_DRAFT_STORAGE_KEY, JSON.stringify(envelope));
+  await withReceiptStorageLock(async () => {
+    assertStorageOwner(control);
+    const envelope = await readEnvelope(quarantineId);
+    assertStorageOwner(control);
+    envelope.drafts[draft.scopeKey] = draft;
+    await persistStorage.setItem(RECEIPT_DRAFT_STORAGE_KEY, JSON.stringify(envelope));
+    assertStorageOwner(control);
+  });
 }
 
 export async function clearReceiptOfflineDraft(scopeKey: string, quarantineId = String(Date.now())): Promise<void> {
-  const envelope = await readEnvelope(quarantineId);
-  delete envelope.drafts[scopeKey];
-  if (Object.keys(envelope.drafts).length === 0) {
+  await withReceiptStorageLock(async () => {
+    const envelope = await readEnvelope(quarantineId);
+    delete envelope.drafts[scopeKey];
+    if (Object.keys(envelope.drafts).length === 0) {
+      await persistStorage.removeItem(RECEIPT_DRAFT_STORAGE_KEY);
+      return;
+    }
+    await persistStorage.setItem(RECEIPT_DRAFT_STORAGE_KEY, JSON.stringify(envelope));
+  });
+}
+
+export async function clearAllReceiptOfflineDrafts(): Promise<void> {
+  await withReceiptStorageLock(async () => {
     await persistStorage.removeItem(RECEIPT_DRAFT_STORAGE_KEY);
-    return;
-  }
-  await persistStorage.setItem(RECEIPT_DRAFT_STORAGE_KEY, JSON.stringify(envelope));
+  });
+}
+
+export async function clearReceiptOfflineDraftsExceptScope(
+  scopeKey: string | null,
+  quarantineId = String(Date.now())
+): Promise<void> {
+  await withReceiptStorageLock(async () => {
+    if (!scopeKey) {
+      await persistStorage.removeItem(RECEIPT_DRAFT_STORAGE_KEY);
+      return;
+    }
+    const envelope = await readEnvelope(quarantineId);
+    const retained = envelope.drafts[scopeKey];
+    if (!retained) {
+      await persistStorage.removeItem(RECEIPT_DRAFT_STORAGE_KEY);
+      return;
+    }
+    await persistStorage.setItem(
+      RECEIPT_DRAFT_STORAGE_KEY,
+      JSON.stringify({ schemaVersion: 1, drafts: { [scopeKey]: retained } } satisfies ReceiptDraftEnvelope)
+    );
+  });
 }
 
 export function updateReceiptOfflineDraft(

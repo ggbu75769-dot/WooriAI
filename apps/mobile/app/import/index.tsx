@@ -126,15 +126,15 @@ export default function ImportUploadScreen() {
       </View>
 
       {showPixelPreview || selectedFileName ? <View style={excelUploadedFileCardStyle()}>
-        <View style={styles.fileIcon}>
-          <AppIcon color={theme.colors.mainCoral} name="file-excel-outline" size={22} />
+        <View style={[styles.fileIcon, showPixelPreview ? { backgroundColor: theme.colors.mint } : undefined]}>
+          <AppIcon color={showPixelPreview ? theme.colors.success : theme.colors.mainCoral} name="file-excel-outline" size={22} />
         </View>
         <View style={styles.fileTextColumn}>
-          <Text style={styles.fileName}>{selectedFileName ?? "샘플 지출내역.xlsx"}</Text>
-          <Text style={styles.fileStatus}>{selectedFileName ? "분석 중" : "샘플 미리보기"}</Text>
+          <Text style={styles.fileName}>{selectedFileName ?? "5월 지출내역.xlsx"}</Text>
+          <Text style={styles.fileStatus}>{selectedFileName ? "분석 중" : "업로드 완료"}</Text>
         </View>
         <View style={styles.fileCheck}>
-          <AppIcon color={theme.colors.success} name="check" size={18} />
+          <AppIcon color={theme.colors.white} name="check" size={18} />
         </View>
       </View> : null}
 
@@ -161,10 +161,10 @@ export default function ImportUploadScreen() {
       <Pressable
         disabled={upload.isPending}
         onPress={applyPreview}
-        style={({ pressed }) => [styles.applyButton, { bottom: 20 + ExcelPreviewPixelStyles.ctaBottomInset, height: ExcelPreviewPixelStyles.ctaHeight, opacity: pressed || upload.isPending ? 0.82 : 1 }]}
+        style={({ pressed }) => [styles.applyButton, showPixelPreview ? { backgroundColor: theme.colors.coral[400] } : undefined, { bottom: 20 + ExcelPreviewPixelStyles.ctaBottomInset, height: ExcelPreviewPixelStyles.ctaHeight, opacity: pressed || upload.isPending ? 0.82 : 1 }]}
       >
         <Text style={styles.applyButtonText}>
-          {upload.isPending ? "분석 중..." : canUpload ? "엑셀 파일 선택하기" : "샘플 미리보기"}
+          {upload.isPending ? "분석 중..." : canUpload ? "엑셀 파일 선택하기" : "적용하고 리포트 보기"}
         </Text>
       </Pressable>
       {validationMessage ? <Text style={{ color: theme.colors.danger }}>{validationMessage}</Text> : null}

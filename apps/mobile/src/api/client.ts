@@ -105,11 +105,21 @@ const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 function fetchWithTimeout(
   input: string,
   init: RequestInit,
-  timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS,
+  externalSignal?: AbortSignal
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  const abortFromExternalSignal = () => controller.abort();
+  if (externalSignal?.aborted) {
+    controller.abort();
+  } else {
+    externalSignal?.addEventListener("abort", abortFromExternalSignal, { once: true });
+  }
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => {
+    clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", abortFromExternalSignal);
+  });
 }
 
 type RequestOptions = {
@@ -117,6 +127,8 @@ type RequestOptions = {
   body?: unknown;
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   headers?: Record<string, string>;
+  signal?: AbortSignal;
+  skipAuthRefresh?: boolean;
 };
 
 export type Expense = {
@@ -134,6 +146,7 @@ export type Expense = {
   expenseCategoryV2Id?: string | null;
   expenseType: "expense" | "gift" | "refund" | "support";
   source: "manual" | "excel_import" | "purchase_followup" | "receipt" | "admin";
+  createdByUserId?: string | null;
   payerUserId?: string | null;
   // MOB-103 (round5a-sprint1-plan.md §2.1): optimistic-concurrency version, 1 on create, +1 on
   // every update/soft-delete. Used by MOB-102's offline outbox as `expectedVersion` on
@@ -229,7 +242,7 @@ export type Budget = {
 };
 
 export type HomeSummary = {
-  child: { id: string; nickname: string; currentStage: string; stageLabel: string };
+  child: { id: string; householdId?: string; nickname: string; currentStage: string; stageLabel: string };
   totalExpenseKrw: number;
   monthly: Budget;
   recommendedItems: Array<{ id: string; name: string; status: string }>;
@@ -515,7 +528,7 @@ export type CatalogTimelineResponse = {
     contextVersion: number;
   };
   generatedAt: string;
-  rankingPolicy: "necessity_and_lifecycle_only_no_offer_or_sponsor_signal";
+  rankingPolicy: "user_due_then_timeline_then_lifecycle_priority_then_context_then_necessity_no_commerce_signal";
   buckets: Record<CatalogTimelineBucket, CatalogTimelineItem[]>;
 };
 
@@ -703,13 +716,67 @@ class RefreshHttpError extends Error {
   }
 }
 
+type RefreshSessionSnapshot = Readonly<{
+  sessionGeneration: number;
+  userId: string;
+  defaultHouseholdId: string | null;
+  accessToken: string;
+  refreshToken: string;
+}>;
+
 /**
- * Single-flight refresh: concurrent 401s that land while a refresh is already in progress all
- * await the same in-flight promise instead of each redeeming the refresh token themselves. This
- * matters because the API's refresh tokens are single-use (rotated/revoked on redemption) -- a
- * second concurrent redemption would fail with 401 even though the first one succeeded.
+ * Captures the credential owner before a request leaves the device. A delayed
+ * 401 must never read whatever session happens to be current when the response
+ * arrives: that could redeem or erase a different user's refresh token.
  */
-let refreshPromise: Promise<{ accessToken: string; refreshToken: string }> | null = null;
+function captureRefreshSession(accessToken: string | null | undefined): RefreshSessionSnapshot | null {
+  const session = useSessionStore.getState();
+  if (
+    !accessToken ||
+    !session.accessToken ||
+    !session.refreshToken ||
+    !session.userId ||
+    accessToken !== session.accessToken
+  ) {
+    return null;
+  }
+  return {
+    sessionGeneration: session.sessionGeneration,
+    userId: session.userId,
+    defaultHouseholdId: session.defaultHouseholdId,
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken
+  };
+}
+
+function isSameRefreshOwner(
+  session: ReturnType<typeof useSessionStore.getState>,
+  owner: RefreshSessionSnapshot
+): boolean {
+  return (
+    session.sessionGeneration === owner.sessionGeneration &&
+    session.userId === owner.userId &&
+    session.defaultHouseholdId === owner.defaultHouseholdId
+  );
+}
+
+function ownsOriginalCredentials(
+  session: ReturnType<typeof useSessionStore.getState>,
+  owner: RefreshSessionSnapshot
+): boolean {
+  return (
+    isSameRefreshOwner(session, owner) &&
+    session.accessToken === owner.accessToken &&
+    session.refreshToken === owner.refreshToken
+  );
+}
+
+/**
+ * Single-flight is scoped to the captured identity epoch and refresh token.
+ * This keeps concurrent 401s for one session on one redemption while allowing
+ * a newly logged-in session to proceed independently.
+ */
+const refreshFlights = new Map<string, Promise<string | null>>();
 
 async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
   const response = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
@@ -724,29 +791,63 @@ async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: 
   return data as { accessToken: string; refreshToken: string };
 }
 
-function performSingleFlightRefresh(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
-  if (!refreshPromise) {
-    refreshPromise = refreshAccessToken(refreshToken)
-      .then((refreshed) => {
-        // Persisting the rotated tokens *inside* the shared single-flight promise
-        // chain -- before it resolves -- guarantees the store is already updated
-        // by the time any awaiter (or a subsequent, independent refresh cycle
-        // that starts once `refreshPromise` is cleared below) can run. Without
-        // this, each awaiter used to call setTokens itself after waking up, which
-        // left a window where a fresh 401 landing right as this promise settles
-        // could read the store's still-old (already single-use, now invalid)
-        // refreshToken and kick off a doomed refresh with it.
-        useSessionStore.getState().setTokens(refreshed.accessToken, refreshed.refreshToken);
-        return refreshed;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
+function performSessionBoundRefresh(owner: RefreshSessionSnapshot): Promise<string | null> {
+  const current = useSessionStore.getState();
+  if (!isSameRefreshOwner(current, owner)) return Promise.resolve(null);
+
+  // Another request from this same identity epoch may already have completed
+  // rotation. Reuse its access token without redeeming the consumed token again.
+  if (!ownsOriginalCredentials(current, owner)) {
+    return Promise.resolve(current.accessToken);
   }
-  return refreshPromise;
+
+  const flightKey = [
+    owner.sessionGeneration,
+    owner.userId,
+    owner.defaultHouseholdId ?? "",
+    owner.refreshToken
+  ].join(":");
+  const existing = refreshFlights.get(flightKey);
+  if (existing) return existing;
+
+  const flight = refreshAccessToken(owner.refreshToken)
+    .then((refreshed) => {
+      const latest = useSessionStore.getState();
+      if (ownsOriginalCredentials(latest, owner)) {
+        latest.setTokens(refreshed.accessToken, refreshed.refreshToken);
+        return refreshed.accessToken;
+      }
+      // Logout/login happened while the refresh was in flight. The old result
+      // is intentionally discarded and the caller will expose its original 401.
+      if (!isSameRefreshOwner(latest, owner)) return null;
+      return latest.accessToken;
+    })
+    .catch((error: unknown) => {
+      const latest = useSessionStore.getState();
+      if (
+        error instanceof RefreshHttpError &&
+        error.status === 401 &&
+        ownsOriginalCredentials(latest, owner)
+      ) {
+        latest.clearSession();
+      }
+      throw error;
+    })
+    .finally(() => {
+      if (refreshFlights.get(flightKey) === flight) {
+        refreshFlights.delete(flightKey);
+      }
+    });
+  refreshFlights.set(flightKey, flight);
+  return flight;
 }
 
-async function requestJson<T>(path: string, options: RequestOptions = {}, isRetry = false): Promise<T> {
+async function requestJson<T>(
+  path: string,
+  options: RequestOptions = {},
+  isRetry = false,
+  refreshOwner = captureRefreshSession(options.token)
+): Promise<T> {
   // Network failures (fetch rejecting -- offline, DNS, etc.) are distinct from a resolved 401
   // response: only a resolved 401 should trigger a refresh attempt, so a rejected fetch is
   // rethrown immediately without touching the refresh flow.
@@ -758,23 +859,24 @@ async function requestJson<T>(path: string, options: RequestOptions = {}, isRetr
       ...(options.headers ?? {})
     },
     body: options.body ? JSON.stringify(options.body) : undefined
-  });
+  }, DEFAULT_FETCH_TIMEOUT_MS, options.signal);
 
-  const canAttemptRefresh = response.status === 401 && !isRetry && options.token && !isLocalToken(options.token);
+  const canAttemptRefresh =
+    response.status === 401 &&
+    !isRetry &&
+    options.token &&
+    !isLocalToken(options.token) &&
+    !options.skipAuthRefresh &&
+    refreshOwner;
   if (canAttemptRefresh) {
-    const session = useSessionStore.getState();
-    const currentRefreshToken = session.refreshToken;
-    if (currentRefreshToken) {
-      try {
-        const refreshed = await performSingleFlightRefresh(currentRefreshToken);
-        return requestJson<T>(path, { ...options, token: refreshed.accessToken }, true);
-      } catch (refreshError) {
-        if (refreshError instanceof RefreshHttpError && refreshError.status === 401) {
-          useSessionStore.getState().clearSession();
-        }
-        // Falls through to the original 401 response below, whether the refresh failed due to
-        // an expired/invalid refresh token or a network error while refreshing.
+    try {
+      const retryToken = await performSessionBoundRefresh(refreshOwner);
+      if (retryToken) {
+        return requestJson<T>(path, { ...options, token: retryToken }, true, refreshOwner);
       }
+    } catch {
+      // Falls through to the original 401 response below, whether the refresh failed due to
+      // an expired/invalid refresh token or a network error while refreshing.
     }
   }
 
@@ -783,6 +885,24 @@ async function requestJson<T>(path: string, options: RequestOptions = {}, isRetr
     throw apiClientError(response, data);
   }
   return data;
+}
+
+/**
+ * Revokes the captured refresh-token family without rotating credentials.
+ * Logout already committed a local tombstone; a late 401 must never revive or
+ * mutate that ended local session.
+ */
+export function logoutSession(
+  _accessToken: string,
+  refreshToken: string,
+  signal?: AbortSignal
+): Promise<{ success: boolean }> {
+  return requestJson<{ success: boolean }>("/auth/logout/refresh", {
+    method: "POST",
+    body: { refreshToken },
+    signal,
+    skipAuthRefresh: true
+  });
 }
 
 /**
@@ -795,7 +915,8 @@ async function requestJson<T>(path: string, options: RequestOptions = {}, isRetr
 async function requestMultipartJson<T>(
   path: string,
   options: { token?: string | null; formData: FormData },
-  isRetry = false
+  isRetry = false,
+  refreshOwner = captureRefreshSession(options.token)
 ): Promise<T> {
   // File uploads legitimately take longer than a plain JSON request -- a wider bound than
   // DEFAULT_FETCH_TIMEOUT_MS still guarantees this settles instead of hanging forever, without
@@ -812,19 +933,20 @@ async function requestMultipartJson<T>(
     30_000
   );
 
-  const canAttemptRefresh = response.status === 401 && !isRetry && options.token && !isLocalToken(options.token);
+  const canAttemptRefresh =
+    response.status === 401 &&
+    !isRetry &&
+    options.token &&
+    !isLocalToken(options.token) &&
+    refreshOwner;
   if (canAttemptRefresh) {
-    const session = useSessionStore.getState();
-    const currentRefreshToken = session.refreshToken;
-    if (currentRefreshToken) {
-      try {
-        const refreshed = await performSingleFlightRefresh(currentRefreshToken);
-        return requestMultipartJson<T>(path, { ...options, token: refreshed.accessToken }, true);
-      } catch (refreshError) {
-        if (refreshError instanceof RefreshHttpError && refreshError.status === 401) {
-          useSessionStore.getState().clearSession();
-        }
+    try {
+      const retryToken = await performSessionBoundRefresh(refreshOwner);
+      if (retryToken) {
+        return requestMultipartJson<T>(path, { ...options, token: retryToken }, true, refreshOwner);
       }
+    } catch {
+      // The original 401 below remains the public error for this request.
     }
   }
 
@@ -1259,6 +1381,7 @@ type ExpenseRequestOptions = {
   method?: "POST" | "PATCH" | "DELETE";
   body?: unknown;
   idempotencyKey?: string;
+  signal?: AbortSignal;
 };
 
 /**
@@ -1269,7 +1392,12 @@ type ExpenseRequestOptions = {
  * needs to tell a version conflict apart from a permanent validation failure apart from a
  * network error. Reuses the same single-flight refresh-on-401 flow as requestJson.
  */
-async function requestExpenseJson<T>(path: string, options: ExpenseRequestOptions, isRetry = false): Promise<T> {
+async function requestExpenseJson<T>(
+  path: string,
+  options: ExpenseRequestOptions,
+  isRetry = false,
+  refreshOwner = captureRefreshSession(options.token)
+): Promise<T> {
   const response = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
@@ -1278,21 +1406,22 @@ async function requestExpenseJson<T>(path: string, options: ExpenseRequestOption
       ...(options.idempotencyKey ? { [EXPENSE_IDEMPOTENCY_HEADER]: options.idempotencyKey } : {})
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined
-  });
+  }, DEFAULT_FETCH_TIMEOUT_MS, options.signal);
 
-  const canAttemptRefresh = response.status === 401 && !isRetry && options.token && !isLocalToken(options.token);
+  const canAttemptRefresh =
+    response.status === 401 &&
+    !isRetry &&
+    options.token &&
+    !isLocalToken(options.token) &&
+    refreshOwner;
   if (canAttemptRefresh) {
-    const session = useSessionStore.getState();
-    const currentRefreshToken = session.refreshToken;
-    if (currentRefreshToken) {
-      try {
-        const refreshed = await performSingleFlightRefresh(currentRefreshToken);
-        return requestExpenseJson<T>(path, { ...options, token: refreshed.accessToken }, true);
-      } catch (refreshError) {
-        if (refreshError instanceof RefreshHttpError && refreshError.status === 401) {
-          useSessionStore.getState().clearSession();
-        }
+    try {
+      const retryToken = await performSessionBoundRefresh(refreshOwner);
+      if (retryToken) {
+        return requestExpenseJson<T>(path, { ...options, token: retryToken }, true, refreshOwner);
       }
+    } catch {
+      // The original 401 below remains the public error for this request.
     }
   }
 
@@ -1333,7 +1462,8 @@ export function createExpenseWithIdempotency(
     expenseCategoryV2Id?: string;
     expenseType?: "expense" | "gift";
   },
-  idempotencyKey: string
+  idempotencyKey: string,
+  signal?: AbortSignal
 ): Promise<Expense> {
   if (isLocalToken(token)) {
     return local(() => localBackend.createExpenseIdempotent(childId, body, idempotencyKey)).catch(rethrowAsExpenseError);
@@ -1342,7 +1472,8 @@ export function createExpenseWithIdempotency(
     token,
     method: "POST",
     body,
-    idempotencyKey
+    idempotencyKey,
+    signal
   });
 }
 
@@ -1351,7 +1482,8 @@ export function updateExpenseWithVersion(
   expenseId: string,
   body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType" | "paymentMethod" | "paymentMethodId">>,
   expectedVersion: number,
-  idempotencyKey: string
+  idempotencyKey: string,
+  signal?: AbortSignal
 ): Promise<Expense> {
   if (isLocalToken(token)) {
     return local(() => localBackend.updateExpense(expenseId, body, expectedVersion)).catch(rethrowAsExpenseError);
@@ -1360,7 +1492,8 @@ export function updateExpenseWithVersion(
     token,
     method: "PATCH",
     body: { ...body, expectedVersion },
-    idempotencyKey
+    idempotencyKey,
+    signal
   });
 }
 
@@ -1368,7 +1501,8 @@ export function deleteExpenseWithVersion(
   token: string,
   expenseId: string,
   expectedVersion: number,
-  idempotencyKey: string
+  idempotencyKey: string,
+  signal?: AbortSignal
 ): Promise<{ success: boolean }> {
   if (isLocalToken(token)) {
     return local(() => localBackend.deleteExpense(expenseId, expectedVersion)).catch(rethrowAsExpenseError);
@@ -1376,7 +1510,8 @@ export function deleteExpenseWithVersion(
   return requestExpenseJson<{ success: boolean }>(`/expenses/${expenseId}?expectedVersion=${expectedVersion}`, {
     token,
     method: "DELETE",
-    idempotencyKey
+    idempotencyKey,
+    signal
   });
 }
 
@@ -1386,6 +1521,30 @@ export type SyncChange =
 
 export type SyncChangesResult = {
   changes: SyncChange[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export type SyncChangeV2 =
+  | {
+      type: "expense";
+      op: "upsert";
+      householdId: string;
+      childId: string;
+      data: Expense;
+    }
+  | {
+      type: "expense";
+      op: "delete";
+      householdId: string;
+      childId: string;
+      id: string;
+      version: number;
+      deletedAt: string;
+    };
+
+export type SyncChangesV2Result = {
+  changes: SyncChangeV2[];
   nextCursor: string | null;
   hasMore: boolean;
 };
@@ -1403,6 +1562,22 @@ export function getSyncChanges(token: string, cursor?: string, limit?: number): 
   if (limit) params.set("limit", String(limit));
   const query = params.toString();
   return requestJson<SyncChangesResult>(`/sync/changes${query ? `?${query}` : ""}`, { token });
+}
+
+export function getSyncChangesV2(
+  token: string,
+  householdId: string,
+  cursor?: string,
+  limit?: number,
+  signal?: AbortSignal
+): Promise<SyncChangesV2Result> {
+  if (isLocalToken(token)) {
+    return local(() => ({ changes: [], nextCursor: cursor ?? null, hasMore: false }));
+  }
+  const params = new URLSearchParams({ householdId });
+  if (cursor) params.set("cursor", cursor);
+  if (limit) params.set("limit", String(limit));
+  return requestJson<SyncChangesV2Result>(`/sync/v2/changes?${params}`, { token, signal });
 }
 
 export type LegacyOfflineReconcileMutation = {
@@ -1424,7 +1599,8 @@ export type LegacyOfflineReconcileResult = {
 
 export function reconcileLegacyOfflineMutations(
   token: string,
-  mutations: LegacyOfflineReconcileMutation[]
+  mutations: LegacyOfflineReconcileMutation[],
+  signal?: AbortSignal
 ) {
   if (isLocalToken(token)) {
     return local(() => ({
@@ -1438,7 +1614,7 @@ export function reconcileLegacyOfflineMutations(
   }
   return requestJson<{ results: LegacyOfflineReconcileResult[] }>(
     "/sync/offline/reconcile-legacy",
-    { method: "POST", token, body: { mutations } }
+    { method: "POST", token, body: { mutations }, signal }
   );
 }
 
@@ -1965,12 +2141,21 @@ export function getWeeklyBriefing(token: string, householdId: string, referenceD
   return requestJson<WeeklyBriefingContract>(`/households/${householdId}/weekly-briefings/current${referenceDate ? `?referenceDate=${referenceDate}` : ""}`, { token });
 }
 
-export function createReceiptDraft(token: string, body: { childId: string; contentHash: string; fileName: string; mimeType: string; fileSizeBytes: number }) {
-  return requestJson<{ duplicate: boolean; providerMode?: "LOCAL_FIXTURE" | "EXTERNAL_BLOCKED"; draft: ReceiptDraftContract }>("/receipt-drafts", { method: "POST", token, body });
+export function createReceiptDraft(
+  token: string,
+  body: { childId: string; contentHash: string; fileName: string; mimeType: string; fileSizeBytes: number },
+  signal?: AbortSignal
+) {
+  return requestJson<{ duplicate: boolean; providerMode?: "LOCAL_FIXTURE" | "EXTERNAL_BLOCKED"; draft: ReceiptDraftContract }>("/receipt-drafts", { method: "POST", token, body, signal });
 }
 
-export function confirmReceiptDraft(token: string, draftId: string, body: { confirmed: true; idempotencyKey: string; expectedVersion: number; categoryId: string; amountKrw: number; spentOn: string; itemName: string; merchant?: string }) {
-  return requestJson<{ expenseId: string; duplicate: boolean }>(`/receipt-drafts/${draftId}/confirm`, { method: "POST", token, body });
+export function confirmReceiptDraft(
+  token: string,
+  draftId: string,
+  body: { confirmed: true; idempotencyKey: string; expectedVersion: number; categoryId: string; amountKrw: number; spentOn: string; itemName: string; merchant?: string },
+  signal?: AbortSignal
+) {
+  return requestJson<{ expenseId: string; duplicate: boolean }>(`/receipt-drafts/${draftId}/confirm`, { method: "POST", token, body, signal });
 }
 
 export type NotificationPreferences = {

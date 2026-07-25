@@ -37,8 +37,11 @@ describe("Real session data integrity contract", () => {
     expect(homeSource).toContain("home.isError");
 
     const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain("const visibleItems = hasSession ? items.data?.items ?? [] : previewItems;");
-    expect(itemsSource).toContain('if (!hasSession && !isPixelLockMode)');
+    const preparationSource = source("src/preparation/Release4PreparationScreen.tsx");
+    expect(itemsSource).toContain("isPixelLockMode ? <PixelItemsScreen /> : <Release4PreparationScreen />");
+    expect(preparationSource).toContain("const hasSession = Boolean(token && activeContextKey);");
+    expect(preparationSource).toContain("enabled: hasSession");
+    expect(preparationSource).toContain("PreparationListParity");
 
     const itemDetailSource = source("app/items/[itemTemplateId].tsx");
     expect(itemDetailSource).toContain("const visibleDetail = hasSession ? detail.data! : previewDetail(itemTemplateId);");

@@ -579,7 +579,7 @@ export function ProductCard({
   );
 }
 
-export function ProductComparisonRow({ seller, price, onPress }: { seller: string; price: string; onPress?: () => void }) {
+export function ProductComparisonRow({ seller, price, onPress, primaryAction = false }: { seller: string; price: string; onPress?: () => void; primaryAction?: boolean }) {
   return (
     <View style={{ alignItems: "center", flexDirection: "row", gap: 10 }}>
       <View style={{ flex: 1 }}>
@@ -587,7 +587,11 @@ export function ProductComparisonRow({ seller, price, onPress }: { seller: strin
         <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>무료배송</Text>
       </View>
       <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "800" }]}>{price}</Text>
-      <SecondaryButton label="구매" onPress={onPress} style={{ minWidth: 62 }} />
+      {primaryAction ? (
+        <PrimaryButton label="구매하기" onPress={onPress} style={{ backgroundColor: theme.colors.coral[400], minWidth: 72 }} />
+      ) : (
+        <SecondaryButton label="구매" onPress={onPress} style={{ minWidth: 62 }} />
+      )}
     </View>
   );
 }

@@ -45,6 +45,11 @@ export type ExpensePayload = {
   linkedItemDefinitionId?: string | null;
   expenseCategoryV2Id?: string | null;
   expenseType?: ExpenseKind;
+  /** Server-owned provenance retained in local mirrors. Sync request builders deliberately
+   * omit these fields, so offline replay cannot overwrite them. */
+  source?: import("../api/client").Expense["source"];
+  createdByUserId?: string | null;
+  payerUserId?: string | null;
 };
 
 /** Snapshot of the server's `current` field from a 409 VERSION_CONFLICT response (design doc
@@ -122,6 +127,79 @@ export type MutationOutboxRow = {
   inFlight?: boolean;
 };
 
+export type RemoteSyncChange =
+  | {
+      type: "expense";
+      op: "upsert";
+      householdId: string;
+      childId: string;
+      data: import("../api/client").Expense;
+    }
+  | {
+      type: "expense";
+      op: "delete";
+      householdId: string;
+      childId: string;
+      id: string;
+      version: number;
+      deletedAt: string;
+    };
+
+export type RemoteSyncMetadata = {
+  protocolVersion: 2;
+  cursor: string | null;
+  baselineComplete: boolean;
+  lastSuccessfulPullAt: string | null;
+  authorizationState: "unknown" | "authorized" | "denied";
+  authorizationCheckedAt: string | null;
+};
+
+export type ResetRemoteSyncMetadataInput = {
+  expectedCursor: string | null;
+  resetAt: string;
+  ownerStillCurrent?: () => boolean;
+};
+
+export type SetRemoteSyncAuthorizationInput = {
+  state: "authorized" | "denied";
+  checkedAt: string;
+  ownerStillCurrent?: () => boolean;
+};
+
+export type CommitLocalMutationInput = {
+  targetLocalId: string;
+  /** Compare-and-swap guard captured before the optimistic edit is prepared. */
+  expectedLocalRow: LocalExpenseRow | null;
+  /** Complete outbox state for this local row at read time, in creation order. */
+  expectedMutations: Array<{ mutationId: string; inFlight: boolean }>;
+  localRow: LocalExpenseRow | null;
+  deleteMutationIds: string[];
+  upsertMutations: MutationOutboxRow[];
+};
+
+export type AcknowledgeOutboxMutationInput = {
+  mutationId: string;
+  targetLocalId: string;
+  deleteLocalExpense: boolean;
+  rowPatch?: Partial<LocalExpenseRow>;
+  acknowledgedAt: string;
+};
+
+export type ApplyRemoteSyncPageInput = {
+  householdId: string;
+  expectedCursor: string | null;
+  changes: RemoteSyncChange[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  appliedAt: string;
+  ownerStillCurrent?: () => boolean;
+};
+
+export type ApplyRemoteSyncPageResult = {
+  affectedChildIds: string[];
+  metadata: RemoteSyncMetadata;
+};
+
 /**
  * Storage abstraction (design doc §3.1 note: "vitest는 네이티브 SQLite를 못 돌리므로, 저장
  * 계층을 인터페이스로 추상화"). `sqlite-offline-store.ts` implements this against expo-sqlite
@@ -144,6 +222,12 @@ export interface OfflineStore {
   /** All outbox rows in creation order (the order flush must send them in, per §3.2). */
   listOutboxMutations(): Promise<MutationOutboxRow[]>;
   listOutboxMutationsForLocalId(localId: string): Promise<MutationOutboxRow[]>;
+  /** Atomically commits the optimistic local row and its complete replacement outbox set. */
+  commitLocalMutation(input: CommitLocalMutationInput): Promise<void>;
+  /** Atomically removes a sent mutation and applies its acknowledgement to the local row. */
+  acknowledgeOutboxMutation(
+    input: AcknowledgeOutboxMutationInput
+  ): Promise<{ remainingMutationCount: number }>;
   getLegacyQuarantineSummary(): Promise<LegacyQuarantineSummary>;
   listLegacyQuarantineEntries(limit: number): Promise<LegacyQuarantineEntry[]>;
   updateLegacyQuarantineEntry(
@@ -157,6 +241,10 @@ export interface OfflineStore {
     row: LocalExpenseRow | null,
     mutations: MutationOutboxRow[]
   ): Promise<void>;
+  getRemoteSyncMetadata(): Promise<RemoteSyncMetadata>;
+  resetRemoteSyncMetadata(input: ResetRemoteSyncMetadataInput): Promise<RemoteSyncMetadata>;
+  setRemoteSyncAuthorization(input: SetRemoteSyncAuthorizationInput): Promise<RemoteSyncMetadata>;
+  applyRemoteSyncPage(input: ApplyRemoteSyncPageInput): Promise<ApplyRemoteSyncPageResult>;
 }
 
 export function generateOfflineId(prefix: string): string {

@@ -17,13 +17,13 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(login).not.toContain("markHomeReached");
   });
 
-  it("uses vector icons for the five MOD_V1 tabs", () => {
+  it("uses vector icons for the five product tabs", () => {
     const layout = source("app/(tabs)/_layout.tsx");
 
-    for (const label of ["홈", "기록", "준비템", "리포트", "프로필"]) {
+    for (const label of ["홈", "기록", "준비템", "리포트", "더보기"]) {
       expect(layout).toContain(label);
     }
-    for (const icon of ["home", "notebook", "basket", "chart-box", "account-circle"]) {
+    for (const icon of ["home", "notebook", "basket", "chart-box", "dots-horizontal-circle"]) {
       expect(layout).toContain(icon);
     }
     expect(layout).toContain("AppIcon");
@@ -63,10 +63,11 @@ describe("product redesign Sprint 0 source contract", () => {
 
   it("makes preparation status primary and removes unsupported commerce claims", () => {
     const items = source("app/(tabs)/items.tsx");
+    const preparation = source("src/preparation/PreparationListParity.tsx");
     const detail = source("app/items/[itemTemplateId].tsx");
 
-    for (const label of ["지금 필요", "곧 필요", "준비 완료", "필요 없음"]) {
-      expect(items).toContain(label);
+    for (const label of ["지금 준비해요", "곧 필요해요", "여유 있게 준비해요"]) {
+      expect(preparation).toContain(label);
     }
     expect(items).not.toContain("BEST");
     expect(items).not.toContain("괜찮아요");
@@ -74,8 +75,9 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(detail).toContain("visibleDetail.productLinks.length > 0");
     expect(detail).toContain("AffiliateDisclosure");
     expect(detail).toContain("검수된 구매 링크가 아직 없어요");
-    expect(items).toContain("필요도와 준비 시기를 먼저 확인하고");
-    expect(items).toContain("준비 시기 ·");
+    expect(items).toContain("PreparationListParity");
+    expect(preparation).toContain("PreparationItemCard");
+    expect(preparation).toContain("필요한 것부터 차근차근 준비하고 있어요.");
   });
 
   it("provides a real child switcher backed by the selected-child store", () => {
@@ -85,7 +87,7 @@ describe("product redesign Sprint 0 source contract", () => {
 
     expect(home).toContain('router.push("/children" as Href)');
     expect(switcher).toContain("listChildren");
-    expect(switcher).toContain("setSelectedChildId(childId)");
+    expect(switcher).toContain("setSelectedChildId(childId, householdId ?? null)");
     expect(switcher).toContain('router.replace("/(tabs)")');
     expect(client).toContain('requestJson<{ children: OnboardingChildSummary[] }>("/children"');
   });

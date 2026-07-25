@@ -545,6 +545,58 @@ describe("sync-engine: H-3 in-flight interleaving safety (diff review)", () => {
     expect(await store.listOutboxMutationsForLocalId(created.localId)).toHaveLength(0);
   });
 
+  it("rebases a second edit on the version acknowledged by an in-flight update", async () => {
+    const created = await recordLocalCreate(store, { ...payload, amountKrw: 10_000 });
+    await flushOutbox(store, {
+      async createExpense() {
+        return { id: "server-1", version: 1 };
+      },
+      async updateExpense() {
+        throw new Error("not used");
+      },
+      async deleteExpense() {
+        throw new Error("not used");
+      }
+    });
+    await recordLocalUpdate(store, created.localId, { amountKrw: 20_000 });
+
+    let resolveFirstUpdate!: (result: { version: number }) => void;
+    const firstUpdate = new Promise<{ version: number }>((resolve) => {
+      resolveFirstUpdate = resolve;
+    });
+    const expectedVersions: number[] = [];
+    const remote: RemoteExpenseApi = {
+      async createExpense() {
+        throw new Error("not used");
+      },
+      async updateExpense(_id, _payload, expectedVersion) {
+        expectedVersions.push(expectedVersion);
+        if (expectedVersions.length === 1) return firstUpdate;
+        return { version: expectedVersion + 1 };
+      },
+      async deleteExpense() {
+        throw new Error("not used");
+      }
+    };
+
+    const activeFlush = flushOutbox(store, remote);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await recordLocalUpdate(store, created.localId, { amountKrw: 30_000 });
+    const queued = await store.listOutboxMutationsForLocalId(created.localId);
+    expect(queued).toHaveLength(2);
+    expect(queued.find((mutation) => !mutation.inFlight)?.expectedVersion).toBeNull();
+    const followUp = flushOutbox(store, remote);
+    resolveFirstUpdate({ version: 2 });
+    await Promise.all([activeFlush, followUp]);
+
+    expect(expectedVersions).toEqual([1, 2]);
+    expect(await store.getLocalExpense(created.localId)).toMatchObject({
+      version: 3,
+      syncState: "synced",
+      payload: { amountKrw: 30_000 }
+    });
+  });
+
   it("serializes concurrent flushOutbox calls against the same store into a single pass instead of double-sending", async () => {
     await recordLocalCreate(store, payload);
     let createCallCount = 0;
@@ -567,5 +619,59 @@ describe("sync-engine: H-3 in-flight interleaving safety (diff review)", () => {
     expect(createCallCount).toBe(1);
     expect(first).toEqual(second);
     expect(first.synced).toBe(1);
+  });
+
+  it("cancels an old-session flush without acknowledging the queued mutation or consuming retry budget", async () => {
+    const created = await recordLocalCreate(store, payload);
+    const controller = new AbortController();
+    let ownerActive = true;
+    let resolveRemote!: (value: { id: string; version: number }) => void;
+    const remoteResult = new Promise<{ id: string; version: number }>((resolve) => {
+      resolveRemote = resolve;
+    });
+    const remote: RemoteExpenseApi = {
+      createExpense: async () => remoteResult,
+      updateExpense: async () => {
+        throw new Error("not used in this test");
+      },
+      deleteExpense: async () => {
+        throw new Error("not used in this test");
+      }
+    };
+
+    const flushing = flushOutbox(store, remote, {
+      signal: controller.signal,
+      isActive: () => ownerActive
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await store.listOutboxMutationsForLocalId(created.localId))[0].inFlight).toBe(true);
+
+    ownerActive = false;
+    controller.abort();
+    resolveRemote({ id: "server-from-old-session", version: 1 });
+
+    await expect(flushing).resolves.toMatchObject({ cancelled: true, synced: 0 });
+    const queued = (await store.listOutboxMutationsForLocalId(created.localId))[0];
+    expect(queued).toMatchObject({ attemptCount: 0, inFlight: false, lastError: null });
+    expect(await store.getLocalExpense(created.localId)).toMatchObject({
+      canonicalId: null,
+      syncState: "pending",
+      lastError: null
+    });
+
+    const currentRemote: RemoteExpenseApi = {
+      createExpense: async () => ({ id: "server-from-current-session", version: 1 }),
+      updateExpense: async () => {
+        throw new Error("not used in this test");
+      },
+      deleteExpense: async () => {
+        throw new Error("not used in this test");
+      }
+    };
+    await expect(flushOutbox(store, currentRemote)).resolves.toMatchObject({ synced: 1 });
+    expect(await store.getLocalExpense(created.localId)).toMatchObject({
+      canonicalId: "server-from-current-session",
+      syncState: "synced"
+    });
   });
 });

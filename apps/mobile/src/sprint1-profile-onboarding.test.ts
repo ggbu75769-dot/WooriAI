@@ -6,7 +6,7 @@ const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
 describe("Sprint 1 profile and onboarding product contract", () => {
-  it("separates the account profile from child profiles and keeps the profile hub as the fifth tab", () => {
+  it("separates account and child profiles while exposing the more hub in the tab bar", () => {
     expect(existsSync(join(mobileRoot, "app/profile.tsx"))).toBe(true);
     const profile = source("app/profile.tsx");
     expect(profile).toContain('testID="screen-PROFILE-001"');
@@ -15,9 +15,8 @@ describe("Sprint 1 profile and onboarding product contract", () => {
     expect(profile).toContain('label="로그인 방식"');
 
     const tabs = source("app/(tabs)/_layout.tsx");
-    expect(tabs).toContain('more: { title: "프로필"');
-    expect(tabs).toContain('<Tabs.Screen name="more"');
-    expect(tabs).not.toContain('name="more" options={{ href: null }}');
+    expect(tabs).toContain('more: { title: "더보기"');
+    expect(tabs).toContain('name="more" options={{ title: tabs.more.title');
   });
 
   it("blocks direct tab entry when there is no selected child", () => {
@@ -47,8 +46,12 @@ describe("Sprint 1 profile and onboarding product contract", () => {
   });
 
   it("removes local sample state as part of test-session logout", () => {
-    expect(source("app/profile.tsx")).toContain("if (isTestSession) resetLocalBackend()");
-    expect(source("app/settings/index.tsx")).toContain("if (isTestSession) resetLocalBackend()");
+    expect(source("app/profile.tsx")).toContain("useCurrentSessionLogout");
+    expect(source("app/settings/index.tsx")).toContain("useCurrentSessionLogout");
+    const sharedLogout = source("src/auth/use-current-session-logout.ts");
+    expect(sharedLogout).toContain("if (wasTestSession) resetLocalBackend()");
+    expect(sharedLogout).toContain("logoutCurrentSession({");
+    expect(sharedLogout).toContain("onLocalCleared: () =>");
   });
 
   it("keeps an explicit unspecified option beside user-registered payment methods", () => {

@@ -30,13 +30,14 @@ describe("UI Pixel Lock source contract", () => {
   it("uses the image-locked visual navigation labels while preserving existing route modules", () => {
     const layoutSource = readFileSync(join(mobileRoot, "app/(tabs)/_layout.tsx"), "utf8");
 
-    for (const expectedLabel of ["홈", "기록", "준비템", "리포트", "프로필"]) {
+    for (const expectedLabel of ["홈", "기록", "준비템", "리포트", "더보기"]) {
       expect(layoutSource).toContain(expectedLabel);
     }
 
     for (const expectedRoute of ['name="index"', 'name="records"', 'name="items"', 'name="reports"', 'name="more"']) {
       expect(layoutSource).toContain(expectedRoute);
     }
+    expect(layoutSource).toContain('name="more" options={{ title: tabs.more.title');
   });
 
   it("exposes reusable pixel-lock tokens and component primitives instead of one-off card styles", async () => {
@@ -82,10 +83,10 @@ describe("UI Pixel Lock source contract", () => {
       ["app/expenses/new.tsx", "quickExpensePixelFrameStyle"],
       ["app/expenses/new.tsx", "38,500원"],
       ["app/expenses/new.tsx", "formatExpenseDate(today)"],
-      ["app/(tabs)/items.tsx", "ProductCard"],
-      ["app/(tabs)/items.tsx", "CategoryChip"],
-      ["app/(tabs)/items.tsx", "statusTabs"],
-      ["app/(tabs)/items.tsx", "SampleDataBanner"],
+      ["app/(tabs)/items.tsx", "PreparationListParity"],
+      ["src/preparation/PreparationListParity.tsx", "PreparationItemCard"],
+      ["src/preparation/PreparationListParity.tsx", "분류별"],
+      ["src/preparation/PreparationListParity.tsx", "시기별"],
       ["app/(tabs)/items.tsx", "ItemListPixelStyles.scale"],
       ["app/(tabs)/items.tsx", "ItemListPixelStyles.horizontalOffset"],
       ["app/(tabs)/items.tsx", "ItemListPixelStyles.topOffset"],
@@ -285,26 +286,29 @@ describe("UI Pixel Lock source contract", () => {
     expect(moreSource).not.toContain("moreReferenceFrameStyle");
   });
 
-  it("provides a launch growth animation route with real stage assets and skip flow", () => {
+  it("provides a launch growth animation route that finishes automatically within three seconds", () => {
     const launchSource = readFileSync(join(mobileRoot, "app/launch-animation.tsx"), "utf8");
 
     for (const expectedText of [
       "SPL-001",
       "Animated",
       "family.png",
-      "logo_mark.png",
+      "splash-mark.png",
       "intro",
       "animationStages",
       "growth_fetus.png",
       "growth_baby.png",
-      "growth_toddler.png",
-      "건너뛰기"
+      "growth_toddler.png"
     ]) {
       expect(launchSource).toContain(expectedText);
     }
 
     expect(launchSource).toContain("splashScreenId");
-    expect(launchSource).toContain("introHoldMs");
+    expect(launchSource).toContain("const introHoldMs = 300");
+    expect(launchSource).toContain("const stageHoldMs = 320");
+    expect(launchSource).toContain("const finalHoldMs = 350");
+    expect(launchSource).toContain("const stageTransitionMs = 180");
+    expect(300 + (320 * 5) + 350).toBeLessThanOrEqual(3000);
     expect(launchSource).toContain("introImageStyle");
     expect(launchSource).toContain("SplashPixelStyles.groupScale");
     expect(launchSource).toContain("SplashPixelStyles.topOffset");
@@ -314,7 +318,18 @@ describe("UI Pixel Lock source contract", () => {
     expect(launchSource).toContain("paddingTop: 112");
     expect(launchSource).toContain("SplashPixelStyles.introImageMarginTop");
     expect(launchSource).toContain("stageIndex < 0 ? introHoldMs");
+    expect(launchSource).toContain("isFinalStage ? finalHoldMs : stageHoldMs");
+    expect(launchSource).toContain("AccessibilityInfo.isReduceMotionEnabled");
+    expect(launchSource).toContain("if (!mounted || isPixelLockMode) return");
+    expect(launchSource).toContain("setStageIndex(animationStages.length - 1)");
+    expect(launchSource).toContain('router.replace("/login")');
     expect(launchSource).toContain("accessibilityLabel={splashScreenId}");
+    expect(launchSource).toContain("accessibilityLiveRegion");
+    for (const removedControl of ["이전", "일시정지", "자동 재생", "다음", "건너뛰기", "시작하기", "PrimaryButton", "TextButton"]) {
+      expect(launchSource).not.toContain(removedControl);
+    }
+    expect(launchSource).not.toContain("growth_logo.png");
+    expect(launchSource).not.toContain('require("../assets/illustrations/logo_mark.png")');
     expect(launchSource).not.toContain(">SPL-001</Text>");
     expect(launchSource).not.toContain("<BrandLogo");
 
@@ -324,7 +339,11 @@ describe("UI Pixel Lock source contract", () => {
     expect(splashPixelStyleSource).toContain('return pixelNumber("SPL-001", "introImageMarginTop", 56)');
 
     for (const asset of ["growth_fetus.png", "growth_baby.png", "growth_toddler.png", "growth_elementary.png", "growth_middle.png", "growth_high.png"]) {
-      expect(existsSync(join(mobileRoot, "assets/illustrations", asset)), `${asset} should exist`).toBe(true);
+      const assetPath = join(mobileRoot, "assets/illustrations", asset);
+      expect(existsSync(assetPath), `${asset} should exist`).toBe(true);
+      const png = readFileSync(assetPath);
+      expect(png.readUInt32BE(16), `${asset} should keep the full illustration width`).toBeGreaterThanOrEqual(155);
+      expect(png.readUInt32BE(20), `${asset} should keep the full illustration height`).toBeGreaterThanOrEqual(220);
     }
   });
 });

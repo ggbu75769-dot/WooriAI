@@ -111,7 +111,10 @@ export default function IndexScreen() {
     getOnboardingProgress(accessToken)
       .then((progress) => {
         if (progress.summary.child?.id) {
-          setSelectedChildId(progress.summary.child.id);
+          setSelectedChildId(
+            progress.summary.child.id,
+            progress.summary.child.householdId ?? null
+          );
         }
         if (progress.completed) {
           markHomeReached();

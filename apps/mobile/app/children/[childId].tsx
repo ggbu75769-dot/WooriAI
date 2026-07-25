@@ -46,7 +46,7 @@ export default function EditChildScreen() {
       });
     },
     onSuccess: async () => {
-      setSelectedChildId(childId);
+      setSelectedChildId(childId, child.data?.householdId ?? null);
       await queryClient.invalidateQueries({ queryKey: ["children"] });
       await invalidateChildScopedQueries(queryClient);
       router.replace("/children" as Href);

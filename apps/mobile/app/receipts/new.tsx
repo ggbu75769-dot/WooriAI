@@ -16,7 +16,16 @@ import {
   updateReceiptOfflineDraft,
   writeReceiptOfflineDraft
 } from "../../src/receipts/offline-draft";
-import { useSelectedChildStore } from "../../src/stores/selected-child.store";
+import {
+  beginReceiptOperation,
+  captureReceiptOperationOwner,
+  receiptOperationOwnerIsActive
+} from "../../src/receipts/operation-owner";
+import { RemoteSyncCancelledError } from "../../src/offline/errors";
+import {
+  householdIdForSelectedChildScope,
+  useSelectedChildStore
+} from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
 import { theme } from "../../src/theme";
@@ -26,14 +35,32 @@ function hex(buffer: ArrayBuffer) {
   return Array.from(new Uint8Array(buffer)).map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
+function isReceiptOperationCancellation(error: unknown): boolean {
+  return (
+    error instanceof RemoteSyncCancelledError ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+}
+
 export default function ReceiptDraftScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const userId = useSessionStore((state) => state.userId);
   const defaultHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const token = accessToken ?? (isTestSession ? fixtureSessionToken : null);
-  const scopeKey = resolveOfflineScopeKey({ accessToken, userId, defaultHouseholdId, isTestSession });
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const selectedChildHouseholdId = useSelectedChildStore((state) => state.selectedChildHouseholdId);
+  const receiptHouseholdId = householdIdForSelectedChildScope(
+    childId,
+    selectedChildHouseholdId,
+    defaultHouseholdId
+  );
+  const token = accessToken ?? (isTestSession ? fixtureSessionToken : null);
+  const scopeKey = resolveOfflineScopeKey({
+    accessToken,
+    userId,
+    defaultHouseholdId: receiptHouseholdId,
+    isTestSession
+  });
   const [draft, setDraft] = useState<ReceiptOfflineDraft | null>(null);
   const [itemName, setItemName] = useState("");
   const [amount, setAmount] = useState("");
@@ -43,40 +70,75 @@ export default function ReceiptDraftScreen() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!scopeKey) return;
-    let cancelled = false;
-    void readReceiptOfflineDraft(scopeKey).then((restored) => {
-      if (cancelled || !restored) return;
-      setDraft(restored);
-      setItemName(restored.form.itemName);
-      setAmount(restored.form.amount);
-      setSpentOn(restored.form.spentOn);
-      setMerchant(restored.form.merchant);
-      setCategoryId(restored.form.categoryId);
-      if (!restored.serverDraft) setMessage("저장된 영수증 초안이 있어요. 연결 후 다시 업로드해 주세요.");
-    });
-    return () => { cancelled = true; };
-  }, [scopeKey]);
+    setDraft(null);
+    if (!scopeKey) {
+      setItemName("");
+      setAmount("");
+      setMerchant("");
+      return;
+    }
+    const owner = captureReceiptOperationOwner(token, scopeKey, childId);
+    if (!owner) return;
+    const operation = beginReceiptOperation(owner);
+    void readReceiptOfflineDraft(scopeKey)
+      .then((restored) => {
+        operation.assertActive();
+        if (!restored || restored.childId !== childId) return;
+        setDraft(restored);
+        setItemName(restored.form.itemName);
+        setAmount(restored.form.amount);
+        setSpentOn(restored.form.spentOn);
+        setMerchant(restored.form.merchant);
+        setCategoryId(restored.form.categoryId);
+        if (!restored.serverDraft) setMessage("저장된 영수증 초안이 있어요. 연결 후 다시 업로드해 주세요.");
+      })
+      .catch(() => undefined)
+      .finally(operation.release);
+    return operation.release;
+  }, [childId, scopeKey, token]);
 
   useEffect(() => {
-    if (!draft) return;
+    if (!draft || !scopeKey || !childId) return;
+    if (draft.scopeKey !== scopeKey || draft.childId !== childId) return;
     const persisted = updateReceiptOfflineDraft(draft, {
       form: { itemName, amount, spentOn, merchant, categoryId },
       updatedAt: new Date().toISOString()
     });
-    const timer = setTimeout(() => { void writeReceiptOfflineDraft(persisted); }, 150);
+    const timer = setTimeout(() => {
+      const owner = captureReceiptOperationOwner(token, scopeKey, childId);
+      if (!owner) return;
+      const operation = beginReceiptOperation(owner);
+      void writeReceiptOfflineDraft(persisted, undefined, {
+        assertActive: operation.assertActive
+      }).catch(() => undefined).finally(operation.release);
+    }, 150);
     return () => clearTimeout(timer);
-  }, [amount, categoryId, draft, itemName, merchant, spentOn]);
+  }, [amount, categoryId, childId, draft, itemName, merchant, scopeKey, spentOn, token]);
 
   const upload = useMutation({
-    mutationFn: (candidate: ReceiptOfflineDraft) => createReceiptDraft(token!, {
-      childId: candidate.childId,
-      contentHash: candidate.contentHash,
-      fileName: candidate.fileName,
-      mimeType: candidate.mimeType,
-      fileSizeBytes: candidate.fileSizeBytes
-    }),
-    onSuccess: (result, candidate) => {
+    mutationFn: async (candidate: ReceiptOfflineDraft) => {
+      const owner = captureReceiptOperationOwner(token, scopeKey, childId);
+      if (!owner || candidate.scopeKey !== owner.scopeKey || candidate.childId !== owner.childId) {
+        throw new RemoteSyncCancelledError();
+      }
+      const operation = beginReceiptOperation(owner);
+      try {
+        operation.assertActive();
+        const result = await createReceiptDraft(owner.token, {
+          childId: candidate.childId,
+          contentHash: candidate.contentHash,
+          fileName: candidate.fileName,
+          mimeType: candidate.mimeType,
+          fileSizeBytes: candidate.fileSizeBytes
+        }, operation.signal);
+        operation.assertActive();
+        return { result, owner };
+      } finally {
+        operation.release();
+      }
+    },
+    onSuccess: ({ result, owner }, candidate) => {
+      if (!receiptOperationOwnerIsActive(owner)) return;
       setDraft((current) => {
         if (!current || current.localId !== candidate.localId) return current;
         const uploaded = updateReceiptOfflineDraft(current, {
@@ -84,16 +146,27 @@ export default function ReceiptDraftScreen() {
           serverDraft: { id: result.draft.id, version: result.draft.version },
           updatedAt: new Date().toISOString()
         });
-        void writeReceiptOfflineDraft(uploaded);
+        const activeOwner = captureReceiptOperationOwner(token, scopeKey, childId);
+        if (!activeOwner) return current;
+        const operation = beginReceiptOperation(activeOwner);
+        void writeReceiptOfflineDraft(uploaded, undefined, {
+          assertActive: operation.assertActive
+        }).catch(() => undefined).finally(operation.release);
         return uploaded;
       });
       setMessage(result.providerMode === "EXTERNAL_BLOCKED" ? "자동 인식 연결 전이라 주요 값을 직접 확인해 주세요." : null);
     },
-    onError: (_error, candidate) => {
+    onError: (error, candidate) => {
+      if (isReceiptOperationCancellation(error)) return;
+      const owner = captureReceiptOperationOwner(token, scopeKey, childId);
+      if (!owner || candidate.scopeKey !== owner.scopeKey || candidate.childId !== owner.childId) return;
       setDraft((current) => {
         if (!current || current.localId !== candidate.localId) return current;
         const failed = updateReceiptOfflineDraft(current, { uploadState: "failed", updatedAt: new Date().toISOString() });
-        void writeReceiptOfflineDraft(failed);
+        const operation = beginReceiptOperation(owner);
+        void writeReceiptOfflineDraft(failed, undefined, {
+          assertActive: operation.assertActive
+        }).catch(() => undefined).finally(operation.release);
         return failed;
       });
       setMessage("초안은 이 계정과 가족에 저장했어요. 연결 후 다시 업로드해 주세요.");
@@ -101,58 +174,104 @@ export default function ReceiptDraftScreen() {
   });
 
   const pick = useMutation({ mutationFn: async () => {
-    const result = await DocumentPicker.getDocumentAsync({ type: ["image/jpeg", "image/png", "application/pdf"], copyToCacheDirectory: true });
-    if (result.canceled || !result.assets[0]) return null;
-    const asset = result.assets[0];
-    const size = asset.size ?? 0;
-    if (!size || size > 15 * 1024 * 1024) throw new Error("영수증 파일은 15MB 이하만 선택할 수 있어요.");
-    const bytes = await (await fetch(asset.uri)).arrayBuffer();
-    const contentHash = hex(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new Uint8Array(bytes)));
-    const mimeType = asset.mimeType === "image/jpeg" || asset.mimeType === "image/png" || asset.mimeType === "application/pdf"
-      ? asset.mimeType
-      : "application/pdf";
-    const localDraft = createReceiptOfflineDraft({
-      scopeKey: scopeKey!,
-      localId: Crypto.randomUUID(),
-      childId: childId!,
-      assetUri: asset.uri,
-      fileName: asset.name,
-      mimeType,
-      fileSizeBytes: size,
-      contentHash,
-      confirmationIdempotencyKey: Crypto.randomUUID(),
-      form: { itemName: "", amount: "", spentOn: getSeoulToday(), merchant: "", categoryId: categoryCatalog[0]!.id },
-      updatedAt: new Date().toISOString()
-    });
-    await writeReceiptOfflineDraft(localDraft);
-    return localDraft;
-  }, onSuccess: (result) => {
-    if (!result) return;
-    setDraft(result);
-    setItemName("");
-    setAmount("");
-    setSpentOn(result.form.spentOn);
-    setMerchant("");
-    setCategoryId(result.form.categoryId);
-    upload.mutate(result);
-  }, onError: (error) => setMessage(error instanceof Error ? error.message : "파일을 확인하지 못했어요.") });
-  const confirm = useMutation({
-    mutationFn: () => {
-      const current = updateReceiptOfflineDraft(draft!, {
-        form: { itemName, amount, spentOn, merchant, categoryId },
+    const owner = captureReceiptOperationOwner(token, scopeKey, childId);
+    if (!owner) throw new RemoteSyncCancelledError();
+    const operation = beginReceiptOperation(owner);
+    try {
+      operation.assertActive();
+      const result = await DocumentPicker.getDocumentAsync({ type: ["image/jpeg", "image/png", "application/pdf"], copyToCacheDirectory: true });
+      operation.assertActive();
+      if (result.canceled || !result.assets[0]) return null;
+      const asset = result.assets[0];
+      const size = asset.size ?? 0;
+      if (!size || size > 15 * 1024 * 1024) throw new Error("영수증 파일은 15MB 이하만 선택할 수 있어요.");
+      const bytes = await (await fetch(asset.uri, { signal: operation.signal })).arrayBuffer();
+      operation.assertActive();
+      const contentHash = hex(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new Uint8Array(bytes)));
+      operation.assertActive();
+      const mimeType = asset.mimeType === "image/jpeg" || asset.mimeType === "image/png" || asset.mimeType === "application/pdf"
+        ? asset.mimeType
+        : "application/pdf";
+      const localDraft = createReceiptOfflineDraft({
+        scopeKey: owner.scopeKey,
+        localId: Crypto.randomUUID(),
+        childId: owner.childId,
+        assetUri: asset.uri,
+        fileName: asset.name,
+        mimeType,
+        fileSizeBytes: size,
+        contentHash,
+        confirmationIdempotencyKey: Crypto.randomUUID(),
+        form: { itemName: "", amount: "", spentOn: getSeoulToday(), merchant: "", categoryId: categoryCatalog[0]!.id },
         updatedAt: new Date().toISOString()
       });
-      return confirmReceiptDraft(token!, current.serverDraft!.id, toReceiptConfirmationInput(current));
+      await writeReceiptOfflineDraft(localDraft, undefined, {
+        assertActive: operation.assertActive
+      });
+      operation.assertActive();
+      return { draft: localDraft, owner };
+    } finally {
+      operation.release();
+    }
+  }, onSuccess: (result) => {
+    if (!result || !receiptOperationOwnerIsActive(result.owner)) return;
+    setDraft(result.draft);
+    setItemName("");
+    setAmount("");
+    setSpentOn(result.draft.form.spentOn);
+    setMerchant("");
+    setCategoryId(result.draft.form.categoryId);
+    upload.mutate(result.draft);
+  }, onError: (error) => {
+    if (isReceiptOperationCancellation(error)) return;
+    setMessage(error instanceof Error ? error.message : "파일을 확인하지 못했어요.");
+  } });
+  const confirm = useMutation({
+    mutationFn: async () => {
+      const owner = captureReceiptOperationOwner(token, scopeKey, childId);
+      if (
+        !owner ||
+        !draft ||
+        draft.scopeKey !== owner.scopeKey ||
+        draft.childId !== owner.childId ||
+        !draft.serverDraft
+      ) {
+        throw new RemoteSyncCancelledError();
+      }
+      const operation = beginReceiptOperation(owner);
+      try {
+        operation.assertActive();
+        const serverDraftId = draft.serverDraft.id;
+        const current = updateReceiptOfflineDraft(draft, {
+          form: { itemName, amount, spentOn, merchant, categoryId },
+          updatedAt: new Date().toISOString()
+        });
+        const result = await confirmReceiptDraft(
+          owner.token,
+          serverDraftId,
+          toReceiptConfirmationInput(current),
+          operation.signal
+        );
+        operation.assertActive();
+        return { result, owner };
+      } finally {
+        operation.release();
+      }
     },
-    onSuccess: ({ expenseId }) => {
+    onSuccess: async ({ result, owner }) => {
+      if (!receiptOperationOwnerIsActive(owner)) return;
       // Cancel the persistence effect before deleting the stored draft. Without
       // clearing local state first, an already-scheduled debounce can recreate
       // the draft after a successful confirmation.
       setDraft(null);
-      void clearReceiptOfflineDraft(scopeKey!);
-      router.replace(`/expenses/${expenseId}`);
+      await clearReceiptOfflineDraft(owner.scopeKey);
+      if (!receiptOperationOwnerIsActive(owner)) return;
+      router.replace(`/expenses/${result.expenseId}`);
     },
-    onError: () => setMessage("입력값과 연결 상태를 확인한 뒤 다시 저장해 주세요. 같은 요청은 중복 지출을 만들지 않아요.")
+    onError: (error) => {
+      if (isReceiptOperationCancellation(error)) return;
+      setMessage("입력값과 연결 상태를 확인한 뒤 다시 저장해 주세요. 같은 요청은 중복 지출을 만들지 않아요.");
+    }
   });
   if (!token || !childId || (!isTestSession && !scopeKey)) return <Redirect href="/onboarding/child-status" />;
   if (isTestSession) return <AppScreen><ScreenHeader title="영수증 빠른 입력" /><EmptyStateCard title="샘플 계정에서는 영수증을 저장하지 않아요" actionLabel="실제 계정에서 이용해 주세요" /></AppScreen>;

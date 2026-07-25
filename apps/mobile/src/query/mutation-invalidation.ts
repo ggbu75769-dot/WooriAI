@@ -4,6 +4,12 @@ type QueryInvalidationClient = {
   }): Promise<unknown>;
 };
 
+type QueryRemovalClient = {
+  removeQueries(filters: {
+    predicate: (query: { queryKey: readonly unknown[] }) => boolean;
+  }): void;
+};
+
 export const financialMutationQueryRoots = [
   "expenses",
   "expense",
@@ -49,6 +55,18 @@ export function invalidateFinancialMutationQueries(
     financialMutationQueryRoots,
     typeof scopeIds === "string" ? [scopeIds] : scopeIds
   );
+}
+
+/** Permission revocation is a privacy boundary, not a stale-data condition.
+ * Remove every financial cache immediately; a later authorized request can
+ * repopulate only the newly permitted exact scope. */
+export function removeFinancialQueries(queryClient: QueryRemovalClient): void {
+  queryClient.removeQueries({
+    predicate: (query) =>
+      financialMutationQueryRoots.includes(
+        query.queryKey[0] as (typeof financialMutationQueryRoots)[number]
+      )
+  });
 }
 
 export function invalidatePreparationMutationQueries(

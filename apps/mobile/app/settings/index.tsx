@@ -1,40 +1,17 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { router, type Href } from "expo-router";
-import { Alert, Pressable, Text, View } from "react-native";
-import { resetLocalBackend } from "../../src/api/fixture-runtime";
+import { Pressable, Text, View } from "react-native";
+import { useCurrentSessionLogout } from "../../src/auth/use-current-session-logout";
 import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
-import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppIcon, AppScreen, Card, ListRow, SampleDataBanner, ScreenHeader } from "../../src/design-system";
 import { theme } from "../../src/theme";
 
 export default function SettingsScreen() {
   const householdId = useSessionStore((state) => state.defaultHouseholdId);
-  const clearSession = useSessionStore((state) => state.clearSession);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
-  const clearSelectedChild = useSelectedChildStore((state) => state.clearSelectedChildId);
-  const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
-  const queryClient = useQueryClient();
-
-  const handleLogout = () => {
-    Alert.alert("로그아웃 할까요?", "다시 로그인해야 이용할 수 있어요.", [
-      { text: "취소", style: "cancel" },
-      {
-        text: "로그아웃",
-        style: "destructive",
-        onPress: () => {
-          if (isTestSession) resetLocalBackend();
-          queryClient.clear();
-          clearSession();
-          clearSelectedChild();
-          resetOnboarding();
-          router.replace("/launch-animation");
-        }
-      }
-    ]);
-  };
+  const { confirmLogout, isLoggingOut } = useCurrentSessionLogout();
 
   return (
     <AppScreen>
@@ -122,8 +99,14 @@ export default function SettingsScreen() {
           subtitle="엑셀 파일로 지출을 가져와요"
           onPress={() => router.push("/import")}
         />
-        <Pressable onPress={handleLogout} style={logoutRowStyle}>
-          <Text style={logoutTextStyle}>로그아웃</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ busy: isLoggingOut, disabled: isLoggingOut }}
+          disabled={isLoggingOut}
+          onPress={confirmLogout}
+          style={({ pressed }) => [logoutRowStyle, pressed && !isLoggingOut ? { opacity: 0.75 } : null]}
+        >
+          <Text style={logoutTextStyle}>{isLoggingOut ? "로그아웃 중" : "로그아웃"}</Text>
         </Pressable>
       </View>
     </AppScreen>

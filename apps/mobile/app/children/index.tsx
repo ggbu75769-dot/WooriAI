@@ -24,8 +24,8 @@ export default function ChildSwitcherScreen() {
   if (!authToken) return <Redirect href="/launch-animation" />;
   const childRows = children.data?.children ?? [];
 
-  const selectChild = async (childId: string) => {
-    setSelectedChildId(childId);
+  const selectChild = async (childId: string, householdId?: string) => {
+    setSelectedChildId(childId, householdId ?? null);
     await invalidateChildScopedQueries(queryClient);
     router.replace("/(tabs)");
   };
@@ -77,7 +77,7 @@ export default function ChildSwitcherScreen() {
                   title={child.nickname}
                   subtitle={child.stageLabel}
                   value={selected ? "현재 아이" : "전환"}
-                  onPress={() => selectChild(child.id)}
+                  onPress={() => selectChild(child.id, child.householdId)}
                 />
               );
             })}

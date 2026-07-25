@@ -1,16 +1,25 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, type Href } from "expo-router";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { listExpenses, fixtureSessionToken } from "../../src/api/client";
+import { ApiClientError, listExpenses, fixtureSessionToken } from "../../src/api/client";
 import { categoryCatalog, categoryNameFor } from "../../src/categories";
 import { formatKrw } from "../../src/money";
 import { expenseDetailRoute } from "../../src/navigation/routes";
 import { expenseCategoryVisual } from "../../src/preparation/item-visuals";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 import { useConnectivityStatus } from "../../src/offline/connectivity";
-import { subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import {
+  offlineExpenseFallbackAllowed,
+  syncedExpenseMirrors
+} from "../../src/offline/expense-fallback";
+import {
+  captureCurrentOfflineSyncOwner,
+  recordOfflineAuthorization,
+  subscribeOfflineFlashMessage,
+  useOfflineSyncSnapshot
+} from "../../src/offline/sync-controller";
 import { normalizeAppSyncStatus } from "../../src/offline/sync-display-state";
 import { childScopedRequestEnabled } from "../../src/query/child-scope";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -34,7 +43,17 @@ function yearMonthOf(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function formatSeoulSyncTime(value: string | null): string {
+  if (!value) return "확인 전";
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "Asia/Seoul"
+  }).format(new Date(value));
+}
+
 export default function RecordsScreen() {
+  const queryClient = useQueryClient();
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
@@ -73,7 +92,19 @@ export default function RecordsScreen() {
   const expenses = useQuery({
     queryKey: ["expenses", childId, recordsYearMonth],
     enabled: childScopedRequestEnabled(authToken, childId),
-    queryFn: () => listExpenses(authToken!, childId!, recordsYearMonth)
+    queryFn: async () => {
+      const owner = captureCurrentOfflineSyncOwner();
+      try {
+        const response = await listExpenses(authToken!, childId!, recordsYearMonth);
+        await recordOfflineAuthorization(owner, "authorized", queryClient);
+        return response;
+      } catch (error) {
+        if (error instanceof ApiClientError && [401, 403, 404].includes(error.status)) {
+          await recordOfflineAuthorization(owner, "denied", queryClient);
+        }
+        throw error;
+      }
+    }
   });
 
   // EXP-005: not-yet-synced local expenses for this child, so a record created/edited while
@@ -93,8 +124,24 @@ export default function RecordsScreen() {
   // stale server row + the local pending row) and double-count in the total. See
   // src/offline/expense-list-reconciliation.ts (unit-tested) for the full rationale.
   const childOfflineRows = childId ? syncSnapshot.rows.filter((row) => row.childId === childId) : [];
+  const usingOfflineFallback =
+    expenses.isError &&
+    Boolean(childId) &&
+    offlineExpenseFallbackAllowed(expenses.error, online, syncSnapshot.remoteSync);
+  const deniedStatus =
+    syncSnapshot.remoteSync.authorizationState === "denied"
+      ? 403
+      : expenses.error instanceof ApiClientError &&
+          [401, 403, 404].includes(expenses.error.status)
+        ? expenses.error.status
+        : null;
+  const expenseSource =
+    (!deniedStatus ? expenses.data?.expenses : undefined) ??
+    (usingOfflineFallback && childId
+      ? syncedExpenseMirrors(childOfflineRows, childId, recordsYearMonth)
+      : []);
   const { visibleServerExpenses: monthlyServerExpenses, offlinePendingRows, monthlyTotalKrw } = reconcileMonthlyExpenses(
-    expenses.data?.expenses ?? [],
+    expenseSource,
     childOfflineRows,
     recordsYearMonth
   );
@@ -114,6 +161,11 @@ export default function RecordsScreen() {
   });
   const hasSearchQuery = normalizedSearch.length > 0;
   const hasAnyRecords = monthlyServerExpenses.length + offlinePendingRows.length > 0;
+  const hasUsableOfflineFallback = usingOfflineFallback && hasAnyRecords;
+  const hasRenderableRecords =
+    !deniedStatus &&
+    hasAnyRecords &&
+    (Boolean(expenses.data) || hasUsableOfflineFallback || offlinePendingRows.length > 0);
   const groupedExpenses = visibleExpenses.reduce<Array<{ spentOn: string; totalKrw: number; expenses: typeof visibleExpenses }>>(
     (groups, expense) => {
       const current = groups[groups.length - 1];
@@ -205,20 +257,49 @@ export default function RecordsScreen() {
           </>
         ) : null}
 
+        {hasUsableOfflineFallback ? (
+          <Card style={{ gap: 4 }}>
+            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>
+              오프라인 저장 기록을 보여드리고 있어요
+            </Text>
+            <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "600" }}>
+              마지막 동기화 · {formatSeoulSyncTime(syncSnapshot.remoteSync.lastSuccessfulPullAt)}
+            </Text>
+          </Card>
+        ) : null}
+
         {expenses.isLoading ? (
           <EmptyStateCard title="기록을 불러오고 있어요." actionLabel="잠시만요" />
-        ) : expenses.isError ? (
+        ) : deniedStatus ? (
           <EmptyStateCard
-            title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+            title={
+              deniedStatus === 401
+                ? "로그인이 만료됐어요. 다시 로그인해 주세요."
+                : "이 가족 기록을 볼 권한이 없어요."
+            }
+            actionLabel={deniedStatus === 401 ? "로그인하기" : "아이 다시 선택"}
+            onPress={() =>
+              deniedStatus === 401
+                ? router.replace("/login")
+                : router.push("/children" as Href)
+            }
+          />
+        ) : expenses.isError && !hasUsableOfflineFallback && !hasAnyRecords ? (
+          <EmptyStateCard
+            title={
+              syncSnapshot.remoteSync.baselineComplete
+                ? "불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+                : "서버 확인 전이라 저장된 전체 기록을 표시할 수 없어요."
+            }
             actionLabel="다시 시도"
             onPress={() => expenses.refetch()}
           />
-        ) : expenses.data && hasAnyRecords ? (
+        ) : hasRenderableRecords ? (
           visibleExpenses.length + visibleOfflineRows.length > 0 ? (
             <>
               <Card>
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
-                  이번 달 비용 · {monthlyServerExpenses.length + offlinePendingRows.length}건
+                   {hasUsableOfflineFallback ? "마지막 저장 비용" : "이번 달 비용"} · {monthlyServerExpenses.length + offlinePendingRows.length}건
                 </Text>
                 <Text style={{ color: theme.colors.brown, fontSize: 24, fontWeight: "800" }}>
                   {formatKrw(monthlyTotalKrw)}
@@ -258,9 +339,15 @@ export default function RecordsScreen() {
                           icon={<AppIcon color={visual.iconColor} name={visual.icon} size={20} />}
                           iconBackgroundColor={visual.iconBackgroundColor}
                           title={expense.itemName}
-                          subtitle={`${categoryNameFor(expense.categoryId)}${expense.expenseType === "gift" ? " · 선물" : ""}`}
-                          value={formatKrw(expense.amountKrw)}
-                          onPress={() => router.push(expenseDetailRoute(expense.id))}
+                           subtitle={`${categoryNameFor(expense.categoryId)}${expense.expenseType === "gift" ? " · 선물" : ""}${hasUsableOfflineFallback ? " · 오프라인 저장" : ""}`}
+                           value={formatKrw(expense.amountKrw)}
+                           onPress={() =>
+                             router.push(
+                               hasUsableOfflineFallback
+                                 ? ("/sync-status" as Href)
+                                 : expenseDetailRoute(expense.id)
+                             )
+                           }
                         />
                       );
                     })}

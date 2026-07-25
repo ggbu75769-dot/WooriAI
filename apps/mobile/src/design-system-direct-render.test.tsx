@@ -122,7 +122,7 @@ describe("Design System v2 direct component outcomes", () => {
     expect(controls).toHaveLength(8);
     for (const control of controls) {
       expect(control.props.accessibilityRole).toBe("radio");
-      expect(flattenStyle(control.props.style({ pressed: false })).minHeight).toBeGreaterThanOrEqual(48);
+      expect(flattenStyle(control.props.style({ pressed: false }))).toMatchObject({ flex: 1, height: 48 });
     }
     expect(controls[3]!.props.accessibilityState.checked).toBe(true);
     renderer.act(() => controls[4]!.props.onPress());
@@ -133,6 +133,7 @@ describe("Design System v2 direct component outcomes", () => {
     const tree = renderer.create(<PreparationItemCard onPress={() => undefined} status="replacement_needed" title="카시트" />);
     const card = tree.root.find((node) => String(node.type) === "Pressable");
     expect(card.props.accessibilityLabel).toContain("상태 교체");
+    expect(flattenStyle(card.props.style({ pressed: false })).height).toBe(148);
     expect(JSON.stringify(tree.toJSON())).toContain("교체");
   });
 });

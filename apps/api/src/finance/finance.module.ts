@@ -3,7 +3,11 @@ import { AuthModule } from "../auth/auth.module";
 import { AuditModule } from "../common/audit/audit.module";
 import { OnboardingModule } from "../onboarding/onboarding.module";
 import { ChildExpensesController, ExpensesController, ExpenseShortcutsController } from "./expenses.controller";
-import { ExpensesVersionService } from "./expenses.service";
+import {
+  EXPENSE_VERSION_TRANSACTION_HOOK,
+  ExpensesVersionService,
+  type ExpenseVersionTransactionHook
+} from "./expenses.service";
 import { HomeController } from "./home.controller";
 import { PaymentMethodsController } from "./payment-methods.controller";
 import { ReportsController } from "./reports.controller";
@@ -15,7 +19,16 @@ import { AppConfigModule } from "../app-config/app-config.module";
 @Module({
   imports: [AuditModule, AuthModule, OnboardingModule, Release5Module, AppConfigModule],
   controllers: [ChildExpensesController, ExpensesController, ExpenseShortcutsController, HomeController, ReportsController, ReportsV2Controller, PaymentMethodsController],
-  providers: [ExpensesVersionService, ReportsV2Service],
+  providers: [
+    ExpensesVersionService,
+    ReportsV2Service,
+    {
+      provide: EXPENSE_VERSION_TRANSACTION_HOOK,
+      useValue: {
+        afterMutation: () => undefined
+      } satisfies ExpenseVersionTransactionHook
+    }
+  ],
   exports: [ExpensesVersionService, ReportsV2Service]
 })
 export class FinanceModule {}

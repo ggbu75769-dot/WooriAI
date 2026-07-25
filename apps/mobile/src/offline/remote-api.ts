@@ -53,7 +53,11 @@ function rethrowAsSyncEngineError(error: unknown): never {
 }
 
 function toRemoteCreateResult(expense: Expense) {
-  return { id: expense.id, version: expense.version };
+  return {
+    id: expense.id,
+    version: expense.version,
+    payload: expenseToOfflinePayload(expense)
+  };
 }
 
 /**
@@ -62,7 +66,7 @@ function toRemoteCreateResult(expense: Expense) {
  * client.ts's `isLocalToken` branching). Kept as a thin adapter so sync-engine.ts and its tests
  * never need to know about client.ts, tokens, or HTTP at all.
  */
-export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
+export function createClientRemoteExpenseApi(token: string, signal?: AbortSignal): RemoteExpenseApi {
   return {
     async createExpense(payload, idempotencyKey) {
       try {
@@ -70,7 +74,8 @@ export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
           token,
           payload.childId,
           createExpenseSyncBody(payload),
-          idempotencyKey
+          idempotencyKey,
+          signal
         );
         return toRemoteCreateResult(expense);
       } catch (error) {
@@ -85,9 +90,13 @@ export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
           canonicalId,
           updateExpenseSyncBody(payload, expectedVersion),
           expectedVersion,
-          idempotencyKey
+          idempotencyKey,
+          signal
         );
-        return { version: expense.version };
+        return {
+          version: expense.version,
+          payload: expenseToOfflinePayload(expense)
+        };
       } catch (error) {
         rethrowAsSyncEngineError(error);
       }
@@ -95,7 +104,7 @@ export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
 
     async deleteExpense(canonicalId, expectedVersion, idempotencyKey) {
       try {
-        await deleteExpenseWithVersion(token, canonicalId, expectedVersion, idempotencyKey);
+        await deleteExpenseWithVersion(token, canonicalId, expectedVersion, idempotencyKey, signal);
       } catch (error) {
         rethrowAsSyncEngineError(error);
       }

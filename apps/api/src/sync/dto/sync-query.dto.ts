@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from "class-validator";
 
 export const SYNC_DEFAULT_LIMIT = 100;
 export const SYNC_MAX_LIMIT = 200;
@@ -15,4 +15,9 @@ export class SyncChangesQueryDto {
   @Min(1)
   @Max(SYNC_MAX_LIMIT)
   limit?: number;
+}
+
+export class SyncChangesV2QueryDto extends SyncChangesQueryDto {
+  @IsUUID()
+  householdId!: string;
 }

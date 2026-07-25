@@ -11,7 +11,8 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
     expect(newExpenseSource).toContain('import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";');
     expect(newExpenseSource).toContain('import { createExpenseOffline } from "../../src/offline/sync-controller";');
     expect(newExpenseSource).toContain("createExpenseOffline(authToken, queryClient,");
-    expect(newExpenseSource).toContain("setSavedMessage(OFFLINE_SAVED_MESSAGE)");
+    expect(newExpenseSource).toContain("let completionMessage = OFFLINE_SAVED_MESSAGE");
+    expect(newExpenseSource).toContain("setSavedMessage(completionMessage)");
     expect(newExpenseSource).not.toContain("기록했어요. 이번 달 우리 아이 비용에 더해둘게요.");
     // The real createExpense (server-immediate, no local-first staging) must not be used here.
     expect(newExpenseSource).not.toMatch(/[^.]\bcreateExpense\(authToken/);
@@ -32,6 +33,11 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
     expect(recordsSource).toContain("useOfflineSyncSnapshot");
     expect(recordsSource).toContain("offlineStatusIcon");
     expect(recordsSource).toContain("subscribeOfflineFlashMessage");
+    expect(recordsSource).toContain(
+      'syncSnapshot.remoteSync.authorizationState === "denied"'
+    );
+    const controllerSource = source("src/offline/sync-controller.ts");
+    expect(controllerSource).toContain("removeFinancialQueries(queryClient)");
   });
 
   it("H-2 fix: reconciles the server list against outstanding local mutations (via the unit-tested expense-list-reconciliation module) instead of naively concatenating/double-summing, and manages the flash-message dismiss timer via a ref", () => {
@@ -58,14 +64,37 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
   it("mounts the offline sync lifecycle (connectivity/foreground flush trigger) once at the app root", () => {
     const rootLayoutSource = source("app/_layout.tsx");
     const lifecycleSource = source("src/offline/OfflineSyncLifecycle.tsx");
+    const controllerSource = source("src/offline/sync-controller.ts");
+    const pullRunnerSource = source("src/offline/delta-pull-runner.ts");
+    const continuationSource = source("src/offline/sync-continuation.ts");
     expect(rootLayoutSource).toContain('import("../src/offline/OfflineSyncLifecycle")');
     expect(rootLayoutSource).toContain("<DeferredOfflineSyncLifecycle");
-    expect(lifecycleSource).toContain("useOfflineSyncLifecycle(token, scopeKey, client)");
+    expect(lifecycleSource).toContain(
+      "useOfflineSyncLifecycle(token, scopeKey, sessionGeneration, client)"
+    );
+    expect(controllerSource).toContain("useSessionStore.subscribe(abortStaleFlushExecutions)");
+    expect(controllerSource).toContain("useSelectedChildStore.subscribe(abortStaleFlushExecutions)");
+    expect(controllerSource).toContain("createClientRemoteExpenseApi(activeToken, signal)");
+    expect(controllerSource).toContain("isActive: () => offlineSyncOwnerIsActive(owner)");
+    expect(controllerSource).toContain("getSyncChangesV2(");
+    expect(pullRunnerSource).toContain("applyRemoteSyncPage({");
+    expect(controllerSource).toContain("scopeSyncFlights");
+    expect(controllerSource).toContain("resumeAfterActiveScopeFlight(");
+    expect(controllerSource).toContain(
+      "}, [hasSessionToken, queryClient, scopeKey, sessionGeneration]);"
+    );
+    expect(continuationSource).toContain("if (current) await current");
   });
 
   it("mobile package.json declares the SDK-52-pinned expo-sqlite and expo-network dependencies", () => {
     const packageJson = JSON.parse(source("package.json"));
     expect(packageJson.dependencies["expo-sqlite"]).toBe("~15.1.4");
     expect(packageJson.dependencies["expo-network"]).toBe("~7.0.5");
+  });
+
+  it("pins native storage and safe-area packages to the Expo SDK 52 compatibility contract", () => {
+    const packageJson = JSON.parse(source("package.json"));
+    expect(packageJson.dependencies["@react-native-async-storage/async-storage"]).toBe("1.23.1");
+    expect(packageJson.dependencies["react-native-safe-area-context"]).toBe("4.12.0");
   });
 });

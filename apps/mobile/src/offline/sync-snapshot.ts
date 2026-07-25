@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from "react";
-import type { LegacyQuarantineSummary, LocalExpenseRow } from "./types";
+import type {
+  LegacyQuarantineSummary,
+  LocalExpenseRow,
+  RemoteSyncMetadata
+} from "./types";
 
 export type SyncStatusCounts = {
   pending: number;
@@ -22,6 +26,7 @@ export type SyncSnapshot = {
   counts: SyncStatusCounts;
   rows: OfflineSyncDisplayRow[];
   quarantine: LegacyQuarantineSummary;
+  remoteSync: RemoteSyncMetadata;
 };
 
 export function createEmptySyncStatusCounts(): SyncStatusCounts {
@@ -48,6 +53,14 @@ const emptySnapshot: SyncSnapshot = {
     corrupt: 0,
     duplicate: 0,
     alreadySynced: 0
+  },
+  remoteSync: {
+  protocolVersion: 2,
+  cursor: null,
+  baselineComplete: false,
+  lastSuccessfulPullAt: null,
+  authorizationState: "unknown",
+  authorizationCheckedAt: null
   }
 };
 

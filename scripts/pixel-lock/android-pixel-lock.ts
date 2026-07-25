@@ -3,6 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
+import { computeRelease5vSourceSnapshot } from "../lib/release5v-source-snapshot";
+import { isLikelyBlankOrShell } from "./render-validation";
 
 type ScreenConfig = {
   name: string;
@@ -63,6 +65,7 @@ const reportDir = join(androidRoot, "reports");
 const latestJsonPath = join(reportDir, "latest.json");
 const latestMdPath = join(reportDir, "latest.md");
 const cachePath = join(reportDir, "cache.json");
+const pixelApkReportPath = join(reportDir, "pixel-apk.json");
 const normalizationBackground = "#FFF7ED";
 const cropPolicy = process.env.PIXEL_ANDROID_CROP
   ? `shared-device-crop:${process.env.PIXEL_ANDROID_CROP}`
@@ -181,6 +184,73 @@ function adb(args: string[], options: { binary?: boolean; allowFailure?: boolean
 function adbText(args: string[], allowFailure = false) {
   const result = adb(args, { allowFailure });
   return String(result.stdout || "").trim();
+}
+
+function fileSha256(path: string) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+type PixelApkEvidence = {
+  apkPath: string;
+  builtSha256: string;
+  sourceSnapshotSha256: string;
+  installedApkPath: string;
+  installedSha256: string;
+};
+
+let latestPixelApkEvidence: PixelApkEvidence | null = null;
+
+function installAndVerifyPixelApk(packageName: string) {
+  if (process.env.PIXEL_ANDROID_SKIP_APK_INSTALL === "1") return null;
+  if (!hasDevice()) throw new Error("ADB_DEVICE_NOT_FOUND");
+  if (!existsSync(pixelApkReportPath)) {
+    throw new Error("PIXEL_APK_REPORT_MISSING: run pnpm pixel:android:build-apk first.");
+  }
+
+  const report = JSON.parse(readFileSync(pixelApkReportPath, "utf8")) as {
+    apkPath?: string;
+    apkSha256?: string;
+    sourceSnapshotSha256?: string;
+  };
+  if (!report.apkPath || !report.apkSha256 || !report.sourceSnapshotSha256) {
+    throw new Error("PIXEL_APK_REPORT_INVALID: apkPath, apkSha256, and sourceSnapshotSha256 are required.");
+  }
+
+  const apkPath = resolve(report.apkPath);
+  if (!existsSync(apkPath)) throw new Error(`PIXEL_APK_MISSING ${apkPath}`);
+
+  const actualApkSha256 = fileSha256(apkPath);
+  if (actualApkSha256 !== report.apkSha256.toLowerCase()) {
+    throw new Error(`PIXEL_APK_HASH_MISMATCH expected=${report.apkSha256} actual=${actualApkSha256}`);
+  }
+
+  const currentSnapshot = computeRelease5vSourceSnapshot(repoRoot).sourceSnapshotSha256;
+  if (currentSnapshot !== report.sourceSnapshotSha256.toUpperCase()) {
+    throw new Error(
+      `PIXEL_APK_SOURCE_STALE expected=${currentSnapshot} built=${report.sourceSnapshotSha256}; ` +
+      "run pnpm pixel:android:build-apk first."
+    );
+  }
+
+  const installResult = adb(["install", "-r", apkPath]);
+  if (!String(installResult.stdout || "").includes("Success")) {
+    throw new Error(`PIXEL_APK_INSTALL_UNCONFIRMED ${String(installResult.stdout || installResult.stderr || "")}`);
+  }
+  adb(["shell", "pm", "clear", packageName]);
+
+  const installedApkPath = adbText(["shell", "pm", "path", packageName]).replace(/^package:/, "").trim();
+  if (!installedApkPath) throw new Error(`PIXEL_APK_INSTALLED_PATH_MISSING ${packageName}`);
+  const installedSha256 = adbText(["shell", "sha256sum", installedApkPath]).split(/\s+/)[0]?.toLowerCase();
+  if (installedSha256 !== actualApkSha256) {
+    throw new Error(`PIXEL_APK_INSTALLED_HASH_MISMATCH expected=${actualApkSha256} actual=${installedSha256 || "(none)"}`);
+  }
+  return {
+    apkPath,
+    builtSha256: actualApkSha256,
+    sourceSnapshotSha256: report.sourceSnapshotSha256,
+    installedApkPath,
+    installedSha256
+  } satisfies PixelApkEvidence;
 }
 
 function hasDevice() {
@@ -405,17 +475,6 @@ async function imageBlanknessMetrics(screenshotPath: string) {
   };
 }
 
-function isLikelyBlankOrShell(metrics: { whitePixelRatio: number; uniqueColorCount: number; nonBackgroundAreaRatio: number }) {
-  if (metrics.nonBackgroundAreaRatio >= 0.1 && metrics.uniqueColorCount >= 1000) return false;
-  return (
-    (metrics.whitePixelRatio > 0.82 &&
-      metrics.uniqueColorCount < 2500 &&
-      metrics.nonBackgroundAreaRatio < 0.2) ||
-    (metrics.whitePixelRatio > 0.93 && metrics.nonBackgroundAreaRatio < 0.08) ||
-    (metrics.uniqueColorCount < 500 && metrics.nonBackgroundAreaRatio < 0.04)
-  );
-}
-
 async function validateRender(
   screenId: string,
   screenshotPath = join(screenshotDir, `${screenId}.png`),
@@ -439,7 +498,7 @@ async function validateRender(
   const sentinelsFound = expected.filter((sentinel) => searchable.includes(sentinel));
   const logcatErrors = extractLogcatErrors(logcatText);
   const invalidReasons: string[] = [];
-  const likelyBlank = isLikelyBlankOrShell(metrics);
+  const likelyBlank = isLikelyBlankOrShell(metrics, sentinelsFound.length > 0);
 
   if (likelyBlank) {
     invalidReasons.push(
@@ -709,6 +768,7 @@ function writeReports(device: DeviceInfo, results: ScreenResult[], status = "OK"
     cropPolicy,
     comparisonPolicy: `perceptual-blurred-mae:sigma-${perceptualScoreSigma}`,
     threshold,
+    apkEvidence: latestPixelApkEvidence,
     screens: results
   };
   writeFileSync(latestJsonPath, JSON.stringify(report, null, 2), "utf8");
@@ -723,6 +783,14 @@ function writeReports(device: DeviceInfo, results: ScreenResult[], status = "OK"
     `- Crop policy: ${cropPolicy}`,
     `- Comparison policy: perceptual blurred MAE (sigma ${perceptualScoreSigma})`,
     `- Threshold: ${threshold.toFixed(4)}`,
+    ...(latestPixelApkEvidence
+      ? [
+          `- Pixel APK: ${latestPixelApkEvidence.apkPath}`,
+          `- Built SHA-256: ${latestPixelApkEvidence.builtSha256}`,
+          `- Installed base SHA-256: ${latestPixelApkEvidence.installedSha256}`,
+          `- Source snapshot SHA-256: ${latestPixelApkEvidence.sourceSnapshotSha256}`
+        ]
+      : []),
     "",
     "| Screen | Render | Score | Status | Evidence |",
     "| --- | --- | ---: | --- | --- |",
@@ -894,7 +962,8 @@ async function main() {
     }
     if (command === "diff") {
       ensureDirs();
-      const result = await diffScreen(screenId, readScreens(), await validateRender(screenId));
+      const screenshotPath = join(screenshotDir, `${screenId}.png`);
+      const result = await diffScreen(screenId, readScreens(), await validateRender(screenId, screenshotPath, false));
       writeReports(deviceInfo(discoverPackageName()), [result], result.status);
       printLatest();
       return;
@@ -906,6 +975,10 @@ async function main() {
     if (command === "report") {
       printLatest();
       return;
+    }
+    if (["android", "all"].includes(command)) {
+      ensureDirs();
+      latestPixelApkEvidence = installAndVerifyPixelApk(discoverPackageName());
     }
     const results = await runValidation(command, screenId, force);
     printLatest();

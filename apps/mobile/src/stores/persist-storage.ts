@@ -53,11 +53,22 @@ export function shouldUsePersistentRuntimeStorage(runtimeAvailable: boolean) {
   return runtimeAvailable;
 }
 
-export const persistStorage: StateStorage = createResilientPersistStorage(
+const runtimeStorage: StateStorage =
   shouldUsePersistentRuntimeStorage(persistentRuntimeAvailable)
     ? AsyncStorage
-    : memoryStorage
-);
+    : memoryStorage;
+
+export const persistStorage: StateStorage = createResilientPersistStorage(runtimeStorage);
+
+/**
+ * Security-sensitive invalidation cannot use the resilient adapter: its process-local
+ * fallback intentionally keeps UX writes alive after a native failure, but that fallback
+ * disappears on process death. Logout tombstones must reach the underlying durable store or
+ * reject so the UI can keep the current session and ask the user to retry.
+ */
+export async function setPersistedItemDurably(name: string, value: string): Promise<void> {
+  await runtimeStorage.setItem(name, value);
+}
 
 /**
  * Zustand's JSON storage calls JSON.parse after StateStorage.getItem resolves. A truncated value

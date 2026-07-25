@@ -1052,12 +1052,17 @@ export class OnboardingStoreService {
     return this.toExpenseDto(await this.requireExpenseAccess(user, expenseId));
   }
 
-  async updateExpense(user: AuthenticatedUser, expenseId: string, input: UpdateExpenseInput) {
-    const expense = await this.requireExpenseAccess(user, expenseId, true);
+  async updateExpense(
+    user: AuthenticatedUser,
+    expenseId: string,
+    input: UpdateExpenseInput,
+    client: DbClient = this.prisma
+  ) {
+    const expense = await this.requireExpenseAccess(user, expenseId, true, client);
     const data: Prisma.ExpenseUncheckedUpdateInput = {};
 
     if (input.categoryId !== undefined) {
-      await this.requireExistingCategory(input.categoryId);
+      await this.requireExistingCategory(input.categoryId, client);
       data.categoryId = input.categoryId;
     }
     if (input.amountKrw !== undefined) data.amountKrw = this.requireMoneyKrw(input.amountKrw);
@@ -1075,7 +1080,7 @@ export class OnboardingStoreService {
     if (input.memo !== undefined) data.memo = this.cleanOptionalText(input.memo ?? undefined);
     if (input.expenseType !== undefined) data.expenseType = input.expenseType;
     if (input.payerUserId !== undefined) {
-      const payer = await this.prisma.householdMember.findFirst({ where: { householdId: expense.householdId, userId: input.payerUserId, status: "active", role: { not: "gift_participant" } }, select: { userId: true } });
+      const payer = await client.householdMember.findFirst({ where: { householdId: expense.householdId, userId: input.payerUserId, status: "active", role: { not: "gift_participant" } }, select: { userId: true } });
       if (!payer) throw new ForbiddenException({ code: "EXPENSE_PAYER_FORBIDDEN", message: "Payer must be an active non-gift household member." });
       data.payerUserId = payer.userId;
     }
@@ -1087,7 +1092,8 @@ export class OnboardingStoreService {
         const method = await this.requireUserPaymentMethod(
           user.id,
           input.paymentMethodId,
-          input.paymentMethodId !== expense.paymentMethodId
+          input.paymentMethodId !== expense.paymentMethodId,
+          client
         );
         data.paymentMethodId = method.id;
         data.paymentMethod = method.type;
@@ -1096,15 +1102,19 @@ export class OnboardingStoreService {
       data.paymentMethod = input.paymentMethod;
     }
 
-    const updated = await this.prisma.expense.update({ where: { id: expense.id }, data });
+    const updated = await client.expense.update({ where: { id: expense.id }, data });
     return this.toExpenseDto(updated);
   }
 
-  async deleteExpense(user: AuthenticatedUser, expenseId: string) {
-    const expense = await this.requireExpenseAccess(user, expenseId, true);
+  async deleteExpense(
+    user: AuthenticatedUser,
+    expenseId: string,
+    client: DbClient = this.prisma
+  ) {
+    const expense = await this.requireExpenseAccess(user, expenseId, true, client);
     const before = this.toExpenseDto(expense);
     const now = new Date();
-    const deleted = await this.prisma.expense.update({
+    const deleted = await client.expense.update({
       where: { id: expense.id },
       data: { deletedAt: now, deletedByUserId: user.id }
     });
@@ -1945,8 +1955,13 @@ export class OnboardingStoreService {
     });
   }
 
-  private async requireChildAccess(user: AuthenticatedUser, childId: string, edit = false): Promise<ChildRow> {
-    const child = await this.prisma.child.findUnique({ where: { id: childId } });
+  private async requireChildAccess(
+    user: AuthenticatedUser,
+    childId: string,
+    edit = false,
+    client: DbClient = this.prisma
+  ): Promise<ChildRow> {
+    const child = await client.child.findUnique({ where: { id: childId } });
     if (!child || child.deletedAt) {
       throw new NotFoundException({ code: "CHILD_NOT_FOUND", message: "아이 프로필을 찾을 수 없어요." });
     }
@@ -1959,13 +1974,18 @@ export class OnboardingStoreService {
     return child;
   }
 
-  private async requireExpenseAccess(user: AuthenticatedUser, expenseId: string, edit = false): Promise<ExpenseRow> {
-    const expense = await this.prisma.expense.findUnique({ where: { id: expenseId } });
+  private async requireExpenseAccess(
+    user: AuthenticatedUser,
+    expenseId: string,
+    edit = false,
+    client: DbClient = this.prisma
+  ): Promise<ExpenseRow> {
+    const expense = await client.expense.findUnique({ where: { id: expenseId } });
     if (!expense || expense.deletedAt) {
       throw new NotFoundException({ code: "EXPENSE_NOT_FOUND", message: "지출 기록을 찾을 수 없어요." });
     }
 
-    await this.requireChildAccess(user, expense.childId, edit);
+    await this.requireChildAccess(user, expense.childId, edit, client);
     return expense;
   }
 

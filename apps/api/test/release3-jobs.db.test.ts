@@ -3,13 +3,14 @@ import type { INestApplicationContext } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import type { Job } from "bullmq";
 import { PrismaClient } from "@prisma/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module";
 import { ContentRevisionsService } from "../src/admin/content-revisions.service";
 import { JobProcessorService } from "../src/jobs/job-processor.service";
 import { OutboxPublisherService } from "../src/jobs/outbox-publisher.service";
 import { NotificationDeliveryService } from "../src/jobs/notification-delivery.service";
 import { queueJobId, redisConnectionFromEnvironment, type JobQueue, type QueuedJobData } from "../src/jobs/queue";
+import { PrismaService } from "../src/prisma/prisma.service";
 
 function fakeJob(topic: string, dedupeKey: string, extra: Record<string, unknown> = {}): Job<QueuedJobData> {
   return {
@@ -99,25 +100,48 @@ describe("Release 3 outbox and worker contracts", () => {
 
   it("publishes once and marks the outbox row only after queue acceptance", async () => {
     const dedupeKey = randomUUID();
-    const outbox = await prisma.jobOutbox.create({
-      data: {
-        topic: "cleanup.idempotency_key",
-        aggregateType: "test",
-        aggregateId: dedupeKey,
-        dedupeKey,
-        payloadJson: {},
-        createdAt: new Date("1980-01-01T00:00:00.000Z")
-      }
-    });
+    const outboxId = randomUUID();
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const queryRaw = vi.fn()
+      .mockResolvedValueOnce([
+        {
+          id: outboxId,
+          topic: "cleanup.idempotency_key",
+          dedupe_key: dedupeKey,
+          schema_version: 1,
+          payload_json: {},
+          trace_id: null,
+          attempt_count: 1
+        }
+      ])
+      .mockResolvedValueOnce([]);
+    const isolatedPublisher = new OutboxPublisherService({
+      $queryRaw: queryRaw,
+      jobOutbox: { updateMany }
+    } as unknown as PrismaService);
     const added: string[] = [];
     const queue: JobQueue = {
-      async add(_topic, _data, options) { added.push(options.jobId); }
+      async add(_topic, _data, options) {
+        expect(updateMany).not.toHaveBeenCalled();
+        added.push(options.jobId);
+      }
     };
-    expect(await publisher.publishBatch(queue, 1)).toMatchObject({ published: 1 });
-    expect(added).toContain(queueJobId("cleanup.idempotency_key", dedupeKey));
-    expect(await prisma.jobOutbox.findUnique({ where: { id: outbox.id } })).toMatchObject({ publishedAt: expect.any(Date) });
-    await publisher.publishBatch(queue, 1);
-    expect(added.filter((id) => id === queueJobId("cleanup.idempotency_key", dedupeKey))).toHaveLength(1);
+
+    expect(await isolatedPublisher.publishBatch(queue, 1)).toEqual({ claimed: 1, published: 1 });
+    expect(added).toEqual([queueJobId("cleanup.idempotency_key", dedupeKey)]);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: outboxId, publishedAt: null },
+      data: {
+        publishedAt: expect.any(Date),
+        claimedAt: null,
+        claimedBy: null,
+        claimExpiresAt: null,
+        lastErrorCode: null
+      }
+    });
+    expect(await isolatedPublisher.publishBatch(queue, 1)).toEqual({ claimed: 0, published: 0 });
+    expect(added).toHaveLength(1);
+    expect(updateMany).toHaveBeenCalledTimes(1);
   });
 
   it("dead-letters terminal jobs with a redacted payload and treats redelivery as a duplicate", async () => {

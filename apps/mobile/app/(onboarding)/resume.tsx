@@ -44,7 +44,7 @@ export default function OnboardingResumeScreen() {
   function resume() {
     if (!progress) return;
     if (summary.child) {
-      setSelectedChildId(summary.child.id);
+      setSelectedChildId(summary.child.id, summary.child.householdId ?? null);
       completeStep("ONB-001");
     }
     if (summary.preparedItemsCount !== null) {

@@ -126,14 +126,20 @@ export class AuthService {
 
   async logout(user: AuthenticatedUser, refreshToken?: string) {
     if (refreshToken) {
+      let verified: Awaited<ReturnType<TokenService["verifyRefreshToken"]>> | null = null;
       try {
-        const { jti, familyId } = await this.tokenService.verifyRefreshToken(refreshToken);
-        if (jti && familyId) {
-          await this.refreshTokenStore.revokeFamily(familyId);
-        }
-      } catch {
+        verified = await this.tokenService.verifyRefreshToken(refreshToken);
+      } catch (error) {
+        if (!(error instanceof UnauthorizedException)) throw error;
         // An already-expired or malformed refresh token doesn't block logout —
         // there's nothing left to revoke, and the session is ending either way.
+      }
+      // A bearer for user A must never be able to revoke user B's refresh family
+      // by placing B's token in the request body. Keep the response generic so the
+      // endpoint does not become a token-owner oracle. Storage failures are not
+      // swallowed: the client must distinguish unconfirmed revocation from success.
+      if (verified?.user.id === user.id && verified.jti && verified.familyId) {
+        await this.refreshTokenStore.revokeFamily(verified.familyId);
       }
     }
 
@@ -142,6 +148,26 @@ export class AuthService {
       action: "auth.logout",
       targetType: "users",
       targetId: user.id
+    });
+    return { success: true };
+  }
+
+  async logoutByRefreshToken(refreshToken: string) {
+    let verified: Awaited<ReturnType<TokenService["verifyRefreshToken"]>>;
+    try {
+      verified = await this.tokenService.verifyRefreshToken(refreshToken);
+    } catch (error) {
+      if (error instanceof UnauthorizedException) return { success: true };
+      throw error;
+    }
+    if (verified.jti && verified.familyId) {
+      await this.refreshTokenStore.revokeFamily(verified.familyId);
+    }
+    await this.auditLogger.record({
+      actorUserId: verified.user.id,
+      action: "auth.logout",
+      targetType: "users",
+      targetId: verified.user.id
     });
     return { success: true };
   }

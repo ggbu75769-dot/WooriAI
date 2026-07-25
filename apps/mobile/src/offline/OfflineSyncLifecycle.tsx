@@ -7,6 +7,10 @@ import {
 } from "../api/fixture-identifiers";
 import { shouldClearSessionCache } from "../stores/session-cache-boundary";
 import { useSessionStore } from "../stores/session.store";
+import {
+  householdIdForSelectedChildScope,
+  useSelectedChildStore
+} from "../stores/selected-child.store";
 import { resolveOfflineScopeKey } from "./session-scope";
 import { useOfflineSyncLifecycle } from "./sync-controller";
 
@@ -16,14 +20,22 @@ import { useOfflineSyncLifecycle } from "./sync-controller";
  */
 export default function OfflineSyncLifecycle() {
   const accessToken = useSessionStore((state) => state.accessToken);
+  const sessionGeneration = useSessionStore((state) => state.sessionGeneration);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const userId = useSessionStore((state) => state.userId);
   const defaultHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
+  const selectedChildHouseholdId = useSelectedChildStore((state) => state.selectedChildHouseholdId);
+  const scopedHouseholdId = householdIdForSelectedChildScope(
+    selectedChildId,
+    selectedChildHouseholdId,
+    defaultHouseholdId
+  );
   const token = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const scopeKey = resolveOfflineScopeKey({
     accessToken,
     userId,
-    defaultHouseholdId,
+    defaultHouseholdId: scopedHouseholdId,
     isTestSession,
     testUserId: LOCAL_USER_ID,
     testHouseholdId: LOCAL_HOUSEHOLD_ID
@@ -38,6 +50,6 @@ export default function OfflineSyncLifecycle() {
     previousScopeKey.current = scopeKey;
   }, [client, scopeKey]);
 
-  useOfflineSyncLifecycle(token, scopeKey, client);
+  useOfflineSyncLifecycle(token, scopeKey, sessionGeneration, client);
   return null;
 }

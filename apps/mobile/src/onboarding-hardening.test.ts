@@ -9,7 +9,11 @@ import { previewOnboardingStarterItems } from "./api/local-backend";
 import { completionErrorMessage, finalizeOnboardingSuccess } from "./onboarding/completion";
 import { createSingleFlightGuard } from "./onboarding/single-flight";
 import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./api/fixture-runtime";
-import { selectedChildScopeKey, selectedChildScopeKeyForSession } from "./stores/selected-child.store";
+import {
+  householdIdForSelectedChildScope,
+  selectedChildScopeKey,
+  selectedChildScopeKeyForSession
+} from "./stores/selected-child.store";
 
 describe("onboarding six-step hardening", () => {
   it("uses a complete, unique, installed glyph registry and responsive 3/4-column grid", () => {
@@ -83,6 +87,12 @@ describe("onboarding six-step hardening", () => {
       selectedChildScopeKey(LOCAL_USER_ID, LOCAL_HOUSEHOLD_ID)
     );
     expect(selectedChildScopeKeyForSession(null, null, false)).toBeNull();
+  });
+
+  it("never falls back to the default household while a selected child's household is unresolved", () => {
+    expect(householdIdForSelectedChildScope("child-b", null, "household-a")).toBeNull();
+    expect(householdIdForSelectedChildScope("child-b", "household-b", "household-a")).toBe("household-b");
+    expect(householdIdForSelectedChildScope(null, null, "household-a")).toBe("household-a");
   });
 
   it("maps validation, stale, auth, network, and server failures separately", () => {

@@ -3,7 +3,8 @@ import {
   financialMutationQueryRoots,
   invalidateFinancialMutationQueries,
   invalidatePreparationMutationQueries,
-  preparationMutationQueryRoots
+  preparationMutationQueryRoots,
+  removeFinancialQueries
 } from "./mutation-invalidation";
 
 function createClientSpy() {
@@ -19,6 +20,20 @@ function createClientSpy() {
 }
 
 describe("cross-feature mutation invalidation", () => {
+  it("removes every financial cache immediately after permission is denied", () => {
+    let predicate:
+      | ((query: { queryKey: readonly unknown[] }) => boolean)
+      | undefined;
+    removeFinancialQueries({
+      removeQueries(filters) {
+        predicate = filters.predicate;
+      }
+    });
+    expect(predicate?.({ queryKey: ["expenses", "child-a", "2026-07"] })).toBe(true);
+    expect(predicate?.({ queryKey: ["report-v3", "household-a"] })).toBe(true);
+    expect(predicate?.({ queryKey: ["catalog-v2", "timeline"] })).toBe(false);
+  });
+
   it("refreshes every expense-derived view after the server confirms an offline mutation", async () => {
     const { client, calls } = createClientSpy();
 

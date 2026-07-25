@@ -20,6 +20,9 @@ export function expenseToOfflinePayload(expense: Expense): ExpensePayload {
     paymentMethodId: expense.paymentMethodId,
     linkedItemDefinitionId: expense.linkedItemDefinitionId,
     expenseCategoryV2Id: expense.expenseCategoryV2Id,
-    expenseType: expense.expenseType
+    expenseType: expense.expenseType,
+    source: expense.source,
+    createdByUserId: expense.createdByUserId ?? null,
+    payerUserId: expense.payerUserId ?? null
   };
 }

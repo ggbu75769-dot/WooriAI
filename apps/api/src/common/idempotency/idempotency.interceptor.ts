@@ -79,8 +79,8 @@ export class IdempotencyInterceptor implements NestInterceptor {
     // 첫 응답이 잘못 재생되지 않고 409(다른 요청)로 구분되게 하기 위함이다.
     const routePath = rawRequest.route?.path ?? rawRequest.url ?? "unknown";
     const endpoint = `${rawRequest.method ?? "POST"}:${routePath}`.slice(0, 120);
-    const actualPath = (rawRequest.originalUrl ?? rawRequest.url ?? "").split("?")[0];
-    const requestHash = idempotencyRequestHash(actualPath, request.body);
+    const actualTarget = rawRequest.originalUrl ?? rawRequest.url ?? "";
+    const requestHash = idempotencyRequestHash(actualTarget, request.body);
 
     const response = context.switchToHttp().getResponse<{ statusCode: number; status: (code: number) => unknown }>();
     return from(this.handle(userId, endpoint, idemKey, requestHash, next, response));

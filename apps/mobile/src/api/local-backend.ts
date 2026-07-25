@@ -9,7 +9,7 @@ import { CHILD_SEX_VALUES, normalizeOnboardingCompletionInput } from "@wooriai/d
 import { buildPreparationRecommendationReason, calculatePreparationLifecycle } from "@wooriai/domain/preparation-lifecycle";
 import { sortRecommendedItems } from "@wooriai/domain/recommendation";
 import { resolveReportV3State } from "@wooriai/domain/report-v3-state";
-import type { CatalogScenarioCode, Release4CatalogItem } from "@wooriai/domain/release4-catalog";
+import { comparePreparationTimelineRank, type CatalogScenarioCode, type Release4CatalogItem } from "@wooriai/domain/release4-catalog";
 import { calculateChildStage } from "@wooriai/domain/stage";
 import { create } from "zustand";
 import type { ReportCategoriesContract, ReportMembersContract, ReportPreparationContract, ReportRecurringContract, ReportSourceKind, ReportSourcesContract, ReportSummaryContract, ReportTrendContract, ReportV3Contract } from "@wooriai/contracts";
@@ -25,6 +25,7 @@ import type {
   CatalogItemSummary,
   CatalogBundleApplyResponse,
   CatalogTimelineResponse,
+  CatalogTimelineBucket,
   CatalogListQuery,
   CatalogNodeSummary,
   ConfirmImportResponse,
@@ -639,6 +640,7 @@ function toChildDto(child: LocalChildRecord) {
         : calculateChildStage({ stageMode: "manual", manualStage: child.manualStage!, today: getSeoulToday() });
   return {
     id: child.id,
+    householdId: LOCAL_HOUSEHOLD_ID,
     nickname: child.nickname,
     stageMode: child.stageMode,
     dueDate: child.dueDate,
@@ -1698,7 +1700,11 @@ export function listCatalogItems(query: CatalogListQuery = {}) {
       if (state !== query.state) return false;
     }
     return true;
-  }).sort((left, right) => (searchMatches?.get(right.code)?.score ?? 0) - (searchMatches?.get(left.code)?.score ?? 0));
+  }).sort((left, right) =>
+    (searchMatches?.get(right.code)?.score ?? 0) - (searchMatches?.get(left.code)?.score ?? 0)
+    || left.displayOrder - right.displayOrder
+    || left.code.localeCompare(right.code)
+  );
   const limit = Math.min(100, Math.max(1, query.limit ?? 40));
   const startIndex = query.cursor ? Math.max(0, filtered.findIndex((item) => item.code === query.cursor) + 1) : 0;
   const page = filtered.slice(startIndex, startIndex + limit);
@@ -1824,8 +1830,9 @@ export function getCatalogTimeline(childId?: string, motherProfileId?: string): 
   const activeContextCodes = [...new Set([...selectedContextCodes, ...derivedContextCodes])] as CatalogScenarioCode[];
   const currentItems = catalogDomain.release4CatalogItems.filter((item) => item.lifecycles.some((rule) => rule.axis === lifecycleAxis && rule.code === lifecycleCode));
   const nextItems = catalogDomain.release4CatalogItems.filter((item) => item.lifecycles.some((rule) => rule.axis === lifecycleAxis && rule.code === nextLifecycleCode));
-  const itemMap = new Map([...currentItems, ...nextItems].map((item) => [item.code, item]));
-  const currentIds = new Set(currentItems.map((item) => item.code));
+  const plannedItems = catalogDomain.release4CatalogItems.filter((item) => Boolean(localCatalogPlan(childId, motherProfileId, item.code)));
+  const itemMap = new Map([...currentItems, ...nextItems, ...plannedItems].map((item) => [item.code, item]));
+  const currentIds = new Set(currentItems.filter((item) => item.lifecycles.some((rule) => rule.axis === lifecycleAxis && rule.code === lifecycleCode && rule.priorityWeight > 0)).map((item) => item.code));
   const todayText = getSeoulToday();
   const today = new Date(`${todayText}T00:00:00.000Z`);
   const dateText = (value: Date) => value.toISOString().slice(0, 10);
@@ -1833,7 +1840,14 @@ export function getCatalogTimeline(childId?: string, motherProfileId?: string): 
   const weekEnd = addDays(today, 6);
   const monthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0));
   const completedStates = new Set<CatalogItemPlan["state"]>(["owned", "borrowed", "rented", "gifted", "replaced", "retired", "ended"]);
-  const bucketRank = { overdue: 0, this_week: 1, this_month: 2, next_stage: 3, completed: 4, not_needed: 5 } as const;
+  const lifecyclePriority = (item: (typeof catalogDomain.release4CatalogItems)[number]) => Math.max(0, ...item.lifecycles
+    .filter((rule) => rule.axis === lifecycleAxis && (rule.code === lifecycleCode || rule.code === nextLifecycleCode))
+    .map((rule) => rule.priorityWeight));
+  const contextWeight = (item: (typeof catalogDomain.release4CatalogItems)[number]) => item.contextRules
+    .filter((rule) => activeContextCodes.includes(rule.code))
+    .reduce((total, rule) => total + rule.weight, 0);
+  const contextRequired = (item: (typeof catalogDomain.release4CatalogItems)[number]) => item.contextRules
+    .some((rule) => activeContextCodes.includes(rule.code) && rule.required);
   const rows = [...itemMap.values()].map((item) => {
     const plan = localCatalogPlan(childId, motherProfileId, item.code);
     const userDueText = plan?.dueDate ?? plan?.replacementDueAt ?? plan?.nextPurchaseDueAt ?? null;
@@ -1842,9 +1856,9 @@ export function getCatalogTimeline(childId?: string, motherProfileId?: string): 
       : plan && completedStates.has(plan.state) ? "completed"
         : userDue && userDue < today ? "overdue"
           : userDue && userDue <= weekEnd ? "this_week"
-            : currentIds.has(item.code) && item.necessity === "required" ? "this_week"
+            : currentIds.has(item.code) && (item.necessity === "required" || contextRequired(item)) ? "this_week"
               : currentIds.has(item.code) ? "this_month"
-                : "next_stage") as keyof typeof bucketRank;
+                : "next_stage") as CatalogTimelineBucket;
     const dueWindow = bucket === "next_stage"
       ? { start: null, end: null, label: "다음 생애주기", derivedFrom: "lifecycle" as const }
       : userDue
@@ -1872,12 +1886,29 @@ export function getCatalogTimeline(childId?: string, motherProfileId?: string): 
       ...reason,
       plan
     };
-  }).sort((left, right) => bucketRank[left.bucket] - bucketRank[right.bucket] || Number(right.matchedContextCodes.length > 0) - Number(left.matchedContextCodes.length > 0) || left.nameKo.localeCompare(right.nameKo, "ko-KR"));
+  }).filter((row) => lifecyclePriority(itemMap.get(row.code)!) > 0 || Boolean(row.plan))
+    .sort((left, right) => {
+      const leftItem = itemMap.get(left.code)!;
+      const rightItem = itemMap.get(right.code)!;
+      const rankInput = (row: typeof left, item: typeof leftItem) => ({
+        bucket: row.bucket,
+        hasPlan: Boolean(row.plan),
+        userDueTime: row.plan?.dueDate || row.plan?.replacementDueAt || row.plan?.nextPurchaseDueAt
+          ? Date.parse(row.plan.dueDate ?? row.plan.replacementDueAt ?? row.plan.nextPurchaseDueAt!)
+          : null,
+        lifecyclePriority: lifecyclePriority(item),
+        contextWeight: contextWeight(item),
+        necessity: row.necessity,
+        displayOrder: item.displayOrder,
+        code: row.code
+      });
+      return comparePreparationTimelineRank(rankInput(left, leftItem), rankInput(right, rightItem));
+    });
   const bucketNames = ["this_week", "this_month", "next_stage", "overdue", "completed", "not_needed"] as const;
   return {
     context: { ...(childId ? { childId } : { motherProfileId }), lifecycleAxis, lifecycleCode, nextLifecycleCode, selectedContextCodes, derivedContextCodes, activeContextCodes, contextVersion: preparationContext.version },
     generatedAt: new Date().toISOString(),
-    rankingPolicy: "necessity_and_lifecycle_only_no_offer_or_sponsor_signal",
+    rankingPolicy: "user_due_then_timeline_then_lifecycle_priority_then_context_then_necessity_no_commerce_signal",
     buckets: Object.fromEntries(bucketNames.map((bucket) => [bucket, rows.filter((row) => row.bucket === bucket)])) as CatalogTimelineResponse["buckets"]
   };
 }
@@ -1969,7 +2000,35 @@ export function getCatalogItemComparison(itemId: string) {
       : item.nameKo.includes("젖병")
         ? { schemaCode: "bottle_v1", fields: [{ key: "capacityMl", labelKo: "용량(ml)", valueType: "number" as const }, { key: "material", labelKo: "소재", valueType: "text" as const }, { key: "compatibility", labelKo: "호환 정보", valueType: "text" as const }] }
         : { schemaCode: null, fields: [] };
-  return { item: { id: item.code, code: item.code, nameKo: item.nameKo }, schema, rankingPolicy: "catalog_display_order_only_no_affiliate_or_sponsor_signal" as const, offers: [] };
+  return {
+    item: { id: item.code, code: item.code, nameKo: item.nameKo },
+    schema,
+    rankingPolicy: "catalog_display_order_only_no_affiliate_or_sponsor_signal" as const,
+    // Standalone qualification fixture only. It is explicitly non-affiliate,
+    // has no price claim, and opens a neutral HTTPS page so the installed APK
+    // can exercise the purchase-return follow-up without production commerce
+    // data or a reachable backend.
+    offers: [
+      {
+        id: `local-offer-${item.code}`,
+        seller: "테스트 판매처",
+        brand: null,
+        modelName: null,
+        productName: `${item.nameKo} 테스트 페이지`,
+        publicUrl: "https://example.com/",
+        isAffiliate: false,
+        isSponsored: false,
+        disclosureText: null,
+        priceSnapshotKrw: null,
+        priceCheckedAt: null,
+        priceFreshness: "unknown" as const,
+        priceAgeDays: null,
+        stockState: "unknown" as const,
+        recallState: "clear" as const,
+        attributes: {}
+      }
+    ]
+  };
 }
 
 export function listCatalogItemPlans(childId: string) {

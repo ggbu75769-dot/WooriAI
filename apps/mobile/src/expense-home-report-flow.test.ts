@@ -26,7 +26,7 @@ describe("Batch 06 mobile expense, home, budget, and report contract", () => {
       ["app/(tabs)/_layout.tsx", "기록"],
       ["app/(tabs)/_layout.tsx", "준비템"],
       ["app/(tabs)/_layout.tsx", "리포트"],
-      ["app/(tabs)/_layout.tsx", "프로필"],
+      ["app/(tabs)/_layout.tsx", 'name="more" options={{ title: tabs.more.title'],
       ["app/(tabs)/index.tsx", "HOME-001"],
       ["app/(tabs)/index.tsx", "getHome"],
       ["app/(tabs)/records.tsx", "EXP-004"],

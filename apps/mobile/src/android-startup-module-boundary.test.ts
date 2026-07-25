@@ -66,7 +66,9 @@ describe("Android first-render module boundary", () => {
     const rootLayout = readMobile("app/_layout.tsx");
     expect(rootLayout).toContain('import("../src/offline/OfflineSyncLifecycle")');
     expect(rootLayout).toContain("InteractionManager.runAfterInteractions");
-    expect(readMobile("src/offline/OfflineSyncLifecycle.tsx")).toContain("useOfflineSyncLifecycle(token, scopeKey, client)");
+    expect(readMobile("src/offline/OfflineSyncLifecycle.tsx")).toContain(
+      "useOfflineSyncLifecycle(token, scopeKey, sessionGeneration, client)"
+    );
   });
 
   it("does not hold a completed session on secure onboarding-draft hydration", () => {

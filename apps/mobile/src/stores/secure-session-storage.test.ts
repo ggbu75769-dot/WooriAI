@@ -16,6 +16,14 @@ async function loadModules() {
   return { persistStorage, secureSessionStorage };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("secureSessionStorage", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -33,7 +41,9 @@ describe("secureSessionStorage", () => {
       await persistStorage.setItem(STORAGE_NAME, '{"state":{"isTestSession":true');
 
       await expect(secureSessionStorage.getItem(STORAGE_NAME)).resolves.toBeNull();
-      await expect(persistStorage.getItem(STORAGE_NAME)).resolves.toBeNull();
+      const tombstone = JSON.parse((await persistStorage.getItem(STORAGE_NAME))!);
+      expect(tombstone.credentialCommitId).toEqual(expect.any(String));
+      expect(tombstone.state).toEqual({});
     });
 
     it("migrates plaintext tokens found in the legacy AsyncStorage-persisted state exactly once", async () => {
@@ -142,12 +152,23 @@ describe("secureSessionStorage", () => {
 
       await secureSessionStorage.setItem(
         STORAGE_NAME,
-        JSON.stringify({ state: { accessToken: "secure-access", refreshToken: "secure-refresh", userId: "user-4" }, version: 0 })
+        JSON.stringify({
+          state: {
+            accessToken: "secure-access",
+            refreshToken: "secure-refresh",
+            userId: "user-4",
+            sessionGeneration: 4
+          },
+          version: 0
+        })
       );
 
-      // SecureStore keys must only contain alphanumerics, ".", "-", and "_".
-      expect(SecureStore.setItemAsync).toHaveBeenCalledWith("wooriai-session.accessToken", "secure-access");
-      expect(SecureStore.setItemAsync).toHaveBeenCalledWith("wooriai-session.refreshToken", "secure-refresh");
+      // One owner-bound credential envelope prevents access/refresh/user fields
+      // from being torn across separate native writes.
+      expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
+        "wooriai-session.credentials-v2",
+        expect.stringContaining('"userId":"user-4"')
+      );
       for (const [key] of store) {
         expect(key).toMatch(/^[\w.-]+$/);
       }
@@ -156,11 +177,184 @@ describe("secureSessionStorage", () => {
       const parsed = JSON.parse(read!);
       expect(parsed.state.accessToken).toBe("secure-access");
       expect(parsed.state.refreshToken).toBe("secure-refresh");
-      expect(SecureStore.getItemAsync).toHaveBeenCalledWith("wooriai-session.accessToken");
+      expect(SecureStore.getItemAsync).toHaveBeenCalledWith("wooriai-session.credentials-v2");
 
       await secureSessionStorage.removeItem(STORAGE_NAME);
-      expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("wooriai-session.accessToken");
-      expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("wooriai-session.refreshToken");
+      expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("wooriai-session.credentials-v2");
+      await expect(secureSessionStorage.getItem(STORAGE_NAME)).resolves.toBeNull();
+    });
+
+    it("linearizes a delayed login write before logout so stale credentials cannot reappear", async () => {
+      const store = new Map<string, string>();
+      const releaseWrite = deferred<void>();
+      vi.doMock("expo-secure-store", () => ({
+        getItemAsync: vi.fn(async (key: string) => store.get(key) ?? null),
+        setItemAsync: vi.fn(async (key: string, value: string) => {
+          await releaseWrite.promise;
+          store.set(key, value);
+        }),
+        deleteItemAsync: vi.fn(async (key: string) => {
+          store.delete(key);
+        })
+      }));
+      const { secureSessionStorage } = await loadModules();
+
+      const writeA = secureSessionStorage.setItem(
+        STORAGE_NAME,
+        JSON.stringify({
+          state: {
+            accessToken: "access-a",
+            refreshToken: "refresh-a",
+            userId: "user-a",
+            sessionGeneration: 1
+          },
+          version: 3
+        })
+      );
+      const logout = secureSessionStorage.removeItem(STORAGE_NAME);
+      releaseWrite.resolve();
+      await Promise.all([writeA, logout]);
+
+      await expect(secureSessionStorage.getItem(STORAGE_NAME)).resolves.toBeNull();
+      expect(store.has("wooriai-session.credentials-v2")).toBe(false);
+    });
+
+    it("orders logout before an immediate new login and restores only the new owner", async () => {
+      const store = new Map<string, string>();
+      vi.doMock("expo-secure-store", () => ({
+        getItemAsync: vi.fn(async (key: string) => store.get(key) ?? null),
+        setItemAsync: vi.fn(async (key: string, value: string) => {
+          store.set(key, value);
+        }),
+        deleteItemAsync: vi.fn(async (key: string) => {
+          store.delete(key);
+        })
+      }));
+      const { secureSessionStorage } = await loadModules();
+
+      const logout = secureSessionStorage.removeItem(STORAGE_NAME);
+      const writeB = secureSessionStorage.setItem(
+        STORAGE_NAME,
+        JSON.stringify({
+          state: {
+            accessToken: "access-b",
+            refreshToken: "refresh-b",
+            userId: "user-b",
+            sessionGeneration: 2
+          },
+          version: 3
+        })
+      );
+      await Promise.all([logout, writeB]);
+
+      const restored = JSON.parse((await secureSessionStorage.getItem(STORAGE_NAME))!);
+      expect(restored.state).toMatchObject({
+        accessToken: "access-b",
+        refreshToken: "refresh-b",
+        userId: "user-b",
+        sessionGeneration: 2
+      });
+    });
+
+    it("lets the queue recover after a failed native write", async () => {
+      const store = new Map<string, string>();
+      let shouldFail = true;
+      vi.doMock("expo-secure-store", () => ({
+        getItemAsync: vi.fn(async (key: string) => store.get(key) ?? null),
+        setItemAsync: vi.fn(async (key: string, value: string) => {
+          if (shouldFail) {
+            shouldFail = false;
+            throw new Error("native write failed");
+          }
+          store.set(key, value);
+        }),
+        deleteItemAsync: vi.fn(async (key: string) => {
+          store.delete(key);
+        })
+      }));
+      const { secureSessionStorage } = await loadModules();
+      const value = (userId: string) =>
+        JSON.stringify({
+          state: {
+            accessToken: `access-${userId}`,
+            refreshToken: `refresh-${userId}`,
+            userId,
+            sessionGeneration: 1
+          },
+          version: 3
+        });
+
+      await expect(secureSessionStorage.setItem(STORAGE_NAME, value("a"))).rejects.toThrow(
+        "native write failed"
+      );
+      await expect(secureSessionStorage.setItem(STORAGE_NAME, value("b"))).resolves.toBeUndefined();
+      const restored = JSON.parse((await secureSessionStorage.getItem(STORAGE_NAME))!);
+      expect(restored.state.userId).toBe("b");
+    });
+
+    it("prioritizes the durable logout tombstone when native deletion fails", async () => {
+      const store = new Map<string, string>();
+      vi.doMock("expo-secure-store", () => ({
+        getItemAsync: vi.fn(async (key: string) => store.get(key) ?? null),
+        setItemAsync: vi.fn(async (key: string, value: string) => {
+          store.set(key, value);
+        }),
+        deleteItemAsync: vi.fn(async () => {
+          throw new Error("keychain unavailable");
+        })
+      }));
+      const { persistStorage, secureSessionStorage } = await loadModules();
+      await secureSessionStorage.setItem(
+        STORAGE_NAME,
+        JSON.stringify({
+          state: {
+            accessToken: "access-a",
+            refreshToken: "refresh-a",
+            userId: "user-a",
+            sessionGeneration: 1
+          },
+          version: 3
+        })
+      );
+      expect(store.has("wooriai-session.credentials-v2")).toBe(true);
+
+      await secureSessionStorage.removeItem(STORAGE_NAME);
+      expect(store.has("wooriai-session.credentials-v2")).toBe(true);
+      await expect(secureSessionStorage.getItem(STORAGE_NAME)).resolves.toBeNull();
+      const tombstone = JSON.parse((await persistStorage.getItem(STORAGE_NAME))!);
+      expect(tombstone.credentialCommitId).toEqual(expect.any(String));
+      expect(tombstone.state).toEqual({});
+    });
+
+    it("fails closed when the persisted owner and credential owner diverge", async () => {
+      const store = new Map<string, string>();
+      vi.doMock("expo-secure-store", () => ({
+        getItemAsync: vi.fn(async (key: string) => store.get(key) ?? null),
+        setItemAsync: vi.fn(async (key: string, value: string) => {
+          store.set(key, value);
+        }),
+        deleteItemAsync: vi.fn(async (key: string) => {
+          store.delete(key);
+        })
+      }));
+      const { persistStorage, secureSessionStorage } = await loadModules();
+      await secureSessionStorage.setItem(
+        STORAGE_NAME,
+        JSON.stringify({
+          state: {
+            accessToken: "access-a",
+            refreshToken: "refresh-a",
+            userId: "user-a",
+            sessionGeneration: 1
+          },
+          version: 3
+        })
+      );
+      const persisted = JSON.parse((await persistStorage.getItem(STORAGE_NAME))!);
+      persisted.state.userId = "user-b";
+      await persistStorage.setItem(STORAGE_NAME, JSON.stringify(persisted));
+
+      await expect(secureSessionStorage.getItem(STORAGE_NAME)).resolves.toBeNull();
     });
   });
 

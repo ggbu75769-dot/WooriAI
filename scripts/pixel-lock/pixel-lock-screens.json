@@ -17,9 +17,9 @@
   },
   "EXP-001": {
     "name": "Quick expense",
-    "referenceImagePath": "docs/ui-pixel-lock/reference-crops/1_png_quick_expense.png",
+    "referenceImagePath": "docs/ui-pixel-lock/reference-crops/exp_001_grouped_quick_entry_android.png",
     "route": "wooriai://pixel-lock?screen=EXP-001",
-    "expectedState": "Data: fixed amount, category grid, date, payment, CTA",
+    "expectedState": "Data: fixed date and amount, six quick items, grouped accounting categories, fixed amount composer and explicit save CTA",
     "androidNormalization": "tailCropFill",
     "siblings": ["HOME-001", "REP-001"],
     "moreSettingsGuardRequired": true

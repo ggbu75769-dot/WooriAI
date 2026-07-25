@@ -170,12 +170,12 @@ describe("D0 StageBadge component contract", () => {
 describe("D1 tab bar outlined/filled wiring", () => {
   const source = readSource("app/(tabs)/_layout.tsx");
 
-  it("keeps the five MOD_V1 tab labels visible", () => {
-    for (const label of ["홈", "기록", "준비템", "리포트", "프로필"]) {
+  it("keeps the five product tab labels visible", () => {
+    for (const label of ["홈", "기록", "준비템", "리포트", "더보기"]) {
       expect(source).toContain(label);
     }
     expect(source).toContain('name="more"');
-    expect(source).not.toContain("href: null");
+    expect(source).not.toContain('name="more" options={{ href: null }}');
   });
 
   it("defines an outlined (inactive) and filled (active) icon glyph pair per tab", () => {

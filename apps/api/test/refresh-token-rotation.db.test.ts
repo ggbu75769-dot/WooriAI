@@ -101,12 +101,11 @@ describe.skipIf(!dbAvailable)("Refresh token rotation (real Postgres)", () => {
     expect(rows.every((row) => row.revokedAt !== null)).toBe(true);
   });
 
-  it("blocks refresh after logout revokes the token's family", async () => {
-    const { userId, accessToken, refreshToken } = await login("db-rotation-logout");
+  it("blocks refresh after refresh-authenticated logout without a bearer", async () => {
+    const { userId, refreshToken } = await login("db-rotation-logout");
 
     await request(app.getHttpServer())
-      .post("/api/v1/auth/logout")
-      .set("Authorization", `Bearer ${accessToken}`)
+      .post("/api/v1/auth/logout/refresh")
       .send({ refreshToken })
       .expect(200);
 
@@ -118,5 +117,44 @@ describe.skipIf(!dbAvailable)("Refresh token rotation (real Postgres)", () => {
     const rows = await prisma.refreshToken.findMany({ where: { userId } });
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((row) => row.revokedAt !== null)).toBe(true);
+  });
+
+  it("does not let one user's bearer revoke another user's refresh family", async () => {
+    const userA = await login("db-rotation-cross-user-a");
+    const userB = await login("db-rotation-cross-user-b");
+
+    await request(app.getHttpServer())
+      .post("/api/v1/auth/logout")
+      .set("Authorization", `Bearer ${userA.accessToken}`)
+      .send({ refreshToken: userB.refreshToken })
+      .expect(200);
+
+    const refreshedB = await request(app.getHttpServer())
+      .post("/api/v1/auth/refresh")
+      .send({ refreshToken: userB.refreshToken })
+      .expect(200);
+
+    expect(refreshedB.body.accessToken).toEqual(expect.any(String));
+    const rows = await prisma.refreshToken.findMany({ where: { userId: userB.userId } });
+    expect(rows.some((row) => row.revokedAt === null)).toBe(true);
+  });
+
+  it("revokes the whole family when logout carries the pre-rotation refresh token", async () => {
+    const session = await login("db-rotation-logout-after-refresh");
+    const rotated = await request(app.getHttpServer())
+      .post("/api/v1/auth/refresh")
+      .send({ refreshToken: session.refreshToken })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post("/api/v1/auth/logout")
+      .set("Authorization", `Bearer ${rotated.body.accessToken}`)
+      .send({ refreshToken: session.refreshToken })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post("/api/v1/auth/refresh")
+      .send({ refreshToken: rotated.body.refreshToken })
+      .expect(401);
   });
 });

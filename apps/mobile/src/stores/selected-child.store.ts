@@ -10,10 +10,11 @@ import { zustandPersistStorage } from "./persist-storage";
 
 export type SelectedChildState = {
   selectedChildId: string | null;
+  selectedChildHouseholdId: string | null;
   selectedChildScopeKey: string | null;
   activeScopeKey: string | null;
   activateScope: (scopeKey: string | null) => void;
-  setSelectedChildId: (childId: string) => void;
+  setSelectedChildId: (childId: string, householdId?: string | null) => void;
   clearSelectedChildId: () => void;
 };
 
@@ -37,24 +38,47 @@ export const useSelectedChildStore = create<SelectedChildState>()(
   persist(
     (set) => ({
       selectedChildId: null,
+      selectedChildHouseholdId: null,
       selectedChildScopeKey: null,
       activeScopeKey: null,
       activateScope: (scopeKey) => set((state) => state.selectedChildScopeKey === scopeKey
         ? { activeScopeKey: scopeKey }
-        : { activeScopeKey: scopeKey, selectedChildId: null, selectedChildScopeKey: scopeKey }),
-      setSelectedChildId: (childId) => set((state) => ({ selectedChildId: childId, selectedChildScopeKey: state.activeScopeKey })),
-      clearSelectedChildId: () => set((state) => ({ selectedChildId: null, selectedChildScopeKey: state.activeScopeKey }))
+        : {
+            activeScopeKey: scopeKey,
+            selectedChildId: null,
+            selectedChildHouseholdId: null,
+            selectedChildScopeKey: scopeKey
+          }),
+      setSelectedChildId: (childId, householdId) => set((state) => ({
+        selectedChildId: childId,
+        // A caller that only knows an ID must remain unscoped until the child
+        // API resolves its authoritative household. Guessing the session's
+        // default household can cross family data boundaries.
+        selectedChildHouseholdId: householdId ?? null,
+        selectedChildScopeKey: state.activeScopeKey
+      })),
+      clearSelectedChildId: () => set((state) => ({
+        selectedChildId: null,
+        selectedChildHouseholdId: null,
+        selectedChildScopeKey: state.activeScopeKey
+      }))
     }),
     {
       name: "wooriai-selected-child",
       storage: createJSONStorage(() => zustandPersistStorage),
       // MOB-107: no structural changes yet, but bumped so a future schema change has a `migrate`
       // hook to run against data written by this version.
-      version: 3,
+      version: 4,
       migrate: (persisted) => ({
         selectedChildId: sanitizedSelectedChildId(
           persisted && typeof persisted === "object" ? (persisted as { selectedChildId?: unknown }).selectedChildId : undefined
         ),
+        selectedChildHouseholdId:
+          persisted &&
+          typeof persisted === "object" &&
+          typeof (persisted as { selectedChildHouseholdId?: unknown }).selectedChildHouseholdId === "string"
+            ? (persisted as { selectedChildHouseholdId: string }).selectedChildHouseholdId
+            : null,
         selectedChildScopeKey: persisted && typeof persisted === "object" && typeof (persisted as { selectedChildScopeKey?: unknown }).selectedChildScopeKey === "string"
           ? (persisted as { selectedChildScopeKey: string }).selectedChildScopeKey
           : null,
@@ -65,6 +89,12 @@ export const useSelectedChildStore = create<SelectedChildState>()(
         selectedChildId: sanitizedSelectedChildId(
           persisted && typeof persisted === "object" ? (persisted as { selectedChildId?: unknown }).selectedChildId : undefined
         ),
+        selectedChildHouseholdId:
+          persisted &&
+          typeof persisted === "object" &&
+          typeof (persisted as { selectedChildHouseholdId?: unknown }).selectedChildHouseholdId === "string"
+            ? (persisted as { selectedChildHouseholdId: string }).selectedChildHouseholdId
+            : null,
         selectedChildScopeKey: persisted && typeof persisted === "object" && typeof (persisted as { selectedChildScopeKey?: unknown }).selectedChildScopeKey === "string"
           ? (persisted as { selectedChildScopeKey: string }).selectedChildScopeKey
           : null,
@@ -76,6 +106,19 @@ export const useSelectedChildStore = create<SelectedChildState>()(
 
 export function selectedChildScopeKey(userId: string, householdId: string) {
   return JSON.stringify([userId, householdId]);
+}
+
+/**
+ * A selected child is authoritative for household scoping. Until that child's
+ * household has been resolved, callers must remain unscoped instead of
+ * falling back to the signed-in user's default household.
+ */
+export function householdIdForSelectedChildScope(
+  selectedChildId: string | null,
+  selectedChildHouseholdId: string | null,
+  defaultHouseholdId: string | null
+): string | null {
+  return selectedChildId ? selectedChildHouseholdId : defaultHouseholdId;
 }
 
 export function selectedChildScopeKeyForSession(

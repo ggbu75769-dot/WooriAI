@@ -6,13 +6,23 @@ const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
 describe("Android native UI quality contract", () => {
-  it("keeps the five MOD_V1 bottom tabs visible", () => {
+  it("uses the transparent brand mark for the native splash instead of an opaque square tile", () => {
+    const appConfig = JSON.parse(source("app.json"));
+
+    expect(appConfig.expo.icon).toBe("./assets/icon.png");
+    expect(appConfig.expo.splash.image).toBe("./assets/adaptive-icon.png");
+    expect(appConfig.expo.splash.resizeMode).toBe("contain");
+    expect(appConfig.expo.splash.backgroundColor).toBe("#FFFDFC");
+    expect(appConfig.expo.android.adaptiveIcon.foregroundImage).toBe("./assets/adaptive-icon.png");
+    expect(appConfig.expo.android.adaptiveIcon.backgroundColor).toBe("#FFFDFC");
+  });
+
+  it("keeps the five product tabs visible and exposes the more hub", () => {
     const tabsSource = source("app/(tabs)/_layout.tsx");
 
     expect(tabsSource).toContain('items: { title: "준비템"');
-    expect(tabsSource).toContain('more: { title: "프로필"');
-    expect(tabsSource).toContain('<Tabs.Screen name="more"');
-    expect(tabsSource).not.toContain('name="more" options={{ href: null }}');
+    expect(tabsSource).toContain('more: { title: "더보기"');
+    expect(tabsSource).toContain('name="more" options={{ title: tabs.more.title');
     expect(tabsSource).toContain('index: { title: "홈"');
     expect(tabsSource).toContain('records: { title: "기록"');
     expect(tabsSource).toContain('reports: { title: "리포트"');
@@ -71,9 +81,9 @@ describe("Android native UI quality contract", () => {
     expect(pixelGateSource).toContain('comparisonPolicy: `perceptual-blurred-mae:sigma-${perceptualScoreSigma}`');
   });
 
-  it("accepts content-rich white Android screens while still rejecting blank shells", () => {
+  it("requires screen evidence before accepting sparse white Android screens", () => {
     const pixelGateSource = source("../../scripts/pixel-lock/android-pixel-lock.ts");
-    expect(pixelGateSource).toContain("metrics.nonBackgroundAreaRatio >= 0.1 && metrics.uniqueColorCount >= 1000");
+    expect(pixelGateSource).toContain("isLikelyBlankOrShell(metrics, sentinelsFound.length > 0)");
   });
 
   it("prewarms the native runtime and waits for the tab bar to settle before taking Android evidence", () => {
@@ -81,6 +91,22 @@ describe("Android native UI quality contract", () => {
     expect(pixelGateSource).toContain("process.env.PIXEL_ANDROID_SETTLE_MS || 5000");
     expect(pixelGateSource).toContain('openScreen("HOME-001", screens, { coldStart: true })');
     expect(pixelGateSource).toContain('const coldStart = process.env.PIXEL_ANDROID_COLD_EACH === "1"');
+  });
+
+  it("installs and verifies the source-bound Pixel APK before a full Android gate", () => {
+    const pixelGateSource = source("../../scripts/pixel-lock/android-pixel-lock.ts");
+    expect(pixelGateSource).toContain('join(reportDir, "pixel-apk.json")');
+    expect(pixelGateSource).toContain('adb(["install", "-r", apkPath])');
+    expect(pixelGateSource).toContain('adb(["shell", "pm", "clear", packageName])');
+    expect(pixelGateSource).toContain('adbText(["shell", "sha256sum", installedApkPath])');
+    expect(pixelGateSource).toContain("apkEvidence: latestPixelApkEvidence");
+    expect(pixelGateSource).toContain("Installed base SHA-256");
+    expect(pixelGateSource).toContain('if (["android", "all"].includes(command))');
+  });
+
+  it("diffs the latest capture against evidence saved for the same screen", () => {
+    const pixelGateSource = source("../../scripts/pixel-lock/android-pixel-lock.ts");
+    expect(pixelGateSource).toContain("validateRender(screenId, screenshotPath, false)");
   });
 
   it("does not overwrite a requested Pixel Lock deep link with HOME-001", () => {
@@ -134,7 +160,7 @@ describe("Android native UI quality contract", () => {
     expect(expenseSource).toContain('"2025. 05. 24 (토)"');
     expect(expenseSource).toContain("getSeoulToday");
     expect(expenseSource).toContain("authToken ? formatExpenseDate(today) : previewExpenseDate");
-    expect(expenseSource).toContain('disabled={saveExpense.isPending || isSaveInvalid}');
+    expect(expenseSource).toContain('disabled={saveExpense.isPending || hasSaved || isSaveInvalid}');
     expect(expenseSource).toContain("validateExpenseForm({ itemName, amountText, spentOn: expenseDate.iso })");
   });
 });

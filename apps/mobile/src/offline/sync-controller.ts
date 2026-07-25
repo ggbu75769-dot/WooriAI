@@ -1,7 +1,14 @@
 import { useEffect } from "react";
 import { Platform } from "react-native";
 import type { QueryClient } from "@tanstack/react-query";
-import { getSyncChanges, LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "../api/client";
+import {
+  ApiClientError,
+  fixtureSessionToken,
+  getSyncChangesV2,
+  isApiErrorCode,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_USER_ID
+} from "../api/client";
 import { bucketSyncLatencyMs, trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { isCurrentlyOnline, startConnectivityWatcher } from "./connectivity";
 import { SERVER_CONFIRMED_MESSAGE } from "./messages";
@@ -10,6 +17,9 @@ import { createMemoryOfflineStore } from "./memory-offline-store";
 import { createClientRemoteExpenseApi } from "./remote-api";
 import { reconcileLegacyOfflineScope } from "./legacy-reconciliation";
 import { resolveOfflineScopeKey } from "./session-scope";
+import { RemoteSyncCancelledError } from "./errors";
+import { runPersistedDeltaPull } from "./delta-pull-runner";
+import { resumeAfterActiveScopeFlight } from "./sync-continuation";
 import {
   diffExpenseFields,
   discardFailedMutation,
@@ -31,8 +41,15 @@ import {
   type OfflineStore
 } from "./types";
 import type { Expense } from "../api/client";
-import { invalidateFinancialMutationQueries } from "../query/mutation-invalidation";
+import {
+  invalidateFinancialMutationQueries,
+  removeFinancialQueries
+} from "../query/mutation-invalidation";
 import { useSessionStore } from "../stores/session.store";
+import {
+  householdIdForSelectedChildScope,
+  useSelectedChildStore
+} from "../stores/selected-child.store";
 import {
   activateOfflineSyncSnapshotScope,
   clearOfflineSyncSnapshot,
@@ -40,6 +57,7 @@ import {
   publishOfflineSyncSnapshot,
   type OfflineSyncDisplayRow
 } from "./sync-snapshot";
+import { reconcilePurchaseFollowups } from "../purchase-followup/store";
 
 export {
   useOfflinePendingExpenses,
@@ -78,16 +96,137 @@ async function getOfflineStore(scopeKey: string): Promise<OfflineStore> {
   return storePromise;
 }
 
+function currentSessionToken(): string | null {
+  const session = useSessionStore.getState();
+  return session.accessToken ?? (session.isTestSession ? fixtureSessionToken : null);
+}
+
 function currentOfflineScopeKey(): string | null {
   const session = useSessionStore.getState();
+  const selectedChild = useSelectedChildStore.getState();
   return resolveOfflineScopeKey({
     accessToken: session.accessToken,
     userId: session.userId,
-    defaultHouseholdId: session.defaultHouseholdId,
+    defaultHouseholdId: householdIdForSelectedChildScope(
+      selectedChild.selectedChildId,
+      selectedChild.selectedChildHouseholdId,
+      session.defaultHouseholdId
+    ),
     isTestSession: session.isTestSession,
     testUserId: LOCAL_USER_ID,
     testHouseholdId: LOCAL_HOUSEHOLD_ID
   });
+}
+
+export type OfflineSyncOwner = {
+  sessionGeneration: number;
+  token: string;
+  scopeKey: string;
+  householdId: string;
+};
+
+function currentOfflineHouseholdId(): string | null {
+  const session = useSessionStore.getState();
+  const selectedChild = useSelectedChildStore.getState();
+  return householdIdForSelectedChildScope(
+    selectedChild.selectedChildId,
+    selectedChild.selectedChildHouseholdId,
+    session.defaultHouseholdId ?? (session.isTestSession ? LOCAL_HOUSEHOLD_ID : null)
+  );
+}
+
+function captureOfflineSyncOwner(
+  token: string,
+  scopeKey: string,
+  expectedGeneration?: number
+): OfflineSyncOwner | null {
+  const session = useSessionStore.getState();
+  const householdId = currentOfflineHouseholdId();
+  if (
+    (expectedGeneration !== undefined && session.sessionGeneration !== expectedGeneration) ||
+    currentSessionToken() !== token ||
+    currentOfflineScopeKey() !== scopeKey ||
+    !householdId
+  ) {
+    return null;
+  }
+  return { sessionGeneration: session.sessionGeneration, token, scopeKey, householdId };
+}
+
+export function captureCurrentOfflineSyncOwner(): OfflineSyncOwner | null {
+  const token = currentSessionToken();
+  const scopeKey = currentOfflineScopeKey();
+  if (!token || !scopeKey) return null;
+  return captureOfflineSyncOwner(token, scopeKey);
+}
+
+export async function recordOfflineAuthorization(
+  owner: OfflineSyncOwner | null,
+  state: "authorized" | "denied",
+  queryClient?: QueryClient
+): Promise<void> {
+  if (!owner || !offlineSyncOwnerIsActive(owner)) return;
+  const store = await getOfflineStore(owner.scopeKey);
+  if (!offlineSyncOwnerIsActive(owner)) return;
+  await store.setRemoteSyncAuthorization({
+    state,
+    checkedAt: new Date().toISOString(),
+    ownerStillCurrent: () => offlineSyncOwnerIsActive(owner)
+  });
+  if (state === "denied" && queryClient && offlineSyncOwnerIsActive(owner)) {
+    removeFinancialQueries(queryClient);
+  }
+  if (offlineSyncOwnerIsActive(owner)) await refreshSnapshot(owner.scopeKey);
+}
+
+function offlineSyncOwnerIsActive(owner: OfflineSyncOwner): boolean {
+  return (
+    useSessionStore.getState().sessionGeneration === owner.sessionGeneration &&
+    currentOfflineScopeKey() === owner.scopeKey &&
+    currentOfflineHouseholdId() === owner.householdId
+  );
+}
+
+function assertOfflineSyncOwnerIsActive(owner: OfflineSyncOwner): void {
+  if (!offlineSyncOwnerIsActive(owner)) throw new RemoteSyncCancelledError();
+}
+
+type ActiveFlushExecution = {
+  owner: OfflineSyncOwner;
+  controller: AbortController;
+};
+
+const activeFlushExecutions = new Set<ActiveFlushExecution>();
+
+function abortStaleFlushExecutions(): void {
+  for (const execution of activeFlushExecutions) {
+    if (!offlineSyncOwnerIsActive(execution.owner)) {
+      execution.controller.abort();
+    }
+  }
+}
+
+useSessionStore.subscribe(abortStaleFlushExecutions);
+useSelectedChildStore.subscribe(abortStaleFlushExecutions);
+
+function beginFlushExecution(owner: OfflineSyncOwner, externalSignal?: AbortSignal) {
+  const controller = new AbortController();
+  const abortFromExternalSignal = () => controller.abort();
+  if (externalSignal?.aborted) {
+    controller.abort();
+  } else {
+    externalSignal?.addEventListener("abort", abortFromExternalSignal, { once: true });
+  }
+  const execution = { owner, controller };
+  activeFlushExecutions.add(execution);
+  abortStaleFlushExecutions();
+  return {
+    signal: controller.signal,
+    release: () => {
+      externalSignal?.removeEventListener("abort", abortFromExternalSignal);
+      activeFlushExecutions.delete(execution);
+    }
+  };
 }
 
 async function requireCurrentOfflineStore(): Promise<OfflineStore> {
@@ -108,10 +247,11 @@ export async function refreshOfflineSyncSnapshot(): Promise<void> {
 
 async function refreshSnapshot(scopeKey: string): Promise<void> {
   const store = await getOfflineStore(scopeKey);
-  const [localRows, mutations, quarantine] = await Promise.all([
+  const [localRows, mutations, quarantine, remoteSync] = await Promise.all([
     store.listLocalExpenses(),
     store.listOutboxMutations(),
-    store.getLegacyQuarantineSummary()
+    store.getLegacyQuarantineSummary(),
+    store.getRemoteSyncMetadata()
   ]);
   const mutationByLocalId = new Map(
     mutations.map((mutation) => [mutation.targetLocalId, mutation])
@@ -124,6 +264,7 @@ async function refreshSnapshot(scopeKey: string): Promise<void> {
       nextRetryAt: mutation?.nextRetryAt ?? null
     };
   });
+  await reconcilePurchaseFollowups(scopeKey, rows);
   const counts = createEmptySyncStatusCounts();
   const now = new Date().toISOString();
   for (const row of rows) {
@@ -143,7 +284,7 @@ async function refreshSnapshot(scopeKey: string): Promise<void> {
       else counts.permanentFailure += 1;
     }
   }
-  publishOfflineSyncSnapshot(scopeKey, { counts, rows, quarantine });
+  publishOfflineSyncSnapshot(scopeKey, { counts, rows, quarantine, remoteSync });
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +314,7 @@ function clearRetryTimer(scopeKey: string) {
   retryTimers.delete(scopeKey);
 }
 
-async function scheduleNextRetry(token: string, queryClient: QueryClient, scopeKey: string) {
+async function scheduleNextRetry(queryClient: QueryClient, scopeKey: string) {
   clearRetryTimer(scopeKey);
   const store = await getOfflineStore(scopeKey);
   const nextRetryAt = (await store.listOutboxMutations())
@@ -185,7 +326,8 @@ async function scheduleNextRetry(token: string, queryClient: QueryClient, scopeK
     scopeKey,
     setTimeout(() => {
       retryTimers.delete(scopeKey);
-      if (currentOfflineScopeKey() === scopeKey) {
+      const token = currentSessionToken();
+      if (token && currentOfflineScopeKey() === scopeKey) {
         void flushInBackground(token, queryClient, scopeKey);
       }
     }, delay)
@@ -204,18 +346,35 @@ function runMutationActionOnce(key: string, work: () => Promise<void>): Promise<
 // Writes
 // ---------------------------------------------------------------------------
 
-async function attemptFlush(token: string, queryClient: QueryClient, scopeKey: string): Promise<FlushSummary> {
-  const store = await getOfflineStore(scopeKey);
+async function attemptFlush(
+  owner: OfflineSyncOwner,
+  queryClient: QueryClient,
+  signal: AbortSignal
+): Promise<FlushSummary> {
+  assertOfflineSyncOwnerIsActive(owner);
+  const store = await getOfflineStore(owner.scopeKey);
+  assertOfflineSyncOwnerIsActive(owner);
   const pendingChildIds = [...new Set(
     (await store.listLocalExpenses())
       .filter((row) => row.syncState !== "synced")
       .map((row) => row.childId)
   )];
-  const remote = createClientRemoteExpenseApi(token);
+  assertOfflineSyncOwnerIsActive(owner);
+  const activeToken = currentSessionToken();
+  if (!activeToken) throw new RemoteSyncCancelledError();
+  const remote = createClientRemoteExpenseApi(activeToken, signal);
   const startedAt = Date.now();
-  const summary = await flushOutbox(store, remote);
-  await refreshSnapshot(scopeKey);
-  await scheduleNextRetry(token, queryClient, scopeKey);
+  const summary = await flushOutbox(store, remote, {
+    signal,
+    isActive: () => offlineSyncOwnerIsActive(owner)
+  });
+  if (summary.cancelled || signal.aborted || !offlineSyncOwnerIsActive(owner)) {
+    return { ...summary, cancelled: true };
+  }
+  await refreshSnapshot(owner.scopeKey);
+  assertOfflineSyncOwnerIsActive(owner);
+  await scheduleNextRetry(queryClient, owner.scopeKey);
+  assertOfflineSyncOwnerIsActive(owner);
   if (summary.synced > 0) {
     await invalidateFinancialMutationQueries(queryClient, pendingChildIds);
     emitFlashMessage(SERVER_CONFIRMED_MESSAGE);
@@ -223,7 +382,7 @@ async function attemptFlush(token: string, queryClient: QueryClient, scopeKey: s
     // actually confirmed at least one write with the server, not once. A
     // no-op while analytics opt-in is OFF (its default) -- see
     // src/analytics/flag.ts.
-    trackAndFlushAnalyticsEvent(token, {
+    trackAndFlushAnalyticsEvent(activeToken, {
       eventName: "expense_synced",
       payload: { latencyBucket: bucketSyncLatencyMs(Date.now() - startedAt) },
       platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
@@ -232,10 +391,20 @@ async function attemptFlush(token: string, queryClient: QueryClient, scopeKey: s
   return summary;
 }
 
-async function flushInBackground(token: string, queryClient: QueryClient, scopeKey: string): Promise<void> {
-  const online = await isCurrentlyOnline();
-  if (!online) return;
-  await attemptFlush(token, queryClient, scopeKey).catch(() => undefined);
+async function flushInBackground(
+  token: string,
+  queryClient: QueryClient,
+  scopeKey: string,
+  expectedGeneration?: number,
+  externalSignal?: AbortSignal
+): Promise<void> {
+  await runScopeSynchronization(
+    token,
+    queryClient,
+    scopeKey,
+    expectedGeneration,
+    externalSignal
+  );
 }
 
 /** Records a new expense locally first (design doc §3.2 step 1) and kicks off a background
@@ -344,6 +513,8 @@ export async function discardOfflineMutation(localId: string): Promise<void> {
   return runMutationActionOnce(`discard:${localId}`, async () => {
     const store = await requireCurrentOfflineStore();
     await discardFailedMutation(store, localId);
+    const { removePurchaseFollowupForLocalExpense } = await import("../purchase-followup/store");
+    await removePurchaseFollowupForLocalExpense(store.scopeKey, localId);
     await refreshSnapshot(store.scopeKey);
   });
 }
@@ -389,13 +560,26 @@ export async function retryLegacyQuarantineReconciliation(
 ): Promise<{ restored: number; remaining: number }> {
   const scopeKey = currentOfflineScopeKey();
   if (!scopeKey) throw new Error("OFFLINE_SCOPE_UNAVAILABLE");
+  const owner = captureOfflineSyncOwner(token, scopeKey);
+  if (!owner) throw new RemoteSyncCancelledError();
+  const execution = beginFlushExecution(owner);
   let result = { restored: 0, remaining: 0 };
-  await runMutationActionOnce(`legacy-reconcile:${scopeKey}`, async () => {
-    const store = await getOfflineStore(scopeKey);
-    result = await reconcileLegacyOfflineScope(token, store);
-    await refreshSnapshot(scopeKey);
-  });
-  return result;
+  try {
+    await runMutationActionOnce(`legacy-reconcile:${scopeKey}`, async () => {
+      assertOfflineSyncOwnerIsActive(owner);
+      const store = await getOfflineStore(scopeKey);
+      assertOfflineSyncOwnerIsActive(owner);
+      result = await reconcileLegacyOfflineScope(token, store, {
+        signal: execution.signal,
+        isActive: () => offlineSyncOwnerIsActive(owner)
+      });
+      assertOfflineSyncOwnerIsActive(owner);
+      await refreshSnapshot(scopeKey);
+    });
+    return result;
+  } finally {
+    execution.release();
+  }
 }
 
 export async function purgeCurrentOfflineScope(): Promise<void> {
@@ -430,57 +614,241 @@ export function diffExpenseFieldsForDisplay(
 }
 
 // ---------------------------------------------------------------------------
-// App-level wiring: connectivity/foreground triggers + a best-effort delta pull.
+// App-level wiring: one serialized push -> pull pipeline per exact scope.
 // ---------------------------------------------------------------------------
 
-/** Mount once near the app root (see app/_layout.tsx). Flushes the outbox whenever connectivity
- * is regained or the app returns to the foreground, and does a best-effort one-shot delta pull
- * on the same triggers (design doc §2.3's client pull is explicitly optional/best-effort for
- * this sprint -- see getSyncChanges's doc comment in client.ts). */
+const scopeSyncFlights = new Map<
+  string,
+  { owner: OfflineSyncOwner; promise: Promise<void> }
+>();
+const pullContinuationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function sameOfflineOwner(left: OfflineSyncOwner, right: OfflineSyncOwner): boolean {
+  return (
+    left.sessionGeneration === right.sessionGeneration &&
+    left.scopeKey === right.scopeKey &&
+    left.householdId === right.householdId
+  );
+}
+
+function schedulePullContinuation(queryClient: QueryClient, owner: OfflineSyncOwner): void {
+  if (pullContinuationTimers.has(owner.scopeKey)) return;
+  pullContinuationTimers.set(
+    owner.scopeKey,
+    setTimeout(() => {
+      pullContinuationTimers.delete(owner.scopeKey);
+      void resumeAfterActiveScopeFlight(
+        () => scopeSyncFlights.get(owner.scopeKey)?.promise,
+        async () => {
+          if (!offlineSyncOwnerIsActive(owner)) return;
+          const token = currentSessionToken();
+          if (!token) return;
+          await runScopeSynchronization(
+            token,
+            queryClient,
+            owner.scopeKey,
+            owner.sessionGeneration
+          );
+        }
+      );
+    }, 0)
+  );
+}
+
+async function pullRemoteDelta(
+  owner: OfflineSyncOwner,
+  store: OfflineStore,
+  queryClient: QueryClient,
+  signal: AbortSignal
+): Promise<void> {
+  let result;
+  try {
+    result = await runPersistedDeltaPull({
+      store,
+      householdId: owner.householdId,
+      signal,
+      isActive: () => offlineSyncOwnerIsActive(owner),
+      isInvalidCursorError: (error) => isApiErrorCode(error, "SYNC_CURSOR_INVALID"),
+      fetchPage: (cursor, requestSignal) => {
+        assertOfflineSyncOwnerIsActive(owner);
+        const activeToken = currentSessionToken();
+        if (!activeToken) throw new RemoteSyncCancelledError();
+        return getSyncChangesV2(
+          activeToken,
+          owner.householdId,
+          cursor ?? undefined,
+          200,
+          requestSignal
+        );
+      },
+      onPageCommitted: (childIds) =>
+        invalidateFinancialMutationQueries(queryClient, childIds)
+    });
+  } catch (error) {
+    if (
+      error instanceof ApiClientError &&
+      [401, 403, 404].includes(error.status) &&
+      offlineSyncOwnerIsActive(owner)
+    ) {
+      await recordOfflineAuthorization(owner, "denied", queryClient);
+    }
+    throw error;
+  }
+  if (!result.complete) {
+    // The committed cursor remains on the same immutable baseline. Yield to
+    // the UI thread and resume in a new bounded run.
+    schedulePullContinuation(queryClient, owner);
+  }
+}
+
+async function performScopeSynchronization(
+  owner: OfflineSyncOwner,
+  queryClient: QueryClient,
+  externalSignal?: AbortSignal
+): Promise<void> {
+  const execution = beginFlushExecution(owner, externalSignal);
+  try {
+    const online = await isCurrentlyOnline();
+    if (!online || execution.signal.aborted || !offlineSyncOwnerIsActive(owner)) return;
+    const store = await getOfflineStore(owner.scopeKey);
+    assertOfflineSyncOwnerIsActive(owner);
+    if (!reconciledLegacyScopes.has(owner.scopeKey)) {
+      reconciledLegacyScopes.add(owner.scopeKey);
+      await reconcileLegacyOfflineScope(currentSessionToken()!, store, {
+        signal: execution.signal,
+        isActive: () => offlineSyncOwnerIsActive(owner)
+      }).catch(() => {
+        reconciledLegacyScopes.delete(owner.scopeKey);
+      });
+      assertOfflineSyncOwnerIsActive(owner);
+    }
+
+    const authRequiredRows = (await store.listLocalExpenses()).filter(
+      (row) => row.syncState === "failed" && row.failureKind === "auth_required"
+    );
+    for (const row of authRequiredRows) {
+      assertOfflineSyncOwnerIsActive(owner);
+      await retryFailedMutation(store, row.localId);
+    }
+    await refreshSnapshot(owner.scopeKey);
+
+    const summary = await attemptFlush(owner, queryClient, execution.signal);
+    if (
+      summary.cancelled ||
+      summary.stoppedForNetwork ||
+      execution.signal.aborted ||
+      !offlineSyncOwnerIsActive(owner)
+    ) {
+      return;
+    }
+    await pullRemoteDelta(owner, store, queryClient, execution.signal);
+    await refreshSnapshot(owner.scopeKey);
+  } catch (error) {
+    if (
+      !(error instanceof RemoteSyncCancelledError) &&
+      !execution.signal.aborted &&
+      offlineSyncOwnerIsActive(owner)
+    ) {
+      throw error;
+    }
+  } finally {
+    execution.release();
+  }
+}
+
+async function runScopeSynchronization(
+  token: string,
+  queryClient: QueryClient,
+  scopeKey: string,
+  expectedGeneration?: number,
+  externalSignal?: AbortSignal
+): Promise<void> {
+  const owner = captureOfflineSyncOwner(token, scopeKey, expectedGeneration);
+  if (!owner) return;
+  const existing = scopeSyncFlights.get(scopeKey);
+  if (existing) {
+    await existing.promise;
+    if (
+      !sameOfflineOwner(existing.owner, owner) &&
+      offlineSyncOwnerIsActive(owner) &&
+      !externalSignal?.aborted
+    ) {
+      return runScopeSynchronization(
+        currentSessionToken() ?? token,
+        queryClient,
+        scopeKey,
+        owner.sessionGeneration,
+        externalSignal
+      );
+    }
+    return;
+  }
+
+  const promise = performScopeSynchronization(owner, queryClient, externalSignal)
+    .catch(() => undefined)
+    .finally(() => {
+      if (scopeSyncFlights.get(scopeKey)?.promise === promise) {
+        scopeSyncFlights.delete(scopeKey);
+      }
+    });
+  scopeSyncFlights.set(scopeKey, { owner, promise });
+  await promise;
+}
+
+/** Mount once near the app root (see app/_layout.tsx). Initial load, reconnect,
+ * and foreground events all join the same exact-scope pipeline. */
 export function useOfflineSyncLifecycle(
   token: string | null,
   scopeKey: string | null,
+  sessionGeneration: number,
   queryClient: QueryClient
 ): void {
+  const hasSessionToken = Boolean(token);
   useEffect(() => {
     if (scopeKey) activateOfflineSyncSnapshotScope(scopeKey);
-    if (!token || !scopeKey) {
+    if (!hasSessionToken || !scopeKey) {
       clearOfflineSyncSnapshot();
       return;
     }
-    void (async () => {
-      const store = await getOfflineStore(scopeKey);
-      if (!reconciledLegacyScopes.has(scopeKey)) {
-        reconciledLegacyScopes.add(scopeKey);
-        await reconcileLegacyOfflineScope(token, store).catch(() => {
-          reconciledLegacyScopes.delete(scopeKey);
-        });
-      }
-      const authRequiredRows = (await store.listLocalExpenses()).filter(
-        (row) => row.syncState === "failed" && row.failureKind === "auth_required"
-      );
-      for (const row of authRequiredRows) {
-        await retryFailedMutation(store, row.localId);
-      }
-      await refreshSnapshot(scopeKey);
-      await flushInBackground(token, queryClient, scopeKey);
-    })();
+    const activeToken = currentSessionToken();
+    if (!activeToken) {
+      clearOfflineSyncSnapshot(scopeKey);
+      return;
+    }
+    const owner = captureOfflineSyncOwner(activeToken, scopeKey, sessionGeneration);
+    if (!owner) {
+      clearOfflineSyncSnapshot(scopeKey);
+      return;
+    }
+    const lifecycleController = new AbortController();
+    void runScopeSynchronization(
+      activeToken,
+      queryClient,
+      scopeKey,
+      sessionGeneration,
+      lifecycleController.signal
+    );
 
     const handle = startConnectivityWatcher(() => {
-      void flushInBackground(token, queryClient, scopeKey);
-      void getSyncChanges(token)
-        .then(async () => {
-          const store = await getOfflineStore(scopeKey);
-          const childIds = [...new Set((await store.listLocalExpenses()).map((row) => row.childId))];
-          await invalidateFinancialMutationQueries(queryClient, childIds);
-        })
-        .catch(() => undefined);
+      if (!offlineSyncOwnerIsActive(owner)) return;
+      const currentToken = currentSessionToken();
+      if (!currentToken) return;
+      void runScopeSynchronization(
+        currentToken,
+        queryClient,
+        scopeKey,
+        sessionGeneration,
+        lifecycleController.signal
+      );
     });
     return () => {
+      lifecycleController.abort();
       handle.stop();
       clearRetryTimer(scopeKey);
+      const continuation = pullContinuationTimers.get(scopeKey);
+      if (continuation) clearTimeout(continuation);
+      pullContinuationTimers.delete(scopeKey);
       clearOfflineSyncSnapshot(scopeKey);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, scopeKey]);
+  }, [hasSessionToken, queryClient, scopeKey, sessionGeneration]);
 }

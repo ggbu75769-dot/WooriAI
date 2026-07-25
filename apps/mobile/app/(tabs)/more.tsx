@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Redirect, router, type Href } from "expo-router";
 import type React from "react";
 import { Alert, Image, Pressable, Text, View } from "react-native";
@@ -12,7 +12,8 @@ import {
   LOCAL_HOUSEHOLD_ID,
   LOCAL_USER_ID
 } from "../../src/api/client";
-import { pixelEvidenceId, resetLocalBackend } from "../../src/api/fixture-runtime";
+import { pixelEvidenceId } from "../../src/api/fixture-runtime";
+import { useCurrentSessionLogout } from "../../src/auth/use-current-session-logout";
 import {
   AppIcon,
   AppScreen,
@@ -29,14 +30,13 @@ import { useConnectivityStatus } from "../../src/offline/connectivity";
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { normalizeAppSyncStatus } from "../../src/offline/sync-display-state";
 import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
-import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import appManifest from "../../app.json";
 
 const isPixelLockMode = isPixelLockBuild();
-const profileReferenceScreenId = pixelEvidenceId("PF-01 SET-001 · FAM-001 · IMP-001");
+const profileReferenceScreenId = pixelEvidenceId("SET-001 · PF-01 · FAM-001 · IMP-001");
 const logoMark = require("../../assets/illustrations/logo_mark.png");
 const appVersion = appManifest.expo.version;
 const appPackage = appManifest.expo.android.package;
@@ -87,14 +87,11 @@ export default function ProfileHubScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const userId = useSessionStore((state) => state.userId);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const clearSession = useSessionStore((state) => state.clearSession);
   const token = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const effectiveUserId = userId ?? (isTestSession ? LOCAL_USER_ID : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
-  const clearSelectedChild = useSelectedChildStore((state) => state.clearSelectedChildId);
-  const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
-  const queryClient = useQueryClient();
+  const { confirmLogout, isLoggingOut } = useCurrentSessionLogout();
   const syncSnapshot = useOfflineSyncSnapshot();
   const online = useConnectivityStatus();
   const syncStatus = normalizeAppSyncStatus(syncSnapshot.counts, online);
@@ -127,20 +124,6 @@ export default function ProfileHubScreen() {
       ? [notifications.data.replacementEnabled ? "준비 시기" : null, notifications.data.budgetEnabled ? "예산" : null, notifications.data.familyEnabled ? "가족" : null, notifications.data.marketingEnabled ? "소식" : null].filter(Boolean).join(" · ") || "모든 선택 알림 꺼짐"
       : "알림 상태 확인"
   ;
-
-  const logout = () => {
-    Alert.alert("로그아웃할까요?", "이 기기의 로그인 정보가 삭제돼요.", [
-      { text: "취소", style: "cancel" },
-      { text: "로그아웃", style: "destructive", onPress: () => {
-        if (isTestSession) resetLocalBackend();
-        queryClient.clear();
-        clearSession();
-        clearSelectedChild();
-        resetOnboarding();
-        router.replace("/launch-animation");
-      } }
-    ]);
-  };
 
   return (
     <AppScreen>
@@ -185,7 +168,13 @@ export default function ProfileHubScreen() {
         </ProfileSection>
 
         <SyncStatusBar onPress={() => router.push("/sync-status" as Href)} status={syncStatus} />
-        <SecondaryButton label="로그아웃" onPress={logout} style={{ alignSelf: "center", minWidth: 120 }} />
+        <SecondaryButton
+          busy={isLoggingOut}
+          disabled={isLoggingOut}
+          label={isLoggingOut ? "로그아웃 중" : "로그아웃"}
+          onPress={confirmLogout}
+          style={{ alignSelf: "center", minWidth: 120 }}
+        />
       </View>
     </AppScreen>
   );

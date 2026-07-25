@@ -9,14 +9,14 @@ import { AppIcon, type AppIconName } from "../../src/design-system/components/Ap
 
 // D1 (docs/5차/round5a-design-spec.md §D1): one unified icon family, each tab an
 // outlined/filled glyph pair from the same geometric-shape set (consistent stroke weight and
-// proportion across all 5 tabs, replacing the previous mismatched one-off glyphs). Inactive tabs
+// proportion across the five product tabs. Inactive tabs
 // render the outlined glyph; the active tab renders the filled glyph tinted coral-500.
 const tabs: Record<"index" | "records" | "items" | "reports" | "more", { title: string; outline: AppIconName; filled: AppIconName }> = {
   index: { title: "홈", outline: "home-outline", filled: "home" },
   records: { title: "기록", outline: "notebook-outline", filled: "notebook" },
   items: { title: "준비템", outline: "basket-outline", filled: "basket" },
   reports: { title: "리포트", outline: "chart-box-outline", filled: "chart-box" },
-  more: { title: "프로필", outline: "account-circle-outline", filled: "account-circle" }
+  more: { title: "더보기", outline: "dots-horizontal-circle-outline", filled: "dots-horizontal-circle" }
 };
 
 function icon(name: keyof typeof tabs, focused: boolean) {

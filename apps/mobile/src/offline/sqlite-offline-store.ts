@@ -1,4 +1,5 @@
 import * as SQLite from "expo-sqlite";
+import { reconcileRemoteSyncPage } from "./delta-reconciliation";
 import type {
   LegacyQuarantineSummary,
   LegacyQuarantineEntry,
@@ -6,6 +7,7 @@ import type {
   MutationOutboxRow,
   OfflineFailureKind,
   OfflineStore,
+  RemoteSyncMetadata,
   SyncState
 } from "./types";
 import { LEGACY_UNSCOPED_SCOPE_KEY } from "./session-scope";
@@ -24,6 +26,54 @@ import {
  */
 
 const DB_NAME = "wooriai-offline.db";
+const REMOTE_SYNC_METADATA_PREFIX = "sync-v2:";
+
+function remoteSyncMetadataKey(scopeKey: string): string {
+  return `${REMOTE_SYNC_METADATA_PREFIX}${scopeKey}`;
+}
+
+function emptyRemoteSyncMetadata(): RemoteSyncMetadata {
+  return {
+    protocolVersion: 2,
+    cursor: null,
+    baselineComplete: false,
+    lastSuccessfulPullAt: null,
+    authorizationState: "unknown",
+    authorizationCheckedAt: null
+  };
+}
+
+function parseRemoteSyncMetadata(value: string | null | undefined): RemoteSyncMetadata {
+  if (!value) return emptyRemoteSyncMetadata();
+  try {
+    const parsed = JSON.parse(value) as Partial<RemoteSyncMetadata>;
+    if (
+      parsed.protocolVersion !== 2 ||
+      (parsed.cursor !== null && typeof parsed.cursor !== "string") ||
+      typeof parsed.baselineComplete !== "boolean" ||
+      (parsed.lastSuccessfulPullAt !== null &&
+        typeof parsed.lastSuccessfulPullAt !== "string")
+    ) {
+      return emptyRemoteSyncMetadata();
+    }
+    return {
+      protocolVersion: 2,
+      cursor: parsed.cursor,
+      baselineComplete: parsed.baselineComplete,
+      lastSuccessfulPullAt: parsed.lastSuccessfulPullAt,
+      authorizationState:
+        parsed.authorizationState === "authorized" || parsed.authorizationState === "denied"
+          ? parsed.authorizationState
+          : "unknown",
+      authorizationCheckedAt:
+        typeof parsed.authorizationCheckedAt === "string"
+          ? parsed.authorizationCheckedAt
+          : null
+    };
+  } catch {
+    return emptyRemoteSyncMetadata();
+  }
+}
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -139,6 +189,59 @@ export async function migrateOfflineDatabase(db: SQLite.SQLiteDatabase): Promise
       `DELETE FROM local_expenses WHERE scope_key = ?`,
       LEGACY_UNSCOPED_SCOPE_KEY
     );
+    const duplicateCanonicalGroups = await txn.getAllAsync<{
+      scope_key: string;
+      canonical_id: string;
+    }>(`
+      SELECT scope_key, canonical_id
+        FROM local_expenses
+       WHERE canonical_id IS NOT NULL
+       GROUP BY scope_key, canonical_id
+      HAVING COUNT(*) > 1
+    `);
+    for (const duplicate of duplicateCanonicalGroups) {
+      const duplicateRows = await txn.getAllAsync<LocalExpenseSqlRow>(
+        `SELECT * FROM local_expenses
+          WHERE scope_key = ? AND canonical_id = ?
+          ORDER BY CASE WHEN sync_state = 'synced' THEN 1 ELSE 0 END ASC,
+                   version DESC,
+                   updated_at DESC,
+                   local_id ASC`,
+        duplicate.scope_key,
+        duplicate.canonical_id
+      );
+      for (const discarded of duplicateRows.slice(1)) {
+        const discardedMutations = await txn.getAllAsync<MutationOutboxSqlRow>(
+          `SELECT * FROM mutation_outbox
+            WHERE scope_key = ? AND target_local_id = ?
+            ORDER BY created_at ASC`,
+          discarded.scope_key,
+          discarded.local_id
+        );
+        const quarantineId = `canonical-duplicate:${discarded.scope_key}:${discarded.local_id}`;
+        await txn.runAsync(
+          `INSERT OR IGNORE INTO legacy_quarantine
+            (id, source_local_id, classification, reason_code, local_expense_json, outbox_json, created_at, quarantined_at)
+           VALUES (?, ?, 'ambiguous', 'DUPLICATE_CANONICAL_ID', ?, ?, ?, ?)`,
+          quarantineId,
+          discarded.local_id,
+          JSON.stringify(discarded),
+          JSON.stringify(discardedMutations),
+          discarded.created_at,
+          quarantinedAt
+        );
+        await txn.runAsync(
+          `DELETE FROM mutation_outbox WHERE scope_key = ? AND target_local_id = ?`,
+          discarded.scope_key,
+          discarded.local_id
+        );
+        await txn.runAsync(
+          `DELETE FROM local_expenses WHERE scope_key = ? AND local_id = ?`,
+          discarded.scope_key,
+          discarded.local_id
+        );
+      }
+    }
     // A process can stop after the request is sent but before the local acknowledgement is
     // persisted. Reopen makes the same idempotency key eligible again instead of leaving a
     // permanent in-flight state.
@@ -149,6 +252,9 @@ export async function migrateOfflineDatabase(db: SQLite.SQLiteDatabase): Promise
           WHERE sync_state = 'syncing';
         CREATE INDEX IF NOT EXISTS idx_local_expenses_scope_child
           ON local_expenses(scope_key, child_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_local_expenses_scope_canonical
+          ON local_expenses(scope_key, canonical_id)
+          WHERE canonical_id IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_mutation_outbox_scope_target
           ON mutation_outbox(scope_key, target_local_id);
         CREATE INDEX IF NOT EXISTS idx_mutation_outbox_scope_created
@@ -415,6 +521,212 @@ export function createSqliteOfflineStore(scopeKey: string): OfflineStore {
       return rows.map(fromSqlMutation);
     },
 
+    async commitLocalMutation(input) {
+      if (
+        (input.localRow && (
+          input.localRow.scopeKey !== scopeKey ||
+          input.localRow.localId !== input.targetLocalId
+        )) ||
+        input.upsertMutations.some(
+          (mutation) =>
+            mutation.scopeKey !== scopeKey ||
+            mutation.targetLocalId !== input.targetLocalId
+        )
+      ) {
+        throw new Error("OFFLINE_SCOPE_MISMATCH");
+      }
+      const db = await getDb();
+      await db.withExclusiveTransactionAsync(async (txn) => {
+        const currentLocalSql = await txn.getFirstAsync<LocalExpenseSqlRow>(
+          `SELECT * FROM local_expenses WHERE scope_key = ? AND local_id = ?`,
+          scopeKey,
+          input.targetLocalId
+        );
+        const currentLocalRow = currentLocalSql ? fromSqlLocalExpense(currentLocalSql) : null;
+        const localRevision = (row: LocalExpenseRow | null) =>
+          row
+            ? JSON.stringify([
+                row.scopeKey,
+                row.localId,
+                row.canonicalId,
+                row.childId,
+                row.payload,
+                row.version,
+                row.syncState,
+                row.pendingDelete,
+                row.conflictCurrent,
+                row.lastError,
+                row.failureKind,
+                row.createdAt,
+                row.updatedAt
+              ])
+            : null;
+        const currentMutationRows = await txn.getAllAsync<MutationOutboxSqlRow>(
+          `SELECT * FROM mutation_outbox
+            WHERE scope_key = ? AND target_local_id = ?
+            ORDER BY created_at ASC`,
+          scopeKey,
+          input.targetLocalId
+        );
+        const currentMutations = currentMutationRows.map((row) => ({
+          mutationId: row.mutation_id,
+          inFlight: row.in_flight === 1
+        }));
+        if (
+          localRevision(currentLocalRow) !== localRevision(input.expectedLocalRow) ||
+          JSON.stringify(currentMutations) !== JSON.stringify(input.expectedMutations)
+        ) {
+          throw new Error("OFFLINE_MUTATION_RACE");
+        }
+
+        if (input.localRow) {
+          const row = input.localRow;
+          await txn.runAsync(
+            `INSERT INTO local_expenses
+              (scope_key, local_id, canonical_id, child_id, payload, version, sync_state,
+               pending_delete, conflict_current, last_error, failure_kind, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(local_id) DO UPDATE SET
+               canonical_id = excluded.canonical_id,
+               child_id = excluded.child_id,
+               payload = excluded.payload,
+               version = excluded.version,
+               sync_state = excluded.sync_state,
+               pending_delete = excluded.pending_delete,
+               conflict_current = excluded.conflict_current,
+               last_error = excluded.last_error,
+               failure_kind = excluded.failure_kind,
+               updated_at = excluded.updated_at`,
+            scopeKey,
+            row.localId,
+            row.canonicalId,
+            row.childId,
+            JSON.stringify(row.payload),
+            row.version,
+            row.syncState,
+            row.pendingDelete ? 1 : 0,
+            row.conflictCurrent ? JSON.stringify(row.conflictCurrent) : null,
+            row.lastError,
+            row.failureKind,
+            row.createdAt,
+            row.updatedAt
+          );
+        } else {
+          await txn.runAsync(
+            `DELETE FROM local_expenses WHERE scope_key = ? AND local_id = ?`,
+            scopeKey,
+            input.targetLocalId
+          );
+        }
+        for (const mutationId of input.deleteMutationIds) {
+          await txn.runAsync(
+            `DELETE FROM mutation_outbox
+              WHERE scope_key = ? AND target_local_id = ? AND mutation_id = ?`,
+            scopeKey,
+            input.targetLocalId,
+            mutationId
+          );
+        }
+        for (const mutation of input.upsertMutations) {
+          await txn.runAsync(
+            `INSERT INTO mutation_outbox
+              (scope_key, mutation_id, idempotency_key, operation, target_local_id, payload,
+               expected_version, attempt_count, next_retry_at, last_error, created_at, in_flight)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(mutation_id) DO UPDATE SET
+               idempotency_key = excluded.idempotency_key,
+               operation = excluded.operation,
+               target_local_id = excluded.target_local_id,
+               payload = excluded.payload,
+               expected_version = excluded.expected_version,
+               attempt_count = excluded.attempt_count,
+               next_retry_at = excluded.next_retry_at,
+               last_error = excluded.last_error,
+               in_flight = excluded.in_flight`,
+            scopeKey,
+            mutation.mutationId,
+            mutation.idempotencyKey,
+            mutation.operation,
+            mutation.targetLocalId,
+            mutation.payload ? JSON.stringify(mutation.payload) : null,
+            mutation.expectedVersion,
+            mutation.attemptCount,
+            mutation.nextRetryAt,
+            mutation.lastError,
+            mutation.createdAt,
+            mutation.inFlight ? 1 : 0
+          );
+        }
+      });
+    },
+
+    async acknowledgeOutboxMutation(input) {
+      const db = await getDb();
+      let remainingMutationCount = 0;
+      await db.withExclusiveTransactionAsync(async (txn) => {
+        await txn.runAsync(
+          `DELETE FROM mutation_outbox
+            WHERE scope_key = ? AND target_local_id = ? AND mutation_id = ?`,
+          scopeKey,
+          input.targetLocalId,
+          input.mutationId
+        );
+        const countRow = await txn.getFirstAsync<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM mutation_outbox
+            WHERE scope_key = ? AND target_local_id = ?`,
+          scopeKey,
+          input.targetLocalId
+        );
+        remainingMutationCount = countRow?.count ?? 0;
+        if (input.deleteLocalExpense && remainingMutationCount === 0) {
+          await txn.runAsync(
+            `DELETE FROM local_expenses WHERE scope_key = ? AND local_id = ?`,
+            scopeKey,
+            input.targetLocalId
+          );
+          return;
+        }
+        const currentSql = await txn.getFirstAsync<LocalExpenseSqlRow>(
+          `SELECT * FROM local_expenses WHERE scope_key = ? AND local_id = ?`,
+          scopeKey,
+          input.targetLocalId
+        );
+        if (!currentSql) return;
+        const current = fromSqlLocalExpense(currentSql);
+        const safePatch: Partial<LocalExpenseRow> | undefined = input.rowPatch
+          ? { ...input.rowPatch }
+          : undefined;
+        if (remainingMutationCount > 0 && safePatch) delete safePatch.payload;
+        const merged: LocalExpenseRow = {
+          ...current,
+          ...safePatch,
+          scopeKey,
+          syncState:
+            remainingMutationCount > 0 ? "pending" : safePatch?.syncState ?? "synced",
+          updatedAt: input.acknowledgedAt
+        };
+        await txn.runAsync(
+          `UPDATE local_expenses SET
+            canonical_id = ?, child_id = ?, payload = ?, version = ?, sync_state = ?,
+            pending_delete = ?, conflict_current = ?, last_error = ?, failure_kind = ?, updated_at = ?
+           WHERE scope_key = ? AND local_id = ?`,
+          merged.canonicalId,
+          merged.childId,
+          JSON.stringify(merged.payload),
+          merged.version,
+          merged.syncState,
+          merged.pendingDelete ? 1 : 0,
+          merged.conflictCurrent ? JSON.stringify(merged.conflictCurrent) : null,
+          merged.lastError,
+          merged.failureKind,
+          merged.updatedAt,
+          scopeKey,
+          input.targetLocalId
+        );
+      });
+      return { remainingMutationCount };
+    },
+
     async getLegacyQuarantineSummary() {
       const db = await getDb();
       const rows = await db.getAllAsync<{ classification: string; count: number }>(
@@ -527,6 +839,199 @@ export function createSqliteOfflineStore(scopeKey: string): OfflineStore {
         }
         await txn.runAsync(`DELETE FROM legacy_quarantine WHERE id = ?`, id);
       });
+    },
+
+    async getRemoteSyncMetadata() {
+      const db = await getDb();
+      const row = await db.getFirstAsync<{ value: string }>(
+        `SELECT value FROM offline_metadata WHERE key = ?`,
+        remoteSyncMetadataKey(scopeKey)
+      );
+      return parseRemoteSyncMetadata(row?.value);
+    },
+
+    async resetRemoteSyncMetadata(input) {
+      const db = await getDb();
+      const reset = emptyRemoteSyncMetadata();
+      await db.withExclusiveTransactionAsync(async (txn) => {
+        if (input.ownerStillCurrent && !input.ownerStillCurrent()) {
+          throw new Error("SYNC_OWNER_CHANGED");
+        }
+        const currentRow = await txn.getFirstAsync<{ value: string }>(
+          `SELECT value FROM offline_metadata WHERE key = ?`,
+          remoteSyncMetadataKey(scopeKey)
+        );
+        const current = parseRemoteSyncMetadata(currentRow?.value);
+        if (current.cursor !== input.expectedCursor) {
+          throw new Error("SYNC_CURSOR_CAS_MISMATCH");
+        }
+        if (input.ownerStillCurrent && !input.ownerStillCurrent()) {
+          throw new Error("SYNC_OWNER_CHANGED");
+        }
+        await txn.runAsync(
+          `INSERT INTO offline_metadata (key, value, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          remoteSyncMetadataKey(scopeKey),
+          JSON.stringify(reset),
+          input.resetAt
+        );
+        if (input.ownerStillCurrent && !input.ownerStillCurrent()) {
+          throw new Error("SYNC_OWNER_CHANGED");
+        }
+      });
+      return reset;
+    },
+
+    async setRemoteSyncAuthorization(input) {
+      const db = await getDb();
+      let committed: RemoteSyncMetadata | undefined;
+      await db.withExclusiveTransactionAsync(async (txn) => {
+        if (input.ownerStillCurrent && !input.ownerStillCurrent()) {
+          throw new Error("SYNC_OWNER_CHANGED");
+        }
+        const currentRow = await txn.getFirstAsync<{ value: string }>(
+          `SELECT value FROM offline_metadata WHERE key = ?`,
+          remoteSyncMetadataKey(scopeKey)
+        );
+        committed = {
+          ...parseRemoteSyncMetadata(currentRow?.value),
+          authorizationState: input.state,
+          authorizationCheckedAt: input.checkedAt
+        };
+        await txn.runAsync(
+          `INSERT INTO offline_metadata (key, value, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          remoteSyncMetadataKey(scopeKey),
+          JSON.stringify(committed),
+          input.checkedAt
+        );
+        if (input.ownerStillCurrent && !input.ownerStillCurrent()) {
+          throw new Error("SYNC_OWNER_CHANGED");
+        }
+      });
+      if (!committed) throw new Error("SYNC_AUTHORIZATION_NOT_COMMITTED");
+      return committed;
+    },
+
+    async applyRemoteSyncPage(input) {
+      const db = await getDb();
+      let committed:
+        | {
+            affectedChildIds: string[];
+            metadata: RemoteSyncMetadata;
+          }
+        | undefined;
+      await db.withExclusiveTransactionAsync(async (txn) => {
+        if (input.ownerStillCurrent && !input.ownerStillCurrent()) {
+          throw new Error("SYNC_OWNER_CHANGED");
+        }
+        const metadataRow = await txn.getFirstAsync<{ value: string }>(
+          `SELECT value FROM offline_metadata WHERE key = ?`,
+          remoteSyncMetadataKey(scopeKey)
+        );
+        const currentMetadata = parseRemoteSyncMetadata(metadataRow?.value);
+        if (currentMetadata.cursor !== input.expectedCursor) {
+          throw new Error("SYNC_CURSOR_CAS_MISMATCH");
+        }
+        const localRows = (
+          await txn.getAllAsync<LocalExpenseSqlRow>(
+            `SELECT * FROM local_expenses WHERE scope_key = ? ORDER BY created_at ASC`,
+            scopeKey
+          )
+        ).map(fromSqlLocalExpense);
+        const mutations = (
+          await txn.getAllAsync<MutationOutboxSqlRow>(
+            `SELECT * FROM mutation_outbox WHERE scope_key = ? ORDER BY created_at ASC`,
+            scopeKey
+          )
+        ).map(fromSqlMutation);
+        const reconciled = reconcileRemoteSyncPage(
+          scopeKey,
+          localRows,
+          mutations,
+          input
+        );
+
+        for (const mutationId of reconciled.deleteMutationIds) {
+          await txn.runAsync(
+            `DELETE FROM mutation_outbox WHERE scope_key = ? AND mutation_id = ?`,
+            scopeKey,
+            mutationId
+          );
+        }
+        for (const localId of reconciled.deleteLocalIds) {
+          await txn.runAsync(
+            `DELETE FROM local_expenses WHERE scope_key = ? AND local_id = ?`,
+            scopeKey,
+            localId
+          );
+        }
+        for (const row of reconciled.upserts) {
+          await txn.runAsync(
+            `INSERT INTO local_expenses
+              (scope_key, local_id, canonical_id, child_id, payload, version, sync_state,
+               pending_delete, conflict_current, last_error, failure_kind, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(local_id) DO UPDATE SET
+               canonical_id = excluded.canonical_id,
+               child_id = excluded.child_id,
+               payload = excluded.payload,
+               version = excluded.version,
+               sync_state = excluded.sync_state,
+               pending_delete = excluded.pending_delete,
+               conflict_current = excluded.conflict_current,
+               last_error = excluded.last_error,
+               failure_kind = excluded.failure_kind,
+               updated_at = excluded.updated_at`,
+            scopeKey,
+            row.localId,
+            row.canonicalId,
+            row.childId,
+            JSON.stringify(row.payload),
+            row.version,
+            row.syncState,
+            row.pendingDelete ? 1 : 0,
+            row.conflictCurrent ? JSON.stringify(row.conflictCurrent) : null,
+            row.lastError,
+            row.failureKind,
+            row.createdAt,
+            row.updatedAt
+          );
+        }
+
+        const metadata: RemoteSyncMetadata = {
+          protocolVersion: 2,
+          cursor: input.nextCursor,
+          baselineComplete: !input.hasMore,
+          lastSuccessfulPullAt: input.hasMore
+            ? currentMetadata.lastSuccessfulPullAt
+            : input.appliedAt,
+          authorizationState: "authorized",
+          authorizationCheckedAt: input.appliedAt
+        };
+        if (input.ownerStillCurrent && !input.ownerStillCurrent()) {
+          throw new Error("SYNC_OWNER_CHANGED");
+        }
+        await txn.runAsync(
+          `INSERT INTO offline_metadata (key, value, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          remoteSyncMetadataKey(scopeKey),
+          JSON.stringify(metadata),
+          input.appliedAt
+        );
+        if (input.ownerStillCurrent && !input.ownerStillCurrent()) {
+          throw new Error("SYNC_OWNER_CHANGED");
+        }
+        committed = {
+          affectedChildIds: reconciled.affectedChildIds,
+          metadata
+        };
+      });
+      if (!committed) throw new Error("SYNC_PAGE_NOT_COMMITTED");
+      return committed;
     }
   };
 }

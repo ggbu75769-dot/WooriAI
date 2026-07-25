@@ -45,6 +45,16 @@ export class RemotePermissionDeniedError extends RemotePermanentError {
   }
 }
 
+/** Internal control-flow error used when a flush no longer belongs to the active
+ * login/household epoch. It must never consume retry budget or surface as a
+ * user-facing sync failure. */
+export class RemoteSyncCancelledError extends Error {
+  constructor() {
+    super("SYNC_OWNER_CHANGED");
+    this.name = "RemoteSyncCancelledError";
+  }
+}
+
 /** Anything else (network failure, timeout, 5xx) is treated by flushOutbox as transient: the
  * row stays 'pending' and is retried later with exponential backoff. No dedicated error class
  * is needed for that case -- it's simply "not one of the two types above". */

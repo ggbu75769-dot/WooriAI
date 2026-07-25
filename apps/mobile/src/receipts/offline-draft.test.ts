@@ -62,6 +62,48 @@ describe("scoped receipt offline draft", () => {
     expect(await storage.readReceiptOfflineDraft("v1:user-b:house-b", "read-b")).not.toBeNull();
   });
 
+  it("retains only the newly active scope during an account transition", async () => {
+    const storage = await loadModules();
+    await storage.writeReceiptOfflineDraft(storage.createReceiptOfflineDraft(input("v1:user-a:house-a")), "write-a");
+    await storage.writeReceiptOfflineDraft(storage.createReceiptOfflineDraft({ ...input("v1:user-b:house-b"), localId: "local-receipt-2" }), "write-b");
+
+    await storage.clearReceiptOfflineDraftsExceptScope("v1:user-b:house-b", "retain-b");
+    expect(await storage.readReceiptOfflineDraft("v1:user-a:house-a", "read-a")).toBeNull();
+    expect(await storage.readReceiptOfflineDraft("v1:user-b:house-b", "read-b")).not.toBeNull();
+  });
+
+  it("serializes logout cleanup after an already-started draft write so the draft cannot resurrect", async () => {
+    const storage = await loadModules();
+    await storage.clearAllReceiptOfflineDrafts();
+    const draft = storage.createReceiptOfflineDraft(input("v1:user-a:house-a"));
+    const originalSetItem = storage.persistStorage.setItem.bind(storage.persistStorage);
+    let releaseWrite!: () => void;
+    let markWriteStarted!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve;
+    });
+    const writeBarrier = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    let delayed = false;
+    vi.spyOn(storage.persistStorage, "setItem").mockImplementation(async (key, value) => {
+      if (key === storage.RECEIPT_DRAFT_STORAGE_KEY && !delayed) {
+        delayed = true;
+        markWriteStarted();
+        await writeBarrier;
+      }
+      await originalSetItem(key, value);
+    });
+
+    const staleWrite = storage.writeReceiptOfflineDraft(draft, "stale-write");
+    await writeStarted;
+    const logoutCleanup = storage.clearAllReceiptOfflineDrafts();
+    releaseWrite();
+    await Promise.all([staleWrite, logoutCleanup]);
+
+    expect(await storage.readReceiptOfflineDraft(draft.scopeKey, "after-logout")).toBeNull();
+  });
+
   it("quarantines a corrupt payload instead of restoring it", async () => {
     const storage = await loadModules();
     await storage.persistStorage.setItem(storage.RECEIPT_DRAFT_STORAGE_KEY, "{not-json");
