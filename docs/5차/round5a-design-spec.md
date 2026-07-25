@@ -31,7 +31,7 @@ semantic:{ success:"#2E9E6B", warning:"#E8A13A", danger:"#D3382F", info:"#5B7FA6
 - `StageBadge`: 아이 단계 칩(코랄 배경 50 + 글자 700) — 홈 헤더와 준비템 필터가 동일 스타일 공유.
 
 ## D1. 탭바
-- 비활성 outlined / 활성 filled + coral-500 틴트, 라벨 4개 상시 표시.
+- 비활성 outlined / 활성 filled + coral-500 틴트, 라벨 5개 상시 표시 (`홈 / 기록 / 준비템 / 리포트 / 더보기`).
 - 아이콘 패밀리 통일(획 두께·비례 일치). 현 커스텀 글리프를 하나의 세트로 재작성.
 
 ## D2. 홈 탭

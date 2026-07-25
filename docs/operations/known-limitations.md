@@ -1,6 +1,6 @@
 # 알려진 한계 (Known Limitations)
 
-갱신: 2026-07-12 (라운드 4) · 브랜치: codex/source-audit-standalone-apk
+갱신: 2026-07-24 · 브랜치: codex/sprint2-catalog-payments
 
 라운드 4에서 해소된 항목은 제거했다. 남은 것은 (A) 외부 계정·키가 필요한 항목, (B) 위험도 낮은 후속 개선이다.
 
@@ -32,10 +32,8 @@
 ## B. 후속 개선 (위험도 낮음)
 
 - 준비템 탭 기본 선택이 고정 "12-24개월"(픽셀락 승인 화면 기준) — 아이 단계 연동은 디자인 승인 후.
-- 아이 단계 계산 기본 '오늘'이 UTC (`packages/domain/src/stage.ts`) — KST 00~09시 하루 오차.
-- 지출 수정 화면에 날짜/카테고리 편집 UI 미노출 (API는 지원).
 - idempotency_keys 만료 행 정리는 로그인 시 refresh 토큰 정리와 달리 스케줄러 미구현 (24h TTL 필드는 존재).
-- 도넛 원호 근사 표현(범례 %는 실데이터), 앱 정보 버전 하드코딩, `isValidCalendarDate` 로컬 복제.
+- 도넛 원호 근사 표현(범례 %는 실데이터), `isValidCalendarDate` 로컬 복제.
 - 관리자 계정 관리 API 미구현 — 계정 추가/역할 변경은 seed 또는 DB 직접 조작.
 - 대화형 알림/온보딩 이어하기 등 P1 항목 일부는 후속 라운드.
 

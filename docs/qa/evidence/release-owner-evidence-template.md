@@ -15,13 +15,13 @@ Local code gates are tracked in `docs/qa/evidence/latest-release-gate.md`. This 
 
 | Checklist ID | Owner | Status | Required proof | Evidence link | Waiver approver | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| REL-PRE-001 | Release Manager | pending | Code freeze branch, release version, tag or build number. |  |  | Workspace is not a git repository, so local proof is unavailable. |
+| REL-PRE-001 | Release Manager | pending | Code freeze branch, release version, tag or build number. |  |  | GitHub repository and remote branch exists; local changes still need reviewed commits and release-owner version/tag approval. |
 | REL-PRE-003 | PM/Legal | pending | Privacy policy, terms, child-data handling, affiliate/sponsor disclosure, and medical-expression review approval. |  |  | Must include approval date and reviewer. |
 | REL-PRE-005 | Tech Lead/PM | pending | Analytics event collection proof for onboarding, expense creation, and product-link click, or MVP analytics waiver. |  |  | Local MVP runtime uses stubs. |
 | REL-INFRA-001 | Infra Owner | pending | Production env inventory and secret scan output. |  |  | Do not paste secret values into this file. Link to redacted evidence only. |
 | REL-INFRA-002 | DB Owner | pending | Migration deploy dry-run, backup procedure, and rollback restore evidence against PostgreSQL or production-equivalent DB. |  |  | Prisma validate/generate alone is not enough. |
 | REL-INFRA-003 | Infra Owner | pending | S3/MinIO bucket, CORS, lifecycle/retention, and access-policy proof, or explicit storage waiver. |  |  | Needed before file-backed import/storage features are enabled. |
-| REL-BUILD-002 | Mobile Release Owner | pending | Expo/EAS iOS and Android internal build artifacts plus device or simulator install evidence. |  |  | Include build URLs, profiles, and install confirmation. |
+| REL-BUILD-002 | Mobile Release Owner | pending | Production-signed/EAS iOS and Android artifacts plus physical-device or simulator install evidence. |  |  | Local Android emulator and internal APK proof pass; attach production build URLs, signing profile, iOS proof, and install confirmation. |
 | REL-QA-001 | QA Owner | pending | Manual QR-00 through QR-15 pass evidence, including QR-00, QR-13, QR-14, and environment-specific flows. |  |  | Automated regression is green, but manual pass is partial. |
 | REL-STORE-001 | PM/Design | pending | Store metadata, screenshots, privacy labels, review notes, and app description approval. |  |  | Required before app-store submission. |
 | REL-LAUNCH-001 | Release Manager | pending | Production deploy log for DB -> API -> Admin -> Mobile rollout. |  |  | Must include timestamps and rollback readiness confirmation. |

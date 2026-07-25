@@ -85,6 +85,7 @@ describe("Batch 11 release readiness artifacts", () => {
       "docs/qa/functional-verification-report.md",
       "docs/qa/completion-audit.md",
       "docs/qa/evidence/release-owner-evidence-template.md",
+      "docs/operations/github-integration-plan-2026-07-23.md",
       "docs/ui-pixel-lock/native-screenshots/manifest.json"
     ];
     for (const relativePath of requiredDocs) {
@@ -119,15 +120,25 @@ describe("Batch 11 release readiness artifacts", () => {
     const functionalVerification = read("docs/qa/functional-verification-report.md");
     expect(functionalVerification).toContain("Local functional verification is PASS");
     expect(functionalVerification).toContain("Feature Verification Matrix");
-    expect(functionalVerification).toContain("UI Pixel Lock remains FAIL");
+    expect(functionalVerification).toContain("Android Pixel Lock is PASS");
+    expect(functionalVerification).toContain("9/9");
 
     const completionAudit = read("docs/qa/completion-audit.md");
     expect(completionAudit).toContain("Local MVP implementation and release-candidate code gates are verified");
     expect(completionAudit).toContain("docs/qa/functional-verification-report.md");
     expect(completionAudit).toContain("Production release approval is NOT PROVEN");
-    expect(completionAudit).toContain("UI Pixel Lock final report is FAIL");
-    expect(completionAudit).toContain("local Android native screenshot proof is captured");
+    expect(completionAudit).toContain("Android Pixel Lock final report is PASS");
+    expect(completionAudit).toContain("all 9 screens");
+    expect(completionAudit).toContain("internal-only");
     expect(completionAudit).toContain("REL-BUILD-002");
+
+    expect(releaseChecklist).toContain("codex/sprint2-catalog-payments");
+    expect(releaseChecklist).toContain("Android emulator install and adb screenshot proof");
+
+    const githubIntegrationPlan = read("docs/operations/github-integration-plan-2026-07-23.md");
+    expect(githubIntegrationPlan).toContain("Batch 1");
+    expect(githubIntegrationPlan).toContain("Batch 5");
+    expect(githubIntegrationPlan).toContain("Do not stage");
 
     const nativeProofManifest = read("docs/ui-pixel-lock/native-screenshots/manifest.json");
     expect(nativeProofManifest).toContain("com.anonymous.wooriai");
@@ -155,5 +166,7 @@ describe("Batch 11 release readiness artifacts", () => {
     for (const requiredField of ["Owner", "Status", "Evidence link", "Waiver approver"]) {
       expect(releaseOwnerEvidence).toContain(requiredField);
     }
+    expect(releaseOwnerEvidence).toContain("remote branch exists");
+    expect(releaseOwnerEvidence).not.toContain("Workspace is not a git repository");
   });
 });

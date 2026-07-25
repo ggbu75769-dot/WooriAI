@@ -23,6 +23,8 @@ Project: `F:\WooriAI`
 ## Android
 - Package is discovered from `apps/mobile/app.json`, Gradle, manifest, then device packages.
 - Known package: `com.anonymous.wooriai`.
+- Every final APK file—including standalone, production, Pixel Lock, and any future build profile—MUST be written directly to the project root (`F:\WooriAI`) and nowhere else.
+- Never place or copy final APK files under `artifacts`; keep only reports, screenshots, diffs, heatmaps, logs, and other non-APK evidence there.
 - ADB is auto-discovered from `ADB_PATH`, PATH, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or `C:\Users\nj970\AppData\Local\Android\Sdk\platform-tools\adb.exe`.
 - Artifacts: `artifacts/pixel-lock/android/{screenshots,diffs,heatmaps,logs,reports}`.
 - If no device exists, use isolated AVD home `F:\WooriAI\.android-avd`; user-home `C:\Users\nj970\.android\avd` is a broken link on this machine.
@@ -54,7 +56,7 @@ Project: `F:\WooriAI`
 
 ## Forbidden Changes
 - Do not rename P0 screen IDs.
-- Keep 4 bottom tabs: `홈 / 기록 / 준비템 / 리포트`.
+- Keep 5 bottom tabs: `홈 / 기록 / 준비템 / 리포트 / 더보기`.
 - Keep MVP loop: expense record -> total -> prep item -> purchase link -> post-purchase record/status.
 - Keep affiliate disclosure adjacent to purchase CTA.
 - Keep recommendation ranking independent of commission.

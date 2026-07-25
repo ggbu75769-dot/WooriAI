@@ -21,7 +21,8 @@
 ```bash
 # 독립 실행형 테스트 APK (EXPO_PUBLIC_TEST_LOGIN=1, 온디바이스 로컬 백엔드)
 npx --yes pnpm@11.7.0 android:build-apk
-# → artifacts/android/wooriai-0.0.0-release.apk (+ .json 리포트)
+# → 프로젝트 루트/wooriai-0.0.0-release-standalone.apk
+# → JSON 리포트는 artifacts/android/ 유지
 
 # 실서버 연동 릴리즈 빌드 (TEST_LOGIN=0, EXPO_PUBLIC_API_BASE_URL=https 서버)
 #   릴리즈 매니페스트는 cleartext HTTP 차단 → API는 반드시 https

@@ -1,11 +1,11 @@
 # WooriAI Release Gate Evidence
 
-Generated: 2026-07-18T02:27:55.419Z
+Generated: 2026-07-23T05:44:38.905Z
 Mode: production-config
 
 | Gate | Command | Result | Duration |
 | --- | --- | --- | --- |
-| Production config | `pnpm release:config` | FAIL | 4ms |
+| Production config | `pnpm release:config` | FAIL | 2ms |
 
 ## Production configuration blockers
 

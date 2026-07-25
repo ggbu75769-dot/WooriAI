@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-19T20:41:37.116Z",
+  "generatedAt": "2026-07-24T05:21:38.054Z",
   "actor": "Android build engineer and release reviewer",
   "input": "current-source standalone APK, binary manifest, Hermes bundle, and signer certificate",
   "mission": "prove native properties while refusing to qualify an internal fixture APK as a store artifact",
@@ -9,10 +9,10 @@
   "storeArtifact": false,
   "productionCandidate": false,
   "apkPath": "F:\\WooriAI\\artifacts\\android\\wooriai-0.0.0-release-standalone.apk",
-  "apkBytes": 77308226,
-  "apkSha256": "19AB0F1C048576716A3F326D90BD9F7DDA53037755B1E560A83314381387DA6E",
-  "hermesBytes": 2734804,
-  "hermesSha256": "1F0A2AEAD99EC711FCD293750D7A03951242D0B670560A2D5C6721FDBD549C6B",
+  "apkBytes": 79531958,
+  "apkSha256": "35D8F684195ED2DA209936A3D245231FEC84C448A8B72D61F72400119613880A",
+  "hermesBytes": 2821956,
+  "hermesSha256": "D7D059A9CA13652D605D75610D8F443359003A29AD918F98FF451CD174F55020",
   "packageName": "com.anonymous.wooriai",
   "versionCode": "1",
   "versionName": "0.0.0",
@@ -47,20 +47,17 @@
     "localhost"
   ],
   "contamination": "INTERNAL_TEST_EXPECTED",
-  "sourceSnapshotSha256": "15C9FF8046AFD16AA8444D139474EA22E1CAFEF8C8F60107FBECE4C996373477",
-  "currentSourceSnapshotSha256": "15C9FF8046AFD16AA8444D139474EA22E1CAFEF8C8F60107FBECE4C996373477",
+  "sourceSnapshotSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
+  "currentSourceSnapshotSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
   "sourceSnapshotVerification": {
-    "expectedSha256": "15C9FF8046AFD16AA8444D139474EA22E1CAFEF8C8F60107FBECE4C996373477",
-    "beforeSha256": "15C9FF8046AFD16AA8444D139474EA22E1CAFEF8C8F60107FBECE4C996373477",
-    "afterSha256": "15C9FF8046AFD16AA8444D139474EA22E1CAFEF8C8F60107FBECE4C996373477",
+    "expectedSha256": null,
+    "beforeSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
+    "afterSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
     "status": "VERIFIED_STABLE"
   },
   "sourceBinding": "BOUND",
   "buildTask": "assembleRelease --max-workers=1 --no-parallel -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64 --rerun-tasks",
-  "cleanedGeneratedPaths": [
-    "F:\\WooriAI\\apps\\mobile\\android\\app\\build",
-    "F:\\WooriAI\\apps\\mobile\\android\\build"
-  ],
+  "cleanedGeneratedPaths": [],
   "notes": [
     "debug certificate",
     "test login and standalone fixture runtime enabled",

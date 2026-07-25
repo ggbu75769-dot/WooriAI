@@ -20,4 +20,4 @@ Updated: 2026-07-15 (Asia/Seoul)
 | Android | reproducible embedded APK installed on Android 15; 9/9 adb Pixel Lock | approved package/version/signing, AAB, Play, staging, beta absent | M3 internal visual |
 | iOS | provider-neutral architecture and follow-up checklist | native build, Apple credentials, TestFlight, push/login/deletion proof absent | M1 |
 
-Locked regression contract remains intact: P0 screen IDs; four bottom tabs; expense → total → prep item → purchase link → post-purchase status loop; adjacent affiliate disclosure; commission-independent ranking; Excel preview-before-save; family RBAC.
+Locked regression contract remains intact: P0 screen IDs; five bottom tabs (`홈 / 기록 / 준비템 / 리포트 / 더보기`); expense → total → prep item → purchase link → post-purchase status loop; adjacent affiliate disclosure; commission-independent ranking; Excel preview-before-save; family RBAC.

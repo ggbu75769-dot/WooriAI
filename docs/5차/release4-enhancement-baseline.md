@@ -27,7 +27,7 @@ restore, clean, stash-drop, force-push, or broad staging command is permitted.
 
 - Root `AGENTS.md`: installed Android app plus adb `screencap` is the final visual
   truth; browser screenshots are not final evidence.
-- `docs/dev/source-lock.md`: locked product loop, four bottom tabs, architecture,
+- `docs/dev/source-lock.md`: locked product loop, five bottom tabs, architecture,
   API/DB compatibility, and affiliate/import/RBAC constraints remain authoritative.
 - `docs/dev/do-not-change.md`: protected product, security, and compliance contracts
   remain in force.
