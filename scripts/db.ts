@@ -139,11 +139,15 @@ function startPortable() {
     );
   }
   if (!portableReady()) {
-    execFileSync(pgExe("pg_ctl"), ["-D", portablePgData, "-l", portablePgLog, "-o", "-p 5432", "start"], {
-      stdio: "inherit"
+    execFileSync(pgExe("pg_ctl"), ["-D", portablePgData, "-l", portablePgLog, "-o", "-p 5432", "-W", "start"], {
+      stdio: "ignore",
+      windowsHide: true
     });
-    for (let i = 0; i < 15 && !portableReady(); i += 1) {
+    for (let i = 0; i < 60 && !portableReady(); i += 1) {
       sleepSeconds(1);
+    }
+    if (!portableReady()) {
+      throw new Error("PORTABLE_POSTGRES_START_TIMEOUT: 포터블 PostgreSQL이 60초 안에 준비되지 않았습니다.");
     }
   }
   const dbExists = execFileSync(

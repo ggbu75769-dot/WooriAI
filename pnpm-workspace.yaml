@@ -28,10 +28,17 @@ overrides:
   '@smithy/node-http-handler': 4.9.6
   '@smithy/signature-v4': 5.6.5
   '@xmldom/xmldom': 0.8.13
+  body-parser: 1.20.6
+  brace-expansion: 5.0.8
+  fast-xml-parser: 5.7.0
+  fast-uri: 3.1.4
+  file-type: 21.3.4
   multer: 2.2.0
-  postcss: 8.5.10
+  postcss: 8.5.18
   qs: 6.15.2
   react: 18.3.1
   react-dom: 18.3.1
   react-native-screens: 4.4.0
-  tar: 7.5.16
+  sharp: 0.35.3
+  tar: 7.5.19
+  uuid: 11.1.1

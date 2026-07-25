@@ -5,6 +5,26 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**"]
     },
+    "@wooriai/config#build": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@wooriai/contracts#build": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@wooriai/domain#build": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@wooriai/test-utils#build": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@wooriai/ui#build": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
     "lint": {
       "dependsOn": ["^lint"]
     },

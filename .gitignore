@@ -19,3 +19,4 @@ ios/
 *.apk
 *.tsbuildinfo
 artifacts/
+.codex-remote-attachments/

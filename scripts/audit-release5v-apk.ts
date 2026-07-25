@@ -9,7 +9,7 @@ const repoRoot = process.cwd();
 const mobileRoot = resolve(repoRoot, "apps", "mobile");
 const sdkRoot = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || join(process.env.LOCALAPPDATA || "", "Android", "Sdk");
 const appConfig = JSON.parse(readFileSync(join(mobileRoot, "app.json"), "utf8")) as { expo: { version: string } };
-const apkPath = resolve(repoRoot, "artifacts", "android", `wooriai-${appConfig.expo.version}-release-standalone.apk`);
+const apkPath = resolve(repoRoot, `wooriai-${appConfig.expo.version}-release-standalone.apk`);
 const buildReportPath = resolve(repoRoot, "artifacts", "android", `wooriai-${appConfig.expo.version}-release-standalone.json`);
 const outputPath = resolve(repoRoot, "docs", "qa", "evidence", "release5v-native-artifact-audit.json");
 

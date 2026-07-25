@@ -1,10 +1,11 @@
 import { defineConfig } from "vitest/config";
+import { releaseGateE2eFiles } from "./vitest.test-groups";
 
 export default defineConfig({
   test: {
     globalSetup: ["./test/global-setup.ts"],
     include: ["src/**/*.test.ts", "test/**/*.test.ts"],
-    exclude: ["test/admin-browser/**/*.browser.test.ts"],
+    exclude: [...releaseGateE2eFiles, "test/admin-browser/**/*.browser.test.ts"],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     // Capped thread concurrency: this repo's dev environment (Windows, Node

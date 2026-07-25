@@ -13,7 +13,7 @@ import { spawnSync } from "node:child_process";
 const repoRoot = process.cwd();
 const apkPath = resolve(
   repoRoot,
-  process.env.RELEASE4_APK_PATH ?? "artifacts/android/wooriai-0.0.0-release-standalone.apk"
+  process.env.RELEASE4_APK_PATH ?? "wooriai-0.0.0-release-standalone.apk"
 );
 const buildReportPath = apkPath.replace(/\.apk$/i, ".json");
 const outputPath = resolve(

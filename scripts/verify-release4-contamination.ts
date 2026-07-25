@@ -6,14 +6,14 @@ import { spawnSync } from "node:child_process";
 const repoRoot = process.cwd();
 const productionApkPath = resolve(
   repoRoot,
-  process.env.RELEASE4_PRODUCTION_APK_PATH ?? "artifacts/android/wooriai-0.0.0-release-production.apk"
+  process.env.RELEASE4_PRODUCTION_APK_PATH ?? "wooriai-0.0.0-release-production.apk"
 );
 const productionBundlePath = process.env.RELEASE4_PRODUCTION_BUNDLE_PATH
   ? resolve(repoRoot, process.env.RELEASE4_PRODUCTION_BUNDLE_PATH)
   : null;
 const standaloneApkPath = resolve(
   repoRoot,
-  process.env.RELEASE4_STANDALONE_APK_PATH ?? "artifacts/android/wooriai-0.0.0-release-standalone.apk"
+  process.env.RELEASE4_STANDALONE_APK_PATH ?? "wooriai-0.0.0-release-standalone.apk"
 );
 const outputPath = resolve(
   repoRoot,

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,8 +6,18 @@ import {
   createAndroidBuildPlan,
   validateApkNativeLibraries
 } from "./android-build-plan";
+import {
+  createApkArtifactMetadata,
+  createExpoPrebuildInvocation,
+  createGradleInvocation,
+  formatAndroidBuildHelp,
+  parseAndroidBuildCli,
+  sha256Bytes,
+  type AndroidBuildProfile
+} from "./android-build-contract";
 import { verifyBuildSourceSnapshots } from "./lib/release5v-source-binding";
 import { computeRelease5vSourceSnapshot } from "./lib/release5v-source-snapshot";
+import { syncAndroidBrandingResources } from "./lib/android-branding";
 
 const repoRoot = process.cwd();
 const mobileRoot = join(repoRoot, "apps", "mobile");
@@ -20,31 +29,13 @@ const appBuildGradlePath = join(androidDir, "app", "build.gradle");
 const staleSourceBundlePath = join(androidDir, "app", "src", "main", "assets", "index.android.bundle");
 const generatedBundlePath = join(androidDir, "app", "build", "generated", "assets", "createBundleReleaseJsAndAssets", "index.android.bundle");
 
-type BuildProfile = "standalone" | "production";
-
 // "standalone" is the existing demo build: local test login is force-enabled so the APK is
 // usable without a real backend. "production" is a real-user build: test login must be off and
 // a real API base URL is required so the app can never silently ship pointed at localhost.
-const profileTestLoginEnv: Record<BuildProfile, "1" | "0"> = {
+const profileTestLoginEnv: Record<AndroidBuildProfile, "1" | "0"> = {
   standalone: "1",
   production: "0"
 };
-
-function parseProfile(): BuildProfile {
-  const args = process.argv.slice(2);
-  const flagIndex = args.indexOf("--profile");
-  const flagValue = flagIndex !== -1 ? args[flagIndex + 1] : undefined;
-  const inlineArg = args.find((arg) => arg.startsWith("--profile="));
-  const inlineValue = inlineArg ? inlineArg.slice("--profile=".length) : undefined;
-  // No flag/env at all preserves the historical default (standalone) so existing callers of
-  // `pnpm android:build-apk` keep working unchanged.
-  const requested = flagValue ?? inlineValue ?? process.env.BUILD_PROFILE ?? "standalone";
-
-  if (requested !== "standalone" && requested !== "production") {
-    throw new Error(`UNKNOWN_BUILD_PROFILE: "${requested}" (expected "standalone" or "production")`);
-  }
-  return requested;
-}
 
 function findJavaHome() {
   if (process.env.JAVA_HOME && existsSync(process.env.JAVA_HOME)) return process.env.JAVA_HOME;
@@ -74,7 +65,7 @@ function run(command: string, args: string[], cwd: string, env: NodeJS.ProcessEn
     cwd,
     env,
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: false,
     maxBuffer: 1024 * 1024 * 32,
     timeout: 1000 * 60 * 20
   });
@@ -143,10 +134,6 @@ function verifyNativeLibraries(apk: string) {
   return validateApkNativeLibraries(result.stdout.split(/\r?\n/).filter(Boolean));
 }
 
-function sha256(bytes: Buffer) {
-  return createHash("sha256").update(bytes).digest("hex").toUpperCase();
-}
-
 function verifyEmbeddedBundle(apk: string) {
   const result = spawnSync("tar", ["-xOf", apk, "assets/index.android.bundle"], {
     cwd: repoRoot,
@@ -161,8 +148,8 @@ function verifyEmbeddedBundle(apk: string) {
     throw new Error(`GENERATED_BUNDLE_MISSING ${generatedBundlePath}`);
   }
   const generated = readFileSync(generatedBundlePath);
-  const embeddedSha256 = sha256(result.stdout);
-  const generatedSha256 = sha256(generated);
+  const embeddedSha256 = sha256Bytes(result.stdout);
+  const generatedSha256 = sha256Bytes(generated);
   if (embeddedSha256 !== generatedSha256) {
     throw new Error(`APK_EMBEDDED_BUNDLE_MISMATCH embedded=${embeddedSha256} generated=${generatedSha256}`);
   }
@@ -173,7 +160,7 @@ function verifyEmbeddedBundle(apk: string) {
   };
 }
 
-function verifyEmbeddedAppConfig(apk: string, profile: BuildProfile) {
+function verifyEmbeddedAppConfig(apk: string, profile: AndroidBuildProfile) {
   const result = spawnSync("tar", ["-xOf", apk, "assets/app.config"], {
     cwd: repoRoot,
     encoding: "utf8",
@@ -208,18 +195,18 @@ function verifyEmbeddedAppConfig(apk: string, profile: BuildProfile) {
   return { embeddedAppConfig: expected };
 }
 
-function main() {
-  const profile = parseProfile();
-  const cleanRequested = process.argv.includes("--clean") || process.argv.includes("--clean-generated");
-  const resumeAfterClean = process.argv.includes("--resume-after-clean");
-  if (cleanRequested && resumeAfterClean) {
-    throw new Error("ANDROID_BUILD_FLAGS_CONFLICT: --clean and --resume-after-clean cannot be combined.");
+async function main() {
+  const options = parseAndroidBuildCli(process.argv.slice(2), process.env.BUILD_PROFILE);
+  if (options.help) {
+    console.log(formatAndroidBuildHelp());
+    return;
   }
+  const { profile, cleanRequested, resumeAfterClean } = options;
   const appConfig = JSON.parse(readFileSync(join(mobileRoot, "app.json"), "utf8")) as {
     expo: { version: string; android: { package: string; versionCode: number } };
   };
   const staleSourceBundleRemoved = removeStaleSourceBundle();
-  const artifactPath = join(repoRoot, "artifacts", "android", `wooriai-${appConfig.expo.version}-release-${profile}.apk`);
+  const artifactPath = join(repoRoot, `wooriai-${appConfig.expo.version}-release-${profile}.apk`);
   const reportPath = join(repoRoot, "artifacts", "android", `wooriai-${appConfig.expo.version}-release-${profile}.json`);
 
   const javaHome = findJavaHome();
@@ -258,10 +245,15 @@ function main() {
     ...(apiBaseUrl ? { EXPO_PUBLIC_API_BASE_URL: apiBaseUrl } : {})
   };
   if (!existsSync(gradlew)) {
-    run("pnpm", ["exec", "expo", "prebuild", "--platform", "android", "--no-install"], mobileRoot, env);
+    const expoPrebuildInvocation = createExpoPrebuildInvocation(process.platform, process.execPath, mobileRoot);
+    if (!existsSync(expoPrebuildInvocation.args[0])) {
+      throw new Error(`EXPO_CLI_NOT_FOUND ${expoPrebuildInvocation.args[0]}`);
+    }
+    run(expoPrebuildInvocation.command, expoPrebuildInvocation.args, mobileRoot, env);
   }
   if (!existsSync(gradlew)) throw new Error(`GRADLEW_NOT_FOUND_AFTER_PREBUILD ${gradlew}`);
   ensureWorkspaceGradleConfig();
+  const nativeBranding = await syncAndroidBrandingResources(mobileRoot, androidDir);
   const cleanedGeneratedPaths = cleanRequested ? cleanGeneratedAndroidOutputs() : [];
   const architectures = process.env.WOORIAI_ANDROID_ARCHITECTURES || DEFAULT_ANDROID_ARCHITECTURES;
   const plannedArgs = createAndroidBuildPlan(androidDir, architectures).taskArgs;
@@ -277,16 +269,20 @@ function main() {
     sourceBeforeBuild.sourceSnapshotSha256,
     sourceBeforeBuild.sourceSnapshotSha256
   );
-  const result = spawnSync(gradlew, args, {
+  const gradleInvocation = createGradleInvocation(process.platform, javaHome, androidDir, gradlew, args);
+  const result = spawnSync(gradleInvocation.command, gradleInvocation.args, {
     cwd: androidDir,
     env,
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: false,
     maxBuffer: 1024 * 1024 * 32,
     timeout: 1000 * 60 * 30
   });
   if (result.status !== 0) {
-    throw new Error(`${gradlew} ${args.join(" ")} failed\n${result.error?.message ?? ""}\n${result.stdout ?? ""}\n${result.stderr ?? ""}`);
+    throw new Error(
+      `${gradleInvocation.command} ${gradleInvocation.args.join(" ")} failed\n` +
+        `${result.error?.message ?? ""}\n${result.stdout ?? ""}\n${result.stderr ?? ""}`
+    );
   }
   if (!existsSync(builtApkPath)) throw new Error(`RELEASE_APK_MISSING ${builtApkPath}`);
   const bundleVerification = verifyEmbeddedBundle(builtApkPath);
@@ -299,8 +295,9 @@ function main() {
     sourceAfterBuild.sourceSnapshotSha256
   );
 
-  mkdirSync(dirname(artifactPath), { recursive: true });
+  mkdirSync(dirname(reportPath), { recursive: true });
   copyFileSync(builtApkPath, artifactPath);
+  const apkArtifactMetadata = createApkArtifactMetadata(readFileSync(artifactPath));
   writeFileSync(
     reportPath,
     JSON.stringify(
@@ -328,9 +325,11 @@ function main() {
         sourceSnapshotFileCount: sourceAfterBuild.fileCount,
         sourceSnapshotNativeExplicitFileCount: sourceAfterBuild.nativeExplicitFileCount,
         sourceSnapshotVerification,
+        nativeBranding,
         ...bundleVerification,
         ...appConfigVerification,
         nativeLibraryVerification,
+        ...apkArtifactMetadata,
         apkPath: artifactPath
       },
       null,
@@ -343,4 +342,7 @@ function main() {
   console.log(`Report: ${reportPath}`);
 }
 
-main();
+void main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

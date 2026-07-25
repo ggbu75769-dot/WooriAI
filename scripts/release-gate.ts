@@ -22,10 +22,29 @@ type GateResult = GateCommand & {
   issues?: ReleaseConfigIssue[];
 };
 
+const evidenceWriteRetryCodes = new Set(["UNKNOWN", "EBUSY", "EACCES", "EPERM"]);
+
+function writeFileWithRetry(path: string, contents: string) {
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      writeFileSync(path, contents, "utf8");
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!code || !evidenceWriteRetryCodes.has(code) || attempt === maxAttempts) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * attempt);
+    }
+  }
+}
+
 const devDatabaseUrl = "postgresql://wooriai:wooriai_dev_password@localhost:5432/wooriai_dev";
 const gateCommands: GateCommand[] = [
   { id: "install", label: "Install", display: "pnpm install --frozen-lockfile", command: "pnpm", args: ["install", "--frozen-lockfile"], timeoutMs: 5 * 60_000 },
+  { id: "mobile-deps", label: "Mobile SDK dependencies", display: "pnpm mobile:deps:check", command: "pnpm", args: ["mobile:deps:check"], timeoutMs: 5 * 60_000 },
   { id: "env", label: "Env example", display: "pnpm check:env:example", command: "pnpm", args: ["check:env:example"] },
+  { id: "secret-scan", label: "Secret scan", display: "pnpm security:secrets", command: "pnpm", args: ["security:secrets"], timeoutMs: 5 * 60_000 },
+  { id: "prod-audit", label: "Production dependency audit", display: "pnpm security:audit", command: "pnpm", args: ["security:audit"], timeoutMs: 5 * 60_000 },
   {
     id: "prisma-validate",
     label: "Prisma validate",
@@ -54,6 +73,7 @@ const gateCommands: GateCommand[] = [
     timeoutMs: 15 * 60_000
   },
   { id: "api-e2e", label: "API e2e", display: "pnpm --filter api test:e2e", command: "pnpm", args: ["--filter", "api", "test:e2e"], timeoutMs: 10 * 60_000 },
+  { id: "admin-browser", label: "Admin browser E2E", display: "pnpm test:admin-browser", command: "pnpm", args: ["test:admin-browser"], timeoutMs: 10 * 60_000 },
   {
     id: "build",
     label: "Production builds",
@@ -238,8 +258,8 @@ function writeEvidence(results: GateResult[], mode: string, dryRun: boolean, bas
     : `docs/qa/evidence/${baseName}.md`;
   const jsonPath = `docs/qa/evidence/${baseName}.json`;
   mkdirSync(dirname(join(process.cwd(), markdownPath)), { recursive: true });
-  writeFileSync(join(process.cwd(), markdownPath), markdownFor(results, mode, dryRun));
-  writeFileSync(
+  writeFileWithRetry(join(process.cwd(), markdownPath), markdownFor(results, mode, dryRun));
+  writeFileWithRetry(
     join(process.cwd(), jsonPath),
     `${JSON.stringify(
       {

@@ -48,7 +48,7 @@ const db = readJson<Record<string, unknown>>("docs/qa/evidence/release4-database
 const contamination = readJson<Record<string, unknown>>("docs/qa/evidence/release4-production-export-contamination.json");
 const provenance = readJson<any>("docs/qa/evidence/release5-build-provenance-details.json");
 const buildReportPath = "artifacts/android/wooriai-0.0.0-release-standalone.json";
-const apkPath = "artifacts/android/wooriai-0.0.0-release-standalone.apk";
+const apkPath = "wooriai-0.0.0-release-standalone.apk";
 const buildReport = readJson<any>(buildReportPath);
 const snapshotCurrent = Boolean(snapshot && succeeds("pnpm", ["exec", "tsx", "scripts/generate-release5-source-snapshot.ts", "--verify"]));
 const buildAfterSnapshot = Boolean(snapshot && buildReport?.generatedAt && new Date(buildReport.generatedAt).getTime() >= new Date(snapshot.generatedAt).getTime());

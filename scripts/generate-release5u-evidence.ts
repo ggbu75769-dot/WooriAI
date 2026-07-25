@@ -76,7 +76,7 @@ async function main() {
   const productionConfig = readJson("docs/qa/evidence/release3-production-config-gate.json");
   const provenance = readJson("docs/qa/evidence/release5u-build-provenance-details.json");
   const buildReportPath = "artifacts/android/wooriai-0.0.0-release-standalone.json";
-  const apkPath = "artifacts/android/wooriai-0.0.0-release-standalone.apk";
+  const apkPath = "wooriai-0.0.0-release-standalone.apk";
   const buildReport = readJson(buildReportPath);
   const snapshotGeneratedAt = typeof snapshot?.generatedAt === "string" ? snapshot.generatedAt : null;
   const buildGeneratedAt = typeof buildReport?.generatedAt === "string" ? buildReport.generatedAt : null;

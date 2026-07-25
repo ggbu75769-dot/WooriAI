@@ -19,6 +19,7 @@ export function isRelease5vSnapshotPathExcluded(path: string) {
     value.includes("/apps/mobile/dist/") ||
     value.includes("/apps/api/dist/") ||
     value.includes("/apps/admin/out/") ||
+    value.includes("/.codex/") ||
     value.includes("/apps/mobile/android/build/") ||
     value.includes("/apps/mobile/android/app/build/") ||
     value.endsWith("/apps/mobile/android/local.properties/") ||

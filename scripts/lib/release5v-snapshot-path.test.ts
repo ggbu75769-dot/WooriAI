@@ -6,6 +6,7 @@ describe("Release 5V source snapshot path filter", () => {
     ".android-avd/avd/device.img",
     ".android-avd-home/adbkey",
     ".android-avd-home/modem-nv-ram-5554",
+    ".codex/evolution/10_FINAL_REPORT.md",
     "apps/mobile/android/app/build/outputs/apk/release/app-release.apk",
     "artifacts/android/app.apk"
   ])("excludes runtime or generated path %s", (path) => {

@@ -12,6 +12,6 @@
     "build": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "node -e \"console.log('@wooriai/ui tests deferred to Batch 05')\""
+    "test": "vitest run"
   }
 }

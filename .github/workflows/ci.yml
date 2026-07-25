@@ -45,13 +45,15 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
-          version: 11.7.0
+          version: 11.9.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: pnpm
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Expo SDK dependency compatibility
+        run: pnpm mobile:deps:check
       - name: Environment contract
         run: pnpm check:env:example
       - name: High-confidence secret scan
@@ -81,6 +83,10 @@ jobs:
         run: pnpm test --concurrency=1 --force
       - name: API release E2E
         run: pnpm --filter api test:e2e
+      - name: Install Chromium for Admin browser E2E
+        run: pnpm exec playwright-core install --with-deps chromium
+      - name: Admin browser E2E
+        run: pnpm test:admin-browser
       - name: Production builds
         env:
           NEXT_STANDALONE: "1"
@@ -115,7 +121,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
-          version: 11.7.0
+          version: 11.9.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
@@ -126,6 +132,8 @@ jobs:
           java-version: "17"
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Expo SDK dependency compatibility
+        run: pnpm mobile:deps:check
       - name: Android release-like compile
         run: pnpm pixel:android:build-apk
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

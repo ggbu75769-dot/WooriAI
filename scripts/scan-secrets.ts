@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -9,7 +9,7 @@ const excluded = new Set([
   "apps/mobile/android/app/debug.keystore",
   "scripts/scan-secrets.ts"
 ]);
-const textExtensions = new Set([".cjs", ".css", ".env", ".gradle", ".html", ".js", ".json", ".md", ".mjs", ".prisma", ".properties", ".sql", ".ts", ".tsx", ".yaml", ".yml"]);
+const textExtensions = new Set([".cjs", ".css", ".env", ".gradle", ".html", ".js", ".json", ".md", ".mjs", ".mts", ".prisma", ".properties", ".sql", ".ts", ".tsx", ".yaml", ".yml"]);
 const rules = [
   { id: "private-key", regex: new RegExp(`-----BEGIN (?:RSA |EC |OPENSSH )?${"PRIVATE KEY"}-----`) },
   { id: "aws-access-key", regex: /AKIA[0-9A-Z]{16}/ },
@@ -22,6 +22,7 @@ const findings: Array<{ file: string; rule: string }> = [];
 for (const file of result.stdout.split(/\r?\n/).filter(Boolean)) {
   const normalized = file.replace(/\\/g, "/");
   if (excluded.has(normalized) || !textExtensions.has(extname(normalized).toLowerCase())) continue;
+  if (!existsSync(file)) continue;
   if (statSync(file).size > 2 * 1024 * 1024) continue;
   const content = readFileSync(file, "utf8");
   for (const rule of rules) {
