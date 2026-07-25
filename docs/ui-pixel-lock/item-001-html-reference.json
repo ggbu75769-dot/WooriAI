@@ -1,0 +1,18 @@
+{
+  "screenId": "ITEM-001",
+  "sourceFile": "C:\\Users\\nj970\\Downloads\\준비템 최종 (standalone).html",
+  "sourceSha256": "2198D0452E73E00303FC03584D403486DD792BA2CF29626EFC49A440EB7ACC6F",
+  "viewport": {
+    "width": 390,
+    "height": 820
+  },
+  "parityScope": "app bar through missing-item report",
+  "excludedFromParity": "bottom navigation; the user-requested five product tabs take precedence",
+  "renderingRule": "real React Native components only; never use the HTML or a screenshot as an app background",
+  "recordedAt": "2026-07-20",
+  "referenceCrop": "docs/ui-pixel-lock/reference-crops/2_png_recommendation_list.png",
+  "referenceSha256": "3A09775CAE9543F52B63143628D1F3783DFBEA7CF3D466EC4A2D6D19F8E2515C",
+  "captureSource": "installed Android app captured with adb screencap after HTML-parity implementation; normalized from device content bounds to 390x820",
+  "apkSha256": "21E757C56B6784F22A66DED8B21501EB2DE7E67661D78466C85C3CA67F69EBA5",
+  "captureStatus": "installed_app_adb_baseline_locked"
+}

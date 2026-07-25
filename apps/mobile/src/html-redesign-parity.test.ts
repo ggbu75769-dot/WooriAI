@@ -4,14 +4,48 @@ import glyphMap from "@expo/vector-icons/build/vendor/react-native-vector-icons/
 import { release4CatalogItems } from "@wooriai/domain";
 import { describe, expect, it } from "vitest";
 import { htmlPreparationItemVisuals, resolvePreparationItemVisual } from "./preparation/item-visuals";
+import { preparationDisplayGroupIds, resolvePreparationDisplayGroupId } from "./preparation/preparation-grouping";
 
 const source = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
 
 describe("standalone HTML redesign parity", () => {
-  it("uses the exact outlined and filled bottom-navigation icon pairs", () => {
+  it("locks the attached ITEM-001 HTML hash, viewport, and no-background boundary", () => {
+    const manifest = JSON.parse(source("../../docs/ui-pixel-lock/item-001-html-reference.json"));
+    expect(manifest).toMatchObject({
+      screenId: "ITEM-001",
+      sourceSha256: "2198D0452E73E00303FC03584D403486DD792BA2CF29626EFC49A440EB7ACC6F",
+      viewport: { width: 390, height: 820 },
+      parityScope: "app bar through missing-item report"
+    });
+    expect(manifest.renderingRule).toContain("real React Native components only");
+  });
+
+  it("uses five outlined and filled bottom-navigation icon pairs", () => {
     const layout = source("app/(tabs)/_layout.tsx");
     expect(layout).toContain('items: { title: "준비템", outline: "basket-outline", filled: "basket" }');
     expect(layout).toContain('reports: { title: "리포트", outline: "chart-box-outline", filled: "chart-box" }');
+    expect(layout).toContain('more: { title: "더보기", outline: "dots-horizontal-circle-outline", filled: "dots-horizontal-circle" }');
+    expect(layout).toContain('<Tabs.Screen name="more" options={{ title: tabs.more.title');
+  });
+
+  it("splits preparation into ten categories and groups the timing view into accordions", () => {
+    const preparation = source("src/preparation/PreparationListParity.tsx");
+    for (const label of ["건강·진료", "의류·착용", "편안함·회복", "위생·목욕", "입원·출산", "수유·이유식", "수면·공간", "기저귀·생활", "외출·놀이·교육", "가족·기록"]) {
+      expect(preparation).toContain(`name: "${label}"`);
+    }
+    expect(preparation).toContain("toggleTimingBand");
+    expect(preparation).toContain('accessibilityState={{ disabled: bandItems.length === 0, expanded }}');
+  });
+
+  it("assigns every catalog domain to exactly one of the ten preparation groups", () => {
+    expect(preparationDisplayGroupIds).toHaveLength(10);
+    expect(new Set(preparationDisplayGroupIds)).toHaveLength(10);
+    for (let domain = 1; domain <= 24; domain += 1) {
+      const code = `R4-C${String(domain).padStart(2, "0")}-001`;
+      expect(preparationDisplayGroupIds).toContain(resolvePreparationDisplayGroupId({ code, nameKo: "실물 준비품" }));
+    }
+    expect(resolvePreparationDisplayGroupId({ code: "R4-C05-003", nameKo: "퇴원 이동 계획표" })).toBe("family_records");
+    expect(resolvePreparationDisplayGroupId({ code: "R4-C12-007", nameKo: "아기 손톱 파일" })).toBe("health_care");
   });
 
   it("keeps the nine preparation-card glyphs from the HTML reference", () => {
@@ -61,13 +95,13 @@ describe("standalone HTML redesign parity", () => {
     }
   });
 
-  it("gives all 408 extended catalog categories a real glyph and the full pastel palette", () => {
+  it("gives all 409 extended catalog categories a real glyph and the full pastel palette", () => {
     const visuals = release4CatalogItems.map((item) => resolvePreparationItemVisual({
       code: item.code,
       nameKo: item.nameKo,
       primaryCategory: { code: item.categoryCode, iconKey: null, nameKo: "" }
     }));
-    expect(visuals).toHaveLength(408);
+    expect(visuals).toHaveLength(409);
     expect(visuals.every(({ icon }) => icon !== "baby-face-outline")).toBe(true);
     expect(new Set(visuals.map(({ icon }) => icon)).size).toBeGreaterThanOrEqual(20);
     expect(new Set(visuals.map(({ iconBackgroundColor }) => iconBackgroundColor)).size).toBeGreaterThanOrEqual(10);
@@ -75,8 +109,9 @@ describe("standalone HTML redesign parity", () => {
   });
 
   it("wires catalog visuals into both the production and pixel preparation cards", () => {
-    expect(source("src/preparation/Release4PreparationScreen.tsx")).toContain("resolvePreparationItemVisual");
-    expect(source("app/(tabs)/items.tsx")).toContain("resolvePreparationItemVisual");
+    expect(source("src/preparation/Release4PreparationScreen.tsx")).toContain("PreparationListParity");
+    expect(source("app/(tabs)/items.tsx")).toContain("PreparationListParity");
+    expect(source("src/preparation/PreparationListParity.tsx")).toContain("resolvePreparationItemVisual");
   });
 
   it("renders expense rows with category-colored circular icon slots", () => {
@@ -89,14 +124,14 @@ describe("standalone HTML redesign parity", () => {
     expect(home).toContain("expenseCategoryVisual");
   });
 
-  it("matches the compact 36dp chips and 64dp HTML bottom navigation", () => {
+  it("keeps HTML styling while expanding preparation controls to 48dp touch targets", () => {
     const primitives = source("src/design-system/components/ApplicationPrimitives.tsx");
-    const preparation = source("src/preparation/Release4PreparationScreen.tsx");
+    const preparation = source("src/preparation/PreparationListParity.tsx");
     const tabs = source("src/pixelLock/styles/BottomTabPixelStyles.ts");
     expect(primitives).toContain("hitSlop={6}");
     expect(primitives).toContain("minHeight: 36");
     expect(preparation).toContain("hitSlop={6}");
-    expect(preparation).toContain("minHeight: 36");
+    expect(preparation).toContain("minHeight: 48");
     expect(tabs).toContain('"height", 64');
     expect(tabs).toContain('"iconSize", 24');
     expect(tabs).toContain('"labelSize", 11');
@@ -129,7 +164,7 @@ describe("standalone HTML redesign parity", () => {
     const background = source("android/app/src/main/res/drawable/ic_launcher_background.xml");
     expect(colors).toContain('<color name="splashscreen_background">#FFFDFC</color>');
     expect(styles).toContain('<item name="android:windowBackground">@drawable/ic_launcher_background</item>');
-    expect(background).toContain('@drawable/assets_illustrations_logo_mark');
-    expect(background).not.toContain('@drawable/splashscreen_logo');
+    expect(background).toContain('@drawable/splashscreen_logo');
+    expect(background).not.toContain('@drawable/assets_illustrations_logo_mark');
   });
 });

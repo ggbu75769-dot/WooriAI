@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, useLocalSearchParams, useNavigation } from "expo-router";
-import { Alert, Linking, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { formatKrw } from "../money";
-import { addItemPlanComment, getCatalogItem, getCatalogItemComparison, getItemPlanActivity, getRecurringPrediction, isApiErrorCode, listHouseholdMembers, fixtureSessionToken, newClientMutationId, putItemPlan, putMotherItemPlan, type CatalogItemPlan, type CatalogPlanState } from "../api/client";
+import { addItemPlanComment, getCatalogItem, getCatalogItemComparison, getChild, getItemPlanActivity, getRecurringPrediction, isApiErrorCode, listHouseholdMembers, fixtureSessionToken, newClientMutationId, putItemPlan, putMotherItemPlan, type CatalogItemPlan, type CatalogPlanState } from "../api/client";
 import { AffiliateDisclosure, AppIcon, EmptyStateCard, PrimaryButton, SampleDataBanner, ScreenScaffold, SecondaryButton, SectionCard, Toast, semanticColors, spacing } from "../design-system";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
 import { invalidatePreparationMutationQueries } from "../query/mutation-invalidation";
 import { isValidDateOnly, itemPlanDraftChanged, itemPlanFieldVisibility } from "./item-plan-form";
+import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "../api/fixture-identifiers";
+import { resolveOfflineScopeKey } from "../offline/session-scope";
+import { canManagePurchaseFollowup } from "../purchase-followup/store";
+import { resolveVerifiedPurchaseRole } from "../purchase-followup/access-context";
+import { PurchaseOfferAction, type PurchaseOfferAccessState } from "../purchase-followup/PurchaseOfferAction";
 
 const planChoices: Array<{ state: CatalogPlanState; label: string }> = [
   { state: "not_considered", label: "아직 결정 전" },
@@ -53,7 +58,6 @@ export function Release4ItemDetailScreen() {
   const { itemTemplateId, contextType, contextId } = useLocalSearchParams<{ itemTemplateId?: string; contextType?: string; contextId?: string }>();
   const itemId = String(itemTemplateId ?? "");
   const accessToken = useSessionStore((state) => state.accessToken);
-  const householdId = useSessionStore((state) => state.defaultHouseholdId);
   const currentUserId = useSessionStore((state) => state.userId);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const token = accessToken ?? (isTestSession ? fixtureSessionToken : null);
@@ -95,10 +99,18 @@ export function Release4ItemDetailScreen() {
     enabled: hasSession,
     queryFn: () => getCatalogItemComparison(token!, itemId)
   });
+  const childContext = useQuery({
+    queryKey: ["children", activeChildId],
+    enabled: Boolean(token && activeChildId),
+    queryFn: () => getChild(token!, activeChildId!)
+  });
+  const selectedHouseholdId = isTestSession
+    ? LOCAL_HOUSEHOLD_ID
+    : childContext.data?.householdId ?? null;
   const members = useQuery({
-    queryKey: ["household-members", householdId],
-    enabled: Boolean(token && householdId),
-    queryFn: () => listHouseholdMembers(token!, householdId!)
+    queryKey: ["household-members", selectedHouseholdId],
+    enabled: Boolean(token && selectedHouseholdId && !isTestSession),
+    queryFn: () => listHouseholdMembers(token!, selectedHouseholdId!)
   });
   const activity = useQuery({
     queryKey: ["catalog-v2", "plan-activity", activeChildId, itemId],
@@ -191,8 +203,29 @@ export function Release4ItemDetailScreen() {
     setAssignedUserId(plan.assignedUserId ?? null);
   }, [detail.data?.plan?.version]);
 
-  const currentMember = (members.data?.members ?? []).find((member) => member.userId === currentUserId);
-  const canViewPrivatePlan = isTestSession || currentMember?.role === "owner" || currentMember?.role === "co_parent";
+  const currentRole = activeChildId
+    ? resolveVerifiedPurchaseRole({
+        expectedChildId: activeChildId,
+        child: childContext.data,
+        queriedHouseholdId: selectedHouseholdId,
+        currentUserId,
+        members: members.data?.members ?? []
+      })
+    : null;
+  const canViewPrivatePlan = isTestSession || currentRole === "owner" || currentRole === "co_parent";
+  const canCreatePurchaseFollowup = canManagePurchaseFollowup({
+    childContext: Boolean(activeChildId),
+    isTestSession,
+    role: currentRole
+  });
+  const purchaseScopeKey = resolveOfflineScopeKey({
+    accessToken,
+    userId: currentUserId,
+    defaultHouseholdId: selectedHouseholdId,
+    isTestSession,
+    testUserId: LOCAL_USER_ID,
+    testHouseholdId: LOCAL_HOUSEHOLD_ID
+  });
   const currentState = detail.data?.plan?.state;
   const fieldVisibility = itemPlanFieldVisibility({
     state: currentState,
@@ -257,6 +290,20 @@ export function Release4ItemDetailScreen() {
     if (!inventoryNumbersValid || !inventoryDatesValid) return;
     saveInventory.mutate();
   };
+
+  const purchaseOfferAccessState: PurchaseOfferAccessState =
+    activeChildId && !isTestSession && (childContext.isLoading || members.isLoading)
+      ? "checking"
+      : activeChildId &&
+          !isTestSession &&
+          (childContext.isError ||
+            members.isError ||
+            !selectedHouseholdId ||
+            !currentRole)
+        ? "blocked"
+        : activeChildId && canCreatePurchaseFollowup && purchaseScopeKey
+          ? "followup"
+          : "direct";
 
   if (!hasSession) return <Redirect href="/onboarding/child-status" />;
   if (detail.isLoading) return <ScreenScaffold><EmptyStateCard title="품목 정보를 불러오고 있어요." actionLabel="잠시만요" /></ScreenScaffold>;
@@ -446,7 +493,14 @@ export function Release4ItemDetailScreen() {
               <Text key={field.key} style={{ color: semanticColors.textSecondary, fontSize: 12 }}>{field.labelKo} · {String(offer.attributes[field.key])}</Text>
             ))}
             {offer.isAffiliate ? <AffiliateDisclosure text={offer.disclosureText ?? undefined} /> : null}
-            <PrimaryButton label="판매처 일반 페이지 열기" onPress={() => void Linking.openURL(offer.publicUrl)} />
+            <PurchaseOfferAction
+              accessState={purchaseOfferAccessState}
+              childId={activeChildId ?? null}
+              itemDefinitionId={itemId}
+              offer={offer}
+              onMessage={setMessage}
+              scopeKey={purchaseScopeKey}
+            />
           </View>
         ))}
       </SectionCard>

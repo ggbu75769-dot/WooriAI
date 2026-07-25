@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getSeoulToday, type CatalogScenarioCode } from "@wooriai/domain";
+import { type CatalogScenarioCode } from "@wooriai/domain";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
@@ -23,7 +23,7 @@ import {
   type CatalogPlanState,
   type CatalogTimelineBucket
 } from "../api/client";
-import { AppIcon, BottomSheet, EmptyStateCard, ItemStatusControl, PageHeader, PreparationItemCard, PrimaryButton, SampleDataBanner, ScreenScaffold, SecondaryButton, SectionCard, SyncStatusBar, TopAppBar, semanticColors, spacing, type ModV1ItemStatus } from "../design-system";
+import { AppIcon, BottomSheet, EmptyStateCard, ItemStatusControl, PageHeader, PreparationItemCard, PrimaryButton, SampleDataBanner, ScreenScaffold, SecondaryButton, SectionCard, SyncStatusBar, TopAppBar, semanticColors, spacing } from "../design-system";
 import { useConnectivityStatus } from "../offline/connectivity";
 import { useOfflineSyncSnapshot } from "../offline/sync-controller";
 import { normalizeAppSyncStatus } from "../offline/sync-display-state";
@@ -38,6 +38,7 @@ import {
   WeeklyPreparationSection
 } from "./PreparationOverview";
 import { resolvePreparationItemVisual } from "./item-visuals";
+import { PreparationListParity } from "./PreparationListParity";
 
 type PreparationView = "personalized" | "all" | "active" | "mine";
 type PreparationSurface = "overview" | "list" | "search" | "bundles" | "settings";
@@ -113,8 +114,10 @@ function planLabel(state: CatalogPlanState | undefined) {
   if (state === "gift_expected") return "선물 예정";
   if (state === "gifted") return "선물 받음";
   if (state === "not_needed") return "필요 없어요";
-  if (state === "replacement_needed" || state === "replaced") return "교체 필요";
-  if (state === "retired") return "사용 종료";
+  if (state === "replacement_needed") return "교체 필요";
+  if (state === "replacement_due") return "교체 시기";
+  if (state === "replaced") return "교체 완료";
+  if (state === "retired" || state === "ended") return "사용 종료";
   return "미정";
 }
 
@@ -167,7 +170,7 @@ export function Release4PreparationScreen() {
   const [preparationContextDraft, setPreparationContextDraft] = useState<CatalogScenarioCode[]>([]);
   const [preparationContextMessage, setPreparationContextMessage] = useState<string | null>(null);
   const [statusItem, setStatusItem] = useState<PreparationItem | null>(null);
-  const [statusDraft, setStatusDraft] = useState<ModV1ItemStatus>("researching");
+  const [statusDraft, setStatusDraft] = useState<CatalogPlanState>("researching");
   const queryClient = useQueryClient();
   const syncSnapshot = useOfflineSyncSnapshot();
   const online = useConnectivityStatus();
@@ -191,12 +194,12 @@ export function Release4PreparationScreen() {
 
   const domains = useQuery({
     queryKey: ["catalog-v2", "domains"],
-    enabled: hasSession && (surface === "list" || surface === "search") && view !== "personalized",
+    enabled: hasSession && surface === "search" && view !== "personalized",
     queryFn: () => listCatalogDomains(token!)
   });
   const items = useInfiniteQuery({
     queryKey: ["catalog-v2", "items", activeContextKey, view, domainCode, searchQuery],
-    enabled: hasSession && (surface === "list" || surface === "search"),
+    enabled: hasSession && (surface === "search" || (surface === "list" && view !== "personalized")),
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => listCatalogItems(token!, {
       childId: activeChildId,
@@ -246,16 +249,7 @@ export function Release4PreparationScreen() {
 
   const openStatusSheet = (item: PreparationItem) => {
     const current = item.plan?.state;
-    const normalized: ModV1ItemStatus = current === "borrowed"
-      ? "rented"
-      : current === "gift_expected"
-        ? "gifted"
-        : current === "replaced"
-          ? "replacement_needed"
-          : ["researching", "planned", "ordered", "owned", "rented", "gifted", "replacement_needed", "retired"].includes(current ?? "")
-            ? current as ModV1ItemStatus
-            : "researching";
-    setStatusDraft(normalized);
+    setStatusDraft(current ?? "researching");
     setStatusItem(item);
   };
   const acknowledgeSafety = useMutation({
@@ -320,18 +314,11 @@ export function Release4PreparationScreen() {
     if (assignmentFilter !== "all") {
       result = result.filter((item) => assignmentFilter === "assigned" ? Boolean(item.plan?.assignedUserId) : !item.plan?.assignedUserId);
     }
-    if (urgentOnly) {
-      const today = getSeoulToday();
-      const end = new Date(`${today}T00:00:00.000Z`);
-      end.setUTCDate(end.getUTCDate() + 7);
-      const endDate = end.toISOString().slice(0, 10);
-      result = result.filter((item) => Boolean(item.plan?.dueDate && item.plan.dueDate.slice(0, 10) >= today && item.plan.dueDate.slice(0, 10) <= endDate));
-    }
     return result;
-  }, [assignmentFilter, items.data?.pages, searchQuery, timeline.data, urgentOnly, view]);
+  }, [assignmentFilter, items.data?.pages, searchQuery, timeline.data, view]);
   const loadedItems = visibleItems;
   const plannedCount = loadedItems.filter((item) => mineStates.has(item.plan?.state ?? "not_considered")).length;
-  const completedCount = loadedItems.filter((item) => ["owned", "borrowed", "rented", "gifted", "not_needed"].includes(item.plan?.state ?? "")).length;
+  const completedCount = loadedItems.filter((item) => ["owned", "borrowed", "rented", "gifted", "replaced"].includes(item.plan?.state ?? "")).length;
   const selectedBundle = bundles.data?.bundles.find((bundle) => bundle.id === selectedBundleId) ?? null;
   const selectedBundleItems = selectedBundle?.items.filter((item) => selectedBundleItemIds.includes(item.id)) ?? [];
   const selectedBundlePreparedCount = selectedBundleItems.filter((item) => mineStates.has(item.plan?.state ?? "not_considered")).length;
@@ -345,7 +332,8 @@ export function Release4PreparationScreen() {
 
   const openSurface = (nextSurface: PreparationSurface) => {
     setSurface(nextSurface);
-    setView(nextSurface === "overview" || nextSurface === "settings" || nextSurface === "bundles" ? "personalized" : nextSurface === "list" ? "mine" : "all");
+    setView(nextSurface === "search" ? "all" : "personalized");
+    if (nextSurface !== "list") setUrgentOnly(false);
     if (nextSurface !== "search") {
       setSearchDraft("");
       setSearchQuery("");
@@ -454,11 +442,26 @@ export function Release4PreparationScreen() {
         })}
         {(children.data?.children ?? []).map((child) => {
           const key = `child:${child.id}`;
-          return <FilterChip key={key} label={`아이 · ${child.nickname}`} selected={activeContextKey === key} onPress={() => { setContextKey(key); setSelectedChildId(child.id); }} />;
+          return <FilterChip key={key} label={`아이 · ${child.nickname}`} selected={activeContextKey === key} onPress={() => { setContextKey(key); setSelectedChildId(child.id, child.householdId ?? null); }} />;
         })}
       </ScrollView>
     </View>
   );
+  const listContextOptions = [
+    ...(contexts.data?.motherProfiles ?? []).map((profile) => {
+      const linkedChild = (children.data?.children ?? []).find((entry) => entry.id === profile.childId);
+      return { key: `mother:${profile.id}`, label: `산모${linkedChild ? ` · ${linkedChild.nickname}` : ""}` };
+    }),
+    ...(children.data?.children ?? []).map((child) => ({ key: `child:${child.id}`, label: `아이 · ${child.nickname}` }))
+  ];
+  const selectListContext = (key: string) => {
+    setContextKey(key);
+    if (key.startsWith("child:")) {
+      const selectedId = key.slice("child:".length);
+      const selectedChild = (children.data?.children ?? []).find((child) => child.id === selectedId);
+      setSelectedChildId(selectedId, selectedChild?.householdId ?? null);
+    }
+  };
 
   if (surface === "overview") {
     return (
@@ -495,7 +498,7 @@ export function Release4PreparationScreen() {
   return (
     <ScreenScaffold testID="release4-preparation-screen">
       {isTestSession ? <SampleDataBanner /> : null}
-      <Pressable
+      {surface !== "list" ? <Pressable
         accessibilityLabel="준비 홈으로 돌아가기"
         accessibilityRole="button"
         onPress={() => openSurface("overview")}
@@ -503,11 +506,31 @@ export function Release4PreparationScreen() {
       >
         <AppIcon color={semanticColors.actionPrimary} name="chevron-left" size={22} />
         <Text style={{ color: semanticColors.actionPrimary, fontSize: 13, fontWeight: "800" }}>준비 홈</Text>
-      </Pressable>
-      <PageHeader
-        title={surface === "list" ? "내 준비 목록" : surface === "search" ? "준비물 검색" : surface === "bundles" ? "상황별 준비 묶음" : "가족 상황과 추천 설정"}
-        subtitle={surface === "list" ? "상태와 분류별로 준비 항목을 관리하세요." : surface === "search" ? "품목명, 별칭과 초성으로 찾고 누락을 알려주세요." : surface === "bundles" ? "필요한 품목만 골라 기존 준비 상태에 안전하게 연결하세요." : "직접 선택한 가족 상황만 추천에 반영해요."}
-      />
+      </Pressable> : null}
+      {surface !== "list" ? <PageHeader
+        title={surface === "search" ? "준비물 검색" : surface === "bundles" ? "상황별 준비 묶음" : "가족 상황과 추천 설정"}
+        subtitle={surface === "search" ? "품목명, 별칭과 초성으로 찾고 누락을 알려주세요." : surface === "bundles" ? "필요한 품목만 골라 기존 준비 상태에 안전하게 연결하세요." : "직접 선택한 가족 상황만 추천에 반영해요."}
+      /> : null}
+
+      {surface === "list" ? (
+        <PreparationListParity
+          contextOptions={listContextOptions}
+          error={timeline.isError}
+          items={visibleItems}
+          loading={timeline.isLoading}
+          onBack={() => openSurface("overview")}
+          onItemPress={(item) => {
+            const preparationItem = visibleItems.find((candidate) => candidate.id === item.id);
+            if (preparationItem) openStatusSheet(preparationItem);
+          }}
+          onMissingReport={() => openSurface("search")}
+          onRetry={() => void timeline.refetch()}
+          onSelectContext={selectListContext}
+          onToggleUrgent={() => setUrgentOnly((value) => !value)}
+          selectedContextKey={activeContextKey}
+          urgentOnly={urgentOnly}
+        />
+      ) : null}
 
       {surface === "bundles" && activeChildId ? (
         <SectionCard style={{ gap: spacing.sm }}>
@@ -550,7 +573,7 @@ export function Release4PreparationScreen() {
         </SectionCard>
       ) : null}
 
-      {contextSelector}
+      {surface !== "list" ? contextSelector : null}
 
       {surface === "settings" ? (
         <SectionCard style={{ gap: spacing.sm }}>
@@ -590,7 +613,7 @@ export function Release4PreparationScreen() {
         </SectionCard>
       ) : null}
 
-      {surface === "list" || surface === "search" ? (
+      {surface === "search" ? (
         <>
       {surface === "search" ? <View style={{ flexDirection: "row", gap: spacing.xs }}>
         <TextInput
@@ -625,19 +648,6 @@ export function Release4PreparationScreen() {
             {recentSearches.map((query) => <FilterChip key={query} label={query} selected={false} onPress={() => submitSearch(query)} />)}
           </ScrollView>
         </View>
-      ) : null}
-
-      {surface === "list" ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
-        {views.map((entry) => <FilterChip key={entry.value} label={entry.label} selected={view === entry.value} onPress={() => setView(entry.value)} />)}
-      </ScrollView> : null}
-
-      {surface === "list" ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
-          <FilterChip label="담당 전체" selected={assignmentFilter === "all"} onPress={() => setAssignmentFilter("all")} />
-          <FilterChip label="담당 지정" selected={assignmentFilter === "assigned"} onPress={() => setAssignmentFilter("assigned")} />
-          <FilterChip label="담당 미정" selected={assignmentFilter === "unassigned"} onPress={() => setAssignmentFilter("unassigned")} />
-          <FilterChip label="7일 안에 준비" selected={urgentOnly} onPress={() => setUrgentOnly((value) => !value)} />
-        </ScrollView>
       ) : null}
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
@@ -675,11 +685,11 @@ export function Release4PreparationScreen() {
         />
       ) : (
         <View style={{ gap: spacing.md }}>
-          <View accessibilityLabel={`${width >= 480 ? 4 : 3}열 준비 품목`} style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.xs }}>
+          <View accessibilityLabel={`${width >= 600 ? 4 : 3}열 준비 품목`} style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.xs }}>
             {visibleItems.map((item) => {
               const visual = resolvePreparationItemVisual(item);
               return (
-                <View key={item.id} style={{ width: width >= 480 ? "23.4%" : "31.4%" }}>
+                <View key={item.id} style={{ width: width >= 600 ? "23.4%" : "31.4%" }}>
                   <PreparationItemCard
                     hint={item.timelineBucket ? `${timelineBucketLabel(item.timelineBucket)} · ${item.dueWindowLabel}` : item.primaryCategory?.nameKo}
                     icon={visual.icon}
@@ -714,7 +724,7 @@ export function Release4PreparationScreen() {
         title={statusItem?.nameKo ?? "준비 상태"}
         visible={Boolean(statusItem)}
       >
-        <ItemStatusControl disabled={updatePlan.isPending} onChange={setStatusDraft} value={statusDraft} />
+        <ItemStatusControl disabled={updatePlan.isPending} onChange={(state) => setStatusDraft(state)} value={statusDraft} />
         {updatePlan.isError ? <Text accessibilityLiveRegion="polite" style={{ color: semanticColors.danger, fontSize: 12 }}>완료하지 못했어요. 입력은 보존되었으니 다시 시도해 주세요.</Text> : null}
         <PrimaryButton
           busy={updatePlan.isPending}

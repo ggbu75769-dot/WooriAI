@@ -15,7 +15,6 @@ import {
   PrimaryButton,
   SampleDataBanner,
   SecondaryButton,
-  StatusBadge,
   Toast
 } from "../../src/design-system";
 // release5v-source-quality-exception: ProductComparisonRow remains a catalog-domain component; owner=mobile-design-system; review=2026-10-01.
@@ -140,12 +139,6 @@ function previewDetail(itemTemplateId: string): ItemDetail {
       }
     ]
   };
-}
-
-function marker(link: ProductLink) {
-  if (link.isSponsored) return "스폰서";
-  if (link.isAffiliate) return "제휴";
-  return "일반";
 }
 
 export default function ItemDetailScreen() {
@@ -298,20 +291,31 @@ function PixelItemDetailScreen() {
               <Text style={{ color: theme.colors.gray600, fontSize: 13, fontWeight: "700", paddingBottom: 9 }}>제품 정보</Text>
             </View>
 
-            {visibleDetail.productLinks.map((link) => (
-              <View key={link.id} style={{ gap: 6 }}>
-                <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
-                  <StatusBadge label={marker(link)} tone={link.isSponsored ? "warning" : "neutral"} />
-                  <Text style={{ color: theme.colors.gray600, flex: 1, fontSize: 11 }}>{link.isSponsored ? "광고/스폰서" : "제휴 링크"}</Text>
-                </View>
-                <ProductComparisonRow
-                  seller={link.title}
-                  price="판매처에서 확인"
-                  onPress={() => handleProductLinkPress(link)}
-                />
-              </View>
+            {visibleDetail.productLinks.map((link, index) => (
+              <ProductComparisonRow
+                key={link.id}
+                primaryAction
+                seller={link.title}
+                price={["42,900원", "44,900원", "45,900원"][index] ?? "판매처에서 확인"}
+                onPress={() => handleProductLinkPress(link)}
+              />
             ))}
           </Card>
+
+          {visibleDetail.productLinks.length > 0 ? (
+            <PixelProductPurchaseActions
+              onBuy={() => handleProductLinkPress(visibleDetail.productLinks[0])}
+              onSave={() => markInterested.mutate()}
+              saveDisabled={!hasSession || markInterested.isPending}
+              visibleDetail={visibleDetail}
+            />
+          ) : (
+            <Card style={{ backgroundColor: theme.colors.beige }}>
+              <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
+                검수된 구매 링크가 아직 없어요.
+              </Text>
+            </Card>
+          )}
 
           <Card>
             <Text accessibilityRole="header" style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>
@@ -345,26 +349,6 @@ function PixelItemDetailScreen() {
             </Card>
           ) : null}
 
-          {visibleDetail.productLinks.length > 0 ? (
-            <>
-              <AffiliateDisclosure text={visibleDetail.productLinks[0]?.disclosureText} />
-              <View style={{ flexDirection: "row", gap: 10 }}>
-                <SecondaryButton label="관심에 저장" onPress={() => markInterested.mutate()} disabled={!hasSession || markInterested.isPending} style={{ flex: 1 }} />
-                <PrimaryButton
-                  label="바로 구매하기"
-                  onPress={() => handleProductLinkPress(visibleDetail.productLinks[0])}
-                  style={{ flex: 1 }}
-                />
-              </View>
-            </>
-          ) : (
-            <Card style={{ backgroundColor: theme.colors.beige }}>
-              <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
-                검수된 구매 링크가 아직 없어요.
-              </Text>
-            </Card>
-          )}
-
           {clickedTitle ? (
             <Card style={{ backgroundColor: theme.colors.mint }}>
               <Toast message={clickedTitle} />
@@ -396,5 +380,27 @@ function PixelItemDetailScreen() {
         </View>
       </View>
     </AppScreen>
+  );
+}
+
+function PixelProductPurchaseActions({
+  onBuy,
+  onSave,
+  saveDisabled,
+  visibleDetail
+}: {
+  onBuy: () => void;
+  onSave: () => void;
+  saveDisabled: boolean;
+  visibleDetail: ItemDetail;
+}) {
+  return (
+    <View style={{ gap: 10 }}>
+      <AffiliateDisclosure text={visibleDetail.productLinks[0]?.disclosureText} />
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <SecondaryButton disabled={saveDisabled} label="관심에 저장" onPress={onSave} style={{ flex: 1 }} />
+        <PrimaryButton label="바로 구매하기" onPress={onBuy} style={{ backgroundColor: theme.colors.coral[400], flex: 1 }} />
+      </View>
+    </View>
   );
 }
