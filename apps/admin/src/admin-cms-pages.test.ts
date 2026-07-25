@@ -55,7 +55,8 @@ describe("Admin CMS two-step login + forced MFA enrollment (SEC-101)", () => {
     const api = readSource("src/lib/admin-api.ts");
     // 403 (RBAC/CSRF/MFA-required) must not be treated as "log the admin out" --
     // only a real 401 (invalid/expired session) should trigger isAuthError.
-    expect(api).toContain("error.status === 401");
+    expect(api).toContain("isAdminApiErrorStatus(error, 401)");
+    expect(api).not.toContain("isAdminApiErrorStatus(error, 403)");
   });
 });
 

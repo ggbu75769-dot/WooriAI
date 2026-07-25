@@ -116,20 +116,59 @@ export class Release5ExternalService {
 
   private async queueRecallImpact(tx: Prisma.TransactionClient, itemId: string, event: { normalizedGuidance: string; eventStatus: string }) {
     const item = await tx.itemDefinition.findUniqueOrThrow({ where: { id: itemId }, select: { contentVersion: true } });
-    const plans = await tx.userItemPlan.findMany({ where: { itemDefinitionId: itemId, state: { in: ["need", "researching", "planned", "ordered", "owned", "borrowed", "rented", "gift_expected", "gifted", "replacement_needed", "replacement_due"] } } });
-    for (const plan of plans) {
-      const alert = await tx.catalogSafetyAlert.upsert({
-        where: { userItemPlanId_eventType_itemContentVersion: { userItemPlanId: plan.id, eventType: `provider_${event.eventStatus}`, itemContentVersion: item.contentVersion } },
-        create: { itemDefinitionId: itemId, userItemPlanId: plan.id, eventType: `provider_${event.eventStatus}`, reason: event.normalizedGuidance, itemContentVersion: item.contentVersion },
-        update: {}
-      });
-      const recipients = await tx.householdMember.findMany({ where: { householdId: plan.householdId, status: "active", role: { not: "gift_participant" } }, select: { userId: true } });
-      for (const recipient of recipients) {
-        const dedupeKey = `provider-recall:${alert.id}:${recipient.userId}`;
-        const delivery = await tx.notificationDelivery.upsert({ where: { dedupeKey }, create: { userId: recipient.userId, householdId: plan.householdId, childId: plan.childId, targetType: "item", targetId: itemId, eventType: "catalog_item_recalled", dedupeKey, scheduledAt: new Date() }, update: {} });
-        await tx.jobOutbox.upsert({ where: { topic_dedupeKey: { topic: "notification.send", dedupeKey } }, create: { topic: "notification.send", aggregateType: "notification_delivery", aggregateId: delivery.id, dedupeKey, payloadJson: { notificationDeliveryId: delivery.id } }, update: {} });
-      }
+    const eventType = `provider_${event.eventStatus}`;
+    const plans = await tx.userItemPlan.findMany({
+      where: { itemDefinitionId: itemId, state: { in: ["need", "researching", "planned", "ordered", "owned", "borrowed", "rented", "gift_expected", "gifted", "replacement_needed", "replacement_due"] } },
+      select: { id: true, householdId: true, childId: true }
+    });
+    if (plans.length === 0) return;
+
+    await tx.catalogSafetyAlert.createMany({
+      data: plans.map((plan) => ({ itemDefinitionId: itemId, userItemPlanId: plan.id, eventType, reason: event.normalizedGuidance, itemContentVersion: item.contentVersion })),
+      skipDuplicates: true
+    });
+    const alerts = await tx.catalogSafetyAlert.findMany({
+      where: { userItemPlanId: { in: plans.map((plan) => plan.id) }, eventType, itemContentVersion: item.contentVersion },
+      select: { id: true, userItemPlanId: true }
+    });
+    const householdIds = [...new Set(plans.map((plan) => plan.householdId))];
+    const members = await tx.householdMember.findMany({
+      where: { householdId: { in: householdIds }, status: "active", role: { not: "gift_participant" } },
+      select: { householdId: true, userId: true }
+    });
+    const planById = new Map(plans.map((plan) => [plan.id, plan]));
+    const membersByHousehold = new Map<string, typeof members>();
+    for (const member of members) {
+      const householdMembers = membersByHousehold.get(member.householdId) ?? [];
+      householdMembers.push(member);
+      membersByHousehold.set(member.householdId, householdMembers);
     }
+    const scheduledAt = new Date();
+    const deliveryRows = alerts.flatMap((alert) => {
+      const plan = planById.get(alert.userItemPlanId);
+      if (!plan) return [];
+      return (membersByHousehold.get(plan.householdId) ?? []).map((member) => {
+        const dedupeKey = `provider-recall:${alert.id}:${member.userId}`;
+        return { userId: member.userId, householdId: plan.householdId, childId: plan.childId, targetType: "item", targetId: itemId, eventType: "catalog_item_recalled", dedupeKey, scheduledAt };
+      });
+    });
+    if (deliveryRows.length === 0) return;
+
+    await tx.notificationDelivery.createMany({ data: deliveryRows, skipDuplicates: true });
+    const deliveries = await tx.notificationDelivery.findMany({
+      where: { dedupeKey: { in: deliveryRows.map((delivery) => delivery.dedupeKey) } },
+      select: { id: true, dedupeKey: true }
+    });
+    await tx.jobOutbox.createMany({
+      data: deliveries.map((delivery) => ({
+        topic: "notification.send",
+        aggregateType: "notification_delivery",
+        aggregateId: delivery.id,
+        dedupeKey: delivery.dedupeKey,
+        payloadJson: { notificationDeliveryId: delivery.id }
+      })),
+      skipDuplicates: true
+    });
   }
 
   async previewMerchantFeed(adminId: string, input: PreviewMerchantFeedDto) {

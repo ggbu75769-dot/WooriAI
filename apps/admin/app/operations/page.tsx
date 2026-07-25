@@ -57,7 +57,9 @@ export default function OperationsPage() {
     setError(null);
     try {
       const [runtime, dlq, privacy, links, scheduled, notifications, notificationReconciliation, mismatches, remoteConfig] = await Promise.all([
-        getOperationsRuntime(), listDeadLetterJobs(), listPrivacyOperations(), listLinkHealthOperations(),
+        getOperationsRuntime(),
+        session.admin.role === "admin" ? listDeadLetterJobs() : Promise.resolve({ jobs: [] as DeadLetterJobSummary[] }),
+        listPrivacyOperations(), listLinkHealthOperations(),
         listScheduledOperations(), getNotificationOperations(), listNotificationReconciliation(), listIntegrityOperations(), getRemoteAppConfig()
       ]);
       setSnapshot({ runtime, dlq: dlq.jobs, privacy: privacy.requests, links: links.links, scheduled: scheduled.revisions, notifications: notifications.states, notificationReconciliation: notificationReconciliation.deliveries, mismatches: mismatches.checks, remoteConfig });

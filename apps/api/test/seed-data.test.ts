@@ -137,6 +137,9 @@ describe("Batch 03 seed data", () => {
 
     expect(seedScript).toContain("upsert");
     expect(seedScript).toContain("findFirst");
+    expect(seedScript).toContain("prisma.$transaction(async (tx)");
+    expect(seedScript).toContain('ruleCode: "professional-review-gate"');
+    expect(seedScript).toContain("expenseCategoryId: { not: expenseCategoryId }");
     expect(seedScript).not.toContain("expenses");
   });
 

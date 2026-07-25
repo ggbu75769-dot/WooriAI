@@ -6,12 +6,14 @@ import {
   calculatePreparationLifecycle,
   catalogScenarioCodes,
   childLifecycleCodes,
+  comparePreparationTimelineRank,
   isDuplicatePurchaseRisk,
   preparationDateKeyKst,
   preparationDueEvents,
   motherLifecycleCodes,
   type CatalogScenarioCode,
   type ChildStageCode,
+  type PreparationTimelineRankInput,
   type Release4LifecycleCode
 } from "@wooriai/domain";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
@@ -759,8 +761,11 @@ export class CatalogV2Service {
       where: { axis: lifecycle.axis, lifecycleCode: { in: lifecycleCodes } },
       orderBy: { priorityWeight: "desc" }
     });
+    const plans = await this.prisma.userItemPlan.findMany({
+      where: { householdId: scope.householdId, childId: scope.childId, motherProfileId: scope.motherProfileId }
+    });
     const definitions = await this.prisma.itemDefinition.findMany({
-      where: { id: { in: [...new Set(rules.map((rule) => rule.itemDefinitionId))] }, status: { in: this.visibleStatuses() } }
+      where: { id: { in: [...new Set([...rules.map((rule) => rule.itemDefinitionId), ...plans.map((plan) => plan.itemDefinitionId)])] }, status: { in: this.visibleStatuses() } }
     });
     const matchingContextRules = activeContextCodes.length
       ? await this.prisma.itemContextRule.findMany({
@@ -769,19 +774,25 @@ export class CatalogV2Service {
         })
       : [];
     const matchedContextsByItem = new Map<string, string[]>();
+    const matchedContextWeightByItem = new Map<string, number>();
+    const matchedContextRequiredIds = new Set<string>();
     for (const rule of matchingContextRules) {
       matchedContextsByItem.set(rule.itemDefinitionId, [...(matchedContextsByItem.get(rule.itemDefinitionId) ?? []), rule.contextCode]);
+      matchedContextWeightByItem.set(rule.itemDefinitionId, (matchedContextWeightByItem.get(rule.itemDefinitionId) ?? 0) + rule.weight);
+      if (rule.required) matchedContextRequiredIds.add(rule.itemDefinitionId);
     }
-    const plans = await this.prisma.userItemPlan.findMany({ where: { householdId: scope.householdId, childId: scope.childId, motherProfileId: scope.motherProfileId, itemDefinitionId: { in: definitions.map((item) => item.id) } } });
     const planByItem = new Map(plans.map((plan) => [plan.itemDefinitionId, plan]));
-    const currentIds = new Set(rules.filter((rule) => rule.lifecycleCode === lifecycle.code).map((rule) => rule.itemDefinitionId));
+    const lifecyclePriorityByItem = new Map<string, number>();
+    for (const rule of rules) {
+      lifecyclePriorityByItem.set(rule.itemDefinitionId, Math.max(lifecyclePriorityByItem.get(rule.itemDefinitionId) ?? 0, rule.priorityWeight));
+    }
+    const currentIds = new Set(rules.filter((rule) => rule.lifecycleCode === lifecycle.code && rule.priorityWeight > 0).map((rule) => rule.itemDefinitionId));
+    const displayOrderByItem = new Map(definitions.map((item) => [item.id, item.displayOrder]));
     const today = new Date(`${kstDateOnly()}T00:00:00.000Z`);
     const weekEnd = addDays(today, 6);
     const monthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0));
     const completedStates = new Set<UserItemPlanState>(["owned", "borrowed", "rented", "gifted", "replaced", "retired", "ended"]);
-    const rank = { overdue: 0, this_week: 1, this_month: 2, next_stage: 3, completed: 4, not_needed: 5 } as const;
-    const necessityRank = { required: 0, recommended: 1, conditional: 2, optional: 3 } as const;
-    const items = definitions.map((item) => {
+    const items = definitions.filter((item) => (lifecyclePriorityByItem.get(item.id) ?? 0) > 0 || planByItem.has(item.id)).map((item) => {
       const plan = planByItem.get(item.id);
       const userDue = plan?.dueDate ?? plan?.replacementDueAt ?? plan?.nextPurchaseDueAt ?? null;
       const isComplete = plan ? completedStates.has(plan.state) : false;
@@ -789,9 +800,9 @@ export class CatalogV2Service {
         : isComplete ? "completed"
           : userDue && userDue < today ? "overdue"
             : userDue && userDue <= weekEnd ? "this_week"
-              : currentIds.has(item.id) && item.necessity === "required" ? "this_week"
+              : currentIds.has(item.id) && (item.necessity === "required" || matchedContextRequiredIds.has(item.id)) ? "this_week"
                 : currentIds.has(item.id) ? "this_month"
-                  : "next_stage") as keyof typeof rank;
+                  : "next_stage") as PreparationTimelineRankInput["bucket"];
       const dueWindow = bucket === "next_stage"
         ? { start: null, end: null, label: "다음 생애주기", derivedFrom: "lifecycle" as const }
         : userDue
@@ -843,11 +854,25 @@ export class CatalogV2Service {
           version: plan.version
         } : null
       };
-    }).sort((left, right) => rank[left.bucket] - rank[right.bucket] || Number(right.matchedContextCodes.length > 0) - Number(left.matchedContextCodes.length > 0) || necessityRank[left.necessity] - necessityRank[right.necessity] || left.nameKo.localeCompare(right.nameKo, "ko-KR"));
+    }).sort((left, right) => {
+      const leftPlan = planByItem.get(left.id);
+      const rightPlan = planByItem.get(right.id);
+      const rankInput = (item: typeof left, plan: typeof leftPlan) => ({
+        bucket: item.bucket,
+        hasPlan: Boolean(plan),
+        userDueTime: (plan?.dueDate ?? plan?.replacementDueAt ?? plan?.nextPurchaseDueAt)?.getTime() ?? null,
+        lifecyclePriority: lifecyclePriorityByItem.get(item.id) ?? 0,
+        contextWeight: matchedContextWeightByItem.get(item.id) ?? 0,
+        necessity: item.necessity,
+        displayOrder: displayOrderByItem.get(item.id) ?? 0,
+        code: item.code
+      });
+      return comparePreparationTimelineRank(rankInput(left, leftPlan), rankInput(right, rightPlan));
+    });
     return {
       context: { ...context, lifecycleAxis: lifecycle.axis, lifecycleCode: lifecycle.code, nextLifecycleCode: lifecycle.nextCode, selectedContextCodes: contextProfile?.contextCodes ?? [], derivedContextCodes, activeContextCodes, contextVersion: contextProfile?.version ?? 0 },
       generatedAt: new Date().toISOString(),
-      rankingPolicy: "necessity_and_lifecycle_only_no_offer_or_sponsor_signal",
+      rankingPolicy: "user_due_then_timeline_then_lifecycle_priority_then_context_then_necessity_no_commerce_signal",
       buckets: Object.fromEntries((["this_week", "this_month", "next_stage", "overdue", "completed", "not_needed"] as const).map((bucket) => [bucket, items.filter((item) => item.bucket === bucket)]))
     };
   }
@@ -2435,7 +2460,9 @@ export class CatalogV2Service {
       this.prisma.itemSafetyRule.findMany({ where: { itemDefinitionId: { in: itemIds }, expiresAt: { lt: now } }, select: { id: true, itemDefinitionId: true, expiresAt: true, severity: true } }),
       this.prisma.productOffer.findMany({ where: { itemDefinitionId: { in: itemIds }, OR: [{ healthState: { in: ["failed", "blocked"] } }, { recallState: { in: ["check_required", "recalled"] } }] }, orderBy: { updatedAt: "desc" }, take: 200 }),
       this.prisma.productOffer.findMany({ where: { itemDefinitionId: { in: itemIds }, OR: [{ priceCheckedAt: null }, { priceCheckedAt: { lt: staleBefore } }] }, orderBy: { updatedAt: "desc" }, take: 200 }),
-      this.prisma.catalogItemReport.findMany({ where: { state: "open", OR: [{ itemDefinitionId: { in: itemIds } }, { itemDefinitionId: null }] }, orderBy: { createdAt: "asc" }, take: 200 })
+      // A bounded operations queue must retain the newest actionable reports.
+      // Oldest-first silently hides every new report once 200 rows accumulate.
+      this.prisma.catalogItemReport.findMany({ where: { state: "open", OR: [{ itemDefinitionId: { in: itemIds } }, { itemDefinitionId: null }] }, orderBy: { createdAt: "desc" }, take: 200 })
     ]);
     const healthTopic = "product_link.health_check";
     const healthDedupeKey = (offer: (typeof brokenOfferRows)[number]) => `product-offer:${offer.id}:health:${offer.updatedAt.getTime()}`;

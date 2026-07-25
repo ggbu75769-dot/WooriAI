@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
-  AdminApiError,
   applyCatalogTaxonomyReorder,
   applyCatalogV2Import,
   archiveCatalogTaxonomyNode,
@@ -12,6 +11,7 @@ import {
   getCatalogItemRevisions,
   getCatalogV2Coverage,
   getCatalogV2Queues,
+  isAdminApiErrorStatus,
   isAuthError,
   listCatalogV2Items,
   previewCatalogV2Import,
@@ -197,9 +197,9 @@ export default function CatalogOperationsPage() {
     return request;
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options: { preserveError?: boolean } = {}) => {
     if (!session) return;
-    setError(null);
+    if (!options.preserveError) setError(null);
     try {
       const [itemResult, coverageResult, queueResult, taxonomyResult] = await Promise.all([
         listCatalogV2Items({ query: query || undefined, status: status === "all" ? undefined : status }),
@@ -214,7 +214,7 @@ export default function CatalogOperationsPage() {
       setTaxonomyNodes(taxonomyResult.nodes);
     } catch (loadError) {
       if (isAuthError(loadError)) return clearSession();
-      setError("Release 4 카탈로그 운영 정보를 불러오지 못했어요.");
+      if (!options.preserveError) setError("Release 4 카탈로그 운영 정보를 불러오지 못했어요.");
     }
   }, [clearSession, getQueuesSingleFlight, query, session, status]);
 
@@ -318,13 +318,17 @@ export default function CatalogOperationsPage() {
       await load();
     } catch (actionError) {
       if (isAuthError(actionError)) return clearSession();
-      setError(
-        actionError instanceof AdminApiError && actionError.status === 409
-          ? "다른 운영자가 먼저 변경했어요. 입력 내용은 유지했으니 최신 revision을 불러온 뒤 다시 확인해 주세요."
-          : action === "publish"
+      const isConflict = isAdminApiErrorStatus(actionError, 409);
+      if (isConflict) {
+        setError("다른 운영자가 먼저 변경했어요. 입력 내용은 유지했으니 최신 revision을 불러온 뒤 다시 확인해 주세요.");
+        void load({ preserveError: true });
+      } else {
+        setError(
+          action === "publish"
             ? "게시 gate를 통과하지 못했어요."
             : "요청 또는 검수를 완료하지 못했어요. 역할 분리와 최신 revision을 확인하세요."
-      );
+        );
+      }
     } finally {
       setWorkingId(null);
     }
@@ -382,11 +386,13 @@ export default function CatalogOperationsPage() {
       await load();
     } catch (taxonomyActionError) {
       if (isAuthError(taxonomyActionError)) return clearSession();
-      setTaxonomyError(
-        taxonomyActionError instanceof AdminApiError && taxonomyActionError.status === 409
-          ? "다른 운영자가 이 분류를 먼저 변경했어요. 입력 내용은 유지했으니 최신 버전을 다시 불러오세요."
-          : "분류를 저장하지 못했어요. 다른 운영자의 변경 여부를 확인하세요."
-      );
+      const isConflict = isAdminApiErrorStatus(taxonomyActionError, 409);
+      if (isConflict) {
+        setTaxonomyError("다른 운영자가 이 분류를 먼저 변경했어요. 입력 내용은 유지했으니 최신 버전을 다시 불러오세요.");
+        void load({ preserveError: true });
+      } else {
+        setTaxonomyError("분류를 저장하지 못했어요. 다른 운영자의 변경 여부를 확인하세요.");
+      }
     } finally {
       setTaxonomyWorking(false);
     }

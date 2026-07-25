@@ -19,6 +19,7 @@ describe("Release 4I Admin operations recovery browser qualification", () => {
   const admins: BrowserAdmin[] = [];
   let missingImportId = "";
   let heartbeatId = "";
+  let deniedMutationDlqId = "";
 
   beforeAll(async () => {
     harness = await launchAdminBrowserHarness();
@@ -51,11 +52,33 @@ describe("Release 4I Admin operations recovery browser qualification", () => {
       }
     });
     missingImportId = missingImport.id;
+    const deniedMutationDlq = await harness.prisma.deadLetterJob.create({
+      data: {
+        originalJobId: `browser-denied-${randomUUID()}`,
+        topic: "browser.denied",
+        dedupeKey: `browser-denied-${randomUUID()}`,
+        payloadJson: { safe: true },
+        failureCode: "BROWSER_TEST",
+        attempts: 1,
+        firstFailedAt: new Date(),
+        lastFailedAt: new Date()
+      }
+    });
+    deniedMutationDlqId = deniedMutationDlq.id;
   });
 
   afterAll(async () => {
     if (!harness) return;
     if (missingImportId) await harness.prisma.catalogImport.deleteMany({ where: { id: missingImportId } });
+    if (deniedMutationDlqId) {
+      await harness.prisma.jobOutbox.deleteMany({
+        where: { aggregateType: "dead_letter_retry", aggregateId: deniedMutationDlqId }
+      });
+      await harness.prisma.auditLog.deleteMany({
+        where: { targetType: "dead_letter_jobs", targetId: deniedMutationDlqId }
+      });
+      await harness.prisma.deadLetterJob.deleteMany({ where: { id: deniedMutationDlqId } });
+    }
     if (heartbeatId) await harness.prisma.serviceInstanceHeartbeat.deleteMany({ where: { id: heartbeatId } });
     const ids = admins.map((admin) => admin.id);
     if (ids.length > 0) {
@@ -111,8 +134,14 @@ describe("Release 4I Admin operations recovery browser qualification", () => {
 
     const scanResponse = page.waitForResponse((response) => response.url().includes("/admin/catalog/imports/reconciliation/preview"));
     await page.getByRole("button", { name: "불일치 미리 확인" }).click();
-    expect((await scanResponse).status()).toBe(200);
-    await page.getByText(/원본 없음 1/u).waitFor();
+    const previewResponse = await scanResponse;
+    expect(previewResponse.status()).toBe(200);
+    const preview = await previewResponse.json() as { missingObjectJobs?: Array<{ id?: string }> };
+    expect(preview.missingObjectJobs?.map((job) => job.id)).toContain(missingImportId);
+    const reconciliationSection = page.locator("section").filter({
+      has: page.getByRole("heading", { name: "가져오기 복구" })
+    });
+    await expect.poll(() => reconciliationSection.innerText()).toContain(missingImportId);
     expect(requests.filter((entry) => entry === "POST /api/v1/admin/catalog/imports/reconciliation/preview")).toHaveLength(1);
 
     const globalReadsBeforeRepair = requests.filter((entry) => [
@@ -121,7 +150,8 @@ describe("Release 4I Admin operations recovery browser qualification", () => {
       "GET /api/v1/admin/operations/link-health"
     ].includes(entry)).length;
     const repairResponse = page.waitForResponse((response) => response.url().includes(`/admin/catalog/imports/${missingImportId}/reconcile`));
-    await page.getByRole("button", { name: "상태 다시 확인" }).click();
+    await reconciliationSection.locator("p").filter({ hasText: missingImportId })
+      .getByRole("button", { name: "상태 다시 확인" }).click();
     expect((await repairResponse).status()).toBe(200);
     await expect.poll(() => requests.filter((entry) => entry === `POST /api/v1/admin/catalog/imports/${missingImportId}/reconcile`).length).toBe(1);
     expect(requests.filter((entry) => [
@@ -171,6 +201,65 @@ describe("Release 4I Admin operations recovery browser qualification", () => {
       return response.status;
     });
     expect(directStatus).toBe(403);
+    const beforeDeniedDlqRead = await Promise.all([
+      harness.prisma.deadLetterJob.count(),
+      harness.prisma.jobOutbox.count()
+    ]);
+    const deniedDlqStatus = await page.evaluate(async () =>
+      (await fetch("/api/v1/admin/jobs/dead-letter", { credentials: "include" })).status
+    );
+    expect(deniedDlqStatus).toBe(403);
+    expect(
+      await Promise.all([
+        harness.prisma.deadLetterJob.count(),
+        harness.prisma.jobOutbox.count()
+      ])
+    ).toEqual(beforeDeniedDlqRead);
+    const deniedMutationBefore = {
+      row: await harness.prisma.deadLetterJob.findUniqueOrThrow({
+        where: { id: deniedMutationDlqId }
+      }),
+      outbox: await harness.prisma.jobOutbox.count({
+        where: { aggregateType: "dead_letter_retry", aggregateId: deniedMutationDlqId }
+      }),
+      audit: await harness.prisma.auditLog.count({
+        where: { targetType: "dead_letter_jobs", targetId: deniedMutationDlqId }
+      })
+    };
+    const deniedMutationStatuses = await page.evaluate(async (deadLetterId) => {
+      const csrf = document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith("admin_csrf="))?.split("=")[1] ?? "";
+      return Promise.all(
+        ["retry", "cancel"].map(async (action) =>
+          (
+            await fetch(`/api/v1/admin/jobs/dead-letter/${deadLetterId}/${action}`, {
+              method: "POST",
+              credentials: "include",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": decodeURIComponent(csrf)
+              },
+              body: JSON.stringify({ note: `denied ${action}` })
+            })
+          ).status
+        )
+      );
+    }, deniedMutationDlqId);
+    expect(deniedMutationStatuses).toEqual([403, 403]);
+    expect(
+      await harness.prisma.deadLetterJob.findUniqueOrThrow({
+        where: { id: deniedMutationDlqId }
+      })
+    ).toEqual(deniedMutationBefore.row);
+    expect(
+      await harness.prisma.jobOutbox.count({
+        where: { aggregateType: "dead_letter_retry", aggregateId: deniedMutationDlqId }
+      })
+    ).toBe(deniedMutationBefore.outbox);
+    expect(
+      await harness.prisma.auditLog.count({
+        where: { targetType: "dead_letter_jobs", targetId: deniedMutationDlqId }
+      })
+    ).toBe(deniedMutationBefore.audit);
     await context.close();
   });
 });

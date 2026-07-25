@@ -26,7 +26,7 @@ export const childLifecycleCodes = [
 export type MotherLifecycleCode = (typeof motherLifecycleCodes)[number];
 export type ChildLifecycleCode = (typeof childLifecycleCodes)[number];
 export type Release4LifecycleCode = MotherLifecycleCode | ChildLifecycleCode;
-export type Release4LifecycleRule = { axis: "mother" | "child"; code: Release4LifecycleCode };
+export type Release4LifecycleRule = { axis: "mother" | "child"; code: Release4LifecycleCode; priorityWeight?: number };
 
 export const catalogScenarioCodes = [
   "first_child", "second_or_later", "multiple_birth", "preterm_or_nicu",
@@ -156,7 +156,7 @@ const domainSources: readonly DomainSource[] = [
     items: [
       "신생아 침대", "아기 요람", "단단한 아기 매트리스", "매트리스 방수 커버", "고정형 매트리스 시트", "아기 수면조끼",
       "수면 공간 온도계", "수면 공간 습도계", "암막 커튼", "야간 수유 조명", "수면 기록지", "침대 주변 비움 체크 카드",
-      "여행용 아기 침대", "수면 공간 점검 자", "침구 세탁 보관함", "낮잠 공간 안내판", "수면 환경 정리 바구니"
+      "여행용 아기 침대", "수면 공간 점검 자", "침구 세탁 보관함", "낮잠 공간 안내판", "수면 환경 정리 바구니", "역류방지쿠션"
     ],
     targetSubject: "child",
     lifecycles: child("newborn_0_3m", "infant_4_6m", "infant_7_12m", "toddler_1_2y")
@@ -349,23 +349,6 @@ const domainSources: readonly DomainSource[] = [
 
 const highRiskDomainCodes = new Set(["C01", "C06", "C09", "C12", "C17", "C18", "C22"]);
 const subcategorySuffixes = ["기본 준비", "사용·관리", "보관·교체"] as const;
-const scenariosByDomain: Record<string, readonly CatalogScenarioCode[]> = {
-  C01: ["first_child", "budget_saving", "preterm_or_nicu"],
-  C02: ["summer_birth", "winter_birth"],
-  C05: ["vaginal_delivery", "cesarean_delivery", "multiple_birth"],
-  C07: ["breastfeeding", "mixed_feeding"],
-  C08: ["formula_feeding", "mixed_feeding"],
-  C14: ["small_home", "pet_household", "secondhand_preferred", "rental_preferred", "budget_saving"],
-  C17: ["car_primary", "public_transport_primary", "no_car", "no_elevator", "frequent_travel"],
-  C21: ["daycare", "kindergarten", "school"],
-  C23: ["frequent_travel"],
-  C24: ["first_child", "second_or_later", "budget_saving"]
-};
-
-function scenariosFor(domainCode: string, itemIndex: number, highRisk: boolean): CatalogScenarioCode[] {
-  const candidates = (scenariosByDomain[domainCode] ?? []).filter((code) => code !== "preterm_or_nicu" || highRisk);
-  return candidates.length ? [candidates[itemIndex % candidates.length]] : [];
-}
 
 export type Release4CatalogNode = {
   code: string;
@@ -385,10 +368,186 @@ export type Release4CatalogItem = {
   necessity: "required" | "recommended" | "conditional" | "optional";
   recommendationState: "recommended" | "conditional" | "professional_review_required";
   safetyTier: "normal" | "elevated" | "high";
-  lifecycles: readonly Release4LifecycleRule[];
+  lifecycles: readonly (Release4LifecycleRule & { priorityWeight: number })[];
   scenarioCodes: readonly CatalogScenarioCode[];
+  contextRules: readonly { code: CatalogScenarioCode; weight: number; required: boolean }[];
   aliases: readonly string[];
+  displayGroup: "mother_birth" | "feeding" | "sleep_furniture" | "hygiene_health" | "clothing_laundry" | "mobility_safety" | "play_education" | "family_records";
+  displayOrder: number;
+  editorialPriority: number;
+  personalizedDiscovery: boolean;
+  onboardingEligible: boolean;
+  onboardingPriority: number | null;
+  evidenceClass: "official_checklist" | "official_checklist_and_popularity_proxy" | "safety_guidance" | "catalog_editorial";
+  evidenceSourceIds: readonly ("20slab_mentions" | "kicce_basket" | "cbrh_checklist" | "cpsc_safe_sleep")[];
+  editorialReviewedAt: "2026-07-20";
 };
+
+export const release4CatalogAuditVersion = "preparation-necessity-v2-2026-07-20" as const;
+
+export const release4CatalogEvidenceSources = {
+  "20slab_mentions": { sourceType: "popularity_proxy", url: "https://www.20slab.org/Archives/GetFileStream/38640", checkedAt: "2026-07-20" },
+  "kicce_basket": { sourceType: "public_research", url: "https://repo.kicce.re.kr/bitstream/2019.oak/799/2/KICCE%20%EC%9C%A1%EC%95%84%EB%AC%BC%EA%B0%80%EC%A7%80%EC%88%98%20%EC%97%B0%EA%B5%AC%28%E2%85%A3%29.pdf", checkedAt: "2026-07-20" },
+  "cbrh_checklist": { sourceType: "hospital_checklist", url: "https://www.cbrh.or.kr/upload/faq/1766130175789_272.pdf", checkedAt: "2026-07-20" },
+  "cpsc_safe_sleep": { sourceType: "safety_guidance", url: "https://www.cpsc.gov/SafeSleep", checkedAt: "2026-07-20" }
+} as const;
+
+export type PreparationTimelineRankInput = {
+  bucket: "overdue" | "this_week" | "this_month" | "next_stage" | "completed" | "not_needed";
+  hasPlan: boolean;
+  userDueTime: number | null;
+  lifecyclePriority: number;
+  contextWeight: number;
+  necessity: Release4CatalogItem["necessity"];
+  displayOrder: number;
+  code: string;
+};
+
+export function comparePreparationTimelineRank(left: PreparationTimelineRankInput, right: PreparationTimelineRankInput) {
+  const bucketRank = { overdue: 0, this_week: 1, this_month: 2, next_stage: 3, completed: 4, not_needed: 5 } as const;
+  const necessityRank = { required: 0, recommended: 1, conditional: 2, optional: 3 } as const;
+  const planRank = (input: PreparationTimelineRankInput) => input.userDueTime !== null ? 0 : input.hasPlan ? 1 : 2;
+  return planRank(left) - planRank(right)
+    || (left.userDueTime ?? Number.MAX_SAFE_INTEGER) - (right.userDueTime ?? Number.MAX_SAFE_INTEGER)
+    || bucketRank[left.bucket] - bucketRank[right.bucket]
+    || right.lifecyclePriority - left.lifecyclePriority
+    || right.contextWeight - left.contextWeight
+    || necessityRank[left.necessity] - necessityRank[right.necessity]
+    || left.displayOrder - right.displayOrder
+    || left.code.localeCompare(right.code);
+}
+
+const displayGroupByDomain: Record<string, Release4CatalogItem["displayGroup"]> = {
+  C01: "mother_birth", C02: "mother_birth", C03: "mother_birth", C04: "mother_birth", C05: "mother_birth", C06: "mother_birth",
+  C07: "feeding", C08: "feeding", C16: "feeding",
+  C09: "sleep_furniture", C15: "sleep_furniture",
+  C10: "hygiene_health", C11: "hygiene_health", C12: "hygiene_health",
+  C13: "clothing_laundry", C14: "clothing_laundry",
+  C17: "mobility_safety", C18: "mobility_safety", C22: "mobility_safety", C23: "mobility_safety",
+  C19: "play_education", C20: "play_education", C21: "play_education",
+  C24: "family_records"
+};
+
+const editorialPriorityByName: Readonly<Record<string, number>> = {
+  "신생아 기저귀": 1000,
+  "신생아 침대": 990,
+  "단단한 아기 매트리스": 980,
+  "고정형 매트리스 시트": 970,
+  "아기 체온계": 960,
+  "신생아 아기띠": 950,
+  "신생아 욕조": 940,
+  "후드형 아기 타월": 930,
+  "신생아 배냇저고리": 920,
+  "신생아 유모차": 910,
+  "젖병": 900,
+  "신생아용 카시트": 890,
+  "물티슈": 880,
+  "아기 바디수트": 870,
+  "아기 손톱가위": 860,
+  "아기 바디 세정제": 850,
+  "아기 보습제": 840,
+  "목욕물 온도계": 830,
+  "젖병 세척솔": 820,
+  "젖병 세정제": 810,
+  "젖병 건조대": 800,
+  "기저귀 외출 가방": 790,
+  "휴대용 기저귀 매트": 780,
+  "아기 빨래 바구니": 770,
+  "아기 옷 세탁망": 760,
+  "아기 옷 건조대": 750,
+  "수유 쿠션": 740,
+  "수유 패드": 730,
+  "유축기": 720,
+  "모유 저장팩": 710,
+  "분유 보관 용기": 700,
+  "월령별 젖꼭지": 690,
+  "기저귀 교환대": 680,
+  "기저귀 정리함": 670,
+  "기저귀 휴지통": 660,
+  "코 관리 흡입기": 650,
+  "가정용 응급 처치함": 640,
+  "신생아 퇴원복": 630,
+  "출산 입원 가방": 620,
+  "산후 패드": 610,
+  "산후 위생 팬티": 600,
+  "수유 브라": 590,
+  "아기 요람": 580,
+  "아기 수면조끼": 570,
+  "터미타임 매트": 560,
+  "아기 딸랑이": 550,
+  "아기 보드북": 540,
+  "아기 식탁의자": 530,
+  "흡착 식판": 520,
+  "유아 안전문": 510
+};
+
+const domainBasePriority: Readonly<Record<string, number>> = {
+  C01: 190, C02: 260, C03: 240, C04: 230, C05: 300, C06: 310,
+  C07: 430, C08: 440, C09: 500, C10: 490, C11: 480, C12: 470,
+  C13: 420, C14: 390, C15: 360, C16: 410, C17: 460, C18: 380,
+  C19: 340, C20: 320, C21: 330, C22: 280, C23: 250, C24: 100
+};
+
+const physicalNameExceptions = new Set(["아기 손톱 파일", "한글 낱말 카드", "회수 물품 체크함"]);
+const nonProductPattern = /(계획|일정표|시간표|역할 분담표|기록지|기록표|기록장|기록 파일|기록 카드|기록 수첩|결과 파일|서류|파일|메모|연락 카드|정보 카드|인계 카드|요청 카드|확인 체크 카드|체크리스트|점검표|확인표|수첩|목록|안내서|안내판|도면|상담 기록|인계 노트|예산표|연락망|갱신 일정표)/;
+const requiredItemNames = new Set([
+  "신생아 기저귀", "신생아 침대", "단단한 아기 매트리스", "고정형 매트리스 시트", "아기 체온계",
+  "신생아 욕조", "후드형 아기 타월", "신생아 배냇저고리"
+]);
+const conditionalItemNames = new Set([
+  "젖병", "신생아용 카시트", "역류방지쿠션", "유축기", "모유 저장팩", "분유 보관 용기",
+  "월령별 젖꼭지", "수유 패드", "수유 브라"
+]);
+const elevatedSafetyNames = new Set(["기저귀 교환대", "아기 식탁의자", "유아 안전문", "터미타임 매트"]);
+
+const scenarioItems: Readonly<Record<CatalogScenarioCode, readonly string[]>> = {
+  first_child: ["신생아 침대", "신생아 기저귀", "신생아 아기띠", "신생아 유모차"],
+  second_or_later: ["물려쓰기 분류 상자", "물려쓰기 자산 목록"],
+  multiple_birth: ["출산 입원 가방", "신생아 기저귀", "젖병", "기저귀 정리함"],
+  preterm_or_nicu: ["신생아 침대", "아기 체온계"],
+  vaginal_delivery: ["회음부 방석", "좌욕 용기"],
+  cesarean_delivery: ["출산 입원 가방", "제왕절개 상처 보호대", "산후 복부 지지대"],
+  breastfeeding: ["수유 쿠션", "수유 패드", "유축기", "모유 저장팩", "수유 브라"],
+  formula_feeding: ["젖병", "젖병 세척솔", "젖병 세정제", "젖병 건조대", "분유 보관 용기", "월령별 젖꼭지"],
+  mixed_feeding: ["수유 쿠션", "수유 패드", "유축기", "모유 저장팩", "젖병", "분유 보관 용기"],
+  daycare: ["어린이집 등원 가방", "낮잠 이불", "개인 수건", "이름 스티커"],
+  kindergarten: ["유치원 등원 가방", "유아 실내화", "이름 스티커"],
+  school: ["초등 책가방", "학교 실내화", "초등 연필", "필통"],
+  car_primary: ["신생아용 카시트", "영아용 카시트", "유아용 카시트", "주니어 카시트", "차량 비상용 육아 가방"],
+  public_transport_primary: ["신생아 아기띠", "유아용 아기띠", "휴대용 유모차", "대중교통 외출 파우치"],
+  no_car: ["신생아 아기띠", "유아용 아기띠", "휴대용 유모차"],
+  no_elevator: ["신생아 아기띠", "유아용 아기띠", "휴대용 유모차"],
+  small_home: ["아기 요람", "기저귀 수납 카트", "수유용품 수납함", "물려쓰기 분류 상자"],
+  pet_household: ["유아 안전문", "장난감 세척함", "아기방 청소 도구함"],
+  secondhand_preferred: ["물려쓰기 분류 상자", "물려쓰기 자산 목록", "장난감 수납장"],
+  rental_preferred: ["유축기", "신생아 유모차", "여행용 아기 침대"],
+  frequent_travel: ["여행용 아기 침대", "여행용 수유 파우치", "여행용 기저귀 파우치", "휴대용 기저귀 교환 매트"],
+  summer_birth: ["아기 바디수트", "아기 세면 타월", "신생아 유모차"],
+  winter_birth: ["신생아 배냇저고리", "신생아 퇴원복", "아기 수면조끼"],
+  budget_saving: ["신생아 아기띠", "아기 옷 세탁망", "물려쓰기 분류 상자"]
+};
+
+function contextRulesFor(nameKo: string) {
+  return (Object.entries(scenarioItems) as Array<[CatalogScenarioCode, readonly string[]]>)
+    .filter(([, names]) => names.includes(nameKo))
+    .map(([code]) => ({
+      code,
+      weight: ["formula_feeding", "mixed_feeding", "breastfeeding", "car_primary"].includes(code) ? 220 : 140,
+      required: (code === "car_primary" && nameKo === "신생아용 카시트")
+        || (["formula_feeding", "mixed_feeding"].includes(code) && ["젖병", "분유 보관 용기", "월령별 젖꼭지"].includes(nameKo))
+    }));
+}
+
+function lifecyclePriorityFor(nameKo: string, lifecycle: Release4LifecycleRule, priority: number) {
+  if (priority === 0) return 0;
+  if (lifecycle.axis === "mother") return 100;
+  if (nameKo.includes("신생아")) return lifecycle.code === "newborn_0_3m" ? 100 : lifecycle.code === "infant_4_6m" ? 40 : 0;
+  if (nameKo.includes("영아")) return ["newborn_0_3m", "infant_4_6m", "infant_7_12m"].includes(lifecycle.code) ? 100 : 0;
+  if (nameKo.includes("초등") || nameKo.includes("학교")) return ["elementary_lower", "elementary_upper", "middle_school"].includes(lifecycle.code) ? 100 : 0;
+  if (nameKo.includes("유치원")) return ["preschool_4_5y", "preschool_6_7y"].includes(lifecycle.code) ? 100 : 0;
+  if (nameKo.includes("유아") || nameKo.includes("배변훈련") || nameKo.includes("첫 걸음")) return ["infant_7_12m", "toddler_1_2y", "toddler_2_3y", "preschool_4_5y", "preschool_6_7y"].includes(lifecycle.code) ? 100 : 0;
+  return 100;
+}
 
 function normalizeCatalogTerm(value: string) {
   return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[\s\p{P}\p{S}]/gu, "");
@@ -402,7 +561,8 @@ const searchAliasOverrides: Record<string, readonly string[]> = {
   "수유 패드": ["모유패드"],
   "신생아 배냇저고리": ["배냇저고리", "신생아 내의"],
   "기저귀 외출 가방": ["기저귀가방", "외출가방"],
-  "코 관리 흡입기": ["콧물흡입기", "코흡인기"]
+  "코 관리 흡입기": ["콧물흡입기", "코흡인기"],
+  "역류방지쿠션": ["역방쿠", "역류 방지 쿠션"]
 };
 
 function aliasesFor(name: string, domainName: string, categoryName: string) {
@@ -473,12 +633,39 @@ export const release4CatalogItems: readonly Release4CatalogItem[] = domainSource
     const categoryIndex = categoryIndexFor(domain, nameKo, itemIndex);
     const categoryCode = `${domain.code}-${String(categoryIndex + 1).padStart(2, "0")}`;
     const subcategoryIndex = Math.floor(itemIndex / domain.categories.length) % subcategorySuffixes.length;
-    const highRisk = highRiskDomainCodes.has(domain.code) && itemIndex < 12;
-    const necessity = highRisk
-      ? "conditional"
-      : (["required", "recommended", "recommended", "conditional", "optional"] as const)[itemIndex % 5];
+    const code = `R4-${domain.code}-${String(itemIndex + 1).padStart(3, "0")}`;
+    const highRisk = (highRiskDomainCodes.has(domain.code) && itemIndex < 12) || nameKo === "역류방지쿠션";
+    const nonProduct = !physicalNameExceptions.has(nameKo) && nonProductPattern.test(nameKo);
+    const editorialPriority = nameKo === "역류방지쿠션"
+      ? 0
+      : nonProduct
+        ? 0
+        : editorialPriorityByName[nameKo] ?? Math.max(1, (domainBasePriority[domain.code] ?? 100) - itemIndex);
+    const necessity: Release4CatalogItem["necessity"] = nonProduct
+      ? "optional"
+      : requiredItemNames.has(nameKo)
+        ? "required"
+        : conditionalItemNames.has(nameKo)
+          ? "conditional"
+          : "recommended";
+    const contextRules = contextRulesFor(nameKo);
+    const safetyTier: Release4CatalogItem["safetyTier"] = highRisk ? "high" : elevatedSafetyNames.has(nameKo) ? "elevated" : "normal";
+    const evidenceClass: Release4CatalogItem["evidenceClass"] = nameKo === "역류방지쿠션" || domain.code === "C09" || nameKo.includes("카시트")
+      ? "safety_guidance"
+      : editorialPriority >= 890
+        ? "official_checklist_and_popularity_proxy"
+        : editorialPriority >= 500
+          ? "official_checklist"
+          : "catalog_editorial";
+    const evidenceSourceIds: Release4CatalogItem["evidenceSourceIds"] = evidenceClass === "safety_guidance"
+      ? ["cbrh_checklist", "cpsc_safe_sleep"]
+      : evidenceClass === "official_checklist_and_popularity_proxy"
+        ? ["cbrh_checklist", "kicce_basket", "20slab_mentions"]
+        : evidenceClass === "official_checklist"
+          ? ["cbrh_checklist", "kicce_basket"]
+          : ["kicce_basket"];
     return {
-      code: `R4-${domain.code}-${String(itemIndex + 1).padStart(3, "0")}`,
+      code,
       nameKo,
       domainCode: domain.code,
       categoryCode,
@@ -486,13 +673,43 @@ export const release4CatalogItems: readonly Release4CatalogItem[] = domainSource
       targetSubject: domain.targetSubject,
       necessity,
       recommendationState: highRisk ? "professional_review_required" : necessity === "conditional" ? "conditional" : "recommended",
-      safetyTier: highRisk ? "high" : itemIndex % 7 === 0 ? "elevated" : "normal",
-      lifecycles: domain.lifecycles,
-      scenarioCodes: scenariosFor(domain.code, itemIndex, highRisk),
-      aliases: aliasesFor(nameKo, domain.name, domain.categories[categoryIndex])
+      safetyTier,
+      lifecycles: domain.lifecycles.map((lifecycle) => ({ ...lifecycle, priorityWeight: lifecyclePriorityFor(nameKo, lifecycle, editorialPriority) })),
+      scenarioCodes: contextRules.map((rule) => rule.code),
+      contextRules,
+      aliases: aliasesFor(nameKo, domain.name, domain.categories[categoryIndex]),
+      displayGroup: displayGroupByDomain[domain.code] ?? "family_records",
+      displayOrder: (1000 - editorialPriority) * 1000 + Number(domain.code.slice(1)) * 100 + itemIndex,
+      editorialPriority,
+      personalizedDiscovery: editorialPriority > 0,
+      onboardingEligible: editorialPriority >= 700,
+      onboardingPriority: editorialPriority >= 700 ? editorialPriority : null,
+      evidenceClass,
+      evidenceSourceIds,
+      editorialReviewedAt: "2026-07-20"
     } satisfies Release4CatalogItem;
   })
 );
+
+export const release4CatalogEditorialAudit = release4CatalogItems.map((item) => ({
+  version: release4CatalogAuditVersion,
+  itemCode: item.code,
+  judgement: item.personalizedDiscovery ? item.necessity : "optional_search_only",
+  applicableContextCodes: item.contextRules.map((rule) => rule.code),
+  evidenceClass: item.evidenceClass,
+  sources: item.evidenceSourceIds.map((sourceId) => ({ sourceId, ...release4CatalogEvidenceSources[sourceId] })),
+  confidence: item.evidenceClass === "official_checklist_and_popularity_proxy" ? "high" : item.evidenceClass === "catalog_editorial" ? "low" : "medium",
+  checkedAt: item.editorialReviewedAt
+})) as readonly {
+  version: typeof release4CatalogAuditVersion;
+  itemCode: string;
+  judgement: Release4CatalogItem["necessity"] | "optional_search_only";
+  applicableContextCodes: readonly CatalogScenarioCode[];
+  evidenceClass: Release4CatalogItem["evidenceClass"];
+  sources: readonly { sourceId: keyof typeof release4CatalogEvidenceSources; sourceType: string; url: string; checkedAt: string }[];
+  confidence: "high" | "medium" | "low";
+  checkedAt: string;
+}[];
 
 const release4BundleDefinitionsByName = [
   { nameKo: "임신 초기 생활 적응", itemNames: ["산모수첩", "임신 진료 일정표", "병원 질문 메모", "복약 확인 목록", "임신 응급 연락 카드", "임신 건강 변화 일지"] },
@@ -550,7 +767,8 @@ const requiredSearchExamples = [
   { query: "배냇저고리", expectedNameKo: "신생아 배냇저고리" },
   { query: "기저귀가방", expectedNameKo: "기저귀 외출 가방" },
   { query: "콧물흡입기", expectedNameKo: "코 관리 흡입기" },
-  { query: "코흡인기", expectedNameKo: "코 관리 흡입기" }
+  { query: "코흡인기", expectedNameKo: "코 관리 흡입기" },
+  { query: "역방쿠", expectedNameKo: "역류방지쿠션" }
 ] as const;
 
 export const release4SearchAcceptanceCorpus = [
@@ -624,6 +842,16 @@ export function validateRelease4Catalog(): string[] {
       errors.push(`${item.code}: category path is incomplete`);
     }
     if (!item.lifecycles.length) errors.push(`${item.code}: lifecycle is required`);
+    if (item.lifecycles.some((lifecycle) => !Number.isInteger(lifecycle.priorityWeight) || lifecycle.priorityWeight < 0)) {
+      errors.push(`${item.code}: lifecycle priority is invalid`);
+    }
+    if (!item.displayGroup || !item.editorialReviewedAt || !item.evidenceClass) errors.push(`${item.code}: editorial metadata is required`);
+    if (!item.evidenceSourceIds.length || item.evidenceSourceIds.some((sourceId) => !release4CatalogEvidenceSources[sourceId])) {
+      errors.push(`${item.code}: editorial evidence source is required`);
+    }
+    if (!item.personalizedDiscovery && item.lifecycles.some((lifecycle) => lifecycle.priorityWeight !== 0)) {
+      errors.push(`${item.code}: hidden personalized items must use zero lifecycle priority`);
+    }
     if (item.scenarioCodes.includes("preterm_or_nicu") && (item.safetyTier !== "high" || item.recommendationState !== "professional_review_required")) {
       errors.push(`${item.code}: medical context must stay behind professional review`);
     }

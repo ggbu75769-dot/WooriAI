@@ -198,6 +198,13 @@ export class AdminApiError extends Error {
   }
 }
 
+export function isAdminApiErrorStatus(error: unknown, status: number): error is AdminApiError {
+  return error instanceof Error
+    && error.name === "AdminApiError"
+    && "status" in error
+    && (error as { status?: unknown }).status === status;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const isMultipart = typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -413,7 +420,7 @@ export function getAffiliateClickSummary() {
 /** Session-expiry only: a role-forbidden (RBAC), CSRF, or MFA-setup-required 403
  * is not "log the admin out", so this intentionally checks 401 alone. */
 export function isAuthError(error: unknown): boolean {
-  return error instanceof AdminApiError && error.status === 401;
+  return isAdminApiErrorStatus(error, 401);
 }
 
 export type AdminProfile = { id: string; email: string; displayName: string; role: "admin" | "editor" | "analyst" };

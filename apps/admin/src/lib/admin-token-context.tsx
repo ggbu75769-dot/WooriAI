@@ -38,10 +38,7 @@ export function AdminTokenProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refresh();
-    // Only on mount: the cookie itself (not this effect) is the source of
-    // truth for whether the browser is still authenticated.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refresh]);
 
   const setSession = useCallback((next: AdminSession) => setSessionState(next), []);
   const clearSession = useCallback(() => setSessionState(null), []);

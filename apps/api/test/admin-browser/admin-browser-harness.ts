@@ -14,7 +14,8 @@ import { PrismaService } from "../../src/prisma/prisma.service";
 const CHROME_CANDIDATES = [
   process.env.WOORIAI_CHROME_EXECUTABLE,
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  chromium.executablePath()
 ].filter((candidate): candidate is string => Boolean(candidate));
 
 async function findFreePort(): Promise<number> {
@@ -134,6 +135,12 @@ export async function launchAdminBrowserHarness(): Promise<AdminBrowserHarness> 
   const baseUrl = `http://127.0.0.1:${adminPort}`;
   try {
     await waitForHttp(baseUrl, adminProcess, () => output.join(""));
+    // The root page becoming reachable does not prove that Next has compiled
+    // the catalog route under a heavily loaded release gate. Warm the exact
+    // route before the test browser starts, otherwise a
+    // browser can land on the transient compilation/error shell and spend its
+    // entire locator timeout waiting for a form that is not ready yet.
+    await waitForHttp(`${baseUrl}/catalog`, adminProcess, () => output.join(""));
   } catch (error) {
     await stopProcess(adminProcess);
     await app.close();
@@ -141,10 +148,34 @@ export async function launchAdminBrowserHarness(): Promise<AdminBrowserHarness> 
     throw error;
   }
 
-  const browser = await chromium.launch({
-    executablePath: chromeExecutable(),
-    headless: true
-  });
+  let browser: Browser | undefined;
+  try {
+    browser = await chromium.launch({
+      executablePath: chromeExecutable(),
+      headless: true
+    });
+    const warmupPage = await browser.newPage();
+    try {
+      await warmupPage.goto(`${baseUrl}/catalog`, {
+        waitUntil: "domcontentloaded",
+        timeout: 60_000
+      });
+      // HTTP 200 alone can still be Next's transient compilation shell. The
+      // client-rendered sign-in label is the first stable, interactive marker.
+      await warmupPage.getByLabel("관리자 이메일").waitFor({
+        state: "visible",
+        timeout: 60_000
+      });
+    } finally {
+      await warmupPage.close();
+    }
+  } catch (error) {
+    await browser?.close();
+    await stopProcess(adminProcess);
+    await app.close();
+    restoreRateLimits();
+    throw error;
+  }
 
   return {
     app,

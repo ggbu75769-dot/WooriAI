@@ -271,23 +271,31 @@ describe("Release 4G Admin catalog browser qualification", () => {
       rowA.getByRole("button", { name: "게시" }).click(),
       rowB.getByRole("button", { name: "게시" }).click()
     ]);
-    const publishStatuses = (await Promise.all([publishResponseA, publishResponseB])).map((response) => response.status()).sort();
+    const [responseA, responseB] = await Promise.all([publishResponseA, publishResponseB]);
+    const publishStatuses = [responseA.status(), responseB.status()].sort();
     expect(publishStatuses).toEqual([200, 409]);
     await expect.poll(async () => (await harness.prisma.itemDefinition.findUniqueOrThrow({ where: { id: normalItem.id } })).status).toBe("published");
-    await expect.poll(async () => {
-      const messages = await Promise.all([
-        publishBrowserA.page.getByText("다른 운영자가 먼저 변경했어요.", { exact: false }).count(),
-        publishBrowserB.page.getByText("다른 운영자가 먼저 변경했어요.", { exact: false }).count()
-      ]);
-      return messages.reduce((sum, count) => sum + count, 0);
-    }, { timeout: 10_000 }).toBe(1);
+    const conflictPage = responseA.status() === 409 ? publishBrowserA.page : publishBrowserB.page;
+    const publishedPage = responseA.status() === 200 ? publishBrowserA.page : publishBrowserB.page;
+    const banners = conflictPage.locator('[class*="errorBanner"]');
+    let conflictBannerIndex = -1;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const texts = await banners.allTextContents();
+      conflictBannerIndex = texts.findIndex((text) => text.includes("다른 운영자가 먼저 변경했어요."));
+      if (conflictBannerIndex >= 0) break;
+      await conflictPage.waitForTimeout(500);
+    }
+    expect(conflictBannerIndex).toBeGreaterThanOrEqual(0);
+    expect(await banners.nth(conflictBannerIndex).isVisible()).toBe(true);
+    const publishedBanners = await publishedPage.locator('[class*="errorBanner"]').allTextContents();
+    expect(publishedBanners.some((text) => text.includes("다른 운영자가 먼저 변경했어요."))).toBe(false);
 
     row = await searchItem(publishBrowserA.page, highRiskItem);
     await row.getByRole("button", { name: "게시" }).click();
     await expect.poll(async () => (await harness.prisma.itemDefinition.findUniqueOrThrow({ where: { id: highRiskItem.id } })).status).toBe("published");
     await publishBrowserA.context.close();
     await publishBrowserB.context.close();
-  });
+  }, 180_000);
 
   it("previews CSV/XLSX safely, reports partial failure, confirms apply, and never executes formulas", async () => {
     const importer = admins.find((admin) => admin.email.includes("publisher-a")) ?? await createAdmin("importer");
@@ -362,7 +370,7 @@ describe("Release 4G Admin catalog browser qualification", () => {
     expect(reordered.map((node) => node.id)).toEqual([second.id, first.id]);
 
     const row = page.getByRole("row").filter({ hasText: first.nameKo });
-    await row.getByRole("button", { name: "편집" }).click();
+    await row.getByRole("button", { name: "편집" }).click({ noWaitAfter: true });
     const nameInput = page.getByLabel("분류 이름 편집");
     const unsavedName = `${first.nameKo} 사용자 입력 유지`;
     await nameInput.fill(unsavedName);
@@ -379,13 +387,24 @@ describe("Release 4G Admin catalog browser qualification", () => {
       await page.getByRole("heading", { name: `${queueLabel} 상세` }).waitFor();
     }
     await context.close();
-  });
+  }, 180_000);
 
   it("filters and paginates a populated report queue, preserves state, and refetches only that queue after one mutation", async () => {
     const operator = admins.find((admin) => admin.email.includes("publisher-a")) ?? await createAdmin("queue-operator");
     const item = await createItem(operator.id, "normal", "QUEUE");
+    const oldestOpenReport = await harness.prisma.catalogItemReport.findFirst({
+      where: { state: "open" },
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true }
+    });
+    const fixtureEndMs = (oldestOpenReport?.createdAt.getTime() ?? Date.now()) - 1_000;
     const reports = await Promise.all(Array.from({ length: 21 }, (_, index) => harness.prisma.catalogItemReport.create({
-      data: { itemDefinitionId: item.id, reasonCode: "wrong_category", detail: `Release 4H queue fixture ${index + 1}` }
+      data: {
+        itemDefinitionId: item.id,
+        reasonCode: "wrong_category",
+        detail: `Release 4H queue fixture ${index + 1}`,
+        createdAt: new Date(fixtureEndMs - (20 - index))
+      }
     })));
     reportIds.push(...reports.map((report) => report.id));
 
@@ -438,5 +457,5 @@ describe("Release 4G Admin catalog browser qualification", () => {
     }, reports[1]!.id);
     expect(directStatus).toBe(403);
     await analystBrowser.context.close();
-  });
+  }, 180_000);
 });

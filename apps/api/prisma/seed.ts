@@ -446,139 +446,161 @@ async function seedRelease4Catalog() {
   const expenseCategoryIdByCode = new Map(expenseCategories.map((category) => [category.code, category.id]));
   const itemIdByCode = new Map<string, string>();
 
-  for (const [itemIndex, item] of release4CatalogItems.entries()) {
-    const safetyNote = item.safetyTier === "high"
-      ? "안전·의학 관련 조건은 판매 상품보다 전문가 확인과 최신 공공 지침 확인이 우선입니다."
+  for (const item of release4CatalogItems) {
+    const safetyNote = item.nameKo === "역류방지쿠션"
+      ? "영아의 수면 공간에는 두지 마세요. 수면 중에는 단단하고 평평한 수면면과 고정형 시트만 사용하고, 이 품목은 의료적 효능을 단정하지 않습니다."
+      : item.safetyTier === "high"
+        ? "안전·의학 관련 조건은 판매 상품보다 전문가 확인과 최신 공공 지침 확인이 우선입니다."
       : item.safetyTier === "elevated"
         ? "사용 환경과 대상 연령을 확인하고 제조사 안전 안내를 따르세요."
         : null;
-    const saved = await prisma.itemDefinition.upsert({
-      where: { code: item.code },
-      update: {
-        nameKo: item.nameKo,
-        shortDescription: `${item.nameKo}의 필요 여부와 준비 상태를 관리하는 일반 품목입니다.`,
-        targetSubject: item.targetSubject,
-        necessity: item.necessity,
-        recommendationState: item.recommendationState,
-        reasonText: `가족 상황에 따라 ${item.nameKo}의 필요 여부, 수량, 준비 시기를 검토하고 기록할 수 있습니다.`,
-        skipReasonText: "가족 상황과 사용 계획에 맞지 않으면 준비하지 않아도 됩니다.",
-        quantityGuidance: "가족 구성과 사용 빈도에 따라 수량을 정하세요.",
-        timingSummary: "연결된 생애주기와 실제 생활 계획을 함께 확인하세요.",
-        priceMinKrw: null,
-        priceMaxKrw: null,
-        priceCheckedAt: null,
-        secondhandPolicy: item.safetyTier === "normal" ? "allowed" : "inspect",
-        rentalPolicy: "conditional",
-        safetyTier: item.safetyTier,
-        safetyNote,
-        medicalDisclaimerRequired: item.safetyTier === "high",
-        sourceSummary: "Release 4 product design catalog; editorial and professional review pending.",
-        contentVersion: 1,
-        reviewedAt: null,
-        reviewedByAdminId: null,
-        status: "in_review",
-        displayOrder: itemIndex + 1
-      },
-      create: {
-        code: item.code,
-        nameKo: item.nameKo,
-        shortDescription: `${item.nameKo}의 필요 여부와 준비 상태를 관리하는 일반 품목입니다.`,
-        targetSubject: item.targetSubject,
-        necessity: item.necessity,
-        recommendationState: item.recommendationState,
-        reasonText: `가족 상황에 따라 ${item.nameKo}의 필요 여부, 수량, 준비 시기를 검토하고 기록할 수 있습니다.`,
-        skipReasonText: "가족 상황과 사용 계획에 맞지 않으면 준비하지 않아도 됩니다.",
-        quantityGuidance: "가족 구성과 사용 빈도에 따라 수량을 정하세요.",
-        timingSummary: "연결된 생애주기와 실제 생활 계획을 함께 확인하세요.",
-        secondhandPolicy: item.safetyTier === "normal" ? "allowed" : "inspect",
-        rentalPolicy: "conditional",
-        safetyTier: item.safetyTier,
-        safetyNote,
-        medicalDisclaimerRequired: item.safetyTier === "high",
-        sourceSummary: "Release 4 product design catalog; editorial and professional review pending.",
-        contentVersion: 1,
-        status: "in_review",
-        displayOrder: itemIndex + 1
-      },
-      select: { id: true }
-    });
-    itemIdByCode.set(item.code, saved.id);
-
-    await prisma.itemDefinitionCategory.deleteMany({ where: { itemDefinitionId: saved.id } });
-    await prisma.itemDefinitionCategory.createMany({
-      data: [
-        { itemDefinitionId: saved.id, catalogNodeId: nodeIdByCode.get(item.domainCode)!, displayOrder: 10 },
-        { itemDefinitionId: saved.id, catalogNodeId: nodeIdByCode.get(item.categoryCode)!, displayOrder: 20 },
-        { itemDefinitionId: saved.id, catalogNodeId: nodeIdByCode.get(item.subcategoryCode)!, isPrimary: true, displayOrder: 30 }
-      ]
-    });
-
-    await prisma.itemLifecycleRule.deleteMany({ where: { itemDefinitionId: saved.id } });
-    await prisma.itemLifecycleRule.createMany({
-      data: item.lifecycles.map((lifecycle, lifecycleIndex) => ({
-        itemDefinitionId: saved.id,
-        axis: lifecycle.axis,
-        lifecycleCode: lifecycle.code,
-        timingText: "해당 생애주기에서 필요 여부를 확인하세요.",
-        priorityWeight: item.lifecycles.length - lifecycleIndex
-      }))
-    });
-
-    const contextCodes = ["all", ...item.scenarioCodes];
-    await prisma.itemContextRule.deleteMany({
-      where: { itemDefinitionId: saved.id, contextCode: { notIn: contextCodes } }
-    });
-    for (const contextCode of contextCodes) {
-      await prisma.itemContextRule.upsert({
-        where: { itemDefinitionId_contextCode: { itemDefinitionId: saved.id, contextCode } },
-        update: { weight: 0, required: false },
-        create: { itemDefinitionId: saved.id, contextCode, weight: 0, required: false }
-      });
-    }
-
-    await prisma.itemSynonym.deleteMany({ where: { itemDefinitionId: saved.id } });
-    await prisma.itemSynonym.createMany({
-      data: item.aliases.map((alias) => ({
-        itemDefinitionId: saved.id,
-        synonym: alias,
-        normalizedSynonym: alias.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[\s\p{P}\p{S}]/gu, "")
-      })),
-      skipDuplicates: true
-    });
-
-    if (item.safetyTier === "high") {
-      await prisma.itemSafetyRule.upsert({
-        where: { itemDefinitionId_ruleCode: { itemDefinitionId: saved.id, ruleCode: "professional-review-gate" } },
+    const sourceSummary = `preparation-necessity-v2-2026-07-20; evidence class: ${item.evidenceClass}; sources: ${item.evidenceSourceIds.join(",")}; popularity is a proxy and never a sales-volume claim.`;
+    const reasonText = item.personalizedDiscovery
+      ? `가족 상황과 생애주기에 맞춰 ${item.nameKo}의 필요 여부, 수량, 준비 시기를 검토하고 기록할 수 있습니다.`
+      : `${item.nameKo}은 문서·기록 또는 조건부 품목으로 개인화 추천에서는 제외하고 검색과 전체 목록에서만 제공합니다.`;
+    const saved = await prisma.$transaction(async (tx) => {
+      const savedDefinition = await tx.itemDefinition.upsert({
+        where: { code: item.code },
         update: {
-          severity: "high",
-          guidanceText: safetyNote!,
-          blocksRecommendation: true,
+          nameKo: item.nameKo,
+          shortDescription: `${item.nameKo}의 필요 여부와 준비 상태를 관리하는 일반 품목입니다.`,
+          targetSubject: item.targetSubject,
+          necessity: item.necessity,
+          recommendationState: item.recommendationState,
+          reasonText,
+          skipReasonText: "가족 상황과 사용 계획에 맞지 않으면 준비하지 않아도 됩니다.",
+          quantityGuidance: "가족 구성과 사용 빈도에 따라 수량을 정하세요.",
+          timingSummary: "연결된 생애주기와 실제 생활 계획을 함께 확인하세요.",
+          priceMinKrw: null,
+          priceMaxKrw: null,
+          priceCheckedAt: null,
+          secondhandPolicy: item.safetyTier === "normal" ? "allowed" : "inspect",
+          rentalPolicy: "conditional",
+          safetyTier: item.safetyTier,
+          safetyNote,
+          medicalDisclaimerRequired: item.safetyTier === "high",
+          sourceSummary,
+          contentVersion: 2,
           reviewedAt: null,
-          expiresAt: null
+          reviewedByAdminId: null,
+          status: "in_review",
+          displayOrder: item.displayOrder,
+          onboardingEligible: item.onboardingEligible,
+          onboardingPriority: item.onboardingPriority
         },
         create: {
-          itemDefinitionId: saved.id,
-          ruleCode: "professional-review-gate",
-          severity: "high",
-          guidanceText: safetyNote!,
-          blocksRecommendation: true
-        }
+          code: item.code,
+          nameKo: item.nameKo,
+          shortDescription: `${item.nameKo}의 필요 여부와 준비 상태를 관리하는 일반 품목입니다.`,
+          targetSubject: item.targetSubject,
+          necessity: item.necessity,
+          recommendationState: item.recommendationState,
+          reasonText,
+          skipReasonText: "가족 상황과 사용 계획에 맞지 않으면 준비하지 않아도 됩니다.",
+          quantityGuidance: "가족 구성과 사용 빈도에 따라 수량을 정하세요.",
+          timingSummary: "연결된 생애주기와 실제 생활 계획을 함께 확인하세요.",
+          secondhandPolicy: item.safetyTier === "normal" ? "allowed" : "inspect",
+          rentalPolicy: "conditional",
+          safetyTier: item.safetyTier,
+          safetyNote,
+          medicalDisclaimerRequired: item.safetyTier === "high",
+          sourceSummary,
+          contentVersion: 2,
+          status: "in_review",
+          displayOrder: item.displayOrder,
+          onboardingEligible: item.onboardingEligible,
+          onboardingPriority: item.onboardingPriority
+        },
+        select: { id: true }
       });
-    }
 
-    const expenseCategoryCode = expenseCategoryByDomain[item.domainCode] ?? "other";
-    const expenseCategoryId = expenseCategoryIdByCode.get(expenseCategoryCode);
-    if (!expenseCategoryId) throw new Error(`Release 4 expense category missing: ${expenseCategoryCode}`);
-    await prisma.itemExpenseCategoryMapping.upsert({
-      where: {
-        itemDefinitionId_expenseCategoryId: {
-          itemDefinitionId: saved.id,
-          expenseCategoryId
-        }
-      },
-      update: { isDefault: true },
-      create: { itemDefinitionId: saved.id, expenseCategoryId, isDefault: true }
+      await tx.itemDefinitionCategory.deleteMany({ where: { itemDefinitionId: savedDefinition.id } });
+      await tx.itemDefinitionCategory.createMany({
+        data: [
+          { itemDefinitionId: savedDefinition.id, catalogNodeId: nodeIdByCode.get(item.domainCode)!, displayOrder: 10 },
+          { itemDefinitionId: savedDefinition.id, catalogNodeId: nodeIdByCode.get(item.categoryCode)!, displayOrder: 20 },
+          { itemDefinitionId: savedDefinition.id, catalogNodeId: nodeIdByCode.get(item.subcategoryCode)!, isPrimary: true, displayOrder: 30 }
+        ]
+      });
+
+      await tx.itemLifecycleRule.deleteMany({ where: { itemDefinitionId: savedDefinition.id } });
+      await tx.itemLifecycleRule.createMany({
+        data: item.lifecycles.map((lifecycle) => ({
+          itemDefinitionId: savedDefinition.id,
+          axis: lifecycle.axis,
+          lifecycleCode: lifecycle.code,
+          timingText: "해당 생애주기에서 필요 여부를 확인하세요.",
+          priorityWeight: lifecycle.priorityWeight
+        }))
+      });
+
+      const contextRules = [{ code: "all", weight: 0, required: false }, ...item.contextRules];
+      const contextCodes = contextRules.map((rule) => rule.code);
+      await tx.itemContextRule.deleteMany({
+        where: { itemDefinitionId: savedDefinition.id, contextCode: { notIn: contextCodes } }
+      });
+      for (const contextRule of contextRules) {
+        await tx.itemContextRule.upsert({
+          where: { itemDefinitionId_contextCode: { itemDefinitionId: savedDefinition.id, contextCode: contextRule.code } },
+          update: { weight: contextRule.weight, required: contextRule.required },
+          create: { itemDefinitionId: savedDefinition.id, contextCode: contextRule.code, weight: contextRule.weight, required: contextRule.required }
+        });
+      }
+
+      await tx.itemSynonym.deleteMany({ where: { itemDefinitionId: savedDefinition.id } });
+      await tx.itemSynonym.createMany({
+        data: item.aliases.map((alias) => ({
+          itemDefinitionId: savedDefinition.id,
+          synonym: alias,
+          normalizedSynonym: alias.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[\s\p{P}\p{S}]/gu, "")
+        })),
+        skipDuplicates: true
+      });
+
+      if (item.safetyTier === "high") {
+        await tx.itemSafetyRule.upsert({
+          where: { itemDefinitionId_ruleCode: { itemDefinitionId: savedDefinition.id, ruleCode: "professional-review-gate" } },
+          update: {
+            severity: "high",
+            guidanceText: safetyNote!,
+            blocksRecommendation: true,
+            reviewedAt: null,
+            expiresAt: null
+          },
+          create: {
+            itemDefinitionId: savedDefinition.id,
+            ruleCode: "professional-review-gate",
+            severity: "high",
+            guidanceText: safetyNote!,
+            blocksRecommendation: true
+          }
+        });
+      } else {
+        await tx.itemSafetyRule.deleteMany({
+          where: { itemDefinitionId: savedDefinition.id, ruleCode: "professional-review-gate" }
+        });
+      }
+
+      const expenseCategoryCode = expenseCategoryByDomain[item.domainCode] ?? "other";
+      const expenseCategoryId = expenseCategoryIdByCode.get(expenseCategoryCode);
+      if (!expenseCategoryId) throw new Error(`Release 4 expense category missing: ${expenseCategoryCode}`);
+      await tx.itemExpenseCategoryMapping.updateMany({
+        where: { itemDefinitionId: savedDefinition.id, expenseCategoryId: { not: expenseCategoryId }, isDefault: true },
+        data: { isDefault: false }
+      });
+      await tx.itemExpenseCategoryMapping.upsert({
+        where: {
+          itemDefinitionId_expenseCategoryId: {
+            itemDefinitionId: savedDefinition.id,
+            expenseCategoryId
+          }
+        },
+        update: { isDefault: true },
+        create: { itemDefinitionId: savedDefinition.id, expenseCategoryId, isDefault: true }
+      });
+      return savedDefinition;
     });
+    itemIdByCode.set(item.code, saved.id);
   }
 
   // Release 3 may contain reviewed catalog rows that are not part of the current

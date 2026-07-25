@@ -123,7 +123,7 @@ describe("Release 4 catalog and preparation APIs", () => {
       .set("Authorization", `Bearer ${token}`)
       .expect(200);
     expect(response.body.context).toMatchObject({ lifecycleAxis: "child", lifecycleCode: "newborn_0_3m", nextLifecycleCode: "infant_4_6m" });
-    expect(response.body.rankingPolicy).toBe("necessity_and_lifecycle_only_no_offer_or_sponsor_signal");
+    expect(response.body.rankingPolicy).toBe("user_due_then_timeline_then_lifecycle_priority_then_context_then_necessity_no_commerce_signal");
     expect(response.body.buckets.this_week.length).toBeGreaterThan(0);
     expect(response.body.buckets.this_week[0]).toEqual(expect.objectContaining({
       recommendationReasonCode: expect.any(String),
@@ -186,7 +186,7 @@ describe("Release 4 catalog and preparation APIs", () => {
     const contextualReason = rankedItems.find((item) => item.matchedContextCodes.length > 0)?.recommendationReason ?? "";
     expect(contextualReason).toContain("상황");
     expect(contextualReason).not.toMatch(/small_home|first_child|pregnancy_late/);
-    expect(timeline.body.rankingPolicy).toBe("necessity_and_lifecycle_only_no_offer_or_sponsor_signal");
+    expect(timeline.body.rankingPolicy).toBe("user_due_then_timeline_then_lifecycle_priority_then_context_then_necessity_no_commerce_signal");
   });
 
   it("previews selected bundle members, applies them atomically, and requires duplicate-purchase acknowledgement", async () => {
@@ -297,7 +297,7 @@ describe("Release 4 catalog and preparation APIs", () => {
     process.env.NODE_ENV = "test";
     process.env.CATALOG_INTERNAL_PREVIEW_ENABLED = "1";
     const internal = await request(app.getHttpServer()).get("/api/v1/catalog/items?limit=1").set(auth).expect(200);
-    expect(internal.body.total).toBe(408);
+    expect(internal.body.total).toBe(409);
     expect(internal.body.items[0]).toMatchObject({ status: "in_review" });
   });
 
@@ -629,7 +629,7 @@ describe("Release 4 catalog and preparation APIs", () => {
       .get("/api/v1/catalog/coverage-summary")
       .set("Authorization", `Bearer ${token}`)
       .expect(200);
-    expect(coverage.body).toMatchObject({ domains: 24, canonicalItems: 408, aliases: 3278, highRiskAwaitingProfessionalReview: 84, publishBlocked: true });
+    expect(coverage.body).toMatchObject({ domains: 24, canonicalItems: 409, aliases: 3287, highRiskAwaitingProfessionalReview: 85, publishBlocked: true });
     expect(coverage.body.matrix.gap).toBeGreaterThan(0);
   });
 

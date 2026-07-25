@@ -79,7 +79,10 @@ export class AdminAuthGuard implements CanActivate {
       });
     }
 
-    const requiredRoles = this.reflector.get<AdminRole[] | undefined>(ADMIN_ROLES_KEY, context.getHandler());
+    const requiredRoles = this.reflector.getAllAndOverride<AdminRole[] | undefined>(ADMIN_ROLES_KEY, [
+      context.getHandler(),
+      context.getClass()
+    ]);
     if (requiredRoles && requiredRoles.length > 0 && !requiredRoles.includes(admin.role)) {
       throw new ForbiddenException({ code: "ADMIN_FORBIDDEN", message: "Admin access is required." });
     }
