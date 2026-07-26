@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Pu
 import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
-import { ApplyCustomBundleDto, BundleVersionDto, CalendarQueryDto, CreateCustomBundleDto, ReferenceDateQueryDto, TodayPreferenceDto, UpdateCustomBundleDto } from "./dto/release5-daily.dto";
+import { ApplyCustomBundleDto, BundleVersionDto, CalendarQueryDto, CreateCustomBundleDto, ReferenceDateQueryDto, TodayPreferenceDto, TodayPreferenceQueryDto, UpdateCustomBundleDto } from "./dto/release5-daily.dto";
 import { Release5DailyService } from "./release5-daily.service";
 import { ConfirmReceiptDraftDto, CreateReceiptDraftDto, LinkExpensePlanDto, UpdatePredictionPreferenceDto } from "./dto/release5-assisted.dto";
 import { Release5AssistedService } from "./release5-assisted.service";
@@ -25,6 +25,11 @@ export class Release5UserController {
   @Put("home/today-preferences")
   todayPreference(@Req() request: AuthenticatedRequest, @Body(createDtoValidationPipe(TodayPreferenceDto)) body: TodayPreferenceDto) {
     return this.daily.updateTodayPreference(request.user!, body);
+  }
+
+  @Get("home/today-preferences")
+  todayPreferenceResolution(@Req() request: AuthenticatedRequest, @Query(createDtoValidationPipe(TodayPreferenceQueryDto)) query: TodayPreferenceQueryDto) {
+    return this.daily.todayPreferenceResolution(request.user!, query);
   }
 
   @Get("households/:householdId/preparation-calendar")

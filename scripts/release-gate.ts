@@ -87,6 +87,8 @@ const gateCommands: GateCommand[] = [
       EXPO_PUBLIC_API_BASE_URL: "https://api.wooriai.test/api/v1",
       EXPO_PUBLIC_TEST_LOGIN: "0",
       EXPO_PUBLIC_PIXEL_LOCK: "0",
+      EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: "0",
+      EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE: "0",
       CATALOG_INTERNAL_PREVIEW_ENABLED: "0"
     }
   },
@@ -149,6 +151,8 @@ function fixtureEnvironment(migrationHead: string): Record<string, string> {
     WOORIAI_BUILD_PROFILE: "production",
     EXPO_PUBLIC_TEST_LOGIN: "0",
     EXPO_PUBLIC_PIXEL_LOCK: "0",
+    EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: "0",
+    EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE: "0",
     ENABLE_DEV_AUTH: "false",
     CATALOG_INTERNAL_PREVIEW_ENABLED: "0",
     LEGAL_OPERATOR_NAME: "Approved Operator",

@@ -49,7 +49,13 @@ export const privacyRequestSchema = z.object({
 }).strict();
 
 export const currentAccountDeletionResponseSchema = z.object({
-  deletion: privacyRequestSchema.extend({ requestType: z.literal("deletion") }).nullable()
+  deletion: privacyRequestSchema.extend({
+    requestType: z.literal("deletion"),
+    details: z.object({
+      householdId: z.string().uuid(),
+      accessRevoked: z.literal(false)
+    }).strict().optional()
+  }).nullable()
 }).strict();
 export type CurrentAccountDeletionResponse = z.infer<typeof currentAccountDeletionResponseSchema>;
 

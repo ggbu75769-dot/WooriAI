@@ -317,9 +317,9 @@ describe("Family invites and household RBAC", () => {
     await request(app.getHttpServer())
       .delete(`/api/v1/households/${householdId}/members/${ownerMemberId}`)
       .set("Authorization", `Bearer ${ownerToken}`)
-      .expect(400)
+      .expect(409)
       .expect(({ body }) => {
-        expect(body.error.code).toBe("HOUSEHOLD_MEMBER_REMOVE_OWNER_FORBIDDEN");
+        expect(body.error.code).toBe("OWNER_TRANSFER_REQUIRED");
       });
 
     await request(app.getHttpServer())

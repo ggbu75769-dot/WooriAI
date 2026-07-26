@@ -2,7 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Redirect, router, type Href } from "expo-router";
 import { Pressable, Text, View } from "react-native";
-import { getCatalogItem, getHome, listHouseholdMembers } from "../../src/api/client";
+import {
+  getCatalogItem,
+  getHome,
+  getTodayPreferenceResolution,
+  listHouseholdMembers,
+  updateTodayPreference
+} from "../../src/api/client";
 import {
   fixtureSessionToken,
   LOCAL_HOUSEHOLD_ID,
@@ -48,6 +54,9 @@ import {
   PurchaseFollowupCard,
   purchaseExpenseRouteParams
 } from "../../src/purchase-followup/PurchaseFollowupCard";
+import { TodayCenterCard } from "../../src/home/TodayCenterCard";
+import { todayActionHref } from "../../src/home/today-center";
+import { executeTodaySnooze } from "../../src/home/today-center-mutation";
 
 const isPixelLockMode = isPixelLockBuild();
 
@@ -339,6 +348,11 @@ export default function HomeScreen() {
       ? purchaseFollowup
       : null;
   const followupItemName = followupItem.data?.nameKo ?? "확인한 준비템";
+  const refetchTodayActions = async () => {
+    const refreshed = await home.refetch();
+    if (refreshed.error) throw refreshed.error;
+    return refreshed.data?.todayCenter?.actions ?? [];
+  };
   return (
     <AppScreen>
       <View accessibilityLabel={pixelEvidenceId("HOME-001")} testID={pixelEvidenceId("HOME-001")}>
@@ -353,22 +367,28 @@ export default function HomeScreen() {
           </View>
           <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 }}>우리 아이에게 해준 것을 따뜻하게 기록해요.</Text>
 
-          {!isPixelLockMode && visibleHome.todayCenter?.actions.length ? (
-            <Card style={{ gap: 8 }}>
-              <Text style={{ color: theme.colors.brown, fontSize: 17, fontWeight: "800" }}>오늘의 가족 준비</Text>
-              <Text style={{ color: theme.colors.gray600, fontSize: 13 }}>지금 처리할 중요한 행동만 최대 3개 보여드려요.</Text>
-              {visibleHome.todayCenter.actions.map((action) => (
-                <ListRow
-                  key={action.actionKey}
-                  icon={<AppIcon color={action.kind === "safety_acknowledgement" ? theme.colors.danger : theme.colors.coral[600]} name={action.kind === "safety_acknowledgement" ? "shield-alert-outline" : "calendar-check-outline"} size={21} />}
-                  title={action.reasonParams.itemName ? String(action.reasonParams.itemName) : "가족 준비 확인"}
-                  subtitle={action.kind === "safety_acknowledgement" ? "공식 안전 안내를 확인해 주세요" : action.dueDate ? `${action.dueDate}까지 준비` : "준비 상태를 확인해 주세요"}
-                  onPress={() => action.navigation.kind === "calendar"
-                    ? router.push("/preparation-calendar" as Href)
-                    : router.push(`/items/${action.sourceId}` as Href)}
-                />
-              ))}
-            </Card>
+          {!isPixelLockMode && visibleHome.todayCenter ? (
+            <TodayCenterCard
+              center={visibleHome.todayCenter}
+              onNavigate={(action) => router.push(todayActionHref(action) as Href)}
+              onRefresh={async () => { await refetchTodayActions(); }}
+              onSnooze={(action) => executeTodaySnooze({
+                action,
+                write: () => updateTodayPreference(authToken!, {
+                  householdId: purchaseHouseholdId!,
+                  childId: action.preferenceScope.childId,
+                  actionKey: action.actionKey,
+                  mode: "snooze",
+                  expectedVersion: action.preferenceVersion
+                }),
+                resolveExact: () => getTodayPreferenceResolution(authToken!, {
+                  householdId: purchaseHouseholdId!,
+                  childId: action.preferenceScope.childId,
+                  actionKey: action.actionKey
+                }),
+                refetchActions: refetchTodayActions
+              })}
+            />
           ) : null}
 
           {visiblePurchaseFollowup ? (

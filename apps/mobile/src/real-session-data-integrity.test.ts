@@ -49,7 +49,9 @@ describe("Real session data integrity contract", () => {
 
     const familySource = source("app/family/index.tsx");
     expect(familySource).toContain("const visibleMembers = hasSession ? members.data!.members : previewMembers;");
-    expect(familySource).toContain('if (!hasSession && !isPixelLockMode)');
+    expect(familySource).toContain('if (!authToken && !isPixelLockMode)');
+    expect(familySource).toContain("authorizedHouseholds.data");
+    expect(familySource).toContain("enabled: hasSession");
   });
 
   it("wires the home screen's 전체 보기 action to the records list", () => {

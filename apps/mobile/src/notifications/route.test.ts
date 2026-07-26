@@ -4,6 +4,8 @@ import { notificationRouteHref } from "./route";
 describe("notification route allowlist", () => {
   it("maps only known route identifiers", () => {
     expect(notificationRouteHref("preparation")).toBe("/(tabs)/items");
+    expect(notificationRouteHref("preparation", null, "safety")).toBe("/(tabs)/items?surface=overview");
+    expect(notificationRouteHref("preparation", null, "replacement")).toBe("/(tabs)/items");
     expect(notificationRouteHref("family")).toBe("/family");
     expect(notificationRouteHref("reports")).toBe("/(tabs)/reports");
     expect(notificationRouteHref(null)).toBeNull();
@@ -20,6 +22,12 @@ describe("notification route allowlist", () => {
       childId,
       itemId
     })).toBe(`/items/${itemId}?contextType=child&contextId=${childId}`);
+    expect(notificationRouteHref("preparation", {
+      kind: "item",
+      householdId: "33333333-3333-4333-8333-333333333333",
+      childId,
+      itemId
+    }, "safety")).toBe(`/(tabs)/items?surface=overview&contextType=child&contextId=${childId}`);
     expect(notificationRouteHref("preparation", { kind: "item", childId: "../privacy", itemId })).toBe("/(tabs)/items");
     expect(notificationRouteHref(null, { kind: "item", childId, itemId: "javascript:alert(1)" })).toBeNull();
     expect(notificationRouteHref(null, { kind: "item", childId, itemId: "a".repeat(2_000) })).toBeNull();

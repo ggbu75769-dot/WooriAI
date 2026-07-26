@@ -69,6 +69,9 @@ export class JobHandlersService {
     if (request.state === "requested") {
       request = await this.privacy.activateDueDeletion(requestId);
     }
+    if (request.state === "failed" && request.failureCode === "OWNER_TRANSFER_REQUIRED") {
+      return { code: "OWNER_TRANSFER_REQUIRED" };
+    }
     if (request.state === "access_revoked") {
       request = await this.privacy.transition(requestId, "processor_delete_queued", "DELETE_JOB_ACCEPTED");
     }

@@ -234,6 +234,10 @@ async function main() {
     NODE_PATH: [join(mobileRoot, "node_modules"), process.env.NODE_PATH].filter(Boolean).join(delimiter),
     EXPO_PUBLIC_PIXEL_LOCK: "0",
     EXPO_PUBLIC_TEST_LOGIN: profileTestLoginEnv[profile],
+    EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE:
+      profile === "standalone" && process.env.EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE === "1" ? "1" : "0",
+    EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE:
+      profile === "standalone" && process.env.EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE === "1" ? "1" : "0",
     WOORIAI_BUILD_PROFILE: profile,
     EXPO_ROUTER_APP_ROOT: "app",
     NODE_ENV: "production",
@@ -311,6 +315,8 @@ async function main() {
         env: {
           EXPO_PUBLIC_PIXEL_LOCK: "0",
           EXPO_PUBLIC_TEST_LOGIN: profileTestLoginEnv[profile],
+          EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: env.EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE,
+          EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE: env.EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE,
           WOORIAI_BUILD_PROFILE: profile,
           EXPO_ROUTER_APP_ROOT: "app",
           ...(apiBaseUrl ? { EXPO_PUBLIC_API_BASE_URL: apiBaseUrl } : {})

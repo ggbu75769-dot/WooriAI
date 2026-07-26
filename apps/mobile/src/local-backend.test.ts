@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSeoulToday } from "@wooriai/domain";
 import * as localBackend from "./api/local-backend";
-import { LOCAL_CHILD_ID, LOCAL_ITEM_DIAPER } from "./api/local-fixtures";
+import { LOCAL_CHILD_ID, LOCAL_HOUSEHOLD_ID, LOCAL_ITEM_DIAPER } from "./api/local-fixtures";
+import { notificationRouteHref } from "./notifications/route";
 
 const childId = LOCAL_CHILD_ID;
 
@@ -9,9 +10,178 @@ function currentYearMonth() {
   return getSeoulToday().slice(0, 7);
 }
 
+function nextDate(dateOnly: string) {
+  const [year, month, day] = dateOnly.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+}
+
+function capturedError(run: () => unknown) {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected the operation to fail.");
+}
+
 describe("Local test-mode backend data layer", () => {
   beforeEach(() => {
     localBackend.resetLocalBackendForTests();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("persists exact-child Today snooze with create-only CAS and fixture provenance", () => {
+    const before = localBackend.getHome(childId).todayCenter!;
+    expect(before.source).toBe("local_fixture");
+    const ordinary = before.actions.find((entry) => entry.kind !== "safety_acknowledgement")!;
+    expect(ordinary.preferenceScope).toEqual({ kind: "child", childId });
+    expect(ordinary.preferenceVersion).toBe(0);
+
+    const saved = localBackend.updateTodayPreference({
+      householdId: LOCAL_HOUSEHOLD_ID,
+      childId,
+      actionKey: ordinary.actionKey,
+      mode: "snooze",
+      expectedVersion: 0
+    });
+    expect(saved).toMatchObject({
+      actionKey: ordinary.actionKey,
+      mode: "snooze",
+      snoozedUntil: nextDate(getSeoulToday()),
+      version: 1
+    });
+    expect(localBackend.getHome(childId).todayCenter!.actions.map((entry) => entry.actionKey))
+      .not.toContain(ordinary.actionKey);
+    expect(capturedError(() => localBackend.updateTodayPreference({
+      householdId: LOCAL_HOUSEHOLD_ID,
+      childId,
+      actionKey: ordinary.actionKey,
+      mode: "snooze",
+      expectedVersion: 0
+    }))).toMatchObject({ code: "TODAY_PREFERENCE_CONFLICT" });
+  });
+
+  it("rejects safety and foreign Today preference scopes without writes", () => {
+    const safety = localBackend.getHome(childId).todayCenter!.actions
+      .find((entry) => entry.kind === "safety_acknowledgement")!;
+    expect(capturedError(() => localBackend.updateTodayPreference({
+      householdId: LOCAL_HOUSEHOLD_ID,
+      childId,
+      actionKey: safety.actionKey,
+      mode: "snooze",
+      expectedVersion: 0
+    }))).toMatchObject({ code: "SAFETY_ACTION_NOT_SNOOZABLE" });
+    expect(capturedError(() => localBackend.updateTodayPreference({
+      householdId: "433599cf-5a9e-4a9f-854d-c708139fd342",
+      childId,
+      actionKey: "local:ordinary",
+      mode: "snooze",
+      expectedVersion: 0
+    }))).toMatchObject({ code: "HOUSEHOLD_FORBIDDEN" });
+    expect(localBackend.useLocalBackendStore.getState().todayActionPreferences).toEqual([]);
+  });
+
+  it("resolves exact preference state independently of the ranked Home projection", () => {
+    const ordinary = localBackend.getHome(childId).todayCenter!.actions
+      .find((entry) => entry.kind !== "safety_acknowledgement")!;
+    expect(localBackend.getTodayPreferenceResolution({
+      householdId: LOCAL_HOUSEHOLD_ID,
+      childId,
+      actionKey: ordinary.actionKey
+    }).preference).toBeNull();
+    const saved = localBackend.updateTodayPreference({
+      householdId: LOCAL_HOUSEHOLD_ID,
+      childId,
+      actionKey: ordinary.actionKey,
+      mode: "snooze",
+      expectedVersion: 0
+    });
+    expect(localBackend.getTodayPreferenceResolution({
+      householdId: LOCAL_HOUSEHOLD_ID,
+      childId,
+      actionKey: ordinary.actionKey
+    }).preference).toEqual(saved);
+  });
+
+  it("completes and persists the local safety acknowledgement journey", () => {
+    const safety = localBackend.getHome(childId).todayCenter!.actions
+      .find((entry) => entry.kind === "safety_acknowledgement")!;
+    const inbox = localBackend.listLocalNotifications();
+    expect(inbox.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: "safety", importance: "critical", requiresAcknowledgement: true })
+    ]));
+    const alert = localBackend.getCatalogSafetyAlerts(childId).alerts
+      .find((entry) => entry.itemDefinitionId === safety.sourceId)!;
+    expect(alert.item?.nameKo).toBe("기저귀");
+
+    localBackend.acknowledgeCatalogSafetyAlert(alert.id, alert.version);
+
+    expect(localBackend.getCatalogSafetyAlerts(childId).alerts).toEqual([]);
+    expect(localBackend.getHome(childId).todayCenter!.actions.map((entry) => entry.actionKey))
+      .not.toContain(safety.actionKey);
+  });
+
+  it("scopes safety Inbox navigation and acknowledgement to the exact child", () => {
+    localBackend.getHome(childId);
+    const secondChildId = localBackend.createChild({
+      nickname: "둘째",
+      stageMode: "born",
+      birthDate: "2025-07-26",
+      gender: "unknown"
+    }).id;
+    const firstSafety = localBackend.getHome(childId).todayCenter!.actions
+      .find((entry) => entry.kind === "safety_acknowledgement")!;
+    const secondSafety = localBackend.getHome(secondChildId).todayCenter!.actions
+      .find((entry) => entry.kind === "safety_acknowledgement")!;
+    expect(firstSafety.actionKey).not.toBe(secondSafety.actionKey);
+
+    const inbox = localBackend.listLocalNotifications();
+    expect(inbox.items.map((item) => item.navigation)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "item", childId }),
+      expect.objectContaining({ kind: "item", childId: secondChildId })
+    ]));
+    expect(inbox.items.map((item) =>
+      notificationRouteHref(item.route, item.navigation, item.category)
+    )).toEqual(expect.arrayContaining([
+      `/(tabs)/items?surface=overview&contextType=child&contextId=${childId}`,
+      `/(tabs)/items?surface=overview&contextType=child&contextId=${secondChildId}`
+    ]));
+
+    const firstAlert = localBackend.getCatalogSafetyAlerts(childId).alerts[0]!;
+    localBackend.acknowledgeCatalogSafetyAlert(firstAlert.id, firstAlert.version);
+
+    expect(localBackend.getCatalogSafetyAlerts(childId).alerts).toEqual([]);
+    expect(localBackend.getHome(childId).todayCenter!.actions.map((entry) => entry.actionKey))
+      .not.toContain(firstSafety.actionKey);
+    expect(localBackend.getCatalogSafetyAlerts(secondChildId).alerts).toHaveLength(1);
+    expect(localBackend.getHome(secondChildId).todayCenter!.actions.map((entry) => entry.actionKey))
+      .toContain(secondSafety.actionKey);
+    expect(localBackend.listLocalNotifications().items.map((item) => item.navigation))
+      .toEqual([expect.objectContaining({ kind: "item", childId: secondChildId })]);
+  });
+
+  it("isolates and persists alternative-fixture safety acknowledgement per child", () => {
+    vi.stubEnv("EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE", "1");
+    const secondChildId = localBackend.createChild({
+      nickname: "둘째",
+      stageMode: "born",
+      birthDate: "2025-07-26",
+      gender: "unknown"
+    }).id;
+    const firstAlert = localBackend.getCatalogSafetyAlerts(childId).alerts[0]!;
+    const secondAlert = localBackend.getCatalogSafetyAlerts(secondChildId).alerts[0]!;
+    expect(firstAlert.id).not.toBe(secondAlert.id);
+    expect(localBackend.getCatalogSafetyAlternatives(firstAlert.id).alternatives).toHaveLength(1);
+    expect(localBackend.getCatalogSafetyAlternatives(secondAlert.id).alternatives).toHaveLength(1);
+
+    localBackend.acknowledgeCatalogSafetyAlert(firstAlert.id, firstAlert.version);
+
+    expect(localBackend.getCatalogSafetyAlerts(childId).alerts).toEqual([]);
+    expect(localBackend.getCatalogSafetyAlerts(secondChildId).alerts)
+      .toEqual([expect.objectContaining({ id: secondAlert.id })]);
   });
 
   it("keeps the home total and the monthly report total in sync after a new expense", () => {

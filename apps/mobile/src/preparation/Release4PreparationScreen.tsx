@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { type CatalogScenarioCode } from "@wooriai/domain";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Redirect, router, type Href } from "expo-router";
+import { Redirect, router, type Href, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import {
   listCatalogDomains,
@@ -10,6 +10,7 @@ import {
   getPreparationContext,
   updatePreparationContext,
   getCatalogSafetyAlerts,
+  getCatalogSafetyAlternatives,
   acknowledgeCatalogSafetyAlert,
   listCatalogBundles,
   applyCatalogBundle,
@@ -28,6 +29,7 @@ import { useConnectivityStatus } from "../offline/connectivity";
 import { useOfflineSyncSnapshot } from "../offline/sync-controller";
 import { normalizeAppSyncStatus } from "../offline/sync-display-state";
 import { invalidatePreparationMutationQueries } from "../query/mutation-invalidation";
+import { openPublicEvidenceUrl } from "../security/public-evidence-url";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useCatalogSearchStore } from "../stores/catalog-search.store";
 import { useSessionStore } from "../stores/session.store";
@@ -39,6 +41,11 @@ import {
 } from "./PreparationOverview";
 import { resolvePreparationItemVisual } from "./item-visuals";
 import { PreparationListParity } from "./PreparationListParity";
+import {
+  activeSafetyAlertAfterScopeChange,
+  safetyAlternativeScopeKey,
+  safetyAlternativesQueryKey
+} from "./safety-query-scope";
 
 type PreparationView = "personalized" | "all" | "active" | "mine";
 type PreparationSurface = "overview" | "list" | "search" | "bundles" | "settings";
@@ -146,6 +153,11 @@ function FilterChip({ label, selected, onPress }: { label: string; selected: boo
 
 export function Release4PreparationScreen() {
   const { width } = useWindowDimensions();
+  const {
+    surface: requestedSurface,
+    contextType: requestedContextType,
+    contextId: requestedContextId
+  } = useLocalSearchParams<{ surface?: string; contextType?: string; contextId?: string }>();
   const [surface, setSurface] = useState<PreparationSurface>("list");
   const [view, setView] = useState<PreparationView>("personalized");
   const [domainCode, setDomainCode] = useState<string | undefined>();
@@ -159,6 +171,9 @@ export function Release4PreparationScreen() {
   const clearRecentSearches = useCatalogSearchStore((state) => state.clearRecentSearches);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
+  const sessionGeneration = useSessionStore((state) => state.sessionGeneration);
+  const sessionUserId = useSessionStore((state) => state.userId);
+  const defaultHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const token = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
@@ -171,6 +186,7 @@ export function Release4PreparationScreen() {
   const [preparationContextMessage, setPreparationContextMessage] = useState<string | null>(null);
   const [statusItem, setStatusItem] = useState<PreparationItem | null>(null);
   const [statusDraft, setStatusDraft] = useState<CatalogPlanState>("researching");
+  const [activeSafetyAlertId, setActiveSafetyAlertId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const syncSnapshot = useOfflineSyncSnapshot();
   const online = useConnectivityStatus();
@@ -180,12 +196,52 @@ export function Release4PreparationScreen() {
   const activeChildId = contextType === "child" ? contextId : undefined;
   const activeMotherProfileId = contextType === "mother" ? contextId : undefined;
   const hasSession = Boolean(token && activeContextKey);
+  const safetyScopeKey = safetyAlternativeScopeKey({
+    sessionGeneration,
+    userId: sessionUserId,
+    defaultHouseholdId,
+    isTestSession
+  }, activeContextKey);
+  const previousSafetyScopeKey = useRef(safetyScopeKey);
+
+  useEffect(() => {
+    if (requestedSurface === "overview") setSurface("overview");
+  }, [requestedSurface]);
+
+  useEffect(() => {
+    const previous = previousSafetyScopeKey.current;
+    if (previous === safetyScopeKey) return;
+    setActiveSafetyAlertId((current) =>
+      activeSafetyAlertAfterScopeChange(previous, safetyScopeKey, current)
+    );
+    void queryClient.removeQueries({
+      queryKey: ["catalog-v2", "safety-alternatives", previous]
+    });
+    previousSafetyScopeKey.current = safetyScopeKey;
+  }, [queryClient, safetyScopeKey]);
 
   const children = useQuery({
     queryKey: ["children"],
     enabled: Boolean(token),
     queryFn: () => listChildren(token!)
   });
+  useEffect(() => {
+    if (
+      requestedSurface !== "overview" ||
+      requestedContextType !== "child" ||
+      !requestedContextId
+    ) return;
+    const requestedChild = children.data?.children.find((entry) => entry.id === requestedContextId);
+    if (!requestedChild) return;
+    setContextKey(`child:${requestedChild.id}`);
+    setSelectedChildId(requestedChild.id, requestedChild.householdId);
+  }, [
+    children.data?.children,
+    requestedContextId,
+    requestedContextType,
+    requestedSurface,
+    setSelectedChildId
+  ]);
   const contexts = useQuery({
     queryKey: ["catalog-v2", "contexts"],
     enabled: Boolean(token),
@@ -230,6 +286,11 @@ export function Release4PreparationScreen() {
     queryKey: ["catalog-v2", "safety-alerts", activeContextKey],
     enabled: hasSession && surface === "overview",
     queryFn: () => getCatalogSafetyAlerts(token!, activeChildId, activeMotherProfileId)
+  });
+  const safetyAlternatives = useQuery({
+    queryKey: safetyAlternativesQueryKey(safetyScopeKey, activeSafetyAlertId),
+    enabled: hasSession && surface === "overview" && Boolean(activeSafetyAlertId),
+    queryFn: () => getCatalogSafetyAlternatives(token!, activeSafetyAlertId!)
   });
   const bundles = useQuery({
     queryKey: ["catalog-v2", "bundles", activeChildId],
@@ -473,7 +534,19 @@ export function Release4PreparationScreen() {
         <SafetyAlertSection
           alerts={(safetyAlerts.data?.alerts ?? []).filter((alert) => alert.state === "unread")}
           pending={acknowledgeSafety.isPending}
+          alternativeAlertId={activeSafetyAlertId}
+          alternatives={safetyAlternatives.data}
+          alternativesPending={safetyAlternatives.isFetching}
+          alternativesError={safetyAlternatives.isError}
           onAcknowledge={(alert) => acknowledgeSafety.mutate({ alertId: alert.id, expectedVersion: alert.version })}
+          onShowAlternatives={(alert) => setActiveSafetyAlertId((current) => current === alert.id ? null : alert.id)}
+          onRetryAlternatives={() => void safetyAlternatives.refetch()}
+          onOpenAlternative={(itemId) => router.push({ pathname: "/items/[itemTemplateId]", params: { itemTemplateId: itemId, v: "2", contextType, contextId } })}
+          onOpenEvidence={(url) => {
+            void openPublicEvidenceUrl(url).catch(() => {
+              Alert.alert("검증 근거를 열지 못했어요", "안전한 공개 HTTPS 주소인지 다시 확인해 주세요.");
+            });
+          }}
         />
         <WeeklyPreparationSection
           items={weeklyItems}
@@ -720,7 +793,11 @@ export function Release4PreparationScreen() {
       ) : null}
       <BottomSheet
         description="준비 상태를 바꾸면 목록, 홈 넛지와 관련 리포트에 바로 반영돼요."
-        onClose={() => { if (!updatePlan.isPending) setStatusItem(null); }}
+        onClose={() => {
+          if (updatePlan.isPending) return false;
+          setStatusItem(null);
+          return true;
+        }}
         title={statusItem?.nameKo ?? "준비 상태"}
         visible={Boolean(statusItem)}
       >

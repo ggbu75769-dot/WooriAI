@@ -15,7 +15,7 @@ const ALLOWED_TRANSITIONS: Record<PrivacyState, ReadonlySet<PrivacyState>> = {
   purging: new Set(["completed", "retained_exception", "failed"]),
   retained_exception: new Set(["purging", "completed"]),
   completed: new Set(),
-  failed: new Set(["processor_delete_queued", "purging", "cancelled"]),
+  failed: new Set(["requested", "processor_delete_queued", "purging", "cancelled"]),
   cancelled: new Set()
 };
 

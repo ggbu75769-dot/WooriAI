@@ -14,7 +14,7 @@ import {
   ReviewEvidenceSourceDto
 } from "./dto/release5-readiness.dto";
 import { Release5ReadinessService } from "./release5-readiness.service";
-import { ApproveSafetyAlternativeDto, PreviewMerchantFeedDto, ReviewMerchantFeedRowDto, ReviewRecallEventDto } from "./dto/release5-external.dto";
+import { ApproveSafetyAlternativeDto, CreateSafetyAlternativeDto, PreviewMerchantFeedDto, ReviewMerchantFeedRowDto, ReviewRecallEventDto } from "./dto/release5-external.dto";
 import { Release5ExternalService } from "./release5-external.service";
 
 @Controller("admin/release5")
@@ -148,8 +148,22 @@ export class Release5AdminController {
   @HttpCode(200)
   @RequireAdminRoles("admin")
   async approveSafetyAlternative(@Req() request: AuthenticatedRequest, @Param("itemId") itemId: string, @Body(createDtoValidationPipe(ApproveSafetyAlternativeDto)) body: ApproveSafetyAlternativeDto) {
-    const result = await this.external.approveSafetyAlternative(request.adminUser!.id, itemId, body);
-    await this.audit.record({ actorUserId: request.adminUser!.id, action: "release5.safety-alternative.approve", targetType: "item_alternative", targetId: `${result.itemDefinitionId}:${result.alternativeItemDefinitionId}`, after: { alternativeItemDefinitionId: result.alternativeItemDefinitionId } });
-    return result;
+    return this.external.approveSafetyAlternative(request.adminUser!.id, itemId, body);
+  }
+
+  @Post("catalog/items/:itemId/safety-alternatives")
+  @HttpCode(200)
+  @RequireAdminRoles("admin", "editor")
+  upsertSafetyAlternative(@Req() request: AuthenticatedRequest, @Param("itemId") itemId: string, @Body(createDtoValidationPipe(CreateSafetyAlternativeDto)) body: CreateSafetyAlternativeDto) {
+    return this.external.upsertSafetyAlternative(request.adminUser!.id, itemId, body, {
+      allowActiveReplace: request.adminUser!.role === "admin"
+    });
+  }
+
+  @Post("catalog/items/:itemId/safety-alternatives/:alternativeItemId/deactivate")
+  @HttpCode(200)
+  @RequireAdminRoles("admin")
+  deactivateSafetyAlternative(@Req() request: AuthenticatedRequest, @Param("itemId") itemId: string, @Param("alternativeItemId") alternativeItemId: string) {
+    return this.external.deactivateSafetyAlternative(request.adminUser!.id, itemId, alternativeItemId);
   }
 }

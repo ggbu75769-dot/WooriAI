@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Redirect, router } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import {
   createInvite,
   listHouseholdMembers,
+  listMyHouseholds,
   LOCAL_HOUSEHOLD_ID,
   fixtureSessionToken,
   leaveHousehold,
@@ -15,6 +16,7 @@ import {
   type InviteRole
 } from "../../src/api/client";
 import { pixelEvidenceId } from "../../src/api/fixture-runtime";
+import { resolveAuthorizedHouseholdScope } from "../../src/households/authorization";
 import { AppIcon, AppScreen, Card, EmptyStateCard, SampleDataBanner, StatusBadge } from "../../src/design-system";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -31,6 +33,12 @@ const previewMembers = [
 
 const familyReferenceScreenId = pixelEvidenceId("FAM-001 FAM-001");
 const isPixelLockMode = isPixelLockBuild();
+const staleAuthorityCodes = [
+  "OWNERSHIP_CHANGED",
+  "OWNER_TRANSFER_TARGET_CHANGED",
+  "HOUSEHOLD_MEMBER_NOT_FOUND",
+  "HOUSEHOLD_NOT_FOUND"
+] as const;
 function familyReferenceFrameStyle() {
   return {
     gap: 16,
@@ -58,17 +66,30 @@ function FamilyInviteRow({ icon, title, value, onPress }: { icon: "link-variant"
 }
 
 export default function FamilyScreen() {
+  const params = useLocalSearchParams<{ householdId?: string | string[] }>();
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const sessionUserId = useSessionStore((state) => state.userId);
   const userId = sessionUserId ?? (isTestSession ? LOCAL_USER_ID : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const requestedHouseholdId = Array.isArray(params.householdId) ? params.householdId[0] : params.householdId;
   const queryClient = useQueryClient();
   const clearSession = useSessionStore((state) => state.clearSession);
   const [selectedOwnerUserId, setSelectedOwnerUserId] = useState<string | null>(null);
-  const hasSession = Boolean(authToken && householdId);
+  const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
+  const authorizedHouseholds = useQuery({
+    queryKey: ["me", "households"],
+    enabled: Boolean(authToken),
+    queryFn: () => listMyHouseholds(authToken!)
+  });
+  const authorizedScope = resolveAuthorizedHouseholdScope({
+    requestedHouseholdId,
+    defaultHouseholdId: sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null),
+    authorizedHouseholdIds: authorizedHouseholds.data?.households.map((household) => household.id) ?? []
+  });
+  const householdId = authorizedScope.householdId;
+  const hasSession = Boolean(authToken && householdId && authorizedHouseholds.data);
   const members = useQuery({
     queryKey: ["household-members", householdId],
     enabled: hasSession,
@@ -81,22 +102,39 @@ export default function FamilyScreen() {
       router.push("/family/invite");
     }
   });
+  const recoverAuthorityState = async (error: unknown, message: string) => {
+    if (!isApiErrorCode(error, ...staleAuthorityCodes)) return false;
+    setSelectedOwnerUserId(null);
+    setRecoveryMessage(message);
+    await queryClient.invalidateQueries({ queryKey: ["household-members", householdId] });
+    return true;
+  };
   const removeMember = useMutation({
     mutationFn: (memberId: string) => removeHouseholdMember(authToken!, householdId!, memberId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["household-members"] });
+      setRecoveryMessage(null);
+      await queryClient.invalidateQueries({ queryKey: ["household-members", householdId] });
+    },
+    onError: async (error) => {
+      const recovered = await recoverAuthorityState(error, "가족 정보가 변경되어 최신 구성원을 다시 불러왔어요.");
+      Alert.alert(
+        "구성원을 삭제하지 못했어요",
+        recovered ? "최신 가족 정보를 확인한 뒤 다시 시도해 주세요." : "현재 권한과 구성원 상태를 확인해 주세요."
+      );
     }
   });
   const transferOwner = useMutation({
     mutationFn: (targetUserId: string) => transferHouseholdOwnership(authToken!, householdId!, targetUserId),
     onSuccess: async () => {
       setSelectedOwnerUserId(null);
+      setRecoveryMessage(null);
       await queryClient.invalidateQueries({ queryKey: ["household-members", householdId] });
     },
-    onError: (error) => {
+    onError: async (error) => {
+      const recovered = await recoverAuthorityState(error, "가족 정보가 변경되어 소유권 대상을 다시 확인해 주세요.");
       Alert.alert(
         "소유권을 이전하지 못했어요",
-        isApiErrorCode(error, "OWNERSHIP_CHANGED", "VERSION_CONFLICT")
+        recovered
           ? "가족 정보가 먼저 변경됐어요. 최신 구성원을 다시 확인해 주세요."
           : "대상 구성원의 역할과 현재 가족 상태를 확인해 주세요."
       );
@@ -109,17 +147,50 @@ export default function FamilyScreen() {
       clearSession();
       router.replace("/");
     },
-    onError: () => Alert.alert("가족을 나가지 못했어요", "현재 권한과 가족 상태를 다시 확인해 주세요.")
+    onError: async (error) => {
+      if (isApiErrorCode(error, "OWNER_TRANSFER_REQUIRED")) {
+        Alert.alert(
+          "먼저 가족 소유권을 이전해 주세요",
+          "가족 소유자는 바로 나갈 수 없어요. 기록 가능 구성원에게 소유권을 이전한 뒤 다시 시도해 주세요."
+        );
+        return;
+      }
+      const recovered = await recoverAuthorityState(error, "가족 정보가 변경되어 최신 상태를 다시 불러왔어요.");
+      Alert.alert(
+        "가족을 나가지 못했어요",
+        recovered ? "최신 가족 정보에서 소유권과 권한을 확인해 주세요." : "현재 권한과 가족 상태를 다시 확인해 주세요."
+      );
+    }
   });
 
-  if (!hasSession && !isPixelLockMode) {
+  if (!authToken && !isPixelLockMode) {
     return <Redirect href="/launch-animation" />;
   }
 
-  if (hasSession && (members.isLoading || !members.data)) {
+  if (authToken && authorizedHouseholds.isError) {
     return (
       <AppScreen>
-        <EmptyStateCard title="가족 정보를 불러오고 있어요." actionLabel="잠시만요" />
+        <EmptyStateCard
+          title="접근 가능한 가족을 확인하지 못했어요."
+          actionLabel="다시 시도"
+          onPress={() => authorizedHouseholds.refetch()}
+        />
+      </AppScreen>
+    );
+  }
+
+  if (authToken && (authorizedHouseholds.isLoading || !authorizedHouseholds.data)) {
+    return (
+      <AppScreen>
+        <EmptyStateCard title="접근 가능한 가족을 확인하고 있어요." actionLabel="잠시만요" />
+      </AppScreen>
+    );
+  }
+
+  if (authToken && !householdId) {
+    return (
+      <AppScreen>
+        <EmptyStateCard title="참여 중인 가족이 없어요." actionLabel="홈으로" onPress={() => router.replace("/")} />
       </AppScreen>
     );
   }
@@ -132,6 +203,14 @@ export default function FamilyScreen() {
           actionLabel="다시 시도"
           onPress={() => members.refetch()}
         />
+      </AppScreen>
+    );
+  }
+
+  if (hasSession && (members.isLoading || !members.data)) {
+    return (
+      <AppScreen>
+        <EmptyStateCard title="가족 정보를 불러오고 있어요." actionLabel="잠시만요" />
       </AppScreen>
     );
   }
@@ -182,8 +261,13 @@ export default function FamilyScreen() {
     );
   };
   const confirmLeave = () => {
-    if (myRole === "owner" && eligibleOwners.length > 0) {
-      Alert.alert("먼저 소유권을 이전해 주세요", "다른 기록 가능 구성원이 있어요. 아래에서 새 관리자를 정한 뒤 가족을 나갈 수 있습니다.");
+    if (myRole === "owner") {
+      Alert.alert(
+        "먼저 소유권을 이전해 주세요",
+        eligibleOwners.length > 0
+          ? "다른 기록 가능 구성원이 있어요. 아래에서 새 관리자를 정한 뒤 가족을 나갈 수 있습니다."
+          : "현재 소유권을 넘길 기록 가능 구성원이 없어요. 먼저 가족을 초대해 기록 가능 역할을 부여하거나, 이 가족을 유지한 채 계정을 사용해 주세요."
+      );
       return;
     }
     Alert.alert("가족을 나갈까요?", "나간 뒤에는 이 가족의 준비 정보와 비용을 볼 수 없습니다.", [
@@ -196,6 +280,16 @@ export default function FamilyScreen() {
     <AppScreen>
       <View accessibilityLabel={familyReferenceScreenId} style={isPixelLockMode ? familyReferenceFrameStyle() : { gap: 16 }}>
         {isTestSession ? <SampleDataBanner /> : null}
+        {recoveryMessage ? (
+          <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.danger, fontSize: 14, fontWeight: "700" }}>
+            {recoveryMessage}
+          </Text>
+        ) : null}
+        {authorizedScope.rejectedRequestedHousehold ? (
+          <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.danger, fontSize: 14, fontWeight: "700" }}>
+            요청한 가족에 접근할 수 없어 참여 중인 가족을 열었어요.
+          </Text>
+        ) : null}
         <View style={familyHeaderRowStyle}>
           <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={12} onPress={() => router.back()} style={{ alignItems: "center", justifyContent: "center", minHeight: 48, minWidth: 48 }}>
             <AppIcon name="chevron-left" size={26} />
@@ -263,7 +357,7 @@ export default function FamilyScreen() {
           <Card style={{ gap: 12 }}>
             <Text style={familyProfileTitleStyle}>소유권 이전</Text>
             <Text style={familyProfileMetaStyle}>활성 기록 가능 구성원 한 명을 새 관리자로 선택하세요. 보기 전용과 선물 참여자는 선택할 수 없습니다.</Text>
-            <View style={{ gap: 8 }}>
+            <View accessibilityLabel="새 가족 관리자 선택" accessibilityRole="radiogroup" style={{ gap: 8 }}>
               {eligibleOwners.map((member) => "userId" in member ? (
                 <Pressable
                   accessibilityLabel={`${member.displayName} 새 소유자로 선택`}

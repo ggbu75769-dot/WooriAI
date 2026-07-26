@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   AdminApiError,
+  approveRelease5SafetyAlternative,
   createRelease5EvidenceSource,
+  deactivateRelease5SafetyAlternative,
   getRelease5PilotWorklist,
   getRelease5RecallWorklist,
   importRelease5LegalDocument,
@@ -11,6 +13,8 @@ import {
   previewRelease5LegalDocument,
   previewRelease5MerchantFeed,
   previewRelease5PilotManifest,
+  reviewRelease5EvidenceSource,
+  upsertRelease5SafetyAlternative,
   type Release5LegalCandidate,
   type Release5MerchantRowInput,
   type Release5PilotWorklist,
@@ -57,6 +61,13 @@ export default function Release5ReadinessPage() {
   const [evidenceTitle, setEvidenceTitle] = useState("");
   const [evidenceUrl, setEvidenceUrl] = useState("");
   const [evidenceClaims, setEvidenceClaims] = useState("");
+  const [evidenceResult, setEvidenceResult] = useState<{ id: string; contentHash: string; status: string } | null>(null);
+  const [reviewEvidenceId, setReviewEvidenceId] = useState("");
+  const [reviewEvidenceHash, setReviewEvidenceHash] = useState("");
+  const [safetySourceItemId, setSafetySourceItemId] = useState("");
+  const [safetyAlternativeItemId, setSafetyAlternativeItemId] = useState("");
+  const [safetyReason, setSafetyReason] = useState("");
+  const [safetyEvidenceId, setSafetyEvidenceId] = useState("");
   const [merchantSource, setMerchantSource] = useState("");
   const [merchantJson, setMerchantJson] = useState("[]");
   const [merchantSummary, setMerchantSummary] = useState<{ valid: number; invalid: number; duplicate: boolean } | null>(null);
@@ -85,6 +96,7 @@ export default function Release5ReadinessPage() {
   useEffect(() => { void load(); }, [load]);
   if (!session) return null;
   const canDraft = session.admin.role === "admin" || session.admin.role === "editor";
+  const canApprove = session.admin.role === "admin";
 
   const run = async (key: string, action: () => Promise<void>) => {
     if (pendingAction) return;
@@ -131,11 +143,55 @@ export default function Release5ReadinessPage() {
         revision: Number(evidenceRevision),
         applicableClaims: claims
       });
+      setEvidenceResult(result);
+      setReviewEvidenceId(result.id);
+      setReviewEvidenceHash(result.contentHash);
       setMessage(`근거 초안을 저장했어요. 상태 ${result.status} · 별도 검수자가 확인해야 합니다.`);
       setEvidenceTitle("");
       setEvidenceUrl("");
       setEvidenceClaims("");
       await load();
+    });
+  };
+
+  const reviewEvidence = async (approved: boolean) => {
+    if (!canApprove) return;
+    await run(`evidence-review-${approved ? "approve" : "reject"}`, async () => {
+      const result = await reviewRelease5EvidenceSource(reviewEvidenceId.trim(), {
+        expectedContentHash: reviewEvidenceHash.trim(),
+        approved
+      });
+      setMessage(`근거 검수를 ${approved ? "승인" : "반려"}했어요. 상태 ${result.status}. 캡처 담당자와 다른 계정만 처리할 수 있습니다.`);
+    });
+  };
+
+  const saveSafetyMapping = async (event: FormEvent) => {
+    event.preventDefault();
+    await run("safety-mapping", async () => {
+      const result = await upsertRelease5SafetyAlternative(safetySourceItemId.trim(), {
+        alternativeItemDefinitionId: safetyAlternativeItemId.trim(),
+        reason: safetyReason.trim()
+      });
+      setMessage(`안전 대체 매핑을 저장했어요. ${result.active ? "기존 승인 유지" : "비활성 · 별도 승인 필요"}.`);
+    });
+  };
+
+  const approveSafetyMapping = async () => {
+    if (!canApprove) return;
+    await run("safety-approve", async () => {
+      const result = await approveRelease5SafetyAlternative(safetySourceItemId.trim(), {
+        alternativeItemDefinitionId: safetyAlternativeItemId.trim(),
+        evidenceSourceId: safetyEvidenceId.trim()
+      });
+      setMessage(`안전 대체 품목을 활성화했어요. 근거 ${result.evidenceSourceId}. 캡처·검수·활성화 담당자는 서로 달라야 합니다.`);
+    });
+  };
+
+  const deactivateSafetyMapping = async () => {
+    if (!canApprove || !window.confirm("이 안전 대체 품목을 즉시 비활성화할까요? 가족 화면에서 더 이상 노출되지 않습니다.")) return;
+    await run("safety-deactivate", async () => {
+      await deactivateRelease5SafetyAlternative(safetySourceItemId.trim(), safetyAlternativeItemId.trim());
+      setMessage("안전 대체 품목을 비활성화했어요.");
     });
   };
 
@@ -201,7 +257,41 @@ export default function Release5ReadinessPage() {
             <div className={styles.field}><label htmlFor="evidence-url">공개 HTTPS URL</label><input id="evidence-url" type="url" value={evidenceUrl} onChange={(event) => setEvidenceUrl(event.target.value)} readOnly={!canDraft} /></div>
           </div>
           <div className={styles.field}><label htmlFor="evidence-claims">적용 claim (한 줄에 하나)</label><textarea id="evidence-claims" value={evidenceClaims} onChange={(event) => setEvidenceClaims(event.target.value)} readOnly={!canDraft} /></div>
+          <p className={styles.hint}>안전 대체 근거는 `safety_alternative:&lt;대체 품목 UUID&gt;` claim을 정확히 포함해야 합니다.</p>
           {canDraft ? <button className={styles.primaryButton} disabled={pendingAction !== null || !evidenceItemId.trim() || !evidenceTitle.trim() || !evidenceUrl.trim()} type="submit">검수 전 근거 초안 저장</button> : null}
+          {evidenceResult ? <p className={styles.hint}>evidence ID {evidenceResult.id}<br />SHA-256 {evidenceResult.contentHash} · {evidenceResult.status}</p> : null}
+        </form>
+        {canApprove ? <div className={styles.form}>
+          <h3>독립 근거 검수</h3>
+          <p className={styles.hint}>초안을 만든 계정과 다른 admin으로 로그인해 ID와 hash를 대조하세요.</p>
+          <div className={styles.formGrid}>
+            <div className={styles.field}><label htmlFor="review-evidence-id">evidence ID</label><input id="review-evidence-id" value={reviewEvidenceId} onChange={(event) => setReviewEvidenceId(event.target.value)} /></div>
+            <div className={styles.field}><label htmlFor="review-evidence-hash">expected SHA-256</label><input id="review-evidence-hash" value={reviewEvidenceHash} onChange={(event) => setReviewEvidenceHash(event.target.value)} /></div>
+          </div>
+          <div className={styles.actions}>
+            <button className={styles.primaryButton} disabled={pendingAction !== null || !reviewEvidenceId.trim() || !reviewEvidenceHash.trim()} type="button" onClick={() => void reviewEvidence(true)}>근거 승인</button>
+            <button className={styles.secondaryButton} disabled={pendingAction !== null || !reviewEvidenceId.trim() || !reviewEvidenceHash.trim()} type="button" onClick={() => void reviewEvidence(false)}>근거 반려</button>
+          </div>
+        </div> : null}
+      </section>
+
+      <section className={styles.card}>
+        <h2>검증된 안전 대체 품목</h2>
+        <p className={styles.hint}>매핑 저장은 비활성 초안입니다. current revision·공식/전문 근거·정확한 alternative claim을 독립 검수한 뒤 세 번째 admin이 활성화합니다.</p>
+        <form className={styles.form} onSubmit={(event) => void saveSafetyMapping(event)}>
+          <div className={styles.formGrid}>
+            <div className={styles.field}><label htmlFor="safety-source-item">리콜 원본 item ID</label><input id="safety-source-item" value={safetySourceItemId} onChange={(event) => setSafetySourceItemId(event.target.value)} readOnly={!canDraft} /></div>
+            <div className={styles.field}><label htmlFor="safety-alternative-item">게시된 대체 item ID</label><input id="safety-alternative-item" value={safetyAlternativeItemId} onChange={(event) => setSafetyAlternativeItemId(event.target.value)} readOnly={!canDraft} /></div>
+          </div>
+          <div className={styles.field}><label htmlFor="safety-reason">가족에게 표시할 대체 사유</label><input id="safety-reason" maxLength={240} value={safetyReason} onChange={(event) => setSafetyReason(event.target.value)} readOnly={!canDraft} /></div>
+          {canDraft ? <button className={styles.primaryButton} disabled={pendingAction !== null || !safetySourceItemId.trim() || !safetyAlternativeItemId.trim() || !safetyReason.trim()} type="submit">비활성 매핑 저장</button> : null}
+          {canApprove ? <>
+            <div className={styles.field}><label htmlFor="safety-evidence-id">승인된 evidence ID</label><input id="safety-evidence-id" value={safetyEvidenceId} onChange={(event) => setSafetyEvidenceId(event.target.value)} /></div>
+            <div className={styles.actions}>
+              <button className={styles.primaryButton} disabled={pendingAction !== null || !safetySourceItemId.trim() || !safetyAlternativeItemId.trim() || !safetyEvidenceId.trim()} type="button" onClick={() => void approveSafetyMapping()}>세 번째 담당자로 활성화</button>
+              <button className={styles.secondaryButton} disabled={pendingAction !== null || !safetySourceItemId.trim() || !safetyAlternativeItemId.trim()} type="button" onClick={() => void deactivateSafetyMapping()}>즉시 비활성화</button>
+            </div>
+          </> : null}
         </form>
       </section>
 

@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from "react-native";
-import type { CatalogSafetyAlert, CatalogTimelineItem, CatalogPlanState } from "../api/client";
+import type { CatalogSafetyAlert, CatalogSafetyAlternativesResponse, CatalogTimelineItem, CatalogPlanState } from "../api/client";
 import { AppIcon, EmptyStateCard, SectionCard, semanticColors, spacing, type AppIconName } from "../design-system";
 
 function planLabel(state: CatalogPlanState | undefined) {
@@ -83,32 +83,97 @@ export function PreparationProgressCard({
 export function SafetyAlertSection({
   alerts,
   pending,
-  onAcknowledge
+  alternativeAlertId,
+  alternatives,
+  alternativesPending,
+  alternativesError,
+  onAcknowledge,
+  onShowAlternatives,
+  onOpenAlternative,
+  onOpenEvidence,
+  onRetryAlternatives
 }: {
   alerts: CatalogSafetyAlert[];
   pending: boolean;
+  alternativeAlertId: string | null;
+  alternatives: CatalogSafetyAlternativesResponse | undefined;
+  alternativesPending: boolean;
+  alternativesError: boolean;
   onAcknowledge: (alert: CatalogSafetyAlert) => void;
+  onShowAlternatives: (alert: CatalogSafetyAlert) => void;
+  onOpenAlternative: (itemId: string) => void;
+  onOpenEvidence: (url: string) => void;
+  onRetryAlternatives: () => void;
 }) {
-  return alerts.map((alert) => (
-    <SectionCard key={alert.id} style={{ backgroundColor: semanticColors.warningSurface, gap: spacing.sm }}>
-      <View accessibilityRole="alert" style={{ alignItems: "flex-start", flexDirection: "row", gap: spacing.sm }}>
-        <AppIcon color={semanticColors.warning} name="alert-octagon-outline" size={24} />
-        <View style={{ flex: 1, gap: 5 }}>
-          <Text style={{ color: semanticColors.warning, fontSize: 15, fontWeight: "900" }}>{alert.eventType === "recalled" ? "리콜 알림" : "긴급 안전 차단"} · {alert.item?.nameKo ?? "준비 품목"}</Text>
-          <Text style={{ color: semanticColors.textPrimary, fontSize: 13, lineHeight: 19 }}>{alert.reason}</Text>
-          <Text style={{ color: semanticColors.textSecondary, fontSize: 12, lineHeight: 18 }}>{alert.actionGuidance}</Text>
+  const title = (eventType: CatalogSafetyAlert["eventType"]) => {
+    if (eventType === "recalled" || eventType === "provider_recalled") return "리콜 알림";
+    if (eventType === "provider_corrected") return "리콜 정정 안내";
+    return "긴급 안전 차단";
+  };
+  const recalled = (eventType: CatalogSafetyAlert["eventType"]) => eventType === "recalled" || eventType === "provider_recalled";
+  return alerts.map((alert) => {
+    const expanded = alternativeAlertId === alert.id;
+    return (
+      <SectionCard key={alert.id} style={{ backgroundColor: semanticColors.warningSurface, gap: spacing.sm }}>
+        <View accessibilityRole="alert" style={{ alignItems: "flex-start", flexDirection: "row", gap: spacing.sm }}>
+          <AppIcon color={semanticColors.warning} name="alert-octagon-outline" size={24} />
+          <View style={{ flex: 1, gap: 5 }}>
+            <Text style={{ color: semanticColors.warning, fontSize: 15, fontWeight: "900" }}>{title(alert.eventType)} · {alert.item?.nameKo ?? "준비 품목"}</Text>
+            <Text style={{ color: semanticColors.textPrimary, fontSize: 13, lineHeight: 19 }}>{alert.reason}</Text>
+            <Text style={{ color: semanticColors.textSecondary, fontSize: 12, lineHeight: 18 }}>{alert.actionGuidance}</Text>
+          </View>
         </View>
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        disabled={pending}
-        onPress={() => onAcknowledge(alert)}
-        style={{ alignItems: "center", alignSelf: "flex-end", borderColor: semanticColors.warning, borderRadius: 12, borderWidth: 1, justifyContent: "center", minHeight: 48, paddingHorizontal: 14 }}
-      >
-        <Text style={{ color: semanticColors.warning, fontSize: 13, fontWeight: "900" }}>확인했어요</Text>
-      </Pressable>
-    </SectionCard>
-  ));
+        {recalled(alert.eventType) ? <Pressable
+          accessibilityLabel={`${alert.item?.nameKo ?? "준비 품목"}의 검증된 안전 대체 품목 ${expanded ? "접기" : "보기"}`}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          disabled={alternativesPending && expanded}
+          onPress={() => onShowAlternatives(alert)}
+          style={{ alignItems: "center", borderColor: semanticColors.warning, borderRadius: 12, borderWidth: 1, justifyContent: "center", minHeight: 48, paddingHorizontal: 14 }}
+        >
+          <Text style={{ color: semanticColors.warning, fontSize: 13, fontWeight: "900" }}>
+            {alternativesPending && expanded
+              ? "안전 대체 품목 확인 중..."
+              : `검증된 안전 대체 품목 ${expanded ? "접기" : "보기"}`}
+          </Text>
+        </Pressable> : null}
+        {expanded && alternativesError ? <View style={{ gap: spacing.xs }}>
+          <Text accessibilityRole="alert" style={{ color: semanticColors.warning, fontSize: 13 }}>안전 대체 품목을 불러오지 못했어요.</Text>
+          <Pressable accessibilityRole="button" onPress={onRetryAlternatives} style={{ justifyContent: "center", minHeight: 48 }}>
+            <Text style={{ color: semanticColors.actionPrimary, fontSize: 13, fontWeight: "800" }}>다시 시도</Text>
+          </Pressable>
+        </View> : null}
+        {expanded && alternatives && !alternativesPending && !alternativesError ? (
+          alternatives.alternatives.length === 0
+            ? <Text style={{ color: semanticColors.textSecondary, fontSize: 13 }}>현재 검증 완료된 대체 품목이 없어요. 검증 근거와 최신 안내를 확인해 주세요.</Text>
+            : alternatives.alternatives.map((item) => (
+              <View key={item.id} style={{ backgroundColor: semanticColors.surface, borderRadius: 12, gap: spacing.xs, padding: 12 }}>
+                <Text accessibilityRole="header" style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "900" }}>{item.nameKo}</Text>
+                <Text style={{ color: semanticColors.textPrimary, fontSize: 13, lineHeight: 19 }}>{item.reason}</Text>
+                {item.safetyNote ? <Text style={{ color: semanticColors.textSecondary, fontSize: 12, lineHeight: 18 }}>{item.safetyNote}</Text> : null}
+                <Text style={{ color: semanticColors.textSecondary, fontSize: 12, lineHeight: 18 }}>검증 근거 · {item.evidence.title}</Text>
+                <View style={{ flexDirection: "row", gap: spacing.xs }}>
+                  <Pressable accessibilityRole="button" onPress={() => onOpenAlternative(item.id)} style={{ alignItems: "center", borderColor: semanticColors.actionPrimary, borderRadius: 10, borderWidth: 1, flex: 1, justifyContent: "center", minHeight: 48 }}>
+                    <Text style={{ color: semanticColors.actionPrimary, fontSize: 12, fontWeight: "800" }}>대체 품목 보기</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="link" onPress={() => onOpenEvidence(item.evidence.publicUrl)} style={{ alignItems: "center", borderColor: semanticColors.borderSubtle, borderRadius: 10, borderWidth: 1, flex: 1, justifyContent: "center", minHeight: 48 }}>
+                    <Text style={{ color: semanticColors.actionPrimary, fontSize: 12, fontWeight: "800" }}>검증 근거 열기</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          disabled={pending}
+          onPress={() => onAcknowledge(alert)}
+          style={{ alignItems: "center", alignSelf: "flex-end", borderColor: semanticColors.warning, borderRadius: 12, borderWidth: 1, justifyContent: "center", minHeight: 48, paddingHorizontal: 14 }}
+        >
+          <Text style={{ color: semanticColors.warning, fontSize: 13, fontWeight: "900" }}>확인했어요</Text>
+        </Pressable>
+      </SectionCard>
+    );
+  });
 }
 
 export function WeeklyPreparationSection({

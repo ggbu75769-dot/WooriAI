@@ -8,6 +8,7 @@ describe("privacy request state machine", () => {
     expect(canTransitionPrivacyRequest("processor_delete_queued", "purging")).toBe(true);
     expect(canTransitionPrivacyRequest("purging", "completed")).toBe(true);
     expect(canTransitionPrivacyRequest("failed", "processor_delete_queued")).toBe(true);
+    expect(canTransitionPrivacyRequest("failed", "requested")).toBe(true);
   });
 
   it("rejects terminal-state and skipped transitions", () => {

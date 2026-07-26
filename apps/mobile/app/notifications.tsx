@@ -39,7 +39,7 @@ export default function NotificationsScreen() {
 
   const openNotification = async (item: NotificationInboxItem) => {
     if (!item.read) await read.mutateAsync([item.id]);
-    const href = notificationRouteHref(item.route, item.navigation);
+    const href = notificationRouteHref(item.route, item.navigation, item.category);
     if (href) router.push(href);
   };
 

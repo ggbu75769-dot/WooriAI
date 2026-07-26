@@ -102,3 +102,11 @@ export class ApproveSafetyAlternativeDto {
   @IsUUID()
   evidenceSourceId!: string;
 }
+
+export class CreateSafetyAlternativeDto {
+  @IsUUID()
+  alternativeItemDefinitionId!: string;
+
+  @IsString() @MinLength(1) @MaxLength(240)
+  reason!: string;
+}

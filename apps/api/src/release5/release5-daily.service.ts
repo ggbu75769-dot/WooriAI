@@ -5,7 +5,7 @@ import { buildPreparationCalendarEvents, kstWeekStart, selectTodayActions, type 
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { PrismaService } from "../prisma/prisma.service";
 import { AppConfigService } from "../app-config/app-config.service";
-import type { ApplyCustomBundleDto, BundleVersionDto, CalendarQueryDto, CreateCustomBundleDto, TodayPreferenceDto, UpdateCustomBundleDto } from "./dto/release5-daily.dto";
+import type { ApplyCustomBundleDto, BundleVersionDto, CalendarQueryDto, CreateCustomBundleDto, TodayPreferenceDto, TodayPreferenceQueryDto, UpdateCustomBundleDto } from "./dto/release5-daily.dto";
 
 function dateOnly(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -79,21 +79,23 @@ export class Release5DailyService {
       where: { householdId: child.householdId, childId, state: { notIn: ["not_considered", "not_needed", "retired", "ended"] } },
       orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { id: "asc" }]
     });
+    const visiblePlans = membership.role === "gift_participant"
+      ? plans.filter((plan) => plan.state === "gift_expected")
+      : plans;
     const [alerts, preferences, definitions] = await Promise.all([
-      this.prisma.catalogSafetyAlert.findMany({ where: { userItemPlanId: { in: plans.map((plan) => plan.id) }, acknowledgedAt: null }, orderBy: { createdAt: "asc" } }),
-      this.prisma.todayActionPreference.findMany({ where: { userId: user.id, householdId: child.householdId, OR: [{ childId }, { childId: null }] } }),
-      this.prisma.itemDefinition.findMany({ where: { id: { in: [...new Set(plans.map((plan) => plan.itemDefinitionId))] } }, select: { id: true, nameKo: true } })
+      this.prisma.catalogSafetyAlert.findMany({ where: { userItemPlanId: { in: visiblePlans.map((plan) => plan.id) }, acknowledgedAt: null }, orderBy: { createdAt: "asc" } }),
+      this.prisma.todayActionPreference.findMany({ where: { userId: user.id, householdId: child.householdId, childId } }),
+      this.prisma.itemDefinition.findMany({ where: { id: { in: [...new Set(visiblePlans.map((plan) => plan.itemDefinitionId))] } }, select: { id: true, nameKo: true } })
     ]);
     const names = new Map(definitions.map((definition) => [definition.id, definition.nameKo]));
-    const planById = new Map(plans.map((plan) => [plan.id, plan]));
+    const planById = new Map(visiblePlans.map((plan) => [plan.id, plan]));
     const candidates: TodayActionCandidate[] = [];
     for (const alert of alerts) {
       const plan = planById.get(alert.userItemPlanId);
       if (!plan) continue;
       candidates.push({ actionKey: `safety:${alert.id}`, kind: "safety_acknowledgement", sourceId: plan.itemDefinitionId, childId, dueDate: null, assignedUserId: plan.assignedUserId, safetyBlocking: true });
     }
-    for (const plan of plans) {
-      if (membership.role === "gift_participant" && plan.state !== "gift_expected") continue;
+    for (const plan of visiblePlans) {
       const due = plan.dueDate ? dateOnly(plan.dueDate) : null;
       if (due && due < referenceDate) candidates.push({ actionKey: `plan:${plan.id}:overdue`, kind: "overdue_assigned", sourceId: plan.itemDefinitionId, childId, dueDate: due, assignedUserId: plan.assignedUserId });
       else if (due && due <= weekEnd) candidates.push({ actionKey: `plan:${plan.id}:due`, kind: "due_this_week", sourceId: plan.itemDefinitionId, childId, dueDate: due, assignedUserId: plan.assignedUserId });
@@ -110,6 +112,7 @@ export class Release5DailyService {
       candidates,
       preferences: preferences.map((preference) => ({ actionKey: preference.actionKey, mode: preference.mode as "snooze" | "hide_lifecycle", snoozedUntil: preference.snoozedUntil ? dateOnly(preference.snoozedUntil) : null }))
     });
+    const preferenceByActionKey = new Map(preferences.map((preference) => [preference.actionKey, preference]));
     return {
       generatedAt: new Date().toISOString(),
       referenceDate,
@@ -118,6 +121,8 @@ export class Release5DailyService {
         ...action,
         reasonCode: action.kind,
         reasonParams: { itemName: names.get(action.sourceId) ?? "준비 항목", dueDate: action.dueDate },
+        preferenceScope: { kind: "child" as const, childId },
+        preferenceVersion: preferenceByActionKey.get(action.actionKey)?.version ?? 0,
         navigation: action.kind === "safety_acknowledgement"
           ? { kind: "notifications" as const }
           : { kind: "item" as const, itemId: action.sourceId, childId }
@@ -128,20 +133,107 @@ export class Release5DailyService {
   async updateTodayPreference(user: AuthenticatedUser, input: TodayPreferenceDto) {
     await this.requireFeature("today_family_center");
     this.membership(user, input.householdId);
+    const child = await this.child(user, input.childId);
+    if (child.householdId !== input.householdId) {
+      throw new ForbiddenException({ code: "CHILD_SCOPE_MISMATCH", message: "Child does not belong to this household." });
+    }
     if (input.actionKey.startsWith("safety:")) throw new BadRequestException({ code: "SAFETY_ACTION_NOT_SNOOZABLE", message: "Safety acknowledgement cannot be hidden or snoozed." });
-    const scopeKey = input.childId ?? "household";
+    const scopeKey = input.childId;
     const existing = await this.prisma.todayActionPreference.findUnique({
       where: { userId_householdId_scopeKey_actionKey: { userId: user.id, householdId: input.householdId, scopeKey, actionKey: input.actionKey } }
     });
-    if (existing && input.expectedVersion !== undefined && existing.version !== input.expectedVersion) {
+    if (
+      (input.expectedVersion === 0 && existing) ||
+      (input.expectedVersion > 0 && existing?.version !== input.expectedVersion)
+    ) {
       throw new ConflictException({ code: "TODAY_PREFERENCE_CONFLICT", message: "Today preference changed on another device." });
     }
-    if (input.mode === "snooze" && !input.snoozedUntil) throw new BadRequestException({ code: "SNOOZE_DATE_REQUIRED", message: "A snooze date is required." });
-    return this.prisma.todayActionPreference.upsert({
-      where: { userId_householdId_scopeKey_actionKey: { userId: user.id, householdId: input.householdId, scopeKey, actionKey: input.actionKey } },
-      create: { userId: user.id, householdId: input.householdId, childId: input.childId, scopeKey, actionKey: input.actionKey, mode: input.mode, snoozedUntil: input.snoozedUntil ? parseDate(input.snoozedUntil) : null, lifecycleCode: input.lifecycleCode },
-      update: { mode: input.mode, snoozedUntil: input.snoozedUntil ? parseDate(input.snoozedUntil) : null, lifecycleCode: input.lifecycleCode, version: { increment: 1 } }
+    try {
+      const preference = await this.prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ today: Date }>>`SELECT (clock_timestamp() AT TIME ZONE 'Asia/Seoul')::date AS today`;
+        const snoozedUntil = parseDate(addDays(dateOnly(rows[0]!.today), 1));
+        if (input.expectedVersion === 0) {
+          return tx.todayActionPreference.create({
+            data: {
+              userId: user.id,
+              householdId: input.householdId,
+              childId: input.childId,
+              scopeKey,
+              actionKey: input.actionKey,
+              mode: "snooze",
+              snoozedUntil
+            }
+          });
+        }
+        const changed = await tx.todayActionPreference.updateMany({
+          where: {
+            userId: user.id,
+            householdId: input.householdId,
+            scopeKey,
+            actionKey: input.actionKey,
+            version: input.expectedVersion
+          },
+          data: { mode: "snooze", snoozedUntil, lifecycleCode: null, version: { increment: 1 } }
+        });
+        if (changed.count !== 1) {
+          throw new ConflictException({ code: "TODAY_PREFERENCE_CONFLICT", message: "Today preference changed on another device." });
+        }
+        return tx.todayActionPreference.findUniqueOrThrow({
+          where: { userId_householdId_scopeKey_actionKey: { userId: user.id, householdId: input.householdId, scopeKey, actionKey: input.actionKey } }
+        });
+      });
+      return {
+        actionKey: preference.actionKey,
+        mode: "snooze" as const,
+        snoozedUntil: dateOnly(preference.snoozedUntil!),
+        version: preference.version
+      };
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
+      if (error && typeof error === "object" && (error as { code?: string }).code === "P2002") {
+        throw new ConflictException({ code: "TODAY_PREFERENCE_CONFLICT", message: "Today preference changed on another device." });
+      }
+      throw error;
+    }
+  }
+
+  async todayPreferenceResolution(user: AuthenticatedUser, input: TodayPreferenceQueryDto) {
+    await this.requireFeature("today_family_center");
+    this.membership(user, input.householdId);
+    const child = await this.child(user, input.childId);
+    if (child.householdId !== input.householdId) {
+      throw new ForbiddenException({ code: "CHILD_SCOPE_MISMATCH", message: "Child does not belong to this household." });
+    }
+    const preference = await this.prisma.todayActionPreference.findUnique({
+      where: {
+        userId_householdId_scopeKey_actionKey: {
+          userId: user.id,
+          householdId: input.householdId,
+          scopeKey: input.childId,
+          actionKey: input.actionKey
+        }
+      }
     });
+    return {
+      actionKey: input.actionKey,
+      preferenceScope: { kind: "child" as const, childId: input.childId },
+      preference: preference
+        ? preference.mode === "snooze" && preference.snoozedUntil
+          ? {
+            actionKey: preference.actionKey,
+            mode: "snooze" as const,
+            snoozedUntil: dateOnly(preference.snoozedUntil),
+            version: preference.version
+          }
+          : {
+              actionKey: preference.actionKey,
+              mode: "hide_lifecycle" as const,
+              snoozedUntil: null,
+              lifecycleCode: preference.lifecycleCode,
+              version: preference.version
+            }
+        : null
+    };
   }
 
   async calendar(user: AuthenticatedUser, householdId: string, query: CalendarQueryDto) {
@@ -308,11 +400,11 @@ export class Release5DailyService {
     const nextWeek = addDays(weekStart, 7);
     const weekAfter = addDays(weekStart, 14);
     const plans = await this.prisma.userItemPlan.findMany({ where: { householdId, state: { notIn: ["not_considered", "not_needed", "retired", "ended"] } } });
+    const visiblePlans = membership.role === "gift_participant" ? plans.filter((plan) => plan.state === "gift_expected") : plans;
     const [expenses, alerts] = await Promise.all([
       membership.role === "gift_participant" ? [] : this.prisma.expense.findMany({ where: { householdId, deletedAt: null, spentOn: { gte: parseDate(weekStart), lt: parseDate(nextWeek) } } }),
-      this.prisma.catalogSafetyAlert.findMany({ where: { userItemPlanId: { in: plans.map((plan) => plan.id) }, acknowledgedAt: null }, select: { itemDefinitionId: true, reason: true } })
+      this.prisma.catalogSafetyAlert.findMany({ where: { userItemPlanId: { in: visiblePlans.map((plan) => plan.id) }, acknowledgedAt: null }, select: { itemDefinitionId: true, reason: true } })
     ]);
-    const visiblePlans = membership.role === "gift_participant" ? plans.filter((plan) => plan.state === "gift_expected") : plans;
     const payload = {
       safety: alerts.map((alert) => ({ itemId: alert.itemDefinitionId, reason: alert.reason })),
       completed: visiblePlans.filter((plan) => ["owned", "gifted", "borrowed", "rented"].includes(plan.state)).length,

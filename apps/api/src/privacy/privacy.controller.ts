@@ -35,6 +35,13 @@ export class PrivacyController {
     return await this.privacy.cancelDeletion(request.user!, requestId);
   }
 
+  @Post("account-deletion/:requestId/retry")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async retryAccountDeletion(@Req() request: AuthenticatedRequest, @Param("requestId") requestId: string) {
+    return await this.privacy.retryBlockedDeletion(request.user!, requestId);
+  }
+
   @Post("data-export")
   @HttpCode(202)
   @UseGuards(JwtAuthGuard)

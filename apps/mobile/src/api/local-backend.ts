@@ -12,7 +12,7 @@ import { resolveReportV3State } from "@wooriai/domain/report-v3-state";
 import { comparePreparationTimelineRank, type CatalogScenarioCode, type Release4CatalogItem } from "@wooriai/domain/release4-catalog";
 import { calculateChildStage } from "@wooriai/domain/stage";
 import { create } from "zustand";
-import type { ReportCategoriesContract, ReportMembersContract, ReportPreparationContract, ReportRecurringContract, ReportSourceKind, ReportSourcesContract, ReportSummaryContract, ReportTrendContract, ReportV3Contract } from "@wooriai/contracts";
+import type { ReportCategoriesContract, ReportMembersContract, ReportPreparationContract, ReportRecurringContract, ReportSourceKind, ReportSourcesContract, ReportSummaryContract, ReportTrendContract, ReportV3Contract, TodayActionContract, TodayPreferenceContract, TodayPreferenceResolutionContract } from "@wooriai/contracts";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { zustandPersistStorage } from "../stores/persist-storage";
 import type {
@@ -28,6 +28,8 @@ import type {
   CatalogTimelineBucket,
   CatalogListQuery,
   CatalogNodeSummary,
+  CatalogSafetyAlert,
+  CatalogSafetyAlternativesResponse,
   ConfirmImportResponse,
   CumulativeReport,
   CompleteOnboardingInput,
@@ -45,11 +47,13 @@ import type {
   OnboardingChildSummary,
   PrivacySettings,
   ProductLink,
+  NotificationInboxItem,
   SettingsConfirmResponse,
   SettingsPreview,
   UserPaymentMethod,
   YearlyReport
-  ,ReportV2Period
+  ,ReportV2Period,
+  TodayPreferenceInput
 } from "./client";
 
 type ItemTab = "now" | "soon" | "prepared" | "not_needed";
@@ -59,6 +63,8 @@ import {
   LOCAL_DAD_USER_ID,
   LOCAL_DEFAULT_BUDGET_KRW,
   LOCAL_HOUSEHOLD_ID,
+  LOCAL_ITEM_CARRIER,
+  LOCAL_ITEM_DIAPER,
   LOCAL_MOTHER_PROFILE_ID,
   LOCAL_USER_ID,
   localImportStubRows,
@@ -195,6 +201,31 @@ type LocalPlanCommentRecord = {
   deletedAt: null;
 };
 
+type LocalTodayActionPreferenceRecord = TodayPreferenceContract & {
+  userId: string;
+  householdId: string;
+  childId: string;
+  scopeKey: string;
+};
+
+const LEGACY_LOCAL_TODAY_SAFETY_ALERT_ID = "local-today-safety-alert";
+const LOCAL_TODAY_SAFETY_ALERT_PREFIX = "local-today-safety-alert:";
+const LOCAL_SAFETY_ALTERNATIVE_ALERT_PREFIX = "local-safety-alternative-alert:";
+
+function localTodaySafetyAlertId(childId: string) {
+  return `${LOCAL_TODAY_SAFETY_ALERT_PREFIX}${childId}`;
+}
+
+function localTodaySafetyActionKey(childId: string) {
+  return `safety:${localTodaySafetyAlertId(childId)}`;
+}
+
+function childIdFromLocalTodaySafetyAlertId(alertId: string) {
+  return alertId.startsWith(LOCAL_TODAY_SAFETY_ALERT_PREFIX)
+    ? alertId.slice(LOCAL_TODAY_SAFETY_ALERT_PREFIX.length)
+    : null;
+}
+
 type LocalBackendState = {
   seeded: boolean;
   child: LocalChildRecord | null;
@@ -207,6 +238,8 @@ type LocalBackendState = {
   planHistory: Record<string, LocalPlanHistoryRecord[]>;
   planComments: Record<string, LocalPlanCommentRecord[]>;
   preparationContexts: Record<string, { contextCodes: CatalogScenarioCode[]; version: number; updatedAt: string }>;
+  todayActionPreferences: LocalTodayActionPreferenceRecord[];
+  acknowledgedSafetyAlertIds: string[];
   // MOB-101: mirrors the server's `children.prepared_items_set_at` -- set once the
   // prepared-items onboarding step is submitted (even with zero items checked), used by
   // onboardingStatus() below to tell "step not reached yet" apart from "step done, nothing
@@ -240,6 +273,8 @@ const initialState: LocalBackendState = {
   planHistory: {},
   planComments: {},
   preparationContexts: {},
+  todayActionPreferences: [],
+  acknowledgedSafetyAlertIds: [],
   preparedItemsCompleted: false,
   onboardingCompleted: false,
   members: [],
@@ -330,6 +365,65 @@ function sanitizeLocalChildRecord(value: unknown): LocalChildRecord | null {
   };
 }
 
+function localSafetyAlternativeAlertId(childId: string) {
+  return `${LOCAL_SAFETY_ALTERNATIVE_ALERT_PREFIX}${childId}`;
+}
+
+function childIdFromLocalSafetyAlternativeAlertId(alertId: string) {
+  return alertId.startsWith(LOCAL_SAFETY_ALTERNATIVE_ALERT_PREFIX)
+    ? alertId.slice(LOCAL_SAFETY_ALTERNATIVE_ALERT_PREFIX.length)
+    : null;
+}
+
+function validDateOnly(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+function sanitizeTodayActionPreferences(
+  value: unknown,
+  allowedChildIds: Set<string>
+): LocalTodayActionPreferenceRecord[] {
+  if (!Array.isArray(value)) return [];
+  const unique = new Map<string, LocalTodayActionPreferenceRecord>();
+  for (const candidate of value) {
+    if (!isPlainObject(candidate)) continue;
+    if (
+      candidate.userId !== LOCAL_USER_ID ||
+      candidate.householdId !== LOCAL_HOUSEHOLD_ID ||
+      typeof candidate.childId !== "string" ||
+      !allowedChildIds.has(candidate.childId) ||
+      candidate.scopeKey !== candidate.childId ||
+      typeof candidate.actionKey !== "string" ||
+      candidate.actionKey.length < 1 ||
+      candidate.actionKey.length > 191 ||
+      candidate.actionKey.startsWith("safety:") ||
+      candidate.mode !== "snooze" ||
+      !validDateOnly(candidate.snoozedUntil) ||
+      !Number.isInteger(candidate.version) ||
+      (candidate.version as number) < 1
+    ) continue;
+    const record: LocalTodayActionPreferenceRecord = {
+      userId: LOCAL_USER_ID,
+      householdId: LOCAL_HOUSEHOLD_ID,
+      childId: candidate.childId,
+      scopeKey: candidate.childId,
+      actionKey: candidate.actionKey,
+      mode: "snooze",
+      snoozedUntil: candidate.snoozedUntil,
+      version: candidate.version as number
+    };
+    unique.set(`${record.childId}:${record.actionKey}`, record);
+  }
+  return [...unique.values()];
+}
+
 const LEGACY_FIXTURE_CHILD_ID = "local-child-daon";
 const LEGACY_FIXTURE_HOUSEHOLD_ID = "local-household-daon";
 
@@ -364,6 +458,9 @@ function sanitizeLocalBackendState(persisted: unknown): LocalBackendState {
   const expenses = Array.isArray(persisted.expenses)
     ? persisted.expenses.map(sanitizeLocalExpenseRecord).filter((record): record is LocalExpenseRecord => record !== null)
     : [];
+  const allowedChildIds = new Set([child, ...additionalChildren]
+    .filter((record): record is LocalChildRecord => Boolean(record && !record.deletedAt))
+    .map((record) => record.id));
 
   const sanitized: LocalBackendState = {
     seeded: typeof persisted.seeded === "boolean" ? persisted.seeded : false,
@@ -383,6 +480,21 @@ function sanitizeLocalBackendState(persisted: unknown): LocalBackendState {
     planHistory: isPlainObject(persisted.planHistory) ? (persisted.planHistory as LocalBackendState["planHistory"]) : {},
     planComments: isPlainObject(persisted.planComments) ? (persisted.planComments as LocalBackendState["planComments"]) : {},
     preparationContexts: isPlainObject(persisted.preparationContexts) ? (persisted.preparationContexts as LocalBackendState["preparationContexts"]) : {},
+    todayActionPreferences: sanitizeTodayActionPreferences(persisted.todayActionPreferences, allowedChildIds),
+    acknowledgedSafetyAlertIds: Array.isArray(persisted.acknowledgedSafetyAlertIds)
+      ? [
+          ...persisted.acknowledgedSafetyAlertIds.filter((alertId): alertId is string =>
+            typeof alertId === "string" &&
+            [...allowedChildIds].some((childId) =>
+              alertId === localTodaySafetyAlertId(childId)
+              || alertId === localSafetyAlternativeAlertId(childId)
+            )
+          ),
+          ...(persisted.acknowledgedSafetyAlertIds.includes(LEGACY_LOCAL_TODAY_SAFETY_ALERT_ID) && child
+            ? [localTodaySafetyAlertId(child.id)]
+            : [])
+        ].filter((alertId, index, values) => values.indexOf(alertId) === index)
+      : [],
     preparedItemsCompleted: typeof persisted.preparedItemsCompleted === "boolean" ? persisted.preparedItemsCompleted : false,
     onboardingCompleted: typeof persisted.onboardingCompleted === "boolean" ? persisted.onboardingCompleted : false,
     members: Array.isArray(persisted.members) ? (persisted.members as LocalMemberRecord[]) : [],
@@ -416,7 +528,7 @@ export const useLocalBackendStore = create<LocalBackendState>()(
     storage: createJSONStorage(() => zustandPersistStorage),
     // Version 3 adds `additionalChildren`; the sanitizer backfills it to an empty array while
     // preserving the version-2 expense/onboarding migrations below.
-    version: 10,
+    version: 12,
     migrate: (persisted) => sanitizeLocalBackendState(persisted),
     merge: (persisted, current) => ({
       ...current,
@@ -435,6 +547,8 @@ function wipeLocalBackendState() {
     planHistory: {},
     planComments: {},
     preparationContexts: {},
+    todayActionPreferences: [],
+    acknowledgedSafetyAlertIds: [],
     importRows: {},
     idempotencyKeys: {}
   });
@@ -495,6 +609,8 @@ export function startLocalOnboardingSession() {
     expenses: [],
     itemStatuses: {},
     itemPlans: {},
+    todayActionPreferences: [],
+    acknowledgedSafetyAlertIds: [],
     preparedItemsCompleted: false,
     onboardingCompleted: false,
     consents: localLegalDocuments.map((document) => ({
@@ -540,7 +656,30 @@ function ensureSeeded() {
     };
   });
 
-  const members: LocalMemberRecord[] = localMemberFixtures.map((member) => ({ ...member }));
+  const authorityRecoveryFixture = process.env.EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE === "1";
+  const members: LocalMemberRecord[] = localMemberFixtures
+    .filter((member) => !authorityRecoveryFixture || member.userId === LOCAL_USER_ID)
+    .map((member) => ({ ...member }));
+  if (authorityRecoveryFixture) {
+    members.push(
+      {
+        id: "local-recovery-owner",
+        householdId: AUTHORITY_RECOVERY_HOUSEHOLD_ID,
+        userId: LOCAL_USER_ID,
+        displayName: "엄마 (나)",
+        role: "owner",
+        status: "active"
+      },
+      {
+        id: "local-recovery-coparent",
+        householdId: AUTHORITY_RECOVERY_HOUSEHOLD_ID,
+        userId: LOCAL_DAD_USER_ID,
+        displayName: "아빠",
+        role: "co_parent",
+        status: "active"
+      }
+    );
+  }
 
   useLocalBackendStore.setState({
     seeded: true,
@@ -550,6 +689,8 @@ function ensureSeeded() {
     expenses,
     itemStatuses: {},
     itemPlans: {},
+    todayActionPreferences: [],
+    acknowledgedSafetyAlertIds: [],
     members,
     invites: [],
     importJobs: [],
@@ -744,6 +885,71 @@ function toBudgetDto(childId: string, yearMonth: string, amountKrw: number): Bud
 // Home / expenses / budget
 // ---------------------------------------------------------------------------
 
+function localTodayCenter(childId: string): NonNullable<HomeSummary["todayCenter"]> {
+  const today = getSeoulToday();
+  const state = useLocalBackendStore.getState();
+  const acknowledged = state.acknowledgedSafetyAlertIds.includes(localTodaySafetyAlertId(childId));
+  const candidates: TodayActionContract[] = [
+    ...(!acknowledged ? [{
+      actionKey: localTodaySafetyActionKey(childId),
+      kind: "safety_acknowledgement" as const,
+      sourceId: LOCAL_ITEM_DIAPER,
+      childId,
+      dueDate: null,
+      assignedUserId: null,
+      reasonCode: "safety_acknowledgement",
+      reasonParams: { itemName: "기저귀" },
+      navigation: { kind: "notifications" as const },
+      preferenceScope: { kind: "child" as const, childId },
+      preferenceVersion: 0
+    }] : []),
+    {
+      actionKey: `local:${childId}:${LOCAL_ITEM_DIAPER}:recurring`,
+      kind: "recurring_due",
+      sourceId: LOCAL_ITEM_DIAPER,
+      childId,
+      dueDate: today,
+      assignedUserId: LOCAL_USER_ID,
+      reasonCode: "recurring_due",
+      reasonParams: { itemName: "기저귀", dueDate: today },
+      navigation: { kind: "item", itemId: LOCAL_ITEM_DIAPER, childId },
+      preferenceScope: { kind: "child", childId },
+      preferenceVersion: 0
+    },
+    {
+      actionKey: `local:${childId}:${LOCAL_ITEM_CARRIER}:replacement`,
+      kind: "replacement_due",
+      sourceId: LOCAL_ITEM_CARRIER,
+      childId,
+      dueDate: seoulDatePlusDays(today, 3),
+      assignedUserId: null,
+      reasonCode: "replacement_due",
+      reasonParams: { itemName: "아기띠", dueDate: seoulDatePlusDays(today, 3) },
+      navigation: { kind: "item", itemId: LOCAL_ITEM_CARRIER, childId },
+      preferenceScope: { kind: "child", childId },
+      preferenceVersion: 0
+    }
+  ];
+  const preferences = new Map(state.todayActionPreferences
+    .filter((entry) => entry.childId === childId)
+    .map((entry) => [entry.actionKey, entry]));
+  return {
+    generatedAt: new Date().toISOString(),
+    referenceDate: today,
+    source: "local_fixture",
+    actions: candidates
+      .map((candidate) => ({
+        ...candidate,
+        preferenceVersion: preferences.get(candidate.actionKey)?.version ?? 0
+      }))
+      .filter((candidate) => {
+        const preference = preferences.get(candidate.actionKey);
+        return !preference || preference.snoozedUntil <= today;
+      })
+      .slice(0, 3)
+  };
+}
+
 export function getHome(childId: string): HomeSummary {
   const child = requireChild(childId);
   const yearMonth = getSeoulMonthRange(getSeoulToday()).yearMonth;
@@ -755,7 +961,91 @@ export function getHome(childId: string): HomeSummary {
     totalExpenseKrw: totalExpenseKrw(expensesForChild(childId)),
     monthly: toBudgetDto(childId, yearMonth, budgetAmount),
     recommendedItems: listItems(childId, "now").items.slice(0, 3),
-    recentExpenses: recentExpenses.map(toExpenseDto)
+    recentExpenses: recentExpenses.map(toExpenseDto),
+    todayCenter: localTodayCenter(childId)
+  };
+}
+
+function assertTodayPreferenceScope(input: Pick<TodayPreferenceInput, "householdId" | "childId" | "actionKey">) {
+  ensureSeeded();
+  if (input.householdId !== LOCAL_HOUSEHOLD_ID) {
+    throw localApiError("HOUSEHOLD_FORBIDDEN", "가족 접근 권한이 필요해요.");
+  }
+  const child = requireChild(input.childId);
+  if (child.id !== input.childId) {
+    throw localApiError("CHILD_SCOPE_MISMATCH", "아이와 가족 범위가 일치하지 않아요.");
+  }
+  if (!input.actionKey || input.actionKey.length > 191) {
+    throw localApiError("TODAY_ACTION_INVALID", "알림 정보를 다시 확인해 주세요.");
+  }
+}
+
+export function updateTodayPreference(input: TodayPreferenceInput): TodayPreferenceContract {
+  assertTodayPreferenceScope(input);
+  if (input.actionKey.startsWith("safety:")) {
+    throw localApiError("SAFETY_ACTION_NOT_SNOOZABLE", "안전 확인은 미룰 수 없어요.");
+  }
+  if (input.mode !== "snooze") {
+    throw localApiError("TODAY_PREFERENCE_MODE_INVALID", "지원하지 않는 알림 설정이에요.");
+  }
+  if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) {
+    throw localApiError("TODAY_PREFERENCE_VERSION_INVALID", "알림 버전을 다시 확인해 주세요.");
+  }
+  const state = useLocalBackendStore.getState();
+  const index = state.todayActionPreferences.findIndex((entry) =>
+    entry.userId === LOCAL_USER_ID &&
+    entry.householdId === input.householdId &&
+    entry.childId === input.childId &&
+    entry.actionKey === input.actionKey
+  );
+  const existing = index >= 0 ? state.todayActionPreferences[index] : null;
+  if (
+    (input.expectedVersion === 0 && existing) ||
+    (input.expectedVersion > 0 && existing?.version !== input.expectedVersion)
+  ) {
+    throw localApiError("TODAY_PREFERENCE_CONFLICT", "다른 변경 내용을 먼저 반영했어요.");
+  }
+  const saved: LocalTodayActionPreferenceRecord = {
+    userId: LOCAL_USER_ID,
+    householdId: input.householdId,
+    childId: input.childId,
+    scopeKey: input.childId,
+    actionKey: input.actionKey,
+    mode: "snooze",
+    snoozedUntil: seoulDatePlusDays(getSeoulToday(), 1),
+    version: (existing?.version ?? 0) + 1
+  };
+  useLocalBackendStore.setState((current) => ({
+    todayActionPreferences: index >= 0
+      ? current.todayActionPreferences.map((entry, entryIndex) => entryIndex === index ? saved : entry)
+      : [...current.todayActionPreferences, saved]
+  }));
+  const { userId: _userId, householdId: _householdId, childId: _childId, scopeKey: _scopeKey, ...contract } = saved;
+  return contract;
+}
+
+export function getTodayPreferenceResolution(
+  input: Pick<TodayPreferenceInput, "householdId" | "childId" | "actionKey">
+): TodayPreferenceResolutionContract {
+  assertTodayPreferenceScope(input);
+  const existing = useLocalBackendStore.getState().todayActionPreferences.find((entry) =>
+    entry.userId === LOCAL_USER_ID &&
+    entry.householdId === input.householdId &&
+    entry.childId === input.childId &&
+    entry.actionKey === input.actionKey
+  );
+  const preference = existing
+    ? {
+        actionKey: existing.actionKey,
+        mode: existing.mode,
+        snoozedUntil: existing.snoozedUntil,
+        version: existing.version
+      }
+    : null;
+  return {
+    actionKey: input.actionKey,
+    preferenceScope: { kind: "child", childId: input.childId },
+    preference
   };
 }
 
@@ -1733,11 +2023,138 @@ export function getCatalogSafetyAlerts(childId?: string, motherProfileId?: strin
   if (Boolean(childId) === Boolean(motherProfileId)) throw new Error("아이 또는 산모 준비 대상을 하나만 선택해 주세요.");
   if (childId) requireChild(childId);
   if (motherProfileId && motherProfileId !== LOCAL_MOTHER_PROFILE_ID) throw new Error("산모 프로필을 찾을 수 없어요.");
-  return { alerts: [] };
+  if (process.env.EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE === "1" && childId) {
+    const source = catalogDomain.release4CatalogItems[0]!;
+    const item = toCatalogItemSummary(source, childId);
+    const alertId = localSafetyAlternativeAlertId(childId);
+    if (useLocalBackendStore.getState().acknowledgedSafetyAlertIds.includes(alertId)) {
+      return { alerts: [] };
+    }
+    const alert: CatalogSafetyAlert = {
+      id: alertId,
+      itemDefinitionId: source.code,
+      userItemPlanId: "local-safety-alternative-plan",
+      eventType: "provider_recalled",
+      reason: "제조사 공식 리콜 안내가 확인되었어요.",
+      itemContentVersion: 1,
+      state: "unread",
+      acknowledgedAt: null,
+      version: 1,
+      createdAt: "2026-07-26T00:00:00.000Z",
+      planState: "owned",
+      item,
+      actionGuidance: "사용을 중지하고 검증된 대체 품목과 검증 근거를 확인해 주세요.",
+      sourceStatus: "official_or_professional_source_required"
+    };
+    return { alerts: [alert] };
+  }
+  const alertId = childId ? localTodaySafetyAlertId(childId) : null;
+  if (!childId || !alertId || useLocalBackendStore.getState().acknowledgedSafetyAlertIds.includes(alertId)) {
+    return { alerts: [] };
+  }
+  const source = catalogDomain.release4CatalogItems.find((item) => item.nameKo.includes("기저귀"))
+    ?? catalogDomain.release4CatalogItems[0]!;
+  const item = toCatalogItemSummary(source, childId);
+  const alert: CatalogSafetyAlert = {
+    id: alertId,
+    itemDefinitionId: LOCAL_ITEM_DIAPER,
+    userItemPlanId: "local-today-safety-plan",
+    eventType: "provider_recalled",
+    reason: "공식 안전 안내가 확인되었어요.",
+    itemContentVersion: 1,
+    state: "unread",
+    acknowledgedAt: null,
+    version: 1,
+    createdAt: "2026-07-26T00:00:00.000Z",
+    planState: "owned",
+    item: {
+      ...item,
+      id: LOCAL_ITEM_DIAPER,
+      code: LOCAL_ITEM_DIAPER,
+      nameKo: "기저귀"
+    },
+    actionGuidance: "사용을 멈추고 공식 안내를 확인한 뒤 확인 완료를 눌러 주세요.",
+    sourceStatus: "official_or_professional_source_required"
+  };
+  return { alerts: [alert] };
 }
 
-export function acknowledgeCatalogSafetyAlert(_alertId: string, _expectedVersion: number): never {
-  throw new Error("확인할 안전 알림이 없어요.");
+export function acknowledgeCatalogSafetyAlert(alertId: string, expectedVersion: number): CatalogSafetyAlert {
+  const scopedChildId = childIdFromLocalTodaySafetyAlertId(alertId);
+  const alternativeChildId = childIdFromLocalSafetyAlternativeAlertId(alertId);
+  const alertChildId = scopedChildId && activeChildren().some((child) => child.id === scopedChildId)
+    ? scopedChildId
+    : alternativeChildId && activeChildren().some((child) => child.id === alternativeChildId)
+      ? alternativeChildId
+      : null;
+  const alert = alertChildId
+    ? getCatalogSafetyAlerts(alertChildId).alerts.find((entry) => entry.id === alertId)
+    : null;
+  if (!alert) throw localApiError("SAFETY_ALERT_NOT_FOUND", "확인할 안전 알림이 없어요.");
+  if (alert.version !== expectedVersion) {
+    throw localApiError("SAFETY_ALERT_CONFLICT", "안전 알림 상태가 달라졌어요.");
+  }
+  useLocalBackendStore.setState((state) => ({
+    acknowledgedSafetyAlertIds: [...new Set([...state.acknowledgedSafetyAlertIds, alertId])]
+  }));
+  return { ...alert, state: "acknowledged", acknowledgedAt: new Date().toISOString(), version: alert.version + 1 };
+}
+
+export function listLocalNotifications(): { items: NotificationInboxItem[]; nextCursor: null } {
+  ensureSeeded();
+  const acknowledged = new Set(useLocalBackendStore.getState().acknowledgedSafetyAlertIds);
+  const items: NotificationInboxItem[] = activeChildren()
+    .filter((child) => !acknowledged.has(localTodaySafetyAlertId(child.id)))
+    .map((child) => ({
+      id: child.id,
+      eventType: "provider_recalled",
+      category: "safety" as const,
+      title: `${child.nickname} · 기저귀 공식 안전 안내`,
+      body: "선택한 아이의 준비 화면에서 안전 안내를 확인해 주세요.",
+      importance: "critical" as const,
+      route: "preparation" as const,
+      navigation: {
+        kind: "item" as const,
+        householdId: LOCAL_HOUSEHOLD_ID,
+        childId: child.id,
+        itemId: LOCAL_ITEM_DIAPER
+      },
+      requiresAcknowledgement: true,
+      read: false,
+      occurredAt: "2026-07-26T00:00:00.000Z"
+    }));
+  return { items, nextCursor: null };
+}
+
+export function getCatalogSafetyAlternatives(alertId: string): CatalogSafetyAlternativesResponse {
+  const childId = childIdFromLocalSafetyAlternativeAlertId(alertId);
+  if (
+    process.env.EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE !== "1"
+    || !childId
+    || !activeChildren().some((child) => child.id === childId)
+  ) {
+    return {
+      state: "review_required",
+      actionGuidance: "공식 안내를 확인해 주세요.",
+      alternatives: []
+    };
+  }
+  const alternative = catalogDomain.release4CatalogItems[1]!;
+  return {
+    state: "recalled",
+    actionGuidance: "사용을 중지하고 공식 안내를 확인해 주세요.",
+    alternatives: [{
+      id: alternative.code,
+      nameKo: alternative.nameKo,
+      safetyNote: "제품 식별 정보와 최신 제조사 안내를 다시 확인하세요.",
+      reason: "현재 리콜 대상과 다른 게시 품목이며 근거 수집·독립 검토·활성화를 서로 다른 담당자가 수행했어요.",
+      evidence: {
+        id: "local-safety-alternative-evidence",
+        title: "제조사 공식 리콜 및 대체 품목 안내",
+        publicUrl: "https://www.wooriai.kr/safety-alternative-fixture"
+      }
+    }]
+  };
 }
 
 function preparationContextKey(childId?: string, motherProfileId?: string) {
@@ -2331,11 +2748,18 @@ export function clickProductLink(productLinkId: string, _childId: string, _refer
 // Household / invites
 // ---------------------------------------------------------------------------
 
-export function listHouseholdMembers(_householdId: string) {
+const AUTHORITY_RECOVERY_HOUSEHOLD_ID = "a1170a17-0000-4a17-8a17-000000000006";
+
+function localApiError(code: string, message: string) {
+  return Object.assign(new Error(message), { code });
+}
+
+export function listHouseholdMembers(householdId: string) {
   ensureSeeded();
   const members = useLocalBackendStore
     .getState()
     .members.filter((member) => member.status !== "removed" && member.status !== "left")
+    .filter((member) => member.householdId === householdId)
     .map((member) => ({
       id: member.id,
       householdId: member.householdId,
@@ -2347,15 +2771,29 @@ export function listHouseholdMembers(_householdId: string) {
   return { members };
 }
 
+export function listMyHouseholds() {
+  ensureSeeded();
+  const memberships = useLocalBackendStore
+    .getState()
+    .members.filter((member) => member.userId === LOCAL_USER_ID && member.status === "active");
+  return {
+    households: memberships.map((member) => ({
+      id: member.householdId,
+      name: member.householdId === LOCAL_HOUSEHOLD_ID ? "우리 가족" : "소유권 복구 가족",
+      role: member.role
+    }))
+  };
+}
+
 export function removeHouseholdMember(householdId: string, memberId: string): { success: boolean } {
   ensureSeeded();
   const state = useLocalBackendStore.getState();
   const member = state.members.find((record) => record.householdId === householdId && record.id === memberId);
   if (!member) {
-    throw new Error("가족 구성원을 찾을 수 없어요.");
+    throw localApiError("HOUSEHOLD_MEMBER_NOT_FOUND", "가족 구성원을 찾을 수 없어요.");
   }
-  if (member.userId === LOCAL_USER_ID) {
-    throw new Error("본인은 삭제할 수 없어요. 가구 탈퇴를 이용해 주세요.");
+  if (member.role === "owner") {
+    throw localApiError("OWNER_TRANSFER_REQUIRED", "소유권을 이전한 뒤 현재 소유자 구성원을 변경해 주세요.");
   }
   useLocalBackendStore.setState((current) => ({
     members: current.members.map((record) => (record.id === memberId ? { ...record, status: "removed" } : record))
@@ -2636,7 +3074,8 @@ export function transferHouseholdOwnership(householdId: string, targetUserId: st
   const state = useLocalBackendStore.getState();
   const owner = state.members.find((member) => member.householdId === householdId && member.userId === LOCAL_USER_ID && member.role === "owner" && member.status === "active");
   const target = state.members.find((member) => member.householdId === householdId && member.userId === targetUserId && member.role === "co_parent" && member.status === "active");
-  if (!owner || !target) throw new Error("활성 공동 양육자에게만 소유권을 이전할 수 있어요.");
+  if (!owner) throw localApiError("OWNERSHIP_CHANGED", "가족 소유자가 이미 변경됐어요.");
+  if (!target) throw localApiError("OWNER_TRANSFER_TARGET_CHANGED", "대상 구성원의 역할이나 상태가 변경됐어요.");
   useLocalBackendStore.setState((current) => ({
     members: current.members.map((member) => member.id === owner.id
       ? { ...member, role: "co_parent" }
@@ -2651,9 +3090,9 @@ export function leaveHousehold(householdId: string) {
   ensureSeeded();
   const state = useLocalBackendStore.getState();
   const current = state.members.find((member) => member.householdId === householdId && member.userId === LOCAL_USER_ID && member.status === "active");
-  if (!current) throw new Error("가족 구성원을 찾을 수 없어요.");
-  if (current.role === "owner" && state.members.some((member) => member.householdId === householdId && member.status === "active" && member.userId !== LOCAL_USER_ID)) {
-    throw new Error("다른 구성원이 있으면 소유권을 이전한 뒤 가족을 떠나야 해요.");
+  if (!current) throw localApiError("OWNERSHIP_CHANGED", "가족 구성원 상태가 이미 변경됐어요.");
+  if (current.role === "owner") {
+    throw localApiError("OWNER_TRANSFER_REQUIRED", "소유권을 이전하거나 가족을 삭제한 뒤 탈퇴해 주세요.");
   }
   useLocalBackendStore.setState((snapshot) => ({
     members: snapshot.members.map((member) => member.id === current.id ? { ...member, status: "left" } : member)
@@ -3038,15 +3477,7 @@ export function previewHouseholdLeave(_householdId: string): SettingsPreview {
 
 export function confirmHouseholdLeave(householdId: string, confirmationText: string): SettingsConfirmResponse {
   assertConfirmation(confirmationText, "LEAVE HOUSEHOLD");
-  ensureSeeded();
-  useLocalBackendStore.setState((state) => ({
-    members: state.members.map((member) =>
-      member.householdId === householdId && member.userId === LOCAL_USER_ID
-        ? { ...member, status: "left" as const }
-        : member
-    )
-  }));
-  return { success: true, flowId: "household_leave" };
+  return leaveHousehold(householdId);
 }
 
 export function previewAccountDeletion(): SettingsPreview {
@@ -3064,16 +3495,18 @@ export function confirmAccountDeletion(confirmationText: string): SettingsConfir
   ensureSeeded();
   const existing = useLocalBackendStore.getState().accountDeletionRequest;
   const now = new Date();
-  const deletion: AccountDeletionRequest = existing?.state === "requested" ? existing : {
+  const recoveryFixture = process.env.EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE === "1";
+  const deletion: AccountDeletionRequest = existing?.state === "requested" || existing?.state === "failed" ? existing : {
     id: generateLocalId("account-deletion"),
     requestType: "deletion",
-    state: "requested",
+    state: recoveryFixture ? "failed" : "requested",
     requestedAt: now.toISOString(),
     dueAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     completedAt: null,
-    failureCode: null,
+    failureCode: recoveryFixture ? "OWNER_TRANSFER_REQUIRED" : null,
     exportExpiresAt: null,
-    statusToken: generateLocalId("privacy-status")
+    statusToken: generateLocalId("privacy-status"),
+    details: recoveryFixture ? { householdId: AUTHORITY_RECOVERY_HOUSEHOLD_ID, accessRevoked: false } : undefined
   };
   useLocalBackendStore.setState({ accountDeletionRequest: deletion });
   return { success: true, flowId: "account_delete", deletion };
@@ -3082,15 +3515,47 @@ export function confirmAccountDeletion(confirmationText: string): SettingsConfir
 export function cancelAccountDeletion(requestId: string): AccountDeletionRequest {
   const current = useLocalBackendStore.getState().accountDeletionRequest;
   if (!current || current.id !== requestId) throw new Error("삭제 요청을 찾을 수 없어요.");
-  if (current.state !== "requested" || !current.dueAt || current.dueAt <= new Date().toISOString()) {
+  const ownershipBlocked = current.state === "failed" && current.failureCode === "OWNER_TRANSFER_REQUIRED";
+  if ((!ownershipBlocked && current.state !== "requested") || (!ownershipBlocked && (!current.dueAt || current.dueAt <= new Date().toISOString()))) {
     throw new Error("삭제 유예 기간이 지나 취소할 수 없어요.");
   }
-  const cancelled: AccountDeletionRequest = { ...current, state: "cancelled" };
+  const cancelled: AccountDeletionRequest = { ...current, state: "cancelled", failureCode: null, details: undefined };
   useLocalBackendStore.setState({ accountDeletionRequest: cancelled });
   return cancelled;
 }
 
 export function getCurrentAccountDeletion(): AccountDeletionRequest | null {
   const current = useLocalBackendStore.getState().accountDeletionRequest;
-  return current?.state === "requested" ? current : null;
+  return current?.state === "requested" || (current?.state === "failed" && current.failureCode === "OWNER_TRANSFER_REQUIRED")
+    ? current
+    : null;
+}
+
+export function retryAccountDeletion(requestId: string): AccountDeletionRequest {
+  const current = useLocalBackendStore.getState().accountDeletionRequest;
+  if (!current || current.id !== requestId || current.state !== "failed" || current.failureCode !== "OWNER_TRANSFER_REQUIRED") {
+    throw localApiError("PRIVACY_RETRY_NOT_ALLOWED", "다시 시도할 수 있는 삭제 요청이 아니에요.");
+  }
+  const blocker = useLocalBackendStore.getState().members.find((member) =>
+    member.userId === LOCAL_USER_ID &&
+    member.role === "owner" &&
+    member.status === "active" &&
+    useLocalBackendStore.getState().members.some((candidate) =>
+      candidate.householdId === member.householdId &&
+      candidate.userId !== LOCAL_USER_ID &&
+      candidate.status === "active"
+    )
+  );
+  if (blocker) {
+    throw localApiError("OWNER_TRANSFER_REQUIRED", "계정 삭제 전에 공동 양육자에게 가족 소유권을 이전해 주세요.");
+  }
+  const requested: AccountDeletionRequest = {
+    ...current,
+    state: "requested",
+    failureCode: null,
+    dueAt: new Date().toISOString(),
+    details: undefined
+  };
+  useLocalBackendStore.setState({ accountDeletionRequest: requested });
+  return requested;
 }

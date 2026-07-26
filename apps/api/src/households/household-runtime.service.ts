@@ -1,8 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import type { MemberRole } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
+import { lockAuthorityRows, writeAuthorityAudit } from "./authority-transaction";
 
 type InviteChannel = "kakao" | "sms" | "link";
 type InviteRole = Exclude<MemberRole, "owner">;
@@ -239,49 +241,67 @@ export class HouseholdRuntimeService {
 
   async removeMember(user: AuthenticatedUser, householdId: string, memberId: string) {
     this.assertOwner(user, householdId);
-    const household = await this.requireHousehold(householdId);
-    const member = await this.prisma.householdMember.findFirst({
-      where: { id: memberId, householdId }
-    });
-
-    if (!member || member.status === "removed" || member.status === "left") {
+    const discovered = await this.prisma.householdMember.findFirst({ where: { id: memberId, householdId } });
+    if (!discovered) {
       throw new NotFoundException({ code: "HOUSEHOLD_MEMBER_NOT_FOUND", message: "Household member was not found." });
     }
-
-    if (member.userId === household.ownerUserId) {
-      throw new BadRequestException({
-        code: "HOUSEHOLD_MEMBER_REMOVE_OWNER_FORBIDDEN",
-        message: "Owners cannot remove themselves. Use the leave or account deletion flow instead."
+    await this.prisma.$transaction(async (tx) => {
+      await lockAuthorityRows(tx, { userIds: [user.id, discovered.userId], householdIds: [householdId] });
+      await this.requireActiveUserTx(tx, user.id);
+      const household = await this.requireActiveHouseholdTx(tx, householdId);
+      await this.requireActiveOwnerTx(tx, user.id, household);
+      const member = await tx.householdMember.findFirst({ where: { id: memberId, householdId } });
+      if (!member || member.status !== "active") {
+        throw new NotFoundException({ code: "HOUSEHOLD_MEMBER_NOT_FOUND", message: "Household member was not found." });
+      }
+      if (member.userId === household.ownerUserId || member.role === "owner") {
+        throw new ConflictException({
+          code: "OWNER_TRANSFER_REQUIRED",
+          message: "소유권을 이전한 뒤 현재 소유자 구성원을 변경해 주세요."
+        });
+      }
+      await tx.householdMember.update({ where: { id: member.id }, data: { status: "removed" } });
+      await writeAuthorityAudit(tx, {
+        actorUserId: user.id,
+        householdId,
+        action: "household.member.remove",
+        targetType: "household_member",
+        targetId: member.id,
+        before: { userId: member.userId, role: member.role, status: member.status },
+        after: { userId: member.userId, role: member.role, status: "removed" }
       });
-    }
-
-    const before = await this.toMemberDto(member);
-    const updated = await this.prisma.householdMember.update({
-      where: { id: member.id },
-      data: { status: "removed" }
     });
-
-    return { success: true, before, after: await this.toMemberDto(updated), householdId };
+    return { success: true, householdId };
   }
 
   async leaveHousehold(user: AuthenticatedUser, householdId: string) {
     this.assertMember(user, householdId);
-    const household = await this.requireHousehold(householdId);
-    if (household.ownerUserId === user.id) {
-      throw new ConflictException({
-        code: "OWNER_TRANSFER_REQUIRED",
-        message: "소유권을 이전하거나 가족을 삭제한 뒤 탈퇴해 주세요."
+    await this.prisma.$transaction(async (tx) => {
+      await lockAuthorityRows(tx, { userIds: [user.id], householdIds: [householdId] });
+      await this.requireActiveUserTx(tx, user.id);
+      const household = await this.requireActiveHouseholdTx(tx, householdId);
+      const member = await tx.householdMember.findUnique({
+        where: { householdId_userId: { householdId, userId: user.id } }
       });
-    }
-    const member = await this.prisma.householdMember.findUnique({
-      where: { householdId_userId: { householdId, userId: user.id } }
-    });
-    if (!member) {
-      throw new NotFoundException({ code: "HOUSEHOLD_MEMBER_NOT_FOUND", message: "Household member was not found." });
-    }
-    await this.prisma.householdMember.update({
-      where: { id: member.id },
-      data: { status: "left" }
+      if (!member || member.status !== "active") {
+        throw new ConflictException({ code: "OWNERSHIP_CHANGED", message: "가족 구성원 상태가 이미 변경됐어요." });
+      }
+      if (household.ownerUserId === user.id || member.role === "owner") {
+        throw new ConflictException({
+          code: "OWNER_TRANSFER_REQUIRED",
+          message: "소유권을 이전하거나 가족을 삭제한 뒤 탈퇴해 주세요."
+        });
+      }
+      await tx.householdMember.update({ where: { id: member.id }, data: { status: "left" } });
+      await writeAuthorityAudit(tx, {
+        actorUserId: user.id,
+        householdId,
+        action: "household.member.leave",
+        targetType: "household_member",
+        targetId: member.id,
+        before: { userId: member.userId, role: member.role, status: member.status },
+        after: { userId: member.userId, role: member.role, status: "left" }
+      });
     });
     return { success: true, flowId: "household_leave" };
   }
@@ -291,65 +311,67 @@ export class HouseholdRuntimeService {
     if (targetUserId === user.id) {
       throw new BadRequestException({ code: "OWNER_TRANSFER_TARGET_INVALID", message: "현재 소유자에게 이전할 수 없어요." });
     }
-    const household = await this.requireHousehold(householdId);
-    if (household.ownerUserId !== user.id) {
-      throw new ConflictException({ code: "OWNERSHIP_CHANGED", message: "가족 소유자가 이미 변경됐어요." });
-    }
-    const target = await this.prisma.householdMember.findUnique({
-      where: { householdId_userId: { householdId, userId: targetUserId } }
-    });
-    if (!target || target.status !== "active" || target.role !== "co_parent") {
-      throw new BadRequestException({
-        code: "OWNER_TRANSFER_TARGET_INVALID",
-        message: "활성 공동 양육자에게만 소유권을 이전할 수 있어요."
-      });
-    }
-
     await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.household.updateMany({
-        where: {
-          id: householdId,
-          ownerUserId: user.id,
-          ownershipVersion: household.ownershipVersion,
-          deletedAt: null
-        },
+      await lockAuthorityRows(tx, { userIds: [user.id, targetUserId], householdIds: [householdId] });
+      await this.requireActiveUserTx(tx, user.id);
+      const targetUser = await tx.user.findUnique({ where: { id: targetUserId } });
+      if (!targetUser || targetUser.status !== "active") {
+        throw new ConflictException({
+          code: "OWNER_TRANSFER_TARGET_CHANGED",
+          message: "대상 구성원의 역할이나 상태가 변경됐어요. 최신 가족 정보를 확인해 주세요."
+        });
+      }
+      const household = await this.requireActiveHouseholdTx(tx, householdId);
+      const actor = await this.requireActiveOwnerTx(tx, user.id, household);
+      const target = await tx.householdMember.findUnique({
+        where: { householdId_userId: { householdId, userId: targetUserId } }
+      });
+      if (!target || target.status !== "active" || target.role !== "co_parent") {
+        throw new ConflictException({
+          code: "OWNER_TRANSFER_TARGET_CHANGED",
+          message: "대상 구성원의 역할이나 상태가 변경됐어요. 최신 가족 정보를 확인해 주세요."
+        });
+      }
+      await tx.household.update({
+        where: { id: household.id },
         data: { ownerUserId: targetUserId, ownershipVersion: { increment: 1 } }
       });
-      if (claimed.count !== 1) {
-        throw new ConflictException({ code: "OWNERSHIP_CHANGED", message: "가족 소유자가 이미 변경됐어요." });
-      }
-      await tx.householdMember.update({
-        where: { householdId_userId: { householdId, userId: user.id } },
-        data: { role: "co_parent" }
-      });
+      await tx.householdMember.update({ where: { id: actor.id }, data: { role: "co_parent" } });
       await tx.householdMember.update({ where: { id: target.id }, data: { role: "owner" } });
+      await writeAuthorityAudit(tx, {
+        actorUserId: user.id,
+        householdId,
+        action: "household.ownership.transfer",
+        targetType: "household",
+        targetId: householdId,
+        before: { ownerUserId: user.id, ownershipVersion: household.ownershipVersion },
+        after: { ownerUserId: targetUserId, ownershipVersion: household.ownershipVersion + 1 }
+      });
     });
     return { success: true, householdId, previousOwnerUserId: user.id, ownerUserId: targetUserId };
   }
 
   async deleteHousehold(user: AuthenticatedUser, householdId: string) {
     this.assertOwner(user, householdId);
-    const household = await this.requireHousehold(householdId);
-    if (household.ownerUserId !== user.id) {
-      throw new ConflictException({ code: "OWNERSHIP_CHANGED", message: "가족 소유자가 이미 변경됐어요." });
-    }
-    const activeMemberCount = await this.prisma.householdMember.count({
-      where: { householdId, status: "active" }
-    });
-    if (activeMemberCount > 1) {
-      throw new ConflictException({
-        code: "OWNER_TRANSFER_REQUIRED",
-        message: "다른 구성원이 있으면 소유권을 이전한 뒤 가족을 떠나야 해요."
-      });
-    }
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.household.updateMany({
-        where: { id: householdId, ownerUserId: user.id, ownershipVersion: household.ownershipVersion, deletedAt: null },
+      await lockAuthorityRows(tx, { userIds: [user.id], householdIds: [householdId] });
+      await this.requireActiveUserTx(tx, user.id);
+      const household = await this.requireActiveHouseholdTx(tx, householdId);
+      await this.requireActiveOwnerTx(tx, user.id, household);
+      const activeMemberCount = await tx.householdMember.count({ where: { householdId, status: "active" } });
+      if (activeMemberCount > 1) {
+        throw new ConflictException({
+          code: "OWNER_TRANSFER_REQUIRED",
+          message: "다른 구성원이 있으면 소유권을 이전한 뒤 가족을 떠나야 해요."
+        });
+      }
+      await tx.household.update({
+        where: { id: householdId },
         data: { status: "archived", deletedAt: now, ownershipVersion: { increment: 1 } }
       });
-      if (claimed.count !== 1) throw new ConflictException({ code: "HOUSEHOLD_DELETE_RACE", message: "가족 상태가 변경됐어요." });
       await tx.householdMember.updateMany({ where: { householdId, status: "active" }, data: { status: "left" } });
+      await tx.householdInvite.updateMany({ where: { householdId, status: "pending" }, data: { status: "expired" } });
       await tx.jobOutbox.create({
         data: {
           topic: "household.deletion.requested",
@@ -359,24 +381,17 @@ export class HouseholdRuntimeService {
           payloadJson: { householdId }
         }
       });
-    });
-    return { success: true, householdId };
-  }
-
-  /**
-   * Withdraws the account: marks the user withdrawn and leaves every active/pending
-   * household membership, in one transaction so a partial failure can never leave a
-   * withdrawn user still listed as an active household member.
-   */
-  async withdrawUser(user: AuthenticatedUser) {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id: user.id }, data: { status: "withdrawn" } });
-      await tx.householdMember.updateMany({
-        where: { userId: user.id, status: { in: ["active", "pending"] } },
-        data: { status: "left" }
+      await writeAuthorityAudit(tx, {
+        actorUserId: user.id,
+        householdId,
+        action: "household.delete.request",
+        targetType: "household",
+        targetId: householdId,
+        before: { status: household.status, ownerUserId: household.ownerUserId },
+        after: { status: "archived", deletionPending: true }
       });
     });
-    return { success: true, flowId: "account_delete" };
+    return { success: true, householdId };
   }
 
   async listMembers(user: AuthenticatedUser, householdId: string) {
@@ -390,26 +405,39 @@ export class HouseholdRuntimeService {
 
   async createInvite(user: AuthenticatedUser, householdId: string, role: InviteRole, channel: InviteChannel) {
     this.assertOwner(user, householdId);
-    const household = await this.requireHousehold(householdId);
     const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
     const token = randomBytes(24).toString("hex");
-
-    await this.prisma.householdInvite.create({
-      data: {
+    const householdName = await this.prisma.$transaction(async (tx) => {
+      await lockAuthorityRows(tx, { userIds: [user.id], householdIds: [householdId] });
+      await this.requireActiveUserTx(tx, user.id);
+      const household = await this.requireActiveHouseholdTx(tx, householdId);
+      await this.requireActiveOwnerTx(tx, user.id, household);
+      const invite = await tx.householdInvite.create({
+        data: {
+          householdId,
+          invitedByUserId: user.id,
+          role,
+          channel,
+          status: "pending",
+          inviteTokenHash: hashInviteToken(token),
+          expiresAt
+        }
+      });
+      await writeAuthorityAudit(tx, {
+        actorUserId: user.id,
         householdId,
-        invitedByUserId: user.id,
-        role,
-        channel,
-        status: "pending",
-        inviteTokenHash: hashInviteToken(token),
-        expiresAt
-      }
+        action: "household.invite.create",
+        targetType: "household_invite",
+        targetId: invite.id,
+        after: { role, channel, expiresAt: expiresAt.toISOString() }
+      });
+      return household.name;
     });
 
     return {
       inviteUrl: `https://wooriai.local/invite/${token}`,
       expiresAt: expiresAt.toISOString(),
-      householdName: household.name
+      householdName
     };
   }
 
@@ -438,53 +466,72 @@ export class HouseholdRuntimeService {
    * same `INVITE_NOT_PENDING` error a sequential re-accept already produced.
    */
   async acceptInvite(user: AuthenticatedUser, token: string) {
-    const invite = await this.requirePendingInvite(token);
-    const household = await this.requireHousehold(invite.householdId);
-
-    const existingMember = await this.prisma.householdMember.findUnique({
-      where: { householdId_userId: { householdId: invite.householdId, userId: user.id } }
-    });
-    if (existingMember && existingMember.status === "active") {
-      throw new ConflictException({
-        code: "HOUSEHOLD_ALREADY_MEMBER",
-        message: "이미 가족 구성원이에요. 초대를 다시 수락할 필요가 없어요."
-      });
+    const tokenHash = hashInviteToken(token);
+    const discovered = await this.prisma.householdInvite.findUnique({ where: { inviteTokenHash: tokenHash } });
+    if (!discovered) {
+      throw new NotFoundException({ code: "INVITE_NOT_FOUND", message: "초대 링크를 찾을 수 없어요." });
     }
-
-    const now = new Date();
-    await this.prisma.$transaction(async (tx) => {
+    const household = await this.prisma.$transaction(async (tx) => {
+      await lockAuthorityRows(tx, { userIds: [user.id], householdIds: [discovered.householdId] });
+      await this.requireActiveUserTx(tx, user.id);
+      const lockedHousehold = await this.requireActiveHouseholdTx(tx, discovered.householdId);
+      const invite = await tx.householdInvite.findUnique({ where: { id: discovered.id } });
+      if (!invite) {
+        throw new NotFoundException({ code: "INVITE_NOT_FOUND", message: "초대 링크를 찾을 수 없어요." });
+      }
+      if (invite.status !== "pending") {
+        throw new BadRequestException({ code: "INVITE_NOT_PENDING", message: "사용할 수 없는 초대 링크예요." });
+      }
+      const existingMember = await tx.householdMember.findUnique({
+        where: { householdId_userId: { householdId: invite.householdId, userId: user.id } }
+      });
+      if (existingMember?.status === "active") {
+        throw new ConflictException({
+          code: "HOUSEHOLD_ALREADY_MEMBER",
+          message: "이미 가족 구성원이에요. 초대를 다시 수락할 필요가 없어요."
+        });
+      }
+      const claimedAt = new Date();
       const claimed = await tx.householdInvite.updateMany({
-        where: { id: invite.id, status: "pending" },
-        data: { status: "accepted", acceptedByUserId: user.id, acceptedAt: now }
+        where: { id: invite.id, status: "pending", expiresAt: { gt: claimedAt } },
+        data: { status: "accepted", acceptedByUserId: user.id, acceptedAt: claimedAt }
       });
       if (claimed.count === 0) {
         throw new BadRequestException({ code: "INVITE_NOT_PENDING", message: "사용할 수 없는 초대 링크예요." });
       }
 
-      if (existingMember) {
-        await tx.householdMember.update({
+      const member = existingMember
+        ? await tx.householdMember.update({
           where: { id: existingMember.id },
-          data: { role: invite.role, status: "active", invitedByUserId: invite.invitedByUserId, joinedAt: now }
-        });
-      } else {
-        await tx.householdMember.create({
+          data: { role: invite.role, status: "active", invitedByUserId: invite.invitedByUserId, joinedAt: claimedAt }
+        })
+        : await tx.householdMember.create({
           data: {
             householdId: invite.householdId,
             userId: user.id,
             role: invite.role,
             status: "active",
             invitedByUserId: invite.invitedByUserId,
-            joinedAt: now
+            joinedAt: claimedAt
           }
         });
-      }
+      await writeAuthorityAudit(tx, {
+        actorUserId: user.id,
+        householdId: invite.householdId,
+        action: "household.invite.accept",
+        targetType: "household_invite",
+        targetId: invite.id,
+        before: { status: "pending" },
+        after: { status: "accepted", memberId: member.id, userId: user.id, role: invite.role }
+      });
+      return lockedHousehold;
     });
 
     return {
       household: {
         id: household.id,
         name: household.name,
-        role: invite.role
+        role: discovered.role
       }
     };
   }
@@ -543,6 +590,41 @@ export class HouseholdRuntimeService {
     }
   }
 
+  private async requireActiveUserTx(tx: Prisma.TransactionClient, userId: string) {
+    const current = await tx.user.findUnique({ where: { id: userId } });
+    if (!current || current.status !== "active") {
+      throw new ConflictException({ code: "OWNERSHIP_CHANGED", message: "사용자 상태가 이미 변경됐어요." });
+    }
+    return current;
+  }
+
+  private async requireActiveHouseholdTx(tx: Prisma.TransactionClient, householdId: string) {
+    const household = await tx.household.findUnique({ where: { id: householdId } });
+    if (!household || household.deletedAt || household.status !== "active") {
+      throw new NotFoundException({ code: "HOUSEHOLD_NOT_FOUND", message: "가족을 찾을 수 없어요." });
+    }
+    return household;
+  }
+
+  private async requireActiveOwnerTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    household: { id: string; ownerUserId: string }
+  ) {
+    const membership = await tx.householdMember.findUnique({
+      where: { householdId_userId: { householdId: household.id, userId } }
+    });
+    if (
+      household.ownerUserId !== userId ||
+      !membership ||
+      membership.status !== "active" ||
+      membership.role !== "owner"
+    ) {
+      throw new ConflictException({ code: "OWNERSHIP_CHANGED", message: "가족 소유자가 이미 변경됐어요." });
+    }
+    return membership;
+  }
+
   private async requireHousehold(householdId: string) {
     const household = await this.prisma.household.findUnique({ where: { id: householdId } });
     if (!household || household.deletedAt || household.status !== "active") {
@@ -560,8 +642,12 @@ export class HouseholdRuntimeService {
     }
 
     if (invite.expiresAt.getTime() <= Date.now() && invite.status === "pending") {
-      await this.prisma.householdInvite.update({ where: { id: invite.id }, data: { status: "expired" } });
-      invite.status = "expired";
+      await this.prisma.householdInvite.updateMany({
+        where: { id: invite.id, status: "pending", expiresAt: { lte: new Date() } },
+        data: { status: "expired" }
+      });
+      const current = await this.prisma.householdInvite.findUnique({ where: { id: invite.id } });
+      if (current) invite.status = current.status;
     }
 
     if (invite.status !== "pending") {

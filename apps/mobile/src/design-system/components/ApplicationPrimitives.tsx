@@ -125,9 +125,17 @@ export function EmptyStateCard({ title, description, actionLabel, onPress }: { t
   return <EmptyState actionLabel={onPress ? actionLabel : undefined} description={description} onAction={onPress} title={title} />;
 }
 
-export function Toast({ message, tone = "success" }: { message: string; tone?: "success" | "error" }) {
+export function Toast({ message, tone = "success" }: { message: string; tone?: "success" | "warning" | "error" }) {
   const error = tone === "error";
-  return <View accessibilityLiveRegion="polite" style={{ alignItems: "center", backgroundColor: error ? semanticColors.dangerSurface : semanticColors.successSurface, borderRadius: radius.large, flexDirection: "row", gap: spacing.sm, minHeight: 48, padding: spacing.md }}><AppIcon color={error ? semanticColors.danger : semanticColors.success} name={error ? "alert-circle-outline" : "check-circle-outline"} size={20} /><Text style={{ color: semanticColors.textPrimary, flex: 1, ...typography.body }}>{message}</Text></View>;
+  const warning = tone === "warning";
+  const backgroundColor = error
+    ? semanticColors.dangerSurface
+    : warning
+      ? semanticColors.warningSurface
+      : semanticColors.successSurface;
+  const iconColor = error ? semanticColors.danger : warning ? semanticColors.warning : semanticColors.success;
+  const iconName = error || warning ? "alert-circle-outline" : "check-circle-outline";
+  return <View accessibilityLiveRegion="polite" style={{ alignItems: "center", backgroundColor, borderRadius: radius.large, flexDirection: "row", gap: spacing.sm, minHeight: 48, padding: spacing.md }}><AppIcon color={iconColor} name={iconName} size={20} /><Text style={{ color: semanticColors.textPrimary, flex: 1, ...typography.body }}>{message}</Text></View>;
 }
 
 export function SampleDataBanner() {

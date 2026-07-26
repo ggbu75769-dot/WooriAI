@@ -119,6 +119,8 @@ async function main() {
     ...process.env,
     NODE_PATH: [join(mobileRoot, "node_modules"), process.env.NODE_PATH].filter(Boolean).join(delimiter),
     EXPO_PUBLIC_PIXEL_LOCK: "1",
+    EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: "0",
+    EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE: "0",
     WOORIAI_ALLOW_DEBUG_RELEASE_SIGNING: "1",
     EXPO_ROUTER_APP_ROOT: "app",
     NODE_ENV: "production",
@@ -192,7 +194,12 @@ async function main() {
     apkSha256,
     packageName: appConfig.expo.android.package,
     appVersion: appConfig.expo.version,
-    env: { EXPO_PUBLIC_PIXEL_LOCK: "1", EXPO_ROUTER_APP_ROOT: "app" },
+    env: {
+      EXPO_PUBLIC_PIXEL_LOCK: "1",
+      EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: "0",
+      EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE: "0",
+      EXPO_ROUTER_APP_ROOT: "app"
+    },
     ...createPixelApkBuildResumeMetadata(resumeAfterTimeout, autoResumedAfterTimeout),
     buildAttempts,
     task: args.join(" "),

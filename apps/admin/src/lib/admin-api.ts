@@ -932,6 +932,55 @@ export function createRelease5EvidenceSource(itemId: string, input: {
   );
 }
 
+export function reviewRelease5EvidenceSource(evidenceId: string, input: {
+  expectedContentHash: string;
+  approved: boolean;
+}) {
+  return request<{ id: string; contentHash: string; status: string; reviewedByAdminId: string | null }>(
+    `/admin/release5/catalog/evidence/${encodeURIComponent(evidenceId)}/review`,
+    { method: "POST", body: JSON.stringify(input) }
+  );
+}
+
+export function upsertRelease5SafetyAlternative(itemId: string, input: {
+  alternativeItemDefinitionId: string;
+  reason: string;
+}) {
+  return request<{
+    itemDefinitionId: string;
+    alternativeItemDefinitionId: string;
+    reason: string;
+    active: boolean;
+    evidenceSourceId: string | null;
+  }>(`/admin/release5/catalog/items/${encodeURIComponent(itemId)}/safety-alternatives`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function approveRelease5SafetyAlternative(itemId: string, input: {
+  alternativeItemDefinitionId: string;
+  evidenceSourceId: string;
+}) {
+  return request<{
+    itemDefinitionId: string;
+    alternativeItemDefinitionId: string;
+    active: boolean;
+    evidenceSourceId: string;
+    approvedByAdminId: string;
+  }>(`/admin/release5/catalog/items/${encodeURIComponent(itemId)}/safety-alternatives/approve`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function deactivateRelease5SafetyAlternative(itemId: string, alternativeItemDefinitionId: string) {
+  return request<{ active: boolean; evidenceSourceId: string | null }>(
+    `/admin/release5/catalog/items/${encodeURIComponent(itemId)}/safety-alternatives/${encodeURIComponent(alternativeItemDefinitionId)}/deactivate`,
+    { method: "POST" }
+  );
+}
+
 export function previewRelease5PilotManifest(itemIds: string[]) {
   return request<{ id: string; contentHash: string; itemIds: string[]; status: string }>(
     "/admin/release5/catalog/pilot-manifests/preview",

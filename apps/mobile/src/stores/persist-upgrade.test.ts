@@ -212,7 +212,7 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
   describe("local-backend.ts", () => {
     it("backfills expense.version, preparedItemsCompleted, idempotencyKeys, and additionalChildren from a round4-shaped blob, and getHome/listItems/getMonthlyReport all still resolve", async () => {
       const { persistStorage } = await loadModules();
-      const { LOCAL_CHILD_ID } = await import("../api/local-fixtures");
+      const { LOCAL_CHILD_ID, LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } = await import("../api/local-fixtures");
 
       await persistStorage.setItem(
         LOCAL_BACKEND_KEY,
@@ -242,6 +242,42 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
               }
             ],
             itemStatuses: {},
+            todayActionPreferences: [
+              {
+                userId: LOCAL_USER_ID,
+                householdId: LOCAL_HOUSEHOLD_ID,
+                childId: LOCAL_CHILD_ID,
+                scopeKey: LOCAL_CHILD_ID,
+                actionKey: "safety:persisted-suppression",
+                mode: "snooze",
+                snoozedUntil: "2099-01-01",
+                version: 1
+              },
+              {
+                userId: "foreign-user",
+                householdId: LOCAL_HOUSEHOLD_ID,
+                childId: LOCAL_CHILD_ID,
+                scopeKey: LOCAL_CHILD_ID,
+                actionKey: "foreign-principal",
+                mode: "snooze",
+                snoozedUntil: "2099-01-01",
+                version: 1
+              },
+              {
+                userId: LOCAL_USER_ID,
+                householdId: LOCAL_HOUSEHOLD_ID,
+                childId: LOCAL_CHILD_ID,
+                scopeKey: LOCAL_CHILD_ID,
+                actionKey: "invalid-date",
+                mode: "snooze",
+                snoozedUntil: "2099-02-31",
+                version: 0
+              }
+            ],
+            acknowledgedSafetyAlertIds: [
+              "foreign-safety-alert",
+              `local-safety-alternative-alert:${LOCAL_CHILD_ID}`
+            ],
             members: [],
             invites: [],
             importJobs: [],
@@ -265,6 +301,9 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
       expect(migrated.preparedItemsCompleted).toBe(false);
       expect(migrated.idempotencyKeys).toEqual({});
       expect(migrated.additionalChildren).toEqual([]);
+      expect(migrated.todayActionPreferences).toEqual([]);
+      expect(migrated.acknowledgedSafetyAlertIds)
+        .toEqual([`local-safety-alternative-alert:${LOCAL_CHILD_ID}`]);
       expect(migrated.expenses[0].version).toBe(1);
       expect(migrated.expenses[0].paymentMethodId).toBeNull();
       expect(migrated.seeded).toBe(true);

@@ -1,23 +1,54 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, type ItemAlternative } from "@prisma/client";
 import { AppConfigService } from "../app-config/app-config.service";
+import { requirePlanReader } from "../common/authorization/plan-reader";
+import { normalizePublicHttpsUrl } from "../common/security/public-https-url";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { PrismaService } from "../prisma/prisma.service";
-import type { ApproveSafetyAlternativeDto, MerchantFeedRowDto, PreviewMerchantFeedDto, RecallProviderEventDto, ReviewMerchantFeedRowDto, ReviewRecallEventDto } from "./dto/release5-external.dto";
+import type { ApproveSafetyAlternativeDto, CreateSafetyAlternativeDto, MerchantFeedRowDto, PreviewMerchantFeedDto, RecallProviderEventDto, ReviewMerchantFeedRowDto, ReviewRecallEventDto } from "./dto/release5-external.dto";
+import {
+  currentReviewedEvidenceWhere,
+  evidenceHasClaim,
+  evidenceHasIndependentCaptureAndReview,
+  safetyAlternativeClaim,
+  safetyApprovalHasIndependentActors
+} from "./item-evidence-policy";
 
 function sha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function publicHttps(value: string) {
-  let parsed: URL;
-  try { parsed = new URL(value); } catch { throw new Error("URL_INVALID"); }
-  const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
-  if (parsed.protocol !== "https:" || host === "localhost" || host === "::1" || host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("169.254.") || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || [".localhost", ".test", ".example", ".invalid"].some((suffix) => host.endsWith(suffix))) {
-    throw new Error("URL_BLOCKED");
+  return normalizePublicHttpsUrl(value);
+}
+
+function isSerializationFailure(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return (
+      error.code === "P2034" ||
+      (error.code === "P2010" && String(error.meta?.code ?? "") === "40001")
+    );
   }
-  return parsed.toString();
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    String((error as { code?: unknown }).code) === "40001"
+  );
+}
+
+function alternativeSnapshot(row: ItemAlternative | null) {
+  if (!row) return null;
+  return {
+    itemDefinitionId: row.itemDefinitionId,
+    alternativeItemDefinitionId: row.alternativeItemDefinitionId,
+    reason: row.reason,
+    evidenceSourceId: row.evidenceSourceId,
+    approvedByAdminId: row.approvedByAdminId,
+    safetyApprovedAt: row.safetyApprovedAt?.toISOString() ?? null,
+    active: row.active
+  };
 }
 
 export function recallSigningPayload(input: Omit<RecallProviderEventDto, "signature">) {
@@ -41,6 +72,91 @@ export class Release5ExternalService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AppConfigService) private readonly appConfig: AppConfigService
   ) {}
+
+  private async lockSafetyAlternative(
+    tx: Prisma.TransactionClient,
+    itemDefinitionId: string,
+    alternativeItemDefinitionId: string
+  ) {
+    await tx.$queryRaw(Prisma.sql`
+      SELECT TRUE AS locked
+      FROM (
+        SELECT pg_advisory_xact_lock(
+          hashtext(${`${itemDefinitionId}:${alternativeItemDefinitionId}`})
+        )
+      ) AS acquired
+    `);
+    await tx.$queryRaw(Prisma.sql`
+      SELECT item_definition_id
+      FROM item_alternatives
+      WHERE item_definition_id = ${itemDefinitionId}::uuid
+        AND alternative_item_definition_id = ${alternativeItemDefinitionId}::uuid
+      FOR UPDATE
+    `);
+  }
+
+  private async lockSafetyApprovalInputs(
+    tx: Prisma.TransactionClient,
+    itemDefinitionId: string,
+    alternativeItemDefinitionId: string,
+    evidenceSourceId: string
+  ) {
+    await tx.$queryRaw(Prisma.sql`
+      SELECT id
+      FROM item_definitions
+      WHERE id IN (
+        ${Prisma.sql`${itemDefinitionId}::uuid`},
+        ${Prisma.sql`${alternativeItemDefinitionId}::uuid`}
+      )
+      ORDER BY id
+      FOR SHARE
+    `);
+    await tx.$queryRaw(Prisma.sql`
+      SELECT id
+      FROM item_evidence_sources
+      WHERE id = ${evidenceSourceId}::uuid
+      FOR SHARE
+    `);
+  }
+
+  private async auditSafetyAlternative(
+    tx: Prisma.TransactionClient,
+    input: {
+      actorAdminId: string;
+      action: "create" | "replace" | "deactivate" | "activate";
+      itemDefinitionId: string;
+      before: ItemAlternative | null;
+      after: ItemAlternative;
+      evidence?: {
+        id: string;
+        contentHash: string | null;
+        revision: number;
+        capturedByAdminId: string | null;
+        reviewedByAdminId: string | null;
+      };
+    }
+  ) {
+    await tx.auditLog.create({
+      data: {
+        actorUserId: input.actorAdminId,
+        action: `release5.safety-alternative.${input.action}`,
+        targetType: "item_alternative",
+        targetId: input.itemDefinitionId,
+        beforeJson: alternativeSnapshot(input.before) as Prisma.InputJsonValue,
+        afterJson: {
+          mapping: alternativeSnapshot(input.after),
+          ...(input.evidence
+            ? {
+                evidence: {
+                  ...input.evidence,
+                  activatorAdminId: input.actorAdminId
+                }
+              }
+            : {})
+        } as Prisma.InputJsonValue
+      }
+    });
+  }
 
   private async requireExternal(flag: "external_recall_provider" | "merchant_offer_comparison", integration: "recall" | "merchant") {
     if (process.env.NODE_ENV !== "production" && process.env.RELEASE5_INTERNAL_FEATURES === "1") return "SANDBOX" as const;
@@ -247,27 +363,313 @@ export class Release5ExternalService {
     });
   }
 
+  async upsertSafetyAlternative(
+    adminId: string,
+    itemId: string,
+    input: CreateSafetyAlternativeDto,
+    options: { allowActiveReplace: boolean }
+  ) {
+    const reason = input.reason.trim().replace(/\s+/g, " ");
+    if (!reason) throw new BadRequestException({ code: "SAFETY_ALTERNATIVE_REASON_REQUIRED", message: "A safety alternative reason is required." });
+    if (itemId === input.alternativeItemDefinitionId) {
+      throw new BadRequestException({ code: "SAFETY_ALTERNATIVE_SELF_FORBIDDEN", message: "An item cannot be its own safety alternative." });
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const [source, alternativeItem] = await Promise.all([
+        tx.itemDefinition.findUnique({ where: { id: itemId }, select: { id: true } }),
+        tx.itemDefinition.findUnique({
+          where: { id: input.alternativeItemDefinitionId },
+          select: { id: true, status: true }
+        })
+      ]);
+      if (!source) throw new NotFoundException({ code: "SAFETY_ALTERNATIVE_SOURCE_NOT_FOUND", message: "Source item not found." });
+      if (!alternativeItem || alternativeItem.status !== "published") {
+        throw new ConflictException({ code: "SAFETY_ALTERNATIVE_ITEM_NOT_PUBLISHED", message: "The alternative item must be published." });
+      }
+      await this.lockSafetyAlternative(tx, itemId, input.alternativeItemDefinitionId);
+      const key = {
+        itemDefinitionId_alternativeItemDefinitionId: {
+          itemDefinitionId: itemId,
+          alternativeItemDefinitionId: input.alternativeItemDefinitionId
+        }
+      };
+      const existing = await tx.itemAlternative.findUnique({ where: key });
+      if (existing?.reason === reason) return existing;
+      if (existing?.active && !options.allowActiveReplace) {
+        throw new ForbiddenException({ code: "SAFETY_ALTERNATIVE_ACTIVE_ADMIN_REQUIRED", message: "Only an administrator can replace an active safety alternative." });
+      }
+      const updated = existing
+        ? await tx.itemAlternative.update({
+            where: key,
+            data: {
+              reason,
+              evidenceSourceId: null,
+              approvedByAdminId: null,
+              safetyApprovedAt: null,
+              active: false
+            }
+          })
+        : await tx.itemAlternative.create({
+            data: {
+              itemDefinitionId: itemId,
+              alternativeItemDefinitionId: input.alternativeItemDefinitionId,
+              reason
+            }
+          });
+      await this.auditSafetyAlternative(tx, {
+        actorAdminId: adminId,
+        action: existing ? "replace" : "create",
+        itemDefinitionId: itemId,
+        before: existing,
+        after: updated
+      });
+      return updated;
+    });
+  }
+
+  async deactivateSafetyAlternative(adminId: string, itemId: string, alternativeItemDefinitionId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockSafetyAlternative(tx, itemId, alternativeItemDefinitionId);
+      const key = {
+        itemDefinitionId_alternativeItemDefinitionId: { itemDefinitionId: itemId, alternativeItemDefinitionId }
+      };
+      const existing = await tx.itemAlternative.findUnique({ where: key });
+      if (!existing) throw new NotFoundException({ code: "SAFETY_ALTERNATIVE_NOT_FOUND", message: "Safety alternative mapping not found." });
+      if (!existing.active && !existing.evidenceSourceId && !existing.approvedByAdminId) return existing;
+      const updated = await tx.itemAlternative.update({
+        where: key,
+        data: {
+          evidenceSourceId: null,
+          approvedByAdminId: null,
+          safetyApprovedAt: null,
+          active: false
+        }
+      });
+      await this.auditSafetyAlternative(tx, {
+        actorAdminId: adminId,
+        action: "deactivate",
+        itemDefinitionId: itemId,
+        before: existing,
+        after: updated
+      });
+      return updated;
+    });
+  }
+
   async approveSafetyAlternative(adminId: string, itemId: string, input: ApproveSafetyAlternativeDto) {
-    const [alternative, evidence] = await Promise.all([
-      this.prisma.itemAlternative.findUnique({ where: { itemDefinitionId_alternativeItemDefinitionId: { itemDefinitionId: itemId, alternativeItemDefinitionId: input.alternativeItemDefinitionId } } }),
-      this.prisma.itemEvidenceSource.findFirst({ where: { id: input.evidenceSourceId, itemDefinitionId: itemId, status: "reviewed", reviewedByAdminId: { not: null } } })
-    ]);
-    if (!alternative) throw new NotFoundException({ code: "SAFETY_ALTERNATIVE_NOT_FOUND", message: "Safety alternative mapping not found." });
-    if (!evidence) throw new ConflictException({ code: "SAFETY_EVIDENCE_REQUIRED", message: "Reviewed safety evidence is required." });
-    return this.prisma.itemAlternative.update({ where: { itemDefinitionId_alternativeItemDefinitionId: { itemDefinitionId: itemId, alternativeItemDefinitionId: input.alternativeItemDefinitionId } }, data: { evidenceSourceId: evidence.id, approvedByAdminId: adminId, safetyApprovedAt: new Date(), active: true } });
+    const expectedMapping = await this.prisma.itemAlternative.findUnique({
+      where: {
+        itemDefinitionId_alternativeItemDefinitionId: {
+          itemDefinitionId: itemId,
+          alternativeItemDefinitionId: input.alternativeItemDefinitionId
+        }
+      }
+    });
+    if (!expectedMapping) {
+      throw new NotFoundException({ code: "SAFETY_ALTERNATIVE_NOT_FOUND", message: "Safety alternative mapping not found." });
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockSafetyAlternative(tx, itemId, input.alternativeItemDefinitionId);
+      await this.lockSafetyApprovalInputs(
+        tx,
+        itemId,
+        input.alternativeItemDefinitionId,
+        input.evidenceSourceId
+      );
+      const now = new Date();
+      const key = {
+        itemDefinitionId_alternativeItemDefinitionId: {
+          itemDefinitionId: itemId,
+          alternativeItemDefinitionId: input.alternativeItemDefinitionId
+        }
+      };
+      const [alternative, sourceItem, alternativeItem, evidence] = await Promise.all([
+        tx.itemAlternative.findUnique({ where: key }),
+        tx.itemDefinition.findUnique({ where: { id: itemId }, select: { contentVersion: true } }),
+        tx.itemDefinition.findUnique({
+          where: { id: input.alternativeItemDefinitionId },
+          select: { status: true }
+        }),
+        tx.itemEvidenceSource.findFirst({
+          where: {
+            id: input.evidenceSourceId,
+            itemDefinitionId: itemId,
+            ...currentReviewedEvidenceWhere(now, { safetySourcesOnly: true })
+          }
+        })
+      ]);
+      if (!alternative) throw new NotFoundException({ code: "SAFETY_ALTERNATIVE_NOT_FOUND", message: "Safety alternative mapping not found." });
+      if (
+        alternative.reason !== expectedMapping.reason ||
+        alternative.active !== expectedMapping.active ||
+        alternative.evidenceSourceId !== expectedMapping.evidenceSourceId ||
+        alternative.approvedByAdminId !== expectedMapping.approvedByAdminId ||
+        alternative.safetyApprovedAt?.getTime() !== expectedMapping.safetyApprovedAt?.getTime()
+      ) {
+        throw new ConflictException({ code: "SAFETY_ALTERNATIVE_REVISION_CONFLICT", message: "The safety alternative changed before activation." });
+      }
+      if (!sourceItem || !alternativeItem || alternativeItem.status !== "published") {
+        throw new ConflictException({ code: "SAFETY_ALTERNATIVE_ITEM_NOT_PUBLISHED", message: "The source and alternative item must remain publishable." });
+      }
+      if (
+        !evidence ||
+        evidence.revision !== sourceItem.contentVersion ||
+        !evidenceHasClaim(evidence.applicableClaimsJson, safetyAlternativeClaim(input.alternativeItemDefinitionId))
+      ) {
+        throw new ConflictException({ code: "SAFETY_EVIDENCE_REQUIRED", message: "Current reviewed safety evidence for this exact alternative is required." });
+      }
+      if (!evidenceHasIndependentCaptureAndReview(evidence)) {
+        throw new ConflictException({
+          code: "SAFETY_EVIDENCE_INDEPENDENCE_REQUIRED",
+          message: "Safety evidence requires separate identified capture and review operators."
+        });
+      }
+      if (evidence.capturedByAdminId === adminId) {
+        throw new ForbiddenException({ code: "SAFETY_ACTIVATOR_CAPTURER_SEPARATION_REQUIRED", message: "The evidence capturer cannot activate the alternative." });
+      }
+      if (evidence.reviewedByAdminId === adminId) {
+        throw new ForbiddenException({ code: "SAFETY_ACTIVATOR_REVIEWER_SEPARATION_REQUIRED", message: "The evidence reviewer cannot activate the alternative." });
+      }
+      if (
+        alternative.active &&
+        alternative.evidenceSourceId === evidence.id &&
+        alternative.approvedByAdminId === adminId
+      ) return alternative;
+      const updated = await tx.itemAlternative.update({
+        where: key,
+        data: {
+          evidenceSourceId: evidence.id,
+          approvedByAdminId: adminId,
+          safetyApprovedAt: now,
+          active: true
+        }
+      });
+      await this.auditSafetyAlternative(tx, {
+        actorAdminId: adminId,
+        action: "activate",
+        itemDefinitionId: itemId,
+        before: alternative,
+        after: updated,
+        evidence: {
+          id: evidence.id,
+          contentHash: evidence.contentHash,
+          revision: evidence.revision,
+          capturedByAdminId: evidence.capturedByAdminId,
+          reviewedByAdminId: evidence.reviewedByAdminId
+        }
+      });
+      return updated;
+    });
+  }
+
+  private async readSafetyAlternativesSnapshot(user: AuthenticatedUser, alertId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const alert = await tx.catalogSafetyAlert.findUnique({ where: { id: alertId } });
+      if (!alert) throw new NotFoundException({ code: "SAFETY_ALERT_NOT_FOUND", message: "Safety alert not found." });
+      const plan = await tx.userItemPlan.findUnique({ where: { id: alert.userItemPlanId } });
+      if (!plan) throw new ForbiddenException({ code: "HOUSEHOLD_FORBIDDEN", message: "Household access is required." });
+      requirePlanReader(user, plan.householdId);
+      if (!alert.eventType.includes("recalled")) {
+        return { state: "review_required" as const, actionGuidance: "공식 안내를 확인해 주세요.", alternatives: [] };
+      }
+      await tx.$queryRaw(Prisma.sql`
+        SELECT item_definition_id
+        FROM item_alternatives
+        WHERE item_definition_id = ${alert.itemDefinitionId}::uuid
+          AND active = TRUE
+        FOR SHARE
+      `);
+      const rows = await tx.itemAlternative.findMany({
+        where: {
+          itemDefinitionId: alert.itemDefinitionId,
+          active: true,
+          safetyApprovedAt: { not: null },
+          evidenceSourceId: { not: null },
+          approvedByAdminId: { not: null }
+        }
+      });
+      const evidenceIds = rows.flatMap((row) => row.evidenceSourceId ? [row.evidenceSourceId] : []);
+      if (evidenceIds.length) {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT id
+          FROM item_evidence_sources
+          WHERE id IN (${Prisma.join(evidenceIds.map((id) => Prisma.sql`${id}::uuid`))})
+          ORDER BY id
+          FOR SHARE
+        `);
+      }
+      const now = new Date();
+      const evidence = await tx.itemEvidenceSource.findMany({
+        where: {
+          id: { in: evidenceIds },
+          itemDefinitionId: alert.itemDefinitionId,
+          revision: alert.itemContentVersion,
+          ...currentReviewedEvidenceWhere(now, { safetySourcesOnly: true })
+        },
+        select: {
+          id: true,
+          title: true,
+          publicUrl: true,
+          applicableClaimsJson: true,
+          capturedByAdminId: true,
+          reviewedByAdminId: true
+        }
+      });
+      const evidenceById = new Map(evidence.flatMap((entry) => {
+        try {
+          return [[entry.id, { ...entry, publicUrl: publicHttps(entry.publicUrl) }] as const];
+        } catch {
+          return [];
+        }
+      }));
+      const eligibleRows = rows.filter((row) => {
+        if (!row.evidenceSourceId) return false;
+        const proof = evidenceById.get(row.evidenceSourceId);
+        return Boolean(
+          proof &&
+          safetyApprovalHasIndependentActors(proof, row.approvedByAdminId) &&
+          evidenceHasClaim(
+            proof.applicableClaimsJson,
+            safetyAlternativeClaim(row.alternativeItemDefinitionId)
+          )
+        );
+      });
+      const alternatives = await tx.itemDefinition.findMany({
+        where: {
+          id: { in: eligibleRows.map((row) => row.alternativeItemDefinitionId) },
+          status: "published"
+        },
+        select: { id: true, nameKo: true, safetyNote: true }
+      });
+      const itemById = new Map(alternatives.map((item) => [item.id, item]));
+      return {
+        state: "recalled" as const,
+        actionGuidance: "사용을 중지하고 공식 안내를 확인해 주세요.",
+        alternatives: eligibleRows.flatMap((row) => {
+          const item = itemById.get(row.alternativeItemDefinitionId);
+          const proof = row.evidenceSourceId ? evidenceById.get(row.evidenceSourceId) : null;
+          return item && proof
+            ? [{
+                ...item,
+                reason: row.reason,
+                evidence: { id: proof.id, title: proof.title, publicUrl: proof.publicUrl }
+              }]
+            : [];
+        })
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async safetyAlternatives(user: AuthenticatedUser, alertId: string) {
-    const alert = await this.prisma.catalogSafetyAlert.findUnique({ where: { id: alertId } });
-    if (!alert) throw new NotFoundException({ code: "SAFETY_ALERT_NOT_FOUND", message: "Safety alert not found." });
-    const plan = await this.prisma.userItemPlan.findUnique({ where: { id: alert.userItemPlanId } });
-    if (!plan || !user.households.some((household) => household.id === plan.householdId)) throw new ForbiddenException({ code: "SAFETY_ALERT_FORBIDDEN", message: "Safety alert access is not allowed." });
-    if (!alert.eventType.includes("recalled")) return { state: "review_required", actionGuidance: "공식 안내를 확인해 주세요.", alternatives: [] };
-    const rows = await this.prisma.itemAlternative.findMany({ where: { itemDefinitionId: alert.itemDefinitionId, active: true, safetyApprovedAt: { not: null }, evidenceSourceId: { not: null } } });
-    const alternatives = await this.prisma.itemDefinition.findMany({ where: { id: { in: rows.map((row) => row.alternativeItemDefinitionId) }, status: "published" }, select: { id: true, nameKo: true, safetyNote: true } });
-    const evidence = await this.prisma.itemEvidenceSource.findMany({ where: { id: { in: rows.flatMap((row) => row.evidenceSourceId ? [row.evidenceSourceId] : []) }, status: "reviewed" }, select: { id: true, title: true, publicUrl: true } });
-    const evidenceById = new Map(evidence.map((entry) => [entry.id, entry]));
-    const rowByAlternative = new Map(rows.map((row) => [row.alternativeItemDefinitionId, row]));
-    return { state: "recalled", actionGuidance: "사용을 중지하고 공식 안내를 확인해 주세요.", alternatives: alternatives.map((item) => { const row = rowByAlternative.get(item.id)!; return { ...item, reason: row.reason, evidence: row.evidenceSourceId ? evidenceById.get(row.evidenceSourceId) ?? null : null }; }) };
+    let lastSerializationFailure: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.readSafetyAlternativesSnapshot(user, alertId);
+      } catch (error) {
+        if (!isSerializationFailure(error)) throw error;
+        lastSerializationFailure = error;
+      }
+    }
+    throw lastSerializationFailure;
   }
 }

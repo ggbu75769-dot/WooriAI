@@ -26,23 +26,28 @@ export class TodayPreferenceDto {
   @IsUUID()
   householdId!: string;
 
-  @IsOptional() @IsUUID()
-  childId?: string;
+  @IsUUID()
+  childId!: string;
 
   @IsString() @MinLength(1) @MaxLength(191)
   actionKey!: string;
 
-  @IsIn(["snooze", "hide_lifecycle"])
-  mode!: "snooze" | "hide_lifecycle";
+  @IsIn(["snooze"])
+  mode!: "snooze";
 
-  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  snoozedUntil?: string;
+  @Type(() => Number) @IsInt() @Min(0)
+  expectedVersion!: number;
+}
 
-  @IsOptional() @IsString() @MaxLength(60)
-  lifecycleCode?: string;
+export class TodayPreferenceQueryDto {
+  @IsUUID()
+  householdId!: string;
 
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
-  expectedVersion?: number;
+  @IsUUID()
+  childId!: string;
+
+  @IsString() @MinLength(1) @MaxLength(191)
+  actionKey!: string;
 }
 
 export class CustomBundleItemDto {

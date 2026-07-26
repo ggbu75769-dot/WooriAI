@@ -2,21 +2,28 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import {
+  ApiClientError,
   cancelAccountDeletion,
   confirmAccountDeletion,
   confirmChildProfileDeletion,
   confirmHouseholdLeave,
   getCurrentAccountDeletion,
   getPrivacySettings,
+  isApiErrorCode,
+  listHouseholdMembers,
   LOCAL_HOUSEHOLD_ID,
+  LOCAL_USER_ID,
   fixtureSessionToken,
   previewAccountDeletion,
   previewChildProfileDeletion,
   previewHouseholdLeave,
+  retryAccountDeletion,
+  type AccountDeletionRequest,
   type SettingsPreview
 } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
+import { accountDeletionPresentation } from "../../src/privacy/account-deletion-presentation";
 import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/design-system";
 import { theme } from "../../src/theme";
 
@@ -91,6 +98,8 @@ export default function PrivacySettingsScreen() {
   const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const sessionUserId = useSessionStore((state) => state.userId);
+  const userId = sessionUserId ?? (isTestSession ? LOCAL_USER_ID : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const clearChild = useSelectedChildStore((state) => state.clearSelectedChildId);
   const queryClient = useQueryClient();
@@ -105,6 +114,14 @@ export default function PrivacySettingsScreen() {
     enabled: Boolean(authToken),
     queryFn: () => getCurrentAccountDeletion(authToken!)
   });
+  const householdMembers = useQuery({
+    queryKey: ["household-members", householdId],
+    enabled: Boolean(authToken && householdId),
+    queryFn: () => listHouseholdMembers(authToken!, householdId!)
+  });
+  const myHouseholdRole = householdMembers.data?.members.find((member) => member.userId === userId)?.role ?? null;
+  const isHouseholdOwner = myHouseholdRole === "owner";
+  const canLeaveHousehold = Boolean(myHouseholdRole && !isHouseholdOwner);
 
   const childPreview = useMutation({
     mutationFn: () => previewChildProfileDeletion(authToken!, childId!)
@@ -133,6 +150,19 @@ export default function PrivacySettingsScreen() {
       await queryClient.invalidateQueries({ queryKey: ["home"] });
       Alert.alert("완료됐어요", "가구에서 나갔어요.");
       router.replace("/onboarding/child-status");
+    },
+    onError: (error) => {
+      if (isApiErrorCode(error, "OWNER_TRANSFER_REQUIRED")) {
+        householdPreview.reset();
+        Alert.alert(
+          "먼저 가족 소유권을 이전해 주세요",
+          "가족 소유자는 바로 나갈 수 없어요. 가족 관리에서 기록 가능 구성원에게 소유권을 이전한 뒤 다시 시도해 주세요.",
+          [
+            { text: "확인", style: "cancel" },
+            { text: "가족 관리 열기", onPress: () => router.push("/family") }
+          ]
+        );
+      }
     }
   });
 
@@ -143,7 +173,45 @@ export default function PrivacySettingsScreen() {
     mutationFn: () => confirmAccountDeletion(authToken!, accountPreview.data?.confirmationText ?? ""),
     onSuccess: (response) => {
       queryClient.setQueryData(["account-deletion-current"], { deletion: response.deletion ?? null });
+      if (response.deletion?.state === "failed" && response.deletion.failureCode === "OWNER_TRANSFER_REQUIRED") {
+        Alert.alert(
+          "먼저 가족 소유권을 이전해 주세요",
+          "삭제는 시작되지 않았고 계정 접근도 그대로 유지돼요. 해당 가족의 새 관리자를 정한 뒤 다시 시도해 주세요."
+        );
+        return;
+      }
       Alert.alert("삭제 요청을 접수했어요", "7일 유예 기간 동안 계정과 데이터가 유지됩니다. 이 화면에서 요청을 취소할 수 있어요.");
+    },
+    onError: (error) => {
+      if (!isApiErrorCode(error, "OWNER_TRANSFER_REQUIRED")) return;
+      const blockingHouseholdId = error instanceof ApiClientError && typeof error.details?.householdId === "string"
+        ? error.details.householdId
+        : null;
+      Alert.alert(
+        "먼저 가족 소유권을 이전해 주세요",
+        "계정 접근은 그대로 유지돼요. 해당 가족의 새 관리자를 정한 뒤 다시 시도해 주세요.",
+        [
+          { text: "나중에", style: "cancel" },
+          ...(blockingHouseholdId
+            ? [{ text: "가족 관리 열기", onPress: () => router.push({ pathname: "/family", params: { householdId: blockingHouseholdId } }) }]
+            : [])
+        ]
+      );
+    }
+  });
+  const accountRetry = useMutation({
+    mutationFn: (requestId: string) => retryAccountDeletion(authToken!, requestId),
+    onSuccess: (deletion) => {
+      queryClient.setQueryData(["account-deletion-current"], { deletion });
+      accountDelete.reset();
+      Alert.alert("다시 요청했어요", "가족 상태를 다시 확인했고 삭제 절차를 재개했어요.");
+    },
+    onError: (error) => {
+      if (isApiErrorCode(error, "OWNER_TRANSFER_REQUIRED")) {
+        Alert.alert("아직 소유권 이전이 필요해요", "해당 가족의 새 관리자를 정한 뒤 다시 시도해 주세요.");
+        return;
+      }
+      Alert.alert("다시 시도하지 못했어요", actionFailedText);
     }
   });
   const accountCancel = useMutation({
@@ -156,11 +224,20 @@ export default function PrivacySettingsScreen() {
     }
   });
 
-  const activeDeletion = accountDelete.data?.deletion?.state === "requested"
-    ? accountDelete.data.deletion
-    : currentDeletion.data?.deletion?.state === "requested"
-      ? currentDeletion.data.deletion
+  const isVisibleDeletion = (deletion: AccountDeletionRequest | undefined | null): deletion is AccountDeletionRequest =>
+    deletion?.state === "requested" ||
+    (deletion?.state === "failed" && deletion.failureCode === "OWNER_TRANSFER_REQUIRED");
+  const mutationDeletion = accountDelete.data?.deletion;
+  const fetchedDeletion = currentDeletion.data?.deletion;
+  const activeDeletion = isVisibleDeletion(mutationDeletion)
+    ? mutationDeletion
+    : isVisibleDeletion(fetchedDeletion)
+      ? fetchedDeletion
       : null;
+  const blockingHouseholdId = activeDeletion?.state === "failed"
+    ? activeDeletion.details?.householdId ?? null
+    : null;
+  const deletionPresentation = activeDeletion ? accountDeletionPresentation(activeDeletion) : null;
 
   const confirmChildDelete = () => {
     if (!childPreview.data || childDelete.isPending) return;
@@ -171,7 +248,7 @@ export default function PrivacySettingsScreen() {
   };
 
   const confirmHouseholdLeaveAction = () => {
-    if (!householdPreview.data || householdLeave.isPending) return;
+    if (!canLeaveHousehold || !householdPreview.data || householdLeave.isPending) return;
     Alert.alert("정말 나갈까요?", "이 작업은 되돌릴 수 없어요.", [
       { text: "취소", style: "cancel" },
       { text: "나가기", style: "destructive", onPress: () => householdLeave.mutate() }
@@ -241,20 +318,37 @@ export default function PrivacySettingsScreen() {
             <StatusBadge label="주의" tone="warning" />
           </View>
           <Text style={mutedTextStyle}>{flowCopy.household_leave.description}</Text>
-          <SecondaryButton
-            label={householdPreview.isPending ? "확인하는 중..." : flowCopy.household_leave.previewLabel}
-            disabled={!authToken || !householdId || householdPreview.isPending}
-            onPress={() => householdPreview.mutate()}
-          />
-          {householdPreview.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
-          <PreviewSummary preview={householdPreview.data} />
-          {householdPreview.data ? (
-            <DangerButton
-              label={householdLeave.isPending ? "나가는 중..." : flowCopy.household_leave.confirmLabel}
-              disabled={householdLeave.isPending}
-              onPress={confirmHouseholdLeaveAction}
+          {isHouseholdOwner ? (
+            <>
+              <Text accessibilityLiveRegion="polite" style={previewNoticeStyle}>
+                가족 소유자는 바로 나갈 수 없어요. 가족 관리에서 기록 가능 구성원에게 소유권을 이전한 뒤 다시 시도해 주세요.
+              </Text>
+              <SecondaryButton label="가족 관리 열기" onPress={() => router.push("/family")} />
+            </>
+          ) : canLeaveHousehold ? (
+            <>
+              <SecondaryButton
+                label={householdPreview.isPending ? "확인하는 중..." : flowCopy.household_leave.previewLabel}
+                disabled={householdPreview.isPending}
+                onPress={() => householdPreview.mutate()}
+              />
+              {householdPreview.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+              <PreviewSummary preview={householdPreview.data} />
+              {householdPreview.data ? (
+                <DangerButton
+                  label={householdLeave.isPending ? "나가는 중..." : flowCopy.household_leave.confirmLabel}
+                  disabled={householdLeave.isPending}
+                  onPress={confirmHouseholdLeaveAction}
+                />
+              ) : null}
+            </>
+          ) : (
+            <SecondaryButton
+              label={householdMembers.isError ? "가족 정보를 다시 불러오기" : "가족 권한 확인 중..."}
+              disabled={!householdMembers.isError}
+              onPress={() => householdMembers.refetch()}
             />
-          ) : null}
+          )}
           {householdLeave.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
         </Card>
 
@@ -263,29 +357,52 @@ export default function PrivacySettingsScreen() {
             <Text style={dangerTitleStyle}>{flowCopy.account_delete.title}</Text>
             <StatusBadge label="위험" tone="warning" />
           </View>
-          <Text style={mutedTextStyle}>탈퇴 요청 후 7일 동안 계정과 데이터가 유지되며, 유예 기간 안에는 언제든 요청을 취소할 수 있어요.</Text>
-          <SecondaryButton
-            label={accountPreview.isPending ? "확인하는 중..." : flowCopy.account_delete.previewLabel}
-            disabled={!authToken || accountPreview.isPending}
-            onPress={() => accountPreview.mutate()}
-          />
-          {accountPreview.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
-          <PreviewSummary preview={accountPreview.data} />
-          {accountPreview.data ? (
-            <DangerButton
-              label={accountDelete.isPending ? "삭제하는 중..." : flowCopy.account_delete.confirmLabel}
-              disabled={accountDelete.isPending}
-              onPress={confirmAccountDelete}
-            />
+          {!activeDeletion ? (
+            <>
+              <Text style={mutedTextStyle}>탈퇴 요청 후 7일 동안 계정과 데이터가 유지되며, 유예 기간 안에는 언제든 요청을 취소할 수 있어요.</Text>
+              <SecondaryButton
+                label={accountPreview.isPending ? "확인하는 중..." : flowCopy.account_delete.previewLabel}
+                disabled={!authToken || accountPreview.isPending}
+                onPress={() => accountPreview.mutate()}
+              />
+              {accountPreview.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+              <PreviewSummary preview={accountPreview.data} />
+              {accountPreview.data ? (
+                <DangerButton
+                  label={accountDelete.isPending ? "삭제하는 중..." : flowCopy.account_delete.confirmLabel}
+                  disabled={accountDelete.isPending}
+                  onPress={confirmAccountDelete}
+                />
+              ) : null}
+              {accountDelete.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
+            </>
           ) : null}
-          {accountDelete.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
           {activeDeletion ? (
             <View style={previewBoxStyle}>
-              <Text style={previewTitleStyle}>삭제 유예 중</Text>
+              <Text style={previewTitleStyle}>
+                {deletionPresentation!.title}
+              </Text>
               <Text style={previewLineStyle}>요청 시각: {new Date(activeDeletion.requestedAt).toLocaleString("ko-KR")}</Text>
               <Text style={previewLineStyle}>삭제 시작 예정: {activeDeletion.dueAt ? new Date(activeDeletion.dueAt).toLocaleString("ko-KR") : "확인 중"}</Text>
-              <Text style={previewNoticeStyle}>예정 시각 전까지 로그인과 데이터 이용이 유지돼요.</Text>
-              <SecondaryButton disabled={accountCancel.isPending} label={accountCancel.isPending ? "취소 처리 중..." : "회원 탈퇴 요청 취소"} onPress={() => accountCancel.mutate(activeDeletion.id)} />
+              <Text accessibilityLiveRegion="polite" style={previewNoticeStyle}>
+                {deletionPresentation!.notice}
+              </Text>
+              {blockingHouseholdId ? (
+                <SecondaryButton
+                  label="소유권 이전하러 가기"
+                  onPress={() => router.push({ pathname: "/family", params: { householdId: blockingHouseholdId } })}
+                />
+              ) : null}
+              {activeDeletion.state === "failed" ? (
+                <SecondaryButton
+                  disabled={accountRetry.isPending}
+                  label={accountRetry.isPending ? "가족 상태 확인 중..." : "삭제 다시 시도"}
+                  onPress={() => accountRetry.mutate(activeDeletion.id)}
+                />
+              ) : null}
+              {deletionPresentation!.canCancel ? (
+                <SecondaryButton disabled={accountCancel.isPending} label={accountCancel.isPending ? "취소 처리 중..." : "회원 탈퇴 요청 취소"} onPress={() => accountCancel.mutate(activeDeletion.id)} />
+              ) : null}
               {accountCancel.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
             </View>
           ) : null}

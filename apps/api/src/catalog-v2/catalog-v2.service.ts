@@ -16,6 +16,7 @@ import {
   type PreparationTimelineRankInput,
   type Release4LifecycleCode
 } from "@wooriai/domain";
+import { requirePlanReader as requireSharedPlanReader } from "../common/authorization/plan-reader";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { PrismaService } from "../prisma/prisma.service";
 import { isDomainAllowed } from "../items-commerce/affiliate-link-guard.util";
@@ -243,11 +244,7 @@ export class CatalogV2Service {
   }
 
   private requirePlanReader(user: AuthenticatedUser, householdId: string) {
-    const membership = this.requireHousehold(user, householdId);
-    if (membership.role === "gift_participant") {
-      throw new ForbiddenException({ code: "ITEM_PLAN_PRIVATE", message: "Preparation details are not available to gift participants." });
-    }
-    return membership;
+    return requireSharedPlanReader(user, householdId);
   }
 
   private requirePlanEditor(user: AuthenticatedUser, householdId: string) {
@@ -942,7 +939,9 @@ export class CatalogV2Service {
         ...alert,
         planState: planById.get(alert.userItemPlanId)?.state ?? null,
         item: itemById.get(alert.itemDefinitionId) ?? null,
-        actionGuidance: "공식 출처와 제품 식별 정보를 확인할 때까지 사용 여부를 보류해 주세요.",
+        actionGuidance: alert.eventType === "provider_corrected"
+          ? "정정된 공식 안내와 제품 식별 정보를 확인한 뒤 사용 여부를 다시 판단해 주세요."
+          : "공식 출처와 제품 식별 정보를 확인할 때까지 사용 여부를 보류해 주세요.",
         sourceStatus: "official_or_professional_source_required" as const
       }))
     };

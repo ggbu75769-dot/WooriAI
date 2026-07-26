@@ -8,6 +8,12 @@ const readMobile = (path: string) => readFileSync(join(mobileRoot, path), "utf8"
 const readRepo = (path: string) => readFileSync(join(repoRoot, path), "utf8");
 
 describe("production mobile bundle boundary", () => {
+  it("forbids temporary visual overrides in the full Android pixel gate and records override provenance", () => {
+    const androidPixelGate = readRepo("scripts/pixel-lock/android-pixel-lock.ts");
+    expect(androidPixelGate).toContain("PIXEL_ANDROID_OVERRIDES_FORBIDDEN_FOR_FULL_GATE");
+    expect(androidPixelGate).toContain("pixelAndroidOverrides: process.env.PIXEL_ANDROID_OVERRIDES || null");
+  });
+
   it("routes fixture imports through the Metro-swappable runtime", () => {
     const client = readMobile("src/api/client.ts");
     expect(client).toContain('from "./fixture-identifiers"');
@@ -60,8 +66,17 @@ describe("production mobile bundle boundary", () => {
   });
 
   it("marks every Android release entrypoint with an explicit build profile", () => {
-    expect(readRepo("scripts/build-android-apk.ts")).toContain("WOORIAI_BUILD_PROFILE: profile");
-    expect(readRepo("scripts/build-android-aab.ts")).toContain('WOORIAI_BUILD_PROFILE: "production"');
-    expect(readRepo("scripts/release-gate.ts")).toContain('WOORIAI_BUILD_PROFILE: "production"');
+    const apkBuild = readRepo("scripts/build-android-apk.ts");
+    const pixelBuild = readRepo("scripts/pixel-lock/build-pixel-apk.ts");
+    expect(apkBuild).toContain("WOORIAI_BUILD_PROFILE: profile");
+    expect(apkBuild).toContain('profile === "standalone" && process.env.EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE === "1" ? "1" : "0"');
+    expect(pixelBuild).toContain('EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: "0"');
+    expect(pixelBuild).toContain('EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE: "0"');
+    const aabBuild = readRepo("scripts/build-android-aab.ts");
+    const releaseGate = readRepo("scripts/release-gate.ts");
+    expect(aabBuild).toContain('WOORIAI_BUILD_PROFILE: "production"');
+    expect(aabBuild).toContain('EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: "0"');
+    expect(releaseGate).toContain('WOORIAI_BUILD_PROFILE: "production"');
+    expect(releaseGate).toContain('EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: "0"');
   });
 });

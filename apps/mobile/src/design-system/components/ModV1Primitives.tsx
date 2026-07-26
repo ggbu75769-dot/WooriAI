@@ -1,5 +1,5 @@
-import type React from "react";
-import { Modal, Pressable, Text, TextInput, View, type TextInputProps } from "react-native";
+import React, { useRef, type RefObject } from "react";
+import { AccessibilityInfo, findNodeHandle, Modal, Pressable, Text, TextInput, View, type TextInputProps } from "react-native";
 import { formatKrw } from "../../money";
 import { semanticColors } from "../tokens/color";
 import { radius } from "../tokens/radius";
@@ -186,19 +186,50 @@ export function ItemStatusControl({ value, onChange, disabled }: { value?: strin
   );
 }
 
-export function BottomSheet({ visible, title, description, onClose, children }: { visible: boolean; title: string; description?: string; onClose: () => void; children: React.ReactNode }) {
+function focusAccessibilityTarget(target: RefObject<View | Text | null>) {
+  const handle = findNodeHandle(target.current);
+  if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
+}
+
+export function BottomSheet({
+  visible,
+  title,
+  description,
+  onClose,
+  returnFocusRef,
+  children
+}: {
+  visible: boolean;
+  title: string;
+  description?: string;
+  onClose: () => void | boolean;
+  returnFocusRef?: RefObject<View | null>;
+  children: React.ReactNode
+}) {
+  const headingRef = useRef<Text>(null);
+  const close = () => {
+    if (onClose() === false) return;
+    if (returnFocusRef) setTimeout(() => focusAccessibilityTarget(returnFocusRef), 0);
+  };
   return (
-    <Modal animationType="slide" onRequestClose={onClose} presentationStyle="overFullScreen" transparent visible={visible}>
+    <Modal
+      animationType="slide"
+      onRequestClose={close}
+      onShow={() => setTimeout(() => focusAccessibilityTarget(headingRef), 0)}
+      presentationStyle="overFullScreen"
+      transparent
+      visible={visible}
+    >
       <View style={{ backgroundColor: semanticColors.overlay, flex: 1, justifyContent: "flex-end" }}>
-        <Pressable accessibilityLabel="시트 닫기" accessibilityRole="button" onPress={onClose} style={{ flex: 1 }} />
-        <View style={{ backgroundColor: semanticColors.surface, borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, gap: spacing.md, maxHeight: "86%", paddingBottom: spacing.xxl, paddingHorizontal: spacing.lg, paddingTop: spacing.sm }}>
+        <Pressable accessibilityLabel="시트 닫기" accessibilityRole="button" onPress={close} style={{ flex: 1 }} />
+        <View accessibilityViewIsModal style={{ backgroundColor: semanticColors.surface, borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, gap: spacing.md, maxHeight: "86%", paddingBottom: spacing.xxl, paddingHorizontal: spacing.lg, paddingTop: spacing.sm }}>
           <View style={{ alignSelf: "center", backgroundColor: semanticColors.borderStrong, borderRadius: radius.pill, height: 4, width: 40 }} />
           <View style={{ alignItems: "center", flexDirection: "row", gap: spacing.sm }}>
             <View style={{ flex: 1, gap: spacing.xxs }}>
-              <Text accessibilityRole="header" style={{ color: semanticColors.textPrimary, ...typography.heading3 }}>{title}</Text>
+              <Text accessible accessibilityRole="header" ref={headingRef} style={{ color: semanticColors.textPrimary, ...typography.heading3 }}>{title}</Text>
               {description ? <Text style={{ color: semanticColors.textSecondary, ...typography.caption }}>{description}</Text> : null}
             </View>
-            <IconButton accessibilityLabel="닫기" icon="close" onPress={onClose} />
+            <IconButton accessibilityLabel="닫기" icon="close" onPress={close} />
           </View>
           {children}
         </View>

@@ -1,6 +1,8 @@
 export function isRelease5vSnapshotPathExcluded(path: string) {
   const value = `/${path.replaceAll("\\", "/").toLowerCase()}/`;
-  return value.includes("/node_modules/") ||
+  const isJvmDiagnosticArtifact = /\/(?:hs_err_pid\d+|replay_pid\d+)\.log\/$/.test(value);
+  return isJvmDiagnosticArtifact ||
+    value.includes("/node_modules/") ||
     value.includes("/.turbo/") ||
     value.includes("/.gradle/") ||
     value.includes("/.gradle-home/") ||

@@ -33,6 +33,8 @@ import {
   type ReportSummaryContract,
   type ReportTrendContract,
   type ReportV3Contract,
+  type TodayPreferenceContract,
+  type TodayPreferenceResolutionContract,
   type TodayCenterContract,
   type WeeklyBriefingContract
 } from "@wooriai/contracts";
@@ -247,7 +249,19 @@ export type HomeSummary = {
   monthly: Budget;
   recommendedItems: Array<{ id: string; name: string; status: string }>;
   recentExpenses: Expense[];
-  todayCenter?: TodayCenterContract | null;
+  todayCenter?: TodayCenterContract | LocalTodayCenterContract | null;
+};
+
+export type LocalTodayCenterContract = Omit<TodayCenterContract, "source"> & {
+  source: "local_fixture";
+};
+
+export type TodayPreferenceInput = {
+  householdId: string;
+  childId: string;
+  actionKey: string;
+  mode: "snooze";
+  expectedVersion: number;
 };
 
 export type OnboardingStarterItem = OnboardingStarterItemContract;
@@ -545,7 +559,7 @@ export type CatalogSafetyAlert = {
   id: string;
   itemDefinitionId: string;
   userItemPlanId: string;
-  eventType: "blocked" | "recalled";
+  eventType: "blocked" | "recalled" | "provider_recalled" | "provider_corrected";
   reason: string;
   itemContentVersion: number;
   state: "unread" | "acknowledged";
@@ -556,6 +570,24 @@ export type CatalogSafetyAlert = {
   item: Pick<CatalogItemSummary, "id" | "code" | "nameKo" | "safetyTier" | "safetyNote" | "status"> | null;
   actionGuidance: string;
   sourceStatus: "official_or_professional_source_required";
+};
+
+export type CatalogSafetyAlternative = {
+  id: string;
+  nameKo: string;
+  safetyNote: string | null;
+  reason: string;
+  evidence: {
+    id: string;
+    title: string;
+    publicUrl: string;
+  };
+};
+
+export type CatalogSafetyAlternativesResponse = {
+  state: "recalled" | "review_required";
+  actionGuidance: string;
+  alternatives: CatalogSafetyAlternative[];
 };
 
 export type CatalogBundle = {
@@ -675,6 +707,12 @@ export type SettingsConfirmResponse = {
   deletion?: AccountDeletionRequest;
 };
 
+export type MyHousehold = {
+  id: string;
+  name: string;
+  role: HouseholdMember["role"];
+};
+
 export type AccountDeletionRequest = {
   id: string;
   requestType: "deletion";
@@ -685,6 +723,7 @@ export type AccountDeletionRequest = {
   failureCode: string | null;
   exportExpiresAt: string | null;
   statusToken?: string;
+  details?: { householdId: string; accessRevoked: false };
 };
 
 export type OnboardingNextStep = "consents" | "child-profile" | "prepared-items" | "budget" | "home";
@@ -1054,7 +1093,7 @@ export function upsertConsents(token: string, consents: ConsentSelection[]) {
 
 export function listNotifications(token: string, cursor?: string, limit = 20) {
   if (isLocalToken(token)) {
-    return local(() => ({ items: [] as NotificationInboxItem[], nextCursor: null as string | null }));
+    return local(() => localBackend.listLocalNotifications());
   }
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
@@ -1203,6 +1242,24 @@ export function upsertBudget(
 export function getHome(token: string, childId: string) {
   if (isLocalToken(token)) return local(() => localBackend.getHome(childId));
   return requestJson<HomeSummary>(`/home?childId=${childId}`, { token });
+}
+
+export function updateTodayPreference(token: string, input: TodayPreferenceInput) {
+  if (isLocalToken(token)) return local(() => localBackend.updateTodayPreference(input));
+  return requestJson<TodayPreferenceContract>("/home/today-preferences", {
+    method: "PUT",
+    token,
+    body: input
+  });
+}
+
+export function getTodayPreferenceResolution(
+  token: string,
+  input: Pick<TodayPreferenceInput, "householdId" | "childId" | "actionKey">
+) {
+  if (isLocalToken(token)) return local(() => localBackend.getTodayPreferenceResolution(input));
+  const query = new URLSearchParams(input);
+  return requestJson<TodayPreferenceResolutionContract>(`/home/today-preferences?${query.toString()}`, { token });
 }
 
 export function listPaymentMethods(token: string) {
@@ -1791,6 +1848,14 @@ export function acknowledgeCatalogSafetyAlert(token: string, alertId: string, ex
   return requestJson<CatalogSafetyAlert>(`/catalog/safety-alerts/${encodeURIComponent(alertId)}/acknowledge`, { method: "POST", token, body: { expectedVersion } });
 }
 
+export function getCatalogSafetyAlternatives(token: string, alertId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getCatalogSafetyAlternatives(alertId));
+  return requestJson<CatalogSafetyAlternativesResponse>(
+    `/catalog/safety-alerts/${encodeURIComponent(alertId)}/alternatives`,
+    { token }
+  );
+}
+
 export function listCatalogBundles(token: string, childId: string) {
   if (isLocalToken(token)) return local(() => localBackend.listCatalogBundles(childId));
   return requestJson<{ bundles: CatalogBundle[] }>(`/catalog/bundles?childId=${encodeURIComponent(childId)}`, { token });
@@ -1937,6 +2002,12 @@ export function clickProductLink(
 export function listHouseholdMembers(token: string, householdId: string) {
   if (isLocalToken(token)) return local(() => localBackend.listHouseholdMembers(householdId));
   return requestJson<{ members: HouseholdMember[] }>(`/households/${householdId}/members`, { token });
+}
+
+export function listMyHouseholds(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listMyHouseholds());
+  return requestJson<{ households: MyHousehold[] }>("/me", { token })
+    .then(({ households }) => ({ households }));
 }
 
 export function removeHouseholdMember(token: string, householdId: string, memberId: string) {
@@ -2108,6 +2179,11 @@ export function confirmAccountDeletion(token: string, confirmationText: string) 
 export function cancelAccountDeletion(token: string, requestId: string) {
   if (isLocalToken(token)) return local(() => localBackend.cancelAccountDeletion(requestId));
   return requestJson<AccountDeletionRequest>(`/privacy/account-deletion/${requestId}/cancel`, { method: "POST", token });
+}
+
+export function retryAccountDeletion(token: string, requestId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.retryAccountDeletion(requestId));
+  return requestJson<AccountDeletionRequest>(`/privacy/account-deletion/${requestId}/retry`, { method: "POST", token });
 }
 
 export function getCurrentAccountDeletion(token: string) {

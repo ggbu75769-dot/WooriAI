@@ -768,6 +768,7 @@ function writeReports(device: DeviceInfo, results: ScreenResult[], status = "OK"
     cropPolicy,
     comparisonPolicy: `perceptual-blurred-mae:sigma-${perceptualScoreSigma}`,
     threshold,
+    pixelAndroidOverrides: process.env.PIXEL_ANDROID_OVERRIDES || null,
     apkEvidence: latestPixelApkEvidence,
     screens: results
   };
@@ -854,6 +855,9 @@ function blockedReport(error: unknown, targetIds?: string[]) {
 
 async function runValidation(command: string, screenId?: string, force = false) {
   ensureDirs();
+  if (command === "android" && process.env.PIXEL_ANDROID_OVERRIDES) {
+    throw new Error("PIXEL_ANDROID_OVERRIDES_FORBIDDEN_FOR_FULL_GATE");
+  }
   const screens = readScreens();
   const packageName = discoverPackageName();
   const device = deviceInfo(packageName);

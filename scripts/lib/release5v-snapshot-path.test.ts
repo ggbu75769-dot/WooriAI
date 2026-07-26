@@ -8,6 +8,9 @@ describe("Release 5V source snapshot path filter", () => {
     ".android-avd-home/modem-nv-ram-5554",
     ".codex/evolution/10_FINAL_REPORT.md",
     "apps/mobile/android/app/build/outputs/apk/release/app-release.apk",
+    "apps/mobile/android/hs_err_pid30128.log",
+    "apps/mobile/android/replay_pid30128.log",
+    "apps\\mobile\\android\\hs_err_pid42.log",
     "artifacts/android/app.apk"
   ])("excludes runtime or generated path %s", (path) => {
     expect(isRelease5vSnapshotPathExcluded(path)).toBe(true);

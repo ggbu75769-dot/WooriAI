@@ -61,6 +61,8 @@ function main() {
     NODE_PATH: [join(mobileRoot, "node_modules"), process.env.NODE_PATH].filter(Boolean).join(delimiter),
     NODE_ENV: "production",
     EXPO_PUBLIC_PIXEL_LOCK: "0",
+    EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: "0",
+    EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE: "0",
     EXPO_PUBLIC_TEST_LOGIN: "0",
     WOORIAI_BUILD_PROFILE: "production",
     EXPO_ROUTER_APP_ROOT: "app",

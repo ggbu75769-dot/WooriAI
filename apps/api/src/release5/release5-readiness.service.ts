@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { Prisma, type CatalogReviewStatus } from "@prisma/client";
+import { normalizePublicHttpsUrl, PublicHttpsUrlError } from "../common/security/public-https-url";
 import { PrismaService } from "../prisma/prisma.service";
 import type {
   ApproveLegalDocumentDto,
@@ -18,37 +19,21 @@ import type {
   PublishPilotManifestDto,
   ReviewEvidenceSourceDto
 } from "./dto/release5-readiness.dto";
+import { currentReviewedEvidenceWhere, ITEM_EVIDENCE_STATUS } from "./item-evidence-policy";
 
 function sha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function assertPublicHttps(value: string) {
-  let parsed: URL;
   try {
-    parsed = new URL(value);
-  } catch {
-    throw new BadRequestException({ code: "PUBLIC_URL_INVALID", message: "A valid HTTPS source URL is required." });
+    return normalizePublicHttpsUrl(value);
+  } catch (error) {
+    if (error instanceof PublicHttpsUrlError && error.kind === "invalid") {
+      throw new BadRequestException({ code: "PUBLIC_URL_INVALID", message: "A valid HTTPS source URL is required." });
+    }
+    throw new BadRequestException({ code: "PUBLIC_URL_BLOCKED", message: "Private, local, reserved, credentialed, and example hosts are not allowed." });
   }
-  const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
-  const blocked =
-    parsed.protocol !== "https:" ||
-    hostname === "localhost" ||
-    hostname === "::1" ||
-    hostname === "[::1]" ||
-    hostname.startsWith("127.") ||
-    hostname.startsWith("10.") ||
-    hostname.startsWith("192.168.") ||
-    hostname.startsWith("169.254.") ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
-    [".localhost", ".test", ".example", ".invalid"].some((suffix) => hostname.endsWith(suffix)) ||
-    ["example.com", "example.org", "example.net"].some(
-      (reserved) => hostname === reserved || hostname.endsWith(`.${reserved}`)
-    );
-  if (blocked) {
-    throw new BadRequestException({ code: "PUBLIC_URL_BLOCKED", message: "Private, local, reserved, and example hosts are not allowed." });
-  }
-  return parsed.toString();
 }
 
 @Injectable()
@@ -162,7 +147,7 @@ export class Release5ReadinessService {
         applicableClaimsJson: payload.applicableClaims,
         expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : null,
         reviewDueAt: payload.reviewDueAt ? new Date(payload.reviewDueAt) : null,
-        status: "draft"
+        status: ITEM_EVIDENCE_STATUS.draft
       }
     });
   }
@@ -173,13 +158,25 @@ export class Release5ReadinessService {
     if (evidence.capturedByAdminId === adminId) {
       throw new ForbiddenException({ code: "EVIDENCE_REVIEWER_SEPARATION_REQUIRED", message: "The evidence capturer cannot review the same evidence." });
     }
-    if (evidence.contentHash !== input.expectedContentHash || evidence.status !== "draft") {
+    if (evidence.contentHash !== input.expectedContentHash || evidence.status !== ITEM_EVIDENCE_STATUS.draft) {
       throw new ConflictException({ code: "EVIDENCE_REVISION_CONFLICT", message: "Evidence changed before review." });
     }
-    return this.prisma.itemEvidenceSource.update({
-      where: { id: evidenceId },
-      data: { status: input.approved ? "valid" : "rejected", reviewedByAdminId: adminId, checkedAt: new Date() }
+    const changed = await this.prisma.itemEvidenceSource.updateMany({
+      where: {
+        id: evidenceId,
+        status: ITEM_EVIDENCE_STATUS.draft,
+        contentHash: input.expectedContentHash
+      },
+      data: {
+        status: input.approved ? ITEM_EVIDENCE_STATUS.valid : ITEM_EVIDENCE_STATUS.rejected,
+        reviewedByAdminId: adminId,
+        checkedAt: new Date()
+      }
     });
+    if (changed.count !== 1) {
+      throw new ConflictException({ code: "EVIDENCE_REVISION_CONFLICT", message: "Evidence changed before review." });
+    }
+    return this.prisma.itemEvidenceSource.findUniqueOrThrow({ where: { id: evidenceId } });
   }
 
   async pilotWorklist() {
@@ -192,8 +189,7 @@ export class Release5ReadinessService {
     const evidence = await this.prisma.itemEvidenceSource.findMany({
       where: {
         itemDefinitionId: { in: items.map((item) => item.id) },
-        status: "valid",
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }]
+        ...currentReviewedEvidenceWhere(now)
       },
       select: { itemDefinitionId: true, revision: true, contentHash: true }
     });
@@ -239,6 +235,7 @@ export class Release5ReadinessService {
   }
 
   async publishPilotManifest(adminId: string, manifestId: string, input: PublishPilotManifestDto) {
+    const now = new Date();
     return this.prisma.$transaction(async (tx) => {
       const claimed = await tx.catalogPilotManifest.updateMany({
         where: { id: manifestId, status: "preview", contentHash: input.expectedContentHash },
@@ -252,7 +249,13 @@ export class Release5ReadinessService {
         const [item, approvals, evidence] = await Promise.all([
           tx.itemDefinition.findUnique({ where: { id: row.id } }),
           tx.catalogItemApproval.findMany({ where: { itemDefinitionId: row.id, revision: row.revision, contentHash: row.contentHash } }),
-          tx.itemEvidenceSource.count({ where: { itemDefinitionId: row.id, revision: row.revision, status: "valid", OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } })
+          tx.itemEvidenceSource.count({
+            where: {
+              itemDefinitionId: row.id,
+              revision: row.revision,
+              ...currentReviewedEvidenceWhere(now)
+            }
+          })
         ]);
         if (!item || item.status !== "approved" || item.contentVersion !== row.revision || item.contentHash !== row.contentHash || item.safetyTier === "high" || evidence === 0) {
           throw new BadRequestException({ code: "PILOT_PUBLISH_GATE_FAILED", message: "A pilot item no longer satisfies the publish manifest." });

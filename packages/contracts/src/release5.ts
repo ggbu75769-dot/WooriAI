@@ -11,7 +11,9 @@ export const todayActionSchema = z.object({
   assignedUserId: z.string().uuid().nullable(),
   reasonCode: z.string(),
   reasonParams: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])),
-  navigation: z.object({ kind: z.enum(["item", "calendar", "notifications", "sync"]), itemId: z.string().uuid().optional(), childId: z.string().uuid().optional() })
+  navigation: z.object({ kind: z.enum(["item", "calendar", "notifications", "sync"]), itemId: z.string().uuid().optional(), childId: z.string().uuid().optional() }),
+  preferenceScope: z.object({ kind: z.literal("child"), childId: z.string().uuid() }).strict(),
+  preferenceVersion: z.number().int().nonnegative()
 }).strict();
 
 export const todayCenterSchema = z.object({
@@ -19,6 +21,27 @@ export const todayCenterSchema = z.object({
   referenceDate: dateOnly,
   source: z.literal("database"),
   actions: z.array(todayActionSchema).max(3)
+}).strict();
+
+export const todayPreferenceSchema = z.object({
+  actionKey: z.string(),
+  mode: z.literal("snooze"),
+  snoozedUntil: dateOnly,
+  version: z.number().int().positive()
+}).strict();
+
+export const legacyTodayPreferenceSchema = z.object({
+  actionKey: z.string(),
+  mode: z.literal("hide_lifecycle"),
+  snoozedUntil: z.null(),
+  lifecycleCode: z.string().nullable(),
+  version: z.number().int().positive()
+}).strict();
+
+export const todayPreferenceResolutionSchema = z.object({
+  actionKey: z.string(),
+  preferenceScope: z.object({ kind: z.literal("child"), childId: z.string().uuid() }).strict(),
+  preference: z.union([todayPreferenceSchema, legacyTodayPreferenceSchema]).nullable()
 }).strict();
 
 export const preparationCalendarEventSchema = z.object({
@@ -108,6 +131,9 @@ export const budgetVarianceExplanationSchema = z.object({
 }).strict().nullable();
 
 export type TodayCenterContract = z.infer<typeof todayCenterSchema>;
+export type TodayActionContract = z.infer<typeof todayActionSchema>;
+export type TodayPreferenceContract = z.infer<typeof todayPreferenceSchema>;
+export type TodayPreferenceResolutionContract = z.infer<typeof todayPreferenceResolutionSchema>;
 export type PreparationCalendarContract = z.infer<typeof preparationCalendarSchema>;
 export type CustomBundleContract = z.infer<typeof customBundleSchema>;
 export type WeeklyBriefingContract = z.infer<typeof weeklyBriefingSchema>;
