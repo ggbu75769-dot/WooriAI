@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-26T15:46:47.832Z",
+  "sourceHead": "edaf1f3850ac1f66055440eb04b51445d5ae4069",
+  "database": "DATABASE_URL target (credentials redacted)",
+  "counts": {
+    "catalogNodesByDepth": {
+      "category": 120,
+      "domain": 24,
+      "subcategory": 360
+    },
+    "canonicalItems": 409,
+    "statuses": {
+      "in_review": 409
+    },
+    "publishedContentPercentage": 0,
+    "aliases": 3287,
+    "evidenceSources": 485,
+    "itemsWithEvidence": 409,
+    "evidenceSourceStatuses": {
+      "draft": 485
+    },
+    "independentlyCapturedAndReviewedEvidenceSources": 0,
+    "productOffers": 0,
+    "itemsWithoutOffers": 409,
+    "highRiskItems": 85,
+    "contextRules": 495,
+    "distinctContextCodes": 25,
+    "coverageDecisionStates": {
+      "covered": 364,
+      "gap": 1460
+    },
+    "coverageApplicability": {
+      "optional": 151,
+      "recommended": 179,
+      "required": 34,
+      "review_needed": 1460
+    },
+    "coverageGapTypes": {
+      "missing_item": 741,
+      "missing_lifecycle_rule": 719
+    },
+    "coverageUnclassifiedApplicability": 0,
+    "coverageExternalReviewBlockers": 1460
+  },
+  "coverage": {
+    "itemCountByLifecycle": {
+      "child:elementary_lower": 153,
+      "child:elementary_upper": 153,
+      "child:infant_4_6m": 222,
+      "child:infant_7_12m": 239,
+      "child:middle_school": 153,
+      "child:newborn_0_3m": 188,
+      "child:preschool_4_5y": 221,
+      "child:preschool_6_7y": 221,
+      "child:toddler_1_2y": 256,
+      "child:toddler_2_3y": 255,
+      "mother:feeding_ongoing": 51,
+      "mother:labor_delivery": 51,
+      "mother:postpartum_0_6w": 102,
+      "mother:postpartum_3_12m": 51,
+      "mother:postpartum_7_12w": 51,
+      "mother:pregnancy_early": 68,
+      "mother:pregnancy_late": 102,
+      "mother:pregnancy_mid": 85,
+      "mother:pregnancy_planning": 34
+    },
+    "lifecycleGaps": [],
+    "itemCountByTopCategory": {
+      "C01": 17,
+      "C02": 17,
+      "C03": 17,
+      "C04": 17,
+      "C05": 17,
+      "C06": 17,
+      "C07": 17,
+      "C08": 17,
+      "C09": 18,
+      "C10": 17,
+      "C11": 17,
+      "C12": 17,
+      "C13": 17,
+      "C14": 17,
+      "C15": 17,
+      "C16": 17,
+      "C17": 17,
+      "C18": 17,
+      "C19": 17,
+      "C20": 17,
+      "C21": 17,
+      "C22": 17,
+      "C23": 17,
+      "C24": 17
+    },
+    "topCategoryGaps": [],
+    "itemCountByScenario": {
+      "all": 409,
+      "breastfeeding": 5,
+      "budget_saving": 3,
+      "car_primary": 5,
+      "cesarean_delivery": 3,
+      "daycare": 4,
+      "first_child": 4,
+      "formula_feeding": 6,
+      "frequent_travel": 4,
+      "kindergarten": 3,
+      "mixed_feeding": 6,
+      "multiple_birth": 4,
+      "no_car": 3,
+      "no_elevator": 3,
+      "pet_household": 3,
+      "preterm_or_nicu": 2,
+      "public_transport_primary": 4,
+      "rental_preferred": 3,
+      "school": 4,
+      "second_or_later": 2,
+      "secondhand_preferred": 3,
+      "small_home": 4,
+      "summer_birth": 3,
+      "vaginal_delivery": 2,
+      "winter_birth": 3
+    },
+    "scenarioGaps": []
+  },
+  "integrity": {
+    "orphanCount": 0,
+    "taxonomyCycleCodes": [],
+    "invalidHierarchyRelations": [],
+    "duplicateCanonicalNames": [],
+    "aliasCollisions": [],
+    "primaryOtherItems": [],
+    "missingRequiredMetadata": [],
+    "publishedMissingRequiredMetadata": [],
+    "unsafePublishedItems": []
+  },
+  "gates": {
+    "structuralCompleteness": true,
+    "publishedContentReady": false,
+    "scenarioPersonalizationReady": true
+  }
+}

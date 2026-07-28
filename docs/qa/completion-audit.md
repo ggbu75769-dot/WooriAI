@@ -1,6 +1,6 @@
 # WooriAI MVP Completion Audit
 
-Date: 2026-07-08
+Date: 2026-07-24
 Scope: AGENTS.md v0.5 objective, Batch 00 through Batch 11
 
 ## Decision
@@ -11,7 +11,7 @@ Production release approval is NOT PROVEN from this workspace alone. The remaini
 
 Functional verification is documented in `docs/qa/functional-verification-report.md`. The current local evidence confirms API e2e, mobile route/state contracts, domain rules, test-utils, and release gate checks pass for the implemented MVP feature flows.
 
-UI Pixel Lock final report is FAIL for the pasted UI Pixel Lock attachment standard. Runtime browser proof exists for all 9 screens with zero generated screenshot fallback, and local Android native screenshot proof is captured in `docs/ui-pixel-lock/native-screenshots/manifest.json`. The remaining live mismatch ratios still exceed the strict `0.0500` threshold on 8 screens. The current worst live mismatch is Product detail at `0.1444`; More/settings is the only strict-threshold PASS at `0.0499`. Evidence: `docs/ui-pixel-lock/reports/ui-pixel-lock-final-report.md`.
+Android Pixel Lock final report is PASS. The installed Android app was captured with adb and all 9 screens passed the strict `0.0500` threshold. The current scores range from `0.014235` to `0.047382`; evidence is `artifacts/pixel-lock/android/reports/latest.json`. The current-source standalone APK and the installed/pulled APK matched exactly, the cold-start process remained alive, and fatal log matches were 0; the source-bound SHA-256 is recorded in `docs/qa/evidence/android-current-source-verification-2026-07-24.md`. It remains internal-only because it uses test login, debug signing, package `com.anonymous.wooriai`, version `0.0.0`, and version code `1`.
 
 ## Implemented And Locally Verified
 
@@ -51,13 +51,13 @@ UI Pixel Lock final report is FAIL for the pasted UI Pixel Lock attachment stand
 
 | Release checklist item | Status | Required next evidence |
 | --- | --- | --- |
-| REL-PRE-001 code freeze branch and release version | NOT PROVEN | Git repository, release branch/tag, and version record. |
+| REL-PRE-001 code freeze branch and release version | PARTIAL | GitHub repository and remote `codex/sprint2-catalog-payments` branch exist, but the local worktree is dirty and no release version/tag has been approved. |
 | REL-PRE-003 legal and policy review | NOT PROVEN | PM/legal approval for privacy, terms, child data, affiliate, sponsor, and medical-expression copy. |
 | REL-PRE-005 analytics event collection | NOT PROVEN | Live analytics pipeline or explicit MVP waiver. |
 | REL-INFRA-001 production env/secrets and secret scan | NOT PROVEN | Production secret inventory and scan output. |
 | REL-INFRA-002 DB migration deploy dry-run plus backup/rollback | NOT PROVEN | Running PostgreSQL/Docker or production-equivalent migration evidence. |
 | REL-INFRA-003 object storage bucket/CORS/retention | NOT PROVEN | S3/MinIO environment evidence or waiver. |
-| REL-BUILD-002 mobile iOS/Android internal build and install | PARTIAL | Local Android debug APK build/install and native screenshots exist; still need EAS/internal release build, iOS proof, or explicit release-owner waiver. |
+| REL-BUILD-002 mobile iOS/Android internal build and install | PARTIAL | Android emulator install, adb screenshots, runtime animation proof, and installed-APK byte parity pass. Physical-device, production signing/EAS, and iOS proof still require release-owner evidence or waiver. |
 | REL-QA-001 full QR-00 through QR-15 manual pass | PARTIAL | Manual device/browser evidence for QR-00, QR-13, QR-14, plus any environment-specific flows. |
 | REL-STORE-001 store metadata and privacy labels | NOT PROVEN | Store-console metadata, screenshots, review notes, privacy labels. |
 | REL-LAUNCH-001 production deploy order execution | NOT PROVEN | Deployment log for DB -> API -> Admin -> Mobile rollout. |

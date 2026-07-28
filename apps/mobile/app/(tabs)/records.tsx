@@ -1,22 +1,33 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { router, type Href } from "expo-router";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
-import { categoryCatalog } from "../../src/categories";
+import { ApiClientError, listExpenses, fixtureSessionToken } from "../../src/api/client";
+import { categoryCatalog, categoryNameFor } from "../../src/categories";
+import { formatKrw } from "../../src/money";
+import { expenseDetailRoute } from "../../src/navigation/routes";
+import { expenseCategoryVisual } from "../../src/preparation/item-visuals";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
-import { subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import { useConnectivityStatus } from "../../src/offline/connectivity";
+import {
+  offlineExpenseFallbackAllowed,
+  syncedExpenseMirrors
+} from "../../src/offline/expense-fallback";
+import {
+  captureCurrentOfflineSyncOwner,
+  recordOfflineAuthorization,
+  subscribeOfflineFlashMessage,
+  useOfflineSyncSnapshot
+} from "../../src/offline/sync-controller";
+import { normalizeAppSyncStatus } from "../../src/offline/sync-display-state";
+import { childScopedRequestEnabled } from "../../src/query/child-scope";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader, StatusBadge, Toast } from "../../src/ui";
+import { AppIcon, AppScreen, Card, CategoryChip, EmptyStateCard, ListRow, SampleDataBanner, StatusBadge, SyncStatusBar, Toast, TopAppBar } from "../../src/design-system";
 import { theme } from "../../src/theme";
 
 const recordsScreenId = "EXP-004";
-
-function formatKrw(value: number) {
-  return `${value.toLocaleString("ko-KR")}원`;
-}
 
 function formatSpentOn(spentOn: string) {
   const parts = spentOn.split("-");
@@ -32,10 +43,20 @@ function yearMonthOf(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function formatSeoulSyncTime(value: string | null): string {
+  if (!value) return "확인 전";
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "Asia/Seoul"
+  }).format(new Date(value));
+}
+
 export default function RecordsScreen() {
+  const queryClient = useQueryClient();
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const [monthOffset, setMonthOffset] = useState(0);
   const [searchText, setSearchText] = useState("");
@@ -70,22 +91,57 @@ export default function RecordsScreen() {
 
   const expenses = useQuery({
     queryKey: ["expenses", childId, recordsYearMonth],
-    enabled: Boolean(authToken && childId),
-    queryFn: () => listExpenses(authToken!, childId!, recordsYearMonth)
+    enabled: childScopedRequestEnabled(authToken, childId),
+    queryFn: async () => {
+      const owner = captureCurrentOfflineSyncOwner();
+      try {
+        const response = await listExpenses(authToken!, childId!, recordsYearMonth);
+        await recordOfflineAuthorization(owner, "authorized", queryClient);
+        return response;
+      } catch (error) {
+        if (error instanceof ApiClientError && [401, 403, 404].includes(error.status)) {
+          await recordOfflineAuthorization(owner, "denied", queryClient);
+        }
+        throw error;
+      }
+    }
   });
 
   // EXP-005: not-yet-synced local expenses for this child, so a record created/edited while
   // offline shows up immediately even though the server hasn't confirmed it yet.
   const syncSnapshot = useOfflineSyncSnapshot();
-  const unsyncedCount = syncSnapshot.counts.pending + syncSnapshot.counts.syncing + syncSnapshot.counts.failed + syncSnapshot.counts.conflict;
+  const online = useConnectivityStatus();
+  const syncStatus = normalizeAppSyncStatus(syncSnapshot.counts, online);
+  const unsyncedCount =
+    syncSnapshot.counts.pending +
+    syncSnapshot.counts.syncing +
+    syncSnapshot.counts.retryWait +
+    syncSnapshot.counts.failed +
+    syncSnapshot.counts.conflict;
 
   // H-2 fix: reconcile the server's listExpenses response with any not-yet-synced local rows for
   // this month -- an edited/deleted *existing* server expense would otherwise show up twice (the
   // stale server row + the local pending row) and double-count in the total. See
   // src/offline/expense-list-reconciliation.ts (unit-tested) for the full rationale.
   const childOfflineRows = childId ? syncSnapshot.rows.filter((row) => row.childId === childId) : [];
+  const usingOfflineFallback =
+    expenses.isError &&
+    Boolean(childId) &&
+    offlineExpenseFallbackAllowed(expenses.error, online, syncSnapshot.remoteSync);
+  const deniedStatus =
+    syncSnapshot.remoteSync.authorizationState === "denied"
+      ? 403
+      : expenses.error instanceof ApiClientError &&
+          [401, 403, 404].includes(expenses.error.status)
+        ? expenses.error.status
+        : null;
+  const expenseSource =
+    (!deniedStatus ? expenses.data?.expenses : undefined) ??
+    (usingOfflineFallback && childId
+      ? syncedExpenseMirrors(childOfflineRows, childId, recordsYearMonth)
+      : []);
   const { visibleServerExpenses: monthlyServerExpenses, offlinePendingRows, monthlyTotalKrw } = reconcileMonthlyExpenses(
-    expenses.data?.expenses ?? [],
+    expenseSource,
     childOfflineRows,
     recordsYearMonth
   );
@@ -94,7 +150,7 @@ export default function RecordsScreen() {
   const visibleExpenses = monthlyServerExpenses.filter((expense) => {
     if (selectedCategoryId && expense.categoryId !== selectedCategoryId) return false;
     if (!normalizedSearch) return true;
-    const haystack = `${expense.itemName} ${expense.memo ?? ""}`.toLowerCase();
+    const haystack = `${expense.itemName} ${expense.memo ?? ""} ${expense.merchant ?? ""}`.toLowerCase();
     return haystack.includes(normalizedSearch);
   });
   const visibleOfflineRows = offlinePendingRows.filter((row) => {
@@ -104,20 +160,36 @@ export default function RecordsScreen() {
     return haystack.includes(normalizedSearch);
   });
   const hasSearchQuery = normalizedSearch.length > 0;
+  const hasAnyRecords = monthlyServerExpenses.length + offlinePendingRows.length > 0;
+  const hasUsableOfflineFallback = usingOfflineFallback && hasAnyRecords;
+  const hasRenderableRecords =
+    !deniedStatus &&
+    hasAnyRecords &&
+    (Boolean(expenses.data) || hasUsableOfflineFallback || offlinePendingRows.length > 0);
+  const groupedExpenses = visibleExpenses.reduce<Array<{ spentOn: string; totalKrw: number; expenses: typeof visibleExpenses }>>(
+    (groups, expense) => {
+      const current = groups[groups.length - 1];
+      if (current?.spentOn === expense.spentOn) {
+        current.expenses.push(expense);
+        current.totalKrw += expense.amountKrw;
+      } else {
+        groups.push({ spentOn: expense.spentOn, totalKrw: expense.amountKrw, expenses: [expense] });
+      }
+      return groups;
+    },
+    []
+  );
 
   function offlineStatusIcon(syncState: string) {
-    if (syncState === "conflict") return "⚠";
-    if (syncState === "failed") return "!";
-    if (syncState === "syncing") return "↻";
-    return "⏱";
+    const name = syncState === "conflict" ? "alert-circle-outline" : syncState === "failed" ? "alert-outline" : syncState === "syncing" ? "sync" : "clock-outline";
+    return <AppIcon color={syncState === "failed" || syncState === "conflict" ? theme.colors.warning : theme.colors.gray600} name={name} size={20} />;
   }
 
   return (
     <AppScreen>
       <View accessibilityLabel={recordsScreenId} testID="screen-EXP-004" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="지출 기록" title="기록" subtitle="이번 달 지출 내역을 한눈에 확인해 보세요." />
-
-        <PrimaryButton label="빠른 지출 기록" onPress={() => router.push("/expenses/new")} />
+        {isTestSession ? <SampleDataBanner /> : null}
+        <TopAppBar title="기록" />
 
         {confirmedFlash ? <Toast message={confirmedFlash} tone="success" /> : null}
 
@@ -128,8 +200,8 @@ export default function RecordsScreen() {
             onPress={() => router.push("/sync-status")}
             style={{ alignItems: "center", flexDirection: "row", gap: 8 }}
           >
-            {syncSnapshot.counts.pending + syncSnapshot.counts.syncing > 0 ? (
-              <StatusBadge label={`대기 ${syncSnapshot.counts.pending + syncSnapshot.counts.syncing}`} tone="neutral" />
+            {syncSnapshot.counts.pending + syncSnapshot.counts.syncing + syncSnapshot.counts.retryWait > 0 ? (
+              <StatusBadge label={`대기 ${syncSnapshot.counts.pending + syncSnapshot.counts.syncing + syncSnapshot.counts.retryWait}`} tone="neutral" />
             ) : null}
             {syncSnapshot.counts.failed > 0 ? <StatusBadge label={`실패 ${syncSnapshot.counts.failed}`} tone="warning" /> : null}
             {syncSnapshot.counts.conflict > 0 ? <StatusBadge label={`충돌 ${syncSnapshot.counts.conflict}`} tone="warning" /> : null}
@@ -144,15 +216,17 @@ export default function RecordsScreen() {
             paddingHorizontal: 6
           }}
         >
-          <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
-            <Text style={{ color: theme.colors.gray900, fontSize: 22, fontWeight: "900" }}>‹</Text>
+          <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)} style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget }}>
+            <AppIcon name="chevron-left" size={26} />
           </Pressable>
           <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
-          <Pressable accessibilityLabel="다음 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
-            <Text style={{ color: theme.colors.gray900, fontSize: 22, fontWeight: "900" }}>›</Text>
+          <Pressable accessibilityLabel="다음 달" accessibilityRole="button" accessibilityState={{ disabled: monthOffset >= 0 }} disabled={monthOffset >= 0} hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)} style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget, opacity: monthOffset >= 0 ? 0.35 : 1 }}>
+            <AppIcon name="chevron-right" size={26} />
           </Pressable>
         </View>
 
+        {hasAnyRecords ? (
+          <>
         <TextInput
           onChangeText={setSearchText}
           placeholder="품목명, 메모로 검색"
@@ -169,32 +243,63 @@ export default function RecordsScreen() {
           value={searchText}
         />
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
           <CategoryChip label="전체" selected={selectedCategoryId === null} onPress={() => setSelectedCategoryId(null)} />
           {categoryCatalog.map((category) => (
             <CategoryChip
               key={category.id}
-              label={`${category.icon} ${category.label}`}
+              label={category.label}
               selected={category.id === selectedCategoryId}
               onPress={() => setSelectedCategoryId(category.id)}
             />
           ))}
         </ScrollView>
+          </>
+        ) : null}
+
+        {hasUsableOfflineFallback ? (
+          <Card style={{ gap: 4 }}>
+            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>
+              오프라인 저장 기록을 보여드리고 있어요
+            </Text>
+            <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "600" }}>
+              마지막 동기화 · {formatSeoulSyncTime(syncSnapshot.remoteSync.lastSuccessfulPullAt)}
+            </Text>
+          </Card>
+        ) : null}
 
         {expenses.isLoading ? (
           <EmptyStateCard title="기록을 불러오고 있어요." actionLabel="잠시만요" />
-        ) : expenses.isError ? (
+        ) : deniedStatus ? (
           <EmptyStateCard
-            title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+            title={
+              deniedStatus === 401
+                ? "로그인이 만료됐어요. 다시 로그인해 주세요."
+                : "이 가족 기록을 볼 권한이 없어요."
+            }
+            actionLabel={deniedStatus === 401 ? "로그인하기" : "아이 다시 선택"}
+            onPress={() =>
+              deniedStatus === 401
+                ? router.replace("/login")
+                : router.push("/children" as Href)
+            }
+          />
+        ) : expenses.isError && !hasUsableOfflineFallback && !hasAnyRecords ? (
+          <EmptyStateCard
+            title={
+              syncSnapshot.remoteSync.baselineComplete
+                ? "불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+                : "서버 확인 전이라 저장된 전체 기록을 표시할 수 없어요."
+            }
             actionLabel="다시 시도"
             onPress={() => expenses.refetch()}
           />
-        ) : expenses.data && monthlyServerExpenses.length + offlinePendingRows.length > 0 ? (
+        ) : hasRenderableRecords ? (
           visibleExpenses.length + visibleOfflineRows.length > 0 ? (
             <>
               <Card>
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
-                  {recordsMonthLabel} 합계
+                   {hasUsableOfflineFallback ? "마지막 저장 비용" : "이번 달 비용"} · {monthlyServerExpenses.length + offlinePendingRows.length}건
                 </Text>
                 <Text style={{ color: theme.colors.brown, fontSize: 24, fontWeight: "800" }}>
                   {formatKrw(monthlyTotalKrw)}
@@ -220,18 +325,33 @@ export default function RecordsScreen() {
                     onPress={() => router.push("/sync-status")}
                   />
                 ))}
-                {visibleExpenses.map((expense) => (
-                  <ListRow
-                    key={expense.id}
-                    title={expense.itemName}
-                    subtitle={
-                      expense.expenseType === "gift"
-                        ? `선물 · ${formatSpentOn(expense.spentOn)}`
-                        : formatSpentOn(expense.spentOn)
-                    }
-                    value={formatKrw(expense.amountKrw)}
-                    onPress={() => router.push(`/expenses/${expense.id}`)}
-                  />
+                {groupedExpenses.map((group) => (
+                  <View key={group.spentOn} style={{ gap: 8 }}>
+                    <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 4 }}>
+                      <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>{formatSpentOn(group.spentOn)}</Text>
+                      <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>{formatKrw(group.totalKrw)}</Text>
+                    </View>
+                    {group.expenses.map((expense) => {
+                      const visual = expenseCategoryVisual(expense.categoryId);
+                      return (
+                        <ListRow
+                          key={expense.id}
+                          icon={<AppIcon color={visual.iconColor} name={visual.icon} size={20} />}
+                          iconBackgroundColor={visual.iconBackgroundColor}
+                          title={expense.itemName}
+                           subtitle={`${categoryNameFor(expense.categoryId)}${expense.expenseType === "gift" ? " · 선물" : ""}${hasUsableOfflineFallback ? " · 오프라인 저장" : ""}`}
+                           value={formatKrw(expense.amountKrw)}
+                           onPress={() =>
+                             router.push(
+                               hasUsableOfflineFallback
+                                 ? ("/sync-status" as Href)
+                                 : expenseDetailRoute(expense.id)
+                             )
+                           }
+                        />
+                      );
+                    })}
+                  </View>
                 ))}
               </View>
             </>
@@ -252,6 +372,10 @@ export default function RecordsScreen() {
             onPress={() => (hasSearchQuery ? setSearchText("") : router.push("/expenses/new"))}
           />
         )}
+        <Pressable accessibilityLabel="지출 기록 추가" accessibilityRole="button" onPress={() => router.push("/expenses/new")} style={({ pressed }) => ({ alignItems: "center", alignSelf: "flex-end", backgroundColor: theme.colors.mainCoral, borderRadius: 28, height: 56, justifyContent: "center", opacity: pressed ? 0.82 : 1, width: 56 })}>
+          <AppIcon color={theme.colors.white} name="plus" size={28} />
+        </Pressable>
+        <SyncStatusBar onPress={() => router.push("/sync-status" as Href)} status={syncStatus} />
       </View>
     </AppScreen>
   );

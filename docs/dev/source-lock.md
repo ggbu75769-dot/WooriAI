@@ -3,7 +3,8 @@
 Batch: 00 - Source Lock  
 Task IDs: BOOT-001, DOC-001  
 Created: 2026-07-06  
-Status: Source locked for Batch 01 bootstrap. No product feature implementation has been performed in this batch.
+Governance update: 2026-07-26
+Status: Historical Batch 00 source lock with current-repository governance overlays.
 
 ## 1. Purpose
 
@@ -13,7 +14,15 @@ Batch 00 is documentation-only. It compares the current handoff package with the
 
 ## 2. Authoritative Priority
 
-When documents conflict, use this order:
+For the current repository, use this order:
+
+1. `AGENTS.md`
+2. `docs/operations/current-development-status-and-next-design-baseline-2026-07-26.md`
+3. current implementation, executable contract tests, and current Android Pixel Lock reference
+4. `docs/MOD_V1/*`
+5. the historical Phase 1-4 priority below for product rules not superseded by a current-repository decision
+
+Historical Phase 1-4 priority:
 
 1. `docs/4차/prompts/04_do_not_change_v0_4.md`
 2. `docs/4차/contracts/do_not_change_contract_v0_4.yaml`
@@ -50,7 +59,7 @@ SHA-256 hashes were generated from the current workspace on 2026-07-06.
 | `docs/3차/db_api/wooriai_phase3_openapi_v0_3.yaml` | `16A2937D20A01CF38B4777A968E4F08B42A93E194CDD4A9ACD4340D41DBA20CB` |
 | `docs/3차/db_api/wooriai_phase3_project_structure_v0_3.md` | `E1336E8C38679A8F88E25F32F12D8395CDCABD6B76F3E48752160A4A1E5F11D7` |
 
-## 4. Current Repository State
+## 4. Repository Bootstrap History And Current State
 
 Batch 00 started from a handoff/document package, not an initialized implementation repo.
 
@@ -58,7 +67,7 @@ Batch 01 bootstrap update:
 
 - Root files present: `AGENTS.md`, `CODEX_START_HERE.md`, `README.md`, `MANIFEST.csv`, `MANIFEST.json`.
 - Source docs present under `docs/0_원본아이디어`, `docs/1차`, `docs/2차`, `docs/3차`, and `docs/4차`.
-- Git metadata is absent: `git status --short` fails with `fatal: not a git repository`.
+- Historical Batch 00 input had no Git metadata. The current workspace is a Git checkout connected to `ggbu75769-dot/WooriAI`, with work continuing on `codex/sprint2-catalog-payments`.
 - Monorepo workspace files now exist: `package.json`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `tsconfig.json`.
 - App shells now exist under `apps/mobile`, `apps/api`, and `apps/admin`.
 - Shared package shells now exist under `packages/domain`, `packages/contracts`, `packages/ui`, `packages/config`, and `packages/test-utils`.
@@ -98,7 +107,7 @@ From Phase 3:
 
 ## 7. Locked Screen IDs
 
-Bottom tabs are fixed as `홈 / 기록 / 준비템 / 리포트`.
+Bottom tabs are fixed as `홈 / 기록 / 준비템 / 리포트 / 더보기`.
 
 | Screen ID | Module | Screen | Priority |
 | --- | --- | --- | --- |
@@ -139,23 +148,33 @@ Bottom tabs are fixed as `홈 / 기록 / 준비템 / 리포트`.
 | `ADM-003` | 관리자 | 상품 링크 관리 | P0 내부 |
 | `ADM-004` | 관리자 | 고지/정책 문구 관리 | P0 내부 |
 
-## 8. Locked Design Tokens
+## 8. Canonical Design Tokens
 
-From Phase 2:
+Current canonical version: `MOD_V1 / native-v1.0`
+Approved: 2026-07-26
 
-- Primary 500: `#FF8A7A`
-- Primary 100: `#FFE6E0`
-- Secondary 500: `#7DDCC7`
-- Background: `#FFF8F1`
+- Primary/action: `#C94627`
+- Primary 100: `#FFE4D8`
+- Secondary/action support: `#267A68`
+- Canvas/background: `#FFFDFC`
 - Surface: white cards/input/bottom sheet surfaces
-- Text Primary: `#242424`
-- Text Secondary: `#7A7A7A`
-- Success: `#3DBE7E`
-- Warning: `#FFB020`
-- Danger: `#EF4444`
+- Text Primary: `#211E1C`
+- Text Secondary: `#5F5854`
+- Success: `#16794B`
+- Warning: `#B45309`
+- Danger: `#B42318`
 - Primary CTA recommended height: `56px`
-- Key touch targets: `44px+`
+- Key touch targets: `48px+`
 - Affiliate disclosure: caption near CTA, never hidden or minimized beyond usability.
+
+Implementation sources:
+
+- `apps/mobile/src/theme.ts`
+- `apps/mobile/src/design-system/tokens/color.ts`
+- `apps/mobile/src/design-system/tokens/{spacing,radius,typography,motion,icon}.ts`
+- current Android Pixel Lock reference and gate
+
+Legacy Phase 2 colors `#FF8A7A / #FFF8F1 / #242424` remain historical migration references only. They are not the canonical values for new implementation or visual review.
 
 ## 9. Locked DB Contract Summary
 
@@ -384,7 +403,7 @@ Batch 05 completed scope:
 - `API-006`: `/api/v1/consents` now lists fixed consent versions and stores required/optional consent decisions for the dev authenticated user.
 - `API-007`: `/api/v1/children` and `/api/v1/children/{childId}` now create, list, read, and patch child profiles with shared child-stage calculation.
 - `API-008`: `/api/v1/onboarding/status`, `/api/v1/children/{childId}/prepared-items`, and onboarding budget `PUT /api/v1/children/{childId}/budget` now connect the required onboarding steps through to `nextStep: "home"`.
-- `APP-001`: Expo Router root now has TanStack Query provider setup, fixed theme tokens, and a fixed four-tab shell for `홈 / 기록 / 준비템 / 리포트`.
+- `APP-001`: Expo Router root established TanStack Query provider setup, fixed theme tokens, and the original `홈 / 기록 / 준비템 / 리포트` shell; the current product contract adds the fifth `더보기` tab for settings and profile access.
 - `APP-002`: `AUTH-001` login/required consent screen now disables continuation until required consent checkboxes are selected, then calls the dev OAuth/consent APIs.
 - `APP-003`: `ONB-001` through `ONB-004` route files now cover child status, child profile, prepared items, and first monthly budget.
 - `APP-004`: mobile Zustand stores now cover persisted session, selected child, and onboarding progress.
@@ -514,7 +533,7 @@ Batch 10 completed scope:
 - `ADM-003`: `/api/v1/admin/product-links` now lists, creates, and updates product links with affiliate/sponsored flags, URL fields, active state, and disclosure overrides.
 - `ADM-004`: `/api/v1/admin/disclosures` and `/api/v1/admin/disclosures/{key}` now list/update affiliate, sponsored, and supplement disclosure copy; product links without per-link overrides use the managed disclosure text.
 - Admin analytics support: `/api/v1/admin/affiliate-clicks/summary` now returns in-memory affiliate click totals by platform.
-- `SET-001`/`SET-002`: `apps/mobile/app/settings/index.tsx` now provides a settings entry and child/household profile context without changing the fixed four bottom tabs.
+- `SET-001`/`SET-002`: `apps/mobile/app/settings/index.tsx` provides settings entry and child/household profile context; the profile hub is also reachable from the fifth `더보기` bottom tab.
 - `SET-003`/`SET-004`: `/api/v1/settings/privacy`, child profile delete preview/confirm, household leave preview/confirm, and account delete preview/confirm now keep deletion flows separated with second-step confirmation text. Account deletion marks the user withdrawn and later bearer-token access is blocked.
 - Mobile settings client functions and `apps/mobile/app/settings/privacy.tsx` now expose the privacy/deletion flows with preview-before-confirm UI.
 

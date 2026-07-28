@@ -38,6 +38,25 @@ export function getSeoulToday(now: Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+export function getSeoulYearMonth(now: Date = new Date()): string {
+  return getSeoulToday(now).slice(0, 7);
+}
+
+export function dateOnlyToLocalDate(dateOnly: string): Date {
+  if (!isValidCalendarDate(dateOnly)) {
+    throw new Error("DATE_INVALID");
+  }
+  const [year, month, day] = dateOnly.split("-").map(Number);
+  return new Date(year!, month! - 1, day!, 12);
+}
+
+export function localDateToDateOnly(value: Date): string {
+  if (!Number.isFinite(value.getTime())) {
+    throw new Error("DATE_INVALID");
+  }
+  return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
+}
+
 export function getSeoulMonthRange(yearMonthOrDate: string): SeoulMonthRange {
   const [yearText, monthText] = yearMonthOrDate.slice(0, 7).split("-");
   const year = Number(yearText);

@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "release": "5U",
+  "workstreams": {
+    "preflight": "PASS",
+    "mobbin": "PARTIAL_MOBBIN_ACCESS",
+    "onboarding": "AUTOMATED_PASS",
+    "preparedItems": "EXTERNAL_BLOCKED",
+    "fixtureRemoval": "PASS",
+    "designSystem": "AUTOMATED_PASS",
+    "coreUx": "AUTOMATED_PASS",
+    "quality": "PARTIAL",
+    "artifact": "STALE_REJECTED"
+  },
+  "openCodeP0": 0,
+  "openCodeP1": 0,
+  "productionReadiness": "EXTERNAL_BLOCKED",
+  "blockers": [
+    "0 published onboarding catalog items",
+    "production identity/config/legal/signing not approved",
+    "Mobbin MCP unavailable",
+    "current-source APK build failed; static audit and ADB were not run",
+    "Android runtime/TalkBack pending",
+    "5 moderate dependencies"
+  ],
+  "sourceSnapshotSha256": "A1F1AE665B2F887D17ED18A688F8FCCD35D885DB1A3BDAA0F5FE606C28720E69",
+  "evidence": {
+    "release5u-aim-traceability.json": "PRESENT",
+    "release5u-findings.json": "PRESENT",
+    "release5u-mobbin-research.json": "PRESENT",
+    "release5u-pattern-matrix.json": "PRESENT",
+    "release5u-design-audit-baseline.json": "PRESENT",
+    "release5u-design-decisions.json": "PRESENT",
+    "release5u-onboarding-state-machine.json": "PRESENT",
+    "release5u-onboarding-contract.json": "PRESENT",
+    "release5u-prepared-items.json": "PRESENT",
+    "release5u-fixture-removal.json": "PRESENT",
+    "release5u-design-system.json": "PRESENT",
+    "release5u-icon-audit.json": "PRESENT",
+    "release5u-route-redesign.json": "PRESENT",
+    "release5u-accessibility-contract.json": "PRESENT",
+    "release5u-request-budget.json": "PRESENT",
+    "release5u-quality-score.json": "PRESENT",
+    "release5u-test-evidence.json": "PRESENT",
+    "release5u-source-snapshot.json": "PRESENT",
+    "release5u-native-artifact-audit.json": "PRESENT",
+    "release5u-build-provenance.json": "PRESENT",
+    "release5u-file-ownership.json": "PRESENT"
+  }
+}

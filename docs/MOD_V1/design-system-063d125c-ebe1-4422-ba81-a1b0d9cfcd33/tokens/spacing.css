@@ -1,0 +1,10 @@
+/* 우리아이 spacing/radius/size tokens — seed v1.0. 4pt grid. */
+:root{
+--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;--space-10:40px;--space-12:48px;--space-16:64px;--space-20:80px;
+--radius-sm:8px;--radius-md:12px;--radius-lg:16px;--radius-xl:20px;--radius-2xl:24px;--radius-full:999px;
+/* sizes */
+--size-touch-min:48px;--size-button-lg:52px;--size-button-md:48px;--size-input:52px;--size-appbar:56px;--size-bottomnav:64px;
+--size-icon-sm:16px;--size-icon-md:20px;--size-icon-lg:24px;--size-icon-xl:32px;
+/* layout */
+--layout-pad-compact:20px;--layout-pad-large:24px;--layout-pad-tablet:32px;--layout-content-max:720px;
+}

@@ -7,20 +7,16 @@ import {
   type Expense,
   type ExpenseConflictSnapshot
 } from "../api/client";
-import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
-import type { ConflictSnapshot, ExpensePayload } from "./types";
+import {
+  RemoteAuthRequiredError,
+  RemotePermanentError,
+  RemotePermissionDeniedError,
+  RemoteVersionConflictError
+} from "./errors";
+import { expenseToOfflinePayload } from "./expense-payload";
+import { createExpenseSyncBody, updateExpenseSyncBody } from "./expense-sync-request";
+import type { ConflictSnapshot } from "./types";
 import type { RemoteExpenseApi } from "./sync-engine";
-
-function toExpensePatch(payload: ExpensePayload) {
-  return {
-    categoryId: payload.categoryId,
-    amountKrw: payload.amountKrw,
-    spentOn: payload.spentOn,
-    itemName: payload.itemName,
-    memo: payload.memo ?? undefined,
-    expenseType: payload.expenseType
-  };
-}
 
 /**
  * The wire/client.ts shape of `current` (design doc §2.2) is `<latest expense> | {id,
@@ -37,16 +33,9 @@ function toEngineConflictSnapshot(current: ExpenseConflictSnapshot): ConflictSna
   return {
     deleted: false,
     expense: {
+      ...expenseToOfflinePayload(expense),
       id: expense.id,
       version: expense.version,
-      childId: expense.childId,
-      categoryId: expense.categoryId,
-      amountKrw: expense.amountKrw,
-      spentOn: expense.spentOn,
-      itemName: expense.itemName,
-      merchant: expense.merchant,
-      memo: expense.memo,
-      expenseType: expense.expenseType === "refund" ? undefined : expense.expenseType
     }
   };
 }
@@ -56,13 +45,19 @@ function rethrowAsSyncEngineError(error: unknown): never {
     throw new RemoteVersionConflictError(toEngineConflictSnapshot(error.current));
   }
   if (error instanceof ExpenseHttpError) {
+    if (error.status === 401) throw new RemoteAuthRequiredError(error.body);
+    if (error.status === 403) throw new RemotePermissionDeniedError(error.body);
     throw new RemotePermanentError(error.status, "요청을 처리하지 못했어요.", error.body);
   }
   throw error;
 }
 
 function toRemoteCreateResult(expense: Expense) {
-  return { id: expense.id, version: expense.version };
+  return {
+    id: expense.id,
+    version: expense.version,
+    payload: expenseToOfflinePayload(expense)
+  };
 }
 
 /**
@@ -71,25 +66,16 @@ function toRemoteCreateResult(expense: Expense) {
  * client.ts's `isLocalToken` branching). Kept as a thin adapter so sync-engine.ts and its tests
  * never need to know about client.ts, tokens, or HTTP at all.
  */
-export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
+export function createClientRemoteExpenseApi(token: string, signal?: AbortSignal): RemoteExpenseApi {
   return {
     async createExpense(payload, idempotencyKey) {
       try {
         const expense = await createExpenseWithIdempotency(
           token,
           payload.childId,
-          {
-            categoryId: payload.categoryId,
-            amountKrw: payload.amountKrw,
-            spentOn: payload.spentOn,
-            itemName: payload.itemName,
-            merchant: payload.merchant ?? undefined,
-            paymentMethod: payload.paymentMethod,
-            memo: payload.memo ?? undefined,
-            linkedItemTemplateId: payload.linkedItemTemplateId ?? undefined,
-            expenseType: payload.expenseType
-          },
-          idempotencyKey
+          createExpenseSyncBody(payload),
+          idempotencyKey,
+          signal
         );
         return toRemoteCreateResult(expense);
       } catch (error) {
@@ -102,11 +88,15 @@ export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
         const expense = await updateExpenseWithVersion(
           token,
           canonicalId,
-          toExpensePatch(payload),
+          updateExpenseSyncBody(payload, expectedVersion),
           expectedVersion,
-          idempotencyKey
+          idempotencyKey,
+          signal
         );
-        return { version: expense.version };
+        return {
+          version: expense.version,
+          payload: expenseToOfflinePayload(expense)
+        };
       } catch (error) {
         rethrowAsSyncEngineError(error);
       }
@@ -114,7 +104,7 @@ export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
 
     async deleteExpense(canonicalId, expectedVersion, idempotencyKey) {
       try {
-        await deleteExpenseWithVersion(token, canonicalId, expectedVersion, idempotencyKey);
+        await deleteExpenseWithVersion(token, canonicalId, expectedVersion, idempotencyKey, signal);
       } catch (error) {
         rethrowAsSyncEngineError(error);
       }

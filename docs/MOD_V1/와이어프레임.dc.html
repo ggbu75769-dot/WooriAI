@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/design-system-063d125c-ebe1-4422-ba81-a1b0d9cfcd33/tokens/fonts.css">
+<style>body{margin:0;background:#F0EDE8;font-family:"Pretendard Variable",Pretendard,system-ui,sans-serif;color:#211E1C}a{color:#C94627}a:hover{color:#A93A20}</style>
+</helmet>
+<div style="padding:48px 56px;display:flex;flex-direction:column;gap:44px;max-width:1560px">
+
+  <div style="display:flex;flex-direction:column;gap:10px;max-width:760px">
+    <span style="font:800 26px/1.3 inherit;letter-spacing:-0.02em">우리아이 앱 리디자인 — 와이어프레임 v2.0</span>
+    <span style="font:400 13.5px/1.6 inherit;color:#6E6659">하단 탭 4개 → <b>5개</b> (가장 오른쪽에 프로필 추가). 프로필 탭은 아이·가족·예산·알림·계정을 한곳에 모으는 허브예요. 화면 ID는 <a href="화면정의서.dc.html">화면정의서</a>·<a href="기능정의서.dc.html">기능정의서</a>와 공통이에요. 하이파이 프로토타입: <a href="우리아이 앱 리디자인.dc.html">우리아이 앱 리디자인</a></span>
+    <div style="display:flex;gap:18px;align-items:center;font:600 11px/1 inherit;color:#8D8579;margin-top:4px">
+      <span style="display:flex;gap:6px;align-items:center"><span style="width:14px;height:10px;background:#ECE7E0;border-radius:3px"></span>콘텐츠 블록</span>
+      <span style="display:flex;gap:6px;align-items:center"><span style="width:14px;height:10px;border:1.5px dashed #C5BCB1;border-radius:3px;box-sizing:border-box"></span>이미지·일러스트</span>
+      <span style="display:flex;gap:6px;align-items:center"><span style="width:14px;height:10px;background:#4A443C;border-radius:3px"></span>주요 액션 / 강조</span>
+      <span style="display:flex;gap:6px;align-items:center"><span style="width:22px;height:12px;background:#211E1C;color:#fff;border-radius:3px;font:700 8px/12px inherit;text-align:center">NEW</span>이번 리디자인 신규</span>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <span style="font:800 15px/1 inherit;color:#4A443C">IA · 내비게이션 구조</span>
+    <div style="background:#fff;border:1.5px solid #D8D1C7;border-radius:16px;padding:22px 26px;display:flex;flex-direction:column;gap:16px;width:fit-content">
+      <div style="display:flex;gap:10px;align-items:center">
+        <span style="font:700 12px/1 inherit;padding:8px 14px;background:#ECE7E0;border-radius:8px">AUTH-01 로그인</span>
+        <span style="color:#B9B1A7">→</span>
+        <span style="font:700 12px/1 inherit;padding:8px 14px;background:#ECE7E0;border-radius:8px">ONB-01~03 온보딩</span>
+        <span style="color:#B9B1A7">→</span>
+        <span style="font:700 12px/1 inherit;padding:8px 14px;background:#4A443C;color:#fff;border-radius:8px">메인 (하단 탭 5)</span>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:center"><span style="font:700 12px/1 inherit;padding:8px 14px;background:#ECE7E0;border-radius:8px">홈 HOME-01</span><span style="font:400 10px/1.4 inherit;color:#8D8579">요약·바로가기</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:center"><span style="font:700 12px/1 inherit;padding:8px 14px;background:#ECE7E0;border-radius:8px">기록 REC-01·02</span><span style="font:400 10px/1.4 inherit;color:#8D8579">지출 목록·추가</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:center"><span style="font:700 12px/1 inherit;padding:8px 14px;background:#ECE7E0;border-radius:8px">준비템 ITEM-01·02</span><span style="font:400 10px/1.4 inherit;color:#8D8579">체크리스트·상태</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:center"><span style="font:700 12px/1 inherit;padding:8px 14px;background:#ECE7E0;border-radius:8px">리포트 REP-01</span><span style="font:400 10px/1.4 inherit;color:#8D8579">지출 분석</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:center">
+          <span style="display:flex;gap:6px;align-items:center;font:700 12px/1 inherit;padding:8px 14px;background:#211E1C;color:#fff;border-radius:8px">프로필 PF-01<span style="font:700 8px/1;padding:3px 5px;background:#C94627;border-radius:3px">NEW</span></span>
+          <span style="font:400 10px/1.4 inherit;color:#8D8579">PF-02 아이 정보 · PF-03 가족 관리<br>PF-04 월 예산 · PF-05 알림 설정</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <span style="font:800 15px/1 inherit;color:#4A443C">하단 내비게이션 — 4탭 → 5탭</span>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <span style="font:600 11px/1 inherit;color:#8D8579">AS-IS (4탭)</span>
+        <div style="width:340px;height:56px;background:#fff;border:1.5px solid #D8D1C7;border-radius:12px;display:flex">
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;font:700 9.5px/1 inherit;color:#211E1C"><span style="width:18px;height:18px;background:#4A443C;border-radius:5px"></span>홈</span>
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;font:700 9.5px/1 inherit;color:#8D8579"><span style="width:18px;height:18px;background:#D8D1C7;border-radius:5px"></span>기록</span>
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;font:700 9.5px/1 inherit;color:#8D8579"><span style="width:18px;height:18px;background:#D8D1C7;border-radius:5px"></span>준비템</span>
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;font:700 9.5px/1 inherit;color:#8D8579"><span style="width:18px;height:18px;background:#D8D1C7;border-radius:5px"></span>리포트</span>
+        </div>
+      </div>
+      <span style="align-self:center;color:#B9B1A7;font-size:18px">→</span>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <span style="font:600 11px/1 inherit;color:#8D8579">TO-BE (5탭 · 프로필이 가장 오른쪽)</span>
+        <div style="width:400px;height:56px;background:#fff;border:1.5px solid #4A443C;border-radius:12px;display:flex">
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;font:700 9.5px/1 inherit;color:#211E1C"><span style="width:18px;height:18px;background:#4A443C;border-radius:5px"></span>홈</span>
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;font:700 9.5px/1 inherit;color:#8D8579"><span style="width:18px;height:18px;background:#D8D1C7;border-radius:5px"></span>기록</span>
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;font:700 9.5px/1 inherit;color:#8D8579"><span style="width:18px;height:18px;background:#D8D1C7;border-radius:5px"></span>준비템</span>
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;font:700 9.5px/1 inherit;color:#8D8579"><span style="width:18px;height:18px;background:#D8D1C7;border-radius:5px"></span>리포트</span>
+          <span style="flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;font:700 9.5px/1 inherit;color:#211E1C;background:#F5F1EB;border-radius:0 10px 10px 0;position:relative"><span style="width:18px;height:18px;border:2px solid #211E1C;border-radius:9px;box-sizing:border-box"></span>프로필<span style="position:absolute;top:4px;right:6px;font:700 7px/1 inherit;padding:2px 4px;background:#C94627;color:#fff;border-radius:3px">NEW</span></span>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">높이 64dp · 아이콘 24(MDI account-circle-outline / 활성 account-circle) · 라벨 11dp 700 · 활성 색 브랜드 코랄. 기존 홈의 "가족" 바로가기와 각 화면에 흩어져 있던 설정 진입점을 프로필 탭으로 통합.</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <span style="font:800 15px/1 inherit;color:#4A443C">A. 인증 · 온보딩</span>
+    <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">AUTH-01</span><span style="font:700 12px/1 inherit">로그인</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px">
+          <div style="flex:1"></div>
+          <div style="width:64px;height:64px;border:1.5px dashed #C5BCB1;border-radius:50%;align-self:center;display:flex;align-items:center;justify-content:center;font:600 9px/1 inherit;color:#8D8579">로고</div>
+          <div style="width:120px;height:14px;background:#ECE7E0;border-radius:4px;align-self:center"></div>
+          <div style="width:170px;height:9px;background:#F0EDE8;border-radius:4px;align-self:center"></div>
+          <div style="flex:1"></div>
+          <div style="height:44px;background:#4A443C;border-radius:10px;display:flex;align-items:center;justify-content:center;font:700 10px/1 inherit;color:#fff">카카오로 시작하기</div>
+          <div style="height:44px;background:#ECE7E0;border-radius:10px;display:flex;align-items:center;justify-content:center;font:700 10px/1 inherit;color:#4A443C">Apple로 시작하기</div>
+          <div style="display:flex;gap:6px;align-items:center;font:400 9px/1.4 inherit;color:#8D8579"><span style="width:14px;height:14px;border:1.5px solid #B9B1A7;border-radius:4px;box-sizing:border-box"></span>서비스 약관 · 개인정보 처리방침 동의 (필수)</div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">동의 게이트 통과 전 CTA 비활성. 로그인 성공 → ONB-01.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">ONB-01</span><span style="font:700 12px/1 inherit">아이 정보</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:4px"><span style="flex:1;height:4px;background:#4A443C;border-radius:2px"></span><span style="flex:1;height:4px;background:#ECE7E0;border-radius:2px"></span><span style="flex:1;height:4px;background:#ECE7E0;border-radius:2px"></span></div>
+          <div style="width:160px;height:14px;background:#ECE7E0;border-radius:4px;margin-top:8px"></div>
+          <div style="width:200px;height:9px;background:#F0EDE8;border-radius:4px"></div>
+          <div style="display:flex;gap:8px;margin-top:8px"><div style="flex:1;height:56px;border:1.5px solid #4A443C;border-radius:12px;display:flex;align-items:center;justify-content:center;font:700 10px/1 inherit">임신 중</div><div style="flex:1;height:56px;border:1.5px solid #D8D1C7;border-radius:12px;display:flex;align-items:center;justify-content:center;font:700 10px/1 inherit;color:#8D8579">육아 중</div></div>
+          <div style="height:44px;border:1.5px solid #D8D1C7;border-radius:10px;display:flex;align-items:center;padding:0 10px;font:400 10px/1 inherit;color:#8D8579;box-sizing:border-box">태명 · 이름</div>
+          <div style="height:44px;border:1.5px solid #D8D1C7;border-radius:10px;display:flex;align-items:center;padding:0 10px;font:400 10px/1 inherit;color:#8D8579;box-sizing:border-box">출산 예정일 📅</div>
+          <div style="flex:1"></div>
+          <div style="height:44px;background:#4A443C;border-radius:10px;display:flex;align-items:center;justify-content:center;font:700 10px/1 inherit;color:#fff">저장하고 계속</div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">단계(임신/육아) 선택에 따라 입력 필드 분기.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">ONB-02</span><span style="font:700 12px/1 inherit">준비 현황 체크</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:4px"><span style="flex:1;height:4px;background:#4A443C;border-radius:2px"></span><span style="flex:1;height:4px;background:#4A443C;border-radius:2px"></span><span style="flex:1;height:4px;background:#ECE7E0;border-radius:2px"></span></div>
+          <div style="width:180px;height:14px;background:#ECE7E0;border-radius:4px;margin-top:8px"></div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
+            <div style="height:64px;border:1.5px solid #4A443C;background:#F5F1EB;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8.5px/1 inherit"><span style="width:16px;height:16px;background:#D8D1C7;border-radius:4px"></span>유모차 ✓</div>
+            <div style="height:64px;border:1.5px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8.5px/1 inherit;color:#8D8579"><span style="width:16px;height:16px;background:#ECE7E0;border-radius:4px"></span>카시트</div>
+            <div style="height:64px;border:1.5px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8.5px/1 inherit;color:#8D8579"><span style="width:16px;height:16px;background:#ECE7E0;border-radius:4px"></span>젖병</div>
+            <div style="height:64px;border:1.5px solid #4A443C;background:#F5F1EB;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8.5px/1 inherit"><span style="width:16px;height:16px;background:#D8D1C7;border-radius:4px"></span>침대 ✓</div>
+            <div style="height:64px;border:1.5px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8.5px/1 inherit;color:#8D8579"><span style="width:16px;height:16px;background:#ECE7E0;border-radius:4px"></span>속싸개</div>
+            <div style="height:64px;border:1.5px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8.5px/1 inherit;color:#8D8579"><span style="width:16px;height:16px;background:#ECE7E0;border-radius:4px"></span>체온계</div>
+          </div>
+          <span style="font:400 9px/1.4 inherit;color:#8D8579">…12개 품목, 3열 그리드</span>
+          <div style="flex:1"></div>
+          <div style="height:44px;background:#4A443C;border-radius:10px;display:flex;align-items:center;justify-content:center;font:700 10px/1 inherit;color:#fff">저장하고 계속</div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">이미 보유한 품목 선택 → 준비템 초기 상태로 반영.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">ONB-03</span><span style="font:700 12px/1 inherit">월 예산</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:4px"><span style="flex:1;height:4px;background:#4A443C;border-radius:2px"></span><span style="flex:1;height:4px;background:#4A443C;border-radius:2px"></span><span style="flex:1;height:4px;background:#4A443C;border-radius:2px"></span></div>
+          <div style="width:150px;height:14px;background:#ECE7E0;border-radius:4px;margin-top:8px"></div>
+          <div style="width:200px;height:9px;background:#F0EDE8;border-radius:4px"></div>
+          <div style="height:52px;border:1.5px solid #4A443C;border-radius:10px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font:700 13px/1 inherit;box-sizing:border-box">500,000 <span style="font:400 10px/1 inherit;color:#8D8579;margin-left:4px">원</span></div>
+          <span style="font:400 9px/1.4 inherit;color:#8D8579">기본값 500,000원 · 나중에 프로필에서 변경 가능</span>
+          <div style="flex:1"></div>
+          <div style="height:44px;background:#4A443C;border-radius:10px;display:flex;align-items:center;justify-content:center;font:700 10px/1 inherit;color:#fff">이대로 시작하기</div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">완료 → HOME-01. 예산 변경 경로는 PF-04와 공유.</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <span style="font:800 15px/1 inherit;color:#4A443C">B. 메인 탭 (5)</span>
+    <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">HOME-01</span><span style="font:700 12px/1 inherit">홈</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px 12px 0;box-sizing:border-box;display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;justify-content:space-between;align-items:center"><span style="display:flex;gap:5px;align-items:center"><span style="width:64px;height:13px;background:#ECE7E0;border-radius:4px"></span><span style="width:44px;height:14px;background:#F0EDE8;border-radius:7px"></span></span><span style="width:20px;height:20px;border:1.5px solid #D8D1C7;border-radius:6px;box-sizing:border-box"></span></div>
+          <div style="height:84px;background:#4A443C;border-radius:14px;padding:10px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;justify-content:center">
+            <span style="width:64px;height:8px;background:rgba(255,255,255,.4);border-radius:3px"></span>
+            <span style="width:110px;height:15px;background:rgba(255,255,255,.85);border-radius:4px"></span>
+            <span style="height:6px;background:rgba(255,255,255,.25);border-radius:3px"><span style="display:block;width:78%;height:6px;background:#fff;border-radius:3px"></span></span>
+          </div>
+          <div style="display:flex;gap:6px">
+            <span style="flex:1;height:52px;border:1px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font:600 8px/1 inherit;color:#6E6659"><span style="width:16px;height:16px;background:#ECE7E0;border-radius:5px"></span>지출 기록</span>
+            <span style="flex:1;height:52px;border:1px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font:600 8px/1 inherit;color:#6E6659"><span style="width:16px;height:16px;background:#ECE7E0;border-radius:5px"></span>준비템</span>
+            <span style="flex:1;height:52px;border:1px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font:600 8px/1 inherit;color:#6E6659"><span style="width:16px;height:16px;background:#ECE7E0;border-radius:5px"></span>리포트</span>
+            <span style="flex:1;height:52px;border:1px solid #4A443C;background:#F5F1EB;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font:600 8px/1 inherit"><span style="width:16px;height:16px;background:#D8D1C7;border-radius:8px"></span>프로필</span>
+          </div>
+          <div style="height:44px;border:1px solid #D8D1C7;border-radius:10px;display:flex;align-items:center;gap:8px;padding:0 10px;box-sizing:border-box"><span style="width:24px;height:24px;background:#ECE7E0;border-radius:8px"></span><span style="flex:1;display:flex;flex-direction:column;gap:3px"><span style="width:110px;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:80px;height:6px;background:#F0EDE8;border-radius:3px"></span></span><span style="color:#B9B1A7">›</span></div>
+          <span style="display:flex;justify-content:space-between;align-items:baseline"><span style="width:56px;height:11px;background:#ECE7E0;border-radius:3px"></span><span style="width:40px;height:8px;background:#F0EDE8;border-radius:3px"></span></span>
+          <div style="flex:1;border:1px solid #D8D1C7;border-radius:10px 10px 0 0;border-bottom:none;padding:8px 10px;display:flex;flex-direction:column;gap:8px;overflow:hidden">
+            <span style="display:flex;gap:8px;align-items:center"><span style="width:22px;height:22px;background:#ECE7E0;border-radius:11px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:40px;height:8px;background:#D8D1C7;border-radius:3px"></span></span>
+            <span style="display:flex;gap:8px;align-items:center"><span style="width:22px;height:22px;background:#ECE7E0;border-radius:11px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:40px;height:8px;background:#D8D1C7;border-radius:3px"></span></span>
+            <span style="display:flex;gap:8px;align-items:center"><span style="width:22px;height:22px;background:#ECE7E0;border-radius:11px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:40px;height:8px;background:#D8D1C7;border-radius:3px"></span></span>
+          </div>
+          <div style="height:40px;margin:0 -12px;border-top:1.5px solid #D8D1C7;display:flex;font:700 7.5px/1 inherit;color:#8D8579"><span style="flex:1;display:flex;align-items:center;justify-content:center;color:#211E1C">● 홈</span><span style="flex:1;display:flex;align-items:center;justify-content:center">기록</span><span style="flex:1;display:flex;align-items:center;justify-content:center">준비템</span><span style="flex:1;display:flex;align-items:center;justify-content:center">리포트</span><span style="flex:1;display:flex;align-items:center;justify-content:center">프로필</span></div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">예산 히어로(코랄 솔리드) + 바로가기 4 (가족 → 프로필로 교체) + 준비 넛지 + 최근 지출 3건.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">REC-01</span><span style="font:700 12px/1 inherit">기록</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px 12px 0;box-sizing:border-box;display:flex;flex-direction:column;gap:9px;position:relative">
+          <span style="width:44px;height:14px;background:#ECE7E0;border-radius:4px"></span>
+          <div style="height:36px;border:1.5px solid #D8D1C7;border-radius:9px;display:flex;align-items:center;padding:0 10px;font:400 9px/1 inherit;color:#8D8579;box-sizing:border-box">🔍 품목·메모 검색</div>
+          <div style="display:flex;gap:5px"><span style="height:22px;padding:0 9px;background:#4A443C;color:#fff;border-radius:11px;font:600 8px/22px inherit">전체</span><span style="height:22px;padding:0 9px;border:1px solid #D8D1C7;border-radius:11px;font:600 8px/22px inherit;color:#8D8579">병원·건강</span><span style="height:22px;padding:0 9px;border:1px solid #D8D1C7;border-radius:11px;font:600 8px/22px inherit;color:#8D8579">의류</span></div>
+          <span style="width:70px;height:9px;background:#ECE7E0;border-radius:3px"></span>
+          <div style="border:1px solid #D8D1C7;border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:8px">
+            <span style="display:flex;gap:8px;align-items:center"><span style="width:22px;height:22px;background:#ECE7E0;border-radius:11px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:40px;height:8px;background:#D8D1C7;border-radius:3px"></span></span>
+            <span style="display:flex;gap:8px;align-items:center"><span style="width:22px;height:22px;background:#ECE7E0;border-radius:11px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:40px;height:8px;background:#D8D1C7;border-radius:3px"></span></span>
+          </div>
+          <span style="width:70px;height:9px;background:#ECE7E0;border-radius:3px"></span>
+          <div style="flex:1;border:1px solid #D8D1C7;border-radius:10px 10px 0 0;border-bottom:none;padding:8px 10px;display:flex;flex-direction:column;gap:8px;overflow:hidden">
+            <span style="display:flex;gap:8px;align-items:center"><span style="width:22px;height:22px;background:#ECE7E0;border-radius:11px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:40px;height:8px;background:#D8D1C7;border-radius:3px"></span></span>
+            <span style="display:flex;gap:8px;align-items:center"><span style="width:22px;height:22px;background:#ECE7E0;border-radius:11px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:40px;height:8px;background:#D8D1C7;border-radius:3px"></span></span>
+          </div>
+          <div style="position:absolute;right:12px;bottom:52px;width:44px;height:44px;background:#4A443C;border-radius:22px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px">+</div>
+          <div style="height:40px;margin:0 -12px;border-top:1.5px solid #D8D1C7;display:flex;font:700 7.5px/1 inherit;color:#8D8579"><span style="flex:1;display:flex;align-items:center;justify-content:center">홈</span><span style="flex:1;display:flex;align-items:center;justify-content:center;color:#211E1C">● 기록</span><span style="flex:1;display:flex;align-items:center;justify-content:center">준비템</span><span style="flex:1;display:flex;align-items:center;justify-content:center">리포트</span><span style="flex:1;display:flex;align-items:center;justify-content:center">프로필</span></div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">날짜별 그룹 목록 + 검색·카테고리 필터. FAB → REC-02.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">REC-02</span><span style="font:700 12px/1 inherit">지출 기록 시트</span></span>
+        <div style="height:452px;background:#8d8579;border:1.5px solid #B9B1A7;border-radius:14px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden">
+          <div style="background:#fff;border-radius:18px 18px 0 0;padding:14px 14px 18px;display:flex;flex-direction:column;gap:10px">
+            <span style="width:36px;height:4px;background:#D8D1C7;border-radius:2px;align-self:center"></span>
+            <span style="display:flex;justify-content:space-between;align-items:center"><span style="font:800 12px/1 inherit">지출 기록</span><span style="color:#8D8579">✕</span></span>
+            <div style="height:40px;border:1.5px solid #D8D1C7;border-radius:9px;display:flex;align-items:center;padding:0 10px;font:400 9px/1 inherit;color:#8D8579;box-sizing:border-box">품목 · 예: 배냇저고리</div>
+            <div style="height:44px;border:1.5px solid #4A443C;border-radius:9px;display:flex;align-items:center;justify-content:flex-end;padding:0 10px;font:700 12px/1 inherit;box-sizing:border-box">45,000 <span style="font:400 9px/1 inherit;color:#8D8579;margin-left:3px">원</span></div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap"><span style="height:22px;padding:0 9px;background:#4A443C;color:#fff;border-radius:11px;font:600 8px/22px inherit">병원·건강</span><span style="height:22px;padding:0 9px;border:1px solid #D8D1C7;border-radius:11px;font:600 8px/22px inherit;color:#8D8579">의류·잡화</span><span style="height:22px;padding:0 9px;border:1px solid #D8D1C7;border-radius:11px;font:600 8px/22px inherit;color:#8D8579">산모 케어</span></div>
+            <div style="height:44px;background:#4A443C;border-radius:10px;display:flex;align-items:center;justify-content:center;font:700 10px/1 inherit;color:#fff">저장하기</div>
+          </div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">저장 → 스낵바 "기록을 저장했어요 👏" · 실패 시 입력 보존.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">ITEM-01·02</span><span style="font:700 12px/1 inherit">준비템 + 상태 시트</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px 12px 0;box-sizing:border-box;display:flex;flex-direction:column;gap:9px;position:relative;overflow:hidden">
+          <span style="width:56px;height:14px;background:#ECE7E0;border-radius:4px"></span>
+          <div style="height:30px;background:#F0EDE8;border-radius:9px;display:flex;padding:3px;box-sizing:border-box;font:700 8.5px/1 inherit"><span style="flex:1;background:#fff;border-radius:7px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 2px rgba(0,0,0,.08)">맞춤</span><span style="flex:1;display:flex;align-items:center;justify-content:center;color:#8D8579">전체</span><span style="flex:1;display:flex;align-items:center;justify-content:center;color:#8D8579">내 준비함</span></div>
+          <div style="display:flex;gap:5px"><span style="height:22px;padding:0 9px;background:#4A443C;color:#fff;border-radius:11px;font:600 8px/22px inherit">임신 후기</span><span style="height:22px;padding:0 9px;border:1px solid #D8D1C7;border-radius:11px;font:600 8px/22px inherit;color:#8D8579">신생아</span></div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+            <div style="height:74px;border:1px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8px/1 inherit"><span style="width:18px;height:18px;background:#ECE7E0;border-radius:5px"></span>유모차<span style="font:600 7px/1 inherit;padding:2px 5px;background:#F0EDE8;border-radius:6px;color:#6E6659">알아보기</span></div>
+            <div style="height:74px;border:1px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8px/1 inherit"><span style="width:18px;height:18px;background:#ECE7E0;border-radius:5px"></span>카시트<span style="font:600 7px/1 inherit;padding:2px 5px;background:#F0EDE8;border-radius:6px;color:#6E6659">예정</span></div>
+            <div style="height:74px;border:1px solid #4A443C;background:#F5F1EB;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8px/1 inherit"><span style="width:18px;height:18px;background:#D8D1C7;border-radius:5px"></span>젖병<span style="font:600 7px/1 inherit;padding:2px 5px;background:#4A443C;color:#fff;border-radius:6px">보유</span></div>
+            <div style="height:74px;border:1px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8px/1 inherit"><span style="width:18px;height:18px;background:#ECE7E0;border-radius:5px"></span>아기 침대<span style="font:600 7px/1 inherit;padding:2px 5px;background:#F0EDE8;border-radius:6px;color:#6E6659">주문</span></div>
+            <div style="height:74px;border:1px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8px/1 inherit"><span style="width:18px;height:18px;background:#ECE7E0;border-radius:5px"></span>속싸개<span style="font:600 7px/1 inherit;padding:2px 5px;background:#4A443C;color:#fff;border-radius:6px">보유</span></div>
+            <div style="height:74px;border:1px solid #D8D1C7;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 8px/1 inherit"><span style="width:18px;height:18px;background:#ECE7E0;border-radius:5px"></span>체온계<span style="font:600 7px/1 inherit;padding:2px 5px;background:#F0EDE8;border-radius:6px;color:#6E6659">알아보기</span></div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:0;background:rgba(33,30,28,.35);height:150px;display:flex;flex-direction:column;justify-content:flex-end">
+            <div style="background:#fff;border-radius:16px 16px 0 0;padding:12px;display:flex;flex-direction:column;gap:8px">
+              <span style="font:800 11px/1 inherit">유모차 — 상태 변경</span>
+              <div style="display:flex;gap:4px;font:600 7.5px/1 inherit"><span style="flex:1;height:30px;border:1.5px solid #4A443C;background:#F5F1EB;border-radius:8px;display:flex;align-items:center;justify-content:center">알아보기</span><span style="flex:1;height:30px;border:1px solid #D8D1C7;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#8D8579">예정</span><span style="flex:1;height:30px;border:1px solid #D8D1C7;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#8D8579">주문</span><span style="flex:1;height:30px;border:1px solid #D8D1C7;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#8D8579">보유</span></div>
+              <div style="height:38px;background:#4A443C;border-radius:9px;display:flex;align-items:center;justify-content:center;font:700 9.5px/1 inherit;color:#fff">저장</div>
+            </div>
+          </div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">카드 탭 → 상태 바텀시트(ITEM-02). 상태는 목록·리포트에 즉시 반영.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">REP-01</span><span style="font:700 12px/1 inherit">리포트</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px 12px 0;box-sizing:border-box;display:flex;flex-direction:column;gap:9px">
+          <span style="width:56px;height:14px;background:#ECE7E0;border-radius:4px"></span>
+          <div style="height:30px;background:#F0EDE8;border-radius:9px;display:flex;padding:3px;box-sizing:border-box;font:700 8.5px/1 inherit"><span style="flex:1;background:#fff;border-radius:7px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 2px rgba(0,0,0,.08)">월</span><span style="flex:1;display:flex;align-items:center;justify-content:center;color:#8D8579">분기</span><span style="flex:1;display:flex;align-items:center;justify-content:center;color:#8D8579">연간</span></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font:700 9.5px/1 inherit;color:#6E6659"><span>‹</span><span>2026년 7월</span><span style="color:#D8D1C7">›</span></div>
+          <div style="border:1px solid #D8D1C7;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px">
+            <span style="width:120px;height:15px;background:#ECE7E0;border-radius:4px"></span>
+            <span style="width:160px;height:8px;background:#F0EDE8;border-radius:3px"></span>
+            <span style="display:flex;gap:6px;align-items:center"><span style="width:44px;height:7px;background:#F0EDE8;border-radius:3px"></span><span style="flex:1;height:7px;background:#F0EDE8;border-radius:4px"><span style="display:block;width:80%;height:7px;background:#4A443C;border-radius:4px"></span></span><span style="width:34px;height:7px;background:#D8D1C7;border-radius:3px"></span></span>
+            <span style="display:flex;gap:6px;align-items:center"><span style="width:44px;height:7px;background:#F0EDE8;border-radius:3px"></span><span style="flex:1;height:7px;background:#F0EDE8;border-radius:4px"><span style="display:block;width:55%;height:7px;background:#6E6659;border-radius:4px"></span></span><span style="width:34px;height:7px;background:#D8D1C7;border-radius:3px"></span></span>
+            <span style="display:flex;gap:6px;align-items:center"><span style="width:44px;height:7px;background:#F0EDE8;border-radius:3px"></span><span style="flex:1;height:7px;background:#F0EDE8;border-radius:4px"><span style="display:block;width:38%;height:7px;background:#8D8579;border-radius:4px"></span></span><span style="width:34px;height:7px;background:#D8D1C7;border-radius:3px"></span></span>
+            <span style="font:400 8px/1.4 inherit;color:#8D8579">표로 보기 (접근성 데이터 테이블)</span>
+          </div>
+          <div style="flex:1;border:1px solid #D8D1C7;border-radius:12px 12px 0 0;border-bottom:none;padding:10px;display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center">
+            <span style="width:26px;height:26px;border:1.5px dashed #C5BCB1;border-radius:8px"></span>
+            <span style="font:600 8.5px/1.4 inherit;color:#6E6659">아직 추이를 보여드릴 수 없어요</span>
+            <span style="font:400 7.5px/1.4 inherit;color:#8D8579">두 달 이상 기록이 모이면 표시 (가짜 데이터 0)</span>
+          </div>
+          <div style="height:40px;margin:0 -12px;border-top:1.5px solid #D8D1C7;display:flex;font:700 7.5px/1 inherit;color:#8D8579"><span style="flex:1;display:flex;align-items:center;justify-content:center">홈</span><span style="flex:1;display:flex;align-items:center;justify-content:center">기록</span><span style="flex:1;display:flex;align-items:center;justify-content:center">준비템</span><span style="flex:1;display:flex;align-items:center;justify-content:center;color:#211E1C">● 리포트</span><span style="flex:1;display:flex;align-items:center;justify-content:center">프로필</span></div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">기록 3건 미만 구간은 차트 대신 빈 상태 + CTA.</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <span style="display:flex;gap:8px;align-items:center"><span style="font:800 15px/1 inherit;color:#4A443C">C. 프로필 탭</span><span style="font:700 9px/1 inherit;padding:3px 6px;background:#C94627;color:#fff;border-radius:4px">NEW</span></span>
+    <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">PF-01</span><span style="font:700 12px/1 inherit">프로필 홈</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px 12px 0;box-sizing:border-box;display:flex;flex-direction:column;gap:8px">
+          <span style="width:52px;height:14px;background:#ECE7E0;border-radius:4px"></span>
+          <div style="border:1px solid #D8D1C7;border-radius:12px;padding:9px 10px;display:flex;gap:8px;align-items:center"><span style="width:32px;height:32px;border:1.5px dashed #C5BCB1;border-radius:16px;flex:none"></span><span style="flex:1;display:flex;flex-direction:column;gap:3px"><span style="width:66px;height:10px;background:#ECE7E0;border-radius:3px"></span><span style="width:96px;height:7px;background:#F0EDE8;border-radius:3px"></span></span><span style="width:52px;height:16px;background:#F0EDE8;border-radius:8px"></span></div>
+          <span style="font:700 8px/1 inherit;color:#8D8579">아이 · 산모</span>
+          <div style="border:1px solid #D8D1C7;border-radius:12px;padding:6px 10px;display:flex;flex-direction:column">
+            <span style="display:flex;gap:8px;align-items:center;height:30px"><span style="width:20px;height:20px;background:#ECE7E0;border-radius:10px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:34px;height:13px;background:#4A443C;border-radius:7px"></span><span style="color:#B9B1A7">›</span></span>
+            <span style="display:flex;gap:8px;align-items:center;height:30px"><span style="width:20px;height:20px;background:#ECE7E0;border-radius:10px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="color:#B9B1A7">›</span></span>
+            <span style="display:flex;gap:8px;align-items:center;height:30px"><span style="width:20px;height:20px;border:1.5px dashed #C5BCB1;border-radius:10px;box-sizing:border-box"></span><span style="flex:1;height:8px;background:#F0EDE8;border-radius:3px"></span><span style="color:#B9B1A7">›</span></span>
+          </div>
+          <span style="font:700 8px/1 inherit;color:#8D8579">가족</span>
+          <div style="border:1px solid #D8D1C7;border-radius:12px;padding:6px 10px;display:flex;flex-direction:column">
+            <span style="display:flex;gap:8px;align-items:center;height:30px"><span style="width:20px;height:20px;background:#ECE7E0;border-radius:10px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:20px;height:8px;background:#D8D1C7;border-radius:3px"></span><span style="color:#B9B1A7">›</span></span>
+            <span style="display:flex;gap:8px;align-items:center;height:30px"><span style="width:20px;height:20px;background:#ECE7E0;border-radius:10px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="color:#B9B1A7">›</span></span>
+          </div>
+          <span style="font:700 8px/1 inherit;color:#8D8579">예산 · 데이터</span>
+          <div style="border:1px solid #D8D1C7;border-radius:12px;padding:6px 10px;display:flex;flex-direction:column">
+            <span style="display:flex;gap:8px;align-items:center;height:30px"><span style="width:20px;height:20px;background:#ECE7E0;border-radius:10px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="width:44px;height:8px;background:#D8D1C7;border-radius:3px"></span><span style="color:#B9B1A7">›</span></span>
+            <span style="display:flex;gap:8px;align-items:center;height:30px"><span style="width:20px;height:20px;background:#ECE7E0;border-radius:10px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="color:#B9B1A7">›</span></span>
+          </div>
+          <span style="font:700 8px/1 inherit;color:#8D8579">설정</span>
+          <div style="flex:1;border:1px solid #D8D1C7;border-radius:12px 12px 0 0;border-bottom:none;padding:6px 10px;display:flex;flex-direction:column;overflow:hidden">
+            <span style="display:flex;gap:8px;align-items:center;height:30px"><span style="width:20px;height:20px;background:#ECE7E0;border-radius:10px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="color:#B9B1A7">›</span></span>
+            <span style="display:flex;gap:8px;align-items:center;height:30px"><span style="width:20px;height:20px;background:#ECE7E0;border-radius:10px"></span><span style="flex:1;height:8px;background:#ECE7E0;border-radius:3px"></span><span style="color:#B9B1A7">›</span></span>
+          </div>
+          <div style="height:40px;margin:0 -12px;border-top:1.5px solid #D8D1C7;display:flex;font:700 7.5px/1 inherit;color:#8D8579"><span style="flex:1;display:flex;align-items:center;justify-content:center">홈</span><span style="flex:1;display:flex;align-items:center;justify-content:center">기록</span><span style="flex:1;display:flex;align-items:center;justify-content:center">준비템</span><span style="flex:1;display:flex;align-items:center;justify-content:center">리포트</span><span style="flex:1;display:flex;align-items:center;justify-content:center;color:#211E1C">● 프로필</span></div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">가족 요약 카드 + 4개 섹션(아이·산모 / 가족 / 예산·데이터 / 설정) + 로그아웃. 알림 행에는 현재 켜진 알림 요약 표기.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">PF-02</span><span style="font:700 12px/1 inherit">아이 정보</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px">
+          <span style="display:flex;gap:6px;align-items:center;font:700 11px/1 inherit"><span style="color:#8D8579">‹</span>아이 정보</span>
+          <div style="width:72px;height:72px;border:1.5px dashed #C5BCB1;border-radius:36px;align-self:center;display:flex;align-items:center;justify-content:center;font:600 8px/1 inherit;color:#8D8579;margin-top:8px">일러스트</div>
+          <span style="width:60px;height:16px;background:#F0EDE8;border-radius:8px;align-self:center"></span>
+          <div style="height:44px;border:1.5px solid #D8D1C7;border-radius:10px;display:flex;align-items:center;padding:0 10px;font:400 9.5px/1 inherit;color:#8D8579;box-sizing:border-box">이름 (태명) — 다온이</div>
+          <div style="height:44px;border:1.5px solid #D8D1C7;border-radius:10px;display:flex;align-items:center;padding:0 10px;font:400 9.5px/1 inherit;color:#8D8579;box-sizing:border-box">출산 예정일 📅 2026.10.05</div>
+          <span style="font:400 8.5px/1.5 inherit;color:#8D8579">단계는 예정일 기준 자동 계산 (임신 → 신생아 → 영유아)</span>
+          <div style="flex:1"></div>
+          <div style="height:44px;background:#4A443C;border-radius:10px;display:flex;align-items:center;justify-content:center;font:700 10px/1 inherit;color:#fff">저장하기</div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">저장 → PF-01 복귀 + 스낵바. 온보딩 ONB-01과 동일 폼 재사용.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">PF-03</span><span style="font:700 12px/1 inherit">가족 관리 · 초대</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px">
+          <span style="display:flex;gap:6px;align-items:center;font:700 11px/1 inherit"><span style="color:#8D8579">‹</span>가족 관리</span>
+          <div style="border:1px solid #D8D1C7;border-radius:12px;padding:6px 10px;display:flex;flex-direction:column">
+            <span style="display:flex;gap:8px;align-items:center;height:32px"><span style="width:20px;height:20px;background:#ECE7E0;border-radius:10px"></span><span style="flex:1;font:600 9px/1 inherit">엄마 (나)</span><span style="font:600 7px/1 inherit;padding:3px 6px;background:#4A443C;color:#fff;border-radius:7px">관리자</span></span>
+            <span style="display:flex;gap:8px;align-items:center;height:32px"><span style="width:20px;height:20px;background:#ECE7E0;border-radius:10px"></span><span style="flex:1;font:600 9px/1 inherit">아빠</span><span style="font:600 7px/1 inherit;padding:3px 6px;background:#F0EDE8;border-radius:7px;color:#6E6659">기록 가능</span></span>
+          </div>
+          <div style="border:1px solid #D8D1C7;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center">
+            <span style="width:84px;height:56px;border:1.5px dashed #C5BCB1;border-radius:10px;display:flex;align-items:center;justify-content:center;font:600 8px/1 inherit;color:#8D8579">가족 일러스트</span>
+            <span style="font:700 10px/1.4 inherit">가족을 초대해 함께 기록해요</span>
+            <span style="width:100%;height:30px;border:1.5px dashed #C5BCB1;border-radius:8px;display:flex;align-items:center;padding:0 8px;font:400 8px/1 ui-monospace,monospace;color:#8D8579;box-sizing:border-box">woori.ai/invite/DAON-4F2K</span>
+            <span style="width:100%;height:38px;background:#4A443C;border-radius:9px;display:flex;align-items:center;justify-content:center;font:700 9px/1 inherit;color:#fff">초대 링크 복사</span>
+          </div>
+          <span style="font:400 8.5px/1.5 inherit;color:#8D8579">링크 24시간 유효 · 권한: 관리자 / 기록 가능 / 보기 전용</span>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">구성원 행 탭 → 권한 변경 바텀시트(관리자만).</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">PF-04</span><span style="font:700 12px/1 inherit">월 예산 설정</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px">
+          <span style="display:flex;gap:6px;align-items:center;font:700 11px/1 inherit"><span style="color:#8D8579">‹</span>월 예산 설정</span>
+          <div style="height:52px;border:1.5px solid #4A443C;border-radius:10px;display:flex;align-items:center;justify-content:flex-end;padding:0 12px;font:700 13px/1 inherit;box-sizing:border-box;margin-top:6px">500,000 <span style="font:400 10px/1 inherit;color:#8D8579;margin-left:4px">원</span></div>
+          <span style="font:400 8.5px/1.4 inherit;color:#8D8579">매월 1일 기준으로 관리돼요.</span>
+          <div style="border:1px solid #D8D1C7;border-radius:12px;padding:10px;display:flex;gap:8px;align-items:center"><span style="width:26px;height:26px;background:#ECE7E0;border-radius:9px;flex:none"></span><span style="display:flex;flex-direction:column;gap:3px"><span style="font:700 9px/1 inherit">이번 달 지출 389,700원</span><span style="font:400 8px/1.4 inherit;color:#8D8579">예산의 78%를 사용했어요</span></span></div>
+          <div style="flex:1"></div>
+          <div style="height:44px;background:#4A443C;border-radius:10px;display:flex;align-items:center;justify-content:center;font:700 10px/1 inherit;color:#fff">저장하기</div>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">저장 → 홈 히어로·리포트 즉시 반영. 온보딩 ONB-03과 동일 폼.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:232px">
+        <span style="display:flex;gap:6px;align-items:baseline"><span style="font:700 10px/1 ui-monospace,monospace;padding:3px 6px;background:#211E1C;color:#fff;border-radius:4px">PF-05</span><span style="font:700 12px/1 inherit">알림 설정</span></span>
+        <div style="height:452px;background:#fff;border:1.5px solid #B9B1A7;border-radius:14px;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px">
+          <span style="display:flex;gap:6px;align-items:center;font:700 11px/1 inherit"><span style="color:#8D8579">‹</span>알림 설정</span>
+          <div style="height:46px;border:1.5px solid #4A443C;background:#F5F1EB;border-radius:12px;display:flex;align-items:center;gap:8px;padding:0 12px;box-sizing:border-box"><span style="width:16px;height:16px;background:#4A443C;border-radius:5px;color:#fff;font:800 10px/16px inherit;text-align:center">✓</span><span style="flex:1;font:700 9.5px/1 inherit">준비 시기 알림</span></div>
+          <div style="height:46px;border:1.5px solid #4A443C;background:#F5F1EB;border-radius:12px;display:flex;align-items:center;gap:8px;padding:0 12px;box-sizing:border-box"><span style="width:16px;height:16px;background:#4A443C;border-radius:5px;color:#fff;font:800 10px/16px inherit;text-align:center">✓</span><span style="flex:1;font:700 9.5px/1 inherit">예산 초과 경고</span></div>
+          <div style="height:46px;border:1.5px solid #4A443C;background:#F5F1EB;border-radius:12px;display:flex;align-items:center;gap:8px;padding:0 12px;box-sizing:border-box"><span style="width:16px;height:16px;background:#4A443C;border-radius:5px;color:#fff;font:800 10px/16px inherit;text-align:center">✓</span><span style="flex:1;font:700 9.5px/1 inherit">가족 활동 알림</span></div>
+          <div style="height:46px;border:1.5px solid #D8D1C7;border-radius:12px;display:flex;align-items:center;gap:8px;padding:0 12px;box-sizing:border-box"><span style="width:16px;height:16px;border:1.5px solid #B9B1A7;border-radius:5px;box-sizing:border-box"></span><span style="flex:1;font:700 9.5px/1 inherit;color:#8D8579">소식 · 혜택 알림</span></div>
+          <span style="font:400 8.5px/1.5 inherit;color:#8D8579">준비 시기 알림은 아이 단계에 맞춰 필요한 때에만 발송.</span>
+        </div>
+        <span style="font:400 10.5px/1.5 inherit;color:#8D8579">토글 즉시 저장 (별도 저장 버튼 없음) · 마케팅 수신은 기본 꺼짐.</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "status": "PARTIAL_MOBBIN_ACCESS",
+  "mcp": {
+    "available": false,
+    "indexedResults": 0
+  },
+  "publicAccess": {
+    "openedPatternPages": 24,
+    "onboardingMetadataReferencesMinimum": 282,
+    "metadataReviewedApps": 40,
+    "metadataLevelFlowsReviewed": 24,
+    "visuallyDeepReviewedScreens": 0
+  },
+  "distinction": "Public HTML metadata and flow descriptions were reviewed; authenticated full-screen visual review and platform-filtered MCP indexing were unavailable.",
+  "sources": [
+    "https://mobbin.com/explore/mobile/flows",
+    "https://mobbin.com/explore/mobile/flows/onboarding",
+    "https://mobbin.com/mcp",
+    "https://docs.mobbin.com/api/quickstart"
+  ],
+  "apps": [
+    "Airbnb",
+    "Revolut",
+    "Spotify",
+    "Headspace",
+    "Wise",
+    "Uber",
+    "Uber Eats",
+    "Ahead",
+    "Mozi",
+    "Luma",
+    "Instagram",
+    "Calm",
+    "Flo",
+    "N26",
+    "Monzo",
+    "PayPal",
+    "Venmo",
+    "Cash App",
+    "Notion",
+    "Todoist",
+    "Asana",
+    "Trello",
+    "Slack",
+    "Microsoft Teams",
+    "Google Calendar",
+    "Apple Health",
+    "Fitbit",
+    "Strava",
+    "Duolingo",
+    "Pinterest",
+    "Amazon",
+    "Etsy",
+    "Shopify",
+    "DoorDash",
+    "Deliveroo",
+    "YNAB",
+    "Copilot Money",
+    "Splitwise",
+    "FamilyWall",
+    "Cozi"
+  ],
+  "accessLimits": [
+    "no MCP resource/tool",
+    "no API key",
+    "no authenticated full screenshot corpus",
+    "iOS/Android split not quantifiable"
+  ]
+}

@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-26T14:57:00.707Z",
+  "sourceHead": "edaf1f3850ac1f66055440eb04b51445d5ae4069",
+  "status": "CANDIDATES_PREPARED_EXTERNAL_APPROVAL_REQUIRED",
+  "targetSize": 12,
+  "eligibleCount": 321,
+  "selectionPolicy": [
+    "status=in_review",
+    "structurallyValid=true",
+    "safetyTier=normal",
+    "sourceEvidence=attached",
+    "duplicateSuspicion=false",
+    "onboardingPriority desc",
+    "displayOrder asc",
+    "code asc"
+  ],
+  "approvalExecuted": false,
+  "publishExecuted": false,
+  "candidates": [
+    {
+      "order": 1,
+      "code": "R4-C10-001",
+      "nameKo": "신생아 기저귀",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "required",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 1000,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 2,
+      "code": "R4-C11-001",
+      "nameKo": "신생아 욕조",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "required",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 940,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 3,
+      "code": "R4-C11-005",
+      "nameKo": "후드형 아기 타월",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "required",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 930,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 4,
+      "code": "R4-C13-001",
+      "nameKo": "신생아 배냇저고리",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "required",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 920,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 5,
+      "code": "R4-C08-004",
+      "nameKo": "젖병",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "conditional",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 900,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 6,
+      "code": "R4-C10-004",
+      "nameKo": "물티슈",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "recommended",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 880,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 7,
+      "code": "R4-C13-002",
+      "nameKo": "아기 바디수트",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "recommended",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 870,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 8,
+      "code": "R4-C11-010",
+      "nameKo": "아기 손톱가위",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "recommended",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 860,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 9,
+      "code": "R4-C11-007",
+      "nameKo": "아기 바디 세정제",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "recommended",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 850,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 10,
+      "code": "R4-C11-008",
+      "nameKo": "아기 보습제",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "recommended",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 840,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 11,
+      "code": "R4-C11-003",
+      "nameKo": "목욕물 온도계",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "recommended",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 830,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "order": 12,
+      "code": "R4-C08-007",
+      "nameKo": "젖병 세척솔",
+      "revision": 2,
+      "contentHash": null,
+      "necessity": "recommended",
+      "audience": "child",
+      "onboardingEligible": true,
+      "onboardingPriority": 820,
+      "publishBlockers": [
+        "REVISION_HASH_NOT_ESTABLISHED",
+        "EDITORIAL_APPROVAL_REQUIRED",
+        "DOMAIN_APPROVAL_REQUIRED"
+      ]
+    }
+  ]
+}

@@ -32,6 +32,10 @@ export class CreateExpenseDto {
   paymentMethod?: PaymentMethod;
 
   @IsOptional()
+  @IsUUID()
+  paymentMethodId?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(500)
   memo?: string;
@@ -39,6 +43,18 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsUUID()
   linkedItemTemplateId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  linkedItemDefinitionId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  expenseCategoryV2Id?: string;
+
+  @IsOptional()
+  @IsUUID()
+  payerUserId?: string;
 
   @IsOptional()
   @IsIn([...creatableExpenseTypes])
@@ -73,6 +89,18 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsIn([...creatableExpenseTypes])
   expenseType?: CreatableExpenseType;
+
+  @IsOptional()
+  @IsIn([...PAYMENT_METHODS])
+  paymentMethod?: PaymentMethod;
+
+  @IsOptional()
+  @IsUUID()
+  paymentMethodId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  payerUserId?: string;
 
   /**
    * Optimistic-concurrency guard (MOB-103, design doc §2.2). Omitted by legacy

@@ -1,25 +1,40 @@
-import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
-import { Image, Text, View, type ImageSourcePropType } from "react-native";
-import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
-import { useSelectedChildStore } from "../../src/stores/selected-child.store";
-import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton } from "../../src/ui";
-import { theme } from "../../src/theme";
+import { router, type Href } from "expo-router";
+import { useState } from "react";
+import { View } from "react-native";
+import { AppScreen } from "../../src/design-system";
+import {
+  PreparationListParity,
+  type PreparationParityItem
+} from "../../src/preparation/PreparationListParity";
+import { Release4PreparationScreen } from "../../src/preparation/Release4PreparationScreen";
+import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
 import { ItemListPixelStyles } from "../../src/pixelLock/styles";
-import { itemMatchesBand, resolveDefaultStageLabel } from "../../src/items/stage-bands";
 
-const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
+const isPixelLockMode = isPixelLockBuild();
 
-const toddlerImage = require("../../assets/illustrations/toddler.png");
-const recommendationBabyCarrierImage = require("../../assets/illustrations/recommendation_baby_carrier.png");
-const recommendationDiaperImage = require("../../assets/illustrations/recommendation_diaper.png");
-const recommendationBlocksImage = require("../../assets/illustrations/recommendation_blocks.png");
-const tabOptions = ["0-6개월", "6-12개월", "12-24개월", "24개월+"] as const;
-const recommendationScreenId = "pixel-screen-ITEM-001 ITEM-001";
-const recommendationHorizontalOffset = 0;
-const recommendationVerticalOffset = 0;
+const pixelPreparationItems: PreparationParityItem[] = [
+  { id: "R4-C10-001", code: "R4-C10-001", nameKo: "신생아 기저귀", timelineBucket: "this_week", dueWindowLabel: "이번 주", plan: { state: "owned" } },
+  { id: "R4-C09-001", code: "R4-C09-001", nameKo: "신생아 침대", timelineBucket: "this_week", dueWindowLabel: "이번 주", plan: { state: "planned" } },
+  { id: "R4-C09-003", code: "R4-C09-003", nameKo: "단단한 아기 매트리스", timelineBucket: "this_week", dueWindowLabel: "이번 주", plan: { state: "researching" } },
+  { id: "R4-C09-005", code: "R4-C09-005", nameKo: "고정형 매트리스 시트", timelineBucket: "this_week", dueWindowLabel: "이번 주", plan: { state: "owned" } },
+  { id: "R4-C12-001", code: "R4-C12-001", nameKo: "아기 체온계", timelineBucket: "this_week", dueWindowLabel: "이번 주", plan: { state: "planned" } },
+  { id: "R4-C17-011", code: "R4-C17-011", nameKo: "신생아 아기띠", timelineBucket: "this_week", dueWindowLabel: "이번 주", plan: { state: "researching" } },
+  { id: "R4-C11-001", code: "R4-C11-001", nameKo: "신생아 욕조", timelineBucket: "this_month", dueWindowLabel: "이번 달", plan: { state: "owned" } },
+  { id: "R4-C11-005", code: "R4-C11-005", nameKo: "후드형 아기 타월", timelineBucket: "this_month", dueWindowLabel: "이번 달", plan: { state: "researching" } },
+  { id: "R4-C13-001", code: "R4-C13-001", nameKo: "신생아 배냇저고리", timelineBucket: "this_month", dueWindowLabel: "이번 달", plan: { state: "gifted" } },
+  { id: "R4-C17-007", code: "R4-C17-007", nameKo: "신생아 유모차", timelineBucket: "this_month", dueWindowLabel: "이번 달", plan: { state: "planned" } },
+  { id: "R4-C08-004", code: "R4-C08-004", nameKo: "젖병", timelineBucket: "next_stage", dueWindowLabel: "수유 방식 확인 후", plan: { state: "researching" } },
+  { id: "R4-C17-001", code: "R4-C17-001", nameKo: "신생아용 카시트", timelineBucket: "next_stage", dueWindowLabel: "차량 이용 시", plan: { state: "researching" } },
+  { id: "R4-C10-004", code: "R4-C10-004", nameKo: "물티슈", timelineBucket: "next_stage", dueWindowLabel: "다음 단계", plan: { state: "researching" } },
+  { id: "R4-C13-002", code: "R4-C13-002", nameKo: "아기 바디수트", timelineBucket: "next_stage", dueWindowLabel: "다음 단계", plan: { state: "planned" } },
+  { id: "R4-C11-010", code: "R4-C11-010", nameKo: "아기 손톱가위", timelineBucket: "next_stage", dueWindowLabel: "다음 단계", plan: { state: "researching" } },
+  { id: "R4-C11-007", code: "R4-C11-007", nameKo: "아기 바디 세정제", timelineBucket: "next_stage", dueWindowLabel: "다음 단계", plan: { state: "owned" } },
+  { id: "R4-C11-008", code: "R4-C11-008", nameKo: "아기 보습제", timelineBucket: "next_stage", dueWindowLabel: "다음 단계", plan: { state: "researching" } },
+  { id: "R4-C11-003", code: "R4-C11-003", nameKo: "목욕물 온도계", timelineBucket: "next_stage", dueWindowLabel: "다음 단계", plan: { state: "planned" } },
+  { id: "R4-C08-007", code: "R4-C08-007", nameKo: "젖병 세척솔", timelineBucket: "next_stage", dueWindowLabel: "수유 방식 확인 후", plan: { state: "researching" } },
+  { id: "R4-C08-009", code: "R4-C08-009", nameKo: "젖병 세정제", timelineBucket: "next_stage", dueWindowLabel: "수유 방식 확인 후", plan: { state: "planned" } }
+];
+
 function recommendationPixelScaleFrameStyle() {
   return {
     transform: [
@@ -29,221 +44,29 @@ function recommendationPixelScaleFrameStyle() {
     ]
   } as const;
 }
-const recommendationPixelFrameStyle = {
-  gap: 14,
-  transform: [{ translateX: recommendationHorizontalOffset }, { translateY: recommendationVerticalOffset }]
-};
-type RecommendationPreviewItem = ItemSummary & {
-  badgeText: string;
-  caption: string;
-  image: ImageSourcePropType;
-};
-const recommendationPreviewImages = [recommendationBabyCarrierImage, recommendationDiaperImage, recommendationBlocksImage] as const;
-const recommendationPreviewCaptions = ["★ 4.7 (1,245)", "★ 4.8 (2,154)", "★ 4.6 (982)"] as const;
-const previewItems: RecommendationPreviewItem[] = [
-  {
-    id: "preview-baby-carrier-hipseat",
-    name: "베이비 아기띠 힙시트",
-    necessityLevel: "essential",
-    status: "not_prepared",
-    timingLabel: "12-24개월",
-    priceBandText: "₩89,000",
-    badgeText: "BEST",
-    caption: recommendationPreviewCaptions[0],
-    image: recommendationBabyCarrierImage
-  },
-  {
-    id: "preview-naturelove-diaper",
-    name: "네이처러브 기저귀 팬티형",
-    necessityLevel: "convenience",
-    status: "interested",
-    timingLabel: "12-24개월",
-    priceBandText: "₩42,900",
-    badgeText: "BEST",
-    caption: recommendationPreviewCaptions[1],
-    image: recommendationDiaperImage
-  },
-  {
-    id: "preview-wood-block-set",
-    name: "도담도담 원목 블록 세트",
-    necessityLevel: "optional",
-    status: "gifted",
-    timingLabel: "24개월+",
-    priceBandText: "₩33,800",
-    badgeText: "NEW",
-    caption: recommendationPreviewCaptions[2],
-    image: recommendationBlocksImage
-  }
-];
-
-function statusLabel(status: ItemStatus) {
-  if (status === "prepared") return "이미 준비";
-  if (status === "not_needed") return "필요 없음";
-  if (status === "interested") return "관심";
-  if (status === "gifted") return "선물 받음";
-  return "준비 전";
-}
-
-function getRecommendationDisplay(item: ItemSummary | RecommendationPreviewItem, index: number) {
-  if ("image" in item) {
-    return { badge: item.badgeText, caption: item.caption, image: item.image };
-  }
-
-  return {
-    badge: index === 0 ? "BEST" : statusLabel(item.status),
-    caption: undefined,
-    image: recommendationPreviewImages[index % recommendationPreviewImages.length]
-  };
-}
 
 export default function ItemsScreen() {
-  const [stageLabel, setStageLabel] = useState<(typeof tabOptions)[number]>("12-24개월");
-  const [hasManualStageSelection, setHasManualStageSelection] = useState(false);
-  const accessToken = useSessionStore((state) => state.accessToken);
-  const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
-  const childId = useSelectedChildStore((state) => state.selectedChildId);
-  const queryClient = useQueryClient();
-  const items = useQuery({
-    queryKey: ["items", childId, "now", stageLabel],
-    enabled: Boolean(authToken && childId),
-    queryFn: () => listItems(authToken!, childId!, "now")
-  });
-  // Default the selected chip to the child's actual current stage once it's known, unless the
-  // pixel-lock capture is running, we're in the loginless test session (fixture data must render
-  // deterministically), or the user already tapped a chip. Falls back to "12-24개월" otherwise.
-  const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode && !isTestSession;
-  const home = useQuery({
-    queryKey: ["home", childId],
-    enabled: shouldResolveChildStage,
-    queryFn: () => getHome(authToken!, childId!)
-  });
-  useEffect(() => {
-    setStageLabel(
-      resolveDefaultStageLabel({
-        currentStage: home.data?.child.currentStage,
-        isPixelLockMode,
-        isTestSession,
-        hasManualSelection: hasManualStageSelection,
-        fallback: "12-24개월"
-      })
-    );
-  }, [home.data, isTestSession, hasManualStageSelection]);
-  const updateStatus = useMutation({
-    mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; status: ItemStatus }) =>
-      updateItemStatus(authToken!, childId!, itemTemplateId, status),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["items"] });
-      await queryClient.invalidateQueries({ queryKey: ["home"] });
-    }
-  });
-  const hasSession = Boolean(authToken && childId);
+  return isPixelLockMode ? <PixelItemsScreen /> : <Release4PreparationScreen />;
+}
 
-  if (hasSession && (items.isLoading || !items.data)) {
-    return (
-      <AppScreen>
-        <EmptyStateCard title="추천템을 불러오고 있어요." actionLabel="잠시만요" />
-      </AppScreen>
-    );
-  }
-
-  if (hasSession && items.isError) {
-    return (
-      <AppScreen>
-        <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
-          onPress={() => items.refetch()}
-        />
-      </AppScreen>
-    );
-  }
-
-  const visibleItems = hasSession ? items.data!.items : previewItems;
-  const stageFilteredItems = hasSession
-    ? visibleItems.filter((item) => itemMatchesBand(item, stageLabel))
-    : visibleItems;
-  const showEmptyState = hasSession ? stageFilteredItems.length === 0 : false;
-  const canUpdateStatus = hasSession;
+function PixelItemsScreen() {
+  const [urgentOnly, setUrgentOnly] = useState(false);
 
   return (
     <AppScreen>
-      <View style={recommendationPixelScaleFrameStyle()}>
-        <View accessibilityLabel={recommendationScreenId} style={recommendationPixelFrameStyle}>
-          <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
-            <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>추천</Text>
-            <Text style={{ color: theme.colors.brown, fontSize: 18 }}>♡</Text>
-          </View>
-
-          <View style={{ flexDirection: "row", gap: 6, marginHorizontal: -12 }}>
-            {tabOptions.map((option) => (
-              <CategoryChip
-                key={option}
-                label={option}
-                selected={option === stageLabel}
-                onPress={() => {
-                  setHasManualStageSelection(true);
-                  setStageLabel(option);
-                }}
-              />
-            ))}
-          </View>
-
-          <View style={{ backgroundColor: theme.colors.beige, borderRadius: 22, minHeight: 92, overflow: "hidden", padding: 15 }}>
-            <View style={{ maxWidth: 210 }}>
-              <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800", lineHeight: 24 }}>{stageLabel} 맞춤 추천</Text>
-              <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18, marginTop: 7 }}>
-                우리아이 발달 단계에 꼭 필요한 제품
-              </Text>
-            </View>
-            <Image
-              source={toddlerImage}
-              resizeMode="cover"
-              style={{ bottom: -8, height: 92, position: "absolute", right: 12, width: 74 }}
-            />
-          </View>
-
-          {showEmptyState ? (
-            <EmptyStateCard title="지금 필요한 추천템이 없어요." actionLabel="홈으로 가기" onPress={() => router.push("/(tabs)")} />
-          ) : (
-            <View style={{ gap: 10 }}>
-              {stageFilteredItems.map((item, index) => {
-                const display = getRecommendationDisplay(item, index);
-
-                return (
-                  <View key={item.id} style={{ gap: 8 }}>
-                    <ProductCard
-                      title={item.name}
-                      price={item.priceBandText ?? "가격 정보 확인"}
-                      badge={display.badge}
-                      caption={display.caption}
-                      image={display.image}
-                      onPress={() => router.push(`/items/${item.id}`)}
-                    />
-                    {canUpdateStatus ? (
-                      <View style={{ flexDirection: "row", gap: 8 }}>
-                        <SecondaryButton
-                          label="준비했어요"
-                          onPress={() => updateStatus.mutate({ itemTemplateId: item.id, status: "prepared" })}
-                          style={{ flex: 1 }}
-                        />
-                        <SecondaryButton
-                          label="괜찮아요"
-                          onPress={() => updateStatus.mutate({ itemTemplateId: item.id, status: "not_needed" })}
-                          style={{ flex: 1 }}
-                        />
-                      </View>
-                    ) : null}
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
-          {hasSession ? null : (
-            <SecondaryButton label="‹ 더 많은 추천 보기" onPress={() => router.push("/(tabs)/items")} />
-          )}
-        </View>
+      <View accessibilityLabel="ITEM-CATALOG-001" style={recommendationPixelScaleFrameStyle()}>
+        <PreparationListParity
+          contextOptions={[{ key: "child:pixel", label: "산모 · 복덩이" }]}
+          items={pixelPreparationItems}
+          onBack={() => router.push("/(tabs)" as Href)}
+          onItemPress={(item) => router.push(`/items/${item.id}`)}
+          onMissingReport={() => undefined}
+          onRetry={() => undefined}
+          onSelectContext={() => undefined}
+          onToggleUrgent={() => setUrgentOnly((current) => !current)}
+          selectedContextKey="child:pixel"
+          urgentOnly={urgentOnly}
+        />
       </View>
     </AppScreen>
   );

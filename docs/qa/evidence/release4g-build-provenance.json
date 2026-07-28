@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "release": "4G",
+  "generatedAt": "2026-07-17T08:07:00+09:00",
+  "source": {
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "workingTreeDirty": true,
+    "worktreeStatusSha256": "AE835EEC8B7D65B8F949F8E159FE61F9C2EFDE73D87304F26990CA231CD18AD2",
+    "mobileSourceTreeSha256": "7DC17CDEE5A8A0AE021082D630D985BEF8BFA9B355243F4946EA7EDEF23DF0C7",
+    "mobileBuildInputTreeSha256": "4F7E107F9BBED2D4F0FF313B19100075DA7389FF3860812D5531F371348C9CC3",
+    "buildTimeMobileBuildInputTreeSha256": "8E8C2DF45508F15DE593F52DC9A7F9763A067CEF5DAE49B590DA63B7780B5EE1",
+    "postBuildDelta": "apps/mobile/src/offline/legacy-reconciliation.test.ts only; runtime mobile source hash is unchanged",
+    "lockfileSha256": "F6F5B5257A265C610876343BF735B77106E1DEDA104B0C7140D3DED524154DBF"
+  },
+  "build": {
+    "command": "pnpm android:build-apk -- --profile standalone",
+    "exitCode": 0,
+    "buildCount": 1,
+    "profile": "standalone",
+    "variant": "release",
+    "authProfile": "standalone-test-login",
+    "signingProfile": "debug-internal-only",
+    "gradleTask": "assembleRelease --rerun-tasks",
+    "timestamp": "2026-07-16T23:02:25.101Z"
+  },
+  "artifact": {
+    "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "classification": "internal-test-artifact",
+    "productionOrStoreArtifact": false,
+    "packageName": "com.anonymous.wooriai",
+    "versionName": "0.0.0",
+    "versionCode": 1,
+    "sizeBytes": 77623487,
+    "sha256": "F86674E456415E57D54585B5B9E51E62459CB4CB5B5BB2DC6B272225673CCAAA",
+    "embeddedHermesBytes": 2447852,
+    "embeddedHermesSha256": "84C13F5DF476E4D5B828F5116F2817D4FFB43338781B83A72F88BF2F75B82107",
+    "generatedBundleMatchesEmbedded": true,
+    "certificateSha256": "FAC61745DC0903786FB9EDE62A962B399F7348F0BB6F899B8332667591033B9C",
+    "certificateDn": "CN=Android Debug, OU=Android, O=Unknown, L=Unknown, ST=Unknown, C=US"
+  },
+  "productionExport": {
+    "path": "artifacts/release4-production-safe-export",
+    "bundleSha256": "467E311A664AADA44069779AA5FAB184A52C0728C0481668C0E2031FEDED7230",
+    "bundleBytes": 3772674,
+    "contaminationFindings": 0,
+    "result": "PASS"
+  },
+  "staleArtifactWarning": {
+    "path": "artifacts/android/wooriai-0.0.0-release-production.apk",
+    "currentSourceArtifact": false,
+    "contaminationResult": "FAIL",
+    "disposition": "DO_NOT_USE"
+  },
+  "adb": {
+    "binaryFound": true,
+    "authorizedDeviceCount": 0,
+    "newEmulatorsStarted": 0,
+    "installCount": 0,
+    "result": "NOT_RUN_NO_DEVICE"
+  },
+  "authoritativeDetail": "artifacts/android/release4-build-provenance.json"
+}

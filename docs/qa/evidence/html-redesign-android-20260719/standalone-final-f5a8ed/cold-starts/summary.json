@@ -1,0 +1,90 @@
+﻿{
+    "generatedAt":  "2026-07-19T12:06:40.0076805+00:00",
+    "apkSha256":  "C8FA8380AA9B688F2B85E05C57636BE6C029A804FDFE6930001272B3DC82D7C5",
+    "total":  10,
+    "passed":  10,
+    "minSeconds":  11.1,
+    "maxSeconds":  12.2,
+    "runs":  [
+                 {
+                     "run":  1,
+                     "visible":  true,
+                     "seconds":  11.4,
+                     "processAlive":  true,
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  2,
+                     "visible":  true,
+                     "seconds":  12,
+                     "processAlive":  true,
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  3,
+                     "visible":  true,
+                     "seconds":  11.4,
+                     "processAlive":  true,
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  4,
+                     "visible":  true,
+                     "seconds":  11.5,
+                     "processAlive":  true,
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  5,
+                     "visible":  true,
+                     "seconds":  11.1,
+                     "processAlive":  true,
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  6,
+                     "visible":  true,
+                     "seconds":  11.3,
+                     "processAlive":  true,
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  7,
+                     "visible":  true,
+                     "seconds":  11.5,
+                     "processAlive":  true,
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  8,
+                     "visible":  true,
+                     "seconds":  12.2,
+                     "processAlive":  true,
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  9,
+                     "visible":  true,
+                     "seconds":  11.8,
+                     "processAlive":  true,
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 },
+                 {
+                     "run":  10,
+                     "visible":  true,
+                     "seconds":  11.5,
+                     "processAlive":  true,
+                     "topActivity":  true,
+                     "fatalCount":  0
+                 }
+             ]
+}

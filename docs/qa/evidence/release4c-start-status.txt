@@ -1,0 +1,340 @@
+﻿# git branch --show-current
+codex/sprint2-catalog-payments
+
+# git rev-parse HEAD
+db7a7a455afec892b8fa1205e477dbe507a5931d
+
+# upstream
+<none>
+
+# git remote -v
+origin	https://github.com/ggbu75769-dot/WooriAI.git (fetch)
+origin	https://github.com/ggbu75769-dot/WooriAI.git (push)
+
+# git log --oneline -15
+db7a7a4 docs(release): record release3 evidence and blockers
+f65b937 feat(release): complete release3 local candidate foundation
+7721fc1 docs(qa): record sprint 2 reproducible baseline
+378906b fix: bootstrap clean pixel APK builds
+8945118 fix: preserve quick expense UI contracts
+c0d2b99 test: add sprint 2 closure verification
+8b0de80 feat: complete sprint 2 catalog and payment flows
+ca91a5c docs(qa): record sprint 1 Android gate evidence
+5fc7acc docs(qa): refresh sprint 1 release gate evidence
+239fdda docs(audit): record sprint 1 scope boundaries
+5abba06 test(mobile): lock sprint 1 profile and child contracts
+b42439a feat(mobile): add account and multi-child profile flows
+4bdc099 docs(qa): record final release and Android evidence
+decd350 fix(qa): validate cached Android render evidence
+011d582 test(pixel): approve redesigned HOME EXP ITEM references
+
+# git status --porcelain=v2
+1 .M N... 100644 100644 100644 c9bcccc900737a88df4f402362301fe5dfd92e8b c9bcccc900737a88df4f402362301fe5dfd92e8b apps/admin/src/admin-cms-pages.test.ts
+1 .M N... 100644 100644 100644 ab646bad529ff9ecfedaa7f9b8b0118418de2da3 ab646bad529ff9ecfedaa7f9b8b0118418de2da3 apps/admin/src/components/AdminShell.tsx
+1 .M N... 100644 100644 100644 7b6e4c592d6bbc703b2cefd0fe0c237dce908e85 7b6e4c592d6bbc703b2cefd0fe0c237dce908e85 apps/admin/src/lib/admin-api.ts
+1 .M N... 100644 100644 100644 a241b432bdee9ec2828612cec9b4855cca390736 a241b432bdee9ec2828612cec9b4855cca390736 apps/api/package.json
+1 .M N... 100644 100644 100644 d9b5e8abd1f5485fd40d6da5996db9dd27518152 d9b5e8abd1f5485fd40d6da5996db9dd27518152 apps/api/prisma/schema.prisma
+1 .M N... 100644 100644 100644 21c3882b683fba849e407a980104830a7dad74e7 21c3882b683fba849e407a980104830a7dad74e7 apps/api/prisma/seed.ts
+1 .M N... 100644 100644 100644 38075ffc372b03b3d1ef86a712e49b06609b3478 38075ffc372b03b3d1ef86a712e49b06609b3478 apps/api/scripts/catalog.ts
+1 .M N... 100644 100644 100644 86a542979514311a90969f34721b51614b84e482 86a542979514311a90969f34721b51614b84e482 apps/api/src/app.module.ts
+1 .M N... 100644 100644 100644 e8d942cded4c694803b53b420b30b2fa889bd3e4 e8d942cded4c694803b53b420b30b2fa889bd3e4 apps/api/src/common/filters/global-exception.filter.ts
+1 .M N... 100644 100644 100644 11cfd1e5ef362803521e651cfcdaf49163e656b1 11cfd1e5ef362803521e651cfcdaf49163e656b1 apps/api/src/finance/dto/expense.dto.ts
+1 .M N... 100644 100644 100644 489e7b24c019b672fea7bcaf4c3d2eff4801697f 489e7b24c019b672fea7bcaf4c3d2eff4801697f apps/api/src/finance/expense-snapshot.ts
+1 .M N... 100644 100644 100644 3c73ad0dd2fc7e1a73d7fc93c465523b78973b15 3c73ad0dd2fc7e1a73d7fc93c465523b78973b15 apps/api/src/finance/finance.module.ts
+1 .M N... 100644 100644 100644 bd5603cab17085b34cd972d8957dee5216579497 bd5603cab17085b34cd972d8957dee5216579497 apps/api/src/jobs/job-handlers.service.ts
+1 .M N... 100644 100644 100644 bf22a13d186e4b900a07d5ca27568b88685c0f4d bf22a13d186e4b900a07d5ca27568b88685c0f4d apps/api/src/jobs/jobs.module.ts
+1 .M N... 100644 100644 100644 20bd27b4b604d3d668a78a8317156a712267784b 20bd27b4b604d3d668a78a8317156a712267784b apps/api/src/onboarding/onboarding-store.service.ts
+1 .M N... 100644 100644 100644 7f12e7c27bf642ca3c3fb07e04d0880a8be3a67c 7f12e7c27bf642ca3c3fb07e04d0880a8be3a67c apps/mobile/app/(auth)/login.tsx
+1 .M N... 100644 100644 100644 6d1b02b8d8e1c687f1c43b5de8605a3040ee4eb1 6d1b02b8d8e1c687f1c43b5de8605a3040ee4eb1 apps/mobile/app/(onboarding)/budget.tsx
+1 .M N... 100644 100644 100644 095d4f203ba1c7d6e6577709e3ad50a295e7fbd2 095d4f203ba1c7d6e6577709e3ad50a295e7fbd2 apps/mobile/app/(onboarding)/child-profile.tsx
+1 .M N... 100644 100644 100644 2b9fdb06229589fc8db79abd6e40cc05281c2c85 2b9fdb06229589fc8db79abd6e40cc05281c2c85 apps/mobile/app/(onboarding)/child-status.tsx
+1 .M N... 100644 100644 100644 5ab733efefcb09c7b59706f5c084aa3915310a95 5ab733efefcb09c7b59706f5c084aa3915310a95 apps/mobile/app/(onboarding)/prepared-items.tsx
+1 .M N... 100644 100644 100644 092d8f8c63be38aeb0084197873c9d21e9ec28c5 092d8f8c63be38aeb0084197873c9d21e9ec28c5 apps/mobile/app/(tabs)/_layout.tsx
+1 .M N... 100644 100644 100644 b94f17d1e324c54b1dfe79b94d6c45a31580f2b1 b94f17d1e324c54b1dfe79b94d6c45a31580f2b1 apps/mobile/app/(tabs)/index.tsx
+1 .M N... 100644 100644 100644 a4483c4dc61678c5783022529fcac8c0110090bd a4483c4dc61678c5783022529fcac8c0110090bd apps/mobile/app/(tabs)/items.tsx
+1 .M N... 100644 100644 100644 479b2f244f9940f187612edd986937baf6856631 479b2f244f9940f187612edd986937baf6856631 apps/mobile/app/(tabs)/more.tsx
+1 .M N... 100644 100644 100644 8056bc17b7c31eaaf24fe0c0ec40c1cf0b0edc7c 8056bc17b7c31eaaf24fe0c0ec40c1cf0b0edc7c apps/mobile/app/(tabs)/records.tsx
+1 .M N... 100644 100644 100644 5cfeacb14a8464f1862ebd454910e76269025b09 5cfeacb14a8464f1862ebd454910e76269025b09 apps/mobile/app/(tabs)/reports.tsx
+1 .M N... 100644 100644 100644 80e57759c601cf2557270b86c601ade933f393c3 80e57759c601cf2557270b86c601ade933f393c3 apps/mobile/app/_layout.tsx
+1 .M N... 100644 100644 100644 3ce3b9a481013239a40fe8778ae4c6a6d258bb30 3ce3b9a481013239a40fe8778ae4c6a6d258bb30 apps/mobile/app/budget.tsx
+1 .M N... 100644 100644 100644 1ac5f92bd18c6d0f89e98aac21901411c7a596e6 1ac5f92bd18c6d0f89e98aac21901411c7a596e6 apps/mobile/app/children/[childId].tsx
+1 .M N... 100644 100644 100644 172adebba20d7d2632a8cb08d7e456b82eddf834 172adebba20d7d2632a8cb08d7e456b82eddf834 apps/mobile/app/children/index.tsx
+1 .M N... 100644 100644 100644 e9d1f9102f9d18dae44a1d5dea705475c9de17b7 e9d1f9102f9d18dae44a1d5dea705475c9de17b7 apps/mobile/app/children/new.tsx
+1 .M N... 100644 100644 100644 cb4c49f9bea156d2f67fd05c4775d94481f3fcb2 cb4c49f9bea156d2f67fd05c4775d94481f3fcb2 apps/mobile/app/expenses/[expenseId].tsx
+1 .M N... 100644 100644 100644 08fb24e388f63fd2c3b89eb10f3aa042b845153b 08fb24e388f63fd2c3b89eb10f3aa042b845153b apps/mobile/app/expenses/new.tsx
+1 .M N... 100644 100644 100644 516b999c005487a6894ebf2192bd5622cb4ccdd8 516b999c005487a6894ebf2192bd5622cb4ccdd8 apps/mobile/app/family/accept/[token].tsx
+1 .M N... 100644 100644 100644 4fb93ecaf7c9df03e86155c7fd460c82f9dc0232 4fb93ecaf7c9df03e86155c7fd460c82f9dc0232 apps/mobile/app/family/index.tsx
+1 .M N... 100644 100644 100644 7ea6b16255280c579eb18412567df269978404a0 7ea6b16255280c579eb18412567df269978404a0 apps/mobile/app/family/invite.tsx
+1 .M N... 100644 100644 100644 ad7b0600d7c1db8aebac8199091d73062ff5d36f ad7b0600d7c1db8aebac8199091d73062ff5d36f apps/mobile/app/import/[importJobId].tsx
+1 .M N... 100644 100644 100644 660305ce9bf39ad71b003ff59c5f324a92abf52d 660305ce9bf39ad71b003ff59c5f324a92abf52d apps/mobile/app/import/index.tsx
+1 .M N... 100644 100644 100644 1673431a5d7c7dac15336060dac3d777f41dfc6f 1673431a5d7c7dac15336060dac3d777f41dfc6f apps/mobile/app/index.tsx
+1 .M N... 100644 100644 100644 d9506ff589e9fc3970112e76acaf97ae7074d397 d9506ff589e9fc3970112e76acaf97ae7074d397 apps/mobile/app/items/[itemTemplateId].tsx
+1 .M N... 100644 100644 100644 e2f269bef2884e27faf2acfd924ac4bc584d9efb e2f269bef2884e27faf2acfd924ac4bc584d9efb apps/mobile/app/launch-animation.tsx
+1 .M N... 100644 100644 100644 5ff4266dab9cfe61d86d81355eb072f92171044f 5ff4266dab9cfe61d86d81355eb072f92171044f apps/mobile/app/payment-methods.tsx
+1 .M N... 100644 100644 100644 7bce77ef325a820ef84b641a008fb140139850e9 7bce77ef325a820ef84b641a008fb140139850e9 apps/mobile/app/profile.tsx
+1 .M N... 100644 100644 100644 59103a60fcbb796c1a6b91c1c5d2ae1c3a7a2362 59103a60fcbb796c1a6b91c1c5d2ae1c3a7a2362 apps/mobile/app/settings/index.tsx
+1 .M N... 100644 100644 100644 a3545e61636f2e6692b8bdc072a28643bdc255c4 a3545e61636f2e6692b8bdc072a28643bdc255c4 apps/mobile/app/settings/privacy.tsx
+1 .M N... 100644 100644 100644 47fdaae8a157aec48def7585d4a71f04e88e3083 47fdaae8a157aec48def7585d4a71f04e88e3083 apps/mobile/app/sync-status.tsx
+1 .M N... 100644 100644 100644 a2ec6075feef4e707bdc5fcce3a4126e119f45b7 a2ec6075feef4e707bdc5fcce3a4126e119f45b7 apps/mobile/metro.config.js
+1 .M N... 100644 100644 100644 09173b2fff1d287a7a6dcc0eddb335c323b5161b 09173b2fff1d287a7a6dcc0eddb335c323b5161b apps/mobile/src/android-native-ui-quality.test.ts
+1 .M N... 100644 100644 100644 60c03af01ddec4e7a72d9b11e2032d55d8222cb6 60c03af01ddec4e7a72d9b11e2032d55d8222cb6 apps/mobile/src/android-standalone-apk.test.ts
+1 .M N... 100644 100644 100644 c834a379df1740e5a56f31120049c8c7b70ae248 c834a379df1740e5a56f31120049c8c7b70ae248 apps/mobile/src/api/client.ts
+1 .M N... 100644 100644 100644 2815bc1eb5faf03330ed5eddc2b511232cfa2ea3 2815bc1eb5faf03330ed5eddc2b511232cfa2ea3 apps/mobile/src/api/local-backend.ts
+1 .M N... 100644 100644 100644 800689e56834461020a6be3e1f62b9c7cbac722f 800689e56834461020a6be3e1f62b9c7cbac722f apps/mobile/src/api/local-fixtures.ts
+1 .M N... 100644 100644 100644 070b037fae67e8fb4f9b04632a107df92e9f6931 070b037fae67e8fb4f9b04632a107df92e9f6931 apps/mobile/src/categories.ts
+1 .M N... 100644 100644 100644 9238571b3876c7d6d2fc05a01af21dafbe0e14af 9238571b3876c7d6d2fc05a01af21dafbe0e14af apps/mobile/src/child-profile-manual-stage-and-date-guard.test.ts
+1 .M N... 100644 100644 100644 ab6113b5a4ac1d16949ec6c5a947b5cb520dea9d ab6113b5a4ac1d16949ec6c5a947b5cb520dea9d apps/mobile/src/offline/remote-api.ts
+1 .M N... 100644 100644 100644 66c6ae86242e2287720637b96325ef5ad2c34de4 66c6ae86242e2287720637b96325ef5ad2c34de4 apps/mobile/src/offline/sync-controller.ts
+1 .M N... 100644 100644 100644 8a6a8068905e238345e278b9410453e3934d2620 8a6a8068905e238345e278b9410453e3934d2620 apps/mobile/src/offline/types.ts
+1 .M N... 100644 100644 100644 861d5c49eb738826a3088df6a4927158135bf94b 861d5c49eb738826a3088df6a4927158135bf94b apps/mobile/src/real-session-data-integrity.test.ts
+1 .M N... 100644 100644 100644 f2ab279579f6b5bae94da9a7a783d73ef36fba3a f2ab279579f6b5bae94da9a7a783d73ef36fba3a apps/mobile/src/stores/persist-upgrade.test.ts
+1 .M N... 100644 100644 100644 1efcc05b712c37a7badb6c726937f1152a5b839d 1efcc05b712c37a7badb6c726937f1152a5b839d apps/mobile/src/stores/session.store.ts
+1 .M N... 100644 100644 100644 323d707a2888f486acf6297e7075864a969c109b 323d707a2888f486acf6297e7075864a969c109b apps/mobile/src/theme.ts
+1 .M N... 100644 100644 100644 8c2a5d2e554a584cd1c78039533c04d133dcdc63 8c2a5d2e554a584cd1c78039533c04d133dcdc63 apps/mobile/src/ui-pixel-lock-flow.test.ts
+1 .M N... 100644 100644 100644 69ec45c7e129baf9aefbab2c980320fe700c8a16 69ec45c7e129baf9aefbab2c980320fe700c8a16 apps/mobile/src/ui.tsx
+1 .M N... 100644 100644 100644 fc9c9c8d20a397dd5f218a527cc92e49cb445d76 fc9c9c8d20a397dd5f218a527cc92e49cb445d76 docs/qa/evidence/latest-release-gate.json
+1 .M N... 100644 100644 100644 5967dfd2078d7c8825356682ce7a7833ade72658 5967dfd2078d7c8825356682ce7a7833ade72658 docs/qa/evidence/latest-release-gate.md
+1 .M N... 100644 100644 100644 163fa5eacea9aec57a3d0cdce9eb86a65ef1307b 163fa5eacea9aec57a3d0cdce9eb86a65ef1307b docs/qa/evidence/release3-production-config-fixture.json
+1 .M N... 100644 100644 100644 8ccb8947ce813debf66fd50317d230673e689fa3 8ccb8947ce813debf66fd50317d230673e689fa3 docs/qa/evidence/release3-production-config-fixture.md
+1 .M N... 100644 100644 100644 eeb622fb4c18a9bafe460ec078611ed832261375 eeb622fb4c18a9bafe460ec078611ed832261375 docs/qa/evidence/release3-production-config-gate.json
+1 .M N... 100644 100644 100644 60abeb4e5485611684970b919a726cb17f15eb41 60abeb4e5485611684970b919a726cb17f15eb41 docs/qa/evidence/release3-production-config-gate.md
+1 .M N... 100644 100644 100644 42e533e39834f8953537dd2868d0527d57f1a646 42e533e39834f8953537dd2868d0527d57f1a646 package.json
+1 .M N... 100644 100644 100644 f43f0582ef3b3c4cc80b25b02bdbed55b2c40249 f43f0582ef3b3c4cc80b25b02bdbed55b2c40249 packages/contracts/src/index.ts
+1 .M N... 100644 100644 100644 8a5b37e8e000d8bf0463f4bc07188911b96ec1ac 8a5b37e8e000d8bf0463f4bc07188911b96ec1ac packages/domain/src/enums.test.ts
+1 .M N... 100644 100644 100644 67eb00a465afea79711673d050cae55459120f12 67eb00a465afea79711673d050cae55459120f12 packages/domain/src/enums.ts
+1 .M N... 100644 100644 100644 a396011b6bf6a2d61312d5293278e2deb3630250 a396011b6bf6a2d61312d5293278e2deb3630250 packages/domain/src/index.ts
+1 .M N... 100644 100644 100644 a3a292ab571cd4ccb2c120afb6874afc1328350a a3a292ab571cd4ccb2c120afb6874afc1328350a packages/test-utils/src/release-gate-runner.test.ts
+1 .M N... 100644 100644 100644 b12c5cfd06744aa9debfcb7364af2bd6f14c4f5d b12c5cfd06744aa9debfcb7364af2bd6f14c4f5d packages/test-utils/src/release-readiness.test.ts
+1 .M N... 100644 100644 100644 d77ea464ba55682e6cc9b6ff974d5450adf891e6 d77ea464ba55682e6cc9b6ff974d5450adf891e6 scripts/build-android-aab.ts
+1 .M N... 100644 100644 100644 4ee9d40cda9eff036297bcf65906566046f74b20 4ee9d40cda9eff036297bcf65906566046f74b20 scripts/build-android-apk.ts
+1 .M N... 100644 100644 100644 5d095a4ce8935477bef9e9f180c5e9f5b212bbab 5d095a4ce8935477bef9e9f180c5e9f5b212bbab scripts/db.ts
+1 .M N... 100644 100644 100644 bb9173cf7e70b98aa807e1fc4aef165b81b2dfe3 bb9173cf7e70b98aa807e1fc4aef165b81b2dfe3 scripts/pixel-lock/android-pixel-lock.ts
+1 .M N... 100644 100644 100644 bb3ad0b53e95cc12b1211bbe40dc1e0e82b7bb4d bb3ad0b53e95cc12b1211bbe40dc1e0e82b7bb4d scripts/pixel-lock/build-pixel-apk.ts
+1 .M N... 100644 100644 100644 9e553ff3029e9882afe5691c5f1d737014802da6 9e553ff3029e9882afe5691c5f1d737014802da6 scripts/release-gate.ts
+? apps/admin/app/catalog/
+? apps/api/prisma/migrations/000013_catalog_taxonomy/
+? apps/api/prisma/migrations/000014_item_definition_v2/
+? apps/api/prisma/migrations/000015_item_plan_status_v2/
+? apps/api/prisma/migrations/000016_expense_taxonomy_v2/
+? apps/api/prisma/migrations/000017_report_aggregate_v2/
+? apps/api/prisma/migrations/000018_catalog_search_alias/
+? apps/api/prisma/migrations/000019_item_plan_missing_states/
+? apps/api/prisma/migrations/000020_item_plan_state_backfill/
+? apps/api/prisma/migrations/000021_item_plan_context_integrity/
+? apps/api/prisma/migrations/000022_catalog_editor_separation/
+? apps/api/src/catalog-v2/
+? apps/api/src/finance/dto/reports-v2.dto.ts
+? apps/api/src/finance/reports-v2.controller.ts
+? apps/api/src/finance/reports-v2.service.ts
+? apps/api/test/catalog-v2-admin.e2e.test.ts
+? apps/api/test/catalog-v2.e2e.test.ts
+? apps/api/test/release4-catalog.test.ts
+? apps/api/test/reports-v2.e2e.test.ts
+? apps/mobile/src/api/fixture-runtime.production.ts
+? apps/mobile/src/api/fixture-runtime.ts
+? apps/mobile/src/api/prepared-item-ids.ts
+? apps/mobile/src/design-system/
+? apps/mobile/src/preparation/
+? apps/mobile/src/production-build-boundary.test.ts
+? apps/mobile/src/reports/
+? "docs/5\354\260\250/release4-admin-editorial-import-design-2026-07-16.md"
+? "docs/5\354\260\250/release4-admin-operations-queue-design-2026-07-16.md"
+? "docs/5\354\260\250/release4-admin-taxonomy-operations-design-2026-07-16.md"
+? "docs/5\354\260\250/release4-android-evidence.md"
+? "docs/5\354\260\250/release4-catalog-coverage-report.md"
+? "docs/5\354\260\250/release4-catalog-coverage.md"
+? "docs/5\354\260\250/release4-data-model-and-migration.md"
+? "docs/5\354\260\250/release4-design-system-migration.md"
+? "docs/5\354\260\250/release4-enhancement-baseline.md"
+? "docs/5\354\260\250/release4-external-actions.md"
+? "docs/5\354\260\250/release4-feature-enhancement-completion-report.md"
+? "docs/5\354\260\250/release4-gap-backlog.md"
+? "docs/5\354\260\250/release4-implementation-audit.md"
+? "docs/5\354\260\250/release4-known-limitations.md"
+? "docs/5\354\260\250/release4-migration-manifest.md"
+? "docs/5\354\260\250/release4-next-improvement-design-2026-07-16.md"
+? "docs/5\354\260\250/release4-report-v2-validation.md"
+? "docs/5\354\260\250/release4-test-evidence.md"
+? docs/operations/product-redesign-development-completion-report-2026-07-15.md
+? docs/qa/evidence/release4-apk-inspection.md
+? docs/qa/evidence/release4-catalog-audit.json
+? docs/qa/evidence/release4-catalog-baseline.json
+? docs/qa/evidence/release4-catalog-performance.json
+? docs/qa/evidence/release4-database-verification.json
+? docs/qa/evidence/release4-enhancement-manifest.json
+? docs/qa/evidence/release4-enhancement-preexisting-working-tree.txt
+? docs/qa/evidence/release4-production-contamination.json
+? docs/qa/evidence/release4-production-export-contamination.json
+? docs/qa/evidence/release4-provenance-preflight.md
+? docs/qa/evidence/release4-report-v2-evidence.md
+? docs/qa/evidence/release4-responsive-accessibility.md
+? docs/qa/evidence/release4-ui-route-inventory.json
+? packages/contracts/src/release4-reports.test.ts
+? packages/contracts/src/release4-reports.ts
+? packages/contracts/src/release4.test.ts
+? packages/contracts/src/release4.ts
+? packages/domain/src/release4-catalog.ts
+? scripts/generate-release4-provenance.ts
+? scripts/measure-release4-catalog-performance.ts
+? scripts/run-catalog-audit.ts
+? scripts/ux-contract.ts
+? scripts/verify-release4-contamination.ts
+? scripts/verify-release4-databases.ts
+? scripts/verify-release4-production-export.ts
+
+# git status --short
+ M apps/admin/src/admin-cms-pages.test.ts
+ M apps/admin/src/components/AdminShell.tsx
+ M apps/admin/src/lib/admin-api.ts
+ M apps/api/package.json
+ M apps/api/prisma/schema.prisma
+ M apps/api/prisma/seed.ts
+ M apps/api/scripts/catalog.ts
+ M apps/api/src/app.module.ts
+ M apps/api/src/common/filters/global-exception.filter.ts
+ M apps/api/src/finance/dto/expense.dto.ts
+ M apps/api/src/finance/expense-snapshot.ts
+ M apps/api/src/finance/finance.module.ts
+ M apps/api/src/jobs/job-handlers.service.ts
+ M apps/api/src/jobs/jobs.module.ts
+ M apps/api/src/onboarding/onboarding-store.service.ts
+ M apps/mobile/app/(auth)/login.tsx
+ M apps/mobile/app/(onboarding)/budget.tsx
+ M apps/mobile/app/(onboarding)/child-profile.tsx
+ M apps/mobile/app/(onboarding)/child-status.tsx
+ M apps/mobile/app/(onboarding)/prepared-items.tsx
+ M apps/mobile/app/(tabs)/_layout.tsx
+ M apps/mobile/app/(tabs)/index.tsx
+ M apps/mobile/app/(tabs)/items.tsx
+ M apps/mobile/app/(tabs)/more.tsx
+ M apps/mobile/app/(tabs)/records.tsx
+ M apps/mobile/app/(tabs)/reports.tsx
+ M apps/mobile/app/_layout.tsx
+ M apps/mobile/app/budget.tsx
+ M apps/mobile/app/children/[childId].tsx
+ M apps/mobile/app/children/index.tsx
+ M apps/mobile/app/children/new.tsx
+ M apps/mobile/app/expenses/[expenseId].tsx
+ M apps/mobile/app/expenses/new.tsx
+ M apps/mobile/app/family/accept/[token].tsx
+ M apps/mobile/app/family/index.tsx
+ M apps/mobile/app/family/invite.tsx
+ M apps/mobile/app/import/[importJobId].tsx
+ M apps/mobile/app/import/index.tsx
+ M apps/mobile/app/index.tsx
+ M apps/mobile/app/items/[itemTemplateId].tsx
+ M apps/mobile/app/launch-animation.tsx
+ M apps/mobile/app/payment-methods.tsx
+ M apps/mobile/app/profile.tsx
+ M apps/mobile/app/settings/index.tsx
+ M apps/mobile/app/settings/privacy.tsx
+ M apps/mobile/app/sync-status.tsx
+ M apps/mobile/metro.config.js
+ M apps/mobile/src/android-native-ui-quality.test.ts
+ M apps/mobile/src/android-standalone-apk.test.ts
+ M apps/mobile/src/api/client.ts
+ M apps/mobile/src/api/local-backend.ts
+ M apps/mobile/src/api/local-fixtures.ts
+ M apps/mobile/src/categories.ts
+ M apps/mobile/src/child-profile-manual-stage-and-date-guard.test.ts
+ M apps/mobile/src/offline/remote-api.ts
+ M apps/mobile/src/offline/sync-controller.ts
+ M apps/mobile/src/offline/types.ts
+ M apps/mobile/src/real-session-data-integrity.test.ts
+ M apps/mobile/src/stores/persist-upgrade.test.ts
+ M apps/mobile/src/stores/session.store.ts
+ M apps/mobile/src/theme.ts
+ M apps/mobile/src/ui-pixel-lock-flow.test.ts
+ M apps/mobile/src/ui.tsx
+ M docs/qa/evidence/latest-release-gate.json
+ M docs/qa/evidence/latest-release-gate.md
+ M docs/qa/evidence/release3-production-config-fixture.json
+ M docs/qa/evidence/release3-production-config-fixture.md
+ M docs/qa/evidence/release3-production-config-gate.json
+ M docs/qa/evidence/release3-production-config-gate.md
+ M package.json
+ M packages/contracts/src/index.ts
+ M packages/domain/src/enums.test.ts
+ M packages/domain/src/enums.ts
+ M packages/domain/src/index.ts
+ M packages/test-utils/src/release-gate-runner.test.ts
+ M packages/test-utils/src/release-readiness.test.ts
+ M scripts/build-android-aab.ts
+ M scripts/build-android-apk.ts
+ M scripts/db.ts
+ M scripts/pixel-lock/android-pixel-lock.ts
+ M scripts/pixel-lock/build-pixel-apk.ts
+ M scripts/release-gate.ts
+?? apps/admin/app/catalog/
+?? apps/api/prisma/migrations/000013_catalog_taxonomy/
+?? apps/api/prisma/migrations/000014_item_definition_v2/
+?? apps/api/prisma/migrations/000015_item_plan_status_v2/
+?? apps/api/prisma/migrations/000016_expense_taxonomy_v2/
+?? apps/api/prisma/migrations/000017_report_aggregate_v2/
+?? apps/api/prisma/migrations/000018_catalog_search_alias/
+?? apps/api/prisma/migrations/000019_item_plan_missing_states/
+?? apps/api/prisma/migrations/000020_item_plan_state_backfill/
+?? apps/api/prisma/migrations/000021_item_plan_context_integrity/
+?? apps/api/prisma/migrations/000022_catalog_editor_separation/
+?? apps/api/src/catalog-v2/
+?? apps/api/src/finance/dto/reports-v2.dto.ts
+?? apps/api/src/finance/reports-v2.controller.ts
+?? apps/api/src/finance/reports-v2.service.ts
+?? apps/api/test/catalog-v2-admin.e2e.test.ts
+?? apps/api/test/catalog-v2.e2e.test.ts
+?? apps/api/test/release4-catalog.test.ts
+?? apps/api/test/reports-v2.e2e.test.ts
+?? apps/mobile/src/api/fixture-runtime.production.ts
+?? apps/mobile/src/api/fixture-runtime.ts
+?? apps/mobile/src/api/prepared-item-ids.ts
+?? apps/mobile/src/design-system/
+?? apps/mobile/src/preparation/
+?? apps/mobile/src/production-build-boundary.test.ts
+?? apps/mobile/src/reports/
+?? "docs/5\354\260\250/release4-admin-editorial-import-design-2026-07-16.md"
+?? "docs/5\354\260\250/release4-admin-operations-queue-design-2026-07-16.md"
+?? "docs/5\354\260\250/release4-admin-taxonomy-operations-design-2026-07-16.md"
+?? "docs/5\354\260\250/release4-android-evidence.md"
+?? "docs/5\354\260\250/release4-catalog-coverage-report.md"
+?? "docs/5\354\260\250/release4-catalog-coverage.md"
+?? "docs/5\354\260\250/release4-data-model-and-migration.md"
+?? "docs/5\354\260\250/release4-design-system-migration.md"
+?? "docs/5\354\260\250/release4-enhancement-baseline.md"
+?? "docs/5\354\260\250/release4-external-actions.md"
+?? "docs/5\354\260\250/release4-feature-enhancement-completion-report.md"
+?? "docs/5\354\260\250/release4-gap-backlog.md"
+?? "docs/5\354\260\250/release4-implementation-audit.md"
+?? "docs/5\354\260\250/release4-known-limitations.md"
+?? "docs/5\354\260\250/release4-migration-manifest.md"
+?? "docs/5\354\260\250/release4-next-improvement-design-2026-07-16.md"
+?? "docs/5\354\260\250/release4-report-v2-validation.md"
+?? "docs/5\354\260\250/release4-test-evidence.md"
+?? docs/operations/product-redesign-development-completion-report-2026-07-15.md
+?? docs/qa/evidence/release4-apk-inspection.md
+?? docs/qa/evidence/release4-catalog-audit.json
+?? docs/qa/evidence/release4-catalog-baseline.json
+?? docs/qa/evidence/release4-catalog-performance.json
+?? docs/qa/evidence/release4-database-verification.json
+?? docs/qa/evidence/release4-enhancement-manifest.json
+?? docs/qa/evidence/release4-enhancement-preexisting-working-tree.txt
+?? docs/qa/evidence/release4-production-contamination.json
+?? docs/qa/evidence/release4-production-export-contamination.json
+?? docs/qa/evidence/release4-provenance-preflight.md
+?? docs/qa/evidence/release4-report-v2-evidence.md
+?? docs/qa/evidence/release4-responsive-accessibility.md
+?? docs/qa/evidence/release4-ui-route-inventory.json
+?? packages/contracts/src/release4-reports.test.ts
+?? packages/contracts/src/release4-reports.ts
+?? packages/contracts/src/release4.test.ts
+?? packages/contracts/src/release4.ts
+?? packages/domain/src/release4-catalog.ts
+?? scripts/generate-release4-provenance.ts
+?? scripts/measure-release4-catalog-performance.ts
+?? scripts/run-catalog-audit.ts
+?? scripts/ux-contract.ts
+?? scripts/verify-release4-contamination.ts
+?? scripts/verify-release4-databases.ts
+?? scripts/verify-release4-production-export.ts
+
+# git diff --check HEAD
+<clean>

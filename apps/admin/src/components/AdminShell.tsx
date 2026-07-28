@@ -17,15 +17,24 @@ import styles from "./admin-shell.module.css";
 const NAV_ITEMS = [
   { href: "/", label: "홈" },
   { href: "/items", label: "준비템 관리" },
+  { href: "/catalog", label: "Release 4 카탈로그" },
+  { href: "/release5", label: "Release 5 준비" },
   { href: "/links", label: "상품 링크 관리" },
   { href: "/disclosures", label: "제휴 고지 문구" },
   { href: "/reviews", label: "콘텐츠 검토" },
-  { href: "/clicks", label: "클릭 통계" }
+  { href: "/clicks", label: "클릭 통계" },
+  { href: "/operations", label: "운영" }
 ];
+
+const PUBLIC_PATHS = new Set(["/privacy", "/terms", "/account-deletion", "/data-export", "/support"]);
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const { session, isReady } = useAdminSession();
   const pathname = usePathname();
+
+  if (PUBLIC_PATHS.has(pathname)) {
+    return <>{children}</>;
+  }
 
   if (!isReady) {
     return <div className={styles.loadingScreen}>불러오는 중...</div>;
@@ -138,7 +147,9 @@ function LoginScreen() {
           <h1>2단계 인증</h1>
           <p>인증 앱의 6자리 코드 또는 복구 코드를 입력해 주세요.</p>
           <form className={styles.loginForm} onSubmit={handleMfaSubmit}>
+            <label htmlFor="admin-mfa-code">인증 코드</label>
             <input
+              id="admin-mfa-code"
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
@@ -147,8 +158,13 @@ function LoginScreen() {
               placeholder="인증 코드 또는 복구 코드"
               className={styles.tokenInput}
             />
-            {mfaError ? <p className={styles.errorText}>{mfaError}</p> : null}
-            <button type="submit" className={styles.primaryButton} disabled={mfaSubmitting}>
+            {mfaError ? <p role="alert" className={styles.errorText}>{mfaError}</p> : null}
+            <button
+              type="submit"
+              className={styles.primaryButton}
+              disabled={mfaSubmitting}
+              aria-busy={mfaSubmitting}
+            >
               {mfaSubmitting ? "확인 중..." : "확인"}
             </button>
           </form>
@@ -166,7 +182,9 @@ function LoginScreen() {
         <h1>WooriAI 관리자</h1>
         <p>관리자 이메일과 비밀번호로 로그인하면 준비템, 상품 링크, 제휴 고지를 관리할 수 있어요.</p>
         <form className={styles.loginForm} onSubmit={handlePasswordSubmit}>
+          <label htmlFor="admin-email">관리자 이메일</label>
           <input
+            id="admin-email"
             type="email"
             autoComplete="username"
             value={email}
@@ -174,7 +192,9 @@ function LoginScreen() {
             placeholder="관리자 이메일"
             className={styles.tokenInput}
           />
+          <label htmlFor="admin-password">비밀번호</label>
           <input
+            id="admin-password"
             type="password"
             autoComplete="current-password"
             value={password}
@@ -182,8 +202,13 @@ function LoginScreen() {
             placeholder="비밀번호"
             className={styles.tokenInput}
           />
-          {submitError ? <p className={styles.errorText}>{submitError}</p> : null}
-          <button type="submit" className={styles.primaryButton} disabled={submitting}>
+          {submitError ? <p role="alert" className={styles.errorText}>{submitError}</p> : null}
+          <button
+            type="submit"
+            className={styles.primaryButton}
+            disabled={submitting}
+            aria-busy={submitting}
+          >
             {submitting ? "로그인 중..." : "로그인"}
           </button>
         </form>
@@ -303,7 +328,9 @@ function MfaSetupScreen() {
           </p>
         ) : null}
         <form className={styles.loginForm} onSubmit={handleVerify}>
+          <label htmlFor="admin-mfa-setup-code">인증 코드</label>
           <input
+            id="admin-mfa-setup-code"
             type="text"
             inputMode="numeric"
             autoComplete="one-time-code"
@@ -312,8 +339,13 @@ function MfaSetupScreen() {
             placeholder="인증 앱의 6자리 코드"
             className={styles.tokenInput}
           />
-          {verifyError ? <p className={styles.errorText}>{verifyError}</p> : null}
-          <button type="submit" className={styles.primaryButton} disabled={verifying || !secret}>
+          {verifyError ? <p role="alert" className={styles.errorText}>{verifyError}</p> : null}
+          <button
+            type="submit"
+            className={styles.primaryButton}
+            disabled={verifying || !secret}
+            aria-busy={verifying}
+          >
             {verifying ? "확인 중..." : "등록 완료"}
           </button>
         </form>

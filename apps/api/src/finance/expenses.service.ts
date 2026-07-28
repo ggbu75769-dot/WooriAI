@@ -1,5 +1,5 @@
-import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { Expense as PrismaExpense } from "@prisma/client";
+import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import type { Expense as PrismaExpense, Prisma } from "@prisma/client";
 import type { MemberRole } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
@@ -17,6 +17,16 @@ function canEdit(role: MemberRole | null) {
 
 const VERSION_CONFLICT_MESSAGE = "다른 곳에서 먼저 변경됐어요. 최신 내용을 다시 불러와 주세요.";
 
+export const EXPENSE_VERSION_TRANSACTION_HOOK = Symbol("EXPENSE_VERSION_TRANSACTION_HOOK");
+
+export type ExpenseVersionTransactionHook = {
+  afterMutation: (operation: "update" | "delete", expenseId: string) => void | Promise<void>;
+};
+
+const NOOP_TRANSACTION_HOOK: ExpenseVersionTransactionHook = {
+  afterMutation: () => undefined
+};
+
 /**
  * Owns MOB-103's optimistic-concurrency layer for expenses: `version` exposure,
  * `expectedVersion` conditional update/delete, and the 409 VERSION_CONFLICT
@@ -30,21 +40,20 @@ const VERSION_CONFLICT_MESSAGE = "다른 곳에서 먼저 변경됐어요. 최�
  * needs to edit onboarding-store.service.ts (owned by concurrent work this
  * sprint).
  *
- * Optimistic-lock mechanics: `expectedVersion` conflict detection is a
- * compare-and-swap directly on the `version` column (`updateMany` scoped to
- * `id + version + deletedAt: null`), performed *before* delegating to the
- * store's own field mutation. Winning the CAS is what serializes concurrent
- * requests against the same version -- a loser's `updateMany` affects 0 rows
- * and short-circuits to the conflict branch before the store's own update
- * ever runs. If the store call subsequently throws (e.g. validation error),
- * the CAS's version bump is rolled back so a rejected request never burns a
- * version number.
+ * Optimistic-lock mechanics: authorization, version CAS, field mutation, and
+ * final read all use one Prisma transaction client. Winning the CAS serializes
+ * concurrent requests against the same version; any later validation/runtime
+ * failure rolls the whole transaction back, so neither the payload nor version
+ * can commit alone.
  */
 @Injectable()
 export class ExpensesVersionService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService
+    @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
+    @Optional()
+    @Inject(EXPENSE_VERSION_TRANSACTION_HOOK)
+    private readonly transactionHook: ExpenseVersionTransactionHook = NOOP_TRANSACTION_HOOK
   ) {}
 
   async getExpense(user: AuthenticatedUser, expenseId: string) {
@@ -59,6 +68,10 @@ export class ExpensesVersionService {
       expenses: await this.hydrateMany(typed.expenses),
       totalAmountKrw: typed.totalAmountKrw
     };
+  }
+
+  async listExpenseShortcuts(user: AuthenticatedUser, childId: string) {
+    return this.store.listExpenseShortcuts(user, childId);
   }
 
   async hydrateHome<T extends { recentExpenses: Array<{ id: string }> }>(home: T): Promise<T> {
@@ -76,75 +89,63 @@ export class ExpensesVersionService {
 
   async updateExpense(user: AuthenticatedUser, expenseId: string, body: UpdateExpenseDto) {
     const { expectedVersion, ...fields } = body;
-    const raw = await this.prisma.expense.findUnique({ where: { id: expenseId } });
-    this.authorizeExpenseRow(user, raw, true);
+    return this.prisma.$transaction(async (tx) => {
+      const raw = await tx.expense.findUnique({ where: { id: expenseId } });
+      this.authorizeExpenseRow(user, raw, true);
 
-    if (expectedVersion === undefined) {
-      const updated = await this.store.updateExpense(user, expenseId, fields);
-      const bumped = await this.prisma.expense.update({
-        where: { id: expenseId },
+      if (expectedVersion === undefined) {
+        const updated = await this.store.updateExpense(user, expenseId, fields, tx);
+        const bumped = await tx.expense.update({
+          where: { id: expenseId },
+          data: { version: { increment: 1 } }
+        });
+        await this.transactionHook.afterMutation("update", expenseId);
+        return { ...(updated as Record<string, unknown>), version: bumped.version };
+      }
+
+      const gate = await tx.expense.updateMany({
+        where: { id: expenseId, version: expectedVersion, deletedAt: null },
         data: { version: { increment: 1 } }
       });
-      return { ...(updated as Record<string, unknown>), version: bumped.version };
-    }
+      if (gate.count === 0) {
+        throw await this.versionConflictFor(expenseId, tx);
+      }
 
-    const gate = await this.prisma.expense.updateMany({
-      where: { id: expenseId, version: expectedVersion, deletedAt: null },
-      data: { version: { increment: 1 } }
-    });
-    if (gate.count === 0) {
-      throw await this.versionConflictFor(expenseId);
-    }
-
-    try {
-      const updated = await this.store.updateExpense(user, expenseId, fields);
-      const final = await this.prisma.expense.findUnique({ where: { id: expenseId }, select: { version: true } });
+      const updated = await this.store.updateExpense(user, expenseId, fields, tx);
+      const final = await tx.expense.findUnique({ where: { id: expenseId }, select: { version: true } });
+      await this.transactionHook.afterMutation("update", expenseId);
       return { ...(updated as Record<string, unknown>), version: final?.version ?? expectedVersion + 1 };
-    } catch (error) {
-      await this.rollbackVersionBump(expenseId, expectedVersion);
-      throw error;
-    }
+    });
   }
 
   async deleteExpense(user: AuthenticatedUser, expenseId: string, expectedVersion?: number) {
-    const raw = await this.prisma.expense.findUnique({ where: { id: expenseId } });
-    this.authorizeExpenseRow(user, raw, true);
+    return this.prisma.$transaction(async (tx) => {
+      const raw = await tx.expense.findUnique({ where: { id: expenseId } });
+      this.authorizeExpenseRow(user, raw, true);
 
-    if (expectedVersion === undefined) {
-      const result = await this.store.deleteExpense(user, expenseId);
-      await this.prisma.expense.update({ where: { id: expenseId }, data: { version: { increment: 1 } } });
+      if (expectedVersion === undefined) {
+        const result = await this.store.deleteExpense(user, expenseId, tx);
+        await tx.expense.update({ where: { id: expenseId }, data: { version: { increment: 1 } } });
+        await this.transactionHook.afterMutation("delete", expenseId);
+        return result;
+      }
+
+      const gate = await tx.expense.updateMany({
+        where: { id: expenseId, version: expectedVersion, deletedAt: null },
+        data: { version: { increment: 1 } }
+      });
+      if (gate.count === 0) {
+        throw await this.versionConflictFor(expenseId, tx);
+      }
+
+      const result = await this.store.deleteExpense(user, expenseId, tx);
+      await this.transactionHook.afterMutation("delete", expenseId);
       return result;
-    }
-
-    const gate = await this.prisma.expense.updateMany({
-      where: { id: expenseId, version: expectedVersion, deletedAt: null },
-      data: { version: { increment: 1 } }
     });
-    if (gate.count === 0) {
-      throw await this.versionConflictFor(expenseId);
-    }
-
-    try {
-      return await this.store.deleteExpense(user, expenseId);
-    } catch (error) {
-      await this.rollbackVersionBump(expenseId, expectedVersion);
-      throw error;
-    }
   }
 
-  private async rollbackVersionBump(expenseId: string, expectedVersion: number) {
-    // 우리 CAS가 만든 bump(expectedVersion+1)가 아직 최신일 때만 되돌린다.
-    // 그 사이 다른 요청이 성공해 version이 더 나아갔다면 깎으면 안 된다(버전 역행 방지).
-    await this.prisma.expense
-      .updateMany({
-        where: { id: expenseId, version: expectedVersion + 1 },
-        data: { version: { decrement: 1 } }
-      })
-      .catch(() => undefined);
-  }
-
-  private async versionConflictFor(expenseId: string) {
-    const row = await this.prisma.expense.findUnique({ where: { id: expenseId } });
+  private async versionConflictFor(expenseId: string, client: Prisma.TransactionClient | PrismaService = this.prisma) {
+    const row = await client.expense.findUnique({ where: { id: expenseId } });
     const current = !row ? null : row.deletedAt ? toDeletedExpenseSnapshot(row) : toExpenseSnapshot(row);
     return new HttpException(
       { code: "VERSION_CONFLICT", message: VERSION_CONFLICT_MESSAGE, current },

@@ -1,55 +1,87 @@
 # 릴리즈 런북 (Release Runbook)
 
-작성: 2026-07-12 · 브랜치: codex/source-audit-standalone-apk
+갱신: 2026-07-27 · 브랜치: `codex/sprint2-catalog-payments`
 
-## 1. 배포 전 체크리스트
+이 문서는 실행 절차다. 현재 전체 상태와 증거 경계는 `current-development-status-and-next-design-baseline-2026-07-26.md`를 우선한다.
 
-- [ ] `npx --yes pnpm@11.7.0 install --frozen-lockfile` 성공
-- [ ] `npx --yes pnpm@11.7.0 release:gate` 10/10 PASS
-- [ ] 프로덕션 env 설정: `NODE_ENV=production`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `WOORIAI_ADMIN_TOKEN`, `DATABASE_URL`, OAuth client id/secret, `EXPO_PUBLIC_API_BASE_URL`(https)
-- [ ] `pnpm check:env` 통과 (누락 시 API 부팅 실패)
-- [ ] DB 마이그레이션: `prisma migrate deploy` (인메모리 → PostgreSQL 전환 시)
-- [ ] seed: 카테고리·초기 준비템 카탈로그 (`docs/3차/db_api/wooriai_phase3_schema_v0_3.sql` §5 SEED CATEGORIES)
-- [ ] 관리자 계정/토큰 발급 및 안전 보관(`WOORIAI_ADMIN_TOKEN`)
-- [ ] 릴리즈 keystore 준비 + Gradle signingConfig 연결 (스토어 배포 시)
-- [ ] applicationId를 실제 패키지명으로 변경 (현재 `com.anonymous.wooriai`)
-- [ ] 개인정보처리방침·이용약관·제휴 고지 접근 경로 확인(설정 → 개인정보)
-- [ ] 로그·오류 추적(Sentry 등) 연결 지점 확인
+## 1. 출시 후보 선행 조건
 
-## 2. 빌드 산출물
+- [ ] 변경이 리뷰 가능한 commit/PR에 고정되고 release 대상 SHA가 승인됨
+- [ ] `pnpm install --frozen-lockfile` PASS
+- [ ] `pnpm release:gate` 16/16 PASS
+- [ ] `pnpm release:config` PASS
+- [ ] `pnpm release5:external-readiness`가 `READY`
+- [ ] `pnpm catalog:audit` 후 `publishedContentReady=true`
+- [ ] 승인된 Android application ID, semver, versionCode
+- [ ] 조직 소유 release signing secret 주입
+- [ ] privacy/terms/support/status HTTPS URL과 법적 운영자 정보 승인
+- [ ] production DB/Redis/object storage/OAuth/push/recall/merchant/monitoring 준비
+- [ ] backup 생성과 별도 환경 restore drill PASS
 
-```bash
-# 독립 실행형 테스트 APK (EXPO_PUBLIC_TEST_LOGIN=1, 온디바이스 로컬 백엔드)
-npx --yes pnpm@11.7.0 android:build-apk
-# → artifacts/android/wooriai-0.0.0-release.apk (+ .json 리포트)
+현재 로컬 환경은 위 production 조건을 만족하지 않는다. placeholder를 임의 운영값으로 바꾸지 않는다.
 
-# 실서버 연동 릴리즈 빌드 (TEST_LOGIN=0, EXPO_PUBLIC_API_BASE_URL=https 서버)
-#   릴리즈 매니페스트는 cleartext HTTP 차단 → API는 반드시 https
-cd apps/mobile/android && ./gradlew assembleRelease   # 또는 bundleRelease (AAB)
+## 2. 검증 명령
+
+```powershell
+pnpm release:gate
+pnpm release:config
+pnpm release5:external-readiness
+pnpm catalog:audit
+pnpm pixel:android
 ```
 
-## 3. 배포 절차
+- Release Gate는 격리 catalog DB를 생성해 41개 migration과 seed를 적용하고 감사 후 제거한다.
+- Pixel 최종 증거는 설치 Android 앱의 adb `screencap`만 인정한다.
+- 브라우저/Expo web 캡처는 Android Pixel 최종 증거가 아니다.
 
-1. API 배포: env 검증 → `NODE_ENV=production`으로 기동(시크릿 미설정 시 fail-fast). 헬스체크 `GET /api/v1/health` 200 확인.
-2. DB: 마이그레이션 적용 후 seed. 롤백은 `docs/qa/rollback-plan.md` 참조.
-3. 모바일: 서명된 AAB를 Play Console 내부 테스트 트랙 → 단계적 확대.
-4. 배포 후 스모크: 로그인 → 온보딩 → 지출 기록 → 홈/리포트 일치 → 준비템 → 설정 로그아웃.
+## 3. DB 배포
 
-## 4. 롤백
+1. 승인된 production `DATABASE_URL`을 secret storage에서 주입한다.
+2. 배포 직전 backup과 restore 가능한지 확인한다.
+3. `pnpm --filter api prisma:deploy`로 forward migration을 적용한다.
+4. seed가 필요한 경우 승인된 환경과 대상 범위를 확인한 뒤 `pnpm --filter api seed`를 실행한다.
+5. `/api/v1/health`와 readiness, worker/queue, object storage를 확인한다.
 
-- API: 이전 이미지/태그로 재배포. 인메모리 프로토타입은 상태 없음. DB 전환 후에는 마이그레이션 down 또는 백업 복원(`docs/qa/rollback-plan.md`).
-- 모바일: Play Console에서 이전 릴리즈로 롤백 또는 단계적 출시 중단.
+운영 롤백에 임의의 migration down을 사용하지 않는다. 이전 애플리케이션 이미지와 검증된 backup restore 또는 별도 forward-fix migration을 사용한다.
 
-## 5. 장애 대응
+## 4. Android 산출물
 
-| 증상 | 점검 |
-|---|---|
-| API 부팅 실패 | 필수 시크릿 env 누락(`main.ts` fail-fast 메시지 확인) |
-| 로그인 501 | 프로덕션에서 OAuth 실검증 미구현(`auth.service.ts`) — 실 OAuth 연동 필요 |
-| cleartext 차단 오류 | `EXPO_PUBLIC_API_BASE_URL`이 http — https로 변경 |
-| 홈/리포트 금액 불일치 | 집계 헬퍼 단일화 확인(`expensesForChild`) — 회귀 시 e2e `expense-home-report` |
-| 데이터 재시작 소실 | 인메모리 상태 — DB 전환 필요 |
+```powershell
+# 내부 standalone APK
+pnpm android:build-apk
 
-## 6. 알려진 외부 의존성
+# production config/signing이 준비된 뒤 AAB
+pnpm android:build-aab
+```
 
-[known-limitations.md](known-limitations.md) 참조 — 실 OAuth, PostgreSQL, 릴리즈 keystore, 실 제휴 링크, 모니터링 SDK.
+- 모든 최종 APK는 `F:/WooriAI` 프로젝트 루트에 둔다.
+- `artifacts`에는 보고서, 스크린샷, diff, heatmap, 로그만 둔다.
+- 직접 Gradle 호출로 빌드 스크립트의 source/profile/provenance 검증을 우회하지 않는다.
+- signed AAB는 Play Console internal track에서 먼저 검증한다.
+
+## 5. Staging·물리기기 smoke
+
+1. 실제 OAuth 로그인·refresh·logout·unlink·계정 삭제
+2. 온보딩 완료와 재진입
+3. 지출 생성 → 홈/리포트 합계 → 준비템 → 구매 링크 → 구매 후 상태
+4. 가족 owner/co-parent/viewer RBAC와 교차 household 차단
+5. Excel preview-before-save와 오류 복구
+6. 네트워크 단절·재연결·충돌·delta cursor/tombstone 수렴
+7. push, recall, merchant, object storage
+8. 물리 Android/TalkBack/큰 글꼴/safe area와 iOS core loop
+9. crash/latency/error-rate dashboard와 alert
+
+## 6. 출시·롤백
+
+1. release SHA와 config evidence를 고정한다.
+2. Play internal → 제한 closed beta → 단계적 rollout 순으로 확대한다.
+3. 오류율, 인증 실패, queue backlog, recall/merchant 상태, 삭제 SLA를 감시한다.
+4. 임계값 초과 시 rollout을 중단하고 이전 승인 빌드/API 이미지로 복귀한다.
+5. DB는 destructive rollback 대신 restore drill이 끝난 backup 또는 forward fix를 사용한다.
+
+## 7. 현재 차단
+
+- `pnpm release:config`: 46개 운영 입력 차단
+- external readiness: core/OAuth/push/recall/merchant/signing 6영역 차단
+- catalog: 409개 `in_review`, 독립 검토 0, 게시 0
+- physical Android/iOS/store: 미실행

@@ -1,9 +1,13 @@
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type React from "react";
+import type { ComponentProps } from "react";
 import { useState } from "react";
 import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { theme } from "./theme";
+import { EmptyState as DesignEmptyState, ErrorState, LoadingState, ScreenScaffold } from "./design-system";
+import { isPixelLockBuild } from "./pixelLock/build-profile";
 
 type ChildrenProps = {
   children: React.ReactNode;
@@ -15,6 +19,83 @@ type PressableProps = {
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
 };
+
+export type AppIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
+
+export function AppIcon({
+  name,
+  size = 24,
+  color = theme.colors.brown
+}: {
+  name: AppIconName;
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <MaterialCommunityIcons
+      accessibilityElementsHidden
+      color={color}
+      importantForAccessibility="no"
+      name={name}
+      size={size}
+    />
+  );
+}
+
+export function IconButton({
+  accessibilityLabel,
+  icon,
+  onPress,
+  selected = false
+}: {
+  accessibilityLabel: string;
+  icon: AppIconName;
+  onPress?: () => void;
+  selected?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      hitSlop={8}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        alignItems: "center",
+        backgroundColor: selected ? theme.colors.coral[50] : "transparent",
+        borderRadius: 22,
+        height: theme.touchTarget,
+        justifyContent: "center",
+        opacity: pressed ? 0.72 : 1,
+        width: theme.touchTarget
+      })}
+    >
+      <AppIcon color={selected ? theme.colors.coral[600] : theme.colors.brown} name={icon} />
+    </Pressable>
+  );
+}
+
+export function SampleDataBanner() {
+  return (
+    <View
+      accessibilityLabel="샘플 데이터 안내"
+      style={{
+        alignItems: "center",
+        alignSelf: "stretch",
+        backgroundColor: theme.colors.sky,
+        borderRadius: theme.radii.small,
+        flexDirection: "row",
+        gap: 8,
+        minHeight: theme.touchTarget,
+        paddingHorizontal: 12
+      }}
+    >
+      <AppIcon color={theme.colors.semantic.info} name="flask-outline" size={18} />
+      <Text style={[textStyles.caption, { color: theme.colors.brown, flex: 1, fontWeight: "700" }]}>
+        샘플 데이터 · 실제 계정 정보와 분리되어 이 기기에만 저장돼요.
+      </Text>
+    </View>
+  );
+}
 
 const pixelLockWebStyleId = "wooriai-pixel-lock-web-styles";
 const webScrollHiddenStyle = {
@@ -48,6 +129,9 @@ function ensurePixelLockWebStyles() {
 }
 
 export function AppScreen({ children }: ChildrenProps) {
+  if (!isPixelLockBuild()) {
+    return <ScreenScaffold>{children}</ScreenScaffold>;
+  }
   ensurePixelLockWebStyles();
 
   return (
@@ -103,7 +187,13 @@ export function BrandLogo({ size = 56 }: { size?: number }) {
         ...theme.shadows.card
       }}
     >
-      <Text style={{ color: theme.colors.mainCoral, fontSize: Math.round(size * 0.54), fontWeight: "700" }}>⌁</Text>
+      <Image
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        resizeMode="contain"
+        source={require("../assets/illustrations/logo_mark.png")}
+        style={{ height: Math.round(size * 0.78), width: Math.round(size * 0.78) }}
+      />
     </View>
   );
 }
@@ -132,6 +222,9 @@ export function Card({ children, style }: ChildrenProps & { style?: StyleProp<Vi
 export function PrimaryButton({ label, onPress, disabled, style }: PressableProps) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -139,9 +232,11 @@ export function PrimaryButton({ label, onPress, disabled, style }: PressableProp
           alignItems: "center",
           backgroundColor: disabled ? theme.colors.gray300 : theme.colors.mainCoral,
           borderRadius: theme.radii.button,
-          height: theme.ctaHeight,
+          minHeight: theme.ctaHeight,
           justifyContent: "center",
-          opacity: pressed ? 0.86 : 1
+          opacity: pressed ? 0.86 : 1,
+          paddingHorizontal: 16,
+          paddingVertical: 10
         },
         style
       ]}
@@ -154,6 +249,9 @@ export function PrimaryButton({ label, onPress, disabled, style }: PressableProp
 export function SecondaryButton({ label, onPress, disabled, style }: PressableProps) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -178,7 +276,14 @@ export function SecondaryButton({ label, onPress, disabled, style }: PressablePr
 
 export function TextButton({ label, onPress, disabled, style }: PressableProps) {
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={[{ minHeight: theme.touchTarget, justifyContent: "center" }, style]}>
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[{ minHeight: theme.touchTarget, justifyContent: "center" }, style]}
+    >
       <Text style={{ color: disabled ? theme.colors.gray300 : theme.colors.mainCoral, fontWeight: "700" }}>{label}</Text>
     </Pressable>
   );
@@ -207,7 +312,7 @@ export function SegmentedControl({
   onChange?: (option: string) => void;
 }) {
   return (
-    <View style={{ backgroundColor: "#F5F0EA", borderRadius: theme.radii.pill, flexDirection: "row", padding: 4 }}>
+    <View style={{ backgroundColor: theme.colors.presentation.segmentedTrack, borderRadius: theme.radii.pill, flexDirection: "row", padding: 4 }}>
       {options.map((option) => (
         <Pressable
           key={option}
@@ -246,6 +351,10 @@ export function CategoryChip({
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ selected: Boolean(selected) }}
+      hitSlop={5}
       onPress={onPress}
       style={{
         alignItems: "center",
@@ -294,7 +403,7 @@ export function HeroSummaryCard({
   label: string;
   amount: string;
   subtext: string;
-  progress: number;
+  progress?: number | null;
 }) {
   return (
     <View
@@ -310,9 +419,11 @@ export function HeroSummaryCard({
       <Text style={{ color: theme.colors.white, fontSize: 28, fontWeight: "800" }}>{amount}</Text>
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <Text style={[textStyles.caption, { color: theme.colors.white }]}>{subtext}</Text>
-        <Text style={[textStyles.caption, { color: theme.colors.white, fontWeight: "700" }]}>{progress}%</Text>
+        {progress == null ? null : (
+          <Text style={[textStyles.caption, { color: theme.colors.white, fontWeight: "700" }]}>{progress}%</Text>
+        )}
       </View>
-      <BudgetProgressBar value={progress} />
+      {progress == null ? null : <BudgetProgressBar value={progress} />}
     </View>
   );
 }
@@ -398,7 +509,7 @@ export function ListRow({
   value,
   onPress
 }: {
-  icon?: string;
+  icon?: React.ReactNode;
   title: string;
   subtitle?: string;
   value?: string;
@@ -407,7 +518,13 @@ export function ListRow({
   return (
     <Pressable onPress={onPress}>
       <Card style={{ alignItems: "center", flexDirection: "row", gap: 12, paddingVertical: 12 }}>
-        {icon ? <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text> : null}
+        {icon ? (
+          typeof icon === "string" ? (
+            <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text>
+          ) : (
+            <View style={{ alignItems: "center", justifyContent: "center", minWidth: 24 }}>{icon}</View>
+          )
+        ) : null}
         <View style={{ flex: 1 }}>
           <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700" }]}>{title}</Text>
           {subtitle ? <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{subtitle}</Text> : null}
@@ -423,6 +540,9 @@ export function ProductCard({
   price,
   badge,
   image,
+  icon = "baby-face-outline",
+  iconBackgroundColor = theme.colors.coral[50],
+  iconColor = theme.colors.coral[700],
   caption,
   onPress
 }: {
@@ -430,14 +550,23 @@ export function ProductCard({
   price: string;
   badge?: string;
   image?: ImageSourcePropType;
+  icon?: AppIconName;
+  iconBackgroundColor?: string;
+  iconColor?: string;
   caption?: string;
   onPress?: () => void;
 }) {
   return (
     <Pressable onPress={onPress}>
       <Card style={{ borderRadius: 18, flexDirection: "row", gap: 10, padding: 12 }}>
-        <View style={{ backgroundColor: theme.colors.beige, borderRadius: 14, height: 64, overflow: "hidden", width: 64 }}>
-          {image ? <Image source={image} style={{ height: "100%", width: "100%" }} resizeMode="cover" /> : null}
+        <View style={{ backgroundColor: image ? theme.colors.beige : iconBackgroundColor, borderRadius: 14, height: 64, overflow: "hidden", width: 64 }}>
+          {image ? (
+            <Image source={image} style={{ height: "100%", width: "100%" }} resizeMode="cover" />
+          ) : (
+            <View style={{ alignItems: "center", flex: 1, justifyContent: "center" }}>
+              <AppIcon color={iconColor} name={icon} size={28} />
+            </View>
+          )}
         </View>
         <View style={{ flex: 1, gap: 5 }}>
           {badge ? <StatusBadge label={badge} tone="warning" /> : null}
@@ -450,7 +579,7 @@ export function ProductCard({
   );
 }
 
-export function ProductComparisonRow({ seller, price, onPress }: { seller: string; price: string; onPress?: () => void }) {
+export function ProductComparisonRow({ seller, price, onPress, primaryAction = false }: { seller: string; price: string; onPress?: () => void; primaryAction?: boolean }) {
   return (
     <View style={{ alignItems: "center", flexDirection: "row", gap: 10 }}>
       <View style={{ flex: 1 }}>
@@ -458,7 +587,11 @@ export function ProductComparisonRow({ seller, price, onPress }: { seller: strin
         <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>무료배송</Text>
       </View>
       <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "800" }]}>{price}</Text>
-      <SecondaryButton label="구매" onPress={onPress} style={{ minWidth: 62 }} />
+      {primaryAction ? (
+        <PrimaryButton label="구매하기" onPress={onPress} style={{ backgroundColor: theme.colors.coral[400], minWidth: 72 }} />
+      ) : (
+        <SecondaryButton label="구매" onPress={onPress} style={{ minWidth: 62 }} />
+      )}
     </View>
   );
 }
@@ -580,7 +713,7 @@ export function LineChartCard({
       ) : null}
       <View
         onLayout={hasRealData ? (event) => setMeasuredWidth(event.nativeEvent.layout.width) : undefined}
-        style={{ backgroundColor: "#FFF4EE", borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }}
+        style={{ backgroundColor: theme.colors.presentation.chartPlot, borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }}
       >
         {[25, 50, 75].map((top) => (
           <View key={top} style={{ backgroundColor: "rgba(255, 107, 82, 0.08)", height: 1, left: 0, position: "absolute", right: 0, top }} />
@@ -696,10 +829,20 @@ export function DonutChartCard({
   );
 }
 
-export function EmptyStateCard({ title, actionLabel, onPress }: { title: string; actionLabel: string; onPress?: () => void }) {
+export function EmptyStateCard({ title, description, actionLabel, onPress }: { title: string; description?: string; actionLabel: string; onPress?: () => void }) {
+  if (!isPixelLockBuild()) {
+    if (/불러오고|분석 중|저장하는 중/.test(title)) {
+      return <LoadingState title={title} />;
+    }
+    if (/못했|실패|오류/.test(title)) {
+      return <ErrorState actionLabel={onPress ? actionLabel : undefined} onAction={onPress} title={title} />;
+    }
+    return <DesignEmptyState actionLabel={onPress ? actionLabel : undefined} description={description} icon="inbox-outline" onAction={onPress} title={title} />;
+  }
   return (
     <Card style={{ alignItems: "center", backgroundColor: theme.colors.beige }}>
       <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700", textAlign: "center" }]}>{title}</Text>
+      {description ? <Text style={[textStyles.body2, { color: theme.colors.gray600, textAlign: "center" }]}>{description}</Text> : null}
       <SecondaryButton label={actionLabel} onPress={onPress} />
     </Card>
   );
@@ -709,7 +852,11 @@ export function Toast({ message, tone = "success" }: { message: string; tone?: "
   const isError = tone === "error";
   return (
     <View style={{ backgroundColor: theme.colors.white, borderRadius: 18, flexDirection: "row", gap: 10, padding: 14, ...theme.shadows.card }}>
-      <Text style={{ color: isError ? theme.colors.danger : theme.colors.success }}>{isError ? "⚠" : "✓"}</Text>
+      <AppIcon
+        color={isError ? theme.colors.danger : theme.colors.success}
+        name={isError ? "alert-circle-outline" : "check-circle-outline"}
+        size={20}
+      />
       <Text style={[textStyles.body2, { color: theme.colors.brown }]}>{message}</Text>
     </View>
   );

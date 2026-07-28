@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "artifact": { "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk", "classification": "internal-test-artifact", "productionOrStoreArtifact": false, "package": "com.anonymous.wooriai", "versionName": "0.0.0", "versionCode": 1, "sizeBytes": 77625755, "sha256": "E194822DF770D820F8272A549D73BFC1880DC7BB2E425B0FC5DA4395B2177303", "hermesSha256": "E7DC363C58AB44B72C2B26BB6DDB945BDDDEA7FFDFC19D89AA382DFE3358B849", "certificateSha256": "FAC61745DC0903786FB9EDE62A962B399F7348F0BB6F899B8332667591033B9C", "signatureVerified": true, "debugCertificate": true },
+  "sourceBinding": { "sourceSnapshotSha256": "462C7B6BC32FA84433B40AA5503E40EB5988D46565AA11088D6AEC6B52FCC579", "fileCount": 313, "postBuildVerification": "PASS", "buildCount": 1 },
+  "manifest": { "debuggable": false, "debuggableEvidence": "release manifest omits the attribute, so Android default is false", "allowBackup": false, "usesCleartextTraffic": false, "storagePermissions": { "READ_EXTERNAL_STORAGE": false, "WRITE_EXTERNAL_STORAGE": false, "MANAGE_EXTERNAL_STORAGE": false, "READ_MEDIA": false }, "dangerousPermissions": [], "exportedComponents": ["com.anonymous.wooriai.MainActivity", "androidx.profileinstaller.ProfileInstallReceiver(android.permission.DUMP)"], "deepLinks": ["wooriai://oauth/kakao", "wooriai://items/<typed path>"] },
+  "productionProfile": { "placeholderPackageRejected": true, "placeholderVersionRejected": true, "debugSigningRejected": true, "testLoginRejected": true, "fixtureBackendRejected": true, "localhostRejected": true, "cleartextRejected": true, "approvedConfiguration": "EXTERNAL_BLOCKED" },
+  "contamination": { "productionSafeExportFindings": 0, "result": "PASS" },
+  "staleRejected": ["artifacts/android/wooriai-0.0.0-release-production.apk", "EB0283D6B4E06EFB998596FD352E77D4D060B9FA87E8D9412586A0BA2FD50272"],
+  "result": "PASS"
+}

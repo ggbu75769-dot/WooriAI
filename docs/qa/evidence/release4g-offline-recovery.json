@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "release": "4G",
+  "generatedAt": "2026-07-17T08:07:00+09:00",
+  "displayPriority": [
+    "AUTH_REQUIRED",
+    "CONFLICT",
+    "PERMANENT_FAILURE",
+    "RETRY_EXHAUSTED",
+    "QUARANTINED_LEGACY",
+    "RETRY_WAIT",
+    "PENDING",
+    "SYNCING"
+  ],
+  "contracts": {
+    "automaticRetryOnlyNetworkAnd5xx": true,
+    "retryLimit": 5,
+    "authRequiredStopsAutomaticRetry": true,
+    "conflictIsExplicit": true,
+    "recoveryActionsSingleFlight": true,
+    "quarantineHidesAmountMemoAndPayload": true,
+    "quarantineRequiresServerProof": true,
+    "scopeSwitchStopsOldScheduler": true,
+    "successfulMutationNotResent": true
+  },
+  "volumeAndRepetition": {
+    "pendingRows": 500,
+    "duplicateSchedulers": 2,
+    "serverCreateCalls": 500,
+    "responseLostRepetitions": 50,
+    "duplicateServerCreates": 0,
+    "accountSwitchRepetitions": 50,
+    "crossScopeRowsVisible": 0,
+    "sqliteCrashBoundaries": 5,
+    "sqliteReopenRepetitions": 30,
+    "quarantineReconciliationRepetitions": 30
+  },
+  "tests": {
+    "targetedFiles": 5,
+    "targetedTests": 30,
+    "result": "PASS"
+  },
+  "installedQualification": "NOT_RUN_NO_DEVICE"
+}

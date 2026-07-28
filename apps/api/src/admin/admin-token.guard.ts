@@ -1,11 +1,14 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from "@nestjs/common";
+import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable } from "@nestjs/common";
 import { safeCompare } from "../auth/token.service";
 import { isDevOrTestEnv, requireSecret } from "../common/config/require-secret";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
+import { PrismaService } from "../prisma/prisma.service";
 
 function headerValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
+
+export const LEGACY_DEV_ADMIN_ID = "00000000-0000-4000-8000-000000000001";
 
 /**
  * Legacy shared-secret admin guard (`x-admin-token`). Kept only as a development/test
@@ -16,7 +19,9 @@ function headerValue(value: string | string[] | undefined) {
  */
 @Injectable()
 export class AdminTokenGuard implements CanActivate {
-  canActivate(context: ExecutionContext) {
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  async canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
 
     // Checked before touching the secret at all: outside development/test this
@@ -34,7 +39,19 @@ export class AdminTokenGuard implements CanActivate {
       throw new ForbiddenException({ code: "ADMIN_FORBIDDEN", message: "Admin access is required." });
     }
 
-    request.adminUser = { id: "dev-admin", email: "dev-admin@wooriai.local", role: "admin" };
+    const admin = await this.prisma.adminUser.upsert({
+      where: { id: LEGACY_DEV_ADMIN_ID },
+      create: {
+        id: LEGACY_DEV_ADMIN_ID,
+        email: "dev-admin@wooriai.local",
+        passwordHash: "legacy-shared-token-disabled",
+        displayName: "Local development admin",
+        role: "admin",
+        active: true
+      },
+      update: { active: true, disabledAt: null }
+    });
+    request.adminUser = { id: admin.id, email: admin.email, role: admin.role };
     return true;
   }
 }

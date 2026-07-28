@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "commands": [
+    { "command": "npx -y pnpm@10.28.1 test", "result": "PASS", "files": 143, "tests": 777, "failed": 0 },
+    { "command": "npx -y pnpm@10.28.1 --filter api test:e2e", "result": "PASS", "files": 21, "tests": 114, "failed": 0 },
+    { "command": "npx -y pnpm@10.28.1 test:admin-browser", "result": "PASS", "files": 3, "tests": 7, "failed": 0 },
+    { "command": "npx -y pnpm@10.28.1 exec tsx scripts/release-gate.ts", "result": "PASS", "gates": 11, "failed": 0, "durationMs": 510700 },
+    { "command": "npx -y pnpm@10.28.1 release4:verify-db", "result": "PASS", "freshMigrations": 33, "upgradeMigrations": 33, "failed": 0 },
+    { "command": "npx -y pnpm@10.28.1 security:secrets", "result": "PASS", "rules": 5, "failed": 0 },
+    { "command": "npx -y pnpm@10.28.1 security:audit --json", "result": "EXPECTED_NONZERO_MODERATE", "moderatePaths": 6, "uniqueAdvisories": 5, "high": 0, "critical": 0 },
+    { "command": "npx -y pnpm@10.28.1 catalog:audit", "result": "PASS", "canonical": 408, "inReview": 408, "published": 0, "highRisk": 84 },
+    { "command": "npx -y pnpm@10.28.1 release4:contamination:export", "result": "PASS", "findings": 0 },
+    { "command": "npx -y pnpm@10.28.1 android:build-apk -- --profile standalone", "result": "PASS", "buildCount": 1 },
+    { "command": "npx -y pnpm@10.28.1 exec tsx scripts/generate-release4i-source-snapshot.ts --verify", "result": "PASS", "files": 313 }
+  ],
+  "repetition": { "workerExpiredClaim": 50, "publisherPostSuccessCrash": 50, "configConvergence": 30, "configRollback": 30, "importMismatch": 30, "importApplyResponseLoss": 30, "reconciliation": 30, "reportEquivalence": 30, "offlineAccountSwitch": 50, "catalogPublishCas": 30, "ownerTransferCas": 30, "nondeterministicFailures": 0 },
+  "notRun": ["ADB installed smoke: no authorized device", "production signed artifact: approved identity/signing unavailable", "real provider delivery", "full local RC product mission in the same fault stack"]
+}

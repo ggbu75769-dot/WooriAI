@@ -4,7 +4,10 @@ import { AuditLoggerService } from "../../common/audit/audit-logger.service";
 import { HouseholdRuntimeService } from "../../households/household-runtime.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { TokenService } from "../token.service";
-import { KAKAO_OIDC_CLIENT, type KakaoOidcClient } from "./kakao-oidc-client";
+import {
+  KAKAO_OAUTH_PROVIDER_ADAPTER,
+  type OAuthProviderAdapter
+} from "../providers/oauth-provider.adapter";
 
 const TX_TTL_MS = 10 * 60 * 1000;
 const KAKAO_PROVIDER = "kakao";
@@ -52,7 +55,7 @@ export type ExchangeKakaoOAuthInput = {
 export class KakaoAuthService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(KAKAO_OIDC_CLIENT) private readonly kakaoClient: KakaoOidcClient,
+    @Inject(KAKAO_OAUTH_PROVIDER_ADAPTER) private readonly kakaoAdapter: OAuthProviderAdapter,
     @Inject(HouseholdRuntimeService) private readonly householdRuntime: HouseholdRuntimeService,
     @Inject(TokenService) private readonly tokenService: TokenService,
     @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService
@@ -90,7 +93,17 @@ export class KakaoAuthService {
 
     // nonce is returned in plaintext exactly once — only its sha256 hash is
     // persisted (nonceHash above), matching round5a-sprint2-plan.md §2.
-    return { transactionId: tx.id, state: tx.state, nonce };
+    return {
+      transactionId: tx.id,
+      state: tx.state,
+      nonce,
+      authorizationUrl: this.kakaoAdapter.prepareAuthorization({
+        redirectUri: input.redirectUri,
+        state,
+        nonce,
+        codeChallenge: input.codeChallenge
+      })
+    };
   }
 
   async exchange(input: ExchangeKakaoOAuthInput) {
@@ -134,12 +147,12 @@ export class KakaoAuthService {
       throw oauthTransactionInvalid();
     }
 
-    const { idToken } = await this.kakaoClient.exchangeCode({
+    const idToken = await this.kakaoAdapter.exchangeAuthorizationCode({
       code: input.code,
       redirectUri: input.redirectUri,
       codeVerifier: input.codeVerifier
     });
-    const claims = await this.kakaoClient.verifyIdToken(idToken);
+    const claims = await this.kakaoAdapter.verifyIdentity(idToken);
 
     if (!claims.nonce || sha256Hex(claims.nonce) !== tx.nonceHash) {
       throw new UnauthorizedException({

@@ -1,6 +1,6 @@
-import { NotImplementedException } from "@nestjs/common";
+import { NotImplementedException, UnauthorizedException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 import { AuthService } from "../src/auth/auth.service";
 import type { RefreshTokenStore } from "../src/auth/refresh-token.store";
@@ -86,5 +86,88 @@ describe("AuthService oauthLogin production guard", () => {
 
     expect(result.user.id).toEqual(expect.any(String));
     expect(result.tokens.accessToken).toEqual(expect.any(String));
+  });
+});
+
+describe("AuthService logout revocation result", () => {
+  it("propagates refresh-family storage failure instead of reporting false success", async () => {
+    const auditLogger = { record: vi.fn(async () => undefined) };
+    const tokenService = {
+      verifyRefreshToken: vi.fn(async () => ({
+        user: { id: "user-a" },
+        jti: "refresh-jti",
+        familyId: "family-a"
+      }))
+    };
+    const refreshTokenStore = {
+      revokeFamily: vi.fn(async () => {
+        throw new Error("database unavailable");
+      })
+    };
+    const service = new AuthService(
+      auditLogger as never,
+      tokenService as never,
+      refreshTokenStore as never
+    );
+
+    await expect(
+      service.logout({ id: "user-a", households: [] } as never, "refresh-a")
+    ).rejects.toThrow("database unavailable");
+    expect(auditLogger.record).not.toHaveBeenCalled();
+  });
+
+  it("revokes a family with refresh-token proof when the access token has expired", async () => {
+    const auditLogger = { record: vi.fn(async () => undefined) };
+    const tokenService = {
+      verifyRefreshToken: vi.fn(async () => ({
+        user: { id: "user-a" },
+        jti: "refresh-jti",
+        familyId: "family-a"
+      }))
+    };
+    const refreshTokenStore = { revokeFamily: vi.fn(async () => undefined) };
+    const service = new AuthService(
+      auditLogger as never,
+      tokenService as never,
+      refreshTokenStore as never
+    );
+
+    await expect(service.logoutByRefreshToken("refresh-a")).resolves.toEqual({
+      success: true
+    });
+    expect(refreshTokenStore.revokeFamily).toHaveBeenCalledWith("family-a");
+    expect(auditLogger.record).toHaveBeenCalledWith(
+      expect.objectContaining({ actorUserId: "user-a", action: "auth.logout" })
+    );
+  });
+
+  it("ignores only invalid refresh credentials and propagates storage/runtime failures", async () => {
+    const auditLogger = { record: vi.fn(async () => undefined) };
+    const refreshTokenStore = { revokeFamily: vi.fn(async () => undefined) };
+    const invalidService = new AuthService(
+      auditLogger as never,
+      {
+        verifyRefreshToken: vi.fn(async () => {
+          throw new UnauthorizedException();
+        })
+      } as never,
+      refreshTokenStore as never
+    );
+    await expect(invalidService.logoutByRefreshToken("bad")).resolves.toEqual({
+      success: true
+    });
+
+    const failedService = new AuthService(
+      auditLogger as never,
+      {
+        verifyRefreshToken: vi.fn(async () => {
+          throw new Error("database unavailable");
+        })
+      } as never,
+      refreshTokenStore as never
+    );
+    await expect(failedService.logoutByRefreshToken("valid")).rejects.toThrow(
+      "database unavailable"
+    );
   });
 });

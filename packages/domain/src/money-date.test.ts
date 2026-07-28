@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   assertMoneyKrw,
+  dateOnlyToLocalDate,
   getSeoulMonthRange,
   getSeoulToday,
+  getSeoulYearMonth,
   isFutureSeoulDate,
   isMoneyKrw,
-  isValidCalendarDate
+  isValidCalendarDate,
+  localDateToDateOnly
 } from "./money-date";
 
 describe("money rules", () => {
@@ -23,6 +26,11 @@ describe("money rules", () => {
 });
 
 describe("Asia/Seoul date rules", () => {
+  it("keeps year-month and date-only values independent from UTC conversion", () => {
+    expect(getSeoulYearMonth(new Date("2026-06-30T15:30:00.000Z"))).toBe("2026-07");
+    expect(localDateToDateOnly(dateOnlyToLocalDate("2024-02-29"))).toBe("2024-02-29");
+  });
+
   it("derives the Seoul calendar day from an instant", () => {
     expect(getSeoulToday(new Date("2026-07-05T15:30:00.000Z"))).toBe("2026-07-06");
   });

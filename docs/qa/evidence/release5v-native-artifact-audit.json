@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-24T05:21:38.054Z",
+  "actor": "Android build engineer and release reviewer",
+  "input": "current-source standalone APK, binary manifest, Hermes bundle, and signer certificate",
+  "mission": "prove native properties while refusing to qualify an internal fixture APK as a store artifact",
+  "status": "ARTIFACT_VERIFIED",
+  "qualification": "INTERNAL_TEST",
+  "storeArtifact": false,
+  "productionCandidate": false,
+  "apkPath": "F:\\WooriAI\\artifacts\\android\\wooriai-0.0.0-release-standalone.apk",
+  "apkBytes": 79531958,
+  "apkSha256": "35D8F684195ED2DA209936A3D245231FEC84C448A8B72D61F72400119613880A",
+  "hermesBytes": 2821956,
+  "hermesSha256": "D7D059A9CA13652D605D75610D8F443359003A29AD918F98FF451CD174F55020",
+  "packageName": "com.anonymous.wooriai",
+  "versionCode": "1",
+  "versionName": "0.0.0",
+  "debuggable": false,
+  "allowBackupFalse": true,
+  "cleartextFalse": true,
+  "permissions": [
+    "android.permission.INTERNET",
+    "android.permission.VIBRATE",
+    "android.permission.ACCESS_WIFI_STATE",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.USE_BIOMETRIC",
+    "android.permission.USE_FINGERPRINT",
+    "com.anonymous.wooriai.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+  ],
+  "forbiddenPermissions": [],
+  "exportedComponentsReviewed": true,
+  "deepLinks": {
+    "scheme": true,
+    "oauth": true,
+    "items": true
+  },
+  "certificate": [
+    "Signer #1 certificate DN: CN=Android Debug, OU=Android, O=Unknown, L=Unknown, ST=Unknown, C=US",
+    "Signer #1 certificate SHA-256 digest: fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c",
+    "Signer #1 certificate SHA-1 digest: 5e8f16062ea3cd2c4a0d547876baa6f38cabf625",
+    "Signer #1 certificate MD5 digest: 20f46148b72d8e5e5ca23d37a4f41490"
+  ],
+  "fixtureMarkers": [
+    "local-child-",
+    "wooriai-local-session",
+    "localhost"
+  ],
+  "contamination": "INTERNAL_TEST_EXPECTED",
+  "sourceSnapshotSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
+  "currentSourceSnapshotSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
+  "sourceSnapshotVerification": {
+    "expectedSha256": null,
+    "beforeSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
+    "afterSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
+    "status": "VERIFIED_STABLE"
+  },
+  "sourceBinding": "BOUND",
+  "buildTask": "assembleRelease --max-workers=1 --no-parallel -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64 --rerun-tasks",
+  "cleanedGeneratedPaths": [],
+  "notes": [
+    "debug certificate",
+    "test login and standalone fixture runtime enabled",
+    "not a production/store candidate"
+  ]
+}

@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "status": "PARTIAL",
+  "baseline": {
+    "total": 20,
+    "provenance": "user-reported and normalized"
+  },
+  "automatedHeuristic": {
+    "total": 95,
+    "targetMet": true,
+    "categoriesBelow80Percent": []
+  },
+  "releaseQualified": {
+    "total": 92,
+    "targetMet": false,
+    "reason": "runtime-only Android evidence is not awarded"
+  },
+  "categories": [
+    {
+      "key": "onboarding/profile setup",
+      "max": 15,
+      "baseline": 2,
+      "automated": 14.5,
+      "qualified": 14,
+      "deduction": "native picker runtime"
+    },
+    {
+      "key": "information architecture/navigation",
+      "max": 12,
+      "baseline": 3,
+      "automated": 11.5,
+      "qualified": 11.5,
+      "deduction": "minor legacy facade debt"
+    },
+    {
+      "key": "visual hierarchy/brand",
+      "max": 12,
+      "baseline": 2,
+      "automated": 11.5,
+      "qualified": 10.5,
+      "deduction": "installed Android visual audit pending"
+    },
+    {
+      "key": "design-system consistency",
+      "max": 10,
+      "baseline": 2,
+      "automated": 9.5,
+      "qualified": 9.5,
+      "deduction": "37 facade-backed routes"
+    },
+    {
+      "key": "iconography",
+      "max": 8,
+      "baseline": 1,
+      "automated": 7.5,
+      "qualified": 7,
+      "deduction": "launcher/OEM runtime pending"
+    },
+    {
+      "key": "core task efficiency",
+      "max": 12,
+      "baseline": 3,
+      "automated": 11.5,
+      "qualified": 11.5,
+      "deduction": "heuristic action counts"
+    },
+    {
+      "key": "feedback/state/recovery",
+      "max": 8,
+      "baseline": 2,
+      "automated": 7.5,
+      "qualified": 7.5,
+      "deduction": "minor secondary-state coverage"
+    },
+    {
+      "key": "accessibility/adaptivity",
+      "max": 10,
+      "baseline": 2,
+      "automated": 9.5,
+      "qualified": 8.5,
+      "deduction": "TalkBack and pixel clipping runtime"
+    },
+    {
+      "key": "trust/safety/privacy copy",
+      "max": 6,
+      "baseline": 1.5,
+      "automated": 5.5,
+      "qualified": 5.5,
+      "deduction": "legal approval external"
+    },
+    {
+      "key": "perceived performance",
+      "max": 4,
+      "baseline": 0.5,
+      "automated": 3.5,
+      "qualified": 3.5,
+      "deduction": "device profiling not scored"
+    },
+    {
+      "key": "Korean content/localization",
+      "max": 3,
+      "baseline": 1,
+      "automated": 3,
+      "qualified": 3,
+      "deduction": null
+    }
+  ],
+  "taskEfficiency": [
+    {
+      "task": "first choice change",
+      "before": "impossible",
+      "afterActions": 3
+    },
+    {
+      "task": "pregnancy input",
+      "before": "incomplete",
+      "afterActions": 6
+    },
+    {
+      "task": "born input",
+      "before": "incomplete",
+      "afterActions": 7
+    },
+    {
+      "task": "select three prepared items",
+      "before": "not available",
+      "afterActions": 4
+    },
+    {
+      "task": "skip prepared",
+      "before": "not distinct",
+      "afterActions": 1
+    },
+    {
+      "task": "Today item complete",
+      "before": 3,
+      "afterActions": 2
+    },
+    {
+      "task": "expense record",
+      "before": 5,
+      "afterActions": 4
+    },
+    {
+      "task": "Report source",
+      "before": 2,
+      "afterActions": 1
+    }
+  ],
+  "runtimeOnly": [
+    "installed Android screenshots",
+    "TalkBack",
+    "native picker",
+    "OEM launcher/notification"
+  ]
+}

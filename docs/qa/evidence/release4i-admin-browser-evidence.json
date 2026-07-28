@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "runner": "playwright-core 1.61.1 with Vitest",
+  "browser": "system Chrome 150.0.7871.125",
+  "workerCount": 1,
+  "browserProcessCount": 1,
+  "files": 3,
+  "tests": 7,
+  "passed": 7,
+  "failed": 0,
+  "durationMs": 312130,
+  "scenarios": ["MFA/session/logout", "catalog roles/publish/import/taxonomy/queue", "operations recovery/config rollout/rollback/RBAC"],
+  "mutationDuplicates": 0,
+  "unauthorizedDirectMutationStatus": 403,
+  "screenshots": 0,
+  "traces": 0,
+  "orphanProcesses": 0,
+  "result": "PASS"
+}

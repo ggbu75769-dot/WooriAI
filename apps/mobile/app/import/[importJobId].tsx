@@ -6,7 +6,7 @@ import {
   confirmImport,
   getImportJob,
   listImportRows,
-  LOCAL_SESSION_TOKEN,
+  fixtureSessionToken,
   updateImportRow,
   type ConfirmImportResponse,
   type ImportJob,
@@ -14,7 +14,7 @@ import {
 } from "../../src/api/client";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
+import { AppIcon, AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
 
 const selectedRowIds = (rows: ImportRow[]) => rows.filter((row) => row.selected).map((row) => row.id);
 
@@ -46,7 +46,7 @@ function ImportRowCard({
   return (
     <Pressable disabled={disabled} onPress={onToggle} style={[rowCardStyle, row.selected ? rowCardSelectedStyle : null]}>
       <View style={rowHeaderStyle}>
-        <View style={checkboxStyle(row.selected)}>{row.selected ? <Text style={checkmarkStyle}>✓</Text> : null}</View>
+        <View style={checkboxStyle(row.selected)}>{row.selected ? <AppIcon color={theme.colors.white} name="check" size={16} /> : null}</View>
         <Text style={rowTitleStyle}>{row.parsedItemName ?? "품목명을 확인해 주세요"}</Text>
       </View>
       <Text style={rowAmountStyle}>
@@ -80,7 +80,7 @@ export default function ImportPreviewScreen() {
   const importJobId = String(params.importJobId ?? "");
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const queryClient = useQueryClient();
   const [completionSummary, setCompletionSummary] = useState<ConfirmImportResponse | null>(null);
 
@@ -269,12 +269,6 @@ function checkboxStyle(checked: boolean) {
     width: 20
   } as const;
 }
-
-const checkmarkStyle = {
-  color: theme.colors.white,
-  fontSize: 12,
-  fontWeight: "800"
-} as const;
 
 const rowTitleStyle = {
   color: theme.colors.brown,

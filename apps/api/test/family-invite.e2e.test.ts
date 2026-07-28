@@ -126,6 +126,9 @@ describe("Family invites and household RBAC", () => {
       inviteUrl: expect.stringContaining("/invite/"),
       expiresAt: expect.any(String)
     });
+    const inviteTtlMs = Date.parse(inviteResponse.body.expiresAt) - Date.now();
+    expect(inviteTtlMs).toBeGreaterThan(24 * 60 * 60 * 1000 - 10_000);
+    expect(inviteTtlMs).toBeLessThanOrEqual(24 * 60 * 60 * 1000);
     const inviteToken = tokenFromInviteUrl(inviteResponse.body.inviteUrl);
 
     await request(app.getHttpServer())
@@ -314,9 +317,9 @@ describe("Family invites and household RBAC", () => {
     await request(app.getHttpServer())
       .delete(`/api/v1/households/${householdId}/members/${ownerMemberId}`)
       .set("Authorization", `Bearer ${ownerToken}`)
-      .expect(400)
+      .expect(409)
       .expect(({ body }) => {
-        expect(body.error.code).toBe("HOUSEHOLD_MEMBER_REMOVE_OWNER_FORBIDDEN");
+        expect(body.error.code).toBe("OWNER_TRANSFER_REQUIRED");
       });
 
     await request(app.getHttpServer())

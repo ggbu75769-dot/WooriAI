@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "recordedFor": "onboarding-hardening-20260718",
+  "branch": "codex/sprint2-catalog-payments",
+  "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+  "dirty": true,
+  "dirtyEntryCount": 550,
+  "worktreePolicy": "preserve-shared-dirty-worktree",
+  "gitMutationsAllowed": false,
+  "gitMutationsPerformed": [],
+  "notes": [
+    "The start identity and dirty-entry count were fixed before implementation.",
+    "No initial full patch copy or raw diff-stat text was retained; no values are reconstructed from the final tree."
+  ]
+}

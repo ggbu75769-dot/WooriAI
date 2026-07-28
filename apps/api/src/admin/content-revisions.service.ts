@@ -264,6 +264,78 @@ export class ContentRevisionsService {
     return this.toDto(updated);
   }
 
+  async schedule(admin: AuthenticatedAdmin, id: string, scheduledFor: Date) {
+    const revision = await this.requireRevision(id);
+    if (revision.status !== "in_review") {
+      throw new BadRequestException({ code: "CONTENT_REVISION_INVALID_STATE", message: "검토 중인 초안만 예약할 수 있어요." });
+    }
+    if (revision.authorAdminId === admin.id) {
+      throw new ForbiddenException({ code: "CONTENT_REVISION_SELF_APPROVAL", message: "본인이 작성한 초안은 예약 승인할 수 없어요." });
+    }
+    if (!Number.isFinite(scheduledFor.getTime()) || scheduledFor.getTime() <= Date.now()) {
+      throw new BadRequestException({ code: "CONTENT_SCHEDULE_INVALID", message: "예약 시각은 현재보다 뒤여야 해요." });
+    }
+    const updated = await this.prisma.contentRevision.update({
+      where: { id },
+      data: { scheduledFor, reviewerAdminId: admin.id, publishErrorCode: null }
+    });
+    await this.auditLogger.record({
+      actorUserId: admin.id,
+      action: "admin.content_revision.schedule",
+      targetType: "content_revisions",
+      targetId: id,
+      after: { scheduledFor: scheduledFor.toISOString() }
+    });
+    return this.toDto(updated);
+  }
+
+  async publishDue(id: string) {
+    const revision = await this.requireRevision(id);
+    if (revision.status !== "in_review" || !revision.scheduledFor || revision.scheduledFor.getTime() > Date.now()) {
+      return { status: "not_due" as const };
+    }
+    if (!revision.reviewerAdminId) {
+      await this.prisma.contentRevision.update({
+        where: { id },
+        data: { publishErrorCode: "SCHEDULE_REVIEWER_MISSING" }
+      });
+      throw new BadRequestException({ code: "SCHEDULE_REVIEWER_MISSING", message: "예약 승인자를 찾을 수 없어요." });
+    }
+    const admin = await this.prisma.adminUser.findUnique({ where: { id: revision.reviewerAdminId } });
+    if (!admin || admin.disabledAt || admin.role !== "admin") {
+      await this.prisma.contentRevision.update({
+        where: { id },
+        data: { publishErrorCode: "SCHEDULE_REVIEWER_INVALID" }
+      });
+      throw new BadRequestException({ code: "SCHEDULE_REVIEWER_INVALID", message: "예약 승인자가 유효하지 않아요." });
+    }
+    const scheduleClaim = await this.prisma.contentRevision.updateMany({
+      where: { id, status: "in_review", publishClaimedAt: null },
+      data: { publishClaimedAt: new Date() }
+    });
+    if (scheduleClaim.count !== 1) return { status: "already_claimed" as const };
+    try {
+      const published = await this.approvePublish({ id: admin.id, email: admin.email, role: "admin" }, id);
+      return { status: "published" as const, revision: published };
+    } catch (error) {
+      await this.prisma.contentRevision.updateMany({
+        where: { id, status: "in_review" },
+        data: { publishClaimedAt: null, publishErrorCode: "SCHEDULE_PUBLISH_FAILED" }
+      });
+      throw error;
+    }
+  }
+
+  async dueRevisionIds(limit = 50) {
+    const rows = await this.prisma.contentRevision.findMany({
+      where: { status: "in_review", scheduledFor: { lte: new Date() }, publishClaimedAt: null },
+      orderBy: { scheduledFor: "asc" },
+      take: Math.max(1, Math.min(limit, 200)),
+      select: { id: true }
+    });
+    return rows.map((row) => row.id);
+  }
+
   /** M-2: same CAS pattern as approvePublish -- in_review -> rejected only succeeds once. */
   async reject(admin: AuthenticatedAdmin, id: string, note: string) {
     await this.requireRevision(id);

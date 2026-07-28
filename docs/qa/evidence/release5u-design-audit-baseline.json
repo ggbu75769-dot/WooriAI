@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "status": "PARTIAL",
+  "source": "user-reported 20-point baseline normalized to rubric; not reconstructed from installed Android captures",
+  "total": 20,
+  "categories": {
+    "onboarding": 2,
+    "navigation": 3,
+    "visualBrand": 2,
+    "designSystem": 2,
+    "iconography": 1,
+    "taskEfficiency": 3,
+    "recovery": 2,
+    "accessibility": 2,
+    "trust": 1.5,
+    "performance": 0.5,
+    "korean": 1
+  }
+}

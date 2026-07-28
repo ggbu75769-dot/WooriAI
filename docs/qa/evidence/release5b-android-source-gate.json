@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "release engineer",
+  "input": "Manifest and production boundary",
+  "mission": "reject unsafe native configuration",
+  "evidence": [
+    "native-profile-boundary.test.ts",
+    "production-build-boundary.test.ts"
+  ]
+}

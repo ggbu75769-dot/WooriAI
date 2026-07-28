@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "import operator",
+  "input": "object/job mismatch",
+  "mission": "reconcile without false success",
+  "evidence": [
+    "release4i-import-object-consistency.db.test.ts"
+  ]
+}

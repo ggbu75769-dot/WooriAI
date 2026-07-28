@@ -2,7 +2,7 @@ import type { ChildStageCode, ChildStageMode } from "@wooriai/domain";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { OnboardingScreenId } from "../onboarding/steps";
-import { persistStorage } from "./persist-storage";
+import { zustandPersistStorage } from "./persist-storage";
 
 export type OnboardingProgressState = {
   completedStepIds: OnboardingScreenId[];
@@ -111,7 +111,7 @@ export const useOnboardingProgressStore = create<OnboardingProgressState>()(
     }),
     {
       name: "wooriai-onboarding-progress",
-      storage: createJSONStorage(() => persistStorage),
+      storage: createJSONStorage(() => zustandPersistStorage),
       // MOB-107: bumped for the childCreateIdempotencyKey field (Sprint1/MOB-101) so `migrate`
       // runs against anything written before it existed (round4 and earlier).
       version: 1,

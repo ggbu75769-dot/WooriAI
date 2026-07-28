@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "release": "4G",
+  "generatedAt": "2026-07-17T08:07:00+09:00",
+  "source": {
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "workingTreeDirty": true,
+    "staged": 0
+  },
+  "qualification": {
+    "openCodeP0": 0,
+    "openCodeP1": 0,
+    "productionReadiness": "NO_GO",
+    "adminBrowser": "PASS",
+    "mobileContract": "PASS_RUNTIME_PENDING",
+    "androidInstalled": "NOT_RUN_NO_DEVICE",
+    "externalStaging": "NOT_RUN"
+  },
+  "catalog": {
+    "canonical": 408,
+    "inReview": 408,
+    "published": 0,
+    "highRisk": 84,
+    "activeOffers": 0,
+    "unchanged": true,
+    "productionEndpoint": "published_only_fail_closed"
+  },
+  "tests": {
+    "workspaceTests": 728,
+    "apiE2eFiles": 20,
+    "apiE2eTests": 109,
+    "adminBrowserFiles": 2,
+    "adminBrowserTests": 4,
+    "releaseGate": "11/11 PASS",
+    "freshUpgradeMigrations": 32,
+    "secretScan": "PASS",
+    "dependencyModerate": 6,
+    "dependencyHigh": 0,
+    "dependencyCritical": 0,
+    "productionExportContamination": "PASS"
+  },
+  "evidence": {
+    "aim": "docs/qa/evidence/release4g-aim-traceability.json",
+    "findings": "docs/qa/evidence/release4g-findings.json",
+    "goldenMissions": "docs/qa/evidence/release4g-golden-missions.json",
+    "adminBrowser": "docs/qa/evidence/release4g-admin-browser-evidence.json",
+    "mobileStateMatrix": "docs/qa/evidence/release4g-mobile-state-matrix.json",
+    "offlineRecovery": "docs/qa/evidence/release4g-offline-recovery.json",
+    "reportConsistency": "docs/qa/evidence/release4g-report-consistency.json",
+    "tests": "docs/qa/evidence/release4g-test-evidence.json",
+    "build": "docs/qa/evidence/release4g-build-provenance.json",
+    "ownership": "docs/qa/evidence/release4g-file-ownership.json",
+    "releaseGate": "docs/qa/evidence/latest-release-gate.json",
+    "database": "docs/qa/evidence/release4-database-verification.json",
+    "catalog": "docs/qa/evidence/release4-catalog-audit.json",
+    "productionExport": "docs/qa/evidence/release4-production-export-contamination.json",
+    "artifactDetail": "artifacts/android/release4-build-provenance.json"
+  },
+  "blockers": {
+    "code": [],
+    "runtime": [
+      "authorized Android device not connected",
+      "installed viewport/font/TalkBack qualification not run",
+      "legacy installed upgrade not run",
+      "stale production APK must not be used"
+    ],
+    "external": [
+      "approved legal documents",
+      "408 catalog editorial approvals",
+      "84 high-risk expert approvals",
+      "real push and recall providers",
+      "approved merchant offers",
+      "external staging",
+      "production signing, AAB and Play beta"
+    ]
+  }
+}

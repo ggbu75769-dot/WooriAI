@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T00:15:00+09:00",
+  "release": "4E",
+  "source": {
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "runtime": "Node v20.20.2",
+    "packageManager": "pnpm 10.28.1"
+  },
+  "scenarios": [
+    {
+      "id": "LEGAL-CONSENT-01",
+      "actor": "unauthenticated new user",
+      "input": "placeholder-only, future-effective, reserved-host, and valid published legal documents",
+      "mission": "complete consent only against a valid document version and hash",
+      "expectedContract": "invalid or unavailable documents fail closed; acceptance remains version/hash-bound",
+      "verificationLayers": ["domain unit", "API E2E", "mobile contract"],
+      "tests": ["apps/api/src/legal/legal-document-policy.test.ts", "apps/api/test/release3-phase4.e2e.test.ts"],
+      "result": "PASS",
+      "findingSeverity": "P1_FIXED"
+    },
+    {
+      "id": "ONBOARDING-RESUME-01",
+      "actor": "household owner",
+      "input": "partially completed onboarding followed by process restart and retry",
+      "mission": "resume from the last safe step without duplicate consent or child creation",
+      "expectedContract": "draft is preserved and idempotency-key body mismatch is rejected",
+      "verificationLayers": ["mobile unit", "API E2E"],
+      "tests": ["apps/mobile/src/onboarding-resume.test.ts", "apps/api/test/onboarding.e2e.test.ts"],
+      "result": "PASS",
+      "findingSeverity": null
+    },
+    {
+      "id": "MULTI-CHILD-SWITCH-01",
+      "actor": "household owner with multiple children",
+      "input": "selected-child and session changes while feature queries are cached",
+      "mission": "view the newly selected child's data without stale data from the prior scope",
+      "expectedContract": "selected-child and query caches do not leak across child/session changes",
+      "verificationLayers": ["mobile unit", "API E2E"],
+      "tests": ["apps/mobile/src/stores/session-cache-boundary.test.ts", "apps/mobile/src/real-session-data-integrity.test.ts"],
+      "result": "PASS",
+      "findingSeverity": "P2_FIXED"
+    },
+    {
+      "id": "LIFECYCLE-PARITY-01",
+      "actor": "pregnant user and parents from newborn through middle-school",
+      "input": "fixed KST due-date, birth-date, no-date, and midnight boundaries",
+      "mission": "receive the same lifecycle and recommendation basis from server and local standalone",
+      "expectedContract": "middle-school is not newborn; missing dates do not invent risk; internal codes do not leak",
+      "verificationLayers": ["domain unit", "server/local parity", "mobile contract"],
+      "tests": ["packages/domain/src/preparation-lifecycle.test.ts", "apps/mobile/src/local-backend.test.ts"],
+      "result": "PASS",
+      "findingSeverity": null
+    },
+    {
+      "id": "PREPARATION-WEEKLY-01",
+      "actor": "co-parent",
+      "input": "ranked preparation items, safety alert, partial data, and selected-child change",
+      "mission": "see at most five deterministic weekly priorities and update a plan",
+      "expectedContract": "server ranking is authoritative and successful mutations invalidate all consumers",
+      "verificationLayers": ["domain unit", "API E2E", "mobile contract"],
+      "tests": ["apps/api/test/catalog-v2.e2e.test.ts", "apps/mobile/src/query/mutation-invalidation.test.ts"],
+      "result": "PASS",
+      "findingSeverity": "P2_FIXED"
+    },
+    {
+      "id": "BUNDLE-IDEMPOTENCY-01",
+      "actor": "co-parent",
+      "input": "bundle containing new, prepared, and duplicate-risk canonical items",
+      "mission": "preview and apply without overwriting existing preparation state",
+      "expectedContract": "preview separates result classes; apply is atomic and idempotent",
+      "verificationLayers": ["API E2E", "local-backend parity"],
+      "tests": ["apps/api/test/catalog-v2.e2e.test.ts", "apps/mobile/src/release4d-ux-contract.test.ts"],
+      "result": "PASS",
+      "findingSeverity": null
+    },
+    {
+      "id": "ITEM-CAS-PRIVACY-01",
+      "actor": "co-parent, viewer, and gift participant",
+      "input": "stale item-plan version and restricted financial, memo, and inventory fields",
+      "mission": "edit safely or recover from conflict while restricted roles see no private fields",
+      "expectedContract": "CAS rejects stale writes; viewer cannot mutate; gift response is field-restricted",
+      "verificationLayers": ["API E2E", "mobile contract", "repeat race test"],
+      "tests": ["apps/api/test/catalog-v2.e2e.test.ts", "apps/mobile/src/release4d-ux-contract.test.ts"],
+      "result": "PASS",
+      "findingSeverity": null
+    },
+    {
+      "id": "SEARCH-CORPUS-01",
+      "actor": "authenticated parent using internal preview",
+      "input": "200 canonical, alias, initials, spacing, typo, category, and safety-filter queries",
+      "mission": "find the expected canonical item without retaining the raw query",
+      "expectedContract": "zero misses; public production remains published-only",
+      "verificationLayers": ["domain corpus", "API E2E", "PostgreSQL performance"],
+      "tests": ["packages/domain/src/release4-catalog.test.ts", "apps/api/test/catalog-v2.e2e.test.ts"],
+      "result": "PASS_P95_235_68_MS",
+      "findingSeverity": null
+    },
+    {
+      "id": "OFFLINE-EXPENSE-SCOPE-01",
+      "actor": "user A followed by user B on the same device",
+      "input": "pending create/edit/delete, duplicate delivery, retry, conflict, logout, and account deletion",
+      "mission": "sync once without exposing or replaying user A's queue as user B",
+      "expectedContract": "scope isolation, legacy quarantine, finite retry, idempotency, and account-scope purge",
+      "verificationLayers": ["mobile domain unit", "repeat stability"],
+      "tests": ["apps/mobile/src/offline/session-scope.test.ts", "apps/mobile/src/offline/sync-engine.test.ts"],
+      "result": "PASS",
+      "findingSeverity": "P0_FIXED"
+    },
+    {
+      "id": "REPORT-PLANNED-ONLY-01",
+      "actor": "household owner; gift participant as negative actor",
+      "input": "actual 0, planned 120000 KRW, recurring 30000 KRW, current KST month",
+      "mission": "see preparation plans before the first actual expense",
+      "expectedContract": "planned-only UI, recurring separate, actual 0, CTA, gift access denied",
+      "verificationLayers": ["domain selector", "API aggregate E2E", "mobile request plan"],
+      "tests": ["packages/domain/src/report-v3-state.test.ts", "apps/mobile/src/reports/request-plan.test.ts"],
+      "result": "PASS_AGGREGATE_ONLY_INITIAL_READ",
+      "findingSeverity": "P2_FIXED"
+    },
+    {
+      "id": "NOTIFICATION-INBOX-01",
+      "actor": "household member",
+      "input": "cursor pages, duplicate read, unknown type, malicious route, and deleted target",
+      "mission": "read only the member's notifications and navigate only to approved screens",
+      "expectedContract": "tenant isolation, idempotent read, route allowlist, safe fallback",
+      "verificationLayers": ["API E2E", "mobile unit"],
+      "tests": ["apps/api/test/notifications.e2e.test.ts", "apps/mobile/src/notifications/route.test.ts"],
+      "result": "PASS",
+      "findingSeverity": "P2_FIXED"
+    },
+    {
+      "id": "OWNER-TRANSFER-01",
+      "actor": "household owner; viewer and gift participant as negative actors",
+      "input": "eligible co-parent, duplicate submit, and stale membership",
+      "mission": "transfer ownership safely before leaving",
+      "expectedContract": "owner-only, invalid candidates rejected, one result, stale conflict, role refresh",
+      "verificationLayers": ["API E2E", "mobile contract", "repeat CAS test"],
+      "tests": ["apps/api/test/release3-phase4.e2e.test.ts", "apps/mobile/src/release4d-ux-contract.test.ts"],
+      "result": "PASS",
+      "findingSeverity": null
+    },
+    {
+      "id": "PRIVACY-DELETE-01",
+      "actor": "account owner",
+      "input": "repeated delete, pending local queue, cached data, and post-delete API request",
+      "mission": "delete idempotently and leave no reusable local data or protected access",
+      "expectedContract": "post-delete denial, current-scope purge, query/session cache clear",
+      "verificationLayers": ["API E2E", "mobile unit"],
+      "tests": ["apps/api/test/release3-phase4.e2e.test.ts", "apps/mobile/src/stores/session-cache-boundary.test.ts"],
+      "result": "PASS",
+      "findingSeverity": "P0_FIXED"
+    },
+    {
+      "id": "ADMIN-PUBLISH-01",
+      "actor": "catalog author, reviewer, safety reviewer, and publisher",
+      "input": "self-approval, stale hash, high-risk revision, and concurrent publish",
+      "mission": "publish only a separately approved current revision",
+      "expectedContract": "role separation, safety gate, stale conflict, one publish winner",
+      "verificationLayers": ["API DB E2E", "Admin render test", "repeat race test"],
+      "tests": ["apps/api/test/catalog-v2-admin.e2e.test.ts", "apps/api/test/content-revisions.e2e.test.ts"],
+      "result": "PASS_AUTOMATED_BROWSER_NOT_AVAILABLE",
+      "findingSeverity": null
+    },
+    {
+      "id": "ADMIN-IMPORT-01",
+      "actor": "Admin operator",
+      "input": "CSV/XLSX preview, formula injection, duplicate candidates, and partial failure",
+      "mission": "preview and validate without direct publication",
+      "expectedContract": "formula injection blocked; row errors reported; no public content created",
+      "verificationLayers": ["API E2E", "Admin render test"],
+      "tests": ["apps/api/test/release4c-admin-import.e2e.test.ts", "apps/admin/src/admin-cms-pages.test.ts"],
+      "result": "PASS_AUTOMATED_BROWSER_NOT_AVAILABLE",
+      "findingSeverity": null
+    }
+  ],
+  "summary": {
+    "scenarioCount": 15,
+    "automatedPass": 15,
+    "installedDevicePass": 0,
+    "browserHeadlessPass": 0,
+    "browserHeadlessStatus": "NOT_AVAILABLE_TOOLING",
+    "adbStatus": "NOT_RUN_NO_CONNECTED_DEVICE"
+  }
+}

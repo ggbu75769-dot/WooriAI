@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "release": "4H",
+  "generatedAt": "2026-07-17T12:42:02+09:00",
+  "source": {
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "workingTreeDirty": true,
+    "trackedStatusEntries": 126,
+    "untrackedIndividualFiles": 250,
+    "staged": 0
+  },
+  "workstreams": {
+    "routeContractClosure": "PASS",
+    "sessionRestoreAndDeepLink": "PASS_CONTRACT_RUNTIME_PENDING",
+    "collaborationAndTemporalPipeline": "PASS_AUTOMATED",
+    "multiProcessLocalStaging": "PARTIAL",
+    "adminQueueBrowser": "PASS",
+    "nativeArtifactQualification": "PARTIAL_SOURCE_FIXED_APK_REBUILD_REQUIRED",
+    "dependencyAndQueryBudget": "PASS_WITH_MODERATE_DISPOSITIONS"
+  },
+  "qualification": {
+    "openCodeP0": 0,
+    "openCodeP1": 0,
+    "productionReadiness": "NO_GO",
+    "adminBrowser": "PASS",
+    "mobileContract": "PASS_RUNTIME_PENDING",
+    "localStaging": "LOCAL_STAGING_PARTIAL",
+    "androidInstalled": "NOT_RUN_NO_DEVICE_AND_ARTIFACT_NOT_CURRENT",
+    "productionArtifact": "EXTERNAL_BLOCKED"
+  },
+  "catalog": {
+    "canonical": 408,
+    "inReview": 408,
+    "published": 0,
+    "highRisk": 84,
+    "activeOffers": 0,
+    "unchanged": true,
+    "productionEndpoint": "published_only_fail_closed"
+  },
+  "tests": {
+    "workspaceTests": 770,
+    "apiE2eFiles": 20,
+    "apiE2eTests": 111,
+    "adminBrowserFiles": 2,
+    "adminBrowserTests": 5,
+    "releaseGate": "11/11 PASS",
+    "freshUpgradeMigrations": 32,
+    "secretScan": "PASS",
+    "dependencyModerateFindings": 6,
+    "dependencyUniqueAdvisories": 5,
+    "dependencyHigh": 0,
+    "dependencyCritical": 0,
+    "productionExportContamination": "PASS"
+  },
+  "routeMatrix": {
+    "routes": 38,
+    "cells": 342,
+    "automatedPass": 126,
+    "automatedFail": 0,
+    "runtimeOnly": 47,
+    "notApplicable": 169,
+    "blockedExternal": 0
+  },
+  "evidence": {
+    "aim": "docs/qa/evidence/release4h-aim-traceability.json",
+    "findings": "docs/qa/evidence/release4h-findings.json",
+    "routeClosure": "docs/qa/evidence/release4h-route-contract-closure.json",
+    "navigation": "docs/qa/evidence/release4h-navigation-restore.json",
+    "collaboration": "docs/qa/evidence/release4h-collaboration-events.json",
+    "scheduler": "docs/qa/evidence/release4h-scheduler-evidence.json",
+    "notifications": "docs/qa/evidence/release4h-notification-pipeline.json",
+    "localStaging": "docs/qa/evidence/release4h-local-staging-faults.json",
+    "adminBrowser": "docs/qa/evidence/release4h-admin-browser-evidence.json",
+    "nativeArtifact": "docs/qa/evidence/release4h-native-artifact-audit.json",
+    "dependencyDelta": "docs/qa/evidence/release4h-dependency-delta.json",
+    "queryBudget": "docs/qa/evidence/release4h-query-budget.json",
+    "tests": "docs/qa/evidence/release4h-test-evidence.json",
+    "build": "docs/qa/evidence/release4h-build-provenance.json",
+    "ownership": "docs/qa/evidence/release4h-file-ownership.json"
+  },
+  "blockers": {
+    "code": [],
+    "runtime": [
+      "new internal APK must be rebuilt after the storage-permission source fix",
+      "authorized Android device not connected",
+      "native process restore, viewport/font clipping and TalkBack qualification not run",
+      "local compose manual worker replacement and full MinIO/import fault injection remain partial",
+      "real production profile values and signing are unavailable"
+    ],
+    "external": [
+      "approved legal documents",
+      "408 catalog editorial approvals",
+      "84 high-risk expert approvals",
+      "real push and recall providers",
+      "approved merchant offers",
+      "external staging",
+      "production signing, AAB and Play beta"
+    ]
+  }
+}

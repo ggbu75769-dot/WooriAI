@@ -37,13 +37,14 @@ describe("UI Pixel Lock source contract", () => {
     for (const expectedRoute of ['name="index"', 'name="records"', 'name="items"', 'name="reports"', 'name="more"']) {
       expect(layoutSource).toContain(expectedRoute);
     }
+    expect(layoutSource).toContain('name="more" options={{ title: tabs.more.title');
   });
 
   it("exposes reusable pixel-lock tokens and component primitives instead of one-off card styles", async () => {
     const { theme } = await import("./theme");
     const uiSource = readFileSync(join(mobileRoot, "src/ui.tsx"), "utf8");
 
-    expect(theme.colors.mainCoral).toBe("#EF6644");
+    expect(theme.colors.mainCoral).toBe("#C94627");
     expect(theme.radii.card).toBeGreaterThanOrEqual(20);
     expect(uiSource).toContain("AppScreen");
     expect(uiSource).toContain("PrimaryButton");
@@ -67,32 +68,29 @@ describe("UI Pixel Lock source contract", () => {
 
   it("migrates the primary mobile surfaces onto the pixel-lock component set", () => {
     const surfaceExpectations = [
-      ["app/(tabs)/index.tsx", "HeroSummaryCard"],
-      ["app/(tabs)/index.tsx", "QuickActionIconButton"],
-      ["app/(tabs)/index.tsx", "FloatingActionButton"],
+      ["app/(tabs)/index.tsx", "BudgetSummary"],
+      ["app/(tabs)/index.tsx", "SampleDataBanner"],
       ["app/(tabs)/index.tsx", "previewHome"],
-      ["app/(tabs)/index.tsx", "1_245_700"],
+      ["app/(tabs)/index.tsx", "isPixelLockMode ? previewHome : null"],
       ["app/expenses/new.tsx", "BottomSheetFrame"],
       ["app/expenses/new.tsx", "showHandle={false}"],
+      ["app/expenses/new.tsx", "quickExpenseItems"],
       ["app/expenses/new.tsx", "quickExpenseCategories"],
+      ["app/expenses/new.tsx", "SampleDataBanner"],
       ["app/expenses/new.tsx", "QuickExpensePixelStyles.scale"],
       ["app/expenses/new.tsx", "QuickExpensePixelStyles.horizontalOffset"],
       ["app/expenses/new.tsx", "QuickExpensePixelStyles.topOffset"],
       ["app/expenses/new.tsx", "quickExpensePixelFrameStyle"],
-      ["app/expenses/new.tsx", "₩ 38,500"],
+      ["app/expenses/new.tsx", "38,500원"],
       ["app/expenses/new.tsx", "formatExpenseDate(today)"],
-      ["app/(tabs)/items.tsx", "ProductCard"],
-      ["app/(tabs)/items.tsx", "CategoryChip"],
-      ["app/(tabs)/items.tsx", "recommendationBabyCarrierImage"],
-      ["app/(tabs)/items.tsx", "recommendationDiaperImage"],
-      ["app/(tabs)/items.tsx", "recommendationBlocksImage"],
-      ["app/(tabs)/items.tsx", "recommendationHorizontalOffset = 0"],
-      ["app/(tabs)/items.tsx", "recommendationVerticalOffset = 0"],
+      ["app/(tabs)/items.tsx", "PreparationListParity"],
+      ["src/preparation/PreparationListParity.tsx", "PreparationItemCard"],
+      ["src/preparation/PreparationListParity.tsx", "분류별"],
+      ["src/preparation/PreparationListParity.tsx", "시기별"],
       ["app/(tabs)/items.tsx", "ItemListPixelStyles.scale"],
       ["app/(tabs)/items.tsx", "ItemListPixelStyles.horizontalOffset"],
       ["app/(tabs)/items.tsx", "ItemListPixelStyles.topOffset"],
       ["app/(tabs)/items.tsx", "recommendationPixelScaleFrameStyle"],
-      ["app/(tabs)/items.tsx", "recommendationPixelFrameStyle"],
       ["app/items/[itemTemplateId].tsx", "ProductComparisonRow"],
       ["app/items/[itemTemplateId].tsx", "AffiliateDisclosure"],
       ["app/items/[itemTemplateId].tsx", "product_diaper_pack.png"],
@@ -124,25 +122,20 @@ describe("UI Pixel Lock source contract", () => {
     expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "topOffset", 0)');
     expect(itemListPixelStyleSource).toContain('return pixelNumber("ITEM-001", "horizontalOffset", 0)');
 
-    for (const asset of ["recommendation_baby_carrier.png", "recommendation_diaper.png", "recommendation_blocks.png"]) {
-      expect(existsSync(join(mobileRoot, "assets/illustrations", asset)), `${asset} should exist`).toBe(true);
-    }
   });
 
   it("keeps the home first viewport compact without an extra recommendation product card", () => {
     const homeSource = readFileSync(join(mobileRoot, "app/(tabs)/index.tsx"), "utf8");
 
-    expect(homeSource).toContain("homeBudgetNudgeStyle");
-    expect(homeSource).toContain("homeBudgetNudgeArrowStyle");
-    expect(homeSource).toContain("HomePixelStyles.horizontalOffset");
-    expect(homeSource).toContain("HomePixelStyles.topOffset");
-    expect(homeSource).toContain("HomePixelStyles.scale");
-    expect(homeSource).toContain("HomePixelStyles.scaleX");
-    expect(homeSource).toContain("HomePixelStyles.scaleHorizontalOffset");
-    expect(homeSource).toContain("HomePixelStyles.scaleVerticalOffset");
-    expect(homeSource).toContain("homePixelScaleFrameStyle");
-    expect(homeSource).toContain("homePixelFrameStyle");
+    expect(homeSource).toContain("quickActions");
+    expect(homeSource).toContain("BudgetSummary");
+    expect(homeSource).toContain("SampleDataBanner");
+    expect(homeSource).not.toContain("HomePixelStyles");
+    expect(homeSource).not.toContain("homePixelScaleFrameStyle");
+    expect(homeSource).not.toContain("homePixelFrameStyle");
     expect(homeSource).toContain('router.push("/(tabs)/items")');
+    expect(homeSource).not.toContain("QuickActionIconButton");
+    expect(homeSource).not.toContain("FloatingActionButton");
     expect(homeSource).not.toContain("ProductCard");
     expect(homeSource).not.toContain("toddlerImage");
 
@@ -175,9 +168,23 @@ describe("UI Pixel Lock source contract", () => {
     // Category labels are the single source of truth in src/categories.ts (the catalog
     // feeding new.tsx's picker), so assert against that file, not new.tsx comments.
     const categoryCatalogSource = readFileSync(join(mobileRoot, "src/categories.ts"), "utf8");
-    for (const expectedCategory of ["기저귀", "분유/유제품", "식비", "의류", "약품/교통", "병원/약", "교육/도서", "기타"]) {
+    for (const expectedCategory of [
+      "임신·산모",
+      "병원·건강",
+      "출산·산후",
+      "기저귀·위생",
+      "수유·이유식",
+      "의류·세탁",
+      "수면·가구",
+      "외출·이동",
+      "장난감·책",
+      "돌봄·교육",
+      "보험·저축",
+      "기타"
+    ]) {
       expect(categoryCatalogSource).toContain(expectedCategory);
     }
+    expect(categoryCatalogSource).not.toContain("약품/교통");
   });
 
   it("keeps product detail screen IDs accessible without rendering the source-lock eyebrow", () => {
@@ -250,8 +257,9 @@ describe("UI Pixel Lock source contract", () => {
     expect(importSource).toContain("ExcelPreviewPixelStyles.horizontalOffset");
     expect(importSource).toContain("ExcelPreviewPixelStyles.topOffset");
     expect(importSource).toContain("excelPreviewPixelFrameStyle");
+    expect(importSource).toContain("showPixelPreview");
     expect(importSource).toContain("AI 분류 미리보기");
-    expect(importSource).toContain("적용하고 리포트 보기");
+    expect(importSource).toContain("엑셀 파일 선택하기");
     expect(importSource).toContain("createExcelImport");
     expect(importSource).toContain("승인하기 전까지는 지출로 저장되지 않아요");
 
@@ -262,47 +270,66 @@ describe("UI Pixel Lock source contract", () => {
     expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "ctaBottomInset", 56)');
   });
 
-  it("locks the more route to the compact single-screen reference menu", () => {
+  it("uses the more route as the real MOD_V1 profile hub", () => {
     const moreSource = readFileSync(join(mobileRoot, "app/(tabs)/more.tsx"), "utf8");
 
-    expect(moreSource).toContain("moreReferenceScreenId");
-    expect(moreSource).not.toContain("MorePixelStatusBar");
-    expect(moreSource).toContain("moreMenuRows");
-    expect(moreSource).toContain("MoreMenuRow");
-    expect(moreSource).toContain("moreReferenceFrameStyle");
-    expect(moreSource).toContain("moreProfileCardStyle");
-    expect(moreSource).not.toContain("ScreenHeader");
-    expect(moreSource).not.toContain("PrimaryButton");
+    expect(moreSource).toContain('testID="screen-PF-01"');
+    expect(moreSource).toContain("listChildren");
+    expect(moreSource).toContain("listHouseholdMembers");
+    expect(moreSource).toContain("getBudget");
+    expect(moreSource).toContain("getNotificationPreferences");
+    expect(moreSource).toContain("SampleDataBanner");
+    expect(moreSource).toContain("SyncStatusBar");
+    expect(moreSource).toContain("아이 · 산모");
+    expect(moreSource).toContain("예산 · 데이터");
+    expect(moreSource).not.toContain("previewProfile");
+    expect(moreSource).not.toContain("moreReferenceFrameStyle");
   });
 
-  it("provides a launch growth animation route with real stage assets and skip flow", () => {
+  it("provides a launch growth animation route that finishes automatically within three seconds", () => {
     const launchSource = readFileSync(join(mobileRoot, "app/launch-animation.tsx"), "utf8");
 
     for (const expectedText of [
       "SPL-001",
       "Animated",
       "family.png",
-      "logo_mark.png",
+      "splash-mark.png",
       "intro",
       "animationStages",
       "growth_fetus.png",
       "growth_baby.png",
-      "growth_toddler.png",
-      "건너뛰기"
+      "growth_toddler.png"
     ]) {
       expect(launchSource).toContain(expectedText);
     }
 
     expect(launchSource).toContain("splashScreenId");
-    expect(launchSource).toContain("introHoldMs");
+    expect(launchSource).toContain("const introHoldMs = 300");
+    expect(launchSource).toContain("const stageHoldMs = 320");
+    expect(launchSource).toContain("const finalHoldMs = 350");
+    expect(launchSource).toContain("const stageTransitionMs = 180");
+    expect(300 + (320 * 5) + 350).toBeLessThanOrEqual(3000);
     expect(launchSource).toContain("introImageStyle");
     expect(launchSource).toContain("SplashPixelStyles.groupScale");
     expect(launchSource).toContain("SplashPixelStyles.topOffset");
     expect(launchSource).toContain("splashPixelFrameStyle");
+    expect(launchSource).toContain('barStyle="dark-content"');
+    expect(launchSource).toContain("backgroundColor={theme.colors.background}");
     expect(launchSource).toContain("paddingTop: 112");
     expect(launchSource).toContain("SplashPixelStyles.introImageMarginTop");
     expect(launchSource).toContain("stageIndex < 0 ? introHoldMs");
+    expect(launchSource).toContain("isFinalStage ? finalHoldMs : stageHoldMs");
+    expect(launchSource).toContain("AccessibilityInfo.isReduceMotionEnabled");
+    expect(launchSource).toContain("if (!mounted || isPixelLockMode) return");
+    expect(launchSource).toContain("setStageIndex(animationStages.length - 1)");
+    expect(launchSource).toContain('router.replace("/login")');
     expect(launchSource).toContain("accessibilityLabel={splashScreenId}");
+    expect(launchSource).toContain("accessibilityLiveRegion");
+    for (const removedControl of ["이전", "일시정지", "자동 재생", "다음", "건너뛰기", "시작하기", "PrimaryButton", "TextButton"]) {
+      expect(launchSource).not.toContain(removedControl);
+    }
+    expect(launchSource).not.toContain("growth_logo.png");
+    expect(launchSource).not.toContain('require("../assets/illustrations/logo_mark.png")');
     expect(launchSource).not.toContain(">SPL-001</Text>");
     expect(launchSource).not.toContain("<BrandLogo");
 
@@ -312,7 +339,11 @@ describe("UI Pixel Lock source contract", () => {
     expect(splashPixelStyleSource).toContain('return pixelNumber("SPL-001", "introImageMarginTop", 56)');
 
     for (const asset of ["growth_fetus.png", "growth_baby.png", "growth_toddler.png", "growth_elementary.png", "growth_middle.png", "growth_high.png"]) {
-      expect(existsSync(join(mobileRoot, "assets/illustrations", asset)), `${asset} should exist`).toBe(true);
+      const assetPath = join(mobileRoot, "assets/illustrations", asset);
+      expect(existsSync(assetPath), `${asset} should exist`).toBe(true);
+      const png = readFileSync(assetPath);
+      expect(png.readUInt32BE(16), `${asset} should keep the full illustration width`).toBeGreaterThanOrEqual(155);
+      expect(png.readUInt32BE(20), `${asset} should keep the full illustration height`).toBeGreaterThanOrEqual(220);
     }
   });
 });

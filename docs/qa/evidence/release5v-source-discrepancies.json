@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "PASS",
+  "discrepancies": [
+    {
+      "id": "R5V-P2-002",
+      "severity": "P2",
+      "status": "OPEN_ENVIRONMENT",
+      "expected": "default dev DB schema matches migration history",
+      "actual": "wooriai_dev reports migrations but lacks catalog columns",
+      "rootCause": "pre-existing local DB drift",
+      "sourcePath": "local PostgreSQL wooriai_dev",
+      "fix": "none; audited explicit fresh 40-migration test DB",
+      "regressionTest": "release4:verify-db PASS",
+      "residualRisk": "default catalog:audit fails until dev DB is rebuilt by owner",
+      "actor": "release operator",
+      "input": "default catalog audit",
+      "mission": "avoid treating drifted local DB as source truth"
+    },
+    {
+      "id": "R5V-P2-003",
+      "severity": "P2",
+      "status": "OPEN_DEBT",
+      "expected": "all production routes fully direct DS",
+      "actual": "29 routes retain approved facade/domain widgets",
+      "rootCause": "incremental migration scope",
+      "sourcePath": "apps/mobile/app",
+      "fix": "21 routes fully direct; core 13 direct",
+      "regressionTest": "ux:contract --strict",
+      "residualRisk": "257 hardcoded spacing and 37 heuristic sub-48 candidates outside strict core",
+      "actor": "large-font mobile user",
+      "input": "secondary routes",
+      "mission": "complete remaining direct migration without broad rewrite"
+    }
+  ]
+}

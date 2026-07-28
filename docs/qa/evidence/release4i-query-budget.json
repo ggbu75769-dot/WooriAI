@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "worker": { "logicalEventToVisibleEffectMaximum": 1, "configReadPerQueueRow": 0, "duplicateTerminalComplete": 0 },
+  "remoteConfig": { "dbReadRepeatedWithinRequest": 0, "boundedInstanceRefresh": true, "refreshStorm": 0 },
+  "import": { "duplicateApplyEndpointPerAction": 0, "duplicateRevisionOnRetry": 0, "rowLevelNPlusOne": false, "reconciliationRepeatedSideEffects": 0 },
+  "adminBrowser": { "duplicateMutationRequests": 0, "globalQueueRefetchAfterRowMutation": 0, "stalePayloadAutoReplay": 0, "paginationDuplicateFetch": 0 },
+  "reportRegression": { "initialAggregateFeatureRequests": 1, "plannedSourceExpenseLedgerReads": 0, "aggregateSourceEquivalenceIterations": 30, "failures": 0 },
+  "wallClockUsedAsGate": false
+}

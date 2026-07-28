@@ -8,14 +8,25 @@ import type {
   PaymentMethod,
   ProductPlatform
 } from "@wooriai/domain";
+import {
+  LOCAL_CHILD_ID,
+  LOCAL_DAD_USER_ID,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_MOTHER_PROFILE_ID,
+  LOCAL_USER_ID
+} from "./fixture-identifiers";
+import { PREPARED_ITEM_CARRIER_ID, PREPARED_ITEM_DIAPER_ID } from "./prepared-item-ids";
 
 // Fixed identifiers for the local (server-less) test-mode backend. These never touch the
 // session store's accessToken/defaultHouseholdId/userId fields -- those must stay null for
 // an isTestSession per the local test login contract (see src/test-login-flow.test.ts).
-export const LOCAL_CHILD_ID = "local-child-daon";
-export const LOCAL_HOUSEHOLD_ID = "local-household-daon";
-export const LOCAL_USER_ID = "local-user-self";
-export const LOCAL_DAD_USER_ID = "local-user-dad";
+export {
+  LOCAL_CHILD_ID,
+  LOCAL_DAD_USER_ID,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_MOTHER_PROFILE_ID,
+  LOCAL_USER_ID
+} from "./fixture-identifiers";
 
 export const LOCAL_DEFAULT_BUDGET_KRW = 1_600_000;
 
@@ -102,14 +113,14 @@ export type LocalItemTemplateFixture = {
 // UUID-shaped literals (not slugs): the real API validates item template ids with @IsUUID
 // (e.g. PreparedItemsDto), so screens that send these ids in a real session would 400 on a
 // readable slug. The trailing hex digit encodes the fixture index for determinism.
-export const LOCAL_ITEM_DIAPER = "10ca11fe-0000-4a01-8a01-f1c7deb0a001";
-export const LOCAL_ITEM_CARRIER = "10ca11fe-0000-4a02-8a02-f1c7deb0a002";
+export const LOCAL_ITEM_DIAPER = PREPARED_ITEM_DIAPER_ID;
+export const LOCAL_ITEM_CARRIER = PREPARED_ITEM_CARRIER_ID;
 export const LOCAL_ITEM_BLOCKS = "10ca11fe-0000-4a03-8a03-f1c7deb0a003";
 
 export const localItemTemplateFixtures: LocalItemTemplateFixture[] = [
   {
     id: LOCAL_ITEM_DIAPER,
-    name: "네이처러브 기저귀 팬티형",
+    name: "기저귀",
     necessityLevel: "essential",
     timingLabel: "12-24개월",
     priceMinKrw: 42_900,
@@ -123,7 +134,7 @@ export const localItemTemplateFixtures: LocalItemTemplateFixture[] = [
   },
   {
     id: LOCAL_ITEM_CARRIER,
-    name: "베이비 아기띠 힙시트",
+    name: "아기띠",
     necessityLevel: "essential",
     timingLabel: "12-24개월",
     priceMinKrw: 89_000,
@@ -137,7 +148,7 @@ export const localItemTemplateFixtures: LocalItemTemplateFixture[] = [
   },
   {
     id: LOCAL_ITEM_BLOCKS,
-    name: "도담도담 원목 블록 세트",
+    name: "블록 세트",
     necessityLevel: "optional",
     timingLabel: "24개월+",
     priceMinKrw: 33_800,
@@ -148,6 +159,132 @@ export const localItemTemplateFixtures: LocalItemTemplateFixture[] = [
     safetyNote: "작은 조각을 삼키지 않도록 사용 연령을 확인해 주세요.",
     displayOrder: 30,
     stageCodes: ["kid_4_7"]
+  },
+  {
+    id: "10ca11fe-0000-4a04-8a04-f1c7deb0a004",
+    name: "아기 침대",
+    necessityLevel: "essential",
+    timingLabel: "출산 전",
+    priceMinKrw: null,
+    priceMaxKrw: null,
+    reasonText: "안전한 수면 공간을 미리 확인해요.",
+    skipReasonText: "이미 안전한 수면 공간이 있는 경우",
+    usedSecondhandOk: true,
+    safetyNote: "매트리스 밀착과 난간 간격을 확인해 주세요.",
+    displayOrder: 40,
+    stageCodes: ["pregnancy_late", "newborn_0_3"]
+  },
+  {
+    id: "10ca11fe-0000-4a05-8a05-f1c7deb0a005",
+    name: "배냇저고리",
+    necessityLevel: "essential",
+    timingLabel: "출산 전",
+    priceMinKrw: null,
+    priceMaxKrw: null,
+    reasonText: "처음 입을 옷을 계절에 맞게 준비해요.",
+    skipReasonText: "물려받거나 선물 받은 옷이 충분한 경우",
+    usedSecondhandOk: true,
+    safetyNote: null,
+    displayOrder: 50,
+    stageCodes: ["pregnancy_late", "newborn_0_3"]
+  },
+  {
+    id: "10ca11fe-0000-4a06-8a06-f1c7deb0a006",
+    name: "속싸개",
+    necessityLevel: "convenience",
+    timingLabel: "출산 전",
+    priceMinKrw: null,
+    priceMaxKrw: null,
+    reasonText: "신생아 돌봄에 필요한 수량을 점검해요.",
+    skipReasonText: "대체할 수 있는 천이 있는 경우",
+    usedSecondhandOk: true,
+    safetyNote: "수면 중 얼굴을 덮지 않도록 주의해 주세요.",
+    displayOrder: 60,
+    stageCodes: ["pregnancy_late", "newborn_0_3"]
+  },
+  {
+    id: "10ca11fe-0000-4a07-8a07-f1c7deb0a007",
+    name: "젖병",
+    necessityLevel: "convenience",
+    timingLabel: "필요 시",
+    priceMinKrw: null,
+    priceMaxKrw: null,
+    reasonText: "수유 계획에 맞춰 필요한 수량만 준비해요.",
+    skipReasonText: "현재 수유 계획상 필요하지 않은 경우",
+    usedSecondhandOk: false,
+    safetyNote: "제품별 소독 방법을 확인해 주세요.",
+    displayOrder: 70,
+    stageCodes: ["pregnancy_late", "newborn_0_3"]
+  },
+  {
+    id: "10ca11fe-0000-4a08-8a08-f1c7deb0a008",
+    name: "체온계",
+    necessityLevel: "essential",
+    timingLabel: "출산 전",
+    priceMinKrw: null,
+    priceMaxKrw: null,
+    reasonText: "가정에서 상태를 확인할 기본 도구를 준비해요.",
+    skipReasonText: "이미 정상 작동하는 제품이 있는 경우",
+    usedSecondhandOk: true,
+    safetyNote: "사용법과 측정 위치를 제품 설명서에서 확인해 주세요.",
+    displayOrder: 80,
+    stageCodes: ["pregnancy_late", "newborn_0_3"]
+  },
+  {
+    id: "10ca11fe-0000-4a09-8a09-f1c7deb0a009",
+    name: "아기 욕조",
+    necessityLevel: "convenience",
+    timingLabel: "출산 전",
+    priceMinKrw: null,
+    priceMaxKrw: null,
+    reasonText: "목욕 공간과 보관 위치를 함께 확인해요.",
+    skipReasonText: "안전한 대체 목욕 공간이 있는 경우",
+    usedSecondhandOk: true,
+    safetyNote: "물 높이와 온도를 항상 보호자가 확인해 주세요.",
+    displayOrder: 90,
+    stageCodes: ["pregnancy_late", "newborn_0_3"]
+  },
+  {
+    id: "10ca11fe-0000-4a0a-8a0a-f1c7deb0a00a",
+    name: "손수건",
+    necessityLevel: "essential",
+    timingLabel: "출산 전",
+    priceMinKrw: null,
+    priceMaxKrw: null,
+    reasonText: "세탁 주기를 고려해 필요한 수량을 준비해요.",
+    skipReasonText: "사용 가능한 손수건이 충분한 경우",
+    usedSecondhandOk: true,
+    safetyNote: null,
+    displayOrder: 100,
+    stageCodes: ["pregnancy_late", "newborn_0_3"]
+  },
+  {
+    id: "10ca11fe-0000-4a0b-8a0b-f1c7deb0a00b",
+    name: "카시트",
+    necessityLevel: "essential",
+    timingLabel: "퇴원 전",
+    priceMinKrw: null,
+    priceMaxKrw: null,
+    reasonText: "첫 이동 전에 차량과 설치 호환성을 확인해요.",
+    skipReasonText: "차량 이동 계획이 없거나 적합한 제품이 있는 경우",
+    usedSecondhandOk: false,
+    safetyNote: "사용 연령, 설치 방향, 사고 이력을 반드시 확인해 주세요.",
+    displayOrder: 110,
+    stageCodes: ["pregnancy_late", "newborn_0_3"]
+  },
+  {
+    id: "10ca11fe-0000-4a0c-8a0c-f1c7deb0a00c",
+    name: "유모차",
+    necessityLevel: "convenience",
+    timingLabel: "외출 전",
+    priceMinKrw: null,
+    priceMaxKrw: null,
+    reasonText: "생활 동선과 보관 공간에 맞는지 확인해요.",
+    skipReasonText: "다른 안전한 이동 수단이 있는 경우",
+    usedSecondhandOk: true,
+    safetyNote: "브레이크와 안전벨트 작동을 확인해 주세요.",
+    displayOrder: 120,
+    stageCodes: ["newborn_0_3", "infant_4_6"]
   }
 ];
 

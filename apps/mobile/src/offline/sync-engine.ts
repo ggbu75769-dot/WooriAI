@@ -1,5 +1,11 @@
-import { computeNextRetryAtIso } from "./backoff";
-import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
+import { computeNextRetryAtIso, MAX_AUTOMATIC_RETRY_ATTEMPTS } from "./backoff";
+import {
+  RemoteAuthRequiredError,
+  RemotePermanentError,
+  RemotePermissionDeniedError,
+  RemoteSyncCancelledError,
+  RemoteVersionConflictError
+} from "./errors";
 import { mergeOutboxMutation } from "./outbox-merge";
 import {
   generateOfflineId,
@@ -9,8 +15,8 @@ import {
   type OfflineStore
 } from "./types";
 
-export type RemoteCreateResult = { id: string; version: number };
-export type RemoteUpdateResult = { version: number };
+export type RemoteCreateResult = { id: string; version: number; payload?: ExpensePayload };
+export type RemoteUpdateResult = { version: number; payload?: ExpensePayload };
 
 /**
  * Thin transport contract the sync engine flushes mutations through. `remote-api.ts` implements
@@ -48,25 +54,19 @@ function omitUndefinedValues<T extends object>(patch: Partial<T>): Partial<T> {
   return result;
 }
 
-async function replaceOutboxForLocalId(
-  store: OfflineStore,
-  existing: MutationOutboxRow[],
-  merged: MutationOutboxRow[]
-): Promise<void> {
-  const mergedIds = new Set(merged.map((mutation) => mutation.mutationId));
-  for (const old of existing) {
-    if (!mergedIds.has(old.mutationId)) {
-      await store.deleteOutboxMutation(old.mutationId);
-    }
-  }
-  for (const row of merged) {
-    const wasAlreadyPersisted = existing.some((mutation) => mutation.mutationId === row.mutationId);
-    if (wasAlreadyPersisted) {
-      await store.updateOutboxMutation(row.mutationId, row);
-    } else {
-      await store.insertOutboxMutation(row);
-    }
-  }
+const MAX_LOCAL_MUTATION_COMMIT_ATTEMPTS = 3;
+
+function expectedMutationState(
+  mutations: MutationOutboxRow[]
+): Array<{ mutationId: string; inFlight: boolean }> {
+  return mutations.map((mutation) => ({
+    mutationId: mutation.mutationId,
+    inFlight: mutation.inFlight === true
+  }));
+}
+
+function isLocalMutationRace(error: unknown): boolean {
+  return error instanceof Error && error.message === "OFFLINE_MUTATION_RACE";
 }
 
 /** Step 1 of §3.2's flow: record a new expense locally (sync_state='pending') and queue its
@@ -79,6 +79,7 @@ export async function recordLocalCreate(
 ): Promise<LocalExpenseRow> {
   const localId = generateOfflineId("lexp");
   const row: LocalExpenseRow = {
+    scopeKey: store.scopeKey,
     localId,
     canonicalId: null,
     childId: payload.childId,
@@ -88,11 +89,12 @@ export async function recordLocalCreate(
     pendingDelete: false,
     conflictCurrent: null,
     lastError: null,
+    failureKind: null,
     createdAt: timestamp,
     updatedAt: timestamp
   };
-  await store.insertLocalExpense(row);
-  await store.insertOutboxMutation({
+  const mutation: MutationOutboxRow = {
+    scopeKey: store.scopeKey,
     mutationId: generateOfflineId("mut"),
     idempotencyKey: generateOfflineId("idem"),
     operation: "create",
@@ -103,6 +105,14 @@ export async function recordLocalCreate(
     nextRetryAt: null,
     lastError: null,
     createdAt: timestamp
+  };
+  await store.commitLocalMutation({
+    targetLocalId: localId,
+    expectedLocalRow: null,
+    expectedMutations: [],
+    localRow: row,
+    deleteMutationIds: [],
+    upsertMutations: [mutation]
   });
   return row;
 }
@@ -113,33 +123,60 @@ export async function recordLocalUpdate(
   patch: Partial<ExpensePayload>,
   timestamp: string = nowIso()
 ): Promise<LocalExpenseRow> {
-  const row = await store.getLocalExpense(localId);
-  if (!row) throw new Error("로컬 지출 기록을 찾을 수 없어요.");
+  for (let attempt = 1; attempt <= MAX_LOCAL_MUTATION_COMMIT_ATTEMPTS; attempt += 1) {
+    const row = await store.getLocalExpense(localId);
+    if (!row) throw new Error("로컬 지출 기록을 찾을 수 없어요.");
 
-  const mergedPayload: ExpensePayload = { ...row.payload, ...omitUndefinedValues(patch) };
-  await store.updateLocalExpense(localId, {
-    payload: mergedPayload,
-    syncState: "pending",
-    lastError: null,
-    updatedAt: timestamp
-  });
+    const mergedPayload: ExpensePayload = { ...row.payload, ...omitUndefinedValues(patch) };
+    const nextRow: LocalExpenseRow = {
+      ...row,
+      payload: mergedPayload,
+      syncState: "pending",
+      lastError: null,
+      failureKind: null,
+      updatedAt: timestamp
+    };
 
-  const existing = await store.listOutboxMutationsForLocalId(localId);
-  const incoming: MutationOutboxRow = {
-    mutationId: generateOfflineId("mut"),
-    idempotencyKey: generateOfflineId("idem"),
-    operation: "update",
-    targetLocalId: localId,
-    payload: mergedPayload,
-    expectedVersion: row.version,
-    attemptCount: 0,
-    nextRetryAt: null,
-    lastError: null,
-    createdAt: timestamp
-  };
-  await replaceOutboxForLocalId(store, existing, mergeOutboxMutation(existing, incoming));
-
-  return (await store.getLocalExpense(localId)) as LocalExpenseRow;
+    const existing = await store.listOutboxMutationsForLocalId(localId);
+    const incoming: MutationOutboxRow = {
+      scopeKey: store.scopeKey,
+      mutationId: generateOfflineId("mut"),
+      idempotencyKey: generateOfflineId("idem"),
+      operation: "update",
+      targetLocalId: localId,
+      payload: mergedPayload,
+      // A newer edit that lands while an older mutation is already in flight
+      // must rebase on the ACKed row version, not the version captured before
+      // that request. `null` makes the next flush use the latest local row.
+      expectedVersion: existing.some((mutation) => mutation.inFlight)
+        ? null
+        : row.version,
+      attemptCount: 0,
+      nextRetryAt: null,
+      lastError: null,
+      createdAt: timestamp
+    };
+    const merged = mergeOutboxMutation(existing, incoming);
+    const mergedIds = new Set(merged.map((mutation) => mutation.mutationId));
+    try {
+      await store.commitLocalMutation({
+        targetLocalId: localId,
+        expectedLocalRow: row,
+        expectedMutations: expectedMutationState(existing),
+        localRow: nextRow,
+        deleteMutationIds: existing
+          .filter((mutation) => !mergedIds.has(mutation.mutationId))
+          .map((mutation) => mutation.mutationId),
+        upsertMutations: merged
+      });
+      return nextRow;
+    } catch (error) {
+      if (!isLocalMutationRace(error) || attempt === MAX_LOCAL_MUTATION_COMMIT_ATTEMPTS) {
+        throw error;
+      }
+    }
+  }
+  throw new Error("OFFLINE_MUTATION_RACE");
 }
 
 export async function recordLocalDelete(
@@ -147,36 +184,58 @@ export async function recordLocalDelete(
   localId: string,
   timestamp: string = nowIso()
 ): Promise<void> {
-  const row = await store.getLocalExpense(localId);
-  if (!row) throw new Error("로컬 지출 기록을 찾을 수 없어요.");
+  for (let attempt = 1; attempt <= MAX_LOCAL_MUTATION_COMMIT_ATTEMPTS; attempt += 1) {
+    const row = await store.getLocalExpense(localId);
+    if (!row) throw new Error("로컬 지출 기록을 찾을 수 없어요.");
 
-  const existing = await store.listOutboxMutationsForLocalId(localId);
-  const incoming: MutationOutboxRow = {
-    mutationId: generateOfflineId("mut"),
-    idempotencyKey: generateOfflineId("idem"),
-    operation: "delete",
-    targetLocalId: localId,
-    payload: null,
-    expectedVersion: row.version,
-    attemptCount: 0,
-    nextRetryAt: null,
-    lastError: null,
-    createdAt: timestamp
-  };
-  const merged = mergeOutboxMutation(existing, incoming);
-  await replaceOutboxForLocalId(store, existing, merged);
-
-  if (merged.length === 0) {
-    // create+delete before the create ever synced -- the row never existed remotely.
-    await store.deleteLocalExpense(localId);
-  } else {
-    await store.updateLocalExpense(localId, {
-      syncState: "pending",
-      pendingDelete: true,
+    const existing = await store.listOutboxMutationsForLocalId(localId);
+    const incoming: MutationOutboxRow = {
+      scopeKey: store.scopeKey,
+      mutationId: generateOfflineId("mut"),
+      idempotencyKey: generateOfflineId("idem"),
+      operation: "delete",
+      targetLocalId: localId,
+      payload: null,
+      expectedVersion: existing.some((mutation) => mutation.inFlight)
+        ? null
+        : row.version,
+      attemptCount: 0,
+      nextRetryAt: null,
       lastError: null,
-      updatedAt: timestamp
-    });
+      createdAt: timestamp
+    };
+    const merged = mergeOutboxMutation(existing, incoming);
+    const mergedIds = new Set(merged.map((mutation) => mutation.mutationId));
+    const nextRow =
+      merged.length === 0
+        ? null
+        : {
+            ...row,
+            syncState: "pending",
+            pendingDelete: true,
+            lastError: null,
+            failureKind: null,
+            updatedAt: timestamp
+          } satisfies LocalExpenseRow;
+    try {
+      await store.commitLocalMutation({
+        targetLocalId: localId,
+        expectedLocalRow: row,
+        expectedMutations: expectedMutationState(existing),
+        localRow: nextRow,
+        deleteMutationIds: existing
+          .filter((mutation) => !mergedIds.has(mutation.mutationId))
+          .map((mutation) => mutation.mutationId),
+        upsertMutations: merged
+      });
+      return;
+    } catch (error) {
+      if (!isLocalMutationRace(error) || attempt === MAX_LOCAL_MUTATION_COMMIT_ATTEMPTS) {
+        throw error;
+      }
+    }
   }
+  throw new Error("OFFLINE_MUTATION_RACE");
 }
 
 export type FlushSummary = {
@@ -187,29 +246,93 @@ export type FlushSummary = {
    * error (not a typed 409/4xx) -- further sends in the same pass would likely fail the same
    * way while offline, so the pass bails out instead of burning through the whole queue. */
   stoppedForNetwork: boolean;
+  /** Present only when ownership changed while this drain was active. */
+  cancelled?: true;
 };
 
+export type FlushControl = {
+  signal?: AbortSignal;
+  isActive?: () => boolean;
+};
+
+function assertFlushActive(control?: FlushControl): void {
+  if (control?.signal?.aborted || control?.isActive?.() === false) {
+    throw new RemoteSyncCancelledError();
+  }
+}
+
+function isFlushCancellation(error: unknown, control?: FlushControl): boolean {
+  return (
+    error instanceof RemoteSyncCancelledError ||
+    control?.signal?.aborted === true ||
+    control?.isActive?.() === false
+  );
+}
+
+async function restoreCancelledMutation(
+  store: OfflineStore,
+  mutation: MutationOutboxRow
+): Promise<void> {
+  const stillQueued = (await store.listOutboxMutationsForLocalId(mutation.targetLocalId))
+    .some((queued) => queued.mutationId === mutation.mutationId);
+  if (!stillQueued) return;
+  await store.updateOutboxMutation(mutation.mutationId, { inFlight: false });
+  const current = await store.getLocalExpense(mutation.targetLocalId);
+  if (current?.syncState === "syncing") {
+    await store.updateLocalExpense(mutation.targetLocalId, {
+      syncState: "pending",
+      updatedAt: nowIso()
+    });
+  }
+}
+
 /**
- * H-3 fix (diff review): serializes concurrent flushOutbox() calls against the *same* store
- * instance into a single in-progress pass -- a caller that invokes flushOutbox while one is
- * already running for that store just awaits the already-running pass's result instead of
- * starting a second, overlapping one (which could double-send a mutation or race the same
- * store rows). Keyed by store identity (not global) via WeakMap, so this never leaks across
- * tests/instances: each test's `createMemoryOfflineStore()` call gets its own independent slot,
- * and the app has exactly one singleton store (see sync-controller.ts). Mirrors the same
- * single-flight pattern already used for token refresh in src/api/client.ts.
+ * Serializes concurrent flushOutbox() calls against the *same* store instance into one drain.
+ * A caller that arrives during an active pass shares its Promise and requests one follow-up
+ * pass, so a mutation appended to the active pass's fixed snapshot is not left waiting for an
+ * unrelated foreground/reconnect event. The follow-up is still sequential, so the same row is
+ * never double-sent. Both collections are weakly keyed by store identity and cannot leak test or
+ * account-scoped store instances.
  */
 const inFlightFlushes = new WeakMap<OfflineStore, Promise<FlushSummary>>();
+const followUpFlushes = new WeakSet<OfflineStore>();
 
-export function flushOutbox(store: OfflineStore, remote: RemoteExpenseApi): Promise<FlushSummary> {
+export function flushOutbox(
+  store: OfflineStore,
+  remote: RemoteExpenseApi,
+  control?: FlushControl
+): Promise<FlushSummary> {
   const alreadyRunning = inFlightFlushes.get(store);
-  if (alreadyRunning) return alreadyRunning;
+  if (alreadyRunning) {
+    followUpFlushes.add(store);
+    return alreadyRunning;
+  }
 
-  const pass = flushOutboxPass(store, remote).finally(() => {
-    inFlightFlushes.delete(store);
-  });
-  inFlightFlushes.set(store, pass);
-  return pass;
+  const drain = (async () => {
+    try {
+      const summary: FlushSummary = { synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false };
+      do {
+        followUpFlushes.delete(store);
+        const pass = await flushOutboxPass(store, remote, control);
+        summary.synced += pass.synced;
+        summary.failed += pass.failed;
+        summary.conflicted += pass.conflicted;
+        summary.stoppedForNetwork ||= pass.stoppedForNetwork;
+        if (pass.cancelled) {
+          summary.cancelled = true;
+          break;
+        }
+      } while (followUpFlushes.has(store));
+      return summary;
+    } finally {
+      // Clear the slot before this async function settles. A new caller after the last loop
+      // check must start a fresh drain rather than attach to a Promise whose work is complete.
+      followUpFlushes.delete(store);
+      inFlightFlushes.delete(store);
+    }
+  })();
+  inFlightFlushes.set(store, drain);
+  return drain;
 }
 
 /**
@@ -219,15 +342,37 @@ export function flushOutbox(store: OfflineStore, remote: RemoteExpenseApi): Prom
  * resolution, retry, or discard) before they're eligible again. Rows still inside their
  * backoff window (`next_retry_at` in the future) are also skipped.
  */
-async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): Promise<FlushSummary> {
+async function flushOutboxPass(
+  store: OfflineStore,
+  remote: RemoteExpenseApi,
+  control?: FlushControl
+): Promise<FlushSummary> {
   const summary: FlushSummary = { synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false };
   const mutations = await store.listOutboxMutations();
   const currentTime = nowIso();
 
   for (const mutation of mutations) {
+    try {
+      assertFlushActive(control);
+    } catch (error) {
+      if (isFlushCancellation(error, control)) {
+        summary.cancelled = true;
+        break;
+      }
+      throw error;
+    }
     const localRow = await store.getLocalExpense(mutation.targetLocalId);
     if (!localRow) {
       // Orphaned mutation (local row already removed by some other path) -- drop it.
+      try {
+        assertFlushActive(control);
+      } catch (error) {
+        if (isFlushCancellation(error, control)) {
+          summary.cancelled = true;
+          break;
+        }
+        throw error;
+      }
       await store.deleteOutboxMutation(mutation.mutationId);
       continue;
     }
@@ -249,24 +394,31 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
     // H-3: mark this exact mutation row in-flight *before* sending, so any edit that lands
     // while the request is outstanding gets appended as a new row (outbox-merge.ts) instead of
     // silently folded into -- and then deleted along with -- this one.
-    await store.updateOutboxMutation(mutation.mutationId, { inFlight: true });
-    await store.updateLocalExpense(mutation.targetLocalId, { syncState: "syncing" });
-
+    let markedInFlight = false;
     try {
+      assertFlushActive(control);
+      await store.updateOutboxMutation(mutation.mutationId, { inFlight: true });
+      await store.updateLocalExpense(mutation.targetLocalId, { syncState: "syncing" });
+      markedInFlight = true;
+      assertFlushActive(control);
       if (mutation.operation === "create") {
         const result = await remote.createExpense(mutation.payload as ExpensePayload, mutation.idempotencyKey);
-        await store.deleteOutboxMutation(mutation.mutationId);
-        // H-3: if an edit landed while this create was in-flight, it was appended as a separate
-        // (not-yet-sent) mutation rather than folded in -- see outbox-merge.ts. Only mark the row
-        // fully 'synced' once nothing else is still queued for it; otherwise it should read
-        // 'pending' (there's still an unsent edit) rather than misleadingly claiming done.
-        const stillQueued = await store.listOutboxMutationsForLocalId(mutation.targetLocalId);
-        await store.updateLocalExpense(mutation.targetLocalId, {
+        assertFlushActive(control);
+        await store.acknowledgeOutboxMutation({
+          mutationId: mutation.mutationId,
+          targetLocalId: mutation.targetLocalId,
+          deleteLocalExpense: false,
+          acknowledgedAt: nowIso(),
+          rowPatch: {
           canonicalId: result.id,
           version: result.version,
-          syncState: stillQueued.length > 0 ? "pending" : "synced",
+          ...(result.payload
+            ? { payload: result.payload, childId: result.payload.childId }
+            : {}),
+          syncState: "synced",
           lastError: null,
-          updatedAt: nowIso()
+          failureKind: null
+          }
         });
         summary.synced += 1;
         continue;
@@ -289,13 +441,21 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
           expectedVersion,
           mutation.idempotencyKey
         );
-        await store.deleteOutboxMutation(mutation.mutationId);
-        const stillQueued = await store.listOutboxMutationsForLocalId(mutation.targetLocalId);
-        await store.updateLocalExpense(mutation.targetLocalId, {
+        assertFlushActive(control);
+        await store.acknowledgeOutboxMutation({
+          mutationId: mutation.mutationId,
+          targetLocalId: mutation.targetLocalId,
+          deleteLocalExpense: false,
+          acknowledgedAt: nowIso(),
+          rowPatch: {
           version: result.version,
-          syncState: stillQueued.length > 0 ? "pending" : "synced",
+          ...(result.payload
+            ? { payload: result.payload, childId: result.payload.childId }
+            : {}),
+          syncState: "synced",
           lastError: null,
-          updatedAt: nowIso()
+          failureKind: null
+          }
         });
         summary.synced += 1;
         continue;
@@ -305,16 +465,33 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
       const expectedVersion = mutation.expectedVersion ?? localRow.version;
       if (!localRow.canonicalId || expectedVersion == null) {
         // Never reached the server -- nothing to delete remotely.
-        await store.deleteLocalExpense(mutation.targetLocalId);
-        await store.deleteOutboxMutation(mutation.mutationId);
+        assertFlushActive(control);
+        await store.acknowledgeOutboxMutation({
+          mutationId: mutation.mutationId,
+          targetLocalId: mutation.targetLocalId,
+          deleteLocalExpense: true,
+          acknowledgedAt: nowIso()
+        });
         summary.synced += 1;
         continue;
       }
       await remote.deleteExpense(localRow.canonicalId, expectedVersion, mutation.idempotencyKey);
-      await store.deleteLocalExpense(mutation.targetLocalId);
-      await store.deleteOutboxMutation(mutation.mutationId);
+      assertFlushActive(control);
+      await store.acknowledgeOutboxMutation({
+        mutationId: mutation.mutationId,
+        targetLocalId: mutation.targetLocalId,
+        deleteLocalExpense: true,
+        acknowledgedAt: nowIso()
+      });
       summary.synced += 1;
     } catch (error) {
+      if (isFlushCancellation(error, control)) {
+        if (markedInFlight) {
+          await restoreCancelledMutation(store, mutation);
+        }
+        summary.cancelled = true;
+        break;
+      }
       if (error instanceof RemoteVersionConflictError) {
         if (error.current === null) {
           // A genuine VERSION_CONFLICT whose `current` snapshot is unknown (e.g. the row
@@ -326,6 +503,7 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
           await store.updateLocalExpense(mutation.targetLocalId, {
             syncState: "failed",
             lastError: error.message,
+            failureKind: "validation",
             updatedAt: nowIso()
           });
           await store.updateOutboxMutation(mutation.mutationId, {
@@ -340,6 +518,7 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
           syncState: "conflict",
           conflictCurrent: error.current,
           lastError: error.message,
+          failureKind: null,
           updatedAt: nowIso()
         });
         await store.updateOutboxMutation(mutation.mutationId, { inFlight: false, lastError: error.message });
@@ -348,9 +527,15 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
       }
 
       if (error instanceof RemotePermanentError) {
+        const failureKind = error instanceof RemoteAuthRequiredError
+          ? "auth_required"
+          : error instanceof RemotePermissionDeniedError
+            ? "permission_denied"
+            : "validation";
         await store.updateLocalExpense(mutation.targetLocalId, {
           syncState: "failed",
           lastError: error.message,
+          failureKind,
           updatedAt: nowIso()
         });
         await store.updateOutboxMutation(mutation.mutationId, {
@@ -366,6 +551,23 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
       // flush pass -- further sends are likely to fail the same way while offline.
       const message = error instanceof Error ? error.message : String(error);
       const nextAttempt = mutation.attemptCount + 1;
+      if (nextAttempt >= MAX_AUTOMATIC_RETRY_ATTEMPTS) {
+        await store.updateOutboxMutation(mutation.mutationId, {
+          attemptCount: nextAttempt,
+          nextRetryAt: null,
+          lastError: message,
+          inFlight: false
+        });
+        await store.updateLocalExpense(mutation.targetLocalId, {
+          syncState: "failed",
+          lastError: message,
+          failureKind: "retry_exhausted",
+          updatedAt: nowIso()
+        });
+        summary.failed += 1;
+        summary.stoppedForNetwork = true;
+        break;
+      }
       await store.updateOutboxMutation(mutation.mutationId, {
         attemptCount: nextAttempt,
         nextRetryAt: computeNextRetryAtIso(nowIso(), nextAttempt),
@@ -375,6 +577,7 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
       await store.updateLocalExpense(mutation.targetLocalId, {
         syncState: "pending",
         lastError: message,
+        failureKind: null,
         updatedAt: nowIso()
       });
       summary.stoppedForNetwork = true;
@@ -392,6 +595,25 @@ async function clearOutboxForLocalId(store: OfflineStore, localId: string): Prom
   }
 }
 
+/** Removes every local row belonging to this already-scoped store. The scope boundary is
+ * enforced by the store implementation, so account deletion cannot erase another user's
+ * retained offline data even when both scopes share the same SQLite database. */
+export async function purgeOfflineStore(store: OfflineStore): Promise<void> {
+  const mutations = await store.listOutboxMutations();
+  for (const mutation of mutations) {
+    await store.deleteOutboxMutation(mutation.mutationId);
+  }
+  const rows = await store.listLocalExpenses();
+  for (const row of rows) {
+    await store.deleteLocalExpense(row.localId);
+  }
+  const metadata = await store.getRemoteSyncMetadata();
+  await store.resetRemoteSyncMetadata({
+    expectedCursor: metadata.cursor,
+    resetAt: nowIso()
+  });
+}
+
 /**
  * Defense-in-depth for a 'conflict' row whose `conflictCurrent` is unexpectedly null (should be
  * rare after the H-1 fix in client.ts's requestExpenseJson, which now only ever produces a
@@ -405,6 +627,7 @@ async function clearOutboxForLocalId(store: OfflineStore, localId: string): Prom
 async function fallBackToFailedForUnresolvableConflict(store: OfflineStore, localId: string): Promise<void> {
   await store.updateLocalExpense(localId, {
     syncState: "failed",
+    failureKind: "validation",
     lastError: "충돌 정보를 확인할 수 없어요. 다시 시도하거나 삭제해 주세요.",
     updatedAt: nowIso()
   });
@@ -416,9 +639,17 @@ async function fallBackToFailedForUnresolvableConflict(store: OfflineStore, loca
 export async function retryFailedMutation(store: OfflineStore, localId: string): Promise<void> {
   const mutations = await store.listOutboxMutationsForLocalId(localId);
   for (const mutation of mutations) {
-    await store.updateOutboxMutation(mutation.mutationId, { nextRetryAt: null, lastError: null });
+    await store.updateOutboxMutation(mutation.mutationId, {
+      attemptCount: 0,
+      nextRetryAt: null,
+      lastError: null
+    });
   }
-  await store.updateLocalExpense(localId, { syncState: "pending", lastError: null });
+  await store.updateLocalExpense(localId, {
+    syncState: "pending",
+    lastError: null,
+    failureKind: null
+  });
 }
 
 /** User-triggered "삭제" for a 'failed' row: discards the local row and its queued mutation(s)
@@ -458,6 +689,7 @@ export async function resolveConflictAdoptServer(store: OfflineStore, localId: s
     conflictCurrent: null,
     pendingDelete: false,
     lastError: null,
+    failureKind: null,
     updatedAt: nowIso()
   });
 }
@@ -484,9 +716,11 @@ export async function resolveConflictReapplyMine(store: OfflineStore, localId: s
       conflictCurrent: null,
       pendingDelete: false,
       lastError: null,
+      failureKind: null,
       updatedAt: timestamp
     });
     await store.insertOutboxMutation({
+      scopeKey: store.scopeKey,
       mutationId: generateOfflineId("mut"),
       idempotencyKey: generateOfflineId("idem"),
       operation: "create",
@@ -507,9 +741,11 @@ export async function resolveConflictReapplyMine(store: OfflineStore, localId: s
     conflictCurrent: null,
     version: serverVersion,
     lastError: null,
+    failureKind: null,
     updatedAt: timestamp
   });
   await store.insertOutboxMutation({
+    scopeKey: store.scopeKey,
     mutationId: generateOfflineId("mut"),
     idempotencyKey: generateOfflineId("idem"),
     operation: row.pendingDelete ? "delete" : "update",
@@ -553,9 +789,11 @@ export async function resolveConflictWithMergedPayload(
     conflictCurrent: null,
     version: serverVersion,
     lastError: null,
+    failureKind: null,
     updatedAt: timestamp
   });
   await store.insertOutboxMutation({
+    scopeKey: store.scopeKey,
     mutationId: generateOfflineId("mut"),
     idempotencyKey: generateOfflineId("idem"),
     operation: "update",
@@ -583,6 +821,7 @@ export function diffExpenseFields(
     "merchant",
     "memo",
     "paymentMethod",
+    "paymentMethodId",
     "expenseType"
   ];
   return fields

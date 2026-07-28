@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "all roles",
+  "input": "category preferences and quiet hours",
+  "mission": "version preferences with safety exception",
+  "evidence": [
+    "release5d-daily.e2e.test.ts"
+  ]
+}

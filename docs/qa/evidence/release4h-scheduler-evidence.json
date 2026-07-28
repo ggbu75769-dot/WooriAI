@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "release": "4H",
+  "generatedAt": "2026-07-17T12:42:02+09:00",
+  "domain": {
+    "module": "packages/domain/src/preparation-temporal.ts",
+    "clock": "explicit caller referenceTime",
+    "timezone": "Asia/Seoul",
+    "boundaries": ["KST midnight", "month end", "year end", "leap day"],
+    "tests": 7,
+    "result": "PASS"
+  },
+  "scheduler": {
+    "interval": "15 minutes",
+    "logicalKey": "notification type + plan ID + KST due date + user ID",
+    "concurrentClaimers": 50,
+    "logicalNotifications": 2,
+    "logicalOutboxEvents": 2,
+    "duplicateVisibleEffects": 0,
+    "result": "PASS"
+  },
+  "workerRevalidation": {
+    "membership": true,
+    "planState": true,
+    "itemScope": true,
+    "dueDate": true,
+    "staleDisposition": "STALE_TEMPORAL_DUE",
+    "revokedDisposition": "MEMBERSHIP_REVOKED",
+    "result": "PASS"
+  },
+  "realOsScheduling": "RUNTIME_ONLY"
+}

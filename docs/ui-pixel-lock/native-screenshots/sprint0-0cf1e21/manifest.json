@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-07-14T20:37:38.9204453+09:00",
+  "sourceCommit": "0cf1e2189b342ff4a82a24947a9e3e52825a5b39",
+  "captureMethod": "installed Android app + adb shell screencap -p + adb pull",
+  "apk": {
+    "profile": "pixel-lock",
+    "sha256": "9295dfd7268a77210094f7d8750892f26e6d55335a4390e23c151f75e9927cfd",
+    "packageName": "com.anonymous.wooriai",
+    "appVersion": "0.0.0",
+    "dirty": false
+  },
+  "device": {
+    "serial": "emulator-5554",
+    "model": "sdk_gphone64_x86_64",
+    "androidVersion": "15",
+    "viewport": "1080x2340",
+    "density": 440,
+    "fontScale": 1.0,
+    "navigationMode": 2,
+    "locale": "en-US",
+    "contentCrop": "0,136,1080,2138"
+  },
+  "fixture": {
+    "EXPO_PUBLIC_PIXEL_LOCK": "1",
+    "EXPO_ROUTER_APP_ROOT": "apps/mobile/app",
+    "dataReset": "adb pm clear before the full nine-screen run"
+  },
+  "screens": [
+    { "screenId": "SPL-001", "file": "SPL-001.png", "sha256": "3abe56447b338534b45ae1bf09d2bb496d2db50f272a5549e8800cf88a846936", "bytes": 826990 },
+    { "screenId": "HOME-001", "file": "HOME-001.png", "sha256": "8dde79ad927e8afa00192bda3595303c2678cc372b4a9113c0f45b51b01e0a36", "bytes": 150122 },
+    { "screenId": "EXP-001", "file": "EXP-001.png", "sha256": "a4086ec120727536327ff040205d0481a72566c86f1d2e2142625b63f4c8dca3", "bytes": 90522 },
+    { "screenId": "ITEM-001", "file": "ITEM-001.png", "sha256": "81fce7d2ff90007264e61e4eef2acf5bd007d83e2aa359c9945a4037bd639c06", "bytes": 133212 },
+    { "screenId": "ITEM-002", "file": "ITEM-002.png", "sha256": "171bef6b77863007eed5a59887a924c5613ab978f29922bfa514c7219139eac6", "bytes": 528265 },
+    { "screenId": "REP-001", "file": "REP-001.png", "sha256": "e6aabafac46d21cdf04092133b2ceff97e1d3777ad412ae67f07d394793b48ab", "bytes": 152344 },
+    { "screenId": "FAM-001", "file": "FAM-001.png", "sha256": "2e46d5e58141dbc7710b435542d7db723e7797579d41ba11b2e2d88e484054c7", "bytes": 136694 },
+    { "screenId": "IMP-003", "file": "IMP-003.png", "sha256": "4370394864f53a4618b91b45d3093499bbdecf48846adead21d9e178214dac70", "bytes": 154532 },
+    { "screenId": "SET-001", "file": "SET-001.png", "sha256": "ea0fa343dc38c8fa9c5336e6e9dc17952b862ff16b3f8f8b56ca101d655071e9", "bytes": 148308 }
+  ]
+}

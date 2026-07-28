@@ -48,6 +48,17 @@ export class ChildExpensesController {
   }
 }
 
+@Controller("children/:childId/expense-shortcuts")
+@UseGuards(JwtAuthGuard)
+export class ExpenseShortcutsController {
+  constructor(@Inject(ExpensesVersionService) private readonly expenses: ExpensesVersionService) {}
+
+  @Get()
+  async list(@Req() request: AuthenticatedRequest, @Param("childId") childId: string) {
+    return await this.expenses.listExpenseShortcuts(request.user!, childId);
+  }
+}
+
 @Controller("expenses")
 @UseGuards(JwtAuthGuard)
 export class ExpensesController {

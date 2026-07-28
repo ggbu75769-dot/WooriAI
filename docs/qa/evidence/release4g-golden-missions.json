@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "release": "4G",
+  "generatedAt": "2026-07-17T08:07:00+09:00",
+  "policy": {
+    "singleMonolithicTestRequired": false,
+    "evidenceLinkedByScenarioId": true,
+    "nativeAutomationUsed": false,
+    "productionFixturesChanged": false
+  },
+  "results": [
+    {
+      "scenarioId": "GOLDEN-OWNER-01",
+      "layers": ["domain lifecycle", "API core loop", "catalog assignment", "Report aggregate/source", "mobile navigation"],
+      "result": "PASS_MULTI_LAYER"
+    },
+    {
+      "scenarioId": "GOLDEN-COPARENT-CAS-02",
+      "layers": ["item-plan API CAS", "expense API CAS", "offline conflict state"],
+      "result": "PASS"
+    },
+    {
+      "scenarioId": "GOLDEN-GIFT-PRIVACY-03",
+      "layers": ["catalog response shape", "Report RBAC", "mobile route guard"],
+      "result": "PASS"
+    },
+    {
+      "scenarioId": "GOLDEN-OFFLINE-SWITCH-04",
+      "layers": ["scope key", "scheduler", "500-row volume", "50 account switches"],
+      "result": "PASS"
+    },
+    {
+      "scenarioId": "GOLDEN-REPORT-ADJUSTMENT-05",
+      "layers": ["financial invariant", "API aggregate/source", "mobile source scope"],
+      "result": "PASS"
+    },
+    {
+      "scenarioId": "GOLDEN-NOTIFICATION-STALE-06",
+      "layers": ["membership-filtered API", "typed route parser", "1000-row pagination"],
+      "result": "PASS"
+    },
+    {
+      "scenarioId": "GOLDEN-DELETE-07",
+      "layers": ["idempotent deletion API", "session revoke", "offline scope isolation"],
+      "result": "PASS"
+    },
+    {
+      "scenarioId": "ADMIN-BROWSER-WORKFLOW-01",
+      "layers": ["system Chrome interaction", "server RBAC", "30 API publish races"],
+      "result": "PASS"
+    },
+    {
+      "scenarioId": "ADMIN-BROWSER-IMPORT-02",
+      "layers": ["system Chrome file input", "CSV/XLSX parser", "formula and partial-failure guards"],
+      "result": "PASS"
+    }
+  ],
+  "catalogFixturePolicy": {
+    "canonical": 408,
+    "inReview": 408,
+    "published": 0,
+    "highRisk": 84,
+    "activeOffers": 0,
+    "unchanged": true
+  }
+}

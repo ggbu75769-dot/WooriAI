@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "BUILD_VERIFIED",
+  "sourceSnapshotSha256": "817EC0786DE9EEFB6BFE1BA80E094AFF6B0B088940319A80042BF4AA112658C7",
+  "artifact": {
+    "schemaVersion": 1,
+    "generatedAt": "2026-07-18T06:00:58.599Z",
+    "actor": "Android build engineer and release reviewer",
+    "input": "current-source standalone APK, binary manifest, Hermes bundle, and signer certificate",
+    "mission": "prove native properties while refusing to qualify an internal fixture APK as a store artifact",
+    "status": "ARTIFACT_VERIFIED",
+    "qualification": "INTERNAL_TEST",
+    "storeArtifact": false,
+    "productionCandidate": false,
+    "apkPath": "F:\\WooriAI\\artifacts\\android\\wooriai-0.0.0-release-standalone.apk",
+    "apkBytes": 69446975,
+    "apkSha256": "B347272FB098638C43FE53EA48406F428F5E47D21E15396DFAB7861EA29D7841",
+    "hermesBytes": 2550240,
+    "hermesSha256": "EF6BCA1B532AD0B0E23656009A84F2148FC71242F430047C979E598113577BEE",
+    "packageName": "com.anonymous.wooriai",
+    "versionCode": "1",
+    "versionName": "0.0.0",
+    "debuggable": false,
+    "allowBackupFalse": true,
+    "cleartextFalse": true,
+    "permissions": [
+      "android.permission.INTERNET",
+      "android.permission.VIBRATE",
+      "android.permission.ACCESS_WIFI_STATE",
+      "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.USE_BIOMETRIC",
+      "android.permission.USE_FINGERPRINT",
+      "com.anonymous.wooriai.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+    ],
+    "forbiddenPermissions": [],
+    "exportedComponentsReviewed": true,
+    "deepLinks": {
+      "scheme": true,
+      "oauth": true,
+      "items": true
+    },
+    "certificate": [
+      "Signer #1 certificate DN: CN=Android Debug, OU=Android, O=Unknown, L=Unknown, ST=Unknown, C=US",
+      "Signer #1 certificate SHA-256 digest: fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c",
+      "Signer #1 certificate SHA-1 digest: 5e8f16062ea3cd2c4a0d547876baa6f38cabf625",
+      "Signer #1 certificate MD5 digest: 20f46148b72d8e5e5ca23d37a4f41490"
+    ],
+    "fixtureMarkers": [
+      "local-child-",
+      "wooriai-local-session",
+      "localhost"
+    ],
+    "contamination": "INTERNAL_TEST_EXPECTED",
+    "sourceSnapshotSha256": "817EC0786DE9EEFB6BFE1BA80E094AFF6B0B088940319A80042BF4AA112658C7",
+    "sourceBinding": "BOUND",
+    "buildTask": "assembleRelease --max-workers=1 --no-parallel -PreactNativeArchitectures=arm64-v8a",
+    "cleanedGeneratedPaths": [
+      "F:\\WooriAI\\apps\\mobile\\android\\app\\build",
+      "F:\\WooriAI\\apps\\mobile\\android\\build"
+    ],
+    "notes": [
+      "debug certificate",
+      "test login and standalone fixture runtime enabled",
+      "not a production/store candidate"
+    ]
+  },
+  "profile": "standalone-internal",
+  "productionProfile": "EXTERNAL_BLOCKED_APPROVED_IDENTITY_API_SIGNING"
+}

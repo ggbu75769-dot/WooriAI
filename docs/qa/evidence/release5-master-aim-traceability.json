@@ -1,0 +1,213 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "scenarios": [
+    {
+      "id": "OPS-WORKER-01",
+      "actor": "co-parent / worker operator",
+      "input": "claimed outbox event and expired lease",
+      "mission": "recover once without event loss",
+      "verificationLayer": "API DB integration",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release3-jobs.db.test.ts",
+        "release4i-worker-failpoint.test.ts"
+      ]
+    },
+    {
+      "id": "OPS-PUBLISHER-02",
+      "actor": "notification recipient",
+      "input": "provider success before DB ack",
+      "mission": "reconcile without duplicate visible delivery",
+      "verificationLayer": "publisher DB integration",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release3-jobs.db.test.ts"
+      ]
+    },
+    {
+      "id": "CONFIG-ROLLOUT-03",
+      "actor": "config operator",
+      "input": "rollout, rollback, stale CAS",
+      "mission": "converge on monotonic DB version",
+      "verificationLayer": "API E2E and Admin browser",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release3-app-config.e2e.test.ts",
+        "admin-operations.browser.test.ts"
+      ]
+    },
+    {
+      "id": "IMPORT-CONSISTENCY-04",
+      "actor": "import operator",
+      "input": "missing/orphan object and duplicate apply",
+      "mission": "avoid false success and duplicate revision",
+      "verificationLayer": "MinIO/DB contract",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release4i-import-object-consistency.db.test.ts"
+      ]
+    },
+    {
+      "id": "LEGAL-READY-01",
+      "actor": "legal operator",
+      "input": "candidate legal document",
+      "mission": "require independent approval and publish",
+      "verificationLayer": "DB integration",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5c-readiness.db.test.ts"
+      ]
+    },
+    {
+      "id": "CATALOG-PILOT-02",
+      "actor": "editorial lead",
+      "input": "408 in-review items",
+      "mission": "build worklist without publishing",
+      "verificationLayer": "DB integration and catalog audit",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5c-readiness.db.test.ts",
+        "release4-catalog-audit.json"
+      ]
+    },
+    {
+      "id": "TODAY-CENTER-01",
+      "actor": "household member",
+      "input": "overdue/due/financial actions",
+      "mission": "return at most three deterministic scoped actions",
+      "verificationLayer": "API E2E and domain",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5d-daily.e2e.test.ts",
+        "release5.test.ts"
+      ]
+    },
+    {
+      "id": "PREP-CALENDAR-02",
+      "actor": "owner/co-parent/viewer",
+      "input": "KST preparation events and filters",
+      "mission": "show only authorized current events",
+      "verificationLayer": "API E2E and mobile",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5d-daily.e2e.test.ts"
+      ]
+    },
+    {
+      "id": "CUSTOM-BUNDLE-03",
+      "actor": "owner/co-parent",
+      "input": "canonical bundle and apply request",
+      "mission": "preview and apply idempotently without overwrite",
+      "verificationLayer": "API E2E 30x",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5d-daily.e2e.test.ts"
+      ]
+    },
+    {
+      "id": "WEEKLY-BRIEF-04",
+      "actor": "household member",
+      "input": "KST weekly aggregate",
+      "mission": "show privacy-scoped deterministic briefing",
+      "verificationLayer": "API E2E",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5d-daily.e2e.test.ts"
+      ]
+    },
+    {
+      "id": "RECEIPT-DRAFT-01",
+      "actor": "financial owner",
+      "input": "receipt metadata and confirmed fields",
+      "mission": "create expense only after explicit confirmation",
+      "verificationLayer": "API E2E 30x and mobile",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5e-assisted.e2e.test.ts"
+      ]
+    },
+    {
+      "id": "EXPENSE-LINK-02",
+      "actor": "owner/co-parent",
+      "input": "confirmed expense and scoped plans",
+      "mission": "suggest, confirm, and link once",
+      "verificationLayer": "API E2E 30x",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5e-assisted.e2e.test.ts"
+      ]
+    },
+    {
+      "id": "RECURRING-PREDICT-03",
+      "actor": "owner/co-parent",
+      "input": "sparse and sufficient purchase history",
+      "mission": "suppress sparse predictions and label confidence",
+      "verificationLayer": "domain and API E2E",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5.test.ts",
+        "release5e-assisted.e2e.test.ts"
+      ]
+    },
+    {
+      "id": "BUDGET-EXPLAIN-04",
+      "actor": "financial owner",
+      "input": "Report v3 aggregate",
+      "mission": "explain deterministic variance from server source",
+      "verificationLayer": "domain and API E2E",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5.test.ts",
+        "release5e-assisted.e2e.test.ts"
+      ]
+    },
+    {
+      "id": "RECALL-PROVIDER-01",
+      "actor": "safety operator",
+      "input": "signed duplicate/corrected/unknown events",
+      "mission": "dedupe and never mark unknown safe",
+      "verificationLayer": "DB integration 30x",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5f-external-readiness.db.test.ts"
+      ]
+    },
+    {
+      "id": "MERCHANT-OFFER-02",
+      "actor": "merchant operator",
+      "input": "valid and malformed feed rows",
+      "mission": "preview with separation and approved-only public contract",
+      "verificationLayer": "DB integration",
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5f-external-readiness.db.test.ts"
+      ]
+    },
+    {
+      "id": "GOLDEN-FAMILY-DAY-01",
+      "actor": "owner/co-parent/gift/Admin",
+      "input": "combined Release 5 fixture",
+      "mission": "preserve scope, privacy, idempotency and aggregates",
+      "verificationLayer": "integrated API E2E plus composed operations/mobile/Admin suites",
+      "result": "PARTIAL",
+      "evidence": [
+        "release5-golden-family-day.e2e.test.ts",
+        "release5a-connected-golden.e2e.test.ts",
+        "admin-release5.browser.test.ts"
+      ]
+    },
+    {
+      "id": "FINAL-ARTIFACT",
+      "actor": "release engineer",
+      "input": "current dirty source snapshot and internal APK",
+      "mission": "bind and statically audit exact artifact",
+      "verificationLayer": "snapshot/Gradle/aapt2/apksigner",
+      "result": "PASS",
+      "evidence": [
+        "release5-source-snapshot.json",
+        "release5-build-provenance-details.json"
+      ]
+    }
+  ]
+}

@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Pressable, Share, Text, View } from "react-native";
-import { createInvite, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN, type InviteRole } from "../../src/api/client";
+import { createInvite, LOCAL_HOUSEHOLD_ID, fixtureSessionToken, type InviteRole } from "../../src/api/client";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
+import { AppIcon, AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
 
 const roleOptions: Array<{ role: InviteRole; label: string; description: string }> = [
-  { role: "co_parent", label: "공동부모", description: "지출 기록과 예산을 함께 관리할 수 있어요" },
+  { role: "co_parent", label: "기록 가능", description: "지출 기록과 준비 상태를 함께 관리할 수 있어요" },
   { role: "viewer", label: "보기 전용", description: "기록만 확인할 수 있어요" },
   { role: "gift_participant", label: "선물 참여", description: "선물 준비 목록만 함께 볼 수 있어요" }
 ];
@@ -17,14 +17,14 @@ const createFailedText = "초대 링크를 만들지 못했어요. 잠시 후 �
 function formatInviteExpiry(isoDate: string) {
   const date = new Date(isoDate);
   if (Number.isNaN(date.getTime())) return isoDate;
-  return `${date.getMonth() + 1}월 ${date.getDate()}일까지 유효해요`;
+  return `${date.getMonth() + 1}월 ${date.getDate()}일 ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}까지 유효해요`;
 }
 
 export default function FamilyInviteScreen() {
   const [role, setRole] = useState<InviteRole>("co_parent");
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
-  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
 
@@ -58,7 +58,7 @@ export default function FamilyInviteScreen() {
                 <Text style={role === option.role ? roleLabelSelectedStyle : roleLabelStyle}>{option.label}</Text>
                 <Text style={roleDescriptionStyle}>{option.description}</Text>
               </View>
-              {role === option.role ? <Text style={roleCheckStyle}>✓</Text> : null}
+              {role === option.role ? <AppIcon color={theme.colors.coral[600]} name="check-circle" size={22} /> : null}
             </Pressable>
           ))}
         </Card>

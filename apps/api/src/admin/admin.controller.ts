@@ -32,6 +32,11 @@ export class AdminController {
     return await this.store.adminListItemTemplates();
   }
 
+  @Get("catalog-completeness")
+  async catalogCompleteness() {
+    return await this.store.adminCatalogCompleteness();
+  }
+
   // COM-103: direct-write item-template/product-link/disclosure endpoints are
   // admin-only now -- editor changes must go through
   // POST/PATCH /admin/content-revisions (draft -> submit -> admin

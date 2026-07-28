@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T01:21:40.359Z",
+  "rule": "A production-profile embedded JS bundle fails when any forbidden runtime signature is present.",
+  "production": {
+    "artifactType": "bundle",
+    "bundlePath": "artifacts/release4-production-safe-export/_expo/static/js/android/entry-cc906582c7669029583fc62481e44093.hbc",
+    "bundleBytes": 3930652,
+    "bundleSha256": "51806F6CBD15BC6B0F4A54DBD6D044CCB1ACB0845FD6494A45BCC13BAC914A06",
+    "findings": [],
+    "passed": true
+  },
+  "standalone": {
+    "artifactType": "apk",
+    "apkPath": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+    "apkBytes": 77643179,
+    "apkSha256": "50CACF8967D83E7C43169BD79B3B95E50B0A4D501033E8F05E9C6DD4A35B45CC",
+    "bundleBytes": 2487284,
+    "bundleSha256": "ED64957F8FE5212EA8F43E2D5E276EADD248F1520A2DD2E23353805E61B42C97",
+    "findings": [
+      {
+        "id": "demo-data-leakage",
+        "matchedNeedles": [
+          "wooriai-local-backend",
+          "local-child-daon",
+          "local-household-daon"
+        ]
+      },
+      {
+        "id": "forced-auth-bypass",
+        "matchedNeedles": [
+          "wooriai-local-session"
+        ]
+      },
+      {
+        "id": "pixel-fixture",
+        "matchedNeedles": [
+          "pixel-screen-"
+        ]
+      },
+      {
+        "id": "development-server",
+        "matchedNeedles": [
+          "http://localhost:3000"
+        ]
+      }
+    ],
+    "profile": "internal-standalone",
+    "intentionalAllowlist": [
+      "demo-data-leakage",
+      "forced-auth-bypass",
+      "pixel-fixture",
+      "development-server"
+    ],
+    "note": "This internal APK deliberately supports an on-device fixture backend. It is not a production/store artifact."
+  },
+  "signatures": [
+    {
+      "id": "demo-data-leakage",
+      "needles": [
+        "wooriai-local-backend",
+        "local-child-daon",
+        "local-household-daon",
+        "local-child-qualification",
+        "local-household-qualification",
+        "검증용 아이"
+      ]
+    },
+    {
+      "id": "forced-auth-bypass",
+      "needles": [
+        "wooriai-local-session",
+        "LOCAL_SESSION_TOKEN"
+      ]
+    },
+    {
+      "id": "pixel-fixture",
+      "needles": [
+        "pixel-screen-",
+        "__WOORIAI_PIXEL_LOCK_OVERRIDES__"
+      ]
+    },
+    {
+      "id": "development-server",
+      "needles": [
+        "http://localhost:3000",
+        "http://10.0.2.2:3000"
+      ]
+    },
+    {
+      "id": "development-oauth-provider",
+      "needles": [
+        "dev-oauth",
+        "mock-oauth"
+      ]
+    },
+    {
+      "id": "sample-affiliate-url",
+      "needles": [
+        "example.com/catalog-test-affiliate"
+      ]
+    },
+    {
+      "id": "debug-menu",
+      "needles": [
+        "WOORIAI_DEBUG_MENU",
+        "debug-menu-route"
+      ]
+    },
+    {
+      "id": "mock-push-provider",
+      "needles": [
+        "mock-push-provider"
+      ]
+    },
+    {
+      "id": "test-only-endpoint",
+      "needles": [
+        "/test-only/",
+        "/__test__/"
+      ]
+    },
+    {
+      "id": "placeholder-legal-text",
+      "needles": [
+        "LEGAL_TEXT_PLACEHOLDER",
+        "약관 문구 준비 중"
+      ]
+    }
+  ]
+}

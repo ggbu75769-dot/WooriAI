@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T14:30:00+09:00",
+  "status": "PARTIAL_MOBBIN_ACCESS",
+  "actor": "mobile UX engineer",
+  "input": "first-choice, date-picker, and multi-select onboarding patterns",
+  "mission": "use only accessed Mobbin references and avoid copying third-party screens",
+  "mcp": {
+    "availableInSession": false,
+    "toolCount": 0,
+    "resourceCount": 0,
+    "serverUrl": "https://api.mobbin.com/mcp",
+    "authentication": "OAuth required",
+    "codexConnection": "Connect the Mobbin ChatGPT app, authorize the Mobbin account, then open a new Codex session"
+  },
+  "publicAccess": {
+    "flowOverviewVisuallyReviewed": 1,
+    "flowMetadataScreens": 12,
+    "individualScreensDeepReviewed": 0,
+    "completeFlowsDeepReviewed": 0,
+    "accessClaim": "Public flow overview and metadata only; authenticated corpus search was not available"
+  },
+  "references": [
+    {
+      "id": "e7c01786-65e4-4739-903b-8bfbe339e7c6",
+      "product": "Placify",
+      "platform": "iOS",
+      "pattern": "onboarding",
+      "url": "https://mobbin.com/explore/flows/e7c01786-65e4-4739-903b-8bfbe339e7c6",
+      "access": "public overview with 12 screen thumbnails"
+    },
+    {
+      "id": "public-selecting-choosing-index",
+      "pattern": "selecting and choosing",
+      "url": "https://mobbin.com/explore/mobile/flows/selecting-choosing",
+      "access": "public flow metadata"
+    },
+    {
+      "id": "mobbin-codex-app-docs",
+      "pattern": "MCP connection",
+      "url": "https://docs.mobbin.com/mcp/clients/codex-app",
+      "access": "official documentation"
+    },
+    {
+      "id": "mobbin-chatgpt-app-docs",
+      "pattern": "OAuth setup",
+      "url": "https://docs.mobbin.com/mcp/clients/chatgpt",
+      "access": "official documentation"
+    }
+  ],
+  "adopted": [
+    "whole-card single choice with radio semantics",
+    "persistent check and visible selected text",
+    "explicit Next action instead of auto-advance",
+    "date field followed by native or modal picker and selected-date summary",
+    "multi-select rows with a persistent selected count and explicit continue",
+    "explicit clear, skip, and none actions with separate meanings"
+  ],
+  "rejected": [
+    "color-only selection state",
+    "automatic navigation immediately after selection",
+    "select-all for prepared items",
+    "onboarding floating action button",
+    "copying an iOS-specific wheel picker or third-party visual composition"
+  ],
+  "nextAuthenticatedResearch": {
+    "queries": [
+      "first-run single-choice radio cards without auto-advance",
+      "family or child profile date-of-birth and due-date setup",
+      "onboarding checklist multi-select with count, skip, and none",
+      "no-child empty state"
+    ],
+    "targetScreens": 40,
+    "targetCompleteFlows": 10,
+    "blockedUntil": "Mobbin OAuth is connected by the account owner"
+  }
+}

@@ -3,6 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
+import { computeRelease5vSourceSnapshot } from "../lib/release5v-source-snapshot";
+import { isLikelyBlankOrShell } from "./render-validation";
 
 type ScreenConfig = {
   name: string;
@@ -63,6 +65,7 @@ const reportDir = join(androidRoot, "reports");
 const latestJsonPath = join(reportDir, "latest.json");
 const latestMdPath = join(reportDir, "latest.md");
 const cachePath = join(reportDir, "cache.json");
+const pixelApkReportPath = join(reportDir, "pixel-apk.json");
 const normalizationBackground = "#FFF7ED";
 const cropPolicy = process.env.PIXEL_ANDROID_CROP
   ? `shared-device-crop:${process.env.PIXEL_ANDROID_CROP}`
@@ -92,6 +95,23 @@ const asciiSentinelText: Record<string, string[]> = {
 
 const logcatErrorPattern =
   /Unable to load script|Failed to connect to development server|Exception in native call|ReactNativeJS.*(?:Error|Invariant|TypeError|ReferenceError|Unable to resolve|Cannot read|undefined is not|No routes found)|JavascriptException|FATAL EXCEPTION|Invariant Violation|Unable to resolve module|Failed to construct transformer|Metro.*(?:404|500)|BUNDLE.*ERROR|RedBox|Could not get BatchedBridge/i;
+
+function extractLogcatErrors(logcatText: string) {
+  const lines = logcatText.split(/\r?\n/);
+  return lines
+    .filter((line, index) => {
+      if (!logcatErrorPattern.test(line)) return false;
+      if (!/FATAL EXCEPTION/i.test(line)) return true;
+
+      const fatalBlock = lines.slice(index, index + 25).join("\n");
+      return !(
+        /com\.android\.commands\.uiautomator/i.test(fatalBlock) &&
+        /UiAutomationService .*already registered/i.test(fatalBlock)
+      );
+    })
+    .map((line) => line.trim())
+    .slice(0, 20);
+}
 
 function ensureDirs() {
   for (const dir of [screenshotDir, diffDir, heatmapDir, logDir, reportDir]) {
@@ -166,6 +186,73 @@ function adbText(args: string[], allowFailure = false) {
   return String(result.stdout || "").trim();
 }
 
+function fileSha256(path: string) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+type PixelApkEvidence = {
+  apkPath: string;
+  builtSha256: string;
+  sourceSnapshotSha256: string;
+  installedApkPath: string;
+  installedSha256: string;
+};
+
+let latestPixelApkEvidence: PixelApkEvidence | null = null;
+
+function installAndVerifyPixelApk(packageName: string) {
+  if (process.env.PIXEL_ANDROID_SKIP_APK_INSTALL === "1") return null;
+  if (!hasDevice()) throw new Error("ADB_DEVICE_NOT_FOUND");
+  if (!existsSync(pixelApkReportPath)) {
+    throw new Error("PIXEL_APK_REPORT_MISSING: run pnpm pixel:android:build-apk first.");
+  }
+
+  const report = JSON.parse(readFileSync(pixelApkReportPath, "utf8")) as {
+    apkPath?: string;
+    apkSha256?: string;
+    sourceSnapshotSha256?: string;
+  };
+  if (!report.apkPath || !report.apkSha256 || !report.sourceSnapshotSha256) {
+    throw new Error("PIXEL_APK_REPORT_INVALID: apkPath, apkSha256, and sourceSnapshotSha256 are required.");
+  }
+
+  const apkPath = resolve(report.apkPath);
+  if (!existsSync(apkPath)) throw new Error(`PIXEL_APK_MISSING ${apkPath}`);
+
+  const actualApkSha256 = fileSha256(apkPath);
+  if (actualApkSha256 !== report.apkSha256.toLowerCase()) {
+    throw new Error(`PIXEL_APK_HASH_MISMATCH expected=${report.apkSha256} actual=${actualApkSha256}`);
+  }
+
+  const currentSnapshot = computeRelease5vSourceSnapshot(repoRoot).sourceSnapshotSha256;
+  if (currentSnapshot !== report.sourceSnapshotSha256.toUpperCase()) {
+    throw new Error(
+      `PIXEL_APK_SOURCE_STALE expected=${currentSnapshot} built=${report.sourceSnapshotSha256}; ` +
+      "run pnpm pixel:android:build-apk first."
+    );
+  }
+
+  const installResult = adb(["install", "-r", apkPath]);
+  if (!String(installResult.stdout || "").includes("Success")) {
+    throw new Error(`PIXEL_APK_INSTALL_UNCONFIRMED ${String(installResult.stdout || installResult.stderr || "")}`);
+  }
+  adb(["shell", "pm", "clear", packageName]);
+
+  const installedApkPath = adbText(["shell", "pm", "path", packageName]).replace(/^package:/, "").trim();
+  if (!installedApkPath) throw new Error(`PIXEL_APK_INSTALLED_PATH_MISSING ${packageName}`);
+  const installedSha256 = adbText(["shell", "sha256sum", installedApkPath]).split(/\s+/)[0]?.toLowerCase();
+  if (installedSha256 !== actualApkSha256) {
+    throw new Error(`PIXEL_APK_INSTALLED_HASH_MISMATCH expected=${actualApkSha256} actual=${installedSha256 || "(none)"}`);
+  }
+  return {
+    apkPath,
+    builtSha256: actualApkSha256,
+    sourceSnapshotSha256: report.sourceSnapshotSha256,
+    installedApkPath,
+    installedSha256
+  } satisfies PixelApkEvidence;
+}
+
 function hasDevice() {
   const output = adbText(["devices"], true);
   return output.split(/\r?\n/).some((line) => /\tdevice$/.test(line));
@@ -216,6 +303,9 @@ function sourceHash(screenId: string) {
   for (const relativePath of [
     "package.json",
     "scripts/pixel-lock/pixel-lock-screens.json",
+    "scripts/pixel-lock/android-pixel-lock.ts",
+    "scripts/pixel-lock/build-pixel-apk.ts",
+    "artifacts/pixel-lock/android/reports/pixel-apk.json",
     "apps/mobile/app",
     "apps/mobile/src",
     "apps/mobile/assets"
@@ -385,30 +475,30 @@ async function imageBlanknessMetrics(screenshotPath: string) {
   };
 }
 
-function isLikelyBlankOrShell(metrics: { whitePixelRatio: number; uniqueColorCount: number; nonBackgroundAreaRatio: number }) {
-  if (metrics.nonBackgroundAreaRatio >= 0.1 && metrics.uniqueColorCount >= 1000) return false;
-  return (
-    (metrics.whitePixelRatio > 0.82 &&
-      metrics.uniqueColorCount < 2500 &&
-      metrics.nonBackgroundAreaRatio < 0.2) ||
-    (metrics.whitePixelRatio > 0.93 && metrics.nonBackgroundAreaRatio < 0.08) ||
-    (metrics.uniqueColorCount < 500 && metrics.nonBackgroundAreaRatio < 0.04)
-  );
-}
-
-async function validateRender(screenId: string, screenshotPath = join(screenshotDir, `${screenId}.png`)): Promise<RenderValidation> {
+async function validateRender(
+  screenId: string,
+  screenshotPath = join(screenshotDir, `${screenId}.png`),
+  refreshEvidence = true
+): Promise<RenderValidation> {
   const expected = asciiSentinelText[screenId] ?? [`pixel-screen-${screenId}`, screenId];
   const metrics = await imageBlanknessMetrics(screenshotPath);
-  const { xmlPath, text: xmlText } = dumpUiAutomator(screenId);
-  const { logcatPath, text: logcatText } = captureLogcat(screenId);
+  const xmlPath = join(logDir, `${screenId}-window.xml`);
+  const logcatPath = join(logDir, `${screenId}-logcat.txt`);
+  const xmlText = refreshEvidence
+    ? dumpUiAutomator(screenId).text
+    : existsSync(xmlPath)
+      ? readFileSync(xmlPath, "utf8")
+      : "";
+  const logcatText = refreshEvidence
+    ? captureLogcat(screenId).text
+    : existsSync(logcatPath)
+      ? readFileSync(logcatPath, "utf8")
+      : "";
   const searchable = compactText(`${xmlText}\n${logcatText}`);
   const sentinelsFound = expected.filter((sentinel) => searchable.includes(sentinel));
-  const logcatErrors = logcatText
-    .split(/\r?\n/)
-    .filter((line) => logcatErrorPattern.test(line))
-    .slice(0, 20);
+  const logcatErrors = extractLogcatErrors(logcatText);
   const invalidReasons: string[] = [];
-  const likelyBlank = isLikelyBlankOrShell(metrics);
+  const likelyBlank = isLikelyBlankOrShell(metrics, sentinelsFound.length > 0);
 
   if (likelyBlank) {
     invalidReasons.push(
@@ -678,6 +768,8 @@ function writeReports(device: DeviceInfo, results: ScreenResult[], status = "OK"
     cropPolicy,
     comparisonPolicy: `perceptual-blurred-mae:sigma-${perceptualScoreSigma}`,
     threshold,
+    pixelAndroidOverrides: process.env.PIXEL_ANDROID_OVERRIDES || null,
+    apkEvidence: latestPixelApkEvidence,
     screens: results
   };
   writeFileSync(latestJsonPath, JSON.stringify(report, null, 2), "utf8");
@@ -692,6 +784,14 @@ function writeReports(device: DeviceInfo, results: ScreenResult[], status = "OK"
     `- Crop policy: ${cropPolicy}`,
     `- Comparison policy: perceptual blurred MAE (sigma ${perceptualScoreSigma})`,
     `- Threshold: ${threshold.toFixed(4)}`,
+    ...(latestPixelApkEvidence
+      ? [
+          `- Pixel APK: ${latestPixelApkEvidence.apkPath}`,
+          `- Built SHA-256: ${latestPixelApkEvidence.builtSha256}`,
+          `- Installed base SHA-256: ${latestPixelApkEvidence.installedSha256}`,
+          `- Source snapshot SHA-256: ${latestPixelApkEvidence.sourceSnapshotSha256}`
+        ]
+      : []),
     "",
     "| Screen | Render | Score | Status | Evidence |",
     "| --- | --- | ---: | --- | --- |",
@@ -755,6 +855,9 @@ function blockedReport(error: unknown, targetIds?: string[]) {
 
 async function runValidation(command: string, screenId?: string, force = false) {
   ensureDirs();
+  if (command === "android" && process.env.PIXEL_ANDROID_OVERRIDES) {
+    throw new Error("PIXEL_ANDROID_OVERRIDES_FORBIDDEN_FOR_FULL_GATE");
+  }
   const screens = readScreens();
   const packageName = discoverPackageName();
   const device = deviceInfo(packageName);
@@ -762,26 +865,44 @@ async function runValidation(command: string, screenId?: string, force = false) 
   const cache = readCache();
   const results: ScreenResult[] = [];
 
-  for (const [index, targetId] of targetIds.entries()) {
+  // Expo Router receives custom-scheme URLs reliably once the embedded React Native runtime is
+  // mounted. On this Android 15 AVD, a custom-scheme URL used as the process cold-start intent is
+  // normalized to the index route before linking subscribes, which made every requested screen
+  // capture HOME-001. Cold-start the known home route first, then deliver all target URLs warm.
+  if (targetIds.length > 0 && process.env.PIXEL_ANDROID_COLD_EACH !== "1") {
+    openScreen("HOME-001", screens, { coldStart: true });
+    sleepMs(Number(process.env.PIXEL_ANDROID_WAIT_MS || 700));
+    waitForScreenReady("HOME-001");
+  }
+
+  for (const targetId of targetIds) {
     const currentHash = sourceHash(targetId);
     const screenshotPath = join(screenshotDir, `${targetId}.png`);
-    const canSkipCapture = command !== "validate-render" && !force && existsSync(screenshotPath) && cache[targetId] === currentHash;
+    const xmlPath = join(logDir, `${targetId}-window.xml`);
+    const logcatPath = join(logDir, `${targetId}-logcat.txt`);
+    const canSkipCapture =
+      command !== "validate-render" &&
+      !force &&
+      existsSync(screenshotPath) &&
+      existsSync(xmlPath) &&
+      existsSync(logcatPath) &&
+      cache[targetId] === currentHash;
     if (!canSkipCapture) {
       clearLogcat();
-      const coldStart =
-        process.env.PIXEL_ANDROID_WARM_FIRST === "1"
-          ? process.env.PIXEL_ANDROID_COLD_EACH === "1"
-          : index === 0 || process.env.PIXEL_ANDROID_COLD_EACH === "1";
+      const coldStart = process.env.PIXEL_ANDROID_COLD_EACH === "1";
       openScreen(targetId, screens, { coldStart });
       const waitMs = Number(process.env.PIXEL_ANDROID_WAIT_MS || 700);
       sleepMs(waitMs);
       waitForScreenReady(targetId);
-      const settleMs = Number(process.env.PIXEL_ANDROID_SETTLE_MS || 1500);
+      const settleMs = Number(process.env.PIXEL_ANDROID_SETTLE_MS || 5000);
       if (settleMs > 0) sleepMs(settleMs);
       await captureStableScreen(targetId);
-      cache[targetId] = currentHash;
     }
-    const render = await validateRender(targetId, screenshotPath);
+    const render = await validateRender(targetId, screenshotPath, !canSkipCapture);
+    if (!canSkipCapture) {
+      if (render.renderValid) cache[targetId] = currentHash;
+      else delete cache[targetId];
+    }
     results.push(await diffScreen(targetId, screens, render));
   }
 
@@ -845,7 +966,8 @@ async function main() {
     }
     if (command === "diff") {
       ensureDirs();
-      const result = await diffScreen(screenId, readScreens(), await validateRender(screenId));
+      const screenshotPath = join(screenshotDir, `${screenId}.png`);
+      const result = await diffScreen(screenId, readScreens(), await validateRender(screenId, screenshotPath, false));
       writeReports(deviceInfo(discoverPackageName()), [result], result.status);
       printLatest();
       return;
@@ -857,6 +979,10 @@ async function main() {
     if (command === "report") {
       printLatest();
       return;
+    }
+    if (["android", "all"].includes(command)) {
+      ensureDirs();
+      latestPixelApkEvidence = installAndVerifyPixelApk(discoverPackageName());
     }
     const results = await runValidation(command, screenId, force);
     printLatest();

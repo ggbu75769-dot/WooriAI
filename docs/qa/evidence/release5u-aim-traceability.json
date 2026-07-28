@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "validations": [
+    {
+      "id": "ONBOARDING-CHOICE-01",
+      "actor": "신규 사용자",
+      "input": "pregnant 선택과 입력 후 born 변경 및 선택 취소",
+      "mission": "입력 흐름을 안전하게 변경하거나 중단한다.",
+      "expected": [
+        "변경 확인",
+        "incompatible field 제거",
+        "final 전 child 0",
+        "선택 취소 상태"
+      ],
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "packages/domain/src/onboarding.test.ts",
+        "apps/mobile/src/onboarding-draft.store.test.ts",
+        "apps/api/test/release5u-onboarding.e2e.test.ts"
+      ]
+    },
+    {
+      "id": "ONBOARDING-PREGNANT-02",
+      "actor": "임신 중인 신규 사용자",
+      "input": "예정일과 성별",
+      "mission": "lifecycle 추천 입력을 설정한다.",
+      "expected": [
+        "native calendar",
+        "KST date",
+        "남아/여아/아직 몰라요",
+        "final 전 child 0"
+      ],
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "PathFormScreens.tsx",
+        "release5u-accessibility.test.ts",
+        "release5u-onboarding.e2e.test.ts"
+      ]
+    },
+    {
+      "id": "ONBOARDING-BORN-03",
+      "actor": "출생한 아이를 등록하는 신규 사용자",
+      "input": "이름, 생일, 성별",
+      "mission": "생일에서 나이와 단계를 계산한다.",
+      "expected": [
+        "future date reject",
+        "KST age",
+        "birthDate source of truth",
+        "restart restore"
+      ],
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "packages/domain/src/onboarding.test.ts",
+        "onboarding-draft.store.test.ts"
+      ]
+    },
+    {
+      "id": "ONBOARDING-DIRECT-04",
+      "actor": "단계를 직접 설정하려는 사용자",
+      "input": "manual stage와 조건부 날짜",
+      "mission": "모순 없는 override를 저장한다.",
+      "expected": [
+        "조건부 필드",
+        "override source",
+        "raw enum 비노출"
+      ],
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "packages/domain/src/onboarding.test.ts",
+        "PathFormScreens.tsx"
+      ]
+    },
+    {
+      "id": "ONBOARDING-PREPARED-05",
+      "actor": "신규 owner/co-parent",
+      "input": "lifecycle와 published catalog",
+      "mission": "준비한 물건을 선택하거나 skip/none을 구분한다.",
+      "expected": [
+        "12 internal fixtures",
+        "published-only",
+        "multi-select",
+        "idempotent apply"
+      ],
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5u-onboarding-mobile.test.ts",
+        "release5u-onboarding.e2e.test.ts"
+      ]
+    },
+    {
+      "id": "FIXTURE-REMOVAL-06",
+      "actor": "no-child 사용자와 실제 다온 사용자",
+      "input": "legacy synthetic fingerprint와 real user child",
+      "mission": "fixture만 제거하고 실제 데이터를 보존한다.",
+      "expected": [
+        "no-child ghost 0",
+        "real Daon 보존",
+        "production marker 0"
+      ],
+      "result": "AUTOMATED_PASS",
+      "evidence": [
+        "release5u-onboarding-mobile.test.ts",
+        "production-build-boundary.test.ts",
+        "release4-production-export-contamination.json"
+      ]
+    }
+  ]
+}

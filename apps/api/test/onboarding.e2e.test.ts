@@ -120,7 +120,8 @@ describe("Auth and onboarding API", () => {
       householdId,
       nickname: "튼튼이",
       stageMode: "pregnant",
-      dueDate: "2026-08-31"
+      dueDate: "2026-08-31",
+      gender: "female"
     };
     const idempotencyKey = randomUUID();
 
@@ -136,7 +137,9 @@ describe("Auth and onboarding API", () => {
       householdId,
       nickname: "튼튼이",
       stageMode: "pregnant",
-      currentStage: "pregnancy_late"
+      currentStage: "pregnancy_late",
+      gender: "female",
+      profileImageUrl: null
     });
 
     const childId = childResponse.body.id as string;
@@ -158,14 +161,30 @@ describe("Auth and onboarding API", () => {
         expect(body.children[0].id).toBe(childId);
       });
 
+    const itemIdsBeforeGenderChange = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items.map((item: { id: string }) => item.id) as string[];
+
     await request(app.getHttpServer())
       .patch(`/api/v1/children/${childId}`)
       .set("Authorization", `Bearer ${accessToken}`)
-      .send({ nickname: "반짝이" })
+      .send({ nickname: "반짝이", gender: "unknown" })
       .expect(200)
       .expect(({ body }) => {
         expect(body.nickname).toBe("반짝이");
+        expect(body.gender).toBe("unknown");
       });
+
+    const itemIdsAfterGenderChange = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items.map((item: { id: string }) => item.id) as string[];
+    expect(itemIdsAfterGenderChange).toEqual(itemIdsBeforeGenderChange);
 
     await request(app.getHttpServer())
       .post(`/api/v1/children/${childId}/prepared-items`)
@@ -338,5 +357,106 @@ describe("Auth and onboarding API", () => {
       .expect(({ body }) => {
         expect(body.children).toHaveLength(1);
       });
+  });
+
+  it("creates multiple child profiles and immediately applies a corrected stage mode", async () => {
+    const accessToken = await login(app);
+    await request(app.getHttpServer())
+      .put("/api/v1/consents")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        consents: [
+          { type: "terms", version: "2026-07-06", accepted: true },
+          { type: "privacy", version: "2026-07-06", accepted: true }
+        ]
+      })
+      .expect(200);
+
+    const householdId = (
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.households[0].id as string;
+
+    const first = await request(app.getHttpServer())
+      .post("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ householdId, nickname: "첫째", stageMode: "manual", manualStage: "infant_4_6" })
+      .expect(200);
+    const second = await request(app.getHttpServer())
+      .post("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ householdId, nickname: "둘째", stageMode: "manual", manualStage: "newborn_0_3" })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/children/${second.body.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ nickname: "둘째 수정", stageMode: "born", birthDate: "2025-07-14" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ id: second.body.id, nickname: "둘째 수정", stageMode: "born" });
+        expect(body.currentStage).not.toBe("newborn_0_3");
+      });
+
+    await request(app.getHttpServer())
+      .get("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.children.map((child: { id: string }) => child.id)).toEqual(
+          expect.arrayContaining([first.body.id, second.body.id])
+        );
+      });
+  });
+
+  it("atomically deactivates and reactivates maternal context with pregnancy stage", async () => {
+    const accessToken = await login(app);
+    await request(app.getHttpServer())
+      .put("/api/v1/consents")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ consents: [
+        { type: "terms", version: "2026-07-06", accepted: true },
+        { type: "privacy", version: "2026-07-06", accepted: true }
+      ] })
+      .expect(200);
+    const me = await request(app.getHttpServer()).get("/api/v1/me").set("Authorization", `Bearer ${accessToken}`).expect(200);
+    const householdId = me.body.households[0].id as string;
+    const child = await request(app.getHttpServer())
+      .post("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ householdId, nickname: "maternal-context", stageMode: "pregnant", dueDate: "2026-12-01" })
+      .expect(200);
+    const initialContexts = await request(app.getHttpServer())
+      .get("/api/v1/catalog/contexts")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    const profile = initialContexts.body.motherProfiles.find((entry: { childId: string }) => entry.childId === child.body.id);
+    expect(profile).toMatchObject({ active: true, dueDate: "2026-12-01" });
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/children/${child.body.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ stageMode: "born", birthDate: "2026-11-20" })
+      .expect(200);
+    const bornContexts = await request(app.getHttpServer())
+      .get("/api/v1/catalog/contexts")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    expect(bornContexts.body.motherProfiles.some((entry: { childId: string }) => entry.childId === child.body.id)).toBe(false);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/children/${child.body.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ stageMode: "pregnant", dueDate: "2027-01-15" })
+      .expect(200);
+    const restoredContexts = await request(app.getHttpServer())
+      .get("/api/v1/catalog/contexts")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    expect(restoredContexts.body.motherProfiles).toEqual([
+      expect.objectContaining({ id: profile.id, childId: child.body.id, active: true, dueDate: "2027-01-15" })
+    ]);
   });
 });

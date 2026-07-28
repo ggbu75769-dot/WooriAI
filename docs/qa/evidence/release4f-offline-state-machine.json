@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T03:05:05+09:00",
+  "release": "4F",
+  "states": [
+    "PENDING",
+    "SYNCING",
+    "RETRY_WAIT",
+    "AUTH_REQUIRED",
+    "CONFLICT",
+    "PERMANENT_FAILURE",
+    "RETRY_EXHAUSTED",
+    "QUARANTINED_LEGACY",
+    "SYNCED"
+  ],
+  "retryPolicy": {
+    "automatic": ["network_timeout", "http_5xx"],
+    "manualOnly": ["auth_required", "conflict", "retry_exhausted"],
+    "neverAutomatic": ["http_401", "http_403", "http_409", "validation_4xx", "quarantined_legacy"],
+    "maximumAttempts": 5,
+    "persistedAcrossRestart": true,
+    "manualRetrySingleFlight": true
+  },
+  "scopeLifecycle": {
+    "logout": "scheduler stopped, in-memory cache cleared, durable rows preserved but hidden",
+    "login": "new user-household scope only",
+    "householdSwitch": "old scheduler stopped and stale results ignored",
+    "accountDelete": "current user scope purged and other account scopes preserved"
+  },
+  "transitionsVerified": [
+    "pending_to_syncing_to_synced",
+    "pending_to_syncing_to_retry_wait",
+    "retry_wait_to_retry_exhausted",
+    "syncing_to_auth_required",
+    "auth_required_same_scope_login_to_pending",
+    "syncing_to_conflict",
+    "conflict_refresh_to_pending",
+    "pending_logout_to_paused",
+    "user_a_logout_user_b_login_isolated",
+    "account_delete_to_purged",
+    "duplicate_online_event_single_scheduler",
+    "response_lost_after_commit_idempotent",
+    "restart_during_retry_wait",
+    "restart_after_success_no_resend"
+  ],
+  "volume": {
+    "pendingRows": 500,
+    "apiCalls": 500,
+    "uniqueIdempotencyKeys": 500,
+    "duplicateSchedulerExtraCalls": 0,
+    "successRowsResentAfterCompletion": 0
+  },
+  "repetition": {
+    "responseLostAfterCommit": {
+      "runs": 50,
+      "failures": 0
+    },
+    "accountSwitchIsolation": {
+      "runs": 50,
+      "failures": 0
+    }
+  },
+  "userSurface": {
+    "showsCurrentScopeCountsOnly": true,
+    "rawServerOrSqliteError": false,
+    "quarantineShowsAmountOrMemo": false,
+    "authAction": true,
+    "conflictAction": true,
+    "manualRetry": true
+  }
+}

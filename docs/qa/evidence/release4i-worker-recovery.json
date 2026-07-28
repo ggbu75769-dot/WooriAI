@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "release": "4I",
+  "generatedAt": "2026-07-17T08:30:50.337Z",
+  "contract": { "clock": "database", "claimOwner": true, "claimedAt": true, "leaseExpiry": true, "terminalCompareAndSet": true, "productionFailpointEnabled": false },
+  "automated": { "expiredClaimIterations": 50, "failpointTests": 3, "failures": 0 },
+  "localStaging": { "workerInstances": 2, "abnormalExitCode": 86, "restartCountBefore": 0, "restartCountAfter": 1, "pidChanged": true, "heartbeatHealthy": true, "duplicateSchedulerLoops": 0, "result": "PASS" },
+  "intentionalShutdown": { "method": "docker compose stop", "autoResurrectionObserved": false, "result": "PASS" }
+}

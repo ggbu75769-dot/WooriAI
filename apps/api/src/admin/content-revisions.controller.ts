@@ -3,7 +3,7 @@ import { createDtoValidationPipe } from "../bootstrap";
 import type { AuthenticatedAdmin, AuthenticatedRequest } from "../common/types/authenticated-request";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { ContentRevisionsService } from "./content-revisions.service";
-import { CreateContentRevisionDto, RejectContentRevisionDto, UpdateContentRevisionDto } from "./dto/content-revision.dto";
+import { CreateContentRevisionDto, RejectContentRevisionDto, ScheduleContentRevisionDto, UpdateContentRevisionDto } from "./dto/content-revision.dto";
 import { RequireAdminRoles } from "./require-admin-roles.decorator";
 
 // AdminAuthGuard always populates request.adminUser before a handler runs
@@ -72,6 +72,17 @@ export class ContentRevisionsController {
   @RequireAdminRoles("admin")
   async approvePublish(@Req() request: AuthenticatedRequest, @Param("id") id: string) {
     return await this.service.approvePublish(actor(request), id);
+  }
+
+  @Post(":id/schedule")
+  @HttpCode(200)
+  @RequireAdminRoles("admin")
+  async schedule(
+    @Req() request: AuthenticatedRequest,
+    @Param("id") id: string,
+    @Body(createDtoValidationPipe(ScheduleContentRevisionDto)) body: ScheduleContentRevisionDto
+  ) {
+    return await this.service.schedule(actor(request), id, new Date(body.scheduledFor));
   }
 
   @Post(":id/reject")

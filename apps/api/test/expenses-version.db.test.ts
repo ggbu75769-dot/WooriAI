@@ -5,6 +5,10 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
+import {
+  EXPENSE_VERSION_TRANSACTION_HOOK,
+  type ExpenseVersionTransactionHook
+} from "../src/finance/expenses.service";
 import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
 
 const dbAvailable = await isDatabaseAvailable();
@@ -20,6 +24,15 @@ const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
  */
 describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Postgres)", () => {
   let app: INestApplication;
+  let failAfterMutation: "update" | "delete" | null = null;
+  const transactionHook: ExpenseVersionTransactionHook = {
+    afterMutation: (operation) => {
+      if (failAfterMutation === operation) {
+        failAfterMutation = null;
+        throw new Error(`TEST_ONLY_FAIL_AFTER_${operation.toUpperCase()}`);
+      }
+    }
+  };
 
   beforeAll(async () => {
     deployMigrations();
@@ -27,7 +40,10 @@ describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Pos
     process.env.JWT_REFRESH_SECRET = "test-refresh-secret";
     process.env.WOORIAI_STAGE_TODAY = "2026-07-06";
 
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(EXPENSE_VERSION_TRANSACTION_HOOK)
+      .useValue(transactionHook)
+      .compile();
     app = moduleRef.createNestApplication();
     configureApiApp(app);
     await app.init();
@@ -185,6 +201,86 @@ describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Pos
       .expect(({ body }) => expect(body.version).toBe(2));
   });
 
+  it("rolls back both payload and version when a failure is injected after update mutation but before commit", async () => {
+    const accessToken = await login("version-atomic-update");
+    const { childId } = await completeOnboarding(accessToken);
+    const created = await createExpense(accessToken, childId, "원자적 수정");
+
+    failAfterMutation = "update";
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ amountKrw: 77777, expectedVersion: 1 })
+      .expect(500);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.amountKrw).toBe(10000);
+        expect(body.version).toBe(1);
+      });
+  });
+
+  it("commits exactly one of two concurrent updates for the same expected version", async () => {
+    const accessToken = await login("version-concurrent-update");
+    const { childId } = await completeOnboarding(accessToken);
+    const created = await createExpense(accessToken, childId, "동시 수정");
+
+    const attempts = await Promise.all([
+      request(app.getHttpServer())
+        .patch(`/api/v1/expenses/${created.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ amountKrw: 20000, expectedVersion: 1 }),
+      request(app.getHttpServer())
+        .patch(`/api/v1/expenses/${created.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ amountKrw: 30000, expectedVersion: 1 })
+    ]);
+
+    expect(attempts.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(attempts.find((response) => response.status === 409)?.body.error.code).toBe("VERSION_CONFLICT");
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect([20000, 30000]).toContain(body.amountKrw);
+        expect(body.version).toBe(2);
+      });
+  });
+
+  it("commits exactly one winner when update and delete race on the same expected version", async () => {
+    const accessToken = await login("version-update-delete-race");
+    const { childId } = await completeOnboarding(accessToken);
+    const created = await createExpense(accessToken, childId, "동시 수정 삭제");
+
+    const attempts = await Promise.all([
+      request(app.getHttpServer())
+        .patch(`/api/v1/expenses/${created.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ amountKrw: 45678, expectedVersion: 1 }),
+      request(app.getHttpServer())
+        .delete(`/api/v1/expenses/${created.id}?expectedVersion=1`)
+        .set("Authorization", `Bearer ${accessToken}`)
+    ]);
+
+    expect(attempts.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(attempts.find((response) => response.status === 409)?.body.error.code).toBe("VERSION_CONFLICT");
+    const updateWon = attempts[0]?.status === 200;
+    const finalRead = await request(app.getHttpServer())
+      .get(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`);
+    if (updateWon) {
+      expect(finalRead.status).toBe(200);
+      expect(finalRead.body).toMatchObject({ amountKrw: 45678, version: 2 });
+    } else {
+      expect(finalRead.status).toBe(404);
+    }
+  });
+
   it("conditionally deletes with expectedVersion, and returns a tombstone-shaped current on conflict", async () => {
     const accessToken = await login("version-delete");
     const { childId } = await completeOnboarding(accessToken);
@@ -215,6 +311,48 @@ describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Pos
       .expect(({ body }) => {
         expect(body.error.code).toBe("VERSION_CONFLICT");
         expect(body.current).toEqual({ id: created.id, deleted: true, version: 2 });
+      });
+  });
+
+  it("binds an expense idempotency key to expectedVersion in the DELETE query string", async () => {
+    const accessToken = await login("version-delete-idempotency-query");
+    const { childId } = await completeOnboarding(accessToken);
+    const created = await createExpense(accessToken, childId, "삭제 쿼리 해시");
+    const idempotencyKey = randomUUID();
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/expenses/${created.id}?expectedVersion=1`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .set("Idempotency-Key", idempotencyKey)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/expenses/${created.id}?expectedVersion=2`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .set("Idempotency-Key", idempotencyKey)
+      .expect(409)
+      .expect(({ body }) => expect(body.error.code).toBe("IDEMPOTENCY_KEY_CONFLICT"));
+  });
+
+  it("rolls back both tombstone and version when a failure is injected after delete mutation but before commit", async () => {
+    const accessToken = await login("version-atomic-delete");
+    const { childId } = await completeOnboarding(accessToken);
+    const created = await createExpense(accessToken, childId, "원자적 삭제");
+
+    failAfterMutation = "delete";
+    await request(app.getHttpServer())
+      .delete(`/api/v1/expenses/${created.id}?expectedVersion=1`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(500);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.id).toBe(created.id);
+        expect(body.version).toBe(1);
+        expect(body.deletedAt).toBeUndefined();
       });
   });
 

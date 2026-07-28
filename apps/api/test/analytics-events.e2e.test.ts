@@ -53,6 +53,12 @@ describe("Analytics events API (/v1/analytics/events)", () => {
       .expect(200);
     const accessToken = response.body.tokens.accessToken as string;
 
+    await request(app.getHttpServer())
+      .put("/api/v1/consents")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ consents: [{ type: "analytics", version: "2026-07-06", accepted: true }] })
+      .expect(200);
+
     const me = await request(app.getHttpServer())
       .get("/api/v1/me")
       .set("Authorization", `Bearer ${accessToken}`)
@@ -183,5 +189,25 @@ describe("Analytics events API (/v1/analytics/events)", () => {
       .post("/api/v1/analytics/events")
       .send({ events: [appOpenedEnvelope()] })
       .expect(401);
+  });
+
+  it("stops accepting events immediately after analytics consent is revoked", async () => {
+    const { accessToken } = await login("analytics-revoked");
+    await request(app.getHttpServer())
+      .put("/api/v1/consents")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ consents: [{ type: "analytics", version: "2026-07-06", accepted: false }] })
+      .expect(200);
+
+    const event = appOpenedEnvelope();
+    await postEvents(accessToken, [event])
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          accepted: 0,
+          rejected: [{ index: 0, reason: "ANALYTICS_CONSENT_REQUIRED" }]
+        });
+      });
+    expect(await prisma.analyticsEvent.findUnique({ where: { eventId: event.eventId } })).toBeNull();
   });
 });

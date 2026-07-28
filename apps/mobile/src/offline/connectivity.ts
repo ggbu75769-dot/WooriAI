@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 import * as Network from "expo-network";
 
@@ -28,6 +29,31 @@ export async function isCurrentlyOnline(): Promise<boolean> {
 }
 
 export type ConnectivityWatcherHandle = { stop: () => void };
+
+/** Reactive connectivity for status UI. `null` means the first native probe is
+ * still in flight; callers must not claim offline until the platform confirms it. */
+export function useConnectivityStatus(): boolean | null {
+  const [online, setOnline] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      void isCurrentlyOnline().then((value) => {
+        if (active) setOnline(value);
+      });
+    };
+    refresh();
+    const pollTimer = setInterval(refresh, POLL_INTERVAL_MS);
+    const subscription = AppState.addEventListener("change", (status) => {
+      if (status === "active") refresh();
+    });
+    return () => {
+      active = false;
+      clearInterval(pollTimer);
+      subscription.remove();
+    };
+  }, []);
+  return online;
+}
 
 /** Calls `onReconnect` once when connectivity transitions from offline->online (poll-detected),
  * and once every time the app returns to the foreground. Callers (sync-controller.ts) treat

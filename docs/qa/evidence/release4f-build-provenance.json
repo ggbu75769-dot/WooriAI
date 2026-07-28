@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T03:05:05+09:00",
+  "release": "4F",
+  "source": {
+    "branch": "codex/sprint2-catalog-payments",
+    "head": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+    "dirtyWorkingTree": true,
+    "ownership": "artifacts/dev-snapshots/release4f-file-ownership.json"
+  },
+  "toolchain": {
+    "node": "v20.20.2",
+    "pnpm": "10.28.1",
+    "runner": "portable npx packages; no destructive system runtime change"
+  },
+  "builds": {
+    "api": "PASS",
+    "admin": "PASS",
+    "mobileExpoExport": {
+      "result": "PASS",
+      "path": "apps/mobile/dist/_expo/static/js/android/entry-04622def3082760d9c15cb61b0c60a4e.hbc",
+      "bytes": 3763365,
+      "sha256": "F65E38FEA51B84E78F1EBE95D985BA2ABA8FBE8315602CC247FF7AB063CEFBBE"
+    },
+    "productionSafeHermesExport": {
+      "result": "PASS",
+      "path": "artifacts/release4-production-safe-export/_expo/static/js/android/entry-04622def3082760d9c15cb61b0c60a4e.hbc",
+      "bytes": 3763365,
+      "sha256": "4659F6C03CB8EB58DBA98B94C363E6BE185ED4AAF19EED4FB8A8862ECF92C41D",
+      "forbiddenFindings": 0
+    }
+  },
+  "android": {
+    "currentSourceApkBuilt": false,
+    "status": "NOT_BUILT_CURRENT_SOURCE",
+    "reason": "Release 4F required build/export and conditional installed upgrade verification; no authorized device existed and no APK claim is made.",
+    "existingInternalStandaloneBaseline": {
+      "path": "artifacts/android/wooriai-0.0.0-release-standalone.apk",
+      "sha256": "0D4CE0DA5E1CDC26641EC3F068F09D223170D4B28550458CE3CBE342E222C43D",
+      "classification": "older internal standalone fixture artifact, not Release 4F and not production"
+    },
+    "adb": {
+      "binaryFound": true,
+      "authorizedDevice": false,
+      "newEmulatorStarts": 0,
+      "installs": 0,
+      "result": "NOT_RUN_NO_DEVICE"
+    }
+  }
+}

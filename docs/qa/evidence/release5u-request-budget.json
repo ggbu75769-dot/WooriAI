@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "new/no-child user",
+  "input": "draft, starter list, final submit, tab transitions",
+  "mission": "avoid duplicate and child-scoped requests",
+  "contracts": {
+    "draftPersistence": "step-level/local",
+    "finalSubmit": 1,
+    "preparedPreview": 1,
+    "rowQueries": 0,
+    "noChildScopedRequests": 0,
+    "childInvalidation": "scoped",
+    "rootWideInvalidation": 0
+  },
+  "repetitions": {
+    "pathChangeCancel": 30,
+    "finalSubmitIdempotency": 30,
+    "draftRestartRestore": 30,
+    "bornAgeBoundary": 30,
+    "preparedApply": 30,
+    "realDaonPreservation": 30,
+    "accountSwitchIsolation": 50,
+    "noChildRequestBudget": 30,
+    "directStageOverride": 30,
+    "publishedOnly": 30
+  }
+}

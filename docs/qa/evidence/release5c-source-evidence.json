@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "reviewer",
+  "input": "public source and revision",
+  "mission": "validate/hash/review evidence",
+  "evidence": [
+    "release5c-readiness.db.test.ts",
+    "admin-release5.browser.test.ts"
+  ]
+}

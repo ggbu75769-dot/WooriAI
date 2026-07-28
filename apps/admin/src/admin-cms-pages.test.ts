@@ -55,7 +55,8 @@ describe("Admin CMS two-step login + forced MFA enrollment (SEC-101)", () => {
     const api = readSource("src/lib/admin-api.ts");
     // 403 (RBAC/CSRF/MFA-required) must not be treated as "log the admin out" --
     // only a real 401 (invalid/expired session) should trigger isAuthError.
-    expect(api).toContain("error.status === 401");
+    expect(api).toContain("isAdminApiErrorStatus(error, 401)");
+    expect(api).not.toContain("isAdminApiErrorStatus(error, 403)");
   });
 });
 
@@ -114,5 +115,100 @@ describe("Admin CMS click summary page", () => {
     const source = readSource("app/clicks/page.tsx");
     expect(source).toContain("use client");
     expect(source).toContain("getAffiliateClickSummary");
+  });
+});
+
+describe("Release 4 catalog operations page", () => {
+  it("exposes structural coverage, operations queues, and guarded review/publish actions", () => {
+    const page = readSource("app/catalog/page.tsx");
+    const api = readSource("src/lib/admin-api.ts");
+    const shell = readSource("src/components/AdminShell.tsx");
+    expect(page).toContain("getCatalogV2Coverage");
+    expect(page).toContain("getCatalogV2Queues");
+    expect(page).toContain("reviewCatalogV2Item");
+    expect(page).toContain("전문가 근거와 별도 검수자가 필요");
+    expect(api).toContain("/admin/catalog/items");
+    expect(api).toContain("/admin/catalog/queues");
+    expect(shell).toContain("/catalog");
+  });
+
+  it("previews bounded JSON/CSV/XLSX imports, applies selected valid rows, and exposes an error CSV", () => {
+    const page = readSource("app/catalog/page.tsx");
+    const api = readSource("src/lib/admin-api.ts");
+    expect(page).toContain("previewCatalogV2Import");
+    expect(page).toContain("applyCatalogV2Import");
+    expect(page).toContain('accept=".json,.csv,.xlsx');
+    expect(page).toContain("previewCatalogV2FileImport");
+    expect(page).toContain("formula, 과도한 압축·행·열·셀은 차단");
+    expect(page).toContain("오류 CSV 내려받기");
+    expect(page).toContain("적용된 품목은 반드시 다시 검수");
+    expect(api).toContain("/admin/catalog/imports/preview");
+    expect(api).toContain("/admin/catalog/imports/file-preview");
+    expect(api).toContain("/admin/catalog/imports/${encodeURIComponent(importId)}/apply");
+    expect(api).toContain("/api/v1/admin/catalog/imports/${encodeURIComponent(importId)}/errors.csv");
+  });
+
+  it("shows revision, approval, workflow history and rolls back only as a new draft revision", () => {
+    const page = readSource("app/catalog/page.tsx");
+    const api = readSource("src/lib/admin-api.ts");
+    expect(page).toContain("getCatalogItemRevisions");
+    expect(page).toContain("previewCatalogItemRollback");
+    expect(page).toContain("새 revision으로 rollback");
+    expect(page).toContain("현재 승인은 무효 · 직접 게시 안 함");
+    expect(api).toContain("/rollback-preview");
+    expect(api).toContain("/rollback");
+  });
+
+  it("operates taxonomy nodes with impact preview and exact-sibling reorder guards", () => {
+    const page = readSource("app/catalog/page.tsx");
+    const api = readSource("src/lib/admin-api.ts");
+    expect(page).toContain("getCatalogTaxonomyTree");
+    expect(page).toContain("createCatalogTaxonomyNode");
+    expect(page).toContain("previewCatalogTaxonomyArchive");
+    expect(page).toContain("previewCatalogTaxonomyReorder");
+    expect(page).toContain("applyCatalogTaxonomyReorder");
+    expect(page).toContain("활성 형제 전체");
+    expect(api).toContain("/admin/catalog/taxonomy/tree");
+    expect(api).toContain("/admin/catalog/taxonomy/nodes");
+    expect(api).toContain("/admin/catalog/taxonomy/reorder-preview");
+    expect(api).toContain("/admin/catalog/taxonomy/reorder");
+  });
+
+  it("drills into all catalog queues and exposes only backed report and link operations", () => {
+    const page = readSource("app/catalog/page.tsx");
+    const api = readSource("src/lib/admin-api.ts");
+    expect(page).toContain("queueDisplayRows");
+    expect(page).toContain("품목 보기");
+    expect(page).toContain("선택 신고 해결");
+    expect(page).toContain("retryCatalogOfferHealth");
+    expect(page).toContain("가격 제공자가 연결되지 않아 자동 갱신할 수 없어요");
+    expect(api).toContain("/admin/catalog/reports/resolve-batch");
+    expect(api).toContain("/retry-health-check");
+  });
+});
+
+describe("Release 5 readiness console", () => {
+  it("exposes fail-closed legal, pilot, evidence, recall, and merchant readiness tools without direct publish", () => {
+    const page = readSource("app/release5/page.tsx");
+    const api = readSource("src/lib/admin-api.ts");
+    const shell = readSource("src/components/AdminShell.tsx");
+    expect(page).toContain("EXTERNAL_BLOCKED");
+    expect(page).toContain("previewRelease5LegalDocument");
+    expect(page).toContain("createRelease5EvidenceSource");
+    expect(page).toContain("reviewRelease5EvidenceSource");
+    expect(page).toContain("upsertRelease5SafetyAlternative");
+    expect(page).toContain("approveRelease5SafetyAlternative");
+    expect(page).toContain("deactivateRelease5SafetyAlternative");
+    expect(page).toContain("safety_alternative:");
+    expect(page).toContain("세 번째 담당자로 활성화");
+    expect(page).toContain("previewRelease5PilotManifest");
+    expect(page).toContain("getRelease5RecallWorklist");
+    expect(page).toContain("previewRelease5MerchantFeed");
+    expect(page).not.toContain("publishRelease5Pilot");
+    expect(api).toContain("/admin/release5/catalog/pilot-worklist");
+    expect(api).toContain("/admin/release5/external/recalls/worklist");
+    expect(api).toContain("/safety-alternatives/approve");
+    expect(api).toContain("/deactivate");
+    expect(shell).toContain("/release5");
   });
 });

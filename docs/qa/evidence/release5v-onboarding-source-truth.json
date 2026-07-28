@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "SOURCE_VERIFIED",
+  "actor": "new parent",
+  "input": "path/date/sex/stage/prepared/review",
+  "mission": "one normalized draft and final atomic commit",
+  "sourceOfTruth": {
+    "path": "OnboardingDraft.selectedPath",
+    "age": "birthDate-derived KST",
+    "stageOverride": "explicit boolean",
+    "completion": "server transaction",
+    "selectedChild": "post-completion scoped selection"
+  }
+}

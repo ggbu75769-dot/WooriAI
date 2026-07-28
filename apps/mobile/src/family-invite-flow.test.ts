@@ -20,7 +20,7 @@ describe("Batch 08 mobile family invite contract", () => {
       ["app/(tabs)/_layout.tsx", "기록"],
       ["app/(tabs)/_layout.tsx", "준비템"],
       ["app/(tabs)/_layout.tsx", "리포트"],
-      ["app/(tabs)/_layout.tsx", "더보기"],
+      ["app/(tabs)/_layout.tsx", 'name="more" options={{ title: tabs.more.title'],
       ["app/family/index.tsx", "FAM-001"],
       ["app/family/index.tsx", "listHouseholdMembers"],
       ["app/family/index.tsx", "createInvite"],

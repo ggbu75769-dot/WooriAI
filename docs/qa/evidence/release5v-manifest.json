@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-18T06:01:01.773Z",
+  "status": "PARTIAL",
+  "workstreams": {
+    "claimToSource": "PASS",
+    "onboarding": "PASS",
+    "childFixtureScope": "PASS",
+    "designSystem": "PARTIAL",
+    "parity": "PASS",
+    "sourceUX": "PASS",
+    "androidBuild": "BUILD_VERIFIED_INTERNAL",
+    "regressionSecurityArtifact": "PASS_WITH_EXTERNAL_BLOCKERS"
+  },
+  "openP0": 0,
+  "openP1": 0,
+  "sourceVerifiedScore": 92,
+  "runtimeReserve": 0,
+  "productionReadiness": "EXTERNAL_BLOCKED",
+  "blockers": [
+    "published onboarding catalog 0",
+    "approved production Android identity/API/signing absent",
+    "runtime qualification not run",
+    "default dev DB drift"
+  ],
+  "sourceSnapshotSha256": "817EC0786DE9EEFB6BFE1BA80E094AFF6B0B088940319A80042BF4AA112658C7",
+  "artifactSha256": "B347272FB098638C43FE53EA48406F428F5E47D21E15396DFAB7861EA29D7841",
+  "evidenceDigestSha256": "FDCBAEBFAFA2E2EDB35621F58F1BB2532EF0C9289CC2CFE7F7461FB8261BE45F"
+}

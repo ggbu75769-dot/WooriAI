@@ -11,7 +11,7 @@ describe("MOB-101 onboarding resume contract", () => {
       const { routeForOnboardingNextStep } = await import("./onboarding/resume");
 
       // No child created yet -- safe to (re)start at ONB-001 either way.
-      expect(routeForOnboardingNextStep("consents")).toBe("/onboarding/child-status");
+      expect(routeForOnboardingNextStep("consents")).toBe("/login");
       expect(routeForOnboardingNextStep("child-profile")).toBe("/onboarding/child-status");
 
       // A child already exists server-side -- resuming must skip straight past ONB-001/ONB-002
@@ -20,6 +20,20 @@ describe("MOB-101 onboarding resume contract", () => {
       expect(routeForOnboardingNextStep("prepared-items")).toBe("/onboarding/prepared-items");
       expect(routeForOnboardingNextStep("budget")).toBe("/onboarding/budget");
       expect(routeForOnboardingNextStep("home")).toBe("/(tabs)");
+    });
+
+    it("returns to the exact securely persisted draft step after an app restart", async () => {
+      const { routeForDraftCurrentStep, routeForOnboardingPath } = await import("./onboarding/resume");
+
+      expect(routeForDraftCurrentStep("pregnant")).toBe("/onboarding/pregnant");
+      expect(routeForDraftCurrentStep("born")).toBe("/onboarding/born");
+      expect(routeForDraftCurrentStep("direct-stage")).toBe("/onboarding/direct-stage");
+      expect(routeForDraftCurrentStep("prepared-items")).toBe("/onboarding/prepared-items");
+      expect(routeForDraftCurrentStep("budget")).toBe("/onboarding/budget");
+      expect(routeForDraftCurrentStep("review")).toBe("/onboarding/review");
+      expect(routeForOnboardingPath("pregnant")).toBe("/onboarding/pregnant");
+      expect(routeForOnboardingPath("born")).toBe("/onboarding/born");
+      expect(routeForOnboardingPath("manual")).toBe("/onboarding/direct-stage");
     });
   });
 
@@ -76,7 +90,14 @@ describe("MOB-101 onboarding resume contract", () => {
       expect(beforeConsents).toMatchObject({ completed: false, nextStep: "consents", canRestart: true });
       expect(beforeConsents.summary.child).toBeNull();
 
-      localBackend.upsertConsents();
+      localBackend.upsertConsents(
+        localBackend.getCurrentLegalDocuments().map((document) => ({
+          documentType: document.documentType,
+          version: document.version,
+          contentHash: document.contentHash,
+          accepted: true as const
+        }))
+      );
       const afterConsents = localBackend.onboardingStatus();
       // ensureSeeded() pre-populates a demo child (and a current-month budget) for the
       // standalone test-mode backend, so once consents are accepted the very next status is
@@ -107,6 +128,7 @@ describe("MOB-101 onboarding resume contract", () => {
       expect(resumeSource).toContain("ONB-006");
       expect(resumeSource).toContain('testID="screen-ONB-006"');
       expect(resumeSource).toContain("routeForOnboardingNextStep");
+      expect(resumeSource).toContain("routeForDraftCurrentStep");
       expect(resumeSource).toContain("canRestart");
 
       expect(source("app/onboarding/resume.tsx")).toContain("../(onboarding)/resume");
@@ -117,10 +139,11 @@ describe("MOB-101 onboarding resume contract", () => {
 
       expect(indexSource).toContain("getOnboardingProgress");
       expect(indexSource).toContain('<Redirect href="/onboarding/resume" />');
-      // The already-onboarded fast path (test-login-flow.test.ts pins this exact substring) must
-      // survive untouched -- the new server-progress check only runs for sessions that haven't
-      // locally reached home yet.
-      expect(indexSource).toContain('hasReachedHome || isTestSession ? "/(tabs)"');
+      // Cold-start routing must consume the securely persisted currentStep. Merely defining the
+      // route helper is insufficient: the installed app previously restored the draft values but
+      // still hard-coded every interrupted standalone session back to ONB-001.
+      expect(indexSource).toContain("routeForDraftCurrentStep");
+      expect(indexSource).toContain('routeForDraftCurrentStep(draft?.currentStep ?? "child-status")');
     });
 
     it("has the (tabs) guard defer to '/' so a mid-onboarding deep link re-resolves through the resume-aware entry point", () => {
@@ -128,13 +151,16 @@ describe("MOB-101 onboarding resume contract", () => {
       expect(tabsLayoutSource).toContain('<Redirect href="/" />');
     });
 
-    it("sends a stable Idempotency-Key with child creation so a retried submission cannot duplicate the child", () => {
+    it("uses the persisted final-completion Idempotency-Key and leaves ONB-002 as a V2 dispatcher", () => {
       const childProfileSource = source("app/(onboarding)/child-profile.tsx");
-      expect(childProfileSource).toContain("getOrCreateChildCreateIdempotencyKey");
-      expect(childProfileSource).toContain("clearChildCreateIdempotencyKey");
+      expect(childProfileSource).not.toContain("createChild(");
+      expect(childProfileSource).not.toContain("LegacyChildProfileScreen");
+
+      const reviewSource = source("src/onboarding/ReviewScreen.tsx");
+      expect(reviewSource).toContain("draft.finalSubmitIdempotencyKey");
+      expect(reviewSource).toContain("completeOnboarding(token, body");
 
       const clientSource = source("src/api/client.ts");
-      expect(clientSource).toContain("idempotencyKey?: string");
       expect(clientSource).toContain('"Idempotency-Key": idempotencyKey');
     });
   });

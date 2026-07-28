@@ -1,17 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { clickProductLink, getItemDetail, listItems, updateItemStatus } from "./api/client";
 
 const mobileRoot = process.cwd();
 
 describe("Batch 07 mobile items and commerce contract", () => {
-  it("exposes item, status, and product-link API client functions", async () => {
-    const client = await import("./api/client");
-
-    expect(client.listItems).toEqual(expect.any(Function));
-    expect(client.getItemDetail).toEqual(expect.any(Function));
-    expect(client.updateItemStatus).toEqual(expect.any(Function));
-    expect(client.clickProductLink).toEqual(expect.any(Function));
+  it("exposes item, status, and product-link API client functions", () => {
+    expect(listItems).toEqual(expect.any(Function));
+    expect(getItemDetail).toEqual(expect.any(Function));
+    expect(updateItemStatus).toEqual(expect.any(Function));
+    expect(clickProductLink).toEqual(expect.any(Function));
   });
 
   it("creates locked item/commerce route files while preserving the fixed tabs", () => {
@@ -20,10 +19,10 @@ describe("Batch 07 mobile items and commerce contract", () => {
       ["app/(tabs)/_layout.tsx", "기록"],
       ["app/(tabs)/_layout.tsx", "준비템"],
       ["app/(tabs)/_layout.tsx", "리포트"],
-      ["app/(tabs)/_layout.tsx", "더보기"],
-      ["app/(tabs)/items.tsx", "ITEM-001"],
-      ["app/(tabs)/items.tsx", "listItems"],
-      ["app/(tabs)/items.tsx", "updateItemStatus"],
+      ["app/(tabs)/_layout.tsx", 'name="more" options={{ title: tabs.more.title'],
+      ["app/(tabs)/items.tsx", "ITEM-CATALOG-001"],
+      ["src/preparation/Release4PreparationScreen.tsx", "listCatalogItems"],
+      ["src/preparation/Release4PreparationScreen.tsx", "putItemPlan"],
       ["app/items/[itemTemplateId].tsx", "ITEM-002"],
       ["app/items/[itemTemplateId].tsx", "ITEM-003"],
       ["app/items/[itemTemplateId].tsx", "ITEM-004"],
@@ -75,11 +74,11 @@ describe("Batch 07 mobile items and commerce contract", () => {
     expect(skipHeadingBlock).toContain('accessibilityRole="header"');
     expect(skipHeadingBlock).toContain("이런 경우엔 안 사도 돼요");
 
-    // Affiliate CTA disclosure position/copy must be unchanged (still directly after the new
-    // sections, right before the cart/purchase buttons).
-    expect(productDetailSource).toMatch(
-      /\) : null}\s*<AffiliateDisclosure text={visibleDetail\.productLinks\[0\]\?\.disclosureText} \/>/
-    );
+    // Affiliate disclosure remains in the same conditional block as the purchase CTA; when no
+    // verified link exists, neither disclosure nor a dead purchase button is rendered.
+    expect(productDetailSource).toContain("<AffiliateDisclosure text={visibleDetail.productLinks[0]?.disclosureText} />");
+    expect(productDetailSource).toContain("visibleDetail.productLinks.length > 0");
+    expect(productDetailSource).toContain("검수된 구매 링크가 아직 없어요.");
     const affiliateDisclosureIndex = productDetailSource.indexOf("<AffiliateDisclosure");
     expect(affiliateDisclosureIndex).toBeGreaterThan(skipSectionIndex);
     expect(affiliateDisclosureIndex).toBeLessThan(ctaRowIndex);

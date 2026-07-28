@@ -9,7 +9,7 @@ The local workspace can prove code, contract, and dry-run gates. It cannot prove
 
 | Checklist ID | Category | Item | Local verification status | Evidence |
 | --- | --- | --- | --- | --- |
-| REL-PRE-001 | Pre-release | Code freeze branch and release version confirmed | Waiver required | No git repository exists in this workspace; release owner must create freeze branch/version. |
+| REL-PRE-001 | Pre-release | Code freeze branch and release version confirmed | PARTIAL | GitHub remote branch `codex/sprint2-catalog-payments` exists and is ahead of `master`; the dirty local worktree still needs reviewed commits, an approved release version, and a tag. |
 | REL-PRE-002 | Pre-release | Do Not Change contract final check | PASS | `docs/dev/do-not-change.md`, `docs/dev/source-lock.md`, full automated gates. |
 | REL-PRE-003 | Legal | Privacy policy, terms, affiliate disclosure, child information, and medical expression review | Waiver required | Legal/PM review required outside local code verification. |
 | REL-PRE-004 | Content | Seed items/product links contain no private production/test leaks | PASS for dev seeds | `seed-data.test.ts`; production content review still release-owner evidence. |
@@ -18,7 +18,7 @@ The local workspace can prove code, contract, and dry-run gates. It cannot prove
 | REL-INFRA-002 | Infra | DB migration deploy dry-run plus backup/rollback scripts | Waiver required | Prisma validate/generate pass; deploy/backup needs PostgreSQL/Docker access. |
 | REL-INFRA-003 | Infra | S3/MinIO bucket, CORS, retention policy | Waiver required | Object storage runtime not started locally. |
 | REL-BUILD-001 | Build | API build/test/lint/typecheck pass | PASS | `pnpm release:gate`, `pnpm --filter api test:e2e`. |
-| REL-BUILD-002 | Build | Mobile iOS/Android internal build and install check | Waiver required | Expo/EAS credentials and device install evidence required. |
+| REL-BUILD-002 | Build | Mobile iOS/Android internal build and install check | PARTIAL PASS | Android emulator install and adb screenshot proof pass, including exact installed-APK hash parity. Physical Android, production signing/EAS, and iOS evidence still require the release owner. |
 | REL-BUILD-003 | Build | Admin build/deploy smoke test pass | PASS for local build | `pnpm build`, `pnpm --filter admin test`; deployment smoke needs release-owner host. |
 | REL-QA-001 | QA | QA Runbook QR-01 through QR-15 pass | PARTIAL PASS | Automated scenarios covered; QR-00, QR-13, QR-14, and external release evidence need manual pass. |
 | REL-QA-002 | QA | Permission/delete/import/affiliate/report regression tests pass | PASS | API e2e suites: family, settings, import, commerce, report, core loop. |

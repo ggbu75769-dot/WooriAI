@@ -3,6 +3,7 @@ import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { KakaoIdTokenClaims, KakaoOidcClient } from "../src/auth/kakao/kakao-oidc-client";
 import { KakaoAuthService } from "../src/auth/kakao/kakao-auth.service";
+import type { OAuthProviderAdapter } from "../src/auth/providers/oauth-provider.adapter";
 import type { TokenService } from "../src/auth/token.service";
 import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 import type { AuthenticatedUser } from "../src/common/types/authenticated-request";
@@ -11,7 +12,7 @@ import { PrismaService } from "../src/prisma/prisma.service";
 
 // Same pattern as test/auth.service.test.ts: KakaoAuthService is instantiated
 // directly (no Nest DI container, no HTTP layer) with fakes for the pieces
-// that don't matter to these tests (KakaoOidcClient, HouseholdRuntimeService,
+// that don't matter to these tests (OAuthProviderAdapter, HouseholdRuntimeService,
 // TokenService), but a real PrismaService — the behavior under test here
 // (nonce hashing, redirectUri allowlist, the oauth_transactions CAS claim) is
 // implemented against real Postgres rows, so faking Prisma would test nothing.
@@ -58,7 +59,15 @@ function createService(options: { kakaoClient?: Partial<KakaoOidcClient>; househ
       findOrCreateProviderUser: async () => ({ user: fakeUser(), isNewUser: true })
     } as unknown as HouseholdRuntimeService);
 
-  return new KakaoAuthService(prisma, kakaoClient, householdRuntime, fakeTokenService, new AuditLoggerService());
+  const kakaoAdapter: OAuthProviderAdapter = {
+    provider: "kakao",
+    prepareAuthorization: () => "https://kauth.kakao.com/oauth/authorize",
+    exchangeAuthorizationCode: async (input) => (await kakaoClient.exchangeCode(input)).idToken,
+    verifyIdentity: async (idToken) => await kakaoClient.verifyIdToken(idToken),
+    unlinkIdentity: async () => undefined
+  };
+
+  return new KakaoAuthService(prisma, kakaoAdapter, householdRuntime, fakeTokenService, new AuditLoggerService());
 }
 
 describe("KakaoAuthService.prepare", () => {
@@ -279,5 +288,8 @@ describe("HouseholdRuntimeService.findOrCreateProviderUser — concurrent first 
 
     const rows = await prisma.user.findMany({ where: { authProvider: "kakao", providerUserId: sub } });
     expect(rows).toHaveLength(1);
+    const identities = await prisma.oAuthIdentity.findMany({ where: { provider: "kakao", providerSubject: sub } });
+    expect(identities).toHaveLength(1);
+    expect(identities[0]?.userId).toBe(rows[0]?.id);
   });
 });

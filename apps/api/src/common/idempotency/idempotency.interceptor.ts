@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   CallHandler,
   ExecutionContext,
@@ -12,6 +11,7 @@ import type { Prisma } from "@prisma/client";
 import { from, lastValueFrom, type Observable } from "rxjs";
 import { PrismaService } from "../../prisma/prisma.service";
 import type { AuthenticatedRequest } from "../types/authenticated-request";
+import { idempotencyRequestHash } from "./idempotency-request";
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 // 예약(처리 중) 행의 수명. 핸들러 실행 중 프로세스가 죽어 응답이 기록되지 못한
@@ -79,15 +79,21 @@ export class IdempotencyInterceptor implements NestInterceptor {
     // 첫 응답이 잘못 재생되지 않고 409(다른 요청)로 구분되게 하기 위함이다.
     const routePath = rawRequest.route?.path ?? rawRequest.url ?? "unknown";
     const endpoint = `${rawRequest.method ?? "POST"}:${routePath}`.slice(0, 120);
-    const actualPath = (rawRequest.originalUrl ?? rawRequest.url ?? "").split("?")[0];
-    const requestHash = createHash("sha256")
-      .update(`${actualPath}\n${JSON.stringify(request.body ?? {})}`)
-      .digest("hex");
+    const actualTarget = rawRequest.originalUrl ?? rawRequest.url ?? "";
+    const requestHash = idempotencyRequestHash(actualTarget, request.body);
 
-    return from(this.handle(userId, endpoint, idemKey, requestHash, next));
+    const response = context.switchToHttp().getResponse<{ statusCode: number; status: (code: number) => unknown }>();
+    return from(this.handle(userId, endpoint, idemKey, requestHash, next, response));
   }
 
-  private async handle(userId: string, endpoint: string, idemKey: string, requestHash: string, next: CallHandler) {
+  private async handle(
+    userId: string,
+    endpoint: string,
+    idemKey: string,
+    requestHash: string,
+    next: CallHandler,
+    response: { statusCode: number; status: (code: number) => unknown }
+  ) {
     const reservation = await this.reserve(userId, endpoint, idemKey, requestHash);
 
     if (reservation.outcome === "conflict") {
@@ -96,6 +102,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
 
     if (reservation.outcome === "replay") {
       const completed = await this.waitForCompletion(userId, endpoint, idemKey);
+      if (completed.statusCode != null) response.status(completed.statusCode);
       return completed.responseJson;
     }
 
@@ -105,7 +112,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
         where: { userId_endpoint_idemKey: { userId, endpoint, idemKey } },
         data: {
           responseJson: (result ?? null) as Prisma.InputJsonValue,
-          statusCode: 200,
+          statusCode: response.statusCode,
           // 완료된 응답은 재생 가능 기간(24h) 동안 보존한다.
           expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS)
         }

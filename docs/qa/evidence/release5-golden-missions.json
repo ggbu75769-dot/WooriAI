@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T13:33:04.358Z",
+  "status": "PARTIAL",
+  "integratedAutomatedScenario": "release5-golden-family-day.e2e.test.ts",
+  "integratedCoverage": [
+    "Today Center",
+    "custom bundle",
+    "calendar scope",
+    "receipt confirmation",
+    "expense-plan linking",
+    "Report source parity",
+    "recurring prediction",
+    "weekly briefing",
+    "gift privacy",
+    "privacy export",
+    "owner transfer",
+    "account deletion"
+  ],
+  "composedVerification": [
+    "OPS-WORKER-01",
+    "OPS-PUBLISHER-02",
+    "CONFIG-ROLLOUT-03",
+    "IMPORT-CONSISTENCY-04",
+    "LEGAL-READY-01",
+    "CATALOG-PILOT-02",
+    "TODAY-CENTER-01",
+    "PREP-CALENDAR-02",
+    "CUSTOM-BUNDLE-03",
+    "WEEKLY-BRIEF-04",
+    "RECEIPT-DRAFT-01",
+    "EXPENSE-LINK-02",
+    "RECURRING-PREDICT-03",
+    "BUDGET-EXPLAIN-04",
+    "RECALL-PROVIDER-01",
+    "MERCHANT-OFFER-02"
+  ],
+  "incomplete": [
+    "two-worker crash, MinIO reconciliation, and Android runtime were verified separately rather than inside the same uninterrupted process"
+  ]
+}

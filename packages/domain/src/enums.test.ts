@@ -31,8 +31,8 @@ describe("locked domain enums", () => {
       "elementary",
       "middle_school"
     ]);
-    expect(EXPENSE_SOURCES).toEqual(["manual", "excel_import", "purchase_followup", "admin"]);
-    expect(EXPENSE_TYPES).toEqual(["expense", "gift", "refund"]);
+    expect(EXPENSE_SOURCES).toEqual(["manual", "excel_import", "purchase_followup", "receipt", "admin"]);
+    expect(EXPENSE_TYPES).toEqual(["expense", "gift", "refund", "support"]);
     expect(PAYMENT_METHODS).toEqual(["unknown", "cash", "card", "transfer", "mobile_pay"]);
     expect(NECESSITY_LEVELS).toEqual(["essential", "convenience", "optional"]);
     expect(ITEM_STATUSES).toEqual(["not_prepared", "prepared", "gifted", "not_needed", "interested"]);

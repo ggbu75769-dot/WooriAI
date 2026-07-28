@@ -1,0 +1,2302 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-16T05:41:46.488Z",
+  "sourceHead": "db7a7a455afec892b8fa1205e477dbe507a5931d",
+  "evaluationPolicy": {
+    "crossFeatureTestsAreNotIntegratedPersonaRuntime": true,
+    "installedAndroidRequiredForM3": true,
+    "medicalOrSafetyApprovalInferred": false
+  },
+  "summary": {
+    "personas": 20,
+    "lifecycleEmptyResults": 0,
+    "wrongLifecycleRecommendations": 0,
+    "expectedBundlesMissing": 0,
+    "installedAppPersonaRuns": 0,
+    "maturity": "M2"
+  },
+  "personas": [
+    {
+      "id": "pregnancy-planning",
+      "labelKo": "임신 준비 중",
+      "inputs": {
+        "lifecycleAxis": "mother",
+        "lifecycleCode": "pregnancy_planning",
+        "contextCodes": [],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 34,
+        "contextMatchedCandidateCount": 0,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 12,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "임신 초기 생활 적응",
+          "itemCount": 6
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "pregnancy-early-first",
+      "labelKo": "임신 초기 첫째",
+      "inputs": {
+        "lifecycleAxis": "mother",
+        "lifecycleCode": "pregnancy_early",
+        "contextCodes": [
+          "first_child"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 68,
+        "contextMatchedCandidateCount": 13,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 12,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "임신 초기 생활 적응",
+          "itemCount": 6
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "pregnancy-late-first",
+      "labelKo": "임신 후기 첫째",
+      "inputs": {
+        "lifecycleAxis": "mother",
+        "lifecycleCode": "pregnancy_late",
+        "contextCodes": [
+          "first_child"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 102,
+        "contextMatchedCandidateCount": 13,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 12,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "출산 입원 가방",
+          "itemCount": 8
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "planned-cesarean",
+      "labelKo": "제왕절개 예정",
+      "inputs": {
+        "lifecycleAxis": "mother",
+        "lifecycleCode": "pregnancy_late",
+        "contextCodes": [
+          "cesarean_delivery"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 102,
+        "contextMatchedCandidateCount": 6,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 12,
+        "safetyConstraint": "professional_review_required",
+        "expectedBundle": {
+          "nameKo": "제왕절개 입원·회복",
+          "itemCount": 7
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "multiple-pregnancy",
+      "labelKo": "쌍둥이 임신",
+      "inputs": {
+        "lifecycleAxis": "mother",
+        "lifecycleCode": "pregnancy_late",
+        "contextCodes": [
+          "multiple_birth"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 102,
+        "contextMatchedCandidateCount": 5,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 12,
+        "safetyConstraint": "professional_review_required",
+        "expectedBundle": {
+          "nameKo": "쌍둥이·다태아",
+          "itemCount": 7
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "postpartum-two-weeks",
+      "labelKo": "산후 2주",
+      "inputs": {
+        "lifecycleAxis": "mother",
+        "lifecycleCode": "postpartum_0_6w",
+        "contextCodes": [],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 102,
+        "contextMatchedCandidateCount": 0,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 12,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "산후 2주 회복",
+          "itemCount": 7
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "breastfeeding",
+      "labelKo": "모유수유",
+      "inputs": {
+        "lifecycleAxis": "mother",
+        "lifecycleCode": "feeding_ongoing",
+        "contextCodes": [
+          "breastfeeding"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 51,
+        "contextMatchedCandidateCount": 9,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 0,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "모유수유 시작",
+          "itemCount": 6
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "formula-feeding",
+      "labelKo": "분유수유",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "newborn_0_3m",
+        "contextCodes": [
+          "formula_feeding"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 187,
+        "contextMatchedCandidateCount": 9,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 36,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "분유수유 시작",
+          "itemCount": 7
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "newborn",
+      "labelKo": "신생아",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "newborn_0_3m",
+        "contextCodes": [],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 187,
+        "contextMatchedCandidateCount": 0,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 36,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "신생아 집 맞이",
+          "itemCount": 8
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "weaning-six-months",
+      "labelKo": "6개월 이유식 시작",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "infant_4_6m",
+        "contextCodes": [],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 221,
+        "contextMatchedCandidateCount": 0,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 48,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "이유식 시작",
+          "itemCount": 7
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "daycare-twelve-months",
+      "labelKo": "12개월 어린이집",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "toddler_1_2y",
+        "contextCodes": [
+          "daycare"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 255,
+        "contextMatchedCandidateCount": 6,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 48,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "어린이집 입소",
+          "itemCount": 8
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "potty-training-two-years",
+      "labelKo": "2세 배변 훈련",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "toddler_2_3y",
+        "contextCodes": [],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 255,
+        "contextMatchedCandidateCount": 0,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 48,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "배변 훈련",
+          "itemCount": 6
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "no-car-family",
+      "labelKo": "차량 없는 가족",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "newborn_0_3m",
+        "contextCodes": [
+          "no_car",
+          "public_transport_primary"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 187,
+        "contextMatchedCandidateCount": 7,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 36,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "대중교통 이동",
+          "itemCount": 6
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "small-home",
+      "labelKo": "작은 집",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "newborn_0_3m",
+        "contextCodes": [
+          "small_home"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 187,
+        "contextMatchedCandidateCount": 4,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 36,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "작은 집·수납 최소화",
+          "itemCount": 6
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "budget-secondhand",
+      "labelKo": "저예산·중고 선호",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "newborn_0_3m",
+        "contextCodes": [
+          "budget_saving",
+          "secondhand_preferred"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 187,
+        "contextMatchedCandidateCount": 11,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 36,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "중고·대여 중심 준비",
+          "itemCount": 6
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "kindergarten-four-five",
+      "labelKo": "4~5세 유치원",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "preschool_4_5y",
+        "contextCodes": [
+          "kindergarten"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 221,
+        "contextMatchedCandidateCount": 6,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 48,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "유치원·학교 입학",
+          "itemCount": 8
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "elementary-entry",
+      "labelKo": "초등 입학",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "elementary_lower",
+        "contextCodes": [
+          "school"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 153,
+        "contextMatchedCandidateCount": 5,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 24,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "유치원·학교 입학",
+          "itemCount": 8
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "middle-school",
+      "labelKo": "중학생",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "middle_school",
+        "contextCodes": [
+          "school"
+        ],
+        "householdRole": "owner"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 153,
+        "contextMatchedCandidateCount": 5,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 24,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "응급·재난 대비",
+          "itemCount": 7
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "co-parenting",
+      "labelKo": "공동 양육 가족",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "newborn_0_3m",
+        "contextCodes": [],
+        "householdRole": "co_parent"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 187,
+        "contextMatchedCandidateCount": 0,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 36,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "신생아 집 맞이",
+          "itemCount": 8
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": null,
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    },
+    {
+      "id": "gift-family-member",
+      "labelKo": "선물을 준비하는 가족 구성원",
+      "inputs": {
+        "lifecycleAxis": "child",
+        "lifecycleCode": "newborn_0_3m",
+        "contextCodes": [],
+        "householdRole": "gift_participant"
+      },
+      "catalogEvaluation": {
+        "lifecycleCandidateCount": 187,
+        "contextMatchedCandidateCount": 0,
+        "emptyResult": false,
+        "wrongLifecycleRecommendationCount": 0,
+        "highRiskCandidateCount": 36,
+        "safetyConstraint": "catalog_policy",
+        "expectedBundle": {
+          "nameKo": "신생아 집 맞이",
+          "itemCount": 8
+        }
+      },
+      "criticalTasks": {
+        "onboarding": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/onboarding.e2e.test.ts",
+            "apps/mobile/src/onboarding-flow.test.ts"
+          ]
+        },
+        "recommendationTimeline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "search": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "packages/domain/src/release4-catalog.test.ts",
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "bundle": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "itemState": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts",
+            "apps/mobile/src/preparation/release4-preparation.test.ts"
+          ]
+        },
+        "familyAssignment": {
+          "status": "privacy_expected_denial_automated",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        },
+        "costPlanAndExpense": {
+          "status": "privacy_expected_denial_automated",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/api/test/expense-home-report.e2e.test.ts"
+          ]
+        },
+        "report": {
+          "status": "privacy_expected_denial_automated",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/reports-v2.e2e.test.ts",
+            "apps/mobile/src/report-v2-contract.test.ts"
+          ]
+        },
+        "offline": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/mobile/src/offline/sync-engine.test.ts",
+            "apps/mobile/src/offline/sync-controller.test.ts"
+          ]
+        },
+        "wrongRecommendationReport": {
+          "status": "cross_feature_automated_coverage",
+          "integratedPersonaRuntime": "pending",
+          "evidence": [
+            "apps/api/test/catalog-v2.e2e.test.ts"
+          ]
+        }
+      },
+      "giftPrivacy": {
+        "status": "automated_contract_pass",
+        "allowed": "gift_expected item name and desired quantity only",
+        "denied": [
+          "unshared items",
+          "budget",
+          "memo",
+          "assignee",
+          "inventory",
+          "bundle",
+          "report",
+          "expense detail"
+        ],
+        "evidence": "apps/api/test/catalog-v2.e2e.test.ts"
+      },
+      "runtimeMetrics": {
+        "installedAppRun": "pending",
+        "criticalTaskCompletion": null,
+        "screenCount": null,
+        "tapCount": null,
+        "errorRecovery": "pending",
+        "accessibilityBlocker": "pending"
+      },
+      "maturity": "M2_cross_feature_automated_not_integrated_persona_runtime"
+    }
+  ]
+}

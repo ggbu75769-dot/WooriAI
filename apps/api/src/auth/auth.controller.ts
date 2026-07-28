@@ -33,6 +33,17 @@ export class AuthController {
     return await this.authService.logout(request.user!, body.refreshToken);
   }
 
+  /** Refresh-authenticated logout remains available after the short-lived
+   * access token expires. It never rotates credentials; it only revokes the
+   * exact refresh family proved by the request body. */
+  @Post("auth/logout/refresh")
+  @HttpCode(200)
+  async logoutByRefreshToken(
+    @Body(createDtoValidationPipe(RefreshTokenDto)) body: RefreshTokenDto
+  ) {
+    return await this.authService.logoutByRefreshToken(body.refreshToken);
+  }
+
   @Get("me")
   @UseGuards(JwtAuthGuard)
   me(@Req() request: AuthenticatedRequest) {

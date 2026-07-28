@@ -52,17 +52,18 @@ describe("AdminMfaService", () => {
     expect(matched).toBe(false);
   });
 
-  it("locks out after 5 recorded failures and unlocks after resetting", () => {
+  it("locks out after 5 recorded failures and unlocks after resetting", async () => {
     const mfa = new AdminMfaService();
     const adminId = "admin-lockout-unit-test";
 
     for (let i = 0; i < 5; i += 1) {
-      expect(() => mfa.limiter.assertNotLocked(adminId)).not.toThrow();
-      mfa.limiter.recordFailure(adminId);
+      await expect(mfa.limiter.assertAllowed(adminId, "ADMIN_MFA_LOCKED", "locked")).resolves.toBeUndefined();
+      await mfa.limiter.recordFailure(adminId);
     }
-    expect(() => mfa.limiter.assertNotLocked(adminId)).toThrow();
+    await expect(mfa.limiter.assertAllowed(adminId, "ADMIN_MFA_LOCKED", "locked")).rejects.toThrow();
 
-    mfa.limiter.reset(adminId);
-    expect(() => mfa.limiter.assertNotLocked(adminId)).not.toThrow();
+    await mfa.limiter.reset(adminId);
+    await expect(mfa.limiter.assertAllowed(adminId, "ADMIN_MFA_LOCKED", "locked")).resolves.toBeUndefined();
+    mfa.onModuleDestroy();
   });
 });

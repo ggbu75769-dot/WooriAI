@@ -1,0 +1,33 @@
+{
+  "screenId": "EXP-001",
+  "intent": "User-approved grouped quick-entry redesign derived from the preparation-item interaction pattern.",
+  "source": {
+    "capturePath": "artifacts/pixel-lock/android/screenshots/EXP-001.png",
+    "captureSha256": "B5431B5F87063647DCB37FB5CF40C016483DE99BBBDA0AFC94A4FFC40A0AA3C0",
+    "captureWidth": 1080,
+    "captureHeight": 2340,
+    "contentCrop": {
+      "left": 0,
+      "top": 136,
+      "width": 1080,
+      "height": 2138
+    }
+  },
+  "reference": {
+    "path": "docs/ui-pixel-lock/reference-crops/exp_001_grouped_quick_entry_android.png",
+    "width": 230,
+    "height": 600,
+    "resizeMode": "fill"
+  },
+  "provenance": {
+    "apkSha256": "834aa1b71a8e99824f9f659a12b658562073977b50e5762b0b45ed405fdb45bd",
+    "sourceSnapshotSha256": "B9D9936B478A66A10575E0643A1679982BDF760F3F950DA24726BF226FB88A01",
+    "device": "sdk_gphone64_x86_64",
+    "androidVersion": "15"
+  },
+  "rules": [
+    "This image is test reference evidence only and is never rendered by the application.",
+    "The prior 1_png_quick_expense.png reference remains unchanged for historical traceability.",
+    "All other Pixel Lock screen references remain unchanged."
+  ]
+}

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
-import { HttpException, HttpStatus, Injectable } from "@nestjs/common";
+import { HttpException, HttpStatus, Injectable, type OnModuleDestroy } from "@nestjs/common";
 import { generate, generateSecret, generateURI, verify } from "otplib";
+import { DistributedAttemptLimiter } from "../common/security/distributed-attempt-limiter";
 
 const RECOVERY_CODE_COUNT = 10;
 const RECOVERY_CODE_BYTES = 5; // 10 hex chars, formatted as XXXXX-XXXXX
@@ -27,57 +28,13 @@ function canonicalizeRecoveryCode(value: string): string {
   return value.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
 }
 
-/**
- * SEC-101 §10 brute-force lockout: 5 failed TOTP/recovery-code attempts locks
- * the account for 15 minutes. In-memory and per-process, mirroring the existing
- * password-login `LoginAttemptLimiter` in admin-auth.service.ts (same documented
- * trade-off: fine for the current single-instance deployment, not durable across
- * restarts or shared across instances).
- */
-class MfaAttemptLimiter {
-  private readonly attempts = new Map<string, { count: number; windowStart: number }>();
-
-  assertNotLocked(adminId: string) {
-    const entry = this.attempts.get(adminId);
-    if (!entry) {
-      return;
-    }
-    if (Date.now() - entry.windowStart > MFA_LOCKOUT_WINDOW_MS) {
-      this.attempts.delete(adminId);
-      return;
-    }
-    if (entry.count >= MFA_MAX_ATTEMPTS) {
-      throw new HttpException(
-        { code: "ADMIN_MFA_LOCKED", message: "인증 시도가 너무 많아요. 15분 후 다시 시도해주세요." },
-        HttpStatus.TOO_MANY_REQUESTS
-      );
-    }
-  }
-
-  recordFailure(adminId: string) {
-    const now = Date.now();
-    const entry = this.attempts.get(adminId);
-    if (!entry || now - entry.windowStart > MFA_LOCKOUT_WINDOW_MS) {
-      this.attempts.set(adminId, { count: 1, windowStart: now });
-      return;
-    }
-    entry.count += 1;
-  }
-
-  reset(adminId: string) {
-    this.attempts.delete(adminId);
-  }
-
-  /** True once this failure would/did push the admin over the lockout threshold. */
-  isNowLocked(adminId: string): boolean {
-    const entry = this.attempts.get(adminId);
-    return !!entry && entry.count >= MFA_MAX_ATTEMPTS && Date.now() - entry.windowStart <= MFA_LOCKOUT_WINDOW_MS;
-  }
-}
-
 @Injectable()
-export class AdminMfaService {
-  readonly limiter = new MfaAttemptLimiter();
+export class AdminMfaService implements OnModuleDestroy {
+  readonly limiter = new DistributedAttemptLimiter("admin-mfa", MFA_MAX_ATTEMPTS, MFA_LOCKOUT_WINDOW_MS);
+
+  onModuleDestroy() {
+    this.limiter.close();
+  }
 
   generateSecret(): string {
     return generateSecret();

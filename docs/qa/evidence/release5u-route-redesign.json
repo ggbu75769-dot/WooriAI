@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "status": "AUTOMATED_PASS",
+  "actor": "Mobile UX Engineer",
+  "input": "current Expo Router source",
+  "mission": "preserve deep links while clarifying core tasks",
+  "productionRoutes": {
+    "routes": 51,
+    "designSystemRoutes": 51,
+    "directDesignSystemRoutes": 7,
+    "legacyUiRoutes": 37,
+    "fullyDirectMigratedRoutes": 0,
+    "screenScaffoldRoutes": 51,
+    "designSystemPercentage": 100,
+    "routesWithLoading": 21,
+    "routesWithEmpty": 23,
+    "routesWithError": 29,
+    "routesWithOffline": 7,
+    "rawColorLiterals": 0,
+    "unicodeIconLiterals": 0,
+    "hardcodedSpacingLiterals": 257,
+    "possibleSub48Targets": 37
+  },
+  "tabs": [
+    "홈",
+    "기록",
+    "준비템",
+    "리포트"
+  ],
+  "tabDecision": "repository AGENTS.md Pixel Lock invariant overrides proposed five-tab structure",
+  "destinationsOutsideTabs": [
+    "가족",
+    "알림",
+    "설정/개인정보"
+  ],
+  "fullRedesign": [
+    "login",
+    "legal",
+    "onboarding choice",
+    "pregnant",
+    "born",
+    "direct stage",
+    "prepared items",
+    "review",
+    "Today",
+    "preparation",
+    "expenses",
+    "Report",
+    "notifications",
+    "family",
+    "settings/privacy"
+  ],
+  "typedDeepLinks": true
+}

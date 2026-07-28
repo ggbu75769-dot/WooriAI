@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   HttpException,
   HttpStatus,
+  Logger,
   UnauthorizedException,
   type ExceptionFilter
 } from "@nestjs/common";
@@ -71,6 +72,8 @@ function responseBodyFrom(exception: HttpException): ErrorResponseBody {
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(GlobalExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost) {
     const context = host.switchToHttp();
     const request = context.getRequest<HttpRequest>();
@@ -80,6 +83,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
+    if (!(exception instanceof HttpException)) {
+      this.logger.error(
+        exception instanceof Error ? exception.stack ?? exception.message : String(exception)
+      );
+    }
     const exceptionBody = exception instanceof HttpException ? responseBodyFrom(exception) : {};
     const message = Array.isArray(exceptionBody.message)
       ? "요청 값을 다시 확인해주세요."

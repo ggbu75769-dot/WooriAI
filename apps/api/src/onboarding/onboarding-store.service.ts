@@ -1,16 +1,23 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { BadRequestException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import type { ContentStatus, Prisma } from "@prisma/client";
+import { onboardingCompletionResponseSchema, onboardingStarterPreviewResponseSchema } from "@wooriai/contracts";
 import {
   assertMoneyKrw,
   calculateChildStage,
+  calculatePreparationLifecycle,
   getSeoulMonthRange,
   getSeoulToday,
   isFutureSeoulDate,
   isValidCalendarDate,
+  normalizeOnboardingCompletionInput,
+  onboardingStarterAvailability,
+  OnboardingContractError,
+  rankOnboardingStarterItems,
   sortRecommendedItems,
   type ChildStageCode,
   type ChildStageMode,
+  type ChildSex,
   type ExpenseSource,
   type ExpenseType,
   type ImportStatus,
@@ -22,18 +29,13 @@ import {
 } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
+import { findCurrentLegalDocuments, legalDocumentLocale, requiredLegalDocumentTypes } from "../legal/legal-document-policy";
 import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
 import { parseImportFile, type ParsedImportRow } from "../imports/import-parser";
 import { hashClickIp, isAllowedAffiliateUrl, PRODUCT_LINK_NOT_FOUND_ERROR } from "../items-commerce/affiliate-link-guard.util";
+import type { CompleteOnboardingDto, StarterItemsPreviewDto } from "./dto/complete-onboarding.dto";
 
 type DbClient = Prisma.TransactionClient;
-
-type ConsentDefinition = {
-  type: string;
-  version: string;
-  required: boolean;
-  title: string;
-};
 
 type ChildRow = {
   id: string;
@@ -43,7 +45,12 @@ type ChildRow = {
   dueDate: Date | null;
   birthDate: Date | null;
   manualStage: ChildStageCode | null;
+  stageOverride: boolean;
+  gender: ChildSex | null;
+  profileImageUrl: string | null;
   preparedItemsSetAt: Date | null;
+  preparedStepState: "not_started" | "selected" | "skipped" | "completed_none";
+  onboardingCompletedAt: Date | null;
   deletedAt: Date | null;
 };
 
@@ -57,11 +64,15 @@ type ExpenseRow = {
   itemName: string;
   merchant: string | null;
   paymentMethod: PaymentMethod;
+  paymentMethodId: string | null;
   memo: string | null;
   linkedItemTemplateId: string | null;
+  linkedItemDefinitionId: string | null;
+  expenseCategoryV2Id: string | null;
   expenseType: ExpenseType;
   source: ExpenseSource;
   createdByUserId: string;
+  payerUserId: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -76,11 +87,17 @@ type ItemTemplateRow = {
   priceMinKrw: number | null;
   priceMaxKrw: number | null;
   reasonText: string;
+  shortReason: string;
   skipReasonText: string | null;
   usedSecondhandOk: boolean;
   safetyNote: string | null;
+  medicalDisclaimerRequired: boolean;
   displayOrder: number;
   active: boolean;
+  reviewedAt: Date | null;
+  nextReviewAt: Date | null;
+  sourceNote: string | null;
+  contentStatus: ContentStatus;
 };
 
 type ItemTemplateWithStages = ItemTemplateRow & { stageCodes: ChildStageCode[] };
@@ -121,13 +138,16 @@ type CreateChildInput = {
   dueDate?: string;
   birthDate?: string;
   manualStage?: ChildStageCode;
+  gender?: ChildSex;
 };
 
 type UpdateChildInput = {
   nickname?: string;
+  stageMode?: ChildStageMode;
   dueDate?: string;
   birthDate?: string;
   manualStage?: ChildStageCode;
+  gender?: ChildSex;
 };
 
 export type CreateExpenseInput = {
@@ -137,9 +157,13 @@ export type CreateExpenseInput = {
   itemName: string;
   merchant?: string;
   paymentMethod?: PaymentMethod;
+  paymentMethodId?: string;
   memo?: string;
   linkedItemTemplateId?: string;
+  linkedItemDefinitionId?: string;
+  expenseCategoryV2Id?: string;
   expenseType?: ExpenseType;
+  payerUserId?: string;
   source?: ExpenseSource;
 };
 
@@ -150,6 +174,9 @@ export type UpdateExpenseInput = {
   itemName?: string;
   memo?: string | null;
   expenseType?: ExpenseType;
+  paymentMethod?: PaymentMethod;
+  paymentMethodId?: string | null;
+  payerUserId?: string;
 };
 
 export type CreateImportJobInput = {
@@ -178,11 +205,14 @@ export type AdminItemTemplateInput = {
   priceMinKrw?: number | null;
   priceMaxKrw?: number | null;
   reasonText?: string;
+  shortReason?: string;
   skipReasonText?: string | null;
   usedSecondhandOk?: boolean;
   safetyNote?: string | null;
+  medicalDisclaimerRequired?: boolean;
   stageCodes?: ChildStageCode[];
   active?: boolean;
+  contentStatus?: ContentStatus;
 };
 
 export type AdminProductLinkInput = {
@@ -202,12 +232,6 @@ export type ItemTab = "now" | "soon" | "prepared" | "not_needed";
 const defaultImportCategoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const importMaxFileSizeBytes = 10 * 1024 * 1024;
 const importMaxRows = 2000;
-
-const consentDefinitions: ConsentDefinition[] = [
-  { type: "terms", version: "2026-07-06", required: true, title: "서비스 이용약관" },
-  { type: "privacy", version: "2026-07-06", required: true, title: "개인정보 처리 동의" },
-  { type: "marketing", version: "2026-07-06", required: false, title: "소식 알림 동의" }
-];
 
 function memberRoleFor(user: AuthenticatedUser, householdId: string): MemberRole | null {
   return user.households.find((household) => household.id === householdId)?.role ?? null;
@@ -255,6 +279,47 @@ function normalizeChildInput(input: {
   }
 }
 
+function normalizeCompleteOnboardingInput(input: CompleteOnboardingDto) {
+  try {
+    return normalizeOnboardingCompletionInput({ ...input, budget: input.budget ?? null }, getSeoulToday());
+  } catch (error) {
+    if (!(error instanceof OnboardingContractError)) throw error;
+    const messages: Record<string, string> = {
+      ONBOARDING_PATH_INVALID: "시작 상태를 다시 선택해 주세요.",
+      CHILD_NAME_INVALID: "이름은 60자 이내로 입력해 주세요.",
+      CHILD_SEX_INVALID: "아이 정보를 다시 선택해 주세요.",
+      MANUAL_STAGE_INVALID: "성장 단계를 다시 선택해 주세요.",
+      BUDGET_INVALID: "예산 월과 금액을 다시 확인해 주세요.",
+      ONBOARDING_DRAFT_CONFLICT: "온보딩 정보가 변경되었어요. 다시 확인해 주세요.",
+      CHILD_NAME_REQUIRED: "태명 또는 아이 이름을 입력해 주세요.",
+      BIRTH_DATE_INVALID: "생일은 오늘 또는 이전의 실제 날짜여야 해요.",
+      DUE_DATE_INVALID: "실제 출산 예정일을 선택해 주세요.",
+      ONBOARDING_PATH_FIELDS_INCOMPATIBLE: "선택한 경로와 날짜를 다시 확인해 주세요.",
+      MANUAL_STAGE_REQUIRED: "직접 선택한 단계와 변경 사유를 확인해 주세요.",
+      PREPARED_STATE_INVALID: "선택 항목과 완료 방식을 다시 확인해 주세요."
+    };
+    throw new BadRequestException({ code: error.code, message: messages[error.code] });
+  }
+}
+
+function preparationLifecycleForDraft(input: StarterItemsPreviewDto | CompleteOnboardingDto["child"]) {
+  const lifecycle = calculatePreparationLifecycle({
+    stageMode: input.stageMode,
+    dueDate: input.dueDate ?? null,
+    birthDate: input.birthDate ?? null,
+    manualStage: input.manualStage ?? null,
+    today: getSeoulToday()
+  });
+  if (!lifecycle.available) {
+    throw new BadRequestException({ code: lifecycle.reason, message: "생애주기 정보를 다시 확인해 주세요." });
+  }
+  return lifecycle;
+}
+
+function isSerializableTransactionConflict(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2034");
+}
+
 /**
  * Postgres-backed onboarding/finance/commerce store, replacing the earlier
  * in-memory Maps. Class name and every public method signature/response shape are
@@ -265,57 +330,157 @@ export class OnboardingStoreService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async listConsents(user: AuthenticatedUser) {
-    const saved = await this.prisma.consent.findMany({ where: { userId: user.id } });
+    const documents = await findCurrentLegalDocuments(this.prisma, legalDocumentLocale());
+    const [saved, events] = await Promise.all([
+      this.prisma.consent.findMany({ where: { userId: user.id } }),
+      this.prisma.consentEvent.findMany({
+        where: { userId: user.id, legalDocumentId: { in: documents.map((document) => document.id) } },
+        orderBy: { occurredAt: "desc" }
+      })
+    ]);
+    const latestEventByDocument = new Map<string, (typeof events)[number]>();
+    for (const event of events) {
+      if (!latestEventByDocument.has(event.legalDocumentId)) latestEventByDocument.set(event.legalDocumentId, event);
+    }
+    const availableTypes = new Set(documents.map((document) => document.documentType));
     return {
-      consents: consentDefinitions.map((definition) => {
+      available: requiredLegalDocumentTypes.every((type) => availableTypes.has(type)),
+      consents: documents.map((document) => {
         const record = saved.find(
-          (consent) => consent.consentType === definition.type && consent.version === definition.version
+          (consent) => consent.consentType === document.documentType && consent.version === document.version
+        );
+        const latestEvent = latestEventByDocument.get(document.id);
+        const accepted = Boolean(
+          record?.accepted &&
+          latestEvent &&
+          latestEvent.action !== "revoked" &&
+          latestEvent.contentHash === document.contentHash
         );
         return {
-          ...definition,
-          accepted: record?.accepted ?? false,
-          acceptedAt: record?.acceptedAt?.toISOString() ?? null
+          type: document.documentType,
+          version: document.version,
+          contentHash: document.contentHash,
+          required: document.required,
+          title: document.title,
+          accepted,
+          acceptedAt: record?.acceptedAt?.toISOString() ?? null,
+          requiresReconfirmation: document.required && !accepted
         };
       })
     };
   }
 
-  async upsertConsents(user: AuthenticatedUser, consents: Array<{ type: string; version: string; accepted: boolean }>) {
-    const current = (await this.listConsents(user)).consents;
+  async upsertConsents(
+    user: AuthenticatedUser,
+    consents: Array<{ type: string; version: string; contentHash?: string; accepted: boolean }>,
+    context: {
+      source?: "mobile" | "web" | "admin";
+      appVersion?: string;
+      ipHash?: string;
+      userAgentHash?: string;
+    } = {}
+  ) {
     const now = new Date();
-    for (const definition of current) {
-      const incoming = consents.find(
-        (consent) => consent.type === definition.type && consent.version === definition.version
-      );
-      if (!incoming) continue;
-      await this.prisma.consent.upsert({
-        where: {
-          userId_consentType_version: {
-            userId: user.id,
-            consentType: definition.type,
-            version: definition.version
-          }
-        },
-        update: {
-          accepted: incoming.accepted,
-          acceptedAt: incoming.accepted ? now : null,
-          revokedAt: incoming.accepted ? null : now
-        },
-        create: {
-          userId: user.id,
-          consentType: definition.type,
-          version: definition.version,
-          accepted: incoming.accepted,
-          acceptedAt: incoming.accepted ? now : null
+    await this.prisma.$transaction(async (tx) => {
+      const currentDocuments = await findCurrentLegalDocuments(tx, legalDocumentLocale(), now);
+      for (const incoming of consents) {
+        const legalDocument = currentDocuments.find(
+          (candidate) => candidate.documentType === incoming.type && candidate.version === incoming.version
+        );
+        if (!legalDocument || (incoming.contentHash && incoming.contentHash !== legalDocument.contentHash)) {
+          throw new BadRequestException({
+            code: "CONSENT_DOCUMENT_VERSION_INVALID",
+            message: "현재 제공 중인 동의 문서 버전이 아니에요."
+          });
         }
-      });
-    }
+
+        const existing = await tx.consent.findUnique({
+          where: {
+            userId_consentType_version: {
+              userId: user.id,
+              consentType: legalDocument.documentType,
+              version: legalDocument.version
+            }
+          }
+        });
+        await tx.consentEvent.create({
+          data: {
+            userId: user.id,
+            legalDocumentId: legalDocument.id,
+            action:
+              existing?.accepted === incoming.accepted
+                ? "acknowledged"
+                : incoming.accepted
+                  ? "accepted"
+                  : "revoked",
+            contentHash: legalDocument.contentHash,
+            source: context.source ?? "mobile",
+            appVersion: context.appVersion,
+            ipHash: context.ipHash,
+            userAgentHash: context.userAgentHash,
+            occurredAt: now
+          }
+        });
+        await tx.consent.upsert({
+          where: {
+            userId_consentType_version: {
+              userId: user.id,
+              consentType: legalDocument.documentType,
+              version: legalDocument.version
+            }
+          },
+          update: {
+            accepted: incoming.accepted,
+            acceptedAt: incoming.accepted ? existing?.acceptedAt ?? now : null,
+            revokedAt: incoming.accepted ? null : now,
+            ipHash: context.ipHash,
+            userAgent: context.userAgentHash
+          },
+          create: {
+            userId: user.id,
+            consentType: legalDocument.documentType,
+            version: legalDocument.version,
+            accepted: incoming.accepted,
+            acceptedAt: incoming.accepted ? now : null,
+            revokedAt: incoming.accepted ? null : now,
+            ipHash: context.ipHash,
+            userAgent: context.userAgentHash
+          }
+        });
+      }
+    });
     return { success: true };
   }
 
+  async consentHistory(user: AuthenticatedUser) {
+    const events = await this.prisma.consentEvent.findMany({
+      where: { userId: user.id },
+      orderBy: { occurredAt: "desc" }
+    });
+    const documents = await this.prisma.legalDocument.findMany({
+      where: { id: { in: events.map((event) => event.legalDocumentId) } }
+    });
+    const byId = new Map(documents.map((document) => [document.id, document]));
+    return {
+      events: events.map((event) => {
+        const document = byId.get(event.legalDocumentId);
+        return {
+          id: event.id,
+          documentType: document?.documentType ?? "unknown",
+          version: document?.version ?? "unknown",
+          action: event.action,
+          contentHash: event.contentHash,
+          source: event.source,
+          appVersion: event.appVersion,
+          occurredAt: event.occurredAt.toISOString()
+        };
+      })
+    };
+  }
+
   async hasRequiredConsents(user: AuthenticatedUser) {
-    const { consents } = await this.listConsents(user);
-    return consents.filter((consent) => consent.required).every((consent) => consent.accepted);
+    const { available, consents } = await this.listConsents(user);
+    return available && consents.filter((consent) => consent.required).every((consent) => consent.accepted);
   }
 
   async assertRequiredConsents(user: AuthenticatedUser) {
@@ -358,6 +523,25 @@ export class OnboardingStoreService {
 
     const selectedChild = children[0];
     const childSummary = this.toChildDto(selectedChild);
+    if (selectedChild.onboardingCompletedAt) {
+      const [preparedItemsCount, budget] = await Promise.all([
+        selectedChild.preparedStepState === "selected"
+          ? this.prisma.userItemPlan.count({ where: { childId: selectedChild.id, state: "owned" } })
+          : Promise.resolve(0),
+        this.prisma.budget.findFirst({ where: { childId: selectedChild.id } })
+      ]);
+      return {
+        completed: true,
+        nextStep: "home",
+        canRestart: false,
+        summary: {
+          consentsAccepted: true,
+          child: childSummary,
+          preparedItemsCount,
+          budget: budget ? { yearMonth: fromDateOnly(budget.yearMonth), amountKrw: budget.amountKrw } : null
+        }
+      };
+    }
     if (!selectedChild.preparedItemsSetAt) {
       return this.onboardingStatusResult("prepared-items", false, {
         consentsAccepted: true,
@@ -391,6 +575,213 @@ export class OnboardingStoreService {
     };
   }
 
+  async starterItemsPreview(user: AuthenticatedUser, input: StarterItemsPreviewDto) {
+    if (user.households.length === 0) {
+      throw new ForbiddenException({ code: "HOUSEHOLD_REQUIRED", message: "가족 계정을 먼저 확인해 주세요." });
+    }
+    const lifecycle = preparationLifecycleForDraft(input);
+    const items = await this.qualifiedStarterItems(lifecycle);
+    const availability = onboardingStarterAvailability(items.length);
+    return onboardingStarterPreviewResponseSchema.parse({
+      ...availability,
+      eligibleCount: items.length,
+      items: items.slice(0, 12).map(({ legacyItemTemplateId: _legacyItemTemplateId, ...item }) => item),
+      rankingPolicy: "lifecycle_then_onboarding_priority_then_necessity_then_canonical_code"
+    });
+  }
+
+  async completeOnboarding(user: AuthenticatedUser, input: CompleteOnboardingDto) {
+    await this.assertRequiredConsents(user);
+    const role = memberRoleFor(user, input.householdId);
+    if (!canEdit(role)) {
+      throw new ForbiddenException({ code: "FORBIDDEN", message: "온보딩을 완료할 권한이 없어요." });
+    }
+    const normalizedInput = normalizeCompleteOnboardingInput(input);
+    const childInput = normalizedInput.child;
+    const lifecycle = preparationLifecycleForDraft(childInput);
+    const selectedIds = normalizedInput.prepared.itemDefinitionIds;
+
+    const runCompletion = () => this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`onboarding-complete:${input.householdId}`})::bigint)`;
+      const existingChild = await tx.child.findFirst({ where: { householdId: input.householdId, deletedAt: null } });
+      if (existingChild) {
+        throw new ConflictException({ code: "ONBOARDING_ALREADY_COMPLETED", message: "이미 등록된 아이 정보가 있어요." });
+      }
+
+      const qualifiedItems = selectedIds.length > 0 ? await this.qualifiedStarterItems(lifecycle, tx, selectedIds) : [];
+      if (qualifiedItems.length !== selectedIds.length) {
+        const validIds = new Set(qualifiedItems.map((item) => item.id));
+        throw new ConflictException({
+          code: "STARTER_ITEMS_STALE",
+          message: "준비물 목록이 변경되었어요. 다시 확인해 주세요.",
+          invalidItemDefinitionIds: selectedIds.filter((id) => !validIds.has(id))
+        });
+      }
+
+      const child = await tx.child.create({
+        data: {
+          householdId: input.householdId,
+          nickname: childInput.nickname,
+          stageMode: childInput.stageMode,
+          dueDate: childInput.dueDate ? toDateOnly(childInput.dueDate) : null,
+          birthDate: childInput.birthDate ? toDateOnly(childInput.birthDate) : null,
+          manualStage: childInput.manualStage ?? null,
+          stageOverride: childInput.stageOverride,
+          gender: childInput.gender as ChildSex,
+          preparedItemsSetAt: new Date(),
+          preparedStepState: normalizedInput.prepared.state,
+          onboardingCompletedAt: new Date()
+        }
+      });
+
+      if (childInput.stageMode === "pregnant" || childInput.manualStage?.startsWith("pregnancy_")) {
+        await tx.motherProfile.create({
+          data: { householdId: input.householdId, userId: user.id, childId: child.id, dueDate: child.dueDate, active: true }
+        });
+      }
+
+      for (const item of qualifiedItems) {
+        const existingPlan = await tx.userItemPlan.findFirst({
+          where: { householdId: input.householdId, childId: child.id, itemDefinitionId: item.id }
+        });
+        if (!existingPlan) {
+          await tx.userItemPlan.create({
+            data: { householdId: input.householdId, childId: child.id, itemDefinitionId: item.id, state: "owned", ownedQuantity: 1 }
+          });
+        }
+        if (item.legacyItemTemplateId) {
+          await tx.childItemStatus.upsert({
+            where: { childId_itemTemplateId: { childId: child.id, itemTemplateId: item.legacyItemTemplateId } },
+            update: {},
+            create: { childId: child.id, itemTemplateId: item.legacyItemTemplateId, status: "prepared", updatedByUserId: user.id }
+          });
+        }
+      }
+
+      const budget = normalizedInput.budget
+        ? await tx.budget.upsert({
+            where: { childId_yearMonth: { childId: child.id, yearMonth: toDateOnly(getSeoulMonthRange(normalizedInput.budget.yearMonth).yearMonth) } },
+            update: {},
+            create: {
+              childId: child.id,
+              yearMonth: toDateOnly(getSeoulMonthRange(normalizedInput.budget.yearMonth).yearMonth),
+              amountKrw: this.requireMoneyKrw(normalizedInput.budget.amountKrw),
+              createdByUserId: user.id
+            }
+          })
+        : null;
+
+      await tx.household.updateMany({
+        where: { id: input.householdId, defaultChildId: null },
+        data: { defaultChildId: child.id }
+      });
+      await tx.auditLog.create({
+        data: {
+          actorUserId: user.id,
+          householdId: input.householdId,
+          action: "onboarding.complete",
+          targetType: "child",
+          targetId: child.id,
+          afterJson: {
+            draftVersion: normalizedInput.draftVersion,
+            preparedState: normalizedInput.prepared.state,
+            preparedCount: qualifiedItems.length,
+            budgetConfigured: Boolean(budget)
+          }
+        }
+      });
+
+      return onboardingCompletionResponseSchema.parse({
+        child: this.toChildDto(child),
+        prepared: { state: normalizedInput.prepared.state, appliedCount: qualifiedItems.length },
+        budget: budget ? { yearMonth: fromDateOnly(budget.yearMonth).slice(0, 7), amountKrw: budget.amountKrw } : null,
+        onboardingCompleted: true
+      });
+    }, { isolationLevel: "Serializable" });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await runCompletion();
+      } catch (error) {
+        if (!isSerializableTransactionConflict(error) || attempt === 2) throw error;
+      }
+    }
+    throw new Error("ONBOARDING_TRANSACTION_RETRY_EXHAUSTED");
+  }
+
+  private async qualifiedStarterItems(
+    lifecycle: { axis: "mother" | "child"; code: string },
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+    restrictToIds?: string[]
+  ) {
+    const rules = await client.itemLifecycleRule.findMany({
+      where: { axis: lifecycle.axis, lifecycleCode: lifecycle.code, ...(restrictToIds ? { itemDefinitionId: { in: restrictToIds } } : {}) }
+    });
+    const itemIds = [...new Set(rules.map((rule) => rule.itemDefinitionId))];
+    if (itemIds.length === 0) return [];
+    const [items, approvals, blockingRules, categoryLinks] = await Promise.all([
+      client.itemDefinition.findMany({
+        where: { id: { in: itemIds }, status: "published", onboardingEligible: true }
+      }),
+      client.catalogItemApproval.findMany({
+        where: { itemDefinitionId: { in: itemIds }, approvalType: "safety" }
+      }),
+      client.itemSafetyRule.findMany({
+        where: { itemDefinitionId: { in: itemIds }, blocksRecommendation: true }
+      }),
+      client.itemDefinitionCategory.findMany({
+        where: { itemDefinitionId: { in: itemIds }, isPrimary: true }
+      })
+    ]);
+    const nodeIds = [...new Set(categoryLinks.map((link) => link.catalogNodeId))];
+    const nodes = nodeIds.length > 0
+      ? await client.catalogNode.findMany({ where: { id: { in: nodeIds }, active: true } })
+      : [];
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const iconByItem = new Map(categoryLinks.map((link) => [
+      link.itemDefinitionId,
+      nodeById.get(link.catalogNodeId)?.iconKey ?? "package-variant-closed"
+    ]));
+    const categoryCodeByItem = new Map(categoryLinks.map((link) => [
+      link.itemDefinitionId,
+      nodeById.get(link.catalogNodeId)?.code ?? null
+    ]));
+    const priorityByItem = new Map(rules.map((rule) => [rule.itemDefinitionId, rule.priorityWeight]));
+    const now = new Date();
+    const qualifiedItems = items
+      .filter((item) => {
+        if (blockingRules.some((rule) => rule.itemDefinitionId === item.id && (!rule.expiresAt || rule.expiresAt > now))) return false;
+        if (item.safetyTier !== "high") return true;
+        return approvals.some((approval) =>
+          approval.itemDefinitionId === item.id &&
+          approval.revision === item.contentVersion &&
+          approval.contentHash === item.contentHash &&
+          (!approval.expiresAt || approval.expiresAt > now)
+        );
+      });
+
+    return rankOnboardingStarterItems(qualifiedItems.map((item) => ({
+      item,
+      id: item.id,
+      code: item.code,
+      lifecycleRelevance: priorityByItem.get(item.id) ?? 0,
+      onboardingPriority: item.onboardingPriority ?? 0,
+      necessity: item.necessity
+    })))
+      .map(({ item }) => item)
+      .map((item) => ({
+        id: item.id,
+        code: item.code,
+        categoryCode: categoryCodeByItem.get(item.id) ?? null,
+        nameKo: item.nameKo,
+        shortDescription: item.shortDescription,
+        iconKey: iconByItem.get(item.id) ?? "package-variant-closed",
+        safetyTier: item.safetyTier,
+        onboardingPriority: item.onboardingPriority,
+        legacyItemTemplateId: item.legacyItemTemplateId
+      }));
+  }
+
   private onboardingStatusResult(
     nextStep: "consents" | "child-profile" | "prepared-items" | "budget",
     canRestart: boolean,
@@ -412,15 +803,24 @@ export class OnboardingStoreService {
     }
 
     normalizeChildInput(input);
-    const created = await this.prisma.child.create({
-      data: {
-        householdId: input.householdId,
-        nickname: input.nickname,
-        stageMode: input.stageMode,
-        dueDate: input.dueDate ? toDateOnly(input.dueDate) : null,
-        birthDate: input.birthDate ? toDateOnly(input.birthDate) : null,
-        manualStage: input.manualStage ?? null
+    const created = await this.prisma.$transaction(async (tx) => {
+      const child = await tx.child.create({
+        data: {
+          householdId: input.householdId,
+          nickname: input.nickname,
+          stageMode: input.stageMode,
+          dueDate: input.dueDate ? toDateOnly(input.dueDate) : null,
+          birthDate: input.birthDate ? toDateOnly(input.birthDate) : null,
+          manualStage: input.manualStage ?? null,
+          gender: input.gender ?? null
+        }
+      });
+      if (input.stageMode === "pregnant") {
+        await tx.motherProfile.create({
+          data: { householdId: input.householdId, childId: child.id, dueDate: child.dueDate, active: true }
+        });
       }
+      return child;
     });
     return this.toChildDto(created);
   }
@@ -441,22 +841,131 @@ export class OnboardingStoreService {
     ) as UpdateChildInput;
 
     normalizeChildInput({
-      stageMode: child.stageMode,
+      stageMode: definedInput.stageMode ?? child.stageMode,
       dueDate: definedInput.dueDate ?? (child.dueDate ? fromDateOnly(child.dueDate) : undefined),
       birthDate: definedInput.birthDate ?? (child.birthDate ? fromDateOnly(child.birthDate) : undefined),
       manualStage: definedInput.manualStage ?? child.manualStage ?? undefined
     });
 
-    const updated = await this.prisma.child.update({
-      where: { id: childId },
-      data: {
-        ...(definedInput.nickname !== undefined ? { nickname: definedInput.nickname } : {}),
-        ...(definedInput.dueDate !== undefined ? { dueDate: toDateOnly(definedInput.dueDate) } : {}),
-        ...(definedInput.birthDate !== undefined ? { birthDate: toDateOnly(definedInput.birthDate) } : {}),
-        ...(definedInput.manualStage !== undefined ? { manualStage: definedInput.manualStage } : {})
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const nextChild = await tx.child.update({
+        where: { id: childId },
+        data: {
+          ...(definedInput.nickname !== undefined ? { nickname: definedInput.nickname } : {}),
+          ...(definedInput.stageMode !== undefined ? { stageMode: definedInput.stageMode } : {}),
+          ...(definedInput.dueDate !== undefined ? { dueDate: toDateOnly(definedInput.dueDate) } : {}),
+          ...(definedInput.birthDate !== undefined ? { birthDate: toDateOnly(definedInput.birthDate) } : {}),
+          ...(definedInput.manualStage !== undefined ? { manualStage: definedInput.manualStage } : {}),
+          ...(definedInput.gender !== undefined ? { gender: definedInput.gender } : {})
+        }
+      });
+      const motherProfile = await tx.motherProfile.findFirst({ where: { childId } });
+      if (motherProfile) {
+        await tx.motherProfile.update({
+          where: { id: motherProfile.id },
+          data: { dueDate: nextChild.dueDate, active: nextChild.stageMode === "pregnant" }
+        });
+      } else if (nextChild.stageMode === "pregnant") {
+        await tx.motherProfile.create({ data: { householdId: nextChild.householdId, childId, dueDate: nextChild.dueDate, active: true } });
       }
+      return nextChild;
     });
     return this.toChildDto(updated);
+  }
+
+  async listUserPaymentMethods(user: AuthenticatedUser) {
+    const paymentMethods = await this.prisma.userPaymentMethod.findMany({
+      where: { userId: user.id },
+      orderBy: [{ active: "desc" }, { isDefault: "desc" }, { displayOrder: "asc" }, { createdAt: "asc" }]
+    });
+    return { paymentMethods: paymentMethods.map((method) => this.toUserPaymentMethodDto(method)) };
+  }
+
+  async createUserPaymentMethod(
+    user: AuthenticatedUser,
+    input: { type: PaymentMethod; label: string; isDefault?: boolean }
+  ) {
+    const label = this.normalizePaymentMethodLabel(input.label);
+    await this.assertPaymentMethodLabelAvailable(user.id, label);
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (input.isDefault) {
+        await this.lockUserPaymentMethodDefaults(tx, user.id);
+        await tx.userPaymentMethod.updateMany({
+          where: { userId: user.id, isDefault: true },
+          data: { isDefault: false }
+        });
+      }
+      const maxOrder = await tx.userPaymentMethod.aggregate({
+        where: { userId: user.id },
+        _max: { displayOrder: true }
+      });
+      return tx.userPaymentMethod.create({
+        data: {
+          userId: user.id,
+          type: input.type,
+          label,
+          isDefault: input.isDefault ?? false,
+          displayOrder: (maxOrder._max.displayOrder ?? -1) + 1
+        }
+      });
+    });
+    return this.toUserPaymentMethodDto(created);
+  }
+
+  async updateUserPaymentMethod(
+    user: AuthenticatedUser,
+    paymentMethodId: string,
+    input: { type?: PaymentMethod; label?: string; displayOrder?: number; isDefault?: boolean }
+  ) {
+    const existing = await this.requireUserPaymentMethod(user.id, paymentMethodId);
+    const label = input.label === undefined ? existing.label : this.normalizePaymentMethodLabel(input.label);
+    if (label !== existing.label) await this.assertPaymentMethodLabelAvailable(user.id, label, paymentMethodId);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (input.isDefault) {
+        await this.lockUserPaymentMethodDefaults(tx, user.id);
+        await tx.userPaymentMethod.updateMany({
+          where: { userId: user.id, isDefault: true, id: { not: paymentMethodId } },
+          data: { isDefault: false }
+        });
+      }
+      return tx.userPaymentMethod.update({
+        where: { id: paymentMethodId },
+        data: {
+          type: input.type,
+          label,
+          displayOrder: input.displayOrder,
+          isDefault: input.isDefault
+        }
+      });
+    });
+    return this.toUserPaymentMethodDto(updated);
+  }
+
+  async deactivateUserPaymentMethod(user: AuthenticatedUser, paymentMethodId: string) {
+    await this.requireUserPaymentMethod(user.id, paymentMethodId);
+    const updated = await this.prisma.userPaymentMethod.update({
+      where: { id: paymentMethodId },
+      data: { active: false, isDefault: false }
+    });
+    return this.toUserPaymentMethodDto(updated);
+  }
+
+  async setDefaultUserPaymentMethod(user: AuthenticatedUser, paymentMethodId: string) {
+    const existing = await this.requireUserPaymentMethod(user.id, paymentMethodId, true);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.lockUserPaymentMethodDefaults(tx, user.id);
+      await tx.userPaymentMethod.updateMany({
+        where: { userId: user.id, isDefault: true },
+        data: { isDefault: false }
+      });
+      return tx.userPaymentMethod.update({ where: { id: existing.id }, data: { isDefault: true } });
+    });
+    return this.toUserPaymentMethodDto(updated);
+  }
+
+  private async lockUserPaymentMethodDefaults(tx: DbClient, userId: string) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`payment-method-default:${userId}`})::bigint)`;
   }
 
   /**
@@ -520,6 +1029,16 @@ export class OnboardingStoreService {
     return this.toExpenseDto(created);
   }
 
+  async createExpenseWithTransaction(
+    client: Prisma.TransactionClient,
+    householdId: string,
+    childId: string,
+    user: AuthenticatedUser,
+    input: CreateExpenseInput
+  ) {
+    return this.insertExpense(client, householdId, childId, user, input);
+  }
+
   async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string) {
     await this.requireChildAccess(user, childId);
     const expenses = await this.expensesForChild(childId, yearMonth);
@@ -533,12 +1052,17 @@ export class OnboardingStoreService {
     return this.toExpenseDto(await this.requireExpenseAccess(user, expenseId));
   }
 
-  async updateExpense(user: AuthenticatedUser, expenseId: string, input: UpdateExpenseInput) {
-    const expense = await this.requireExpenseAccess(user, expenseId, true);
-    const data: Prisma.ExpenseUpdateInput = {};
+  async updateExpense(
+    user: AuthenticatedUser,
+    expenseId: string,
+    input: UpdateExpenseInput,
+    client: DbClient = this.prisma
+  ) {
+    const expense = await this.requireExpenseAccess(user, expenseId, true, client);
+    const data: Prisma.ExpenseUncheckedUpdateInput = {};
 
     if (input.categoryId !== undefined) {
-      await this.requireExistingCategory(input.categoryId);
+      await this.requireExistingCategory(input.categoryId, client);
       data.categoryId = input.categoryId;
     }
     if (input.amountKrw !== undefined) data.amountKrw = this.requireMoneyKrw(input.amountKrw);
@@ -555,16 +1079,42 @@ export class OnboardingStoreService {
     }
     if (input.memo !== undefined) data.memo = this.cleanOptionalText(input.memo ?? undefined);
     if (input.expenseType !== undefined) data.expenseType = input.expenseType;
+    if (input.payerUserId !== undefined) {
+      const payer = await client.householdMember.findFirst({ where: { householdId: expense.householdId, userId: input.payerUserId, status: "active", role: { not: "gift_participant" } }, select: { userId: true } });
+      if (!payer) throw new ForbiddenException({ code: "EXPENSE_PAYER_FORBIDDEN", message: "Payer must be an active non-gift household member." });
+      data.payerUserId = payer.userId;
+    }
+    if (input.paymentMethodId !== undefined) {
+      if (input.paymentMethodId === null) {
+        data.paymentMethodId = null;
+        data.paymentMethod = input.paymentMethod ?? "unknown";
+      } else {
+        const method = await this.requireUserPaymentMethod(
+          user.id,
+          input.paymentMethodId,
+          input.paymentMethodId !== expense.paymentMethodId,
+          client
+        );
+        data.paymentMethodId = method.id;
+        data.paymentMethod = method.type;
+      }
+    } else if (input.paymentMethod !== undefined) {
+      data.paymentMethod = input.paymentMethod;
+    }
 
-    const updated = await this.prisma.expense.update({ where: { id: expense.id }, data });
+    const updated = await client.expense.update({ where: { id: expense.id }, data });
     return this.toExpenseDto(updated);
   }
 
-  async deleteExpense(user: AuthenticatedUser, expenseId: string) {
-    const expense = await this.requireExpenseAccess(user, expenseId, true);
+  async deleteExpense(
+    user: AuthenticatedUser,
+    expenseId: string,
+    client: DbClient = this.prisma
+  ) {
+    const expense = await this.requireExpenseAccess(user, expenseId, true, client);
     const before = this.toExpenseDto(expense);
     const now = new Date();
-    const deleted = await this.prisma.expense.update({
+    const deleted = await client.expense.update({
       where: { id: expense.id },
       data: { deletedAt: now, deletedByUserId: user.id }
     });
@@ -950,6 +1500,140 @@ export class OnboardingStoreService {
     return { items: items.map((item) => this.toAdminItemDetailDto(item, linksByItem.get(item.id) ?? [], disclosures)) };
   }
 
+  async listExpenseShortcuts(user: AuthenticatedUser, childId: string) {
+    await this.requireChildAccess(user, childId);
+    const now = this.referenceNow();
+    const since = new Date(now);
+    since.setUTCDate(since.getUTCDate() - 90);
+    const expenses = await this.prisma.expense.findMany({
+      where: {
+        childId,
+        deletedAt: null,
+        expenseType: "expense",
+        spentOn: { gte: toDateOnly(since.toISOString().slice(0, 10)) }
+      },
+      orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }],
+      select: { itemName: true, categoryId: true, amountKrw: true, spentOn: true }
+    });
+    const grouped = new Map<
+      string,
+      { itemName: string; categoryId: string; lastAmountKrw: number; lastSpentOn: Date; useCount: number }
+    >();
+    for (const expense of expenses) {
+      const key = `${expense.itemName.trim().toLocaleLowerCase("ko-KR")}|${expense.categoryId}`;
+      const current = grouped.get(key);
+      if (current) {
+        current.useCount += 1;
+      } else {
+        grouped.set(key, {
+          itemName: expense.itemName,
+          categoryId: expense.categoryId,
+          lastAmountKrw: expense.amountKrw,
+          lastSpentOn: expense.spentOn,
+          useCount: 1
+        });
+      }
+    }
+    const dayMs = 24 * 60 * 60 * 1000;
+    return {
+      shortcuts: [...grouped.values()]
+        .map((shortcut) => ({
+          ...shortcut,
+          score: shortcut.useCount * 100 + Math.max(0, 90 - Math.floor((now.getTime() - shortcut.lastSpentOn.getTime()) / dayMs))
+        }))
+        .sort((left, right) => right.score - left.score || right.lastSpentOn.getTime() - left.lastSpentOn.getTime())
+        .slice(0, 6)
+        .map(({ lastSpentOn: _lastSpentOn, score: _score, ...shortcut }) => shortcut)
+    };
+  }
+
+  async adminCatalogCompleteness() {
+    const [items, links] = await Promise.all([
+      this.listItemTemplatesWithStages(false),
+      this.prisma.productLink.findMany({ where: { active: true }, select: { itemTemplateId: true } })
+    ]);
+    const activeLinkCountByItemId = new Map<string, number>();
+    for (const link of links) {
+      activeLinkCountByItemId.set(link.itemTemplateId, (activeLinkCountByItemId.get(link.itemTemplateId) ?? 0) + 1);
+    }
+    const linkedItemIds = new Set(activeLinkCountByItemId.keys());
+    const reviewedActive = items.filter((item) => item.active && item.contentStatus === "reviewed");
+    const stageCodes: ChildStageCode[] = [
+      "pregnancy_early",
+      "pregnancy_mid",
+      "pregnancy_late",
+      "newborn_0_3",
+      "infant_4_6",
+      "infant_7_12",
+      "toddler_1_3",
+      "kid_4_7",
+      "elementary",
+      "middle_school"
+    ];
+    const stageCoverage = stageCodes.map((stageCode) => ({
+      stageCode,
+      activeCount: reviewedActive.filter((item) => item.stageCodes.includes(stageCode)).length
+    }));
+    const missingStage = items.filter((item) => item.stageCodes.length === 0);
+    const missingReason = items.filter((item) => !item.reasonText.trim());
+    const missingSkipReason = items.filter(
+      (item) => item.necessityLevel !== "essential" && !item.skipReasonText?.trim()
+    );
+    const missingPrice = items.filter((item) => item.priceMinKrw == null || item.priceMaxKrw == null);
+    const invertedPrice = items.filter(
+      (item) => item.priceMinKrw != null && item.priceMaxKrw != null && item.priceMinKrw > item.priceMaxKrw
+    );
+    const missingMedicalSafety = items.filter(
+      (item) => item.medicalDisclaimerRequired && !item.safetyNote?.trim()
+    );
+    const staleReview = items.filter(
+      (item) => !item.reviewedAt || (item.nextReviewAt != null && item.nextReviewAt.getTime() < Date.now())
+    );
+    const coreWithoutLinks = [...reviewedActive]
+      .sort((left, right) => left.displayOrder - right.displayOrder)
+      .slice(0, 40)
+      .filter((item) => !linkedItemIds.has(item.id));
+    const statusCounts = {
+      draft: items.filter((item) => item.contentStatus === "draft").length,
+      reviewed: items.filter((item) => item.contentStatus === "reviewed").length,
+      retired: items.filter((item) => item.contentStatus === "retired").length
+    };
+
+    return {
+      totalCount: items.length,
+      reviewedActiveCount: reviewedActive.length,
+      stageCoverage,
+      commerceCoverage: {
+        activeLinkCount: links.length,
+        commerceEnabledCount: reviewedActive.filter((item) => linkedItemIds.has(item.id)).length,
+        zeroLinkCount: reviewedActive.filter((item) => !linkedItemIds.has(item.id)).length,
+        oneLinkCount: reviewedActive.filter((item) => activeLinkCountByItemId.get(item.id) === 1).length,
+        twoPlusLinkCount: reviewedActive.filter((item) => (activeLinkCountByItemId.get(item.id) ?? 0) >= 2).length
+      },
+      issues: {
+        missingStage: missingStage.length,
+        missingReason: missingReason.length,
+        missingSkipReason: missingSkipReason.length,
+        missingPrice: missingPrice.length,
+        missingMedicalSafety: missingMedicalSafety.length,
+        coreWithoutLinks: coreWithoutLinks.length,
+        staleReview: staleReview.length,
+        imageMissing: items.length,
+        imageFieldSupported: false
+      },
+      statusCounts,
+      publicationBlocked:
+        missingStage.length + missingReason.length + missingSkipReason.length + invertedPrice.length + missingMedicalSafety.length > 0,
+      publicationBlockers: {
+        missingStage: missingStage.length,
+        missingReason: missingReason.length,
+        missingSkipReason: missingSkipReason.length,
+        invertedPrice: invertedPrice.length,
+        missingMedicalSafety: missingMedicalSafety.length
+      }
+    };
+  }
+
   async adminCreateItemTemplate(input: AdminItemTemplateInput) {
     const normalized = this.normalizeAdminItemTemplateInput(input, {});
     const created = await this.prisma.$transaction(async (tx) => {
@@ -963,14 +1647,18 @@ export class OnboardingStoreService {
           priceMinKrw: normalized.priceMinKrw ?? null,
           priceMaxKrw: normalized.priceMaxKrw ?? null,
           reasonText: normalized.reasonText!,
+          shortReason: normalized.shortReason!,
           skipReasonText: normalized.skipReasonText ?? null,
           usedSecondhandOk: normalized.usedSecondhandOk ?? false,
           safetyNote: normalized.safetyNote ?? null,
+          medicalDisclaimerRequired: normalized.medicalDisclaimerRequired ?? false,
           displayOrder: await this.nextItemDisplayOrder(tx),
-          active: normalized.active ?? true
+          active: normalized.active ?? true,
+          reviewedAt: new Date(),
+          contentStatus: normalized.contentStatus ?? "reviewed"
         }
       });
-      await this.replaceItemTemplateStages(tx, item.id, normalized.stageCodes ?? (["infant_4_6"] as ChildStageCode[]));
+      await this.replaceItemTemplateStages(tx, item.id, normalized.stageCodes!);
       return item;
     });
 
@@ -993,10 +1681,14 @@ export class OnboardingStoreService {
           priceMinKrw: normalized.priceMinKrw ?? null,
           priceMaxKrw: normalized.priceMaxKrw ?? null,
           reasonText: normalized.reasonText!,
+          shortReason: normalized.shortReason!,
           skipReasonText: normalized.skipReasonText ?? null,
           usedSecondhandOk: normalized.usedSecondhandOk ?? false,
           safetyNote: normalized.safetyNote ?? null,
-          active: normalized.active ?? true
+          medicalDisclaimerRequired: normalized.medicalDisclaimerRequired ?? false,
+          active: normalized.active ?? true,
+          contentStatus: normalized.contentStatus ?? item.contentStatus,
+          reviewedAt: new Date()
         }
       });
       if (normalized.stageCodes) {
@@ -1196,20 +1888,58 @@ export class OnboardingStoreService {
     if (input.linkedItemTemplateId) {
       await this.requireExistingItemTemplateAnyStatus(input.linkedItemTemplateId, client);
     }
+    if (input.linkedItemDefinitionId) {
+      const definition = await client.itemDefinition.findUnique({ where: { id: input.linkedItemDefinitionId }, select: { id: true } });
+      if (!definition) throw new BadRequestException({ code: "ITEM_DEFINITION_NOT_FOUND", message: "준비 품목을 찾을 수 없어요." });
+    }
+    let expenseCategoryV2Id = input.expenseCategoryV2Id;
+    if (expenseCategoryV2Id) {
+      const category = await client.expenseCategoryV2.findFirst({ where: { id: expenseCategoryV2Id, hidden: false, OR: [{ householdId: null }, { householdId }] }, select: { id: true } });
+      if (!category) throw new BadRequestException({ code: "EXPENSE_CATEGORY_V2_NOT_FOUND", message: "비용 분류를 찾을 수 없어요." });
+    } else if (input.linkedItemDefinitionId) {
+      expenseCategoryV2Id = (await client.itemExpenseCategoryMapping.findFirst({ where: { itemDefinitionId: input.linkedItemDefinitionId, isDefault: true }, select: { expenseCategoryId: true } }))?.expenseCategoryId;
+    }
+    if (!expenseCategoryV2Id) {
+      const legacy = await client.category.findUnique({ where: { id: input.categoryId }, select: { code: true } });
+      const categoryCodeMap: Record<string, string> = {
+        pregnancy_mother: "pregnancy_mother_health", birth_postpartum: "birth_postpartum",
+        hospital_checkup: "hospital_health", mobile_hospital_checkup: "hospital_health",
+        diaper_hygiene: "diaper_hygiene", mobile_diaper_hygiene: "diaper_hygiene",
+        feeding_babyfood: "feeding_food", mobile_feeding_dairy: "feeding_food", mobile_feeding_meal: "feeding_food",
+        clothes_laundry: "clothes_shoes_laundry", mobile_clothes_laundry: "clothes_shoes_laundry",
+        sleep_furniture: "sleep_furniture_storage", outing_mobility: "outing_mobility_travel",
+        mobile_outing_mobility: "outing_mobility_travel", toys_books: "play_books_development",
+        mobile_toys_books: "play_books_development", care_education: "care_education", insurance_savings: "insurance_savings"
+      };
+      const code = categoryCodeMap[legacy?.code ?? ""] ?? "other";
+      expenseCategoryV2Id = (await client.expenseCategoryV2.findFirst({ where: { householdId: null, code }, select: { id: true } }))?.id;
+    }
+    const selectedPaymentMethod = input.paymentMethodId
+      ? await this.requireUserPaymentMethod(user.id, input.paymentMethodId, true, client)
+      : null;
+    const payerUserId = input.payerUserId ?? user.id;
+    if (payerUserId !== user.id) {
+      const payer = await client.householdMember.findFirst({ where: { householdId, userId: payerUserId, status: "active", role: { not: "gift_participant" } }, select: { userId: true } });
+      if (!payer) throw new ForbiddenException({ code: "EXPENSE_PAYER_FORBIDDEN", message: "Payer must be an active non-gift household member." });
+    }
 
     return client.expense.create({
       data: {
         householdId,
         childId,
         createdByUserId: user.id,
+        payerUserId,
         categoryId: input.categoryId,
         amountKrw: this.requireMoneyKrw(input.amountKrw),
         spentOn: toDateOnly(input.spentOn),
         itemName,
         merchant: this.cleanOptionalText(input.merchant),
-        paymentMethod: input.paymentMethod ?? "unknown",
+        paymentMethod: selectedPaymentMethod?.type ?? input.paymentMethod ?? "unknown",
+        paymentMethodId: selectedPaymentMethod?.id ?? null,
         memo: this.cleanOptionalText(input.memo),
         linkedItemTemplateId: input.linkedItemTemplateId ?? null,
+        linkedItemDefinitionId: input.linkedItemDefinitionId ?? null,
+        expenseCategoryV2Id: expenseCategoryV2Id ?? null,
         expenseType: input.expenseType ?? "expense",
         source: input.source ?? "manual"
       }
@@ -1225,8 +1955,13 @@ export class OnboardingStoreService {
     });
   }
 
-  private async requireChildAccess(user: AuthenticatedUser, childId: string, edit = false): Promise<ChildRow> {
-    const child = await this.prisma.child.findUnique({ where: { id: childId } });
+  private async requireChildAccess(
+    user: AuthenticatedUser,
+    childId: string,
+    edit = false,
+    client: DbClient = this.prisma
+  ): Promise<ChildRow> {
+    const child = await client.child.findUnique({ where: { id: childId } });
     if (!child || child.deletedAt) {
       throw new NotFoundException({ code: "CHILD_NOT_FOUND", message: "아이 프로필을 찾을 수 없어요." });
     }
@@ -1239,13 +1974,18 @@ export class OnboardingStoreService {
     return child;
   }
 
-  private async requireExpenseAccess(user: AuthenticatedUser, expenseId: string, edit = false): Promise<ExpenseRow> {
-    const expense = await this.prisma.expense.findUnique({ where: { id: expenseId } });
+  private async requireExpenseAccess(
+    user: AuthenticatedUser,
+    expenseId: string,
+    edit = false,
+    client: DbClient = this.prisma
+  ): Promise<ExpenseRow> {
+    const expense = await client.expense.findUnique({ where: { id: expenseId } });
     if (!expense || expense.deletedAt) {
       throw new NotFoundException({ code: "EXPENSE_NOT_FOUND", message: "지출 기록을 찾을 수 없어요." });
     }
 
-    await this.requireChildAccess(user, expense.childId, edit);
+    await this.requireChildAccess(user, expense.childId, edit, client);
     return expense;
   }
 
@@ -1268,7 +2008,7 @@ export class OnboardingStoreService {
 
   private async requireItemTemplate(itemTemplateId: string): Promise<ItemTemplateWithStages> {
     const item = await this.itemTemplateWithStages(itemTemplateId);
-    if (!item || !item.active) {
+    if (!item || !item.active || item.contentStatus !== "reviewed") {
       throw new NotFoundException({ code: "ITEM_NOT_FOUND", message: "준비템을 찾을 수 없어요." });
     }
     return item;
@@ -1299,6 +2039,31 @@ export class OnboardingStoreService {
     }
   }
 
+  private async requireUserPaymentMethod(
+    userId: string,
+    paymentMethodId: string,
+    requireActive = false,
+    client: DbClient = this.prisma
+  ) {
+    const method = await client.userPaymentMethod.findFirst({
+      where: { id: paymentMethodId, userId, ...(requireActive ? { active: true } : {}) }
+    });
+    if (!method) {
+      throw new NotFoundException({ code: "PAYMENT_METHOD_NOT_FOUND", message: "결제수단을 찾을 수 없어요." });
+    }
+    return method;
+  }
+
+  private async assertPaymentMethodLabelAvailable(userId: string, label: string, excludeId?: string) {
+    const duplicate = await this.prisma.userPaymentMethod.findFirst({
+      where: { userId, label, ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { id: true }
+    });
+    if (duplicate) {
+      throw new BadRequestException({ code: "PAYMENT_METHOD_LABEL_DUPLICATE", message: "이미 사용 중인 결제수단 이름이에요." });
+    }
+  }
+
   private async requireProductLinkAnyStatus(productLinkId: string): Promise<ProductLinkRow> {
     const link = await this.prisma.productLink.findUnique({ where: { id: productLinkId } });
     if (!link) {
@@ -1319,7 +2084,7 @@ export class OnboardingStoreService {
 
   private async listItemTemplatesWithStages(activeOnly: boolean): Promise<ItemTemplateWithStages[]> {
     const items = await this.prisma.itemTemplate.findMany({
-      where: activeOnly ? { active: true } : undefined,
+      where: activeOnly ? { active: true, contentStatus: "reviewed" } : undefined,
       orderBy: { displayOrder: "asc" }
     });
     if (items.length === 0) return [];
@@ -1351,6 +2116,8 @@ export class OnboardingStoreService {
       dueDate: child.dueDate ? fromDateOnly(child.dueDate) : null,
       birthDate: child.birthDate ? fromDateOnly(child.birthDate) : null,
       manualStage: child.manualStage ?? null,
+      gender: child.gender ?? null,
+      profileImageUrl: child.profileImageUrl ?? null,
       currentStage: calculated.stageCode,
       stageLabel: calculated.stageLabel
     };
@@ -1365,10 +2132,15 @@ export class OnboardingStoreService {
       spentOn: fromDateOnly(expense.spentOn),
       itemName: expense.itemName,
       merchant: expense.merchant ?? null,
+      paymentMethod: expense.paymentMethod,
+      paymentMethodId: expense.paymentMethodId,
       memo: expense.memo ?? null,
       expenseType: expense.expenseType,
       source: expense.source,
-      createdByUserId: expense.createdByUserId
+      createdByUserId: expense.createdByUserId,
+      payerUserId: expense.payerUserId,
+      linkedItemDefinitionId: expense.linkedItemDefinitionId,
+      expenseCategoryV2Id: expense.expenseCategoryV2Id
     };
   }
 
@@ -1388,6 +2160,7 @@ export class OnboardingStoreService {
     return {
       id: item.id,
       name: item.name,
+      shortReason: item.shortReason,
       necessityLevel: item.necessityLevel,
       status,
       timingLabel: item.timingLabel,
@@ -1416,10 +2189,16 @@ export class OnboardingStoreService {
       timingLabel: item.timingLabel,
       priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw),
       reasonText: item.reasonText,
+      shortReason: item.shortReason,
       skipReasonText: item.skipReasonText,
       usedSecondhandOk: item.usedSecondhandOk,
       safetyNote: item.safetyNote,
+      medicalDisclaimerRequired: item.medicalDisclaimerRequired,
       active: item.active,
+      reviewedAt: item.reviewedAt,
+      nextReviewAt: item.nextReviewAt,
+      sourceNote: item.sourceNote,
+      contentStatus: item.contentStatus,
       stageCodes: item.stageCodes,
       productLinks: [...links]
         .sort((left, right) => left.displayOrder - right.displayOrder)
@@ -1625,18 +2404,35 @@ export class OnboardingStoreService {
         message: "Non-essential preparation items need skip guidance."
       });
     }
+    const stageCodes = input.stageCodes?.length ? input.stageCodes : existing.stageCodes;
+    if (!stageCodes?.length) {
+      throw new BadRequestException({ code: "ADMIN_STAGE_REQUIRED", message: "At least one child stage is required." });
+    }
+    const priceMinKrw = input.priceMinKrw ?? existing.priceMinKrw ?? null;
+    const priceMaxKrw = input.priceMaxKrw ?? existing.priceMaxKrw ?? null;
+    if (priceMinKrw != null && priceMaxKrw != null && priceMinKrw > priceMaxKrw) {
+      throw new BadRequestException({ code: "ADMIN_PRICE_RANGE_INVALID", message: "Minimum price cannot exceed maximum price." });
+    }
+    const medicalDisclaimerRequired = input.medicalDisclaimerRequired ?? existing.medicalDisclaimerRequired ?? false;
+    const safetyNote = this.cleanOptionalText(input.safetyNote ?? existing.safetyNote ?? undefined);
+    if (medicalDisclaimerRequired && !safetyNote) {
+      throw new BadRequestException({ code: "ADMIN_MEDICAL_SAFETY_REQUIRED", message: "Medical items need safety guidance." });
+    }
     return {
       name: name.trim(),
       necessityLevel,
       timingLabel: this.cleanOptionalText(input.timingLabel ?? existing.timingLabel ?? undefined) ?? "",
-      priceMinKrw: input.priceMinKrw ?? existing.priceMinKrw ?? null,
-      priceMaxKrw: input.priceMaxKrw ?? existing.priceMaxKrw ?? null,
+      priceMinKrw,
+      priceMaxKrw,
       reasonText: reasonText.trim(),
+      shortReason: (input.shortReason ?? existing.shortReason ?? reasonText).trim().slice(0, 160),
       skipReasonText,
       usedSecondhandOk: input.usedSecondhandOk ?? existing.usedSecondhandOk ?? false,
-      safetyNote: this.cleanOptionalText(input.safetyNote ?? existing.safetyNote ?? undefined),
+      safetyNote,
+      medicalDisclaimerRequired,
       active: input.active ?? existing.active ?? true,
-      stageCodes: input.stageCodes?.length ? input.stageCodes : existing.stageCodes
+      stageCodes,
+      contentStatus: input.contentStatus ?? existing.contentStatus ?? "reviewed"
     };
   }
 
@@ -1842,6 +2638,38 @@ export class OnboardingStoreService {
   private cleanOptionalText(value?: string) {
     const cleaned = value?.trim();
     return cleaned ? cleaned : null;
+  }
+
+  private normalizePaymentMethodLabel(value: string) {
+    const label = value.trim();
+    if (!label) {
+      throw new BadRequestException({ code: "PAYMENT_METHOD_LABEL_REQUIRED", message: "결제수단 이름을 입력해 주세요." });
+    }
+    if (/(?:\d[\s-]*){8,}/.test(label)) {
+      throw new BadRequestException({
+        code: "PAYMENT_METHOD_SENSITIVE_NUMBER_FORBIDDEN",
+        message: "카드번호나 계좌번호 대신 알아보기 쉬운 이름만 입력해 주세요."
+      });
+    }
+    return label;
+  }
+
+  private toUserPaymentMethodDto(method: {
+    id: string;
+    type: PaymentMethod;
+    label: string;
+    isDefault: boolean;
+    active: boolean;
+    displayOrder: number;
+  }) {
+    return {
+      id: method.id,
+      type: method.type,
+      label: method.label,
+      isDefault: method.isDefault,
+      active: method.active,
+      displayOrder: method.displayOrder
+    };
   }
 
   private groupBy<T, K>(items: T[], keyFn: (item: T) => K): Map<K, T[]> {
