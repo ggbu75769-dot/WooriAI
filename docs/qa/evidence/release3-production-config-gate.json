@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-23T05:44:38.911Z",
+  "generatedAt": "2026-07-26T15:39:57.212Z",
   "mode": "production-config",
   "results": [
     {
@@ -7,7 +7,7 @@
       "label": "Production config",
       "command": "pnpm release:config",
       "result": "FAIL",
-      "durationMs": 2,
+      "durationMs": 1,
       "timeoutMs": null,
       "timedOut": false,
       "issues": [

@@ -1,5 +1,9 @@
 # SI-006B / Android startup module boundary and runtime requalification
 
+> Historical slice closed on 2026-07-27. Current status and next actions are in
+> `CURRENT_STATE.md`, `RESUME.md`, and
+> `../current-development-status-and-next-design-baseline-2026-07-26.md`.
+
 ## Outcome
 
 `PARTIAL_COMPLETE` — startup ownership was reduced and protected by regression tests; the clean installed APK is stable and reaches HOME, but startup latency is not qualified because the isolated AVD graphics path degraded to 4.95-second GPU frames.

@@ -36,8 +36,8 @@ export default function AdminHomePage() {
   ];
 
   return (
-    <main style={{ background: "#FFF8F1", color: "#242424", minHeight: "100vh", padding: 32 }}>
-      <p style={{ color: "#7A7A7A" }}>ADM-001</p>
+    <main style={{ background: "#FFFDFC", color: "#211E1C", minHeight: "100vh", padding: 32 }}>
+      <p style={{ color: "#5F5854" }}>ADM-001</p>
       <h1>WooriAI Admin CMS</h1>
       <section style={{ background: "#FFFFFF", borderRadius: 8, marginBottom: 20, padding: 20 }}>
         <h2>관리자 로그인과 보안</h2>
@@ -48,7 +48,7 @@ export default function AdminHomePage() {
       <section style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
         {sections.map((section) => (
           <article key={`${section.id}-${section.title}`} style={{ background: "#FFFFFF", borderRadius: 8, padding: 20 }}>
-            <p style={{ color: "#7A7A7A" }}>{section.id}</p>
+            <p style={{ color: "#5F5854" }}>{section.id}</p>
             <h2>{section.title}</h2>
             <p>{section.description}</p>
             <Link href={section.href}>바로가기</Link>

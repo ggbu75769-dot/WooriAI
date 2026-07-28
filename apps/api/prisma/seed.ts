@@ -5,6 +5,7 @@ import {
   childLifecycleCodes,
   motherLifecycleCodes,
   release4BundleDefinitions,
+  release4CatalogEvidenceSources,
   release4CatalogItems,
   release4CatalogNodes,
   validateRelease4Catalog
@@ -579,6 +580,31 @@ async function seedRelease4Catalog() {
         await tx.itemSafetyRule.deleteMany({
           where: { itemDefinitionId: savedDefinition.id, ruleCode: "professional-review-gate" }
         });
+      }
+
+      for (const sourceId of item.evidenceSourceIds) {
+        const source = release4CatalogEvidenceSources[sourceId];
+        const existingSource = await tx.itemEvidenceSource.findFirst({
+          where: {
+            itemDefinitionId: savedDefinition.id,
+            sourceType: source.sourceType,
+            publicUrl: source.url
+          },
+          select: { id: true }
+        });
+        if (!existingSource) {
+          await tx.itemEvidenceSource.create({
+            data: {
+              itemDefinitionId: savedDefinition.id,
+              sourceType: source.sourceType,
+              title: source.title,
+              publicUrl: source.url,
+              publisher: source.publisher,
+              checkedAt: new Date(`${source.checkedAt}T00:00:00.000Z`),
+              status: "draft"
+            }
+          });
+        }
       }
 
       const expenseCategoryCode = expenseCategoryByDomain[item.domainCode] ?? "other";

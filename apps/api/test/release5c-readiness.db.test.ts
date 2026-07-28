@@ -102,12 +102,24 @@ describe("Release 5C legal and catalog readiness", () => {
     expect(reviewed.status).toBe("valid");
 
     const worklist = await readiness.pilotWorklist();
-    expect(worklist.items.find((candidate) => candidate.id === item.id)).toMatchObject({ evidenceReady: true, domainApproved: false, ready: false });
+    expect(worklist.items.find((candidate) => candidate.id === item.id)).toMatchObject({
+      status: "in_review",
+      structureReady: true,
+      evidenceReady: true,
+      editorialApproved: false,
+      domainApproved: false,
+      ready: false
+    });
+    await prisma.itemEvidenceSource.update({
+      where: { id: evidence.id },
+      data: { reviewedByAdminId: capturer }
+    });
+    expect((await readiness.pilotWorklist()).items.find((candidate) => candidate.id === item.id))
+      .toMatchObject({ evidenceReady: false, ready: false });
     await expect(readiness.previewPilotManifest(randomUUID(), { itemIds: [item.id] }))
       .rejects.toMatchObject({ response: expect.objectContaining({ code: "PILOT_MANIFEST_NOT_READY" }) });
-    const emptyManifest = await readiness.previewPilotManifest(randomUUID(), { itemIds: [] });
-    manifestIds.push(emptyManifest.id);
-    expect(emptyManifest.itemIds).toEqual([]);
+    await expect(readiness.previewPilotManifest(randomUUID(), { itemIds: [] }))
+      .rejects.toMatchObject({ response: expect.objectContaining({ code: "PILOT_MANIFEST_EMPTY" }) });
     expect(await prisma.itemDefinition.count({ where: { status: "published" } })).toBe(publishedBefore);
   });
 });

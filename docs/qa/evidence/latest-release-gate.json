@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-26T10:53:52.263Z",
+  "generatedAt": "2026-07-26T15:56:15.746Z",
   "mode": "local-executed",
   "results": [
     {
@@ -7,7 +7,7 @@
       "label": "Install",
       "command": "pnpm install --frozen-lockfile",
       "result": "PASS",
-      "durationMs": 459,
+      "durationMs": 480,
       "timeoutMs": 300000,
       "timedOut": false,
       "issues": []
@@ -17,7 +17,7 @@
       "label": "Mobile SDK dependencies",
       "command": "pnpm mobile:deps:check",
       "result": "PASS",
-      "durationMs": 2061,
+      "durationMs": 3142,
       "timeoutMs": 300000,
       "timedOut": false,
       "issues": []
@@ -27,7 +27,7 @@
       "label": "Env example",
       "command": "pnpm check:env:example",
       "result": "PASS",
-      "durationMs": 859,
+      "durationMs": 1113,
       "timeoutMs": null,
       "timedOut": false,
       "issues": []
@@ -37,7 +37,7 @@
       "label": "Secret scan",
       "command": "pnpm security:secrets",
       "result": "PASS",
-      "durationMs": 1337,
+      "durationMs": 1524,
       "timeoutMs": 300000,
       "timedOut": false,
       "issues": []
@@ -47,7 +47,7 @@
       "label": "Production dependency audit",
       "command": "pnpm security:audit",
       "result": "PASS",
-      "durationMs": 1359,
+      "durationMs": 1518,
       "timeoutMs": 300000,
       "timedOut": false,
       "issues": []
@@ -57,7 +57,7 @@
       "label": "Prisma validate",
       "command": "pnpm --filter api prisma:validate",
       "result": "PASS",
-      "durationMs": 2070,
+      "durationMs": 3627,
       "timeoutMs": null,
       "timedOut": false,
       "issues": []
@@ -67,7 +67,7 @@
       "label": "Prisma generate",
       "command": "pnpm --filter api prisma:generate",
       "result": "PASS",
-      "durationMs": 2338,
+      "durationMs": 3502,
       "timeoutMs": null,
       "timedOut": false,
       "issues": []
@@ -77,8 +77,18 @@
       "label": "Database up",
       "command": "pnpm db start",
       "result": "PASS",
-      "durationMs": 2116,
+      "durationMs": 2127,
       "timeoutMs": 180000,
+      "timedOut": false,
+      "issues": []
+    },
+    {
+      "id": "catalog-audit",
+      "label": "Isolated catalog audit",
+      "command": "pnpm catalog:audit",
+      "result": "PASS",
+      "durationMs": 35936,
+      "timeoutMs": 300000,
       "timedOut": false,
       "issues": []
     },
@@ -87,7 +97,7 @@
       "label": "ESLint",
       "command": "pnpm lint",
       "result": "PASS",
-      "durationMs": 14011,
+      "durationMs": 11408,
       "timeoutMs": 300000,
       "timedOut": false,
       "issues": []
@@ -97,7 +107,7 @@
       "label": "Typecheck",
       "command": "pnpm typecheck",
       "result": "PASS",
-      "durationMs": 4908,
+      "durationMs": 4995,
       "timeoutMs": 600000,
       "timedOut": false,
       "issues": []
@@ -107,7 +117,7 @@
       "label": "All tests",
       "command": "pnpm test --concurrency=1 --force",
       "result": "PASS",
-      "durationMs": 142796,
+      "durationMs": 147174,
       "timeoutMs": 900000,
       "timedOut": false,
       "issues": []
@@ -117,7 +127,7 @@
       "label": "API e2e",
       "command": "pnpm --filter api test:e2e",
       "result": "PASS",
-      "durationMs": 140629,
+      "durationMs": 145694,
       "timeoutMs": 600000,
       "timedOut": false,
       "issues": []
@@ -127,7 +137,7 @@
       "label": "Admin browser E2E",
       "command": "pnpm test:admin-browser",
       "result": "PASS",
-      "durationMs": 197174,
+      "durationMs": 215017,
       "timeoutMs": 600000,
       "timedOut": false,
       "issues": []
@@ -137,7 +147,7 @@
       "label": "Production builds",
       "command": "pnpm build --force",
       "result": "PASS",
-      "durationMs": 47996,
+      "durationMs": 42542,
       "timeoutMs": 900000,
       "timedOut": false,
       "issues": []
@@ -147,7 +157,7 @@
       "label": "Peer dependencies",
       "command": "pnpm install --frozen-lockfile --strict-peer-dependencies --lockfile-only",
       "result": "PASS",
-      "durationMs": 688,
+      "durationMs": 543,
       "timeoutMs": null,
       "timedOut": false,
       "issues": []

@@ -838,7 +838,16 @@ export function publishCatalogV2Item(itemId: string, expectedVersion: number, co
 }
 
 export type Release5PilotWorklist = {
-  counts: { candidates: number; ready: number; missingEvidence: number; missingDomainApproval: number };
+  counts: {
+    candidates: number;
+    ready: number;
+    notApproved: number;
+    missingStructure: number;
+    missingEvidence: number;
+    missingEditorialApproval: number;
+    missingDomainApproval: number;
+    missingApprovalReviewerSeparation: number;
+  };
   items: Array<{
     id: string;
     code: string;
@@ -847,8 +856,11 @@ export type Release5PilotWorklist = {
     contentHash: string | null;
     safetyTier: string;
     status: string;
+    structureReady: boolean;
     evidenceReady: boolean;
+    editorialApproved: boolean;
     domainApproved: boolean;
+    approvalReviewersIndependent: boolean;
     ready: boolean;
   }>;
 };

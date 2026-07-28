@@ -1,41 +1,40 @@
 # WooriAI Local Self-Implement Current State
 
-## Protected baseline
+갱신: 2026-07-27
 
-- Repository: `F:/WooriAI`
-- Branch / HEAD: `codex/sprint2-catalog-payments` / `db7a7a455afec892b8fa1205e477dbe507a5931d`
-- Starting dirty inventory: 929 entries = 187 tracked unstaged + 742 untracked + 0 staged.
-- Current dirty inventory: 631 entries = 189 tracked unstaged + 442 untracked + 0 staged.
-- Build/test cleanup changed generated/untracked inventory; existing source ownership was preserved. No reset, checkout, stage, commit, push, or deploy was performed.
+전체 기준선은 `docs/operations/current-development-status-and-next-design-baseline-2026-07-26.md`가 우선한다.
 
-## Qualification runtime
+## Git·소스 경계
 
-- Node: `F:/WooriAI/.toolcache/node-v20.20.2-win-x64/node.exe`
-- pnpm: `10.28.1` from Corepack cache
-- Android: isolated `wooriai_pixel_5_api35`, Android API 35 / x86_64 / 1080x2340.
+- 저장소: `F:/WooriAI`
+- 브랜치: `codex/sprint2-catalog-payments`
+- HEAD: `edaf1f3850ac1f66055440eb04b51445d5ae4069`
+- upstream divergence: `0 / 0`
+- 현재 변경: unstaged/untracked, staged 0
+- 이번 개발에서 reset, checkout, stage, commit, push, deploy를 수행하지 않음
 
-## Current truth
+## 현재 검증
 
-| Area | Implemented | Current evidence | Remaining boundary | Status |
-| --- | --- | --- | --- | --- |
-| Offline expense sync | same-store single flight plus sequential follow-up drain | SI-001 RED→GREEN and full gates | real slow HTTP runtime | DONE |
-| Android build source | mobile-owned Metro root/profile and source-bound clean APK | stable source snapshot; installed byte parity | production signer/profile | DONE / SI-006A |
-| Startup source boundary | lazy fixture/catalog/offline/deep-link/session-only modules; direct startup imports | startup regressions 4/4; mobile 455/455; release 11/11 | healthy-device latency measurement | PARTIAL / SI-006B |
-| Installed stability | final clean APK remains resident and reaches HOME | PID 5/5; fatal 0; HOME adb capture | current AVD compositor invalidates timing | INTERNAL PASS |
-| Startup latency | five fixed-time observations attempted | AVD gfx: 13/13 janky, GPU 4.95 s bucket; HOME only in later capture | healthy AVD or physical device | NOT QUALIFIED |
-| Onboarding | six-step shared readiness/completion and 500,000 won default | domain/mobile/API tests; installed HOME budget | physical accessibility | LOCAL PASS |
-| Recommendation UI | category-only labels and semantic icons/colors | installed preparation capture | production catalog published-only/fail-closed | INTERNAL ONLY |
-| Release gate | install through peers | 11/11 PASS, `2026-07-19T23:30:16.135Z` | deploy not authorized | LOCAL PASS |
+| 영역 | 현재 증거 | 판정 |
+| --- | --- | --- |
+| 전체 Release Gate | isolated catalog audit 포함 16/16 PASS, `2026-07-26T15:56:15.746Z` | LOCAL PASS |
+| Android Pixel Lock | adb 설치 캡처 9/9, 최대 0.0474 | INTERNAL PASS |
+| 일반 standalone 흐름 | 로그인·온보딩·홈·준비템·지출 입력을 설치 앱에서 확인 | INTERNAL PASS |
+| 카탈로그 구조 | 409 item, 3,287 alias, 485 evidence, 구조 gate PASS | LOCAL PASS |
+| 카탈로그 운영 게시 | evidence 485건 모두 draft, 독립 검토 0, 게시 0 | FAIL-CLOSED |
+| 파일럿 런타임 | 구조·근거·두 승인·승인자 분리·manifest 무결성·publisher 분리 | IMPLEMENTED |
+| production config | 46개 승인값/자격증명 차단 | EXTERNAL_BLOCKED |
+| 외부 staging | core/OAuth/push/recall/merchant/signing 6영역 | EXTERNAL_BLOCKED |
 
-## Native artifact
+## Android 산출물
 
-- APK: `F:/WooriAI/artifacts/android/wooriai-0.0.0-release-standalone.apk`
-- Source snapshot: `F005E526FC59FE404C9460DF4C8841D5C5A49F06288610C40097004E974B46BA`
-- APK SHA-256: `63140D5FEE0E79D1379A463781F6489E0E789A540886535583E0FA67968A1DA8`
-- Hermes SHA-256: `82415330A925D27CBA75DC62AC4C2DF6B51EB9573750006536521CD33BBE1E82`
-- Signer: Android Debug, certificate SHA-256 `fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c`
-- Qualification: internal standalone fixture, version 0.0.0; not production/store.
+- standalone APK: `F:/WooriAI/wooriai-0.0.0-release-standalone.apk`
+- standalone SHA-256: `EF165BC7677C36D3CC9DB987B56E353647F9E9BC756B6C6565CB455AA7879190`
+- Pixel Lock APK: `F:/WooriAI/wooriai-pixel-8244faa73e6480ce5f21251555fa3f36d3e727413df366f2715f950cd67e2135.apk`
+- Pixel APK SHA-256: `8244FAA73E6480CE5F21251555FA3F36D3E727413DF366F2715F950CD67E2135`
+- 두 APK 모두 내부 검증용이며 production identity/signing/store 후보가 아님
+- 최종 APK는 프로젝트 루트에만 둔다. `artifacts`에는 보고서·스크린샷·로그만 둔다.
 
-## Highest remaining risk
+## 현재 남은 경계
 
-SI-006B latency remains the highest local risk. Source and installed stability are green, but the current AVD renderer is not a valid performance instrument. Do not claim startup speed improvement until a healthy compositor produces five repeatable HOME timings.
+코드 내부에서 확정 가능한 P0 경로는 완료됐다. 다음 단계에는 승인된 application ID/version/signing, 운영 인프라와 provider 자격증명, 법적 운영자 정보, 독립 catalog 검토자, 물리 Android/iOS 기기가 필요하다.

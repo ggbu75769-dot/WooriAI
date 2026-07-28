@@ -1,4 +1,5 @@
 import {
+  ArrayMinSize,
   ArrayMaxSize,
   IsArray,
   IsBoolean,
@@ -92,8 +93,8 @@ export class ReviewEvidenceSourceDto {
 }
 
 export class PreviewPilotManifestDto {
-  @IsOptional() @IsArray() @ArrayMaxSize(50) @IsUUID("4", { each: true })
-  itemIds?: string[];
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @IsUUID("4", { each: true })
+  itemIds!: string[];
 }
 
 export class PublishPilotManifestDto {

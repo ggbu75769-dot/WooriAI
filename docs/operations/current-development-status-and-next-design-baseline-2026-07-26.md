@@ -26,7 +26,7 @@
 1. 제품의 핵심 루프, 모바일 앱, Nest API, Next Admin, PostgreSQL/Prisma 영속화, 오프라인 동기화, 카탈로그, 가족 권한, 개인정보 처리, Release 5 운영 도구까지 폭넓게 구현되어 있다.
 2. 현재 작업 트리는 총 66개 경로가 변경되어 있다. 추적 파일 수정 49개, 미추적 17개이며 staged는 0개다. 이 문서를 제외한 65개 경로에는 가족 권한 원자성, 계정삭제 복구, 검증된 안전 대체품목, Today/알림 안전 lifecycle, Android build profile·provenance 강화가 함께 들어 있다.
 3. 2026-07-26 현재 소스에서 전체 패키지 테스트는 8/8 패키지, 185개 파일, 1,030개 테스트가 통과했다.
-4. 현재 소스에서 전체 Release Gate를 다시 실행해 15/15 PASS로 증거 파일을 갱신했다. install, dependency compatibility, secret/dependency audit, Prisma, lint, typecheck, 전체 테스트, API E2E, Admin browser E2E, production build, strict peers가 모두 PASS다.
+4. 현재 소스에서 격리 catalog audit를 포함한 전체 Release Gate를 다시 실행해 16/16 PASS로 증거 파일을 갱신했다. install, dependency compatibility, secret/dependency audit, Prisma, isolated catalog audit, lint, typecheck, 전체 테스트, API E2E, Admin browser E2E, production build, strict peers가 모두 PASS다.
 5. 현재 소스 스냅샷 `66AF...`에서 Pixel APK를 새로 빌드·설치했고, built/installed hash 일치와 Android Pixel Lock 9/9 PASS를 확인했다. 최악 점수는 `REP-001 = 0.047382`로 임계치 `0.0500` 안이다.
 6. 같은 `66AF...` 소스 스냅샷의 정상 standalone APK와 설치된 `base.apk` SHA-256도 `98E43...`로 일치하며, fresh onboarding부터 안전 경고·알림·확인·일반 action snooze·재시작 복원까지 설치 앱 journey가 PASS했다. 다만 테스트 로그인·디버그 서명·임시 package/version이므로 스토어 후보는 아니다.
 7. 정규 카탈로그는 구조상 409개까지 확장됐지만 마지막 측정에서 409개 전부 `in_review`, 게시 0개, 판매 오퍼 0개였다. 구조 완성과 운영 게시 준비를 분리해야 한다.
@@ -911,15 +911,11 @@ flowchart LR
 
 ## 9. 카탈로그 현재 상태
 
-### 9.1 마지막 정규 카탈로그 감사
+### 9.1 현재 정규 카탈로그 감사
 
-마지막 저장된 감사 시점:
+2026-07-26에 41개 migration과 현재 seed를 적용한 전용 fresh DB `wooriai_release4_fresh_verify`를 명시해 `pnpm catalog:audit`를 다시 실행했다. API 테스트 데이터가 남은 공유 `wooriai_test`의 임시 감사 결과는 폐기했으며, fresh DB 감사 후 전용 검증 DB를 제거했다.
 
-- 생성일: 2026-07-21 KST 근처
-- 감사 소스 HEAD: `46c5d55584d8b839600d0198ac7e28a242cae69f`
-- 현재 HEAD 이전 스냅샷이므로 수치는 **마지막 측정값**이다.
-
-| 항목 | 마지막 측정 |
+| 항목 | 현재 측정 |
 | --- | ---: |
 | domain | 24 |
 | category | 120 |
@@ -932,16 +928,16 @@ flowchart LR
 | item status | `in_review` 409 |
 | published | 0 |
 | product offer | 0 |
-| orphan | 0 |
-| duplicate canonical name | 0 |
-| alias collision | 0 |
-| unsafe published item | 0 |
+| coverage covered | 364 |
+| coverage gap | 1,460 |
+| external review blocker | 1,460 |
 
 판정:
 
 - 구조 완전성: PASS
 - scenario personalization 구조: PASS
 - published content readiness: FAIL
+- 운영 노출: fail-closed 유지
 
 ### 9.2 현재 제품 설계에 주는 의미
 
@@ -949,7 +945,7 @@ flowchart LR
 - 85개 high-risk 품목은 전문 검수와 독립 승인 없이 노출하면 안 된다.
 - 판매 오퍼 0개이므로 canonical 필요품목과 실제 구매 가능성을 분리해서 UX를 설계해야 한다.
 - 게시 가능한 콘텐츠가 부족하면 앱은 fixture나 `in_review` 데이터를 운영 사용자에게 보여주는 대신 정직한 빈 상태를 보여야 한다.
-- 다음 개발 설계 전에 현재 HEAD/현재 DB로 catalog audit를 다시 생성해야 한다.
+- 현재 감사는 재생성됐지만 coverage gap 1,460개와 외부 검수 blocker 1,460개가 남아 있다.
 
 ---
 
@@ -965,25 +961,18 @@ flowchart LR
 - 공통 spacing/radius/type/motion token
 - chart palette 별도
 
-### 10.2 문서 계약 충돌
+### 10.2 문서 계약 충돌 해소
 
-`docs/dev/source-lock.md`와 `docs/dev/do-not-change.md`에는 과거 Phase 2 토큰이 남아 있다.
+2026-07-26에 현재 코드·native branding·Pixel reference를 `MOD_V1 / native-v1.0` canonical로 승인했다.
 
-- Primary: `#FF8A7A`
-- Background: `#FFF8F1`
-- Text: `#242424`
-
-반면 MOD_V1 문서와 현재 코드, 최신 native branding은 `#C94627 / #FFFDFC / #211E1C`를 사용한다.
-
-이것은 다음 개발 설계 전 반드시 결정해야 할 문서 거버넌스 문제다.
-
-권장 결정:
-
-1. 현재 코드·현재 Pixel reference를 canonical로 승인
-2. Source Lock/Do Not Change의 색상 토큰을 새 버전으로 명시적 갱신
-3. legacy 토큰은 alias/마이그레이션 기록으로만 유지
-
-색상 충돌을 방치하면 다음 개발자가 오래된 문서를 따라 현재 UI를 되돌릴 위험이 있다.
+- Primary: `#C94627`
+- Secondary: `#267A68`
+- Canvas/background: `#FFFDFC`
+- Text primary: `#211E1C`
+- `docs/dev/source-lock.md`와 `docs/dev/do-not-change.md` 갱신 완료
+- 과거 `#FF8A7A / #FFF8F1 / #242424`는 legacy migration 기록으로만 유지
+- Admin 홈의 남은 legacy canvas/text literal도 canonical 값으로 교체
+- 문서·Admin·모바일 semantic token 일치를 focused test로 고정
 
 ### 10.3 접근성 구현
 
@@ -1511,38 +1500,39 @@ fail-closed 조건:
 
 ## 15. 현재 알려진 불일치와 기술 부채
 
-### 15.1 문서 drift
+### 15.1 현행 운영 문서 drift — 해결
 
-다음 문서는 현재 코드보다 오래된 사실을 포함할 수 있다.
+2026-07-27에 다음 현행 문서를 현재 계약으로 정규화했다.
 
 - `docs/operations/known-limitations.md`
 - `docs/operations/release-runbook.md`
-- `docs/operations/self-implement/*`
-- 일부 Release 3/4/5 완료보고서
-- MOD_V1 당시의 Pixel reference 충돌 설명
+- `docs/operations/self-implement/{CURRENT_STATE,RESUME,BLOCKERS,IMPROVEMENT_BACKLOG}.md`
 
-예:
+정규화 내용:
 
-- 과거 문서에는 in-memory runtime 한계가 남아 있으나 현재 핵심 도메인은 PostgreSQL/Prisma 영속화됨
-- 과거에는 Pixel reference와 5탭이 충돌했지만 현재 `AGENTS.md`와 최신 Pixel Gate는 5탭을 기준으로 정리됨
-- 과거 APK는 `artifacts/android`에 있었으나 현재 규칙은 최종 APK를 반드시 프로젝트 루트에 둠
-- 마지막 full-gate PASS 수치는 이후 소스 변경 전 값일 수 있음
+- Release Gate 16/16과 isolated catalog audit
+- 5탭 Pixel 9/9 계약
+- 최종 APK 프로젝트 루트 보관
+- PostgreSQL/Prisma와 sync v2 cursor/tombstone
+- 카탈로그 409개·근거 485개·게시 0의 fail-closed 경계
+- production config 46개 및 외부 readiness 6영역 차단
+- direct Gradle/공용 admin token/in-memory rollback 같은 오래된 절차 제거
 
-### 15.2 디자인 토큰 source-of-truth 충돌
+Release 3/4/5 완료보고서와 `self-implement/evidence`는 당시 실행 증거이므로 수치를 현재값으로 덮어쓰지 않는다. 역사 문서와 현재 실행 절차가 충돌하면 이 기준선과 위 현행 운영 문서를 우선한다.
 
-- Source Lock: `#FF8A7A / #FFF8F1`
-- 현재 코드/MOD_V1: `#C94627 / #FFFDFC`
+### 15.2 디자인 토큰 source-of-truth 충돌 — 해결
 
-다음 설계 전에 해결해야 한다.
+- canonical: `MOD_V1 / native-v1.0`
+- 값: `#C94627 / #267A68 / #FFFDFC / #211E1C`
+- Source Lock·Do Not Change·Admin legacy literal·회귀 테스트 갱신 완료
 
-### 15.3 현재 HEAD와 현재 제품 소스가 동일한 릴리즈 단위가 아님
+### 15.3 초기 dirty snapshot 릴리즈 경계 — 해결
 
-- HEAD는 upstream과 같음
-- 이 문서를 제외한 65개 작업 트리 변경 경로는 미커밋
-- 현재 standalone·Pixel·Release Gate는 동일한 dirty source snapshot `66AF...`에 묶임
-- `66AF...`는 Git commit SHA가 아니므로 commit 이후 같은 증거를 새 commit-bound snapshot으로 다시 생성해야 함
-
-즉, “현재 버전”을 하나의 Git SHA로 표현할 수 없다.
+- 제품 소스는 upstream과 일치하는 commit `edaf1f3850ac1f66055440eb04b51445d5ae4069`로 고정
+- standalone과 Pixel APK는 동일 source snapshot `66AF...`에서 clean build
+- Pixel APK 보고서가 `sourceCommit=edaf1f3...`, `dirty=false`를 기록
+- 같은 commit 기준 Release Gate 15/15와 Android Pixel Lock 9/9 재현 완료
+- 이후 변경은 새 검증 증거와 문서·토큰 거버넌스 갱신이며 제품 기능 소스의 미확정 ownership 문제와 구분한다.
 
 ### 15.4 카탈로그 게시 0
 
@@ -1607,23 +1597,18 @@ fail-closed 조건:
 
 ## 17. 다음 개발 설계 전에 먼저 결정할 것
 
-### 결정 1. 현재 Genesis Cycle 7을 어떤 릴리즈 단위로 고정할 것인가
+### 결정 1. 현재 Genesis Cycle 7 릴리즈 단위 — 결정 완료
 
-권장:
+- `authority/privacy/safety-evidence/today-lifecycle` 통합 보안·신뢰 릴리즈
+- 제품 기준 commit: `edaf1f3850ac1f66055440eb04b51445d5ae4069`
+- source snapshot: `66AF661F1B6364CB60D198ACC74201F52421C9C98064039DA5CAD9E90F49CCCC`
+- generated evidence와 제품 소스를 분리해 기록
 
-- `authority/privacy/safety-evidence/today-lifecycle`을 하나의 통합 보안·신뢰 릴리즈로 정의
-- 이 문서를 제외한 변경 65개 경로를 기능별로 소유권 감사
-- 중간 generated evidence와 제품 소스를 분리
-- 현재 로컬 기준 `66AF...`를 commit-bound source hash로 다시 고정
+### 결정 2. 디자인 토큰 canonical 버전 — 결정 완료
 
-### 결정 2. 디자인 토큰 canonical 버전
-
-선택 필요:
-
-- 과거 Source Lock 복귀
-- 현재 MOD_V1 토큰 정식 승인
-
-현재 Pixel과 코드 기준으로는 MOD_V1 토큰을 새 canonical version으로 승인하는 편이 자연스럽다.
+- 현재 MOD_V1 토큰을 `native-v1.0` canonical로 승인
+- 과거 Source Lock 토큰은 legacy migration 기록으로만 유지
+- canonical 값: `#C94627 / #267A68 / #FFFDFC / #211E1C`
 
 ### 결정 3. 다음 목표가 로컬 완성인지 운영 출시인지
 
@@ -1793,11 +1778,11 @@ fail-closed 조건:
 
 | 우선순위 | 작업 | 이유 |
 | --- | --- | --- |
-| P0 | 현재 변경 65개 경로 ownership/commit 설계 | 현재 버전을 Git SHA로 고정할 수 없음 |
-| P0 | clean commit-bound full release gate | dirty snapshot 15/15를 리뷰 가능한 SHA로 승격해야 함 |
-| P0 | clean commit-bound Android Pixel 9/9 | dirty snapshot 9/9를 동일 SHA로 재생성해야 함 |
-| P0 | 디자인 토큰 문서 충돌 해소 | 다음 UI 개발의 회귀 위험 |
-| P0 | catalog audit 재생성 | 마지막 수치가 이전 HEAD |
+| 완료 | 현재 변경 ownership/commit 설계 | `edaf1f3...`로 고정 |
+| 완료 | clean commit-bound full release gate | 15/15 PASS |
+| 완료 | clean commit-bound Android Pixel 9/9 | 9/9 PASS, installed hash parity |
+| 완료 | 디자인 토큰 문서 충돌 해소 | `MOD_V1 / native-v1.0` 승인·회귀 테스트 추가 |
+| 완료 | catalog audit 재생성 | 구조 PASS, 운영 fail-closed: published 0, coverage gap 1,460 |
 | P0 | production identity/signing 결정 | 스토어 후보 전환의 전제 |
 | P1 | Kakao 운영 OAuth | 실제 사용자 진입 전제 |
 | P1 | 우선 catalog publish pilot | 준비템 제품 가치의 핵심 |
@@ -1962,11 +1947,477 @@ WooriAI는 초기 MVP 수준을 넘어 다음 요소를 가진 큰 로컬 제품
 
 하지만 현재 시점에서 운영 출시 완료로 볼 수는 없다.
 
-가장 가까운 다음 목표는 새 기능 추가가 아니라 현재 통합 결과를 review 가능한 clean commit 기준선으로 승격하는 것이다.
+가장 가까운 다음 목표는 새 기능 추가가 아니라 현재 통합 결과를 review 가능한 clean commit 기준선으로 승격하는 것이었다.
 
-1. 현재 Cycle 5·6/Genesis Cycle 7 변경 65개 경로의 ownership·commit 범위 고정
-2. commit-bound source snapshot에서 Release Gate 15/15와 Android Pixel Lock 9/9 재현
-3. standalone/Pixel/fixture provenance와 Git SHA 연결
-4. 디자인 토큰·카탈로그 게시·운영 identity 결정
+1. 현재 Cycle 5·6/Genesis Cycle 7 변경의 ownership·commit 범위 고정 — **완료**
+2. commit-bound source snapshot에서 Release Gate 15/15와 Android Pixel Lock 9/9 재현 — **완료**
+3. standalone/Pixel provenance와 Git SHA·source snapshot 연결 — **완료**
+4. 디자인 토큰·카탈로그 게시·운영 identity 결정 — **다음 설계 단계**
 
-dirty snapshot 기준 자동·Android 검증 자체는 이미 완료됐다. 위 네 가지가 끝나면 다음 개발 설계는 “무엇이 구현됐는지 다시 조사하는 단계”가 아니라 “운영 출시 또는 다음 제품 Epic을 선택하는 단계”에서 시작할 수 있다.
+2026-07-26 P0 재검증으로 위 1~3번이 완료됐다. 다음 개발 설계는 이제 “무엇이 구현됐는지 다시 조사하는 단계”가 아니라 디자인 토큰 정리, 게시 카탈로그 승인, 운영 identity/signing, 또는 다음 제품 Epic 가운데 우선순위를 선택하는 단계에서 시작한다.
+
+---
+
+## 24. 2026-07-26 P0 실행 완료 기준선
+
+### 24.1 Git·소스 기준선
+
+- branch: `codex/sprint2-catalog-payments`
+- commit: `edaf1f3850ac1f66055440eb04b51445d5ae4069`
+- upstream divergence: `0 / 0`
+- APK 빌드 시작 시점의 tracked worktree: clean
+- source snapshot SHA-256: `66AF661F1B6364CB60D198ACC74201F52421C9C98064039DA5CAD9E90F49CCCC`
+- Pixel APK 보고서의 `sourceCommit`: 위 Git commit과 일치
+- Pixel APK 보고서의 `dirty`: `false`
+
+Release Gate 실행 후 `docs/qa/evidence/latest-release-gate.{json,md}`가 새 실행 결과로 갱신됐으며, 이 문서도 이번 검증 결과를 반영했다. 이는 제품 소스 드리프트가 아니라 새 증거 산출물 변경이다.
+
+### 24.2 clean HEAD Android APK
+
+| 프로필 | 루트 APK | SHA-256 | source 검증 | 설치 검증 |
+| --- | --- | --- | --- | --- |
+| standalone | `F:\WooriAI\wooriai-0.0.0-release-standalone.apk` | `EF165BC7677C36D3CC9DB987B56E353647F9E9BC756B6C6565CB455AA7879190` | `VERIFIED_STABLE` | 빌드 해시 = 설치 `base.apk` 해시 |
+| Pixel Lock | `F:\WooriAI\wooriai-pixel-8244faa73e6480ce5f21251555fa3f36d3e727413df366f2715f950cd67e2135.apk` | `8244FAA73E6480CE5F21251555FA3F36D3E727413DF366F2715F950CD67E2135` | `VERIFIED_STABLE`, `dirty=false` | 빌드 해시 = 설치 `base.apk` 해시 |
+
+standalone은 4개 ABI(`armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64`)를 포함하고, Pixel Lock은 검증 기기용 `x86_64` 빌드다. 두 빌드는 동일 source snapshot에 바인딩됐다.
+
+### 24.3 Android Pixel Lock 재검증
+
+- 실행: `pnpm pixel:android`
+- 기기: `sdk_gphone64_x86_64`, Android 15
+- 해상도/밀도: `1080x2340` / `440`
+- 캡처: 설치 Android 앱의 `adb screencap`
+- 결과: **9/9 PASS**
+- 임계값: `<= 0.0500`
+- 최대 점수: `REP-001`의 `0.0474`
+- 보고서: `artifacts/pixel-lock/android/reports/latest.json`
+
+| 화면 | 점수 | 결과 |
+| --- | ---: | --- |
+| SPL-001 | 0.0295 | PASS |
+| HOME-001 | 0.0389 | PASS |
+| EXP-001 | 0.0000 | PASS |
+| ITEM-001 | 0.0172 | PASS |
+| ITEM-002 | 0.0443 | PASS |
+| REP-001 | 0.0474 | PASS |
+| FAM-001 | 0.0382 | PASS |
+| IMP-003 | 0.0442 | PASS |
+| SET-001 | 0.0142 | PASS |
+
+### 24.4 일반 standalone 사용자 흐름
+
+Pixel fixture 통과를 일반 화면 통과로 간주하지 않고 standalone APK를 별도로 설치해 확인했다.
+
+- 테스트 로그인 필수 동의 및 3단계 온보딩 완료
+- 일반 홈 진입
+- `release4-preparation-screen` 식별자가 있는 `Release4PreparationScreen` 준비 목록 렌더링 확인
+- `screen-EXP-004` 기록 탭에서 “지출 기록 추가” 진입
+- 일반 지출 입력 화면에서 빠른 품목, 분류별 품목, 금액, 저장 CTA 렌더링 확인
+- 비어 있거나 흰 Surface가 아닌 실제 React Native 화면임을 adb 캡처와 UI hierarchy로 확인
+- 증거: `artifacts/android/ordinary-flow`
+
+### 24.5 전체 Release Gate
+
+- 실행: `pnpm release:gate`
+- clean commit-bound 최초 재현: `2026-07-26T13:55:51.100Z`, 15/15 PASS
+- 디자인 토큰·검증 계약 변경 포함 최종 재현: `2026-07-26T14:23:40.256Z`, 15/15 PASS
+- 결과: **15/15 PASS**
+- 실패/timeout: `0`
+- 증거:
+  - `docs/qa/evidence/latest-release-gate.json`
+  - `docs/qa/evidence/latest-release-gate.md`
+
+Production dependency audit는 high 이상을 차단하는 현재 정책으로 PASS했다. 명령 출력에는 moderate 1건이 보고됐으므로 운영 출시 전 별도 의존성 정리 항목으로 유지한다.
+
+### 24.6 디자인 토큰 canonicalization
+
+- canonical version: `MOD_V1 / native-v1.0`
+- canonical palette: `#C94627 / #267A68 / #FFFDFC / #211E1C`
+- 갱신:
+  - `docs/dev/source-lock.md`
+  - `docs/dev/do-not-change.md`
+  - `apps/admin/app/page.tsx`
+  - `apps/mobile/src/design-system/release4-design-system.test.ts`
+- 검증:
+  - mobile design-system test 5/5 PASS
+  - admin rendered security test 1/1 PASS
+  - mobile/admin typecheck PASS
+
+### 24.7 현재 카탈로그 fail-closed 기준선
+
+- 실행 DB: 41개 migration과 현재 seed를 적용한 전용 fresh DB `wooriai_release4_fresh_verify`
+- canonical item: 409
+- `in_review`: 409
+- source evidence: 485 records / 409 items
+- source evidence status: 485 `draft`, independent capture+review 0
+- published: 0
+- product offer: 0
+- high-risk: 85
+- coverage covered/gap: 364 / 1,460
+- external review blocker: 1,460
+- `structuralCompleteness=true`
+- `publishedContentReady=false`
+- `scenarioPersonalizationReady=true`
+- 증거: `docs/qa/evidence/release4-catalog-audit.json`
+
+fresh DB 감사 명령은 구조 완전성 PASS로 종료 코드 0을 반환했다. 그러나 `publishedContentReady=false`이므로 제품의 운영 노출은 계속 fail-closed다. fixture 또는 미승인 품목을 운영 사용자에게 대신 노출하지 않는다.
+
+DB 검증 스크립트의 오래된 기대값도 현재 seed에 맞게 갱신했다.
+
+- fresh: canonical 409 / alias 3,287 / high-risk 85
+- Release 3 upgrade: canonical 410 / alias 3,288 / high-risk 85
+- `pnpm release4:verify-db`: fresh 41 migration 및 12→41 upgrade 모두 PASS
+
+### 24.8 다음 개발 설계 시작점
+
+P0의 clean commit·Gate·Pixel·standalone·디자인 토큰·catalog audit 재생성은 완료됐다. 다음 작업은 아래 순서로 설계한다.
+
+1. production application ID와 release signing 결정
+2. 카탈로그 editorial/safety approval workflow로 coverage gap과 게시 0건 해소
+3. 운영 OAuth/provider, production DB/storage/worker identity 결정
+4. 물리 Android 기기 회귀와 실제 provider·다중 사용자·네트워크 장애 검증
+5. 위 운영 기반이 확정된 뒤 다음 제품 Epic 착수
+
+---
+
+## 25. 2026-07-26 다음 개발 실행 결과
+
+이 절은 24절 기준선에서 실제로 다음 개발을 진행한 결과다. 내부에서 확정할 수 있는 계약·자동화·근거 연결은 구현했고, 사업자·스토어·운영 인프라·독립 검토자처럼 외부 권한이 필요한 값은 임의 생성하지 않고 fail-closed 상태로 분리했다.
+
+### 25.1 운영 출시 preflight
+
+현재 환경을 대상으로 `pnpm release:config`를 실행한 결과는 의도한 **FAIL**이다.
+
+- 결과: `FAIL`
+- 차단 항목: 46개
+- 주요 차단:
+  - Android package `com.anonymous.wooriai`
+  - 앱 버전 `0.0.0`
+  - production build profile 및 테스트 로그인/Pixel/dev auth 비활성화 미확정
+  - 운영 사업자·법적 문서·지원/상태 URL 미확정
+  - production API/PostgreSQL/Redis/object storage 미제공
+  - Kakao OAuth, push, recall, merchant provider 미제공
+  - Android release signing 설정·비밀 미제공
+  - production secret salt/token 미제공
+  - migration head 및 contract drift 운영 확인 미수행
+- 증거: `docs/qa/evidence/release3-production-config-gate.{json,md}`
+
+검증기 자체는 `pnpm release:config:fixture`에서 **PASS**했다. 따라서 현재 실패는 검사 로직 오류가 아니라 실제 운영값이 없다는 판정이다.
+
+`pnpm release5:external-readiness`도 다음 6개 영역을 모두 `EXTERNAL_BLOCKED`로 기록했다.
+
+1. 외부 staging core
+2. OAuth
+3. push
+4. recall
+5. merchant
+6. Android signing
+
+진단 증거에는 secret 값이 포함되지 않았고 `failClosed=true`다. 운영 application ID, 스토어 버전, keystore를 임의로 정하거나 생성하지 않았다. 이 값들은 한번 공개되면 변경 비용이 크고 조직 소유권에 영향을 주므로 승인된 운영 소유자가 확정해야 한다.
+
+### 25.2 카탈로그 구조화 출처 DB 연결
+
+도메인 원본에는 이미 항목별 근거 분류와 다음 4개 공개 출처가 연결돼 있었지만, 이전 seed는 이를 `item_evidence_sources`에 적재하지 않았다.
+
+- 20slab document
+- KICCE 육아물가지수 연구
+- CBRH checklist
+- CPSC Safe Sleep
+
+다음 변경으로 이 누락을 해소했다.
+
+- `release4CatalogEvidenceSources`에 안정적인 title/publisher metadata 추가
+- 각 canonical item의 `evidenceSourceIds`를 DB 근거 레코드로 idempotent 적재
+- 같은 item/source URL은 재시드해도 중복 생성하지 않음
+- 모든 seed 근거 상태는 `draft`
+- `capturedByAdminId`, `reviewedByAdminId` 및 승인 상태는 자동 설정하지 않음
+- 고위험 전문 검토 gate와 저자/검토자/게시자 분리는 그대로 유지
+
+fresh DB 실측:
+
+| 항목 | 결과 |
+| --- | ---: |
+| canonical item | 409 |
+| 출처가 연결된 item | 409 |
+| 전체 source record | 485 |
+| `draft` source record | 485 |
+| 독립 capture+review 완료 | 0 |
+| domain approval | 0 |
+| published | 0 |
+
+`scripts/verify-release4-databases.ts`는 위 485건과 `reviewed=0`을 계약으로 검증하고, fresh DB에서는 seed를 두 번 실행해 중복이 생기지 않는 것도 함께 확인한다.
+
+- fresh 41 migration: PASS
+- fresh seed 2회 idempotency: PASS
+- Release 3의 12 migration fixture → 41 migration upgrade: PASS
+- 증거: `docs/qa/evidence/release4-database-verification.json`
+
+### 25.3 저위험 카탈로그 12개 파일럿 큐
+
+`apps/api/scripts/release4c-evidence.ts`에 결정적 파일럿 선정기를 추가했다.
+
+선정 조건:
+
+1. `status=in_review`
+2. 구조·필수 metadata 완전
+3. `safetyTier=normal`
+4. 구조화 출처가 연결됨
+5. 중복 의심 없음
+6. onboarding priority 내림차순
+7. display order 및 code 오름차순
+
+실측 결과:
+
+- 정상 위험군 eligible: 321
+- 파일럿 목표: 12
+- 선정: 12
+- 상태: `CANDIDATES_PREPARED_EXTERNAL_APPROVAL_REQUIRED`
+- 자동 승인: 0
+- 자동 게시: 0
+
+선정 항목:
+
+1. 신생아 기저귀
+2. 신생아 욕조
+3. 후드형 아기 타월
+4. 신생아 배냇저고리
+5. 젖병
+6. 물티슈
+7. 아기 바디수트
+8. 아기 손톱가위
+9. 아기 바디 세정제
+10. 아기 보습제
+11. 목욕물 온도계
+12. 젖병 세척솔
+
+각 후보에는 아직 다음 차단이 남아 있다.
+
+- `REVISION_HASH_NOT_ESTABLISHED`
+- `EDITORIAL_APPROVAL_REQUIRED`
+- `DOMAIN_APPROVAL_REQUIRED`
+
+해시는 승인된 editor가 현재 revision을 워크플로에 올릴 때 확정해야 하며, seed가 가짜 작성자를 만들지 않는다. editorial/domain 승인은 서로 분리된 자격 보유자가 수행해야 한다.
+
+증거:
+
+- `docs/qa/evidence/release4c-catalog-review-inventory.json`
+- `docs/qa/evidence/release4c-catalog-pilot-plan.json`
+- `docs/5차/release4c-catalog-review-worklist.md`
+- `docs/5차/release4c-catalog-pilot-plan.md`
+
+fresh DB UUID는 운영 DB에서 재사용할 수 없으므로 증거와 파일럿 계획은 안정적인 item code를 식별자로 사용한다.
+
+### 25.4 coverage gap 판정
+
+coverage 1,824칸 중 현재 상태는 다음과 같다.
+
+- covered: 364
+- gap: 1,460
+- required gap: 422
+- 외부 applicability review 차단이 명시된 required gap: 422
+- 미분류 applicability: 0
+
+빈칸 수를 줄이기 위해 가짜 canonical item이나 근거 없는 `not_applicable` 판정을 생성하지 않았다. 우선 12개 파일럿에서 실제 검토 흐름을 완료한 뒤, 검토 결과를 근거로 lifecycle rule 또는 applicability decision을 확장한다.
+
+### 25.5 당시 검증 결과
+
+- 카탈로그 및 파일럿 단위 테스트: 11/11 PASS
+- API typecheck: PASS
+- scripts typecheck: PASS
+- lint: PASS
+- fresh/upgrade DB 검증: PASS
+- source evidence seed idempotency: PASS
+- production config fixture: PASS
+- 실제 production config: 46개 실값 차단으로 FAIL
+- external readiness: `EXTERNAL_BLOCKED`
+- 최종 local Release Gate: `2026-07-26T15:09:13.355Z`, 15/15 PASS, 실패 0, timeout 0
+
+최종 local Release Gate는 install, mobile dependency, env example, secret scan, production dependency audit, Prisma validate/generate, DB start, lint, typecheck, 전체 test, API E2E, Admin browser E2E, production build, peer dependency를 모두 포함한다. dependency audit는 high 이상 차단 정책에서 PASS했지만 moderate 1건은 계속 별도 운영 부채로 남긴다.
+
+### 25.6 다음 외부 실행 입력
+
+현재 코드만으로 더 진행하면 운영 정보를 추측하거나 독립 승인 원칙을 위반하게 된다. 다음 실행을 위해 필요한 입력은 아래와 같다.
+
+1. 승인된 Android application ID와 스토어 버전
+2. 조직 소유 release signing keystore/alias 및 secret 주입 경로
+3. 운영 사업자 정보와 privacy/terms/support/status HTTPS URL
+4. production API·PostgreSQL·Redis·object storage endpoint/credential
+5. Kakao OAuth, push, recall, merchant provider credential
+6. 파일럿 12개 revision 작성자와 editorial/domain 검토자 계정
+7. 고위험 85개를 위한 독립 전문 safety reviewer와 만료일이 있는 근거
+
+이 입력이 제공되면 다음 순서는 `production config PASS → signed AAB → 12개 파일럿 승인/게시 → staging smoke → 물리 Android 회귀 → store 제출`이다.
+
+---
+
+## 26. 2026-07-27 카탈로그 파일럿 런타임 게이트 완성
+
+25절의 결정적 12개 후보 계획을 실제 관리자 승인·발행 경로와 대조한 결과, 기존 `Release5ReadinessService`에는 정상 워크플로로 승인된 항목을 파일럿에 넣을 수 없는 상태 모순이 있었다.
+
+- 기존 준비 목록은 `status=in_review`만 조회했다.
+- 정상 editorial/domain 검토를 마친 저위험 항목의 상태는 `approved`다.
+- 따라서 실제 승인 완료 항목은 준비 목록에서 사라지고, 정상 경로로는 `ready=true`가 될 수 없었다.
+- 기존 테스트는 `in_review` 항목에 승인 레코드를 직접 넣은 불가능한 상태를 사용한 뒤, manifest 생성 후 상태를 수동 변경해 이 문제를 가렸다.
+
+### 26.1 준비 목록 fail-closed 계약
+
+준비 목록을 실제 상태 전이와 맞추고 다음 조건을 모두 실시간 검증하도록 수정했다.
+
+1. 후보 상태는 `in_review` 또는 `approved`
+2. 파일럿 안전 등급은 정확히 `normal`
+3. `reasonText`, `timingSummary`, `sourceSummary` 존재
+4. primary category 정확히 1개
+5. lifecycle rule 1개 이상
+6. 현재 revision의 유효한 source evidence 존재
+7. evidence capture와 review 담당자가 서로 다름
+8. 현재 revision/hash의 editorial 승인 존재
+9. 현재 revision/hash의 domain 승인 존재
+10. 두 승인자의 계정과 해당 reviewer credential이 활성·미만료
+11. editorial 승인자와 domain 승인자가 서로 다름
+12. item 상태가 최종적으로 `approved`
+
+관리자 Release 5 화면에는 아래 누락 수를 개별 표시한다.
+
+- 승인 상태 전
+- 구조 누락
+- 근거 누락
+- editorial 승인 누락
+- domain 승인 누락
+- 승인자 분리 누락
+
+manifest 선택 목록에는 위 조건을 모두 만족한 `ready=true` 항목만 나타난다.
+
+### 26.2 manifest preview 무결성
+
+- 빈 manifest는 DTO와 서비스 양쪽에서 거부한다.
+- 요청 항목은 1개 이상 50개 이하의 UUID여야 한다.
+- 요청 항목 중 하나라도 준비 조건을 만족하지 않으면 manifest 전체를 거부한다.
+- preview에는 각 item의 `id`, `revision`, `contentHash`를 고정하고 전체 SHA-256을 저장한다.
+- 요청하지 않은 ready 항목을 암묵적으로 포함하지 않는다.
+
+### 26.3 발행 순간 재검증
+
+preview 통과를 발행 권한으로 간주하지 않는다. 단일 DB transaction 안에서 다음을 다시 확인한다.
+
+- manifest 상태와 요청 SHA-256의 CAS claim
+- 저장 JSON 형식, 행 수, UUID 중복, revision, content hash 형식
+- 저장 행에서 다시 계산한 manifest SHA-256
+- 저장 `itemIds`와 행 순서·내용의 정확한 일치
+- publisher가 활성 admin인지 여부
+- item의 승인 상태, exact revision/hash, normal safety tier
+- 필수 metadata, primary category, lifecycle
+- 독립 capture/review 및 유효기간·재검토 기한을 만족한 현재 evidence
+- editorial/domain 승인 유효기간
+- 승인자 계정과 각 승인 유형의 reviewer credential
+- editorial/domain 승인자 상호 분리
+- 작성자·evidence 담당자·승인자와 publisher의 분리
+
+어느 하나라도 preview 이후 변경되면 transaction 전체가 rollback되고 manifest는 `preview` 상태로 남는다. 성공한 경우에만 모든 항목이 `published`로 전환되고 manifest가 `applied`가 된다.
+
+### 26.4 회귀 검증
+
+2026-07-27에 다음 검증을 재실행했다.
+
+| 검증 | 결과 |
+| --- | --- |
+| API typecheck | PASS |
+| Admin typecheck | PASS |
+| Release 5 readiness/safety DB 통합 | 2 files / 21 tests PASS |
+| Admin 단위·렌더 계약 | 8 files / 36 tests PASS |
+| Release 5 관리자 실제 브라우저 | 1 file / 2 tests PASS |
+| 전체 local Release Gate | 16/16 PASS, failure/timeout 0 |
+
+최종 Gate 증거 생성 시각은 `2026-07-26T15:56:15.746Z`이며 한국 시간으로 2026-07-27이다.
+
+- `docs/qa/evidence/latest-release-gate.json`
+- `docs/qa/evidence/latest-release-gate.md`
+- All tests: PASS
+- API E2E: PASS
+- Admin browser E2E: PASS
+- Production builds: PASS
+- Production dependency audit: high 차단 정책 PASS
+- Isolated catalog audit: PASS
+
+DB 통합 테스트는 정상 승인 항목의 `ready=true`와 함께 다음 fail-closed 회귀를 포함한다.
+
+- 승인 전 항목
+- 구조 누락
+- self-reviewed evidence
+- 만료·재검토 기한 경과 evidence
+- 같은 editorial/domain 승인자
+- 비활성 reviewer credential
+- manifest JSON/hash 불일치
+- preview 이후 evidence 노후화
+- publisher 참여자 분리 위반
+- 모든 조건 복구 후 transactional publish 성공
+
+### 26.5 현재 운영 경계
+
+이 구현은 12개 후보를 실제로 승인하거나 게시하지 않았다.
+
+- seed evidence: 485건 모두 `draft`
+- 독립 검토 완료 evidence: 0
+- editorial/domain approval: 0
+- published item: 0
+- 운영 application ID/signing/infrastructure/provider/legal 입력: 미제공
+
+따라서 제품 노출은 계속 fail-closed이며, 코드 내부에서 가능한 파일럿 런타임 경로는 준비됐지만 실제 운영 진행에는 25.6의 외부 소유자 입력과 독립 검토가 필요하다.
+
+---
+
+## 27. 2026-07-27 카탈로그 감사 실행 환경 격리
+
+목표 종결 감사에서 `pnpm catalog:audit`를 기본 환경으로 다시 실행했을 때 Prisma `P2022`가 발생했다.
+
+- 직접 원인: 현재 Prisma 모델이 요구하는 catalog 컬럼과 오래된 로컬 `wooriai_dev` 실스키마의 불일치
+- 기존 동작: 명시적 `DATABASE_URL`이 없으면 mutable 개발 DB를 암묵적으로 감사
+- 위험: 개발 DB drift를 현재 소스의 catalog 상태로 오판하거나, 감사 자체가 실행 환경에 따라 실패
+- 제외한 조치: 소유자 데이터가 있을 수 있는 `wooriai_dev` reset 또는 강제 재구축
+
+### 27.1 수정된 기본 감사 경로
+
+`scripts/run-catalog-audit.ts`를 다음 계약으로 변경했다.
+
+1. 명시적 `DATABASE_URL`이 있으면 지정 DB를 그대로 감사
+2. 없으면 전용 `wooriai_catalog_audit_verify` DB 사용
+3. 전용 DB 이름을 고정해 광범위한 DB 삭제 방지
+4. 현재 41개 migration 전체 적용
+5. 현재 seed 적용
+6. catalog audit 실행 및 증거 생성
+7. 성공·실패와 무관하게 `finally`에서 전용 DB 강제 제거
+8. `wooriai_dev`는 읽거나 reset하지 않음
+
+Release 5/5V 증거 생성기의 오래된 “default audit는 명시적 DB가 필요하다” 항목도 격리 실행 경로가 구현된 상태로 갱신했다.
+
+### 27.2 재검증 결과
+
+- `pnpm typecheck:scripts`: PASS
+- `pnpm catalog:audit`: PASS
+- `pnpm release:gate`: 16/16 PASS
+- migration: 41/41 적용
+- 감사 DB seed: PASS
+- 감사 DB 사후 존재 수: 0
+- catalog 증거 생성: `2026-07-26T15:46:47.832Z`
+- 전체 Gate 증거 생성: `2026-07-26T15:56:15.746Z`
+
+현재 소스에서 다시 생성한 catalog 상태:
+
+| 항목 | 결과 |
+| --- | ---: |
+| canonical item | 409 |
+| `in_review` | 409 |
+| evidence source | 485 |
+| `draft` evidence | 485 |
+| 독립 capture/review evidence | 0 |
+| high-risk | 85 |
+| product offer | 0 |
+| published | 0 |
+| coverage covered/gap | 364 / 1,460 |
+| 외부 review blocker | 1,460 |
+| structural completeness | PASS |
+| published content ready | FAIL |
+| scenario personalization | PASS |
+
+증거: `docs/qa/evidence/release4-catalog-audit.json`
+
+이 수정으로 기본 감사 명령의 환경 drift 문제는 해결됐다. 그러나 실제 evidence review·editorial/domain approval·publication은 외부 자격 보유자가 수행해야 하므로 운영 catalog는 계속 fail-closed다.

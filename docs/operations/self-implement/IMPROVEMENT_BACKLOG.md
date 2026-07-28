@@ -1,17 +1,24 @@
 # WooriAI Local Improvement Backlog
 
-Priority follows the attached Local-First v2.0 contract. Implemented structure, installed-runtime proof, and external qualification remain separate.
+갱신: 2026-07-27
 
-| ID | Problem | User impact | Evidence | Exit condition | Score | Status |
-| --- | --- | --- | --- | --- | ---: | --- |
-| SI-001 | An edit appended during an active create flush could remain pending | Latest expense could fail to reach the server until another trigger | RED expected 2 calls but got 1; fixed suite and installed APK stable | sequential follow-up drain, outbox empty, final row synced | 43 | DONE |
-| SI-006A | Native Gradle builds ran from repo root and could bypass `apps/mobile/metro.config.js` | APK source/profile validation could report a bundle produced under the wrong Metro ownership | RED native-root regression; old/new Hermes hashes; source-bound clean APK | all native builders use mobile root; report parity; source-bound installed APK | 41 | DONE |
-| SI-006B | Startup graph owned fixture/catalog/offline and unrelated secure-draft work | Users can interpret the splash interval as a close or frozen app | source graph reduced; 476/476 mobile tests; release 15/15; current-source installed fatal 0; current AVD GPU timings remain compositor-dependent | five HOME timings on a healthy physical-device compositor, then marker-led optimization if still slow | 39 | PARTIAL / DEVICE_BLOCKED |
-| SI-002 | Ambient shell Node/pnpm differed from the repository contract | Wrong runtime could remove dependencies or interrupt verification | repository now pins pnpm 11.9.0; Node 25.2.1/pnpm 11.9.0 completed release 15/15, Android builds, and installed runtime proof | pinned package-manager contract and CI compatibility gate stay green | 14 | DONE |
-| SI-003 | Delta pull does not persist/use a cursor and relies on query invalidation | Large/offline datasets lack direct delta-convergence proof | `getSyncChanges(token)` ignores cursor/body in the current lifecycle | persisted cursor plus tombstone application and convergence regression | 18 | DEFERRED |
-| SI-004 | Current APK uses debug signing/version 0.0.0; physical/TalkBack not run | It cannot be called a production or store candidate | native audit and AVD provenance | production signing/version/API decision plus physical-device qualification | 7 | EXTERNAL_BLOCKED |
-| SI-005 | Legacy 4-tab Pixel references conflict with the current 5-tab redesign | Visual scores can be invalid or misleading | AGENTS reference contract versus current installed UI | user-approved current-design references and threshold migration | 10 | BLOCKED |
+| ID | 현재 결과 | 검증 | 상태 |
+| --- | --- | --- | --- |
+| SI-001 | offline create flush 중 추가 edit도 순차 drain | sync engine/store tests | DONE |
+| SI-002 | pnpm 11.9.0 고정, 현재 Node/pnpm에서 전체 Gate | Release Gate 16/16 | DONE |
+| SI-003 | household-scoped v2 cursor, persisted continuation, tombstone reconciliation | API sync cursor/E2E + mobile delta runner/reconciliation | DONE |
+| SI-004 | production identity/signing/device | config preflight와 artifact provenance | EXTERNAL_BLOCKED |
+| SI-005 | 5탭 current-design Pixel 계약 | adb 설치 캡처 9/9 | DONE |
+| SI-006A | mobile-owned Metro/build source 경계 | clean source-bound APK와 installed hash parity | DONE |
+| SI-006B | startup module graph 축소·안정성 | source regression, 설치 fatal 0 | INTERNAL DONE / DEVICE PERFORMANCE BLOCKED |
+| SI-007 | 기본 catalog audit가 drifted dev DB에 의존 | 격리 41-migration DB audit, 사후 DB 0 | DONE |
+| SI-008 | catalog 파일럿 정상 승인 상태가 worklist에서 제외 | DB 통합 21 tests, Admin browser, manifest publish CAS | DONE |
 
-## SI-006 experiment decision
+## 외부 우선순위
 
-Global `inlineRequires` remains rejected. Dynamic fixture/client candidates and granular domain loading passed source tests, but candidate AVD timings were not accepted as improvements. The final source retains only explicit, test-protected module ownership boundaries. The final AVD process is stable, but its compositor produced 4.95-second GPU frames, so latency remains unqualified rather than failed or passed.
+1. production application ID/version/signing
+2. 운영 PostgreSQL/Redis/object storage와 backup/restore
+3. OAuth/push/recall/merchant/monitoring
+4. 12개 catalog 파일럿 독립 검토·게시
+5. 물리 Android/TalkBack과 iOS core loop
+6. Play internal track 및 단계적 rollout

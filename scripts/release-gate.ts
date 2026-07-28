@@ -62,6 +62,14 @@ const gateCommands: GateCommand[] = [
     env: { DATABASE_URL: devDatabaseUrl }
   },
   { id: "db-start", label: "Database up", display: "pnpm db start", command: "pnpm", args: ["db", "start"], timeoutMs: 3 * 60_000 },
+  {
+    id: "catalog-audit",
+    label: "Isolated catalog audit",
+    display: "pnpm catalog:audit",
+    command: "pnpm",
+    args: ["catalog:audit"],
+    timeoutMs: 5 * 60_000
+  },
   { id: "lint", label: "ESLint", display: "pnpm lint", command: "pnpm", args: ["lint"], timeoutMs: 5 * 60_000 },
   { id: "typecheck", label: "Typecheck", display: "pnpm typecheck", command: "pnpm", args: ["typecheck"], timeoutMs: 10 * 60_000 },
   {

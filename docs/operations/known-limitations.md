@@ -1,43 +1,40 @@
 # 알려진 한계 (Known Limitations)
 
-갱신: 2026-07-24 · 브랜치: codex/sprint2-catalog-payments
+갱신: 2026-07-27 · 브랜치: `codex/sprint2-catalog-payments`
 
-라운드 4에서 해소된 항목은 제거했다. 남은 것은 (A) 외부 계정·키가 필요한 항목, (B) 위험도 낮은 후속 개선이다.
+## 해결된 주요 로컬 한계
 
-## 라운드 4에서 해소됨 (참고)
+- PostgreSQL/Prisma 영속화와 41개 migration fresh/upgrade 검증
+- refresh token 회전·재사용 차단, Admin MFA/RBAC/CSRF/CSP
+- CSV/XLSX 실제 파싱과 preview-before-save
+- offline delta v2 cursor, tombstone, household scope, persisted reconciliation
+- 5탭 Android Pixel Lock 설치 캡처 9/9
+- 기본 catalog audit의 mutable dev DB 의존 제거
+- 저위험 catalog 파일럿 승인·manifest·transactional publish runtime
 
-- ~~PostgreSQL 영속화~~ → 전 도메인 Prisma 전환 완료, 재시작 후 데이터 유지 검증.
-- ~~refresh 토큰 무효화/회전 없음~~ → hash 저장·1회용 회전·재사용 시 family 전체 무효화·동시 사용 CAS 차단.
-- ~~관리자 공용 토큰~~ → email/password + RBAC(admin/editor/analyst) + 감사 로그. 공용 토큰은 dev/test 전용.
-- ~~AI 임포트 스텁·파일 피커 미구현~~ → expo-document-picker + multipart 업로드 + 서버 실 CSV/XLSX 파싱(CP949, formula injection 방어, 중복 후보 탐지).
-- ~~Idempotency-Key 미처리~~ → 지출 생성·예산·import 승인에 적용.
-- ~~감사 로그 인메모리 휘발~~ → audit_logs 테이블 영속화.
-- ~~카테고리 리포트 전체 기간 고정~~ → 서버 기간 파라미터 지원.
-- ~~토큰 평문 AsyncStorage~~ → SecureStore + 1회 마이그레이션. 콜드 스타트 세션 복원 결함도 수정.
-- rate limit·security headers·body 제한·구조화 로깅·health/readiness 추가.
+## A. 외부 소유자 입력
 
-## A. 외부 계정·키·계약 (코드로 해결 불가)
+| 항목 | 현재 영향 | 해제 조건 |
+| --- | --- | --- |
+| Android identity/signing | 내부 debug APK만 존재 | application ID/version/keystore 승인 |
+| 실제 OAuth | mock/local만 검증 | Kakao 등 console 설정과 live credential |
+| 운영 DB/Redis/storage | local 계약만 검증 | endpoint/credential, migrate, backup/restore |
+| push/recall/merchant | live smoke 불가 | provider credential과 webhook/health |
+| catalog 승인 | 409 in_review, 게시 0 | 독립 editorial/domain/safety review |
+| 법적 운영자·스토어 | 제출 불가 | privacy/terms/support/status, listing/labels |
+| monitoring | 운영 SLO 미검증 | dashboard/alert/crash provider |
+| 물리 Android/iOS | 실제 성능·접근성 미확정 | 기기와 signing/build 환경 |
 
-| 항목 | 영향 | 필요한 사용자 조치 |
-|---|---|---|
-| 실 Kakao/Apple/Google OAuth | 실 소셜 로그인 불가. dev provider는 dev/test 한정, production은 501 | OAuth 콘솔 키 발급 → env 설정 + provider 토큰 검증 어댑터에 실 구현 연결 |
-| 운영 PostgreSQL | 로컬 docker/포터블로만 검증됨 | 운영 `DATABASE_URL` 주입 후 `prisma migrate deploy` |
-| 릴리즈 서명 keystore | debug keystore 서명 → 스토어 배포 불가 | keystore 발급 + Gradle signingConfig 연결 |
-| applicationId `com.anonymous.wooriai` | 스토어 등록 부적합 | 실제 패키지명으로 변경(native 재빌드) |
-| 실 제휴 링크 | 시드는 비제휴 dev 샘플 | 제휴 계약 + 관리자 CMS에서 실 URL 등록 |
-| 크래시·성능 모니터링 | 구조화 로그만 존재 | Sentry 등 SDK 키 연동 |
-| 푸시 알림 | 알림 화면은 정직한 빈 상태 | FCM 계정 + push provider 연동 |
-| 법적 운영자 정보 | 정책 문구 placeholder | 실 사업자 정보로 교체 |
+## B. 낮은 위험의 후속 개선
 
-## B. 후속 개선 (위험도 낮음)
+- `idempotency_keys` TTL 만료 행의 운영 스케줄 정리
+- secondary route의 Design System 직접 사용 비율 확대
+- 다크모드 강제 기기, 큰 글꼴, 노치/safe-area 반복 검증
+- 운영 catalog 게시 후 실제 offer health/가격/빈 상태 UX 측정
 
-- 준비템 탭 기본 선택이 고정 "12-24개월"(픽셀락 승인 화면 기준) — 아이 단계 연동은 디자인 승인 후.
-- idempotency_keys 만료 행 정리는 로그인 시 refresh 토큰 정리와 달리 스케줄러 미구현 (24h TTL 필드는 존재).
-- 도넛 원호 근사 표현(범례 %는 실데이터), `isValidCalendarDate` 로컬 복제.
-- 관리자 계정 관리 API 미구현 — 계정 추가/역할 변경은 seed 또는 DB 직접 조작.
-- 대화형 알림/온보딩 이어하기 등 P1 항목 일부는 후속 라운드.
+## C. 증거 경계
 
-## C. 런타임 재검증이 남은 항목
-
-- 노치/펀치홀 Safe Area, 큰 글꼴, 다크모드 강제 기기.
-- 실기기(비에뮬레이터) 설치 검증.
+- Release Gate 16/16은 로컬 구현·테스트·빌드 증거이며 운영 배포 증거가 아니다.
+- Android Pixel 9/9는 emulator 설치 앱 증거이며 물리기기/스토어 증거가 아니다.
+- 구조화 catalog 409개와 evidence 485건은 승인·게시를 뜻하지 않는다.
+- fixture 통과는 일반 사용자 경로 또는 실제 provider 통과를 대신하지 않는다.

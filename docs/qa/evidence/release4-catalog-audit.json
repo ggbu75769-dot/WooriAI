@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-20T16:13:27.700Z",
-  "sourceHead": "46c5d55584d8b839600d0198ac7e28a242cae69f",
+  "generatedAt": "2026-07-26T15:46:47.832Z",
+  "sourceHead": "edaf1f3850ac1f66055440eb04b51445d5ae4069",
   "database": "DATABASE_URL target (credentials redacted)",
   "counts": {
     "catalogNodesByDepth": {
@@ -15,6 +15,12 @@
     },
     "publishedContentPercentage": 0,
     "aliases": 3287,
+    "evidenceSources": 485,
+    "itemsWithEvidence": 409,
+    "evidenceSourceStatuses": {
+      "draft": 485
+    },
+    "independentlyCapturedAndReviewedEvidenceSources": 0,
     "productOffers": 0,
     "itemsWithoutOffers": 409,
     "highRiskItems": 85,

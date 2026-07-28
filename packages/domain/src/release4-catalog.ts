@@ -386,10 +386,34 @@ export type Release4CatalogItem = {
 export const release4CatalogAuditVersion = "preparation-necessity-v2-2026-07-20" as const;
 
 export const release4CatalogEvidenceSources = {
-  "20slab_mentions": { sourceType: "popularity_proxy", url: "https://www.20slab.org/Archives/GetFileStream/38640", checkedAt: "2026-07-20" },
-  "kicce_basket": { sourceType: "public_research", url: "https://repo.kicce.re.kr/bitstream/2019.oak/799/2/KICCE%20%EC%9C%A1%EC%95%84%EB%AC%BC%EA%B0%80%EC%A7%80%EC%88%98%20%EC%97%B0%EA%B5%AC%28%E2%85%A3%29.pdf", checkedAt: "2026-07-20" },
-  "cbrh_checklist": { sourceType: "hospital_checklist", url: "https://www.cbrh.or.kr/upload/faq/1766130175789_272.pdf", checkedAt: "2026-07-20" },
-  "cpsc_safe_sleep": { sourceType: "safety_guidance", url: "https://www.cpsc.gov/SafeSleep", checkedAt: "2026-07-20" }
+  "20slab_mentions": {
+    sourceType: "popularity_proxy",
+    title: "20slab document 38640",
+    publisher: "20slab",
+    url: "https://www.20slab.org/Archives/GetFileStream/38640",
+    checkedAt: "2026-07-20"
+  },
+  "kicce_basket": {
+    sourceType: "public_research",
+    title: "KICCE 육아물가지수 연구(Ⅳ)",
+    publisher: "육아정책연구소",
+    url: "https://repo.kicce.re.kr/bitstream/2019.oak/799/2/KICCE%20%EC%9C%A1%EC%95%84%EB%AC%BC%EA%B0%80%EC%A7%80%EC%88%98%20%EC%97%B0%EA%B5%AC%28%E2%85%A3%29.pdf",
+    checkedAt: "2026-07-20"
+  },
+  "cbrh_checklist": {
+    sourceType: "hospital_checklist",
+    title: "CBRH checklist document 272",
+    publisher: "CBRH",
+    url: "https://www.cbrh.or.kr/upload/faq/1766130175789_272.pdf",
+    checkedAt: "2026-07-20"
+  },
+  "cpsc_safe_sleep": {
+    sourceType: "safety_guidance",
+    title: "CPSC Safe Sleep",
+    publisher: "U.S. Consumer Product Safety Commission",
+    url: "https://www.cpsc.gov/SafeSleep",
+    checkedAt: "2026-07-20"
+  }
 } as const;
 
 export type PreparationTimelineRankInput = {
@@ -706,7 +730,14 @@ export const release4CatalogEditorialAudit = release4CatalogItems.map((item) => 
   judgement: Release4CatalogItem["necessity"] | "optional_search_only";
   applicableContextCodes: readonly CatalogScenarioCode[];
   evidenceClass: Release4CatalogItem["evidenceClass"];
-  sources: readonly { sourceId: keyof typeof release4CatalogEvidenceSources; sourceType: string; url: string; checkedAt: string }[];
+  sources: readonly {
+    sourceId: keyof typeof release4CatalogEvidenceSources;
+    sourceType: string;
+    title: string;
+    publisher: string;
+    url: string;
+    checkedAt: string;
+  }[];
   confidence: "high" | "medium" | "low";
   checkedAt: string;
 }[];

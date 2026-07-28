@@ -1,26 +1,38 @@
 # WooriAI Local Self-Implement Blockers
 
-## BLK-001 / Production Android qualification
+갱신: 2026-07-27
 
-- Classification: `EXTERNAL_DEPENDENCY`
-- Impact: production/store PASS cannot be claimed.
-- Evidence: the current source-bound APK is `debug-internal-only`, version `0.0.0`; physical device and TalkBack are NOT RUN.
-- Unblock: production signing/version/API profile decision plus a physical Android/TalkBack-capable device.
-- Allowed progress: local source, automated tests, clean APK audit, and isolated AVD internal qualification.
+## BLK-001 / Production Android identity·signing
 
-## BLK-002 / Current-design Pixel reference governance
+- 분류: `EXTERNAL_DEPENDENCY`
+- 현재: `com.anonymous.wooriai`, `0.0.0`, 내부 debug signing
+- 영향: production AAB, Play internal track, store 판정 불가
+- 해제: 승인된 application ID/versionCode/semver와 조직 소유 keystore/secret 경로
 
-- Classification: `CONTRACT_CONFLICT`
-- Impact: legacy 9-screen Pixel scores cannot qualify the current 5-tab HTML redesign.
-- Evidence: AGENTS references preserve the older 4-tab surface while the installed current UI has 5 tabs; prior provenance marks the old visual gate invalid for this surface.
-- Unblock: user-approved current-design reference set and threshold migration.
-- Allowed progress: functional/native crash/persistence evidence; no visual Pixel PASS claim.
+## BLK-002 / Pixel reference governance — 해결
 
-## BLK-003 / Startup performance physical-device baseline
+- 분류: `RESOLVED`
+- 현재 계약: 5탭 `홈 / 기록 / 준비템 / 리포트 / 더보기`
+- 증거: 설치 Android 앱 adb screencap 9/9, 모든 점수 `<= 0.0500`
+- 잔여: 물리기기 회귀는 별도 외부 gate
 
-- Classification: `EXTERNAL_DEPENDENCY`
-- Impact: AVD timing proves the current delay and regression direction but cannot certify production-device startup performance.
-- Evidence: final API 35 AVD HOME 5/5 at 11.60–13.39 seconds; fatal 0; global inline-requires experiment was worse.
-- Unblock: supported physical Android device plus release-profile signing/API decision.
-- Allowed progress: instrument and optimize the measured JS/session/store owner locally, retain AVD regression evidence, and keep physical status NOT_RUN.
+## BLK-003 / Physical Android·iOS qualification
 
+- 분류: `EXTERNAL_DEPENDENCY`
+- 현재: Android emulator 내부 증거만 존재, iOS native build/install 없음
+- 영향: 실제 startup, TalkBack, safe area, 큰 글꼴, 실제 GPU 성능과 iOS 핵심 loop 미확정
+- 해제: 지원 물리 Android/TalkBack 기기와 iOS signing/build 환경
+
+## BLK-004 / Production services
+
+- 분류: `EXTERNAL_DEPENDENCY`
+- 현재: `pnpm release:config` 46개 차단, external readiness 6영역 `EXTERNAL_BLOCKED`
+- 필요: production DB/Redis/storage, OAuth, push, recall, merchant, monitoring, legal URL/사업자 정보
+- 원칙: credential 값은 증거에 기록하지 않고 secret storage로 주입
+
+## BLK-005 / Catalog authorization
+
+- 분류: `EXTERNAL_APPROVAL`
+- 현재: 409개 `in_review`, 485개 evidence 모두 `draft`, 독립 검토 0, 게시 0
+- 내부 완료: 12개 결정적 저위험 파일럿 큐, 승인자 분리, manifest 무결성, 발행 시 재검증
+- 해제: 실제 작성자·editorial/domain 검토자·publisher와 고위험 전문 검토 근거

@@ -7,6 +7,7 @@ import {
   release4CatalogItems,
   release4CatalogAuditVersion,
   release4CatalogEditorialAudit,
+  release4CatalogEvidenceSources,
   release4CatalogMetrics,
   release4CatalogNodes,
   release4SearchAcceptanceCorpus,
@@ -94,6 +95,12 @@ describe("Release 4 canonical catalog", () => {
       evidenceClass: "safety_guidance",
       confidence: "medium"
     });
+    expect(Object.values(release4CatalogEvidenceSources).every((source) =>
+      source.title.length > 0 &&
+      source.publisher.length > 0 &&
+      source.url.startsWith("https://") &&
+      source.checkedAt === "2026-07-20"
+    )).toBe(true);
   });
 
   it("shares one deterministic server/local ranking comparator without commerce inputs", () => {

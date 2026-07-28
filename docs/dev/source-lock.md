@@ -3,7 +3,8 @@
 Batch: 00 - Source Lock  
 Task IDs: BOOT-001, DOC-001  
 Created: 2026-07-06  
-Status: Source locked for Batch 01 bootstrap. No product feature implementation has been performed in this batch.
+Governance update: 2026-07-26
+Status: Historical Batch 00 source lock with current-repository governance overlays.
 
 ## 1. Purpose
 
@@ -13,7 +14,15 @@ Batch 00 is documentation-only. It compares the current handoff package with the
 
 ## 2. Authoritative Priority
 
-When documents conflict, use this order:
+For the current repository, use this order:
+
+1. `AGENTS.md`
+2. `docs/operations/current-development-status-and-next-design-baseline-2026-07-26.md`
+3. current implementation, executable contract tests, and current Android Pixel Lock reference
+4. `docs/MOD_V1/*`
+5. the historical Phase 1-4 priority below for product rules not superseded by a current-repository decision
+
+Historical Phase 1-4 priority:
 
 1. `docs/4차/prompts/04_do_not_change_v0_4.md`
 2. `docs/4차/contracts/do_not_change_contract_v0_4.yaml`
@@ -139,23 +148,33 @@ Bottom tabs are fixed as `홈 / 기록 / 준비템 / 리포트 / 더보기`.
 | `ADM-003` | 관리자 | 상품 링크 관리 | P0 내부 |
 | `ADM-004` | 관리자 | 고지/정책 문구 관리 | P0 내부 |
 
-## 8. Locked Design Tokens
+## 8. Canonical Design Tokens
 
-From Phase 2:
+Current canonical version: `MOD_V1 / native-v1.0`
+Approved: 2026-07-26
 
-- Primary 500: `#FF8A7A`
-- Primary 100: `#FFE6E0`
-- Secondary 500: `#7DDCC7`
-- Background: `#FFF8F1`
+- Primary/action: `#C94627`
+- Primary 100: `#FFE4D8`
+- Secondary/action support: `#267A68`
+- Canvas/background: `#FFFDFC`
 - Surface: white cards/input/bottom sheet surfaces
-- Text Primary: `#242424`
-- Text Secondary: `#7A7A7A`
-- Success: `#3DBE7E`
-- Warning: `#FFB020`
-- Danger: `#EF4444`
+- Text Primary: `#211E1C`
+- Text Secondary: `#5F5854`
+- Success: `#16794B`
+- Warning: `#B45309`
+- Danger: `#B42318`
 - Primary CTA recommended height: `56px`
-- Key touch targets: `44px+`
+- Key touch targets: `48px+`
 - Affiliate disclosure: caption near CTA, never hidden or minimized beyond usability.
+
+Implementation sources:
+
+- `apps/mobile/src/theme.ts`
+- `apps/mobile/src/design-system/tokens/color.ts`
+- `apps/mobile/src/design-system/tokens/{spacing,radius,typography,motion,icon}.ts`
+- current Android Pixel Lock reference and gate
+
+Legacy Phase 2 colors `#FF8A7A / #FFF8F1 / #242424` remain historical migration references only. They are not the canonical values for new implementation or visual review.
 
 ## 9. Locked DB Contract Summary
 

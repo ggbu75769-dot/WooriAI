@@ -142,6 +142,9 @@ describe("Release 5 reviewed safety alternatives", () => {
     if (approvalIds.length) {
       await prisma.catalogItemApproval.deleteMany({ where: { id: { in: approvalIds.splice(0) } } });
     }
+    await prisma.catalogReviewerCredential.deleteMany({
+      where: { adminId: { in: [capturerId, reviewerId, activatorId, otherAdminId].filter(Boolean) } }
+    });
     if (childId) await prisma.child.deleteMany({ where: { id: childId } });
     if (householdId && userId) {
       await prisma.householdMember.deleteMany({ where: { householdId, userId } });
@@ -152,7 +155,11 @@ describe("Release 5 reviewed safety alternatives", () => {
       await prisma.itemDefinition.deleteMany({ where: { id: { in: [sourceItemId, alternativeItemId].filter(Boolean) } } });
     }
     if (readinessItemIds.length) {
-      await prisma.itemDefinition.deleteMany({ where: { id: { in: readinessItemIds.splice(0) } } });
+      const ids = readinessItemIds.splice(0);
+      await prisma.catalogItemWorkflowEvent.deleteMany({ where: { itemDefinitionId: { in: ids } } });
+      await prisma.itemDefinitionCategory.deleteMany({ where: { itemDefinitionId: { in: ids } } });
+      await prisma.itemLifecycleRule.deleteMany({ where: { itemDefinitionId: { in: ids } } });
+      await prisma.itemDefinition.deleteMany({ where: { id: { in: ids } } });
     }
     await prisma.adminUser.deleteMany({ where: { email: { startsWith: marker } } });
 
@@ -222,11 +229,32 @@ describe("Release 5 reviewed safety alternatives", () => {
         contentHash,
         reviewedAt: new Date(),
         reviewedByAdminId: reviewerId,
-        status: "in_review",
+        status: "approved",
         displayOrder: 99_993
       }
     });
     readinessItemIds.push(item.id);
+    const primaryNode = await prisma.catalogNode.findFirstOrThrow({
+      where: { level: "subcategory", active: true },
+      orderBy: { code: "asc" }
+    });
+    await prisma.itemDefinitionCategory.create({
+      data: {
+        itemDefinitionId: item.id,
+        catalogNodeId: primaryNode.id,
+        isPrimary: true,
+        displayOrder: 10
+      }
+    });
+    await prisma.itemLifecycleRule.create({
+      data: {
+        itemDefinitionId: item.id,
+        axis: "child",
+        lifecycleCode: "newborn_0_3m",
+        timingText: "테스트 시기",
+        priorityWeight: 100
+      }
+    });
     const evidence = await readiness.createEvidence(capturerId, item.id, {
       sourceType: "official",
       title: "준비 상태 공식 근거",
@@ -239,16 +267,33 @@ describe("Release 5 reviewed safety alternatives", () => {
       expectedContentHash: evidence.contentHash!,
       approved: true
     });
-    const approval = await prisma.catalogItemApproval.create({
-      data: {
-        itemDefinitionId: item.id,
-        revision: 1,
-        contentHash,
-        approvalType: "domain",
-        reviewedByAdminId: reviewerId
-      }
+    await prisma.catalogReviewerCredential.createMany({
+      data: [
+        { adminId: reviewerId, approvalType: "editorial" },
+        { adminId: activatorId, approvalType: "domain" }
+      ]
     });
-    approvalIds.push(approval.id);
+    const approvals = await Promise.all([
+      prisma.catalogItemApproval.create({
+        data: {
+          itemDefinitionId: item.id,
+          revision: 1,
+          contentHash,
+          approvalType: "editorial",
+          reviewedByAdminId: reviewerId
+        }
+      }),
+      prisma.catalogItemApproval.create({
+        data: {
+          itemDefinitionId: item.id,
+          revision: 1,
+          contentHash,
+          approvalType: "domain",
+          reviewedByAdminId: activatorId
+        }
+      })
+    ]);
+    approvalIds.push(...approvals.map((approval) => approval.id));
     return { item, evidence: reviewed };
   }
 
@@ -755,33 +800,167 @@ describe("Release 5 reviewed safety alternatives", () => {
 
   it("uses reviewer, expiry, and review-due policy in the pilot worklist", async () => {
     const { item, evidence } = await readinessFixture();
-    const ready = async () => (await readiness.pilotWorklist()).items.find((candidate) => candidate.id === item.id)?.evidenceReady;
-    expect(await ready()).toBe(true);
+    const candidate = async () => (await readiness.pilotWorklist()).items.find((entry) => entry.id === item.id);
+    await expect(candidate()).resolves.toMatchObject({
+      status: "approved",
+      structureReady: true,
+      evidenceReady: true,
+      editorialApproved: true,
+      domainApproved: true,
+      approvalReviewersIndependent: true,
+      ready: true
+    });
+
+    await prisma.catalogReviewerCredential.create({
+      data: { adminId: reviewerId, approvalType: "domain" }
+    });
+    await prisma.catalogItemApproval.update({
+      where: {
+        itemDefinitionId_revision_approvalType: {
+          itemDefinitionId: item.id,
+          revision: 1,
+          approvalType: "domain"
+        }
+      },
+      data: { reviewedByAdminId: reviewerId }
+    });
+    await expect(candidate()).resolves.toMatchObject({
+      editorialApproved: true,
+      domainApproved: true,
+      approvalReviewersIndependent: false,
+      ready: false
+    });
+    await prisma.catalogItemApproval.update({
+      where: {
+        itemDefinitionId_revision_approvalType: {
+          itemDefinitionId: item.id,
+          revision: 1,
+          approvalType: "domain"
+        }
+      },
+      data: { reviewedByAdminId: activatorId }
+    });
 
     await prisma.itemEvidenceSource.update({ where: { id: evidence.id }, data: { reviewedByAdminId: null } });
-    expect(await ready()).toBe(false);
+    await expect(candidate()).resolves.toMatchObject({ evidenceReady: false, ready: false });
+    await prisma.itemEvidenceSource.update({ where: { id: evidence.id }, data: { reviewedByAdminId: capturerId } });
+    await expect(candidate()).resolves.toMatchObject({ evidenceReady: false, ready: false });
     await prisma.itemEvidenceSource.update({
       where: { id: evidence.id },
       data: { reviewedByAdminId: reviewerId, expiresAt: new Date("2020-01-01T00:00:00.000Z") }
     });
-    expect(await ready()).toBe(false);
+    await expect(candidate()).resolves.toMatchObject({ evidenceReady: false, ready: false });
     await prisma.itemEvidenceSource.update({
       where: { id: evidence.id },
       data: { expiresAt: null, reviewDueAt: new Date("2020-01-01T00:00:00.000Z") }
     });
-    expect(await ready()).toBe(false);
+    await expect(candidate()).resolves.toMatchObject({ evidenceReady: false, ready: false });
     await prisma.itemEvidenceSource.update({
       where: { id: evidence.id },
       data: { reviewDueAt: new Date("2035-01-01T00:00:00.000Z") }
     });
-    expect(await ready()).toBe(true);
+    await expect(candidate()).resolves.toMatchObject({ evidenceReady: true, ready: true });
   });
 
-  it("revalidates review-due evidence when publishing a prepared manifest", async () => {
+  it("revalidates participant separation, reviewer credentials, and evidence when publishing a prepared manifest", async () => {
     const { item, evidence } = await readinessFixture();
     const manifest = await readiness.previewPilotManifest(capturerId, { itemIds: [item.id] });
     manifestIds.push(manifest.id);
-    await prisma.itemDefinition.update({ where: { id: item.id }, data: { status: "approved" } });
+    await prisma.catalogPilotManifest.update({
+      where: { id: manifest.id },
+      data: {
+        expectedRevisionsJson: [{
+          id: item.id,
+          revision: item.contentVersion + 1,
+          contentHash: item.contentHash!
+        }]
+      }
+    });
+    await expect(readiness.publishPilotManifest(otherAdminId, manifest.id, {
+      expectedContentHash: manifest.contentHash
+    })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: "PILOT_MANIFEST_INTEGRITY" })
+    });
+    await prisma.catalogPilotManifest.update({
+      where: { id: manifest.id },
+      data: {
+        expectedRevisionsJson: [{
+          id: item.id,
+          revision: item.contentVersion,
+          contentHash: item.contentHash!
+        }]
+      }
+    });
+
+    await prisma.catalogReviewerCredential.create({
+      data: { adminId: reviewerId, approvalType: "domain" }
+    });
+    await prisma.catalogItemApproval.update({
+      where: {
+        itemDefinitionId_revision_approvalType: {
+          itemDefinitionId: item.id,
+          revision: 1,
+          approvalType: "domain"
+        }
+      },
+      data: { reviewedByAdminId: reviewerId }
+    });
+    await expect(readiness.publishPilotManifest(otherAdminId, manifest.id, {
+      expectedContentHash: manifest.contentHash
+    })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: "PILOT_APPROVAL_REVIEWER_SEPARATION_REQUIRED" })
+    });
+    await prisma.catalogItemApproval.update({
+      where: {
+        itemDefinitionId_revision_approvalType: {
+          itemDefinitionId: item.id,
+          revision: 1,
+          approvalType: "domain"
+        }
+      },
+      data: { reviewedByAdminId: activatorId }
+    });
+    await prisma.catalogReviewerCredential.delete({
+      where: {
+        adminId_approvalType: {
+          adminId: reviewerId,
+          approvalType: "domain"
+        }
+      }
+    });
+
+    await expect(readiness.publishPilotManifest(capturerId, manifest.id, {
+      expectedContentHash: manifest.contentHash
+    })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: "CATALOG_PUBLISHER_SEPARATION_REQUIRED" })
+    });
+    await expect(prisma.catalogPilotManifest.findUniqueOrThrow({ where: { id: manifest.id } }))
+      .resolves.toMatchObject({ status: "preview" });
+
+    await prisma.catalogReviewerCredential.update({
+      where: {
+        adminId_approvalType: {
+          adminId: activatorId,
+          approvalType: "domain"
+        }
+      },
+      data: { active: false }
+    });
+    await expect(readiness.publishPilotManifest(otherAdminId, manifest.id, {
+      expectedContentHash: manifest.contentHash
+    })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: "PILOT_REVIEWER_CREDENTIAL_REQUIRED" })
+    });
+    await prisma.catalogReviewerCredential.update({
+      where: {
+        adminId_approvalType: {
+          adminId: activatorId,
+          approvalType: "domain"
+        }
+      },
+      data: { active: true }
+    });
+
     await prisma.itemEvidenceSource.update({
       where: { id: evidence.id },
       data: { reviewDueAt: new Date("2020-01-01T00:00:00.000Z") }

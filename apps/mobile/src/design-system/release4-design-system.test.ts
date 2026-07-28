@@ -10,7 +10,9 @@ import { spacing } from "./tokens/spacing";
 import { typography } from "./tokens/typography";
 
 const mobileRoot = resolve(__dirname, "../..");
+const workspaceRoot = resolve(mobileRoot, "../..");
 const source = (relativePath: string) => readFileSync(resolve(mobileRoot, relativePath), "utf8");
+const workspaceSource = (relativePath: string) => readFileSync(resolve(workspaceRoot, relativePath), "utf8");
 
 describe("Release 4 design system", () => {
   it("exposes semantic tokens for color, type, spacing, shape, motion, icons, and responsive widths", () => {
@@ -22,6 +24,24 @@ describe("Release 4 design system", () => {
     expect(iconSize.hero).toBeGreaterThan(iconSize.small);
     expect(breakpoints.contentMax).toBeGreaterThan(breakpoints.compactMax);
     expect(breakpoints.contentMax).toBeLessThanOrEqual(breakpoints.mediumMax);
+  });
+
+  it("keeps repository governance and admin surfaces on the MOD_V1 canonical palette", () => {
+    expect(semanticColors).toMatchObject({
+      actionPrimary: "#C94627",
+      background: "#FFFDFC",
+      textPrimary: "#211E1C"
+    });
+
+    const sourceLock = workspaceSource("docs/dev/source-lock.md");
+    const doNotChange = workspaceSource("docs/dev/do-not-change.md");
+    const adminHome = workspaceSource("apps/admin/app/page.tsx");
+
+    expect(sourceLock).toContain("Current canonical version: `MOD_V1 / native-v1.0`");
+    expect(doNotChange).toContain("Primary `#C94627`");
+    expect(doNotChange).toContain("홈/기록/준비템/리포트/더보기 5개");
+    expect(adminHome).toContain('background: "#FFFDFC"');
+    expect(adminHome).toContain('color: "#211E1C"');
   });
 
   it("keeps MOD_V1 home and profile free of viewport transform tricks while retaining isolated legacy capture paths", () => {

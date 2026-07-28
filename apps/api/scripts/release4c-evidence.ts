@@ -95,7 +95,6 @@ async function main() {
       ...(duplicateSuspicion ? ["DUPLICATE_REVIEW_REQUIRED"] : [])
     ];
     return {
-      id: item.id,
       code: item.code,
       nameKo: item.nameKo,
       revision: item.contentVersion,
@@ -103,9 +102,26 @@ async function main() {
       status: item.status,
       risk: item.safetyTier,
       audience: item.targetSubject,
+      necessity: item.necessity,
+      displayOrder: item.displayOrder,
+      onboardingEligible: item.onboardingEligible,
+      onboardingPriority: item.onboardingPriority,
       lifecycle: item.lifecycleRules.map((rule) => ({ axis: rule.axis, code: rule.lifecycleCode, timingText: rule.timingText, priorityWeight: rule.priorityWeight })),
       category: item.categories.map((mapping) => ({ code: mapping.catalogNode.code, nameKo: mapping.catalogNode.nameKo, level: mapping.catalogNode.level, primary: mapping.isPrimary })),
       contextCodes: item.contextRules.map((rule) => rule.contextCode),
+      evidenceSources: item.evidenceSources.map((source) => ({
+        sourceType: source.sourceType,
+        title: source.title,
+        publicUrl: source.publicUrl,
+        publisher: source.publisher,
+        checkedAt: source.checkedAt,
+        status: source.status,
+        independentlyCapturedAndReviewed: Boolean(
+          source.capturedByAdminId &&
+          source.reviewedByAdminId &&
+          source.capturedByAdminId !== source.reviewedByAdminId
+        )
+      })),
       sourceReadiness: sourceReady ? "evidence_attached_review_required" : item.sourceSummary ? "summary_only_review_required" : "missing",
       editorialReadiness: metadataComplete ? editorialApproved ? "approved" : "content_complete_review_required" : "missing_metadata",
       domainReadiness: domainApproved ? "approved" : "review_required",
@@ -120,6 +136,11 @@ async function main() {
     structurallyValid: inventory.filter((item) => item.structurallyValid).length,
     editorialContentComplete: inventory.filter((item) => item.editorialReadiness !== "missing_metadata").length,
     sourceEvidenceAttached: inventory.filter((item) => item.sourceReadiness === "evidence_attached_review_required").length,
+    sourceRecords: evidenceRows.length,
+    sourceStatus: countBy(evidenceRows.map((source) => source.status)),
+    independentlyCapturedAndReviewedSources: inventory
+      .flatMap((item) => item.evidenceSources)
+      .filter((source) => source.independentlyCapturedAndReviewed).length,
     domainApproved: inventory.filter((item) => item.domainReadiness === "approved").length,
     safetyApprovedOrNotRequired: inventory.filter((item) => item.safetyReadiness !== "external_review_required").length,
     approved: inventory.filter((item) => item.status === "approved" || item.status === "scheduled" || item.status === "published").length,
@@ -134,7 +155,6 @@ async function main() {
     orderBy: [{ lifecycleAxis: "asc" }, { lifecycleCode: "asc" }, { necessity: "asc" }]
   });
   const coverage = coverageRows.map((row) => ({
-    id: row.id,
     domain: { code: nodeById.get(row.domainNodeId)?.code ?? "unknown", nameKo: nodeById.get(row.domainNodeId)?.nameKo ?? "unknown" },
     lifecycleAxis: row.lifecycleAxis,
     lifecycleCode: row.lifecycleCode,
@@ -155,14 +175,63 @@ async function main() {
     criticalRequiredGaps: coverage.filter((row) => row.state === "gap" && row.necessity === "required").length,
     criticalRequiredExternalReviewBlocked: coverage.filter((row) => row.state === "gap" && row.necessity === "required" && row.externalReviewBlocked).length
   };
+  const pilotTargetSize = 12;
+  const pilotEligible = inventory
+    .filter((item) =>
+      item.status === "in_review" &&
+      item.structurallyValid &&
+      item.risk === "normal" &&
+      item.sourceReadiness === "evidence_attached_review_required" &&
+      !item.duplicateSuspicion
+    )
+    .sort((left, right) =>
+      (right.onboardingPriority ?? 0) - (left.onboardingPriority ?? 0) ||
+      left.displayOrder - right.displayOrder ||
+      left.code.localeCompare(right.code)
+    );
+  const pilotCandidates = pilotEligible.slice(0, pilotTargetSize).map((item, index) => ({
+    order: index + 1,
+    code: item.code,
+    nameKo: item.nameKo,
+    revision: item.revision,
+    contentHash: item.contentHash,
+    necessity: item.necessity,
+    audience: item.audience,
+    onboardingEligible: item.onboardingEligible,
+    onboardingPriority: item.onboardingPriority,
+    publishBlockers: item.publishBlockers
+  }));
+  const pilotPlan = {
+    schemaVersion: 1,
+    generatedAt,
+    sourceHead,
+    status: pilotCandidates.length === pilotTargetSize ? "CANDIDATES_PREPARED_EXTERNAL_APPROVAL_REQUIRED" : "INSUFFICIENT_ELIGIBLE_CANDIDATES",
+    targetSize: pilotTargetSize,
+    eligibleCount: pilotEligible.length,
+    selectionPolicy: [
+      "status=in_review",
+      "structurallyValid=true",
+      "safetyTier=normal",
+      "sourceEvidence=attached",
+      "duplicateSuspicion=false",
+      "onboardingPriority desc",
+      "displayOrder asc",
+      "code asc"
+    ],
+    approvalExecuted: false,
+    publishExecuted: false,
+    candidates: pilotCandidates
+  };
 
   mkdirSync(evidenceRoot, { recursive: true });
   mkdirSync(reportRoot, { recursive: true });
   writeFileSync(`${evidenceRoot}/release4c-catalog-review-inventory.json`, `${JSON.stringify({ schemaVersion: 1, generatedAt, sourceHead, summary: inventorySummary, items: inventory }, null, 2)}\n`, "utf8");
   writeFileSync(`${evidenceRoot}/release4c-coverage-matrix.json`, `${JSON.stringify({ schemaVersion: 1, generatedAt, sourceHead, summary: coverageSummary, cells: coverage }, null, 2)}\n`, "utf8");
-  writeFileSync(`${reportRoot}/release4c-catalog-review-worklist.md`, `# Release 4C catalog review worklist\n\nGenerated: ${generatedAt}\n\n- Inventory: ${inventorySummary.total}/408 classified\n- Structurally valid: ${inventorySummary.structurallyValid}\n- Editorial content complete but approval still required: ${inventorySummary.editorialContentComplete}\n- Source evidence attached, still requiring review: ${inventorySummary.sourceEvidenceAttached}\n- Domain approved: ${inventorySummary.domainApproved}\n- High risk: ${inventorySummary.highRisk}\n- Approved: ${inventorySummary.approved}\n- Published: ${inventorySummary.published}\n\nNo item was approved or published by this evidence generator. The machine-readable worklist is \`docs/qa/evidence/release4c-catalog-review-inventory.json\`.\n`, "utf8");
+  writeFileSync(`${evidenceRoot}/release4c-catalog-pilot-plan.json`, `${JSON.stringify(pilotPlan, null, 2)}\n`, "utf8");
+  writeFileSync(`${reportRoot}/release4c-catalog-review-worklist.md`, `# Release 4C catalog review worklist\n\nGenerated: ${generatedAt}\n\n- Inventory: ${inventorySummary.total}/${inventorySummary.total} classified\n- Structurally valid: ${inventorySummary.structurallyValid}\n- Editorial content complete but approval still required: ${inventorySummary.editorialContentComplete}\n- Items with source evidence attached, still requiring review: ${inventorySummary.sourceEvidenceAttached}\n- Source records: ${inventorySummary.sourceRecords} (${inventorySummary.sourceStatus.draft ?? 0} draft)\n- Independently captured and reviewed source records: ${inventorySummary.independentlyCapturedAndReviewedSources}\n- Domain approved: ${inventorySummary.domainApproved}\n- High risk: ${inventorySummary.highRisk}\n- Approved: ${inventorySummary.approved}\n- Published: ${inventorySummary.published}\n\nThe seeded sources preserve the canonical public URLs as draft intake records only. They do not represent independent capture, review, or approval. No item was approved or published by this evidence generator. The machine-readable worklist is \`docs/qa/evidence/release4c-catalog-review-inventory.json\`.\n`, "utf8");
   writeFileSync(`${reportRoot}/release4c-coverage-applicability.md`, `# Release 4C coverage applicability\n\nGenerated: ${generatedAt}\n\n- Coverage cells: ${coverageSummary.total}\n- Covered: ${coverageSummary.state.covered ?? 0}\n- Gaps: ${coverageSummary.state.gap ?? 0}\n- Unclassified applicability: ${coverageSummary.unclassified}\n- Review needed: ${coverageSummary.applicability.review_needed ?? 0}\n- Critical required gaps: ${coverageSummary.criticalRequiredGaps}\n- Critical required gaps explicitly external-review blocked: ${coverageSummary.criticalRequiredExternalReviewBlocked}\n\n\`review_needed\` is a deliberate fail-closed applicability classification, not an approval. No synthetic canonical items or unsupported \`not_applicable\` decisions were created to reduce the gap count.\n`, "utf8");
-  console.log(JSON.stringify({ inventory: inventorySummary, coverage: coverageSummary }, null, 2));
+  writeFileSync(`${reportRoot}/release4c-catalog-pilot-plan.md`, `# Release 4C catalog pilot plan\n\nGenerated: ${generatedAt}\n\n- Status: ${pilotPlan.status}\n- Target size: ${pilotPlan.targetSize}\n- Eligible low-risk candidates: ${pilotPlan.eligibleCount}\n- Selected candidates: ${pilotPlan.candidates.length}\n- Approval executed: no\n- Publication executed: no\n\n| Order | Code | Name | Necessity | Audience | Remaining blockers |\n| ---: | --- | --- | --- | --- | --- |\n${pilotCandidates.map((item) => `| ${item.order} | ${item.code} | ${item.nameKo} | ${item.necessity} | ${item.audience} | ${item.publishBlockers.join(", ")} |`).join("\n")}\n\nThis plan is a deterministic external-review queue. It never grants editorial/domain approval and never publishes content.\n`, "utf8");
+  console.log(JSON.stringify({ inventory: inventorySummary, coverage: coverageSummary, pilot: { ...pilotPlan, candidates: pilotPlan.candidates.map(({ code, nameKo, publishBlockers }) => ({ code, nameKo, publishBlockers })) } }, null, 2));
 }
 
 main()

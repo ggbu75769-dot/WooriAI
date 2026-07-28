@@ -19,10 +19,39 @@ import type {
   PublishPilotManifestDto,
   ReviewEvidenceSourceDto
 } from "./dto/release5-readiness.dto";
-import { currentReviewedEvidenceWhere, ITEM_EVIDENCE_STATUS } from "./item-evidence-policy";
+import {
+  currentReviewedEvidenceWhere,
+  evidenceHasIndependentCaptureAndReview,
+  ITEM_EVIDENCE_STATUS
+} from "./item-evidence-policy";
 
 function sha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+type PilotManifestRow = { id: string; revision: number; contentHash: string };
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function pilotManifestRows(value: Prisma.JsonValue): PilotManifestRow[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 50) return null;
+  const rows: PilotManifestRow[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const row = entry as Record<string, Prisma.JsonValue>;
+    if (
+      typeof row.id !== "string" ||
+      !UUID_V4_PATTERN.test(row.id) ||
+      !Number.isInteger(row.revision) ||
+      Number(row.revision) < 1 ||
+      typeof row.contentHash !== "string" ||
+      !/^[0-9a-f]{64}$/.test(row.contentHash)
+    ) {
+      return null;
+    }
+    rows.push({ id: row.id, revision: Number(row.revision), contentHash: row.contentHash });
+  }
+  if (new Set(rows.map((row) => row.id)).size !== rows.length) return null;
+  return rows;
 }
 
 function assertPublicHttps(value: string) {
@@ -182,34 +211,162 @@ export class Release5ReadinessService {
   async pilotWorklist() {
     const now = new Date();
     const items = await this.prisma.itemDefinition.findMany({
-      where: { status: "in_review", safetyTier: { not: "high" } },
+      where: { status: { in: ["in_review", "approved"] }, safetyTier: "normal" },
       orderBy: [{ safetyTier: "asc" }, { displayOrder: "asc" }, { id: "asc" }],
-      select: { id: true, code: true, nameKo: true, contentVersion: true, contentHash: true, safetyTier: true, status: true }
+      select: {
+        id: true,
+        code: true,
+        nameKo: true,
+        contentVersion: true,
+        contentHash: true,
+        safetyTier: true,
+        status: true,
+        reasonText: true,
+        timingSummary: true,
+        sourceSummary: true
+      }
     });
-    const evidence = await this.prisma.itemEvidenceSource.findMany({
-      where: {
-        itemDefinitionId: { in: items.map((item) => item.id) },
-        ...currentReviewedEvidenceWhere(now)
-      },
-      select: { itemDefinitionId: true, revision: true, contentHash: true }
-    });
-    const approvals = await this.prisma.catalogItemApproval.findMany({
-      where: { itemDefinitionId: { in: items.map((item) => item.id) }, approvalType: "domain" },
-      select: { itemDefinitionId: true, revision: true, contentHash: true, expiresAt: true }
-    });
-    const evidenceKeys = new Set(evidence.map((row) => `${row.itemDefinitionId}:${row.revision}`));
-    const approvalKeys = new Set(approvals.filter((row) => !row.expiresAt || row.expiresAt > now).map((row) => `${row.itemDefinitionId}:${row.revision}:${row.contentHash}`));
+    const itemIds = items.map((item) => item.id);
+    const [evidence, approvals, primaryCategories, lifecycleRules] = await Promise.all([
+      this.prisma.itemEvidenceSource.findMany({
+        where: {
+          itemDefinitionId: { in: itemIds },
+          ...currentReviewedEvidenceWhere(now)
+        },
+        select: {
+          itemDefinitionId: true,
+          revision: true,
+          capturedByAdminId: true,
+          reviewedByAdminId: true
+        }
+      }),
+      this.prisma.catalogItemApproval.findMany({
+        where: {
+          itemDefinitionId: { in: itemIds },
+          approvalType: { in: ["editorial", "domain"] }
+        },
+        select: {
+          itemDefinitionId: true,
+          revision: true,
+          contentHash: true,
+          approvalType: true,
+          reviewedByAdminId: true,
+          expiresAt: true
+        }
+      }),
+      this.prisma.itemDefinitionCategory.findMany({
+        where: { itemDefinitionId: { in: itemIds }, isPrimary: true },
+        select: { itemDefinitionId: true }
+      }),
+      this.prisma.itemLifecycleRule.findMany({
+        where: { itemDefinitionId: { in: itemIds } },
+        select: { itemDefinitionId: true }
+      })
+    ]);
+    const evidenceKeys = new Set(
+      evidence
+        .filter(evidenceHasIndependentCaptureAndReview)
+        .map((row) => `${row.itemDefinitionId}:${row.revision}`)
+    );
+    const approvalReviewerIds = [...new Set(approvals.map((approval) => approval.reviewedByAdminId))];
+    const [activeApprovalReviewers, activeApprovalCredentials] = await Promise.all([
+      this.prisma.adminUser.findMany({
+        where: { id: { in: approvalReviewerIds }, active: true, disabledAt: null },
+        select: { id: true }
+      }),
+      this.prisma.catalogReviewerCredential.findMany({
+        where: {
+          adminId: { in: approvalReviewerIds },
+          approvalType: { in: ["editorial", "domain"] },
+          active: true,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }]
+        },
+        select: { adminId: true, approvalType: true }
+      })
+    ]);
+    const activeApprovalReviewerIds = new Set(activeApprovalReviewers.map((reviewer) => reviewer.id));
+    const activeApprovalCredentialKeys = new Set(
+      activeApprovalCredentials.map((credential) => `${credential.adminId}:${credential.approvalType}`)
+    );
+    const currentQualifiedApprovals = approvals
+        .filter((row) =>
+          (!row.expiresAt || row.expiresAt > now) &&
+          activeApprovalReviewerIds.has(row.reviewedByAdminId) &&
+          activeApprovalCredentialKeys.has(`${row.reviewedByAdminId}:${row.approvalType}`)
+        );
+    const approvalKeys = new Set(
+      currentQualifiedApprovals.map((row) =>
+        `${row.itemDefinitionId}:${row.revision}:${row.contentHash}:${row.approvalType}`
+      )
+    );
+    const approvalReviewerByKey = new Map(
+      currentQualifiedApprovals.map((row) => [
+        `${row.itemDefinitionId}:${row.revision}:${row.contentHash}:${row.approvalType}`,
+        row.reviewedByAdminId
+      ])
+    );
+    const primaryCategoryCounts = new Map<string, number>();
+    const lifecycleCounts = new Map<string, number>();
+    for (const row of primaryCategories) {
+      primaryCategoryCounts.set(row.itemDefinitionId, (primaryCategoryCounts.get(row.itemDefinitionId) ?? 0) + 1);
+    }
+    for (const row of lifecycleRules) {
+      lifecycleCounts.set(row.itemDefinitionId, (lifecycleCounts.get(row.itemDefinitionId) ?? 0) + 1);
+    }
     const worklist = items.map((item) => {
       const evidenceReady = evidenceKeys.has(`${item.id}:${item.contentVersion}`);
-      const domainApproved = Boolean(item.contentHash && approvalKeys.has(`${item.id}:${item.contentVersion}:${item.contentHash}`));
-      return { ...item, evidenceReady, domainApproved, ready: evidenceReady && domainApproved };
+      const editorialApproved = Boolean(
+        item.contentHash &&
+        approvalKeys.has(`${item.id}:${item.contentVersion}:${item.contentHash}:editorial`)
+      );
+      const domainApproved = Boolean(
+        item.contentHash &&
+        approvalKeys.has(`${item.id}:${item.contentVersion}:${item.contentHash}:domain`)
+      );
+      const editorialReviewerId = item.contentHash
+        ? approvalReviewerByKey.get(`${item.id}:${item.contentVersion}:${item.contentHash}:editorial`)
+        : undefined;
+      const domainReviewerId = item.contentHash
+        ? approvalReviewerByKey.get(`${item.id}:${item.contentVersion}:${item.contentHash}:domain`)
+        : undefined;
+      const approvalReviewersIndependent = Boolean(
+        editorialReviewerId &&
+        domainReviewerId &&
+        editorialReviewerId !== domainReviewerId
+      );
+      const structureReady = Boolean(
+        item.reasonText.trim() &&
+        item.timingSummary.trim() &&
+        item.sourceSummary.trim() &&
+        primaryCategoryCounts.get(item.id) === 1 &&
+        (lifecycleCounts.get(item.id) ?? 0) > 0
+      );
+      const ready = item.status === "approved" &&
+        structureReady &&
+        evidenceReady &&
+        editorialApproved &&
+        domainApproved &&
+        approvalReviewersIndependent;
+      return {
+        ...item,
+        structureReady,
+        evidenceReady,
+        editorialApproved,
+        domainApproved,
+        approvalReviewersIndependent,
+        ready
+      };
     });
     return {
       counts: {
         candidates: worklist.length,
         ready: worklist.filter((item) => item.ready).length,
+        notApproved: worklist.filter((item) => item.status !== "approved").length,
+        missingStructure: worklist.filter((item) => !item.structureReady).length,
         missingEvidence: worklist.filter((item) => !item.evidenceReady).length,
-        missingDomainApproval: worklist.filter((item) => !item.domainApproved).length
+        missingEditorialApproval: worklist.filter((item) => !item.editorialApproved).length,
+        missingDomainApproval: worklist.filter((item) => !item.domainApproved).length,
+        missingApprovalReviewerSeparation: worklist.filter((item) => !item.approvalReviewersIndependent).length
       },
       items: worklist
     };
@@ -217,10 +374,16 @@ export class Release5ReadinessService {
 
   async previewPilotManifest(adminId: string, input: PreviewPilotManifestDto) {
     const worklist = await this.pilotWorklist();
-    const requested = input.itemIds ? new Set(input.itemIds) : null;
-    const selected = worklist.items.filter((item) => item.ready && (!requested || requested.has(item.id)));
-    if (requested && selected.length !== requested.size) {
-      throw new BadRequestException({ code: "PILOT_MANIFEST_NOT_READY", message: "Every requested item must be low-risk, evidenced, and domain-approved." });
+    const requested = new Set(input.itemIds);
+    if (requested.size === 0) {
+      throw new BadRequestException({ code: "PILOT_MANIFEST_EMPTY", message: "At least one ready item is required." });
+    }
+    const selected = worklist.items.filter((item) => item.ready && requested.has(item.id));
+    if (selected.length !== requested.size) {
+      throw new BadRequestException({
+        code: "PILOT_MANIFEST_NOT_READY",
+        message: "Every requested item must be approved, structurally complete, independently evidenced, and current."
+      });
     }
     const expected = selected.map((item) => ({ id: item.id, revision: item.contentVersion, contentHash: item.contentHash! }));
     const contentHash = sha256(expected);
@@ -243,27 +406,115 @@ export class Release5ReadinessService {
       });
       if (claimed.count !== 1) throw new ConflictException({ code: "PILOT_MANIFEST_CONFLICT", message: "Pilot manifest changed or was already applied." });
       const manifest = await tx.catalogPilotManifest.findUniqueOrThrow({ where: { id: manifestId } });
-      const expected = manifest.expectedRevisionsJson as Array<{ id: string; revision: number; contentHash: string }>;
+      const expected = pilotManifestRows(manifest.expectedRevisionsJson);
+      if (
+        !expected ||
+        sha256(expected) !== manifest.contentHash ||
+        JSON.stringify(expected.map((row) => row.id)) !== JSON.stringify(manifest.itemIds)
+      ) {
+        throw new ConflictException({
+          code: "PILOT_MANIFEST_INTEGRITY",
+          message: "Pilot manifest rows, item IDs, or content hash do not match."
+        });
+      }
+      const publisher = await tx.adminUser.findUnique({ where: { id: adminId } });
+      if (!publisher || !publisher.active || publisher.disabledAt || publisher.role !== "admin") {
+        throw new ForbiddenException({ code: "CATALOG_ADMIN_INACTIVE", message: "An active admin publisher is required." });
+      }
       const published: string[] = [];
       for (const row of expected) {
-        const [item, approvals, evidence] = await Promise.all([
+        const [item, approvals, evidence, primaryCategoryCount, lifecycleCount] = await Promise.all([
           tx.itemDefinition.findUnique({ where: { id: row.id } }),
-          tx.catalogItemApproval.findMany({ where: { itemDefinitionId: row.id, revision: row.revision, contentHash: row.contentHash } }),
-          tx.itemEvidenceSource.count({
+          tx.catalogItemApproval.findMany({
+            where: {
+              itemDefinitionId: row.id,
+              revision: row.revision,
+              contentHash: row.contentHash,
+              approvalType: { in: ["editorial", "domain"] }
+            }
+          }),
+          tx.itemEvidenceSource.findMany({
             where: {
               itemDefinitionId: row.id,
               revision: row.revision,
               ...currentReviewedEvidenceWhere(now)
-            }
-          })
+            },
+            select: { capturedByAdminId: true, reviewedByAdminId: true }
+          }),
+          tx.itemDefinitionCategory.count({ where: { itemDefinitionId: row.id, isPrimary: true } }),
+          tx.itemLifecycleRule.count({ where: { itemDefinitionId: row.id } })
         ]);
-        if (!item || item.status !== "approved" || item.contentVersion !== row.revision || item.contentHash !== row.contentHash || item.safetyTier === "high" || evidence === 0) {
+        const evidenceReady = evidence.some(evidenceHasIndependentCaptureAndReview);
+        const structureReady = Boolean(
+          item &&
+          item.reasonText.trim() &&
+          item.timingSummary.trim() &&
+          item.sourceSummary.trim() &&
+          primaryCategoryCount === 1 &&
+          lifecycleCount > 0
+        );
+        if (
+          !item ||
+          item.status !== "approved" ||
+          item.contentVersion !== row.revision ||
+          item.contentHash !== row.contentHash ||
+          item.safetyTier !== "normal" ||
+          !structureReady ||
+          !evidenceReady
+        ) {
           throw new BadRequestException({ code: "PILOT_PUBLISH_GATE_FAILED", message: "A pilot item no longer satisfies the publish manifest." });
         }
-        if (!approvals.some((approval) => approval.approvalType === "domain")) {
+        const currentApprovals = approvals.filter((approval) => !approval.expiresAt || approval.expiresAt > now);
+        if (!currentApprovals.some((approval) => approval.approvalType === "editorial")) {
+          throw new BadRequestException({ code: "PILOT_EDITORIAL_APPROVAL_REQUIRED", message: "Current editorial approval is required." });
+        }
+        if (!currentApprovals.some((approval) => approval.approvalType === "domain")) {
           throw new BadRequestException({ code: "PILOT_DOMAIN_APPROVAL_REQUIRED", message: "Current domain approval is required." });
         }
-        const participants = new Set([item.lastEditedByAdminId, ...approvals.map((approval) => approval.reviewedByAdminId)].filter(Boolean));
+        const editorialReviewerId = currentApprovals.find(
+          (approval) => approval.approvalType === "editorial"
+        )!.reviewedByAdminId;
+        const domainReviewerId = currentApprovals.find(
+          (approval) => approval.approvalType === "domain"
+        )!.reviewedByAdminId;
+        if (editorialReviewerId === domainReviewerId) {
+          throw new ForbiddenException({
+            code: "PILOT_APPROVAL_REVIEWER_SEPARATION_REQUIRED",
+            message: "Editorial and domain approvals require different reviewers."
+          });
+        }
+        const reviewerIds = [...new Set(currentApprovals.map((approval) => approval.reviewedByAdminId))];
+        const [activeReviewers, activeCredentials] = await Promise.all([
+          tx.adminUser.findMany({
+            where: { id: { in: reviewerIds }, active: true, disabledAt: null },
+            select: { id: true }
+          }),
+          tx.catalogReviewerCredential.findMany({
+            where: {
+              adminId: { in: reviewerIds },
+              approvalType: { in: ["editorial", "domain"] },
+              active: true,
+              OR: [{ expiresAt: null }, { expiresAt: { gt: now } }]
+            },
+            select: { adminId: true, approvalType: true }
+          })
+        ]);
+        const activeReviewerIds = new Set(activeReviewers.map((reviewer) => reviewer.id));
+        const credentialKeys = new Set(activeCredentials.map((credential) => `${credential.adminId}:${credential.approvalType}`));
+        if (currentApprovals.some((approval) =>
+          !activeReviewerIds.has(approval.reviewedByAdminId) ||
+          !credentialKeys.has(`${approval.reviewedByAdminId}:${approval.approvalType}`)
+        )) {
+          throw new ForbiddenException({
+            code: "PILOT_REVIEWER_CREDENTIAL_REQUIRED",
+            message: "Every current approval requires an active matching reviewer credential."
+          });
+        }
+        const participants = new Set([
+          item.lastEditedByAdminId,
+          ...currentApprovals.map((approval) => approval.reviewedByAdminId),
+          ...evidence.flatMap((source) => [source.capturedByAdminId, source.reviewedByAdminId])
+        ].filter(Boolean));
         if (participants.has(adminId)) throw new ForbiddenException({ code: "CATALOG_PUBLISHER_SEPARATION_REQUIRED", message: "The publisher must be independent." });
         const changed = await tx.itemDefinition.updateMany({
           where: { id: row.id, status: "approved", contentVersion: row.revision, contentHash: row.contentHash },

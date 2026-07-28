@@ -159,6 +159,9 @@ function summary(database: string, upgrade: boolean) {
     'level3Categories', (SELECT count(*) FROM catalog_nodes WHERE level = 'subcategory' AND active),
     'canonicalItems', (SELECT count(*) FROM item_definitions),
     'aliases', (SELECT count(*) FROM item_synonyms),
+    'evidenceSources', (SELECT count(*) FROM item_evidence_sources source JOIN item_definitions item ON item.id = source.item_definition_id WHERE item.code LIKE 'R4-%'),
+    'draftEvidenceSources', (SELECT count(*) FROM item_evidence_sources source JOIN item_definitions item ON item.id = source.item_definition_id WHERE item.code LIKE 'R4-%' AND source.status = 'draft'),
+    'reviewedEvidenceSources', (SELECT count(*) FROM item_evidence_sources source JOIN item_definitions item ON item.id = source.item_definition_id WHERE item.code LIKE 'R4-%' AND source.reviewed_by_admin_id IS NOT NULL),
     'highRiskItems', (SELECT count(*) FROM item_definitions WHERE safety_tier = 'high'),
     'publishedItems', (SELECT count(*) FROM item_definitions WHERE status = 'published'),
     'reviewRequiredItems', (SELECT count(*) FROM item_definitions WHERE status = 'in_review'),
@@ -177,7 +180,24 @@ function summary(database: string, upgrade: boolean) {
 }
 
 function assertSummary(value: Record<string, unknown>, label: string) {
-  const expected = { migrationCount: expectedMigrationCount, migrationHead: expectedMigrationHead, topLevelCategories: 24, level2Categories: 120, level3Categories: 360, canonicalItems: label === "upgrade" ? 409 : 408, aliases: label === "upgrade" ? 3279 : 3278, highRiskItems: 84, publishedItems: 0, reviewRequiredItems: label === "upgrade" ? 409 : 408, orphanPrimaryItems: 0, expenseCategories: 14, scenarioCodes: 25 };
+  const expected = {
+    migrationCount: expectedMigrationCount,
+    migrationHead: expectedMigrationHead,
+    topLevelCategories: 24,
+    level2Categories: 120,
+    level3Categories: 360,
+    canonicalItems: label === "upgrade" ? 410 : 409,
+    aliases: label === "upgrade" ? 3288 : 3287,
+    evidenceSources: 485,
+    draftEvidenceSources: 485,
+    reviewedEvidenceSources: 0,
+    highRiskItems: 85,
+    publishedItems: 0,
+    reviewRequiredItems: label === "upgrade" ? 410 : 409,
+    orphanPrimaryItems: 0,
+    expenseCategories: 14,
+    scenarioCodes: 25
+  };
   for (const [key, expectedValue] of Object.entries(expected)) {
     if (value[key] !== expectedValue) throw new Error(`${label}.${key}: expected ${expectedValue}, got ${String(value[key])}`);
   }
@@ -196,6 +216,7 @@ function main() {
   recreate(upgradeDb);
   try {
     applyMigrations(freshDb);
+    pnpm(["--filter", "api", "seed"], freshDb);
     pnpm(["--filter", "api", "seed"], freshDb);
     const fresh = summary(freshDb, false);
     assertSummary(fresh, "fresh");

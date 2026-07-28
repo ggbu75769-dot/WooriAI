@@ -1,18 +1,34 @@
 # WooriAI Local Self-Implement Resume
 
-- Last completed scope: SI-006B source module boundary and clean installed stability qualification.
-- Remaining slice: startup latency is `NOT_QUALIFIED / AVD_BLOCKED`.
-- Branch / HEAD: `codex/sprint2-catalog-payments` / `db7a7a455afec892b8fa1205e477dbe507a5931d`.
-- Starting dirty: 929; current dirty before final docs: 631; staged: 0.
-- Runtime: Node 20.20.2, pnpm 10.28.1, isolated API 35 x86_64 AVD.
-- Full mobile: 81 files / 455 tests PASS.
-- Full release gate: 11/11 PASS at `2026-07-19T23:30:16.135Z`.
-- Final APK: `F:/WooriAI/artifacts/android/wooriai-0.0.0-release-standalone.apk`.
-- APK SHA-256: `63140D5FEE0E79D1379A463781F6489E0E789A540886535583E0FA67968A1DA8`; installed base byte-identical.
-- Source / Hermes: `F005E526...46BA` / `82415330...1E82`.
-- Android: PID alive 5/5, fatal 0, installed HOME and preparation screenshots captured.
-- AVD timing warning: 13/13 frames janky; 12 GPU frames at 4,950 ms. Do not use this run as startup latency PASS/FAIL against source.
-- Next exact action: run this exact clean APK on a healthy hardware-accelerated AVD or physical device for five cold HOME timings; if still slow, instrument AppRegistry/router/hydration/HOME markers.
-- Forbidden retry: do not restore global `inlineRequires`.
-- Remaining external: physical device, TalkBack, production signer/version/API profile, store/deploy.
-- Git actions: no stage, commit, push, or deploy.
+갱신: 2026-07-27
+
+## 완료된 내부 상태
+
+- Release Gate: isolated catalog audit 포함 16/16 PASS
+- Android Pixel Lock: 설치 앱 adb screencap 9/9 PASS
+- 일반 standalone 준비템·지출 흐름: 설치 검증 완료
+- 카탈로그 fresh/upgrade DB: 41 migrations PASS
+- 기본 `pnpm catalog:audit`: 격리 DB 생성·감사·정리 PASS
+- 저위험 12개 파일럿 계획과 승인·manifest·transactional publish 경로 구현
+- production config와 external readiness는 fail-closed 진단 완료
+
+## 다음 실행에 필요한 외부 입력
+
+1. Android application ID, semver/versionCode
+2. 조직 소유 release keystore/alias와 secret 주입 경로
+3. production API/PostgreSQL/Redis/object storage
+4. Kakao OAuth, push, recall, merchant provider 자격증명
+5. privacy/terms/support/status URL과 법적 운영자 정보
+6. 파일럿 작성자, editorial reviewer, domain reviewer, publisher 계정
+7. 물리 Android/TalkBack 및 iOS build/install 환경
+
+## 입력 제공 후 순서
+
+`pnpm release:config` PASS → `pnpm release5:external-readiness` READY → signed AAB → catalog 12개 독립 승인·게시 → staging smoke/restore drill → 물리기기 회귀 → store internal track
+
+## 보존 규칙
+
+- 현재 작업 트리는 staged 0이며 커밋·푸시되지 않았다.
+- 최종 APK는 `F:/WooriAI` 루트에만 둔다.
+- fixture/Pixel 통과를 일반 사용자 흐름 통과로 대신하지 않는다.
+- 운영값이나 독립 승인을 임의 생성하지 않는다.

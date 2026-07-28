@@ -133,6 +133,7 @@ async function auditCatalogDatabase() {
         item.contentVersion < 1 && "contentVersion",
         primaryLinks.length !== 1 && "primaryCategory",
         (lifecyclesByItem.get(item.id) ?? []).length === 0 && "lifecycle",
+        (evidenceByItem.get(item.id) ?? []).length === 0 && "evidenceSource",
         (mappingsByItem.get(item.id) ?? []).filter((mapping) => mapping.isDefault).length !== 1 && "defaultExpenseCategory"
       ].filter((field): field is string => Boolean(field));
       return missing.length ? [{ code: item.code, fields: missing }] : [];
@@ -201,6 +202,16 @@ async function auditCatalogDatabase() {
         statuses: statusCounts,
         publishedContentPercentage: definitions.length ? Math.round((publishedCount / definitions.length) * 10000) / 100 : 0,
         aliases: synonyms.length,
+        evidenceSources: evidenceSources.length,
+        itemsWithEvidence: definitions.filter((item) => (evidenceByItem.get(item.id)?.length ?? 0) > 0).length,
+        evidenceSourceStatuses: countBy(evidenceSources.map((source) => source.status)),
+        independentlyCapturedAndReviewedEvidenceSources: evidenceSources.filter((source) =>
+          Boolean(
+            source.capturedByAdminId &&
+            source.reviewedByAdminId &&
+            source.capturedByAdminId !== source.reviewedByAdminId
+          )
+        ).length,
         productOffers: offers.length,
         itemsWithoutOffers: definitions.filter((item) => !(offersByItem.get(item.id)?.length)).length,
         highRiskItems: definitions.filter((item) => item.safetyTier === "high").length,

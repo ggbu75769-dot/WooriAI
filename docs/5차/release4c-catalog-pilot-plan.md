@@ -1,0 +1,27 @@
+# Release 4C catalog pilot plan
+
+Generated: 2026-07-26T14:57:00.707Z
+
+- Status: CANDIDATES_PREPARED_EXTERNAL_APPROVAL_REQUIRED
+- Target size: 12
+- Eligible low-risk candidates: 321
+- Selected candidates: 12
+- Approval executed: no
+- Publication executed: no
+
+| Order | Code | Name | Necessity | Audience | Remaining blockers |
+| ---: | --- | --- | --- | --- | --- |
+| 1 | R4-C10-001 | 신생아 기저귀 | required | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 2 | R4-C11-001 | 신생아 욕조 | required | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 3 | R4-C11-005 | 후드형 아기 타월 | required | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 4 | R4-C13-001 | 신생아 배냇저고리 | required | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 5 | R4-C08-004 | 젖병 | conditional | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 6 | R4-C10-004 | 물티슈 | recommended | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 7 | R4-C13-002 | 아기 바디수트 | recommended | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 8 | R4-C11-010 | 아기 손톱가위 | recommended | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 9 | R4-C11-007 | 아기 바디 세정제 | recommended | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 10 | R4-C11-008 | 아기 보습제 | recommended | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 11 | R4-C11-003 | 목욕물 온도계 | recommended | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+| 12 | R4-C08-007 | 젖병 세척솔 | recommended | child | REVISION_HASH_NOT_ESTABLISHED, EDITORIAL_APPROVAL_REQUIRED, DOMAIN_APPROVAL_REQUIRED |
+
+This plan is a deterministic external-review queue. It never grants editorial/domain approval and never publishes content.
