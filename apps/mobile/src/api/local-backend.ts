@@ -2,6 +2,7 @@ import {
   assertMoneyKrw,
   getSeoulMonthRange,
   getSeoulToday,
+  isBeyondSeoulTomorrow,
   isFutureSeoulDate
 } from "@wooriai/domain/money-date";
 import { CHILD_STAGE_CODES, CHILD_STAGE_MODES, type ChildStageCode, type ChildStageMode, type ExpenseSource, type ExpenseType, type ImportStatus, type ItemStatus, type PaymentMethod } from "@wooriai/domain/enums";
@@ -754,6 +755,18 @@ function activeChildren(): LocalChildRecord[] {
   );
 }
 
+function assertExpenseDateWithinScheduleWindow(spentOn: string) {
+  assertValidCalendarDate(spentOn);
+  try {
+    if (isBeyondSeoulTomorrow(spentOn)) {
+      throw new Error("예정 지출은 내일까지만 저장할 수 있어요.");
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message === "예정 지출은 내일까지만 저장할 수 있어요.") throw error;
+    throw new Error("날짜를 다시 확인해 주세요.");
+  }
+}
+
 function seoulDatePlusDays(dateOnly: string, days: number): string {
   const [year, month, day] = dateOnly.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day) + days * 86_400_000).toISOString().slice(0, 10);
@@ -866,6 +879,11 @@ function budgetKey(yearMonth: string): string {
   return getSeoulMonthRange(yearMonth).yearMonth;
 }
 
+function realizedExpensesForChild(childId: string, yearMonth?: string): LocalExpenseRecord[] {
+  const today = getSeoulToday();
+  return expensesForChild(childId, yearMonth).filter((expense) => expense.spentOn <= today);
+}
+
 function budgetStorageKey(childId: string, yearMonth: string): string {
   return `${childId}:${budgetKey(yearMonth)}`;
 }
@@ -877,7 +895,7 @@ function budgetAmountFor(childId: string, yearMonth: string): number | undefined
 }
 
 function toBudgetDto(childId: string, yearMonth: string, amountKrw: number): Budget {
-  const usedAmountKrw = totalExpenseKrw(expensesForChild(childId, yearMonth));
+  const usedAmountKrw = totalExpenseKrw(realizedExpensesForChild(childId, yearMonth));
   return { childId, yearMonth, amountKrw, usedAmountKrw, remainingAmountKrw: amountKrw - usedAmountKrw };
 }
 
@@ -885,7 +903,7 @@ function toBudgetDto(childId: string, yearMonth: string, amountKrw: number): Bud
 // Home / expenses / budget
 // ---------------------------------------------------------------------------
 
-function localTodayCenter(childId: string): NonNullable<HomeSummary["todayCenter"]> {
+export function getLocalTodayCenter(childId: string): NonNullable<HomeSummary["todayCenter"]> {
   const today = getSeoulToday();
   const state = useLocalBackendStore.getState();
   const acknowledged = state.acknowledgedSafetyAlertIds.includes(localTodaySafetyAlertId(childId));
@@ -938,10 +956,7 @@ function localTodayCenter(childId: string): NonNullable<HomeSummary["todayCenter
     referenceDate: today,
     source: "local_fixture",
     actions: candidates
-      .map((candidate) => ({
-        ...candidate,
-        preferenceVersion: preferences.get(candidate.actionKey)?.version ?? 0
-      }))
+      .map((candidate) => ({ ...candidate, preferenceVersion: preferences.get(candidate.actionKey)?.version ?? 0 }))
       .filter((candidate) => {
         const preference = preferences.get(candidate.actionKey);
         return !preference || preference.snoozedUntil <= today;
@@ -954,15 +969,15 @@ export function getHome(childId: string): HomeSummary {
   const child = requireChild(childId);
   const yearMonth = getSeoulMonthRange(getSeoulToday()).yearMonth;
   const budgetAmount = budgetAmountFor(childId, yearMonth) ?? 0;
-  const recentExpenses = expensesForChild(childId, undefined).slice(0, 3);
+  const recentExpenses = realizedExpensesForChild(childId, undefined).slice(0, 3);
 
   return {
     child: toChildDto(child),
-    totalExpenseKrw: totalExpenseKrw(expensesForChild(childId)),
+    totalExpenseKrw: totalExpenseKrw(realizedExpensesForChild(childId)),
     monthly: toBudgetDto(childId, yearMonth, budgetAmount),
     recommendedItems: listItems(childId, "now").items.slice(0, 3),
     recentExpenses: recentExpenses.map(toExpenseDto),
-    todayCenter: localTodayCenter(childId)
+    todayCenter: null
   };
 }
 
@@ -1205,7 +1220,7 @@ export function createExpense(
     throw new Error("품목명을 입력해 주세요.");
   }
   assertValidCalendarDate(body.spentOn);
-  assertNotFutureDate(body.spentOn);
+  assertExpenseDateWithinScheduleWindow(body.spentOn);
   const amountKrw = requireMoneyKrw(body.amountKrw);
   const selectedPaymentMethod = body.paymentMethodId
     ? requireLocalPaymentMethod(body.paymentMethodId, true)
@@ -1303,7 +1318,7 @@ export function updateExpense(
   if (body.amountKrw !== undefined) updated.amountKrw = requireMoneyKrw(body.amountKrw);
   if (body.spentOn !== undefined) {
     assertValidCalendarDate(body.spentOn);
-    assertNotFutureDate(body.spentOn);
+    assertExpenseDateWithinScheduleWindow(body.spentOn);
     updated.spentOn = body.spentOn;
   }
   if (body.itemName !== undefined) {
@@ -1404,7 +1419,7 @@ export function upsertBudget(childId: string, amountKrw: number, yearMonth: stri
 export function getMonthlyReport(childId: string, yearMonth: string): MonthlyReport {
   ensureSeeded();
   const normalizedMonth = budgetKey(yearMonth);
-  const expenses = expensesForChild(childId, normalizedMonth);
+  const expenses = realizedExpensesForChild(childId, normalizedMonth);
   const budgetAmountKrw = budgetAmountFor(childId, normalizedMonth) ?? null;
   return {
     childId,
@@ -1417,7 +1432,7 @@ export function getMonthlyReport(childId: string, yearMonth: string): MonthlyRep
 
 export function getCumulativeReport(childId: string): CumulativeReport {
   ensureSeeded();
-  const expenses = expensesForChild(childId).filter((expense) => expense.expenseType === "expense");
+  const expenses = realizedExpensesForChild(childId).filter((expense) => expense.expenseType === "expense");
   const yearly = new Map<string, { year: string; amountKrw: number; count: number }>();
   for (const expense of expenses) {
     const year = expense.spentOn.slice(0, 4);
@@ -1436,7 +1451,7 @@ export function getCumulativeReport(childId: string): CumulativeReport {
 export function getCategoryReport(childId: string, yearMonth?: string): CategoryReport {
   ensureSeeded();
   const normalizedMonth = yearMonth ? budgetKey(yearMonth) : undefined;
-  return { childId, categories: categoryBreakdown(expensesForChild(childId, normalizedMonth)) };
+  return { childId, categories: categoryBreakdown(realizedExpensesForChild(childId, normalizedMonth)) };
 }
 
 export function getYearlyReport(childId: string, year: number): YearlyReport {
@@ -1444,7 +1459,7 @@ export function getYearlyReport(childId: string, year: number): YearlyReport {
   const normalizedYear = String(year);
   const monthlyTotals = Array.from({ length: 12 }, (_, index) => {
     const yearMonth = `${normalizedYear}-${String(index + 1).padStart(2, "0")}`;
-    return { yearMonth, totalExpenseKrw: totalExpenseKrw(expensesForChild(childId, yearMonth)) };
+    return { yearMonth, totalExpenseKrw: totalExpenseKrw(realizedExpensesForChild(childId, yearMonth)) };
   });
   return {
     childId,
@@ -1498,7 +1513,8 @@ function localReportPeriod(childId: string, kind: ReportV2Period, anchor: string
 
 function localReportRows(childId: string, from: string, to: string) {
   ensureSeeded();
-  return useLocalBackendStore.getState().expenses.filter((row) => row.childId === childId && !row.deletedAt && row.spentOn >= from && row.spentOn <= to);
+  const today = getSeoulToday();
+  return useLocalBackendStore.getState().expenses.filter((row) => row.childId === childId && !row.deletedAt && row.spentOn >= from && row.spentOn <= to && row.spentOn <= today);
 }
 
 function localReportTotals(rows: LocalExpenseRecord[]): LocalReportTotals {
@@ -1520,7 +1536,7 @@ function localReportTotals(rows: LocalExpenseRecord[]): LocalReportTotals {
 function localReportMaturity(rows: LocalExpenseRecord[]): ReportSummaryContract["maturity"] {
   const distinctMonths = new Set(rows.map((row) => row.spentOn.slice(0, 7))).size;
   const distinctMembers = rows.length ? 1 : 0;
-  const showCategories = rows.length >= 3;
+  const showCategories = rows.length >= 1;
   const showTrend = distinctMonths >= 2;
   const showRecurring = distinctMonths >= 3;
   const showAnnual = distinctMonths >= 12;
@@ -1914,8 +1930,10 @@ function catalogCommonPrefixLength(left: string, right: string) {
 
 function localCatalogSearchMatch(item: Release4CatalogItem, rawQuery: string): CatalogItemSummary["searchMatch"] {
   const query = normalizeCatalogSearch(rawQuery);
+  const code = normalizeCatalogSearch(item.code);
   const canonical = normalizeCatalogSearch(item.nameKo);
   const initials = catalogInitials(rawQuery);
+  if (code === query || code.includes(query)) return { score: code === query ? 98 : 88, reason: "code", matchedText: item.code };
   if (canonical === query) return { score: 100, reason: "canonical_exact", matchedText: item.nameKo };
   const exactAlias = item.aliases.find((alias) => normalizeCatalogSearch(alias) === query);
   if (exactAlias) return { score: 95, reason: "alias_exact", matchedText: exactAlias };
@@ -3043,7 +3061,7 @@ const localLegalDocuments = [
     documentType: "terms",
     version: "local-test-2026-07-16",
     locale: "ko-KR-test",
-    title: "이용약관 (테스트 전용)",
+    title: "이용약관",
     bodyMarkdown: "내부 standalone 테스트에서만 사용하는 이용약관 fixture입니다.",
     publicUrl: null,
     contentHash: "1f2f9bcfded142ba9c6add4eef44d9f7f738c7f71cd91d0c53e763e12012bbde",
@@ -3055,7 +3073,7 @@ const localLegalDocuments = [
     documentType: "privacy",
     version: "local-test-2026-07-16",
     locale: "ko-KR-test",
-    title: "개인정보 처리방침 (테스트 전용)",
+    title: "개인정보 처리방침",
     bodyMarkdown: "내부 standalone 테스트에서만 사용하는 개인정보 처리방침 fixture입니다.",
     publicUrl: null,
     contentHash: "ab76f13f2de5dca2901e4cb80a341f2ca2a95f40a674db9a3807578823bbff68",
@@ -3166,17 +3184,15 @@ export function previewOnboardingStarterItems(body: {
   if (body.stageMode === "pregnant" && !body.dueDate) throw new Error("출산 예정일을 입력해 주세요.");
   if (body.stageMode === "born" && !body.birthDate) throw new Error("생일을 입력해 주세요.");
   if (body.stageMode === "manual" && !body.manualStage) throw new Error("현재 단계를 선택해 주세요.");
-  const registry = Object.entries(ONBOARDING_STARTER_ITEM_REGISTRY);
-  const items = localItemTemplateFixtures.slice(0, 12).map((item, index) => {
-    const [code, presentation] = registry[index]!;
+  const items = localOnboardingStarterCatalogItems().map(({ item, code, presentation }, index) => {
     return {
-      id: item.id,
+      id: item.code,
       code,
       categoryCode: presentation.categoryCode,
-      nameKo: presentation.label,
-      shortDescription: item.timingLabel,
+      nameKo: item.nameKo,
+      shortDescription: "현재 단계에 맞춰 준비 상태를 시작해요.",
       iconKey: presentation.icon,
-      safetyTier: "normal" as const,
+      safetyTier: item.safetyTier,
       onboardingPriority: 120 - index * 10
     };
   });
@@ -3227,12 +3243,46 @@ export function completeOnboarding(body: CompleteOnboardingInput, idempotencyKey
   toChildDto(child);
   const selectedIds = [...new Set(body.prepared.itemDefinitionIds)];
   if ((body.prepared.state === "selected") !== (selectedIds.length > 0)) throw new Error("PREPARED_STATE_INVALID");
-  if (selectedIds.some((id) => !localItemTemplateFixtures.some((item) => item.id === id))) {
+  const starterItems = localOnboardingStarterCatalogItems();
+  const selectedMappings = selectedIds.map((id) => starterItems.find(({ item, legacyId }) => item.code === id || legacyId === id));
+  if (selectedMappings.some((item) => !item)) {
     throw new Error("STARTER_ITEMS_STALE");
   }
+  const validSelectedMappings = selectedMappings.filter((mapping): mapping is NonNullable<typeof mapping> => Boolean(mapping));
   const itemStatuses = Object.fromEntries(
-    selectedIds.map((id) => [itemStatusKey(child.id, id), { status: "prepared" as const, expenseId: null }])
+    validSelectedMappings.map((mapping) => [itemStatusKey(child.id, mapping.legacyId), { status: "prepared" as const, expenseId: null }])
   );
+  const itemPlans = Object.fromEntries(validSelectedMappings.map(({ item }) => {
+    const key = catalogPlanKey(child.id, item.code);
+    const plan: CatalogItemPlan = {
+      id: `local-plan-${child.id}-${item.code}`,
+      householdId: LOCAL_HOUSEHOLD_ID,
+      childId: child.id,
+      motherProfileId: null,
+      itemDefinitionId: item.code,
+      state: "owned",
+      desiredQuantity: 1,
+      ownedQuantity: 1,
+      dueDate: null,
+      acquisitionMode: null,
+      assignedUserId: null,
+      budgetKrw: null,
+      note: null,
+      linkedExpenseId: null,
+      size: null,
+      variant: null,
+      purchasedAt: null,
+      openedAt: null,
+      expiresAt: null,
+      replacementDueAt: null,
+      usageEndedAt: null,
+      storageLocation: null,
+      recurringIntervalDays: null,
+      nextPurchaseDueAt: null,
+      version: 1
+    };
+    return [key, plan];
+  }));
   const budgets = body.budget
     ? { [`${child.id}:${getSeoulMonthRange(body.budget.yearMonth).yearMonth}`]: body.budget.amountKrw }
     : {};
@@ -3241,6 +3291,7 @@ export function completeOnboarding(body: CompleteOnboardingInput, idempotencyKey
     additionalChildren: [],
     budgets,
     itemStatuses,
+    itemPlans,
     preparedItemsCompleted: true,
     onboardingCompleted: true,
     idempotencyKeys: {
@@ -3254,6 +3305,31 @@ export function completeOnboarding(body: CompleteOnboardingInput, idempotencyKey
     budget: body.budget,
     onboardingCompleted: true as const
   };
+}
+
+function localOnboardingStarterCatalogItems() {
+  const exactNames: Record<keyof typeof ONBOARDING_STARTER_ITEM_REGISTRY, string> = {
+    diaper: "신생아 기저귀",
+    baby_carrier: "신생아 아기띠",
+    blocks: "쌓기 블록",
+    crib: "신생아 침대",
+    newborn_clothing: "신생아 배냇저고리",
+    swaddle: "아기 수면조끼",
+    baby_bottle: "젖병",
+    thermometer: "아기 체온계",
+    baby_bathtub: "신생아 욕조",
+    handkerchief: "후드형 아기 타월",
+    car_seat: "신생아용 카시트",
+    stroller: "신생아 유모차"
+  };
+  return Object.entries(ONBOARDING_STARTER_ITEM_REGISTRY).flatMap(([rawCode, presentation], index) => {
+    const code = rawCode as keyof typeof ONBOARDING_STARTER_ITEM_REGISTRY;
+    const targetName = exactNames[code];
+    const item = catalogDomain.release4CatalogItems.find((candidate) => candidate.nameKo === targetName)
+      ?? catalogDomain.release4CatalogItems.find((candidate) => candidate.nameKo.includes(presentation.label));
+    const legacyId = localItemTemplateFixtures[index]?.id;
+    return item && legacyId ? [{ item, code, presentation, legacyId }] : [];
+  });
 }
 
 /**

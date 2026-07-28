@@ -246,7 +246,7 @@ describe("Expense, budget, home, and report API", () => {
       })
       .expect(400)
       .expect(({ body }) => {
-        expect(body.error.code).toBe("EXPENSE_FUTURE_DATE");
+        expect(body.error.code).toBe("EXPENSE_DATE_TOO_FAR");
       });
 
     await request(app.getHttpServer())
@@ -310,6 +310,52 @@ describe("Expense, budget, home, and report API", () => {
       .expect(({ body }) => {
         expect(body.totalExpenseKrw).toBe(0);
         expect(body.monthly.usedAmountKrw).toBe(0);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalExpenseKrw).toBe(0);
+        expect(body.categoryTop).toEqual([]);
+      });
+  });
+
+  it("stores tomorrow as scheduled, excludes it from realized totals, and rejects the day after tomorrow", async () => {
+    const accessToken = await login(app, `batch06-scheduled-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId, amountKrw: 23000, spentOn: "2026-07-07", itemName: "내일 예정 지출" })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId, amountKrw: 24000, spentOn: "2026-07-08", itemName: "모레 지출" })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("EXPENSE_DATE_TOO_FAR"));
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.expenses).toEqual([expect.objectContaining({ itemName: "내일 예정 지출", spentOn: "2026-07-07" })]);
+        expect(body.totalAmountKrw).toBe(0);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/home?childId=${childId}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalExpenseKrw).toBe(0);
+        expect(body.monthly.usedAmountKrw).toBe(0);
+        expect(body.recentExpenses).toEqual([]);
       });
 
     await request(app.getHttpServer())

@@ -32,18 +32,18 @@ describe("onboarding six-step hardening", () => {
   it("exposes category names instead of sellable product names in starter recommendations", () => {
     const preview = previewOnboardingStarterItems({ stageMode: "manual", manualStage: "newborn_0_3" });
     expect(preview.items.map((item) => item.nameKo)).toEqual([
-      "기저귀",
-      "아기띠",
-      "블록 세트",
-      "아기 침대",
-      "배냇저고리",
-      "속싸개",
+      "신생아 기저귀",
+      "신생아 아기띠",
+      "쌓기 블록",
+      "신생아 침대",
+      "신생아 배냇저고리",
+      "아기 수면조끼",
       "젖병",
-      "체온계",
-      "아기 욕조",
-      "손수건",
-      "카시트",
-      "유모차"
+      "아기 체온계",
+      "신생아 욕조",
+      "후드형 아기 타월",
+      "신생아용 카시트",
+      "신생아 유모차"
     ]);
     expect(preview.items.map((item) => item.nameKo).join(" ")).not.toMatch(/네이처러브|팬티형|힙시트|도담도담|원목/);
   });

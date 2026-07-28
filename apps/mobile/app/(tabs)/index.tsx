@@ -5,9 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import {
   getCatalogItem,
   getHome,
-  getTodayPreferenceResolution,
-  listHouseholdMembers,
-  updateTodayPreference
+  listHouseholdMembers
 } from "../../src/api/client";
 import {
   fixtureSessionToken,
@@ -54,9 +52,6 @@ import {
   PurchaseFollowupCard,
   purchaseExpenseRouteParams
 } from "../../src/purchase-followup/PurchaseFollowupCard";
-import { TodayCenterCard } from "../../src/home/TodayCenterCard";
-import { todayActionHref } from "../../src/home/today-center";
-import { executeTodaySnooze } from "../../src/home/today-center-mutation";
 
 const isPixelLockMode = isPixelLockBuild();
 
@@ -348,11 +343,6 @@ export default function HomeScreen() {
       ? purchaseFollowup
       : null;
   const followupItemName = followupItem.data?.nameKo ?? "확인한 준비템";
-  const refetchTodayActions = async () => {
-    const refreshed = await home.refetch();
-    if (refreshed.error) throw refreshed.error;
-    return refreshed.data?.todayCenter?.actions ?? [];
-  };
   return (
     <AppScreen>
       <View accessibilityLabel={pixelEvidenceId("HOME-001")} testID={pixelEvidenceId("HOME-001")}>
@@ -366,30 +356,6 @@ export default function HomeScreen() {
             <IconButton accessibilityLabel="알림" icon="bell-outline" onPress={() => router.push("/notifications" as Href)} />
           </View>
           <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 }}>우리 아이에게 해준 것을 따뜻하게 기록해요.</Text>
-
-          {!isPixelLockMode && visibleHome.todayCenter ? (
-            <TodayCenterCard
-              center={visibleHome.todayCenter}
-              onNavigate={(action) => router.push(todayActionHref(action) as Href)}
-              onRefresh={async () => { await refetchTodayActions(); }}
-              onSnooze={(action) => executeTodaySnooze({
-                action,
-                write: () => updateTodayPreference(authToken!, {
-                  householdId: purchaseHouseholdId!,
-                  childId: action.preferenceScope.childId,
-                  actionKey: action.actionKey,
-                  mode: "snooze",
-                  expectedVersion: action.preferenceVersion
-                }),
-                resolveExact: () => getTodayPreferenceResolution(authToken!, {
-                  householdId: purchaseHouseholdId!,
-                  childId: action.preferenceScope.childId,
-                  actionKey: action.actionKey
-                }),
-                refetchActions: refetchTodayActions
-              })}
-            />
-          ) : null}
 
           {visiblePurchaseFollowup ? (
             <PurchaseFollowupCard

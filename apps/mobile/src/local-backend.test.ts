@@ -34,7 +34,7 @@ describe("Local test-mode backend data layer", () => {
   });
 
   it("persists exact-child Today snooze with create-only CAS and fixture provenance", () => {
-    const before = localBackend.getHome(childId).todayCenter!;
+    const before = localBackend.getLocalTodayCenter(childId);
     expect(before.source).toBe("local_fixture");
     const ordinary = before.actions.find((entry) => entry.kind !== "safety_acknowledgement")!;
     expect(ordinary.preferenceScope).toEqual({ kind: "child", childId });
@@ -53,7 +53,7 @@ describe("Local test-mode backend data layer", () => {
       snoozedUntil: nextDate(getSeoulToday()),
       version: 1
     });
-    expect(localBackend.getHome(childId).todayCenter!.actions.map((entry) => entry.actionKey))
+    expect(localBackend.getLocalTodayCenter(childId).actions.map((entry) => entry.actionKey))
       .not.toContain(ordinary.actionKey);
     expect(capturedError(() => localBackend.updateTodayPreference({
       householdId: LOCAL_HOUSEHOLD_ID,
@@ -65,7 +65,7 @@ describe("Local test-mode backend data layer", () => {
   });
 
   it("rejects safety and foreign Today preference scopes without writes", () => {
-    const safety = localBackend.getHome(childId).todayCenter!.actions
+    const safety = localBackend.getLocalTodayCenter(childId).actions
       .find((entry) => entry.kind === "safety_acknowledgement")!;
     expect(capturedError(() => localBackend.updateTodayPreference({
       householdId: LOCAL_HOUSEHOLD_ID,
@@ -85,7 +85,7 @@ describe("Local test-mode backend data layer", () => {
   });
 
   it("resolves exact preference state independently of the ranked Home projection", () => {
-    const ordinary = localBackend.getHome(childId).todayCenter!.actions
+    const ordinary = localBackend.getLocalTodayCenter(childId).actions
       .find((entry) => entry.kind !== "safety_acknowledgement")!;
     expect(localBackend.getTodayPreferenceResolution({
       householdId: LOCAL_HOUSEHOLD_ID,
@@ -107,7 +107,7 @@ describe("Local test-mode backend data layer", () => {
   });
 
   it("completes and persists the local safety acknowledgement journey", () => {
-    const safety = localBackend.getHome(childId).todayCenter!.actions
+    const safety = localBackend.getLocalTodayCenter(childId).actions
       .find((entry) => entry.kind === "safety_acknowledgement")!;
     const inbox = localBackend.listLocalNotifications();
     expect(inbox.items).toEqual(expect.arrayContaining([
@@ -120,7 +120,7 @@ describe("Local test-mode backend data layer", () => {
     localBackend.acknowledgeCatalogSafetyAlert(alert.id, alert.version);
 
     expect(localBackend.getCatalogSafetyAlerts(childId).alerts).toEqual([]);
-    expect(localBackend.getHome(childId).todayCenter!.actions.map((entry) => entry.actionKey))
+    expect(localBackend.getLocalTodayCenter(childId).actions.map((entry) => entry.actionKey))
       .not.toContain(safety.actionKey);
   });
 
@@ -132,9 +132,9 @@ describe("Local test-mode backend data layer", () => {
       birthDate: "2025-07-26",
       gender: "unknown"
     }).id;
-    const firstSafety = localBackend.getHome(childId).todayCenter!.actions
+    const firstSafety = localBackend.getLocalTodayCenter(childId).actions
       .find((entry) => entry.kind === "safety_acknowledgement")!;
-    const secondSafety = localBackend.getHome(secondChildId).todayCenter!.actions
+    const secondSafety = localBackend.getLocalTodayCenter(secondChildId).actions
       .find((entry) => entry.kind === "safety_acknowledgement")!;
     expect(firstSafety.actionKey).not.toBe(secondSafety.actionKey);
 
@@ -154,10 +154,10 @@ describe("Local test-mode backend data layer", () => {
     localBackend.acknowledgeCatalogSafetyAlert(firstAlert.id, firstAlert.version);
 
     expect(localBackend.getCatalogSafetyAlerts(childId).alerts).toEqual([]);
-    expect(localBackend.getHome(childId).todayCenter!.actions.map((entry) => entry.actionKey))
+    expect(localBackend.getLocalTodayCenter(childId).actions.map((entry) => entry.actionKey))
       .not.toContain(firstSafety.actionKey);
     expect(localBackend.getCatalogSafetyAlerts(secondChildId).alerts).toHaveLength(1);
-    expect(localBackend.getHome(secondChildId).todayCenter!.actions.map((entry) => entry.actionKey))
+    expect(localBackend.getLocalTodayCenter(secondChildId).actions.map((entry) => entry.actionKey))
       .toContain(secondSafety.actionKey);
     expect(localBackend.listLocalNotifications().items.map((item) => item.navigation))
       .toEqual([expect.objectContaining({ kind: "item", childId: secondChildId })]);
@@ -226,6 +226,25 @@ describe("Local test-mode backend data layer", () => {
         itemName: "미래 지출"
       })
     ).toThrow();
+  });
+
+  it("keeps tomorrow visible as scheduled while excluding it from realized totals", () => {
+    const before = localBackend.getHome(childId).totalExpenseKrw;
+    const scheduledDate = nextDate(getSeoulToday());
+    const scheduledMonth = scheduledDate.slice(0, 7);
+    const monthlyBefore = localBackend.getMonthlyReport(childId, scheduledMonth).totalExpenseKrw;
+    const scheduled = localBackend.createExpense(childId, {
+      categoryId: "local-category-diaper",
+      amountKrw: 22_000,
+      spentOn: scheduledDate,
+      itemName: "내일 예정 지출"
+    });
+
+    expect(localBackend.listExpenses(childId, scheduledMonth).expenses).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: scheduled.id, spentOn: scheduledDate })])
+    );
+    expect(localBackend.getHome(childId).totalExpenseKrw).toBe(before);
+    expect(localBackend.getMonthlyReport(childId, scheduledMonth).totalExpenseKrw).toBe(monthlyBefore);
   });
 
   it("rejects a zero or negative amount", () => {
@@ -464,6 +483,8 @@ describe("Local test-mode backend data layer", () => {
       expect(result.items[0]?.searchMatch?.reason).toMatch(/initials|typo/);
       expect(result.search).toMatchObject({ rawQueryStored: false });
     }
+    const codeResult = localBackend.listCatalogItems({ childId, query: "R4-C10-001", limit: 10 });
+    expect(codeResult.items[0]).toMatchObject({ code: "R4-C10-001", searchMatch: { reason: "code" } });
     const first = localBackend.reportMissingCatalogItem("없는 품목 예시");
     const second = localBackend.reportMissingCatalogItem("없는 품목 예시");
     expect(first).toMatchObject({ idempotent: false, report: { reasonCode: "missing_item", state: "open" } });

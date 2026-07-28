@@ -3,18 +3,35 @@ import { categoryCatalog } from "../categories";
 import {
   amountAfterQuickExpenseSelection,
   defaultQuickExpenseItemIds,
+  nextQuickExpenseLimit,
   quickExpenseCatalogItemForLabel,
   quickExpenseItemCatalog,
-  quickExpenseItemsForCategory
+  quickExpenseItemsForCategory,
+  searchQuickExpenseCatalog
 } from "./quick-expense-catalog";
 
 describe("quick expense item catalog", () => {
-  it("keeps three distinct quick items mapped to every accounting category", () => {
-    expect(quickExpenseItemCatalog).toHaveLength(categoryCatalog.length * 3);
+  it("keeps at least six distinct quick items mapped to every accounting category", () => {
+    expect(quickExpenseItemCatalog).toHaveLength(categoryCatalog.length * 8);
     for (const category of categoryCatalog) {
-      expect(quickExpenseItemsForCategory(category.code)).toHaveLength(3);
+      expect(quickExpenseItemsForCategory(category.code).length).toBeGreaterThanOrEqual(6);
     }
     expect(new Set(quickExpenseItemCatalog.map((item) => item.id)).size).toBe(quickExpenseItemCatalog.length);
+  });
+
+  it("searches labels, aliases, category names, and Hangul choseong with stable ranking", () => {
+    expect(searchQuickExpenseCatalog("진료비")[0]).toMatchObject({ id: "hospital-cost" });
+    expect(searchQuickExpenseCatalog("다이퍼")[0]).toMatchObject({ id: "diaper" });
+    expect(searchQuickExpenseCatalog("ㄱㅈㄱ")[0]).toMatchObject({ id: "diaper" });
+    expect(searchQuickExpenseCatalog("diaper").map((item) => item.id)).toEqual(["diaper"]);
+    expect(searchQuickExpenseCatalog("기저귀 위생").map((item) => item.categoryCode)).toContain("diaper_hygiene");
+    expect(new Set(searchQuickExpenseCatalog("아기").map((item) => item.id)).size).toBe(searchQuickExpenseCatalog("아기").length);
+  });
+
+  it("uses the 6 to 12 to 24 expansion contract without exceeding the result count", () => {
+    expect(nextQuickExpenseLimit(6, 20)).toBe(12);
+    expect(nextQuickExpenseLimit(12, 20)).toBe(20);
+    expect(nextQuickExpenseLimit(24, 8)).toBe(8);
   });
 
   it("keeps common one-tap defaults valid and resolves labels without changing the accounting taxonomy", () => {

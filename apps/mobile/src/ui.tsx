@@ -75,26 +75,7 @@ export function IconButton({
 }
 
 export function SampleDataBanner() {
-  return (
-    <View
-      accessibilityLabel="샘플 데이터 안내"
-      style={{
-        alignItems: "center",
-        alignSelf: "stretch",
-        backgroundColor: theme.colors.sky,
-        borderRadius: theme.radii.small,
-        flexDirection: "row",
-        gap: 8,
-        minHeight: theme.touchTarget,
-        paddingHorizontal: 12
-      }}
-    >
-      <AppIcon color={theme.colors.semantic.info} name="flask-outline" size={18} />
-      <Text style={[textStyles.caption, { color: theme.colors.brown, flex: 1, fontWeight: "700" }]}>
-        샘플 데이터 · 실제 계정 정보와 분리되어 이 기기에만 저장돼요.
-      </Text>
-    </View>
-  );
+  return null;
 }
 
 const pixelLockWebStyleId = "wooriai-pixel-lock-web-styles";

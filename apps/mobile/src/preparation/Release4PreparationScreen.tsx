@@ -162,7 +162,6 @@ export function Release4PreparationScreen() {
   const [view, setView] = useState<PreparationView>("personalized");
   const [domainCode, setDomainCode] = useState<string | undefined>();
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>("all");
-  const [urgentOnly, setUrgentOnly] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchReportMessage, setSearchReportMessage] = useState<string | null>(null);
@@ -378,7 +377,7 @@ export function Release4PreparationScreen() {
     return result;
   }, [assignmentFilter, items.data?.pages, searchQuery, timeline.data, view]);
   const loadedItems = visibleItems;
-  const plannedCount = loadedItems.filter((item) => mineStates.has(item.plan?.state ?? "not_considered")).length;
+  const plannedCount = loadedItems.filter((item) => activeStates.has(item.plan?.state ?? "not_considered")).length;
   const completedCount = loadedItems.filter((item) => ["owned", "borrowed", "rented", "gifted", "replaced"].includes(item.plan?.state ?? "")).length;
   const selectedBundle = bundles.data?.bundles.find((bundle) => bundle.id === selectedBundleId) ?? null;
   const selectedBundleItems = selectedBundle?.items.filter((item) => selectedBundleItemIds.includes(item.id)) ?? [];
@@ -394,11 +393,26 @@ export function Release4PreparationScreen() {
   const openSurface = (nextSurface: PreparationSurface) => {
     setSurface(nextSurface);
     setView(nextSurface === "search" ? "all" : "personalized");
-    if (nextSurface !== "list") setUrgentOnly(false);
     if (nextSurface !== "search") {
       setSearchDraft("");
       setSearchQuery("");
     }
+  };
+
+  const openListSearch = (query: string) => {
+    setSearchDraft(query);
+    setSearchQuery(query);
+    setSearchReportMessage(null);
+    setView("all");
+    setSurface("list");
+    addRecentSearch(query);
+  };
+
+  const closeListSearch = () => {
+    setSearchDraft("");
+    setSearchQuery("");
+    setSearchReportMessage(null);
+    setView("personalized");
   };
 
   const submitSearch = (value: string) => {
@@ -413,7 +427,6 @@ export function Release4PreparationScreen() {
     setView("all");
     setDomainCode(undefined);
     setAssignmentFilter("all");
-    setUrgentOnly(false);
     setSearchDraft("");
     setSearchQuery("");
     setSearchReportMessage(null);
@@ -508,29 +521,16 @@ export function Release4PreparationScreen() {
       </ScrollView>
     </View>
   );
-  const listContextOptions = [
-    ...(contexts.data?.motherProfiles ?? []).map((profile) => {
-      const linkedChild = (children.data?.children ?? []).find((entry) => entry.id === profile.childId);
-      return { key: `mother:${profile.id}`, label: `산모${linkedChild ? ` · ${linkedChild.nickname}` : ""}` };
-    }),
-    ...(children.data?.children ?? []).map((child) => ({ key: `child:${child.id}`, label: `아이 · ${child.nickname}` }))
-  ];
-  const selectListContext = (key: string) => {
-    setContextKey(key);
-    if (key.startsWith("child:")) {
-      const selectedId = key.slice("child:".length);
-      const selectedChild = (children.data?.children ?? []).find((child) => child.id === selectedId);
-      setSelectedChildId(selectedId, selectedChild?.householdId ?? null);
-    }
-  };
-
+  const listSelectedContextName = activeContextKey?.startsWith("child:")
+    ? (children.data?.children.find((child) => `child:${child.id}` === activeContextKey)?.nickname ?? "선택된 아이")
+    : "선택된 가족";
   if (surface === "overview") {
     return (
       <ScreenScaffold testID="release4-preparation-screen">
         {isTestSession ? <SampleDataBanner /> : null}
         <TopAppBar title="준비템" />
         {contextSelector}
-        <PreparationProgressCard plannedCount={plannedCount} completedCount={completedCount} />
+        <PreparationProgressCard plannedCount={plannedCount} completedCount={completedCount} onPress={() => openSurface("list")} />
         <SafetyAlertSection
           alerts={(safetyAlerts.data?.alerts ?? []).filter((alert) => alert.state === "unread")}
           pending={acknowledgeSafety.isPending}
@@ -574,7 +574,7 @@ export function Release4PreparationScreen() {
       {surface !== "list" ? <Pressable
         accessibilityLabel="준비 홈으로 돌아가기"
         accessibilityRole="button"
-        onPress={() => openSurface("overview")}
+        onPress={() => openSurface(surface === "search" ? "list" : "overview")}
         style={{ alignItems: "center", alignSelf: "flex-start", flexDirection: "row", gap: 4, minHeight: 48, paddingRight: 12 }}
       >
         <AppIcon color={semanticColors.actionPrimary} name="chevron-left" size={22} />
@@ -587,21 +587,21 @@ export function Release4PreparationScreen() {
 
       {surface === "list" ? (
         <PreparationListParity
-          contextOptions={listContextOptions}
-          error={timeline.isError}
+          error={view === "personalized" ? timeline.isError : items.isError}
           items={visibleItems}
-          loading={timeline.isLoading}
+          loading={view === "personalized" ? timeline.isLoading : items.isLoading}
           onBack={() => openSurface("overview")}
           onItemPress={(item) => {
             const preparationItem = visibleItems.find((candidate) => candidate.id === item.id);
             if (preparationItem) openStatusSheet(preparationItem);
           }}
           onMissingReport={() => openSurface("search")}
-          onRetry={() => void timeline.refetch()}
-          onSelectContext={selectListContext}
-          onToggleUrgent={() => setUrgentOnly((value) => !value)}
+          onSearch={openListSearch}
+          activeSearchQuery={searchQuery}
+          onClearSearch={closeListSearch}
+          onRetry={() => void (view === "personalized" ? timeline.refetch() : items.refetch())}
           selectedContextKey={activeContextKey}
-          urgentOnly={urgentOnly}
+          selectedContextName={listSelectedContextName}
         />
       ) : null}
 
@@ -730,13 +730,12 @@ export function Release4PreparationScreen() {
         ))}
       </ScrollView>
 
-      {(searchQuery || domainCode || view !== "all" || assignmentFilter !== "all" || urgentOnly) ? (
+      {(searchQuery || domainCode || view !== "all" || assignmentFilter !== "all") ? (
         <View style={{ alignItems: "center", flexDirection: "row", gap: spacing.sm }}>
           <Text accessibilityLiveRegion="polite" style={{ color: semanticColors.textSecondary, flex: 1, fontSize: 12 }}>
             {searchQuery ? `검색어 '${searchQuery}' · ` : ""}
             {domainCode ? `분류 ${domains.data?.domains.find((domain) => domain.code === domainCode)?.nameKo ?? "선택됨"} · ` : ""}
             {assignmentFilter === "assigned" ? "담당 지정 · " : assignmentFilter === "unassigned" ? "담당 미정 · " : ""}
-            {urgentOnly ? "7일 안에 준비 · " : ""}
             {views.find((entry) => entry.value === view)?.label}
           </Text>
           <Pressable accessibilityRole="button" onPress={resetFilters} style={{ alignItems: "center", justifyContent: "center", minHeight: 48, paddingHorizontal: 8 }}>

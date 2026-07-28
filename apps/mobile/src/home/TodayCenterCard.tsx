@@ -104,8 +104,8 @@ export function TodayCenterCard({
         지금 처리할 중요한 행동만 최대 3개 보여드려요.
       </Text>
       {center.source === "local_fixture" ? (
-        <Text accessibilityLabel="로컬 샘플 Today Center" style={{ color: semanticColors.info, fontSize: 11, fontWeight: "700" }}>
-          이 기기의 샘플 알림
+        <Text accessibilityLabel="이 기기의 알림" style={{ color: semanticColors.info, fontSize: 11, fontWeight: "700" }}>
+          이 기기의 알림
         </Text>
       ) : null}
       {notice ? <Toast message={notice.message} tone={outcomeToastTone(notice)} /> : null}

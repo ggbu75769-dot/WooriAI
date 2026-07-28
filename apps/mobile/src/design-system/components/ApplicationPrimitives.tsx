@@ -100,7 +100,7 @@ export function StatusBadge({ label, tone = "neutral" }: { label: string; tone?:
   return <View style={{ alignSelf: "flex-start", backgroundColor, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}><Text style={{ color, fontSize: typography.caption.fontSize, fontWeight: "800" }}>{label}</Text></View>;
 }
 
-export function ListRow({ icon, iconBackgroundColor, title, subtitle, value, onPress }: { icon?: React.ReactNode; iconBackgroundColor?: string; title: string; subtitle?: string; value?: string; onPress?: () => void }) {
+export function ListRow({ badgeLabel, icon, iconBackgroundColor, title, subtitle, value, onPress }: { badgeLabel?: string; icon?: React.ReactNode; iconBackgroundColor?: string; title: string; subtitle?: string; value?: string; onPress?: () => void }) {
   return (
     <Pressable accessibilityRole={onPress ? "button" : "text"} disabled={!onPress} onPress={onPress}>
       <Card style={{ alignItems: "center", flexDirection: "row", minHeight: 64 }}>
@@ -110,7 +110,10 @@ export function ListRow({ icon, iconBackgroundColor, title, subtitle, value, onP
           </View>
         ) : null}
         <View style={{ flex: 1, gap: spacing.xxs }}>
-          <Text style={{ color: semanticColors.textPrimary, fontSize: typography.body.fontSize, fontWeight: "800" }}>{title}</Text>
+          <View style={{ alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: spacing.xs }}>
+            <Text style={{ color: semanticColors.textPrimary, fontSize: typography.body.fontSize, fontWeight: "800" }}>{title}</Text>
+            {badgeLabel ? <StatusBadge label={badgeLabel} tone="info" /> : null}
+          </View>
           {subtitle ? <Text style={{ color: semanticColors.textSecondary, ...typography.caption }}>{subtitle}</Text> : null}
         </View>
         {value ? <Text style={{ color: semanticColors.textPrimary, fontWeight: "800" }}>{value}</Text> : null}
@@ -139,7 +142,7 @@ export function Toast({ message, tone = "success" }: { message: string; tone?: "
 }
 
 export function SampleDataBanner() {
-  return <View accessibilityLabel="샘플 데이터 안내" style={{ alignItems: "center", backgroundColor: semanticColors.infoSurface, borderRadius: radius.large, flexDirection: "row", gap: spacing.sm, minHeight: 48, paddingHorizontal: spacing.md }}><AppIcon color={semanticColors.info} name="flask-outline" size={20} /><Text style={{ color: semanticColors.textPrimary, flex: 1, ...typography.caption }}>샘플 데이터 · 실제 계정 정보와 분리되어 이 기기에만 저장돼요.</Text></View>;
+  return null;
 }
 
 export function AffiliateDisclosure({ text }: { text?: string }) {

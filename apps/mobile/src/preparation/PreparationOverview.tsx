@@ -57,26 +57,37 @@ function OverviewLink({
 
 export function PreparationProgressCard({
   plannedCount,
-  completedCount
+  completedCount,
+  onPress
 }: {
   plannedCount: number;
   completedCount: number;
+  onPress?: () => void;
 }) {
   const total = plannedCount + completedCount;
   const percentage = total ? Math.round((completedCount / total) * 100) : 0;
   return (
-    <SectionCard style={{ gap: spacing.sm }}>
-      <View accessibilityLabel={`준비 진행률 ${percentage}퍼센트. 완료 또는 제외 ${completedCount}개, 준비 중 ${plannedCount}개`} style={{ alignItems: "center", flexDirection: "row", gap: spacing.sm }}>
+    <Pressable
+      accessibilityHint={onPress ? "준비 상태별 목록을 열어요." : undefined}
+      accessibilityLabel={`나의 준비 진행률 ${percentage}퍼센트. 완료 ${completedCount}개, 준비 중 ${plannedCount}개`}
+      accessibilityRole={onPress ? "button" : undefined}
+      onPress={onPress}
+      style={({ pressed }) => ({ opacity: pressed ? 0.82 : 1 })}
+    >
+      <SectionCard style={{ gap: spacing.sm }}>
+      <View style={{ alignItems: "center", flexDirection: "row", gap: spacing.sm }}>
         <AppIcon color={semanticColors.actionPrimary} name="check-circle-outline" size={24} />
         <View style={{ flex: 1, gap: 3 }}>
-          <Text style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "800" }}>준비 진행률 {percentage}%</Text>
-          <Text style={{ color: semanticColors.textSecondary, fontSize: 13 }}>준비 중 {plannedCount}개 · 완료 또는 제외 {completedCount}개</Text>
+          <Text style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "800" }}>나의 준비 진행률 {percentage}%</Text>
+          <Text style={{ color: semanticColors.textSecondary, fontSize: 13 }}>준비 중 {plannedCount}개 · 완료 {completedCount}개</Text>
         </View>
+        {onPress ? <AppIcon color={semanticColors.textDisabled} name="chevron-right" size={22} /> : null}
       </View>
       <View style={{ backgroundColor: semanticColors.borderSubtle, borderRadius: 999, height: 8, overflow: "hidden" }}>
         <View style={{ backgroundColor: semanticColors.actionPrimary, height: 8, width: `${percentage}%` }} />
       </View>
-    </SectionCard>
+      </SectionCard>
+    </Pressable>
   );
 }
 

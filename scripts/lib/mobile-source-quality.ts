@@ -9,6 +9,7 @@ export type MobileSourceQualityRule =
   | "TOUCH_TARGET"
   | "CTA_SINGLE_LINE"
   | "RAW_ERROR_EXPOSURE"
+  | "NON_PRODUCTION_USER_COPY"
   | "INTERNAL_ENUM_COPY"
   | "SYNTHETIC_CHILD_FALLBACK"
   | "SCREEN_CREATE_CHILD"
@@ -37,6 +38,7 @@ const legacyDomainWidgets = new Set([
 const exceptionPattern = /release5v-source-quality-exception:.*owner=[a-z0-9-]+;\s*review=\d{4}-\d{2}-\d{2}\./i;
 const rawHexPattern = /^#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?$/i;
 const emojiPattern = /\p{Extended_Pictographic}/u;
+const nonProductionUserCopyPattern = /테스트용 APK|테스트 계정|테스트 데이터|테스트 전용|샘플 계정|샘플 가족|샘플 데이터 안내|샘플 데이터\s*·|샘플 알림/;
 
 function lineOf(sourceFile: ts.SourceFile, node: ts.Node) {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
@@ -80,6 +82,13 @@ export function analyzeMobileSourceText(file: string, sourceText: string): Mobil
   };
 
   const visit = (node: ts.Node) => {
+    if (
+      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isJsxText(node)) &&
+      nonProductionUserCopyPattern.test(node.text)
+    ) {
+      add("NON_PRODUCTION_USER_COPY", node, "Release user paths must not expose test or sample-data copy.");
+    }
+
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const moduleName = node.moduleSpecifier.text;
       if (/(^|\/)ui$/.test(moduleName)) {

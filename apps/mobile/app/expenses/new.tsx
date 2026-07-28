@@ -1,8 +1,10 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams, type Href } from "expo-router";
 import {
   KeyboardAvoidingView,
+  InteractionManager,
   Platform,
   Pressable,
   SafeAreaView,
@@ -28,9 +30,11 @@ import { buildRecentExpenseDateChips, formatExpenseDate, validateExpenseDateInpu
 import {
   amountAfterQuickExpenseSelection,
   defaultQuickExpenseItemIds,
+  nextQuickExpenseLimit,
   quickExpenseCatalogItemForLabel,
   quickExpenseItemCatalog,
   quickExpenseItemsForCategory,
+  searchQuickExpenseCatalog,
   type QuickExpenseCatalogItem
 } from "../../src/expenses/quick-expense-catalog";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
@@ -53,6 +57,7 @@ import { AppIcon, BottomSheetFrame, CategoryChip, PrimaryButton, SampleDataBanne
 import { theme } from "../../src/theme";
 import { QuickExpensePixelStyles } from "../../src/pixelLock/styles";
 import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
+import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 
 const quickExpenseScreenId = pixelEvidenceId("EXP-001 EXP-001");
 const isPixelLockMode = isPixelLockBuild();
@@ -96,10 +101,10 @@ const quickExpenseCategoryTileStyle = StyleSheet.create({
     borderColor: "rgba(74, 63, 53, 0.10)",
     borderRadius: 16,
     borderWidth: 1,
-    gap: 8,
-    height: 112,
+    gap: 6,
+    height: 144,
     justifyContent: "center",
-    padding: 10
+    padding: 8
   },
   buttonSelected: {
     backgroundColor: theme.colors.coral[50],
@@ -163,10 +168,10 @@ function ExpenseCategoryIconButton({
       >
         <AppIcon color={selected ? theme.colors.white : theme.colors.mainCoral} name={icon} size={22} />
       </View>
-      <Text maxFontSizeMultiplier={1.25} numberOfLines={2} style={quickExpenseCategoryTileStyle.label}>
+      <Text maxFontSizeMultiplier={1.5} numberOfLines={2} style={quickExpenseCategoryTileStyle.label}>
         {label}
       </Text>
-      {hint ? <Text numberOfLines={1} style={quickExpenseCategoryTileStyle.hint}>{hint}</Text> : null}
+      {hint ? <Text maxFontSizeMultiplier={1.5} numberOfLines={1} style={quickExpenseCategoryTileStyle.hint}>{hint}</Text> : null}
     </Pressable>
   );
 }
@@ -181,7 +186,17 @@ type QuickExpenseSelection = {
   presetId?: string;
 };
 
-function ExpenseAppScreenScaffold({ children, footer }: { children: ReactNode; footer: ReactNode }) {
+function ExpenseAppScreenScaffold({
+  children,
+  contentBottomPadding = 16,
+  footer,
+  scrollRef
+}: {
+  children: ReactNode;
+  contentBottomPadding?: number;
+  footer: ReactNode;
+  scrollRef: RefObject<ScrollView>;
+}) {
   return (
     <SafeAreaView style={{ backgroundColor: theme.colors.background, flex: 1 }}>
       <KeyboardAvoidingView
@@ -189,8 +204,9 @@ function ExpenseAppScreenScaffold({ children, footer }: { children: ReactNode; f
         style={{ flex: 1 }}
       >
         <ScrollView
-          contentContainerStyle={{ flexGrow: 1, paddingBottom: 16 }}
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: contentBottomPadding }}
           keyboardShouldPersistTaps="handled"
+          ref={scrollRef}
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
         >
@@ -203,7 +219,7 @@ function ExpenseAppScreenScaffold({ children, footer }: { children: ReactNode; f
 }
 
 export default function NewExpenseScreen() {
-  const { width } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const expenseGridColumns = width >= 600 ? 4 : 3;
   const params = useLocalSearchParams<{
     itemName?: string;
@@ -259,11 +275,16 @@ export default function NewExpenseScreen() {
   const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
   const [isGift, setIsGift] = useState(false);
   const [showAdditionalFields, setShowAdditionalFields] = useState(showPaymentEvidence);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [customDateMode, setCustomDateMode] = useState(false);
-  const [customDateText, setCustomDateText] = useState("");
+  const [showIosDatePicker, setShowIosDatePicker] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [categoryLimits, setCategoryLimits] = useState<Record<string, number>>({});
   const amountInputRef = useRef<TextInput>(null);
   const customItemInputRef = useRef<TextInput>(null);
+  const screenScrollRef = useRef<ScrollView>(null);
+  const detailsHeaderYRef = useRef(0);
+  const detailsContentYRef = useRef(0);
+  const detailsScrollGenerationRef = useRef(0);
   const didAutoExpandRecentCategoryRef = useRef(Boolean(prefilledQuickItem));
   const [today] = useState(() => new Date(`${getSeoulToday()}T00:00:00`));
   // Kept literally as `authToken ? formatExpenseDate(today) : previewExpenseDate` (see
@@ -273,10 +294,8 @@ export default function NewExpenseScreen() {
   const [expenseDateIso, setExpenseDateIso] = useState(() => initialExpenseDate.iso);
   const expenseDate = authToken ? formatExpenseDate(new Date(`${expenseDateIso}T00:00:00`)) : previewExpenseDate;
   const recentDateChips = buildRecentExpenseDateChips(today);
-  // Only meaningful while a real/test session is picking a manually-typed date; null means
-  // either preview mode, chip-only selection, or an empty (not-yet-typed) custom field.
-  const dateInputError =
-    authToken && customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
+  const dateInputError = authToken ? validateExpenseDateInput(expenseDateIso) : null;
+  const maximumExpenseDate = new Date(`${recentDateChips[2]!.iso}T12:00:00`);
   const queryClient = useQueryClient();
   const paymentMethodsQuery = useQuery({
     queryKey: ["payment-methods"],
@@ -441,6 +460,8 @@ export default function NewExpenseScreen() {
     setSelectedCategory(categoryForId(categoryId));
     setExpandedCategoryCode(categoryForId(categoryId).code);
     setCustomItemMode(false);
+    setSearchOpen(false);
+    setSearchText("");
     setItemName(label);
     setAmountText(nextAmountText);
     focusAmountInput(Boolean(defaultAmountText), nextAmountText);
@@ -449,13 +470,55 @@ export default function NewExpenseScreen() {
     }
   };
 
-  const startCustomItem = (category: (typeof categoryCatalog)[number]) => {
+  const searchResults = useMemo(() => searchQuickExpenseCatalog(searchText), [searchText]);
+
+  const selectExpenseCalendarDate = (date: Date | undefined) => {
+    if (!date) return;
+    const formatted = formatExpenseDate(date);
+    const error = validateExpenseDateInput(formatted.iso);
+    if (!error) setExpenseDateIso(formatted.iso);
+  };
+
+  const openExpenseCalendar = () => {
+    if (!authToken) return;
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: new Date(`${expenseDateIso}T12:00:00`),
+        maximumDate: maximumExpenseDate,
+        mode: "date",
+        onChange: (_event, date) => selectExpenseCalendarDate(date)
+      });
+      return;
+    }
+    setShowIosDatePicker((value) => !value);
+  };
+
+  const startCustomItem = (category: (typeof categoryCatalog)[number], suggestedName = "") => {
     setSelectedCategory(category);
     setExpandedCategoryCode(category.code);
     setCustomItemMode(true);
-    setItemName("");
+    setItemName(suggestedName);
     setAmountText("");
+    setSearchOpen(false);
+    setSearchText("");
     requestAnimationFrame(() => customItemInputRef.current?.focus());
+  };
+
+  const startMissingSearchItem = () => {
+    const suggestedName = searchText.trim();
+    if (!suggestedName) return;
+    if (authToken) {
+      const queryLength = Array.from(suggestedName).length;
+      trackAndFlushAnalyticsEvent(authToken, {
+        eventName: "expense_catalog_search_missed",
+        platform: Platform.OS === "android" ? "android" : "ios",
+        payload: {
+          categoryCode: selectedCategory.code,
+          queryLengthBucket: queryLength <= 3 ? "1_3" : queryLength <= 7 ? "4_7" : "8_plus"
+        }
+      });
+    }
+    startCustomItem(selectedCategory, suggestedName);
   };
 
   const purchaseIntentQuery = useQuery({
@@ -570,6 +633,8 @@ export default function NewExpenseScreen() {
 
   return (
     <ExpenseAppScreenScaffold
+      contentBottomPadding={showAdditionalFields ? 16 : Math.max(16, height - 160)}
+      scrollRef={screenScrollRef}
       footer={(
         <View
           style={{
@@ -736,90 +801,20 @@ export default function NewExpenseScreen() {
               <View style={{ width: 48 }} />
             </View>
 
-            <Pressable
-              accessibilityLabel={`지출 날짜 ${expenseDate.label}. 변경`}
-              accessibilityRole="button"
-              disabled={!authToken}
-              onPress={() => setShowDatePicker((value) => !value)}
-              style={({ pressed }) => ({
-                alignItems: "center",
-                alignSelf: "flex-start",
-                backgroundColor: theme.colors.white,
-                borderColor: "rgba(74, 63, 53, 0.10)",
-                borderRadius: theme.radii.pill,
-                borderWidth: 1,
-                flexDirection: "row",
-                gap: 8,
-                minHeight: 48,
-                opacity: pressed ? 0.76 : 1,
-                paddingHorizontal: 14
-              })}
-            >
-              <AppIcon color={theme.colors.mainCoral} name="calendar-blank-outline" size={19} />
-              <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>
-                {authToken && expenseDate.iso === initialExpenseDate.iso ? "오늘" : expenseDate.label}
-              </Text>
-              {authToken ? <AppIcon color={theme.colors.gray600} name={showDatePicker ? "chevron-up" : "chevron-down"} size={19} /> : null}
-            </Pressable>
-
-            {authToken && showDatePicker ? (
-              <View style={{ gap: 10 }}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                  {recentDateChips.map((chip) => (
-                    <CategoryChip
-                      key={chip.iso}
-                      label={chip.shortLabel}
-                      selected={!customDateMode && chip.iso === expenseDateIso}
-                      onPress={() => {
-                        setExpenseDateIso(chip.iso);
-                        setCustomDateMode(false);
-                        setCustomDateText("");
-                      }}
-                    />
-                  ))}
-                </ScrollView>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setCustomDateMode((value) => !value)}
-                  style={{ justifyContent: "center", minHeight: 44 }}
-                >
-                  <Text style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "800" }}>
-                    {customDateMode ? "최근 날짜에서 선택" : "날짜 직접 입력"}
-                  </Text>
-                </Pressable>
-                {customDateMode ? (
-                  <View style={{ gap: 6 }}>
-                    <TextInput
-                      accessibilityLabel="지출 날짜 직접 입력"
-                      keyboardType="numbers-and-punctuation"
-                      onChangeText={(value) => {
-                        const cleaned = value.replace(/[^0-9-]/g, "").slice(0, 10);
-                        setCustomDateText(cleaned);
-                        if (cleaned.length > 0) {
-                          const error = validateExpenseDateInput(cleaned);
-                          if (!error) setExpenseDateIso(cleaned);
-                        }
-                      }}
-                      placeholder="YYYY-MM-DD"
-                      style={{
-                        backgroundColor: theme.colors.white,
-                        borderColor: dateInputError ? theme.colors.danger : "rgba(74, 63, 53, 0.10)",
-                        borderRadius: 14,
-                        borderWidth: 1,
-                        color: theme.colors.brown,
-                        minHeight: 48,
-                        paddingHorizontal: 14
-                      }}
-                      value={customDateText}
-                    />
-                    {dateInputError ? (
-                      <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.danger, fontSize: 12 }}>
-                        {dateInputError}
-                      </Text>
-                    ) : null}
+            <View accessibilityLabel={`지출 날짜 ${expenseDate.label}`} style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
+              <View style={{ flex: 1, flexDirection: "row", gap: 8 }}>
+                {recentDateChips.map((chip) => (
+                  <View key={chip.iso} style={{ flex: 1 }}>
+                    <CategoryChip label={chip.shortLabel} selected={chip.iso === expenseDateIso} onPress={() => setExpenseDateIso(chip.iso)} />
                   </View>
-                ) : null}
+                ))}
               </View>
+              <Pressable accessibilityLabel="달력에서 날짜 선택" accessibilityRole="button" disabled={!authToken} onPress={openExpenseCalendar} style={({ pressed }) => ({ alignItems: "center", backgroundColor: theme.colors.white, borderColor: "rgba(74, 63, 53, 0.10)", borderRadius: 14, borderWidth: 1, height: 48, justifyContent: "center", opacity: pressed ? 0.76 : 1, width: 48 })}>
+                <AppIcon color={theme.colors.mainCoral} name="calendar-blank-outline" size={22} />
+              </Pressable>
+            </View>
+            {authToken && Platform.OS === "ios" && showIosDatePicker ? (
+              <DateTimePicker maximumDate={maximumExpenseDate} mode="date" onChange={(_event, date) => selectExpenseCalendarDate(date)} value={new Date(`${expenseDateIso}T12:00:00`)} />
             ) : null}
 
             {authToken && !childId ? (
@@ -881,13 +876,54 @@ export default function NewExpenseScreen() {
                 </View>
 
                 <View style={{ gap: 10 }}>
-                  <View style={{ gap: 3 }}>
-                    <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>분류별 빠른 품목</Text>
-                    <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>필요한 분류를 열고 품목을 눌러 주세요</Text>
+                  <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
+                    <View style={{ flex: 1, gap: 3 }}>
+                      <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>분류별 빠른 품목</Text>
+                      <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>품목명·별칭·초성·분류명으로 찾을 수 있어요</Text>
+                    </View>
+                    <Pressable accessibilityLabel="지출 품목 검색" accessibilityRole="button" onPress={() => setSearchOpen((value) => !value)} style={({ pressed }) => ({ alignItems: "center", borderColor: theme.colors.gray300, borderRadius: 14, borderWidth: 1, height: 48, justifyContent: "center", opacity: pressed ? 0.76 : 1, width: 48 })}>
+                      <AppIcon color={theme.colors.mainCoral} name={searchOpen ? "close" : "magnify"} size={22} />
+                    </Pressable>
                   </View>
+                  {searchOpen ? (
+                    <View style={{ gap: 10 }}>
+                      <TextInput accessibilityLabel="지출 품목 검색어" autoFocus onChangeText={setSearchText} placeholder="예: 기저귀, 진료비, ㄱㅈㄱ" style={{ backgroundColor: theme.colors.white, borderColor: theme.colors.mainCoral, borderRadius: 14, borderWidth: 1, color: theme.colors.brown, minHeight: 48, paddingHorizontal: 14 }} value={searchText} />
+                      {searchText.trim() && searchResults.length === 0 ? (
+                        <View style={{ gap: 10 }}>
+                          <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>저장할 분류를 먼저 골라 주세요.</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                            {quickExpenseCategories.map((category) => (
+                              <CategoryChip
+                                key={`missing-${category.code}`}
+                                label={category.label}
+                                selected={selectedCategory.id === category.id}
+                                onPress={() => setSelectedCategory(category)}
+                              />
+                            ))}
+                          </ScrollView>
+                          <Pressable accessibilityRole="button" onPress={startMissingSearchItem} style={({ pressed }) => ({ alignItems: "center", borderColor: theme.colors.gray300, borderRadius: 14, borderWidth: 1, justifyContent: "center", minHeight: 52, opacity: pressed ? 0.76 : 1, paddingHorizontal: 12 })}>
+                            <Text style={{ color: theme.colors.mainCoral, fontSize: 13, fontWeight: "800" }}>“{searchText.trim()}” 직접 입력하기</Text>
+                          </Pressable>
+                        </View>
+                      ) : (
+                        <View style={quickExpenseCategoryGridStyle.grid}>
+                          {searchResults.slice(0, 24).map((item) => {
+                            const category = categoryFor(item.categoryCode);
+                            return (
+                              <View key={`search-${item.id}`} style={{ width: expenseGridColumns === 4 ? "23.4%" : "31.4%" }}>
+                                <ExpenseCategoryIconButton icon={item.icon} label={item.label} onPress={() => selectExpenseItem({ label: item.label, categoryId: category.id })} selected={!customItemMode && item.label === itemName && category.id === selectedCategory.id} />
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  ) : null}
                   {quickExpenseCategories.map((category) => {
                     const categoryItems = quickExpenseItemsForCategory(category.code);
                     const expanded = expandedCategoryCode === category.code;
+                    const categoryLimit = categoryLimits[category.code] ?? 6;
+                    const visibleCategoryItems = categoryItems.slice(0, categoryLimit);
                     return (
                       <View
                         key={category.id}
@@ -937,7 +973,7 @@ export default function NewExpenseScreen() {
                         </Pressable>
                         {expanded ? (
                           <View style={[quickExpenseCategoryGridStyle.grid, { paddingBottom: 14, paddingHorizontal: 14 }]}>
-                            {categoryItems.map((item: QuickExpenseCatalogItem) => (
+                            {visibleCategoryItems.map((item: QuickExpenseCatalogItem) => (
                               <View
                                 key={item.id}
                                 style={{ width: expenseGridColumns === 4 ? "23.4%" : "31.4%" }}
@@ -961,6 +997,11 @@ export default function NewExpenseScreen() {
                                 selected={customItemMode && selectedCategory.id === category.id}
                               />
                             </View>
+                            {visibleCategoryItems.length < categoryItems.length ? (
+                              <Pressable accessibilityRole="button" onPress={() => setCategoryLimits((current) => ({ ...current, [category.code]: nextQuickExpenseLimit(categoryLimit, categoryItems.length) }))} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1, width: "100%" })}>
+                                <Text style={{ color: theme.colors.mainCoral, fontSize: 13, fontWeight: "800" }}>더 보기</Text>
+                              </Pressable>
+                            ) : null}
                           </View>
                         ) : null}
                       </View>
@@ -972,7 +1013,23 @@ export default function NewExpenseScreen() {
                   accessibilityLabel={showAdditionalFields ? "상세 입력 닫기" : "상세 입력 열기"}
                   accessibilityRole="button"
                   accessibilityState={{ expanded: showAdditionalFields }}
-                  onPress={() => setShowAdditionalFields((value) => !value)}
+                  onLayout={(event) => { detailsHeaderYRef.current = event.nativeEvent.layout.y; }}
+                  onPress={() => setShowAdditionalFields((value) => {
+                    const next = !value;
+                    const generation = ++detailsScrollGenerationRef.current;
+                    if (!next) {
+                      InteractionManager.runAfterInteractions(() => {
+                        requestAnimationFrame(() => {
+                          if (generation !== detailsScrollGenerationRef.current) return;
+                          screenScrollRef.current?.scrollTo({
+                            y: Math.max(0, detailsHeaderYRef.current - 12),
+                            animated: true
+                          });
+                        });
+                      });
+                    }
+                    return next;
+                  })}
                   style={({ pressed }) => ({
                     alignItems: "center",
                     flexDirection: "row",
@@ -990,7 +1047,22 @@ export default function NewExpenseScreen() {
                 </Pressable>
 
                 {showAdditionalFields ? (
-                  <View style={{ gap: 10 }}>
+                  <View
+                    onLayout={(event) => {
+                      detailsContentYRef.current = event.nativeEvent.layout.y;
+                      const generation = detailsScrollGenerationRef.current;
+                      InteractionManager.runAfterInteractions(() => {
+                        requestAnimationFrame(() => {
+                          if (generation !== detailsScrollGenerationRef.current) return;
+                          screenScrollRef.current?.scrollTo({
+                            y: Math.max(0, detailsContentYRef.current - 12),
+                            animated: true
+                          });
+                        });
+                      });
+                    }}
+                    style={{ gap: 10 }}
+                  >
                     {!showPaymentEvidence ? (
                       <TextInput
                         accessibilityLabel="지출 메모"

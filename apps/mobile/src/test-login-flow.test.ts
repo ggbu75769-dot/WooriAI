@@ -61,7 +61,7 @@ describe("Android local test login", () => {
 
     expect(loginSource).toContain("const isTestLoginEnabled = isTestLoginBuild()");
     expect(loginSource).toContain('testID="screen-AUTH-001"');
-    expect(loginSource).toContain("테스트용 APK");
+    expect(loginSource).not.toContain("테스트용 APK");
     expect(loginSource).toContain("우리 아이의 기록을 시작해요");
     expect(loginSource).toContain("getCurrentLegalDocuments");
     expect(loginSource).toContain("resolveRequiredLegalDocuments");
@@ -69,7 +69,7 @@ describe("Android local test login", () => {
     expect(loginSource).toContain("문서 보기");
     expect(loginSource).toContain('accessibilityRole="checkbox"');
     expect(loginSource).toContain("requiredAccepted = legalAvailable");
-    expect(loginSource).toContain("테스트 계정으로 시작하기");
+    expect(loginSource).toContain("동의하고 시작하기");
     expect(loginSource).toContain("startTestSession");
     expect(loginSource).toContain("resetOnboarding");
     expect(loginSource).toContain('router.replace("/onboarding/child-status")');

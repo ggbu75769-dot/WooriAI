@@ -27,7 +27,7 @@ import {
   useSelectedChildStore
 } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
+import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/design-system";
 import { theme } from "../../src/theme";
 import { useEffect, useState } from "react";
 
@@ -41,6 +41,8 @@ function isReceiptOperationCancellation(error: unknown): boolean {
     (error instanceof Error && error.name === "AbortError")
   );
 }
+
+class ReceiptFileSizeError extends Error {}
 
 export default function ReceiptDraftScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -184,7 +186,7 @@ export default function ReceiptDraftScreen() {
       if (result.canceled || !result.assets[0]) return null;
       const asset = result.assets[0];
       const size = asset.size ?? 0;
-      if (!size || size > 15 * 1024 * 1024) throw new Error("영수증 파일은 15MB 이하만 선택할 수 있어요.");
+      if (!size || size > 15 * 1024 * 1024) throw new ReceiptFileSizeError();
       const bytes = await (await fetch(asset.uri, { signal: operation.signal })).arrayBuffer();
       operation.assertActive();
       const contentHash = hex(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new Uint8Array(bytes)));
@@ -224,7 +226,7 @@ export default function ReceiptDraftScreen() {
     upload.mutate(result.draft);
   }, onError: (error) => {
     if (isReceiptOperationCancellation(error)) return;
-    setMessage(error instanceof Error ? error.message : "파일을 확인하지 못했어요.");
+    setMessage(error instanceof ReceiptFileSizeError ? "영수증 파일은 15MB 이하만 선택할 수 있어요." : "파일을 확인하지 못했어요.");
   } });
   const confirm = useMutation({
     mutationFn: async () => {
@@ -266,7 +268,7 @@ export default function ReceiptDraftScreen() {
       setDraft(null);
       await clearReceiptOfflineDraft(owner.scopeKey);
       if (!receiptOperationOwnerIsActive(owner)) return;
-      router.replace(`/expenses/${result.expenseId}`);
+      router.replace({ pathname: "/expenses/[expenseId]", params: { expenseId: result.expenseId } });
     },
     onError: (error) => {
       if (isReceiptOperationCancellation(error)) return;
@@ -274,7 +276,7 @@ export default function ReceiptDraftScreen() {
     }
   });
   if (!token || !childId || (!isTestSession && !scopeKey)) return <Redirect href="/onboarding/child-status" />;
-  if (isTestSession) return <AppScreen><ScreenHeader title="영수증 빠른 입력" /><EmptyStateCard title="샘플 계정에서는 영수증을 저장하지 않아요" actionLabel="실제 계정에서 이용해 주세요" /></AppScreen>;
+  if (isTestSession) return <AppScreen><ScreenHeader title="영수증 빠른 입력" /><EmptyStateCard title="현재 영수증을 저장할 수 없어요." actionLabel="직접 지출을 입력해 주세요" /></AppScreen>;
   const canConfirm = Boolean(draft?.serverDraft && itemName.trim() && Number.isInteger(Number(amount)) && Number(amount) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(spentOn));
   return (
     <AppScreen>

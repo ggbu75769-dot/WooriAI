@@ -76,7 +76,7 @@ export default function NotificationPreferencesScreen() {
       <AppScreen>
         <SampleDataBanner />
         <TopAppBar eyebrow="프로필" onBack={() => router.back()} title="알림 설정" />
-        <EmptyStateCard title="샘플 계정에서는 알림 설정을 변경하지 않아요." actionLabel="실제 계정에서 이용해 주세요" />
+        <EmptyStateCard title="현재 알림 설정을 변경할 수 없어요." actionLabel="나중에 다시 시도해 주세요" />
       </AppScreen>
     );
   }

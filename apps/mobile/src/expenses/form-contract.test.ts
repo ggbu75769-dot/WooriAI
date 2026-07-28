@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatExpenseAmountInput, formatExpenseDate, sanitizeExpenseAmountText, validateExpenseDateInput, validateExpenseForm } from "./form-contract";
+import { buildRecentExpenseDateChips, formatExpenseAmountInput, formatExpenseDate, sanitizeExpenseAmountText, validateExpenseDateInput, validateExpenseForm } from "./form-contract";
 
 describe("shared expense create/edit form contract", () => {
   it("uses one money normalization and positive-won validation path", () => {
@@ -13,5 +13,13 @@ describe("shared expense create/edit form contract", () => {
     expect(formatExpenseDate(new Date(2024, 1, 29, 23, 59)).iso).toBe("2024-02-29");
     expect(validateExpenseDateInput("2024-02-29")).toBeNull();
     expect(validateExpenseDateInput("2025-02-29")).toBe("존재하지 않는 날짜예요.");
+  });
+
+  it("offers yesterday, today, and tomorrow as the fixed quick-date contract", () => {
+    expect(buildRecentExpenseDateChips(new Date(2026, 6, 28, 12))).toEqual([
+      { iso: "2026-07-27", shortLabel: "어제" },
+      { iso: "2026-07-28", shortLabel: "오늘" },
+      { iso: "2026-07-29", shortLabel: "내일" }
+    ]);
   });
 });

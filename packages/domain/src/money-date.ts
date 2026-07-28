@@ -42,6 +42,18 @@ export function getSeoulYearMonth(now: Date = new Date()): string {
   return getSeoulToday(now).slice(0, 7);
 }
 
+export function addDateOnlyDays(dateOnly: string, days: number): string {
+  if (!isValidCalendarDate(dateOnly) || !Number.isInteger(days)) {
+    throw new Error("DATE_INVALID");
+  }
+  const [year, month, day] = dateOnly.split("-").map(Number);
+  return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10);
+}
+
+export function getSeoulTomorrow(now: Date = new Date()): string {
+  return addDateOnlyDays(getSeoulToday(now), 1);
+}
+
 export function dateOnlyToLocalDate(dateOnly: string): Date {
   if (!isValidCalendarDate(dateOnly)) {
     throw new Error("DATE_INVALID");
@@ -82,6 +94,13 @@ export function isFutureSeoulDate(dateOnly: string, now: Date = new Date()): boo
   }
 
   return dateOnly > getSeoulToday(now);
+}
+
+export function isBeyondSeoulTomorrow(dateOnly: string, now: Date = new Date()): boolean {
+  if (!isValidCalendarDate(dateOnly)) {
+    throw new Error("DATE_INVALID");
+  }
+  return dateOnly > getSeoulTomorrow(now);
 }
 
 export function isValidCalendarDate(dateOnly: string): boolean {

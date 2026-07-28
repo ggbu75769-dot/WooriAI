@@ -140,11 +140,19 @@ export default function RecordsScreen() {
     (usingOfflineFallback && childId
       ? syncedExpenseMirrors(childOfflineRows, childId, recordsYearMonth)
       : []);
-  const { visibleServerExpenses: monthlyServerExpenses, offlinePendingRows, monthlyTotalKrw } = reconcileMonthlyExpenses(
+  const { visibleServerExpenses: monthlyServerExpenses, offlinePendingRows } = reconcileMonthlyExpenses(
     expenseSource,
     childOfflineRows,
     recordsYearMonth
   );
+  const seoulToday = getSeoulToday();
+  const monthlyTotalKrw =
+    monthlyServerExpenses
+      .filter((expense) => expense.spentOn <= seoulToday && expense.expenseType !== "gift")
+      .reduce((sum, expense) => sum + expense.amountKrw, 0) +
+    offlinePendingRows
+      .filter((row) => row.payload.spentOn <= seoulToday && row.payload.expenseType !== "gift")
+      .reduce((sum, row) => sum + row.payload.amountKrw, 0);
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const visibleExpenses = monthlyServerExpenses.filter((expense) => {
@@ -220,7 +228,7 @@ export default function RecordsScreen() {
             <AppIcon name="chevron-left" size={26} />
           </Pressable>
           <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
-          <Pressable accessibilityLabel="다음 달" accessibilityRole="button" accessibilityState={{ disabled: monthOffset >= 0 }} disabled={monthOffset >= 0} hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)} style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget, opacity: monthOffset >= 0 ? 0.35 : 1 }}>
+          <Pressable accessibilityLabel="다음 달" accessibilityRole="button" accessibilityState={{ disabled: monthOffset >= 1 }} disabled={monthOffset >= 1} hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)} style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget, opacity: monthOffset >= 1 ? 0.35 : 1 }}>
             <AppIcon name="chevron-right" size={26} />
           </Pressable>
         </View>
@@ -309,6 +317,7 @@ export default function RecordsScreen() {
               <View style={{ gap: theme.spacing.gap }}>
                 {visibleOfflineRows.map((row) => (
                   <ListRow
+                    badgeLabel={row.payload.spentOn > seoulToday ? "예정" : undefined}
                     key={row.localId}
                     icon={offlineStatusIcon(row.syncState)}
                     title={row.payload.itemName}
@@ -335,6 +344,7 @@ export default function RecordsScreen() {
                       const visual = expenseCategoryVisual(expense.categoryId);
                       return (
                         <ListRow
+                          badgeLabel={expense.spentOn > seoulToday ? "예정" : undefined}
                           key={expense.id}
                           icon={<AppIcon color={visual.iconColor} name={visual.icon} size={20} />}
                           iconBackgroundColor={visual.iconBackgroundColor}

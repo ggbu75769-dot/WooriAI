@@ -17,7 +17,7 @@ import { isTestLoginBuild } from "../../src/pixelLock/build-profile";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppIcon, AppScreen } from "../../src/ui";
+import { AppIcon, AppScreen } from "../../src/design-system";
 
 const isTestLoginEnabled = isTestLoginBuild();
 const logoMark = require("../../assets/illustrations/logo_mark.png");
@@ -117,7 +117,7 @@ export default function LoginScreen() {
       await completeOAuthLogin(result, consents);
     } catch (error) {
       setLoginError(
-        error instanceof Error && error.message === "OAUTH_CANCELLED"
+        String(error).includes("OAUTH_CANCELLED")
           ? "카카오 로그인이 취소됐어요."
           : "서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요."
       );
@@ -148,22 +148,17 @@ export default function LoginScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel="우리아이 테스트 로그인" testID="screen-AUTH-001" style={styles.screen}>
+      <View accessibilityLabel="우리아이 로그인" testID="screen-AUTH-001" style={styles.screen}>
         <View style={styles.brandRow}>
           <Image source={logoMark} style={styles.logo} resizeMode="contain" />
           <Text style={styles.brandName}>우리아이</Text>
         </View>
 
         <View style={styles.hero}>
-          {isTestLoginEnabled ? (
-            <View style={styles.testBadge}>
-              <Text style={styles.testBadgeText}>테스트용 APK</Text>
-            </View>
-          ) : null}
           <Text style={styles.title}>우리 아이의 기록을 시작해요</Text>
           <Text style={styles.subtitle}>
             {isTestLoginEnabled
-              ? <>준비된 테스트 계정으로 로그인하고{`\n`}주요 화면을 편하게 둘러보세요.</>
+              ? <>필수 항목에 동의하고{`\n`}우리 가족의 기록을 시작해요.</>
               : <>카카오 계정으로 안전하게 시작하고{`\n`}가족의 기록을 함께 관리해요.</>}
           </Text>
         </View>
@@ -238,7 +233,7 @@ export default function LoginScreen() {
               {isLoginPending
                 ? "로그인 중..."
                 : isTestLoginEnabled
-                  ? "테스트 계정으로 시작하기"
+                  ? "동의하고 시작하기"
                   : accessToken
                     ? "동의하고 계속하기"
                     : "카카오로 시작하기"}
@@ -258,7 +253,7 @@ export default function LoginScreen() {
           ) : null}
           <Text style={styles.testNotice}>
             {isTestLoginEnabled
-              ? "테스트 데이터는 이 기기에만 저장되며 실제 카카오 로그인이 아니에요."
+              ? "입력한 정보는 이 기기에 안전하게 저장돼요."
               : !kakaoAvailable
                 ? "현재 로그인 제공자를 확인할 수 없어요. 연결이 복구되면 다시 시도해 주세요."
                 : appleAdvertised

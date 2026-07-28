@@ -315,7 +315,7 @@ export default function FamilyScreen() {
           <View style={familyProfileBodyStyle}>
             <FamilyAvatarGroup names={hasSession ? avatarNames : ["우"]} />
             <View>
-              <Text style={familyProfileNameStyle}>{hasSession ? "우리 가족" : "샘플 가족"}</Text>
+              <Text style={familyProfileNameStyle}>우리 가족</Text>
               <Text style={familyProfileMetaStyle}>
                 {hasSession ? visibleMembers.map((member) => member.displayName).join(" · ") : "엄마 · 아빠 · 할머니"}
               </Text>

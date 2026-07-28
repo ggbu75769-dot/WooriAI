@@ -408,7 +408,7 @@ export type CatalogItemSummary = {
     | "retired";
   primaryCategory: CatalogNodeSummary | null;
   plan: CatalogItemPlanSummary | null;
-  searchMatch?: { score: number; reason: "canonical_exact" | "canonical_prefix" | "alias_exact" | "alias_contains" | "initials" | "typo" | "category"; matchedText: string };
+  searchMatch?: { score: number; reason: "canonical_exact" | "canonical_prefix" | "alias_exact" | "alias_contains" | "initials" | "typo" | "category" | "code" | "description" | "timing"; matchedText: string };
 };
 
 export type CatalogProductOffer = {

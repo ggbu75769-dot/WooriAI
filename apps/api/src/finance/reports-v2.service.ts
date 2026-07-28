@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { explainBudgetVariance, resolveReportV3State } from "@wooriai/domain";
+import { explainBudgetVariance, getSeoulTomorrow, resolveReportV3State } from "@wooriai/domain";
 import type { Expense, ExpenseType } from "@prisma/client";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { PrismaService } from "../prisma/prisma.service";
@@ -248,8 +248,12 @@ export class ReportsV2Service {
 
   private async scope(user: AuthenticatedUser, query: ReportRangeQueryDto) {
     const base = await this.scopeBase(user, query);
+    const realizedEndExclusive = new Date(Math.min(
+      base.range.endExclusive.getTime(),
+      new Date(`${getSeoulTomorrow()}T00:00:00.000Z`).getTime()
+    ));
     const rows = await this.prisma.expense.findMany({
-      where: { childId: query.childId, householdId: base.child.householdId, deletedAt: null, spentOn: { gte: base.range.start, lt: base.range.endExclusive } },
+      where: { childId: query.childId, householdId: base.child.householdId, deletedAt: null, spentOn: { gte: base.range.start, lt: realizedEndExclusive } },
       orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }],
       select: { id: true, childId: true, householdId: true, createdByUserId: true, payerUserId: true, categoryId: true, expenseCategoryV2Id: true, linkedItemDefinitionId: true, amountKrw: true, spentOn: true, itemName: true, merchant: true, expenseType: true }
     });
@@ -259,7 +263,7 @@ export class ReportsV2Service {
   private maturity(rows: LedgerRow[]) {
     const distinctMonths = new Set(rows.map((row) => monthKey(row.spentOn))).size;
     const distinctMembers = new Set(rows.map((row) => row.createdByUserId)).size;
-    const showCategories = rows.length >= 3;
+    const showCategories = rows.length >= 1;
     const showTrend = distinctMonths >= 2;
     const showRecurring = distinctMonths >= 3;
     const showMembers = distinctMembers >= 2;

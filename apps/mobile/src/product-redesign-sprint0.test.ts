@@ -59,6 +59,9 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(categories).not.toContain("약품/교통");
     expect(expense).toContain("빠른 품목");
     expect(expense).toContain("validateExpenseForm({ itemName, amountText, spentOn: expenseDate.iso })");
+    expect(expense).toContain("InteractionManager.runAfterInteractions");
+    expect(expense).toContain("detailsScrollGenerationRef");
+    expect(expense).toContain("contentBottomPadding={showAdditionalFields ? 16 : Math.max(16, height - 160)}");
   });
 
   it("makes preparation status primary and removes unsupported commerce claims", () => {
@@ -77,7 +80,7 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(detail).toContain("검수된 구매 링크가 아직 없어요");
     expect(items).toContain("PreparationListParity");
     expect(preparation).toContain("PreparationItemCard");
-    expect(preparation).toContain("필요한 것부터 차근차근 준비하고 있어요.");
+    expect(preparation).toContain("나의 준비 진행률");
   });
 
   it("provides a real child switcher backed by the selected-child store", () => {
@@ -97,7 +100,9 @@ describe("product redesign Sprint 0 source contract", () => {
     const importScreen = source("app/import/index.tsx");
 
     expect(reports).toContain('(activeTotal ?? 0) === 0');
-    expect(reports).toContain("개 더 기록하면 카테고리 분석을 보여드려요");
+    expect(reports).not.toContain("개 더 기록하면 카테고리 분석을 보여드려요");
+    expect(reports).toContain("현재 비용 요약");
+    expect(reports).toContain("월별 비용 추이");
     expect(reports).not.toContain("₩");
     expect(importScreen).toContain("showPixelPreview = isPixelLockMode && !canUpload");
     expect(importScreen).toContain("엑셀 파일 선택하기");

@@ -119,7 +119,7 @@ export default function ProfileHubScreen() {
   const canManage = ownRole === "owner";
   const canEditFamilyData = ownRole === "owner" || ownRole === "co_parent";
   const notificationSummary = isTestSession
-    ? "샘플 계정에서는 변경하지 않아요"
+    ? "이 기기에서는 변경할 수 없어요"
     : notifications.data
       ? [notifications.data.replacementEnabled ? "준비 시기" : null, notifications.data.budgetEnabled ? "예산" : null, notifications.data.familyEnabled ? "가족" : null, notifications.data.marketingEnabled ? "소식" : null].filter(Boolean).join(" · ") || "모든 선택 알림 꺼짐"
       : "알림 상태 확인"

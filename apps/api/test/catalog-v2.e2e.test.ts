@@ -90,6 +90,8 @@ describe("Release 4 catalog and preparation APIs", () => {
       expect(JSON.stringify(response.body.search)).not.toContain(query);
     }
     const carSeat = await prisma.itemDefinition.findFirstOrThrow({ where: { nameKo: "신생아용 카시트" } });
+    const codeResult = await request(app.getHttpServer()).get(`/api/v1/catalog/search?query=${encodeURIComponent(carSeat.code)}&childId=${childId}`).set(auth).expect(200);
+    expect(codeResult.body.items[0]).toMatchObject({ id: carSeat.id, searchMatch: { reason: "code" } });
     const categoryLink = await prisma.itemDefinitionCategory.findFirstOrThrow({ where: { itemDefinitionId: carSeat.id, isPrimary: true } });
     const category = await prisma.catalogNode.findUniqueOrThrow({ where: { id: categoryLink.catalogNodeId } });
     const categoryResult = await request(app.getHttpServer()).get(`/api/v1/catalog/search?query=${encodeURIComponent(category.nameKo)}&safetyTier=high&secondhandPolicy=inspect&childId=${childId}`).set(auth).expect(200);

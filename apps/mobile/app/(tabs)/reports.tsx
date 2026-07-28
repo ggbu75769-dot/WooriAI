@@ -171,9 +171,9 @@ function ReportV3Card({
   const necessityLabel = (key: ReportV3Contract["necessitySplit"][number]["key"]) => key === "essential" ? "필수" : key === "convenience" ? "편의·권장" : "선택";
   return (
     <SectionCard style={{ gap: 12 }}>
-      <Text style={{ color: semanticColors.textPrimary, fontSize: 17, fontWeight: "800" }}>준비 비용 · Report V3</Text>
-      <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>{data.period.periodStart}~{data.period.periodEnd} · KST · 모든 탭이 같은 기간과 ledger를 사용해요.</Text>
-      <View accessibilityLabel="Report V3 보기 선택" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+      <Text style={{ color: semanticColors.textPrimary, fontSize: 17, fontWeight: "800" }}>준비 비용 상세</Text>
+      <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>{data.period.periodStart}~{data.period.periodEnd} · 모든 내용이 같은 기간을 기준으로 해요.</Text>
+      <View accessibilityLabel="비용 상세 보기 선택" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         {reportV3Sections.map((entry) => (
           <Pressable accessibilityRole="tab" accessibilityState={{ selected: section === entry.key }} key={entry.key} onPress={() => onSectionChange(entry.key)} style={{ alignItems: "center", backgroundColor: section === entry.key ? semanticColors.actionPrimary : semanticColors.surface, borderColor: semanticColors.borderSubtle, borderRadius: 12, borderWidth: 1, justifyContent: "center", minHeight: 48, paddingHorizontal: 11 }}>
             <Text style={{ color: section === entry.key ? semanticColors.textInverse : semanticColors.textSecondary, fontSize: 12, fontWeight: "800" }}>{entry.label}</Text>
@@ -212,7 +212,7 @@ function ReportV3Card({
               <Text style={{ color: semanticColors.textPrimary, fontSize: 13 }}>예정 {formatKrw(row.plannedCostKrw)} · 실제 {formatKrw(row.actualCostKrw)} · 남음 {formatKrw(row.remainingPlannedCostKrw)}</Text>
             </View>
           ))}
-          <Text style={{ color: semanticColors.textSecondary, fontSize: 11 }}>위 막대와 아래 접근성 표는 동일한 준비 비용 selector를 사용해요.</Text>
+          <Text style={{ color: semanticColors.textSecondary, fontSize: 11 }}>위 막대와 아래 표는 같은 준비 비용 계산 기준을 사용해요.</Text>
         </View>
       ) : section === "recurring" ? (
         <View style={{ gap: 6 }}>
@@ -306,6 +306,27 @@ export default function ReportsScreen() {
     enabled: requestPlan.aggregate,
     queryFn: () => getReportV3(authToken!, childId!, reportApiPeriod, reportAnchor)
   });
+  const overviewPeriods = [
+    { key: "월간" as const, label: "이번 달", period: "month" as const, anchor: localDateOnly(baseDate) },
+    { key: "분기" as const, label: "이번 분기", period: "quarter" as const, anchor: localDateOnly(startOfQuarter(baseDate)) },
+    { key: "연간" as const, label: "올해", period: "year" as const, anchor: localDateOnly(new Date(baseDate.getFullYear(), 0, 1)) }
+  ];
+  const overviewQueries = useQueries({
+    queries: overviewPeriods.map((entry) => ({
+      queryKey: ["report-v3", householdId, childId, entry.period, entry.anchor],
+      enabled: Boolean(hasSession && !isPixelLockMode),
+      queryFn: () => getReportV3(authToken!, childId!, entry.period, entry.anchor)
+    }))
+  });
+  const overviewMonthStartIndex = Math.max(0, baseDate.getMonth() - 5);
+  const overviewMonthDates = Array.from(
+    { length: baseDate.getMonth() - overviewMonthStartIndex + 1 },
+    (_, index) => new Date(baseDate.getFullYear(), overviewMonthStartIndex + index, 1)
+  );
+  const overviewYearTrend = new Map(
+    (overviewQueries[2]?.data?.trend.buckets ?? []).map((bucket) => [bucket.key, bucket.netHouseholdOutflowKrw])
+  );
+  const overviewMonthValues = overviewMonthDates.map((date) => overviewYearTrend.get(yearMonthOf(date)) ?? 0);
   const varianceExplanation = useQuery({
     queryKey: ["budget-variance-explanation", householdId, childId, reportApiPeriod, reportAnchor],
     enabled: Boolean(requestPlan.aggregate && !isPixelLockMode),
@@ -429,7 +450,7 @@ export default function ReportsScreen() {
     period === "연간" && yearly.isSuccess ? yearly.data!.monthlyTotals.map((entry) => entry.totalExpenseKrw) : undefined;
   const legacyActivePoints = period === "월간" ? monthlyTrendPoints : period === "분기" ? quarterPoints : yearlyPoints;
   const activePoints = isPixelLockMode ? legacyActivePoints : reportV3.data?.trend.buckets.map((bucket) => bucket.netHouseholdOutflowKrw);
-  const hasEnoughAnalysis = activeRecordCount >= 3;
+  const hasEnoughAnalysis = activeRecordCount >= 1;
   const showTrend = Boolean((isPixelLockMode || reportV3.data?.maturity.showTrend) && canShowTrend(activePoints));
 
   if (!hasSession && !isPixelLockMode) {
@@ -441,6 +462,41 @@ export default function ReportsScreen() {
         <View accessibilityLabel={reportReferenceScreenId} style={isPixelLockMode ? reportReferenceFrameStyle : productionReportFrameStyle}>
           {isTestSession ? <SampleDataBanner /> : null}
           <TopAppBar title="리포트" />
+
+          {!isPixelLockMode ? (
+            <View accessibilityLabel="현재 비용 요약" style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {overviewPeriods.map((entry, index) => (
+                <Pressable
+                  accessibilityLabel={`${entry.label} ${formatKrw(overviewQueries[index]?.data?.ledger.netHouseholdOutflowKrw ?? 0)}, 이전 기간 대비 ${overviewQueries[index]?.data?.previousPeriodComparison?.deltaPercentage ?? 0}%, ${overviewQueries[index]?.data?.maturity.recordCount ?? 0}건`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: period === entry.key }}
+                  key={entry.key}
+                  onPress={() => { setPeriodState(entry.key); setMonthOffset(0); }}
+                  style={({ pressed }) => ({
+                    backgroundColor: period === entry.key ? semanticColors.actionSecondary : semanticColors.surface,
+                    borderColor: period === entry.key ? semanticColors.actionPrimary : semanticColors.borderSubtle,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    flexBasis: "47%",
+                    flexGrow: 1,
+                    gap: 5,
+                    minHeight: 112,
+                    opacity: pressed ? 0.78 : 1,
+                    padding: 12
+                  })}
+                >
+                  <Text style={{ color: semanticColors.textSecondary, fontSize: 12, fontWeight: "700" }}>{entry.label}</Text>
+                  <Text numberOfLines={2} style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "900" }}>{formatKrw(overviewQueries[index]?.data?.ledger.netHouseholdOutflowKrw ?? 0)}</Text>
+                  <Text style={{ color: semanticColors.textSecondary, fontSize: 11 }}>
+                    이전 대비 {overviewQueries[index]?.data?.previousPeriodComparison?.deltaPercentage == null
+                      ? "비교 없음"
+                      : `${overviewQueries[index]!.data!.previousPeriodComparison!.deltaPercentage! > 0 ? "+" : ""}${overviewQueries[index]!.data!.previousPeriodComparison!.deltaPercentage}%`}
+                  </Text>
+                  <Text style={{ color: semanticColors.textSecondary, fontSize: 11 }}>{overviewQueries[index]?.data?.maturity.recordCount ?? 0}건</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
 
           <SegmentedControl
             options={["월", "분기", "연간"]}
@@ -475,7 +531,7 @@ export default function ReportsScreen() {
               <Text style={{ color: semanticColors.textPrimary, fontSize: 17, fontWeight: "800" }}>예정과 실제 비용 차이</Text>
               <Text style={{ color: semanticColors.textPrimary, fontSize: 14 }}>{varianceExplanation.data.explanation.summary}</Text>
               {varianceExplanation.data.explanation.topDrivers.length ? <Text style={{ color: semanticColors.textSecondary, fontSize: 13 }}>차이가 큰 항목 · {varianceExplanation.data.explanation.topDrivers.map((driver) => driver.name).join(", ")}</Text> : null}
-              <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>Report의 동일한 KST 기간과 ledger를 기준으로 설명해요.</Text>
+              <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>선택한 기간의 같은 지출 기록을 기준으로 설명해요.</Text>
             </Card>
           ) : null}
 
@@ -554,12 +610,35 @@ export default function ReportsScreen() {
                 <Text style={{ color: semanticColors.textSecondary, fontSize: 13 }}>{periodLabel} 가족 비용</Text>
                 <Text style={{ color: semanticColors.textPrimary, fontSize: 30, fontWeight: "800" }}>{formatKrw(activeTotal ?? 0)}</Text>
                 {deltaLabel ? <Text style={{ color: semanticColors.textSecondary, fontSize: 13 }}>{isPixelLockMode ? "지난달" : "이전 기간"} 대비 {deltaLabel}</Text> : null}
-                {!hasEnoughAnalysis ? (
-                  <Text style={{ color: semanticColors.textSecondary, fontSize: 13 }}>
-                    {3 - activeRecordCount}개 더 기록하면 카테고리 분석을 보여드려요.
-                  </Text>
-                ) : null}
               </Card>
+
+              {!isPixelLockMode && overviewMonthValues.some((value) => value > 0) ? (
+                <SectionCard style={{ gap: 12 }}>
+                  <Text style={{ color: semanticColors.textPrimary, fontSize: 17, fontWeight: "800" }}>월별 비용 추이</Text>
+                  {overviewMonthDates.map((date, index) => {
+                    const value = overviewMonthValues[index] ?? 0;
+                    const max = Math.max(1, ...overviewMonthValues);
+                    return (
+                      <View key={yearMonthOf(date)} style={{ gap: 5 }}>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                          <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>{date.getMonth() + 1}월</Text>
+                          <Text style={{ color: semanticColors.textPrimary, fontSize: 12, fontWeight: "700" }}>{formatKrw(value)}</Text>
+                        </View>
+                        <View style={{ backgroundColor: semanticColors.borderSubtle, borderRadius: 999, height: 7, overflow: "hidden" }}>
+                          <View style={{ backgroundColor: semanticColors.actionPrimary, height: 7, width: `${Math.round((value / max) * 100)}%` }} />
+                        </View>
+                      </View>
+                    );
+                  })}
+                  <AccessibleDataTable
+                    label="월별 비용 추이 접근성 표"
+                    rows={overviewMonthDates.map((date, index) => ({
+                      label: `${date.getFullYear()}년 ${date.getMonth() + 1}월`,
+                      value: formatKrw(overviewMonthValues[index] ?? 0)
+                    }))}
+                  />
+                </SectionCard>
+              ) : null}
 
               {!isPixelLockMode && reportV3.data && (reportV3.data.ledger.giftKrw > 0 || reportV3.data.ledger.refundKrw > 0 || reportV3.data.ledger.supportKrw > 0) ? (
                 <SectionCard>

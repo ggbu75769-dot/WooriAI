@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Pressable, Text, TextInput, View, useWindowDimensions } from "react-native";
 import type { CatalogPlanState, CatalogTimelineBucket } from "../api/client";
 import {
   AppIcon,
-  BottomSheet,
   EmptyStateCard,
   PreparationItemCard,
   TopAppBar,
@@ -23,10 +22,18 @@ export type PreparationParityItem = {
   plan?: { state: CatalogPlanState; dueDate?: string | null } | null;
 };
 
-type ContextOption = { key: string; label: string };
 type SortMode = "category" | "timing";
 
 const completedStates = new Set<CatalogPlanState>(["owned", "borrowed", "rented", "gifted", "replaced"]);
+const excludedStates = new Set<CatalogPlanState>(["not_needed", "retired", "ended"]);
+const INITIAL_GROUP_LIMIT = 5;
+
+export function nextPreparationGroupLimit(current: number, total: number) {
+  if (current < 10) return Math.min(10, total);
+  if (current < 20) return Math.min(20, total);
+  if (current < 40) return Math.min(40, total);
+  return total;
+}
 
 const displayGroups: ReadonlyArray<{
   id: PreparationDisplayGroupId;
@@ -56,39 +63,11 @@ const timingBands: ReadonlyArray<{
   tint: string;
   color: string;
 }> = [
-  { id: "now", name: "지금 준비해요", subtitle: "7일 안에 확인해요", buckets: ["overdue", "this_week"], icon: "alarm", tint: "#FFF0EC", color: semanticColors.actionPrimary },
+  { id: "now", name: "지금 준비해요", subtitle: "이번 주에 확인해요", buckets: ["overdue", "this_week"], icon: "alarm", tint: "#FFF0EC", color: semanticColors.actionPrimary },
   { id: "soon", name: "곧 필요해요", subtitle: "이번 달에 준비해요", buckets: ["this_month"], icon: "clock-outline", tint: "#E5F7F2", color: semanticColors.brandSecondary },
   { id: "later", name: "여유 있게 준비해요", subtitle: "다음 성장 단계를 살펴봐요", buckets: ["next_stage"], icon: "calendar-blank-outline", tint: "#FFF6DD", color: semanticColors.warning },
   { id: "finished", name: "정리된 품목", subtitle: "준비 완료와 제외한 품목을 모았어요", buckets: ["completed", "not_needed"], icon: "check-circle-outline", tint: semanticColors.successSurface, color: semanticColors.success }
 ];
-
-function isUrgent(item: PreparationParityItem) {
-  return item.timelineBucket === "overdue" || item.timelineBucket === "this_week";
-}
-
-function FilterChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      hitSlop={6}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        alignItems: "center",
-        backgroundColor: selected ? semanticColors.actionPrimary : semanticColors.surface,
-        borderColor: selected ? semanticColors.actionPrimary : semanticColors.border,
-        borderRadius: 999,
-        borderWidth: 1,
-        justifyContent: "center",
-        minHeight: 48,
-        opacity: pressed ? 0.76 : 1,
-        paddingHorizontal: 14
-      })}
-    >
-      <Text style={{ color: selected ? semanticColors.textInverse : semanticColors.textSecondary, fontSize: 13, fontWeight: "700" }}>{label}</Text>
-    </Pressable>
-  );
-}
 
 function SegmentedControl({ value, onChange }: { value: SortMode; onChange: (value: SortMode) => void }) {
   return (
@@ -146,44 +125,55 @@ function ItemGrid({ items, columns, onItemPress }: { items: PreparationParityIte
 
 export function PreparationListParity({
   items,
-  contextOptions,
   selectedContextKey,
-  urgentOnly,
+  selectedContextName,
   loading = false,
   error = false,
   onBack,
-  onSelectContext,
-  onToggleUrgent,
   onRetry,
   onItemPress,
-  onMissingReport
+  onMissingReport,
+  onSearch,
+  activeSearchQuery = "",
+  onClearSearch = () => undefined
 }: {
   items: PreparationParityItem[];
-  contextOptions: ContextOption[];
   selectedContextKey: string | null;
-  urgentOnly: boolean;
+  selectedContextName: string;
   loading?: boolean;
   error?: boolean;
   onBack: () => void;
-  onSelectContext: (key: string) => void;
-  onToggleUrgent: () => void;
   onRetry: () => void;
   onItemPress: (item: PreparationParityItem) => void;
   onMissingReport: () => void;
+  onSearch: (query: string) => void;
+  activeSearchQuery?: string;
+  onClearSearch?: () => void;
 }) {
   const { width } = useWindowDimensions();
   const columns = width >= 600 ? 4 : 3;
   const [sortMode, setSortMode] = useState<SortMode>("category");
-  const [contextPickerOpen, setContextPickerOpen] = useState(false);
+  const [progressExpanded, setProgressExpanded] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [expandedTimingBands, setExpandedTimingBands] = useState<Set<string>>(new Set(["now"]));
+  const [groupLimits, setGroupLimits] = useState<Record<string, number>>({});
+  const [searchLimit, setSearchLimit] = useState(20);
+  const [searchDraft, setSearchDraft] = useState("");
   const autoExpandedContext = useRef<string | null | undefined>(undefined);
-  const selectedContextLabel = contextOptions.find((option) => option.key === selectedContextKey)?.label ?? "준비 대상";
+  const submittedSearch = useRef("");
 
-  const categories = useMemo(() => displayGroups.map((group) => ({
-    ...group,
-    items: items.filter((item) => resolvePreparationDisplayGroupId(item) === group.id)
-  })), [items]);
+  const categories = useMemo(() => displayGroups
+    .map((group) => ({
+      ...group,
+      items: items.filter((item) => resolvePreparationDisplayGroupId(item) === group.id)
+    }))
+    .filter((group) => group.items.length >= INITIAL_GROUP_LIMIT), [items]);
+  const populatedTimingBands = useMemo(() => timingBands
+    .map((band) => ({
+      ...band,
+      items: items.filter((item) => item.timelineBucket && band.buckets.includes(item.timelineBucket))
+    }))
+    .filter((band) => band.items.length >= INITIAL_GROUP_LIMIT), [items]);
 
   useEffect(() => {
     const firstPopulatedCategory = categories.find((group) => group.items.length > 0);
@@ -192,10 +182,26 @@ export function PreparationListParity({
     setExpandedGroups(new Set([firstPopulatedCategory.id]));
   }, [categories, selectedContextKey]);
 
-  const actionableItems = items.filter((item) => item.timelineBucket !== "not_needed");
-  const completedCount = actionableItems.filter((item) => item.plan?.state && completedStates.has(item.plan.state)).length;
-  const progress = actionableItems.length ? Math.round((completedCount / actionableItems.length) * 100) : 0;
-  const displayedItems = urgentOnly ? items.filter(isUrgent) : items;
+  useEffect(() => {
+    const query = searchDraft.trim();
+    if (!query || query === submittedSearch.current) return;
+    const timer = setTimeout(() => {
+      submittedSearch.current = query;
+      onSearch(query);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [onSearch, searchDraft]);
+
+  useEffect(() => {
+    setSearchLimit(20);
+    if (activeSearchQuery && searchDraft !== activeSearchQuery) setSearchDraft(activeSearchQuery);
+  }, [activeSearchQuery]);
+
+  const trackedItems = items.filter((item) => item.plan && !excludedStates.has(item.plan.state));
+  const completedItems = trackedItems.filter((item) => item.plan?.state && completedStates.has(item.plan.state));
+  const plannedItems = trackedItems.filter((item) => !item.plan?.state || !completedStates.has(item.plan.state));
+  const progress = trackedItems.length ? Math.round((completedItems.length / trackedItems.length) * 100) : 0;
+  const displayedItems = items;
 
   const toggleGroup = (id: string) => setExpandedGroups((current) => {
     const next = new Set(current);
@@ -212,53 +218,117 @@ export function PreparationListParity({
   });
 
   return (
-    <View accessibilityLabel="ITEM-001 내 준비 목록" style={{ gap: 14 }}>
+    <View accessibilityLabel={`ITEM-001 내 준비 목록, 선택된 아이 ${selectedContextName}`} style={{ gap: 14 }}>
       <TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비 목록" />
 
-      <View
-        accessibilityRole="progressbar"
-        accessibilityValue={{ min: 0, max: 100, now: progress }}
-        style={{ backgroundColor: semanticColors.actionPrimary, borderRadius: 16, gap: 12, padding: 18 }}
+      <Pressable
+        accessibilityHint="준비 상태별 품목을 펼치거나 접어요."
+        accessibilityLabel={`나의 준비 진행률, ${trackedItems.length}개 중 ${completedItems.length}개 완료`}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: progressExpanded }}
+        onPress={() => setProgressExpanded((value) => !value)}
+        style={({ pressed }) => ({ backgroundColor: semanticColors.actionPrimary, borderRadius: 16, gap: 12, opacity: pressed ? 0.88 : 1, padding: 18 })}
       >
-        <View style={{ alignItems: "baseline", flexDirection: "row", justifyContent: "space-between" }}>
-          <Text style={{ color: semanticColors.textInverse, fontSize: 15, fontWeight: "800" }}>준비 진행률</Text>
-          <Text style={{ color: semanticColors.textInverse, fontSize: 12, opacity: 0.88 }}>{actionableItems.length}개 중 {completedCount}개 보유</Text>
+        <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={{ color: semanticColors.textInverse, fontSize: 15, fontWeight: "800" }}>나의 준비 진행률</Text>
+            <Text style={{ color: semanticColors.textInverse, fontSize: 12, opacity: 0.88 }}>
+              {trackedItems.length ? `${trackedItems.length}개 중 ${completedItems.length}개 완료` : "아직 준비 상태를 정한 품목이 없어요"}
+            </Text>
+          </View>
+          <AppIcon color={semanticColors.textInverse} name={progressExpanded ? "chevron-up" : "chevron-down"} size={24} />
         </View>
-        <View style={{ backgroundColor: "rgba(255,255,255,0.28)", borderRadius: 999, height: 9, overflow: "hidden" }}>
+        <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: progress }} style={{ backgroundColor: "rgba(255,255,255,0.28)", borderRadius: 999, height: 9, overflow: "hidden" }}>
           <View style={{ backgroundColor: semanticColors.textInverse, borderRadius: 999, height: 9, width: `${progress}%` }} />
         </View>
-        <Text style={{ color: semanticColors.textInverse, fontSize: 12, lineHeight: 17, opacity: 0.92 }}>필요한 것부터 차근차근 준비하고 있어요.</Text>
-      </View>
+        {progressExpanded ? (
+          <View style={{ borderTopColor: "rgba(255,255,255,0.28)", borderTopWidth: 1, gap: 8, paddingTop: 12 }}>
+            <Text style={{ color: semanticColors.textInverse, fontSize: 13, fontWeight: "800" }}>준비 중 {plannedItems.length}개 · 완료 {completedItems.length}개</Text>
+            {plannedItems.slice(0, 4).map((item) => <Text key={`planned-${item.id}`} style={{ color: semanticColors.textInverse, fontSize: 12 }}>• 준비 중 · {item.nameKo}</Text>)}
+            {completedItems.slice(0, 4).map((item) => <Text key={`completed-${item.id}`} style={{ color: semanticColors.textInverse, fontSize: 12 }}>• 완료 · {item.nameKo}</Text>)}
+          </View>
+        ) : null}
+      </Pressable>
 
       <SegmentedControl onChange={setSortMode} value={sortMode} />
 
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.xs }}>
-        <FilterChip label={selectedContextLabel} onPress={() => setContextPickerOpen(true)} selected />
-        <FilterChip label="7일 안에" onPress={onToggleUrgent} selected={urgentOnly} />
+      <View style={{ alignItems: "center", flexDirection: "row", gap: spacing.xs }}>
+        <TextInput
+          accessibilityLabel="준비물 통합 검색"
+          onChangeText={setSearchDraft}
+          onSubmitEditing={() => {
+            const query = searchDraft.trim();
+            if (query) {
+              submittedSearch.current = query;
+              onSearch(query);
+            }
+          }}
+          placeholder="품목명·별칭·코드·분류 검색"
+          placeholderTextColor={semanticColors.textDisabled}
+          returnKeyType="search"
+          style={{ backgroundColor: semanticColors.surface, borderColor: semanticColors.border, borderRadius: 14, borderWidth: 1, color: semanticColors.textPrimary, flex: 1, minHeight: 48, paddingHorizontal: 14 }}
+          value={searchDraft}
+        />
+        <Pressable accessibilityLabel="준비물 검색 실행" accessibilityRole="button" hitSlop={6} onPress={() => {
+          const query = searchDraft.trim();
+          if (query) {
+            submittedSearch.current = query;
+            onSearch(query);
+          }
+        }} style={({ pressed }) => ({ alignItems: "center", backgroundColor: semanticColors.actionPrimary, borderRadius: 14, height: 48, justifyContent: "center", opacity: pressed ? 0.76 : 1, width: 48 })}>
+          <AppIcon color={semanticColors.textInverse} name="magnify" size={23} />
+        </Pressable>
       </View>
 
       {loading ? (
         <EmptyStateCard actionLabel="잠시만요" title="준비 품목을 불러오고 있어요." />
       ) : error ? (
         <EmptyStateCard actionLabel="다시 시도" onPress={onRetry} title="준비 품목을 불러오지 못했어요." />
-      ) : displayedItems.length === 0 ? (
-        <EmptyStateCard actionLabel={urgentOnly ? "전체 보기" : "준비 홈"} onPress={urgentOnly ? onToggleUrgent : onBack} title={urgentOnly ? "7일 안에 준비할 품목이 없어요." : "표시할 준비 품목이 없어요."} />
+      ) : activeSearchQuery ? (
+        <View style={{ gap: 12 }}>
+          <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
+            <Text accessibilityLiveRegion="polite" style={{ color: semanticColors.textPrimary, flex: 1, fontSize: 14, fontWeight: "800" }}>
+              ‘{activeSearchQuery}’ 검색 결과 {displayedItems.length}개
+            </Text>
+            <Pressable accessibilityRole="button" onPress={() => {
+              setSearchDraft("");
+              submittedSearch.current = "";
+              onClearSearch();
+            }} style={({ pressed }) => ({ justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1, paddingHorizontal: 8 })}>
+              <Text style={{ color: semanticColors.actionPrimary, fontSize: 13, fontWeight: "800" }}>검색 닫기</Text>
+            </Pressable>
+          </View>
+          {displayedItems.length ? (
+            <>
+              <ItemGrid columns={columns} items={displayedItems.slice(0, searchLimit)} onItemPress={onItemPress} />
+              {searchLimit < displayedItems.length ? (
+                <Pressable accessibilityRole="button" onPress={() => setSearchLimit((current) => Math.min(displayedItems.length, current * 2))} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
+                  <Text style={{ color: semanticColors.actionPrimary, fontSize: 13, fontWeight: "800" }}>검색 결과 더 보기 ({Math.min(searchLimit, displayedItems.length)}/{displayedItems.length})</Text>
+                </Pressable>
+              ) : null}
+            </>
+          ) : (
+            <EmptyStateCard actionLabel="없는 품목 신고" onPress={onMissingReport} title="검색 결과가 없어요." />
+          )}
+        </View>
+      ) : displayedItems.length === 0 || (sortMode === "category" ? categories.length === 0 : populatedTimingBands.length === 0) ? (
+        <EmptyStateCard actionLabel="준비 홈" onPress={onBack} title="5개 이상 확인된 준비 품목 그룹이 없어요." />
       ) : sortMode === "category" ? (
         <View style={{ gap: 12 }}>
           {categories.map((group) => {
-            const groupItems = displayedItems.filter((item) => resolvePreparationDisplayGroupId(item) === group.id);
-            if (urgentOnly && groupItems.length === 0) return null;
+            const groupItems = group.items;
             const done = group.items.filter((item) => item.plan?.state && completedStates.has(item.plan.state)).length;
             const percentage = group.items.length ? Math.round((done / group.items.length) * 100) : 0;
-            const expanded = groupItems.length > 0 && expandedGroups.has(group.id);
+            const expanded = expandedGroups.has(group.id);
+            const limit = groupLimits[group.id] ?? INITIAL_GROUP_LIMIT;
+            const visibleGroupItems = groupItems.slice(0, limit);
             return (
               <View key={group.id} style={{ backgroundColor: semanticColors.surface, borderColor: semanticColors.border, borderRadius: 16, borderWidth: 1, overflow: "hidden" }}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityState={{ disabled: groupItems.length === 0, expanded }}
-                  disabled={groupItems.length === 0}
+                  accessibilityState={{ expanded }}
                   onPress={() => toggleGroup(group.id)}
-                  style={({ pressed }) => ({ alignItems: "center", flexDirection: "row", gap: 12, minHeight: 68, opacity: groupItems.length === 0 ? 0.5 : pressed ? 0.76 : 1, padding: 14 })}
+                  style={({ pressed }) => ({ alignItems: "center", flexDirection: "row", gap: 12, minHeight: 68, opacity: pressed ? 0.76 : 1, padding: 14 })}
                 >
                   <View style={{ alignItems: "center", backgroundColor: group.tint, borderRadius: 999, height: 40, justifyContent: "center", width: 40 }}>
                     <AppIcon color={group.color} name={group.icon} size={21} />
@@ -274,24 +344,40 @@ export function PreparationListParity({
                   </View>
                   <AppIcon color={semanticColors.textDisabled} name={expanded ? "chevron-up" : "chevron-down"} size={24} />
                 </Pressable>
-                {expanded ? <View style={{ paddingBottom: 14, paddingHorizontal: 14 }}><ItemGrid columns={columns} items={groupItems} onItemPress={onItemPress} /></View> : null}
+                {expanded ? (
+                  <View style={{ gap: 8, paddingBottom: 14, paddingHorizontal: 14 }}>
+                    <ItemGrid columns={columns} items={visibleGroupItems} onItemPress={onItemPress} />
+                    {visibleGroupItems.length < groupItems.length ? (
+                      <Pressable accessibilityRole="button" onPress={() => setGroupLimits((current) => ({ ...current, [group.id]: nextPreparationGroupLimit(limit, groupItems.length) }))} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
+                        <Text style={{ color: semanticColors.actionPrimary, fontSize: 13, fontWeight: "800" }}>더 보기 ({visibleGroupItems.length}/{groupItems.length} · {groupItems.length - visibleGroupItems.length}개 남음)</Text>
+                      </Pressable>
+                    ) : null}
+                    {limit > INITIAL_GROUP_LIMIT ? (
+                      <Pressable accessibilityRole="button" onPress={() => setGroupLimits((current) => ({ ...current, [group.id]: INITIAL_GROUP_LIMIT }))} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
+                        <Text style={{ color: semanticColors.textSecondary, fontSize: 13, fontWeight: "800" }}>5개로 접기</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             );
           })}
         </View>
       ) : (
         <View style={{ gap: 12 }}>
-          {timingBands.map((band) => {
-            const bandItems = displayedItems.filter((item) => item.timelineBucket && band.buckets.includes(item.timelineBucket));
-            const expanded = bandItems.length > 0 && expandedTimingBands.has(band.id);
+          {populatedTimingBands.map((band) => {
+            const bandItems = band.items;
+            const expanded = expandedTimingBands.has(band.id);
+            const limitKey = `timing:${band.id}`;
+            const limit = groupLimits[limitKey] ?? INITIAL_GROUP_LIMIT;
+            const visibleBandItems = bandItems.slice(0, limit);
             return (
               <View key={band.id} style={{ backgroundColor: semanticColors.surface, borderColor: semanticColors.border, borderRadius: 16, borderWidth: 1, overflow: "hidden" }}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityState={{ disabled: bandItems.length === 0, expanded }}
-                  disabled={bandItems.length === 0}
+                  accessibilityState={{ expanded }}
                   onPress={() => toggleTimingBand(band.id)}
-                  style={({ pressed }) => ({ alignItems: "center", flexDirection: "row", gap: 12, minHeight: 72, opacity: bandItems.length === 0 ? 0.5 : pressed ? 0.76 : 1, padding: 14 })}
+                  style={({ pressed }) => ({ alignItems: "center", flexDirection: "row", gap: 12, minHeight: 72, opacity: pressed ? 0.76 : 1, padding: 14 })}
                 >
                   <View style={{ alignItems: "center", backgroundColor: band.tint, borderRadius: 999, height: 40, justifyContent: "center", width: 40 }}>
                     <AppIcon color={band.color} name={band.icon} size={20} />
@@ -305,7 +391,21 @@ export function PreparationListParity({
                   </View>
                   <AppIcon color={semanticColors.textDisabled} name={expanded ? "chevron-up" : "chevron-down"} size={24} />
                 </Pressable>
-                {expanded ? <View style={{ paddingBottom: 14, paddingHorizontal: 14 }}><ItemGrid columns={columns} items={bandItems} onItemPress={onItemPress} /></View> : null}
+                {expanded ? (
+                  <View style={{ gap: 8, paddingBottom: 14, paddingHorizontal: 14 }}>
+                    <ItemGrid columns={columns} items={visibleBandItems} onItemPress={onItemPress} />
+                    {visibleBandItems.length < bandItems.length ? (
+                      <Pressable accessibilityRole="button" onPress={() => setGroupLimits((current) => ({ ...current, [limitKey]: nextPreparationGroupLimit(limit, bandItems.length) }))} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
+                        <Text style={{ color: semanticColors.actionPrimary, fontSize: 13, fontWeight: "800" }}>더 보기 ({visibleBandItems.length}/{bandItems.length} · {bandItems.length - visibleBandItems.length}개 남음)</Text>
+                      </Pressable>
+                    ) : null}
+                    {limit > INITIAL_GROUP_LIMIT ? (
+                      <Pressable accessibilityRole="button" onPress={() => setGroupLimits((current) => ({ ...current, [limitKey]: INITIAL_GROUP_LIMIT }))} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
+                        <Text style={{ color: semanticColors.textSecondary, fontSize: 13, fontWeight: "800" }}>5개로 접기</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             );
           })}
@@ -316,25 +416,6 @@ export function PreparationListParity({
         <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>찾는 품목이 없나요? <Text style={{ color: semanticColors.actionPrimary, fontWeight: "800" }}>누락 신고하기</Text></Text>
       </Pressable>
 
-      <BottomSheet description="준비할 가족 구성원을 선택해 주세요." onClose={() => setContextPickerOpen(false)} title="준비 대상" visible={contextPickerOpen}>
-        <View accessibilityRole="radiogroup" style={{ gap: spacing.xs }}>
-          {contextOptions.map((option) => {
-            const selected = option.key === selectedContextKey;
-            return (
-              <Pressable
-                accessibilityRole="radio"
-                accessibilityState={{ checked: selected }}
-                key={option.key}
-                onPress={() => { onSelectContext(option.key); setContextPickerOpen(false); }}
-                style={({ pressed }) => ({ alignItems: "center", borderColor: selected ? semanticColors.actionPrimary : semanticColors.border, borderRadius: 12, borderWidth: 1, flexDirection: "row", gap: spacing.sm, minHeight: 48, opacity: pressed ? 0.76 : 1, paddingHorizontal: 12 })}
-              >
-                <AppIcon color={selected ? semanticColors.actionPrimary : semanticColors.textDisabled} name={selected ? "radiobox-marked" : "radiobox-blank"} size={22} />
-                <Text style={{ color: semanticColors.textPrimary, flex: 1, fontSize: 14, fontWeight: "700" }}>{option.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </BottomSheet>
     </View>
   );
 }

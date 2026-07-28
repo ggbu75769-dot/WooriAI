@@ -10,7 +10,7 @@ const providerLabels = {
   kakao: "카카오",
   apple: "Apple",
   google: "Google",
-  test: "테스트 계정"
+  test: "기기 사용자"
 } as const;
 const appVersion = appManifest.expo.version;
 const appPackage = appManifest.expo.android.package;

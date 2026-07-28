@@ -21,7 +21,7 @@ describe("mobile source-quality AST verifier", () => {
         createChild({});
         queryClient.invalidateQueries();
         router.push(("/untyped") as any);
-        return <><IconButton icon="✅" size={32} /><Text style={{ color: "#fff" }}>{error.message}</Text>{selectedChild ?? syntheticChild}<PrimaryButton numberOfLines={1} /></>;
+        return <><IconButton icon="✅" size={32} /><Text style={{ color: "#fff" }}>테스트용 APK</Text><Text>{error.message}</Text>{selectedChild ?? syntheticChild}<PrimaryButton numberOfLines={1} /></>;
       }
     `;
     const rules = new Set(analyzeMobileSourceText("apps/mobile/app/bad.tsx", source).map((finding) => finding.rule));
@@ -37,6 +37,7 @@ describe("mobile source-quality AST verifier", () => {
       "TOUCH_TARGET",
       "FUNCTIONAL_EMOJI_ICON",
       "RAW_HEX_COLOR",
+      "NON_PRODUCTION_USER_COPY",
       "RAW_ERROR_EXPOSURE",
       "CTA_SINGLE_LINE"
     ]));
