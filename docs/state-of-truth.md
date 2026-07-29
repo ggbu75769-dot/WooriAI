@@ -1,6 +1,6 @@
 # WooriAI State of Truth
 
-측정 시각: 2026-07-30 02:38 KST
+측정 시각: 2026-07-30 02:57 KST
 
 이 문서는 버전명이 아니라 실행 결과, Git 커밋, CI 실행 ID로 현재 좌표를 고정한다. 날짜가 붙은 과거 완료 보고서보다 이 문서가 우선한다.
 
@@ -28,6 +28,7 @@
 | 측정 대상 제품 소스 | `90b902f` | `git log -1 --format=%H -- apps/mobile` |
 | 측정 시 upstream 차이 | behind 0 / ahead 5 | `git rev-list --left-right --count '@{upstream}...90b902f'` |
 | 제품 소스 실변경 | EXP-003이 저장된 카테고리 칩 위치를 측정해 진입 즉시 자동 노출 | `git show --stat --oneline 90b902f` |
+| 현재 게이트 구현 | `37ad654` | `git log -1 --format=%H -- scripts/release-gate.ts` |
 | 이 보고서를 담은 커밋 | 동적 조회 | `git log -1 --format=%H -- docs/state-of-truth.md` |
 
 측정 대상 제품 소스는 아직 원격에 push하지 않았으므로 GitHub CI 실행이 없다. 원격 최신 제품 HEAD는 `aae301b6286b57ea505fb3cb55ef182c2bade195`다. 이 보고서 커밋은 제품 코드를 바꾸지 않으며, 최종 저장소 HEAD와 upstream 차이는 위 동적 명령으로 확인한다.
@@ -57,6 +58,8 @@
 | Admin browser E2E | PASS | Release Gate 내부 `pnpm test:admin-browser` |
 | production build | PASS | Release Gate 내부 `pnpm build --force` |
 | 모바일 회귀 | PASS | mobile Vitest 107 files / 623 tests, mobile typecheck, 변경 파일 lint |
+| Release Gate 동시 실행 | PASS | 두 번째 full/dry-run subprocess가 exit 2 + `RELEASE_GATE_ALREADY_RUNNING`; test-utils 3 files / 28 tests |
+| Release Gate lock 정리 | PASS | 최종 16/16 정상 종료 뒤 `.toolcache/release-gate.lock` 없음 |
 | 일반 Android 과업 | PASS | 동의·onboarding → 기저귀 12,000원 생성 → 기록 → EXP-003 선택 카테고리 자동 노출 |
 | Android standalone 동일성 | PASS | built SHA-256 = installed `base.apk` SHA-256 = `B931E0...C45BA` |
 | Android 선택 카테고리 | PASS | 수정 전 bounds `[1035,1215][978,1319]` → 수정 후 `[146,1215][468,1319]`, selected=true |
@@ -71,6 +74,8 @@ Android 증거:
 - current report: `artifacts/android/wooriai-0.0.0-release-standalone.json`
 - walkthrough: `docs/walkthrough/2026-07-30.md`
 - prior-source Pixel report: `artifacts/pixel-lock/android/reports/latest.md`
+
+`37ad654`는 Release Gate 실행 구조와 회귀만 바꿨고 `apps/mobile` 제품 소스는 `90b902f` 그대로다. 위 standalone APK는 해당 제품 소스를 설치 검증했지만, 저장소 전체 source snapshot은 gate-only 변경 전 값이므로 current repository exact-source APK라고 확대 해석하지 않는다.
 
 ## CI 현재 상태
 

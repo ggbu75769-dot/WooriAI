@@ -9,3 +9,5 @@
 - 2026-07-30 02:01 KST / 현재 standalone 과업 증거와 prior-source Pixel 9/9를 분리한다 / keyboard 변경 후 standalone은 source-bound 재검증했지만 Pixel 전체는 재실행하지 않음 / exact-source가 아닌 visual 증거를 현재 완료로 오인하지 않음.
 - 2026-07-30 02:38 KST / EXP-003이 저장 카테고리 위치를 측정해 선택 칩을 자동 reveal한다 / 직접 사용에서 현재 분류가 viewport 밖에 숨었음 / 새 화면·의존성 없이 기존 가로 칩 과업을 복구.
 - 2026-07-30 02:38 KST / 중복 Release Gate 실패를 제품 빌드 실패와 분리하되 재발 가능한 구조 결함으로 백로그화한다 / 첫 게이트 하위 프로세스와 두 번째 gate가 `.next`를 경합했고 단일 재실행은 16/16 PASS / 다음 T4에서 repo-scoped 상호배제를 굳힘.
+- 2026-07-30 02:57 KST / full/dry-run Release Gate는 저장소당 하나만 실행하고 config-only는 별도 증거라 lock 밖에 둔다 / `.next`·최신 evidence의 단일 작성자가 필요하지만 config 검증은 공유 빌드 산출물을 쓰지 않음 / 중복 full gate는 PID·시각을 포함한 exit 2로 조용하지 않게 차단.
+- 2026-07-30 02:57 KST / lock 해제는 owner token 일치 시에만 허용하고 죽은 PID·3시간 초과 lock은 복구한다 / 강제 종료 잔여와 PID 재사용 모두 고려 / 영구 교착 없이 후속 실행의 lock을 이전 실행이 삭제하지 못함.

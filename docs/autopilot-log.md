@@ -29,3 +29,13 @@
 예측 vs 결과: 지난 사이클의 자동 reveal 예측은 offscreen `[1035,...]`에서 onscreen `[146,...]`으로 방향·범위 모두 일치했고, 검증 중 Release Gate 동시 실행 false-red 1건을 추가 발견했다.
 큐: 새 승인 항목 없음; GitHub billing·production 입력 큐를 기다리지 않고 로컬 제품 결함을 닫았다.
 다음: T4에서 Release Gate repo-scoped 단일 실행 guard와 동시 실행 회귀를 추가해 `.next` 경합 false-red를 차단한다.
+
+[사이클 4 / T4 구조·성능 / 37ad654691f977cc0e0956d7d0315e912a9b38cd]
+좌표: 검증 중 중복 gate가 Admin `.next`를 경합해 ENOENT false-red를 냈고, 단일 재실행 16/16 뒤 current repo는 behind 0/ahead 7이 됐다.
+한 일: full/dry-run Release Gate에 repo-scoped exclusive lock을 넣고 PID·시각·token 소유권, 죽은 PID stale 복구, 3시간 상한, 자기 token만 해제하는 경계를 추가했다.
+증명: 실제 두 번째 gate subprocess exit 2와 사람말 오류, stale 복구·후속 token 보존, test-utils 3 files/28 tests, script/package typecheck·lint, 최종 Release Gate 16/16, 종료 후 lock 없음.
+굳힘: concurrent CLI 차단과 abandoned lock 복구를 실행 회귀 2건으로 추가해 같은 `.next` 경합이 다시 gate를 false-red로 만들지 못하게 했다.
+누적: release gate 16개; test-utils 회귀 28개; mobile 회귀 623개; current-source Android 직접 과업 2회; 실사용 완주율은 운영 이벤트 부재로 미측정.
+예측 vs 결과: 지난 사이클의 단일 실행 guard 예측대로 중복 호출은 0.5초 안에 차단됐고, 정상 full gate는 두 차례 16/16 후 lock을 남기지 않았다.
+큐: 새 승인 항목 없음; GitHub billing 외부 red와 무관하게 로컬 gate 신뢰성 결함을 닫았다.
+다음: T1에서 current repository source-bound Pixel APK를 재빌드해 9개 adb screencap을 재검증하고 사이클 5 메타 루프를 수행한다.
