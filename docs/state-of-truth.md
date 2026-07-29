@@ -1,6 +1,6 @@
 # WooriAI State of Truth
 
-측정 시각: 2026-07-30 01:28 KST
+측정 시각: 2026-07-30 02:01 KST
 
 이 문서는 버전명이 아니라 실행 결과, Git 커밋, CI 실행 ID로 현재 좌표를 고정한다. 날짜가 붙은 과거 완료 보고서보다 이 문서가 우선한다.
 
@@ -25,9 +25,9 @@
 | --- | --- | --- |
 | 저장소 | `ggbu75769-dot/WooriAI` (private) | `gh repo view --json nameWithOwner,isPrivate` |
 | 브랜치 | `codex/wooriai-apk-feedback-ux-hardening-v1` | `git branch --show-current` |
-| 측정 대상 제품 소스 | `a0355e39d0694a21d92b7b21c5f9c2479d4400b0` | `git log -1 --format=%H -- apps/mobile` |
-| 측정 시 upstream 차이 | behind 0 / ahead 1 | `git rev-list --left-right --count '@{upstream}...a0355e3'` |
-| 제품 소스 실변경 | native 지출 수정 컨트롤 개선 | `git show --stat --oneline a0355e3` |
+| 측정 대상 제품 소스 | `6a3f4a0` | `git log -1 --format=%H -- apps/mobile` |
+| 측정 시 upstream 차이 | behind 0 / ahead 3 | `git rev-list --left-right --count '@{upstream}...6a3f4a0'` |
+| 제품 소스 실변경 | onboarding DateField가 달력 전에 키보드 dismiss | `git show --stat --oneline 6a3f4a0` |
 | 이 보고서를 담은 커밋 | 동적 조회 | `git log -1 --format=%H -- docs/state-of-truth.md` |
 
 측정 대상 제품 소스는 아직 원격에 push하지 않았으므로 GitHub CI 실행이 없다. 원격 최신 제품 HEAD는 `aae301b6286b57ea505fb3cb55ef182c2bade195`다. 이 보고서 커밋은 제품 코드를 바꾸지 않으며, 최종 저장소 HEAD와 upstream 차이는 위 동적 명령으로 확인한다.
@@ -56,16 +56,19 @@
 | API E2E | PASS | Release Gate 내부 `pnpm --filter api test:e2e` |
 | Admin browser E2E | PASS | Release Gate 내부 `pnpm test:admin-browser` |
 | production build | PASS | Release Gate 내부 `pnpm build --force` |
-| 지출 수정 회귀 | PASS | `pnpm --filter mobile exec vitest run src/android-native-ui-quality.test.ts src/shared-controls-render.test.tsx src/expenses/form-contract.test.ts src/ui-pixel-lock-flow.test.ts` → 4 files / 34 tests |
-| Android Pixel Lock | PASS | `pnpm pixel:android` → adb screencap 9/9, 최고 점수 0.0474 |
-| 설치 APK 동일성 | PASS | built SHA-256 = installed `base.apk` SHA-256 |
+| onboarding keyboard 회귀 | PASS | focused Vitest 3 files / 14 tests, mobile typecheck PASS |
+| 일반 Android 과업 | PASS | 동의·onboarding → 지출 생성 → EXP-003 날짜·금액 수정 → 기록·홈 합계 반영 |
+| Android standalone 동일성 | PASS | built SHA-256 = installed `base.apk` SHA-256 = `6C4ABD...57BBB` |
+| Android Pixel Lock | LAST PASS / PRIOR SOURCE | `a0355e3` 계열 adb screencap 9/9, 최고 점수 0.0474; `6a3f4a0` exact-source rerun은 미실행 |
 
 Android 증거:
 
-- APK: `F:\WooriAI\wooriai-pixel-11eaf1731860f9cd3c6d0c31424d46192bf73003fa28b858f23f9f44e248af2c.apk`
-- APK / installed base SHA-256: `11EAF1731860F9CD3C6D0C31424D46192BF73003FA28B858F23F9F44E248AF2C`
-- source snapshot SHA-256: `0253F8AC1B40C29FFCBDAFFDD41716626FC0F285F48C078056C7A06D6E560903`
-- 보고서: `artifacts/pixel-lock/android/reports/latest.md`
+- current standalone APK: `F:/WooriAI/wooriai-0.0.0-release-standalone.apk`
+- current APK / installed base SHA-256: `6C4ABDE6DA0FD822B5C18D896A7425308275488ABD3A7D54AA3982A851057BBB`
+- current source snapshot SHA-256: `D6D6F3D363BC8F00570A2212CD1969B25C7821D4E3143D6B894B44060B4EE1F8`
+- current report: `artifacts/android/wooriai-0.0.0-release-standalone.json`
+- walkthrough: `docs/walkthrough/2026-07-30.md`
+- prior-source Pixel report: `artifacts/pixel-lock/android/reports/latest.md`
 
 ## CI 현재 상태
 
@@ -93,7 +96,7 @@ Android 증거:
 
 ## 정직성 경계
 
-- 로컬 Release Gate와 설치형 Android Pixel Lock은 현재 소스의 내부 후보 품질을 증명한다.
+- 로컬 Release Gate와 source-bound standalone Android 과업은 현재 소스의 내부 후보 품질을 증명한다.
 - 프로덕션 배포, 실제 OAuth, production signing, 운영 백업 복구, closed beta, 물리기기 TalkBack, iOS는 증명하지 않는다.
-- Pixel Lock 9개 화면은 `EXP-003` 일반 지출 수정 화면의 설치 앱 직접 동작 증거를 대신하지 않는다.
+- `EXP-003` 일반 지출 수정은 standalone 설치 앱에서 별도 증명했다. Pixel Lock 9개 화면은 현재 exact source 재실행 전까지 과거 증거로 분리한다.
 - 프로덕션 화면이 없으므로 현재 수집 가능한 대외 노출 주장과 배포 HEAD 일치 여부는 `NOT APPLICABLE / NOT DEPLOYED`다.

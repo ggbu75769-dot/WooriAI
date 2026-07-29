@@ -9,3 +9,13 @@
 예측 vs 결과: 첫 사이클이라 이전 예측 없음; 신규/수정 UI 일치 개선은 코드·테스트에서 확인했고 일반 EXP-003 설치 앱 증거는 다음 사이클로 남았다.
 큐: GitHub Actions 결제, production identity/signing·인프라, 독립 catalog 검토, 물리기기/iOS 입력을 HUMAN-QUEUE로 분리했으며 이 때문에 로컬 개선을 멈추지 않았다.
 다음: T2 직접 써 보기로 설치 앱 지출 생성 → 수정 → 기록·합계 반영을 수행하고 adb 증거와 walkthrough를 남긴다.
+
+[사이클 2 / T2 과업 완주 / 6a3f4a0]
+좌표: 일반 standalone APK를 source snapshot `D6D6F3...E1F8`로 재생성했고 built/installed SHA-256 `6C4ABD...57BBB` 일치를 확보했다.
+한 일: 지출 생성→EXP-003 날짜·금액 수정→기록·홈 합계를 직접 수행하고, 발견한 onboarding 날짜 picker 키보드 가림을 공유 DateField에서 수정했다.
+증명: adb screencap/UI dump, 일반 과업 월 합계 15,000원 반영, 수정 후 content bounds 전체 복원, Release Gate 16/16 PASS.
+굳힘: Android DateField press가 `Keyboard.dismiss()`와 native picker open을 각각 1회 수행하는 렌더 회귀를 추가했다.
+누적: current release gate 16개; mobile 회귀 622개 기준선; standalone 과업 1개 직접 완주; UX 사다리 L4 키보드 가림 1건 제거; 실사용 완주율은 운영 이벤트 부재로 미측정.
+예측 vs 결과: 지난 사이클의 EXP-003 직접 검증 예측은 생성·수정·합계 반영 PASS였고, 예상 밖으로 onboarding keyboard 가림 1건과 selected category 미노출 1건을 발견했다.
+큐: 새 승인 항목 없음; 기존 GitHub billing·production 입력 큐와 무관하게 로컬 과업과 수정 검증을 완료했다.
+다음: T3에서 EXP-003 진입 시 선택된 카테고리 칩을 자동 reveal하고 Android/렌더 회귀를 남긴다.
