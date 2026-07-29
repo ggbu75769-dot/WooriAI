@@ -13,3 +13,6 @@
 - 2026-07-30 02:57 KST / lock 해제는 owner token 일치 시에만 허용하고 죽은 PID·3시간 초과 lock은 복구한다 / 강제 종료 잔여와 PID 재사용 모두 고려 / 영구 교착 없이 후속 실행의 lock을 이전 실행이 삭제하지 못함.
 - 2026-07-30 03:13 KST / prior-source Pixel PASS를 current 완료로 쓰지 않고 clean current source APK를 다시 빌드한다 / gate·docs 변경도 snapshot을 바꿔 기존 Pixel artifact가 exact-source가 아니게 됨 / source snapshot·built·installed·9 captures를 한 좌표로 복원.
 - 2026-07-30 03:13 KST / 다음 Pixel 승격 목표를 overall `<= 0.0480`으로 높인다 / current 9화면 최고 0.047382로 모두 여유 안에 있음 / 두 번째 독립 current-source 실행 재현 후 필수 code threshold 상향 여부를 결정.
+- 2026-07-30 07:49 KST / React Native `Linking` 메서드는 래퍼로 호출해 원래 수신자를 보존한다 / 복사된 `canOpenURL`이 내부 `_validateURL`에서 TypeError를 내 Android 구매 CTA를 막음 / 바인딩 회귀와 설치 앱 Chrome 전환으로 굳힘.
+- 2026-07-30 07:49 KST / 안전한 HTTPS는 `canOpenURL`을 참고값으로만 쓰고 실제 open 결과를 최종 판정한다 / Android package visibility·브라우저 초기화가 false-negative를 낼 수 있음 / native open 실패 시 기존 WebBrowser로 복구하고 LOCKED는 성공으로 세지 않음.
+- 2026-07-30 07:49 KST / standalone 비제휴 판매처와 ITEM-002 affiliate fixture의 증거 역할을 분리한다 / 직접 후속 과업과 제휴 고지 시각 증거를 한 fixture가 동시에 제공하지 않음 / 런타임 후속과 고지 인접성의 검증 범위를 과장하지 않음.

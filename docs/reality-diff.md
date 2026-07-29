@@ -1,6 +1,6 @@
 # WooriAI Reality Diff
 
-기준 시각: 2026-07-30 03:13 KST
+기준 시각: 2026-07-30 07:49 KST
 진실원: 실행 결과 → Git HEAD → CI → 실사용 데이터 → 문서.
 
 ## 불일치
@@ -18,6 +18,7 @@
 | ④ 헷갈리는 것 | EXP-003 진입 시 현재 카테고리를 즉시 확인할 수 있음 | `기저귀·위생` 선택 칩이 horizontal viewport 밖에 있어 첫 화면에 안 보임 | `90b902f`에서 선택 칩 위치 측정·자동 reveal, Android bounds·렌더 회귀 확인 | CLOSED |
 | ⑤ 어긋난 것 | 모든 중요한 모바일 변경은 설치 앱 직접 증거가 있음 | 일반 `EXP-003` 수정 흐름 직접 캡처가 없었음 | standalone 설치 앱에서 생성 → 수정 → 기록·홈 합계 반영 증거 수집 | CLOSED |
 | ⑤ 어긋난 것 | 현재 저장소와 Android Pixel Lock 증거가 같은 source snapshot임 | Pixel 9/9는 `a0355e3` 계열 prior-source였음 | clean source `70921b8`, snapshot `91FA...E8D7`에서 APK 재빌드·built/installed 일치·9/9 재실행 | CLOSED |
+| ② 깨진 것 | 안전한 판매처 CTA는 Android 브라우저로 이동하고 복귀 후 구매 후속을 남김 | Chrome과 HTTPS manifest query가 있어도 `Linking.canOpenURL`을 수신자 없이 호출해 동기 TypeError 후 일반 실패 메시지만 표시 | `9c82096`에서 수신자 보존, `canOpenURL` 참고값화, Custom Tab 복구·LOCKED 실패 폐쇄와 Android 직접 증거 추가 | CLOSED |
 | ⑥ 아쉬운 것 | overall Pixel PASS면 화면 내부 영역도 충분히 근접함 | overall 최고 0.0474지만 IMP bottom CTA 0.0728, ITEM-002 bottom/footer 0.0726, REP bottom CTA 0.0684 | 다음 시각 후보에서 zone 비악화·개선 기준으로 사용 | OPEN / LOCAL |
 
 사용자 화면에 노출된 검증 불가능한 운영 수치 불일치는 0건으로 관측됐다. 단, 프로덕션 자체가 없어 “운영 화면 전수 확인”을 수행한 결과는 아니다.
@@ -29,12 +30,12 @@
 | ① 틀린 것 | 0 open | 현재 좌표·APK 문서 수정 완료 |
 | ② 깨진 것 | 1 | GitHub Actions 결제 차단 해소 후 동일 HEAD CI 재실행 |
 | ③ 막힌 것 | 4 | production identity/signing, 운영 core 인프라, catalog 독립 검토, 실제 계측 |
-| ④ 헷갈리는 것 | 0 open | EXP-003 저장 카테고리 자동 reveal 완료 |
+| ④ 헷갈리는 것 | 0 open | 구매 링크 실패 원인 제거·사람말 실패 유지 |
 | ⑤ 어긋난 것 | 0 open | current repository exact-source Android Pixel 9/9 완료 |
 | ⑥ 아쉬운 것 | 2 | Pixel 하단 zone 편차; 물리 Android/TalkBack·iOS 상호작용 검증 부재 |
 
 최상단 3건:
 
 1. GitHub Actions billing/spending limit 차단을 사람이 복구한 뒤 current HEAD CI를 실행한다.
-2. current-source 설치 앱에서 준비템 선택 → 제휴 고지 → 구매 링크 → 구매 후 상태 기록을 직접 수행해 다음 local 결함을 찾는다.
+2. T3에서 IMP-003 bottom CTA zone `0.0728`을 첫 시각 개선 후보로 삼되 sibling 비악화 기준을 적용한다.
 3. production identity/signing 및 운영 API·DB·Redis·storage 입력이 생기기 전까지 외부 릴리스 완료 주장을 차단한다.

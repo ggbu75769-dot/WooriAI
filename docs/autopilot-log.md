@@ -49,3 +49,13 @@
 예측 vs 결과: current-source 9화면 재검증 예측은 9/9·hash 일치로 적중했고, 최고 score도 0.0474로 상향 목표 안에 들어왔다.
 큐: 새 승인 항목 없음; 물리기기/iOS·production·GitHub billing은 외부 큐로 유지하고 emulator current-source 검증을 완료했다.
 다음: T2에서 준비템 선택 → 제휴 고지 → 구매 링크 → 구매 후 상태 기록을 current-source 설치 앱으로 직접 완주한다.
+
+[사이클 6 / T2 과업 완주 / 9c82096f5686d7894e5b0cf50339a5218b5580f4]
+좌표: `4b1074b`에서 current-source Android 직접 과업을 시작해 제품 커밋 `9c82096`, behind 0/ahead 10, snapshot `721590...DBFA1`로 마쳤다.
+한 일: 준비 상태→판매처→홈 구매 후속→15,000원 지출·동기화를 직접 완주하고, `Linking` 수신자 소실로 판매처 열기가 막히던 결함을 수정했다.
+증명: final standalone built/installed `0897...1A5D4`, Chrome 전환·후속 생성/제거, Release Gate 16/16, mobile 107 files/626 tests, Pixel built/installed `DF4F...D33ED`·9/9 PASS.
+굳힘: 수신자 보존, canOpen false-negative, native→Custom Tab 복구, LOCKED 실패 폐쇄, opening intent 정리까지 구매 링크 회귀 4경계를 추가했다.
+누적: release gate 16개; mobile 회귀 626개; current-source 일반 Android 과업 3종; Pixel 9개 PASS·최고 0.0474; 운영 완주율은 분모 부재로 미측정.
+예측 vs 결과: 지난 T2 과업은 준비·판매처·후속·지출까지 완주했고, 예상 밖의 메서드 바인딩 결함 1건을 발견·닫았다; 제휴 고지는 비제휴 standalone 대신 ITEM-002 fixture로 분리 증명했다.
+큐: 새 승인 항목 없음; GitHub billing·production·물리기기/iOS 외부 큐를 기다리지 않고 로컬 Android 결함과 증거를 완료했다.
+다음: T3에서 IMP-003 bottom CTA zone 0.0728을 target 개선하고 SET/sibling 비악화 guard로 검증한다.
