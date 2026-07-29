@@ -4,6 +4,7 @@ import { forwardRef, useRef, useState, type ReactNode, type RefObject } from "re
 import {
   AccessibilityInfo,
   findNodeHandle,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -235,6 +236,7 @@ export function DateField({
     setTimeout(restoreFocus, 0);
   };
   const openPicker = () => {
+    Keyboard.dismiss();
     const initialDate = pickerInitialDate(value, minimumDate, maximumDate);
     if (Platform.OS === "android") {
       DateTimePickerAndroid.open({

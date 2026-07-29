@@ -9,6 +9,7 @@ vi.mock("@react-native-community/datetimepicker", () => ({
 }));
 vi.mock("react-native", () => ({
   AccessibilityInfo: { setAccessibilityFocus: vi.fn() },
+  Keyboard: { dismiss: vi.fn() },
   Modal: "Modal",
   Platform: { OS: "ios" },
   Pressable: "Pressable",

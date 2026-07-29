@@ -4,12 +4,14 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@expo/vector-icons", () => ({ MaterialCommunityIcons: "MaterialCommunityIcons" }));
 const dateTimePickerAndroidOpen = vi.hoisted(() => vi.fn());
+const keyboardDismiss = vi.hoisted(() => vi.fn());
 vi.mock("@react-native-community/datetimepicker", () => ({
   default: "DateTimePicker",
   DateTimePickerAndroid: { open: dateTimePickerAndroidOpen }
 }));
 vi.mock("react-native", () => ({
   AccessibilityInfo: { setAccessibilityFocus: vi.fn() },
+  Keyboard: { dismiss: keyboardDismiss },
   Modal: "Modal",
   Platform: { OS: "android" },
   Pressable: "Pressable",
@@ -76,6 +78,7 @@ describe("Design System v2 direct component outcomes", () => {
     });
     expect(buttons[0]!.props.accessibilityHint).toContain("미래 생일은 선택할 수 없어요");
     renderer.act(() => buttons[0]!.props.onPress());
+    expect(keyboardDismiss).toHaveBeenCalledTimes(1);
     expect(dateTimePickerAndroidOpen).toHaveBeenCalledTimes(1);
     expect(tree.root.findAll((node) => String(node.type) === "Modal")).toHaveLength(0);
     expect(buttons.some((button) => button.props.accessibilityLabel === "생일 삭제")).toBe(true);
