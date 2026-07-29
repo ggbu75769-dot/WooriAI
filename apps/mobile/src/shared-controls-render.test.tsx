@@ -66,7 +66,9 @@ describe("shared mobile control render contract", () => {
       expect(flattenStyle(style).minHeight).toBeGreaterThanOrEqual(48);
     }
 
-    const chip = renderer.create(<CategoryChip label="아주 긴 준비 상태 필터" selected />);
+    const chip = renderer.create(
+      <CategoryChip icon="hospital-box-outline" label="아주 긴 준비 상태 필터" selected />
+    );
     const chipButton = chip.root.find((node) => String(node.type) === "Pressable");
     expect(chipButton.props).toMatchObject({
       accessibilityLabel: "아주 긴 준비 상태 필터",
@@ -74,6 +76,10 @@ describe("shared mobile control render contract", () => {
       accessibilityState: { selected: true },
       hitSlop: 5
     });
-    expect(flattenStyle(chipButton.props.style).minHeight).toBe(38);
+    expect(flattenStyle(chipButton.props.style({ pressed: false })).minHeight).toBe(38);
+    expect(chip.root.find((node) => String(node.type) === "MaterialCommunityIcons").props).toMatchObject({
+      name: "hospital-box-outline",
+      size: 17
+    });
   });
 });

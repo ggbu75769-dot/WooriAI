@@ -163,4 +163,16 @@ describe("Android native UI quality contract", () => {
     expect(expenseSource).toContain('disabled={saveExpense.isPending || hasSaved || isSaveInvalid}');
     expect(expenseSource).toContain("validateExpenseForm({ itemName, amountText, spentOn: expenseDate.iso })");
   });
+
+  it("keeps expense editing aligned with native date and vector category controls", () => {
+    const expenseEditSource = source("app/expenses/[expenseId].tsx");
+
+    expect(expenseEditSource).toContain("DateTimePickerAndroid.open");
+    expect(expenseEditSource).toContain('accessibilityLabel="지출 품목명"');
+    expect(expenseEditSource).toContain('accessibilityLabel="지출 금액"');
+    expect(expenseEditSource).toContain("icon={category.icon as AppIconName}");
+    expect(expenseEditSource).toContain("label={category.label}");
+    expect(expenseEditSource).not.toContain("`${category.icon} ${category.label}`");
+    expect(expenseEditSource).not.toContain('placeholder="YYYY-MM-DD"');
+  });
 });

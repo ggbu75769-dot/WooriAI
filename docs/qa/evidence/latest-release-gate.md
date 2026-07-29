@@ -1,26 +1,26 @@
 # WooriAI Release Gate Evidence
 
-Generated: 2026-07-28T17:06:27.231Z
+Generated: 2026-07-29T16:22:44.436Z
 Mode: local-executed
 
 | Gate | Command | Result | Duration |
 | --- | --- | --- | --- |
-| Install | `pnpm install --frozen-lockfile` | PASS | 588ms |
-| Mobile SDK dependencies | `pnpm mobile:deps:check` | PASS | 2423ms |
-| Env example | `pnpm check:env:example` | PASS | 854ms |
-| Secret scan | `pnpm security:secrets` | PASS | 1238ms |
-| Production dependency audit | `pnpm security:audit` | PASS | 1680ms |
-| Prisma validate | `pnpm --filter api prisma:validate` | PASS | 1760ms |
-| Prisma generate | `pnpm --filter api prisma:generate` | PASS | 2659ms |
-| Database up | `pnpm db start` | PASS | 1856ms |
-| Isolated catalog audit | `pnpm catalog:audit` | PASS | 38610ms |
-| ESLint | `pnpm lint` | PASS | 19094ms |
-| Typecheck | `pnpm typecheck` | PASS | 6073ms |
-| All tests | `pnpm test --concurrency=1 --force` | PASS | 169048ms |
-| API e2e | `pnpm --filter api test:e2e` | PASS | 218646ms |
-| Admin browser E2E | `pnpm test:admin-browser` | PASS | 229172ms |
-| Production builds | `pnpm build --force` | PASS | 55477ms |
-| Peer dependencies | `pnpm install --frozen-lockfile --strict-peer-dependencies --lockfile-only` | PASS | 583ms |
+| Install | `pnpm install --frozen-lockfile` | PASS | 776ms |
+| Mobile SDK dependencies | `pnpm mobile:deps:check` | PASS | 3034ms |
+| Env example | `pnpm check:env:example` | PASS | 883ms |
+| Secret scan | `pnpm security:secrets` | PASS | 2120ms |
+| Production dependency audit | `pnpm security:audit` | PASS | 1504ms |
+| Prisma validate | `pnpm --filter api prisma:validate` | PASS | 2560ms |
+| Prisma generate | `pnpm --filter api prisma:generate` | PASS | 2980ms |
+| Database up | `pnpm db start` | PASS | 9775ms |
+| Isolated catalog audit | `pnpm catalog:audit` | PASS | 28234ms |
+| ESLint | `pnpm lint` | PASS | 18058ms |
+| Typecheck | `pnpm typecheck` | PASS | 22306ms |
+| All tests | `pnpm test --concurrency=1 --force` | PASS | 139229ms |
+| API e2e | `pnpm --filter api test:e2e` | PASS | 117324ms |
+| Admin browser E2E | `pnpm test:admin-browser` | PASS | 113161ms |
+| Production builds | `pnpm build --force` | PASS | 45211ms |
+| Peer dependencies | `pnpm install --frozen-lockfile --strict-peer-dependencies --lockfile-only` | PASS | 478ms |
 
 ## Evidence boundary
 

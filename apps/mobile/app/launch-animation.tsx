@@ -160,7 +160,7 @@ export default function LaunchAnimationScreen() {
           key={currentStage.label}
           style={{
             alignItems: "center",
-            backgroundColor: stageIndex >= 0 ? "#FFF9F4" : "transparent",
+            backgroundColor: stageIndex >= 0 ? theme.colors.presentation.splashStageSurface : "transparent",
             borderColor: stageIndex >= 0 ? theme.colors.primary100 : "transparent",
             borderRadius: stageIndex >= 0 ? 32 : 0,
             borderWidth: stageIndex >= 0 ? 1 : 0,

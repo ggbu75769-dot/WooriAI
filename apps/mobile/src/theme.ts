@@ -41,6 +41,7 @@ const presentation = {
   dangerSurface: "#FFF0ED",
   segmentedTrack: "#F5F0EA",
   chartPlot: "#FFF4EE",
+  splashStageSurface: "#FFF9F4",
   importCanvas: "#FFFCFA",
   previewCoral: "#FFF0EA",
   previewYellow: "#FFF5D7",

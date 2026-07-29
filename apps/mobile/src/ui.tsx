@@ -322,10 +322,12 @@ export function SegmentedControl({
 }
 
 export function CategoryChip({
+  icon,
   label,
   selected,
   onPress
 }: {
+  icon?: AppIconName;
   label: string;
   selected?: boolean;
   onPress?: () => void;
@@ -337,17 +339,27 @@ export function CategoryChip({
       accessibilityState={{ selected: Boolean(selected) }}
       hitSlop={5}
       onPress={onPress}
-      style={{
+      style={({ pressed }) => ({
         alignItems: "center",
         backgroundColor: selected ? theme.colors.mainCoral : theme.colors.white,
         borderColor: selected ? theme.colors.mainCoral : theme.colors.primary100,
         borderRadius: theme.radii.pill,
         borderWidth: 1,
+        flexDirection: "row",
+        gap: 6,
         minHeight: 38,
         justifyContent: "center",
+        opacity: pressed ? 0.82 : 1,
         paddingHorizontal: 14
-      }}
+      })}
     >
+      {icon ? (
+        <AppIcon
+          color={selected ? theme.colors.white : theme.colors.mainCoral}
+          name={icon}
+          size={17}
+        />
+      ) : null}
       <Text style={{ color: selected ? theme.colors.white : theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
         {label}
       </Text>

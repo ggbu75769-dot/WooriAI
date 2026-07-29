@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getExpense, getExpensePlanLinkSuggestions, linkExpensePlan, listPaymentMethods, fixtureSessionToken, type Expense } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
-import { buildRecentExpenseDateChips, formatExpenseAmountInput, formatExpenseDate, sanitizeExpenseAmountText, validateExpenseDateInput, validateExpenseForm } from "../../src/expenses/form-contract";
+import { buildRecentExpenseDateChips, formatExpenseAmountInput, formatExpenseDate, sanitizeExpenseAmountText, validateExpenseForm } from "../../src/expenses/form-contract";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { writableExpenseType } from "../../src/offline/expense-payload";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppIcon, AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, Toast } from "../../src/ui";
+import { AppIcon, AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, Toast, type AppIconName } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const expenseDetailScreenId = "EXP-003";
@@ -44,11 +45,11 @@ export default function ExpenseDetailScreen() {
   const [categoryId, setCategoryId] = useState("");
   const [expenseType, setExpenseType] = useState<Expense["expenseType"]>("expense");
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(null);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [customDateMode, setCustomDateMode] = useState(false);
-  const [customDateText, setCustomDateText] = useState("");
+  const [showDateOptions, setShowDateOptions] = useState(false);
+  const [showIosDatePicker, setShowIosDatePicker] = useState(false);
   const [today] = useState(() => new Date(`${getSeoulToday()}T00:00:00`));
   const recentDateChips = buildRecentExpenseDateChips(today);
+  const maximumExpenseDate = new Date(`${recentDateChips[2]!.iso}T12:00:00`);
   // MOB-102 (round5a-sprint1-plan.md §3.2, §3.4): an expense loaded here came from the normal
   // server/local-session getExpense call, so it has no offline local_expenses row yet. Editing
   // or deleting it needs to route through the same outbox/expectedVersion pipeline as an
@@ -73,13 +74,12 @@ export default function ExpenseDetailScreen() {
   const formValidation = validateExpenseForm({ itemName, amountText: amountDigits, spentOn: spentOnIso });
   const { amountKrw, itemNameError } = formValidation;
   const amountError = amountDigits.length > 0 ? formValidation.amountError : null;
-  const dateInputError = customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
   const spentOnLabel = spentOnIso ? formatExpenseDate(new Date(`${spentOnIso}T00:00:00`)).label : "";
-  const canSave = formValidation.valid && !dateInputError && Boolean(authToken && expenseId && localExpenseId);
+  const canSave = formValidation.valid && Boolean(authToken && expenseId && localExpenseId);
 
   const save = useMutation({
     mutationFn: () => {
-      if (!authToken || !localExpenseId || !formValidation.valid || Boolean(dateInputError)) {
+      if (!authToken || !localExpenseId || !formValidation.valid) {
         throw new Error("invalid expense");
       }
       return updateExpenseOffline(authToken, queryClient, localExpenseId, {
@@ -143,6 +143,26 @@ export default function ExpenseDetailScreen() {
     setPaymentMethodId(next.id);
   };
 
+  const selectExpenseCalendarDate = (date: Date | undefined) => {
+    if (!date) return;
+    setSpentOnIso(formatExpenseDate(date).iso);
+    setShowIosDatePicker(false);
+  };
+
+  const openExpenseCalendar = () => {
+    const value = new Date(`${spentOnIso || recentDateChips[1]!.iso}T12:00:00`);
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value,
+        maximumDate: maximumExpenseDate,
+        mode: "date",
+        onChange: (_event, date) => selectExpenseCalendarDate(date)
+      });
+      return;
+    }
+    setShowIosDatePicker((visible) => !visible);
+  };
+
   return (
     <AppScreen>
       <View accessibilityLabel={expenseDetailScreenId} testID="screen-EXP-003" style={{ gap: theme.spacing.section }}>
@@ -164,8 +184,10 @@ export default function ExpenseDetailScreen() {
                   품목
                 </Text>
                 <TextInput
+                  accessibilityLabel="지출 품목명"
+                  maxLength={80}
                   onChangeText={setItemName}
-                  placeholder="품목"
+                  placeholder="품목명을 입력해 주세요"
                   style={{
                     backgroundColor: theme.colors.beige,
                     borderColor: itemNameError ? theme.colors.danger : "transparent",
@@ -179,7 +201,7 @@ export default function ExpenseDetailScreen() {
                   value={itemName}
                 />
                 {itemNameError ? (
-                  <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{itemNameError}</Text>
+                  <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{itemNameError}</Text>
                 ) : null}
               </View>
 
@@ -201,6 +223,8 @@ export default function ExpenseDetailScreen() {
                   }}
                 >
                   <TextInput
+                    accessibilityLabel="지출 금액"
+                    accessibilityValue={{ text: formatExpenseAmountInput(amountDigits) || "미입력" }}
                     keyboardType="number-pad"
                     onChangeText={(value) => setAmountDigits(sanitizeExpenseAmountText(value))}
                     placeholder="금액"
@@ -212,7 +236,7 @@ export default function ExpenseDetailScreen() {
                   </Text>
                 </View>
                 {amountError ? (
-                  <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{amountError}</Text>
+                  <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{amountError}</Text>
                 ) : null}
               </View>
 
@@ -221,77 +245,68 @@ export default function ExpenseDetailScreen() {
                   날짜
                 </Text>
                 <Pressable
-                  accessibilityLabel="지출 날짜 변경"
+                  accessibilityLabel={`지출 날짜 변경. 현재 ${spentOnLabel}`}
                   accessibilityRole="button"
-                  onPress={() => setShowDatePicker((value) => !value)}
-                  style={{
+                  accessibilityState={{ expanded: showDateOptions }}
+                  onPress={() => setShowDateOptions((visible) => !visible)}
+                  style={({ pressed }) => ({
                     alignItems: "center",
                     backgroundColor: theme.colors.beige,
                     borderRadius: theme.radii.small,
                     flexDirection: "row",
                     justifyContent: "space-between",
                     minHeight: theme.touchTarget,
+                    opacity: pressed ? 0.82 : 1,
                     paddingHorizontal: 14
-                  }}
+                  })}
                 >
                   <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
                     {spentOnLabel}
                   </Text>
                   <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>
-                    {showDatePicker ? "닫기" : "날짜 변경"}
+                    {showDateOptions ? "닫기" : "날짜 변경"}
                   </Text>
                 </Pressable>
-                {showDatePicker ? (
+                {showDateOptions ? (
                   <View style={{ gap: 8 }}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                       {recentDateChips.map((chip) => (
                         <CategoryChip
                           key={chip.iso}
                           label={chip.shortLabel}
-                          selected={!customDateMode && chip.iso === spentOnIso}
+                          selected={chip.iso === spentOnIso}
                           onPress={() => {
                             setSpentOnIso(chip.iso);
-                            setCustomDateMode(false);
-                            setCustomDateText("");
+                            setShowIosDatePicker(false);
                           }}
                         />
                       ))}
                     </ScrollView>
-                    <Pressable onPress={() => setCustomDateMode((value) => !value)}>
+                    <Pressable
+                      accessibilityLabel="달력에서 다른 지출 날짜 선택"
+                      accessibilityRole="button"
+                      onPress={openExpenseCalendar}
+                      style={({ pressed }) => ({
+                        alignItems: "center",
+                        alignSelf: "flex-start",
+                        flexDirection: "row",
+                        gap: 6,
+                        minHeight: theme.touchTarget,
+                        opacity: pressed ? 0.76 : 1
+                      })}
+                    >
+                      <AppIcon color={theme.colors.mainCoral} name="calendar-blank-outline" size={20} />
                       <Text style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}>
-                        {customDateMode ? "최근 날짜에서 선택" : "직접 입력"}
+                        달력에서 다른 날짜 선택
                       </Text>
                     </Pressable>
-                    {customDateMode ? (
-                      <View style={{ gap: 6 }}>
-                        <TextInput
-                          keyboardType="numbers-and-punctuation"
-                          onChangeText={(value) => {
-                            const cleaned = value.replace(/[^0-9-]/g, "").slice(0, 10);
-                            setCustomDateText(cleaned);
-                            if (cleaned.length > 0) {
-                              const error = validateExpenseDateInput(cleaned);
-                              if (!error) setSpentOnIso(cleaned);
-                            }
-                          }}
-                          placeholder="YYYY-MM-DD"
-                          style={{
-                            backgroundColor: theme.colors.beige,
-                            borderColor: dateInputError ? theme.colors.danger : "transparent",
-                            borderRadius: theme.radii.small,
-                            borderWidth: 1,
-                            color: theme.colors.brown,
-                            minHeight: theme.touchTarget,
-                            paddingHorizontal: 14
-                          }}
-                          value={customDateText}
-                        />
-                        {dateInputError ? (
-                          <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>
-                            {dateInputError}
-                          </Text>
-                        ) : null}
-                      </View>
+                    {Platform.OS === "ios" && showIosDatePicker ? (
+                      <DateTimePicker
+                        maximumDate={maximumExpenseDate}
+                        mode="date"
+                        onChange={(_event, date) => selectExpenseCalendarDate(date)}
+                        value={new Date(`${spentOnIso || recentDateChips[1]!.iso}T12:00:00`)}
+                      />
                     ) : null}
                   </View>
                 ) : null}
@@ -304,8 +319,9 @@ export default function ExpenseDetailScreen() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                   {categoryCatalog.map((category) => (
                     <CategoryChip
+                      icon={category.icon as AppIconName}
                       key={category.id}
-                      label={`${category.icon} ${category.label}`}
+                      label={category.label}
                       selected={category.id === categoryId}
                       onPress={() => setCategoryId(category.id)}
                     />
