@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { computeRelease5vSourceSnapshot } from "../lib/release5v-source-snapshot";
-import { isLikelyBlankOrShell } from "./render-validation";
+import { isEvidenceCurrentForScreenshot, isLikelyBlankOrShell } from "./render-validation";
 
 type ScreenConfig = {
   name: string;
@@ -484,16 +484,18 @@ async function validateRender(
   const metrics = await imageBlanknessMetrics(screenshotPath);
   const xmlPath = join(logDir, `${screenId}-window.xml`);
   const logcatPath = join(logDir, `${screenId}-logcat.txt`);
+  const screenshotMtimeMs = statSync(screenshotPath).mtimeMs;
+  const readCurrentEvidence = (evidencePath: string) =>
+    existsSync(evidencePath) &&
+    isEvidenceCurrentForScreenshot(screenshotMtimeMs, statSync(evidencePath).mtimeMs)
+      ? readFileSync(evidencePath, "utf8")
+      : "";
   const xmlText = refreshEvidence
     ? dumpUiAutomator(screenId).text
-    : existsSync(xmlPath)
-      ? readFileSync(xmlPath, "utf8")
-      : "";
+    : readCurrentEvidence(xmlPath);
   const logcatText = refreshEvidence
     ? captureLogcat(screenId).text
-    : existsSync(logcatPath)
-      ? readFileSync(logcatPath, "utf8")
-      : "";
+    : readCurrentEvidence(logcatPath);
   const searchable = compactText(`${xmlText}\n${logcatText}`);
   const sentinelsFound = expected.filter((sentinel) => searchable.includes(sentinel));
   const logcatErrors = extractLogcatErrors(logcatText);
@@ -960,8 +962,17 @@ async function main() {
     }
     if (command === "capture") {
       ensureDirs();
-      if (screenId) openScreen(screenId);
-      captureScreen(screenId);
+      if (!screenId) throw new Error("SCREEN_REQUIRED");
+      clearLogcat();
+      openScreen(screenId);
+      sleepMs(Number(process.env.PIXEL_ANDROID_WAIT_MS || 700));
+      waitForScreenReady(screenId);
+      sleepMs(Number(process.env.PIXEL_ANDROID_SETTLE_MS || 5000));
+      const screenshotPath = await captureStableScreen(screenId);
+      const render = await validateRender(screenId, screenshotPath, true);
+      if (!render.renderValid) {
+        throw new Error(`CAPTURE_INVALID ${screenId}: ${render.invalidReasons.join("; ")}`);
+      }
       return;
     }
     if (command === "diff") {

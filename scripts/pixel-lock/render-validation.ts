@@ -4,6 +4,10 @@ export type RenderBlanknessMetrics = {
   nonBackgroundAreaRatio: number;
 };
 
+export function isEvidenceCurrentForScreenshot(screenshotMtimeMs: number, evidenceMtimeMs: number) {
+  return evidenceMtimeMs >= screenshotMtimeMs;
+}
+
 export function isLikelyBlankOrShell(metrics: RenderBlanknessMetrics, hasScreenSentinel = false) {
   const undeniablyBlank =
     (metrics.whitePixelRatio > 0.97 && metrics.nonBackgroundAreaRatio < 0.025) ||
