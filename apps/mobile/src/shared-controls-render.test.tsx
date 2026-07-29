@@ -66,15 +66,17 @@ describe("shared mobile control render contract", () => {
       expect(flattenStyle(style).minHeight).toBeGreaterThanOrEqual(48);
     }
 
+    const onLayout = vi.fn();
     const chip = renderer.create(
-      <CategoryChip icon="hospital-box-outline" label="아주 긴 준비 상태 필터" selected />
+      <CategoryChip icon="hospital-box-outline" label="아주 긴 준비 상태 필터" onLayout={onLayout} selected />
     );
     const chipButton = chip.root.find((node) => String(node.type) === "Pressable");
     expect(chipButton.props).toMatchObject({
       accessibilityLabel: "아주 긴 준비 상태 필터",
       accessibilityRole: "button",
       accessibilityState: { selected: true },
-      hitSlop: 5
+      hitSlop: 5,
+      onLayout
     });
     expect(flattenStyle(chipButton.props.style({ pressed: false })).minHeight).toBe(38);
     expect(chip.root.find((node) => String(node.type) === "MaterialCommunityIcons").props).toMatchObject({

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
@@ -57,6 +57,17 @@ export default function ExpenseDetailScreen() {
   // the first time it loads -- see sync-controller.ts's adoptServerExpense.
   const [localExpenseId, setLocalExpenseId] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const categoryScrollRef = useRef<ScrollView>(null);
+  const categoryChipXById = useRef<Record<string, number>>({});
+
+  const revealSelectedCategory = useCallback((selectedCategoryId: string) => {
+    const chipX = categoryChipXById.current[selectedCategoryId];
+    if (chipX === undefined) return;
+    categoryScrollRef.current?.scrollTo({
+      animated: false,
+      x: Math.max(0, chipX - theme.spacing.card)
+    });
+  }, []);
 
   useEffect(() => {
     if (!expense.data) return;
@@ -70,6 +81,10 @@ export default function ExpenseDetailScreen() {
     setLocalExpenseId(null);
     void adoptServerExpense(expense.data).then((row) => setLocalExpenseId(row.localId));
   }, [expense.data]);
+
+  useEffect(() => {
+    if (categoryId) revealSelectedCategory(categoryId);
+  }, [categoryId, revealSelectedCategory]);
 
   const formValidation = validateExpenseForm({ itemName, amountText: amountDigits, spentOn: spentOnIso });
   const { amountKrw, itemNameError } = formValidation;
@@ -316,12 +331,21 @@ export default function ExpenseDetailScreen() {
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
                   카테고리
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                <ScrollView
+                  ref={categoryScrollRef}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8 }}
+                >
                   {categoryCatalog.map((category) => (
                     <CategoryChip
                       icon={category.icon as AppIconName}
                       key={category.id}
                       label={category.label}
+                      onLayout={(event) => {
+                        categoryChipXById.current[category.id] = event.nativeEvent.layout.x;
+                        if (category.id === categoryId) revealSelectedCategory(category.id);
+                      }}
                       selected={category.id === categoryId}
                       onPress={() => setCategoryId(category.id)}
                     />

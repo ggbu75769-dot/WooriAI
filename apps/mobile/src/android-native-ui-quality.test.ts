@@ -175,4 +175,16 @@ describe("Android native UI quality contract", () => {
     expect(expenseEditSource).not.toContain("`${category.icon} ${category.label}`");
     expect(expenseEditSource).not.toContain('placeholder="YYYY-MM-DD"');
   });
+
+  it("reveals the saved expense category when its chip starts outside the viewport", () => {
+    const expenseEditSource = source("app/expenses/[expenseId].tsx");
+    const sharedUiSource = source("src/ui.tsx");
+
+    expect(expenseEditSource).toContain("ref={categoryScrollRef}");
+    expect(expenseEditSource).toContain("categoryChipXById.current[category.id] = event.nativeEvent.layout.x");
+    expect(expenseEditSource).toContain("if (category.id === categoryId) revealSelectedCategory(category.id)");
+    expect(expenseEditSource).toContain("categoryScrollRef.current?.scrollTo({");
+    expect(expenseEditSource).toContain("x: Math.max(0, chipX - theme.spacing.card)");
+    expect(sharedUiSource).toContain("onLayout={onLayout}");
+  });
 });

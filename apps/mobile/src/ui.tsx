@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type React from "react";
 import type { ComponentProps } from "react";
 import { useState } from "react";
-import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
+import type { ImageSourcePropType, LayoutChangeEvent, StyleProp, TextStyle, ViewStyle } from "react-native";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { theme } from "./theme";
@@ -325,11 +325,13 @@ export function CategoryChip({
   icon,
   label,
   selected,
+  onLayout,
   onPress
 }: {
   icon?: AppIconName;
   label: string;
   selected?: boolean;
+  onLayout?: (event: LayoutChangeEvent) => void;
   onPress?: () => void;
 }) {
   return (
@@ -338,6 +340,7 @@ export function CategoryChip({
       accessibilityRole="button"
       accessibilityState={{ selected: Boolean(selected) }}
       hitSlop={5}
+      onLayout={onLayout}
       onPress={onPress}
       style={({ pressed }) => ({
         alignItems: "center",
