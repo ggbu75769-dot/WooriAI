@@ -1,6 +1,9 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { acquireReleaseGateLock, ReleaseGateAlreadyRunningError } from "../../../scripts/lib/release-gate-lock";
 
 describe("release gate package-manager runner", () => {
   it("reuses npm_execpath only when the active package-manager is pnpm", () => {
@@ -31,6 +34,68 @@ describe("release gate package-manager runner", () => {
     expect(source).toContain("writeFileWithRetry(join(process.cwd(), markdownPath)");
     expect(source).toContain("writeFileWithRetry(\n    join(process.cwd(), jsonPath)");
     expect(source).not.toContain("writeFileSync(join(process.cwd(), markdownPath)");
+  });
+
+  it("blocks a concurrent full gate and releases only the lock it owns", () => {
+    const releaseGateSource = readFileSync(resolve(__dirname, "../../../scripts/release-gate.ts"), "utf8");
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "wooriai-release-gate-lock-"));
+    const lockPath = join(temporaryRoot, "release-gate.lock");
+
+    try {
+      expect(releaseGateSource).toContain("releaseGateLock = acquireReleaseGateLock(process.env.WOORIAI_RELEASE_GATE_LOCK_PATH)");
+      expect(releaseGateSource).toContain("error instanceof ReleaseGateAlreadyRunningError");
+      expect(releaseGateSource).toContain("releaseGateLock?.release()");
+      const first = acquireReleaseGateLock(lockPath);
+      const root = resolve(__dirname, "../../..");
+      const blocked = spawnSync(
+        process.execPath,
+        [
+          resolve(root, "node_modules/tsx/dist/cli.mjs"),
+          resolve(root, "scripts/release-gate.ts"),
+          "--dry-run"
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            WOORIAI_RELEASE_GATE_LOCK_PATH: lockPath
+          }
+        }
+      );
+      expect(blocked.status).toBe(2);
+      expect(blocked.stderr).toContain("RELEASE_GATE_ALREADY_RUNNING");
+      expect(blocked.stderr).toContain(`pid ${process.pid}`);
+
+      writeFileSync(lockPath, JSON.stringify({
+        ...first.owner,
+        token: "successor-token"
+      }));
+      first.release();
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers an abandoned release-gate lock whose process is no longer running", () => {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "wooriai-release-gate-stale-"));
+    const lockPath = join(temporaryRoot, "release-gate.lock");
+
+    try {
+      writeFileSync(lockPath, JSON.stringify({
+        pid: 2_147_483_647,
+        startedAt: "2000-01-01T00:00:00.000Z",
+        cwd: temporaryRoot,
+        token: "abandoned-token"
+      }));
+      const current = acquireReleaseGateLock(lockPath);
+      expect(current.owner.pid).toBe(process.pid);
+      current.release();
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps portable PostgreSQL from holding the captured release-gate pipes open", () => {
