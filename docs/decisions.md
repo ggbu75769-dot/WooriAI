@@ -7,3 +7,5 @@
 - 2026-07-30 01:28 KST / Pixel Lock 9/9를 일반 EXP-003 runtime 증거로 대체하지 않는다 / P0 fixture 화면 집합에 EXP-003이 없음 / 다음 T2 walkthrough가 별도 증거를 만든다.
 - 2026-07-30 02:01 KST / Android DateField를 열기 전에 소프트 키보드를 닫는다 / 직접 walkthrough에서 이름 입력 키보드가 성별·CTA를 가림 / 모든 onboarding 날짜 필드에 같은 복구 적용.
 - 2026-07-30 02:01 KST / 현재 standalone 과업 증거와 prior-source Pixel 9/9를 분리한다 / keyboard 변경 후 standalone은 source-bound 재검증했지만 Pixel 전체는 재실행하지 않음 / exact-source가 아닌 visual 증거를 현재 완료로 오인하지 않음.
+- 2026-07-30 02:38 KST / EXP-003이 저장 카테고리 위치를 측정해 선택 칩을 자동 reveal한다 / 직접 사용에서 현재 분류가 viewport 밖에 숨었음 / 새 화면·의존성 없이 기존 가로 칩 과업을 복구.
+- 2026-07-30 02:38 KST / 중복 Release Gate 실패를 제품 빌드 실패와 분리하되 재발 가능한 구조 결함으로 백로그화한다 / 첫 게이트 하위 프로세스와 두 번째 gate가 `.next`를 경합했고 단일 재실행은 16/16 PASS / 다음 T4에서 repo-scoped 상호배제를 굳힘.

@@ -19,3 +19,13 @@
 예측 vs 결과: 지난 사이클의 EXP-003 직접 검증 예측은 생성·수정·합계 반영 PASS였고, 예상 밖으로 onboarding keyboard 가림 1건과 selected category 미노출 1건을 발견했다.
 큐: 새 승인 항목 없음; 기존 GitHub billing·production 입력 큐와 무관하게 로컬 과업과 수정 검증을 완료했다.
 다음: T3에서 EXP-003 진입 시 선택된 카테고리 칩을 자동 reveal하고 Android/렌더 회귀를 남긴다.
+
+[사이클 3 / T3 일관성·완성도 / 90b902f4246abf8a98e648614247ec891e99ac9d]
+좌표: `6a3f4a0`의 walkthrough 결함을 기준으로 시작해 제품 소스 `90b902f`, behind 0/ahead 5, current-source standalone APK를 만들었다.
+한 일: EXP-003 카테고리 칩의 실제 x 위치를 저장하고 지출 데이터 로드·선택 변경 시 현재 칩을 왼쪽 여백 안으로 자동 reveal했다.
+증명: mobile 107 files/623 tests·typecheck·lint, Release Gate 16/16, built/installed APK SHA-256 일치, adb selected bounds `[146,1215][468,1319]`, fatal logcat 0건.
+굳힘: CategoryChip `onLayout` 전달 렌더 계약과 EXP-003 ref/layout/scrollTo Android source contract를 회귀로 추가했다.
+누적: release gate 16개; mobile 회귀 623개; current-source Android 직접 과업 2회; UX 사다리 L4 자동 선택 노출 1건; 실사용 완주율은 운영 이벤트 부재로 미측정.
+예측 vs 결과: 지난 사이클의 자동 reveal 예측은 offscreen `[1035,...]`에서 onscreen `[146,...]`으로 방향·범위 모두 일치했고, 검증 중 Release Gate 동시 실행 false-red 1건을 추가 발견했다.
+큐: 새 승인 항목 없음; GitHub billing·production 입력 큐를 기다리지 않고 로컬 제품 결함을 닫았다.
+다음: T4에서 Release Gate repo-scoped 단일 실행 guard와 동시 실행 회귀를 추가해 `.next` 경합 false-red를 차단한다.

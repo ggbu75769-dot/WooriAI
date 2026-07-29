@@ -1,6 +1,6 @@
 # WooriAI Reality Diff
 
-기준 시각: 2026-07-30 02:01 KST
+기준 시각: 2026-07-30 02:38 KST
 진실원: 실행 결과 → Git HEAD → CI → 실사용 데이터 → 문서.
 
 ## 불일치
@@ -14,7 +14,8 @@
 | ③ 막힌 것 | 분석 스키마가 있으므로 과업 완주율을 계산할 수 있음 | 로컬 `analytics_events` 0건, 운영 분석 DB 없음 | 운영 배포 전 계측 경로 검증; 현재는 수치 주장 금지 | OPEN / EXTERNAL |
 | ④ 헷갈리는 것 | 지출 신규 화면은 네이티브 날짜·벡터 아이콘인데 수정 화면은 직접 날짜 문자열·유니코드 아이콘 사용 | 같은 과업의 신규/수정 UI가 불일치 | `a0355e3`에서 네이티브 날짜 선택, 벡터 아이콘, 접근성·검증 회귀 추가 | LOCAL CLOSED |
 | ④ 헷갈리는 것 | 이름 입력 뒤 생일 달력을 닫으면 다음 입력으로 이어질 수 있음 | 키보드가 남아 성별과 CTA를 가림 | `6a3f4a0`에서 DateField가 picker 전 keyboard dismiss; source-bound APK 재검증 | CLOSED |
-| ④ 헷갈리는 것 | EXP-003 진입 시 현재 카테고리를 즉시 확인할 수 있음 | `기저귀·위생` 선택 칩이 horizontal viewport 밖에 있어 첫 화면에 안 보임 | 선택 칩 자동 reveal + 회귀 필요 | OPEN |
+| ② 깨진 것 | Release Gate는 한 소스 좌표를 안정적으로 판정함 | 동시 실행 2개가 같은 Admin `.next`를 경합해 `build-manifest.json` ENOENT false-red 발생; 단일 재실행은 16/16 PASS | repo-scoped 단일 실행 guard와 동시 실행 회귀 추가 | OPEN / LOCAL |
+| ④ 헷갈리는 것 | EXP-003 진입 시 현재 카테고리를 즉시 확인할 수 있음 | `기저귀·위생` 선택 칩이 horizontal viewport 밖에 있어 첫 화면에 안 보임 | `90b902f`에서 선택 칩 위치 측정·자동 reveal, Android bounds·렌더 회귀 확인 | CLOSED |
 | ⑤ 어긋난 것 | 모든 중요한 모바일 변경은 설치 앱 직접 증거가 있음 | 일반 `EXP-003` 수정 흐름 직접 캡처가 없었음 | standalone 설치 앱에서 생성 → 수정 → 기록·홈 합계 반영 증거 수집 | CLOSED |
 
 사용자 화면에 노출된 검증 불가능한 운영 수치 불일치는 0건으로 관측됐다. 단, 프로덕션 자체가 없어 “운영 화면 전수 확인”을 수행한 결과는 아니다.
@@ -24,14 +25,14 @@
 | 등급 | 건수 | 최상단 |
 | --- | ---: | --- |
 | ① 틀린 것 | 0 open | 현재 좌표·APK 문서 수정 완료 |
-| ② 깨진 것 | 1 | GitHub Actions 결제 차단 해소 후 동일 HEAD CI 재실행 |
+| ② 깨진 것 | 2 | Release Gate 동시 실행 guard; GitHub Actions 결제 차단 해소 후 동일 HEAD CI 재실행 |
 | ③ 막힌 것 | 4 | production identity/signing, 운영 core 인프라, catalog 독립 검토, 실제 계측 |
-| ④ 헷갈리는 것 | 1 | EXP-003 현재 카테고리 선택 칩이 첫 horizontal viewport 밖 |
+| ④ 헷갈리는 것 | 0 open | EXP-003 저장 카테고리 자동 reveal 완료 |
 | ⑤ 어긋난 것 | 0 open | 일반 설치 앱 EXP-003 증거 완료 |
 | ⑥ 아쉬운 것 | 1 | 물리 Android/TalkBack·iOS 상호작용 검증 부재 |
 
 최상단 3건:
 
-1. GitHub Actions billing/spending limit 차단을 사람이 복구한 뒤 current HEAD CI를 실행한다.
-2. EXP-003 진입 시 선택된 카테고리 칩을 자동 reveal해 현재 분류를 첫 화면에서 확인 가능하게 한다.
+1. Release Gate의 repo-scoped 동시 실행 guard를 추가해 동일 `.next` 산출물 경합과 false-red를 차단한다.
+2. GitHub Actions billing/spending limit 차단을 사람이 복구한 뒤 current HEAD CI를 실행한다.
 3. production identity/signing 및 운영 API·DB·Redis·storage 입력이 생기기 전까지 외부 릴리스 완료 주장을 차단한다.
