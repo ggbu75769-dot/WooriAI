@@ -1,4 +1,7 @@
 {
+  "IMP-003": {
+    "ctaBottomInset": 40
+  },
   "REP-001": {
     "horizontalOffset": -3,
     "topOffset": -8,
