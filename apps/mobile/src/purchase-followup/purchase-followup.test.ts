@@ -111,17 +111,16 @@ describe("purchase follow-up state machine", () => {
     expect(isSafePurchaseUrl("https://seller.example/product")).toBe(true);
   });
 
-  it("does not persist or open when the OS cannot handle an otherwise safe URL", async () => {
+  it("uses openURL as the final authority when canOpenURL reports a false negative", async () => {
     const storage = memoryStorage();
     const openURL = vi.fn(async () => undefined);
-    await expect(
-      openPurchaseOffer(
-        { ...input, publicUrl: "https://seller.example/product" },
-        { storage, canOpenURL: async () => false, openURL }
-      )
-    ).rejects.toThrow("PURCHASE_URL_UNAVAILABLE");
-    expect(openURL).not.toHaveBeenCalled();
-    expect(storage.dump()).toEqual([]);
+    const followup = await openPurchaseOffer(
+      { ...input, publicUrl: "https://seller.example/product" },
+      { storage, canOpenURL: async () => false, openURL }
+    );
+    expect(openURL).toHaveBeenCalledOnce();
+    expect(followup.state).toBe("pending");
+    expect(storage.dump()).toHaveLength(1);
   });
 
   it("recovers fail-closed from corrupt persisted JSON", async () => {
@@ -138,7 +137,7 @@ describe("purchase follow-up state machine", () => {
         { ...input, publicUrl: "https://seller.example/product" },
         {
           storage,
-          canOpenURL: async () => true,
+          canOpenURL: async () => false,
           openURL: async () => {
             throw new Error("OS rejected");
           }

@@ -8,6 +8,10 @@ vi.mock("@react-native-community/datetimepicker", () => ({
   default: "DateTimePicker",
   DateTimePickerAndroid: { open: vi.fn() }
 }));
+vi.mock("expo-web-browser", () => ({
+  openBrowserAsync: vi.fn(),
+  WebBrowserResultType: { LOCKED: "locked" }
+}));
 vi.mock("react-native", () => ({
   Linking: { canOpenURL: vi.fn(), openURL: vi.fn() },
   Pressable: "Pressable",
@@ -16,6 +20,8 @@ vi.mock("react-native", () => ({
 }));
 
 import { PurchaseOfferAction } from "./PurchaseOfferAction";
+import * as WebBrowser from "expo-web-browser";
+import { Linking } from "react-native";
 import {
   beginPurchaseFollowup,
   markPurchaseFollowupOpened,
@@ -62,6 +68,84 @@ describe("PurchaseOfferAction rendered integration", () => {
         "판매처에서 확인한 뒤 홈 화면으로 돌아오면 구매 여부를 다시 안내해 드릴게요."
       );
     });
+  });
+
+  it("still opens a safe seller URL when canOpenURL reports a false negative", async () => {
+    const storage = memoryStorage();
+    const openURL = vi.fn(async () => undefined);
+    const canOpenURL = vi.fn(async () => false);
+    const onMessage = vi.fn();
+    const tree = renderer.create(
+      <PurchaseOfferAction
+        {...baseProps}
+        accessState="followup"
+        dependencies={{ storage, canOpenURL, openURL }}
+        onMessage={onMessage}
+      />
+    );
+
+    renderer.act(() =>
+      tree.root.findByProps({ accessibilityLabel: "판매처 일반 페이지 열기" }).props.onPress()
+    );
+    await vi.waitFor(() => {
+      expect(canOpenURL).toHaveBeenCalledOnce();
+      expect(openURL).toHaveBeenCalledOnce();
+      expect(onMessage).toHaveBeenCalledWith(
+        "판매처에서 확인한 뒤 홈 화면으로 돌아오면 구매 여부를 다시 안내해 드릴게요."
+      );
+    });
+  });
+
+  it("preserves the Linking receiver and falls back when the native URL opener rejects", async () => {
+    vi.mocked(Linking.canOpenURL).mockImplementation(function (this: typeof Linking) {
+      if (this !== Linking) throw new TypeError("Linking receiver was lost");
+      return Promise.resolve(false);
+    });
+    vi.mocked(Linking.openURL).mockRejectedValue(new Error("native opener rejected"));
+    vi.mocked(WebBrowser.openBrowserAsync).mockResolvedValue({ type: "dismiss" } as never);
+    const onMessage = vi.fn();
+    const tree = renderer.create(
+      <PurchaseOfferAction
+        {...baseProps}
+        accessState="direct"
+        onMessage={onMessage}
+      />
+    );
+
+    renderer.act(() =>
+      tree.root.findByProps({ accessibilityLabel: "판매처 일반 페이지 열기" }).props.onPress()
+    );
+    await vi.waitFor(() => {
+      expect(Linking.openURL).toHaveBeenCalledWith(baseProps.offer.publicUrl);
+      expect(WebBrowser.openBrowserAsync).toHaveBeenCalledWith(baseProps.offer.publicUrl);
+      expect(onMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  it("fails closed when both the native opener and custom tab are unavailable", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.mocked(Linking.canOpenURL).mockResolvedValue(false);
+    vi.mocked(Linking.openURL).mockRejectedValue(new Error("native opener rejected"));
+    vi.mocked(WebBrowser.openBrowserAsync).mockResolvedValue({ type: "locked" } as never);
+    const onMessage = vi.fn();
+    const tree = renderer.create(
+      <PurchaseOfferAction
+        {...baseProps}
+        accessState="direct"
+        onMessage={onMessage}
+      />
+    );
+
+    renderer.act(() =>
+      tree.root.findByProps({ accessibilityLabel: "판매처 일반 페이지 열기" }).props.onPress()
+    );
+    await vi.waitFor(() => {
+      expect(onMessage).toHaveBeenCalledWith(
+        "판매처 페이지를 열지 못했어요. 잠시 후 다시 시도해 주세요."
+      );
+      expect(warning).toHaveBeenCalledOnce();
+    });
+    warning.mockRestore();
   });
 
   it("still opens the seller while preserving an existing recorded-pending-sync expense", async () => {
