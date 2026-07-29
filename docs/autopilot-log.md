@@ -39,3 +39,13 @@
 예측 vs 결과: 지난 사이클의 단일 실행 guard 예측대로 중복 호출은 0.5초 안에 차단됐고, 정상 full gate는 두 차례 16/16 후 lock을 남기지 않았다.
 큐: 새 승인 항목 없음; GitHub billing 외부 red와 무관하게 로컬 gate 신뢰성 결함을 닫았다.
 다음: T1에서 current repository source-bound Pixel APK를 재빌드해 9개 adb screencap을 재검증하고 사이클 5 메타 루프를 수행한다.
+
+[사이클 5 / T1 정확성·안정 / 70921b8c77d2ec9e8534453790c009b1c5ca9267]
+좌표: prior-source Pixel 증거를 clean source `70921b8`, snapshot `91FA...E8D7`의 current repository 증거로 교체했고 branch는 behind 0/ahead 8이다.
+한 일: x86_64 embedded Pixel APK를 clean rebuild하고 격리 Android 15 AVD에 설치해 P0 9개 화면을 adb screencap으로 전부 다시 측정했다.
+증명: built/installed SHA-256 `1175...CB48` 일치, 9/9 render valid/PASS, 최고 REP-001 `0.047382`, 전 화면 `<= 0.0480`, 화면별 logcat error 0건.
+굳힘: 기존 source-stale 거부와 built/installed hash guard를 current source에서 재통과시켜 prior-source 증거가 현재 완료로 섞이지 않게 했다.
+누적: release gate 16개; Android Pixel 9개 current-source PASS; mobile 회귀 623개; 직접 일반 과업 2회; Pixel 승격 목표 `<= 0.0480`; 운영 완주율은 미측정.
+예측 vs 결과: current-source 9화면 재검증 예측은 9/9·hash 일치로 적중했고, 최고 score도 0.0474로 상향 목표 안에 들어왔다.
+큐: 새 승인 항목 없음; 물리기기/iOS·production·GitHub billing은 외부 큐로 유지하고 emulator current-source 검증을 완료했다.
+다음: T2에서 준비템 선택 → 제휴 고지 → 구매 링크 → 구매 후 상태 기록을 current-source 설치 앱으로 직접 완주한다.

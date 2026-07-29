@@ -11,3 +11,5 @@
 - 2026-07-30 02:38 KST / 중복 Release Gate 실패를 제품 빌드 실패와 분리하되 재발 가능한 구조 결함으로 백로그화한다 / 첫 게이트 하위 프로세스와 두 번째 gate가 `.next`를 경합했고 단일 재실행은 16/16 PASS / 다음 T4에서 repo-scoped 상호배제를 굳힘.
 - 2026-07-30 02:57 KST / full/dry-run Release Gate는 저장소당 하나만 실행하고 config-only는 별도 증거라 lock 밖에 둔다 / `.next`·최신 evidence의 단일 작성자가 필요하지만 config 검증은 공유 빌드 산출물을 쓰지 않음 / 중복 full gate는 PID·시각을 포함한 exit 2로 조용하지 않게 차단.
 - 2026-07-30 02:57 KST / lock 해제는 owner token 일치 시에만 허용하고 죽은 PID·3시간 초과 lock은 복구한다 / 강제 종료 잔여와 PID 재사용 모두 고려 / 영구 교착 없이 후속 실행의 lock을 이전 실행이 삭제하지 못함.
+- 2026-07-30 03:13 KST / prior-source Pixel PASS를 current 완료로 쓰지 않고 clean current source APK를 다시 빌드한다 / gate·docs 변경도 snapshot을 바꿔 기존 Pixel artifact가 exact-source가 아니게 됨 / source snapshot·built·installed·9 captures를 한 좌표로 복원.
+- 2026-07-30 03:13 KST / 다음 Pixel 승격 목표를 overall `<= 0.0480`으로 높인다 / current 9화면 최고 0.047382로 모두 여유 안에 있음 / 두 번째 독립 current-source 실행 재현 후 필수 code threshold 상향 여부를 결정.

@@ -1,6 +1,6 @@
 # WooriAI State of Truth
 
-측정 시각: 2026-07-30 02:57 KST
+측정 시각: 2026-07-30 03:13 KST
 
 이 문서는 버전명이 아니라 실행 결과, Git 커밋, CI 실행 ID로 현재 좌표를 고정한다. 날짜가 붙은 과거 완료 보고서보다 이 문서가 우선한다.
 
@@ -63,7 +63,7 @@
 | 일반 Android 과업 | PASS | 동의·onboarding → 기저귀 12,000원 생성 → 기록 → EXP-003 선택 카테고리 자동 노출 |
 | Android standalone 동일성 | PASS | built SHA-256 = installed `base.apk` SHA-256 = `B931E0...C45BA` |
 | Android 선택 카테고리 | PASS | 수정 전 bounds `[1035,1215][978,1319]` → 수정 후 `[146,1215][468,1319]`, selected=true |
-| Android Pixel Lock | LAST PASS / PRIOR SOURCE | `a0355e3` 계열 adb screencap 9/9, 최고 점수 0.0474; `90b902f` exact-source rerun은 미실행 |
+| Android Pixel Lock | PASS / CURRENT SOURCE | source commit `70921b8`, adb screencap 9/9, 최고 REP-001 `0.047382`; 전 화면 상향 목표 `<= 0.0480` 통과 |
 
 Android 증거:
 
@@ -73,9 +73,12 @@ Android 증거:
 - current embedded bundle SHA-256: `9C6A151AF1DF467EDB5D833BFED2B1729F73F00B6236A273C36BC8B4FBFE69EB`
 - current report: `artifacts/android/wooriai-0.0.0-release-standalone.json`
 - walkthrough: `docs/walkthrough/2026-07-30.md`
-- prior-source Pixel report: `artifacts/pixel-lock/android/reports/latest.md`
+- current Pixel APK: `F:/WooriAI/wooriai-pixel-1175b3af41726a6697d173c46344d3f0f489ef2ab60a1577a16ddad30b34cb48.apk`
+- current Pixel APK / installed base SHA-256: `1175B3AF41726A6697D173C46344D3F0F489EF2AB60A1577A16DDAD30B34CB48`
+- current Pixel source snapshot SHA-256: `91FA40B58E47ED9E0AA699E4E43651795A022970EBA80EB64AF4590C0082E8D7`
+- current Pixel report: `artifacts/pixel-lock/android/reports/latest.md`
 
-`37ad654`는 Release Gate 실행 구조와 회귀만 바꿨고 `apps/mobile` 제품 소스는 `90b902f` 그대로다. 위 standalone APK는 해당 제품 소스를 설치 검증했지만, 저장소 전체 source snapshot은 gate-only 변경 전 값이므로 current repository exact-source APK라고 확대 해석하지 않는다.
+`37ad654`는 Release Gate 실행 구조와 회귀만 바꿨고 `apps/mobile` 제품 소스는 `90b902f` 그대로다. standalone APK는 해당 제품 소스를 설치 검증했다. Pixel APK는 gate·문서까지 포함한 clean source commit `70921b8`에서 다시 빌드해 current repository source binding도 확보했다.
 
 ## CI 현재 상태
 
@@ -103,7 +106,7 @@ Android 증거:
 
 ## 정직성 경계
 
-- 로컬 Release Gate와 source-bound standalone Android 과업은 현재 소스의 내부 후보 품질을 증명한다.
+- 로컬 Release Gate, source-bound standalone Android 과업, current-source Android Pixel 9/9은 내부 후보 품질을 증명한다.
 - 프로덕션 배포, 실제 OAuth, production signing, 운영 백업 복구, closed beta, 물리기기 TalkBack, iOS는 증명하지 않는다.
-- `EXP-003` 선택 카테고리 자동 노출은 current-source standalone 설치 앱에서 별도 증명했다. Pixel Lock 9개 화면은 현재 exact source 재실행 전까지 과거 증거로 분리한다.
+- `EXP-003` 선택 카테고리 자동 노출은 standalone 설치 앱에서 별도 증명했고 Pixel Lock 9개 화면도 current clean source에서 다시 증명했다.
 - 프로덕션 화면이 없으므로 현재 수집 가능한 대외 노출 주장과 배포 HEAD 일치 여부는 `NOT APPLICABLE / NOT DEPLOYED`다.
