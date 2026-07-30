@@ -59,3 +59,13 @@
 예측 vs 결과: 지난 T2 과업은 준비·판매처·후속·지출까지 완주했고, 예상 밖의 메서드 바인딩 결함 1건을 발견·닫았다; 제휴 고지는 비제휴 standalone 대신 ITEM-002 fixture로 분리 증명했다.
 큐: 새 승인 항목 없음; GitHub billing·production·물리기기/iOS 외부 큐를 기다리지 않고 로컬 Android 결함과 증거를 완료했다.
 다음: T3에서 IMP-003 bottom CTA zone 0.0728을 target 개선하고 SET/sibling 비악화 guard로 검증한다.
+
+[사이클 7 / T3 일관성·완성도 + ② 증거 오류 / 89d4f55fa3f5166d04fbcb0a56f2bbb722d9b5db]
+좌표: `f6af59d` clean에서 시작해 제품·검증 HEAD `89d4f55`, behind 0/ahead 14, final snapshot `AA9E75...DD053F`로 마쳤다.
+한 일: IMP-003 CTA를 Pixel-only inset 40으로 맞추고, capture-only readiness와 screenshot 이후 evidence freshness를 강제했다.
+증명: IMP overall `0.044157→0.034990`, CTA `0.072793→0.036341`; SET `0.014235`, REP `0.047382`; final built/installed `166A...7F6F`, 9/9 PASS.
+굳힘: 일반 fallback 56·generated 40 계약, stale timestamp 경계, stable capture source 계약을 추가해 흰 Surface+과거 sentinel 오판을 차단했다.
+누적: Release Gate 16/16; mobile 107 files/628 tests; API 25/145; Admin 4/9; current-source Pixel 9/9; 운영 완주율은 분모 부재로 미측정.
+예측 vs 결과: T3 목표는 크게 초과 개선했고 sibling은 그대로였으나, 후보 측정 중 예상 밖 stale-evidence ② 결함을 발견해 같은 사이클에서 닫았다.
+큐: 새 승인 항목 없음; GitHub billing·production·catalog 독립 검토·물리기기/iOS는 외부 큐에 유지한다.
+다음: T4에서 `pixel:tune` 절대 후보를 effective baseline 중심 후보로 바꿔 실패 후보 생성과 의미 혼동을 줄인다.

@@ -1,6 +1,6 @@
 # WooriAI Reality Diff
 
-기준 시각: 2026-07-30 07:49 KST
+기준 시각: 2026-07-30 09:21 KST
 진실원: 실행 결과 → Git HEAD → CI → 실사용 데이터 → 문서.
 
 ## 불일치
@@ -19,7 +19,10 @@
 | ⑤ 어긋난 것 | 모든 중요한 모바일 변경은 설치 앱 직접 증거가 있음 | 일반 `EXP-003` 수정 흐름 직접 캡처가 없었음 | standalone 설치 앱에서 생성 → 수정 → 기록·홈 합계 반영 증거 수집 | CLOSED |
 | ⑤ 어긋난 것 | 현재 저장소와 Android Pixel Lock 증거가 같은 source snapshot임 | Pixel 9/9는 `a0355e3` 계열 prior-source였음 | clean source `70921b8`, snapshot `91FA...E8D7`에서 APK 재빌드·built/installed 일치·9/9 재실행 | CLOSED |
 | ② 깨진 것 | 안전한 판매처 CTA는 Android 브라우저로 이동하고 복귀 후 구매 후속을 남김 | Chrome과 HTTPS manifest query가 있어도 `Linking.canOpenURL`을 수신자 없이 호출해 동기 TypeError 후 일반 실패 메시지만 표시 | `9c82096`에서 수신자 보존, `canOpenURL` 참고값화, Custom Tab 복구·LOCKED 실패 폐쇄와 Android 직접 증거 추가 | CLOSED |
-| ⑥ 아쉬운 것 | overall Pixel PASS면 화면 내부 영역도 충분히 근접함 | overall 최고 0.0474지만 IMP bottom CTA 0.0728, ITEM-002 bottom/footer 0.0726, REP bottom CTA 0.0684 | 다음 시각 후보에서 zone 비악화·개선 기준으로 사용 | OPEN / LOCAL |
+| ⑥ 아쉬운 것 | overall Pixel PASS면 IMP-003 CTA 영역도 충분히 근접함 | IMP bottom CTA `0.072793`, footer `0.060984` | Pixel-only inset 40으로 CTA `0.036341`, footer `0.033191`, overall `0.034990`; SET·REP 유지 | CLOSED |
+| ② 깨진 것 | `pixel:capture` 뒤 `pixel:diff`가 방금 캡처한 화면을 검증함 | 전환 중 흰 SET Surface와 과거 XML을 섞어 `PASS 0.0328`로 오판 가능 | readiness/stable capture 강제, screenshot보다 오래된 XML·logcat 거부, 실제 SET capture-only 재검증 | CLOSED |
+| ④ 헷갈리는 것 | `pixel:tune`의 inset 후보가 현재값 주변의 조정값으로 읽힘 | fallback 56인데 scaffold `-8..8`은 절대값이라 첫 두 후보가 footer 침범·overall FAIL | T4에서 effective baseline 중심 후보와 단위·절대/상대 의미를 코드로 명시 | OPEN / LOCAL |
+| ⑥ 아쉬운 것 | 남은 Pixel 내부 하단 영역도 참조와 충분히 근접함 | ITEM-002 footer `0.072596`, REP CTA `0.068396` | 다음 시각 트랙에서 개별 후보·sibling guard 적용 | OPEN / LOCAL |
 
 사용자 화면에 노출된 검증 불가능한 운영 수치 불일치는 0건으로 관측됐다. 단, 프로덕션 자체가 없어 “운영 화면 전수 확인”을 수행한 결과는 아니다.
 
@@ -30,12 +33,12 @@
 | ① 틀린 것 | 0 open | 현재 좌표·APK 문서 수정 완료 |
 | ② 깨진 것 | 1 | GitHub Actions 결제 차단 해소 후 동일 HEAD CI 재실행 |
 | ③ 막힌 것 | 4 | production identity/signing, 운영 core 인프라, catalog 독립 검토, 실제 계측 |
-| ④ 헷갈리는 것 | 0 open | 구매 링크 실패 원인 제거·사람말 실패 유지 |
+| ④ 헷갈리는 것 | 1 | `pixel:tune` 절대 후보를 effective baseline 중심으로 생성 |
 | ⑤ 어긋난 것 | 0 open | current repository exact-source Android Pixel 9/9 완료 |
-| ⑥ 아쉬운 것 | 2 | Pixel 하단 zone 편차; 물리 Android/TalkBack·iOS 상호작용 검증 부재 |
+| ⑥ 아쉬운 것 | 2 | ITEM-002/REP 하단 zone 편차; 물리 Android/TalkBack·iOS 상호작용 검증 부재 |
 
 최상단 3건:
 
 1. GitHub Actions billing/spending limit 차단을 사람이 복구한 뒤 current HEAD CI를 실행한다.
-2. T3에서 IMP-003 bottom CTA zone `0.0728`을 첫 시각 개선 후보로 삼되 sibling 비악화 기준을 적용한다.
+2. T4에서 `pixel:tune`이 현재 effective 값 주변의 안전한 후보를 만들고 절대값 의미를 명시하도록 구조를 개선한다.
 3. production identity/signing 및 운영 API·DB·Redis·storage 입력이 생기기 전까지 외부 릴리스 완료 주장을 차단한다.

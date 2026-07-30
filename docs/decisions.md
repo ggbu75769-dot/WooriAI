@@ -16,3 +16,6 @@
 - 2026-07-30 07:49 KST / React Native `Linking` 메서드는 래퍼로 호출해 원래 수신자를 보존한다 / 복사된 `canOpenURL`이 내부 `_validateURL`에서 TypeError를 내 Android 구매 CTA를 막음 / 바인딩 회귀와 설치 앱 Chrome 전환으로 굳힘.
 - 2026-07-30 07:49 KST / 안전한 HTTPS는 `canOpenURL`을 참고값으로만 쓰고 실제 open 결과를 최종 판정한다 / Android package visibility·브라우저 초기화가 false-negative를 낼 수 있음 / native open 실패 시 기존 WebBrowser로 복구하고 LOCKED는 성공으로 세지 않음.
 - 2026-07-30 07:49 KST / standalone 비제휴 판매처와 ITEM-002 affiliate fixture의 증거 역할을 분리한다 / 직접 후속 과업과 제휴 고지 시각 증거를 한 fixture가 동시에 제공하지 않음 / 런타임 후속과 고지 인접성의 검증 범위를 과장하지 않음.
+- 2026-07-30 09:21 KST / IMP-003 CTA inset 40은 generated Pixel override로만 승격하고 일반 import fallback 56은 유지한다 / 목표·footer가 함께 개선됐지만 일반 파일 가져오기 UI를 바꿀 근거는 없음 / source contract가 두 값을 동시에 고정.
+- 2026-07-30 09:21 KST / capture-only 경로도 full gate와 같은 readiness·settle·stable screencap·fresh evidence 순서를 사용한다 / 전환 중 흰 Surface는 시각 후보가 아니라 JS delivery/timing 실패 / blank capture를 점수 PASS로 승격하지 않음.
+- 2026-07-30 09:21 KST / 캐시 XML·logcat은 파일이 존재하는지만 보지 않고 검증할 screenshot 이후 생성됐을 때만 읽는다 / 과거 sentinel이 새 흰 캡처를 유효하게 만들 수 있었음 / timestamp 경계·정적 계약·실제 SET capture로 굳힘.

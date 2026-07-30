@@ -1,6 +1,6 @@
 # WooriAI State of Truth
 
-측정 시각: 2026-07-30 07:49 KST
+측정 시각: 2026-07-30 09:21 KST
 
 이 문서는 버전명이 아니라 실행 결과, Git 커밋, CI 실행 ID로 현재 좌표를 고정한다. 날짜가 붙은 과거 완료 보고서보다 이 문서가 우선한다.
 
@@ -25,9 +25,10 @@
 | --- | --- | --- |
 | 저장소 | `ggbu75769-dot/WooriAI` (private) | `gh repo view --json nameWithOwner,isPrivate` |
 | 브랜치 | `codex/wooriai-apk-feedback-ux-hardening-v1` | `git branch --show-current` |
-| 측정 대상 제품 소스 | `9c82096` | `git log -1 --format=%H -- apps/mobile` |
-| 측정 시 upstream 차이 | behind 0 / ahead 10 | `git rev-list --left-right --count '@{upstream}...9c82096'` |
-| 제품 소스 실변경 | Android 구매 CTA가 `Linking` 수신자를 보존하고 실제 URL 열기를 최종 판정으로 사용 | `git show --stat --oneline 9c82096` |
+| 측정 대상 제품·검증 소스 | `89d4f55` | `git rev-parse HEAD` |
+| 측정 시 upstream 차이 | behind 0 / ahead 14 | `git rev-list --left-right --count '@{upstream}...89d4f55'` |
+| 제품 소스 실변경 | `3793ae4`에서 IMP-003 Pixel CTA inset을 40으로 승격; 일반 import fallback 56 유지 | `git show --stat --oneline 3793ae4` |
+| Android 증거 굳힘 | `7a070c0`, `89d4f55`에서 capture readiness와 screenshot 이후 evidence freshness, 계약 회귀 추가 | `git show --stat --oneline 7a070c0 89d4f55` |
 | 현재 게이트 구현 | `37ad654` | `git log -1 --format=%H -- scripts/release-gate.ts` |
 | 이 보고서를 담은 커밋 | 동적 조회 | `git log -1 --format=%H -- docs/state-of-truth.md` |
 
@@ -57,28 +58,29 @@
 | API E2E | PASS | Release Gate 내부 `pnpm --filter api test:e2e` |
 | Admin browser E2E | PASS | Release Gate 내부 `pnpm test:admin-browser` |
 | production build | PASS | Release Gate 내부 `pnpm build --force` |
-| 모바일 회귀 | PASS | mobile Vitest 107 files / 626 tests, mobile typecheck, 전체 lint |
+| 모바일 회귀 | PASS | mobile Vitest 107 files / 628 tests, mobile typecheck, 전체 lint |
 | Release Gate 동시 실행 | PASS | 두 번째 full/dry-run subprocess가 exit 2 + `RELEASE_GATE_ALREADY_RUNNING`; test-utils 3 files / 28 tests |
 | Release Gate lock 정리 | PASS | 최종 16/16 정상 종료 뒤 `.toolcache/release-gate.lock` 없음 |
 | 일반 Android 과업 | PASS | 준비 상태 `알아보기` → 판매처 Chrome 열기 → 홈 구매 후속 → 아기 체온계 15,000원 지출 → 합계·동기화 반영 |
 | Android standalone 동일성 | PASS | built SHA-256 = installed `base.apk` SHA-256 = `089732...1A5D4` |
 | Android 구매 후속 | PASS | final-source APK에서 Chrome `ChromeTabbedActivity`, 홈 후속 카드, 15,000원 기존 기록 유지, `구매 안 했어요` 후 카드 제거 |
-| Android Pixel Lock | PASS / CURRENT SOURCE SNAPSHOT | snapshot `721590...DBFA1`, adb screencap 9/9, 최고 REP-001 `0.0474`; 전 화면 `<= 0.0480` |
+| Android Pixel Lock | PASS / CURRENT SOURCE SNAPSHOT | snapshot `AA9E75...DD053F`, adb screencap 9/9, 최고 REP-001 `0.0474`; IMP-003 `0.0442→0.0350` |
+| Pixel capture freshness | PASS | stale XML/logcat timestamp 거부 5-test 경계, 실제 capture-only SET-001 `0.0142`, 최종 강화 gate 9/9 |
 
 Android 증거:
 
-- current standalone APK: `F:/WooriAI/wooriai-0.0.0-release-standalone.apk`
-- current APK / installed base SHA-256: `089732BAD02BF9D872466206A177619F786CF77C1C0DEA8BEFAB01465431A5D4`
-- current source snapshot SHA-256: `721590F9398B07C5E3C9E8D451E360B0051DA852DE5CF15DBD2BCB15E20DBFA1`
-- current embedded bundle SHA-256: `2A9F99371790CBC3B3B11E6B6D7875DD5197BB51930052B40B007EC81121687C`
-- current report: `artifacts/android/wooriai-0.0.0-release-standalone.json`
+- Cycle 6 standalone APK: `F:/WooriAI/wooriai-0.0.0-release-standalone.apk`
+- Cycle 6 APK / installed base SHA-256: `089732BAD02BF9D872466206A177619F786CF77C1C0DEA8BEFAB01465431A5D4`
+- Cycle 6 standalone source snapshot SHA-256: `721590F9398B07C5E3C9E8D451E360B0051DA852DE5CF15DBD2BCB15E20DBFA1`
+- Cycle 6 embedded bundle SHA-256: `2A9F99371790CBC3B3B11E6B6D7875DD5197BB51930052B40B007EC81121687C`
+- Cycle 6 standalone report: `artifacts/android/wooriai-0.0.0-release-standalone.json`
 - walkthrough: `docs/walkthrough/2026-07-30.md`
-- current Pixel APK: `F:/WooriAI/wooriai-pixel-df4ff4a31ed61be13f1c05392e80ed68d0ecf56959025563dd100c10894d33ed.apk`
-- current Pixel APK / installed base SHA-256: `DF4FF4A31ED61BE13F1C05392E80ED68D0ECF56959025563DD100C10894D33ED`
-- current Pixel source snapshot SHA-256: `721590F9398B07C5E3C9E8D451E360B0051DA852DE5CF15DBD2BCB15E20DBFA1`
+- current Pixel APK: `F:/WooriAI/wooriai-pixel-166a104dd58885c610c5468405f3804611b60019e2184dfa28aa6ba7d5907f6f.apk`
+- current Pixel APK / installed base SHA-256: `166A104DD58885C610C5468405F3804611B60019E2184DFA28AA6BA7D5907F6F`
+- current Pixel source snapshot SHA-256: `AA9E75645E19F9459B08AFA5ADB8A07D7DF4D93DBE9F3D6AE7397B052CDD053F`
 - current Pixel report: `artifacts/pixel-lock/android/reports/latest.md`
 
-standalone과 Pixel APK는 제품 커밋 `9c82096`과 동일한 모바일·네이티브 source snapshot `721590...DBFA1`을 포함한다. Pixel 보고서의 `sourceCommit`은 빌드 당시 pre-commit HEAD를 기록하지만 snapshot 전후 검증은 `VERIFIED_STABLE`이고, 해당 제품 파일은 이후 `9c82096`으로 변경 없이 커밋됐다.
+standalone은 구매 과업 제품 커밋 `9c82096`의 exact-source 증거이고 이후 변경은 Pixel fixture·검증 도구·테스트뿐이라 일반 구매 동작을 바꾸지 않았다. 그러나 artifact provenance상 standalone을 현재 HEAD exact-source로 부르지는 않는다. Pixel APK는 sourceCommit `89d4f55`, snapshot `AA9E75...DD053F`, snapshot 전후 `VERIFIED_STABLE`로 현재 제품·검증 소스와 직접 결합된다.
 
 ## CI 현재 상태
 
