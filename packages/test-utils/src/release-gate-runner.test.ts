@@ -182,6 +182,16 @@ describe("release gate package-manager runner", () => {
     expect(lockfile).not.toContain("postcss@8.5.11:");
   });
 
+  it("resolves Expo archive handling above the patched node-tar security floor", () => {
+    const workspace = readFileSync(resolve(__dirname, "../../../pnpm-workspace.yaml"), "utf8");
+    const lockfile = readFileSync(resolve(__dirname, "../../../pnpm-lock.yaml"), "utf8");
+
+    expect(workspace).toContain("tar: 7.5.21");
+    expect(lockfile).toContain("tar@7.5.21:");
+    expect(lockfile).not.toContain("tar@7.5.19:");
+    expect(lockfile).not.toContain("tar@7.5.20:");
+  });
+
   it("keeps the Admin runtime above the patched Next.js security floor", () => {
     const rootPackage = JSON.parse(
       readFileSync(resolve(__dirname, "../../../package.json"), "utf8")
