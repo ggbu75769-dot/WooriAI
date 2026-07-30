@@ -1,6 +1,6 @@
 # WooriAI Reality Diff
 
-기준 시각: 2026-07-30 10:05 KST
+기준 시각: 2026-07-30 10:29 KST
 진실원: 실행 결과 → Git HEAD → CI → 실사용 데이터 → 문서.
 
 ## 불일치
@@ -22,8 +22,9 @@
 | ⑥ 아쉬운 것 | overall Pixel PASS면 IMP-003 CTA 영역도 충분히 근접함 | IMP bottom CTA `0.072793`, footer `0.060984` | Pixel-only inset 40으로 CTA `0.036341`, footer `0.033191`, overall `0.034990`; SET·REP 유지 | CLOSED |
 | ② 깨진 것 | `pixel:capture` 뒤 `pixel:diff`가 방금 캡처한 화면을 검증함 | 전환 중 흰 SET Surface와 과거 XML을 섞어 `PASS 0.0328`로 오판 가능 | readiness/stable capture 강제, screenshot보다 오래된 XML·logcat 거부, 실제 SET capture-only 재검증 | CLOSED |
 | ④ 헷갈리는 것 | `pixel:tune`의 inset 후보가 현재값 주변의 조정값으로 읽힘 | fallback 56인데 scaffold `-8..8`은 절대값이라 첫 두 후보가 footer 침범·overall FAIL | `52afb97`에서 style/generated effective baseline, absolute 의미, 단위, target+siblings+SET guard를 생성 | CLOSED |
-| ② 깨진 것 | production dependency audit PASS가 취약점 0건으로 읽힐 수 있음 | high threshold는 통과하지만 Expo CLI 경로의 `tar 7.5.19`에 moderate `GHSA-r292-9mhp-454m` 1건 존재; patched `>=7.5.21` | T1에서 override·lockfile을 7.5.21 이상으로 올리고 전체 게이트 재검증 | OPEN / LOCAL |
+| ② 깨진 것 | production dependency audit PASS가 취약점 0건으로 읽힐 수 있음 | high threshold는 통과했지만 Expo CLI 경로의 `tar 7.5.19`에 moderate `GHSA-r292-9mhp-454m` 1건 존재했음 | `8db7615`에서 `7.5.21` 고정, lockfile floor 회귀, audit 0건·Expo·전체 gate·Android 재검증 | CLOSED |
 | ⑥ 아쉬운 것 | 남은 Pixel 내부 하단 영역도 참조와 충분히 근접함 | ITEM-002 footer `0.072596`, REP CTA `0.068396` | 다음 시각 트랙에서 개별 후보·sibling guard 적용 | OPEN / LOCAL |
+| ⑤ 어긋난 것 | 모든 핵심 사용자 과업이 일반 설치 앱에서 직접 증명됨 | Excel preview-before-save는 Pixel fixture·자동 회귀만 있고 선택→미리보기→승인 저장→기록 반영 직접 증거가 없음 | 다음 T2에서 current-source standalone으로 처음부터 끝까지 수행하고 마찰을 백로그화 | OPEN / LOCAL |
 
 사용자 화면에 노출된 검증 불가능한 운영 수치 불일치는 0건으로 관측됐다. 단, 프로덕션 자체가 없어 “운영 화면 전수 확인”을 수행한 결과는 아니다.
 
@@ -32,14 +33,14 @@
 | 등급 | 건수 | 최상단 |
 | --- | ---: | --- |
 | ① 틀린 것 | 0 open | 현재 좌표·APK 문서 수정 완료 |
-| ② 깨진 것 | 2 | 로컬 `tar` moderate 취약점 제거; GitHub Actions 결제 차단 해소 후 동일 HEAD CI 재실행 |
+| ② 깨진 것 | 1 | GitHub Actions 결제 차단 해소 후 동일 HEAD CI 재실행 |
 | ③ 막힌 것 | 4 | production identity/signing, 운영 core 인프라, catalog 독립 검토, 실제 계측 |
 | ④ 헷갈리는 것 | 0 open | source-aware absolute 후보와 guard 생성 완료 |
-| ⑤ 어긋난 것 | 0 open | current repository exact-source Android Pixel 9/9 완료 |
+| ⑤ 어긋난 것 | 1 | Excel preview-before-save 일반 설치 앱 직접 완주 증거 확보 |
 | ⑥ 아쉬운 것 | 2 | ITEM-002/REP 하단 zone 편차; 물리 Android/TalkBack·iOS 상호작용 검증 부재 |
 
 최상단 3건:
 
-1. T1에서 `tar 7.5.19` moderate advisory를 patched release로 올리고 audit·Expo compatibility·전체 게이트를 재검증한다.
-2. GitHub Actions billing/spending limit 차단을 사람이 복구한 뒤 current HEAD CI를 실행한다.
-3. production identity/signing 및 운영 API·DB·Redis·storage 입력이 생기기 전까지 외부 릴리스 완료 주장을 차단한다.
+1. GitHub Actions billing/spending limit 차단을 사람이 복구한 뒤 current HEAD CI를 실행한다.
+2. production identity/signing 및 운영 API·DB·Redis·storage 입력이 생기기 전까지 외부 릴리스 완료 주장을 차단한다.
+3. 다음 T2 직접 사용에서 Excel preview-before-save → 승인 저장 → 기록 반영 과업의 일반 설치 앱 증거와 마찰을 수집한다.

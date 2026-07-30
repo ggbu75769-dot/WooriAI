@@ -79,3 +79,13 @@
 예측 vs 결과: 지난 T4 예측대로 absolute/baseline 혼동을 제거했고 모든 화면에서 source-aware scaffold가 생성됐다; 추가로 moderate dependency advisory 1건을 실측했다.
 큐: 새 승인 항목 없음; GitHub billing·production·catalog 독립 검토·물리기기/iOS 외부 큐와 무관하게 로컬 T4를 완료했다.
 다음: T1에서 `tar 7.5.19` moderate advisory를 patched release로 올리고 audit·Expo·전체 gate·source-bound Android를 재검증한다.
+
+[사이클 9 / T1 정확성·안정 / 8db76150e6b8dd357e8f7f0ead58b0d66a42b422]
+좌표: `24c38ef` clean에서 시작해 Expo CLI 경로 `tar 7.5.19` moderate advisory 1건과 patched floor `>=7.5.21`을 실측했다.
+한 일: workspace override와 lockfile을 `tar 7.5.21` 단일 해석으로 올리고 구버전 재등장 차단 회귀를 추가했다.
+증명: `pnpm audit --prod` 1→0건, Expo compatibility PASS, Release Gate 16/16, mobile 108/630, API 25/145, Admin 4/9, production build PASS.
+굳힘: workspace·lockfile이 7.5.21을 포함하고 7.5.19/20을 배제하는 security floor 회귀로 다음 lockfile drift를 차단했다.
+누적: Release Gate 16개; test-utils 3 files/29 tests; audit advisory 0; current-source Pixel 9/9; UX 사다리 L4 유지; 운영 완주율은 미측정.
+예측 vs 결과: 지난 사이클에서 발견한 moderate 1건은 좁은 override 변경으로 0건이 됐고 Expo·기능·Android 회귀는 없었다.
+큐: 새 승인 항목 없음; GitHub billing·production·catalog 독립 검토·물리기기/iOS 외부 큐와 무관하게 로컬 보안 결함을 닫았다.
+다음: T2 직접 사용으로 Excel preview-before-save→승인 저장→기록 반영을 current-source 설치 앱에서 완주하고 마찰을 찾는다.

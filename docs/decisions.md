@@ -22,3 +22,6 @@
 - 2026-07-30 10:05 KST / `pixel:tune` 후보는 style fallback과 generated override를 합친 effective baseline에서 만든다 / 고정 key·절대 `-8..8`은 실제 UI 계약과 분리돼 위험한 후보를 만들었음 / 후보 의미·단위·baseline 출처를 기계 판독 가능하게 고정.
 - 2026-07-30 10:05 KST / fallback 0이 component 기본 높이를 뜻하는 height key는 effective baseline이 선언될 때까지 자동 후보에서 제외한다 / 2~8dp 같은 후보는 유효한 미세 조정이 아님 / 허구 최적화보다 명시적 제외를 선택.
 - 2026-07-30 10:05 KST / high audit PASS와 취약점 0건을 구분한다 / 현재 `tar 7.5.19` moderate advisory 1건이 실측됨 / 다음 T1의 로컬 최상단으로 승격.
+- 2026-07-30 10:29 KST / Expo SDK 자체를 넓게 올리지 않고 workspace `tar` override만 patched `7.5.21`로 이동한다 / advisory fix는 Node 18+ 호환이고 현재 Expo SDK 계약은 이미 green / dependency surface와 revert 범위를 최소화.
+- 2026-07-30 10:29 KST / patched floor를 lockfile 문자열 회귀로 고정한다 / audit feed 재측정만으로는 다음 lockfile 변경이 구버전을 다시 들이는 것을 즉시 설명하기 어려움 / 7.5.19·7.5.20 재등장을 CI에서 차단.
+- 2026-07-30 10:29 KST / audit 0건은 현재 lockfile 시점 증거로만 기록한다 / advisory 데이터와 dependency graph는 변할 수 있음 / 이후 dependency 변경마다 live audit를 다시 실행.
