@@ -123,9 +123,9 @@ describe("Android native UI quality contract", () => {
   it("reuses the matching per-screen render evidence when an Android capture is cached", () => {
     const pixelGateSource = source("../../scripts/pixel-lock/android-pixel-lock.ts");
     expect(pixelGateSource).toContain("validateRender(targetId, screenshotPath, !canSkipCapture)");
-    expect(pixelGateSource).toContain('existsSync(xmlPath)');
-    expect(pixelGateSource).toContain('readFileSync(xmlPath, "utf8")');
-    expect(pixelGateSource).toContain('readFileSync(logcatPath, "utf8")');
+    expect(pixelGateSource).toContain("isEvidenceCurrentForScreenshot");
+    expect(pixelGateSource).toContain("readCurrentEvidence(xmlPath)");
+    expect(pixelGateSource).toContain("readCurrentEvidence(logcatPath)");
     expect(pixelGateSource).toContain("else delete cache[targetId]");
   });
 
