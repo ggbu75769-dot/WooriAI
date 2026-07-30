@@ -19,3 +19,6 @@
 - 2026-07-30 09:21 KST / IMP-003 CTA inset 40은 generated Pixel override로만 승격하고 일반 import fallback 56은 유지한다 / 목표·footer가 함께 개선됐지만 일반 파일 가져오기 UI를 바꿀 근거는 없음 / source contract가 두 값을 동시에 고정.
 - 2026-07-30 09:21 KST / capture-only 경로도 full gate와 같은 readiness·settle·stable screencap·fresh evidence 순서를 사용한다 / 전환 중 흰 Surface는 시각 후보가 아니라 JS delivery/timing 실패 / blank capture를 점수 PASS로 승격하지 않음.
 - 2026-07-30 09:21 KST / 캐시 XML·logcat은 파일이 존재하는지만 보지 않고 검증할 screenshot 이후 생성됐을 때만 읽는다 / 과거 sentinel이 새 흰 캡처를 유효하게 만들 수 있었음 / timestamp 경계·정적 계약·실제 SET capture로 굳힘.
+- 2026-07-30 10:05 KST / `pixel:tune` 후보는 style fallback과 generated override를 합친 effective baseline에서 만든다 / 고정 key·절대 `-8..8`은 실제 UI 계약과 분리돼 위험한 후보를 만들었음 / 후보 의미·단위·baseline 출처를 기계 판독 가능하게 고정.
+- 2026-07-30 10:05 KST / fallback 0이 component 기본 높이를 뜻하는 height key는 effective baseline이 선언될 때까지 자동 후보에서 제외한다 / 2~8dp 같은 후보는 유효한 미세 조정이 아님 / 허구 최적화보다 명시적 제외를 선택.
+- 2026-07-30 10:05 KST / high audit PASS와 취약점 0건을 구분한다 / 현재 `tar 7.5.19` moderate advisory 1건이 실측됨 / 다음 T1의 로컬 최상단으로 승격.

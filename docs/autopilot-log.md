@@ -69,3 +69,13 @@
 예측 vs 결과: T3 목표는 크게 초과 개선했고 sibling은 그대로였으나, 후보 측정 중 예상 밖 stale-evidence ② 결함을 발견해 같은 사이클에서 닫았다.
 큐: 새 승인 항목 없음; GitHub billing·production·catalog 독립 검토·물리기기/iOS는 외부 큐에 유지한다.
 다음: T4에서 `pixel:tune` 절대 후보를 effective baseline 중심 후보로 바꿔 실패 후보 생성과 의미 혼동을 줄인다.
+
+[사이클 8 / T4 구조·성능 / 52afb97950db77410629495aa522cef0235b6635]
+좌표: `2279845` clean에서 시작해 구현 HEAD `52afb97`, behind 0/ahead 16, 로컬 analytics 0건과 이전 SHA CI 시작 실패를 재확인했다.
+한 일: `pixel:tune`이 실제 style key·fallback·generated override를 읽어 baseline 주변 absolute 후보, 단위, 출처, target+sibling+SET 검사를 생성하게 했다.
+증명: 9개 scaffold 생성 PASS; final Release Gate 16/16, mobile 108/630, API 25/145, Admin 4/9; built/installed `99D0...558F`, adb Pixel 9/9 PASS.
+굳힘: IMP-003 baseline 40·32..48 후보, 허구 card key 제거, ratio delta, zero-height sentinel 제외를 실제 소스 기반 회귀 2건으로 고정했다.
+누적: Release Gate 16개; mobile 회귀 630개; current-source Pixel 9/9; 자동 tune 대상 9화면; UX 사다리 L4 유지; 운영 완주율은 분모 부재로 미측정.
+예측 vs 결과: 지난 T4 예측대로 absolute/baseline 혼동을 제거했고 모든 화면에서 source-aware scaffold가 생성됐다; 추가로 moderate dependency advisory 1건을 실측했다.
+큐: 새 승인 항목 없음; GitHub billing·production·catalog 독립 검토·물리기기/iOS 외부 큐와 무관하게 로컬 T4를 완료했다.
+다음: T1에서 `tar 7.5.19` moderate advisory를 patched release로 올리고 audit·Expo·전체 gate·source-bound Android를 재검증한다.
