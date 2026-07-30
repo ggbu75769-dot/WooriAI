@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { computeRelease5vSourceSnapshot } from "../lib/release5v-source-snapshot";
 import { isEvidenceCurrentForScreenshot, isLikelyBlankOrShell } from "./render-validation";
+import { buildTuneScaffold, type PixelOverrideMap } from "./tune-scaffold";
 
 type ScreenConfig = {
   name: string;
@@ -66,6 +67,8 @@ const latestJsonPath = join(reportDir, "latest.json");
 const latestMdPath = join(reportDir, "latest.md");
 const cachePath = join(reportDir, "cache.json");
 const pixelApkReportPath = join(reportDir, "pixel-apk.json");
+const pixelStyleDir = join(repoRoot, "apps", "mobile", "src", "pixelLock", "styles");
+const generatedOverridesPath = join(repoRoot, "apps", "mobile", "src", "pixelLock", "generated-overrides.json");
 const normalizationBackground = "#FFF7ED";
 const cropPolicy = process.env.PIXEL_ANDROID_CROP
   ? `shared-device-crop:${process.env.PIXEL_ANDROID_CROP}`
@@ -931,18 +934,11 @@ function writeTuneScaffold(screenId: string) {
   const screens = readScreens();
   const screen = screens[screenId];
   if (!screen) throw new Error(`UNKNOWN_SCREEN ${screenId}`);
-  const candidates = [
-    { key: "topOffset", values: [-8, -6, -4, -2, 2, 4, 6, 8] },
-    { key: "cardGap", values: [-8, -6, -4, -2, 2, 4, 6, 8] },
-    { key: "cardHeight", values: [-12, -8, -4, 4, 8, 12] },
-    { key: "ctaBottomInset", values: [-8, -6, -4, -2, 2, 4, 6, 8] }
-  ];
-  const output = {
-    screenId,
-    name: screen.name,
-    strategy: "Apply one candidate through debug-only pixel style override, reload Metro/dev client, run target + SET guard.",
-    candidates
-  };
+  const styleSources = readdirSync(pixelStyleDir)
+    .filter((name) => name.endsWith("PixelStyles.ts"))
+    .map((name) => readFileSync(join(pixelStyleDir, name), "utf8"));
+  const generatedOverrides = JSON.parse(readFileSync(generatedOverridesPath, "utf8")) as PixelOverrideMap;
+  const output = buildTuneScaffold(screenId, screen, styleSources, generatedOverrides);
   const outputPath = join(reportDir, `tune-${screenId}.json`);
   writeFileSync(outputPath, JSON.stringify(output, null, 2), "utf8");
   console.log(`Wrote ${outputPath}`);
