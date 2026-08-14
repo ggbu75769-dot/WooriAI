@@ -2,6 +2,7 @@ import { useState } from "react";
 import { router } from "expo-router";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { LOCAL_SESSION_TOKEN, oauthLogin, upsertConsents } from "../../src/api/client";
+import { isKakaoLoginAvailable, KakaoLoginCancelledError, loginWithKakao } from "../../src/auth/kakao-login";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -51,7 +52,11 @@ export default function LoginScreen() {
     setLoginError(null);
     setIsLoginPending(true);
     try {
-      const result = await oauthLogin("kakao");
+      // AUTH-102: real Kakao OIDC flow (prepare -> browser -> exchange) when the
+      // EXPO_PUBLIC_KAKAO_* env keys are configured; otherwise the existing dev stub,
+      // byte-for-byte unchanged. Both resolve the same { user, tokens, onboardingRequired }
+      // shape, so the success handling below is shared.
+      const result = isKakaoLoginAvailable() ? await loginWithKakao() : await oauthLogin("kakao");
       setSession({
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
@@ -60,7 +65,9 @@ export default function LoginScreen() {
       });
       await upsertConsents(result.tokens.accessToken);
       router.replace("/onboarding/child-status");
-    } catch {
+    } catch (error) {
+      // Pressing 취소 on Kakao's consent screen is a normal outcome, not an error state.
+      if (error instanceof KakaoLoginCancelledError) return;
       setLoginError("서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요.");
     } finally {
       setIsLoginPending(false);
