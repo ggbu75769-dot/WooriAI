@@ -9,8 +9,8 @@ const source = (relativePath: string) => readFileSync(join(mobileRoot, relativeP
 describe("AUTH-102 login screen wiring (source verification -- follows the existing\n  ui-wiring.test.ts source-grep convention; the screen isn't runtime-rendered here because\n  react-native has no native binding under vitest)", () => {
   it("branches on isKakaoLoginAvailable(): real flow when configured, the dev stub otherwise", () => {
     const loginSource = source("app/(auth)/login.tsx");
-    expect(loginSource).toContain(
-      'import { isKakaoLoginAvailable, KakaoLoginCancelledError, loginWithKakao } from "../../src/auth/kakao-login";'
+    expect(loginSource).toMatch(
+      /import \{\s*isKakaoLoginAvailable,\s*KakaoLoginCancelledError,\s*KakaoLoginError,\s*loginWithKakao\s*\} from "\.\.\/\.\.\/src\/auth\/kakao-login";/
     );
     expect(loginSource).toContain(
       "const result = isKakaoLoginAvailable() ? await loginWithKakao() : await oauthLogin(\"kakao\")"
@@ -39,6 +39,39 @@ describe("AUTH-102 login screen wiring (source verification -- follows the exist
   it("treats the user cancelling Kakao consent as a non-error (no server-unreachable message)", () => {
     const loginSource = source("app/(auth)/login.tsx");
     expect(loginSource).toContain("if (error instanceof KakaoLoginCancelledError) return;");
+  });
+
+  it("surfaces each typed Kakao error's own Korean message instead of the dev-stub connection copy", () => {
+    const loginSource = source("app/(auth)/login.tsx");
+    // A timeout / browser failure / state mismatch / provider error must show the message the
+    // error itself carries (every KakaoLoginError is constructed with user-facing Korean copy
+    // in src/auth/kakao-login.ts)...
+    expect(loginSource).toContain("if (error instanceof KakaoLoginError) {");
+    expect(loginSource).toContain("setLoginError(error.message);");
+    // ...checked AFTER the cancel special-case (KakaoLoginCancelledError extends
+    // KakaoLoginError, so the order is load-bearing).
+    expect(loginSource.indexOf("error instanceof KakaoLoginCancelledError")).toBeLessThan(
+      loginSource.indexOf("error instanceof KakaoLoginError) {")
+    );
+    // Untyped fallback copy: the "PC와 같은 Wi-Fi" hint is reserved for the dev-stub path;
+    // the real-Kakao path gets production-appropriate copy.
+    expect(loginSource).toMatch(
+      /isKakaoLoginAvailable\(\)\s*\?\s*"로그인 중 문제가 발생했어요\. 네트워크 연결을 확인한 뒤 다시 시도해 주세요\."\s*:\s*"서버에 연결할 수 없어요\. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요\."/
+    );
+  });
+
+  it("typed Kakao errors really do carry user-facing Korean messages for every non-cancel code (premise of the error-copy contract above)", () => {
+    const kakaoSource = source("src/auth/kakao-login.ts");
+    for (const message of [
+      "카카오 로그인이 설정되지 않았어요.",
+      "카카오 로그인 응답이 없어요. 다시 시도해주세요.",
+      "브라우저를 열 수 없어요.",
+      "인증 절차를 다시 시작해주세요.",
+      "카카오 인증 응답을 읽을 수 없어요.",
+      "카카오 인증에 실패했어요."
+    ]) {
+      expect(kakaoSource).toContain(message);
+    }
   });
 
   it("kakao-login.ts documents the exact env vars the flag reads, as literal (babel-inlinable) member expressions", () => {
@@ -104,13 +137,30 @@ describe("ANA-104 optional analytics consent on the login consent card (same sou
     );
   });
 
-  it("flag store behaves as the screen relies on it: default OFF, setEnabled(checkbox) turns analytics on/off", () => {
-    // Default (never-touched) state is OFF -- an unchecked box committing `false` is a no-op.
+  it("initializes the checkbox from the store's CURRENT consent (re-login preserves a previously granted 통계 수집 동의)", () => {
+    const loginSource = source("app/(auth)/login.tsx");
+    // The local checkbox state starts from the shared store, NOT a hardcoded `false`: a user
+    // who enabled consent in settings and re-logs-in would otherwise have it silently revoked
+    // by the unconditional single commit in continueWithLogin.
+    expect(loginSource).toMatch(
+      /const \[analyticsAccepted, setAnalyticsAccepted\] = useState\(\s*\(\) => useAnalyticsConsentStore\.getState\(\)\.enabled\s*\);/
+    );
+    expect(loginSource).not.toContain("setAnalyticsAccepted] = useState(false)");
+  });
+
+  it("flag store behaves as the screen relies on it: store-initialized default (OFF until ever consented), setEnabled(checkbox) turns analytics on/off", () => {
+    // Never-consented default is OFF, so the checkbox initializer above starts unchecked on a
+    // fresh device -- an unchecked box committing `false` is a no-op.
+    expect(useAnalyticsConsentStore.getState().enabled).toBe(false);
     expect(isAnalyticsEnabled()).toBe(false);
     const setEnabled = useAnalyticsConsentStore.getState().setEnabled;
     // Checked box committed at login -> analytics enabled.
     setEnabled(true);
     expect(isAnalyticsEnabled()).toBe(true);
+    // ...and that stored consent is exactly what the checkbox initializer reads on the next
+    // visit to the login screen, so re-login starts checked and re-commits `true` -- the prior
+    // choice survives unless the user actively unchecks.
+    expect(useAnalyticsConsentStore.getState().enabled).toBe(true);
     // Settings toggle (same store) can revoke afterwards.
     setEnabled(false);
     expect(isAnalyticsEnabled()).toBe(false);

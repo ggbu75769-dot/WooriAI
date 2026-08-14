@@ -1,4 +1,5 @@
 import {
+  PURCHASE_FOLLOWUP_MAX_AGE_MS,
   PURCHASE_FOLLOWUP_MIN_AGE_MS,
   type PurchaseFollowupEntry
 } from "../commerce/purchase-followup.store";
@@ -95,16 +96,22 @@ export function itemTemplateIdFromPurchaseDedupeKey(dedupeKey: string): string |
 }
 
 /**
- * purchase_pending: one candidate per still-pending purchase-followup click that is at least
- * 3 minutes old (PURCHASE_FOLLOWUP_MIN_AGE_MS -- younger clicks are probably still
- * mid-purchase, same threshold as the COM-108 prompt). Read-only over the followup entries.
+ * purchase_pending: one candidate per still-pending purchase-followup click inside the same
+ * 3min-24h window the COM-108 prompt uses (isPromptEligible in purchase-followup.store.ts):
+ * younger than PURCHASE_FOLLOWUP_MIN_AGE_MS the user is probably still mid-purchase, older
+ * than PURCHASE_FOLLOWUP_MAX_AGE_MS the click is stale -- the prompt stays silent then and
+ * this notification must too. Read-only over the followup entries.
  */
 export function purchasePendingNotifications(
   entries: PurchaseFollowupEntry[],
   now: number
 ): AppNotificationCandidate[] {
   return entries
-    .filter((entry) => entry.status === "pending" && now - entry.clickedAt >= PURCHASE_FOLLOWUP_MIN_AGE_MS)
+    .filter((entry) => {
+      if (entry.status !== "pending") return false;
+      const age = now - entry.clickedAt;
+      return age >= PURCHASE_FOLLOWUP_MIN_AGE_MS && age <= PURCHASE_FOLLOWUP_MAX_AGE_MS;
+    })
     .map((entry) => ({
       type: "purchase_pending" as const,
       title: `『${entry.itemName}』 구매 확인이 기다리고 있어요.`,

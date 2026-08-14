@@ -3,7 +3,12 @@ import { router } from "expo-router";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
 import { LOCAL_SESSION_TOKEN, oauthLogin, upsertConsents } from "../../src/api/client";
-import { isKakaoLoginAvailable, KakaoLoginCancelledError, loginWithKakao } from "../../src/auth/kakao-login";
+import {
+  isKakaoLoginAvailable,
+  KakaoLoginCancelledError,
+  KakaoLoginError,
+  loginWithKakao
+} from "../../src/auth/kakao-login";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -52,8 +57,14 @@ export default function LoginScreen() {
   // ANA-104: local checkbox state only -- the shared analytics consent store is
   // NOT flipped while merely toggling; it is committed once, right before login
   // proceeds (see continueWithLogin), so abandoning the login screen leaves the
-  // stored choice (default OFF) untouched.
-  const [analyticsAccepted, setAnalyticsAccepted] = useState(false);
+  // stored choice untouched. The checkbox INITIALIZES from the store's current
+  // value (never-consented default is OFF): a user who enabled 통계 수집 in
+  // settings and later re-logs-in keeps their prior consent unless they actively
+  // uncheck it here -- a hardcoded `false` initial would silently revoke it at
+  // the single commit below.
+  const [analyticsAccepted, setAnalyticsAccepted] = useState(
+    () => useAnalyticsConsentStore.getState().enabled
+  );
   const [isLoginPending, setIsLoginPending] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);
@@ -83,7 +94,21 @@ export default function LoginScreen() {
     } catch (error) {
       // Pressing 취소 on Kakao's consent screen is a normal outcome, not an error state.
       if (error instanceof KakaoLoginCancelledError) return;
-      setLoginError("서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요.");
+      // Typed Kakao failures (timeout, browser open failure, state mismatch, provider error,
+      // misconfiguration -- see src/auth/kakao-login.ts) each carry their own user-facing
+      // Korean message; surface it instead of the misleading dev-stub connection copy.
+      if (error instanceof KakaoLoginError) {
+        setLoginError(error.message);
+        return;
+      }
+      // Untyped errors: on the real Kakao path these are network/API failures against the
+      // production server, so show production-appropriate copy; the "PC와 같은 Wi-Fi" hint
+      // stays reserved for the dev-stub path, where the API server really is a local process.
+      setLoginError(
+        isKakaoLoginAvailable()
+          ? "로그인 중 문제가 발생했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요."
+          : "서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요."
+      );
     } finally {
       setIsLoginPending(false);
     }

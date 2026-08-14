@@ -238,6 +238,10 @@ export function flushOutbox(store: OfflineStore, remote: RemoteExpenseApi): Prom
  *   - flush requested while a wipe is in-flight → the flush awaits the wipe (see flushOutbox
  *     above) and starts from the clean, empty store.
  *   - two concurrent wipe requests coalesce into one.
+ * The `inFlightWipes` registration is SYNCHRONOUS — the map entry exists before this function
+ * returns. session-teardown.ts relies on that: it starts the wipe before its own first `await`,
+ * so a flush requested at any point during teardown is guaranteed to see the wipe and park
+ * behind it (never read the outgoing account's outbox under the incoming account's token).
  * Residual risk (documented, accepted): direct store writers that are neither a flush nor a wipe
  * (the recordLocal... / resolveConflict... helpers fired from a screen the outgoing user still
  * had open) are not serialized through these maps — a write that lands in the moments after

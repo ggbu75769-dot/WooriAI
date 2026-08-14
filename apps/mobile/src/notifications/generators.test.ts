@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  PURCHASE_FOLLOWUP_MAX_AGE_MS,
   PURCHASE_FOLLOWUP_MIN_AGE_MS,
   type PurchaseFollowupEntry
 } from "../commerce/purchase-followup.store";
@@ -123,6 +124,19 @@ describe("NOTI-102 purchase_pending generator", () => {
   it("skips clicks younger than 3 minutes (probably still mid-purchase)", () => {
     const fresh = followupEntry({ clickedAt: NOW - PURCHASE_FOLLOWUP_MIN_AGE_MS + 1 });
     expect(purchasePendingNotifications([fresh], NOW)).toEqual([]);
+  });
+
+  it("skips stale clicks older than 24 hours (same silence as the COM-108 prompt)", () => {
+    // Regression: the generator used to enforce only the 3-minute minimum, so a days-old
+    // pending click still produced a '구매 확인이 기다리고 있어요' notification while
+    // isPromptEligible correctly kept the prompt silent past PURCHASE_FOLLOWUP_MAX_AGE_MS.
+    const twentyFiveHoursOld = followupEntry({ clickedAt: NOW - 25 * 60 * 60 * 1000 });
+    expect(purchasePendingNotifications([twentyFiveHoursOld], NOW)).toEqual([]);
+    const justPastMaxAge = followupEntry({ clickedAt: NOW - PURCHASE_FOLLOWUP_MAX_AGE_MS - 1 });
+    expect(purchasePendingNotifications([justPastMaxAge], NOW)).toEqual([]);
+    // Exactly at the max age is still inside the window (<=, matching isPromptEligible).
+    const atMaxAge = followupEntry({ clickedAt: NOW - PURCHASE_FOLLOWUP_MAX_AGE_MS });
+    expect(purchasePendingNotifications([atMaxAge], NOW)).toHaveLength(1);
   });
 
   it("skips non-pending entries (done/dismissed/expired)", () => {

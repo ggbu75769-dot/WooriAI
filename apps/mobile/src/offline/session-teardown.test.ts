@@ -281,6 +281,66 @@ describe("PRIV-104 wipe vs in-flight flush sequencing", () => {
     await expectStoreFullyEmpty(inner);
   });
 
+  it("a flush arriving while teardown is still clearing the sync cursor parks behind the wipe and never delivers the old account's rows under the new token", async () => {
+    // Regression for the PRIV-104 teardown ordering race: teardownOfflineSessionState used to
+    // `await clearSyncCursor(store)` BEFORE calling wipeOfflineStore. A flushOutbox call that
+    // landed during that await found inFlightWipes empty, passed the wipe-guard, and flushed
+    // the OLD account's outbox rows under the NEW account's token. The wipe must be registered
+    // synchronously at teardown start so that flush parks behind it instead.
+    const inner = createMemoryOfflineStore();
+    await recordLocalCreate(inner, payload);
+    // Hold the cursor clear open, exactly the await window the old ordering leaked through.
+    let releaseCursorClear!: () => void;
+    const cursorClearGate = new Promise<void>((resolve) => {
+      releaseCursorClear = resolve;
+    });
+    const store: OfflineStore = {
+      ...inner,
+      async deleteMeta(key) {
+        await cursorClearGate;
+        await inner.deleteMeta(key);
+      }
+    };
+    const { remote, calls, release } = createBlockingRemote();
+    release(); // the remote itself never needs to block in this test
+
+    // Teardown starts (userA -> userB switch) but is stuck mid-clearSyncCursor...
+    const teardownPromise = simulateSessionTransition(store, userA, userB);
+    // ...and the NEW session's first flush arrives in exactly that window.
+    const flushPromise = flushOutbox(store, remote);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Nothing has gone over the wire: the flush is parked behind the wipe.
+    expect(calls).toEqual([]);
+
+    releaseCursorClear();
+    const summary = await flushPromise;
+    await teardownPromise;
+
+    // The flush saw the post-wipe empty queue -- user A's mutation was never sent under
+    // user B's token.
+    expect(calls).toEqual([]);
+    expect(summary.synced).toBe(0);
+    await expectStoreFullyEmpty(inner);
+  });
+
+  it("teardown starts the wipe before its first await (source verification of the ordering the race regression test relies on)", () => {
+    const teardownSource = readFileSync(join(process.cwd(), "src/offline/session-teardown.ts"), "utf8");
+    const body = teardownSource.slice(teardownSource.indexOf("export async function teardownOfflineSessionState"));
+    const wipeStart = body.indexOf("const wipe = wipeOfflineStore(store);");
+    // First await STATEMENT (line-start match so the word "await" in comments doesn't count).
+    const firstAwait = body.indexOf("\n  await ");
+    expect(wipeStart).toBeGreaterThan(-1);
+    expect(firstAwait).toBeGreaterThan(-1);
+    expect(wipeStart).toBeLessThan(firstAwait);
+    // And sync-engine's wipe registers itself in inFlightWipes synchronously (before any await
+    // inside the wipe body could yield), which is what makes starting-first sufficient.
+    const engineSource = readFileSync(join(process.cwd(), "src/offline/sync-engine.ts"), "utf8");
+    const wipeBody = engineSource.slice(engineSource.indexOf("export function wipeOfflineStore"));
+    expect(wipeBody).toContain("inFlightWipes.set(store, wipe);");
+    expect(wipeBody.indexOf("inFlightWipes.set(store, wipe);")).toBeLessThan(wipeBody.indexOf("return wipe;"));
+  });
+
   it("concurrent wipe requests coalesce into a single wipe", async () => {
     const inner = createMemoryOfflineStore();
     let clearCount = 0;

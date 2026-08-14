@@ -53,13 +53,21 @@ export function isSessionIdentityChange(previous: SessionIdentity, next: Session
  * Wipes every piece of device-local, user-scoped offline state. Steps, in order:
  *
  *   1. purchase-followup store reset — synchronous zustand set, effective immediately;
- *   2. delta-sync cursor removal — kept as an explicit early step (same call MOB-103b made from
- *      the controller) even though step 3 clears sync_meta anyway: the cursor must die *now*,
- *      not after an in-flight flush completes, so a concurrently-running delta pull for the new
- *      user can never resume from the old user's cursor;
- *   3. `wipeOfflineStore` — clears local_expenses + mutation_outbox + sync_meta, sequenced
- *      against any in-flight outbox flush (see its doc comment in sync-engine.ts for the exact
- *      race guarantees).
+ *   2. `wipeOfflineStore` STARTED (not yet awaited) — this must come before any `await` in this
+ *      function because the wipe registers itself in sync-engine.ts's `inFlightWipes` map
+ *      synchronously. From that moment, any `flushOutbox` call — including one that arrives
+ *      while the remaining teardown steps are still awaiting — parks behind the wipe and reads
+ *      the post-wipe (empty) outbox, instead of flushing the outgoing account's queued
+ *      mutations under the incoming account's token (the exact PRIV-104 leak). Awaiting the
+ *      cursor clear first used to leave precisely that window open;
+ *   3. delta-sync cursor removal — kept as an explicit step (same call MOB-103b made from the
+ *      controller) even though the wipe clears sync_meta anyway: the wipe may be parked behind
+ *      an in-flight flush pass, and the cursor must die *now*, not after that pass completes,
+ *      so a concurrently-running delta pull for the new user can never resume from the old
+ *      user's cursor. The wipe's own sync_meta clear afterwards is a harmless double-clear;
+ *   4. await the wipe — local_expenses + mutation_outbox + sync_meta cleared, sequenced against
+ *      any in-flight outbox flush (see its doc comment in sync-engine.ts for the exact race
+ *      guarantees).
  *
  * Any store failure propagates to the caller (the controller subscription swallows it — same
  * best-effort stance as every other background offline operation there); the scope-key check in
@@ -69,6 +77,9 @@ export async function teardownOfflineSessionState(store: OfflineStore): Promise<
   usePurchaseFollowupStore.getState().resetAll();
   // NOTI-102: 알림 이력·중복 방지 키·시기 메타도 사용자 단위 상태이므로 함께 초기화한다.
   useNotificationStore.getState().resetAll();
+  // Step 2: start the wipe BEFORE the first await so it registers in inFlightWipes
+  // synchronously — see the ordering rationale in the doc comment above.
+  const wipe = wipeOfflineStore(store);
   await clearSyncCursor(store);
-  await wipeOfflineStore(store);
+  await wipe;
 }
