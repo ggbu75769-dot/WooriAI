@@ -933,13 +933,55 @@ export class OnboardingStoreService {
     };
   }
 
-  async getCategoryReport(user: AuthenticatedUser, childId: string, yearMonth?: string) {
+  async getCategoryReport(
+    user: AuthenticatedUser,
+    childId: string,
+    period: { yearMonth?: string; year?: string; quarter?: number } = {}
+  ) {
     await this.requireChildAccess(user, childId);
-    const range = yearMonth ? getSeoulMonthRange(yearMonth) : undefined;
     return {
       childId,
-      categories: await this.categoryBreakdown(childId, range)
+      categories: await this.categoryBreakdown(childId, this.categoryReportRange(period))
     };
+  }
+
+  /**
+   * REP-104: resolves the category report's optional period filter to a Seoul-calendar
+   * date range. Exactly one period shape is accepted per request -- yearMonth (single
+   * month), year (whole year), or year+quarter (calendar quarter); no period at all
+   * keeps the historical all-time breakdown. Cross-field combinations the per-field
+   * DTO validation cannot express are rejected here.
+   */
+  private categoryReportRange(period: {
+    yearMonth?: string;
+    year?: string;
+    quarter?: number;
+  }): { startInclusive: string; endExclusive: string } | undefined {
+    const { yearMonth, year, quarter } = period;
+    if (yearMonth && (year !== undefined || quarter !== undefined)) {
+      throw new BadRequestException({
+        code: "REPORT_PERIOD_INVALID",
+        message: "조회 기간은 yearMonth 또는 year(+quarter) 중 하나로만 지정해 주세요."
+      });
+    }
+    if (quarter !== undefined && year === undefined) {
+      throw new BadRequestException({
+        code: "REPORT_PERIOD_INVALID",
+        message: "quarter는 year와 함께 지정해 주세요."
+      });
+    }
+    if (yearMonth) return getSeoulMonthRange(yearMonth);
+    if (year === undefined) return undefined;
+
+    const normalizedYear = this.requireValidYear(year);
+    const startMonth = quarter === undefined ? 1 : (quarter - 1) * 3 + 1;
+    const endMonthExclusive = quarter === undefined ? 13 : startMonth + 3;
+    const startInclusive = `${normalizedYear}-${String(startMonth).padStart(2, "0")}-01`;
+    const endExclusive =
+      endMonthExclusive > 12
+        ? `${Number(normalizedYear) + 1}-01-01`
+        : `${normalizedYear}-${String(endMonthExclusive).padStart(2, "0")}-01`;
+    return { startInclusive, endExclusive };
   }
 
   async adminListItemTemplates() {

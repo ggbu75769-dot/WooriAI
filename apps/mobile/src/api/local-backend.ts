@@ -847,10 +847,28 @@ export function getCumulativeReport(childId: string): CumulativeReport {
   };
 }
 
-export function getCategoryReport(childId: string, yearMonth?: string): CategoryReport {
+// REP-104: mirrors the server's period filter -- yearMonth (single month), year (whole
+// year), or year+quarter; no period keeps the all-time breakdown.
+export function getCategoryReport(
+  childId: string,
+  period?: { yearMonth?: string; year?: number; quarter?: number }
+): CategoryReport {
   ensureSeeded();
-  const normalizedMonth = yearMonth ? budgetKey(yearMonth) : undefined;
-  return { childId, categories: categoryBreakdown(expensesForChild(childId, normalizedMonth)) };
+  if (period?.yearMonth) {
+    return { childId, categories: categoryBreakdown(expensesForChild(childId, budgetKey(period.yearMonth))) };
+  }
+  let expenses = expensesForChild(childId);
+  if (period?.year !== undefined) {
+    const startMonth = period.quarter === undefined ? 1 : (period.quarter - 1) * 3 + 1;
+    const endMonthExclusive = period.quarter === undefined ? 13 : startMonth + 3;
+    const startInclusive = `${period.year}-${String(startMonth).padStart(2, "0")}-01`;
+    const endExclusive =
+      endMonthExclusive > 12
+        ? `${period.year + 1}-01-01`
+        : `${period.year}-${String(endMonthExclusive).padStart(2, "0")}-01`;
+    expenses = expenses.filter((expense) => expense.spentOn >= startInclusive && expense.spentOn < endExclusive);
+  }
+  return { childId, categories: categoryBreakdown(expenses) };
 }
 
 export function getYearlyReport(childId: string, year: number): YearlyReport {

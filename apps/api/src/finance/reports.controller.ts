@@ -3,7 +3,7 @@ import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
-import { YearMonthQueryDto, YearQueryDto } from "./dto/query.dto";
+import { CategoryReportQueryDto, YearMonthQueryDto, YearQueryDto } from "./dto/query.dto";
 
 @Controller("children/:childId/reports")
 @UseGuards(JwtAuthGuard)
@@ -37,8 +37,12 @@ export class ReportsController {
   async category(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
-    @Query(createDtoValidationPipe(YearMonthQueryDto)) query: YearMonthQueryDto
+    @Query(createDtoValidationPipe(CategoryReportQueryDto)) query: CategoryReportQueryDto
   ) {
-    return await this.store.getCategoryReport(request.user!, childId, query.yearMonth);
+    return await this.store.getCategoryReport(request.user!, childId, {
+      yearMonth: query.yearMonth,
+      year: query.year,
+      quarter: query.quarter
+    });
   }
 }

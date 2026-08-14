@@ -815,9 +815,21 @@ export function getCumulativeReport(token: string, childId: string) {
   return requestJson<CumulativeReport>(`/children/${childId}/reports/cumulative`, { token });
 }
 
-export function getCategoryReport(token: string, childId: string, yearMonth?: string) {
-  if (isLocalToken(token)) return local(() => localBackend.getCategoryReport(childId, yearMonth));
-  const query = yearMonth ? `?yearMonth=${yearMonth}` : "";
+export function getCategoryReport(
+  token: string,
+  childId: string,
+  // REP-104: string keeps the legacy yearMonth-only call shape; the object form scopes the
+  // breakdown to a month, whole year, or year+quarter to match the reports screen's selector.
+  period?: string | { yearMonth?: string; year?: number; quarter?: number }
+) {
+  const normalizedPeriod = typeof period === "string" ? { yearMonth: period } : period;
+  if (isLocalToken(token)) return local(() => localBackend.getCategoryReport(childId, normalizedPeriod));
+  const params = [
+    normalizedPeriod?.yearMonth ? `yearMonth=${normalizedPeriod.yearMonth}` : null,
+    normalizedPeriod?.year !== undefined ? `year=${normalizedPeriod.year}` : null,
+    normalizedPeriod?.quarter !== undefined ? `quarter=${normalizedPeriod.quarter}` : null
+  ].filter(Boolean);
+  const query = params.length > 0 ? `?${params.join("&")}` : "";
   return requestJson<CategoryReport>(`/children/${childId}/reports/category${query}`, { token });
 }
 
@@ -1018,5 +1030,54 @@ export function confirmAccountDeletion(token: string, confirmationText: string) 
     method: "POST",
     token,
     body: { confirmationText }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// AUTH-102 (real Kakao OIDC login) -- additive-only extensions consumed by
+// src/auth/kakao-login.ts. Request/response shapes mirror the server exactly:
+// apps/api/src/auth/kakao/kakao-auth.{controller,service}.ts and
+// apps/api/test/auth-kakao-oidc.e2e.test.ts. None of the functions above are
+// touched. Both calls are unauthenticated (they *establish* the session), so
+// neither takes a token nor participates in the 401-refresh flow.
+// ---------------------------------------------------------------------------
+
+/** POST /auth/kakao/prepare success shape: `nonce` is returned in plaintext exactly once. */
+export type KakaoPrepareResponse = {
+  transactionId: string;
+  state: string;
+  nonce: string;
+};
+
+/** POST /auth/kakao/exchange success shape -- identical to the dev-stub oauthLogin result, so
+ * login.tsx's existing success handling (setSession + upsertConsents) is reused as-is. */
+export type KakaoExchangeResult = {
+  user: {
+    id: string;
+    households?: Array<{ id: string; name: string; role: string }>;
+  };
+  tokens: { accessToken: string; refreshToken: string; expiresIn: number };
+  onboardingRequired: boolean;
+};
+
+/** The API validates with forbidNonWhitelisted: send ONLY these keys (in particular, no
+ * `codeChallengeMethod` -- S256 is implied server-side). */
+export function kakaoPrepare(body: { redirectUri: string; codeChallenge?: string }) {
+  return requestJson<KakaoPrepareResponse>("/auth/kakao/prepare", {
+    method: "POST",
+    body
+  });
+}
+
+export function kakaoExchange(body: {
+  transactionId: string;
+  state: string;
+  code: string;
+  redirectUri: string;
+  codeVerifier?: string;
+}) {
+  return requestJson<KakaoExchangeResult>("/auth/kakao/exchange", {
+    method: "POST",
+    body
   });
 }

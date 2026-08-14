@@ -94,20 +94,20 @@ export default function ReportsScreen() {
     enabled: Boolean(authToken && childId),
     queryFn: () => getCumulativeReport(authToken!, childId!)
   });
-  // 분기/연간 탭은 기간 파라미터 없이 전체 기간 카테고리 비중을 그대로 보여준다.
-  const category = useQuery({
-    queryKey: ["report", "category", childId],
-    enabled: Boolean(authToken && childId && period !== "월간"),
-    queryFn: () => getCategoryReport(authToken!, childId!)
+  // REP-104: 카테고리 비중도 선택된 기간을 그대로 따른다 -- 월간은 yearMonth, 분기는
+  // year+quarter, 연간은 year 필터로 서버(및 로컬 데모 백엔드)가 해당 기간만 집계한다.
+  const categoryPeriod =
+    period === "월간"
+      ? { yearMonth: reportYearMonth }
+      : period === "분기"
+        ? { year: quarterStart.getFullYear(), quarter: Math.floor(quarterStart.getMonth() / 3) + 1 }
+        : { year: yearStart.getFullYear() };
+  const activeCategory = useQuery({
+    queryKey: ["report", "category", childId, categoryPeriod],
+    enabled: Boolean(authToken && childId),
+    queryFn: () => getCategoryReport(authToken!, childId!, categoryPeriod)
   });
-  // 월간 탭은 선택된 월의 카테고리 비중만 보여준다 (서버가 yearMonth 필터를 지원).
-  const monthlyCategory = useQuery({
-    queryKey: ["report", "category", childId, reportYearMonth],
-    enabled: Boolean(authToken && childId && period === "월간"),
-    queryFn: () => getCategoryReport(authToken!, childId!, reportYearMonth)
-  });
-  const activeCategory = period === "월간" ? monthlyCategory : category;
-  const categoryCardTitle = period === "월간" ? `${reportDate.getMonth() + 1}월 카테고리 비중` : "전체 기간 카테고리 비중";
+  const categoryCardTitle = period === "월간" ? `${reportDate.getMonth() + 1}월 카테고리 비중` : `${periodLabel} 카테고리 비중`;
   const quarterQueries = useQueries({
     queries: quarterMonths.map((date) => {
       const ym = yearMonthOf(date);
@@ -275,8 +275,7 @@ export default function ReportsScreen() {
                   onPress={() => router.push("/expenses/new")}
                 />
               ) : (
-                // 월간 탭은 getCategoryReport에 yearMonth를 전달해 해당 월만 집계하고,
-                // 분기/연간 탭은 기간 파라미터 없이 전체 기간 비중을 그대로 보여준다.
+                // 월간/분기/연간 모두 categoryPeriod로 해당 기간만 집계한 비중을 보여준다 (REP-104).
                 <DonutChartCard title={categoryCardTitle} segments={categorySegments} />
               )}
 

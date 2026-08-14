@@ -589,6 +589,112 @@ describe("Expense, budget, home, and report API", () => {
       });
   });
 
+  it("scopes the category report to a year or quarter and rejects conflicting period params (REP-104)", async () => {
+    const accessToken = await login(app, `rep104-category-period-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+    // Deterministic mobile-category-alias seed id (prisma/seed-data.ts), same as the
+    // yearMonth-scoped category test above.
+    const otherCategoryId = "c0a7e901-0000-4c04-8c04-c47e900ec004";
+
+    const seedExpense = async (input: { categoryId: string; amountKrw: number; spentOn: string; itemName: string }) =>
+      (
+        await request(app.getHttpServer())
+          .post(`/api/v1/children/${childId}/expenses`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ ...input, paymentMethod: "card" })
+          .expect(200)
+      ).body as { id: string };
+
+    await seedExpense({ categoryId, amountKrw: 10000, spentOn: "2026-02-10", itemName: "1분기 기저귀" });
+    await seedExpense({ categoryId: otherCategoryId, amountKrw: 20000, spentOn: "2026-05-03", itemName: "2분기 분유" });
+    await seedExpense({ categoryId, amountKrw: 40000, spentOn: "2025-11-10", itemName: "작년 4분기 내복" });
+
+    // Soft-deleted expense inside Q2 2026 must not count toward any breakdown.
+    const deleted = await seedExpense({ categoryId, amountKrw: 5000, spentOn: "2026-04-01", itemName: "삭제될 지출" });
+    await request(app.getHttpServer())
+      .delete(`/api/v1/expenses/${deleted.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+
+    // Whole year 2026: Q1 + Q2 expenses only, sorted by amount desc.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?year=2026`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.childId).toBe(childId);
+        expect(body.categories).toEqual([
+          { categoryId: otherCategoryId, amountKrw: 20000, count: 1 },
+          { categoryId, amountKrw: 10000, count: 1 }
+        ]);
+      });
+
+    // Quarter filters slice the same year differently -- Q1 vs Q2 breakdowns differ.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?year=2026&quarter=1`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categories).toEqual([{ categoryId, amountKrw: 10000, count: 1 }]);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?year=2026&quarter=2`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categories).toEqual([{ categoryId: otherCategoryId, amountKrw: 20000, count: 1 }]);
+      });
+
+    // Q4 of the previous year (quarter range spans months 10-12).
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?year=2025&quarter=4`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categories).toEqual([{ categoryId, amountKrw: 40000, count: 1 }]);
+      });
+
+    // No params keeps the historical all-time behavior (both years, both categories).
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categories).toEqual([
+          { categoryId, amountKrw: 50000, count: 2 },
+          { categoryId: otherCategoryId, amountKrw: 20000, count: 1 }
+        ]);
+      });
+
+    // quarter without year is rejected.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?quarter=2`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("REPORT_PERIOD_INVALID");
+      });
+
+    // yearMonth is mutually exclusive with year/quarter.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?yearMonth=2026-05&year=2026`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("REPORT_PERIOD_INVALID");
+      });
+
+    // Out-of-range quarter fails per-field DTO validation.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?year=2026&quarter=5`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+  });
+
   async function expectTotals(
     accessToken: string,
     childId: string,
