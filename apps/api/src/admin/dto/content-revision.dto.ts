@@ -1,4 +1,15 @@
-import { IsIn, IsNotEmpty, IsNotEmptyObject, IsObject, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
+import {
+  IsIn,
+  IsISO8601,
+  IsNotEmpty,
+  IsNotEmptyObject,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  ValidateIf
+} from "class-validator";
 
 // COM-103: CMS draft -> review -> publish workflow (round5a-sprint2-plan.md §3).
 // entityType enumerates the live tables a content revision can target; payload
@@ -42,6 +53,19 @@ export class UpdateContentRevisionDto {
   @IsObject()
   @IsNotEmptyObject()
   payload!: Record<string, unknown>;
+}
+
+/**
+ * COM-103b: PATCH /admin/content-revisions/:id/schedule body. `scheduledFor`
+ * is required but nullable — an ISO-8601 timestamp sets the schedule, an
+ * explicit `null` clears it. ValidateIf skips IsISO8601 only for the literal
+ * null, so an omitted/undefined field still fails validation (400) instead of
+ * silently clearing the schedule.
+ */
+export class ScheduleContentRevisionDto {
+  @ValidateIf((dto: ScheduleContentRevisionDto) => dto.scheduledFor !== null)
+  @IsISO8601()
+  scheduledFor!: string | null;
 }
 
 export class RejectContentRevisionDto {

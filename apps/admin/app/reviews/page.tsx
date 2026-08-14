@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  AdminApiError,
   approvePublishContentRevision,
   getContentRevision,
   isAuthError,
   listContentRevisions,
   rejectContentRevision,
   rollbackContentRevision,
+  scheduleContentRevision,
   type ContentRevision,
   type ContentRevisionDetail,
   type ContentRevisionEntityType,
@@ -66,6 +68,7 @@ export default function ContentReviewsPage() {
   const [history, setHistory] = useState<ContentRevision[] | null>(null);
 
   const [rejectNote, setRejectNote] = useState("");
+  const [scheduleAt, setScheduleAt] = useState("");
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -95,6 +98,7 @@ export default function ContentReviewsPage() {
       setActionError(null);
       setActionSuccess(null);
       setRejectNote("");
+      setScheduleAt("");
       try {
         const result = await getContentRevision(id);
         setDetail(result);
@@ -179,6 +183,39 @@ export default function ContentReviewsPage() {
     }
   };
 
+  // COM-103b: 예약 게시 설정/해제. scheduledFor는 ISO 시각(설정) 또는 null(해제).
+  const handleSchedule = async (scheduledFor: string | null) => {
+    if (!detail) return;
+    if (scheduledFor !== null) {
+      const parsed = new Date(scheduledFor);
+      if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= Date.now()) {
+        setActionError("예약 게시 시각은 미래 시각으로 입력해 주세요.");
+        return;
+      }
+    }
+    setActionSubmitting(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await scheduleContentRevision(detail.id, scheduledFor ? new Date(scheduledFor).toISOString() : null);
+      setActionSuccess(scheduledFor ? "예약 게시를 설정했어요." : "예약 게시를 해제했어요.");
+      await refreshAfterAction();
+    } catch (error) {
+      if (isAuthError(error)) {
+        clearSession();
+        return;
+      }
+      // API가 이미 한국어 사용자 메시지를 내려줘요(과거 시각·본인 제출 초안 등).
+      setActionError(
+        error instanceof AdminApiError && error.message
+          ? error.message
+          : "예약 게시를 변경하지 못했어요. 다시 시도해 주세요."
+      );
+    } finally {
+      setActionSubmitting(false);
+    }
+  };
+
   const handleRollback = async (revisionId: string) => {
     setActionSubmitting(true);
     setActionError(null);
@@ -202,7 +239,10 @@ export default function ContentReviewsPage() {
     <div className={styles.page}>
       <div className={styles.pageHeader}>
         <h1>콘텐츠 검토</h1>
-        <p>편집자가 제출한 초안을 검토하고 승인 게시하거나 반려해요. 게시 이력에서 이전 버전으로 롤백할 수도 있어요.</p>
+        <p>
+          편집자가 제출한 초안을 검토하고 승인 게시하거나 반려해요. 예약 게시를 설정하면 지정한 시각에 자동으로
+          게시돼요. 게시 이력에서 이전 버전으로 롤백할 수도 있어요.
+        </p>
       </div>
 
       <section className={styles.card}>
@@ -276,6 +316,9 @@ export default function ContentReviewsPage() {
             <>
               <p className={styles.hint}>
                 상태: {STATUS_LABELS[detail.status]} · 제출일: {formatDate(detail.submittedAt)}
+                {detail.status === "in_review"
+                  ? ` · 예약 게시: ${detail.scheduledFor ? formatDate(detail.scheduledFor) : "없음"}`
+                  : ""}
                 {detail.reviewNote ? ` · 메모: ${detail.reviewNote}` : ""}
               </p>
 
@@ -310,6 +353,38 @@ export default function ContentReviewsPage() {
                       {actionSubmitting ? "처리 중..." : "승인 게시"}
                     </button>
                   </div>
+                  <div className={styles.field}>
+                    <label htmlFor="schedule-at">예약 게시 시각</label>
+                    <input
+                      id="schedule-at"
+                      type="datetime-local"
+                      value={scheduleAt}
+                      onChange={(event) => setScheduleAt(event.target.value)}
+                    />
+                  </div>
+                  <div className={styles.actions}>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      onClick={() => handleSchedule(scheduleAt || null)}
+                      disabled={actionSubmitting || !scheduleAt}
+                    >
+                      {actionSubmitting ? "처리 중..." : "예약 게시 설정"}
+                    </button>
+                    {detail.scheduledFor ? (
+                      <button
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={() => handleSchedule(null)}
+                        disabled={actionSubmitting}
+                      >
+                        예약 해제
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className={styles.hint}>
+                    예약된 시각이 되면 자동으로 게시돼요. 예약 실행은 백그라운드 워커(WORKER_ENABLED=1)가 켜져 있어야 동작해요.
+                  </p>
                   <div className={styles.field}>
                     <label htmlFor="reject-note">반려 사유</label>
                     <textarea id="reject-note" value={rejectNote} onChange={(event) => setRejectNote(event.target.value)} />

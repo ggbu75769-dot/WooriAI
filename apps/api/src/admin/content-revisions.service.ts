@@ -256,7 +256,14 @@ export class ContentRevisionsService {
       data: {
         status: "published",
         publishedAt: new Date(),
-        entityId: revision.entityId ?? publishedEntityId
+        entityId: revision.entityId ?? publishedEntityId,
+        // COM-103b: a manual approval supersedes any pending schedule — the
+        // CAS claim above already guarantees the worker can never pick this
+        // row up again (it only looks at in_review), so clearing here is
+        // purely to keep the record unambiguous: a published row with a null
+        // scheduledFor was published by a human, while the worker path
+        // preserves scheduledFor as the historical scheduled time.
+        scheduledFor: null
       }
     });
 
@@ -266,6 +273,69 @@ export class ContentRevisionsService {
       targetType: "content_revisions",
       targetId: id,
       after: { entityType: revision.entityType, entityId: updated.entityId }
+    });
+
+    return this.toDto(updated);
+  }
+
+  /**
+   * COM-103b: set or clear `scheduledFor` on a submitted (in_review) revision.
+   * A non-null value hands the revision to the background worker
+   * (publishDueScheduled below), which publishes it with no further human
+   * step once the time arrives — so this is a publish decision and mirrors
+   * approvePublish's guards: admin-only RBAC (controller) and the same
+   * author/approver separation (an admin cannot schedule their own
+   * submission). `null` clears a pending schedule, returning the revision to
+   * plain manual review; the author-separation guard intentionally applies to
+   * clearing too (only a non-author admin can have set it in the first place,
+   * and unscheduling is likewise a review decision).
+   *
+   * The write is a CAS conditional on status staying "in_review" (same M-2
+   * pattern as approvePublish/reject) so it can never resurrect a schedule on
+   * a row a concurrent approve/reject/worker run just transitioned.
+   */
+  async schedule(admin: AuthenticatedAdmin, id: string, scheduledFor: string | null) {
+    const revision = await this.requireRevision(id);
+    if (revision.authorAdminId === admin.id) {
+      throw new ForbiddenException({
+        code: "CONTENT_REVISION_SELF_SCHEDULE",
+        message: "본인이 제출한 초안은 예약 게시를 설정하거나 해제할 수 없어요."
+      });
+    }
+
+    let scheduledDate: Date | null = null;
+    if (scheduledFor !== null) {
+      scheduledDate = new Date(scheduledFor);
+      // The DTO already enforces ISO-8601 shape; this only guards Date's own
+      // parse (e.g. an out-of-range component) plus the future-time rule.
+      if (Number.isNaN(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now()) {
+        throw new BadRequestException({
+          code: "CONTENT_REVISION_SCHEDULE_IN_PAST",
+          message: "예약 게시 시각은 미래 시각이어야 해요."
+        });
+      }
+    }
+
+    const claimed = await this.prisma.contentRevision.updateMany({
+      where: { id, status: "in_review" },
+      data: { scheduledFor: scheduledDate }
+    });
+    if (claimed.count === 0) {
+      throw new BadRequestException({
+        code: "CONTENT_REVISION_INVALID_STATE",
+        message: "검토 중인 초안만 예약 게시를 설정하거나 해제할 수 있어요. 이미 처리되었을 수 있으니 새로고침 후 다시 확인해 주세요."
+      });
+    }
+
+    const updated = await this.requireRevision(id);
+
+    await this.auditLogger.record({
+      actorUserId: admin.id,
+      action: "admin.content_revision.schedule",
+      targetType: "content_revisions",
+      targetId: id,
+      before: { scheduledFor: revision.scheduledFor?.toISOString() ?? null },
+      after: { scheduledFor: scheduledDate?.toISOString() ?? null }
     });
 
     return this.toDto(updated);

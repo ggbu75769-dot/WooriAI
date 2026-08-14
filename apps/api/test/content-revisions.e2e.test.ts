@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hashAdminPassword } from "../src/admin/admin-password";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
+import { ScheduledPublishJob } from "../src/worker/jobs/scheduled-publish.job";
 import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
 
 const dbAvailable = await isDatabaseAvailable();
@@ -19,6 +20,7 @@ const dbAvailable = await isDatabaseAvailable();
 describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)", () => {
   let app: INestApplication;
   let prisma: PrismaClient;
+  let scheduledPublishJob: ScheduledPublishJob;
 
   beforeAll(async () => {
     deployMigrations();
@@ -27,14 +29,26 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
     process.env.JWT_REFRESH_SECRET = "test-refresh-secret";
     process.env.WOORIAI_ADMIN_TOKEN = "test-legacy-admin-token";
+    // This suite makes 3 auth-path requests per loginAndEnroll (login + MFA
+    // setup start/verify) across many accounts; the COM-103b tests pushed it
+    // past the default 30/min per-IP auth ceiling (SEC rate-limit middleware
+    // reads this env on every request, so a suite-local override is safe).
+    process.env.RATE_LIMIT_AUTH_MAX = "200";
+    // COM-103b: the scheduled-publish tests below drive the worker job's run()
+    // directly (like worker-jobs.db.test.ts); the scheduler loop must stay
+    // env-gated off.
+    delete process.env.WORKER_ENABLED;
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     configureApiApp(app);
     await app.init();
+
+    scheduledPublishJob = moduleRef.get(ScheduledPublishJob, { strict: false });
   });
 
   afterAll(async () => {
+    delete process.env.RATE_LIMIT_AUTH_MAX;
     await app.close();
     await prisma.$disconnect();
   });
@@ -471,5 +485,178 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
       .send({ payload: { key: keyB, text: "Should also be rejected." } })
       .expect(400)
       .expect(({ body }) => expect(body.error.code).toBe("CONTENT_REVISION_DISCLOSURE_KEY_MISMATCH"));
+  });
+
+  // COM-103b: PATCH :id/schedule wires up the previously-dead scheduledFor
+  // column end-to-end with the worker's ScheduledPublishJob (whose run() is
+  // driven directly here, like worker-jobs.db.test.ts -- the scheduler loop
+  // stays env-gated off).
+  describe("scheduled publishing (COM-103b)", () => {
+    const MINUTE_MS = 60 * 1000;
+    const HOUR_MS = 60 * MINUTE_MS;
+
+    it("schedules an in_review revision (admin-only, future-only, not on drafts) and the worker publishes it once due", async () => {
+      await createAdmin("cr-editor-5@wooriai.local", "editor-password-5", "editor");
+      await createAdmin("cr-admin-7@wooriai.local", "admin-password-7", "admin");
+      const editor = await loginAndEnroll("cr-editor-5@wooriai.local", "editor-password-5");
+      const admin7 = await loginAndEnroll("cr-admin-7@wooriai.local", "admin-password-7");
+
+      const key = `cr_e2e_sched_${Date.now()}`;
+      const draft = await request(app.getHttpServer())
+        .post("/api/v1/admin/content-revisions")
+        .set("Cookie", editor.cookie)
+        .set("X-CSRF-Token", editor.csrfToken)
+        .send({ entityType: "disclosure", payload: { key, text: "예약 게시 문구 (e2e)" } })
+        .expect(200);
+      const revisionId = draft.body.id as string;
+      const futureIso = new Date(Date.now() + HOUR_MS).toISOString();
+
+      // Only in_review revisions can be scheduled -- a draft is rejected.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/content-revisions/${revisionId}/schedule`)
+        .set("Cookie", admin7.cookie)
+        .set("X-CSRF-Token", admin7.csrfToken)
+        .send({ scheduledFor: futureIso })
+        .expect(400)
+        .expect(({ body }) => expect(body.error.code).toBe("CONTENT_REVISION_INVALID_STATE"));
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/content-revisions/${revisionId}/submit`)
+        .set("Cookie", editor.cookie)
+        .set("X-CSRF-Token", editor.csrfToken)
+        .expect(200);
+
+      // RBAC: scheduling is a publish decision, so it's admin-only like
+      // approve-publish -- the (author) editor is 403'd by role, not just by
+      // the self-schedule guard.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/content-revisions/${revisionId}/schedule`)
+        .set("Cookie", editor.cookie)
+        .set("X-CSRF-Token", editor.csrfToken)
+        .send({ scheduledFor: futureIso })
+        .expect(403)
+        .expect(({ body }) => expect(body.error.code).toBe("ADMIN_FORBIDDEN"));
+
+      // Past timestamps are rejected.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/content-revisions/${revisionId}/schedule`)
+        .set("Cookie", admin7.cookie)
+        .set("X-CSRF-Token", admin7.csrfToken)
+        .send({ scheduledFor: new Date(Date.now() - MINUTE_MS).toISOString() })
+        .expect(400)
+        .expect(({ body }) => expect(body.error.code).toBe("CONTENT_REVISION_SCHEDULE_IN_PAST"));
+
+      // scheduledFor is required (null clears, omitted is a validation error).
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/content-revisions/${revisionId}/schedule`)
+        .set("Cookie", admin7.cookie)
+        .set("X-CSRF-Token", admin7.csrfToken)
+        .send({})
+        .expect(400)
+        .expect(({ body }) => expect(body.error.code).toBe("VALIDATION_ERROR"));
+
+      const scheduled = await request(app.getHttpServer())
+        .patch(`/api/v1/admin/content-revisions/${revisionId}/schedule`)
+        .set("Cookie", admin7.cookie)
+        .set("X-CSRF-Token", admin7.csrfToken)
+        .send({ scheduledFor: futureIso })
+        .expect(200);
+      expect(scheduled.body.status).toBe("in_review");
+      expect(new Date(scheduled.body.scheduledFor as string).toISOString()).toBe(futureIso);
+
+      // Not due yet: a worker tick at "now" leaves the revision untouched.
+      const notDueResult = await scheduledPublishJob.run(new Date());
+      expect((notDueResult.published as string[] | undefined) ?? []).not.toContain(revisionId);
+      const stillPending = await prisma.contentRevision.findUniqueOrThrow({ where: { id: revisionId } });
+      expect(stillPending.status).toBe("in_review");
+
+      // Due: a tick after scheduledFor publishes through the shared CAS path.
+      const dueAt = new Date(Date.now() + HOUR_MS + MINUTE_MS);
+      const dueResult = await scheduledPublishJob.run(dueAt);
+      expect(dueResult.published).toContain(revisionId);
+
+      const published = await prisma.contentRevision.findUniqueOrThrow({ where: { id: revisionId } });
+      expect(published.status).toBe("published");
+      // No human reviewer on a worker publish; scheduledFor stays as the
+      // historical scheduled time.
+      expect(published.reviewerAdminId).toBeNull();
+      expect(published.scheduledFor?.toISOString()).toBe(futureIso);
+
+      const live = await prisma.disclosure.findUnique({ where: { key } });
+      expect(live?.text).toBe("예약 게시 문구 (e2e)");
+    });
+
+    it("blocks self-scheduling, lets null unschedule (worker then skips it), and manual approve-publish clears scheduledFor", async () => {
+      await createAdmin("cr-admin-8@wooriai.local", "admin-password-8", "admin");
+      await createAdmin("cr-admin-9@wooriai.local", "admin-password-9", "admin");
+      const admin8 = await loginAndEnroll("cr-admin-8@wooriai.local", "admin-password-8");
+      const admin9 = await loginAndEnroll("cr-admin-9@wooriai.local", "admin-password-9");
+
+      const key = `cr_e2e_sched_self_${Date.now()}`;
+      const draft = await request(app.getHttpServer())
+        .post("/api/v1/admin/content-revisions")
+        .set("Cookie", admin8.cookie)
+        .set("X-CSRF-Token", admin8.csrfToken)
+        .send({ entityType: "disclosure", payload: { key, text: "예약 해제 검증 문구" } })
+        .expect(200);
+      const revisionId = draft.body.id as string;
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/content-revisions/${revisionId}/submit`)
+        .set("Cookie", admin8.cookie)
+        .set("X-CSRF-Token", admin8.csrfToken)
+        .expect(200);
+
+      const futureIso = new Date(Date.now() + HOUR_MS).toISOString();
+
+      // Same author/approver separation as approve-publish: the submitting
+      // admin cannot schedule their own revision.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/content-revisions/${revisionId}/schedule`)
+        .set("Cookie", admin8.cookie)
+        .set("X-CSRF-Token", admin8.csrfToken)
+        .send({ scheduledFor: futureIso })
+        .expect(403)
+        .expect(({ body }) => expect(body.error.code).toBe("CONTENT_REVISION_SELF_SCHEDULE"));
+
+      // A different admin can schedule it...
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/content-revisions/${revisionId}/schedule`)
+        .set("Cookie", admin9.cookie)
+        .set("X-CSRF-Token", admin9.csrfToken)
+        .send({ scheduledFor: futureIso })
+        .expect(200);
+
+      // ...and clear it again with null.
+      const unscheduled = await request(app.getHttpServer())
+        .patch(`/api/v1/admin/content-revisions/${revisionId}/schedule`)
+        .set("Cookie", admin9.cookie)
+        .set("X-CSRF-Token", admin9.csrfToken)
+        .send({ scheduledFor: null })
+        .expect(200);
+      expect(unscheduled.body.scheduledFor).toBeNull();
+
+      // A worker tick even past the (cleared) schedule no longer publishes it.
+      const tickResult = await scheduledPublishJob.run(new Date(Date.now() + 2 * HOUR_MS));
+      expect((tickResult.published as string[] | undefined) ?? []).not.toContain(revisionId);
+      const stillInReview = await prisma.contentRevision.findUniqueOrThrow({ where: { id: revisionId } });
+      expect(stillInReview.status).toBe("in_review");
+      expect(stillInReview.publishedAt).toBeNull();
+
+      // Re-schedule, then approve manually: the manual publish supersedes and
+      // clears the pending schedule.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/content-revisions/${revisionId}/schedule`)
+        .set("Cookie", admin9.cookie)
+        .set("X-CSRF-Token", admin9.csrfToken)
+        .send({ scheduledFor: futureIso })
+        .expect(200);
+      const published = await request(app.getHttpServer())
+        .post(`/api/v1/admin/content-revisions/${revisionId}/approve-publish`)
+        .set("Cookie", admin9.cookie)
+        .set("X-CSRF-Token", admin9.csrfToken)
+        .expect(200);
+      expect(published.body.status).toBe("published");
+      expect(published.body.scheduledFor).toBeNull();
+    });
   });
 });

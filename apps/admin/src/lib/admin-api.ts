@@ -432,6 +432,18 @@ export function rollbackContentRevision(id: string) {
   return request<ContentRevision>(`/admin/content-revisions/${id}/rollback`, { method: "POST" });
 }
 
+/** COM-103b: set (ISO timestamp, must be in the future) or clear (null) the
+ * scheduled-publish time on an in_review revision. Admin-only on the API side,
+ * with the same author/approver separation as approve-publish — scheduling is
+ * a publish decision. The actual publish is performed by the background worker
+ * (a process started with WORKER_ENABLED=1) once the time arrives. */
+export function scheduleContentRevision(id: string, scheduledFor: string | null) {
+  return request<ContentRevision>(`/admin/content-revisions/${id}/schedule`, {
+    method: "PATCH",
+    body: JSON.stringify({ scheduledFor })
+  });
+}
+
 // ADM-006: admin account management. Every endpoint is admin-role-only on the
 // API side (RequireAdminRoles("admin") in admin-users.controller.ts); the
 // frontend additionally hides the page/nav for editor/analyst sessions (see
