@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { Keyboard, Pressable, TextInput, View, useWindowDimensions } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import type { CatalogPlanState, CatalogTimelineBucket } from "../api/client";
 import {
   AppIcon,
@@ -12,6 +13,7 @@ import {
 } from "../design-system";
 import { resolvePreparationItemVisual } from "./item-visuals";
 import { resolvePreparationDisplayGroupId, type PreparationDisplayGroupId } from "./preparation-grouping";
+import { compactGridColumnCount, compactGridItemWidth } from "../design-system/responsive";
 
 export type PreparationParityItem = {
   id: string;
@@ -106,7 +108,7 @@ function ItemGrid({ items, columns, onItemPress }: { items: PreparationParityIte
       {items.map((item) => {
         const visual = resolvePreparationItemVisual({ code: item.code, nameKo: item.nameKo, primaryCategory: null });
         return (
-          <View key={item.id} style={{ width: columns === 4 ? "23.4%" : "31.4%" }}>
+          <View key={item.id} style={{ width: compactGridItemWidth(columns) }}>
             <PreparationItemCard
               hint={item.dueWindowLabel}
               icon={visual.icon}
@@ -150,8 +152,8 @@ export function PreparationListParity({
   activeSearchQuery?: string;
   onClearSearch?: () => void;
 }) {
-  const { width } = useWindowDimensions();
-  const columns = width >= 600 ? 4 : 3;
+  const { fontScale, width } = useWindowDimensions();
+  const columns = compactGridColumnCount(width, fontScale);
   const [sortMode, setSortMode] = useState<SortMode>("category");
   const [progressExpanded, setProgressExpanded] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -217,6 +219,14 @@ export function PreparationListParity({
     return next;
   });
 
+  const submitSearch = () => {
+    const query = searchDraft.trim();
+    if (!query) return;
+    Keyboard.dismiss();
+    submittedSearch.current = query;
+    onSearch(query);
+  };
+
   return (
     <View accessibilityLabel={`ITEM-001 내 준비 목록, 선택된 아이 ${selectedContextName}`} style={{ gap: 14 }}>
       <TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비 목록" />
@@ -256,26 +266,14 @@ export function PreparationListParity({
         <TextInput
           accessibilityLabel="준비물 통합 검색"
           onChangeText={setSearchDraft}
-          onSubmitEditing={() => {
-            const query = searchDraft.trim();
-            if (query) {
-              submittedSearch.current = query;
-              onSearch(query);
-            }
-          }}
-          placeholder="품목명·별칭·코드·분류 검색"
+          onSubmitEditing={submitSearch}
+          placeholder="품목명·별칭·분류 검색"
           placeholderTextColor={semanticColors.textDisabled}
           returnKeyType="search"
           style={{ backgroundColor: semanticColors.surface, borderColor: semanticColors.border, borderRadius: 14, borderWidth: 1, color: semanticColors.textPrimary, flex: 1, minHeight: 48, paddingHorizontal: 14 }}
           value={searchDraft}
         />
-        <Pressable accessibilityLabel="준비물 검색 실행" accessibilityRole="button" hitSlop={6} onPress={() => {
-          const query = searchDraft.trim();
-          if (query) {
-            submittedSearch.current = query;
-            onSearch(query);
-          }
-        }} style={({ pressed }) => ({ alignItems: "center", backgroundColor: semanticColors.actionPrimary, borderRadius: 14, height: 48, justifyContent: "center", opacity: pressed ? 0.76 : 1, width: 48 })}>
+        <Pressable accessibilityLabel="준비물 검색 실행" accessibilityRole="button" hitSlop={6} onPress={submitSearch} style={({ pressed }) => ({ alignItems: "center", backgroundColor: semanticColors.actionPrimary, borderRadius: 14, height: 48, justifyContent: "center", opacity: pressed ? 0.76 : 1, width: 48 })}>
           <AppIcon color={semanticColors.textInverse} name="magnify" size={23} />
         </Pressable>
       </View>
@@ -290,7 +288,8 @@ export function PreparationListParity({
             <Text accessibilityLiveRegion="polite" style={{ color: semanticColors.textPrimary, flex: 1, fontSize: 14, fontWeight: "800" }}>
               ‘{activeSearchQuery}’ 검색 결과 {displayedItems.length}개
             </Text>
-            <Pressable accessibilityRole="button" onPress={() => {
+            <Pressable accessibilityLabel="준비물 검색 닫기" accessibilityRole="button" onPress={() => {
+              Keyboard.dismiss();
               setSearchDraft("");
               submittedSearch.current = "";
               onClearSearch();

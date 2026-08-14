@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ANDROID_ARCHITECTURES,
   createAndroidBuildPlan,
+  filter16KiBPageSizeLibraries,
   validateApkNativeLibraries
 } from "../../../scripts/android-build-plan";
 import {
@@ -157,6 +158,8 @@ describe("standalone Android APK build", () => {
     expect(buildScript).toContain("verifyBuildSourceSnapshots");
     expect(buildScript).toContain("sourceSnapshotVerification");
     expect(buildScript).toContain("await syncAndroidBrandingResources(mobileRoot, androidDir)");
+    expect(readFileSync(join(repoRoot, "scripts", "lib", "android-branding.ts"), "utf8")).toContain("expo.splash.backgroundColor");
+    expect(readFileSync(join(repoRoot, "scripts", "lib", "android-branding.ts"), "utf8")).toContain("launcherForegroundConfig");
     expect(buildScript).toContain("nativeBranding");
     expect(buildScript).toContain("parseAndroidBuildCli(process.argv.slice(2), process.env.BUILD_PROFILE)");
     expect(buildScript).toContain("createApkArtifactMetadata(readFileSync(artifactPath))");
@@ -172,7 +175,7 @@ describe("standalone Android APK build", () => {
     );
     expect(buildScript).toContain('readFileSync(join(mobileRoot, "app.json"), "utf8")');
     expect(buildScript).toContain(
-      'extraPackagerArgs = ["--max-workers", "1", "--reset-cache", "--entry-file", "${projectRoot}/index.js"]'
+      'extraPackagerArgs = ["--max-workers", "1", "--reset-cache"]'
     );
   });
 
@@ -184,6 +187,12 @@ describe("standalone Android APK build", () => {
       "lib/x86_64/libhermes.so",
       "lib/x86_64/libreactnative.so"
     ])).toThrow(/APK_NATIVE_LIBRARY_INCOMPLETE.*x86_64.*libexpo-modules-core\.so/);
+  });
+
+  it("packages only the ABIs that Expo native modules were compiled for", () => {
+    const gradle = readFileSync(join(mobileRoot, "android", "app", "build.gradle"), "utf8");
+    expect(gradle).toContain('findProperty("reactNativeArchitectures")');
+    expect(gradle).toContain("abiFilters(*configuredArchitectures)");
   });
 
   it("accepts only when every packaged ABI carries Expo core, Hermes, and React Native", () => {
@@ -198,6 +207,19 @@ describe("standalone Android APK build", () => {
       abis: ["arm64-v8a", "x86_64"],
       requiredLibraries: ["libexpo-modules-core.so", "libhermes.so", "libreactnative.so"]
     });
+  });
+
+  it("checks 16 KiB ELF alignment only for the 64-bit ABIs covered by the Play requirement", () => {
+    expect(filter16KiBPageSizeLibraries([
+      "lib/armeabi-v7a/libreactnative.so",
+      "lib/arm64-v8a/libreactnative.so",
+      "lib/x86/libreactnative.so",
+      "lib/x86_64/libreactnative.so",
+      "assets/index.android.bundle"
+    ])).toEqual([
+      "lib/arm64-v8a/libreactnative.so",
+      "lib/x86_64/libreactnative.so"
+    ]);
   });
 
   it("rejects stale or mutable source provenance instead of trusting a reported hash", () => {
@@ -226,6 +248,16 @@ describe("standalone Android APK build", () => {
 
     expect(buildScript).toContain('profile === "production" && !apiBaseUrl');
     expect(buildScript).toContain("EXPO_PUBLIC_API_BASE_URL_REQUIRED");
+  });
+
+  it("audits API 36 targeting and 16 KiB APK zip alignment before qualification", () => {
+    const audit = readFileSync(join(repoRoot, "scripts", "audit-release5v-apk.ts"), "utf8");
+    expect(audit).toContain('latestBuildTool(process.platform === "win32" ? "zipalign.exe" : "zipalign")');
+    expect(audit).toContain('["-c", "-P", "16", "-v", "4", apkPath]');
+    expect(audit).toContain("targetSdk >= 36 && compileSdk >= 36");
+    expect(audit).toContain("zipAlignment16KiB: true");
+    expect(audit).toContain("auditElfAlignment16KiB");
+    expect(audit).toContain("elfAlignment16KiB: elfAlignment.aligned");
   });
 
   it("blocks cleartext traffic except for local development hosts", () => {
@@ -294,6 +326,9 @@ describe("standalone Android APK build", () => {
     expect(metroSource).toContain('process.env.EXPO_PUBLIC_PIXEL_LOCK || "0"');
     expect(metroSource).toContain('process.env.EXPO_PUBLIC_TEST_LOGIN || "0"');
     expect(metroSource).toContain('process.env.WOORIAI_BUILD_PROFILE || "development"');
+    expect(metroSource).toContain("const defaultBlockList = Array.isArray(config.resolver.blockList)");
+    expect(metroSource).toContain("config.resolver.blockList = [...defaultBlockList, ...pixelLockBlockList]");
+    expect(metroSource).not.toContain("[config.resolver.blockList, ...pixelLockBlockList]");
   });
 
   it("resolves mobile Expo config plugins from the workspace root after a frozen pnpm install", () => {
@@ -301,6 +336,7 @@ describe("standalone Android APK build", () => {
 
     expect(rootAppConfig).toContain('"expo-router": "./apps/mobile/node_modules/expo-router/app.plugin.js"');
     expect(rootAppConfig).toContain('"expo-asset": "./apps/mobile/node_modules/expo-asset/app.plugin.js"');
+    expect(rootAppConfig).toContain('"expo-build-properties": "./apps/mobile/node_modules/expo-build-properties/app.plugin.js"');
     expect(rootAppConfig).toContain('"./apps/mobile/plugins/with-network-security-config"');
     expect(rootAppConfig).toContain("wooriaiBuildProfile: process.env.WOORIAI_BUILD_PROFILE");
     expect(rootAppConfig).toContain('wooriaiPixelLockEnabled: process.env.EXPO_PUBLIC_PIXEL_LOCK === "1"');

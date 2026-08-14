@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Redirect, router } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { routeForDraftCurrentStep, routeForOnboardingNextStep } from "../../src/onboarding/resume";
 import { clearOnboardingDraft, useOnboardingDraftStore } from "../../src/stores/onboarding-draft.store";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";

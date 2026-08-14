@@ -6,6 +6,8 @@ export function isRelease5vSnapshotPathExcluded(path: string) {
     value.includes("/.turbo/") ||
     value.includes("/.gradle/") ||
     value.includes("/.gradle-home/") ||
+    value.includes("/.kotlin/") ||
+    value.includes("/.react-native-build/") ||
     value.includes("/.android-avd") ||
     value.includes("/.cxx/") ||
     value.includes("/.expo/") ||

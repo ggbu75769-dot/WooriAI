@@ -1,5 +1,6 @@
 import { Redirect } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../src/design-system/components/KoreanText";
 import { isPixelLockBuild } from "../src/pixelLock/build-profile";
 import { theme } from "../src/theme";
 import { AppScreen, Card, ScreenHeader } from "../src/ui";

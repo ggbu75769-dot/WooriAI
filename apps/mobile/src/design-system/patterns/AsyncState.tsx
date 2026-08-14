@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
+import { KoreanText as Text } from "../components/KoreanText";
 import { semanticColors } from "../tokens/color";
 import { radius } from "../tokens/radius";
 import { spacing } from "../tokens/spacing";
@@ -37,7 +38,21 @@ function StateView({ title, description, actionLabel, onAction, icon, tone = "ne
 }
 
 export function LoadingState({ title = "불러오고 있어요.", description }: { title?: string; description?: string }) {
-  return <StateView description={description} icon="progress-clock" title={title} />;
+  return (
+    <View
+      accessibilityLabel={[title, description].filter(Boolean).join(". ")}
+      accessibilityLiveRegion="polite"
+      accessibilityRole="progressbar"
+      accessibilityState={{ busy: true }}
+      style={{ alignItems: "center", backgroundColor: semanticColors.surface, borderColor: semanticColors.borderSubtle, borderRadius: radius.card, borderWidth: 1, gap: spacing.sm, padding: spacing.xl }}
+    >
+      <View style={{ alignItems: "center", backgroundColor: semanticColors.actionSecondary, borderRadius: radius.pill, height: 52, justifyContent: "center", width: 52 }}>
+        <ActivityIndicator accessibilityElementsHidden color={semanticColors.actionPrimary} importantForAccessibility="no-hide-descendants" size="small" />
+      </View>
+      <Text style={{ color: semanticColors.textPrimary, fontSize: typography.body.fontSize, fontWeight: "800", textAlign: "center" }}>{title}</Text>
+      {description ? <Text style={{ color: semanticColors.textSecondary, fontSize: typography.body.fontSize, lineHeight: typography.body.lineHeight, textAlign: "center" }}>{description}</Text> : null}
+    </View>
+  );
 }
 
 export function EmptyState(props: Omit<StateViewProps, "icon"> & { icon?: IconName }) {

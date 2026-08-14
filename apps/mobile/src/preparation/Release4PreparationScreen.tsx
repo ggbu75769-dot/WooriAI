@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type CatalogScenarioCode } from "@wooriai/domain";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Redirect, router, type Href, useLocalSearchParams } from "expo-router";
-import { Alert, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { useScrollToTop } from "@react-navigation/native";
+import { Redirect, router, type Href, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Alert, Pressable, ScrollView, TextInput, View, useWindowDimensions } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import {
   listCatalogDomains,
   listCatalogItems,
@@ -40,6 +42,7 @@ import {
   WeeklyPreparationSection
 } from "./PreparationOverview";
 import { resolvePreparationItemVisual } from "./item-visuals";
+import { compactGridColumnCount, compactGridItemWidth } from "../design-system/responsive";
 import { PreparationListParity } from "./PreparationListParity";
 import {
   activeSafetyAlertAfterScopeChange,
@@ -152,7 +155,10 @@ function FilterChip({ label, selected, onPress }: { label: string; selected: boo
 }
 
 export function Release4PreparationScreen() {
-  const { width } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
+  const { fontScale, width } = useWindowDimensions();
+  const compactColumns = compactGridColumnCount(width, fontScale);
   const {
     surface: requestedSurface,
     contextType: requestedContextType,
@@ -202,6 +208,12 @@ export function Release4PreparationScreen() {
     isTestSession
   }, activeContextKey);
   const previousSafetyScopeKey = useRef(safetyScopeKey);
+
+  useFocusEffect(
+    useCallback(() => () => {
+      setStatusItem(null);
+    }, [])
+  );
 
   useEffect(() => {
     if (requestedSurface === "overview") setSurface("overview");
@@ -311,6 +323,47 @@ export function Release4PreparationScreen() {
     const current = item.plan?.state;
     setStatusDraft(current ?? "researching");
     setStatusItem(item);
+  };
+  const statusChanged = Boolean(
+    statusItem && statusDraft !== (statusItem.plan?.state ?? "researching")
+  );
+
+  const closeStatusSheet = () => {
+    if (updatePlan.isPending) return false;
+    if (!statusChanged) {
+      setStatusItem(null);
+      return true;
+    }
+    Alert.alert(
+      "준비 상태를 저장하지 않았어요",
+      "시트를 닫으면 선택한 상태가 사라집니다.",
+      [
+        { text: "계속 수정", style: "cancel" },
+        { text: "저장하지 않고 닫기", style: "destructive", onPress: () => setStatusItem(null) }
+      ]
+    );
+    return false;
+  };
+
+  const openStatusItemDetail = () => {
+    if (!statusItem) return;
+    const itemId = statusItem.id;
+    const navigate = () => {
+      setStatusItem(null);
+      router.push({ pathname: "/items/[itemTemplateId]", params: { itemTemplateId: itemId, v: "2", contextType, contextId } });
+    };
+    if (!statusChanged) {
+      navigate();
+      return;
+    }
+    Alert.alert(
+      "준비 상태를 저장하지 않았어요",
+      "상세 화면으로 이동하면 선택한 상태가 사라집니다.",
+      [
+        { text: "계속 수정", style: "cancel" },
+        { text: "저장하지 않고 이동", style: "destructive", onPress: navigate }
+      ]
+    );
   };
   const acknowledgeSafety = useMutation({
     mutationFn: ({ alertId, expectedVersion }: { alertId: string; expectedVersion: number }) => acknowledgeCatalogSafetyAlert(token!, alertId, expectedVersion),
@@ -526,7 +579,7 @@ export function Release4PreparationScreen() {
     : "선택된 가족";
   if (surface === "overview") {
     return (
-      <ScreenScaffold testID="release4-preparation-screen">
+      <ScreenScaffold scrollRef={scrollRef} testID="release4-preparation-screen">
         {isTestSession ? <SampleDataBanner /> : null}
         <TopAppBar title="준비템" />
         {contextSelector}
@@ -569,7 +622,7 @@ export function Release4PreparationScreen() {
   }
 
   return (
-    <ScreenScaffold testID="release4-preparation-screen">
+    <ScreenScaffold scrollRef={scrollRef} testID="release4-preparation-screen">
       {isTestSession ? <SampleDataBanner /> : null}
       {surface !== "list" ? <Pressable
         accessibilityLabel="준비 홈으로 돌아가기"
@@ -761,7 +814,7 @@ export function Release4PreparationScreen() {
             {visibleItems.map((item) => {
               const visual = resolvePreparationItemVisual(item);
               return (
-                <View key={item.id} style={{ width: width >= 600 ? "23.4%" : "31.4%" }}>
+                <View key={item.id} style={{ width: compactGridItemWidth(compactColumns) }}>
                   <PreparationItemCard
                     hint={item.timelineBucket ? `${timelineBucketLabel(item.timelineBucket)} · ${item.dueWindowLabel}` : item.primaryCategory?.nameKo}
                     icon={visual.icon}
@@ -792,11 +845,7 @@ export function Release4PreparationScreen() {
       ) : null}
       <BottomSheet
         description="준비 상태를 바꾸면 목록, 홈 넛지와 관련 리포트에 바로 반영돼요."
-        onClose={() => {
-          if (updatePlan.isPending) return false;
-          setStatusItem(null);
-          return true;
-        }}
+        onClose={closeStatusSheet}
         title={statusItem?.nameKo ?? "준비 상태"}
         visible={Boolean(statusItem)}
       >
@@ -804,14 +853,14 @@ export function Release4PreparationScreen() {
         {updatePlan.isError ? <Text accessibilityLiveRegion="polite" style={{ color: semanticColors.danger, fontSize: 12 }}>완료하지 못했어요. 입력은 보존되었으니 다시 시도해 주세요.</Text> : null}
         <PrimaryButton
           busy={updatePlan.isPending}
-          disabled={!statusItem}
-          label={updatePlan.isPending ? "저장하는 중" : "준비 상태 저장"}
+          disabled={!statusItem || !statusChanged}
+          label={updatePlan.isPending ? "저장하는 중" : statusChanged ? "준비 상태 저장" : "변경 없음"}
           onPress={() => statusItem && updatePlan.mutate({ itemId: statusItem.id, state: statusDraft, expectedVersion: statusItem.plan?.version })}
         />
         <SecondaryButton
           disabled={!statusItem || updatePlan.isPending}
           label="상세 · 구매 정보 보기"
-          onPress={() => statusItem && router.push({ pathname: "/items/[itemTemplateId]", params: { itemTemplateId: statusItem.id, v: "2", contextType, contextId } })}
+          onPress={openStatusItemDetail}
         />
       </BottomSheet>
       <SyncStatusBar onPress={() => router.push("/sync-status" as Href)} status={syncStatus} />

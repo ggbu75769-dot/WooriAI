@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { useScrollToTop } from "@react-navigation/native";
 import { Redirect, router, type Href, useLocalSearchParams } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { getSeoulToday } from "@wooriai/domain";
 import type { ReportSourceKind, ReportV3Contract } from "@wooriai/contracts";
 import { getBudgetVarianceExplanation, getCategoryReport, getCumulativeReport, getMonthlyReport, getReportV3, getYearlyReport, fixtureSessionToken } from "../../src/api/client";
@@ -20,13 +22,14 @@ import {
   restoreReportViewState,
   type ReportSection
 } from "../../src/reports/source-navigation";
-import { useSelectedChildStore } from "../../src/stores/selected-child.store";
+import { householdIdForFeatureScope, useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 // release5v-source-quality-exception: report chart and selector widgets remain domain visualizations; owner=mobile-design-system; review=2026-10-01.
 import { DonutChartCard, LineChartCard, SegmentedControl } from "../../src/ui";
 import { theme } from "../../src/theme";
 import { ReportPixelStyles } from "../../src/pixelLock/styles";
 import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
+import { usesLargeTextLayout } from "../../src/design-system/responsive";
 
 const reportReferenceScreenId = pixelEvidenceId("REP-001 REP-001 · REP-002");
 const isPixelLockMode = isPixelLockBuild();
@@ -242,6 +245,10 @@ function ReportV3Card({
 }
 
 export default function ReportsScreen() {
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
+  const { fontScale } = useWindowDimensions();
+  const largeTextLayout = usesLargeTextLayout(fontScale);
   const params = useLocalSearchParams<{
     reportPeriod?: string;
     reportOffset?: string;
@@ -256,10 +263,17 @@ export default function ReportsScreen() {
     setMonthOffset(0);
   };
   const accessToken = useSessionStore((state) => state.accessToken);
-  const householdId = useSessionStore((state) => state.defaultHouseholdId);
+  const defaultHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const selectedChildHouseholdId = useSelectedChildStore((state) => state.selectedChildHouseholdId);
+  const householdId = householdIdForFeatureScope(
+    childId,
+    selectedChildHouseholdId,
+    defaultHouseholdId,
+    isTestSession
+  );
   const hasSession = childScopedRequestEnabled(authToken, childId);
   const requestPlan = buildReportRequestPlan({ hasSession, pixelLockMode: isPixelLockMode, period });
   const syncSnapshot = useOfflineSyncSnapshot();
@@ -467,7 +481,7 @@ export default function ReportsScreen() {
             <View accessibilityLabel="현재 비용 요약" style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
               {overviewPeriods.map((entry, index) => (
                 <Pressable
-                  accessibilityLabel={`${entry.label} ${formatKrw(overviewQueries[index]?.data?.ledger.netHouseholdOutflowKrw ?? 0)}, 이전 기간 대비 ${overviewQueries[index]?.data?.previousPeriodComparison?.deltaPercentage ?? 0}%, ${overviewQueries[index]?.data?.maturity.recordCount ?? 0}건`}
+                  accessibilityLabel={`${entry.label} 순지출 ${formatKrw(overviewQueries[index]?.data?.ledger.netHouseholdOutflowKrw ?? 0)}, 이전 기간 대비 ${overviewQueries[index]?.data?.previousPeriodComparison?.deltaPercentage ?? 0}%, 실제 기록 ${overviewQueries[index]?.data?.maturity.recordCount ?? 0}건, 예정 기록 제외`}
                   accessibilityRole="button"
                   accessibilityState={{ selected: period === entry.key }}
                   key={entry.key}
@@ -486,13 +500,20 @@ export default function ReportsScreen() {
                   })}
                 >
                   <Text style={{ color: semanticColors.textSecondary, fontSize: 12, fontWeight: "700" }}>{entry.label}</Text>
-                  <Text numberOfLines={2} style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "900" }}>{formatKrw(overviewQueries[index]?.data?.ledger.netHouseholdOutflowKrw ?? 0)}</Text>
+                  {largeTextLayout ? (
+                    <View style={{ gap: 1 }}>
+                      <Text style={{ color: semanticColors.textSecondary, fontSize: 11, fontWeight: "800" }}>순지출</Text>
+                      <Text style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "900" }}>{formatKrw(overviewQueries[index]?.data?.ledger.netHouseholdOutflowKrw ?? 0)}</Text>
+                    </View>
+                  ) : (
+                    <Text style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "900" }}>순지출 {formatKrw(overviewQueries[index]?.data?.ledger.netHouseholdOutflowKrw ?? 0)}</Text>
+                  )}
                   <Text style={{ color: semanticColors.textSecondary, fontSize: 11 }}>
                     이전 대비 {overviewQueries[index]?.data?.previousPeriodComparison?.deltaPercentage == null
                       ? "비교 없음"
                       : `${overviewQueries[index]!.data!.previousPeriodComparison!.deltaPercentage! > 0 ? "+" : ""}${overviewQueries[index]!.data!.previousPeriodComparison!.deltaPercentage}%`}
                   </Text>
-                  <Text style={{ color: semanticColors.textSecondary, fontSize: 11 }}>{overviewQueries[index]?.data?.maturity.recordCount ?? 0}건</Text>
+                  <Text style={{ color: semanticColors.textSecondary, fontSize: 11 }}>실제 기록 {overviewQueries[index]?.data?.maturity.recordCount ?? 0}건 · 예정 제외</Text>
                 </Pressable>
               ))}
             </View>
@@ -712,7 +733,7 @@ export default function ReportsScreen() {
       </View>
   );
 
-  return isPixelLockMode ? <AppScreen>{reportContent}</AppScreen> : <ScreenScaffold testID="release4-report-screen">{reportContent}</ScreenScaffold>;
+  return isPixelLockMode ? <AppScreen scrollRef={scrollRef}>{reportContent}</AppScreen> : <ScreenScaffold scrollRef={scrollRef} testID="release4-report-screen">{reportContent}</ScreenScaffold>;
 }
 
 const reportReferenceFrameStyle = {

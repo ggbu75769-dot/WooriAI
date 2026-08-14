@@ -2,19 +2,8 @@ import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams, type Href } from "expo-router";
-import {
-  KeyboardAvoidingView,
-  InteractionManager,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  useWindowDimensions
-} from "react-native";
+import { KeyboardAvoidingView, InteractionManager, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { getSeoulToday } from "@wooriai/domain";
 import {
   listExpenseShortcuts,
@@ -26,7 +15,8 @@ import {
 import { pixelEvidenceId } from "../../src/api/fixture-runtime";
 import { categoryCatalog } from "../../src/categories";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
-import { buildRecentExpenseDateChips, formatExpenseDate, validateExpenseDateInput, validateExpenseForm } from "../../src/expenses/form-contract";
+import { buildRecentExpenseDateChips, EXPENSE_AMOUNT_MAX_DIGITS, EXPENSE_MEMO_MAX_LENGTH, formatExpenseDate, sanitizeExpenseAmountText, validateExpenseDateInput, validateExpenseForm, validateExpenseMemo } from "../../src/expenses/form-contract";
+import { PaymentMethodPicker } from "../../src/expenses/PaymentMethodPicker";
 import {
   amountAfterQuickExpenseSelection,
   defaultQuickExpenseItemIds,
@@ -38,8 +28,9 @@ import {
   type QuickExpenseCatalogItem
 } from "../../src/expenses/quick-expense-catalog";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
-import { createExpenseOffline } from "../../src/offline/sync-controller";
-import { refreshOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import { createExpenseOffline, refreshOfflineSyncSnapshot, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import { useConnectivityStatus } from "../../src/offline/connectivity";
+import { normalizeAppSyncStatus } from "../../src/offline/sync-display-state";
 import { resolveOfflineScopeKey } from "../../src/offline/session-scope";
 import {
   loadPurchaseFollowup,
@@ -53,7 +44,9 @@ import {
 } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { formatKrw } from "../../src/money";
-import { AppIcon, BottomSheetFrame, CategoryChip, PrimaryButton, SampleDataBanner, Toast, type AppIconName } from "../../src/ui";
+import { AppIcon, BottomSheetFrame, CategoryChip, PrimaryButton, SampleDataBanner, SecondaryButton, Toast, type AppIconName } from "../../src/ui";
+import { compactGridColumnCount, compactGridItemWidth } from "../../src/design-system/responsive";
+import { SyncStatusBar } from "../../src/design-system";
 import { theme } from "../../src/theme";
 import { QuickExpensePixelStyles } from "../../src/pixelLock/styles";
 import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
@@ -168,10 +161,10 @@ function ExpenseCategoryIconButton({
       >
         <AppIcon color={selected ? theme.colors.white : theme.colors.mainCoral} name={icon} size={22} />
       </View>
-      <Text maxFontSizeMultiplier={1.5} numberOfLines={2} style={quickExpenseCategoryTileStyle.label}>
+      <Text style={quickExpenseCategoryTileStyle.label}>
         {label}
       </Text>
-      {hint ? <Text maxFontSizeMultiplier={1.5} numberOfLines={1} style={quickExpenseCategoryTileStyle.hint}>{hint}</Text> : null}
+      {hint ? <Text style={quickExpenseCategoryTileStyle.hint}>{hint}</Text> : null}
     </Pressable>
   );
 }
@@ -195,7 +188,7 @@ function ExpenseAppScreenScaffold({
   children: ReactNode;
   contentBottomPadding?: number;
   footer: ReactNode;
-  scrollRef: RefObject<ScrollView>;
+  scrollRef: RefObject<ScrollView | null>;
 }) {
   return (
     <SafeAreaView style={{ backgroundColor: theme.colors.background, flex: 1 }}>
@@ -219,8 +212,9 @@ function ExpenseAppScreenScaffold({
 }
 
 export default function NewExpenseScreen() {
-  const { height, width } = useWindowDimensions();
-  const expenseGridColumns = width >= 600 ? 4 : 3;
+  const { fontScale, height, width } = useWindowDimensions();
+  const expenseGridColumns = compactGridColumnCount(width, fontScale);
+  const expenseGridItemWidth = compactGridItemWidth(expenseGridColumns);
   const params = useLocalSearchParams<{
     itemName?: string;
     itemTemplateId?: string;
@@ -279,13 +273,16 @@ export default function NewExpenseScreen() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [categoryLimits, setCategoryLimits] = useState<Record<string, number>>({});
+  const [hasEditedRequiredField, setHasEditedRequiredField] = useState(false);
   const amountInputRef = useRef<TextInput>(null);
   const customItemInputRef = useRef<TextInput>(null);
   const screenScrollRef = useRef<ScrollView>(null);
+  const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detailsHeaderYRef = useRef(0);
   const detailsContentYRef = useRef(0);
   const detailsScrollGenerationRef = useRef(0);
   const didAutoExpandRecentCategoryRef = useRef(Boolean(prefilledQuickItem));
+  const didApplyDefaultPaymentMethodRef = useRef(false);
   const [today] = useState(() => new Date(`${getSeoulToday()}T00:00:00`));
   // Kept literally as `authToken ? formatExpenseDate(today) : previewExpenseDate` (see
   // src/android-native-ui-quality.test.ts) -- this seeds the initial selected date; past-date
@@ -297,25 +294,31 @@ export default function NewExpenseScreen() {
   const dateInputError = authToken ? validateExpenseDateInput(expenseDateIso) : null;
   const maximumExpenseDate = new Date(`${recentDateChips[2]!.iso}T12:00:00`);
   const queryClient = useQueryClient();
+  const syncSnapshot = useOfflineSyncSnapshot();
+  const online = useConnectivityStatus();
+  const syncStatus = normalizeAppSyncStatus(syncSnapshot.counts, online);
+  const pendingSyncCount = syncSnapshot.counts.pending + syncSnapshot.counts.syncing + syncSnapshot.counts.retryWait;
+  const attentionSyncCount = syncSnapshot.counts.failed + syncSnapshot.counts.conflict;
   const paymentMethodsQuery = useQuery({
     queryKey: ["payment-methods"],
     enabled: Boolean(authToken),
     queryFn: () => listPaymentMethods(authToken!)
   });
-  const paymentMethodOptions = [
+  const paymentMethodOptions = useMemo(() => [
     { id: null, type: "unknown" as const, label: "미지정", isDefault: false },
     ...(paymentMethodsQuery.data?.paymentMethods.filter((method) => method.active) ??
       (showPaymentEvidence
         ? [{ id: "pixel-payment-card", type: "card" as const, label: "생활비 카드", isDefault: true }]
         : []))
-  ];
+  ], [paymentMethodsQuery.data?.paymentMethods, showPaymentEvidence]);
   const paymentMethod = paymentMethodOptions[paymentMethodIndex] ?? paymentMethodOptions[0];
 
   useEffect(() => {
-    if (paymentMethodIndex !== 0) return;
+    if (didApplyDefaultPaymentMethodRef.current || paymentMethodsQuery.isLoading) return;
+    didApplyDefaultPaymentMethodRef.current = true;
     const defaultIndex = paymentMethodOptions.findIndex((method) => method.isDefault);
     if (defaultIndex > 0) setPaymentMethodIndex(defaultIndex);
-  }, [paymentMethodIndex, paymentMethodOptions]);
+  }, [paymentMethodOptions, paymentMethodsQuery.isLoading]);
 
   // Restores a saved quick-expense draft on mount, so a user who closes the sheet mid-entry
   // (e.g. interrupted by a call) doesn't lose what they typed. Skipped in pixel-lock capture
@@ -330,8 +333,8 @@ export default function NewExpenseScreen() {
     readQuickExpenseDraft().then((draft) => {
       if (!draft) return;
       setItemName(draft.itemName);
-      setAmountText(draft.amountText);
-      setMemo(draft.memo);
+      setAmountText(sanitizeExpenseAmountText(draft.amountText).slice(0, EXPENSE_AMOUNT_MAX_DIGITS));
+      setMemo(draft.memo.slice(0, EXPENSE_MEMO_MAX_LENGTH));
       const matchedCategory = quickExpenseCategories.find((category) => category.id === draft.categoryId);
       if (matchedCategory) {
         setSelectedCategory(matchedCategory);
@@ -347,6 +350,13 @@ export default function NewExpenseScreen() {
   // Debounced draft autosave: persists the in-progress quick-expense entry ~500ms after the
   // last edit, so it can be restored by the effect above if the sheet is closed before saving.
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPendingQuickExpenseDraft = async () => {
+    if (draftSaveTimerRef.current) {
+      clearTimeout(draftSaveTimerRef.current);
+      draftSaveTimerRef.current = null;
+    }
+    await clearQuickExpenseDraft();
+  };
   useEffect(() => {
     if (!authToken) return;
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
@@ -364,6 +374,10 @@ export default function NewExpenseScreen() {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
   }, [itemName, amountText, memo, selectedCategory.id, expenseDateIso, isGift, authToken]);
+
+  useEffect(() => () => {
+    if (navigationTimerRef.current) clearTimeout(navigationTimerRef.current);
+  }, []);
 
   const expenseShortcutsQuery = useQuery({
     queryKey: ["expense-shortcuts", childId],
@@ -464,6 +478,7 @@ export default function NewExpenseScreen() {
     setSearchText("");
     setItemName(label);
     setAmountText(nextAmountText);
+    setHasEditedRequiredField(true);
     focusAmountInput(Boolean(defaultAmountText), nextAmountText);
     if (presetId && authToken && expenseHouseholdId) {
       void recordQuickExpensePresetUse(authToken, expenseHouseholdId, presetId).catch(() => undefined);
@@ -499,6 +514,7 @@ export default function NewExpenseScreen() {
     setCustomItemMode(true);
     setItemName(suggestedName);
     setAmountText("");
+    setHasEditedRequiredField(true);
     setSearchOpen(false);
     setSearchText("");
     requestAnimationFrame(() => customItemInputRef.current?.focus());
@@ -555,12 +571,14 @@ export default function NewExpenseScreen() {
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [hasSaved, setHasSaved] = useState(false);
   const saveExpense = useMutation({
-    mutationFn: () => {
+    mutationFn: (continueAdding: boolean) => {
       const validation = validateExpenseForm({ itemName, amountText, spentOn: expenseDate.iso });
+      const memoError = validateExpenseMemo(memo);
       if (
         !authToken ||
         !childId ||
         !validation.valid ||
+        Boolean(memoError) ||
         Boolean(dateInputError) ||
         purchaseIntentUnavailable ||
         Boolean(purchaseIntentId && !linkedItemDefinitionId)
@@ -581,7 +599,7 @@ export default function NewExpenseScreen() {
         ...(linkedItemDefinitionId ? { linkedItemDefinitionId } : {})
       });
     },
-    onSuccess: async (row) => {
+    onSuccess: async (row, continueAdding) => {
       setHasSaved(true);
       let completionMessage = OFFLINE_SAVED_MESSAGE;
       if (purchaseIntentId && purchaseScopeKey && childId && linkedItemDefinitionId) {
@@ -603,9 +621,31 @@ export default function NewExpenseScreen() {
           completionMessage = "지출은 기기에 저장했어요. 구매 안내 연결만 정리하지 못했지만 중복 저장은 막았어요.";
         }
       }
-      clearQuickExpenseDraft();
+      await clearPendingQuickExpenseDraft();
+      if (continueAdding) {
+        setItemName("");
+        setAmountText("");
+        setMemo("");
+        setIsGift(false);
+        setCustomItemMode(false);
+        setSearchOpen(false);
+        setSearchText("");
+        setHasEditedRequiredField(false);
+        setSavedMessage(
+          completionMessage === OFFLINE_SAVED_MESSAGE
+            ? "기기에 안전하게 저장했어요. 다음 기록을 입력해 주세요."
+            : `${completionMessage} 다음 기록을 입력해 주세요.`
+        );
+        setHasSaved(false);
+        requestAnimationFrame(() => screenScrollRef.current?.scrollTo({ animated: true, y: 0 }));
+        return;
+      }
       setSavedMessage(completionMessage);
-      setTimeout(() => router.replace("/(tabs)/records"), 650);
+      if (navigationTimerRef.current) clearTimeout(navigationTimerRef.current);
+      navigationTimerRef.current = setTimeout(() => {
+        navigationTimerRef.current = null;
+        router.replace("/(tabs)/records");
+      }, 250);
     }
   });
   const formattedAmount = amountText
@@ -621,15 +661,29 @@ export default function NewExpenseScreen() {
   // is always false. A real/test session requires both the item name and a positive amount so
   // the button state matches the mutation's actual validation contract.
   const formValidation = validateExpenseForm({ itemName, amountText, spentOn: expenseDate.iso });
+  const memoError = validateExpenseMemo(memo);
   const isSaveInvalid =
     Boolean(authToken) &&
     (
       !childId ||
       !formValidation.valid ||
+      Boolean(memoError) ||
       Boolean(dateInputError) ||
       purchaseIntentUnavailable ||
       Boolean(purchaseIntentId && (purchaseIntentQuery.isLoading || !linkedItemDefinitionId))
     );
+  const inlineValidationMessage = authToken && hasEditedRequiredField
+    ? formValidation.itemNameError ??
+      (!amountText ? "금액을 입력해 주세요." : formValidation.amountError) ??
+      dateInputError ??
+      formValidation.dateError
+    : null;
+  const canContinueAdding = Boolean(
+    authToken &&
+    !purchaseIntentId &&
+    !linkedItemTemplateId &&
+    !routeLinkedItemDefinitionId
+  );
 
   return (
     <ExpenseAppScreenScaffold
@@ -654,9 +708,13 @@ export default function NewExpenseScreen() {
                 {customItemMode ? (
                   <TextInput
                     accessibilityLabel="직접 입력할 품목명"
+                    accessibilityHint={formValidation.itemNameError ?? undefined}
                     blurOnSubmit={false}
                     maxLength={80}
-                    onChangeText={setItemName}
+                    onChangeText={(value) => {
+                      setItemName(value);
+                      setHasEditedRequiredField(true);
+                    }}
                     onSubmitEditing={() => focusAmountInput()}
                     placeholder="품목명을 입력해 주세요"
                     ref={customItemInputRef}
@@ -690,8 +748,6 @@ export default function NewExpenseScreen() {
                     })}
                   >
                     <Text
-                      maxFontSizeMultiplier={1.2}
-                      numberOfLines={1}
                       style={{ color: theme.colors.brown, flex: 1, fontSize: 15, fontWeight: "800" }}
                     >
                       {itemName || "품목을 선택해 주세요"}
@@ -715,10 +771,14 @@ export default function NewExpenseScreen() {
               >
                 <TextInput
                   accessibilityLabel="지출 금액"
+                  accessibilityHint={inlineValidationMessage ?? undefined}
                   accessibilityValue={{ text: formattedAmount || "미입력" }}
                   editable={!authToken || Boolean(childId)}
                   keyboardType="number-pad"
-                  onChangeText={(value) => setAmountText(value.replace(/[^0-9]/g, ""))}
+                  onChangeText={(value) => {
+                    setAmountText(sanitizeExpenseAmountText(value).slice(0, EXPENSE_AMOUNT_MAX_DIGITS));
+                    setHasEditedRequiredField(true);
+                  }}
                   placeholder="0"
                   placeholderTextColor={theme.colors.gray600}
                   ref={amountInputRef}
@@ -738,11 +798,53 @@ export default function NewExpenseScreen() {
                 <Text style={{ color: theme.colors.gray600, fontSize: 14, fontWeight: "800" }}>원</Text>
               </View>
             </View>
-            <PrimaryButton
-              disabled={saveExpense.isPending || hasSaved || isSaveInvalid}
-              label={saveExpense.isPending || hasSaved ? "저장 중" : "저장하기"}
-              onPress={() => saveExpense.mutate()}
-            />
+            {inlineValidationMessage ? (
+              <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.danger, fontSize: 12, fontWeight: "700" }}>
+                {inlineValidationMessage}
+              </Text>
+            ) : null}
+            {savedMessage ? (
+              <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.success, fontSize: 12, fontWeight: "700" }}>
+                {savedMessage}
+              </Text>
+            ) : null}
+            {authToken && !isPixelLockMode && (pendingSyncCount > 0 || attentionSyncCount > 0 || syncStatus === "offline" || Boolean(savedMessage)) ? (
+              <SyncStatusBar
+                label={
+                  attentionSyncCount > 0
+                    ? `확인이 필요한 기록 ${attentionSyncCount}건`
+                    : pendingSyncCount > 0
+                      ? `기기에 저장됨 · 서버 반영 대기 ${pendingSyncCount}건`
+                      : syncStatus === "offline"
+                        ? "오프라인 · 기록은 기기에 안전하게 저장돼요"
+                        : "모든 기록이 서버에 반영됐어요"
+                }
+                onPress={() => router.push("/sync-status" as Href)}
+                status={syncStatus}
+              />
+            ) : null}
+            {canContinueAdding ? (
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <SecondaryButton
+                  disabled={saveExpense.isPending || hasSaved || isSaveInvalid}
+                  label={saveExpense.isPending ? "저장 중" : "저장하고 하나 더"}
+                  onPress={() => saveExpense.mutate(true)}
+                  style={{ flex: 1 }}
+                />
+                <PrimaryButton
+                  disabled={saveExpense.isPending || hasSaved || isSaveInvalid}
+                  label={saveExpense.isPending || hasSaved ? "저장 중" : "저장하기"}
+                  onPress={() => saveExpense.mutate(false)}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            ) : (
+              <PrimaryButton
+                disabled={saveExpense.isPending || hasSaved || isSaveInvalid}
+                label={saveExpense.isPending || hasSaved ? "저장 중" : "저장하기"}
+                onPress={() => saveExpense.mutate(false)}
+              />
+            )}
           </View>
         </View>
       )}
@@ -779,8 +881,7 @@ export default function NewExpenseScreen() {
                 accessibilityLabel="지출 기록 닫기"
                 accessibilityRole="button"
                 onPress={() => {
-                  clearQuickExpenseDraft();
-                  router.back();
+                  void clearPendingQuickExpenseDraft().then(() => router.back());
                 }}
                 style={({ pressed }) => ({
                   alignItems: "center",
@@ -801,6 +902,19 @@ export default function NewExpenseScreen() {
               <View style={{ width: 48 }} />
             </View>
 
+            {canContinueAdding && !isPixelLockMode ? (
+              <Pressable
+                accessibilityLabel="엑셀로 여러 지출 기록 가져오기"
+                accessibilityRole="button"
+                onPress={() => router.push("/import" as Href)}
+                style={({ pressed }) => ({ alignItems: "center", backgroundColor: theme.colors.white, borderColor: "rgba(74, 63, 53, 0.10)", borderRadius: 14, borderWidth: 1, flexDirection: "row", gap: 10, minHeight: 48, opacity: pressed ? 0.78 : 1, paddingHorizontal: 14 })}
+              >
+                <AppIcon color={theme.colors.mainCoral} name="file-excel-outline" size={20} />
+                <Text style={{ color: theme.colors.brown, flex: 1, fontSize: 12, fontWeight: "800" }}>기록이 많다면 엑셀로 한 번에 가져오기</Text>
+                <AppIcon color={theme.colors.gray600} name="chevron-right" size={20} />
+              </Pressable>
+            ) : null}
+
             <View accessibilityLabel={`지출 날짜 ${expenseDate.label}`} style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
               <View style={{ flex: 1, flexDirection: "row", gap: 8 }}>
                 {recentDateChips.map((chip) => (
@@ -815,6 +929,36 @@ export default function NewExpenseScreen() {
             </View>
             {authToken && Platform.OS === "ios" && showIosDatePicker ? (
               <DateTimePicker maximumDate={maximumExpenseDate} mode="date" onChange={(_event, date) => selectExpenseCalendarDate(date)} value={new Date(`${expenseDateIso}T12:00:00`)} />
+            ) : null}
+
+            {!showAdditionalFields && !isPixelLockMode ? (
+              <Pressable
+                accessibilityLabel="상세 입력 바로 열기"
+                accessibilityRole="button"
+                onPress={() => {
+                  detailsScrollGenerationRef.current += 1;
+                  setShowAdditionalFields(true);
+                }}
+                style={({ pressed }) => ({
+                  alignItems: "center",
+                  backgroundColor: theme.colors.white,
+                  borderColor: "rgba(74, 63, 53, 0.10)",
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  flexDirection: "row",
+                  gap: 10,
+                  minHeight: 48,
+                  opacity: pressed ? 0.78 : 1,
+                  paddingHorizontal: 14
+                })}
+              >
+                <AppIcon color={theme.colors.mainCoral} name="tune-variant" size={20} />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>결제수단 · 메모 · 선물</Text>
+                  <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>상세 입력을 바로 열어요</Text>
+                </View>
+                <AppIcon color={theme.colors.gray600} name="chevron-right" size={20} />
+              </Pressable>
             ) : null}
 
             {authToken && !childId ? (
@@ -861,7 +1005,7 @@ export default function NewExpenseScreen() {
                     {quickSelections.map((selection) => (
                       <View
                         key={selection.key}
-                        style={{ width: expenseGridColumns === 4 ? "23.4%" : "31.4%" }}
+                        style={{ width: expenseGridItemWidth }}
                       >
                         <ExpenseCategoryIconButton
                           hint={selection.hint}
@@ -910,7 +1054,7 @@ export default function NewExpenseScreen() {
                           {searchResults.slice(0, 24).map((item) => {
                             const category = categoryFor(item.categoryCode);
                             return (
-                              <View key={`search-${item.id}`} style={{ width: expenseGridColumns === 4 ? "23.4%" : "31.4%" }}>
+                              <View key={`search-${item.id}`} style={{ width: expenseGridItemWidth }}>
                                 <ExpenseCategoryIconButton icon={item.icon} label={item.label} onPress={() => selectExpenseItem({ label: item.label, categoryId: category.id })} selected={!customItemMode && item.label === itemName && category.id === selectedCategory.id} />
                               </View>
                             );
@@ -976,7 +1120,7 @@ export default function NewExpenseScreen() {
                             {visibleCategoryItems.map((item: QuickExpenseCatalogItem) => (
                               <View
                                 key={item.id}
-                                style={{ width: expenseGridColumns === 4 ? "23.4%" : "31.4%" }}
+                                style={{ width: expenseGridItemWidth }}
                               >
                                 <ExpenseCategoryIconButton
                                   icon={item.icon}
@@ -989,7 +1133,7 @@ export default function NewExpenseScreen() {
                                 />
                               </View>
                             ))}
-                            <View style={{ width: expenseGridColumns === 4 ? "23.4%" : "31.4%" }}>
+                            <View style={{ width: expenseGridItemWidth }}>
                               <ExpenseCategoryIconButton
                                 icon="plus"
                                 label="직접 입력"
@@ -1066,11 +1210,13 @@ export default function NewExpenseScreen() {
                     {!showPaymentEvidence ? (
                       <TextInput
                         accessibilityLabel="지출 메모"
-                        onChangeText={setMemo}
+                        accessibilityHint={memoError ?? `최대 ${EXPENSE_MEMO_MAX_LENGTH}자`}
+                        maxLength={EXPENSE_MEMO_MAX_LENGTH}
+                        onChangeText={(value) => setMemo(value.slice(0, EXPENSE_MEMO_MAX_LENGTH))}
                         placeholder="메모를 입력해 주세요 (선택)"
                         style={{
                           backgroundColor: theme.colors.white,
-                          borderColor: "rgba(74, 63, 53, 0.10)",
+                          borderColor: memoError ? theme.colors.danger : "rgba(74, 63, 53, 0.10)",
                           borderRadius: 14,
                           borderWidth: 1,
                           color: theme.colors.brown,
@@ -1080,12 +1226,21 @@ export default function NewExpenseScreen() {
                         value={memo}
                       />
                     ) : null}
+                    {!showPaymentEvidence ? (
+                      <Text accessibilityLiveRegion="polite" style={{ color: memoError ? theme.colors.danger : theme.colors.gray600, fontSize: 11, textAlign: "right" }}>
+                        {memoError ?? `${memo.length}/${EXPENSE_MEMO_MAX_LENGTH}자`}
+                      </Text>
+                    ) : null}
 
-                    <View accessibilityLabel={showPaymentEvidence ? "EXP-PAY-001" : undefined}>
+                    {showPaymentEvidence ? (
+                    <View accessibilityLabel="EXP-PAY-001">
                       <Pressable
                         accessibilityLabel="결제 수단 변경"
                         accessibilityRole="button"
-                        onPress={() => setPaymentMethodIndex((value) => (value + 1) % paymentMethodOptions.length)}
+                        onPress={() => {
+                          didApplyDefaultPaymentMethodRef.current = true;
+                          setPaymentMethodIndex((value) => (value + 1) % paymentMethodOptions.length);
+                        }}
                         style={({ pressed }) => ({
                           alignItems: "center",
                           backgroundColor: theme.colors.white,
@@ -1106,6 +1261,19 @@ export default function NewExpenseScreen() {
                         <AppIcon color={theme.colors.gray600} name="chevron-right" size={22} />
                       </Pressable>
                     </View>
+                    ) : (
+                      <PaymentMethodPicker
+                        onSelect={(id) => {
+                          const index = paymentMethodOptions.findIndex((option) => option.id === id);
+                          if (index >= 0) {
+                            didApplyDefaultPaymentMethodRef.current = true;
+                            setPaymentMethodIndex(index);
+                          }
+                        }}
+                        options={paymentMethodOptions.map((option) => ({ id: option.id, label: option.label }))}
+                        selectedId={paymentMethod.id}
+                      />
+                    )}
 
                     {authToken ? (
                       <Pressable
@@ -1156,7 +1324,6 @@ export default function NewExpenseScreen() {
             ) : saveExpense.isError ? (
               <Toast message="품목과 금액을 확인한 뒤 다시 저장해 주세요." tone="error" />
             ) : null}
-            {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}
           </BottomSheetFrame>
         </View>
       </View>

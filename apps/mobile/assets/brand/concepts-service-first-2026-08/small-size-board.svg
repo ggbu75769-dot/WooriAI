@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 220">
+  <rect width="1320" height="220" rx="34" fill="#F3F0EB"/>
+  <style>.n{font-family:"Inter","Malgun Gothic",sans-serif;font-size:16px;font-weight:800;fill:#173D48}</style>
+  <g transform="translate(28 28)"><image href="rank-01-embrace-core.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">01</text></g>
+  <g transform="translate(144 28)"><image href="11-child-ledger.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">11</text></g>
+  <g transform="translate(260 28)"><image href="12-ready-basket.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">12</text></g>
+  <g transform="translate(376 28)"><image href="13-record-to-ready.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">13</text></g>
+  <g transform="translate(492 28)"><image href="14-family-wallet.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">14</text></g>
+  <g transform="translate(608 28)"><image href="15-cost-timeline.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">15</text></g>
+  <g transform="translate(724 28)"><image href="16-smart-checklist.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">16</text></g>
+  <g transform="translate(840 28)"><image href="17-care-budget.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">17</text></g>
+  <g transform="translate(956 28)"><image href="18-buy-record-loop.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">18</text></g>
+  <g transform="translate(1072 28)"><image href="19-growth-stack.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">19</text></g>
+  <g transform="translate(1188 28)"><image href="20-shared-total.svg" width="112" height="112"/><text x="56" y="144" text-anchor="middle" class="n">20</text></g>
+</svg>

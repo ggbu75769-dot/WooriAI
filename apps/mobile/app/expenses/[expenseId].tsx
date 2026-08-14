@@ -2,16 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
-import { Alert, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { getSeoulToday } from "@wooriai/domain";
 import { getExpense, getExpensePlanLinkSuggestions, linkExpensePlan, listPaymentMethods, fixtureSessionToken, type Expense } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
-import { buildRecentExpenseDateChips, formatExpenseAmountInput, formatExpenseDate, sanitizeExpenseAmountText, validateExpenseForm } from "../../src/expenses/form-contract";
+import { TopAppBar } from "../../src/design-system";
+import { buildRecentExpenseDateChips, EXPENSE_AMOUNT_MAX_DIGITS, EXPENSE_MEMO_MAX_LENGTH, formatExpenseAmountInput, formatExpenseDate, sanitizeExpenseAmountText, validateExpenseForm, validateExpenseMemo } from "../../src/expenses/form-contract";
+import { formatKrw } from "../../src/money";
+import { PaymentMethodPicker } from "../../src/expenses/PaymentMethodPicker";
+import { useConfirmDiscardChanges } from "../../src/navigation/use-confirm-discard-changes";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { writableExpenseType } from "../../src/offline/expense-payload";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppIcon, AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, Toast, type AppIconName } from "../../src/ui";
+import { AppIcon, AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, SecondaryButton, Toast, type AppIconName } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const expenseDetailScreenId = "EXP-003";
@@ -57,8 +62,14 @@ export default function ExpenseDetailScreen() {
   // the first time it loads -- see sync-controller.ts's adoptServerExpense.
   const [localExpenseId, setLocalExpenseId] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const [allowExit, setAllowExit] = useState(false);
   const categoryScrollRef = useRef<ScrollView>(null);
   const categoryChipXById = useRef<Record<string, number>>({});
+  const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (navigationTimerRef.current) clearTimeout(navigationTimerRef.current);
+  }, []);
 
   const revealSelectedCategory = useCallback((selectedCategoryId: string) => {
     const chipX = categoryChipXById.current[selectedCategoryId];
@@ -78,6 +89,7 @@ export default function ExpenseDetailScreen() {
     setCategoryId(expense.data.categoryId);
     setExpenseType(expense.data.expenseType);
     setPaymentMethodId(expense.data.paymentMethodId ?? null);
+    setAllowExit(false);
     setLocalExpenseId(null);
     void adoptServerExpense(expense.data).then((row) => setLocalExpenseId(row.localId));
   }, [expense.data]);
@@ -89,12 +101,23 @@ export default function ExpenseDetailScreen() {
   const formValidation = validateExpenseForm({ itemName, amountText: amountDigits, spentOn: spentOnIso });
   const { amountKrw, itemNameError } = formValidation;
   const amountError = amountDigits.length > 0 ? formValidation.amountError : null;
+  const memoError = validateExpenseMemo(memo);
   const spentOnLabel = spentOnIso ? formatExpenseDate(new Date(`${spentOnIso}T00:00:00`)).label : "";
-  const canSave = formValidation.valid && Boolean(authToken && expenseId && localExpenseId);
+  const hasChanges = Boolean(expense.data && (
+    itemName.trim() !== expense.data.itemName ||
+    amountKrw !== expense.data.amountKrw ||
+    memo !== (expense.data.memo ?? "") ||
+    spentOnIso !== expense.data.spentOn ||
+    categoryId !== expense.data.categoryId ||
+    paymentMethodId !== (expense.data.paymentMethodId ?? null) ||
+    expenseType !== expense.data.expenseType
+  ));
+  const canSave = formValidation.valid && !memoError && hasChanges && Boolean(authToken && expenseId && localExpenseId);
+  useConfirmDiscardChanges(hasChanges && !allowExit);
 
   const save = useMutation({
     mutationFn: () => {
-      if (!authToken || !localExpenseId || !formValidation.valid) {
+      if (!authToken || !localExpenseId || !formValidation.valid || memoError) {
         throw new Error("invalid expense");
       }
       return updateExpenseOffline(authToken, queryClient, localExpenseId, {
@@ -108,8 +131,13 @@ export default function ExpenseDetailScreen() {
       });
     },
     onSuccess: async () => {
+      setAllowExit(true);
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
-      setTimeout(() => router.replace("/(tabs)/records"), 650);
+      if (navigationTimerRef.current) clearTimeout(navigationTimerRef.current);
+      navigationTimerRef.current = setTimeout(() => {
+        navigationTimerRef.current = null;
+        router.replace("/(tabs)/records");
+      }, 250);
     }
   });
 
@@ -119,8 +147,13 @@ export default function ExpenseDetailScreen() {
       return deleteExpenseOffline(authToken, queryClient, localExpenseId);
     },
     onSuccess: async () => {
+      setAllowExit(true);
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
-      setTimeout(() => router.replace("/(tabs)/records"), 650);
+      if (navigationTimerRef.current) clearTimeout(navigationTimerRef.current);
+      navigationTimerRef.current = setTimeout(() => {
+        navigationTimerRef.current = null;
+        router.replace("/(tabs)/records");
+      }, 250);
     }
   });
   const linkPlan = useMutation({
@@ -136,7 +169,10 @@ export default function ExpenseDetailScreen() {
   });
 
   function confirmDelete() {
-    Alert.alert("지출 삭제", "이 지출 기록을 삭제할까요?", [
+    const recordLabel = expense.data
+      ? `${expense.data.itemName} · ${formatKrw(expense.data.amountKrw)} · ${formatExpenseDate(new Date(`${expense.data.spentOn}T00:00:00`)).label}`
+      : "이 지출 기록";
+    Alert.alert("지출 기록 삭제", `${recordLabel}\n삭제하면 기록 목록에서 사라집니다.`, [
       { text: "취소", style: "cancel" },
       { text: "삭제", style: "destructive", onPress: () => remove.mutate() }
     ]);
@@ -151,12 +187,6 @@ export default function ExpenseDetailScreen() {
     ...registeredPaymentMethods.filter((method) => method.active),
     ...(currentInactivePaymentMethod ? [currentInactivePaymentMethod] : [])
   ];
-  const selectedPaymentMethod = paymentMethodOptions.find((method) => method.id === paymentMethodId) ?? paymentMethodOptions[0];
-  const cyclePaymentMethod = () => {
-    const currentIndex = paymentMethodOptions.findIndex((method) => method.id === selectedPaymentMethod.id);
-    const next = paymentMethodOptions[(currentIndex + 1) % paymentMethodOptions.length];
-    setPaymentMethodId(next.id);
-  };
 
   const selectExpenseCalendarDate = (date: Date | undefined) => {
     if (!date) return;
@@ -181,7 +211,10 @@ export default function ExpenseDetailScreen() {
   return (
     <AppScreen>
       <View accessibilityLabel={expenseDetailScreenId} testID="screen-EXP-003" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="지출 상세" title="지출 수정" subtitle="품목과 금액을 확인하고 수정할 수 있어요." />
+        <View style={{ gap: 4 }}>
+          <TopAppBar eyebrow="지출 상세" onBack={() => router.back()} title="지출 수정" />
+          <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize }}>품목과 금액을 확인하고 수정할 수 있어요.</Text>
+        </View>
 
         {expense.isLoading ? (
           <EmptyStateCard title="불러오고 있어요." actionLabel="잠시만요" />
@@ -241,7 +274,7 @@ export default function ExpenseDetailScreen() {
                     accessibilityLabel="지출 금액"
                     accessibilityValue={{ text: formatExpenseAmountInput(amountDigits) || "미입력" }}
                     keyboardType="number-pad"
-                    onChangeText={(value) => setAmountDigits(sanitizeExpenseAmountText(value))}
+                    onChangeText={(value) => setAmountDigits(sanitizeExpenseAmountText(value).slice(0, EXPENSE_AMOUNT_MAX_DIGITS))}
                     placeholder="금액"
                     style={{ color: theme.colors.brown, flex: 1, fontSize: theme.typography.body1.fontSize }}
                     value={formatExpenseAmountInput(amountDigits)}
@@ -358,11 +391,16 @@ export default function ExpenseDetailScreen() {
                   메모 (선택)
                 </Text>
                 <TextInput
-                  onChangeText={setMemo}
+                  accessibilityHint={memoError ?? `최대 ${EXPENSE_MEMO_MAX_LENGTH}자`}
+                  accessibilityLabel="지출 메모"
+                  maxLength={EXPENSE_MEMO_MAX_LENGTH}
+                  onChangeText={(value) => setMemo(value.slice(0, EXPENSE_MEMO_MAX_LENGTH))}
                   placeholder="메모를 입력해 주세요"
                   style={{
                     backgroundColor: theme.colors.beige,
+                    borderColor: memoError ? theme.colors.danger : "transparent",
                     borderRadius: theme.radii.small,
+                    borderWidth: 1,
                     color: theme.colors.brown,
                     fontSize: theme.typography.body1.fontSize,
                     minHeight: theme.touchTarget,
@@ -370,30 +408,16 @@ export default function ExpenseDetailScreen() {
                   }}
                   value={memo}
                 />
+                <Text accessibilityLiveRegion="polite" style={{ color: memoError ? theme.colors.danger : theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "right" }}>
+                  {memoError ?? `${memo.length}/${EXPENSE_MEMO_MAX_LENGTH}자`}
+                </Text>
               </View>
 
-              <Pressable
-                accessibilityLabel="결제수단 변경"
-                accessibilityRole="button"
-                onPress={cyclePaymentMethod}
-                style={{
-                  alignItems: "center",
-                  backgroundColor: theme.colors.beige,
-                  borderRadius: theme.radii.small,
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  minHeight: theme.touchTarget,
-                  paddingHorizontal: 14
-                }}
-              >
-                <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>결제수단</Text>
-                <View style={{ alignItems: "center", flexDirection: "row", gap: 6 }}>
-                  <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>
-                    {selectedPaymentMethod.label}{selectedPaymentMethod.active ? "" : " (숨김)"}
-                  </Text>
-                  <AppIcon color={theme.colors.brown} name="chevron-right" size={20} />
-                </View>
-              </Pressable>
+              <PaymentMethodPicker
+                onSelect={setPaymentMethodId}
+                options={paymentMethodOptions.map((option) => ({ id: option.id, label: option.label, unavailable: !option.active }))}
+                selectedId={paymentMethodId}
+              />
 
               {expenseType === "refund" || expenseType === "support" ? (
                 <View
@@ -463,30 +487,32 @@ export default function ExpenseDetailScreen() {
                   <View key={suggestion.planId} style={{ gap: 6 }}>
                     <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{suggestion.itemName}</Text>
                     <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{suggestion.explanation}</Text>
-                    <SecondaryButton label="이 준비 계획과 연결" disabled={linkPlan.isPending} onPress={() => linkPlan.mutate(suggestion)} />
+                    <SecondaryButton label={linkPlan.isPending ? "연결하는 중" : "이 준비 계획과 연결"} disabled={linkPlan.isPending} onPress={() => linkPlan.mutate(suggestion)} />
                   </View>
                 ))}
               </Card>
             ) : null}
 
-            {save.isError || remove.isError ? (
-              <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" />
-            ) : null}
+            {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
+            {remove.isError ? <Toast message="삭제하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
+            {linkPlan.isError ? <Toast message="준비 계획과 연결하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
             {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}
 
             <PrimaryButton
-              disabled={!canSave || save.isPending}
-              label={save.isPending ? "저장하는 중" : "수정 저장"}
+              disabled={!canSave || save.isPending || remove.isPending}
+              label={save.isPending ? "저장하는 중" : !localExpenseId ? "수정 준비 중" : !hasChanges ? "변경 없음" : "수정 저장"}
               onPress={() => save.mutate()}
             />
             <Pressable
+              accessibilityLabel={expense.data ? `${expense.data.itemName} 지출 기록 삭제` : "지출 기록 삭제"}
               accessibilityRole="button"
-              disabled={remove.isPending}
+              accessibilityState={{ disabled: remove.isPending || save.isPending, busy: remove.isPending }}
+              disabled={remove.isPending || save.isPending}
               onPress={confirmDelete}
               style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
             >
-              <Text style={{ color: remove.isPending ? theme.colors.gray300 : theme.colors.danger, fontWeight: "700" }}>
-                {remove.isPending ? "삭제하는 중" : "이 지출 삭제하기"}
+              <Text style={{ color: remove.isPending || save.isPending ? theme.colors.gray300 : theme.colors.danger, fontWeight: "700" }}>
+                {remove.isPending ? "삭제하는 중" : save.isPending ? "저장하는 중" : "이 지출 삭제하기"}
               </Text>
             </Pressable>
           </>

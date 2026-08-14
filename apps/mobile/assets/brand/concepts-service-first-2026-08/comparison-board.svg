@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 2860">
+  <rect width="1800" height="2860" fill="#F3F0EB"/>
+  <style>
+    .ko{font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+    .title{font-size:64px;font-weight:800;fill:#151A20;letter-spacing:-2px}
+    .sub{font-size:26px;font-weight:500;fill:#65707A;letter-spacing:-.5px}
+    .num{font-size:25px;font-weight:900}
+    .brand{font-size:48px;font-weight:800;fill:#173D48;letter-spacing:-2px}
+    .en{font-size:25px;font-weight:800;fill:#151A20;letter-spacing:.2px}
+    .desc{font-size:22px;font-weight:500;fill:#717B84;letter-spacing:-.5px}
+    .pill{font-size:20px;font-weight:800}
+    .heroBrand{font-size:48px;font-weight:800;fill:#F7FBFA;letter-spacing:-2px}
+    .heroEn{font-size:25px;font-weight:800;fill:#F7FBFA;letter-spacing:.2px}
+    .heroDesc{font-size:22px;font-weight:500;fill:#D7E6E2;letter-spacing:-.5px}
+    .heroSub{font-size:22px;font-weight:500;fill:#9FC8BD;letter-spacing:-.5px}
+  </style>
+  <text x="76" y="100" class="ko title">우리아이 — 서비스가 보이는 앱 아이콘</text>
+  <text x="76" y="150" class="ko sub">아이 비용 기록 → 다음 준비 추천 → 가족 공동관리 → 구매 후 기록</text>
+
+  <g transform="translate(64 202)">
+    <rect width="1672" height="410" rx="52" fill="#173D48"/>
+    <image href="rank-01-embrace-core.svg" x="34" y="35" width="340" height="340"/>
+    <rect x="420" y="50" width="146" height="46" rx="23" fill="#FFD261"/>
+    <text x="493" y="81" text-anchor="middle" class="ko pill" fill="#173D48">전체 1위</text>
+    <text x="420" y="163" class="ko heroBrand">우리아이</text>
+    <text x="420" y="220" class="ko heroEn">EMBRACE CORE</text>
+    <text x="420" y="270" class="ko heroDesc">가족이 함께 지키는 한 아이 — 가장 강한 브랜드 심볼</text>
+    <text x="420" y="322" class="ko heroSub">앱 전체를 대표하고, 아래 기능형 후보를 보조 아이콘 체계로 확장 가능</text>
+  </g>
+
+  <text x="76" y="688" class="ko sub" fill="#173D48">추가 10종 · 기능 정체성을 더 직접적으로 보여주는 후보</text>
+
+  <g transform="translate(64 730)">
+    <rect width="820" height="344" rx="44" fill="#FFFFFF"/>
+    <image href="11-child-ledger.svg" x="30" y="32" width="280" height="280"/>
+    <text x="350" y="88" class="ko num" fill="#FF7658">11</text>
+    <text x="350" y="150" class="ko brand">우리아이</text>
+    <text x="350" y="202" class="ko en">CHILD LEDGER</text>
+    <text x="350" y="248" class="ko desc">우리 아이에게 쓴 돈을 기록</text>
+    <text x="350" y="286" class="ko desc">아이 + 영수증</text>
+  </g>
+  <g transform="translate(916 730)">
+    <rect width="820" height="344" rx="44" fill="#FFFFFF"/>
+    <image href="12-ready-basket.svg" x="30" y="32" width="280" height="280"/>
+    <text x="350" y="88" class="ko num" fill="#45A88F">12</text>
+    <text x="350" y="150" class="ko brand">우리아이</text>
+    <text x="350" y="202" class="ko en">READY BASKET</text>
+    <text x="350" y="248" class="ko desc">필요한 출산·육아 준비템 체크</text>
+    <text x="350" y="286" class="ko desc">준비 바구니 + 완료</text>
+  </g>
+
+  <g transform="translate(64 1102)">
+    <rect width="820" height="344" rx="44" fill="#FFFFFF"/>
+    <image href="13-record-to-ready.svg" x="30" y="32" width="280" height="280"/>
+    <text x="350" y="88" class="ko num" fill="#FF7658">13</text>
+    <text x="350" y="150" class="ko brand">우리아이</text>
+    <text x="350" y="202" class="ko en">RECORD TO READY</text>
+    <text x="350" y="248" class="ko desc">쓴 돈에서 다음 준비를 추천</text>
+    <text x="350" y="286" class="ko desc">기록 → 다음 소비</text>
+  </g>
+  <g transform="translate(916 1102)">
+    <rect width="820" height="344" rx="44" fill="#FFFFFF"/>
+    <image href="14-family-wallet.svg" x="30" y="32" width="280" height="280"/>
+    <text x="350" y="88" class="ko num" fill="#6DC5AE">14</text>
+    <text x="350" y="150" class="ko brand">우리아이</text>
+    <text x="350" y="202" class="ko en">FAMILY WALLET</text>
+    <text x="350" y="248" class="ko desc">가족이 함께 모아보는 아이 비용</text>
+    <text x="350" y="286" class="ko desc">가족 + 공동 지갑</text>
+  </g>
+
+  <g transform="translate(64 1474)">
+    <rect width="820" height="344" rx="44" fill="#FFFFFF"/>
+    <image href="15-cost-timeline.svg" x="30" y="32" width="280" height="280"/>
+    <text x="350" y="88" class="ko num" fill="#45A88F">15</text>
+    <text x="350" y="150" class="ko brand">우리아이</text>
+    <text x="350" y="202" class="ko en">COST TIMELINE</text>
+    <text x="350" y="248" class="ko desc">성장에 따라 이어지는 비용 기록</text>
+    <text x="350" y="286" class="ko desc">누적 기록 + 다음 단계</text>
+  </g>
+  <g transform="translate(916 1474)">
+    <rect width="820" height="344" rx="44" fill="#FFFFFF"/>
+    <image href="16-smart-checklist.svg" x="30" y="32" width="280" height="280"/>
+    <text x="350" y="88" class="ko num" fill="#6D5CE7">16</text>
+    <text x="350" y="150" class="ko brand">우리아이</text>
+    <text x="350" y="202" class="ko en">SMART CHECKLIST</text>
+    <text x="350" y="248" class="ko desc">지금과 곧 필요한 준비템 구분</text>
+    <text x="350" y="286" class="ko desc">상황 맞춤 추천 목록</text>
+  </g>
+
+  <g transform="translate(64 1846)">
+    <rect width="820" height="344" rx="44" fill="#FFFFFF"/>
+    <image href="17-care-budget.svg" x="30" y="32" width="280" height="280"/>
+    <text x="350" y="88" class="ko num" fill="#FF7658">17</text>
+    <text x="350" y="150" class="ko brand">우리아이</text>
+    <text x="350" y="202" class="ko en">CARE BUDGET</text>
+    <text x="350" y="248" class="ko desc">우리 아이 비용을 한눈에 확인</text>
+    <text x="350" y="286" class="ko desc">예산 + 누적 리포트</text>
+  </g>
+  <g transform="translate(916 1846)">
+    <rect width="820" height="344" rx="44" fill="#FFFFFF"/>
+    <image href="18-buy-record-loop.svg" x="30" y="32" width="280" height="280"/>
+    <text x="350" y="88" class="ko num" fill="#45A88F">18</text>
+    <text x="350" y="150" class="ko brand">우리아이</text>
+    <text x="350" y="202" class="ko en">BUY–RECORD LOOP</text>
+    <text x="350" y="248" class="ko desc">추천 구매가 지출 기록으로 연결</text>
+    <text x="350" y="286" class="ko desc">구매 후 기록 루프</text>
+  </g>
+
+  <g transform="translate(64 2218)">
+    <rect width="820" height="344" rx="44" fill="#FFFFFF"/>
+    <image href="19-growth-stack.svg" x="30" y="32" width="280" height="280"/>
+    <text x="350" y="88" class="ko num" fill="#FF7658">19</text>
+    <text x="350" y="150" class="ko brand">우리아이</text>
+    <text x="350" y="202" class="ko en">GROWTH STACK</text>
+    <text x="350" y="248" class="ko desc">성장 단계별 비용과 준비를 축적</text>
+    <text x="350" y="286" class="ko desc">아이 성장 + 비용 단계</text>
+  </g>
+  <g transform="translate(916 2218)">
+    <rect width="820" height="344" rx="44" fill="#FFFFFF"/>
+    <image href="20-shared-total.svg" x="30" y="32" width="280" height="280"/>
+    <text x="350" y="88" class="ko num" fill="#45A88F">20</text>
+    <text x="350" y="150" class="ko brand">우리아이</text>
+    <text x="350" y="202" class="ko en">SHARED TOTAL</text>
+    <text x="350" y="248" class="ko desc">가족 기록이 하나의 총액으로 집계</text>
+    <text x="350" y="286" class="ko desc">두 보호자 + 아이 비용</text>
+  </g>
+
+  <rect x="64" y="2624" width="1672" height="112" rx="36" fill="#E2ECE8"/>
+  <text x="900" y="2673" text-anchor="middle" class="ko sub" fill="#173D48">추천 조합: 01을 대표 로고로 사용하고 11·12·13의 의미를 앱 UI 아이콘에 확장</text>
+  <text x="900" y="2713" text-anchor="middle" class="ko desc">한 개의 앱 아이콘에 모든 기능을 넣지 않고, 브랜드와 서비스 이해도를 함께 확보</text>
+</svg>

@@ -1,4 +1,5 @@
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import type { CatalogSafetyAlert, CatalogSafetyAlternativesResponse, CatalogTimelineItem, CatalogPlanState } from "../api/client";
 import { AppIcon, EmptyStateCard, SectionCard, semanticColors, spacing, type AppIconName } from "../design-system";
 
@@ -232,7 +233,7 @@ export function WeeklyPreparationSection({
             <View style={{ alignItems: "flex-start", flexDirection: "row", gap: spacing.sm }}>
               <View style={{ flex: 1, gap: 4 }}>
                 <Text style={{ color: semanticColors.textPrimary, fontSize: 16, fontWeight: "900" }}>{item.nameKo}</Text>
-                <Text numberOfLines={2} style={{ color: semanticColors.textSecondary, fontSize: 13, lineHeight: 19 }}>{item.recommendationReason}</Text>
+                <Text style={{ color: semanticColors.textSecondary, fontSize: 13, lineHeight: 19 }}>{item.recommendationReason}</Text>
                 <Text style={{ color: semanticColors.actionPrimary, fontSize: 12, fontWeight: "800" }}>{item.dueWindow.label} · {planLabel(item.plan?.state)}</Text>
                 <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>
                   필요 {item.plan?.quantityNeeded ?? item.plan?.desiredQuantity ?? 0} · 보유 {item.plan?.quantityOwned ?? item.plan?.ownedQuantity ?? 0} · {item.plan?.assignedUserId ? "담당자 지정됨" : "담당자 미정"}

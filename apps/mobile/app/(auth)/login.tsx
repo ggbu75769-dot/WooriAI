@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import * as WebBrowser from "expo-web-browser";
 import { useState } from "react";
 import { router } from "expo-router";
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import {
   fixtureSessionToken,
   getCurrentLegalDocuments,
@@ -20,18 +21,20 @@ import { theme } from "../../src/theme";
 import { AppIcon, AppScreen } from "../../src/design-system";
 
 const isTestLoginEnabled = isTestLoginBuild();
-const logoMark = require("../../assets/illustrations/logo_mark.png");
+const logoLockup = require("../../assets/illustrations/logo_lockup.png");
 
 function ConsentRow({
   checked,
   disabled,
   label,
+  opened,
   onOpen,
   onPress
 }: {
   checked: boolean;
   disabled: boolean;
   label: string;
+  opened: boolean;
   onOpen: () => void;
   onPress: () => void;
 }) {
@@ -53,15 +56,15 @@ function ConsentRow({
         <Text style={styles.consentLabel}>{label}</Text>
       </Pressable>
       <Pressable
-        accessibilityLabel={`${label} 문서 보기`}
+        accessibilityLabel={`${label} 문서 ${opened ? "닫기" : "보기"}`}
         accessibilityRole="button"
-        accessibilityState={{ disabled }}
+        accessibilityState={{ disabled, expanded: opened }}
         disabled={disabled}
         hitSlop={8}
         onPress={onOpen}
         style={({ pressed }) => [styles.documentButton, pressed ? styles.pressed : null]}
       >
-        <Text style={styles.documentButtonText}>보기</Text>
+        <Text style={styles.documentButtonText}>{opened ? "닫기" : "보기"}</Text>
       </Pressable>
     </View>
   );
@@ -96,6 +99,10 @@ export default function LoginScreen() {
   const loginDisabled = !requiredAccepted || isLoginPending || !kakaoAvailable;
 
   async function openDocument(document: LegalDocument) {
+    if (!document.publicUrl && openedDocument?.documentType === document.documentType) {
+      setOpenedDocument(null);
+      return;
+    }
     setOpenedDocument(document);
     if (document.publicUrl) {
       await WebBrowser.openBrowserAsync(document.publicUrl);
@@ -150,8 +157,12 @@ export default function LoginScreen() {
     <AppScreen>
       <View accessibilityLabel="우리아이 로그인" testID="screen-AUTH-001" style={styles.screen}>
         <View style={styles.brandRow}>
-          <Image source={logoMark} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.brandName}>우리아이</Text>
+          <Image
+            accessibilityLabel="우리아이"
+            resizeMode="contain"
+            source={logoLockup}
+            style={styles.logoLockup}
+          />
         </View>
 
         <View style={styles.hero}>
@@ -177,6 +188,7 @@ export default function LoginScreen() {
                 checked={termsAccepted}
                 disabled={isLoginPending}
                 label={requiredDocuments!.terms.title}
+                opened={openedDocument?.documentType === requiredDocuments!.terms.documentType && !requiredDocuments!.terms.publicUrl}
                 onOpen={() => void openDocument(requiredDocuments!.terms)}
                 onPress={() => setTermsAccepted((value) => !value)}
               />
@@ -185,6 +197,7 @@ export default function LoginScreen() {
                 checked={privacyAccepted}
                 disabled={isLoginPending}
                 label={requiredDocuments!.privacy.title}
+                opened={openedDocument?.documentType === requiredDocuments!.privacy.documentType && !requiredDocuments!.privacy.publicUrl}
                 onOpen={() => void openDocument(requiredDocuments!.privacy)}
                 onPress={() => setPrivacyAccepted((value) => !value)}
               />
@@ -272,11 +285,6 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  brandName: {
-    color: theme.colors.mainCoral,
-    fontSize: 24,
-    fontWeight: "800"
-  },
   appleButton: {
     backgroundColor: theme.colors.surface,
     borderColor: theme.colors.gray300,
@@ -289,8 +297,7 @@ const styles = StyleSheet.create({
   },
   brandRow: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: 10
+    flexDirection: "row"
   },
   checkbox: {
     alignItems: "center",
@@ -433,9 +440,9 @@ const styles = StyleSheet.create({
   loginButtonTextDisabled: {
     color: theme.colors.gray600
   },
-  logo: {
-    height: 48,
-    width: 48
+  logoLockup: {
+    height: 52,
+    width: 195
   },
   pressed: {
     opacity: 0.82

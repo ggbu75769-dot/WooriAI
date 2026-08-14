@@ -23,5 +23,6 @@ export const releaseGateE2eFiles: string[] = [
   "test/release4i-import-object-consistency.db.test.ts",
   "test/release3-phase4.e2e.test.ts",
   "test/household-authority-lifecycle.db.test.ts",
-  "test/release5d-daily.e2e.test.ts"
+  "test/release5d-daily.e2e.test.ts",
+  "test/release5e-assisted.e2e.test.ts"
 ];

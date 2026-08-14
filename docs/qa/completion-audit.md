@@ -1,5 +1,7 @@
 # WooriAI MVP Completion Audit
 
+> 최신 전체 출시 감사와 산출물 해시는 `docs/operations/launch-readiness-2026-08-12.md`를 우선한다. 아래 내용은 2026-07-24 MVP 기준선 기록이다.
+
 Date: 2026-07-24
 Scope: AGENTS.md v0.5 objective, Batch 00 through Batch 11
 

@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router } from "expo-router";
 import { useRef } from "react";
-import { Platform, Text, View } from "react-native";
+import { Platform, View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import { buildOnboardingCompletionInput, getOnboardingReadiness } from "@wooriai/domain";
 import { completeOnboarding, fixtureSessionToken, getOnboardingProgress, isApiErrorCode, type CompleteOnboardingInput } from "../api/client";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, useLocalSearchParams, useNavigation } from "expo-router";
-import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Platform, Pressable, TextInput, ToastAndroid, View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import { formatKrw } from "../money";
 import { addItemPlanComment, getCatalogItem, getCatalogItemComparison, getChild, getItemPlanActivity, getRecurringPrediction, isApiErrorCode, listHouseholdMembers, fixtureSessionToken, newClientMutationId, putItemPlan, putMotherItemPlan, type CatalogItemPlan, type CatalogPlanState } from "../api/client";
-import { AffiliateDisclosure, AppIcon, EmptyStateCard, PrimaryButton, SampleDataBanner, ScreenScaffold, SecondaryButton, SectionCard, Toast, semanticColors, spacing } from "../design-system";
+import { AffiliateDisclosure, AppIcon, DateField, EmptyStateCard, PrimaryButton, SampleDataBanner, ScreenScaffold, SecondaryButton, SectionCard, Toast, semanticColors, spacing } from "../design-system";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
 import { invalidatePreparationMutationQueries } from "../query/mutation-invalidation";
@@ -65,6 +66,10 @@ export function Release4ItemDetailScreen() {
   const activeMotherProfileId = contextType === "mother" ? String(contextId ?? "") : undefined;
   const activeChildId = activeMotherProfileId ? undefined : String(contextType === "child" ? contextId ?? childId ?? "" : childId ?? "");
   const [message, setMessage] = useState<string | null>(null);
+  const showMessage = (nextMessage: string) => {
+    setMessage(nextMessage);
+    if (Platform.OS === "android") ToastAndroid.show(nextMessage, ToastAndroid.LONG);
+  };
   const [quantityNeeded, setQuantityNeeded] = useState("");
   const [quantityOwned, setQuantityOwned] = useState("");
   const [size, setSize] = useState("");
@@ -127,7 +132,7 @@ export function Release4ItemDetailScreen() {
       ? putMotherItemPlan(token!, activeMotherProfileId, itemId, { state, expectedVersion: detail.data?.plan?.version })
       : putItemPlan(token!, activeChildId!, itemId, { state, expectedVersion: detail.data?.plan?.version }),
     onSuccess: async (plan) => {
-      setMessage(`준비 상태를 '${planChoices.find((choice) => choice.state === plan.state)?.label ?? plan.state}'으로 저장했어요.`);
+      showMessage(`준비 상태를 '${planChoices.find((choice) => choice.state === plan.state)?.label ?? plan.state}'으로 저장했어요.`);
       await invalidatePreparationMutationQueries(queryClient, [
         activeChildId ? `child:${activeChildId}` : `mother:${activeMotherProfileId}`,
         activeChildId ?? activeMotherProfileId!
@@ -158,7 +163,7 @@ export function Release4ItemDetailScreen() {
     },
     onSuccess: async () => {
       setHasVersionConflict(false);
-      setMessage("수량·재고·담당자·예산 정보를 저장했어요.");
+      showMessage("수량·재고·담당자·예산 정보를 저장했어요.");
       await invalidatePreparationMutationQueries(queryClient, [
         activeChildId ? `child:${activeChildId}` : `mother:${activeMotherProfileId}`,
         activeChildId ?? activeMotherProfileId!
@@ -167,10 +172,10 @@ export function Release4ItemDetailScreen() {
     onError: (error) => {
       if (isApiErrorCode(error, "VERSION_CONFLICT")) {
         setHasVersionConflict(true);
-        setMessage("다른 가족이 먼저 수정했어요. 입력한 내용은 유지했으니 최신 값을 확인해 주세요.");
+        showMessage("다른 가족이 먼저 수정했어요. 입력한 내용은 유지했으니 최신 값을 확인해 주세요.");
         return;
       }
-      setMessage("입력값을 확인한 뒤 다시 저장해 주세요.");
+      showMessage("입력값을 확인한 뒤 다시 저장해 주세요.");
     }
   });
   const addComment = useMutation({
@@ -179,7 +184,7 @@ export function Release4ItemDetailScreen() {
       return addItemPlanComment(token!, activeChildId!, itemId, commentDraft, commentMutationId.current);
     },
     onSuccess: async () => { commentMutationId.current = null; setCommentDraft(""); await activity.refetch(); },
-    onError: () => setMessage("댓글을 저장하지 못했어요.")
+    onError: () => showMessage("댓글을 저장하지 못했어요.")
   });
 
   useEffect(() => {
@@ -284,7 +289,7 @@ export function Release4ItemDetailScreen() {
 
   const savePlan = () => {
     if (!inventoryChanged) {
-      setMessage("변경된 내용이 없어요.");
+      showMessage("변경된 내용이 없어요.");
       return;
     }
     if (!inventoryNumbersValid || !inventoryDatesValid) return;
@@ -409,11 +414,17 @@ export function Release4ItemDetailScreen() {
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
                 <PlanTextField label="사이즈" onChangeText={setSize} value={size} />
                 <PlanTextField label="옵션·변형" onChangeText={setVariant} value={variant} />
-                <PlanTextField label="준비 예정일 YYYY-MM-DD" onChangeText={setDueDate} placeholder="2026-07-16" value={dueDate} />
+                <View style={{ flexBasis: "47%", flexGrow: 1, minWidth: 140 }}>
+                  <DateField label="준비 예정일" onChange={(value) => setDueDate(value ?? "")} value={dueDate || null} />
+                </View>
                 {fieldVisibility.showAcquiredFields ? (
                   <>
-                    <PlanTextField label="실제 구매일 YYYY-MM-DD" onChangeText={setPurchasedAt} placeholder="2026-07-16" value={purchasedAt} />
-                    <PlanTextField label="개봉일 YYYY-MM-DD" onChangeText={setOpenedAt} placeholder="2026-07-16" value={openedAt} />
+                    <View style={{ flexBasis: "47%", flexGrow: 1, minWidth: 140 }}>
+                      <DateField label="실제 구매일" maximumDate={new Date()} onChange={(value) => setPurchasedAt(value ?? "")} value={purchasedAt || null} />
+                    </View>
+                    <View style={{ flexBasis: "47%", flexGrow: 1, minWidth: 140 }}>
+                      <DateField label="개봉일" maximumDate={new Date()} onChange={(value) => setOpenedAt(value ?? "")} value={openedAt || null} />
+                    </View>
                     <PlanTextField label="보관 위치" onChangeText={setStorageLocation} value={storageLocation} />
                   </>
                 ) : null}
@@ -431,7 +442,11 @@ export function Release4ItemDetailScreen() {
               </View>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}>
                 {fieldVisibility.showRecurringField ? <PlanTextField keyboardType="number-pad" label="재구매 주기(일)" onChangeText={setRecurringIntervalDays} value={recurringIntervalDays} /> : null}
-                {fieldVisibility.showReplacementField ? <PlanTextField label="교체 예정일 YYYY-MM-DD" onChangeText={setReplacementDueAt} placeholder="2026-07-16" value={replacementDueAt} /> : null}
+                {fieldVisibility.showReplacementField ? (
+                  <View style={{ flexBasis: "47%", flexGrow: 1, minWidth: 140 }}>
+                    <DateField label="교체 예정일" onChange={(value) => setReplacementDueAt(value ?? "")} value={replacementDueAt || null} />
+                  </View>
+                ) : null}
               </View>
 
               <Text style={{ color: semanticColors.textSecondary, fontSize: 12, fontWeight: "700" }}>준비 방식</Text>
@@ -498,7 +513,7 @@ export function Release4ItemDetailScreen() {
               childId={activeChildId ?? null}
               itemDefinitionId={itemId}
               offer={offer}
-              onMessage={setMessage}
+              onMessage={showMessage}
               scopeKey={purchaseScopeKey}
             />
           </View>

@@ -3,7 +3,8 @@ import type React from "react";
 import type { ComponentProps } from "react";
 import { useState } from "react";
 import type { ImageSourcePropType, LayoutChangeEvent, StyleProp, TextStyle, ViewStyle } from "react-native";
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, View } from "react-native";
+import { KoreanText as Text } from "./design-system/components/KoreanText";
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { theme } from "./theme";
 import { EmptyState as DesignEmptyState, ErrorState, LoadingState, ScreenScaffold } from "./design-system";
@@ -136,15 +137,28 @@ export function ScreenHeader({
   eyebrow,
   title,
   subtitle,
-  action
+  action,
+  onBack
 }: {
   eyebrow?: string;
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
+  onBack?: () => void;
 }) {
   return (
     <View style={{ flexDirection: "row", gap: 12, justifyContent: "space-between" }}>
+      {onBack ? (
+        <Pressable
+          accessibilityLabel="뒤로"
+          accessibilityRole="button"
+          hitSlop={4}
+          onPress={onBack}
+          style={({ pressed }) => ({ alignItems: "center", borderRadius: theme.radii.button, height: 48, justifyContent: "center", opacity: pressed ? 0.7 : 1, width: 48 })}
+        >
+          <AppIcon color={theme.colors.brown} name="chevron-left" size={26} />
+        </Pressable>
+      ) : null}
       <View style={{ flex: 1, gap: 4 }}>
         {eyebrow ? <Text style={[textStyles.caption, { color: theme.colors.mainCoral }]}>{eyebrow}</Text> : null}
         <Text style={[textStyles.h2, { color: theme.colors.brown }]}>{title}</Text>
@@ -222,7 +236,7 @@ export function PrimaryButton({ label, onPress, disabled, style }: PressableProp
         style
       ]}
     >
-      <Text style={{ color: theme.colors.white, fontSize: 15, fontWeight: "700" }}>{label}</Text>
+      <Text style={{ color: theme.colors.white, fontSize: 15, fontWeight: "700", textAlign: "center" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -250,7 +264,7 @@ export function SecondaryButton({ label, onPress, disabled, style }: PressablePr
         style
       ]}
     >
-      <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{label}</Text>
+      <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700", textAlign: "center" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -512,7 +526,13 @@ export function ListRow({
   onPress?: () => void;
 }) {
   return (
-    <Pressable onPress={onPress}>
+    <Pressable
+      accessibilityLabel={[title, subtitle, value].filter(Boolean).join(". ")}
+      accessibilityRole={onPress ? "button" : "text"}
+      disabled={!onPress}
+      onPress={onPress}
+      style={({ pressed }) => ({ opacity: onPress && pressed ? 0.76 : 1 })}
+    >
       <Card style={{ alignItems: "center", flexDirection: "row", gap: 12, paddingVertical: 12 }}>
         {icon ? (
           typeof icon === "string" ? (

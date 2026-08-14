@@ -1,23 +1,31 @@
 import { router, type Href } from "expo-router";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { useCurrentSessionLogout } from "../../src/auth/use-current-session-logout";
 import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
-import { useSelectedChildStore } from "../../src/stores/selected-child.store";
+import { householdIdForFeatureScope, useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppIcon, AppScreen, Card, ListRow, SampleDataBanner, ScreenHeader } from "../../src/design-system";
 import { theme } from "../../src/theme";
 
 export default function SettingsScreen() {
-  const householdId = useSessionStore((state) => state.defaultHouseholdId);
+  const defaultHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const selectedChildHouseholdId = useSelectedChildStore((state) => state.selectedChildHouseholdId);
+  const householdId = householdIdForFeatureScope(
+    childId,
+    selectedChildHouseholdId,
+    defaultHouseholdId,
+    isTestSession
+  );
   const { confirmLogout, isLoggingOut } = useCurrentSessionLogout();
 
   return (
     <AppScreen>
       <View testID="screen-SET-001" accessibilityLabel="screen-SET-001" style={{ gap: theme.spacing.section }}>
         {isTestSession ? <SampleDataBanner /> : null}
-        <ScreenHeader eyebrow="설정" title="설정" subtitle="계정과 가족 정보를 관리해요" />
+        <ScreenHeader eyebrow="더보기" onBack={() => router.back()} title="설정" subtitle="계정과 가족 정보를 관리해요" />
         <Card style={{ gap: 6 }}>
           <View style={summaryRowStyle}>
             <Text style={summaryLabelStyle}>현재 가구</Text>
@@ -51,16 +59,18 @@ export default function SettingsScreen() {
             onPress={() => router.push("/weekly-briefing" as Href)}
           />
           <ListRow
+            badgeLabel={isTestSession ? "실제 계정" : undefined}
             icon={<AppIcon color={theme.colors.coral[600]} name="receipt" size={22} />}
             title="영수증 빠른 입력"
-            subtitle="영수증을 선택하고 확인 후 지출로 저장해요"
-            onPress={() => router.push("/receipts/new" as Href)}
+            subtitle={isTestSession ? "테스트 모드에서는 사용할 수 없어요" : "영수증을 선택하고 확인 후 지출로 저장해요"}
+            onPress={isTestSession ? undefined : () => router.push("/receipts/new" as Href)}
           />
           <ListRow
+            badgeLabel={isTestSession ? "실제 계정" : undefined}
             icon={<AppIcon color={theme.colors.coral[600]} name="bell-outline" size={22} />}
             title="알림 설정"
-            subtitle="유형별 알림과 주간 브리핑을 조정해요"
-            onPress={() => router.push("/notification-preferences" as Href)}
+            subtitle={isTestSession ? "테스트 모드에서는 변경할 수 없어요" : "유형별 알림과 주간 브리핑을 조정해요"}
+            onPress={isTestSession ? undefined : () => router.push("/notification-preferences" as Href)}
           />
         </> : null}
         <ListRow

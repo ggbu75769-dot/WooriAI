@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-25T12:17:57.661Z",
+  "generatedAt": "2026-08-11T00:31:51.289Z",
   "actor": "source auditor and Android build engineer",
   "input": "tracked, clean-owned untracked, and explicitly included ignored Android native source",
   "mission": "bind every build-relevant source file to a deterministic sorted SHA-256 manifest without caches or artifacts",
   "status": "SOURCE_VERIFIED",
-  "branch": "codex/sprint2-catalog-payments",
-  "head": "46c5d55584d8b839600d0198ac7e28a242cae69f",
+  "branch": "codex/wooriai-apk-feedback-ux-hardening-v1",
+  "head": "b597f1703f0036473589392cfd4669a3d8db342b",
   "dirty": true,
-  "fileCount": 946,
-  "nativeExplicitFileCount": 85,
-  "sourceSnapshotSha256": "4DE76B24F79C447DBDEB362A60526BF2497A4D756523518ECA8824CA220F35CF",
+  "fileCount": 975,
+  "nativeExplicitFileCount": 75,
+  "sourceSnapshotSha256": "4E3B1F6775D329D8FB0EDAEA7341BA07C8F2195807195D5405FD952B99AB3699",
   "exclusions": [
     "dependencies",
     "build outputs",
@@ -41,14 +41,14 @@
     },
     {
       "path": ".github/workflows/ci.yml",
-      "bytes": 5691,
-      "sha256": "D67DCCBB96EE70670C59E1E0692D48E3E382C12B6B35ECA6F5069AEE5BE4DF04",
+      "bytes": 5806,
+      "sha256": "FD472BDCA5A6D9027836BBCE1F22BD89BA8420D9F2FCA4D9ADC498546C940F5A",
       "source": "git-worktree"
     },
     {
       "path": ".gitignore",
-      "bytes": 236,
-      "sha256": "98A3A30E5756833DFC906ED0ADC36CD0ABB50AA8FC2ABA7E1DDC1598EE5AA431",
+      "bytes": 297,
+      "sha256": "EF43607484E334B2BDC69264D1BFE6A95156B0F23FC8390DF83CE7FE794D53A4",
       "source": "git-worktree"
     },
     {
@@ -59,8 +59,8 @@
     },
     {
       "path": "app.config.js",
-      "bytes": 970,
-      "sha256": "45C4D5A13661AF4E86E55775266A4C62C3B74A0C2924736CCA75DAE3657C97C8",
+      "bytes": 1465,
+      "sha256": "64BA99C7AD0BA9A76F7F7274CD743EB40927C3455346DCFD48EF8FEE5250E898",
       "source": "git-worktree"
     },
     {
@@ -120,7 +120,7 @@
     {
       "path": "apps/admin/app/page.tsx",
       "bytes": 2583,
-      "sha256": "F9E8C84C75C0523C650809DEA3EAC8E81FC3FEF90A77AA6BAE0B3184607DA476",
+      "sha256": "EE422D0ED0B245A84A6168D136A364963657B6B8A8EC1130D6C248A765B74715",
       "source": "git-worktree"
     },
     {
@@ -131,8 +131,8 @@
     },
     {
       "path": "apps/admin/app/release5/page.tsx",
-      "bytes": 14657,
-      "sha256": "664D064409AA21779CDBDB1A59418739C3BBBE0C70853F20A8C5E9C9465B2463",
+      "bytes": 21970,
+      "sha256": "5C246702392A4A622C8E26BD2FC53C51EC1765ACB2C6B9E6C0E47376336EEE35",
       "source": "git-worktree"
     },
     {
@@ -185,8 +185,8 @@
     },
     {
       "path": "apps/admin/src/admin-cms-pages.test.ts",
-      "bytes": 9760,
-      "sha256": "00AACA8894CBB6313EE58B2B455865D01B5AEA2D1DD188932A180C609D0CAB1C",
+      "bytes": 10231,
+      "sha256": "3F6026FF1A183A4CBB96B8571EA507E7425CBFDF8EA9D6E16E946C2778FA9A8B",
       "source": "git-worktree"
     },
     {
@@ -239,8 +239,8 @@
     },
     {
       "path": "apps/admin/src/lib/admin-api.ts",
-      "bytes": 36171,
-      "sha256": "17BE880784CEFD369E8D933724CDA077516A23BBA471AC4C95F5E1C7CBC92A17",
+      "bytes": 38101,
+      "sha256": "8B5F62B9E0EA293195D99965F0D042A65EBF81584D38AE4B90A1622B23E997A7",
       "source": "git-worktree"
     },
     {
@@ -557,20 +557,20 @@
     },
     {
       "path": "apps/api/prisma/seed.ts",
-      "bytes": 28814,
-      "sha256": "F65C7A16CADB42EF76E3EAE34412EE097E24B4F2C26E93119E08785671F169FA",
+      "bytes": 29700,
+      "sha256": "7B2E2507342FDD1CBD05655B2422AF8582620E53B1C86F143DBE5CAC0A2576C3",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/scripts/catalog.ts",
-      "bytes": 25196,
-      "sha256": "D91B34FF5EB3F749EF7506F88C7C3564D2AF55433419B782223214FF72CB39FF",
+      "bytes": 25811,
+      "sha256": "21C8A61E72C881EE0F1CC5091D90FFDDCFE1DF21F87E8AB945EAB9CF631323A0",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/scripts/release4c-evidence.ts",
-      "bytes": 11537,
-      "sha256": "B3037CF27E972993F5D789BD66AFEB48708A07FDF4651A0179A7259FE6AE1C60",
+      "bytes": 15471,
+      "sha256": "9167CC3054379D40326FED38BE40D6497DA83A462EDF77EB02F6302D116E5976",
       "source": "git-worktree"
     },
     {
@@ -923,8 +923,8 @@
     },
     {
       "path": "apps/api/src/catalog-v2/catalog-v2.service.ts",
-      "bytes": 173116,
-      "sha256": "2B35C66F671E911B1FD4FCDC3E614EEAD759998394AA5996AA1123FB07F61AD3",
+      "bytes": 173888,
+      "sha256": "84989DB85FCAAD7E1220AC5DF4E9E7F0613CC57FA2F379AA4F2A156EF0C36502",
       "source": "git-worktree"
     },
     {
@@ -949,6 +949,12 @@
       "path": "apps/api/src/common/audit/audit.module.ts",
       "bytes": 211,
       "sha256": "5E98893AD437831D540D20D1D21D6E6E11198958ED706F999EEB3A61B87CD1AE",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/api/src/common/authorization/plan-reader.ts",
+      "bytes": 643,
+      "sha256": "EE0070F10C766DE747A2D3F686E89366518C8B6C219F314701DD2B15C15CAB5D",
       "source": "git-worktree"
     },
     {
@@ -1054,6 +1060,18 @@
       "source": "git-worktree"
     },
     {
+      "path": "apps/api/src/common/security/public-https-url.test.ts",
+      "bytes": 1260,
+      "sha256": "185AD20A97645CA266D374E308984CB0FACB98DF01D9FE9886C8B23B782E8544",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/api/src/common/security/public-https-url.ts",
+      "bytes": 3622,
+      "sha256": "77F21C3D9800A9D13DC30ED5D055BB0D1BAB48EFE21A7E3A2BBF533D012383EF",
+      "source": "git-worktree"
+    },
+    {
       "path": "apps/api/src/common/security/rate-limit.middleware.ts",
       "bytes": 5826,
       "sha256": "A8A828121252648AA12CB1D746D028C509750F9356E4781F74FC8CE3BC6C36BE",
@@ -1091,8 +1109,8 @@
     },
     {
       "path": "apps/api/src/finance/dto/expense.dto.ts",
-      "bytes": 2283,
-      "sha256": "53385054A250503EEC9F21A4A12379D6C0AB6371B031E1CC87C20ADF4D7D10EC",
+      "bytes": 2347,
+      "sha256": "893D67FBC3DDB0E84EC2F2D0C8D61DDDCCF5E04F830B0D812DF36B31AE12DC72",
       "source": "git-worktree"
     },
     {
@@ -1103,8 +1121,8 @@
     },
     {
       "path": "apps/api/src/finance/dto/query.dto.ts",
-      "bytes": 689,
-      "sha256": "CDA61D8B2988AA10E84118542CA55A5AE3DE7341D15A06ECB9EBB3425520F2DC",
+      "bytes": 1032,
+      "sha256": "B4D4E8FFF48AA85F04E2C01577A83EA31612851177BF22639E24EEBE4ADF8B40",
       "source": "git-worktree"
     },
     {
@@ -1121,14 +1139,14 @@
     },
     {
       "path": "apps/api/src/finance/expenses.controller.ts",
-      "bytes": 3505,
-      "sha256": "820E36F0BDE233C92CFFDC7C7361C826F0844AD3519543E09BD3E92EEAEED536",
+      "bytes": 3633,
+      "sha256": "DCE6165F02BE600B9234F05E9E7876C21409BEE95585A4AEADBDE27DD1CB3051",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/finance/expenses.service.ts",
-      "bytes": 8100,
-      "sha256": "3B2C3C1E601CDD6BA1696FF7F360B30A0344A695121DD96E5347997CE7599E6F",
+      "bytes": 8690,
+      "sha256": "7F5EAA1FE2F0492DB52B109D627E47BAE458DD0CDB6B0B3F4AE7FBAB3F418CBC",
       "source": "git-worktree"
     },
     {
@@ -1139,14 +1157,14 @@
     },
     {
       "path": "apps/api/src/finance/home.controller.ts",
-      "bytes": 1480,
-      "sha256": "BA04F43656E1372682CAB3F55D428A8AED266F855FD238479E6F75DE6BA6065D",
+      "bytes": 1126,
+      "sha256": "B281FD0704FBAA0AC6CD533C235B1F0DCBD67703D34B79DACE6871A55A8AEAAB",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/finance/payment-methods.controller.ts",
-      "bytes": 1914,
-      "sha256": "DC305334699155C28C6352BC97923531581684A9553BE895C066D6063549DF18",
+      "bytes": 2152,
+      "sha256": "5225DAF58C2441D42D043932D3084DFF200740CCA7550F0E482B6B0628D4ACA8",
       "source": "git-worktree"
     },
     {
@@ -1157,8 +1175,8 @@
     },
     {
       "path": "apps/api/src/finance/reports-v2.service.ts",
-      "bytes": 43338,
-      "sha256": "633844B99CF03B525DCABB58BD38952B3D5665FD451F76CDFB2D39A1B83DC614",
+      "bytes": 43518,
+      "sha256": "E4B5DFA879F8331244F9E72C7079A4F770C9595612F0E54DC4EA7BC705391DFF",
       "source": "git-worktree"
     },
     {
@@ -1186,6 +1204,12 @@
       "source": "git-worktree"
     },
     {
+      "path": "apps/api/src/households/authority-transaction.ts",
+      "bytes": 1952,
+      "sha256": "CB208241B7B55D9DE2EF8D497AD9C4F127986000660AC31B885214C8A70DCDF9",
+      "source": "git-worktree"
+    },
+    {
       "path": "apps/api/src/households/dto/household.dto.ts",
       "bytes": 338,
       "sha256": "2317622CB40174DC5823FC61F7DD248A95229375BF985DEDCAF02D71D9206CE4",
@@ -1199,20 +1223,20 @@
     },
     {
       "path": "apps/api/src/households/household-runtime.service.ts",
-      "bytes": 23530,
-      "sha256": "B90B4E9DB2F173D34C7755A29E6BDF84A68108BAFE9A7B88CAF6A9C6028D9F78",
+      "bytes": 28621,
+      "sha256": "824252F600A56516F14FFDA9F1272515674CA69F4BD1355BECA429939C90DF09",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/households/households.controller.ts",
-      "bytes": 4015,
-      "sha256": "421667DF543E017D9D449B1C7CB94A7E9A96F5D5854CE6C26CDA77543BFCD500",
+      "bytes": 2973,
+      "sha256": "F5E0BC32F589F252D092038E44FC7FD3C109DBD09560D51970FDF196D2BF58C1",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/households/households.module.ts",
-      "bytes": 431,
-      "sha256": "9C4141268F518048B0AD4D006FCC81D125577F009009F72F57BF4279DD531B7C",
+      "bytes": 358,
+      "sha256": "B95BD39F9C9BE4F7133A80ED770D715CEB8463D91BAE213895F25BB6D0CF362F",
       "source": "git-worktree"
     },
     {
@@ -1283,8 +1307,8 @@
     },
     {
       "path": "apps/api/src/jobs/job-handlers.service.ts",
-      "bytes": 18942,
-      "sha256": "1C6FF12C01B417D6BEE2AD4DC01BAB03026C065AD20DFA9E549AFF08D8460E84",
+      "bytes": 19110,
+      "sha256": "109E4B47B53AFA97FFADCBEBE2A08C8A5326CE51FDD6CC489923F680AAF84F8B",
       "source": "git-worktree"
     },
     {
@@ -1481,8 +1505,8 @@
     },
     {
       "path": "apps/api/src/onboarding/onboarding-store.service.ts",
-      "bytes": 108845,
-      "sha256": "660213B2C430C7CB4BC687CEDE3A6C71D3548468264275B8DB79E61EF7EF79C5",
+      "bytes": 113794,
+      "sha256": "0D77E4A2BB52449AF257AA373541A06582F9A1A97BE5DF6245FFBDD6D49BDE18",
       "source": "git-worktree"
     },
     {
@@ -1541,20 +1565,20 @@
     },
     {
       "path": "apps/api/src/privacy/privacy-state.test.ts",
-      "bytes": 980,
-      "sha256": "F48730E052B91BEFEBF8F259B4F9F37DBFA66F2AA8DD7A428BB2A756DF258EB7",
+      "bytes": 1055,
+      "sha256": "16942D4BC917F09058B351EDDEA78ACBF02153053A3DA32AD0EDF4CC9703EAD8",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/privacy/privacy-state.ts",
-      "bytes": 874,
-      "sha256": "64698E4E6DE35088BCB626355181600093B7005C8FC8CBB459202D9DEDBDF921",
+      "bytes": 887,
+      "sha256": "2775239F8ABB3EC73A7EE2AA1A1199FE21DE7349AFF7F43BB4DC50BC729920A8",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/privacy/privacy.controller.ts",
-      "bytes": 2509,
-      "sha256": "5A926F627FBC572BC992C384E9E8DB76D1A62FB70955809F7B1765E3FC174E27",
+      "bytes": 3185,
+      "sha256": "8C4C619C8A0E47C7253C3D5E1C4B42FD491C0F3BA9E3B2844895F37F9C69219A",
       "source": "git-worktree"
     },
     {
@@ -1565,8 +1589,8 @@
     },
     {
       "path": "apps/api/src/privacy/privacy.service.ts",
-      "bytes": 12409,
-      "sha256": "F784559487C21AF726B10B4AF1A6CD1690DDFBE418545AF45CC9E95EBCA943EC",
+      "bytes": 25230,
+      "sha256": "C555070EDF06A874310A34CC7D9F05F3A433555186DD79ADDE0BB455D1F729E5",
       "source": "git-worktree"
     },
     {
@@ -1583,26 +1607,32 @@
     },
     {
       "path": "apps/api/src/release5/dto/release5-daily.dto.ts",
-      "bytes": 2124,
-      "sha256": "BB64000404E0C41972A47D35C1DD9049225A733FC460BDAF5204C06B0A440158",
+      "bytes": 2093,
+      "sha256": "59BDF6D04910563DD7F8756D08603BE996F3F878FA8918B6A2333EB372C236E2",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/release5/dto/release5-external.dto.ts",
-      "bytes": 2623,
-      "sha256": "E7A2B3FDC873AD6D907509D6071314CDC823DD235B7A22767227A2951DE59374",
+      "bytes": 2784,
+      "sha256": "BBA10396EE26AFD7817F82CB11EA9669E0FCF2E36ACC33394FFBF9E58D34978F",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/release5/dto/release5-readiness.dto.ts",
-      "bytes": 2026,
-      "sha256": "6D8F83E6B967EBFFE6E0CCDAFC58A8F5A52BEC79C75DB70EB974D5E328A5A7E0",
+      "bytes": 2045,
+      "sha256": "D3F3F5917A89D60C9C6445D556A7085EE33320C0553E5FCDE17310A43DE51620",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/api/src/release5/item-evidence-policy.ts",
+      "bytes": 1798,
+      "sha256": "71D9EE1E158B0EC41FC7339CBF8343C19F51EA22F6B60E97C89A0016255B97A2",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/release5/release5-admin.controller.ts",
-      "bytes": 9103,
-      "sha256": "33B9B2FB904CE5A84C4E7E2C63FC528BBD832E80F282B627043F5F48F915FC88",
+      "bytes": 9658,
+      "sha256": "1474A17FF7ED2FAA1719173DA01831B593D5F703B52B07DDF13D0704912FA228",
       "source": "git-worktree"
     },
     {
@@ -1613,14 +1643,14 @@
     },
     {
       "path": "apps/api/src/release5/release5-daily.service.ts",
-      "bytes": 24367,
-      "sha256": "EB3FE35263CC8729683176D756DB2B91C60560319A74280B6063170BA14CD3F6",
+      "bytes": 27636,
+      "sha256": "1A66461401E9CFABB5AAA5CAD4FFE2A5B45666EAA0B48FBB475FAB81DD11FBB0",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/release5/release5-external.service.ts",
-      "bytes": 21150,
-      "sha256": "8300BC7B77C753B51C984DF3F35CDD0CA3F09AACC6938AAB59014C678FB27E7F",
+      "bytes": 34187,
+      "sha256": "9F838A867AFB37D00DEDDABED0CDB9C1F8EA5F3522D948E0792247775FA35247",
       "source": "git-worktree"
     },
     {
@@ -1631,14 +1661,14 @@
     },
     {
       "path": "apps/api/src/release5/release5-readiness.service.ts",
-      "bytes": 14919,
-      "sha256": "67B9AE57735AEB5B707FC32DB6F90718F8817D432E52923F0777A79BC7F9BE49",
+      "bytes": 24616,
+      "sha256": "FCEA5C93B42854FF1A6DEA2B50206EF786444DFA6037B5743EB1EC085D504386",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/src/release5/release5-user.controller.ts",
-      "bytes": 7094,
-      "sha256": "2981ABC20C2F8D53FAECD3ED5E182AA713D60BA489219FCED8E12241020A72B3",
+      "bytes": 7385,
+      "sha256": "DCF04C592565BD5A4775936E7EA4DED13BB7EEBF15265C77FAD3BB43BE88266F",
       "source": "git-worktree"
     },
     {
@@ -1655,8 +1685,8 @@
     },
     {
       "path": "apps/api/src/settings/settings.controller.ts",
-      "bytes": 4205,
-      "sha256": "6F36D860A98AB9C04FE61C2FCBB985C2755E5B4B2916E92244AA27F94B743E23",
+      "bytes": 4231,
+      "sha256": "0372756DD80CE3C4012D078BC958AB5E6B78ACB88A76B9E55D9AD9C2276E4740",
       "source": "git-worktree"
     },
     {
@@ -1811,8 +1841,8 @@
     },
     {
       "path": "apps/api/test/admin-settings.e2e.test.ts",
-      "bytes": 11728,
-      "sha256": "1907299E2A91CB5DD3E4EE28C20ED54B6B92A8FBFA9C3DBE8F0E6DB95E256C9B",
+      "bytes": 11839,
+      "sha256": "9FA21483AD363C4D73D0A489004770132CD9F3BF8BD4D21C147088BF6D479429",
       "source": "git-worktree"
     },
     {
@@ -1871,8 +1901,8 @@
     },
     {
       "path": "apps/api/test/catalog-v2.e2e.test.ts",
-      "bytes": 40612,
-      "sha256": "72748D6176F9356AD93677C15D1D57E5BD80015A22C9381FFC84A29F9D3CD396",
+      "bytes": 40889,
+      "sha256": "7A680E10877E45AEF1650FC23D5DDD5D1A18F66D9334FA149694FE4F9712C19B",
       "source": "git-worktree"
     },
     {
@@ -1901,8 +1931,8 @@
     },
     {
       "path": "apps/api/test/expense-home-report.e2e.test.ts",
-      "bytes": 21851,
-      "sha256": "D0332505EFBA6E4E772F370FA5151768B23512B0E936D2E881D95D808C29B7EB",
+      "bytes": 28021,
+      "sha256": "F149C8F04F55A2002CDF761DF0D08E975D2AFE94053BB402F9C3345D6F5879BC",
       "source": "git-worktree"
     },
     {
@@ -1913,8 +1943,8 @@
     },
     {
       "path": "apps/api/test/family-invite.e2e.test.ts",
-      "bytes": 13121,
-      "sha256": "AA50173DEEC2A7B0F518CE6F39C4EA95DE535F069B577C8D022A497BD4C1D7A7",
+      "bytes": 13105,
+      "sha256": "DC21462345C4EBF3F8D6EB8CB64731D874F9F6BD4315CEEB784FB37471C9D5E5",
       "source": "git-worktree"
     },
     {
@@ -1933,6 +1963,12 @@
       "path": "apps/api/test/helpers/test-db.ts",
       "bytes": 3454,
       "sha256": "C25CDA647C7F7096BF36965519D53218E67DCB5D6A1D16351EE14FB416FEA18F",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/api/test/household-authority-lifecycle.db.test.ts",
+      "bytes": 35454,
+      "sha256": "4EF866480EE5B07903F00F567361E635E63070F560B4D1DB432F338BE46AED56",
       "source": "git-worktree"
     },
     {
@@ -1991,8 +2027,8 @@
     },
     {
       "path": "apps/api/test/payment-methods.e2e.test.ts",
-      "bytes": 10996,
-      "sha256": "FEFE41C3A9984FF2E0DA146D074823A05E3B8666D19B4EC118EF006F765C813F",
+      "bytes": 11285,
+      "sha256": "B86E3CC1F3CF5AAE41044D735905AE71E0C2DB664B477AF99B41FB67548FFD02",
       "source": "git-worktree"
     },
     {
@@ -2033,8 +2069,14 @@
     },
     {
       "path": "apps/api/test/release4-catalog.test.ts",
-      "bytes": 6610,
-      "sha256": "357C4B78B7784CD71FC7C8159F8D4D97DEBAE33302F4917A0CF326BE62EBD209",
+      "bytes": 6891,
+      "sha256": "207E5B6E589169EE195836D6C7930E9B615FFAD164538B5D363FDB34D4F0A4C1",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/api/test/release4c-catalog-pilot-evidence.test.ts",
+      "bytes": 2175,
+      "sha256": "37C1CBF94B4011EFA9F505CFD280E93C85FF9903AAD96B39EDF2AD4C7B4D9E5A",
       "source": "git-worktree"
     },
     {
@@ -2056,6 +2098,12 @@
       "source": "git-worktree"
     },
     {
+      "path": "apps/api/test/release5-safety-alternatives.db.test.ts",
+      "bytes": 39174,
+      "sha256": "846FDD459D307C6F1850F6527213DFF80DF872CC7915C89275E5D1D641444796",
+      "source": "git-worktree"
+    },
+    {
       "path": "apps/api/test/release5a-connected-golden.e2e.test.ts",
       "bytes": 5434,
       "sha256": "3D7C0B70B4388D2321EC8FC54751A252D5D8BEE75A0078CE121F4916334A4C28",
@@ -2063,20 +2111,20 @@
     },
     {
       "path": "apps/api/test/release5c-readiness.db.test.ts",
-      "bytes": 5989,
-      "sha256": "60BE3B040AB9FF93F049D066BF25FE66BA929A5E8AD0A6C8B4385452B9FFBD31",
+      "bytes": 6390,
+      "sha256": "0F99CD739BB67216B08738DCB7F71315284FCABE4BCF9032547B26E5ABBEF2F3",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/test/release5d-daily.e2e.test.ts",
-      "bytes": 10521,
-      "sha256": "0C016737C0C15E8E02F264639FFAE763090745F524AFAD0A5444F1129B384E51",
+      "bytes": 20620,
+      "sha256": "875EE5BA9B531DE1D491C61D0F5D8A4CA1EDFA6F1B74E6192C171C63D12E86B4",
       "source": "git-worktree"
     },
     {
       "path": "apps/api/test/release5e-assisted.e2e.test.ts",
-      "bytes": 10053,
-      "sha256": "4125242F92872C5C9EFF79306BA93CEF59DD5BC43B82012723A783C514C6B40F",
+      "bytes": 11058,
+      "sha256": "B3406984EC18B1CC53B33EEBFDEF7968779DAA5AE981A92628E2EBE3E9C3AAC1",
       "source": "git-worktree"
     },
     {
@@ -2165,8 +2213,8 @@
     },
     {
       "path": "apps/api/vitest.test-groups.ts",
-      "bytes": 897,
-      "sha256": "1C21898E67714A6AFFE4392F92DB003034AD540628B28B5495EE7EF83B404C15",
+      "bytes": 1024,
+      "sha256": "EB2E668604694179F99BAAF5606C9700D5A17AE4C984D00D291C8A0A85D0850B",
       "source": "git-worktree"
     },
     {
@@ -2327,8 +2375,8 @@
     },
     {
       "path": "apps/mobile/android/app/build.gradle",
-      "bytes": 11287,
-      "sha256": "5E27E464C8B19854ACCFA4FDA298D74DF4520E2B22E4C079C736AD557F6C3099",
+      "bytes": 12017,
+      "sha256": "967DA3033B57A213D6518F1654E6A54C95ED668218BF6F731EA818873FEF9206",
       "source": "native-explicit"
     },
     {
@@ -2717,8 +2765,8 @@
     },
     {
       "path": "apps/mobile/android/app/src/main/res/values/styles.xml",
-      "bytes": 1178,
-      "sha256": "6497CBB3F9AF4F7BB90FB6B193076D61718AC976C6079B4B9608A9CC8CE0C405",
+      "bytes": 1249,
+      "sha256": "15B11BE8C79DF7630255548028A3196D9F1A34CA17BD96E58670DF04591042FF",
       "source": "native-explicit"
     },
     {
@@ -2729,8 +2777,8 @@
     },
     {
       "path": "apps/mobile/android/build.gradle",
-      "bytes": 1594,
-      "sha256": "94906D26C9C234009A05009AD284657FD88124AC111A92AEA5502B8689A0BAC8",
+      "bytes": 1628,
+      "sha256": "19AEFDC4A6C21ADF4302B165F35DABD8ABA7D4678AE244452EDC4CC597F25011",
       "source": "native-explicit"
     },
     {
@@ -2747,8 +2795,8 @@
     },
     {
       "path": "apps/mobile/android/gradle/wrapper/gradle-wrapper.properties",
-      "bytes": 253,
-      "sha256": "128A178633969BAEDE56A29F61F3A3CD66D10DF868A8D87D86DDB4CED236EBE3",
+      "bytes": 251,
+      "sha256": "D5175EAA933AE7AEBB126F5C99024F511A396132E8BACDFE74C66DAF8292920D",
       "source": "native-explicit"
     },
     {
@@ -2764,69 +2812,9 @@
       "source": "native-explicit"
     },
     {
-      "path": "apps/mobile/android/hs_err_pid12580.log",
-      "bytes": 257106,
-      "sha256": "8D48A0F744410119E577A3D3765F0D4A20A579D2733C311D4107D8D6ADB93A3A",
-      "source": "native-explicit"
-    },
-    {
-      "path": "apps/mobile/android/hs_err_pid22268.log",
-      "bytes": 168598,
-      "sha256": "B21B37CC412BD78E4864FB96A71739BDCE8315AA7EEA8C61C8EF4CA93E82BF39",
-      "source": "native-explicit"
-    },
-    {
-      "path": "apps/mobile/android/hs_err_pid23100.log",
-      "bytes": 50085,
-      "sha256": "17B2151BA054A3B9340CDCD6ABC6BA3BE411BED32AFB484DE32A88A7C6AB8292",
-      "source": "native-explicit"
-    },
-    {
-      "path": "apps/mobile/android/hs_err_pid25540.log",
-      "bytes": 115656,
-      "sha256": "CF78F1D7265E456DEAB857356D1E29EFE6BAD47F39F8C8F0A2F85BF1B68CBC5E",
-      "source": "native-explicit"
-    },
-    {
-      "path": "apps/mobile/android/hs_err_pid2748.log",
-      "bytes": 51309,
-      "sha256": "2C55EA3196FFDE8BAEB5C1978C82F00AF37A95EC46EB7CFFC261F801F4FBA5A2",
-      "source": "native-explicit"
-    },
-    {
-      "path": "apps/mobile/android/hs_err_pid33272.log",
-      "bytes": 84503,
-      "sha256": "1972B37D775DD40995A55FF6DEF54C8A8DDFE7EB5BEBD0694BC5AF1A3CADF1B0",
-      "source": "native-explicit"
-    },
-    {
-      "path": "apps/mobile/android/replay_pid22268.log",
-      "bytes": 1978599,
-      "sha256": "8C01E6F5E8D998851D8F12DEFB3835F3A7AA61D3B381CB5286A66041023FC1A2",
-      "source": "native-explicit"
-    },
-    {
-      "path": "apps/mobile/android/replay_pid23100.log",
-      "bytes": 229467,
-      "sha256": "9940191F86E1A7CC1BC2CC8D8DDD86AA4E9E23E7DD1CBAE8BD6D28091C653DDF",
-      "source": "native-explicit"
-    },
-    {
-      "path": "apps/mobile/android/replay_pid2748.log",
-      "bytes": 229821,
-      "sha256": "AEB65C7F816331647B782AF550AF84AEAD4372EE11C19F2BBDFA7E27F40AC1CA",
-      "source": "native-explicit"
-    },
-    {
-      "path": "apps/mobile/android/replay_pid33272.log",
-      "bytes": 996332,
-      "sha256": "8F878B11BC639480A624DC8FE9E76E03972BF2CC783003658D846E10ABEA0BB7",
-      "source": "native-explicit"
-    },
-    {
       "path": "apps/mobile/android/settings.gradle",
-      "bytes": 1535,
-      "sha256": "BE82247E2ED6D67657FFA06751ABF651C65A74A717974F2477048EF6D77CE9DD",
+      "bytes": 1258,
+      "sha256": "193FC2E00FA7CC90ADEBB310084CCDFF781758267AFB2A7A4932E137F09A9AD0",
       "source": "native-explicit"
     },
     {
@@ -2837,20 +2825,20 @@
     },
     {
       "path": "apps/mobile/app.json",
-      "bytes": 941,
-      "sha256": "CA002A69C7D63DFDBA8D6BB6B2FC8365C4D34024373D02C1AB6274B01A613A3A",
+      "bytes": 1296,
+      "sha256": "B0BFADF71EEBCB5ADA1A0DC7B61813DF6F2381767AB6BFD23FBDAB106EABF8C4",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/_layout.tsx",
-      "bytes": 7683,
-      "sha256": "6EBA0806B2A1AB8FBA0C4FADB8101BFEFD36309C3BD4A8E1FD83B782EC862043",
+      "bytes": 9036,
+      "sha256": "6DEAAB29F85F5AC86687307C8BA06F18DF45BBC8DFC2B4649AD961EFD37284B4",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/(auth)/login.tsx",
-      "bytes": 16107,
-      "sha256": "2656D4F1F3F1C603D2D476DE0BF1B3BD9B8E81858717D64EA27A747B4E7DBF95",
+      "bytes": 16339,
+      "sha256": "2CEDD8654A6B508AEFFB92ABDCD27B62A304AE1A6DEEC4981A71B125BF70EDE9",
       "source": "git-worktree"
     },
     {
@@ -2909,44 +2897,44 @@
     },
     {
       "path": "apps/mobile/app/(tabs)/_layout.tsx",
-      "bytes": 4432,
-      "sha256": "4E991CAB86D0737224E4E5BE49C4431D0021D8EABB0C1940DE42B1B07E983BE8",
+      "bytes": 5203,
+      "sha256": "5F764B3198F2FF7C5ACACA01E23D4C4FF2ACD4D84A4AA606EBEC62D322A6060B",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/(tabs)/index.tsx",
-      "bytes": 22067,
-      "sha256": "084C0A18A1A2B33710CAB4AF4ED372517A3152322978DC24A509258F635311B2",
+      "bytes": 21312,
+      "sha256": "3D4EA20A0BA7449E493E1FE38F25FDE94E3FD809A39D9DF46EBB8AC3116E456C",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/(tabs)/items.tsx",
-      "bytes": 5153,
-      "sha256": "6076EEDF18F74167480F0B8072A47FEB7001DF9B486FE1431A33D15597759CA3",
+      "bytes": 4912,
+      "sha256": "2A30C44ACB885D089192F2F5848433147BCE68B5E9766C7DF9FE471BACA725D2",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/(tabs)/more.tsx",
-      "bytes": 11651,
-      "sha256": "CE52C984547510ADC47CEFF7D257D5EB3E39EDD3B873485AFEE4585C6A9CA7A9",
+      "bytes": 13625,
+      "sha256": "C3ED6A3C4FD26BE62FB50B22AD00A84F9CC66D89B70285F293B5662DED5934BD",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/(tabs)/records.tsx",
-      "bytes": 18625,
-      "sha256": "A4897715A5278F1CDF5922EC4095ED44F2E18987CE7A85A3D9BF9ADF2981B600",
+      "bytes": 26311,
+      "sha256": "73544FBE5DBC684FC97A4515B3C0928B87AFC1E7BE268E6179A03F0905EC23EB",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/(tabs)/reports.tsx",
-      "bytes": 39663,
-      "sha256": "397479CF928543259A1D67FE27145A508D0D8368CBB943C8A1220F2BE2E74FE9",
+      "bytes": 46252,
+      "sha256": "0C2D29EF1E9371DC4D2742B99484268C6D3926684446C6D2C74F3D53FA895010",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/budget.tsx",
-      "bytes": 5254,
-      "sha256": "FCA1C6D8F7477F59265CC1D401E164DEA6B7587C71C0EE05285270432BC9F9FA",
+      "bytes": 6520,
+      "sha256": "C4B3B30CC47440E37A8937E03A12C6A862199622AF638D06C2023E3BBBC0C42B",
       "source": "git-worktree"
     },
     {
@@ -2957,38 +2945,38 @@
     },
     {
       "path": "apps/mobile/app/children/[childId].tsx",
-      "bytes": 4666,
-      "sha256": "15EBB4322579A544FA695BCBC15003F7AE94B21C897775CAABD10B170747376F",
+      "bytes": 5463,
+      "sha256": "0AE1F3BEC9C6C5E7D52FA1333B4F1EC49668CB0818434C32C24D1DA4B159A986",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/children/index.tsx",
-      "bytes": 4294,
-      "sha256": "647C651168786D360053B9B63F1B5DC20D5F688C73CC22D264F189980653738A",
+      "bytes": 4333,
+      "sha256": "4B2223385B1A6370E3DB9023A09209DCC9827210D37050067F386AD56CA9A0E2",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/children/new.tsx",
-      "bytes": 3823,
-      "sha256": "E296F964443DA23DD49639CADD130CB8FD88A33CC24FCC7CCE01D3F0CB697560",
+      "bytes": 4598,
+      "sha256": "D833A7E682DD532AAA263EBA5CC8194D694DD79E7F3C7087021C194233B51EDD",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/custom-bundles.tsx",
-      "bytes": 4589,
-      "sha256": "B2C758592418F45451D7CF42D6C0AFD1BA9B2D292809C301B9D8874C2FA4B86D",
+      "bytes": 5270,
+      "sha256": "B7604821DA14D0E8AD853D537B114961E84F57691C146FB3D7379BC9FA6F00C3",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/expenses/[expenseId].tsx",
-      "bytes": 22965,
-      "sha256": "8B7D3BF822024372D1E10FB4BFDE208D19CD904AAEAB19D29DB9F930F9040B43",
+      "bytes": 26314,
+      "sha256": "FE2989F93CC9AA3DDC2DC20CDD53A2D3ADEBEAC17B441C4857AA988A3170F31E",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/expenses/new.tsx",
-      "bytes": 48221,
-      "sha256": "203F1CFB3DBF6A133C72D456844FB6C904A7E6E8B3E9411E5981A35E60C0E846",
+      "bytes": 62944,
+      "sha256": "3A5D5C6AF6E6BDA4631844835DDBAE120F4AA805D7330B4696DFE6DF7A285659",
       "source": "git-worktree"
     },
     {
@@ -2999,26 +2987,26 @@
     },
     {
       "path": "apps/mobile/app/family/index.tsx",
-      "bytes": 18291,
-      "sha256": "E4EFDB9312DA41B77509C3E0D2E015F9827DED332A824A882A37D038866BC035",
+      "bytes": 22391,
+      "sha256": "A805081411F56E450C025D590565F2BB0C508FBC3D8C225FEC8298D2A3AC0F4E",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/family/invite.tsx",
-      "bytes": 5571,
-      "sha256": "548EFD9E053679237A78092A6B312B0BE8C67B581B2DAF4AB3ABF2670A797FC5",
+      "bytes": 5851,
+      "sha256": "FA5D8A1ABFEBB28433FFCBB37605F76DA99B7A25B2286BB6697C759456C62605",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/import/[importJobId].tsx",
-      "bytes": 10586,
-      "sha256": "891488E99F9C7F267DD132821FEDB80723664E7A6D6D7AAE27A42E291988B5C1",
+      "bytes": 10813,
+      "sha256": "F26C9D3FA3E06EFDDADFADA054DA492BCCEB5C054C62DB19DF9B29BF78997848",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/import/index.tsx",
-      "bytes": 13244,
-      "sha256": "AFFE7BD02D53071D47AB1D2B0A2796E468B8930CE8A14F0C552CE3866E366356",
+      "bytes": 13492,
+      "sha256": "2053CE9CF469D45C61E7800F673F41FE01AD7DDBD3E403B54AF82C9B21A1502D",
       "source": "git-worktree"
     },
     {
@@ -3035,20 +3023,20 @@
     },
     {
       "path": "apps/mobile/app/launch-animation.tsx",
-      "bytes": 7737,
-      "sha256": "5120D77EEF12E2C19EFAB9BDEA800A0A04D427F85068087A48DA9E0274B0E3D6",
+      "bytes": 7772,
+      "sha256": "3F9D3BF3E6FCA0193440354A9D537A119E04F2709BBE743693E14C3290D23E8C",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/notification-preferences.tsx",
-      "bytes": 5889,
-      "sha256": "D204341E9450BC4645F841919A6ACAC7481464C0AB4962249BF6853E7D2C4F7A",
+      "bytes": 5871,
+      "sha256": "9C4AD69C0480E735674518CC9568CA3AA44015055E5B8C748AAA388CF38545BB",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/notifications.tsx",
-      "bytes": 6433,
-      "sha256": "0BB28FE316E1B7C1DAACC2D29F68E6D1F436223AB921D1AA49F378557EC3E04F",
+      "bytes": 6477,
+      "sha256": "7B0C331819BB6DCD25A3A3B2CEE573FE3E6749098EC43AB9893FA0B06E756FDB",
       "source": "git-worktree"
     },
     {
@@ -3119,8 +3107,8 @@
     },
     {
       "path": "apps/mobile/app/payment-methods.tsx",
-      "bytes": 10270,
-      "sha256": "22D9424BA2E03E31BDD23C99A56CCF4A84626361E87F9B307EC9BA46B3DA774F",
+      "bytes": 14770,
+      "sha256": "024C94141660CDB2C870A28B1B2AB7D9ED4284E7018D4FFF62A41034999FBB93",
       "source": "git-worktree"
     },
     {
@@ -3131,50 +3119,50 @@
     },
     {
       "path": "apps/mobile/app/preparation-calendar.tsx",
-      "bytes": 2918,
-      "sha256": "91B4E7D660BE884FEF878B25DE6013FBE92B957695677BB9F97C529FE464F829",
+      "bytes": 5312,
+      "sha256": "1C658CEBDC97D824A95E5DAE8B327E43FBFDE0D51D447481B95602184185233C",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/profile.tsx",
-      "bytes": 3944,
-      "sha256": "8A901F60C8B27260159D289A87BFC30B763FED438B7E67C14F77E1229167C3A9",
+      "bytes": 3968,
+      "sha256": "10756BA2BCF100ECC19A846EDBD1F8DABF85B5064845EDE18FF8706F4058EB06",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/receipts/new.tsx",
-      "bytes": 14459,
-      "sha256": "24811D1821B93BEE7BD9B822016F565C60772FEB8C491C7CC38DD1D12702C949",
+      "bytes": 14620,
+      "sha256": "FC0A203B147692D35BAEF5BA95BDB4FEBB9820454FDCB085CEE9043654D3E95F",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/reports/sources.tsx",
-      "bytes": 6978,
-      "sha256": "25718D2056346CD416F128A55223D672BF9520C5B6A87EC5D779CFA5A8A42BB3",
+      "bytes": 7885,
+      "sha256": "CF4EEEF2AA402E931FA9319B80885CB72CF47E16337F0CFFB59280F574CDD413",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/settings/index.tsx",
-      "bytes": 6334,
-      "sha256": "E1154AA5045A5E872F5E26C13F463A554DF4B3EA0C6A2E4C51C215869BDB2926",
+      "bytes": 6980,
+      "sha256": "B6939E7E669AACDE4E735117CDD9EBF2B09D94BBAC6CF198B3F648A00A236A91",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/settings/privacy.tsx",
-      "bytes": 14698,
-      "sha256": "12291EA6923174C0796A96CC1323AFD1036463702381594CF0D3348D8E238A7B",
+      "bytes": 25835,
+      "sha256": "253441FAB0ACA333A7A87E1D150B25FC0C10FFFD72C02CF0F5675B640BD44757",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/sync-status.tsx",
-      "bytes": 14393,
-      "sha256": "A7BCE4B29167775854DEA238759D80A1C6DAF81E7ED3F33D2C3539B99E75E814",
+      "bytes": 14422,
+      "sha256": "F3836B7C434CD2A010BC6F144643F9098CB9A5CBC62B71B1F11518359D7D14E8",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/app/weekly-briefing.tsx",
-      "bytes": 2832,
-      "sha256": "CD9EB744BBDA612BE0E498DDA21489B9CE51C49FB7F22C9A42B7D613EF3DD0EB",
+      "bytes": 3317,
+      "sha256": "8BD3B0944D097C4AF9F3969FEDF8E1FF179814DA0913A874855BEA3170676BD0",
       "source": "git-worktree"
     },
     {
@@ -3341,26 +3329,26 @@
     },
     {
       "path": "apps/mobile/metro.config.js",
-      "bytes": 3374,
-      "sha256": "C2C0457A7D7778EB8F7D8EE541CCACC3AF9BEB6C80DAF4B9D18B8BB95224DA25",
+      "bytes": 3706,
+      "sha256": "1AB55C9449C4CB5916574A90A321BC64542661BC4C3A5826D69382141342FB8A",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/package.json",
-      "bytes": 1504,
-      "sha256": "82394C9D50DE6D30B47E0F786187CB16AFA9B8FAE85774EFEEC6D432904831FA",
+      "bytes": 1698,
+      "sha256": "94800620305B507728A296D6B0380A1D8C04E52EBD366E67ACDF57336C21E2FD",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/plugins/with-network-security-config.js",
-      "bytes": 4806,
-      "sha256": "E9749F6E77C58982C8770C2F8ED535EDC26C69A3197E58AC4D8EBD18CCCCF3FF",
+      "bytes": 5366,
+      "sha256": "935AF486615541FD05499C8A08719C702F3C0B3B0587B8FEFECB16E45FD80657",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/react-native.config.js",
-      "bytes": 244,
-      "sha256": "C2EC8EBF6FF83D46976443A1E47CB823E81B53F5967814C3664EEFE73EA283A2",
+      "bytes": 356,
+      "sha256": "7CD9F0510F111DA8E49DF2FC8D25B91A736F32AB5FB8A99533B8546343EA5217",
       "source": "git-worktree"
     },
     {
@@ -3377,8 +3365,8 @@
     },
     {
       "path": "apps/mobile/src/analytics/client.ts",
-      "bytes": 5176,
-      "sha256": "64C12180E8193DE60952752325D0FCCD1A40D60EC5B946CE7D842BF3C26D1A22",
+      "bytes": 5212,
+      "sha256": "17FB9C09EC79926ABC2D14B65171A85A6677E29272A785BECA510D6BE608C189",
       "source": "git-worktree"
     },
     {
@@ -3395,20 +3383,20 @@
     },
     {
       "path": "apps/mobile/src/android-native-ui-quality.test.ts",
-      "bytes": 9246,
-      "sha256": "F91494D29F5DCD6928F57C7598EDD501415BA54F539BDDD9AF1CC31F3C0553D6",
+      "bytes": 10701,
+      "sha256": "C674471EC3E101E9F502A6473BF1E9F975B005E475C3263002EB72DFB0C4D3EE",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/android-standalone-apk.test.ts",
-      "bytes": 16536,
-      "sha256": "F8FCE33D127E637214D5D63956F951A15E45878B741C1DF37FDF3582FE9E5819",
+      "bytes": 17877,
+      "sha256": "BF507842B1CC5F3054141EF426DD964D73B65AD62B59597B26F61571020F31CE",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/android-startup-evaluation.test.ts",
-      "bytes": 1546,
-      "sha256": "E754C2BF6B630F1BA38836A18035893D431354551DD4EAF8D5ACE8DC010AB721",
+      "bytes": 1564,
+      "sha256": "F99C8BB230B27DB3FF559ACEDC381B1CC30A9EEF780DD96C3AF6E65BF9C5D3CA",
       "source": "git-worktree"
     },
     {
@@ -3437,8 +3425,8 @@
     },
     {
       "path": "apps/mobile/src/api/client.ts",
-      "bytes": 84190,
-      "sha256": "AF02851F1434DDC5E419557DEBE0C8A58E6FE9531D62C43923D86017E87EBC1F",
+      "bytes": 89315,
+      "sha256": "D8B4973A206C2B7350E31F0CC37C8EE4668D3A664534B436E828373810CDAC80",
       "source": "git-worktree"
     },
     {
@@ -3491,8 +3479,8 @@
     },
     {
       "path": "apps/mobile/src/api/local-backend.ts",
-      "bytes": 139645,
-      "sha256": "183D89CBC897CAC0B82B7137BE49A8A33BC0B18F0567582514C834A335F8E71D",
+      "bytes": 167352,
+      "sha256": "DD6D5E3A9D800C7D9C8412A7C953CC83F7A3F4905BD01086CD73D59AA14702F9",
       "source": "git-worktree"
     },
     {
@@ -3550,6 +3538,12 @@
       "source": "git-worktree"
     },
     {
+      "path": "apps/mobile/src/authority-recovery.test.ts",
+      "bytes": 4668,
+      "sha256": "B22E67BDCF4E3C7F09ED637D34E7DEF9665DD5D938D9971479BE666AA8463582",
+      "source": "git-worktree"
+    },
+    {
       "path": "apps/mobile/src/categories.ts",
       "bytes": 3869,
       "sha256": "261D11B1661CA8ED27491BB9BD2942A9CA8F9458E5342E5CEBBD6173135738EF",
@@ -3563,8 +3557,8 @@
     },
     {
       "path": "apps/mobile/src/children/ChildProfileFields.tsx",
-      "bytes": 7754,
-      "sha256": "C64C08181F79ACACE1AD328A54DFDE4ACF7F629B4D2C613D098323CF1C0A4A52",
+      "bytes": 9178,
+      "sha256": "E645F3FDBE2BE9C52A838D6F3A98E129F895D1629818A5A7340C8B310FB54242",
       "source": "git-worktree"
     },
     {
@@ -3605,8 +3599,8 @@
     },
     {
       "path": "apps/mobile/src/date-field-ios-render.test.tsx",
-      "bytes": 1582,
-      "sha256": "34327DED4DDB93C9DAF7EB28C07134FDAB3AF41EF4514D82B8BBF3ED7CF1ACAD",
+      "bytes": 1669,
+      "sha256": "C7D517E7CBA8BA8D8861685A3FFEBCC832751F6AFD3DCC451A3210D77472B360",
       "source": "git-worktree"
     },
     {
@@ -3617,26 +3611,26 @@
     },
     {
       "path": "apps/mobile/src/design-system-direct-render.test.tsx",
-      "bytes": 7958,
-      "sha256": "10B3436D4AAA8B2EF6029D4D96142D31EC1562B9AA60F92B49BA8A2380A93A27",
+      "bytes": 8771,
+      "sha256": "C69391B1BE7F4228E0E5C5ED11DD4AC14A07389C9DDFE51D6426E71564E536D0",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/design-system/components/ApplicationPrimitives.tsx",
-      "bytes": 10285,
-      "sha256": "F1D3A1BC726692F5DBD96FB86ABFE761766DBCECBAC941770B6BACD74DCF6DAA",
+      "bytes": 11383,
+      "sha256": "1ACD9D6568E0C1890E4860126455588188751A50E71B00DC305A02BE8CA54241",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/design-system/components/CorePrimitives.tsx",
-      "bytes": 7211,
-      "sha256": "DF36CE1A4951BB95F625FD08F197C651516A153ED06A5F41E8A1228BD3B67B6F",
+      "bytes": 7295,
+      "sha256": "8DB75E2E345E5A406CF030DB1B85C3664115B1C47A15BF1D1AB2AF696E27E687",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/design-system/components/ModV1Primitives.tsx",
-      "bytes": 15193,
-      "sha256": "A729CF63B94B585054EA1163C4E9E462E450BE3CABE2345A366E63DB08871DE2",
+      "bytes": 15943,
+      "sha256": "BD2A0076EB4F6899B29B93FDCD678F0EDCBFD69CBF66277856E19C95B5F43A76",
       "source": "git-worktree"
     },
     {
@@ -3647,8 +3641,8 @@
     },
     {
       "path": "apps/mobile/src/design-system/components/OnboardingControls.tsx",
-      "bytes": 16393,
-      "sha256": "CF84A433A2EDFA8822780DE55A96E20CD04DE243A8E94592AB9F046A889E5142",
+      "bytes": 16436,
+      "sha256": "12063353AF7B74E7C79856ACA622C740B86EABC11E2A2C0DA8CDC94898E13FF7",
       "source": "git-worktree"
     },
     {
@@ -3671,8 +3665,8 @@
     },
     {
       "path": "apps/mobile/src/design-system/components/ScreenScaffold.tsx",
-      "bytes": 1228,
-      "sha256": "BA024A3B6FB70C2E8D8D98A7B76185BF018F8C1B0A6C0F1D5987FF526B6B5397",
+      "bytes": 1439,
+      "sha256": "308B595C458E94C2B1EDD332A99F37C6A206BBE3B0C371568347981EDB2463DE",
       "source": "git-worktree"
     },
     {
@@ -3695,14 +3689,26 @@
     },
     {
       "path": "apps/mobile/src/design-system/patterns/AsyncState.tsx",
-      "bytes": 5111,
-      "sha256": "7B3A9898375C2B065EF9A17AE443553575310C32134D2F2D1105590DF145C347",
+      "bytes": 6176,
+      "sha256": "39C97A2BF11ECC704BCCE0152C5B085DE04EC33EE5DAF976532BF0C9526B2426",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/design-system/release4-design-system.test.ts",
-      "bytes": 3388,
-      "sha256": "CC0499BF82416B5F833346D164CE3FB671BA2F084432BC5C648B4939FA320F92",
+      "bytes": 5028,
+      "sha256": "975D8A624F74649674DA5119A2B6910385A9BF07F8D621D43DF68145DE7CBCA0",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/design-system/responsive.test.ts",
+      "bytes": 848,
+      "sha256": "6708D2233130FE85965CEC701496245DCAEADE85986CC3AB16954712CB5D4361",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/design-system/responsive.ts",
+      "bytes": 510,
+      "sha256": "4A389582E16C7B85F0CB804A11D8F8F5448C532BDC655867DCDE17F7ADFF3AB0",
       "source": "git-worktree"
     },
     {
@@ -3755,56 +3761,110 @@
     },
     {
       "path": "apps/mobile/src/expense-home-report-flow.test.ts",
-      "bytes": 3399,
-      "sha256": "9EE834D3D1479892A15AFA59257AD0A406196A574D390BEBE01076913E4D0232",
+      "bytes": 8328,
+      "sha256": "844EE66E02A59833D5E067FBAF5CFE01051DA78169DC1F7515033E01E17A2467",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/expenses/draft-storage.test.ts",
-      "bytes": 1959,
-      "sha256": "C7B80B7E19E688D3D0259CE25BEEE107D9DF035997A28490C711D03946293F5F",
+      "bytes": 3121,
+      "sha256": "386DED7E894CF6501A7AA570EFAD30102B162F73947F4AF13B635DA964F09F32",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/expenses/draft-storage.ts",
-      "bytes": 938,
-      "sha256": "11F5BAD09ECEEBD86D01371827143CB9C4D39C312C30F0CAA28363CE337172AF",
+      "bytes": 1473,
+      "sha256": "5B42575E632D14A08F770A01ED6E5E0B366B9647BD2A5839BBA8AA70615D682D",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/expenses/form-contract.test.ts",
-      "bytes": 1200,
-      "sha256": "CB50520BB4A4CC4F6F690B706A726E33A1882DF12232F90665464D2FDDF208C8",
+      "bytes": 2128,
+      "sha256": "5DBC7D4EC27668F44AAB73066EF312E2C1AD169CEE5978AEC5FB8EF178FC4F8E",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/expenses/form-contract.ts",
-      "bytes": 2515,
-      "sha256": "2B9C8490A36A1C845C2971E65C7BA163965B1BF29AD595A03D27145B1D95FBD6",
+      "bytes": 2941,
+      "sha256": "ECF62791B18012EE4CEF4A7D5A75023C40350C61C020C5714B2C3BC0AE5D3E82",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/expenses/PaymentMethodPicker.tsx",
+      "bytes": 2262,
+      "sha256": "E1B27E3811C7E40E2F9AAE06D5969F76F1B2DC26E28E0B3885D0976592281440",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/expenses/quick-expense-catalog.test.ts",
-      "bytes": 1879,
-      "sha256": "048509A721551241DCB5E3B09FD28080C288BF2F8C914B06EBF024C9041A23C1",
+      "bytes": 2930,
+      "sha256": "1BEF5DFB3EE35D2BD4ED6F35E6C45B8853AA563FBD10AFB40516E875184A681F",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/expenses/quick-expense-catalog.ts",
-      "bytes": 4970,
-      "sha256": "B7C454627C811AE4D62CEB6608CFAA6CB937265B047777B8F6A4C0DE3C1CF61C",
+      "bytes": 14377,
+      "sha256": "F2DB746D53B8484C3BC298ACE0760B72C3D4780C8EAE0B021865D8D931C3C560",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/family-invite-flow.test.ts",
-      "bytes": 1723,
-      "sha256": "AB28669C94EF994C68AA6E146B551617BBDAFAD41ED52CED1CBF520EEB0F7A19",
+      "bytes": 2170,
+      "sha256": "6E869E100A89DC914030B650557259270C23B72A0461D05CCE037602E70E3CE0",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/home/today-center-mutation.test.ts",
+      "bytes": 3587,
+      "sha256": "D686553108900ABDF593E36B8BB2776E7ADBCF0AD2828F8C2F950CC599671E9F",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/home/today-center-mutation.ts",
+      "bytes": 4509,
+      "sha256": "0501AB2CF9E79074CCC50F7CBDE471DFB74F88FE84E4163A6DE646572EAF86DB",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/home/today-center.test.ts",
+      "bytes": 2588,
+      "sha256": "843EEE39AD27218982738F35BCE0BA5540512BF315B027BBDD1F299356B2EE05",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/home/today-center.ts",
+      "bytes": 2906,
+      "sha256": "F080752CD87165190CA9FD506E7A26335D9351FE4A6BB1A28B5A2E9C1E0EE155",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/home/TodayCenterCard.test.tsx",
+      "bytes": 11057,
+      "sha256": "15C32ADC44D1968A7F752DE33883ABF6B6D3D48A0004516E6AD15B7F23A69DE6",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/home/TodayCenterCard.tsx",
+      "bytes": 6734,
+      "sha256": "C9975F19E8E2B84564A7F76C6A74870CCD4BAEB7FD93F2C4F9568FFD9EB5B85B",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/households/authorization.test.ts",
+      "bytes": 1268,
+      "sha256": "05D88B75398CB9219428A19EB9DC0626E1D17C163F986AF921D9D605F3CDEF04",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/households/authorization.ts",
+      "bytes": 918,
+      "sha256": "641A4E838753E30B1483D5890EADFED16E59CEBCCFF719B75898D4685C61A5B0",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/html-redesign-parity.test.ts",
-      "bytes": 9416,
-      "sha256": "945313D275184FE319AB1DC447D7D81AED8C9117A91A4258DDC1C2FFC8DD55BE",
+      "bytes": 9557,
+      "sha256": "BA6CC6C56F89FC067FC2C961C0F0E0B72BA415847C3162A8B1C85A8A5CC1CC9D",
       "source": "git-worktree"
     },
     {
@@ -3823,6 +3883,18 @@
       "path": "apps/mobile/src/import-flow.test.ts",
       "bytes": 1643,
       "sha256": "2B45C83D2CA2CE3A714AD62FB16346C66633B50F716EC475C482B88C90262A08",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/import/completion-summary.test.ts",
+      "bytes": 615,
+      "sha256": "80A686EACF7FFE4B03A63052A38A816AC099AB2835981D8527EF32A959C9BDEC",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/import/completion-summary.ts",
+      "bytes": 341,
+      "sha256": "8B45BD7CA33D0AEC0A07223922B71AAA037D9CDF274EB4A0B5BCD2E0AF50FE20",
       "source": "git-worktree"
     },
     {
@@ -3869,14 +3941,14 @@
     },
     {
       "path": "apps/mobile/src/local-backend.test.ts",
-      "bytes": 12809,
-      "sha256": "FCD01FDB2A7CF1958B80197AB01BC2998C36B1A36F8C4A7E89F64DE269CEEBBD",
+      "bytes": 25843,
+      "sha256": "974927A86CA3101F23B5E80BE14F336E56B8707971776500D78182B2D138ED7E",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/mod-v1-contract.test.ts",
-      "bytes": 5947,
-      "sha256": "D9DE03ACFA28D4E47F92DFF9B63C35DD43B7CD4C4969B54645B44D46AF0CE6A4",
+      "bytes": 6030,
+      "sha256": "F9AB30BE03C39159691747C80B258619B88C409C7484BCF8C6F1AC5C22E55502",
       "source": "git-worktree"
     },
     {
@@ -3893,8 +3965,8 @@
     },
     {
       "path": "apps/mobile/src/native-profile-boundary.test.ts",
-      "bytes": 3362,
-      "sha256": "B3FD50429AF04C3B35760ABB4D38B58ECD360ACA65DC9856A3F34CE48F39D185",
+      "bytes": 5334,
+      "sha256": "EF3CDDF89F7C7D6B1AA2DCAB98F4D5A0A95B558CE4FB1DED1EE4CBB67DBB3810",
       "source": "git-worktree"
     },
     {
@@ -3922,15 +3994,21 @@
       "source": "git-worktree"
     },
     {
+      "path": "apps/mobile/src/navigation/use-confirm-discard-changes.ts",
+      "bytes": 806,
+      "sha256": "974922709AEF44F93B1EDB8BF391654D177D7A976006891AA833EE225668F572",
+      "source": "git-worktree"
+    },
+    {
       "path": "apps/mobile/src/notifications/route.test.ts",
-      "bytes": 1518,
-      "sha256": "E4ED02B3538053C1A101B87DCAD5C0D377308B9245FF41891DA35F6B7D983005",
+      "bytes": 1970,
+      "sha256": "037C314AE847865FA2F4DB68FFFA5DEE85F1AB22D6470C84EBA4470E76067346",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/notifications/route.ts",
-      "bytes": 1307,
-      "sha256": "CA991758C86EC37445DF2797F96F334C1B4E6E6366351869191D2367BE5F1787",
+      "bytes": 2163,
+      "sha256": "2A814D504B7D7EABDCB781D0B7D0846ED7ECCD8163B4BDB738916EC197538A2F",
       "source": "git-worktree"
     },
     {
@@ -4049,14 +4127,14 @@
     },
     {
       "path": "apps/mobile/src/offline/messages.test.ts",
-      "bytes": 1309,
-      "sha256": "9FEAD5E733E27285DDD4B10BB4A143E62A632B50A2C0E25C5D2BD3E22F8FBA1E",
+      "bytes": 1284,
+      "sha256": "5729780432A2B257B1576FDF71EFF80FF09EFE635DEB49221D5B89D63439E971",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/offline/messages.ts",
-      "bytes": 1434,
-      "sha256": "67A688A7479DFADE65152C6E0AF28B375CE7099EEAD565EBED3B214EB2E9BA7F",
+      "bytes": 1409,
+      "sha256": "17D1CD88EDFAAFEBB37DED93AE1D9120850BD99BE7F3F8E9916F1AB18A09BC57",
       "source": "git-worktree"
     },
     {
@@ -4133,8 +4211,8 @@
     },
     {
       "path": "apps/mobile/src/offline/sync-controller.ts",
-      "bytes": 30279,
-      "sha256": "DF8AB6113A58C952D5726CAC9198C74C47D06CF4B72D52B6450BE75610F9C589",
+      "bytes": 30604,
+      "sha256": "FCFAD3995FE9C6BD14EB6CB5DEA277B16EEE3B28980442F5D2A54EE70E665782",
       "source": "git-worktree"
     },
     {
@@ -4175,8 +4253,8 @@
     },
     {
       "path": "apps/mobile/src/offline/ui-wiring.test.ts",
-      "bytes": 6794,
-      "sha256": "095642EE9AF94431419C4255B658B14ADF1F87C6817070ED9A8AC899616B4659",
+      "bytes": 7274,
+      "sha256": "4A93197CBA0CAF2ADD5EE17BC35D8179FD1DA43A96E7606A27E1E6B19B33A888",
       "source": "git-worktree"
     },
     {
@@ -4187,8 +4265,8 @@
     },
     {
       "path": "apps/mobile/src/onboarding-entry-flow.test.tsx",
-      "bytes": 3875,
-      "sha256": "D2C768FF3E24A63EA386DB4C8E3E31129CD348795C981D5A1D79DC59CFBD7682",
+      "bytes": 3961,
+      "sha256": "44AE10F21764F13B45DCB61F61D183F291CA104C594772AE49201D32FFCA7123",
       "source": "git-worktree"
     },
     {
@@ -4199,8 +4277,8 @@
     },
     {
       "path": "apps/mobile/src/onboarding-hardening.test.ts",
-      "bytes": 5322,
-      "sha256": "073671A459D3F3BB2B244371EF597739C5AA52FC90FBD9F9C60984EC812DD090",
+      "bytes": 5946,
+      "sha256": "E15A33B0692D82E10E25DCDB274F329A9C5D4B730D30D872D31EF8249D2CA7AB",
       "source": "git-worktree"
     },
     {
@@ -4211,8 +4289,8 @@
     },
     {
       "path": "apps/mobile/src/onboarding-scaffold-render.test.tsx",
-      "bytes": 1700,
-      "sha256": "C160AD86D8D99A21B4741C797C2D12E0FF1D2DA80802C070978A812959EE0C7D",
+      "bytes": 1753,
+      "sha256": "3F5229529DD15275D2382F8CF0DE7E63D7A53EEAB6987ABA74C8A3ABB46FD9E4",
       "source": "git-worktree"
     },
     {
@@ -4271,8 +4349,14 @@
     },
     {
       "path": "apps/mobile/src/pixel-lock-render-validation.test.ts",
-      "bytes": 874,
-      "sha256": "C2DFC06BFFEB92C4D4F0A01FE252062063AB5A48E580F7EB375A48355E35463B",
+      "bytes": 1859,
+      "sha256": "68CF3AB3055A99972B0D27D985B447B9A4DE143D69EF825767BDABE0CC1D5D46",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/pixel-tune-scaffold.test.ts",
+      "bytes": 2822,
+      "sha256": "7E442E246471891D2E7DCDF19995F13A78B13A5D22A09D4879BE7337E68A6C3F",
       "source": "git-worktree"
     },
     {
@@ -4301,8 +4385,8 @@
     },
     {
       "path": "apps/mobile/src/pixelLock/generated-overrides.json",
-      "bytes": 90,
-      "sha256": "27F89C523F244943929D7B106E3FB60B98896EC52E9148E030C43CD5555CDC87",
+      "bytes": 135,
+      "sha256": "E8EA18E3EBC05554D37A71EAA3CAA0EDD7B48B4D999A593E26B836CC637F0224",
       "source": "git-worktree"
     },
     {
@@ -4403,50 +4487,80 @@
     },
     {
       "path": "apps/mobile/src/preparation/preparation-list-parity-render.test.tsx",
-      "bytes": 3860,
-      "sha256": "E39C7BF27E366BCB40E2FFCC44A7698F68147F8C7AF82EB78B6A1A2A7F580886",
+      "bytes": 7523,
+      "sha256": "8165945D6530B7A8051565C870FC97CA6F3F9651AF8DB659E3D280DB38F1FF31",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/preparation/PreparationListParity.tsx",
-      "bytes": 17796,
-      "sha256": "BB3C828CB95760700BFCFA0F9AD0C3B5769CD413B66991ACFD6CEB1A7C0DCEEE",
+      "bytes": 23576,
+      "sha256": "3F00511C14D0D47E8DBE1ADADFE98ED32A8605167219B50841677FB03B7C2162",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/preparation/PreparationOverview.safety.test.tsx",
+      "bytes": 5519,
+      "sha256": "F2173D846F3A9797E98D96C88D4F294DF1842A766D0FC020DF6E6AFF95A4A1F4",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/preparation/PreparationOverview.tsx",
-      "bytes": 10091,
-      "sha256": "35BF5BBE988D7782D61AC6A358F3FFB338EDDAB68F14393EFF6F91600073E26F",
+      "bytes": 15025,
+      "sha256": "1EDB3A195CC77ABC359F631335BD6EE0B3321EE8B63C1BAE165145ADFD5A6B19",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/preparation/release4-preparation.test.ts",
-      "bytes": 13909,
-      "sha256": "CB6FB18F25D29541FF535A880E0792F041CBAD1EE4AD220A1C41105748A0FD01",
+      "bytes": 14239,
+      "sha256": "B1B5F0EEC43D1CFDDC78C3E710219C7C346CD76C2942C468C0D04E9598A41CFC",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/preparation/Release4ItemDetailScreen.tsx",
-      "bytes": 35398,
-      "sha256": "9D1B9968FCB5923D82EDD7B30F08FF26CA32C1AE608B8F2932DA03625F7AF589",
+      "bytes": 35598,
+      "sha256": "11F97A51B655E6FFD68402A3BC947CFDAEB5DFFF9F0C3611E5E733F27BF288BB",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/preparation/Release4PreparationScreen.tsx",
-      "bytes": 41262,
-      "sha256": "F7EFC5302AFEEFABB5DDA9D32FDD7F23C970730E0DB340AC75AC78AB35AD4D99",
+      "bytes": 45900,
+      "sha256": "94646725AFC56B60E66C944BB31B8EF794F1D9B5E592E0A65D51006AB9CDE339",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/preparation/safety-query-scope.test.ts",
+      "bytes": 1591,
+      "sha256": "260768EA000F036DDCC886D619FBA7E746AB8B95603CFE12BD82A3C400A3FBD9",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/preparation/safety-query-scope.ts",
+      "bytes": 846,
+      "sha256": "08A8EE7EE08DA8D6E6758917EF18FD2270A2EEACE925B50BA0FAC091F6F768B0",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/privacy/account-deletion-presentation.test.ts",
+      "bytes": 1500,
+      "sha256": "6723EBD51EC398FB10305009BA5677A939538C80DBE2F2D4F4269F1CA4A925B5",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/privacy/account-deletion-presentation.ts",
+      "bytes": 1145,
+      "sha256": "CA0D0717AA00D67B8F861D87FFD4EF8FA95F28583ACA0F9D977BB2B557CABFB3",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/product-redesign-sprint0.test.ts",
-      "bytes": 4936,
-      "sha256": "007AA2634B412601E6C11C0AEAE374C2FC1E850A512D52BAC98A88CBC654A031",
+      "bytes": 5882,
+      "sha256": "0D2B25852BA6DC08256B59B128008CA28ECBDA84050554CBFC7990D3E20241C9",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/production-build-boundary.test.ts",
-      "bytes": 2986,
-      "sha256": "474C2E752369EC4C062BCA37C5E7030A0C0DA88FE7F01678AF76DAD2DE064677",
+      "bytes": 4445,
+      "sha256": "382204F3A498F380DDD32000D3738CD1BE05765D4058C116BFD8B5D58F68E721",
       "source": "git-worktree"
     },
     {
@@ -4463,20 +4577,20 @@
     },
     {
       "path": "apps/mobile/src/purchase-followup/link-orchestrator.ts",
-      "bytes": 3129,
-      "sha256": "3DDF5C5299D6CCCAF0D274C5D46FB9E02B110CD7A4BFBA029A6A23F70BD6AB83",
+      "bytes": 3403,
+      "sha256": "F0C07CFCF8A798174D094B70864F15DABD8CF3FA1980E9B064AB6FE9104EC6E3",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/purchase-followup/purchase-followup.test.ts",
       "bytes": 12213,
-      "sha256": "E8DF89FD0E3D120AF46A2DFE4BD9B8CA9BBF599B081E81254F7FDFC8949F7B1F",
+      "sha256": "3089CC53CDEB22AA1DAB5177F75A15D1D5DFD0947140BB2013EC1684FFF055C0",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/purchase-followup/PurchaseFollowupCard.test.tsx",
-      "bytes": 2772,
-      "sha256": "E96BF370E8FFB6F00B9141F249CE081385E4032DB31EF5710F1F9BAE877E6B05",
+      "bytes": 2817,
+      "sha256": "BA1E1118E54FBDE97DE16E8983DB225BEB9B3448266D82DD7388770CC906941A",
       "source": "git-worktree"
     },
     {
@@ -4487,14 +4601,14 @@
     },
     {
       "path": "apps/mobile/src/purchase-followup/PurchaseOfferAction.test.tsx",
-      "bytes": 5210,
-      "sha256": "8DC7CA4729B9BEB7DD8BAF57FDFFD2FEFD524AE989440757EB2741074D0469BF",
+      "bytes": 8425,
+      "sha256": "7F54DE71A1A95B4FD13EB01CA32FFDCA539BE26824AF043C1F9E662F6D263A3B",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/purchase-followup/PurchaseOfferAction.tsx",
-      "bytes": 2730,
-      "sha256": "B2C22C5E89840FE19F2909D1D4464FC2FB646B38F29A96C64AB2C73AC9C7FA33",
+      "bytes": 3535,
+      "sha256": "7CAB46BD6F7C64C63ACFFC8440DE3F4F487F761DE08038685F448726DEDE0E5B",
       "source": "git-worktree"
     },
     {
@@ -4529,8 +4643,8 @@
     },
     {
       "path": "apps/mobile/src/real-session-data-integrity.test.ts",
-      "bytes": 4881,
-      "sha256": "97378F84D8DFF68670ED010D0750D9B291E113936284715D71C14F391D02F598",
+      "bytes": 5026,
+      "sha256": "86E051B7CAFFEF37192435A24C5FB41D91FC05FD3BF02B131D842D90FE86FE05",
       "source": "git-worktree"
     },
     {
@@ -4642,9 +4756,27 @@
       "source": "git-worktree"
     },
     {
+      "path": "apps/mobile/src/safety-fixture-copy.test.ts",
+      "bytes": 688,
+      "sha256": "EBB0E69F5B7AAF5D48722FFB328E5FEED6BB16ADD15B1DF7D8C2145665267C1A",
+      "source": "git-worktree"
+    },
+    {
       "path": "apps/mobile/src/screen-scaffold-render.test.tsx",
-      "bytes": 1634,
-      "sha256": "8781960074659DA47EC0E2D101FC11994EC9CEED134842DFE956F6AEB7F62880",
+      "bytes": 1687,
+      "sha256": "8C8FDC54508FC32E1A43D567E34F30E11EFE5464521334CD9161AE21CA5D43A9",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/security/public-evidence-url.test.ts",
+      "bytes": 1260,
+      "sha256": "FF60B0EC4D37A1870D1A6EFEC12C5D6ED2EF4C87A38F91EB63E4F2290F497913",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/security/public-evidence-url.ts",
+      "bytes": 3663,
+      "sha256": "A7458CE582FA27210E454730149880F9EEB9131EB8CAF4D4D29F133F23702AE3",
       "source": "git-worktree"
     },
     {
@@ -4655,14 +4787,14 @@
     },
     {
       "path": "apps/mobile/src/settings-flow.test.ts",
-      "bytes": 1833,
-      "sha256": "18AFEBB896C290A98AFF6B3CC22284FA1BB46F18B855EAD5DDB847BEABA4B82C",
+      "bytes": 7395,
+      "sha256": "59D1D8A0B842C6A5D6ABEA182213E518528A3916C456FA7C90986A7C24A9FCF2",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/shared-controls-render.test.tsx",
-      "bytes": 3022,
-      "sha256": "F9B3E1F8A94AD091671473F0E633664F2BE8E739FD62B84EFCDF2B77239AEA11",
+      "bytes": 3349,
+      "sha256": "37C7AA53A6DB3C222BACD1509ED84827EE01418425A547522513E1A644183F23",
       "source": "git-worktree"
     },
     {
@@ -4673,8 +4805,8 @@
     },
     {
       "path": "apps/mobile/src/sprint2-feature-evidence.test.ts",
-      "bytes": 1751,
-      "sha256": "94A14E795030A451842EA61468112A7B9650CAF2F76FB449B2D3B6341637BD39",
+      "bytes": 2649,
+      "sha256": "D2F068E93843ABCB6D376FC2839597967743078E656112F295522A7158F9B6CE",
       "source": "git-worktree"
     },
     {
@@ -4733,8 +4865,8 @@
     },
     {
       "path": "apps/mobile/src/stores/persist-upgrade.test.ts",
-      "bytes": 15944,
-      "sha256": "44C4A1671A6C86B9A6357141874080F7C4EBC3498B7BBD82C2610AADA821FC7E",
+      "bytes": 17444,
+      "sha256": "3D316FEA843A33CCF79651F900A778ECACA6EB3980A3414C4B383209411D4D15",
       "source": "git-worktree"
     },
     {
@@ -4757,8 +4889,8 @@
     },
     {
       "path": "apps/mobile/src/stores/selected-child.store.ts",
-      "bytes": 5713,
-      "sha256": "D2E18323E59D89DB68DC6A05523C3EF6154DBE44330223C372BC6421F208612B",
+      "bytes": 6338,
+      "sha256": "8B176F418268E030E3A554A7EA319B9AE0528C4C1570FB48A0778905AB63D0D9",
       "source": "git-worktree"
     },
     {
@@ -4787,26 +4919,32 @@
     },
     {
       "path": "apps/mobile/src/test-login-flow.test.ts",
-      "bytes": 4086,
-      "sha256": "041172996701739D17955E3316D539BDBC5F01D9F4E5B74619D7EF7C749BCE39",
+      "bytes": 4185,
+      "sha256": "2928FC34221F4D99584DBB22F5A93CADF02A5944B64C8B866F0DE743A20D7C51",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/src/test-utils/react-test-renderer.ts",
+      "bytes": 558,
+      "sha256": "A9FFDC5EA4D0A9FA61497AAB672FA49F1E90F32E03B0CA832D37E4A60727224F",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/theme.ts",
-      "bytes": 4913,
-      "sha256": "A71EE2456C1DB241CE080A6D127D440554BF92668B626545775259663C2C9618",
+      "bytes": 4946,
+      "sha256": "1DCC6D6FBFF6D184FAC2DBDD61F1C93A8D4C7FE9B6BA5FAD21F42D3167BDFC37",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/ui-pixel-lock-flow.test.ts",
-      "bytes": 20281,
-      "sha256": "8865409B919F974ED8F796ED7DB08E9B1F2588EDB751BEA9F6C1A3FD22291870",
+      "bytes": 20529,
+      "sha256": "F7312A11B9B2EF453742FD7975E017FB8310ED40B33F6ACE34178FF7358DB57D",
       "source": "git-worktree"
     },
     {
       "path": "apps/mobile/src/ui.tsx",
-      "bytes": 29088,
-      "sha256": "F1304838038FBF82BA96E8D6DCFD7B838E51E9CA16DAF35823115FAF9877E67D",
+      "bytes": 29717,
+      "sha256": "8404238D24CE102C300131E864F4FA8D0BDAAB592225FA715356D4CC8142B6B7",
       "source": "git-worktree"
     },
     {
@@ -4849,6 +4987,12 @@
       "path": "apps/mobile/tsconfig.json",
       "bytes": 260,
       "sha256": "5E25FB42559E8B66212729FA2BC025F04B599AF29EB4CC1942DF4F2D9DD6A0A8",
+      "source": "git-worktree"
+    },
+    {
+      "path": "apps/mobile/vitest.config.ts",
+      "bytes": 206,
+      "sha256": "D97D0E338C805CAAFE6A223E339B2803B52E7C4A03568805264F99450B698538",
       "source": "git-worktree"
     },
     {
@@ -4973,8 +5117,8 @@
     },
     {
       "path": "package.json",
-      "bytes": 4596,
-      "sha256": "635F965C14FF463583CD89509457C273F03C1D60C61371C1B0817A0D604F782F",
+      "bytes": 4669,
+      "sha256": "9D3908DB12326F46C470206C89B9ED1CBA1E8757F4A5F64A23FB29AA9D6E5F42",
       "source": "git-worktree"
     },
     {
@@ -5015,14 +5159,14 @@
     },
     {
       "path": "packages/contracts/src/analytics.test.ts",
-      "bytes": 6191,
-      "sha256": "24582408E3FF6E46BE09EE381F42E91328A207E71223608D849A72B48F0FD136",
+      "bytes": 6825,
+      "sha256": "66557B3FF234E21F7A69A2C05B51D38E6D3EEE4AC40A49961F5803B8F5CFB6CA",
       "source": "git-worktree"
     },
     {
       "path": "packages/contracts/src/analytics.ts",
-      "bytes": 6630,
-      "sha256": "922E2710DDE146057FDDE7F0C16D4252F4DA0F4ECE4A6CA2696410CCE197BBF3",
+      "bytes": 7087,
+      "sha256": "E595BADF50F97997D05A1B78CEA691EFFE226DFEBEE45AB73BDB5C030AC36F31",
       "source": "git-worktree"
     },
     {
@@ -5051,8 +5195,8 @@
     },
     {
       "path": "packages/contracts/src/release3.ts",
-      "bytes": 3182,
-      "sha256": "77280E8BC35C9E5236E83B7E47CBC203427A750270E315940E7CB2133205EF95",
+      "bytes": 3316,
+      "sha256": "3FEE6AF6088EB551F55CE03AA390CD8193B5F3E4D669EFAAC9C0DE8262284680",
       "source": "git-worktree"
     },
     {
@@ -5081,20 +5225,20 @@
     },
     {
       "path": "packages/contracts/src/release5.ts",
-      "bytes": 4866,
-      "sha256": "7BF0FBDFEFCAB606BE6A584A6CD8B0CBD75A6F622955144496C61B2BECE080CD",
+      "bytes": 5954,
+      "sha256": "659C8003C12594FC2D71864EE5A8049E278F660F5F7DCA3BEBC26D0ED468C72E",
       "source": "git-worktree"
     },
     {
       "path": "packages/contracts/src/schemas.test.ts",
-      "bytes": 5616,
-      "sha256": "93477CE43DD3AFEAD32E425A067247A13E628D40CA61A47EF78AA728D9FCA24B",
+      "bytes": 5803,
+      "sha256": "535AACDB6A68072440D701C7F1E51BA29F071E93562F0EF90BD2037A2193C2A8",
       "source": "git-worktree"
     },
     {
       "path": "packages/contracts/src/schemas.ts",
-      "bytes": 6009,
-      "sha256": "FF6B665C250F87311D860C42ED71BA421E1FA570A83CF26AD7C376618C0CFE4A",
+      "bytes": 6077,
+      "sha256": "C2B6241CD2390FA6646D069DAD958383EE23E31DC47613489AC2F643419C0AB0",
       "source": "git-worktree"
     },
     {
@@ -5141,14 +5285,14 @@
     },
     {
       "path": "packages/domain/src/money-date.test.ts",
-      "bytes": 2370,
-      "sha256": "2B164748B24FE75B0F04F03B2FC23F6A33A6FAA223FEDBC6122BD99697201340",
+      "bytes": 3155,
+      "sha256": "9EEA56E18BBEDEABF13B43D977AF6276BBBBAB44BA052039D2B2B06A8A94A1E1",
       "source": "git-worktree"
     },
     {
       "path": "packages/domain/src/money-date.ts",
-      "bytes": 3099,
-      "sha256": "26481655525E8607DFA7E75F47C15F065E0E29E18DD5DA0EB668A9046BC8302B",
+      "bytes": 3860,
+      "sha256": "EA436C8A6D7204CB8DA05331AD219652701943DBA07149F15448EBF1C2D65924",
       "source": "git-worktree"
     },
     {
@@ -5207,8 +5351,8 @@
     },
     {
       "path": "packages/domain/src/release4-catalog.ts",
-      "bytes": 53380,
-      "sha256": "94E0ED43110D301B4379D22E682778F294AF4885B02E0EEC2D393146164303CE",
+      "bytes": 53802,
+      "sha256": "99877575F4D7F9B616A59B176551B5DC71DA1351C8A75AB5DE3D1B173E132A29",
       "source": "git-worktree"
     },
     {
@@ -5279,8 +5423,8 @@
     },
     {
       "path": "packages/test-utils/src/release-gate-runner.test.ts",
-      "bytes": 10073,
-      "sha256": "D91DDDF889EBBF095D98481329A8B29322BCBF6D104ECB9A157CE7C37611765C",
+      "bytes": 14488,
+      "sha256": "DE66AD4936F6566151124005AAA82D3CF921950C6452093BF8EBC0B55FC168A3",
       "source": "git-worktree"
     },
     {
@@ -5326,15 +5470,21 @@
       "source": "git-worktree"
     },
     {
+      "path": "patches/image-size@1.2.1.patch",
+      "bytes": 2512,
+      "sha256": "DA9B932F54CD2AE71161E8322DF6F243916C7B366B1B1D5139703AB14F4E64AD",
+      "source": "git-worktree"
+    },
+    {
       "path": "pnpm-lock.yaml",
-      "bytes": 474367,
-      "sha256": "C8E4B07CB0E0F83E3609209901B2115864931EC2B7A9DFAF1E961034D0032305",
+      "bytes": 456646,
+      "sha256": "4FA2D2A66ED477F81D749AF1E1AB1358809E8210173EF352DCE85B228083448E",
       "source": "git-worktree"
     },
     {
       "path": "pnpm-workspace.yaml",
-      "bytes": 943,
-      "sha256": "AAF45D229F2E5751A40399857C491400315692E684409C3318F956400D2E4931",
+      "bytes": 1215,
+      "sha256": "FAE3F4FAEF7B9B9C458266E3355846B3C3AEF22BC348DE5B5058F33617ED69C1",
       "source": "git-worktree"
     },
     {
@@ -5356,21 +5506,27 @@
       "source": "git-worktree"
     },
     {
+      "path": "scripts/audit-production-dependencies.ts",
+      "bytes": 5456,
+      "sha256": "0394DA808442245DD2CEA37F46F33E2F885D64479B06ECB1C3E382DCB9794252",
+      "source": "git-worktree"
+    },
+    {
       "path": "scripts/audit-release5v-apk.ts",
-      "bytes": 6378,
-      "sha256": "F9B3FD3022A18D5A6D10BA610662C931D7A5E3A266D3FF7CF8C6F590836C519E",
+      "bytes": 9703,
+      "sha256": "1E82549D22B29EE46482AEBFFF66EDB1DC80EB30FF44C2CE29B6BDED5557998B",
       "source": "git-worktree"
     },
     {
       "path": "scripts/build-android-aab.ts",
-      "bytes": 4593,
-      "sha256": "9FA699E748028C679E894891A6E9959F35F14D3C684B445D4DDB415FC1D641EF",
+      "bytes": 11077,
+      "sha256": "CAA7229A20D816934AE2A1F16E37261C463D59B4425A6F83D680596254B6C2E7",
       "source": "git-worktree"
     },
     {
       "path": "scripts/build-android-apk.ts",
-      "bytes": 14644,
-      "sha256": "FE573FAD040D4D414B06C1AEE441315443AA5D835A96A35BA8699048C3ED0063",
+      "bytes": 15210,
+      "sha256": "ED6CC993CB4C36FEB53076BD2A0E18C13D0CFA7BAB3F08E96BF91AD86BC7C555",
       "source": "git-worktree"
     },
     {
@@ -5447,8 +5603,8 @@
     },
     {
       "path": "scripts/generate-release5-evidence.ts",
-      "bytes": 28580,
-      "sha256": "C66CA0AD84CE98C8A8B8AEFFFD022615E2EFEC31673DE5F8D55830CD0ADDDED4",
+      "bytes": 28703,
+      "sha256": "45F82EAE8F115501B90B3511BF58D1EFA655D821D4ADA85E9C00C8D87964BFE0",
       "source": "git-worktree"
     },
     {
@@ -5465,8 +5621,8 @@
     },
     {
       "path": "scripts/generate-release5v-evidence.ts",
-      "bytes": 27815,
-      "sha256": "E180383CC3EDA78AEFF00B0929DBCDB2173CF448B98FF8AF89CC61F901A9307C",
+      "bytes": 28052,
+      "sha256": "D30B2EC1C3AFB0C4C8CB82D0A566A2E9A81DC0CB3E48D933A311D3805F95634B",
       "source": "git-worktree"
     },
     {
@@ -5489,14 +5645,14 @@
     },
     {
       "path": "scripts/lib/mobile-source-quality.test.ts",
-      "bytes": 2313,
-      "sha256": "4B4A0126DF2706B04951FA2F1F6E033CAEC33D48C35A5B6E9AC5E4C4F61DC5C9",
+      "bytes": 2376,
+      "sha256": "1B6B8CEEC892CCC530822CE928E7A78DA1FD79C68E330F393B1D8D8E9E6BEC9C",
       "source": "git-worktree"
     },
     {
       "path": "scripts/lib/mobile-source-quality.ts",
-      "bytes": 7952,
-      "sha256": "B3D9CA6378F45874C902790C6893A3DAA8C60D05C2B6FF4DC291749A034AB011",
+      "bytes": 8468,
+      "sha256": "044496E3659D0DB229301E2A42471AC1F5A5369220D18BD732CF4BDC7DC0A6E7",
       "source": "git-worktree"
     },
     {
@@ -5512,15 +5668,21 @@
       "source": "git-worktree"
     },
     {
+      "path": "scripts/lib/release-gate-lock.ts",
+      "bytes": 3775,
+      "sha256": "9E54F0DA6611786D41BC95857507CF4C6DE43CBCAF91F38B1C6DB0DB817E6681",
+      "source": "git-worktree"
+    },
+    {
       "path": "scripts/lib/release5v-snapshot-path.test.ts",
-      "bytes": 928,
-      "sha256": "2726675C89E578C7CB6F9EB4CA2597C38330BC5DEBFFEB6B1B0881DD72E9C3DC",
+      "bytes": 1069,
+      "sha256": "2C0DFF9C98BD6783031B3911C50B49D03E72D3D2A59C66C8D798B1D29CB5F3E2",
       "source": "git-worktree"
     },
     {
       "path": "scripts/lib/release5v-snapshot-path.ts",
-      "bytes": 1183,
-      "sha256": "4132D79F5FF16435827C1BD4A1CC7939ACFEA9703CBC60344E9EE8DE1A0822AB",
+      "bytes": 1305,
+      "sha256": "579B5E66A8C1063B20A3DFF3A6AEF0BC18622AB1510B7C327B4E771D8203FC64",
       "source": "git-worktree"
     },
     {
@@ -5542,6 +5704,12 @@
       "source": "git-worktree"
     },
     {
+      "path": "scripts/local-db-restore-drill.ts",
+      "bytes": 10414,
+      "sha256": "5F1EB36D8673E2DCACB7026299DCF0FA67F43143704FA555F4D69FC3576F7743",
+      "source": "git-worktree"
+    },
+    {
       "path": "scripts/measure-release4-catalog-performance.ts",
       "bytes": 3054,
       "sha256": "F9831EF1CCAB8FA7509D41BE90C0C8C8FDCDD2CC8D7C6DCF56B7EEC1666B6990",
@@ -5549,14 +5717,14 @@
     },
     {
       "path": "scripts/pixel-lock/android-pixel-lock.ts",
-      "bytes": 37236,
-      "sha256": "694DFCC04CA026B330B1000DD73339E4C4D649752B04249C6334C9471E72FDB7",
+      "bytes": 38330,
+      "sha256": "058ADBDC21557B2FD7A1530FCBC35459DA413BE4C825451A94B332CA6984E185",
       "source": "git-worktree"
     },
     {
       "path": "scripts/pixel-lock/build-pixel-apk.ts",
-      "bytes": 9335,
-      "sha256": "3C68DD0E262200480DF43FD9AC96FB8FF151A4A27C16FB19D52DE574FA61A310",
+      "bytes": 9634,
+      "sha256": "1EE7A39EEBBE5B0553AA9B1ABA1282EB93EE7AA03E423A568BAA282B3720A3F6",
       "source": "git-worktree"
     },
     {
@@ -5573,14 +5741,20 @@
     },
     {
       "path": "scripts/pixel-lock/render-validation.ts",
-      "bytes": 892,
-      "sha256": "7932EAD282F4EB66510F5B1AD3084ED6B72885FB3C4496E96DC2F0DC9362F929",
+      "bytes": 1043,
+      "sha256": "B84C1540CC87CA0203484F3BE642D020142B4E4E1078D55223C9AFD39DA5A1ED",
+      "source": "git-worktree"
+    },
+    {
+      "path": "scripts/pixel-lock/tune-scaffold.ts",
+      "bytes": 3452,
+      "sha256": "5C3263CAB7F848212AD16817EEDC8DD11DDF2226F6B471A80899BC77C021E42A",
       "source": "git-worktree"
     },
     {
       "path": "scripts/release-gate.ts",
-      "bytes": 13217,
-      "sha256": "A795C1459E009D32A3391B6160AC644293FD7B7C8238790C6904DC326F348FF9",
+      "bytes": 14238,
+      "sha256": "661CC934E96559BAC671302535A52E3A24D242224A448A1BFCF7113747D0AB60",
       "source": "git-worktree"
     },
     {
@@ -5615,8 +5789,8 @@
     },
     {
       "path": "scripts/run-catalog-audit.ts",
-      "bytes": 673,
-      "sha256": "C77564B32D2A245027CD6CD0584F246DA973E0EB5ECCA08E8B6779C112EC96DB",
+      "bytes": 2533,
+      "sha256": "37CBB8372CB64B0F605660BAF282206AE078094EFA8E9A0C711E712F2A089E3C",
       "source": "git-worktree"
     },
     {
@@ -5639,8 +5813,8 @@
     },
     {
       "path": "scripts/verify-mobile-source-quality.ts",
-      "bytes": 1568,
-      "sha256": "8DA4C2EF9E99D0B32E5FB7A43C5DF1E548D386424CABA4D03051E580A050837A",
+      "bytes": 2094,
+      "sha256": "E3B8325D963B2266A2721309AF5AFF4DE844680706799D806CE12AF99D709C8F",
       "source": "git-worktree"
     },
     {
@@ -5651,8 +5825,8 @@
     },
     {
       "path": "scripts/verify-release4-databases.ts",
-      "bytes": 10694,
-      "sha256": "36C81B2D7D653F5E512DEFF866D4812140D6693167C0418DF635043099ADD95A",
+      "bytes": 11480,
+      "sha256": "1A71E9EF56D041C8A0A383E3B7B2A4C02EACE68A56C76A213686BF048F881702",
       "source": "git-worktree"
     },
     {

@@ -66,7 +66,8 @@ describe("Android local test login", () => {
     expect(loginSource).toContain("getCurrentLegalDocuments");
     expect(loginSource).toContain("resolveRequiredLegalDocuments");
     expect(loginSource).toContain("현재 이용약관을 불러올 수 없어요");
-    expect(loginSource).toContain("문서 보기");
+    expect(loginSource).toContain('opened ? "닫기" : "보기"');
+    expect(loginSource).toContain('accessibilityState={{ disabled, expanded: opened }}');
     expect(loginSource).toContain('accessibilityRole="checkbox"');
     expect(loginSource).toContain("requiredAccepted = legalAvailable");
     expect(loginSource).toContain("동의하고 시작하기");

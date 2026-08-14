@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import { reportCrash } from "./crash-adapter";
 
 export class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {

@@ -1,6 +1,7 @@
-import React from "react";
+﻿import React from "react";
 import renderer from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
+import { render } from "./test-utils/react-test-renderer";
 
 const dimensions = vi.hoisted(() => ({ width: 320, height: 800, fontScale: 1 }));
 
@@ -27,7 +28,7 @@ describe("ScreenScaffold viewport and font contract", () => {
     dimensions.width = width;
     dimensions.fontScale = fontScale;
     const longKoreanContent = "아주 긴 아이 이름과 가족 이름, 준비 품목명, 999,999,999원 금액도 핵심 행동과 함께 유지됩니다.";
-    const tree = renderer.create(
+    const tree = render(
       <ScreenScaffold testID="release4g-scaffold">
         <View>{longKoreanContent}</View>
       </ScreenScaffold>

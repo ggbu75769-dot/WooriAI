@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 09 케어 페어</title><desc id="d">서로 다른 두 보호자가 아이를 향해 기울어진 균형 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF7ED"/>
+  <rect x="112" y="104" width="116" height="286" rx="58" fill="#6DC5AE" transform="rotate(-16 170 247)"/>
+  <rect x="284" y="104" width="116" height="286" rx="58" fill="#FF7658" transform="rotate(16 342 247)"/>
+  <circle cx="256" cy="326" r="52" fill="#173D48" stroke="#FFF7ED" stroke-width="18"/>
+</svg>

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "generatedAt": "2026-08-11T00:46:34.417Z",
   "status": "AUTOMATED_PASS",
   "actor": "Mobile UX Engineer",
   "input": "current Expo Router source",
@@ -8,19 +8,19 @@
   "productionRoutes": {
     "routes": 51,
     "designSystemRoutes": 51,
-    "directDesignSystemRoutes": 7,
-    "legacyUiRoutes": 37,
-    "fullyDirectMigratedRoutes": 0,
+    "directDesignSystemRoutes": 28,
+    "legacyUiRoutes": 22,
+    "fullyDirectMigratedRoutes": 25,
     "screenScaffoldRoutes": 51,
     "designSystemPercentage": 100,
-    "routesWithLoading": 21,
-    "routesWithEmpty": 23,
-    "routesWithError": 29,
-    "routesWithOffline": 7,
+    "routesWithLoading": 23,
+    "routesWithEmpty": 22,
+    "routesWithError": 27,
+    "routesWithOffline": 9,
     "rawColorLiterals": 0,
     "unicodeIconLiterals": 0,
-    "hardcodedSpacingLiterals": 257,
-    "possibleSub48Targets": 37
+    "hardcodedSpacingLiterals": 259,
+    "possibleSub48Targets": 43
   },
   "tabs": [
     "홈",

@@ -11,7 +11,8 @@ import {
   isFutureSeoulDate,
   isMoneyKrw,
   isValidCalendarDate,
-  localDateToDateOnly
+  localDateToDateOnly,
+  MAX_MONEY_KRW
 } from "./money-date";
 
 describe("money rules", () => {
@@ -21,6 +22,8 @@ describe("money rules", () => {
     expect(isMoneyKrw(0)).toBe(false);
     expect(isMoneyKrw(-1)).toBe(false);
     expect(isMoneyKrw(1.2)).toBe(false);
+    expect(isMoneyKrw(MAX_MONEY_KRW)).toBe(true);
+    expect(isMoneyKrw(MAX_MONEY_KRW + 1)).toBe(false);
   });
 
   it("throws a field-level error for invalid KRW", () => {

@@ -31,7 +31,7 @@ export default function ProfileScreen() {
     <AppScreen>
       <View accessibilityLabel="내 프로필" testID="screen-PROFILE-001" style={{ gap: theme.spacing.section }}>
         {isTestSession ? <SampleDataBanner /> : null}
-        <ScreenHeader eyebrow="PROFILE-001" title="내 프로필" subtitle="로그인 계정과 개인정보 설정을 확인해요." />
+        <ScreenHeader eyebrow="계정" onBack={() => router.back()} title="내 프로필" subtitle="로그인 계정과 개인정보 설정을 확인해요." />
 
         <View style={{ gap: theme.spacing.gap }}>
           <InputField label="이름" value={displayName ?? "이름 미등록"} />

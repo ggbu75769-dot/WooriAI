@@ -174,12 +174,37 @@ describe("release gate package-manager runner", () => {
     const workspace = readFileSync(resolve(__dirname, "../../../pnpm-workspace.yaml"), "utf8");
     const lockfile = readFileSync(resolve(__dirname, "../../../pnpm-lock.yaml"), "utf8");
 
-    expect(workspace).toContain("postcss: 8.5.18");
-    expect(lockfile).toContain("postcss@8.5.18:");
-    expect(workspace).toContain("brace-expansion: 5.0.8");
-    expect(lockfile).toContain("brace-expansion@5.0.8:");
+    expect(workspace).toContain("postcss: 8.5.23");
+    expect(lockfile).toContain("postcss@8.5.23:");
+    expect(workspace).toContain("brace-expansion: 5.0.9");
+    expect(lockfile).toContain("brace-expansion@5.0.9:");
+    expect(workspace).toContain("fast-uri: 3.1.5");
+    expect(workspace).toContain("'js-yaml@3': 3.15.1");
+    expect(workspace).toContain("'js-yaml@4': 4.3.1");
+    expect(workspace).toContain("nanoid: 3.3.17");
+    expect(workspace).toContain("undici: 6.28.0");
     expect(lockfile).not.toContain("postcss@8.5.10:");
     expect(lockfile).not.toContain("postcss@8.5.11:");
+  });
+
+  it("backports the unpublished image-size infinite-loop fixes and audits their PoCs", () => {
+    const rootPackage = JSON.parse(
+      readFileSync(resolve(__dirname, "../../../package.json"), "utf8")
+    ) as { scripts?: Record<string, string> };
+    const workspace = readFileSync(resolve(__dirname, "../../../pnpm-workspace.yaml"), "utf8");
+    const patch = readFileSync(resolve(__dirname, "../../../patches/image-size@1.2.1.patch"), "utf8");
+    const auditScript = readFileSync(
+      resolve(__dirname, "../../../scripts/audit-production-dependencies.ts"),
+      "utf8"
+    );
+
+    expect(rootPackage.scripts?.["security:audit"]).toBe("tsx scripts/audit-production-dependencies.ts");
+    expect(workspace).toContain("image-size@1.2.1: patches/image-size@1.2.1.patch");
+    expect(patch).toContain("boxSize < 8 || input.length - offset < boxSize");
+    expect(patch).toContain("assertValidEntryLength(imageHeader[1])");
+    expect(auditScript).toContain("GHSA-5p2g-fcmc-qvqq");
+    expect(auditScript).toContain("GHSA-w3rx-r6r6-pgpr");
+    expect(auditScript).toContain("timeout: 1500");
   });
 
   it("resolves Expo archive handling above the patched node-tar security floor", () => {

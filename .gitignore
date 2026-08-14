@@ -1,9 +1,13 @@
 node_modules/
+.node_modules-sdk54-backup/
+.bin-sdk54-backup/
 .pnpm-store/
+.pnpm-vstore/
 .turbo/
 .android-avd/
 .android-avd-home/
 .gradle-home/
+.react-native-build/
 .toolcache/
 .build/
 dist/

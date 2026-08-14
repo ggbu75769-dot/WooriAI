@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as FileSystem from "expo-file-system/legacy";
 import { router } from "expo-router";
-import { Alert, Pressable, Text, View } from "react-native";
+import * as Sharing from "expo-sharing";
+import { Alert, Pressable, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import {
   ApiClientError,
   cancelAccountDeletion,
@@ -8,6 +11,8 @@ import {
   confirmChildProfileDeletion,
   confirmHouseholdLeave,
   getCurrentAccountDeletion,
+  getPrivacyExportPayload,
+  getPrivacyRequest,
   getPrivacySettings,
   isApiErrorCode,
   listHouseholdMembers,
@@ -18,7 +23,9 @@ import {
   previewChildProfileDeletion,
   previewHouseholdLeave,
   retryAccountDeletion,
+  requestDataExport,
   type AccountDeletionRequest,
+  type PrivacyExportRequest,
   type SettingsPreview
 } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -224,6 +231,44 @@ export default function PrivacySettingsScreen() {
     }
   });
 
+  const exportRequest = useMutation({
+    mutationFn: () => requestDataExport(authToken!),
+    onSuccess: (request) => {
+      queryClient.setQueryData(["privacy-export", request.id], request);
+    },
+    onError: () => Alert.alert("내보내기를 요청하지 못했어요", actionFailedText)
+  });
+  const activeExport = useQuery({
+    queryKey: ["privacy-export", exportRequest.data?.id],
+    enabled: Boolean(authToken && exportRequest.data?.id),
+    initialData: exportRequest.data,
+    queryFn: () => getPrivacyRequest(authToken!, exportRequest.data!.id),
+    refetchInterval: (query) => {
+      const state = (query.state.data as PrivacyExportRequest | undefined)?.state;
+      return state === "requested" || state === "processor_delete_queued" || state === "purging" ? 2_000 : false;
+    }
+  });
+  const exportDownload = useMutation({
+    mutationFn: async (requestId: string) => {
+      const payload = await getPrivacyExportPayload(authToken!, requestId);
+      if (!FileSystem.cacheDirectory) throw new Error("EXPORT_DIRECTORY_UNAVAILABLE");
+      const fileUri = `${FileSystem.cacheDirectory}wooriai-data-export-${requestId}.json`;
+      await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(payload, null, 2), {
+        encoding: FileSystem.EncodingType.UTF8
+      });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          dialogTitle: "우리AI 내 데이터 저장",
+          mimeType: "application/json",
+          UTI: "public.json"
+        });
+      }
+      return fileUri;
+    },
+    onSuccess: () => Alert.alert("내보내기 파일을 만들었어요", "공유 화면에서 파일을 저장하거나 안전한 곳으로 보낼 수 있어요."),
+    onError: () => Alert.alert("파일을 만들지 못했어요", actionFailedText)
+  });
+
   const isVisibleDeletion = (deletion: AccountDeletionRequest | undefined | null): deletion is AccountDeletionRequest =>
     deletion?.state === "requested" ||
     (deletion?.state === "failed" && deletion.failureCode === "OWNER_TRANSFER_REQUIRED");
@@ -264,11 +309,13 @@ export default function PrivacySettingsScreen() {
   };
 
   const flows = privacy.data?.flows ?? [];
+  const exportState = activeExport.data?.state ?? exportRequest.data?.state ?? null;
+  const exportReady = exportState === "completed";
 
   return (
     <AppScreen>
       <View testID="screen-SET-003" accessibilityLabel="screen-SET-003" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="설정" title="약관 및 개인정보" subtitle="동의 내역과 삭제 · 탈퇴를 관리해요" />
+        <ScreenHeader eyebrow="설정" onBack={() => router.back()} title="약관 및 개인정보" subtitle="동의 내역과 삭제 · 탈퇴를 관리해요" />
 
         {privacy.isLoading ? (
           <Card>
@@ -283,12 +330,66 @@ export default function PrivacySettingsScreen() {
           </Card>
         ) : null}
 
+        {privacy.data ? (
+          <View accessibilityLabel="필수 약관 동의 내역">
+            <Card style={{ gap: 12 }}>
+              <Text style={{ color: theme.colors.textPrimary, fontSize: 16, fontWeight: "800" }}>필수 약관 동의 내역</Text>
+              {privacy.data.consents.map((consent) => (
+                <View key={`${consent.type}:${consent.version}`} style={{ borderTopColor: theme.colors.gray300, borderTopWidth: 1, gap: 4, paddingTop: 10 }}>
+                  <View style={rowHeaderStyle}>
+                    <Text style={{ color: theme.colors.textPrimary, flex: 1, fontSize: 14, fontWeight: "700" }}>{consent.title}</Text>
+                    <StatusBadge label={consent.accepted ? "동의함" : "재확인 필요"} tone={consent.accepted ? "success" : "warning"} />
+                  </View>
+                  <Text style={mutedTextStyle}>버전 {consent.version}</Text>
+                  {consent.acceptedAt ? <Text style={mutedTextStyle}>동의 시각 {new Date(consent.acceptedAt).toLocaleString("ko-KR")}</Text> : null}
+                </View>
+              ))}
+            </Card>
+          </View>
+        ) : null}
+
         {!privacy.isLoading && !privacy.isError && flows.length === 0 ? (
           <EmptyStateCard title="표시할 항목이 없어요" actionLabel="새로고침" onPress={() => privacy.refetch()} />
         ) : null}
       </View>
 
       <View testID="screen-SET-004" accessibilityLabel="screen-SET-004" style={{ gap: theme.spacing.gap }}>
+        <Card style={{ gap: 10 }}>
+          <View style={rowHeaderStyle}>
+            <Text style={{ color: theme.colors.textPrimary, flex: 1, fontSize: 15, fontWeight: "800" }}>내 데이터 내보내기</Text>
+            <StatusBadge label={exportReady ? "준비 완료" : exportState ? "준비 중" : "요청 가능"} tone={exportReady ? "success" : exportState ? "warning" : "neutral"} />
+          </View>
+          <Text style={mutedTextStyle}>내 계정 정보와 직접 작성한 지출·예산·동의 기록을 JSON 파일로 받아볼 수 있어요. 다른 가족의 개인정보와 인증 비밀값은 포함하지 않아요.</Text>
+          {!exportState ? (
+            <SecondaryButton
+              label={exportRequest.isPending ? "내보내기 요청 중..." : "내 데이터 준비하기"}
+              disabled={!authToken || exportRequest.isPending}
+              onPress={() => exportRequest.mutate()}
+            />
+          ) : null}
+          {exportState && !exportReady && exportState !== "failed" ? (
+            <Text accessibilityLiveRegion="polite" style={pendingNoticeStyle}>파일을 안전하게 준비하고 있어요. 이 화면에서 완료 여부를 자동으로 확인할게요.</Text>
+          ) : null}
+          {exportReady ? (
+            <>
+              <Text accessibilityLiveRegion="polite" style={previewNoticeStyle}>
+                {activeExport.data?.exportExpiresAt ? `${new Date(activeExport.data.exportExpiresAt).toLocaleString("ko-KR")}까지 받을 수 있어요.` : "파일을 받을 수 있어요."}
+              </Text>
+              <SecondaryButton
+                label={exportDownload.isPending ? "파일 만드는 중..." : "JSON 파일 저장·공유"}
+                disabled={exportDownload.isPending}
+                onPress={() => exportDownload.mutate(activeExport.data!.id)}
+              />
+            </>
+          ) : null}
+          {exportState === "failed" || activeExport.isError ? (
+            <>
+              <Text accessibilityLiveRegion="assertive" style={{ color: theme.colors.danger }}>{actionFailedText}</Text>
+              <SecondaryButton label="새로 요청하기" disabled={exportRequest.isPending} onPress={() => exportRequest.mutate()} />
+            </>
+          ) : null}
+        </Card>
+
         <Card style={{ gap: 10 }}>
           <View style={rowHeaderStyle}>
             <Text style={dangerTitleStyle}>{flowCopy.child_profile_delete.title}</Text>

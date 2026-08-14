@@ -19,6 +19,8 @@ import { zustandPersistStorage } from "../stores/persist-storage";
 import type {
   AffiliateClickResponse,
   AccountDeletionRequest,
+  PrivacyExportPayload,
+  PrivacyExportRequest,
   Budget,
   CategoryReport,
   CatalogItemDetail,
@@ -35,6 +37,8 @@ import type {
   CumulativeReport,
   CompleteOnboardingInput,
   Expense,
+  ExpenseListOptions,
+  ExpenseListResponse,
   HomeSummary,
   ImportJob,
   ImportRow,
@@ -255,6 +259,7 @@ type LocalBackendState = {
   consents: Array<{ type: string; version: string; contentHash: string; accepted: boolean }>;
   accountDeletedAt: string | null;
   accountDeletionRequest: AccountDeletionRequest | null;
+  privacyExportRequest: PrivacyExportRequest | null;
   // MOB-102 (round5a-sprint1-plan.md §3.2): local mirror of the real API's Idempotency-Key
   // interceptor for expense creation -- maps a client-supplied idempotency key to the expense id
   // it produced, so the offline outbox replaying a create after a crash/retry never creates a
@@ -285,6 +290,7 @@ const initialState: LocalBackendState = {
   consents: [],
   accountDeletedAt: null,
   accountDeletionRequest: null,
+  privacyExportRequest: null,
   idempotencyKeys: {}
 };
 
@@ -506,6 +512,9 @@ function sanitizeLocalBackendState(persisted: unknown): LocalBackendState {
     accountDeletedAt: typeof persisted.accountDeletedAt === "string" ? persisted.accountDeletedAt : null,
     accountDeletionRequest: isPlainObject(persisted.accountDeletionRequest)
       ? persisted.accountDeletionRequest as AccountDeletionRequest
+      : null,
+    privacyExportRequest: isPlainObject(persisted.privacyExportRequest)
+      ? persisted.privacyExportRequest as PrivacyExportRequest
       : null,
     idempotencyKeys: isPlainObject(persisted.idempotencyKeys) ? (persisted.idempotencyKeys as Record<string, string>) : {}
   };
@@ -819,7 +828,7 @@ function expensesForChild(childId: string, yearMonth?: string): LocalExpenseReco
     .expenses.filter((expense) => expense.childId === childId)
     .filter((expense) => !expense.deletedAt)
     .filter((expense) => !range || (expense.spentOn >= range.startInclusive && expense.spentOn < range.endExclusive))
-    .sort((left, right) => right.spentOn.localeCompare(left.spentOn) || right.createdAt.localeCompare(left.createdAt));
+    .sort((left, right) => right.spentOn.localeCompare(left.spentOn) || right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id));
 }
 
 function totalExpenseKrw(expenses: LocalExpenseRecord[]): number {
@@ -1064,9 +1073,34 @@ export function getTodayPreferenceResolution(
   };
 }
 
-export function listExpenses(childId: string, yearMonth?: string): { expenses: Expense[]; totalAmountKrw: number } {
+export function listExpenses(childId: string, yearMonth?: string, options: ExpenseListOptions = {}): ExpenseListResponse {
   const expenses = expensesForChild(childId, yearMonth);
-  return { expenses: expenses.map(toExpenseDto), totalAmountKrw: totalExpenseKrw(expenses) };
+  const normalizedSearch = options.search?.trim().toLocaleLowerCase("ko-KR") ?? "";
+  const filtered = expenses.filter((expense) => {
+    if (options.categoryId && expense.categoryId !== options.categoryId) return false;
+    if (!normalizedSearch) return true;
+    return `${expense.itemName} ${expense.memo ?? ""} ${expense.merchant ?? ""}`
+      .toLocaleLowerCase("ko-KR")
+      .includes(normalizedSearch);
+  });
+  const summaryEligible = (expense: LocalExpenseRecord) =>
+    expense.expenseType === "expense" && expense.spentOn <= getSeoulToday();
+  const totalSummary = expenses.filter(summaryEligible);
+  const filteredSummary = filtered.filter(summaryEligible);
+  const cursorIndex = options.cursor ? filtered.findIndex((expense) => expense.id === options.cursor) : -1;
+  const start = cursorIndex >= 0 ? cursorIndex + 1 : 0;
+  const limit = options.limit ? Math.max(1, Math.min(options.limit, 100)) : filtered.length;
+  const page = filtered.slice(start, start + limit);
+  return {
+    expenses: page.map(toExpenseDto),
+    filteredExpenseCount: filteredSummary.length,
+    filteredRecordCount: filtered.length,
+    filteredTotalAmountKrw: totalExpenseKrw(filteredSummary),
+    nextCursor: start + page.length < filtered.length ? page.at(-1)?.id ?? null : null,
+    totalAmountKrw: totalExpenseKrw(totalSummary),
+    totalExpenseCount: totalSummary.length,
+    totalRecordCount: expenses.length
+  };
 }
 
 export function listExpenseShortcuts(childId: string) {
@@ -1178,6 +1212,15 @@ export function updatePaymentMethod(
 export function deactivatePaymentMethod(paymentMethodId: string): UserPaymentMethod {
   const existing = requireLocalPaymentMethod(paymentMethodId);
   const updated = { ...existing, active: false, isDefault: false };
+  useLocalBackendStore.setState((state) => ({
+    paymentMethods: state.paymentMethods.map((method) => (method.id === paymentMethodId ? updated : method))
+  }));
+  return updated;
+}
+
+export function reactivatePaymentMethod(paymentMethodId: string): UserPaymentMethod {
+  const existing = requireLocalPaymentMethod(paymentMethodId);
+  const updated = { ...existing, active: true };
   useLocalBackendStore.setState((state) => ({
     paymentMethods: state.paymentMethods.map((method) => (method.id === paymentMethodId ? updated : method))
   }));
@@ -1629,13 +1672,20 @@ export function getReportV2Members(childId: string, kind: ReportV2Period, anchor
   return { period, members: rows.length ? [{ userId: LOCAL_USER_ID, displayName: "엄마", ...totals, percentage: 100 }] : [], percentageTotal: rows.length ? 100 : 0, maturity: localReportMaturity(rows) };
 }
 
+function localCatalogItemForDefinitionId(itemDefinitionId: string | null | undefined) {
+  if (!itemDefinitionId) return undefined;
+  return catalogDomain.release4CatalogItems.find(
+    (item) => item.code === itemDefinitionId || `local-item-${item.code}` === itemDefinitionId
+  );
+}
+
 export function getReportV2Preparation(childId: string, kind: ReportV2Period, anchor: string): ReportPreparationContract {
   const period = localReportPeriod(childId, kind, anchor);
   const rows = localReportRows(childId, period.from, period.to);
   const linked = rows.filter((row) => row.linkedItemDefinitionId);
   const groups = new Map<"required" | "recommended" | "conditional" | "optional" | "unknown", LocalExpenseRecord[]>();
   for (const row of linked) {
-    const necessity = catalogDomain.release4CatalogItems.find((item) => item.code === row.linkedItemDefinitionId)?.necessity ?? "unknown";
+    const necessity = localCatalogItemForDefinitionId(row.linkedItemDefinitionId)?.necessity ?? "unknown";
     groups.set(necessity, [...(groups.get(necessity) ?? []), row]);
   }
   const labels = { required: "필수 준비", recommended: "권장 준비", conditional: "상황별 준비", optional: "선택 준비", unknown: "기타 준비" } as const;
@@ -1676,11 +1726,11 @@ export function getReportV3(childId: string, kind: ReportV2Period, anchor: strin
   const splitKeys = ["essential", "convenience", "optional"] as const;
   const necessitySplit = splitKeys.map((key) => {
     const planRows = reportPlans.filter((plan) => {
-      const necessity = catalogDomain.release4CatalogItems.find((item) => `local-item-${item.code}` === plan.itemDefinitionId)?.necessity;
+      const necessity = localCatalogItemForDefinitionId(plan.itemDefinitionId)?.necessity;
       return key === "essential" ? necessity === "required" : key === "optional" ? necessity === "optional" : necessity !== "required" && necessity !== "optional";
     });
     const expenseRows = linkedRows.filter((row) => {
-      const necessity = catalogDomain.release4CatalogItems.find((item) => `local-item-${item.code}` === row.linkedItemDefinitionId)?.necessity;
+      const necessity = localCatalogItemForDefinitionId(row.linkedItemDefinitionId)?.necessity;
       return key === "essential" ? necessity === "required" : key === "optional" ? necessity === "optional" : necessity !== "required" && necessity !== "optional";
     });
     const plannedCostKrw = planRows.reduce((sum, plan) => sum + (plan.budgetKrw ?? 0), 0);
@@ -1791,9 +1841,7 @@ export function getReportV3Sources(
           const amountKrw = sourceKind === "recurring_planned" && plan.recurringIntervalDays
             ? Math.round((plan.budgetKrw ?? 0) * 30.4375 / plan.recurringIntervalDays)
             : (plan.budgetKrw ?? 0);
-          const catalogItem = catalogDomain.release4CatalogItems.find(
-            (item) => `local-item-${item.code}` === plan.itemDefinitionId
-          );
+          const catalogItem = localCatalogItemForDefinitionId(plan.itemDefinitionId);
           return {
             sourceType: "plan" as const,
             id: plan.id,
@@ -2931,8 +2979,18 @@ export function createExcelImport(childId: string, fileName: string): ImportJob 
   }
 
   const today = getSeoulToday();
+  const fixtureRows = /(^|\D)100(?:-records)?(\D|$)/i.test(trimmedName)
+    ? Array.from({ length: 100 }, (_, index) => ({
+        rowIndex: index,
+        itemName: `가져온 테스트 지출 ${String(index + 1).padStart(3, "0")}`,
+        amountKrw: 1_000 + index,
+        confidence: 0.95,
+        daysAgo: 0,
+        selectedByDefault: true
+      }))
+    : localImportStubRows;
   const jobId = generateLocalId("import-job");
-  const rows: LocalImportRowRecord[] = localImportStubRows.map((stub) => {
+  const rows: LocalImportRowRecord[] = fixtureRows.map((stub) => {
     const base: LocalImportRowRecord = {
       id: generateLocalId("import-row"),
       importJobId: jobId,
@@ -3184,7 +3242,15 @@ export function previewOnboardingStarterItems(body: {
   if (body.stageMode === "pregnant" && !body.dueDate) throw new Error("출산 예정일을 입력해 주세요.");
   if (body.stageMode === "born" && !body.birthDate) throw new Error("생일을 입력해 주세요.");
   if (body.stageMode === "manual" && !body.manualStage) throw new Error("현재 단계를 선택해 주세요.");
-  const items = localOnboardingStarterCatalogItems().map(({ item, code, presentation }, index) => {
+  const stageCode = body.stageMode === "pregnant"
+    ? calculateChildStage({ stageMode: "pregnant", dueDate: body.dueDate! }).stageCode
+    : body.stageMode === "born"
+      ? calculateChildStage({ stageMode: "born", birthDate: body.birthDate! }).stageCode
+      : calculateChildStage({ stageMode: "manual", manualStage: body.manualStage! }).stageCode;
+  const eligibleStarterItems = localOnboardingStarterCatalogItems().filter(
+    ({ code }) => stageCode !== "newborn_0_3" || code !== "blocks"
+  );
+  const items = eligibleStarterItems.map(({ item, code, presentation }, index) => {
     return {
       id: item.code,
       code,
@@ -3485,24 +3551,41 @@ export function setPreparedItems(childId: string, itemTemplateIds: string[]): { 
 
 export function getPrivacySettings(): PrivacySettings {
   ensureSeeded();
+  const savedConsents = useLocalBackendStore.getState().consents;
   return {
+    consents: localLegalDocuments.map((document) => {
+      const saved = savedConsents.find(
+        (consent) => consent.type === document.documentType && consent.version === document.version
+      );
+      const accepted = Boolean(saved?.accepted && saved.contentHash === document.contentHash);
+      return {
+        type: document.documentType,
+        version: document.version,
+        contentHash: document.contentHash,
+        required: true,
+        title: document.title,
+        accepted,
+        acceptedAt: null,
+        requiresReconfirmation: !accepted
+      };
+    }),
     flows: [
       {
         id: "account_delete",
         title: "계정 삭제",
-        impact: ["account access stops", "active household memberships are left"],
+        impact: ["로그인 접근이 중단돼요.", "참여 중인 가족에서 탈퇴 처리돼요."],
         confirmationText: "DELETE ACCOUNT"
       },
       {
         id: "household_leave",
         title: "가구 탈퇴",
-        impact: ["shared child data is no longer accessible from this account"],
+        impact: ["이 계정에서는 더 이상 가족의 공유 데이터에 접근할 수 없어요."],
         confirmationText: "LEAVE HOUSEHOLD"
       },
       {
         id: "child_profile_delete",
         title: "아이 프로필 삭제",
-        impact: ["child profile becomes inaccessible", "related expense records are removed from reports"],
+        impact: ["아이 프로필을 더 이상 볼 수 없어요.", "연결된 지출 기록이 리포트에서 제외돼요."],
         confirmationText: "DELETE CHILD"
       }
     ]
@@ -3521,7 +3604,7 @@ export function previewChildProfileDeletion(childId: string): SettingsPreview {
     flowId: "child_profile_delete",
     requiresSecondStep: true,
     confirmationText: "DELETE CHILD",
-    impact: ["child profile becomes inaccessible", "related expense records are removed from reports"]
+    impact: ["아이 프로필을 더 이상 볼 수 없어요.", "연결된 지출 기록이 리포트에서 제외돼요."]
   };
 }
 
@@ -3547,7 +3630,7 @@ export function previewHouseholdLeave(_householdId: string): SettingsPreview {
     flowId: "household_leave",
     requiresSecondStep: true,
     confirmationText: "LEAVE HOUSEHOLD",
-    impact: ["shared child data is no longer accessible from this account"]
+    impact: ["이 계정에서는 더 이상 가족의 공유 데이터에 접근할 수 없어요."]
   };
 }
 
@@ -3634,4 +3717,52 @@ export function retryAccountDeletion(requestId: string): AccountDeletionRequest 
   };
   useLocalBackendStore.setState({ accountDeletionRequest: requested });
   return requested;
+}
+
+export function requestDataExport(): PrivacyExportRequest {
+  ensureSeeded();
+  const now = new Date();
+  const request: PrivacyExportRequest = {
+    id: generateLocalId("privacy-export"),
+    requestType: "export",
+    state: "completed",
+    requestedAt: now.toISOString(),
+    dueAt: null,
+    completedAt: now.toISOString(),
+    failureCode: null,
+    exportExpiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString()
+  };
+  useLocalBackendStore.setState({ privacyExportRequest: request });
+  return request;
+}
+
+export function getPrivacyRequest(requestId: string): PrivacyExportRequest {
+  const request = useLocalBackendStore.getState().privacyExportRequest;
+  if (!request || request.id !== requestId) throw new Error("내보내기 요청을 찾을 수 없어요.");
+  return request;
+}
+
+export function getPrivacyExportPayload(requestId: string): PrivacyExportPayload {
+  const state = useLocalBackendStore.getState();
+  const request = getPrivacyRequest(requestId);
+  if (request.state !== "completed" || !request.exportExpiresAt) throw new Error("내보내기 파일을 준비하고 있어요.");
+  if (request.exportExpiresAt <= new Date().toISOString()) throw new Error("내보내기 파일의 다운로드 기간이 끝났어요.");
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    requestId,
+    exportExpiresAt: request.exportExpiresAt,
+    scope: "local-fixture-requesting-user-data",
+    exclusions: ["authentication secrets and tokens", "device identifiers and push tokens", "other household members' profile data"],
+    data: {
+      profile: { id: LOCAL_USER_ID, displayName: "로컬 테스트 사용자" },
+      householdMemberships: state.members.filter((member) => member.userId === LOCAL_USER_ID),
+      child: state.child,
+      expenses: state.expenses,
+      budgets: state.budgets,
+      paymentMethods: state.paymentMethods,
+      consents: state.consents,
+      privacyRequests: [request]
+    }
+  };
 }

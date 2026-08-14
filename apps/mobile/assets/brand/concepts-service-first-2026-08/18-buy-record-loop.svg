@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 18 구매 기록 루프</title><desc id="d">추천 상품을 구매한 뒤 비용 기록으로 돌아오는 연결</desc>
+  <rect width="512" height="512" rx="112" fill="#6DC5AE"/>
+  <path d="M142 210c18-58 61-94 114-94 42 0 78 22 101 59" fill="none" stroke="#173D48" stroke-width="52" stroke-linecap="round"/>
+  <path d="M318 120l52 66-76 28" fill="none" stroke="#173D48" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M370 302c-18 58-61 94-114 94-42 0-78-22-101-59" fill="none" stroke="#FFF7ED" stroke-width="52" stroke-linecap="round"/>
+  <path d="M194 392l-52-66 76-28" fill="none" stroke="#FFF7ED" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="256" r="45" fill="#FFD261"/>
+</svg>

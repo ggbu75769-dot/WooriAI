@@ -1,4 +1,6 @@
 import { Redirect, Tabs } from "expo-router";
+import { PixelRatio } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { BottomTabPixelStyles } from "../../src/pixelLock/styles";
 import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
@@ -6,6 +8,7 @@ import { selectedChildScopeKeyForSession, useSelectedChildStore } from "../../sr
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppIcon, type AppIconName } from "../../src/design-system/components/ApplicationPrimitives";
+import { adaptiveTabBarHeight } from "../../src/design-system/responsive";
 
 // D1 (docs/5차/round5a-design-spec.md §D1): one unified icon family, each tab an
 // outlined/filled glyph pair from the same geometric-shape set (consistent stroke weight and
@@ -29,6 +32,16 @@ function icon(name: keyof typeof tabs, focused: boolean) {
   );
 }
 
+function tabLabel(name: keyof typeof tabs, color: string) {
+  return (
+    <Text
+      style={{ color, fontSize: BottomTabPixelStyles.labelSize, fontWeight: "700" }}
+    >
+      {tabs[name].title}
+    </Text>
+  );
+}
+
 export default function TabsLayout() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
@@ -40,6 +53,10 @@ export default function TabsLayout() {
   const sessionScope = selectedChildScopeKeyForSession(userId, householdId, isTestSession);
   const selectedChildInScope = selectedChildStoredScope === sessionScope ? selectedChildId : null;
   const isPixelLockMode = isPixelLockBuild();
+  const fontScale = PixelRatio.getFontScale();
+  const tabBarHeight = isPixelLockMode
+    ? BottomTabPixelStyles.height
+    : adaptiveTabBarHeight(BottomTabPixelStyles.height, fontScale);
 
   if (!isPixelLockMode) {
     if (!accessToken && !isTestSession) {
@@ -69,17 +86,17 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: theme.colors.white,
           borderTopColor: "rgba(74, 63, 53, 0.08)",
-          height: BottomTabPixelStyles.height,
+          height: tabBarHeight,
           paddingBottom: BottomTabPixelStyles.paddingBottom,
           paddingTop: BottomTabPixelStyles.paddingTop
         }
       }}
     >
-      <Tabs.Screen name="index" options={{ title: tabs.index.title, tabBarIcon: ({ focused }) => icon("index", focused) }} />
-      <Tabs.Screen name="records" options={{ title: tabs.records.title, tabBarIcon: ({ focused }) => icon("records", focused) }} />
-      <Tabs.Screen name="items" options={{ title: tabs.items.title, tabBarIcon: ({ focused }) => icon("items", focused) }} />
-      <Tabs.Screen name="reports" options={{ title: tabs.reports.title, tabBarIcon: ({ focused }) => icon("reports", focused) }} />
-      <Tabs.Screen name="more" options={{ title: tabs.more.title, tabBarIcon: ({ focused }) => icon("more", focused) }} />
+      <Tabs.Screen name="index" options={{ title: tabs.index.title, tabBarLabel: isPixelLockMode ? tabs.index.title : ({ color }) => tabLabel("index", color), tabBarIcon: ({ focused }) => icon("index", focused) }} />
+      <Tabs.Screen name="records" options={{ title: tabs.records.title, tabBarLabel: isPixelLockMode ? tabs.records.title : ({ color }) => tabLabel("records", color), tabBarIcon: ({ focused }) => icon("records", focused) }} />
+      <Tabs.Screen name="items" options={{ title: tabs.items.title, tabBarLabel: isPixelLockMode ? tabs.items.title : ({ color }) => tabLabel("items", color), tabBarIcon: ({ focused }) => icon("items", focused) }} />
+      <Tabs.Screen name="reports" options={{ title: tabs.reports.title, tabBarLabel: isPixelLockMode ? tabs.reports.title : ({ color }) => tabLabel("reports", color), tabBarIcon: ({ focused }) => icon("reports", focused) }} />
+      <Tabs.Screen name="more" options={{ title: tabs.more.title, tabBarLabel: isPixelLockMode ? tabs.more.title : ({ color }) => tabLabel("more", color), tabBarIcon: ({ focused }) => icon("more", focused) }} />
     </Tabs>
   );
 }

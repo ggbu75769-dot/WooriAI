@@ -2,6 +2,14 @@ import { join, relative, resolve, sep } from "node:path";
 
 export const DEFAULT_ANDROID_ARCHITECTURES = "armeabi-v7a,arm64-v8a,x86,x86_64";
 const REQUIRED_APK_NATIVE_LIBRARIES = ["libexpo-modules-core.so", "libhermes.so", "libreactnative.so"];
+const PAGE_SIZE_16K_ABIS = new Set(["arm64-v8a", "x86_64"]);
+
+export function filter16KiBPageSizeLibraries(entries: string[]) {
+  return entries.filter((entry) => {
+    const match = entry.replaceAll("\\", "/").match(/^lib\/([^/]+)\/[^/]+\.so$/);
+    return Boolean(match?.[1] && PAGE_SIZE_16K_ABIS.has(match[1]));
+  });
+}
 
 export function validateApkNativeLibraries(entries: string[]) {
   const normalized = new Set(entries.map((entry) => entry.replaceAll("\\", "/")));

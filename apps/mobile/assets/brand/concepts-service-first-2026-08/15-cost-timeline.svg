@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 15 코스트 타임라인</title><desc id="d">아이의 성장과 함께 이어지는 비용 기록 타임라인</desc>
+  <rect width="512" height="512" rx="112" fill="#173D48"/>
+  <path d="M98 338c64 0 62-144 132-144 58 0 62 98 112 98 30 0 48-36 72-92" fill="none" stroke="#F7FBFA" stroke-width="42" stroke-linecap="round"/>
+  <circle cx="98" cy="338" r="39" fill="#6DC5AE"/>
+  <circle cx="230" cy="194" r="39" fill="#FFD261"/>
+  <circle cx="414" cy="200" r="39" fill="#FF7658"/>
+  <path d="M362 118h104v104" fill="none" stroke="#FF7658" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

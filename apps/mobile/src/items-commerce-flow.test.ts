@@ -121,7 +121,8 @@ describe("Batch 07 mobile items and commerce contract", () => {
     expect(productDetailSource).not.toContain("Clipboard");
 
     // Uses RN's built-in Share module (already imported for the header share button).
-    expect(productDetailSource).toContain('import { Image, Linking, Pressable, Share, Text, View } from "react-native";');
+    expect(productDetailSource).toContain('import { Image, Linking, Pressable, Share, View } from "react-native";');
+    expect(productDetailSource).toContain('import { KoreanText as Text } from "../../src/design-system/components/KoreanText";');
 
     // Fallback state is set from the catch branch of the click-open flow (covers both a
     // thrown openURL and canOpenURL() resolving false, since the `throw` is unconditional

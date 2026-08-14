@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-28T17:06:55.537Z",
+  "generatedAt": "2026-08-11T23:49:10.788Z",
   "actor": "release_engineer",
   "input": {
-    "profile": "local",
+    "profile": "production",
     "credentialValuesIncluded": false
   },
   "mission": "Validate external staging prerequisites without exposing secret values.",
@@ -14,48 +14,129 @@
     "external_recall_provider": "DB-backed flag plus live mode and webhook secret",
     "merchant_offer_comparison": "DB-backed flag plus live mode and merchant credential"
   },
+  "identity": {
+    "packageName": "com.anonymous.wooriai",
+    "version": "0.0.0",
+    "versionCode": 1
+  },
   "checks": [
+    {
+      "id": "android_identity",
+      "requiredForLive": true,
+      "present": false,
+      "status": "EXTERNAL_BLOCKED",
+      "detail": "Approved package name and monotonic public version",
+      "issues": [
+        "ANDROID_APPLICATION_ID_APPROVAL_REQUIRED",
+        "ANDROID_VERSION_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "id": "mobile_api",
+      "requiredForLive": true,
+      "present": false,
+      "status": "EXTERNAL_BLOCKED",
+      "detail": "Production mobile API uses a non-placeholder HTTPS endpoint",
+      "issues": [
+        "EXPO_PUBLIC_API_BASE_URL_HTTPS_REQUIRED"
+      ]
+    },
+    {
+      "id": "legal_publication",
+      "requiredForLive": true,
+      "present": false,
+      "status": "EXTERNAL_BLOCKED",
+      "detail": "Approved operator and public legal/support/status HTTPS URLs",
+      "issues": [
+        "LEGAL_OPERATOR_NAME_REQUIRED",
+        "PRIVACY_POLICY_URL_HTTPS_REQUIRED",
+        "TERMS_URL_HTTPS_REQUIRED",
+        "SUPPORT_URL_HTTPS_REQUIRED",
+        "STATUS_PAGE_URL_HTTPS_REQUIRED"
+      ]
+    },
     {
       "id": "external_staging_core",
       "requiredForLive": true,
       "present": false,
       "status": "EXTERNAL_BLOCKED",
-      "detail": "PostgreSQL, Redis, and object storage credentials"
+      "detail": "PostgreSQL, Redis, and object storage credentials",
+      "issues": [
+        "DATABASE_URL_REQUIRED",
+        "REDIS_URL_REQUIRED",
+        "S3_ENDPOINT_REQUIRED",
+        "S3_BUCKET_REQUIRED",
+        "S3_ACCESS_KEY_ID_REQUIRED",
+        "S3_SECRET_ACCESS_KEY_REQUIRED"
+      ]
     },
     {
       "id": "oauth",
       "requiredForLive": true,
       "present": false,
       "status": "EXTERNAL_BLOCKED",
-      "detail": "Live OAuth client identifiers"
+      "detail": "Live OAuth client identifiers",
+      "issues": [
+        "OAUTH_KAKAO_CLIENT_ID_REQUIRED",
+        "OAUTH_APPLE_CLIENT_ID_REQUIRED",
+        "OAUTH_GOOGLE_CLIENT_ID_REQUIRED"
+      ]
     },
     {
       "id": "push",
       "requiredForLive": true,
       "present": false,
       "status": "EXTERNAL_BLOCKED",
-      "detail": "Live push provider mode and credential"
+      "detail": "Live push provider mode and credential",
+      "issues": [
+        "NOTIFICATION_PROVIDER_MODE_LIVE_REQUIRED",
+        "PUSH_PROVIDER_CREDENTIAL_REQUIRED"
+      ]
     },
     {
       "id": "recall",
       "requiredForLive": true,
       "present": false,
       "status": "EXTERNAL_BLOCKED",
-      "detail": "Live recall mode and webhook signature secret"
+      "detail": "Live recall mode and webhook signature secret",
+      "issues": [
+        "RECALL_PROVIDER_MODE_LIVE_REQUIRED",
+        "RECALL_PROVIDER_WEBHOOK_SECRET_REQUIRED"
+      ]
     },
     {
       "id": "merchant",
       "requiredForLive": true,
       "present": false,
       "status": "EXTERNAL_BLOCKED",
-      "detail": "Live merchant feed mode and credential"
+      "detail": "Live merchant feed mode and credential",
+      "issues": [
+        "MERCHANT_FEED_MODE_LIVE_REQUIRED",
+        "MERCHANT_FEED_CREDENTIAL_REQUIRED"
+      ]
+    },
+    {
+      "id": "observability",
+      "requiredForLive": true,
+      "present": false,
+      "status": "EXTERNAL_BLOCKED",
+      "detail": "Internal metrics authentication is provisioned",
+      "issues": [
+        "INTERNAL_METRICS_TOKEN_REQUIRED"
+      ]
     },
     {
       "id": "signing",
       "requiredForLive": true,
       "present": false,
       "status": "EXTERNAL_BLOCKED",
-      "detail": "Production Android signing configuration"
+      "detail": "Production Android keystore, alias, and referenced passwords",
+      "issues": [
+        "ANDROID_SIGNING_KEYSTORE_PATH_REQUIRED",
+        "ANDROID_SIGNING_KEY_ALIAS_REQUIRED",
+        "ANDROID_SIGNING_STORE_PASSWORD_ENV_REQUIRED",
+        "ANDROID_SIGNING_KEY_PASSWORD_ENV_REQUIRED"
+      ]
     }
   ],
   "runbook": [

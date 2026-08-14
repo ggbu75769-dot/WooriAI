@@ -1,3 +1,4 @@
+import { MAX_MONEY_KRW } from "@wooriai/domain";
 import { z } from "zod";
 import {
   CHILD_STAGE_CODES,
@@ -15,7 +16,7 @@ const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const nullableDateOnlySchema = dateOnlySchema.nullable().optional();
 
 export const uuidSchema = z.string().uuid();
-export const moneyKrwSchema = z.number().int().min(1);
+export const moneyKrwSchema = z.number().int().min(1).max(MAX_MONEY_KRW);
 
 export const childStageModeSchema = z.enum(CHILD_STAGE_MODES);
 export const childStageCodeSchema = z.enum(CHILD_STAGE_CODES);

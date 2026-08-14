@@ -10,6 +10,7 @@ import { completionErrorMessage, finalizeOnboardingSuccess } from "./onboarding/
 import { createSingleFlightGuard } from "./onboarding/single-flight";
 import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./api/fixture-runtime";
 import {
+  householdIdForFeatureScope,
   householdIdForSelectedChildScope,
   selectedChildScopeKey,
   selectedChildScopeKeyForSession
@@ -34,7 +35,6 @@ describe("onboarding six-step hardening", () => {
     expect(preview.items.map((item) => item.nameKo)).toEqual([
       "신생아 기저귀",
       "신생아 아기띠",
-      "쌓기 블록",
       "신생아 침대",
       "신생아 배냇저고리",
       "아기 수면조끼",
@@ -45,6 +45,8 @@ describe("onboarding six-step hardening", () => {
       "신생아용 카시트",
       "신생아 유모차"
     ]);
+    expect(preview.eligibleCount).toBe(11);
+    expect(preview.items.map((item) => item.nameKo)).not.toContain("쌓기 블록");
     expect(preview.items.map((item) => item.nameKo).join(" ")).not.toMatch(/네이처러브|팬티형|힙시트|도담도담|원목/);
   });
 
@@ -93,6 +95,12 @@ describe("onboarding six-step hardening", () => {
     expect(householdIdForSelectedChildScope("child-b", null, "household-a")).toBeNull();
     expect(householdIdForSelectedChildScope("child-b", "household-b", "household-a")).toBe("household-b");
     expect(householdIdForSelectedChildScope(null, null, "household-a")).toBe("household-a");
+  });
+
+  it("uses the isolated fixture household for feature screens only in a test session", () => {
+    expect(householdIdForFeatureScope("local-child", null, null, true)).toBe(LOCAL_HOUSEHOLD_ID);
+    expect(householdIdForFeatureScope("child-b", null, "household-a", false)).toBeNull();
+    expect(householdIdForFeatureScope("child-b", "household-b", "household-a", false)).toBe("household-b");
   });
 
   it("maps validation, stale, auth, network, and server failures separately", () => {

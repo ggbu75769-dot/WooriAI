@@ -38,6 +38,11 @@ export class PaymentMethodsController {
     return await this.store.deactivateUserPaymentMethod(request.user!, paymentMethodId);
   }
 
+  @Put(":paymentMethodId/active")
+  async reactivate(@Req() request: AuthenticatedRequest, @Param("paymentMethodId") paymentMethodId: string) {
+    return await this.store.reactivateUserPaymentMethod(request.user!, paymentMethodId);
+  }
+
   @Put(":paymentMethodId/default")
   async setDefault(@Req() request: AuthenticatedRequest, @Param("paymentMethodId") paymentMethodId: string) {
     return await this.store.setDefaultUserPaymentMethod(request.user!, paymentMethodId);

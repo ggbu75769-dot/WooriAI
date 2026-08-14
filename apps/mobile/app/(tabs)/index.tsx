@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useScrollToTop } from "@react-navigation/native";
 import { Redirect, router, type Href } from "expo-router";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import {
   getCatalogItem,
   getHome,
@@ -38,6 +40,7 @@ import { childScopedRequestEnabled } from "../../src/query/child-scope";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
+import { usesLargeTextLayout } from "../../src/design-system/responsive";
 import { resolveOfflineScopeKey } from "../../src/offline/session-scope";
 import {
   canManagePurchaseFollowup,
@@ -206,12 +209,16 @@ function PixelHomeActionChip({ label, onPress }: { label: string; onPress: () =>
       onPress={onPress}
       style={({ pressed }) => ({ alignItems: "center", backgroundColor: theme.colors.white, borderColor: theme.colors.gray300, borderRadius: theme.radii.pill, borderWidth: 1, flex: 1, justifyContent: "center", minHeight: theme.touchTarget, opacity: pressed ? 0.78 : 1, paddingHorizontal: 6 })}
     >
-      <Text numberOfLines={1} style={{ color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" }}>{label}</Text>
+      <Text style={{ color: theme.colors.textPrimary, fontSize: 11, fontWeight: "700" }}>{label}</Text>
     </Pressable>
   );
 }
 
 export default function HomeScreen() {
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
+  const { fontScale } = useWindowDimensions();
+  const largeTextLayout = usesLargeTextLayout(fontScale);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const currentUserId = useSessionStore((state) => state.userId);
@@ -291,7 +298,7 @@ export default function HomeScreen() {
 
   if (hasSession && !isPixelLockMode && home.isLoading) {
     return (
-      <AppScreen>
+      <AppScreen scrollRef={scrollRef}>
         {isTestSession ? <SampleDataBanner /> : null}
         <EmptyStateCard title="홈 정보를 불러오고 있어요." actionLabel="잠시만요" />
       </AppScreen>
@@ -300,7 +307,7 @@ export default function HomeScreen() {
 
   if (hasSession && !isPixelLockMode && home.isError) {
     return (
-      <AppScreen>
+      <AppScreen scrollRef={scrollRef}>
         {isTestSession ? <SampleDataBanner /> : null}
         <EmptyStateCard
           title="홈 정보를 불러오지 못했어요."
@@ -344,7 +351,7 @@ export default function HomeScreen() {
       : null;
   const followupItemName = followupItem.data?.nameKo ?? "확인한 준비템";
   return (
-    <AppScreen>
+    <AppScreen scrollRef={scrollRef}>
       <View accessibilityLabel={pixelEvidenceId("HOME-001")} testID={pixelEvidenceId("HOME-001")}>
         <View style={{ gap: theme.spacing.section }}>
           {isTestSession ? <SampleDataBanner /> : null}
@@ -375,8 +382,8 @@ export default function HomeScreen() {
 
           <BudgetSummary budgetKrw={budget > 0 ? budget : null} usedKrw={monthlyUsed} />
 
-          <View accessibilityLabel="빠른 실행" style={{ flexDirection: "row", gap: 8 }}>
-            {quickActions.map((action) => <QuickAction key={action.label} {...action} />)}
+          <View accessibilityLabel="빠른 실행" style={{ flexDirection: "row", flexWrap: largeTextLayout ? "wrap" : "nowrap", gap: 8 }}>
+            {quickActions.map((action) => <QuickAction key={action.label} {...action} wide={largeTextLayout} />)}
           </View>
 
           {visibleHome.recommendedItems.length > 0 ? <Card style={{ gap: 12 }}>
@@ -426,9 +433,9 @@ export default function HomeScreen() {
   );
 }
 
-function QuickAction({ label, icon, route }: { label: string; icon: AppIconName; route: Href }) {
+function QuickAction({ label, icon, route, wide = false }: { label: string; icon: AppIconName; route: Href; wide?: boolean }) {
   return (
-    <Pressable accessibilityLabel={label} accessibilityRole="button" onPress={() => router.push(route)} style={({ pressed }) => ({ alignItems: "center", flex: 1, gap: 6, minHeight: 72, opacity: pressed ? 0.76 : 1 })}>
+    <Pressable accessibilityLabel={label} accessibilityRole="button" onPress={() => router.push(route)} style={({ pressed }) => ({ alignItems: "center", flexBasis: wide ? "47%" : 0, flexGrow: 1, flexShrink: 1, gap: 6, minHeight: 72, opacity: pressed ? 0.76 : 1 })}>
       <View style={{ alignItems: "center", backgroundColor: theme.colors.surface, borderColor: theme.colors.gray300, borderRadius: 16, borderWidth: 1, height: 48, justifyContent: "center", width: 48 }}>
         <AppIcon color={theme.colors.textPrimary} name={icon} size={21} />
       </View>

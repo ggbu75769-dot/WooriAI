@@ -1,6 +1,7 @@
-import React from "react";
+﻿import React from "react";
 import renderer from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
+import { render } from "../test-utils/react-test-renderer";
 import type { StateStorage } from "zustand/middleware";
 
 vi.mock("@expo/vector-icons", () => ({ MaterialCommunityIcons: "MaterialCommunityIcons" }));
@@ -50,7 +51,7 @@ describe("PurchaseOfferAction rendered integration", () => {
     const openURL = vi.fn(async () => undefined);
     const canOpenURL = vi.fn(async () => true);
     const onMessage = vi.fn();
-    const tree = renderer.create(
+    const tree = render(
       <PurchaseOfferAction
         {...baseProps}
         accessState="followup"
@@ -75,7 +76,7 @@ describe("PurchaseOfferAction rendered integration", () => {
     const openURL = vi.fn(async () => undefined);
     const canOpenURL = vi.fn(async () => false);
     const onMessage = vi.fn();
-    const tree = renderer.create(
+    const tree = render(
       <PurchaseOfferAction
         {...baseProps}
         accessState="followup"
@@ -104,7 +105,7 @@ describe("PurchaseOfferAction rendered integration", () => {
     vi.mocked(Linking.openURL).mockRejectedValue(new Error("native opener rejected"));
     vi.mocked(WebBrowser.openBrowserAsync).mockResolvedValue({ type: "dismiss" } as never);
     const onMessage = vi.fn();
-    const tree = renderer.create(
+    const tree = render(
       <PurchaseOfferAction
         {...baseProps}
         accessState="direct"
@@ -128,7 +129,7 @@ describe("PurchaseOfferAction rendered integration", () => {
     vi.mocked(Linking.openURL).mockRejectedValue(new Error("native opener rejected"));
     vi.mocked(WebBrowser.openBrowserAsync).mockResolvedValue({ type: "locked" } as never);
     const onMessage = vi.fn();
-    const tree = renderer.create(
+    const tree = render(
       <PurchaseOfferAction
         {...baseProps}
         accessState="direct"
@@ -174,7 +175,7 @@ describe("PurchaseOfferAction rendered integration", () => {
     const openURL = vi.fn(async () => undefined);
     const canOpenURL = vi.fn(async () => true);
     const onMessage = vi.fn();
-    const tree = renderer.create(
+    const tree = render(
       <PurchaseOfferAction
         {...baseProps}
         accessState="followup"
@@ -207,7 +208,7 @@ describe("PurchaseOfferAction rendered integration", () => {
     const openURL = vi.fn(async () => undefined);
     const canOpenURL = vi.fn(async () => true);
     const onMessage = vi.fn();
-    const tree = renderer.create(
+    const tree = render(
       <PurchaseOfferAction
         {...baseProps}
         accessState="followup"
@@ -228,7 +229,7 @@ describe("PurchaseOfferAction rendered integration", () => {
   });
 
   it("disables the rendered CTA while household role verification is loading", () => {
-    const tree = renderer.create(
+    const tree = render(
       <PurchaseOfferAction
         {...baseProps}
         accessState="checking"

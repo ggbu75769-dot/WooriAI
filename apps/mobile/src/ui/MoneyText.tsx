@@ -1,5 +1,5 @@
 import type { StyleProp, TextStyle } from "react-native";
-import { Text } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import { formatKrwParts } from "../money";
 import { theme } from "../theme";
 

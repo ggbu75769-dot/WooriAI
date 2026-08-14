@@ -164,7 +164,7 @@ describe("standalone HTML redesign parity", () => {
     const colors = source("android/app/src/main/res/values/colors.xml");
     const styles = source("android/app/src/main/res/values/styles.xml");
     const background = source("android/app/src/main/res/drawable/ic_launcher_background.xml");
-    expect(colors).toContain('<color name="splashscreen_background">#FFFDFC</color>');
+    expect(colors).toContain('<color name="splashscreen_background">#FFF9F3</color>');
     expect(styles).toContain('<item name="android:windowBackground">@drawable/ic_launcher_background</item>');
     expect(background).toContain('@drawable/splashscreen_logo');
     expect(background).not.toContain('@drawable/assets_illustrations_logo_mark');

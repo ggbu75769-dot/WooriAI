@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 01 오빗 패밀리</title><desc id="d">하나의 궤도 안에서 서로를 돌보는 가족을 표현한 추상 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF8F1"/>
+  <path d="M376 172a154 154 0 1 1-48-52" fill="none" stroke="#142F4A" stroke-width="48" stroke-linecap="round"/>
+  <circle cx="350" cy="136" r="36" fill="#FF6B4A"/>
+  <circle cx="176" cy="305" r="28" fill="#75CBB6"/>
+  <circle cx="267" cy="250" r="42" fill="#FFD36A"/>
+</svg>

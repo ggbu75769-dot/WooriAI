@@ -1,4 +1,5 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import { theme } from "../theme";
 
 export type StageBadgeProps = {

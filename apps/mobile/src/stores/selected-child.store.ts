@@ -121,6 +121,26 @@ export function householdIdForSelectedChildScope(
   return selectedChildId ? selectedChildHouseholdId : defaultHouseholdId;
 }
 
+/**
+ * Local qualification sessions intentionally do not persist a real default
+ * household. Feature screens still need the isolated fixture household, while
+ * real sessions must keep the selected-child fail-closed boundary above.
+ */
+export function householdIdForFeatureScope(
+  selectedChildId: string | null,
+  selectedChildHouseholdId: string | null,
+  defaultHouseholdId: string | null,
+  isTestSession: boolean
+): string | null {
+  return isTestSession
+    ? LOCAL_HOUSEHOLD_ID
+    : householdIdForSelectedChildScope(
+        selectedChildId,
+        selectedChildHouseholdId,
+        defaultHouseholdId
+      );
+}
+
 export function selectedChildScopeKeyForSession(
   userId: string | null,
   householdId: string | null,

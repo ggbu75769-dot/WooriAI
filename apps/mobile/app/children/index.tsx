@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { listChildren, fixtureSessionToken } from "../../src/api/client";
 import { invalidateChildScopedQueries } from "../../src/children/query-cache";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -37,6 +38,7 @@ export default function ChildSwitcherScreen() {
         <ScreenHeader
           action={<IconButton accessibilityLabel="아이 추가" icon="plus" onPress={() => router.push("/children/new" as Href)} />}
           eyebrow="아이 프로필"
+          onBack={() => router.back()}
           title="아이 전환"
           subtitle="기록과 준비 현황을 확인할 아이를 선택해 주세요."
         />

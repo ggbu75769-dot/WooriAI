@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Alert, Text, View } from "react-native";
+import { Alert, View } from "react-native";
+import { KoreanText as Text } from "../../../src/design-system/components/KoreanText";
 import { acceptInvite, getInvite, fixtureSessionToken } from "../../../src/api/client";
 import { useSessionStore } from "../../../src/stores/session.store";
 import { theme } from "../../../src/theme";

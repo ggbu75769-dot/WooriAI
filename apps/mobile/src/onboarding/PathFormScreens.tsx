@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Redirect, router } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import {
   calculateChildStage,
   CHILD_STAGE_CODES,

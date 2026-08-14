@@ -43,6 +43,10 @@ describe("Release 4H native profile boundary", () => {
     expect(plugin).toContain('"android:host": "oauth"');
     expect(plugin).toContain('"android:host": "items"');
     expect(plugin).toContain('"android:host": "pixel-lock"');
+    expect(plugin).toContain("android:windowOptOutEdgeToEdgeEnforcement");
+    expect(readMobile("android/app/src/main/res/values/styles.xml")).toContain(
+      '<item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>'
+    );
   });
 
   it("refuses a production APK with the current anonymous identity before Gradle signing", () => {
@@ -51,5 +55,32 @@ describe("Release 4H native profile boundary", () => {
     expect(build).toContain('profile === "production"');
     expect(build).toContain("ANDROID_APPROVED_IDENTITY_REQUIRED");
     expect(gradle).toContain("ANDROID_PRODUCTION_SIGNING_REQUIRED");
+  });
+
+  it("targets the current Google Play API level with an explicit CI toolchain", () => {
+    const rootGradle = readMobile("android/build.gradle");
+    const appConfig = JSON.parse(readMobile("app.json"));
+    const ci = readRepo(".github/workflows/ci.yml");
+    expect(rootGradle).toContain("buildToolsVersion = findProperty('android.buildToolsVersion') ?: '36.0.0'");
+    expect(rootGradle).toContain("compileSdkVersion = Integer.parseInt(findProperty('android.compileSdkVersion') ?: '36')");
+    expect(rootGradle).toContain("targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '36')");
+    expect(appConfig.expo.plugins).toContainEqual([
+      "expo-build-properties",
+      { android: { buildToolsVersion: "36.0.0", compileSdkVersion: 36, kotlinVersion: "2.1.20", targetSdkVersion: 36 } }
+    ]);
+    expect(rootGradle).toContain("kotlinVersion = findProperty('android.kotlinVersion') ?: '2.1.20'");
+    expect(rootGradle).toContain('ndkVersion = "27.1.12297006"');
+    expect(ci).toContain('sdkmanager "platforms;android-36" "build-tools;36.0.0"');
+  });
+
+  it("gives React Native codegen the Android package for generated BuildConfig references", () => {
+    const reactNativeConfig = readMobile("react-native.config.js");
+    const gradle = readMobile("android/app/build.gradle");
+    expect(reactNativeConfig).toContain('packageName: "com.anonymous.wooriai"');
+    expect(reactNativeConfig).toContain('sourceDir: "./android"');
+    expect(gradle).toContain('namespace "com.anonymous.wooriai"');
+    expect(gradle).toContain("applicationId androidPackageName");
+    expect(gradle).toContain("ANDROID_APPLICATION_ID_INVALID");
+    expect(gradle).not.toContain("ANDROID_PACKAGE_NAME_MISMATCH");
   });
 });

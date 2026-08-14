@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type React from "react";
 import type { ComponentProps } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { KoreanText as Text } from "./KoreanText";
 import { semanticColors } from "../tokens/color";
 import { radius } from "../tokens/radius";
 import { spacing } from "../tokens/spacing";
@@ -142,11 +143,11 @@ export function AmountDisplay({ label, value, large = false }: { label?: string;
 
 export function ChildSwitcher({ name, stage, onPress }: { name: string; stage?: string; onPress: () => void }) {
   return (
-    <Pressable accessibilityLabel={`${name}${stage ? `, ${stage}` : ""}. 아이 전환`} accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ alignItems: "center", flexDirection: "row", gap: spacing.sm, minHeight: 48, opacity: pressed ? 0.72 : 1 })}>
-      <Text numberOfLines={1} style={{ color: semanticColors.textPrimary, fontSize: typography.heading3.fontSize, fontWeight: "700" }}>{name}</Text>
+    <Pressable accessibilityLabel={`${name}${stage ? `, ${stage}` : ""}. 아이 전환`} accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ alignItems: "center", flexDirection: "row", gap: spacing.sm, minHeight: 48, minWidth: 0, opacity: pressed ? 0.72 : 1 })}>
+      <Text style={{ color: semanticColors.textPrimary, flexShrink: 1, fontSize: typography.heading3.fontSize, fontWeight: "700" }}>{name}</Text>
       {stage ? (
         <View style={{ backgroundColor: semanticColors.actionSecondary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
-          <Text numberOfLines={1} style={{ color: semanticColors.brandPrimary, fontSize: typography.caption.fontSize, fontWeight: "700" }}>{stage}</Text>
+          <Text style={{ color: semanticColors.brandPrimary, fontSize: typography.caption.fontSize, fontWeight: "700" }}>{stage}</Text>
         </View>
       ) : null}
       <DecorativeIcon color={semanticColors.textSecondary} name="chevron-down" size={20} />

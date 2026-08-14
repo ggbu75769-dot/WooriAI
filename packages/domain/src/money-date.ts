@@ -1,5 +1,6 @@
 const SEOUL_TIME_ZONE = "Asia/Seoul";
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+export const MAX_MONEY_KRW = 2_147_483_647;
 
 export type SeoulMonthRange = {
   yearMonth: string;
@@ -8,12 +9,12 @@ export type SeoulMonthRange = {
 };
 
 export function isMoneyKrw(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0;
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= MAX_MONEY_KRW;
 }
 
 export function assertMoneyKrw(value: unknown): number {
   if (!isMoneyKrw(value)) {
-    throw new Error("EXPENSE_AMOUNT_INVALID: amountKrw must be a positive KRW integer");
+    throw new Error(`EXPENSE_AMOUNT_INVALID: amountKrw must be an integer between 1 and ${MAX_MONEY_KRW}`);
   }
 
   return value;

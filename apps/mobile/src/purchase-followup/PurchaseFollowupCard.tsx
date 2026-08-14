@@ -1,4 +1,5 @@
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import { AppIcon, Card, PrimaryButton } from "../design-system/components/ApplicationPrimitives";
 import { theme } from "../theme";
 import type { PurchaseFollowup } from "./store";

@@ -11,7 +11,7 @@ import {
 describe("MOB-102 offline copy (round5a-sprint1-plan.md §3.3, §3.4)", () => {
   it("matches the design doc's exact offline-save and server-confirmed copy", () => {
     expect(OFFLINE_SAVED_MESSAGE).toBe("기기에 저장했어요. 연결되면 자동으로 반영할게요.");
-    expect(SERVER_CONFIRMED_MESSAGE).toBe("기록했어요. 이번 달 우리 아이 비용에 더해둘게요.");
+    expect(SERVER_CONFIRMED_MESSAGE).toBe("기록 변경을 서버에 반영했어요.");
   });
 
   it("matches the design doc's exact conflict banner and three option labels", () => {

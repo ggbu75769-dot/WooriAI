@@ -64,7 +64,7 @@ describe("PAY-001 user payment methods", () => {
     await app.close();
   });
 
-  it("keeps the empty default unspecified and supports create, update, default, and deactivate", async () => {
+  it("keeps the empty default unspecified and supports create, update, default, deactivate, and reactivate", async () => {
     const accessToken = await login(app, `pay-owner-${randomUUID()}`);
 
     await request(app.getHttpServer())
@@ -114,6 +114,12 @@ describe("PAY-001 user payment methods", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => expect(body).toMatchObject({ id: cash.id, active: false, isDefault: false }));
+
+    await request(app.getHttpServer())
+      .put(`/api/v1/me/payment-methods/${cash.id}/active`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => expect(body).toMatchObject({ id: cash.id, active: true, isDefault: false }));
   });
 
   it("rejects sensitive numbers and prevents cross-user access while preserving past expense linkage", async () => {

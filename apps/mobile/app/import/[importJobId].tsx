@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import {
   confirmImport,
   getImportJob,
@@ -13,8 +14,10 @@ import {
   type ImportRow
 } from "../../src/api/client";
 import { useSessionStore } from "../../src/stores/session.store";
+import { importCompletionSummary } from "../../src/import/completion-summary";
 import { theme } from "../../src/theme";
-import { AppIcon, AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
+import { TopAppBar } from "../../src/design-system";
+import { AppIcon, AppScreen, Card, EmptyStateCard, PrimaryButton, SecondaryButton, StatusBadge } from "../../src/ui";
 
 const selectedRowIds = (rows: ImportRow[]) => rows.filter((row) => row.selected).map((row) => row.id);
 
@@ -58,7 +61,7 @@ function ImportRowCard({
   );
 }
 
-function CompletionSummaryCard({ summary, onDone }: { summary: { importedCount: number; skippedCount: number }; onDone: () => void }) {
+function CompletionSummaryCard({ summary, onDone }: { summary: { importedCount: number; excludedCount: number }; onDone: () => void }) {
   return (
     <Card style={{ gap: 12 }}>
       <Text style={summaryTitleStyle}>가져오기를 완료했어요</Text>
@@ -68,7 +71,7 @@ function CompletionSummaryCard({ summary, onDone }: { summary: { importedCount: 
       </View>
       <View style={summaryRowStyle}>
         <Text style={summaryLabelStyle}>제외한 항목</Text>
-        <Text style={summaryValueStyle}>{summary.skippedCount}건</Text>
+        <Text style={summaryValueStyle}>{summary.excludedCount}건</Text>
       </View>
       <PrimaryButton label="가계부에서 확인하기" onPress={onDone} />
     </Card>
@@ -128,11 +131,13 @@ export default function ImportPreviewScreen() {
   const status = job.data?.status;
   const isPreviewReady = status === "preview_ready";
   const goToRecords = () => router.replace("/(tabs)/records");
+  const completionImportedCount = completionSummary?.importedCount ?? job.data?.importedCount ?? 0;
 
   return (
     <AppScreen>
       <View testID="screen-IMP-003" accessibilityLabel="screen-IMP-003" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="데이터 가져오기" title="가져오기 진행 상황" subtitle="분석 결과를 확인하고 가져올 항목을 골라요" />
+        <TopAppBar eyebrow="데이터 가져오기" onBack={() => router.back()} title="가져오기 진행 상황" />
+        <Text style={mutedTextStyle}>분석 결과를 확인하고 가져올 항목을 골라요.</Text>
 
         {job.isLoading ? (
           <Card>
@@ -164,7 +169,7 @@ export default function ImportPreviewScreen() {
 
       {status === "confirmed" && job.data ? (
         <CompletionSummaryCard
-          summary={completionSummary ?? { importedCount: job.data.importedCount, skippedCount: job.data.rowCount - job.data.importedCount }}
+          summary={importCompletionSummary(job.data.rowCount, completionImportedCount)}
           onDone={goToRecords}
         />
       ) : (

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 11 차일드 레저</title><desc id="d">아이 중심의 지출 기록을 표현한 영수증 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF7ED"/>
+  <path d="M126 92h260v336l-43-28-44 28-43-28-43 28-44-28-43 28V92Z" fill="#173D48"/>
+  <circle cx="256" cy="174" r="46" fill="#FFD261"/>
+  <path d="M188 270h136M188 328h82" stroke="#F7FBFA" stroke-width="30" stroke-linecap="round"/>
+  <circle cx="332" cy="328" r="20" fill="#FF7658"/>
+</svg>

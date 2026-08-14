@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 19 그로스 스택</title><desc id="d">아이의 성장 단계마다 필요한 비용과 준비를 쌓는 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#F7FBFA"/>
+  <rect x="90" y="306" width="104" height="104" rx="32" fill="#173D48"/>
+  <rect x="204" y="226" width="104" height="184" rx="32" fill="#6DC5AE"/>
+  <rect x="318" y="142" width="104" height="268" rx="32" fill="#FF7658"/>
+  <circle cx="142" cy="268" r="34" fill="#FFD261"/>
+  <path d="M142 242c46-88 125-124 228-124" fill="none" stroke="#173D48" stroke-width="30" stroke-linecap="round" stroke-dasharray="2 54"/>
+</svg>

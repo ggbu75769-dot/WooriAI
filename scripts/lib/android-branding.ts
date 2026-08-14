@@ -54,17 +54,24 @@ export async function syncAndroidBrandingResources(mobileRoot: string, androidDi
   const appJsonPath = join(mobileRoot, "app.json");
   const appJson = JSON.parse(readFileSync(appJsonPath, "utf8")) as {
     expo?: {
+      android?: { adaptiveIcon?: { foregroundImage?: string } };
       icon?: string;
-      splash?: { image?: string };
+      splash?: { backgroundColor?: string; image?: string };
     };
   };
   const iconConfig = appJson.expo?.icon;
+  const launcherForegroundConfig = appJson.expo?.android?.adaptiveIcon?.foregroundImage;
   const splashConfig = appJson.expo?.splash?.image;
-  if (!iconConfig || !splashConfig) {
-    throw new Error("ANDROID_BRANDING_CONFIG_INCOMPLETE: expo.icon and expo.splash.image are required.");
+  const splashBackground = appJson.expo?.splash?.backgroundColor;
+  if (!iconConfig || !launcherForegroundConfig || !splashConfig || !splashBackground) {
+    throw new Error("ANDROID_BRANDING_CONFIG_INCOMPLETE: expo.icon, expo.android.adaptiveIcon.foregroundImage, expo.splash.image, and expo.splash.backgroundColor are required.");
+  }
+  if (!/^#[0-9A-F]{6}$/i.test(splashBackground)) {
+    throw new Error(`ANDROID_SPLASH_BACKGROUND_INVALID ${splashBackground}`);
   }
 
   const iconPath = resolveConfigAsset(mobileRoot, iconConfig, "expo.icon");
+  const launcherForegroundPath = resolveConfigAsset(mobileRoot, launcherForegroundConfig, "expo.android.adaptiveIcon.foregroundImage");
   const splashPath = resolveConfigAsset(mobileRoot, splashConfig, "expo.splash.image");
   const resRoot = join(androidDir, "app", "src", "main", "res");
   if (!existsSync(resRoot)) {
@@ -72,6 +79,16 @@ export async function syncAndroidBrandingResources(mobileRoot: string, androidDi
   }
 
   const changed: string[] = [];
+  const colorsPath = join(resRoot, "values", "colors.xml");
+  const currentColors = readFileSync(colorsPath, "utf8");
+  const nextColors = currentColors.replace(
+    /<color name="splashscreen_background">#[0-9A-F]{6}<\/color>/i,
+    `<color name="splashscreen_background">${splashBackground.toUpperCase()}</color>`
+  );
+  if (nextColors === currentColors && !currentColors.includes(splashBackground.toUpperCase())) {
+    throw new Error("ANDROID_SPLASH_BACKGROUND_RESOURCE_MISSING");
+  }
+  if (writeWhenChanged(colorsPath, nextColors)) changed.push(colorsPath);
   const backgroundPath = join(resRoot, "drawable", "ic_launcher_background.xml");
   const backgroundXml = [
     '<layer-list xmlns:android="http://schemas.android.com/apk/res/android">',
@@ -94,8 +111,8 @@ export async function syncAndroidBrandingResources(mobileRoot: string, androidDi
   }
 
   for (const [density, size] of launcherDensities) {
-    const bytes = await sharp(iconPath)
-      .resize(size, size, { fit: "cover" })
+    const bytes = await sharp(launcherForegroundPath)
+      .resize(size, size, { fit: "contain" })
       .webp({ quality: 100, lossless: true })
       .toBuffer();
     for (const name of ["ic_launcher.webp", "ic_launcher_round.webp"]) {
@@ -107,6 +124,7 @@ export async function syncAndroidBrandingResources(mobileRoot: string, androidDi
   return {
     status: "SYNCED" as const,
     iconSha256: sha256(readFileSync(iconPath)),
+    launcherForegroundSha256: sha256(readFileSync(launcherForegroundPath)),
     splashSha256: sha256(readFileSync(splashPath)),
     changed
   };

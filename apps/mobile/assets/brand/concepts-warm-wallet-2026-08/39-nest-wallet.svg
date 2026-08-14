@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 39 네스트 월렛</title><desc id="d">생활비 지갑이 아이를 받치는 포근한 둥지가 되는 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FF6B4A"/>
+  <circle cx="256" cy="214" r="92" fill="#FFD76A"/>
+  <path d="M228 143c0-31 20-54 50-54 0 29-13 49-40 61" fill="#FFF9F3"/>
+  <circle cx="224" cy="216" r="10" fill="#17324D"/><circle cx="288" cy="216" r="10" fill="#17324D"/>
+  <path d="M229 252c15 15 39 15 54 0" fill="none" stroke="#17324D" stroke-width="14" stroke-linecap="round"/>
+  <path d="M90 300c46 84 100 126 166 126s120-42 166-126" fill="none" stroke="#FFF9F3" stroke-width="70" stroke-linecap="round"/>
+  <path d="M114 330c44 61 91 92 142 92s98-31 142-92" fill="none" stroke="#17324D" stroke-width="24" stroke-linecap="round"/>
+</svg>

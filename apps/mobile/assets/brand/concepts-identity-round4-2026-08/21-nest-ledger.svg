@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 21 네스트 레저</title><desc id="d">아이를 품은 둥지와 비용 기록을 하나로 만든 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#17324D"/>
+  <path d="M110 208c0-62 45-112 100-112 20 0 37 7 46 19 9-12 26-19 46-19 55 0 100 50 100 112" fill="none" stroke="#FFF9F3" stroke-width="52" stroke-linecap="round"/>
+  <path d="M104 236h304l-34 176-39-24-39 24-40-24-40 24-39-24-39 24-34-176Z" fill="#FF6B4A"/>
+  <circle cx="256" cy="252" r="48" fill="#FFD76A" stroke="#17324D" stroke-width="16"/>
+</svg>

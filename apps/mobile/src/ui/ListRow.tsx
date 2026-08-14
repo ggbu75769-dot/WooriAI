@@ -1,6 +1,7 @@
 import type React from "react";
 import type { StyleProp, TextStyle, ViewStyle } from "react-native";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import { theme } from "../theme";
 
 export type ListRowProps = {
@@ -38,11 +39,11 @@ export function ListRow({ icon, iconBackgroundColor, iconColor, title, subtitle,
         </View>
       ) : null}
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={titleStyle} numberOfLines={1}>
+        <Text style={titleStyle}>
           {title}
         </Text>
         {subtitle ? (
-          <Text style={subtitleStyle} numberOfLines={1}>
+          <Text style={subtitleStyle}>
             {subtitle}
           </Text>
         ) : null}

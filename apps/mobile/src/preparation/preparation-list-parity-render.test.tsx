@@ -3,6 +3,7 @@ import renderer from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("react-native", () => ({
+  Keyboard: { dismiss: vi.fn() },
   Pressable: "Pressable",
   Text: "Text",
   TextInput: "TextInput",
@@ -34,6 +35,7 @@ vi.mock("../design-system", () => ({
 }));
 
 import { nextPreparationGroupLimit, PreparationListParity, type PreparationParityItem } from "./PreparationListParity";
+import { Keyboard } from "react-native";
 
 const categories = [
   ["C01", "산모 건강 측정기"],
@@ -149,5 +151,20 @@ describe("preparation list grouped mobile interaction", () => {
     let tree!: renderer.ReactTestRenderer;
     renderer.act(() => { tree = renderer.create(<PreparationListParity {...props(items)} />); });
     expect(tree.root.findAll((node) => node.props.accessibilityLabel === "나의 준비 진행률, 2개 중 1개 완료")).toHaveLength(1);
+  });
+
+  it("dismisses the keyboard when the user explicitly submits or closes search", () => {
+    const handlers = props([]);
+    let tree!: renderer.ReactTestRenderer;
+    renderer.act(() => { tree = renderer.create(<PreparationListParity {...handlers} activeSearchQuery="기저귀" />); });
+    const input = tree.root.find((node) => node.props.accessibilityLabel === "준비물 통합 검색");
+    renderer.act(() => input.props.onChangeText("분유"));
+    const submit = tree.root.find((node) => node.props.accessibilityLabel === "준비물 검색 실행");
+    renderer.act(() => submit.props.onPress());
+    expect(Keyboard.dismiss).toHaveBeenCalled();
+    expect(handlers.onSearch).toHaveBeenCalledWith("분유");
+    const close = tree.root.find((node) => node.props.accessibilityLabel === "준비물 검색 닫기");
+    renderer.act(() => close.props.onPress());
+    expect(handlers.onClearSearch).toHaveBeenCalled();
   });
 });

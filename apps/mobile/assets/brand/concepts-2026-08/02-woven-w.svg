@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 02 우븐 더블유</title><desc id="d">두 보호자의 리본이 아이를 받치는 W 형태의 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#F7F5FF"/>
+  <path d="M96 148c34 0 54 24 64 62l40 150c9 34 53 35 64 2l43-134c11-34 30-50 62-50" fill="none" stroke="#312E63" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M416 148c-34 0-54 24-64 62l-40 150c-9 34-53 35-64 2l-43-134c-11-34-30-50-62-50" fill="none" stroke="#7C6DF2" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="252" r="28" fill="#FF8F6B"/>
+</svg>

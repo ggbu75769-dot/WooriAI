@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { router } from "expo-router";
 import type { ChildStageMode } from "@wooriai/domain";
 import { useOnboardingDraftStore } from "../../src/stores/onboarding-draft.store";

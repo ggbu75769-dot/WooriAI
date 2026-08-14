@@ -6,6 +6,26 @@ const mobileRoot = join(__dirname, "..");
 const source = (path: string) => readFileSync(join(mobileRoot, path), "utf8");
 
 describe("Sprint 2 focused evidence IDs", () => {
+  it("keeps the secondary tools reachable from the normal More tab", () => {
+    const more = source("app/(tabs)/more.tsx");
+    const settings = source("app/settings/index.tsx");
+    expect(more).toContain('title="준비 · 기록 도구"');
+    expect(more).toContain('router.push("/settings"');
+    for (const route of ["/payment-methods", "/preparation-calendar", "/custom-bundles", "/weekly-briefing", "/receipts/new"]) {
+      expect(settings).toContain(route);
+    }
+    for (const path of [
+      "app/settings/index.tsx",
+      "app/preparation-calendar.tsx",
+      "app/custom-bundles.tsx",
+      "app/weekly-briefing.tsx",
+      "app/(tabs)/reports.tsx",
+      "app/reports/sources.tsx"
+    ]) {
+      expect(source(path), path).toContain("householdIdForFeatureScope(");
+    }
+  });
+
   it("PAY-001 and PAY-002 use the real payment-method screen with deterministic installed-app fixtures", () => {
     const paymentMethods = source("app/payment-methods.tsx");
     expect(paymentMethods).toContain('accessibilityLabel="PAY-001"');
@@ -22,6 +42,7 @@ describe("Sprint 2 focused evidence IDs", () => {
   it("PROFILE-GENDER-001 keeps gender optional and declares that ranking ignores it", () => {
     const profileFields = source("src/children/ChildProfileFields.tsx");
     expect(profileFields).toContain('accessibilityLabel="PROFILE-GENDER-001"');
+    expect(profileFields).toContain('label="아직 몰라요" selected={draft.gender === "unknown"}');
     expect(profileFields).toContain("추천 순위에는 성별을 사용하지 않아요.");
   });
 

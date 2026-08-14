@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 2240">
+  <rect width="1600" height="2240" fill="#F5F0EA"/>
+  <style>
+    .ko{font-family:"Varela Round","Nunito Sans","Pretendard","Malgun Gothic",sans-serif}
+    .title{font-size:60px;font-weight:900;fill:#17324D;letter-spacing:-2px}
+    .sub{font-size:24px;font-weight:600;fill:#7C6F66;letter-spacing:-.5px}
+    .num{font-size:24px;font-weight:900;fill:#FF6B4A}
+    .brand{font-size:44px;font-weight:900;fill:#17324D;letter-spacing:-2px}
+    .en{font-size:23px;font-weight:900;fill:#3D312B;letter-spacing:.2px}
+    .desc{font-size:20px;font-weight:600;fill:#85766C;letter-spacing:-.5px}
+  </style>
+  <text x="70" y="92" class="ko title">우리아이 — 22번을 더 따뜻하게</text>
+  <text x="70" y="138" class="ko sub">웃는 아이 + 가족 지갑 · 주머니와 포옹, 둥지의 감성으로 확장한 10종</text>
+  <rect x="70" y="168" width="1460" height="58" rx="29" fill="#FFE3D9"/>
+  <circle cx="110" cy="197" r="12" fill="#FF6B4A"/><circle cx="146" cy="197" r="12" fill="#FFD76A"/>
+  <text x="180" y="205" class="ko desc" fill="#7A4638">WARM IVORY · BUTTER · PERSIMMON · SOFT ROUNDED SILHOUETTE</text>
+
+  <g transform="translate(58 264)"><rect width="722" height="332" rx="44" fill="#FFFFFF"/>
+    <image href="31-peekaboo-wallet.svg" x="28" y="31" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">31</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">PEEKABOO WALLET</text><text x="334" y="237" class="ko desc">지갑 위로 빼꼼 나온 아이</text><text x="334" y="273" class="ko desc">밝고 친근한 대표 후보</text>
+  </g>
+  <g transform="translate(820 264)"><rect width="722" height="332" rx="44" fill="#FFFFFF"/>
+    <image href="32-cozy-pocket.svg" x="28" y="31" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">32</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">COZY POCKET</text><text x="334" y="237" class="ko desc">아이를 감싸는 포근한 주머니</text><text x="334" y="273" class="ko desc">육아 브랜드 감성 강화</text>
+  </g>
+  <g transform="translate(58 628)"><rect width="722" height="332" rx="44" fill="#FFFFFF"/>
+    <image href="33-hug-wallet.svg" x="28" y="31" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">33</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">HUG WALLET</text><text x="334" y="237" class="ko desc">두 지갑 날개가 안아주는 아이</text><text x="334" y="273" class="ko desc">가족 보호의 의미</text>
+  </g>
+  <g transform="translate(820 628)"><rect width="722" height="332" rx="44" fill="#FFFFFF"/>
+    <image href="34-family-purse.svg" x="28" y="31" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">34</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">FAMILY PURSE</text><text x="334" y="237" class="ko desc">두 보호자가 만든 지갑 손잡이</text><text x="334" y="273" class="ko desc">공동관리 의미가 선명</text>
+  </g>
+  <g transform="translate(58 992)"><rect width="722" height="332" rx="44" fill="#FFFFFF"/>
+    <image href="35-baby-card.svg" x="28" y="31" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">35</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">BABY CARD</text><text x="334" y="237" class="ko desc">우리 아이 전용 생활비 카드</text><text x="334" y="273" class="ko desc">기록 서비스 인지성 강화</text>
+  </g>
+  <g transform="translate(820 992)"><rect width="722" height="332" rx="44" fill="#FFFFFF"/>
+    <image href="36-sprout-wallet.svg" x="28" y="31" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">36</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">SPROUT WALLET</text><text x="334" y="237" class="ko desc">아이 성장 새싹이 열린 지갑</text><text x="334" y="273" class="ko desc">장기 성장 서비스에 적합</text>
+  </g>
+  <g transform="translate(58 1356)"><rect width="722" height="332" rx="44" fill="#FFFFFF"/>
+    <image href="37-little-ledger.svg" x="28" y="31" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">37</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">LITTLE LEDGER</text><text x="334" y="237" class="ko desc">웃는 아이의 생활 기록장</text><text x="334" y="273" class="ko desc">기록 기능을 부드럽게 표현</text>
+  </g>
+  <g transform="translate(820 1356)"><rect width="722" height="332" rx="44" fill="#FFFFFF"/>
+    <image href="38-family-pocket.svg" x="28" y="31" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">38</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">FAMILY POCKET</text><text x="334" y="237" class="ko desc">두 보호자와 아이의 공동 주머니</text><text x="334" y="273" class="ko desc">가족 구성이 바로 보임</text>
+  </g>
+  <g transform="translate(58 1720)"><rect width="722" height="332" rx="44" fill="#FFFFFF"/>
+    <image href="39-nest-wallet.svg" x="28" y="31" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">39</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">NEST WALLET</text><text x="334" y="237" class="ko desc">아이를 받치는 생활비 둥지</text><text x="334" y="273" class="ko desc">가장 감성적인 후보</text>
+  </g>
+  <g transform="translate(820 1720)"><rect width="722" height="332" rx="44" fill="#FFFFFF"/>
+    <image href="40-warm-w-wallet.svg" x="28" y="31" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">40</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">WARM W WALLET</text><text x="334" y="237" class="ko desc">W 안에서 웃는 우리 아이</text><text x="334" y="273" class="ko desc">브랜드 이니셜 확장성</text>
+  </g>
+  <text x="800" y="2140" text-anchor="middle" class="ko sub">이번 판 추천: 31 · 34 · 39 — 따뜻함과 서비스 이해도가 가장 균형적</text>
+  <text x="800" y="2184" text-anchor="middle" class="ko desc">선택용 벡터 시안이며 실제 앱 아이콘과 시작 화면에는 아직 적용하지 않음</text>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 07 라운드 테이블</title><desc id="d">세 가족이 같은 생활 중심을 바라보는 위에서 본 원형 테이블</desc>
+  <rect width="512" height="512" rx="112" fill="#173D48"/>
+  <circle cx="256" cy="256" r="112" fill="#F7FBFA"/>
+  <rect x="218" y="72" width="76" height="92" rx="38" fill="#6DC5AE"/>
+  <rect x="111" y="306" width="76" height="92" rx="38" fill="#FFD261" transform="rotate(55 149 352)"/>
+  <rect x="325" y="306" width="76" height="92" rx="38" fill="#FF7658" transform="rotate(-55 363 352)"/>
+  <circle cx="256" cy="256" r="40" fill="#173D48"/>
+</svg>

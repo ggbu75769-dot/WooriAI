@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 12 레디 바스켓</title><desc id="d">아이에게 필요한 준비템과 완료 체크를 결합한 장바구니 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#6DC5AE"/>
+  <path d="M112 210h288l-34 202H146l-34-202Z" fill="#173D48" stroke="#173D48" stroke-width="28" stroke-linejoin="round"/>
+  <path d="M180 222c0-58 31-104 76-104s76 46 76 104" fill="none" stroke="#FFF7ED" stroke-width="34" stroke-linecap="round"/>
+  <path d="M190 315l42 42 94-103" fill="none" stroke="#FFD261" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

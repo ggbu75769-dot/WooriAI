@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 40 웜 더블유 월렛</title><desc id="d">우리아이의 W와 웃는 아이 지갑을 결합한 따뜻한 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF9F3"/>
+  <path d="M88 134l70 246c10 34 57 38 73 7l25-50 25 50c16 31 63 27 73-7l70-246" fill="none" stroke="#FF6B4A" stroke-width="70" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M122 133l48 167c8 29 45 34 60 8l26-47" fill="none" stroke="#FFD76A" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="256" cy="248" r="70" fill="#FFD76A" stroke="#17324D" stroke-width="14"/>
+  <circle cx="232" cy="250" r="8" fill="#17324D"/><circle cx="280" cy="250" r="8" fill="#17324D"/>
+  <path d="M234 278c12 12 32 12 44 0" fill="none" stroke="#17324D" stroke-width="12" stroke-linecap="round"/>
+</svg>

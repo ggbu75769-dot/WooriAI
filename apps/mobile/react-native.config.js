@@ -1,4 +1,10 @@
 module.exports = {
+  project: {
+    android: {
+      packageName: "com.anonymous.wooriai",
+      sourceDir: "./android"
+    }
+  },
   dependencies: {
     expo: {
       platforms: {

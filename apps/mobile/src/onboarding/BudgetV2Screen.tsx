@@ -1,5 +1,6 @@
 import { Redirect, router } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import { useOnboardingDraftStore } from "../stores/onboarding-draft.store";
 import { useOnboardingProgressStore } from "../stores/onboarding-progress.store";
 import { ScreenHeader } from "../ui";

@@ -19,7 +19,7 @@ import { JwtAuthGuard } from "../common/guards/auth.guard";
 import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { CreateExpenseDto, UpdateExpenseDto } from "./dto/expense.dto";
-import { ExpenseDeleteQueryDto, YearMonthQueryDto } from "./dto/query.dto";
+import { ExpenseDeleteQueryDto, ExpenseListQueryDto } from "./dto/query.dto";
 import { ExpensesVersionService } from "./expenses.service";
 
 @Controller("children/:childId/expenses")
@@ -31,9 +31,14 @@ export class ChildExpensesController {
   async list(
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
-    @Query(createDtoValidationPipe(YearMonthQueryDto)) query: YearMonthQueryDto
+    @Query(createDtoValidationPipe(ExpenseListQueryDto)) query: ExpenseListQueryDto
   ) {
-    return await this.expenses.listExpenses(request.user!, childId, query.yearMonth);
+    return await this.expenses.listExpenses(request.user!, childId, query.yearMonth, {
+      categoryId: query.categoryId,
+      cursor: query.cursor,
+      limit: query.limit,
+      search: query.search
+    });
   }
 
   @Post()

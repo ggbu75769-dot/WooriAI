@@ -1,4 +1,5 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "./KoreanText";
 import { semanticColors } from "../tokens/color";
 import { radius } from "../tokens/radius";
 import { spacing } from "../tokens/spacing";

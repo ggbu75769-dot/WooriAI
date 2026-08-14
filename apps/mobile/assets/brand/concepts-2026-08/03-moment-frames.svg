@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 03 모먼트 프레임</title><desc id="d">오늘의 순간이 겹쳐 가족의 기록이 되는 프레임 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#F7FBFF"/>
+  <rect x="116" y="98" width="244" height="244" rx="68" fill="none" stroke="#174B72" stroke-width="42"/>
+  <rect x="164" y="164" width="232" height="232" rx="66" fill="#DDF3EE" stroke="#174B72" stroke-width="34"/>
+  <circle cx="310" cy="252" r="42" fill="#FF7257"/>
+  <path d="M210 332c32-58 76-58 112 0" fill="none" stroke="#174B72" stroke-width="30" stroke-linecap="round"/>
+</svg>

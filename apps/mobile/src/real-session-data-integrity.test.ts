@@ -70,7 +70,7 @@ describe("Real session data integrity contract", () => {
     expect(reportSource).toContain("categoryYearMonths");
     expect(reportSource).toContain("getCategoryReport(authToken!, childId!, yearMonth)");
     expect(reportSource).not.toContain("getCategoryReport(authToken!, childId!)");
-    expect(reportSource).toContain('<ScreenScaffold testID="release4-report-screen">');
+    expect(reportSource).toContain('<ScreenScaffold scrollRef={scrollRef} testID="release4-report-screen">');
     expect(reportSource).toContain('<TopAppBar title="리포트" />');
     expect(reportSource).toContain("AccessibleDataTable");
     expect(reportSource).toContain("getReportV3(authToken!, childId!, reportApiPeriod, reportAnchor)");

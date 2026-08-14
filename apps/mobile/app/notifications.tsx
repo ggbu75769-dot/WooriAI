@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router } from "expo-router";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { KoreanText as Text } from "../src/design-system/components/KoreanText";
 import { fixtureSessionToken, listNotifications, markNotificationsRead, type NotificationInboxItem } from "../src/api/client";
 import { AppIcon, AppScreen, EmptyStateCard, ScreenHeader, semanticColors } from "../src/design-system";
 import { notificationRouteHref } from "../src/notifications/route";
@@ -46,7 +47,7 @@ export default function NotificationsScreen() {
   return (
     <AppScreen>
       <View testID="screen-notifications" accessibilityLabel="screen-notifications" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="알림" title="알림" subtitle="안전 안내와 가족 활동을 한곳에서 확인하세요" />
+        <ScreenHeader eyebrow="알림" onBack={() => router.back()} title="알림" subtitle="안전 안내와 가족 활동을 한곳에서 확인하세요" />
         {inbox.isLoading ? (
           <EmptyStateCard title="알림을 불러오고 있어요." actionLabel="잠시만요" />
         ) : inbox.isError && items.length === 0 ? (
@@ -91,7 +92,7 @@ export default function NotificationsScreen() {
                 <View style={{ flex: 1, gap: 4 }}>
                   <Text style={{ color: semanticColors.textSecondary, fontSize: 11, fontWeight: "800" }}>{categoryLabels[item.category]} · {new Date(item.occurredAt).toLocaleString("ko-KR")}</Text>
                   <Text style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: item.read ? "700" : "900" }}>{item.title}</Text>
-                  <Text numberOfLines={2} style={{ color: semanticColors.textSecondary, fontSize: 12, lineHeight: 18 }}>{item.body}</Text>
+                  <Text style={{ color: semanticColors.textSecondary, fontSize: 12, lineHeight: 18 }}>{item.body}</Text>
                   {item.requiresAcknowledgement ? <Text style={{ color: semanticColors.warning, fontSize: 11, fontWeight: "900" }}>준비 화면에서 안전 안내 확인 필요</Text> : null}
                 </View>
                 {item.route ? <AppIcon color={semanticColors.textDisabled} name="chevron-right" size={22} /> : null}

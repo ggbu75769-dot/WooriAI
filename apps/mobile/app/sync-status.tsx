@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { KoreanText as Text } from "../src/design-system/components/KoreanText";
 import { fixtureSessionToken } from "../src/api/client";
 import {
   CONFLICT_BANNER_MESSAGE,
@@ -242,7 +243,7 @@ export default function SyncStatusScreen() {
   return (
     <AppScreen>
       <View accessibilityLabel={syncStatusScreenId} testID="screen-EXP-005" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="동기화" title="동기화 상태" subtitle="아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요." />
+        <ScreenHeader eyebrow="동기화" onBack={() => router.back()} title="동기화 상태" subtitle="아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요." />
 
         <View style={{ flexDirection: "row", gap: 8 }}>
           <StatusBadge label={`대기 ${pendingRows.length}`} tone={pendingRows.length > 0 ? "warning" : "neutral"} />

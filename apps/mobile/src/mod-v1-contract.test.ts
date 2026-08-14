@@ -47,7 +47,8 @@ describe("MOD_V1 product contract", () => {
     const screen = source("src/preparation/Release4PreparationScreen.tsx");
     const parity = source("src/preparation/PreparationListParity.tsx");
     const primitives = source("src/design-system/components/ModV1Primitives.tsx");
-    expect(parity).toContain('width >= 600 ? 4 : 3');
+    expect(parity).toContain("compactGridColumnCount(width, fontScale)");
+    expect(parity).toContain("compactGridItemWidth(columns)");
     expect(parity).toContain("<PreparationItemCard");
     expect(screen).toContain("<BottomSheet");
     expect(screen).toContain("<ItemStatusControl");

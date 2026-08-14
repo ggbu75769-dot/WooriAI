@@ -29,6 +29,20 @@ describe("product redesign Sprint 0 source contract", () => {
     expect(layout).toContain("AppIcon");
   });
 
+  it("scrolls every long product tab to the top when its active tab is pressed again", () => {
+    for (const relativePath of [
+      "app/(tabs)/index.tsx",
+      "app/(tabs)/records.tsx",
+      "app/(tabs)/more.tsx",
+      "app/(tabs)/reports.tsx",
+      "src/preparation/Release4PreparationScreen.tsx"
+    ]) {
+      expect(source(relativePath), relativePath).toContain("useScrollToTop");
+    }
+    expect(source("src/design-system/components/ApplicationPrimitives.tsx")).toContain("scrollRef={scrollRef}");
+    expect(source("src/design-system/components/ScreenScaffold.tsx")).toContain("ref={scrollRef}");
+  });
+
   it("keeps sample home data visibly separated and removes duplicate quick actions", () => {
     const home = source("app/(tabs)/index.tsx");
 

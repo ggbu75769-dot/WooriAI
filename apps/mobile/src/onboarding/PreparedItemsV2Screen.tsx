@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Redirect, router } from "expo-router";
-import { FlatList, Pressable, Text, View, useWindowDimensions } from "react-native";
+import { FlatList, Pressable, View, useWindowDimensions } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import { fixtureSessionToken, previewOnboardingStarterItems, type OnboardingStarterItem } from "../api/client";
 import { useOnboardingDraftStore } from "../stores/onboarding-draft.store";
 import { useOnboardingProgressStore } from "../stores/onboarding-progress.store";
@@ -154,8 +155,8 @@ function PreparedItemCard({ checked, item, onPress }: { checked: boolean; item: 
       <View style={{ alignItems: "center", backgroundColor: theme.colors.beige, borderRadius: 24, height: 44, justifyContent: "center", width: 44 }}>
         <AppIcon color={theme.colors.coral[700]} name={resolveOnboardingStarterIcon(item)} size={25} />
       </View>
-      <Text numberOfLines={3} style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: "800", minHeight: 30, textAlign: "center" }}>{item.nameKo}</Text>
-      <Text numberOfLines={2} style={{ color: theme.colors.textSecondary, fontSize: 11, textAlign: "center" }}>{item.shortDescription}</Text>
+      <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: "800", minHeight: 30, textAlign: "center" }}>{item.nameKo}</Text>
+      <Text style={{ color: theme.colors.textSecondary, fontSize: 11, textAlign: "center" }}>{item.shortDescription}</Text>
       <View style={{ alignItems: "center", flexDirection: "row", gap: 3 }}>
         <AppIcon color={checked ? theme.colors.mainCoral : theme.colors.gray300} name={checked ? "check-circle" : "circle-outline"} size={16} />
         <Text style={{ color: checked ? theme.colors.coral[700] : theme.colors.textSecondary, fontSize: 10, fontWeight: "700" }}>{checked ? "선택됨" : "선택"}</Text>

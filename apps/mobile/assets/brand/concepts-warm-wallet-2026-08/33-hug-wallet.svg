@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 33 허그 월렛</title><desc id="d">두 지갑 날개가 아이를 안아주는 포옹 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF9F3"/>
+  <path d="M91 170c0-36 29-65 65-65h54c37 0 67 30 67 67v210c0 37-30 67-67 67h-54c-36 0-65-29-65-65V170Z" fill="#FF6B4A"/>
+  <path d="M421 170c0-36-29-65-65-65h-54c-37 0-67 30-67 67v210c0 37 30 67 67 67h54c36 0 65-29 65-65V170Z" fill="#FFD76A"/>
+  <circle cx="256" cy="250" r="82" fill="#FFF9F3" stroke="#17324D" stroke-width="14"/>
+  <path d="M231 184c0-29 19-50 47-50 0 27-13 45-39 56" fill="#FF6B4A"/>
+  <circle cx="227" cy="253" r="9" fill="#17324D"/><circle cx="285" cy="253" r="9" fill="#17324D"/>
+  <path d="M232 286c14 14 34 14 48 0" fill="none" stroke="#17324D" stroke-width="13" stroke-linecap="round"/>
+</svg>

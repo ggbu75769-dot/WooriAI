@@ -1,5 +1,5 @@
 const { withAndroidManifest, withDangerousMod } = require("expo/config-plugins");
-const { mkdirSync, writeFileSync } = require("node:fs");
+const { mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 
 const productionNetworkSecurityConfig = `<?xml version="1.0" encoding="utf-8"?>
@@ -99,6 +99,18 @@ function withNetworkSecurityConfig(config) {
       mkdirSync(debugXmlDir, { recursive: true });
       writeFileSync(join(mainXmlDir, "network_security_config.xml"), productionNetworkSecurityConfig, "utf8");
       writeFileSync(join(debugXmlDir, "network_security_config.xml"), debugNetworkSecurityConfig, "utf8");
+      const stylesPath = join(appRoot, "main", "res", "values", "styles.xml");
+      const styles = readFileSync(stylesPath, "utf8");
+      if (!styles.includes("android:windowOptOutEdgeToEdgeEnforcement")) {
+        writeFileSync(
+          stylesPath,
+          styles.replace(
+            '<item name="android:windowLightNavigationBar">true</item>',
+            '<item name="android:windowLightNavigationBar">true</item>\n    <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>'
+          ),
+          "utf8"
+        );
+      }
       return androidConfig;
     }
   ]);

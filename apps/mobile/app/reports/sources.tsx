@@ -2,13 +2,15 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReportSourceKind, ReportSourcesContract } from "@wooriai/contracts";
 import { router, useLocalSearchParams } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { fixtureSessionToken, getReportV3Sources, type ReportV2Period } from "../../src/api/client";
-import { ScreenScaffold, SectionCard } from "../../src/design-system";
+import { ScreenScaffold, SectionCard, TopAppBar } from "../../src/design-system";
 import { formatKrw } from "../../src/money";
+import { householdIdForFeatureScope, useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { reportSourceScopeMatches } from "../../src/reports/source-navigation";
-import { EmptyStateCard, ListRow, PrimaryButton, ScreenHeader } from "../../src/ui";
+import { EmptyStateCard, ListRow, PrimaryButton } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const labels: Record<ReportSourceKind, string> = {
@@ -39,9 +41,17 @@ export default function ReportSourcesScreen() {
     kind?: string;
   }>();
   const accessToken = useSessionStore((state) => state.accessToken);
-  const activeHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
+  const defaultHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? fixtureSessionToken : null);
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
+  const selectedChildHouseholdId = useSelectedChildStore((state) => state.selectedChildHouseholdId);
+  const activeHouseholdId = householdIdForFeatureScope(
+    selectedChildId,
+    selectedChildHouseholdId,
+    defaultHouseholdId,
+    isTestSession
+  );
   const [pages, setPages] = useState<ReportSourcesContract[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const period = validPeriod(params.period) ? params.period : null;
@@ -51,6 +61,7 @@ export default function ReportSourcesScreen() {
     params.householdId &&
     params.householdId === activeHouseholdId &&
     params.childId &&
+    params.childId === selectedChildId &&
     params.anchor &&
     period &&
     kind
@@ -118,15 +129,14 @@ export default function ReportSourcesScreen() {
   return (
     <ScreenScaffold testID="report-source-screen">
       <View style={{ gap: theme.spacing.section }}>
-        <ScreenHeader
-          eyebrow="금액 근거"
-          title={labels[kind]}
-          subtitle="리포트와 같은 아이·기간·가족 범위의 원본만 보여드려요."
-        />
+        <TopAppBar eyebrow="리포트" onBack={() => router.back()} title={labels[kind]} />
+        <Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 20 }}>
+          리포트와 같은 아이·기간·가족 범위의 원본만 보여드려요.
+        </Text>
         {totals ? (
           <SectionCard>
             <Text style={{ color: theme.colors.gray600, fontSize: 13 }}>
-              합계에 포함된 {totals.recordCount}건
+              {kind === "household_net" ? "예정 제외 완료 기록" : "관련 기록"} {totals.recordCount}건
             </Text>
             <Text style={{ color: theme.colors.brown, fontSize: 28, fontWeight: "800" }}>
               {formatKrw(displayTotal ?? 0)}
@@ -134,6 +144,11 @@ export default function ReportSourcesScreen() {
             <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
               현재 불러온 {loadedPageTotals.recordCount}건 · 전체 합계와 페이지 합계를 구분해 표시해요.
             </Text>
+            {kind === "household_net" ? (
+              <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>
+                선물은 0원으로 표시하고, 환불과 지원금은 순지출에서 차감해요.
+              </Text>
+            ) : null}
           </SectionCard>
         ) : null}
         {sources.isLoading && items.length === 0 ? (

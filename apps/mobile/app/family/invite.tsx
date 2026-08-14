@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Pressable, Share, Text, View } from "react-native";
+import { router } from "expo-router";
+import { Pressable, Share, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { createInvite, LOCAL_HOUSEHOLD_ID, fixtureSessionToken, type InviteRole } from "../../src/api/client";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -44,11 +46,14 @@ export default function FamilyInviteScreen() {
   return (
     <AppScreen>
       <View testID="screen-FAM-002" accessibilityLabel="screen-FAM-002" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="가족 관리" title="가족 초대" subtitle="함께할 역할을 선택하고 초대 링크를 만들어요" />
+        <ScreenHeader eyebrow="가족 관리" onBack={() => router.back()} title="가족 초대" subtitle="함께할 역할을 선택하고 초대 링크를 만들어요" />
 
         <Card style={{ gap: 8 }}>
           {roleOptions.map((option) => (
             <Pressable
+              accessibilityLabel={`${option.label}. ${option.description}`}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: role === option.role, disabled: invite.isPending }}
               key={option.role}
               disabled={invite.isPending}
               onPress={() => setRole(option.role)}

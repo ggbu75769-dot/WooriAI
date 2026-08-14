@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 05 패밀리 노트</title><desc id="d">세 개의 고리가 하나로 이어지는 가족 유대 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF7F4"/>
+  <circle cx="200" cy="212" r="104" fill="none" stroke="#17324D" stroke-width="46"/>
+  <circle cx="312" cy="212" r="104" fill="none" stroke="#E7593E" stroke-width="46"/>
+  <circle cx="256" cy="310" r="104" fill="none" stroke="#72BFAE" stroke-width="46"/>
+  <circle cx="256" cy="252" r="25" fill="#FFD064"/>
+</svg>

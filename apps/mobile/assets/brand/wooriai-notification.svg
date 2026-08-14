@@ -1,6 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
-  <g transform="translate(8 8) scale(.83)">
-    <g fill="#000"><circle cx="24" cy="28" r="9"/><circle cx="48" cy="34" r="7"/><circle cx="70" cy="28" r="9"/></g>
-    <path d="M12 58c13-15 25-12 34 2 8 12 18 13 29 2l3-3m-9 2 7 7 13-15" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="7"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title description">
+  <title id="title">우리아이 스프라우트 월렛 알림 로고</title>
+  <desc id="description">작은 크기에서 읽히도록 단순화한 흰색 지갑과 새싹 실루엣</desc>
+  <defs>
+    <mask id="notification-mask">
+      <rect width="96" height="96" fill="#000"/>
+      <rect x="18" y="34" width="60" height="49" rx="14" fill="#FFF"/>
+      <path d="M48 38C46 22 55 11 72 9c0 17-8 27-24 29Z" fill="#FFF"/>
+      <path d="M48 38c2-13-6-23-20-25 0 13 7 22 20 25Z" fill="#FFF"/>
+      <circle cx="48" cy="55" r="16" fill="#000"/>
+      <circle cx="42.5" cy="56" r="2.3" fill="#FFF"/><circle cx="53.5" cy="56" r="2.3" fill="#FFF"/>
+      <path d="M43 63c3 3 7 3 10 0" fill="none" stroke="#FFF" stroke-width="3" stroke-linecap="round"/>
+    </mask>
+  </defs>
+  <rect width="96" height="96" fill="#FFFFFF" mask="url(#notification-mask)"/>
 </svg>

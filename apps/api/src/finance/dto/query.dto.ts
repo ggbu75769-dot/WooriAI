@@ -1,10 +1,32 @@
-import { IsInt, IsOptional, IsUUID, Matches, Min } from "class-validator";
+import { IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from "class-validator";
 import { Type } from "class-transformer";
 
 export class YearMonthQueryDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}$/)
   yearMonth?: string;
+}
+
+export class ExpenseListQueryDto extends YearMonthQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 50;
+
+  @IsOptional()
+  @IsUUID()
+  cursor?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
 }
 
 export class HomeQueryDto {

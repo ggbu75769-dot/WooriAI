@@ -9,10 +9,13 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
   it("routes quick-expense create through the offline-first path and shows OFFLINE_SAVED_MESSAGE, never the server-confirmed copy, right after the local write", () => {
     const newExpenseSource = source("app/expenses/new.tsx");
     expect(newExpenseSource).toContain('import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";');
-    expect(newExpenseSource).toContain('import { createExpenseOffline } from "../../src/offline/sync-controller";');
+    expect(newExpenseSource).toMatch(
+      /import \{[^}]*createExpenseOffline[^}]*\} from "\.\.\/\.\.\/src\/offline\/sync-controller";/s
+    );
     expect(newExpenseSource).toContain("createExpenseOffline(authToken, queryClient,");
     expect(newExpenseSource).toContain("let completionMessage = OFFLINE_SAVED_MESSAGE");
     expect(newExpenseSource).toContain("setSavedMessage(completionMessage)");
+    expect(newExpenseSource).toContain("기기에 안전하게 저장했어요. 다음 기록을 입력해 주세요.");
     expect(newExpenseSource).not.toContain("기록했어요. 이번 달 우리 아이 비용에 더해둘게요.");
     // The real createExpense (server-immediate, no local-first staging) must not be used here.
     expect(newExpenseSource).not.toMatch(/[^.]\bcreateExpense\(authToken/);
@@ -46,6 +49,11 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
     expect(recordsSource).toContain("reconcileMonthlyExpenses(");
     expect(recordsSource).toContain("flashTimerRef");
     expect(recordsSource).not.toContain("expenses.data.totalAmountKrw + offlinePendingTotalKrw");
+    const controllerSource = source("src/offline/sync-controller.ts");
+    const syncedBlock = controllerSource.slice(controllerSource.indexOf("if (summary.synced > 0)"));
+    expect(syncedBlock.indexOf("invalidateFinancialMutationQueries")).toBeLessThan(
+      syncedBlock.indexOf("refreshSnapshot(owner.scopeKey)")
+    );
   });
 
   it("EXP-005 sync-status screen exists, shows the conflict banner copy, and offers all three D-10 conflict resolution choices plus retry/discard for failed rows", () => {
@@ -86,15 +94,15 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
     expect(continuationSource).toContain("if (current) await current");
   });
 
-  it("mobile package.json declares the SDK-52-pinned expo-sqlite and expo-network dependencies", () => {
+  it("mobile package.json declares the SDK-54-pinned expo-sqlite and expo-network dependencies", () => {
     const packageJson = JSON.parse(source("package.json"));
-    expect(packageJson.dependencies["expo-sqlite"]).toBe("~15.1.4");
-    expect(packageJson.dependencies["expo-network"]).toBe("~7.0.5");
+    expect(packageJson.dependencies["expo-sqlite"]).toBe("~16.0.10");
+    expect(packageJson.dependencies["expo-network"]).toBe("~8.0.8");
   });
 
-  it("pins native storage and safe-area packages to the Expo SDK 52 compatibility contract", () => {
+  it("pins native storage and safe-area packages to the Expo SDK 54 / React Native 0.81 contract", () => {
     const packageJson = JSON.parse(source("package.json"));
-    expect(packageJson.dependencies["@react-native-async-storage/async-storage"]).toBe("1.23.1");
-    expect(packageJson.dependencies["react-native-safe-area-context"]).toBe("4.12.0");
+    expect(packageJson.dependencies["@react-native-async-storage/async-storage"]).toBe("2.2.0");
+    expect(packageJson.dependencies["react-native-safe-area-context"]).toBe("~5.6.0");
   });
 });

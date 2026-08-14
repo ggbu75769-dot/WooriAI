@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-30T01:09:17.619Z",
-  "sourceHead": "8db76150e6b8dd357e8f7f0ead58b0d66a42b422",
+  "generatedAt": "2026-08-12T06:33:24.466Z",
+  "sourceHead": "b597f1703f0036473589392cfd4669a3d8db342b",
   "database": "DATABASE_URL target (credentials redacted)",
   "counts": {
     "catalogNodesByDepth": {

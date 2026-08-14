@@ -371,12 +371,18 @@ async function attemptFlush(
   if (summary.cancelled || signal.aborted || !offlineSyncOwnerIsActive(owner)) {
     return { ...summary, cancelled: true };
   }
+  if (summary.synced > 0) {
+    // Keep the optimistic snapshot visible until active financial queries contain the
+    // server-confirmed result. Clearing a pending-delete tombstone first briefly resurrects
+    // the deleted row and stale monthly count on the records screen.
+    await invalidateFinancialMutationQueries(queryClient, pendingChildIds);
+    assertOfflineSyncOwnerIsActive(owner);
+  }
   await refreshSnapshot(owner.scopeKey);
   assertOfflineSyncOwnerIsActive(owner);
   await scheduleNextRetry(queryClient, owner.scopeKey);
   assertOfflineSyncOwnerIsActive(owner);
   if (summary.synced > 0) {
-    await invalidateFinancialMutationQueries(queryClient, pendingChildIds);
     emitFlashMessage(SERVER_CONFIRMED_MESSAGE);
     // ANA-101 (round5a-sprint2-plan.md §5): fires once per flush pass that
     // actually confirmed at least one write with the server, not once. A

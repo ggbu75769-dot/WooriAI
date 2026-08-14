@@ -180,6 +180,13 @@ export type UpdateExpenseInput = {
   payerUserId?: string;
 };
 
+export type ExpenseListPageInput = {
+  categoryId?: string;
+  cursor?: string;
+  limit?: number;
+  search?: string;
+};
+
 export type CreateImportJobInput = {
   fileName?: string;
   fileSizeBytes?: number;
@@ -952,6 +959,15 @@ export class OnboardingStoreService {
     return this.toUserPaymentMethodDto(updated);
   }
 
+  async reactivateUserPaymentMethod(user: AuthenticatedUser, paymentMethodId: string) {
+    await this.requireUserPaymentMethod(user.id, paymentMethodId);
+    const updated = await this.prisma.userPaymentMethod.update({
+      where: { id: paymentMethodId },
+      data: { active: true }
+    });
+    return this.toUserPaymentMethodDto(updated);
+  }
+
   async setDefaultUserPaymentMethod(user: AuthenticatedUser, paymentMethodId: string) {
     const existing = await this.requireUserPaymentMethod(user.id, paymentMethodId, true);
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -1040,12 +1056,84 @@ export class OnboardingStoreService {
     return this.insertExpense(client, householdId, childId, user, input);
   }
 
-  async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string) {
+  async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string, page: ExpenseListPageInput = {}) {
     await this.requireChildAccess(user, childId);
-    const expenses = await this.expensesForChild(childId, yearMonth);
+    const range = yearMonth ? getSeoulMonthRange(yearMonth) : null;
+    const search = page.search?.trim();
+    const listWhere: Prisma.ExpenseWhereInput = {
+      childId,
+      deletedAt: null,
+      ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {}),
+      ...(page.categoryId ? { categoryId: page.categoryId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { itemName: { contains: search, mode: "insensitive" } },
+              { memo: { contains: search, mode: "insensitive" } },
+              { merchant: { contains: search, mode: "insensitive" } }
+            ]
+          }
+        : {})
+    };
+    const monthlyWhere: Prisma.ExpenseWhereInput = {
+      childId,
+      deletedAt: null,
+      expenseType: "expense",
+      spentOn: {
+        ...(range ? { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } : {}),
+        lte: toDateOnly(getSeoulToday(this.referenceNow()))
+      }
+    };
+    const filteredSummaryWhere: Prisma.ExpenseWhereInput = {
+      ...listWhere,
+      expenseType: "expense",
+      spentOn: {
+        ...(range ? { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } : {}),
+        lte: toDateOnly(getSeoulToday(this.referenceNow()))
+      }
+    };
+    const limit = Math.max(1, Math.min(page.limit ?? 50, 100));
+    const monthlySummaryPromise = this.prisma.expense.aggregate({
+      where: monthlyWhere,
+      _count: { _all: true },
+      _sum: { amountKrw: true }
+    });
+    const filteredSummaryPromise = search || page.categoryId
+      ? this.prisma.expense.aggregate({
+          where: filteredSummaryWhere,
+          _count: { _all: true },
+          _sum: { amountKrw: true }
+        })
+      : monthlySummaryPromise;
+    const [rows, totalRecordCount, filteredRecordCount, monthlySummary, filteredSummary] = await Promise.all([
+      this.prisma.expense.findMany({
+        where: listWhere,
+        orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {})
+      }),
+      this.prisma.expense.count({
+        where: {
+          childId,
+          deletedAt: null,
+          ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {})
+        }
+      }),
+      search || page.categoryId ? this.prisma.expense.count({ where: listWhere }) : Promise.resolve(null),
+      monthlySummaryPromise,
+      filteredSummaryPromise
+    ]);
+    const hasMore = rows.length > limit;
+    const expenses = hasMore ? rows.slice(0, limit) : rows;
     return {
       expenses: expenses.map((expense) => this.toExpenseDto(expense)),
-      totalAmountKrw: this.totalExpenseKrw(expenses.filter((expense) => fromDateOnly(expense.spentOn) <= getSeoulToday(this.referenceNow())))
+      filteredExpenseCount: filteredSummary._count._all,
+      filteredRecordCount: filteredRecordCount ?? totalRecordCount,
+      filteredTotalAmountKrw: filteredSummary._sum.amountKrw ?? 0,
+      nextCursor: hasMore ? expenses.at(-1)?.id ?? null : null,
+      totalAmountKrw: monthlySummary._sum.amountKrw ?? 0,
+      totalExpenseCount: monthlySummary._count._all,
+      totalRecordCount
     };
   }
 
@@ -1812,20 +1900,20 @@ export class OnboardingStoreService {
       flows: [
         {
           id: "account_delete",
-          title: "Delete account",
-          impact: ["account access stops", "active household memberships are left"],
+          title: "계정 삭제",
+          impact: ["로그인 접근이 중단돼요.", "참여 중인 가족에서 탈퇴 처리돼요."],
           confirmationText: "DELETE ACCOUNT"
         },
         {
           id: "household_leave",
-          title: "Leave household",
-          impact: ["shared child data is no longer accessible from this account"],
+          title: "가구 탈퇴",
+          impact: ["이 계정에서는 더 이상 가족의 공유 데이터에 접근할 수 없어요."],
           confirmationText: "LEAVE HOUSEHOLD"
         },
         {
           id: "child_profile_delete",
-          title: "Delete child profile",
-          impact: ["child profile becomes inaccessible", "related expense records are removed from reports"],
+          title: "아이 프로필 삭제",
+          impact: ["아이 프로필을 더 이상 볼 수 없어요.", "연결된 지출 기록이 리포트에서 제외돼요."],
           confirmationText: "DELETE CHILD"
         }
       ]
@@ -1838,7 +1926,7 @@ export class OnboardingStoreService {
       flowId: "child_profile_delete",
       requiresSecondStep: true,
       confirmationText: "DELETE CHILD",
-      impact: ["child profile becomes inaccessible", "related expense records are removed from reports"]
+      impact: ["아이 프로필을 더 이상 볼 수 없어요.", "연결된 지출 기록이 리포트에서 제외돼요."]
     };
   }
 

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 06 그로스 링</title><desc id="d">시간이 쌓이며 자라는 아이의 성장 고리를 표현한 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#F4FAF7"/>
+  <path d="M256 94c106 0 172 70 172 162s-66 162-172 162S84 348 84 256 150 94 256 94Z" fill="none" stroke="#184D43" stroke-width="38"/>
+  <path d="M256 154c68 0 112 44 112 102s-44 102-112 102-112-44-112-102 44-102 112-102Z" fill="none" stroke="#6BC1A8" stroke-width="34"/>
+  <path d="M256 208c32 0 54 21 54 48s-22 48-54 48-54-21-54-48 22-48 54-48Z" fill="#FFD260"/>
+  <path d="M256 94v60M428 256h-60M256 418v-60M84 256h60" stroke="#184D43" stroke-width="22" stroke-linecap="round"/>
+</svg>

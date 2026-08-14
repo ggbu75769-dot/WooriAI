@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import { useScrollToTop } from "@react-navigation/native";
 import { Redirect, router, type Href } from "expo-router";
 import type React from "react";
-import { Alert, Image, Pressable, Text, View } from "react-native";
+import { useRef } from "react";
+import { Alert, Image, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import {
   fixtureSessionToken,
   getBudget,
@@ -30,6 +33,7 @@ import { useConnectivityStatus } from "../../src/offline/connectivity";
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { normalizeAppSyncStatus } from "../../src/offline/sync-display-state";
 import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
+import { usesLargeTextLayout } from "../../src/design-system/responsive";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -63,12 +67,12 @@ function ProfileRow({ icon, title, subtitle, value, disabled, onPress }: Profile
       <View style={{ alignItems: "center", backgroundColor: theme.colors.coral[50], borderRadius: 20, height: 40, justifyContent: "center", width: 40 }}>
         <AppIcon color={disabled ? theme.colors.text.tertiary : theme.colors.coral[700]} name={icon} size={22} />
       </View>
-      <View style={{ flex: 1, gap: 2 }}>
+      <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
         <Text style={{ color: theme.colors.textPrimary, fontSize: 15, fontWeight: "700" }}>{title}</Text>
         {subtitle ? <Text style={{ color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 }}>{subtitle}</Text> : null}
       </View>
-      {value ? <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: "700" }}>{value}</Text> : null}
-      <AppIcon color={theme.colors.text.tertiary} name="chevron-right" size={21} />
+      {value ? <Text style={{ color: theme.colors.textSecondary, flexShrink: 1, fontSize: 12, fontWeight: "700" }}>{value}</Text> : null}
+      {!disabled ? <AppIcon color={theme.colors.text.tertiary} name="chevron-right" size={21} /> : null}
     </Pressable>
   );
 }
@@ -83,6 +87,10 @@ function ProfileSection({ title, children }: { title: string; children: React.Re
 }
 
 export default function ProfileHubScreen() {
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
+  const { fontScale } = useWindowDimensions();
+  const largeTextLayout = usesLargeTextLayout(fontScale);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const userId = useSessionStore((state) => state.userId);
@@ -108,8 +116,8 @@ export default function ProfileHubScreen() {
 
   const loading = hasScope && (home.isLoading || children.isLoading || members.isLoading || budget.isLoading);
   const failed = hasScope && (home.isError || children.isError || members.isError || budget.isError);
-  if (loading) return <AppScreen><EmptyStateCard title="프로필을 불러오고 있어요." actionLabel="잠시만요" /></AppScreen>;
-  if (failed) return <AppScreen><EmptyStateCard title="프로필을 불러오지 못했어요." actionLabel="다시 시도" onPress={() => { void home.refetch(); void children.refetch(); void members.refetch(); void budget.refetch(); }} /></AppScreen>;
+  if (loading) return <AppScreen scrollRef={scrollRef}><EmptyStateCard title="프로필을 불러오고 있어요." actionLabel="잠시만요" /></AppScreen>;
+  if (failed) return <AppScreen scrollRef={scrollRef}><EmptyStateCard title="프로필을 불러오지 못했어요." actionLabel="다시 시도" onPress={() => { void home.refetch(); void children.refetch(); void members.refetch(); void budget.refetch(); }} /></AppScreen>;
 
   const visibleChild = home.data?.child ?? (isPixelLockMode ? { id: "pixel-child", nickname: "우리아이", currentStage: "pregnancy_late", stageLabel: "임신 28주" } : null);
   if (!visibleChild) return <Redirect href="/onboarding/child-status" />;
@@ -119,26 +127,40 @@ export default function ProfileHubScreen() {
   const canManage = ownRole === "owner";
   const canEditFamilyData = ownRole === "owner" || ownRole === "co_parent";
   const notificationSummary = isTestSession
-    ? "이 기기에서는 변경할 수 없어요"
+    ? "테스트 모드에서는 변경할 수 없어요"
     : notifications.data
       ? [notifications.data.replacementEnabled ? "준비 시기" : null, notifications.data.budgetEnabled ? "예산" : null, notifications.data.familyEnabled ? "가족" : null, notifications.data.marketingEnabled ? "소식" : null].filter(Boolean).join(" · ") || "모든 선택 알림 꺼짐"
       : "알림 상태 확인"
   ;
 
   return (
-    <AppScreen>
+    <AppScreen scrollRef={scrollRef}>
       <View accessibilityLabel={profileReferenceScreenId} testID="screen-PF-01" style={{ gap: theme.spacing.section }}>
         {isTestSession ? <SampleDataBanner /> : null}
-        <TopAppBar title="프로필" />
+        <TopAppBar title={isPixelLockMode ? "프로필" : "더보기"} />
 
-        <Card style={{ alignItems: "center", flexDirection: "row", gap: 12, minHeight: 88 }}>
-          <View style={{ alignItems: "center", backgroundColor: theme.colors.coral[50], borderRadius: 28, height: 56, justifyContent: "center", width: 56 }}>
-            <Image accessibilityIgnoresInvertColors source={logoMark} style={{ height: 38, width: 38 }} resizeMode="contain" />
-          </View>
-          <View style={{ flex: 1, gap: 3 }}>
-            <Text style={{ color: theme.colors.textPrimary, fontSize: 18, fontWeight: "800" }}>{visibleChild.nickname}네</Text>
-            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>보호자 {activeMembers.length || 1}명 · 아이 {activeChildren.length || 1}명</Text>
-          </View>
+        <Card style={largeTextLayout ? { alignItems: "stretch", gap: 12, minHeight: 88 } : { alignItems: "center", flexDirection: "row", gap: 12, minHeight: 88 }}>
+          {largeTextLayout ? (
+            <View style={{ alignItems: "center", flexDirection: "row", gap: 12 }}>
+              <View style={{ alignItems: "center", backgroundColor: theme.colors.coral[50], borderRadius: 28, height: 56, justifyContent: "center", width: 56 }}>
+                <Image accessibilityIgnoresInvertColors source={logoMark} style={{ height: 38, width: 38 }} resizeMode="contain" />
+              </View>
+              <View style={{ flex: 1, gap: 3, minWidth: 0 }}>
+                <Text style={{ color: theme.colors.textPrimary, fontSize: 18, fontWeight: "800" }}>{visibleChild.nickname}네</Text>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>보호자 {activeMembers.length || 1}명 · 아이 {activeChildren.length || 1}명</Text>
+              </View>
+            </View>
+          ) : (
+            <>
+              <View style={{ alignItems: "center", backgroundColor: theme.colors.coral[50], borderRadius: 28, height: 56, justifyContent: "center", width: 56 }}>
+                <Image accessibilityIgnoresInvertColors source={logoMark} style={{ height: 38, width: 38 }} resizeMode="contain" />
+              </View>
+              <View style={{ flex: 1, gap: 3, minWidth: 0 }}>
+                <Text style={{ color: theme.colors.textPrimary, fontSize: 18, fontWeight: "800" }}>{visibleChild.nickname}네</Text>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>보호자 {activeMembers.length || 1}명 · 아이 {activeChildren.length || 1}명</Text>
+              </View>
+            </>
+          )}
           <StatusBadge label={visibleChild.stageLabel} tone="brand" />
         </Card>
 
@@ -162,7 +184,8 @@ export default function ProfileHubScreen() {
         </ProfileSection>
 
         <ProfileSection title="설정">
-          <ProfileRow icon="bell-outline" title="알림 설정" subtitle={notificationSummary} onPress={() => router.push("/notification-preferences" as Href)} />
+          <ProfileRow icon="tools" title="준비 · 기록 도구" subtitle="결제수단·캘린더·묶음·영수증·브리핑" onPress={() => router.push("/settings" as Href)} />
+          <ProfileRow disabled={isTestSession} icon="bell-outline" title="알림 설정" subtitle={notificationSummary} onPress={() => router.push("/notification-preferences" as Href)} />
           <ProfileRow icon="shield-lock-outline" title="약관 · 개인정보 · 계정" subtitle="동의 내역과 회원 탈퇴 유예를 확인해요" onPress={() => router.push("/settings/privacy")} />
           <ProfileRow icon="information-outline" title="앱 정보" value={`v${appVersion}`} onPress={() => Alert.alert("앱 정보", `우리아이 v${appVersion}\n${appPackage}`)} />
         </ProfileSection>

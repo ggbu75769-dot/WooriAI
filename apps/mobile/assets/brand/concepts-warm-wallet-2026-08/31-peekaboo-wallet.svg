@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 31 피카부 월렛</title><desc id="d">따뜻한 지갑 위로 아이가 빼꼼 얼굴을 내민 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF9F3"/>
+  <circle cx="256" cy="202" r="96" fill="#FFD76A"/>
+  <path d="M224 126c0-35 23-61 57-61 0 33-15 56-48 69" fill="#FF6B4A"/>
+  <circle cx="222" cy="204" r="11" fill="#17324D"/><circle cx="290" cy="204" r="11" fill="#17324D"/>
+  <path d="M226 244c17 18 43 18 60 0" fill="none" stroke="#17324D" stroke-width="15" stroke-linecap="round"/>
+  <path d="M84 252h344v148c0 35-29 64-64 64H148c-35 0-64-29-64-64V252Z" fill="#FF6B4A"/>
+  <path d="M84 252c47 58 104 87 172 87s125-29 172-87" fill="none" stroke="#FFF9F3" stroke-width="30"/>
+</svg>

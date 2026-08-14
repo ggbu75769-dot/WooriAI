@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 06 셰어드 노트</title><desc id="d">가족의 기록이 한 장씩 모이는 세 개의 공유 카드</desc>
+  <rect width="512" height="512" rx="112" fill="#F3F0FF"/>
+  <rect x="104" y="112" width="272" height="272" rx="66" fill="#6D5CE7" transform="rotate(-9 240 248)"/>
+  <rect x="136" y="120" width="272" height="272" rx="66" fill="#6DC5AE" transform="rotate(8 272 256)"/>
+  <rect x="120" y="136" width="272" height="272" rx="66" fill="#173D48"/>
+  <circle cx="188" cy="210" r="24" fill="#6DC5AE"/>
+  <circle cx="256" cy="210" r="24" fill="#FFD261"/>
+  <circle cx="324" cy="210" r="24" fill="#FF7658"/>
+  <path d="M180 286h152M180 342h104" stroke="#F7FBFA" stroke-width="28" stroke-linecap="round"/>
+</svg>

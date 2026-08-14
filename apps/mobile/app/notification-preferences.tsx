@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../src/design-system/components/KoreanText";
 import { CheckCard, EmptyStateCard, AppScreen, SampleDataBanner, Toast, TopAppBar } from "../src/design-system";
 import {
   fixtureSessionToken,

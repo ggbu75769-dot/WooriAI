@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 03 패밀리 데이</title><desc id="d">한 화면에서 가족의 하루를 함께 맞추는 달력 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#6DC5AE"/>
+  <rect x="104" y="116" width="304" height="286" rx="62" fill="#F7FBFA"/>
+  <path d="M104 204h304" stroke="#173D48" stroke-width="34"/>
+  <path d="M176 92v84M336 92v84" stroke="#173D48" stroke-width="38" stroke-linecap="round"/>
+  <circle cx="176" cy="280" r="35" fill="#173D48"/>
+  <circle cx="256" cy="312" r="35" fill="#FFD261"/>
+  <circle cx="336" cy="264" r="35" fill="#FF7658"/>
+</svg>

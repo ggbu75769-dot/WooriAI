@@ -1,12 +1,16 @@
 import {
   CHILD_STAGE_CODES,
+  getSeoulToday,
   isFutureSeoulDate,
   isValidCalendarDate,
   type ChildStageCode,
   type ChildStageMode
 } from "@wooriai/domain";
-import { useMemo, useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { TextInput, View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
+import { dateOnlyToLocalDate } from "@wooriai/domain/money-date";
+import { DateField } from "../design-system";
 import { theme } from "../theme";
 import { Card, CategoryChip, PrimaryButton, Toast } from "../ui";
 
@@ -52,19 +56,28 @@ export function ChildProfileFields({
   pending,
   failed,
   submitLabel,
+  submitOnlyWhenChanged = false,
+  showValidationInitially = true,
+  onDirtyChange,
   onSubmit
 }: {
   initialValue: ChildProfileDraft;
   pending: boolean;
   failed: boolean;
   submitLabel: string;
+  submitOnlyWhenChanged?: boolean;
+  showValidationInitially?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
   onSubmit: (draft: ChildProfileDraft) => void;
 }) {
   const [draft, setDraft] = useState(initialValue);
-  const isCustomGender = Boolean(draft.gender && draft.gender !== "female" && draft.gender !== "male");
-  const validationMessage = useMemo(() => {
-    if (!draft.nickname.trim()) return "아이 이름이나 별명을 입력해 주세요.";
-    const stageError =
+  const [hasInteracted, setHasInteracted] = useState(false);
+  const isCustomGender = Boolean(
+    draft.gender && !["female", "male", "unknown"].includes(draft.gender)
+  );
+  const validation = useMemo(() => {
+    const nickname = draft.nickname.trim() ? null : "아이 이름이나 별명을 입력해 주세요.";
+    const stage =
       draft.stageMode === "pregnant"
         ? dateError("출산 예정일", draft.dueDate, false)
         : draft.stageMode === "born"
@@ -72,21 +85,43 @@ export function ChildProfileFields({
           : !draft.manualStage
             ? "현재 아이 단계를 선택해 주세요."
             : null;
-    if (stageError) return stageError;
-    if (draft.gender === "custom") return "성별을 직접 입력해 주세요.";
-    return null;
+    const gender = draft.gender === "custom" ? "성별을 직접 입력해 주세요." : null;
+    return { gender, nickname, stage };
   }, [draft]);
+  const validationMessage = validation.nickname ?? validation.stage ?? validation.gender;
+  const hasChanges = useMemo(
+    () =>
+      draft.nickname !== initialValue.nickname ||
+      draft.stageMode !== initialValue.stageMode ||
+      draft.dueDate !== initialValue.dueDate ||
+      draft.birthDate !== initialValue.birthDate ||
+      draft.manualStage !== initialValue.manualStage ||
+      draft.gender !== initialValue.gender,
+    [draft, initialValue]
+  );
+  const showValidation = showValidationInitially || hasInteracted;
 
-  const fieldStyle = {
+  useEffect(() => {
+    onDirtyChange?.(hasChanges);
+  }, [hasChanges, onDirtyChange]);
+
+  const updateDraft = (update: (value: ChildProfileDraft) => ChildProfileDraft) => {
+    setHasInteracted(true);
+    setDraft(update);
+  };
+
+  const fieldStyle = (hasError: boolean) => ({
     backgroundColor: theme.colors.beige,
-    borderColor: validationMessage ? theme.colors.primary100 : "transparent",
+    borderColor: showValidation && hasError ? theme.colors.primary100 : "transparent",
     borderRadius: theme.radii.small,
     borderWidth: 1,
     color: theme.colors.brown,
     fontSize: theme.typography.body1.fontSize,
     minHeight: theme.touchTarget,
     paddingHorizontal: 14
-  } as const;
+  } as const);
+  const errorText = (message: string | null) =>
+    showValidation && message ? <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{message}</Text> : null;
 
   return (
     <View style={{ gap: theme.spacing.section }}>
@@ -96,31 +131,34 @@ export function ChildProfileFields({
           <TextInput
             accessibilityLabel="아이 이름"
             maxLength={60}
-            onChangeText={(nickname) => setDraft((value) => ({ ...value, nickname }))}
+            onChangeText={(nickname) => updateDraft((value) => ({ ...value, nickname }))}
             placeholder="예: 하늘이"
-            style={fieldStyle}
+            style={fieldStyle(Boolean(validation.nickname))}
             value={draft.nickname}
           />
+          {errorText(validation.nickname)}
         </View>
 
         <View accessibilityLabel="PROFILE-GENDER-001" testID="evidence-PROFILE-GENDER-001" style={{ gap: 8 }}>
           <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>성별 (선택)</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            <CategoryChip label="입력하지 않음" selected={!draft.gender} onPress={() => setDraft((value) => ({ ...value, gender: "" }))} />
-            <CategoryChip label="여자아이" selected={draft.gender === "female"} onPress={() => setDraft((value) => ({ ...value, gender: "female" }))} />
-            <CategoryChip label="남자아이" selected={draft.gender === "male"} onPress={() => setDraft((value) => ({ ...value, gender: "male" }))} />
-            <CategoryChip label="직접 입력" selected={isCustomGender} onPress={() => setDraft((value) => ({ ...value, gender: "custom" }))} />
+            <CategoryChip label="입력하지 않음" selected={!draft.gender} onPress={() => updateDraft((value) => ({ ...value, gender: "" }))} />
+            <CategoryChip label="여자아이" selected={draft.gender === "female"} onPress={() => updateDraft((value) => ({ ...value, gender: "female" }))} />
+            <CategoryChip label="남자아이" selected={draft.gender === "male"} onPress={() => updateDraft((value) => ({ ...value, gender: "male" }))} />
+            <CategoryChip label="아직 몰라요" selected={draft.gender === "unknown"} onPress={() => updateDraft((value) => ({ ...value, gender: "unknown" }))} />
+            <CategoryChip label="직접 입력" selected={isCustomGender} onPress={() => updateDraft((value) => ({ ...value, gender: "custom" }))} />
           </View>
           {isCustomGender ? (
             <TextInput
               accessibilityLabel="성별 직접 입력"
               maxLength={20}
-              onChangeText={(gender) => setDraft((value) => ({ ...value, gender }))}
+              onChangeText={(gender) => updateDraft((value) => ({ ...value, gender }))}
               placeholder="직접 입력"
-              style={fieldStyle}
+              style={fieldStyle(Boolean(validation.gender))}
               value={draft.gender === "custom" ? "" : draft.gender}
             />
           ) : null}
+          {errorText(validation.gender)}
           <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>추천 순위에는 성별을 사용하지 않아요.</Text>
         </View>
 
@@ -132,36 +170,29 @@ export function ChildProfileFields({
                 key={option.value}
                 label={option.label}
                 selected={draft.stageMode === option.value}
-                onPress={() => setDraft((value) => ({ ...value, stageMode: option.value }))}
+                onPress={() => updateDraft((value) => ({ ...value, stageMode: option.value }))}
               />
             ))}
           </View>
         </View>
 
         {draft.stageMode === "pregnant" ? (
-          <View style={{ gap: 6 }}>
-            <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>출산 예정일</Text>
-            <TextInput
-              accessibilityLabel="출산 예정일"
-              onChangeText={(dueDate) => setDraft((value) => ({ ...value, dueDate }))}
-              placeholder="YYYY-MM-DD"
-              style={fieldStyle}
-              value={draft.dueDate}
-            />
-          </View>
+          <DateField
+            error={showValidation ? validation.stage : null}
+            label="출산 예정일"
+            onChange={(dueDate) => updateDraft((value) => ({ ...value, dueDate: dueDate ?? "" }))}
+            value={draft.dueDate || null}
+          />
         ) : null}
 
         {draft.stageMode === "born" ? (
-          <View style={{ gap: 6 }}>
-            <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>출생일</Text>
-            <TextInput
-              accessibilityLabel="출생일"
-              onChangeText={(birthDate) => setDraft((value) => ({ ...value, birthDate }))}
-              placeholder="YYYY-MM-DD"
-              style={fieldStyle}
-              value={draft.birthDate}
-            />
-          </View>
+          <DateField
+            error={showValidation ? validation.stage : null}
+            label="출생일"
+            maximumDate={dateOnlyToLocalDate(getSeoulToday())}
+            onChange={(birthDate) => updateDraft((value) => ({ ...value, birthDate: birthDate ?? "" }))}
+            value={draft.birthDate || null}
+          />
         ) : null}
 
         {draft.stageMode === "manual" ? (
@@ -173,20 +204,19 @@ export function ChildProfileFields({
                   key={stage}
                   label={stageLabels[stage]}
                   selected={draft.manualStage === stage}
-                  onPress={() => setDraft((value) => ({ ...value, manualStage: stage }))}
+                  onPress={() => updateDraft((value) => ({ ...value, manualStage: stage }))}
                 />
               ))}
             </View>
+            {errorText(validation.stage)}
           </View>
         ) : null}
-
-        {validationMessage ? <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{validationMessage}</Text> : null}
       </Card>
 
       {failed ? <Toast message="아이 프로필을 저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
       <PrimaryButton
-        disabled={Boolean(validationMessage) || pending}
-        label={pending ? "저장 중..." : submitLabel}
+        disabled={Boolean(validationMessage) || pending || (submitOnlyWhenChanged && !hasChanges)}
+        label={pending ? "저장 중..." : submitOnlyWhenChanged && !hasChanges ? "변경 없음" : submitLabel}
         onPress={() => onSubmit(draft)}
       />
     </View>

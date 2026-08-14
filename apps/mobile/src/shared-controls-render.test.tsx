@@ -1,6 +1,7 @@
-import React from "react";
+﻿import React from "react";
 import renderer from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
+import { render } from "./test-utils/react-test-renderer";
 
 vi.mock("@expo/vector-icons", () => ({
   MaterialCommunityIcons: "MaterialCommunityIcons"
@@ -37,7 +38,7 @@ function flattenStyle(value: unknown): Record<string, unknown> {
 describe("shared mobile control render contract", () => {
   it("keeps primary actions accessible and expandable for long Korean labels", () => {
     const label = "선택한 준비 항목을 가족 담당자와 예정 비용에 안전하게 반영하기";
-    const tree = renderer.create(<PrimaryButton label={label} disabled />);
+    const tree = render(<PrimaryButton label={label} disabled />);
     const button = tree.root.find((node) => String(node.type) === "Pressable");
     expect(button.props).toMatchObject({
       accessibilityLabel: label,
@@ -48,7 +49,7 @@ describe("shared mobile control render contract", () => {
     const style = flattenStyle(button.props.style({ pressed: false }));
     expect(style.minHeight).toBeGreaterThanOrEqual(48);
     expect(style).not.toHaveProperty("height");
-    expect(tree.root.find((node) => String(node.type) === "Text").children.join("")).toBe(label);
+    expect(tree.root.find((node) => String(node.type) === "Text").children.join("").replaceAll("\u2060", "")).toBe(label);
   });
 
   it("gives secondary, text, and compact chip actions a 48dp interaction contract", () => {
@@ -56,7 +57,7 @@ describe("shared mobile control render contract", () => {
       <SecondaryButton key="secondary" label="다시 시도" />,
       <TextButton key="text" label="변경 내용 확인" />
     ]) {
-      const tree = renderer.create(component);
+      const tree = render(component);
       const button = tree.root.find((node) => String(node.type) === "Pressable");
       expect(button.props.accessibilityRole).toBe("button");
       expect(button.props.accessibilityLabel).toBeTruthy();
@@ -67,7 +68,7 @@ describe("shared mobile control render contract", () => {
     }
 
     const onLayout = vi.fn();
-    const chip = renderer.create(
+    const chip = render(
       <CategoryChip icon="hospital-box-outline" label="아주 긴 준비 상태 필터" onLayout={onLayout} selected />
     );
     const chipButton = chip.root.find((node) => String(node.type) === "Pressable");
