@@ -17,6 +17,7 @@ import {
 } from "../../src/lib/admin-api";
 import { isHttpUrl } from "../../src/lib/validation";
 import { useAdminSession } from "../../src/lib/admin-token-context";
+import { ProductLinkBulkReplace } from "../../src/components/ProductLinkBulkReplace";
 import styles from "../../src/components/admin-page.module.css";
 
 type LinkFormState = {
@@ -338,6 +339,9 @@ export default function ProductLinksPage() {
         <h1>상품 링크 관리</h1>
         <p>준비템에 연결된 상품 URL과 제휴/스폰서 표시를 관리해요.</p>
       </div>
+
+      {/* COM-107-prep: CSV 일괄 교체는 API가 admin-only라 admin 세션에서만 노출한다. */}
+      {session.admin.role === "admin" ? <ProductLinkBulkReplace onApplied={loadAll} /> : null}
 
       <section className={styles.card}>
         <h2>새 상품 링크 추가</h2>

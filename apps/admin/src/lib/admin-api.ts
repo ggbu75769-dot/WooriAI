@@ -238,6 +238,47 @@ export function updateProductLink(productLinkId: string, input: ProductLinkInput
   });
 }
 
+// COM-107-prep: CSV bulk affiliate-link replacement. Admin-role-only on the
+// API side (RequireAdminRoles("admin") in product-link-bulk.controller.ts),
+// matching the direct product-link write endpoints; the links page hides the
+// panel for editor/analyst sessions. Preview never writes; apply updates only
+// valid rows and is idempotent (unchanged rows count as skipped).
+export type ProductLinkBulkPreviewRow = {
+  /** 1-based CSV line number; line 1 is the header row. */
+  rowNumber: number;
+  status: "valid" | "error";
+  matchedProductLinkId: string | null;
+  matchedTitle: string | null;
+  currentAffiliateUrl: string | null;
+  newAffiliateUrl: string | null;
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+export type ProductLinkBulkPreviewResult = {
+  rows: ProductLinkBulkPreviewRow[];
+  summary: { total: number; valid: number; errors: number };
+};
+
+export type ProductLinkBulkApplyResult = { applied: number; skipped: number; errors: number };
+
+/** CSV 템플릿 헤더: productLinkId 또는 itemTemplate(코드/이름)+platform 중 하나로 대상을 지정한다. */
+export const PRODUCT_LINK_BULK_CSV_HEADER = "productLinkId,itemTemplate,platform,affiliateUrl,priceSnapshotKrw";
+
+export function bulkPreviewProductLinks(csv: string) {
+  return request<ProductLinkBulkPreviewResult>("/admin/product-links/bulk-preview", {
+    method: "POST",
+    body: JSON.stringify({ csv })
+  });
+}
+
+export function bulkApplyProductLinks(csv: string) {
+  return request<ProductLinkBulkApplyResult>("/admin/product-links/bulk-apply", {
+    method: "POST",
+    body: JSON.stringify({ csv })
+  });
+}
+
 export function listDisclosures() {
   return request<{ disclosures: Disclosure[] }>("/admin/disclosures");
 }
