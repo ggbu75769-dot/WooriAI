@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { LOCAL_SESSION_TOKEN } from "../src/api/client";
+import { PurchaseFollowupLifecycle } from "../src/commerce/PurchaseFollowupPrompt";
 import { useOfflineSyncLifecycle } from "../src/offline/sync-controller";
 import { useSessionStore } from "../src/stores/session.store";
 
@@ -25,6 +26,10 @@ export default function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <OfflineSyncLifecycle />
       <Stack screenOptions={{ headerShown: false }} />
+      {/* COM-108: mounted after <Stack> so the 구매하셨나요? follow-up card overlays whatever
+          screen is focused. Inert without a real/demo session and never blocks navigation --
+          see src/commerce/PurchaseFollowupPrompt.tsx. */}
+      <PurchaseFollowupLifecycle />
     </QueryClientProvider>
   );
 }

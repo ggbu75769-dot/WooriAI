@@ -8,6 +8,7 @@ import { Platform } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildAffiliateLinkClickedPayload, buildItemStatusChangedPayload } from "../../src/analytics/events";
 import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
+import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -273,6 +274,16 @@ export default function ItemDetailScreen() {
         eventName: "affiliate_link_clicked",
         payload: buildAffiliateLinkClickedPayload({ platform: link.platform, screenId: "item_detail" }),
         platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+      });
+      // COM-108: remember this click as a "pending purchase check" so the app can ask
+      // 『…』 구매하셨나요? on the next foreground return / cold start (3min–24h window) --
+      // see src/commerce/purchase-followup.store.ts + PurchaseFollowupPrompt.tsx.
+      usePurchaseFollowupStore.getState().recordLinkClick({
+        itemTemplateId,
+        itemName: visibleDetail.name,
+        childId: childId!,
+        priceBandText: visibleDetail.priceBandText ?? undefined,
+        clickedAt: Date.now()
       });
       clickLink.mutate(link.id);
       return;
