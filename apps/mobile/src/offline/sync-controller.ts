@@ -5,7 +5,8 @@ import { getSyncChanges } from "../api/client";
 import { bucketSyncLatencyMs, trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { useSessionStore } from "../stores/session.store";
 import { isCurrentlyOnline, startConnectivityWatcher } from "./connectivity";
-import { clearSyncCursor, runDeltaPull, syncCursorScopeKey } from "./delta-sync";
+import { runDeltaPull, syncCursorScopeKey } from "./delta-sync";
+import { isSessionIdentityChange, teardownOfflineSessionState } from "./session-teardown";
 import { SERVER_CONFIRMED_MESSAGE } from "./messages";
 import { createMemoryOfflineStore } from "./memory-offline-store";
 import { createClientRemoteExpenseApi } from "./remote-api";
@@ -364,19 +365,21 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  // MOB-103b: logging out or switching account (userId change, including to/from the local test
-  // session) invalidates the persisted delta-sync cursor. There is no wider offline-state
-  // teardown path to hook into today (nothing clears local_expenses/mutation_outbox on
-  // clearSession -- see the completion report), so the cursor invalidation subscribes to the
-  // session store directly here; the scope-key check in delta-sync.ts's loadSyncCursor is the
-  // belt-and-braces fallback if this subscription never got the chance to run (e.g. app killed
+  // MOB-103b + PRIV-104: logging out or switching account (userId change, including to/from the
+  // local test session) tears down ALL user-scoped offline state -- the delta-sync cursor
+  // (MOB-103b) plus, since PRIV-104, the local_expenses/mutation_outbox/sync_meta tables and the
+  // persisted purchase-followup store, so the next account on this device never inherits the
+  // previous account's rows. The policy (which transitions wipe, race sequencing against an
+  // in-flight flush) lives in session-teardown.ts, unit-tested; this subscription is only the
+  // trigger. The scope-key check in delta-sync.ts's loadSyncCursor is the belt-and-braces
+  // fallback for the cursor if this subscription never got the chance to run (e.g. app killed
   // mid-switch). Deliberately NOT keyed on the selected child: the server cursor spans all of
   // the user's children (see delta-sync.ts's header).
   useEffect(() => {
     const unsubscribe = useSessionStore.subscribe((state, previous) => {
-      if (state.userId !== previous.userId || state.isTestSession !== previous.isTestSession) {
+      if (isSessionIdentityChange(previous, state)) {
         void getOfflineStore()
-          .then((store) => clearSyncCursor(store))
+          .then((store) => teardownOfflineSessionState(store))
           .catch(() => undefined);
       }
     });

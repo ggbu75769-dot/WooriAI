@@ -256,10 +256,12 @@ describe("delta-sync: session teardown invalidation", () => {
   it("sync-controller wires cursor invalidation to session identity changes and routes the delta pull through runDeltaPull (source verification -- the controller itself is not runtime-testable under vitest, see its header comment; follows ui-wiring.test.ts's convention)", () => {
     const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
 
-    // Teardown hook: a session store subscription clears the cursor when the account changes.
+    // Teardown hook: a session store subscription tears down offline state (which includes
+    // clearing the cursor -- see session-teardown.ts and session-teardown.test.ts) when the
+    // account changes. PRIV-104 moved the policy out of the controller into session-teardown.ts.
     expect(controllerSource).toContain("useSessionStore.subscribe");
-    expect(controllerSource).toContain("state.userId !== previous.userId");
-    expect(controllerSource).toContain("clearSyncCursor(store)");
+    expect(controllerSource).toContain("isSessionIdentityChange(previous, state)");
+    expect(controllerSource).toContain("teardownOfflineSessionState(store)");
 
     // The pull resumes via the persisted-cursor pipeline, scoped by userId, not a bare one-shot.
     expect(controllerSource).toContain("runDeltaPull(");

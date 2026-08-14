@@ -44,6 +44,13 @@ export function createMemoryOfflineStore(): OfflineStore {
       meta.delete(key);
     },
 
+    async clearAll() {
+      localExpenses.clear();
+      outbox.clear();
+      outboxOrder.length = 0;
+      meta.clear();
+    },
+
     async insertOutboxMutation(row) {
       outbox.set(row.mutationId, { ...row });
       outboxOrder.push(row.mutationId);

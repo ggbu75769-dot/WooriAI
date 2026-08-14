@@ -72,7 +72,8 @@ export async function saveSyncCursor(store: OfflineStore, scopeKey: string, curs
   await store.setMeta(SYNC_CURSOR_META_KEY, JSON.stringify({ scopeKey, cursor } satisfies PersistedSyncCursor));
 }
 
-/** Session teardown hook: called on logout / account switch (see sync-controller.ts). */
+/** Session teardown hook: called on logout / account switch (see session-teardown.ts, PRIV-104)
+ * and on a server-driven cursor reset below. */
 export async function clearSyncCursor(store: OfflineStore): Promise<void> {
   await store.deleteMeta(SYNC_CURSOR_META_KEY);
 }

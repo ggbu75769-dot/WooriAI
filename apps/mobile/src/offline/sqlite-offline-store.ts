@@ -210,6 +210,20 @@ export function createSqliteOfflineStore(): OfflineStore {
       await db.runAsync(`DELETE FROM sync_meta WHERE meta_key = ?`, key);
     },
 
+    async clearAll() {
+      // PRIV-104 session teardown: all three tables in one transaction so a crash mid-wipe can
+      // never leave a half-cleared state (e.g. expenses gone but their outbox mutations still
+      // queued for the next account's flush pass).
+      const db = await getDb();
+      await db.execAsync(`
+        BEGIN;
+        DELETE FROM local_expenses;
+        DELETE FROM mutation_outbox;
+        DELETE FROM sync_meta;
+        COMMIT;
+      `);
+    },
+
     async insertOutboxMutation(row) {
       const db = await getDb();
       await db.runAsync(

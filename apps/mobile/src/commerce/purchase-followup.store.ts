@@ -114,6 +114,10 @@ export type PurchaseFollowupState = {
   completeFollowup: (itemTemplateId: string) => void;
   /** "괜찮아요" */
   dismissFollowup: (itemTemplateId: string) => void;
+  /** PRIV-104 session teardown: drops every persisted entry (clicked items, child ids) so the
+   * next account on this device never gets prompted about the previous account's clicks. Called
+   * from src/offline/session-teardown.ts on logout / account switch / demo toggle. */
+  resetAll: () => void;
 };
 
 const VALID_STATUSES: readonly PurchaseFollowupStatus[] = ["pending", "done", "dismissed", "expired"];
@@ -156,7 +160,8 @@ export const usePurchaseFollowupStore = create<PurchaseFollowupState>()(
       completeFollowup: (itemTemplateId) =>
         set((state) => ({ entries: applyStatus(state.entries, itemTemplateId, "done") })),
       dismissFollowup: (itemTemplateId) =>
-        set((state) => ({ entries: applyStatus(state.entries, itemTemplateId, "dismissed") }))
+        set((state) => ({ entries: applyStatus(state.entries, itemTemplateId, "dismissed") })),
+      resetAll: () => set({ entries: [] })
     }),
     {
       name: "wooriai-purchase-followup",

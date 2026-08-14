@@ -201,15 +201,63 @@ export type FlushSummary = {
  */
 const inFlightFlushes = new WeakMap<OfflineStore, Promise<FlushSummary>>();
 
+/** PRIV-104: single-flight session wipes, symmetric with `inFlightFlushes` above — see
+ * `wipeOfflineStore` below. */
+const inFlightWipes = new WeakMap<OfflineStore, Promise<void>>();
+
 export function flushOutbox(store: OfflineStore, remote: RemoteExpenseApi): Promise<FlushSummary> {
   const alreadyRunning = inFlightFlushes.get(store);
   if (alreadyRunning) return alreadyRunning;
 
-  const pass = flushOutboxPass(store, remote).finally(() => {
+  const pass = (async () => {
+    // PRIV-104: a flush requested while a session wipe is running must not read the pre-wipe
+    // outbox snapshot — it would re-send (and re-confirm bookkeeping for) mutations the wipe is
+    // about to delete, under whatever token the *new* session passed in. Wait for the wipe to
+    // finish; the pass then sees the post-wipe (empty) queue and no-ops.
+    const wipeInProgress = inFlightWipes.get(store);
+    if (wipeInProgress) await wipeInProgress.catch(() => undefined);
+    return flushOutboxPass(store, remote);
+  })().finally(() => {
     inFlightFlushes.delete(store);
   });
   inFlightFlushes.set(store, pass);
   return pass;
+}
+
+/**
+ * PRIV-104 session teardown: wipes every row the offline store persists (local_expenses,
+ * mutation_outbox, sync_meta) on logout / account switch / demo-session toggle — see
+ * session-teardown.ts for the policy of *when* this fires.
+ *
+ * Race handling, built on the same single-flight WeakMaps the H-3 flush fix uses:
+ *   - wipe requested while a flush pass is in-flight → the wipe AWAITS that pass first. The
+ *     outgoing user's in-flight mutations get their normal chance to reach the server under the
+ *     outgoing token (no data loss for writes already being sent), and the pass's row updates
+ *     can't resurrect or half-update rows underneath the DELETEs. Whatever the pass leaves
+ *     behind is then wiped.
+ *   - flush requested while a wipe is in-flight → the flush awaits the wipe (see flushOutbox
+ *     above) and starts from the clean, empty store.
+ *   - two concurrent wipe requests coalesce into one.
+ * Residual risk (documented, accepted): direct store writers that are neither a flush nor a wipe
+ * (the recordLocal... / resolveConflict... helpers fired from a screen the outgoing user still
+ * had open) are not serialized through these maps — a write that lands in the moments after
+ * clearAll() ran would survive the wipe. Both store implementations tolerate this without
+ * corruption (row-level operations are independent; updates to deleted rows no-op), and the
+ * logout/switch navigation unmounts those screens before the new session mounts.
+ */
+export function wipeOfflineStore(store: OfflineStore): Promise<void> {
+  const alreadyWiping = inFlightWipes.get(store);
+  if (alreadyWiping) return alreadyWiping;
+
+  const wipe = (async () => {
+    const flushInProgress = inFlightFlushes.get(store);
+    if (flushInProgress) await flushInProgress.catch(() => undefined);
+    await store.clearAll();
+  })().finally(() => {
+    inFlightWipes.delete(store);
+  });
+  inFlightWipes.set(store, wipe);
+  return wipe;
 }
 
 /**
