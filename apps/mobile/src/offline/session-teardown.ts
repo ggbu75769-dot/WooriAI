@@ -1,4 +1,5 @@
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
+import { useNotificationStore } from "../notifications/notification.store";
 import { clearSyncCursor } from "./delta-sync";
 import { wipeOfflineStore } from "./sync-engine";
 import type { OfflineStore } from "./types";
@@ -66,6 +67,8 @@ export function isSessionIdentityChange(previous: SessionIdentity, next: Session
  */
 export async function teardownOfflineSessionState(store: OfflineStore): Promise<void> {
   usePurchaseFollowupStore.getState().resetAll();
+  // NOTI-102: 알림 이력·중복 방지 키·시기 메타도 사용자 단위 상태이므로 함께 초기화한다.
+  useNotificationStore.getState().resetAll();
   await clearSyncCursor(store);
   await wipeOfflineStore(store);
 }

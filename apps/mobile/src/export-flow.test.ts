@@ -10,8 +10,8 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     const moreSource = source("app/(tabs)/more.tsx");
     expect(moreSource).toContain("데이터 내보내기(CSV)");
     expect(moreSource).toContain("setExportCardOpen");
-    // Logged-out preview: disabled row (caption + no onPress) with a login notice, mirroring
-    // the "알림 설정 · 준비 중" disabled-row pattern.
+    // Logged-out preview: disabled row (caption + no onPress) with a login notice. (Originally
+    // mirrored the "알림 설정 · 준비 중" row, which NOTI-102 turned into a live /notifications link.)
     expect(moreSource).toContain('caption: "로그인 후 이용 가능", onPress: undefined');
   });
 

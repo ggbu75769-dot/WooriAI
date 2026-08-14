@@ -116,10 +116,10 @@ export default function MoreScreen() {
     router.push(hasSession ? "/(tabs)/records" : "/settings");
   };
 
-  // UX-5B-8: 알림 화면은 아직 스텁이라 이동하지 않고 "준비 중" 캡션만 보여준다.
+  // NOTI-102: 알림 센터가 실제 기능이 되어 "알림 설정 · 준비 중" 비활성 행 대신 /notifications로 이동한다.
   const sessionMenuRows: Array<{ icon: string; title: string; caption?: string; onPress?: () => void }> = [
     { icon: "♙", title: "프로필 관리", onPress: () => router.push("/family") },
-    { icon: "♧", title: "알림 설정", caption: "준비 중", onPress: undefined },
+    { icon: "♧", title: "알림", onPress: () => router.push("/notifications") },
     { icon: "⌁", title: "엑셀 가져오기", onPress: () => router.push("/import") },
     // EXP-106: 엑셀 가져오기의 반대 방향(데이터 이동성) -- 지출 기록을 CSV로 공유 시트에 내보낸다.
     { icon: "⇪", title: "데이터 내보내기(CSV)", onPress: () => setExportCardOpen((open) => !open) },
@@ -132,8 +132,8 @@ export default function MoreScreen() {
       title: row.title,
       onPress: () => router.push(row.route)
     })),
-    // EXP-106: 미리보기(로그아웃)에서는 내보낼 세션 데이터가 없으므로 "알림 설정 · 준비 중"과
-    // 같은 비활성 행 패턴(캡션 + onPress 없음)으로 로그인 준비 안내만 보여준다.
+    // EXP-106: 미리보기(로그아웃)에서는 내보낼 세션 데이터가 없으므로 비활성 행 패턴
+    // (캡션 + onPress 없음)으로 로그인 준비 안내만 보여준다.
     { icon: "⇪", title: "데이터 내보내기(CSV)", caption: "로그인 후 이용 가능", onPress: undefined },
     // UX-5B-9: "앱 정보"는 어딘가로 위장 이동하는 대신 실제 버전 정보를 보여준다.
     { icon: "ⓘ", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }

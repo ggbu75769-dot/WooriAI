@@ -3,6 +3,8 @@ import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { formatKrw } from "../../src/money";
+import { NotificationBell } from "../../src/notifications/NotificationBell";
+import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -154,6 +156,9 @@ export default function HomeScreen() {
     queryFn: () => getHome(authToken!, childId!)
   });
   const hasSession = Boolean(authToken && childId);
+  // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
+  // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.
+  useHomeNotificationEvaluation(hasSession ? home.data : undefined);
 
   if (hasSession && (home.isLoading || !home.data)) {
     // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
@@ -197,7 +202,7 @@ export default function HomeScreen() {
   const budgetNudgeSubtitle = isOverBudget
     ? "이번 달 지출을 확인해 볼까요? 😥"
     : "이번 달도 잘 관리하고 있어요 👏";
-  // UX-5B-8: 알림 기능이 아직 스텁(빈 화면)이므로 홈의 알림 벨은 당분간 숨긴다.
+  // NOTI-102: 알림 센터가 실제 기능이 되어 UX-5B-8에서 숨겼던 홈 알림 벨을 미확인 배지와 함께 복원.
   return (
     <AppScreen>
       <View accessibilityLabel="pixel-screen-HOME-001" testID="pixel-screen-HOME-001" style={homePixelScaleFrameStyle()}>
@@ -205,6 +210,7 @@ export default function HomeScreen() {
           <ScreenHeader
             title={`${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`}
             subtitle="우리 아이에게 해준 것을 따뜻하게 기록해요."
+            action={<NotificationBell />}
           />
 
           <HeroSummaryCard
