@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Image, Text, View, type ImageSourcePropType } from "react-native";
+import { Image, Platform, Text, View, type ImageSourcePropType } from "react-native";
+import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
+import { buildItemStatusChangedPayload } from "../../src/analytics/events";
 import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -141,9 +143,18 @@ export default function ItemsScreen() {
     );
   }, [home.data, isTestSession, hasManualStageSelection]);
   const updateStatus = useMutation({
-    mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; status: ItemStatus }) =>
+    mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; itemName: string; status: ItemStatus }) =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
-    onSuccess: async () => {
+    onSuccess: async (_data, variables) => {
+      // ANA-103: fires only after the server confirmed the status change. The payload carries
+      // only the coarse category enum (derived on-device from the item name, which itself never
+      // leaves the device -- src/analytics/events.ts) and the new status. A no-op without
+      // ANA-102 consent (src/analytics/flag.ts).
+      trackAndFlushAnalyticsEvent(authToken, {
+        eventName: "item_status_changed",
+        payload: buildItemStatusChangedPayload({ itemName: variables.itemName, status: variables.status }),
+        platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+      });
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
     }
@@ -259,12 +270,12 @@ export default function ItemsScreen() {
                       <View style={{ flexDirection: "row", gap: 8 }}>
                         <SecondaryButton
                           label="준비했어요"
-                          onPress={() => updateStatus.mutate({ itemTemplateId: item.id, status: "prepared" })}
+                          onPress={() => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status: "prepared" })}
                           style={{ flex: 1 }}
                         />
                         <SecondaryButton
                           label="괜찮아요"
-                          onPress={() => updateStatus.mutate({ itemTemplateId: item.id, status: "not_needed" })}
+                          onPress={() => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status: "not_needed" })}
                           style={{ flex: 1 }}
                         />
                       </View>

@@ -8,12 +8,12 @@ export type AnalyticsConsentState = {
 };
 
 /**
- * ANA-101 (round5a-sprint2-plan.md §5): analytics is opt-in and defaults to
- * OFF until ANA-102 (explicit consent UI) ships -- while this is false,
- * nothing in ./client.ts queues or sends a single event. No screen currently
- * calls setEnabled(true); wiring an actual consent toggle is ANA-102's job,
- * out of scope here. Persisted (like the app's other zustand stores) so a
- * future consent choice survives app restarts once ANA-102 lands.
+ * ANA-101/ANA-102 (round5a-sprint2-plan.md §5): analytics is opt-in and
+ * defaults to OFF -- while this is false, nothing in ./client.ts queues or
+ * sends a single event. ANA-102's consent UI is the "통계 수집 동의(선택)"
+ * toggle in app/settings/index.tsx, the only place that calls
+ * setEnabled(...). Persisted (like the app's other zustand stores) so the
+ * user's consent choice survives app restarts.
  */
 export const useAnalyticsConsentStore = create<AnalyticsConsentState>()(
   persist(

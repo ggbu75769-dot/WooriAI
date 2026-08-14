@@ -2,7 +2,12 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image, Linking, Pressable, Share, Text, View } from "react-native";
-import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ProductLink } from "../../src/api/client";
+// Platform is imported separately: items-commerce-flow.test.ts (COM-106) pins the exact
+// react-native import line above.
+import { Platform } from "react-native";
+import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
+import { buildAffiliateLinkClickedPayload, buildItemStatusChangedPayload } from "../../src/analytics/events";
+import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -160,9 +165,22 @@ export default function ItemDetailScreen() {
     queryFn: () => getItemDetail(authToken!, childId!, itemTemplateId)
   });
 
+  // ANA-103: item_status_changed fires only after the server confirmed a status change (both
+  // the 찜하기/찜해제 toggle and "이미 준비로 표시"). The payload carries only the coarse
+  // category enum (derived on-device from the item name, which itself never leaves the device
+  // -- src/analytics/events.ts) and the new status. A no-op without ANA-102 consent.
+  const trackItemStatusChanged = (status: ItemStatus) => {
+    trackAndFlushAnalyticsEvent(authToken, {
+      eventName: "item_status_changed",
+      payload: buildItemStatusChangedPayload({ itemName: detail.data?.name ?? "", status }),
+      platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+    });
+  };
+
   const markPrepared = useMutation({
     mutationFn: () => updateItemStatus(authToken!, childId!, itemTemplateId, "prepared"),
     onSuccess: async () => {
+      trackItemStatusChanged("prepared");
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
       router.replace("/(tabs)/items");
@@ -174,7 +192,8 @@ export default function ItemDetailScreen() {
   const toggleInterested = useMutation({
     mutationFn: (status: "interested" | "not_prepared") =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
-    onSuccess: async () => {
+    onSuccess: async (_data, status) => {
+      trackItemStatusChanged(status);
       await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
@@ -246,6 +265,15 @@ export default function ItemDetailScreen() {
   const canCallLinkApi = hasSession;
   const handleProductLinkPress = (link: ProductLink) => {
     if (canCallLinkApi) {
+      // ANA-103: affiliate_link_clicked fires on the press itself (the comparison rows and the
+      // purchase CTA both funnel through here), alongside the server-side click record
+      // (clickProductLink). The payload carries only the platform + screen enums -- never the
+      // link URL, title or id. A no-op without ANA-102 consent (src/analytics/flag.ts).
+      trackAndFlushAnalyticsEvent(authToken, {
+        eventName: "affiliate_link_clicked",
+        payload: buildAffiliateLinkClickedPayload({ platform: link.platform, screenId: "item_detail" }),
+        platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+      });
       clickLink.mutate(link.id);
       return;
     }

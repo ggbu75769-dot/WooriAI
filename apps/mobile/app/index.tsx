@@ -1,5 +1,7 @@
 import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
+import { Platform } from "react-native";
+import { trackAndFlushAnalyticsEvent } from "../src/analytics/client";
 import { getOnboardingProgress } from "../src/api/client";
 import { ensureLocalBackendSeeded } from "../src/api/local-backend";
 import { LOCAL_CHILD_ID } from "../src/api/local-fixtures";
@@ -35,6 +37,15 @@ function storesHydrated() {
  * server check only runs for the "not sure yet" case.
  */
 type ProgressFetchState = "idle" | "loading" | "done";
+
+/**
+ * ANA-103: app_opened fires at most once per cold start (module-level flag, reset only when the
+ * JS bundle reloads) -- re-renders and re-navigations through "/" within one launch never fire
+ * it again. Only fired once hydration finished and a real (token-holding) session exists, so a
+ * logged-out landing-screen visit or the loginless test session never emits it. A no-op unless
+ * the ANA-102 consent toggle (app/settings/index.tsx) is ON -- see src/analytics/flag.ts.
+ */
+let hasTrackedAppOpenedThisLaunch = false;
 
 export default function IndexScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -74,6 +85,18 @@ export default function IndexScreen() {
   }, [hydrated]);
 
   useEffect(() => {
+    if (!hydrated || !accessToken || hasTrackedAppOpenedThisLaunch) {
+      return;
+    }
+    hasTrackedAppOpenedThisLaunch = true;
+    trackAndFlushAnalyticsEvent(accessToken, {
+      eventName: "app_opened",
+      payload: {},
+      platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+    });
+  }, [hydrated, accessToken]);
+
+  useEffect(() => {
     if (!hydrated || isTestSession || !accessToken || hasReachedHome || progressFetch !== "idle") {
       return;
     }
@@ -99,6 +122,20 @@ export default function IndexScreen() {
       })
       .finally(() => setProgressFetch("done"));
   }, [hydrated, isTestSession, accessToken, hasReachedHome, progressFetch, markHomeReached, setResumeProgress]);
+
+  // Safety valve for the server progress check itself, mirroring the hydration fallback above:
+  // getOnboardingProgress rejects on HTTP errors but a hung request (no response, no network
+  // error surfaced) would leave progressFetch at "loading" -- which renders null -- forever.
+  // After the same 3s grace period we proceed as if the check found nothing (progressFetch
+  // "done" with no resume target), which routes to onboarding/tabs via the default redirect
+  // below; a late response is harmless since every store update it makes is idempotent.
+  useEffect(() => {
+    if (progressFetch !== "loading") {
+      return;
+    }
+    const fallback = setTimeout(() => setProgressFetch("done"), 3000);
+    return () => clearTimeout(fallback);
+  }, [progressFetch]);
 
   /**
    * MOB-107: a hydrated test session with no selectedChildId (e.g. an upgrade install whose

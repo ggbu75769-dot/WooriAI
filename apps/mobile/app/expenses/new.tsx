@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
+import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
+import { buildExpenseRecordedPayload } from "../../src/analytics/events";
 import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
+import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { createExpenseOffline } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -285,6 +288,27 @@ export default function NewExpenseScreen() {
     onSuccess: async () => {
       clearQuickExpenseDraft();
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
+      // ANA-103: expense_recorded fires once per successful (local-first) create. The payload is
+      // PII-safe by construction (src/analytics/events.ts): the raw amount is bucketed and the
+      // categoryId mapped to the coarse enum on-device; itemName/memo never enter it. `source`
+      // distinguishes the "준비템 -> 지출도 기록하기" follow-up flow from a plain manual entry,
+      // and `offline` reports the connectivity at record time (the create itself always succeeds
+      // locally first -- see createExpenseOffline). A no-op without ANA-102 consent.
+      const recordedAmountKrw = Number(amountText);
+      const recordedCategoryId = selectedCategory.id;
+      const recordedSource = linkedItemTemplateId ? "followup" : "manual";
+      void isCurrentlyOnline().then((online) => {
+        trackAndFlushAnalyticsEvent(authToken, {
+          eventName: "expense_recorded",
+          payload: buildExpenseRecordedPayload({
+            categoryId: recordedCategoryId,
+            amountKrw: recordedAmountKrw,
+            source: recordedSource,
+            offline: !online
+          }),
+          platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+        });
+      });
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
       setTimeout(() => router.replace("/(tabs)/records"), 650);
