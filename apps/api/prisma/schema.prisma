@@ -367,6 +367,9 @@ model ProductLink {
   active               Boolean         @default(true)
   disclosureText       String?         @map("disclosure_text") @db.VarChar(200)
   redirectCode         String          @unique @default(dbgenerated("substr(md5(gen_random_uuid()::text), 1, 12)")) @map("redirect_code") @db.VarChar(16)
+  // COM-105 링크 헬스체크(000009): ok | broken | unstable, NULL = 미확인.
+  healthStatus         String?         @map("health_status") @db.VarChar(16)
+  healthCheckedAt      DateTime?       @map("health_checked_at") @db.Timestamptz(6)
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
 

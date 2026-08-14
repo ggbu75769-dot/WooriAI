@@ -58,6 +58,17 @@ export const PRODUCT_PLATFORM_LABELS: Record<ProductPlatform, string> = {
   custom: "기타"
 };
 
+// COM-105: 워커 헬스체크 판정. null = 아직 확인 전(미확인).
+export type LinkHealthStatus = "ok" | "broken" | "unstable";
+
+export const LINK_HEALTH_LABELS: Record<LinkHealthStatus, string> = {
+  ok: "정상",
+  broken: "깨짐",
+  unstable: "불안정"
+};
+
+export const LINK_HEALTH_UNKNOWN_LABEL = "미확인";
+
 export type ProductLink = {
   id: string;
   itemTemplateId: string;
@@ -69,6 +80,9 @@ export type ProductLink = {
   isSponsored: boolean;
   disclosureText: string | null;
   active: boolean;
+  // COM-105: link_health 워커 잡이 기록한 최근 헬스체크 결과 (ISO 8601 타임스탬프).
+  healthStatus: LinkHealthStatus | null;
+  healthCheckedAt: string | null;
 };
 
 export type ItemTemplate = {

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnApplicationShutdown } from "@nestjs/common";
 import { IdempotencyKeyCleanupJob } from "./jobs/idempotency-key-cleanup.job";
+import { LinkHealthJob } from "./jobs/link-health.job";
 import { OauthTransactionCleanupJob } from "./jobs/oauth-transaction-cleanup.job";
 import { RefreshTokenCleanupJob } from "./jobs/refresh-token-cleanup.job";
 import { ScheduledPublishJob } from "./jobs/scheduled-publish.job";
@@ -38,9 +39,12 @@ export class SchedulerService implements OnApplicationBootstrap, OnApplicationSh
     @Inject(ScheduledPublishJob) scheduledPublish: ScheduledPublishJob,
     @Inject(RefreshTokenCleanupJob) refreshTokenCleanup: RefreshTokenCleanupJob,
     @Inject(OauthTransactionCleanupJob) oauthTransactionCleanup: OauthTransactionCleanupJob,
-    @Inject(IdempotencyKeyCleanupJob) idempotencyKeyCleanup: IdempotencyKeyCleanupJob
+    @Inject(IdempotencyKeyCleanupJob) idempotencyKeyCleanup: IdempotencyKeyCleanupJob,
+    // COM-105: runs on the same tick but is internally rate-limited and gated
+    // behind LINK_HEALTH_ENABLED (see link-health.job.ts).
+    @Inject(LinkHealthJob) linkHealth: LinkHealthJob
   ) {
-    this.jobs = [scheduledPublish, refreshTokenCleanup, oauthTransactionCleanup, idempotencyKeyCleanup];
+    this.jobs = [scheduledPublish, refreshTokenCleanup, oauthTransactionCleanup, idempotencyKeyCleanup, linkHealth];
   }
 
   static isEnabled(env: NodeJS.ProcessEnv = process.env): boolean {

@@ -97,6 +97,11 @@ type ProductLinkRow = {
   disclosureText: string | null;
   displayOrder: number;
   active: boolean;
+  // COM-105 link health (migration 000009): "ok" | "broken" | "unstable",
+  // null = never checked. Optional so hand-built rows in older code/tests
+  // keep compiling; Prisma rows always carry both.
+  healthStatus?: string | null;
+  healthCheckedAt?: Date | null;
 };
 
 type ImportRowRow = {
@@ -1480,7 +1485,11 @@ export class OnboardingStoreService {
       isAffiliate: link.isAffiliate,
       isSponsored: link.isSponsored,
       disclosureText: link.disclosureText ?? this.defaultDisclosureFor(link, disclosures),
-      active: link.active
+      active: link.active,
+      // COM-105: worker-written health verdict, surfaced on the admin links
+      // page only (the app-facing toProductLinkDto stays unchanged).
+      healthStatus: link.healthStatus ?? null,
+      healthCheckedAt: link.healthCheckedAt ?? null
     };
   }
 
