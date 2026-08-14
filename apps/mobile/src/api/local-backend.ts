@@ -15,9 +15,11 @@ import {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { persistStorage } from "../stores/persist-storage";
+import { categoryCatalog } from "../categories";
 import type {
   AffiliateClickResponse,
   Budget,
+  CategoryListItem,
   CategoryReport,
   ConfirmImportResponse,
   CumulativeReport,
@@ -41,6 +43,9 @@ import type {
 
 type ItemTab = "now" | "soon" | "prepared" | "not_needed";
 import {
+  LOCAL_CATEGORY_DETERGENT,
+  LOCAL_CATEGORY_DIAPER,
+  LOCAL_CATEGORY_FORMULA,
   LOCAL_CATEGORY_IMPORT,
   LOCAL_CHILD_ID,
   LOCAL_DAD_USER_ID,
@@ -48,6 +53,7 @@ import {
   LOCAL_USER_ID,
   localImportStubRows,
   localItemTemplateFixtures,
+  localCategoryNameKo,
   localMemberFixtures,
   localProductLinkFixtures,
   localSeedExpenses
@@ -533,6 +539,60 @@ function budgetKey(yearMonth: string): string {
 function toBudgetDto(childId: string, yearMonth: string, amountKrw: number): Budget {
   const usedAmountKrw = totalExpenseKrw(expensesForChild(childId, yearMonth));
   return { childId, yearMonth, amountKrw, usedAmountKrw, remainingAmountKrw: amountKrw - usedAmountKrw };
+}
+
+// ---------------------------------------------------------------------------
+// Categories (CAT-101/UX-5B-EXP)
+// ---------------------------------------------------------------------------
+
+/**
+ * Server seed category codes for the local-only fixture category ids (see the seed taxonomy in
+ * src/categories.ts). The demo seed expenses (local-fixtures.ts) and the excel-import stub rows
+ * store these `LOCAL_CATEGORY_*` ids directly, so the demo category list must carry the exact
+ * same ids for the edit screen's chip preselection to match them.
+ */
+const localOnlyCategorySeeds: Array<{ id: string; code: string }> = [
+  { id: LOCAL_CATEGORY_DIAPER, code: "diaper_hygiene" },
+  { id: LOCAL_CATEGORY_FORMULA, code: "feeding_babyfood" },
+  { id: LOCAL_CATEGORY_DETERGENT, code: "clothes_laundry" },
+  { id: LOCAL_CATEGORY_IMPORT, code: "etc" }
+];
+
+/**
+ * Local-session mirror of `GET /categories` (apps/api/src/finance/categories.controller.ts;
+ * contract: listCategoriesResponseSchema in packages/contracts). Returns the union of:
+ *   1. the 8 quick-expense catalog entries (src/categories.ts) -- the ids every expense created
+ *      through the app's own UI stores, and
+ *   2. the local-only fixture categories above -- the ids the seeded demo expenses and the
+ *      excel-import flow store,
+ * so that in demo mode every expense's `categoryId` resolves to a chip on the edit screen.
+ * Sorted by displayOrder ascending, matching the real endpoint's ordering guarantee.
+ */
+export function listCategories(): { categories: CategoryListItem[] } {
+  ensureSeeded();
+  const catalogCategories: CategoryListItem[] = categoryCatalog.map((entry, index) => ({
+    id: entry.id,
+    code: entry.code,
+    name: entry.label,
+    iconName: entry.icon,
+    displayOrder: (index + 1) * 10,
+    isSystem: true,
+    active: true
+  }));
+  const localOnlyCategories: CategoryListItem[] = localOnlyCategorySeeds.map((seed, index) => ({
+    id: seed.id,
+    code: seed.code,
+    name: localCategoryNameKo[seed.id] ?? "기타",
+    iconName: null,
+    displayOrder: 900 + (index + 1) * 10,
+    isSystem: true,
+    active: true
+  }));
+  return {
+    categories: [...catalogCategories, ...localOnlyCategories].sort(
+      (left, right) => left.displayOrder - right.displayOrder
+    )
+  };
 }
 
 // ---------------------------------------------------------------------------

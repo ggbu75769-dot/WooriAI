@@ -103,6 +103,22 @@ export type HomeSummary = {
   recentExpenses: Expense[];
 };
 
+/**
+ * CAT-101/UX-5B-EXP: one entry of `GET /categories`. Hand-declared mirror of
+ * `categoryListItemSchema` in packages/contracts/src/schemas.ts -- this file declares all of its
+ * response types locally (the mobile app does not depend on @wooriai/contracts), so this type
+ * follows the same convention as Expense/Budget/etc. above.
+ */
+export type CategoryListItem = {
+  id: string;
+  code: string;
+  name: string;
+  iconName?: string | null;
+  displayOrder: number;
+  isSystem: boolean;
+  active: boolean;
+};
+
 export type MonthlyReport = {
   childId: string;
   yearMonth: string;
@@ -525,6 +541,17 @@ export function upsertBudget(
 export function getHome(token: string, childId: string) {
   if (isLocalToken(token)) return local(() => localBackend.getHome(childId));
   return requestJson<HomeSummary>(`/home?childId=${childId}`, { token });
+}
+
+/**
+ * CAT-101/UX-5B-EXP: active seed categories (displayOrder ascending) for the expense edit
+ * screen's category chip row -- see apps/api/src/finance/categories.controller.ts. A local test
+ * session serves the demo fixture categories instead, whose ids match what the local backend's
+ * own expenses use (see localBackend.listCategories).
+ */
+export function listCategories(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listCategories());
+  return requestJson<{ categories: CategoryListItem[] }>("/categories", { token });
 }
 
 export function createExpense(
