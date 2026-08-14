@@ -695,6 +695,133 @@ describe("Expense, budget, home, and report API", () => {
       });
   });
 
+  it("computes d100 and first-birthday milestone reports over the birth window (REP-103)", async () => {
+    const accessToken = await login(app, `rep103-milestone-${randomUUID()}`);
+    const { householdId } = await completeOnboarding(app, accessToken);
+    // Deterministic mobile-category-alias seed id (prisma/seed-data.ts), same as the
+    // category-report tests above. `categoryId` is the import-stub seed id.
+    const otherCategoryId = "c0a7e901-0000-4c04-8c04-c47e900ec004";
+
+    // Born child with a birth date; WOORIAI_STAGE_TODAY (2026-07-06, set in beforeEach)
+    // pins "today" so the d100 window [2026-03-01, 2026-06-09) is fully elapsed while the
+    // first-birthday window [2026-03-01, 2027-03-01) is still partial.
+    const bornChildId = (
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "백일이", stageMode: "born", birthDate: "2026-03-01" })
+        .expect(200)
+    ).body.id as string;
+
+    const seedExpense = async (input: {
+      categoryId: string;
+      amountKrw: number;
+      spentOn: string;
+      itemName: string;
+      expenseType?: string;
+    }) =>
+      (
+        await request(app.getHttpServer())
+          .post(`/api/v1/children/${bornChildId}/expenses`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ ...input, paymentMethod: "card" })
+          .expect(200)
+      ).body as { id: string };
+
+    // Inside the d100 window.
+    await seedExpense({ categoryId, amountKrw: 30000, spentOn: "2026-03-10", itemName: "기저귀 스타터" });
+    await seedExpense({ categoryId: otherCategoryId, amountKrw: 20000, spentOn: "2026-06-08", itemName: "배냇저고리" });
+    // On the window's exclusive end (day 101) -- must not count toward d100, but does
+    // count toward the (partial) first-birthday window.
+    await seedExpense({ categoryId, amountKrw: 99000, spentOn: "2026-06-09", itemName: "101일째 지출" });
+    // Before birth -- outside every milestone window.
+    await seedExpense({ categoryId, amountKrw: 5000, spentOn: "2026-02-20", itemName: "출산 전 지출" });
+    // Gift inside the window -- expenseType filter must exclude it.
+    await seedExpense({ categoryId, amountKrw: 40000, spentOn: "2026-05-05", itemName: "선물 받은 바운서", expenseType: "gift" });
+    // Soft-deleted inside the window -- must not count.
+    const deleted = await seedExpense({ categoryId, amountKrw: 7000, spentOn: "2026-04-01", itemName: "삭제될 지출" });
+    await request(app.getHttpServer())
+      .delete(`/api/v1/expenses/${deleted.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${bornChildId}/reports/milestone?type=d100`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          childId: bornChildId,
+          type: "d100",
+          startDate: "2026-03-01",
+          endDate: "2026-06-08",
+          partial: false,
+          daysCovered: 100,
+          totalKrw: 50000,
+          expenseCount: 2,
+          topCategories: [
+            { categoryId, code: "import_stub_default", name: "가져오기 기본", totalKrw: 30000, share: 0.6 },
+            { categoryId: otherCategoryId, code: "mobile_clothes_laundry", name: "의류", totalKrw: 20000, share: 0.4 }
+          ],
+          avgDailyKrw: 500
+        });
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${bornChildId}/reports/milestone?type=first-birthday`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          childId: bornChildId,
+          type: "first-birthday",
+          startDate: "2026-03-01",
+          endDate: "2027-02-28",
+          partial: true,
+          // 2026-03-01 through 2026-07-06 inclusive, birth day counted as day 1.
+          daysCovered: 128,
+          totalKrw: 149000,
+          expenseCount: 3,
+          topCategories: [
+            { categoryId, code: "import_stub_default", name: "가져오기 기본", totalKrw: 129000, share: 0.866 },
+            { categoryId: otherCategoryId, code: "mobile_clothes_laundry", name: "의류", totalKrw: 20000, share: 0.134 }
+          ],
+          avgDailyKrw: Math.round(149000 / 128)
+        });
+      });
+  });
+
+  it("rejects milestone reports for children without a birth date and unknown milestone types (REP-103)", async () => {
+    const accessToken = await login(app, `rep103-unavailable-${randomUUID()}`);
+    // completeOnboarding creates a manual-stage child with no birthDate.
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/milestone?type=d100`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("MILESTONE_UNAVAILABLE");
+        expect(body.error.message).toContain("생년월일");
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/milestone?type=d200`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/milestone`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+  });
+
   async function expectTotals(
     accessToken: string,
     childId: string,

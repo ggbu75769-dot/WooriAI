@@ -838,6 +838,29 @@ export function getYearlyReport(token: string, childId: string, year: number) {
   return requestJson<YearlyReport>(`/children/${childId}/reports/yearly?year=${year}`, { token });
 }
 
+/** REP-103: 100일(d100)/첫돌(first-birthday) milestone cost report. */
+export type MilestoneReportType = "d100" | "first-birthday";
+
+export type MilestoneReport = {
+  childId: string;
+  type: MilestoneReportType;
+  startDate: string;
+  /** Last day inside the milestone window (inclusive). */
+  endDate: string;
+  /** True while today is still before the window's end; totals then cover only [startDate, today]. */
+  partial: boolean;
+  daysCovered: number;
+  totalKrw: number;
+  expenseCount: number;
+  topCategories: Array<{ categoryId: string; code: string; name: string; totalKrw: number; share: number }>;
+  avgDailyKrw: number;
+};
+
+export function getMilestoneReport(token: string, childId: string, type: MilestoneReportType) {
+  if (isLocalToken(token)) return local(() => localBackend.getMilestoneReport(childId, type));
+  return requestJson<MilestoneReport>(`/children/${childId}/reports/milestone?type=${type}`, { token });
+}
+
 export function listItems(
   token: string,
   childId: string,

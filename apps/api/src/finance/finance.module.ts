@@ -6,12 +6,13 @@ import { CategoriesController } from "./categories.controller";
 import { ChildExpensesController, ExpensesController } from "./expenses.controller";
 import { ExpensesVersionService } from "./expenses.service";
 import { HomeController } from "./home.controller";
+import { MilestoneReportService } from "./milestone-report.service";
 import { ReportsController } from "./reports.controller";
 
 @Module({
   imports: [AuditModule, AuthModule, OnboardingModule],
   controllers: [CategoriesController, ChildExpensesController, ExpensesController, HomeController, ReportsController],
-  providers: [ExpensesVersionService],
+  providers: [ExpensesVersionService, MilestoneReportService],
   exports: [ExpensesVersionService]
 })
 export class FinanceModule {}

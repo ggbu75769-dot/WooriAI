@@ -33,6 +33,8 @@ import type {
   AcceptInviteResponse,
   ItemDetail,
   ItemSummary,
+  MilestoneReport,
+  MilestoneReportType,
   MonthlyReport,
   PrivacySettings,
   ProductLink,
@@ -869,6 +871,62 @@ export function getCategoryReport(
     expenses = expenses.filter((expense) => expense.spentOn >= startInclusive && expense.spentOn < endExclusive);
   }
   return { childId, categories: categoryBreakdown(expenses) };
+}
+
+/** Calendar-day count in [startInclusive, endExclusive), both YYYY-MM-DD strings. */
+function diffDateOnlyDays(startInclusive: string, endExclusive: string): number {
+  const [sy, sm, sd] = startInclusive.split("-").map(Number);
+  const [ey, em, ed] = endExclusive.split("-").map(Number);
+  return Math.max(0, Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86_400_000));
+}
+
+/**
+ * REP-103: local-session mirror of GET /children/:childId/reports/milestone.
+ *
+ * The demo child's birthDate is seeded ~24 months ago while the demo expenses are seeded
+ * within the last few days (local-fixtures.ts `daysAgo`), so the true milestone window
+ * [birthDate, birthDate+100d/1y) contains no fixture expenses. When that happens the
+ * aggregation falls back to every stored (non-deleted, expenseType "expense") record so
+ * the demo preview still shows a representative 100일 리포트 instead of an empty card.
+ */
+export function getMilestoneReport(childId: string, type: MilestoneReportType): MilestoneReport {
+  const child = requireChild();
+  const startDate = child.birthDate;
+  const windowEndExclusive =
+    type === "d100" ? seoulDateMinusDays(startDate, -100) : seoulDateMinusMonths(startDate, -12);
+  const today = getSeoulToday();
+  const dayAfterToday = seoulDateMinusDays(today, -1);
+  const coveredEndExclusive = windowEndExclusive < dayAfterToday ? windowEndExclusive : dayAfterToday;
+  const partial = coveredEndExclusive < windowEndExclusive;
+  const daysCovered = diffDateOnlyDays(startDate, coveredEndExclusive);
+
+  const stored = expensesForChild(childId).filter((expense) => expense.expenseType === "expense");
+  const inWindow = stored.filter((expense) => expense.spentOn >= startDate && expense.spentOn < coveredEndExclusive);
+  const aggregated = inWindow.length > 0 ? inWindow : stored;
+
+  const totalKrw = totalExpenseKrw(aggregated);
+  const categoryMetaById = new Map(listCategories().categories.map((category) => [category.id, category]));
+
+  return {
+    childId,
+    type,
+    startDate,
+    endDate: seoulDateMinusDays(windowEndExclusive, 1),
+    partial,
+    daysCovered,
+    totalKrw,
+    expenseCount: aggregated.length,
+    topCategories: categoryBreakdown(aggregated)
+      .slice(0, 5)
+      .map((entry) => ({
+        categoryId: entry.categoryId,
+        code: categoryMetaById.get(entry.categoryId)?.code ?? "etc",
+        name: categoryMetaById.get(entry.categoryId)?.name ?? localCategoryNameKo[entry.categoryId] ?? "기타",
+        totalKrw: entry.amountKrw,
+        share: totalKrw > 0 ? Math.round((entry.amountKrw / totalKrw) * 1000) / 1000 : 0
+      })),
+    avgDailyKrw: daysCovered > 0 ? Math.round(totalKrw / daysCovered) : 0
+  };
 }
 
 export function getYearlyReport(childId: string, year: number): YearlyReport {

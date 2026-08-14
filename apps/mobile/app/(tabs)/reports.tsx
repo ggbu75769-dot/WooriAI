@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { getCategoryReport, getCumulativeReport, getMonthlyReport, getYearlyReport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import {
+  getCategoryReport,
+  getCumulativeReport,
+  getHome,
+  getMilestoneReport,
+  getMonthlyReport,
+  getYearlyReport,
+  LOCAL_SESSION_TOKEN
+} from "../../src/api/client";
 import { categoryNameFor } from "../../src/categories";
 import { formatKrw } from "../../src/money";
+import { buildMilestoneShareMessage } from "../../src/reports/milestone-share";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
@@ -123,6 +132,37 @@ export default function ReportsScreen() {
     enabled: Boolean(authToken && childId && period === "연간"),
     queryFn: () => getYearlyReport(authToken!, childId!, yearStart.getFullYear())
   });
+
+  // REP-103: 100일 비용 리포트 for the 누적 section. The server answers 400
+  // MILESTONE_UNAVAILABLE for a child without a birthDate (pregnant/manual stage), so an
+  // error simply hides the card instead of surfacing a retry UI -- retry: false keeps that
+  // expected 400 from being re-fetched. A birthDate under 100 days ago comes back as a
+  // partial window (partial: true + daysCovered) and still shows the card. Demo (local
+  // test) sessions are served by the local backend's fixture-based milestone report.
+  const milestone = useQuery({
+    queryKey: ["report", "milestone", childId, "d100"],
+    enabled: Boolean(authToken && childId),
+    retry: false,
+    queryFn: () => getMilestoneReport(authToken!, childId!, "d100")
+  });
+  // Shares the home screen's query cache entry -- only used for the child nickname in the
+  // milestone share message.
+  const home = useQuery({
+    queryKey: ["home", childId],
+    enabled: Boolean(authToken && childId),
+    queryFn: () => getHome(authToken!, childId!)
+  });
+  const milestoneReport = milestone.data;
+  const milestoneTopCategory = milestoneReport?.topCategories[0];
+  const milestoneChildName = home.data?.child.nickname ?? "우리 아이";
+  const shareMilestoneReport = async () => {
+    if (!milestoneReport) return;
+    try {
+      await Share.share({ message: buildMilestoneShareMessage(milestoneReport, milestoneChildName) });
+    } catch {
+      // Share sheet dismissed/unavailable -- nothing to recover.
+    }
+  };
 
   // Trailing 6 months (current month included) feeding the 월간 tab's line chart, following
   // the same useQueries pattern as quarterQueries above.
@@ -309,6 +349,30 @@ export default function ReportsScreen() {
                   <Text style={reportReferenceMemoryBodyStyle}>누적 기록 {formatKrw(cumulative.data.totalExpenseKrw)}</Text>
                 </Card>
               ) : null}
+
+              {/* REP-103: 100일 비용 리포트 카드 -- 생년월일 없는 아이(400 MILESTONE_UNAVAILABLE)는 숨김,
+                  100일 미만이면 partial 상태로 지금까지의 기록을 보여준다. */}
+              {milestone.isSuccess && milestoneReport ? (
+                <Card style={reportMilestoneCardStyle}>
+                  <Text style={reportReferenceMemoryTitleStyle}>100일 리포트</Text>
+                  <Text style={reportReferenceMemoryBodyStyle}>
+                    {milestoneReport.partial
+                      ? `태어나서 ${milestoneReport.daysCovered}일째 기록 중 · ${formatKrw(milestoneReport.totalKrw)}`
+                      : `태어나서 100일 동안 ${formatKrw(milestoneReport.totalKrw)}`}
+                  </Text>
+                  {milestoneTopCategory ? (
+                    <Text style={reportReferenceMemoryBodyStyle}>가장 많이 든 건 {milestoneTopCategory.name} 💛</Text>
+                  ) : null}
+                  <Pressable
+                    accessibilityLabel="100일 리포트 공유하기"
+                    accessibilityRole="button"
+                    onPress={shareMilestoneReport}
+                    style={reportMilestoneShareButtonStyle}
+                  >
+                    <Text style={reportMilestoneShareButtonTextStyle}>공유하기</Text>
+                  </Pressable>
+                </Card>
+              ) : null}
             </>
           )}
         </View>
@@ -386,6 +450,31 @@ const reportReferenceMemoryTitleStyle = {
   fontSize: 18,
   fontWeight: "800",
   lineHeight: 24
+} as const;
+
+const reportMilestoneCardStyle = StyleSheet.flatten([
+  {
+    backgroundColor: theme.colors.peach,
+    gap: 8,
+    paddingVertical: 18
+  }
+]);
+
+const reportMilestoneShareButtonStyle = {
+  alignItems: "center",
+  alignSelf: "flex-start",
+  backgroundColor: theme.colors.brown,
+  borderRadius: 999,
+  marginTop: 4,
+  paddingHorizontal: 18,
+  paddingVertical: 8
+} as const;
+
+const reportMilestoneShareButtonTextStyle = {
+  color: theme.colors.white,
+  fontSize: 14,
+  fontWeight: "800",
+  lineHeight: 20
 } as const;
 
 const reportReferenceMemoryBodyStyle = {
