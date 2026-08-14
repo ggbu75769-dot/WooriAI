@@ -6,6 +6,7 @@ import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemSta
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton } from "../../src/ui";
+import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 import { ItemListPixelStyles } from "../../src/pixelLock/styles";
 import { itemMatchesBand, resolveDefaultStageLabel } from "../../src/items/stage-bands";
@@ -17,6 +18,15 @@ const recommendationBabyCarrierImage = require("../../assets/illustrations/recom
 const recommendationDiaperImage = require("../../assets/illustrations/recommendation_diaper.png");
 const recommendationBlocksImage = require("../../assets/illustrations/recommendation_blocks.png");
 const tabOptions = ["0-6개월", "6-12개월", "12-24개월", "24개월+"] as const;
+// UX-5B-10b: 서버 items API의 tab 파라미터(now/soon/prepared/not_needed)를 그대로 쓰는
+// 상태 필터 -- 기존에는 tab="now"만 조회해 클라이언트에서 걸렀다.
+const statusTabOptions = [
+  { value: "now", label: "지금 필요" },
+  { value: "soon", label: "곧 필요" },
+  { value: "prepared", label: "준비완료" },
+  { value: "not_needed", label: "괜찮아요" }
+] as const;
+type StatusTabValue = (typeof statusTabOptions)[number]["value"];
 const recommendationScreenId = "pixel-screen-ITEM-001 ITEM-001";
 const recommendationHorizontalOffset = 0;
 const recommendationVerticalOffset = 0;
@@ -99,15 +109,16 @@ function getRecommendationDisplay(item: ItemSummary | RecommendationPreviewItem,
 export default function ItemsScreen() {
   const [stageLabel, setStageLabel] = useState<(typeof tabOptions)[number]>("12-24개월");
   const [hasManualStageSelection, setHasManualStageSelection] = useState(false);
+  const [statusTab, setStatusTab] = useState<StatusTabValue>("now");
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
   const items = useQuery({
-    queryKey: ["items", childId, "now", stageLabel],
+    queryKey: ["items", childId, statusTab, stageLabel],
     enabled: Boolean(authToken && childId),
-    queryFn: () => listItems(authToken!, childId!, "now")
+    queryFn: () => listItems(authToken!, childId!, statusTab)
   });
   // Default the selected chip to the child's actual current stage once it's known, unless the
   // pixel-lock capture is running, we're in the loginless test session (fixture data must render
@@ -140,9 +151,15 @@ export default function ItemsScreen() {
   const hasSession = Boolean(authToken && childId);
 
   if (hasSession && (items.isLoading || !items.data)) {
+    // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     return (
       <AppScreen>
-        <EmptyStateCard title="추천템을 불러오고 있어요." actionLabel="잠시만요" />
+        <View style={{ gap: theme.spacing.gap }}>
+          <SkeletonCard />
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </View>
       </AppScreen>
     );
   }
@@ -189,6 +206,20 @@ export default function ItemsScreen() {
             ))}
           </View>
 
+          {/* UX-5B-10b: 상태 필터 (서버 tab 파라미터와 1:1) -- 세션이 있을 때만 의미가 있다. */}
+          {hasSession ? (
+            <View style={{ flexDirection: "row", gap: 6, marginHorizontal: -12 }}>
+              {statusTabOptions.map((option) => (
+                <CategoryChip
+                  key={option.value}
+                  label={option.label}
+                  selected={option.value === statusTab}
+                  onPress={() => setStatusTab(option.value)}
+                />
+              ))}
+            </View>
+          ) : null}
+
           <View style={{ backgroundColor: theme.colors.beige, borderRadius: 22, minHeight: 92, overflow: "hidden", padding: 15 }}>
             <View style={{ maxWidth: 210 }}>
               <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800", lineHeight: 24 }}>{stageLabel} 맞춤 추천</Text>
@@ -204,7 +235,11 @@ export default function ItemsScreen() {
           </View>
 
           {showEmptyState ? (
-            <EmptyStateCard title="지금 필요한 추천템이 없어요." actionLabel="홈으로 가기" onPress={() => router.push("/(tabs)")} />
+            <EmptyStateCard
+              title={statusTab === "now" ? "지금 필요한 추천템이 없어요." : "이 조건에 맞는 준비템이 없어요."}
+              actionLabel="홈으로 가기"
+              onPress={() => router.push("/(tabs)")}
+            />
           ) : (
             <View style={{ gap: 10 }}>
               {stageFilteredItems.map((item, index) => {

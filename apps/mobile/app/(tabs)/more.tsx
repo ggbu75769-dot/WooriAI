@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import Constants from "expo-constants";
 import { router } from "expo-router";
 import { Alert, Image, Pressable, Text, View } from "react-native";
 import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
@@ -10,12 +11,12 @@ import { AppScreen } from "../../src/ui";
 
 const moreAvatarImage = require("../../assets/illustrations/toddler.png");
 const moreReferenceScreenId = "pixel-screen-SET-001 SET-001 · FAM-001 · IMP-001";
+// UX-5B-9: 미리보기(로그아웃) 메뉴도 라벨과 목적지가 일치하도록 정리 -- "알림 설정"→/settings,
+// "데이터 백업"→/import, "고객센터"→/settings/privacy 같은 눈속임 라우팅을 제거했다.
 const moreMenuRows = [
   { icon: "♙", title: "프로필 관리", route: "/family" },
-  { icon: "♧", title: "알림 설정", route: "/settings" },
-  { icon: "⌁", title: "데이터 백업", route: "/import" },
-  { icon: "?", title: "고객센터", route: "/settings/privacy" },
-  { icon: "ⓘ", title: "앱 정보", route: "/settings/privacy" }
+  { icon: "⌁", title: "엑셀로 가져오기", route: "/import" },
+  { icon: "?", title: "약관 및 개인정보", route: "/settings/privacy" }
 ] as const;
 
 const previewProfile = { nickname: "다온이", stageLabel: "24개월" };
@@ -23,14 +24,16 @@ const previewProfile = { nickname: "다온이", stageLabel: "24개월" };
 // profile above never flashes on screen for a signed-in user before their real data arrives.
 const loadingProfile = { nickname: "...", stageLabel: "..." };
 
-const appInfoText = "버전 0.0.0 · com.anonymous.wooriai";
+// UX-5B-7: 하드코딩된 "버전 0.0.0 · com.anonymous.wooriai" 대신 expo-constants가 읽어주는
+// 실제 앱 설정의 버전을 표시한다. (패키지명은 expo-application 미설치로 표시하지 않는다.)
+const appInfoText = `버전 ${Constants.expoConfig?.version ?? "알 수 없음"}`;
 
-function MoreMenuRow({ icon, title, onPress }: { icon: string; title: string; onPress: () => void }) {
+function MoreMenuRow({ icon, title, caption, onPress }: { icon: string; title: string; caption?: string; onPress?: () => void }) {
   return (
-    <Pressable onPress={onPress} style={moreMenuRowStyle()}>
+    <Pressable disabled={!onPress} onPress={onPress} style={moreMenuRowStyle()}>
       <Text style={moreMenuIconStyle}>{icon}</Text>
       <Text style={moreMenuTitleStyle}>{title}</Text>
-      <Text style={moreMenuChevronStyle}>›</Text>
+      {caption ? <Text style={moreMenuCaptionStyle}>{caption}</Text> : <Text style={moreMenuChevronStyle}>›</Text>}
     </Pressable>
   );
 }
@@ -52,18 +55,23 @@ export default function MoreScreen() {
     router.push(hasSession ? "/(tabs)/records" : "/settings");
   };
 
-  const sessionMenuRows = [
+  // UX-5B-8: 알림 화면은 아직 스텁이라 이동하지 않고 "준비 중" 캡션만 보여준다.
+  const sessionMenuRows: Array<{ icon: string; title: string; caption?: string; onPress?: () => void }> = [
     { icon: "♙", title: "프로필 관리", onPress: () => router.push("/family") },
-    { icon: "♧", title: "알림 설정", onPress: () => router.push("/notifications") },
+    { icon: "♧", title: "알림 설정", caption: "준비 중", onPress: undefined },
     { icon: "⌁", title: "엑셀 가져오기", onPress: () => router.push("/import") },
     { icon: "?", title: "약관 및 개인정보", onPress: () => router.push("/settings/privacy") },
     { icon: "ⓘ", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }
   ];
-  const previewMenuRowActions = moreMenuRows.map((row) => ({
-    icon: row.icon,
-    title: row.title,
-    onPress: () => router.push(row.route)
-  }));
+  const previewMenuRowActions: Array<{ icon: string; title: string; caption?: string; onPress?: () => void }> = [
+    ...moreMenuRows.map((row) => ({
+      icon: row.icon,
+      title: row.title,
+      onPress: () => router.push(row.route)
+    })),
+    // UX-5B-9: "앱 정보"는 어딘가로 위장 이동하는 대신 실제 버전 정보를 보여준다.
+    { icon: "ⓘ", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }
+  ];
   const visibleMenuRows = hasSession ? sessionMenuRows : previewMenuRowActions;
 
   return (
@@ -91,7 +99,7 @@ export default function MoreScreen() {
 
         <View style={moreMenuGroupStyle()}>
           {visibleMenuRows.map((row) => (
-            <MoreMenuRow key={row.title} icon={row.icon} title={row.title} onPress={row.onPress} />
+            <MoreMenuRow key={row.title} icon={row.icon} title={row.title} caption={row.caption} onPress={row.onPress} />
           ))}
         </View>
       </View>
@@ -201,5 +209,11 @@ const moreMenuTitleStyle = {
 const moreMenuChevronStyle = {
   color: theme.colors.gray600,
   fontSize: 18,
+  fontWeight: "700"
+} as const;
+
+const moreMenuCaptionStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
   fontWeight: "700"
 } as const;

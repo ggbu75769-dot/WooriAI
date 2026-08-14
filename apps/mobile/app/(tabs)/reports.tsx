@@ -5,9 +5,11 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getCategoryReport, getCumulativeReport, getMonthlyReport, getYearlyReport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryNameFor } from "../../src/categories";
+import { formatKrw } from "../../src/money";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
+import { SkeletonCard } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 import { ReportPixelStyles } from "../../src/pixelLock/styles";
 
@@ -24,14 +26,6 @@ function reportReferenceScaleFrameStyle() {
       { scale: ReportPixelStyles.scale }
     ]
   } as const;
-}
-
-function formatKrw(value: number) {
-  return `₩${value.toLocaleString("ko-KR")}`;
-}
-
-function formatWon(value: number) {
-  return `${value.toLocaleString("ko-KR")}원`;
 }
 
 function addMonths(date: Date, months: number) {
@@ -251,7 +245,11 @@ export default function ReportsScreen() {
               </Card>
             </>
           ) : activeIsLoading ? (
-            <EmptyStateCard title="리포트를 불러오고 있어요." actionLabel="잠시만요" />
+            // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
+            <>
+              <SkeletonCard />
+              <SkeletonCard />
+            </>
           ) : activeIsError ? (
             <EmptyStateCard
               title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
@@ -263,7 +261,7 @@ export default function ReportsScreen() {
               <LineChartCard title="총 지출" value={formatKrw(activeTotal ?? 0)} deltaLabel={deltaLabel} points={activePoints} />
 
               {activeCategory.isLoading ? (
-                <EmptyStateCard title="카테고리 정보를 불러오고 있어요." actionLabel="잠시만요" />
+                <SkeletonCard />
               ) : activeCategory.isError ? (
                 <EmptyStateCard
                   title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
@@ -287,19 +285,19 @@ export default function ReportsScreen() {
                   <Text style={reportReferenceTipTitleStyle}>이번 달 절약 팁</Text>
                   {tipDeltaKrw !== null && tipDeltaKrw > 0 ? (
                     <>
-                      <Text style={reportReferenceTipBodyStyle}>지난 달보다 {formatWon(tipDeltaKrw)}을 절약했어요!</Text>
+                      <Text style={reportReferenceTipBodyStyle}>지난 달보다 {formatKrw(tipDeltaKrw)}을 절약했어요!</Text>
                       <Text style={reportReferenceTipBodyStyle}>절약 습관 최고예요!</Text>
                     </>
                   ) : (
                     <Text style={reportReferenceTipBodyStyle}>
-                      지난 달보다 {formatWon(Math.abs(tipDeltaKrw ?? 0))} 더 썼어요. 다음 구매 전에 같이 확인해 볼까요?
+                      지난 달보다 {formatKrw(Math.abs(tipDeltaKrw ?? 0))} 더 썼어요. 다음 구매 전에 같이 확인해 볼까요?
                     </Text>
                   )}
                 </Card>
               ) : null}
 
               {cumulative.isLoading ? (
-                <EmptyStateCard title="누적 기록을 불러오고 있어요." actionLabel="잠시만요" />
+                <SkeletonCard />
               ) : cumulative.isError ? (
                 <EmptyStateCard
                   title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."

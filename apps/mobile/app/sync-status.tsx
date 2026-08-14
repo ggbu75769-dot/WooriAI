@@ -22,15 +22,12 @@ import {
   useOfflineSyncSnapshot
 } from "../src/offline/sync-controller";
 import type { ExpensePayload, LocalExpenseRow } from "../src/offline/types";
+import { formatKrw } from "../src/money";
 import { useSessionStore } from "../src/stores/session.store";
 import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
 
 const syncStatusScreenId = "EXP-005";
-
-function formatKrw(value: number) {
-  return `${value.toLocaleString("ko-KR")}원`;
-}
 
 function SyncRow({ row, children }: { row: LocalExpenseRow; children?: React.ReactNode }) {
   return (

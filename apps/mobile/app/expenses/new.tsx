@@ -23,8 +23,10 @@ const previewExpenseDate = { iso: "2025-05-24", label: "2025. 05. 24 (토)" };
 // has a distinct, deterministic `id` so tapping different tiles records different categoryIds
 // (previously all 8 shared one literal id and broke category aggregation).
 const quickExpenseCategories = categoryCatalog;
+// UX-5B-3: 결제 수단은 서버에 enum으로 저장된다 (createExpense body.paymentMethod) --
+// 실제 저장 값과 무관한 가짜 은행명("카카오뱅크") 대신 저장되는 값 그대로의 라벨을 보여준다.
 const quickExpensePaymentMethods = [
-  { value: "card", label: "▣ 카카오뱅크" },
+  { value: "card", label: "카드" },
   { value: "cash", label: "현금" },
   { value: "transfer", label: "계좌 이체" },
   { value: "mobile_pay", label: "모바일 결제" }
