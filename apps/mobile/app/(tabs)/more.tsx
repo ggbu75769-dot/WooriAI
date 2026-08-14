@@ -1,13 +1,20 @@
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import { Alert, Image, Pressable, Text, View } from "react-native";
-import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { getSeoulToday } from "@wooriai/domain";
+import { getHome, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { buildExpenseCsv } from "../../src/export/expense-csv";
+import { collectExpensesForRange, EXPORT_RANGE_OPTIONS, type ExportRange } from "../../src/export/export-range";
+import { shareExpenseCsv } from "../../src/export/share-csv";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
 import { theme } from "../../src/theme";
-import { AppScreen } from "../../src/ui";
+// SecondaryButton (not the coral CTA button): the pixel-locked more screen must stay the
+// compact reference menu -- see "locks the more route" in src/ui-pixel-lock-flow.test.ts.
+import { AppScreen, CategoryChip, SecondaryButton, Toast } from "../../src/ui";
 
 const moreAvatarImage = require("../../assets/illustrations/toddler.png");
 const moreReferenceScreenId = "pixel-screen-SET-001 SET-001 · FAM-001 · IMP-001";
@@ -51,6 +58,60 @@ export default function MoreScreen() {
   });
   const visibleProfile = hasSession ? (home.data?.child ?? loadingProfile) : previewProfile;
 
+  // EXP-106 데이터 내보내기(CSV): inline range-picker card toggled from the menu row below.
+  const [exportCardOpen, setExportCardOpen] = useState(false);
+  const [exportRange, setExportRange] = useState<ExportRange>("month");
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportToast, setExportToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
+  // Same timer-in-ref discipline as records.tsx's confirmedFlash: a toast arriving right before
+  // unmount (or replacing a pending one) must never setState after unmount / leak a timer.
+  const exportToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (exportToastTimerRef.current) clearTimeout(exportToastTimerRef.current);
+    };
+  }, []);
+
+  const showExportToast = (message: string, tone: "success" | "error") => {
+    if (exportToastTimerRef.current) clearTimeout(exportToastTimerRef.current);
+    setExportToast({ message, tone });
+    exportToastTimerRef.current = setTimeout(() => {
+      setExportToast(null);
+      exportToastTimerRef.current = null;
+    }, 3200);
+  };
+
+  const handleExportPress = async () => {
+    if (!authToken || !childId || exportBusy) return;
+    setExportBusy(true);
+    try {
+      const collected = await collectExpensesForRange(
+        (yearMonth) => listExpenses(authToken, childId, yearMonth).then((result) => result.expenses),
+        exportRange,
+        getSeoulToday()
+      );
+      if (collected.expenses.length === 0) {
+        showExportToast("선택한 기간에 내보낼 기록이 없어요.", "error");
+        return;
+      }
+      const built = buildExpenseCsv(collected.expenses);
+      const outcome = await shareExpenseCsv(built.csv);
+      if (!outcome.shared) return; // user closed the share sheet -- not a success, not an error
+      const truncated = collected.truncated || built.truncated || outcome.truncated;
+      const sharedRowCount = built.rowCount - outcome.droppedRows;
+      showExportToast(
+        truncated
+          ? `기록 ${sharedRowCount}건을 내보냈어요. (용량 제한으로 일부만 포함됐어요)`
+          : `기록 ${sharedRowCount}건을 내보냈어요.`,
+        "success"
+      );
+    } catch {
+      showExportToast("내보내기에 실패했어요. 잠시 후 다시 시도해주세요.", "error");
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   const handleSearchPress = () => {
     router.push(hasSession ? "/(tabs)/records" : "/settings");
   };
@@ -60,6 +121,8 @@ export default function MoreScreen() {
     { icon: "♙", title: "프로필 관리", onPress: () => router.push("/family") },
     { icon: "♧", title: "알림 설정", caption: "준비 중", onPress: undefined },
     { icon: "⌁", title: "엑셀 가져오기", onPress: () => router.push("/import") },
+    // EXP-106: 엑셀 가져오기의 반대 방향(데이터 이동성) -- 지출 기록을 CSV로 공유 시트에 내보낸다.
+    { icon: "⇪", title: "데이터 내보내기(CSV)", onPress: () => setExportCardOpen((open) => !open) },
     { icon: "?", title: "약관 및 개인정보", onPress: () => router.push("/settings/privacy") },
     { icon: "ⓘ", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }
   ];
@@ -69,6 +132,9 @@ export default function MoreScreen() {
       title: row.title,
       onPress: () => router.push(row.route)
     })),
+    // EXP-106: 미리보기(로그아웃)에서는 내보낼 세션 데이터가 없으므로 "알림 설정 · 준비 중"과
+    // 같은 비활성 행 패턴(캡션 + onPress 없음)으로 로그인 준비 안내만 보여준다.
+    { icon: "⇪", title: "데이터 내보내기(CSV)", caption: "로그인 후 이용 가능", onPress: undefined },
     // UX-5B-9: "앱 정보"는 어딘가로 위장 이동하는 대신 실제 버전 정보를 보여준다.
     { icon: "ⓘ", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }
   ];
@@ -102,6 +168,29 @@ export default function MoreScreen() {
             <MoreMenuRow key={row.title} icon={row.icon} title={row.title} caption={row.caption} onPress={row.onPress} />
           ))}
         </View>
+
+        {hasSession && exportCardOpen ? (
+          <View style={exportCardStyle()}>
+            <Text style={exportCardTitleStyle}>내보낼 기간</Text>
+            <View style={exportChipRowStyle}>
+              {EXPORT_RANGE_OPTIONS.map((option) => (
+                <CategoryChip
+                  key={option.value}
+                  label={option.label}
+                  selected={exportRange === option.value}
+                  onPress={() => setExportRange(option.value)}
+                />
+              ))}
+            </View>
+            <SecondaryButton
+              label={exportBusy ? "내보내는 중..." : "CSV로 내보내기"}
+              disabled={exportBusy}
+              onPress={handleExportPress}
+            />
+          </View>
+        ) : null}
+
+        {exportToast ? <Toast message={exportToast.message} tone={exportToast.tone} /> : null}
       </View>
     </AppScreen>
   );
@@ -169,6 +258,28 @@ const moreChildAgeStyle = {
   fontSize: 12,
   fontWeight: "700",
   lineHeight: 18
+} as const;
+
+function exportCardStyle() {
+  return {
+    backgroundColor: theme.colors.white,
+    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderRadius: MoreSettingsPixelStyles.cardRadius,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14
+  } as const;
+}
+
+const exportCardTitleStyle = {
+  color: theme.colors.brown,
+  fontSize: 14,
+  fontWeight: "700"
+} as const;
+
+const exportChipRowStyle = {
+  flexDirection: "row",
+  gap: 8
 } as const;
 
 function moreMenuGroupStyle() {
