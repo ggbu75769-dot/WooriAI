@@ -4,6 +4,7 @@ import { AdminModule } from "./admin/admin.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
 import { AuthModule } from "./auth/auth.module";
 import { AuditModule } from "./common/audit/audit.module";
+import { DevicesModule } from "./devices/devices.module";
 import { FinanceModule } from "./finance/finance.module";
 import { HealthModule } from "./health/health.module";
 import { HouseholdsModule } from "./households/households.module";
@@ -21,6 +22,7 @@ import { SyncModule } from "./sync/sync.module";
     AnalyticsModule,
     AuditModule,
     AuthModule,
+    DevicesModule,
     FinanceModule,
     HealthModule,
     HouseholdsModule,

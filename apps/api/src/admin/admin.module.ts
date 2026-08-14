@@ -8,12 +8,13 @@ import { AdminController } from "./admin.controller";
 import { AdminMfaService } from "./admin-mfa.service";
 import { AdminSessionService } from "./admin-session.service";
 import { AdminTokenGuard } from "./admin-token.guard";
+import { AdminUsersController } from "./admin-users.controller";
 import { ContentRevisionsController } from "./content-revisions.controller";
 import { ContentRevisionsService } from "./content-revisions.service";
 
 @Module({
   imports: [OnboardingModule, AuditModule],
-  controllers: [AdminController, AdminAuthController, ContentRevisionsController],
+  controllers: [AdminController, AdminAuthController, AdminUsersController, ContentRevisionsController],
   providers: [AdminTokenGuard, AdminAuthGuard, AdminAuthService, AdminSessionService, AdminMfaService, ContentRevisionsService],
   exports: [AdminAuthGuard]
 })

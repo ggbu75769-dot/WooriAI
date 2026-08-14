@@ -55,6 +55,20 @@ export const categorySchema = z.object({
   iconName: z.string().optional()
 });
 
+// CAT-101: GET /categories 목록 항목. 임베디드 참조용 categorySchema(최소 필드)에
+// 정렬/시스템 구분 필드를 더한 형태로, iconName은 DB에서 nullable이라 null도 허용한다.
+export const categoryListItemSchema = categorySchema.extend({
+  iconName: z.string().nullable().optional(),
+  displayOrder: z.number().int().min(0),
+  isSystem: z.boolean(),
+  active: z.boolean()
+});
+
+// CAT-101: GET /categories 응답 계약 (활성 카테고리만, displayOrder 오름차순).
+export const listCategoriesResponseSchema = z.object({
+  categories: z.array(categoryListItemSchema)
+});
+
 export const createExpenseRequestSchema = z.object({
   categoryId: uuidSchema,
   amountKrw: moneyKrwSchema,
@@ -177,8 +191,10 @@ export const importRowSchema = z.object({
   validationStatus: z.string().min(1)
 });
 
+export type CategoryListItemDto = z.infer<typeof categoryListItemSchema>;
 export type ChildDto = z.infer<typeof childSchema>;
 export type CreateExpenseRequestDto = z.infer<typeof createExpenseRequestSchema>;
+export type ListCategoriesResponseDto = z.infer<typeof listCategoriesResponseSchema>;
 export type ExpenseDto = z.infer<typeof expenseSchema>;
 export type HomeSummaryDto = z.infer<typeof homeSummarySchema>;
 export type ImportRowDto = z.infer<typeof importRowSchema>;
