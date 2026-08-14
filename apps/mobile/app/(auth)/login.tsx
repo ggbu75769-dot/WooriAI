@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { router } from "expo-router";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { useAnalyticsConsentStore } from "../../src/analytics/flag";
 import { LOCAL_SESSION_TOKEN, oauthLogin, upsertConsents } from "../../src/api/client";
 import { isKakaoLoginAvailable, KakaoLoginCancelledError, loginWithKakao } from "../../src/auth/kakao-login";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
@@ -14,15 +15,20 @@ const logoMark = require("../../assets/illustrations/logo_mark.png");
 function ConsentRow({
   checked,
   label,
-  onPress
+  onPress,
+  optional = false,
+  sublabel
 }: {
   checked: boolean;
   label: string;
   onPress: () => void;
+  optional?: boolean;
+  sublabel?: string;
 }) {
+  const badge = optional ? "선택" : "필수";
   return (
     <Pressable
-      accessibilityLabel={`${label}, 필수`}
+      accessibilityLabel={`${label}, ${badge}`}
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
       onPress={onPress}
@@ -31,8 +37,11 @@ function ConsentRow({
       <View style={[styles.checkbox, checked ? styles.checkboxChecked : null]}>
         {checked ? <Text style={styles.checkmark}>✓</Text> : null}
       </View>
-      <Text style={styles.requiredBadge}>필수</Text>
-      <Text style={styles.consentLabel}>{label}</Text>
+      <Text style={optional ? styles.optionalBadge : styles.requiredBadge}>{badge}</Text>
+      <View style={styles.consentLabelColumn}>
+        <Text style={styles.consentLabel}>{label}</Text>
+        {sublabel ? <Text style={styles.consentSublabel}>{sublabel}</Text> : null}
+      </View>
     </Pressable>
   );
 }
@@ -40,8 +49,14 @@ function ConsentRow({
 export default function LoginScreen() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  // ANA-104: local checkbox state only -- the shared analytics consent store is
+  // NOT flipped while merely toggling; it is committed once, right before login
+  // proceeds (see continueWithLogin), so abandoning the login screen leaves the
+  // stored choice (default OFF) untouched.
+  const [analyticsAccepted, setAnalyticsAccepted] = useState(false);
   const [isLoginPending, setIsLoginPending] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);
   const setSession = useSessionStore((state) => state.setSession);
   const startTestSession = useSessionStore((state) => state.startTestSession);
   const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
@@ -76,6 +91,11 @@ export default function LoginScreen() {
 
   function continueWithLogin() {
     if (!requiredAccepted || isLoginPending) return;
+    // ANA-104: commit the optional analytics choice to the shared consent store
+    // exactly when login proceeds (test path and Kakao path alike). The checkbox
+    // never gates this button -- it stays optional -- and the same store backs the
+    // 통계 수집 동의(선택) toggle in settings, so the user can revoke it any time.
+    setAnalyticsConsent(analyticsAccepted);
     if (isTestLoginEnabled) {
       startTestSession();
       markHomeReached();
@@ -108,7 +128,9 @@ export default function LoginScreen() {
 
         <View style={styles.consentCard}>
           <Text style={styles.consentTitle}>시작 전 동의해 주세요</Text>
-          <Text style={styles.consentDescription}>서비스 이용에 필요한 필수 항목이에요.</Text>
+          <Text style={styles.consentDescription}>
+            서비스 이용에 필요한 필수 항목이에요. 선택 항목은 동의하지 않아도 시작할 수 있어요.
+          </Text>
           <View style={styles.consentList}>
             <ConsentRow
               checked={termsAccepted}
@@ -120,6 +142,14 @@ export default function LoginScreen() {
               checked={privacyAccepted}
               label="개인정보 수집·이용 동의"
               onPress={() => setPrivacyAccepted((value) => !value)}
+            />
+            <View style={styles.divider} />
+            <ConsentRow
+              checked={analyticsAccepted}
+              label="익명 사용 통계 수집 동의"
+              onPress={() => setAnalyticsAccepted((value) => !value)}
+              optional
+              sublabel="익명화된 사용 통계만 수집해요. 언제든지 설정에서 끌 수 있어요."
             />
           </View>
         </View>
@@ -212,9 +242,12 @@ const styles = StyleSheet.create({
   },
   consentLabel: {
     color: theme.colors.brown,
-    flex: 1,
     fontSize: 15,
     fontWeight: "700"
+  },
+  consentLabelColumn: {
+    flex: 1,
+    gap: 2
   },
   consentList: {
     marginTop: 8
@@ -224,6 +257,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     minHeight: 58
+  },
+  consentSublabel: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    lineHeight: 17
   },
   consentTitle: {
     color: theme.colors.brown,
@@ -274,6 +312,16 @@ const styles = StyleSheet.create({
   logo: {
     height: 48,
     width: 48
+  },
+  optionalBadge: {
+    backgroundColor: theme.colors.beige,
+    borderRadius: theme.radii.pill,
+    color: theme.colors.gray600,
+    fontSize: 11,
+    fontWeight: "800",
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 4
   },
   pressed: {
     opacity: 0.82
