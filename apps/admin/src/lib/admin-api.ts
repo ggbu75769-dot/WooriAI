@@ -259,7 +259,15 @@ export function isAuthError(error: unknown): boolean {
   return error instanceof AdminApiError && error.status === 401;
 }
 
-export type AdminProfile = { id: string; email: string; displayName: string; role: "admin" | "editor" | "analyst" };
+export type AdminRole = "admin" | "editor" | "analyst";
+export const ADMIN_ROLES: AdminRole[] = ["admin", "editor", "analyst"];
+export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = {
+  admin: "관리자",
+  editor: "편집자",
+  analyst: "분석가"
+};
+
+export type AdminProfile = { id: string; email: string; displayName: string; role: AdminRole };
 
 export type AdminLoginResult =
   | { mfaRequired: true; mfaToken: string; expiresIn: number }
@@ -381,6 +389,49 @@ export function rejectContentRevision(id: string, note: string) {
 
 export function rollbackContentRevision(id: string) {
   return request<ContentRevision>(`/admin/content-revisions/${id}/rollback`, { method: "POST" });
+}
+
+// ADM-006: admin account management. Every endpoint is admin-role-only on the
+// API side (RequireAdminRoles("admin") in admin-users.controller.ts); the
+// frontend additionally hides the page/nav for editor/analyst sessions (see
+// app/users/page.tsx and AdminShell.tsx).
+export type AdminUserAccount = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: AdminRole;
+  active: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+};
+
+export type AdminUserCreateInput = { email: string; role: AdminRole; displayName?: string };
+export type AdminUserUpdateInput = { role?: AdminRole; active?: boolean };
+
+export function listAdminUsers() {
+  return request<{ adminUsers: AdminUserAccount[] }>("/admin/users");
+}
+
+/** The `tempPassword` in this response is shown EXACTLY ONCE by the API and can
+ * never be retrieved again — render it immediately, never persist it anywhere. */
+export function createAdminUser(input: AdminUserCreateInput) {
+  return request<{ admin: AdminUserAccount; tempPassword: string }>("/admin/users", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function updateAdminUser(adminUserId: string, input: AdminUserUpdateInput) {
+  return request<{ admin: AdminUserAccount }>(`/admin/users/${adminUserId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+/** ADM-006: the API 403s an admin demoting or deactivating their own account
+ * (last-admin lockout prevention) with this dedicated code. */
+export function isSelfUpdateForbiddenError(error: unknown): boolean {
+  return error instanceof AdminApiError && error.code === "ADMIN_SELF_UPDATE_FORBIDDEN";
 }
 
 /** Convenience: draft-create then immediately submit for review, the shape
