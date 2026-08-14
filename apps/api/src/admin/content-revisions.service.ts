@@ -39,6 +39,13 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 // (see createRevisionRow).
 const MAX_REVISION_CREATE_ATTEMPTS = 3;
 
+// INF-006-lite: actor identifier recorded on audit entries written by the
+// background worker (publishDueScheduled). Not a UUID on purpose — the
+// in-memory audit trail keeps the literal string, and AuditLoggerService's
+// Postgres persistence nulls non-UUID actor ids (asUuidOrNull), which is the
+// existing convention for non-admin actors.
+export const SYSTEM_WORKER_ACTOR = "system:worker";
+
 type ContentRevisionRow = {
   id: string;
   entityType: string;
@@ -262,6 +269,105 @@ export class ContentRevisionsService {
     });
 
     return this.toDto(updated);
+  }
+
+  /**
+   * INF-006-lite: scheduled publish, run by the background worker
+   * (src/worker/jobs/scheduled-publish.job.ts).
+   *
+   * Interpretation of the status machine (documented per ticket): the schema
+   * stores `scheduledFor`, but no API endpoint writes it today and
+   * CONTENT_REVISION_STATUSES has no dedicated "approved + awaiting scheduled
+   * publish" state (approvePublish goes in_review -> publishing -> published
+   * in one request). The smallest correct interpretation is therefore: a
+   * *submitted* revision (`in_review`) carrying a non-null `scheduledFor` is
+   * "approved for scheduled publish once scheduledFor arrives", and the worker
+   * performs that approval+publish when `scheduledFor <= now`. Revisions
+   * without `scheduledFor` are never touched, so the manual review flow is
+   * completely unaffected.
+   *
+   * Publishing goes through the exact same internals as manual
+   * approvePublish — the same in_review -> "publishing" CAS claim (so a
+   * concurrent manual approval and the worker can never double-publish), the
+   * same publishToLive() live write, and the same compensation back to
+   * in_review on failure (scheduledFor is preserved, so a transient failure is
+   * retried on the next tick). Differences from the manual path, on purpose:
+   *   - reviewerAdminId stays null (there is no human reviewer); the audit
+   *     entry records SYSTEM_WORKER_ACTOR as the actor instead.
+   *   - the audit action is "admin.content_revision.scheduled_publish" so
+   *     worker-initiated publishes are distinguishable from human approvals,
+   *     with the same targetType/targetId/after shape as approve_publish.
+   *   - the author/approver separation check does not apply (the worker is
+   *     nobody's author).
+   */
+  async publishDueScheduled(now: Date): Promise<{
+    published: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const due = await this.prisma.contentRevision.findMany({
+      where: { status: "in_review", scheduledFor: { lte: now } },
+      orderBy: [{ scheduledFor: "asc" }, { createdAt: "asc" }]
+    });
+
+    const published: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    for (const revision of due) {
+      const claimed = await this.prisma.contentRevision.updateMany({
+        where: { id: revision.id, status: "in_review" },
+        data: { status: "publishing", reviewedAt: now }
+      });
+      if (claimed.count === 0) {
+        // Lost the race to a concurrent manual approve/reject — nothing to do.
+        continue;
+      }
+
+      let publishedEntityId: string;
+      try {
+        publishedEntityId = await this.publishToLive(
+          revision.entityType as ContentRevisionEntityType,
+          revision.entityId,
+          revision.payload as Record<string, unknown>
+        );
+      } catch (error) {
+        // Same compensation as approvePublish: back to in_review so the row is
+        // never stuck in "publishing". scheduledFor is left intact, so the
+        // next tick retries; the failure is surfaced via the returned summary
+        // (logged by the scheduler) rather than thrown, so one bad revision
+        // can't block the rest of the batch.
+        await this.prisma.contentRevision.updateMany({
+          where: { id: revision.id, status: "publishing" },
+          data: { status: "in_review", reviewedAt: null }
+        });
+        failed.push({ id: revision.id, error: error instanceof Error ? error.message : String(error) });
+        continue;
+      }
+
+      const updated = await this.prisma.contentRevision.update({
+        where: { id: revision.id },
+        data: {
+          status: "published",
+          publishedAt: now,
+          entityId: revision.entityId ?? publishedEntityId
+        }
+      });
+
+      await this.auditLogger.record({
+        actorUserId: SYSTEM_WORKER_ACTOR,
+        action: "admin.content_revision.scheduled_publish",
+        targetType: "content_revisions",
+        targetId: revision.id,
+        after: {
+          entityType: revision.entityType,
+          entityId: updated.entityId,
+          scheduledFor: revision.scheduledFor?.toISOString() ?? null
+        }
+      });
+
+      published.push(revision.id);
+    }
+
+    return { published, failed };
   }
 
   /** M-2: same CAS pattern as approvePublish -- in_review -> rejected only succeeds once. */
