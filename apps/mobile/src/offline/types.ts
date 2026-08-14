@@ -100,6 +100,15 @@ export interface OfflineStore {
   deleteLocalExpense(localId: string): Promise<void>;
   listLocalExpenses(childId?: string): Promise<LocalExpenseRow[]>;
 
+  /**
+   * MOB-103b: tiny key-value area for sync bookkeeping that isn't a row of either table --
+   * currently only the persisted delta-sync cursor (see delta-sync.ts). Lives in the same
+   * store/database as the outbox so all offline state shares one persistence + teardown story.
+   */
+  getMeta(key: string): Promise<string | null>;
+  setMeta(key: string, value: string): Promise<void>;
+  deleteMeta(key: string): Promise<void>;
+
   insertOutboxMutation(row: MutationOutboxRow): Promise<void>;
   getOutboxMutation(mutationId: string): Promise<MutationOutboxRow | null>;
   updateOutboxMutation(mutationId: string, patch: Partial<MutationOutboxRow>): Promise<void>;

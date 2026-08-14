@@ -3,7 +3,9 @@ import { Platform } from "react-native";
 import type { QueryClient } from "@tanstack/react-query";
 import { getSyncChanges } from "../api/client";
 import { bucketSyncLatencyMs, trackAndFlushAnalyticsEvent } from "../analytics/client";
+import { useSessionStore } from "../stores/session.store";
 import { isCurrentlyOnline, startConnectivityWatcher } from "./connectivity";
+import { clearSyncCursor, runDeltaPull, syncCursorScopeKey } from "./delta-sync";
 import { SERVER_CONFIRMED_MESSAGE } from "./messages";
 import { createMemoryOfflineStore } from "./memory-offline-store";
 import { createClientRemoteExpenseApi } from "./remote-api";
@@ -320,23 +322,64 @@ export function diffExpenseFieldsForDisplay(
 // App-level wiring: connectivity/foreground triggers + a best-effort delta pull.
 // ---------------------------------------------------------------------------
 
+/** MOB-103b: best-effort delta pull that resumes from the persisted cursor (delta-sync.ts)
+ * instead of re-pulling from scratch on every trigger. The cursor is scoped to the current
+ * userId (the server's /sync/changes stream spans all of the user's households/children -- see
+ * delta-sync.ts's header), advances only after each page is fully fetched, and is cleared +
+ * retried as a full re-pull if the server rejects it (400 SYNC_CURSOR_INVALID). */
+async function pullDeltaInBackground(token: string, queryClient: QueryClient): Promise<void> {
+  try {
+    const store = await getOfflineStore();
+    const scopeKey = syncCursorScopeKey(useSessionStore.getState().userId);
+    const summary = await runDeltaPull(
+      store,
+      { fetchChanges: (cursor) => getSyncChanges(token, cursor) },
+      { scopeKey }
+    );
+    if (summary.changeCount > 0 || summary.didResetCursor) {
+      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+    }
+  } catch {
+    // Best-effort (design doc §2.3): a failed pull changes nothing locally; the persisted
+    // cursor still points at the last fully-applied page for the next trigger.
+  }
+}
+
 /** Mount once near the app root (see app/_layout.tsx). Flushes the outbox whenever connectivity
- * is regained or the app returns to the foreground, and does a best-effort one-shot delta pull
- * on the same triggers (design doc §2.3's client pull is explicitly optional/best-effort for
- * this sprint -- see getSyncChanges's doc comment in client.ts). */
+ * is regained or the app returns to the foreground, and does a best-effort cursor-resumed delta
+ * pull on app start and the same triggers (design doc §2.3's client pull is best-effort -- see
+ * getSyncChanges's doc comment in client.ts; MOB-103b added the persisted cursor). */
 export function useOfflineSyncLifecycle(token: string | null, queryClient: QueryClient): void {
   useEffect(() => {
     if (!token) return;
     void refreshSnapshot();
     void flushInBackground(token, queryClient);
+    void pullDeltaInBackground(token, queryClient);
 
     const handle = startConnectivityWatcher(() => {
       void flushInBackground(token, queryClient);
-      void getSyncChanges(token)
-        .then(() => queryClient.invalidateQueries({ queryKey: ["expenses"] }))
-        .catch(() => undefined);
+      void pullDeltaInBackground(token, queryClient);
     });
     return () => handle.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // MOB-103b: logging out or switching account (userId change, including to/from the local test
+  // session) invalidates the persisted delta-sync cursor. There is no wider offline-state
+  // teardown path to hook into today (nothing clears local_expenses/mutation_outbox on
+  // clearSession -- see the completion report), so the cursor invalidation subscribes to the
+  // session store directly here; the scope-key check in delta-sync.ts's loadSyncCursor is the
+  // belt-and-braces fallback if this subscription never got the chance to run (e.g. app killed
+  // mid-switch). Deliberately NOT keyed on the selected child: the server cursor spans all of
+  // the user's children (see delta-sync.ts's header).
+  useEffect(() => {
+    const unsubscribe = useSessionStore.subscribe((state, previous) => {
+      if (state.userId !== previous.userId || state.isTestSession !== previous.isTestSession) {
+        void getOfflineStore()
+          .then((store) => clearSyncCursor(store))
+          .catch(() => undefined);
+      }
+    });
+    return unsubscribe;
+  }, []);
 }

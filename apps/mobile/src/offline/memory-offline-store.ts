@@ -8,6 +8,7 @@ import type { LocalExpenseRow, MutationOutboxRow, OfflineStore } from "./types";
 export function createMemoryOfflineStore(): OfflineStore {
   const localExpenses = new Map<string, LocalExpenseRow>();
   const outbox = new Map<string, MutationOutboxRow>();
+  const meta = new Map<string, string>();
   // Tracks outbox insertion order independent of Map iteration order (which happens to be
   // insertion order in JS, but this is explicit and survives updates-in-place).
   const outboxOrder: string[] = [];
@@ -31,6 +32,16 @@ export function createMemoryOfflineStore(): OfflineStore {
     async listLocalExpenses(childId) {
       const rows = [...localExpenses.values()];
       return (childId ? rows.filter((row) => row.childId === childId) : rows).map((row) => ({ ...row }));
+    },
+
+    async getMeta(key) {
+      return meta.get(key) ?? null;
+    },
+    async setMeta(key, value) {
+      meta.set(key, value);
+    },
+    async deleteMeta(key) {
+      meta.delete(key);
     },
 
     async insertOutboxMutation(row) {
