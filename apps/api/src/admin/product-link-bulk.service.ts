@@ -12,8 +12,17 @@ export type BulkRowErrorCode =
   | "BULK_ROW_LINK_AMBIGUOUS"
   | "BULK_ROW_DUPLICATE_TARGET"
   | "BULK_ROW_URL_INVALID"
+  | "BULK_ROW_URL_TOO_LONG"
   | "BULK_ROW_DOMAIN_NOT_ALLOWED"
   | "BULK_ROW_PRICE_INVALID";
+
+/**
+ * COM-107: hard cap for the replacement affiliate URL. The CSV parser keeps the
+ * affiliateUrl column untruncated (see product-link-bulk-csv.util.ts) precisely
+ * so an over-limit URL fails validation here as a visible row error instead of
+ * being silently cut to a still-well-formed prefix and written as "valid".
+ */
+export const BULK_MAX_AFFILIATE_URL_LENGTH = 2000;
 
 const ROW_ERROR_MESSAGES: Record<BulkRowErrorCode, string> = {
   BULK_ROW_IDENTIFIER_MISSING: "productLinkId 또는 itemTemplate과 platform을 입력해 주세요.",
@@ -22,6 +31,7 @@ const ROW_ERROR_MESSAGES: Record<BulkRowErrorCode, string> = {
   BULK_ROW_LINK_AMBIGUOUS: "조건에 맞는 상품 링크가 여러 개예요. productLinkId로 지정해 주세요.",
   BULK_ROW_DUPLICATE_TARGET: "같은 상품 링크를 대상으로 하는 행이 이미 있어요.",
   BULK_ROW_URL_INVALID: "affiliateUrl은 https:// 로 시작하는 올바른 URL이어야 해요.",
+  BULK_ROW_URL_TOO_LONG: `affiliateUrl은 ${BULK_MAX_AFFILIATE_URL_LENGTH}자 이하여야 해요.`,
   BULK_ROW_DOMAIN_NOT_ALLOWED: "허용된 제휴 도메인이 아니에요.",
   BULK_ROW_PRICE_INVALID: "priceSnapshotKrw는 0 이상의 정수여야 해요."
 };
@@ -198,6 +208,11 @@ export class ProductLinkBulkService {
     const affiliateUrl = row.cells.affiliateUrl;
     if (!affiliateUrl) {
       return error("BULK_ROW_URL_INVALID", link);
+    }
+    // Full-length check (the parser deliberately does not truncate this
+    // column): an over-limit URL is a row error, never a truncated write.
+    if (affiliateUrl.length > BULK_MAX_AFFILIATE_URL_LENGTH) {
+      return error("BULK_ROW_URL_TOO_LONG", link);
     }
     let parsed: URL;
     try {

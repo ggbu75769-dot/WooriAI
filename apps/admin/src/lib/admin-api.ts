@@ -347,6 +347,18 @@ export function adminLogout() {
   return request<{ success: true }>("/admin/auth/logout", { method: "POST" });
 }
 
+/** ADM-007: change the logged-in admin's own password. MFA-exempt on the API
+ * side (same precedent as mfa/setup) so a freshly created admin can rotate the
+ * one-time temp password from POST /admin/users before enrolling MFA. On
+ * success the API revokes every OTHER session of the admin; the session that
+ * performed the change stays valid. */
+export function adminChangePassword(currentPassword: string, newPassword: string) {
+  return request<{ success: true }>("/admin/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+}
+
 export function adminMfaSetupStart() {
   return request<{ otpauthUrl: string; secret: string; email: string }>("/admin/auth/mfa/setup/start", {
     method: "POST"

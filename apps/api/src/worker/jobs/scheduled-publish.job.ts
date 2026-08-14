@@ -23,8 +23,12 @@ export class ScheduledPublishJob implements WorkerJob {
     return {
       publishedCount: result.published.length,
       failedCount: result.failed.length,
+      recoveredCount: result.recovered.length,
       ...(result.published.length > 0 ? { published: result.published } : {}),
-      ...(result.failed.length > 0 ? { failed: result.failed } : {})
+      ...(result.failed.length > 0 ? { failed: result.failed } : {}),
+      // Stale-"publishing" rows compensated back to in_review at the start of
+      // this run (worker crash recovery) — surfaced for the scheduler log.
+      ...(result.recovered.length > 0 ? { recovered: result.recovered } : {})
     };
   }
 }

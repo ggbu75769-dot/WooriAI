@@ -9,6 +9,15 @@ import { BadRequestException } from "@nestjs/common";
 export const BULK_CSV_MAX_ROWS = 500;
 const MAX_CELL_LENGTH = 500;
 
+// COM-107: the affiliateUrl column must NOT be silently truncated — a >500-char
+// URL whose 500-char prefix is still well-formed and allowlisted would
+// otherwise validate as "valid" and bulk-apply would write the corrupted URL.
+// The full value is kept here and length-validated by the service instead
+// (BULK_ROW_URL_TOO_LONG, see product-link-bulk.service.ts). The overall
+// request body is already bounded (AdminProductLinkBulkCsvDto MaxLength), so
+// keeping full cells is memory-safe.
+const UNTRUNCATED_COLUMNS: ReadonlySet<BulkCsvColumn> = new Set(["affiliateUrl"]);
+
 /**
  * CSV formula injection defense (same policy as import-parser.ts): a cell
  * opening with `=`, `+`, `-`, `@`, a tab, or a carriage return could be
@@ -17,12 +26,12 @@ const MAX_CELL_LENGTH = 500;
  */
 const DANGEROUS_LEADING_CHARS = new Set(["=", "+", "-", "@", "\t", "\r"]);
 
-export function sanitizeCsvCell(value: string): string {
+export function sanitizeCsvCell(value: string, maxLength: number = MAX_CELL_LENGTH): string {
   let text = value;
   if (text.length > 0 && DANGEROUS_LEADING_CHARS.has(text[0])) {
     text = `'${text}`;
   }
-  return text.slice(0, MAX_CELL_LENGTH);
+  return text.slice(0, maxLength);
 }
 
 /** Canonical column keys for the bulk-replace CSV template. */
@@ -84,7 +93,10 @@ export function parseBulkCsv(csv: string): BulkCsvRow[] {
     }
     const cells: Partial<Record<BulkCsvColumn, string>> = {};
     for (const [columnIndex, column] of columnByIndex) {
-      const value = sanitizeCsvCell((rawCells[columnIndex] ?? "").trim());
+      const raw = (rawCells[columnIndex] ?? "").trim();
+      const value = UNTRUNCATED_COLUMNS.has(column)
+        ? sanitizeCsvCell(raw, Number.POSITIVE_INFINITY)
+        : sanitizeCsvCell(raw);
       if (value) {
         cells[column] = value;
       }

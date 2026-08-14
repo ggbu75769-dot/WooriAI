@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   AdminApiError,
+  adminChangePassword,
   adminLogin,
   adminLogout,
   adminMfaSetupStart,
@@ -31,6 +32,8 @@ const NAV_ITEMS: Array<{ href: string; label: string; roles?: AdminRole[] }> = [
 export function AdminShell({ children }: { children: ReactNode }) {
   const { session, isReady } = useAdminSession();
   const pathname = usePathname();
+  // ADM-007: 계정 영역(헤더)에서 여는 비밀번호 변경 폼 토글.
+  const [passwordFormOpen, setPasswordFormOpen] = useState(false);
 
   if (!isReady) {
     return <div className={styles.loadingScreen}>불러오는 중...</div>;
@@ -66,10 +69,112 @@ export function AdminShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
+        <button type="button" className={styles.logoutButton} onClick={() => setPasswordFormOpen((open) => !open)}>
+          비밀번호 변경
+        </button>
         <LogoutButton />
       </header>
-      <main className={styles.main}>{children}</main>
+      <main className={styles.main}>
+        {passwordFormOpen ? (
+          <div className={styles.loginCard}>
+            <h1>비밀번호 변경</h1>
+            <ChangePasswordForm onDone={() => setPasswordFormOpen(false)} />
+          </div>
+        ) : null}
+        {children}
+      </main>
     </div>
+  );
+}
+
+/**
+ * ADM-007: self-service password change for the logged-in admin. Used both in
+ * the account area (AdminShell header) and on the MFA enrollment screen, so a
+ * freshly created admin can rotate the one-time temp password from ADM-006
+ * immediately — the API route is MFA-exempt for exactly that reason. On
+ * success the API revokes every other session; this one stays signed in.
+ */
+function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [succeeded, setSucceeded] = useState(false);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!currentPassword || !newPassword) {
+      setFormError("현재 비밀번호와 새 비밀번호를 입력해 주세요.");
+      return;
+    }
+    if (newPassword.length < 10) {
+      setFormError("새 비밀번호는 10자 이상이어야 해요.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setFormError("새 비밀번호 확인이 일치하지 않아요.");
+      return;
+    }
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      await adminChangePassword(currentPassword, newPassword);
+      setSucceeded(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error) {
+      setFormError(error instanceof AdminApiError ? error.message : "비밀번호를 변경하지 못했어요. 다시 시도해 주세요.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (succeeded) {
+    return (
+      <>
+        <p className={styles.hint}>비밀번호를 변경했어요. 이 세션은 유지되고, 다른 곳의 로그인은 모두 해제되었어요.</p>
+        {onDone ? (
+          <button type="button" className={styles.primaryButton} onClick={onDone}>
+            확인
+          </button>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <form className={styles.loginForm} onSubmit={handleSubmit}>
+      <input
+        type="password"
+        autoComplete="current-password"
+        value={currentPassword}
+        onChange={(event) => setCurrentPassword(event.target.value)}
+        placeholder="현재 비밀번호"
+        className={styles.tokenInput}
+      />
+      <input
+        type="password"
+        autoComplete="new-password"
+        value={newPassword}
+        onChange={(event) => setNewPassword(event.target.value)}
+        placeholder="새 비밀번호 (10자 이상)"
+        className={styles.tokenInput}
+      />
+      <input
+        type="password"
+        autoComplete="new-password"
+        value={confirmPassword}
+        onChange={(event) => setConfirmPassword(event.target.value)}
+        placeholder="새 비밀번호 확인"
+        className={styles.tokenInput}
+      />
+      {formError ? <p className={styles.errorText}>{formError}</p> : null}
+      <button type="submit" className={styles.primaryButton} disabled={submitting}>
+        {submitting ? "변경 중..." : "비밀번호 변경"}
+      </button>
+    </form>
   );
 }
 
@@ -211,6 +316,9 @@ function MfaSetupScreen() {
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  // ADM-007: 갓 발급받은 임시 비밀번호는 MFA 등록 전에 바로 바꿀 수 있어야
+  // 한다 — change-password API가 MFA 게이트 예외인 이유와 동일.
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -322,6 +430,14 @@ function MfaSetupScreen() {
             {verifying ? "확인 중..." : "등록 완료"}
           </button>
         </form>
+        <button type="button" className={styles.legacyToggle} onClick={() => setShowPasswordForm((open) => !open)}>
+          임시 비밀번호를 먼저 변경할래요
+        </button>
+        {showPasswordForm ? (
+          <div className={styles.legacySection}>
+            <ChangePasswordForm onDone={() => setShowPasswordForm(false)} />
+          </div>
+        ) : null}
         <button type="button" className={styles.legacyToggle} onClick={() => void switchAccount()}>
           다른 계정으로 로그인
         </button>

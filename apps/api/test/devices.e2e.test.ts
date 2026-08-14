@@ -128,6 +128,50 @@ describe("Me devices API (NOTI-100)", () => {
     expect(listed.body.devices.some((device: { id: string }) => device.id === deviceId)).toBe(true);
   });
 
+  it("regression: concurrent same-token registrations end up as ONE row (DB unique constraint + P2002-retry), the loser updating instead of duplicating", async () => {
+    const accessToken = await login(app);
+    const pushToken = `expo-push-${randomUUID()}`;
+
+    // Both requests race through the findFirst -> create path at once. Without
+    // the (user_id, push_token) unique index (migration 000010) this produced
+    // two device rows; now the create-race loser catches P2002 and updates the
+    // winner's row instead.
+    const [first, second] = await Promise.all([
+      request(app.getHttpServer())
+        .post("/api/v1/me/devices")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ platform: "ios", pushToken, appVersion: "1.0.0" }),
+      request(app.getHttpServer())
+        .post("/api/v1/me/devices")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ platform: "ios", pushToken, appVersion: "1.0.1" })
+    ]);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(first.body.id).toBe(second.body.id);
+
+    const rows = await prisma.userDevice.findMany({ where: { pushToken } });
+    expect(rows).toHaveLength(1);
+
+    // A second (sequential) registration with the same token updates that row.
+    const reRegistered = await request(app.getHttpServer())
+      .post("/api/v1/me/devices")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ platform: "ios", pushToken, appVersion: "2.0.0" })
+      .expect(200);
+    expect(reRegistered.body.id).toBe(rows[0].id);
+    expect(reRegistered.body.appVersion).toBe("2.0.0");
+    expect(await prisma.userDevice.count({ where: { pushToken } })).toBe(1);
+
+    // The DB constraint itself is the last line of defense: a raw duplicate
+    // insert for the same (user_id, push_token) pair is rejected outright.
+    await expect(
+      prisma.userDevice.create({
+        data: { userId: rows[0].userId, platform: "ios", pushToken, notificationEnabled: true }
+      })
+    ).rejects.toMatchObject({ code: "P2002" });
+  });
+
   it("keeps devices per-user: another user cannot toggle someone else's device (404, no existence leak)", async () => {
     const ownerToken = await login(app);
     const strangerToken = await login(app);

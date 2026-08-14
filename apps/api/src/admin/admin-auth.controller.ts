@@ -14,6 +14,7 @@ import {
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminMfaExempt } from "./admin-mfa-exempt.decorator";
+import { AdminChangePasswordDto } from "./dto/admin-change-password.dto";
 import { AdminLoginDto } from "./dto/admin-login.dto";
 import { AdminMfaDisableDto, AdminMfaSetupVerifyDto, AdminMfaVerifyLoginDto } from "./dto/admin-mfa.dto";
 
@@ -93,6 +94,28 @@ export class AdminAuthController {
       await this.adminAuthService.logout(token, admin);
     }
     this.clearSessionCookies(res);
+    return { success: true };
+  }
+
+  /**
+   * ADM-007: change the logged-in admin's own password. @AdminMfaExempt mirrors
+   * the mfa/setup endpoints' precedent: a freshly created admin (holding only
+   * the one-time temp password from POST /admin/users) must be able to rotate
+   * it possibly before finishing MFA enrollment — the AdminAuthGuard would
+   * otherwise 403 the route behind the enrollment gate. A real session cookie
+   * (+ CSRF) and the current password are still both required.
+   */
+  @Post("change-password")
+  @HttpCode(200)
+  @UseGuards(AdminAuthGuard)
+  @AdminMfaExempt()
+  async changePassword(
+    @Req() request: AuthenticatedRequest,
+    @Body(createDtoValidationPipe(AdminChangePasswordDto)) body: AdminChangePasswordDto
+  ) {
+    const admin = await this.requireAdmin(request);
+    const sessionId = request.adminSessionId ?? "";
+    await this.adminAuthService.changePassword(admin, sessionId, body.currentPassword, body.newPassword);
     return { success: true };
   }
 

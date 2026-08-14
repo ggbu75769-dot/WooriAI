@@ -174,6 +174,82 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
       // later runs against the shared test database.
       await prisma.contentRevision.delete({ where: { id: failing.id } });
     });
+
+    it("recovers a stale 'publishing' row (worker crash between claim and publish) back to in_review with scheduledFor preserved, then publishes it once due", async () => {
+      const now = new Date();
+      const scheduledFor = new Date(now.getTime() + HOUR_MS);
+      // Simulates a worker that claimed the row (in_review -> publishing) and
+      // crashed: no publish, no compensation, updatedAt frozen in the past.
+      const stale = await prisma.contentRevision.create({
+        data: {
+          entityType: "disclosure",
+          entityId: null,
+          revisionNo: 1,
+          payload: { key: `worker_stale_${randomUUID().slice(0, 8)}`, text: "복구 대상 문구" },
+          status: "publishing",
+          authorAdminId: randomUUID(),
+          submittedAt: new Date(now.getTime() - 2 * HOUR_MS),
+          scheduledFor,
+          reviewedAt: new Date(now.getTime() - HOUR_MS),
+          updatedAt: new Date(now.getTime() - HOUR_MS)
+        }
+      });
+
+      const result = await scheduledPublishJob.run(now);
+      expect(result.recovered).toContain(stale.id);
+      expect((result.published as string[] | undefined) ?? []).not.toContain(stale.id);
+
+      // Back to in_review, publishable again, scheduledFor untouched.
+      const recovered = await prisma.contentRevision.findUniqueOrThrow({ where: { id: stale.id } });
+      expect(recovered.status).toBe("in_review");
+      expect(recovered.reviewedAt).toBeNull();
+      expect(recovered.reviewerAdminId).toBeNull();
+      expect(recovered.publishedAt).toBeNull();
+      expect(recovered.scheduledFor).toEqual(scheduledFor);
+
+      // Recovery is audit-logged with the system worker as actor.
+      const auditEntry = auditLogger.entries.find(
+        (entry) => entry.action === "admin.content_revision.publish_recovered" && entry.targetId === stale.id
+      );
+      expect(auditEntry).toBeDefined();
+      expect(auditEntry?.actorUserId).toBe(SYSTEM_WORKER_ACTOR);
+
+      // Once scheduledFor passes, a later tick publishes the recovered row
+      // through the normal due path — proving it is genuinely publishable.
+      const laterNow = new Date(scheduledFor.getTime() + MINUTE_MS);
+      const laterResult = await scheduledPublishJob.run(laterNow);
+      expect(laterResult.published).toContain(stale.id);
+      const published = await prisma.contentRevision.findUniqueOrThrow({ where: { id: stale.id } });
+      expect(published.status).toBe("published");
+    });
+
+    it("leaves a fresh 'publishing' row (live publish in flight, updatedAt now) untouched", async () => {
+      const now = new Date();
+      const fresh = await prisma.contentRevision.create({
+        data: {
+          entityType: "disclosure",
+          entityId: null,
+          revisionNo: 1,
+          payload: { key: `worker_fresh_${randomUUID().slice(0, 8)}`, text: "게시 진행 중 문구" },
+          status: "publishing",
+          authorAdminId: randomUUID(),
+          submittedAt: now,
+          scheduledFor: new Date(now.getTime() - MINUTE_MS),
+          reviewedAt: now
+          // updatedAt defaults to now — a live publish that just claimed the row.
+        }
+      });
+
+      const result = await scheduledPublishJob.run(now);
+      expect((result.recovered as string[] | undefined) ?? []).not.toContain(fresh.id);
+      expect((result.published as string[] | undefined) ?? []).not.toContain(fresh.id);
+
+      const row = await prisma.contentRevision.findUniqueOrThrow({ where: { id: fresh.id } });
+      expect(row.status).toBe("publishing");
+      expect(row.publishedAt).toBeNull();
+
+      await prisma.contentRevision.delete({ where: { id: fresh.id } });
+    });
   });
 
   describe("RefreshTokenCleanupJob (refresh_token_cleanup)", () => {

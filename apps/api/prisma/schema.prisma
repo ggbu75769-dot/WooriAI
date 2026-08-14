@@ -168,6 +168,7 @@ model UserDevice {
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  @@unique([userId, pushToken], map: "uq_user_devices_user_push_token")
   @@index([userId], map: "idx_user_devices_user_id")
   @@map("user_devices")
 }

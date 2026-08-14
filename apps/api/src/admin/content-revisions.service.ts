@@ -46,6 +46,15 @@ const MAX_REVISION_CREATE_ATTEMPTS = 3;
 // existing convention for non-admin actors.
 export const SYSTEM_WORKER_ACTOR = "system:worker";
 
+/**
+ * INF-006-lite hardening: how long a row may sit in the transient "publishing"
+ * status before the worker treats it as abandoned (a crash between the CAS
+ * claim and the publish/compensation writes) and compensates it back to
+ * in_review. Well above any real publishToLive duration (a handful of local
+ * DB writes), so a live publish is never mistaken for a stuck one.
+ */
+export const STALE_PUBLISHING_THRESHOLD_MS = 10 * 60 * 1000;
+
 type ContentRevisionRow = {
   id: string;
   entityType: string;
@@ -373,7 +382,12 @@ export class ContentRevisionsService {
   async publishDueScheduled(now: Date): Promise<{
     published: string[];
     failed: { id: string; error: string }[];
+    recovered: string[];
   }> {
+    // Crash recovery first, so a revision freed up here is immediately eligible
+    // for the due query below (its scheduledFor was preserved).
+    const recovered = await this.recoverStalePublishing(now);
+
     const due = await this.prisma.contentRevision.findMany({
       where: { status: "in_review", scheduledFor: { lte: now } },
       orderBy: [{ scheduledFor: "asc" }, { createdAt: "asc" }]
@@ -437,7 +451,56 @@ export class ContentRevisionsService {
       published.push(revision.id);
     }
 
-    return { published, failed };
+    return { published, failed, recovered };
+  }
+
+  /**
+   * INF-006-lite hardening: "publishing" is a transient claim state (see
+   * approvePublish / publishDueScheduled above); every code path either
+   * finishes it (-> published) or compensates it (-> in_review) — unless the
+   * process crashes between the claim and those writes, in which case the row
+   * would be stuck forever (the due query only selects in_review). This sweep
+   * runs at the start of every worker tick and compensates any "publishing"
+   * row whose updatedAt is older than STALE_PUBLISHING_THRESHOLD_MS back to
+   * in_review, preserving scheduledFor so a scheduled publish retries on the
+   * same tick and a manual approve becomes possible again.
+   *
+   * Each recovery is CAS-guarded on (id, status: "publishing", the exact
+   * updatedAt observed) so it can never fight a *live* publish: any progress by
+   * a concurrent publisher (claim, publish, or its own compensation) bumps
+   * updatedAt or leaves "publishing", making this updateMany match zero rows.
+   */
+  private async recoverStalePublishing(now: Date): Promise<string[]> {
+    const staleBefore = new Date(now.getTime() - STALE_PUBLISHING_THRESHOLD_MS);
+    const staleRows = await this.prisma.contentRevision.findMany({
+      where: { status: "publishing", updatedAt: { lt: staleBefore } },
+      select: { id: true, updatedAt: true, entityType: true, entityId: true, scheduledFor: true }
+    });
+
+    const recovered: string[] = [];
+    for (const row of staleRows) {
+      const swept = await this.prisma.contentRevision.updateMany({
+        where: { id: row.id, status: "publishing", updatedAt: row.updatedAt },
+        data: { status: "in_review", reviewerAdminId: null, reviewedAt: null }
+      });
+      if (swept.count === 0) {
+        // A live publish (or another worker's sweep) got there first.
+        continue;
+      }
+      await this.auditLogger.record({
+        actorUserId: SYSTEM_WORKER_ACTOR,
+        action: "admin.content_revision.publish_recovered",
+        targetType: "content_revisions",
+        targetId: row.id,
+        after: {
+          entityType: row.entityType,
+          entityId: row.entityId,
+          scheduledFor: row.scheduledFor?.toISOString() ?? null
+        }
+      });
+      recovered.push(row.id);
+    }
+    return recovered;
   }
 
   /** M-2: same CAS pattern as approvePublish -- in_review -> rejected only succeeds once. */

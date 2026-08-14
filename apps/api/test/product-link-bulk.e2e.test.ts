@@ -307,6 +307,59 @@ describe.skipIf(!dbAvailable)("Admin product-link bulk replace (COM-107-prep, re
     }
   });
 
+  it("COM-107 regression: a long allowlisted affiliateUrl is never silently truncated — 600 chars applies in full, >2000 chars is a BULK_ROW_URL_TOO_LONG row error", async () => {
+    const admin = await adminSession();
+
+    // 600-char allowlisted https URL: before the fix, sanitizeCsvCell cut it at
+    // 500 chars; the truncated prefix was still well-formed + allowlisted, so
+    // the row validated and bulk-apply wrote the corrupted URL as "valid".
+    const url600 = `https://link.coupang.com/a/${"x".repeat(600 - "https://link.coupang.com/a/".length)}`;
+    expect(url600.length).toBe(600);
+    // Over the 2000-char cap: must surface as a row error, never a write.
+    const urlTooLong = `https://link.coupang.com/a/${"y".repeat(2100 - "https://link.coupang.com/a/".length)}`;
+
+    const preview = await request(app.getHttpServer())
+      .post("/api/v1/admin/product-links/bulk-preview")
+      .set("Cookie", admin.cookie)
+      .set("X-CSRF-Token", admin.csrfToken)
+      .send({
+        csv: ["productLinkId,affiliateUrl", `${coupangLinkId},${url600}`, `${naverLinkId},${urlTooLong}`].join("\n")
+      })
+      .expect(200);
+
+    const previewRows = preview.body.rows as Array<Record<string, unknown>>;
+    // 600-char row: valid, and the previewed replacement URL is the FULL URL.
+    expect(previewRows.find((row) => row.rowNumber === 2)).toMatchObject({
+      status: "valid",
+      newAffiliateUrl: url600
+    });
+    // >2000-char row: dedicated row error, no truncated "valid" verdict.
+    expect(previewRows.find((row) => row.rowNumber === 3)).toMatchObject({
+      status: "error",
+      errorCode: "BULK_ROW_URL_TOO_LONG"
+    });
+
+    const apply = await request(app.getHttpServer())
+      .post("/api/v1/admin/product-links/bulk-apply")
+      .set("Cookie", admin.cookie)
+      .set("X-CSRF-Token", admin.csrfToken)
+      .send({
+        csv: ["productLinkId,affiliateUrl", `${coupangLinkId},${url600}`, `${naverLinkId},${urlTooLong}`].join("\n")
+      })
+      .expect(200);
+    expect(apply.body).toMatchObject({ applied: 1, errors: 1 });
+
+    // The 600-char URL was written byte-for-byte, not a 500-char prefix.
+    const applied = await prisma.productLink.findUniqueOrThrow({ where: { id: coupangLinkId } });
+    expect(applied.affiliateUrl).toBe(url600);
+    expect(applied.affiliateUrl?.length).toBe(600);
+
+    // The over-limit row's target was not written at all.
+    const untouched = await prisma.productLink.findUniqueOrThrow({ where: { id: naverLinkId } });
+    expect(untouched.affiliateUrl).not.toBe(urlTooLong);
+    expect(untouched.affiliateUrl?.startsWith("https://link.coupang.com/a/yyy")).not.toBe(true);
+  });
+
   it("blocks non-admin roles from both bulk endpoints (RBAC parity with direct product-link writes)", async () => {
     await createAdmin("bulk-editor@wooriai.local", "bulk-editor-password-1", "editor");
     const editor = await loginAndEnroll("bulk-editor@wooriai.local", "bulk-editor-password-1");

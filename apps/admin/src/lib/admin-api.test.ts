@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AdminApiError,
+  adminChangePassword,
   createAdminUser,
   isAuthError,
   isSelfUpdateForbiddenError,
@@ -111,6 +112,29 @@ describe("admin users API client (ADM-006)", () => {
     expect(isSelfUpdateForbiddenError(failure)).toBe(true);
     // A role-RBAC/CSRF/MFA 403 must never be treated as session expiry.
     expect(isAuthError(failure)).toBe(false);
+  });
+
+  // ADM-007: self-service password change for the logged-in admin.
+  it("POST /admin/auth/change-password sends both passwords with the CSRF header and maps the wrong-current-password 401", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { success: true }));
+
+    const result = await adminChangePassword("old-password-1", "new-password-2");
+
+    expect(result.success).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
+    expect(url).toBe("/api/v1/admin/auth/change-password");
+    expect(init.method).toBe("POST");
+    expect(init.credentials).toBe("include");
+    expect(init.headers["X-CSRF-Token"]).toBe("csrf-token-123");
+    expect(JSON.parse(String(init.body))).toEqual({ currentPassword: "old-password-1", newPassword: "new-password-2" });
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, { error: { code: "ADMIN_PASSWORD_INVALID", message: "현재 비밀번호를 다시 확인해주세요." } })
+    );
+    const failure = await adminChangePassword("wrong", "new-password-2").catch((error) => error);
+    expect(failure).toBeInstanceOf(AdminApiError);
+    expect((failure as AdminApiError).status).toBe(401);
+    expect((failure as AdminApiError).code).toBe("ADMIN_PASSWORD_INVALID");
   });
 
   it("isSelfUpdateForbiddenError ignores unrelated errors", () => {
