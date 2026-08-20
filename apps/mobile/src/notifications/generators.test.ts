@@ -10,8 +10,10 @@ import {
   itemTemplateIdFromPurchaseDedupeKey,
   purchasePendingDedupeKey,
   purchasePendingNotifications,
-  stageTransitionNotification
+  stageTransitionNotification,
+  weeklySummaryNotification
 } from "./generators";
+import { SEOUL_UTC_OFFSET_MS } from "./iso-week";
 
 const NOW = 1_700_000_000_000;
 
@@ -164,8 +166,73 @@ describe("NOTI-102 purchase_pending generator", () => {
   });
 });
 
+describe("NOTI-103 weekly_summary generator (monthly-pace variant)", () => {
+  /** Epoch ms for a Seoul (KST) civil date/time. */
+  const kst = (year: number, month1: number, day: number, hour = 12, minute = 0) =>
+    Date.UTC(year, month1 - 1, day, hour, minute) - SEOUL_UTC_OFFSET_MS;
+  // Thursday 2026-08-20 KST = ISO week 2026-W34 (Seoul calendar).
+  const base = {
+    childId: "child-1",
+    childName: "다온이",
+    budgetKrw: 1_000_000,
+    spentKrw: 300_000,
+    now: kst(2026, 8, 20)
+  };
+
+  it("fires with the month-to-date total and budget pace, keyed on the Seoul ISO week", () => {
+    expect(weeklySummaryNotification(base)).toEqual({
+      type: "weekly_summary",
+      title: "이번 달 지금까지 300,000원 · 예산의 30%예요",
+      body: "『다온이』 지출 내역을 확인해보세요.",
+      dedupeKey: "weekly_summary:child-1:2026-W34"
+    });
+  });
+
+  it("rounds the pace percentage to the nearest integer (may exceed 100%)", () => {
+    expect(weeklySummaryNotification({ ...base, spentKrw: 333_333 })!.title).toContain("예산의 33%예요");
+    expect(weeklySummaryNotification({ ...base, spentKrw: 335_000 })!.title).toContain("예산의 34%예요");
+    expect(weeklySummaryNotification({ ...base, spentKrw: 1_200_000 })!.title).toContain("예산의 120%예요");
+  });
+
+  it("still fires with total only when no budget is set (amountKrw 0), without a percentage", () => {
+    const candidate = weeklySummaryNotification({ ...base, budgetKrw: 0 });
+    expect(candidate).toEqual({
+      type: "weekly_summary",
+      title: "이번 달 지금까지 300,000원을 함께했어요",
+      body: "『다온이』 지출 내역을 확인해보세요.",
+      dedupeKey: "weekly_summary:child-1:2026-W34"
+    });
+    expect(candidate!.title).not.toContain("%");
+  });
+
+  it("skips entirely on zero (or invalid) month-to-date spend -- no noise", () => {
+    expect(weeklySummaryNotification({ ...base, spentKrw: 0 })).toBeNull();
+    expect(weeklySummaryNotification({ ...base, spentKrw: -5_000 })).toBeNull();
+    expect(weeklySummaryNotification({ ...base, spentKrw: Number.NaN })).toBeNull();
+  });
+
+  it("keeps the dedupeKey stable within a week and rolls it over on Monday 00:00 KST", () => {
+    const monday = weeklySummaryNotification({ ...base, now: kst(2026, 8, 17, 0, 0) });
+    const sunday = weeklySummaryNotification({ ...base, now: kst(2026, 8, 23, 23, 59) });
+    expect(monday!.dedupeKey).toBe("weekly_summary:child-1:2026-W34");
+    expect(sunday!.dedupeKey).toBe(monday!.dedupeKey);
+    const nextMonday = weeklySummaryNotification({ ...base, now: kst(2026, 8, 24, 0, 0) });
+    expect(nextMonday!.dedupeKey).toBe("weekly_summary:child-1:2026-W35");
+    // Year boundary: the ISO year (not the calendar year) keys the last/first weeks.
+    expect(weeklySummaryNotification({ ...base, now: kst(2024, 12, 30) })!.dedupeKey).toBe(
+      "weekly_summary:child-1:2025-W01"
+    );
+  });
+
+  it("keys per child, so each child of a family gets its own weekly summary", () => {
+    expect(weeklySummaryNotification({ ...base, childId: "child-2" })!.dedupeKey).toBe(
+      "weekly_summary:child-2:2026-W34"
+    );
+  });
+});
+
 describe("NOTI-102 combined home evaluation", () => {
-  it("merges budget, stage, and purchase candidates from one home snapshot", () => {
+  it("merges budget, stage, purchase, and weekly-summary candidates from one home snapshot", () => {
     const candidates = evaluateHomeNotifications({
       child: { id: "child-1", nickname: "다온이", stageLabel: "36개월" },
       monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 1_100_000 },
@@ -176,19 +243,34 @@ describe("NOTI-102 combined home evaluation", () => {
     expect(candidates.map((candidate) => candidate.type)).toEqual([
       "budget_100",
       "stage_transition",
-      "purchase_pending"
+      "purchase_pending",
+      "weekly_summary"
     ]);
     expect(candidates.map((candidate) => candidate.dedupeKey)).toEqual([
       "budget_100:2026-08",
       "stage_transition:child-1:36개월",
-      `purchase_pending:item-diaper:${NOW - PURCHASE_FOLLOWUP_MIN_AGE_MS}`
+      `purchase_pending:item-diaper:${NOW - PURCHASE_FOLLOWUP_MIN_AGE_MS}`,
+      // NOW = 2023-11-14T22:13:20Z = 2023-11-15 07:13 KST (Wednesday) -> Seoul 2023-W46.
+      "weekly_summary:child-1:2023-W46"
     ]);
   });
 
-  it("is entirely silent for calm data (under budget, same stage, no pending clicks)", () => {
+  it("emits only the weekly summary for calm data with spend (under budget, same stage, no pending clicks)", () => {
     const candidates = evaluateHomeNotifications({
       child: { id: "child-1", nickname: "다온이", stageLabel: "24개월" },
       monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 100_000 },
+      lastSeenStageLabel: "24개월",
+      followupEntries: [],
+      now: NOW
+    });
+    expect(candidates.map((candidate) => candidate.type)).toEqual(["weekly_summary"]);
+    expect(candidates[0]!.title).toBe("이번 달 지금까지 100,000원 · 예산의 10%예요");
+  });
+
+  it("is entirely silent for calm data with zero spend (weekly summary skips too)", () => {
+    const candidates = evaluateHomeNotifications({
+      child: { id: "child-1", nickname: "다온이", stageLabel: "24개월" },
+      monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 0 },
       lastSeenStageLabel: "24개월",
       followupEntries: [],
       now: NOW

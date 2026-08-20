@@ -3,6 +3,8 @@ import {
   PURCHASE_FOLLOWUP_MIN_AGE_MS,
   type PurchaseFollowupEntry
 } from "../commerce/purchase-followup.store";
+import { formatKrw } from "../money";
+import { seoulIsoWeekKey } from "./iso-week";
 import type { AppNotificationCandidate } from "./notification.store";
 
 /**
@@ -17,6 +19,8 @@ import type { AppNotificationCandidate } from "./notification.store";
  * - stage_transition keys on childId + the NEW stage label, so each stage change fires once.
  * - purchase_pending keys on itemTemplateId + clickedAt, so each product-link click fires once
  *   (a fresh re-click has a new clickedAt and may fire again).
+ * - weekly_summary (NOTI-103) keys on childId + the Seoul-calendar ISO week, so it fires at most
+ *   once per child per week and re-arms every Monday 00:00 KST.
  */
 
 export const BUDGET_WARNING_RATIO = 0.8;
@@ -120,6 +124,57 @@ export function purchasePendingNotifications(
     }));
 }
 
+export type WeeklySummaryInput = {
+  childId: string;
+  childName: string;
+  /** HomeSummary.monthly.amountKrw -- 0 means "no monthly budget set". */
+  budgetKrw: number;
+  /** HomeSummary.monthly.usedAmountKrw -- the month-to-date total. */
+  spentKrw: number;
+  /** Epoch ms "now", used only to derive the Seoul-calendar ISO week identity. */
+  now: number;
+};
+
+/**
+ * NOTI-103 weekly summary -- MONTHLY-PACE VARIANT, not a true last-week total.
+ *
+ * Data-availability decision: the ticket's preferred copy ("지난주 『아이명』에게 000,000원을
+ * 함께했어요") needs last week's spend, but the evaluation hook only receives HomeSummary
+ * (src/api/client.ts): `monthly` carries month totals (yearMonth/amountKrw/usedAmountKrw), and
+ * `recentExpenses` is capped server-side at the 3 most recent rows (see
+ * apps/api/src/onboarding/onboarding-store.service.ts, `.slice(0, 3)`), so a weekly sum computed
+ * from it would silently undercount whenever a week has more than 3 expenses. Deriving weekly
+ * spend would therefore require a new API call (e.g. listExpenses), which NOTI-103 explicitly
+ * rules out. Fallback per ticket: fire on the first evaluation of each ISO week with the
+ * month-to-date total and budget pace instead.
+ *
+ * Semantics:
+ * - once per Seoul-calendar ISO week per child: the dedupeKey is
+ *   weekly_summary:{childId}:{isoYear}-W{isoWeek}, so with the store's seenDedupeKeys memory the
+ *   first evaluation (i.e. first app open with home data) of a week ingests it and every later
+ *   evaluation that week is a no-op; Monday 00:00 KST starts a fresh key.
+ * - zero (or negative/invalid) month-to-date spend: return null -- a "0원 지금까지" summary is
+ *   pure noise. Note the natural consequence: if the first open of a week has zero spend, the
+ *   summary fires later that week once spend appears (the week's key is still unseen).
+ * - budget unset (amountKrw 0 from the home API): still fire, total only, no percentage.
+ * - budget set: "예산의 NN%" with NN = Math.round(spent/budget*100) -- may legitimately read
+ *   0% for tiny spend or exceed 100% when over budget.
+ */
+export function weeklySummaryNotification(input: WeeklySummaryInput): AppNotificationCandidate | null {
+  const { childId, childName, budgetKrw, spentKrw, now } = input;
+  if (!Number.isFinite(spentKrw) || spentKrw <= 0) return null;
+  const title =
+    budgetKrw > 0
+      ? `이번 달 지금까지 ${formatKrw(spentKrw)} · 예산의 ${Math.round((spentKrw / budgetKrw) * 100)}%예요`
+      : `이번 달 지금까지 ${formatKrw(spentKrw)}을 함께했어요`;
+  return {
+    type: "weekly_summary",
+    title,
+    body: `『${childName}』 지출 내역을 확인해보세요.`,
+    dedupeKey: `weekly_summary:${childId}:${seoulIsoWeekKey(now)}`
+  };
+}
+
 export type HomeNotificationInput = {
   child: { id: string; nickname: string; stageLabel: string };
   monthly: { yearMonth: string; amountKrw: number; usedAmountKrw: number };
@@ -145,5 +200,15 @@ export function evaluateHomeNotifications(input: HomeNotificationInput): AppNoti
   });
   if (stage) candidates.push(stage);
   candidates.push(...purchasePendingNotifications(input.followupEntries, input.now));
+  // NOTI-103: weekly (Seoul ISO-week) monthly-pace summary -- all inputs are already in the
+  // NOTI-102 home snapshot, so no hook/screen changes were needed to wire it.
+  const weekly = weeklySummaryNotification({
+    childId: input.child.id,
+    childName: input.child.nickname,
+    budgetKrw: input.monthly.amountKrw,
+    spentKrw: input.monthly.usedAmountKrw,
+    now: input.now
+  });
+  if (weekly) candidates.push(weekly);
   return candidates;
 }

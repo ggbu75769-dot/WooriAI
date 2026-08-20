@@ -18,11 +18,12 @@ const notificationIconByType: Record<AppNotification["type"], string> = {
   budget_80: "▮",
   budget_100: "▮",
   stage_transition: "☆",
-  purchase_pending: "▣"
+  purchase_pending: "▣",
+  weekly_summary: "▮"
 };
 
 function openNotification(entry: AppNotification) {
-  if (entry.type === "budget_80" || entry.type === "budget_100") {
+  if (entry.type === "budget_80" || entry.type === "budget_100" || entry.type === "weekly_summary") {
     router.push("/budget");
     return;
   }

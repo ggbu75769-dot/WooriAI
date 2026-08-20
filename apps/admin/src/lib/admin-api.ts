@@ -325,6 +325,65 @@ export function getAdminDashboardSummary() {
   return request<AdminDashboardSummary>("/admin/dashboard/summary");
 }
 
+// ADM-009: read-only analytics-event aggregation for the KPI funnel page
+// (/analytics). Any admin role (admin/editor/analyst) may read it — the API
+// route has no RequireAdminRoles, same as the dashboard summary.
+export type AnalyticsSummaryDays = 7 | 30;
+
+/** Canonical registry event names (packages/contracts/src/analytics.ts), in
+ * registry order. The API's `byName` always contains all six (0 included). */
+export type AnalyticsEventName =
+  | "app_opened"
+  | "onboarding_completed"
+  | "expense_recorded"
+  | "expense_synced"
+  | "item_status_changed"
+  | "affiliate_link_clicked";
+
+export const ANALYTICS_EVENT_NAMES: AnalyticsEventName[] = [
+  "app_opened",
+  "onboarding_completed",
+  "expense_recorded",
+  "expense_synced",
+  "item_status_changed",
+  "affiliate_link_clicked"
+];
+
+export const ANALYTICS_EVENT_LABELS: Record<AnalyticsEventName, string> = {
+  app_opened: "앱 실행",
+  onboarding_completed: "온보딩 완료",
+  expense_recorded: "지출 기록",
+  expense_synced: "지출 동기화",
+  item_status_changed: "준비템 상태 변경",
+  affiliate_link_clicked: "제휴 링크 클릭"
+};
+
+export type AdminAnalyticsFunnel = {
+  appOpened: number;
+  onboardingCompleted: number;
+  expenseRecorded: number;
+  itemStatusChanged: number;
+  affiliateLinkClicked: number;
+  expenseSynced: number;
+};
+
+export type AdminAnalyticsSummary = {
+  days: AnalyticsSummaryDays;
+  totalEvents: number;
+  /** All six registry names always present (count 0 included). */
+  byName: { name: string; count: number }[];
+  /** One entry per Seoul-calendar day in the window (ascending, zero-filled). */
+  dailyTotals: { date: string; count: number }[];
+  /** Same counts as byName, keyed for convenience (KPI funnel). */
+  funnel: AdminAnalyticsFunnel;
+  /** count(distinct user_anon_id) in the window. */
+  uniqueAnonUsers: number;
+};
+
+export function getAdminAnalyticsSummary(days: AnalyticsSummaryDays) {
+  return request<AdminAnalyticsSummary>(`/admin/analytics/summary?days=${days}`);
+}
+
 /** Session-expiry only: a role-forbidden (RBAC), CSRF, or MFA-setup-required 403
  * is not "log the admin out", so this intentionally checks 401 alone. */
 export function isAuthError(error: unknown): boolean {

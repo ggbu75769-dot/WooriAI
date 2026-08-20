@@ -26,6 +26,7 @@ const NAV_ITEMS: Array<{ href: string; label: string; roles?: AdminRole[] }> = [
   { href: "/disclosures", label: "제휴 고지 문구" },
   { href: "/reviews", label: "콘텐츠 검토" },
   { href: "/clicks", label: "클릭 통계" },
+  { href: "/analytics", label: "분석" },
   { href: "/users", label: "관리자 계정", roles: ["admin"] }
 ];
 

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnApplicationShutdown } from "@nestjs/common";
+import { DataRetentionPurgeJob } from "./jobs/data-retention-purge.job";
 import { IdempotencyKeyCleanupJob } from "./jobs/idempotency-key-cleanup.job";
 import { LinkHealthJob } from "./jobs/link-health.job";
 import { OauthTransactionCleanupJob } from "./jobs/oauth-transaction-cleanup.job";
@@ -40,11 +41,13 @@ export class SchedulerService implements OnApplicationBootstrap, OnApplicationSh
     @Inject(RefreshTokenCleanupJob) refreshTokenCleanup: RefreshTokenCleanupJob,
     @Inject(OauthTransactionCleanupJob) oauthTransactionCleanup: OauthTransactionCleanupJob,
     @Inject(IdempotencyKeyCleanupJob) idempotencyKeyCleanup: IdempotencyKeyCleanupJob,
+    // PRIV-105: retention purge — batch-capped per tick (see data-retention-purge.job.ts).
+    @Inject(DataRetentionPurgeJob) dataRetentionPurge: DataRetentionPurgeJob,
     // COM-105: runs on the same tick but is internally rate-limited and gated
     // behind LINK_HEALTH_ENABLED (see link-health.job.ts).
     @Inject(LinkHealthJob) linkHealth: LinkHealthJob
   ) {
-    this.jobs = [scheduledPublish, refreshTokenCleanup, oauthTransactionCleanup, idempotencyKeyCleanup, linkHealth];
+    this.jobs = [scheduledPublish, refreshTokenCleanup, oauthTransactionCleanup, idempotencyKeyCleanup, dataRetentionPurge, linkHealth];
   }
 
   static isEnabled(env: NodeJS.ProcessEnv = process.env): boolean {

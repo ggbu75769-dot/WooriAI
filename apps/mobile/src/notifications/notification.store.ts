@@ -14,7 +14,33 @@ import { persistStorage } from "../stores/persist-storage";
  * notification.store.test.ts); the store actions are thin wrappers.
  */
 
-export type AppNotificationType = "budget_80" | "budget_100" | "stage_transition" | "purchase_pending";
+/** The closed list of types the generators actually produce (NOTI-102 + NOTI-103's
+ * weekly_summary). This is what candidate-producing code should be typed against. */
+export type KnownAppNotificationType =
+  | "budget_80"
+  | "budget_100"
+  | "stage_transition"
+  | "purchase_pending"
+  | "weekly_summary";
+
+/**
+ * NOTI-103 compatibility note: `AppNotification["type"]` is deliberately the NOTI-102 literals
+ * plus a `(string & {})` escape hatch rather than the closed KnownAppNotificationType union.
+ * app/notifications.tsx (NOTI-102 code, out of scope for NOTI-103) types its icon map as an
+ * exhaustive `Record<AppNotification["type"], string>`; adding "weekly_summary" as a literal
+ * member here would force a same-commit edit of that screen. The widened union keeps the screen
+ * compiling unchanged, and it already renders unknown types safely at runtime (ListRow's `icon`
+ * prop is optional, and openNotification falls back to /(tabs)/items). Runtime validity of
+ * persisted entries is still enforced against the closed VALID_TYPES list in sanitizedEntries.
+ * Once app/notifications.tsx learns weekly_summary, this can be re-closed to
+ * KnownAppNotificationType.
+ */
+export type AppNotificationType =
+  | "budget_80"
+  | "budget_100"
+  | "stage_transition"
+  | "purchase_pending"
+  | (string & {});
 
 export type AppNotification = {
   id: string;
@@ -31,9 +57,10 @@ export type AppNotification = {
   dedupeKey: string;
 };
 
-/** A generator's output: everything except the ingestion bookkeeping (id/createdAt/readAt). */
+/** A generator's output: everything except the ingestion bookkeeping (id/createdAt/readAt).
+ * Typed against the closed union so a typo'd type in a generator is a compile error. */
 export type AppNotificationCandidate = {
-  type: AppNotificationType;
+  type: KnownAppNotificationType;
   title: string;
   body: string;
   dedupeKey: string;
@@ -117,7 +144,13 @@ export type NotificationState = {
   resetAll: () => void;
 };
 
-const VALID_TYPES: readonly AppNotificationType[] = ["budget_80", "budget_100", "stage_transition", "purchase_pending"];
+const VALID_TYPES: readonly KnownAppNotificationType[] = [
+  "budget_80",
+  "budget_100",
+  "stage_transition",
+  "purchase_pending",
+  "weekly_summary"
+];
 
 /** Defensive shape check for a persisted blob from an unknown/older app version (mirrors the
  * convention in src/commerce/purchase-followup.store.ts): anything that doesn't look like a

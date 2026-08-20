@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AdminModule } from "../admin/admin.module";
+import { DataRetentionPurgeJob } from "./jobs/data-retention-purge.job";
 import { IdempotencyKeyCleanupJob } from "./jobs/idempotency-key-cleanup.job";
 import { defaultLinkHealthFetch, LINK_HEALTH_FETCH, LinkHealthJob } from "./jobs/link-health.job";
 import { OauthTransactionCleanupJob } from "./jobs/oauth-transaction-cleanup.job";
@@ -20,6 +21,8 @@ import { SchedulerService } from "./scheduler.service";
     RefreshTokenCleanupJob,
     OauthTransactionCleanupJob,
     IdempotencyKeyCleanupJob,
+    // PRIV-105: physical purge of soft-deleted / withdrawn data past retention.
+    DataRetentionPurgeJob,
     // COM-105: real (undici fetch) HTTP prober by default; tests inject a mock
     // via the token — same pattern as KAKAO_OIDC_CLIENT in AuthModule.
     { provide: LINK_HEALTH_FETCH, useValue: defaultLinkHealthFetch },

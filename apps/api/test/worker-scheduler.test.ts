@@ -14,14 +14,21 @@ function stubJob(name: string, impl?: (now: Date) => Promise<Record<string, unkn
   return { name, run: vi.fn(impl ?? (async () => ({}))) };
 }
 
-function stubJobs(): [StubJob, StubJob, StubJob, StubJob, StubJob] {
-  return [stubJob("job_a"), stubJob("job_b"), stubJob("job_c"), stubJob("job_d"), stubJob("job_e")];
+function stubJobs(): [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob] {
+  return [stubJob("job_a"), stubJob("job_b"), stubJob("job_c"), stubJob("job_d"), stubJob("job_e"), stubJob("job_f")];
 }
 
-// The constructor positionally takes the five concrete job classes for Nest
+// The constructor positionally takes the six concrete job classes for Nest
 // DI; the scheduler only ever uses their WorkerJob surface, so stubs suffice.
-function schedulerWith(jobs: [StubJob, StubJob, StubJob, StubJob, StubJob]): SchedulerService {
-  return new SchedulerService(jobs[0] as never, jobs[1] as never, jobs[2] as never, jobs[3] as never, jobs[4] as never);
+function schedulerWith(jobs: [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob]): SchedulerService {
+  return new SchedulerService(
+    jobs[0] as never,
+    jobs[1] as never,
+    jobs[2] as never,
+    jobs[3] as never,
+    jobs[4] as never,
+    jobs[5] as never
+  );
 }
 
 function totalRuns(jobs: StubJob[]): number {
