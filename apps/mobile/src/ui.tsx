@@ -219,7 +219,10 @@ export function SegmentedControl({
   onChange?: (option: string) => void;
 }) {
   return (
-    <View style={{ backgroundColor: "#F5F0EA", borderRadius: theme.radii.pill, flexDirection: "row", padding: 4 }}>
+    <View
+      accessibilityRole="tablist"
+      style={{ backgroundColor: "#F5F0EA", borderRadius: theme.radii.pill, flexDirection: "row", padding: 4 }}
+    >
       {options.map((option) => (
         <Pressable
           key={option}
@@ -263,7 +266,7 @@ export function CategoryChip({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected: selected === true }}
+      accessibilityState={selected === undefined ? undefined : { selected }}
       onPress={onPress}
       style={{
         alignItems: "center",
