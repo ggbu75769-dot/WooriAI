@@ -3,10 +3,12 @@ import {
   AdminApiError,
   adminChangePassword,
   createAdminUser,
+  getAdminDashboardSummary,
   isAuthError,
   isSelfUpdateForbiddenError,
   listAdminUsers,
   updateAdminUser,
+  type AdminDashboardSummary,
   type AdminUserAccount
 } from "./admin-api";
 
@@ -135,6 +137,44 @@ describe("admin users API client (ADM-006)", () => {
     expect(failure).toBeInstanceOf(AdminApiError);
     expect((failure as AdminApiError).status).toBe(401);
     expect((failure as AdminApiError).code).toBe("ADMIN_PASSWORD_INVALID");
+  });
+
+  // ADM-008: dashboard home summary strip.
+  it("GET /admin/dashboard/summary returns the ops counters without a CSRF header", async () => {
+    const summary: AdminDashboardSummary = {
+      activeUsers: 120,
+      households: 80,
+      childrenCount: 95,
+      expensesTotal: 4321,
+      affiliateClicks7d: 67,
+      analyticsEvents7d: 890,
+      pendingContentRevisions: 3,
+      productLinksBrokenCount: 2
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, summary));
+
+    const result = await getAdminDashboardSummary();
+
+    expect(result).toEqual(summary);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
+    expect(url).toBe("/api/v1/admin/dashboard/summary");
+    expect(init.method).toBe("GET");
+    expect(init.credentials).toBe("include");
+    // Read-only endpoint: no CSRF echo on GET.
+    expect(init.headers["X-CSRF-Token"]).toBeUndefined();
+  });
+
+  it("maps a dashboard-summary failure onto AdminApiError without treating a 403 as session expiry", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(403, { error: { code: "ADMIN_MFA_SETUP_REQUIRED", message: "먼저 2단계 인증(MFA)을 등록해주세요." } })
+    );
+
+    const failure = await getAdminDashboardSummary().catch((error) => error);
+
+    expect(failure).toBeInstanceOf(AdminApiError);
+    expect((failure as AdminApiError).status).toBe(403);
+    expect((failure as AdminApiError).code).toBe("ADMIN_MFA_SETUP_REQUIRED");
+    expect(isAuthError(failure)).toBe(false);
   });
 
   it("isSelfUpdateForbiddenError ignores unrelated errors", () => {

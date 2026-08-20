@@ -130,6 +130,35 @@ describe("Admin CMS disclosures page", () => {
   });
 });
 
+// ADM-008: the dashboard home renders a live ops-summary strip on top of the
+// static section links, backed by GET /admin/dashboard/summary.
+describe("Admin CMS dashboard home summary strip", () => {
+  it("loads the dashboard summary with loading/error states and Korean stat labels", () => {
+    const source = readSource("app/page.tsx");
+    expect(source).toContain("use client");
+    expect(source).toContain("getAdminDashboardSummary");
+    // Loading / error / retry states follow the clicks-page conventions.
+    expect(source).toContain("불러오는 중...");
+    expect(source).toContain("다시 시도");
+    expect(source).toContain("대시보드 요약을 불러오지 못했어요.");
+    // Every counter is rendered as a stat card with a Korean label.
+    expect(source).toContain("운영 현황 요약");
+    expect(source).toContain("활성 사용자");
+    expect(source).toContain("가구");
+    expect(source).toContain("등록된 아이");
+    expect(source).toContain("누적 지출 기록");
+    expect(source).toContain("최근 7일 제휴 클릭");
+    expect(source).toContain("최근 7일 분석 이벤트");
+    expect(source).toContain("검수 대기 콘텐츠");
+    expect(source).toContain("깨진 상품 링크");
+
+    const api = readSource("src/lib/admin-api.ts");
+    expect(api).toContain("getAdminDashboardSummary");
+    expect(api).toContain("/admin/dashboard/summary");
+    expect(api).toContain("AdminDashboardSummary");
+  });
+});
+
 describe("Admin CMS click summary page", () => {
   it("reads the affiliate click summary endpoint", () => {
     const source = readSource("app/clicks/page.tsx");

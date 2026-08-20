@@ -17,17 +17,12 @@ export type SubmitAnalyticsEventsResult = {
   rejected: AnalyticsEventRejection[];
 };
 
-function isUniqueConstraintViolation(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "P2002");
-}
-
 @Injectable()
 export class AnalyticsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async submitEvents(user: AuthenticatedUser, rawEvents: unknown[]): Promise<SubmitAnalyticsEventsResult> {
     const rejected: AnalyticsEventRejection[] = [];
-    let accepted = 0;
 
     // Always server-derived from the authenticated user -- any user_anon_id /
     // household_anon_id a client might try to smuggle in is impossible here
@@ -40,6 +35,11 @@ export class AnalyticsService {
     const primaryHouseholdId = user.households.map((h) => h.id).sort()[0];
     const householdAnonId = primaryHouseholdId ? anonymizeId(primaryHouseholdId) : null;
 
+    // ANA-105: validation stays strictly per-row and BEFORE any insert -- a bad
+    // row is rejected with its index while the rest of the batch proceeds --
+    // but the surviving rows are persisted in a single createMany statement
+    // instead of the old N-queries-per-batch loop.
+    const rows: Prisma.AnalyticsEventCreateManyInput[] = [];
     for (let index = 0; index < rawEvents.length; index += 1) {
       const envelopeParsed = analyticsEventEnvelopeSchema.safeParse(rawEvents[index]);
       if (!envelopeParsed.success) {
@@ -64,44 +64,33 @@ export class AnalyticsService {
         continue;
       }
 
-      const existing = await this.prisma.analyticsEvent.findUnique({
-        where: { eventId: envelope.eventId },
-        select: { id: true }
+      rows.push({
+        eventName: envelope.eventName,
+        eventVersion: envelope.eventVersion,
+        eventId: envelope.eventId,
+        occurredAt: new Date(envelope.occurredAt),
+        userAnonId,
+        householdAnonId,
+        appVersion: envelope.appVersion ?? null,
+        platform: envelope.platform ?? null,
+        payload: payloadParsed.data as Prisma.InputJsonValue
       });
-      if (existing) {
-        // Duplicate event_id: idempotent re-send, treated as accepted without
-        // a second insert.
-        accepted += 1;
-        continue;
-      }
-
-      try {
-        await this.prisma.analyticsEvent.create({
-          data: {
-            eventName: envelope.eventName,
-            eventVersion: envelope.eventVersion,
-            eventId: envelope.eventId,
-            occurredAt: new Date(envelope.occurredAt),
-            userAnonId,
-            householdAnonId,
-            appVersion: envelope.appVersion ?? null,
-            platform: envelope.platform ?? null,
-            payload: payloadParsed.data as Prisma.InputJsonValue
-          }
-        });
-        accepted += 1;
-      } catch (error) {
-        if (isUniqueConstraintViolation(error)) {
-          // Lost a race against a concurrent request inserting the same
-          // event_id -- still idempotent-accept rather than surfacing an
-          // error to the client.
-          accepted += 1;
-          continue;
-        }
-        throw error;
-      }
     }
 
-    return { accepted, rejected };
+    if (rows.length > 0) {
+      // skipDuplicates (INSERT ... ON CONFLICT DO NOTHING on the unique
+      // event_id) is the whole idempotency story now: a re-sent event_id --
+      // whether it already exists from an earlier batch, is repeated within
+      // this batch, or races a concurrent request -- silently inserts nothing.
+      // Duplicates still count as accepted (idempotent re-send, same contract
+      // as the old findUnique/P2002 handling), so `accepted` is the number of
+      // rows that passed validation, not createMany's inserted-row count.
+      await this.prisma.analyticsEvent.createMany({
+        data: rows,
+        skipDuplicates: true
+      });
+    }
+
+    return { accepted: rows.length, rejected };
   }
 }

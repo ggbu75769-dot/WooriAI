@@ -178,6 +178,56 @@ describe("Analytics events API (/v1/analytics/events)", () => {
     expect(response.body.accepted).toBe(50);
   });
 
+  // ANA-105: the service now persists each request's surviving rows via a
+  // single `createMany({ skipDuplicates: true })` instead of one query per
+  // event. No query-count hook exists in PrismaService, so this asserts the
+  // observable contract: a full 50-event batch persists completely, and
+  // duplicate event_ids -- across batches AND within one batch -- stay
+  // idempotent-accepted (counted in `accepted`, never double-inserted).
+  it("persists a full batch of 50 and keeps duplicate event_ids idempotent across and within batches (ANA-105 createMany)", async () => {
+    const { accessToken } = await login("analytics-createmany");
+
+    const firstBatch = Array.from({ length: 10 }, () => appOpenedEnvelope());
+    const first = await postEvents(accessToken, firstBatch).expect(200);
+    expect(first.body).toEqual({ accepted: 10, rejected: [] });
+
+    // 50-event follow-up batch: 5 replays from the first batch, one event_id
+    // repeated twice within this batch, and 44 fresh events.
+    const replays = firstBatch.slice(0, 5);
+    const inBatchDuplicate = appOpenedEnvelope();
+    const fresh = Array.from({ length: 43 }, () => onboardingCompletedEnvelope());
+    const secondBatch = [...replays, inBatchDuplicate, inBatchDuplicate, ...fresh];
+    expect(secondBatch).toHaveLength(50);
+
+    const second = await postEvents(accessToken, secondBatch).expect(200);
+    // Every valid row counts as accepted -- duplicates are an idempotent
+    // re-send, not a rejection (same contract as before the batching rework).
+    expect(second.body).toEqual({ accepted: 50, rejected: [] });
+
+    const allEventIds = [...new Set([...firstBatch, ...secondBatch].map((event) => event.eventId))];
+    // 10 first-batch + 1 in-batch-duplicated + 43 fresh distinct events.
+    expect(allEventIds).toHaveLength(54);
+    const rows = await prisma.analyticsEvent.findMany({ where: { eventId: { in: allEventIds } } });
+    expect(rows).toHaveLength(54);
+    expect(rows.filter((row) => row.eventId === inBatchDuplicate.eventId)).toHaveLength(1);
+  });
+
+  it("keeps per-row rejection indices intact when invalid rows and duplicates mix in one batch", async () => {
+    const { accessToken } = await login("analytics-mixed-batch");
+    const seed = appOpenedEnvelope();
+    await postEvents(accessToken, [seed]).expect(200);
+
+    const unregistered = { ...appOpenedEnvelope(), eventName: "does_not_exist_event" };
+    const valid = onboardingCompletedEnvelope(3);
+    const response = await postEvents(accessToken, [unregistered, seed, valid]).expect(200);
+    // seed (duplicate) + valid both accepted; only the unregistered row rejected, by index.
+    expect(response.body.accepted).toBe(2);
+    expect(response.body.rejected).toEqual([{ index: 0, reason: expect.any(String) }]);
+
+    expect(await prisma.analyticsEvent.count({ where: { eventId: seed.eventId } })).toBe(1);
+    expect(await prisma.analyticsEvent.count({ where: { eventId: valid.eventId } })).toBe(1);
+  });
+
   it("requires authentication", async () => {
     await request(app.getHttpServer())
       .post("/api/v1/analytics/events")
