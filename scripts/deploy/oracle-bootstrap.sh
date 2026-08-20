@@ -186,7 +186,18 @@ if grep -q '^ADMIN_SEED_PASSWORD=' "$ENV_FILE"; then
   echo "[wooriai] 비밀번호를 분실했다면: 어드민의 다른 관리자 계정으로 재발급하거나, DB에서 해당 admin_users 행 삭제 후 ADMIN_SEED_PASSWORD를 새로 설정하고 시드를 재실행하세요."
 fi
 
-# ── 9. 결과 출력 (헬스체크보다 먼저 — 실패해도 비밀번호는 반드시 출력) ──
+# ── 9. DB 일일 백업 크론 (OPS-101) ─────────────────────────────
+# 매일 18:00 UTC(03:00 KST) 컨테이너 내부 pg_dump → gzip, 요일별 7개 파일 로테이션.
+# 재실행 시 크론 파일을 통째로 덮어써 멱등. 복구 절차는 런북 부록 참조
+# (드릴 검증: scripts/qa/backup-restore-drill.sh).
+log "일일 백업 크론 등록: /etc/cron.d/wooriai-backup (03:00 KST, 요일별 로테이션)"
+cat > /etc/cron.d/wooriai-backup <<EOF
+# 우리아이 DB 일일 백업 (OPS-101) — 매일 18:00 UTC = 03:00 KST, 요일(1~7)별 파일 로테이션
+0 18 * * * root cd ${APP_DIR} && docker compose -f ${COMPOSE_FILE} --env-file .env.production exec -T postgres pg_dump -U wooriai wooriai | gzip > /opt/wooriai-backup-\$(date +\%u).sql.gz
+EOF
+chmod 644 /etc/cron.d/wooriai-backup
+
+# ── 10. 결과 출력 (헬스체크보다 먼저 — 실패해도 비밀번호는 반드시 출력) ──
 log "완료 ✅  API: https://${DOMAIN}/api/v1"
 if [ -n "${ADMIN_SEED_PASSWORD_GEN}" ]; then
   echo "[wooriai] 관리자 초기 계정 (지금 로그인해서 즉시 비밀번호 변경 + MFA 등록하세요):"
@@ -194,7 +205,7 @@ if [ -n "${ADMIN_SEED_PASSWORD_GEN}" ]; then
   echo "[wooriai]   password: ${ADMIN_SEED_PASSWORD_GEN}   ← 이 출력 외에는 다시 볼 수 없음 (.env.production에서도 제거됨)"
 fi
 
-# ── 10. 헬스체크 (실패해도 중단하지 않음 — Security List/인증서 발급 지연 가능) ──
+# ── 11. 헬스체크 (실패해도 중단하지 않음 — Security List/인증서 발급 지연 가능) ──
 log "헬스체크"
 HEALTH_OK=0
 for _ in $(seq 1 30); do
