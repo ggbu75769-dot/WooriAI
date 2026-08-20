@@ -44,7 +44,13 @@ function ImportRowCard({
   const needsAttention = row.validationStatus !== "valid";
 
   return (
-    <Pressable disabled={disabled} onPress={onToggle} style={[rowCardStyle, row.selected ? rowCardSelectedStyle : null]}>
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: row.selected, disabled }}
+      disabled={disabled}
+      onPress={onToggle}
+      style={[rowCardStyle, row.selected ? rowCardSelectedStyle : null]}
+    >
       <View style={rowHeaderStyle}>
         <View style={checkboxStyle(row.selected)}>{row.selected ? <Text style={checkmarkStyle}>✓</Text> : null}</View>
         <Text style={rowTitleStyle}>{row.parsedItemName ?? "품목명을 확인해 주세요"}</Text>

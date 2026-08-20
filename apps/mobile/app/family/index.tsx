@@ -39,7 +39,12 @@ const familyInviteRows = [
 
 function FamilyInviteRow({ icon, title, value, onPress }: { icon: string; title: string; value?: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={familyInviteRowStyle}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={value ? `${title}, ${value}` : title}
+      onPress={onPress}
+      style={familyInviteRowStyle}
+    >
       <Text style={familyInviteIconStyle}>{icon}</Text>
       <Text style={familyInviteTitleStyle}>{title}</Text>
       {value ? <Text style={familyInviteValueStyle}>{value}</Text> : null}
@@ -140,7 +145,7 @@ export default function FamilyScreen() {
 
         <View style={familyAvatarRowStyle}>
           <FamilyAvatarGroup names={avatarNames} />
-          <Pressable onPress={openInvite} style={familyPlusButtonStyle}>
+          <Pressable accessibilityRole="button" accessibilityLabel="가족 초대하기" onPress={openInvite} style={familyPlusButtonStyle}>
             <Text style={familyPlusTextStyle}>+</Text>
           </Pressable>
         </View>
@@ -187,7 +192,7 @@ export default function FamilyScreen() {
           ))}
         </View>
 
-        <Pressable onPress={openInvite} style={familyInviteButtonStyle}>
+        <Pressable accessibilityRole="button" accessibilityLabel="가족 초대하기" onPress={openInvite} style={familyInviteButtonStyle}>
           <Text style={familyInviteButtonTextStyle}>가족 초대하기</Text>
         </Pressable>
       </View>

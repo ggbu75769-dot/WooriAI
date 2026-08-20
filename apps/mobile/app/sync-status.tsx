@@ -62,6 +62,7 @@ function ConflictFieldPicker({
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Pressable
               accessibilityRole="button"
+              accessibilityState={{ selected: !chosenFromServer.has(entry.field) }}
               onPress={() =>
                 setChosenFromServer((prev) => {
                   const next = new Set(prev);
@@ -81,6 +82,7 @@ function ConflictFieldPicker({
             </Pressable>
             <Pressable
               accessibilityRole="button"
+              accessibilityState={{ selected: chosenFromServer.has(entry.field) }}
               onPress={() =>
                 setChosenFromServer((prev) => {
                   const next = new Set(prev);

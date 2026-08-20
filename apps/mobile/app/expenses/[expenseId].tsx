@@ -294,7 +294,7 @@ export default function ExpenseDetailScreen() {
                         />
                       ))}
                     </ScrollView>
-                    <Pressable onPress={() => setCustomDateMode((value) => !value)}>
+                    <Pressable accessibilityRole="button" onPress={() => setCustomDateMode((value) => !value)}>
                       <Text style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}>
                         {customDateMode ? "최근 날짜에서 선택" : "직접 입력"}
                       </Text>
@@ -302,6 +302,7 @@ export default function ExpenseDetailScreen() {
                     {customDateMode ? (
                       <View style={{ gap: 6 }}>
                         <TextInput
+                          accessibilityLabel="날짜 직접 입력"
                           keyboardType="numbers-and-punctuation"
                           onChangeText={(value) => {
                             const cleaned = value.replace(/[^0-9-]/g, "").slice(0, 10);
@@ -372,6 +373,7 @@ export default function ExpenseDetailScreen() {
               <Pressable
                 accessibilityLabel="선물로 받았어요"
                 accessibilityRole="checkbox"
+                accessibilityState={{ checked: isGift }}
                 onPress={() => setIsGift((value) => !value)}
                 style={{
                   alignItems: "center",

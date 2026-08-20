@@ -14,6 +14,8 @@ type PressableProps = {
   onPress?: () => void;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
+  /** A11Y-101: override for TalkBack when the visible label alone is not descriptive enough. */
+  accessibilityLabel?: string;
 };
 
 const pixelLockWebStyleId = "wooriai-pixel-lock-web-styles";
@@ -129,9 +131,11 @@ export function Card({ children, style }: ChildrenProps & { style?: StyleProp<Vi
   );
 }
 
-export function PrimaryButton({ label, onPress, disabled, style }: PressableProps) {
+export function PrimaryButton({ label, onPress, disabled, style, accessibilityLabel }: PressableProps) {
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -151,9 +155,11 @@ export function PrimaryButton({ label, onPress, disabled, style }: PressableProp
   );
 }
 
-export function SecondaryButton({ label, onPress, disabled, style }: PressableProps) {
+export function SecondaryButton({ label, onPress, disabled, style, accessibilityLabel }: PressableProps) {
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -176,9 +182,15 @@ export function SecondaryButton({ label, onPress, disabled, style }: PressablePr
   );
 }
 
-export function TextButton({ label, onPress, disabled, style }: PressableProps) {
+export function TextButton({ label, onPress, disabled, style, accessibilityLabel }: PressableProps) {
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={[{ minHeight: theme.touchTarget, justifyContent: "center" }, style]}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      disabled={disabled}
+      onPress={onPress}
+      style={[{ minHeight: theme.touchTarget, justifyContent: "center" }, style]}
+    >
       <Text style={{ color: disabled ? theme.colors.gray300 : theme.colors.mainCoral, fontWeight: "700" }}>{label}</Text>
     </Pressable>
   );
@@ -211,6 +223,9 @@ export function SegmentedControl({
       {options.map((option) => (
         <Pressable
           key={option}
+          accessibilityRole="tab"
+          accessibilityLabel={option}
+          accessibilityState={{ selected: option === value }}
           onPress={() => onChange?.(option)}
           style={{
             backgroundColor: option === value ? theme.colors.mainCoral : "transparent",
@@ -246,6 +261,9 @@ export function CategoryChip({
 }) {
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: selected === true }}
       onPress={onPress}
       style={{
         alignItems: "center",
@@ -319,7 +337,12 @@ export function HeroSummaryCard({
 
 export function QuickActionIconButton({ icon, label, onPress }: { icon: string; label: string; onPress?: () => void }) {
   return (
-    <Pressable onPress={onPress} style={{ alignItems: "center", flex: 1, gap: 6, minHeight: 68 }}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={{ alignItems: "center", flex: 1, gap: 6, minHeight: 68 }}
+    >
       <View
         style={{
           alignItems: "center",
@@ -342,9 +365,11 @@ export function BottomTabBar({ children }: ChildrenProps) {
   return <View style={{ flexDirection: "row", gap: 6 }}>{children}</View>;
 }
 
-export function FloatingActionButton({ onPress }: { onPress?: () => void }) {
+export function FloatingActionButton({ onPress, accessibilityLabel = "지출 기록하기" }: { onPress?: () => void; accessibilityLabel?: string }) {
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
       onPress={onPress}
       style={{
         alignItems: "center",
@@ -405,7 +430,7 @@ export function ListRow({
   onPress?: () => void;
 }) {
   return (
-    <Pressable onPress={onPress}>
+    <Pressable accessibilityRole={onPress ? "button" : undefined} onPress={onPress}>
       <Card style={{ alignItems: "center", flexDirection: "row", gap: 12, paddingVertical: 12 }}>
         {icon ? <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text> : null}
         <View style={{ flex: 1 }}>
@@ -434,7 +459,7 @@ export function ProductCard({
   onPress?: () => void;
 }) {
   return (
-    <Pressable onPress={onPress}>
+    <Pressable accessibilityRole={onPress ? "button" : undefined} onPress={onPress}>
       <Card style={{ borderRadius: 18, flexDirection: "row", gap: 10, padding: 12 }}>
         <View style={{ backgroundColor: theme.colors.beige, borderRadius: 14, height: 64, overflow: "hidden", width: 64 }}>
           {image ? <Image source={image} style={{ height: "100%", width: "100%" }} resizeMode="cover" /> : null}
@@ -458,7 +483,12 @@ export function ProductComparisonRow({ seller, price, onPress }: { seller: strin
         <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>무료배송</Text>
       </View>
       <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "800" }]}>{price}</Text>
-      <SecondaryButton label="구매" onPress={onPress} style={{ minWidth: 62 }} />
+      <SecondaryButton
+        label="구매"
+        accessibilityLabel={`${seller}에서 구매하기`}
+        onPress={onPress}
+        style={{ minWidth: 62 }}
+      />
     </View>
   );
 }
@@ -708,7 +738,10 @@ export function EmptyStateCard({ title, actionLabel, onPress }: { title: string;
 export function Toast({ message, tone = "success" }: { message: string; tone?: "success" | "error" }) {
   const isError = tone === "error";
   return (
-    <View style={{ backgroundColor: theme.colors.white, borderRadius: 18, flexDirection: "row", gap: 10, padding: 14, ...theme.shadows.card }}>
+    <View
+      accessibilityRole="alert"
+      style={{ backgroundColor: theme.colors.white, borderRadius: 18, flexDirection: "row", gap: 10, padding: 14, ...theme.shadows.card }}
+    >
       <Text style={{ color: isError ? theme.colors.danger : theme.colors.success }}>{isError ? "⚠" : "✓"}</Text>
       <Text style={[textStyles.body2, { color: theme.colors.brown }]}>{message}</Text>
     </View>

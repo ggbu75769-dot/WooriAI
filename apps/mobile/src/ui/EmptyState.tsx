@@ -24,7 +24,7 @@ export function EmptyState({ icon, title, description, ctaLabel, onPressCta }: E
       <Text style={titleStyle}>{title}</Text>
       {description ? <Text style={descriptionStyle}>{description}</Text> : null}
       {ctaLabel ? (
-        <Pressable onPress={onPressCta} style={({ pressed }) => [ctaStyle, { opacity: pressed ? 0.86 : 1 }]}>
+        <Pressable accessibilityRole="button" onPress={onPressCta} style={({ pressed }) => [ctaStyle, { opacity: pressed ? 0.86 : 1 }]}>
           <Text style={ctaLabelStyle}>{ctaLabel}</Text>
         </Pressable>
       ) : null}

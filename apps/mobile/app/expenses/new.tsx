@@ -150,7 +150,13 @@ function ExpenseCategoryIconButton({
   selected: boolean;
 }) {
   return (
-    <Pressable onPress={onPress} style={quickExpenseCategoryTileStyle.button}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={category.label}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={quickExpenseCategoryTileStyle.button}
+    >
       <View style={[quickExpenseCategoryTileStyle.iconBox, selected ? quickExpenseCategoryTileStyle.iconBoxSelected : null]}>
         <Text style={[quickExpenseCategoryTileStyle.iconText, selected ? quickExpenseCategoryTileStyle.iconTextSelected : null]}>{category.icon}</Text>
       </View>
@@ -343,6 +349,8 @@ export default function NewExpenseScreen() {
         >
         <View accessibilityLabel={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 40 }}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="닫기"
             onPress={() => {
               clearQuickExpenseDraft();
               router.back();
@@ -382,6 +390,7 @@ export default function NewExpenseScreen() {
           )}
           <View style={{ backgroundColor: "rgba(74, 63, 53, 0.12)", height: 1 }} />
           <TextInput
+            accessibilityLabel="지출 금액 입력"
             keyboardType="number-pad"
             onChangeText={(value) => setAmountText(value.replace(/[^0-9]/g, ""))}
             style={{ color: theme.colors.gray900, fontSize: 30, fontWeight: "800", paddingVertical: 0 }}
@@ -405,7 +414,7 @@ export default function NewExpenseScreen() {
                 />
               ))}
             </ScrollView>
-            <Pressable onPress={() => setCustomDateMode((value) => !value)}>
+            <Pressable accessibilityRole="button" onPress={() => setCustomDateMode((value) => !value)}>
               <Text style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}>
                 {customDateMode ? "최근 날짜에서 선택" : "직접 입력"}
               </Text>
@@ -413,6 +422,7 @@ export default function NewExpenseScreen() {
             {customDateMode ? (
               <View style={{ gap: 6 }}>
                 <TextInput
+                  accessibilityLabel="날짜 직접 입력"
                   keyboardType="numbers-and-punctuation"
                   onChangeText={(value) => {
                     const cleaned = value.replace(/[^0-9-]/g, "").slice(0, 10);
@@ -542,6 +552,7 @@ export default function NewExpenseScreen() {
           <Pressable
             accessibilityLabel="선물로 받았어요"
             accessibilityRole="checkbox"
+            accessibilityState={{ checked: isGift }}
             onPress={() => setIsGift((value) => !value)}
             style={{
               alignItems: "center",
