@@ -50,6 +50,9 @@ export default function FamilyInviteScreen() {
           {roleOptions.map((option) => (
             <Pressable
               key={option.role}
+              accessibilityRole="button"
+              accessibilityLabel={`${option.label}, ${option.description}`}
+              accessibilityState={{ selected: role === option.role }}
               disabled={invite.isPending}
               onPress={() => setRole(option.role)}
               style={[roleRowStyle, role === option.role ? roleRowSelectedStyle : null]}

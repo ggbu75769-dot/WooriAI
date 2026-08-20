@@ -85,6 +85,7 @@ export default function BudgetEditScreen() {
               </Text>
               <View style={{ alignItems: "center", flexDirection: "row", gap: 4 }}>
                 <TextInput
+                  accessibilityLabel="새 예산 입력"
                   keyboardType="number-pad"
                   onChangeText={(value) => setAmountDigits(toDigits(value))}
                   placeholder="새 예산을 입력해 주세요"

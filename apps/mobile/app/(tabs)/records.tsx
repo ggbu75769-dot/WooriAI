@@ -152,6 +152,7 @@ export default function RecordsScreen() {
         </View>
 
         <TextInput
+          accessibilityLabel="품목명, 메모로 검색"
           onChangeText={setSearchText}
           placeholder="품목명, 메모로 검색"
           style={{

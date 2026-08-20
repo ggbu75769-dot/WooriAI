@@ -59,7 +59,7 @@ export function ListRow({ icon, iconBackgroundColor, iconColor, title, subtitle,
   if (!onPress) return content;
 
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}>
+    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}>
       {content}
     </Pressable>
   );

@@ -95,7 +95,7 @@ export default function SettingsScreen() {
             value={analyticsConsent}
           />
         </Card>
-        <Pressable onPress={handleLogout} style={logoutRowStyle}>
+        <Pressable accessibilityRole="button" accessibilityLabel="로그아웃" onPress={handleLogout} style={logoutRowStyle}>
           <Text style={logoutTextStyle}>로그아웃</Text>
         </Pressable>
       </View>

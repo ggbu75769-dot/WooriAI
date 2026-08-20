@@ -135,6 +135,36 @@ describe("CSV 일괄 교체 panel wiring (COM-107-prep)", () => {
     expect(panel).toContain("clipboard");
   });
 
+  // COM-107b: the panel links a real downloadable template file instead of the
+  // code block alone.
+  it("offers a 템플릿 다운로드 anchor for the static template CSV", () => {
+    const panel = readSource("src/components/ProductLinkBulkReplace.tsx");
+    expect(panel).toContain("템플릿 다운로드");
+    expect(panel).toContain('href="/product-link-bulk-template.csv"');
+    expect(panel).toContain("download");
+    // The API's CSV parser has no comment syntax, so the template ships valid-
+    // looking example rows and the panel tells admins to replace them.
+    expect(panel).toContain("예시 행");
+  });
+
+  it("ships public/product-link-bulk-template.csv with the canonical header and 2 example rows (COM-107b)", () => {
+    const template = readSource("public/product-link-bulk-template.csv");
+    const lines = template.trim().split("\n");
+    expect(lines[0]).toBe(PRODUCT_LINK_BULK_CSV_HEADER);
+    // Exactly two example rows on allowlisted affiliate domains — one Coupang,
+    // one Naver — with placeholder identifiers admins must replace.
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toContain(",coupang,https://link.coupang.com/");
+    expect(lines[2]).toContain(",naver,https://smartstore.naver.com/");
+    // The API's parseBulkCsv treats every non-blank line as data (no # comment
+    // support), so the template must not contain comment lines.
+    expect(lines.some((line) => line.startsWith("#"))).toBe(false);
+    // Each row has exactly the header's 5 columns (no stray commas in URLs).
+    for (const line of lines) {
+      expect(line.split(",")).toHaveLength(5);
+    }
+  });
+
   it("mounts the panel on the links page for admin sessions only (endpoints are admin-only)", () => {
     const page = readSource("app/links/page.tsx");
     expect(page).toContain("ProductLinkBulkReplace");

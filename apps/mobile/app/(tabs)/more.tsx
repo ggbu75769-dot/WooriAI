@@ -37,7 +37,14 @@ const appInfoText = `버전 ${Constants.expoConfig?.version ?? "알 수 없음"}
 
 function MoreMenuRow({ icon, title, caption, onPress }: { icon: string; title: string; caption?: string; onPress?: () => void }) {
   return (
-    <Pressable disabled={!onPress} onPress={onPress} style={moreMenuRowStyle()}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={caption ? `${title}, ${caption}` : title}
+      accessibilityState={{ disabled: !onPress }}
+      disabled={!onPress}
+      onPress={onPress}
+      style={moreMenuRowStyle()}
+    >
       <Text style={moreMenuIconStyle}>{icon}</Text>
       <Text style={moreMenuTitleStyle}>{title}</Text>
       {caption ? <Text style={moreMenuCaptionStyle}>{caption}</Text> : <Text style={moreMenuChevronStyle}>›</Text>}
@@ -155,7 +162,12 @@ export default function MoreScreen() {
           </Pressable>
         </View>
 
-        <Pressable onPress={() => router.push("/family")} style={moreProfileCardStyle}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${visibleProfile.nickname} 프로필 관리`}
+          onPress={() => router.push("/family")}
+          style={moreProfileCardStyle}
+        >
           <Image source={moreAvatarImage} style={moreAvatarStyle()} resizeMode="cover" />
           <View style={{ flex: 1 }}>
             <Text style={moreChildNameStyle}>{visibleProfile.nickname}</Text>

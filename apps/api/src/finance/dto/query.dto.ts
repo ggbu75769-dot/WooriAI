@@ -1,9 +1,15 @@
 import { IsInt, IsOptional, IsUUID, Matches, Max, Min } from "class-validator";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
+import { YEAR_MONTH_INPUT_PATTERN, normalizeYearMonthInput } from "../../common/validation/year-month";
 
+// REP-105 contract tolerance: every yearMonth input below accepts `YYYY-MM` or
+// `YYYY-MM-01` (previously `YYYY-MM` only) and normalizes to the internal
+// first-of-month form `YYYY-MM-01`. Other days (e.g. 2026-08-15) are rejected
+// as VALIDATION_ERROR — see common/validation/year-month.ts.
 export class YearMonthQueryDto {
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}$/)
+  @Transform(({ value }) => normalizeYearMonthInput(value))
+  @Matches(YEAR_MONTH_INPUT_PATTERN)
   yearMonth?: string;
 }
 
@@ -17,7 +23,8 @@ export class YearMonthQueryDto {
  */
 export class CategoryReportQueryDto {
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}$/)
+  @Transform(({ value }) => normalizeYearMonthInput(value))
+  @Matches(YEAR_MONTH_INPUT_PATTERN)
   yearMonth?: string;
 
   @IsOptional()

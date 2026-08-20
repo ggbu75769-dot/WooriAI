@@ -108,7 +108,7 @@ export default function ImportUploadScreen() {
   return (
     <View accessibilityLabel={importUploadScreenId} style={[styles.screen, { paddingHorizontal: ExcelPreviewPixelStyles.screenPadding }, excelPreviewPixelFrameStyle()]}>
       <View style={styles.navigationBar}>
-        <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
+        <Pressable accessibilityRole="button" accessibilityLabel="뒤로가기" onPress={() => router.back()} style={styles.backButton}>
           <Text style={styles.backIcon}>‹</Text>
         </Pressable>
         <Text style={styles.navigationTitle}>엑셀 업로드</Text>
@@ -141,6 +141,7 @@ export default function ImportUploadScreen() {
 
       <View style={styles.footerSpacer} />
       <Pressable
+        accessibilityRole="button"
         disabled={upload.isPending}
         onPress={applyPreview}
         style={({ pressed }) => [styles.applyButton, { bottom: 20 + ExcelPreviewPixelStyles.ctaBottomInset, height: ExcelPreviewPixelStyles.ctaHeight, opacity: pressed || upload.isPending ? 0.82 : 1 }]}

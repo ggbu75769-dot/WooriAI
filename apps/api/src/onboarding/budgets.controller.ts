@@ -8,8 +8,9 @@ import { UpsertBudgetDto } from "./dto/upsert-budget.dto";
 import { OnboardingStoreService } from "./onboarding-store.service";
 
 class BudgetQueryDto {
+  // REP-105: PUT과 동일하게 YYYY-MM / YYYY-MM-01 모두 허용 (서비스는 월 단위로 정규화)
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}$/)
+  @Matches(/^\d{4}-\d{2}(-01)?$/)
   yearMonth?: string;
 }
 

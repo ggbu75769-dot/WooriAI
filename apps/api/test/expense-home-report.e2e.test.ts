@@ -695,6 +695,102 @@ describe("Expense, budget, home, and report API", () => {
       });
   });
 
+  it("accepts both YYYY-MM and YYYY-MM-01 period inputs and rejects other days (REP-105)", async () => {
+    const accessToken = await login(app, `rep105-period-tolerance-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    // Budget PUT tolerates the short `YYYY-MM` form; the response keeps the
+    // unchanged first-of-month shape.
+    await request(app.getHttpServer())
+      .put(`/api/v1/children/${childId}/budget`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ yearMonth: "2026-07", amountKrw: 120000 })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ childId, yearMonth: "2026-07-01", amountKrw: 120000 });
+      });
+
+    // The long `YYYY-MM-01` form targets the same month (upsert, not a second row).
+    await request(app.getHttpServer())
+      .put(`/api/v1/children/${childId}/budget`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ yearMonth: "2026-07-01", amountKrw: 130000 })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ childId, yearMonth: "2026-07-01", amountKrw: 130000 });
+      });
+
+    // A mid-month day is rejected, never silently truncated to its month.
+    await request(app.getHttpServer())
+      .put(`/api/v1/children/${childId}/budget`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ yearMonth: "2026-08-15", amountKrw: 140000 })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId, amountKrw: 10000, spentOn: "2026-07-06", itemName: "기저귀", paymentMethod: "card" })
+      .expect(200);
+
+    // Monthly report: both query forms return the identical, unchanged response.
+    const monthlyShort = await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    const monthlyLong = await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=2026-07-01`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    expect(monthlyLong.body).toEqual(monthlyShort.body);
+    expect(monthlyShort.body).toMatchObject({
+      childId,
+      yearMonth: "2026-07-01",
+      totalExpenseKrw: 10000,
+      budgetAmountKrw: 130000
+    });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=2026-08-15`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+
+    // Category report: same tolerance on its yearMonth period param.
+    const categoryShort = await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    const categoryLong = await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?yearMonth=2026-07-01`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    expect(categoryLong.body).toEqual(categoryShort.body);
+    expect(categoryShort.body.categories).toEqual([{ categoryId, amountKrw: 10000, count: 1 }]);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?yearMonth=2026-08-15`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+
+    // Expense list shares YearMonthQueryDto, so it picks up the same tolerance.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07-01`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalAmountKrw).toBe(10000);
+      });
+  });
+
   it("computes d100 and first-birthday milestone reports over the birth window (REP-103)", async () => {
     const accessToken = await login(app, `rep103-milestone-${randomUUID()}`);
     const { householdId } = await completeOnboarding(app, accessToken);

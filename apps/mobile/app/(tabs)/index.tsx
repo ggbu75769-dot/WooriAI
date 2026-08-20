@@ -227,7 +227,11 @@ export default function HomeScreen() {
             <QuickActionIconButton icon="☰" label="더보기" onPress={() => router.push("/(tabs)/more")} />
           </View>
 
-          <Pressable onPress={() => router.push("/(tabs)/items")}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${budgetNudgeTitle} ${budgetNudgeSubtitle}`}
+            onPress={() => router.push("/(tabs)/items")}
+          >
             <Card style={homeBudgetNudgeStyle.card}>
               <View style={homeBudgetNudgeStyle.iconBox}>
                 <Text style={homeBudgetNudgeStyle.icon}>▮</Text>
