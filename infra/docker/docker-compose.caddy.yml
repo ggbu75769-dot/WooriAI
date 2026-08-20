@@ -1,0 +1,26 @@
+# HTTPS 리버스 프록시(Caddy) 오버레이 — docker-compose.prod.yml과 함께 사용 (REL-010)
+#   docker compose -f infra/docker/docker-compose.prod.yml -f infra/docker/docker-compose.caddy.yml \
+#     --env-file .env.production up -d
+# Caddyfile은 scripts/deploy/oracle-bootstrap.sh가 도메인에 맞춰 infra/docker/caddy/Caddyfile로 생성.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - wooriai_caddy_data:/data
+      - wooriai_caddy_config:/config
+    depends_on:
+      api:
+        condition: service_started
+
+  # HTTPS 뒤에 있으므로 API 포트는 외부 직노출 해제
+  api:
+    ports: !reset []
+
+volumes:
+  wooriai_caddy_data:
+  wooriai_caddy_config:
