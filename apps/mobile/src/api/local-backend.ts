@@ -15,9 +15,11 @@ import {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { persistStorage } from "../stores/persist-storage";
+import { categoryCatalog } from "../categories";
 import type {
   AffiliateClickResponse,
   Budget,
+  CategoryListItem,
   CategoryReport,
   ConfirmImportResponse,
   CumulativeReport,
@@ -31,6 +33,8 @@ import type {
   AcceptInviteResponse,
   ItemDetail,
   ItemSummary,
+  MilestoneReport,
+  MilestoneReportType,
   MonthlyReport,
   PrivacySettings,
   ProductLink,
@@ -41,6 +45,9 @@ import type {
 
 type ItemTab = "now" | "soon" | "prepared" | "not_needed";
 import {
+  LOCAL_CATEGORY_DETERGENT,
+  LOCAL_CATEGORY_DIAPER,
+  LOCAL_CATEGORY_FORMULA,
   LOCAL_CATEGORY_IMPORT,
   LOCAL_CHILD_ID,
   LOCAL_DAD_USER_ID,
@@ -48,6 +55,7 @@ import {
   LOCAL_USER_ID,
   localImportStubRows,
   localItemTemplateFixtures,
+  localCategoryNameKo,
   localMemberFixtures,
   localProductLinkFixtures,
   localSeedExpenses
@@ -536,6 +544,60 @@ function toBudgetDto(childId: string, yearMonth: string, amountKrw: number): Bud
 }
 
 // ---------------------------------------------------------------------------
+// Categories (CAT-101/UX-5B-EXP)
+// ---------------------------------------------------------------------------
+
+/**
+ * Server seed category codes for the local-only fixture category ids (see the seed taxonomy in
+ * src/categories.ts). The demo seed expenses (local-fixtures.ts) and the excel-import stub rows
+ * store these `LOCAL_CATEGORY_*` ids directly, so the demo category list must carry the exact
+ * same ids for the edit screen's chip preselection to match them.
+ */
+const localOnlyCategorySeeds: Array<{ id: string; code: string }> = [
+  { id: LOCAL_CATEGORY_DIAPER, code: "diaper_hygiene" },
+  { id: LOCAL_CATEGORY_FORMULA, code: "feeding_babyfood" },
+  { id: LOCAL_CATEGORY_DETERGENT, code: "clothes_laundry" },
+  { id: LOCAL_CATEGORY_IMPORT, code: "etc" }
+];
+
+/**
+ * Local-session mirror of `GET /categories` (apps/api/src/finance/categories.controller.ts;
+ * contract: listCategoriesResponseSchema in packages/contracts). Returns the union of:
+ *   1. the 8 quick-expense catalog entries (src/categories.ts) -- the ids every expense created
+ *      through the app's own UI stores, and
+ *   2. the local-only fixture categories above -- the ids the seeded demo expenses and the
+ *      excel-import flow store,
+ * so that in demo mode every expense's `categoryId` resolves to a chip on the edit screen.
+ * Sorted by displayOrder ascending, matching the real endpoint's ordering guarantee.
+ */
+export function listCategories(): { categories: CategoryListItem[] } {
+  ensureSeeded();
+  const catalogCategories: CategoryListItem[] = categoryCatalog.map((entry, index) => ({
+    id: entry.id,
+    code: entry.code,
+    name: entry.label,
+    iconName: entry.icon,
+    displayOrder: (index + 1) * 10,
+    isSystem: true,
+    active: true
+  }));
+  const localOnlyCategories: CategoryListItem[] = localOnlyCategorySeeds.map((seed, index) => ({
+    id: seed.id,
+    code: seed.code,
+    name: localCategoryNameKo[seed.id] ?? "기타",
+    iconName: null,
+    displayOrder: 900 + (index + 1) * 10,
+    isSystem: true,
+    active: true
+  }));
+  return {
+    categories: [...catalogCategories, ...localOnlyCategories].sort(
+      (left, right) => left.displayOrder - right.displayOrder
+    )
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Home / expenses / budget
 // ---------------------------------------------------------------------------
 
@@ -787,10 +849,84 @@ export function getCumulativeReport(childId: string): CumulativeReport {
   };
 }
 
-export function getCategoryReport(childId: string, yearMonth?: string): CategoryReport {
+// REP-104: mirrors the server's period filter -- yearMonth (single month), year (whole
+// year), or year+quarter; no period keeps the all-time breakdown.
+export function getCategoryReport(
+  childId: string,
+  period?: { yearMonth?: string; year?: number; quarter?: number }
+): CategoryReport {
   ensureSeeded();
-  const normalizedMonth = yearMonth ? budgetKey(yearMonth) : undefined;
-  return { childId, categories: categoryBreakdown(expensesForChild(childId, normalizedMonth)) };
+  if (period?.yearMonth) {
+    return { childId, categories: categoryBreakdown(expensesForChild(childId, budgetKey(period.yearMonth))) };
+  }
+  let expenses = expensesForChild(childId);
+  if (period?.year !== undefined) {
+    const startMonth = period.quarter === undefined ? 1 : (period.quarter - 1) * 3 + 1;
+    const endMonthExclusive = period.quarter === undefined ? 13 : startMonth + 3;
+    const startInclusive = `${period.year}-${String(startMonth).padStart(2, "0")}-01`;
+    const endExclusive =
+      endMonthExclusive > 12
+        ? `${period.year + 1}-01-01`
+        : `${period.year}-${String(endMonthExclusive).padStart(2, "0")}-01`;
+    expenses = expenses.filter((expense) => expense.spentOn >= startInclusive && expense.spentOn < endExclusive);
+  }
+  return { childId, categories: categoryBreakdown(expenses) };
+}
+
+/** Calendar-day count in [startInclusive, endExclusive), both YYYY-MM-DD strings. */
+function diffDateOnlyDays(startInclusive: string, endExclusive: string): number {
+  const [sy, sm, sd] = startInclusive.split("-").map(Number);
+  const [ey, em, ed] = endExclusive.split("-").map(Number);
+  return Math.max(0, Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86_400_000));
+}
+
+/**
+ * REP-103: local-session mirror of GET /children/:childId/reports/milestone.
+ *
+ * The demo child's birthDate is seeded ~24 months ago while the demo expenses are seeded
+ * within the last few days (local-fixtures.ts `daysAgo`), so the true milestone window
+ * [birthDate, birthDate+100d/1y) contains no fixture expenses. When that happens the
+ * aggregation falls back to every stored (non-deleted, expenseType "expense") record so
+ * the demo preview still shows a representative 100일 리포트 instead of an empty card.
+ */
+export function getMilestoneReport(childId: string, type: MilestoneReportType): MilestoneReport {
+  const child = requireChild();
+  const startDate = child.birthDate;
+  const windowEndExclusive =
+    type === "d100" ? seoulDateMinusDays(startDate, -100) : seoulDateMinusMonths(startDate, -12);
+  const today = getSeoulToday();
+  const dayAfterToday = seoulDateMinusDays(today, -1);
+  const coveredEndExclusive = windowEndExclusive < dayAfterToday ? windowEndExclusive : dayAfterToday;
+  const partial = coveredEndExclusive < windowEndExclusive;
+  const daysCovered = diffDateOnlyDays(startDate, coveredEndExclusive);
+
+  const stored = expensesForChild(childId).filter((expense) => expense.expenseType === "expense");
+  const inWindow = stored.filter((expense) => expense.spentOn >= startDate && expense.spentOn < coveredEndExclusive);
+  const aggregated = inWindow.length > 0 ? inWindow : stored;
+
+  const totalKrw = totalExpenseKrw(aggregated);
+  const categoryMetaById = new Map(listCategories().categories.map((category) => [category.id, category]));
+
+  return {
+    childId,
+    type,
+    startDate,
+    endDate: seoulDateMinusDays(windowEndExclusive, 1),
+    partial,
+    daysCovered,
+    totalKrw,
+    expenseCount: aggregated.length,
+    topCategories: categoryBreakdown(aggregated)
+      .slice(0, 5)
+      .map((entry) => ({
+        categoryId: entry.categoryId,
+        code: categoryMetaById.get(entry.categoryId)?.code ?? "etc",
+        name: categoryMetaById.get(entry.categoryId)?.name ?? localCategoryNameKo[entry.categoryId] ?? "기타",
+        totalKrw: entry.amountKrw,
+        share: totalKrw > 0 ? Math.round((entry.amountKrw / totalKrw) * 1000) / 1000 : 0
+      })),
+    avgDailyKrw: daysCovered > 0 ? Math.round(totalKrw / daysCovered) : 0
+  };
 }
 
 export function getYearlyReport(childId: string, year: number): YearlyReport {

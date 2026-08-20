@@ -45,6 +45,10 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
         );
         CREATE INDEX IF NOT EXISTS idx_mutation_outbox_target ON mutation_outbox(target_local_id);
         CREATE INDEX IF NOT EXISTS idx_mutation_outbox_created ON mutation_outbox(created_at);
+        CREATE TABLE IF NOT EXISTS sync_meta (
+          meta_key TEXT PRIMARY KEY NOT NULL,
+          meta_value TEXT NOT NULL
+        );
       `);
       return db;
     });
@@ -180,6 +184,44 @@ export function createSqliteOfflineStore(): OfflineStore {
           )
         : await db.getAllAsync<LocalExpenseSqlRow>(`SELECT * FROM local_expenses ORDER BY created_at ASC`);
       return rows.map(fromSqlLocalExpense);
+    },
+
+    async getMeta(key) {
+      const db = await getDb();
+      const row = await db.getFirstAsync<{ meta_value: string }>(
+        `SELECT meta_value FROM sync_meta WHERE meta_key = ?`,
+        key
+      );
+      return row ? row.meta_value : null;
+    },
+
+    async setMeta(key, value) {
+      const db = await getDb();
+      await db.runAsync(
+        `INSERT INTO sync_meta (meta_key, meta_value) VALUES (?, ?)
+         ON CONFLICT(meta_key) DO UPDATE SET meta_value = excluded.meta_value`,
+        key,
+        value
+      );
+    },
+
+    async deleteMeta(key) {
+      const db = await getDb();
+      await db.runAsync(`DELETE FROM sync_meta WHERE meta_key = ?`, key);
+    },
+
+    async clearAll() {
+      // PRIV-104 session teardown: all three tables in one transaction so a crash mid-wipe can
+      // never leave a half-cleared state (e.g. expenses gone but their outbox mutations still
+      // queued for the next account's flush pass).
+      const db = await getDb();
+      await db.execAsync(`
+        BEGIN;
+        DELETE FROM local_expenses;
+        DELETE FROM mutation_outbox;
+        DELETE FROM sync_meta;
+        COMMIT;
+      `);
     },
 
     async insertOutboxMutation(row) {

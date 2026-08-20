@@ -58,6 +58,17 @@ export const PRODUCT_PLATFORM_LABELS: Record<ProductPlatform, string> = {
   custom: "기타"
 };
 
+// COM-105: 워커 헬스체크 판정. null = 아직 확인 전(미확인).
+export type LinkHealthStatus = "ok" | "broken" | "unstable";
+
+export const LINK_HEALTH_LABELS: Record<LinkHealthStatus, string> = {
+  ok: "정상",
+  broken: "깨짐",
+  unstable: "불안정"
+};
+
+export const LINK_HEALTH_UNKNOWN_LABEL = "미확인";
+
 export type ProductLink = {
   id: string;
   itemTemplateId: string;
@@ -69,6 +80,9 @@ export type ProductLink = {
   isSponsored: boolean;
   disclosureText: string | null;
   active: boolean;
+  // COM-105: link_health 워커 잡이 기록한 최근 헬스체크 결과 (ISO 8601 타임스탬프).
+  healthStatus: LinkHealthStatus | null;
+  healthCheckedAt: string | null;
 };
 
 export type ItemTemplate = {
@@ -238,6 +252,47 @@ export function updateProductLink(productLinkId: string, input: ProductLinkInput
   });
 }
 
+// COM-107-prep: CSV bulk affiliate-link replacement. Admin-role-only on the
+// API side (RequireAdminRoles("admin") in product-link-bulk.controller.ts),
+// matching the direct product-link write endpoints; the links page hides the
+// panel for editor/analyst sessions. Preview never writes; apply updates only
+// valid rows and is idempotent (unchanged rows count as skipped).
+export type ProductLinkBulkPreviewRow = {
+  /** 1-based CSV line number; line 1 is the header row. */
+  rowNumber: number;
+  status: "valid" | "error";
+  matchedProductLinkId: string | null;
+  matchedTitle: string | null;
+  currentAffiliateUrl: string | null;
+  newAffiliateUrl: string | null;
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+export type ProductLinkBulkPreviewResult = {
+  rows: ProductLinkBulkPreviewRow[];
+  summary: { total: number; valid: number; errors: number };
+};
+
+export type ProductLinkBulkApplyResult = { applied: number; skipped: number; errors: number };
+
+/** CSV 템플릿 헤더: productLinkId 또는 itemTemplate(코드/이름)+platform 중 하나로 대상을 지정한다. */
+export const PRODUCT_LINK_BULK_CSV_HEADER = "productLinkId,itemTemplate,platform,affiliateUrl,priceSnapshotKrw";
+
+export function bulkPreviewProductLinks(csv: string) {
+  return request<ProductLinkBulkPreviewResult>("/admin/product-links/bulk-preview", {
+    method: "POST",
+    body: JSON.stringify({ csv })
+  });
+}
+
+export function bulkApplyProductLinks(csv: string) {
+  return request<ProductLinkBulkApplyResult>("/admin/product-links/bulk-apply", {
+    method: "POST",
+    body: JSON.stringify({ csv })
+  });
+}
+
 export function listDisclosures() {
   return request<{ disclosures: Disclosure[] }>("/admin/disclosures");
 }
@@ -259,7 +314,15 @@ export function isAuthError(error: unknown): boolean {
   return error instanceof AdminApiError && error.status === 401;
 }
 
-export type AdminProfile = { id: string; email: string; displayName: string; role: "admin" | "editor" | "analyst" };
+export type AdminRole = "admin" | "editor" | "analyst";
+export const ADMIN_ROLES: AdminRole[] = ["admin", "editor", "analyst"];
+export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = {
+  admin: "관리자",
+  editor: "편집자",
+  analyst: "분석가"
+};
+
+export type AdminProfile = { id: string; email: string; displayName: string; role: AdminRole };
 
 export type AdminLoginResult =
   | { mfaRequired: true; mfaToken: string; expiresIn: number }
@@ -282,6 +345,18 @@ export function adminMe() {
 
 export function adminLogout() {
   return request<{ success: true }>("/admin/auth/logout", { method: "POST" });
+}
+
+/** ADM-007: change the logged-in admin's own password. MFA-exempt on the API
+ * side (same precedent as mfa/setup) so a freshly created admin can rotate the
+ * one-time temp password from POST /admin/users before enrolling MFA. On
+ * success the API revokes every OTHER session of the admin; the session that
+ * performed the change stays valid. */
+export function adminChangePassword(currentPassword: string, newPassword: string) {
+  return request<{ success: true }>("/admin/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
 }
 
 export function adminMfaSetupStart() {
@@ -381,6 +456,61 @@ export function rejectContentRevision(id: string, note: string) {
 
 export function rollbackContentRevision(id: string) {
   return request<ContentRevision>(`/admin/content-revisions/${id}/rollback`, { method: "POST" });
+}
+
+/** COM-103b: set (ISO timestamp, must be in the future) or clear (null) the
+ * scheduled-publish time on an in_review revision. Admin-only on the API side,
+ * with the same author/approver separation as approve-publish — scheduling is
+ * a publish decision. The actual publish is performed by the background worker
+ * (a process started with WORKER_ENABLED=1) once the time arrives. */
+export function scheduleContentRevision(id: string, scheduledFor: string | null) {
+  return request<ContentRevision>(`/admin/content-revisions/${id}/schedule`, {
+    method: "PATCH",
+    body: JSON.stringify({ scheduledFor })
+  });
+}
+
+// ADM-006: admin account management. Every endpoint is admin-role-only on the
+// API side (RequireAdminRoles("admin") in admin-users.controller.ts); the
+// frontend additionally hides the page/nav for editor/analyst sessions (see
+// app/users/page.tsx and AdminShell.tsx).
+export type AdminUserAccount = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: AdminRole;
+  active: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+};
+
+export type AdminUserCreateInput = { email: string; role: AdminRole; displayName?: string };
+export type AdminUserUpdateInput = { role?: AdminRole; active?: boolean };
+
+export function listAdminUsers() {
+  return request<{ adminUsers: AdminUserAccount[] }>("/admin/users");
+}
+
+/** The `tempPassword` in this response is shown EXACTLY ONCE by the API and can
+ * never be retrieved again — render it immediately, never persist it anywhere. */
+export function createAdminUser(input: AdminUserCreateInput) {
+  return request<{ admin: AdminUserAccount; tempPassword: string }>("/admin/users", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function updateAdminUser(adminUserId: string, input: AdminUserUpdateInput) {
+  return request<{ admin: AdminUserAccount }>(`/admin/users/${adminUserId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+/** ADM-006: the API 403s an admin demoting or deactivating their own account
+ * (last-admin lockout prevention) with this dedicated code. */
+export function isSelfUpdateForbiddenError(error: unknown): boolean {
+  return error instanceof AdminApiError && error.code === "ADMIN_SELF_UPDATE_FORBIDDEN";
 }
 
 /** Convenience: draft-create then immediately submit for review, the shape

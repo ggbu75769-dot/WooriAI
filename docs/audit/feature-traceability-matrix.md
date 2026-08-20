@@ -2,6 +2,12 @@
 
 작성: 2026-07-12 · 브랜치: codex/source-audit-standalone-apk
 
+> **⚠️ 2026-08-14 갱신 주의**: 이 매트릭스는 라운드 4 이전 시점 기준이며 일부 행이 stale합니다.
+> 특히 ADM 행의 "PARTIAL(토큰 인증, 인메모리)"은 현행과 다릅니다 — 라운드 4에서 PostgreSQL/Prisma로
+> 전환됐고, 라운드 5A에서 관리자 인증이 세션 쿠키 + CSRF + TOTP MFA로 교체됐으며(레거시 x-admin-token은
+> dev/test 전용 fail-closed), Round 5B에서 관리자 계정 관리 API/UI(ADM-006)가 추가됐습니다.
+> 현행 전체 기능 상태는 `docs/5차/round5b-feature-review-and-sellable-design.md` §1을 기준으로 보십시오.
+
 상태 범례: **COMPLETE**(실저장·예외처리 완료) / **PARTIAL**(일부 동작) / **STUB**(의도된 개발 스텁) / **DEMO**(픽셀락 고정 데모 데이터). 검증: APK(에뮬레이터 런타임) / TEST(자동) / SRC(소스) / UNVERIFIED.
 
 | 기능 ID | 화면 | 요구사항 | 구현 파일 | API | DB/저장 | 테스트 | 상태 | 검증 | 외부 의존 |

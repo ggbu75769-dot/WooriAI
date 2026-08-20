@@ -1,27 +1,29 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
-import { Text } from "react-native";
 import { BottomTabPixelStyles } from "../../src/pixelLock/styles";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 
-// D1 (docs/5차/round5a-design-spec.md §D1): one unified icon family, each tab an
-// outlined/filled glyph pair from the same geometric-shape set (consistent stroke weight and
-// proportion across all 5 tabs, replacing the previous mismatched one-off glyphs). Inactive tabs
-// render the outlined glyph; the active tab renders the filled glyph tinted coral-500.
+// D1 (docs/5차/round5a-design-spec.md §D1) + UX-5B-4: one unified icon family, each tab an
+// outlined/filled Ionicons pair (consistent stroke weight and proportion across all 5 tabs,
+// replacing the previous text glyphs ○●□■☆★◇◆). Inactive tabs render the outlined variant;
+// the active tab renders the filled variant tinted coral-500.
 const tabs = {
-  index: { title: "홈", outline: "○", filled: "●" },
-  records: { title: "기록", outline: "□", filled: "■" },
-  items: { title: "준비템", outline: "☆", filled: "★" },
-  reports: { title: "리포트", outline: "◇", filled: "◆" },
-  more: { title: "더보기", outline: "△", filled: "▲" }
+  index: { title: "홈", outline: "home-outline", filled: "home" },
+  records: { title: "기록", outline: "receipt-outline", filled: "receipt" },
+  items: { title: "준비템", outline: "cube-outline", filled: "cube" },
+  reports: { title: "리포트", outline: "bar-chart-outline", filled: "bar-chart" },
+  more: { title: "더보기", outline: "menu-outline", filled: "menu" }
 } as const;
 
 function icon(name: keyof typeof tabs, focused: boolean) {
   return (
-    <Text style={{ color: focused ? theme.colors.coral[500] : theme.colors.gray600, fontSize: BottomTabPixelStyles.iconSize }}>
-      {focused ? tabs[name].filled : tabs[name].outline}
-    </Text>
+    <Ionicons
+      color={focused ? theme.colors.coral[500] : theme.colors.gray600}
+      name={focused ? tabs[name].filled : tabs[name].outline}
+      size={BottomTabPixelStyles.iconSize}
+    />
   );
 }
 

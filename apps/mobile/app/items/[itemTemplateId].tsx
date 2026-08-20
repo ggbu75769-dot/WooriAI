@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image, Linking, Pressable, Share, Text, View } from "react-native";
-import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ProductLink } from "../../src/api/client";
+// Platform is imported separately: items-commerce-flow.test.ts (COM-106) pins the exact
+// react-native import line above.
+import { Platform } from "react-native";
+import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
+import { buildAffiliateLinkClickedPayload, buildItemStatusChangedPayload } from "../../src/analytics/events";
+import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
+import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -160,12 +166,38 @@ export default function ItemDetailScreen() {
     queryFn: () => getItemDetail(authToken!, childId!, itemTemplateId)
   });
 
+  // ANA-103: item_status_changed fires only after the server confirmed a status change (both
+  // the 찜하기/찜해제 toggle and "이미 준비로 표시"). The payload carries only the coarse
+  // category enum (derived on-device from the item name, which itself never leaves the device
+  // -- src/analytics/events.ts) and the new status. A no-op without ANA-102 consent.
+  const trackItemStatusChanged = (status: ItemStatus) => {
+    trackAndFlushAnalyticsEvent(authToken, {
+      eventName: "item_status_changed",
+      payload: buildItemStatusChangedPayload({ itemName: detail.data?.name ?? "", status }),
+      platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+    });
+  };
+
   const markPrepared = useMutation({
     mutationFn: () => updateItemStatus(authToken!, childId!, itemTemplateId, "prepared"),
     onSuccess: async () => {
+      trackItemStatusChanged("prepared");
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
       router.replace("/(tabs)/items");
+    }
+  });
+
+  // UX-5B-2: 장바구니 스텁 대신 찜하기/찜해제 토글 -- 서버가 실제로 저장하는 'interested'
+  // 상태를 items 탭과 같은 status PATCH로 기록한다. 찜해제는 'not_prepared'로 되돌린다.
+  const toggleInterested = useMutation({
+    mutationFn: (status: "interested" | "not_prepared") =>
+      updateItemStatus(authToken!, childId!, itemTemplateId, status),
+    onSuccess: async (_data, status) => {
+      trackItemStatusChanged(status);
+      await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
+      await queryClient.invalidateQueries({ queryKey: ["items"] });
+      await queryClient.invalidateQueries({ queryKey: ["home"] });
     }
   });
 
@@ -230,9 +262,29 @@ export default function ItemDetailScreen() {
   }
 
   const visibleDetail = hasSession ? detail.data! : previewDetail(itemTemplateId);
+  const isInterested = visibleDetail.status === "interested";
   const canCallLinkApi = hasSession;
   const handleProductLinkPress = (link: ProductLink) => {
     if (canCallLinkApi) {
+      // ANA-103: affiliate_link_clicked fires on the press itself (the comparison rows and the
+      // purchase CTA both funnel through here), alongside the server-side click record
+      // (clickProductLink). The payload carries only the platform + screen enums -- never the
+      // link URL, title or id. A no-op without ANA-102 consent (src/analytics/flag.ts).
+      trackAndFlushAnalyticsEvent(authToken, {
+        eventName: "affiliate_link_clicked",
+        payload: buildAffiliateLinkClickedPayload({ platform: link.platform, screenId: "item_detail" }),
+        platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+      });
+      // COM-108: remember this click as a "pending purchase check" so the app can ask
+      // 『…』 구매하셨나요? on the next foreground return / cold start (3min–24h window) --
+      // see src/commerce/purchase-followup.store.ts + PurchaseFollowupPrompt.tsx.
+      usePurchaseFollowupStore.getState().recordLinkClick({
+        itemTemplateId,
+        itemName: visibleDetail.name,
+        childId: childId!,
+        priceBandText: visibleDetail.priceBandText ?? undefined,
+        clickedAt: Date.now()
+      });
       clickLink.mutate(link.id);
       return;
     }
@@ -245,7 +297,9 @@ export default function ItemDetailScreen() {
         <View style={productDetailFrameStyle()}>
           <ProductDetailNavigation
             onShare={() => {
-              void Share.share({ message: `${visibleDetail.name} · ${visibleDetail.priceBandText}` });
+              void Share.share({
+                message: visibleDetail.priceBandText ? `${visibleDetail.name} · ${visibleDetail.priceBandText}` : visibleDetail.name
+              });
             }}
           />
           <View accessibilityLabel={productDetailScreenId} style={productDetailHeaderSpacerStyle} />
@@ -256,19 +310,11 @@ export default function ItemDetailScreen() {
 
           <Card style={productDetailInfoCardStyle()}>
             <Text style={{ color: theme.colors.brown, fontSize: 21, fontWeight: "800" }}>{visibleDetail.name}</Text>
-            {hasSession ? null : (
-              <Text style={{ color: theme.colors.warning, fontSize: 13, fontWeight: "800" }}>★ 4.8 (2,154)</Text>
-            )}
-            {hasSession ? (
-              <Text style={{ color: theme.colors.gray900, fontSize: 26, fontWeight: "800" }}>
-                {visibleDetail.priceBandText ?? "가격 정보 확인 중"}
-              </Text>
-            ) : (
-              <>
-                <Text style={{ color: theme.colors.gray900, fontSize: 26, fontWeight: "800" }}>42,900원</Text>
-                <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>최저가 {visibleDetail.priceBandText}</Text>
-              </>
-            )}
+            {/* UX-5B-1: 별점·최저가 등 API에 없는 가짜 수치는 렌더하지 않는다 -- 실제 응답의
+                가격대(priceBandText)만 보여주고, 없으면 아무것도 표시하지 않는다. */}
+            {visibleDetail.priceBandText ? (
+              <Text style={{ color: theme.colors.gray900, fontSize: 26, fontWeight: "800" }}>{visibleDetail.priceBandText}</Text>
+            ) : null}
 
             <View style={{ borderBottomColor: theme.colors.gray300, borderBottomWidth: 1, flexDirection: "row", gap: 28, paddingTop: 8 }}>
               <Text style={{ borderBottomColor: theme.colors.gray900, borderBottomWidth: 2, color: theme.colors.brown, fontSize: 13, fontWeight: "800", paddingBottom: 9 }}>
@@ -283,17 +329,10 @@ export default function ItemDetailScreen() {
                   <StatusBadge label={marker(link)} tone={link.isSponsored ? "warning" : "neutral"} />
                   <Text style={{ color: theme.colors.gray600, flex: 1, fontSize: 11 }}>{link.isSponsored ? "광고/스폰서" : "제휴 링크"}</Text>
                 </View>
+                {/* UX-5B-1: 링크별 가짜 판매가 대신, API가 주는 가격대만 표시 (없으면 빈칸). */}
                 <ProductComparisonRow
                   seller={link.title}
-                  price={
-                    hasSession
-                      ? visibleDetail.priceBandText ?? "가격 정보 확인 중"
-                      : link.title === "우리아이몰"
-                        ? "42,900원"
-                        : link.title === "네이처 공식몰"
-                          ? "44,900원"
-                          : "45,900원"
-                  }
+                  price={visibleDetail.priceBandText ?? ""}
                   onPress={() => handleProductLinkPress(link)}
                 />
               </View>
@@ -318,7 +357,12 @@ export default function ItemDetailScreen() {
 
           <AffiliateDisclosure text={visibleDetail.productLinks[0]?.disclosureText} />
           <View style={{ flexDirection: "row", gap: 10 }}>
-            <SecondaryButton label="장바구니 담기" onPress={() => setClickedTitle("장바구니에 담아두었어요.")} style={{ flex: 1 }} />
+            <SecondaryButton
+              disabled={!hasSession || toggleInterested.isPending}
+              label={isInterested ? "찜해제" : "찜하기"}
+              onPress={() => toggleInterested.mutate(isInterested ? "not_prepared" : "interested")}
+              style={{ flex: 1 }}
+            />
             <PrimaryButton
               label="바로 구매하기"
               onPress={() => {

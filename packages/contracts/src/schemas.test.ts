@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   childSchema,
   createExpenseRequestSchema,
+  listCategoriesResponseSchema,
   expenseSchema,
   homeMonthlyBudgetSchema,
   homeSummarySchema,
@@ -165,6 +166,49 @@ describe("shared contract schemas", () => {
         validationStatus: "ready"
       }).selected
     ).toBe(false);
+  });
+
+  // CAT-101: GET /categories 응답 계약.
+  it("validates the categories list contract including nullable iconName and display order", () => {
+    const parsed = listCategoriesResponseSchema.parse({
+      categories: [
+        {
+          id: "77777777-7777-4777-8777-777777777777",
+          code: "diaper_hygiene",
+          name: "기저귀/위생",
+          iconName: "diaper",
+          displayOrder: 40,
+          isSystem: true,
+          active: true
+        },
+        {
+          id: "88888888-8888-4888-8888-888888888888",
+          code: "etc",
+          name: "기타",
+          iconName: null,
+          displayOrder: 999,
+          isSystem: false,
+          active: true
+        }
+      ]
+    });
+    expect(parsed.categories).toHaveLength(2);
+    expect(parsed.categories[1].iconName).toBeNull();
+
+    expect(() =>
+      listCategoriesResponseSchema.parse({
+        categories: [
+          {
+            id: "not-a-uuid",
+            code: "diaper_hygiene",
+            name: "기저귀/위생",
+            displayOrder: 40,
+            isSystem: true,
+            active: true
+          }
+        ]
+      })
+    ).toThrow();
   });
 
   it("requires all 12 months in the yearly report contract", () => {

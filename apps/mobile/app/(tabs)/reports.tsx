@@ -1,13 +1,24 @@
 import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { getCategoryReport, getCumulativeReport, getMonthlyReport, getYearlyReport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import {
+  getCategoryReport,
+  getCumulativeReport,
+  getHome,
+  getMilestoneReport,
+  getMonthlyReport,
+  getYearlyReport,
+  LOCAL_SESSION_TOKEN
+} from "../../src/api/client";
 import { categoryNameFor } from "../../src/categories";
+import { formatKrw } from "../../src/money";
+import { buildMilestoneShareMessage } from "../../src/reports/milestone-share";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
+import { SkeletonCard } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 import { ReportPixelStyles } from "../../src/pixelLock/styles";
 
@@ -24,14 +35,6 @@ function reportReferenceScaleFrameStyle() {
       { scale: ReportPixelStyles.scale }
     ]
   } as const;
-}
-
-function formatKrw(value: number) {
-  return `₩${value.toLocaleString("ko-KR")}`;
-}
-
-function formatWon(value: number) {
-  return `${value.toLocaleString("ko-KR")}원`;
 }
 
 function addMonths(date: Date, months: number) {
@@ -100,20 +103,20 @@ export default function ReportsScreen() {
     enabled: Boolean(authToken && childId),
     queryFn: () => getCumulativeReport(authToken!, childId!)
   });
-  // 분기/연간 탭은 기간 파라미터 없이 전체 기간 카테고리 비중을 그대로 보여준다.
-  const category = useQuery({
-    queryKey: ["report", "category", childId],
-    enabled: Boolean(authToken && childId && period !== "월간"),
-    queryFn: () => getCategoryReport(authToken!, childId!)
+  // REP-104: 카테고리 비중도 선택된 기간을 그대로 따른다 -- 월간은 yearMonth, 분기는
+  // year+quarter, 연간은 year 필터로 서버(및 로컬 데모 백엔드)가 해당 기간만 집계한다.
+  const categoryPeriod =
+    period === "월간"
+      ? { yearMonth: reportYearMonth }
+      : period === "분기"
+        ? { year: quarterStart.getFullYear(), quarter: Math.floor(quarterStart.getMonth() / 3) + 1 }
+        : { year: yearStart.getFullYear() };
+  const activeCategory = useQuery({
+    queryKey: ["report", "category", childId, categoryPeriod],
+    enabled: Boolean(authToken && childId),
+    queryFn: () => getCategoryReport(authToken!, childId!, categoryPeriod)
   });
-  // 월간 탭은 선택된 월의 카테고리 비중만 보여준다 (서버가 yearMonth 필터를 지원).
-  const monthlyCategory = useQuery({
-    queryKey: ["report", "category", childId, reportYearMonth],
-    enabled: Boolean(authToken && childId && period === "월간"),
-    queryFn: () => getCategoryReport(authToken!, childId!, reportYearMonth)
-  });
-  const activeCategory = period === "월간" ? monthlyCategory : category;
-  const categoryCardTitle = period === "월간" ? `${reportDate.getMonth() + 1}월 카테고리 비중` : "전체 기간 카테고리 비중";
+  const categoryCardTitle = period === "월간" ? `${reportDate.getMonth() + 1}월 카테고리 비중` : `${periodLabel} 카테고리 비중`;
   const quarterQueries = useQueries({
     queries: quarterMonths.map((date) => {
       const ym = yearMonthOf(date);
@@ -129,6 +132,37 @@ export default function ReportsScreen() {
     enabled: Boolean(authToken && childId && period === "연간"),
     queryFn: () => getYearlyReport(authToken!, childId!, yearStart.getFullYear())
   });
+
+  // REP-103: 100일 비용 리포트 for the 누적 section. The server answers 400
+  // MILESTONE_UNAVAILABLE for a child without a birthDate (pregnant/manual stage), so an
+  // error simply hides the card instead of surfacing a retry UI -- retry: false keeps that
+  // expected 400 from being re-fetched. A birthDate under 100 days ago comes back as a
+  // partial window (partial: true + daysCovered) and still shows the card. Demo (local
+  // test) sessions are served by the local backend's fixture-based milestone report.
+  const milestone = useQuery({
+    queryKey: ["report", "milestone", childId, "d100"],
+    enabled: Boolean(authToken && childId),
+    retry: false,
+    queryFn: () => getMilestoneReport(authToken!, childId!, "d100")
+  });
+  // Shares the home screen's query cache entry -- only used for the child nickname in the
+  // milestone share message.
+  const home = useQuery({
+    queryKey: ["home", childId],
+    enabled: Boolean(authToken && childId),
+    queryFn: () => getHome(authToken!, childId!)
+  });
+  const milestoneReport = milestone.data;
+  const milestoneTopCategory = milestoneReport?.topCategories[0];
+  const milestoneChildName = home.data?.child.nickname ?? "우리 아이";
+  const shareMilestoneReport = async () => {
+    if (!milestoneReport) return;
+    try {
+      await Share.share({ message: buildMilestoneShareMessage(milestoneReport, milestoneChildName) });
+    } catch {
+      // Share sheet dismissed/unavailable -- nothing to recover.
+    }
+  };
 
   // Trailing 6 months (current month included) feeding the 월간 tab's line chart, following
   // the same useQueries pattern as quarterQueries above.
@@ -251,7 +285,11 @@ export default function ReportsScreen() {
               </Card>
             </>
           ) : activeIsLoading ? (
-            <EmptyStateCard title="리포트를 불러오고 있어요." actionLabel="잠시만요" />
+            // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
+            <>
+              <SkeletonCard />
+              <SkeletonCard />
+            </>
           ) : activeIsError ? (
             <EmptyStateCard
               title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
@@ -263,7 +301,7 @@ export default function ReportsScreen() {
               <LineChartCard title="총 지출" value={formatKrw(activeTotal ?? 0)} deltaLabel={deltaLabel} points={activePoints} />
 
               {activeCategory.isLoading ? (
-                <EmptyStateCard title="카테고리 정보를 불러오고 있어요." actionLabel="잠시만요" />
+                <SkeletonCard />
               ) : activeCategory.isError ? (
                 <EmptyStateCard
                   title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
@@ -277,8 +315,7 @@ export default function ReportsScreen() {
                   onPress={() => router.push("/expenses/new")}
                 />
               ) : (
-                // 월간 탭은 getCategoryReport에 yearMonth를 전달해 해당 월만 집계하고,
-                // 분기/연간 탭은 기간 파라미터 없이 전체 기간 비중을 그대로 보여준다.
+                // 월간/분기/연간 모두 categoryPeriod로 해당 기간만 집계한 비중을 보여준다 (REP-104).
                 <DonutChartCard title={categoryCardTitle} segments={categorySegments} />
               )}
 
@@ -287,19 +324,19 @@ export default function ReportsScreen() {
                   <Text style={reportReferenceTipTitleStyle}>이번 달 절약 팁</Text>
                   {tipDeltaKrw !== null && tipDeltaKrw > 0 ? (
                     <>
-                      <Text style={reportReferenceTipBodyStyle}>지난 달보다 {formatWon(tipDeltaKrw)}을 절약했어요!</Text>
+                      <Text style={reportReferenceTipBodyStyle}>지난 달보다 {formatKrw(tipDeltaKrw)}을 절약했어요!</Text>
                       <Text style={reportReferenceTipBodyStyle}>절약 습관 최고예요!</Text>
                     </>
                   ) : (
                     <Text style={reportReferenceTipBodyStyle}>
-                      지난 달보다 {formatWon(Math.abs(tipDeltaKrw ?? 0))} 더 썼어요. 다음 구매 전에 같이 확인해 볼까요?
+                      지난 달보다 {formatKrw(Math.abs(tipDeltaKrw ?? 0))} 더 썼어요. 다음 구매 전에 같이 확인해 볼까요?
                     </Text>
                   )}
                 </Card>
               ) : null}
 
               {cumulative.isLoading ? (
-                <EmptyStateCard title="누적 기록을 불러오고 있어요." actionLabel="잠시만요" />
+                <SkeletonCard />
               ) : cumulative.isError ? (
                 <EmptyStateCard
                   title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
@@ -310,6 +347,30 @@ export default function ReportsScreen() {
                 <Card style={reportReferenceMemoryCardStyle}>
                   <Text style={reportReferenceMemoryTitleStyle}>오늘도 소중한 하루였어요</Text>
                   <Text style={reportReferenceMemoryBodyStyle}>누적 기록 {formatKrw(cumulative.data.totalExpenseKrw)}</Text>
+                </Card>
+              ) : null}
+
+              {/* REP-103: 100일 비용 리포트 카드 -- 생년월일 없는 아이(400 MILESTONE_UNAVAILABLE)는 숨김,
+                  100일 미만이면 partial 상태로 지금까지의 기록을 보여준다. */}
+              {milestone.isSuccess && milestoneReport ? (
+                <Card style={reportMilestoneCardStyle}>
+                  <Text style={reportReferenceMemoryTitleStyle}>100일 리포트</Text>
+                  <Text style={reportReferenceMemoryBodyStyle}>
+                    {milestoneReport.partial
+                      ? `태어나서 ${milestoneReport.daysCovered}일째 기록 중 · ${formatKrw(milestoneReport.totalKrw)}`
+                      : `태어나서 100일 동안 ${formatKrw(milestoneReport.totalKrw)}`}
+                  </Text>
+                  {milestoneTopCategory ? (
+                    <Text style={reportReferenceMemoryBodyStyle}>가장 많이 든 건 {milestoneTopCategory.name} 💛</Text>
+                  ) : null}
+                  <Pressable
+                    accessibilityLabel="100일 리포트 공유하기"
+                    accessibilityRole="button"
+                    onPress={shareMilestoneReport}
+                    style={reportMilestoneShareButtonStyle}
+                  >
+                    <Text style={reportMilestoneShareButtonTextStyle}>공유하기</Text>
+                  </Pressable>
                 </Card>
               ) : null}
             </>
@@ -389,6 +450,31 @@ const reportReferenceMemoryTitleStyle = {
   fontSize: 18,
   fontWeight: "800",
   lineHeight: 24
+} as const;
+
+const reportMilestoneCardStyle = StyleSheet.flatten([
+  {
+    backgroundColor: theme.colors.peach,
+    gap: 8,
+    paddingVertical: 18
+  }
+]);
+
+const reportMilestoneShareButtonStyle = {
+  alignItems: "center",
+  alignSelf: "flex-start",
+  backgroundColor: theme.colors.brown,
+  borderRadius: 999,
+  marginTop: 4,
+  paddingHorizontal: 18,
+  paddingVertical: 8
+} as const;
+
+const reportMilestoneShareButtonTextStyle = {
+  color: theme.colors.white,
+  fontSize: 14,
+  fontWeight: "800",
+  lineHeight: 20
 } as const;
 
 const reportReferenceMemoryBodyStyle = {

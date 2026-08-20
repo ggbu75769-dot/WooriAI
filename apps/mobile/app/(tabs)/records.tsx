@@ -5,18 +5,16 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
+import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 import { subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader, StatusBadge, Toast } from "../../src/ui";
+import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
 const recordsScreenId = "EXP-004";
-
-function formatKrw(value: number) {
-  return `${value.toLocaleString("ko-KR")}원`;
-}
 
 function formatSpentOn(spentOn: string) {
   const parts = spentOn.split("-");
@@ -182,7 +180,13 @@ export default function RecordsScreen() {
         </ScrollView>
 
         {expenses.isLoading ? (
-          <EmptyStateCard title="기록을 불러오고 있어요." actionLabel="잠시만요" />
+          // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
+          <View style={{ gap: theme.spacing.gap }}>
+            <SkeletonCard />
+            <SkeletonRow />
+            <SkeletonRow />
+            <SkeletonRow />
+          </View>
         ) : expenses.isError ? (
           <EmptyStateCard
             title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."

@@ -78,6 +78,7 @@
 .field input[type="text"],
 .field input[type="number"],
 .field input[type="url"],
+.field input[type="email"],
 .field select,
 .field textarea {
   border: 1px solid #e0d9cf;
@@ -193,6 +194,33 @@
   color: #7a7a7a;
   font-size: 14px;
   padding: 16px 0;
+}
+
+/* ADM-006: one-time temp-password callout on the admin accounts page. */
+.calloutWarning {
+  background: #fff4e5;
+  border: 1px solid #ff8a3d;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+
+.calloutWarning strong {
+  color: #a15a1e;
+  font-size: 13px;
+}
+
+.calloutCode {
+  background: #ffffff;
+  border: 1px dashed #e0d9cf;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  padding: 10px 12px;
+  user-select: all;
+  word-break: break-all;
 }
 
 .retryButton {

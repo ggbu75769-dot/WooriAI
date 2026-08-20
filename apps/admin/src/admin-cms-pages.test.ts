@@ -98,6 +98,27 @@ describe("Admin CMS product links page", () => {
     expect(source).toContain("updateProductLink");
     expect(source).toContain("isHttpUrl");
   });
+
+  // COM-105: link_health 워커 잡이 기록한 헬스체크 결과를 링크 목록에 배지로 노출한다.
+  it("renders a per-link health badge (정상/깨짐/불안정/미확인) with a relative checked-at time", () => {
+    const source = readSource("app/links/page.tsx");
+    expect(source).toContain("link.healthStatus");
+    expect(source).toContain("link.healthCheckedAt");
+    expect(source).toContain("healthBadgeClass");
+    expect(source).toContain("formatRelativeTime");
+    expect(source).toContain("링크 상태");
+    // 미확인(아직 검사 전) 라벨은 admin-api의 상수로 렌더링한다.
+    expect(source).toContain("LINK_HEALTH_UNKNOWN_LABEL");
+
+    const api = readSource("src/lib/admin-api.ts");
+    expect(api).toContain("LINK_HEALTH_LABELS");
+    expect(api).toContain("정상");
+    expect(api).toContain("깨짐");
+    expect(api).toContain("불안정");
+    expect(api).toContain("미확인");
+    expect(api).toContain("healthStatus: LinkHealthStatus | null");
+    expect(api).toContain("healthCheckedAt: string | null");
+  });
 });
 
 describe("Admin CMS disclosures page", () => {

@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
-import { getExpense, LOCAL_SESSION_TOKEN } from "../../src/api/client";
-import { categoryCatalog } from "../../src/categories";
+import { getExpense, listCategories, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { categoryCatalog, categoryNameFor } from "../../src/categories";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -76,6 +76,15 @@ export default function ExpenseDetailScreen() {
     enabled: Boolean(authToken && expenseId),
     queryFn: () => getExpense(authToken!, expenseId)
   });
+  // CAT-101/UX-5B-EXP: server-backed category list for the chip row (demo fixture categories in
+  // a local test session -- see client.ts's listCategories). Categories are seed data that
+  // changes rarely, so a generous staleTime avoids refetching on every edit-screen visit.
+  const categories = useQuery({
+    queryKey: ["categories"],
+    enabled: Boolean(authToken),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => listCategories(authToken!)
+  });
   const [itemName, setItemName] = useState("");
   const [amountDigits, setAmountDigits] = useState("");
   const [memo, setMemo] = useState("");
@@ -106,6 +115,22 @@ export default function ExpenseDetailScreen() {
     setLocalExpenseId(null);
     void adoptServerExpense(expense.data).then((row) => setLocalExpenseId(row.localId));
   }, [expense.data]);
+
+  // Chip row source: the fetched category list when available; otherwise (query still loading,
+  // or failing -- e.g. an offline real session) the static quick-expense catalog, so the row
+  // never disappears and offline/preview editing keeps working. If the expense's current
+  // categoryId isn't in whichever list is showing (legacy/inactive/demo-seed id), a chip for it
+  // is prepended so preselection always has something to highlight and re-selecting it stays
+  // possible.
+  const fetchedCategories = categories.data?.categories ?? [];
+  const baseCategoryChips =
+    fetchedCategories.length > 0
+      ? fetchedCategories.map((category) => ({ id: category.id, label: category.name }))
+      : categoryCatalog.map((category) => ({ id: category.id, label: `${category.icon} ${category.label}` }));
+  const categoryChips =
+    categoryId && !baseCategoryChips.some((chip) => chip.id === categoryId)
+      ? [{ id: categoryId, label: categoryNameFor(categoryId) }, ...baseCategoryChips]
+      : baseCategoryChips;
 
   const amountKrw = Number(amountDigits || "0");
   const itemNameError = itemName.trim().length === 0 ? "품목을 입력해 주세요." : null;
@@ -314,12 +339,12 @@ export default function ExpenseDetailScreen() {
                   카테고리
                 </Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                  {categoryCatalog.map((category) => (
+                  {categoryChips.map((chip) => (
                     <CategoryChip
-                      key={category.id}
-                      label={`${category.icon} ${category.label}`}
-                      selected={category.id === categoryId}
-                      onPress={() => setCategoryId(category.id)}
+                      key={chip.id}
+                      label={chip.label}
+                      selected={chip.id === categoryId}
+                      onPress={() => setCategoryId(chip.id)}
                     />
                   ))}
                 </ScrollView>

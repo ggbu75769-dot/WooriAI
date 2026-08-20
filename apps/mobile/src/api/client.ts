@@ -103,6 +103,22 @@ export type HomeSummary = {
   recentExpenses: Expense[];
 };
 
+/**
+ * CAT-101/UX-5B-EXP: one entry of `GET /categories`. Hand-declared mirror of
+ * `categoryListItemSchema` in packages/contracts/src/schemas.ts -- this file declares all of its
+ * response types locally (the mobile app does not depend on @wooriai/contracts), so this type
+ * follows the same convention as Expense/Budget/etc. above.
+ */
+export type CategoryListItem = {
+  id: string;
+  code: string;
+  name: string;
+  iconName?: string | null;
+  displayOrder: number;
+  isSystem: boolean;
+  active: boolean;
+};
+
 export type MonthlyReport = {
   childId: string;
   yearMonth: string;
@@ -527,6 +543,17 @@ export function getHome(token: string, childId: string) {
   return requestJson<HomeSummary>(`/home?childId=${childId}`, { token });
 }
 
+/**
+ * CAT-101/UX-5B-EXP: active seed categories (displayOrder ascending) for the expense edit
+ * screen's category chip row -- see apps/api/src/finance/categories.controller.ts. A local test
+ * session serves the demo fixture categories instead, whose ids match what the local backend's
+ * own expenses use (see localBackend.listCategories).
+ */
+export function listCategories(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listCategories());
+  return requestJson<{ categories: CategoryListItem[] }>("/categories", { token });
+}
+
 export function createExpense(
   token: string,
   childId: string,
@@ -788,15 +815,50 @@ export function getCumulativeReport(token: string, childId: string) {
   return requestJson<CumulativeReport>(`/children/${childId}/reports/cumulative`, { token });
 }
 
-export function getCategoryReport(token: string, childId: string, yearMonth?: string) {
-  if (isLocalToken(token)) return local(() => localBackend.getCategoryReport(childId, yearMonth));
-  const query = yearMonth ? `?yearMonth=${yearMonth}` : "";
+export function getCategoryReport(
+  token: string,
+  childId: string,
+  // REP-104: string keeps the legacy yearMonth-only call shape; the object form scopes the
+  // breakdown to a month, whole year, or year+quarter to match the reports screen's selector.
+  period?: string | { yearMonth?: string; year?: number; quarter?: number }
+) {
+  const normalizedPeriod = typeof period === "string" ? { yearMonth: period } : period;
+  if (isLocalToken(token)) return local(() => localBackend.getCategoryReport(childId, normalizedPeriod));
+  const params = [
+    normalizedPeriod?.yearMonth ? `yearMonth=${normalizedPeriod.yearMonth}` : null,
+    normalizedPeriod?.year !== undefined ? `year=${normalizedPeriod.year}` : null,
+    normalizedPeriod?.quarter !== undefined ? `quarter=${normalizedPeriod.quarter}` : null
+  ].filter(Boolean);
+  const query = params.length > 0 ? `?${params.join("&")}` : "";
   return requestJson<CategoryReport>(`/children/${childId}/reports/category${query}`, { token });
 }
 
 export function getYearlyReport(token: string, childId: string, year: number) {
   if (isLocalToken(token)) return local(() => localBackend.getYearlyReport(childId, year));
   return requestJson<YearlyReport>(`/children/${childId}/reports/yearly?year=${year}`, { token });
+}
+
+/** REP-103: 100일(d100)/첫돌(first-birthday) milestone cost report. */
+export type MilestoneReportType = "d100" | "first-birthday";
+
+export type MilestoneReport = {
+  childId: string;
+  type: MilestoneReportType;
+  startDate: string;
+  /** Last day inside the milestone window (inclusive). */
+  endDate: string;
+  /** True while today is still before the window's end; totals then cover only [startDate, today]. */
+  partial: boolean;
+  daysCovered: number;
+  totalKrw: number;
+  expenseCount: number;
+  topCategories: Array<{ categoryId: string; code: string; name: string; totalKrw: number; share: number }>;
+  avgDailyKrw: number;
+};
+
+export function getMilestoneReport(token: string, childId: string, type: MilestoneReportType) {
+  if (isLocalToken(token)) return local(() => localBackend.getMilestoneReport(childId, type));
+  return requestJson<MilestoneReport>(`/children/${childId}/reports/milestone?type=${type}`, { token });
 }
 
 export function listItems(
@@ -991,5 +1053,54 @@ export function confirmAccountDeletion(token: string, confirmationText: string) 
     method: "POST",
     token,
     body: { confirmationText }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// AUTH-102 (real Kakao OIDC login) -- additive-only extensions consumed by
+// src/auth/kakao-login.ts. Request/response shapes mirror the server exactly:
+// apps/api/src/auth/kakao/kakao-auth.{controller,service}.ts and
+// apps/api/test/auth-kakao-oidc.e2e.test.ts. None of the functions above are
+// touched. Both calls are unauthenticated (they *establish* the session), so
+// neither takes a token nor participates in the 401-refresh flow.
+// ---------------------------------------------------------------------------
+
+/** POST /auth/kakao/prepare success shape: `nonce` is returned in plaintext exactly once. */
+export type KakaoPrepareResponse = {
+  transactionId: string;
+  state: string;
+  nonce: string;
+};
+
+/** POST /auth/kakao/exchange success shape -- identical to the dev-stub oauthLogin result, so
+ * login.tsx's existing success handling (setSession + upsertConsents) is reused as-is. */
+export type KakaoExchangeResult = {
+  user: {
+    id: string;
+    households?: Array<{ id: string; name: string; role: string }>;
+  };
+  tokens: { accessToken: string; refreshToken: string; expiresIn: number };
+  onboardingRequired: boolean;
+};
+
+/** The API validates with forbidNonWhitelisted: send ONLY these keys (in particular, no
+ * `codeChallengeMethod` -- S256 is implied server-side). */
+export function kakaoPrepare(body: { redirectUri: string; codeChallenge?: string }) {
+  return requestJson<KakaoPrepareResponse>("/auth/kakao/prepare", {
+    method: "POST",
+    body
+  });
+}
+
+export function kakaoExchange(body: {
+  transactionId: string;
+  state: string;
+  code: string;
+  redirectUri: string;
+  codeVerifier?: string;
+}) {
+  return requestJson<KakaoExchangeResult>("/auth/kakao/exchange", {
+    method: "POST",
+    body
   });
 }

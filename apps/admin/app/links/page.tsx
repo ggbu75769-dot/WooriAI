@@ -2,6 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useState } from "react";
 import {
+  LINK_HEALTH_LABELS,
+  LINK_HEALTH_UNKNOWN_LABEL,
   PRODUCT_PLATFORMS,
   PRODUCT_PLATFORM_LABELS,
   createProductLink,
@@ -11,12 +13,14 @@ import {
   listProductLinks,
   updateProductLink,
   type ItemTemplate,
+  type LinkHealthStatus,
   type ProductLink,
   type ProductLinkInput,
   type ProductPlatform
 } from "../../src/lib/admin-api";
 import { isHttpUrl } from "../../src/lib/validation";
 import { useAdminSession } from "../../src/lib/admin-token-context";
+import { ProductLinkBulkReplace } from "../../src/components/ProductLinkBulkReplace";
 import styles from "../../src/components/admin-page.module.css";
 
 type LinkFormState = {
@@ -68,6 +72,30 @@ function validateLinkForm(form: LinkFormState): string | null {
     return "제휴 URL은 http:// 또는 https:// 로 시작해야 해요.";
   }
   return null;
+}
+
+// COM-105: link_health 워커 잡이 기록한 헬스체크 결과 배지.
+// null(미확인)은 아직 검사 전이거나 제휴 URL이 없는 링크.
+function healthLabel(status: LinkHealthStatus | null): string {
+  return status ? LINK_HEALTH_LABELS[status] : LINK_HEALTH_UNKNOWN_LABEL;
+}
+
+function healthBadgeClass(status: LinkHealthStatus | null): string {
+  if (status === "ok") return `${styles.badge} ${styles.badgeActive}`;
+  if (status === "broken") return `${styles.badge} ${styles.badgeInactive}`;
+  return styles.badge; // unstable/미확인: 중립 배지
+}
+
+// 마지막 확인 시각을 "n분 전/n시간 전/n일 전"으로 표시(체크 주기가 시간 단위라 초 단위 정밀도는 불필요).
+function formatRelativeTime(iso: string, now: Date = new Date()): string {
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+  const diffMinutes = Math.floor((now.getTime() - timestamp) / 60_000);
+  if (diffMinutes < 1) return "방금 전";
+  if (diffMinutes < 60) return `${diffMinutes}분 전`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}시간 전`;
+  return `${Math.floor(diffHours / 24)}일 전`;
 }
 
 function toProductLinkInput(form: LinkFormState, mode: "create" | "edit"): ProductLinkInput {
@@ -339,6 +367,9 @@ export default function ProductLinksPage() {
         <p>준비템에 연결된 상품 URL과 제휴/스폰서 표시를 관리해요.</p>
       </div>
 
+      {/* COM-107-prep: CSV 일괄 교체는 API가 admin-only라 admin 세션에서만 노출한다. */}
+      {session.admin.role === "admin" ? <ProductLinkBulkReplace onApplied={loadAll} /> : null}
+
       <section className={styles.card}>
         <h2>새 상품 링크 추가</h2>
         {itemTemplates.length === 0 ? (
@@ -384,6 +415,7 @@ export default function ProductLinksPage() {
                   <th>제휴</th>
                   <th>스폰서</th>
                   <th>활성</th>
+                  <th>링크 상태</th>
                   <th />
                 </tr>
               </thead>
@@ -407,6 +439,12 @@ export default function ProductLinksPage() {
                         </span>
                       </td>
                       <td>
+                        <span className={healthBadgeClass(link.healthStatus)}>{healthLabel(link.healthStatus)}</span>
+                        {link.healthCheckedAt ? (
+                          <span className={styles.hint}> {formatRelativeTime(link.healthCheckedAt)}</span>
+                        ) : null}
+                      </td>
+                      <td>
                         <button
                           type="button"
                           className={styles.secondaryButton}
@@ -418,7 +456,7 @@ export default function ProductLinksPage() {
                     </tr>
                     {editingId === link.id ? (
                       <tr>
-                        <td colSpan={8}>
+                        <td colSpan={9}>
                           <LinkFormFields
                             form={editForm}
                             onChange={setEditForm}

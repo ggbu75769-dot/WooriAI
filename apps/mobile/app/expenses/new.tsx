@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
+import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
+import { buildExpenseRecordedPayload } from "../../src/analytics/events";
 import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
+import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { createExpenseOffline } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -23,8 +26,10 @@ const previewExpenseDate = { iso: "2025-05-24", label: "2025. 05. 24 (토)" };
 // has a distinct, deterministic `id` so tapping different tiles records different categoryIds
 // (previously all 8 shared one literal id and broke category aggregation).
 const quickExpenseCategories = categoryCatalog;
+// UX-5B-3: 결제 수단은 서버에 enum으로 저장된다 (createExpense body.paymentMethod) --
+// 실제 저장 값과 무관한 가짜 은행명("카카오뱅크") 대신 저장되는 값 그대로의 라벨을 보여준다.
 const quickExpensePaymentMethods = [
-  { value: "card", label: "▣ 카카오뱅크" },
+  { value: "card", label: "카드" },
   { value: "cash", label: "현금" },
   { value: "transfer", label: "계좌 이체" },
   { value: "mobile_pay", label: "모바일 결제" }
@@ -283,6 +288,27 @@ export default function NewExpenseScreen() {
     onSuccess: async () => {
       clearQuickExpenseDraft();
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
+      // ANA-103: expense_recorded fires once per successful (local-first) create. The payload is
+      // PII-safe by construction (src/analytics/events.ts): the raw amount is bucketed and the
+      // categoryId mapped to the coarse enum on-device; itemName/memo never enter it. `source`
+      // distinguishes the "준비템 -> 지출도 기록하기" follow-up flow from a plain manual entry,
+      // and `offline` reports the connectivity at record time (the create itself always succeeds
+      // locally first -- see createExpenseOffline). A no-op without ANA-102 consent.
+      const recordedAmountKrw = Number(amountText);
+      const recordedCategoryId = selectedCategory.id;
+      const recordedSource = linkedItemTemplateId ? "followup" : "manual";
+      void isCurrentlyOnline().then((online) => {
+        trackAndFlushAnalyticsEvent(authToken, {
+          eventName: "expense_recorded",
+          payload: buildExpenseRecordedPayload({
+            categoryId: recordedCategoryId,
+            amountKrw: recordedAmountKrw,
+            source: recordedSource,
+            offline: !online
+          }),
+          platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+        });
+      });
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
       setTimeout(() => router.replace("/(tabs)/records"), 650);

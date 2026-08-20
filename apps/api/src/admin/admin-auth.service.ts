@@ -263,6 +263,59 @@ export class AdminAuthService {
     });
   }
 
+  /**
+   * ADM-007: self-service password change for the logged-in admin. Fixes the
+   * "temp password is permanent" gap from ADM-006's create flow. Deliberately
+   * reachable before MFA enrollment (the controller marks the route
+   * @AdminMfaExempt, same precedent as the mfa/setup endpoints) so a freshly
+   * created admin can rotate their one-time temp password immediately.
+   *
+   * The current password is re-verified with the same constant-time scrypt
+   * comparison as login; on success the hash is replaced and every OTHER
+   * session of this admin is revoked (the session performing the change stays
+   * valid). Neither password ever reaches the audit log.
+   */
+  async changePassword(
+    admin: AdminUser,
+    currentSessionId: string,
+    currentPassword: string,
+    newPassword: string
+  ): Promise<void> {
+    if (!verifyAdminPassword(currentPassword, admin.passwordHash)) {
+      await this.auditLogger.record({
+        actorUserId: admin.id,
+        action: "admin.password_change_failed",
+        targetType: "admin_users",
+        targetId: admin.id
+      });
+      throw new UnauthorizedException({
+        code: "ADMIN_PASSWORD_INVALID",
+        message: "현재 비밀번호를 다시 확인해주세요."
+      });
+    }
+    if (verifyAdminPassword(newPassword, admin.passwordHash)) {
+      throw new HttpException(
+        { code: "ADMIN_PASSWORD_UNCHANGED", message: "새 비밀번호는 기존 비밀번호와 달라야 해요." },
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    await this.prisma.adminUser.update({
+      where: { id: admin.id },
+      data: { passwordHash: hashAdminPassword(newPassword) }
+    });
+    // 비밀번호가 바뀌면 다른 곳에서 살아 있던 세션은 전부 폐기한다(탈취 대비).
+    // 지금 변경을 수행한 세션만 유지.
+    await this.sessions.revokeAllForAdmin(admin.id, currentSessionId);
+
+    await this.auditLogger.record({
+      actorUserId: admin.id,
+      action: "admin.password_changed",
+      targetType: "admin_users",
+      targetId: admin.id
+    });
+  }
+
   async logout(token: string, admin: AdminUser): Promise<void> {
     await this.sessions.revokeSessionByToken(token);
     await this.auditLogger.record({

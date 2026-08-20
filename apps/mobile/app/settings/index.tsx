@@ -1,5 +1,6 @@
 import { router } from "expo-router";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Switch, Text, View } from "react-native";
+import { useAnalyticsConsentStore } from "../../src/analytics/flag";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -10,6 +11,11 @@ export default function SettingsScreen() {
   const clearSession = useSessionStore((state) => state.clearSession);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const clearSelectedChild = useSelectedChildStore((state) => state.clearSelectedChildId);
+  // ANA-102: opt-in analytics consent -- backed by the persisted zustand store that gates the
+  // entire analytics client (src/analytics/flag.ts), so flipping this off immediately stops any
+  // event from being queued or sent, and the choice survives app restarts.
+  const analyticsConsent = useAnalyticsConsentStore((state) => state.enabled);
+  const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);
 
   const handleLogout = () => {
     Alert.alert("로그아웃 할까요?", "다시 로그인해야 이용할 수 있어요.", [
@@ -73,6 +79,22 @@ export default function SettingsScreen() {
           subtitle="엑셀 파일로 지출을 가져와요"
           onPress={() => router.push("/import")}
         />
+        <Card style={consentRowStyle}>
+          <View style={{ flex: 1, gap: 3, paddingRight: 12 }}>
+            <Text style={consentTitleStyle}>통계 수집 동의(선택)</Text>
+            <Text style={consentSubtitleStyle}>
+              익명화된 사용 통계만 수집해요. 이름·이메일 같은 개인정보나 금액 원본은 보내지 않고, 언제든지 끌 수 있어요.
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="통계 수집 동의(선택)"
+            accessibilityRole="switch"
+            onValueChange={setAnalyticsConsent}
+            thumbColor={theme.colors.white}
+            trackColor={{ false: theme.colors.gray300, true: theme.colors.mainCoral }}
+            value={analyticsConsent}
+          />
+        </Card>
         <Pressable onPress={handleLogout} style={logoutRowStyle}>
           <Text style={logoutTextStyle}>로그아웃</Text>
         </Pressable>
@@ -97,6 +119,27 @@ const summaryValueStyle = {
   color: theme.colors.brown,
   fontSize: 13,
   fontWeight: "700"
+} as const;
+
+// ANA-102 consent row: same card-row look as the ListRow entries above, with a Switch in the
+// right-hand value slot instead of a chevron target.
+const consentRowStyle = {
+  alignItems: "center",
+  flexDirection: "row",
+  gap: 12,
+  paddingVertical: 12
+} as const;
+
+const consentTitleStyle = {
+  color: theme.colors.brown,
+  fontSize: 15,
+  fontWeight: "700"
+} as const;
+
+const consentSubtitleStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 17
 } as const;
 
 const logoutRowStyle = {

@@ -100,6 +100,26 @@ export interface OfflineStore {
   deleteLocalExpense(localId: string): Promise<void>;
   listLocalExpenses(childId?: string): Promise<LocalExpenseRow[]>;
 
+  /**
+   * MOB-103b: tiny key-value area for sync bookkeeping that isn't a row of either table --
+   * currently only the persisted delta-sync cursor (see delta-sync.ts). Lives in the same
+   * store/database as the outbox so all offline state shares one persistence + teardown story.
+   */
+  getMeta(key: string): Promise<string | null>;
+  setMeta(key: string, value: string): Promise<void>;
+  deleteMeta(key: string): Promise<void>;
+
+  /**
+   * PRIV-104: wipe EVERYTHING this store persists — local_expenses, mutation_outbox, and the
+   * whole sync_meta area (which also removes the delta-sync cursor). Called on session identity
+   * change (logout / account switch / demo-session toggle, see session-teardown.ts) so the next
+   * account never sees the previous account's offline rows or has its pending mutations flushed
+   * under the new account's token. Do NOT call this directly from flush/UI code paths — go
+   * through sync-engine.ts's `wipeOfflineStore`, which sequences the wipe against any in-flight
+   * outbox flush.
+   */
+  clearAll(): Promise<void>;
+
   insertOutboxMutation(row: MutationOutboxRow): Promise<void>;
   getOutboxMutation(mutationId: string): Promise<MutationOutboxRow | null>;
   updateOutboxMutation(mutationId: string, patch: Partial<MutationOutboxRow>): Promise<void>;

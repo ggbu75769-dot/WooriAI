@@ -589,6 +589,239 @@ describe("Expense, budget, home, and report API", () => {
       });
   });
 
+  it("scopes the category report to a year or quarter and rejects conflicting period params (REP-104)", async () => {
+    const accessToken = await login(app, `rep104-category-period-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+    // Deterministic mobile-category-alias seed id (prisma/seed-data.ts), same as the
+    // yearMonth-scoped category test above.
+    const otherCategoryId = "c0a7e901-0000-4c04-8c04-c47e900ec004";
+
+    const seedExpense = async (input: { categoryId: string; amountKrw: number; spentOn: string; itemName: string }) =>
+      (
+        await request(app.getHttpServer())
+          .post(`/api/v1/children/${childId}/expenses`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ ...input, paymentMethod: "card" })
+          .expect(200)
+      ).body as { id: string };
+
+    await seedExpense({ categoryId, amountKrw: 10000, spentOn: "2026-02-10", itemName: "1분기 기저귀" });
+    await seedExpense({ categoryId: otherCategoryId, amountKrw: 20000, spentOn: "2026-05-03", itemName: "2분기 분유" });
+    await seedExpense({ categoryId, amountKrw: 40000, spentOn: "2025-11-10", itemName: "작년 4분기 내복" });
+
+    // Soft-deleted expense inside Q2 2026 must not count toward any breakdown.
+    const deleted = await seedExpense({ categoryId, amountKrw: 5000, spentOn: "2026-04-01", itemName: "삭제될 지출" });
+    await request(app.getHttpServer())
+      .delete(`/api/v1/expenses/${deleted.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+
+    // Whole year 2026: Q1 + Q2 expenses only, sorted by amount desc.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?year=2026`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.childId).toBe(childId);
+        expect(body.categories).toEqual([
+          { categoryId: otherCategoryId, amountKrw: 20000, count: 1 },
+          { categoryId, amountKrw: 10000, count: 1 }
+        ]);
+      });
+
+    // Quarter filters slice the same year differently -- Q1 vs Q2 breakdowns differ.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?year=2026&quarter=1`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categories).toEqual([{ categoryId, amountKrw: 10000, count: 1 }]);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?year=2026&quarter=2`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categories).toEqual([{ categoryId: otherCategoryId, amountKrw: 20000, count: 1 }]);
+      });
+
+    // Q4 of the previous year (quarter range spans months 10-12).
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?year=2025&quarter=4`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categories).toEqual([{ categoryId, amountKrw: 40000, count: 1 }]);
+      });
+
+    // No params keeps the historical all-time behavior (both years, both categories).
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categories).toEqual([
+          { categoryId, amountKrw: 50000, count: 2 },
+          { categoryId: otherCategoryId, amountKrw: 20000, count: 1 }
+        ]);
+      });
+
+    // quarter without year is rejected.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?quarter=2`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("REPORT_PERIOD_INVALID");
+      });
+
+    // yearMonth is mutually exclusive with year/quarter.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?yearMonth=2026-05&year=2026`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("REPORT_PERIOD_INVALID");
+      });
+
+    // Out-of-range quarter fails per-field DTO validation.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/category?year=2026&quarter=5`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+  });
+
+  it("computes d100 and first-birthday milestone reports over the birth window (REP-103)", async () => {
+    const accessToken = await login(app, `rep103-milestone-${randomUUID()}`);
+    const { householdId } = await completeOnboarding(app, accessToken);
+    // Deterministic mobile-category-alias seed id (prisma/seed-data.ts), same as the
+    // category-report tests above. `categoryId` is the import-stub seed id.
+    const otherCategoryId = "c0a7e901-0000-4c04-8c04-c47e900ec004";
+
+    // Born child with a birth date; WOORIAI_STAGE_TODAY (2026-07-06, set in beforeEach)
+    // pins "today" so the d100 window [2026-03-01, 2026-06-09) is fully elapsed while the
+    // first-birthday window [2026-03-01, 2027-03-01) is still partial.
+    const bornChildId = (
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "백일이", stageMode: "born", birthDate: "2026-03-01" })
+        .expect(200)
+    ).body.id as string;
+
+    const seedExpense = async (input: {
+      categoryId: string;
+      amountKrw: number;
+      spentOn: string;
+      itemName: string;
+      expenseType?: string;
+    }) =>
+      (
+        await request(app.getHttpServer())
+          .post(`/api/v1/children/${bornChildId}/expenses`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ ...input, paymentMethod: "card" })
+          .expect(200)
+      ).body as { id: string };
+
+    // Inside the d100 window.
+    await seedExpense({ categoryId, amountKrw: 30000, spentOn: "2026-03-10", itemName: "기저귀 스타터" });
+    await seedExpense({ categoryId: otherCategoryId, amountKrw: 20000, spentOn: "2026-06-08", itemName: "배냇저고리" });
+    // On the window's exclusive end (day 101) -- must not count toward d100, but does
+    // count toward the (partial) first-birthday window.
+    await seedExpense({ categoryId, amountKrw: 99000, spentOn: "2026-06-09", itemName: "101일째 지출" });
+    // Before birth -- outside every milestone window.
+    await seedExpense({ categoryId, amountKrw: 5000, spentOn: "2026-02-20", itemName: "출산 전 지출" });
+    // Gift inside the window -- expenseType filter must exclude it.
+    await seedExpense({ categoryId, amountKrw: 40000, spentOn: "2026-05-05", itemName: "선물 받은 바운서", expenseType: "gift" });
+    // Soft-deleted inside the window -- must not count.
+    const deleted = await seedExpense({ categoryId, amountKrw: 7000, spentOn: "2026-04-01", itemName: "삭제될 지출" });
+    await request(app.getHttpServer())
+      .delete(`/api/v1/expenses/${deleted.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${bornChildId}/reports/milestone?type=d100`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          childId: bornChildId,
+          type: "d100",
+          startDate: "2026-03-01",
+          endDate: "2026-06-08",
+          partial: false,
+          daysCovered: 100,
+          totalKrw: 50000,
+          expenseCount: 2,
+          topCategories: [
+            { categoryId, code: "import_stub_default", name: "가져오기 기본", totalKrw: 30000, share: 0.6 },
+            { categoryId: otherCategoryId, code: "mobile_clothes_laundry", name: "의류", totalKrw: 20000, share: 0.4 }
+          ],
+          avgDailyKrw: 500
+        });
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${bornChildId}/reports/milestone?type=first-birthday`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          childId: bornChildId,
+          type: "first-birthday",
+          startDate: "2026-03-01",
+          endDate: "2027-02-28",
+          partial: true,
+          // 2026-03-01 through 2026-07-06 inclusive, birth day counted as day 1.
+          daysCovered: 128,
+          totalKrw: 149000,
+          expenseCount: 3,
+          topCategories: [
+            { categoryId, code: "import_stub_default", name: "가져오기 기본", totalKrw: 129000, share: 0.866 },
+            { categoryId: otherCategoryId, code: "mobile_clothes_laundry", name: "의류", totalKrw: 20000, share: 0.134 }
+          ],
+          avgDailyKrw: Math.round(149000 / 128)
+        });
+      });
+  });
+
+  it("rejects milestone reports for children without a birth date and unknown milestone types (REP-103)", async () => {
+    const accessToken = await login(app, `rep103-unavailable-${randomUUID()}`);
+    // completeOnboarding creates a manual-stage child with no birthDate.
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/milestone?type=d100`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("MILESTONE_UNAVAILABLE");
+        expect(body.error.message).toContain("생년월일");
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/milestone?type=d200`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/milestone`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+  });
+
   async function expectTotals(
     accessToken: string,
     childId: string,

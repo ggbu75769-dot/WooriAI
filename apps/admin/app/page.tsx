@@ -31,6 +31,12 @@ export default function AdminHomePage() {
       title: "Content review",
       description: "Review editor-submitted drafts, diff against the live copy, and approve, reject, or roll back.",
       href: "/reviews"
+    },
+    {
+      id: "ADM-006",
+      title: "Admin accounts",
+      description: "Create admin users, change roles, and deactivate accounts (admin role only).",
+      href: "/users"
     }
   ];
 
@@ -39,8 +45,8 @@ export default function AdminHomePage() {
       <p style={{ color: "#7A7A7A" }}>ADM-001</p>
       <h1>WooriAI Admin CMS</h1>
       <section style={{ background: "#FFFFFF", borderRadius: 8, marginBottom: 20, padding: 20 }}>
-        <h2>Admin auth placeholder</h2>
-        <p>Internal admin requests use the x-admin-token header until production admin auth is connected.</p>
+        <h2>Admin authentication</h2>
+        <p>세션 쿠키 + CSRF + TOTP MFA 기반 인증이 적용되어 있습니다. 레거시 x-admin-token 헤더는 개발/테스트 환경 전용이며 프로덕션에서는 차단됩니다.</p>
       </section>
       <section style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
         {sections.map((section) => (

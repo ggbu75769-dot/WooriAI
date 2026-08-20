@@ -43,7 +43,9 @@ describe("Real session data integrity contract", () => {
     expect(reportSource).toContain("getYearlyReport(authToken!, childId!, yearStart.getFullYear())");
     expect(reportSource).toContain('period === "분기"');
     expect(reportSource).toContain("quarterQueries");
-    expect(reportSource).toContain("getCategoryReport(authToken!, childId!)");
+    // REP-104: the category breakdown must follow the selected 월간/분기/연간 period
+    // instead of the old period-less all-time call.
+    expect(reportSource).toContain("getCategoryReport(authToken!, childId!, categoryPeriod)");
     expect(reportSource).not.toContain("dummyQuarterlyData");
   });
 });

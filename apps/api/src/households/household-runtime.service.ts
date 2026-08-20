@@ -306,7 +306,9 @@ export class HouseholdRuntimeService {
     });
 
     return {
-      inviteUrl: `https://wooriai.local/invite/${token}`,
+      // REL-007: 초대 링크 도메인은 배포 환경에서 INVITE_LINK_BASE_URL로 주입한다
+      // (미설정 시 dev 플레이스홀더 유지 — 프로덕션 배포 체크리스트 docs/5차/launch-72h-plan.md 참조).
+      inviteUrl: `${(process.env.INVITE_LINK_BASE_URL ?? "https://wooriai.local").replace(/\/+$/, "")}/invite/${token}`,
       expiresAt: expiresAt.toISOString(),
       householdName: household.name
     };

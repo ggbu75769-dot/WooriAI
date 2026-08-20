@@ -16,3 +16,12 @@ export function isHttpUrl(value: string): boolean {
 export function isBlank(value: string): boolean {
   return value.trim().length === 0;
 }
+
+/**
+ * ADM-006: fail-fast email shape check for the admin-account create form.
+ * Intentionally loose (one `@`, non-blank local part, dotted domain) — the API's
+ * @IsEmail() validation is the real gate.
+ */
+export function isEmailLike(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}

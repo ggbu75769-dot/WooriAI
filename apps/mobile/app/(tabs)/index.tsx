@@ -2,6 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { formatKrw } from "../../src/money";
+import { NotificationBell } from "../../src/notifications/NotificationBell";
+import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -14,6 +17,7 @@ import {
   QuickActionIconButton,
   ScreenHeader
 } from "../../src/ui";
+import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 import { HomePixelStyles } from "../../src/pixelLock/styles/HomePixelStyles";
 
@@ -141,10 +145,6 @@ const previewHome = {
   ]
 } as const;
 
-function formatKrw(value: number) {
-  return `${value.toLocaleString("ko-KR")}원`;
-}
-
 export default function HomeScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
@@ -156,11 +156,21 @@ export default function HomeScreen() {
     queryFn: () => getHome(authToken!, childId!)
   });
   const hasSession = Boolean(authToken && childId);
+  // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
+  // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.
+  useHomeNotificationEvaluation(hasSession ? home.data : undefined);
 
   if (hasSession && (home.isLoading || !home.data)) {
+    // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     return (
       <AppScreen>
-        <EmptyStateCard title="홈 정보를 불러오고 있어요." actionLabel="잠시만요" />
+        <View style={{ gap: theme.spacing.section }}>
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </View>
       </AppScreen>
     );
   }
@@ -192,19 +202,7 @@ export default function HomeScreen() {
   const budgetNudgeSubtitle = isOverBudget
     ? "이번 달 지출을 확인해 볼까요? 😥"
     : "이번 달도 잘 관리하고 있어요 👏";
-  const bellAction = hasSession ? (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="알림"
-      hitSlop={10}
-      onPress={() => router.push("/notifications")}
-    >
-      <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>🔔</Text>
-    </Pressable>
-  ) : (
-    <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>🔔</Text>
-  );
-
+  // NOTI-102: 알림 센터가 실제 기능이 되어 UX-5B-8에서 숨겼던 홈 알림 벨을 미확인 배지와 함께 복원.
   return (
     <AppScreen>
       <View accessibilityLabel="pixel-screen-HOME-001" testID="pixel-screen-HOME-001" style={homePixelScaleFrameStyle()}>
@@ -212,7 +210,7 @@ export default function HomeScreen() {
           <ScreenHeader
             title={`${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`}
             subtitle="우리 아이에게 해준 것을 따뜻하게 기록해요."
-            action={bellAction}
+            action={<NotificationBell />}
           />
 
           <HeroSummaryCard
