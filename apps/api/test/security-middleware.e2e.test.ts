@@ -1,8 +1,8 @@
-import type { INestApplication } from "@nestjs/common";
+import { Logger, type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 
@@ -165,6 +165,84 @@ describe("Security middleware (rate limit, headers, body size, idempotency)", ()
         .expect(200);
     } finally {
       await proxiedApp.close();
+    }
+  });
+
+  it("with TRUST_PROXY=1 a multi-entry X-Forwarded-For buckets on the RIGHTMOST entry — the forged prefix is ignored (pins `trust proxy = 1`, would fail under `trust proxy = true`)", async () => {
+    process.env.TRUST_PROXY = "1";
+    process.env.RATE_LIMIT_GLOBAL_MAX = "3";
+    process.env.RATE_LIMIT_WINDOW_MS = "60000";
+    const proxiedApp = await createAppWithCurrentEnv();
+
+    try {
+      // `trust proxy = 1` trusts exactly one hop (the connecting socket, i.e.
+      // our reverse proxy): only the RIGHTMOST X-Forwarded-For entry — the
+      // one that trusted hop appended — is honored as the client IP; every
+      // entry left of it is attacker-supplied text and must be ignored.
+      const statuses: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        const response = await request(proxiedApp.getHttpServer())
+          .get("/api/v1/health")
+          .set("X-Forwarded-For", "6.6.6.6, 203.0.113.10");
+        statuses.push(response.status);
+      }
+      expect(statuses).toEqual([200, 200, 200]);
+
+      // Rotating the forged prefix must NOT mint a fresh bucket. Under
+      // `trust proxy = true` Express would take the LEFTMOST entry (7.7.7.7,
+      // fully attacker-controlled) as req.ip and this request would be 200 —
+      // this assertion is the regression tripwire against that switch.
+      const rotatedPrefix = await request(proxiedApp.getHttpServer())
+        .get("/api/v1/health")
+        .set("X-Forwarded-For", "7.7.7.7, 203.0.113.10");
+      expect(rotatedPrefix.status).toBe(429);
+
+      // A different RIGHTMOST entry is a genuinely different client behind
+      // the trusted hop: separate bucket, still admitted.
+      await request(proxiedApp.getHttpServer())
+        .get("/api/v1/health")
+        .set("X-Forwarded-For", "6.6.6.6, 203.0.113.99")
+        .expect(200);
+    } finally {
+      await proxiedApp.close();
+    }
+  });
+
+  it("warns about an unrecognized TRUST_PROXY value and keeps trust proxy OFF (\"0\"/empty stay silently off)", async () => {
+    process.env.RATE_LIMIT_GLOBAL_MAX = "3";
+    process.env.RATE_LIMIT_WINDOW_MS = "60000";
+    const warnSpy = vi.spyOn(Logger.prototype, "warn");
+    const isTrustProxyWarn = (call: unknown[]) => String(call[0]).includes("TRUST_PROXY=");
+
+    process.env.TRUST_PROXY = "yes";
+    const unrecognizedApp = await createAppWithCurrentEnv();
+    try {
+      expect(warnSpy.mock.calls.some(isTrustProxyWarn)).toBe(true);
+      expect(warnSpy.mock.calls.find(isTrustProxyWarn)?.[0]).toContain('TRUST_PROXY="yes"');
+
+      // Behaviorally OFF: rotating X-Forwarded-For neither splits nor resets
+      // buckets — same as the unset default.
+      const statuses: number[] = [];
+      for (let i = 0; i < 4; i++) {
+        const response = await request(unrecognizedApp.getHttpServer())
+          .get("/api/v1/health")
+          .set("X-Forwarded-For", `203.0.113.${30 + i}`);
+        statuses.push(response.status);
+      }
+      expect(statuses).toEqual([200, 200, 200, 429]);
+    } finally {
+      await unrecognizedApp.close();
+    }
+
+    // Explicit off ("0") is intentional configuration — no warning.
+    warnSpy.mockClear();
+    process.env.TRUST_PROXY = "0";
+    const explicitOffApp = await createAppWithCurrentEnv();
+    try {
+      expect(warnSpy.mock.calls.some(isTrustProxyWarn)).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+      await explicitOffApp.close();
     }
   });
 

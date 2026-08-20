@@ -5,7 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module";
 import { PrismaService } from "../src/prisma/prisma.service";
-import { DataRetentionPurgeJob } from "../src/worker/jobs/data-retention-purge.job";
+import { DataRetentionPurgeJob, DataRetentionPurgePhaseFailureError } from "../src/worker/jobs/data-retention-purge.job";
 import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
 
 const dbAvailable = await isDatabaseAvailable();
@@ -498,7 +498,7 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       return app.get(PrismaService);
     }
 
-    it("keeps running the child/user phases when the expense phase's transaction fails, reporting the error in the summary without throwing", async () => {
+    it("keeps running the child/user phases when the expense phase's transaction fails, then throws the terminal wrapper carrying the summary (M1b visibility)", async () => {
       const now = new Date();
       const user = await createUser();
       const household = await createHousehold(user.id);
@@ -520,13 +520,25 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
         });
 
       try {
-        const result = await job.run(now);
-
-        expect(result.expensesPurged).toBe(0);
-        expect(result.expensePurgeError).toContain("forced phase-1 retry failure");
+        // M1b: run() executes every phase first, then surfaces the terminal
+        // failure as a throw so the scheduler records lastStatus:"failed"
+        // (pre-fix it swallowed the error and logged status=ok forever). The
+        // wrapper still carries the full summary for the ops log / tests.
+        let thrown: unknown;
+        try {
+          await job.run(now);
+        } catch (error) {
+          thrown = error;
+        }
+        expect(thrown).toBeInstanceOf(DataRetentionPurgePhaseFailureError);
+        const wrapper = thrown as DataRetentionPurgePhaseFailureError;
+        expect(wrapper.failedPhaseKeys).toContain("expensePurgeError");
+        expect(wrapper.summary.expensesPurged).toBe(0);
+        expect(String(wrapper.summary.expensePurgeError)).toContain("forced phase-1 retry failure");
+        expect(wrapper.message).toContain("expensePurgeError");
         // The poisoned phase did not block the others.
-        expect(result.childrenPurged as number).toBeGreaterThanOrEqual(1);
-        expect(result.usersPurged as number).toBeGreaterThanOrEqual(1);
+        expect(wrapper.summary.childrenPurged as number).toBeGreaterThanOrEqual(1);
+        expect(wrapper.summary.usersPurged as number).toBeGreaterThanOrEqual(1);
       } finally {
         spy.mockRestore();
       }
@@ -583,6 +595,59 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       await prisma.household.deleteMany({ where: { id: household.id } });
       await prisma.user.deleteMany({ where: { id: user.id } });
     });
+
+    it("after 3 consecutive terminal failures skips the poisoned head row so the backlog behind it drains, and retries the head after a success (M1a escalation)", async () => {
+      const now = new Date();
+      // One healthy run first: resets any per-phase escalation state earlier
+      // tests in this file left on the shared job instance.
+      await job.run(now);
+
+      const user = await createUser();
+      const household = await createHousehold(user.id);
+      const child = await createChild(household.id, null);
+      // Far older than any other suite's fixtures (~40-2000 days) so these
+      // two deterministically head the (deletedAt, id) order — the 5000-day
+      // row is the global head that gets "poisoned".
+      const poisoned = await createExpense(household.id, child.id, user.id, daysAgo(now, 5000));
+      const behind = await createExpense(household.id, child.id, user.id, daysAgo(now, 4999));
+
+      // Ticks 1-3: every phase transaction fails (simulating a head row whose
+      // cascade always exceeds the tx timeout — initial attempt AND halved
+      // retry). Each tick run() rejects with the M1b terminal wrapper.
+      const spy = vi.spyOn(prismaService(), "$transaction").mockImplementation(() => {
+        throw new Error("forced poison failure");
+      });
+      try {
+        for (let tick = 0; tick < 3; tick += 1) {
+          await expect(job.run(now)).rejects.toBeInstanceOf(DataRetentionPurgePhaseFailureError);
+        }
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await prisma.expense.findUnique({ where: { id: poisoned.id } })).not.toBeNull();
+      expect(await prisma.expense.findUnique({ where: { id: behind.id } })).not.toBeNull();
+
+      // Tick 4 (transactions healthy again): threshold reached, so the phase
+      // runs with poisonSkip=1 — the head row is skipped (and reported in the
+      // summary) while the row behind it finally drains. Pre-fix, the same
+      // head row was re-selected forever and `behind` could never purge.
+      const tick4 = await job.run(now);
+      expect(tick4.expensePurgePoisonSkip).toBe(1);
+      expect(await prisma.expense.findUnique({ where: { id: poisoned.id } })).not.toBeNull();
+      expect(await prisma.expense.findUnique({ where: { id: behind.id } })).toBeNull();
+
+      // Tick 5: the success reset the escalation, so the head row is
+      // re-selected (skipping defers, never permanently exempts) and — now
+      // purgeable — drains too.
+      const tick5 = await job.run(now);
+      expect(tick5.expensePurgePoisonSkip).toBeUndefined();
+      expect(await prisma.expense.findUnique({ where: { id: poisoned.id } })).toBeNull();
+
+      await prisma.child.deleteMany({ where: { id: child.id } });
+      await prisma.householdMember.deleteMany({ where: { householdId: household.id } });
+      await prisma.household.deleteMany({ where: { id: household.id } });
+      await prisma.user.deleteMany({ where: { id: user.id } });
+    });
   });
 
   describe("anonymized stub cleanup (phase 4)", () => {
@@ -619,6 +684,49 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       expect(await prisma.user.findUnique({ where: { id: owner.id } })).toBeNull();
 
       await prisma.user.deleteMany({ where: { id: { in: [owner.id, member.id] } } });
+    });
+
+    it("leaves a stub alone while a lingering consent/device row still references it, and purges it once they are gone (L2 satellite-FK defense-in-depth)", async () => {
+      const now = new Date();
+      // A stub exactly as phase 3 leaves it (withdrawn + deletedAt stamped +
+      // anonymized), created directly with this test's own random id.
+      // Isolation (L6): every assertion below is a findUnique on THIS id —
+      // no ORDER BY head assumptions and no PURGE_BATCH_SIZE override — so
+      // older stubs left behind by other suites can neither shadow this row
+      // out of the batch window nor be confused with it.
+      const stub = await prisma.user.create({
+        data: {
+          authProvider: "kakao",
+          providerUserId: `purged:${randomUUID()}`,
+          status: "withdrawn",
+          deletedAt: daysAgo(now, 3000)
+        }
+      });
+      // Lingering NOT NULL user FKs that phase 3 normally deletes itself —
+      // here they simulate partial manual cleanup. Pre-fix, phase 4's
+      // selection ignored consents/user_devices, selected the stub, and the
+      // whole batch transaction died on the FK violation.
+      const consent = await prisma.consent.create({
+        data: { userId: stub.id, consentType: "analytics", version: "v1", accepted: true, acceptedAt: now }
+      });
+      const device = await prisma.userDevice.create({
+        data: { userId: stub.id, platform: "android", pushToken: `purge-stub-${randomUUID()}` }
+      });
+
+      // Both satellite rows linger → phase 4 must not select (nor delete) the stub.
+      await job.run(now);
+      expect(await prisma.user.findUnique({ where: { id: stub.id } })).not.toBeNull();
+      expect(await prisma.consent.findUnique({ where: { id: consent.id } })).not.toBeNull();
+
+      // Consent gone but the device still lingers → still blocked.
+      await prisma.consent.delete({ where: { id: consent.id } });
+      await job.run(now);
+      expect(await prisma.user.findUnique({ where: { id: stub.id } })).not.toBeNull();
+
+      // Last blocker gone → the stub purges on the next run.
+      await prisma.userDevice.delete({ where: { id: device.id } });
+      await job.run(now);
+      expect(await prisma.user.findUnique({ where: { id: stub.id } })).toBeNull();
     });
   });
 });

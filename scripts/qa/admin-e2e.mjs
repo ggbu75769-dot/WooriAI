@@ -27,6 +27,15 @@
  * step failed. It performs NO writes to the app data other than the MFA
  * enrollment for the dev admin (first run only) — the CSV bulk flow only
  * uses the read-only preview endpoint, never apply.
+ *
+ * SECURITY:
+ *   - ADMIN_BASE_URL is restricted to localhost/127.0.0.1: the script types a
+ *     real admin password and TOTP codes into whatever page it is pointed at.
+ *     Set QA_ALLOW_REMOTE=1 only if you deliberately target another host.
+ *   - Screenshots in QA_OUT_DIR may contain the MFA enrollment secret /
+ *     recovery codes (the enrollment screen renders them). The default out
+ *     dir scripts/qa/out is gitignored — NEVER commit the output dir, and
+ *     delete it after triage.
  */
 
 import { execFileSync } from "node:child_process";
@@ -42,6 +51,18 @@ const { chromium } = require(path.join(repoRoot, "node_modules", "playwright-cor
 const otplib = require(path.join(repoRoot, "apps", "api", "node_modules", "otplib"));
 
 const BASE_URL = process.env.ADMIN_BASE_URL ?? "http://localhost:3100";
+
+// Localhost guard (see SECURITY header note): refuse to drive a non-local
+// admin URL — this script auto-fills the admin password and TOTP codes —
+// unless the operator explicitly opts in with QA_ALLOW_REMOTE=1.
+if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(BASE_URL) && process.env.QA_ALLOW_REMOTE !== "1") {
+  console.error(
+    `ADMIN_BASE_URL이 로컬 주소가 아닙니다: ${BASE_URL}\n` +
+      "이 스크립트는 관리자 비밀번호와 MFA 코드를 자동 입력하므로 기본적으로 localhost/127.0.0.1만 허용합니다.\n" +
+      "정말 원격 환경을 대상으로 실행하려면 QA_ALLOW_REMOTE=1 환경변수를 설정해 주세요."
+  );
+  process.exit(1);
+}
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@wooriai.local";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "wooriai-dev-admin";
 const OUT_DIR = process.env.QA_OUT_DIR ?? path.join(repoRoot, "scripts", "qa", "out");
