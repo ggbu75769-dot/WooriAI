@@ -121,7 +121,7 @@ Data Safety 섹션에 반드시 입력**해야 한다(2024년부터 시행). 현
 | 문항 | 답 | 근거 |
 |---|---|---|
 | 데이터가 사용자를 위해 처리되는 주된 방식 | 계정 기반 저장(서버) + 기기 내 오프라인 캐시(SQLite) 후 동기화 | `apps/mobile/src/offline/` |
-| 삭제 요청 시 데이터 처리 | 앱 내 삭제 플로우로 처리. 계정 삭제 시 즉시 탈퇴 처리 + 전체 로그인 토큰 폐기, 아이 프로필 삭제 시 프로필·지출 일괄 삭제 처리. 삭제 처리된 데이터는 이후 **30일**(환경 변수 `PURGE_RETENTION_DAYS`로 조정 가능, 기본 30일) 이내에 워커 배치가 DB에서 물리 파기 — 처리방침 §3의 "30일 이내 완전 파기" 문구와 일치 | `withdrawUser` + `revokeAllForUser`, `confirmChildProfileDeletion`, `apps/api/src/worker/jobs/data-retention-purge.job.ts` (PRIV-105, `data_retention_purge`) |
+| 삭제 요청 시 데이터 처리 | 앱 내 삭제 플로우로 처리. 계정 삭제 시 즉시 탈퇴 처리 + 전체 로그인 토큰 폐기, 아이 프로필 삭제 시 프로필·지출 일괄 삭제 처리. 삭제 처리된 데이터는 삭제 처리 후 **30일**(환경 변수 `PURGE_RETENTION_DAYS`로 조정 가능, 기본 30일)이 경과하면 지체 없이(통상 수 분 이내) 워커 배치가 DB에서 물리 파기 — 처리방침 §3의 "삭제 처리 후 30일이 경과하면 지체 없이(통상 수 분 이내) 완전 파기" 문구와 일치 | `withdrawUser` + `revokeAllForUser`, `confirmChildProfileDeletion`, `apps/api/src/worker/jobs/data-retention-purge.job.ts` (PRIV-105, `data_retention_purge`) |
 | 독립 보안 검토(MASA) | 아니요(선택 항목) | 미실시 |
 
 ## 애매했던 분류 — 결정 요약 (리뷰어 필독)

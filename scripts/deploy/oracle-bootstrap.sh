@@ -144,6 +144,7 @@ ANALYTICS_ANON_SALT=$(openssl rand -base64 32)
 AFFILIATE_ALLOWED_DOMAINS=coupang.com,link.coupang.com,naver.com,smartstore.naver.com
 AFFILIATE_DISCLOSURE_TEXT=이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
 INVITE_LINK_BASE_URL=https://${DOMAIN}
+TRUST_PROXY=1
 WORKER_ENABLED=1
 ADMIN_SEED_EMAIL=${ADMIN_SEED_EMAIL:-admin@${DOMAIN}}
 ADMIN_SEED_PASSWORD=${ADMIN_SEED_PASSWORD_GEN}

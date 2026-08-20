@@ -79,6 +79,7 @@ docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.productio
 docker compose -f infra/docker/docker-compose.prod.yml exec api pnpm --filter api seed
 ```
 HTTPS는 앞단에 Caddy/nginx + certbot을 두세요(80/443 → api:3000).
+리버스 프록시(Caddy/nginx) 뒤에서는 `.env.production`에 `TRUST_PROXY=1`을 반드시 넣으세요 — 없으면 모든 요청이 프록시 IP로 집계되어 per-IP rate limit이 전역 버킷 하나로 무력화됩니다(프록시 없이 직접 노출 시에는 설정하지 마세요).
 시드는 재실행해도 기존 관리자 계정의 비밀번호/활성 상태를 덮어쓰지 않습니다(생성 시 1회만, ADM-007).
 
 ---
@@ -109,5 +110,6 @@ curl -si $BASE/../r/AAAAAAAAAAAA | head -1
 ## E. 주의
 
 - `WORKER_ENABLED=1`은 **머신 1대일 때만**. 수평 확장 시 워커 전용 머신 1대에만 켜세요(중복 실행 방지).
+- `TRUST_PROXY=1`은 `fly.toml [env]`에 이미 포함(Fly 엣지 프록시 1홉 뒤 실 클라이언트 IP 인식 — per-IP rate limit 필수 조건). 셀프호스트(B)도 리버스 프록시 뒤라면 동일하게 설정하세요.
 - Dockerfile은 이 저장소의 tsx 구동 방식에 맞춘 것으로, 로컬 검증 환경에 Docker 데몬이 없어 **이미지 빌드는 `fly deploy` 시점에 처음 검증됩니다** — 빌드 오류가 나면 로그를 그대로 전달해 주세요.
 - 시드의 상품링크 58개는 example.com 플레이스홀더 — 출시 전 admin CSV 도구로 교체(72h 계획 §5).

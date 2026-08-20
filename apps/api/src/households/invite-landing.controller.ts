@@ -24,7 +24,9 @@ import { HouseholdRuntimeService } from "./household-runtime.service";
  *   token additionally URI-encoded before entering the deep-link href.
  * - Rate limiting: the global per-IP limiter (rateLimitMiddleware) is mounted
  *   at the raw Express level before routing in configureApiApp, so it covers
- *   this path like every other request.
+ *   this path like every other request. NOTE: "per-IP" is only meaningful
+ *   behind a reverse proxy (Caddy/Fly) when TRUST_PROXY=1 is set — see
+ *   configureApiApp — otherwise every request shares the proxy's IP.
  */
 @Controller("invite")
 export class InviteLandingController {

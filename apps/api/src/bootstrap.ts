@@ -44,6 +44,17 @@ export function createDtoValidationPipe(expectedType?: Type<unknown>) {
 }
 
 export function configureApiApp(app: INestApplication) {
+  // TRUST_PROXY=1 (or "true"): the API sits exactly one reverse-proxy hop
+  // behind Caddy (Oracle compose) / Fly's edge proxy, so Express must derive
+  // req.ip from X-Forwarded-For (one hop) or every request would share the
+  // proxy's IP — collapsing the per-IP rate limiter (rate-limit.middleware.ts)
+  // into a single global bucket any one client can exhaust. Default OFF:
+  // directly-exposed deployments must keep ignoring the spoofable header.
+  const trustProxy = process.env.TRUST_PROXY;
+  if (trustProxy === "1" || trustProxy === "true") {
+    app.getHttpAdapter().getInstance().set("trust proxy", 1);
+  }
+
   // Assign/propagate x-request-id first so it's available even for requests
   // that fail during body parsing, before anything else runs.
   app.use(requestIdMiddleware());

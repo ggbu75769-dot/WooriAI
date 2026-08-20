@@ -49,7 +49,7 @@ describe("A11Y-101 accessibility source contract", () => {
     const uiSource = source("src/ui.tsx");
     const chipBlock = uiSource.slice(uiSource.indexOf("export function CategoryChip"));
     expect(chipBlock).toContain('accessibilityRole="button"');
-    expect(chipBlock).toContain("accessibilityState={{ selected: selected === true }}");
+    expect(chipBlock).toContain("accessibilityState={selected === undefined ? undefined : { selected }}");
 
     const segmentedBlock = uiSource.slice(
       uiSource.indexOf("export function SegmentedControl"),

@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { PrismaClient } from "@prisma/client";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module";
+import { PrismaService } from "../src/prisma/prisma.service";
 import { DataRetentionPurgeJob } from "../src/worker/jobs/data-retention-purge.job";
 import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
 
@@ -485,6 +486,139 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       await prisma.child.deleteMany({ where: { id: child.id } });
       await prisma.household.deleteMany({ where: { id: household.id } });
       await prisma.user.deleteMany({ where: { id: user.id } });
+    });
+  });
+
+  describe("phase isolation and degradation (review: purge stall)", () => {
+    // Same injection surface as production: the job holds the module's
+    // PrismaService singleton, so spying on that instance's $transaction (a
+    // regular own method on the client) intercepts exactly the phase
+    // transactions while findMany batch selection still hits the real DB.
+    function prismaService(): PrismaService {
+      return app.get(PrismaService);
+    }
+
+    it("keeps running the child/user phases when the expense phase's transaction fails, reporting the error in the summary without throwing", async () => {
+      const now = new Date();
+      const user = await createUser();
+      const household = await createHousehold(user.id);
+      const liveChild = await createChild(household.id, null);
+      // Phase-1 driver row on a LIVE child so the phase-2 cascade cannot reap it.
+      const agedExpense = await createExpense(household.id, liveChild.id, user.id, daysAgo(now, 40));
+      const agedChild = await createChild(household.id, daysAgo(now, 40));
+      const withdrawn = await createUser({ status: "withdrawn", updatedAt: daysAgo(now, 40) });
+
+      // Phase 1's transaction fails on the first attempt AND its halved retry;
+      // every later phase falls through to the real implementation.
+      const spy = vi
+        .spyOn(prismaService(), "$transaction")
+        .mockImplementationOnce(() => {
+          throw new Error("forced phase-1 failure");
+        })
+        .mockImplementationOnce(() => {
+          throw new Error("forced phase-1 retry failure");
+        });
+
+      try {
+        const result = await job.run(now);
+
+        expect(result.expensesPurged).toBe(0);
+        expect(result.expensePurgeError).toContain("forced phase-1 retry failure");
+        // The poisoned phase did not block the others.
+        expect(result.childrenPurged as number).toBeGreaterThanOrEqual(1);
+        expect(result.usersPurged as number).toBeGreaterThanOrEqual(1);
+      } finally {
+        spy.mockRestore();
+      }
+
+      expect(await prisma.expense.findUnique({ where: { id: agedExpense.id } })).not.toBeNull();
+      expect(await prisma.child.findUnique({ where: { id: agedChild.id } })).toBeNull();
+      expect(await prisma.user.findUnique({ where: { id: withdrawn.id } })).toBeNull();
+
+      await prisma.expense.deleteMany({ where: { householdId: household.id } });
+      await prisma.child.deleteMany({ where: { id: liveChild.id } });
+      await prisma.householdMember.deleteMany({ where: { householdId: household.id } });
+      await prisma.household.deleteMany({ where: { id: household.id } });
+      await prisma.user.deleteMany({ where: { id: user.id } });
+    });
+
+    it("retries a failed phase transaction once within the same tick with half the batch, and logs it in the summary", async () => {
+      const now = new Date();
+      const user = await createUser();
+      const household = await createHousehold(user.id);
+      const child = await createChild(household.id, null);
+      process.env.PURGE_BATCH_SIZE = "2";
+
+      // Far older than any other suite's tombstones (~40 days), so these two
+      // deterministically head the oldest-first batch.
+      const older = await createExpense(household.id, child.id, user.id, daysAgo(now, 2000));
+      const newer = await createExpense(household.id, child.id, user.id, daysAgo(now, 1999));
+
+      // First transaction (full batch of 2) fails once — simulating an
+      // oversized batch aborting (P2028); the halved retry runs for real.
+      const spy = vi.spyOn(prismaService(), "$transaction").mockImplementationOnce(() => {
+        throw new Error("forced oversized-batch failure");
+      });
+
+      try {
+        const result = await job.run(now);
+        expect(result.expensePurgeRetriedWithBatchSize).toBe(1);
+        expect(result.expensesPurged).toBe(1);
+      } finally {
+        spy.mockRestore();
+      }
+
+      // The halved retry drained the OLDEST half of the identical re-selected batch.
+      expect(await prisma.expense.findUnique({ where: { id: older.id } })).toBeNull();
+      expect(await prisma.expense.findUnique({ where: { id: newer.id } })).not.toBeNull();
+
+      // Unimpeded follow-up ticks finish the backlog.
+      for (let tick = 0; tick < 5; tick += 1) {
+        if ((await prisma.expense.count({ where: { id: newer.id } })) === 0) break;
+        await job.run(now);
+      }
+      expect(await prisma.expense.findUnique({ where: { id: newer.id } })).toBeNull();
+
+      await prisma.child.deleteMany({ where: { id: child.id } });
+      await prisma.household.deleteMany({ where: { id: household.id } });
+      await prisma.user.deleteMany({ where: { id: user.id } });
+    });
+  });
+
+  describe("anonymized stub cleanup (phase 4)", () => {
+    it("removes an anonymized stub once its blocking references disappear (PURGE_BATCH_SIZE=1, two withdrawn members)", async () => {
+      const now = new Date();
+      process.env.PURGE_BATCH_SIZE = "1";
+
+      // The exact two-tick review scenario: the household OWNER withdraws
+      // first, then the last remaining member. updatedAt values far older than
+      // other suites' fixtures keep the batch-of-1 selection deterministic.
+      const owner = await createUser({ status: "withdrawn", updatedAt: daysAgo(now, 2000) });
+      const member = await createUser({ status: "withdrawn", updatedAt: daysAgo(now, 1999) });
+      const household = await createHousehold(owner.id);
+      await createMembership(household.id, owner.id, "left");
+      await createMembership(household.id, member.id, "left");
+
+      // Tick 1 (batch=1): purges the owner — still blocked by
+      // Household.ownerUserId (the member's row keeps the household alive), so
+      // the owner becomes an anonymized stub with deletedAt stamped.
+      await job.run(now);
+      const stub = await prisma.user.findUniqueOrThrow({ where: { id: owner.id } });
+      expect(stub.deletedAt).not.toBeNull();
+      expect(stub.providerUserId).toBe(`purged:${owner.id}`);
+
+      // Tick 2 (batch=1): purges the member; the household is now orphaned and
+      // deleted with it — the stub's blocking reference disappears.
+      await job.run(now);
+      expect(await prisma.user.findUnique({ where: { id: member.id } })).toBeNull();
+      expect(await prisma.household.findUnique({ where: { id: household.id } })).toBeNull();
+
+      // Tick 3: nothing references the stub any more — phase 4 removes it
+      // (pre-fix it survived forever).
+      await job.run(now);
+      expect(await prisma.user.findUnique({ where: { id: owner.id } })).toBeNull();
+
+      await prisma.user.deleteMany({ where: { id: { in: [owner.id, member.id] } } });
     });
   });
 });

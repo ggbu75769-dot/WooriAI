@@ -29,7 +29,11 @@ function requestIdOf(req: Request): string | undefined {
 }
 
 /**
- * In-memory, per-IP rate limiter. A global ceiling (default 300 req/min)
+ * In-memory, per-IP rate limiter. Keys on req.ip — behind a reverse proxy
+ * (Caddy/Fly) this is only the real client IP when TRUST_PROXY=1 is set so
+ * bootstrap.ts's configureApiApp enables Express `trust proxy` (1 hop);
+ * without it every request would share the proxy's IP and collapse into one
+ * global bucket. A global ceiling (default 300 req/min)
  * applies to every request; `auth/*` and `admin/auth/*` additionally obey a
  * much tighter ceiling (default 30 req/min) since those are the
  * brute-force-sensitive endpoints (on top of admin login's existing

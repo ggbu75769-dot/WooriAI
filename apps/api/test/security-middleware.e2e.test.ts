@@ -73,8 +73,22 @@ describe("Security middleware (rate limit, headers, body size, idempotency)", ()
     delete process.env.RATE_LIMIT_GLOBAL_MAX;
     delete process.env.RATE_LIMIT_AUTH_MAX;
     delete process.env.RATE_LIMIT_WINDOW_MS;
+    delete process.env.TRUST_PROXY;
     await app.close();
   });
+
+  /**
+   * TRUST_PROXY is read once by configureApiApp, so these tests build their
+   * own app instance after setting the env var (the shared beforeEach app is
+   * always built with TRUST_PROXY unset, i.e. the default-off behavior).
+   */
+  async function createAppWithCurrentEnv(): Promise<INestApplication> {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const scopedApp = moduleRef.createNestApplication();
+    configureApiApp(scopedApp);
+    await scopedApp.init();
+    return scopedApp;
+  }
 
   it("returns baseline security headers and a request id on every response", async () => {
     const response = await request(app.getHttpServer()).get("/api/v1/health").expect(200);
@@ -124,6 +138,51 @@ describe("Security middleware (rate limit, headers, body size, idempotency)", ()
     }
 
     expect(statuses).toEqual([200, 200, 429, 429]);
+  });
+
+  it("with TRUST_PROXY=1 keys rate-limit buckets on the X-Forwarded-For client IP, so each attacker hits their own ceiling", async () => {
+    process.env.TRUST_PROXY = "1";
+    process.env.RATE_LIMIT_GLOBAL_MAX = "3";
+    process.env.RATE_LIMIT_WINDOW_MS = "60000";
+    const proxiedApp = await createAppWithCurrentEnv();
+
+    try {
+      // One forwarded client exhausts only its own bucket...
+      const statuses: number[] = [];
+      for (let i = 0; i < 4; i++) {
+        const response = await request(proxiedApp.getHttpServer())
+          .get("/api/v1/health")
+          .set("X-Forwarded-For", "203.0.113.10");
+        statuses.push(response.status);
+      }
+      expect(statuses).toEqual([200, 200, 200, 429]);
+
+      // ...while a different forwarded client IP still gets through (separate
+      // per-IP bucket — no shared proxy-IP global bucket).
+      await request(proxiedApp.getHttpServer())
+        .get("/api/v1/health")
+        .set("X-Forwarded-For", "203.0.113.11")
+        .expect(200);
+    } finally {
+      await proxiedApp.close();
+    }
+  });
+
+  it("without TRUST_PROXY ignores X-Forwarded-For entirely — a spoofed header can neither split nor reset buckets", async () => {
+    process.env.RATE_LIMIT_GLOBAL_MAX = "3";
+    process.env.RATE_LIMIT_WINDOW_MS = "60000";
+
+    // The shared beforeEach app was built with TRUST_PROXY unset (default
+    // off): every request keys on the real socket IP, so rotating the header
+    // still lands in one bucket.
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const response = await request(app.getHttpServer())
+        .get("/api/v1/health")
+        .set("X-Forwarded-For", `203.0.113.${20 + i}`);
+      statuses.push(response.status);
+    }
+    expect(statuses).toEqual([200, 200, 200, 429]);
   });
 
   it("rejects a JSON body larger than the 1MB limit with 413", async () => {

@@ -13,6 +13,8 @@ primary_region = "nrt" # 도쿄 — 한국에서 가장 가까운 Fly 리전
 [env]
   NODE_ENV = "production"
   PORT = "3000"
+  # Fly 엣지 프록시 1홉 뒤 — 실 클라이언트 IP(X-Forwarded-For) 인식, per-IP rate limit 필수 조건
+  TRUST_PROXY = "1"
   # WORKER_ENABLED은 단일 머신에서만 1로 — 머신 2대 이상 확장 시 secrets/머신별 env로 관리
   WORKER_ENABLED = "1"
 

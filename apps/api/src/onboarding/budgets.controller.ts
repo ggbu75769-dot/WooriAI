@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Inject, Param, Put, Query, Req, UseGuards, UseInterceptors } from "@nestjs/common";
 import { IsOptional, Matches } from "class-validator";
 import { createDtoValidationPipe } from "../bootstrap";
+import { YEAR_MONTH_INPUT_PATTERN } from "../common/validation/year-month";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
@@ -8,9 +9,10 @@ import { UpsertBudgetDto } from "./dto/upsert-budget.dto";
 import { OnboardingStoreService } from "./onboarding-store.service";
 
 class BudgetQueryDto {
-  // REP-105: PUT과 동일하게 YYYY-MM / YYYY-MM-01 모두 허용 (서비스는 월 단위로 정규화)
+  // REP-105: PUT과 동일하게 YYYY-MM / YYYY-MM-01 모두 허용 (서비스는 월 단위로 정규화).
+  // 월은 01-12로 제한 — 공유 YEAR_MONTH_INPUT_PATTERN과 동일 (2026-13 등은 400).
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}(-01)?$/)
+  @Matches(YEAR_MONTH_INPUT_PATTERN)
   yearMonth?: string;
 }
 

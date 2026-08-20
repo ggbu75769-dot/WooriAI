@@ -12,8 +12,13 @@
 // (a spentOn date pasted into a period field), so those fail validation with
 // the standard VALIDATION_ERROR envelope instead.
 
-/** Accepts `YYYY-MM` or `YYYY-MM-01` only — see the tolerance note above. */
-export const YEAR_MONTH_INPUT_PATTERN = /^\d{4}-\d{2}(-01)?$/;
+/**
+ * Accepts `YYYY-MM` or `YYYY-MM-01` only — see the tolerance note above. The
+ * month is bounded to 01-12: an unbounded `\d{2}` let values like `2026-13` /
+ * `2026-00` through validation only to blow up later in getSeoulMonthRange
+ * (an Invalid Date → 500 instead of a 400 VALIDATION_ERROR).
+ */
+export const YEAR_MONTH_INPUT_PATTERN = /^\d{4}-(0[1-9]|1[0-2])(-01)?$/;
 
 /**
  * class-transformer @Transform hook: widens `YYYY-MM` to the internal

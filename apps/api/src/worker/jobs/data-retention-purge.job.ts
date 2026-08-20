@@ -1,18 +1,30 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import type { WorkerJob } from "../worker-job";
 
 export const DEFAULT_PURGE_RETENTION_DAYS = 30;
-// Per-entity cap per tick: each of the three purge phases (expenses, children,
-// withdrawn users) touches at most this many *driver* rows per run, bounding
-// tick duration on a backlog. Dependent rows of a driver row (a child's
-// expenses, a user's tokens) are not counted against the cap — a driver row is
-// always purged whole so a crash/retry can never leave it half-purged.
+// Per-entity cap per tick: each purge phase (expenses, children, withdrawn
+// users, anonymized stubs) touches at most this many *driver* rows per run,
+// bounding tick duration on a backlog. Dependent rows of a driver row (a
+// child's expenses, a user's tokens) are not counted against the cap — a
+// driver row is always purged whole so a crash/retry can never leave it
+// half-purged.
 export const DEFAULT_PURGE_BATCH_SIZE = 200;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Explicit interactive-transaction options: the Prisma default of 5s aborts
+// (P2028) on an oversized cascade batch, and because batch selection is
+// deterministic oldest-first, a timed-out batch would be re-selected
+// identically on every tick and stall that phase forever. 30s gives a full
+// batch of deep cascades room to finish; maxWait stays at the 5s default.
+const PURGE_TX_OPTIONS = { timeout: 30_000, maxWait: 5_000 } as const;
+
 type Tx = Prisma.TransactionClient;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /**
  * PRIV-105: physical purge of soft-deleted / withdrawn data after a retention
@@ -21,8 +33,10 @@ type Tx = Prisma.TransactionClient;
  * Child.deletedAt, User.status=withdrawn) and never left the database, which
  * is why infra/legal/privacy-policy.html could not state a 파기(destruction)
  * period. The privacy policy / account-deletion page / data-safety answers now
- * promise "삭제 처리 후 30일 이내 완전 파기" — keep those documents in sync
- * with this job's semantics.
+ * promise "삭제 처리 후 30일이 경과하면 지체 없이(통상 수 분 이내) 완전 파기"
+ * — keep those documents in sync with this job's semantics (the purge runs
+ * strictly AFTER the retention window elapses, plus up to one worker tick of
+ * latency).
  *
  * NOTE on referential integrity: prisma/schema.prisma declares no relations,
  * but migration 000001 creates real SQL FK constraints on most domain tables
@@ -30,7 +44,14 @@ type Tx = Prisma.TransactionClient;
  * idempotency_keys never had one). Deletion order below is therefore not just
  * hygiene — Postgres enforces it.
  *
- * Three phases, each capped at PURGE_BATCH_SIZE driver rows per tick:
+ * Four phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
+ * run INDEPENDENTLY: each is wrapped in its own try/catch so one poisoned
+ * phase can never block the others, its error is reported in the summary
+ * (`<phase>Error`), and the job itself never throws. A phase whose
+ * transaction fails is retried once within the same tick with half the batch
+ * size (floor, min 1) — a cheap self-degrading step so an oversized batch
+ * (e.g. deep phase-3 orphan cascades) eventually drains instead of being
+ * re-selected identically forever; the degradation is logged.
  *
  * 1. Soft-deleted expenses (Expense.deletedAt < cutoff) are hard-deleted,
  *    after nullifying the nullable FKs that point at them
@@ -103,10 +124,20 @@ type Tx = Prisma.TransactionClient;
  *    excludes it from future purge batches and records the destruction time.
  *    The stub that remains holds no personal data — it exists purely to keep
  *    the surviving household's referential integrity.
+ *
+ * 4. Anonymized user stubs (User.deletedAt IS NOT NULL, status=withdrawn)
+ *    whose blocking references have since disappeared (e.g. the surviving
+ *    household was itself purged later, or the stub's authored rows aged out)
+ *    are hard-deleted. Without this phase a stub whose reason to exist is
+ *    gone would survive forever. The same reference check as phase 3
+ *    (findReferenceBlockedUserIds) decides deletability; still-referenced
+ *    stubs are left alone. No cutoff applies — a stub was already past the
+ *    retention window when it was anonymized.
  */
 @Injectable()
 export class DataRetentionPurgeJob implements WorkerJob {
   readonly name = "data_retention_purge";
+  private readonly logger = new Logger(DataRetentionPurgeJob.name);
 
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
@@ -115,11 +146,67 @@ export class DataRetentionPurgeJob implements WorkerJob {
     const batchSize = this.batchSize();
     const cutoff = new Date(now.getTime() - retentionDays * DAY_MS);
 
-    const expenses = await this.purgeExpenses(cutoff, batchSize);
-    const children = await this.purgeChildren(cutoff, batchSize);
-    const users = await this.purgeWithdrawnUsers(now, cutoff, batchSize);
+    // Phases run independently (see class doc): a failure in one is captured
+    // in the summary and never prevents the later phases from running.
+    const expenses = await this.runPhase("expensePurge", batchSize, (size) => this.purgeExpenses(cutoff, size), {
+      expensesPurged: 0
+    });
+    const children = await this.runPhase("childPurge", batchSize, (size) => this.purgeChildren(cutoff, size), {
+      childrenPurged: 0,
+      childExpensesPurged: 0,
+      childClicksAnonymized: 0
+    });
+    const users = await this.runPhase(
+      "userPurge",
+      batchSize,
+      (size) => this.purgeWithdrawnUsers(now, cutoff, size),
+      {
+        usersPurged: 0,
+        usersAnonymized: 0,
+        householdsPurged: 0,
+        auditLogsAnonymized: 0,
+        userClicksAnonymized: 0
+      }
+    );
+    const stubs = await this.runPhase("stubPurge", batchSize, (size) => this.purgeAnonymizedStubs(size), {
+      userStubsPurged: 0
+    });
 
-    return { retentionDays, batchSize, ...expenses, ...children, ...users };
+    return { retentionDays, batchSize, ...expenses, ...children, ...users, ...stubs };
+  }
+
+  /**
+   * Runs one phase with isolation + self-degrading retry: a first failure is
+   * retried once within the same tick at half the batch size (floor, min 1) —
+   * batch selection is deterministic oldest-first, so the halved retry works
+   * on a strict prefix of the failed batch and oversized batches eventually
+   * drain across ticks. A second failure is captured as `<label>Error` in the
+   * summary (merged over the phase's zero-counts) instead of thrown, so the
+   * remaining phases still run and the job never throws.
+   */
+  private async runPhase<T extends Record<string, unknown>>(
+    label: string,
+    batchSize: number,
+    phase: (size: number) => Promise<T>,
+    emptyResult: T
+  ): Promise<Record<string, unknown>> {
+    try {
+      return await phase(batchSize);
+    } catch (error) {
+      const halvedBatchSize = Math.max(1, Math.floor(batchSize / 2));
+      this.logger.warn(
+        `phase=${label} failed at batchSize=${batchSize}, retrying once with batchSize=${halvedBatchSize}: ${errorMessage(error)}`
+      );
+      try {
+        const result = await phase(halvedBatchSize);
+        return { ...result, [`${label}RetriedWithBatchSize`]: halvedBatchSize };
+      } catch (retryError) {
+        this.logger.error(
+          `phase=${label} failed again at batchSize=${halvedBatchSize}, giving up until next tick: ${errorMessage(retryError)}`
+        );
+        return { ...emptyResult, [`${label}Error`]: errorMessage(retryError) };
+      }
+    }
   }
 
   /** Phase 1: expired expense tombstones (see class doc, item 1). */
@@ -136,7 +223,7 @@ export class DataRetentionPurgeJob implements WorkerJob {
     const ids = rows.map((row) => row.id);
     await this.prisma.$transaction(async (tx) => {
       await this.deleteExpensesHard(tx, ids);
-    });
+    }, PURGE_TX_OPTIONS);
     return { expensesPurged: ids.length };
   }
 
@@ -166,11 +253,13 @@ export class DataRetentionPurgeJob implements WorkerJob {
     if (rows.length === 0) {
       return { childrenPurged: 0, childExpensesPurged: 0, childClicksAnonymized: 0 };
     }
-    const cascade = await this.prisma.$transaction((tx) =>
-      this.purgeChildRows(
-        tx,
-        rows.map((row) => row.id)
-      )
+    const cascade = await this.prisma.$transaction(
+      (tx) =>
+        this.purgeChildRows(
+          tx,
+          rows.map((row) => row.id)
+        ),
+      PURGE_TX_OPTIONS
     );
     return {
       childrenPurged: cascade.children,
@@ -347,7 +436,48 @@ export class DataRetentionPurgeJob implements WorkerJob {
         auditLogsAnonymized: auditLogs.count,
         userClicksAnonymized: clicks.count
       };
-    });
+    }, PURGE_TX_OPTIONS);
+  }
+
+  /** Phase 4: anonymized user stubs whose blockers are gone (class doc, item 4). */
+  private async purgeAnonymizedStubs(batchSize: number) {
+    // deleted_at non-null = a stub phase 3 anonymized earlier; nothing else
+    // ever sets User.deletedAt. No cutoff: the stub was already past the
+    // retention window when it was stamped. Candidate selection embeds the
+    // reference check as NOT EXISTS subqueries (one per NOT NULL user FK —
+    // the same references findReferenceBlockedUserIds inspects) so that
+    // still-blocked stubs, which are the steady-state majority, never occupy
+    // the oldest-first batch window and starve newly-unblocked stubs behind
+    // them (head-of-line blocking under a small PURGE_BATCH_SIZE).
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT u.id
+      FROM users u
+      WHERE u.status = 'withdrawn'
+        AND u.deleted_at IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM households h WHERE h.owner_user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM expenses e WHERE e.created_by_user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM budgets b WHERE b.created_by_user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM child_item_statuses s WHERE s.updated_by_user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.uploaded_by_user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM import_jobs j WHERE j.user_id = u.id)
+      ORDER BY u.deleted_at ASC
+      LIMIT ${batchSize}`;
+    if (rows.length === 0) {
+      return { userStubsPurged: 0 };
+    }
+    const stubIds = rows.map((row) => row.id);
+    return this.prisma.$transaction(async (tx) => {
+      // Authoritative re-check inside the transaction (reference-check helper
+      // shared with phase 3): a candidate could have picked up a blocking
+      // reference between selection and this transaction.
+      const blocked = await this.findReferenceBlockedUserIds(tx, stubIds);
+      const deletableIds = stubIds.filter((id) => !blocked.has(id));
+      if (deletableIds.length === 0) {
+        return { userStubsPurged: 0 };
+      }
+      const deleted = await tx.user.deleteMany({ where: { id: { in: deletableIds } } });
+      return { userStubsPurged: deleted.count };
+    }, PURGE_TX_OPTIONS);
   }
 
   /**
