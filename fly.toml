@@ -1,0 +1,35 @@
+# 우리아이 API — Fly.io 구성 (Day 1 배포 런북: docs/5차/day1-deploy-runbook.md)
+# 앱 이름은 `flyctl launch` 시 본인 계정에 맞게 변경하세요.
+app = "wooriai-api"
+primary_region = "nrt" # 도쿄 — 한국에서 가장 가까운 Fly 리전
+
+[build]
+  dockerfile = "infra/docker/api.Dockerfile"
+
+[deploy]
+  # 새 버전 트래픽 전환 전에 마이그레이션 적용
+  release_command = "pnpm --filter api prisma:deploy"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  # WORKER_ENABLED은 단일 머신에서만 1로 — 머신 2대 이상 확장 시 secrets/머신별 env로 관리
+  WORKER_ENABLED = "1"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "off"   # 워커(예약 게시·정리)가 상시 돌아야 하므로 항상 가동
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/api/v1/health/ready"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
