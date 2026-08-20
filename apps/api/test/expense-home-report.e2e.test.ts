@@ -789,6 +789,36 @@ describe("Expense, budget, home, and report API", () => {
       .expect(({ body }) => {
         expect(body.totalAmountKrw).toBe(10000);
       });
+
+    // Out-of-range months (00, 13-99) must fail validation up front with a 400
+    // VALIDATION_ERROR — previously the unbounded pattern let them through to
+    // getSeoulMonthRange, which threw and surfaced as a 500.
+    for (const badMonth of ["2026-13", "2026-00"]) {
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=${badMonth}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(400)
+        .expect(({ body }) => {
+          expect(body.error.code).toBe("VALIDATION_ERROR");
+        });
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/budget?yearMonth=${badMonth}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(400)
+        .expect(({ body }) => {
+          expect(body.error.code).toBe("VALIDATION_ERROR");
+        });
+
+      await request(app.getHttpServer())
+        .put(`/api/v1/children/${childId}/budget`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ yearMonth: badMonth, amountKrw: 150000 })
+        .expect(400)
+        .expect(({ body }) => {
+          expect(body.error.code).toBe("VALIDATION_ERROR");
+        });
+    }
   });
 
   it("computes d100 and first-birthday milestone reports over the birth window (REP-103)", async () => {

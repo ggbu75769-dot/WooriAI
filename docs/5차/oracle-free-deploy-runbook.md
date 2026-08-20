@@ -50,6 +50,7 @@ curl -fsSL "https://raw.githubusercontent.com/ggbu75769-dot/WooriAI/master/scrip
    ```
 3. 모바일 릴리즈 빌드 env: `EXPO_PUBLIC_API_BASE_URL=https://<도메인>/api/v1`
 4. 스모크 테스트: `curl https://<도메인>/api/v1/health/ready`
+5. `TRUST_PROXY=1` 확인: 부트스트랩이 생성하는 `.env.production`에 포함되어 있습니다(이 구성은 API가 항상 Caddy 리버스 프록시 1홉 뒤에서 동작). 이 값이 없으면 모든 요청이 프록시 IP 하나로 집계되어 per-IP rate limit이 전역 버킷 하나로 무력화됩니다. 기존 `.env.production`을 유지한 채 재실행한 경우(스크립트는 기존 파일을 덮어쓰지 않음) `TRUST_PROXY=1` 한 줄을 직접 추가하고 api를 재기동하세요.
 
 ## 6. 운영 메모
 
