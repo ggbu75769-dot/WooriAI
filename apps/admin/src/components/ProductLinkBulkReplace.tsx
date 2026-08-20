@@ -115,10 +115,25 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
           {CSV_EXAMPLE}
         </pre>
         <div className={styles.actions}>
+          {/* COM-107b: real downloadable template file (public/product-link-bulk-template.csv).
+              CSV 파서는 # 주석 행을 지원하지 않아 템플릿에 유효한 형태의 예시 행 2개를
+              담았다 — 아래 hint에서 예시 행 교체를 안내한다. */}
+          <a
+            className={styles.secondaryButton}
+            style={{ textDecoration: "none" }}
+            href="/product-link-bulk-template.csv"
+            download
+          >
+            템플릿 다운로드
+          </a>
           <button type="button" className={styles.secondaryButton} onClick={handleCopyHeader}>
             {copied ? "복사됨" : "헤더 복사"}
           </button>
         </div>
+        <span className={styles.hint}>
+          템플릿의 예시 행 2개(쿠팡/네이버 자리표시 URL)는 실제 값으로 교체한 뒤 업로드해 주세요. #
+          주석 행은 지원하지 않아요.
+        </span>
       </div>
 
       <div className={styles.field}>

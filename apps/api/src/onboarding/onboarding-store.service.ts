@@ -509,6 +509,11 @@ export class OnboardingStoreService {
 
   async upsertBudget(user: AuthenticatedUser, childId: string, yearMonth: string, amountKrw: number) {
     await this.requireChildAccess(user, childId, true);
+    // REP-105: yearMonth arrives DTO-normalized to `YYYY-MM-01` (inputs accept
+    // `YYYY-MM` or `YYYY-MM-01`; see common/validation/year-month.ts), and
+    // getSeoulMonthRange itself truncates any date to its month, so this
+    // normalization point — shared by getBudget/getMonthlyReport — is
+    // tolerant of both forms. Responses keep the first-of-month form.
     const normalizedMonth = getSeoulMonthRange(yearMonth).yearMonth;
     const amount = this.requireMoneyKrw(amountKrw);
     const budget = await this.prisma.budget.upsert({
