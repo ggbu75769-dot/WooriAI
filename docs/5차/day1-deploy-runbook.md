@@ -58,6 +58,8 @@ fly ssh console -C "pnpm --filter api seed"   # 카테고리 12·준비템 86·�
 어드민 콘솔 접속 → `ADMIN_SEED_EMAIL`/`ADMIN_SEED_PASSWORD` 로그인 → **즉시 비밀번호 변경**(ADM-007) → MFA(TOTP) 등록(강제 흐름).
 필요하면 /users에서 팀원 계정 발급.
 
+> 참고: 시드는 멱등이며 관리자 자격증명은 **생성 시 1회만** 적용됩니다 — 시드를 재실행해도 기존 계정의 비밀번호(교체한 값)나 활성 상태는 절대 되돌아가지 않습니다. 비밀번호 교체 후에는 `ADMIN_SEED_PASSWORD` 시크릿을 폐기해도 됩니다.
+
 ### A-6. 도메인 연결 (선택이지만 권장, 15분)
 ```bash
 fly certs add api.<확정 도메인>       # 출력되는 CNAME/A 레코드를 DNS에 등록
@@ -77,6 +79,7 @@ docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.productio
 docker compose -f infra/docker/docker-compose.prod.yml exec api pnpm --filter api seed
 ```
 HTTPS는 앞단에 Caddy/nginx + certbot을 두세요(80/443 → api:3000).
+시드는 재실행해도 기존 관리자 계정의 비밀번호/활성 상태를 덮어쓰지 않습니다(생성 시 1회만, ADM-007).
 
 ---
 

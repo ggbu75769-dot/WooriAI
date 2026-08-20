@@ -135,6 +135,16 @@ describe("Batch 03 seed data", () => {
     expect(seedScript).not.toContain("expenses");
   });
 
+  // ADM-007: re-running the seed (e.g. an idempotent bootstrap re-run) must never
+  // roll back a rotated admin password or reactivate a deactivated account. Admin
+  // credentials are seeded create-only.
+  it("never resets an existing admin user's credentials on re-seed", () => {
+    const seedScript = existsSync(seedScriptPath) ? readFileSync(seedScriptPath, "utf8") : "";
+
+    expect(seedScript).toContain("createAdminUserIfMissing");
+    expect(seedScript).not.toContain("adminUser.upsert");
+  });
+
   it("covers every child stage with at least 5 active prepared items", async () => {
     const { itemTemplateSeeds } = await loadSeedData();
     const activeItems = itemTemplateSeeds.filter((item) => item.active);

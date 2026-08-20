@@ -308,6 +308,23 @@ export function getAffiliateClickSummary() {
   return request<ClickSummary>("/admin/affiliate-clicks/summary");
 }
 
+// ADM-008: read-only ops counters for the admin dashboard home. Any admin role
+// (admin/editor/analyst) may read it — the API route has no RequireAdminRoles.
+export type AdminDashboardSummary = {
+  activeUsers: number;
+  households: number;
+  childrenCount: number;
+  expensesTotal: number;
+  affiliateClicks7d: number;
+  analyticsEvents7d: number;
+  pendingContentRevisions: number;
+  productLinksBrokenCount: number;
+};
+
+export function getAdminDashboardSummary() {
+  return request<AdminDashboardSummary>("/admin/dashboard/summary");
+}
+
 /** Session-expiry only: a role-forbidden (RBAC), CSRF, or MFA-setup-required 403
  * is not "log the admin out", so this intentionally checks 401 alone. */
 export function isAuthError(error: unknown): boolean {

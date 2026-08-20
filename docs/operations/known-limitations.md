@@ -32,7 +32,7 @@
 ## B. 후속 개선 (위험도 낮음)
 
 - 준비템 탭 기본 선택이 고정 "12-24개월"(픽셀락 승인 화면 기준) — 아이 단계 연동은 디자인 승인 후.
-- 아이 단계 계산 기본 '오늘'이 UTC (`packages/domain/src/stage.ts`) — KST 00~09시 하루 오차.
+- ~~아이 단계 계산 기본 '오늘'이 UTC (`packages/domain/src/stage.ts`) — KST 00~09시 하루 오차.~~ **해결(FIX-STAGE-UTC)**: 기본 '오늘'을 `getSeoulToday()`(Asia/Seoul) 기준으로 계산하며, 서울 자정 주차/개월 롤오버·월말 생일 경계 테스트로 고정.
 - 지출 수정 화면에 날짜/카테고리 편집 UI 미노출 (API는 지원).
 - idempotency_keys 만료 행 정리는 로그인 시 refresh 토큰 정리와 달리 스케줄러 미구현 (24h TTL 필드는 존재).
 - 도넛 원호 근사 표현(범례 %는 실데이터), 앱 정보 버전 하드코딩, `isValidCalendarDate` 로컬 복제.

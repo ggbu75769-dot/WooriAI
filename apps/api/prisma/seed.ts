@@ -207,14 +207,14 @@ async function seedAdminUsers() {
   const nodeEnv = process.env.NODE_ENV;
 
   if (email && password) {
-    await upsertAdminUser(email, password);
+    await createAdminUserIfMissing(email, password);
     return;
   }
 
   if (nodeEnv !== "production") {
     // Convenience default for local development only; never used when
     // NODE_ENV=production and the seed env vars are unset (see the warning below).
-    await upsertAdminUser("admin@wooriai.local", "wooriai-dev-admin");
+    await createAdminUserIfMissing("admin@wooriai.local", "wooriai-dev-admin");
     return;
   }
 
@@ -224,21 +224,31 @@ async function seedAdminUsers() {
   );
 }
 
-async function upsertAdminUser(
+// ADM-007: 관리자 자격증명은 "생성 시 1회만" 시드한다. 시드를 재실행해도 기존
+// 계정의 passwordHash(운영 중 교체된 비밀번호)와 active(비활성화 상태)를 절대
+// 되돌리지 않는다 — 부트스트랩 스크립트가 멱등 재실행되어도 비밀번호 회전이
+// 무효화되거나 정지된 계정이 되살아나면 안 되기 때문.
+async function createAdminUserIfMissing(
   email: string,
   password: string,
   role: "admin" | "editor" = "admin",
   displayName = "Admin"
 ) {
   const normalizedEmail = email.trim().toLowerCase();
-  await prisma.adminUser.upsert({
+  const existing = await prisma.adminUser.findUnique({
     where: { email: normalizedEmail },
-    update: {
-      passwordHash: hashAdminPassword(password),
-      role,
-      active: true
-    },
-    create: {
+    select: { id: true }
+  });
+
+  if (existing) {
+    console.log(
+      `관리자 시드 건너뜀: ${normalizedEmail} 계정이 이미 존재하므로 비밀번호/활성 상태를 변경하지 않습니다.`
+    );
+    return;
+  }
+
+  await prisma.adminUser.create({
+    data: {
       email: normalizedEmail,
       passwordHash: hashAdminPassword(password),
       displayName,
@@ -257,7 +267,7 @@ async function seedEditorUsers() {
     return;
   }
 
-  await upsertAdminUser("editor@wooriai.local", "wooriai-dev-editor", "editor", "Editor");
+  await createAdminUserIfMissing("editor@wooriai.local", "wooriai-dev-editor", "editor", "Editor");
 }
 
 async function main() {

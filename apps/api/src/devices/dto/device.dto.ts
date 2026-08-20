@@ -9,9 +9,14 @@ export class RegisterDeviceDto {
   @IsIn([...DEVICE_PLATFORMS])
   platform!: DevicePlatform;
 
+  // 실제 Expo/FCM 푸시 토큰은 수백 바이트 수준이다. 상한을 2000자로 잡는 이유:
+  // (user_id, push_token) btree 유니크 인덱스(마이그레이션 000010)는 인덱스 행이
+  // ~2704바이트를 넘으면 P2002가 아닌 "index row size exceeds maximum" 오류를 내는데,
+  // 이는 디바이스 upsert의 P2002 재시도 경로가 처리하지 못해 500으로 새어 나간다.
+  // DTO에서 먼저 400(VALIDATION_ERROR)으로 거른다.
   @IsString()
   @IsNotEmpty()
-  @MaxLength(4096)
+  @MaxLength(2000, { message: "pushToken은 2000자 이하여야 해요." })
   pushToken!: string;
 
   @IsOptional()

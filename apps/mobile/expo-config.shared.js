@@ -12,6 +12,11 @@ function applyWooriaiConfig(baseExpo) {
   const androidPackage = process.env.WOORIAI_ANDROID_PACKAGE || baseExpo.android?.package;
   const version = process.env.WOORIAI_APP_VERSION || baseExpo.version;
   const versionCodeRaw = process.env.WOORIAI_ANDROID_VERSION_CODE;
+  // 숫자만 허용(/^\d+$/): parseInt는 "1.5", "2abc", "1O0" 같은 값도 앞자리만 조용히
+  // 삼켜 잘못된 versionCode로 빌드될 수 있으므로, 전체가 십진 숫자인 경우에만 파싱한다.
+  if (versionCodeRaw && !/^\d+$/.test(versionCodeRaw)) {
+    throw new Error(`WOORIAI_ANDROID_VERSION_CODE는 양의 정수여야 합니다: ${versionCodeRaw}`);
+  }
   const versionCode = versionCodeRaw ? Number.parseInt(versionCodeRaw, 10) : undefined;
   if (versionCodeRaw && (!Number.isInteger(versionCode) || versionCode <= 0)) {
     throw new Error(`WOORIAI_ANDROID_VERSION_CODE는 양의 정수여야 합니다: ${versionCodeRaw}`);

@@ -27,6 +27,13 @@ describe("Asia/Seoul date rules", () => {
     expect(getSeoulToday(new Date("2026-07-05T15:30:00.000Z"))).toBe("2026-07-06");
   });
 
+  it("rolls the Seoul day exactly at 15:00 UTC (Seoul midnight)", () => {
+    expect(getSeoulToday(new Date("2026-08-19T14:59:59.999Z"))).toBe("2026-08-19");
+    expect(getSeoulToday(new Date("2026-08-19T15:00:00.000Z"))).toBe("2026-08-20");
+    // KST 2026-08-20 07:00 — UTC is still 2026-08-19.
+    expect(getSeoulToday(new Date("2026-08-19T22:00:00.000Z"))).toBe("2026-08-20");
+  });
+
   it("returns the Seoul month boundary as date-only strings", () => {
     expect(getSeoulMonthRange("2026-07")).toEqual({
       yearMonth: "2026-07-01",

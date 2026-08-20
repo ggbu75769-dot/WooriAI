@@ -8,7 +8,8 @@ import {
   KakaoLoginCancelledError,
   KakaoLoginError,
   loginWithKakao,
-  parseKakaoRedirectUrl
+  parseKakaoRedirectUrl,
+  sanitizeOauthErrorCode
 } from "./kakao-login";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api/v1";
@@ -123,6 +124,51 @@ describe("AUTH-102 redirect URL parsing", () => {
     expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=server_error&state=s1`, "s1")).toThrowError(
       expect.objectContaining({ code: "KAKAO_PROVIDER_ERROR" })
     );
+  });
+
+  it("maps each allowlisted OAuth error code to its own fixed Korean message (never the raw param)", () => {
+    const fixedMessages: Record<string, string> = {
+      invalid_request: "카카오 인증 요청이 올바르지 않아요. 다시 시도해주세요.",
+      unauthorized_client: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
+      unsupported_response_type: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
+      invalid_scope: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
+      server_error: "카카오 서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
+      temporarily_unavailable: "카카오 서비스를 지금 이용할 수 없어요. 잠시 후 다시 시도해주세요."
+    };
+    for (const [code, message] of Object.entries(fixedMessages)) {
+      expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=${code}&state=s1`, "s1")).toThrowError(
+        expect.objectContaining({ code: "KAKAO_PROVIDER_ERROR", message })
+      );
+    }
+  });
+
+  it("never echoes an arbitrary redirect error param verbatim: unknown codes are sanitized to [a-z_-] (max 32 chars) inside a generic message", () => {
+    // HTML/script-looking payloads: the dangerous characters are stripped before display.
+    const attack = encodeURIComponent('<script>alert("PWNED")</script>');
+    expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=${attack}&state=s1`, "s1")).toThrowError(
+      expect.objectContaining({
+        code: "KAKAO_PROVIDER_ERROR",
+        message: "카카오 인증에 실패했어요. (scriptalertpwnedscript)"
+      })
+    );
+
+    // Unknown-but-plausible codes survive (as safe context), truncated to 32 chars.
+    const long = "some_very_long_unknown_error_code_from_kakao";
+    expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=${long}&state=s1`, "s1")).toThrowError(
+      expect.objectContaining({ message: `카카오 인증에 실패했어요. (${long.slice(0, 32)})` })
+    );
+
+    // A value that sanitizes to nothing falls back to the bare generic message.
+    expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=1234!%40%23&state=s1`, "s1")).toThrowError(
+      expect.objectContaining({ message: "카카오 인증에 실패했어요." })
+    );
+  });
+
+  it("sanitizeOauthErrorCode strips to lowercase [a-z_-] and caps at 32 chars", () => {
+    expect(sanitizeOauthErrorCode("Server_Error")).toBe("server_error");
+    expect(sanitizeOauthErrorCode("weird code-42<>&한글")).toBe("weirdcode-");
+    expect(sanitizeOauthErrorCode("a".repeat(100))).toBe("a".repeat(32));
+    expect(sanitizeOauthErrorCode("!@#$123")).toBe("");
   });
 
   it("rejects a redirect with no code at all", () => {

@@ -11,12 +11,21 @@ import { AdminTokenGuard } from "./admin-token.guard";
 import { AdminUsersController } from "./admin-users.controller";
 import { ContentRevisionsController } from "./content-revisions.controller";
 import { ContentRevisionsService } from "./content-revisions.service";
+import { DashboardSummaryController } from "./dashboard-summary.controller";
+import { DashboardSummaryService } from "./dashboard-summary.service";
 import { ProductLinkBulkController } from "./product-link-bulk.controller";
 import { ProductLinkBulkService } from "./product-link-bulk.service";
 
 @Module({
   imports: [OnboardingModule, AuditModule],
-  controllers: [AdminController, AdminAuthController, AdminUsersController, ContentRevisionsController, ProductLinkBulkController],
+  controllers: [
+    AdminController,
+    AdminAuthController,
+    AdminUsersController,
+    ContentRevisionsController,
+    DashboardSummaryController,
+    ProductLinkBulkController
+  ],
   providers: [
     AdminTokenGuard,
     AdminAuthGuard,
@@ -24,6 +33,7 @@ import { ProductLinkBulkService } from "./product-link-bulk.service";
     AdminSessionService,
     AdminMfaService,
     ContentRevisionsService,
+    DashboardSummaryService,
     ProductLinkBulkService
   ],
   // ContentRevisionsService is exported for WorkerModule (INF-006-lite): the
