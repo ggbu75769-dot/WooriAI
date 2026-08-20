@@ -1,6 +1,6 @@
 # Oracle Cloud Always Free 배포 런북 (완전 무료 경로, REL-010)
 
-작성일: 2026-08-20 · 자산: `scripts/deploy/oracle-bootstrap.sh`, `infra/docker/docker-compose.prod.yml` + `docker-compose.caddy.yml`
+작성일: 2026-08-20 · 자산: `scripts/deploy/oracle-bootstrap.sh`, `infra/docker/docker-compose.prod.yml` + `docker-compose.caddy.yml`, `scripts/qa/backup-restore-drill.sh`(백업 복구 드릴, OPS-101)
 
 **사용자가 직접 해야 하는 것은 §1~§3(약 30분)뿐이고, §4는 명령어 한 줄입니다.**
 
@@ -54,14 +54,52 @@ curl -fsSL "https://raw.githubusercontent.com/ggbu75769-dot/WooriAI/master/scrip
 
 ## 6. 운영 메모
 
-- **백업**: 매일 1회 `docker compose exec postgres pg_dump -U wooriai wooriai | gzip > backup.sql.gz` 크론 권장(§부록 명령 참조). Always Free Object Storage(20GB)로 복사해두면 무료.
+- **백업 — 자동 등록됨**: 부트스트랩 스크립트가 `/etc/cron.d/wooriai-backup`을 자동 생성합니다(§9, OPS-101). 매일 18:00 UTC(03:00 KST)에 컨테이너 내부 `pg_dump` → gzip으로 `/opt/wooriai-backup-<요일1~7>.sql.gz` 요일별 7개 파일 로테이션. Always Free Object Storage(20GB)로 복사해두면 무료. **복구 절차와 검증 드릴은 §부록 참조.**
 - **업데이트 배포**: `cd /opt/wooriai && sudo git pull && sudo docker compose ... up -d --build` (마이그레이션은 migrate 서비스가 자동 적용).
 - DuckDNS IP 갱신 크론은 스크립트가 등록함(10분 주기). 토큰은 root 전용 `/etc/wooriai/duckdns.curlconf`(600)에만 저장되고, 크론은 `/usr/local/sbin/wooriai-duckdns-update` 헬퍼(700)를 실행합니다 — 크론 파일이나 프로세스 목록에 토큰이 노출되지 않음.
 - 이 스크립트는 로컬 검증 환경에 Docker 데몬이 없어 **VM 첫 실행이 곧 첫 검증**입니다. 오류 출력이 나오면 그대로 붙여넣어 주세요 — 바로 수정하겠습니다.
 
-## 부록: 백업 크론 한 줄
+## 부록: 백업 복구 절차 (OPS-101 — "백업은 있는데 복구가 검증된 적이 없다" 해소)
+
+백업 크론은 부트스트랩이 자동 등록하므로(§6) 수동으로 만들 필요가 없습니다. 이 부록은 **복구**를 다룹니다.
+
+### A. 복구 드릴 (로컬 dev — 정기적으로 돌려서 백업 파일이 실제로 복구되는지 검증)
+
+```bash
+# dev Postgres 기동 상태에서 (localhost:5432, wooriai/wooriai_dev_password)
+bash scripts/qa/backup-restore-drill.sh
+```
+
+동작: `wooriai_dev` 덤프 → 스크래치 DB `wooriai_drill` 생성·복원 → 핵심 테이블(users, children, expenses, item_templates, admin_users, product_links) 행 수를 원본과 비교 → 스크래치 DB 삭제 → PASS/FAIL 요약. 멱등이라 반복 실행해도 안전하며, 실패 시 종료 코드 1. 접속 정보는 `DRILL_PGHOST` 등 환경변수로 덮어쓸 수 있습니다(스크립트 헤더 참조). 2026-08-20 dev DB(시드+스모크 데이터)에서 6개 테이블 전부 일치로 PASS 검증 완료.
+
+### B. 실서버 복구 (VM에서 — 데이터 유실/DB 손상 시)
+
+```bash
+cd /opt/wooriai
+
+# 1) API 정지 (복구 중 쓰기 유입 차단)
+sudo docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.production stop api
+
+# 2) 백업 선택 (요일별 로테이션: 1=월 … 7=일)
+ls -lh /opt/wooriai-backup-*.sql.gz
+
+# 3) DB 재생성 후 복원 (기존 DB를 통째로 교체)
+sudo docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.production \
+  exec -T postgres psql -U wooriai -d postgres \
+  -c "DROP DATABASE IF EXISTS wooriai;" -c "CREATE DATABASE wooriai;"
+gunzip -c /opt/wooriai-backup-<요일>.sql.gz | sudo docker compose \
+  -f infra/docker/docker-compose.prod.yml --env-file .env.production \
+  exec -T postgres psql -U wooriai -d wooriai -v ON_ERROR_STOP=1 -q
+
+# 4) API 재기동 + 확인
+sudo docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.production start api
+curl -fsS https://<도메인>/api/v1/health/ready
+```
+
+주의: 복원 대상은 **백업 시점**의 데이터입니다 — 백업 이후의 변경은 사라집니다. 복원 전 현재 상태도 한 번 덤프해 두면(`pg_dump ... | gzip > /opt/wooriai-pre-restore.sql.gz`) 되돌릴 수 있습니다.
+
+### C. (참고) 백업 크론 수동 재등록 — 부트스트랩 재실행이 곧 재등록이지만, 한 줄로도 가능
 
 ```bash
 echo '0 18 * * * root cd /opt/wooriai && docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.production exec -T postgres pg_dump -U wooriai wooriai | gzip > /opt/wooriai-backup-$(date +\%u).sql.gz' | sudo tee /etc/cron.d/wooriai-backup
 ```
-(요일별 7개 파일 로테이션, 매일 03:00 KST)

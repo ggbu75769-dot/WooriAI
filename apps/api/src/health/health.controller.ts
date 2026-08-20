@@ -1,5 +1,7 @@
 import { Controller, Get, HttpCode, HttpStatus, Inject, Res } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { SchedulerService } from "../worker/scheduler.service";
+import { WorkerStatusService } from "../worker/worker-status.service";
 
 // Minimal structural type for the Express response object, just enough to set a
 // status code before returning a plain body (passthrough mode). Avoids taking a
@@ -8,11 +10,36 @@ type MinimalHttpResponse = { status: (statusCode: number) => unknown };
 
 @Controller("health")
 export class HealthController {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(WorkerStatusService) private readonly workerStatus: WorkerStatusService
+  ) {}
 
   @Get()
   health() {
     return { status: "ok" };
+  }
+
+  /**
+   * INF-007: worker observability — "the purge/cleanup worker stopped and
+   * nobody noticed". Unauthenticated like /health: the body carries only
+   * operational state (enabled flag, interval, tick timestamps, per-job
+   * status with count/config-only summaries — WorkerStatusService strips
+   * ids/error strings before they ever reach this endpoint).
+   *
+   * Always HTTP 200 — including when enabled=false or stale=true — so a
+   * process whose worker died still answers and an uptime checker can alert
+   * on the BODY instead of the status code: configure it to match the
+   * substring `"stale":true` (stale = enabled but no finished tick within
+   * 3× the interval). enabled=false responses always report stale=false, so
+   * monitors stay quiet on deployments that intentionally run no worker.
+   */
+  @Get("worker")
+  worker() {
+    return this.workerStatus.snapshot({
+      enabled: SchedulerService.isEnabled(),
+      intervalMs: SchedulerService.intervalMs()
+    });
   }
 
   @Get("ready")

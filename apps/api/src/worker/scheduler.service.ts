@@ -6,6 +6,7 @@ import { OauthTransactionCleanupJob } from "./jobs/oauth-transaction-cleanup.job
 import { RefreshTokenCleanupJob } from "./jobs/refresh-token-cleanup.job";
 import { ScheduledPublishJob } from "./jobs/scheduled-publish.job";
 import type { WorkerJob } from "./worker-job";
+import { WorkerStatusService } from "./worker-status.service";
 
 export const DEFAULT_WORKER_INTERVAL_MS = 60_000;
 // Floor for a configured interval: anything smaller (or unparsable/non-positive)
@@ -45,7 +46,10 @@ export class SchedulerService implements OnApplicationBootstrap, OnApplicationSh
     @Inject(DataRetentionPurgeJob) dataRetentionPurge: DataRetentionPurgeJob,
     // COM-105: runs on the same tick but is internally rate-limited and gated
     // behind LINK_HEALTH_ENABLED (see link-health.job.ts).
-    @Inject(LinkHealthJob) linkHealth: LinkHealthJob
+    @Inject(LinkHealthJob) linkHealth: LinkHealthJob,
+    // INF-007: tick/job results are mirrored into this in-memory status so
+    // GET /health/worker can tell whether the worker is actually running.
+    @Inject(WorkerStatusService) private readonly status: WorkerStatusService
   ) {
     this.jobs = [scheduledPublish, refreshTokenCleanup, oauthTransactionCleanup, idempotencyKeyCleanup, dataRetentionPurge, linkHealth];
   }
@@ -94,22 +98,33 @@ export class SchedulerService implements OnApplicationBootstrap, OnApplicationSh
       return false;
     }
     this.running = true;
+    this.status.recordTickStart(now);
     try {
       for (const job of this.jobs) {
         const startedAt = Date.now();
         try {
           const result = await job.run(now);
-          this.logger.log(`job=${job.name} status=ok durationMs=${Date.now() - startedAt} result=${JSON.stringify(result)}`);
+          const durationMs = Date.now() - startedAt;
+          this.logger.log(`job=${job.name} status=ok durationMs=${durationMs} result=${JSON.stringify(result)}`);
+          this.status.recordJobResult(job.name, "ok", now, durationMs, result);
         } catch (error) {
+          const durationMs = Date.now() - startedAt;
           this.logger.error(
-            `job=${job.name} status=failed durationMs=${Date.now() - startedAt} error=${
+            `job=${job.name} status=failed durationMs=${durationMs} error=${
               error instanceof Error ? (error.stack ?? error.message) : String(error)
             }`
           );
+          // Empty summary on failure: the error itself goes to the log only
+          // (never to the unauthenticated status endpoint), and re-serving the
+          // previous success's summary would misrepresent this run.
+          this.status.recordJobResult(job.name, "failed", now, durationMs, {});
         }
       }
     } finally {
       this.running = false;
+      // Wall clock, not `now`: staleness on /health/worker is measured
+      // against real time even when tests drive tick() with a logical date.
+      this.status.recordTickFinish(new Date());
     }
     return true;
   }

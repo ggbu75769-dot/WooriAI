@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Logger,
   type Type,
   type INestApplication,
   type ValidationError,
@@ -53,6 +54,14 @@ export function configureApiApp(app: INestApplication) {
   const trustProxy = process.env.TRUST_PROXY;
   if (trustProxy === "1" || trustProxy === "true") {
     app.getHttpAdapter().getInstance().set("trust proxy", 1);
+  } else if (trustProxy !== undefined && trustProxy !== "" && trustProxy !== "0") {
+    // Any other value ("2", "yes", "on", …) is a likely misconfiguration:
+    // the operator intended to enable trust proxy but it stays OFF, which
+    // silently collapses the rate limiter into one shared bucket behind a
+    // proxy. Warn loudly; explicit off ("0"/empty/unset) stays silent.
+    new Logger("configureApiApp").warn(
+      `TRUST_PROXY="${trustProxy}" is not a recognized value — only "1" or "true" enable it; trust proxy stays OFF (X-Forwarded-For ignored)`
+    );
   }
 
   // Assign/propagate x-request-id first so it's available even for requests

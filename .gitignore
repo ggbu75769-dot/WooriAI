@@ -16,3 +16,6 @@ ios/
 *.log
 *.tsbuildinfo
 artifacts/
+
+# QA browser-drive output (screenshots may contain admin MFA secrets/recovery codes) - never commit
+scripts/qa/out/

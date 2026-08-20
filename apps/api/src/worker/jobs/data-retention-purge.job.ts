@@ -13,6 +13,21 @@ export const DEFAULT_PURGE_RETENTION_DAYS = 30;
 export const DEFAULT_PURGE_BATCH_SIZE = 200;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Poison-row escalation (review M1): after this many CONSECUTIVE ticks in
+// which a phase failed terminally (first attempt AND halved retry), the phase
+// starts skipping head rows of its deterministic ordering — see runPhase.
+export const POISON_FAILURE_THRESHOLD = 3;
+
+// Per-phase in-memory escalation state (job instance field — resets on
+// restart, which is fine: a genuinely poisoned row keeps failing and the
+// counter re-accumulates within POISON_FAILURE_THRESHOLD ticks).
+type PhasePoisonState = {
+  /** Ticks in a row this phase failed terminally (both attempts). */
+  consecutiveFailures: number;
+  /** How many head rows the phase's NEXT selection skips (0 = none). */
+  poisonSkip: number;
+};
+
 // Explicit interactive-transaction options: the Prisma default of 5s aborts
 // (P2028) on an oversized cascade batch, and because batch selection is
 // deterministic oldest-first, a timed-out batch would be re-selected
@@ -46,12 +61,41 @@ function errorMessage(error: unknown): string {
  *
  * Four phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
  * run INDEPENDENTLY: each is wrapped in its own try/catch so one poisoned
- * phase can never block the others, its error is reported in the summary
- * (`<phase>Error`), and the job itself never throws. A phase whose
+ * phase can never block the others; a phase's terminal error is reported in
+ * the summary (`<phase>Error`) and the later phases still run. A phase whose
  * transaction fails is retried once within the same tick with half the batch
  * size (floor, min 1) — a cheap self-degrading step so an oversized batch
  * (e.g. deep phase-3 orphan cascades) eventually drains instead of being
- * re-selected identically forever; the degradation is logged.
+ * re-selected identically forever; the degradation is logged. Every batch
+ * selection orders by its age column WITH the primary key as tiebreaker
+ * (deletedAt asc, id asc / updatedAt asc, id asc), so the ordering is a
+ * strict total order and the halved retry re-selects a genuine strict prefix
+ * of the failed batch even when many rows share the same timestamp.
+ *
+ * Poison-row escalation (review M1a): halving bottoms out at batch size 1,
+ * and because selection is deterministic the same head row is re-selected
+ * every tick — a single row whose cascade exceeds the 30s transaction
+ * timeout would otherwise stall its phase forever. So each phase tracks its
+ * consecutive terminal failures in memory; once POISON_FAILURE_THRESHOLD (3)
+ * ticks in a row have failed, the next selection skips the head row
+ * (poisonSkip=1), and keeps skipping one more per further failed tick, so
+ * the rows behind the poisoned one drain. The skipped rows' ids are logged
+ * at ERROR with a 수동 조치 필요 marker — skipping is deferral, not loss: on
+ * the first successful tick the state resets, the head row is re-selected,
+ * and the cycle repeats (rows behind it still draining at a reduced duty
+ * cycle) until an operator fixes or removes the poisoned row. A transient
+ * outage that trips the threshold merely defers a healthy head row by a few
+ * ticks for the same reason. No schema changes — state is per-process.
+ *
+ * Monitoring visibility (review M1b): run() executes ALL phases first
+ * (isolation above is unchanged), but if any phase failed terminally it then
+ * throws DataRetentionPurgePhaseFailureError, whose message embeds the full
+ * summary. SchedulerService's per-job catch logs it (status=failed, summary
+ * included via the message) and records lastStatus:"failed" in
+ * WorkerStatusService — so GET /health/worker shows the purge job as failed
+ * while the tick still finishes (stale stays false) and the other jobs keep
+ * running. Previously a stalled phase was invisible: run() swallowed the
+ * error and the scheduler logged status=ok forever.
  *
  * 1. Soft-deleted expenses (Expense.deletedAt < cutoff) are hard-deleted,
  *    after nullifying the nullable FKs that point at them
@@ -134,10 +178,33 @@ function errorMessage(error: unknown): string {
  *    stubs are left alone. No cutoff applies — a stub was already past the
  *    retention window when it was anonymized.
  */
+/**
+ * Terminal wrapper thrown by run() AFTER all phases have executed, when at
+ * least one phase failed terminally (review M1b). The scheduler's per-job
+ * catch turns it into status=failed in the log and lastStatus:"failed" on
+ * /health/worker; the message embeds the summary so the partial counts still
+ * reach the ops log. `summary`/`failedPhaseKeys` are exposed for tests.
+ */
+export class DataRetentionPurgePhaseFailureError extends Error {
+  constructor(
+    readonly failedPhaseKeys: string[],
+    readonly summary: Record<string, unknown>
+  ) {
+    super(
+      `data_retention_purge finished with failed phase(s) [${failedPhaseKeys.join(", ")}] summary=${JSON.stringify(summary)}`
+    );
+    this.name = "DataRetentionPurgePhaseFailureError";
+  }
+}
+
 @Injectable()
 export class DataRetentionPurgeJob implements WorkerJob {
   readonly name = "data_retention_purge";
   private readonly logger = new Logger(DataRetentionPurgeJob.name);
+
+  // Review M1a: per-phase poison-row escalation state, keyed by phase label.
+  // Absent entry = healthy (no consecutive failures, no skip).
+  private readonly poisonState = new Map<string, PhasePoisonState>();
 
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
@@ -148,10 +215,10 @@ export class DataRetentionPurgeJob implements WorkerJob {
 
     // Phases run independently (see class doc): a failure in one is captured
     // in the summary and never prevents the later phases from running.
-    const expenses = await this.runPhase("expensePurge", batchSize, (size) => this.purgeExpenses(cutoff, size), {
+    const expenses = await this.runPhase("expensePurge", batchSize, (size, skip) => this.purgeExpenses(cutoff, size, skip), {
       expensesPurged: 0
     });
-    const children = await this.runPhase("childPurge", batchSize, (size) => this.purgeChildren(cutoff, size), {
+    const children = await this.runPhase("childPurge", batchSize, (size, skip) => this.purgeChildren(cutoff, size, skip), {
       childrenPurged: 0,
       childExpensesPurged: 0,
       childClicksAnonymized: 0
@@ -159,7 +226,7 @@ export class DataRetentionPurgeJob implements WorkerJob {
     const users = await this.runPhase(
       "userPurge",
       batchSize,
-      (size) => this.purgeWithdrawnUsers(now, cutoff, size),
+      (size, skip) => this.purgeWithdrawnUsers(now, cutoff, size, skip),
       {
         usersPurged: 0,
         usersAnonymized: 0,
@@ -168,53 +235,115 @@ export class DataRetentionPurgeJob implements WorkerJob {
         userClicksAnonymized: 0
       }
     );
-    const stubs = await this.runPhase("stubPurge", batchSize, (size) => this.purgeAnonymizedStubs(size), {
+    const stubs = await this.runPhase("stubPurge", batchSize, (size, skip) => this.purgeAnonymizedStubs(size, skip), {
       userStubsPurged: 0
     });
 
-    return { retentionDays, batchSize, ...expenses, ...children, ...users, ...stubs };
+    const summary = { retentionDays, batchSize, ...expenses, ...children, ...users, ...stubs };
+
+    // Review M1b: all phases have run; if any of them failed terminally,
+    // surface that to the scheduler as a job failure (class doc, monitoring
+    // visibility). `<phase>Error` keys are only ever written by runPhase.
+    const failedPhaseKeys = Object.keys(summary).filter((key) => key.endsWith("Error"));
+    if (failedPhaseKeys.length > 0) {
+      throw new DataRetentionPurgePhaseFailureError(failedPhaseKeys, summary);
+    }
+    return summary;
   }
 
   /**
    * Runs one phase with isolation + self-degrading retry: a first failure is
    * retried once within the same tick at half the batch size (floor, min 1) —
-   * batch selection is deterministic oldest-first, so the halved retry works
-   * on a strict prefix of the failed batch and oversized batches eventually
-   * drain across ticks. A second failure is captured as `<label>Error` in the
+   * batch selection is deterministic (oldest first, primary key as
+   * tiebreaker, i.e. a strict total order), so the halved retry works on a
+   * strict prefix of the failed batch and oversized batches eventually drain
+   * across ticks. A second failure is captured as `<label>Error` in the
    * summary (merged over the phase's zero-counts) instead of thrown, so the
-   * remaining phases still run and the job never throws.
+   * remaining phases still run; run() converts any `<label>Error` into a
+   * terminal DataRetentionPurgePhaseFailureError after all phases finished.
+   *
+   * Poison-row escalation (class doc, review M1a): each terminal failure
+   * increments the phase's consecutive-failure counter; from
+   * POISON_FAILURE_THRESHOLD failures onward, every further failed tick
+   * increments `poisonSkip`, and the phase's NEXT selection skips that many
+   * head rows (the phase methods log the skipped ids at ERROR). Any
+   * successful tick resets the state, so a skipped row is deferred — never
+   * permanently exempted.
    */
   private async runPhase<T extends Record<string, unknown>>(
     label: string,
     batchSize: number,
-    phase: (size: number) => Promise<T>,
+    phase: (size: number, skip: number) => Promise<T>,
     emptyResult: T
   ): Promise<Record<string, unknown>> {
+    const state = this.poisonState.get(label) ?? { consecutiveFailures: 0, poisonSkip: 0 };
+    const skip = state.poisonSkip;
+    // Surfaced in the summary whenever a tick ran in degraded skip mode.
+    const skipMarker = skip > 0 ? { [`${label}PoisonSkip`]: skip } : {};
     try {
-      return await phase(batchSize);
+      const result = await phase(batchSize, skip);
+      this.poisonState.delete(label);
+      return { ...result, ...skipMarker };
     } catch (error) {
       const halvedBatchSize = Math.max(1, Math.floor(batchSize / 2));
       this.logger.warn(
         `phase=${label} failed at batchSize=${batchSize}, retrying once with batchSize=${halvedBatchSize}: ${errorMessage(error)}`
       );
       try {
-        const result = await phase(halvedBatchSize);
-        return { ...result, [`${label}RetriedWithBatchSize`]: halvedBatchSize };
+        const result = await phase(halvedBatchSize, skip);
+        this.poisonState.delete(label);
+        return { ...result, [`${label}RetriedWithBatchSize`]: halvedBatchSize, ...skipMarker };
       } catch (retryError) {
+        state.consecutiveFailures += 1;
+        if (state.consecutiveFailures >= POISON_FAILURE_THRESHOLD) {
+          state.poisonSkip += 1;
+          this.logger.error(
+            `phase=${label} failed ${state.consecutiveFailures} ticks in a row — suspecting a poisoned head row; next tick skips the first ${state.poisonSkip} row(s) of the batch ordering so the backlog behind it can drain`
+          );
+        }
+        this.poisonState.set(label, state);
         this.logger.error(
           `phase=${label} failed again at batchSize=${halvedBatchSize}, giving up until next tick: ${errorMessage(retryError)}`
         );
-        return { ...emptyResult, [`${label}Error`]: errorMessage(retryError) };
+        return { ...emptyResult, [`${label}Error`]: errorMessage(retryError), ...skipMarker };
       }
     }
   }
 
+  /**
+   * ERROR-level operator alert for rows a phase is skipping in poison-skip
+   * mode (review M1a): these rows repeatedly failed to purge even at reduced
+   * batch sizes (most likely their delete cascade exceeds the 30s transaction
+   * timeout) and now need a human. They stay selected-and-skipped every
+   * degraded tick, so this fires until the row is fixed or removed.
+   */
+  private logPoisonSkippedRows(label: string, table: string, ids: string[]): void {
+    if (ids.length === 0) return;
+    this.logger.error(
+      `phase=${label} 수동 조치 필요: ${table} row(s) [${ids.join(", ")}] repeatedly fail to purge (transaction keeps failing, likely a cascade exceeding the tx timeout) and are being skipped so the rest of the backlog can drain — 해당 행을 직접 확인/정리해 주세요`
+    );
+  }
+
   /** Phase 1: expired expense tombstones (see class doc, item 1). */
-  private async purgeExpenses(cutoff: Date, batchSize: number) {
+  private async purgeExpenses(cutoff: Date, batchSize: number, skip: number) {
+    // id tiebreaker (review L1): deletedAt alone is not unique, so without it
+    // the order between equal timestamps would be unspecified and the halved
+    // retry / skip window would not be a strict prefix of the same sequence.
+    const orderBy = [{ deletedAt: "asc" }, { id: "asc" }] satisfies Prisma.ExpenseOrderByWithRelationInput[];
+    if (skip > 0) {
+      const skipped = await this.prisma.expense.findMany({
+        where: { deletedAt: { lt: cutoff } },
+        select: { id: true },
+        orderBy,
+        take: skip
+      });
+      this.logPoisonSkippedRows("expensePurge", "expenses", skipped.map((row) => row.id));
+    }
     const rows = await this.prisma.expense.findMany({
       where: { deletedAt: { lt: cutoff } },
       select: { id: true },
-      orderBy: { deletedAt: "asc" },
+      orderBy,
+      skip,
       take: batchSize
     });
     if (rows.length === 0) {
@@ -243,11 +372,23 @@ export class DataRetentionPurgeJob implements WorkerJob {
   }
 
   /** Phase 2: expired child tombstones + their dependents (class doc, item 2). */
-  private async purgeChildren(cutoff: Date, batchSize: number) {
+  private async purgeChildren(cutoff: Date, batchSize: number, skip: number) {
+    // id tiebreaker: strict total order (see purgeExpenses / review L1).
+    const orderBy = [{ deletedAt: "asc" }, { id: "asc" }] satisfies Prisma.ChildOrderByWithRelationInput[];
+    if (skip > 0) {
+      const skipped = await this.prisma.child.findMany({
+        where: { deletedAt: { lt: cutoff } },
+        select: { id: true },
+        orderBy,
+        take: skip
+      });
+      this.logPoisonSkippedRows("childPurge", "children", skipped.map((row) => row.id));
+    }
     const rows = await this.prisma.child.findMany({
       where: { deletedAt: { lt: cutoff } },
       select: { id: true },
-      orderBy: { deletedAt: "asc" },
+      orderBy,
+      skip,
       take: batchSize
     });
     if (rows.length === 0) {
@@ -307,12 +448,20 @@ export class DataRetentionPurgeJob implements WorkerJob {
   }
 
   /** Phase 3: withdrawn users + orphaned households (class doc, item 3). */
-  private async purgeWithdrawnUsers(now: Date, cutoff: Date, batchSize: number) {
+  private async purgeWithdrawnUsers(now: Date, cutoff: Date, batchSize: number, skip: number) {
+    // deletedAt null = not yet purged; the anonymize path below stamps it.
+    const where = { status: "withdrawn", deletedAt: null, updatedAt: { lt: cutoff } } satisfies Prisma.UserWhereInput;
+    // id tiebreaker: strict total order (see purgeExpenses / review L1).
+    const orderBy = [{ updatedAt: "asc" }, { id: "asc" }] satisfies Prisma.UserOrderByWithRelationInput[];
+    if (skip > 0) {
+      const skipped = await this.prisma.user.findMany({ where, select: { id: true }, orderBy, take: skip });
+      this.logPoisonSkippedRows("userPurge", "users", skipped.map((row) => row.id));
+    }
     const rows = await this.prisma.user.findMany({
-      // deletedAt null = not yet purged; the anonymize path below stamps it.
-      where: { status: "withdrawn", deletedAt: null, updatedAt: { lt: cutoff } },
+      where,
       select: { id: true },
-      orderBy: { updatedAt: "asc" },
+      orderBy,
+      skip,
       take: batchSize
     });
     if (rows.length === 0) {
@@ -439,17 +588,18 @@ export class DataRetentionPurgeJob implements WorkerJob {
     }, PURGE_TX_OPTIONS);
   }
 
-  /** Phase 4: anonymized user stubs whose blockers are gone (class doc, item 4). */
-  private async purgeAnonymizedStubs(batchSize: number) {
-    // deleted_at non-null = a stub phase 3 anonymized earlier; nothing else
-    // ever sets User.deletedAt. No cutoff: the stub was already past the
-    // retention window when it was stamped. Candidate selection embeds the
-    // reference check as NOT EXISTS subqueries (one per NOT NULL user FK —
-    // the same references findReferenceBlockedUserIds inspects) so that
-    // still-blocked stubs, which are the steady-state majority, never occupy
-    // the oldest-first batch window and starve newly-unblocked stubs behind
-    // them (head-of-line blocking under a small PURGE_BATCH_SIZE).
-    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+  /**
+   * Phase-4 candidate selection: anonymized stubs with no blocking NOT NULL
+   * user FK reference left, in deterministic (deleted_at, id) order —
+   * id tiebreaker per review L1, same strict-total-order rationale as
+   * purgeExpenses. `offset` implements the poison-skip window (review M1a).
+   */
+  private selectPurgeableStubs(limit: number, offset: number): Promise<{ id: string }[]> {
+    // The NOT EXISTS list mirrors findReferenceBlockedUserIds exactly (one
+    // subquery per NOT NULL user FK) — keep both in sync; see that helper for
+    // why the satellite tables (user_devices etc.) are included even though
+    // phase 3 normally deletes those rows.
+    return this.prisma.$queryRaw<{ id: string }[]>`
       SELECT u.id
       FROM users u
       WHERE u.status = 'withdrawn'
@@ -460,8 +610,29 @@ export class DataRetentionPurgeJob implements WorkerJob {
         AND NOT EXISTS (SELECT 1 FROM child_item_statuses s WHERE s.updated_by_user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.uploaded_by_user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM import_jobs j WHERE j.user_id = u.id)
-      ORDER BY u.deleted_at ASC
-      LIMIT ${batchSize}`;
+        AND NOT EXISTS (SELECT 1 FROM user_devices d WHERE d.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM household_members m WHERE m.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM household_invites i WHERE i.invited_by_user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM consents c WHERE c.user_id = u.id)
+      ORDER BY u.deleted_at ASC, u.id ASC
+      LIMIT ${limit} OFFSET ${offset}`;
+  }
+
+  /** Phase 4: anonymized user stubs whose blockers are gone (class doc, item 4). */
+  private async purgeAnonymizedStubs(batchSize: number, skip: number) {
+    // deleted_at non-null = a stub phase 3 anonymized earlier; nothing else
+    // ever sets User.deletedAt. No cutoff: the stub was already past the
+    // retention window when it was stamped. Candidate selection embeds the
+    // reference check as NOT EXISTS subqueries (one per NOT NULL user FK —
+    // the same references findReferenceBlockedUserIds inspects) so that
+    // still-blocked stubs, which are the steady-state majority, never occupy
+    // the oldest-first batch window and starve newly-unblocked stubs behind
+    // them (head-of-line blocking under a small PURGE_BATCH_SIZE).
+    if (skip > 0) {
+      const skipped = await this.selectPurgeableStubs(skip, 0);
+      this.logPoisonSkippedRows("stubPurge", "users(stub)", skipped.map((row) => row.id));
+    }
+    const rows = await this.selectPurgeableStubs(batchSize, skip);
     if (rows.length === 0) {
       return { userStubsPurged: 0 };
     }
@@ -484,6 +655,15 @@ export class DataRetentionPurgeJob implements WorkerJob {
    * Returns the subset of userIds still referenced by a NOT NULL FK column on
    * a surviving row — the references that make a hard DELETE of the users row
    * impossible without destroying another member's shared household data.
+   *
+   * Covers EVERY NOT NULL user FK in the schema (review L2), including the
+   * satellite tables user_devices / household_members /
+   * household_invites.invited_by_user_id / consents — phase 3 deletes those
+   * rows itself before calling this helper, so they are normally already
+   * gone, but the check is defense-in-depth: a lingering row (partial manual
+   * cleanup, future code path that recreates one) must block the hard delete
+   * instead of aborting the whole batch transaction with an FK violation.
+   * Keep this list in sync with selectPurgeableStubs' NOT EXISTS subqueries.
    */
   private async findReferenceBlockedUserIds(tx: Tx, userIds: string[]): Promise<Set<string>> {
     const blocked = new Set<string>();
@@ -540,6 +720,45 @@ export class DataRetentionPurgeJob implements WorkerJob {
     collect(
       (
         await tx.importJob.findMany({
+          where: { userId: { in: userIds } },
+          select: { userId: true },
+          distinct: ["userId"]
+        })
+      ).map((row) => ({ userId: row.userId }))
+    );
+    // Satellite tables (see doc comment): normally emptied by phase 3 before
+    // this runs, checked anyway so a lingering row blocks instead of breaking
+    // the delete with an FK violation.
+    collect(
+      (
+        await tx.userDevice.findMany({
+          where: { userId: { in: userIds } },
+          select: { userId: true },
+          distinct: ["userId"]
+        })
+      ).map((row) => ({ userId: row.userId }))
+    );
+    collect(
+      (
+        await tx.householdMember.findMany({
+          where: { userId: { in: userIds } },
+          select: { userId: true },
+          distinct: ["userId"]
+        })
+      ).map((row) => ({ userId: row.userId }))
+    );
+    collect(
+      (
+        await tx.householdInvite.findMany({
+          where: { invitedByUserId: { in: userIds } },
+          select: { invitedByUserId: true },
+          distinct: ["invitedByUserId"]
+        })
+      ).map((row) => ({ userId: row.invitedByUserId }))
+    );
+    collect(
+      (
+        await tx.consent.findMany({
           where: { userId: { in: userIds } },
           select: { userId: true },
           distinct: ["userId"]

@@ -7,6 +7,7 @@ import { OauthTransactionCleanupJob } from "./jobs/oauth-transaction-cleanup.job
 import { RefreshTokenCleanupJob } from "./jobs/refresh-token-cleanup.job";
 import { ScheduledPublishJob } from "./jobs/scheduled-publish.job";
 import { SchedulerService } from "./scheduler.service";
+import { WorkerStatusService } from "./worker-status.service";
 
 /**
  * INF-006-lite: in-process background worker (see scheduler.service.ts).
@@ -27,7 +28,11 @@ import { SchedulerService } from "./scheduler.service";
     // via the token — same pattern as KAKAO_OIDC_CLIENT in AuthModule.
     { provide: LINK_HEALTH_FETCH, useValue: defaultLinkHealthFetch },
     LinkHealthJob,
+    // INF-007: dependency-free in-memory tick/job status, written by the
+    // scheduler and read by HealthController (GET /health/worker).
+    WorkerStatusService,
     SchedulerService
-  ]
+  ],
+  exports: [WorkerStatusService]
 })
 export class WorkerModule {}
