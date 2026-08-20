@@ -70,7 +70,7 @@ LINK_HEALTH_ENABLED=1     ← 링크 헬스체크 (실링크 투입 후)
 - [ ] `.env`: `EXPO_PUBLIC_API_BASE_URL=https://<도메인>/api/v1`, `EXPO_PUBLIC_KAKAO_ENABLED=1`,
   `EXPO_PUBLIC_KAKAO_CLIENT_ID`, `EXPO_PUBLIC_KAKAO_REDIRECT_URI=wooriai://oauth/kakao`, `EXPO_PUBLIC_TEST_LOGIN=0`
 - [ ] 카카오 콘솔에 redirect URI 등록(서버 allowlist와 동일 값)
-- [ ] `expo prebuild` 후 Round 5A 빌드 노트의 gradle 2종 적용(`docs/qa/round5a-apk-build-note.md` — extraPackagerArgs·network_security_config; 이번 세션에서 검증 완료된 절차)
+- [ ] `expo prebuild --platform android` — Round 5A 빌드 노트의 gradle·네트워크 보안 설정 2종은 REL-009 config plugin(`apps/mobile/plugins/with-wooriai-android-release.js`)이 **자동 적용**(손패치 불필요). 패키지명·버전은 env로 주입: `WOORIAI_ANDROID_PACKAGE=<확정 패키지명> WOORIAI_APP_VERSION=1.0.0 WOORIAI_ANDROID_VERSION_CODE=1`
 - [ ] 스토어 제출용은 APK가 아닌 **AAB**: `cd android && ./gradlew bundleRelease` (release keystore 서명 설정 추가)
 - [ ] 기존 `pnpm android:build-apk --profile production`은 실기기 스모크용 APK로 병행 사용
 
