@@ -15,7 +15,7 @@
       "typedRoutes": true
     },
     "android": {
-      "package": "com.anonymous.wooriai",
+      "package": "kr.wooriai.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#DB4F2E"
