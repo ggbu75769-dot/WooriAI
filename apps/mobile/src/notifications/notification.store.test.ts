@@ -195,4 +195,25 @@ describe("NOTI-102 persisted store wiring", () => {
       lastSeenStageByChild: { "child-1": "24개월" }
     });
   });
+
+  it("keeps persisted NOTI-103 weekly_summary entries through sanitization (VALID_TYPES knows the type)", () => {
+    const migrate = useNotificationStore.persist.getOptions().migrate!;
+    const weekly: AppNotification = {
+      id: "notif:weekly_summary:child-1:2026-W34",
+      type: "weekly_summary",
+      title: "이번 달 지금까지 300,000원 · 예산의 30%예요",
+      body: "『다온이』 지출 내역을 확인해보세요.",
+      createdAt: NOW,
+      dedupeKey: "weekly_summary:child-1:2026-W34"
+    };
+    const migrated = migrate(
+      { entries: [weekly], seenDedupeKeys: ["weekly_summary:child-1:2026-W34"], lastSeenStageByChild: {} },
+      1
+    );
+    expect(migrated).toEqual({
+      entries: [weekly],
+      seenDedupeKeys: ["weekly_summary:child-1:2026-W34"],
+      lastSeenStageByChild: {}
+    });
+  });
 });

@@ -61,6 +61,37 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     expect(moreSource).not.toContain('title: "알림 설정", caption: "준비 중"');
   });
 
+  it("wires the NOTI-103 weekly summary through the existing evaluation path (no new data fetching)", () => {
+    // The generator is composed inside evaluateHomeNotifications from the same home snapshot the
+    // NOTI-102 hook already passes -- monthly-pace variant, since HomeSummary has no weekly data
+    // (recentExpenses is server-capped at 3) and NOTI-103 forbids new API calls.
+    const generatorsSource = source("src/notifications/generators.ts");
+    expect(generatorsSource).toContain("export function weeklySummaryNotification(");
+    expect(generatorsSource).toContain('import { seoulIsoWeekKey } from "./iso-week"');
+    expect(generatorsSource).toContain('import { formatKrw } from "../money"');
+    expect(generatorsSource).toContain("dedupeKey: `weekly_summary:${childId}:${seoulIsoWeekKey(now)}`");
+    // Wired inside evaluateHomeNotifications, so the unchanged hook picks it up for free.
+    expect(generatorsSource).toContain("const weekly = weeklySummaryNotification({");
+    expect(generatorsSource).toContain("if (weekly) candidates.push(weekly);");
+    const hookSource = source("src/notifications/useHomeNotificationEvaluation.ts");
+    expect(hookSource).toContain("monthly: home.monthly");
+    expect(hookSource).toContain("evaluateHomeNotifications(");
+
+    // The store's persisted-blob sanitizer accepts the new type.
+    const storeSource = source("src/notifications/notification.store.ts");
+    expect(storeSource).toContain('"weekly_summary"');
+
+    // app/notifications.tsx (off-limits to NOTI-103) renders unknown types safely today: the
+    // icon lookup may yield undefined (ListRow's icon prop is optional and guarded) and
+    // openNotification falls through to the /(tabs)/items push. A follow-up one-liner there can
+    // add a weekly_summary icon + /budget route, after which AppNotificationType can be
+    // re-closed (see the KnownAppNotificationType note in notification.store.ts).
+    const screenSource = source("app/notifications.tsx");
+    expect(screenSource).toContain('router.push("/(tabs)/items")');
+    const listRowSource = source("src/ui/ListRow.tsx");
+    expect(listRowSource).toContain("icon?: string;");
+  });
+
   it("keeps the notification store on the persisted-store conventions (cap, dedupe, teardown)", () => {
     const storeSource = source("src/notifications/notification.store.ts");
     expect(storeSource).toContain('name: "wooriai-notifications"');
