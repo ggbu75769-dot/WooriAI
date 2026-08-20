@@ -82,4 +82,8 @@ chk "중복 멱등" $(curl -s -X POST $B/analytics/events -H "$A" -H "$J" -d "$E
 step "11. 델타 동기화"
 chk "expense 델타" $(curl -s "$B/sync/changes" -H "$A" | jq -e '.changes | length >= 1' >/dev/null; echo $?)
 
+step "11. 워커 하트비트 (INF-007)"
+WH=$(curl -s ${B%/api/v1}/api/v1/health/worker)
+chk "worker health 응답 형태" $(echo "$WH" | jq -e 'has("enabled") and has("stale") and has("jobs")' >/dev/null; echo $?)
+
 echo -e "\n================= 결과: 실패 $fail 건 ================="
