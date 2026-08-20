@@ -1,59 +1,75 @@
-# 우리아이 전체 문서 + Codex 실행 패키지 v0.5
+# 우리아이 (WooriAI)
 
-생성일: 2026-07-06
+임신부터 첫돌까지, 아이 관련 지출을 기록·관리하고 시기별 준비물을 확인해 구매까지 잇는 육아 지출 관리 + 커머스 내비게이션 앱.
 
-이 ZIP은 지금까지 생성한 우리아이 프로젝트 문서를 단계별 폴더로 정리한 인수인계 패키지입니다.
+제품의 핵심 루프: **지출 기록 → 총액 확인 → 시기별 준비템 확인 → 구매 링크 클릭 → 구매 후 기록/상태 체크**. 이 루프를 흐리는 변경은 하지 않습니다(→ [Do Not Change 계약](docs/dev/do-not-change.md)).
 
-## 폴더 구조
+## 모노레포 구조
 
-```text
-wooriai_handoff_package_v0_5/
-├─ README.md
-├─ AGENTS.md
-├─ CODEX_START_HERE.md
-├─ MANIFEST.csv
-├─ codex/
-│  ├─ CODEX_START_PROMPT.md
-│  ├─ EXECUTION_ORDER.md
-│  └─ HANDOFF_RULES.md
-└─ docs/
-   ├─ 0_원본아이디어/
-   ├─ 1차/
-   ├─ 2차/
-   ├─ 3차/
-   └─ 4차/
+pnpm workspace + turbo 기반 모노레포입니다.
+
+| 경로 | 내용 |
+| --- | --- |
+| `apps/api` | NestJS + Prisma(PostgreSQL) API 서버. base path `/api/v1` |
+| `apps/mobile` | Expo(React Native) 앱. expo-router, TanStack Query + Zustand |
+| `apps/admin` | Next.js 어드민 콘솔 (기본 포트 3001) |
+| `packages/contracts` | OpenAPI 기반 DTO/타입 계약 (`pnpm contracts:generate`) |
+| `packages/domain` | 공유 도메인 로직 |
+| `packages/config`, `packages/ui`, `packages/test-utils` | 공통 설정 / UI / 테스트 유틸 |
+| `scripts/` | DB 운영(`db.ts`), 릴리즈 게이트, QA, 픽셀 락, 배포 스크립트 |
+| `infra/` | docker compose·Dockerfile(`infra/docker/`), 법무 정적 페이지(`infra/legal/`) |
+| `docs/` | 기획(1~4차)·라운드5(5차)·QA·스토어·운영 문서. 아래 [문서 지도](#문서-지도) 참고 |
+
+## 빠른 시작
+
+```bash
+pnpm install
+
+# 1) PostgreSQL 준비 — docker compose 또는 포터블 PG 자동 감지
+#    (Docker가 없으면 PGBIN 환경변수 또는 .toolcache/pg16 사용, scripts/db.ts 주석 참고)
+pnpm db start
+pnpm db migrate   # prisma migrate deploy
+pnpm db seed      # 시드 데이터
+
+# 2) API 데브 서버 (기본 포트 3000, PORT로 변경 가능)
+DATABASE_URL=postgresql://wooriai:wooriai_dev_password@localhost:5432/wooriai_dev \
+  pnpm --filter api start:dev
+
+# 3) 모바일 (Expo) — 백엔드 없이 데모를 보려면 EXPO_PUBLIC_TEST_LOGIN=1
+pnpm --filter mobile start
+EXPO_PUBLIC_TEST_LOGIN=1 pnpm --filter mobile start   # 데모(테스트 로그인) 모드
+
+# 4) 어드민 (Next.js, 포트 3001) — API 프록시 대상 지정
+ADMIN_API_PROXY_TARGET=http://localhost:3000 pnpm --filter admin dev
 ```
 
-## 단계별 사용법
+환경변수 점검: `pnpm check:env` (루트 `.env.example` 참고).
 
-- `docs/1차`: 서비스 개요서, PRD, MVP 범위, 기능 목록, 비즈니스 룰
-- `docs/2차`: 사용자 흐름, 화면 목록, 화면정의, 화면 상태, UI 프롬프트, 디자인 시스템
-- `docs/3차`: 데이터 모델, DB/API, 인증/권한, 폴더 구조, 상태관리, 컴포넌트
-- `docs/4차`: Codex Master Instruction, Implementation Plan, Task Breakdown, Do Not Change, Acceptance Criteria, QA Runbook, Release Checklist
+## 테스트
 
-## Codex 시작법
+- 패키지별: `pnpm --filter api test`, `pnpm --filter mobile test`, `pnpm --filter admin test` 등 (전체: `pnpm test`)
+- **api 테스트는 실 PostgreSQL 필수** — 기본 DB는 `wooriai_test` (vitest globalSetup이 연결 확인·마이그레이션·시드까지 수행, `DATABASE_URL`로 덮어쓰기 가능)
+- 릴리즈 게이트(설치→env→prisma→lint→typecheck→테스트→빌드 일괄): `pnpm release:gate` — evidence는 `docs/qa/evidence/`에 기록
+- 실서버 스모크: dev 서버 기동 후 `SMOKE_BASE_URL=<베이스> bash scripts/qa/server-smoke.sh` (기본 `http://localhost:3400/api/v1`, `jq` 필요)
+- 어드민 브라우저 E2E: `node scripts/qa/admin-e2e.mjs` — 전제조건: API(3400)·어드민(3100) dev 서버 기동, 시드된 dev 어드민 계정(`admin@wooriai.local`), playwright-core + Chromium (자세한 전제는 스크립트 상단 주석)
 
-Codex에게는 우선 `CODEX_START_HERE.md` 또는 `codex/CODEX_START_PROMPT.md`를 그대로 제공하세요. Codex는 `docs/4차/prompts/`의 프롬프트를 읽고 Batch 순서대로 진행하도록 설계했습니다.
+## 배포
 
-## 문서 우선순위
+- Oracle Cloud Free Tier: [docs/5차/oracle-free-deploy-runbook.md](docs/5차/oracle-free-deploy-runbook.md) (부트스트랩: `scripts/deploy/oracle-bootstrap.sh`)
+- Day 1 배포(Fly.io 등): [docs/5차/day1-deploy-runbook.md](docs/5차/day1-deploy-runbook.md)
+- 루트 `fly.toml` + `infra/docker/api.Dockerfile`, 운영 compose는 `infra/docker/docker-compose.prod.yml`
 
-1. `docs/4차/prompts/04_do_not_change_v0_4.md`
-2. `docs/4차/contracts/do_not_change_contract_v0_4.yaml`
-3. `docs/4차/prompts/05_acceptance_criteria_v0_4.md`
-4. `docs/3차/db_api/wooriai_phase3_openapi_v0_3.yaml` 및 `wooriai_phase3_schema_v0_3.sql`
-5. `docs/3차/개발고정_문서/wooriai_phase3_dev_fixed_docs_v0_3.docx`
-6. `docs/2차/화면고정_문서/wooriai_phase2_screen_design_docs_v0_2.docx`
-7. `docs/1차/제품기획_문서/wooriai_product_docs_v0_1.docx`
-8. `docs/0_원본아이디어/아이_가계부_어플_설계.txt`
+## 문서 지도
+
+- **설계/기능 리뷰**: [docs/5차/round5b-feature-review-and-sellable-design.md](docs/5차/round5b-feature-review-and-sellable-design.md)
+- **출시**: [docs/5차/launch-72h-plan.md](docs/5차/launch-72h-plan.md), [docs/5차/launch-readiness-status.md](docs/5차/launch-readiness-status.md)
+- **스토어 제출**: [docs/store/](docs/store/) (Play 리스팅, 데이터 안전, 제출 체크리스트)
+- **핵심 원칙(필독)**: [docs/dev/do-not-change.md](docs/dev/do-not-change.md) — DNC-001~ 계약. 소스 락은 [docs/dev/source-lock.md](docs/dev/source-lock.md)
+- **QA/운영**: [docs/qa/](docs/qa/), [docs/operations/](docs/operations/)
+- 기획 원본은 `docs/0_원본아이디어` ~ `docs/4차`에 단계별로 보존
 
 ## 구현 원칙
 
-- Batch 00 Source Lock 산출물은 `docs/dev/source-lock.md`와 `docs/dev/do-not-change.md`입니다.
-- 기능 구현 전에는 `docs/dev/source-lock.md`에서 현재 repo 상태, 고정 화면 ID, DB/API 계약, 누락된 bootstrap 파일 목록을 확인합니다.
-- Do Not Change 계약은 `docs/dev/do-not-change.md`를 repo-local 기준으로 사용합니다.
-- Batch 순서는 `docs/4차/prompts/08_codex_iteration_prompts_v0_4.md`를 따르고, 다음 Batch 범위의 기능을 미리 구현하지 않습니다.
-- 제품 본질은 `지출 기록 -> 총액 확인 -> 시기별 준비템 확인 -> 구매 링크 클릭 -> 구매 후 기록/상태 체크`입니다.
-
-## 검수
-
-전체 파일 목록과 해시값은 `MANIFEST.csv`와 `MANIFEST.json`에서 확인할 수 있습니다.
+- 기능 구현 전 `docs/dev/do-not-change.md` 계약을 확인하고, 충돌 시 임의 변경 대신 변경 요청을 문서화합니다.
+- API 계약은 `/api/v1` + OpenAPI 기반 타입 생성(`pnpm contracts:generate`)을 유지합니다.
+- 과거 Codex 실행 패키지 시절의 이력 문서는 `codex/`에 보존되어 있습니다(현행 작업 기준 아님).
