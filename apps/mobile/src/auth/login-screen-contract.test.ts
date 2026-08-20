@@ -107,7 +107,10 @@ describe("ANA-104 optional analytics consent on the login consent card (same sou
     // Both the button's disabled state and the login guards key off requiredAccepted alone.
     expect(loginSource).toContain("disabled={!requiredAccepted || isLoginPending}");
     expect(loginSource).toContain("if (!requiredAccepted || isLoginPending) return;");
-    expect(loginSource).not.toContain("!analyticsAccepted");
+    // No guard/disabled expression ever conjoins the analytics checkbox with the gate.
+    // (`setAnalyticsLocal(!analyticsAccepted)` in the toggle handler is local state only.)
+    expect(loginSource).not.toContain("|| !analyticsAccepted");
+    expect(loginSource).not.toContain("&& analyticsAccepted");
   });
 
   it("commits the checkbox value to the shared consent store only when login proceeds, not while toggling", () => {
@@ -115,8 +118,11 @@ describe("ANA-104 optional analytics consent on the login consent card (same sou
     // Read-only import of the same store settings' toggle uses (single source of truth).
     expect(loginSource).toContain('import { useAnalyticsConsentStore } from "../../src/analytics/flag";');
     expect(loginSource).toContain("const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);");
-    // Toggling the checkbox only flips local state...
-    expect(loginSource).toContain("onPress={() => setAnalyticsAccepted((value) => !value)}");
+    // Toggling the checkbox only flips local state (and marks it user-touched)...
+    expect(loginSource).toContain("onPress={toggleAnalyticsAccepted}");
+    expect(loginSource).toContain("setAnalyticsLocal(!analyticsAccepted);");
+    expect(loginSource).toContain("setAnalyticsTouched(true);");
+    expect(loginSource).not.toContain("setAnalyticsConsent(!");
     // ...and the store is written exactly once, in continueWithLogin right before
     // either login path (test-login or Kakao) proceeds.
     expect(loginSource).toContain("setAnalyticsConsent(analyticsAccepted);");
@@ -137,29 +143,38 @@ describe("ANA-104 optional analytics consent on the login consent card (same sou
     );
   });
 
-  it("initializes the checkbox from the store's CURRENT consent (re-login preserves a previously granted 통계 수집 동의)", () => {
+  it("follows the store's consent until the user touches the checkbox (hydration-safe: re-login and cold-start rehydration both preserve a previously granted 통계 수집 동의)", () => {
     const loginSource = source("app/(auth)/login.tsx");
-    // The local checkbox state starts from the shared store, NOT a hardcoded `false`: a user
-    // who enabled consent in settings and re-logs-in would otherwise have it silently revoked
-    // by the unconditional single commit in continueWithLogin.
-    expect(loginSource).toMatch(
-      /const \[analyticsAccepted, setAnalyticsAccepted\] = useState\(\s*\(\) => useAnalyticsConsentStore\.getState\(\)\.enabled\s*\);/
+    // The checkbox SUBSCRIBES to the shared store via the hook selector -- NOT a one-shot
+    // useState(() => useAnalyticsConsentStore.getState().enabled) initializer, which on a
+    // cold start could snapshot the pre-rehydration default (false) and silently revoke a
+    // previously granted consent at the unconditional single commit in continueWithLogin.
+    expect(loginSource).toContain(
+      "const storedAnalyticsEnabled = useAnalyticsConsentStore((state) => state.enabled);"
+    );
+    expect(loginSource).not.toContain("useAnalyticsConsentStore.getState().enabled");
+    // Until the user explicitly touches the checkbox, it renders/commits the live store value;
+    // after a touch, the local choice wins.
+    expect(loginSource).toContain("const [analyticsTouched, setAnalyticsTouched] = useState(false);");
+    expect(loginSource).toContain(
+      "const analyticsAccepted = analyticsTouched ? analyticsLocal : storedAnalyticsEnabled;"
     );
     expect(loginSource).not.toContain("setAnalyticsAccepted] = useState(false)");
   });
 
   it("flag store behaves as the screen relies on it: store-initialized default (OFF until ever consented), setEnabled(checkbox) turns analytics on/off", () => {
-    // Never-consented default is OFF, so the checkbox initializer above starts unchecked on a
-    // fresh device -- an unchecked box committing `false` is a no-op.
+    // Never-consented default is OFF, so the untouched checkbox (which mirrors the store)
+    // starts unchecked on a fresh device -- an unchecked box committing `false` is a no-op.
     expect(useAnalyticsConsentStore.getState().enabled).toBe(false);
     expect(isAnalyticsEnabled()).toBe(false);
     const setEnabled = useAnalyticsConsentStore.getState().setEnabled;
     // Checked box committed at login -> analytics enabled.
     setEnabled(true);
     expect(isAnalyticsEnabled()).toBe(true);
-    // ...and that stored consent is exactly what the checkbox initializer reads on the next
-    // visit to the login screen, so re-login starts checked and re-commits `true` -- the prior
-    // choice survives unless the user actively unchecks.
+    // ...and that stored consent is exactly what the untouched checkbox mirrors (via the
+    // subscribing hook selector) on the next visit to the login screen, so re-login starts
+    // checked and re-commits `true` -- the prior choice survives unless the user actively
+    // unchecks, even if store rehydration finishes after the screen mounts.
     expect(useAnalyticsConsentStore.getState().enabled).toBe(true);
     // Settings toggle (same store) can revoke afterwards.
     setEnabled(false);

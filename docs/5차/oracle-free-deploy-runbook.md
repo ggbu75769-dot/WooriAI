@@ -36,6 +36,9 @@ curl -fsSL "https://raw.githubusercontent.com/ggbu75769-dot/WooriAI/master/scrip
 끝나면 마지막 줄에 **API 주소와 관리자 초기 비밀번호(1회 출력)** 가 나옵니다.
 스크립트는 멱등이라 실패 시 같은 명령으로 재실행하면 됩니다.
 
+- **재실행해도 관리자 자격증명은 안전**: 시드는 기존 관리자 계정의 비밀번호·활성 상태를 절대 되돌리지 않습니다(생성 시 1회만 적용, ADM-007). 첫 시드 성공 후에는 `ADMIN_SEED_PASSWORD` 평문이 `.env.production`에서 자동 제거(주석 처리)됩니다 — 초기 비밀번호는 스크립트 출력에서만 확인 가능하니 즉시 로그인해 교체하세요.
+- 관리자 비밀번호와 헬스체크 결과 순서: 초기 비밀번호는 **헬스체크보다 먼저** 출력됩니다. 헬스체크가 실패해도(Security List 미개방, Let's Encrypt 발급 지연 등) 스크립트는 중단되지 않고 재시도 방법을 안내합니다.
+
 ## 5. 실행 직후 할 일
 
 1. 어드민 접속 → 초기 비밀번호로 로그인 → **즉시 비밀번호 변경 + MFA(TOTP) 등록**(강제 흐름).
@@ -52,7 +55,7 @@ curl -fsSL "https://raw.githubusercontent.com/ggbu75769-dot/WooriAI/master/scrip
 
 - **백업**: 매일 1회 `docker compose exec postgres pg_dump -U wooriai wooriai | gzip > backup.sql.gz` 크론 권장(§부록 명령 참조). Always Free Object Storage(20GB)로 복사해두면 무료.
 - **업데이트 배포**: `cd /opt/wooriai && sudo git pull && sudo docker compose ... up -d --build` (마이그레이션은 migrate 서비스가 자동 적용).
-- DuckDNS IP 갱신 크론은 스크립트가 등록함(10분 주기).
+- DuckDNS IP 갱신 크론은 스크립트가 등록함(10분 주기). 토큰은 root 전용 `/etc/wooriai/duckdns.curlconf`(600)에만 저장되고, 크론은 `/usr/local/sbin/wooriai-duckdns-update` 헬퍼(700)를 실행합니다 — 크론 파일이나 프로세스 목록에 토큰이 노출되지 않음.
 - 이 스크립트는 로컬 검증 환경에 Docker 데몬이 없어 **VM 첫 실행이 곧 첫 검증**입니다. 오류 출력이 나오면 그대로 붙여넣어 주세요 — 바로 수정하겠습니다.
 
 ## 부록: 백업 크론 한 줄

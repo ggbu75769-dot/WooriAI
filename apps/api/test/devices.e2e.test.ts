@@ -62,6 +62,32 @@ describe("Me devices API (NOTI-100)", () => {
       .expect(({ body }) => expect(body.error.code).toBe("VALIDATION_ERROR"));
   });
 
+  it("rejects an oversized pushToken with 400 VALIDATION_ERROR before it can hit the btree index size limit (no 500)", async () => {
+    const accessToken = await login(app);
+
+    // The (user_id, push_token) btree unique index fails with a non-P2002
+    // "index row size exceeds maximum" error for tokens ~>2700 bytes, which the
+    // P2002-retry path can't handle -> unhandled 500. The DTO's MaxLength(2000)
+    // must reject such tokens as a clean validation error instead.
+    await request(app.getHttpServer())
+      .post("/api/v1/me/devices")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ platform: "ios", pushToken: "x".repeat(2500) })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+        const fields = body.error.details.fields as Array<{ field: string }>;
+        expect(fields.some((field) => field.field === "pushToken")).toBe(true);
+      });
+
+    // Boundary: a 2000-char token is still accepted (real Expo/FCM tokens are far shorter).
+    await request(app.getHttpServer())
+      .post("/api/v1/me/devices")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ platform: "ios", pushToken: "y".repeat(2000) })
+      .expect(200);
+  });
+
   it("registers a device, upserts on the same token instead of duplicating, and toggles notifications", async () => {
     const accessToken = await login(app);
     const pushToken = `expo-push-${randomUUID()}`;

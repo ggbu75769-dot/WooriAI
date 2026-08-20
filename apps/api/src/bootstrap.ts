@@ -71,7 +71,12 @@ export function configureApiApp(app: INestApplication) {
   // 413.
   app.use(bodySizeErrorMiddleware());
 
-  app.setGlobalPrefix("api/v1");
+  // The public invite landing page (households/invite-landing.controller.ts)
+  // must live at the exact path production invite links carry
+  // (`${INVITE_LINK_BASE_URL}/invite/${token}`), i.e. WITHOUT the api/v1
+  // prefix. Everything else keeps the prefix, including the JSON invite API
+  // at /api/v1/invites/:token (plural -- a different route).
+  app.setGlobalPrefix("api/v1", { exclude: ["invite/:token"] });
   app.useGlobalPipes(createDtoValidationPipe());
   app.useGlobalFilters(new GlobalExceptionFilter());
 }

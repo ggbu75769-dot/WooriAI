@@ -137,6 +137,37 @@ export function buildKakaoAuthorizeUrl(params: AuthorizeUrlParams): string {
   return `${KAKAO_AUTHORIZE_ENDPOINT}?${query}`;
 }
 
+/**
+ * Fixed Korean copy for the standard OAuth error codes Kakao can send back on the redirect
+ * (RFC 6749 §4.1.2.1; access_denied is handled earlier as a cancellation). The redirect's
+ * `error` param is attacker-influenceable (it arrives via an app-scheme URL), so it must
+ * NEVER be echoed verbatim into UI copy -- only these fixed strings are shown.
+ */
+const KAKAO_OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  invalid_request: "카카오 인증 요청이 올바르지 않아요. 다시 시도해주세요.",
+  unauthorized_client: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
+  unsupported_response_type: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
+  invalid_scope: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
+  server_error: "카카오 서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
+  temporarily_unavailable: "카카오 서비스를 지금 이용할 수 없어요. 잠시 후 다시 시도해주세요."
+};
+
+/**
+ * Reduces an unknown redirect `error` value to something safe to show for debugging context:
+ * lowercase [a-z_-] only, max 32 chars. Anything else (HTML, spaces, hangul, digits...) is
+ * stripped so arbitrary redirect input can never reach the UI.
+ */
+export function sanitizeOauthErrorCode(raw: string): string {
+  return raw.toLowerCase().replace(/[^a-z_-]/g, "").slice(0, 32);
+}
+
+function kakaoProviderErrorMessage(errorCode: string): string {
+  const known = KAKAO_OAUTH_ERROR_MESSAGES[errorCode];
+  if (known) return known;
+  const sanitized = sanitizeOauthErrorCode(errorCode);
+  return sanitized ? `카카오 인증에 실패했어요. (${sanitized})` : "카카오 인증에 실패했어요.";
+}
+
 /** Tiny query parser (no URLSearchParams -- see buildKakaoAuthorizeUrl's rationale). */
 function parseQuery(url: string): Record<string, string> {
   const queryStart = url.indexOf("?");
@@ -164,10 +195,7 @@ export function parseKakaoRedirectUrl(url: string, expectedState: string): { cod
     throw new KakaoLoginCancelledError();
   }
   if (params.error) {
-    throw new KakaoLoginError(
-      "KAKAO_PROVIDER_ERROR",
-      `카카오 인증에 실패했어요. (${params.error})`
-    );
+    throw new KakaoLoginError("KAKAO_PROVIDER_ERROR", kakaoProviderErrorMessage(params.error));
   }
   if (!params.code) {
     throw new KakaoLoginError("KAKAO_REDIRECT_INVALID", "카카오 인증 응답을 읽을 수 없어요.");

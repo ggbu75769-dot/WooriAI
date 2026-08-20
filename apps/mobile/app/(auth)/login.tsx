@@ -57,14 +57,22 @@ export default function LoginScreen() {
   // ANA-104: local checkbox state only -- the shared analytics consent store is
   // NOT flipped while merely toggling; it is committed once, right before login
   // proceeds (see continueWithLogin), so abandoning the login screen leaves the
-  // stored choice untouched. The checkbox INITIALIZES from the store's current
-  // value (never-consented default is OFF): a user who enabled 통계 수집 in
-  // settings and later re-logs-in keeps their prior consent unless they actively
-  // uncheck it here -- a hardcoded `false` initial would silently revoke it at
-  // the single commit below.
-  const [analyticsAccepted, setAnalyticsAccepted] = useState(
-    () => useAnalyticsConsentStore.getState().enabled
-  );
+  // stored choice untouched. Until the user explicitly touches the checkbox it
+  // FOLLOWS the store's current value via the subscribing hook (never-consented
+  // default is OFF): a user who enabled 통계 수집 in settings and later
+  // re-logs-in keeps their prior consent unless they actively uncheck it here.
+  // Subscribing (instead of a one-shot getState() initializer) is hydration-safe:
+  // on a cold start the persisted store may rehydrate AFTER this screen mounts,
+  // and a getState() snapshot taken before rehydration would silently revoke a
+  // previously granted consent at the single commit below.
+  const storedAnalyticsEnabled = useAnalyticsConsentStore((state) => state.enabled);
+  const [analyticsTouched, setAnalyticsTouched] = useState(false);
+  const [analyticsLocal, setAnalyticsLocal] = useState(false);
+  const analyticsAccepted = analyticsTouched ? analyticsLocal : storedAnalyticsEnabled;
+  function toggleAnalyticsAccepted() {
+    setAnalyticsLocal(!analyticsAccepted);
+    setAnalyticsTouched(true);
+  }
   const [isLoginPending, setIsLoginPending] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);
@@ -172,7 +180,7 @@ export default function LoginScreen() {
             <ConsentRow
               checked={analyticsAccepted}
               label="익명 사용 통계 수집 동의"
-              onPress={() => setAnalyticsAccepted((value) => !value)}
+              onPress={toggleAnalyticsAccepted}
               optional
               sublabel="익명화된 사용 통계만 수집해요. 언제든지 설정에서 끌 수 있어요."
             />
