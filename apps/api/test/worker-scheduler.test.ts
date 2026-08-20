@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_WORKER_INTERVAL_MS, SchedulerService } from "../src/worker/scheduler.service";
 import type { WorkerJob } from "../src/worker/worker-job";
+import { WorkerStatusService } from "../src/worker/worker-status.service";
 
 // INF-006-lite: pure unit tests for the in-process scheduler — env gating
 // (disabled by default so tests/multi-instance deployments never run jobs
@@ -20,14 +21,20 @@ function stubJobs(): [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob] {
 
 // The constructor positionally takes the six concrete job classes for Nest
 // DI; the scheduler only ever uses their WorkerJob surface, so stubs suffice.
-function schedulerWith(jobs: [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob]): SchedulerService {
+// INF-007: the trailing WorkerStatusService is real (it is a dependency-free
+// in-memory store) so status-recording assertions run against the actual code.
+function schedulerWith(
+  jobs: [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob],
+  status: WorkerStatusService = new WorkerStatusService()
+): SchedulerService {
   return new SchedulerService(
     jobs[0] as never,
     jobs[1] as never,
     jobs[2] as never,
     jobs[3] as never,
     jobs[4] as never,
-    jobs[5] as never
+    jobs[5] as never,
+    status
   );
 }
 
@@ -143,6 +150,148 @@ describe("SchedulerService (INF-006-lite)", () => {
     // The loop keeps working on subsequent ticks too.
     await expect(scheduler.tick()).resolves.toBe(true);
     for (const job of jobs) expect(job.run).toHaveBeenCalledTimes(2);
+  });
+
+  // INF-007: tick/job results are mirrored into WorkerStatusService so
+  // GET /health/worker can report whether the worker is actually running.
+  describe("worker status recording", () => {
+    it("a tick records start/finish timestamps, per-job ok status, duration and summary", async () => {
+      const jobs = stubJobs();
+      jobs[0].run.mockImplementation(async () => ({ deleted: 3, retentionDays: 30 }));
+      const status = new WorkerStatusService();
+      const scheduler = schedulerWith(jobs, status);
+
+      const logicalNow = new Date("2026-08-20T01:02:03.000Z");
+      await expect(scheduler.tick(logicalNow)).resolves.toBe(true);
+
+      const snapshot = status.snapshot({ enabled: true, intervalMs: 60_000 });
+      expect(snapshot.lastTickStartedAt).toBe(logicalNow.toISOString());
+      expect(snapshot.lastTickFinishedAt).toEqual(expect.any(String));
+      expect(snapshot.msSinceLastTick).toEqual(expect.any(Number));
+      expect(snapshot.jobs).toHaveLength(6);
+      expect(snapshot.jobs.map((job) => job.name)).toEqual(["job_a", "job_b", "job_c", "job_d", "job_e", "job_f"]);
+      expect(snapshot.jobs[0]).toEqual({
+        name: "job_a",
+        lastStatus: "ok",
+        lastRunAt: logicalNow.toISOString(),
+        lastDurationMs: expect.any(Number),
+        lastSummary: { deleted: 3, retentionDays: 30 }
+      });
+    });
+
+    it("records a failing job as failed with an empty summary, without touching other jobs", async () => {
+      const jobs = stubJobs();
+      jobs[1].run.mockImplementation(async () => {
+        throw new Error("boom");
+      });
+      jobs[2].run.mockImplementation(async () => ({ checked: 1 }));
+      const status = new WorkerStatusService();
+      const scheduler = schedulerWith(jobs, status);
+
+      await expect(scheduler.tick()).resolves.toBe(true);
+
+      const snapshot = status.snapshot({ enabled: true, intervalMs: 60_000 });
+      const failed = snapshot.jobs.find((job) => job.name === "job_b");
+      expect(failed).toMatchObject({ lastStatus: "failed", lastSummary: {} });
+      const after = snapshot.jobs.find((job) => job.name === "job_c");
+      expect(after).toMatchObject({ lastStatus: "ok", lastSummary: { checked: 1 } });
+    });
+
+    it("a later successful run overwrites a previous failure", async () => {
+      const jobs = stubJobs();
+      jobs[0].run.mockImplementationOnce(async () => {
+        throw new Error("first run fails");
+      });
+      jobs[0].run.mockImplementation(async () => ({ deleted: 1 }));
+      const status = new WorkerStatusService();
+      const scheduler = schedulerWith(jobs, status);
+
+      await scheduler.tick();
+      await scheduler.tick();
+
+      const snapshot = status.snapshot({ enabled: true, intervalMs: 60_000 });
+      expect(snapshot.jobs[0]).toMatchObject({ name: "job_a", lastStatus: "ok", lastSummary: { deleted: 1 } });
+    });
+
+    it("sanitizes summaries for the unauthenticated endpoint: only finite numbers and booleans survive", async () => {
+      const jobs = stubJobs();
+      // Mirrors the worst real shapes: scheduled-publish returns id arrays and
+      // error strings, retention-purge can return `<label>Error` messages.
+      jobs[0].run.mockImplementation(async () => ({
+        publishedCount: 2,
+        enabled: true,
+        published: ["rev-id-1", "rev-id-2"],
+        failed: [{ id: "rev-id-3", error: "db exploded" }],
+        expensesError: "connection reset",
+        nested: { secret: "x" },
+        nan: Number.NaN,
+        infinity: Number.POSITIVE_INFINITY
+      }));
+      const status = new WorkerStatusService();
+      const scheduler = schedulerWith(jobs, status);
+
+      await scheduler.tick();
+
+      const snapshot = status.snapshot({ enabled: true, intervalMs: 60_000 });
+      expect(snapshot.jobs[0]!.lastSummary).toEqual({ publishedCount: 2, enabled: true });
+    });
+  });
+
+  describe("WorkerStatusService.snapshot staleness (fake now)", () => {
+    const intervalMs = 60_000;
+
+    it("is never stale while disabled, and reports null tick fields before any tick", () => {
+      const status = new WorkerStatusService();
+      const snapshot = status.snapshot({ enabled: false, intervalMs, now: new Date(Date.now() + 100 * intervalMs) });
+      expect(snapshot).toMatchObject({
+        enabled: false,
+        intervalMs,
+        lastTickStartedAt: null,
+        lastTickFinishedAt: null,
+        msSinceLastTick: null,
+        stale: false,
+        jobs: []
+      });
+    });
+
+    it("goes stale only after more than 3x the interval without a finished tick", () => {
+      const status = new WorkerStatusService();
+      const finishedAt = new Date("2026-08-20T00:00:00.000Z");
+      status.recordTickFinish(finishedAt);
+
+      const justInside = new Date(finishedAt.getTime() + 3 * intervalMs);
+      const justOutside = new Date(finishedAt.getTime() + 3 * intervalMs + 1);
+
+      expect(status.snapshot({ enabled: true, intervalMs, now: justInside })).toMatchObject({
+        stale: false,
+        msSinceLastTick: 3 * intervalMs
+      });
+      expect(status.snapshot({ enabled: true, intervalMs, now: justOutside })).toMatchObject({
+        stale: true,
+        msSinceLastTick: 3 * intervalMs + 1
+      });
+      // Disabled workers are exempt even when ticks are ancient.
+      expect(status.snapshot({ enabled: false, intervalMs, now: justOutside }).stale).toBe(false);
+    });
+
+    it("an enabled worker that never ticks goes stale relative to process start", () => {
+      const status = new WorkerStatusService();
+      const farFuture = new Date(Date.now() + 10 * intervalMs);
+      const snapshot = status.snapshot({ enabled: true, intervalMs, now: farFuture });
+      expect(snapshot.stale).toBe(true);
+      // No tick ever finished, so there is no msSinceLastTick to report.
+      expect(snapshot.msSinceLastTick).toBeNull();
+    });
+
+    it("a fresh tick clears staleness", () => {
+      const status = new WorkerStatusService();
+      status.recordTickFinish(new Date("2026-08-20T00:00:00.000Z"));
+      const muchLater = new Date("2026-08-20T12:00:00.000Z");
+      expect(status.snapshot({ enabled: true, intervalMs, now: muchLater }).stale).toBe(true);
+
+      status.recordTickFinish(new Date("2026-08-20T11:59:30.000Z"));
+      expect(status.snapshot({ enabled: true, intervalMs, now: muchLater }).stale).toBe(false);
+    });
   });
 
   it("parses WORKER_INTERVAL_MS with a 60s default and a 1s floor", () => {
