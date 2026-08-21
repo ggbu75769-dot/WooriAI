@@ -11,10 +11,24 @@ import { AUDIT_LOGS_DEFAULT_LIMIT, type AdminAuditLogsQueryDto } from "./dto/aud
  */
 const SENSITIVE_KEY_PATTERN = /password|passwd|secret|token|authorization|cookie|credential|recovery|otp|totp|apikey|api_key/i;
 const REDACTED = "[REDACTED]";
+const TRUNCATED = "[TRUNCATED]";
 const MAX_REDACTION_DEPTH = 8;
 
+/**
+ * before/after 스냅샷에서 자격증명류 키의 값을 마스킹한다.
+ *
+ * - 깊이 상한(MAX_REDACTION_DEPTH)에 도달하면 값의 종류와 무관하게
+ *   "[TRUNCATED]"로 치환한다 — 검사하지 못한 값은 어떤 것도 상한 너머로
+ *   통과시키지 않는다(깊은 중첩을 이용한 마스킹 우회 차단).
+ * - 한계: 최상위 before/after가 객체가 아닌 원시값(문자열 등)이면 키가 없어
+ *   마스킹할 수 없으므로 그대로 반환한다. 기록 측(AuditLoggerService 호출부)이
+ *   비밀 원문을 원시값 스냅샷으로 넣지 않는다는 계약에 의존한다.
+ */
 function redactSensitiveValues(value: unknown, depth = 0): unknown {
-  if (value === null || typeof value !== "object" || depth >= MAX_REDACTION_DEPTH) {
+  if (depth >= MAX_REDACTION_DEPTH) {
+    return TRUNCATED;
+  }
+  if (value === null || typeof value !== "object") {
     return value;
   }
   if (Array.isArray(value)) {
@@ -42,10 +56,21 @@ export type AdminAuditLogView = {
   ipHash: string | null;
 };
 
+/** to=YYYY-MM-DD처럼 날짜만 오면 그날 전체(23:59:59.999Z)까지 포함하도록 확장한다. */
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseToBoundary(to: string): Date {
+  return DATE_ONLY_PATTERN.test(to) ? new Date(`${to}T23:59:59.999Z`) : new Date(to);
+}
+
 /**
  * ADM-113: 감사 로그 조회. AuditLoggerService가 audit_logs 테이블에 이미
  * 영속화하고 있는 기록을 읽기 전용으로 페이지네이션/필터해 돌려준다
  * (기록 경로는 건드리지 않는다).
+ *
+ * 트레이드오프(수용): offset 페이지네이션은 페이지 넘기는 사이 새 기록이 쌓이면
+ * 행이 밀려 중복/누락 표시가 날 수 있고, 무필터 조회의 count(*)는 테이블이 커지면
+ * 비용이 든다 — 내부 관리 화면(저빈도·소수 사용자)이라 단순함을 우선해 수용한다.
  */
 @Injectable()
 export class AuditLogsService {
@@ -62,7 +87,7 @@ export class AuditLogsService {
         ? {
             createdAt: {
               ...(query.from ? { gte: new Date(query.from) } : {}),
-              ...(query.to ? { lte: new Date(query.to) } : {})
+              ...(query.to ? { lte: parseToBoundary(query.to) } : {})
             }
           }
         : {})

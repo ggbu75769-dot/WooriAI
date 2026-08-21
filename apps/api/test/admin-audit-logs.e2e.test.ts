@@ -296,6 +296,70 @@ describe("Admin audit log viewer (ADM-113)", () => {
     }
   });
 
+  it("truncates values beyond the redaction depth cap instead of passing them through raw", async () => {
+    const adminEmail = freshEmail("adm113-depth");
+    await createAdmin(adminEmail);
+    const session = await loginAndEnroll(adminEmail);
+
+    const action = uniqueAction("depth");
+    await insertAuditRow({
+      action,
+      afterJson: {
+        // 8겹 중첩(중간에 배열 포함): 상한(depth 8)에 걸리는 값은 원문 대신
+        // "[TRUNCATED]"로 치환돼야 한다 — 과거에는 검사 없이 원문이 통과했다.
+        l1: { l2: { l3: { l4: { l5: { l6: { l7: [{ password: "raw-deep-password" }] } } } } } },
+        // 7겹 중첩: 상한 안쪽이므로 기존 "[REDACTED]" 마스킹이 그대로 동작해야 한다.
+        s1: { s2: { s3: { s4: { s5: { s6: { s7: { password: "raw-seven-password" } } } } } } },
+        keep: "shallow-ok"
+      }
+    });
+
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/admin/audit-logs?action=${encodeURIComponent(action)}`)
+      .set("Cookie", session.cookie)
+      .expect(200);
+
+    expect(response.body.pageInfo.total).toBe(1);
+    const [entry] = response.body.auditLogs;
+    // depth 8에 도달한 배열 원소(비밀을 담은 객체) 전체가 "[TRUNCATED]" 문자열로 치환된다.
+    expect(entry.after.l1.l2.l3.l4.l5.l6.l7[0]).toBe("[TRUNCATED]");
+    // depth 7 객체는 정상 진입해 sensitive 키가 "[REDACTED]"로 마스킹된다.
+    expect(entry.after.s1.s2.s3.s4.s5.s6.s7.password).toBe("[REDACTED]");
+    expect(entry.after.keep).toBe("shallow-ok");
+
+    const serialized = JSON.stringify(response.body);
+    expect(serialized).not.toContain("raw-deep-password");
+    expect(serialized).not.toContain("raw-seven-password");
+  });
+
+  it("includes same-day records when `to` is a date-only filter (expanded to end of day)", async () => {
+    const adminEmail = freshEmail("adm113-toonly");
+    await createAdmin(adminEmail);
+    const session = await loginAndEnroll(adminEmail);
+
+    const action = uniqueAction("toonly");
+    const sameDayNoon = new Date("2026-03-10T12:00:00.000Z");
+    const nextDay = new Date("2026-03-11T09:00:00.000Z");
+    const sameDayRow = await insertAuditRow({ action, createdAt: sameDayNoon });
+    await insertAuditRow({ action, createdAt: nextDay });
+
+    // to=YYYY-MM-DD(날짜만)는 그날 23:59:59.999Z까지 포함해야 한다 —
+    // 과거에는 UTC 자정으로 비교돼 당일 기록이 전부 제외됐다.
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/admin/audit-logs?action=${encodeURIComponent(action)}&to=2026-03-10`)
+      .set("Cookie", session.cookie)
+      .expect(200);
+    expect(response.body.pageInfo.total).toBe(1);
+    expect(response.body.auditLogs[0].id).toBe(sameDayRow.id);
+
+    // 시각까지 명시한 to는 기존대로 그 시각 기준으로 비교한다(자정 → 당일 정오 기록 제외).
+    const explicitMidnight = await request(app.getHttpServer())
+      .get(`/api/v1/admin/audit-logs?action=${encodeURIComponent(action)}&to=2026-03-10T00:00:00.000Z`)
+      .set("Cookie", session.cookie)
+      .expect(200);
+    expect(explicitMidnight.body.pageInfo.total).toBe(0);
+  });
+
   it("rejects invalid query values with 400 VALIDATION_ERROR", async () => {
     const adminEmail = freshEmail("adm113-invalid");
     await createAdmin(adminEmail);

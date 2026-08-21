@@ -39,7 +39,7 @@ export class AdminAuditLogsQueryDto {
   @IsISO8601()
   from?: string;
 
-  /** 기간 필터: createdAt <= to (ISO-8601). */
+  /** 기간 필터: createdAt <= to (ISO-8601). 날짜만(YYYY-MM-DD) 오면 서비스가 그날 23:59:59.999Z까지로 확장한다. */
   @IsOptional()
   @IsISO8601()
   to?: string;
