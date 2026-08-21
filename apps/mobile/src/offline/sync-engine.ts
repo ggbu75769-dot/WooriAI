@@ -494,11 +494,17 @@ async function fallBackToFailedForUnresolvableConflict(store: OfflineStore, loca
 
 /** User-triggered "재시도" for a 'failed' row (design doc §3.2 point 5): resets the outbox
  * mutation's backoff bookkeeping and flips the row back to 'pending' so the next flush picks it
- * up again. */
+ * up again.
+ *
+ * FIX-MOB-DX (COV-T5 관찰 #4): `attemptCount` is reset to 0 too, not just `nextRetryAt`. An
+ * explicit user retry is a fresh expression of intent -- if it then fails on the network, its
+ * backoff should restart from the base delay (2s), not resume the pre-retry exponential climb
+ * (which could park the very mutation the user just asked to send behind a minutes-long
+ * `next_retry_at`). The idempotency key is untouched, so a re-send stays deduplicated. */
 export async function retryFailedMutation(store: OfflineStore, localId: string): Promise<void> {
   const mutations = await store.listOutboxMutationsForLocalId(localId);
   for (const mutation of mutations) {
-    await store.updateOutboxMutation(mutation.mutationId, { nextRetryAt: null, lastError: null });
+    await store.updateOutboxMutation(mutation.mutationId, { attemptCount: 0, nextRetryAt: null, lastError: null });
   }
   await store.updateLocalExpense(localId, { syncState: "pending", lastError: null });
 }

@@ -82,22 +82,91 @@ describe("parseImportFile - header-less column inference (inferColumns)", () => 
     expect(rows[1].memo).toBe("둘째용");
   });
 
-  it("ambiguous numeric columns: the leftmost numeric column wins as amount, the other becomes the name column", async () => {
-    // Column 1 is a quantity, column 2 is the real amount. Both parse as
-    // amounts in every sampled row, and ties are broken by column order
-    // (strict `>` comparison), so the parser picks the quantity column as
-    // amount and the real amount column falls through to itemIdx.
+  it("ambiguous numeric columns: value shape (median >= 100) beats column order, so the real amount column wins over a leading quantity column", async () => {
+    // 갱신 근거(FIX-IMPORT-INFER 관찰 1): 종전에는 동률 hits에서 왼쪽 열이
+    // 이겨 수량열(3,2,1)을 amountKrw로 오인하는 현재 동작을 고정하고 있었다.
+    // 새 타이브레이크는 중앙값 크기(전형적 금액대 >= 100)로 실제 금액열을
+    // 선택한다. 수량열은 remaining으로 흘러 itemIdx가 된다.
     const csv = "2026-07-01,3,32000,젖병\n" + "2026-07-02,2,15000,분유\n" + "2026-07-03,1,8000,물티슈\n";
 
     const { rows } = await parseCsv(csv);
 
     expect(rows[0]).toMatchObject({
       dateIso: "2026-07-01",
-      amountKrw: 3,
-      itemName: "32000",
+      amountKrw: 32000,
+      itemName: "3",
       memo: "젖병"
     });
-    expect(rows[1]).toMatchObject({ amountKrw: 2, itemName: "15000", memo: "분유" });
+    expect(rows[1]).toMatchObject({ amountKrw: 15000, itemName: "2", memo: "분유" });
+  });
+
+  it("near-tied hits (one refund row) still resolve to the typical-magnitude column, not the quantity column", async () => {
+    // FIX-IMPORT-INFER 관찰 1 신규 케이스: 금액열에 환불(-5000) 한 행이 있어
+    // hits가 2 대 3으로 수량열보다 하나 적어도(±1 '유사' 범위) 중앙값 크기
+    // 타이브레이크가 금액열을 선택해야 한다.
+    const csv = "2026-07-01,3,32000,젖병\n" + "2026-07-02,2,-5000,분유\n" + "2026-07-03,1,8000,물티슈\n";
+
+    const { rows } = await parseCsv(csv);
+
+    expect(rows[0]).toMatchObject({ dateIso: "2026-07-01", amountKrw: 32000, itemName: "3", memo: "젖병" });
+    // Refund row: amount fails to parse -> null, confidence floors.
+    expect(rows[1]).toMatchObject({ amountKrw: null, confidence: 0.3 });
+    expect(rows[2]).toMatchObject({ amountKrw: 8000 });
+  });
+
+  it("both numeric columns in the typical range: digit-count variety breaks the tie toward the varied (real amount) column", async () => {
+    // FIX-IMPORT-INFER 관찰 1 신규 케이스: 균일한 고정치 열(5000,5000,5000 —
+    // 예: 회비/고정요금)과 자릿수가 다양한 열이 모두 중앙값 >= 100이면
+    // 자릿수 다양성이 큰 쪽을 금액열로 선택한다(균일 열이 왼쪽이어도).
+    const csv = "2026-07-01,5000,32000,젖병\n" + "2026-07-02,5000,4500,분유\n" + "2026-07-03,5000,158000,물티슈\n";
+
+    const { rows } = await parseCsv(csv);
+
+    expect(rows[0]).toMatchObject({ amountKrw: 32000, itemName: "5000", memo: "젖병" });
+    expect(rows[1]).toMatchObject({ amountKrw: 4500 });
+    expect(rows[2]).toMatchObject({ amountKrw: 158000 });
+  });
+
+  it("hit counts differing by more than 1 dominate the shape tiebreak (guardrail: sparse large-value column loses)", async () => {
+    // FIX-IMPORT-INFER 관찰 1 신규 케이스(가드레일): 타이브레이크는 동률/±1
+    // '유사' hits에만 적용된다. 큰 값 열이 5행 중 2행만 금액으로 파싱되면
+    // (hits 5 대 3, 차이 > 1) 종전대로 hits가 많은 열이 금액으로 선택된다.
+    const csv =
+      "2026-07-01,3,32000,젖병\n" +
+      "2026-07-02,2,판매불가,분유\n" +
+      "2026-07-03,1,-8000,물티슈\n" +
+      "2026-07-04,4,15000,장난감\n" +
+      "2026-07-05,2,20000,침대\n";
+
+    const { rows } = await parseCsv(csv);
+
+    expect(rows[0]).toMatchObject({ amountKrw: 3, itemName: "32000", memo: "젖병" });
+    expect(rows[3]).toMatchObject({ amountKrw: 4, itemName: "15000" });
+  });
+
+  it("fully tied shape (both small, uniform digit counts): the leftmost candidate column is kept for stability", async () => {
+    // FIX-IMPORT-INFER 관찰 1 신규 케이스: 두 수치열이 hits·중앙값 대역·자릿수
+    // 다양성까지 전부 같으면 판단 근거가 없으므로 종전 규칙(왼쪽 열 유지)을
+    // 따른다 — 타이브레이크가 무근거 스왑을 만들지 않음을 고정.
+    const csv = "2026-07-01,2,5,젖병\n" + "2026-07-02,3,6,분유\n" + "2026-07-03,4,7,물티슈\n";
+
+    const { rows } = await parseCsv(csv);
+
+    expect(rows[0]).toMatchObject({ amountKrw: 2, itemName: "5", memo: "젖병" });
+    expect(rows[1]).toMatchObject({ amountKrw: 3, itemName: "6", memo: "분유" });
+  });
+
+  it("date detection honors options.referenceYear (leap-day M/D rows are detected as the date column)", async () => {
+    // FIX-IMPORT-INFER 관찰 3 신규 케이스: 종전 감지는 new Date()의 현재
+    // 연도를 써서 2/29가 비윤년(예: 2026)에는 날짜로 인정되지 않아 열 감지가
+    // 실패했다. 감지도 referenceYear를 쓰므로 윤년 2024 기준으로는 날짜열로
+    // 잡혀야 하며, 결과는 벽시계 연도와 무관하게 결정적이다.
+    const csv = "02/29,분유,15000\n" + "2/29,기저귀,32000\n";
+
+    const { rows } = await parseCsv(csv, { referenceYear: 2024 });
+
+    expect(rows[0]).toMatchObject({ dateIso: "2024-02-29", itemName: "분유", amountKrw: 15000, confidence: 0.92 });
+    expect(rows[1]).toMatchObject({ dateIso: "2024-02-29", itemName: "기저귀", amountKrw: 32000 });
   });
 
   it("a compact-date column (YYYYMMDD) is claimed by date inference and not double-counted as the amount column", async () => {

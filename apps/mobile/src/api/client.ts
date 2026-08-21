@@ -49,17 +49,50 @@ function local<T>(factory: () => T): Promise<T> {
  */
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
+/**
+ * FIX-MOB-DX (COV-T3 관찰): thrown by fetchWithTimeout when ITS OWN timeout bound fires. Before
+ * this, the raw "AbortError" DOMException from the aborted fetch propagated unwrapped, so callers
+ * could only recognize the 10s timeout by string/name sniffing a platform-dependent error shape.
+ * `cause` carries the original abort rejection (typically a DOMException named "AbortError") for
+ * logging/debugging. Genuine network failures (DNS, connection refused, offline TypeError) are
+ * NOT wrapped -- they propagate exactly as before.
+ */
+export class ApiTimeoutError extends Error {
+  constructor(cause: unknown) {
+    super("요청 시간이 초과되었어요(10초)", { cause });
+    this.name = "ApiTimeoutError";
+  }
+}
+
 /** Wraps `fetch` with an AbortController-based timeout so a hung/unreachable connection always
  * settles (as a rejection) within `timeoutMs` instead of relying on the OS/network stack's own
- * (sometimes much longer, or absent) timeout behavior. */
+ * (sometimes much longer, or absent) timeout behavior. A rejection caused by this function's own
+ * timeout abort is translated into the typed ApiTimeoutError above (callers never pass their own
+ * `signal` -- the spread below always overrides it, so the only abort source here is the timer);
+ * every other rejection is rethrown untouched. */
 function fetchWithTimeout(
   input: string,
   init: RequestInit,
   timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS
 ): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  return fetch(input, { ...init, signal: controller.signal })
+    .catch((error: unknown) => {
+      // Guarded on BOTH flags: `timedOut` (our timer actually fired -- not some other abort or a
+      // network error racing the timer) and the abort shape (`name === "AbortError"`, the one
+      // observable mark real fetch puts on an abort rejection across platforms) so a genuine
+      // network error that lands in the same tick as the timer is never mislabeled as a timeout.
+      if (timedOut && (error as { name?: unknown } | null)?.name === "AbortError") {
+        throw new ApiTimeoutError(error);
+      }
+      throw error;
+    })
+    .finally(() => clearTimeout(timer));
 }
 
 type RequestOptions = {

@@ -26,6 +26,11 @@ type IdempotencyKeyRow = {
   statusCode: number | null;
 };
 
+type ReplayableResponse = {
+  statusCode?: number;
+  status?: (code: number) => unknown;
+};
+
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
@@ -36,6 +41,28 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 
 function conflictError(message: string) {
   return new HttpException({ code: "IDEMPOTENCY_KEY_CONFLICT", message }, HttpStatus.CONFLICT);
+}
+
+/**
+ * 재생(replay) 응답에 저장된 원본 상태코드를 적용한다.
+ *
+ * Nest는 인터셉터 체인이 모두 끝난 뒤 reply() 단계에서 라우트의 정적
+ * 상태코드(@HttpCode 또는 메서드 기본값 200/201)를 한 번 더 덮어쓰기
+ * 때문에, 여기서 단순히 status()만 호출하면 저장된 상태코드가 라우트
+ * 기본값과 다른 경우(예: 동적으로 201을 반환했던 원본) 되돌려진다.
+ * status()를 잠시 가로채 그 한 번의 늦은 덮어쓰기를 무시하고 곧바로
+ * 원래 구현으로 복원한다.
+ */
+function applyReplayStatus(response: ReplayableResponse, statusCode: number) {
+  if (typeof response.status !== "function") {
+    return;
+  }
+  const originalStatus = response.status.bind(response);
+  originalStatus(statusCode);
+  response.status = () => {
+    response.status = originalStatus;
+    return response;
+  };
 }
 
 /**
@@ -83,11 +110,19 @@ export class IdempotencyInterceptor implements NestInterceptor {
     const requestHash = createHash("sha256")
       .update(`${actualPath}\n${JSON.stringify(request.body ?? {})}`)
       .digest("hex");
+    const response = context.switchToHttp().getResponse<ReplayableResponse>();
 
-    return from(this.handle(userId, endpoint, idemKey, requestHash, next));
+    return from(this.handle(userId, endpoint, idemKey, requestHash, response, next));
   }
 
-  private async handle(userId: string, endpoint: string, idemKey: string, requestHash: string, next: CallHandler) {
+  private async handle(
+    userId: string,
+    endpoint: string,
+    idemKey: string,
+    requestHash: string,
+    response: ReplayableResponse,
+    next: CallHandler
+  ) {
     const reservation = await this.reserve(userId, endpoint, idemKey, requestHash);
 
     if (reservation.outcome === "conflict") {
@@ -96,16 +131,23 @@ export class IdempotencyInterceptor implements NestInterceptor {
 
     if (reservation.outcome === "replay") {
       const completed = await this.waitForCompletion(userId, endpoint, idemKey);
+      // 원본이 기록한 상태코드로 재생한다(즉시 완료·대기 후 완료 공통 경로).
+      applyReplayStatus(response, completed.statusCode ?? HttpStatus.OK);
       return completed.responseJson;
     }
 
     try {
       const result = await lastValueFrom(next.handle());
+      // Nest는 인터셉터 실행 전에 라우트의 확정 상태코드(@HttpCode 또는
+      // 메서드 기본값 200/201)를 response에 미리 찍어 두므로, 핸들러 완료
+      // 시점의 response.statusCode가 실제로 전송될 상태코드다(핸들러가
+      // passthrough로 바꾼 값 포함). 이를 그대로 저장해 재생 시 동일한
+      // 상태로 응답할 수 있게 한다.
       await this.prisma.idempotencyKey.update({
         where: { userId_endpoint_idemKey: { userId, endpoint, idemKey } },
         data: {
           responseJson: (result ?? null) as Prisma.InputJsonValue,
-          statusCode: 200,
+          statusCode: response.statusCode ?? HttpStatus.OK,
           // 완료된 응답은 재생 가능 기간(24h) 동안 보존한다.
           expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS)
         }

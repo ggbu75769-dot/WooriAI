@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LOCAL_SESSION_TOKEN,
+  ApiTimeoutError,
   ExpenseHttpError,
   createExcelImport,
   createExpenseWithIdempotency,
@@ -257,7 +258,7 @@ describe("client.ts 401→refresh retry matrix (COV-T3)", () => {
   });
 
   describe("10s timeout bound", () => {
-    it("aborts a hung request at exactly DEFAULT_FETCH_TIMEOUT_MS, propagates the abort rejection unwrapped, and never attempts a refresh", async () => {
+    it("aborts a hung request at exactly DEFAULT_FETCH_TIMEOUT_MS, surfaces a typed ApiTimeoutError carrying the abort as cause, and never attempts a refresh", async () => {
       vi.useFakeTimers();
       const abortError = new DOMException("The operation was aborted.", "AbortError");
       const fetchMock = vi.fn(
@@ -280,16 +281,36 @@ describe("client.ts 401→refresh retry matrix (COV-T3)", () => {
 
       // ...and at 10_000ms the AbortController fires.
       await vi.advanceTimersByTimeAsync(1);
-      // Documented behavior: client.ts does NOT translate the abort into its own typed timeout
-      // error -- the AbortController's rejection (an "AbortError" DOMException from real fetch)
-      // propagates to the caller unwrapped, identity intact.
-      await expect(pending).rejects.toBe(abortError);
+      // FIX-MOB-DX: the abort produced by client.ts's OWN timeout is translated into the typed
+      // ApiTimeoutError (name + Korean message stable for callers to branch on -- no string
+      // sniffing of platform-dependent AbortError shapes), with the original abort rejection
+      // preserved on `cause` for logging.
+      await expect(pending).rejects.toBeInstanceOf(ApiTimeoutError);
+      await pending.catch((error: ApiTimeoutError) => {
+        expect(error.name).toBe("ApiTimeoutError");
+        expect(error.message).toBe("요청 시간이 초과되었어요(10초)");
+        expect(error.cause).toBe(abortError);
+      });
       expect(settled).toBe(true);
 
       // A timeout is a rejected fetch, not a resolved 401: no refresh, session untouched.
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(useSessionStore.getState().accessToken).toBe("old-access-token");
       expect(useSessionStore.getState().refreshToken).toBe("old-refresh-token");
+    });
+
+    it("does NOT wrap a genuine network rejection (fetch TypeError before the bound) -- only the timeout abort becomes ApiTimeoutError", async () => {
+      const networkError = new TypeError("Network request failed");
+      const fetchMock = vi.fn(async () => {
+        throw networkError;
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      // Identity intact: connection/DNS/offline failures keep their original error object so
+      // existing callers branching on TypeError/message stay unaffected.
+      await expect(getHome("old-access-token", "child-1")).rejects.toBe(networkError);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(useSessionStore.getState().accessToken).toBe("old-access-token");
     });
   });
 

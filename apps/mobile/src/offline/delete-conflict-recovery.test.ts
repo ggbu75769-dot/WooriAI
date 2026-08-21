@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { BASE_DELAY_MS, computeBackoffDelayMs } from "./backoff";
 import { runDeltaPull } from "./delta-sync";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import { reconcileMonthlyExpenses } from "./expense-list-reconciliation";
@@ -343,7 +344,7 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     expect(await store.listOutboxMutations()).toHaveLength(0);
   });
 
-  it("재시도 on a failed delete re-arms it (backoff cleared, SAME idempotency key re-sent, attempt counter preserved); a 404 EXPENSE_NOT_FOUND on the retried send then converges as success", async () => {
+  it("재시도 on a failed delete re-arms it (backoff cleared, SAME idempotency key re-sent, attempt counter reset to 0); a 404 EXPENSE_NOT_FOUND on the retried send then converges as success", async () => {
     // Seed the 'failed' state with a non-404 permanent error (403 FORBIDDEN stays a genuine
     // failure) -- since the bug 1 fix, a delete-404 itself no longer produces 'failed'.
     const synced = await seedSyncedExpense(store);
@@ -368,8 +369,11 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     expect(rearmed.nextRetryAt).toBeNull();
     expect(rearmed.lastError).toBeNull();
     expect(rearmed.idempotencyKey).toBe(failedMutation.idempotencyKey);
-    // Documented: 재시도 resets only the backoff bookkeeping, not the attempt counter.
-    expect(rearmed.attemptCount).toBe(1);
+    // FIX-MOB-DX (COV-T5 관찰 #4): an explicit user 재시도 is a fresh expression of intent --
+    // the attempt counter resets to 0 so a subsequent failure backs off from the base delay
+    // again instead of resuming the pre-retry exponential climb.
+    expect(failedMutation.attemptCount).toBe(1);
+    expect(rearmed.attemptCount).toBe(0);
 
     // The retried send finds the row already gone server-side (e.g. deleted from another
     // device in the meantime): same operation, same idempotency key over the wire -- and the
@@ -390,6 +394,61 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     ]);
     expect(await store.getLocalExpense(synced.localId)).toBeNull();
     expect(await store.listOutboxMutations()).toHaveLength(0);
+  });
+
+  it("FIX-MOB-DX (COV-T5 관찰 #4): after 재시도 resets the attempt counter, a fresh network failure backs off from the BASE delay again -- not from the pre-retry exponential position", async () => {
+    const synced = await seedSyncedExpense(store);
+    await recordLocalDelete(store, synced.localId);
+
+    // Climb the exponential ladder: two automatic network failures (attempt 1 -> 2s window,
+    // attempt 2 -> 4s window)...
+    const { remote: deadNetworkRemote } = createRecordingRemote({
+      failDelete: () => new TypeError("Network request failed")
+    });
+    const firstPass = await flushOutbox(store, deadNetworkRemote);
+    expect(firstPass.stoppedForNetwork).toBe(true);
+    let [mutation] = await store.listOutboxMutationsForLocalId(synced.localId);
+    expect(mutation.attemptCount).toBe(1);
+    await store.updateOutboxMutation(mutation.mutationId, { nextRetryAt: null });
+    await flushOutbox(store, deadNetworkRemote);
+    [mutation] = await store.listOutboxMutationsForLocalId(synced.localId);
+    expect(mutation.attemptCount).toBe(2);
+    await store.updateOutboxMutation(mutation.mutationId, { nextRetryAt: null });
+
+    // ...then a permanent 403 parks the row in 'failed' at attemptCount=3.
+    const { remote: forbiddenRemote } = createRecordingRemote({
+      failDelete: () =>
+        new RemotePermanentError(403, "지출 기록 접근 권한이 없어요.", {
+          error: { code: "FORBIDDEN", message: "지출 기록 접근 권한이 없어요." }
+        })
+    });
+    await flushOutbox(store, forbiddenRemote);
+    expect((await store.getLocalExpense(synced.localId))!.syncState).toBe("failed");
+    [mutation] = await store.listOutboxMutationsForLocalId(synced.localId);
+    expect(mutation.attemptCount).toBe(3);
+
+    // The user's explicit 재시도 zeroes the counter along with the backoff window.
+    await retryFailedMutation(store, synced.localId);
+    [mutation] = await store.listOutboxMutationsForLocalId(synced.localId);
+    expect(mutation.attemptCount).toBe(0);
+    expect(mutation.nextRetryAt).toBeNull();
+
+    // The retried send dies on the network: this is attempt 1 of a NEW climb, so the scheduled
+    // next_retry_at sits exactly one BASE_DELAY_MS out -- were the old counter preserved, this
+    // would be attempt 4 (2s * 2^3 = 16s) and the user's just-requested send would stall.
+    const beforeMs = Date.now();
+    const retryPass = await flushOutbox(store, deadNetworkRemote);
+    const afterMs = Date.now();
+    expect(retryPass.stoppedForNetwork).toBe(true);
+    [mutation] = await store.listOutboxMutationsForLocalId(synced.localId);
+    expect(mutation.attemptCount).toBe(1);
+    expect(mutation.nextRetryAt).not.toBeNull();
+    const nextRetryAtMs = new Date(mutation.nextRetryAt!).getTime();
+    expect(computeBackoffDelayMs(1)).toBe(BASE_DELAY_MS);
+    expect(nextRetryAtMs).toBeGreaterThanOrEqual(beforeMs + BASE_DELAY_MS);
+    expect(nextRetryAtMs).toBeLessThanOrEqual(afterMs + BASE_DELAY_MS);
+    // Comfortably below where the pre-retry ladder would have put it.
+    expect(nextRetryAtMs - afterMs).toBeLessThan(computeBackoffDelayMs(4));
   });
 
   it("a 409 on delete whose server snapshot is null (nothing to adopt or reapply against) routes to 'failed' instead of an unresolvable 'conflict'", async () => {

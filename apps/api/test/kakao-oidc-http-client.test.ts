@@ -2,9 +2,19 @@ import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
-import { UnauthorizedException } from "@nestjs/common";
+import { Logger, UnauthorizedException } from "@nestjs/common";
 import { SignJWT } from "jose";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance
+} from "vitest";
 import { HttpKakaoOidcClient } from "../src/auth/kakao/kakao-oidc-client.http";
 
 // COV-T4: 카카오 실 HTTP OIDC 클라이언트 단위 테스트.
@@ -161,6 +171,14 @@ async function expectUnauthorized(promise: Promise<unknown>, code: string): Prom
 const originalClientId = process.env.OAUTH_KAKAO_CLIENT_ID;
 const originalClientSecret = process.env.OAUTH_KAKAO_CLIENT_SECRET;
 
+// FIX-KAKAO-DIAG: Nest Logger.warn 스파이 — 실패 경로가 진단 로그를 남기는지,
+// 그리고 로그에 code/token/nonce 같은 자격증명 값이 새지 않는지 단언하는 데 쓴다.
+let warnSpy: MockInstance;
+
+function warnOutput(): string {
+  return warnSpy.mock.calls.map((call) => call.map((arg) => String(arg)).join(" ")).join("\n");
+}
+
 beforeEach(() => {
   process.env.OAUTH_KAKAO_CLIENT_ID = TEST_CLIENT_ID;
   delete process.env.OAUTH_KAKAO_CLIENT_SECRET;
@@ -172,10 +190,12 @@ beforeEach(() => {
     throw new Error("이 테스트에서는 JWKS 응답이 목킹되지 않았어요.");
   };
   vi.stubGlobal("fetch", fetchMock);
+  warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  warnSpy.mockRestore();
 });
 
 afterAll(() => {
@@ -396,5 +416,170 @@ describe("HttpKakaoOidcClient.verifyIdToken", () => {
     const unknownKid = await signIdToken({ key: wrongPrivateKey, kid: "unknown-kid" });
     await expectUnauthorized(client.verifyIdToken(unknownKid), "OAUTH_ID_TOKEN_INVALID");
     expect(jwksHits).toBe(1);
+  });
+});
+
+// ---- FIX-KAKAO-DIAG: 실패 경로 관측성 로그 ---------------------------------
+// 외부 계약(401 + 기존 code/메시지)은 위 테스트들이 계속 보증하고, 여기서는
+// (a) 각 실패 경로가 원인 진단이 가능한 warn 로그를 남기는지,
+// (b) 로그에 인가 코드/토큰/nonce 값이 절대 포함되지 않는지를 단언한다.
+
+describe("FIX-KAKAO-DIAG 관측성 로그", () => {
+  function expectNoSensitiveValues(output: string, sensitive: string[]): void {
+    for (const value of sensitive) {
+      expect(output).not.toContain(value);
+    }
+  }
+
+  describe("exchangeCode", () => {
+    it("400(invalid_grant) 실패 시 HTTP status와 카카오 error/error_description을 warn으로 남기고, code 값은 남기지 않는다", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(400, { error: "invalid_grant", error_description: "authorization code not found" })
+      );
+
+      const client = new HttpKakaoOidcClient();
+      await expectUnauthorized(
+        client.exchangeCode({
+          code: "super-secret-auth-code",
+          redirectUri: "https://app.wooriai.test/cb",
+          codeVerifier: "secret-pkce-verifier"
+        }),
+        "OAUTH_CODE_EXCHANGE_FAILED"
+      );
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const output = warnOutput();
+      expect(output).toContain("HTTP 400");
+      expect(output).toContain("invalid_grant");
+      expect(output).toContain("authorization code not found");
+      expectNoSensitiveValues(output, ["super-secret-auth-code", "secret-pkce-verifier"]);
+    });
+
+    it("401(invalid_client) 실패도 error 코드가 로그에 남아 invalid_grant와 구분된다", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(401, { error: "invalid_client" }));
+
+      const client = new HttpKakaoOidcClient();
+      await expectUnauthorized(
+        client.exchangeCode({ code: "secret-code-2", redirectUri: "https://app.wooriai.test/cb" }),
+        "OAUTH_CODE_EXCHANGE_FAILED"
+      );
+
+      const output = warnOutput();
+      expect(output).toContain("HTTP 401");
+      expect(output).toContain("invalid_client");
+      expectNoSensitiveValues(output, ["secret-code-2"]);
+    });
+
+    it("네트워크 실패 시 오류 message만 warn으로 남긴다", async () => {
+      fetchMock.mockRejectedValue(new TypeError("fetch failed"));
+
+      const client = new HttpKakaoOidcClient();
+      await expectUnauthorized(
+        client.exchangeCode({ code: "secret-code-3", redirectUri: "https://app.wooriai.test/cb" }),
+        "OAUTH_CODE_EXCHANGE_FAILED"
+      );
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const output = warnOutput();
+      expect(output).toContain("네트워크");
+      expect(output).toContain("fetch failed");
+      expectNoSensitiveValues(output, ["secret-code-3"]);
+    });
+
+    it("200이지만 id_token이 없으면 그 사실을 warn으로 남기고, 응답의 다른 토큰 값은 남기지 않는다", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, { access_token: "leaked-access-token" }));
+
+      const client = new HttpKakaoOidcClient();
+      await expectUnauthorized(
+        client.exchangeCode({ code: "secret-code-4", redirectUri: "https://app.wooriai.test/cb" }),
+        "OAUTH_CODE_EXCHANGE_FAILED"
+      );
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const output = warnOutput();
+      expect(output).toContain("id_token 없음");
+      expectNoSensitiveValues(output, ["secret-code-4", "leaked-access-token"]);
+    });
+  });
+
+  describe("verifyIdToken", () => {
+    it("서명 위조 실패를 '토큰 검증 실패'와 jose 코드로 남기고, 토큰 원문/nonce 값은 남기지 않는다", async () => {
+      mockJwksSuccess();
+      const forged = await signIdToken({
+        key: wrongPrivateKey,
+        extraClaims: { nonce: "secret-raw-nonce" }
+      });
+
+      const client = new HttpKakaoOidcClient();
+      await expectUnauthorized(client.verifyIdToken(forged), "OAUTH_ID_TOKEN_INVALID");
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const output = warnOutput();
+      expect(output).toContain("토큰 검증 실패");
+      expect(output).toContain("ERR_JWS_SIGNATURE_VERIFICATION_FAILED");
+      expectNoSensitiveValues(output, [forged, ...forged.split("."), "secret-raw-nonce"]);
+    });
+
+    it("만료 토큰 실패는 ERR_JWT_EXPIRED로 남는다", async () => {
+      mockJwksSuccess();
+      const expired = await signIdToken({ expiresIn: "-5m" });
+
+      const client = new HttpKakaoOidcClient();
+      await expectUnauthorized(client.verifyIdToken(expired), "OAUTH_ID_TOKEN_INVALID");
+
+      const output = warnOutput();
+      expect(output).toContain("토큰 검증 실패");
+      expect(output).toContain("ERR_JWT_EXPIRED");
+      expectNoSensitiveValues(output, [expired, ...expired.split(".")]);
+    });
+
+    it("알 수 없는 kid(위조 추정)는 ERR_JWKS_NO_MATCHING_KEY로 '토큰 검증 실패' 쪽에 남는다", async () => {
+      mockJwksSuccess();
+      const unknownKid = await signIdToken({ key: wrongPrivateKey, kid: "unknown-kid" });
+
+      const client = new HttpKakaoOidcClient();
+      await expectUnauthorized(client.verifyIdToken(unknownKid), "OAUTH_ID_TOKEN_INVALID");
+
+      const output = warnOutput();
+      expect(output).toContain("토큰 검증 실패");
+      expect(output).toContain("ERR_JWKS_NO_MATCHING_KEY");
+      expectNoSensitiveValues(output, [unknownKid, ...unknownKid.split(".")]);
+    });
+
+    it("JWKS 네트워크 실패는 'JWKS 페치 실패'로 구분되어 남는다 (카카오 장애 vs 위조 토큰 구분)", async () => {
+      mockJwksNetworkFailure();
+      const idToken = await signIdToken({ extraClaims: { nonce: "secret-raw-nonce" } });
+
+      const client = new HttpKakaoOidcClient();
+      await expectUnauthorized(client.verifyIdToken(idToken), "OAUTH_ID_TOKEN_INVALID");
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const output = warnOutput();
+      expect(output).toContain("JWKS 페치 실패(네트워크 추정)");
+      // 소켓 destroy 타이밍에 따라 주입한 오류 또는 Node의 소켓 종료 메시지가 남는다.
+      expect(output).toMatch(/simulated network failure|Socket is closed/);
+      expectNoSensitiveValues(output, [idToken, ...idToken.split("."), "secret-raw-nonce"]);
+    });
+
+    it("JWKS 비-200 응답도 'JWKS 페치 실패'로 남는다", async () => {
+      mockJwksResponse(503, JSON.stringify({ error: "unavailable" }));
+      const idToken = await signIdToken();
+
+      const client = new HttpKakaoOidcClient();
+      await expectUnauthorized(client.verifyIdToken(idToken), "OAUTH_ID_TOKEN_INVALID");
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const output = warnOutput();
+      expect(output).toContain("JWKS 페치 실패");
+      expect(output).toContain("Expected 200 OK");
+      expectNoSensitiveValues(output, [idToken, ...idToken.split(".")]);
+    });
+
+    it("성공 검증에서는 warn 로그를 남기지 않는다", async () => {
+      mockJwksSuccess();
+      const client = new HttpKakaoOidcClient();
+      await client.verifyIdToken(await signIdToken());
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
   });
 });
