@@ -192,7 +192,12 @@ describe("Admin dashboard summary (ADM-008)", () => {
       }
     });
 
-    // Analytics events: one received now, one received 8 days ago (excluded).
+    // Analytics events — PERF-115(F1): the 7d count follows occurredAt (event
+    // occurrence time, same semantics as the analytics-summary KPI screen),
+    // NOT receivedAt. One occurred now (counted), one occurred+received 8 days
+    // ago (excluded), and one occurred 8 days ago but only received now — a
+    // late-arriving backfill — which the old receivedAt-based count would have
+    // included and the occurredAt-based count must exclude.
     await prisma.analyticsEvent.create({
       data: {
         eventName: "app_opened",
@@ -209,6 +214,17 @@ describe("Admin dashboard summary (ADM-008)", () => {
         eventId: randomUUID(),
         occurredAt: eightDaysAgo,
         receivedAt: eightDaysAgo,
+        payload: {}
+      }
+    });
+    await prisma.analyticsEvent.create({
+      data: {
+        eventName: "app_opened",
+        eventVersion: 1,
+        eventId: randomUUID(),
+        occurredAt: eightDaysAgo,
+        // receivedAt defaults to now() — received inside the window, but the
+        // occurrence is outside it, so it must not be counted.
         payload: {}
       }
     });

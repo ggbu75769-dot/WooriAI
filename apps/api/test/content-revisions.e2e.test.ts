@@ -6,6 +6,7 @@ import { generate as generateTotp } from "otplib";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hashAdminPassword } from "../src/admin/admin-password";
+import { CONTENT_REVISIONS_LIST_LIMIT } from "../src/admin/content-revisions.service";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { ScheduledPublishJob } from "../src/worker/jobs/scheduled-publish.job";
@@ -658,5 +659,45 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
       expect(published.body.status).toBe("published");
       expect(published.body.scheduledFor).toBeNull();
     });
+  });
+
+  // PERF-115(F4): the list endpoint used to have no LIMIT; it is now capped at
+  // CONTENT_REVISIONS_LIST_LIMIT (newest-first), response contract unchanged.
+  it("caps the list response at CONTENT_REVISIONS_LIST_LIMIT rows, newest-first", async () => {
+    await createAdmin("cr-limit-admin@wooriai.local", "admin-password-limit", "admin");
+    const admin = await loginAndEnroll("cr-limit-admin@wooriai.local", "admin-password-limit");
+    const adminRow = await prisma.adminUser.findUniqueOrThrow({ where: { email: "cr-limit-admin@wooriai.local" } });
+
+    // Seed CONTENT_REVISIONS_LIST_LIMIT + 5 history rows for one entity
+    // directly (the API can't create >1 draft revision per entity, and
+    // content_revisions carries no FK to the live tables — 000007). A fresh
+    // random entityId isolates this history from every other suite's rows.
+    const entityId = randomUUID();
+    const total = CONTENT_REVISIONS_LIST_LIMIT + 5;
+    await prisma.contentRevision.createMany({
+      data: Array.from({ length: total }, (_, i) => ({
+        entityType: "disclosure",
+        entityId,
+        revisionNo: i + 1,
+        payload: { key: "perf115_f4", text: `rev ${i + 1}` },
+        status: "published",
+        authorAdminId: adminRow.id
+      }))
+    });
+
+    const list = await request(app.getHttpServer())
+      .get(`/api/v1/admin/content-revisions?entityType=disclosure&entityId=${entityId}`)
+      .set("Cookie", admin.cookie)
+      .expect(200);
+
+    // Contract shape intact, but capped: 105 rows exist, 100 come back.
+    expect(Array.isArray(list.body.revisions)).toBe(true);
+    expect(list.body.revisions.length).toBe(CONTENT_REVISIONS_LIST_LIMIT);
+    // The unfiltered list (every suite's rows) is bounded by the same cap.
+    const unfiltered = await request(app.getHttpServer())
+      .get("/api/v1/admin/content-revisions")
+      .set("Cookie", admin.cookie)
+      .expect(200);
+    expect(unfiltered.body.revisions.length).toBeLessThanOrEqual(CONTENT_REVISIONS_LIST_LIMIT);
   });
 });

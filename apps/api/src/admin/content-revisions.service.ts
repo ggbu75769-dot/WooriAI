@@ -46,6 +46,14 @@ const MAX_REVISION_CREATE_ATTEMPTS = 3;
 // existing convention for non-admin actors.
 export const SYSTEM_WORKER_ACTOR = "system:worker";
 
+// PERF-115(F4): the admin list endpoint had no LIMIT, so an accumulating
+// revision history (every publish/rollback appends a row forever) would grow
+// the response without bound. Capped following the existing admin-list
+// convention (audit-logs viewer: bounded `take`); 100 comfortably covers the
+// admin UI's needs while keeping the `{ revisions: [...] }` response contract
+// unchanged (newest-first, so the cap drops only the oldest history).
+export const CONTENT_REVISIONS_LIST_LIMIT = 100;
+
 /**
  * INF-006-lite hardening: how long a row may sit in the transient "publishing"
  * status before the worker treats it as abandoned (a crash between the CAS
@@ -114,7 +122,10 @@ export class ContentRevisionsService {
         entityId: filter.entityId,
         status: filter.status
       },
-      orderBy: [{ createdAt: "desc" }]
+      // PERF-115(F4): id tiebreaker makes the capped window deterministic when
+      // many rows share a createdAt (e.g. bulk-seeded history).
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: CONTENT_REVISIONS_LIST_LIMIT
     });
     return { revisions: rows.map((row) => this.toDto(row)) };
   }

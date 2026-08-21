@@ -43,7 +43,12 @@ export class DashboardSummaryService {
       this.prisma.child.count(),
       this.prisma.expense.count(),
       this.prisma.affiliateClick.count({ where: { clickedAt: { gte: since7d } } }),
-      this.prisma.analyticsEvent.count({ where: { receivedAt: { gte: since7d } } }),
+      // PERF-115(F1): 의도적 의미 변경 — 수신 시각(receivedAt)이 아닌 발생 시각
+      // (occurredAt) 기준 7일 카운트. KPI 화면(analytics-summary.service.ts)과
+      // 의미가 정합해지고, received_at에는 시간 인덱스가 없어 가장 빨리 자라는
+      // analytics_events를 풀스캔하던 것이 000011의
+      // idx_analytics_events_occurred_at 인덱스를 타게 된다.
+      this.prisma.analyticsEvent.count({ where: { occurredAt: { gte: since7d } } }),
       this.prisma.contentRevision.count({ where: { status: "in_review" } }),
       this.prisma.productLink.count({ where: { healthStatus: "broken" } })
     ]);
