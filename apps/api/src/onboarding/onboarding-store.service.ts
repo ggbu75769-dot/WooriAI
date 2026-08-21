@@ -1483,7 +1483,9 @@ export class OnboardingStoreService {
       name: item.name,
       necessityLevel: item.necessityLevel,
       status,
-      timingLabel: item.timingLabel,
+      // CON-115: DB에서 null인 timingLabel은 undefined로 정리해 계약(z.string().optional())과
+      // 모바일 타입(timingLabel?: string)에 맞춘다 — null이 그대로 나가면 계약 위반.
+      timingLabel: item.timingLabel ?? undefined,
       priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw),
       stageCodes: item.stageCodes
     };

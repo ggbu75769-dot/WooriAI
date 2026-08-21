@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
+import { versionConflictResponseSchema } from "@wooriai/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -149,6 +150,8 @@ describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Pos
       .send({ amountKrw: 99999, expectedVersion: 2 })
       .expect(409)
       .expect(({ body }) => {
+        // CON-115: 409 바디 전체가 공유 계약({error:{...}, current})에 맞아야 한다.
+        versionConflictResponseSchema.parse(body);
         expect(body.error.code).toBe("VERSION_CONFLICT");
         expect(body.current).toMatchObject({ id: created.id, version: 3, amountKrw: 30000 });
       });
@@ -195,6 +198,8 @@ describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Pos
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(409)
       .expect(({ body }) => {
+        // CON-115: DELETE 충돌의 409 바디(살아있는 current)도 공유 계약에 맞아야 한다.
+        versionConflictResponseSchema.parse(body);
         expect(body.error.code).toBe("VERSION_CONFLICT");
         expect(body.current).toMatchObject({ id: created.id, version: 1 });
       });
@@ -213,6 +218,8 @@ describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Pos
       .send({ amountKrw: 1000, expectedVersion: 1 })
       .expect(409)
       .expect(({ body }) => {
+        // CON-115: 톰스톤 current를 포함한 409 바디도 공유 계약에 맞아야 한다.
+        versionConflictResponseSchema.parse(body);
         expect(body.error.code).toBe("VERSION_CONFLICT");
         expect(body.current).toEqual({ id: created.id, deleted: true, version: 2 });
       });

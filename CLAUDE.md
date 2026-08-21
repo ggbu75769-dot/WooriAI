@@ -29,4 +29,4 @@
 
 - `android/`는 gitignore — `expo prebuild`로 생성되며 config plugin(`apps/mobile/plugins/with-wooriai-android-release.js`)이 릴리즈 패치를 자동 적용. 손패치 금지.
 - GitHub Actions 러너 문제로 **로컬 검증(release:gate)이 기준** (docs/5차/launch-72h-plan.md 참고).
-- API base path `/api/v1` 고정, 타입은 `pnpm contracts:generate`로 생성.
+- API base path `/api/v1` 고정. 계약 타입은 `packages/contracts`가 수기 단일 소스(`contracts:generate`는 스텁 — 실제로 아무것도 생성하지 않음).

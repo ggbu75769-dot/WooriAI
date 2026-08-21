@@ -624,11 +624,17 @@ export function getExpense(token: string, expenseId: string) {
   return requestJson<Expense>(`/expenses/${expenseId}`, { token });
 }
 
-export function updateExpense(
-  token: string,
-  expenseId: string,
-  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>
-) {
+/**
+ * CON-115: PATCH 지출 수정 body — 서버 UpdateExpenseDto(apps/api/src/finance/dto/expense.dto.ts)의
+ * 미러. Expense.expenseType에는 표시 전용 "refund"도 있지만 수정 요청은 expense|gift만 허용된다
+ * (서버가 refund를 400 VALIDATION_ERROR로 거부) — Pick<Expense, "expenseType">을 그대로 쓰면
+ * 컴파일은 통과하는데 런타임에서만 터지는 타입 함정이 생겨 여기서 좁힌다.
+ */
+export type UpdateExpenseBody = Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo">> & {
+  expenseType?: "expense" | "gift";
+};
+
+export function updateExpense(token: string, expenseId: string, body: UpdateExpenseBody) {
   if (isLocalToken(token)) return local(() => localBackend.updateExpense(expenseId, body));
   return requestJson<Expense>(`/expenses/${expenseId}`, { method: "PATCH", token, body });
 }
@@ -779,7 +785,8 @@ export function createExpenseWithIdempotency(
 export function updateExpenseWithVersion(
   token: string,
   expenseId: string,
-  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>,
+  // CON-115: updateExpense와 동일한 body 계약 — expenseType은 expense|gift만 (refund 400 거부).
+  body: UpdateExpenseBody,
   expectedVersion: number,
   idempotencyKey: string
 ): Promise<Expense> {
