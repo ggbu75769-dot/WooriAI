@@ -44,6 +44,13 @@ const WAIT_BUDGET_MS = 60 * 50; // RETRY_ATTEMPTS * RETRY_INTERVAL_MS ≈ 3s
  *    is treated as a brand-new request (handler runs again).
  *  - Endpoint scoping: the unique key is (userId, endpoint, idemKey), so the
  *    same Idempotency-Key on two different endpoints is independent.
+ *  - Status replay (FIX-IDEM-STATUS): completion stores the ACTUAL response
+ *    status (read off the Nest response object post-handler) instead of a
+ *    hardcoded 200, and a replay applies the stored statusCode to the HTTP
+ *    response — surviving Nest's late re-apply of the route's static status
+ *    in reply(). Verified both for today's 200 routes (stored row matches the
+ *    live status, replay status equals the original's) and for a simulated
+ *    stored 201/204 row on a 200 route (no new routes needed).
  *  - Failure recovery: a request that errors inside the handler pipeline
  *    deletes its reservation, so a corrected retry with the same key executes
  *    instead of replaying the failure.
@@ -209,6 +216,9 @@ describe.skipIf(!dbAvailable)("IdempotencyInterceptor 동시성/만료/복구 (r
     const rows = await idemRows(userId, idemKey);
     expect(rows).toHaveLength(1);
     expect(rows[0].statusCode).toBe(200);
+    // The stored statusCode is the winner's live response status, and every
+    // replaying loser answered with that same status.
+    expect(new Set(responses.map((r) => r.status))).toEqual(new Set([rows[0].statusCode]));
   });
 
   it("(d-1) PENDING_TTL 지난 stale pending 행(크래시 잔재) → 회수하고 정상 진행", async () => {
@@ -495,5 +505,95 @@ describe.skipIf(!dbAvailable)("IdempotencyInterceptor 동시성/만료/복구 (r
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     expect(victimCount).toBe(0);
+  });
+
+  it("(j) FIX-IDEM-STATUS: 저장 행 statusCode = 원본 라이브 응답 상태, 재생 응답 상태 = 원본 상태", async () => {
+    const { userId, accessToken } = await login("idem-status-replay");
+    const { childId } = await completeOnboarding(accessToken, "멱등-상태재생");
+    const idemKey = `idem-j-${randomUUID()}`;
+    const itemName = `상태재생 물티슈 ${randomUUID()}`;
+    const body = expenseBody(itemName);
+
+    const first = await postExpense(accessToken, childId, idemKey, body);
+    expect(first.status).toBe(200);
+
+    // Completion persisted the ACTUAL response status (read off the response
+    // object post-handler), not a hardcoded 200 that merely coincides.
+    const rows = await idemRows(userId, idemKey);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].statusCode).toBe(first.status);
+
+    // Replay answers with the same status as the original, same body.
+    const replay = await postExpense(accessToken, childId, idemKey, body);
+    expect(replay.status).toBe(first.status);
+    expect(replay.body).toEqual(first.body);
+    await expect(expenseCount(childId, itemName)).resolves.toBe(1);
+  });
+
+  it("(k) FIX-IDEM-STATUS: 저장된 201 행(직접 시드) → 200 라우트에서도 재생이 201로 응답", async () => {
+    const { userId, accessToken } = await login("idem-stored-201");
+    const { childId } = await completeOnboarding(accessToken, "멱등-201재생");
+    const itemName = `이백일 재생 ${randomUUID()}`;
+    const body = expenseBody(itemName);
+
+    // Primer teaches us the exact endpoint string and verifies the hash recipe.
+    const primerKey = `idem-k-primer-${randomUUID()}`;
+    await postExpense(accessToken, childId, primerKey, body).expect(200);
+    const primer = (await idemRows(userId, primerKey))[0];
+    expect(primer.requestHash).toBe(requestHashFor(`/api/v1/children/${childId}/expenses`, body));
+
+    // Simulate a completed row recorded by a (future) 201 route: the expense
+    // POST route's own static status is 200, so a 201 in the response proves
+    // the stored statusCode is applied on replay AND survives Nest's late
+    // re-apply of the route's static status.
+    const idemKey = `idem-k-${randomUUID()}`;
+    const storedBody = { id: randomUUID(), simulated: "stored-201-replay" };
+    await prisma.idempotencyKey.create({
+      data: {
+        userId,
+        endpoint: primer.endpoint,
+        idemKey,
+        requestHash: primer.requestHash,
+        responseJson: storedBody,
+        statusCode: 201,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+      }
+    });
+
+    const replay = await postExpense(accessToken, childId, idemKey, body);
+    expect(replay.status).toBe(201);
+    expect(replay.body).toEqual(storedBody);
+    // Pure replay: the handler never ran (only the primer's expense exists).
+    await expect(expenseCount(childId, itemName)).resolves.toBe(1);
+  });
+
+  it("(l) FIX-IDEM-STATUS: 저장된 204 행(본문 없음, 직접 시드) → 재생이 204 + 빈 본문으로 응답", async () => {
+    const { userId, accessToken } = await login("idem-stored-204");
+    const { childId } = await completeOnboarding(accessToken, "멱등-204재생");
+    const itemName = `이백사 재생 ${randomUUID()}`;
+    const body = expenseBody(itemName);
+
+    const primerKey = `idem-l-primer-${randomUUID()}`;
+    await postExpense(accessToken, childId, primerKey, body).expect(200);
+    const primer = (await idemRows(userId, primerKey))[0];
+
+    // A completed row as a (future) 204 No Content route would record it:
+    // statusCode 204, responseJson NULL (the interceptor stores `result ?? null`).
+    const idemKey = `idem-l-${randomUUID()}`;
+    await prisma.idempotencyKey.create({
+      data: {
+        userId,
+        endpoint: primer.endpoint,
+        idemKey,
+        requestHash: primer.requestHash,
+        statusCode: 204,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+      }
+    });
+
+    const replay = await postExpense(accessToken, childId, idemKey, body);
+    expect(replay.status).toBe(204);
+    expect(replay.body).toEqual({}); // supertest's shape for an empty body
+    await expect(expenseCount(childId, itemName)).resolves.toBe(1); // primer only
   });
 });
