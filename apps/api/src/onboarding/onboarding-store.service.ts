@@ -1,5 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { BadRequestException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  HttpException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional
+} from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import {
   assertMoneyKrw,
@@ -25,6 +33,7 @@ import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
 import { parseImportFile, type ParsedImportRow } from "../imports/import-parser";
 import { hashClickIp, isAllowedAffiliateUrl, PRODUCT_LINK_NOT_FOUND_ERROR } from "../items-commerce/affiliate-link-guard.util";
+import { PushDispatchService } from "../push/push-dispatch.service";
 
 type DbClient = Prisma.TransactionClient;
 
@@ -267,7 +276,13 @@ function normalizeChildInput(input: {
  */
 @Injectable()
 export class OnboardingStoreService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    // PUSH-113 후속(리뷰 m-2): 전역 PushModule(@Global())이 제공하는 발송 훅.
+    // @Optional() — 이 서비스만 따로 조립하는 단위 테스트/부분 모듈에서는 없어도
+    // 되고, 그 경우 훅은 그냥 건너뛴다 (finance/expenses.service.ts와 같은 선례).
+    @Optional() @Inject(PushDispatchService) private readonly pushDispatch?: PushDispatchService
+  ) {}
 
   async listConsents(user: AuthenticatedUser) {
     const saved = await this.prisma.consent.findMany({ where: { userId: user.id } });
@@ -758,6 +773,17 @@ export class OnboardingStoreService {
 
       return importableRows.length;
     });
+
+    // PUSH-113 후속(리뷰 m-2): 가져오기 커밋은 insertExpense를 직접 호출해
+    // ExpensesVersionService의 지출 생성 훅을 타지 않으므로, 배치 커밋 완료 후
+    // 아이별로 1회 예산 경계 평가를 fire-and-forget으로 건다. 클레임 방식은
+    // usedAfter(월 합계)만 필요해 "어느 행이 경계를 넘겼는지"는 몰라도 된다.
+    // 실패해도 가져오기 흐름에는 영향이 없다 (onBudgetRelevantChange는 예외를
+    // 절대 던지지 않는 계약).
+    if (importedCount > 0) {
+      const yearMonths = [...new Set(importableRows.map((row) => fromDateOnly(row.parsedDate!).slice(0, 7)))];
+      void this.pushDispatch?.onBudgetRelevantChange(job.childId, yearMonths);
+    }
 
     return {
       importedCount,

@@ -206,6 +206,41 @@ describe("FcmTokenService (토큰 캐시·갱신)", () => {
     expect(http.formCalls).toHaveLength(1);
   });
 
+  it("선제 갱신(margin 구간) 실패 시 아직 실제 만료 전인 캐시 토큰으로 폴백한다 — 경고 로그 1줄 (리뷰 m-4)", async () => {
+    enablePush();
+    const http = stubHttp();
+    const { tokens } = buildServices(http);
+    const expiresAtMs = 3600 * 1000; // now=0에 발급, expires_in 3600s
+
+    await tokens.getAccessToken(0);
+    expect(http.formCalls).toHaveLength(1);
+
+    // margin 구간(만료 5분 전 ~ 실제 만료)에서 OAuth가 일시 장애 — 캐시 토큰은
+    // 아직 실제로 유효하므로 실패를 전파하지 않고 캐시로 폴백한다.
+    const warnSpy = vi.spyOn(Logger.prototype, "warn");
+    http.formResponse = () => ({ status: 503, body: JSON.stringify({ error: "temporarily_unavailable" }) });
+    const inMargin = expiresAtMs - TOKEN_REFRESH_MARGIN_MS + 1_000;
+    await expect(tokens.getAccessToken(inMargin)).resolves.toBe("test-access-token");
+    expect(http.formCalls).toHaveLength(2); // 갱신은 시도했다
+    expect(warnSpy.mock.calls.some((call) => String(call[0]).includes("폴백"))).toBe(true);
+
+    // 폴백은 캐시를 연장하지 않는다 — 다음 호출은 다시 갱신을 시도해 복구된다.
+    http.formResponse = () => ({ status: 200, body: JSON.stringify({ access_token: "recovered-token", expires_in: 3600 }) });
+    await expect(tokens.getAccessToken(inMargin + 1)).resolves.toBe("recovered-token");
+    expect(http.formCalls).toHaveLength(3);
+  });
+
+  it("캐시 토큰이 실제로 만료된 뒤의 갱신 실패는 폴백 없이 전파된다", async () => {
+    enablePush();
+    const http = stubHttp();
+    const { tokens } = buildServices(http);
+    const expiresAtMs = 3600 * 1000;
+
+    await tokens.getAccessToken(0);
+    http.formResponse = () => ({ status: 503, body: JSON.stringify({ error: "temporarily_unavailable" }) });
+    await expect(tokens.getAccessToken(expiresAtMs)).rejects.toThrow(/HTTP 503/);
+  });
+
   it("token endpoint 실패는 예외를 던지되, 메시지에 assertion/private key는 없다", async () => {
     enablePush();
     const http = stubHttp();

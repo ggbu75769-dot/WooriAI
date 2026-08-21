@@ -341,6 +341,23 @@ model Budget {
   @@map("budgets")
 }
 
+// PUSH-113 후속(리뷰 M-2): 예산 경계(80/100) 푸시 발송 클레임 — (아이, 월, 경계)당
+// 1행. unique 제약을 INSERT로 선점(claim)한 요청만 발송해 동시 지출 레이스에서의
+// 중복/누락을 구조적으로 제거한다. child_id는 SQL FK(ON DELETE CASCADE, 000013)로
+// 아이 물리 파기 시 함께 삭제된다 (schema.prisma는 관계 미선언 관례 — 000001 참조).
+model PushBoundaryMark {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  childId   String   @map("child_id") @db.Uuid
+  /// 'YYYY-MM' (Asia/Seoul 기준 월).
+  yearMonth String   @map("year_month") @db.VarChar(7)
+  /// 경계 백분율: 80 또는 100.
+  boundary  Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([childId, yearMonth, boundary], map: "uq_push_boundary_marks")
+  @@map("push_boundary_marks")
+}
+
 model ChildItemStatus {
   id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   childId        String     @map("child_id") @db.Uuid

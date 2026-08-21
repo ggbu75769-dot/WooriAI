@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { importPKCS8, SignJWT, type KeyLike } from "jose";
 import { PushConfigService } from "./push-config.service";
 import { PUSH_HTTP_CLIENT, type PushHttpClient } from "./push-http.client";
@@ -12,6 +12,11 @@ import { PUSH_HTTP_CLIENT, type PushHttpClient } from "./push-http.client";
  * 캐시하고, 만료 5분 전부터 선제 갱신한다. 동시 호출은 진행 중인 발급
  * Promise를 공유해 중복 네트워크 요청을 막는다.
  *
+ * 선제 갱신 폴백(리뷰 m-4): 갱신 margin 구간(만료 5분 전~실제 만료)에서 갱신이
+ * 실패해도 캐시 토큰이 아직 실제 만료 전이면 그 토큰을 반환한다(경고 로그 1줄)
+ * — 일시적 OAuth 장애가 아직 유효한 토큰으로 가능한 발송을 막지 않게. 실제
+ * 만료 이후의 실패만 호출부로 전파한다.
+ *
  * 보안: assertion(JWT)·private key·access token은 로그/예외 메시지에 싣지 않는다.
  */
 
@@ -23,6 +28,7 @@ const JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
 @Injectable()
 export class FcmTokenService {
+  private readonly logger = new Logger(FcmTokenService.name);
   private cached: { token: string; expiresAtMs: number } | null = null;
   private pending: Promise<string> | null = null;
   private signingKey: KeyLike | null = null;
@@ -39,22 +45,36 @@ export class FcmTokenService {
 
   /**
    * 캐시가 (만료 5분 전 기준으로) 아직 신선하면 그대로 반환, 아니면 새로 발급.
+   * 선제 갱신 실패 시 캐시가 실제 만료 전이면 캐시로 폴백한다(클래스 주석).
    * `nowMs` 주입은 테스트에서 시간 경과를 흉내내기 위한 것.
    */
   async getAccessToken(nowMs: number = Date.now()): Promise<string> {
     if (this.cached && nowMs < this.cached.expiresAtMs - TOKEN_REFRESH_MARGIN_MS) {
       return this.cached.token;
     }
-    if (this.pending) {
-      return this.pending;
+    let pending = this.pending;
+    if (!pending) {
+      pending = this.fetchAccessToken(nowMs).finally(() => {
+        if (this.pending === pending) {
+          this.pending = null;
+        }
+      });
+      this.pending = pending;
     }
-    const pending = this.fetchAccessToken(nowMs).finally(() => {
-      if (this.pending === pending) {
-        this.pending = null;
+    try {
+      return await pending;
+    } catch (error) {
+      // 리뷰 m-4: margin 구간(선제 갱신)에서의 실패는, 캐시 토큰이 아직 실제
+      // 만료 전이라면 그 토큰으로 폴백한다. 실제 만료 후에만 실패를 전파한다.
+      // (fetchAccessToken은 실패 시 this.cached를 건드리지 않는다.)
+      if (this.cached && nowMs < this.cached.expiresAtMs) {
+        this.logger.warn(
+          `access token 선제 갱신 실패 — 아직 유효한 캐시 토큰으로 폴백해요: ${error instanceof Error ? error.message : String(error)}`
+        );
+        return this.cached.token;
       }
-    });
-    this.pending = pending;
-    return pending;
+      throw error;
+    }
   }
 
   private async fetchAccessToken(nowMs: number): Promise<string> {
