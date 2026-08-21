@@ -6,12 +6,12 @@ import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interc
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { CreateChildDto, UpdateChildDto } from "./dto/child.dto";
 import { PreparedItemsDto } from "./dto/prepared-items.dto";
-import { OnboardingStoreService } from "./onboarding-store.service";
+import { OnboardingCoreService } from "./onboarding-core.service";
 
 @Controller("children")
 @UseGuards(JwtAuthGuard)
 export class ChildrenController {
-  constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
+  constructor(@Inject(OnboardingCoreService) private readonly store: OnboardingCoreService) {}
 
   @Get()
   async list(@Req() request: AuthenticatedRequest) {

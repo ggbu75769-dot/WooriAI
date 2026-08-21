@@ -2,7 +2,7 @@ import { Controller, Get, Inject, Query, Req, UseGuards } from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
-import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { ReportingStoreService } from "../onboarding/reporting-store.service";
 import { HomeQueryDto } from "./dto/query.dto";
 import { ExpensesVersionService } from "./expenses.service";
 
@@ -10,7 +10,7 @@ import { ExpensesVersionService } from "./expenses.service";
 @UseGuards(JwtAuthGuard)
 export class HomeController {
   constructor(
-    @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
+    @Inject(ReportingStoreService) private readonly store: ReportingStoreService,
     @Inject(ExpensesVersionService) private readonly expenses: ExpensesVersionService
   ) {}
 

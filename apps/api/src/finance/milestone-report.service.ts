@@ -12,7 +12,7 @@ import type { MilestoneReportType } from "./dto/milestone-query.dto";
  *   first-birthday:  [birthDate, birthDate + 1 year)
  *
  * If "today" (Seoul; WOORIAI_STAGE_TODAY override honored, same convention as
- * OnboardingStoreService.currentYearMonth) falls before the window's end, only the
+ * onboarding/store-shared.ts currentYearMonth) falls before the window's end, only the
  * elapsed part [birthDate, today] is aggregated and the response carries
  * `partial: true` plus the number of days actually covered (`daysCovered`, birth day
  * counted as day 1). `startDate`/`endDate` always describe the full milestone window
@@ -23,7 +23,7 @@ import type { MilestoneReportType } from "./dto/milestone-query.dto";
  *
  * Follows the ExpensesVersionService precedent of a finance-owned service that does
  * its own Prisma access + household authorization instead of editing
- * onboarding-store.service.ts (owned by concurrent work).
+ * the onboarding store services (owned by concurrent work).
  */
 @Injectable()
 export class MilestoneReportService {
@@ -100,7 +100,7 @@ export class MilestoneReportService {
     };
   }
 
-  /** View-only child access check, mirroring OnboardingStoreService.requireChildAccess. */
+  /** View-only child access check, mirroring ChildAccessService.requireChildAccess. */
   private async requireChildView(user: AuthenticatedUser, childId: string) {
     const child = await this.prisma.child.findUnique({ where: { id: childId } });
     if (!child || child.deletedAt) {

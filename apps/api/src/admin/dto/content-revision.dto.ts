@@ -77,7 +77,7 @@ export class RejectContentRevisionDto {
 
 /**
  * Self-contained payload shape for disclosure revisions. Disclosures are
- * upserted by `key` (see OnboardingStoreService#adminUpdateDisclosure), not by
+ * upserted by `key` (see ItemsCatalogService#adminUpdateDisclosure), not by
  * id, so unlike item_template/product_link the revision payload must carry the
  * key itself to remain a complete, replayable snapshot (needed for rollback and
  * for drafting a brand-new disclosure key that doesn't exist live yet).

@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Put, Req, 
 import { createDtoValidationPipe } from "../bootstrap";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
-import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { ItemsCatalogService } from "../onboarding/items-catalog.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import {
@@ -22,7 +22,7 @@ function actorId(request: AuthenticatedRequest) {
 @UseGuards(AdminAuthGuard)
 export class AdminController {
   constructor(
-    @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
+    @Inject(ItemsCatalogService) private readonly store: ItemsCatalogService,
     @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService,
     @Inject(PrismaService) private readonly prisma: PrismaService
   ) {}
@@ -114,7 +114,7 @@ export class AdminController {
   }
 
   // COM-103: enriches the store's {key, text} rows with each disclosure's
-  // internal id (not exposed by OnboardingStoreService#adminListDisclosures,
+  // internal id (not exposed by ItemsCatalogService#adminListDisclosures,
   // which is off-limits to edit in this task) so the admin web CMS can address
   // an existing disclosure by entityId when drafting a content revision for it
   // -- see content-revisions.service.ts and apps/admin's disclosures page.

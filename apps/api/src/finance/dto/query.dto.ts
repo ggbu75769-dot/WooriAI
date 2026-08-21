@@ -18,7 +18,7 @@ export class YearMonthQueryDto {
  * Exactly one period shape may be used per request -- `yearMonth` (single month),
  * `year` (whole year), or `year`+`quarter` (calendar quarter, 1-4). Cross-field
  * rules (quarter requires year; yearMonth excludes year/quarter) are enforced in
- * OnboardingStoreService.getCategoryReport, since class-validator handles only
+ * ReportingStoreService.getCategoryReport, since class-validator handles only
  * per-field constraints here. No params keeps the all-time breakdown.
  */
 export class CategoryReportQueryDto {

@@ -125,7 +125,7 @@ export class PushDispatchService {
       }
       const expense = await this.prisma.expense.findUnique({ where: { id: expenseId } });
       // 선물/환불은 예산 합계에 포함되지 않으므로 경계도 못 움직인다
-      // (DNC-015, onboarding-store.service.ts sumExpenses와 동일 조건).
+      // (DNC-015, onboarding/expenses-store.service.ts sumExpenses와 동일 조건).
       if (!expense || expense.deletedAt || expense.expenseType !== "expense") {
         return SKIPPED;
       }
@@ -140,7 +140,7 @@ export class PushDispatchService {
 
   /**
    * 예산 관련 지출이 배치로 들어온 뒤의 훅 (리뷰 m-2: CSV 가져오기 커밋 —
-   * onboarding-store.service.ts confirmImport에서 fire-and-forget 호출).
+   * onboarding/import-pipeline.service.ts confirmImport에서 fire-and-forget 호출).
    * 클레임 방식은 usedAfter만 필요하므로 "어느 지출이 넘겼는지"를 몰라도
    * 아이+월 단위로 1회 평가하면 충분하다. 예외를 절대 던지지 않는다.
    *

@@ -5,7 +5,7 @@ import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { HouseholdRuntimeService } from "../households/household-runtime.service";
-import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { OnboardingCoreService } from "../onboarding/onboarding-core.service";
 import { SettingsConfirmationDto } from "./dto/settings.dto";
 
 function assertConfirmation(actual: string, expected: string) {
@@ -21,7 +21,7 @@ function assertConfirmation(actual: string, expected: string) {
 @UseGuards(JwtAuthGuard)
 export class SettingsController {
   constructor(
-    @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
+    @Inject(OnboardingCoreService) private readonly store: OnboardingCoreService,
     @Inject(HouseholdRuntimeService) private readonly households: HouseholdRuntimeService,
     @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService,
     @Inject(RefreshTokenStore) private readonly refreshTokenStore: RefreshTokenStore

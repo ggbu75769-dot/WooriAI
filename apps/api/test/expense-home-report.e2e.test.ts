@@ -8,7 +8,7 @@ import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { TokenService } from "../src/auth/token.service";
 import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
-import { OnboardingStoreService } from "../src/onboarding/onboarding-store.service";
+import { ExpensesStoreService } from "../src/onboarding/expenses-store.service";
 
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -340,7 +340,7 @@ describe("Expense, budget, home, and report API", () => {
       });
 
     const tokenService = moduleRef.get(TokenService);
-    const store = moduleRef.get(OnboardingStoreService) as OnboardingStoreService & {
+    const store = moduleRef.get(ExpensesStoreService) as ExpensesStoreService & {
       createExpense: (
         user: Awaited<ReturnType<TokenService["createDevUser"]>>,
         childId: string,
@@ -506,7 +506,7 @@ describe("Expense, budget, home, and report API", () => {
       .expect(200);
 
     const tokenService = moduleRef.get(TokenService);
-    const store = moduleRef.get(OnboardingStoreService) as OnboardingStoreService & {
+    const store = moduleRef.get(ExpensesStoreService) as ExpensesStoreService & {
       createExpense: (
         user: Awaited<ReturnType<TokenService["createDevUser"]>>,
         childId: string,
@@ -579,7 +579,7 @@ describe("Expense, budget, home, and report API", () => {
     const accessToken = await login(app, `batch-category-report-${randomUUID()}`);
     const { childId } = await completeOnboarding(app, accessToken);
     // Round 4 validates that categoryId references an existing categories row (see
-    // requireExistingCategory in onboarding-store.service.ts), so this needs a real
+    // requireExistingCategory in onboarding/expenses-store.service.ts), so this needs a real
     // seeded id rather than an arbitrary UUID. This is one of the deterministic
     // mobile-category-alias ids seeded in prisma/seed-data.ts (mobileCategoryAliasSeeds),
     // distinct from `categoryId` (the import-stub default id) used elsewhere in this file.

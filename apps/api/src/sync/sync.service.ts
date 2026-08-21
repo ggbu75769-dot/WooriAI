@@ -25,9 +25,9 @@ export type SyncChangesResult = {
  * missed the live delete still converges.
  *
  * Reads Expense rows directly via PrismaService rather than going through
- * OnboardingStoreService -- this module is new and self-contained, and (like
+ * the onboarding store services -- this module is new and self-contained, and (like
  * finance/expenses.service.ts) is deliberately kept out of
- * onboarding/onboarding-store.service.ts, which concurrent work this sprint
+ * onboarding/ store services, which concurrent work this sprint
  * owns.
  */
 @Injectable()

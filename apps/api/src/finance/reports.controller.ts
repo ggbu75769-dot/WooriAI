@@ -2,7 +2,7 @@ import { Controller, Get, Inject, Param, Query, Req, UseGuards } from "@nestjs/c
 import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
-import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { ReportingStoreService } from "../onboarding/reporting-store.service";
 import { CategoryReportQueryDto, YearMonthQueryDto, YearQueryDto } from "./dto/query.dto";
 import { MilestoneReportQueryDto } from "./dto/milestone-query.dto";
 import { MilestoneReportService } from "./milestone-report.service";
@@ -11,7 +11,7 @@ import { MilestoneReportService } from "./milestone-report.service";
 @UseGuards(JwtAuthGuard)
 export class ReportsController {
   constructor(
-    @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
+    @Inject(ReportingStoreService) private readonly store: ReportingStoreService,
     @Inject(MilestoneReportService) private readonly milestoneReports: MilestoneReportService
   ) {}
 

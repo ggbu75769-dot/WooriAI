@@ -6,7 +6,7 @@ import { AppModule } from "../src/app.module";
 import type { AuthenticatedUser } from "../src/common/types/authenticated-request";
 import { DevicesService } from "../src/devices/devices.service";
 import { ExpensesVersionService } from "../src/finance/expenses.service";
-import { OnboardingStoreService } from "../src/onboarding/onboarding-store.service";
+import { ImportPipelineService } from "../src/onboarding/import-pipeline.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import type { FcmSenderService, FcmSendResult, PushNotificationMessage } from "../src/push/fcm-sender.service";
 import type { PushConfigService } from "../src/push/push-config.service";
@@ -444,7 +444,7 @@ describe.skipIf(!dbAvailable)("PushDispatchService (PUSH-113, real Postgres)", (
 
   it("훅 배선: confirmImport(가져오기 커밋)가 완료 후 onBudgetRelevantChange를 아이별 1회 호출한다 (리뷰 m-2)", async () => {
     const fixture = await createFixture();
-    const store = app.get(OnboardingStoreService, { strict: false });
+    const store = app.get(ImportPipelineService, { strict: false });
     const appDispatch = app.get(PushDispatchService, { strict: false });
     const hookSpy = vi.spyOn(appDispatch, "onBudgetRelevantChange");
 
