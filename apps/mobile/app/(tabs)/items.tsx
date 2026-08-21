@@ -12,6 +12,7 @@ import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 import { ItemListPixelStyles } from "../../src/pixelLock/styles";
 import { itemMatchesBand, resolveDefaultStageLabel } from "../../src/items/stage-bands";
+import { computeEssentialPrepProgress } from "../../src/items/prep-progress";
 
 const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 
@@ -122,6 +123,21 @@ export default function ItemsScreen() {
     enabled: Boolean(authToken && childId),
     queryFn: () => listItems(authToken!, childId!, statusTab)
   });
+  // ITEM-114: 시기 준비율 계산용 전 상태 스냅샷. 현재 리스트 쿼리는 선택된 상태 탭 하나만
+  // 조회하므로 준비율(분모=필수 전체, 분자=해결됨)을 계산할 수 없다. 4개 탭을 합치면 gifted를
+  // 제외한 모든 활성 항목이 정확히 한 번씩 모인다(탭들은 상태 기준 서로소 -- 서버
+  // itemsForChild 참고; gifted 한계는 src/items/prep-progress.ts 주석 참고). 쿼리 키가
+  // ["items", ...] 접두어를 공유하므로 상태 변경 뮤테이션의 invalidateQueries(["items"])로
+  // 함께 갱신된다. 픽셀 락 캡처 중에는 화면에 그리지 않으므로 조회도 하지 않는다.
+  const allStatusItems = useQuery({
+    queryKey: ["items", childId, "prep-progress"],
+    enabled: Boolean(authToken && childId) && !isPixelLockMode,
+    queryFn: async () => {
+      const tabs = ["now", "soon", "prepared", "not_needed"] as const;
+      const responses = await Promise.all(tabs.map((tab) => listItems(authToken!, childId!, tab)));
+      return responses.flatMap((response) => response.items);
+    }
+  });
   // Default the selected chip to the child's actual current stage once it's known, unless the
   // pixel-lock capture is running, we're in the loginless test session (fixture data must render
   // deterministically), or the user already tapped a chip. Falls back to "12-24개월" otherwise.
@@ -193,6 +209,12 @@ export default function ItemsScreen() {
     : visibleItems;
   const showEmptyState = hasSession ? stageFilteredItems.length === 0 : false;
   const canUpdateStatus = hasSession;
+  // ITEM-114: 선택된 시기 밴드(기본 칩은 아이의 현재 시기) 기준 필수템 준비율. 필수템이
+  // 0개인 밴드나 스냅샷 로딩 전에는 null이라 요약 줄이 통째로 숨는다.
+  const prepProgress =
+    hasSession && !isPixelLockMode && allStatusItems.data
+      ? computeEssentialPrepProgress(allStatusItems.data, stageLabel)
+      : null;
 
   return (
     <AppScreen>
@@ -244,6 +266,36 @@ export default function ItemsScreen() {
               style={{ bottom: -8, height: 92, position: "absolute", right: 12, width: 74 }}
             />
           </View>
+
+          {/* ITEM-114: 리스트 상단 얇은 준비율 요약 한 줄. 정보는 텍스트가 전달하고 바는
+              보조 시각화다(색만으로 의미 전달 금지). progressbar 롤 + accessibilityValue로
+              스크린 리더에도 동일 정보를 제공한다. DNC-002/003: 탭·리스트 구조는 그대로다. */}
+          {prepProgress ? (
+            <View
+              accessible
+              accessibilityRole="progressbar"
+              accessibilityLabel={`${prepProgress.summaryText}, ${prepProgress.percent}%`}
+              accessibilityValue={{ min: 0, max: 100, now: prepProgress.percent }}
+              style={{ gap: 6 }}
+            >
+              <View style={{ alignItems: "baseline", flexDirection: "row", justifyContent: "space-between" }}>
+                <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>{prepProgress.summaryText}</Text>
+                <Text style={{ color: theme.colors.brown, fontSize: 12, fontWeight: "700", lineHeight: 18 }}>
+                  {prepProgress.percent}%
+                </Text>
+              </View>
+              <View style={{ backgroundColor: theme.colors.peach, borderRadius: theme.radii.pill, height: 6, overflow: "hidden" }}>
+                <View
+                  style={{
+                    backgroundColor: theme.colors.mainCoral,
+                    borderRadius: theme.radii.pill,
+                    height: 6,
+                    width: `${prepProgress.percent}%`
+                  }}
+                />
+              </View>
+            </View>
+          ) : null}
 
           {showEmptyState ? (
             <EmptyStateCard
