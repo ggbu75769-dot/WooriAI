@@ -140,8 +140,8 @@ describe("A11Y-101 accessibility source contract", () => {
 
     const d0ListRowSource = source("src/ui/ListRow.tsx");
     expect(d0ListRowSource).toContain('accessibilityRole="button"');
-    const emptyStateSource = source("src/ui/EmptyState.tsx");
-    expect(emptyStateSource).toContain('accessibilityRole="button"');
+    // MOB-121: src/ui/EmptyState.tsx was removed (dead D0 component) — its CTA-role assertion
+    // went with it; screens use src/ui.tsx's EmptyStateCard, covered above via uiSource.
   });
 });
 

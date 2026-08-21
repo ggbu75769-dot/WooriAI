@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
+import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildExpenseRecordedPayload } from "../../src/analytics/events";
 import { LOCAL_SESSION_TOKEN } from "../../src/api/client";
@@ -49,21 +49,11 @@ function formatExpenseDate(date: Date) {
   return { iso: `${year}-${month}-${day}`, label: `${year}. ${month}. ${day} (${weekday})` };
 }
 
-// Calendar-valid check for a user-typed YYYY-MM-DD string: `new Date(year, month-1, day)` silently
-// rolls invalid days (e.g. 2026-02-31) into the following month, so we re-derive the parts from the
-// constructed Date and require them to match the input exactly.
-function isValidCalendarDate(dateOnly: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
-  if (!match) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(year, month - 1, day);
-  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-}
-
 // Validates a manually-typed expense date: format, calendar validity, then future-date rejection
-// (reusing the same isFutureSeoulDate the server/local-backend enforce so the two never disagree).
+// (reusing the same isValidCalendarDate/isFutureSeoulDate the server/local-backend enforce so the
+// two never disagree). MOB-121: the calendar-valid wording intentionally differs from
+// src/children/child-form.ts ("실제 존재하는 날짜인지 확인해 주세요.") — unifying copy is out of
+// scope here (pixel-lock/test impact), so each screen keeps its existing message.
 function validateExpenseDateInput(dateOnly: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return "YYYY-MM-DD 형식으로 입력해 주세요.";
   if (!isValidCalendarDate(dateOnly)) return "존재하지 않는 날짜예요.";

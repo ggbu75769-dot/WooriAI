@@ -82,27 +82,8 @@ describe("D0 theme tokens", () => {
   });
 });
 
-describe("D0 MoneyText component contract", () => {
-  const source = readSource("src/ui/MoneyText.tsx");
-
-  it("exposes hero|section|row size tiers backed by theme.money", () => {
-    expect(source).toContain('export type MoneyTextSize = "hero" | "section" | "row"');
-    expect(source).toContain("theme.money[size]");
-  });
-
-  it("renders the 원 suffix a step smaller than the number and applies tabular-nums", () => {
-    expect(source).toContain("formatKrwParts");
-    expect(source).toContain("suffixFontSize");
-    expect(source).toContain("tier.fontSize * 0.6");
-    expect(source).toContain('fontVariant: ["tabular-nums"]');
-  });
-
-  it("prefixes income/refund amounts with + and colors them with semantic.success", () => {
-    expect(source).toContain('sign?: "income" | "refund"');
-    expect(source).toContain("theme.colors.semantic.success");
-    expect(source).toContain('sign ? "+" : ""');
-  });
-});
+// MOB-121: the D0 MoneyText contract block was removed along with src/ui/MoneyText.tsx —
+// a dead component no screen adopted; money rendering goes through src/money.ts's formatKrw.
 
 describe("D0 ListRow component contract", () => {
   const source = readSource("src/ui/ListRow.tsx");
@@ -144,17 +125,8 @@ describe("D0/D6 Skeleton component contract", () => {
   });
 });
 
-describe("D6 EmptyState component contract", () => {
-  const source = readSource("src/ui/EmptyState.tsx");
-
-  it("exposes icon/title/description/cta props", () => {
-    expect(source).toContain("icon?: string");
-    expect(source).toContain("title: string");
-    expect(source).toContain("description?: string");
-    expect(source).toContain("ctaLabel?: string");
-    expect(source).toContain("onPressCta?: () => void");
-  });
-});
+// MOB-121: the D6 EmptyState contract block was removed along with src/ui/EmptyState.tsx —
+// a dead component no screen adopted; screens use src/ui.tsx's EmptyStateCard instead.
 
 describe("D0 StageBadge component contract", () => {
   const source = readSource("src/ui/StageBadge.tsx");
