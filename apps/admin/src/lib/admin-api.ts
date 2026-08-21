@@ -173,6 +173,62 @@ export class AdminApiError extends Error {
   }
 }
 
+// ADM-117 timeout hardening: mirrors the mobile client's fetch-timeout
+// precedent (apps/mobile/src/api/client.ts DEFAULT_FETCH_TIMEOUT_MS) -- a
+// plain `fetch` against a hung/unreachable API can sit for 60-90+ seconds (or
+// forever) before the OS gives up, leaving admin pages stuck on their
+// "처리 중..."/"불러오는 중..." state indefinitely. Every request below is
+// bounded so a call that never settles is force-failed into the existing
+// AdminApiError-based error/재시도 UI instead of hanging.
+export const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+
+/** Thrown when fetchWithTimeout's OWN timeout bound fires (never for genuine
+ * network failures -- those keep the "서버에 연결하지 못했어요" mapping below).
+ * Extends AdminApiError (status 0, code "TIMEOUT") so every existing
+ * `error instanceof AdminApiError`/`error.message` display path shows the
+ * Korean timeout guidance without changes. `cause` carries the original abort
+ * rejection (typically a DOMException named "AbortError") for debugging. */
+export class AdminApiTimeoutError extends AdminApiError {
+  constructor(cause: unknown) {
+    super(0, "요청 시간이 초과됐어요(10초). 네트워크 상태를 확인하고 다시 시도해 주세요.", "TIMEOUT");
+    this.name = "AdminApiTimeoutError";
+    this.cause = cause;
+  }
+}
+
+export function isTimeoutError(error: unknown): boolean {
+  return error instanceof AdminApiTimeoutError;
+}
+
+/** Wraps `fetch` with an AbortController-based timeout so a hung connection
+ * always settles (as a rejection) within `timeoutMs`. A rejection caused by
+ * this function's own timeout abort is translated into AdminApiTimeoutError
+ * (callers never pass their own `signal` -- the spread always overrides it, so
+ * the only abort source here is the timer); every other rejection is rethrown
+ * untouched. Same double guard as the mobile client: `timedOut` (our timer
+ * actually fired) AND the abort shape (`name === "AbortError"`), so a genuine
+ * network error landing in the same tick as the timer is never mislabeled. */
+function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  return fetch(input, { ...init, signal: controller.signal })
+    .catch((error: unknown) => {
+      if (timedOut && (error as { name?: unknown } | null)?.name === "AbortError") {
+        throw new AdminApiTimeoutError(error);
+      }
+      throw error;
+    })
+    .finally(() => clearTimeout(timer));
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(init?.headers as Record<string, string> ?? {}) };
@@ -185,8 +241,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl()}${path}`, { ...init, method, credentials: "include", headers });
-  } catch {
+    response = await fetchWithTimeout(`${apiBaseUrl()}${path}`, { ...init, method, credentials: "include", headers });
+  } catch (error) {
+    // The 10s timeout keeps its own typed error (and Korean guidance); every
+    // other rejection stays the generic connection failure, exactly as before.
+    if (error instanceof AdminApiTimeoutError) throw error;
     throw new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.");
   }
 

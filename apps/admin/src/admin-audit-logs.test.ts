@@ -81,4 +81,74 @@ describe("Audit logs page (ADM-113)", () => {
     expect(shell).toContain("감사 로그");
     expect(shell).toContain("item.roles.includes(session.admin.role)");
   });
+
+  it("surfaces the typed fetch timeout as Korean guidance instead of an endless loading state", () => {
+    const source = readSource("app/audit-logs/page.tsx");
+    expect(source).toContain("isTimeoutError");
+    expect(source).toContain("요청 시간이 초과됐어요(10초)");
+  });
+});
+
+// ADM-117: fetch timeout hardening on the shared admin API client -- mirrors
+// the mobile precedent (apps/mobile/src/api/client.ts DEFAULT_FETCH_TIMEOUT_MS
+// + AbortController + typed timeout error). Behavior is unit-tested in
+// src/lib/admin-api.test.ts; this pins the structural contract.
+describe("Admin API client fetch timeout (ADM-117)", () => {
+  it("bounds every request with a 10s AbortController timeout and a typed error", () => {
+    const api = readSource("src/lib/admin-api.ts");
+    expect(api).toContain("DEFAULT_FETCH_TIMEOUT_MS = 10_000");
+    expect(api).toContain("AbortController");
+    expect(api).toContain("AdminApiTimeoutError");
+    expect(api).toContain("fetchWithTimeout");
+    // request()가 맨 fetch 대신 타임아웃 래퍼를 쓴다.
+    expect(api).toContain("response = await fetchWithTimeout(");
+    // 타임아웃 에러는 한국어 안내 메시지를 그대로 실어 나른다.
+    expect(api).toContain("요청 시간이 초과됐어요(10초)");
+    expect(api).toContain("isTimeoutError");
+  });
+});
+
+// ADM-117: 감사로그 CSV 내보내기. 새 API 없이 기존 GET /admin/audit-logs를
+// limit=100으로 페이지 순회해 최대 1,000행을 모아 클라이언트에서 CSV를
+// 만들어 Blob 다운로드한다. 순수 로직(이스케이프/인젝션 중화/상한/파일명)은
+// src/lib/audit-log-csv.test.ts에서 단위 테스트한다.
+describe("Audit logs CSV export (ADM-117)", () => {
+  it("has a CSV export module with escaping, formula-injection neutralization, and the 1,000-row cap", () => {
+    const util = readSource("src/lib/audit-log-csv.ts");
+    expect(util).toContain("AUDIT_LOG_EXPORT_MAX_ROWS = 1000");
+    expect(util).toContain("AUDIT_LOG_EXPORT_PAGE_SIZE = 100");
+    expect(util).toContain("escapeCsvCell");
+    expect(util).toContain("buildAuditLogCsv");
+    expect(util).toContain("collectAuditLogsForExport");
+    // product-link-bulk-csv.util(API)과 동일한 수식 인젝션 방어 정책.
+    expect(util).toContain('DANGEROUS_LEADING_CHARS = new Set(["=", "+", "-", "@", "\\t", "\\r"])');
+    // 파일명 audit-logs-YYYYMMDD.csv.
+    expect(util).toContain("audit-logs-${year}${month}${day}.csv");
+  });
+
+  it("offers a CSV export button that pages the existing list endpoint with the applied filters", () => {
+    const source = readSource("app/audit-logs/page.tsx");
+    expect(source).toContain("CSV 내보내기");
+    expect(source).toContain("collectAuditLogsForExport");
+    expect(source).toContain("buildAuditLogCsv");
+    expect(source).toContain("auditLogCsvFilename");
+    // 현재 적용된 필터를 목록 조회와 공유한다 (내보내기 전용 API 없음).
+    expect(source).toContain("filtersToQuery(appliedFilters)");
+    expect(source).toContain("listAuditLogs({ ...query, ...page })");
+  });
+
+  it("downloads via a client-side Blob and disables the button with progress text while exporting", () => {
+    const source = readSource("app/audit-logs/page.tsx");
+    expect(source).toContain("new Blob(");
+    expect(source).toContain("URL.createObjectURL");
+    expect(source).toContain("URL.revokeObjectURL");
+    expect(source).toContain("disabled={exporting}");
+    expect(source).toContain("내보내는 중...");
+  });
+
+  it("announces the 1,000-row truncation when the server has more rows", () => {
+    const source = readSource("app/audit-logs/page.tsx");
+    expect(source).toContain("truncated");
+    expect(source).toContain("상위 1,000건만 내보냈어요");
+  });
 });
