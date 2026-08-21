@@ -71,6 +71,21 @@ describe("REL-011 업로드 keystore 서명 주입 (config plugin)", () => {
     expect(injected.match(/keyPassword '/g)).toHaveLength(1);
   });
 
+  it("주입은 원자적: injectUploadSigning 단일 호출이 release 서명 블록과 buildType 전환 ternary를 함께 만든다", () => {
+    // 4차 리뷰 F5: 두 주입이 별개 게이트로 갈라지면 "release 블록은 있는데 전환은 안 된"
+    // (또는 그 반대) 반쪽 상태가 가능해진다. 단일 순수 함수가 둘 다 만들어야 한다.
+    const injected = injectUploadSigning(TEMPLATE_GRADLE);
+    const hasReleaseSigningBlock = injected.includes('storeFile file(System.getenv("WOORIAI_UPLOAD_KEYSTORE"))');
+    const hasBuildTypeSwitch = injected.includes(
+      'signingConfig System.getenv("WOORIAI_UPLOAD_KEYSTORE") ? signingConfigs.release : signingConfigs.debug'
+    );
+    expect(hasReleaseSigningBlock).toBe(true);
+    expect(hasBuildTypeSwitch).toBe(true);
+    // 미주입 입력에는 둘 다 없어야 한다 — 한쪽만 존재하는 상태를 만들 경로가 없음을 고정.
+    expect(TEMPLATE_GRADLE).not.toContain("signingConfigs.release");
+    expect(TEMPLATE_GRADLE).not.toContain("System.getenv");
+  });
+
   it("멱등: 이미 주입된 gradle에 다시 적용해도 변화가 없다", () => {
     const once = injectUploadSigning(TEMPLATE_GRADLE);
     expect(injectUploadSigning(once)).toBe(once);
@@ -125,5 +140,36 @@ describe("REL-011 원커맨드 AAB 빌드 스크립트 (scripts/build-android-aa
   it("--check 모드는 gradle만 제외한 전 단계(env 검증→prebuild→주입 검증)를 수행한다", () => {
     expect(buildScript).toContain('process.argv.slice(2).includes("--check")');
     expect(buildScript).toContain("CHECK PASS");
+  });
+});
+
+// 4차 리뷰 후속 계약: 서명 env 격리(F1) + 누출 검사 스코프(F2).
+describe("4차 리뷰: 업로드 서명 env 격리 및 누출 검사 스코프", () => {
+  const aabScript = readFileSync(join(repoRoot, "scripts", "build-android-aab.ts"), "utf8");
+  const apkScript = readFileSync(join(repoRoot, "scripts", "build-android-apk.ts"), "utf8");
+
+  it("F1: build-android-apk.ts는 WOORIAI_UPLOAD_* env를 자식 gradle env에서 제거한다 (APK는 항상 debug 서명)", () => {
+    // AAB 빌드 후 셸에 export가 남아도 standalone/demo APK가 업로드 키로 서명되지 않는다.
+    expect(apkScript).toContain('key.startsWith("WOORIAI_UPLOAD_")');
+    expect(apkScript).toContain("delete inheritedEnv[key]");
+    // gradle에는 정리된 env가 넘어가야 한다 — process.env를 직접 전개하지 않는다.
+    expect(apkScript).toContain("...inheritedEnv,");
+    expect(apkScript).not.toContain("...process.env,");
+    // 제거가 일어났으면 한 줄 알림을 남긴다.
+    expect(apkScript).toContain("debug 서명 유지");
+  });
+
+  it("F2: AAB 누출 검사는 REL-011 주입 블록에만 적용된다 (debug keystore 리터럴 'android' 오탐 방지)", () => {
+    // 파일 전체 대상 includes(secret) 검사는 금지 — 주입 영역만 잘라 검사한다.
+    expect(aabScript).not.toContain("gradle.includes(secret)");
+    expect(aabScript).toContain("injectedText.includes(secret)");
+    expect(aabScript).toContain("collectInjectedRegion");
+    expect(aabScript).toContain('"// REL-011 자동 주입 (plugins/with-wooriai-android-release.js)"');
+    expect(aabScript).toContain('"// REL-011: gradle 실행 시점에 env가 있으면 업로드 keystore 서명"');
+    // 마커가 사라지면 검사가 헛도는 대신 fail-closed로 실패한다.
+    expect(aabScript).toContain("SIGNING_INJECTION_MARKER_MISSING");
+    // 실제 누출은 여전히 즉시 실패 + 오탐 가능성을 안내하는 완화된 문구.
+    expect(aabScript).toContain("SECRET_LEAKED_INTO_GRADLE");
+    expect(aabScript).toContain("누출 또는 흔한 gradle 문자열과의 충돌");
   });
 });

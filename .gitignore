@@ -19,3 +19,7 @@ artifacts/
 
 # QA browser-drive output (screenshots may contain admin MFA secrets/recovery codes) - never commit
 scripts/qa/out/
+
+# release/upload keystore - never commit (generate outside the repo: $HOME/wooriai-release.keystore, launch-72h-plan.md §3.1)
+*.keystore
+*.jks

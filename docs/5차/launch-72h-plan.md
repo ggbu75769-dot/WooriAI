@@ -63,8 +63,8 @@ LINK_HEALTH_ENABLED=1     ← 링크 헬스체크 (실링크 투입 후)
 ### 3.1 앱 정체성
 - [ ] `apps/mobile/app.config.js`: `android.package=<확정 패키지명>`, `version=1.0.0`, `versionCode=1`
 - [ ] 앱 아이콘은 Round 5A에서 준비됨(`apps/mobile/assets`) — 스토어용 512px·피처 그래픽만 추가 제작
-- [ ] **release keystore 생성** 및 2곳 백업 (분실 = 앱 영구 업데이트 불가):
-  `keytool -genkeypair -v -keystore wooriai-release.keystore -alias wooriai -keyalg RSA -keysize 4096 -validity 10000`
+- [ ] **release keystore 생성** 및 2곳 백업 (분실 = 앱 영구 업데이트 불가). **레포 밖**(`$HOME`)에 생성한다 — `*.keystore`/`*.jks`는 gitignore지만 애초에 레포 안에 두지 않는 게 원칙:
+  `keytool -genkeypair -v -keystore $HOME/wooriai-release.keystore -alias wooriai -keyalg RSA -keysize 4096 -validity 10000`
 
 ### 3.2 프로덕션 빌드
 - [ ] `.env`: `EXPO_PUBLIC_API_BASE_URL=https://<도메인>/api/v1`, `EXPO_PUBLIC_KAKAO_ENABLED=1`,
@@ -74,7 +74,7 @@ LINK_HEALTH_ENABLED=1     ← 링크 헬스체크 (실링크 투입 후)
 - [ ] 스토어 제출용은 APK가 아닌 **AAB** — REL-011 원커맨드 파이프라인 (§3.1 keystore만 준비되면 명령 하나):
 
   ```bash
-  WOORIAI_UPLOAD_KEYSTORE=/절대/경로/wooriai-release.keystore \
+  WOORIAI_UPLOAD_KEYSTORE=$HOME/wooriai-release.keystore \
   WOORIAI_UPLOAD_KEYSTORE_PASSWORD=… \
   WOORIAI_UPLOAD_KEY_ALIAS=wooriai \
   WOORIAI_UPLOAD_KEY_PASSWORD=… \
