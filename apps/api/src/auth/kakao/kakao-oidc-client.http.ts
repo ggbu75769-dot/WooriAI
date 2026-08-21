@@ -1,5 +1,5 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
-import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
+import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { requireSecret } from "../../common/config/require-secret";
 import type {
   KakaoCodeExchangeInput,
@@ -16,6 +16,10 @@ function kakaoClientId(): string {
   return requireSecret("OAUTH_KAKAO_CLIENT_ID", "dev-kakao-client-id");
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Real KakaoOidcClient implementation: exchanges an authorization code at
  * kauth's token endpoint over `fetch`, and verifies ID tokens against
@@ -24,6 +28,12 @@ function kakaoClientId(): string {
  */
 @Injectable()
 export class HttpKakaoOidcClient implements KakaoOidcClient {
+  // FIX-KAKAO-DIAG: 실패는 여전히 무차별 401(외부 계약 불변)이지만, 운영 진단을 위해
+  // 원인(카카오 HTTP status·error 코드, JWKS 페치 실패 vs 토큰 검증 실패)을 warn으로
+  // 남긴다. code/token/nonce 등 자격증명 값은 절대 로그에 넣지 않는다 — 오류 코드
+  // 문자열과 jose의 정적 메시지(클레임 이름만 포함, 값 미포함)만.
+  private readonly logger = new Logger(HttpKakaoOidcClient.name);
+
   private jwks?: JWTVerifyGetKey;
 
   private getJwks(): JWTVerifyGetKey {
@@ -58,7 +68,9 @@ export class HttpKakaoOidcClient implements KakaoOidcClient {
         headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8" },
         body: body.toString()
       });
-    } catch {
+    } catch (error) {
+      // 네트워크 계층 실패 — 카카오까지 도달하지 못함(장애/DNS/타임아웃 추정).
+      this.logger.warn(`카카오 코드 교환 실패(네트워크): ${errorMessage(error)}`);
       throw new UnauthorizedException({
         code: "OAUTH_CODE_EXCHANGE_FAILED",
         message: "카카오 인증에 실패했어요. 다시 시도해주세요."
@@ -66,6 +78,20 @@ export class HttpKakaoOidcClient implements KakaoOidcClient {
     }
 
     if (!response.ok) {
+      // 카카오가 거절 — error/error_description(invalid_grant vs invalid_client 등)을
+      // 진단용으로 남긴다. code 값 자체는 로그 금지.
+      const errorBody = (await response.json().catch(() => null)) as {
+        error?: unknown;
+        error_description?: unknown;
+      } | null;
+      const kakaoError = typeof errorBody?.error === "string" ? errorBody.error : "(파싱 불가)";
+      const kakaoDescription =
+        typeof errorBody?.error_description === "string"
+          ? `, error_description="${errorBody.error_description}"`
+          : "";
+      this.logger.warn(
+        `카카오 코드 교환 실패: HTTP ${response.status}, error=${kakaoError}${kakaoDescription}`
+      );
       throw new UnauthorizedException({
         code: "OAUTH_CODE_EXCHANGE_FAILED",
         message: "카카오 인증에 실패했어요. 다시 시도해주세요."
@@ -74,6 +100,9 @@ export class HttpKakaoOidcClient implements KakaoOidcClient {
 
     const json = (await response.json().catch(() => null)) as { id_token?: string } | null;
     if (!json?.id_token) {
+      this.logger.warn(
+        `카카오 코드 교환 실패: HTTP ${response.status} 응답에 id_token 없음(본문 JSON 파싱 ${json ? "성공" : "실패"})`
+      );
       throw new UnauthorizedException({
         code: "OAUTH_CODE_EXCHANGE_FAILED",
         message: "카카오 인증에 실패했어요. 다시 시도해주세요."
@@ -99,11 +128,38 @@ export class HttpKakaoOidcClient implements KakaoOidcClient {
         requiredClaims: ["sub"]
       });
       return payload as KakaoIdTokenClaims;
-    } catch {
+    } catch (error) {
+      // 실패 부류를 구분해 남긴다: JWKS 페치 실패(카카오 장애 추정) vs 토큰 자체
+      // 검증 실패(위조/만료/클레임 불일치 추정). 토큰 원문·클레임 값 로그 금지 —
+      // jose 오류 code와 정적 message(클레임 이름만 포함)만 사용한다.
+      this.logger.warn(`카카오 ID 토큰 검증 실패 — ${describeVerifyFailure(error)}`);
       throw new UnauthorizedException({
         code: "OAUTH_ID_TOKEN_INVALID",
         message: "카카오 인증 정보를 확인할 수 없어요."
       });
     }
   }
+}
+
+/**
+ * jwtVerify 실패를 진단 가능한 부류로 요약한다 (jose v5 기준):
+ * - JWKSTimeout / JWKSInvalid / 기본 JOSEError(ERR_JOSE_GENERIC: 비-200·JSON 파싱
+ *   실패는 jose가 기본 JOSEError로 던짐) → JWKS 페치 실패 (카카오 장애 쪽)
+ * - 그 외 JOSEError(서명·만료·iss/aud/alg·kid 미매칭 등, code로 식별) → 토큰 검증 실패
+ * - jose 밖 오류(소켓 오류 등) → JWKS 네트워크 실패 추정
+ */
+function describeVerifyFailure(error: unknown): string {
+  if (error instanceof joseErrors.JWKSTimeout) {
+    return `JWKS 페치 실패(타임아웃): ${error.code}`;
+  }
+  if (
+    error instanceof joseErrors.JWKSInvalid ||
+    (error instanceof joseErrors.JOSEError && error.code === "ERR_JOSE_GENERIC")
+  ) {
+    return `JWKS 페치 실패: ${error.message}`;
+  }
+  if (error instanceof joseErrors.JOSEError) {
+    return `토큰 검증 실패: ${error.code} (${error.message})`;
+  }
+  return `JWKS 페치 실패(네트워크 추정): ${errorMessage(error)}`;
 }
