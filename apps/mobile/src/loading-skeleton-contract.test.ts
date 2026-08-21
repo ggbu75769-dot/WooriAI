@@ -1,0 +1,42 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+// MOB-119 (UX-5B-5 후속): 로딩 분기의 "가짜 버튼" EmptyStateCard(잠시만요) 잔여 3곳을
+// D6 스켈레톤으로 교체하는 소스 계약. 이 repo의 vitest는 react-native 컴포넌트를 실행할 수
+// 없으므로(ui-pixel-lock-flow.test.ts 참고) 소스 문자열 계약으로 고정한다.
+const mobileRoot = process.cwd();
+
+function readSource(relativePath: string): string {
+  const filePath = join(mobileRoot, relativePath);
+  expect(existsSync(filePath), `${relativePath} should exist`).toBe(true);
+  return readFileSync(filePath, "utf8");
+}
+
+const screens = [
+  { path: "app/family/index.tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"] },
+  { path: "app/items/[itemTemplateId].tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"] },
+  { path: "app/budget.tsx", skeletons: ["<SkeletonCard />"] }
+] as const;
+
+describe("MOB-119 loading skeleton contract", () => {
+  for (const screen of screens) {
+    it(`${screen.path} renders skeletons instead of a fake-button loading card`, () => {
+      const source = readSource(screen.path);
+      // 로딩 상태에서 아무 동작도 없는 "잠시만요" 버튼을 다시 들이지 않는다.
+      expect(source).not.toContain("잠시만요");
+      expect(source).not.toContain('불러오고 있어요."');
+      // 스켈레톤 프리셋을 import해서 실제로 렌더한다.
+      expect(source).toContain('/src/ui/Skeleton"');
+      for (const skeleton of screen.skeletons) {
+        expect(source).toContain(skeleton);
+      }
+    });
+
+    it(`${screen.path} keeps the retry EmptyStateCard on the error branch`, () => {
+      const source = readSource(screen.path);
+      expect(source).toContain('title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."');
+      expect(source).toContain('actionLabel="다시 시도"');
+    });
+  }
+});

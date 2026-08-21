@@ -6,6 +6,7 @@ import { getBudget, LOCAL_SESSION_TOKEN, upsertBudget } from "../src/api/client"
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../src/ui";
+import { SkeletonCard } from "../src/ui/Skeleton";
 import { theme } from "../src/theme";
 
 function toDigits(value: string) {
@@ -55,7 +56,12 @@ export default function BudgetEditScreen() {
         <ScreenHeader eyebrow="예산 관리" title="월 예산 수정" subtitle="필요할 때 언제든 예산을 조정할 수 있어요." />
 
         {budget.isLoading ? (
-          <EmptyStateCard title="불러오고 있어요." actionLabel="잠시만요" />
+          // MOB-119 (UX-5B-5 후속, D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
+          // 현재 예산/새 예산 카드 2장 실루엣으로 본 화면 형태를 따라간다.
+          <>
+            <SkeletonCard />
+            <SkeletonCard />
+          </>
         ) : budget.isError ? (
           <EmptyStateCard
             title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
