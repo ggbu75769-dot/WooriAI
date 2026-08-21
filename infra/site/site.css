@@ -1,0 +1,272 @@
+/* 우리아이 지원 사이트 공통 스타일 (SITE-113)
+   - 순수 CSS, 외부 리소스 없음, 시스템 폰트 스택
+   - 브랜드 팔레트: Primary #FF8A7A / Background #FFF8F1 (DNC-017)
+   - 본문 텍스트는 대비 확보를 위해 다크 브라운 계열 사용 */
+
+:root {
+  --brand: #FF8A7A;          /* 코랄 — 강조 배경·보더 전용 (텍스트에는 쓰지 않음) */
+  --brand-deep: #b8503f;     /* 코랄 다크 — 링크·강조 텍스트 (크림 배경 대비 4.5:1 이상) */
+  --bg: #FFF8F1;             /* 크림 배경 */
+  --surface: #ffffff;
+  --line: #e5d9cc;
+  --text: #3d3229;
+  --heading: #4a3f35;
+  --muted: #7a6f63;
+  --badge-bg: #fdeee6;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.7;
+  font-size: 16px;
+  word-break: keep-all;
+}
+
+a { color: var(--brand-deep); }
+a:hover, a:focus { text-decoration-thickness: 2px; }
+
+/* ---------- 헤더 / 내비게이션 ---------- */
+
+.site-header {
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.site-header .inner {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 14px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--heading);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand .dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--brand);
+  flex: none;
+}
+
+.site-nav { margin-left: auto; }
+
+.site-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 4px;
+}
+
+.site-nav a {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--heading);
+  font-size: 0.95rem;
+}
+
+.site-nav a:hover, .site-nav a:focus { background: var(--badge-bg); }
+
+.site-nav a[aria-current="page"] {
+  background: var(--badge-bg);
+  color: var(--brand-deep);
+  font-weight: 700;
+}
+
+/* ---------- 본문 공통 ---------- */
+
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 20px 64px;
+}
+
+h1 { font-size: 1.7rem; line-height: 1.35; color: var(--heading); margin: 0 0 0.5em; }
+h2 { font-size: 1.25rem; color: var(--heading); margin-top: 2em; }
+h3 { font-size: 1.05rem; color: var(--heading); }
+
+.lead { font-size: 1.05rem; color: var(--text); max-width: 40em; }
+.muted { color: var(--muted); font-size: 0.88rem; }
+
+.tag {
+  display: inline-block;
+  background: var(--badge-bg);
+  color: var(--brand-deep);
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+/* ---------- 랜딩 히어로 ---------- */
+
+.hero {
+  padding: 28px 0 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+
+.hero .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0 8px;
+}
+
+.btn {
+  display: inline-block;
+  padding: 12px 22px;
+  border-radius: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  border: 2px solid var(--brand);
+}
+
+.btn-primary {
+  background: var(--brand);
+  color: #47160e; /* 코랄 위 다크 텍스트 — 대비 확보 */
+}
+
+.btn-primary[aria-disabled="true"] { cursor: default; }
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--brand-deep);
+}
+
+.coming-soon {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+/* ---------- 기능 카드 ---------- */
+
+.features {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+@media (min-width: 640px) {
+  .features { grid-template-columns: 1fr 1fr; }
+}
+
+.features > li {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.features h3 { margin: 0 0 6px; }
+.features p { margin: 0; font-size: 0.95rem; }
+
+/* ---------- 안내 카드 / 노트 ---------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 22px;
+  margin: 16px 0;
+}
+
+.note {
+  background: var(--badge-bg);
+  border: 1px solid var(--brand);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 0.92rem;
+  margin: 16px 0;
+}
+
+/* ---------- FAQ ---------- */
+
+.faq-list { margin-top: 8px; }
+
+.faq-list details {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin: 10px 0;
+  padding: 0 18px;
+}
+
+.faq-list summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--heading);
+  padding: 14px 0;
+  list-style-position: inside;
+}
+
+.faq-list summary:hover { color: var(--brand-deep); }
+
+.faq-list .answer { padding: 0 0 16px; border-top: 1px dashed var(--line); }
+.faq-list .answer p:first-child { margin-top: 12px; }
+
+/* ---------- 표 ---------- */
+
+.tbl-scroll { overflow-x: auto; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 12px 0; }
+th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--badge-bg); color: var(--heading); }
+
+/* ---------- 절차 목록 ---------- */
+
+ol.steps { padding-left: 1.4em; }
+ol.steps li { margin: 6px 0; }
+
+/* ---------- 푸터 ---------- */
+
+.site-footer {
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.site-footer .inner {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.site-footer nav ul {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+
+.site-footer a { color: var(--brand-deep); }

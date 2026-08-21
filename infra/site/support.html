@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<!-- SITE-113: 우리아이 정적 지원 사이트 — 지원(문의) 페이지.
+     Play Console '지원 URL'로 사용. [지원 이메일] 등 placeholder는 출시 전 교체(infra/legal과 동일 규칙). -->
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="우리아이 앱 지원 — 문의 방법과 계정·데이터 삭제 절차 안내" />
+<title>지원 — 우리아이</title>
+<link rel="stylesheet" href="./site.css" />
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <a class="brand" href="./index.html"><span class="dot" aria-hidden="true"></span>우리아이</a>
+    <nav class="site-nav" aria-label="주 메뉴">
+      <ul>
+        <li><a href="./index.html">소개</a></li>
+        <li><a href="./faq.html">자주 묻는 질문</a></li>
+        <li><a href="./support.html" aria-current="page">지원</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<h1>지원</h1>
+<p class="lead">우리아이 앱 사용 중 궁금한 점이나 문제가 있으면 아래 방법으로 알려주세요.</p>
+
+<section aria-labelledby="contact">
+  <h2 id="contact">문의하기</h2>
+  <div class="card">
+    <p>이메일: <strong>[지원 이메일]</strong></p>
+    <p>문의 시 아래 내용을 함께 적어주시면 더 빠르게 도와드릴 수 있어요.</p>
+    <ul>
+      <li>사용 중인 기기와 OS 버전 (예: Galaxy S24, Android 15)</li>
+      <li>앱 버전 (앱 &gt; 더보기 &gt; 설정에서 확인)</li>
+      <li>문제가 발생한 화면과 상황 (가능하면 스크린샷 — 개인정보는 가려주세요)</li>
+    </ul>
+    <p class="muted">접수 후 순차적으로 답변드려요. 문의 전에
+    <a href="./faq.html">자주 묻는 질문</a>도 확인해 보세요.</p>
+  </div>
+</section>
+
+<section aria-labelledby="deletion">
+  <h2 id="deletion">계정·데이터 삭제</h2>
+  <p>우리아이는 앱 안에서 직접 계정과 데이터를 삭제할 수 있어요. 별도의 문의나 대기
+  없이 즉시 처리돼요.</p>
+  <div class="card">
+    <h3>앱에서 계정 삭제하기</h3>
+    <ol class="steps">
+      <li>우리아이 앱 실행 → 하단 <strong>더보기</strong> 탭</li>
+      <li><strong>설정</strong> → <strong>개인정보 관리</strong></li>
+      <li><strong>계정 삭제</strong> 선택 — 삭제될 데이터(아이 프로필, 지출 기록 등)를 먼저 보여드려요</li>
+      <li>안내 문구를 입력해 확인하면 삭제가 완료돼요</li>
+    </ol>
+    <p>삭제 요청 즉시 모든 접근이 차단되고, 삭제 처리된 데이터는 30일이 지나면 서버
+    저장매체에서 완전히 파기돼요. 아이 프로필만 삭제하거나 가족 공유(가구)에서만
+    탈퇴하는 것도 같은 화면에서 할 수 있어요.</p>
+    <p class="muted">앱에 접근할 수 없는 경우의 삭제 요청 방법을 포함한 자세한 절차는
+    <a href="./account-deletion.html">계정 삭제 안내</a> 페이지를 확인하세요.</p>
+  </div>
+</section>
+
+<section aria-labelledby="legal">
+  <h2 id="legal">약관 및 정책</h2>
+  <ul>
+    <li><a href="./privacy-policy.html">개인정보처리방침</a> — 수집 항목, 이용 목적, 보유 기간과 파기 기준</li>
+    <li><a href="./terms-of-service.html">이용약관</a> — 서비스 이용 조건과 운영자·이용자의 권리와 의무</li>
+    <li><a href="./account-deletion.html">계정 삭제 안내</a> — 계정·데이터 삭제 절차</li>
+  </ul>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="inner">
+    <nav aria-label="법적 문서">
+      <ul>
+        <li><a href="./privacy-policy.html">개인정보처리방침</a></li>
+        <li><a href="./terms-of-service.html">이용약관</a></li>
+        <li><a href="./account-deletion.html">계정 삭제 안내</a></li>
+        <li><a href="./support.html">문의하기</a></li>
+      </ul>
+    </nav>
+    <p>운영자: [운영 주체명] · 문의: [지원 이메일]</p>
+  </div>
+</footer>
+
+</body>
+</html>
