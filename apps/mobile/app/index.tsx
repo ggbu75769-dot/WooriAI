@@ -212,10 +212,20 @@ export default function IndexScreen() {
   }
 
   if (!isTestSession && !hasReachedHome) {
-    if (progressFetch === "loading") {
+    // FIX-118A (m-9): "idle" must hold the redirect just like "loading" does. The server
+    // progress check above runs in an effect, i.e. only AFTER this render commits — so on any
+    // render where `hasReachedHome` has just become false (a cold start, or MOB-116's no-child
+    // recovery calling resetOnboarding) `progressFetch` is still "idle" here. Falling through
+    // then renders <Redirect href="/onboarding/child-status">, whose navigation effect fires
+    // before the fetch ever starts: ONB-006 이어하기 is skipped and the user is dropped back at
+    // the first onboarding step even though the server has resume-worthy progress.
+    // Holding on "idle" is deadlock-free: this branch's conditions are exactly the ones that
+    // make the progress effect run, so it always moves to "loading" on the very next commit,
+    // and the 3s valve above bounds "loading".
+    if (progressFetch !== "done") {
       return null;
     }
-    if (progressFetch === "done" && hasResumeTarget) {
+    if (hasResumeTarget) {
       return <Redirect href="/onboarding/resume" />;
     }
   }

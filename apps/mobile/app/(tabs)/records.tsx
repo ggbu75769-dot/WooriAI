@@ -193,7 +193,21 @@ export default function RecordsScreen() {
   // EXP-005: not-yet-synced local expenses for this child, so a record created/edited while
   // offline shows up immediately even though the server hasn't confirmed it yet.
   const syncSnapshot = useOfflineSyncSnapshot();
-  const unsyncedCount = syncSnapshot.counts.pending + syncSnapshot.counts.syncing + syncSnapshot.counts.failed + syncSnapshot.counts.conflict;
+  // FIX-118A (m-11): the snapshot's `counts` span EVERY child on this device, but this screen
+  // only ever shows the selected child's records (see the childId filter used for the list rows
+  // just below). Using the global counts made the badge claim "대기 3" while the list showed a
+  // single pending row -- tapping through to 동기화 상태 then listed another child's records.
+  // Recomputed here over the same childId filter so the badge and the rows always agree.
+  const childSyncCounts = useMemo(() => {
+    const counts = { pending: 0, syncing: 0, failed: 0, conflict: 0 };
+    if (!childId) return counts;
+    for (const row of syncSnapshot.rows) {
+      if (row.childId !== childId || row.syncState === "synced") continue;
+      counts[row.syncState] += 1;
+    }
+    return counts;
+  }, [syncSnapshot.rows, childId]);
+  const unsyncedCount = childSyncCounts.pending + childSyncCounts.syncing + childSyncCounts.failed + childSyncCounts.conflict;
 
   // H-2 fix: reconcile the server's listExpenses response with any not-yet-synced local rows for
   // this month -- an edited/deleted *existing* server expense would otherwise show up twice (the
@@ -253,16 +267,16 @@ export default function RecordsScreen() {
 
       {unsyncedCount > 0 ? (
         <Pressable
-          accessibilityLabel={syncStatusChipAccessibilityLabel(syncSnapshot.counts)}
+          accessibilityLabel={syncStatusChipAccessibilityLabel(childSyncCounts)}
           accessibilityRole="button"
           onPress={() => router.push("/sync-status")}
           style={{ alignItems: "center", flexDirection: "row", gap: 8 }}
         >
-          {syncSnapshot.counts.pending + syncSnapshot.counts.syncing > 0 ? (
-            <StatusBadge label={`대기 ${syncSnapshot.counts.pending + syncSnapshot.counts.syncing}`} tone="neutral" />
+          {childSyncCounts.pending + childSyncCounts.syncing > 0 ? (
+            <StatusBadge label={`대기 ${childSyncCounts.pending + childSyncCounts.syncing}`} tone="neutral" />
           ) : null}
-          {syncSnapshot.counts.failed > 0 ? <StatusBadge label={`실패 ${syncSnapshot.counts.failed}`} tone="warning" /> : null}
-          {syncSnapshot.counts.conflict > 0 ? <StatusBadge label={`충돌 ${syncSnapshot.counts.conflict}`} tone="warning" /> : null}
+          {childSyncCounts.failed > 0 ? <StatusBadge label={`실패 ${childSyncCounts.failed}`} tone="warning" /> : null}
+          {childSyncCounts.conflict > 0 ? <StatusBadge label={`충돌 ${childSyncCounts.conflict}`} tone="warning" /> : null}
         </Pressable>
       ) : null}
 

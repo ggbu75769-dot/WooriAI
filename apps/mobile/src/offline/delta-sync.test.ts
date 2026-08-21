@@ -261,7 +261,9 @@ describe("delta-sync: session teardown invalidation", () => {
     // account changes. PRIV-104 moved the policy out of the controller into session-teardown.ts.
     expect(controllerSource).toContain("useSessionStore.subscribe");
     expect(controllerSource).toContain("isSessionIdentityChange(previous, state)");
-    expect(controllerSource).toContain("teardownOfflineSessionState(store)");
+    // FIX-118A added the outgoing session's token as a second argument (best-effort push-device
+    // deactivation); the cursor-clearing contract this test pins is unchanged.
+    expect(controllerSource).toContain("teardownOfflineSessionState(store, { authToken: outgoingToken })");
 
     // The pull resumes via the persisted-cursor pipeline, scoped by userId, not a bare one-shot.
     expect(controllerSource).toContain("runDeltaPull(");

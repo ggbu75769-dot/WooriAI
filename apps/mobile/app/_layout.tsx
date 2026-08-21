@@ -5,6 +5,7 @@ import { PurchaseFollowupLifecycle } from "../src/commerce/PurchaseFollowupPromp
 import { ErrorBoundary } from "../src/errors/ErrorBoundary";
 import { useOfflineSyncLifecycle } from "../src/offline/sync-controller";
 import { installAppQueryRefetchWiring } from "../src/query/install-app-refetch";
+import { registerAppQueryClient } from "../src/query/query-client-registry";
 import { useSessionStore } from "../src/stores/session.store";
 
 // MOB-117: react-query의 기본 focus/online 리스너는 웹 전용(window focus/online 이벤트)이라
@@ -27,6 +28,12 @@ const queryClient = new QueryClient({
     }
   }
 });
+
+// FIX-118A (M-3): 사용자 스코프 쿼리 키(["children"], ["my-devices"] 등)에는 사용자 식별자가
+// 없어서, 로그아웃/계정 전환 teardown이 zustand·SQLite만 지우면 위 staleTime(30초) 동안 이전
+// 계정의 응답이 그대로 렌더된다. 레지스트리에 등록해 두면 session-teardown.ts가 순환 import
+// 없이 이 클라이언트의 캐시를 비울 수 있다(등록 전이면 no-op).
+registerAppQueryClient(queryClient);
 
 /**
  * MOB-102 (round5a-sprint1-plan.md §3.2 point 4): mounted once at the app root so the offline

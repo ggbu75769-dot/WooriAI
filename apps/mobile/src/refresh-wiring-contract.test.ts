@@ -17,14 +17,21 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
     expect(layoutSource).not.toMatch(/refetchInterval\s*:/);
   });
 
-  it("the native glue wires react-query's focusManager to AppState and onlineManager to the offline connectivity check", () => {
+  it("the native glue wires react-query's focusManager to AppState -- and, since FIX-118A, nothing else", () => {
     const glueSource = source("src/query/install-app-refetch.ts");
-    expect(glueSource).toContain('import { focusManager, onlineManager } from "@tanstack/react-query";');
-    expect(glueSource).toContain('import { isCurrentlyOnline } from "../offline/connectivity";');
-    expect(glueSource).toContain("wireFocusManagerToAppState(focusManager, AppState)");
-    expect(glueSource).toContain("wireOnlineManagerToConnectivity(onlineManager, isCurrentlyOnline)");
+    expect(glueSource).toContain('import { focusManager } from "@tanstack/react-query";');
+    expect(glueSource).toContain("wireFocusManagerToAppState(focusManager, sharedAppState)");
+    // FIX-118A: onlineManager 배선은 제거됐다(오프라인 paused -> 무한 스피너/백지). 근거는
+    // src/query/app-refetch.ts 헤더 + app-refetch.test.ts의 회귀 스캔(주석 제외 코드 기준).
+    expect(glueSource).not.toContain("wireOnlineManagerToConnectivity(");
     // 웹(픽셀락 미리보기)은 react-query 기본 리스너가 이미 동작하므로 교체하지 않는다.
     expect(glueSource).toContain('if (Platform.OS === "web") return;');
+  });
+
+  it("pull-to-refresh has a safety valve so a never-settling refresh cannot spin forever (FIX-118A)", () => {
+    const hookSource = source("src/query/use-pull-to-refresh.ts");
+    expect(hookSource).toContain("PULL_TO_REFRESH_TIMEOUT_MS = 10_000");
+    expect(hookSource).toContain("setTimeout(stopSpinner, PULL_TO_REFRESH_TIMEOUT_MS)");
   });
 
   it("adds session-gated pull-to-refresh with the brand tint on home, records, reports, and items", () => {

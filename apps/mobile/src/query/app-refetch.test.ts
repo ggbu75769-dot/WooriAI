@@ -1,21 +1,19 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   isForegroundAppState,
-  ONLINE_POLL_INTERVAL_MS,
   wireFocusManagerToAppState,
-  wireOnlineManagerToConnectivity,
   type AppStateLike,
   type AppStateSubscriptionLike,
-  type FocusManagerLike,
-  type IntervalScheduler,
-  type OnlineManagerLike
+  type FocusManagerLike
 } from "./app-refetch";
 
 /**
- * MOB-117: 포커스/온라인 연결 코어의 단위 테스트. 네이티브 AppState/expo-network는 vitest
- * node 환경에서 import 불가라 전부 주입식 페이크로 검증한다(sync-engine.test.ts 관례).
- * 실물(@tanstack/react-query focusManager/onlineManager·react-native AppState)과의 타입
- * 호환은 install-app-refetch.ts를 통해 tsc --noEmit이 검증한다.
+ * MOB-117: 포커스 연결 코어의 단위 테스트. 네이티브 AppState는 vitest node 환경에서 import
+ * 불가라 전부 주입식 페이크로 검증한다(sync-engine.test.ts 관례). 실물
+ * (@tanstack/react-query focusManager · react-native AppState)과의 타입 호환은
+ * install-app-refetch.ts를 통해 tsc --noEmit이 검증한다.
  */
 
 type FakeFocusManager = FocusManagerLike & {
@@ -84,85 +82,46 @@ describe("wireFocusManagerToAppState", () => {
   });
 });
 
-type FakeOnlineHarness = {
-  onlineCalls: boolean[];
-  cleanup: (() => void) | undefined;
-  tick: () => Promise<void>;
-  intervalMs: number | null;
-  cleared: boolean;
-  setNextOnline: (value: boolean) => void;
-};
+/**
+ * FIX-118A (M-1/M-2/m-10 regression): react-query pauses queries while onlineManager reports
+ * offline, and a paused query is neither isLoading nor isError -- every screen in this app treats
+ * that third state as "still loading" (permanent skeleton / blank) and pull-to-refresh's
+ * invalidateQueries never resolves (permanent spinner). React Native's default is always-online,
+ * which is exactly what the screens are written against, so nothing in this app may ever install
+ * an onlineManager event listener. Pinned as source scans because the offending code is precisely
+ * what must NOT exist.
+ */
+describe("no onlineManager wiring anywhere in the app (FIX-118A)", () => {
+  const mobileRoot = process.cwd();
+  /** Comments stripped: these assertions are about what the CODE does, and the modules in
+   * question deliberately explain the removed wiring by name in their doc comments. */
+  const code = (relativePath: string) =>
+    readFileSync(join(mobileRoot, relativePath), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
 
-function createFakeOnlineWiring(initialOnline: boolean): FakeOnlineHarness {
-  let pollHandler: (() => void) | null = null;
-  let nextOnline = initialOnline;
-  const harness: FakeOnlineHarness = {
-    onlineCalls: [],
-    cleanup: undefined,
-    intervalMs: null,
-    cleared: false,
-    setNextOnline: (value) => {
-      nextOnline = value;
-    },
-    tick: async () => {
-      pollHandler?.();
-      // checkOnline().then(...) 마이크로태스크가 소진될 때까지 대기.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-  };
-  const manager: OnlineManagerLike = {
-    setEventListener(setup) {
-      harness.cleanup = setup((online) => harness.onlineCalls.push(online)) ?? undefined;
-    }
-  };
-  const scheduler: IntervalScheduler = {
-    setInterval: (handler, ms) => {
-      pollHandler = handler;
-      harness.intervalMs = ms;
-      return "timer-handle";
-    },
-    clearInterval: (handle) => {
-      expect(handle).toBe("timer-handle");
-      pollHandler = null;
-      harness.cleared = true;
-    }
-  };
-  wireOnlineManagerToConnectivity(manager, () => Promise.resolve(nextOnline), scheduler);
-  return harness;
-}
-
-describe("wireOnlineManagerToConnectivity", () => {
-  it("polls at the connectivity precedent interval (15s) instead of a tighter battery-hungry one", async () => {
-    const harness = createFakeOnlineWiring(true);
-    expect(harness.intervalMs).toBe(ONLINE_POLL_INTERVAL_MS);
-    expect(ONLINE_POLL_INTERVAL_MS).toBe(15_000);
+  it("the core module exposes no online-manager wiring or connectivity poller", () => {
+    const coreSource = code("src/query/app-refetch.ts");
+    expect(coreSource).not.toContain("OnlineManagerLike");
+    expect(coreSource).not.toContain("wireOnlineManagerToConnectivity");
+    expect(coreSource).not.toContain("setInterval");
   });
 
-  it("notifies only on state changes -- steady online never calls setOnline (no notify churn)", async () => {
-    const harness = createFakeOnlineWiring(true);
-    await harness.tick();
-    await harness.tick();
-    // 구현은 "직전 관측과 달라진 틱"에서만 setOnline을 호출한다: 첫 틱은 미관측(null)->true
-    // 전환이라 한 번 호출되고, 이후 같은 값이 유지되는 동안은 다시 호출하지 않는다.
-    expect(harness.onlineCalls).toEqual([true]);
+  it("the native glue installs the focus wiring only, and never imports onlineManager", () => {
+    const glueSource = code("src/query/install-app-refetch.ts");
+    expect(glueSource).toContain("wireFocusManagerToAppState(focusManager, sharedAppState)");
+    expect(glueSource).not.toContain("onlineManager");
+    // 포커스 신호도 connectivity.ts의 단일 AppState 구독에 얹어 네이티브 리스너 중복을 없앤다.
+    expect(glueSource).toContain('import { subscribeAppStateChange } from "../offline/connectivity";');
+    expect(glueSource).not.toContain("AppState.addEventListener");
   });
 
-  it("reports offline->online recovery so react-query can refetch paused/stale queries", async () => {
-    const harness = createFakeOnlineWiring(false);
-    await harness.tick(); // null -> false
-    harness.setNextOnline(true);
-    await harness.tick(); // false -> true (복구)
-    harness.setNextOnline(true);
-    await harness.tick(); // 변화 없음
-    expect(harness.onlineCalls).toEqual([false, true]);
-  });
-
-  it("cleanup clears the poll interval", async () => {
-    const harness = createFakeOnlineWiring(true);
-    expect(harness.cleanup).toBeTypeOf("function");
-    harness.cleanup?.();
-    expect(harness.cleared).toBe(true);
-    await harness.tick();
-    expect(harness.onlineCalls).toEqual([]);
+  it("connectivity.ts keeps its 15s poll for the outbox flush only (never fed to react-query)", () => {
+    const connectivitySource = code("src/offline/connectivity.ts");
+    expect(connectivitySource).toContain("export function subscribeAppStateChange");
+    expect(connectivitySource).not.toContain("onlineManager");
+    expect(connectivitySource).not.toContain("@tanstack/react-query");
+    // 단일 네이티브 구독: AppState.addEventListener 호출 지점은 subscribeAppStateChange 하나뿐.
+    expect(connectivitySource.split("AppState.addEventListener")).toHaveLength(2);
   });
 });

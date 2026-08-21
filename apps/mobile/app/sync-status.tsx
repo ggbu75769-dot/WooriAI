@@ -123,7 +123,7 @@ function ConflictRow({ row, token, queryClient }: { row: LocalExpenseRow; token:
     return (
       <SyncRow row={row}>
         {/* A11Y-117: 12px 배너 -- coral[500]은 흰 카드 위 3.16:1(AA 미달), coral[700]은 5.56:1 */}
-      <Text style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}>{CONFLICT_BANNER_MESSAGE}</Text>
+        <Text style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}>{CONFLICT_BANNER_MESSAGE}</Text>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>다른 기기에서 이 기록을 삭제했어요.</Text>
         <View style={{ flexDirection: "row", gap: 8 }}>
           <SecondaryButton
