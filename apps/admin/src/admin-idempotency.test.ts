@@ -14,6 +14,7 @@ import {
   isIdempotentTimeoutError,
   isRetryUnsafeTimeoutError,
   newIdempotencyKey,
+  rollbackContentRevision,
   updateAdminUser
 } from "./lib/admin-api";
 
@@ -149,11 +150,14 @@ describe("admin API 클라이언트의 Idempotency-Key 전송 (R19-F)", () => {
     await createItemTemplate({ name: "템플릿" }, "items-key");
     await createProductLink({ title: "링크" }, "links-key");
     await approvePublishContentRevision("rev-1", "approve-key");
+    await rollbackContentRevision("rev-0", "rollback-key");
 
     expect(headersOfCall(0)["Idempotency-Key"]).toBe("users-key");
     expect(headersOfCall(1)["Idempotency-Key"]).toBe("items-key");
     expect(headersOfCall(2)["Idempotency-Key"]).toBe("links-key");
     expect(headersOfCall(3)["Idempotency-Key"]).toBe("approve-key");
+    // R20-D
+    expect(headersOfCall(4)["Idempotency-Key"]).toBe("rollback-key");
   });
 
   it("서버 멱등키가 없는 쓰기(PATCH 수정류)는 키를 받지 않으므로 헤더도 없다", async () => {
@@ -274,6 +278,9 @@ describe("호출부가 시도 세션당 키를 유지한다 (R19-F)", () => {
     const reviews = readSource("app/reviews/page.tsx");
     expect(reviews).toContain("approvePublishContentRevision(detail.id, approveKey.current(detail.id))");
     expect(reviews.match(/approveKey\.rotate\(\)/g)).toHaveLength(1);
+    // R20-D: 롤백도 같은 홀더 패턴 — 지문은 롤백 대상 리비전 id.
+    expect(reviews).toContain("rollbackContentRevision(revisionId, rollbackKey.current(revisionId))");
+    expect(reviews.match(/rollbackKey\.rotate\(\)/g)).toHaveLength(1);
   });
 });
 
@@ -303,8 +310,24 @@ describe("서버 쪽 인터셉터 부착 (R19-F)", () => {
     const admin = readApiSource("src/admin/admin.controller.ts");
     expect(admin.match(/@UseInterceptors\(IdempotencyInterceptor\)/g)).toHaveLength(2);
 
+    // R20-D: approve-publish + rollback 두 곳. 나머지 상태 전이 POST
+    // (submit/reject/schedule)는 CAS만으로 재시도 안전이라 일부러 비워 둔다 —
+    // 과잉 부착 회귀를 이 개수로 막는다.
     const revisions = readApiSource("src/admin/content-revisions.controller.ts");
-    expect(revisions.match(/@UseInterceptors\(IdempotencyInterceptor\)/g)).toHaveLength(1);
+    expect(revisions.match(/@UseInterceptors\(IdempotencyInterceptor\)/g)).toHaveLength(2);
+  });
+
+  it("R20-D: 잔여 상태 전이 POST 중 rollback에만 붙고 submit/reject/schedule은 CAS로 남는다", () => {
+    const revisions = readApiSource("src/admin/content-revisions.controller.ts");
+    // 부착 지점은 rollback 핸들러 바로 위여야 한다.
+    expect(revisions).toMatch(
+      /@UseInterceptors\(IdempotencyInterceptor\)\s*\n\s*async rollback\(/
+    );
+    // 비부착 라우트에는 판단 근거(왜 안 붙였는지)가 주석으로 남아 있어야 한다.
+    for (const handler of ["submit", "reject", "schedule"]) {
+      const body = revisions.slice(0, revisions.indexOf(`async ${handler}(`));
+      expect(body, `${handler}는 비부착 근거 주석을 가져야 한다`).toContain("멱등키 **비부착**");
+    }
   });
 
   it("인터셉터는 admin 세션(request.adminUser)을 스코프로 인정한다", () => {

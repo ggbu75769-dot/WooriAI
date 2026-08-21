@@ -289,6 +289,95 @@ describe.skipIf(!dbAvailable)("Admin 쓰기 멱등키 (R19-F, real Postgres)", (
     expect(await prisma.adminUser.count({ where: { email } })).toBe(1);
   });
 
+  /**
+   * R20-D: 잔여 상태 전이 POST 중 rollback만 멱등키를 받는다.
+   *
+   * 롤백 대상은 이미 `published`이고 롤백이 그 상태를 바꾸지 않으므로, 다른 상태
+   * 전이(submit/reject/schedule)를 지켜 주는 상태 조건(CAS)이 여기서는 아무것도
+   * 막지 못한다 — 호출할 때마다 revisionNo가 늘어난 **새 리비전 행**이 생기고
+   * 라이브 콘텐츠에 다시 쓴다. 그게 인터셉터를 붙인 이유다.
+   */
+  async function seedPublishedRevision(authorAdminId: string, name: string): Promise<{ id: string; entityId: string }> {
+    // 롤백 테스트는 리비전 번호를 소비하므로 테스트마다 전용 템플릿을 쓴다
+    // (bulk-apply 테스트가 공유하는 templateCode/linkId와 섞이지 않게).
+    const code = `idem-rollback-${randomUUID().slice(0, 8)}`;
+    const template = await prisma.itemTemplate.create({
+      data: {
+        code,
+        name: `롤백 멱등 테스트템 ${code}`,
+        necessityLevel: "essential",
+        reasonText: "R20-D rollback idempotency e2e."
+      }
+    });
+    const now = new Date();
+    const created = await prisma.contentRevision.create({
+      data: {
+        entityType: "item_template",
+        entityId: template.id,
+        // 갓 만든 엔티티라 1번이 비어 있다.
+        revisionNo: 1,
+        payload: { name, necessityLevel: "essential", reasonText: "R20-D rollback idempotency e2e." },
+        status: "published",
+        authorAdminId,
+        reviewerAdminId: authorAdminId,
+        submittedAt: now,
+        reviewedAt: now,
+        publishedAt: now
+      }
+    });
+    return { id: created.id, entityId: template.id };
+  }
+
+  function rollback(
+    session: { cookie: string; csrfToken: string },
+    revisionId: string,
+    idempotencyKey?: string
+  ): request.Test {
+    const req = request(app.getHttpServer())
+      .post(`/api/v1/admin/content-revisions/${revisionId}/rollback`)
+      .set("Cookie", session.cookie)
+      .set("X-CSRF-Token", session.csrfToken);
+    if (idempotencyKey) req.set("Idempotency-Key", idempotencyKey);
+    return req.send();
+  }
+
+  it("rollback: 같은 키 재시도는 새 리비전을 두 번 만들지 않고 첫 응답을 재생한다", async () => {
+    const admin = await adminSession("idem-rollback-admin@wooriai.local");
+    const target = await seedPublishedRevision(admin.id, "롤백 대상 이름 A");
+    const key = randomUUID();
+
+    const before = await prisma.contentRevision.count({ where: { entityId: target.entityId } });
+
+    const first = await rollback(admin, target.id, key).expect(200);
+    expect(first.body.status).toBe("published");
+    expect(first.body.id).not.toBe(target.id);
+
+    const second = await rollback(admin, target.id, key).expect(200);
+    // 핸들러가 다시 돌았다면 revisionNo가 하나 더 큰 **다른** id가 나왔을 것이다.
+    expect(second.body).toEqual(first.body);
+
+    expect(await prisma.contentRevision.count({ where: { entityId: target.entityId } })).toBe(before + 1);
+    expect(
+      await prisma.auditLog.count({
+        where: { actorUserId: admin.id, action: "admin.content_revision.rollback", targetId: first.body.id }
+      })
+    ).toBe(1);
+  });
+
+  it("rollback: 키가 없으면 종전대로 재실행되어 유령 리비전이 쌓인다 (부착 전 동작 = opt-in 계약)", async () => {
+    const admin = await adminSession("idem-rollback-nokey@wooriai.local");
+    const target = await seedPublishedRevision(admin.id, "롤백 대상 이름 B");
+
+    const before = await prisma.contentRevision.count({ where: { entityId: target.entityId } });
+
+    const first = await rollback(admin, target.id).expect(200);
+    const second = await rollback(admin, target.id).expect(200);
+
+    expect(second.body.id).not.toBe(first.body.id);
+    expect(second.body.revisionNo).toBe(first.body.revisionNo + 1);
+    expect(await prisma.contentRevision.count({ where: { entityId: target.entityId } })).toBe(before + 2);
+  });
+
   it("레거시 x-admin-token(actor id가 uuid가 아님) 경로에서도 멱등키가 동작한다", async () => {
     const key = randomUUID();
     const csv = bulkCsv("https://link.coupang.com/a/idem-legacy");

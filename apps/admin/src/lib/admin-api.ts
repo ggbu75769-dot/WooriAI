@@ -10,15 +10,20 @@
 //   POST /admin/users
 //   POST /admin/item-templates, POST /admin/product-links
 //   POST /admin/content-revisions/:id/approve-publish
+//   POST /admin/content-revisions/:id/rollback (R20-D)
 // 이 경로들은 `Idempotency-Key` 헤더를 함께 보내면 같은 키+같은 body의 재시도가
 // 핸들러를 다시 실행하지 않고 첫 응답을 그대로 재생한다(키를 안 보내면 서버는
 // 기존대로 비멱등 처리 — opt-in 계약). 그래서 아래 쓰기 함수 중 그 경로들만
 // `idempotencyKey`를 받고, 타임아웃 안내도 "다시 보내도 중복되지 않아요"로
 // 완화된다(IDEMPOTENT_WRITE_TIMEOUT_MESSAGE).
 //
-// 아직 멱등키가 없는 나머지 쓰기(PATCH 수정류, disclosures PUT, submit/reject/
-// rollback 등)는 종전대로 쓰기 타임아웃을 "실패"로 단정하지 않는다 — 아래
-// WRITE_FETCH_TIMEOUT_MS 분기와 AdminApiTimeoutError.retryUnsafe 참고.
+// 나머지 쓰기에는 키를 붙이지 않는다. R20-D에서 잔여 상태 전이 POST를 하나씩
+// 확인한 결과, submit/reject/schedule은 재시도해도 새 행이나 라이브 쓰기가 없는
+// 순수 상태 전이라 서버 쪽 상태 조건(CAS)만으로 이미 안전했다 — 인터셉터를 더
+// 붙일 실익이 없다(판단 근거는 content-revisions.controller.ts의 라우트별 주석).
+// 그래서 PATCH 수정류·disclosures PUT·submit/reject/schedule은 종전대로 쓰기
+// 타임아웃을 "실패"로 단정하지 않는다 — 아래 WRITE_FETCH_TIMEOUT_MS 분기와
+// AdminApiTimeoutError.retryUnsafe 참고.
 
 export type NecessityLevel = "essential" | "convenience" | "optional";
 export const NECESSITY_LEVELS: NecessityLevel[] = ["essential", "convenience", "optional"];
@@ -776,8 +781,12 @@ export function rejectContentRevision(id: string, note: string) {
   });
 }
 
-export function rollbackContentRevision(id: string) {
-  return request<ContentRevision>(`/admin/content-revisions/${id}/rollback`, { method: "POST" });
+/** R20-D: 서버 멱등키 적용 경로. 롤백은 호출할 때마다 **새 리비전 행**을 만들고
+ * 라이브 콘텐츠에 다시 쓰므로(대상은 계속 published라 상태 조건이 재실행을 막지
+ * 못한다), 타임아웃 뒤 같은 키로 재시도하면 첫 응답을 재생해 이력에 유령 리비전이
+ * 쌓이는 것을 막는다. */
+export function rollbackContentRevision(id: string, idempotencyKey?: string) {
+  return request<ContentRevision>(`/admin/content-revisions/${id}/rollback`, { method: "POST" }, idempotencyKey);
 }
 
 /** COM-103b: set (ISO timestamp, must be in the future) or clear (null) the

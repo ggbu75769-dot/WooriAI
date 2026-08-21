@@ -78,6 +78,11 @@ export default function ContentReviewsPage() {
   // 되고, 성공하면 회전한다 — 타임아웃 뒤 다시 눌러도 라이브 콘텐츠를 두 번
   // 갱신하지 않고 첫 응답이 재생된다.
   const approveKey = useRef(createIdempotencyKeyHolder()).current;
+  // R20-D: POST /admin/content-revisions/:id/rollback에도 서버 멱등키가 붙었다.
+  // 롤백은 호출할 때마다 새 리비전 행을 만들고 라이브 콘텐츠에 다시 쓰므로,
+  // 타임아웃 뒤 다시 누르면 이력에 유령 리비전이 쌓인다. 지문으로 롤백 대상
+  // 리비전 id를 넘겨 다른 이력을 고르면 새 키가 되고, 성공하면 회전한다.
+  const rollbackKey = useRef(createIdempotencyKeyHolder()).current;
 
   const loadList = useCallback(async () => {
     if (!session) return;
@@ -228,7 +233,8 @@ export default function ContentReviewsPage() {
     setActionError(null);
     setActionSuccess(null);
     try {
-      await rollbackContentRevision(revisionId);
+      await rollbackContentRevision(revisionId, rollbackKey.current(revisionId));
+      rollbackKey.rotate();
       setActionSuccess("이전 게시 이력으로 롤백했어요.");
       await refreshAfterAction();
     } catch (error) {
