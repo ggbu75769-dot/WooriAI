@@ -323,9 +323,16 @@ export type OnboardingProgress = {
   };
 };
 
-export function getOnboardingProgress(token: string) {
+/**
+ * R19-C(F1): optional `childId` scopes the summary/완료 판정 to one child. Omitted (the default),
+ * the server keeps its original behavior and answers for the household's first child, so this
+ * stays wire-compatible with the pre-R19 contract. The demo/local backend holds a single child,
+ * so it ignores the argument.
+ */
+export function getOnboardingProgress(token: string, childId?: string) {
   if (isLocalToken(token)) return local(() => localBackend.onboardingStatus());
-  return requestJson<OnboardingProgress>("/onboarding/status", { token });
+  const query = childId ? `?childId=${encodeURIComponent(childId)}` : "";
+  return requestJson<OnboardingProgress>(`/onboarding/status${query}`, { token });
 }
 
 /** Thrown by refreshAccessToken so callers can tell an expired/invalid refresh token (401) apart

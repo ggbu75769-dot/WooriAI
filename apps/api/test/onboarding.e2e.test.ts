@@ -339,4 +339,109 @@ describe("Auth and onboarding API", () => {
         expect(body.children).toHaveLength(1);
       });
   });
+
+  // R19-C(F1): 다자녀 계정에서 GET /onboarding/status가 항상 첫째만 보던 문제. 이제 optional
+  // `childId`로 아이별 요약/완료 판정을 받을 수 있고, 파라미터를 생략하면 기존 계약 그대로
+  // 첫째를 본다(하위호환).
+  it("scopes onboarding status to the requested childId and keeps the first child as the default", async () => {
+    const accessToken = await login(app);
+    await request(app.getHttpServer())
+      .put("/api/v1/consents")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        consents: [
+          { type: "terms", version: "2026-07-06", accepted: true },
+          { type: "privacy", version: "2026-07-06", accepted: true }
+        ]
+      })
+      .expect(200);
+
+    const householdId = (
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.households[0].id as string;
+
+    const createChild = async (nickname: string) =>
+      (
+        await request(app.getHttpServer())
+          .post("/api/v1/children")
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ householdId, nickname, stageMode: "manual", manualStage: "infant_4_6" })
+          .expect(200)
+      ).body.id as string;
+
+    const firstChildId = await createChild("첫째");
+    const secondChildId = await createChild("둘째");
+
+    // 둘째만 준비템 + 예산까지 끝낸다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${secondChildId}/prepared-items`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ itemTemplateIds: [] })
+      .expect(200);
+    await request(app.getHttpServer())
+      .put(`/api/v1/children/${secondChildId}/budget`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ yearMonth: "2026-07-01", amountKrw: 400000 })
+      .expect(200);
+
+    // 파라미터 없음 -> 예전 계약 그대로 첫째 기준(아직 준비템 단계).
+    await request(app.getHttpServer())
+      .get("/api/v1/onboarding/status")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.completed).toBe(false);
+        expect(body.nextStep).toBe("prepared-items");
+        expect(body.summary.child).toMatchObject({ id: firstChildId, nickname: "첫째" });
+      });
+
+    // 명시적으로 첫째를 지정해도 동일해야 한다.
+    await request(app.getHttpServer())
+      .get(`/api/v1/onboarding/status?childId=${firstChildId}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.nextStep).toBe("prepared-items");
+        expect(body.summary.child.id).toBe(firstChildId);
+      });
+
+    // 둘째 기준으로는 온보딩이 끝난 상태로 보여야 한다.
+    await request(app.getHttpServer())
+      .get(`/api/v1/onboarding/status?childId=${secondChildId}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({
+          completed: true,
+          nextStep: "home",
+          canRestart: false,
+          summary: {
+            consentsAccepted: true,
+            child: expect.objectContaining({ id: secondChildId, nickname: "둘째" }),
+            preparedItemsCount: expect.any(Number),
+            budget: { yearMonth: "2026-07-01", amountKrw: 400000 }
+          }
+        });
+      });
+
+    // 남의/없는 아이와 형식이 틀린 값은 다른 아이 스코프 엔드포인트와 동일한 에러 계약.
+    await request(app.getHttpServer())
+      .get(`/api/v1/onboarding/status?childId=${randomUUID()}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(404)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("CHILD_NOT_FOUND");
+      });
+
+    await request(app.getHttpServer())
+      .get("/api/v1/onboarding/status?childId=not-a-uuid")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+  });
 });
