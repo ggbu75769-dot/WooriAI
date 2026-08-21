@@ -2,9 +2,9 @@ import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../src/analytics/client";
-import { getOnboardingProgress } from "../src/api/client";
 import { ensureLocalBackendSeeded } from "../src/api/local-backend";
 import { LOCAL_CHILD_ID } from "../src/api/local-fixtures";
+import { fetchOnboardingProgressForSelectedChild } from "../src/onboarding/onboarding-progress-scope";
 import {
   shouldAttemptSelectedChildRecovery,
   useSelectedChildRecovery
@@ -62,6 +62,8 @@ export default function IndexScreen() {
   const setResumeProgress = useOnboardingResumeStore((state) => state.setProgress);
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
+  // FIX-119B/F5: 서버가 무효라고 답한 selectedChildId를 지우는 데 쓴다(아래 진행도 조회 참고).
+  const clearSelectedChildId = useSelectedChildStore((state) => state.clearSelectedChildId);
   const [hydrated, setHydrated] = useState(storesHydrated);
   const [progressFetch, setProgressFetch] = useState<ProgressFetchState>("idle");
   const [hasResumeTarget, setHasResumeTarget] = useState(false);
@@ -113,8 +115,16 @@ export default function IndexScreen() {
     // R19-C(F1): 이미 고른 아이가 있으면 그 아이 기준으로 물어본다 -- 다자녀 계정에서 둘째만
     // 끝낸 온보딩이 서버의 기본값(첫째)때문에 미완료로 보이던 문제를 없앤다. 아직 고른 아이가
     // 없으면 파라미터 없이(=첫째 기준) 예전과 동일하게 동작한다.
-    getOnboardingProgress(accessToken, selectedChildId ?? undefined)
-      .then((progress) => {
+    //
+    // FIX-119B/F5: 그 childId가 서버에서 무효면(삭제된 아이 404 / 권한 없음 403 / 비-UUID 400)
+    // childId 없이 1회 재시도한다 -- 예전에는 아래 catch가 그 실패를 삼켜 이미 온보딩을 끝낸
+    // 사용자를 ONB-001로 되돌려보냈다. 무효로 판명된 selectedChildId는 지워서, 다음 렌더에서
+    // MOB-116 복구(GET /children 목록 기반 재선택)가 이어받게 한다.
+    fetchOnboardingProgressForSelectedChild(accessToken, selectedChildId)
+      .then(({ progress, childScopeRejected }) => {
+        if (childScopeRejected) {
+          clearSelectedChildId();
+        }
         if (progress.completed) {
           markHomeReached();
           return;
@@ -140,6 +150,7 @@ export default function IndexScreen() {
     hasReachedHome,
     progressFetch,
     selectedChildId,
+    clearSelectedChildId,
     markHomeReached,
     setResumeProgress
   ]);

@@ -54,6 +54,15 @@ export type BudgetNotificationInput = {
  * - 80% <= usage < 100% -> budget_80.
  * Never both at once -- crossing straight past 100% yields only budget_100.
  *
+ * legacyDedupeKeys 주의 (R19 M-3, 의도된 트레이드오프): 아래 legacy 키(`budget_80:{yearMonth}`)는
+ * 월 스코프일 뿐 childId 스코프가 아니다 -- R19-D 이전 앱이 그렇게 썼기 때문이다. 그래서 업데이트가
+ * 걸친 그 한 달 동안, 다자녀 계정에서 legacy 키를 이미 본 사용자는 **둘째 아이의 알림까지** 함께
+ * 억제된다(새 키는 아이별로 다르지만, 둘 다 같은 legacy 키를 가리키므로). 중복 발화("이미 본 알림이
+ * 다시 뜬다")보다 한 달치 누락이 덜 나쁘다고 판단해 그대로 둔다. 자기 소멸적이다: 키가 월 스코프라
+ * 다음 달이면 legacy 키가 매칭되지 않고, 릴리스가 한 달 지나면 legacyDedupeKeys 자체를 지우면 된다.
+ * (FIX-119B/F4로 억제 시 새 키도 dedupe 메모리에 기록되지만, 그것은 억제를 legacy 키 수명에서
+ * 독립시킬 뿐 억제 범위를 넓히지도 좁히지도 않는다.)
+ *
  * Copy note: unlike the live banner, an in-app notification is a SNAPSHOT that stays in the list,
  * so the 초과 case deliberately keeps the amount-free "이번 달 예산을 초과했어요" -- a frozen
  * "1원 초과했어요" row would read as stale once the month runs on. The banner (live) and the push

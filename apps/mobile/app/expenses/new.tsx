@@ -308,6 +308,14 @@ export default function NewExpenseScreen() {
       // 준비템 목록/상세 캐시를 그대로 두면 방금 기록한 항목이 화면에서는 계속
       // 미준비로 보여 준비율이 정체된 것처럼 읽힌다 -- 그래서 여기서 함께 무효화한다.
       // 연결이 없는 일반 기록은 준비템 상태를 바꾸지 않으므로 무효화도 하지 않는다.
+      //
+      // FIX-119B/F1 (R19 H-2) 유지 근거: 여기의 무효화는 "로컬 우선 저장 직후"이므로 실서버
+      // 세션에서는 아직 서버가 지출을 받기 전이다(createExpenseOffline은 outbox flush를
+      // fire-and-forget으로 띄운다). 실제 서버 반영 시점의 무효화는 src/offline/
+      // sync-controller.ts attemptFlush 성공 분기가 담당한다. 그래도 이 호출을 남기는 이유는
+      // 데모/로컬 백엔드 세션(LOCAL_SESSION_TOKEN) 때문이다 -- 그 경로의 "서버"는 동기적인
+      // 인메모리 백엔드라 flush가 즉시 끝나고 준비템 상태가 곧바로 바뀌므로, 화면 전환 전
+      // 이 무효화가 그대로 유효하다(그리고 무효화 자체는 멱등이라 실서버에서도 무해하다).
       if (linkedItemTemplateId) {
         await queryClient.invalidateQueries({ queryKey: ["items"] });
         await queryClient.invalidateQueries({ queryKey: ["item-detail"] });

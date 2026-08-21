@@ -55,6 +55,15 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(guardIndex).toBeGreaterThan(-1);
     expect(expenseSource.indexOf('queryKey: ["items"] }')).toBeGreaterThan(guardIndex);
 
+    // FIX-119B/F1 (R19 H-2): 위 무효화는 "로컬 우선 저장 직후"라 실서버 세션에서는 아직 서버가
+    // 지출을 받기 전이다(createExpenseOffline은 outbox flush를 fire-and-forget으로 띄운다).
+    // 실제 서버 반영 시점 -- sync-controller의 attemptFlush 성공 분기 -- 에서도 같은 캐시를
+    // 무효화해야 준비템이 최대 30초+ 미준비로 남지 않는다.
+    const controllerSource = source("src/offline/sync-controller.ts");
+    const flushSuccessBranch = controllerSource.slice(controllerSource.indexOf("if (summary.synced > 0) {"));
+    expect(flushSuccessBranch).toContain('await queryClient.invalidateQueries({ queryKey: ["items"] });');
+    expect(flushSuccessBranch).toContain('await queryClient.invalidateQueries({ queryKey: ["item-detail"] });');
+
     // (b) 아이템 상세: 지출 기록이 기본(PrimaryButton) 경로이고, 준비 완료가 함께 처리된다는
     // 안내가 붙는다. "지출 없이 표시"는 보조 수단으로만 남는다.
     const detailSource = source("app/items/[itemTemplateId].tsx");

@@ -33,6 +33,49 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/**
+ * FIX-119B/F2·F3 (R19 M-1) — 결정적 5xx의 head-of-line 블로킹 탈출구.
+ *
+ * R19-H 이후 5xx는 permanent가 아니라 transient다(remote-api.ts / errors.ts 말미 주석): 행은
+ * 'pending'으로 남고 백오프로 자동 재시도된다. 그런데 시도 상한이 없어서, 특정 mutation에만
+ * 결정적으로 5xx가 나면(예: 서버 쪽 버그로 그 페이로드만 500) 그 행이 큐 맨 앞에서 영원히
+ * 재시도되고 -- flushOutboxPass는 transient에서 pass를 `break` 하므로 -- 뒤에 쌓인 모든 지출이
+ * 함께 영구히 막힌다. 'pending' 행에는 재시도/삭제 UI가 없으니(app/sync-status.tsx는 'failed'
+ * 행에만 그 버튼을 그린다) 사용자가 손으로 풀 방법도 없었다.
+ *
+ * 그래서 5xx transient에만 시도 상한을 둔다: attemptCount가 MAX에 닿으면 행을 'failed'로
+ * 승격시켜 기존 재시도/삭제 UI로 넘기고, 그 pass는 (break가 아니라) 계속 진행해 뒤의 mutation을
+ * 보낸다. 상한까지의 백오프 합은 2+4+8+16+32+64+128+256초 ≈ 8.5분이라, 흔한 배포/재기동 정도의
+ * 일시적 5xx는 상한에 닿기 훨씬 전에 저절로 낫는다.
+ *
+ * 상한이 5xx에만 붙는 이유(그리고 sync-edge-cases.test.ts §6의 12회 네트워크 실패 시나리오와
+ * 충돌하지 않는 이유): 순수 네트워크 오류/타임아웃은 "기기가 오프라인"이라는 뜻이라 큐가 막힌
+ * 게 아니라 애초에 아무것도 보낼 수 없는 상태다. 오프라인 8.5분 만에 모든 기록을 '동기화 실패'로
+ * 보여 주는 건 오프라인 우선 설계(design doc §3.2) 자체를 깨뜨린다 -- 그건 상한 대상이 아니다.
+ */
+export const MAX_SERVER_ERROR_ATTEMPTS = 8;
+
+/** F3: ExpenseHttpError의 message는 영문("Expense request failed with status 500")이라 그대로
+ * sync-status 화면(lastError)에 렌더됐다. 5xx transient의 사용자 노출 문구는 한국어로 고정한다.
+ * 어댑터(remote-api.ts)가 아니라 엔진에서 매핑하는 이유: 어댑터는 5xx 원본 에러를 **동일 참조로**
+ * 다시 던지는 것이 R19-H의 계약(remote-api.test.ts가 `toBe(serverError)`로 고정)이기 때문이고,
+ * 여기서 매핑하면 어떤 transport를 쓰든 같은 문구가 나온다. */
+export const SERVER_TRANSIENT_ERROR_MESSAGE = "서버가 잠시 응답하지 못했어요. 자동으로 다시 시도해요.";
+
+/** F2: 상한에 닿아 'failed'로 승격됐을 때의 안내 -- 이제 재시도/삭제가 사용자 몫임을 알린다. */
+export const SERVER_ERROR_GIVE_UP_MESSAGE = "서버 오류가 계속돼 자동 재시도를 멈췄어요. 다시 시도하거나 삭제해 주세요.";
+
+/**
+ * transient 중에서도 "서버가 응답은 했다"(5xx)를 가려낸다. sync-engine은 transport를 모르므로
+ * 타입이 아니라 숫자 `status` 필드로만 판별한다 -- remote-api.ts가 5xx에서 그대로 던지는
+ * ExpenseHttpError가 status를 들고 있고, 다른 transport도 같은 관례만 지키면 된다.
+ * (4xx는 여기 오지 않는다: 어댑터가 RemotePermanentError로 번역해 위쪽 갈래에서 걸린다.)
+ */
+function transientServerErrorStatus(error: unknown): number | null {
+  const status = (error as { status?: unknown } | null | undefined)?.status;
+  return typeof status === "number" && status >= 500 ? status : null;
+}
+
 /** Drops keys whose value is explicitly `undefined` before merging a patch onto a payload. The
  * rest of this codebase's update call sites (e.g. app/expenses/[expenseId].tsx) pass
  * `field: value || undefined` to mean "leave this field unchanged" -- a plain object spread
@@ -466,8 +509,38 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
 
       // Transient/network error: keep 'pending', schedule a backed-off retry, and stop this
       // flush pass -- further sends are likely to fail the same way while offline.
-      const message = error instanceof Error ? error.message : String(error);
+      const serverErrorStatus = transientServerErrorStatus(error);
+      // F3: 5xx는 한국어 안내로, 그 외(네트워크/타임아웃)는 기존처럼 원본 메시지로.
+      const message =
+        serverErrorStatus !== null
+          ? SERVER_TRANSIENT_ERROR_MESSAGE
+          : error instanceof Error
+            ? error.message
+            : String(error);
       const nextAttempt = mutation.attemptCount + 1;
+
+      // F2: 결정적 5xx 탈출구 -- 상한에 닿으면 'failed'로 승격해 기존 재시도/삭제 UI에 넘기고,
+      // `break` 대신 `continue`로 이 pass의 나머지 큐를 계속 보낸다(= head-of-line 해제).
+      // 승격 후에는 flushOutboxPass 위쪽의 'failed' 스킵 규칙이 이 행을 자동 재시도 대상에서
+      // 빼 주므로, 다음 pass부터는 뒤의 mutation들이 정상적으로 진행된다.
+      if (serverErrorStatus !== null && nextAttempt >= MAX_SERVER_ERROR_ATTEMPTS) {
+        await store.updateOutboxMutation(mutation.mutationId, {
+          attemptCount: nextAttempt,
+          // 사용자 재시도(retryFailedMutation)가 attemptCount/nextRetryAt을 어차피 초기화하므로
+          // 여기서는 죽은 백오프 창을 남기지 않고 비워 둔다.
+          nextRetryAt: null,
+          lastError: SERVER_ERROR_GIVE_UP_MESSAGE,
+          inFlight: false
+        });
+        await store.updateLocalExpense(mutation.targetLocalId, {
+          syncState: "failed",
+          lastError: SERVER_ERROR_GIVE_UP_MESSAGE,
+          updatedAt: nowIso()
+        });
+        summary.failed += 1;
+        continue;
+      }
+
       await store.updateOutboxMutation(mutation.mutationId, {
         attemptCount: nextAttempt,
         nextRetryAt: computeNextRetryAtIso(nowIso(), nextAttempt),

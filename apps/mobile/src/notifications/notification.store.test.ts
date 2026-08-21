@@ -66,15 +66,44 @@ describe("NOTI-102 notification ingestion (pure helpers)", () => {
     const renamed = () =>
       candidate({ dedupeKey: "budget_80:child-1:2026-08", legacyDedupeKeys: ["budget_80:2026-08"], childId: "child-1" });
 
-    it("drops a renamed candidate whose OLD key is already in the dedupe memory", () => {
+    it("drops a renamed candidate whose OLD key is already in the dedupe memory, and records the NEW key in its place", () => {
       const old = addNotifications([], [], [candidate()], NOW); // pre-update app version
       const afterUpdate = addNotifications(old.entries, old.seenDedupeKeys, [renamed()], NOW + 1000);
+      // 목록은 그대로(같은 참조) -- 억제는 알림을 추가하지 않는다.
       expect(afterUpdate.entries).toBe(old.entries);
-      expect(afterUpdate.seenDedupeKeys).toBe(old.seenDedupeKeys);
-      // Idempotent: the new key is never recorded, so a later evaluation re-checks the old key
-      // and stays silent all the same.
+      // FIX-119B/F4: 새 키가 dedupe 메모리에 함께 남는다(아래 자립성 테스트 참고).
+      expect(afterUpdate.seenDedupeKeys).toEqual(["budget_80:2026-08", "budget_80:child-1:2026-08"]);
+      // 멱등: 다음 평가에서는 새 키만으로 억제되고, 목록은 여전히 그대로다.
       const later = addNotifications(afterUpdate.entries, afterUpdate.seenDedupeKeys, [renamed()], NOW + 2000);
       expect(later.entries).toHaveLength(1);
+      expect(later.entries).toBe(afterUpdate.entries);
+      expect(later.seenDedupeKeys).toBe(afterUpdate.seenDedupeKeys);
+    });
+
+    /**
+     * FIX-119B/F4 (R19 M-4): 억제가 legacy 키의 수명에 매달려 있으면 안 된다. seen은 200개
+     * 캡으로 오래된 키부터 잊히므로, 알림이 많은 사용자에게서 legacy 키가 밀려나는 순간
+     * "이미 본 알림"이 새 키로 다시 발화했다.
+     */
+    it("legacy 키가 seen 캡에서 밀려나도 억제가 유지된다 (억제의 자립성)", () => {
+      const seenAfterSuppression = addNotifications([], ["budget_80:2026-08"], [renamed()], NOW).seenDedupeKeys;
+
+      expect(seenAfterSuppression).toEqual(["budget_80:2026-08", "budget_80:child-1:2026-08"]);
+
+      // 정확히 legacy 키 하나만 캡 밖으로 밀려날 만큼(가장 오래된 키가 먼저 잊힌다) 쌓는다.
+      let entries: AppNotification[] = [];
+      let seen = seenAfterSuppression;
+      for (let index = 0; index < NOTIFICATION_MAX_SEEN_KEYS - 1; index += 1) {
+        const result = addNotifications(entries, seen, [candidate({ dedupeKey: `purchase_pending:${index}` })], NOW + index);
+        entries = result.entries;
+        seen = result.seenDedupeKeys;
+      }
+      expect(seen).not.toContain("budget_80:2026-08"); // legacy 키는 잊혔다
+      expect(seen).toContain("budget_80:child-1:2026-08"); // 새 키는 남아 있다
+
+      // 같은 달의 같은 알림이 다시 평가돼도 재발화하지 않는다.
+      const reEvaluated = addNotifications(entries, seen, [renamed()], NOW + 999);
+      expect(reEvaluated.entries).toBe(entries);
     });
 
     it("still fires for a user who has NOT seen the old key (fresh install, or a sibling child)", () => {
