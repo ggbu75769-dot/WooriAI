@@ -4,10 +4,20 @@
 #   docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.production up -d --build
 name: wooriai-prod
 
+# 로그 로테이션 (OPS-115): API가 요청당 JSON 1줄을 stdout에 기록하므로
+# 무제한 json-file 로그는 소용량 VM(Oracle Free) 디스크를 고갈시킬 수 있다.
+# 서비스당 최대 10MB × 3파일 = 30MB로 제한.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:15-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: wooriai
       POSTGRES_USER: wooriai
@@ -24,6 +34,7 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/api.Dockerfile
+    logging: *default-logging
     command: ["pnpm", "--filter", "api", "prisma:deploy"]
     environment:
       NODE_ENV: production
@@ -37,6 +48,7 @@ services:
       context: ../..
       dockerfile: infra/docker/api.Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - ../../.env.production
     environment:
