@@ -47,7 +47,7 @@ function MoreMenuRow({ icon, title, caption, onPress }: { icon: string; title: s
     >
       <Text style={moreMenuIconStyle}>{icon}</Text>
       <Text style={moreMenuTitleStyle}>{title}</Text>
-      {caption ? <Text style={moreMenuCaptionStyle}>{caption}</Text> : <Text style={moreMenuChevronStyle}>›</Text>}
+      {caption ? <Text style={moreMenuCaptionStyle}>{caption}</Text> : <Text accessible={false} style={moreMenuChevronStyle}>›</Text>}
     </Pressable>
   );
 }
@@ -149,12 +149,13 @@ export default function MoreScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={moreReferenceScreenId} style={moreReferenceFrameStyle()}>
+      <View testID={moreReferenceScreenId} style={moreReferenceFrameStyle()}>
         <View style={moreHeaderRowStyle}>
           <Text style={moreTitleStyle}>더보기</Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={hasSession ? "기록 검색" : "설정"}
+            hitSlop={4}
             onPress={handleSearchPress}
             style={moreSearchButtonStyle}
           >

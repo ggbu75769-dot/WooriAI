@@ -137,7 +137,7 @@ export default function ImportPreviewScreen() {
 
   return (
     <AppScreen>
-      <View testID="screen-IMP-003" accessibilityLabel="screen-IMP-003" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-IMP-003" style={{ gap: theme.spacing.section }}>
         <ScreenHeader eyebrow="데이터 가져오기" title="가져오기 진행 상황" subtitle="분석 결과를 확인하고 가져올 항목을 골라요" />
 
         {job.isLoading ? (
@@ -174,7 +174,7 @@ export default function ImportPreviewScreen() {
           onDone={goToRecords}
         />
       ) : (
-        <View testID="screen-IMP-004" accessibilityLabel="screen-IMP-004" style={{ gap: theme.spacing.gap }}>
+        <View testID="screen-IMP-004" style={{ gap: theme.spacing.gap }}>
           {rows.isLoading ? (
             <Card>
               <Text style={mutedTextStyle}>미리보기를 불러오는 중이에요...</Text>

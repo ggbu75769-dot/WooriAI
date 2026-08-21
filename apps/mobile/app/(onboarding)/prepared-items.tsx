@@ -11,8 +11,6 @@ import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, PrimaryButton, ScreenHeader } from "../../src/ui";
 import { theme } from "../../src/theme";
 
-const onboardingPreparedItemsScreenId = "ONB-003";
-
 // These option ids must match real item template rows so that a check here actually flips that
 // item's status server-side. The previous placeholder id ("11111111-...") did not correspond to
 // any item template in the standalone test-mode local backend (see src/api/local-fixtures.ts),
@@ -50,7 +48,7 @@ export default function PreparedItemsScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={onboardingPreparedItemsScreenId} testID="screen-ONB-003" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-ONB-003" style={{ gap: theme.spacing.section }}>
         <OnboardingStepProgress screenId="ONB-003" />
         <ScreenHeader
           eyebrow="출산 준비물"

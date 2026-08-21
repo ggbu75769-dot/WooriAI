@@ -343,10 +343,11 @@ export default function NewExpenseScreen() {
             position: "relative"
           }}
         >
-        <View accessibilityLabel={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 40 }}>
+        <View testID={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 40 }}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="닫기"
+            hitSlop={8}
             onPress={() => {
               clearQuickExpenseDraft();
               router.back();
@@ -372,6 +373,7 @@ export default function NewExpenseScreen() {
                   key={chip.itemName}
                   accessibilityRole="button"
                   accessibilityLabel={recentItemChipAccessibilityLabel(chip)}
+                  hitSlop={3}
                   onPress={() => {
                     setItemName(chip.itemName);
                     setAmountText(String(chip.amountKrw));
@@ -449,7 +451,7 @@ export default function NewExpenseScreen() {
                 />
               ))}
             </ScrollView>
-            <Pressable accessibilityRole="button" onPress={() => setCustomDateMode((value) => !value)}>
+            <Pressable accessibilityRole="button" hitSlop={14} onPress={() => setCustomDateMode((value) => !value)}>
               <Text style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}>
                 {customDateMode ? "최근 날짜에서 선택" : "직접 입력"}
               </Text>
@@ -505,6 +507,8 @@ export default function NewExpenseScreen() {
         </View>
 
         <TextInput
+          accessibilityLabel="메모 입력 (선택)"
+          returnKeyType="done"
           onChangeText={setMemo}
           placeholder="메모를 입력해 주세요 (선택)"
           style={{
@@ -542,6 +546,8 @@ export default function NewExpenseScreen() {
 
         {authToken ? (
           <TextInput
+            accessibilityLabel="품목명 입력"
+            returnKeyType="done"
             onChangeText={setItemName}
             placeholder="품목명 (예: 기저귀)"
             style={{

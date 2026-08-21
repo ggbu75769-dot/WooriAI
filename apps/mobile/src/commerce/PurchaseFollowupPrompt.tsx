@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AppState, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSessionStore } from "../stores/session.store";
-import { Card, PrimaryButton, SecondaryButton, TextButton } from "../ui";
+import { announceForA11y, Card, PrimaryButton, SecondaryButton, TextButton } from "../ui";
 import { theme } from "../theme";
 import {
   selectPromptEligibleFollowup,
@@ -72,6 +72,12 @@ export function PurchaseFollowupLifecycle() {
       subscription.remove();
     };
   }, [hasSession]);
+
+  // A11Y-115: the card overlays the bottom of whatever screen the user is on, so a screen-reader
+  // user gets an audible cue when it appears instead of discovering it by chance.
+  useEffect(() => {
+    if (activeFollowup) announceForA11y(`『${activeFollowup.itemName}』 구매하셨나요?`);
+  }, [activeFollowup]);
 
   if (!hasSession || !activeFollowup) return null;
 

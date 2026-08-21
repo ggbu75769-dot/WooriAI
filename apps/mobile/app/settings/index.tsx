@@ -34,7 +34,7 @@ export default function SettingsScreen() {
 
   return (
     <AppScreen>
-      <View testID="screen-SET-001" accessibilityLabel="screen-SET-001" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-SET-001" style={{ gap: theme.spacing.section }}>
         <ScreenHeader eyebrow="설정" title="설정" subtitle="계정과 가족 정보를 관리해요" />
         <Card style={{ gap: 6 }}>
           <View style={summaryRowStyle}>
@@ -48,7 +48,7 @@ export default function SettingsScreen() {
         </Card>
       </View>
 
-      <View testID="screen-SET-002" accessibilityLabel="screen-SET-002" style={{ gap: theme.spacing.gap }}>
+      <View testID="screen-SET-002" style={{ gap: theme.spacing.gap }}>
         <ListRow
           icon="◐"
           title="아이 · 가구 프로필"

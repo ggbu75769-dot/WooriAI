@@ -27,8 +27,6 @@ import { useSessionStore } from "../src/stores/session.store";
 import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
 
-const syncStatusScreenId = "EXP-005";
-
 function SyncRow({ row, children }: { row: LocalExpenseRow; children?: React.ReactNode }) {
   return (
     <Card style={{ gap: 8 }}>
@@ -193,7 +191,7 @@ export default function SyncStatusScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={syncStatusScreenId} testID="screen-EXP-005" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-EXP-005" style={{ gap: theme.spacing.section }}>
         <ScreenHeader eyebrow="동기화" title="동기화 상태" subtitle="아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요." />
 
         <View style={{ flexDirection: "row", gap: 8 }}>

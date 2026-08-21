@@ -16,9 +16,18 @@ import { Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeade
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
-const recordsScreenId = "EXP-004";
-
 type ServerExpense = Awaited<ReturnType<typeof listExpenses>>["expenses"][number];
+
+// A11Y-115: the sync chip row announces the actual pending/failed/conflict counts, not just
+// "동기화 상태 보기" -- sighted users read the same numbers off the StatusBadge chips.
+function syncStatusChipAccessibilityLabel(counts: { pending: number; syncing: number; failed: number; conflict: number }) {
+  const parts: string[] = [];
+  const waiting = counts.pending + counts.syncing;
+  if (waiting > 0) parts.push(`대기 ${waiting}건`);
+  if (counts.failed > 0) parts.push(`실패 ${counts.failed}건`);
+  if (counts.conflict > 0) parts.push(`충돌 ${counts.conflict}건`);
+  return parts.length > 0 ? `동기화 상태 보기, ${parts.join(", ")}` : "동기화 상태 보기";
+}
 
 // PERF-102: a month of heavy use is hundreds of rows. The old ScrollView(+AppScreen) + .map()
 // mounted every row eagerly (jank + memory). The screen scroller is now the FlatList itself --
@@ -221,7 +230,7 @@ export default function RecordsScreen() {
 
       {unsyncedCount > 0 ? (
         <Pressable
-          accessibilityLabel="동기화 상태 보기"
+          accessibilityLabel={syncStatusChipAccessibilityLabel(syncSnapshot.counts)}
           accessibilityRole="button"
           onPress={() => router.push("/sync-status")}
           style={{ alignItems: "center", flexDirection: "row", gap: 8 }}
@@ -264,6 +273,7 @@ export default function RecordsScreen() {
 
       <TextInput
         accessibilityLabel="품목명, 메모로 검색"
+        returnKeyType="search"
         onChangeText={setSearchText}
         placeholder="품목명, 메모로 검색"
         style={{
@@ -337,7 +347,7 @@ export default function RecordsScreen() {
   );
 
   return (
-    <View accessibilityLabel={recordsScreenId} testID="screen-EXP-004" style={{ backgroundColor: theme.colors.background, flex: 1 }}>
+    <View testID="screen-EXP-004" style={{ backgroundColor: theme.colors.background, flex: 1 }}>
       <FlatList
         data={flatListData}
         keyExtractor={recordsRowKey}

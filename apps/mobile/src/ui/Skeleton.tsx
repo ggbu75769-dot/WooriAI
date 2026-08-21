@@ -72,7 +72,11 @@ export function Skeleton({ width, height, radius = theme.radii.small, style }: S
 /** Preset silhouette matching a ListRow: circular icon slot + title/subtitle lines + value box. */
 export function SkeletonRow() {
   return (
-    <View style={{ alignItems: "center", flexDirection: "row", gap: 12, minHeight: theme.touchTarget, paddingVertical: 8 }}>
+    <View
+      accessible
+      accessibilityLabel="불러오는 중"
+      style={{ alignItems: "center", flexDirection: "row", gap: 12, minHeight: theme.touchTarget, paddingVertical: 8 }}
+    >
       <Skeleton width={40} height={40} radius={20} />
       <View style={{ flex: 1, gap: 6 }}>
         <Skeleton width="60%" height={14} radius={7} />
@@ -86,7 +90,11 @@ export function SkeletonRow() {
 /** Preset silhouette matching a Card: label line + big value line + a thin bar (e.g. progress). */
 export function SkeletonCard() {
   return (
-    <View style={{ backgroundColor: theme.colors.cream.surface, borderRadius: theme.radii.card, gap: 10, padding: theme.spacing.card }}>
+    <View
+      accessible
+      accessibilityLabel="불러오는 중"
+      style={{ backgroundColor: theme.colors.cream.surface, borderRadius: theme.radii.card, gap: 10, padding: theme.spacing.card }}
+    >
       <Skeleton width="40%" height={12} radius={6} />
       <Skeleton width="70%" height={24} radius={8} />
       <Skeleton width="100%" height={8} radius={4} />

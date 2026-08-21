@@ -261,7 +261,7 @@ export default function HomeScreen() {
   // NOTI-102: 알림 센터가 실제 기능이 되어 UX-5B-8에서 숨겼던 홈 알림 벨을 미확인 배지와 함께 복원.
   return (
     <AppScreen>
-      <View accessibilityLabel="pixel-screen-HOME-001" testID="pixel-screen-HOME-001" style={homePixelScaleFrameStyle()}>
+      <View testID="pixel-screen-HOME-001" style={homePixelScaleFrameStyle()}>
         <View style={homePixelFrameStyle()}>
           <ScreenHeader
             title={`${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`}
@@ -279,6 +279,7 @@ export default function HomeScreen() {
           {budgetWarning ? (
             <View
               accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
               accessibilityLabel={`${budgetWarning.title}. ${budgetWarning.body}`}
               testID="home-budget-warning-banner"
               style={[
@@ -326,8 +327,8 @@ export default function HomeScreen() {
                 <Text style={homeBudgetNudgeStyle.title}>{budgetNudgeTitle}</Text>
                 <Text style={homeBudgetNudgeStyle.subtitle}>{budgetNudgeSubtitle}</Text>
               </View>
-              <View style={homeBudgetNudgeArrowStyle.button}>
-                <Text style={homeBudgetNudgeArrowStyle.glyph}>›</Text>
+              <View accessible={false} style={homeBudgetNudgeArrowStyle.button}>
+                <Text accessible={false} style={homeBudgetNudgeArrowStyle.glyph}>›</Text>
               </View>
             </Card>
           </Pressable>
@@ -338,6 +339,7 @@ export default function HomeScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="최근 지출 전체 보기"
+                hitSlop={12}
                 onPress={() => router.push("/(tabs)/records")}
               >
                 <Text style={{ color: theme.colors.brown, fontSize: 12, fontWeight: "700" }}>전체 보기</Text>

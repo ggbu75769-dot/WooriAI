@@ -11,8 +11,6 @@ import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, PrimaryButton, ScreenHeader, TextButton } from "../../src/ui";
 import { theme } from "../../src/theme";
 
-const onboardingBudgetScreenId = "ONB-004";
-
 function toDigits(value: string) {
   return value.replace(/[^0-9]/g, "");
 }
@@ -73,7 +71,7 @@ export default function BudgetScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={onboardingBudgetScreenId} testID="screen-ONB-004" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-ONB-004" style={{ gap: theme.spacing.section }}>
         <OnboardingStepProgress screenId="ONB-004" />
         <ScreenHeader
           eyebrow="마지막 단계"
@@ -87,7 +85,9 @@ export default function BudgetScreen() {
           </Text>
           <View style={{ alignItems: "center", flexDirection: "row", gap: 6 }}>
             <TextInput
+              accessibilityLabel="월 예산 입력"
               keyboardType="number-pad"
+              returnKeyType="done"
               onChangeText={(value) => setAmountDigits(toDigits(value))}
               style={{
                 color: theme.colors.brown,

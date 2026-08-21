@@ -106,9 +106,9 @@ export default function ImportUploadScreen() {
   };
 
   return (
-    <View accessibilityLabel={importUploadScreenId} style={[styles.screen, { paddingHorizontal: ExcelPreviewPixelStyles.screenPadding }, excelPreviewPixelFrameStyle()]}>
+    <View testID={importUploadScreenId} style={[styles.screen, { paddingHorizontal: ExcelPreviewPixelStyles.screenPadding }, excelPreviewPixelFrameStyle()]}>
       <View style={styles.navigationBar}>
-        <Pressable accessibilityRole="button" accessibilityLabel="뒤로가기" onPress={() => router.back()} style={styles.backButton}>
+        <Pressable accessibilityRole="button" accessibilityLabel="뒤로가기" hitSlop={6} onPress={() => router.back()} style={styles.backButton}>
           <Text style={styles.backIcon}>‹</Text>
         </Pressable>
         <Text style={styles.navigationTitle}>엑셀 업로드</Text>
@@ -116,8 +116,8 @@ export default function ImportUploadScreen() {
       </View>
 
       <View style={excelUploadedFileCardStyle()}>
-        <View style={styles.fileIcon}>
-          <Text style={styles.fileIconText}>▣</Text>
+        <View accessible={false} style={styles.fileIcon}>
+          <Text accessible={false} style={styles.fileIconText}>▣</Text>
         </View>
         <View style={styles.fileTextColumn}>
           <Text style={styles.fileName}>{canUpload && selectedFileName ? selectedFileName : "5월 지출내역.xlsx"}</Text>

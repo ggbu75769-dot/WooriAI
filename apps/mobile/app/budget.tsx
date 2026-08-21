@@ -8,8 +8,6 @@ import { useSessionStore } from "../src/stores/session.store";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../src/ui";
 import { theme } from "../src/theme";
 
-const budgetEditScreenId = "BUD-001";
-
 function toDigits(value: string) {
   return value.replace(/[^0-9]/g, "");
 }
@@ -53,7 +51,7 @@ export default function BudgetEditScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={budgetEditScreenId} testID="screen-BUD-001" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-BUD-001" style={{ gap: theme.spacing.section }}>
         <ScreenHeader eyebrow="예산 관리" title="월 예산 수정" subtitle="필요할 때 언제든 예산을 조정할 수 있어요." />
 
         {budget.isLoading ? (

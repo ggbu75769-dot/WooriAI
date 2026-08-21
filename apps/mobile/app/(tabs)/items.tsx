@@ -219,10 +219,10 @@ export default function ItemsScreen() {
   return (
     <AppScreen>
       <View style={recommendationPixelScaleFrameStyle()}>
-        <View accessibilityLabel={recommendationScreenId} style={recommendationPixelFrameStyle}>
+        <View testID={recommendationScreenId} style={recommendationPixelFrameStyle}>
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
             <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>추천</Text>
-            <Text style={{ color: theme.colors.brown, fontSize: 18 }}>♡</Text>
+            <Text accessible={false} style={{ color: theme.colors.brown, fontSize: 18 }}>♡</Text>
           </View>
 
           <View style={{ flexDirection: "row", gap: 6, marginHorizontal: -12 }}>
@@ -322,11 +322,13 @@ export default function ItemsScreen() {
                       <View style={{ flexDirection: "row", gap: 8 }}>
                         <SecondaryButton
                           label="준비했어요"
+                          accessibilityLabel={`${item.name} 준비했어요`}
                           onPress={() => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status: "prepared" })}
                           style={{ flex: 1 }}
                         />
                         <SecondaryButton
                           label="괜찮아요"
+                          accessibilityLabel={`${item.name} 괜찮아요`}
                           onPress={() => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status: "not_needed" })}
                           style={{ flex: 1 }}
                         />

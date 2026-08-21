@@ -90,10 +90,10 @@ const productDetailChromeButtonStyle = {
 function ProductDetailNavigation({ onShare }: { onShare: () => void }) {
   return (
     <View style={productDetailFloatingControlsStyle}>
-        <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" onPress={() => router.back()} style={productDetailChromeButtonStyle}>
+        <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={5} onPress={() => router.back()} style={productDetailChromeButtonStyle}>
           <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800" }}>{"<"}</Text>
         </Pressable>
-        <Pressable accessibilityLabel="공유하기" accessibilityRole="button" onPress={onShare} style={productDetailChromeButtonStyle}>
+        <Pressable accessibilityLabel="공유하기" accessibilityRole="button" hitSlop={5} onPress={onShare} style={productDetailChromeButtonStyle}>
           <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>[]</Text>
         </Pressable>
     </View>
@@ -302,7 +302,7 @@ export default function ItemDetailScreen() {
               });
             }}
           />
-          <View accessibilityLabel={productDetailScreenId} style={productDetailHeaderSpacerStyle} />
+          <View testID={productDetailScreenId} style={productDetailHeaderSpacerStyle} />
 
           <Card style={productDetailHeroCardStyle()}>
             <Image source={productImage} style={productDetailHeroImageStyle()} resizeMode="cover" />

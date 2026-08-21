@@ -57,14 +57,14 @@ export default function NotificationsScreen() {
 
   return (
     <AppScreen>
-      <View testID="screen-notifications" accessibilityLabel="screen-notifications" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-notifications" style={{ gap: theme.spacing.section }}>
         <ScreenHeader
           eyebrow="알림"
           title="알림"
           subtitle="예산과 아이 성장 소식을 모아 보여드려요"
           action={
             entries.length > 0 ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="알림 모두 지우기" onPress={() => clearAll()}>
+              <Pressable accessibilityRole="button" accessibilityLabel="알림 모두 지우기" hitSlop={12} onPress={() => clearAll()}>
                 <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>모두 지우기</Text>
               </Pressable>
             ) : undefined
