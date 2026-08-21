@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { getSeoulMonthRange } from "@wooriai/domain";
+import { getSeoulMonthRange, reachedBudgetBoundaries } from "@wooriai/domain";
 import { DevicesService } from "../devices/devices.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { FcmSenderService } from "./fcm-sender.service";
@@ -34,10 +34,12 @@ import { PushConfigService } from "./push-config.service";
  * 합계가 경계 아래로 내려갔다가 다시 올라와도 재발송하지 않는다. 발송은
  * (아이, 월, 경계)당 최대 1회이며, 발송 실패 시에도 마크는 남는다(at-most-once).
  *
- * 카피 정합(리뷰 m-3): 100% 경계는 usedAfter가 정확히 예산과 같으면 "모두
+ * 카피 정합(리뷰 m-3 → R19-D): 100% 경계는 usedAfter가 정확히 예산과 같으면 "모두
  * 사용했어요", 초과면 "N원 초과했어요" — 홈 배너(apps/mobile/src/home/
  * budget-warning.ts)의 exceeded 버킷 카피와 동일한 규칙. 80%/정확-100%/초과
- * 판정은 모두 정수 연산(부동소수점 경계 오차 없음).
+ * 판정은 모두 정수 연산이며(부동소수점 경계 오차 없음), R19-D부터 그 판정을
+ * @wooriai/domain의 reachedBudgetBoundaries 한 곳에서 가져온다 — 서버 푸시·홈
+ * 배너·인앱 알림 세 표면이 같은 함수를 호출하므로 규칙이 갈라질 수 없다.
  *
  * 계약: onExpenseCreated/onBudgetRelevantChange는 어떤 경우에도 예외를 던지지
  * 않는다 — 지출 생성 API·가져오기 커밋·인앱 알림 흐름은 이 함수의 성패와
@@ -71,31 +73,37 @@ function toDateOnly(dateOnly: string): Date {
 
 /**
  * 월 합계(usedAfter)가 어느 경계 이상인지 판정한다 — usedBefore 역산 없음.
- * 정수 연산: 80%는 usedAfter*5 >= budget*4 (KRW는 정수, DNC-013),
- * 100%는 usedAfter >= budget (정확히 같음 포함 — 카피가 갈릴 뿐 경계는 도달).
- * reached100이면 reached80도 항상 true.
+ *
+ * R19-D: 판정 자체는 @wooriai/domain의 reachedBudgetBoundaries 한 곳에 있다
+ * (packages/domain/src/budget-boundary.ts) — 홈 배너(apps/mobile/src/home/
+ * budget-warning.ts)·인앱 알림(apps/mobile/src/notifications/generators.ts)도
+ * 같은 함수를 쓰므로 세 표면의 80/100 판정이 어긋날 수 없다. 여기 남은 것은
+ * 이 서비스가 쓰는 좁은 형태({reached80, reached100})로의 어댑터뿐이다.
+ * 정수 연산(KRW는 정수, DNC-013)·"정확히 100%도 도달"·"reached100이면 reached80"은
+ * 모두 도메인 모듈의 계약이다.
  */
 export function resolveReachedBoundaries(
   usedAfter: number,
   budgetKrw: number
 ): { reached80: boolean; reached100: boolean } {
-  if (budgetKrw <= 0) {
-    return { reached80: false, reached100: false };
-  }
-  return { reached80: usedAfter * 5 >= budgetKrw * 4, reached100: usedAfter >= budgetKrw };
+  const { reached80, reached100 } = reachedBudgetBoundaries({ budgetKrw, spentKrw: usedAfter });
+  return { reached80, reached100 };
 }
 
 /**
  * 발송 카피 (해요체 고정, DNC-018). budget_100은 홈 배너
- * (apps/mobile/src/home/budget-warning.ts)의 exceeded 버킷과 같은 규칙:
- * 정확히 예산이면 "모두 사용했어요"(0원 초과라고 말하면 허위), 초과면
- * "N원 초과했어요". 모바일 인앱 generators.ts는 건드리지 않는다.
+ * (apps/mobile/src/home/budget-warning.ts)의 exceeded 버킷과 같은 규칙이며, R19-D
+ * 이후로는 그 '같음'이 주석이 아니라 코드로 보장된다: 초과 여부(strict >)와 초과
+ * 금액을 도메인 모듈이 돌려주고 두 표면이 그것만 문장으로 옮긴다. 정확히 예산이면
+ * "모두 사용했어요"(0원 초과라고 말하면 허위), 초과면 "N원 초과했어요".
+ * 인앱 알림(generators.ts)은 같은 판정을 쓰되 목록에 남는 스냅샷이라 초과 금액을
+ * 굳혀 적지 않는다(거기 주석 참조).
  */
 export function budgetPushCopy(type: BudgetPushType, usedAfter: number, budgetKrw: number): { title: string; body: string } {
   if (type === "budget_80") {
     return { title: "이번 달 예산의 80%를 사용했어요", body: "남은 예산을 확인해보세요." };
   }
-  const overAmountKrw = Math.max(0, usedAfter - budgetKrw);
+  const { overAmountKrw } = reachedBudgetBoundaries({ budgetKrw, spentKrw: usedAfter });
   return {
     title:
       overAmountKrw > 0

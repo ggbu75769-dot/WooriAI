@@ -54,6 +54,45 @@ describe("NOTI-102 notification ingestion (pure helpers)", () => {
     expect(afterClear.entries).toHaveLength(0);
   });
 
+  it("stamps the candidate's childId on the entry, and omits the field when there is none", () => {
+    const scoped = addNotifications([], [], [candidate({ childId: "child-1" })], NOW);
+    expect(scoped.entries[0]!.childId).toBe("child-1");
+    expect(addNotifications([], [], [candidate()], NOW).entries[0]).not.toHaveProperty("childId");
+  });
+
+  describe("R19-D legacyDedupeKeys (dedupeKey rename migration)", () => {
+    // The budget generators' keys gained a childId segment. Without the legacy check, every user
+    // who already saw this month's budget alert under the old key would get it a second time.
+    const renamed = () =>
+      candidate({ dedupeKey: "budget_80:child-1:2026-08", legacyDedupeKeys: ["budget_80:2026-08"], childId: "child-1" });
+
+    it("drops a renamed candidate whose OLD key is already in the dedupe memory", () => {
+      const old = addNotifications([], [], [candidate()], NOW); // pre-update app version
+      const afterUpdate = addNotifications(old.entries, old.seenDedupeKeys, [renamed()], NOW + 1000);
+      expect(afterUpdate.entries).toBe(old.entries);
+      expect(afterUpdate.seenDedupeKeys).toBe(old.seenDedupeKeys);
+      // Idempotent: the new key is never recorded, so a later evaluation re-checks the old key
+      // and stays silent all the same.
+      const later = addNotifications(afterUpdate.entries, afterUpdate.seenDedupeKeys, [renamed()], NOW + 2000);
+      expect(later.entries).toHaveLength(1);
+    });
+
+    it("still fires for a user who has NOT seen the old key (fresh install, or a sibling child)", () => {
+      const fresh = addNotifications([], [], [renamed()], NOW);
+      expect(fresh.entries).toHaveLength(1);
+      expect(fresh.entries[0]!.dedupeKey).toBe("budget_80:child-1:2026-08");
+      // A second child's alert is a different new key and a different legacy key set is irrelevant
+      // -- the sibling is no longer suppressed (that was the R19-D bug).
+      const sibling = addNotifications(
+        fresh.entries,
+        fresh.seenDedupeKeys,
+        [candidate({ dedupeKey: "budget_80:child-2:2026-08", childId: "child-2" })],
+        NOW + 1000
+      );
+      expect(sibling.entries).toHaveLength(2);
+    });
+  });
+
   it("keeps newest first and caps at 50 entries, dropping the oldest", () => {
     let entries: AppNotification[] = [];
     let seen: string[] = [];
