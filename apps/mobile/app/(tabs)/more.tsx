@@ -4,7 +4,8 @@ import Constants from "expo-constants";
 import { router } from "expo-router";
 import { Alert, Image, Pressable, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { getHome, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { getHome, listCategories, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { buildCategoryNameLookup } from "../../src/categories";
 import { buildExpenseCsv } from "../../src/export/expense-csv";
 import { collectExpensesForRange, EXPORT_RANGE_OPTIONS, type ExportRange } from "../../src/export/export-range";
 import { shareExpenseCsv } from "../../src/export/share-csv";
@@ -64,6 +65,17 @@ export default function MoreScreen() {
     queryFn: () => getHome(authToken!, childId!)
   });
   const visibleProfile = hasSession ? (home.data?.child ?? loadingProfile) : previewProfile;
+  // EXP-106: CSV의 "카테고리" 열은 서버가 지출에 실어주는 categoryId만으로는 이름을 알 수 없다.
+  // 정식 시드 카테고리 12개는 고정 id가 없어(DB마다 랜덤 UUID) 정적 8타일 매핑으로는 전부
+  // "기타"로 나갔다 -- src/categories.ts의 buildCategoryNameLookup 주석 참고. 지출 수정 화면·
+  // 리포트 탭과 같은 ["categories"] 캐시를 공유하므로 대부분 이미 채워져 있고, 없으면(첫 진입
+  // 직후·오프라인) 기존 정적 매핑으로 폴백한다.
+  const categories = useQuery({
+    queryKey: ["categories"],
+    enabled: hasSession,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => listCategories(authToken!)
+  });
 
   // EXP-106 데이터 내보내기(CSV): inline range-picker card toggled from the menu row below.
   const [exportCardOpen, setExportCardOpen] = useState(false);
@@ -101,7 +113,9 @@ export default function MoreScreen() {
         showExportToast("선택한 기간에 내보낼 기록이 없어요.", "error");
         return;
       }
-      const built = buildExpenseCsv(collected.expenses);
+      const built = buildExpenseCsv(collected.expenses, {
+        categoryName: buildCategoryNameLookup(categories.data?.categories)
+      });
       const outcome = await shareExpenseCsv(built.csv);
       if (!outcome.shared) return; // user closed the share sheet -- not a success, not an error
       const truncated = collected.truncated || built.truncated || outcome.truncated;

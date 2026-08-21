@@ -28,7 +28,7 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     expect(moreSource).toContain("collectExpensesForRange(");
     expect(moreSource).toContain("listExpenses(authToken, childId, yearMonth)");
     expect(moreSource).toContain("getSeoulToday()");
-    expect(moreSource).toContain("buildExpenseCsv(collected.expenses)");
+    expect(moreSource).toContain("buildExpenseCsv(collected.expenses, {");
     expect(moreSource).toContain("shareExpenseCsv(built.csv)");
     // Success, truncation, and error outcomes all surface through the Toast component.
     expect(moreSource).toContain("용량 제한으로 일부만 포함됐어요");
@@ -48,9 +48,17 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     }
   });
 
+  it("resolves the CSV's category column through the server category list, not only the 8 static tiles", () => {
+    // 정식 시드 카테고리 12개는 서버 DB마다 id가 달라 정적 매핑으로는 전부 "기타"가 됐다.
+    const moreSource = source("app/(tabs)/more.tsx");
+    expect(moreSource).toContain('queryKey: ["categories"]');
+    expect(moreSource).toContain("listCategories(authToken!)");
+    expect(moreSource).toContain("categoryName: buildCategoryNameLookup(categories.data?.categories)");
+  });
+
   it("keeps the CSV builder off src/money.ts formatting and on the shared category labels", () => {
     const csvSource = source("src/export/expense-csv.ts");
-    expect(csvSource).toContain('import { categoryNameFor } from "../categories"');
+    expect(csvSource).toContain('import { categoryNameFor, type CategoryNameLookup } from "../categories"');
     expect(csvSource).not.toContain("formatKrw");
     expect(csvSource).not.toContain('from "../money"');
     // Type-only client import: the builder must stay pure (no network module at runtime).
