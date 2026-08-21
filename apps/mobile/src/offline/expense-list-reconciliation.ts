@@ -27,7 +27,12 @@ export type MonthlyExpenseReconciliation<TServerExpense extends ServerExpenseLik
   visibleServerExpenses: TServerExpense[];
   /** Local-only rows to render *instead of* the now-hidden stale server rows: excludes
    * `pendingDelete` rows (nothing to show for a record on its way out) and fully-'synced' rows
-   * (those are already reflected correctly in the server list). */
+   * (those are already reflected correctly in the server list). Exception (COV-T5 bug 3):
+   * a 'conflict' row stays visible even when `pendingDelete` is true -- the server contested
+   * the delete, so the expense is still live server-side and vanishing it from the list and
+   * the monthly total would misreport reality. It renders as a conflict row like any other
+   * (records.tsx shows the ⚠ conflict icon with the "삭제 대기 중" subtitle) and its amount is
+   * counted the same way every other conflict row's is: from its local payload. */
   offlinePendingRows: LocalExpenseRow[];
   /** Sum of `visibleServerExpenses` + `offlinePendingRows`, excluding gifts -- computed directly
    * from the already-deduped sets above so it can never drift from what's actually listed. */
@@ -48,7 +53,12 @@ export function reconcileMonthlyExpenses<TServerExpense extends ServerExpenseLik
   const visibleServerExpenses = serverExpenses.filter((expense) => !staleServerCanonicalIds.has(expense.id));
 
   const offlinePendingRows = childOfflineRows.filter(
-    (row) => row.syncState !== "synced" && !row.pendingDelete && row.payload.spentOn.startsWith(recordsYearMonth)
+    (row) =>
+      row.syncState !== "synced" &&
+      // COV-T5 bug 3: a pendingDelete row is hidden while the delete is merely queued, but a
+      // delete the server CONTESTED ('conflict') must stay visible -- see the doc comment above.
+      (row.syncState === "conflict" || !row.pendingDelete) &&
+      row.payload.spentOn.startsWith(recordsYearMonth)
   );
 
   const monthlyTotalKrw =

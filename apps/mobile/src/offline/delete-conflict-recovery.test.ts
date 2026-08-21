@@ -93,6 +93,16 @@ function createRecordingRemote(behavior?: {
   return { remote, calls };
 }
 
+/** Mirrors the API's real 404 exactly as remote-api.ts forwards it to the sync engine: the
+ * delete path's NotFoundException({code: "EXPENSE_NOT_FOUND", ...}) (apps/api/src/finance/
+ * expenses.service.ts) is serialized by GlobalExceptionFilter as `{error: {code, message, ...}}`,
+ * and remote-api's rethrowAsSyncEngineError carries that parsed body on RemotePermanentError. */
+function expenseNotFoundError() {
+  return new RemotePermanentError(404, "요청을 처리하지 못했어요.", {
+    error: { code: "EXPENSE_NOT_FOUND", message: "지출 기록을 찾을 수 없어요." }
+  });
+}
+
 /** Creates one expense offline and flushes it so the row is server-known
  * (canonicalId='server-1', version=1, syncState='synced'). */
 async function seedSyncedExpense(store: OfflineStore) {
@@ -161,19 +171,59 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     expect(await store.listOutboxMutations()).toHaveLength(0);
   });
 
-  it("DOCUMENTED: a 404 on delete (already deleted server-side) is treated as a permanent FAILURE, not success — recovery is the user's explicit discard", async () => {
-    // remote-api.ts maps every non-409 ExpenseHttpError (404 included) to RemotePermanentError,
-    // and sync-engine has no 404-on-delete special case. So "the server already deleted it" —
-    // an outcome the client's delete agrees with — parks the row in 'failed' instead of
-    // counting as success. The converging exit that exists today is discardFailedMutation
-    // (row + outbox dropped, matching the server's state). Reported as an improvement
-    // candidate; this test pins the current behavior.
+  it("a 404 EXPENSE_NOT_FOUND on delete (already deleted server-side) converges as SUCCESS: local row removed, outbox cleared, nothing left to retry", async () => {
+    // COV-T5 bug 1 fix: both sides agree the row is gone -- the delete's whole intent is
+    // already satisfied, so this counts as success instead of parking the row in an
+    // unwinnable 'failed' retry loop (re-sending the same idempotency key 404s forever).
     const synced = await seedSyncedExpense(store);
     await recordLocalDelete(store, synced.localId);
+
+    const { remote, calls } = createRecordingRemote({
+      failDelete: () => expenseNotFoundError()
+    });
+    const summary = await flushOutbox(store, remote);
+
+    expect(summary).toEqual({ synced: 1, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(await store.getLocalExpense(synced.localId)).toBeNull();
+    expect(await store.listOutboxMutations()).toHaveLength(0);
+
+    // Converged: the next pass has nothing to send -- no retry loop, no manual discard needed.
+    await flushOutbox(store, remote);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("the delete-404 success mapping is NARROW: a 404 on an UPDATE still routes to 'failed' exactly as before (never swallowed)", async () => {
+    const synced = await seedSyncedExpense(store);
+    await recordLocalUpdate(store, synced.localId, { amountKrw: 30_000 });
     const [queuedMutation] = await store.listOutboxMutationsForLocalId(synced.localId);
 
     const { remote, calls } = createRecordingRemote({
-      failDelete: () => new RemotePermanentError(404, "이미 삭제된 기록이에요.")
+      failUpdate: () => expenseNotFoundError()
+    });
+    const summary = await flushOutbox(store, remote);
+
+    expect(summary).toEqual({ synced: 0, failed: 1, conflicted: 0, stoppedForNetwork: false });
+    const row = (await store.getLocalExpense(synced.localId))!;
+    expect(row.syncState).toBe("failed");
+    // The local edit and its queued mutation are preserved for explicit retry/discard --
+    // an update losing its target is NOT an outcome the update agrees with.
+    expect(row.payload.amountKrw).toBe(30_000);
+    const mutationsAfter = await store.listOutboxMutationsForLocalId(synced.localId);
+    expect(mutationsAfter).toHaveLength(1);
+    expect(mutationsAfter[0].attemptCount).toBe(1);
+    expect(mutationsAfter[0].idempotencyKey).toBe(queuedMutation.idempotencyKey);
+
+    // 'failed' rows are skipped by later passes.
+    await flushOutbox(store, remote);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("the delete-404 success mapping is NARROW: a 404 WITHOUT the EXPENSE_NOT_FOUND body code (e.g. from a proxy) still routes to 'failed'; discard remains the exit", async () => {
+    const synced = await seedSyncedExpense(store);
+    await recordLocalDelete(store, synced.localId);
+
+    const { remote } = createRecordingRemote({
+      failDelete: () => new RemotePermanentError(404, "요청을 처리하지 못했어요.", "<html>Not Found</html>")
     });
     const summary = await flushOutbox(store, remote);
 
@@ -181,17 +231,8 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     const row = (await store.getLocalExpense(synced.localId))!;
     expect(row.syncState).toBe("failed");
     expect(row.pendingDelete).toBe(true);
-    expect(row.lastError).toBe("이미 삭제된 기록이에요.");
-    const mutationsAfter = await store.listOutboxMutationsForLocalId(synced.localId);
-    expect(mutationsAfter).toHaveLength(1);
-    expect(mutationsAfter[0].attemptCount).toBe(1);
-    expect(mutationsAfter[0].idempotencyKey).toBe(queuedMutation.idempotencyKey);
 
-    // 'failed' rows are skipped by later passes -- no repeated delete attempts.
-    await flushOutbox(store, remote);
-    expect(calls).toHaveLength(1);
-
-    // User-triggered discard converges local state with the server (row already gone there).
+    // User-triggered discard still converges local state for a row that stays 'failed'.
     await discardFailedMutation(store, synced.localId);
     expect(await store.getLocalExpense(synced.localId)).toBeNull();
     expect(await store.listOutboxMutations()).toHaveLength(0);
@@ -238,11 +279,36 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     expect(row.pendingDelete).toBe(false);
     expect(row.conflictCurrent).toBeNull();
     expect(row.version).toBe(7);
-    // Field-level asserts (not deep equality): adopt-server's payload spread also copies the
-    // snapshot's id/version keys into the payload object -- reported separately as a bug.
-    expect(row.payload.amountKrw).toBe(55_000);
-    expect(row.payload.itemName).toBe("다른 기기가 바꾼 이름");
+    // COV-T5 bug 2 fix: the adopted payload contains exactly the ExpensePayload fields -- the
+    // snapshot's server bookkeeping keys (id/version) must never leak into the payload object.
+    expect(row.payload).toEqual({ ...payload, amountKrw: 55_000, itemName: "다른 기기가 바꾼 이름" });
+    expect(Object.keys(row.payload)).not.toContain("id");
+    expect(Object.keys(row.payload)).not.toContain("version");
     expect(await store.listOutboxMutationsForLocalId(synced.localId)).toHaveLength(0);
+  });
+
+  it("REGRESSION (bug 3): a delete the server contested stays visible in the records view and monthly total as a conflict row -- it must not vanish while the server row is live", async () => {
+    const synced = await seedSyncedExpense(store);
+    await recordLocalDelete(store, synced.localId);
+    const serverCurrent = liveServerSnapshot(synced.canonicalId!, 7, { amountKrw: 55_000 });
+    await flushOutbox(store, createRecordingRemote({ failDelete: () => new RemoteVersionConflictError(serverCurrent) }).remote);
+    const row = (await store.getLocalExpense(synced.localId))!;
+    expect(row.syncState).toBe("conflict");
+    expect(row.pendingDelete).toBe(true);
+
+    // The refetched server list still contains the live row the delete lost against (v7).
+    const serverList = [{ id: synced.canonicalId!, amountKrw: 55_000, expenseType: "expense" }];
+    const view = reconcileMonthlyExpenses(serverList, [row], "2026-07");
+
+    // Exactly once, as the conflict row: the stale server row is hidden (as for every other
+    // conflicted mutation) and the local conflict row carries the expense -- previously BOTH
+    // were dropped and the contested expense disappeared from list and total entirely.
+    expect(view.visibleServerExpenses).toHaveLength(0);
+    expect(view.offlinePendingRows).toHaveLength(1);
+    expect(view.offlinePendingRows[0].syncState).toBe("conflict");
+    expect(view.offlinePendingRows[0].pendingDelete).toBe(true);
+    // Counted the way every other conflict row is counted: by its local payload amount.
+    expect(view.monthlyTotalKrw).toBe(10_000);
   });
 
   it("delete-conflict + reapply-mine re-queues the DELETE gated on the server's version, and the next flush sends it with a fresh idempotency key", async () => {
@@ -277,14 +343,20 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     expect(await store.listOutboxMutations()).toHaveLength(0);
   });
 
-  it("재시도 on a failed delete re-arms it (backoff cleared, SAME idempotency key re-sent); DOCUMENTED: a row truly gone server-side 404s again on every retry until discarded", async () => {
+  it("재시도 on a failed delete re-arms it (backoff cleared, SAME idempotency key re-sent, attempt counter preserved); a 404 EXPENSE_NOT_FOUND on the retried send then converges as success", async () => {
+    // Seed the 'failed' state with a non-404 permanent error (403 FORBIDDEN stays a genuine
+    // failure) -- since the bug 1 fix, a delete-404 itself no longer produces 'failed'.
     const synced = await seedSyncedExpense(store);
     await recordLocalDelete(store, synced.localId);
-    const { remote, calls } = createRecordingRemote({
-      failDelete: () => new RemotePermanentError(404, "이미 삭제된 기록이에요.")
+    const { remote: forbiddenRemote, calls: firstCalls } = createRecordingRemote({
+      failDelete: () =>
+        new RemotePermanentError(403, "지출 기록 접근 권한이 없어요.", {
+          error: { code: "FORBIDDEN", message: "지출 기록 접근 권한이 없어요." }
+        })
     });
-    await flushOutbox(store, remote);
+    await flushOutbox(store, forbiddenRemote);
     expect((await store.getLocalExpense(synced.localId))!.syncState).toBe("failed");
+    expect(firstCalls).toHaveLength(1);
     const [failedMutation] = await store.listOutboxMutationsForLocalId(synced.localId);
 
     await retryFailedMutation(store, synced.localId);
@@ -299,21 +371,25 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     // Documented: 재시도 resets only the backoff bookkeeping, not the attempt counter.
     expect(rearmed.attemptCount).toBe(1);
 
-    const retrySummary = await flushOutbox(store, remote);
-
-    // Same operation, same idempotency key over the wire -- and the same 404, so the row is
-    // 'failed' again. Because a delete-404 is never treated as success (see the DOCUMENTED
-    // test above), retry can never converge this row; discardFailedMutation is the only exit.
-    expect(retrySummary).toEqual({ synced: 0, failed: 1, conflicted: 0, stoppedForNetwork: false });
-    expect(calls).toHaveLength(2);
-    expect(calls[1]).toEqual({
-      op: "delete",
-      canonicalId: synced.canonicalId!,
-      expectedVersion: 1,
-      idempotencyKey: failedMutation.idempotencyKey
+    // The retried send finds the row already gone server-side (e.g. deleted from another
+    // device in the meantime): same operation, same idempotency key over the wire -- and the
+    // 404 converges the row instead of re-entering the old permanent 404 loop.
+    const { remote: goneRemote, calls: retryCalls } = createRecordingRemote({
+      failDelete: () => expenseNotFoundError()
     });
-    expect((await store.getLocalExpense(synced.localId))!.syncState).toBe("failed");
-    expect((await store.listOutboxMutationsForLocalId(synced.localId))[0].attemptCount).toBe(2);
+    const retrySummary = await flushOutbox(store, goneRemote);
+
+    expect(retrySummary).toEqual({ synced: 1, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(retryCalls).toEqual([
+      {
+        op: "delete",
+        canonicalId: synced.canonicalId!,
+        expectedVersion: 1,
+        idempotencyKey: failedMutation.idempotencyKey
+      }
+    ]);
+    expect(await store.getLocalExpense(synced.localId)).toBeNull();
+    expect(await store.listOutboxMutations()).toHaveLength(0);
   });
 
   it("a 409 on delete whose server snapshot is null (nothing to adopt or reapply against) routes to 'failed' instead of an unresolvable 'conflict'", async () => {
