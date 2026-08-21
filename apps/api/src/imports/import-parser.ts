@@ -85,7 +85,7 @@ export async function parseImportFile(
 
   const header = detectHeaderColumns(grid[0]);
   const dataRows = header ? grid.slice(1) : grid;
-  const columns = header ?? inferColumns(dataRows.slice(0, Math.min(5, dataRows.length)));
+  const columns = header ?? inferColumns(dataRows.slice(0, Math.min(5, dataRows.length)), referenceYear);
 
   const nonBlankRows = dataRows.filter((cells) => cells.some((cell) => cell.trim() !== ""));
 
@@ -303,24 +303,56 @@ function detectHeaderColumns(headerRow: string[]): ColumnMap | null {
   };
 }
 
-function inferColumns(sampleRows: string[][]): ColumnMap {
+/** 전형적 금액대 하한: 실제 은행/가계부 내보내기의 KRW 금액은 최소 수백 원대. */
+const TYPICAL_AMOUNT_MEDIAN_MIN = 100;
+
+type AmountCandidate = {
+  col: number;
+  hits: number;
+  /** 중앙값이 전형적 금액대(≥100)인지 — 수량열(1~9)과 금액열 구분의 1차 신호. */
+  typicalMagnitude: boolean;
+  /** 파싱된 값들의 자릿수 종류 수 — 실제 금액은 자릿수가 다양하고 수량은 균일한 경향. */
+  digitLengthVariety: number;
+};
+
+/**
+ * FIX-IMPORT-INFER(관찰 1): hits만으로는 수량열(1~3 등)과 실제 금액열을 구분할 수
+ * 없다(둘 다 전 행에서 금액으로 파싱됨). hits가 동률이거나 유사(±1 — 환불/공란
+ * 한 행 차이)하면 열 위치 대신 값의 모양으로 타이브레이크한다:
+ * 중앙값 크기(전형적 금액대 ≥ 100) 우선, 다음으로 자릿수 다양성.
+ * hits 차이가 1을 넘으면 종전대로 hits가 많은 쪽이 이긴다.
+ */
+function isBetterAmountCandidate(candidate: AmountCandidate, best: AmountCandidate): boolean {
+  if (Math.abs(candidate.hits - best.hits) > 1) return candidate.hits > best.hits;
+  if (candidate.typicalMagnitude !== best.typicalMagnitude) return candidate.typicalMagnitude;
+  if (candidate.digitLengthVariety !== best.digitLengthVariety) {
+    return candidate.digitLengthVariety > best.digitLengthVariety;
+  }
+  // 모양까지 같으면 hits가 많은 쪽, 그것도 같으면 기존 후보(왼쪽 열) 유지.
+  return candidate.hits > best.hits;
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function inferColumns(sampleRows: string[][], referenceYear: number): ColumnMap {
   const colCount = sampleRows.reduce((max, row) => Math.max(max, row.length), 0);
   let dateIdx = -1;
-  let amountIdx = -1;
   let bestDateHits = 0;
-  let bestAmountHits = 0;
-  const referenceYear = new Date().getUTCFullYear();
 
   for (let col = 0; col < colCount; col++) {
     let dateHits = 0;
-    let amountHits = 0;
     let nonEmpty = 0;
     for (const row of sampleRows) {
       const cell = (row[col] ?? "").trim();
       if (!cell) continue;
       nonEmpty++;
+      // FIX-IMPORT-INFER(관찰 3): 감지도 파싱과 동일한 referenceYear를 사용
+      // (기본값은 parseImportFile에서 현재 연도로 동일하게 채워짐).
       if (parseDateToIso(cell, referenceYear)) dateHits++;
-      if (parseAmount(cell) !== null) amountHits++;
     }
     if (nonEmpty === 0) continue;
     if (dateHits / nonEmpty > 0.5 && dateHits > bestDateHits) {
@@ -329,22 +361,30 @@ function inferColumns(sampleRows: string[][]): ColumnMap {
     }
   }
 
+  let bestAmount: AmountCandidate | null = null;
   for (let col = 0; col < colCount; col++) {
     if (col === dateIdx) continue;
-    let amountHits = 0;
+    const values: number[] = [];
     let nonEmpty = 0;
     for (const row of sampleRows) {
       const cell = (row[col] ?? "").trim();
       if (!cell) continue;
       nonEmpty++;
-      if (parseAmount(cell) !== null) amountHits++;
+      const amount = parseAmount(cell);
+      if (amount !== null) values.push(amount);
     }
-    if (nonEmpty === 0) continue;
-    if (amountHits / nonEmpty > 0.5 && amountHits > bestAmountHits) {
-      bestAmountHits = amountHits;
-      amountIdx = col;
+    if (nonEmpty === 0 || values.length / nonEmpty <= 0.5) continue;
+    const candidate: AmountCandidate = {
+      col,
+      hits: values.length,
+      typicalMagnitude: median(values) >= TYPICAL_AMOUNT_MEDIAN_MIN,
+      digitLengthVariety: new Set(values.map((value) => String(value).length)).size
+    };
+    if (bestAmount === null || isBetterAmountCandidate(candidate, bestAmount)) {
+      bestAmount = candidate;
     }
   }
+  const amountIdx = bestAmount?.col ?? -1;
 
   const remaining = Array.from({ length: colCount }, (_, i) => i).filter((i) => i !== dateIdx && i !== amountIdx);
   const itemIdx = remaining[0] ?? -1;
