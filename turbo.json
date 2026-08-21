@@ -5,6 +5,10 @@
       "dependsOn": ["^build"],
       "outputs": []
     },
+    "admin#build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**"]
+    },
     "lint": {
       "dependsOn": ["^lint"]
     },

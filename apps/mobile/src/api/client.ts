@@ -524,6 +524,48 @@ export function createChild(
   });
 }
 
+/**
+ * MOB-118: one child of `GET /children` -- hand-declared mirror of
+ * OnboardingStoreService.toChildDto (apps/api/src/onboarding/onboarding-store.service.ts),
+ * following the same local-declaration convention as Expense/Budget/CategoryListItem above.
+ * `currentStage`/`stageLabel` are server-computed from the dates, which is why editing a
+ * birth/due date must invalidate every child-scoped query (stage drives 준비템/추천/리포트).
+ */
+export type Child = {
+  id: string;
+  householdId: string;
+  nickname: string;
+  stageMode: "pregnant" | "born" | "manual";
+  dueDate: string | null;
+  birthDate: string | null;
+  manualStage: ChildStageCode | null;
+  currentStage: string;
+  stageLabel: string;
+};
+
+export function listChildren(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listChildren());
+  return requestJson<{ children: Child[] }>("/children", { token });
+}
+
+/**
+ * MOB-118: PATCH /children/:childId body -- mirror of the server's UpdateChildDto
+ * (apps/api/src/onboarding/dto/child.dto.ts). `stageMode` is intentionally absent: the DTO
+ * whitelist does not accept it (forbidNonWhitelisted rejects extras), so a child's stage mode
+ * is fixed at creation and edits are validated against it server-side (normalizeChildInput).
+ */
+export type UpdateChildBody = {
+  nickname?: string;
+  dueDate?: string;
+  birthDate?: string;
+  manualStage?: ChildStageCode;
+};
+
+export function updateChild(token: string, childId: string, body: UpdateChildBody) {
+  if (isLocalToken(token)) return local(() => localBackend.updateChild(childId, body));
+  return requestJson<Child>(`/children/${childId}`, { method: "PATCH", token, body });
+}
+
 export function setPreparedItems(token: string, childId: string, itemTemplateIds: string[]) {
   if (isLocalToken(token)) return local(() => localBackend.setPreparedItems(childId, itemTemplateIds));
   return requestJson<{ updatedCount: number }>(`/children/${childId}/prepared-items`, {

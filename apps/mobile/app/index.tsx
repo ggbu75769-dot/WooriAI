@@ -1,14 +1,20 @@
 import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
-import { Platform } from "react-native";
+import { Platform, Text, View } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../src/analytics/client";
 import { getOnboardingProgress } from "../src/api/client";
 import { ensureLocalBackendSeeded } from "../src/api/local-backend";
 import { LOCAL_CHILD_ID } from "../src/api/local-fixtures";
+import {
+  shouldAttemptSelectedChildRecovery,
+  useSelectedChildRecovery
+} from "../src/onboarding/selected-child-recovery";
 import { useOnboardingProgressStore } from "../src/stores/onboarding-progress.store";
 import { useOnboardingResumeStore } from "../src/stores/onboarding-resume.store";
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
+import { theme } from "../src/theme";
+import { AppScreen, Card, SecondaryButton } from "../src/ui";
 
 declare const __DEV__: boolean;
 
@@ -52,6 +58,7 @@ export default function IndexScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const hasReachedHome = useOnboardingProgressStore((state) => state.hasReachedHome);
   const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
+  const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
   const setResumeProgress = useOnboardingResumeStore((state) => state.setProgress);
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
@@ -155,6 +162,20 @@ export default function IndexScreen() {
     setSelectedChildId(LOCAL_CHILD_ID);
   }, [hydrated, isTestSession, selectedChildId, setSelectedChildId]);
 
+  /**
+   * MOB-116: same lost-selectedChildId hole for a REAL session. hasReachedHome lives in a
+   * separate persisted store, so a missing/corrupt `wooriai-selected-child` blob leaves
+   * hasReachedHome=true while selectedChildId is null -- the /(tabs) redirect below would then
+   * pin every screen's `Boolean(authToken && childId)` gate false forever (logged-out preview
+   * data, unrecoverable short of reinstalling). There is no fixture id to fall back to here, so
+   * the hook re-derives the child from GET /onboarding/status (the ONB-006 resume precedent);
+   * an account with no server-side child instead resets local onboarding progress so the
+   * ordinary MOB-101 flow routes back through onboarding. See
+   * src/onboarding/selected-child-recovery.ts.
+   */
+  const childRecoveryInput = { hydrated, isTestSession, accessToken, hasReachedHome, selectedChildId };
+  const childRecovery = useSelectedChildRecovery(childRecoveryInput, { setSelectedChildId, resetOnboarding });
+
   if (process.env.EXPO_PUBLIC_PIXEL_LOCK === "1") {
     return <Redirect href="/pixel-lock?screen=HOME-001" />;
   }
@@ -165,6 +186,29 @@ export default function IndexScreen() {
 
   if (!accessToken && !isTestSession) {
     return <Redirect href="/launch-animation" />;
+  }
+
+  // MOB-116: while the real-session child recovery above is still needed, hold the /(tabs)
+  // redirect. Both success outcomes flip this condition off by themselves (recovered sets
+  // selectedChildId; no-child clears hasReachedHome), so only the in-flight and error states
+  // ever render here -- and the hook's internal timeout valve guarantees the in-flight null
+  // cannot outlive the grace period, so no infinite spinner/blank is possible.
+  if (shouldAttemptSelectedChildRecovery(childRecoveryInput)) {
+    if (childRecovery.status === "error") {
+      return (
+        <AppScreen>
+          <View testID="screen-child-recovery-error" style={{ gap: theme.spacing.section }}>
+            <Card style={{ gap: 10 }}>
+              <Text style={{ color: theme.colors.danger }}>
+                아이 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.
+              </Text>
+              <SecondaryButton label="다시 시도" onPress={childRecovery.retry} />
+            </Card>
+          </View>
+        </AppScreen>
+      );
+    }
+    return null;
   }
 
   if (!isTestSession && !hasReachedHome) {

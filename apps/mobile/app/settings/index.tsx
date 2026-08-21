@@ -55,6 +55,13 @@ export default function SettingsScreen() {
           subtitle="아이 정보와 가구 구성을 확인해요"
           onPress={() => router.push("/family")}
         />
+        {/* MOB-118: 아이 목록 · 전환 · 편집 · 추가 (SET-005) */}
+        <ListRow
+          icon="✎"
+          title="아이 관리"
+          subtitle="아이를 전환하거나 정보를 수정해요"
+          onPress={() => router.push("/settings/children")}
+        />
         <ListRow
           icon="₩"
           title="예산 수정"

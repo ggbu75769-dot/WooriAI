@@ -22,6 +22,7 @@ import {
   StatusBadge,
   Toast
 } from "../../src/ui";
+import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 import { ProductDetailPixelStyles } from "../../src/pixelLock/styles/ProductDetailPixelStyles";
 
@@ -242,9 +243,17 @@ export default function ItemDetailScreen() {
   const hasSession = Boolean(authToken && childId && itemTemplateId);
 
   if (hasSession && (detail.isLoading || !detail.data)) {
+    // MOB-119 (UX-5B-5 후속, D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
+    // 히어로/상품정보 카드 2장 + 구매 링크 비교 행 실루엣으로 본 화면 형태를 따라간다.
     return (
       <AppScreen>
-        <EmptyStateCard title="상품 정보를 불러오고 있어요." actionLabel="잠시만요" />
+        <View style={{ gap: theme.spacing.section }}>
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </View>
       </AppScreen>
     );
   }

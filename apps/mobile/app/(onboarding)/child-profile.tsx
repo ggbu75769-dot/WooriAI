@@ -2,50 +2,18 @@ import { useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
-import { CHILD_STAGE_CODES, type ChildStageCode, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
+import { CHILD_STAGE_CODES, type ChildStageCode } from "@wooriai/domain";
 import { createChild, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+// MOB-118: the date guard (isFutureSeoulDate/isValidCalendarDate wiring), stage labels, and
+// date-field label moved verbatim to src/children/child-form.ts so the settings 아이 관리
+// screen's edit/add forms reuse exactly this screen's validation -- see that module.
+import { CHILD_STAGE_LABELS, computeDateError, dateFieldLabel } from "../../src/children/child-form";
 import { OnboardingSaveErrorCard, OnboardingStepProgress } from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, CategoryChip, PrimaryButton, ScreenHeader } from "../../src/ui";
 import { theme } from "../../src/theme";
-
-const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
-
-// Domain's stage.ts defines an equivalent MANUAL_STAGE_LABELS map but does not export it from
-// the package entrypoint, so this screen defines its own Korean label mapping to reuse the
-// domain's ChildStageCode values as the manual-selection chip list.
-const CHILD_STAGE_LABELS: Record<ChildStageCode, string> = {
-  pregnancy_early: "임신 초기",
-  pregnancy_mid: "임신 중기",
-  pregnancy_late: "임신 후기",
-  newborn_0_3: "신생아 (0-3개월)",
-  infant_4_6: "영아 (4-6개월)",
-  infant_7_12: "영아 (7-12개월)",
-  toddler_1_3: "유아 (1-3세)",
-  kid_4_7: "유아 (4-7세)",
-  elementary: "초등학생",
-  middle_school: "중학생"
-};
-
-function dateFieldLabel(stageMode: string | null) {
-  if (stageMode === "pregnant") return "출산 예정일 (선택)";
-  if (stageMode === "born") return "출생일 (선택)";
-  return null;
-}
-
-// Birth dates (stageMode "born") must not be in the future -- a due date (stageMode "pregnant")
-// is expected to be in the future and is allowed to be in the past too (the parent may already
-// have given birth), so only the calendar-validity check applies there.
-function computeDateError(stageMode: string | null, rawValue: string): string | null {
-  const trimmed = rawValue.trim();
-  if (trimmed.length === 0) return null;
-  if (!isoDatePattern.test(trimmed)) return "날짜는 YYYY-MM-DD 형식으로 입력해 주세요.";
-  if (!isValidCalendarDate(trimmed)) return "실제 존재하는 날짜인지 확인해 주세요.";
-  if (stageMode === "born" && isFutureSeoulDate(trimmed)) return "출생일은 오늘보다 미래일 수 없어요.";
-  return null;
-}
 
 export default function ChildProfileScreen() {
   const [nickname, setNickname] = useState("튼튼이");

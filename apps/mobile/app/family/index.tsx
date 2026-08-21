@@ -13,6 +13,7 @@ import {
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
+import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { FamilyPixelStyles } from "../../src/pixelLock/styles";
 
 const previewMembers = [
@@ -83,9 +84,16 @@ export default function FamilyScreen() {
   });
 
   if (hasSession && (members.isLoading || !members.data)) {
+    // MOB-119 (UX-5B-5 후속, D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
+    // 가족계정 카드 1장 + 멤버 행 실루엣으로 본 화면 형태를 따라간다.
     return (
       <AppScreen>
-        <EmptyStateCard title="가족 정보를 불러오고 있어요." actionLabel="잠시만요" />
+        <View style={{ gap: theme.spacing.section }}>
+          <SkeletonCard />
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </View>
       </AppScreen>
     );
   }

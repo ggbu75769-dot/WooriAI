@@ -13,6 +13,11 @@ const childProfileSource = readFileSync(
   join(mobileRoot, "app/(onboarding)/child-profile.tsx"),
   "utf8"
 );
+// MOB-118: the date guard (computeDateError) and the stage label map moved verbatim from the
+// ONB-002 screen into src/children/child-form.ts so the settings 아이 관리 forms share them.
+// The audit contracts below now check the shared module for the moved logic, plus that the
+// screen still imports and wires it (rather than growing a divergent local copy back).
+const childFormSource = readFileSync(join(mobileRoot, "src/children/child-form.ts"), "utf8");
 
 describe("ONB-002 manual stage selection (audit fix: was hardcoded to infant_4_6)", () => {
   it("no longer hardcodes manualStage to a fixed stage code", () => {
@@ -31,21 +36,27 @@ describe("ONB-002 manual stage selection (audit fix: was hardcoded to infant_4_6
     expect(childProfileSource).toContain("!manualStageError");
   });
 
-  it("defines a Korean label for every domain ChildStageCode", () => {
+  it("defines a Korean label for every domain ChildStageCode (shared child-form module)", () => {
     for (const code of CHILD_STAGE_CODES) {
-      expect(childProfileSource).toContain(code);
+      expect(childFormSource).toContain(code);
     }
     // Spot-check the example label style called for in the audit ("신생아 (0-3개월)").
-    expect(childProfileSource).toContain("신생아 (0-3개월)");
+    expect(childFormSource).toContain("신생아 (0-3개월)");
+    // The ONB-002 screen renders the shared map rather than a local copy.
+    expect(childProfileSource).toContain("CHILD_STAGE_LABELS");
+    expect(childProfileSource).toContain('from "../../src/children/child-form"');
   });
 });
 
 describe("ONB-002 birth date must reject future dates (audit fix: only format was checked)", () => {
-  it("wires isFutureSeoulDate and isValidCalendarDate from @wooriai/domain into the date guard", () => {
-    expect(childProfileSource).toContain("isFutureSeoulDate");
-    expect(childProfileSource).toContain("isValidCalendarDate");
-    expect(childProfileSource).toContain('stageMode === "born" && isFutureSeoulDate(trimmed)');
-    expect(childProfileSource).toContain("출생일은 오늘보다 미래일 수 없어요.");
+  it("wires isFutureSeoulDate and isValidCalendarDate from @wooriai/domain into the shared date guard", () => {
+    expect(childFormSource).toContain("isFutureSeoulDate");
+    expect(childFormSource).toContain("isValidCalendarDate");
+    expect(childFormSource).toContain('stageMode === "born" && isFutureSeoulDate(trimmed)');
+    expect(childFormSource).toContain("출생일은 오늘보다 미래일 수 없어요.");
+    // The ONB-002 screen still runs this guard (imported, not reimplemented).
+    expect(childProfileSource).toContain("computeDateError");
+    expect(childProfileSource).not.toContain("function computeDateError");
   });
 
   it("(domain contract) isFutureSeoulDate flags a birth date in the future", () => {
@@ -67,6 +78,6 @@ describe("ONB-002 birth date must reject future dates (audit fix: only format wa
     // The guard function only calls isFutureSeoulDate when stageMode === "born"; pregnant mode
     // falls through to the calendar-validity check only, so a past due date is accepted.
     const bornModeGuardOnly = /stageMode === "born" && isFutureSeoulDate/;
-    expect(bornModeGuardOnly.test(childProfileSource)).toBe(true);
+    expect(bornModeGuardOnly.test(childFormSource)).toBe(true);
   });
 });

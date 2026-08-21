@@ -62,11 +62,15 @@ function ensurePixelLockWebStyles() {
   document.head.appendChild(style);
 }
 
-export function AppScreen({ children }: ChildrenProps) {
+// MOB-117: optional pass-through so screens can attach pull-to-refresh without restructuring
+// away from AppScreen (records.tsx is the exception -- its screen scroller is a FlatList per
+// PERF-102, so it takes the same element via the FlatList refreshControl prop instead).
+export function AppScreen({ children, refreshControl }: ChildrenProps & { refreshControl?: React.ReactElement }) {
   ensurePixelLockWebStyles();
 
   return (
     <ScrollView
+      refreshControl={refreshControl}
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
       style={[{ backgroundColor: theme.colors.background, flex: 1 }, webScrollHiddenStyle]}

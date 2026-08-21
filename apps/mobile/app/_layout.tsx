@@ -4,9 +4,29 @@ import { LOCAL_SESSION_TOKEN } from "../src/api/client";
 import { PurchaseFollowupLifecycle } from "../src/commerce/PurchaseFollowupPrompt";
 import { ErrorBoundary } from "../src/errors/ErrorBoundary";
 import { useOfflineSyncLifecycle } from "../src/offline/sync-controller";
+import { installAppQueryRefetchWiring } from "../src/query/install-app-refetch";
 import { useSessionStore } from "../src/stores/session.store";
 
-const queryClient = new QueryClient();
+// MOB-117: react-query의 기본 focus/online 리스너는 웹 전용(window focus/online 이벤트)이라
+// 네이티브에서는 포그라운드 복귀·네트워크 복구 시 재조회가 전혀 없었다. focusManager를
+// AppState("active" 전환)에, onlineManager를 기존 오프라인 connectivity 폴링 관례에 연결한다
+// (src/query/install-app-refetch.ts -- 멱등이라 모듈 스코프 1회 호출로 충분하고, ErrorBoundary
+// 리마운트에도 중복 설치되지 않는다).
+installAppQueryRefetchWiring();
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // MOB-117 보수적 기본값: staleTime 기본값 0이면 위 포커스 연결 이후 짧은 앱 전환(알림
+      // 확인, 공유 시트 등)마다 모든 활성 쿼리가 통째로 재조회돼 배터리/트래픽 폭주 위험이
+      // 있다. 30초면 "복귀하면 최신"이라는 체감은 유지하면서 연속 전환 폭주만 막는다. 기존
+      // 동작 영향 최소화 근거: invalidateQueries(뮤테이션 후 갱신, 오프라인 flush, 당겨서
+      // 새로고침)는 staleTime과 무관하게 즉시 refetch하고, 마운트 시 최초 조회도 그대로다.
+      // 그 외 기본값(gcTime, retry, refetchOnWindowFocus/Reconnect 등)은 건드리지 않는다.
+      staleTime: 30_000
+    }
+  }
+});
 
 /**
  * MOB-102 (round5a-sprint1-plan.md §3.2 point 4): mounted once at the app root so the offline

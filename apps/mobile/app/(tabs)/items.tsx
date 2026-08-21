@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Image, Platform, Text, View, type ImageSourcePropType } from "react-native";
+import { Image, Platform, RefreshControl, Text, View, type ImageSourcePropType } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildItemStatusChangedPayload } from "../../src/analytics/events";
 import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton } from "../../src/ui";
@@ -177,6 +178,15 @@ export default function ItemsScreen() {
   });
   const hasSession = Boolean(authToken && childId);
 
+  // MOB-117 당겨서 새로고침: ["items"] 접두어 invalidate로 현재 상태 탭 목록 + ITEM-114
+  // 준비율 스냅샷을 함께 갱신하고, 기본 시기 칩이 읽는 ["home"] 캐시도 갱신한다.
+  const { refreshing, onRefresh } = usePullToRefresh(() =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["items"] }),
+      queryClient.invalidateQueries({ queryKey: ["home"] })
+    ])
+  );
+
   if (hasSession && (items.isLoading || !items.data)) {
     // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     return (
@@ -217,7 +227,19 @@ export default function ItemsScreen() {
       : null;
 
   return (
-    <AppScreen>
+    <AppScreen
+      refreshControl={
+        // 비세션 미리보기(previewItems)에는 새로고침할 서버 데이터가 없으므로 붙이지 않는다 (MOB-117).
+        hasSession ? (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.mainCoral}
+            colors={[theme.colors.mainCoral]}
+          />
+        ) : undefined
+      }
+    >
       <View style={recommendationPixelScaleFrameStyle()}>
         <View testID={recommendationScreenId} style={recommendationPixelFrameStyle}>
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>

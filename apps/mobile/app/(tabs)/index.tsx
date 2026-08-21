@@ -1,11 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import { formatKrw } from "../../src/money";
 import { NotificationBell } from "../../src/notifications/NotificationBell";
 import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
+import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -206,6 +207,19 @@ export default function HomeScreen() {
   // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
   // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.
   useHomeNotificationEvaluation(hasSession ? home.data : undefined);
+  // MOB-117 당겨서 새로고침: 홈 요약·최근 지출은 모두 ["home"] 쿼리에서 나온다. invalidate는
+  // 활성 쿼리 refetch 완료까지 resolve되므로 스피너가 실제 완료에 맞춰 닫힌다.
+  const queryClient = useQueryClient();
+  const { refreshing, onRefresh } = usePullToRefresh(() => queryClient.invalidateQueries({ queryKey: ["home"] }));
+  // 세션 없는 미리보기에는 새로고침할 서버 데이터가 없으므로 RefreshControl을 붙이지 않는다.
+  const refreshControl = hasSession ? (
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      tintColor={theme.colors.mainCoral}
+      colors={[theme.colors.mainCoral]}
+    />
+  ) : undefined;
 
   if (hasSession && (home.isLoading || !home.data)) {
     // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
@@ -260,7 +274,7 @@ export default function HomeScreen() {
     : "이번 달도 잘 관리하고 있어요 👏";
   // NOTI-102: 알림 센터가 실제 기능이 되어 UX-5B-8에서 숨겼던 홈 알림 벨을 미확인 배지와 함께 복원.
   return (
-    <AppScreen>
+    <AppScreen refreshControl={refreshControl}>
       <View testID="pixel-screen-HOME-001" style={homePixelScaleFrameStyle()}>
         <View style={homePixelFrameStyle()}>
           <ScreenHeader
@@ -346,16 +360,26 @@ export default function HomeScreen() {
               </Pressable>
             }
           />
-          {visibleHome.recentExpenses.slice(0, 3).map((expense) => (
-            <ListRow
-              key={expense.id}
-              icon="▣"
-              title={expense.itemName}
-              subtitle={expense.spentOn}
-              value={formatKrw(expense.amountKrw)}
-              onPress={() => router.push(`/expenses/${expense.id}`)}
+          {visibleHome.recentExpenses.length === 0 ? (
+            // MOB-117 홈 최근 지출 빈 상태: 기록 탭(records.tsx)의 첫-기록 빈 상태 문구와 톤
+            // 일치. 비세션 미리보기(previewHome)는 항상 3건이라 이 분기에 도달하지 않는다.
+            <EmptyStateCard
+              title="첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
+              actionLabel="기록하기"
+              onPress={() => router.push("/expenses/new")}
             />
-          ))}
+          ) : (
+            visibleHome.recentExpenses.slice(0, 3).map((expense) => (
+              <ListRow
+                key={expense.id}
+                icon="▣"
+                title={expense.itemName}
+                subtitle={expense.spentOn}
+                value={formatKrw(expense.amountKrw)}
+                onPress={() => router.push(`/expenses/${expense.id}`)}
+              />
+            ))
+          )}
 
           <FloatingActionButton onPress={() => router.push("/expenses/new")} />
         </View>
