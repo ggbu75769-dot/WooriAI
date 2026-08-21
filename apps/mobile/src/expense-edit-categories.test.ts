@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listCategories, LOCAL_SESSION_TOKEN } from "./api/client";
 import * as localBackend from "./api/local-backend";
 import { LOCAL_CATEGORY_IMPORT, LOCAL_CHILD_ID, localSeedExpenses } from "./api/local-fixtures";
-import { categoryCatalog } from "./categories";
+import { categoryCatalog, selectableCategories } from "./categories";
 import { createMemoryOfflineStore } from "./offline/memory-offline-store";
 import { flushOutbox, recordLocalCreate, recordLocalUpdate, type RemoteExpenseApi } from "./offline/sync-engine";
 import type { ExpensePayload } from "./offline/types";
@@ -146,6 +146,11 @@ describe("EXP-003 edit screen category/date wiring", () => {
     expect(detailSource).toContain("categoryNameFor(categoryId)");
   });
 
+  it("routes the fetched category list through selectableCategories with the current selection (R20-B)", () => {
+    expect(detailSource).toContain('selectableCategories } from "../../src/categories";');
+    expect(detailSource).toContain("selectableCategories(categories.data?.categories ?? [], categoryId)");
+  });
+
   it("preselects the expense's current category and sends the chosen categoryId + spentOn through the offline outbox update", () => {
     expect(detailSource).toContain("setCategoryId(expense.data.categoryId)");
     expect(detailSource).toContain("selected={chip.id === categoryId}");
@@ -211,5 +216,120 @@ describe("offline outbox passthrough of spentOn/categoryId", () => {
     expect(after?.syncState).toBe("synced");
     expect(after?.payload.spentOn).toBe("2026-06-15");
     expect(after?.payload.categoryId).toBe("cat-after");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R20-B: selectableCategories -- display-only narrowing of the GET /categories list for the
+// edit screen's chip row (import stub dropped, exact-name duplicates collapsed, current kept).
+// ---------------------------------------------------------------------------
+
+describe("selectableCategories", () => {
+  type Row = { id: string; code: string; name: string; displayOrder: number };
+
+  // Shape of the real seed (apps/api/prisma/seed-data.ts): 12 canonical + 8 mobile aliases + the
+  // import stub, in displayOrder order -- exactly what GET /categories returns today.
+  const serverRows: Row[] = [
+    { id: "s-01", code: "pregnancy_mother", name: "임신/산모", displayOrder: 10 },
+    { id: "s-02", code: "hospital_checkup", name: "병원/검사", displayOrder: 20 },
+    { id: "s-03", code: "birth_postpartum", name: "출산/조리원", displayOrder: 30 },
+    { id: "s-04", code: "diaper_hygiene", name: "기저귀/위생", displayOrder: 40 },
+    { id: "s-05", code: "feeding_babyfood", name: "수유/이유식", displayOrder: 50 },
+    { id: "s-06", code: "clothes_laundry", name: "의류/세탁", displayOrder: 60 },
+    { id: "s-07", code: "sleep_furniture", name: "수면/가구", displayOrder: 70 },
+    { id: "s-08", code: "outing_mobility", name: "외출/이동", displayOrder: 80 },
+    { id: "s-09", code: "toys_books", name: "장난감/책", displayOrder: 90 },
+    { id: "s-10", code: "care_education", name: "돌봄/교육", displayOrder: 100 },
+    { id: "s-11", code: "insurance_savings", name: "보험/저축", displayOrder: 110 },
+    { id: "s-12", code: "etc", name: "기타", displayOrder: 999 },
+    { id: "m-01", code: "mobile_diaper_hygiene", name: "기저귀", displayOrder: 1001 },
+    { id: "m-02", code: "mobile_feeding_dairy", name: "분유/유제품", displayOrder: 1002 },
+    { id: "m-03", code: "mobile_feeding_meal", name: "식비", displayOrder: 1003 },
+    { id: "m-04", code: "mobile_clothes_laundry", name: "의류", displayOrder: 1004 },
+    { id: "m-05", code: "mobile_outing_mobility", name: "약품/교통", displayOrder: 1005 },
+    { id: "m-06", code: "mobile_hospital_checkup", name: "병원/약", displayOrder: 1006 },
+    { id: "m-07", code: "mobile_toys_books", name: "교육/도서", displayOrder: 1007 },
+    { id: "m-08", code: "mobile_etc", name: "기타", displayOrder: 1008 },
+    { id: "i-01", code: "import_stub_default", name: "가져오기 기본", displayOrder: 1009 }
+  ];
+
+  it("drops the excel-import stub row so '가져오기 기본' is never offered as a choice", () => {
+    const result = selectableCategories(serverRows, "");
+    expect(result.map((row) => row.code)).not.toContain("import_stub_default");
+    expect(result.map((row) => row.name)).not.toContain("가져오기 기본");
+  });
+
+  it("collapses exact-name duplicates to one entry, keeping the canonical row over the mobile_ alias", () => {
+    const result = selectableCategories(serverRows, "");
+    const etcRows = result.filter((row) => row.name === "기타");
+    expect(etcRows).toHaveLength(1);
+    expect(etcRows[0].id).toBe("s-12");
+    expect(etcRows[0].code).toBe("etc");
+    // Every remaining display name is unique -- no chip label appears twice.
+    const names = result.map((row) => row.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("preserves input order (displayOrder ascending) and keeps distinct-name rows untouched", () => {
+    const result = selectableCategories(serverRows, "");
+    expect(result.map((row) => row.displayOrder)).toEqual(
+      [...result.map((row) => row.displayOrder)].sort((left, right) => left - right)
+    );
+    // Near-duplicate but differently named pairs are intentionally both kept (see the function's
+    // doc comment): removing one would drop a category the 8-tile quick-input screen writes.
+    expect(result.map((row) => row.name)).toEqual(expect.arrayContaining(["기저귀/위생", "기저귀"]));
+    expect(result.map((row) => row.name)).toEqual(expect.arrayContaining(["수유/이유식", "분유/유제품"]));
+    // Only the two rules above fired: 21 rows - 1 stub - 1 duplicate "기타" = 19.
+    expect(result).toHaveLength(19);
+  });
+
+  it("always keeps the expense's current categoryId, even when it is the alias half of a name duplicate", () => {
+    const result = selectableCategories(serverRows, "m-08");
+    const etcRows = result.filter((row) => row.name === "기타");
+    // The alias wins its own group so the chip stays selectable -- and still only one "기타".
+    expect(etcRows).toHaveLength(1);
+    expect(etcRows[0].id).toBe("m-08");
+    expect(result.some((row) => row.id === "s-12")).toBe(false);
+  });
+
+  it("always keeps the expense's current categoryId, even when it is the import stub", () => {
+    const result = selectableCategories(serverRows, "i-01");
+    const stub = result.find((row) => row.id === "i-01");
+    expect(stub?.name).toBe("가져오기 기본");
+    // Nothing else changes: the stub is the only extra row over the no-selection case.
+    expect(result).toHaveLength(selectableCategories(serverRows, "").length + 1);
+  });
+
+  it("keeps an unrelated current categoryId from changing which duplicate wins", () => {
+    const result = selectableCategories(serverRows, "s-04");
+    expect(result.filter((row) => row.name === "기타")[0].id).toBe("s-12");
+    expect(result.some((row) => row.id === "s-04")).toBe(true);
+  });
+
+  it("returns an empty list for an empty/missing category list instead of inventing chips", () => {
+    expect(selectableCategories([], "s-01")).toEqual([]);
+    expect(selectableCategories(null, "s-01")).toEqual([]);
+    expect(selectableCategories(undefined)).toEqual([]);
+    // A current id that isn't in the list is NOT fabricated -- the screen prepends that chip
+    // itself via categoryNameFor, which keeps this function purely a filter.
+    expect(selectableCategories(serverRows, "not-in-list").some((row) => row.id === "not-in-list")).toBe(false);
+  });
+
+  it("skips malformed entries (missing id or blank name) rather than emitting an unlabeled chip", () => {
+    const rows = [
+      { id: "", code: "etc", name: "기타", displayOrder: 1 },
+      { id: "ok", code: "etc", name: "  ", displayOrder: 2 },
+      { id: "good", code: "diaper_hygiene", name: "기저귀/위생", displayOrder: 3 }
+    ];
+    expect(selectableCategories(rows, "").map((row) => row.id)).toEqual(["good"]);
+  });
+
+  it("also removes the demo-session duplicates the local backend produces (catalog + fixture rows)", () => {
+    const rows = localBackend.listCategories().categories;
+    const result = selectableCategories(rows, "");
+    const names = result.map((row) => row.name);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toContain("기저귀");
+    expect(result.length).toBeLessThan(rows.length);
   });
 });
