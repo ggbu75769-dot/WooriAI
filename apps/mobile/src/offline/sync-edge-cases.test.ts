@@ -34,9 +34,10 @@ import type { ExpensePayload, OfflineStore } from "./types";
  *   §4 커서 손상·과거 커서: corruption recovery *through runDeltaPull* (not just loadSyncCursor),
  *      a mid-pull SYNC_CURSOR_INVALID reset re-applying earlier pages idempotently, and an
  *      ancient-but-decodable cursor being a plain backlog catch-up (never a reset);
- *   §5 시계 역행: a backward device-clock jump parks a backed-off mutation (documented), the
- *      explicit user retry as the manual escape, and a skipped repro of the reconnect-flush
- *      gap (see the BUG note there);
+ *   §5 시계 역행: a small backward device-clock jump (within MAX_DELAY_MS) keeps a backed-off
+ *      mutation parked on its absolute instant (documented), the explicit user retry as the
+ *      manual escape, and the OFF-115 clock-anomaly self-heal for large jumps (formerly a
+ *      skipped BUG repro -- see the note there);
  *   §6 409 폭주 / backoff 상한: repeated version conflicts never grow backoff bookkeeping or
  *      auto-retry (bounded at one request per explicit user action), and the network backoff
  *      delay produced by the ENGINE path is capped at MAX_DELAY_MS;
@@ -469,7 +470,7 @@ describe("TEST-114 §5: backward device-clock jump vs the backoff window", () =>
     vi.useRealTimers();
   });
 
-  it("DOCUMENTED: after a 1h backward jump, a backed-off mutation stays parked (nextRetryAt is compared as an absolute wall-clock instant) and only sends once the clock re-passes it -- with the same idempotency key", async () => {
+  it("DOCUMENTED: after a small backward jump (within MAX_DELAY_MS), a backed-off mutation stays parked (nextRetryAt is compared as an absolute wall-clock instant) and only sends once the clock re-passes it -- with the same idempotency key", async () => {
     await recordLocalCreate(store, payload);
     const { remote, calls } = createRecordingRemote({
       failCreate: (index) => (index === 1 ? networkError() : undefined)
@@ -482,9 +483,12 @@ describe("TEST-114 §5: backward device-clock jump vs the backoff window", () =>
     expect(mutation.nextRetryAt).toBe(new Date(T0.getTime() + BASE_DELAY_MS).toISOString());
     const key = mutation.idempotencyKey;
 
-    // Device clock rolls back one hour. The row is 'pending' (not failed), yet no flush can
-    // send it: the ISO-string comparison keeps it parked for the whole hour + BASE delay.
-    vi.setSystemTime(new Date(T0.getTime() - 60 * 60 * 1000));
+    // Device clock rolls back one minute. The window now sits 62s ahead of the wall clock --
+    // still within MAX_DELAY_MS, so the OFF-115 clock-anomaly rule does NOT fire: the row is
+    // 'pending' (not failed) and stays parked on its absolute instant until the clock re-passes
+    // it. (A jump wide enough to push the window past now + MAX_DELAY_MS self-heals instead --
+    // see the OFF-115 test below.)
+    vi.setSystemTime(new Date(T0.getTime() - 60 * 1000));
     const rolledBackPass = await flushOutbox(store, remote);
     expect(rolledBackPass).toEqual({ synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false });
     expect(calls).toHaveLength(1);
@@ -511,8 +515,10 @@ describe("TEST-114 §5: backward device-clock jump vs the backoff window", () =>
     await flushOutbox(store, remote);
     expect(calls).toHaveLength(1);
 
-    // Clock rolls back a full day; the row would otherwise stay parked ~24h.
-    vi.setSystemTime(new Date(T0.getTime() - 24 * 60 * 60 * 1000));
+    // Clock rolls back one minute -- deliberately WITHIN the MAX_DELAY_MS anomaly threshold, so
+    // the OFF-115 self-heal does not apply and the row would otherwise stay parked ~62s. The
+    // explicit retry is the escape that works regardless of any threshold.
+    vi.setSystemTime(new Date(T0.getTime() - 60 * 1000));
     await retryFailedMutation(store, created.localId);
 
     const summary = await flushOutbox(store, remote);
@@ -522,31 +528,38 @@ describe("TEST-114 §5: backward device-clock jump vs the backoff window", () =>
     expect((await store.getLocalExpense(created.localId))?.syncState).toBe("synced");
   });
 
-  // BUG (TEST-114 관찰, 수정하지 않음 — 재현만): backoff.ts의 설계 주석은 "연결 복구/foreground
-  // 트리거는 next_retry_at와 무관하게 즉시 flush를 발사한다"고 말하지만(그래서 MAX_DELAY_MS
-  // 상한이 "타이머 경로에서만 중요"하다고 결론), connectivity.ts의 onReconnect는 flushOutbox를
-  // 그대로 호출할 뿐이고 flushOutboxPass는 next_retry_at가 미래인 row를 무조건 건너뛴다.
-  // 즉 우회 경로가 실제로는 없다. 평상시엔 지연이 MAX_DELAY_MS(5분)로 상한되어 티가 안 나지만,
-  // 기기 시계가 뒤로 점프하면 next_retry_at가 "미래"에 고정되어 (점프 폭 + 지연)만큼 —
-  // 상한 없이 — 어떤 자동 flush로도 전송되지 않는다. row는 'failed'가 아닌 'pending'이라
-  // 재시도 버튼도 자연스럽게 노출되지 않는다. 아래는 그 기대 동작(재연결 flush가 backoff 창을
-  // 우회해 즉시 전송)을 그대로 옮긴 실패 재현이다.
-  it.skip("BUG repro: a reconnect-triggered flush should bypass the backoff window (backoff.ts's stated design), but a clock-rollback-parked mutation is never sent", async () => {
+  // OFF-115 (TEST-114가 skip 재현으로 고정했던 실버그, 이제 수정됨): backoff.ts의 옛 설계 주석은
+  // "연결 복구/foreground 트리거는 next_retry_at와 무관하게 즉시 flush"라고 말했지만,
+  // connectivity.ts의 onReconnect는 flushOutbox를 그대로 호출할 뿐이고 flushOutboxPass는
+  // next_retry_at가 미래인 row를 건너뛰었다 — 우회 경로가 실제로는 없어서, 기기 시계가 뒤로
+  // 점프하면 next_retry_at가 "미래"에 고정되어 (점프 폭 + 지연)만큼 — 상한 없이 — 어떤 자동
+  // flush로도 전송되지 않았다(row는 'failed'가 아닌 'pending'이라 재시도 버튼도 미노출).
+  // 수정: flushOutboxPass가 `nextRetryAt > now + MAX_DELAY_MS`인 row를 시계 이상으로 간주해
+  // 창을 클램프하고 그 pass에서 바로 전송한다(정상 backoff 창은 절대 now + MAX_DELAY_MS를
+  // 넘을 수 없으므로 오탐 없음 — §6의 상한 평탄화 의미는 그대로). 아래는 그 자가 치유를
+  // 재연결 flush 경로(= 그냥 flushOutbox 호출) 그대로 검증한다.
+  it("OFF-115 fix: a reconnect-triggered flush self-heals a clock-rollback-parked mutation -- a nextRetryAt beyond now + MAX_DELAY_MS is clamped and sent immediately, same idempotency key", async () => {
     await recordLocalCreate(store, payload);
     const { remote, calls } = createRecordingRemote({
       failCreate: (index) => (index === 1 ? networkError() : undefined)
     });
     await flushOutbox(store, remote); // T0: network death, nextRetryAt = T0 + 2s
+    const [parked] = await store.listOutboxMutations();
+    const key = parked.idempotencyKey;
 
-    // Clock rolls back one hour, then connectivity returns: the reconnect trigger is exactly a
-    // flushOutbox call (connectivity.ts wires onReconnect straight to it).
+    // Clock rolls back one hour (window now 1h + 2s ahead of the wall clock -- far beyond
+    // MAX_DELAY_MS), then connectivity returns: the reconnect trigger is exactly a flushOutbox
+    // call (connectivity.ts wires onReconnect straight to it).
     vi.setSystemTime(new Date(T0.getTime() - 60 * 60 * 1000));
     const reconnectFlush = await flushOutbox(store, remote);
 
-    // EXPECTED per backoff.ts's design comment: the reconnect flush sends immediately.
-    // ACTUAL: the pass skips the row (nextRetryAt > now) -- calls stays at 1, synced 0.
+    // The automatic flush detects the impossible window, clamps it, and sends in the same pass
+    // -- with the parked mutation's own idempotency key, so the earlier dead send stays deduped.
     expect(reconnectFlush.synced).toBe(1);
     expect(calls).toHaveLength(2);
+    expect(calls[1].idempotencyKey).toBe(key);
+    expect(await store.listOutboxMutations()).toHaveLength(0);
+    expect((await store.getLocalExpense(parked.targetLocalId))?.syncState).toBe("synced");
   });
 });
 
