@@ -5,14 +5,18 @@
 
 ## 0. 제출 전 선행 조건 (아침에 먼저 확인)
 
-- [ ] **법적 문서 호스팅**: `infra/legal/privacy-policy.html`, `infra/legal/terms-of-service.html`의
-      [대괄호] placeholder(운영 주체명, 지원 이메일, 호스팅 수탁자, 시행일) 전부 교체 후
-      서비스 도메인에 정적 호스팅. HTTPS URL 확보.
-- [ ] **계정 삭제 웹 페이지**: 아직 없음 — `docs/store/data-safety-answers.md` §A 참조.
-      정적 안내 페이지 1장(후속 티켓)을 먼저 올려야 Data Safety의 계정 삭제 URL 입력 가능.
-      **이것이 유일한 제출 블로커.**
+- [ ] **법적 문서 + 지원 사이트 호스팅**: `infra/legal/`(처리방침·약관·계정 삭제 안내)과
+      `infra/site/`(랜딩·FAQ·지원 — SITE-113)의 [대괄호] placeholder(운영 주체명, 지원
+      이메일, 호스팅 수탁자, 시행일) 전부 교체 후 **Cloudflare Pages 무료 플랜에 정적
+      호스팅**. 산출물 합치기·배포 절차·Play Console URL 매핑은 `infra/site/README.md`.
+      HTTPS URL 확보.
+- [ ] **계정 삭제 웹 페이지**: `infra/legal/account-deletion.html`로 준비됨 — 위 호스팅에
+      포함해 배포하면 Data Safety의 계정 삭제 URL(`…/account-deletion.html`) 입력 가능.
+      (코드/문서상 블로커는 해소 — placeholder 교체+배포만 남음. `docs/store/data-safety-answers.md` §A 참조)
 - [ ] 지원 이메일 계정 개설 및 수신 확인.
-- [ ] 릴리즈 AAB(`./gradlew bundleRelease`, release keystore 서명)와 versionCode 확정.
+- [ ] 릴리즈 AAB(`pnpm android:build-aab` — REL-011 원커맨드, keystore env 4종 + 앱 env 4종
+      필요, release keystore 서명 자동 주입)와 versionCode 확정. (env 없이 gradle 직접 실행 금지
+      — debug 서명 AAB는 Play 업로드 거부, `docs/5차/launch-72h-plan.md` §3.2)
 - [ ] 스크린샷·그래픽 자산 완료(`docs/store/play-listing.md` §5–6 체크리스트).
 
 ## 1. 앱 생성 및 스토어 등록 정보
@@ -22,7 +26,8 @@
 - [ ] 스토어 등록정보: `docs/store/play-listing.md`의 짧은/전체 설명 붙여넣기.
 - [ ] 그래픽 자산 업로드(512 아이콘, 1024×500 피처, 스크린샷 4~8장).
 - [ ] 카테고리: 육아(Parenting). 태그 선택.
-- [ ] 연락처 정보(지원 이메일 필수) 입력.
+- [ ] 연락처 정보(지원 이메일 필수) 입력. 지원 URL(선택)은 배포한 `…/support.html`
+      (`infra/site/README.md`의 URL 매핑 표 참고).
 
 ## 2. 앱 콘텐츠(App content) 섹션 — 문항별 답 가이드
 
@@ -60,7 +65,7 @@
 ### 2.6 데이터 안전 (Data safety)
 - [ ] `docs/store/data-safety-answers.md`의 표를 **문항 순서대로 그대로** 입력.
       수집: 예 / 공유: 아니요 / 전송 중 암호화: 예 / 삭제 요청: 예.
-- [ ] 계정 삭제 URL 입력(§0의 선행 조건).
+- [ ] 계정 삭제 URL 입력(§0에서 배포한 `…/account-deletion.html`).
 
 ### 2.7 기타 신고 항목
 - [ ] 뉴스 앱: 아니요 / 코로나19 앱: 아니요 / 정부 앱: 아니요

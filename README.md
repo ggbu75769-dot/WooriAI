@@ -17,7 +17,7 @@ pnpm workspace + turbo 기반 모노레포입니다.
 | `packages/domain` | 공유 도메인 로직 |
 | `packages/config`, `packages/ui`, `packages/test-utils` | 공통 설정 / UI / 테스트 유틸 |
 | `scripts/` | DB 운영(`db.ts`), 릴리즈 게이트, QA, 픽셀 락, 배포 스크립트 |
-| `infra/` | docker compose·Dockerfile(`infra/docker/`), 법무 정적 페이지(`infra/legal/`) |
+| `infra/` | docker compose·Dockerfile(`infra/docker/`), 법무 정적 페이지(`infra/legal/`), 지원 사이트(`infra/site/`) |
 | `docs/` | 기획(1~4차)·라운드5(5차)·QA·스토어·운영 문서. 아래 [문서 지도](#문서-지도) 참고 |
 
 ## 빠른 시작
@@ -50,7 +50,7 @@ ADMIN_API_PROXY_TARGET=http://localhost:3000 pnpm --filter admin dev
 - 패키지별: `pnpm --filter api test`, `pnpm --filter mobile test`, `pnpm --filter admin test` 등 (전체: `pnpm test`)
 - **api 테스트는 실 PostgreSQL 필수** — 기본 DB는 `wooriai_test` (vitest globalSetup이 연결 확인·마이그레이션·시드까지 수행, `DATABASE_URL`로 덮어쓰기 가능)
 - 릴리즈 게이트(설치→env→prisma→lint→typecheck→테스트→빌드 일괄): `pnpm release:gate` — evidence는 `docs/qa/evidence/`에 기록
-- 실서버 스모크: dev 서버 기동 후 `SMOKE_BASE_URL=<베이스> bash scripts/qa/server-smoke.sh` (기본 `http://localhost:3400/api/v1`, `jq` 필요)
+- 실서버 스모크(29검사): dev 서버 기동 후 `SMOKE_BASE_URL=<베이스> bash scripts/qa/server-smoke.sh` (기본 `http://localhost:3400/api/v1`, `jq` 필요)
 - 어드민 브라우저 E2E: `node scripts/qa/admin-e2e.mjs` — 전제조건: API(3400)·어드민(3100) dev 서버 기동, 시드된 dev 어드민 계정(`admin@wooriai.local`), playwright-core + Chromium (자세한 전제는 스크립트 상단 주석)
 
 ## 배포
@@ -58,6 +58,8 @@ ADMIN_API_PROXY_TARGET=http://localhost:3000 pnpm --filter admin dev
 - Oracle Cloud Free Tier: [docs/5차/oracle-free-deploy-runbook.md](docs/5차/oracle-free-deploy-runbook.md) (부트스트랩: `scripts/deploy/oracle-bootstrap.sh`)
 - Day 1 배포(Fly.io 등): [docs/5차/day1-deploy-runbook.md](docs/5차/day1-deploy-runbook.md)
 - 루트 `fly.toml` + `infra/docker/api.Dockerfile`, 운영 compose는 `infra/docker/docker-compose.prod.yml`
+- 정적 지원 사이트(랜딩·FAQ·지원/법무 페이지) Cloudflare Pages 배포: [infra/site/README.md](infra/site/README.md)
+- 운영 헬스 엔드포인트: `GET /api/v1/health/ready`(DB 포함), `/health/worker`(워커 잡 상태), `/health/push`(FCM 푸시 상태 — `PUSH_ENABLED`/`FCM_SERVICE_ACCOUNT_PATH` 미주입 시 `enabled=false` no-op)
 
 ## 문서 지도
 
