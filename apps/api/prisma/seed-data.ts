@@ -1167,7 +1167,7 @@ export const mobileCategoryAliasSeeds: MobileCategoryAliasSeed[] = [
 ];
 
 /**
- * `defaultImportCategoryId` in src/onboarding/onboarding-store.service.ts's Excel
+ * `defaultImportCategoryId` in src/onboarding/import-pipeline.service.ts's Excel
  * import stub-row generator (used until real parsing lands) hardcodes this same id
  * for every stub row. Round 4's "categoryId must exist in categories" validation
  * (see requireExistingCategory) means confirming an import job now needs this id to

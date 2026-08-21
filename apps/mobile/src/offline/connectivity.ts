@@ -27,12 +27,50 @@ export async function isCurrentlyOnline(): Promise<boolean> {
   }
 }
 
+/**
+ * FIX-118A: single source for "the app's AppState changed".
+ *
+ * Two independent consumers need the same native event -- the outbox flush trigger below and
+ * react-query's focusManager (src/query/install-app-refetch.ts, which used to add a second
+ * `AppState.addEventListener` of its own). One native subscription is registered here for the
+ * first listener and removed once the last one unsubscribes, so adding the focus wiring costs
+ * nothing extra natively and both consumers always observe the exact same transitions.
+ *
+ * Listeners are iterated over a copy so a listener that unsubscribes during dispatch cannot
+ * disturb the iteration.
+ */
+type AppStateListener = (status: AppStateStatus) => void;
+
+const appStateListeners = new Set<AppStateListener>();
+let appStateSubscription: { remove: () => void } | null = null;
+
+export function subscribeAppStateChange(listener: AppStateListener): () => void {
+  appStateListeners.add(listener);
+  if (!appStateSubscription) {
+    appStateSubscription = AppState.addEventListener("change", (status: AppStateStatus) => {
+      for (const registered of [...appStateListeners]) {
+        registered(status);
+      }
+    });
+  }
+  return () => {
+    appStateListeners.delete(listener);
+    if (appStateListeners.size === 0) {
+      appStateSubscription?.remove();
+      appStateSubscription = null;
+    }
+  };
+}
+
 export type ConnectivityWatcherHandle = { stop: () => void };
 
 /** Calls `onReconnect` once when connectivity transitions from offline->online (poll-detected),
  * and once every time the app returns to the foreground. Callers (sync-controller.ts) treat
  * every call as "try a flush now" -- flushOutbox is itself idempotent/cheap to call redundantly
- * (it no-ops if the outbox is empty). */
+ * (it no-ops if the outbox is empty).
+ *
+ * Note this poll deliberately drives ONLY the outbox flush; it is never fed to react-query's
+ * onlineManager -- see the FIX-118A note in src/query/app-refetch.ts for why. */
 export function startConnectivityWatcher(onReconnect: () => void): ConnectivityWatcherHandle {
   let lastKnownOnline: boolean | null = null;
 
@@ -45,17 +83,16 @@ export function startConnectivityWatcher(onReconnect: () => void): ConnectivityW
     });
   }, POLL_INTERVAL_MS);
 
-  const handleAppStateChange = (status: AppStateStatus) => {
+  const unsubscribeAppState = subscribeAppStateChange((status) => {
     if (status === "active") {
       onReconnect();
     }
-  };
-  const subscription = AppState.addEventListener("change", handleAppStateChange);
+  });
 
   return {
     stop: () => {
       clearInterval(pollTimer);
-      subscription.remove();
+      unsubscribeAppState();
     }
   };
 }

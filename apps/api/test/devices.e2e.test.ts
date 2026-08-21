@@ -5,6 +5,7 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
+import { DevicesService } from "../src/devices/devices.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 
 async function login(app: INestApplication) {
@@ -238,12 +239,77 @@ describe("Me devices API (NOTI-100)", () => {
       .expect(200);
     expect(strangerDevice.body.id).not.toBe(deviceId);
 
-    // 원래 소유자의 토글 상태는 그대로.
+    // 원래 소유자의 행은 남아 있되(삭제 아님), FIX-118B(F1)에 따라 알림은 꺼진다.
     const owned = await request(app.getHttpServer())
       .get("/api/v1/me/devices")
       .set("Authorization", `Bearer ${ownerToken}`)
       .expect(200);
     const ownerRow = owned.body.devices.find((device: { id: string }) => device.id === deviceId);
-    expect(ownerRow.notificationEnabled).toBe(true);
+    expect(ownerRow).toBeTruthy();
+    expect(ownerRow.notificationEnabled).toBe(false);
+  });
+
+  // FIX-118B(F1): 공유 기기 계정 전환 — 같은 푸시 토큰을 새 사용자가 등록하면
+  // 이전 사용자의 행은 notificationEnabled=false로 내려가야 한다. 그렇지 않으면
+  // 이전 계정의 푸시가 지금 기기를 쓰는 사람에게 배달된다(크로스계정 누수).
+  it("deactivates the same pushToken registered by ANOTHER user (shared-device account switch), and excludes it from push dispatch", async () => {
+    const devicesService = moduleRef.get(DevicesService, { strict: false });
+    const tokenA = await login(app);
+    const tokenB = await login(app);
+    const pushToken = `expo-push-shared-${randomUUID()}`;
+
+    // A가 기기를 등록한다(알림 on).
+    const deviceA = await request(app.getHttpServer())
+      .post("/api/v1/me/devices")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ platform: "android", pushToken, appVersion: "1.0.0" })
+      .expect(200);
+    const deviceAId = deviceA.body.id as string;
+    expect(deviceA.body.notificationEnabled).toBe(true);
+
+    const rowA = await prisma.userDevice.findUniqueOrThrow({ where: { id: deviceAId } });
+    expect((await devicesService.findActivePushDevices([rowA.userId])).map((device) => device.id)).toContain(deviceAId);
+
+    // 같은 기기에서 B로 로그인 → 같은 푸시 토큰으로 등록.
+    const deviceB = await request(app.getHttpServer())
+      .post("/api/v1/me/devices")
+      .set("Authorization", `Bearer ${tokenB}`)
+      .send({ platform: "android", pushToken })
+      .expect(200);
+    const deviceBId = deviceB.body.id as string;
+    expect(deviceBId).not.toBe(deviceAId);
+    expect(deviceB.body.notificationEnabled).toBe(true);
+
+    // A의 행은 지워지지 않고 알림만 꺼진다.
+    const deactivatedA = await prisma.userDevice.findUniqueOrThrow({ where: { id: deviceAId } });
+    expect(deactivatedA.notificationEnabled).toBe(false);
+    expect(deactivatedA.pushToken).toBe(pushToken);
+
+    // 발송 대상 조회(PUSH-113)에서 A는 빠지고 B만 남는다.
+    const rowB = await prisma.userDevice.findUniqueOrThrow({ where: { id: deviceBId } });
+    const dispatchTargets = await devicesService.findActivePushDevices([rowA.userId, rowB.userId]);
+    const targetIds = dispatchTargets.map((device) => device.id);
+    expect(targetIds).not.toContain(deviceAId);
+    expect(targetIds).toContain(deviceBId);
+
+    // A의 다른 기기(다른 토큰)는 영향을 받지 않는다.
+    const otherToken = `expo-push-other-${randomUUID()}`;
+    const otherDevice = await request(app.getHttpServer())
+      .post("/api/v1/me/devices")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ platform: "ios", pushToken: otherToken })
+      .expect(200);
+    const stillTargets = (await devicesService.findActivePushDevices([rowA.userId])).map((device) => device.id);
+    expect(stillTargets).toEqual([otherDevice.body.id]);
+
+    // A가 다시 이 기기를 잡으면(재등록) 알림이 되살아나고 B가 꺼진다 — 대칭 동작.
+    const reclaimed = await request(app.getHttpServer())
+      .post("/api/v1/me/devices")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ platform: "android", pushToken, notificationEnabled: true })
+      .expect(200);
+    expect(reclaimed.body.id).toBe(deviceAId);
+    expect(reclaimed.body.notificationEnabled).toBe(true);
+    expect((await prisma.userDevice.findUniqueOrThrow({ where: { id: deviceBId } })).notificationEnabled).toBe(false);
   });
 });

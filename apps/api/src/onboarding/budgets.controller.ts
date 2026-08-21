@@ -6,7 +6,7 @@ import { JwtAuthGuard } from "../common/guards/auth.guard";
 import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { UpsertBudgetDto } from "./dto/upsert-budget.dto";
-import { OnboardingStoreService } from "./onboarding-store.service";
+import { OnboardingCoreService } from "./onboarding-core.service";
 
 class BudgetQueryDto {
   // REP-105: PUT과 동일하게 YYYY-MM / YYYY-MM-01 모두 허용 (서비스는 월 단위로 정규화).
@@ -19,7 +19,7 @@ class BudgetQueryDto {
 @Controller("children/:childId/budget")
 @UseGuards(JwtAuthGuard)
 export class BudgetsController {
-  constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
+  constructor(@Inject(OnboardingCoreService) private readonly store: OnboardingCoreService) {}
 
   @Get()
   async get(

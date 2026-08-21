@@ -1,12 +1,12 @@
 import { Controller, Get, Inject, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
-import { OnboardingStoreService } from "./onboarding-store.service";
+import { OnboardingCoreService } from "./onboarding-core.service";
 
 @Controller("onboarding")
 @UseGuards(JwtAuthGuard)
 export class OnboardingController {
-  constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
+  constructor(@Inject(OnboardingCoreService) private readonly store: OnboardingCoreService) {}
 
   @Get("status")
   async status(@Req() request: AuthenticatedRequest) {

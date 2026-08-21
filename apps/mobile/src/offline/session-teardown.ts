@@ -1,5 +1,7 @@
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
 import { useNotificationStore } from "../notifications/notification.store";
+import { deactivateRegisteredPushDevice } from "../notifications/usePushDeviceRegistration";
+import { clearAppQueryCache } from "../query/query-client-registry";
 import { clearSyncCursor } from "./delta-sync";
 import { wipeOfflineStore } from "./sync-engine";
 import type { OfflineStore } from "./types";
@@ -50,8 +52,29 @@ export function isSessionIdentityChange(previous: SessionIdentity, next: Session
 }
 
 /**
+ * The outgoing session's credentials, handed in by the caller (sync-controller.ts reads them off
+ * the subscription's `previous` state — by the time teardown runs, the store already holds the
+ * *incoming* session). Only used for best-effort server-side cleanup that must happen while the
+ * leaving account's token is still valid; every step of the teardown works without it.
+ */
+export type SessionTeardownContext = {
+  /** Access token of the session being torn down (or the local test-session token). */
+  authToken: string | null;
+};
+
+/**
  * Wipes every piece of device-local, user-scoped offline state. Steps, in order:
  *
+ *   0. react-query cache clear (FIX-118A / M-3) — user-scoped query keys in this app carry no
+ *      user identifier (`["children"]`, `["my-devices"]`, …), so without this the incoming
+ *      account renders the outgoing account's cached child list / device list for the whole
+ *      30s staleTime window. Synchronous and first, so nothing can re-render stale rows while
+ *      the rest of the teardown is still awaiting. A no-op if app/_layout.tsx never registered
+ *      a client (unit tests) — see src/query/query-client-registry.ts;
+ *   0b. push device deactivation (FIX-118A / M-4, client half) — started here, deliberately NOT
+ *      awaited: it is a best-effort network call under the OUTGOING token, and teardown must
+ *      never be delayed (or failed) by it. Kicked off before the awaits below so it uses the
+ *      token while it is still valid;
  *   1. purchase-followup store reset — synchronous zustand set, effective immediately;
  *   2. `wipeOfflineStore` STARTED (not yet awaited) — this must come before any `await` in this
  *      function because the wipe registers itself in sync-engine.ts's `inFlightWipes` map
@@ -73,7 +96,14 @@ export function isSessionIdentityChange(previous: SessionIdentity, next: Session
  * best-effort stance as every other background offline operation there); the scope-key check in
  * delta-sync.ts's loadSyncCursor remains the last-resort fallback for the cursor specifically.
  */
-export async function teardownOfflineSessionState(store: OfflineStore): Promise<void> {
+export async function teardownOfflineSessionState(
+  store: OfflineStore,
+  context: SessionTeardownContext = { authToken: null }
+): Promise<void> {
+  // Step 0: drop every cached server response of the outgoing account (see doc comment).
+  clearAppQueryCache();
+  // Step 0b: best-effort, fire-and-forget — never awaited, never allowed to reject.
+  void deactivateRegisteredPushDevice(context.authToken);
   usePurchaseFollowupStore.getState().resetAll();
   // NOTI-102: 알림 이력·중복 방지 키·시기 메타도 사용자 단위 상태이므로 함께 초기화한다.
   useNotificationStore.getState().resetAll();

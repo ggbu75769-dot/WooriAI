@@ -11,7 +11,7 @@ import {
   Req,
   UseGuards
 } from "@nestjs/common";
-import type { UserDevice } from "@prisma/client";
+import type { Prisma, UserDevice } from "@prisma/client";
 import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
@@ -67,6 +67,14 @@ function toDeviceResponse(device: UserDevice) {
  * 동시 등록이 경합해 create가 P2002로 지면 승자의 행을 update로 재시도한다
  * (household-runtime.service.ts의 kakao find-or-create와 동일한 패턴).
  * 알림 토글은 본인 소유 기기에만 허용한다.
+ *
+ * FIX-118B(F1): 등록은 "이 푸시 토큰의 물리 기기를 지금 이 사용자가 쥐고 있다"는
+ * 신호이므로, 같은 토큰으로 남아 있던 다른 사용자의 행은 같은 트랜잭션에서
+ * notificationEnabled=false로 내린다(claimPushToken). 공유 기기에서 계정을
+ * 전환했을 때 이전 계정의 푸시가 새 사용자 손에 배달되는 크로스계정 누수를
+ * 막기 위함이다. 행 자체는 지우지 않는다 — 원래 사용자가 그 기기로 돌아와
+ * 다시 등록하면(같은 upsert 경로) 알림이 자연스럽게 되살아난다.
+ * (PUSH-113 deactivatePushDevice와 동일한 "끄되 지우지 않는다" 규약.)
  */
 @Controller("me/devices")
 @UseGuards(JwtAuthGuard)
@@ -91,35 +99,40 @@ export class DevicesController {
     const userId = request.user!.id;
     const existing = await this.findRegistration(userId, body.pushToken);
     if (existing) {
-      return toDeviceResponse(await this.updateRegistration(existing, body));
+      return toDeviceResponse(await this.updateAndClaim(existing, userId, body));
     }
 
     try {
-      const created = await this.prisma.userDevice.create({
-        data: {
-          userId,
-          platform: body.platform,
-          pushToken: body.pushToken,
-          appVersion: body.appVersion,
-          osVersion: body.osVersion,
-          deviceIdHash: body.deviceIdHash,
-          // 신규 등록의 기본값은 on: 앱이 푸시 토큰을 얻었다는 것 자체가 OS 알림
-          // 권한을 이미 허용했다는 뜻이므로, 명시적으로 끄지 않는 한 알림을 켠다.
-          notificationEnabled: body.notificationEnabled ?? true
-        }
+      const created = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.userDevice.create({
+          data: {
+            userId,
+            platform: body.platform,
+            pushToken: body.pushToken,
+            appVersion: body.appVersion,
+            osVersion: body.osVersion,
+            deviceIdHash: body.deviceIdHash,
+            // 신규 등록의 기본값은 on: 앱이 푸시 토큰을 얻었다는 것 자체가 OS 알림
+            // 권한을 이미 허용했다는 뜻이므로, 명시적으로 끄지 않는 한 알림을 켠다.
+            notificationEnabled: body.notificationEnabled ?? true
+          }
+        });
+        await this.claimPushToken(tx, userId, body.pushToken);
+        return row;
       });
       return toDeviceResponse(created);
     } catch (error) {
       if (!isUserDevicePushTokenUniqueViolation(error)) {
         throw error;
       }
-      // 동시 등록 경합에서 진 쪽: 승자가 방금 만든 행을 다시 조회해 갱신한다.
+      // 동시 등록 경합에서 진 쪽: create가 P2002로 지면 트랜잭션 전체가 롤백되므로
+      // (claim 포함) 승자가 방금 만든 행을 다시 조회해 갱신 경로로 재시도한다.
       const winner = await this.findRegistration(userId, body.pushToken);
       if (!winner) {
         // P2002가 났다면 행이 존재해야 정상 — 그 사이 삭제된 극단적 경우만 도달.
         throw error;
       }
-      return toDeviceResponse(await this.updateRegistration(winner, body));
+      return toDeviceResponse(await this.updateAndClaim(winner, userId, body));
     }
   }
 
@@ -130,8 +143,32 @@ export class DevicesController {
     });
   }
 
-  private updateRegistration(existing: UserDevice, body: RegisterDeviceDto) {
-    return this.prisma.userDevice.update({
+  /** 내 행 갱신 + 같은 토큰의 타 사용자 행 비활성화를 한 트랜잭션으로 묶는다. */
+  private updateAndClaim(existing: UserDevice, userId: string, body: RegisterDeviceDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await this.updateRegistration(tx, existing, body);
+      await this.claimPushToken(tx, userId, body.pushToken);
+      return updated;
+    });
+  }
+
+  /**
+   * FIX-118B(F1): 같은 푸시 토큰을 들고 있던 *다른* 사용자의 기기 행을 모두
+   * notificationEnabled=false로 내린다. 기기의 물리 소유가 방금 이 사용자에게
+   * 넘어왔다는 뜻이므로, 이전 사용자의 알림이 이 기기로 계속 배달되면 안 된다
+   * (DevicesService.findActivePushDevices가 notificationEnabled=true만 고르므로
+   * 이 갱신만으로 발송 대상에서 빠진다). 이미 꺼져 있는 행은 건드리지 않아
+   * 불필요한 updatedAt 변경을 만들지 않는다.
+   */
+  private async claimPushToken(tx: Prisma.TransactionClient, userId: string, pushToken: string) {
+    await tx.userDevice.updateMany({
+      where: { pushToken, userId: { not: userId }, notificationEnabled: true },
+      data: { notificationEnabled: false }
+    });
+  }
+
+  private updateRegistration(tx: Prisma.TransactionClient, existing: UserDevice, body: RegisterDeviceDto) {
+    return tx.userDevice.update({
       where: { id: existing.id },
       data: {
         platform: body.platform,

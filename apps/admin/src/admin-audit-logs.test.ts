@@ -106,6 +106,20 @@ describe("Admin API client fetch timeout (ADM-117)", () => {
     expect(api).toContain("요청 시간이 초과됐어요(10초)");
     expect(api).toContain("isTimeoutError");
   });
+
+  // FIX-118C: admin 쓰기에는 서버 멱등키가 없어 10초 상한이 이중 반영 위험을
+  // 만든다. 쓰기만 60초로 완화하고, 재시도 위험을 타입으로 실어 나른다.
+  it("uses a separate 60s bound for non-GET writes with a retry-unsafe flag (FIX-118C)", () => {
+    const api = readSource("src/lib/admin-api.ts");
+    expect(api).toContain("WRITE_FETCH_TIMEOUT_MS = 60_000");
+    expect(api).toContain("timeoutMsForMethod");
+    expect(api).toContain("retryUnsafe");
+    expect(api).toContain("isRetryUnsafeTimeoutError");
+    // 쓰기 타임아웃 문구는 재시도를 권하지 않고 확인을 요구한다.
+    expect(api).toContain("반영 여부가 확실하지 않으니");
+    // 서버 멱등키 미적용 현황이 후속 과제로 남아 있다.
+    expect(api).toContain("IdempotencyInterceptor");
+  });
 });
 
 // ADM-117: 감사로그 CSV 내보내기. 새 API 없이 기존 GET /admin/audit-logs를

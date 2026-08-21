@@ -2,13 +2,13 @@ import { Body, Controller, HttpCode, Inject, Param, Post, Req, UseGuards } from 
 import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
-import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { ItemsCatalogService } from "../onboarding/items-catalog.service";
 import { ProductLinkClickDto } from "./dto/items.dto";
 
 @Controller("product-links")
 @UseGuards(JwtAuthGuard)
 export class CommerceController {
-  constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
+  constructor(@Inject(ItemsCatalogService) private readonly store: ItemsCatalogService) {}
 
   @Post(":productLinkId/click")
   @HttpCode(200)

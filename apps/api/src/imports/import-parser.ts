@@ -61,7 +61,7 @@ const DANGEROUS_LEADING_CHARS = new Set(["=", "+", "-", "@", "\t", "\r"]);
 
 /**
  * Parses an uploaded import file (CSV or XLSX) buffer into normalized row
- * candidates. Pure/DB-free: callers (OnboardingStoreService) resolve
+ * candidates. Pure/DB-free: callers (ImportPipelineService) resolve
  * `categoryCode` to a real `categories.id`, run duplicate detection against
  * existing expenses, and persist. Throws BadRequestException with
  * IMPORT_FILE_INVALID / IMPORT_TOO_MANY_ROWS on unreadable files or files that

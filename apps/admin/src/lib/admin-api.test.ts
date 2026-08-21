@@ -7,11 +7,15 @@ import {
   DEFAULT_FETCH_TIMEOUT_MS,
   getAdminDashboardSummary,
   isAuthError,
+  isRetryUnsafeTimeoutError,
   isSelfUpdateForbiddenError,
   isTimeoutError,
   listAdminUsers,
   listAuditLogs,
   updateAdminUser,
+  WRITE_FETCH_TIMEOUT_MS,
+  bulkApplyProductLinks,
+  timeoutMsForMethod,
   type AdminDashboardSummary,
   type AdminUserAccount
 } from "./admin-api";
@@ -233,7 +237,7 @@ describe("admin API fetch timeout (ADM-117)", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("aborts a hung request after 10s and rejects with the typed Korean timeout error", async () => {
+  it("aborts a hung GET after 10s and rejects with the typed Korean timeout error", async () => {
     vi.useFakeTimers();
     fetchMock.mockImplementationOnce(hangingFetch);
 
@@ -248,6 +252,10 @@ describe("admin API fetch timeout (ADM-117)", () => {
     expect((failure as AdminApiError).code).toBe("TIMEOUT");
     expect((failure as AdminApiError).message).toContain("시간이 초과됐어요");
     expect(isTimeoutError(failure)).toBe(true);
+    // FIX-118C: 읽기는 그냥 다시 부르면 되므로 재시도 위험 플래그가 꺼져 있다.
+    expect((failure as AdminApiTimeoutError).method).toBe("GET");
+    expect((failure as AdminApiTimeoutError).retryUnsafe).toBe(false);
+    expect(isRetryUnsafeTimeoutError(failure)).toBe(false);
     // A timeout is not session expiry -- must never clear the admin session.
     expect(isAuthError(failure)).toBe(false);
   });
@@ -277,5 +285,110 @@ describe("admin API fetch timeout (ADM-117)", () => {
     expect(isTimeoutError(new AdminApiError(0, "연결 실패"))).toBe(false);
     expect(isTimeoutError(new Error("AbortError"))).toBe(false);
     expect(isTimeoutError(null)).toBe(false);
+  });
+});
+
+// FIX-118C: admin 쓰기에는 서버 멱등키가 없다. 10초 상한을 쓰기에도 적용하면
+// "서버는 성공, 클라이언트는 시간 초과 표시 -> 운영자 재시도 -> 이중 반영"이
+// 되므로, 쓰기는 60초로 완화하고 문구도 재시도를 권하지 않도록 분리한다.
+describe("admin API write timeout separation (FIX-118C)", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("document", { cookie: "admin_csrf=csrf-token-123" });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function hangingFetch(_url: string, init: RequestInit): Promise<Response> {
+    return new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => {
+        const abortError = new Error("The operation was aborted.");
+        abortError.name = "AbortError";
+        reject(abortError);
+      });
+    });
+  }
+
+  it("bounds writes at 60s and reads at 10s", () => {
+    expect(DEFAULT_FETCH_TIMEOUT_MS).toBe(10_000);
+    expect(WRITE_FETCH_TIMEOUT_MS).toBe(60_000);
+    expect(timeoutMsForMethod("GET")).toBe(DEFAULT_FETCH_TIMEOUT_MS);
+    expect(timeoutMsForMethod("HEAD")).toBe(DEFAULT_FETCH_TIMEOUT_MS);
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "post", "patch"]) {
+      expect(timeoutMsForMethod(method)).toBe(WRITE_FETCH_TIMEOUT_MS);
+    }
+  });
+
+  it("does NOT abort a slow write at 10s — the bulk-apply that takes 12s still succeeds", async () => {
+    vi.useFakeTimers();
+    let settle!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          settle = resolve;
+          init.signal?.addEventListener("abort", () => {
+            const abortError = new Error("The operation was aborted.");
+            abortError.name = "AbortError";
+            reject(abortError);
+          });
+        })
+    );
+
+    const pending = bulkApplyProductLinks("productLinkId,affiliateUrl\nid-1,https://link.coupang.com/a/x").catch(
+      (error: unknown) => error
+    );
+    // 서버가 12초 걸려 성공하는 시나리오: 기존 10초 상한이었다면 여기서 이미
+    // 끊겼고, 운영자 재시도 -> 500행 이중 반영으로 이어졌다.
+    await vi.advanceTimersByTimeAsync(12_000);
+    settle(new Response(JSON.stringify({ applied: 500, skipped: 0, errors: 0 }), { status: 200 }));
+
+    await expect(pending).resolves.toEqual({ applied: 500, skipped: 0, errors: 0 });
+  });
+
+  it("aborts a hung write only at 60s, with a retry-unsafe timeout error that never tells the admin to retry", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce(hangingFetch);
+
+    const pending = bulkApplyProductLinks("productLinkId,affiliateUrl\nid-1,https://link.coupang.com/a/x").catch(
+      (error: unknown) => error
+    );
+    await vi.advanceTimersByTimeAsync(WRITE_FETCH_TIMEOUT_MS);
+    const failure = await pending;
+
+    expect(failure).toBeInstanceOf(AdminApiTimeoutError);
+    expect((failure as AdminApiError).code).toBe("TIMEOUT");
+    expect((failure as AdminApiTimeoutError).method).toBe("POST");
+    expect((failure as AdminApiTimeoutError).retryUnsafe).toBe(true);
+    expect(isRetryUnsafeTimeoutError(failure)).toBe(true);
+    // 반영 여부 불명임을 알리고, 재시도를 권하는 문구는 쓰지 않는다.
+    expect((failure as AdminApiError).message).toContain("반영 여부가 확실하지 않으니");
+    expect((failure as AdminApiError).message).not.toContain("다시 시도해 주세요");
+    expect(isAuthError(failure)).toBe(false);
+  });
+
+  it("keeps the read timeout error retry-safe and distinct from the write one", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce(hangingFetch);
+
+    const pending = listAdminUsers().catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(DEFAULT_FETCH_TIMEOUT_MS);
+    const failure = await pending;
+
+    expect(isTimeoutError(failure)).toBe(true);
+    expect(isRetryUnsafeTimeoutError(failure)).toBe(false);
+    expect((failure as AdminApiError).message).toContain("요청 시간이 초과됐어요(10초)");
+  });
+
+  it("isRetryUnsafeTimeoutError ignores non-timeout errors", () => {
+    expect(isRetryUnsafeTimeoutError(new AdminApiError(0, "연결 실패"))).toBe(false);
+    expect(isRetryUnsafeTimeoutError(new AdminApiError(500, "서버 오류"))).toBe(false);
+    expect(isRetryUnsafeTimeoutError(new Error("AbortError"))).toBe(false);
+    expect(isRetryUnsafeTimeoutError(null)).toBe(false);
   });
 });

@@ -8,6 +8,7 @@ import {
   shouldAttemptSelectedChildRecovery
 } from "./selected-child-recovery";
 import { useOnboardingProgressStore } from "../stores/onboarding-progress.store";
+import { useOnboardingResumeStore } from "../stores/onboarding-resume.store";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 
 const mobileRoot = process.cwd();
@@ -45,6 +46,10 @@ const stuckRealSession = {
   selectedChildId: null
 };
 
+/** The state app/index.tsx sees right after the no-child recovery reset: home no longer reached,
+ * still no selected child, so the MOB-101 progress check is the thing that decides the route. */
+const baseAfterReset = { hasReachedHome: false, selectedChildId: null, hasResumeTarget: false };
+
 function storeEffects() {
   return {
     setSelectedChildId: useSelectedChildStore.getState().setSelectedChildId,
@@ -56,6 +61,7 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
   beforeEach(() => {
     useSelectedChildStore.getState().clearSelectedChildId();
     useOnboardingProgressStore.getState().resetOnboarding();
+    useOnboardingResumeStore.getState().setProgress(null);
   });
 
   describe("shouldAttemptSelectedChildRecovery (decision table)", () => {
@@ -111,6 +117,77 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
       expect(
         shouldAttemptSelectedChildRecovery({ ...stuckRealSession, hasReachedHome: false })
       ).toBe(false);
+    });
+  });
+
+  describe("FIX-118A (m-9): the no-child recovery must land on ONB-006 이어하기, not skip it", () => {
+    /**
+     * Models app/index.tsx's routing decision for a real, hydrated session, so the interaction
+     * between the recovery outcome and the MOB-101 progress check is testable without a React
+     * renderer (the screen itself is not runtime-testable under vitest -- ui-wiring.test.ts
+     * convention). `progressFetch` is exactly the screen's state machine: it starts "idle" and
+     * only leaves that value in an effect, i.e. one commit AFTER the render that observes it.
+     */
+    function routeForRealSession(input: {
+      hasReachedHome: boolean;
+      selectedChildId: string | null;
+      progressFetch: "idle" | "loading" | "done";
+      hasResumeTarget: boolean;
+    }): "hold" | "resume" | "child-status" | "tabs" {
+      if (shouldAttemptSelectedChildRecovery({ ...stuckRealSession, ...input })) {
+        return "hold";
+      }
+      if (!input.hasReachedHome) {
+        if (input.progressFetch !== "done") return "hold";
+        if (input.hasResumeTarget) return "resume";
+      }
+      return input.hasReachedHome ? "tabs" : "child-status";
+    }
+
+    it("holds the redirect on the first render after resetOnboarding, instead of jumping to ONB-001", async () => {
+      useOnboardingProgressStore.getState().markHomeReached();
+      const outcome = await recoverSelectedChild("real-token", async () => progressWithoutChild());
+      expect(applySelectedChildRecoveryOutcome(outcome, storeEffects())).toBe("no-child");
+
+      // The very next render: hasReachedHome is now false, but the progress-check effect has not
+      // run yet, so progressFetch is still "idle". Before the fix this fell through to
+      // /onboarding/child-status and the resume screen was never reachable.
+      expect(
+        routeForRealSession({
+          hasReachedHome: useOnboardingProgressStore.getState().hasReachedHome,
+          selectedChildId: useSelectedChildStore.getState().selectedChildId,
+          progressFetch: "idle",
+          hasResumeTarget: false
+        })
+      ).toBe("hold");
+    });
+
+    it("routes to the ONB-006 resume screen once the progress check answers with real progress", async () => {
+      useOnboardingProgressStore.getState().markHomeReached();
+      const progress = progressWithoutChild();
+      expect(progress.summary.consentsAccepted).toBe(true);
+      applySelectedChildRecoveryOutcome(
+        await recoverSelectedChild("real-token", async () => progress),
+        storeEffects()
+      );
+
+      // ...the held render lets app/index.tsx's MOB-101 effect run: it fetches progress and,
+      // because consents were already accepted, hands it to the resume store.
+      expect(routeForRealSession({ ...baseAfterReset, progressFetch: "loading" })).toBe("hold");
+      useOnboardingResumeStore.getState().setProgress(progress);
+      expect(routeForRealSession({ ...baseAfterReset, progressFetch: "done", hasResumeTarget: true })).toBe("resume");
+      expect(useOnboardingResumeStore.getState().progress).toBe(progress);
+    });
+
+    it("still falls back to ONB-001 for a genuinely fresh account (no resume-worthy progress)", () => {
+      expect(routeForRealSession({ ...baseAfterReset, progressFetch: "done" })).toBe("child-status");
+    });
+
+    it("app/index.tsx holds the redirect for BOTH pending progress states (source verification)", () => {
+      const indexSource = source("app/index.tsx");
+      expect(indexSource).toContain('if (progressFetch !== "done")');
+      // 이전 구현(loading일 때만 hold)은 idle 한 프레임에 child-status로 새어나갔다.
+      expect(indexSource).not.toContain('if (progressFetch === "loading") {\n      return null;');
     });
   });
 

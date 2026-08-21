@@ -310,8 +310,10 @@ const previewLineStyle = {
   lineHeight: 18
 } as const;
 
+// FIX-118B(F4): same A11Y-117 small-coral-text rule as app/settings/children.tsx's 편집 link --
+// coral[500] at 12px is 3.16:1 on cream, coral[700] clears the 4.5:1 bar.
 const previewNoticeStyle = {
-  color: theme.colors.mainCoral,
+  color: theme.colors.coral[700],
   fontSize: 12,
   fontWeight: "700",
   marginTop: 4

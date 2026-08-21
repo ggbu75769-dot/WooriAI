@@ -3,7 +3,7 @@ import type { Expense as PrismaExpense } from "@prisma/client";
 import type { MemberRole } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
-import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { ExpensesStoreService } from "../onboarding/expenses-store.service";
 import { PushDispatchService } from "../push/push-dispatch.service";
 import { toDeletedExpenseSnapshot, toExpenseSnapshot } from "./expense-snapshot";
 import type { UpdateExpenseDto } from "./dto/expense.dto";
@@ -25,10 +25,10 @@ const VERSION_CONFLICT_MESSAGE = "다른 곳에서 먼저 변경됐어요. 최�
  *
  * Deliberately does NOT reimplement expense field validation/business rules
  * (category existence, future-date checks, item-name trimming, household
- * access, ...) -- those stay owned by OnboardingStoreService.{create,update,
+ * access, ...) -- those stay owned by ExpensesStoreService.{create,update,
  * delete,get,list}Expense, which this service delegates to. This file only
  * adds the version bookkeeping around those calls, specifically so it never
- * needs to edit onboarding-store.service.ts (owned by concurrent work this
+ * needs to edit the onboarding store services (owned by concurrent work this
  * sprint).
  *
  * Optimistic-lock mechanics: `expectedVersion` conflict detection is a
@@ -45,7 +45,7 @@ const VERSION_CONFLICT_MESSAGE = "다른 곳에서 먼저 변경됐어요. 최�
 export class ExpensesVersionService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
+    @Inject(ExpensesStoreService) private readonly store: ExpensesStoreService,
     // PUSH-113: 전역 PushModule이 제공하는 발송 훅. @Optional() — 이 서비스만 따로
     // 조립하는 단위 테스트/부분 모듈에서는 없어도 되고, 그 경우 훅은 그냥 건너뛴다.
     @Optional() @Inject(PushDispatchService) private readonly pushDispatch?: PushDispatchService
@@ -72,7 +72,7 @@ export class ExpensesVersionService {
   async createExpense(
     user: AuthenticatedUser,
     childId: string,
-    input: Parameters<OnboardingStoreService["createExpense"]>[2]
+    input: Parameters<ExpensesStoreService["createExpense"]>[2]
   ) {
     const dto = await this.store.createExpense(user, childId, input);
     // PUSH-113: 지출 생성 직후, 활성 디바이스들로 예산 경계 푸시 발송을 시도한다.

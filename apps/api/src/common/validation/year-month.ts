@@ -4,7 +4,7 @@
 // first-of-month form `YYYY-MM-01`. Inputs are now tolerant: every yearMonth
 // input accepts BOTH `YYYY-MM` and `YYYY-MM-01`, and is normalized at the DTO
 // boundary to the internal first-of-month form (`YYYY-MM-01`) the service
-// already uses (see OnboardingStoreService.currentYearMonth /
+// already uses (see onboarding/store-shared.ts currentYearMonth /
 // getSeoulMonthRange). Response shapes are unchanged.
 //
 // Deliberately NOT accepted: any other day-of-month (e.g. `2026-08-15`). A

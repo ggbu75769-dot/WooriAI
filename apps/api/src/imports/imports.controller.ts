@@ -17,7 +17,7 @@ import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
-import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { ImportPipelineService } from "../onboarding/import-pipeline.service";
 import { ConfirmImportDto, CreateExcelImportDto, UpdateImportRowDto } from "./dto/import.dto";
 
 type UploadedImportFile = {
@@ -42,7 +42,7 @@ function numberField(value: unknown) {
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class ImportsController {
-  constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
+  constructor(@Inject(ImportPipelineService) private readonly store: ImportPipelineService) {}
 
   @Post("children/:childId/imports/excel")
   @HttpCode(200)

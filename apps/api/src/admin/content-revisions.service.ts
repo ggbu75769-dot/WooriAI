@@ -12,10 +12,10 @@ import type { Prisma } from "@prisma/client";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import type { AuthenticatedAdmin } from "../common/types/authenticated-request";
 import {
-  OnboardingStoreService,
+  ItemsCatalogService,
   type AdminItemTemplateInput,
   type AdminProductLinkInput
-} from "../onboarding/onboarding-store.service";
+} from "../onboarding/items-catalog.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AdminCreateItemTemplateDto, AdminCreateProductLinkDto } from "./dto/admin.dto";
 import {
@@ -87,12 +87,12 @@ type ListFilter = { entityType?: string; entityId?: string; status?: string };
  * COM-103 CMS draft -> review -> publish workflow (round5a-sprint2-plan.md §3).
  *
  * Publish reflection (approve-publish / rollback) calls into
- * OnboardingStoreService's existing adminCreate.../adminUpdate... methods
+ * ItemsCatalogService's existing adminCreate.../adminUpdate... methods
  * rather than re-implementing item/link/disclosure writes with a bare Prisma
  * transaction here: those methods already own the business rules (skip-reason
  * requirement, http(s)-only URL checks, display-order assignment, stage
  * replacement, code generation) and are individually atomic (each wraps its own
- * write in a transaction internally). onboarding-store.service.ts is off-limits
+ * write in a transaction internally). items-catalog.service.ts is off-limits
  * for edits in this task, so a single cross-service ACID transaction spanning
  * "flip the revision row to published" and "write the live table" isn't
  * achievable without touching it; the content_revisions row update that follows
@@ -104,7 +104,7 @@ type ListFilter = { entityType?: string; entityId?: string; status?: string };
 export class ContentRevisionsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
+    @Inject(ItemsCatalogService) private readonly store: ItemsCatalogService,
     @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService
   ) {}
 

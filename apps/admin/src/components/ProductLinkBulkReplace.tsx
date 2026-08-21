@@ -12,6 +12,7 @@ import {
   bulkApplyProductLinks,
   bulkPreviewProductLinks,
   isAuthError,
+  isRetryUnsafeTimeoutError,
   type ProductLinkBulkApplyResult,
   type ProductLinkBulkPreviewResult
 } from "../lib/admin-api";
@@ -33,6 +34,11 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
   const [applyResult, setApplyResult] = useState<ProductLinkBulkApplyResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // FIX-118C: 적용 요청이 쓰기 타임아웃(60초)으로 끊겼을 때의 안내. 서버에
+  // 멱등키가 없어 "반영됐는지 모르는" 상태이므로, 자동 재시도 대신 현재 상태를
+  // 재조회해서 운영자가 직접 판단하게 한다.
+  const [timeoutNotice, setTimeoutNotice] = useState<string | null>(null);
+  const [rechecking, setRechecking] = useState(false);
 
   // CSV가 바뀌면 이전 미리보기는 무효 — 다시 미리보기 전까지 적용을 막는다.
   const handleCsvChange = (next: string) => {
@@ -40,6 +46,7 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
     setPreview(null);
     setApplyResult(null);
     setError(null);
+    setTimeoutNotice(null);
   };
 
   const handleFile = (file: File | undefined) => {
@@ -67,6 +74,7 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
     setPreviewing(true);
     setError(null);
     setApplyResult(null);
+    setTimeoutNotice(null);
     try {
       setPreview(await bulkPreviewProductLinks(csv));
     } catch (err) {
@@ -80,10 +88,26 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
     }
   };
 
+  /** 적용 타임아웃 직후 현재 링크 상태를 다시 읽어온다. bulk-preview는 검증만
+   * 하고 절대 쓰지 않으므로 재조회로 써도 안전하다. 결과 표의 "현재 제휴 URL"이
+   * 새 URL과 같으면 이미 반영된 것 — 다시 적용할 필요가 없다. */
+  const recheckCurrentState = async () => {
+    setRechecking(true);
+    try {
+      setPreview(await bulkPreviewProductLinks(csv));
+    } catch {
+      // 재조회까지 실패하면 안내 문구만 남긴다 — 목록 새로고침으로 확인하면 된다.
+      setPreview(null);
+    } finally {
+      setRechecking(false);
+    }
+  };
+
   const handleApply = async () => {
     if (!preview || preview.summary.valid === 0) return;
     setApplying(true);
     setError(null);
+    setTimeoutNotice(null);
     try {
       const result = await bulkApplyProductLinks(csv);
       setApplyResult(result);
@@ -92,6 +116,19 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
     } catch (err) {
       if (isAuthError(err)) {
         clearSession();
+        return;
+      }
+      // FIX-118C: 쓰기 타임아웃은 "실패"가 아니라 "결과 불명"이다. 서버가 이미
+      // 500행을 반영했을 수 있으므로 재시도를 권하지 않고, 현재 상태를 자동으로
+      // 재조회해 이미 반영됐는지 표에서 확인하도록 안내한다.
+      if (isRetryUnsafeTimeoutError(err)) {
+        setPreview(null);
+        setTimeoutNotice(
+          "적용 요청이 오래 걸려 결과를 확인하지 못했어요. 이미 반영됐을 수 있으니 바로 다시 적용하지 마세요. 현재 링크 상태를 다시 불러왔어요 — 아래 표의 '현재 제휴 URL'이 '새 제휴 URL'과 같으면 이미 반영된 행이에요."
+        );
+        onApplied?.();
+        setApplying(false);
+        await recheckCurrentState();
         return;
       }
       setError("적용하지 못했어요. 다시 미리보기 후 시도해 주세요.");
@@ -160,6 +197,22 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
       </div>
 
       {error ? <p className={styles.errorBanner}>{error}</p> : null}
+      {timeoutNotice ? (
+        <div className={styles.calloutWarning} role="status">
+          <strong>적용 결과를 확인해 주세요</strong>
+          <span>{timeoutNotice}</span>
+          <div className={styles.actions}>
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              onClick={recheckCurrentState}
+              disabled={rechecking || previewing || applying}
+            >
+              {rechecking ? "확인 중..." : "현재 상태 다시 확인"}
+            </button>
+          </div>
+        </div>
+      ) : null}
       {applyResult ? (
         <p className={styles.successBanner}>
           적용 {applyResult.applied}건 · 건너뜀(변경 없음) {applyResult.skipped}건 · 오류 {applyResult.errors}건
@@ -167,14 +220,19 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
       ) : null}
 
       <div className={styles.actions}>
-        <button type="button" className={styles.secondaryButton} onClick={handlePreview} disabled={previewing || applying}>
+        <button
+          type="button"
+          className={styles.secondaryButton}
+          onClick={handlePreview}
+          disabled={previewing || applying || rechecking}
+        >
           {previewing ? "검증 중..." : "미리보기"}
         </button>
         <button
           type="button"
           className={styles.primaryButton}
           onClick={handleApply}
-          disabled={applying || !preview || preview.summary.valid === 0}
+          disabled={applying || rechecking || !preview || preview.summary.valid === 0}
         >
           {applying ? "적용 중..." : preview ? `적용 (유효 ${preview.summary.valid}건)` : "적용"}
         </button>

@@ -3,7 +3,7 @@ import type { Expense as PrismaExpense } from "@prisma/client";
 /**
  * Shared, minimal expense row -> wire-shape helpers used by the version/conflict
  * layer (expenses.service.ts) and the delta sync module (../sync). Deliberately
- * kept outside `onboarding/onboarding-store.service.ts` (whose own private
+ * kept outside the onboarding store services (whose own
  * `toExpenseDto`/`fromDateOnly` this mirrors) so this Round 5A work never touches
  * that file, which other work in this sprint owns concurrently.
  */
@@ -13,7 +13,7 @@ export function fromDateOnly(date: Date): string {
 }
 
 /**
- * Field set intentionally mirrors onboarding-store.service.ts's private
+ * Field set intentionally mirrors store-shared.ts's
  * `toExpenseDto`, plus `version`. Used for the `current` payload of a 409
  * VERSION_CONFLICT response and for delta-sync `upsert` change entries.
  */

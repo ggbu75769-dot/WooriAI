@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import {
   registerDevice,
+  updateDevice,
   type DevicePlatform,
   type RegisterDeviceBody,
   type UserDeviceSummary
@@ -128,4 +129,41 @@ export function usePushDeviceRegistration(authToken: string | null) {
   useEffect(() => {
     void runPushDeviceRegistration(authToken);
   }, [authToken]);
+}
+
+/**
+ * FIX-118A (M-4, client half): session teardown counterpart of the boot registration above.
+ *
+ * A device row is keyed by (user, pushToken) server-side, so after a logout / account switch this
+ * physical device is still an *enabled* push target of the account that just left -- it would keep
+ * receiving that account's push notifications (on a device its owner no longer controls) until the
+ * token happens to be re-registered by someone else. Turning the row off is therefore done at
+ * teardown, best-effort:
+ *
+ *   - the store is reset FIRST and unconditionally, so the SET-006 screen never shows the outgoing
+ *     account's device row as "이 기기" even if the request below fails;
+ *   - the request uses the OUTGOING session's token (session-teardown.ts passes it -- the store
+ *     has already moved on by then), which is still valid at this point;
+ *   - failures are swallowed. There is no retry: the next session's boot registration re-upserts
+ *     this device under the new account anyway, and a hung request must never delay teardown.
+ *
+ * The single-flight guard entry is dropped too, so re-logging in with the *same* token string
+ * (exactly what the demo/test session does -- LOCAL_SESSION_TOKEN is a constant) registers again
+ * instead of being skipped as "already attempted this boot".
+ */
+export async function deactivateRegisteredPushDevice(
+  authToken: string | null,
+  overrides: { update?: (token: string, deviceId: string, notificationEnabled: boolean) => Promise<unknown> } = {}
+): Promise<void> {
+  const { registeredDeviceId } = usePushRegistrationStore.getState();
+  usePushRegistrationStore.getState().setRegisteredDeviceId(null);
+  if (authToken) {
+    attemptedAuthTokens.delete(authToken);
+  }
+  if (!registeredDeviceId || !authToken) return;
+  try {
+    await (overrides.update ?? updateDevice)(authToken, registeredDeviceId, false);
+  } catch {
+    // 실패 무시 -- 위 주석의 best-effort 계약.
+  }
 }

@@ -1,7 +1,17 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
+import {
+  deactivateRegisteredPushDevice,
+  resetPushRegistrationForTests,
+  usePushRegistrationStore
+} from "../notifications/usePushDeviceRegistration";
+import {
+  registerAppQueryClient,
+  resetAppQueryClientRegistryForTests
+} from "../query/query-client-registry";
 import { saveSyncCursor, SYNC_CURSOR_META_KEY } from "./delta-sync";
 import { createMemoryOfflineStore } from "./memory-offline-store";
 import {
@@ -190,7 +200,151 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
     const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
     const subscriptionBody = controllerSource.slice(controllerSource.indexOf("useSessionStore.subscribe"));
     expect(subscriptionBody).toContain("isSessionIdentityChange(previous, state)");
-    expect(subscriptionBody).toContain("teardownOfflineSessionState(store)");
+    expect(subscriptionBody).toContain("teardownOfflineSessionState(store, { authToken: outgoingToken })");
+    // FIX-118A: the token handed to teardown is the OUTGOING session's (the store already holds
+    // the incoming one when the subscription fires).
+    expect(subscriptionBody).toContain(
+      "previous.accessToken ?? (previous.isTestSession ? LOCAL_SESSION_TOKEN : null)"
+    );
+  });
+});
+
+describe("FIX-118A (M-3) react-query cache is cleared on teardown", () => {
+  beforeEach(() => {
+    resetAppQueryClientRegistryForTests();
+  });
+
+  afterEach(() => {
+    resetAppQueryClientRegistryForTests();
+  });
+
+  /** Seeds the exact user-scoped keys that carry no user identifier -- the ones that leaked. */
+  function seedUserScopedCaches(client: QueryClient) {
+    client.setQueryData(["children"], { children: [{ id: "child-of-user-a", nickname: "다온이" }] });
+    client.setQueryData(["my-devices"], { devices: [{ id: "device-of-user-a" }] });
+    client.setQueryData(["household-members"], { members: [{ id: "member-of-user-a" }] });
+    client.setQueryData(["home", "child-of-user-a"], { totalKrw: 123_000 });
+  }
+
+  it("an A -> B account switch leaves no cached response of A behind", async () => {
+    const client = new QueryClient();
+    registerAppQueryClient(client);
+    seedUserScopedCaches(client);
+    expect(client.getQueryData(["children"])).toBeDefined();
+
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+    await simulateSessionTransition(store, userA, userB);
+
+    expect(client.getQueryCache().getAll()).toEqual([]);
+    expect(client.getQueryData(["children"])).toBeUndefined();
+    expect(client.getQueryData(["my-devices"])).toBeUndefined();
+    expect(client.getQueryData(["household-members"])).toBeUndefined();
+    expect(client.getQueryData(["home", "child-of-user-a"])).toBeUndefined();
+  });
+
+  it("logout clears the cache too (the next login must never render the previous account's rows)", async () => {
+    const client = new QueryClient();
+    registerAppQueryClient(client);
+    seedUserScopedCaches(client);
+
+    const store = createMemoryOfflineStore();
+    await simulateSessionTransition(store, userA, loggedOut);
+
+    expect(client.getQueryCache().getAll()).toEqual([]);
+  });
+
+  it("a same-user token refresh keeps the cache warm (no gratuitous refetch storm)", async () => {
+    const client = new QueryClient();
+    registerAppQueryClient(client);
+    seedUserScopedCaches(client);
+
+    const store = createMemoryOfflineStore();
+    await simulateSessionTransition(store, userA, { ...userA });
+
+    expect(client.getQueryData(["children"])).toBeDefined();
+    expect(client.getQueryData(["my-devices"])).toBeDefined();
+  });
+
+  it("is a no-op (never throws) when no client was ever registered -- the pre-_layout window", async () => {
+    const store = createMemoryOfflineStore();
+    await expect(simulateSessionTransition(store, userA, userB)).resolves.toBeUndefined();
+  });
+
+  it("app/_layout.tsx registers its QueryClient (source verification -- expo-router is not loadable under vitest)", () => {
+    const layoutSource = readFileSync(join(process.cwd(), "app/_layout.tsx"), "utf8");
+    expect(layoutSource).toContain(
+      'import { registerAppQueryClient } from "../src/query/query-client-registry";'
+    );
+    expect(layoutSource).toContain("registerAppQueryClient(queryClient);");
+  });
+});
+
+describe("FIX-118A (M-4 client half) push device deactivation on teardown", () => {
+  beforeEach(() => {
+    resetPushRegistrationForTests();
+  });
+
+  it("turns this device's push row off under the OUTGOING token and forgets the registration", async () => {
+    usePushRegistrationStore.getState().setRegisteredDeviceId("device-77");
+    const calls: Array<[string, string, boolean]> = [];
+
+    await deactivateRegisteredPushDevice("outgoing-token", {
+      update: async (token, deviceId, enabled) => {
+        calls.push([token, deviceId, enabled]);
+        return {};
+      }
+    });
+
+    expect(calls).toEqual([["outgoing-token", "device-77", false]]);
+    expect(usePushRegistrationStore.getState().registeredDeviceId).toBeNull();
+  });
+
+  it("swallows a failing request but still resets the store (best-effort contract)", async () => {
+    usePushRegistrationStore.getState().setRegisteredDeviceId("device-77");
+
+    await expect(
+      deactivateRegisteredPushDevice("outgoing-token", {
+        update: async () => {
+          throw new Error("Network request failed");
+        }
+      })
+    ).resolves.toBeUndefined();
+
+    expect(usePushRegistrationStore.getState().registeredDeviceId).toBeNull();
+  });
+
+  it("does nothing over the wire when this device was never registered, or the token is already gone", async () => {
+    const calls: string[] = [];
+    const update = async () => {
+      calls.push("called");
+      return {};
+    };
+
+    await deactivateRegisteredPushDevice("outgoing-token", { update });
+    usePushRegistrationStore.getState().setRegisteredDeviceId("device-77");
+    await deactivateRegisteredPushDevice(null, { update });
+
+    expect(calls).toEqual([]);
+  });
+
+  it("teardown starts the deactivation with the outgoing token, without awaiting it", async () => {
+    usePushRegistrationStore.getState().setRegisteredDeviceId("device-77");
+    const store = createMemoryOfflineStore();
+
+    await teardownOfflineSessionState(store, { authToken: "outgoing-token" });
+
+    // The store reset is synchronous inside the fire-and-forget call, so it has already happened
+    // by the time teardown resolves -- proof the deactivation really was kicked off.
+    expect(usePushRegistrationStore.getState().registeredDeviceId).toBeNull();
+  });
+
+  it("teardown without a token still succeeds (logout after the token was already dropped)", async () => {
+    usePushRegistrationStore.getState().setRegisteredDeviceId("device-77");
+    const store = createMemoryOfflineStore();
+
+    await expect(teardownOfflineSessionState(store)).resolves.toBeUndefined();
+    expect(usePushRegistrationStore.getState().registeredDeviceId).toBeNull();
   });
 });
 

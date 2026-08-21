@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import type { QueryClient } from "@tanstack/react-query";
-import { getSyncChanges } from "../api/client";
+import { getSyncChanges, LOCAL_SESSION_TOKEN } from "../api/client";
 import { bucketSyncLatencyMs, trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { useSessionStore } from "../stores/session.store";
 import { isCurrentlyOnline, startConnectivityWatcher } from "./connectivity";
@@ -378,8 +378,13 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
   useEffect(() => {
     const unsubscribe = useSessionStore.subscribe((state, previous) => {
       if (isSessionIdentityChange(previous, state)) {
+        // FIX-118A: the token of the session that is LEAVING (the store already holds the
+        // incoming one), so teardown's best-effort push-device deactivation can still
+        // authenticate as the outgoing account. Mirrors the token derivation in
+        // app/_layout.tsx's OfflineSyncLifecycle.
+        const outgoingToken = previous.accessToken ?? (previous.isTestSession ? LOCAL_SESSION_TOKEN : null);
         void getOfflineStore()
-          .then((store) => teardownOfflineSessionState(store))
+          .then((store) => teardownOfflineSessionState(store, { authToken: outgoingToken }))
           .catch(() => undefined);
       }
     });

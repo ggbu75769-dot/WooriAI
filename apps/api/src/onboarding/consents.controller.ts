@@ -3,12 +3,12 @@ import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { UpsertConsentsDto } from "./dto/upsert-consents.dto";
-import { OnboardingStoreService } from "./onboarding-store.service";
+import { OnboardingCoreService } from "./onboarding-core.service";
 
 @Controller("consents")
 @UseGuards(JwtAuthGuard)
 export class ConsentsController {
-  constructor(@Inject(OnboardingStoreService) private readonly store: OnboardingStoreService) {}
+  constructor(@Inject(OnboardingCoreService) private readonly store: OnboardingCoreService) {}
 
   @Get()
   async list(@Req() request: AuthenticatedRequest) {
