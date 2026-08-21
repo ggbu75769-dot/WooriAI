@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.17.10",
+    "@vitest/coverage-v8": "^2.1.9",
     "playwright-core": "^1.62.1",
     "sharp": "^0.35.3",
     "tsx": "^4.19.2",
