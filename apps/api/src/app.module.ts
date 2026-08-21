@@ -12,6 +12,7 @@ import { ImportsModule } from "./imports/imports.module";
 import { ItemsCommerceModule } from "./items-commerce/items-commerce.module";
 import { OnboardingModule } from "./onboarding/onboarding.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { PushModule } from "./push/push.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SyncModule } from "./sync/sync.module";
 import { WorkerModule } from "./worker/worker.module";
@@ -30,6 +31,7 @@ import { WorkerModule } from "./worker/worker.module";
     ImportsModule,
     ItemsCommerceModule,
     OnboardingModule,
+    PushModule,
     SettingsModule,
     SyncModule,
     WorkerModule
