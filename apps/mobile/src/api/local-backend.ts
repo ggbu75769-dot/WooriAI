@@ -21,6 +21,7 @@ import type {
   Budget,
   CategoryListItem,
   CategoryReport,
+  Child,
   ConfirmImportResponse,
   CumulativeReport,
   Expense,
@@ -52,6 +53,7 @@ import {
   LOCAL_CHILD_ID,
   LOCAL_DAD_USER_ID,
   LOCAL_DEFAULT_BUDGET_KRW,
+  LOCAL_HOUSEHOLD_ID,
   LOCAL_USER_ID,
   localImportStubRows,
   localItemTemplateFixtures,
@@ -1375,6 +1377,61 @@ export function createChild(body: { nickname: string }): { id: string } {
     child: state.child ? { ...state.child, nickname: body.nickname.trim() || state.child.nickname } : state.child
   }));
   return { id: LOCAL_CHILD_ID };
+}
+
+/**
+ * MOB-118: full-detail child DTO matching the real API's GET /children entry (`Child` in
+ * client.ts). The local demo backend keeps a single born-mode child, so the list has at most
+ * one entry and stageMode is always "born" here.
+ */
+function toFullChildDto(child: LocalChildRecord): Child {
+  const calculated = calculateChildStage({ stageMode: "born", birthDate: child.birthDate, today: getSeoulToday() });
+  return {
+    id: child.id,
+    householdId: LOCAL_HOUSEHOLD_ID,
+    nickname: child.nickname,
+    stageMode: "born",
+    dueDate: null,
+    birthDate: child.birthDate,
+    manualStage: null,
+    currentStage: calculated.stageCode,
+    stageLabel: calculated.stageLabel
+  };
+}
+
+/** MOB-118: local mirror of GET /children. */
+export function listChildren(): { children: Child[] } {
+  ensureSeeded();
+  const child = useLocalBackendStore.getState().child;
+  return { children: child && !child.deletedAt ? [toFullChildDto(child)] : [] };
+}
+
+/**
+ * MOB-118: local mirror of PATCH /children/:childId. The local child is always born-mode, so
+ * only `nickname` and `birthDate` apply; a future birth date is rejected with the same message
+ * the UI's shared guard uses (the real server enforces this via stage calculation inputs).
+ */
+export function updateChild(
+  childId: string,
+  body: { nickname?: string; dueDate?: string; birthDate?: string; manualStage?: string }
+): Child {
+  const child = requireChild();
+  if (child.id !== childId) {
+    throw new Error("아이 프로필을 찾을 수 없어요.");
+  }
+  if (body.birthDate !== undefined && isFutureSeoulDate(body.birthDate)) {
+    throw new Error("출생일은 오늘보다 미래일 수 없어요.");
+  }
+  useLocalBackendStore.setState((state) => ({
+    child: state.child
+      ? {
+          ...state.child,
+          nickname: body.nickname !== undefined ? body.nickname.trim() || state.child.nickname : state.child.nickname,
+          birthDate: body.birthDate ?? state.child.birthDate
+        }
+      : state.child
+  }));
+  return toFullChildDto(requireChild());
 }
 
 /**
