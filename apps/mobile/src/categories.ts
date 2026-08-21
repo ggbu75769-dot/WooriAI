@@ -108,3 +108,88 @@ export function buildCategoryNameLookup(
   }
   return (categoryId: string) => nameById.get(categoryId) ?? categoryNameFor(categoryId);
 }
+
+/**
+ * Minimal structural shape needed to decide whether a `GET /categories` entry belongs in a
+ * user-facing picker: the id (chip key / stored value), the taxonomy `code` (which seed bundle
+ * it came from) and the display `name` (what a duplicate looks like to the user).
+ */
+export type SelectableCategory = { id: string; code: string; name: string };
+
+/**
+ * Server category `code` prefix of the mobile quick-tile alias rows
+ * (`mobileCategoryAliasSeeds` in apps/api/prisma/seed-data.ts). Those 8 rows exist only so the
+ * UUIDs hardcoded in `categoryCatalog` above stay valid `categoryId`s; the 12 canonical rows
+ * (`categorySeeds`) are the real taxonomy, so an alias never wins a name collision.
+ */
+const MOBILE_ALIAS_CODE_PREFIX = "mobile_";
+
+/**
+ * Server category `code` prefix of the Excel-import stub row (`importStubCategorySeeds`, code
+ * `import_stub_default`, name "가져오기 기본"). It is an internal placeholder for import rows
+ * that have no category yet — never something a user should pick on purpose.
+ */
+const IMPORT_STUB_CODE_PREFIX = "import_";
+
+/**
+ * R20-B: narrows a `GET /categories` response down to the entries worth OFFERING in the expense
+ * edit screen's category chip row. Display-only — the server response, the report/CSV name
+ * lookup above, and every other screen keep seeing the full list.
+ *
+ * Why: the endpoint returns every `active` row, and the seed is three bundles stacked together
+ * (12 canonical + 8 mobile aliases + 1 import stub = 21 rows). Drawn verbatim, the chip row shows
+ * "기타" twice and offers the internal "가져오기 기본" — see docs/operations/known-limitations.md.
+ *
+ * Rules, in order:
+ *   (a) drop the import stub (`code` starts with `import_`);
+ *   (b) collapse entries that share the exact same display name down to one;
+ *   (c) `currentCategoryId` — the category the expense being edited is already saved with — is
+ *       ALWAYS kept, even if (a) or (b) would have dropped it, so the chip row can still show
+ *       and re-select the current value instead of silently losing it.
+ *
+ * Which entry survives a same-name group is deterministic: the current category first (so the
+ * selection stays put), then a canonical row over a `mobile_`-prefixed alias, then input order.
+ * The group takes the input position of its first member, so the caller's ordering
+ * (displayOrder ascending) is preserved.
+ *
+ * NOTE: this only removes EXACT name duplicates. Near-duplicate pairs that read as redundant to
+ * a user but are distinct labels ("기저귀/위생" vs the alias "기저귀", "수유/이유식" vs "분유/유제품")
+ * are deliberately both kept — dropping one would remove a category that the 8-tile quick-input
+ * screen (app/expenses/new.tsx) actively writes, which is a taxonomy decision for the server, not
+ * a display filter. See known-limitations.md.
+ */
+export function selectableCategories<T extends SelectableCategory>(
+  categories: readonly T[] | null | undefined,
+  currentCategoryId?: string | null
+): T[] {
+  const current = currentCategoryId ?? "";
+  const isCurrent = (category: T) => Boolean(current) && category.id === current;
+  const isAlias = (category: T) => (category.code ?? "").startsWith(MOBILE_ALIAS_CODE_PREFIX);
+  const isImportStub = (category: T) => (category.code ?? "").startsWith(IMPORT_STUB_CODE_PREFIX);
+
+  const kept: T[] = [];
+  // name -> index in `kept`, so a later entry can replace an earlier one in place (keeping the
+  // group's original position) rather than being appended out of order.
+  const slotByName = new Map<string, number>();
+
+  for (const category of categories ?? []) {
+    if (!category?.id) continue;
+    const name = category.name?.trim() ?? "";
+    if (!name) continue;
+    if (isImportStub(category) && !isCurrent(category)) continue;
+
+    const slot = slotByName.get(name);
+    if (slot === undefined) {
+      slotByName.set(name, kept.length);
+      kept.push(category);
+      continue;
+    }
+
+    const incumbent = kept[slot];
+    // Ranked lower is better: the expense's current category, then a canonical row, then an alias.
+    const rank = (entry: T) => (isCurrent(entry) ? 0 : isAlias(entry) ? 2 : 1);
+    if (rank(category) < rank(incumbent)) kept[slot] = category;
+  }
+
+  return kept;
+}

@@ -137,6 +137,62 @@ describe("D0 StageBadge component contract", () => {
   });
 });
 
+// R20-A: the report tab's 카테고리 비중 chart. The old donut arc was drawn with the
+// border-quadrant trick (four border colors on a rounded View), which can only express four fixed
+// 90° wedges -- the angles carried no data. It is replaced, for real data, by a stacked share bar
+// whose slice widths are the actual proportions. The logged-out preview keeps the decorative donut
+// so the pixel-lock capture stays unchanged.
+describe("R20-A 카테고리 비중 proportional share bar", () => {
+  const source = readSource("src/ui.tsx");
+  const chartBlock = source.slice(source.indexOf("export function DonutChartCard"), source.indexOf("export function EmptyStateCard"));
+
+  it("drives real segments through the pure share math instead of fixed wedges", () => {
+    expect(source).toContain('import { computeCategoryShares } from "./reports/category-share"');
+    expect(chartBlock).toContain("computeCategoryShares(segments)");
+    // Widths are the proportions themselves -- no rounded-off percentage strings, no 90° wedges.
+    expect(chartBlock).toContain("flexGrow: slice.widthPercent");
+    expect(chartBlock).toContain("flexBasis: 0");
+    // Real data must never reach the four-wedge arc again.
+    expect(chartBlock).not.toContain("arcColors = segments");
+  });
+
+  it("keeps the legend readable: swatch color, category name, amount and corrected percent", () => {
+    expect(chartBlock).toContain("donutSegmentPalette[index % donutSegmentPalette.length]");
+    expect(chartBlock).toContain("{slice.label}");
+    expect(chartBlock).toContain("{formatKrw(slice.amountKrw)}");
+    expect(chartBlock).toContain("{slice.percentLabel}");
+    // A11Y-117: the bar is decorative, each legend row is one announced element.
+    expect(chartBlock).toContain("accessibilityElementsHidden");
+    expect(chartBlock).toContain("accessibilityLabel={`${slice.label}, ${slice.percentLabel}, ${formatKrw(slice.amountKrw)}`}");
+  });
+
+  it("never falls back to the decorative preview legend when real amounts add up to nothing", () => {
+    expect(chartBlock).toContain("shares.length === 0");
+    expect(chartBlock).toContain("아직 비중을 보여줄 지출이 없어요.");
+  });
+
+  it("leaves the logged-out preview donut in place for the pixel-lock capture", () => {
+    expect(chartBlock).toContain("reportCategoryLegend.map(([label, percent])");
+    expect(chartBlock).toContain('transform: [{ rotate: "-22deg" }]');
+  });
+
+  it("computes shares that fill the bar exactly and keep tiny categories visible", async () => {
+    const { computeCategoryShares, MIN_SLICE_WIDTH_PERCENT } = await import("./reports/category-share");
+    const slices = computeCategoryShares([
+      { label: "기저귀/위생", amountKrw: 700_000 },
+      { label: "식비/간식", amountKrw: 299_000 },
+      { label: "기타", amountKrw: 1_000 },
+      { label: "빈 카테고리", amountKrw: 0 }
+    ]);
+
+    expect(slices.map((slice) => slice.label)).toEqual(["기저귀/위생", "식비/간식", "기타"]);
+    expect(slices.reduce((sum, slice) => sum + slice.percent, 0)).toBe(100);
+    expect(slices.reduce((sum, slice) => sum + slice.widthPercent, 0)).toBeCloseTo(100, 9);
+    expect(slices[2].widthPercent).toBe(MIN_SLICE_WIDTH_PERCENT);
+    expect(slices[0].widthPercent).toBeGreaterThan(slices[1].widthPercent);
+  });
+});
+
 describe("D1 tab bar outlined/filled wiring", () => {
   const source = readSource("app/(tabs)/_layout.tsx");
 

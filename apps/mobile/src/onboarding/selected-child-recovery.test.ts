@@ -331,8 +331,12 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
     });
 
     it("R19-C(F1): the MOB-101 progress check asks about the selected child when there is one", () => {
+      // FIX-119B/F5: 호출이 얇은 래퍼(fetchOnboardingProgressForSelectedChild)로 옮겨졌다 --
+      // 아이 스코프 질의라는 R19-C(F1) 계약은 그 래퍼 안에서 그대로 유지된다.
       const indexSource = source("app/index.tsx");
-      expect(indexSource).toContain("getOnboardingProgress(accessToken, selectedChildId ?? undefined)");
+      expect(indexSource).toContain("fetchOnboardingProgressForSelectedChild(accessToken, selectedChildId)");
+      const scopeSource = source("src/onboarding/onboarding-progress-scope.ts");
+      expect(scopeSource).toContain("fetchProgress(token, selectedChildId)");
     });
   });
 });

@@ -364,9 +364,11 @@ describe("A11Y-117 accessibility round-2 contract", () => {
     expect(chartBlock).toContain('typeof deltaLabel === "string"');
     // Fake "+12.5%" preview delta stays visible but hidden from the a11y tree.
     expect(chartBlock).toContain("accessibilityElementsHidden={hasRealDelta ? undefined : true}");
-    // Donut arc is decorative (legend carries the data as text).
+    // R20-A: the share bar (real data) and the preview donut arc are both decorative -- the
+    // legend rows carry name/amount/percent as text, and each row is announced as one element.
     const donutBlock = uiSource.slice(uiSource.indexOf("export function DonutChartCard"));
     expect(donutBlock).toContain("accessibilityElementsHidden");
+    expect(donutBlock).toContain("accessibilityLabel={`${slice.label}, ${slice.percentLabel}, ${formatKrw(slice.amountKrw)}`}");
   });
 
   it("confirms 알림 모두 지우기 with an Alert before clearing (destructive-action convention)", () => {

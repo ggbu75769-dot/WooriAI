@@ -8,7 +8,9 @@ import type { WorkerJob } from "../worker-job";
  * Every idempotency_keys row is written with its own `expiresAt` derived from
  * the TTLs the interceptor assumes (src/common/idempotency/
  * idempotency.interceptor.ts: IDEMPOTENCY_TTL_MS = 24h for completed rows,
- * PENDING_TTL_MS = 60s for in-flight reservations), so `expiresAt < now` is
+ * PENDING_TTL_MS = 10min for in-flight reservations — FIX-119A raised it from
+ * 60s so a reservation outlives the admin client's 60s write timeout), so
+ * `expiresAt < now` is
  * exactly "older than the TTL the interceptor assumes" for both kinds of row.
  * The interceptor already runs the same opportunistic deleteMany on its hot
  * path when it inserts a new reservation; this job makes that cleanup periodic

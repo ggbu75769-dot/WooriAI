@@ -135,6 +135,17 @@ async function attemptFlush(token: string, queryClient: QueryClient): Promise<Fl
   if (summary.synced > 0) {
     await queryClient.invalidateQueries({ queryKey: ["expenses"] });
     await queryClient.invalidateQueries({ queryKey: ["home"] });
+    // FIX-119B/F1 (R19 H-2): 준비템 무효화의 "실제" 시점은 여기다. 지출 저장은 로컬 우선
+    // (createExpenseOffline)이라 화면(app/expenses/new.tsx)의 무효화는 아직 서버에 아무것도
+    // 보내기 전에 실행된다 -- 서버가 연결 지출을 받아 준비템을 '준비 완료'로 올리는 것
+    // (apps/api store-shared.ts markLinkedItemPrepared)은 이 flush가 성공한 뒤다. 여기서
+    // 함께 무효화하지 않으면 방금 기록한 준비템이 다음 자연 refetch(최대 30초+)까지 계속
+    // 미준비로 보이고 준비율도 정체된 것처럼 읽힌다. ["items"] 프리픽스는 목록·탭·준비율
+    // (app/(tabs)/items.tsx의 ["items", childId, "prep-progress"])을 모두 덮는다.
+    // 어떤 mutation이 연결 지출이었는지는 FlushSummary가 알지 못하므로(그리고 flush는 여러
+    // 건을 한 번에 확정하므로) 조건 없이 무효화한다 -- 최악이라도 refetch 한 번이다.
+    await queryClient.invalidateQueries({ queryKey: ["items"] });
+    await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
     emitFlashMessage(SERVER_CONFIRMED_MESSAGE);
     // ANA-101 (round5a-sprint2-plan.md §5): fires once per flush pass that
     // actually confirmed at least one write with the server, not once. A

@@ -4,7 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
 import { getExpense, listCategories, LOCAL_SESSION_TOKEN } from "../../src/api/client";
-import { categoryCatalog, categoryNameFor } from "../../src/categories";
+import { categoryCatalog, categoryNameFor, selectableCategories } from "../../src/categories";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -111,7 +111,13 @@ export default function ExpenseDetailScreen() {
   // categoryId isn't in whichever list is showing (legacy/inactive/demo-seed id), a chip for it
   // is prepended so preselection always has something to highlight and re-selecting it stays
   // possible.
-  const fetchedCategories = categories.data?.categories ?? [];
+  //
+  // R20-B: the fetched list is passed through selectableCategories first -- `GET /categories`
+  // returns all 21 active seed rows (12 canonical + 8 mobile aliases + 1 import stub), which put
+  // "기타" on the row twice and offered the internal "가져오기 기본". The filter is display-only
+  // (server response and every other screen are untouched) and always keeps this expense's
+  // current categoryId, so the preselection above never loses its chip.
+  const fetchedCategories = selectableCategories(categories.data?.categories ?? [], categoryId);
   const baseCategoryChips =
     fetchedCategories.length > 0
       ? fetchedCategories.map((category) => ({ id: category.id, label: category.name }))

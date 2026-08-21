@@ -14,9 +14,28 @@ import { PrismaService } from "../../prisma/prisma.service";
 import type { AuthenticatedRequest } from "../types/authenticated-request";
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
-// 예약(처리 중) 행의 수명. 핸들러 실행 중 프로세스가 죽어 응답이 기록되지 못한
-// 예약 행이 이 시간이 지나면 회수되어, 같은 키의 진짜 재시도가 영구히 막히지 않는다.
-const PENDING_TTL_MS = 60 * 1000;
+/**
+ * 예약(처리 중) 행의 수명. 핸들러 실행 중 프로세스가 죽어 응답이 기록되지 못한
+ * 예약 행이 이 시간이 지나면 회수되어, 같은 키의 진짜 재시도가 영구히 막히지 않는다.
+ *
+ * FIX-119A(H-1) 불변식: **클라이언트 쓰기 타임아웃 < PENDING_TTL_MS**.
+ * admin 클라이언트는 쓰기 요청을 60초에 끊고(`apps/admin/src/lib/admin-api.ts`의
+ * `WRITE_FETCH_TIMEOUT_MS = 60_000`) 운영자에게 재시도를 안내한다. 예약 TTL이
+ * 그 60초와 같으면, "정확히 타임아웃이 난 요청"(=핸들러가 60초 넘게 도는 요청)의
+ * 재시도가 도착하는 시점에 예약 행이 이미 만료돼 있어 아래 reserve()의 만료 회수
+ * 분기가 **아직 살아 있는 요청의 예약을 크래시 잔재로 오인**해 회수하고 핸들러를
+ * 다시 실행한다 → 이중 반영. POST /admin/users에서는 재실행이 ADMIN_EMAIL_EXISTS
+ * 409로 끝나고 catch 분기가 키를 지워 첫 응답의 tempPassword가 영구 유실된다
+ * (계정 삭제 API도 없어 복구 불가).
+ *
+ * 그래서 예약 TTL을 10분으로 둔다 — 클라이언트가 포기한 뒤에도 서버 핸들러가
+ * 실제로 끝날 때까지 예약이 살아 있어, 재시도는 회수 대신 waitForCompletion()
+ * 경로로 들어가 완료 응답을 재생하거나 409 "아직 처리 중"으로 안내받는다.
+ * 대가는 진짜 크래시 잔재의 회수가 최대 10분 늦어지는 것뿐이고(그 키를 다시
+ * 쓰는 재시도만, 그것도 409 대기 응답으로 안내되며 다른 키·다른 요청은 무관),
+ * 이중 반영·응답 유실보다 훨씬 가볍다.
+ */
+const PENDING_TTL_MS = 10 * 60 * 1000;
 const RETRY_INTERVAL_MS = 50;
 const RETRY_ATTEMPTS = 60; // ~3s of total wait for a concurrent in-flight request to finish
 
@@ -202,8 +221,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
     requestHash: string
   ): Promise<{ outcome: "owner" } | { outcome: "replay" } | { outcome: "conflict" }> {
     try {
-      // 예약 단계에서는 짧은 TTL만 부여한다. 완료 시점에 24h로 연장되므로,
-      // 핸들러 도중 크래시로 응답이 기록되지 못한 예약 행은 곧 만료·회수된다.
+      // 예약 단계에서는 짧은 TTL(PENDING_TTL_MS)만 부여한다. 완료 시점에 24h로
+      // 연장되므로, 핸들러 도중 크래시로 응답이 기록되지 못한 예약 행은 그
+      // TTL이 지나면 만료·회수된다. TTL 값의 근거(클라이언트 쓰기 타임아웃보다
+      // 반드시 길어야 하는 이유)는 PENDING_TTL_MS 선언부 주석 참고.
       await this.prisma.idempotencyKey.create({
         data: { userId, endpoint, idemKey, requestHash, expiresAt: new Date(Date.now() + PENDING_TTL_MS) }
       });
@@ -228,8 +249,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
         return this.reserve(userId, endpoint, idemKey, requestHash);
       }
       if (existing.expiresAt < new Date()) {
-        // 만료된 행(크래시로 남은 예약, 또는 24h 지난 완료 응답)은 회수하고
-        // 새 시도로 취급한다.
+        // 만료된 행(PENDING_TTL이 지나도록 응답이 기록되지 않은 크래시 잔재, 또는
+        // 24h 지난 완료 응답)은 회수하고 새 시도로 취급한다. 아직 처리 중일 수도
+        // 있는 예약을 여기서 회수하지 않도록 PENDING_TTL_MS는 클라이언트 쓰기
+        // 타임아웃보다 길게 잡혀 있다(선언부 주석의 H-1 불변식).
         await this.prisma.idempotencyKey
           .deleteMany({
             where: { userId, endpoint, idemKey, expiresAt: { lt: new Date() } }

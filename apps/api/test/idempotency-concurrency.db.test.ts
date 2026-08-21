@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { PrismaClient } from "@prisma/client";
@@ -11,10 +13,35 @@ import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
 const dbAvailable = await isDatabaseAvailable();
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
+const INTERCEPTOR_PATH = fileURLToPath(new URL("../src/common/idempotency/idempotency.interceptor.ts", import.meta.url));
+const interceptorSource = readFileSync(INTERCEPTOR_PATH, "utf8");
+
+/**
+ * Reads a `const NAME = <ms arithmetic>;` constant straight out of the
+ * interceptor source. The seeded reservation rows below have to carry the
+ * `expiresAt` the *server* would have written, so a hardcoded mirror would
+ * silently stop reproducing the H-1 scenario the moment the server constant
+ * changed — the reservation age would be simulated against the wrong TTL and
+ * (d-5) would pass for the wrong reason. (d-0) still pins the parsed value to
+ * the intended one, so drift fails loudly instead of quietly.
+ */
+function msConstantFromSource(name: string): number {
+  const match = new RegExp(`const ${name} = ([\\d_\\s*]+);`).exec(interceptorSource);
+  if (!match) {
+    throw new Error(`${name} not found in ${INTERCEPTOR_PATH}`);
+  }
+  return match[1]
+    .split("*")
+    .map((part) => Number(part.trim().replace(/_/g, "")))
+    .reduce((product, part) => product * part, 1);
+}
+
 // Mirrors of the interceptor's private constants (src/common/idempotency/
 // idempotency.interceptor.ts). If these drift, the timing assertions below
 // will say so explicitly instead of failing mysteriously.
-const PENDING_TTL_MS = 60 * 1000;
+const PENDING_TTL_MS = msConstantFromSource("PENDING_TTL_MS");
+const EXPECTED_PENDING_TTL_MS = 10 * 60 * 1000; // FIX-119A: 60s → 10min (H-1)
+const ADMIN_WRITE_TIMEOUT_MS = 60_000; // apps/admin/src/lib/admin-api.ts WRITE_FETCH_TIMEOUT_MS
 const WAIT_BUDGET_MS = 60 * 50; // RETRY_ATTEMPTS * RETRY_INTERVAL_MS ≈ 3s
 
 /**
@@ -35,11 +62,16 @@ const WAIT_BUDGET_MS = 60 * 50; // RETRY_ATTEMPTS * RETRY_INTERVAL_MS ≈ 3s
  *    the identical body with the route's normal status (200). Exactly one
  *    expense row exists afterward.
  *  - Crash recovery: a pending reservation row (statusCode NULL) left behind
- *    by a died process blocks the key only until PENDING_TTL (60s). A stale
- *    (expired) pending row is reclaimed and the retry proceeds; a fresh
+ *    by a died process blocks the key only until PENDING_TTL (FIX-119A: 10min).
+ *    A stale (expired) pending row is reclaimed and the retry proceeds; a fresh
  *    pending row with the same body makes the retry wait the full ~3s poll
  *    budget and then fail 409 ("아직 처리 중"); a fresh pending row with a
  *    different body 409s immediately.
+ *  - FIX-119A/H-1 invariant (d-0, d-5): the reservation TTL is strictly longer
+ *    than the admin client's 60s write timeout, so a retry sent *because the
+ *    client timed out* (60s < age < 10min) finds the reservation still alive
+ *    and is told to wait instead of having the still-running handler's
+ *    reservation reclaimed as "crash debris" and re-executed.
  *  - Completed-key expiry: after the 24h expiresAt passes, the same key+body
  *    is treated as a brand-new request (handler runs again).
  *  - Endpoint scoping: the unique key is (userId, endpoint, idemKey), so the
@@ -221,6 +253,24 @@ describe.skipIf(!dbAvailable)("IdempotencyInterceptor 동시성/만료/복구 (r
     expect(new Set(responses.map((r) => r.status))).toEqual(new Set([rows[0].statusCode]));
   });
 
+  it("(d-0) FIX-119A/H-1 불변식: 예약 TTL(10분) > admin 쓰기 타임아웃(60초)", () => {
+    // The value parsed out of the interceptor is the one FIX-119A settled on.
+    expect(PENDING_TTL_MS).toBe(EXPECTED_PENDING_TTL_MS);
+    // The invariant itself: a client that gives up at 60s must never be able to
+    // retry into an already-expired (reclaimable) reservation.
+    expect(PENDING_TTL_MS).toBeGreaterThan(ADMIN_WRITE_TIMEOUT_MS);
+
+    // Cross-package half of the invariant, checked only when the admin source is
+    // readable from here (api tests must not hard-depend on the admin app layout).
+    const adminApiPath = fileURLToPath(new URL("../../admin/src/lib/admin-api.ts", import.meta.url));
+    if (existsSync(adminApiPath)) {
+      const adminSource = readFileSync(adminApiPath, "utf8");
+      const match = /WRITE_FETCH_TIMEOUT_MS\s*=\s*([\d_]+)/.exec(adminSource);
+      expect(match).not.toBeNull();
+      expect(Number(match![1].replace(/_/g, ""))).toBe(ADMIN_WRITE_TIMEOUT_MS);
+    }
+  });
+
   it("(d-1) PENDING_TTL 지난 stale pending 행(크래시 잔재) → 회수하고 정상 진행", async () => {
     const { userId, accessToken } = await login("idem-stale-pending");
     const { childId } = await completeOnboarding(accessToken, "멱등-스테일");
@@ -235,8 +285,11 @@ describe.skipIf(!dbAvailable)("IdempotencyInterceptor 동시성/만료/복구 (r
     expect(primer.requestHash).toBe(requestHashFor(`/api/v1/children/${childId}/expenses`, body));
 
     // Simulate a process that died mid-handler: reservation row exists,
-    // statusCode/responseJson NULL, and its short pending expiry has passed.
+    // statusCode/responseJson NULL, and its pending expiry has passed. The row
+    // is dated as if it had been reserved a full TTL ago (FIX-119A: 10min), so
+    // the assertion tracks the real constant instead of "1초 전 만료".
     const idemKey = `idem-d1-${randomUUID()}`;
+    const reservedAt = Date.now() - 2 * PENDING_TTL_MS;
     await prisma.idempotencyKey.create({
       data: {
         userId,
@@ -244,7 +297,7 @@ describe.skipIf(!dbAvailable)("IdempotencyInterceptor 동시성/만료/복구 (r
         idemKey,
         requestHash: primer.requestHash,
         statusCode: null,
-        expiresAt: new Date(Date.now() - 1000) // pending TTL(60s) elapsed
+        expiresAt: new Date(reservedAt + PENDING_TTL_MS) // pending TTL elapsed
       }
     });
 
@@ -367,6 +420,60 @@ describe.skipIf(!dbAvailable)("IdempotencyInterceptor 동시성/만료/복구 (r
     expect(failed.body.error.code).toBe("IDEMPOTENCY_KEY_CONFLICT");
     expect(failed.body.error.message).toContain("실패했어요");
     await expect(expenseCount(childId, itemName)).resolves.toBe(1); // primer only
+  });
+
+  /**
+   * FIX-119A / H-1 회귀 방지.
+   *
+   * 재현 조건: 핸들러가 admin 클라이언트의 쓰기 타임아웃(60초)보다 오래 걸려
+   * 운영자가 같은 Idempotency-Key로 재시도하는 상황. 예약 TTL이 60초였을 때는
+   * 재시도 시점(예: 120초 후)에 예약 행이 이미 만료돼 있어 reserve()가 그것을
+   * "크래시 잔재"로 회수하고 핸들러를 다시 실행했다 — 이중 반영, 그리고
+   * POST /admin/users에서는 재실행이 ADMIN_EMAIL_EXISTS 409 → catch가 키를
+   * 지워 첫 응답의 tempPassword가 영구 유실됐다.
+   *
+   * 고친 뒤(TTL 10분): 같은 시점의 재시도는 예약을 살아 있는 것으로 보고
+   * 대기 경로로 들어가 409 "아직 처리 중"을 받는다. 예약 행은 원 소유자를
+   * 위해 그대로 남고 핸들러는 다시 돌지 않는다.
+   */
+  it("(d-5) H-1: 클라이언트 타임아웃(60초) 직후~TTL 이내 재시도 → 예약 유지, 재실행 없이 409 대기 안내", async () => {
+    const { userId, accessToken } = await login("idem-h1-client-timeout");
+    const { childId } = await completeOnboarding(accessToken, "멱등-H1");
+    const itemName = `H1 타임아웃 재시도 ${randomUUID()}`;
+    const body = expenseBody(itemName);
+
+    const primerKey = `idem-d5-primer-${randomUUID()}`;
+    await postExpense(accessToken, childId, primerKey, body).expect(200);
+    const primer = (await idemRows(userId, primerKey))[0];
+
+    // 120초 전에 예약된 채 아직 처리 중인 요청 — 클라이언트는 이미 60초에
+    // 포기했지만 서버 핸들러는 살아 있다.
+    const inFlightAgeMs = 2 * ADMIN_WRITE_TIMEOUT_MS;
+    expect(inFlightAgeMs).toBeGreaterThan(ADMIN_WRITE_TIMEOUT_MS); // 클라이언트는 이미 포기
+    expect(inFlightAgeMs).toBeLessThan(PENDING_TTL_MS); // 서버 예약은 아직 살아 있어야 한다
+    const idemKey = `idem-d5-${randomUUID()}`;
+    await prisma.idempotencyKey.create({
+      data: {
+        userId,
+        endpoint: primer.endpoint,
+        idemKey,
+        requestHash: primer.requestHash,
+        statusCode: null,
+        expiresAt: new Date(Date.now() - inFlightAgeMs + PENDING_TTL_MS)
+      }
+    });
+
+    const retry = await postExpense(accessToken, childId, idemKey, body).expect(409);
+    expect(retry.body.error.code).toBe("IDEMPOTENCY_KEY_CONFLICT");
+    expect(retry.body.error.message).toContain("아직 처리 중");
+
+    // 핵심: 핸들러가 다시 돌지 않았다(프라이머 1건뿐 — 이중 반영 없음).
+    await expect(expenseCount(childId, itemName)).resolves.toBe(1);
+    // 예약 행은 회수되지 않고 원 소유자의 완료 기록을 기다린다.
+    const rows = await idemRows(userId, idemKey);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].statusCode).toBeNull();
+    expect(rows[0].expiresAt.getTime()).toBeGreaterThan(Date.now());
   });
 
   it("(e) 완료 키의 24h 만료(expiresAt 소급) → 새 요청으로 재실행", async () => {

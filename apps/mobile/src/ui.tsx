@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
 import { AccessibilityInfo, Image, Pressable, ScrollView, Text, View } from "react-native";
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
+import { formatKrw } from "./money";
+import { computeCategoryShares } from "./reports/category-share";
 import { theme } from "./theme";
 
 type ChildrenProps = {
@@ -710,6 +712,22 @@ export function LineChartCard({
   );
 }
 
+const categoryShareBarHeight = 14;
+
+/**
+ * 카테고리 비중 카드.
+ *
+ * R20-A: with real `segments` this draws a **proportional stacked share bar** -- each category's
+ * width is its actual share of the total (`computeCategoryShares`). It used to draw a donut arc
+ * via the border-quadrant trick (four border colors on a rounded View), which can only ever
+ * express four fixed 90° wedges: the angles were pure decoration and a 60% category looked
+ * identical to a 5% one. No SVG/conic-gradient dependency exists in this app (adding one is out of
+ * scope) and the same border trick cannot produce an arbitrary sweep, so the honest fix is a bar
+ * whose widths *are* the proportions rather than a circle whose angles lie.
+ *
+ * Without `segments` (the logged-out preview / pixel-lock capture) the original decorative donut
+ * is rendered byte-for-byte unchanged -- same convention as LineChartCard's placeholder line.
+ */
 export function DonutChartCard({
   title,
   segments
@@ -717,34 +735,74 @@ export function DonutChartCard({
   title: string;
   segments?: Array<{ label: string; amountKrw: number }>;
 }) {
-  const legendItems = segments
-    ? (() => {
-        const total = segments.reduce((sum, segment) => sum + segment.amountKrw, 0);
-        return segments.map((segment) => ({
-          label: segment.label,
-          percent: total > 0 ? `${Math.round((segment.amountKrw / total) * 100)}%` : "0%"
-        }));
-      })()
-    : reportCategoryLegend.map(([label, percent]) => ({ label, percent }));
+  if (segments) {
+    const shares = computeCategoryShares(segments);
 
-  // The arc is drawn with a border-quadrant trick (no SVG/conic-gradient dependency available
-  // in this app), which can only express four fixed 90° wedges rather than an arbitrary
-  // proportional sweep. When real segments are supplied, map the legend's own colors onto
-  // those four wedges (merging down when there are fewer than four categories) so the arc's
-  // visible slice count and colors always match the legend beside it, instead of always
-  // showing the same four decorative colors regardless of the real data.
-  const arcColors = segments
-    ? (() => {
-        const colors = segments.map((_, index) => donutSegmentPalette[index % donutSegmentPalette.length]);
-        if (colors.length <= 1) {
-          const only = colors[0] ?? donutSegmentPalette[0];
-          return [only, only, only, only];
-        }
-        if (colors.length === 2) return [colors[0], colors[0], colors[1], colors[1]];
-        if (colors.length === 3) return [colors[0], colors[1], colors[2], colors[2]];
-        return [colors[0], colors[1], colors[2], colors[3]];
-      })()
-    : [donutSegmentPalette[0], donutSegmentPalette[2], donutSegmentPalette[3], donutSegmentPalette[4]];
+    // Real data that adds up to nothing (every amount 0) must not fall through to the decorative
+    // preview legend -- that would show invented percentages as if they were this child's.
+    if (shares.length === 0) {
+      return (
+        <Card style={{ gap: 8 }}>
+          <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "700" }]}>{title}</Text>
+          <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>아직 비중을 보여줄 지출이 없어요.</Text>
+        </Card>
+      );
+    }
+
+    return (
+      <Card style={{ gap: 10 }}>
+        <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "700" }]}>{title}</Text>
+        {/* A11Y-117: the bar is decorative -- every slice's name, amount and percent is read from
+            the legend rows below it, so the bar itself stays out of TalkBack/VoiceOver. */}
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={{
+            backgroundColor: theme.colors.gray300,
+            borderRadius: categoryShareBarHeight / 2,
+            flexDirection: "row",
+            height: categoryShareBarHeight,
+            overflow: "hidden"
+          }}
+        >
+          {shares.map((slice, index) => (
+            <View
+              key={`${slice.label}-${index}`}
+              style={{
+                backgroundColor: donutSegmentPalette[index % donutSegmentPalette.length],
+                flexBasis: 0,
+                flexGrow: slice.widthPercent
+              }}
+            />
+          ))}
+        </View>
+        <View style={{ gap: 5 }}>
+          {shares.map((slice, index) => (
+            // A11Y-117: one element per legend row so TalkBack announces "기저귀/위생, 34%,
+            // 340,000원" instead of three disconnected fragments.
+            <View
+              accessible
+              accessibilityLabel={`${slice.label}, ${slice.percentLabel}, ${formatKrw(slice.amountKrw)}`}
+              key={`${slice.label}-${index}`}
+              style={{ alignItems: "center", flexDirection: "row", gap: 6 }}
+            >
+              <View
+                style={{ backgroundColor: donutSegmentPalette[index % donutSegmentPalette.length], borderRadius: 4, height: 8, width: 8 }}
+              />
+              <Text style={[textStyles.caption, { color: theme.colors.gray600, flex: 1 }]}>{slice.label}</Text>
+              <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{formatKrw(slice.amountKrw)}</Text>
+              <Text style={[textStyles.caption, { color: theme.colors.brown, fontWeight: "700", minWidth: 34, textAlign: "right" }]}>
+                {slice.percentLabel}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </Card>
+    );
+  }
+
+  const legendItems = reportCategoryLegend.map(([label, percent]) => ({ label, percent }));
+  const arcColors = [donutSegmentPalette[0], donutSegmentPalette[2], donutSegmentPalette[3], donutSegmentPalette[4]];
 
   return (
     <Card style={{ flexDirection: "row", gap: 14 }}>

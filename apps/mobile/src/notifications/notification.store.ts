@@ -59,9 +59,10 @@ export type AppNotification = {
    * R19-D: which child the notification is about, when the generator knows (every generator
    * except none today -- budget/stage/purchase/weekly all stamp it). OPTIONAL on purpose, so no
    * persisted-store migration is needed: entries written by an older app version simply have no
-   * childId, and every reader must treat it as "unknown child". Nothing branches on it yet (the
-   * dedupeKey already carries the child scope); it exists so a future per-child filter in
-   * app/notifications.tsx doesn't have to re-parse dedupeKeys. sanitizedEntries below keeps a
+   * childId, and every reader must treat it as "unknown child". R20-C is the first reader:
+   * app/notifications.tsx resolves it to a 태명 prefix when the household has 2+ children (rules in
+   * src/notifications/notification-child-label.ts), which is why "unknown child" must stay a
+   * silent no-prefix case rather than a placeholder. sanitizedEntries below keeps a
    * string value and drops a malformed one, so an old blob can never inject a non-string here.
    */
   childId?: string;
@@ -80,9 +81,9 @@ export type AppNotificationCandidate = {
    * The budget generators' keys gained a childId segment (`budget_80:{yearMonth}` ->
    * `budget_80:{childId}:{yearMonth}`), so without this a user who already saw this month's
    * budget alert would get it once more the first time the updated app evaluates. If any legacy
-   * key is already in the dedupe memory the candidate is dropped (and the new key is NOT
-   * recorded -- the check stays idempotent on every later evaluation). Safe to delete once a
-   * month has rolled over past the release, since the keys are month-scoped anyway.
+   * key is already in the dedupe memory the candidate is dropped AND the new key is recorded in
+   * its place (FIX-119B/F4 -- see addNotifications below for why the recording matters). Safe to
+   * delete once a month has rolled over past the release, since the keys are month-scoped anyway.
    */
   legacyDedupeKeys?: string[];
 };
@@ -103,6 +104,13 @@ export type NotificationIngestResult = {
  * Adds candidates the store has never seen (by dedupeKey) as unread entries, newest first, and
  * records their dedupeKeys. Entries beyond NOTIFICATION_MAX_ENTRIES are dropped oldest-first;
  * seen keys beyond NOTIFICATION_MAX_SEEN_KEYS are forgotten oldest-first.
+ *
+ * FIX-119B/F4 (R19 M-4): legacy 키로 억제한 후보의 **새 키도 dedupe 메모리에 기록**한다. 예전에는
+ * 기록하지 않아서 억제가 legacy 키의 수명에 매달려 있었다 -- seen은 NOTIFICATION_MAX_SEEN_KEYS
+ * (200) 캡으로 오래된 키부터 잊히므로, 알림이 200개 넘게 쌓인 사용자에게서 legacy 키가 밀려나는
+ * 순간 "이미 본 알림"이 새 키로 다시 발화했다. 새 키를 함께 기록해 두면 다음 평가부터는 위의
+ * 첫 번째 검사(`seen.has(candidate.dedupeKey)`)가 단독으로 억제를 성립시키므로, legacy 키가
+ * 사라져도 억제가 유지된다(억제는 여전히 멱등이다 -- 알림이 목록에 추가되지는 않는다).
  */
 export function addNotifications(
   entries: AppNotification[],
@@ -112,11 +120,17 @@ export function addNotifications(
 ): NotificationIngestResult {
   const seen = new Set(seenDedupeKeys);
   const added: AppNotification[] = [];
+  /** 발화 없이 dedupe 메모리에만 남길 키(legacy 키로 억제된 후보의 새 키) -- 위 F4 주석 참고. */
+  const suppressedKeys: string[] = [];
   for (const candidate of candidates) {
     if (seen.has(candidate.dedupeKey)) continue;
     // R19-D: a key this notification used in an earlier app version counts as "already seen",
     // so a dedupeKey rename never re-fires a notification the user has had.
-    if (candidate.legacyDedupeKeys?.some((legacyKey) => seen.has(legacyKey))) continue;
+    if (candidate.legacyDedupeKeys?.some((legacyKey) => seen.has(legacyKey))) {
+      seen.add(candidate.dedupeKey);
+      suppressedKeys.push(candidate.dedupeKey);
+      continue;
+    }
     seen.add(candidate.dedupeKey);
     added.push({
       id: `notif:${candidate.dedupeKey}`,
@@ -128,10 +142,13 @@ export function addNotifications(
       ...(candidate.childId ? { childId: candidate.childId } : {})
     });
   }
-  if (added.length === 0) return { entries, seenDedupeKeys };
+  if (added.length === 0 && suppressedKeys.length === 0) return { entries, seenDedupeKeys };
   return {
-    entries: [...added, ...entries].slice(0, NOTIFICATION_MAX_ENTRIES),
-    seenDedupeKeys: [...seenDedupeKeys, ...added.map((entry) => entry.dedupeKey)].slice(-NOTIFICATION_MAX_SEEN_KEYS)
+    // 억제만 있었던 경우 목록은 손대지 않는다(같은 참조를 돌려줘 구독자가 헛돌지 않게).
+    entries: added.length === 0 ? entries : [...added, ...entries].slice(0, NOTIFICATION_MAX_ENTRIES),
+    seenDedupeKeys: [...seenDedupeKeys, ...suppressedKeys, ...added.map((entry) => entry.dedupeKey)].slice(
+      -NOTIFICATION_MAX_SEEN_KEYS
+    )
   };
 }
 
