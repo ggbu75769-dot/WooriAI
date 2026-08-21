@@ -42,8 +42,9 @@ function requireEnv(name: string, hint: string): string {
 function validateEnv(): SigningEnv {
   const keystoreRaw = requireEnv(
     "WOORIAI_UPLOAD_KEYSTORE",
-    "업로드 keystore 파일 경로가 필요합니다. 생성: keytool -genkeypair -v -keystore wooriai-release.keystore " +
-      "-alias wooriai -keyalg RSA -keysize 4096 -validity 10000 (docs/5차/launch-72h-plan.md §3.1)"
+    "업로드 keystore 파일 경로가 필요합니다. 생성(레포 밖에 두고 반드시 2곳 백업 — 분실 시 앱 영구 업데이트 불가): " +
+      "keytool -genkeypair -v -keystore $HOME/wooriai-release.keystore -alias wooriai -keyalg RSA -keysize 4096 " +
+      "-validity 10000 (docs/5차/launch-72h-plan.md §3.1)"
   );
   const keystorePath = resolve(repoRoot, keystoreRaw);
   if (!existsSync(keystorePath)) {
@@ -109,6 +110,26 @@ function runPrebuild(env: NodeJS.ProcessEnv) {
   }
 }
 
+// 4차 리뷰 F2: 비밀값 누출 검사는 파일 전체가 아니라 "이 파이프라인이 쓰는 영역"(plugin의
+// REL-011 주입 블록)에만 적용한다. 전체 includes 검사는 RN 템플릿에 원래 있던 리터럴과
+// 비밀번호가 우연히 같기만 해도(예: debug keystore 비밀번호 "android") 오탐으로 빌드를 막았다.
+// 비밀값을 gradle 파일에 쓸 수 있는 코드는 plugin 주입뿐이므로, 주입 블록만 검사해도
+// 실제 누출(주입 블록 안의 비밀값 리터럴)에는 여전히 fail-closed다.
+const INJECTED_SIGNING_MARKER = "// REL-011 자동 주입 (plugins/with-wooriai-android-release.js)";
+const INJECTED_BUILDTYPE_MARKER = "// REL-011: gradle 실행 시점에 env가 있으면 업로드 keystore 서명";
+
+// marker부터 isEnd를 만족하는 첫 줄까지(포함)를 잘라 반환. marker가 없으면 "".
+function collectInjectedRegion(gradle: string, marker: string, isEnd: (line: string) => boolean): string {
+  const start = gradle.indexOf(marker);
+  if (start === -1) return "";
+  const collected: string[] = [];
+  for (const line of gradle.slice(start).split("\n")) {
+    collected.push(line);
+    if (isEnd(line)) break;
+  }
+  return collected.join("\n");
+}
+
 // prebuild가 실제로 서명 구성을 주입했는지 + 비밀값이 gradle 파일에 새지 않았는지 검증.
 function verifySigningInjected(signing: SigningEnv) {
   if (!existsSync(appBuildGradlePath)) throw new Error(`APP_BUILD_GRADLE_MISSING ${appBuildGradlePath}`);
@@ -126,22 +147,58 @@ function verifySigningInjected(signing: SigningEnv) {
       throw new Error(`SIGNING_CONFIG_NOT_INJECTED: app/build.gradle에 "${line}" 이(가) 없습니다. prebuild 로그를 확인하세요.`);
     }
   }
+  const injectedRegions = [
+    // signingConfigs.release 주입 블록: 마커 주석부터 if 블록 닫힘까지 (storeFile~keyPassword 포함).
+    collectInjectedRegion(gradle, INJECTED_SIGNING_MARKER, (line) => line.trim() === "}"),
+    // release buildType 서명 전환: 마커 주석부터 signingConfig ternary 라인까지.
+    collectInjectedRegion(gradle, INJECTED_BUILDTYPE_MARKER, (line) => line.includes("signingConfig "))
+  ];
+  if (injectedRegions.some((region) => region === "")) {
+    // 마커가 없으면 검사가 헛돌게 되므로 fail-closed로 즉시 실패시킨다.
+    throw new Error(
+      "SIGNING_INJECTION_MARKER_MISSING: app/build.gradle에서 REL-011 주입 마커 주석을 찾지 못했습니다. " +
+        "plugins/with-wooriai-android-release.js 변경 여부를 확인하세요."
+    );
+  }
+  // 주석 줄은 plugin이 쓰는 고정 텍스트라 비밀값이 들어갈 수 없는데, "android" 같은 흔한
+  // 단어(파일명·명령어)를 포함하므로 검사 대상에서 제외한다. 실제 누출은 값 줄(storePassword 등)에
+  // 리터럴로 나타나며 그 줄들은 전부 검사한다.
+  const injectedText = injectedRegions
+    .join("\n")
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("//"))
+    .join("\n");
   for (const secret of [signing.keystorePassword, signing.keyPassword]) {
-    if (gradle.includes(secret)) {
-      throw new Error("SECRET_LEAKED_INTO_GRADLE: 비밀번호 문자열이 app/build.gradle에 그대로 들어갔습니다. 즉시 파일을 확인하세요.");
+    if (injectedText.includes(secret)) {
+      throw new Error(
+        "SECRET_LEAKED_INTO_GRADLE: 비밀번호 문자열이 app/build.gradle의 REL-011 주입 블록에서 발견됐습니다 " +
+          "(누출 또는 흔한 gradle 문자열과의 충돌). 즉시 파일을 확인하세요."
+      );
     }
   }
 }
 
 function findJavaHome() {
   if (process.env.JAVA_HOME && existsSync(process.env.JAVA_HOME)) return process.env.JAVA_HOME;
-  const roots = ["C:\\Program Files\\Eclipse Adoptium", "C:\\Program Files\\Java", "C:\\Program Files\\Microsoft"];
+  // 4차 리뷰 F6: windows 외에 linux/mac 공통 설치 경로도 폴백 탐색한다.
+  const roots = [
+    "C:\\Program Files\\Eclipse Adoptium",
+    "C:\\Program Files\\Java",
+    "C:\\Program Files\\Microsoft",
+    "/usr/lib/jvm",
+    "/usr/java",
+    "/opt/java",
+    "/Library/Java/JavaVirtualMachines"
+  ];
+  const javaBinary = process.platform === "win32" ? "java.exe" : "java";
   for (const root of roots) {
     if (!existsSync(root)) continue;
     const match = readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && /jdk-?17|jdk.*17/i.test(entry.name))
+      .filter((entry) => entry.isDirectory() && /17/.test(entry.name) && /jdk|java/i.test(entry.name))
       .map((entry) => join(root, entry.name))
-      .find((candidate) => existsSync(join(candidate, "bin", process.platform === "win32" ? "java.exe" : "java")));
+      // mac은 <jdk>/Contents/Home 밑에 bin/java가 있다.
+      .flatMap((candidate) => [candidate, join(candidate, "Contents", "Home")])
+      .find((candidate) => existsSync(join(candidate, "bin", javaBinary)));
     if (match) return match;
   }
   return "";

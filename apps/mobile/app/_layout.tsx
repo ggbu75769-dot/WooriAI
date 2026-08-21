@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { LOCAL_SESSION_TOKEN } from "../src/api/client";
 import { PurchaseFollowupLifecycle } from "../src/commerce/PurchaseFollowupPrompt";
+import { ErrorBoundary } from "../src/errors/ErrorBoundary";
 import { useOfflineSyncLifecycle } from "../src/offline/sync-controller";
 import { useSessionStore } from "../src/stores/session.store";
 
@@ -24,12 +25,18 @@ function OfflineSyncLifecycle() {
 export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
-      <OfflineSyncLifecycle />
-      <Stack screenOptions={{ headerShown: false }} />
-      {/* COM-108: mounted after <Stack> so the 구매하셨나요? follow-up card overlays whatever
-          screen is focused. Inert without a real/demo session and never blocks navigation --
-          see src/commerce/PurchaseFollowupPrompt.tsx. */}
-      <PurchaseFollowupLifecycle />
+      {/* MOB-108: global render-crash boundary. Wraps the navigator AND the lifecycle mounts
+          (OfflineSyncLifecycle, PurchaseFollowupLifecycle) so a crash in any of them shows the
+          warm recovery screen instead of a white screen; [다시 시도] remounts this whole subtree.
+          Kept inside QueryClientProvider — the boundary itself has no provider/store deps. */}
+      <ErrorBoundary>
+        <OfflineSyncLifecycle />
+        <Stack screenOptions={{ headerShown: false }} />
+        {/* COM-108: mounted after <Stack> so the 구매하셨나요? follow-up card overlays whatever
+            screen is focused. Inert without a real/demo session and never blocks navigation --
+            see src/commerce/PurchaseFollowupPrompt.tsx. */}
+        <PurchaseFollowupLifecycle />
+      </ErrorBoundary>
     </QueryClientProvider>
   );
 }

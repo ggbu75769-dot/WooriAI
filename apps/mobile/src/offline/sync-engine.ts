@@ -48,6 +48,26 @@ function omitUndefinedValues<T extends object>(patch: Partial<T>): Partial<T> {
   return result;
 }
 
+/**
+ * COV-T5 bug 1 (삭제-404 영구 실패 루프): a DELETE the server answers with 404 EXPENSE_NOT_FOUND
+ * means both sides already agree the row is gone -- the local delete's whole intent is satisfied.
+ * Routing it to 'failed' (like other permanent errors) created an unwinnable retry loop: 재시도
+ * re-sends the same idempotency key and gets the same 404 forever, and only a manual discard
+ * exits. Instead flushOutbox treats exactly this case as delete success.
+ *
+ * Deliberately narrow: only status 404 AND the API's actual not-found body code. The server's
+ * delete path raises NotFoundException({code: "EXPENSE_NOT_FOUND", ...}) (apps/api/src/finance/
+ * expenses.service.ts), which GlobalExceptionFilter serializes as `{error: {code, message, ...}}`
+ * -- and remote-api.ts forwards that parsed body onto RemotePermanentError.body. A 404 without
+ * that code (e.g. from a proxy/gateway) proves nothing about the row and stays 'failed'; any
+ * other status (403 FORBIDDEN, 422, ...) is untouched; UPDATE mutations never take this path.
+ */
+function isDeleteTargetAlreadyGoneOnServer(error: RemotePermanentError): boolean {
+  if (error.status !== 404) return false;
+  const body = error.body as { error?: { code?: unknown } } | null | undefined;
+  return body?.error?.code === "EXPENSE_NOT_FOUND";
+}
+
 async function replaceOutboxForLocalId(
   store: OfflineStore,
   existing: MutationOutboxRow[],
@@ -400,6 +420,16 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
       }
 
       if (error instanceof RemotePermanentError) {
+        if (mutation.operation === "delete" && isDeleteTargetAlreadyGoneOnServer(error)) {
+          // 404/EXPENSE_NOT_FOUND on a delete: the server already has no such row, which is
+          // exactly the end state this mutation wanted. Converge as success -- mirror the
+          // normal delete success path (local row removed, outbox row cleared) instead of
+          // parking the row in an unwinnable 'failed' retry loop.
+          await store.deleteLocalExpense(mutation.targetLocalId);
+          await store.deleteOutboxMutation(mutation.mutationId);
+          summary.synced += 1;
+          continue;
+        }
         await store.updateLocalExpense(mutation.targetLocalId, {
           syncState: "failed",
           lastError: error.message,
@@ -486,6 +516,42 @@ export async function discardFailedMutation(store: OfflineStore, localId: string
 // immediately (adopt) or requeue a mutation with the now-known server version (reapply/merge).
 // ---------------------------------------------------------------------------
 
+/** Every mutable field ExpensePayload carries (src/offline/types.ts) -- the full field set, not
+ * just diffExpenseFields' display subset (which deliberately omits childId/linkedItemTemplateId). */
+const expensePayloadFieldKeys: ReadonlyArray<keyof ExpensePayload> = [
+  "childId",
+  "categoryId",
+  "amountKrw",
+  "spentOn",
+  "itemName",
+  "merchant",
+  "memo",
+  "paymentMethod",
+  "linkedItemTemplateId",
+  "expenseType"
+];
+
+/**
+ * COV-T5 bug 2 (adopt-server payload 오염): a ConflictSnapshot's live expense is
+ * `ExpensePayload & {id, version}` -- spreading the whole snapshot into a payload
+ * (`{...row.payload, ...server}`) smuggles the server bookkeeping keys `id`/`version` into
+ * ExpensePayload, where they'd ride along into later update/create request bodies as unknown
+ * fields. This picks only the payload-shaped fields the snapshot actually carries (fields the
+ * snapshot omits, e.g. paymentMethod which toEngineConflictSnapshot doesn't map, keep their
+ * local value via the merge at the call site).
+ */
+function pickPayloadFieldsFromSnapshot(
+  snapshot: ExpensePayload & { id: string; version: number }
+): Partial<ExpensePayload> {
+  const picked: Partial<ExpensePayload> = {};
+  for (const key of expensePayloadFieldKeys) {
+    if (key in snapshot) {
+      (picked as Record<string, unknown>)[key] = snapshot[key];
+    }
+  }
+  return picked;
+}
+
 /** ① 다른 기기 값 유지: discard the local change, adopt the server's current value. */
 export async function resolveConflictAdoptServer(store: OfflineStore, localId: string): Promise<void> {
   const row = await store.getLocalExpense(localId);
@@ -504,7 +570,7 @@ export async function resolveConflictAdoptServer(store: OfflineStore, localId: s
   const server = row.conflictCurrent.expense;
   await store.updateLocalExpense(localId, {
     canonicalId: server.id,
-    payload: { ...row.payload, ...server },
+    payload: { ...row.payload, ...pickPayloadFieldsFromSnapshot(server) },
     version: server.version,
     syncState: "synced",
     conflictCurrent: null,

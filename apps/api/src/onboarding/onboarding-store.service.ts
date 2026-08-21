@@ -766,19 +766,28 @@ export class OnboardingStoreService {
   }
 
   async getHome(user: AuthenticatedUser, childId: string) {
+    // View-access check must stay first: no data reads happen for a child the
+    // caller is not allowed to see (PERF-103 kept this ordering intact).
     const child = await this.requireChildAccess(user, childId);
     const yearMonth = this.currentYearMonth();
-    const budget = await this.prisma.budget.findUnique({
-      where: { childId_yearMonth: { childId, yearMonth: toDateOnly(yearMonth) } }
-    });
-    const recentExpenses = (await this.expensesForChild(childId)).slice(0, 3);
+    // PERF-103: the child's expense rows are fetched ONCE (recentExpenses and
+    // totalExpenseKrw both derive from `expenses`), and the four independent
+    // reads run in parallel instead of serially.
+    const [budget, monthlyUsedKrw, expenses, recommendedItems] = await Promise.all([
+      this.prisma.budget.findUnique({
+        where: { childId_yearMonth: { childId, yearMonth: toDateOnly(yearMonth) } }
+      }),
+      this.sumExpenses(childId, getSeoulMonthRange(yearMonth)),
+      this.expensesForChild(childId),
+      this.recommendedItemsForChild(childId)
+    ]);
 
     return {
       child: this.toChildDto(child),
-      totalExpenseKrw: this.totalExpenseKrw(await this.expensesForChild(childId)),
-      monthly: await this.toBudgetDto(childId, yearMonth, budget?.amountKrw ?? 0),
-      recommendedItems: (await this.recommendedItemsForChild(childId)).slice(0, 3),
-      recentExpenses: recentExpenses.map((expense) => this.toExpenseDto(expense))
+      totalExpenseKrw: this.totalExpenseKrw(expenses),
+      monthly: this.buildBudgetDto(childId, yearMonth, budget?.amountKrw ?? 0, monthlyUsedKrw),
+      recommendedItems: recommendedItems.slice(0, 3),
+      recentExpenses: expenses.slice(0, 3).map((expense) => this.toExpenseDto(expense))
     };
   }
 
@@ -1427,6 +1436,12 @@ export class OnboardingStoreService {
   private async toBudgetDto(childId: string, yearMonth: string, amountKrw: number) {
     const range = getSeoulMonthRange(yearMonth);
     const usedAmountKrw = await this.sumExpenses(childId, range);
+    return this.buildBudgetDto(childId, yearMonth, amountKrw, usedAmountKrw);
+  }
+
+  /** Pure DTO assembly shared by toBudgetDto and getHome (PERF-103), so getHome can
+   *  fetch usedAmountKrw inside its Promise.all without changing the response shape. */
+  private buildBudgetDto(childId: string, yearMonth: string, amountKrw: number, usedAmountKrw: number) {
     return {
       childId,
       yearMonth,

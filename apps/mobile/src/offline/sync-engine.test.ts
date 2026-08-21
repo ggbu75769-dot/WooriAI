@@ -274,7 +274,11 @@ describe("sync-engine: conflict resolution (design doc §3.4, three branches)", 
     expect(row?.syncState).toBe("synced");
     expect(row?.conflictCurrent).toBeNull();
     expect(row?.version).toBe(currentFromServer.expense.version);
-    expect(row?.payload.itemName).toBe("다른 기기가 바꾼 이름");
+    // COV-T5 bug 2 fix: exactly the ExpensePayload fields are adopted -- the snapshot's
+    // server bookkeeping keys (id/version) never leak into the payload object.
+    expect(row?.payload).toEqual({ ...payload, itemName: "다른 기기가 바꾼 이름" });
+    expect(Object.keys(row?.payload ?? {})).not.toContain("id");
+    expect(Object.keys(row?.payload ?? {})).not.toContain("version");
     expect(await store.listOutboxMutationsForLocalId(localId)).toHaveLength(0);
   });
 

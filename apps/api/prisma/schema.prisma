@@ -316,9 +316,14 @@ model Expense {
   updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   version              Int           @default(1)
 
+  // SQL 전용 부분 인덱스(Prisma @@index 표현 불가) 2건이 별도로 존재한다:
+  //   idx_expenses_not_deleted (child_id, spent_on) WHERE deleted_at IS NULL (000001)
+  //   idx_expenses_deleted_purge (deleted_at, id) WHERE deleted_at IS NOT NULL (000011, PERF-101)
   @@index([childId, spentOn], map: "idx_expenses_child_spent_on")
   @@index([householdId, childId], map: "idx_expenses_household_child")
   @@index([categoryId], map: "idx_expenses_category")
+  // PERF-101(000011): 델타 동기화 keyset((updatedAt,id) 커서, 가구 스코프) 전용.
+  @@index([householdId, updatedAt, id], map: "idx_expenses_household_updated")
   @@map("expenses")
 }
 
@@ -400,6 +405,8 @@ model AffiliateClick {
 
   @@index([productLinkId, clickedAt], map: "idx_affiliate_clicks_product_clicked")
   @@index([childId, clickedAt], map: "idx_affiliate_clicks_child_clicked")
+  // PERF-101(000011): 어드민 대시보드 "최근 7일 클릭" 등 clicked_at 단독 범위용.
+  @@index([clickedAt], map: "idx_affiliate_clicks_clicked_at")
   @@map("affiliate_clicks")
 }
 
@@ -511,6 +518,9 @@ model RefreshToken {
   revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  // PERF-101(000011): SQL 전용 부분 인덱스 idx_refresh_tokens_revoked_at
+  // (revoked_at) WHERE revoked_at IS NOT NULL 이 별도로 존재한다(정리 워커의
+  // OR revoked_at < cutoff 분기용, Prisma @@index 표현 불가).
   @@index([userId], map: "idx_refresh_tokens_user_id")
   @@index([familyId], map: "idx_refresh_tokens_family_id")
   @@index([expiresAt], map: "idx_refresh_tokens_expires_at")
@@ -630,5 +640,8 @@ model AnalyticsEvent {
   payload         Json     @db.JsonB
 
   @@index([eventName, occurredAt], map: "idx_analytics_events_name_occurred")
+  // PERF-101(000011): occurred_at 단독 범위 윈도우(어드민 KPI 일별 집계·유니크
+  // 사용자 카운트)용 — 위 복합 인덱스는 선두가 event_name이라 범위 스캔 불가.
+  @@index([occurredAt], map: "idx_analytics_events_occurred_at")
   @@map("analytics_events")
 }

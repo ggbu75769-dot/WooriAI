@@ -36,13 +36,25 @@ function parseProfile(): BuildProfile {
 
 function findJavaHome() {
   if (process.env.JAVA_HOME && existsSync(process.env.JAVA_HOME)) return process.env.JAVA_HOME;
-  const roots = ["C:\\Program Files\\Eclipse Adoptium", "C:\\Program Files\\Java", "C:\\Program Files\\Microsoft"];
+  // 4차 리뷰 F6: windows 외에 linux/mac 공통 설치 경로도 폴백 탐색한다.
+  const roots = [
+    "C:\\Program Files\\Eclipse Adoptium",
+    "C:\\Program Files\\Java",
+    "C:\\Program Files\\Microsoft",
+    "/usr/lib/jvm",
+    "/usr/java",
+    "/opt/java",
+    "/Library/Java/JavaVirtualMachines"
+  ];
+  const javaBinary = process.platform === "win32" ? "java.exe" : "java";
   for (const root of roots) {
     if (!existsSync(root)) continue;
     const match = readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && /jdk-?17|jdk.*17/i.test(entry.name))
+      .filter((entry) => entry.isDirectory() && /17/.test(entry.name) && /jdk|java/i.test(entry.name))
       .map((entry) => join(root, entry.name))
-      .find((candidate) => existsSync(join(candidate, "bin", process.platform === "win32" ? "java.exe" : "java")));
+      // mac은 <jdk>/Contents/Home 밑에 bin/java가 있다.
+      .flatMap((candidate) => [candidate, join(candidate, "Contents", "Home")])
+      .find((candidate) => existsSync(join(candidate, "bin", javaBinary)));
     if (match) return match;
   }
   return "";
@@ -77,8 +89,20 @@ function main() {
     );
   }
 
+  // 4차 리뷰 F1: AAB 빌드(REL-011) 후 셸에 WOORIAI_UPLOAD_* 가 export된 채 남아 있으면
+  // standalone/demo APK가 Play 업로드 키로 서명되거나(일부만 남은 env면 불투명한 gradle 실패),
+  // 의도치 않은 서명이 나간다. APK 빌드는 항상 debug 서명이어야 하므로 자식 env에서 전부 제거한다.
+  const inheritedEnv: NodeJS.ProcessEnv = { ...process.env };
+  const strippedUploadKeys = Object.keys(inheritedEnv).filter((key) => key.startsWith("WOORIAI_UPLOAD_"));
+  for (const key of strippedUploadKeys) delete inheritedEnv[key];
+  if (strippedUploadKeys.length > 0) {
+    console.log(
+      `WOORIAI_UPLOAD_* env ${strippedUploadKeys.length}개를 APK 빌드에서 제거했습니다 (debug 서명 유지): ${strippedUploadKeys.join(", ")}`
+    );
+  }
+
   const env = {
-    ...process.env,
+    ...inheritedEnv,
     EXPO_PUBLIC_PIXEL_LOCK: "0",
     EXPO_PUBLIC_TEST_LOGIN: profileTestLoginEnv[profile],
     EXPO_ROUTER_APP_ROOT: "apps/mobile/app",

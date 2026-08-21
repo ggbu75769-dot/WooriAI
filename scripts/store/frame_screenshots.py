@@ -36,13 +36,21 @@ def rounded(im, rad):
 
 def frame(src_path, caption, font):
     shot = Image.open(src_path).convert("RGB")
+    # 4차 리뷰 F4: 극단 종횡비/극소 원본은 리사이즈가 0px로 붕괴하거나 스토어에서 반려된다 —
+    # traceback 대신 한국어 에러로 즉시 중단.
+    if shot.width < 8 or shot.height < 8 or shot.width > 3 * shot.height or shot.height > 3 * shot.width:
+        raise SystemExit(
+            f"원본 스크린샷 크기/종횡비가 비정상입니다: {src_path} ({shot.width}x{shot.height}) — "
+            "실기기 세로 캡처(예: 1080x1920)를 사용하세요."
+        )
     canvas = Image.new("RGB", (W, H), CREAM)
     d = ImageDraw.Draw(canvas)
     d.rectangle([0, 0, W, 320], fill=CORAL)
     tw = d.textlength(caption, font=font)
     d.text(((W - tw) / 2, 120), caption, font=font, fill=CREAM)
     scale = min(1400 / shot.height, 900 / shot.width)
-    ns = (int(shot.width * scale), int(shot.height * scale))
+    # max(1, ...): int 절삭으로 0이 되어 Pillow가 알 수 없는 에러를 내는 것 방지 (4차 리뷰 F4).
+    ns = (max(1, int(shot.width * scale)), max(1, int(shot.height * scale)))
     shot_r = rounded(shot.resize(ns, Image.LANCZOS), 36)
     x = (W - ns[0]) // 2
     y = 360
@@ -69,6 +77,13 @@ def main():
     outdir = sys.argv[2]
     os.makedirs(outdir, exist_ok=True)
     for i, entry in enumerate(manifest, 1):
+        # 4차 리뷰 F4: 필수 키 누락 시 bare KeyError traceback 대신 한국어 에러.
+        missing = [key for key in ("name", "src", "caption") if key not in entry]
+        if missing:
+            raise SystemExit(
+                f"manifest {i}번째 항목에 필수 키가 없습니다: {', '.join(missing)} "
+                "(형식: [{\"name\":..., \"src\":..., \"caption\":...}, ...])"
+            )
         out = os.path.join(outdir, f"phone-{i:02d}-{entry['name']}.png")
         frame(entry["src"], entry["caption"], font).save(out)
         print(f"{out} 1080x1920 · {entry['caption']}")

@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import type { ChildStageMode } from "@wooriai/domain";
+import { OnboardingStepProgress } from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { AppScreen, Card, ScreenHeader } from "../../src/ui";
 import { theme } from "../../src/theme";
@@ -44,6 +45,15 @@ export default function ChildStatusScreen() {
   const [selectedMode, setSelectedMode] = useState<ChildStageMode | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
 
+  // ONB-105: isNavigating guards against double-taps while pushing to the next screen, but it
+  // used to stay true forever -- coming back from ONB-002 left every option disabled with no way
+  // to recover. Re-enable the choices whenever this screen regains focus.
+  useFocusEffect(
+    useCallback(() => {
+      setIsNavigating(false);
+    }, [])
+  );
+
   function choose(stageMode: ChildStageMode) {
     if (isNavigating) return;
     setSelectedMode(stageMode);
@@ -56,6 +66,7 @@ export default function ChildStatusScreen() {
   return (
     <AppScreen>
       <View accessibilityLabel={onboardingChildStatusScreenId} testID="screen-ONB-001" style={{ gap: theme.spacing.section }}>
+        <OnboardingStepProgress screenId="ONB-001" />
         <ScreenHeader
           eyebrow="아이 정보 시작하기"
           title="지금 상황을 알려주세요"

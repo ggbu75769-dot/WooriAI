@@ -216,6 +216,60 @@ describe("Expense, budget, home, and report API", () => {
     );
   });
 
+  it("derives home recentExpenses (newest 3) and totalExpenseKrw (all-time sum) consistently from the same expense set (PERF-103)", async () => {
+    const accessToken = await login(app, `perf103-home-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    // Five expenses: four in the current month (2026-07, pinned by WOORIAI_STAGE_TODAY)
+    // and one in June, so totalExpenseKrw (all-time) and monthly.usedAmountKrw
+    // (current month) diverge and each would catch its own regression.
+    const seeds = [
+      { amountKrw: 11000, spentOn: "2026-06-20", itemName: "6월 물티슈" },
+      { amountKrw: 1000, spentOn: "2026-07-01", itemName: "7월 지출 1" },
+      { amountKrw: 2000, spentOn: "2026-07-02", itemName: "7월 지출 2" },
+      { amountKrw: 3000, spentOn: "2026-07-03", itemName: "7월 지출 3" },
+      { amountKrw: 4000, spentOn: "2026-07-04", itemName: "7월 지출 4" }
+    ];
+    for (const seed of seeds) {
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ categoryId, ...seed, paymentMethod: "card" })
+        .expect(200);
+    }
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/home?childId=${childId}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        // totalExpenseKrw is the sum of ALL five expenses (not just the sliced recent 3,
+        // not just the current month).
+        expect(body.totalExpenseKrw).toBe(11000 + 1000 + 2000 + 3000 + 4000);
+        // recentExpenses is exactly the newest 3 by spentOn desc.
+        expect(body.recentExpenses).toHaveLength(3);
+        expect(
+          body.recentExpenses.map((expense: { spentOn: string; amountKrw: number; itemName: string }) => ({
+            spentOn: expense.spentOn,
+            amountKrw: expense.amountKrw,
+            itemName: expense.itemName
+          }))
+        ).toEqual([
+          { spentOn: "2026-07-04", amountKrw: 4000, itemName: "7월 지출 4" },
+          { spentOn: "2026-07-03", amountKrw: 3000, itemName: "7월 지출 3" },
+          { spentOn: "2026-07-02", amountKrw: 2000, itemName: "7월 지출 2" }
+        ]);
+        // monthly stays scoped to the current month only.
+        expect(body.monthly).toMatchObject({
+          childId,
+          yearMonth: "2026-07-01",
+          amountKrw: 100000,
+          usedAmountKrw: 1000 + 2000 + 3000 + 4000,
+          remainingAmountKrw: 100000 - (1000 + 2000 + 3000 + 4000)
+        });
+      });
+  });
+
   it("rejects invalid expense input and excludes gift expenses from default totals", async () => {
     const providerToken = `batch06-validation-${randomUUID()}`;
     const accessToken = await login(app, providerToken);

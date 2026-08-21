@@ -48,7 +48,7 @@ describe("reconcileMonthlyExpenses (H-2 fix: no duplicate display / no double-su
     expect(result.monthlyTotalKrw).toBe(25_000);
   });
 
-  it("hides the stale server row for a pending delete and shows nothing in its place, excluding it from the total entirely", () => {
+  it("hides the stale server row for a (still uncontested) pending delete and shows nothing in its place, excluding it from the total entirely", () => {
     const server = [serverExpense({ id: "server-1", amountKrw: 10_000 })];
     const offline = [
       offlineRow({
@@ -112,6 +112,37 @@ describe("reconcileMonthlyExpenses (H-2 fix: no duplicate display / no double-su
     expect(result.offlinePendingRows).toHaveLength(1);
     expect(result.offlinePendingRows[0].syncState).toBe("conflict");
     expect(result.monthlyTotalKrw).toBe(25_000);
+  });
+
+  it("keeps a CONTESTED delete (syncState 'conflict' + pendingDelete) visible as a conflict row, counted by its local payload amount like every other conflict row", () => {
+    // COV-T5 bug 3 fix: unlike a merely-queued pending delete (test above), a delete the
+    // server answered 409 to concerns an expense that is still live server-side. Hiding both
+    // the stale server row AND the local row made the contested expense vanish from the list
+    // and the monthly total. It now surfaces exactly like a non-delete conflict row.
+    const server = [serverExpense({ id: "server-1", amountKrw: 55_000 })];
+    const offline = [
+      offlineRow({
+        localId: "local-1",
+        canonicalId: "server-1",
+        syncState: "conflict",
+        pendingDelete: true,
+        conflictCurrent: {
+          deleted: false,
+          expense: { childId, categoryId: "cat-1", amountKrw: 55_000, spentOn: "2026-07-05", itemName: "다른기기", id: "server-1", version: 7 }
+        }
+      })
+    ];
+
+    const result = reconcileMonthlyExpenses(server, offline, "2026-07");
+
+    // Shown exactly once: the stale server row is hidden, the conflict row renders in its
+    // place (records.tsx gives it the ⚠ conflict icon and "삭제 대기 중" subtitle).
+    expect(result.visibleServerExpenses).toHaveLength(0);
+    expect(result.offlinePendingRows).toHaveLength(1);
+    expect(result.offlinePendingRows[0].syncState).toBe("conflict");
+    expect(result.offlinePendingRows[0].pendingDelete).toBe(true);
+    // Counted from the local payload (10_000), consistent with the non-delete conflict case.
+    expect(result.monthlyTotalKrw).toBe(10_000);
   });
 
   it("excludes gifts from the total the same way the server's own aggregate does", () => {

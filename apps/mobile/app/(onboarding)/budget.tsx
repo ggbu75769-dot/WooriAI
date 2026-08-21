@@ -4,10 +4,11 @@ import { Platform, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { LOCAL_SESSION_TOKEN, upsertBudget } from "../../src/api/client";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
+import { OnboardingSaveErrorCard, OnboardingStepProgress } from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, PrimaryButton, ScreenHeader, TextButton, Toast } from "../../src/ui";
+import { AppScreen, Card, PrimaryButton, ScreenHeader, TextButton } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const onboardingBudgetScreenId = "ONB-004";
@@ -73,6 +74,7 @@ export default function BudgetScreen() {
   return (
     <AppScreen>
       <View accessibilityLabel={onboardingBudgetScreenId} testID="screen-ONB-004" style={{ gap: theme.spacing.section }}>
+        <OnboardingStepProgress screenId="ONB-004" />
         <ScreenHeader
           eyebrow="마지막 단계"
           title="한 달 예산을 정해주세요"
@@ -102,7 +104,7 @@ export default function BudgetScreen() {
           ) : null}
         </Card>
 
-        {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
+        {save.isError ? <OnboardingSaveErrorCard onRetry={() => save.mutate()} /> : null}
 
         <View style={{ gap: theme.spacing.gap }}>
           <PrimaryButton
