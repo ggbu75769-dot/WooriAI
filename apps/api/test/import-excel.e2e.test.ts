@@ -226,4 +226,25 @@ describe("Excel import beta API", () => {
         expect(body.totalExpenseKrw).toBe(77000);
       });
   });
+
+  // SEC-115 F2: fileName is stored verbatim into import_jobs.fileName, so an
+  // unbounded value must be rejected with the standard validation envelope
+  // instead of being persisted.
+  it("rejects a fileName longer than 255 chars with 400 VALIDATION_ERROR", async () => {
+    const accessToken = await login(app, "sec115-filename");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const oversizedFileName = `${"a".repeat(256)}.csv`;
+
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/imports/excel`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .field("fileName", oversizedFileName)
+      .attach("file", Buffer.from("날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n", "utf8"), "short.csv")
+      .expect(400);
+
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(response.body.error.details.fields).toEqual([
+      expect.objectContaining({ field: "fileName" })
+    ]);
+  });
 });

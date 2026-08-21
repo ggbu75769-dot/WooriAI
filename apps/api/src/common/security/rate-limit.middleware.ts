@@ -3,12 +3,19 @@ import type { NextFunction, Request, Response } from "express";
 const DEFAULT_WINDOW_MS = 60_000;
 const DEFAULT_GLOBAL_MAX = 300;
 const DEFAULT_AUTH_MAX = 30;
+const DEFAULT_REDIRECT_MAX = 60;
 
 // api/v1 is the global prefix set in bootstrap.ts's configureApiApp; this
 // middleware runs at the raw Express level (registered before Nest's router
 // is mounted), so it sees the request path exactly as sent by the client,
 // including that prefix.
 const AUTH_PATH_PATTERN = /^\/api\/v1\/(admin\/)?auth\//;
+
+// SEC-115 F3: the public affiliate redirect (GET /api/v1/r/:code) performs an
+// affiliate_clicks INSERT per request, so under the global-only ceiling one IP
+// could write 300 rows/min. 60 req/min is still far beyond any human
+// click-through pace (1/sec sustained) but caps the write amplification.
+const REDIRECT_PATH_PATTERN = /^\/api\/v1\/r\//;
 
 type Bucket = { count: number; windowStart: number };
 
@@ -38,10 +45,13 @@ function requestIdOf(req: Request): string | undefined {
  * much tighter ceiling (default 30 req/min) since those are the
  * brute-force-sensitive endpoints (on top of admin login's existing
  * email+IP attempt limiter in AdminAuthService, which is unrelated and
- * unaffected by this).
+ * unaffected by this), and the public affiliate redirect `r/*` obeys its own
+ * ceiling (default 60 req/min) since each request inserts an
+ * affiliate_clicks row (SEC-115 F3).
  *
  * Test isolation: limits are read from RATE_LIMIT_GLOBAL_MAX /
- * RATE_LIMIT_AUTH_MAX / RATE_LIMIT_WINDOW_MS env vars on every request (not
+ * RATE_LIMIT_AUTH_MAX / RATE_LIMIT_REDIRECT_MAX / RATE_LIMIT_WINDOW_MS env
+ * vars on every request (not
  * captured once at startup), and each call to this factory creates a fresh,
  * closure-scoped bucket Map -- so a dedicated test can set very low limits
  * for its own app instance without affecting any other test file's app.
@@ -81,13 +91,16 @@ export function rateLimitMiddleware() {
     const windowMs = envInt("RATE_LIMIT_WINDOW_MS", DEFAULT_WINDOW_MS);
     const globalMax = envInt("RATE_LIMIT_GLOBAL_MAX", DEFAULT_GLOBAL_MAX);
     const authMax = envInt("RATE_LIMIT_AUTH_MAX", DEFAULT_AUTH_MAX);
+    const redirectMax = envInt("RATE_LIMIT_REDIRECT_MAX", DEFAULT_REDIRECT_MAX);
     const ip = clientIp(req);
     const path = req.path ?? req.url ?? "";
 
     const withinGlobal = checkAndIncrement(`global:${ip}`, globalMax, windowMs);
     const withinAuth = !AUTH_PATH_PATTERN.test(path) || checkAndIncrement(`auth:${ip}`, authMax, windowMs);
+    const withinRedirect =
+      !REDIRECT_PATH_PATTERN.test(path) || checkAndIncrement(`redirect:${ip}`, redirectMax, windowMs);
 
-    if (!withinGlobal || !withinAuth) {
+    if (!withinGlobal || !withinAuth || !withinRedirect) {
       res.setHeader("Retry-After", Math.ceil(windowMs / 1000).toString());
       res.status(429).json({
         error: {
