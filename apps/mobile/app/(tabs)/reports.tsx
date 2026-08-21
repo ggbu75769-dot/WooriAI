@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Pressable, Share, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, Share, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import {
   getCategoryReport,
@@ -15,6 +15,7 @@ import {
 import { categoryNameFor } from "../../src/categories";
 import { formatKrw } from "../../src/money";
 import { buildMilestoneShareMessage } from "../../src/reports/milestone-share";
+import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
@@ -61,6 +62,17 @@ export default function ReportsScreen() {
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const hasSession = Boolean(authToken && childId);
+
+  // MOB-117 당겨서 새로고침: 이 화면의 쿼리 키는 모두 ["report", ...]로 시작한다(월간/이전달/
+  // 누적/카테고리/분기/연간/추이/100일). ["home"]은 100일 리포트 공유 문구의 아이 닉네임이
+  // 읽는 캐시라 함께 갱신한다. invalidate는 활성 쿼리 refetch 완료까지 resolve된다.
+  const queryClient = useQueryClient();
+  const { refreshing, onRefresh } = usePullToRefresh(() =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["report"] }),
+      queryClient.invalidateQueries({ queryKey: ["home"] })
+    ])
+  );
 
   // Reset navigation offset whenever the selected period changes so "다음/이전"
   // always starts from the current month/quarter/year for the newly selected unit.
@@ -227,7 +239,19 @@ export default function ReportsScreen() {
   const activePoints = period === "월간" ? monthlyTrendPoints : period === "분기" ? quarterPoints : yearlyPoints;
 
   return (
-    <AppScreen>
+    <AppScreen
+      refreshControl={
+        // 비세션 미리보기에는 새로고침할 서버 데이터가 없으므로 붙이지 않는다 (MOB-117).
+        hasSession ? (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.mainCoral}
+            colors={[theme.colors.mainCoral]}
+          />
+        ) : undefined
+      }
+    >
       <View style={reportReferenceScaleFrameStyle()}>
         <View testID={reportReferenceScreenId} style={reportReferenceFrameStyle}>
           <Text style={reportReferenceHeaderStyle}>리포트</Text>

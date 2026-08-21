@@ -2,14 +2,15 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
-import { FlatList, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
 import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
-import { subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import { refreshOfflineSyncSnapshot, subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import type { LocalExpenseRow } from "../../src/offline/types";
+import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader, StatusBadge, Toast } from "../../src/ui";
@@ -166,6 +167,14 @@ export default function RecordsScreen() {
     enabled: Boolean(authToken && childId),
     queryFn: () => listExpenses(authToken!, childId!, recordsYearMonth)
   });
+
+  // MOB-117 당겨서 새로고침: 보고 있는 달의 서버 목록 refetch + 오프라인 스냅샷(대기/실패/충돌
+  // 배지, 로컬 대기 행) 재조회를 함께 수행한다. 세션이 없으면(비활성 쿼리) refetch가 잘못된
+  // 토큰으로 queryFn을 강제 실행하므로 RefreshControl 자체를 붙이지 않는다.
+  const hasRecordsSession = Boolean(authToken && childId);
+  const { refreshing, onRefresh } = usePullToRefresh(() =>
+    Promise.all([expenses.refetch(), refreshOfflineSyncSnapshot()])
+  );
 
   // EXP-005: not-yet-synced local expenses for this child, so a record created/edited while
   // offline shows up immediately even though the server hasn't confirmed it yet.
@@ -352,6 +361,18 @@ export default function RecordsScreen() {
         data={flatListData}
         keyExtractor={recordsRowKey}
         renderItem={renderRecordsRow}
+        // MOB-117: PERF-102대로 이 화면의 스크롤러는 FlatList 자체이므로(AppScreen 중첩 금지)
+        // RefreshControl도 FlatList prop으로 단다.
+        refreshControl={
+          hasRecordsSession ? (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.colors.mainCoral}
+              colors={[theme.colors.mainCoral]}
+            />
+          ) : undefined
+        }
         ItemSeparatorComponent={RecordsRowSeparator}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={listEmpty}
