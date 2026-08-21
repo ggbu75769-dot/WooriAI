@@ -12,17 +12,25 @@
  * these modules is pinned by the source-contract tests in
  * src/children/manage-children-flow.test.ts. This journey covers the *behavior* of that wiring.
  *
- * Steps that CANNOT be exercised against the local backend (no production source was modified
- * for this ticket) are noted inline as SKIPPED-STEP comments:
+ * Steps that CANNOT be exercised against the local backend are noted inline as SKIPPED-STEP
+ * comments:
  *
  *   SKIPPED STEP ("아이 2명 생성", partially) -- the local demo backend keeps exactly ONE child
  *   record: localBackend.createChild() renames the seeded fixture child and always returns
  *   LOCAL_CHILD_ID, and listChildren() therefore never grows past one entry (see
  *   local-backend.ts createChild/toFullChildDto). A real second child only exists server-side.
- *   The journey therefore creates child #1 through the real client/create path and represents
- *   child #2 as the `Child`-shaped row `GET /children` would return for it -- which is all the
- *   switch flow consumes: planChildSwitch() takes {id, nickname}, the store takes the id, and
- *   the QueryClient invalidation is keyed by prefix, not by backend state.
+ *   The journey therefore represents child #2 as the `Child`-shaped row `GET /children` would
+ *   return for it -- which is all the switch flow consumes: planChildSwitch() takes
+ *   {id, nickname}, the store takes the id, and the QueryClient invalidation is keyed by prefix,
+ *   not by backend state.
+ *
+ *   FIX-118B(F3): that rename-instead-of-create behavior used to be reported to the user as
+ *   "추가했어요" -- a false success. app/settings/children.tsx now HIDES 아이 추가 in the demo
+ *   session (isDemoSession -> "데모에서는 아이를 추가할 수 없어요" 안내), so step 2 below no
+ *   longer walks the demo user through a create; it pins the two halves of that decision instead:
+ *   the shared form/body mapping still works (it is what the real server path uses), while the
+ *   demo backend demonstrably renames rather than creates. The screen-side gating itself is
+ *   pinned by src/children/manage-children-flow.test.ts.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
@@ -130,11 +138,14 @@ describe("QA-118: 아이 관리 journey (create -> switch -> edit/재계산) thr
   });
 
   // -------------------------------------------------------------------------
-  // Step 2 -- "create" child #1 through the shared add-form path
+  // Step 2 -- the shared add-form path, and why the demo session must not offer it
   // -------------------------------------------------------------------------
-  it("step 2: the add-form path (validate -> buildCreateChildBody -> createChild) creates child #1", async () => {
-    // Same validation the screen's add form runs before submitting.
-    const values = { nickname: "첫째 여정이", dateText: yearsAgoSeoul(2), manualStage: null };
+  it("step 2: the add-form path validates and maps the body, but the demo backend renames instead of creating", async () => {
+    // Same validation the screen's add form runs before submitting (unchanged, shared with
+    // onboarding -- this half of the path is what the real server session uses).
+    // A birth date deliberately different from the fixture child's (~24개월) so the rename-only
+    // behavior below is observable: the demo backend keeps the OLD date.
+    const values = { nickname: "첫째 여정이", dateText: yearsAgoSeoul(3), manualStage: null };
     const errors = validateChildForm("born", values);
     expect(isChildFormValid(errors)).toBe(true);
 
@@ -142,15 +153,24 @@ describe("QA-118: 아이 관리 journey (create -> switch -> edit/재계산) thr
     expect(body).toMatchObject({ nickname: "첫째 여정이", stageMode: "born", birthDate: values.dateText });
     expect(body.dueDate).toBeUndefined();
 
-    // SKIPPED-STEP note (see header): in demo mode createChild renames the single fixture
-    // child and returns LOCAL_CHILD_ID -- the list stays at one entry, so the second child of
-    // this journey lives only as the Child row SECOND_CHILD (exactly what the switch consumes).
+    // FIX-118B(F3), demonstrated: calling createChild in the demo session does NOT add a child --
+    // it returns the existing fixture child's id and merely renames it. Reporting that as
+    // "추가했어요" was a false success, which is why the screen now hides 아이 추가 in demo mode
+    // (app/settings/children.tsx isDemoSession; pinned in manage-children-flow.test.ts). The
+    // journey keeps exercising it here only to lock the demo backend's real behavior in place.
+    const childCountBefore = (await listChildren(token)).children.length;
     const created = await createChild(token, body);
     expect(created.id).toBe(LOCAL_CHILD_ID);
 
     const { children } = await listChildren(token);
+    // No second child: the count is unchanged and the SEEDED child now carries the new nickname.
+    expect(children).toHaveLength(childCountBefore);
     expect(children).toHaveLength(1);
+    expect(children[0].id).toBe(LOCAL_CHILD_ID);
     expect(children[0].nickname).toBe("첫째 여정이");
+    // Birth date untouched by the "create" -- further proof it was a rename, not a new record.
+    expect(children[0].birthDate).toBe(journey.firstChild!.birthDate);
+    expect(children[0].birthDate).not.toBe(values.dateText);
     journey.firstChild = children[0];
   });
 

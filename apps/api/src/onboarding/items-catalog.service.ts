@@ -194,7 +194,15 @@ export class ItemsCatalogService {
     };
   }
 
-  /** Stage-sorted "now" tab summaries, consumed by ReportingStoreService.getHome. */
+  /**
+   * Stage-sorted "now" tab summaries, consumed by ReportingStoreService.getHome.
+   *
+   * ⚠️ 호출 전 접근검증 필수 (FIX-118B/F5): REF-118 분리 때 다른 서비스가 쓰려고
+   * public이 된 childId 기반 조회다 — `user` 인자가 없고 권한 확인도 하지
+   * 않는다. 호출자가 먼저 ChildAccessService.requireChildAccess를 통과시켜야
+   * 한다(getHome이 그 규약을 지킨다). listItems처럼 user를 받는 메서드는 스스로
+   * 확인하므로 이 경고 대상이 아니다.
+   */
   async recommendedItemsForChild(childId: string) {
     const items = await this.itemsForChild(childId, "now");
     return items.map(({ item, status }) => this.toItemSummaryDto(item, status));

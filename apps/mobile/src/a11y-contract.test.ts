@@ -14,6 +14,23 @@ function listComponentSources(): string[] {
   );
 }
 
+/** Every non-test .tsx screen under app/settings/ (the SET-00x surface). */
+function listSettingsScreenSources(): string[] {
+  return readdirSync(join(mobileRoot, "app/settings"), { recursive: true, encoding: "utf8" })
+    .filter((entry) => entry.endsWith(".tsx") && !entry.endsWith(".test.tsx"))
+    .map((entry) => join("app/settings", entry));
+}
+
+/**
+ * FIX-118B(F4): coral text tokens that fail WCAG AA at the sizes these screens actually use.
+ * On the cream background (#FFF8F1) coral[500]/mainCoral is 3.16:1 and coral[600] ~3.9:1 -- only
+ * coral[700] (#B93E23) clears 4.5:1. Matches the lowercase `color:` prop only, so brand fills
+ * (backgroundColor/borderColor/tintColor/trackColor) are deliberately untouched, which is the
+ * same line A11Y-117 drew for the shared kit (ui.tsx smallCoralText vs PrimaryButton's fill).
+ */
+const lowContrastCoralTextPattern =
+  /(?<![A-Za-z])color:\s*theme\.colors\.(?:mainCoral|subCoral|peach|coral\[(?:50|100|200|300|400|500|600)\])/g;
+
 /**
  * A11Y-101 접근성 소스 계약 (source verification -- follows the export-flow.test.ts /
  * notification-flow.test.ts source-grep convention; screens aren't runtime-rendered because
@@ -107,7 +124,9 @@ describe("A11Y-101 accessibility source contract", () => {
     const recordsSource = source("app/(tabs)/records.tsx");
     // A11Y-115: the chip row's label carries the actual counts (대기/실패/충돌 N건), matching
     // what the visible StatusBadge chips show -- not just a bare "동기화 상태 보기".
-    expect(recordsSource).toContain("accessibilityLabel={syncStatusChipAccessibilityLabel(syncSnapshot.counts)}");
+    // FIX-118A(m-11): 배지/라벨 모두 현재 아이 기준 counts를 쓴다(전역 counts는 다른 아이 대기
+    // 건수까지 합산해 목록과 어긋났다).
+    expect(recordsSource).toContain("accessibilityLabel={syncStatusChipAccessibilityLabel(childSyncCounts)}");
     expect(recordsSource).toContain("function syncStatusChipAccessibilityLabel");
     expect(recordsSource).toContain("`대기 ${waiting}건`");
     expect(recordsSource).toContain("`실패 ${counts.failed}건`");
@@ -286,6 +305,25 @@ describe("A11Y-117 accessibility round-2 contract", () => {
       const screenSource = source(screen);
       expect(screenSource, `${screen} 직접 입력 toggle`).toContain('color: theme.colors.coral[700], fontSize: 12');
     }
+  });
+
+  // FIX-118B(F4): the 아이 관리 편집 링크 shipped as mainCoral 13px (3.16:1) -- A11Y-117's own
+  // rule, broken on a screen the original sweep never looked at. The sweep now covers the whole
+  // app/settings/** surface so the next settings screen cannot regress the same way.
+  it("keeps every app/settings/** screen's coral TEXT on coral[700] (small-coral-text sweep)", () => {
+    const settingsScreens = listSettingsScreenSources();
+    // Guard the guard: a wrong path/glob would make this test vacuously green.
+    expect(settingsScreens).toContain("app/settings/children.tsx");
+    expect(settingsScreens.length).toBeGreaterThanOrEqual(4);
+
+    const offenders = settingsScreens.flatMap((screen) =>
+      (source(screen).match(lowContrastCoralTextPattern) ?? []).map((match) => `${screen}: ${match}`)
+    );
+    expect(offenders, "small coral text must use theme.colors.coral[700] (A11Y-117)").toEqual([]);
+
+    // The two screens the sweep actually moved (편집 링크 / 삭제 예고 안내).
+    expect(source("app/settings/children.tsx")).toContain("color: theme.colors.coral[700]");
+    expect(source("app/settings/privacy.tsx")).toContain("color: theme.colors.coral[700]");
   });
 
   it("announces the new period label and caps forward navigation at the current period on records/reports", () => {

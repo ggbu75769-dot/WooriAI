@@ -86,11 +86,42 @@ describe("MOB-118 아이 관리 screen contract (app/settings/children.tsx)", ()
     expect(screenSource).toContain("CHILD_STAGE_MODE_OPTIONS.map");
   });
 
+  // FIX-118B(F2): the settings add-form had no Idempotency-Key, so a lost response could be
+  // retried into a SECOND child. Same protection as onboarding (ONB-002/MOB-101), settings-scoped
+  // key: one per input session, rotated on success.
+  it("sends an Idempotency-Key with 아이 추가 (one key per input session, rotated on success)", () => {
+    const screenSource = source(screenPath);
+    expect(screenSource).toContain('from "../../src/children/child-create-idempotency"');
+    expect(screenSource).toContain("getOrCreateChildCreateKey(addIdempotencyKeyRef)");
+    // Rotated when a new input session opens AND after a successful creation.
+    const startAddBlock = screenSource.slice(screenSource.indexOf("const startAdd = () => {"));
+    expect(startAddBlock.slice(0, 400)).toContain("rotateChildCreateKey(addIdempotencyKeyRef)");
+    const onSuccessBlock = screenSource.slice(screenSource.indexOf("const addChild = useMutation("));
+    expect(onSuccessBlock.slice(0, 900)).toContain("rotateChildCreateKey(addIdempotencyKeyRef)");
+    // The key must actually reach the request as a header (client.ts third argument).
+    const clientSource = source("src/api/client.ts");
+    expect(clientSource).toContain('headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined');
+  });
+
+  // FIX-118B(F3): the demo backend's createChild only RENAMES the single fixture child, so the
+  // old flow showed "추가했어요" for something that never happened. 데모에서는 추가 버튼을 숨긴다.
+  it("hides 아이 추가 in the demo (local) session and explains why instead of faking success", () => {
+    const screenSource = source(screenPath);
+    expect(screenSource).toContain("const isDemoSession = authToken === LOCAL_SESSION_TOKEN");
+    expect(screenSource).toContain("데모에서는 아이를 추가할 수 없어요.");
+    // Both the button and the form are gated, and submitAdd refuses as a last line of defense.
+    expect(screenSource).toContain("canEditChildren && !isDemoSession && !addOpen");
+    expect(screenSource).toContain("canEditChildren && !isDemoSession && addOpen");
+    expect(screenSource).toContain("|| isDemoSession) return;");
+    // 편집(개명)은 데모에서도 실제로 동작하므로 계속 열어 둔다.
+    expect(screenSource).toContain("{canEditChildren ? (");
+  });
+
   it("gates edit/add controls to owner and co_parent (view-only roles see no edit controls)", () => {
     const screenSource = source(screenPath);
     expect(screenSource).toContain('const canEditChildren = myRole === "owner" || myRole === "co_parent"');
     expect(screenSource).toContain("{canEditChildren ? (");
-    expect(screenSource).toContain("canEditChildren && !addOpen");
+    expect(screenSource).toContain("canEditChildren && !isDemoSession && !addOpen");
     expect(screenSource).toContain("보기 전용 멤버는 아이 정보를 수정할 수 없어요.");
   });
 
@@ -111,6 +142,37 @@ describe("MOB-118 아이 관리 screen contract (app/settings/children.tsx)", ()
     const onboardingSource = source("app/(onboarding)/child-profile.tsx");
     expect(onboardingSource).toContain('from "../../src/children/child-form"');
     expect(onboardingSource).not.toContain("function computeDateError");
+  });
+});
+
+// FIX-118B(F2): the settings-scoped key holder itself (pure module, no react-native).
+describe("FIX-118B 설정 아이 추가 Idempotency-Key holder", () => {
+  it("reuses one key across retries of the same input session and rotates after success", async () => {
+    const { getOrCreateChildCreateKey, rotateChildCreateKey } = await import("./child-create-idempotency");
+    const holder = { current: null as string | null };
+
+    const first = getOrCreateChildCreateKey(holder);
+    expect(first).toMatch(/^set-child-/);
+    // A retry of the SAME submission must reuse it -- that is what makes the POST idempotent.
+    expect(getOrCreateChildCreateKey(holder)).toBe(first);
+    expect(holder.current).toBe(first);
+
+    // 성공 시 회전: the next 아이 추가 is a new creation, not a replay of the previous one.
+    rotateChildCreateKey(holder);
+    expect(holder.current).toBeNull();
+    const second = getOrCreateChildCreateKey(holder);
+    expect(second).not.toBe(first);
+    expect(second).toMatch(/^set-child-/);
+  });
+
+  it("does not collide with onboarding's key namespace (set-child- vs onb-child-)", async () => {
+    const { generateChildCreateIdempotencyKey } = await import("./child-create-idempotency");
+    const keys = new Set(Array.from({ length: 50 }, () => generateChildCreateIdempotencyKey()));
+    expect(keys.size).toBe(50);
+    for (const key of keys) {
+      expect(key.startsWith("set-child-")).toBe(true);
+      expect(key.startsWith("onb-child-")).toBe(false);
+    }
   });
 });
 

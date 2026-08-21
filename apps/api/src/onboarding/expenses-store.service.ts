@@ -44,6 +44,15 @@ export type UpdateExpenseInput = {
  * pipeline reuses inside its confirm transaction, and the expense aggregation
  * helpers (sumExpenses/expensesForChild/totalExpenseKrw) the budget and
  * reporting services build on.
+ *
+ * FIX-118B(F5) 접근검증 규약: `user`를 받는 메서드(createExpense/listExpenses/
+ * getExpense/updateExpense/deleteExpense/requireExpenseAccess/
+ * requireExpenseBelongsToChild)는 스스로 requireChildAccess를 호출해 권한을
+ * 확인한다. 반면 REF-118 분리 과정에서 다른 서비스가 재사용해야 해 public이 된
+ * childId/householdId 기반 메서드(insertExpense/expensesForChild/sumExpenses)는
+ * **접근검증을 하지 않는다** — 호출자가 먼저 requireChildAccess(또는
+ * requireExpenseAccess) 등으로 해당 아이/지출에 대한 권한을 확인한 뒤 호출해야
+ * 한다. 각 메서드의 JSDoc에 같은 경고를 반복해 둔다.
  */
 @Injectable()
 export class ExpensesStoreService {
@@ -118,6 +127,13 @@ export class ExpensesStoreService {
    * Row-level insert shared by createExpense and the import pipeline's confirm
    * transaction (which passes its own transaction client). Validation order and
    * error codes are unchanged from the god-service original.
+   *
+   * ⚠️ 호출 전 접근검증 필수 (FIX-118B/F5): 이 메서드는 입력값 검증(품목명/금액/
+   * 날짜/카테고리·준비템 존재)만 하고 `user`가 `childId`/`householdId`에 접근할
+   * 수 있는지는 **확인하지 않는다**. 호출자가 먼저
+   * ChildAccessService.requireChildAccess(user, childId, true)로 편집 권한을
+   * 확인한 뒤 호출해야 한다 (createExpense는 직접, import-pipeline은
+   * requireImportJobAccess(edit)로 확인한 job의 childId/householdId를 넘긴다).
    */
   async insertExpense(
     client: DbClient,
@@ -190,6 +206,11 @@ export class ExpensesStoreService {
     }
   }
 
+  /**
+   * ⚠️ 호출 전 접근검증 필수 (FIX-118B/F5): childId만 받는 원시 조회다 — 권한
+   * 확인이 없으므로 호출자가 requireChildAccess를 먼저 통과시켜야 한다
+   * (listExpenses / ReportingStoreService.getHome 등이 그 규약을 지킨다).
+   */
   async expensesForChild(childId: string, yearMonth?: string): Promise<ExpenseRow[]> {
     const range = yearMonth ? getSeoulMonthRange(yearMonth) : null;
     return this.prisma.expense.findMany({
@@ -206,6 +227,11 @@ export class ExpensesStoreService {
     return expenses.filter((expense) => expense.expenseType === "expense").reduce((sum, expense) => sum + expense.amountKrw, 0);
   }
 
+  /**
+   * ⚠️ 호출 전 접근검증 필수 (FIX-118B/F5): expensesForChild와 동일하게 childId
+   * 기반 집계만 수행한다 — 예산(getBudget/upsertBudget)·리포트 경로가 각자
+   * requireChildAccess를 먼저 호출한 뒤 사용한다.
+   */
   async sumExpenses(childId: string, range: { startInclusive: string; endExclusive: string }) {
     const result = await this.prisma.expense.aggregate({
       where: {

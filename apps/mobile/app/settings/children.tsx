@@ -22,6 +22,7 @@ import {
   validateChildForm,
   type ChildFormValues
 } from "../../src/children/child-form";
+import { getOrCreateChildCreateKey, rotateChildCreateKey } from "../../src/children/child-create-idempotency";
 import { planChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES } from "../../src/children/child-switch";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -50,6 +51,15 @@ const emptyForm: ChildFormValues = { nickname: "", dateText: "", manualStage: nu
  * src/children/child-form.ts), and 아이 추가 for a second child. Editing/adding is gated to
  * owner/co_parent -- view-only roles (viewer, gift_participant) can only look and switch,
  * matching the server's HouseholdRoleGuard/requireChildAccess(edit) contract.
+ *
+ * FIX-118B(F2): 아이 추가 carries an Idempotency-Key (src/children/child-create-idempotency.ts),
+ * so a lost response cannot turn a user retry into two children -- the same protection onboarding
+ * (ONB-002/MOB-101) already had, with a settings-scoped key.
+ *
+ * FIX-118B(F3): 아이 추가 is hidden entirely in the demo (local-backend) session. The demo backend
+ * keeps exactly ONE child record -- localBackend.createChild() *renames* the seeded fixture child
+ * and returns LOCAL_CHILD_ID -- so the old flow reported "추가했어요" for something that never
+ * happened (a false success). The demo session gets an explicit 안내 instead.
  */
 
 /** Shared form fields (nickname + mode-appropriate date + manual stage chips) for edit/add. */
@@ -136,6 +146,10 @@ export default function ManageChildrenScreen() {
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
   const queryClient = useQueryClient();
 
+  // FIX-118B(F3): the demo session talks to the in-memory local backend, whose createChild only
+  // renames the single fixture child -- 아이 추가 cannot honestly succeed there.
+  const isDemoSession = authToken === LOCAL_SESSION_TOKEN;
+
   const [editingChildId, setEditingChildId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addStageMode, setAddStageMode] = useState<ChildStageMode>("born");
@@ -144,6 +158,8 @@ export default function ManageChildrenScreen() {
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
   // Same timer-in-ref discipline as more.tsx's export toast: never setState after unmount.
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // FIX-118B(F2): Idempotency-Key holder for 아이 추가 -- see child-create-idempotency.ts.
+  const addIdempotencyKeyRef = useRef<string | null>(null);
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -197,8 +213,16 @@ export default function ManageChildrenScreen() {
 
   const addChild = useMutation({
     mutationFn: (input: { stageMode: ChildStageMode; values: ChildFormValues }) =>
-      createChild(authToken!, buildCreateChildBody(householdId!, input.stageMode, input.values)),
+      createChild(
+        authToken!,
+        buildCreateChildBody(householdId!, input.stageMode, input.values),
+        // FIX-118B(F2): one key per input session, reused by every retry of THIS submission --
+        // a lost response can no longer be retried into a second child.
+        getOrCreateChildCreateKey(addIdempotencyKeyRef)
+      ),
     onSuccess: async (created, input) => {
+      // 성공 시 회전: the next 아이 추가 must be a genuinely new creation, not a replay of this one.
+      rotateChildCreateKey(addIdempotencyKeyRef);
       setAddOpen(false);
       setShowErrors(false);
       setForm(emptyForm);
@@ -232,6 +256,9 @@ export default function ManageChildrenScreen() {
     setEditingChildId(null);
     setShowErrors(false);
     addChild.reset();
+    // 입력 세션당 1키: opening the form starts a new idempotency scope (a previous session's
+    // key must never dedupe this one away).
+    rotateChildCreateKey(addIdempotencyKeyRef);
     setAddOpen(true);
     setAddStageMode("born");
     setForm(emptyForm);
@@ -247,7 +274,9 @@ export default function ManageChildrenScreen() {
   const submitAdd = () => {
     setShowErrors(true);
     const errors = validateChildForm(addStageMode, form, { requireDate: true });
-    if (!isChildFormValid(errors) || addChild.isPending || !householdId) return;
+    // isDemoSession도 방어적으로 막는다: 데모에서는 폼 자체가 열리지 않지만(F3),
+    // 어떤 경로로든 여기 도달해도 허위 성공 토스트를 만들지 않게 한다.
+    if (!isChildFormValid(errors) || addChild.isPending || !householdId || isDemoSession) return;
     addChild.mutate({ stageMode: addStageMode, values: form });
   };
 
@@ -335,11 +364,18 @@ export default function ManageChildrenScreen() {
           </Card>
         ) : null}
 
-        {hasSession && canEditChildren && !addOpen ? (
+        {/* FIX-118B(F3): 데모 세션에서는 추가가 실제로 일어나지 않으므로 버튼 대신 안내만 둔다. */}
+        {hasSession && canEditChildren && isDemoSession ? (
+          <Card>
+            <Text style={mutedTextStyle}>데모에서는 아이를 추가할 수 없어요. 로그인하면 아이를 추가할 수 있어요.</Text>
+          </Card>
+        ) : null}
+
+        {hasSession && canEditChildren && !isDemoSession && !addOpen ? (
           <SecondaryButton accessibilityLabel="아이 추가" label="아이 추가" onPress={startAdd} />
         ) : null}
 
-        {hasSession && canEditChildren && addOpen ? (
+        {hasSession && canEditChildren && !isDemoSession && addOpen ? (
           <Card style={{ gap: theme.spacing.gap }}>
             <Text style={addTitleStyle}>새 아이 추가</Text>
             <View style={{ gap: 6 }}>
@@ -399,8 +435,10 @@ const childStageStyle = {
   fontWeight: "700"
 } as const;
 
+// FIX-118B(F4): coral[500] on cream at 13px is 3.16:1 -- below A11Y-117's own small-coral-text
+// rule. coral[700] is the contrast-safe token the shared kit already uses (ui.tsx smallCoralText).
 const editLinkStyle = {
-  color: theme.colors.mainCoral,
+  color: theme.colors.coral[700],
   fontSize: 13,
   fontWeight: "700"
 } as const;
