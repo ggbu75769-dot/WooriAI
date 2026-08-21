@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import { formatKrw } from "../../src/money";
 import { NotificationBell } from "../../src/notifications/NotificationBell";
 import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
@@ -71,6 +72,52 @@ const homeBudgetNudgeStyle = StyleSheet.create({
     color: theme.colors.gray600,
     fontSize: 12,
     lineHeight: 18
+  },
+  title: {
+    color: theme.colors.brown,
+    fontSize: 14,
+    fontWeight: "800"
+  }
+});
+
+// HOME-BUDGET-113: warning banner shown from 80% budget usage. Tone colors come from the
+// brand semantic tokens (theme.colors.warning / theme.colors.danger); the meaning itself is
+// always carried by the banner text, never by color alone.
+const homeBudgetWarningStyle = StyleSheet.create({
+  banner: {
+    alignItems: "center",
+    backgroundColor: theme.colors.white,
+    borderLeftWidth: 4,
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  bannerApproaching: {
+    borderLeftColor: theme.colors.warning
+  },
+  bannerExceeded: {
+    borderLeftColor: theme.colors.danger
+  },
+  body: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    lineHeight: 18
+  },
+  copy: {
+    flex: 1,
+    gap: 2
+  },
+  icon: {
+    fontSize: 16,
+    fontWeight: "800"
+  },
+  iconApproaching: {
+    color: theme.colors.warning
+  },
+  iconExceeded: {
+    color: theme.colors.danger
   },
   title: {
     color: theme.colors.brown,
@@ -196,6 +243,9 @@ export default function HomeScreen() {
   // that state "over budget"; strict > also avoids "₩0 초과" when spending equals the budget.
   const isOverBudget = hasSession && budget > 0 && monthlyUsed > budget;
   const overAmount = monthlyUsed - budget;
+  // HOME-BUDGET-113: session-gated like isOverBudget/NOTI-102 so the logged-out preview stays
+  // inert. usedAmountKrw is the gift-excluded month total (DNC-015), see budget-warning.ts.
+  const budgetWarning = hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null;
   const budgetNudgeTitle = isOverBudget
     ? `예산을 ${formatKrw(overAmount)} 초과했어요.`
     : `예산의 ${progress}% 사용 중이에요!`;
@@ -219,6 +269,36 @@ export default function HomeScreen() {
             subtext={`예산 ${formatKrw(budget)}`}
             progress={progress}
           />
+
+          {budgetWarning ? (
+            <View
+              accessibilityRole="alert"
+              accessibilityLabel={`${budgetWarning.title}. ${budgetWarning.body}`}
+              testID="home-budget-warning-banner"
+              style={[
+                homeBudgetWarningStyle.banner,
+                budgetWarning.level === "exceeded"
+                  ? homeBudgetWarningStyle.bannerExceeded
+                  : homeBudgetWarningStyle.bannerApproaching,
+                theme.shadows.card
+              ]}
+            >
+              <Text
+                style={[
+                  homeBudgetWarningStyle.icon,
+                  budgetWarning.level === "exceeded"
+                    ? homeBudgetWarningStyle.iconExceeded
+                    : homeBudgetWarningStyle.iconApproaching
+                ]}
+              >
+                ⚠
+              </Text>
+              <View style={homeBudgetWarningStyle.copy}>
+                <Text style={homeBudgetWarningStyle.title}>{budgetWarning.title}</Text>
+                <Text style={homeBudgetWarningStyle.body}>{budgetWarning.body}</Text>
+              </View>
+            </View>
+          ) : null}
 
           <View style={{ flexDirection: "row", gap: 8 }}>
             <QuickActionIconButton icon="▣" label="지출 기록" onPress={() => router.push("/expenses/new")} />
