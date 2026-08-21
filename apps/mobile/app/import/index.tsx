@@ -115,7 +115,14 @@ export default function ImportUploadScreen() {
         <View style={styles.backButton} />
       </View>
 
-      <View style={excelUploadedFileCardStyle()}>
+      {/* A11Y-117: 업로드 전에는 이 파일 카드가 장식 목업("5월 지출내역.xlsx / 업로드 완료")
+          이므로 TalkBack에서 통째로 숨긴다. 실제 파일을 고른 뒤에는 진짜 파일명이 보이는
+          상태이므로 다시 노출한다. */}
+      <View
+        accessibilityElementsHidden={canUpload && selectedFileName ? undefined : true}
+        importantForAccessibility={canUpload && selectedFileName ? "auto" : "no-hide-descendants"}
+        style={excelUploadedFileCardStyle()}
+      >
         <View accessible={false} style={styles.fileIcon}>
           <Text accessible={false} style={styles.fileIconText}>▣</Text>
         </View>
@@ -128,7 +135,14 @@ export default function ImportUploadScreen() {
         </View>
       </View>
 
-      <View accessibilityLabel="검수 후 승인하기 전까지는 지출로 저장되지 않아요." style={[styles.previewCard, { borderRadius: ExcelPreviewPixelStyles.cardRadius }]}>
+      {/* A11Y-117: 가짜 "총 128건 · ₩1,245,700" 분류 미리보기는 순수 장식 -- TalkBack이 실제
+          데이터처럼 읽지 않도록 서브트리를 통째로 숨긴다. 기존에 accessibilityLabel로만 있던
+          안내문은 아래 보이는 Text로 옮겨 모두가 읽을 수 있게 한다. */}
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.previewCard, { borderRadius: ExcelPreviewPixelStyles.cardRadius }]}
+      >
         <Text style={styles.previewTitle}>AI 분류 미리보기</Text>
         <View style={styles.previewSummary}>
           <Text style={styles.previewSummaryLabel}>총 128건</Text>
@@ -138,6 +152,8 @@ export default function ImportUploadScreen() {
           <ImportPreviewCategoryRow key={row.label} row={row} />
         ))}
       </View>
+
+      <Text style={styles.previewNotice}>검수 후 승인하기 전까지는 지출로 저장되지 않아요.</Text>
 
       <View style={styles.footerSpacer} />
       <Pressable
@@ -319,6 +335,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     textAlign: "right",
     width: 28
+  },
+  previewNotice: {
+    color: theme.colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 10
   },
   footerSpacer: {
     height: 86

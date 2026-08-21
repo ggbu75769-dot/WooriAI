@@ -9,6 +9,19 @@ type ChildrenProps = {
   children: React.ReactNode;
 };
 
+/**
+ * A11Y-117: contrast token for *small* coral text on light backgrounds. coral[500] (#EF6644) on
+ * white is 3.16:1 -- below the WCAG AA 4.5:1 floor for text under 18pt/14pt-bold. coral[700]
+ * (#B93E23) reaches 5.56:1 on white, so small coral text (eyebrows, prices, deltas, text buttons,
+ * inline banners) uses this instead.
+ *
+ * Deliberately NOT applied to white-text-on-coral brand surfaces (PrimaryButton,
+ * HeroSummaryCard, selected SegmentedControl/CategoryChip fills, FloatingActionButton): darkening
+ * those fills changes the brand look across every screen and pixel-lock reference, so that subset
+ * is on hold pending a design decision -- see A11Y-117.
+ */
+const smallCoralText = theme.colors.coral[700];
+
 type PressableProps = {
   label: string;
   onPress?: () => void;
@@ -100,7 +113,7 @@ export function ScreenHeader({
   return (
     <View style={{ flexDirection: "row", gap: 12, justifyContent: "space-between" }}>
       <View style={{ flex: 1, gap: 4 }}>
-        {eyebrow ? <Text style={[textStyles.caption, { color: theme.colors.mainCoral }]}>{eyebrow}</Text> : null}
+        {eyebrow ? <Text style={[textStyles.caption, { color: smallCoralText }]}>{eyebrow}</Text> : null}
         <Text style={[textStyles.h2, { color: theme.colors.brown }]}>{title}</Text>
         {subtitle ? <Text style={[textStyles.body2, { color: theme.colors.gray600 }]}>{subtitle}</Text> : null}
       </View>
@@ -208,7 +221,7 @@ export function TextButton({ label, onPress, disabled, style, accessibilityLabel
       onPress={onPress}
       style={[{ minHeight: theme.touchTarget, justifyContent: "center" }, style]}
     >
-      <Text style={{ color: disabled ? theme.colors.gray300 : theme.colors.mainCoral, fontWeight: "700" }}>{label}</Text>
+      <Text style={{ color: disabled ? theme.colors.gray300 : smallCoralText, fontWeight: "700" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -306,8 +319,10 @@ export function CategoryChip({
 }
 
 export function StatusBadge({ label, tone = "neutral" }: { label: string; tone?: "neutral" | "success" | "warning" }) {
-  const background = tone === "success" ? theme.colors.mint : tone === "warning" ? theme.colors.peach : theme.colors.beige;
-  const color = tone === "success" ? theme.colors.success : tone === "warning" ? theme.colors.mainCoral : theme.colors.brown;
+  // A11Y-117: warning tone follows the StageBadge recipe (coral[700] on coral[50]) so 11px badge
+  // text -- including the DNC-011 광고/스폰서 disclosure badges -- meets WCAG AA contrast.
+  const background = tone === "success" ? theme.colors.mint : tone === "warning" ? theme.colors.coral[50] : theme.colors.beige;
+  const color = tone === "success" ? theme.colors.success : tone === "warning" ? theme.colors.coral[700] : theme.colors.brown;
 
   return (
     <View style={{ alignSelf: "flex-start", backgroundColor: background, borderRadius: theme.radii.pill, paddingHorizontal: 10, paddingVertical: 5 }}>
@@ -489,7 +504,7 @@ export function ProductCard({
         <View style={{ flex: 1, gap: 5 }}>
           {badge ? <StatusBadge label={badge} tone="warning" /> : null}
           <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700" }]}>{title}</Text>
-          <Text style={[textStyles.body2, { color: theme.colors.mainCoral, fontWeight: "800" }]}>{price}</Text>
+          <Text style={[textStyles.body2, { color: smallCoralText, fontWeight: "800" }]}>{price}</Text>
           {caption ? <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{caption}</Text> : null}
         </View>
       </Card>
@@ -608,6 +623,9 @@ export function LineChartCard({
   points?: number[];
 }) {
   const showDelta = deltaLabel !== null;
+  // deltaLabel undefined means no real comparison data -- the visible "+12.5%" is preview-only
+  // decoration and must stay out of anything TalkBack announces (A11Y-117).
+  const hasRealDelta = typeof deltaLabel === "string";
   const deltaText = deltaLabel ?? "+12.5%";
 
   // Only draw real geometry once real data (2+ amounts) is supplied — otherwise fall back to
@@ -625,12 +643,24 @@ export function LineChartCard({
       <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{title}</Text>
       <Text style={{ color: theme.colors.gray900, fontSize: 28, fontWeight: "800", lineHeight: 34 }}>{value}</Text>
       {showDelta ? (
-        <View style={{ flexDirection: "row", gap: 5 }}>
+        // Preview-only fake delta stays visible but out of the accessibility tree (A11Y-117):
+        // no-hide-descendants covers Android (TalkBack), accessibilityElementsHidden covers iOS.
+        <View
+          accessibilityElementsHidden={hasRealDelta ? undefined : true}
+          importantForAccessibility={hasRealDelta ? undefined : "no-hide-descendants"}
+          style={{ flexDirection: "row", gap: 5 }}
+        >
           <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>지난 달 대비</Text>
-          <Text style={[textStyles.caption, { color: theme.colors.mainCoral, fontWeight: "800" }]}>{deltaText}</Text>
+          <Text style={[textStyles.caption, { color: smallCoralText, fontWeight: "800" }]}>{deltaText}</Text>
         </View>
       ) : null}
       <View
+        // A11Y-117: the trend geometry (absolute-positioned line segments/dots) is meaningless
+        // when read element-by-element -- accessible groups the decorative internals into one
+        // element that announces a Korean summary (total + real delta only; the preview-only
+        // fake delta never enters the label).
+        accessible
+        accessibilityLabel={`${title} 추이 차트, 합계 ${value}${hasRealDelta ? `, 지난 달 대비 ${deltaText}` : ""}`}
         onLayout={hasRealData ? (event) => setMeasuredWidth(event.nativeEvent.layout.width) : undefined}
         style={{ backgroundColor: "#FFF4EE", borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }}
       >
@@ -718,7 +748,13 @@ export function DonutChartCard({
 
   return (
     <Card style={{ flexDirection: "row", gap: 14 }}>
-      <View style={{ alignItems: "center", height: 96, justifyContent: "center", width: 96 }}>
+      {/* A11Y-117: the border-trick arc is decorative -- the legend rows beside it carry the
+          same data as text, so the arc is hidden from TalkBack/VoiceOver. */}
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={{ alignItems: "center", height: 96, justifyContent: "center", width: 96 }}
+      >
         <View
           style={{
             borderBottomColor: arcColors[2],

@@ -140,8 +140,8 @@ describe("A11Y-101 accessibility source contract", () => {
 
     const d0ListRowSource = source("src/ui/ListRow.tsx");
     expect(d0ListRowSource).toContain('accessibilityRole="button"');
-    const emptyStateSource = source("src/ui/EmptyState.tsx");
-    expect(emptyStateSource).toContain('accessibilityRole="button"');
+    // MOB-121: src/ui/EmptyState.tsx was removed (dead D0 component) — its CTA-role assertion
+    // went with it; screens use src/ui.tsx's EmptyStateCard, covered above via uiSource.
   });
 });
 
@@ -245,5 +245,97 @@ describe("A11Y-115 accessibility sweep contract", () => {
     expect(source("app/import/index.tsx")).toContain("<Text accessible={false} style={styles.fileIconText}>▣</Text>");
     const brandLogoBlock = source("src/ui.tsx").slice(source("src/ui.tsx").indexOf("export function BrandLogo"));
     expect(brandLogoBlock.slice(0, 600)).toContain("accessible={false}");
+  });
+});
+
+/**
+ * A11Y-117 접근성 2차 + 소소 UX 계약: 소형 coral 텍스트 대비(coral[700]), 기간 이동
+ * announce + 미래 상한, 장식 프리뷰/차트 지오메트리 은닉, launch reduce-motion, 알림 모두
+ * 지우기 확인. (동일한 source-grep 관례.)
+ */
+describe("A11Y-117 accessibility round-2 contract", () => {
+  it("uses coral[700] for small coral text in the shared kit (TextButton/eyebrow/price/delta) and keeps brand fills untouched", () => {
+    const uiSource = source("src/ui.tsx");
+    // Shared contrast token + the documented hold on white-on-coral brand surfaces.
+    expect(uiSource).toContain("const smallCoralText = theme.colors.coral[700]");
+    const textButtonBlock = uiSource.slice(uiSource.indexOf("export function TextButton"), uiSource.indexOf("export function InputField"));
+    expect(textButtonBlock).toContain("smallCoralText");
+    const eyebrowBlock = uiSource.slice(uiSource.indexOf("export function ScreenHeader"), uiSource.indexOf("export function BrandLogo"));
+    expect(eyebrowBlock).toContain("smallCoralText");
+    const productCardBlock = uiSource.slice(uiSource.indexOf("export function ProductCard"), uiSource.indexOf("export function ProductComparisonRow"));
+    expect(productCardBlock).toContain("smallCoralText");
+    // PrimaryButton/HeroSummaryCard keep the coral[500] brand fill (design decision on hold).
+    const primaryButtonBlock = uiSource.slice(uiSource.indexOf("export function PrimaryButton"), uiSource.indexOf("export function SecondaryButton"));
+    expect(primaryButtonBlock).toContain("theme.colors.mainCoral");
+    const heroBlock = uiSource.slice(uiSource.indexOf("export function HeroSummaryCard"), uiSource.indexOf("export function QuickActionIconButton"));
+    expect(heroBlock).toContain("theme.colors.mainCoral");
+  });
+
+  it("renders the StatusBadge warning tone with the StageBadge recipe (coral[700] on coral[50]) for DNC-011 disclosures", () => {
+    const uiSource = source("src/ui.tsx");
+    const badgeBlock = uiSource.slice(uiSource.indexOf("export function StatusBadge"), uiSource.indexOf("export function BudgetProgressBar"));
+    expect(badgeBlock).toContain("theme.colors.coral[50]");
+    expect(badgeBlock).toContain("theme.colors.coral[700]");
+  });
+
+  it("moves small coral screen text (충돌 배너, 직접 입력 toggles) onto coral[700]", () => {
+    const syncSource = source("app/sync-status.tsx");
+    expect(syncSource).toContain("theme.colors.coral[700]");
+    expect(syncSource).not.toContain("color: theme.colors.mainCoral, fontSize: 12");
+    for (const screen of ["app/expenses/new.tsx", "app/expenses/[expenseId].tsx"]) {
+      const screenSource = source(screen);
+      expect(screenSource, `${screen} 직접 입력 toggle`).toContain('color: theme.colors.coral[700], fontSize: 12');
+    }
+  });
+
+  it("announces the new period label and caps forward navigation at the current period on records/reports", () => {
+    for (const screen of ["app/(tabs)/records.tsx", "app/(tabs)/reports.tsx"]) {
+      const screenSource = source(screen);
+      expect(screenSource, `${screen} should reuse the pure period module`).toContain('from "../../src/period-navigation"');
+      expect(screenSource, `${screen} should announce the new period`).toContain("announceForA11y(periodLabelForOffset(");
+      expect(screenSource, `${screen} should expose the disabled state`).toContain("accessibilityState={{ disabled:");
+      expect(screenSource, `${screen} should disable the next arrow`).toContain("canGoToNextPeriod(monthOffset)");
+    }
+    // Visual dim on the disabled next arrow.
+    expect(source("app/(tabs)/records.tsx")).toContain("canGoNextMonth ? theme.colors.gray900 : theme.colors.gray300");
+    expect(source("app/(tabs)/reports.tsx")).toContain("reportReferencePeriodArrowDisabledStyle");
+  });
+
+  it("hides the decorative import preview from TalkBack and shows the 검수 안내 as visible text", () => {
+    const importSource = source("app/import/index.tsx");
+    expect(importSource).toContain('importantForAccessibility="no-hide-descendants"');
+    expect(importSource).toContain("accessibilityElementsHidden");
+    // The notice is a visible Text now, not an accessibilityLabel-only string.
+    expect(importSource).toContain(">검수 후 승인하기 전까지는 지출로 저장되지 않아요.</Text>");
+    expect(importSource).not.toContain('accessibilityLabel="검수 후 승인하기 전까지는 지출로 저장되지 않아요."');
+  });
+
+  it("skips the launch growth animation under reduce-motion and always offers 건너뛰기", () => {
+    const launchSource = source("app/launch-animation.tsx");
+    expect(launchSource).toContain("AccessibilityInfo.isReduceMotionEnabled");
+    expect(launchSource).toContain("setStageIndex(animationStages.length - 1)");
+    expect(launchSource).toContain("isPixelLockMode || reduceMotionEnabled");
+    // 건너뛰기 is no longer gated behind stageIndex >= 0 (visible during the intro hold too).
+    expect(launchSource).toContain('{!isFinalStage ? <TextButton label="건너뛰기"');
+  });
+
+  it("summarizes the line chart geometry with one label and keeps the preview-only delta out of it", () => {
+    const uiSource = source("src/ui.tsx");
+    const chartBlock = uiSource.slice(uiSource.indexOf("export function LineChartCard"), uiSource.indexOf("export function DonutChartCard"));
+    expect(chartBlock).toContain("accessibilityLabel={`${title} 추이 차트, 합계 ${value}${hasRealDelta ? `, 지난 달 대비 ${deltaText}` : \"\"}`}");
+    expect(chartBlock).toContain('typeof deltaLabel === "string"');
+    // Fake "+12.5%" preview delta stays visible but hidden from the a11y tree.
+    expect(chartBlock).toContain("accessibilityElementsHidden={hasRealDelta ? undefined : true}");
+    // Donut arc is decorative (legend carries the data as text).
+    const donutBlock = uiSource.slice(uiSource.indexOf("export function DonutChartCard"));
+    expect(donutBlock).toContain("accessibilityElementsHidden");
+  });
+
+  it("confirms 알림 모두 지우기 with an Alert before clearing (destructive-action convention)", () => {
+    const notificationsSource = source("app/notifications.tsx");
+    expect(notificationsSource).toContain("Alert.alert(\"알림을 모두 지울까요?\"");
+    expect(notificationsSource).toContain('{ text: "취소", style: "cancel" }');
+    expect(notificationsSource).toContain('style: "destructive"');
+    expect(notificationsSource).toContain("onPress={confirmClearAll}");
   });
 });

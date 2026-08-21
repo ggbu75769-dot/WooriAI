@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AdminApiError,
+  AdminApiTimeoutError,
   adminChangePassword,
   createAdminUser,
+  DEFAULT_FETCH_TIMEOUT_MS,
   getAdminDashboardSummary,
   isAuthError,
   isSelfUpdateForbiddenError,
+  isTimeoutError,
   listAdminUsers,
+  listAuditLogs,
   updateAdminUser,
   type AdminDashboardSummary,
   type AdminUserAccount
@@ -182,5 +186,96 @@ describe("admin users API client (ADM-006)", () => {
     expect(isSelfUpdateForbiddenError(new AdminApiError(401, "unauthorized"))).toBe(false);
     expect(isSelfUpdateForbiddenError(new Error("network"))).toBe(false);
     expect(isSelfUpdateForbiddenError(null)).toBe(false);
+  });
+});
+
+// ADM-117: fetch timeout hardening -- mirrors the mobile client's
+// DEFAULT_FETCH_TIMEOUT_MS + AbortController precedent so a hung request
+// settles as a typed Korean timeout error instead of leaving the admin UI on
+// "처리 중..." forever.
+describe("admin API fetch timeout (ADM-117)", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("document", { cookie: "admin_csrf=csrf-token-123" });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** Simulates real fetch behavior against a hung server: never settles until
+   * the AbortController signal fires, then rejects with an AbortError-shaped
+   * error, exactly as the platform fetch does. */
+  function hangingFetch(_url: string, init: RequestInit): Promise<Response> {
+    return new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => {
+        const abortError = new Error("The operation was aborted.");
+        abortError.name = "AbortError";
+        reject(abortError);
+      });
+    });
+  }
+
+  it("passes an AbortSignal to fetch on every request", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ auditLogs: [], pageInfo: { total: 0, limit: 100, offset: 0, hasMore: false } }), {
+        status: 200
+      })
+    );
+
+    await listAuditLogs({ limit: 100, offset: 0 });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("aborts a hung request after 10s and rejects with the typed Korean timeout error", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce(hangingFetch);
+
+    const pending = listAuditLogs().catch((error) => error);
+    await vi.advanceTimersByTimeAsync(DEFAULT_FETCH_TIMEOUT_MS);
+    const failure = await pending;
+
+    expect(failure).toBeInstanceOf(AdminApiTimeoutError);
+    // Subclass of AdminApiError -> existing error display paths keep working.
+    expect(failure).toBeInstanceOf(AdminApiError);
+    expect((failure as AdminApiError).status).toBe(0);
+    expect((failure as AdminApiError).code).toBe("TIMEOUT");
+    expect((failure as AdminApiError).message).toContain("시간이 초과됐어요");
+    expect(isTimeoutError(failure)).toBe(true);
+    // A timeout is not session expiry -- must never clear the admin session.
+    expect(isAuthError(failure)).toBe(false);
+  });
+
+  it("does not fire the timeout for a request that settles in time", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ adminUsers: [] }), { status: 200 }));
+
+    const result = await listAdminUsers();
+    await vi.advanceTimersByTimeAsync(DEFAULT_FETCH_TIMEOUT_MS + 1000);
+
+    expect(result.adminUsers).toEqual([]);
+  });
+
+  it("keeps mapping genuine network failures to the connection AdminApiError, never a timeout", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    const failure = await listAdminUsers().catch((error) => error);
+
+    expect(failure).toBeInstanceOf(AdminApiError);
+    expect(failure).not.toBeInstanceOf(AdminApiTimeoutError);
+    expect(isTimeoutError(failure)).toBe(false);
+    expect((failure as AdminApiError).message).toContain("서버에 연결하지 못했어요");
+  });
+
+  it("isTimeoutError ignores unrelated errors", () => {
+    expect(isTimeoutError(new AdminApiError(0, "연결 실패"))).toBe(false);
+    expect(isTimeoutError(new Error("AbortError"))).toBe(false);
+    expect(isTimeoutError(null)).toBe(false);
   });
 });

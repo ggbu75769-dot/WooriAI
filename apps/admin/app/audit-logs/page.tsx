@@ -3,10 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   isAuthError,
+  isTimeoutError,
   listAuditLogs,
   type AdminAuditLogEntry,
-  type AdminAuditLogsPageInfo
+  type AdminAuditLogsPageInfo,
+  type AdminAuditLogsQuery
 } from "../../src/lib/admin-api";
+import {
+  auditLogCsvFilename,
+  buildAuditLogCsv,
+  collectAuditLogsForExport
+} from "../../src/lib/audit-log-csv";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
@@ -21,6 +28,30 @@ type Filters = {
 
 function emptyFilters(): Filters {
   return { action: "", fromDate: "", toDate: "" };
+}
+
+/** 적용된 필터 → 목록/내보내기 공용 쿼리 파라미터 (limit/offset 제외). */
+function filtersToQuery(filters: Filters): Omit<AdminAuditLogsQuery, "limit" | "offset"> {
+  const action = filters.action.trim();
+  return {
+    ...(action ? { action } : {}),
+    ...(filters.fromDate ? { from: new Date(`${filters.fromDate}T00:00:00`).toISOString() } : {}),
+    ...(filters.toDate ? { to: new Date(`${filters.toDate}T23:59:59.999`).toISOString() } : {})
+  };
+}
+
+/** 클라이언트에서 만든 CSV를 Blob 다운로드로 내려준다 (서버 왕복 없음).
+ * UTF-8 BOM은 한국어 셀을 Excel이 바로 읽게 하기 위한 관례적 접두. */
+function downloadCsv(csv: string, filename: string) {
+  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function formatDate(value: string): string {
@@ -80,6 +111,11 @@ export default function AuditLogsPage() {
   const [appliedFilters, setAppliedFilters] = useState<Filters>(emptyFilters());
   const [offset, setOffset] = useState(0);
 
+  // ADM-117: CSV 내보내기 진행 상태 + 완료/오류 안내.
+  const [exporting, setExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
   const isAdmin = session?.admin.role === "admin";
 
   const loadLogs = useCallback(async () => {
@@ -87,13 +123,10 @@ export default function AuditLogsPage() {
     setLoadError(null);
     setLoading(true);
     try {
-      const action = appliedFilters.action.trim();
       const result = await listAuditLogs({
         limit: PAGE_SIZE,
         offset,
-        ...(action ? { action } : {}),
-        ...(appliedFilters.fromDate ? { from: new Date(`${appliedFilters.fromDate}T00:00:00`).toISOString() } : {}),
-        ...(appliedFilters.toDate ? { to: new Date(`${appliedFilters.toDate}T23:59:59.999`).toISOString() } : {})
+        ...filtersToQuery(appliedFilters)
       });
       setLogs(result.auditLogs);
       setPageInfo(result.pageInfo);
@@ -102,11 +135,54 @@ export default function AuditLogsPage() {
         clearSession();
         return;
       }
-      setLoadError("감사 로그를 불러오지 못했어요.");
+      // 행 걸린 요청은 10초 후 타임아웃으로 끊기고(admin-api fetchWithTimeout),
+      // "불러오는 중..."이 무한히 이어지는 대신 시간 초과 안내 + 재시도가 뜬다.
+      setLoadError(
+        isTimeoutError(error)
+          ? "요청 시간이 초과됐어요(10초). 네트워크 상태를 확인하고 다시 시도해 주세요."
+          : "감사 로그를 불러오지 못했어요."
+      );
     } finally {
       setLoading(false);
     }
   }, [session, clearSession, appliedFilters, offset]);
+
+  // ADM-117: 현재 적용된 필터 그대로 기존 목록 API를 limit=100으로 페이지 순회해
+  // 최대 1,000행을 모은 뒤 클라이언트에서 CSV를 만들어 Blob으로 내려준다.
+  const exportCsv = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    setExportNotice(null);
+    setExportError(null);
+    try {
+      const query = filtersToQuery(appliedFilters);
+      const { entries, truncated } = await collectAuditLogsForExport((page) =>
+        listAuditLogs({ ...query, ...page })
+      );
+      if (entries.length === 0) {
+        setExportNotice("조건에 맞는 기록이 없어 내보낼 내용이 없어요.");
+        return;
+      }
+      downloadCsv(buildAuditLogCsv(entries), auditLogCsvFilename());
+      setExportNotice(
+        truncated
+          ? "상위 1,000건만 내보냈어요. 기간 필터로 범위를 좁히면 나머지도 내보낼 수 있어요."
+          : `${entries.length.toLocaleString("ko-KR")}건을 내보냈어요.`
+      );
+    } catch (error) {
+      if (isAuthError(error)) {
+        clearSession();
+        return;
+      }
+      setExportError(
+        isTimeoutError(error)
+          ? "요청 시간이 초과됐어요(10초). 네트워크 상태를 확인하고 다시 시도해 주세요."
+          : "CSV 내보내기에 실패했어요. 잠시 후 다시 시도해 주세요."
+      );
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, appliedFilters, clearSession]);
 
   useEffect(() => {
     loadLogs();
@@ -198,6 +274,20 @@ export default function AuditLogsPage() {
 
       <section className={styles.card}>
         <h2>기록 {pageInfo ? `(총 ${pageInfo.total.toLocaleString("ko-KR")}건)` : ""}</h2>
+        <div className={styles.actions}>
+          <button
+            type="button"
+            className={styles.secondaryButton}
+            onClick={exportCsv}
+            disabled={exporting}
+            aria-busy={exporting}
+          >
+            {exporting ? "내보내는 중..." : "CSV 내보내기"}
+          </button>
+          <span className={styles.hint}>현재 필터 조건으로 최대 1,000건까지 CSV 파일로 저장해요.</span>
+        </div>
+        {exportNotice ? <p className={styles.successBanner}>{exportNotice}</p> : null}
+        {exportError ? <p className={styles.errorBanner}>{exportError}</p> : null}
         {logs === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>

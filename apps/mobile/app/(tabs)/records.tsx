@@ -10,10 +10,11 @@ import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 import { refreshOfflineSyncSnapshot, subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import type { LocalExpenseRow } from "../../src/offline/types";
+import { canGoToNextPeriod, periodLabelForOffset } from "../../src/period-navigation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader, StatusBadge, Toast } from "../../src/ui";
+import { announceForA11y, Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader, StatusBadge, Toast } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
@@ -160,7 +161,20 @@ export default function RecordsScreen() {
   const baseDate = new Date(`${getSeoulToday()}T00:00:00`);
   const recordsDate = addMonths(baseDate, monthOffset);
   const recordsYearMonth = yearMonthOf(recordsDate);
-  const recordsMonthLabel = `${recordsDate.getFullYear()}년 ${recordsDate.getMonth() + 1}월`;
+  const recordsMonthLabel = periodLabelForOffset(baseDate, "month", monthOffset);
+
+  // A11Y-117: 월 이동 시 새 기간 라벨을 TalkBack으로 읽어주고(포커스가 화살표에 머물러 라벨
+  // 변경을 놓치는 문제), 현재 달 이후로는 "다음 달" 이동을 막는다(미래 빈 화면 제거).
+  const canGoNextMonth = canGoToNextPeriod(monthOffset);
+  const goToPreviousMonth = () => {
+    setMonthOffset((value) => value - 1);
+    announceForA11y(periodLabelForOffset(baseDate, "month", monthOffset - 1));
+  };
+  const goToNextMonth = () => {
+    if (!canGoNextMonth) return;
+    setMonthOffset((value) => value + 1);
+    announceForA11y(periodLabelForOffset(baseDate, "month", monthOffset + 1));
+  };
 
   const expenses = useQuery({
     queryKey: ["expenses", childId, recordsYearMonth],
@@ -261,12 +275,19 @@ export default function RecordsScreen() {
             paddingHorizontal: 6
           }}
         >
-          <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
+          <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={goToPreviousMonth}>
             <Text style={{ color: theme.colors.gray900, fontSize: 22, fontWeight: "900" }}>‹</Text>
           </Pressable>
           <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
-          <Pressable accessibilityLabel="다음 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
-            <Text style={{ color: theme.colors.gray900, fontSize: 22, fontWeight: "900" }}>›</Text>
+          <Pressable
+            accessibilityLabel="다음 달"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canGoNextMonth }}
+            disabled={!canGoNextMonth}
+            hitSlop={12}
+            onPress={goToNextMonth}
+          >
+            <Text style={{ color: canGoNextMonth ? theme.colors.gray900 : theme.colors.gray300, fontSize: 22, fontWeight: "900" }}>›</Text>
           </Pressable>
         </View>
         {/* PERF-102: lightweight month summary from already-fetched data (no extra API call). */}

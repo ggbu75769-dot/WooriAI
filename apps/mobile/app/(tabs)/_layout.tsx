@@ -1,5 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
+import { LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { usePushDeviceRegistration } from "../../src/notifications/usePushDeviceRegistration";
 import { BottomTabPixelStyles } from "../../src/pixelLock/styles";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -31,6 +33,11 @@ export default function TabsLayout() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const hasReachedHome = useOnboardingProgressStore((state) => state.hasReachedHome);
+  // PUSH-116 부팅 등록: 세션이 준비된 첫 지점에서 이 기기를 /me/devices에 멱등 등록한다.
+  // 플래그 off / expo-notifications 미설치 / 토큰 없음이면 훅 내부에서 완전 no-op이고,
+  // 실패도 조용히 무시되므로 탭 렌더/리다이렉트 흐름에는 어떤 영향도 없다 (early return보다
+  // 앞에 두어 훅 순서를 고정한다).
+  usePushDeviceRegistration(accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null));
   const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 
   if (!isPixelLockMode) {

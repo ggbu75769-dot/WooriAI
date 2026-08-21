@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Redirect, router } from "expo-router";
 import { Text, View } from "react-native";
 import { upsertConsents } from "../../src/api/client";
+import { formatKrw } from "../../src/money";
 import { routeForOnboardingNextStep } from "../../src/onboarding/resume";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useOnboardingResumeStore } from "../../src/stores/onboarding-resume.store";
@@ -86,7 +87,7 @@ export default function OnboardingResumeScreen() {
           ) : null}
           {summary.budget ? (
             <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
-              월 예산 {summary.budget.amountKrw.toLocaleString("ko-KR")}원 저장됨
+              월 예산 {formatKrw(summary.budget.amountKrw)} 저장됨
             </Text>
           ) : null}
           {!summary.child ? (

@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { router, useFocusEffect } from "expo-router";
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import { itemTemplateIdFromPurchaseDedupeKey } from "../src/notifications/generators";
 import { useNotificationStore, type AppNotification } from "../src/notifications/notification.store";
 import { formatRelativeTime } from "../src/notifications/relative-time";
@@ -53,6 +53,16 @@ export default function NotificationsScreen() {
     }, [markAllRead])
   );
 
+  // A11Y-117: 모두 지우기는 되돌릴 수 없는 파괴적 동작(dedupe 키가 유지되어 지운 알림은 다시
+  // 오지 않는다) -- family/index.tsx의 구성원 삭제와 같은 관례대로 즉시 실행 대신 확인
+  // Alert를 거친다.
+  const confirmClearAll = () => {
+    Alert.alert("알림을 모두 지울까요?", "지운 알림은 다시 볼 수 없어요.", [
+      { text: "취소", style: "cancel" },
+      { text: "모두 지우기", style: "destructive", onPress: () => clearAll() }
+    ]);
+  };
+
   const now = Date.now();
 
   return (
@@ -64,7 +74,7 @@ export default function NotificationsScreen() {
           subtitle="예산과 아이 성장 소식을 모아 보여드려요"
           action={
             entries.length > 0 ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="알림 모두 지우기" hitSlop={12} onPress={() => clearAll()}>
+              <Pressable accessibilityRole="button" accessibilityLabel="알림 모두 지우기" hitSlop={12} onPress={confirmClearAll}>
                 <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>모두 지우기</Text>
               </Pressable>
             ) : undefined

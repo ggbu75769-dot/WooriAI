@@ -5,6 +5,7 @@ import { Text, TextInput, View } from "react-native";
 import { getBudget, LOCAL_SESSION_TOKEN, upsertBudget } from "../src/api/client";
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
+import { formatKrw } from "../src/money";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../src/ui";
 import { SkeletonCard } from "../src/ui/Skeleton";
 import { theme } from "../src/theme";
@@ -78,7 +79,7 @@ export default function BudgetEditScreen() {
                 {budget.data === null
                   ? "아직 예산이 없어요"
                   : budget.data?.amountKrw !== undefined
-                    ? `${budget.data.amountKrw.toLocaleString("ko-KR")}원`
+                    ? formatKrw(budget.data.amountKrw)
                     : "-"}
               </Text>
             </Card>

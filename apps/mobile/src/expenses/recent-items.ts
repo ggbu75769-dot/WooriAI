@@ -9,6 +9,8 @@
  * 저장소/네트워크/React에 의존하지 않는다 (vitest 단위 테스트 대상).
  */
 
+import { formatKrw } from "../money";
+
 /** 스냅숏 행 중 이 모듈이 실제로 읽는 필드만 구조적으로 요구한다 —
  * src/offline/types.ts의 LocalExpenseRow가 그대로 대입 가능하다. */
 export type RecentItemSourceRow = {
@@ -77,10 +79,10 @@ export function buildRecentItemChips(
 
 /** 칩에 보이는 텍스트: "기저귀 · 38,500원" */
 export function formatRecentItemChipLabel(chip: RecentItemChip): string {
-  return `${chip.itemName} · ${chip.amountKrw.toLocaleString("ko-KR")}원`;
+  return `${chip.itemName} · ${formatKrw(chip.amountKrw)}`;
 }
 
 /** 스크린리더용 라벨: "최근 항목 기저귀 38,500원 다시 입력" */
 export function recentItemChipAccessibilityLabel(chip: RecentItemChip): string {
-  return `최근 항목 ${chip.itemName} ${chip.amountKrw.toLocaleString("ko-KR")}원 다시 입력`;
+  return `최근 항목 ${chip.itemName} ${formatKrw(chip.amountKrw)} 다시 입력`;
 }

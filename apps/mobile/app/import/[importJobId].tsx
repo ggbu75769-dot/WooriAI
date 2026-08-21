@@ -12,6 +12,7 @@ import {
   type ImportJob,
   type ImportRow
 } from "../../src/api/client";
+import { formatKrw } from "../../src/money";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
@@ -56,7 +57,7 @@ function ImportRowCard({
         <Text style={rowTitleStyle}>{row.parsedItemName ?? "품목명을 확인해 주세요"}</Text>
       </View>
       <Text style={rowAmountStyle}>
-        {row.parsedAmountKrw ? `${row.parsedAmountKrw.toLocaleString("ko-KR")}원` : "금액을 확인해 주세요"}
+        {row.parsedAmountKrw ? formatKrw(row.parsedAmountKrw) : "금액을 확인해 주세요"}
       </Text>
       {isLowConfidence ? <StatusBadge label="낮은 신뢰도 · 중복 확인 필요" tone="warning" /> : null}
       {!isLowConfidence && needsAttention ? <StatusBadge label="확인이 필요해요" tone="warning" /> : null}

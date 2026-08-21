@@ -68,6 +68,13 @@ export default function SettingsScreen() {
           subtitle="이번 달 예산을 조정해요"
           onPress={() => router.push("/budget")}
         />
+        {/* PUSH-116: 푸시 알림·기기별 수신 관리 (SET-006) */}
+        <ListRow
+          icon="◎"
+          title="알림 설정"
+          subtitle="푸시 알림과 기기별 수신을 관리해요"
+          onPress={() => router.push("/settings/notifications")}
+        />
         <ListRow
           icon="§"
           title="약관 및 개인정보"

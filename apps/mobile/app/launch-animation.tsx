@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { Animated, Image, Text, View } from "react-native";
+import { AccessibilityInfo, Animated, Image, Text, View } from "react-native";
 import { AppScreen, PrimaryButton, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
 import { SplashPixelStyles } from "../src/pixelLock/styles";
@@ -41,6 +41,7 @@ export default function LaunchAnimationScreen() {
   const params = useLocalSearchParams<{ pixelLock?: string }>();
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const [stageIndex, setStageIndex] = useState(-1);
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.88)).current;
   const isPixelLockMode = (__DEV__ || process.env.EXPO_PUBLIC_PIXEL_LOCK === "1") && String(params.pixelLock ?? "") === "1";
@@ -50,8 +51,28 @@ export default function LaunchAnimationScreen() {
   const pagerDots = stageIndex < 0 ? ["intro", "record", "report"] : animationStages.map((stage) => stage.label);
   const activeDotIndex = stageIndex < 0 ? 0 : stageIndex;
 
+  // A11Y-117: reduce-motion이 켜져 있으면 성장 애니메이션을 돌리지 않고 곧바로 마지막
+  // stage(시작하기 버튼이 있는 화면)로 건너뛴다 -- src/ui/Skeleton.tsx의 선례와 같은
+  // best-effort 조회(비네이티브 환경에서는 조용히 무시).
   useEffect(() => {
-    if (isPixelLockMode) {
+    let isMounted = true;
+    AccessibilityInfo.isReduceMotionEnabled?.()
+      .then((enabled) => {
+        if (isMounted && enabled) {
+          setReduceMotionEnabled(true);
+          setStageIndex(animationStages.length - 1);
+        }
+      })
+      .catch(() => {
+        // AccessibilityInfo unavailable (web preview, vitest) -- keep the animated flow.
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isPixelLockMode || reduceMotionEnabled) {
       opacity.setValue(1);
       scale.setValue(1);
       return;
@@ -83,7 +104,7 @@ export default function LaunchAnimationScreen() {
     }, stageIndex < 0 ? introHoldMs : 520);
 
     return () => clearTimeout(timer);
-  }, [isPixelLockMode, opacity, scale, stageIndex]);
+  }, [isPixelLockMode, opacity, reduceMotionEnabled, scale, stageIndex]);
 
   const finish = () => router.replace("/login");
 
@@ -137,7 +158,9 @@ export default function LaunchAnimationScreen() {
 
       <View style={{ gap: 10 }}>
         {isFinalStage ? <PrimaryButton label="시작하기" onPress={finish} /> : null}
-        {stageIndex >= 0 && !isFinalStage ? <TextButton label="건너뛰기" onPress={finish} style={{ alignItems: "center" }} /> : null}
+        {/* A11Y-117: 건너뛰기 상시 노출 -- 인트로 홀드(3.6초) 동안에도 애니메이션을 기다리지
+            않고 바로 빠져나갈 수 있어야 한다(마지막 stage에서는 시작하기가 대신 노출). */}
+        {!isFinalStage ? <TextButton label="건너뛰기" onPress={finish} style={{ alignItems: "center" }} /> : null}
       </View>
     </AppScreen>
   );

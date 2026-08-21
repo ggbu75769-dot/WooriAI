@@ -1,5 +1,6 @@
 import { getSeoulMonthRange, getSeoulToday, type ChildStageCode } from "@wooriai/domain";
 import * as localBackend from "./local-backend";
+import * as localDevices from "../notifications/local-devices";
 import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./local-fixtures";
 import { useSessionStore } from "../stores/session.store";
 
@@ -1184,5 +1185,72 @@ export function kakaoExchange(body: {
   return requestJson<KakaoExchangeResult>("/auth/kakao/exchange", {
     method: "POST",
     body
+  });
+}
+
+// ---------------------------------------------------------------------------
+// PUSH-116 (mobile half of the push pipeline) -- additive-only extensions for the
+// /me/devices push-device registration API (apps/api/src/devices/*, NOTI-100).
+// Request/response shapes are hand-declared mirrors of the server's
+// RegisterDeviceDto/UpdateDeviceDto (apps/api/src/devices/dto/device.dto.ts) and
+// DevicesController.toDeviceResponse, following the same local-declaration
+// convention as Expense/Budget/CategoryListItem above. Local test sessions are
+// served by the in-memory mirror in src/notifications/local-devices.ts.
+// ---------------------------------------------------------------------------
+
+/** Registerable push platforms -- mirror of DEVICE_PLATFORMS in the server DTO. */
+export type DevicePlatform = "ios" | "android";
+
+/**
+ * One device row as the API returns it. The server deliberately never echoes `pushToken`
+ * back (see toDeviceResponse in devices.controller.ts), so "which of these rows is THIS
+ * device" cannot be answered from the list alone -- the boot-registration hook keeps the id
+ * that POST /me/devices returned instead (src/notifications/usePushDeviceRegistration.ts).
+ * `platform` stays a plain string on read: the DB column is free-text varchar(20); only
+ * *registration* is constrained to DevicePlatform.
+ */
+export type UserDeviceSummary = {
+  id: string;
+  platform: string;
+  notificationEnabled: boolean;
+  appVersion: string | null;
+  osVersion: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** POST /me/devices body -- mirror of RegisterDeviceDto (whitelist-validated server-side). */
+export type RegisterDeviceBody = {
+  platform: DevicePlatform;
+  /** DTO 상한 2000자 -- 길면 서버가 400 VALIDATION_ERROR로 거른다(인덱스 행 크기 방어). */
+  pushToken: string;
+  notificationEnabled?: boolean;
+  appVersion?: string;
+  osVersion?: string;
+  deviceIdHash?: string;
+};
+
+/**
+ * Upsert registration: the server keys on (user, pushToken), so calling this again with the
+ * same token updates the existing row instead of creating a duplicate -- safe to fire on
+ * every app boot (see usePushDeviceRegistration).
+ */
+export function registerDevice(token: string, body: RegisterDeviceBody) {
+  if (isLocalToken(token)) return local(() => localDevices.registerLocalDevice(body));
+  return requestJson<UserDeviceSummary>("/me/devices", { method: "POST", token, body });
+}
+
+export function listMyDevices(token: string) {
+  if (isLocalToken(token)) return local(() => localDevices.listLocalDevices());
+  return requestJson<{ devices: UserDeviceSummary[] }>("/me/devices", { token });
+}
+
+/** PATCH /me/devices/:deviceId -- per-device 알림 on/off (본인 소유 기기만, 아니면 404). */
+export function updateDevice(token: string, deviceId: string, notificationEnabled: boolean) {
+  if (isLocalToken(token)) return local(() => localDevices.updateLocalDevice(deviceId, notificationEnabled));
+  return requestJson<UserDeviceSummary>(`/me/devices/${deviceId}`, {
+    method: "PATCH",
+    token,
+    body: { notificationEnabled }
   });
 }
