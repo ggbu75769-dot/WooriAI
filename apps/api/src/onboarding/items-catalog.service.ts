@@ -564,6 +564,13 @@ export class ItemsCatalogService {
     return row?.status ?? "not_prepared";
   }
 
+  /**
+   * 사용자가 상태를 **명시적으로 고른** 경로(PATCH .../status)의 쓰기 지점이므로
+   * 무조건 덮어쓴다 — gifted/not_needed로 바꾸는 것도, 거기서 다시 되돌리는 것도
+   * 사용자의 의도다. 지출 기록이 자동으로 준비 완료를 표시하는 경로는 이와 달리
+   * 이미 정리된 상태를 보존해야 해서 별도 규칙을 쓴다:
+   * store-shared.ts의 markLinkedItemPrepared (R19-B) 참고.
+   */
   private async setChildItemStatus(
     user: AuthenticatedUser,
     childId: string,

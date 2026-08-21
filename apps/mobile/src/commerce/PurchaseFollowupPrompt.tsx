@@ -98,9 +98,11 @@ export function PurchaseFollowupLifecycle() {
         <PrimaryButton
           label="샀어요"
           onPress={() => {
-            // Same route params as the item-detail "지출도 기록하기" action, so
+            // Same route params as the item-detail "지출 기록하고 준비 완료" action, so
             // app/expenses/new.tsx prefills the item name and records the expense with
             // linkedItemTemplateId (analytics source becomes "followup"). Not edited here.
+            // R19-B: 그 덕분에 이 "샀어요" 경로도 저장 시 서버가 준비템을 준비 완료로
+            // 올리는 동일한 효과를 얻는다 -- 여기서 별도 상태 API를 부르지 않는다.
             const { itemName, itemTemplateId } = activeFollowup;
             closeWith(completeFollowup);
             router.push({ pathname: "/expenses/new", params: { itemName, itemTemplateId } });
