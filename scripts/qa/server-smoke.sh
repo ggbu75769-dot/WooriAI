@@ -31,6 +31,12 @@ YM="$(date +%Y-%m)"
 BUD=$(curl -s -X PUT $B/children/$CID/budget -H "$A" -H "$J" -d "{\"yearMonth\":\"${YM}-01\",\"amountKrw\":500000}")
 chk "예산 설정(500,000)" $(echo "$BUD" | jq -e '[.. | numbers] | any(. == 500000)' >/dev/null; echo $?)
 
+step "3b. 아이 관리: 목록 + 태명 수정 (MOB-118)"
+chk "아이 목록 GET /children에 생성 아이 포함" $(curl -s $B/children -H "$A" | jq -e --arg cid "$CID" '.children | map(.id) | index($cid) != null' >/dev/null; echo $?)
+PCH=$(curl -s -w '\n%{http_code}' -X PATCH $B/children/$CID -H "$A" -H "$J" -d '{"nickname":"스모크수정"}')
+PCODE=$(echo "$PCH" | tail -n1); PBODY=$(echo "$PCH" | sed '$d')
+chk "태명 수정 200 + stageLabel 존재" $([ "$PCODE" = "200" ] && echo "$PBODY" | jq -e '.nickname == "스모크수정" and (.stageLabel | type == "string" and length > 0)' >/dev/null; echo $?)
+
 step "4. 지출: 생성→홈→수정(버전)→충돌 409"
 CATID=$(curl -s $B/categories -H "$A" | jq -r '.categories[0].id')
 EXP=$(curl -s -X POST $B/children/$CID/expenses -H "$A" -H "$J" -H "Idempotency-Key: smoke-exp-$RANDOM" -d "{\"amountKrw\":38500,\"categoryId\":\"$CATID\",\"itemName\":\"기저귀\",\"spentOn\":\"$(date +%Y-%m-%d)\"}")

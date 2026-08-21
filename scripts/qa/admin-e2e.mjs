@@ -32,8 +32,9 @@
  * step failed. It performs NO writes to the app data other than the MFA
  * enrollment for the dev admin and dev editor (first run only) — the CSV
  * bulk flow only uses the read-only preview endpoint, never apply, and the
- * audit-log steps (QA-114) are read-only viewers of rows the logins above
- * already produced.
+ * audit-log steps (QA-114/QA-118) are read-only viewers of rows the logins
+ * above already produced (the QA-118 CSV export pages the same read-only
+ * list API and builds the file client-side).
  *
  * SECURITY:
  *   - ADMIN_BASE_URL is restricted to localhost/127.0.0.1: the script types a
@@ -46,7 +47,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -478,7 +479,102 @@ async function main() {
     return `total ${totalBefore} → admin.login ${filteredTotal} → nonexistent 0 → reset ${totalAfterReset}`;
   });
 
-  // ---- Step 10: audit logs are admin-role-only (QA-114c) --------------------
+  // ---- Step 10: audit-log CSV export + filter linkage (QA-118a) -------------
+  // NOTE (QA-118b, deliberately omitted): the audit-log TIMEOUT UI (admin-api
+  // fetchWithTimeout aborts after 10s -> "요청 시간이 초과됐어요(10초)..." +
+  // 다시 시도 button) is not exercised here. Against a healthy local dev API the
+  // request never hangs, and artificially stalling the Next.js proxy (route
+  // interception / 10s+ holds) would test the harness rather than the app while
+  // making every run 10s slower and flakier. The timeout branch is covered by
+  // the jsdom unit tests instead (apps/admin/src/admin-audit-logs.test.ts).
+  await runStep("audit-logs-csv-export", page, async () => {
+    // Header order pinned by AUDIT_LOG_CSV_COLUMNS (apps/admin/src/lib/audit-log-csv.ts).
+    const EXPECTED_HEADER = [
+      "id", "createdAt", "actorEmail", "actorUserId", "householdId",
+      "action", "targetType", "targetId", "before", "after", "ipHash"
+    ];
+    const MAX_EXPORT_ROWS = 1000; // AUDIT_LOG_EXPORT_MAX_ROWS
+
+    // Clicks CSV 내보내기, receives the Blob download via the Playwright download
+    // event, saves it into OUT_DIR, and validates the envelope (filename, BOM,
+    // CRLF termination, 11-column header). Returns the parsed data rows.
+    // Row parsing note: splitting on CRLF is safe for this file — no cell can
+    // contain a raw newline (before/after are JSON.stringify output, which
+    // escapes control characters; the other columns are ids/emails/actions).
+    const exportAndRead = async (saveName) => {
+      const [download] = await Promise.all([
+        page.waitForEvent("download", { timeout: STEP_TIMEOUT }),
+        page.getByRole("button", { name: "CSV 내보내기" }).click()
+      ]);
+      const suggested = download.suggestedFilename();
+      if (!/^audit-logs-\d{8}\.csv$/.test(suggested)) {
+        throw new Error(`unexpected suggested filename: ${suggested}`);
+      }
+      const file = path.join(OUT_DIR, saveName);
+      await download.saveAs(file);
+      const raw = readFileSync(file, "utf8");
+      if (!raw.startsWith("\uFEFF")) throw new Error("exported CSV lacks the UTF-8 BOM prefix");
+      const lines = raw.slice(1).split("\r\n");
+      if (lines[lines.length - 1] !== "") throw new Error("exported CSV is not CRLF-terminated");
+      const header = lines[0].split(",");
+      if (header.length !== EXPECTED_HEADER.length || header.join(",") !== EXPECTED_HEADER.join(",")) {
+        throw new Error(`unexpected CSV header (${header.length} cols): ${lines[0]}`);
+      }
+      return { suggested, dataRows: lines.slice(1, -1) };
+    };
+
+    // (1) Unfiltered export: row count == min(total, 1000) + matching notice.
+    // Step 9 ended on the reset (unfiltered) list, so the heading total is live.
+    const total = await readAuditTotal(page);
+    const unfiltered = await exportAndRead("audit-logs-export-unfiltered.csv");
+    const expectedRows = Math.min(total, MAX_EXPORT_ROWS);
+    if (unfiltered.dataRows.length !== expectedRows) {
+      throw new Error(`unfiltered export rows: ${unfiltered.dataRows.length}, expected ${expectedRows} (total ${total})`);
+    }
+    const expectedNotice = total > MAX_EXPORT_ROWS
+      ? "상위 1,000건만 내보냈어요"
+      : `${expectedRows.toLocaleString("ko-KR")}건을 내보냈어요.`;
+    await page.locator("p", { hasText: expectedNotice }).waitFor({ timeout: STEP_TIMEOUT });
+
+    // (2) Filter linkage: the export honors the currently APPLIED filter — the
+    // admin.login export must be narrower than the unfiltered total (same
+    // guarantee as step 9) and contain only admin.login rows.
+    await page.locator("#filter-action").fill("admin.login");
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/admin/audit-logs") && r.url().includes("action=admin.login"), { timeout: STEP_TIMEOUT }),
+      page.getByRole("button", { name: "필터 적용" }).click()
+    ]);
+    const filteredTotal = await readAuditTotal(page);
+    if (filteredTotal < 1 || filteredTotal >= total) {
+      throw new Error(`admin.login total (${filteredTotal}) not a strict narrowing of ${total}`);
+    }
+    const filtered = await exportAndRead("audit-logs-export-admin-login.csv");
+    const expectedFilteredRows = Math.min(filteredTotal, MAX_EXPORT_ROWS);
+    if (filtered.dataRows.length !== expectedFilteredRows) {
+      throw new Error(`filtered export rows: ${filtered.dataRows.length}, expected ${expectedFilteredRows} (total ${filteredTotal})`);
+    }
+    // The action column (6th) sits between unquoted uuid/timestamp/email cells,
+    // so a plain substring check per line is unambiguous here.
+    for (const [index, row] of filtered.dataRows.entries()) {
+      if (!row.includes(",admin.login,")) {
+        throw new Error(`filtered export row ${index + 1} is not an admin.login row: ${row.slice(0, 160)}`);
+      }
+    }
+
+    // Restore the unfiltered list so later steps see the default state.
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/admin/audit-logs") && !r.url().includes("action="), { timeout: STEP_TIMEOUT }),
+      page.getByRole("button", { name: "초기화" }).click()
+    ]);
+    await page.locator("table tbody tr").first().waitFor({ timeout: STEP_TIMEOUT });
+
+    return (
+      `download ${unfiltered.suggested}: header 11 cols, ${unfiltered.dataRows.length}/${total} rows (BOM+CRLF OK); ` +
+      `admin.login filter: ${filtered.dataRows.length}/${filteredTotal} rows, all admin.login`
+    );
+  });
+
+  // ---- Step 11: audit logs are admin-role-only (QA-114c) --------------------
   // The dev seed creates editor@wooriai.local (apps/api/prisma/seed.ts,
   // COM-103); there is NO analyst seed account, so only the editor role is
   // exercised. If the editor account is missing (custom DB), SKIP with a note
