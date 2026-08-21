@@ -246,9 +246,15 @@ export default function HomeScreen() {
   // HOME-BUDGET-113: session-gated like isOverBudget/NOTI-102 so the logged-out preview stays
   // inert. usedAmountKrw is the gift-excluded month total (DNC-015), see budget-warning.ts.
   const budgetWarning = hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null;
-  const budgetNudgeTitle = isOverBudget
+  // 라운드 13 m-7: 초과 금액은 HOME-BUDGET-113 배너가 상위 정보로 이미 알린다. 배너가 보이는
+  // 동안(임박·초과)에는 넛지가 "예산을 N원 초과했어요"를 중복 렌더하지 않고, 초과 상태에서는
+  // 금액 없는 "예산을 모두 사용했어요."로 대체한다. 배너가 없을 때(80% 미만 등)는 기존 동작 유지.
+  const showNudgeOverAmountCopy = isOverBudget && !budgetWarning;
+  const budgetNudgeTitle = showNudgeOverAmountCopy
     ? `예산을 ${formatKrw(overAmount)} 초과했어요.`
-    : `예산의 ${progress}% 사용 중이에요!`;
+    : isOverBudget
+      ? "예산을 모두 사용했어요."
+      : `예산의 ${progress}% 사용 중이에요!`;
   const budgetNudgeSubtitle = isOverBudget
     ? "이번 달 지출을 확인해 볼까요? 😥"
     : "이번 달도 잘 관리하고 있어요 👏";

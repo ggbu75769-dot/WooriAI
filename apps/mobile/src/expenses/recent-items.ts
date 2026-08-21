@@ -21,6 +21,10 @@ export type RecentItemSourceRow = {
     itemName: string;
     amountKrw: number;
     categoryId: string;
+    /** "expense" | "gift" 등(offline/types.ts의 ExpenseKind). 칩을 탭하면 일반 지출로
+     * 재입력되므로 "expense"가 아닌 행(선물/환불 등)은 후보에서 제외한다. 필드가 없는
+     * 레거시 페이로드는 expense로 간주(라운드 13 m-8). */
+    expenseType?: string;
   };
 };
 
@@ -35,6 +39,7 @@ export const RECENT_ITEM_CHIP_LIMIT = 5;
 /**
  * 최근 입력한 지출 행에서 재입력 칩 목록을 만든다.
  * - 선택된 아이(childId)의 행만 사용, 삭제 대기 행 제외
+ * - expenseType이 "expense"가 아닌 행(선물 등) 제외 — 단 필드가 없는 레거시 행은 expense로 간주
  * - 품목명이 비었거나 금액이 양의 정수가 아닌 행 제외 (DNC-013과 같은 규칙)
  * - createdAt 내림차순(가장 최근 입력 우선)으로 정렬
  * - 동일 품목명(trim 기준)은 최신 1개만 유지 (중복 제거)
@@ -48,6 +53,9 @@ export function buildRecentItemChips(
   const candidates = rows.filter((row) => {
     if (row.childId !== childId) return false;
     if (row.pendingDelete) return false;
+    // 라운드 13 m-8: 선물(gift) 등 일반 지출이 아닌 행은 재입력 칩으로 제안하지 않는다.
+    // expenseType이 없는 레거시 페이로드는 expense로 간주한다.
+    if (row.payload.expenseType !== undefined && row.payload.expenseType !== "expense") return false;
     if (!row.payload.itemName || row.payload.itemName.trim().length === 0) return false;
     if (!Number.isInteger(row.payload.amountKrw) || row.payload.amountKrw <= 0) return false;
     return true;

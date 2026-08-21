@@ -16,6 +16,7 @@ function row(overrides: {
   createdAt: string;
   childId?: string;
   pendingDelete?: boolean;
+  expenseType?: string;
 }): RecentItemSourceRow {
   return {
     childId: overrides.childId ?? CHILD_ID,
@@ -24,7 +25,8 @@ function row(overrides: {
     payload: {
       itemName: overrides.itemName,
       amountKrw: overrides.amountKrw ?? 10000,
-      categoryId: overrides.categoryId ?? "cat-diaper"
+      categoryId: overrides.categoryId ?? "cat-diaper",
+      ...(overrides.expenseType !== undefined ? { expenseType: overrides.expenseType } : {})
     }
   };
 }
@@ -113,6 +115,44 @@ describe("buildRecentItemChips (EXP-113)", () => {
     );
 
     expect(chips.map((chip) => chip.itemName)).toEqual(["기저귀"]);
+  });
+
+  it("excludes non-expense rows (gift/refund) so tapping a chip never re-enters them as a plain expense", () => {
+    const chips = buildRecentItemChips(
+      [
+        row({ itemName: "돌잔치 선물 아기띠", expenseType: "gift", createdAt: "2026-08-05T09:00:00.000Z" }),
+        row({ itemName: "환불된 젖병", expenseType: "refund", createdAt: "2026-08-04T09:00:00.000Z" }),
+        row({ itemName: "기저귀", expenseType: "expense", createdAt: "2026-08-03T09:00:00.000Z" })
+      ],
+      CHILD_ID
+    );
+
+    expect(chips.map((chip) => chip.itemName)).toEqual(["기저귀"]);
+  });
+
+  it("treats legacy payloads without expenseType as plain expenses", () => {
+    const chips = buildRecentItemChips(
+      [
+        // 레거시 행: payload에 expenseType 필드가 아예 없다.
+        row({ itemName: "물티슈", createdAt: "2026-08-02T09:00:00.000Z" }),
+        row({ itemName: "선물 내복", expenseType: "gift", createdAt: "2026-08-03T09:00:00.000Z" })
+      ],
+      CHILD_ID
+    );
+
+    expect(chips.map((chip) => chip.itemName)).toEqual(["물티슈"]);
+  });
+
+  it("does not let an excluded gift row shadow an older expense row with the same item name", () => {
+    const chips = buildRecentItemChips(
+      [
+        row({ itemName: "기저귀", amountKrw: 55000, expenseType: "gift", createdAt: "2026-08-09T09:00:00.000Z" }),
+        row({ itemName: "기저귀", amountKrw: 38500, expenseType: "expense", createdAt: "2026-08-01T09:00:00.000Z" })
+      ],
+      CHILD_ID
+    );
+
+    expect(chips).toEqual([{ itemName: "기저귀", amountKrw: 38500, categoryId: "cat-diaper" }]);
   });
 
   it("returns an empty list for no rows (chips section simply hides)", () => {
