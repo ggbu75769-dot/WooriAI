@@ -59,9 +59,10 @@ export type AppNotification = {
    * R19-D: which child the notification is about, when the generator knows (every generator
    * except none today -- budget/stage/purchase/weekly all stamp it). OPTIONAL on purpose, so no
    * persisted-store migration is needed: entries written by an older app version simply have no
-   * childId, and every reader must treat it as "unknown child". Nothing branches on it yet (the
-   * dedupeKey already carries the child scope); it exists so a future per-child filter in
-   * app/notifications.tsx doesn't have to re-parse dedupeKeys. sanitizedEntries below keeps a
+   * childId, and every reader must treat it as "unknown child". R20-C is the first reader:
+   * app/notifications.tsx resolves it to a 태명 prefix when the household has 2+ children (rules in
+   * src/notifications/notification-child-label.ts), which is why "unknown child" must stay a
+   * silent no-prefix case rather than a placeholder. sanitizedEntries below keeps a
    * string value and drops a malformed one, so an old blob can never inject a non-string here.
    */
   childId?: string;
