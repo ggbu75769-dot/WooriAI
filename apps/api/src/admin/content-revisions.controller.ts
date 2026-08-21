@@ -1,5 +1,19 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+  UseInterceptors
+} from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
+import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedAdmin, AuthenticatedRequest } from "../common/types/authenticated-request";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { ContentRevisionsService } from "./content-revisions.service";
@@ -89,9 +103,17 @@ export class ContentRevisionsController {
     return await this.service.schedule(actor(request), id, body.scheduledFor);
   }
 
+  /**
+   * R19-F: 승인·게시는 라이브 콘텐츠를 실제로 갱신하는 무거운 쓰기라
+   * `Idempotency-Key`를 받으면 첫 응답을 재생한다. 상태 CAS(in_review ->
+   * publishing)가 이미 두 번째 실행을 막아 주지만, 그 결과는 "이미 처리된
+   * 리비전입니다" 류의 에러라 운영자는 성공했는지 실패했는지 구분하지
+   * 못한다 — 멱등키는 그 재시도를 원래의 성공 응답으로 되돌려 준다.
+   */
   @Post(":id/approve-publish")
   @HttpCode(200)
   @RequireAdminRoles("admin")
+  @UseInterceptors(IdempotencyInterceptor)
   async approvePublish(@Req() request: AuthenticatedRequest, @Param("id") id: string) {
     return await this.service.approvePublish(actor(request), id);
   }

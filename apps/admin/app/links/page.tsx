@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   LINK_HEALTH_LABELS,
   LINK_HEALTH_UNKNOWN_LABEL,
   PRODUCT_PLATFORMS,
   PRODUCT_PLATFORM_LABELS,
+  createIdempotencyKeyHolder,
   createProductLink,
   draftAndSubmitContentRevision,
   isAuthError,
@@ -250,6 +251,10 @@ export default function ProductLinksPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState(false);
+  // R19-F: POST /admin/product-links에는 서버 멱등키가 붙어 있다. 시도 하나당
+  // 키 하나(입력이 바뀌면 지문 비교로 자동 회전, 성공하면 rotate) — 타임아웃 뒤
+  // 재시도가 같은 링크를 두 번 만들어 displayOrder를 어지럽히지 않게 한다.
+  const createKey = useRef(createIdempotencyKeyHolder()).current;
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<LinkFormState>(emptyLinkForm(""));
@@ -301,8 +306,10 @@ export default function ProductLinksPage() {
           payload: toProductLinkInput(createForm, "create") as Record<string, unknown>
         });
       } else {
-        const created = await createProductLink(toProductLinkInput(createForm, "create"));
+        const input = toProductLinkInput(createForm, "create");
+        const created = await createProductLink(input, createKey.current(JSON.stringify(input)));
         setLinks((current) => (current ? [created, ...current] : [created]));
+        createKey.rotate();
       }
       setCreateForm(emptyLinkForm(itemTemplates[0]?.id ?? ""));
       setCreateSuccess(true);

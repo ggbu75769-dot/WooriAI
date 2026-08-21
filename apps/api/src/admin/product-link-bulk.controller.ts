@@ -1,6 +1,7 @@
-import { Body, Controller, HttpCode, Inject, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, HttpCode, Inject, Post, Req, UseGuards, UseInterceptors } from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
+import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminProductLinkBulkCsvDto } from "./dto/product-link-bulk.dto";
@@ -32,9 +33,18 @@ export class ProductLinkBulkController {
     return await this.service.preview(body.csv);
   }
 
+  /**
+   * R19-F: 이 라우트가 admin 쓰기 중 재시도 위험이 가장 크다 — CSV 한 장이
+   * 최대 500행을 갱신하고, 클라이언트 쓰기 타임아웃(60초, FIX-118C)에 걸리면
+   * 운영자는 반영 여부를 모른 채 다시 누르게 된다. `Idempotency-Key`를 보낸
+   * 재시도는 핸들러를 다시 실행하지 않고 첫 응답(applied/skipped/errors)을
+   * 그대로 재생한다. 헤더가 없으면 인터셉터는 통과(no-op)라 기존 호출부는
+   * 그대로 동작한다.
+   */
   @Post("bulk-apply")
   @HttpCode(200)
   @RequireAdminRoles("admin")
+  @UseInterceptors(IdempotencyInterceptor)
   async bulkApply(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(AdminProductLinkBulkCsvDto)) body: AdminProductLinkBulkCsvDto

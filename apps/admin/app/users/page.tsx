@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ADMIN_ROLES,
   ADMIN_ROLE_LABELS,
   AdminApiError,
   createAdminUser,
+  createIdempotencyKeyHolder,
   isAuthError,
+  isIdempotentTimeoutError,
   isSelfUpdateForbiddenError,
   listAdminUsers,
   updateAdminUser,
@@ -99,6 +101,13 @@ export default function AdminUsersPage() {
   const [rowError, setRowError] = useState<string | null>(null);
   const [rowSuccess, setRowSuccess] = useState<string | null>(null);
 
+  // R19-F: 계정 생성 시도 하나당 멱등키 하나. 생성 요청이 타임아웃돼도 같은 키로
+  // 다시 보내면 서버가 첫 응답(임시 비밀번호 포함)을 그대로 재생하므로, 계정만
+  // 만들어지고 임시 비밀번호는 못 받는 최악의 상태를 피할 수 있다. 키는 아래
+  // current(지문)에 넘기는 요청 body가 바뀌면 자동으로 새로 발급되고, 생성에
+  // 성공하면 다음 계정은 새 시도이므로 rotate()로 회전한다.
+  const createKey = useRef(createIdempotencyKeyHolder()).current;
+
   const isAdmin = session?.admin.role === "admin";
 
   const loadUsers = useCallback(async () => {
@@ -147,17 +156,29 @@ export default function AdminUsersPage() {
     setCreateError(null);
     try {
       const displayName = createForm.displayName.trim();
-      const result = await createAdminUser({
+      const input = {
         email: createForm.email.trim(),
         role: createForm.role,
         ...(displayName ? { displayName } : {})
-      });
+      };
+      const result = await createAdminUser(input, createKey.current(JSON.stringify(input)));
       setTempPasswordNotice({ email: result.admin.email, tempPassword: result.tempPassword });
+      // 성공 — 다음 계정 생성은 새 시도로 취급한다.
       setCreateForm(emptyCreateForm());
+      createKey.rotate();
       await loadUsers();
     } catch (error) {
       if (isAuthError(error)) {
         clearSession();
+        return;
+      }
+      // R19-F: 멱등키를 실어 보낸 생성 요청의 타임아웃은 재시도가 안전하다 —
+      // 키를 그대로 둔 채(회전하지 않는다) "계정 만들기"를 다시 누르면 서버가
+      // 계정을 또 만들지 않고 첫 응답(임시 비밀번호 포함)을 재생한다.
+      if (isIdempotentTimeoutError(error)) {
+        setCreateError(
+          "요청이 오래 걸려 결과를 확인하지 못했어요. 같은 요청을 다시 보내면 중복 없이 처리되니, 입력값을 바꾸지 말고 '계정 만들기'를 한 번 더 눌러 주세요."
+        );
         return;
       }
       setCreateError(mutationErrorMessage(error, "계정을 만들지 못했어요. 입력값을 확인하고 다시 시도해 주세요."));

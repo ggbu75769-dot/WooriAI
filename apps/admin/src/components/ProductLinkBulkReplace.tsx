@@ -11,7 +11,9 @@ import {
   PRODUCT_LINK_BULK_CSV_HEADER,
   bulkApplyProductLinks,
   bulkPreviewProductLinks,
+  createIdempotencyKeyHolder,
   isAuthError,
+  isIdempotentTimeoutError,
   isRetryUnsafeTimeoutError,
   type ProductLinkBulkApplyResult,
   type ProductLinkBulkPreviewResult
@@ -26,6 +28,15 @@ const CSV_EXAMPLE = `${PRODUCT_LINK_BULK_CSV_HEADER}
 export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }) {
   const { clearSession } = useAdminSession();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // R19-F: 적용(bulk-apply) 시도 하나당 멱등키 하나. 같은 CSV로 다시 누르는
+  // 재시도는 **같은 키**를 다시 보내야 서버가 중복 반영을 걸러 준다. 반대로
+  // CSV가 바뀌면(=body가 바뀌면) 반드시 새 키여야 한다 — 같은 키 + 다른 body는
+  // 서버가 409 IDEMPOTENCY_KEY_CONFLICT로 거절한다. 그래서 키는 CSV 원문을
+  // 지문으로 넘겨(current(csv)) CSV가 바뀌면 자동 회전시키고, 적용에 성공하면
+  // rotate()로 명시 회전한다. 실패/타임아웃에서는 그대로 유지한다 — 그게 바로
+  // 재시도가 중복 없이 처리되게 만드는 지점이다.
+  const applyKey = useRef(createIdempotencyKeyHolder()).current;
 
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState<ProductLinkBulkPreviewResult | null>(null);
@@ -109,17 +120,29 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
     setError(null);
     setTimeoutNotice(null);
     try {
-      const result = await bulkApplyProductLinks(csv);
+      const result = await bulkApplyProductLinks(csv, applyKey.current(csv));
       setApplyResult(result);
       setPreview(null);
+      // 이 CSV에 대한 적용이 끝났다 — 다음 적용은 새 시도로 취급한다.
+      applyKey.rotate();
       onApplied?.();
     } catch (err) {
       if (isAuthError(err)) {
         clearSession();
         return;
       }
-      // FIX-118C: 쓰기 타임아웃은 "실패"가 아니라 "결과 불명"이다. 서버가 이미
-      // 500행을 반영했을 수 있으므로 재시도를 권하지 않고, 현재 상태를 자동으로
+      // R19-F: 멱등키를 실어 보낸 뒤 타임아웃이면 재시도가 안전하다 — 같은 키를
+      // 그대로 유지한 채 "적용"을 다시 누르면 서버는 500행을 다시 쓰지 않고 첫
+      // 결과를 재생한다. 미리보기도 지우지 않아 버튼이 계속 눌리는 상태로 둔다.
+      if (isIdempotentTimeoutError(err)) {
+        setTimeoutNotice(
+          "적용 요청이 오래 걸려 결과를 확인하지 못했어요. 같은 요청을 다시 보내면 중복 없이 처리되니, '적용'을 한 번 더 눌러 주세요. 이미 반영됐다면 첫 결과가 그대로 표시돼요."
+        );
+        onApplied?.();
+        return;
+      }
+      // FIX-118C: 멱등키가 없던 시절의 경로(방어적으로 유지). 쓰기 타임아웃은
+      // "실패"가 아니라 "결과 불명"이라 재시도를 권하지 않고, 현재 상태를 자동으로
       // 재조회해 이미 반영됐는지 표에서 확인하도록 안내한다.
       if (isRetryUnsafeTimeoutError(err)) {
         setPreview(null);

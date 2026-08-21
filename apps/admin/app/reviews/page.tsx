@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AdminApiError,
   approvePublishContentRevision,
+  createIdempotencyKeyHolder,
   getContentRevision,
   isAuthError,
   listContentRevisions,
@@ -72,6 +73,11 @@ export default function ContentReviewsPage() {
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  // R19-F: POST /admin/content-revisions/:id/approve-publish에는 서버 멱등키가
+  // 붙어 있다. 지문으로 리비전 id를 넘겨 다른 리비전을 승인하면 자동으로 새 키가
+  // 되고, 성공하면 회전한다 — 타임아웃 뒤 다시 눌러도 라이브 콘텐츠를 두 번
+  // 갱신하지 않고 첫 응답이 재생된다.
+  const approveKey = useRef(createIdempotencyKeyHolder()).current;
 
   const loadList = useCallback(async () => {
     if (!session) return;
@@ -145,7 +151,8 @@ export default function ContentReviewsPage() {
     setActionError(null);
     setActionSuccess(null);
     try {
-      await approvePublishContentRevision(detail.id);
+      await approvePublishContentRevision(detail.id, approveKey.current(detail.id));
+      approveKey.rotate();
       setActionSuccess("게시했어요.");
       await refreshAfterAction();
     } catch (error) {

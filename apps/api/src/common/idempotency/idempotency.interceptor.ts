@@ -39,6 +39,34 @@ function isUniqueConstraintViolation(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "P2002");
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * R19-F: `idempotency_keys.user_id` is a `uuid` column, so the actor id has to
+ * be a uuid to be stored at all. Every real actor already is one — both
+ * `users.id` (mobile/JWT) and `admin_users.id` (admin cookie session) are
+ * `gen_random_uuid()` columns — so the normal path returns the id untouched.
+ *
+ * The one exception is the dev/test-only legacy `x-admin-token` guard
+ * (AdminTokenGuard), which fabricates the literal actor id `"dev-admin"`. Left
+ * as-is that would blow up the INSERT with a uuid parse error and turn an
+ * opt-in header into a 500 on the dev/QA scripts that use the shared token.
+ * Folding such an id into a deterministic uuid keeps the scoping property that
+ * matters (same actor → same uuid, different actors → different uuids) without
+ * a schema change, and keeps the key space disjoint from real uuids in
+ * practice (a sha256-derived value colliding with a random uuid is the same
+ * negligible risk as two random uuids colliding).
+ */
+function toActorUuid(actorId: string): string {
+  if (UUID_PATTERN.test(actorId)) {
+    return actorId;
+  }
+  const hex = createHash("sha256").update(`wooriai:idempotency-actor:${actorId}`).digest("hex");
+  // RFC 9562 layout: version nibble 8 (custom) + the 10xx variant bits.
+  const variant = ((parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 function conflictError(message: string) {
   return new HttpException({ code: "IDEMPOTENCY_KEY_CONFLICT", message }, HttpStatus.CONFLICT);
 }
@@ -93,10 +121,15 @@ export class IdempotencyInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const userId = request.user?.id ?? request.adminUser?.id;
-    if (!userId) {
+    // 인증 주체는 일반 사용자(JWT) 또는 관리자 세션(AdminAuthGuard가 채우는
+    // request.adminUser) 둘 다 될 수 있다. admin은 users 테이블에 없는 별개
+    // 계정이지만 idempotency_keys.user_id에는 FK가 없어(000002 마이그레이션)
+    // admin id를 그대로 스코프 키로 쓸 수 있다.
+    const actorId = request.user?.id ?? request.adminUser?.id;
+    if (!actorId) {
       return next.handle();
     }
+    const userId = toActorUuid(actorId);
 
     const rawRequest = context
       .switchToHttp()
