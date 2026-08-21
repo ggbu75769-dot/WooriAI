@@ -338,37 +338,40 @@ describe("예외 번역 분기 (rethrowAsSyncEngineError)", () => {
   });
 
   /**
-   * R19-E 발견(소스 미수정, 재현만): 5xx도 ExpenseHttpError로 오기 때문에 어댑터가
-   * RemotePermanentError로 번역하고, flushOutbox는 그 행을 'failed'로 내려 자동
-   * 재시도를 멈춘다. 하지만 errors.ts의 RemotePermanentError doc은 "non-retryable
-   * 4xx"로, 바로 아래 주석은 "network failure, timeout, 5xx는 transient"라고
-   * 명시한다 — 즉 서버가 잠깐 502/503을 뱉으면 사용자가 직접 '재시도'를 누를
-   * 때까지 그 지출이 큐에 묶인다(의도와 불일치).
-   *
-   * 고치려면 rethrowAsSyncEngineError에서 `error.status >= 500`을 permanent 번역
-   * 대상에서 빼야 하는데, 그건 sync-engine의 상태 전이를 바꾸는 동작 변경이라
-   * 이번 스코프(테스트 신설, 소스 미수정) 밖이다. 수정 시 이 it.skip을 그대로
-   * 켜면 회귀 테스트가 된다.
+   * R19-E가 재현만 해 두고 R19-H가 고친 실버그의 회귀 테스트. client.ts는 409를 뺀
+   * 모든 비-2xx를 하나의 ExpenseHttpError로 접어 던지므로, 어댑터가 status를 보지 않으면
+   * 502/503까지 RemotePermanentError가 되고 flushOutbox는 그 행을 'failed'로 파킹해
+   * 자동 재시도를 멈춘다(사용자가 직접 '재시도'를 눌러야 큐가 풀림). errors.ts의 분류
+   * 계약대로 5xx는 transient여야 한다.
    */
-  it.skip("[알려진 불일치] 5xx는 transient여야 하는데 RemotePermanentError로 번역된다", async () => {
-    createMock.mockRejectedValue(new ExpenseHttpError(503, { error: { code: "SERVICE_UNAVAILABLE" } }));
+  it("5xx는 permanent로 번역하지 않고 원본을 그대로 던진다 (transient 재시도 경로)", async () => {
+    const serverError = new ExpenseHttpError(503, { error: { code: "SERVICE_UNAVAILABLE" } });
+    createMock.mockRejectedValue(serverError);
     const api = createClientRemoteExpenseApi(TOKEN);
 
     const error = await captureThrown(() => api.createExpense(makePayload(), "idem-5xx"));
 
+    // 동일 참조 + 두 타입 모두 아님 = flushOutbox의 마지막 갈래(pending 유지 + 백오프 재시도).
+    expect(error).toBe(serverError);
     expect(error).not.toBeInstanceOf(RemotePermanentError);
+    expect(error).not.toBeInstanceOf(RemoteVersionConflictError);
   });
 
-  it("[현재 동작] 5xx는 RemotePermanentError로 번역된다 -- 위 it.skip의 반대편 고정", async () => {
-    createMock.mockRejectedValue(new ExpenseHttpError(503, { error: { code: "SERVICE_UNAVAILABLE" } }));
+  it("500/502도 같은 transient 취급이고, 경계값 499는 여전히 permanent다", async () => {
     const api = createClientRemoteExpenseApi(TOKEN);
 
-    const error = (await captureThrown(() => api.createExpense(makePayload(), "idem-5xx"))) as RemotePermanentError;
+    for (const status of [500, 502]) {
+      const serverError = new ExpenseHttpError(status, { error: { code: "INTERNAL" } });
+      updateMock.mockRejectedValue(serverError);
+      const error = await captureThrown(() => api.updateExpense("exp-1", makePayload(), 3, `idem-${status}`));
+      expect(error).toBe(serverError);
+    }
 
-    // 현재 코드의 사실을 명시적으로 박아 둔다: 동작을 고칠 때 이 테스트가 빨개지면서
-    // 위 it.skip과 짝을 이뤄 "의도 변경"임을 리뷰어에게 드러낸다.
-    expect(error).toBeInstanceOf(RemotePermanentError);
-    expect(error.status).toBe(503);
+    // 5xx 미만은 하나도 새지 않아야 한다 — 경계는 status >= 500 딱 한 곳.
+    deleteMock.mockRejectedValue(new ExpenseHttpError(499, { error: { code: "CLIENT_CLOSED_REQUEST" } }));
+    const boundary = (await captureThrown(() => api.deleteExpense("exp-1", 3, "idem-499"))) as RemotePermanentError;
+    expect(boundary).toBeInstanceOf(RemotePermanentError);
+    expect(boundary.status).toBe(499);
   });
 });
 
