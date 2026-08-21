@@ -144,3 +144,73 @@ describe.skipIf(!dbAvailable)("PERF-115 perf indexes (migration 000014)", () => 
     expect(plan).toContain("idx_attachments_child");
   });
 });
+
+/**
+ * PERF-119: 마이그레이션 000015_user_devices_push_token_idx 검증. 위 PERF-115
+ * 블록과 같은 관례 — pg_indexes 정의(계약) 고정 + enable_seqscan=off EXPLAIN으로
+ * "이 인덱스가 해당 술어에 사용 가능한가"를 통계와 무관하게 확인한다.
+ *
+ * 대상 쿼리는 FIX-118B의 크로스계정 푸시 클레임(devices.controller.ts
+ * claimPushToken)의 updateMany: push_token 단독 매칭 + user_id/notification_enabled
+ * 잔여 필터. 000010의 (user_id, push_token) 유니크는 선두 컬럼이 user_id라 이
+ * 술어를 태울 수 없다는 것이 이 인덱스를 추가한 근거이므로, 그 전제도 함께 고정한다.
+ */
+describe.skipIf(!dbAvailable)("PERF-119 user_devices push_token index (migration 000015)", () => {
+  let prisma: PrismaClient;
+
+  beforeAll(() => {
+    deployMigrations();
+    prisma = new PrismaClient();
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  async function indexDef(table: string, index: string): Promise<string | undefined> {
+    const rows = await prisma.$queryRaw<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public' AND tablename = ${table} AND indexname = ${index}`;
+    return rows[0]?.indexdef;
+  }
+
+  /** EXPLAIN 플랜 텍스트(전 행 결합)를 돌려준다 — enable_seqscan off 강제. */
+  async function explainWithoutSeqscan(sql: string): Promise<string> {
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+      const rows = await tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(`EXPLAIN ${sql}`);
+      return rows.map((row) => row["QUERY PLAN"]).join("\n");
+    });
+  }
+
+  const ZERO_UUID = "'00000000-0000-0000-0000-000000000000'::uuid";
+  const SAMPLE_TOKEN = "'ExponentPushToken[perf-119-contract]'::text";
+
+  it("idx_user_devices_push_token이 push_token 단일 컬럼 인덱스로 존재한다", async () => {
+    const def = await indexDef("user_devices", "idx_user_devices_push_token");
+    expect(def).toBeDefined();
+    expect(def).toContain("(push_token)");
+    // 부분 인덱스가 아니다 — Prisma @@index로 표현 가능한 형태를 유지한다(000015 헤더).
+    expect(def).not.toContain("WHERE");
+  });
+
+  it("claimPushToken의 updateMany 술어를 인덱스로 태운다", async () => {
+    // devices.controller.ts claimPushToken의 where와 같은 모양(SELECT로 플랜만 확인).
+    const plan = await explainWithoutSeqscan(
+      `SELECT 1 FROM user_devices
+       WHERE push_token = ${SAMPLE_TOKEN}
+         AND user_id <> ${ZERO_UUID}
+         AND notification_enabled = true`
+    );
+    expect(plan).toContain("idx_user_devices_push_token");
+  });
+
+  it("000010의 (user_id, push_token) 유니크는 여전히 존재하지만 push_token 단독 술어를 태우지 못한다", async () => {
+    // 이 인덱스를 추가한 근거 그 자체: 복합 유니크의 선두 컬럼이 user_id라
+    // push_token 단독 매칭에는 쓸 수 없다. 새 인덱스를 지운 상태를 흉내 낼 수는
+    // 없으므로, 유니크 인덱스의 정의(컬럼 순서)로 그 전제를 고정한다.
+    const def = await indexDef("user_devices", "uq_user_devices_user_push_token");
+    expect(def).toBeDefined();
+    expect(def).toContain("(user_id, push_token)");
+  });
+});

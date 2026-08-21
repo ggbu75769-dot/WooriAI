@@ -129,7 +129,9 @@ export const theme = {
     caption: { fontSize: 11, lineHeight: 16, fontWeight: "400" }
   },
   // D0 money typography: three-tier hierarchy for amount text (hero/section/row), all
-  // tabular-nums so digits stay aligned. Consumed by src/money.ts's MoneyText component.
+  // tabular-nums so digits stay aligned. The D0 `MoneyText` component that originally consumed
+  // all three tiers was removed in MOB-121; `row` is still consumed by src/ui/ListRow.tsx, and
+  // the full scale is pinned as a contract by src/design-foundation.test.ts.
   money: {
     hero: { fontSize: 30, fontWeight: "800", fontVariant: ["tabular-nums"] },
     section: { fontSize: 17, fontWeight: "700", fontVariant: ["tabular-nums"] },

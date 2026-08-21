@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatKrw, formatKrwParts } from "./money";
+import { formatKrw } from "./money";
 
 describe("formatKrw", () => {
   it("comma-groups thousands", () => {
@@ -27,18 +27,5 @@ describe("formatKrw", () => {
   });
 });
 
-describe("formatKrwParts", () => {
-  it("splits the comma-grouped number from the 원 suffix", () => {
-    expect(formatKrwParts(12000)).toEqual({ number: "12,000", suffix: "원" });
-  });
-
-  it("matches formatKrw when concatenated", () => {
-    const parts = formatKrwParts(38500);
-    expect(`${parts.number}${parts.suffix}`).toBe(formatKrw(38500));
-  });
-
-  it("also drops negative signs and non-finite input", () => {
-    expect(formatKrwParts(-500)).toEqual({ number: "500", suffix: "원" });
-    expect(formatKrwParts(Number.NaN)).toEqual({ number: "0", suffix: "원" });
-  });
-});
+// R19-E: formatKrwParts/MoneyKrwParts의 계약 블록은 해당 export와 함께 제거됐다 —
+// 유일한 소비자였던 D0 MoneyText가 MOB-121에서 삭제되면서 dead export가 됐다.

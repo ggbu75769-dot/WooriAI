@@ -170,6 +170,9 @@ model UserDevice {
 
   @@unique([userId, pushToken], map: "uq_user_devices_user_push_token")
   @@index([userId], map: "idx_user_devices_user_id")
+  // PERF-119 (000015): claimPushToken의 push_token 단독 술어용. 위 복합 유니크는
+  // 선두 컬럼이 user_id라 이 술어를 태울 수 없다 — 마이그레이션 헤더에 실측 근거.
+  @@index([pushToken], map: "idx_user_devices_push_token")
   @@map("user_devices")
 }
 
