@@ -15,10 +15,11 @@ import {
 import { categoryNameFor } from "../../src/categories";
 import { formatKrw } from "../../src/money";
 import { buildMilestoneShareMessage } from "../../src/reports/milestone-share";
+import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
+import { announceForA11y, AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
 import { SkeletonCard } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 import { ReportPixelStyles } from "../../src/pixelLock/styles";
@@ -96,6 +97,20 @@ export default function ReportsScreen() {
   const yearLabel = `${yearStart.getFullYear()}년`;
 
   const periodLabel = period === "월간" ? reportMonthLabel : period === "분기" ? quarterLabel : yearLabel;
+
+  // A11Y-117: 월/분기/연 이동 시 새 기간 라벨을 TalkBack으로 읽어주고, 현재 기간(offset 0)
+  // 이후로는 "다음" 이동을 막는다(미래 빈 화면 무한 이동 제거) -- src/period-navigation.ts.
+  const periodUnit: PeriodUnit = period === "월간" ? "month" : period === "분기" ? "quarter" : "year";
+  const canGoNextPeriod = canGoToNextPeriod(monthOffset);
+  const goToPreviousPeriod = () => {
+    setMonthOffset((value) => value - 1);
+    announceForA11y(periodLabelForOffset(baseDate, periodUnit, monthOffset - 1));
+  };
+  const goToNextPeriod = () => {
+    if (!canGoNextPeriod) return;
+    setMonthOffset((value) => value + 1);
+    announceForA11y(periodLabelForOffset(baseDate, periodUnit, monthOffset + 1));
+  };
 
   const previousMonthDate = addMonths(reportDate, -1);
   const previousMonthYearMonth = yearMonthOf(previousMonthDate);
@@ -261,32 +276,53 @@ export default function ReportsScreen() {
           <View style={reportReferencePeriodRowStyle}>
             {period === "월간" ? (
               <>
-                <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
+                <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={goToPreviousPeriod}>
                   <Text style={reportReferencePeriodArrowStyle}>‹</Text>
                 </Pressable>
                 <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
-                <Pressable accessibilityLabel="다음 달" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
-                  <Text style={reportReferencePeriodArrowStyle}>›</Text>
+                <Pressable
+                  accessibilityLabel="다음 달"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !canGoNextPeriod }}
+                  disabled={!canGoNextPeriod}
+                  hitSlop={12}
+                  onPress={goToNextPeriod}
+                >
+                  <Text style={canGoNextPeriod ? reportReferencePeriodArrowStyle : reportReferencePeriodArrowDisabledStyle}>›</Text>
                 </Pressable>
               </>
             ) : period === "분기" ? (
               <>
-                <Pressable accessibilityLabel="이전 분기" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
+                <Pressable accessibilityLabel="이전 분기" accessibilityRole="button" hitSlop={12} onPress={goToPreviousPeriod}>
                   <Text style={reportReferencePeriodArrowStyle}>‹</Text>
                 </Pressable>
                 <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
-                <Pressable accessibilityLabel="다음 분기" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
-                  <Text style={reportReferencePeriodArrowStyle}>›</Text>
+                <Pressable
+                  accessibilityLabel="다음 분기"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !canGoNextPeriod }}
+                  disabled={!canGoNextPeriod}
+                  hitSlop={12}
+                  onPress={goToNextPeriod}
+                >
+                  <Text style={canGoNextPeriod ? reportReferencePeriodArrowStyle : reportReferencePeriodArrowDisabledStyle}>›</Text>
                 </Pressable>
               </>
             ) : (
               <>
-                <Pressable accessibilityLabel="이전 연도" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value - 1)}>
+                <Pressable accessibilityLabel="이전 연도" accessibilityRole="button" hitSlop={12} onPress={goToPreviousPeriod}>
                   <Text style={reportReferencePeriodArrowStyle}>‹</Text>
                 </Pressable>
                 <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
-                <Pressable accessibilityLabel="다음 연도" accessibilityRole="button" hitSlop={12} onPress={() => setMonthOffset((value) => value + 1)}>
-                  <Text style={reportReferencePeriodArrowStyle}>›</Text>
+                <Pressable
+                  accessibilityLabel="다음 연도"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !canGoNextPeriod }}
+                  disabled={!canGoNextPeriod}
+                  hitSlop={12}
+                  onPress={goToNextPeriod}
+                >
+                  <Text style={canGoNextPeriod ? reportReferencePeriodArrowStyle : reportReferencePeriodArrowDisabledStyle}>›</Text>
                 </Pressable>
               </>
             )}
@@ -432,6 +468,12 @@ const reportReferencePeriodArrowStyle = {
   fontSize: 24,
   fontWeight: "900",
   lineHeight: 28
+} as const;
+
+// A11Y-117: 다음 화살표 dim (현재 기간에서 미래 이동 불가 -- 색만 gray300으로).
+const reportReferencePeriodArrowDisabledStyle = {
+  ...reportReferencePeriodArrowStyle,
+  color: theme.colors.gray300
 } as const;
 
 const reportReferencePeriodTextStyle = {

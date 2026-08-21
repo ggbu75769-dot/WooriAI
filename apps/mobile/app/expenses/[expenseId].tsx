@@ -288,7 +288,8 @@ export default function ExpenseDetailScreen() {
                       ))}
                     </ScrollView>
                     <Pressable accessibilityRole="button" hitSlop={14} onPress={() => setCustomDateMode((value) => !value)}>
-                      <Text style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}>
+                      {/* A11Y-117: 12px 토글 텍스트 -- coral[500] 3.16:1(AA 미달) → coral[700] 5.56:1 */}
+                      <Text style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}>
                         {customDateMode ? "최근 날짜에서 선택" : "직접 입력"}
                       </Text>
                     </Pressable>
