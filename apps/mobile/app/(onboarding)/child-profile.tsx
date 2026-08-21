@@ -4,10 +4,11 @@ import { Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { CHILD_STAGE_CODES, type ChildStageCode, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
 import { createChild, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { OnboardingSaveErrorCard, OnboardingStepProgress } from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, CategoryChip, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
+import { AppScreen, Card, CategoryChip, PrimaryButton, ScreenHeader } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const onboardingChildProfileScreenId = "ONB-002";
@@ -110,6 +111,7 @@ export default function ChildProfileScreen() {
   return (
     <AppScreen>
       <View accessibilityLabel={onboardingChildProfileScreenId} testID="screen-ONB-002" style={{ gap: theme.spacing.section }}>
+        <OnboardingStepProgress screenId="ONB-002" />
         <ScreenHeader eyebrow="아이 프로필" title="아이를 소개해 주세요" subtitle="태명이나 별명을 알려주시면 앞으로 이렇게 부를게요." />
 
         <Card style={{ gap: theme.spacing.gap }}>
@@ -189,7 +191,7 @@ export default function ChildProfileScreen() {
           ) : null}
         </Card>
 
-        {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
+        {save.isError ? <OnboardingSaveErrorCard onRetry={() => save.mutate()} /> : null}
 
         <PrimaryButton
           disabled={!canSave || save.isPending}

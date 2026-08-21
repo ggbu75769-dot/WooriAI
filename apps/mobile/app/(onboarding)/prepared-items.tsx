@@ -4,10 +4,11 @@ import { Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { LOCAL_SESSION_TOKEN, setPreparedItems } from "../../src/api/client";
 import { LOCAL_ITEM_CARRIER, LOCAL_ITEM_DIAPER } from "../../src/api/local-fixtures";
+import { OnboardingSaveErrorCard, OnboardingStepProgress } from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
+import { AppScreen, Card, PrimaryButton, ScreenHeader } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 const onboardingPreparedItemsScreenId = "ONB-003";
@@ -50,6 +51,7 @@ export default function PreparedItemsScreen() {
   return (
     <AppScreen>
       <View accessibilityLabel={onboardingPreparedItemsScreenId} testID="screen-ONB-003" style={{ gap: theme.spacing.section }}>
+        <OnboardingStepProgress screenId="ONB-003" />
         <ScreenHeader
           eyebrow="출산 준비물"
           title="이미 준비한 물건이 있나요?"
@@ -102,7 +104,7 @@ export default function PreparedItemsScreen() {
           나중에 준비템 탭에서 언제든 다시 체크할 수 있어요.
         </Text>
 
-        {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
+        {save.isError ? <OnboardingSaveErrorCard onRetry={() => save.mutate()} /> : null}
 
         <PrimaryButton
           disabled={save.isPending || !authToken || !selectedChildId}
