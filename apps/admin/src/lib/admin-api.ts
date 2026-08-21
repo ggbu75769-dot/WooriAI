@@ -3,6 +3,14 @@
 // HttpOnly `admin_session` cookie for auth (SEC-102) and a double-submit
 // `X-CSRF-Token` header on state-changing requests. No runtime dependency
 // beyond `fetch`.
+//
+// 후속 과제 (FIX-118C, 이번 스코프 아님): admin 쓰기 엔드포인트에는 서버 측
+// 멱등키 장치(IdempotencyInterceptor)가 붙어 있지 않다. 모바일 동기화 경로와
+// 달리 /admin/* 의 POST/PUT/PATCH/DELETE 는 같은 요청이 두 번 도달하면 두 번
+// 반영된다 (bulk-apply 500행 재실행, displayOrder 중복, 계정 중복 생성 등).
+// 그래서 클라이언트는 쓰기 타임아웃을 "실패"로 단정하지 않는다 — 아래
+// WRITE_FETCH_TIMEOUT_MS 분기와 AdminApiTimeoutError.retryUnsafe 참고.
+// 근본 해결(서버 Idempotency-Key 헤더 + 인터셉터 적용)은 별도 티켓으로 다룬다.
 
 export type NecessityLevel = "essential" | "convenience" | "optional";
 export const NECESSITY_LEVELS: NecessityLevel[] = ["essential", "convenience", "optional"];
@@ -182,22 +190,62 @@ export class AdminApiError extends Error {
 // AdminApiError-based error/재시도 UI instead of hanging.
 export const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
+// FIX-118C: 쓰기(비-GET)에는 더 넉넉한 상한을 쓴다. 읽기는 끊어도 다시 부르면
+// 그만이지만, admin 쓰기는 서버 멱등 장치가 없어(위 후속 과제 주석) 클라이언트가
+// 먼저 끊는 순간 "실패했는지 성공했는지 모르는" 상태가 된다. 서버가 10초를 넘겨
+// 성공했는데 UI가 "시간 초과"로 표시하면 운영자가 재시도해 이중 반영(bulk 500행
+// 2회 적용, displayOrder 중복 등)이 일어난다. 60초는 실제로 무거운 admin 쓰기
+// (bulk-apply 최대 500행, 승인·게시)가 끝나기에 충분하면서도, 완전히 죽은
+// 연결이 UI를 영원히 "처리 중..."에 묶어두지는 않는 절충값이다.
+export const WRITE_FETCH_TIMEOUT_MS = 60_000;
+
+/** 메서드별 fetch 타임아웃 상한. GET(읽기)은 10초, 나머지(쓰기)는 60초. */
+export function timeoutMsForMethod(method: string): number {
+  return STATE_CHANGING_METHODS.has(method.toUpperCase()) ? WRITE_FETCH_TIMEOUT_MS : DEFAULT_FETCH_TIMEOUT_MS;
+}
+
+const READ_TIMEOUT_MESSAGE = "요청 시간이 초과됐어요(10초). 네트워크 상태를 확인하고 다시 시도해 주세요.";
+
+// 쓰기 타임아웃 문구는 의도적으로 재시도를 권하지 않는다 — 서버가 이미 반영했을
+// 수 있으므로 "다시 시도해 주세요"는 이중 반영을 유도하는 안내가 된다.
+const WRITE_TIMEOUT_MESSAGE =
+  "요청이 오래 걸리고 있어요(60초). 반영 여부가 확실하지 않으니 목록을 새로고침해 확인한 뒤 다시 시도하세요.";
+
 /** Thrown when fetchWithTimeout's OWN timeout bound fires (never for genuine
  * network failures -- those keep the "서버에 연결하지 못했어요" mapping below).
  * Extends AdminApiError (status 0, code "TIMEOUT") so every existing
  * `error instanceof AdminApiError`/`error.message` display path shows the
  * Korean timeout guidance without changes. `cause` carries the original abort
- * rejection (typically a DOMException named "AbortError") for debugging. */
+ * rejection (typically a DOMException named "AbortError") for debugging.
+ *
+ * FIX-118C: `method`와 `retryUnsafe`를 함께 실어 보낸다. `retryUnsafe === true`
+ * (비-GET 쓰기)면 서버가 이미 처리했을 수 있으므로 호출부는 자동 재시도를 걸거나
+ * 재시도를 권하는 문구를 보여선 안 된다. */
 export class AdminApiTimeoutError extends AdminApiError {
-  constructor(cause: unknown) {
-    super(0, "요청 시간이 초과됐어요(10초). 네트워크 상태를 확인하고 다시 시도해 주세요.", "TIMEOUT");
+  /** 타임아웃된 요청의 HTTP 메서드(대문자). */
+  readonly method: string;
+  /** 비-GET 쓰기라 재시도 시 이중 반영 위험이 있는지. */
+  readonly retryUnsafe: boolean;
+
+  constructor(cause: unknown, method: string = "GET") {
+    const normalized = method.toUpperCase();
+    const retryUnsafe = STATE_CHANGING_METHODS.has(normalized);
+    super(0, retryUnsafe ? WRITE_TIMEOUT_MESSAGE : READ_TIMEOUT_MESSAGE, "TIMEOUT");
     this.name = "AdminApiTimeoutError";
+    this.method = normalized;
+    this.retryUnsafe = retryUnsafe;
     this.cause = cause;
   }
 }
 
 export function isTimeoutError(error: unknown): boolean {
   return error instanceof AdminApiTimeoutError;
+}
+
+/** 쓰기 타임아웃(반영 여부 불명 → 재시도 시 이중 반영 위험) 판별. 읽기 타임아웃과
+ * 일반 네트워크 실패에는 false. */
+export function isRetryUnsafeTimeoutError(error: unknown): boolean {
+  return error instanceof AdminApiTimeoutError && error.retryUnsafe;
 }
 
 /** Wraps `fetch` with an AbortController-based timeout so a hung connection
@@ -211,7 +259,8 @@ export function isTimeoutError(error: unknown): boolean {
 function fetchWithTimeout(
   input: string,
   init: RequestInit,
-  timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS,
+  method: string = "GET"
 ): Promise<Response> {
   const controller = new AbortController();
   let timedOut = false;
@@ -222,7 +271,7 @@ function fetchWithTimeout(
   return fetch(input, { ...init, signal: controller.signal })
     .catch((error: unknown) => {
       if (timedOut && (error as { name?: unknown } | null)?.name === "AbortError") {
-        throw new AdminApiTimeoutError(error);
+        throw new AdminApiTimeoutError(error, method);
       }
       throw error;
     })
@@ -241,9 +290,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   let response: Response;
   try {
-    response = await fetchWithTimeout(`${apiBaseUrl()}${path}`, { ...init, method, credentials: "include", headers });
+    response = await fetchWithTimeout(
+      `${apiBaseUrl()}${path}`,
+      { ...init, method, credentials: "include", headers },
+      // FIX-118C: 읽기 10초 / 쓰기 60초. 쓰기를 일찍 끊으면 서버는 성공했는데
+      // 운영자가 재시도해 이중 반영될 수 있어서다.
+      timeoutMsForMethod(method),
+      method
+    );
   } catch (error) {
-    // The 10s timeout keeps its own typed error (and Korean guidance); every
+    // The timeout keeps its own typed error (and Korean guidance); every
     // other rejection stays the generic connection failure, exactly as before.
     if (error instanceof AdminApiTimeoutError) throw error;
     throw new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.");

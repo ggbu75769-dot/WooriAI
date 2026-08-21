@@ -165,6 +165,21 @@ describe("CSV 일괄 교체 panel wiring (COM-107-prep)", () => {
     }
   });
 
+  // FIX-118C: bulk-apply는 admin 쓰기 중 가장 위험한 경로(최대 500행)인데 서버
+  // 멱등키가 없다. 적용이 쓰기 타임아웃으로 끊기면 "실패"로 단정해 재시도를
+  // 권하는 대신, 현재 상태를 재조회해 이미 반영됐는지 확인하도록 안내한다.
+  it("treats an apply timeout as 결과 불명 and re-checks current state instead of urging a retry", () => {
+    const panel = readSource("src/components/ProductLinkBulkReplace.tsx");
+    expect(panel).toContain("isRetryUnsafeTimeoutError");
+    expect(panel).toContain("recheckCurrentState");
+    // 재조회는 쓰기가 없는 bulk-preview로 한다.
+    expect(panel).toContain("현재 상태 다시 확인");
+    expect(panel).toContain("이미 반영됐을 수 있으니 바로 다시 적용하지 마세요");
+    // 타임아웃 안내는 일반 실패 배너와 구분되는 경고 콜아웃으로 뜬다.
+    expect(panel).toContain("timeoutNotice");
+    expect(panel).toContain("calloutWarning");
+  });
+
   it("mounts the panel on the links page for admin sessions only (endpoints are admin-only)", () => {
     const page = readSource("app/links/page.tsx");
     expect(page).toContain("ProductLinkBulkReplace");
