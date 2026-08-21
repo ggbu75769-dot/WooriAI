@@ -71,7 +71,22 @@ LINK_HEALTH_ENABLED=1     ← 링크 헬스체크 (실링크 투입 후)
   `EXPO_PUBLIC_KAKAO_CLIENT_ID`, `EXPO_PUBLIC_KAKAO_REDIRECT_URI=wooriai://oauth/kakao`, `EXPO_PUBLIC_TEST_LOGIN=0`
 - [ ] 카카오 콘솔에 redirect URI 등록(서버 allowlist와 동일 값)
 - [ ] `expo prebuild --platform android` — Round 5A 빌드 노트의 gradle·네트워크 보안 설정 2종은 REL-009 config plugin(`apps/mobile/plugins/with-wooriai-android-release.js`)이 **자동 적용**(손패치 불필요). 패키지명·버전은 env로 주입: `WOORIAI_ANDROID_PACKAGE=<확정 패키지명> WOORIAI_APP_VERSION=1.0.0 WOORIAI_ANDROID_VERSION_CODE=1`
-- [ ] 스토어 제출용은 APK가 아닌 **AAB**: `cd android && ./gradlew bundleRelease` (release keystore 서명 설정 추가)
+- [ ] 스토어 제출용은 APK가 아닌 **AAB** — REL-011 원커맨드 파이프라인 (§3.1 keystore만 준비되면 명령 하나):
+
+  ```bash
+  WOORIAI_UPLOAD_KEYSTORE=/절대/경로/wooriai-release.keystore \
+  WOORIAI_UPLOAD_KEYSTORE_PASSWORD=… \
+  WOORIAI_UPLOAD_KEY_ALIAS=wooriai \
+  WOORIAI_UPLOAD_KEY_PASSWORD=… \
+  EXPO_PUBLIC_API_BASE_URL=https://<도메인>/api/v1 \
+  WOORIAI_ANDROID_PACKAGE=<확정 패키지명> WOORIAI_APP_VERSION=1.0.0 WOORIAI_ANDROID_VERSION_CODE=1 \
+  pnpm android:build-aab
+  ```
+
+  - 내부 동작: env 검증(https API 강제, versionCode 정수 검사 등) → `expo prebuild`(플러그인이 `signingConfigs.release`를 **System.getenv 참조로** 주입 — 비밀번호는 gradle 파일에 절대 저장되지 않음) → `./gradlew :app:bundleRelease` → `artifacts/android/wooriai-<버전>-vc<코드>-release.aab` + 리포트 JSON 출력
+  - 필수 env 8종: `WOORIAI_UPLOAD_KEYSTORE`(절대경로 권장, 상대경로는 리포 루트 기준으로 해석), `WOORIAI_UPLOAD_KEYSTORE_PASSWORD`, `WOORIAI_UPLOAD_KEY_ALIAS`, `WOORIAI_UPLOAD_KEY_PASSWORD`, `EXPO_PUBLIC_API_BASE_URL`(https 필수), `WOORIAI_ANDROID_PACKAGE`, `WOORIAI_APP_VERSION`, `WOORIAI_ANDROID_VERSION_CODE`. 테스트 로그인·픽셀락은 스크립트가 강제로 0.
+  - 사전 점검: `pnpm android:build-aab -- --check` — gradle 단계만 뺀 전체(env 검증→prebuild→서명 주입 확인)를 수행. Android SDK 없는 환경에서도 동작하며, 개발 환경에서는 `--check`까지만 검증됨 — **실제 gradle 첫 실행은 JDK 17 + Android SDK가 있는 본인 머신에서**.
+  - env 없이 prebuild/빌드하면 기존 debug 서명 흐름 그대로(dev·standalone APK 영향 없음). 단 AAB는 반드시 `pnpm android:build-aab`로 빌드할 것 — env 없이 gradle을 직접 돌리면 debug 서명 AAB가 나와 Play 업로드에서 거부된다.
 - [ ] 기존 `pnpm android:build-apk --profile production`은 실기기 스모크용 APK로 병행 사용
 
 ### 3.3 실기기 QA (기존 QA 런북 + 이번 신기능)

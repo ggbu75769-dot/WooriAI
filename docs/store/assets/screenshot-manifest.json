@@ -1,0 +1,5 @@
+[
+  {"name": "home", "src": "docs/store/assets/sources/home-clean.png", "caption": "오늘 지출이 한눈에"},
+  {"name": "family", "src": "docs/store/assets/sources/family-clean.png", "caption": "가족이 함께 기록해요"},
+  {"name": "excel-import", "src": "docs/store/assets/sources/excel-clean.png", "caption": "쓰던 엑셀 그대로 가져오기"}
+]

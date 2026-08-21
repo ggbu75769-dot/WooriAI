@@ -27,6 +27,7 @@
     "pixel:android:validate-render": "tsx scripts/pixel-lock/android-pixel-lock.ts validate-render",
     "pixel:android:build-apk": "tsx scripts/pixel-lock/build-pixel-apk.ts",
     "android:build-apk": "tsx scripts/build-android-apk.ts",
+    "android:build-aab": "tsx scripts/build-android-aab.ts",
     "pixel:open": "tsx scripts/pixel-lock/android-pixel-lock.ts open",
     "pixel:capture": "tsx scripts/pixel-lock/android-pixel-lock.ts capture",
     "pixel:diff": "tsx scripts/pixel-lock/android-pixel-lock.ts diff",

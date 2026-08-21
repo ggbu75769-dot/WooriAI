@@ -93,9 +93,20 @@
 
 ## 5. 스크린샷 촬영 가이드
 
+> **현재 제출 가능 자산 (STORE-102, `docs/store/assets/`)**: `phone-01-home` · `phone-02-family` ·
+> `phone-03-excel-import` 3장(1080×1920 프레임 합성, Play 규격 검증 완료) + `play-icon-512.png` +
+> `play-feature-graphic-1024x500.png`. **최소 요건(2장)을 이미 충족**하므로 이대로 제출 가능하고,
+> 아래 표의 나머지 화면은 Day 2 실기기 QA 중 `adb exec-out screencap -p > shot.png`로 캡처해
+> `scripts/store/frame_screenshots.py`(매니페스트: `docs/store/assets/screenshot-manifest.json`)로
+> 재합성하면 추가된다.
+> **주의**: `docs/ui-pixel-lock/app-screenshots/`의 quick-expense·recommendation·report·
+> product-detail·more는 **영문 와이어프레임 목업이라 스토어 사용 금지**. native-screenshots
+> 2장은 라운드 5A 이전 구 UI라 부적합. 사용 가능 소스는 현 디자인 기준 픽셀락 라이브 캡처
+> (home·family·excel-preview, 라벨 제거본 `assets/sources/`)와 향후 실기기 캡처뿐이다.
+
 실제 존재하는 화면만 사용한다(하단 탭: 홈/기록/준비템/리포트 — DNC-003). 촬영은
-실기기 또는 에뮬레이터에서 실데이터 유사 시드로. `scripts/pixel-lock` 캡처 재활용 가능
-(launch-72h-plan.md §4). 순서는 핵심 루프(기록 → 총액 → 준비템 → 구매 → 리포트) 순.
+실기기 또는 에뮬레이터에서 실데이터 유사 시드로. 순서는 핵심 루프(기록 → 총액 →
+준비템 → 구매 → 리포트) 순.
 
 | # | 화면 | 파일/라우트 | 캡션(오버레이 문구 제안) |
 |---|---|---|---|
