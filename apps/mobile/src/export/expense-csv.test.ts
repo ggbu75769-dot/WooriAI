@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Expense } from "../api/client";
-import { categoryCatalog } from "../categories";
+import { buildCategoryNameLookup, categoryCatalog } from "../categories";
 import {
   buildExpenseCsv,
   escapeCsvField,
@@ -58,6 +58,23 @@ describe("EXP-106 expense CSV builder", () => {
   it("maps categoryId to the same Korean label the screens use, with 기타 fallback", () => {
     expect(expenseToCsvRow(makeExpense())).toContain(",기저귀,");
     expect(expenseToCsvRow(makeExpense({ categoryId: "not-a-known-id" }))).toContain(",기타,");
+  });
+
+  it("prefers a server-backed category lookup so the canonical seed categories keep their real names", () => {
+    // The 12 canonical seed categories (apps/api/prisma/seed-data.ts categorySeeds) have no fixed
+    // ids, so their per-database UUIDs are unknown to categoryNameFor and used to export as "기타".
+    const serverCategoryId = "11111111-1111-4111-8111-111111111111";
+    const categoryName = buildCategoryNameLookup([{ id: serverCategoryId, name: "수유/이유식" }]);
+
+    expect(expenseToCsvRow(makeExpense({ categoryId: serverCategoryId }), categoryName)).toContain(",수유/이유식,");
+    const { csv } = buildExpenseCsv([makeExpense({ categoryId: serverCategoryId })], { categoryName });
+    expect(csv).toContain(",수유/이유식,");
+
+    // Ids missing from the server list still fall back to the static catalog mapping, never a raw id.
+    expect(expenseToCsvRow(makeExpense(), categoryName)).toContain(",기저귀,");
+    expect(expenseToCsvRow(makeExpense({ categoryId: "not-a-known-id" }), categoryName)).toContain(",기타,");
+    // No lookup passed (preview/offline): unchanged legacy behavior.
+    expect(buildExpenseCsv([makeExpense({ categoryId: serverCategoryId })]).csv).toContain(",기타,");
   });
 
   it("maps expense source codes to Korean labels", () => {

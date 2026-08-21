@@ -148,8 +148,13 @@ export class OnboardingCoreService {
    * screen (ONB-006): once a child has been created for the household, "처음부터" is no longer
    * offered (only "이어서 하기") to avoid orphaning or duplicating that child; before a child
    * exists there's nothing to lose by restarting.
+   *
+   * R19-C(F1) 다자녀: `childId`를 주면 그 아이 기준으로 요약/완료 판정을 만든다. 예전에는 항상
+   * `children[0]`(첫째)만 봤기 때문에 둘째만 예산/준비템을 끝낸 계정이 영원히 미완료로 보였고,
+   * 모바일의 selectedChildId 복구가 둘째 사용자를 말없이 첫째로 되돌렸다. 파라미터를 생략하면
+   * 기존 그대로 첫째를 쓰므로 기존 클라이언트와 하위호환된다.
    */
-  async onboardingStatus(user: AuthenticatedUser) {
+  async onboardingStatus(user: AuthenticatedUser, childId?: string) {
     const consentsAccepted = await this.hasRequiredConsents(user);
     if (!consentsAccepted) {
       return this.onboardingStatusResult("consents", true, {
@@ -160,8 +165,12 @@ export class OnboardingCoreService {
       });
     }
 
-    const children = await this.childAccess.childrenForUser(user);
-    if (children.length === 0) {
+    // 지정된 아이는 requireChildAccess로 확인한다 — 없는/삭제된 아이는 CHILD_NOT_FOUND(404),
+    // 남의 가구 아이는 FORBIDDEN(403)으로, 다른 아이 스코프 엔드포인트와 동일한 의미를 유지.
+    const selectedChild = childId
+      ? await this.childAccess.requireChildAccess(user, childId)
+      : (await this.childAccess.childrenForUser(user))[0];
+    if (!selectedChild) {
       return this.onboardingStatusResult("child-profile", true, {
         consentsAccepted: true,
         child: null,
@@ -170,7 +179,6 @@ export class OnboardingCoreService {
       });
     }
 
-    const selectedChild = children[0];
     const childSummary = toChildDto(selectedChild);
     if (!selectedChild.preparedItemsSetAt) {
       return this.onboardingStatusResult("prepared-items", false, {

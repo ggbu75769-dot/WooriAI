@@ -369,6 +369,128 @@ describe("Items, commerce, and affiliate API", () => {
       });
   });
 
+  /**
+   * R19-B / DNC-002 핵심 루프의 마지막 고리("구매 후 기록 -> 상태 체크"): 준비템에
+   * 연결된 지출을 기록하면 그 준비템이 자동으로 준비 완료가 된다. 셋을 한 번에 고정한다 --
+   * (1) 연결 지출 -> prepared, (2) 이미 gifted인 항목은 연결 지출이 생겨도 불변,
+   * (3) 연결이 없는 일반 지출은 어떤 준비템 상태도 건드리지 않는다.
+   */
+  it("marks a linked preparation item prepared on expense create, preserves gifted, and leaves unlinked expenses alone", async () => {
+    const accessToken = await login(app, "batch19-expense-item-link");
+    const { childId } = await completeOnboarding(app, accessToken);
+    // 시드 카테고리 id (다른 케이스와 동일한 고정 uuid를 쓴다).
+    const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+    const nowItems = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items as ItemSummary[];
+    expect(nowItems.length).toBeGreaterThanOrEqual(3);
+    const [linkedItem, giftedItem, untouchedItem] = nowItems;
+
+    // (2)의 사전 상태: 사용자가 직접 "선물로 받았어요"로 정리해 둔 항목.
+    await request(app.getHttpServer())
+      .patch(`/api/v1/children/${childId}/items/${giftedItem.id}/status`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ status: "gifted" })
+      .expect(200);
+
+    // (1) 연결 지출 -> 준비 완료. 응답 형태는 그대로다 (지출 DTO에 상태 필드가 새로 붙지 않는다).
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        categoryId,
+        amountKrw: 189000,
+        spentOn: "2026-07-06",
+        itemName: linkedItem.name,
+        paymentMethod: "card",
+        linkedItemTemplateId: linkedItem.id
+      })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.id).toEqual(expect.any(String));
+        expect(body).not.toHaveProperty("status");
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/items/${linkedItem.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ id: linkedItem.id, status: "prepared" });
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/items?tab=prepared`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.items.map((item: ItemSummary) => item.id)).toContain(linkedItem.id);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/items?tab=now`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.items.map((item: ItemSummary) => item.id)).not.toContain(linkedItem.id);
+      });
+
+    // (2) 이미 gifted로 정리된 항목은 연결 지출이 생겨도 사용자 판단이 유지된다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        categoryId,
+        amountKrw: 12000,
+        spentOn: "2026-07-06",
+        itemName: giftedItem.name,
+        paymentMethod: "card",
+        linkedItemTemplateId: giftedItem.id
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/items/${giftedItem.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ id: giftedItem.id, status: "gifted" });
+      });
+
+    // (3) 연결 없는 일반 지출은 준비템 상태를 전혀 바꾸지 않는다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        categoryId,
+        amountKrw: 30000,
+        spentOn: "2026-07-06",
+        itemName: "연결 없는 지출",
+        paymentMethod: "card"
+      })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/items/${untouchedItem.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ id: untouchedItem.id, status: "not_prepared" });
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/items?tab=prepared`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.items.map((item: ItemSummary) => item.id)).toEqual([linkedItem.id]);
+      });
+  });
+
   it("does not record a click log entry when the redirect URL fails scheme validation", async () => {
     const accessToken = await login(app, "batch07-click-order");
     const { childId } = await completeOnboarding(app, accessToken);

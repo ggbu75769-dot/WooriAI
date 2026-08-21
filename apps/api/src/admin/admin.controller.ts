@@ -1,6 +1,20 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Put, Req, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Req,
+  UseGuards,
+  UseInterceptors
+} from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
+import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { ItemsCatalogService } from "../onboarding/items-catalog.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -36,9 +50,14 @@ export class AdminController {
   // admin-only now -- editor changes must go through
   // POST/PATCH /admin/content-revisions (draft -> submit -> admin
   // approve-publish). See ContentRevisionsController.
+  // R19-F: 생성류는 재시도가 곧 중복 리소스(같은 이름의 템플릿, displayOrder가
+  // 뒤엉킨 링크)라서 `Idempotency-Key`를 받으면 첫 응답을 재생한다. 헤더가
+  // 없으면 no-op이라 기존 호출부/스크립트는 그대로다. PATCH(수정)는 같은 body를
+  // 두 번 써도 결과가 같은 멱등 연산이라 부착 대상이 아니다.
   @Post("item-templates")
   @HttpCode(200)
   @RequireAdminRoles("admin")
+  @UseInterceptors(IdempotencyInterceptor)
   async createItemTemplate(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(AdminCreateItemTemplateDto)) body: AdminCreateItemTemplateDto
@@ -80,6 +99,7 @@ export class AdminController {
   @Post("product-links")
   @HttpCode(200)
   @RequireAdminRoles("admin")
+  @UseInterceptors(IdempotencyInterceptor)
   async createProductLink(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(AdminCreateProductLinkDto)) body: AdminCreateProductLinkDto

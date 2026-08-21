@@ -4,13 +4,21 @@
 // `X-CSRF-Token` header on state-changing requests. No runtime dependency
 // beyond `fetch`.
 //
-// 후속 과제 (FIX-118C, 이번 스코프 아님): admin 쓰기 엔드포인트에는 서버 측
-// 멱등키 장치(IdempotencyInterceptor)가 붙어 있지 않다. 모바일 동기화 경로와
-// 달리 /admin/* 의 POST/PUT/PATCH/DELETE 는 같은 요청이 두 번 도달하면 두 번
-// 반영된다 (bulk-apply 500행 재실행, displayOrder 중복, 계정 중복 생성 등).
-// 그래서 클라이언트는 쓰기 타임아웃을 "실패"로 단정하지 않는다 — 아래
+// FIX-118C 후속(R19-F, 완료): 위험 순위가 높은 admin 쓰기 경로에는 이제 서버
+// 측 멱등키 장치(IdempotencyInterceptor)가 붙어 있다 —
+//   POST /admin/product-links/bulk-apply
+//   POST /admin/users
+//   POST /admin/item-templates, POST /admin/product-links
+//   POST /admin/content-revisions/:id/approve-publish
+// 이 경로들은 `Idempotency-Key` 헤더를 함께 보내면 같은 키+같은 body의 재시도가
+// 핸들러를 다시 실행하지 않고 첫 응답을 그대로 재생한다(키를 안 보내면 서버는
+// 기존대로 비멱등 처리 — opt-in 계약). 그래서 아래 쓰기 함수 중 그 경로들만
+// `idempotencyKey`를 받고, 타임아웃 안내도 "다시 보내도 중복되지 않아요"로
+// 완화된다(IDEMPOTENT_WRITE_TIMEOUT_MESSAGE).
+//
+// 아직 멱등키가 없는 나머지 쓰기(PATCH 수정류, disclosures PUT, submit/reject/
+// rollback 등)는 종전대로 쓰기 타임아웃을 "실패"로 단정하지 않는다 — 아래
 // WRITE_FETCH_TIMEOUT_MS 분기와 AdminApiTimeoutError.retryUnsafe 참고.
-// 근본 해결(서버 Idempotency-Key 헤더 + 인터셉터 적용)은 별도 티켓으로 다룬다.
 
 export type NecessityLevel = "essential" | "convenience" | "optional";
 export const NECESSITY_LEVELS: NecessityLevel[] = ["essential", "convenience", "optional"];
@@ -157,6 +165,69 @@ const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const CSRF_COOKIE_NAME = "admin_csrf";
 const CSRF_HEADER_NAME = "X-CSRF-Token";
 
+// R19-F: 서버 IdempotencyInterceptor가 읽는 헤더 이름. 인터셉터는 값 자체를
+// 그대로 (actor, endpoint, key) 유니크 키로 쓰므로 값의 형식은 자유이고,
+// 컬럼 상한(varchar(120))만 지키면 된다 — uuid(36자)로 충분하다.
+const IDEMPOTENCY_HEADER_NAME = "Idempotency-Key";
+
+/** 한 번의 "시도"를 식별하는 새 멱등키. crypto.randomUUID가 없는 환경(구형
+ * 브라우저, jsdom 없는 테스트 러너)에서는 시간+난수 조합으로 폴백한다. */
+export function newIdempotencyKey(): string {
+  const cryptoRef = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (typeof cryptoRef?.randomUUID === "function") {
+    return cryptoRef.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
+/**
+ * R19-F: 멱등키의 값은 "요청 1회당 1키"가 아니라 **시도 1회당 1키**여야 한다 —
+ * 재시도가 같은 키를 다시 보내야 서버가 중복을 걸러 주기 때문이다. 매 호출마다
+ * 새 키를 만들면 서버 입장에서는 전혀 다른 두 요청이라 멱등 장치가 무의미해진다.
+ *
+ * 그래서 호출부(컴포넌트)는 이 홀더를 하나 들고 다니면서
+ *  - `current(fingerprint?)` — 이번 시도(및 그 재시도)에 쓸 키.
+ *  - `rotate()` — 시도가 **끝났을 때**(성공) 호출. 다음 시도는 새 키.
+ * 규칙으로 쓴다.
+ *
+ * `fingerprint`는 보낼 요청 body를 대표하는 문자열(보통 `JSON.stringify(input)`
+ * 또는 CSV 원문)이다. 값이 직전과 다르면 키를 자동으로 새로 발급한다 — body가
+ * 바뀌었는데 키를 그대로 재사용하면 서버가
+ * 409 IDEMPOTENCY_KEY_CONFLICT("이미 다른 요청 본문으로 사용된 키")로 막기
+ * 때문이다. 폼의 onChange 하나하나에 회전 호출을 심는 대신 이 지문 비교 한
+ * 군데로 그 규칙을 보장한다.
+ */
+export type IdempotencyKeyHolder = {
+  current(fingerprint?: string): string;
+  rotate(): void;
+  /** 아직 발급 전이면 null (테스트/디버깅용). */
+  peek(): string | null;
+};
+
+export function createIdempotencyKeyHolder(generate: () => string = newIdempotencyKey): IdempotencyKeyHolder {
+  let key: string | null = null;
+  let lastFingerprint: string | null = null;
+  return {
+    current(fingerprint?: string) {
+      const next = fingerprint ?? null;
+      if (key === null || next !== lastFingerprint) {
+        key = generate();
+        lastFingerprint = next;
+      }
+      return key;
+    },
+    rotate() {
+      key = null;
+      lastFingerprint = null;
+    },
+    peek() {
+      return key;
+    }
+  };
+}
+
 function readCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
   const prefix = `${name}=`;
@@ -211,6 +282,12 @@ const READ_TIMEOUT_MESSAGE = "요청 시간이 초과됐어요(10초). 네트워
 const WRITE_TIMEOUT_MESSAGE =
   "요청이 오래 걸리고 있어요(60초). 반영 여부가 확실하지 않으니 목록을 새로고침해 확인한 뒤 다시 시도하세요.";
 
+// R19-F: 멱등키를 실어 보낸 쓰기는 서버가 중복을 걸러 주므로, 타임아웃 뒤에도
+// 재시도를 그대로 권할 수 있다 — 같은 키로 다시 보내면 서버는 핸들러를 다시
+// 실행하지 않고 첫 결과를 재생한다.
+const IDEMPOTENT_WRITE_TIMEOUT_MESSAGE =
+  "요청이 오래 걸리고 있어요(60초). 같은 요청을 다시 보내면 중복 없이 처리돼요 — 다시 시도해 주세요.";
+
 /** Thrown when fetchWithTimeout's OWN timeout bound fires (never for genuine
  * network failures -- those keep the "서버에 연결하지 못했어요" mapping below).
  * Extends AdminApiError (status 0, code "TIMEOUT") so every existing
@@ -220,20 +297,33 @@ const WRITE_TIMEOUT_MESSAGE =
  *
  * FIX-118C: `method`와 `retryUnsafe`를 함께 실어 보낸다. `retryUnsafe === true`
  * (비-GET 쓰기)면 서버가 이미 처리했을 수 있으므로 호출부는 자동 재시도를 걸거나
- * 재시도를 권하는 문구를 보여선 안 된다. */
+ * 재시도를 권하는 문구를 보여선 안 된다.
+ *
+ * R19-F: 멱등키를 실어 보낸 쓰기(`idempotent === true`)는 예외다 — 서버가 중복을
+ * 걸러 주므로 `retryUnsafe`는 false가 되고 문구도 재시도를 권한다. 단, 재시도는
+ * **같은 키**로 보내야 한다(IdempotencyKeyHolder 참고). */
 export class AdminApiTimeoutError extends AdminApiError {
   /** 타임아웃된 요청의 HTTP 메서드(대문자). */
   readonly method: string;
-  /** 비-GET 쓰기라 재시도 시 이중 반영 위험이 있는지. */
+  /** 비-GET 쓰기인데 서버 멱등키 보호가 없어 재시도 시 이중 반영 위험이 있는지. */
   readonly retryUnsafe: boolean;
+  /** 이 요청이 `Idempotency-Key`를 실어 보냈는지 (= 같은 키로 재시도해도 안전). */
+  readonly idempotent: boolean;
 
-  constructor(cause: unknown, method: string = "GET") {
+  constructor(cause: unknown, method: string = "GET", idempotent: boolean = false) {
     const normalized = method.toUpperCase();
-    const retryUnsafe = STATE_CHANGING_METHODS.has(normalized);
-    super(0, retryUnsafe ? WRITE_TIMEOUT_MESSAGE : READ_TIMEOUT_MESSAGE, "TIMEOUT");
+    const isWrite = STATE_CHANGING_METHODS.has(normalized);
+    const retryUnsafe = isWrite && !idempotent;
+    const message = isWrite
+      ? idempotent
+        ? IDEMPOTENT_WRITE_TIMEOUT_MESSAGE
+        : WRITE_TIMEOUT_MESSAGE
+      : READ_TIMEOUT_MESSAGE;
+    super(0, message, "TIMEOUT");
     this.name = "AdminApiTimeoutError";
     this.method = normalized;
     this.retryUnsafe = retryUnsafe;
+    this.idempotent = isWrite && idempotent;
     this.cause = cause;
   }
 }
@@ -242,10 +332,16 @@ export function isTimeoutError(error: unknown): boolean {
   return error instanceof AdminApiTimeoutError;
 }
 
-/** 쓰기 타임아웃(반영 여부 불명 → 재시도 시 이중 반영 위험) 판별. 읽기 타임아웃과
- * 일반 네트워크 실패에는 false. */
+/** 쓰기 타임아웃(반영 여부 불명 → 재시도 시 이중 반영 위험) 판별. 읽기 타임아웃,
+ * 일반 네트워크 실패, 그리고 멱등키를 실어 보낸 쓰기에는 false. */
 export function isRetryUnsafeTimeoutError(error: unknown): boolean {
   return error instanceof AdminApiTimeoutError && error.retryUnsafe;
+}
+
+/** R19-F: 멱등키를 실어 보낸 쓰기의 타임아웃 판별. 이 경우 호출부는 **같은 키를
+ * 유지한 채** 재시도를 권해도 된다 — 서버가 중복 반영을 막아 준다. */
+export function isIdempotentTimeoutError(error: unknown): boolean {
+  return error instanceof AdminApiTimeoutError && error.idempotent;
 }
 
 /** Wraps `fetch` with an AbortController-based timeout so a hung connection
@@ -260,7 +356,8 @@ function fetchWithTimeout(
   input: string,
   init: RequestInit,
   timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS,
-  method: string = "GET"
+  method: string = "GET",
+  idempotent: boolean = false
 ): Promise<Response> {
   const controller = new AbortController();
   let timedOut = false;
@@ -271,20 +368,28 @@ function fetchWithTimeout(
   return fetch(input, { ...init, signal: controller.signal })
     .catch((error: unknown) => {
       if (timedOut && (error as { name?: unknown } | null)?.name === "AbortError") {
-        throw new AdminApiTimeoutError(error, method);
+        throw new AdminApiTimeoutError(error, method, idempotent);
       }
       throw error;
     })
     .finally(() => clearTimeout(timer));
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * @param idempotencyKey R19-F: 서버 IdempotencyInterceptor가 붙은 쓰기 경로에서만
+ * 넘긴다. 재시도 시 **같은 값**을 다시 넘겨야 중복이 걸러진다.
+ */
+async function request<T>(path: string, init?: RequestInit, idempotencyKey?: string): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(init?.headers as Record<string, string> ?? {}) };
+  const idempotent = STATE_CHANGING_METHODS.has(method) && Boolean(idempotencyKey);
   if (STATE_CHANGING_METHODS.has(method)) {
     const csrfToken = readCookie(CSRF_COOKIE_NAME);
     if (csrfToken) {
       headers[CSRF_HEADER_NAME] = csrfToken;
+    }
+    if (idempotencyKey) {
+      headers[IDEMPOTENCY_HEADER_NAME] = idempotencyKey;
     }
   }
 
@@ -296,7 +401,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // FIX-118C: 읽기 10초 / 쓰기 60초. 쓰기를 일찍 끊으면 서버는 성공했는데
       // 운영자가 재시도해 이중 반영될 수 있어서다.
       timeoutMsForMethod(method),
-      method
+      method,
+      idempotent
     );
   } catch (error) {
     // The timeout keeps its own typed error (and Korean guidance); every
@@ -341,8 +447,14 @@ export function listItemTemplates() {
   return request<{ items: ItemTemplate[] }>("/admin/item-templates");
 }
 
-export function createItemTemplate(input: ItemTemplateInput) {
-  return request<ItemTemplate>("/admin/item-templates", { method: "POST", body: JSON.stringify(input) });
+/** R19-F: 서버 멱등키 적용 경로. `idempotencyKey`를 넘기면 같은 키+같은 입력의
+ * 재시도가 중복 생성 없이 첫 응답을 재생한다. */
+export function createItemTemplate(input: ItemTemplateInput, idempotencyKey?: string) {
+  return request<ItemTemplate>(
+    "/admin/item-templates",
+    { method: "POST", body: JSON.stringify(input) },
+    idempotencyKey
+  );
 }
 
 export function updateItemTemplate(itemTemplateId: string, input: ItemTemplateInput) {
@@ -356,8 +468,13 @@ export function listProductLinks() {
   return request<{ links: ProductLink[] }>("/admin/product-links");
 }
 
-export function createProductLink(input: ProductLinkInput) {
-  return request<ProductLink>("/admin/product-links", { method: "POST", body: JSON.stringify(input) });
+/** R19-F: 서버 멱등키 적용 경로 (createItemTemplate과 동일 계약). */
+export function createProductLink(input: ProductLinkInput, idempotencyKey?: string) {
+  return request<ProductLink>(
+    "/admin/product-links",
+    { method: "POST", body: JSON.stringify(input) },
+    idempotencyKey
+  );
 }
 
 export function updateProductLink(productLinkId: string, input: ProductLinkInput) {
@@ -401,11 +518,19 @@ export function bulkPreviewProductLinks(csv: string) {
   });
 }
 
-export function bulkApplyProductLinks(csv: string) {
-  return request<ProductLinkBulkApplyResult>("/admin/product-links/bulk-apply", {
-    method: "POST",
-    body: JSON.stringify({ csv })
-  });
+/** R19-F: admin 쓰기 중 재시도 위험이 가장 큰 경로라 서버 멱등키가 붙어 있다.
+ * `idempotencyKey`를 유지한 채 재시도하면 500행이 두 번 반영되지 않고 첫
+ * 결과(applied/skipped/errors)가 그대로 재생된다. CSV가 바뀌면 반드시 키도
+ * 새로 발급해야 한다(같은 키 + 다른 body는 서버가 409로 막는다). */
+export function bulkApplyProductLinks(csv: string, idempotencyKey?: string) {
+  return request<ProductLinkBulkApplyResult>(
+    "/admin/product-links/bulk-apply",
+    {
+      method: "POST",
+      body: JSON.stringify({ csv })
+    },
+    idempotencyKey
+  );
 }
 
 export function listDisclosures() {
@@ -634,8 +759,14 @@ export function submitContentRevision(id: string) {
   return request<ContentRevision>(`/admin/content-revisions/${id}/submit`, { method: "POST" });
 }
 
-export function approvePublishContentRevision(id: string) {
-  return request<ContentRevision>(`/admin/content-revisions/${id}/approve-publish`, { method: "POST" });
+/** R19-F: 서버 멱등키 적용 경로. 승인·게시가 타임아웃돼도 같은 키로 다시 보내면
+ * 라이브 콘텐츠를 두 번 갱신하지 않고 첫 응답을 재생한다. */
+export function approvePublishContentRevision(id: string, idempotencyKey?: string) {
+  return request<ContentRevision>(
+    `/admin/content-revisions/${id}/approve-publish`,
+    { method: "POST" },
+    idempotencyKey
+  );
 }
 
 export function rejectContentRevision(id: string, note: string) {
@@ -683,12 +814,21 @@ export function listAdminUsers() {
 }
 
 /** The `tempPassword` in this response is shown EXACTLY ONCE by the API and can
- * never be retrieved again — render it immediately, never persist it anywhere. */
-export function createAdminUser(input: AdminUserCreateInput) {
-  return request<{ admin: AdminUserAccount; tempPassword: string }>("/admin/users", {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
+ * never be retrieved again — render it immediately, never persist it anywhere.
+ *
+ * R19-F: 그래서 이 경로에 서버 멱등키가 특히 중요하다. 키 없이 재시도하면 계정은
+ * 이미 만들어져 있어 409 ADMIN_EMAIL_EXISTS로 막히고 임시 비밀번호는 영영 사라진다
+ * (계정 삭제 API도 없다). 같은 키로 재시도하면 첫 응답이 tempPassword까지 그대로
+ * 재생된다. */
+export function createAdminUser(input: AdminUserCreateInput, idempotencyKey?: string) {
+  return request<{ admin: AdminUserAccount; tempPassword: string }>(
+    "/admin/users",
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    },
+    idempotencyKey
+  );
 }
 
 export function updateAdminUser(adminUserId: string, input: AdminUserUpdateInput) {

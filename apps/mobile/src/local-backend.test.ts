@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { getSeoulToday } from "@wooriai/domain";
 import * as localBackend from "./api/local-backend";
-import { LOCAL_CHILD_ID, LOCAL_ITEM_DIAPER } from "./api/local-fixtures";
+import { LOCAL_CHILD_ID, LOCAL_ITEM_BLOCKS, LOCAL_ITEM_CARRIER, LOCAL_ITEM_DIAPER } from "./api/local-fixtures";
 
 const childId = LOCAL_CHILD_ID;
 
@@ -184,5 +184,42 @@ describe("Local test-mode backend data layer", () => {
 
     const nowList = localBackend.listItems(childId, "now").items;
     expect(nowList.some((item) => item.id === LOCAL_ITEM_DIAPER)).toBe(false);
+  });
+
+  /**
+   * R19-B (DNC-002 핵심 루프의 마지막 고리): 준비템에 연결된 지출을 기록하면 그 준비템이
+   * 자동으로 준비 완료가 된다 — 실제 API(apps/api store-shared.ts markLinkedItemPrepared)와
+   * 같은 규칙을 데모/테스트 세션의 로컬 백엔드도 지켜야 두 세션이 서로 다르게 굴지 않는다.
+   */
+  it("marks a linked preparation item prepared on expense create, preserving gifted and ignoring unlinked expenses", () => {
+    localBackend.createExpense(childId, {
+      categoryId: "local-category-diaper",
+      amountKrw: 24_900,
+      spentOn: getSeoulToday(),
+      itemName: "기저귀 한 박스",
+      linkedItemTemplateId: LOCAL_ITEM_DIAPER
+    });
+    expect(localBackend.getItemDetail(childId, LOCAL_ITEM_DIAPER).status).toBe("prepared");
+    expect(localBackend.listItems(childId, "prepared").items.some((item) => item.id === LOCAL_ITEM_DIAPER)).toBe(true);
+
+    // 사용자가 이미 "선물로 받았어요"로 정리한 항목은 연결 지출이 생겨도 그대로 둔다.
+    localBackend.updateItemStatus(childId, LOCAL_ITEM_CARRIER, "gifted");
+    localBackend.createExpense(childId, {
+      categoryId: "local-category-diaper",
+      amountKrw: 15_000,
+      spentOn: getSeoulToday(),
+      itemName: "아기띠 부속품",
+      linkedItemTemplateId: LOCAL_ITEM_CARRIER
+    });
+    expect(localBackend.getItemDetail(childId, LOCAL_ITEM_CARRIER).status).toBe("gifted");
+
+    // 연결이 없는 일반 지출은 어떤 준비템 상태도 건드리지 않는다.
+    localBackend.createExpense(childId, {
+      categoryId: "local-category-diaper",
+      amountKrw: 8_000,
+      spentOn: getSeoulToday(),
+      itemName: "연결 없는 지출"
+    });
+    expect(localBackend.getItemDetail(childId, LOCAL_ITEM_BLOCKS).status).toBe("not_prepared");
   });
 });

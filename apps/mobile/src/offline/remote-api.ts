@@ -51,11 +51,20 @@ function toEngineConflictSnapshot(current: ExpenseConflictSnapshot): ConflictSna
   };
 }
 
+/**
+ * R19-H: 5xx는 permanent가 아니다. client.ts는 409를 제외한 모든 비-2xx를 하나의
+ * `ExpenseHttpError`로 접어서 던지므로, status를 보지 않고 전부 `RemotePermanentError`로
+ * 번역하면 서버가 잠깐 502/503을 뱉는 사이의 지출까지 flushOutbox가 `sync_state='failed'`로
+ * 파킹해 버린다(= 사용자가 직접 '재시도'를 누르기 전까지 큐에 묶임). errors.ts의 분류 계약
+ * (RemotePermanentError는 non-retryable 4xx, 5xx/네트워크/타임아웃은 transient)대로
+ * 4xx만 permanent로 번역하고 5xx는 원본 그대로 재던진다 -- transient는 전용 클래스 없이
+ * "위 두 타입 중 어느 것도 아님"으로 표현되므로(errors.ts 말미 주석) 새 래퍼가 필요 없다.
+ */
 function rethrowAsSyncEngineError(error: unknown): never {
   if (error instanceof ExpenseVersionConflictError) {
     throw new RemoteVersionConflictError(toEngineConflictSnapshot(error.current));
   }
-  if (error instanceof ExpenseHttpError) {
+  if (error instanceof ExpenseHttpError && error.status < 500) {
     throw new RemotePermanentError(error.status, "요청을 처리하지 못했어요.", error.body);
   }
   throw error;

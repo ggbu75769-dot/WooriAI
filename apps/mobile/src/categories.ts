@@ -71,3 +71,40 @@ export function categoryNameFor(categoryId: string): string {
 
   return "기타";
 }
+
+/**
+ * Minimal structural shape of one `GET /categories` entry (client.ts's `CategoryListItem`).
+ * Declared locally instead of imported so this module stays free of the API client (which
+ * imports the category catalog above through src/api/local-backend.ts).
+ */
+export type ServerCategoryName = { id: string; name: string };
+
+/** `categoryId` -> Korean display label. */
+export type CategoryNameLookup = (categoryId: string) => string;
+
+/**
+ * REP/EXP: builds a `categoryId -> 이름` lookup from a `GET /categories` response.
+ *
+ * Why this exists: the server's report/CSV payloads carry only `categoryId`, and the 12 canonical
+ * seed categories (apps/api/prisma/seed-data.ts `categorySeeds`) are seeded WITHOUT fixed ids, so
+ * their ids are random UUIDs that differ per database. `categoryNameFor` above only knows the 8
+ * quick-expense tiles and the demo fixtures, so on a real session every canonical category (the
+ * ones reachable from the edit screen's `GET /categories` chip row) collapsed to "기타" in the
+ * report donut legend and in the CSV export. Feeding the server list through this lookup keeps
+ * the labels honest without any change to the server response contract.
+ *
+ * Falls back to `categoryNameFor` for ids the server list doesn't contain (offline first run,
+ * deactivated categories, legacy ids), so the previous behavior is preserved — never a raw id.
+ * Callers pass the react-query `["categories"]` cache, which is enough of an "offline memory":
+ * the last successful list keeps resolving names until the query refetches.
+ */
+export function buildCategoryNameLookup(
+  categories: readonly ServerCategoryName[] | null | undefined
+): CategoryNameLookup {
+  const nameById = new Map<string, string>();
+  for (const category of categories ?? []) {
+    const name = category?.name?.trim();
+    if (category?.id && name) nameById.set(category.id, name);
+  }
+  return (categoryId: string) => nameById.get(categoryId) ?? categoryNameFor(categoryId);
+}

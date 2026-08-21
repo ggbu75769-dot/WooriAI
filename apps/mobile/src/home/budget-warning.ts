@@ -1,7 +1,8 @@
+import { reachedBudgetBoundaries } from "@wooriai/domain";
 import { formatKrw } from "../money";
 
 /**
- * HOME-BUDGET-113 home budget warning banner -- pure decision logic.
+ * HOME-BUDGET-113 home budget warning banner -- copy + level, on top of the shared boundary rule.
  *
  * Input contract:
  * - `budgetKrw` is HomeSummary.monthly.amountKrw. The home API returns 0 when no monthly budget
@@ -17,14 +18,18 @@ import { formatKrw } from "../money";
  * - usage >= 100%          -> "exceeded":    "이번 달 예산을 N원 초과했어요"
  *
  * Details:
- * - Thresholds are compared in exact integer arithmetic (KRW amounts are integers, DNC-013),
- *   so 80% has no floating-point edge: spent*5 >= budget*4 is exactly "usage >= 80%".
+ * - R19-D: the 80%/100% judgement itself now lives in @wooriai/domain's reachedBudgetBoundaries
+ *   (packages/domain/src/budget-boundary.ts) -- the SAME function the in-app notification
+ *   generator (src/notifications/generators.ts) and the server push dispatcher
+ *   (apps/api/src/push/push-dispatch.service.ts) call, so the three surfaces can no longer drift.
+ *   Only the copy/level mapping below is home-screen specific. Thresholds are integer arithmetic
+ *   (KRW amounts are integers, DNC-013), so 80% has no floating-point edge.
  * - The approaching percent is Math.floor, never Math.round -- 99.6% must display as 99%,
  *   because displaying "100%" while still under budget would be false data.
  * - Spending EXACTLY the budget lands in the exceeded bucket per the ticket ("100% 이상"),
  *   but with dedicated copy "이번 달 예산을 모두 사용했어요": claiming "0원 초과했어요" would be
- *   false (the home screen's isOverBudget and NOTI-102's budget_100 both keep strict > for
- *   "초과" for the same reason), while hiding the banner would violate the 100%-bucket rule.
+ *   false, while hiding the banner would violate the 100%-bucket rule. That is exactly the
+ *   domain module's reached100 (도달) vs exceeded (strict >, 초과) split.
  */
 
 export type BudgetWarningLevel = "approaching" | "exceeded";
@@ -49,37 +54,28 @@ export type BudgetWarningInput = {
 };
 
 export function evaluateBudgetWarning(input: BudgetWarningInput): BudgetWarning | null {
-  const budgetKrw = input.budgetKrw;
-  const spentKrw = input.spentKrw;
-  if (typeof budgetKrw !== "number" || !Number.isFinite(budgetKrw) || budgetKrw <= 0) return null;
-  if (typeof spentKrw !== "number" || !Number.isFinite(spentKrw) || spentKrw <= 0) return null;
+  // Shared judgement (R19-D). The domain function is total: no-budget / zero / invalid input all
+  // come back as "no boundary reached", which is exactly the banner's silent case.
+  const status = reachedBudgetBoundaries(input);
+  if (!status.reached80) return null;
 
-  const usedPercent = Math.floor((spentKrw * 100) / budgetKrw);
-
-  if (spentKrw >= budgetKrw) {
-    const overAmountKrw = spentKrw - budgetKrw;
+  if (status.reached100) {
     return {
       level: "exceeded",
-      usedPercent,
-      overAmountKrw,
-      title:
-        overAmountKrw > 0
-          ? `이번 달 예산을 ${formatKrw(overAmountKrw)} 초과했어요`
-          : "이번 달 예산을 모두 사용했어요",
+      usedPercent: status.usedPercent,
+      overAmountKrw: status.overAmountKrw,
+      title: status.exceeded
+        ? `이번 달 예산을 ${formatKrw(status.overAmountKrw)} 초과했어요`
+        : "이번 달 예산을 모두 사용했어요",
       body: "이번 달 지출을 확인해 볼까요?"
     };
   }
 
-  // Exact integer comparison for "usage >= 80%" (spent/budget >= 4/5).
-  if (spentKrw * 5 >= budgetKrw * 4) {
-    return {
-      level: "approaching",
-      usedPercent,
-      overAmountKrw: 0,
-      title: `이번 달 예산의 ${usedPercent}%를 사용했어요`,
-      body: "남은 예산을 확인해보세요."
-    };
-  }
-
-  return null;
+  return {
+    level: "approaching",
+    usedPercent: status.usedPercent,
+    overAmountKrw: 0,
+    title: `이번 달 예산의 ${status.usedPercent}%를 사용했어요`,
+    body: "남은 예산을 확인해보세요."
+  };
 }

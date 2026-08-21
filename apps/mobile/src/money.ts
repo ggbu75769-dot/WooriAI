@@ -5,8 +5,13 @@
  * no '₩'). Uses `Intl.NumberFormat('ko-KR')` per the spec rather than a hand-rolled regex.
  *
  * Amounts are always rendered as their absolute value -- this helper never emits a leading "-".
- * Sign (income/refund vs. expense) is a presentation concern handled by the caller (see
- * `MoneyText`'s `sign` prop in src/ui/MoneyText.tsx), not by the number formatter itself.
+ * Sign (income/refund vs. expense) is a presentation concern handled by the caller, not by the
+ * number formatter itself.
+ *
+ * (MOB-121 removed the D0 `MoneyText` component and, with it, this module's only caller of the
+ * split number/suffix variant; `formatKrwParts`/`MoneyKrwParts` were dropped in R19-E as dead
+ * exports. The money type scale those two rendered lives on in `theme.money`, which `ui/ListRow`
+ * still consumes.)
  */
 
 const krwFormatter = new Intl.NumberFormat("ko-KR");
@@ -18,20 +23,4 @@ function safeAbsoluteAmount(amount: number): number {
 /** Formats a KRW amount as "12,000원". Negative input and non-finite input render as 0. */
 export function formatKrw(amount: number): string {
   return `${krwFormatter.format(safeAbsoluteAmount(amount))}원`;
-}
-
-export type MoneyKrwParts = {
-  /** Comma-grouped digits, e.g. "12,000". */
-  number: string;
-  /** Always "원". */
-  suffix: string;
-};
-
-/**
- * Same formatting rules as `formatKrw`, split into the numeric part and the '원' suffix so a
- * caller (namely `MoneyText`) can render the suffix one size step smaller than the number, per
- * the D0 hierarchy rule ("'원'은 숫자 대비 1단계 작게·가늘게").
- */
-export function formatKrwParts(amount: number): MoneyKrwParts {
-  return { number: krwFormatter.format(safeAbsoluteAmount(amount)), suffix: "원" };
 }

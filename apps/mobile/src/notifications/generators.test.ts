@@ -4,6 +4,7 @@ import {
   PURCHASE_FOLLOWUP_MIN_AGE_MS,
   type PurchaseFollowupEntry
 } from "../commerce/purchase-followup.store";
+import { evaluateBudgetWarning } from "../home/budget-warning";
 import {
   budgetNotifications,
   evaluateHomeNotifications,
@@ -30,52 +31,102 @@ function followupEntry(overrides: Partial<PurchaseFollowupEntry> = {}): Purchase
 }
 
 describe("NOTI-102 budget generators (budget_80 / budget_100)", () => {
+  const budgetInput = { childId: "child-1", yearMonth: "2026-08", budgetKrw: 1_000_000, spentKrw: 850_000 };
+
   it("stays silent with no budget set (amountKrw 0 means unset, never '초과')", () => {
-    expect(budgetNotifications({ yearMonth: "2026-08", budgetKrw: 0, spentKrw: 999_999 })).toEqual([]);
+    expect(budgetNotifications({ ...budgetInput, budgetKrw: 0, spentKrw: 999_999 })).toEqual([]);
   });
 
   it("stays silent under 80% usage", () => {
-    expect(budgetNotifications({ yearMonth: "2026-08", budgetKrw: 1_000_000, spentKrw: 799_999 })).toEqual([]);
+    expect(budgetNotifications({ ...budgetInput, spentKrw: 799_999 })).toEqual([]);
   });
 
-  it("fires budget_80 from exactly 80% with a month-scoped dedupeKey", () => {
-    const candidates = budgetNotifications({ yearMonth: "2026-08", budgetKrw: 1_000_000, spentKrw: 800_000 });
+  it("fires budget_80 from exactly 80% with a child+month-scoped dedupeKey", () => {
+    const candidates = budgetNotifications({ ...budgetInput, spentKrw: 800_000 });
     expect(candidates).toEqual([
       {
         type: "budget_80",
         title: "이번 달 예산의 80%를 사용했어요",
         body: "남은 예산을 확인해보세요.",
-        dedupeKey: "budget_80:2026-08"
+        dedupeKey: "budget_80:child-1:2026-08",
+        legacyDedupeKeys: ["budget_80:2026-08"],
+        childId: "child-1"
       }
     ]);
   });
 
-  it("treats spending exactly the budget as budget_80 territory, not 초과 (strict >, like home)", () => {
-    const candidates = budgetNotifications({ yearMonth: "2026-08", budgetKrw: 1_000_000, spentKrw: 1_000_000 });
-    expect(candidates.map((candidate) => candidate.type)).toEqual(["budget_80"]);
-  });
-
-  it("fires only budget_100 once spending exceeds the budget (never both at once)", () => {
-    const candidates = budgetNotifications({ yearMonth: "2026-08", budgetKrw: 1_000_000, spentKrw: 1_000_001 });
+  it("R19-D: spending EXACTLY the budget is budget_100 with the home banner's '모두 사용했어요' copy", () => {
+    // Regression: this used to land in budget_80 ("예산의 80%를 사용했어요") while the home banner
+    // and the server push both said "모두 사용했어요" for the very same month.
+    const candidates = budgetNotifications({ ...budgetInput, spentKrw: 1_000_000 });
     expect(candidates).toEqual([
       {
         type: "budget_100",
+        title: "이번 달 예산을 모두 사용했어요",
+        body: "이번 달 지출을 확인해 볼까요?",
+        dedupeKey: "budget_100:child-1:2026-08",
+        legacyDedupeKeys: ["budget_100:2026-08"],
+        childId: "child-1"
+      }
+    ]);
+  });
+
+  it("fires only budget_100 once spending exceeds the budget (never both at once)", () => {
+    const candidates = budgetNotifications({ ...budgetInput, spentKrw: 1_000_001 });
+    expect(candidates).toEqual([
+      {
+        type: "budget_100",
+        // Amount-free on purpose: a stored notification is a snapshot, so it must not freeze
+        // "1원 초과했어요" -- the live banner/push name the amount instead.
         title: "이번 달 예산을 초과했어요",
         body: "이번 달 지출을 확인해 볼까요?",
-        dedupeKey: "budget_100:2026-08"
+        dedupeKey: "budget_100:child-1:2026-08",
+        legacyDedupeKeys: ["budget_100:2026-08"],
+        childId: "child-1"
       }
     ]);
   });
 
   it("keeps dedupeKeys stable across re-evaluation but re-arms on month rollover", () => {
-    const input = { yearMonth: "2026-08", budgetKrw: 1_000_000, spentKrw: 850_000 };
-    expect(budgetNotifications(input)[0]!.dedupeKey).toBe(budgetNotifications(input)[0]!.dedupeKey);
-    const nextMonth = budgetNotifications({ ...input, yearMonth: "2026-09" });
-    expect(nextMonth[0]!.dedupeKey).toBe("budget_80:2026-09");
-    expect(nextMonth[0]!.dedupeKey).not.toBe(budgetNotifications(input)[0]!.dedupeKey);
-    expect(
-      budgetNotifications({ yearMonth: "2026-09", budgetKrw: 1_000_000, spentKrw: 1_200_000 })[0]!.dedupeKey
-    ).toBe("budget_100:2026-09");
+    expect(budgetNotifications(budgetInput)[0]!.dedupeKey).toBe(budgetNotifications(budgetInput)[0]!.dedupeKey);
+    const nextMonth = budgetNotifications({ ...budgetInput, yearMonth: "2026-09" });
+    expect(nextMonth[0]!.dedupeKey).toBe("budget_80:child-1:2026-09");
+    expect(nextMonth[0]!.dedupeKey).not.toBe(budgetNotifications(budgetInput)[0]!.dedupeKey);
+    expect(budgetNotifications({ ...budgetInput, yearMonth: "2026-09", spentKrw: 1_200_000 })[0]!.dedupeKey).toBe(
+      "budget_100:child-1:2026-09"
+    );
+  });
+
+  it("R19-D: scopes the key per child, so one child's alert never suppresses a sibling's", () => {
+    const first = budgetNotifications(budgetInput)[0]!;
+    const sibling = budgetNotifications({ ...budgetInput, childId: "child-2" })[0]!;
+    expect(sibling.dedupeKey).toBe("budget_80:child-2:2026-08");
+    expect(sibling.dedupeKey).not.toBe(first.dedupeKey);
+    expect(sibling.childId).toBe("child-2");
+  });
+
+  it("R19-D: carries the pre-rename key so an already-notified month is not re-notified", () => {
+    // The store drops a candidate whose legacy key is already in the dedupe memory
+    // (notification.store.ts addNotifications) -- see its test for the end-to-end behaviour.
+    expect(budgetNotifications(budgetInput)[0]!.legacyDedupeKeys).toEqual(["budget_80:2026-08"]);
+    expect(budgetNotifications({ ...budgetInput, spentKrw: 2_000_000 })[0]!.legacyDedupeKeys).toEqual([
+      "budget_100:2026-08"
+    ]);
+  });
+
+  it("R19-D: agrees with the home banner on every 80/100 boundary (shared domain judgement)", () => {
+    const budgetKrw = 1_000_000;
+    for (const spentKrw of [0, 1, 799_999, 800_000, 999_999, 1_000_000, 1_000_001, 3_000_000]) {
+      const warning = evaluateBudgetWarning({ budgetKrw, spentKrw });
+      const candidates = budgetNotifications({ ...budgetInput, budgetKrw, spentKrw });
+      if (!warning) {
+        expect(candidates).toEqual([]);
+        continue;
+      }
+      expect(candidates.map((candidate) => candidate.type)).toEqual([
+        warning.level === "exceeded" ? "budget_100" : "budget_80"
+      ]);
+    }
   });
 });
 
@@ -97,7 +148,8 @@ describe("NOTI-102 stage_transition generator", () => {
       type: "stage_transition",
       title: "『다온이』이(가) 36개월에 들어섰어요.",
       body: "새 준비템을 확인해보세요.",
-      dedupeKey: "stage_transition:child-1:36개월"
+      dedupeKey: "stage_transition:child-1:36개월",
+      childId: "child-1"
     });
   });
 
@@ -118,7 +170,8 @@ describe("NOTI-102 purchase_pending generator", () => {
         type: "purchase_pending",
         title: "『네이처러브 기저귀 팬티형』 구매 확인이 기다리고 있어요.",
         body: "구매하셨다면 지출로 기록해보세요.",
-        dedupeKey: `purchase_pending:item-diaper:${NOW - PURCHASE_FOLLOWUP_MIN_AGE_MS}`
+        dedupeKey: `purchase_pending:item-diaper:${NOW - PURCHASE_FOLLOWUP_MIN_AGE_MS}`,
+        childId: "child-1"
       }
     ]);
   });
@@ -184,7 +237,8 @@ describe("NOTI-103 weekly_summary generator (monthly-pace variant)", () => {
       type: "weekly_summary",
       title: "이번 달 지금까지 300,000원 · 예산의 30%예요",
       body: "『다온이』 지출 내역을 확인해보세요.",
-      dedupeKey: "weekly_summary:child-1:2026-W34"
+      dedupeKey: "weekly_summary:child-1:2026-W34",
+      childId: "child-1"
     });
   });
 
@@ -200,7 +254,8 @@ describe("NOTI-103 weekly_summary generator (monthly-pace variant)", () => {
       type: "weekly_summary",
       title: "이번 달 지금까지 300,000원을 함께했어요",
       body: "『다온이』 지출 내역을 확인해보세요.",
-      dedupeKey: "weekly_summary:child-1:2026-W34"
+      dedupeKey: "weekly_summary:child-1:2026-W34",
+      childId: "child-1"
     });
     expect(candidate!.title).not.toContain("%");
   });
@@ -247,7 +302,7 @@ describe("NOTI-102 combined home evaluation", () => {
       "weekly_summary"
     ]);
     expect(candidates.map((candidate) => candidate.dedupeKey)).toEqual([
-      "budget_100:2026-08",
+      "budget_100:child-1:2026-08",
       "stage_transition:child-1:36개월",
       `purchase_pending:item-diaper:${NOW - PURCHASE_FOLLOWUP_MIN_AGE_MS}`,
       // NOW = 2023-11-14T22:13:20Z = 2023-11-15 07:13 KST (Wednesday) -> Seoul 2023-W46.

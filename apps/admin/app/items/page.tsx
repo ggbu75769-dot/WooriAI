@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   CHILD_STAGE_CODES,
   CHILD_STAGE_LABELS,
   NECESSITY_LEVELS,
   NECESSITY_LEVEL_LABELS,
+  createIdempotencyKeyHolder,
   createItemTemplate,
   draftAndSubmitContentRevision,
   isAuthError,
@@ -257,6 +258,10 @@ export default function ItemTemplatesPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState(false);
+  // R19-F: POST /admin/item-templates에는 서버 멱등키가 붙어 있다. 생성 시도
+  // 하나당 키 하나를 들고 있다가(입력이 바뀌면 지문 비교로 자동 회전) 성공하면
+  // 회전한다 — 그래야 타임아웃 뒤 재시도가 같은 템플릿을 두 번 만들지 않는다.
+  const createKey = useRef(createIdempotencyKeyHolder()).current;
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<ItemFormState>(emptyItemForm());
@@ -304,8 +309,10 @@ export default function ItemTemplatesPage() {
           payload: toItemTemplateInput(createForm, "create") as Record<string, unknown>
         });
       } else {
-        const created = await createItemTemplate(toItemTemplateInput(createForm, "create"));
+        const input = toItemTemplateInput(createForm, "create");
+        const created = await createItemTemplate(input, createKey.current(JSON.stringify(input)));
         setItems((current) => (current ? [created, ...current] : [created]));
+        createKey.rotate();
       }
       setCreateForm(emptyItemForm());
       setCreateSuccess(true);

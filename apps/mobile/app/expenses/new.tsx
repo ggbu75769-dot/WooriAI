@@ -173,7 +173,7 @@ export default function NewExpenseScreen() {
   // Preview/pixel-lock capture (no session) keeps the fixed "기저귀"/"38500" seed so the
   // reference screenshot stays deterministic. A real or test session starts blank so opening
   // the sheet never silently records a 38,500원 지출 the user didn't enter (see save-button
-  // disabled guard below). A session that arrived from "준비템 -> 지출도 기록하기" prefills the
+  // disabled guard below). A session that arrived from "준비템 -> 지출 기록하고 준비 완료" prefills the
   // item name from the prepared-item template instead (see items/[itemTemplateId].tsx).
   const [itemName, setItemName] = useState(() => (authToken ? prefilledItemName : "기저귀"));
   const [amountText, setAmountText] = useState(() => (authToken ? "" : "38500"));
@@ -203,7 +203,7 @@ export default function NewExpenseScreen() {
   // Restores a saved quick-expense draft on mount, so a user who closes the sheet mid-entry
   // (e.g. interrupted by a call) doesn't lose what they typed. Skipped in pixel-lock capture
   // mode, and skipped whenever the sheet was opened with an explicit prefill (typed item name
-  // or a "준비템 -> 지출도 기록하기" template link) so a stale draft never clobbers that intent.
+  // or a "준비템 -> 지출 기록하고 준비 완료" template link) so a stale draft never clobbers that intent.
   // Runs once on mount only -- guard conditions are read from the initial render's closure.
   useEffect(() => {
     if (!authToken) return;
@@ -283,7 +283,7 @@ export default function NewExpenseScreen() {
       // ANA-103: expense_recorded fires once per successful (local-first) create. The payload is
       // PII-safe by construction (src/analytics/events.ts): the raw amount is bucketed and the
       // categoryId mapped to the coarse enum on-device; itemName/memo never enter it. `source`
-      // distinguishes the "준비템 -> 지출도 기록하기" follow-up flow from a plain manual entry,
+      // distinguishes the "준비템 -> 지출 기록하고 준비 완료" follow-up flow from a plain manual entry,
       // and `offline` reports the connectivity at record time (the create itself always succeeds
       // locally first -- see createExpenseOffline). A no-op without ANA-102 consent.
       const recordedAmountKrw = Number(amountText);
@@ -303,6 +303,15 @@ export default function NewExpenseScreen() {
       });
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
+      // R19-B (DNC-002 핵심 루프 마지막 고리): 준비템에서 넘어온 기록이면 서버가 그
+      // 준비템을 자동으로 '준비 완료'로 올린다(store-shared.ts markLinkedItemPrepared).
+      // 준비템 목록/상세 캐시를 그대로 두면 방금 기록한 항목이 화면에서는 계속
+      // 미준비로 보여 준비율이 정체된 것처럼 읽힌다 -- 그래서 여기서 함께 무효화한다.
+      // 연결이 없는 일반 기록은 준비템 상태를 바꾸지 않으므로 무효화도 하지 않는다.
+      if (linkedItemTemplateId) {
+        await queryClient.invalidateQueries({ queryKey: ["items"] });
+        await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
+      }
       setTimeout(() => router.replace("/(tabs)/records"), 650);
     }
   });

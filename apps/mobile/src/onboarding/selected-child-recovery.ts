@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getOnboardingProgress, type OnboardingProgress } from "../api/client";
+import { listChildren, type Child } from "../api/client";
 
 /**
  * MOB-116: real-session counterpart to app/index.tsx's MOB-107 test-session recovery. When the
@@ -9,8 +9,13 @@ import { getOnboardingProgress, type OnboardingProgress } from "../api/client";
  * permanently false -- Home/준비템/리포트 silently show their logged-out preview UI (fixture
  * "다온이" data) forever, with no way to recover short of reinstalling. Unlike the test session
  * there is no well-known fixture id to fall back to, so the child id must be re-derived from the
- * server -- the same GET /onboarding/status summary.child.id that the ONB-006 resume screen
- * (app/(onboarding)/resume.tsx) already trusts as the household's child.
+ * server.
+ *
+ * R19-C(F1) 다자녀: 복구 소스를 GET /onboarding/status(summary.child)에서 GET /children 목록으로
+ * 바꿨다. status 요약은 childId를 주지 않으면 가구의 "첫째"만 돌려주므로, 둘째를 쓰던 사용자는
+ * 매번 조용히 첫째로 되돌아갔다(그리고 그 사실을 알 방법이 없었다). 목록을 쓰면 (i) 아이가 한
+ * 명이면 확실히 그 아이를 고르고, (ii) 여러 명이면 여전히 첫째를 고르되 `ambiguous` 플래그로
+ * "다시 골랐다"는 사실을 사용자에게 알릴 수 있다 -- 침묵 오선택 대신 눈에 보이는 안내.
  *
  * Split into pure, dependency-injected pieces (should/recover/apply) so the decision table is
  * unit-testable without a React renderer, plus a thin useSelectedChildRecovery hook that
@@ -21,9 +26,16 @@ import { getOnboardingProgress, type OnboardingProgress } from "../api/client";
 export type SelectedChildRecoveryStatus = "idle" | "loading" | "recovered" | "no-child" | "error";
 
 export type SelectedChildRecoveryOutcome =
-  | { kind: "recovered"; childId: string }
+  /** `ambiguous`: 아이가 여러 명이라 첫째를 "골라줬다"는 뜻 -- 사용자에게 알려야 한다. */
+  | { kind: "recovered"; childId: string; ambiguous: boolean }
   | { kind: "no-child" }
   | { kind: "error" };
+
+/**
+ * 다자녀 계정에서 복구가 임의로 첫째를 고른 뒤 보여줄 안내. 침묵 오선택(둘째 사용자가 아무 말
+ * 없이 첫째 화면을 보게 되는 것)을 막는 것이 목적이라 전환 경로까지 함께 알려준다.
+ */
+export const MULTI_CHILD_RECOVERY_NOTICE = "아이를 다시 선택했어요 — 설정 > 아이 관리에서 바꿀 수 있어요.";
 
 export type SelectedChildRecoveryInput = {
   hydrated: boolean;
@@ -50,32 +62,33 @@ export function shouldAttemptSelectedChildRecovery(input: SelectedChildRecoveryI
 }
 
 /**
- * Maps a server progress snapshot to a recovery outcome. Completion requires a child server-side,
- * so a session that genuinely reached home always yields `recovered`; a null summary.child means
- * the local hasReachedHome=true was itself stale/corrupt and the account truly has no child yet.
+ * Maps the server's child list to a recovery outcome. An empty list means the local
+ * hasReachedHome=true was itself stale/corrupt and the account truly has no child (any more).
+ * With exactly one child the pick is unambiguous; with several, the first one (the server orders
+ * by createdAt asc) is picked and flagged `ambiguous` so the caller can say so out loud.
  */
 export function selectedChildRecoveryOutcome(
-  progress: OnboardingProgress
+  children: ReadonlyArray<Pick<Child, "id">>
 ): Exclude<SelectedChildRecoveryOutcome, { kind: "error" }> {
-  const childId = progress.summary.child?.id;
-  if (typeof childId === "string" && childId.length > 0) {
-    return { kind: "recovered", childId };
+  const first = children.find((child) => typeof child?.id === "string" && child.id.length > 0);
+  if (!first) {
+    return { kind: "no-child" };
   }
-  return { kind: "no-child" };
+  return { kind: "recovered", childId: first.id, ambiguous: children.length > 1 };
 }
 
 /**
  * One recovery attempt. Never throws: offline / server errors become `{ kind: "error" }` so the
  * caller can render a retry affordance instead of an unhandled rejection or an infinite spinner.
- * `fetchProgress` is injectable for tests; production uses the real getOnboardingProgress.
+ * `fetchChildren` is injectable for tests; production uses the real GET /children client.
  */
 export async function recoverSelectedChild(
   accessToken: string,
-  fetchProgress: (token: string) => Promise<OnboardingProgress> = getOnboardingProgress
+  fetchChildren: (token: string) => Promise<{ children: Child[] }> = listChildren
 ): Promise<SelectedChildRecoveryOutcome> {
   try {
-    const progress = await fetchProgress(accessToken);
-    return selectedChildRecoveryOutcome(progress);
+    const { children } = await fetchChildren(accessToken);
+    return selectedChildRecoveryOutcome(children ?? []);
   } catch {
     return { kind: "error" };
   }
@@ -84,6 +97,8 @@ export async function recoverSelectedChild(
 /**
  * Applies an outcome to the stores and returns the resulting status.
  * - recovered: re-select the server's child -- the /(tabs) redirect then sees real data again.
+ *   R19-C(F1): 여러 명 중 첫째를 골라준 경우에는 `notify`로 안내 문구를 흘려보낸다(선택적 효과라
+ *   테스트/다른 호출자는 생략 가능).
  * - no-child: the local hasReachedHome=true was wrong (server has no child), so reset the
  *   onboarding-progress store; app/index.tsx's existing routing then walks the normal
  *   MOB-101 flow (server progress check -> resume screen or ONB-001) exactly as for a fresh
@@ -92,11 +107,18 @@ export async function recoverSelectedChild(
  */
 export function applySelectedChildRecoveryOutcome(
   outcome: SelectedChildRecoveryOutcome,
-  effects: { setSelectedChildId: (childId: string) => void; resetOnboarding: () => void }
+  effects: {
+    setSelectedChildId: (childId: string) => void;
+    resetOnboarding: () => void;
+    notify?: (message: string) => void;
+  }
 ): SelectedChildRecoveryStatus {
   switch (outcome.kind) {
     case "recovered":
       effects.setSelectedChildId(outcome.childId);
+      if (outcome.ambiguous) {
+        effects.notify?.(MULTI_CHILD_RECOVERY_NOTICE);
+      }
       return "recovered";
     case "no-child":
       effects.resetOnboarding();
@@ -121,17 +143,21 @@ export type UseSelectedChildRecoveryEffects = {
 
 /**
  * Thin React wiring over the pure pieces above. While shouldAttemptSelectedChildRecovery(input)
- * is true the hook fetches server progress and applies the outcome; `retry` re-arms a failed
- * attempt. Note both success paths flip the attempt condition itself off (recovered sets
+ * is true the hook fetches the server child list and applies the outcome; `retry` re-arms a
+ * failed attempt. Note both success paths flip the attempt condition itself off (recovered sets
  * selectedChildId, no-child clears hasReachedHome), so the caller only ever renders the
  * pending/error states while the condition holds.
+ *
+ * R19-C(F1): `notice`는 다자녀 계정에서 첫째를 골라준 뒤 한 번 보여줄 안내 문구다. 조건이 이미
+ * false로 뒤집힌 뒤에도 남아 있어야 하므로(복구 직후 렌더에서 읽는다) 별도 state에 담는다.
  */
 export function useSelectedChildRecovery(
   input: SelectedChildRecoveryInput,
   effects: UseSelectedChildRecoveryEffects,
-  fetchProgress: (token: string) => Promise<OnboardingProgress> = getOnboardingProgress
-): { status: SelectedChildRecoveryStatus; retry: () => void } {
+  fetchChildren: (token: string) => Promise<{ children: Child[] }> = listChildren
+): { status: SelectedChildRecoveryStatus; notice: string | null; retry: () => void } {
   const [status, setStatus] = useState<SelectedChildRecoveryStatus>("idle");
+  const [notice, setNotice] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const shouldAttempt = shouldAttemptSelectedChildRecovery(input);
   const { accessToken } = input;
@@ -146,11 +172,17 @@ export function useSelectedChildRecovery(
     // idempotent re-derivations of server state.
     let stale = false;
     setStatus("loading");
-    void recoverSelectedChild(accessToken, fetchProgress).then((outcome) => {
+    void recoverSelectedChild(accessToken, fetchChildren).then((outcome) => {
       if (stale) {
         return;
       }
-      setStatus(applySelectedChildRecoveryOutcome(outcome, { setSelectedChildId, resetOnboarding }));
+      setStatus(
+        applySelectedChildRecoveryOutcome(outcome, {
+          setSelectedChildId,
+          resetOnboarding,
+          notify: setNotice
+        })
+      );
     });
     const valve = setTimeout(() => {
       if (!stale) {
@@ -161,11 +193,13 @@ export function useSelectedChildRecovery(
       stale = true;
       clearTimeout(valve);
     };
-  }, [shouldAttempt, accessToken, attempt, setSelectedChildId, resetOnboarding, fetchProgress]);
+  }, [shouldAttempt, accessToken, attempt, setSelectedChildId, resetOnboarding, fetchChildren]);
 
   return {
     status,
+    notice,
     retry: () => {
+      setNotice(null);
       setAttempt((count) => count + 1);
     }
   };

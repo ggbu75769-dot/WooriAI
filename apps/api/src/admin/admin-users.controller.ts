@@ -13,10 +13,12 @@ import {
   Patch,
   Post,
   Req,
-  UseGuards
+  UseGuards,
+  UseInterceptors
 } from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
+import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { PrismaService } from "../prisma/prisma.service";
 import { AdminAuthGuard } from "./admin-auth.guard";
@@ -74,9 +76,23 @@ export class AdminUsersController {
     return { adminUsers };
   }
 
+  /**
+   * R19-F: 계정 생성은 이메일 유니크 검사 덕분에 "중복 계정"이 생기지는 않지만,
+   * 재시도 시 ADMIN_EMAIL_EXISTS로 막히면서 임시 비밀번호를 영영 못 받는 게
+   * 진짜 위험이다(임시 비밀번호는 이 응답에서 단 한 번만 노출되고, 계정 삭제
+   * API도 없다 — 그 계정은 로그인 불가 상태로 남는다). `Idempotency-Key`를
+   * 유지한 재시도는 409 대신 첫 응답(tempPassword 포함)을 그대로 재생한다.
+   *
+   * 트레이드오프: 재생을 위해 tempPassword가 idempotency_keys.response_json에
+   * 최대 24시간 남는다. 감사 로그에는 여전히 절대 남기지 않으며(아래
+   * auditLogger.record 참고), 어차피 첫 로그인 후 교체되는 일회용 자격증명이고
+   * DB 읽기 권한은 이미 password_hash를 직접 바꿀 수 있는 신뢰 경계라 새로운
+   * 노출면이 열리는 것은 아니다.
+   */
   @Post()
   @HttpCode(200)
   @RequireAdminRoles("admin")
+  @UseInterceptors(IdempotencyInterceptor)
   async create(
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(AdminCreateAdminUserDto)) body: AdminCreateAdminUserDto

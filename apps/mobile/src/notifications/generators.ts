@@ -1,3 +1,4 @@
+import { reachedBudgetBoundaries } from "@wooriai/domain";
 import {
   PURCHASE_FOLLOWUP_MAX_AGE_MS,
   PURCHASE_FOLLOWUP_MIN_AGE_MS,
@@ -14,8 +15,11 @@ import type { AppNotificationCandidate } from "./notification.store";
  * so re-running a generator on every home refetch is safe -- stability of the key IS the
  * "fire once" semantics:
  *
- * - budget_80 / budget_100 key on the yearMonth, so each fires at most once per month and
- *   re-arms automatically when the month rolls over.
+ * - budget_80 / budget_100 key on childId + the yearMonth (R19-D), so each fires at most once per
+ *   CHILD per month and re-arms automatically when the month rolls over. The childId scope was
+ *   missing before: with two children, whichever child's budget alert fired first suppressed the
+ *   other child's alert for the rest of the month (stage_transition/weekly_summary were already
+ *   child-scoped).
  * - stage_transition keys on childId + the NEW stage label, so each stage change fires once.
  * - purchase_pending keys on itemTemplateId + clickedAt, so each product-link click fires once
  *   (a fresh re-click has a new clickedAt and may fire again).
@@ -23,9 +27,12 @@ import type { AppNotificationCandidate } from "./notification.store";
  *   once per child per week and re-arms every Monday 00:00 KST.
  */
 
-export const BUDGET_WARNING_RATIO = 0.8;
+/* R19-D: the old `BUDGET_WARNING_RATIO = 0.8` float ratio is gone -- nothing imported it and the
+ * 80% threshold is now the domain module's exact integer comparison (spent*5 >= budget*4). */
 
 export type BudgetNotificationInput = {
+  /** Scopes the dedupeKey so each child gets its own monthly budget alert (R19-D). */
+  childId: string;
   /** e.g. "2026-08" (HomeSummary.monthly.yearMonth). */
   yearMonth: string;
   budgetKrw: number;
@@ -33,35 +40,51 @@ export type BudgetNotificationInput = {
 };
 
 /**
- * budget_100 once spending strictly exceeds the budget (same strict-> semantics as the home
- * screen's isOverBudget: spending exactly the budget is not "초과"), otherwise budget_80 from
- * 80% usage. Never both at once -- crossing straight past 100% yields only budget_100.
- * budgetKrw <= 0 means "no budget set" (home API returns amountKrw: 0 then) -- never nag.
+ * R19-D: the 80%/100% judgement comes from @wooriai/domain's reachedBudgetBoundaries -- the same
+ * function the home banner (src/home/budget-warning.ts) and the server push dispatcher
+ * (apps/api/src/push/push-dispatch.service.ts) use, so the three surfaces agree on which boundary
+ * a given (budget, spent) pair has reached. budgetKrw <= 0 means "no budget set" (the home API
+ * returns amountKrw: 0 then) and never nags -- that is the domain function's hasBudget: false.
+ *
+ * Buckets (identical to the banner's):
+ * - reached 100% (spent >= budget) -> budget_100, EXACTLY at budget gets the banner's
+ *   "모두 사용했어요" copy. Before R19-D this case fell into budget_80 ("80%를 사용했어요") while
+ *   the banner and the server push both said "모두 사용했어요" -- three surfaces, three answers
+ *   for the same month. "초과" itself stays strict > (0원 초과라고 말하면 허위 데이터).
+ * - 80% <= usage < 100% -> budget_80.
+ * Never both at once -- crossing straight past 100% yields only budget_100.
+ *
+ * Copy note: unlike the live banner, an in-app notification is a SNAPSHOT that stays in the list,
+ * so the 초과 case deliberately keeps the amount-free "이번 달 예산을 초과했어요" -- a frozen
+ * "1원 초과했어요" row would read as stale once the month runs on. The banner (live) and the push
+ * (delivered immediately) do name the amount.
  */
 export function budgetNotifications(input: BudgetNotificationInput): AppNotificationCandidate[] {
-  const { yearMonth, budgetKrw, spentKrw } = input;
-  if (budgetKrw <= 0) return [];
-  if (spentKrw > budgetKrw) {
+  const { childId, yearMonth, budgetKrw, spentKrw } = input;
+  const status = reachedBudgetBoundaries({ budgetKrw, spentKrw });
+  if (!status.reached80) return [];
+  if (status.reached100) {
     return [
       {
         type: "budget_100",
-        title: "이번 달 예산을 초과했어요",
+        title: status.exceeded ? "이번 달 예산을 초과했어요" : "이번 달 예산을 모두 사용했어요",
         body: "이번 달 지출을 확인해 볼까요?",
-        dedupeKey: `budget_100:${yearMonth}`
+        dedupeKey: `budget_100:${childId}:${yearMonth}`,
+        legacyDedupeKeys: [`budget_100:${yearMonth}`],
+        childId
       }
     ];
   }
-  if (spentKrw / budgetKrw >= BUDGET_WARNING_RATIO) {
-    return [
-      {
-        type: "budget_80",
-        title: "이번 달 예산의 80%를 사용했어요",
-        body: "남은 예산을 확인해보세요.",
-        dedupeKey: `budget_80:${yearMonth}`
-      }
-    ];
-  }
-  return [];
+  return [
+    {
+      type: "budget_80",
+      title: "이번 달 예산의 80%를 사용했어요",
+      body: "남은 예산을 확인해보세요.",
+      dedupeKey: `budget_80:${childId}:${yearMonth}`,
+      legacyDedupeKeys: [`budget_80:${yearMonth}`],
+      childId
+    }
+  ];
 }
 
 export type StageTransitionInput = {
@@ -81,7 +104,8 @@ export function stageTransitionNotification(input: StageTransitionInput): AppNot
     type: "stage_transition",
     title: `『${childName}』이(가) ${stageLabel}에 들어섰어요.`,
     body: "새 준비템을 확인해보세요.",
-    dedupeKey: `stage_transition:${childId}:${stageLabel}`
+    dedupeKey: `stage_transition:${childId}:${stageLabel}`,
+    childId
   };
 }
 
@@ -120,7 +144,8 @@ export function purchasePendingNotifications(
       type: "purchase_pending" as const,
       title: `『${entry.itemName}』 구매 확인이 기다리고 있어요.`,
       body: "구매하셨다면 지출로 기록해보세요.",
-      dedupeKey: purchasePendingDedupeKey(entry)
+      dedupeKey: purchasePendingDedupeKey(entry),
+      childId: entry.childId
     }));
 }
 
@@ -171,7 +196,8 @@ export function weeklySummaryNotification(input: WeeklySummaryInput): AppNotific
     type: "weekly_summary",
     title,
     body: `『${childName}』 지출 내역을 확인해보세요.`,
-    dedupeKey: `weekly_summary:${childId}:${seoulIsoWeekKey(now)}`
+    dedupeKey: `weekly_summary:${childId}:${seoulIsoWeekKey(now)}`,
+    childId
   };
 }
 
@@ -187,6 +213,7 @@ export type HomeNotificationInput = {
 export function evaluateHomeNotifications(input: HomeNotificationInput): AppNotificationCandidate[] {
   const candidates: AppNotificationCandidate[] = [
     ...budgetNotifications({
+      childId: input.child.id,
       yearMonth: input.monthly.yearMonth,
       budgetKrw: input.monthly.amountKrw,
       spentKrw: input.monthly.usedAmountKrw

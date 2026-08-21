@@ -55,6 +55,16 @@ export type AppNotification = {
   /** Stable identity from generators.ts -- the same dedupeKey is never added twice, even after
    * the entry itself was cleared or aged out of the cap. */
   dedupeKey: string;
+  /**
+   * R19-D: which child the notification is about, when the generator knows (every generator
+   * except none today -- budget/stage/purchase/weekly all stamp it). OPTIONAL on purpose, so no
+   * persisted-store migration is needed: entries written by an older app version simply have no
+   * childId, and every reader must treat it as "unknown child". Nothing branches on it yet (the
+   * dedupeKey already carries the child scope); it exists so a future per-child filter in
+   * app/notifications.tsx doesn't have to re-parse dedupeKeys. sanitizedEntries below keeps a
+   * string value and drops a malformed one, so an old blob can never inject a non-string here.
+   */
+  childId?: string;
 };
 
 /** A generator's output: everything except the ingestion bookkeeping (id/createdAt/readAt).
@@ -64,6 +74,17 @@ export type AppNotificationCandidate = {
   title: string;
   body: string;
   dedupeKey: string;
+  childId?: string;
+  /**
+   * R19-D migration shim: dedupeKeys an EARLIER app version used for this very notification.
+   * The budget generators' keys gained a childId segment (`budget_80:{yearMonth}` ->
+   * `budget_80:{childId}:{yearMonth}`), so without this a user who already saw this month's
+   * budget alert would get it once more the first time the updated app evaluates. If any legacy
+   * key is already in the dedupe memory the candidate is dropped (and the new key is NOT
+   * recorded -- the check stays idempotent on every later evaluation). Safe to delete once a
+   * month has rolled over past the release, since the keys are month-scoped anyway.
+   */
+  legacyDedupeKeys?: string[];
 };
 
 /** Only the most recent N notifications are kept (oldest dropped first). */
@@ -93,6 +114,9 @@ export function addNotifications(
   const added: AppNotification[] = [];
   for (const candidate of candidates) {
     if (seen.has(candidate.dedupeKey)) continue;
+    // R19-D: a key this notification used in an earlier app version counts as "already seen",
+    // so a dedupeKey rename never re-fires a notification the user has had.
+    if (candidate.legacyDedupeKeys?.some((legacyKey) => seen.has(legacyKey))) continue;
     seen.add(candidate.dedupeKey);
     added.push({
       id: `notif:${candidate.dedupeKey}`,
@@ -100,7 +124,8 @@ export function addNotifications(
       title: candidate.title,
       body: candidate.body,
       createdAt: now,
-      dedupeKey: candidate.dedupeKey
+      dedupeKey: candidate.dedupeKey,
+      ...(candidate.childId ? { childId: candidate.childId } : {})
     });
   }
   if (added.length === 0) return { entries, seenDedupeKeys };
@@ -173,7 +198,10 @@ function sanitizedEntries(value: unknown): AppNotification[] {
       Number.isFinite(entry.createdAt) &&
       (entry.readAt === undefined || (typeof entry.readAt === "number" && Number.isFinite(entry.readAt))) &&
       typeof entry.dedupeKey === "string" &&
-      entry.dedupeKey.length > 0
+      entry.dedupeKey.length > 0 &&
+      // R19-D: childId is optional (older blobs have none) but must be a non-empty string when
+      // present -- an entry with a malformed childId is dropped like any other malformed entry.
+      (entry.childId === undefined || (typeof entry.childId === "string" && entry.childId.length > 0))
     ) {
       entries.push(candidate as AppNotification);
     }

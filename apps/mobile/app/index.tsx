@@ -14,7 +14,7 @@ import { useOnboardingResumeStore } from "../src/stores/onboarding-resume.store"
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { theme } from "../src/theme";
-import { AppScreen, Card, SecondaryButton } from "../src/ui";
+import { AppScreen, Card, SecondaryButton, Toast } from "../src/ui";
 
 declare const __DEV__: boolean;
 
@@ -65,6 +65,8 @@ export default function IndexScreen() {
   const [hydrated, setHydrated] = useState(storesHydrated);
   const [progressFetch, setProgressFetch] = useState<ProgressFetchState>("idle");
   const [hasResumeTarget, setHasResumeTarget] = useState(false);
+  // R19-C(F1): 다자녀 복구 안내를 사용자가 확인했는지. 확인 전까지 /(tabs) 이동을 잡아둔다.
+  const [recoveryNoticeAcknowledged, setRecoveryNoticeAcknowledged] = useState(false);
 
   useEffect(() => {
     if (hydrated) {
@@ -108,7 +110,10 @@ export default function IndexScreen() {
       return;
     }
     setProgressFetch("loading");
-    getOnboardingProgress(accessToken)
+    // R19-C(F1): 이미 고른 아이가 있으면 그 아이 기준으로 물어본다 -- 다자녀 계정에서 둘째만
+    // 끝낸 온보딩이 서버의 기본값(첫째)때문에 미완료로 보이던 문제를 없앤다. 아직 고른 아이가
+    // 없으면 파라미터 없이(=첫째 기준) 예전과 동일하게 동작한다.
+    getOnboardingProgress(accessToken, selectedChildId ?? undefined)
       .then((progress) => {
         if (progress.completed) {
           markHomeReached();
@@ -128,7 +133,16 @@ export default function IndexScreen() {
         // fallback per round5a-sprint1-plan.md §4).
       })
       .finally(() => setProgressFetch("done"));
-  }, [hydrated, isTestSession, accessToken, hasReachedHome, progressFetch, markHomeReached, setResumeProgress]);
+  }, [
+    hydrated,
+    isTestSession,
+    accessToken,
+    hasReachedHome,
+    progressFetch,
+    selectedChildId,
+    markHomeReached,
+    setResumeProgress
+  ]);
 
   // Safety valve for the server progress check itself, mirroring the hydration fallback above:
   // getOnboardingProgress rejects on HTTP errors but a hung request (no response, no network
@@ -168,10 +182,13 @@ export default function IndexScreen() {
    * hasReachedHome=true while selectedChildId is null -- the /(tabs) redirect below would then
    * pin every screen's `Boolean(authToken && childId)` gate false forever (logged-out preview
    * data, unrecoverable short of reinstalling). There is no fixture id to fall back to here, so
-   * the hook re-derives the child from GET /onboarding/status (the ONB-006 resume precedent);
-   * an account with no server-side child instead resets local onboarding progress so the
-   * ordinary MOB-101 flow routes back through onboarding. See
-   * src/onboarding/selected-child-recovery.ts.
+   * the hook re-derives the child from GET /children; an account with no server-side child
+   * instead resets local onboarding progress so the ordinary MOB-101 flow routes back through
+   * onboarding. See src/onboarding/selected-child-recovery.ts.
+   *
+   * R19-C(F1): 아이가 여러 명이면 복구가 첫째를 "골라준" 것이므로 hook이 안내(notice)를 돌려주고,
+   * 아래에서 사용자가 확인할 때까지 이동을 잡아둔다 -- 둘째를 쓰던 사용자가 아무 안내 없이 첫째
+   * 화면을 보게 되는 침묵 오선택을 막는다.
    */
   const childRecoveryInput = { hydrated, isTestSession, accessToken, hasReachedHome, selectedChildId };
   const childRecovery = useSelectedChildRecovery(childRecoveryInput, { setSelectedChildId, resetOnboarding });
@@ -209,6 +226,19 @@ export default function IndexScreen() {
       );
     }
     return null;
+  }
+
+  // R19-C(F1): 복구가 다자녀 중 첫째를 골라준 경우의 안내. 이 시점에는 selectedChildId가 이미
+  // 채워져 위 조건이 false이므로, 확인 버튼을 누르기 전까지만 이 카드가 이동을 잡아둔다.
+  if (childRecovery.notice && !recoveryNoticeAcknowledged) {
+    return (
+      <AppScreen>
+        <View testID="screen-child-recovery-notice" style={{ gap: theme.spacing.section }}>
+          <Toast message={childRecovery.notice} />
+          <SecondaryButton label="확인" onPress={() => setRecoveryNoticeAcknowledged(true)} />
+        </View>
+      </AppScreen>
+    );
   }
 
   if (!isTestSession && !hasReachedHome) {

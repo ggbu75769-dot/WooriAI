@@ -1,5 +1,5 @@
 import type { Expense } from "../api/client";
-import { categoryNameFor } from "../categories";
+import { categoryNameFor, type CategoryNameLookup } from "../categories";
 
 /**
  * EXP-106 데이터 내보내기: pure CSV building for expense rows.
@@ -10,8 +10,11 @@ import { categoryNameFor } from "../categories";
  *   export can be fed straight back into the excel import.
  * - 금액(원) is the raw integer `amountKrw` (e.g. "45900"), NOT src/money.ts's formatted
  *   "45,900원" — formatted amounts would both break re-import and confuse spreadsheet math.
- * - Category labels reuse `categoryNameFor` from src/categories.ts, the same mapping the
- *   records/reports screens render, so the CSV matches what the user sees in-app.
+ * - Category labels come from src/categories.ts, the same mapping the records/reports screens
+ *   render, so the CSV matches what the user sees in-app. Callers with a session pass the
+ *   server's `GET /categories` list through `buildCategoryNameLookup` (app/(tabs)/more.tsx) so
+ *   the 12 canonical seed categories -- whose ids are random per database -- get their real
+ *   names; `categoryNameFor` stays the default/fallback for everything else.
  * - RFC 4180: fields containing `"`, `,`, CR or LF are wrapped in double quotes with inner
  *   quotes doubled; records are CRLF-terminated for Excel compatibility.
  * - UTF-8 BOM prefix so Excel (Windows) detects the encoding and Korean renders correctly.
@@ -66,11 +69,15 @@ function csvCell(value: string): string {
   return escapeCsvField(sanitizeCsvCell(value));
 }
 
-/** One CRLF-free CSV record (no trailing line break) for a single expense. */
-export function expenseToCsvRow(expense: Expense): string {
+/**
+ * One CRLF-free CSV record (no trailing line break) for a single expense.
+ * `categoryName` defaults to the static `categoryNameFor` mapping; pass a server-backed lookup
+ * (see `buildCategoryNameLookup`) to resolve the per-database canonical category ids.
+ */
+export function expenseToCsvRow(expense: Expense, categoryName: CategoryNameLookup = categoryNameFor): string {
   return [
     csvCell(expense.spentOn),
-    csvCell(categoryNameFor(expense.categoryId)),
+    csvCell(categoryName(expense.categoryId)),
     csvCell(expense.itemName),
     csvCell(String(expense.amountKrw)),
     csvCell(expense.memo ?? ""),
@@ -89,11 +96,12 @@ export type BuildExpenseCsvResult = {
 
 export function buildExpenseCsv(
   expenses: Expense[],
-  options: { maxRows?: number } = {}
+  options: { maxRows?: number; categoryName?: CategoryNameLookup } = {}
 ): BuildExpenseCsvResult {
   const maxRows = options.maxRows ?? EXPORT_MAX_ROWS;
+  const categoryName = options.categoryName ?? categoryNameFor;
   const included = expenses.slice(0, maxRows);
-  const lines = [EXPENSE_CSV_HEADER, ...included.map(expenseToCsvRow)];
+  const lines = [EXPENSE_CSV_HEADER, ...included.map((expense) => expenseToCsvRow(expense, categoryName))];
   return {
     csv: `${UTF8_BOM}${lines.join("\r\n")}\r\n`,
     rowCount: included.length,

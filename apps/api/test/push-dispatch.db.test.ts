@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Logger, type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { reachedBudgetBoundaries } from "@wooriai/domain";
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module";
 import type { AuthenticatedUser } from "../src/common/types/authenticated-request";
@@ -520,6 +521,26 @@ describe.skipIf(!dbAvailable)("PushDispatchService (PUSH-113, real Postgres)", (
 });
 
 describe("resolveReachedBoundaries (경계 도달 판정 순수 함수 — 정수 연산)", () => {
+  it("R19-D: 판정을 자체 구현하지 않고 @wooriai/domain 단일 소스에 위임한다", () => {
+    // 세 표면(서버 푸시·홈 배너·인앱 알림)이 같은 함수를 호출한다는 계약.
+    // 경계값 전수 케이스는 packages/domain/src/budget-boundary.test.ts에 있다.
+    for (const [usedAfter, budgetKrw] of [
+      [0, 100_000],
+      [79_999, 100_000],
+      [80_000, 100_000],
+      [99_999, 100_000],
+      [100_000, 100_000],
+      [100_001, 100_000],
+      [50_000, 0]
+    ] as Array<[number, number]>) {
+      const domain = reachedBudgetBoundaries({ budgetKrw, spentKrw: usedAfter });
+      expect(resolveReachedBoundaries(usedAfter, budgetKrw)).toEqual({
+        reached80: domain.reached80,
+        reached100: domain.reached100
+      });
+    }
+  });
+
   it.each([
     // [usedAfter, budget, reached80, reached100]
     [0, 100_000, false, false],

@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { OnboardingProgress } from "../api/client";
+import type { Child, OnboardingProgress } from "../api/client";
 import {
   applySelectedChildRecoveryOutcome,
+  MULTI_CHILD_RECOVERY_NOTICE,
   recoverSelectedChild,
+  selectedChildRecoveryOutcome,
   shouldAttemptSelectedChildRecovery
 } from "./selected-child-recovery";
 import { useOnboardingProgressStore } from "../stores/onboarding-progress.store";
@@ -14,20 +16,26 @@ import { useSelectedChildStore } from "../stores/selected-child.store";
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
-function progressWithChild(childId: string): OnboardingProgress {
+/** R19-C(F1): 복구 소스는 GET /onboarding/status 요약이 아니라 GET /children 목록이다. */
+function child(id: string, nickname = "봄이"): Child {
   return {
-    completed: true,
-    nextStep: "home",
-    canRestart: false,
-    summary: {
-      consentsAccepted: true,
-      child: { id: childId, nickname: "봄이", stageMode: "birth", currentStage: "M0_3", stageLabel: "0~3개월" },
-      preparedItemsCount: 4,
-      budget: { yearMonth: "2026-08", amountKrw: 300000 }
-    }
+    id,
+    householdId: "household-1",
+    nickname,
+    stageMode: "born",
+    dueDate: null,
+    birthDate: "2026-05-01",
+    manualStage: null,
+    currentStage: "infant_0_3",
+    stageLabel: "0~3개월"
   };
 }
 
+function childrenList(...children: Child[]): () => Promise<{ children: Child[] }> {
+  return async () => ({ children });
+}
+
+/** 아직 아이가 없는 계정(로컬 hasReachedHome=true가 낡았던 경우)에 대응하는 서버 진행 상태. */
 function progressWithoutChild(): OnboardingProgress {
   return {
     completed: false,
@@ -50,10 +58,11 @@ const stuckRealSession = {
  * still no selected child, so the MOB-101 progress check is the thing that decides the route. */
 const baseAfterReset = { hasReachedHome: false, selectedChildId: null, hasResumeTarget: false };
 
-function storeEffects() {
+function storeEffects(notices?: string[]) {
   return {
     setSelectedChildId: useSelectedChildStore.getState().setSelectedChildId,
-    resetOnboarding: useOnboardingProgressStore.getState().resetOnboarding
+    resetOnboarding: useOnboardingProgressStore.getState().resetOnboarding,
+    notify: (message: string) => notices?.push(message)
   };
 }
 
@@ -79,18 +88,20 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
     });
   });
 
-  describe("lost child blob + a child exists server-side -> recovered", () => {
-    it("re-derives the first child from onboarding progress and re-selects it", async () => {
-      const outcome = await recoverSelectedChild("real-token", async () => progressWithChild("child-777"));
-      expect(outcome).toEqual({ kind: "recovered", childId: "child-777" });
+  describe("lost child blob + exactly one child server-side -> unambiguous recovery", () => {
+    it("re-derives the child from GET /children and re-selects it, with nothing to announce", async () => {
+      const notices: string[] = [];
+      const outcome = await recoverSelectedChild("real-token", childrenList(child("child-777")));
+      expect(outcome).toEqual({ kind: "recovered", childId: "child-777", ambiguous: false });
 
-      const status = applySelectedChildRecoveryOutcome(outcome, storeEffects());
+      const status = applySelectedChildRecoveryOutcome(outcome, storeEffects(notices));
       expect(status).toBe("recovered");
       expect(useSelectedChildStore.getState().selectedChildId).toBe("child-777");
+      expect(notices).toEqual([]);
     });
 
     it("flips the attempt condition off after recovery, so the /(tabs) redirect proceeds with real data", async () => {
-      const outcome = await recoverSelectedChild("real-token", async () => progressWithChild("child-777"));
+      const outcome = await recoverSelectedChild("real-token", childrenList(child("child-777")));
       applySelectedChildRecoveryOutcome(outcome, storeEffects());
       expect(
         shouldAttemptSelectedChildRecovery({
@@ -101,11 +112,50 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
     });
   });
 
+  /**
+   * R19-C(F1): 예전 구현은 GET /onboarding/status의 summary.child(=가구의 첫째)만 봤기 때문에
+   * 둘째를 쓰던 사용자를 매번 조용히 첫째로 되돌렸다. 목록을 보게 되면 "여러 명"이라는 사실을
+   * 알 수 있으므로, 여전히 첫째를 고르되 골라줬다는 사실을 반드시 알린다.
+   */
+  describe("lost child blob + 다자녀 -> 첫째를 고르되 침묵하지 않는다", () => {
+    it("flags the pick as ambiguous and hands the caller the 안내 문구", async () => {
+      const notices: string[] = [];
+      const outcome = await recoverSelectedChild(
+        "real-token",
+        childrenList(child("child-1", "첫째"), child("child-2", "둘째"))
+      );
+      expect(outcome).toEqual({ kind: "recovered", childId: "child-1", ambiguous: true });
+
+      expect(applySelectedChildRecoveryOutcome(outcome, storeEffects(notices))).toBe("recovered");
+      expect(useSelectedChildStore.getState().selectedChildId).toBe("child-1");
+      expect(notices).toEqual([MULTI_CHILD_RECOVERY_NOTICE]);
+      expect(MULTI_CHILD_RECOVERY_NOTICE).toContain("설정 > 아이 관리");
+    });
+
+    it("keeps working when the caller passes no notify effect at all", () => {
+      const outcome = selectedChildRecoveryOutcome([child("child-1"), child("child-2")]);
+      expect(
+        applySelectedChildRecoveryOutcome(outcome, {
+          setSelectedChildId: useSelectedChildStore.getState().setSelectedChildId,
+          resetOnboarding: useOnboardingProgressStore.getState().resetOnboarding
+        })
+      ).toBe("recovered");
+    });
+
+    it("picks the server's first child (createdAt asc), the same one 아이 관리 lists first", () => {
+      expect(selectedChildRecoveryOutcome([child("older"), child("newer")])).toEqual({
+        kind: "recovered",
+        childId: "older",
+        ambiguous: true
+      });
+    });
+  });
+
   describe("lost child blob + zero children server-side -> back to onboarding", () => {
     it("resets local onboarding progress (the stale hasReachedHome=true) instead of selecting anything", async () => {
       useOnboardingProgressStore.getState().markHomeReached();
 
-      const outcome = await recoverSelectedChild("real-token", async () => progressWithoutChild());
+      const outcome = await recoverSelectedChild("real-token", childrenList());
       expect(outcome).toEqual({ kind: "no-child" });
 
       const status = applySelectedChildRecoveryOutcome(outcome, storeEffects());
@@ -146,7 +196,7 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
 
     it("holds the redirect on the first render after resetOnboarding, instead of jumping to ONB-001", async () => {
       useOnboardingProgressStore.getState().markHomeReached();
-      const outcome = await recoverSelectedChild("real-token", async () => progressWithoutChild());
+      const outcome = await recoverSelectedChild("real-token", childrenList());
       expect(applySelectedChildRecoveryOutcome(outcome, storeEffects())).toBe("no-child");
 
       // The very next render: hasReachedHome is now false, but the progress-check effect has not
@@ -167,7 +217,7 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
       const progress = progressWithoutChild();
       expect(progress.summary.consentsAccepted).toBe(true);
       applySelectedChildRecoveryOutcome(
-        await recoverSelectedChild("real-token", async () => progress),
+        await recoverSelectedChild("real-token", childrenList()),
         storeEffects()
       );
 
@@ -211,14 +261,14 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
 
     it("recovers on a retry once the network is back", async () => {
       const responses = [
-        () => Promise.reject<OnboardingProgress>(new Error("offline")),
-        () => Promise.resolve(progressWithChild("child-42"))
+        () => Promise.reject<{ children: Child[] }>(new Error("offline")),
+        () => Promise.resolve({ children: [child("child-42")] })
       ];
       const flakyFetch = () => responses.shift()!();
 
       expect(await recoverSelectedChild("real-token", flakyFetch)).toEqual({ kind: "error" });
       const second = await recoverSelectedChild("real-token", flakyFetch);
-      expect(second).toEqual({ kind: "recovered", childId: "child-42" });
+      expect(second).toEqual({ kind: "recovered", childId: "child-42", ambiguous: false });
     });
   });
 
@@ -264,6 +314,25 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
       const recoverySource = source("src/onboarding/selected-child-recovery.ts");
       expect(recoverySource).toContain("SELECTED_CHILD_RECOVERY_TIMEOUT_MS = 3000");
       expect(recoverySource).toContain('setStatus("error");');
+    });
+
+    it("R19-C(F1): recovers from GET /children, not the first-child-only status summary", () => {
+      const recoverySource = source("src/onboarding/selected-child-recovery.ts");
+      expect(recoverySource).toContain('import { listChildren, type Child } from "../api/client";');
+      expect(recoverySource).not.toContain("getOnboardingProgress");
+    });
+
+    it("R19-C(F1): app/index.tsx surfaces the 다자녀 안내 before continuing to /(tabs)", () => {
+      const indexSource = source("app/index.tsx");
+      expect(indexSource).toContain('testID="screen-child-recovery-notice"');
+      expect(indexSource).toContain("if (childRecovery.notice && !recoveryNoticeAcknowledged)");
+      expect(indexSource).toContain("<Toast message={childRecovery.notice} />");
+      expect(indexSource).toContain("setRecoveryNoticeAcknowledged(true)");
+    });
+
+    it("R19-C(F1): the MOB-101 progress check asks about the selected child when there is one", () => {
+      const indexSource = source("app/index.tsx");
+      expect(indexSource).toContain("getOnboardingProgress(accessToken, selectedChildId ?? undefined)");
     });
   });
 });

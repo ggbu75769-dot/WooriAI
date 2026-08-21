@@ -6,6 +6,7 @@ import {
   confirmChildProfileDeletion,
   confirmHouseholdLeave,
   getPrivacySettings,
+  listChildren,
   LOCAL_HOUSEHOLD_ID,
   LOCAL_SESSION_TOKEN,
   previewAccountDeletion,
@@ -14,10 +15,19 @@ import {
   type SettingsPreview
 } from "../../src/api/client";
 import { resetLocalBackend } from "../../src/api/local-backend";
+import { CHILD_REMOVAL_INVALIDATE_KEYS, planAfterChildRemoval } from "../../src/children/child-deletion";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
+import {
+  announceForA11y,
+  AppScreen,
+  Card,
+  EmptyStateCard,
+  ScreenHeader,
+  SecondaryButton,
+  StatusBadge
+} from "../../src/ui";
 
 const flowCopy = {
   child_profile_delete: {
@@ -94,7 +104,40 @@ export default function PrivacySettingsScreen() {
   const clearSession = useSessionStore((state) => state.clearSession);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const clearChild = useSelectedChildStore((state) => state.clearSelectedChildId);
+  const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
   const queryClient = useQueryClient();
+  const isDemoSession = authToken === LOCAL_SESSION_TOKEN;
+
+  /**
+   * R19-C(F2): 아이가 사라지는 두 경로(아이 삭제 · 가구 탈퇴)의 공통 뒤처리.
+   * 1) 선택 아이를 비우고, 2) 아이 스코프 캐시를 전부 무효화한 뒤, 3) 남은 아이가 있으면 그중
+   *    첫째를 골라 홈으로, 없으면 예전처럼 온보딩으로 보낸다.
+   * 예전에는 남은 아이가 있든 없든 무조건 온보딩으로 보내고(둘째를 지운 사용자까지 튕겼다)
+   * ["children"]/["home"] 두 키만 지워서 지출·준비템·리포트 캐시가 삭제된 아이 데이터로 남았다.
+   */
+  const finishChildRemoval = async (doneMessage: string) => {
+    clearChild();
+    // 데모(local-backend) 세션은 "가구 탈퇴 후 아이 접근 상실"을 모사하지 않아 목록이 실제와
+    // 다르다(FIX-118B(F3)와 같은 정직성 규칙) -- 알 수 없음으로 두고 기존 데모 동작을 유지한다.
+    const remaining = isDemoSession
+      ? null
+      : await listChildren(authToken!)
+          .then((response) => response.children)
+          .catch(() => null);
+    await Promise.all(
+      CHILD_REMOVAL_INVALIDATE_KEYS.map((key) => queryClient.invalidateQueries({ queryKey: [...key] }))
+    );
+    const plan = planAfterChildRemoval(remaining);
+    if (plan.kind === "select") {
+      setSelectedChildId(plan.childId);
+      Alert.alert("완료됐어요", `${doneMessage}\n${plan.notice}`);
+      announceForA11y(plan.notice);
+      router.replace("/(tabs)");
+      return;
+    }
+    Alert.alert("완료됐어요", doneMessage);
+    router.replace("/onboarding/child-status");
+  };
 
   const privacy = useQuery({
     queryKey: ["privacy-settings"],
@@ -108,12 +151,8 @@ export default function PrivacySettingsScreen() {
   const childDelete = useMutation({
     mutationFn: () => confirmChildProfileDeletion(authToken!, childId!, childPreview.data?.confirmationText ?? ""),
     onSuccess: async () => {
-      clearChild();
       childPreview.reset();
-      await queryClient.invalidateQueries({ queryKey: ["children"] });
-      await queryClient.invalidateQueries({ queryKey: ["home"] });
-      Alert.alert("완료됐어요", "아이 프로필을 삭제했어요.");
-      router.replace("/onboarding/child-status");
+      await finishChildRemoval("아이 프로필을 삭제했어요.");
     }
   });
 
@@ -124,11 +163,9 @@ export default function PrivacySettingsScreen() {
     mutationFn: () => confirmHouseholdLeave(authToken!, householdId!, householdPreview.data?.confirmationText ?? ""),
     onSuccess: async () => {
       householdPreview.reset();
-      clearChild();
+      // 탈퇴한 가구의 아이만 접근을 잃는다 -- 다른 가구에 아이가 남아 있으면 그쪽으로 이어간다.
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
-      await queryClient.invalidateQueries({ queryKey: ["home"] });
-      Alert.alert("완료됐어요", "가구에서 나갔어요.");
-      router.replace("/onboarding/child-status");
+      await finishChildRemoval("가구에서 나갔어요.");
     }
   });
 

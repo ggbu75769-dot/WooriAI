@@ -10,9 +10,10 @@ import {
   getMilestoneReport,
   getMonthlyReport,
   getYearlyReport,
+  listCategories,
   LOCAL_SESSION_TOKEN
 } from "../../src/api/client";
-import { categoryNameFor } from "../../src/categories";
+import { buildCategoryNameLookup } from "../../src/categories";
 import { formatKrw } from "../../src/money";
 import { buildMilestoneShareMessage } from "../../src/reports/milestone-share";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
@@ -143,6 +144,19 @@ export default function ReportsScreen() {
     enabled: Boolean(authToken && childId),
     queryFn: () => getCategoryReport(authToken!, childId!, categoryPeriod)
   });
+  // 카테고리 리포트는 categoryId만 내려주므로 이름은 GET /categories로 따로 해석한다. 서버가
+  // 시드하는 정식 12개 카테고리는 고정 id가 없어(DB마다 랜덤 UUID) 모바일의 정적 8타일 매핑
+  // (categoryNameFor)으로는 전부 "기타"로 보였다 -- src/categories.ts의 buildCategoryNameLookup
+  // 주석 참고. 캐시 키는 지출 수정 화면(app/expenses/[expenseId].tsx)과 같은 ["categories"]라
+  // 두 화면이 같은 응답을 공유하고, 오프라인/실패 시에는 마지막 성공 목록(react-query 캐시)이
+  // 그대로 쓰이며 그마저 없으면 기존 정적 매핑으로 폴백한다.
+  const categories = useQuery({
+    queryKey: ["categories"],
+    enabled: Boolean(authToken),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => listCategories(authToken!)
+  });
+  const categoryName = buildCategoryNameLookup(categories.data?.categories);
   const categoryCardTitle = period === "월간" ? `${reportDate.getMonth() + 1}월 카테고리 비중` : `${periodLabel} 카테고리 비중`;
   const quarterQueries = useQueries({
     queries: quarterMonths.map((date) => {
@@ -232,7 +246,7 @@ export default function ReportsScreen() {
 
   const categoryData = activeCategory.data?.categories ?? [];
   const categorySegments = activeCategory.data
-    ? categoryData.map((entry) => ({ label: categoryNameFor(entry.categoryId), amountKrw: entry.amountKrw }))
+    ? categoryData.map((entry) => ({ label: categoryName(entry.categoryId), amountKrw: entry.amountKrw }))
     : undefined;
 
   const tipDeltaKrw = hasDeltaData ? previousMonth.data!.totalExpenseKrw - monthly.data!.totalExpenseKrw : null;

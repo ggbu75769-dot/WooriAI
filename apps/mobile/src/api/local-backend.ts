@@ -667,8 +667,34 @@ export function createExpense(
     version: 1
   };
 
-  useLocalBackendStore.setState((state) => ({ expenses: [...state.expenses, record] }));
+  useLocalBackendStore.setState((state) => ({
+    expenses: [...state.expenses, record],
+    // R19-B: 데모/테스트 세션도 실제 API와 같은 "지출 기록 -> 준비템 준비 완료"
+    // 고리를 갖도록 미러링한다 (서버 규칙: apps/api/src/onboarding/store-shared.ts
+    // markLinkedItemPrepared). 연결이 없으면 상태 맵은 그대로 둔다.
+    itemStatuses: record.linkedItemTemplateId
+      ? applyLinkedItemPrepared(state.itemStatuses, record.linkedItemTemplateId, record.id)
+      : state.itemStatuses
+  }));
   return toExpenseDto(record);
+}
+
+/**
+ * R19-B: 서버 markLinkedItemPrepared와 동일한 보존 규칙의 로컬 백엔드 판본 —
+ * 사용자가 이미 정리해 둔 `gifted`/`not_needed`는 지출이 덮어쓰지 않고, 이미
+ * `prepared`이면서 다른 지출이 연결돼 있으면 최초 연결을 그대로 둔다. 카탈로그에
+ * 없는 itemTemplateId는(데모 데이터 불일치) 조용히 무시해 지출 기록 자체를 막지 않는다.
+ */
+function applyLinkedItemPrepared(
+  statuses: LocalBackendState["itemStatuses"],
+  itemTemplateId: string,
+  expenseId: string
+): LocalBackendState["itemStatuses"] {
+  if (!localItemTemplateFixtures.some((template) => template.id === itemTemplateId)) return statuses;
+  const existing = statuses[itemTemplateId];
+  if (existing && (existing.status === "gifted" || existing.status === "not_needed")) return statuses;
+  if (existing?.status === "prepared" && existing.expenseId) return statuses;
+  return { ...statuses, [itemTemplateId]: { status: "prepared", expenseId } };
 }
 
 /**

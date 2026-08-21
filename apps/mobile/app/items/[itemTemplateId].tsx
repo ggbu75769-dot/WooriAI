@@ -168,7 +168,7 @@ export default function ItemDetailScreen() {
   });
 
   // ANA-103: item_status_changed fires only after the server confirmed a status change (both
-  // the 찜하기/찜해제 toggle and "이미 준비로 표시"). The payload carries only the coarse
+  // the 찜하기/찜해제 toggle and "지출 없이 준비 완료로 표시"). The payload carries only the coarse
   // category enum (derived on-device from the item name, which itself never leaves the device
   // -- src/analytics/events.ts) and the new status. A no-op without ANA-102 consent.
   const trackItemStatusChanged = (status: ItemStatus) => {
@@ -386,17 +386,26 @@ export default function ItemDetailScreen() {
             <Card style={{ backgroundColor: theme.colors.mint }}>
               <Toast message={clickedTitle} />
               <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800" }}>준비 완료로 남길까요?</Text>
-              <SecondaryButton
-                label="이미 준비로 표시"
-                onPress={() => {
-                  if (authToken && childId) markPrepared.mutate();
-                }}
-              />
-              <SecondaryButton
-                label="지출도 기록하기"
+              {/* R19-B (DNC-002 핵심 루프 마지막 고리): 예전에는 "이미 준비로 표시"와 "지출도
+                  기록하기"가 서로 배타적인 버튼 2개라, 지출을 기록한 사람은 준비 표시를
+                  따로 눌러야 했고 대부분 누르지 않아 준비템이 계속 미준비로 남았다. 이제
+                  연결된 지출을 저장하면 서버가 준비 완료까지 함께 처리하므로(기록 경로 하나로
+                  통합), 지출 기록을 기본 동작으로 올리고 아래는 "지출 없이" 표시하는
+                  보조 수단으로만 남긴다. */}
+              <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>
+                지출을 기록하면 이 준비템도 자동으로 준비 완료로 표시돼요.
+              </Text>
+              <PrimaryButton
+                label="지출 기록하고 준비 완료"
                 onPress={() =>
                   router.push({ pathname: "/expenses/new", params: { itemName: visibleDetail.name, itemTemplateId } })
                 }
+              />
+              <SecondaryButton
+                label="지출 없이 준비 완료로 표시"
+                onPress={() => {
+                  if (authToken && childId) markPrepared.mutate();
+                }}
               />
             </Card>
           ) : null}
