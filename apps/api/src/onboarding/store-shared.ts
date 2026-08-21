@@ -25,7 +25,7 @@ import type { AuthenticatedUser } from "../common/types/authenticated-request";
  * reporting-store (all in this directory).
  *
  * R19-B 예외 1건: `markLinkedItemPrepared`만 순수 함수가 아니다 — 호출자가 넘긴
- * DbClient로 child_item_statuses를 upsert한다 (DI는 여전히 없다). 여기 두는
+ * DbClient로 child_item_statuses에 쓴다 (DI는 여전히 없다). 여기 두는
  * 이유는 순환 의존 때문이다: ItemsCatalogService가 이미 ExpensesStoreService를
  * 주입하고 있어(updateItemStatus의 expenseId 검증), 반대로 expenses-store가
  * items-catalog를 주입하면 DI 사이클이 된다. 그래서 "지출↔준비템 상태" 규칙을
@@ -203,6 +203,9 @@ export type MarkLinkedItemPreparedResult = "marked" | "linked" | "preserved";
  * - 이미 `prepared`면 상태는 그대로 두고, 연결된 지출이 없을 때만 expenseId를 채운다
  *   (먼저 연결된 지출 기록을 나중 지출이 밀어내지 않도록 — 최초 연결을 보존).
  * - 지출 삭제 시 되돌리지 않는다 (deleteExpense 주석 참고).
+ * - 보존 규칙은 **원자적**이다 (FIX-119A/M-2): 아래 findUnique는 빠른 경로일 뿐이고,
+ *   실제 쓰기는 gifted/not_needed 행을 건드리지 않는 조건부 문이라 읽기와 쓰기
+ *   사이에 다른 트랜잭션이 gifted/not_needed를 커밋해도 덮어쓰지 않는다.
  * - 지출 종류(expense/gift)는 구분하지 않고 항상 `prepared`다. `gifted`는 사용자가
  *   직접 고르는 상태이지 자동 부여 대상이 아니고, 준비템 `prepared` 탭과 준비율이
  *   읽는 상태가 `prepared`이기 때문이다.
@@ -226,19 +229,40 @@ export async function markLinkedItemPrepared(
 
   if (existing?.status === "prepared") {
     if (existing.expenseId) return "preserved";
-    await client.childItemStatus.update({
-      where: { childId_itemTemplateId: { childId, itemTemplateId } },
+    // FIX-119A(M-2): 조건부 update. findUnique 이후 다른 트랜잭션이 이 행을
+    // gifted/not_needed로 바꿨거나 이미 다른 지출을 연결했다면 아무것도 쓰지
+    // 않는다(0행 매치 → "preserved"). 무조건 update였다면 사용자가 방금 고른
+    // "선물로 받음"에 지출을 덧씌우게 된다.
+    const linked = await client.childItemStatus.updateMany({
+      where: { childId, itemTemplateId, status: "prepared", expenseId: null },
       data: { expenseId, updatedByUserId: userId }
     });
-    return "linked";
+    return linked.count > 0 ? "linked" : "preserved";
   }
 
-  // upsert(= INSERT ... ON CONFLICT DO UPDATE)로 쓴다: 위 findUnique 이후 같은
-  // (childId, itemTemplateId)에 동시 삽입이 끼어들어도 유니크 위반 대신 update로 흡수된다.
-  await client.childItemStatus.upsert({
-    where: { childId_itemTemplateId: { childId, itemTemplateId } },
-    update: { status: "prepared", expenseId, updatedByUserId: userId },
-    create: { childId, itemTemplateId, status: "prepared", expenseId, updatedByUserId: userId }
-  });
-  return "marked";
+  // FIX-119A(M-2): 단일 원자 문(INSERT ... ON CONFLICT DO UPDATE ... WHERE)으로 쓴다.
+  //
+  // 이전에는 Prisma upsert의 update 절이 무조건 status='prepared'였다. 위
+  // findUnique를 통과한 뒤(행 없음/not_prepared/interested) 커밋된 다른
+  // 트랜잭션이 같은 (childId, itemTemplateId)를 gifted/not_needed로 만들면,
+  // 충돌을 흡수한 update가 그 사용자 판단을 prepared로 덮어썼다 — 보존 규칙이
+  // 읽기-후-쓰기 사이의 창에서 깨진다(RESOLVED_ITEM_STATUSES 주석 참고).
+  //
+  // DO UPDATE에 WHERE를 달면 보존 규칙이 **쓰기 시점의 행 상태**로 원자적으로
+  // 판정된다: 충돌 상대가 gifted/not_needed면 갱신도 반환도 없고(→"preserved"),
+  // 그 외(또는 신규 삽입)면 갱신된다(→"marked"). 유니크 위반 예외가 아니라
+  // ON CONFLICT로 흡수하므로 트랜잭션 중단(P2002 → tx abort) 위험도 없다.
+  // updated_at은 @updatedAt(Prisma 애플리케이션 레벨)이라 raw 경로에서 직접 찍는다.
+  const written = await client.$queryRaw<{ id: string }[]>`
+    INSERT INTO child_item_statuses (child_id, item_template_id, status, expense_id, updated_by_user_id)
+    VALUES (${childId}::uuid, ${itemTemplateId}::uuid, 'prepared'::item_status, ${expenseId}::uuid, ${userId}::uuid)
+    ON CONFLICT (child_id, item_template_id) DO UPDATE
+      SET status = 'prepared'::item_status,
+          expense_id = EXCLUDED.expense_id,
+          updated_by_user_id = EXCLUDED.updated_by_user_id,
+          updated_at = now()
+      WHERE child_item_statuses.status::text <> ALL (${[...RESOLVED_ITEM_STATUSES]}::text[])
+    RETURNING id
+  `;
+  return written.length > 0 ? "marked" : "preserved";
 }
