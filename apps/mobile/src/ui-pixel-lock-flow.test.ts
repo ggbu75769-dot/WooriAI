@@ -180,10 +180,12 @@ describe("UI Pixel Lock source contract", () => {
     }
   });
 
-  it("keeps product detail screen IDs accessible without rendering the source-lock eyebrow", () => {
+  it("keeps product detail screen IDs locatable via testID without rendering the source-lock eyebrow", () => {
     const productDetailSource = readFileSync(join(mobileRoot, "app/items/[itemTemplateId].tsx"), "utf8");
     expect(productDetailSource).toContain("productDetailScreenId");
-    expect(productDetailSource).toContain("accessibilityLabel={productDetailScreenId}");
+    // A11Y-115: the screen ID rides on testID (tooling-only) -- accessibilityLabel would make
+    // TalkBack read the internal ID out loud, which the a11y contract now forbids.
+    expect(productDetailSource).toContain("testID={productDetailScreenId}");
     expect(productDetailSource).toContain("productDetailHeaderSpacerStyle");
     expect(productDetailSource).toContain("productDetailHeaderSpacerStyle = { minHeight: 0 }");
     expect(productDetailSource).toContain("productDetailViewportOffset = 8");
@@ -214,7 +216,7 @@ describe("UI Pixel Lock source contract", () => {
     const reportSource = readFileSync(join(mobileRoot, "app/(tabs)/reports.tsx"), "utf8");
 
     expect(reportSource).toContain("reportReferenceScreenId");
-    expect(reportSource).toContain("accessibilityLabel={reportReferenceScreenId}");
+    expect(reportSource).toContain("testID={reportReferenceScreenId}");
     expect(reportSource).not.toContain("ReportPixelStatusBar");
     expect(reportSource).toContain("reportReferenceHeaderStyle");
     expect(reportSource).toContain("reportReferenceHorizontalOffset = -16");
@@ -302,7 +304,7 @@ describe("UI Pixel Lock source contract", () => {
     expect(launchSource).toContain("paddingTop: 112");
     expect(launchSource).toContain("SplashPixelStyles.introImageMarginTop");
     expect(launchSource).toContain("stageIndex < 0 ? introHoldMs");
-    expect(launchSource).toContain("accessibilityLabel={splashScreenId}");
+    expect(launchSource).toContain("testID={splashScreenId}");
     expect(launchSource).not.toContain(">SPL-001</Text>");
     expect(launchSource).not.toContain("<BrandLogo");
 

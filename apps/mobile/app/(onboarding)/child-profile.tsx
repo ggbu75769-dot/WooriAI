@@ -11,7 +11,6 @@ import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, CategoryChip, PrimaryButton, ScreenHeader } from "../../src/ui";
 import { theme } from "../../src/theme";
 
-const onboardingChildProfileScreenId = "ONB-002";
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 // Domain's stage.ts defines an equivalent MANUAL_STAGE_LABELS map but does not export it from
@@ -110,7 +109,7 @@ export default function ChildProfileScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={onboardingChildProfileScreenId} testID="screen-ONB-002" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-ONB-002" style={{ gap: theme.spacing.section }}>
         <OnboardingStepProgress screenId="ONB-002" />
         <ScreenHeader eyebrow="아이 프로필" title="아이를 소개해 주세요" subtitle="태명이나 별명을 알려주시면 앞으로 이렇게 부를게요." />
 
@@ -120,6 +119,8 @@ export default function ChildProfileScreen() {
               태명 / 별명
             </Text>
             <TextInput
+              accessibilityLabel="태명 또는 별명 입력"
+              returnKeyType="done"
               onChangeText={setNickname}
               placeholder="예) 튼튼이"
               style={{
@@ -145,6 +146,8 @@ export default function ChildProfileScreen() {
                 {dateLabel}
               </Text>
               <TextInput
+                accessibilityLabel={`${dateLabel} 입력`}
+                returnKeyType="done"
                 onChangeText={setDateText}
                 placeholder="YYYY-MM-DD"
                 style={{

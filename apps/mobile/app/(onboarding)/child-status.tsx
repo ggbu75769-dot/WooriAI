@@ -7,8 +7,6 @@ import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress
 import { AppScreen, Card, ScreenHeader } from "../../src/ui";
 import { theme } from "../../src/theme";
 
-const onboardingChildStatusScreenId = "ONB-001";
-
 const stageOptions: Array<{
   mode: ChildStageMode;
   icon: string;
@@ -65,7 +63,7 @@ export default function ChildStatusScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={onboardingChildStatusScreenId} testID="screen-ONB-001" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-ONB-001" style={{ gap: theme.spacing.section }}>
         <OnboardingStepProgress screenId="ONB-001" />
         <ScreenHeader
           eyebrow="아이 정보 시작하기"

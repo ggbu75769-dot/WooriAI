@@ -18,7 +18,7 @@ import { JwtAuthGuard } from "../common/guards/auth.guard";
 import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
-import { ConfirmImportDto, UpdateImportRowDto } from "./dto/import.dto";
+import { ConfirmImportDto, CreateExcelImportDto, UpdateImportRowDto } from "./dto/import.dto";
 
 type UploadedImportFile = {
   originalname?: string;
@@ -51,7 +51,7 @@ export class ImportsController {
     @Req() request: AuthenticatedRequest,
     @Param("childId") childId: string,
     @UploadedFile() file: UploadedImportFile | undefined,
-    @Body() body: Record<string, unknown>
+    @Body(createDtoValidationPipe(CreateExcelImportDto)) body: CreateExcelImportDto
   ) {
     return await this.store.createImportJob(request.user!, childId, {
       fileName: stringField(body.fileName) ?? file?.originalname,

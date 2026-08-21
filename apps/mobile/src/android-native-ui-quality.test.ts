@@ -49,9 +49,11 @@ describe("Android native UI quality contract", () => {
     }
   });
 
-  it("keeps screen ids accessible without showing debug ids as user copy", () => {
+  it("keeps screen ids locatable via testID without showing debug ids as user copy", () => {
     const homeSource = source("app/(tabs)/index.tsx");
-    expect(homeSource).toContain('accessibilityLabel="pixel-screen-HOME-001"');
+    // A11Y-115: testID only -- an accessibilityLabel here would make TalkBack read the
+    // internal screen ID out loud (see src/a11y-contract.test.ts).
+    expect(homeSource).toContain('testID="pixel-screen-HOME-001"');
     expect(homeSource).not.toContain('eyebrow="HOME-001"');
   });
 

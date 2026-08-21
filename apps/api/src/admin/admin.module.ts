@@ -11,6 +11,8 @@ import { AdminTokenGuard } from "./admin-token.guard";
 import { AdminUsersController } from "./admin-users.controller";
 import { AnalyticsSummaryController } from "./analytics-summary.controller";
 import { AnalyticsSummaryService } from "./analytics-summary.service";
+import { AuditLogsController } from "./audit-logs.controller";
+import { AuditLogsService } from "./audit-logs.service";
 import { ContentRevisionsController } from "./content-revisions.controller";
 import { ContentRevisionsService } from "./content-revisions.service";
 import { DashboardSummaryController } from "./dashboard-summary.controller";
@@ -25,6 +27,7 @@ import { ProductLinkBulkService } from "./product-link-bulk.service";
     AdminAuthController,
     AdminUsersController,
     AnalyticsSummaryController,
+    AuditLogsController,
     ContentRevisionsController,
     DashboardSummaryController,
     ProductLinkBulkController
@@ -36,6 +39,7 @@ import { ProductLinkBulkService } from "./product-link-bulk.service";
     AdminSessionService,
     AdminMfaService,
     AnalyticsSummaryService,
+    AuditLogsService,
     ContentRevisionsService,
     DashboardSummaryService,
     ProductLinkBulkService

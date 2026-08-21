@@ -75,3 +75,72 @@ describe.skipIf(!dbAvailable)("PERF-101 perf indexes (migration 000011)", () => 
     expect(def).toContain("WHERE (deleted_at IS NULL)");
   });
 });
+
+/**
+ * PERF-115: 마이그레이션 000014_perf_round15의 인덱스 검증. 위 PERF-101 블록과
+ * 같은 관례로 pg_indexes 정의(계약)를 고정하고, 추가로 각 인덱스가 파기 워커의
+ * 실제 쿼리 모양을 태울 수 있는지 EXPLAIN으로 확인한다 — 테스트 DB는 소규모라
+ * 플래너가 seq scan을 선호하므로(위 블록 doc comment의 이유), 트랜잭션 안에서
+ * SET LOCAL enable_seqscan = off 로 강제한 뒤 플랜에 인덱스명이 나타나는지를
+ * 본다. "인덱스가 해당 술어에 사용 가능한가"는 통계와 무관하게 결정적이다.
+ */
+describe.skipIf(!dbAvailable)("PERF-115 perf indexes (migration 000014)", () => {
+  let prisma: PrismaClient;
+
+  beforeAll(() => {
+    deployMigrations();
+    prisma = new PrismaClient();
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  async function indexDef(table: string, index: string): Promise<string | undefined> {
+    const rows = await prisma.$queryRaw<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public' AND tablename = ${table} AND indexname = ${index}`;
+    return rows[0]?.indexdef;
+  }
+
+  /** EXPLAIN 플랜 텍스트(전 행 결합)를 돌려준다 — enable_seqscan off 강제. */
+  async function explainWithoutSeqscan(sql: string): Promise<string> {
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+      const rows = await tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(`EXPLAIN ${sql}`);
+      return rows.map((row) => row["QUERY PLAN"]).join("\n");
+    });
+  }
+
+  const ZERO_UUID = "'00000000-0000-0000-0000-000000000000'::uuid";
+
+  it("파기 워커 안티조인용 idx_expenses_created_by가 존재하고 created_by_user_id 술어를 태운다", async () => {
+    const def = await indexDef("expenses", "idx_expenses_created_by");
+    expect(def).toBeDefined();
+    expect(def).toContain("(created_by_user_id)");
+
+    // selectPurgeableStubs의 NOT EXISTS 프로브와 같은 술어 모양.
+    const plan = await explainWithoutSeqscan(`SELECT 1 FROM expenses WHERE created_by_user_id = ${ZERO_UUID}`);
+    expect(plan).toContain("idx_expenses_created_by");
+  });
+
+  it("파기 캐스케이드용 idx_attachments_expense가 존재하고 expense_id IN 술어를 태운다", async () => {
+    const def = await indexDef("attachments", "idx_attachments_expense");
+    expect(def).toBeDefined();
+    expect(def).toContain("(expense_id)");
+
+    // deleteExpensesHard의 FK 널링 UPDATE와 같은 술어 모양(SELECT로 플랜만 확인).
+    const plan = await explainWithoutSeqscan(`SELECT 1 FROM attachments WHERE expense_id IN (${ZERO_UUID})`);
+    expect(plan).toContain("idx_attachments_expense");
+  });
+
+  it("파기 캐스케이드용 idx_attachments_child가 존재하고 child_id IN 술어를 태운다", async () => {
+    const def = await indexDef("attachments", "idx_attachments_child");
+    expect(def).toBeDefined();
+    expect(def).toContain("(child_id)");
+
+    // purgeChildRows의 attachment DELETE와 같은 술어 모양(SELECT로 플랜만 확인).
+    const plan = await explainWithoutSeqscan(`SELECT 1 FROM attachments WHERE child_id IN (${ZERO_UUID})`);
+    expect(plan).toContain("idx_attachments_child");
+  });
+});

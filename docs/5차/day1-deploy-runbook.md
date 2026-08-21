@@ -44,16 +44,18 @@ fly secrets set \
 ```
 `ADMIN_SEED_PASSWORD` 출력값을 임시 보관하세요(A-5에서 로그인 후 즉시 교체).
 
+> **푸시 알림(PUSH-113, 선택)**: FCM 실발송을 켜려면 `PUSH_ENABLED=1`과 `FCM_SERVICE_ACCOUNT_PATH=<Firebase 서비스 계정 JSON 경로>` 두 값이 추가로 필요합니다(.env.example 참고). 미설정 시 push 모듈은 안전한 no-op — **출시 비차단**. 단 `FCM_SERVICE_ACCOUNT_PATH`는 "파일 경로"라서 Fly에서는 secret 문자열만으로는 안 되고 JSON 파일을 머신에 넣어야 합니다(JSON 내용·private key를 로그/코드에 넣지 말 것 — DNC-019). 켠 뒤에는 `GET /api/v1/health/push`로 상태 확인.
+
 ### A-4. 배포 (10~15분)
 ```bash
-fly deploy          # 이미지 빌드 → release_command(prisma:deploy, 마이그레이션 10개) → 기동
+fly deploy          # 이미지 빌드 → release_command(prisma:deploy, 마이그레이션 13개) → 기동
 fly status          # 머신 1대 started 확인
 curl -s https://<앱이름>.fly.dev/api/v1/health/ready   # {"status":"ok"...} 확인
 ```
 
 ### A-5. 시드·관리자 부트스트랩 (10분)
 ```bash
-fly ssh console -C "pnpm --filter api seed"   # 카테고리 12·준비템 86·상품링크 58 + ADMIN_SEED_* 관리자
+fly ssh console -C "pnpm --filter api seed"   # 카테고리 12·준비템 62·상품링크 58 + ADMIN_SEED_* 관리자
 ```
 어드민 콘솔 접속 → `ADMIN_SEED_EMAIL`/`ADMIN_SEED_PASSWORD` 로그인 → **즉시 비밀번호 변경**(ADM-007) → MFA(TOTP) 등록(강제 흐름).
 필요하면 /users에서 팀원 계정 발급.
@@ -90,18 +92,23 @@ HTTPS는 앞단에 Caddy/nginx + certbot을 두세요(80/443 → api:3000).
 BASE=https://<호스트>/api/v1
 curl -s $BASE/health          # ok
 curl -s $BASE/health/ready    # DB 연결 포함 ok
+curl -s $BASE/health/worker   # 워커 상태 (enabled/stale/jobs)
+curl -s $BASE/health/push     # 푸시 상태 — FCM 키 미주입이면 enabled=false가 정상
+
 # 카카오 OIDC prepare가 실키로 동작하는지 (redirectUri는 등록값과 동일해야 함)
 curl -s -X POST $BASE/auth/kakao/prepare -H 'content-type: application/json' \
   -d '{"redirectUri":"wooriai://oauth/kakao"}'   # state/nonce/transactionId 반환 확인
 # 미인증 제휴 리다이렉트 (시드 링크가 example.com이라 404가 정상 — allowlist 차단 확인)
 curl -si $BASE/../r/AAAAAAAAAAAA | head -1
 ```
-어드민: 로그인→MFA→준비템/링크 목록 로드 확인. 링크 헬스체크를 켤 거면 `LINK_HEALTH_ENABLED=1` 시크릿 추가(실링크 투입 후 권장).
+전체 스모크(29검사)를 돌리려면: `SMOKE_BASE_URL=$BASE bash scripts/qa/server-smoke.sh` — 단, 테스트 사용자·지출 데이터를 실제로 생성하므로 실서버에서는 감안하고 실행하세요.
+어드민: 로그인→MFA→준비템/링크 목록 로드 확인 (admin 역할이면 **감사 로그** 메뉴도 로드 확인). 링크 헬스체크를 켤 거면 `LINK_HEALTH_ENABLED=1` 시크릿 추가(실링크 투입 후 권장).
 
 ## D. 체크리스트 요약
 
-- [ ] Postgres 가동·마이그레이션 10개 적용
+- [ ] Postgres 가동·마이그레이션 13개 적용
 - [ ] 시크릿 13종 주입 (부트 필수 6종 — JWT 2·WOORIAI_ADMIN_TOKEN·AFFILIATE_ALLOWED_DOMAINS·salt 2 — 은 `assertRequiredSecretsConfigured`가 누락 시 부트 실패로 알려줌)
+- [ ] (푸시를 켤 경우) `PUSH_ENABLED=1` + `FCM_SERVICE_ACCOUNT_PATH` 설정 → `GET /api/v1/health/push`로 확인 (A-3의 푸시 참고 — 기본은 꺼짐/no-op이라 출시 비차단)
 - [ ] `health/ready` 200
 - [ ] 시드 + 관리자 로그인 → 비밀번호 교체 + MFA 등록
 - [ ] (도메인 있으면) HTTPS 커스텀 도메인 + `INVITE_LINK_BASE_URL` 일치

@@ -6,6 +6,12 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # 로그 로테이션 (OPS-115) — prod.yml의 x-logging과 동일 정책 (anchor는 파일 간 공유 불가)
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "80:80"
       - "443:443"

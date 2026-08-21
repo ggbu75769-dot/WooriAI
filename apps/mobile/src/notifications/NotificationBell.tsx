@@ -15,6 +15,7 @@ export function NotificationBell() {
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={unreadCount > 0 ? `알림, 새 알림 ${unreadCount}개` : "알림"}
+      hitSlop={4}
       onPress={() => router.push("/notifications")}
       style={bellButtonStyle}
     >

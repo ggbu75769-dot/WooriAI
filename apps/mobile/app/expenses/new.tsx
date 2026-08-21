@@ -1,16 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildExpenseRecordedPayload } from "../../src/analytics/events";
-import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
+import {
+  buildRecentItemChips,
+  formatRecentItemChipLabel,
+  recentItemChipAccessibilityLabel
+} from "../../src/expenses/recent-items";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { createExpenseOffline } from "../../src/offline/sync-controller";
+import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, Toast } from "../../src/ui";
@@ -248,24 +254,14 @@ export default function NewExpenseScreen() {
     };
   }, [itemName, amountText, memo, selectedCategory.id, expenseDateIso, isGift, authToken]);
 
-  // Recent expense items for the "최근 품목" reuse chips -- reuses the existing listExpenses
-  // query (current month) instead of a dedicated endpoint; deduped by itemName, capped at 5.
-  const recentExpensesQuery = useQuery({
-    queryKey: ["expenses", "recent-items", childId],
-    enabled: Boolean(authToken && childId),
-    queryFn: () => listExpenses(authToken!, childId!)
-  });
-  const recentItemChips = (() => {
-    const seen = new Set<string>();
-    const chips: Array<{ itemName: string; amountKrw: number; categoryId: string }> = [];
-    for (const expense of recentExpensesQuery.data?.expenses ?? []) {
-      if (seen.has(expense.itemName)) continue;
-      seen.add(expense.itemName);
-      chips.push({ itemName: expense.itemName, amountKrw: expense.amountKrw, categoryId: expense.categoryId });
-      if (chips.length >= 5) break;
-    }
-    return chips;
-  })();
+  // EXP-113: "최근 품목" 재입력 칩 -- 서버 왕복 없이, 이 기기의 오프라인 저장소(local_expenses)
+  // 반응형 스냅숏을 읽기 전용으로 사용한다 (createExpenseOffline이 저장할 때마다 스냅숏이
+  // 갱신되므로 방금 기록한 항목이 곧바로 칩으로 나타난다). 품목명당 최신 1개 중복 제거와
+  // 최대 5개 상한 등 순수 계산은 src/expenses/recent-items.ts에 분리해 단위 테스트한다.
+  // 스냅숏이 비어 있으면(첫 기록 전, 콜드 스타트 직후, 저장소 초기화 실패) 칩 영역이 그냥
+  // 숨겨질 뿐 -- 어떤 실패도 기록 흐름을 막지 않는다.
+  const offlineSnapshot = useOfflineSyncSnapshot();
+  const recentItemChips = authToken && childId ? buildRecentItemChips(offlineSnapshot.rows, childId) : [];
 
   // MOB-102 (round5a-sprint1-plan.md §3.2, §3.3): saves to the local offline store first --
   // this always "succeeds" as soon as the local write lands, well before the server has
@@ -347,10 +343,11 @@ export default function NewExpenseScreen() {
             position: "relative"
           }}
         >
-        <View accessibilityLabel={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 40 }}>
+        <View testID={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 40 }}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="닫기"
+            hitSlop={8}
             onPress={() => {
               clearQuickExpenseDraft();
               router.back();
@@ -362,6 +359,46 @@ export default function NewExpenseScreen() {
           <Text style={{ color: theme.colors.gray900, fontSize: 18, fontWeight: "800" }}>지출 기록</Text>
           <View style={{ width: 36 }} />
         </View>
+
+        {/* EXP-113: 기저귀·분유처럼 반복 구매하는 품목을 다시 타이핑하지 않도록, 최근 입력
+            항목을 폼 상단 칩으로 노출한다. 탭하면 품목명/금액/카테고리가 채워질 뿐이며
+            (그 뒤 자유롭게 수정 가능) 저장은 여전히 저장하기 버튼으로만 일어난다. 미리보기
+            (픽셀 락) 모드와 첫 기록 전에는 렌더되지 않아 기존 레이아웃에 영향이 없다. */}
+        {authToken && recentItemChips.length > 0 ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>최근 품목</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {recentItemChips.map((chip) => (
+                <Pressable
+                  key={chip.itemName}
+                  accessibilityRole="button"
+                  accessibilityLabel={recentItemChipAccessibilityLabel(chip)}
+                  hitSlop={3}
+                  onPress={() => {
+                    setItemName(chip.itemName);
+                    setAmountText(String(chip.amountKrw));
+                    const matchedCategory = quickExpenseCategories.find((category) => category.id === chip.categoryId);
+                    if (matchedCategory) setSelectedCategory(matchedCategory);
+                  }}
+                  style={{
+                    alignItems: "center",
+                    backgroundColor: theme.colors.white,
+                    borderColor: theme.colors.primary100,
+                    borderRadius: theme.radii.pill,
+                    borderWidth: 1,
+                    justifyContent: "center",
+                    minHeight: 38,
+                    paddingHorizontal: 14
+                  }}
+                >
+                  <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
+                    {formatRecentItemChipLabel(chip)}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
 
         <View
           style={{
@@ -414,7 +451,7 @@ export default function NewExpenseScreen() {
                 />
               ))}
             </ScrollView>
-            <Pressable accessibilityRole="button" onPress={() => setCustomDateMode((value) => !value)}>
+            <Pressable accessibilityRole="button" hitSlop={14} onPress={() => setCustomDateMode((value) => !value)}>
               <Text style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}>
                 {customDateMode ? "최근 날짜에서 선택" : "직접 입력"}
               </Text>
@@ -452,26 +489,6 @@ export default function NewExpenseScreen() {
           </View>
         ) : null}
 
-        {authToken && recentItemChips.length > 0 ? (
-          <View style={{ gap: 8 }}>
-            <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>최근 품목</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {recentItemChips.map((chip) => (
-                <CategoryChip
-                  key={chip.itemName}
-                  label={`${chip.itemName} · ${chip.amountKrw.toLocaleString("ko-KR")}원`}
-                  onPress={() => {
-                    setItemName(chip.itemName);
-                    setAmountText(String(chip.amountKrw));
-                    const matchedCategory = quickExpenseCategories.find((category) => category.id === chip.categoryId);
-                    if (matchedCategory) setSelectedCategory(matchedCategory);
-                  }}
-                />
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
-
         <View style={quickExpenseCategoryGridStyle.grid}>
           {quickExpenseCategories.map((category) => {
             const selected = category.label === selectedCategory.label;
@@ -490,6 +507,8 @@ export default function NewExpenseScreen() {
         </View>
 
         <TextInput
+          accessibilityLabel="메모 입력 (선택)"
+          returnKeyType="done"
           onChangeText={setMemo}
           placeholder="메모를 입력해 주세요 (선택)"
           style={{
@@ -527,6 +546,8 @@ export default function NewExpenseScreen() {
 
         {authToken ? (
           <TextInput
+            accessibilityLabel="품목명 입력"
+            returnKeyType="done"
             onChangeText={setItemName}
             placeholder="품목명 (예: 기저귀)"
             style={{

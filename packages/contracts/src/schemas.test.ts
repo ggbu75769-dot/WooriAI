@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   childSchema,
   createExpenseRequestSchema,
+  deleteExpenseRequestSchema,
   listCategoriesResponseSchema,
   expenseSchema,
   homeMonthlyBudgetSchema,
@@ -10,7 +11,9 @@ import {
   itemSummarySchema,
   moneyKrwSchema,
   productLinkSchema,
-  reportYearlySchema
+  reportYearlySchema,
+  updateExpenseRequestSchema,
+  versionConflictResponseSchema
 } from "./schemas";
 
 describe("shared contract schemas", () => {
@@ -67,9 +70,11 @@ describe("shared contract schemas", () => {
     const base = {
       id: "11111111-1111-4111-8111-111111111111",
       childId: "22222222-2222-4222-8222-222222222222",
+      categoryId: "44444444-4444-4444-8444-444444444444",
       amountKrw: 49800,
       spentOn: "2026-07-05",
-      itemName: "기저귀"
+      itemName: "기저귀",
+      version: 1
     };
 
     expect(expenseSchema.parse(base).createdByUserId).toBeUndefined();
@@ -79,6 +84,87 @@ describe("shared contract schemas", () => {
         createdByUserId: "33333333-3333-4333-8333-333333333333"
       }).createdByUserId
     ).toBe("33333333-3333-4333-8333-333333333333");
+  });
+
+  // CON-115: categoryId(DB not-null)와 version(MOB-103, 생성 시 1)은 required.
+  it("requires categoryId and a positive integer version on the expense response contract", () => {
+    const base = {
+      id: "11111111-1111-4111-8111-111111111111",
+      childId: "22222222-2222-4222-8222-222222222222",
+      categoryId: "44444444-4444-4444-8444-444444444444",
+      amountKrw: 49800,
+      spentOn: "2026-07-05",
+      itemName: "기저귀",
+      version: 3
+    };
+
+    expect(expenseSchema.parse(base).version).toBe(3);
+
+    const { categoryId: _categoryId, ...withoutCategory } = base;
+    expect(() => expenseSchema.parse(withoutCategory)).toThrow();
+
+    const { version: _version, ...withoutVersion } = base;
+    expect(() => expenseSchema.parse(withoutVersion)).toThrow();
+    expect(() => expenseSchema.parse({ ...base, version: 0 })).toThrow();
+    expect(() => expenseSchema.parse({ ...base, version: 1.5 })).toThrow();
+  });
+
+  // CON-115: PATCH/DELETE의 expectedVersion 요청 계약.
+  it("validates the expectedVersion update/delete request contracts and rejects refund on update", () => {
+    expect(
+      updateExpenseRequestSchema.parse({ amountKrw: 59800, expectedVersion: 2 })
+    ).toEqual({ amountKrw: 59800, expectedVersion: 2 });
+    // expectedVersion 없는 레거시 수정도 계속 유효하다.
+    expect(updateExpenseRequestSchema.parse({ memo: "수정" })).toEqual({ memo: "수정" });
+    expect(() => updateExpenseRequestSchema.parse({ expectedVersion: 0 })).toThrow();
+    expect(() => updateExpenseRequestSchema.parse({ expenseType: "refund" })).toThrow();
+    expect(updateExpenseRequestSchema.parse({ expenseType: "gift" }).expenseType).toBe("gift");
+
+    expect(deleteExpenseRequestSchema.parse({ expectedVersion: 1 }).expectedVersion).toBe(1);
+    expect(deleteExpenseRequestSchema.parse({}).expectedVersion).toBeUndefined();
+    expect(() => deleteExpenseRequestSchema.parse({ expectedVersion: -1 })).toThrow();
+  });
+
+  // CON-115: 409 VERSION_CONFLICT 바디 계약 — {error:{...}, current}.
+  it("validates the 409 VERSION_CONFLICT body with live, tombstone, and null current snapshots", () => {
+    const error = {
+      code: "VERSION_CONFLICT" as const,
+      message: "다른 곳에서 먼저 변경됐어요. 최신 내용을 다시 불러와 주세요.",
+      requestId: "req-1"
+    };
+    const liveCurrent = {
+      id: "11111111-1111-4111-8111-111111111111",
+      childId: "22222222-2222-4222-8222-222222222222",
+      categoryId: "44444444-4444-4444-8444-444444444444",
+      amountKrw: 30000,
+      spentOn: "2026-07-05",
+      itemName: "기저귀",
+      merchant: null,
+      memo: null,
+      expenseType: "expense",
+      source: "manual",
+      createdByUserId: "33333333-3333-4333-8333-333333333333",
+      version: 3
+    };
+
+    expect(versionConflictResponseSchema.parse({ error, current: liveCurrent }).current).toMatchObject({
+      version: 3
+    });
+    expect(
+      versionConflictResponseSchema.parse({
+        error,
+        current: { id: liveCurrent.id, deleted: true, version: 2 }
+      }).current
+    ).toEqual({ id: liveCurrent.id, deleted: true, version: 2 });
+    expect(versionConflictResponseSchema.parse({ error, current: null }).current).toBeNull();
+
+    // 다른 에러 코드는 이 계약이 아니다.
+    expect(() =>
+      versionConflictResponseSchema.parse({
+        error: { ...error, code: "IDEMPOTENCY_KEY_CONFLICT" },
+        current: null
+      })
+    ).toThrow();
   });
 
   it("lets the home summary budget be 0 when no monthly budget is set, unlike the strict budget endpoint contract", () => {

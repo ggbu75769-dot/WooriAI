@@ -49,12 +49,13 @@ curl -fsSL "https://raw.githubusercontent.com/ggbu75769-dot/WooriAI/master/scrip
      -f infra/docker/docker-compose.caddy.yml --env-file .env.production up -d api
    ```
 3. 모바일 릴리즈 빌드 env: `EXPO_PUBLIC_API_BASE_URL=https://<도메인>/api/v1`
-4. 스모크 테스트: `curl https://<도메인>/api/v1/health/ready`
+4. 스모크 테스트: `curl https://<도메인>/api/v1/health/ready` (전체 29검사 스모크는 `SMOKE_BASE_URL=https://<도메인>/api/v1 bash scripts/qa/server-smoke.sh` — 테스트 데이터가 실제로 생성되니 감안)
 5. `TRUST_PROXY=1` 확인: 부트스트랩이 생성하는 `.env.production`에 포함되어 있습니다(이 구성은 API가 항상 Caddy 리버스 프록시 1홉 뒤에서 동작). 이 값이 없으면 모든 요청이 프록시 IP 하나로 집계되어 per-IP rate limit이 전역 버킷 하나로 무력화됩니다. 기존 `.env.production`을 유지한 채 재실행한 경우(스크립트는 기존 파일을 덮어쓰지 않음) `TRUST_PROXY=1` 한 줄을 직접 추가하고 api를 재기동하세요.
+6. (선택) FCM 푸시 실발송(PUSH-113): 부트스트랩이 생성하는 `.env.production`에는 **없으므로** 켜려면 `PUSH_ENABLED=1`과 `FCM_SERVICE_ACCOUNT_PATH=<서비스 계정 JSON 경로>` 두 줄을 직접 추가하고 api를 재기동하세요. 경로는 **api 컨테이너 안에서 읽을 수 있어야** 하므로 JSON 파일을 볼륨으로 마운트해야 합니다(JSON 내용·private key는 env/로그에 넣지 말 것 — DNC-019). 미설정이면 안전한 no-op(출시 비차단). 상태 확인: `curl https://<도메인>/api/v1/health/push` — 키 미주입 시 `enabled=false`가 정상.
 
 ## 6. 운영 메모
 
-- **백업 — 자동 등록됨**: 부트스트랩 스크립트가 `/etc/cron.d/wooriai-backup`을 자동 생성합니다(§9, OPS-101). 매일 18:00 UTC(03:00 KST)에 컨테이너 내부 `pg_dump` → gzip으로 `/opt/wooriai-backup-<요일1~7>.sql.gz` 요일별 7개 파일 로테이션. Always Free Object Storage(20GB)로 복사해두면 무료. **복구 절차와 검증 드릴은 §부록 참조.**
+- **백업 — 자동 등록됨**: 부트스트랩 스크립트가 `/opt/wooriai-backup.sh`(백업 스크립트)와 `/etc/cron.d/wooriai-backup`을 자동 생성합니다(§9, OPS-101/OPS-115). 매일 18:00 UTC(03:00 KST) 실행 — 임시파일에 덤프 후 gzip 무결성·최소 크기 검증을 통과해야만 원자적으로 교체하므로 `pg_dump` 실패 시 기존 백업이 보존됩니다. 산출물은 `/opt/wooriai-backup-<요일1~7>.sql.gz` 요일별 7개 로테이션이고, 실행 결과(OK/FAIL)는 `tail /opt/wooriai-backup.log`로 확인합니다. Always Free Object Storage(20GB)로 복사해두면 무료. **복구 절차와 검증 드릴은 §부록 참조.**
 - **업데이트 배포**: `cd /opt/wooriai && sudo git pull && sudo docker compose ... up -d --build` (마이그레이션은 migrate 서비스가 자동 적용).
 - DuckDNS IP 갱신 크론은 스크립트가 등록함(10분 주기). 토큰은 root 전용 `/etc/wooriai/duckdns.curlconf`(600)에만 저장되고, 크론은 `/usr/local/sbin/wooriai-duckdns-update` 헬퍼(700)를 실행합니다 — 크론 파일이나 프로세스 목록에 토큰이 노출되지 않음.
 - 이 스크립트는 로컬 검증 환경에 Docker 데몬이 없어 **VM 첫 실행이 곧 첫 검증**입니다. 오류 출력이 나오면 그대로 붙여넣어 주세요 — 바로 수정하겠습니다.
@@ -98,8 +99,12 @@ curl -fsS https://<도메인>/api/v1/health/ready
 
 주의: 복원 대상은 **백업 시점**의 데이터입니다 — 백업 이후의 변경은 사라집니다. 복원 전 현재 상태도 한 번 덤프해 두면(`pg_dump ... | gzip > /opt/wooriai-pre-restore.sql.gz`) 되돌릴 수 있습니다.
 
-### C. (참고) 백업 크론 수동 재등록 — 부트스트랩 재실행이 곧 재등록이지만, 한 줄로도 가능
+### C. (참고) 백업 크론 수동 재등록 — 부트스트랩 재실행이 가장 안전한 방법
+
+크론이나 백업 스크립트가 사라졌다면 부트스트랩을 재실행하세요(멱등 — 기존 서비스에 영향 없이 스크립트·크론만 재생성됩니다). `/opt/wooriai-backup.sh`가 남아 있는 상태에서 크론 파일만 재등록하려면:
 
 ```bash
-echo '0 18 * * * root cd /opt/wooriai && docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.production exec -T postgres pg_dump -U wooriai wooriai | gzip > /opt/wooriai-backup-$(date +\%u).sql.gz' | sudo tee /etc/cron.d/wooriai-backup
+echo '0 18 * * * root /opt/wooriai-backup.sh >> /opt/wooriai-backup.log 2>&1' | sudo tee /etc/cron.d/wooriai-backup
 ```
+
+과거의 `pg_dump | gzip > 대상파일` 원라이너는 pg_dump 실패 시 기존 백업을 빈 파일로 덮어쓰는 결함(OPS-115에서 해소)이 있으므로 다시 사용하지 마세요.

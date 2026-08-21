@@ -13,6 +13,17 @@
  *   LOAD_N            시나리오별 측정 요청 수 (기본 200)
  *   LOAD_CONCURRENCY  동시 요청 수 (기본 10)
  *   LOAD_WARMUP       시나리오별 워밍업 요청 수, 통계 제외 (기본 10)
+ *   LOAD_ADMIN_TOKEN  감사로그 시나리오용 x-admin-token (기본 dev-admin-token)
+ *
+ * 시나리오 (PERF-114에서 확장):
+ *   - 기존: /home, /children/:id/expenses(GET·POST), /children/:id/items,
+ *     /children/:id/reports/monthly, /health/ready
+ *   - 추가: /sync/changes(델타 동기화, JWT), /health/push, /health/worker(무인증),
+ *     /admin/audit-logs(관리자 감사로그 목록)
+ *   - /admin/audit-logs는 dev/test 전용 레거시 x-admin-token 폴백(AdminTokenGuard)으로
+ *     인증한다. 쿠키 세션 + TOTP MFA 로그인 전체 플로우는 부하 스크립트 범위 밖
+ *     (admin-e2e.mjs가 담당). 폴백이 거부되는 환경(비 dev/test)에서는 프로브가
+ *     403을 받고 해당 시나리오를 사유와 함께 건너뛴다.
  *
  * 주의: dev 서버는 인메모리 IP 레이트리밋(기본 300req/min 전역, auth 30/min)이
  * 있다. 로그인은 1회만 수행하지만 측정 트래픽 자체가 전역 한도를 넘으므로,
@@ -202,10 +213,42 @@ async function main() {
       }
     },
     {
+      name: `GET /sync/changes`,
+      // 델타 동기화 전체 창(커서 없음, limit=100) 반복 — 클라이언트 첫 동기화와 동일 형태.
+      request: () => fetch(`${API}/sync/changes?limit=100`, { headers: auth })
+    },
+    {
       name: `GET /health/ready`,
       request: () => fetch(`${API}/health/ready`)
+    },
+    {
+      name: `GET /health/push`,
+      request: () => fetch(`${API}/health/push`)
+    },
+    {
+      name: `GET /health/worker`,
+      request: () => fetch(`${API}/health/worker`)
     }
   ];
+
+  // ── 3b. 관리자 감사로그 목록 — dev/test 전용 x-admin-token 폴백으로 인증 ──
+  // (쿠키 세션 + MFA 실플로우는 admin-e2e.mjs 소관. 여기서는 서버가 폴백을
+  //  허용하는 경우에만 측정하고, 아니면 사유를 남기고 건너뛴다.)
+  const adminToken = process.env.LOAD_ADMIN_TOKEN ?? "dev-admin-token";
+  const adminHeaders = { "x-admin-token": adminToken };
+  const auditProbe = await fetch(`${API}/admin/audit-logs?limit=50`, { headers: adminHeaders });
+  await auditProbe.arrayBuffer();
+  if (auditProbe.ok) {
+    scenarios.push({
+      name: `GET /admin/audit-logs`,
+      request: () => fetch(`${API}/admin/audit-logs?limit=50`, { headers: adminHeaders })
+    });
+  } else {
+    console.warn(
+      `skip: GET /admin/audit-logs — 프로브 응답 ${auditProbe.status}. ` +
+        `dev/test 전용 x-admin-token 폴백이 거부됨(비 dev/test 환경이거나 WOORIAI_ADMIN_TOKEN 불일치 — LOAD_ADMIN_TOKEN으로 지정 가능).`
+    );
+  }
 
   const results = [];
   for (const scenario of scenarios) {

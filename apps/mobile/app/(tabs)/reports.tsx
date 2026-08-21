@@ -229,7 +229,7 @@ export default function ReportsScreen() {
   return (
     <AppScreen>
       <View style={reportReferenceScaleFrameStyle()}>
-        <View accessibilityLabel={reportReferenceScreenId} style={reportReferenceFrameStyle}>
+        <View testID={reportReferenceScreenId} style={reportReferenceFrameStyle}>
           <Text style={reportReferenceHeaderStyle}>리포트</Text>
 
           <SegmentedControl options={["월간", "분기", "연간"]} value={period} onChange={setPeriod} />
@@ -366,6 +366,7 @@ export default function ReportsScreen() {
                   <Pressable
                     accessibilityLabel="100일 리포트 공유하기"
                     accessibilityRole="button"
+                    hitSlop={8}
                     onPress={shareMilestoneReport}
                     style={reportMilestoneShareButtonStyle}
                   >

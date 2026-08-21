@@ -10,8 +10,6 @@ import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
 import { theme } from "../../src/theme";
 
-const onboardingResumeScreenId = "ONB-006";
-
 const nextStepLabels: Record<string, string> = {
   consents: "약관 동의",
   "child-profile": "아이 프로필 입력",
@@ -68,7 +66,7 @@ export default function OnboardingResumeScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={onboardingResumeScreenId} testID="screen-ONB-006" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-ONB-006" style={{ gap: theme.spacing.section }}>
         <ScreenHeader
           eyebrow="이어서 진행하기"
           title="하던 곳부터 계속할까요?"

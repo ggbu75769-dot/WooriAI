@@ -86,4 +86,8 @@ step "11. 워커 하트비트 (INF-007)"
 WH=$(curl -s ${B%/api/v1}/api/v1/health/worker)
 chk "worker health 응답 형태" $(echo "$WH" | jq -e 'has("enabled") and has("stale") and has("jobs")' >/dev/null; echo $?)
 
+step "12. 푸시 상태 (PUSH-113)"
+PH=$(curl -s ${B%/api/v1}/api/v1/health/push)
+chk "push health 응답 형태(키 미주입 시 enabled=false)" $(echo "$PH" | jq -e 'has("enabled") and has("sentOk") and has("sendFailed")' >/dev/null; echo $?)
+
 echo -e "\n================= 결과: 실패 $fail 건 ================="

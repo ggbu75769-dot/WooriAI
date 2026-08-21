@@ -84,7 +84,8 @@ export const createExpenseRequestSchema = z.object({
 export const expenseSchema = z.object({
   id: uuidSchema,
   childId: uuidSchema,
-  categoryId: uuidSchema.optional(),
+  // CON-115: DB not-null(expenses.category_id)이고 API가 항상 반환하므로 required.
+  categoryId: uuidSchema,
   amountKrw: moneyKrwSchema,
   spentOn: dateOnlySchema,
   itemName: z.string().min(1),
@@ -92,7 +93,46 @@ export const expenseSchema = z.object({
   memo: z.string().nullable().optional(),
   expenseType: expenseTypeSchema.default("expense"),
   source: expenseSourceSchema.default("manual"),
-  createdByUserId: uuidSchema.optional()
+  createdByUserId: uuidSchema.optional(),
+  // CON-115/MOB-103: 낙관적 동시성 버전 — 생성 시 1, 수정/소프트삭제마다 +1.
+  // 모든 지출 응답(생성/조회/목록/home.recentExpenses)에 항상 포함된다.
+  version: z.number().int().min(1)
+});
+
+// CON-115: PATCH /expenses/:id 요청 계약 — 서버 UpdateExpenseDto의 미러
+// (apps/api/src/finance/dto/expense.dto.ts). expenseType은 생성과 동일하게
+// expense|gift만 허용된다(refund는 서버가 400으로 거부). expectedVersion이
+// 있고 서버 version과 다르면 409 VERSION_CONFLICT(versionConflictResponseSchema).
+export const updateExpenseRequestSchema = z.object({
+  categoryId: uuidSchema.optional(),
+  amountKrw: moneyKrwSchema.optional(),
+  spentOn: dateOnlySchema.optional(),
+  itemName: z.string().min(1).max(100).optional(),
+  memo: z.string().max(500).optional(),
+  expenseType: z.enum(["expense", "gift"]).optional(),
+  expectedVersion: z.number().int().min(1).optional()
+});
+
+// CON-115: DELETE /expenses/:id — expectedVersion은 쿼리 파라미터로 전달된다
+// (apps/api/src/finance/dto/query.dto.ts). 생략 시 레거시(무조건 삭제) 동작.
+export const deleteExpenseRequestSchema = z.object({
+  expectedVersion: z.number().int().min(1).optional()
+});
+
+// CON-115/MOB-103 §2.2: 409 VERSION_CONFLICT의 `current` — 서버의 최신 상태.
+// 살아있는 지출 전체 스냅샷 | 소프트삭제 톰스톤 | (row가 아예 없으면) null.
+export const expenseConflictSnapshotSchema = z
+  .union([
+    expenseSchema,
+    z.object({ id: uuidSchema, deleted: z.literal(true), version: z.number().int().min(1) })
+  ])
+  .nullable();
+
+// CON-115: PATCH/DELETE /expenses/:id의 409 충돌 응답 바디 — GlobalExceptionFilter가
+// {error:{...}} 봉투 밖 최상위에 `current`를 나란히 싣는다(§2.2 계약).
+export const versionConflictResponseSchema = z.object({
+  error: errorResponseSchema.shape.error.extend({ code: z.literal("VERSION_CONFLICT") }),
+  current: expenseConflictSnapshotSchema
 });
 
 export const budgetSchema = z.object({
@@ -195,7 +235,11 @@ export type CategoryListItemDto = z.infer<typeof categoryListItemSchema>;
 export type ChildDto = z.infer<typeof childSchema>;
 export type CreateExpenseRequestDto = z.infer<typeof createExpenseRequestSchema>;
 export type ListCategoriesResponseDto = z.infer<typeof listCategoriesResponseSchema>;
+export type DeleteExpenseRequestDto = z.infer<typeof deleteExpenseRequestSchema>;
+export type ExpenseConflictSnapshotDto = z.infer<typeof expenseConflictSnapshotSchema>;
 export type ExpenseDto = z.infer<typeof expenseSchema>;
+export type UpdateExpenseRequestDto = z.infer<typeof updateExpenseRequestSchema>;
+export type VersionConflictResponseDto = z.infer<typeof versionConflictResponseSchema>;
 export type HomeSummaryDto = z.infer<typeof homeSummarySchema>;
 export type ImportRowDto = z.infer<typeof importRowSchema>;
 export type ItemSummaryDto = z.infer<typeof itemSummarySchema>;

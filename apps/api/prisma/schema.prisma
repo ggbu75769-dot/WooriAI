@@ -324,6 +324,9 @@ model Expense {
   @@index([categoryId], map: "idx_expenses_category")
   // PERF-101(000011): 델타 동기화 keyset((updatedAt,id) 커서, 가구 스코프) 전용.
   @@index([householdId, updatedAt, id], map: "idx_expenses_household_updated")
+  // PERF-115(000014): 파기 워커의 created_by_user_id 안티조인/참조 차단 검사용
+  // (data-retention-purge.job.ts selectPurgeableStubs · findReferenceBlockedUserIds).
+  @@index([createdByUserId], map: "idx_expenses_created_by")
   @@map("expenses")
 }
 
@@ -339,6 +342,23 @@ model Budget {
   @@unique([childId, yearMonth], map: "uq_budgets_child_month")
   @@index([childId, yearMonth], map: "idx_budgets_child_month")
   @@map("budgets")
+}
+
+// PUSH-113 후속(리뷰 M-2): 예산 경계(80/100) 푸시 발송 클레임 — (아이, 월, 경계)당
+// 1행. unique 제약을 INSERT로 선점(claim)한 요청만 발송해 동시 지출 레이스에서의
+// 중복/누락을 구조적으로 제거한다. child_id는 SQL FK(ON DELETE CASCADE, 000013)로
+// 아이 물리 파기 시 함께 삭제된다 (schema.prisma는 관계 미선언 관례 — 000001 참조).
+model PushBoundaryMark {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  childId   String   @map("child_id") @db.Uuid
+  /// 'YYYY-MM' (Asia/Seoul 기준 월).
+  yearMonth String   @map("year_month") @db.VarChar(7)
+  /// 경계 백분율: 80 또는 100.
+  boundary  Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([childId, yearMonth, boundary], map: "uq_push_boundary_marks")
+  @@map("push_boundary_marks")
 }
 
 model ChildItemStatus {
@@ -487,6 +507,10 @@ model Attachment {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
 
+  // PERF-115(000014): 파기 캐스케이드(expense_id IN UPDATE / child_id IN DELETE,
+  // data-retention-purge.job.ts)가 30초 트랜잭션 안에서 도는 예방 인덱스.
+  @@index([expenseId], map: "idx_attachments_expense")
+  @@index([childId], map: "idx_attachments_child")
   @@map("attachments")
 }
 
@@ -504,6 +528,10 @@ model AuditLog {
 
   @@index([householdId, createdAt], map: "idx_audit_logs_household_created")
   @@index([targetType, targetId], map: "idx_audit_logs_target")
+  // ADM-113 감사 로그 뷰어 목록/필터 인덱스 (000012)
+  @@index([createdAt, id], map: "idx_audit_logs_created_at")
+  @@index([action, createdAt], map: "idx_audit_logs_action_created")
+  @@index([actorUserId, createdAt], map: "idx_audit_logs_actor_created")
   @@map("audit_logs")
 }
 

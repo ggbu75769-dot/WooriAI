@@ -2,6 +2,7 @@ import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
+import { expenseSchema } from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -132,6 +133,9 @@ describe("Expense, budget, home, and report API", () => {
         })
         .expect(200)
         .expect(({ body }) => {
+          // CON-115: 지출 생성 응답 전체가 공유 계약(expenseSchema)에 맞아야 한다
+          // (required categoryId·version 포함) — 계약을 살아있는 검증으로 유지.
+          expenseSchema.parse(body);
           expect(body).toMatchObject({
             id: expect.any(String),
             childId,
@@ -143,7 +147,8 @@ describe("Expense, budget, home, and report API", () => {
             memo: "첫 기록",
             expenseType: "expense",
             source: "manual",
-            createdByUserId: userId
+            createdByUserId: userId,
+            version: 1
           });
         })
     ).body as { id: string };
@@ -156,6 +161,8 @@ describe("Expense, budget, home, and report API", () => {
       .send({ amountKrw: 59800, memo: "수정된 기록" })
       .expect(200)
       .expect(({ body }) => {
+        // CON-115: 지출 수정 응답도 동일한 공유 계약을 만족해야 한다.
+        expenseSchema.parse(body);
         expect(body).toMatchObject({
           id: created.id,
           amountKrw: 59800,

@@ -72,6 +72,7 @@ describe("Security middleware (rate limit, headers, body size, idempotency)", ()
     delete process.env.WOORIAI_STAGE_TODAY;
     delete process.env.RATE_LIMIT_GLOBAL_MAX;
     delete process.env.RATE_LIMIT_AUTH_MAX;
+    delete process.env.RATE_LIMIT_REDIRECT_MAX;
     delete process.env.RATE_LIMIT_WINDOW_MS;
     delete process.env.TRUST_PROXY;
     await app.close();
@@ -138,6 +139,30 @@ describe("Security middleware (rate limit, headers, body size, idempotency)", ()
     }
 
     expect(statuses).toEqual([200, 200, 429, 429]);
+  });
+
+  // SEC-115 F3: the public affiliate redirect performs an affiliate_clicks
+  // INSERT per request, so it gets its own tighter per-IP bucket on top of the
+  // global ceiling. The middleware matches on path prefix before routing, so
+  // an unknown code (404) exercises the bucket without needing a seeded link.
+  it("applies a dedicated tighter ceiling to the affiliate redirect /r/* than the global limit", async () => {
+    process.env.RATE_LIMIT_GLOBAL_MAX = "100";
+    process.env.RATE_LIMIT_REDIRECT_MAX = "2";
+    process.env.RATE_LIMIT_WINDOW_MS = "60000";
+
+    const statuses: number[] = [];
+    let lastBody: unknown;
+    for (let i = 0; i < 4; i++) {
+      const response = await request(app.getHttpServer()).get("/api/v1/r/sec115-rate-limit-code").redirects(0);
+      statuses.push(response.status);
+      lastBody = response.body;
+    }
+
+    expect(statuses).toEqual([404, 404, 429, 429]);
+    expect(lastBody).toMatchObject({ error: { code: "RATE_LIMITED" } });
+
+    // The redirect bucket must not throttle the rest of the API.
+    await request(app.getHttpServer()).get("/api/v1/health").expect(200);
   });
 
   it("with TRUST_PROXY=1 keys rate-limit buckets on the X-Forwarded-For client IP, so each attacker hits their own ceiling", async () => {

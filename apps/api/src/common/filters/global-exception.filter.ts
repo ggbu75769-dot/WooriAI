@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   HttpException,
   HttpStatus,
+  Logger,
   UnauthorizedException,
   type ExceptionFilter
 } from "@nestjs/common";
@@ -71,15 +72,33 @@ function responseBodyFrom(exception: HttpException): ErrorResponseBody {
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(GlobalExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost) {
     const context = host.switchToHttp();
     const request = context.getRequest<HttpRequest>();
     const response = context.getResponse<HttpResponse>();
+    const requestId = requestIdFrom(request);
 
     const statusCode =
       exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
+
+    // SEC-115 F1: a non-HttpException used to be swallowed entirely — the
+    // client (correctly) gets only the generic 500 envelope, but nothing
+    // reached the server log either, making incidents undiagnosable. Log the
+    // cause SERVER-SIDE ONLY, keyed by requestId so it can be correlated with
+    // the client-visible envelope. The response body below stays byte-for-byte
+    // identical: stacks/messages may contain sensitive values and must never
+    // leak into the envelope.
+    if (!(exception instanceof HttpException)) {
+      const cause = exception instanceof Error ? exception : undefined;
+      this.logger.error(
+        `Unhandled exception (requestId=${requestId}): ${cause?.message ?? String(exception)}`,
+        cause?.stack
+      );
+    }
     const exceptionBody = exception instanceof HttpException ? responseBodyFrom(exception) : {};
     const message = Array.isArray(exceptionBody.message)
       ? "요청 값을 다시 확인해주세요."
@@ -101,7 +120,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         code,
         message,
         details: exceptionBody.details,
-        requestId: requestIdFrom(request)
+        requestId
       },
       ...extra
     });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
@@ -12,7 +12,7 @@ import {
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen } from "../../src/ui";
+import { announceForA11y, AppScreen } from "../../src/ui";
 
 const isTestLoginEnabled = process.env.EXPO_PUBLIC_TEST_LOGIN === "1";
 const logoMark = require("../../assets/illustrations/logo_mark.png");
@@ -75,6 +75,11 @@ export default function LoginScreen() {
   }
   const [isLoginPending, setIsLoginPending] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  // A11Y-115: the error card appears below the CTA where TalkBack focus isn't sitting --
+  // announce the message so screen-reader users hear the failure without hunting for it.
+  useEffect(() => {
+    if (loginError) announceForA11y(loginError);
+  }, [loginError]);
   const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);
   const setSession = useSessionStore((state) => state.setSession);
   const startTestSession = useSessionStore((state) => state.startTestSession);
@@ -141,7 +146,7 @@ export default function LoginScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel="우리아이 테스트 로그인" testID="screen-AUTH-001" style={styles.screen}>
+      <View testID="screen-AUTH-001" style={styles.screen}>
         <View style={styles.brandRow}>
           <Image source={logoMark} style={styles.logo} resizeMode="contain" />
           <Text style={styles.brandName}>우리아이</Text>
@@ -219,7 +224,7 @@ export default function LoginScreen() {
               : "로그인하면 필수 약관 동의가 계정에 저장돼요."}
           </Text>
           {loginError ? (
-            <View style={styles.errorCard}>
+            <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.errorCard}>
               <Text style={styles.errorText}>{loginError}</Text>
             </View>
           ) : null}

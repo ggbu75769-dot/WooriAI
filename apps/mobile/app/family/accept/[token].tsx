@@ -57,7 +57,7 @@ export default function AcceptInviteScreen() {
 
   return (
     <AppScreen>
-      <View testID="screen-FAM-003" accessibilityLabel="screen-FAM-003" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-FAM-003" style={{ gap: theme.spacing.section }}>
         <ScreenHeader eyebrow="가족 관리" title="초대 수락" subtitle="초대받은 가족에 참여해요" />
 
         {invite.isLoading ? (

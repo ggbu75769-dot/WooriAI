@@ -37,7 +37,7 @@ Android 단독 출시입니다(iOS는 다음 사이클 — D-04 결정 반영).
 - [ ] PostgreSQL 15+ 인스턴스 생성 → `DATABASE_URL`
 - [ ] API 배포 (NestJS, `PORT=3000`). 헬스체크 경로: `GET /api/v1/health/ready`
 - [ ] 도메인 연결 + HTTPS (플랫폼 자동 인증서)
-- [ ] `pnpm --filter api prisma:deploy && pnpm --filter api seed` (마이그레이션 10개, 시드: 카테고리 12·준비템 86·링크 58)
+- [ ] `pnpm --filter api prisma:deploy && pnpm --filter api seed` (마이그레이션 13개, 시드: 카테고리 12·준비템 62·링크 58)
 
 ### 2.2 프로덕션 환경변수 (부트 시 `assertRequiredSecretsConfigured`가 누락을 즉시 잡음)
 ```
@@ -47,16 +47,22 @@ JWT_ACCESS_SECRET / JWT_REFRESH_SECRET  ← openssl rand -base64 48 로 각각 �
 AFFILIATE_CLICK_IP_SALT / ANALYTICS_ANON_SALT ← 동일 방식 생성
 AFFILIATE_ALLOWED_DOMAINS=coupang.com,link.coupang.com,naver.com,smartstore.naver.com
 AFFILIATE_DISCLOSURE_TEXT=이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
+WOORIAI_ADMIN_TOKEN ← openssl rand -base64 32 (부트 필수 — dev/test 외에는 헤더 인증에 안 쓰이지만 부재 시 부트 실패)
 OAUTH_KAKAO_CLIENT_ID / OAUTH_KAKAO_CLIENT_SECRET ← 카카오 콘솔
 OAUTH_KAKAO_REDIRECT_URIS=wooriai://oauth/kakao
+INVITE_LINK_BASE_URL=https://<확정 도메인>   ← 가족 초대 링크 도메인 (REL-007)
+ADMIN_SEED_EMAIL / ADMIN_SEED_PASSWORD ← 관리자 1호 시드용 (§2.3)
+TRUST_PROXY=1             ← 리버스 프록시/Fly 엣지 1홉 뒤일 때 (per-IP rate limit 조건, fly.toml [env]에 이미 포함)
 WORKER_ENABLED=1          ← 단일 인스턴스 1개에만 (CMS 예약 게시·만료 정리)
 LINK_HEALTH_ENABLED=1     ← 링크 헬스체크 (실링크 투입 후)
+PUSH_ENABLED=1            ← (선택) FCM 푸시 실발송 — 기본 꺼짐이면 안전한 no-op, 출시 비차단
+FCM_SERVICE_ACCOUNT_PATH=<Firebase 서비스 계정 JSON "파일 경로"> ← PUSH_ENABLED=1일 때 필수, 켠 뒤 GET /api/v1/health/push로 확인
 ```
 
 ### 2.3 운영 계정·데이터
 - [ ] 관리자 1호 계정: seed로 생성 → **즉시 `POST /admin/auth/change-password`로 비밀번호 교체 + MFA 등록**(강제 흐름 있음)
 - [ ] 필요 시 admin UI(/users)에서 팀원 계정 발급 — 임시 비밀번호 1회 노출 방식
-- [ ] 초대 링크 도메인: `household-runtime.service.ts`의 `https://wooriai.local/invite/…` 하드코딩을 실제 도메인으로 교체하는 1줄 수정 필요 → **유일하게 남은 코드 수정**. (딥링크 `wooriai://` 스킴 처리와 함께 검증)
+- [ ] 초대 링크 도메인: `INVITE_LINK_BASE_URL` 환경변수로 주입(REL-007로 하드코딩 제거 완료 — 코드 수정 불필요). 미설정 시 `https://wooriai.local` 폴백이므로 실제 도메인 설정 필수. (딥링크 `wooriai://` 스킴 처리와 함께 검증)
 
 ## 3. Day 2 — 앱을 실제로 빌드한다
 
@@ -97,7 +103,7 @@ LINK_HEALTH_ENABLED=1     ← 링크 헬스체크 (실링크 투입 후)
 
 ## 4. Day 3 — 제출한다
 
-- [ ] **개인정보처리방침 + 이용약관**을 도메인에 정적 호스팅 (docs 1차 비즈니스 룰 기반으로 작성; 수집 항목: 카카오 식별자·이메일, 아이 정보(생일/예정일), 지출 기록, 선택적 익명 통계. 처리 위탁: 호스팅 사업자. 파기: 탈퇴 시 즉시 — 이미 구현된 삭제 플로우와 일치하게)
+- [ ] **개인정보처리방침 + 이용약관 + 계정 삭제 안내**를 정적 호스팅 — 문서 HTML은 `infra/legal/`에 준비됨([대괄호] placeholder만 교체), 랜딩·FAQ·지원 페이지는 `infra/site/`(SITE-113). **Cloudflare Pages 무료 배포 절차·Play Console URL 매핑은 `infra/site/README.md`** 참고 (수집 항목: 카카오 식별자·이메일, 아이 정보(생일/예정일), 지출 기록, 선택적 익명 통계 — 이미 구현된 삭제 플로우와 일치)
 - [ ] Play Console: 앱 생성 → 데이터 안전 설문(위 항목 그대로), 콘텐츠 등급(만 3세+ 아님 — 보호자 대상 금융/가계부), 광고 없음, 대상 연령 성인
 - [ ] 스토어 자산: 스크린샷 4~8장(홈/기록/준비템/리포트/100일 리포트 — pixel-lock 캡처 재활용 가능), 512 아이콘, 1024×500 그래픽, 앱 설명(§6 문구 초안)
 - [ ] **내부 테스트 트랙에 AAB 업로드 → 자가 설치 검증 → 심사 제출**

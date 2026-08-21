@@ -97,3 +97,36 @@ psql ... -c "EXPLAIN (ANALYZE, BUFFERS) <서비스 코드의 쿼리 모양 그�
 
 인덱스 추가/제거 판단은 항상 이 문서처럼 **before/after 실측**을 남길 것. 특히
 `CREATE INDEX ... CONCURRENTLY`는 런칭 후 트래픽이 생기면 필수(000011은 런칭 전이라 미사용).
+
+---
+
+# PERF-115 (000014) — EXPLAIN 전수 감사 라운드15 후속
+
+핫 경로 전반에 대한 EXPLAIN 전수 감사에서 확정된 발견 4건의 처리 기록. PERF-101과
+같은 원칙(측정/판정 근거 없는 인덱스 추가 금지)을 유지하되, 이번 라운드는 감사에서
+나온 **판정·확신도**를 그대로 남긴다. 인덱스 3건은 `000014_perf_round15`
+(000011/000012와 동일한 additive `CREATE INDEX IF NOT EXISTS` 관례), 나머지 2건은
+코드 수정이다.
+
+| # | 확신도 | 발견 | 처리 |
+|---|---|---|---|
+| F1 | 높음 | `dashboard-summary.service.ts`의 7일 분석 이벤트 카운트가 `received_at` 기준인데 시간 인덱스는 `occurred_at`(000011)뿐 → 가장 빨리 자라는 append 전용 테이블(analytics_events) 풀스캔 | **코드 수정**: `occurredAt` 기준으로 재작성. 의도적 의미 변경(수신 시각 → 발생 시각)이며 KPI 화면(`analytics-summary.service.ts`)과 의미가 정합해진다 — `received_at` 인덱스 추가 대신 이 쪽이 최선이라는 감사 판정. 지연 수신(backfill) 이벤트가 카운트에서 빠지는 회귀 테스트 포함(`admin-dashboard-summary.e2e.test.ts`) |
+| F2 | 높음 | 파기 워커(`data-retention-purge.job.ts` `selectPurgeableStubs`)의 `NOT EXISTS (... expenses.created_by_user_id = u.id)` 안티조인이 무인덱스 컬럼이라 후보 행마다 최대 볼륨 테이블(expenses) 풀스캔; 같은 컬럼을 `findReferenceBlockedUserIds`도 조회 | **추가** `idx_expenses_created_by (created_by_user_id)` — 안티조인 프로브가 index-only로 풀린다 |
+| F3 | 중간(예방) | attachments에 PK 외 인덱스 0개인데 파기 캐스케이드가 30초 트랜잭션 안에서 `expense_id IN (...)` UPDATE(FK 널링)와 `child_id IN (...)` DELETE를 수행 — 첨부 볼륨이 쌓이면 배치당 풀스캔 x2가 tx 타임아웃 예산을 잠식 | **추가** `idx_attachments_expense (expense_id)`, `idx_attachments_child (child_id)` — 현재 볼륨에선 측정 이득이 작지만 30초 타임아웃 실패 모드(포이즌 행 오판)의 예방 비용이 낮다고 판정 |
+| F4 | — | `content-revisions.service.ts` 목록 쿼리에 LIMIT 없음 — publish/rollback마다 이력 행이 무한 누적되는 테이블의 전량 응답 | **코드 수정**: 어드민 목록 관례(감사 로그 뷰어의 bounded `take`)에 맞춰 `take: 100`(`CONTENT_REVISIONS_LIST_LIMIT`) + `id` desc 타이브레이커. `{ revisions: [...] }` 응답 계약 유지(최신순이라 잘리는 것은 가장 오래된 이력) |
+
+## 검증 (000014)
+
+- `pnpm --filter api prisma:validate` ✅ (비부분 인덱스 3건 모두 schema.prisma `@@index` 반영)
+- `prisma migrate deploy`로 000014가 기존 dev DB(000013까지 적용)에 정상 적용 ✅
+- `apps/api/test/perf-indexes.db.test.ts`에 PERF-115 블록 추가: pg_indexes 정의 계약
+  (PERF-101 관례) + **EXPLAIN 인덱스 사용 확인**. 테스트 DB는 소규모라 플래너가
+  seq scan을 선호하므로 트랜잭션 내 `SET LOCAL enable_seqscan = off`로 강제한 뒤
+  파기 워커의 실제 술어 모양이 새 인덱스를 태우는지(플랜에 인덱스명 등장) 검증 —
+  "인덱스가 해당 술어에 사용 가능한가"는 통계와 무관하게 결정적이다. dev DB 수동
+  확인에서도 3건 모두 Index (Only) Scan 확인 ✅
+- F1/F4는 각 서비스 테스트로 검증(`admin-dashboard-summary.e2e.test.ts`,
+  `content-revisions.e2e.test.ts`)
+
+런칭 후 재측정 시에는 이 라운드 인덱스도 상단 "재측정 방법"대로 before/after 실측을
+남길 것 (F3은 예방 채택이므로 볼륨이 생기면 실측으로 사후 정당화하거나 제거를 판단).

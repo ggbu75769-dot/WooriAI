@@ -1,4 +1,4 @@
-import { computeNextRetryAtIso } from "./backoff";
+import { MAX_DELAY_MS, computeNextRetryAtIso } from "./backoff";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import { mergeOutboxMutation } from "./outbox-merge";
 import {
@@ -289,7 +289,8 @@ export function wipeOfflineStore(store: OfflineStore): Promise<void> {
  * (design doc §3.2 point 2: "outbox 순서대로"). Rows whose local expense is currently in
  * 'conflict' or 'failed' state are skipped -- those need an explicit user action (conflict
  * resolution, retry, or discard) before they're eligible again. Rows still inside their
- * backoff window (`next_retry_at` in the future) are also skipped.
+ * backoff window (`next_retry_at` in the future) are also skipped -- unless the window is
+ * impossibly far in the future, which the OFF-115 clock-anomaly rule below self-heals.
  */
 async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): Promise<FlushSummary> {
   const summary: FlushSummary = { synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false };
@@ -307,7 +308,26 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
       continue;
     }
     if (mutation.nextRetryAt && mutation.nextRetryAt > currentTime) {
-      continue;
+      // OFF-115 (시계 역행 자가 치유): a legitimately scheduled retry can never sit more than
+      // MAX_DELAY_MS past "now" -- computeNextRetryAtIso caps the delay at MAX_DELAY_MS relative
+      // to the wall clock at failure time, and real time only moves the window CLOSER afterwards.
+      // So `nextRetryAt > now + MAX_DELAY_MS` (strictly greater: an uncrossed cap-sized window is
+      // still legitimate) proves the device clock jumped backwards after the failure was recorded.
+      // Without this rule the row would stay parked for the whole jump width + delay -- unbounded,
+      // and invisible in the UI (the row is 'pending', not 'failed', so no 재시도 button appears).
+      // Chosen over threading a "bypass nextRetryAt" flag through the reconnect/foreground
+      // triggers (backoff.ts's original design comment) because it is local, heals EVERY flush
+      // entry point (timer, reconnect poll, foreground, manual), and doesn't let repeated
+      // foreground events bypass a healthy backoff window during network flaps.
+      const maxPlausibleRetryAt = new Date(new Date(currentTime).getTime() + MAX_DELAY_MS).toISOString();
+      if (mutation.nextRetryAt <= maxPlausibleRetryAt) {
+        continue; // normal backoff window -- untouched (§6: MAX_DELAY_MS plateau semantics)
+      }
+      // Clock anomaly: clamp the stale window away ("due now") and fall through to send in this
+      // very pass. attemptCount is deliberately kept (unlike the explicit user 재시도) so a still-
+      // failing network re-schedules from the SAME backoff rung, now anchored to the current
+      // clock -- the anomaly heals without resetting pacing.
+      await store.updateOutboxMutation(mutation.mutationId, { nextRetryAt: null });
     }
     if (mutation.operation !== "create" && !localRow.canonicalId) {
       // H-3: this update/delete was appended (not folded) because an earlier create for the

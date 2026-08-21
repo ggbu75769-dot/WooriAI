@@ -43,7 +43,7 @@ export default function FamilyInviteScreen() {
 
   return (
     <AppScreen>
-      <View testID="screen-FAM-002" accessibilityLabel="screen-FAM-002" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-FAM-002" style={{ gap: theme.spacing.section }}>
         <ScreenHeader eyebrow="가족 관리" title="가족 초대" subtitle="함께할 역할을 선택하고 초대 링크를 만들어요" />
 
         <Card style={{ gap: 8 }}>

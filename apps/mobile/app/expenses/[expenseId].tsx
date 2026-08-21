@@ -11,8 +11,6 @@ import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
 
-const expenseDetailScreenId = "EXP-003";
-
 function toDigits(value: string) {
   return value.replace(/[^0-9]/g, "");
 }
@@ -182,7 +180,7 @@ export default function ExpenseDetailScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={expenseDetailScreenId} testID="screen-EXP-003" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-EXP-003" style={{ gap: theme.spacing.section }}>
         <ScreenHeader eyebrow="지출 상세" title="지출 수정" subtitle="품목과 금액을 확인하고 수정할 수 있어요." />
 
         {expense.isLoading ? (
@@ -201,6 +199,8 @@ export default function ExpenseDetailScreen() {
                   품목
                 </Text>
                 <TextInput
+                  accessibilityLabel="품목 입력"
+                  returnKeyType="done"
                   onChangeText={setItemName}
                   placeholder="품목"
                   style={{
@@ -238,7 +238,9 @@ export default function ExpenseDetailScreen() {
                   }}
                 >
                   <TextInput
+                    accessibilityLabel="지출 금액 입력"
                     keyboardType="number-pad"
+                    returnKeyType="done"
                     onChangeText={(value) => setAmountDigits(toDigits(value))}
                     placeholder="금액"
                     style={{ color: theme.colors.brown, flex: 1, fontSize: theme.typography.body1.fontSize }}
@@ -294,7 +296,7 @@ export default function ExpenseDetailScreen() {
                         />
                       ))}
                     </ScrollView>
-                    <Pressable accessibilityRole="button" onPress={() => setCustomDateMode((value) => !value)}>
+                    <Pressable accessibilityRole="button" hitSlop={14} onPress={() => setCustomDateMode((value) => !value)}>
                       <Text style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}>
                         {customDateMode ? "최근 날짜에서 선택" : "직접 입력"}
                       </Text>
@@ -356,6 +358,8 @@ export default function ExpenseDetailScreen() {
                   메모 (선택)
                 </Text>
                 <TextInput
+                  accessibilityLabel="메모 입력 (선택)"
+                  returnKeyType="done"
                   onChangeText={setMemo}
                   placeholder="메모를 입력해 주세요"
                   style={{

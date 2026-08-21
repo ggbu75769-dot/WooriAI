@@ -186,14 +186,53 @@ if grep -q '^ADMIN_SEED_PASSWORD=' "$ENV_FILE"; then
   echo "[wooriai] 비밀번호를 분실했다면: 어드민의 다른 관리자 계정으로 재발급하거나, DB에서 해당 admin_users 행 삭제 후 ADMIN_SEED_PASSWORD를 새로 설정하고 시드를 재실행하세요."
 fi
 
-# ── 9. DB 일일 백업 크론 (OPS-101) ─────────────────────────────
+# ── 9. DB 일일 백업 크론 (OPS-101, 원자화 OPS-115) ─────────────
 # 매일 18:00 UTC(03:00 KST) 컨테이너 내부 pg_dump → gzip, 요일별 7개 파일 로테이션.
-# 재실행 시 크론 파일을 통째로 덮어써 멱등. 복구 절차는 런북 부록 참조
+# 크론이 파이프로 대상 파일에 직접 쓰면 pg_dump 실패 시에도 파일이 truncate돼
+# 기존 정상 백업을 빈 파일로 덮어쓴다(OPS-115). 그래서 백업 로직을 별도 스크립트로
+# 분리: 임시파일에 덤프 → gzip 무결성·최소 크기 검증 → 성공 시에만 원자적 mv,
+# 실패 시 기존 백업 보존 + /opt/wooriai-backup.log 에 기록.
+# 재실행 시 스크립트/크론 파일을 통째로 덮어써 멱등. 복구 절차는 런북 부록 참조
 # (드릴 검증: scripts/qa/backup-restore-drill.sh).
-log "일일 백업 크론 등록: /etc/cron.d/wooriai-backup (03:00 KST, 요일별 로테이션)"
+BACKUP_SCRIPT="/opt/wooriai-backup.sh"
+log "백업 스크립트 생성: ${BACKUP_SCRIPT} + 크론 등록: /etc/cron.d/wooriai-backup (03:00 KST, 요일별 로테이션)"
+cat > "$BACKUP_SCRIPT" <<EOF
+#!/usr/bin/env bash
+# 우리아이 DB 일일 백업 (OPS-101/OPS-115) — oracle-bootstrap.sh가 생성 (손편집 금지,
+# 부트스트랩 재실행 시 덮어씀). 실패 시 기존 백업을 절대 덮어쓰지 않는다:
+# 임시파일 덤프 → gunzip -t 무결성 + 최소 크기 검증 → 성공 시에만 원자적 mv.
+set -euo pipefail
+
+APP_DIR="${APP_DIR}"
+COMPOSE_FILE="${COMPOSE_FILE}"
+BACKUP_LOG="/opt/wooriai-backup.log"
+MIN_BYTES=1024   # 정상 덤프라면 gzip 후에도 이보다 작을 수 없음 (빈/절단 덤프 감지)
+TARGET="/opt/wooriai-backup-\$(date +%u).sql.gz"
+
+TMP="\$(mktemp "\${TARGET}.tmp.XXXXXX")"
+trap 'rm -f "\$TMP"' EXIT
+
+fail() {
+  echo "\$(date -u '+%Y-%m-%dT%H:%M:%SZ') FAIL: \$1 — 기존 백업 보존: \${TARGET}" >> "\$BACKUP_LOG"
+  exit 1
+}
+
+cd "\$APP_DIR" || fail "APP_DIR 이동 실패: \$APP_DIR"
+docker compose -f "\$COMPOSE_FILE" --env-file .env.production exec -T postgres \\
+  pg_dump -U wooriai wooriai | gzip > "\$TMP" \\
+  || fail "pg_dump/gzip 실패 (exit \$?)"
+gunzip -t "\$TMP" 2>/dev/null || fail "gzip 무결성 검증 실패"
+SIZE="\$(stat -c %s "\$TMP")"
+[ "\$SIZE" -ge "\$MIN_BYTES" ] || fail "덤프 크기 비정상 (\${SIZE}B < \${MIN_BYTES}B)"
+mv -f "\$TMP" "\$TARGET"
+chmod 600 "\$TARGET"
+echo "\$(date -u '+%Y-%m-%dT%H:%M:%SZ') OK: \${TARGET} (\${SIZE}B)" >> "\$BACKUP_LOG"
+EOF
+chmod 700 "$BACKUP_SCRIPT"
 cat > /etc/cron.d/wooriai-backup <<EOF
-# 우리아이 DB 일일 백업 (OPS-101) — 매일 18:00 UTC = 03:00 KST, 요일(1~7)별 파일 로테이션
-0 18 * * * root cd ${APP_DIR} && docker compose -f ${COMPOSE_FILE} --env-file .env.production exec -T postgres pg_dump -U wooriai wooriai | gzip > /opt/wooriai-backup-\$(date +\%u).sql.gz
+# 우리아이 DB 일일 백업 (OPS-101/OPS-115) — 매일 18:00 UTC = 03:00 KST, 요일(1~7)별 파일 로테이션
+# 실제 로직은 ${BACKUP_SCRIPT} (실패 시 기존 백업 보존, 결과는 /opt/wooriai-backup.log)
+0 18 * * * root ${BACKUP_SCRIPT} >> /opt/wooriai-backup.log 2>&1
 EOF
 chmod 644 /etc/cron.d/wooriai-backup
 

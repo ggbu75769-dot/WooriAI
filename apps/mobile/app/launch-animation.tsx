@@ -99,7 +99,7 @@ export default function LaunchAnimationScreen() {
     <AppScreen>
       <View style={[{ alignItems: "center", flex: 1, gap: SplashPixelStyles.logoGap, justifyContent: "flex-start", paddingTop: 112 }, splashPixelFrameStyle()]}>
         <Image
-          accessibilityLabel={splashScreenId}
+          testID={splashScreenId}
           source={splashLogo}
           style={{ height: SplashPixelStyles.logoSize, width: SplashPixelStyles.logoSize }}
           resizeMode="cover"

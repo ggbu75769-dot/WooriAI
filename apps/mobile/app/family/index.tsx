@@ -48,7 +48,7 @@ function FamilyInviteRow({ icon, title, value, onPress }: { icon: string; title:
       <Text style={familyInviteIconStyle}>{icon}</Text>
       <Text style={familyInviteTitleStyle}>{title}</Text>
       {value ? <Text style={familyInviteValueStyle}>{value}</Text> : null}
-      <Text style={familyInviteChevronStyle}>›</Text>
+      <Text accessible={false} style={familyInviteChevronStyle}>›</Text>
     </Pressable>
   );
 }
@@ -135,7 +135,7 @@ export default function FamilyScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel={familyReferenceScreenId} style={familyReferenceFrameStyle()}>
+      <View testID={familyReferenceScreenId} style={familyReferenceFrameStyle()}>
         <View style={familyHeaderRowStyle}>
           <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={12} onPress={() => router.back()}>
             <Text style={familyBackStyle}>‹</Text>

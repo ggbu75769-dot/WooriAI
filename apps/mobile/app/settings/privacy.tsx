@@ -176,7 +176,7 @@ export default function PrivacySettingsScreen() {
 
   return (
     <AppScreen>
-      <View testID="screen-SET-003" accessibilityLabel="screen-SET-003" style={{ gap: theme.spacing.section }}>
+      <View testID="screen-SET-003" style={{ gap: theme.spacing.section }}>
         <ScreenHeader eyebrow="설정" title="약관 및 개인정보" subtitle="동의 내역과 삭제 · 탈퇴를 관리해요" />
 
         {privacy.isLoading ? (
@@ -197,7 +197,7 @@ export default function PrivacySettingsScreen() {
         ) : null}
       </View>
 
-      <View testID="screen-SET-004" accessibilityLabel="screen-SET-004" style={{ gap: theme.spacing.gap }}>
+      <View testID="screen-SET-004" style={{ gap: theme.spacing.gap }}>
         <Card style={{ gap: 10 }}>
           <View style={rowHeaderStyle}>
             <Text style={dangerTitleStyle}>{flowCopy.child_profile_delete.title}</Text>

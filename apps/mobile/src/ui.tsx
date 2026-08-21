@@ -1,7 +1,7 @@
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { AccessibilityInfo, Image, Pressable, ScrollView, Text, View } from "react-native";
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { theme } from "./theme";
 
@@ -17,6 +17,19 @@ type PressableProps = {
   /** A11Y-101: override for TalkBack when the visible label alone is not descriptive enough. */
   accessibilityLabel?: string;
 };
+
+/**
+ * A11Y-115: shared TalkBack/VoiceOver announce helper. AccessibilityInfo can be missing or
+ * partially implemented outside a native runtime (web preview, vitest), so failures are
+ * swallowed -- announcing is always best-effort and must never break the render path.
+ */
+export function announceForA11y(message: string) {
+  try {
+    AccessibilityInfo.announceForAccessibility?.(message);
+  } catch {
+    // non-native environment -- nothing to announce to
+  }
+}
 
 const pixelLockWebStyleId = "wooriai-pixel-lock-web-styles";
 const webScrollHiddenStyle = {
@@ -105,7 +118,7 @@ export function BrandLogo({ size = 56 }: { size?: number }) {
         ...theme.shadows.card
       }}
     >
-      <Text style={{ color: theme.colors.mainCoral, fontSize: Math.round(size * 0.54), fontWeight: "700" }}>⌁</Text>
+      <Text accessible={false} style={{ color: theme.colors.mainCoral, fontSize: Math.round(size * 0.54), fontWeight: "700" }}>⌁</Text>
     </View>
   );
 }
@@ -229,6 +242,7 @@ export function SegmentedControl({
           accessibilityRole="tab"
           accessibilityLabel={option}
           accessibilityState={{ selected: option === value }}
+          hitSlop={4}
           onPress={() => onChange?.(option)}
           style={{
             backgroundColor: option === value ? theme.colors.mainCoral : "transparent",
@@ -267,6 +281,7 @@ export function CategoryChip({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={selected === undefined ? undefined : { selected }}
+      hitSlop={3}
       onPress={onPress}
       style={{
         alignItems: "center",
@@ -740,12 +755,19 @@ export function EmptyStateCard({ title, actionLabel, onPress }: { title: string;
 
 export function Toast({ message, tone = "success" }: { message: string; tone?: "success" | "error" }) {
   const isError = tone === "error";
+  // A11Y-115: every Toast (저장 성공/실패, CSV 내보내기, 오프라인 저장 등) announces its message
+  // when shown or when the message changes -- the live region backs this up on Android when the
+  // subtree re-renders in place.
+  useEffect(() => {
+    announceForA11y(message);
+  }, [message]);
   return (
     <View
       accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
       style={{ backgroundColor: theme.colors.white, borderRadius: 18, flexDirection: "row", gap: 10, padding: 14, ...theme.shadows.card }}
     >
-      <Text style={{ color: isError ? theme.colors.danger : theme.colors.success }}>{isError ? "⚠" : "✓"}</Text>
+      <Text accessible={false} style={{ color: isError ? theme.colors.danger : theme.colors.success }}>{isError ? "⚠" : "✓"}</Text>
       <Text style={[textStyles.body2, { color: theme.colors.brown }]}>{message}</Text>
     </View>
   );
