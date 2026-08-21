@@ -589,6 +589,54 @@ export function isSelfUpdateForbiddenError(error: unknown): boolean {
   return error instanceof AdminApiError && error.code === "ADMIN_SELF_UPDATE_FORBIDDEN";
 }
 
+// ADM-113: read-only audit log viewer. The API route is admin-role-only
+// (RequireAdminRoles("admin") in audit-logs.controller.ts), same as ADM-006;
+// the frontend hides the nav entry from editor/analyst sessions (AdminShell)
+// and the page renders an access notice instead of a broken screen. The API
+// masks credential-like values in before/after snapshots server-side.
+export type AdminAuditLogEntry = {
+  id: string;
+  createdAt: string;
+  actorUserId: string | null;
+  /** actorUserId가 관리자 계정이면 그 이메일, 아니면 null (일반 사용자/시스템 행위). */
+  actorEmail: string | null;
+  householdId: string | null;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  before: unknown;
+  after: unknown;
+  ipHash: string | null;
+};
+
+export type AdminAuditLogsPageInfo = { total: number; limit: number; offset: number; hasMore: boolean };
+
+export type AdminAuditLogsResult = { auditLogs: AdminAuditLogEntry[]; pageInfo: AdminAuditLogsPageInfo };
+
+export type AdminAuditLogsQuery = {
+  limit?: number;
+  offset?: number;
+  /** 액션 타입 정확 일치 (예: "admin.admin_user.update"). */
+  action?: string;
+  actorUserId?: string;
+  /** createdAt >= from (ISO-8601). */
+  from?: string;
+  /** createdAt <= to (ISO-8601). */
+  to?: string;
+};
+
+export function listAuditLogs(query?: AdminAuditLogsQuery) {
+  const params = new URLSearchParams();
+  if (query?.limit !== undefined) params.set("limit", String(query.limit));
+  if (query?.offset !== undefined) params.set("offset", String(query.offset));
+  if (query?.action) params.set("action", query.action);
+  if (query?.actorUserId) params.set("actorUserId", query.actorUserId);
+  if (query?.from) params.set("from", query.from);
+  if (query?.to) params.set("to", query.to);
+  const qs = params.toString();
+  return request<AdminAuditLogsResult>(`/admin/audit-logs${qs ? `?${qs}` : ""}`);
+}
+
 /** Convenience: draft-create then immediately submit for review, the shape
  * every editor save flow needs (create+submit is always paired in this CMS). */
 export async function draftAndSubmitContentRevision(input: {

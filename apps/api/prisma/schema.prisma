@@ -504,6 +504,10 @@ model AuditLog {
 
   @@index([householdId, createdAt], map: "idx_audit_logs_household_created")
   @@index([targetType, targetId], map: "idx_audit_logs_target")
+  // ADM-113 감사 로그 뷰어 목록/필터 인덱스 (000012)
+  @@index([createdAt, id], map: "idx_audit_logs_created_at")
+  @@index([action, createdAt], map: "idx_audit_logs_action_created")
+  @@index([actorUserId, createdAt], map: "idx_audit_logs_actor_created")
   @@map("audit_logs")
 }
 
