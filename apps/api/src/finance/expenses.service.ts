@@ -56,12 +56,32 @@ export class ExpensesVersionService {
     return this.hydrateOne(dto as { id: string });
   }
 
-  async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string) {
-    const result = await this.store.listExpenses(user, childId, yearMonth);
-    const typed = result as { expenses: Array<{ id: string }>; totalAmountKrw: number };
+  /**
+   * API-124: 목록 페이지네이션은 스토어(ExpensesStoreService.listExpenses)가 소유한다 —
+   * 정렬 계약과 커서 술어가 한 곳에 있어야 하기 때문. 여기서는 종전처럼 version만
+   * 덧입히고 `hasMore`/`nextCursor`를 그대로 통과시킨다. hydrateMany의 2차 조회도
+   * 이제 전량이 아니라 페이지(최대 limit건)에만 걸린다.
+   */
+  async listExpenses(
+    user: AuthenticatedUser,
+    childId: string,
+    query: { yearMonth?: string; limit?: number; cursor?: string } = {}
+  ) {
+    const result = await this.store.listExpenses(user, childId, query.yearMonth, {
+      limit: query.limit,
+      cursor: query.cursor
+    });
+    const typed = result as {
+      expenses: Array<{ id: string }>;
+      totalAmountKrw: number;
+      hasMore: boolean;
+      nextCursor: string | null;
+    };
     return {
       expenses: await this.hydrateMany(typed.expenses),
-      totalAmountKrw: typed.totalAmountKrw
+      totalAmountKrw: typed.totalAmountKrw,
+      hasMore: typed.hasMore,
+      nextCursor: typed.nextCursor
     };
   }
 

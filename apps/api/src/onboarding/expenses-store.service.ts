@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import { EXPENSE_LIST_DEFAULT_LIMIT } from "@wooriai/contracts";
 import { getSeoulMonthRange, type ExpenseSource, type ExpenseType, type PaymentMethod } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
@@ -36,6 +37,49 @@ export type UpdateExpenseInput = {
   memo?: string | null;
   expenseType?: ExpenseType;
 };
+
+export type ListExpensesOptions = {
+  limit?: number;
+  cursor?: string;
+};
+
+/**
+ * API-124: 지출 목록 keyset 커서. `expensesForChild`의 정렬 계약
+ * (spentOn desc, createdAt desc, id desc — FIX-121A)의 전체 정렬키를 그대로 담는다.
+ * 세 값이 모두 있어야 "이 행 다음부터" 술어를 결정적으로 만들 수 있다.
+ */
+export type ExpenseListCursor = {
+  spentOn: Date;
+  createdAt: Date;
+  id: string;
+};
+
+const EXPENSE_CURSOR_SEPARATOR = "|";
+
+/** base64("<spentOn YYYY-MM-DD>|<createdAt ISO 8601>|<id>") — sync/cursor.ts와 같은 모양의 불투명 문자열. */
+export function encodeExpenseCursor(row: { spentOn: Date; createdAt: Date; id: string }): string {
+  const raw = [
+    row.spentOn.toISOString().slice(0, 10),
+    row.createdAt.toISOString(),
+    row.id
+  ].join(EXPENSE_CURSOR_SEPARATOR);
+  return Buffer.from(raw, "utf8").toString("base64");
+}
+
+export function decodeExpenseCursor(value: string): ExpenseListCursor {
+  const raw = Buffer.from(value, "base64").toString("utf8");
+  const parts = raw.split(EXPENSE_CURSOR_SEPARATOR);
+  if (parts.length !== 3) {
+    throw new BadRequestException({ code: "EXPENSE_CURSOR_INVALID", message: "목록 커서가 올바르지 않아요." });
+  }
+  const [spentOnPart, createdAtPart, id] = parts;
+  const spentOn = new Date(`${spentOnPart}T00:00:00.000Z`);
+  const createdAt = new Date(createdAtPart);
+  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(spentOnPart) || Number.isNaN(spentOn.getTime()) || Number.isNaN(createdAt.getTime())) {
+    throw new BadRequestException({ code: "EXPENSE_CURSOR_INVALID", message: "목록 커서가 올바르지 않아요." });
+  }
+  return { spentOn, createdAt, id };
+}
 
 /**
  * REF-118: expense CRUD + aggregation split out of the former
@@ -75,12 +119,42 @@ export class ExpensesStoreService {
     return toExpenseDto(created);
   }
 
-  async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string) {
+  /**
+   * API-124: 커서 페이지네이션. 종전에는 `yearMonth`를 생략하면 아이의 **전 기간**
+   * 지출 행을 전량 실어 보냈다(그리고 finance 계층이 그 전량에 대해 version 2차
+   * 조회를 한 번 더 했다) — 기록이 쌓일수록 한 요청이 무한정 커지는 구조였다.
+   * 이제 `limit`(기본 200, 상한 500)만큼만 읽고, 다음 페이지는 `nextCursor`로 잇는다.
+   * `sync.service.ts`와 같은 `take: limit + 1` 방식이라 별도 count 쿼리 없이
+   * `hasMore`를 판정한다.
+   *
+   * ⚠️ `totalAmountKrw`는 **페이지 합이 아니라 조회 범위 전체의 합**을 유지한다.
+   * 종전 구현이 "로드한 배열의 합"이었기 때문에, 페이지네이션만 넣고 그대로 두면
+   * 화면의 총액이 스크롤에 따라 달라지는 허위 표시가 된다. 그래서 배열 합
+   * (`totalExpenseKrw`)이 아니라 DB 집계인 `sumExpenses`로 계산한다 — DNC-015의
+   * gift 제외 규칙(expenseType === "expense")은 이미 그 함수가 단일 소스로 들고
+   * 있으므로 새로 만들지 않고 그대로 재사용한다. 범위(range)도 종전과 동일하게
+   * `yearMonth`가 있으면 그 달, 없으면 전 기간이다.
+   */
+  async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string, options: ListExpensesOptions = {}) {
     await this.childAccess.requireChildAccess(user, childId);
-    const expenses = await this.expensesForChild(childId, yearMonth);
+    const limit = options.limit ?? EXPENSE_LIST_DEFAULT_LIMIT;
+    const after = options.cursor ? decodeExpenseCursor(options.cursor) : undefined;
+
+    const [rows, totalAmountKrw] = await Promise.all([
+      this.expensesForChild(childId, yearMonth, limit + 1, after),
+      this.sumExpenses(childId, yearMonth ? getSeoulMonthRange(yearMonth) : undefined)
+    ]);
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+
     return {
-      expenses: expenses.map((expense) => toExpenseDto(expense)),
-      totalAmountKrw: this.totalExpenseKrw(expenses)
+      expenses: page.map((expense) => toExpenseDto(expense)),
+      totalAmountKrw,
+      hasMore,
+      // 빈 페이지면 클라이언트가 들고 있던 커서를 그대로 돌려준다(sync.service.ts와 동일).
+      nextCursor: last ? encodeExpenseCursor(last) : (options.cursor ?? null)
     };
   }
 
@@ -260,14 +334,34 @@ export class ExpensesStoreService {
    * 순서로든 돌려줄 수 있어, PERF-121의 `LIMIT 3` 치환(홈)이 종전 "전량 정렬 후
    * slice(0,3)"와 다른 행을 뽑을 수 있었다. 홈(recentExpenses)과 기록 탭
    * (listExpenses)이 같은 이 경로를 쓰므로 둘이 함께 안정된다.
+   *
+   * API-124(F1): `after`는 keyset 커서다 — 정렬키 (spentOn, createdAt, id) 전체에 대한
+   * 사전식 "미만" 술어라 위 정렬 계약과 정확히 맞물린다. OFFSET을 쓰지 않으므로 페이지
+   * 사이에 행이 생기거나 지워져도 건너뜀/중복이 생기지 않고, 깊은 페이지에서도 앞
+   * 페이지를 다시 스캔하지 않는다. FIX-121A의 `id` 타이브레이커가 여기서 두 번째
+   * 역할을 한다 — 동률 행이 있어도 커서가 가리키는 지점이 유일하게 정해진다.
    */
-  async expensesForChild(childId: string, yearMonth?: string, take?: number): Promise<ExpenseRow[]> {
+  async expensesForChild(
+    childId: string,
+    yearMonth?: string,
+    take?: number,
+    after?: ExpenseListCursor
+  ): Promise<ExpenseRow[]> {
     const range = yearMonth ? getSeoulMonthRange(yearMonth) : null;
     return this.prisma.expense.findMany({
       where: {
         childId,
         deletedAt: null,
-        ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {})
+        ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {}),
+        ...(after
+          ? {
+              OR: [
+                { spentOn: { lt: after.spentOn } },
+                { spentOn: after.spentOn, createdAt: { lt: after.createdAt } },
+                { spentOn: after.spentOn, createdAt: after.createdAt, id: { lt: after.id } }
+              ]
+            }
+          : {})
       },
       orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       ...(take === undefined ? {} : { take })

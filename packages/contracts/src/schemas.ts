@@ -135,6 +135,37 @@ export const versionConflictResponseSchema = z.object({
   current: expenseConflictSnapshotSchema
 });
 
+// API-124: GET /children/:childId/expenses 의 페이지 크기 계약.
+// 서버 DTO(apps/api/src/finance/dto/query.dto.ts)가 이 값을 그대로 가져다 쓴다.
+export const EXPENSE_LIST_DEFAULT_LIMIT = 200;
+export const EXPENSE_LIST_MAX_LIMIT = 500;
+
+// API-124: GET /children/:childId/expenses 쿼리 계약 — 서버 ListExpensesQueryDto의 미러.
+// 셋 다 선택적이라, limit/cursor를 모르는 기존 클라이언트는 종전과 같은 요청을 보내고
+// 서버가 기본 limit(200)의 첫 페이지를 돌려준다(하위호환).
+export const listExpensesQuerySchema = z.object({
+  yearMonth: z.string().regex(/^\d{4}-\d{2}(-01)?$/).optional(),
+  limit: z.number().int().min(1).max(EXPENSE_LIST_MAX_LIMIT).optional(),
+  cursor: z.string().min(1).optional()
+});
+
+// API-124: GET /children/:childId/expenses 응답 계약.
+//
+// `expenses`는 이제 한 페이지(최대 limit건)이고, `hasMore`/`nextCursor`가 그 다음
+// 페이지를 가리킨다. 두 필드는 **추가 필드**라 optional로 둔다 — 기존 클라이언트는
+// 무시해도 되고, 서버는 항상 채워 보낸다.
+//
+// ⚠️ `totalAmountKrw`는 페이지 합이 아니라 **조회 범위 전체의 합**이다(DNC-015:
+// expenseType === "expense"만, 선물 제외 — 서버 ExpensesStoreService.sumExpenses).
+// 페이지네이션 도입 후에도 이 의미는 바뀌지 않으므로 클라이언트는 페이지를 모아
+// 더할 필요가 없다.
+export const listExpensesResponseSchema = z.object({
+  expenses: z.array(expenseSchema),
+  totalAmountKrw: z.number().int().min(0),
+  hasMore: z.boolean().optional(),
+  nextCursor: z.string().nullable().optional()
+});
+
 export const budgetSchema = z.object({
   childId: uuidSchema,
   yearMonth: dateOnlySchema,
@@ -279,6 +310,8 @@ export type CategoryReportDto = z.infer<typeof reportCategorySchema>;
 export type ChildDto = z.infer<typeof childSchema>;
 export type CreateExpenseRequestDto = z.infer<typeof createExpenseRequestSchema>;
 export type ListCategoriesResponseDto = z.infer<typeof listCategoriesResponseSchema>;
+export type ListExpensesQueryDto = z.infer<typeof listExpensesQuerySchema>;
+export type ListExpensesResponseDto = z.infer<typeof listExpensesResponseSchema>;
 export type DeleteExpenseRequestDto = z.infer<typeof deleteExpenseRequestSchema>;
 export type ExpenseConflictSnapshotDto = z.infer<typeof expenseConflictSnapshotSchema>;
 export type ExpenseDto = z.infer<typeof expenseSchema>;
