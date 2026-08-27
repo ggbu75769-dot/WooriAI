@@ -82,11 +82,11 @@ describe("Batch 07 mobile items and commerce contract", () => {
     // Affiliate CTA disclosure position/copy must be unchanged (still directly after the new
     // sections, right before the cart/purchase buttons).
     //
-    // 라운드 43 UX-V (C2): 문구와 위치는 그대로고, 링크가 하나라도 있을 때만 렌더된다는
-    // 게이트만 앞에 붙었다 -- 구매 CTA도 제휴 링크도 없는 화면에는 고지할 대상 자체가 없다
+    // 라운드 43 UX-V (C2) → 리뷰 M-1: 위치는 그대로고, **고지 대상이 있을 때만** 렌더된다는
+    // 게이트가 앞에 붙었다 -- 제휴도 스폰서도 없는 화면에는 고지할 대상 자체가 없다
     // (DNC-010은 "고지를 숨기지 않는다"는 계약이지 "제휴가 없는 자리에도 띄운다"가 아니다).
     expect(productDetailSource).toMatch(
-      /{hasProductLinks \? <AffiliateDisclosure text={visibleDetail\.productLinks\[0\]\?\.disclosureText} \/> : null}/
+      /{affiliateDisclosureText \? <AffiliateDisclosure text={affiliateDisclosureText} \/> : null}/
     );
     const affiliateDisclosureIndex = productDetailSource.indexOf("<AffiliateDisclosure");
     expect(affiliateDisclosureIndex).toBeGreaterThan(skipSectionIndex);

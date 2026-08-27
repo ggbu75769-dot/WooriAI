@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   applyPreBirthFilter,
+  bandOffersPreBirthItems,
   isPreBirthItem,
   isPreBirthStage,
   PRE_BIRTH_FILTER_LABEL,
@@ -51,13 +52,43 @@ describe("라운드 43 UX-V: 출산 전 필터 판정", () => {
   });
 
   it("임신 중인 아이의 세션에서만 칩을 제안한다", () => {
-    expect(shouldOfferPreBirthFilter({ hasSession: true, currentStage: "pregnancy_mid" })).toBe(true);
+    expect(shouldOfferPreBirthFilter({ hasSession: true, currentStage: "pregnancy_mid", selectedBand: "0-6개월" })).toBe(
+      true
+    );
     // 출생 후에는 무의미하다 -- 좁혀도 지나간 준비물만 남는다.
-    expect(shouldOfferPreBirthFilter({ hasSession: true, currentStage: "newborn_0_3" })).toBe(false);
-    expect(shouldOfferPreBirthFilter({ hasSession: true, currentStage: "toddler_1_3" })).toBe(false);
+    expect(shouldOfferPreBirthFilter({ hasSession: true, currentStage: "newborn_0_3", selectedBand: "0-6개월" })).toBe(
+      false
+    );
+    expect(shouldOfferPreBirthFilter({ hasSession: true, currentStage: "toddler_1_3", selectedBand: "0-6개월" })).toBe(
+      false
+    );
     // 비세션(ITEM-001 픽셀 락 캡처)에는 아예 없다.
-    expect(shouldOfferPreBirthFilter({ hasSession: false, currentStage: "pregnancy_mid" })).toBe(false);
-    expect(shouldOfferPreBirthFilter({ hasSession: true, currentStage: undefined })).toBe(false);
+    expect(shouldOfferPreBirthFilter({ hasSession: false, currentStage: "pregnancy_mid", selectedBand: "0-6개월" })).toBe(
+      false
+    );
+    expect(shouldOfferPreBirthFilter({ hasSession: true, currentStage: undefined, selectedBand: "0-6개월" })).toBe(false);
+  });
+
+  it("리뷰 M-7: 임신 중이어도 출생 후 밴드를 보고 있으면 칩을 내주지 않는다", () => {
+    // 그 밴드 목록에는 임신 전용 항목이 있을 수 없어 결과가 확정적으로 0건이다.
+    for (const band of ["6-12개월", "12-24개월", "24개월+"] as const) {
+      expect(bandOffersPreBirthItems(band)).toBe(false);
+      expect(shouldOfferPreBirthFilter({ hasSession: true, currentStage: "pregnancy_late", selectedBand: band })).toBe(
+        false
+      );
+    }
+    // 임신 시기를 담는 밴드는 "0-6개월" 하나뿐이다(밴드 계약은 그대로 — 위 테스트 참고).
+    expect(bandOffersPreBirthItems("0-6개월")).toBe(true);
+  });
+
+  it("리뷰 M-7: 밴드로 돌아오면 칩 판정이 그대로 되살아난다 (유령 방지 관례 유지)", () => {
+    const pregnant = { hasSession: true, currentStage: "pregnancy_early" } as const;
+
+    expect(shouldOfferPreBirthFilter({ ...pregnant, selectedBand: "0-6개월" })).toBe(true);
+    expect(shouldOfferPreBirthFilter({ ...pregnant, selectedBand: "12-24개월" })).toBe(false);
+    // 노출 판정이 되돌아오면 화면의 적용 판정(offersPreBirthFilter && preBirthOnly)도 함께
+    // 되돌아온다 -- 칩이 없는 동안에는 필터도 꺼져 목록이 이유 없이 비지 않는다.
+    expect(shouldOfferPreBirthFilter({ ...pregnant, selectedBand: "0-6개월" })).toBe(true);
   });
 
   it("꺼져 있으면 목록을 통째로 그대로 돌려준다 (서버 순서 유지 — DNC-009)", () => {
@@ -108,10 +139,22 @@ describe("라운드 43 UX-V: 출산 전 칩 배선", () => {
   it("노출 판정과 적용 판정을 묶어 둔다 (출생 전환 뒤 유령 필터 방지)", () => {
     const items = itemsSource();
 
-    expect(items).toContain(
-      "const offersPreBirthFilter = shouldOfferPreBirthFilter({ hasSession, currentStage: home.data?.child.currentStage });"
-    );
+    expect(items).toContain("const offersPreBirthFilter = shouldOfferPreBirthFilter({");
+    expect(items).toContain("currentStage: home.data?.child.currentStage,");
+    // 리뷰 M-7: 선택된 시기 밴드도 판정에 들어간다.
+    expect(items).toContain("selectedBand: stageLabel");
     expect(items).toContain("const preBirthFilterActive = offersPreBirthFilter && preBirthOnly;");
+  });
+
+  it("리뷰 M-8: 데모 세션도 홈 요약을 조회해 실제 아이 시기로 판정한다", () => {
+    const items = itemsSource();
+
+    // 예전에는 `!isTestSession`이 걸려 데모에서는 home.data가 영영 undefined였고, 그 값에
+    // 기대는 칩이 구조적으로 절대 뜨지 않았다. 픽셀 락 캡처는 여전히 별도로 막는다.
+    expect(items).toContain("const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode;");
+    expect(items).not.toContain("&& !isPixelLockMode && !isTestSession");
+    // 기본 칩의 결정성은 그대로다 -- 데모/픽셀 락에서는 고정 밴드를 쓴다.
+    expect(items).toContain("isPixelLockMode,\n    isTestSession,\n    hasManualSelection: false,");
   });
 
   it("서버로 보내는 stageBand 계약은 건드리지 않는다", () => {

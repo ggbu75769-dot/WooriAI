@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   canConfirmImport,
@@ -259,6 +261,7 @@ describe("L-2 확정 게이팅 판정", () => {
     isPreviewReady: true,
     isConfirming: false,
     isBulkRunning: false,
+    isBulkRunHeldElsewhere: false,
     confirmableSelectedCount: 3,
     pendingRowCount: 0,
     unappliedReviewedCount: 0
@@ -280,6 +283,33 @@ describe("L-2 확정 게이팅 판정", () => {
     expect(canConfirmImport({ ...base, unappliedReviewedCount: 1 })).toBe(false);
     // 반영이 끝나면(0) 곧바로 열린다 -- 영구히 잠그는 게이트가 아니다.
     expect(canConfirmImport({ ...base, unappliedReviewedCount: 0 })).toBe(true);
+  });
+
+  it("리뷰 M-6: 다른 마운트의 루프가 아직 정리되지 않았으면 확정을 열지 않는다", () => {
+    // isBulkRunning은 **이 화면**의 진행 상태라, 앞 마운트의 루프가 release되기 전 좁은 창에서는
+    // false다. 그 창에서 확정이 나가면 남의 루프가 보내는 PATCH가 confirmed 뒤에 도착해 전부
+    // IMPORT_NOT_EDITABLE로 튕기고, 체크한 행은 되찾을 수 없다(L-2와 같은 종류의 영구 손실).
+    expect(canConfirmImport({ ...base, isBulkRunHeldElsewhere: true })).toBe(false);
+    // 이 화면이 직접 돌리는 중이 아니어도(=isBulkRunning false) 막힌다는 것이 핵심이다.
+    expect(canConfirmImport({ ...base, isBulkRunning: false, isBulkRunHeldElsewhere: true })).toBe(false);
+    // 등록부에서 내려오면 곧바로 다시 열린다 -- 영구히 잠그는 게이트가 아니다.
+    expect(canConfirmImport({ ...base, isBulkRunHeldElsewhere: false })).toBe(true);
+  });
+
+  it("리뷰 M-6: 화면이 일괄 버튼과 같은 값을 확정 판정에도 넘긴다", () => {
+    const screen = readFileSync(join(process.cwd(), "app/import/[importJobId].tsx"), "utf8");
+
+    expect(screen).toContain("const bulkRunHeldElsewhere = !isBulkRunning && isImportBulkRunActive(importJobId);");
+    expect(screen).toContain("isBulkRunHeldElsewhere: bulkRunHeldElsewhere,");
+    // 확정 판정이 그 값을 읽는 곳은 canConfirmImport 호출부다(버튼 disabled와 같은 판정 하나).
+    const confirmCallIndex = screen.indexOf("const canConfirm = canConfirmImport({");
+    expect(confirmCallIndex).toBeGreaterThan(-1);
+    expect(screen.indexOf("isBulkRunHeldElsewhere: bulkRunHeldElsewhere,")).toBeGreaterThan(confirmCallIndex);
+    // 새 문구를 만들지 않고 이미 있는 L-4 문구를 재사용한다.
+    expect(screen).toContain(
+      "{isPreviewReady && !confirmBlockedByPending && bulkRunHeldElsewhere ? ("
+    );
+    expect(screen).toContain("<Text style={mutedTextStyle}>{IMPORT_BULK_CLAIM_BUSY_TEXT}</Text>");
   });
 
   it("잠긴 이유를 말하는 문구는 사과가 아니라 지금 일어나는 일이다 (해요체)", () => {

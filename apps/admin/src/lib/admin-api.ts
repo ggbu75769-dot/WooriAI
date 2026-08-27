@@ -123,6 +123,10 @@ export type ItemTemplate = {
   safetyNote?: string | null;
   active: boolean;
   stageCodes: ChildStageCode[];
+  // UX-X(R43) M-5: productLinks에는 비활성 링크도 그대로 실린다(어드민은 내려둔 링크를
+  // 보고 되살릴 수 있어야 한다). 사용자에게 실제로 보이는 구매처 수는 서버가 따로
+  // 세어 준다 — 목록의 "링크 수"와 '상품 링크 없음만 보기'는 이쪽을 기준으로 한다.
+  activeLinkCount: number;
   productLinks: ProductLink[];
 };
 
@@ -592,7 +596,12 @@ export type AdminDashboardSummary = {
   affiliateClicks7d: number;
   analyticsEvents7d: number;
   pendingContentRevisions: number;
+  // UX-X(R43) M-4: 링크 헬스 3종은 모두 활성 링크(active=true) 안에서 센 값이다.
+  // 미검사(healthStatus=null)를 함께 받아야 "깨짐 0"이 전수 검사 결과인지 아닌지
+  // 대시보드가 말할 수 있다(worker-health-view.ts brokenLinkCountCaption).
   productLinksBrokenCount: number;
+  productLinksActiveCount: number;
+  productLinksUncheckedCount: number;
 };
 
 export function getAdminDashboardSummary() {

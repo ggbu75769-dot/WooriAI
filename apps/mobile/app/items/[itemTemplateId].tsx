@@ -26,6 +26,7 @@ import {
   hasPurchasableLink,
   PRODUCT_LINKS_SECTION_TITLE,
   productLinkMarker,
+  productLinksDisclosureText,
   productPlatformLabel
 } from "../../src/items/link-marker";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
@@ -178,7 +179,11 @@ function previewDetail(itemTemplateId: string): ItemDetail {
         title: "네이처 공식몰",
         isAffiliate: true,
         isSponsored: true,
-        disclosureText: "스폰서 상품이며 구매 CTA 근처에 광고/제휴 고지를 표시합니다."
+        // 라운드 43 리뷰 M-1: 집합에 스폰서가 있으면 이 문구가 구매 CTA 옆에 실제로 그려진다
+        // (예전에는 productLinks[0]의 문구만 쓰여 이 줄은 화면에 나온 적이 없었다). 사용자에게
+        // 보이는 문장이므로 해요체로 두고(DNC-018), 광고 사실과 수수료 고지를 함께 말한다
+        // (DNC-011 + DNC-010 승인 문구).
+        disclosureText: "스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요."
       },
       {
         id: "preview-coupang-diaper",
@@ -417,9 +422,23 @@ export default function ItemDetailScreen() {
    * DNC-010은 "구매 CTA 인접 위치의 제휴 고지를 숨기지 않는다"는 계약이다. 구매 CTA도
    * 제휴 링크도 없는 화면에는 고지할 대상 자체가 없으므로, 여기서 고지를 그리지 않는 것은
    * 숨기는 것이 아니다 — 오히려 제휴 관계가 없는 자리에 제휴 문구를 띄우는 쪽이 허위 표시다.
-   * 링크가 하나라도 있으면 예전과 똑같이 고지 + CTA가 함께 렌더된다(ITEM-002 프리뷰 포함).
+   * 링크가 하나라도 있으면 예전과 똑같이 구매 CTA가 렌더된다(ITEM-002 프리뷰 포함).
    */
   const hasProductLinks = hasPurchasableLink(visibleDetail.productLinks);
+  /**
+   * 라운드 43 리뷰 M-1/M-2: 고지 문구는 **링크 집합**이 정한다(src/items/link-marker.ts).
+   *
+   * 예전에는 `productLinks[0]?.disclosureText`를 읽고 값이 없으면 컴포넌트 기본 문구를
+   * 그렸다 — (1) 제휴도 스폰서도 아닌 일반 링크뿐인 화면(시드 링크 58개 중 34개)이
+   * "수수료를 받을 수 있어요"라고 말했고, (2) 문구가 맨 앞 링크에 매여 있어 워커 헬스 기반
+   * 정렬(UX-W)이 순서를 바꾸면 고지 문구까지 조용히 따라 바뀌었다.
+   *
+   * 이제 undefined면 고지할 대상이 없다는 뜻이라 렌더하지 않는다 — DNC-010의 은닉이 아니라
+   * C2("구매처 0개")와 같은 "고지 대상 부재"다. 스폰서/제휴가 하나라도 있으면 종별 우선순위
+   * (스폰서 > 제휴)로 문구가 정해지고, 그 화면의 제휴 링크 행에는 여전히 제휴 배지·캡션이
+   * 남는다(productLinkMarker — DNC-010/DNC-011).
+   */
+  const affiliateDisclosureText = productLinksDisclosureText(visibleDetail.productLinks);
   // ITEM-123 (B4): 상태를 바꾸기 전 확인 -- 지출 삭제/설정 화면과 같은 Alert 관례
   // (질문형 제목 + "취소" cancel 버튼 + 실행 버튼). 준비 전으로 되돌리는 쪽도 목록에서
   // 항목이 다시 나타나는 눈에 띄는 변화라 같이 확인한다.
@@ -578,10 +597,10 @@ export default function ItemDetailScreen() {
             </Card>
           ) : null}
 
-          {/* C2: 고지는 구매 CTA와 짝이다 — 링크가 있을 때만 함께 렌더된다(위 hasProductLinks
-              주석의 DNC-010 근거 참고). 위치·문구는 그대로: 구매 CTA 바로 위, 사이에 아무것도
-              끼우지 않는다. */}
-          {hasProductLinks ? <AffiliateDisclosure text={visibleDetail.productLinks[0]?.disclosureText} /> : null}
+          {/* C2 → 라운드 43 리뷰 M-1: 고지는 **고지 대상이 있을 때** 구매 CTA 바로 위에 그린다
+              (위 affiliateDisclosureText 주석의 DNC-010 근거 참고). 위치는 그대로: 고지와 구매
+              CTA 사이에 아무것도 끼우지 않는다. */}
+          {affiliateDisclosureText ? <AffiliateDisclosure text={affiliateDisclosureText} /> : null}
           <View style={{ flexDirection: "row", gap: 10 }}>
             <SecondaryButton
               disabled={!hasSession || toggleInterested.isPending}

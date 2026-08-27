@@ -2,15 +2,19 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  AFFILIATE_DISCLOSURE_FALLBACK_TEXT,
   AFFILIATE_MARKER_CAPTION,
   AFFILIATE_MARKER_LABEL,
   EMPTY_PRODUCT_LINKS_TEXT,
   FALLBACK_PLATFORM_LABEL,
   GENERAL_MARKER_LABEL,
   hasPurchasableLink,
+  linkNeedsDisclosure,
   PRODUCT_LINKS_SECTION_TITLE,
   productLinkMarker,
+  productLinksDisclosureText,
   productPlatformLabel,
+  SPONSORED_DISCLOSURE_FALLBACK_TEXT,
   SPONSORED_MARKER_CAPTION,
   SPONSORED_MARKER_LABEL
 } from "./link-marker";
@@ -96,12 +100,13 @@ describe("라운드 43 UX-V (C2): 구매처가 없는 준비템", () => {
     expect(EMPTY_PRODUCT_LINKS_TEXT.split("\n")).toHaveLength(1);
   });
 
-  it("구매 CTA와 제휴 고지가 같은 게이트를 공유한다", () => {
+  it("구매 CTA는 링크 유무 게이트를, 고지는 고지 대상 게이트를 쓴다", () => {
     const detail = detailSource();
 
     expect(detail).toContain("const hasProductLinks = hasPurchasableLink(visibleDetail.productLinks);");
+    // 리뷰 M-1: 고지는 링크 **집합** 판정이 정한다(아래 M-1 describe 참고).
     expect(detail).toContain(
-      "{hasProductLinks ? <AffiliateDisclosure text={visibleDetail.productLinks[0]?.disclosureText} /> : null}"
+      "{affiliateDisclosureText ? <AffiliateDisclosure text={affiliateDisclosureText} /> : null}"
     );
     // 죽은 CTA(눌러도 productLinks[0]이 없어 아무 일도 없던 버튼)는 렌더 자체를 막는다.
     const ctaIndex = detail.indexOf('label="바로 구매하기"');
@@ -122,6 +127,98 @@ describe("라운드 43 UX-V (C2): 구매처가 없는 준비템", () => {
 
     expect(disclosureIndex).toBeGreaterThan(-1);
     expect(ctaIndex).toBeGreaterThan(disclosureIndex);
+  });
+});
+
+describe("라운드 43 리뷰 M-1: 고지는 링크 집합이 정한다", () => {
+  const general = { isAffiliate: false, isSponsored: false } as const;
+  const affiliate = { isAffiliate: true, isSponsored: false, disclosureText: "제휴 문구예요." } as const;
+  const sponsored = { isAffiliate: true, isSponsored: true, disclosureText: "스폰서 문구예요." } as const;
+
+  it("일반 링크뿐이면 고지를 그리지 않는다 (허위 수수료 고지 제거)", () => {
+    // 예전에는 productLinks[0].disclosureText가 없다는 이유로 컴포넌트 기본 문구
+    // "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요."가 그려졌다 -- 받지 않는 돈을
+    // 받는다고 말하는 화면이었다(시드 링크 58개 중 34개가 일반 링크).
+    expect(productLinksDisclosureText([general, general, general])).toBeUndefined();
+    expect(linkNeedsDisclosure(general)).toBe(false);
+  });
+
+  it("고지 대상이 없다는 판정은 링크 0개와 같은 근거다 (DNC-010 은닉 아님)", () => {
+    expect(productLinksDisclosureText([])).toBeUndefined();
+    expect(productLinksDisclosureText(undefined)).toBeUndefined();
+    expect(productLinksDisclosureText(null)).toBeUndefined();
+  });
+
+  it("제휴가 하나라도 있으면 제휴 고지를 그린다 (DNC-010)", () => {
+    expect(linkNeedsDisclosure(affiliate)).toBe(true);
+    expect(productLinksDisclosureText([general, affiliate, general])).toBe("제휴 문구예요.");
+  });
+
+  it("스폰서가 섞이면 스폰서 문구가 우선한다 (DNC-011)", () => {
+    expect(productLinksDisclosureText([affiliate, sponsored, general])).toBe("스폰서 문구예요.");
+  });
+
+  it("문구가 비어 있으면 종별 기본 문구로 떨어진다", () => {
+    expect(productLinksDisclosureText([{ isAffiliate: true, isSponsored: false }])).toBe(
+      AFFILIATE_DISCLOSURE_FALLBACK_TEXT
+    );
+    expect(productLinksDisclosureText([{ isAffiliate: false, isSponsored: true, disclosureText: "  " }])).toBe(
+      SPONSORED_DISCLOSURE_FALLBACK_TEXT
+    );
+    // DNC-010의 고정 문구와 DNC-018 해요체를 지킨다. 스폰서 기본값은 광고 사실을 먼저 밝히고
+    // 같은 수수료 문장을 그대로 잇는다.
+    expect(AFFILIATE_DISCLOSURE_FALLBACK_TEXT).toBe("이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.");
+    expect(SPONSORED_DISCLOSURE_FALLBACK_TEXT).toContain(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
+    expect(SPONSORED_DISCLOSURE_FALLBACK_TEXT).toContain("광고");
+    for (const text of [AFFILIATE_DISCLOSURE_FALLBACK_TEXT, SPONSORED_DISCLOSURE_FALLBACK_TEXT]) {
+      expect(text).toContain("어요");
+      expect(text.split("\n")).toHaveLength(1);
+    }
+  });
+
+  it("M-2: 정렬 순서(index 0)에 기대지 않는다 — 헬스 정렬이 문구를 바꾸지 않는다", () => {
+    // UX-W의 깨진 링크 후순위 정렬이 순서를 어떻게 바꾸든 같은 집합이면 같은 문구가 나온다.
+    const set = [affiliate, sponsored, general];
+    const reordered = [...set].reverse();
+    const rotated = [set[2], set[0], set[1]];
+
+    expect(productLinksDisclosureText(reordered)).toBe(productLinksDisclosureText(set));
+    expect(productLinksDisclosureText(rotated)).toBe(productLinksDisclosureText(set));
+    // 일반 링크가 맨 앞으로 와도 제휴 고지는 사라지지 않는다(예전 배선의 정반대 실패).
+    expect(productLinksDisclosureText([general, affiliate])).toBe("제휴 문구예요.");
+  });
+
+  it("M-2: 스폰서 문구가 뜨는 화면에서도 제휴 링크 행은 제휴 사실을 남긴다 (DNC-010)", () => {
+    const links = [affiliate, sponsored];
+    expect(productLinksDisclosureText(links)).toBe("스폰서 문구예요.");
+
+    const markers = links.map((link) => productLinkMarker(link));
+    expect(markers[0].badgeLabel).toBe(AFFILIATE_MARKER_LABEL);
+    expect(markers[0].caption).toBe(AFFILIATE_MARKER_CAPTION);
+    expect(markers[1].badgeLabel).toBe(SPONSORED_MARKER_LABEL);
+    expect(markers[1].caption).toBe(SPONSORED_MARKER_CAPTION);
+  });
+
+  it("화면은 집합 판정을 쓰고, 컴포넌트는 더 이상 기본 문구를 만들지 않는다", () => {
+    const detail = detailSource();
+    const ui = uiSource();
+
+    expect(detail).toContain("const affiliateDisclosureText = productLinksDisclosureText(visibleDetail.productLinks);");
+    // 예전 배선(맨 앞 링크의 문구 + 컴포넌트 내부 기본값)은 둘 다 없어야 한다.
+    expect(detail).not.toContain("text={visibleDetail.productLinks[0]?.disclosureText}");
+    expect(ui).toContain("export function AffiliateDisclosure({ text }: { text: string })");
+    expect(ui).not.toContain('text ?? "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요."');
+  });
+
+  it("ITEM-002 프리뷰는 제휴·스폰서를 함께 담아 고지가 계속 렌더된다 (픽셀 락 불변)", () => {
+    const detail = detailSource();
+    const preview = detail.slice(detail.indexOf("function previewDetail("), detail.indexOf("export default function"));
+
+    expect(preview).toContain("isSponsored: true");
+    expect(preview).toContain("isAffiliate: true");
+    // 스폰서가 있으므로 프리뷰에 실제로 그려지는 문장이다 -- 해요체 + 광고/수수료 고지를 함께.
+    expect(preview).toContain("스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.");
+    expect(preview).not.toContain("광고/제휴 고지를 표시합니다");
   });
 });
 

@@ -586,6 +586,10 @@ export default function ImportPreviewScreen() {
     isPreviewReady,
     isConfirming: confirm.isPending,
     isBulkRunning,
+    // 라운드 43 리뷰 M-6: 앞 마운트의 루프가 아직 등록부에 남아 있는 좁은 창에서도 확정을
+    // 열지 않는다 -- 그 루프가 계속 PATCH를 보내는 동안 잡이 confirmed로 넘어가면 남은 행은
+    // 다시 편집할 수 없다(IMPORT_NOT_EDITABLE). 일괄 버튼(canBulkSelect)과 같은 값을 본다.
+    isBulkRunHeldElsewhere: bulkRunHeldElsewhere,
     confirmableSelectedCount: selectedCount,
     pendingRowCount: pendingRowIds.size,
     unappliedReviewedCount
@@ -719,6 +723,12 @@ export default function ImportPreviewScreen() {
       />
       {isPreviewReady && confirmBlockedByPending ? (
         <Text style={mutedTextStyle}>{IMPORT_CONFIRM_PENDING_TEXT}</Text>
+      ) : null}
+      {/* 라운드 43 리뷰 M-6: 이전 루프 정리 창에서 확정이 잠긴 이유. 곧 풀리는 같은 상태라
+          일괄 버튼과 같은 문구를 재사용한다(새 문구를 만들지 않는다). 위의 반영 대기 안내와
+          동시에 두 줄이 쌓이지 않게 그쪽이 없을 때만 나온다. */}
+      {isPreviewReady && !confirmBlockedByPending && bulkRunHeldElsewhere ? (
+        <Text style={mutedTextStyle}>{IMPORT_BULK_CLAIM_BUSY_TEXT}</Text>
       ) : null}
       {confirm.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
     </View>

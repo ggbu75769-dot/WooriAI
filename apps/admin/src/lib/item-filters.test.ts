@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ProductLink } from "./admin-api";
 import {
   EMPTY_ITEM_FILTERS,
+  activeProductLinkCount,
   filterItemTemplates,
   hasAnyItemFilter,
   itemFilterSummary,
@@ -9,7 +10,7 @@ import {
   type FilterableItem
 } from "./item-filters";
 
-function link(id: string): ProductLink {
+function link(id: string, active = true): ProductLink {
   return {
     id,
     itemTemplateId: "item-1",
@@ -20,15 +21,22 @@ function link(id: string): ProductLink {
     isAffiliate: false,
     isSponsored: false,
     disclosureText: null,
-    active: true,
+    active,
     healthStatus: null,
     healthCheckedAt: null
   };
 }
 
-const swaddle: FilterableItem = { name: "신생아 속싸개", productLinks: [link("a"), link("b")] };
-const sterilizer: FilterableItem = { name: "젖병 소독기", productLinks: [] };
-const tub: FilterableItem = { name: "아기 욕조 Tub", productLinks: [link("c")] };
+/** 서버가 세어 주는 활성 링크 수(activeLinkCount)를 픽스처에서도 같은 규칙으로 만든다. */
+function item(name: string, productLinks: ProductLink[]): FilterableItem {
+  return { name, productLinks, activeLinkCount: productLinks.filter((entry) => entry.active).length };
+}
+
+const swaddle = item("신생아 속싸개", [link("a"), link("b")]);
+const sterilizer = item("젖병 소독기", []);
+const tub = item("아기 욕조 Tub", [link("c")]);
+// UX-X(R43) M-5: 링크는 등록돼 있는데 전부 비활성 — 사용자 화면에서는 구매처가 0이다.
+const bottleWarmer = item("젖병 워머", [link("d", false), link("e", false)]);
 const items = [swaddle, sterilizer, tub];
 
 describe("filterItemTemplates (UX-X C7)", () => {
@@ -48,6 +56,16 @@ describe("filterItemTemplates (UX-X C7)", () => {
     expect(filterItemTemplates(items, { missingLinksOnly: true })).toEqual([sterilizer]);
   });
 
+  /**
+   * UX-X(R43) M-5: 종전에는 productLinks.length로 걸러서, 링크가 전부 비활성인
+   * 준비템이 "링크 있음"으로 취급돼 이 필터에서 빠졌다 — 사용자에게는 구매처가
+   * 0인 화면인데 운영자에게는 보이지 않는 지점이었다.
+   */
+  it("also catches items whose links are all inactive (구매처 0 for the user)", () => {
+    const withInactiveOnly = [...items, bottleWarmer];
+    expect(filterItemTemplates(withInactiveOnly, { missingLinksOnly: true })).toEqual([sterilizer, bottleWarmer]);
+  });
+
   it("combines the two filters with AND", () => {
     expect(filterItemTemplates(items, { missingLinksOnly: true, query: "소독" })).toEqual([sterilizer]);
     expect(filterItemTemplates(items, { missingLinksOnly: true, query: "속싸개" })).toEqual([]);
@@ -58,6 +76,14 @@ describe("productLinkCount / itemFilterSummary / hasAnyItemFilter", () => {
   it("counts the links already carried by the list response", () => {
     expect(productLinkCount(swaddle)).toBe(2);
     expect(productLinkCount(sterilizer)).toBe(0);
+  });
+
+  // 두 수를 나란히 둔다: 화면의 기본 표시는 활성 수, 그 옆의 "비활성 N"은 차이값.
+  it("separates the user-visible count from the total registered count", () => {
+    expect(activeProductLinkCount(bottleWarmer)).toBe(0);
+    expect(productLinkCount(bottleWarmer)).toBe(2);
+    expect(activeProductLinkCount(swaddle)).toBe(2);
+    expect(activeProductLinkCount(sterilizer)).toBe(0);
   });
 
   it("uses the same 건수 wording as the links page", () => {

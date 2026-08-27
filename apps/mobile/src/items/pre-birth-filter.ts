@@ -1,4 +1,5 @@
 import { isChildStageCode, type ChildStageCode } from "@wooriai/domain";
+import { bandStages, type StageBandLabel } from "./stage-bands";
 
 /**
  * 라운드 43 UX-V: "출산 전" 좁히기.
@@ -40,13 +41,39 @@ export function isPreBirthItem(item: PreBirthFilterableItem): boolean {
 }
 
 /**
- * 칩을 보여줄지. 아이가 아직 태어나기 전일 때만 의미가 있다 — 출생 뒤에는 "출산 전"으로
- * 좁혀 봐야 이미 지나간 준비물만 남는다.
+ * 라운드 43 리뷰 M-7: 이 밴드에 임신 시기가 들어 있는가.
  *
- * 비세션(픽셀 락 ITEM-001 캡처)에서는 currentStage 자체가 없어 항상 false다.
+ * 밴드 정의(stage-bands.ts)상 임신 코드를 담는 밴드는 "0-6개월" 하나뿐이다. 다른 밴드를
+ * 보고 있으면 목록에 임신 전용 항목이 있을 수 없으므로, 거기서 "출산 전"으로 좁히면 결과가
+ * **확정적으로 0건**이다 — 누르면 빈 목록만 나오는 칩을 내주지 않는다.
  */
-export function shouldOfferPreBirthFilter(input: { hasSession: boolean; currentStage: unknown }): boolean {
-  return input.hasSession && isPreBirthStage(input.currentStage);
+export function bandOffersPreBirthItems(band: StageBandLabel): boolean {
+  return bandStages(band).some((code) => isPreBirthStage(code));
+}
+
+export type PreBirthFilterOfferInput = {
+  hasSession: boolean;
+  /** 아이의 현재 시기 코드(홈 요약). */
+  currentStage: unknown;
+  /** 지금 선택된 시기 밴드 칩 — 목록이 어느 밴드를 보여 주고 있는지. */
+  selectedBand: StageBandLabel;
+};
+
+/**
+ * 칩을 보여줄지. 세 가지가 모두 참이어야 한다.
+ *
+ *  - 세션이 있고(비세션 픽셀 락 ITEM-001 캡처에는 currentStage 자체가 없다),
+ *  - 아이가 아직 태어나기 전이고 — 출생 뒤에는 "출산 전"으로 좁혀 봐야 이미 지나간 준비물만
+ *    남는다,
+ *  - 지금 보고 있는 밴드가 임신 시기를 담고 있다(M-7). 임신 중인 사용자도 다음 시기를 미리
+ *    보려고 "6-12개월" 칩을 누를 수 있는데, 그 목록에는 임신 전용 항목이 아예 없다.
+ *
+ * 밴드로 돌아오면 칩이 다시 나오고, 그때 `preBirthOnly` 상태도 그대로 다시 적용된다 —
+ * 화면이 노출 판정과 적용 판정을 같은 값(`offersPreBirthFilter`)으로 묶어 두므로, 칩이 없는
+ * 동안에는 필터도 함께 꺼진다(유령 필터 방지 관례).
+ */
+export function shouldOfferPreBirthFilter(input: PreBirthFilterOfferInput): boolean {
+  return input.hasSession && isPreBirthStage(input.currentStage) && bandOffersPreBirthItems(input.selectedBand);
 }
 
 /**

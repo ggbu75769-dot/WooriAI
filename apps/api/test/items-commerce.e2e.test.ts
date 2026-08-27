@@ -1046,4 +1046,74 @@ describe("Items, commerce, and affiliate API", () => {
       delete process.env.WOORIAI_ADMIN_TOKEN;
     }
   });
+
+  /**
+   * UX-X(R43) M-5: 어드민 준비템 목록의 "링크 수"는 사용자 관점이어야 한다.
+   *
+   * 종전에는 어드민 화면이 productLinks.length를 그대로 셌다 — 링크가 전부 비활성인
+   * 준비템도 "링크 1"로 보이고 '상품 링크 없음만 보기' 필터에서도 빠져서, 사용자에겐
+   * 구매처가 0인 지점(핵심 루프가 끊기는 지점)이 운영자 눈에 안 띄었다. 서버가
+   * activeLinkCount를 함께 내려 그 정의를 한 곳에서 정한다. productLinks 자체는
+   * 비활성 링크까지 그대로 실린다 — 어드민은 내려둔 링크를 되살릴 수 있어야 한다.
+   */
+  it("reports a user-visible activeLinkCount next to the full productLinks list (admin catalog)", async () => {
+    const adminToken = "test-admin-token-r43-m5";
+    process.env.WOORIAI_ADMIN_TOKEN = adminToken;
+    const prisma = moduleRef.get(PrismaService);
+
+    // 이 파일 소유 접두를 달아 두면 크래시로 정리를 못 해도 다음 실행 beforeAll이 지운다.
+    const template = await prisma.itemTemplate.create({
+      data: {
+        code: `${OWN_TEMPLATE_CODE_PREFIX}m5_${randomUUID()}`,
+        name: "R43-M5 비활성 링크만 있는 준비템",
+        necessityLevel: "optional",
+        reasonText: "활성 링크 수 계약 고정용.",
+        active: true
+      }
+    });
+
+    try {
+      // 같은 준비템에 비활성 2개 + 활성 1개.
+      for (const [index, active] of [false, false, true].entries()) {
+        await prisma.productLink.create({
+          data: {
+            itemTemplateId: template.id,
+            platform: "custom",
+            title: `r43-m5 link ${index}`,
+            url: `https://example.com/r43-m5-${index}`,
+            displayOrder: index,
+            active
+          }
+        });
+      }
+
+      const listed = (
+        await request(app.getHttpServer())
+          .get("/api/v1/admin/item-templates")
+          .set("x-admin-token", adminToken)
+          .expect(200)
+      ).body.items as Array<{ id: string; activeLinkCount: number; productLinks: Array<{ active: boolean }> }>;
+
+      const withLinks = listed.find((entry) => entry.id === template.id);
+      expect(withLinks?.activeLinkCount).toBe(1);
+      // 어드민은 내려둔 링크도 봐야 한다 — 목록 자체는 좁히지 않는다.
+      expect(withLinks?.productLinks).toHaveLength(3);
+
+      // 전부 비활성으로 내리면 사용자 관점의 구매처는 0이 된다(링크 행은 그대로 3개).
+      await prisma.productLink.updateMany({ where: { itemTemplateId: template.id }, data: { active: false } });
+      const afterRetire = (
+        await request(app.getHttpServer())
+          .get("/api/v1/admin/item-templates")
+          .set("x-admin-token", adminToken)
+          .expect(200)
+      ).body.items as Array<{ id: string; activeLinkCount: number; productLinks: unknown[] }>;
+      const retired = afterRetire.find((entry) => entry.id === template.id);
+      expect(retired?.activeLinkCount).toBe(0);
+      expect(retired?.productLinks).toHaveLength(3);
+    } finally {
+      await prisma.productLink.deleteMany({ where: { itemTemplateId: template.id } });
+      await prisma.itemTemplate.delete({ where: { id: template.id } });
+      delete process.env.WOORIAI_ADMIN_TOKEN;
+    }
+  });
 });
