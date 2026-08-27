@@ -41,6 +41,18 @@ const ADM124_TEMPLATE_NAME = "ADM-124 가격대 편집 테스트템";
 /**
  * 이전 실행이 남긴 이 파일 소유의 카탈로그 행을 지운다. 자기 접두/이름에 걸리는 행만
  * 건드리므로 시드나 다른 스위트의 데이터는 절대 지우지 않는다.
+ *
+ * R31 리뷰 F6 (자가 봉쇄 예방): 마이그레이션 000001은 Prisma 스키마에 없는 진짜 SQL FK를
+ * 만든다. item_templates / product_links를 **캐스케이드 없이** 참조하는 것은
+ * `expenses.linked_item_template_id`와 `expenses.linked_product_link_id` 둘뿐이고,
+ * 지금은 이 스위트가 자기 준비템에 지출을 연결하지 않으므로 도달 불가 경로다. 하지만
+ * 한 번이라도 연결되는 순간 정리가 FK 위반으로 실패하고, 그 뒤로는 남은 잔여물이 매
+ * 실행을 막는 자가 봉쇄가 된다 — 남의 행을 지우지 않으려고 **null로 끊기만** 한다
+ * (지출 자체는 다른 스위트/사용자 소유일 수 있어 삭제하지 않는다).
+ *
+ * ⚠ 이 스위트가 나중에 자기 준비템/링크를 import_rows·attachments 같은 다른 테이블에
+ * 연결하게 되면 이 헬퍼도 같이 넓혀야 한다. (현재 그 둘은 expenses(id)만 참조하고
+ * 카탈로그 행은 참조하지 않는다.)
  */
 async function removeOwnCatalogLeftovers(prisma: PrismaClient) {
   const leftovers = await prisma.itemTemplate.findMany({
@@ -49,12 +61,34 @@ async function removeOwnCatalogLeftovers(prisma: PrismaClient) {
   });
   if (leftovers.length === 0) return;
 
-  const itemTemplateId = { in: leftovers.map((template) => template.id) };
+  const templateIds = leftovers.map((template) => template.id);
+  const itemTemplateId = { in: templateIds };
+  const ownLinks = await prisma.productLink.findMany({ where: { itemTemplateId }, select: { id: true } });
+  await detachExpenseLinks(prisma, templateIds, ownLinks.map((link) => link.id));
   await prisma.affiliateClick.deleteMany({ where: { itemTemplateId } });
   await prisma.childItemStatus.deleteMany({ where: { itemTemplateId } });
   await prisma.productLink.deleteMany({ where: { itemTemplateId } });
   await prisma.itemTemplateStage.deleteMany({ where: { itemTemplateId } });
   await prisma.itemTemplate.deleteMany({ where: { id: itemTemplateId } });
+}
+
+/**
+ * 카탈로그 행을 지우기 전에, 그 행을 캐스케이드 없이 가리키는 지출의 링크 컬럼을 끊는다.
+ * 위 removeOwnCatalogLeftovers 주석의 FK 설명 참고.
+ */
+async function detachExpenseLinks(prisma: PrismaClient, templateIds: string[], productLinkIds: string[]) {
+  if (templateIds.length > 0) {
+    await prisma.expense.updateMany({
+      where: { linkedItemTemplateId: { in: templateIds } },
+      data: { linkedItemTemplateId: null }
+    });
+  }
+  if (productLinkIds.length > 0) {
+    await prisma.expense.updateMany({
+      where: { linkedProductLinkId: { in: productLinkIds } },
+      data: { linkedProductLinkId: null }
+    });
+  }
 }
 
 // See admin-settings.e2e.test.ts's login() comment: a random suffix keeps dev-login
@@ -149,10 +183,22 @@ describe("Items, commerce, and affiliate API", () => {
   });
 
   /**
-   * 클릭 가드 검증용 일회용 준비템 + 상품 링크. 시기(stage) 행을 일부러 만들지 않는다:
-   * 시기가 없는 준비템은 어떤 아이의 `tab=now`(홈 추천 포함)에도 들어가지 않아서,
-   * 살아 있는 짧은 동안 다른 스위트의 목록 스냅샷을 흔들지 않는다. healthCheckedAt을
-   * 미리 채워 두는 것도 같은 이유 — link-health.db 스위트의 후보 배치에 끼지 않는다.
+   * 클릭 가드 검증용 일회용 준비템 + 상품 링크. 시기(stage) 행을 일부러 만들지 않는다.
+   *
+   * R31 리뷰 F3: 예전 주석은 "시기가 없는 준비템은 다른 스위트의 목록에 안 뜬다"고
+   * 적었는데 그건 사실이 아니다. 시기 없는 항목은 `tab=now`(와 홈 추천)에서만 빠진다 —
+   * `soon`은 now의 여집합이라 오히려 반드시 들어가고, `tab=all`은 시기로 거르지 않으니
+   * 역시 들어간다(src/onboarding/item-ranking.ts의 `matchesTab`).
+   *
+   * 그래도 무해한 이유는 두 가지다. (1) 이 픽스처는 테스트 하나의 try/finally 안에서만
+   * 살아 있고(수 밀리초), (2) `soon`/`all`을 보는 다른 스위트의 단언이 전부 관대하다 —
+   * 자기 id 포함/제외나 `length > 0`을 보지, 정확 개수나 집합 일치를 요구하지 않는다.
+   * 그래서 여기 목적은 "안 뜬다"가 아니라 **정확 개수를 요구하는 now/홈 추천 경로에서
+   * 빠진다**는 것이다. soon/all에 정확 집합 단언을 새로 추가하는 스위트가 생기면 이
+   * 픽스처가 그 단언을 흔들 수 있으니, 그때는 시기 대신 다른 격리 수단을 찾아야 한다.
+   *
+   * healthCheckedAt을 미리 채워 두는 것도 같은 성격의 배려 — link-health.db 스위트의
+   * 후보 배치에 끼지 않는다(그쪽은 TEST-132 이후 자기 링크만 보므로 지금은 여분이다).
    */
   async function createOwnClickFixture(
     prisma: PrismaService,
@@ -714,15 +760,35 @@ describe("Items, commerce, and affiliate API", () => {
     const { childId } = await completeOnboarding(app, accessToken);
     const authorized = (path: string) =>
       request(app.getHttpServer()).get(path).set("Authorization", `Bearer ${accessToken}`).expect(200);
-    const idsOfAll = async () =>
-      new Set(((await authorized(`/api/v1/children/${childId}/items?tab=all`)).body.items as ItemSummary[]).map((item) => item.id));
+    const tabs = ["now", "soon", "prepared", "not_needed"] as const;
+    const idsOfTab = async (query: string) =>
+      ((await authorized(`/api/v1/children/${childId}/items?${query}`)).body.items as ItemSummary[]).map(
+        (item) => item.id
+      );
+    const idsOfAll = async () => new Set(await idsOfTab("tab=all"));
+    const idsOfStatusTabUnion = async () => {
+      const ids = new Set<string>();
+      for (const tab of tabs) {
+        for (const id of await idsOfTab(`tab=${tab}`)) ids.add(id);
+      }
+      return ids;
+    };
 
     // TEST-131: 이 테스트는 여러 번의 요청 결과를 서로 비교하는데, 이 파일은 더 이상
     // DB를 독점하지 않으므로 그 사이에 다른 스위트가 준비템을 만들거나 지울 수 있다.
     // 시작·끝 카탈로그의 교집합 = "이 테스트가 도는 내내 존재가 확정된 준비템"으로
     // 양쪽을 좁혀서 비교한다. 모집단만 확정할 뿐, 그 안에서는 부분집합/이상이 아니라
     // 예전과 똑같이 **정확한 집합 일치**를 요구한다.
-    const catalogAtStart = await idsOfAll();
+    //
+    // R31 리뷰 F2 (중요): 모집단을 `tab=all` **하나로만** 뽑으면 안 된다. 예전 코드가
+    // 그랬는데, all이 항목을 빠뜨리는 회귀(= 이 테스트가 잡으려는 바로 그 버그)가 나면
+    // 빠진 항목이 모집단에서도 함께 빠져서 양변이 다시 같아졌다 — 검증 대상이 자기
+    // 채점표를 깎는 구조였다. 이제 모집단은 **비교하는 두 소스의 합집합**(네 상태 탭 ∪
+    // all)에서 뽑는다. 어느 쪽도 모집단을 좁힐 수 없으므로,
+    //   - all이 탭에 보이는 항목을 빠뜨리면 → 그 항목은 여전히 모집단에 있고 등식이 깨진다,
+    //   - all이 어느 탭에도 없는 항목을 더 담으면 → 그 항목도 모집단에 있어 등식이 깨진다.
+    const catalogSnapshot = async () => new Set([...(await idsOfStatusTabUnion()), ...(await idsOfAll())]);
+    const catalogAtStart = await catalogSnapshot();
     /** 모집단(stable) 확정은 테스트 끝에서 이뤄지므로, 비교는 그 뒤에 몰아서 한다. */
     const scopedTo = (stable: Set<string>, ids: Iterable<string>) =>
       new Set([...ids].filter((id) => stable.has(id)));
@@ -740,12 +806,7 @@ describe("Items, commerce, and affiliate API", () => {
         .expect(200);
     }
 
-    const tabs = ["now", "soon", "prepared", "not_needed"] as const;
-    const unionIds = new Set<string>();
-    for (const tab of tabs) {
-      const items = (await authorized(`/api/v1/children/${childId}/items?tab=${tab}`)).body.items as ItemSummary[];
-      for (const item of items) unionIds.add(item.id);
-    }
+    const unionIds = await idsOfStatusTabUnion();
 
     const allItems = (await authorized(`/api/v1/children/${childId}/items?tab=all`)).body.items as ItemSummary[];
     for (const item of allItems) {
@@ -782,9 +843,13 @@ describe("Items, commerce, and affiliate API", () => {
     // 모든 스냅샷을 다 찍은 뒤에야 모집단이 확정된다: 시작과 끝 카탈로그에 모두 있던
     // 준비템 = 이 테스트가 도는 내내 존재가 확정된 행. 그 밖(= 다른 스위트가 중간에
     // 만들었거나 지운 행)은 어느 쪽 집합에서도 빼고 비교한다.
-    const catalogAtEnd = await idsOfAll();
+    const catalogAtEnd = await catalogSnapshot();
     const stable = scopedTo(catalogAtStart, catalogAtEnd);
-    expect(stable.size).toBeGreaterThan(0);
+    // R31 리뷰 F2: `> 0`은 vacuous 통과를 거의 못 막는다 — 모집단이 한두 개로 쪼그라들어도
+    // 아래 집합 등식이 자동으로 참이 된다. 시드만으로 활성 준비템이 62개 있고 이 테스트는
+    // 그중 아무것도 지우지 않으므로, 모집단이 30개에도 못 미치면 스냅샷이 아니라 환경
+    // (시드 누락/다른 스위트의 대량 삭제)이 깨진 것이다. 시드가 줄면 이 하한도 함께 낮춘다.
+    expect(stable.size).toBeGreaterThanOrEqual(30);
     const scoped = (ids: Iterable<string>) => scopedTo(stable, ids);
 
     // all은 네 탭 합집합과 정확히 같은 집합이다.
@@ -834,8 +899,9 @@ describe("Items, commerce, and affiliate API", () => {
           priceMaxKrw: 50000,
           // TEST-131: 시기는 검증 대상이 아니지만 어드민 API가 생략 시 infant_4_6(테스트
           // 아이들이 가장 많이 쓰는 시기)을 붙이므로 명시한다. 아기 시기 아이만 만드는
-          // 이 저장소의 다른 스위트에서는 이 준비템이 `tab=now`에 절대 뜨지 않아,
-          // 살아 있는 짧은 동안 그들의 목록 스냅샷을 흔들지 않는다.
+          // 이 저장소의 다른 스위트에서는 이 준비템이 `tab=now`(와 홈 추천)에 뜨지 않는다 —
+          // R31 리뷰 F3: `soon`(now의 여집합)과 `tab=all`에는 뜬다. 그쪽 단언은 자기 id
+          // 포함/제외나 length>0 수준이라 무해하고, 이 행은 아래 finally에서 곧 사라진다.
           stageCodes: ["middle_school"],
           active: true
         })

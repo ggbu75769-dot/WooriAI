@@ -1,0 +1,104 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+/**
+ * UX-C 화면 배선 계약 (source verification — react-native 화면은 vitest에서 렌더할 수 없어
+ * 이 저장소의 관례대로 소스 grep으로 확인한다: src/a11y-contract.test.ts,
+ * src/expenses/amount-presets-wiring.test.ts 참고).
+ *
+ * 지키려는 것:
+ * 1) 카테고리 자동 추천과 과거 항목 자동완성이 **순수 모듈**을 통해서만 동작한다 — 화면에
+ *    매칭 규칙이 다시 손으로 쓰이면 단위 테스트가 보호하지 못하는 두 번째 구현이 생긴다.
+ * 2) 사용자가 카테고리를 직접 고른 뒤에는 추천이 덮어쓰지 않는다(categoryTouchedRef).
+ * 3) 두 기능 모두 **캐시만 읽는다** — 이 화면에서 새 요청(useQuery)이 생기지 않는다.
+ * 4) 새 UI는 전부 authToken 세션 뒤에 있고, EXP-001 픽셀 락 캡처 계약은 그대로다
+ *    (캡처는 app/pixel-lock.tsx가 clearSession 후 /expenses/new로 이동해 세션 없이 찍는다).
+ */
+const mobileRoot = process.cwd();
+const newExpenseSource = readFileSync(join(mobileRoot, "app/expenses/new.tsx"), "utf8");
+
+describe("UX-C quick-expense auto-fill wiring", () => {
+  it("drives the category suggestion from the shared pure module", () => {
+    expect(newExpenseSource).toContain('from "../../src/expenses/category-suggestion"');
+    expect(newExpenseSource).toContain("suggestCategoryId(itemName, expenseHistory)");
+    expect(newExpenseSource).toContain("AUTO_CATEGORY_CAPTION");
+  });
+
+  it("drives the typing-linked autocomplete chips from the shared pure module", () => {
+    expect(newExpenseSource).toContain('from "../../src/expenses/item-autocomplete"');
+    expect(newExpenseSource).toContain("buildItemAutocompleteSuggestions(itemName, expenseHistory)");
+    expect(newExpenseSource).toContain("formatItemAutocompleteChipLabel(chip, categoryNameForChip(chip.categoryId))");
+    // 칩 1탭 = 이름·금액·카테고리 일괄 채움.
+    expect(newExpenseSource).toContain("const applyItemAutocompleteChip = (chip: ItemAutocompleteSuggestion) => {");
+    expect(newExpenseSource).toContain("setAmountText(String(chip.amountKrw));");
+    expect(newExpenseSource).toContain("onPress={() => applyItemAutocompleteChip(chip)}");
+  });
+
+  it("never overwrites a category the user picked themselves", () => {
+    expect(newExpenseSource).toContain("const categoryTouchedRef = useRef(false);");
+    expect(newExpenseSource).toContain("if (categoryTouchedRef.current) return;");
+    // 직접 선택으로 치는 네 경로: 카테고리 타일 / 최근 품목 칩 / 자동완성 칩 / 임시 저장 복원.
+    expect(newExpenseSource.match(/categoryTouchedRef\.current = true;/g)?.length).toBeGreaterThanOrEqual(4);
+    // 추천은 같은 타일이면 상태를 갈아끼우지 않는다(렌더 루프 방지).
+    expect(newExpenseSource).toContain(
+      "setSelectedCategory((current) => (current.id === suggestedCategory.id ? current : suggestedCategory));"
+    );
+  });
+
+  it("reads only the already-cached month expenses and category names — no new request", () => {
+    expect(newExpenseSource).toContain(
+      'queryClient.getQueryData<MonthExpenses>(["expenses", childId, currentYearMonth])?.expenses'
+    );
+    // 칩 부제의 카테고리 이름도 이 화면이 이미 가진 8타일 카탈로그에서만 나온다 — 서버
+    // 카테고리 목록을 새로 부르지도, ["categories"] 캐시를 해석하지도 않는다
+    // (src/analytics/screen-events.test.ts가 이 화면의 카테고리 캐시 배선을 금지한다).
+    expect(newExpenseSource).toContain(
+      "const categoryNameForChip = (categoryId: string) =>\n    quickExpenseCategories.find((category) => category.id === categoryId)?.label;"
+    );
+    // 이 화면은 지출을 저장하는 뮤테이션만 가진다 — 조회 쿼리를 새로 붙이면 시트를 여는 것만으로
+    // 네트워크가 돌고, "오프라인 캐시만 사용" 규칙이 깨진다.
+    expect(newExpenseSource).not.toContain("useQuery(");
+    // 캐시가 없을 때 매 렌더 새 배열을 만들면 추천 useEffect가 무한히 재실행된다.
+    expect(newExpenseSource).toContain("const noExpenseHistory: MonthExpenses[\"expenses\"] = [];");
+  });
+
+  it("labels the autocomplete chips for screen readers", () => {
+    expect(newExpenseSource).toContain(
+      "accessibilityLabel={itemAutocompleteChipAccessibilityLabel(chip, categoryNameForChip(chip.categoryId))}"
+    );
+    expect(newExpenseSource).toContain('accessibilityRole="button"');
+  });
+
+  it("keeps the autocomplete row under the 품목명 field and the caption under the category grid", () => {
+    const itemNameFieldStart = newExpenseSource.indexOf('accessibilityLabel="품목명 입력"');
+    const autocompleteStart = newExpenseSource.indexOf("itemAutocompleteChips.map");
+    const captionStart = newExpenseSource.indexOf("{AUTO_CATEGORY_CAPTION}");
+    const categoryGridStart = newExpenseSource.indexOf("quickExpenseCategoryGridStyle.grid");
+
+    expect(itemNameFieldStart).toBeGreaterThan(0);
+    // 타이핑 연동 자동완성은 품목명 입력칸 바로 아래에 붙는다 — 폼 상단의 "최근 품목"
+    // 칩(EXP-113, 타이핑과 무관한 최근 N건)과 자리도 트리거도 구분된다.
+    expect(autocompleteStart).toBeGreaterThan(itemNameFieldStart);
+    expect(newExpenseSource.indexOf("recentItemChips.map")).toBeLessThan(itemNameFieldStart);
+    // 캡션은 카테고리 그리드 바로 아래.
+    expect(captionStart).toBeGreaterThan(categoryGridStart);
+  });
+
+  it("renders every new affordance behind the session gate, keeping the EXP-001 capture unchanged", () => {
+    for (const marker of ["itemAutocompleteChips.map", "{AUTO_CATEGORY_CAPTION}"]) {
+      const markerStart = newExpenseSource.indexOf(marker);
+      expect(markerStart, marker).toBeGreaterThan(0);
+      const before = newExpenseSource.slice(0, markerStart);
+      // 가장 가까운 조건부 블록이 열려 있는 authToken 게이트여야 한다.
+      const gateStart = Math.max(before.lastIndexOf("{authToken ? ("), before.lastIndexOf("{authToken && autoPickedCategory ? ("));
+      expect(gateStart, marker).toBeGreaterThan(before.lastIndexOf(") : null}"));
+    }
+    // 추천 effect 자체도 세션이 없으면 돌지 않는다.
+    expect(newExpenseSource).toContain("if (!authToken) return;\n    if (categoryTouchedRef.current) return;");
+    // 픽셀 락 계약 불변: 캡처 조건과 캡처 문자열은 그대로.
+    expect(newExpenseSource).toContain('const isPixelLockAmountCapture = !authToken && amountText === "38500";');
+    expect(newExpenseSource).toContain('const quickExpenseAmountPreview = "₩ 38,500";');
+    expect(newExpenseSource).toContain('const [amountText, setAmountText] = useState(() => (authToken ? "" : "38500"));');
+  });
+});

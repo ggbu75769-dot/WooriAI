@@ -11,10 +11,16 @@ import { defineConfig } from "vitest/config";
 //
 // Width is capped rather than left at vitest's default (CPU count) because the
 // e2e suites all share one Postgres (wooriai_test): every extra worker multiplies
-// the live Prisma connection pools and the row-level contention on shared tables.
-// Measured on the 4-core box this repo is validated on, 4 workers is also simply
-// the fastest setting -- 6 was ~20% slower. Override per-run with
-// `--maxWorkers=N` on a wider machine.
+// the live Prisma connection pools and the row-level contention on shared tables,
+// and past some point the database, not the CPU, is what the run waits on.
+//
+// R31 리뷰 F9: an older note here claimed "6 workers was ~20% slower", which could not
+// be reproduced, so it is gone. Re-measured on the 4-core box this repo is validated
+// on (71 files / 607 tests, all green either way): 4 workers took 93s / 88s / 92s and
+// 6 workers took 89s / 104s -- the two settings are equivalent inside a run-to-run
+// spread of roughly +-15s. So the cap rests on the resource argument above (Prisma
+// connection pools and row contention on one shared Postgres), not on a wall-clock
+// win. Override per-run with `--maxWorkers=N` on a wider machine.
 //
 // R30 리뷰 F1: vitest 2.x의 기본 pool은 "forks"이고 forks 풀은
 // poolOptions.threads.*를 읽지 않는다(그 설정은 조용히 무시돼 코어-1 워커가 떴다).

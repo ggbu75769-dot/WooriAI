@@ -20,8 +20,18 @@ const HOUR_MS = 60 * 60 * 1000;
 // constructed directly (constructor injection of the LINK_HEALTH_FETCH
 // contract) instead of through Nest DI, mirroring how worker-jobs.db.test.ts
 // drives run(now) without timers or the scheduler loop.
+//
+// TEST-132: 이 파일은 더 이상 공유 DB 락을 배타로 잡지 않는다
+// (test/helpers/db-lock.setup.ts). 배타였던 이유와 그것을 없앤 방법은 아래
+// `scopedPrisma` 주석에 있다. 요약하면, 예전에는 "내 링크를 제외한 DB의 모든
+// product_link를 방금 확인한 것으로 표시"하는 전역 updateMany로 후보 배치를
+// 통제했다. 그 쓰기가 다른 스위트의 행까지 덮어썼기 때문에 배타 락이 필요했다.
+// 이제는 DB를 건드리지 않고 잡에 넘기는 Prisma 클라이언트의 후보 질의 **모집단만**
+// 자기 픽스처로 좁힌다 — 정확 개수 단언(checked: N)과 오래된 순 배치 단언은 그대로다.
 describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fetch)", () => {
   let prisma: PrismaClient;
+  /** 잡에 주입하는 클라이언트: 후보 질의가 이 파일이 만든 링크만 보게 좁힌 뷰. */
+  let scopedPrisma: PrismaService;
   let itemTemplateId: string;
   const createdLinkIds: string[] = [];
   const savedEnv: Record<string, string | undefined> = {};
@@ -29,6 +39,7 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
   beforeAll(async () => {
     deployMigrations();
     prisma = new PrismaClient();
+    scopedPrisma = makeScopedPrisma();
     const item = await prisma.itemTemplate.create({
       data: {
         code: `link_health_test_${randomUUID().slice(0, 8)}`,
@@ -87,17 +98,41 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
   }
 
   /**
-   * The shared test database also holds seeded/e2e-created product links whose
-   * healthCheckedAt is NULL; they would compete for the global batch slots.
-   * Marking every link outside this test as freshly checked keeps candidate
-   * selection deterministic (fileParallelism is off, so no other suite runs
-   * concurrently while this one mutates them).
+   * TEST-132 — 후보 모집단 스코프화.
+   *
+   * 잡의 후보 질의는 DB 전체 product_link를 대상으로 하고(`active` + `affiliateUrl`
+   * not null + 미확인/만료/unstable), 오래된 순으로 `take: batch`만큼 자른다. 공유
+   * 테스트 DB에는 시드 링크와 다른 스위트가 만든 링크가 함께 있어서, 그대로 두면
+   * 남의 행이 배치 슬롯을 가져가 `checked: N` 같은 정확 개수 단언이 깨진다.
+   *
+   * 예전 해법(`quarantineOtherLinks`)은 내 링크를 제외한 **모든** 행에 updateMany로
+   * `healthStatus/healthCheckedAt`을 덮어써 후보에서 빼는 것이었다. 다른 스위트가
+   * 쓰는 행까지 건드리는 전역 쓰기라 이 파일이 DB를 독점해야만 안전했다.
+   *
+   * 대신 이제는 쓰기를 하지 않고, 잡에 넘기는 클라이언트에서 `productLink.findMany`의
+   * where에 `id IN (이 파일이 만든 링크들)`을 **AND로 덧붙인다**. 잡이 쓰는 조건·정렬·
+   * take는 전부 잡의 것 그대로이고 우리가 정하는 것은 행 집합의 경계뿐이므로, 결과는
+   * "내 픽스처만 들어 있는 DB에서 잡을 돌린 것"과 같다. 조건을 **대체**하지 않는 것이
+   * 핵심이다: 예컨대 active 필터를 여기서 다시 써 버리면 잡이 그 필터를 잃어도 테스트가
+   * 통과해 버린다. 지금 구조에서는 잡이 inactive/affiliateUrl 없는 링크를 거르는지,
+   * 인터벌·unstable 재시도·오래된 순 batch를 지키는지 전부 그대로 검증된다.
+   *
+   * `createdLinkIds`는 테스트마다 afterEach에서 비워지고 findMany 호출 시점에 읽히므로,
+   * 각 테스트는 자기 링크만 후보로 본다.
    */
-  async function quarantineOtherLinks(now: Date): Promise<void> {
-    await prisma.productLink.updateMany({
-      where: { id: { notIn: createdLinkIds } },
-      data: { healthStatus: "ok", healthCheckedAt: now }
-    });
+  function makeScopedPrisma(): PrismaService {
+    return prisma.$extends({
+      query: {
+        productLink: {
+          findMany({ args, query }) {
+            return query({
+              ...args,
+              where: { AND: [args.where ?? {}, { id: { in: [...createdLinkIds] } }] }
+            });
+          }
+        }
+      }
+    }) as unknown as PrismaService;
   }
 
   function response(status: number, headers?: Record<string, string>): Response {
@@ -117,7 +152,7 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
   }
 
   function jobWith(fetchFn: LinkHealthFetch): LinkHealthJob {
-    return new LinkHealthJob(prisma as unknown as PrismaService, fetchFn);
+    return new LinkHealthJob(scopedPrisma, fetchFn);
   }
 
   async function healthOf(id: string) {
@@ -126,6 +161,21 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
       select: { healthStatus: true, healthCheckedAt: true }
     });
   }
+
+  // TEST-132 하네스 가드: 스코프가 조용히 풀리면(예: Prisma 확장 API 변경) 아래
+  // 테스트들은 "DB에 마침 다른 후보가 없을 때만" 통과하는 플래키로 퇴화한다 —
+  // 되살아난 전역 의존을 실패로 드러내려고 스코프 자체를 한 번 단언해 둔다.
+  it("harness: the client handed to the job exposes only this file's links as candidates", async () => {
+    const mine = [await createLink({}), await createLink({ active: false })];
+    // 공유 DB에 시드/타 스위트 행이 실제로 있어야 이 가드가 유의미하다(vacuous 방지).
+    expect(await prisma.productLink.count()).toBeGreaterThan(mine.length);
+
+    const visible = await (scopedPrisma as unknown as PrismaClient).productLink.findMany({
+      select: { id: true }
+    });
+
+    expect(visible.map((link) => link.id).sort()).toEqual([...mine].sort());
+  });
 
   it("is disabled by default: no probes and no writes unless LINK_HEALTH_ENABLED=1", async () => {
     const now = new Date();
@@ -146,7 +196,6 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
     const brokenId = await createLink({ affiliateUrl: "https://shop.example/gone" });
     const serverErrorId = await createLink({ affiliateUrl: "https://shop.example/boom" });
     const networkErrorId = await createLink({ affiliateUrl: "https://down.example/x" });
-    await quarantineOtherLinks(now);
 
     const { fetchFn } = mockFetch((_method, url) => {
       if (url.endsWith("/ok")) return response(200);
@@ -168,7 +217,6 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
     process.env.LINK_HEALTH_ENABLED = "1";
     const now = new Date();
     const id = await createLink({ affiliateUrl: "https://no-head.example/p" });
-    await quarantineOtherLinks(now);
 
     const { fetchFn, calls } = mockFetch((method) => (method === "HEAD" ? response(405) : response(200)));
     await jobWith(fetchFn).run(now);
@@ -186,7 +234,6 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
     const chainOkId = await createLink({ affiliateUrl: "https://chain.example/start" });
     const chainDeadId = await createLink({ affiliateUrl: "https://chain.example/dead-start" });
     const loopId = await createLink({ affiliateUrl: "https://loop.example/a" });
-    await quarantineOtherLinks(now);
 
     const { fetchFn, calls } = mockFetch((_method, url) => {
       if (url === "https://chain.example/start") return response(302, { location: "/step2" });
@@ -214,7 +261,6 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
     const oldest = await createLink({ healthStatus: "ok", healthCheckedAt: new Date(now.getTime() - 72 * HOUR_MS) });
     const older = await createLink({ healthStatus: "ok", healthCheckedAt: new Date(now.getTime() - 48 * HOUR_MS) });
     const newestStale = await createLink({ healthStatus: "ok", healthCheckedAt: new Date(now.getTime() - 30 * HOUR_MS) });
-    await quarantineOtherLinks(now);
 
     const { fetchFn } = mockFetch(() => response(404));
     const result = await jobWith(fetchFn).run(now);
@@ -236,7 +282,6 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
     const freshUnstable = await createLink({ healthStatus: "unstable", healthCheckedAt: new Date(now.getTime() - HOUR_MS) });
     const noAffiliateUrl = await createLink({ affiliateUrl: null });
     const inactive = await createLink({ active: false });
-    await quarantineOtherLinks(now);
 
     const { fetchFn } = mockFetch(() => response(200));
     const result = await jobWith(fetchFn).run(now);
@@ -258,7 +303,6 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
     const now = new Date();
     const withinWiderInterval = await createLink({ healthStatus: "ok", healthCheckedAt: new Date(now.getTime() - 30 * HOUR_MS) });
     const beyondWiderInterval = await createLink({ healthStatus: "ok", healthCheckedAt: new Date(now.getTime() - 49 * HOUR_MS) });
-    await quarantineOtherLinks(now);
 
     const { fetchFn } = mockFetch(() => response(200));
     const result = await jobWith(fetchFn).run(now);
@@ -273,7 +317,6 @@ describe.skipIf(!dbAvailable)("LinkHealthJob (COM-105, real Postgres + mocked fe
     const now = new Date();
     const disappearingId = await createLink({ affiliateUrl: "https://race.example/deleted-mid-check" });
     const survivorId = await createLink({ affiliateUrl: "https://race.example/fine" });
-    await quarantineOtherLinks(now);
 
     // The row vanishes while its probe is in flight, so the job's own DB write
     // (`update`) throws — the batch must carry on regardless.

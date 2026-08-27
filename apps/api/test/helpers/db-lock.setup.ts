@@ -10,8 +10,11 @@ import { acquireSharedDb } from "./shared-db-lock";
  *
  * Almost every suite scopes what it reads and writes to identifiers it generated
  * itself (see the note at the bottom of test/helpers/test-db.ts) and so runs fully in
- * parallel. The exceptions below cannot, because they read or write state that is
- * database-wide by definition:
+ * parallel. `EXCLUSIVE_SUITES` below is the authoritative list of the ones that cannot
+ * — everything else in the repo (comments, docs) should point at it rather than repeat
+ * a count, which is how the "four suites"/"~66 files" prose went stale (R31 리뷰 F1).
+ * They are exceptions because they read or write state that is database-wide by
+ * definition:
  *
  *   - the three admin aggregate suites snapshot a total before and after and assert
  *     on the delta, and those endpoints count every row in wooriai_test. They also
@@ -24,6 +27,18 @@ import { acquireSharedDb } from "./shared-db-lock";
  *   - `data-retention-purge` runs the purge job, which deletes withdrawn users and
  *     orphaned households across the whole database — including rows other suites
  *     are still using.
+ *
+ * TEST-132 removed `link-health.db` from this list — it was never an original entry:
+ * the round-30 review (F2) added it here to stop a global write from trampling other
+ * suites, and TEST-132 removed the global write instead. It used to mark every product
+ * link outside its own fixtures as freshly checked (a `updateMany` over the whole
+ * table) so that the job's global candidate batch would only contain its own rows —
+ * a database-wide write that trampled other suites' links. The job's candidate query
+ * is still global, so the suite now bounds the *population* instead of writing to it:
+ * the Prisma client it hands the job ANDs `id IN (its own links)` onto the job's own
+ * `findMany` where clause, leaving the job's conditions, ordering and batch cap
+ * untouched. Exact-count assertions (`checked: N`) survive intact, and a harness test
+ * asserts the scope really is in effect so it cannot silently regress to global.
  *
  * TEST-131 removed `items-commerce` from this list. Nothing in it verified global
  * state: it compared a `tab=all` snapshot against the union of the four status tabs
@@ -42,12 +57,7 @@ const EXCLUSIVE_SUITES = new Set([
   "admin-analytics-summary.e2e.test.ts",
   "admin-affiliate-click-breakdown.e2e.test.ts",
   "categories.e2e.test.ts",
-  "data-retention-purge.db.test.ts",
-  // R30 리뷰 F2: quarantineOtherLinks()가 DB의 모든 product_link 행에 updateMany를
-  // 걸고, 잡 후보 판정(healthCheckedAt IS NULL)이 다른 스위트가 만드는 행에 그대로
-  // 노출된다 — 정확 개수 단언(checked: N)이 깨질 수 있어 배타로 격리한다. 자기
-  // 픽스처 스코프로 좁히는 리팩터링은 후속 티켓 대상.
-  "link-health.db.test.ts"
+  "data-retention-purge.db.test.ts"
 ]);
 
 // Vitest populates the worker's test path before it executes setup files, so this

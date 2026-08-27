@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,22 +9,30 @@ import { join } from "node:path";
  * every suite only touches identifiers it generated itself. A handful cannot: they
  * assert on database-wide totals, pin the exact seeded reference data, or run a job
  * that deletes rows across the whole database. Those take the lock exclusively and
- * everyone else takes it shared, so one of them runs while nothing else does and the
- * remaining ~66 files run fully in parallel. That is far cheaper than the old
- * run-wide single-thread pin: a few short serialization points instead of every file.
- * test/helpers/db-lock.setup.ts holds the list and the reason for each entry.
+ * everyone else takes it shared, so one of them runs while nothing else does and every
+ * other file runs fully in parallel. That is far cheaper than the old run-wide
+ * single-thread pin: a few short serialization points instead of every file.
+ *
+ * `EXCLUSIVE_SUITES` in test/helpers/db-lock.setup.ts is the single source of truth for
+ * *which* suites those are and why. This comment deliberately quotes no count — R31
+ * 리뷰 F1: the counts that used to live here ("the four short suites", "~66 files")
+ * drifted out of date every time the list moved, and a stale number in a comment is
+ * worse than no number at all. Read the constant.
  *
  * Every entry costs the whole pool the suite's full runtime, so the list is kept as
  * short as the assertions allow: TEST-131 scoped `items-commerce` to its own fixtures
- * and took it off the list, which is why the exclusive section is now the five short
- * suites rather than six. Prefer scoping a suite's assertions over adding it here.
+ * and took it off the list, and TEST-132 did the same for `link-health` (which the
+ * round-30 review had added to work around a global `updateMany`). Prefer scoping a
+ * suite's assertions over adding it here.
  *
  * Vitest 2.x has no per-file "run this one alone" switch (`fileParallelism` is a
  * run-wide flag and separate pools execute concurrently), so the gate is built out
  * of atomic filesystem operations, which work across worker threads and processes
  * alike:
  *   - the writer marker is a **directory**; `mkdir` fails with EEXIST if it already
- *     exists, giving a race-free test-and-set;
+ *     exists, giving a race-free test-and-set. Once taken, the holder drops an
+ *     `owner.json` inside it (pid + suite name) so waiters can name the holder in a
+ *     timeout message and reclaim the marker if that pid is gone;
  *   - each reader publishes one file under `readers/` for as long as it holds the lock.
  *
  * The check/re-check in `acquireShared` is what makes it correct: a reader that
@@ -34,13 +42,32 @@ import { join } from "node:path";
 
 const LOCK_DIR_ENV = "WOORIAI_TEST_DB_LOCK_DIR";
 const WRITER_MARKER = "writer.lock";
+/** Owner record written *inside* the writer marker directory (diagnostics + stale reclaim). */
+const WRITER_OWNER_FILE = "owner.json";
 const READERS_DIR = "readers";
 
 const POLL_MS = 25;
-/** How long a reader waits for an exclusive suite before giving up and warning. */
+/**
+ * How long a reader waits for an exclusive suite before giving up.
+ *
+ * R31 리뷰 F4: this is a **per-phase** budget, not a budget for the whole acquire.
+ * `acquireExclusive` has two waits (take the marker, then drain the readers) and used
+ * to share one deadline between them, so a slow first phase could leave the second
+ * phase a fraction of a second and fail a perfectly healthy run. Each phase now gets
+ * its own deadline; the worst case a single phase can hang is still this value.
+ */
 const SHARED_WAIT_TIMEOUT_MS = 60_000;
-/** How long an exclusive suite waits for in-flight readers to drain. */
+/** How long an exclusive suite waits, per phase — see the note above. */
 const EXCLUSIVE_WAIT_TIMEOUT_MS = 60_000;
+/**
+ * R31 리뷰 F5: a writer marker whose owning process is gone (worker crash, SIGKILL)
+ * used to wedge every other file until the 60s timeout, and then failed them too. A
+ * waiter now checks the recorded pid with `process.kill(pid, 0)` and reclaims the
+ * marker. Reclaiming is only done after the *same* dead owner has been observed for
+ * this long, so the sub-millisecond window between another waiter's `mkdir` and its
+ * owner-file write can never be mistaken for a corpse.
+ */
+const STALE_OWNER_GRACE_MS = 1_000;
 /**
  * Grace period after the readers list empties. A reader releases the lock from its
  * `afterAll`, which by default runs in parallel with the suite's own `afterAll`
@@ -85,32 +112,123 @@ function writerHeld(dir: string): boolean {
   return existsSync(join(dir, WRITER_MARKER));
 }
 
-function readersPresent(dir: string): boolean {
+function readerIds(dir: string): string[] {
   try {
-    return readdirSync(join(dir, READERS_DIR)).length > 0;
+    return readdirSync(join(dir, READERS_DIR));
   } catch {
-    return false;
+    return [];
   }
+}
+
+function readersPresent(dir: string): boolean {
+  return readerIds(dir).length > 0;
+}
+
+type WriterOwner = { pid: number; suite: string; takenAt: string };
+
+/** Reads the writer marker's owner record, or null when it is absent/unreadable. */
+function readWriterOwner(dir: string): WriterOwner | null {
+  try {
+    const parsed = JSON.parse(readFileSync(join(dir, WRITER_MARKER, WRITER_OWNER_FILE), "utf8")) as WriterOwner;
+    return typeof parsed?.pid === "number" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Names the current writer for an error message, without ever throwing itself. */
+function writerOwnerLabel(dir: string): string {
+  const owner = readWriterOwner(dir);
+  return owner ? `${owner.suite} (pid ${owner.pid}, ${owner.takenAt})` : "알 수 없음 (owner 기록 없음)";
+}
+
+/**
+ * Is the marker's owner still running? Unknown owners count as alive — reclaiming a
+ * lock we cannot prove is abandoned would be far worse than waiting out the timeout.
+ */
+function ownerAlive(owner: WriterOwner | null): boolean {
+  if (!owner) {
+    return true;
+  }
+  try {
+    process.kill(owner.pid, 0);
+    return true;
+  } catch (error) {
+    // ESRCH = no such process. EPERM means it exists but belongs to someone else.
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+const ownerSignature = (owner: WriterOwner | null) => (owner ? `${owner.pid}@${owner.takenAt}` : "unknown");
+
+/**
+ * Watches the writer marker across poll ticks and removes it once the same dead owner
+ * has been observed for STALE_OWNER_GRACE_MS. Returns a stateful probe so the grace
+ * period is per-waiter (a fresh marker resets it via its new signature).
+ */
+function makeStaleWriterReclaimer(dir: string) {
+  let seenSignature: string | null = null;
+  let seenSince = 0;
+
+  return function reclaimIfStale(): boolean {
+    const owner = readWriterOwner(dir);
+    const signature = ownerSignature(owner);
+    if (signature !== seenSignature) {
+      seenSignature = signature;
+      seenSince = Date.now();
+      return false;
+    }
+    if (ownerAlive(owner) || Date.now() - seenSince < STALE_OWNER_GRACE_MS) {
+      return false;
+    }
+    // Re-read right before removing: if the marker changed hands in the meantime the
+    // signature no longer matches and we leave the new owner's marker alone.
+    if (ownerSignature(readWriterOwner(dir)) !== signature) {
+      return false;
+    }
+    rmSync(join(dir, WRITER_MARKER), { recursive: true, force: true });
+    seenSignature = null;
+    return true;
+  };
 }
 
 /** Takes the writer marker if free. Returns false (rather than throwing) if held. */
-function tryTakeWriterMarker(dir: string): boolean {
+function tryTakeWriterMarker(dir: string, id: string): boolean {
   try {
+    // `mkdir` is the atomic test-and-set; the owner record is written only after it
+    // succeeds, so a half-written marker can never look like a free one.
     mkdirSync(join(dir, WRITER_MARKER));
-    return true;
   } catch {
     return false;
   }
+  try {
+    const owner: WriterOwner = { pid: process.pid, suite: id, takenAt: new Date().toISOString() };
+    writeFileSync(join(dir, WRITER_MARKER, WRITER_OWNER_FILE), JSON.stringify(owner));
+  } catch {
+    // Diagnostics only — the lock itself is already held and stays correct without it.
+  }
+  return true;
 }
 
-async function acquireExclusive(dir: string): Promise<LockRelease> {
-  const deadline = Date.now() + EXCLUSIVE_WAIT_TIMEOUT_MS;
+async function acquireExclusive(dir: string, id: string): Promise<LockRelease> {
+  // R31 리뷰 F4: 단계마다 독립된 예산. 마커 획득에 오래 걸렸다고 리더 배출 대기가
+  // 남은 시간만 받으면, 멀쩡한 실행이 "1초 안에 배출 못 했다"로 터진다.
+  const markerDeadline = Date.now() + EXCLUSIVE_WAIT_TIMEOUT_MS;
+  const reclaimIfStale = makeStaleWriterReclaimer(dir);
 
-  while (!tryTakeWriterMarker(dir)) {
-    if (Date.now() > deadline) {
+  while (!tryTakeWriterMarker(dir, id)) {
+    // R31 리뷰 F5: 죽은 워커가 남긴 마커는 회수한다 — 그렇지 않으면 남은 파일 전부가
+    // 60초를 기다렸다가 똑같이 실패한다.
+    if (reclaimIfStale()) {
+      continue;
+    }
+    if (Date.now() > markerDeadline) {
       // R30 리뷰 F4: 무보호로 진행하면 전역 델타 단언이 원인 불명으로 깨진다 —
       // 명시적 실패가 진단에 낫다.
-      throw new Error("[shared-db-lock] 다른 배타 스위트의 락을 기다리다 시간이 초과됐어요 (워커 크래시 의심).");
+      throw new Error(
+        `[shared-db-lock] 다른 배타 스위트의 락을 기다리다 시간이 초과됐어요 (워커 크래시 의심). ` +
+          `락 디렉터리: ${dir} / 보유 스위트: ${writerOwnerLabel(dir)} / 대기 스위트: ${id}`
+      );
     }
     await sleep(POLL_MS);
   }
@@ -118,11 +236,14 @@ async function acquireExclusive(dir: string): Promise<LockRelease> {
   // The marker is held from here on, so no new reader can start: the readers list
   // only shrinks and this wait always terminates.
   const release: LockRelease = () => rmSync(join(dir, WRITER_MARKER), { recursive: true, force: true });
+  const drainDeadline = Date.now() + EXCLUSIVE_WAIT_TIMEOUT_MS;
   while (readersPresent(dir)) {
-    if (Date.now() > deadline) {
+    if (Date.now() > drainDeadline) {
+      const stuck = readerIds(dir).join(", ");
       release();
       throw new Error(
-        "[shared-db-lock] 진행 중인 스위트가 락을 반납하지 않아 시간이 초과됐어요 (워커가 죽었을 수 있어요)."
+        `[shared-db-lock] 진행 중인 스위트가 락을 반납하지 않아 시간이 초과됐어요 (워커가 죽었을 수 있어요). ` +
+          `락 디렉터리: ${dir} / 반납하지 않은 스위트: ${stuck} / 대기 스위트: ${id}`
       );
     }
     await sleep(POLL_MS);
@@ -135,11 +256,18 @@ async function acquireExclusive(dir: string): Promise<LockRelease> {
 async function acquireShared(dir: string, id: string): Promise<LockRelease> {
   const readerFile = join(dir, READERS_DIR, id);
   const deadline = Date.now() + SHARED_WAIT_TIMEOUT_MS;
+  const reclaimIfStale = makeStaleWriterReclaimer(dir);
 
   for (;;) {
     while (writerHeld(dir)) {
+      if (reclaimIfStale()) {
+        continue;
+      }
       if (Date.now() > deadline) {
-        throw new Error("[shared-db-lock] 배타 스위트를 기다리다 시간이 초과됐어요 (워커 크래시 의심).");
+        throw new Error(
+          `[shared-db-lock] 배타 스위트를 기다리다 시간이 초과됐어요 (워커 크래시 의심). ` +
+            `락 디렉터리: ${dir} / 보유 스위트: ${writerOwnerLabel(dir)} / 대기 스위트: ${id}`
+        );
       }
       await sleep(POLL_MS);
     }
@@ -164,5 +292,5 @@ export async function acquireSharedDb(mode: "shared" | "exclusive", id: string):
   if (!dir) {
     return () => {};
   }
-  return mode === "exclusive" ? acquireExclusive(dir) : acquireShared(dir, id);
+  return mode === "exclusive" ? acquireExclusive(dir, id) : acquireShared(dir, id);
 }

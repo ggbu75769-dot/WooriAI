@@ -146,8 +146,21 @@ describe("GET /children/:childId/items?stageBand", () => {
   });
 
   it("narrows the prepared tab by band only when one is given (하위호환)", async () => {
-    const newbornItem = (await listItems("tab=now")).find((item) => item.stageCodes?.includes("newborn_0_3"));
-    expect(newbornItem).toBeDefined();
+    // R31 리뷰 F10: 예전에는 tab=now의 아무 항목이나 집었다. tab=now 항목은 newborn_0_3을
+    // 포함하므로 "0-6개월 밴드에 뜬다"는 성립하지만, 시드에는 newborn_0_3과 infant_7_12을
+    // **둘 다** 가진 준비템(유모차·물티슈·체온계 등)이 6종 있어서 그런 항목이 뽑히면 마지막
+    // 단언("6-12개월 밴드에서는 빠진다")이 정당하게 실패한다. 어느 항목이 [0]에 오는지는
+    // 추천 점수 동점 + 시드 uuid 순서에 좌우돼 DB마다 달랐다(새 DB에서 재현). 그래서
+    // 조건을 명시한다: 지금 밴드에는 있고 대조 밴드에는 없는 항목.
+    const otherBandStages = STAGE_BAND_STAGES["6-12개월"];
+    const nowItems = await listItems("tab=now");
+    const newbornItem = nowItems.find(
+      (item) => !(item.stageCodes ?? []).some((stage) => otherBandStages.includes(stage))
+    );
+    expect(
+      newbornItem,
+      `tab=now(${nowItems.length}건)에 6-12개월 밴드와 겹치지 않는 신생아 전용 항목이 있어야 한다`
+    ).toBeDefined();
 
     await request(app.getHttpServer())
       .patch(`/api/v1/children/${childId}/items/${newbornItem!.id}/status`)

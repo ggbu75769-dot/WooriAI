@@ -15,7 +15,15 @@ import {
   presetChipAccessibilityLabel,
   QUICK_AMOUNT_PRESETS_KRW
 } from "../../src/expenses/amount-presets";
+import { AUTO_CATEGORY_CAPTION, suggestCategoryId } from "../../src/expenses/category-suggestion";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
+import {
+  buildItemAutocompleteSuggestions,
+  formatItemAutocompleteChipLabel,
+  itemAutocompleteChipAccessibilityLabel,
+  type ItemAutocompleteSuggestion
+} from "../../src/expenses/item-autocomplete";
+import type { MonthExpenses } from "../../src/expenses/month-expenses";
 import { expenseMutationErrorMessage, INVALID_EXPENSE_INPUT_ERROR } from "../../src/expenses/save-error-messages";
 import {
   buildRecentItemChips,
@@ -55,6 +63,11 @@ const quickExpensePaymentMethods = [
   { value: "transfer", label: "계좌 이체" },
   { value: "mobile_pay", label: "모바일 결제" }
 ] as const;
+
+// UX-C: 지출 캐시가 아직 없을 때 쓰는 고정 빈 배열. 매 렌더 새 배열을 만들면 아래 자동 추천
+// useEffect의 의존성이 매번 바뀌어 무한 재실행이 된다(react-query는 캐시가 갱신되기 전까지
+// 같은 배열 참조를 돌려주므로, 캐시가 있을 때는 이미 안정적이다).
+const noExpenseHistory: MonthExpenses["expenses"] = [];
 
 function formatExpenseDate(date: Date) {
   const year = date.getFullYear();
@@ -215,6 +228,32 @@ export default function NewExpenseScreen() {
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
 
+  // UX-C(1/2): 품목명을 치는 동안 읽는 "과거 기록"의 원천 -- 홈/기록 탭이 이미 채워 둔
+  // ["expenses", childId, 이번 달] 캐시다. 여기서 새 요청은 절대 하지 않는다(useQuery가 아니라
+  // getQueryData): 시트를 여는 것만으로 네트워크가 도는 일이 없고, 오프라인에서도 마지막으로
+  // 받아 둔 목록으로 그대로 동작하며, 캐시가 비어 있으면 추천/자동완성이 없을 뿐 기록 흐름은
+  // 아무 영향을 받지 않는다. 세션이 없는 픽셀 락 캡처에서는 애초에 읽지 않는다.
+  const currentYearMonth = formatExpenseDate(today).iso.slice(0, 7);
+  const expenseHistory =
+    (authToken && childId
+      ? queryClient.getQueryData<MonthExpenses>(["expenses", childId, currentYearMonth])?.expenses
+      : undefined) ?? noExpenseHistory;
+  // 자동완성 칩 부제("· 기저귀")의 카테고리 이름. 이 화면이 실제로 선택할 수 있는 8타일일 때만
+  // 붙인다 -- 엑셀 가져오기/지출 수정을 거쳐 서버 정식 카테고리(DB마다 다른 UUID)를 단 행은
+  // 이 화면에서 이름을 확신할 수 없고(categoryNameFor는 그런 id를 "기타"로 떨어뜨린다), 칩에
+  // 틀린 분류명을 적느니 품목명·금액만 보여 주는 편이 정직하다.
+  const categoryNameForChip = (categoryId: string) =>
+    quickExpenseCategories.find((category) => category.id === categoryId)?.label;
+
+  // 사용자가 카테고리를 직접 골랐는지. 한 번이라도 손대면(타일 탭 / 최근 품목 칩 / 자동완성 칩
+  // / 임시 저장 복원) 자동 추천은 그 뒤로 절대 덮어쓰지 않는다 -- 저장 직전에 분류가 조용히
+  // 바뀌면 그건 사용자가 기록한 것과 다른 사실이 남는 것이다.
+  const categoryTouchedRef = useRef(false);
+  const [autoPickedCategory, setAutoPickedCategory] = useState(false);
+  // 자동완성 칩으로 한 번에 채운 직후에는 같은 칩이 그대로 남지 않도록 접는다. 다시 타이핑하면
+  // (handleItemNameChange) 풀린다.
+  const [autocompleteApplied, setAutocompleteApplied] = useState(false);
+
   // Restores a saved quick-expense draft on mount, so a user who closes the sheet mid-entry
   // (e.g. interrupted by a call) doesn't lose what they typed. Skipped in pixel-lock capture
   // mode, and skipped whenever the sheet was opened with an explicit prefill (typed item name
@@ -232,6 +271,8 @@ export default function NewExpenseScreen() {
       setMemo(draft.memo);
       const matchedCategory = quickExpenseCategories.find((category) => category.id === draft.categoryId);
       if (matchedCategory) setSelectedCategory(matchedCategory);
+      // UX-C: 복원한 분류는 사용자가 이미 보고 있던 값이므로 자동 추천이 덮어쓰지 않는다.
+      categoryTouchedRef.current = true;
       if (draft.spentOnIso) setExpenseDateIso(draft.spentOnIso);
       setIsGift(draft.isGift);
     });
@@ -258,6 +299,47 @@ export default function NewExpenseScreen() {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
   }, [itemName, amountText, memo, selectedCategory.id, expenseDateIso, isGift, authToken]);
+
+  // UX-C(2/2): 품목명 -> 카테고리 자동 추천. 순수 계산(src/expenses/category-suggestion.ts)이라
+  // 디바운스 없이 타이핑마다 돌려도 가볍고, 규칙은 1순위 과거 기록 / 2순위 정적 키워드 사전이다.
+  // 세션이 없을 때(픽셀 락 캡처)는 아예 돌지 않는다.
+  //
+  // 덮어쓰기 금지: categoryTouchedRef가 true면 -- 사용자가 타일을 직접 눌렀거나, 최근/자동완성
+  // 칩으로 카테고리까지 확정했거나, 임시 저장을 복원했다면 -- 추천은 손대지 않는다.
+  // 추천할 근거가 사라지면(이름을 지웠다면) 캡션도 함께 내린다.
+  useEffect(() => {
+    if (!authToken) return;
+    if (categoryTouchedRef.current) return;
+    const suggestion = suggestCategoryId(itemName, expenseHistory);
+    if (!suggestion) {
+      setAutoPickedCategory(false);
+      return;
+    }
+    const suggestedCategory = quickExpenseCategories.find((category) => category.id === suggestion.categoryId);
+    if (!suggestedCategory) return;
+    setSelectedCategory((current) => (current.id === suggestedCategory.id ? current : suggestedCategory));
+    setAutoPickedCategory(true);
+  }, [authToken, itemName, expenseHistory]);
+
+  // 타이핑 연동 자동완성 후보(상위 3개). 칩으로 한 번 채운 뒤에는 다시 타이핑할 때까지 접힌다.
+  const itemAutocompleteChips =
+    authToken && !autocompleteApplied ? buildItemAutocompleteSuggestions(itemName, expenseHistory) : [];
+
+  const handleItemNameChange = (value: string) => {
+    setItemName(value);
+    setAutocompleteApplied(false);
+  };
+
+  // 자동완성 칩 1탭 = 이름·금액·카테고리 일괄 채움. 저장은 여전히 저장하기 버튼으로만 일어난다.
+  const applyItemAutocompleteChip = (chip: ItemAutocompleteSuggestion) => {
+    categoryTouchedRef.current = true;
+    setAutoPickedCategory(false);
+    setItemName(chip.itemName);
+    setAmountText(String(chip.amountKrw));
+    const matchedCategory = quickExpenseCategories.find((category) => category.id === chip.categoryId);
+    if (matchedCategory) setSelectedCategory(matchedCategory);
+    setAutocompleteApplied(true);
+  };
 
   // EXP-113: "최근 품목" 재입력 칩 -- 서버 왕복 없이, 이 기기의 오프라인 저장소(local_expenses)
   // 반응형 스냅숏을 읽기 전용으로 사용한다 (createExpenseOffline이 저장할 때마다 스냅숏이
@@ -427,6 +509,9 @@ export default function NewExpenseScreen() {
                   accessibilityLabel={recentItemChipAccessibilityLabel(chip)}
                   hitSlop={3}
                   onPress={() => {
+                    // UX-C: 칩이 카테고리까지 확정하므로 그 뒤 자동 추천이 덮어쓰지 않는다.
+                    categoryTouchedRef.current = true;
+                    setAutoPickedCategory(false);
                     setItemName(chip.itemName);
                     setAmountText(String(chip.amountKrw));
                     const matchedCategory = quickExpenseCategories.find((category) => category.id === chip.categoryId);
@@ -601,6 +686,9 @@ export default function NewExpenseScreen() {
                 selected={selected}
                 category={category}
                 onPress={() => {
+                  // UX-C: 직접 고른 순간부터 자동 추천은 이 선택을 덮어쓰지 않는다.
+                  categoryTouchedRef.current = true;
+                  setAutoPickedCategory(false);
                   setSelectedCategory(category);
                   setItemName(category.label);
                 }}
@@ -608,6 +696,13 @@ export default function NewExpenseScreen() {
             );
           })}
         </View>
+
+        {/* UX-C: 자동으로 골라 줬을 때만 뜨는 미세 캡션. 타일 자체는 평소와 똑같은 선택 상태로
+            보이고(추천이라고 다르게 칠하지 않는다), 사용자가 타일을 직접 누르거나 칩으로
+            카테고리를 확정하면 바로 사라진다. 세션 없는 픽셀 락 캡처에서는 렌더되지 않는다. */}
+        {authToken && autoPickedCategory ? (
+          <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>{AUTO_CATEGORY_CAPTION}</Text>
+        ) : null}
 
         <TextInput
           accessibilityLabel="메모 입력 (선택)"
@@ -648,24 +743,58 @@ export default function NewExpenseScreen() {
         </Pressable>
 
         {authToken ? (
-          <TextInput
-            accessibilityLabel="품목명 입력"
-            returnKeyType="done"
-            onChangeText={setItemName}
-            placeholder="품목명 (예: 기저귀)"
-            style={{
-              backgroundColor: theme.colors.white,
-              borderColor: "rgba(74, 63, 53, 0.10)",
-              borderRadius: 14,
-              borderWidth: 1,
-              color: theme.colors.brown,
-              fontSize: 14,
-              fontWeight: "700",
-              minHeight: 48,
-              paddingHorizontal: 14
-            }}
-            value={itemName}
-          />
+          <View style={{ gap: 8 }}>
+            <TextInput
+              accessibilityLabel="품목명 입력"
+              returnKeyType="done"
+              onChangeText={handleItemNameChange}
+              placeholder="품목명 (예: 기저귀)"
+              style={{
+                backgroundColor: theme.colors.white,
+                borderColor: "rgba(74, 63, 53, 0.10)",
+                borderRadius: 14,
+                borderWidth: 1,
+                color: theme.colors.brown,
+                fontSize: 14,
+                fontWeight: "700",
+                minHeight: 48,
+                paddingHorizontal: 14
+              }}
+              value={itemName}
+            />
+            {/* UX-C: 타이핑에 연동된 과거 항목 자동완성. 폼 상단의 "최근 품목" 칩(EXP-113)과는
+                자리도 트리거도 다르다 -- 저쪽은 타이핑과 무관한 최근 N건이고, 이 줄은 지금 친
+                글자에 걸리는 상위 3개만 입력칸 바로 아래에 붙는다. 탭 한 번에 이름·금액·
+                카테고리가 함께 채워지고(저장은 여전히 저장하기 버튼), 세션 없는 픽셀 락
+                캡처에서는 이 분기 자체가 렌더되지 않는다. */}
+            {itemAutocompleteChips.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {itemAutocompleteChips.map((chip) => (
+                  <Pressable
+                    key={chip.itemName}
+                    accessibilityRole="button"
+                    accessibilityLabel={itemAutocompleteChipAccessibilityLabel(chip, categoryNameForChip(chip.categoryId))}
+                    hitSlop={3}
+                    onPress={() => applyItemAutocompleteChip(chip)}
+                    style={{
+                      alignItems: "center",
+                      backgroundColor: theme.colors.white,
+                      borderColor: theme.colors.primary100,
+                      borderRadius: theme.radii.pill,
+                      borderWidth: 1,
+                      justifyContent: "center",
+                      minHeight: 38,
+                      paddingHorizontal: 14
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
+                      {formatItemAutocompleteChipLabel(chip, categoryNameForChip(chip.categoryId))}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : null}
+          </View>
         ) : (
           <View style={{ display: "none" }}>
             <TextInput onChangeText={setItemName} value={itemName} />

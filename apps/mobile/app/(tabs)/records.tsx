@@ -1,8 +1,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
-import type { ListRenderItemInfo, ViewStyle } from "react-native";
-import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
+import type { ListRenderItemInfo, SectionListData, ViewStyle } from "react-native";
+import { Pressable, RefreshControl, ScrollView, SectionList, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import {
   listCategories,
@@ -14,6 +14,7 @@ import {
 } from "../../src/api/client";
 import { buildCategoryNameLookup, type CategoryNameLookup } from "../../src/categories";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
+import { groupExpensesByDate, type RecordsDateGroup } from "../../src/expenses/records-date-groups";
 import {
   buildRecordsCategoryChips,
   expenseCreatedByUserId,
@@ -68,11 +69,19 @@ const webScrollHiddenStyle = {
   scrollbarWidth: "none"
 } as unknown as ViewStyle;
 
-type RecordsListItem =
-  | { kind: "offline"; key: string; row: LocalExpenseRow }
+// UX-B: 목록 항목은 `spentOn`/`amountKrw`/`expenseType`을 **최상위로** 들고 다닌다. 날짜 그룹핑과
+// 일별 소계(src/expenses/records-date-groups.ts)가 오프라인 행(payload 안쪽)과 서버 행(평평한
+// 필드)을 구분하지 않고 같은 규칙으로 읽어야 하기 때문이다 -- 순수 모듈이 화면의 항목 모양을
+// 알 필요가 없어진다.
+type RecordsListItem = { key: string; spentOn: string; amountKrw: number; expenseType?: string | null } & (
+  | { kind: "offline"; row: LocalExpenseRow }
   // FAM-127: `authorLabel`은 목록을 만들 때 이미 해석해 둔 **문자열(또는 null)**이다 -- 행에
   // 구성원 배열이나 해석 함수를 넘기면 PERF-102의 행 memo가 매 렌더 깨진다.
-  | { kind: "server"; key: string; expense: ServerExpense; categoryName: CategoryNameLookup; authorLabel: string | null };
+  | { kind: "server"; expense: ServerExpense; categoryName: CategoryNameLookup; authorLabel: string | null }
+);
+
+/** UX-B: SectionList가 요구하는 `data`를 붙인 날짜 그룹(순수 모듈의 `rows`를 그대로 옮긴다). */
+type RecordsSection = Omit<RecordsDateGroup<RecordsListItem>, "rows"> & { data: RecordsListItem[] };
 
 // HOME-124: `formatSpentOn`은 src/expenses/records-list-view.ts로 승격했다 -- 홈의 "최근 지출"
 // 행이 같은 포맷을 쓰도록 하기 위해서다(예전에는 ISO 원본을 그대로 그렸다).
@@ -166,6 +175,63 @@ function recordsRowKey(item: RecordsListItem) {
 
 function RecordsRowSeparator() {
   return <View style={{ height: theme.spacing.gap }} />;
+}
+
+// UX-B 날짜 헤더 스타일. 모듈 스코프 상수라 매 렌더 새 객체를 만들지 않는다.
+//
+// 배경을 배경색으로 **명시**하는 이유: sticky 헤더는 RN 기본 동작에 맡기는데(iOS는 켜짐,
+// Android는 꺼짐 -- SectionList 기본값을 그대로 둔다) 투명한 헤더가 붙박이로 떠 있으면 그 아래로
+// 지나가는 행이 글자에 겹쳐 보인다.
+const recordsSectionHeaderStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.background,
+  flexDirection: "row",
+  justifyContent: "space-between",
+  paddingBottom: 8,
+  // 앞 섹션의 마지막 행과 이 헤더 사이 여백. SectionList의 ItemSeparatorComponent는 같은 섹션
+  // 안에서만 그려지므로 섹션 사이 간격은 헤더가 직접 낸다.
+  paddingTop: theme.spacing.gap,
+  paddingHorizontal: 2
+} as const;
+
+const recordsSectionHeaderDateStyle = {
+  color: theme.colors.brown,
+  fontSize: theme.typography.body2.fontSize,
+  fontWeight: "800"
+} as const;
+
+const recordsSectionHeaderSubtotalStyle = {
+  color: theme.colors.gray600,
+  fontSize: theme.typography.body2.fontSize,
+  fontWeight: "700"
+} as const;
+
+/**
+ * UX-B: 날짜 그룹 헤더 -- 왼쪽에 날짜("오늘"/"어제"/"8월 27일 (수)"), 오른쪽에 일별 소계.
+ *
+ * 소계는 화면 위쪽 월 합계와 **같은 규칙**(countsTowardMonthlyTotal, DNC-015 선물·환불 제외)으로
+ * 순수 모듈이 계산해 둔 값이다. 그날 합산 대상 행이 하나도 없으면(선물·환불만 있는 날) 소계 자리를
+ * 비운다 -- "0원"은 그날 아무것도 안 썼다는 뜻으로 읽히는데, 선물 행은 그 아래 그대로 보인다.
+ */
+const RecordsSectionHeader = memo(function RecordsSectionHeader({ section }: { section: RecordsSection }) {
+  return (
+    <View
+      accessible
+      accessibilityRole="header"
+      accessibilityLabel={
+        section.hasSubtotal ? `${section.headerLabel}, 합계 ${formatKrw(section.subtotalKrw)}` : section.headerLabel
+      }
+      style={recordsSectionHeaderStyle}
+    >
+      <Text style={recordsSectionHeaderDateStyle}>{section.headerLabel}</Text>
+      {section.hasSubtotal ? <Text style={recordsSectionHeaderSubtotalStyle}>{formatKrw(section.subtotalKrw)}</Text> : null}
+    </View>
+  );
+});
+
+// 모듈 스코프 renderSectionHeader -- renderItem/keyExtractor와 같은 이유로 인라인 람다를 쓰지 않는다.
+function renderRecordsSectionHeader({ section }: { section: SectionListData<RecordsListItem, RecordsSection> }) {
+  return <RecordsSectionHeader section={section} />;
 }
 
 // Note on getItemLayout: intentionally omitted -- ListRow height is not fixed (optional subtitle,
@@ -425,11 +491,23 @@ export default function RecordsScreen() {
   // Offline pending rows first (same order as the old eager render), then server rows.
   const listData = useMemo<RecordsListItem[]>(
     () => [
-      ...visibleOfflineRows.map((row): RecordsListItem => ({ kind: "offline", key: `offline:${row.localId}`, row })),
+      ...visibleOfflineRows.map(
+        (row): RecordsListItem => ({
+          kind: "offline",
+          key: `offline:${row.localId}`,
+          spentOn: row.payload.spentOn,
+          amountKrw: row.payload.amountKrw,
+          expenseType: row.payload.expenseType,
+          row
+        })
+      ),
       ...visibleExpenses.map(
         (expense): RecordsListItem => ({
           kind: "server",
           key: `server:${expense.id}`,
+          spentOn: expense.spentOn,
+          amountKrw: expense.amountKrw,
+          expenseType: expense.expenseType,
           expense,
           categoryName,
           // FAM-127: 오프라인 대기 행에는 라벨을 붙이지 않는다 -- 아직 이 기기에서 방금 만든
@@ -446,8 +524,23 @@ export default function RecordsScreen() {
   // Same gating as the old conditional render: rows only appear once the server list has
   // resolved (loading -> skeleton, error -> retry card, disabled query -> empty state).
   const showList = !expenses.isLoading && !expenses.isError && Boolean(expenses.data);
-  const flatListData = showList ? listData : [];
   const hasVisibleRecords = showList && listData.length > 0;
+
+  // UX-B: 평평한 목록 대신 **날짜 그룹**. 그룹핑·라벨·소계 규칙은 전부 순수 모듈에 있고
+  // (src/expenses/records-date-groups.ts) 여기서는 SectionList가 요구하는 `data` 이름만 붙인다.
+  //
+  // 넘기는 것은 **필터가 이미 걸린** listData다 -- 카테고리 칩/검색이 켜져 있으면 일별 소계도
+  // 화면에 실제로 보이는 행의 합이 된다(보이지 않는 행이 소계에 섞이면 그게 허위 표시다).
+  // 필터가 없을 때 모든 소계의 합은 위 월 합계(monthlyTotalKrw)와 정확히 같다 -- 양쪽이
+  // countsTowardMonthlyTotal(DNC-015)이라는 같은 술어를 쓰기 때문이다.
+  const sections = useMemo<RecordsSection[]>(
+    () =>
+      (showList ? groupExpensesByDate(listData, seoulToday) : []).map(({ rows, ...group }) => ({
+        ...group,
+        data: rows
+      })),
+    [showList, listData, seoulToday]
+  );
 
   // Rendered as an element (not an inline component) so the TextInput keeps focus across
   // re-renders -- FlatList remounts ListHeaderComponent when it's a new function each render.
@@ -598,12 +691,14 @@ export default function RecordsScreen() {
 
   return (
     <View testID="screen-EXP-004" style={{ backgroundColor: theme.colors.background, flex: 1 }}>
-      <FlatList
-        data={flatListData}
+      <SectionList
+        sections={sections}
         keyExtractor={recordsRowKey}
         renderItem={renderRecordsRow}
-        // MOB-117: PERF-102대로 이 화면의 스크롤러는 FlatList 자체이므로(AppScreen 중첩 금지)
-        // RefreshControl도 FlatList prop으로 단다.
+        // UX-B: 날짜 헤더 + 일별 소계. sticky 여부는 SectionList 기본 동작에 맡긴다.
+        renderSectionHeader={renderRecordsSectionHeader}
+        // MOB-117: PERF-102대로 이 화면의 스크롤러는 리스트 자체이므로(AppScreen 중첩 금지)
+        // RefreshControl도 리스트 prop으로 단다.
         refreshControl={
           hasRecordsSession ? (
             <RefreshControl
