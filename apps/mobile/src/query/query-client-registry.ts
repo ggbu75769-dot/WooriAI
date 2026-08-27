@@ -28,10 +28,6 @@ export function registerAppQueryClient(client: QueryClient): void {
   appQueryClient = client;
 }
 
-export function getAppQueryClient(): QueryClient | null {
-  return appQueryClient;
-}
-
 /**
  * Drops every cached query/mutation. A no-op before registration (unit tests, and the brief
  * window before app/_layout.tsx's module body runs), which is the safe direction: the cache we

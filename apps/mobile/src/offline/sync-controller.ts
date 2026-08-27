@@ -95,14 +95,6 @@ export function useOfflineSyncSnapshot(): SyncSnapshot {
   );
 }
 
-/** Local (not-yet-synced) rows for one child, for a records-list screen to merge alongside the
- * server-confirmed expenses it already fetches via listExpenses. */
-export function useOfflinePendingExpenses(childId: string | null): LocalExpenseRow[] {
-  const snapshot = useOfflineSyncSnapshot();
-  if (!childId) return [];
-  return snapshot.rows.filter((row) => row.childId === childId && row.syncState !== "synced" && !row.pendingDelete);
-}
-
 // ---------------------------------------------------------------------------
 // Flash messages: "서버 확인 후" copy (design doc §3.3) fires once a background flush actually
 // confirms a write with the server, which can happen well after the screen that triggered it has
