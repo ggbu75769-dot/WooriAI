@@ -4,7 +4,7 @@ import { milestoneSubtitleShowsTotal } from "./milestone-countdown";
 /**
  * 라운드 48 B2 — 홈 "임신~첫돌 누적 총액" 카드의 **표시 판정**과 문구.
  *
- *   "지금까지 함께한 지출 1,245,700원"
+ *   "지금까지의 지출 합계 1,245,700원"
  *
  * ## 왜 필요한가
  *
@@ -29,22 +29,23 @@ import { milestoneSubtitleShowsTotal } from "./milestone-countdown";
  *
  * - 누적을 **모르면 카드를 만들지 않는다**(응답 전·필드 없음 → null). 0원으로 떨어뜨리면
  *   확인한 적 없는 사실을 말하게 된다(budget-edit.ts의 사용액 줄과 같은 규율).
- * - 누적이 0원인 계정에도 만들지 않는다. "지금까지 함께한 지출 0원"은 첫 기록을 앞둔 사람에게
+ * - 누적이 0원인 계정에도 만들지 않는다. "지금까지의 지출 합계 0원"은 첫 기록을 앞둔 사람에게
  *   할 말이 아니고, 그 자리는 이미 첫 지출 유도 카드가 맡고 있다(src/home/first-run-guide.ts).
  * - 금액은 홈이 이미 들고 있는 서버 집계를 **그대로** 쓴다. 새 요청도, 클라이언트 재집계도
  *   없다(선물·환불 제외 — DNC-015).
- * - 부제가 구간을 스스로 밝힌다. 이 숫자는 월 히어로(이번 달)와도, 마일스톤 리포트의 창
- *   합계(100일·첫돌)와도 다른 **전 기간** 합계이기 때문이다(라운드 33 F5가 마일스톤 부제에서
- *   고친 것과 같은 종류의 오해를 처음부터 만들지 않는다).
+ * - 부제가 **구간과 제외 항목**을 스스로 밝힌다. 이 숫자는 월 히어로(이번 달)와도, 마일스톤
+ *   리포트의 창 합계(100일·첫돌)와도 다른 **전 기간** 합계이고, 그 전 기간 안에서도 선물은
+ *   빠져 있기 때문이다(DNC-015). 라운드 33 F5가 마일스톤 부제에서 고친 것과 같은 종류의 오해를
+ *   여기서 다시 만들지 않는다 — 자세한 근거는 아래 CUMULATIVE_TOTAL_SUBTITLE 참고.
  *
  * React/react-native/네트워크에 의존하지 않는다 — 화면 밖에서 vitest로 검증하기 위해서다
  * (src/home/budget-progress.ts와 같은 관례).
  */
 
 export type HomeCumulativeTotal = {
-  /** 카드 제목 — "지금까지 함께한 지출 1,245,700원". */
+  /** 카드 제목 — "지금까지의 지출 합계 1,245,700원". */
   title: string;
-  /** 구간을 밝히는 한 줄 — 이번 달 합계·마일스톤 리포트 합계와 혼동되지 않게. */
+  /** 구간과 제외 항목을 밝히는 한 줄 — 이번 달 합계·마일스톤 리포트 합계와 혼동되지 않게. */
   subtitle: string;
   /** TalkBack 문장(제목 + 부제를 한 번에 읽는다). */
   accessibilityLabel: string;
@@ -65,6 +66,38 @@ export type HomeCumulativeTotalInput = {
   hasMilestoneCard: boolean;
 };
 
+/**
+ * 카드 제목의 앞머리(뒤에 금액이 붙는다).
+ *
+ * 라운드 48 QA(P2-3) — 예전 문구 "지금까지 함께한 지출"을 버린다. 그 표현은 **라운드 33 F5가
+ * 마일스톤 부제에서 이미 폐기한 것**이다(src/home/milestone-countdown.ts 금액 규칙 참고):
+ * "지금까지"가 어느 구간인지 말하지 않아, 카드 금액과 마일스톤 리포트의 창 합계가 같아야 할
+ * 것처럼 읽혔다. 그 판단으로 마일스톤 부제는 "지금까지 총 지출"이 됐는데, 이 카드가 폐기된 쪽을
+ * 되살려 두 카드가 같은 숫자를 서로 다른 이름으로 부르고 있었다.
+ */
+export const CUMULATIVE_TOTAL_TITLE_PREFIX = "지금까지의 지출 합계";
+
+/**
+ * 구간과 제외 항목을 함께 밝히는 한 줄.
+ *
+ * 라운드 48 QA(P2-3) — 예전 부제 "임신 때부터 지금까지 기록한 전체 합계예요"는 두 군데가 사실과
+ * 어긋났다.
+ *
+ * ① **"임신 때부터"가 거짓일 수 있다.** 이 숫자의 시작점은 임신이 아니라 **이 앱에 기록을
+ *    남기기 시작한 시점**이다. 출산 후에 가입한 사람, 생년월일 없이 시작한 manual 아이에게는
+ *    임신기 지출이 애초에 한 건도 없다 — 그런 계정에 "임신 때부터"라고 적으면 이 앱이 세지
+ *    않은 기간까지 센 것처럼 말하는 셈이다.
+ * ② **"전체 합계"가 아니다.** `HomeSummary.totalExpenseKrw`는 `expenseType='expense'`만
+ *    더한다(DNC-015: 선물 제외 — apps/api/src/onboarding/reporting-store.service.ts). 선물로
+ *    받아 기록해 둔 항목은 이 숫자에 없는데 "전체"라고 말하면, 사용자는 기록 탭에서 보이는
+ *    합과 이 카드가 왜 다른지 알 길이 없다. 빼놓은 것이 있으면 그 사실을 카드가 스스로 밝힌다.
+ *
+ * 그래서 시작점은 확인 가능한 사실("기록을 시작한 뒤")로, 범위는 제외 항목을 괄호로 명시한다.
+ * 마일스톤 부제의 근거 주석(전 기간 누적 ≠ 리포트 창 합계)과도 어긋나지 않는다 — 여전히
+ * "창이 아닌 전 기간"이라고 말하되, 그 전 기간의 시작을 지어내지 않을 뿐이다.
+ */
+export const CUMULATIVE_TOTAL_SUBTITLE = "기록을 시작한 뒤의 지출을 모두 더했어요 (선물로 받은 건 제외)";
+
 /** 홈 누적 총액 카드를 만든다. 보여줄 이유가 없으면 null(그 자리는 비어 있는다). */
 export function evaluateHomeCumulativeTotal(input: HomeCumulativeTotalInput): HomeCumulativeTotal | null {
   if (!input.hasSession) return null;
@@ -76,8 +109,8 @@ export function evaluateHomeCumulativeTotal(input: HomeCumulativeTotalInput): Ho
   if (input.hasMilestoneCard) return null;
 
   const amountText = formatKrw(input.totalExpenseKrw);
-  const title = `지금까지 함께한 지출 ${amountText}`;
-  const subtitle = "임신 때부터 지금까지 기록한 전체 합계예요";
+  const title = `${CUMULATIVE_TOTAL_TITLE_PREFIX} ${amountText}`;
+  const subtitle = CUMULATIVE_TOTAL_SUBTITLE;
   return {
     title,
     subtitle,

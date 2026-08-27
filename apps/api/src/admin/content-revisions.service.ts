@@ -704,6 +704,14 @@ export class ContentRevisionsService {
         skipReasonText: item.skipReasonText,
         usedSecondhandOk: item.usedSecondhandOk,
         safetyNote: item.safetyNote,
+        // 라운드 48 QA(P2-4): 라운드 48 T1이 이 필드를 어드민 편집 대상으로 열면서
+        // (AdminCreate/UpdateItemTemplateDto.medicalDisclaimerRequired, DNC-020) 리비전
+        // payload에는 실리게 됐는데 **여기 라이브 스냅숏에는 빠져 있었다**. 검수 화면의 diff는
+        // payload와 live의 키 합집합을 돌며 `JSON.stringify(before) !== JSON.stringify(after)`로
+        // 판정하므로(apps/admin/app/reviews/page.tsx diffFields), 한쪽에만 있는 키는 before가
+        // 늘 "(없음)"이 되어 **값을 바꾼 적 없는 리비전도 매번 '변경됨'으로** 표시됐다.
+        // 검수자가 실제 변경점을 가려내지 못하면 그 화면은 안전장치 노릇을 못 한다.
+        medicalDisclaimerRequired: item.medicalDisclaimerRequired,
         stageCodes: stages.map((stage) => stage.stageCode),
         active: item.active
       };

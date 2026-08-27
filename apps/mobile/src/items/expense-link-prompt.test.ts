@@ -248,7 +248,11 @@ describe("화면 배선 (source contract)", () => {
       "{shouldShowItemDetailExpenseLink({ hasSession, clickedPromptVisible: Boolean(clickedTitle) }) ? ("
     );
     expect(detail).toContain('pathname: "/expenses/new"');
-    expect(detail).toContain("params: expenseLinkParams({ itemName: visibleDetail.name, itemTemplateId })");
+    // 라운드 48 QA(P2-5): 같은 프리필 경로에 출처("item-detail") 한 개가 더 실린다 --
+    // 저장 후 준비템 탭으로 돌아가기 위해서다(src/expenses/post-save-destination.ts).
+    expect(detail).toContain(
+      'params: expenseLinkParams({ itemName: visibleDetail.name, itemTemplateId }, "item-detail")'
+    );
     expect(detail).toContain("accessibilityLabel={itemDetailExpenseLinkAccessibilityLabel(visibleDetail.name)}");
     // 문구는 화면에 인라인하지 않는다 -- 순수 모듈이 단일 소스다.
     expect(detail).not.toContain('label="이미 샀어요');

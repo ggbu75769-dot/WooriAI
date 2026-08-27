@@ -36,6 +36,8 @@ export type UpdateExpenseInput = {
   spentOn?: string;
   itemName?: string;
   memo?: string | null;
+  /** 라운드 48 QA(P2-6): 충돌 병합이 고른 결제 수단을 실제로 반영하기 위한 additive optional. */
+  paymentMethod?: PaymentMethod;
   expenseType?: ExpenseType;
 };
 
@@ -221,6 +223,9 @@ export class ExpensesStoreService {
       data.itemName = itemName;
     }
     if (input.memo !== undefined) data.memo = cleanOptionalText(input.memo ?? undefined);
+    // 라운드 48 QA(P2-6): DTO가 이미 PAYMENT_METHODS로 좁혀 두었으므로 여기서는 그대로 옮긴다
+    // (생성 경로 insertExpense와 같은 취급). 보내지 않으면 손대지 않는다.
+    if (input.paymentMethod !== undefined) data.paymentMethod = input.paymentMethod;
     if (input.expenseType !== undefined) data.expenseType = input.expenseType;
 
     const updated = await this.prisma.expense.update({ where: { id: expense.id }, data });

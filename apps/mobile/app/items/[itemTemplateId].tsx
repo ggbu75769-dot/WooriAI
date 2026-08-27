@@ -725,7 +725,10 @@ export default function ItemDetailScreen() {
               onPress={expenseGate.guard(() =>
                 router.push({
                   pathname: "/expenses/new",
-                  params: expenseLinkParams({ itemName: visibleDetail.name, itemTemplateId })
+                  // 라운드 48 QA(P2-5): 출처를 함께 넘겨 저장 후 준비템 탭으로 돌아간다 --
+                  // 이 기록은 서버가 이 준비템을 준비 완료로 올리므로(R19-B), 결과가 보이는
+                  // 화면으로 되돌아가는 것이 맞다(src/expenses/post-save-destination.ts).
+                  params: expenseLinkParams({ itemName: visibleDetail.name, itemTemplateId }, "item-detail")
                 })
               )}
             />
@@ -752,7 +755,13 @@ export default function ItemDetailScreen() {
               <PrimaryButton
                 label="지출 기록하고 준비 완료"
                 onPress={expenseGate.guard(() =>
-                  router.push({ pathname: "/expenses/new", params: { itemName: visibleDetail.name, itemTemplateId } })
+                  router.push({
+                    pathname: "/expenses/new",
+                    // 라운드 48 QA(P2-5): 위 상시 진입점과 **같은 파라미터 조립기**를 탄다.
+                    // 두 버튼이 같은 곳으로 가는 같은 행동인데(G-8) 한쪽만 출처를 붙이면
+                    // 저장 후 목적지가 어느 버튼을 눌렀느냐로 갈린다.
+                    params: expenseLinkParams({ itemName: visibleDetail.name, itemTemplateId }, "item-detail")
+                  })
                 )}
               />
               <SecondaryButton

@@ -167,6 +167,75 @@ describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Pos
       });
   });
 
+  /**
+   * 라운드 48 QA(P2-6) — 409 `current` 스냅숏이 결제 수단을 싣는다.
+   *
+   * `toExpenseSnapshot`은 주석에서 "store-shared.ts toExpenseDto의 미러 + version"이라고
+   * 선언해 두고도 `paymentMethod`/`linkedItemTemplateId`를 빠뜨리고 있었다(두 필드는 라운드 48
+   * T3에서 toExpenseDto에 열렸다). 그 누락이 사용자에게 닿던 자리가 앱의 충돌 화면
+   * "두 값 나란히 보기"다: 로컬 대기 행에는 사용자가 고른 결제 수단이 있는데 서버 스냅숏에는
+   * 그 키가 아예 없으니, **바꾼 적 없는 결제 수단이 매번 충돌 항목으로** 뜨고 서버 쪽 값은
+   * "없음"으로 그려졌다 — 서버가 실제로 들고 있는 값을 두고 없다고 말하는 허위 표시다.
+   *
+   * 그리고 PATCH가 `paymentMethod`를 받는다: 충돌 화면이 이 필드를 고르게 해 놓고 그 선택을
+   * 보낼 자리가 없으면(전역 ValidationPipe가 forbidNonWhitelisted라 실으면 400) 화면이 물어보고
+   * 조용히 무시하는 셈이 된다.
+   */
+  it("409 current가 paymentMethod/linkedItemTemplateId를 싣고, PATCH가 paymentMethod를 받는다", async () => {
+    const accessToken = await login("version-payment-method");
+    const { childId } = await completeOnboarding(accessToken);
+
+    const created = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          categoryId,
+          amountKrw: 10000,
+          spentOn: "2026-07-06",
+          itemName: "결제수단 스냅숏",
+          paymentMethod: "card"
+        })
+        .expect(200)
+    ).body as { id: string; version: number; paymentMethod: string };
+    expect(created.paymentMethod).toBe("card");
+
+    // ① PATCH가 결제 수단을 실제로 받아 반영한다(예전에는 400 VALIDATION_ERROR였다).
+    const updated = (
+      await request(app.getHttpServer())
+        .patch(`/api/v1/expenses/${created.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ paymentMethod: "transfer", expectedVersion: created.version })
+        .expect(200)
+    ).body as { version: number; paymentMethod: string };
+    expect(updated.paymentMethod).toBe("transfer");
+    expect(updated.version).toBe(created.version + 1);
+
+    // ② 낡은 expectedVersion으로 부딪히면, 409의 current가 **서버가 아는 결제 수단 그대로**를
+    //    싣는다. 이 값이 없으면 앱 충돌 화면이 "없음"으로 그린다.
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ amountKrw: 55000, expectedVersion: created.version })
+      .expect(409)
+      .expect(({ body }) => {
+        versionConflictResponseSchema.parse(body);
+        expect(body.current).toMatchObject({
+          id: created.id,
+          paymentMethod: "transfer",
+          linkedItemTemplateId: null
+        });
+      });
+
+    // ③ 모르는 결제 수단은 여전히 거절한다 — 계약을 넓힌 것이지 검증을 푼 것이 아니다.
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ paymentMethod: "crypto" })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("VALIDATION_ERROR"));
+  });
+
   it("rolls back the version bump when the conditional update's field validation fails", async () => {
     const accessToken = await login("version-rollback");
     const { childId } = await completeOnboarding(accessToken);

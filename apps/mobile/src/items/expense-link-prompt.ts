@@ -1,4 +1,5 @@
 import type { ItemStatus } from "@wooriai/domain";
+import { EXPENSE_ENTRY_SOURCE_PARAM, type ExpenseEntrySource } from "../expenses/post-save-destination";
 import { normalizeItemSearchText } from "./item-filters";
 
 /**
@@ -31,14 +32,41 @@ export type ExpenseLinkParams = {
 };
 
 /**
+ * 만들어진 파라미터. 프리필 두 개에, 라우팅 힌트 `from`이 **있을 수도 있다**.
+ *
+ * `from`은 화면에 보이지 않는 식별자이고(post-save-destination.ts), 붙지 않으면 저장 후 목적지는
+ * 종전 그대로 기록 탭이다 — 그래서 optional이다.
+ */
+export type ExpenseLinkParamsWithSource = ExpenseLinkParams & {
+  [EXPENSE_ENTRY_SOURCE_PARAM]?: ExpenseEntrySource;
+};
+
+/**
  * 준비템 → 지출 기록 프리필 파라미터.
  *
- * 계약은 app/expenses/new.tsx가 정한다(`useLocalSearchParams<{ itemName?, itemTemplateId? }>`).
- * 새 파라미터를 더하지 않는 것이 요점이다 — 저장 경로가 갈라지면 "지출을 저장하면 준비템도
- * 준비 완료로 표시된다"는 서버 쪽 연결(R19-B)이 한쪽에서만 동작한다.
+ * 계약은 app/expenses/new.tsx가 정한다(`useLocalSearchParams<{ itemName?, itemTemplateId?, from? }>`).
+ * **저장 경로는 여전히 하나다** — 프리필 계약(itemName, itemTemplateId)을 갈라 놓으면 "지출을
+ * 저장하면 준비템도 준비 완료로 표시된다"는 서버 쪽 연결(R19-B)이 한쪽에서만 동작한다.
+ *
+ * ## 라운드 48 QA(P2-5): `from`을 실제로 붙인다
+ *
+ * 라운드 48 T4(D1)가 "저장 후 준비템 탭 복귀" 판정을 만들었지만
+ * (`resolvePostSaveDestination`), 그 판정에 값을 넣어 주는 진입점이 준비템 쪽에는 하나도
+ * 배선되지 않아 **어느 경로에서도 동작하지 않았다** — 준비템에서 기록해도 늘 기록 탭으로
+ * 튕겨 나갔고, 방금 오른 준비율과 100% 축하 배너는 아무도 못 봤다(핵심 루프의 마지막 고리).
+ *
+ * `source`는 **선택 인자**다. 넘기지 않으면 `from` 키 자체를 만들지 않아 종전 동작이
+ * 한 글자도 바뀌지 않는다 — 아직 배선하지 않았거나 일부러 기본값을 쓰는 호출처(홈·기록 탭)는
+ * 그대로 둔다. 목록과 상세를 구분해 받는 이유는 목적지가 달라서가 아니라(둘 다 준비템 탭),
+ * 그 구분이 판정 모듈의 계약이기 때문이다 — 나중에 한쪽만 규칙이 바뀌어도 여기는 손댈 것이 없다.
  */
-export function expenseLinkParams(input: ExpenseLinkParams): ExpenseLinkParams {
-  return { itemName: input.itemName, itemTemplateId: input.itemTemplateId };
+export function expenseLinkParams(
+  input: ExpenseLinkParams,
+  source?: ExpenseEntrySource
+): ExpenseLinkParamsWithSource {
+  const params: ExpenseLinkParamsWithSource = { itemName: input.itemName, itemTemplateId: input.itemTemplateId };
+  if (source) params[EXPENSE_ENTRY_SOURCE_PARAM] = source;
+  return params;
 }
 
 /** 아이템 상세: 제휴 링크를 열지 않아도 항상 보이는 "이미 샀어요" 진입점의 라벨. */

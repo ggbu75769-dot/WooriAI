@@ -11,6 +11,8 @@ import {
   POST_SAVE_ITEMS_DESTINATION,
   resolvePostSaveDestination
 } from "./post-save-destination";
+import { OFFLINE_SAVED_MESSAGE, SERVER_CONFIRMED_MESSAGE } from "../offline/messages";
+import { expenseLinkParams } from "../items/expense-link-prompt";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
@@ -74,6 +76,21 @@ describe("라운드 48 T4(D1) 저장하고 계속 기록", () => {
     expect(CONTINUE_RECORDING_SAVED_MESSAGE).toContain("이어서");
     expect(CONTINUE_RECORDING_SAVED_MESSAGE).not.toContain("연결되면 자동으로 반영할게요");
   });
+
+  /**
+   * 라운드 48 QA(P2-1) — 이 경로의 저장도 로컬 우선(createExpenseOffline)이라, 문구가 뜨는
+   * 순간 서버는 아직 이 기록을 모른다. "저장했어요"라고만 하면 로컬 저장을 서버 저장처럼
+   * 말하는 셈이라, 앞머리를 일반 저장과 같은 관례로 맞춘다.
+   */
+  it("어디에 저장했는지 사실대로 말한다 -- 일반 저장(OFFLINE_SAVED_MESSAGE)과 같은 앞머리", () => {
+    expect(CONTINUE_RECORDING_SAVED_MESSAGE).toBe("기기에 저장했어요. 이어서 다음 항목을 기록해 보세요.");
+    const prefix = "기기에 저장했어요.";
+    expect(OFFLINE_SAVED_MESSAGE.startsWith(prefix)).toBe(true);
+    expect(CONTINUE_RECORDING_SAVED_MESSAGE.startsWith(prefix)).toBe(true);
+    // 서버가 받았다고 말하는 문구(SERVER_CONFIRMED_MESSAGE)를 흉내 내지 않는다.
+    expect(CONTINUE_RECORDING_SAVED_MESSAGE).not.toBe(SERVER_CONFIRMED_MESSAGE);
+    expect(CONTINUE_RECORDING_SAVED_MESSAGE).not.toContain("기록했어요");
+  });
 });
 
 describe("라운드 48 T4(D1) 화면 배선 (app/expenses/new.tsx)", () => {
@@ -105,11 +122,39 @@ describe("라운드 48 T4(D1) 화면 배선 (app/expenses/new.tsx)", () => {
       newExpenseSource.indexOf("const formattedAmount =")
     );
     expect(successBranch).toContain("resetFormForNextEntry();");
-    // 계속 기록이면 이동 자체를 건너뛴다(같은 자리에 머문다).
-    expect(successBranch.indexOf("resetFormForNextEntry();")).toBeLessThan(
-      successBranch.indexOf("router.replace(postSaveDestination)")
-    );
-    expect(successBranch).toContain("return;");
+
+    /**
+     * 라운드 48 QA(P3-10) — 예전에는 성공 분기 **전체**에서 "return;"을 찾았다. 그 자리에는
+     * 이동 코드도 함께 있으므로, 그 단언은 "어딘가에 return이 있다"만 말할 뿐 계속 기록일 때
+     * 이동을 실제로 건너뛰는지는 증명하지 못했다(분기 밖 아무 곳의 return이라도 통과한다).
+     * 분기 블록만 잘라 그 안에 이동 호출이 **없다**는 것까지 본다.
+     */
+    const continueBranchStart = successBranch.indexOf("if (continueRecording) {");
+    expect(continueBranchStart, "계속 기록 분기를 찾지 못했다").toBeGreaterThan(-1);
+    const continueBranchEnd = successBranch.indexOf("\n      }", continueBranchStart);
+    expect(continueBranchEnd, "계속 기록 분기의 끝을 찾지 못했다").toBeGreaterThan(continueBranchStart);
+    const continueBranch = successBranch.slice(continueBranchStart, continueBranchEnd);
+
+    expect(continueBranch).toContain("resetFormForNextEntry();");
+    expect(continueBranch).toContain("return;");
+    // 이 블록 안에서는 화면을 떠나는 어떤 호출도 하지 않는다(라우터도, 지연 이동도).
+    expect(continueBranch).not.toContain("router.");
+    expect(continueBranch).not.toContain("setTimeout(");
+    // 그리고 이동은 이 블록 **뒤에** 있다 -- 즉 위 return이 실제로 그것을 건너뛴다.
+    expect(successBranch.indexOf("router.replace(postSaveDestination)")).toBeGreaterThan(continueBranchEnd);
+  });
+
+  /**
+   * 라운드 48 QA(P2-2) — "저장하고 계속 기록"은 화면을 떠나지 않으므로 성공 토스트가 그대로
+   * 남는다. 이어 적은 두 번째 항목의 저장이 실패하면 초록(성공)과 빨강(실패)이 한 화면에 함께
+   * 서서, 방금 누른 저장이 됐다는 건지 안 됐다는 건지 화면이 두 가지로 말한다.
+   */
+  it("새 저장 시도는 이전 실패 배너와 성공 토스트를 **함께** 지운다", () => {
+    const onMutateStart = newExpenseSource.indexOf("onMutate: () => {");
+    expect(onMutateStart, "onMutate 블록을 찾지 못했다").toBeGreaterThan(-1);
+    const onMutateBlock = newExpenseSource.slice(onMutateStart, newExpenseSource.indexOf("\n    }", onMutateStart));
+    expect(onMutateBlock).toContain("setSaveErrorMessage(null);");
+    expect(onMutateBlock).toContain("setSavedMessage(null);");
   });
 
   it("보조 버튼은 세션이 있을 때만·준비템 연결이 없을 때만 그려진다(EXP-001 초기 렌더 불변)", () => {
@@ -146,5 +191,63 @@ describe("라운드 48 T4(D1) 진입점 배선", () => {
     const recordsSource = source("app/(tabs)/records.tsx");
     expect(recordsSource).toContain('router.push({ pathname: "/expenses/new", params });');
     expect(recordsSource).not.toContain(`${EXPENSE_ENTRY_SOURCE_PARAM}: "items"`);
+  });
+});
+
+/**
+ * 라운드 48 QA(P2-5) — 판정(resolvePostSaveDestination)은 T4(D1)에 이미 있었지만, **준비템 쪽
+ * 진입점 중 어느 것도 `from`을 붙이지 않아** 저장 후 준비템 탭 복귀가 실제로는 한 경로에서도
+ * 동작하지 않았다. 준비템에서 기록해도 늘 기록 탭으로 튕겨 나가, 방금 오른 준비율과 100%
+ * 축하 배너를 아무도 보지 못했다(핵심 루프의 마지막 고리).
+ *
+ * 화면은 vitest에서 렌더되지 않으므로(react-native 네이티브 바인딩 없음) 배선은 소스로 잠근다.
+ */
+describe("라운드 48 QA(P2-5) 준비템 → 지출 기록 진입점 배선", () => {
+  it("파라미터 조립기가 출처를 실을 수 있고, 넘기지 않으면 종전 모양 그대로다", () => {
+    const base = { itemName: "젖병", itemTemplateId: "tpl-1" };
+    // 기본값 = 종전 동작. `from` 키 자체를 만들지 않는다.
+    expect(expenseLinkParams(base)).toEqual(base);
+    expect(EXPENSE_ENTRY_SOURCE_PARAM in expenseLinkParams(base)).toBe(false);
+    expect(resolvePostSaveDestination(expenseLinkParams(base))).toBe(POST_SAVE_DEFAULT_DESTINATION);
+
+    // 출처를 넘기면 프리필 두 개는 그대로 두고 라우팅 힌트만 더한다.
+    expect(expenseLinkParams(base, "items")).toEqual({ ...base, [EXPENSE_ENTRY_SOURCE_PARAM]: "items" });
+    expect(expenseLinkParams(base, "item-detail")).toEqual({ ...base, [EXPENSE_ENTRY_SOURCE_PARAM]: "item-detail" });
+  });
+
+  it("조립한 파라미터를 그대로 판정에 넣으면 준비템 탭이 나온다(양 끝이 맞물린다)", () => {
+    for (const entrySource of ["items", "item-detail"] as const) {
+      const params = expenseLinkParams({ itemName: "젖병", itemTemplateId: "tpl-1" }, entrySource);
+      expect(resolvePostSaveDestination(params), entrySource).toBe(POST_SAVE_ITEMS_DESTINATION);
+    }
+  });
+
+  it("준비템 목록 탭의 '지출도 기록할까요?'가 출처를 함께 넘긴다", () => {
+    const itemsSource = source("app/(tabs)/items.tsx");
+    expect(itemsSource).toContain(
+      'expenseLinkParams({ itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId }, "items")'
+    );
+  });
+
+  it("준비템 상세의 두 버튼이 **같은 조립기로** 출처를 넘긴다(버튼마다 목적지가 갈리지 않게)", () => {
+    const detailSource = source("app/items/[itemTemplateId].tsx");
+    const calls =
+      detailSource.match(
+        /expenseLinkParams\(\{ itemName: visibleDetail\.name, itemTemplateId \}, "item-detail"\)/g
+      ) ?? [];
+    // ① 상시 진입점("이미 샀어요 · 지출로 기록") ② 링크 클릭 후 카드의 "지출 기록하고 준비 완료".
+    expect(calls).toHaveLength(2);
+    // 조립기를 거치지 않고 파라미터를 손으로 적던 옛 호출은 남아 있지 않다.
+    expect(detailSource).not.toContain('params: { itemName: visibleDetail.name, itemTemplateId }');
+  });
+
+  it("저장 성공 후 준비템 캐시를 무효화한다 -- 돌아간 화면의 준비율이 예전 값이면 복귀가 무의미하다", () => {
+    const newExpenseSource = source("app/expenses/new.tsx");
+    const successBranch = newExpenseSource.slice(
+      newExpenseSource.indexOf("onSuccess: async () => {"),
+      newExpenseSource.indexOf("const formattedAmount =")
+    );
+    expect(successBranch).toContain('queryClient.invalidateQueries({ queryKey: ["items"] })');
+    expect(successBranch).toContain('queryClient.invalidateQueries({ queryKey: ["item-detail"] })');
   });
 });

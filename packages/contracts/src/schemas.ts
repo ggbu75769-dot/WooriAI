@@ -138,6 +138,11 @@ export const updateExpenseRequestSchema = z.object({
   spentOn: dateOnlySchema.optional(),
   itemName: z.string().min(1).max(100).optional(),
   memo: z.string().max(500).optional(),
+  // 라운드 48 QA(P2-6): 생성에는 처음부터 있었지만 수정에는 없던 필드. 오프라인 충돌 병합
+  // ("두 값 나란히 보기")이 결제 수단도 고르게 하면서 그 선택을 보낼 자리가 없었다 — 서버
+  // ValidationPipe가 forbidNonWhitelisted라 실으면 400이라, 화면이 고르라고 해 놓고 조용히
+  // 무시했다. additive optional이라 보내지 않던 클라이언트는 그대로다.
+  paymentMethod: paymentMethodSchema.optional(),
   expenseType: z.enum(["expense", "gift"]).optional(),
   expectedVersion: z.number().int().min(1).optional()
 });

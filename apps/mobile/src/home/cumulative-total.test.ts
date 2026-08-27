@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { evaluateHomeCumulativeTotal } from "./cumulative-total";
+import {
+  CUMULATIVE_TOTAL_SUBTITLE,
+  CUMULATIVE_TOTAL_TITLE_PREFIX,
+  evaluateHomeCumulativeTotal
+} from "./cumulative-total";
 import { evaluateMilestoneCountdown, milestoneSubtitleShowsTotal } from "./milestone-countdown";
 
 /**
@@ -19,10 +23,31 @@ const base = { hasSession: true, totalExpenseKrw: 1_245_700, hasMilestoneCard: f
 describe("B2 누적 총액 카드 판정 (evaluateHomeCumulativeTotal)", () => {
   it("마일스톤 카드가 없는 시기에는 누적 총액을 말한다", () => {
     const card = evaluateHomeCumulativeTotal(base);
-    expect(card?.title).toBe("지금까지 함께한 지출 1,245,700원");
-    // 이 숫자가 이번 달 합계도, 100일/첫돌 리포트의 창 합계도 아니라는 것을 부제가 스스로 밝힌다.
-    expect(card?.subtitle).toContain("임신 때부터");
+    expect(card?.title).toBe("지금까지의 지출 합계 1,245,700원");
+    expect(card?.subtitle).toBe("기록을 시작한 뒤의 지출을 모두 더했어요 (선물로 받은 건 제외)");
     expect(card?.accessibilityLabel).toBe(`${card?.title}. ${card?.subtitle}`);
+  });
+
+  /**
+   * 라운드 48 QA(P2-3) — 문구가 사실과 어긋나지 않는지 못박는다. 금액 자체는 서버 집계를 그대로
+   * 쓰므로 여기서 검증할 것은 **그 숫자를 뭐라고 부르는가** 하나다.
+   */
+  it("라운드 33 F5가 폐기한 '지금까지 함께한 지출'을 되살리지 않는다", () => {
+    // 그 표현은 구간을 말하지 않아 마일스톤 리포트의 창 합계와 같은 숫자처럼 읽혔다.
+    expect(CUMULATIVE_TOTAL_TITLE_PREFIX).not.toContain("함께한");
+    expect(evaluateHomeCumulativeTotal(base)?.title).not.toContain("지금까지 함께한 지출");
+  });
+
+  it("부제가 시작점을 지어내지 않는다 — 출산 후 가입·manual 아이에게 '임신 때부터'는 거짓이다", () => {
+    expect(CUMULATIVE_TOTAL_SUBTITLE).not.toContain("임신");
+    // 확인 가능한 사실만 말한다: 이 앱에 기록을 남기기 시작한 시점부터다.
+    expect(CUMULATIVE_TOTAL_SUBTITLE).toContain("기록을 시작한 뒤");
+  });
+
+  it("부제가 선물 제외를 숨기지 않는다(DNC-015 — totalExpenseKrw는 expenseType='expense'만 더한다)", () => {
+    expect(CUMULATIVE_TOTAL_SUBTITLE).toContain("선물");
+    // "전체 합계"라고 말하면 빠진 항목이 있다는 사실이 지워진다.
+    expect(CUMULATIVE_TOTAL_SUBTITLE).not.toContain("전체 합계");
   });
 
   it("마일스톤 카드가 이미 같은 금액을 말하고 있으면 접는다(중복 금지)", () => {
@@ -83,7 +108,7 @@ describe("B2 마일스톤 카드와의 맞물림", () => {
       totalExpenseKrw: 3_400_000,
       hasMilestoneCard: countdown !== null
     });
-    expect(card?.title).toBe("지금까지 함께한 지출 3,400,000원");
+    expect(card?.title).toBe("지금까지의 지출 합계 3,400,000원");
   });
 
   it("첫돌 다음 날: 마일스톤 카드가 사라진 뒤에도 누적은 계속 보인다", () => {

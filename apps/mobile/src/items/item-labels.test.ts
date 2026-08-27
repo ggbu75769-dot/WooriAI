@@ -101,11 +101,14 @@ describe("라운드 48 T1: 목록 화면 배선", () => {
     expect(items).toContain("image: recommendationBlocksImage");
   });
 
-  it("가격대가 없을 때의 문구는 눌리는 행동처럼 읽히지 않는다", () => {
-    expect(ITEM_PRICE_BAND_FALLBACK_TEXT).toBe("가격 정보 준비 중이에요");
+  it("가격대가 없을 때의 문구는 눌리는 행동처럼도, 약속처럼도 읽히지 않는다", () => {
+    expect(ITEM_PRICE_BAND_FALLBACK_TEXT).toBe("가격 정보가 없어요");
     const items = itemsSource();
     expect(items).toContain("price={item.priceBandText ?? ITEM_PRICE_BAND_FALLBACK_TEXT}");
     expect(items).not.toContain("가격 정보 확인");
+    // 라운드 48 QA(P3-5): "준비 중"은 곧 채워진다는 약속인데, 그 약속을 지킬 장치가 앱에 없다.
+    expect(ITEM_PRICE_BAND_FALLBACK_TEXT).not.toContain("준비 중");
+    expect(ITEM_PRICE_BAND_FALLBACK_TEXT).not.toContain("곧");
   });
 
   it("상태 문구는 화면에 인라인하지 않는다(목록·상세 단일 소스)", () => {

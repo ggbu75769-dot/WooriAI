@@ -493,11 +493,16 @@ export default function ItemsScreen() {
     scope: expenseLinkPromptScope,
     visibleItemIds: listedItems.map((item) => item.id)
   });
+  // 라운드 48 QA(P2-5): 출처를 함께 넘겨 저장 후 **이 탭으로 돌아오게** 한다. 여기서 남긴
+  // 지출은 서버가 그 준비템을 준비 완료로 올리므로(store-shared.ts markLinkedItemPrepared),
+  // 방금 오른 준비율과 100% 축하 배너가 있는 화면이 바로 이 화면이다 — 기록 탭으로 내보내면
+  // 사용자가 방금 만든 변화를 못 본 채 핵심 루프가 끊긴다. 판정은 순수 모듈이 한다
+  // (src/expenses/post-save-destination.ts).
   const openExpenseLinkPrompt = expenseGate.guard((prompt: { itemTemplateId: string; itemName: string }) => {
     setExpenseLinkPrompt(null);
     router.push({
       pathname: "/expenses/new",
-      params: expenseLinkParams({ itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId })
+      params: expenseLinkParams({ itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId }, "items")
     });
   });
 

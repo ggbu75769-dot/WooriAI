@@ -12,6 +12,18 @@ import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import type { ConflictSnapshot, ExpensePayload } from "./types";
 import type { RemoteExpenseApi } from "./sync-engine";
 
+/**
+ * 라운드 48 QA(P2-6): `paymentMethod`를 함께 보낸다.
+ *
+ * 없어서 무슨 일이 있었나: 충돌 해소 ③ "두 값 나란히 보기"는 결제 수단도 비교 항목으로 내놓고
+ * (`diffExpenseFields`), 사용자가 고른 값이 그대로 병합 payload가 되어 이 update로 나간다.
+ * 그런데 여기서 그 필드를 빼고 보내면 서버는 자기 값을 그대로 들고 있는다 — 화면은 고르라고
+ * 하고, 무엇을 고르든 결제 수단만은 바뀌지 않는 **조용한 무시**였다.
+ *
+ * 서버가 이 키를 받게 된 것도 같은 라운드다(apps/api UpdateExpenseDto). 그 전에는 실어 보낼
+ * 수도 없었다 — 전역 ValidationPipe가 `forbidNonWhitelisted`라 모르는 키가 하나라도 있으면
+ * 요청 전체가 400으로 떨어졌기 때문이다.
+ */
 function toExpensePatch(payload: ExpensePayload) {
   return {
     categoryId: payload.categoryId,
@@ -19,6 +31,7 @@ function toExpensePatch(payload: ExpensePayload) {
     spentOn: payload.spentOn,
     itemName: payload.itemName,
     memo: payload.memo ?? undefined,
+    paymentMethod: payload.paymentMethod,
     expenseType: payload.expenseType
   };
 }
@@ -46,6 +59,20 @@ function toEngineConflictSnapshot(current: ExpenseConflictSnapshot): ConflictSna
       spentOn: expense.spentOn,
       itemName: expense.itemName,
       merchant: expense.merchant,
+      /**
+       * 라운드 48 QA(P2-6): 서버 스냅숏이 결제 수단을 싣게 됐으므로(apps/api
+       * finance/expense-snapshot.ts) 여기서도 옮긴다. 옮기지 않으면 로컬 대기 행에는 값이 있고
+       * 서버 쪽은 키 자체가 없어, "두 값 나란히 보기"가 **바꾼 적 없는 결제 수단을 매번 충돌
+       * 항목으로** 띄우고 서버 값은 "없음"으로 그렸다 — 서버가 실제로 들고 있는 값을 두고 없다고
+       * 말하는 허위 표시이고, 그걸 보고 "다른 기기 값 유지"를 고르면 멀쩡한 값을 지우게 된다.
+       *
+       * 값이 없을 때(구 서버 응답·로컬 목업) **키 자체를 만들지 않는** 이유: adopt-server는
+       * 스냅숏에 있는 키만 골라 로컬 payload에 덮는다(sync-engine.ts
+       * `pickPayloadFieldsFromSnapshot`은 `key in snapshot`으로 판정한다). `?? undefined`로
+       * 키를 만들어 두면 서버가 말한 적 없는 값이 로컬의 실제 값을 지운다 — 모르면 로컬 값이
+       * 남는 것이 그 함수의 계약이다.
+       */
+      ...(expense.paymentMethod != null ? { paymentMethod: expense.paymentMethod } : {}),
       memo: expense.memo,
       expenseType: expense.expenseType === "refund" ? undefined : expense.expenseType
     }

@@ -83,6 +83,21 @@ export class UpdateExpenseDto {
   @MaxLength(500)
   memo?: string;
 
+  /**
+   * 라운드 48 QA(P2-6): 생성(CreateExpenseDto)에는 처음부터 있었지만 수정에는 없던 필드.
+   *
+   * 없어서 무슨 일이 있었나: 오프라인 충돌 해소의 "두 값 나란히 보기"는 결제 수단도 비교 항목으로
+   * 내놓는다(apps/mobile/src/offline/sync-engine.ts `diffExpenseFields`). 사용자가 거기서 값을
+   * 골라 병합하면 그 payload가 PATCH로 나가는데, 이 DTO에 필드가 없으니 클라이언트는 아예 보낼
+   * 수 없었다(전역 ValidationPipe가 `forbidNonWhitelisted`라 실으면 400) — 화면은 고르라고 하고,
+   * 무엇을 고르든 결제 수단만은 서버 값 그대로 남는 **조용한 무시**였다.
+   *
+   * 계약 확장은 additive·optional이다: 보내지 않던 클라이언트의 동작은 한 글자도 바뀌지 않는다.
+   */
+  @IsOptional()
+  @IsIn([...PAYMENT_METHODS])
+  paymentMethod?: PaymentMethod;
+
   @IsOptional()
   @IsIn([...creatableExpenseTypes])
   expenseType?: CreatableExpenseType;

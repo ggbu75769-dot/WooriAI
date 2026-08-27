@@ -862,7 +862,12 @@ export function getExpense(token: string, expenseId: string) {
  * (서버가 refund를 400 VALIDATION_ERROR로 거부) — Pick<Expense, "expenseType">을 그대로 쓰면
  * 컴파일은 통과하는데 런타임에서만 터지는 타입 함정이 생겨 여기서 좁힌다.
  */
-export type UpdateExpenseBody = Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo">> & {
+// 라운드 48 QA(P2-6): `paymentMethod`가 더해졌다 — 서버 UpdateExpenseDto가 이제 받는다
+// (packages/contracts `updateExpenseRequestSchema`). 충돌 병합 화면이 결제 수단을 고르게 해 놓고
+// 그 선택을 보낼 자리가 없던 구멍을 막는다. optional이라 기존 호출부는 그대로다.
+export type UpdateExpenseBody = Partial<
+  Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "paymentMethod">
+> & {
   expenseType?: "expense" | "gift";
 };
 

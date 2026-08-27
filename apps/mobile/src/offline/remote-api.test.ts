@@ -30,8 +30,10 @@ import {
   ExpenseVersionConflictError,
   type Expense
 } from "../api/client";
+import { buildConflictValueFormatter } from "./conflict-display";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import { createClientRemoteExpenseApi } from "./remote-api";
+import { diffExpenseFields } from "./sync-engine";
 import type { ExpensePayload } from "./types";
 
 const createMock = vi.mocked(createExpenseWithIdempotency);
@@ -149,18 +151,44 @@ describe("createClientRemoteExpenseApi -- 성공 경로와 client.ts 호출 인�
         spentOn: "2026-07-14",
         itemName: "기저귀",
         memo: "대형 박스",
+        paymentMethod: "card",
         expenseType: "expense"
       },
       3,
       "idem-update-1"
     );
-    // childId/merchant/paymentMethod/linkedItemTemplateId는 client.ts의
-    // UpdateExpenseBody(=서버 UpdateExpenseDto)에 없는 필드라 의도적으로 빠진다 —
-    // 넣으면 서버가 400으로 거절하므로 이 누락은 계약이지 버그가 아니다.
+    // childId/merchant/linkedItemTemplateId는 client.ts의 UpdateExpenseBody(=서버
+    // UpdateExpenseDto)에 없는 필드라 의도적으로 빠진다 — 넣으면 전역 ValidationPipe가
+    // forbidNonWhitelisted라 400으로 거절하므로 이 누락은 계약이지 버그가 아니다.
     const patch = updateMock.mock.calls[0][2] as Record<string, unknown>;
     expect(Object.keys(patch).sort()).toEqual(
-      ["amountKrw", "categoryId", "expenseType", "itemName", "memo", "spentOn"].sort()
+      ["amountKrw", "categoryId", "expenseType", "itemName", "memo", "paymentMethod", "spentOn"].sort()
     );
+  });
+
+  /**
+   * 라운드 48 QA(P2-6) — 충돌 병합이 고른 결제 수단이 실제로 서버에 간다.
+   *
+   * 예전에는 이 필드가 patch에서 통째로 빠져 있었다. 충돌 화면("두 값 나란히 보기")은 결제
+   * 수단도 고르게 하는데(`diffExpenseFields`), 무엇을 고르든 서버 값이 그대로 남는 **조용한
+   * 무시**였다. 이제 서버 UpdateExpenseDto가 이 키를 받는다(라운드 48 QA에서 함께 열었다).
+   */
+  it("updateExpense는 병합으로 바뀐 결제 수단을 실제로 실어 보낸다", async () => {
+    updateMock.mockResolvedValue(makeServerExpense({ version: 4 }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    // 로컬은 카드였는데 사용자가 충돌 화면에서 "다른 기기 값"(현금)을 골랐다.
+    await api.updateExpense("exp-1", makePayload({ paymentMethod: "cash" }), 3, "idem-update-pm");
+    expect(updateMock.mock.calls[0][2].paymentMethod).toBe("cash");
+  });
+
+  it("결제 수단이 없는 payload(구 대기 행)는 키를 만들지 않아 '변경 없음'으로 간다", async () => {
+    updateMock.mockResolvedValue(makeServerExpense({ version: 4 }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    await api.updateExpense("exp-1", makePayload({ paymentMethod: undefined }), 3, "idem-update-pm2");
+    // undefined 키는 JSON 직렬화에서 사라지므로 서버는 이 필드를 손대지 않는다.
+    expect(updateMock.mock.calls[0][2].paymentMethod).toBeUndefined();
   });
 
   it("updateExpense는 memo=null을 undefined로 바꿔 '변경 없음'으로 보낸다", async () => {
@@ -211,7 +239,7 @@ describe("409 스냅숏 변환 (toEngineConflictSnapshot)", () => {
   });
 
   it("live 지출은 deleted:false + expense 필드로 옮긴다 (서버 전용 필드는 버린다)", async () => {
-    const error = await conflictFrom(makeServerExpense({ version: 7 }));
+    const error = await conflictFrom(makeServerExpense({ version: 7, paymentMethod: "cash" }));
 
     expect(error.current).toEqual({
       deleted: false,
@@ -224,6 +252,8 @@ describe("409 스냅숏 변환 (toEngineConflictSnapshot)", () => {
         spentOn: "2026-07-14",
         itemName: "기저귀",
         merchant: "쿠팡",
+        // 라운드 48 QA(P2-6): 서버 스냅숏이 싣게 된 결제 수단을 그대로 옮긴다.
+        paymentMethod: "cash",
         memo: "대형 박스",
         expenseType: "expense"
       }
@@ -234,6 +264,43 @@ describe("409 스냅숏 변환 (toEngineConflictSnapshot)", () => {
     expect((error.current as { deleted: boolean }).deleted).toBe(false);
     // source는 ExpensePayload에 없는 서버 전용 필드라 옮기지 않는다.
     expect(Object.keys((error.current as { expense: object }).expense)).not.toContain("source");
+  });
+
+  /**
+   * 라운드 48 QA(P2-6) — 충돌 화면이 서버 결제 수단을 "없음"으로 오표시하던 자리.
+   *
+   * 서버 409 스냅숏에 이 키가 아예 없어서, 로컬 대기 행에는 값이 있는데 서버 쪽은 늘 비어
+   * 보였다. 그러면 (1) 바꾼 적 없는 결제 수단이 매번 충돌 항목으로 뜨고, (2) 서버가 실제로
+   * 들고 있는 값이 "없음"으로 그려지고, (3) 그걸 보고 "다른 기기 값 유지"를 고르면 멀쩡한
+   * 값을 지운다.
+   */
+  it("서버 값이 로컬과 같으면 결제 수단은 diff 항목에서 사라진다(허위 충돌 없음)", async () => {
+    const error = await conflictFrom(makeServerExpense({ version: 7, paymentMethod: "card" }));
+    const snapshot = error.current as { deleted: false; expense: ExpensePayload };
+    // makePayload()의 로컬 값도 "card"다 — 두 값이 같으니 비교 목록에 오르지 않는다.
+    expect(diffExpenseFields(makePayload(), snapshot.expense).map((entry) => entry.field)).not.toContain(
+      "paymentMethod"
+    );
+  });
+
+  it("서버 값이 다르면 그 값 그대로 비교 항목이 된다('없음'이 아니다)", async () => {
+    const error = await conflictFrom(makeServerExpense({ version: 7, paymentMethod: "transfer" }));
+    const snapshot = error.current as { deleted: false; expense: ExpensePayload };
+    const entry = diffExpenseFields(makePayload(), snapshot.expense).find(
+      (row) => row.field === "paymentMethod"
+    );
+    expect(entry).toEqual({ field: "paymentMethod", localValue: "card", serverValue: "transfer" });
+    // 화면에도 "없음"이 아니라 실제 값의 라벨이 나간다(src/offline/conflict-display.ts).
+    expect(buildConflictValueFormatter([])("paymentMethod", entry?.serverValue)).toBe("계좌 이체");
+  });
+
+  it("서버가 결제 수단을 아예 안 주면(구 서버) 키를 만들지 않아 로컬 값이 살아남는다", async () => {
+    const error = await conflictFrom(makeServerExpense({ version: 7, paymentMethod: undefined }));
+    const snapshot = error.current as { deleted: false; expense: ExpensePayload };
+    // "다른 기기 값 유지"는 스냅숏에 **있는 키만** 로컬 payload에 덮는다(sync-engine.ts
+    // pickPayloadFieldsFromSnapshot). 키를 undefined로라도 만들어 두면 서버가 말한 적 없는
+    // 값이 로컬의 실제 값을 지운다.
+    expect("paymentMethod" in snapshot.expense).toBe(false);
   });
 
   it("expenseType=refund는 undefined로 낮춘다 (오프라인 payload는 expense|gift만 표현)", async () => {
