@@ -42,7 +42,7 @@ AFFILIATE_DISCLOSURE_TEXT=...
 | 값 | 발급처 | 용도 | 없을 때 |
 |---|---|---|---|
 | `OAUTH_KAKAO/APPLE/GOOGLE_CLIENT_ID` + 시크릿 | 각 OAuth 콘솔 | 실 소셜 로그인 | 프로덕션에서 `oauth-login`이 501 반환(가짜 로그인 차단). dev/test는 결정론적 스텁 유저 |
-| `DATABASE_URL` (PostgreSQL) | 운영 인프라 | 영속 저장 | API는 인메모리로 기동(재시작 시 소실) — 스키마/마이그레이션은 `docs/3차/db_api` + `prisma`에 존재하나 런타임 미연결 |
+| `DATABASE_URL` (PostgreSQL) | 운영 인프라 | 영속 저장 | **API가 부팅하지 못한다** — 라운드 4 이후 Prisma+PostgreSQL이 유일한 저장 경로다(인메모리 폴백 없음). 스키마·마이그레이션은 `apps/api/prisma/`가 단일 소스, 로컬은 `pnpm db start`(scripts/db.ts) |
 | 릴리즈 keystore | 릴리즈 오너 | 스토어 배포 서명 | debug keystore로 서명(테스트 설치용, 스토어 배포 불가) |
 | 실 제휴/커머스 링크 | 제휴사 | 실제 구매 이동 | example.com dev 링크 |
 
