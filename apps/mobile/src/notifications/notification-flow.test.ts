@@ -9,7 +9,8 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
   it("restores the home-header bell (hidden by UX-5B-8) with an unread badge", () => {
     const homeSource = source("app/(tabs)/index.tsx");
     expect(homeSource).toContain("action={<NotificationBell />}");
-    expect(homeSource).toContain("useHomeNotificationEvaluation(hasSession ? home.data : undefined)");
+    // UX-J: 두 번째 인자는 홈 주간 카드가 이미 만든 값(새 요청 없음) -- 세션 게이트는 그대로다.
+    expect(homeSource).toContain("useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpend)");
     // The UX-5B-8 hide-the-bell note must be gone -- the bell is a real feature again.
     expect(homeSource).not.toContain("홈의 알림 벨은 당분간 숨긴다");
 
@@ -63,19 +64,23 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
 
   it("wires the NOTI-103 weekly summary through the existing evaluation path (no new data fetching)", () => {
     // The generator is composed inside evaluateHomeNotifications from the same home snapshot the
-    // NOTI-102 hook already passes -- monthly-pace variant, since HomeSummary has no weekly data
-    // (recentExpenses is server-capped at 3) and NOTI-103 forbids new API calls.
+    // NOTI-102 hook already passes. UX-J: 주간 숫자는 홈이 이미 만든 값을 받아 쓰므로 여전히
+    // **새 API 호출이 없다**(NOTI-103의 제약 그대로) -- 주간 값이 없을 때만 월 페이스로 폴백한다.
     const generatorsSource = source("src/notifications/generators.ts");
     expect(generatorsSource).toContain("export function weeklySummaryNotification(");
     expect(generatorsSource).toContain('import { seoulIsoWeekKey } from "./iso-week"');
     expect(generatorsSource).toContain('import { formatKrw } from "../money"');
     expect(generatorsSource).toContain("dedupeKey: `weekly_summary:${childId}:${seoulIsoWeekKey(now)}`");
-    // Wired inside evaluateHomeNotifications, so the unchanged hook picks it up for free.
-    expect(generatorsSource).toContain("const weekly = weeklySummaryNotification({");
-    expect(generatorsSource).toContain("if (weekly) candidates.push(weekly);");
+    // Wired inside evaluateHomeNotifications, so the hook stays the single evaluation entry point.
+    expect(generatorsSource).toContain("const weeklyCandidate = weeklySummaryNotification({");
+    expect(generatorsSource).toContain("if (weeklyCandidate) candidates.push(weeklyCandidate);");
+    expect(generatorsSource).toContain("weekly: input.weekly");
+    // UX-J: 주간 문구는 홈 카드 모듈의 결과를 그대로 쓴다(타입 전용 import라 런타임 의존 없음).
+    expect(generatorsSource).toContain('import type { WeeklySummary } from "../home/weekly-summary"');
     const hookSource = source("src/notifications/useHomeNotificationEvaluation.ts");
     expect(hookSource).toContain("monthly: home.monthly");
     expect(hookSource).toContain("evaluateHomeNotifications(");
+    expect(hookSource).toContain("weekly: weekly ?? null");
 
     // The store's persisted-blob sanitizer accepts the new type.
     const storeSource = source("src/notifications/notification.store.ts");

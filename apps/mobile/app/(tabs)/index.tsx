@@ -560,6 +560,21 @@ export default function HomeScreen() {
       lastYearMonth ? reconciledMonthRecords(lastMonthExpenses.data?.expenses, childOfflineRows, lastYearMonth) : null,
     [lastMonthExpenses.data, childOfflineRows, lastYearMonth]
   );
+  // UX-J: 주간 계산을 조기 반환(에러/로딩)보다 위로 올린다 -- 아래 알림 평가 훅과 화면의 주간
+  // 카드가 **같은 한 값**을 쓰게 하기 위해서다(훅은 조건부로 호출할 수 없으므로 자리는 여기).
+  // 비세션 미리보기는 종전처럼 계산하지 않는다.
+  const weeklySpend = useMemo(
+    () =>
+      hasSession
+        ? evaluateWeeklySummary({
+            todayIso: seoulToday,
+            // F6: 서버 목록 원본이 아니라 오프라인 대기·수정 행까지 반영한 재조정 결과다.
+            thisMonthRecords: weeklyThisMonthRecords,
+            lastMonthRecords: weeklyLastMonthRecords
+          })
+        : null,
+    [hasSession, seoulToday, weeklyThisMonthRecords, weeklyLastMonthRecords]
+  );
   const childrenQuery = useQuery({
     queryKey: ["children"],
     enabled: Boolean(authToken),
@@ -603,7 +618,9 @@ export default function HomeScreen() {
   const dismissItemsGuide = useHomeFirstRunGuideStore((state) => state.dismissItemsGuide);
   // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
   // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.
-  useHomeNotificationEvaluation(hasSession ? home.data : undefined);
+  // UX-J: 주간 요약 알림이 홈 주간 카드와 같은 숫자를 말하도록 이미 계산된 값을 함께 넘긴다
+  // (새 요청 없음). 아직 없으면 알림은 종전 월 페이스 문구로 폴백한다.
+  useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpend);
   // MOB-117 당겨서 새로고침: 홈 요약·최근 지출은 모두 ["home"] 쿼리에서 나온다. invalidate는
   // 활성 쿼리 refetch 완료까지 resolve되므로 스피너가 실제 완료에 맞춰 닫힌다.
   const queryClient = useQueryClient();
@@ -655,7 +672,13 @@ export default function HomeScreen() {
   // `(monthlyUsed / Math.max(1, budget)) * 100`으로 냈는데, /home은 예산 미설정 달에
   // amountKrw: 0을 주므로 분모가 1이 되어 지출 한 건에 "예산 0원 · 100% 사용 중"이라는
   // 허위 표시가 됐다. 예산이 없으면 퍼센트 자체를 만들지 않는다(hasBudget: false).
-  const budgetProgress = evaluateHomeBudgetProgress({ budgetKrw: budget, spentKrw: monthlyUsed });
+  // UX-J: 세션이 있는 홈에서만 "남은 예산 N원 · 예산 M원"을 보여준다(예산이 있고 초과 전일 때).
+  // 비세션 미리보기(previewHome)는 HOME-001 픽셀락 캡처의 원본이라 종전 문자열 그대로 둔다.
+  const budgetProgress = evaluateHomeBudgetProgress({
+    budgetKrw: budget,
+    spentKrw: monthlyUsed,
+    showRemaining: hasSession
+  });
   const progress = budgetProgress.percent ?? 0;
   // HOME-BUDGET-113: session-gated like NOTI-102 so the logged-out preview stays inert.
   // usedAmountKrw is the gift-excluded month total (DNC-015), see budget-warning.ts.
@@ -726,14 +749,8 @@ export default function HomeScreen() {
   // UX-G: 기록이 한 건도 없는 홈에서 주간 카드는 "이번 주 지출은 아직 없어요 / 이번 주 첫
   // 기록을 남겨보세요"만 말한다 -- 바로 위 유도 카드가 같은 말을 CTA와 함께 하고 있으므로,
   // 첫 지출 유도가 떠 있는 동안에는 그 자리를 유도 카드에 내준다(같은 말을 두 번 하지 않는다).
-  const weeklySummary = hasSession && firstRunGuide?.variant !== "first-expense"
-    ? evaluateWeeklySummary({
-        todayIso: seoulToday,
-        // F6: 서버 목록 원본이 아니라 오프라인 대기·수정 행까지 반영한 재조정 결과다.
-        thisMonthRecords: weeklyThisMonthRecords,
-        lastMonthRecords: weeklyLastMonthRecords
-      })
-    : null;
+  // UX-J: 계산은 위 weeklySpend가 이미 했다(알림 평가와 같은 값). 여기서는 카드를 그릴지만 고른다.
+  const weeklySummary = hasSession && firstRunGuide?.variant !== "first-expense" ? weeklySpend : null;
   const milestoneCountdown = hasSession
     ? evaluateMilestoneCountdown({
         stageMode: selectedChild?.stageMode,
