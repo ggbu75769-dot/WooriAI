@@ -151,10 +151,32 @@ PERF-101/115와 달리 *쿼리 모양 자체*의 before/after를 남기고, **�
 F1은 **홈 탭과 준비템 탭이 매번 호출**하는 경로다 — 아이의 지출이 쌓일수록 비용이 선형으로
 늘고, 그 비용의 대부분이 DB 실행 시간이 아니라 행 전송/역직렬화다.
 
-응답 형태·정렬·필터는 완전 불변이다:
+응답 형태·필터는 불변이다:
 - `totalExpenseKrw`는 전 기간 + `expense_type='expense'` — 선물 제외(DNC-015) 그대로.
 - `recentExpenses`는 **선물 포함**(종전 `slice`가 타입을 가리지 않았다) + `spent_on DESC, created_at DESC`.
 - soft delete 행 제외(DNC-014), 누적 리포트의 연도 경계 계산(UTC date-only 문자열 절단) 그대로.
+
+### 정정 (FIX-121A, 라운드21 리뷰) — "완전 불변"이 아니었다
+
+위 목록은 원래 "응답 형태·정렬·필터는 **완전 불변**"이라고 적었지만, 정렬에 한해 틀렸다.
+`(spent_on, created_at)` 정렬은 **동률에서 유일하지 않다**. 전량을 읽어 `slice(0, 3)`할 때와
+`LIMIT 3`을 걸 때, 동률 행 중 어느 3건이 나오는지는 Postgres 재량이라 서로 달라질 수 있고
+실제 DB에서 재현됐다. 동률은 예외 상황이 아니다 — 가져오기 확정(import-pipeline)이 한
+트랜잭션 안에서 여러 지출을 삽입하므로 `created_at` 기본값 `now()`가 트랜잭션 시각으로
+**전부 동일**해진다(같은 날짜 지출을 한 번에 가져오는 것이 정상 사용 패턴).
+
+수정: `expensesForChild`의 정렬에 `id DESC` 결정적 타이브레이커를 추가했다
+(`apps/api/src/onboarding/expenses-store.service.ts`). 정렬 정의가 이 한 메서드에만 있으므로
+홈(`recentExpenses`)과 기록 탭(`listExpenses`)이 함께 안정화된다. 따라서 현재의 정렬 계약은
+**`spent_on DESC, created_at DESC, id DESC`** 이며, 위 항목의 정렬 표기도 이 기준으로 읽어야 한다.
+
+인덱스 판단은 바뀌지 않는다 — 인덱스 선택은 WHERE 술어가 결정하고, 추가된 타이브레이커는
+"인덱스를 추가하지 않은 근거" 절에서 이미 사실상 공짜라고 실측한 top-N 정렬 안에서 처리된다
+(후보 `(child_id, spent_on, created_at)`을 스킵한 판단도 그대로 유효하다).
+
+회귀: `apps/api/test/reporting-hotpath.db.test.ts`에 `createMany`로 같은 `spent_on` + 같은
+`created_at` 5건을 만들어 홈 `LIMIT 3`·기록 탭 전량 목록·참조 구현이 모두 같은 결정적 순서를
+주는지 고정했다(참조 구현도 같은 타이브레이커로 대조 — 그래야 대조 자체가 결정적이다).
 
 ## 측정 환경
 
@@ -223,7 +245,7 @@ Prisma는 파생식(연도 추출) 기준 groupBy를 표현할 수 없어 일자
 
 ## 검증
 
-- 동치 회귀 테스트: `apps/api/test/reporting-hotpath.db.test.ts` (4건) — 기대값을 손으로 적지
+- 동치 회귀 테스트: `apps/api/test/reporting-hotpath.db.test.ts` (5건 — FIX-121A 동률 케이스 포함) — 기대값을 손으로 적지
   않고 **치환 전과 동일한 "전 행 → JS 접기" 참조 구현**을 테스트 안에서 돌려 API 응답과 비교한다.
   데이터는 행 다수·같은 날짜 복수 건·선물 혼합·soft delete·연도 경계(12-31/01-01)를 모두 섞는다.
 - 인덱스 사용 고정: `apps/api/test/perf-indexes.db.test.ts`의 PERF-121 블록 — PERF-115 관례대로

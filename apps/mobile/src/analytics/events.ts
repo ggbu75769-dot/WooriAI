@@ -58,9 +58,8 @@ export function bucketExpenseAmountKrw(amountKrw: number): ExpenseAmountBucket {
 
 /**
  * Runtime mirror of `AnalyticsCategoryCode` above (the type stays the compile-time source of
- * truth; the tuple is what a server-supplied `code` string is validated against). Order and
- * contents mirror packages/contracts/src/analytics.ts's ANALYTICS_CATEGORY_CODES -- events.test.ts
- * asserts that against the contracts file so the two cannot drift.
+ * truth). Order and contents mirror packages/contracts/src/analytics.ts's ANALYTICS_CATEGORY_CODES
+ * -- events.test.ts asserts that against the contracts file so the two cannot drift.
  */
 export const ANALYTICS_CATEGORY_CODES: readonly AnalyticsCategoryCode[] = [
   "pregnancy_mother",
@@ -77,71 +76,19 @@ export const ANALYTICS_CATEGORY_CODES: readonly AnalyticsCategoryCode[] = [
   "etc"
 ];
 
-const ANALYTICS_CATEGORY_CODE_SET: ReadonlySet<string> = new Set<string>(ANALYTICS_CATEGORY_CODES);
-
-/** `mobileCategoryAliasSeeds` prefix (apps/api/prisma/seed-data.ts) -- see below. */
-const MOBILE_ALIAS_CODE_PREFIX = "mobile_";
-
 /**
- * The two `mobile_` alias codes whose suffix is NOT one of the 12 analytics codes:
- * `mobile_feeding_dairy` ("분유/유제품") and `mobile_feeding_meal` ("식비") both belong to the
- * canonical `feeding_babyfood` family -- the same judgment call src/categories.ts's
- * `categoryCatalog` already encodes for those two quick-input tiles.
- */
-const MOBILE_ALIAS_CODE_FALLBACKS: Readonly<Record<string, AnalyticsCategoryCode>> = {
-  feeding_dairy: "feeding_babyfood",
-  feeding_meal: "feeding_babyfood"
-};
-
-/**
- * C2/REC-121: resolves a server category `code` (`GET /categories`) to the coarse analytics
- * enum, or null when it is not an analytics category at all (the `import_stub_default` stub, or
- * any future code the registry does not know).
+ * Maps a stored `categoryId` to the coarse analytics category code: the static quick-expense
+ * catalog (src/categories.ts) answers for its 8 tile ids, anything else reports "etc" rather
+ * than leaking the raw id (payloads carry only the enum -- PII-safety rule, contracts
+ * analytics.pii-lint.test.ts).
  *
- * The 12 canonical seed codes ARE the registry's enum (ANALYTICS_CATEGORY_CODES in
- * packages/contracts/src/analytics.ts mirrors apps/api/prisma/seed-data.ts), so they map
- * through unchanged; the 8 `mobile_`-prefixed alias rows map to the canonical family they
- * alias. Anything else returns null so the caller can fall back rather than emit a literal the
- * contract's `analyticsCategoryCodeSchema` would reject.
+ * 리뷰 F6: expense_recorded는 8타일 화면(app/expenses/new.tsx)에서만 발화하므로 여기 들어오는
+ * categoryId는 언제나 카탈로그의 8개 중 하나다 -- 서버 카테고리 목록으로 한 번 더 해석하던
+ * 경로(REC-121)는 도달 불가라 걷어냈다(지출 수정 화면은 이 이벤트를 발화하지 않는다).
  */
-export function analyticsCategoryCodeForServerCode(code: string | null | undefined): AnalyticsCategoryCode | null {
-  const raw = (code ?? "").trim();
-  if (!raw) return null;
-  if (ANALYTICS_CATEGORY_CODE_SET.has(raw)) return raw as AnalyticsCategoryCode;
-  if (!raw.startsWith(MOBILE_ALIAS_CODE_PREFIX)) return null;
-  const stripped = raw.slice(MOBILE_ALIAS_CODE_PREFIX.length);
-  if (ANALYTICS_CATEGORY_CODE_SET.has(stripped)) return stripped as AnalyticsCategoryCode;
-  return MOBILE_ALIAS_CODE_FALLBACKS[stripped] ?? null;
-}
-
-/** Minimal `GET /categories` shape this module needs (id + taxonomy code). Structural on purpose. */
-export type AnalyticsServerCategory = { id: string; code?: string | null };
-
-/**
- * Maps a stored `categoryId` to the coarse analytics category code.
- *
- * Resolution order:
- *   1. the static quick-expense catalog (src/categories.ts) -- the 8 tile ids;
- *   2. `serverCategories`, when the caller has the shared `["categories"]` list at hand: its
- *      `code` is resolved through `analyticsCategoryCodeForServerCode` above.
- *   3. "etc".
- *
- * Why (2) exists: the catalog only knows the 8 tile ids, so every OTHER id -- the canonical 12
- * seed categories (random per-database UUIDs, reachable from the expense edit screen), imported
- * rows, and the demo backend's fixture categories -- collapsed to "etc", which quietly made the
- * expense_recorded categoryCode distribution meaningless on a real session. Unknown/legacy ids
- * still fall back to "etc" rather than leaking the raw id: payloads carry only the enum, never
- * the id (PII-safety rule, contracts analytics.pii-lint.test.ts).
- */
-export function analyticsCategoryCodeForCategoryId(
-  categoryId: string,
-  serverCategories?: readonly AnalyticsServerCategory[] | null
-): AnalyticsCategoryCode {
+export function analyticsCategoryCodeForCategoryId(categoryId: string): AnalyticsCategoryCode {
   const match = categoryCatalog.find((entry) => entry.id === categoryId);
-  if (match) return match.code;
-  if (!categoryId) return "etc";
-  const serverMatch = (serverCategories ?? []).find((category) => category?.id === categoryId);
-  return (serverMatch ? analyticsCategoryCodeForServerCode(serverMatch.code) : null) ?? "etc";
+  return match ? match.code : "etc";
 }
 
 /**
@@ -174,15 +121,9 @@ export function buildExpenseRecordedPayload(input: {
   amountKrw: number;
   source: ExpenseRecordSource;
   offline: boolean;
-  /**
-   * Optional shared `["categories"]` list, so a categoryId outside the 8 static tiles still
-   * resolves to its real code instead of "etc" -- see analyticsCategoryCodeForCategoryId. The
-   * list itself never enters the payload; only the resulting enum does.
-   */
-  serverCategories?: readonly AnalyticsServerCategory[] | null;
 }): { categoryCode: AnalyticsCategoryCode; amountBucket: ExpenseAmountBucket; source: ExpenseRecordSource; offline: boolean } {
   return {
-    categoryCode: analyticsCategoryCodeForCategoryId(input.categoryId, input.serverCategories),
+    categoryCode: analyticsCategoryCodeForCategoryId(input.categoryId),
     amountBucket: bucketExpenseAmountKrw(input.amountKrw),
     source: input.source,
     offline: input.offline

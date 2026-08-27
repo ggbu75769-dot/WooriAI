@@ -39,6 +39,15 @@ describe("UX-121 quick-expense amount preset wiring", () => {
     expect(newExpenseSource).not.toContain("color: theme.colors.mainCoral, fontSize: 13");
   });
 
+  // 리뷰 F9-d: canAddAmountPreset은 모듈에만 있고 화면에는 배선되지 않아, 상한에 닿은 뒤에도
+  // 칩이 활성으로 보였다(눌러도 금액이 변하지 않는 죽은 버튼).
+  it("disables the chips once the cap is reached, announcing it to screen readers too", () => {
+    expect(newExpenseSource).toContain("const canTapAmountPreset = canAddAmountPreset(amountText);");
+    expect(newExpenseSource).toContain("disabled={!canTapAmountPreset}");
+    expect(newExpenseSource).toContain("accessibilityState={{ disabled: !canTapAmountPreset }}");
+    expect(newExpenseSource).toContain("opacity: canTapAmountPreset ? 1 : 0.4");
+  });
+
   it("renders the preset row only for a real session, keeping the EXP-001 capture unchanged", () => {
     const presetRowStart = newExpenseSource.indexOf("QUICK_AMOUNT_PRESETS_KRW.map");
     expect(presetRowStart).toBeGreaterThan(0);

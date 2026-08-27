@@ -30,6 +30,9 @@ import { formatKrw } from "../money";
  * - 사실 서술만 한다. "잘하고 있어요", "줄여보세요" 같은 평가·조언은 넣지 않는다.
  * - 퍼센트는 **내림(floor)** 이라 표시값이 실제 차이를 과장하지 않는다. 1% 미만이면 퍼센트 대신
  *   금액 차이를 그대로 말한다("0% 적게 썼어요" 같은 무의미/오해 문구 금지).
+ * - 반대쪽 끝(리뷰 F8)도 막는다: 비교 구간이 며칠뿐이거나 기준액이 소액이면 비율이 발산한다
+ *   (매달 1일 = 하루 대 하루 -- 지난달 1일 1,000원 / 이번 달 1일 50,000원이면 "4900% 많이"가
+ *   된다). 그 구간에서는 퍼센트 대신 금액 문장을 쓴다 -- 같은 사실을 과장 없이 전달한다.
  * - 지난달에 기록 자체가 없으면(첫 달 사용자 포함) 아무것도 렌더하지 않는다(null).
  */
 
@@ -81,6 +84,18 @@ export type LastMonthComparisonInput = {
 };
 
 const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * 퍼센트를 말하려면 비교 구간이 최소 이만큼은 되어야 한다(리뷰 F8). 1~3일은 사실상 "하루 대
+ * 하루" 비교라, 지출이 하루 단위로 튀는 육아 가계부에서는 비율이 수백~수천 %로 발산한다.
+ */
+export const PERCENT_MIN_COMPARED_DAYS = 4;
+
+/**
+ * 퍼센트의 분모(지난달 같은 시점까지 합계)가 이보다 작으면 비율 대신 금액으로 말한다.
+ * 기준액이 소액이면 커피 한 잔 차이도 수십 %가 되어 비율이 정보가 아니라 잡음이 된다.
+ */
+export const PERCENT_MIN_BASELINE_KRW = 50_000;
 
 /** "YYYY-MM-DD" | "YYYY-MM" → 직전 달의 "YYYY-MM". 형식이 깨졌으면 null. */
 export function previousYearMonth(todayIso: string): string | null {
@@ -195,9 +210,13 @@ export function evaluateLastMonthComparison(input: LastMonthComparisonInput): La
 
   const direction: LastMonthComparisonDirection = thisMonthToDateKrw < lastMonthToDateKrw ? "less" : "more";
   const comparisonWord = direction === "less" ? "적게" : "많이";
+  // 리뷰 F8: 짧은 구간·소액 기준에서는 비율이 발산하므로(매달 1일의 하루 대 하루 비교가 대표
+  // 사례) 아예 만들지 않는다. 아래 1% 미만 분기와 같은 금액 문장으로 떨어진다.
+  const percentIsMeaningful =
+    comparedThroughDay >= PERCENT_MIN_COMPARED_DAYS && lastMonthToDateKrw >= PERCENT_MIN_BASELINE_KRW;
   // 내림: 12.9%는 12%로 말한다 — 표시값이 실제 차이보다 커지는 일이 없다.
   const flooredPercent = Math.floor((differenceKrw * 100) / lastMonthToDateKrw);
-  if (flooredPercent < 1) {
+  if (!percentIsMeaningful || flooredPercent < 1) {
     return {
       ...base,
       direction,

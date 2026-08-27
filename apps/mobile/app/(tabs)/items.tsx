@@ -39,6 +39,9 @@ const statusTabOptions = [
   { value: "not_needed", label: "괜찮아요" }
 ] as const;
 type StatusTabValue = (typeof statusTabOptions)[number]["value"];
+// 리뷰 F3: 다른 시기 칩을 미리 보는 동안 "soon"은 선택한 밴드의 여집합이라 지나간 시기까지
+// 포함한다 -- 그때는 "곧 필요"가 사실과 어긋나므로 라벨만 중립적으로 바꾼다(값은 그대로 soon).
+const soonTabLabelWhilePreviewingBand = "다른 시기";
 const recommendationScreenId = "pixel-screen-ITEM-001 ITEM-001";
 const recommendationHorizontalOffset = 0;
 const recommendationVerticalOffset = 0;
@@ -131,14 +134,40 @@ export default function ItemsScreen() {
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
+  // Default the selected chip to the child's actual current stage once it's known, unless the
+  // pixel-lock capture is running, we're in the loginless test session (fixture data must render
+  // deterministically), or the user already tapped a chip. Falls back to "12-24개월" otherwise.
+  const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode && !isTestSession;
+  const home = useQuery({
+    queryKey: ["home", childId],
+    enabled: shouldResolveChildStage,
+    queryFn: () => getHome(authToken!, childId!)
+  });
+  // 기본으로 선택되는 칩(= 아이 현재 단계가 속한 밴드). 사용자의 수동 선택과 무관하게 계산해,
+  // "지금 보고 있는 칩이 기본 칩인가"를 판별하는 기준으로 쓴다.
+  const defaultStageLabel = resolveDefaultStageLabel({
+    currentStage: home.data?.child.currentStage,
+    isPixelLockMode,
+    isTestSession,
+    hasManualSelection: false,
+    fallback: "12-24개월"
+  });
   // ITEM-121: 선택한 시기 칩을 서버로 넘겨(`stageBand`) 그 밴드 기준 목록을 받는다. 예전에는
   // 서버가 아이의 현재 단계만 필터하고 화면이 그 위에 밴드 필터를 한 번 더 걸어서, 현재
   // 단계가 속한 칩만 목록이 나오고 나머지 칩은 전부 빈 화면이었다(이중 필터). 이제 다음
   // 시기 준비물을 미리 볼 수 있고, 화면은 서버가 준 목록을 그대로 신뢰한다.
+  //
+  // 리뷰 F2: 단, 기본 칩이 선택된 동안에는 stageBand를 보내지 않아 "지금 필요"가 정확히 아이의
+  // 현재 단계를 뜻하던 구 동작을 유지한다 -- 밴드(0-6개월 = 임신 초기~생후 6개월)를 통째로
+  // 보내면 신생아 부모의 기본 화면에 임신기 품목까지 섞여 핵심 루프가 흐려지고, 추천 정렬의
+  // stageMatches 점수도 밴드가 아니라 현재 단계 기준이라 정렬 신호까지 약해진다. 확대는
+  // 사용자가 다른 칩을 명시적으로 눌러 다음/이전 시기를 미리 볼 때만 허용한다.
+  const isPreviewingOtherBand = stageLabel !== defaultStageLabel;
+  const requestedStageBand = isPreviewingOtherBand ? stageLabel : undefined;
   const items = useQuery({
-    queryKey: ["items", childId, statusTab, stageLabel],
+    queryKey: ["items", childId, statusTab, requestedStageBand ?? "current-stage"],
     enabled: Boolean(authToken && childId),
-    queryFn: () => listItems(authToken!, childId!, statusTab, stageLabel)
+    queryFn: () => listItems(authToken!, childId!, statusTab, requestedStageBand)
   });
   // ITEM-114: 시기 준비율 계산용 전 상태 스냅샷. 현재 리스트 쿼리는 선택된 상태 탭 하나만
   // 조회하므로 준비율(분모=필수 전체, 분자=해결됨)을 계산할 수 없다. 4개 탭을 합치면 gifted를
@@ -155,26 +184,10 @@ export default function ItemsScreen() {
       return responses.flatMap((response) => response.items);
     }
   });
-  // Default the selected chip to the child's actual current stage once it's known, unless the
-  // pixel-lock capture is running, we're in the loginless test session (fixture data must render
-  // deterministically), or the user already tapped a chip. Falls back to "12-24개월" otherwise.
-  const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode && !isTestSession;
-  const home = useQuery({
-    queryKey: ["home", childId],
-    enabled: shouldResolveChildStage,
-    queryFn: () => getHome(authToken!, childId!)
-  });
   useEffect(() => {
-    setStageLabel(
-      resolveDefaultStageLabel({
-        currentStage: home.data?.child.currentStage,
-        isPixelLockMode,
-        isTestSession,
-        hasManualSelection: hasManualStageSelection,
-        fallback: "12-24개월"
-      })
-    );
-  }, [home.data, isTestSession, hasManualStageSelection]);
+    if (hasManualStageSelection) return;
+    setStageLabel(defaultStageLabel);
+  }, [defaultStageLabel, hasManualStageSelection]);
   const updateStatus = useMutation({
     mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; itemName: string; status: ItemStatus }) =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
@@ -287,7 +300,7 @@ export default function ItemsScreen() {
               {statusTabOptions.map((option) => (
                 <CategoryChip
                   key={option.value}
-                  label={option.label}
+                  label={option.value === "soon" && isPreviewingOtherBand ? soonTabLabelWhilePreviewingBand : option.label}
                   selected={option.value === statusTab}
                   onPress={() => setStatusTab(option.value)}
                 />

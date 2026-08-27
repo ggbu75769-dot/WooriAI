@@ -119,6 +119,26 @@ describe("FAM-121A 수락 성공 후 아이 재선택", () => {
     expect(plan.kind === "select" ? plan.childId : null).toBe(tunt.id);
   });
 
+  it("탭 셸 뒤로 보내는 계획은 select뿐이다 — 온보딩 게이트를 통과시켜야 하는 경로 (FIX-121C/F4)", () => {
+    // app/(tabs)/_layout.tsx는 `!hasReachedHome && !isTestSession`이면 "/"로 되돌린다.
+    // 그 게이트에 걸리는 목적지는 "/(tabs)" 하나뿐이므로, 화면은 정확히 이 분기에서만
+    // markHomeReached()를 세우면 된다("keep"의 /family는 탭 밖이라 게이트를 지나지 않는다).
+    const selectPlan = planAfterHouseholdJoin({
+      householdId: "household-new",
+      children: [{ id: "child-2", householdId: "household-new", nickname: "튼튼이" }],
+      currentChildId: null
+    });
+    const keepPlan = planAfterHouseholdJoin({
+      householdId: "household-new",
+      children: null,
+      currentChildId: null
+    });
+
+    expect(selectPlan.href).toBe("/(tabs)");
+    expect(keepPlan.href).toBe("/family");
+    expect(keepPlan.href.startsWith("/(tabs)")).toBe(false);
+  });
+
   it("아이 목록 + 아이 스코프 캐시 전부에 가구 구성원 목록까지 무효화한다", () => {
     expect(HOUSEHOLD_JOIN_INVALIDATE_KEYS.map((key) => key[0])).toEqual([
       "children",

@@ -31,11 +31,12 @@ const SUMMARY_CARDS: { key: keyof AdminDashboardSummary; label: string }[] = [
  * API가 admin 전용인 화면은 editor/analyst 세션에서 카드도 숨긴다 — 내비에는 없는
  * 링크가 대시보드 카드로만 남아 403으로 이어지던 불일치를 없앤다.
  *
- * 화면 ID: DNC-004가 잠근 표(docs/dev/source-lock.md §7)에는 ADM-001~004만 있고,
- * ADM-005 이후는 그 화면을 만든 티켓 ID를 그대로 쓴다(ADM-005 콘텐츠 검토, ADM-006
- * 관리자 계정, ADM-009 분석, ADM-113 감사 로그). 클릭 통계 화면만 전용 ID가 없어
- * 종전에 ADM-004(= 고지/정책 문구 관리)를 잘못 달고 있었고, 같은 선례대로 다음 번호인
- * ADM-010을 부여한다 — 잠긴 ID를 바꾸는 것이 아니라 비어 있던 ID를 채우는 것이다.
+ * 화면 ID: DNC-004가 잠근 표(docs/dev/source-lock.md §7)에는 ADM-001~004만 있다. 그 이후
+ * 화면의 채번 규칙은 두 갈래다 — ⓐ 그 화면을 만든 티켓 ID가 있으면 그대로 재사용하고
+ * (ADM-005 콘텐츠 검토, ADM-006 관리자 계정, ADM-009 분석, ADM-113 감사 로그),
+ * ⓑ 전용 티켓 ID가 없는 화면만 다음 번호를 채번한다. 클릭 통계가 ⓑ에 해당해 종전에
+ * ADM-004(= 고지/정책 문구 관리)를 잘못 달고 있었고, 비어 있던 다음 번호 ADM-010을 부여했다
+ * — 잠긴 ID를 바꾸는 것이 아니라 비어 있던 ID를 채우는 것이다. 현황표는 source-lock.md §7-1.
  */
 const SECTION_CARDS: Array<{
   id: string;

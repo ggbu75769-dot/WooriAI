@@ -51,6 +51,13 @@ function startOfDay(date: Date) {
  * an invite expiring tomorrow morning reads "1일 남음" rather than "0일 남음".
  * Returns a plain "만료됨" for an already-lapsed timestamp instead of a negative
  * count — the list should never imply a dead link is still usable.
+ *
+ * FIX-121C(F9-a): single source for all three invite screens — 가족 관리(FAM-001)
+ * 대기 초대 목록, 초대 링크 생성(FAM-002), 초대 수락(FAM-003). FAM-002/003 각각
+ * "N월 D일까지 유효해요"를 로컬 복제하고 있었는데, 그 문구는 만료된 초대에도 "유효해요"라고
+ * 말하는 허위 표시였다(수락 화면은 실제로 만료된 초대를 열 수 있다). 남은 일수를 함께
+ * 보여주는 이 한 문구로 통일하면 만료 링크는 "만료됨"으로 정직하게 읽힌다 — 화면별 옵션 분기를
+ * 새로 만들 이유가 없어 인자는 그대로 둔다(과설계 금지).
  */
 export function formatInviteExpiry(expiresAt: string, now: Date = new Date()): string {
   const expiry = new Date(expiresAt);

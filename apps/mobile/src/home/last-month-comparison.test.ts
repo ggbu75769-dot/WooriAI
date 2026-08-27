@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   daysInYearMonth,
   evaluateLastMonthComparison,
+  PERCENT_MIN_BASELINE_KRW,
   previousYearMonth,
   sumMonthExpensesThroughDay,
   type ComparableExpenseRecord
@@ -102,6 +103,65 @@ describe("REP-121 evaluateLastMonthComparison", () => {
     });
     expect(result?.percent).toBeNull();
     expect(result?.text).toBe("지난달 같은 시점보다 3,000원 적게 썼어요.");
+  });
+
+  // 리뷰 F8: 매달 1~3일은 "하루 대 하루" 비교라 비율이 발산한다(1,000원 → 50,000원 = 4900%).
+  // 그 구간에서는 같은 사실을 금액으로 말한다.
+  it("states the amount instead of a diverging percent on the first days of a month", () => {
+    const result = evaluateLastMonthComparison({
+      todayIso: "2025-08-01",
+      thisMonthToDateKrw: 50_000,
+      lastMonthRecords: [expense(1, 1_000), expense(20, 900_000)]
+    });
+    expect(result).toMatchObject({
+      direction: "more",
+      comparedThroughDay: 1,
+      lastMonthToDateKrw: 1_000,
+      differenceKrw: 49_000,
+      percent: null,
+      text: "지난달 같은 시점보다 49,000원 많이 썼어요."
+    });
+  });
+
+  it("keeps the day-3 / day-4 boundary of the percent rule explicit", () => {
+    const bigBaseline = [expense(1, 400_000), expense(2, 400_000), expense(3, 400_000), expense(4, 400_000)];
+    // 3일까지는 구간이 짧아 금액으로 말한다(기준액이 커도 마찬가지).
+    const day3 = evaluateLastMonthComparison({
+      todayIso: "2025-08-03",
+      thisMonthToDateKrw: 600_000,
+      lastMonthRecords: bigBaseline
+    });
+    expect(day3?.comparedThroughDay).toBe(3);
+    expect(day3?.percent).toBeNull();
+    expect(day3?.text).toBe("지난달 같은 시점보다 600,000원 적게 썼어요.");
+    // 4일부터는 퍼센트가 켜진다.
+    const day4 = evaluateLastMonthComparison({
+      todayIso: "2025-08-04",
+      thisMonthToDateKrw: 800_000,
+      lastMonthRecords: bigBaseline
+    });
+    expect(day4?.comparedThroughDay).toBe(4);
+    expect(day4?.percent).toBe(50);
+    expect(day4?.text).toBe("지난달 같은 시점보다 50% 적게 썼어요.");
+  });
+
+  it("states the amount when the baseline is too small for a percentage to mean anything", () => {
+    // 구간은 충분히 길지만(10일) 기준액이 소액이라 비율이 잡음이 된다.
+    const result = evaluateLastMonthComparison({
+      todayIso: TODAY,
+      thisMonthToDateKrw: 40_000,
+      lastMonthRecords: [expense(3, 20_000), expense(20, 500_000)]
+    });
+    expect(result?.lastMonthToDateKrw).toBe(20_000);
+    expect(result?.percent).toBeNull();
+    expect(result?.text).toBe("지난달 같은 시점보다 20,000원 많이 썼어요.");
+    // 기준액이 임계값에 닿으면 다시 퍼센트로 말한다.
+    const atThreshold = evaluateLastMonthComparison({
+      todayIso: TODAY,
+      thisMonthToDateKrw: 75_000,
+      lastMonthRecords: [expense(3, PERCENT_MIN_BASELINE_KRW)]
+    });
+    expect(atThreshold?.percent).toBe(50);
   });
 
   it("states equality plainly when both sides match (동일)", () => {

@@ -249,9 +249,17 @@ export class ExpensesStoreService {
    * (listExpenses / ReportingStoreService.getHome 등이 그 규약을 지킨다).
    *
    * PERF-121(F1): `take`는 "최신순 N건"만 필요한 호출자(홈의 recentExpenses)를 위한
-   * LIMIT이다. 정렬 계약(spentOn desc, createdAt desc)을 이 한 곳에 유지하려고
+   * LIMIT이다. 정렬 계약(spentOn desc, createdAt desc, id desc)을 이 한 곳에 유지하려고
    * 별도 메서드를 만들지 않고 옵션으로 받는다 — 최신 N건은 정렬 순서에 의존하므로
    * 정렬 정의가 갈라지면 안 된다. 생략하면 종전대로 전량을 돌려준다.
+   *
+   * FIX-121A(F1): `{ id: "desc" }`는 결정적 타이브레이커다. (spentOn, createdAt)이
+   * 모두 같은 행이 실제로 생긴다 — 가져오기 확정(import-pipeline)은 한 트랜잭션
+   * 안에서 여러 지출을 삽입하므로 `created_at` 기본값(now())이 트랜잭션 시작
+   * 시각으로 **전부 동일**하다. 타이브레이커가 없으면 Postgres가 동률 행을 어떤
+   * 순서로든 돌려줄 수 있어, PERF-121의 `LIMIT 3` 치환(홈)이 종전 "전량 정렬 후
+   * slice(0,3)"와 다른 행을 뽑을 수 있었다. 홈(recentExpenses)과 기록 탭
+   * (listExpenses)이 같은 이 경로를 쓰므로 둘이 함께 안정된다.
    */
   async expensesForChild(childId: string, yearMonth?: string, take?: number): Promise<ExpenseRow[]> {
     const range = yearMonth ? getSeoulMonthRange(yearMonth) : null;
@@ -261,7 +269,7 @@ export class ExpensesStoreService {
         deletedAt: null,
         ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {})
       },
-      orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       ...(take === undefined ? {} : { take })
     });
   }

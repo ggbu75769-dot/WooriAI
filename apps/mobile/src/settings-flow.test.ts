@@ -87,4 +87,14 @@ describe("NAV-121 settings entry point contract", () => {
     expect(settingsSource).toContain('queryKey: ["children"]');
     expect(settingsSource).toContain('queryKey: ["household-members", householdId]');
   });
+
+  // 리뷰 F7: 로그아웃 후에도 selectedChildId가 남아 있으면 두 쿼리 모두 enabled:false라
+  // 로딩도 실패도 아닌 상태가 되어 요약 줄이 "불러오는 중..."에 영구히 멈춘다.
+  it("says the session is missing instead of loading forever when signed out with a stale selectedChildId", () => {
+    const settingsSource = source("app/settings/index.tsx");
+
+    expect(settingsSource).toContain('const summarySignedOutText = "로그인이 필요해요";');
+    expect(settingsSource).toContain("const householdSummary = !authToken\n    ? summarySignedOutText");
+    expect(settingsSource).toContain("const childSummary = !authToken\n    ? summarySignedOutText");
+  });
 });

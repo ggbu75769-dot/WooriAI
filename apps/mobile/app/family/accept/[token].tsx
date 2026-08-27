@@ -7,6 +7,8 @@ import {
   loginHrefForInvite,
   planAfterHouseholdJoin
 } from "../../../src/children/household-join";
+import { formatInviteExpiry } from "../../../src/family/memberLabels";
+import { useOnboardingProgressStore } from "../../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../../src/stores/selected-child.store";
 import { useSessionStore } from "../../../src/stores/session.store";
 import { theme } from "../../../src/theme";
@@ -30,12 +32,6 @@ function acceptErrorText(error: unknown): string {
   return message.includes("ALREADY_MEMBER") ? alreadyMemberText : acceptFailedText;
 }
 
-function formatInviteExpiry(isoDate: string) {
-  const date = new Date(isoDate);
-  if (Number.isNaN(date.getTime())) return isoDate;
-  return `${date.getMonth() + 1}월 ${date.getDate()}일까지 유효해요`;
-}
-
 export default function AcceptInviteScreen() {
   const params = useLocalSearchParams<{ token?: string }>();
   const token = String(params.token ?? "");
@@ -45,6 +41,11 @@ export default function AcceptInviteScreen() {
   const isDemoSession = authToken === LOCAL_SESSION_TOKEN;
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
+  // FIX-121C(F4): app/(tabs)/_layout.tsx의 온보딩 게이트(`!hasReachedHome && !isTestSession`)를
+  // 통과시키기 위한 플래그. 카카오/OIDC 로그인 경로는 이걸 세우지 않으므로(테스트 로그인만 세운다,
+  // app/(auth)/login.tsx:145) 초대 링크로 처음 온 사용자는 참여 직후 "/(tabs)"로 보내도 게이트가
+  // "/"로 되돌리고, 가구 주인이 예산을 건너뛴 계정이면 온보딩 이어하기(ONB-006)로 떨어졌다.
+  const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
   const queryClient = useQueryClient();
   // FAM-121A: 비로그인 방문자가 로그인 화면으로 갈 때 초대 토큰을 함께 실어 보내는 목적지.
   // 로그인 성공 후 app/(auth)/login.tsx가 이 초대 수락 화면으로 되돌려 준다.
@@ -86,6 +87,11 @@ export default function AcceptInviteScreen() {
       const joinedText = `${result.household.name}과 함께해요.`;
       if (plan.kind === "select") {
         setSelectedChildId(plan.childId);
+        // 이 분기(= 참여한 가구에 이미 아이가 있음)는 실질적으로 온보딩이 끝난 상태다:
+        // 아이 프로필은 가구 주인이 이미 만들어 뒀고, 참여자가 다시 만들 것도 없다. 그래서
+        // 탭 셸로 보내기 전에 홈 도달을 표시해 게이트가 되돌리지 못하게 한다. "keep" 분기는
+        // 목적지가 /family(탭 밖)라 게이트를 지나지 않으므로 건드리지 않는다.
+        markHomeReached();
         announceForA11y(plan.notice);
         Alert.alert("가족에 참여했어요", `${joinedText}\n${plan.notice}`, [
           { text: "확인", onPress: () => router.replace(plan.href) }
@@ -133,7 +139,12 @@ export default function AcceptInviteScreen() {
               label="로그인하고 참여하기"
               disabled={!loginHref}
               onPress={() => {
-                if (loginHref) router.push(loginHref);
+                // FIX-121C(F4): push가 아니라 replace. 로그인 성공 후 login.tsx가 이 수락 화면을
+                // 다시 replace로 열기 때문에, push로 쌓아 두면 스택에 수락 화면이 두 겹 남는다 --
+                // 참여 뒤 뒤로가기로 옛 수락 화면에 돌아와 다시 "참여하기"를 누르면 409
+                // (HOUSEHOLD_ALREADY_MEMBER)만 보게 된다. 로그인 화면은 초대 토큰을 파라미터로
+                // 들고 가므로 되돌아올 길은 스택이 아니라 그 파라미터가 보장한다.
+                if (loginHref) router.replace(loginHref);
               }}
             />
           </>

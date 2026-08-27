@@ -260,10 +260,12 @@ describe.skipIf(!dbAvailable)("PERF-121 reporting hot-path queries reuse idx_exp
 
   it("홈 최근 3건(LIMIT 3)이 부분 인덱스를 탄다", async () => {
     // ExpensesStoreService.expensesForChild(childId, undefined, 3).
+    // FIX-121A(F1): 정렬에 `id DESC` 결정적 타이브레이커가 붙었다 — 서비스가 실제로
+    // 발행하는 모양 그대로 유지한다(인덱스 사용 여부는 WHERE 술어가 결정하므로 불변).
     const plan = await explainWithoutSeqscan(
       `SELECT id FROM expenses
        WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL
-       ORDER BY spent_on DESC, created_at DESC LIMIT 3`
+       ORDER BY spent_on DESC, created_at DESC, id DESC LIMIT 3`
     );
     expect(plan).toContain("idx_expenses_not_deleted");
   });

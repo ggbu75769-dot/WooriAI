@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Pressable, Share, Text, View } from "react-native";
 import { createInvite, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN, type InviteRole } from "../../src/api/client";
+import { formatInviteExpiry } from "../../src/family/memberLabels";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
@@ -13,12 +14,6 @@ const roleOptions: Array<{ role: InviteRole; label: string; description: string 
 ];
 
 const createFailedText = "초대 링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
-
-function formatInviteExpiry(isoDate: string) {
-  const date = new Date(isoDate);
-  if (Number.isNaN(date.getTime())) return isoDate;
-  return `${date.getMonth() + 1}월 ${date.getDate()}일까지 유효해요`;
-}
 
 export default function FamilyInviteScreen() {
   const [role, setRole] = useState<InviteRole>("co_parent");
