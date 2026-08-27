@@ -84,6 +84,20 @@ export function linkFilterSummary(totalCount: number, filteredCount: number): st
   return `${totalCount}개 중 ${filteredCount}개`;
 }
 
+/**
+ * UX-X C5: 대시보드 "깨진 상품 링크" 카드가 /links?health=broken 으로 넘어온다.
+ * 칩 값이 아닌 값이나 파라미터 없음은 필터 없음으로 떨어뜨린다 — 화면에 없는 상태로
+ * 걸려 빈 목록만 보이는 일이 없게. 초기값 1회 계산에만 쓰고(그 뒤 필터는 클라 상태)
+ * URL은 다시 쓰지 않는다.
+ */
+export function linkFiltersFromSearchParams(
+  params: { get(name: string): string | null } | null | undefined
+): LinkFilterState {
+  const raw = params?.get("health") ?? null;
+  const healthStatus = LINK_HEALTH_FILTERS.find((value) => value === raw);
+  return healthStatus ? { healthStatus } : EMPTY_LINK_FILTERS;
+}
+
 export function hasAnyLinkFilter(filters: LinkFilterState): boolean {
   return Boolean(
     filters.healthStatus || filters.itemTemplateId || filters.activeOnly || (filters.query ?? "").trim()

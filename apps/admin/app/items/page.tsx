@@ -17,6 +17,14 @@ import {
   type ItemTemplateInput,
   type NecessityLevel
 } from "../../src/lib/admin-api";
+import {
+  EMPTY_ITEM_FILTERS,
+  filterItemTemplates,
+  hasAnyItemFilter,
+  itemFilterSummary,
+  productLinkCount,
+  type ItemFilterState
+} from "../../src/lib/item-filters";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
@@ -282,6 +290,10 @@ export default function ItemTemplatesPage() {
   // 회전한다 — 그래야 타임아웃 뒤 재시도가 같은 템플릿을 두 번 만들지 않는다.
   const createKey = useRef(createIdempotencyKeyHolder()).current;
 
+  // UX-X C7: 목록 필터는 링크 화면(link-filters.ts)과 같은 관례로 전부 클라이언트
+  // 상태 — 준비템 목록은 이미 통째로 받아온다.
+  const [filters, setFilters] = useState<ItemFilterState>(EMPTY_ITEM_FILTERS);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<ItemFormState>(emptyItemForm());
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -311,6 +323,9 @@ export default function ItemTemplatesPage() {
   // COM-103: an editor's save goes through draft -> submit for review instead
   // of writing item_templates directly (that endpoint is admin-only now).
   const isEditor = session.admin.role === "editor";
+
+  const filteredItems = items ? filterItemTemplates(items, filters) : null;
+  const filtersApplied = hasAnyItemFilter(filters);
 
   const handleCreate = async () => {
     const validationMessage = validateItemForm(createForm);
@@ -412,7 +427,7 @@ export default function ItemTemplatesPage() {
       </section>
 
       <section className={styles.card}>
-        <h2>준비템 목록</h2>
+        <h2>준비템 목록{items ? ` (${itemFilterSummary(items.length, filteredItems?.length ?? 0)})` : ""}</h2>
         {items === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
@@ -422,8 +437,51 @@ export default function ItemTemplatesPage() {
             </button>
           </p>
         ) : null}
-        {items && items.length === 0 ? <p className={styles.emptyState}>등록된 준비템이 없어요.</p> : null}
+
+        {/* UX-X C7: 이름으로 바로 찾고, 상품 링크가 없어 구매로 이어지지 않는 준비템을
+            골라낸다. 둘 다 이미 받아온 목록만 좁히므로 추가 요청이 없다. */}
         {items && items.length > 0 ? (
+          <div className={styles.form}>
+            <div className={styles.formGrid}>
+              <div className={styles.field}>
+                <label htmlFor="item-filter-query">검색</label>
+                <input
+                  id="item-filter-query"
+                  type="text"
+                  maxLength={120}
+                  placeholder="준비템 이름"
+                  value={filters.query ?? ""}
+                  onChange={(event) => setFilters({ ...filters, query: event.target.value })}
+                />
+                <span className={styles.hint}>대소문자를 가리지 않고 부분 일치로 찾아요.</span>
+              </div>
+            </div>
+
+            <div className={styles.checkboxRow}>
+              <input
+                id="item-filter-missing-links"
+                type="checkbox"
+                checked={filters.missingLinksOnly ?? false}
+                onChange={(event) => setFilters({ ...filters, missingLinksOnly: event.target.checked })}
+              />
+              <label htmlFor="item-filter-missing-links">상품 링크 없음만 보기</label>
+            </div>
+
+            {filtersApplied ? (
+              <div className={styles.actions}>
+                <button type="button" className={styles.secondaryButton} onClick={() => setFilters(EMPTY_ITEM_FILTERS)}>
+                  필터 초기화
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {items && items.length === 0 ? <p className={styles.emptyState}>등록된 준비템이 없어요.</p> : null}
+        {items && items.length > 0 && filteredItems && filteredItems.length === 0 ? (
+          <p className={styles.emptyState}>조건에 맞는 준비템이 없어요.</p>
+        ) : null}
+        {filteredItems && filteredItems.length > 0 ? (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <thead>
@@ -432,18 +490,20 @@ export default function ItemTemplatesPage() {
                   <th>단계</th>
                   <th>필수도</th>
                   <th>가격대</th>
+                  <th>링크 수</th>
                   <th>활성</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
+                {filteredItems.map((item) => (
                   <Fragment key={item.id}>
                     <tr>
                       <td>{item.name}</td>
                       <td>{item.stageCodes.map((code) => CHILD_STAGE_LABELS[code]).join(", ") || "-"}</td>
                       <td>{NECESSITY_LEVEL_LABELS[item.necessityLevel]}</td>
                       <td>{item.priceBandText ?? "-"}</td>
+                      <td>{productLinkCount(item)}</td>
                       <td>
                         <span className={item.active ? `${styles.badge} ${styles.badgeActive}` : `${styles.badge} ${styles.badgeInactive}`}>
                           {item.active ? "활성" : "비활성"}
@@ -461,7 +521,7 @@ export default function ItemTemplatesPage() {
                     </tr>
                     {editingId === item.id ? (
                       <tr>
-                        <td colSpan={6}>
+                        <td colSpan={7}>
                           <ItemFormFields form={editForm} onChange={setEditForm} idPrefix={`edit-${item.id}`} mode="edit" />
                           {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
                           {editError ? <p className={styles.errorBanner}>{editError}</p> : null}

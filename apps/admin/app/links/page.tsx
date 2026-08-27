@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   LINK_HEALTH_LABELS,
   LINK_HEALTH_UNKNOWN_LABEL,
@@ -26,6 +27,7 @@ import {
   filterProductLinks,
   hasAnyLinkFilter,
   linkFilterSummary,
+  linkFiltersFromSearchParams,
   linkHealthFilterLabel,
   type LinkFilterState,
   type LinkHealthFilter
@@ -252,8 +254,22 @@ function LinkFormFields({
   );
 }
 
+/**
+ * UX-X C5: 대시보드 "깨진 상품 링크" 카드가 /links?health=broken 으로 들어온다.
+ * useSearchParams는 정적 프리렌더 중 Suspense 경계를 요구하므로(Next App Router)
+ * 화면 본체를 감싼다.
+ */
 export default function ProductLinksPage() {
+  return (
+    <Suspense fallback={<p className={styles.emptyState}>불러오는 중...</p>}>
+      <ProductLinksPageContent />
+    </Suspense>
+  );
+}
+
+function ProductLinksPageContent() {
   const { session, clearSession } = useAdminSession();
+  const searchParams = useSearchParams();
   const [itemTemplates, setItemTemplates] = useState<ItemTemplate[]>([]);
   const [links, setLinks] = useState<ProductLink[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -268,7 +284,9 @@ export default function ProductLinksPage() {
   const createKey = useRef(createIdempotencyKeyHolder()).current;
 
   // ADM-125: 목록 필터는 전부 클라이언트 상태 — 서버에서 이미 전체 링크를 받아온다.
-  const [filters, setFilters] = useState<LinkFilterState>(EMPTY_LINK_FILTERS);
+  // UX-X C5: 초기값만 URL(?health=broken)에서 1회 읽는다. 그 뒤 조작은 종전대로
+  // 클라 상태이고 URL은 다시 쓰지 않는다.
+  const [filters, setFilters] = useState<LinkFilterState>(() => linkFiltersFromSearchParams(searchParams));
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<LinkFormState>(emptyLinkForm(""));

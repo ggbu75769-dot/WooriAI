@@ -5,22 +5,39 @@ import { useCallback, useEffect, useState } from "react";
 import styles from "../src/components/admin-page.module.css";
 import {
   getAdminDashboardSummary,
+  getWorkerHealth,
   isAuthError,
   type AdminDashboardSummary,
-  type AdminRole
+  type AdminRole,
+  type WorkerHealth
 } from "../src/lib/admin-api";
+import {
+  WORKER_HEALTH_STATE_LABELS,
+  brokenLinkCountCaption,
+  formatWorkerLastTick,
+  linkHealthCheckLine,
+  workerHealthState,
+  workerHealthStateNote
+} from "../src/lib/worker-health-view";
 import { useAdminSession } from "../src/lib/admin-token-context";
 
-// ADM-008: 대시보드 요약 카드에 표시할 지표와 한국어 라벨 (렌더링 순서 고정).
-const SUMMARY_CARDS: { key: keyof AdminDashboardSummary; label: string }[] = [
+/**
+ * ADM-008: 대시보드 요약 카드에 표시할 지표와 한국어 라벨 (렌더링 순서 고정).
+ *
+ * UX-X C5: `href`가 있는 카드는 그 숫자를 만든 목록으로 바로 넘어간다 — 종전에는
+ * "깨진 상품 링크 3"을 보고도 어느 링크인지 찾으려면 링크 화면에서 다시 필터를
+ * 걸어야 했다. 링크 대상 화면은 쿼리 파라미터로 초기 필터를 받는다
+ * (link-filters.ts / revision-rows.ts의 *FromSearchParams).
+ */
+const SUMMARY_CARDS: { key: keyof AdminDashboardSummary; label: string; href?: string }[] = [
   { key: "activeUsers", label: "활성 사용자" },
   { key: "households", label: "가구" },
   { key: "childrenCount", label: "등록된 아이" },
   { key: "expensesTotal", label: "누적 지출 기록" },
   { key: "affiliateClicks7d", label: "최근 7일 제휴 클릭" },
   { key: "analyticsEvents7d", label: "최근 7일 분석 이벤트" },
-  { key: "pendingContentRevisions", label: "검수 대기 콘텐츠" },
-  { key: "productLinksBrokenCount", label: "깨진 상품 링크" }
+  { key: "pendingContentRevisions", label: "검수 대기 콘텐츠", href: "/reviews?status=in_review" },
+  { key: "productLinksBrokenCount", label: "깨진 상품 링크", href: "/links?health=broken" }
 ];
 
 /**
@@ -101,6 +118,8 @@ export default function AdminHomePage() {
   const { session, clearSession } = useAdminSession();
   const [summary, setSummary] = useState<AdminDashboardSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [worker, setWorker] = useState<WorkerHealth | null>(null);
+  const [workerError, setWorkerError] = useState(false);
 
   const loadSummary = useCallback(async () => {
     if (!session) return;
@@ -117,9 +136,23 @@ export default function AdminHomePage() {
     }
   }, [session, clearSession]);
 
+  // UX-X C5: 워커 상태는 무인증 공개 엔드포인트라 세션과 무관하게 실패해도 로그아웃
+  // 처리를 하지 않는다 — 요약 카드와 독립적으로 실패/재시도한다.
+  const loadWorker = useCallback(async () => {
+    if (!session) return;
+    setWorkerError(false);
+    try {
+      setWorker(await getWorkerHealth());
+    } catch {
+      setWorker(null);
+      setWorkerError(true);
+    }
+  }, [session]);
+
   useEffect(() => {
     loadSummary();
-  }, [loadSummary]);
+    loadWorker();
+  }, [loadSummary, loadWorker]);
 
   if (!session) return null;
 
@@ -145,18 +178,64 @@ export default function AdminHomePage() {
         ) : null}
         {summary ? (
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
-            {SUMMARY_CARDS.map((card) => (
-              <article
-                key={card.key}
-                style={{ background: "#FFF8F1", borderRadius: 8, padding: 16 }}
-              >
-                <p style={{ color: "#7A7A7A", fontSize: 13, margin: 0 }}>{card.label}</p>
-                <p style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>
-                  {summary[card.key].toLocaleString("ko-KR")}
-                </p>
-              </article>
-            ))}
+            {SUMMARY_CARDS.map((card) => {
+              const caption =
+                card.key === "productLinksBrokenCount"
+                  ? brokenLinkCountCaption(worker, summary.productLinksBrokenCount)
+                  : null;
+              const body = (
+                <>
+                  <p style={{ color: "#7A7A7A", fontSize: 13, margin: 0 }}>{card.label}</p>
+                  <p style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>
+                    {summary[card.key].toLocaleString("ko-KR")}
+                  </p>
+                  {caption ? (
+                    <p style={{ color: "#7A7A7A", fontSize: 12, margin: "4px 0 0" }}>{caption}</p>
+                  ) : null}
+                  {card.href ? (
+                    <p style={{ color: "#7A7A7A", fontSize: 12, margin: "4px 0 0" }}>목록 보기 →</p>
+                  ) : null}
+                </>
+              );
+              // 카드 껍데기는 링크 여부와 상관없이 <article>로 유지한다 —
+              // scripts/qa/admin-e2e.mjs가 요약 카드를 article로 세고 있어서다.
+              return (
+                <article key={card.key} style={{ background: "#FFF8F1", borderRadius: 8, padding: 16 }}>
+                  {card.href ? (
+                    <Link href={card.href} style={{ color: "inherit", display: "block", textDecoration: "none" }}>
+                      {body}
+                    </Link>
+                  ) : (
+                    body
+                  )}
+                </article>
+              );
+            })}
           </div>
+        ) : null}
+
+        {/* UX-X C5: 워커가 죽어 있으면 위 숫자 중 일부(깨진 링크·예약 게시)는 아무도
+            갱신하지 않는 값이다. 생사와 마지막 실행 시각을 한 줄로 붙여 둔다. */}
+        <p style={{ margin: "16px 0 0" }}>
+          <strong>백그라운드 작업</strong>{" "}
+          {worker ? (
+            <span>
+              {WORKER_HEALTH_STATE_LABELS[workerHealthState(worker)]} · {formatWorkerLastTick(worker)} ·{" "}
+              {linkHealthCheckLine(worker)}
+            </span>
+          ) : workerError ? (
+            <span>
+              상태를 확인하지 못했어요.
+              <button type="button" className={styles.retryButton} onClick={loadWorker}>
+                다시 시도
+              </button>
+            </span>
+          ) : (
+            <span>불러오는 중...</span>
+          )}
+        </p>
+        {worker && workerHealthStateNote(worker) ? (
+          <p className={styles.hint}>{workerHealthStateNote(worker)}</p>
         ) : null}
       </section>
 
