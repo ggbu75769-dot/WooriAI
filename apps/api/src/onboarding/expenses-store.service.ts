@@ -396,11 +396,19 @@ export class ExpensesStoreService {
     after?: ExpenseListCursor
   ): Promise<ExpenseRow[]> {
     const range = yearMonth ? getSeoulMonthRange(yearMonth) : null;
+    // R24-M3 후속(A): OR 3분기는 모두 spentOn <= after.spentOn을 함의한다. 이 상한을
+    // AND 조건으로도 명시하면 플래너가 idx_expenses_list_keyset의 (child_id, spent_on)
+    // 범위를 Index Cond로 쓸 수 있어 깊은 커서의 O(offset) 재스캔이 사라진다
+    // (실측 10,255 → 228 buf). 결과 집합은 불변 — 왕복 동치는 e2e가 고정한다.
+    const spentOnBounds = {
+      ...(range ? { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } : {}),
+      ...(after ? { lte: after.spentOn } : {})
+    };
     return this.prisma.expense.findMany({
       where: {
         childId,
         deletedAt: null,
-        ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {}),
+        ...(Object.keys(spentOnBounds).length > 0 ? { spentOn: spentOnBounds } : {}),
         ...(after
           ? {
               OR: [
