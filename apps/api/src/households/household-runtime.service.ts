@@ -361,8 +361,24 @@ export class HouseholdRuntimeService {
 
     const now = new Date();
     if (invite.status === "pending" && invite.expiresAt.getTime() <= now.getTime()) {
-      await this.prisma.householdInvite.update({ where: { id: invite.id }, data: { status: "expired" } });
-      invite.status = "expired";
+      // FIX-121A(F5): lazy expiry도 아래 revoke와 같은 CAS여야 한다. 무조건
+      // `update({ where: { id } })`면 이 읽기와 쓰기 사이에 acceptInvite의 CAS가
+      // 커밋된 경우 이미 `accepted`가 된 행을 `expired`로 덮어써, 멤버십은
+      // 생겼는데 초대는 만료로 남는 모순이 생긴다(만료 직전 수락 = 정확히 이
+      // 분기가 도는 시점). 아래 revoke CAS가 0건이면 INVITE_NOT_PENDING을 주듯,
+      // 여기서도 pending인 동안에만 만료 표시를 하고 진 쪽은 실제 상태를 따른다.
+      const expired = await this.prisma.householdInvite.updateMany({
+        where: { id: invite.id, status: "pending" },
+        data: { status: "expired" }
+      });
+      if (expired.count > 0) {
+        invite.status = "expired";
+      } else {
+        // 경합에서 졌다 — 다른 요청이 이미 상태를 바꿨으므로 DB 값을 다시 읽어
+        // 그 상태로 판정한다(아래 pending 검사에서 INVITE_NOT_PENDING).
+        const current = await this.prisma.householdInvite.findUnique({ where: { id: invite.id } });
+        invite.status = current?.status ?? invite.status;
+      }
     }
 
     if (invite.status !== "pending") {
@@ -528,8 +544,19 @@ export class HouseholdRuntimeService {
     }
 
     if (invite.expiresAt.getTime() <= Date.now() && invite.status === "pending") {
-      await this.prisma.householdInvite.update({ where: { id: invite.id }, data: { status: "expired" } });
-      invite.status = "expired";
+      // FIX-121A(F5): cancelInvite / listInvites와 동일한 CAS 형태로 통일한다 —
+      // 무조건 update면 이 읽기 직후 acceptInvite의 CAS가 커밋된 행을 expired로
+      // 덮어쓸 수 있다. pending일 때만 만료 표시하고, 졌으면 실제 상태를 다시 읽는다.
+      const expired = await this.prisma.householdInvite.updateMany({
+        where: { id: invite.id, status: "pending" },
+        data: { status: "expired" }
+      });
+      if (expired.count > 0) {
+        invite.status = "expired";
+      } else {
+        const current = await this.prisma.householdInvite.findUnique({ where: { id: invite.id } });
+        invite.status = current?.status ?? invite.status;
+      }
     }
 
     if (invite.status !== "pending") {

@@ -59,9 +59,10 @@ describe.skipIf(!dbAvailable)("PERF-121 reporting hot paths (real Postgres)", ()
   }
 
   async function completeOnboarding(accessToken: string) {
-    const householdId = (
-      await request(app.getHttpServer()).get("/api/v1/me").set("Authorization", `Bearer ${accessToken}`).expect(200)
-    ).body.households[0].id as string;
+    const me = (await request(app.getHttpServer()).get("/api/v1/me").set("Authorization", `Bearer ${accessToken}`).expect(200))
+      .body as { user: { id: string }; households: { id: string }[] };
+    const householdId = me.households[0].id;
+    const userId = me.user.id;
 
     await request(app.getHttpServer())
       .put("/api/v1/consents")
@@ -88,7 +89,7 @@ describe.skipIf(!dbAvailable)("PERF-121 reporting hot paths (real Postgres)", ()
       .send({ itemTemplateIds: [] })
       .expect(200);
 
-    return { childId, householdId };
+    return { childId, householdId, userId };
   }
 
   async function createExpense(
@@ -107,11 +108,16 @@ describe.skipIf(!dbAvailable)("PERF-121 reporting hot paths (real Postgres)", ()
   /**
    * 치환 전 getHome과 같은 계산: 아이의 전 행을 읽어 JS에서 합계(선물 제외)와
    * 최근 3건(정렬 후 slice)을 뽑는다.
+   *
+   * FIX-121A(F1): 참조 구현도 서비스와 같은 `id desc` 타이브레이커를 쓴다 —
+   * (spentOn, createdAt)만으로는 동률 행의 순서가 DB 재량이라 "전 행 slice"와
+   * "LIMIT 3"의 대조 자체가 비결정적이 된다. 두 쪽이 같은 결정적 정렬을
+   * 공유해야 이 파일의 동치 대조가 의미를 갖는다.
    */
   async function referenceHome(childId: string) {
     const rows = await prisma.expense.findMany({
       where: { childId, deletedAt: null },
-      orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }]
+      orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }, { id: "desc" }]
     });
     return {
       totalExpenseKrw: rows
@@ -202,6 +208,65 @@ describe.skipIf(!dbAvailable)("PERF-121 reporting hot paths (real Postgres)", ()
 
     // 월간 예산 블록은 이번 달(2026-07)만 — 전 기간 합계와 분리돼 있어야 한다.
     expect(body.monthly.usedAmountKrw).toBe(4000);
+  });
+
+  /**
+   * FIX-121A(F1) 회귀: `spent_on`과 `created_at`이 **모두 같은** 행이 여러 건 있는
+   * 상태. 실제로 이런 데이터는 가져오기 확정(import-pipeline)이 만든다 — 한
+   * 트랜잭션 안에서 여러 지출을 삽입하므로 `created_at` 기본값 now()가
+   * 트랜잭션 시각으로 전부 동일해진다. 여기서는 createMany로 그 모양을 직접
+   * 만든다(같은 날짜 + 같은 타임스탬프 5건).
+   *
+   * 타이브레이커가 없으면 Postgres가 동률 행을 어떤 순서로든 돌려줄 수 있어
+   * PERF-121의 `LIMIT 3`(홈)이 종전 "전량 정렬 후 slice(0,3)"와 다른 3건을 뽑을
+   * 수 있었다. `id desc`로 두 경로가 같은 3건을 결정적으로 고르는지 고정한다.
+   */
+  it("F1: (spentOn, createdAt) 동률에서도 홈 최근 3건이 id desc로 결정적이다", async () => {
+    const accessToken = await login("fix121a-tie");
+    const { childId, householdId, userId } = await completeOnboarding(accessToken);
+
+    const sameCreatedAt = new Date("2026-06-06T03:00:00.000Z");
+    const ids = Array.from({ length: 5 }, () => randomUUID());
+    await prisma.expense.createMany({
+      data: ids.map((id, index) => ({
+        id,
+        householdId,
+        childId,
+        createdByUserId: userId,
+        categoryId,
+        amountKrw: 1000 * (index + 1),
+        spentOn: new Date("2026-06-06T00:00:00.000Z"),
+        itemName: `동률 ${index}`,
+        paymentMethod: "card" as const,
+        createdAt: sameCreatedAt,
+        updatedAt: sameCreatedAt
+      }))
+    });
+
+    // 동률이라 정렬을 가르는 것은 id뿐 — uuid 텍스트 내림차순 상위 3건.
+    const expectedTop3 = [...ids].sort().reverse().slice(0, 3);
+
+    // 참조 구현("전 행 → slice")과 기대값이 먼저 일치해야 한다.
+    const reference = await referenceHome(childId);
+    expect(reference.recentExpenseIds).toEqual(expectedTop3);
+
+    // 홈(LIMIT 3)이 같은 3건을, 반복 호출에도 흔들리지 않고 돌려준다.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { body } = await request(app.getHttpServer())
+        .get(`/api/v1/home?childId=${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200);
+      expect(body.recentExpenses.map((expense: { id: string }) => expense.id)).toEqual(expectedTop3);
+    }
+
+    // 기록 탭(listExpenses)은 같은 정렬 정의를 공유하므로 전량 목록의 앞 3건이
+    // 홈과 정확히 일치해야 한다 — 두 화면이 함께 안정화되는 것이 이 수정의 요지.
+    const list = await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    expect(list.body.expenses.map((expense: { id: string }) => expense.id)).toEqual([...ids].sort().reverse());
+    expect(list.body.expenses.slice(0, 3).map((expense: { id: string }) => expense.id)).toEqual(expectedTop3);
   });
 
   it("F1: 지출이 없는 아이도 합계 0 / 빈 최근 목록을 그대로 유지한다", async () => {
