@@ -5,6 +5,7 @@ import { getSeoulToday } from "@wooriai/domain";
 import { getHome, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
+import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "../../src/home/budget-progress";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import { evaluateLastMonthComparison, previousYearMonth } from "../../src/home/last-month-comparison";
 import { formatKrw } from "../../src/money";
@@ -301,14 +302,14 @@ export default function HomeScreen() {
   const visibleHome = hasSession ? home.data! : previewHome;
   const monthlyUsed = visibleHome.monthly.usedAmountKrw;
   const budget = visibleHome.monthly.amountKrw;
-  const rawProgress = (monthlyUsed / Math.max(1, budget)) * 100;
-  const progress = Math.round(Math.min(100, Math.max(0, rawProgress)));
-  // budget === 0 means "no budget set" (home API returns amountKrw: 0 then) -- never call
-  // that state "over budget"; strict > also avoids "₩0 초과" when spending equals the budget.
-  const isOverBudget = hasSession && budget > 0 && monthlyUsed > budget;
-  const overAmount = monthlyUsed - budget;
-  // HOME-BUDGET-113: session-gated like isOverBudget/NOTI-102 so the logged-out preview stays
-  // inert. usedAmountKrw is the gift-excluded month total (DNC-015), see budget-warning.ts.
+  // HOME-127: 퍼센트 판정은 src/home/budget-progress.ts가 한다. 종전에는 여기서
+  // `(monthlyUsed / Math.max(1, budget)) * 100`으로 냈는데, /home은 예산 미설정 달에
+  // amountKrw: 0을 주므로 분모가 1이 되어 지출 한 건에 "예산 0원 · 100% 사용 중"이라는
+  // 허위 표시가 됐다. 예산이 없으면 퍼센트 자체를 만들지 않는다(hasBudget: false).
+  const budgetProgress = evaluateHomeBudgetProgress({ budgetKrw: budget, spentKrw: monthlyUsed });
+  const progress = budgetProgress.percent ?? 0;
+  // HOME-BUDGET-113: session-gated like NOTI-102 so the logged-out preview stays inert.
+  // usedAmountKrw is the gift-excluded month total (DNC-015), see budget-warning.ts.
   const budgetWarning = hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null;
   // REP-121: 세션이 있을 때만 계산한다 -- 비세션 픽셀락 미리보기(previewHome)에는 지난달 데이터가
   // 없으므로 한 줄이 아예 렌더되지 않고, 미리보기 스크린샷은 기존과 동일하게 유지된다. 지난달에
@@ -320,18 +321,18 @@ export default function HomeScreen() {
         lastMonthRecords: lastMonthExpenses.data?.expenses ?? null
       })
     : null;
-  // 라운드 13 m-7: 초과 금액은 HOME-BUDGET-113 배너가 상위 정보로 이미 알린다. 배너가 보이는
-  // 동안(임박·초과)에는 넛지가 "예산을 N원 초과했어요"를 중복 렌더하지 않고, 초과 상태에서는
-  // 금액 없는 "예산을 모두 사용했어요."로 대체한다. 배너가 없을 때(80% 미만 등)는 기존 동작 유지.
-  const showNudgeOverAmountCopy = isOverBudget && !budgetWarning;
-  const budgetNudgeTitle = showNudgeOverAmountCopy
-    ? `예산을 ${formatKrw(overAmount)} 초과했어요.`
-    : isOverBudget
-      ? "예산을 모두 사용했어요."
-      : `예산의 ${progress}% 사용 중이에요!`;
-  const budgetNudgeSubtitle = isOverBudget
-    ? "이번 달 지출을 확인해 볼까요? 😥"
-    : "이번 달도 잘 관리하고 있어요 👏";
+  // HOME-127: 넛지 카드의 문구·경로도 같은 순수 모듈이 고른다.
+  //  - 예산이 없으면 "월 예산 설정하기" CTA가 되어 /budget으로 보낸다. 홈에는 예산을 정할
+  //    진입점이 아예 없어서(설정 탭·알림에서만 닿았다) 허위 퍼센트를 지우기만 하면 사용자가
+  //    할 수 있는 일이 사라지기 때문이다.
+  //  - 예산이 있으면 문구·경로 모두 종전과 동일하다. 라운드 13 m-7: 초과 금액은
+  //    HOME-BUDGET-113 배너가 상위 정보로 이미 알리므로, 배너가 보이는 동안에는 넛지가
+  //    "예산을 N원 초과했어요"를 중복 렌더하지 않는다(hasWarningBanner).
+  const budgetNudge = buildHomeBudgetNudge({
+    budgetKrw: budget,
+    spentKrw: monthlyUsed,
+    hasWarningBanner: Boolean(budgetWarning)
+  });
   // NOTI-102: 알림 센터가 실제 기능이 되어 UX-5B-8에서 숨겼던 홈 알림 벨을 미확인 배지와 함께 복원.
   return (
     <AppScreen refreshControl={refreshControl}>
@@ -346,8 +347,9 @@ export default function HomeScreen() {
           <HeroSummaryCard
             label="이번 달 지출"
             amount={formatKrw(monthlyUsed)}
-            subtext={`예산 ${formatKrw(budget)}`}
+            subtext={budgetProgress.subtext}
             progress={progress}
+            showProgress={budgetProgress.hasBudget}
           />
 
           {budgetWarning ? (
@@ -390,16 +392,17 @@ export default function HomeScreen() {
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${budgetNudgeTitle} ${budgetNudgeSubtitle}`}
-            onPress={() => router.push("/(tabs)/items")}
+            accessibilityLabel={`${budgetNudge.title} ${budgetNudge.subtitle}`}
+            testID={budgetNudge.variant === "set-budget" ? "home-set-budget-cta" : "home-budget-nudge"}
+            onPress={() => router.push(budgetNudge.route)}
           >
             <Card style={homeBudgetNudgeStyle.card}>
               <View style={homeBudgetNudgeStyle.iconBox}>
                 <Text style={homeBudgetNudgeStyle.icon}>▮</Text>
               </View>
               <View style={homeBudgetNudgeStyle.copy}>
-                <Text style={homeBudgetNudgeStyle.title}>{budgetNudgeTitle}</Text>
-                <Text style={homeBudgetNudgeStyle.subtitle}>{budgetNudgeSubtitle}</Text>
+                <Text style={homeBudgetNudgeStyle.title}>{budgetNudge.title}</Text>
+                <Text style={homeBudgetNudgeStyle.subtitle}>{budgetNudge.subtitle}</Text>
               </View>
               <View accessible={false} style={homeBudgetNudgeArrowStyle.button}>
                 <Text accessible={false} style={homeBudgetNudgeArrowStyle.glyph}>›</Text>

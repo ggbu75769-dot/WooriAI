@@ -11,11 +11,17 @@ import {
   getMonthlyReport,
   getYearlyReport,
   listCategories,
+  listChildren,
   LOCAL_SESSION_TOKEN
 } from "../../src/api/client";
 import { buildCategoryNameLookup } from "../../src/categories";
 import { formatKrw } from "../../src/money";
-import { buildMilestoneShareMessage } from "../../src/reports/milestone-share";
+import {
+  buildMilestoneShareMessage,
+  milestoneReportTitle,
+  milestoneWindowPhrase
+} from "../../src/reports/milestone-share";
+import { selectMilestoneReportType } from "../../src/reports/milestone-selection";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -84,7 +90,8 @@ export default function ReportsScreen() {
 
   // Use the Seoul-local calendar day (not the device's local timezone) so report periods
   // line up with the server, which computes "이번 달/분기/연도" in KST.
-  const baseDate = hasSession ? new Date(`${getSeoulToday()}T00:00:00`) : new Date(2025, 4, 1);
+  const seoulToday = getSeoulToday();
+  const baseDate = hasSession ? new Date(`${seoulToday}T00:00:00`) : new Date(2025, 4, 1);
 
   const reportDate = period === "월간" ? addMonths(baseDate, monthOffset) : baseDate;
   const reportYearMonth = `${reportDate.getFullYear()}-${String(reportDate.getMonth() + 1).padStart(2, "0")}`;
@@ -176,17 +183,32 @@ export default function ReportsScreen() {
     queryFn: () => getYearlyReport(authToken!, childId!, yearStart.getFullYear())
   });
 
-  // REP-103: 100일 비용 리포트 for the 누적 section. The server answers 400
+  // REP-127: 어떤 마일스톤을 부를지는 아이의 생년월일이 정한다. 종전에는 "d100"이 하드코딩돼
+  // 있어 서버에 완전히 구현된 첫돌 리포트가 UI에서 영영 도달 불가였다. 생년월일은 새 API를
+  // 만들지 않고 아이 관리·설정 화면과 **같은 캐시 키**(["children"])를 재사용해 읽는다 —
+  // 대부분의 경우 이미 채워진 캐시를 그대로 읽는다.
+  const childrenQuery = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
+  });
+  const selectedChild = childrenQuery.data?.children.find((child) => child.id === childId) ?? null;
+  const milestoneType = selectMilestoneReportType({ birthDate: selectedChild?.birthDate, todayIso: seoulToday });
+  // 생년월일을 알기 전에 d100을 먼저 쏘면 첫돌이 지난 아이에게 낭비 요청 + 카드 깜빡임이
+  // 생기므로, 아이 목록이 성공/실패로 **결론난 뒤에** 조회한다(실패 시 birthDate 미상 →
+  // 종전과 같은 d100 폴백).
+  const childrenSettled = childrenQuery.isSuccess || childrenQuery.isError;
+  // REP-103: 마일스톤 비용 리포트 for the 누적 section. The server answers 400
   // MILESTONE_UNAVAILABLE for a child without a birthDate (pregnant/manual stage), so an
   // error simply hides the card instead of surfacing a retry UI -- retry: false keeps that
   // expected 400 from being re-fetched. A birthDate under 100 days ago comes back as a
   // partial window (partial: true + daysCovered) and still shows the card. Demo (local
   // test) sessions are served by the local backend's fixture-based milestone report.
   const milestone = useQuery({
-    queryKey: ["report", "milestone", childId, "d100"],
-    enabled: Boolean(authToken && childId),
+    queryKey: ["report", "milestone", childId, milestoneType],
+    enabled: Boolean(authToken && childId && childrenSettled),
     retry: false,
-    queryFn: () => getMilestoneReport(authToken!, childId!, "d100")
+    queryFn: () => getMilestoneReport(authToken!, childId!, milestoneType)
   });
   // Shares the home screen's query cache entry -- only used for the child nickname in the
   // milestone share message.
@@ -198,6 +220,9 @@ export default function ReportsScreen() {
   const milestoneReport = milestone.data;
   const milestoneTopCategory = milestoneReport?.topCategories[0];
   const milestoneChildName = home.data?.child.nickname ?? "우리 아이";
+  // REP-127: 제목·공유 라벨은 요청한 타입이 아니라 **응답의 type**에서 파생한다. 요청 타입이
+  // 바뀌는 사이(첫돌 도달 직후 재조회)에도 화면에 남아 있는 데이터와 제목이 어긋나지 않는다.
+  const milestoneCardTitle = milestoneReport ? milestoneReportTitle(milestoneReport.type) : "";
   const shareMilestoneReport = async () => {
     if (!milestoneReport) return;
     try {
@@ -426,21 +451,22 @@ export default function ReportsScreen() {
                 </Card>
               ) : null}
 
-              {/* REP-103: 100일 비용 리포트 카드 -- 생년월일 없는 아이(400 MILESTONE_UNAVAILABLE)는 숨김,
-                  100일 미만이면 partial 상태로 지금까지의 기록을 보여준다. */}
+              {/* REP-103/REP-127: 마일스톤 비용 리포트 카드 -- 생년월일 없는 아이(400
+                  MILESTONE_UNAVAILABLE)는 숨김, 창이 아직 안 끝났으면 partial 상태로 지금까지의
+                  기록을 보여준다. 첫돌이 지난 아이는 첫돌 리포트가 이 자리를 차지한다. */}
               {milestone.isSuccess && milestoneReport ? (
                 <Card style={reportMilestoneCardStyle}>
-                  <Text style={reportReferenceMemoryTitleStyle}>100일 리포트</Text>
+                  <Text style={reportReferenceMemoryTitleStyle}>{milestoneCardTitle}</Text>
                   <Text style={reportReferenceMemoryBodyStyle}>
                     {milestoneReport.partial
                       ? `태어나서 ${milestoneReport.daysCovered}일째 기록 중 · ${formatKrw(milestoneReport.totalKrw)}`
-                      : `태어나서 100일 동안 ${formatKrw(milestoneReport.totalKrw)}`}
+                      : `태어나서 ${milestoneWindowPhrase(milestoneReport.type)} ${formatKrw(milestoneReport.totalKrw)}`}
                   </Text>
                   {milestoneTopCategory ? (
                     <Text style={reportReferenceMemoryBodyStyle}>가장 많이 든 건 {milestoneTopCategory.name} 💛</Text>
                   ) : null}
                   <Pressable
-                    accessibilityLabel="100일 리포트 공유하기"
+                    accessibilityLabel={`${milestoneCardTitle} 공유하기`}
                     accessibilityRole="button"
                     hitSlop={8}
                     onPress={shareMilestoneReport}

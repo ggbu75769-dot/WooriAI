@@ -1,0 +1,121 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "./budget-progress";
+
+describe("HOME-127 예산 미설정 홈 판정 (evaluateHomeBudgetProgress)", () => {
+  it("예산이 0이면 퍼센트를 만들지 않는다 -- 지출이 있어도 100%가 아니다", () => {
+    // 결함 재현: 종전 (used / Math.max(1, budget)) * 100 은 지출 1건에 100%를 냈다.
+    const progress = evaluateHomeBudgetProgress({ budgetKrw: 0, spentKrw: 45_900 });
+
+    expect(progress.hasBudget).toBe(false);
+    expect(progress.percent).toBeNull();
+    expect(progress.subtext).toBe("예산을 정하면 남은 금액을 보여드릴게요");
+    // "예산 0원"이라는 있지도 않은 값을 말하지 않는다.
+    expect(progress.subtext).not.toContain("0원");
+  });
+
+  it("예산이 0이고 지출도 없으면 역시 예산 없는 변형이다", () => {
+    const progress = evaluateHomeBudgetProgress({ budgetKrw: 0, spentKrw: 0 });
+    expect(progress).toEqual({
+      hasBudget: false,
+      percent: null,
+      subtext: "예산을 정하면 남은 금액을 보여드릴게요"
+    });
+  });
+
+  it("음수·nullish·NaN 예산도 '미설정'으로 다룬다", () => {
+    for (const budgetKrw of [-1, null, undefined, Number.NaN]) {
+      expect(evaluateHomeBudgetProgress({ budgetKrw, spentKrw: 10_000 }).hasBudget).toBe(false);
+    }
+  });
+
+  it("예산이 있으면 종전과 동일한 반올림 퍼센트와 '예산 N원' 보조 문구를 낸다", () => {
+    // 비세션 프리뷰(HOME-001 캡처)의 고정값 -- 한 글자도 달라지면 안 된다.
+    const progress = evaluateHomeBudgetProgress({ budgetKrw: 1_600_000, spentKrw: 1_245_700 });
+    expect(progress).toEqual({ hasBudget: true, percent: 78, subtext: "예산 1,600,000원" });
+  });
+
+  it("퍼센트를 0~100에 물린다", () => {
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 0 }).percent).toBe(0);
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 100_000 }).percent).toBe(100);
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 900_000 }).percent).toBe(100);
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: -5_000 }).percent).toBe(0);
+  });
+});
+
+describe("HOME-127 홈 넛지 카드 (buildHomeBudgetNudge)", () => {
+  it("예산이 없으면 예산 설정 CTA로 바뀌고 /budget으로 보낸다", () => {
+    const nudge = buildHomeBudgetNudge({ budgetKrw: 0, spentKrw: 45_900, hasWarningBanner: false });
+
+    expect(nudge.variant).toBe("set-budget");
+    expect(nudge.title).toBe("월 예산 설정하기");
+    expect(nudge.route).toBe("/budget");
+    // 결함이었던 문구를 다시는 만들지 않는다.
+    expect(nudge.title).not.toContain("100%");
+    expect(nudge.title).not.toContain("사용 중");
+  });
+
+  it("예산이 있으면 종전 사용률 문구와 추천템 경로를 그대로 유지한다", () => {
+    const nudge = buildHomeBudgetNudge({ budgetKrw: 1_600_000, spentKrw: 1_245_700, hasWarningBanner: false });
+
+    expect(nudge).toEqual({
+      variant: "usage",
+      title: "예산의 78% 사용 중이에요!",
+      subtitle: "이번 달도 잘 관리하고 있어요 👏",
+      route: "/(tabs)/items"
+    });
+  });
+
+  it("초과 시 배너가 없으면 금액을, 배너가 있으면 금액 없는 문구를 쓴다 (라운드 13 m-7)", () => {
+    const withoutBanner = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 130_000, hasWarningBanner: false });
+    expect(withoutBanner.title).toBe("예산을 30,000원 초과했어요.");
+    expect(withoutBanner.subtitle).toBe("이번 달 지출을 확인해 볼까요? 😥");
+
+    const withBanner = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 130_000, hasWarningBanner: true });
+    expect(withBanner.title).toBe("예산을 모두 사용했어요.");
+  });
+
+  it("예산을 정확히 다 쓴 경우는 초과가 아니다 -- '0원 초과' 허위 문구 금지", () => {
+    const nudge = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 100_000, hasWarningBanner: false });
+    expect(nudge.title).toBe("예산의 100% 사용 중이에요!");
+    expect(nudge.title).not.toContain("0원 초과");
+  });
+});
+
+describe("HOME-127 홈/히어로 카드 배선", () => {
+  const source = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
+
+  it("홈이 퍼센트를 직접 계산하지 않고 순수 모듈을 쓴다", () => {
+    const homeSource = source("app/(tabs)/index.tsx");
+
+    expect(homeSource).toContain('from "../../src/home/budget-progress"');
+    expect(homeSource).toContain("evaluateHomeBudgetProgress(");
+    expect(homeSource).toContain("buildHomeBudgetNudge(");
+    // 결함이던 분모 치환 계산이 화면 코드에서 사라졌다(설명 주석에는 남아 있다).
+    expect(homeSource).not.toContain("const rawProgress");
+    expect(homeSource).not.toContain("(monthlyUsed / Math.max(1, budget)) * 100;");
+  });
+
+  it("예산이 없을 때 히어로 카드가 퍼센트·프로그레스 바를 감춘다", () => {
+    const homeSource = source("app/(tabs)/index.tsx");
+    expect(homeSource).toContain("showProgress={budgetProgress.hasBudget}");
+    expect(homeSource).toContain("subtext={budgetProgress.subtext}");
+
+    const uiSource = source("src/ui.tsx");
+    const heroBlock = uiSource.slice(
+      uiSource.indexOf("export function HeroSummaryCard"),
+      uiSource.indexOf("export function QuickActionIconButton")
+    );
+    // 기본값 true -- 기존 호출부의 동작은 그대로다(픽셀락).
+    expect(heroBlock).toContain("showProgress = true");
+    expect(heroBlock).toContain("showProgress ?");
+  });
+
+  it("넛지 카드가 순수 모듈이 고른 경로로 이동한다", () => {
+    const homeSource = source("app/(tabs)/index.tsx");
+    expect(homeSource).toContain("router.push(budgetNudge.route)");
+    expect(homeSource).toContain("budgetNudge.title");
+    expect(homeSource).toContain("budgetNudge.subtitle");
+  });
+});

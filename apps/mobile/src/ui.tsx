@@ -338,16 +338,25 @@ export function BudgetProgressBar({ value }: { value: number }) {
   );
 }
 
+/**
+ * HOME-127: `showProgress`는 **기본값 true**라 기존 호출부(홈 화면의 예산 있는 상태)의 렌더는
+ * 한 픽셀도 바뀌지 않는다(HOME-001 픽셀락). false면 퍼센트 텍스트와 프로그레스 바를 함께
+ * 감춘다 -- 예산을 설정하지 않은 달에 "0% / 100%"나 빈 막대를 그리면 사용자가 정한 적 없는
+ * 진행률을 말하는 허위 표시가 되기 때문이다. 보조 문구(`subtext`)는 그대로 살아 있어 카드가
+ * 무엇을 뜻하는지는 항상 글로 전달된다(색·막대 단독 전달 금지).
+ */
 export function HeroSummaryCard({
   label,
   amount,
   subtext,
-  progress
+  progress,
+  showProgress = true
 }: {
   label: string;
   amount: string;
   subtext: string;
   progress: number;
+  showProgress?: boolean;
 }) {
   return (
     <View
@@ -363,9 +372,11 @@ export function HeroSummaryCard({
       <Text style={{ color: theme.colors.white, fontSize: 28, fontWeight: "800" }}>{amount}</Text>
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <Text style={[textStyles.caption, { color: theme.colors.white }]}>{subtext}</Text>
-        <Text style={[textStyles.caption, { color: theme.colors.white, fontWeight: "700" }]}>{progress}%</Text>
+        {showProgress ? (
+          <Text style={[textStyles.caption, { color: theme.colors.white, fontWeight: "700" }]}>{progress}%</Text>
+        ) : null}
       </View>
-      <BudgetProgressBar value={progress} />
+      {showProgress ? <BudgetProgressBar value={progress} /> : null}
     </View>
   );
 }

@@ -604,6 +604,61 @@ describe("Expense, budget, home, and report API", () => {
     expect(januaryExpense.id).toEqual(expect.any(String));
   });
 
+  /**
+   * PERF-127: getYearlyReport가 "행 전량 findMany + JS 접기"에서 spentOn 기준 groupBy로
+   * 바뀌었다. 기존 연간 e2e는 월마다 지출이 한 건뿐이고 연 경계에 걸친 행이 없어, DB가 접는
+   * 경로에서만 드러나는 두 가지를 증명하지 못한다 — (1) **같은 날짜 여러 건**이 한 그룹으로
+   * 접힌 뒤에도 합계가 보존되는지, (2) 연 경계(12/31 포함 · 다음 해 1/1 제외 · 전 해 12/31
+   * 제외)가 그대로인지. 두 축을 한 아이로 함께 검증한다.
+   */
+  it("folds same-day rows and honors the year boundary in the yearly report (PERF-127)", async () => {
+    const accessToken = await login(app, `batch-yearly-groupby-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const record = async (amountKrw: number, spentOn: string, itemName: string) => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ categoryId, amountKrw, spentOn, itemName, paymentMethod: "card" })
+        .expect(200);
+    };
+
+    // 같은 날짜 3건 (groupBy가 한 행으로 접는다) + 같은 달 다른 날 1건.
+    await record(11000, "2026-05-04", "5월 4일 A");
+    await record(12000, "2026-05-04", "5월 4일 B");
+    await record(13000, "2026-05-04", "5월 4일 C");
+    await record(1000, "2026-05-31", "5월 말일");
+    // 연 경계 양쪽. (미래 날짜는 EXPENSE_FUTURE_DATE로 막히므로 -- 이 스위트의 오늘은
+    // WOORIAI_STAGE_TODAY=2026-07-06 -- 2025/2026 경계로 검증한다.)
+    await record(7000, "2026-01-01", "새해 첫날");
+    await record(400000, "2025-12-31", "전 해 마지막날");
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/yearly?year=2026`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        reportYearlySchema.parse(body);
+        expect(body.monthlyTotals).toHaveLength(12);
+        // 5월: 11000+12000+13000(같은 날) + 1000 = 37000 -- 같은 날 3건이 접혀도 합이 보존된다.
+        expect(body.monthlyTotals[4]).toEqual({ yearMonth: "2026-05", totalExpenseKrw: 37000 });
+        // 하한(gte 2026-01-01) 포함, 전 해 마지막날은 제외.
+        expect(body.monthlyTotals[0]).toEqual({ yearMonth: "2026-01", totalExpenseKrw: 7000 });
+        expect(body.totalExpenseKrw).toBe(44000);
+      });
+
+    // 상한(lt 2026-01-01): 전 해 리포트에는 2025-12-31만 잡히고 2026-01-01은 새지 않는다.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/yearly?year=2025`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        reportYearlySchema.parse(body);
+        expect(body.monthlyTotals[11]).toEqual({ yearMonth: "2025-12", totalExpenseKrw: 400000 });
+        expect(body.totalExpenseKrw).toBe(400000);
+      });
+  });
+
   it("scopes the category report to a given month when yearMonth is provided, and to all time otherwise", async () => {
     const accessToken = await login(app, `batch-category-report-${randomUUID()}`);
     const { childId } = await completeOnboarding(app, accessToken);
