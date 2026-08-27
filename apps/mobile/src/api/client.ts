@@ -1,5 +1,6 @@
 import { getSeoulMonthRange, getSeoulToday, type ChildStageCode } from "@wooriai/domain";
 import * as localBackend from "./local-backend";
+import type { StageBandLabel } from "../items/stage-bands";
 import * as localDevices from "../notifications/local-devices";
 import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./local-fixtures";
 import { useSessionStore } from "../stores/session.store";
@@ -232,6 +233,25 @@ export type InviteResponse = {
   inviteUrl: string;
   expiresAt: string;
   householdName?: string;
+};
+
+/**
+ * FAM-121B: a still-usable invite as returned by GET /households/:id/invites.
+ *
+ * There is deliberately no token/link field: the server stores only a sha256 hash
+ * of the invite token, so the original link cannot be shown again — `canReshareLink`
+ * is the server saying so explicitly, and the UI's recovery path is 취소 후 재생성.
+ */
+export type PendingInvite = {
+  id: string;
+  householdId: string;
+  role: InviteRole;
+  channel: InviteChannel;
+  status: "pending";
+  expiresAt: string;
+  createdAt: string;
+  invitedByUserId: string;
+  canReshareLink: boolean;
 };
 
 export type InvitePreview = {
@@ -534,7 +554,7 @@ export function createChild(
 
 /**
  * MOB-118: one child of `GET /children` -- hand-declared mirror of
- * OnboardingStoreService.toChildDto (apps/api/src/onboarding/onboarding-store.service.ts),
+ * toChildDto (apps/api/src/onboarding/store-shared.ts),
  * following the same local-declaration convention as Expense/Budget/CategoryListItem above.
  * `currentStage`/`stageLabel` are server-computed from the dates, which is why editing a
  * birth/due date must invalidate every child-scoped query (stage drives 준비템/추천/리포트).
@@ -951,13 +971,20 @@ export function getMilestoneReport(token: string, childId: string, type: Milesto
   return requestJson<MilestoneReport>(`/children/${childId}/reports/milestone?type=${type}`, { token });
 }
 
+/**
+ * ITEM-121: `stageBand`는 선택적이다. 넘기면 서버가 그 시기 밴드 기준으로 목록을 만들고
+ * (현재 단계와 다른 시기의 준비물도 미리 볼 수 있다), 생략하면 종전대로 아이의 현재 단계
+ * 기준이다 — 준비율 스냅샷처럼 밴드와 무관한 호출은 그대로 두면 된다.
+ */
 export function listItems(
   token: string,
   childId: string,
-  tab: "now" | "soon" | "prepared" | "not_needed" = "now"
+  tab: "now" | "soon" | "prepared" | "not_needed" = "now",
+  stageBand?: StageBandLabel
 ) {
-  if (isLocalToken(token)) return local(() => localBackend.listItems(childId, tab));
-  return requestJson<{ items: ItemSummary[] }>(`/children/${childId}/items?tab=${tab}`, { token });
+  if (isLocalToken(token)) return local(() => localBackend.listItems(childId, tab, stageBand));
+  const stageBandQuery = stageBand ? `&stageBand=${encodeURIComponent(stageBand)}` : "";
+  return requestJson<{ items: ItemSummary[] }>(`/children/${childId}/items?tab=${tab}${stageBandQuery}`, { token });
 }
 
 export function getItemDetail(token: string, childId: string, itemTemplateId: string) {
@@ -1018,6 +1045,21 @@ export function createInvite(
     method: "POST",
     token,
     body: { role, channel }
+  });
+}
+
+/** FAM-121B: owner-only list of invites that are still pending and unexpired. */
+export function listHouseholdInvites(token: string, householdId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listHouseholdInvites(householdId));
+  return requestJson<{ invites: PendingInvite[] }>(`/households/${householdId}/invites`, { token });
+}
+
+/** FAM-121B: owner cancels a pending invite, killing that link for good. */
+export function cancelHouseholdInvite(token: string, householdId: string, inviteId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.cancelHouseholdInvite(householdId, inviteId));
+  return requestJson<{ success: boolean }>(`/households/${householdId}/invites/${inviteId}`, {
+    method: "DELETE",
+    token
   });
 }
 

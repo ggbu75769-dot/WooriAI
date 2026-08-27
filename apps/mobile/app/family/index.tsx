@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import {
+  cancelHouseholdInvite,
   createInvite,
+  listHouseholdInvites,
   listHouseholdMembers,
   LOCAL_HOUSEHOLD_ID,
   LOCAL_SESSION_TOKEN,
@@ -10,6 +12,7 @@ import {
   removeHouseholdMember,
   type InviteRole
 } from "../../src/api/client";
+import { formatInviteExpiry, memberBadge, memberRoleLabel } from "../../src/family/memberLabels";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
@@ -69,16 +72,33 @@ export default function FamilyScreen() {
     enabled: hasSession,
     queryFn: () => listHouseholdMembers(authToken!, householdId!)
   });
+  // FAM-121B: owner-only. Computed before the loading/error early-returns below so the
+  // pending-invite query's `enabled` flag can depend on it without breaking hook order.
+  const myRole = hasSession ? members.data?.members.find((member) => member.userId === userId)?.role : undefined;
+  const canManageMembers = hasSession && myRole === "owner";
+  const pendingInvites = useQuery({
+    queryKey: ["household-invites", householdId],
+    enabled: canManageMembers,
+    queryFn: () => listHouseholdInvites(authToken!, householdId!)
+  });
   const quickInvite = useMutation({
     mutationFn: (role: InviteRole) => createInvite(authToken!, householdId!, role, "link"),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
+      await queryClient.invalidateQueries({ queryKey: ["household-invites"] });
       router.push("/family/invite");
     }
   });
   const removeMember = useMutation({
     mutationFn: (memberId: string) => removeHouseholdMember(authToken!, householdId!, memberId),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["household-members"] });
+    }
+  });
+  const cancelInvite = useMutation({
+    mutationFn: (inviteId: string) => cancelHouseholdInvite(authToken!, householdId!, inviteId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["household-invites"] });
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
     }
   });
@@ -112,8 +132,6 @@ export default function FamilyScreen() {
 
   const visibleMembers = hasSession ? members.data!.members : previewMembers;
   const avatarNames = visibleMembers.map((member) => ("avatar" in member ? member.avatar : member.displayName));
-  const myRole = hasSession ? visibleMembers.find((member) => "userId" in member && member.userId === userId)?.role : undefined;
-  const canManageMembers = hasSession && myRole === "owner";
   const openInvite = () => {
     if (!(authToken && householdId)) {
       router.push("/family/invite");
@@ -123,6 +141,12 @@ export default function FamilyScreen() {
       { text: "취소", style: "cancel" },
       { text: "공동부모", onPress: () => quickInvite.mutate("co_parent") },
       { text: "보기 전용", onPress: () => quickInvite.mutate("viewer") }
+    ]);
+  };
+  const confirmCancelInvite = (inviteId: string, roleLabel: string) => {
+    Alert.alert(`${roleLabel} 초대를 취소할까요?`, "이미 보낸 초대 링크는 바로 사용할 수 없게 돼요.", [
+      { text: "그대로 둘게요", style: "cancel" },
+      { text: "초대 취소", style: "destructive", onPress: () => cancelInvite.mutate(inviteId) }
     ]);
   };
   const confirmRemoveMember = (memberId: string, memberDisplayName: string) => {
@@ -184,7 +208,17 @@ export default function FamilyScreen() {
             <View key={member.id} style={familyMemberRowStyle}>
               <FamilyAvatarGroup names={["avatar" in member ? member.avatar : member.displayName]} />
               <Text style={familyMemberNameStyle}>{member.displayName}</Text>
-              <StatusBadge label={member.role === "owner" ? "관리자" : "멤버"} tone={member.role === "owner" ? "warning" : "neutral"} />
+              {/*
+                FAM-121B (E3): a real session gets the four domain role labels plus an
+                explicit 수락 대기 marker. The non-session preview keeps the FAM-001
+                reference image's two-badge wording (관리자/멤버) verbatim — that preview
+                is exactly what the pixel-lock capture renders, so it must not drift.
+              */}
+              {hasSession ? (
+                <StatusBadge {...memberBadge(member.role, member.status)} />
+              ) : (
+                <StatusBadge label={member.role === "owner" ? "관리자" : "멤버"} tone={member.role === "owner" ? "warning" : "neutral"} />
+              )}
               {canManageMembers && "userId" in member && member.userId !== userId ? (
                 <Pressable
                   accessibilityRole="button"
@@ -199,6 +233,61 @@ export default function FamilyScreen() {
             </View>
           ))}
         </View>
+
+        {/*
+          FAM-121B: 대기 중인 초대. Owner-only and session-only, so the non-session
+          FAM-001 pixel-lock capture renders nothing extra here.
+        */}
+        {canManageMembers ? (
+          <>
+            <Text style={familySectionTitleStyle}>대기 중인 초대</Text>
+            {pendingInvites.isLoading ? (
+              <SkeletonRow />
+            ) : pendingInvites.isError ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="대기 중인 초대 다시 불러오기"
+                onPress={() => pendingInvites.refetch()}
+              >
+                <Text style={familyInviteErrorStyle}>대기 중인 초대를 불러오지 못했어요. 눌러서 다시 시도해 주세요.</Text>
+              </Pressable>
+            ) : (pendingInvites.data?.invites.length ?? 0) === 0 ? (
+              <Text style={familyInviteHintStyle}>대기 중인 초대가 없어요.</Text>
+            ) : (
+              <View style={familyMemberGroupStyle}>
+                {pendingInvites.data!.invites.map((invite) => {
+                  const roleLabel = memberRoleLabel(invite.role);
+                  return (
+                    <View key={invite.id} style={familyPendingInviteRowStyle}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={familyMemberNameStyle}>{roleLabel} 초대</Text>
+                        <Text style={familyPendingInviteMetaStyle}>{formatInviteExpiry(invite.expiresAt)}</Text>
+                      </View>
+                      <StatusBadge label="수락 대기" tone="neutral" />
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${roleLabel} 초대 취소`}
+                        disabled={cancelInvite.isPending}
+                        onPress={() => confirmCancelInvite(invite.id, roleLabel)}
+                        hitSlop={8}
+                      >
+                        <Text style={familyMemberDeleteStyle}>취소</Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+            {/*
+              Honesty note, not a placeholder: invite tokens are stored hashed on the
+              server, so a link can never be shown again after the create screen. The
+              only real recovery is cancel + create a new invite, and we say exactly that.
+            */}
+            {(pendingInvites.data?.invites.length ?? 0) > 0 ? (
+              <Text style={familyInviteHintStyle}>보낸 링크는 보안을 위해 다시 볼 수 없어요. 링크를 잃어버렸다면 취소하고 새로 만들어 주세요.</Text>
+            ) : null}
+          </>
+        ) : null}
 
         <Pressable accessibilityRole="button" accessibilityLabel="가족 초대하기" onPress={openInvite} style={familyInviteButtonStyle}>
           <Text style={familyInviteButtonTextStyle}>가족 초대하기</Text>
@@ -359,6 +448,38 @@ const familyMemberDeleteStyle = {
   color: theme.colors.danger,
   fontSize: 13,
   fontWeight: "700"
+} as const;
+
+const familyPendingInviteRowStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.white,
+  borderColor: "rgba(74, 63, 53, 0.08)",
+  borderRadius: 16,
+  borderWidth: 1,
+  flexDirection: "row",
+  gap: 10,
+  minHeight: 56,
+  paddingHorizontal: 12,
+  paddingVertical: 8,
+  ...theme.shadows.card
+} as const;
+
+const familyPendingInviteMetaStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  marginTop: 2
+} as const;
+
+const familyInviteHintStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 18
+} as const;
+
+const familyInviteErrorStyle = {
+  color: theme.colors.danger,
+  fontSize: 12,
+  lineHeight: 18
 } as const;
 
 const familyInviteButtonStyle = {
