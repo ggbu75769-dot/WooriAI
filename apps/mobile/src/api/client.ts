@@ -573,6 +573,26 @@ export async function oauthLogin(provider: "kakao" | "apple" | "google") {
   });
 }
 
+/**
+ * GET /me — 지금 이 토큰이 속한 **가구 전체와 그 안에서의 내 역할**(apps/api의
+ * AuthController.me → householdsForUser). 로그인 응답과 같은 모양이라 세션 스토어가
+ * 그대로 받아 역할 표를 갈아 끼울 수 있다(session.store.ts의 setHouseholdRoles).
+ *
+ * 라운드 40 J-3: 역할 변경(보기 전용 → 공동부모 승격)은 지금까지 사용자가 가족 화면을
+ * 열어 볼 때만 반영됐고, 기본 가구가 아닌 가구는 그 화면조차 조회하지 않아 영영 반영되지
+ * 않았다. 잠금 안내를 띄우는 순간 이 호출로 서버 기준을 다시 확인한다(스로틀은
+ * src/family/role-revalidation.ts).
+ *
+ * 데모(local) 세션에는 서버 가구가 없으므로 이 함수를 부르지 않는다 — 호출부가
+ * accessToken(실토큰)일 때만 부른다.
+ */
+export function getMe(token: string) {
+  return requestJson<{
+    user: { id: string };
+    households: Array<{ id: string; name: string; role: string }>;
+  }>("/me", { token });
+}
+
 export function upsertConsents(token: string) {
   if (isLocalToken(token)) return local(() => localBackend.upsertConsents());
   return requestJson<{ success: boolean }>("/consents", {

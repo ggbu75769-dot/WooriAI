@@ -161,6 +161,70 @@ export const sumLastMonthActualKrw = sumMonthActualKrw;
  */
 export const sumThisMonthActualKrw = sumMonthActualKrw;
 
+/**
+ * 라운드 40 J-4 — 이 달에 **아직 서버에 반영되지 않은 로컬 변경**이 실제로 있는가.
+ *
+ * 오프라인 스냅숏은 이 기기의 local_expenses 전체다. 그중 이 아이·이 달의 행 가운데 아직
+ * 'synced'가 아닌 것이 하나라도 있으면(대기 중인 생성·수정, 삭제 대기, 실패, 충돌) 서버 집계는
+ * 그 변경을 모르는 상태다 — 그때만 캐시 재조정 값이 서버 집계보다 정확하다.
+ *
+ * 삭제 대기 행도 포함된다: 그 행은 서버 목록에서 아직 살아 있는 지출을 가리므로, 재조정이
+ * 그것을 빼 준 값이 사용자가 방금 만든 사실에 더 가깝다.
+ */
+export function hasPendingMonthAdjustments({ rows, childId, yearMonth }: LastMonthOfflineInput): boolean {
+  if (!childId) return false;
+  return rows.some(
+    (row) =>
+      row.childId === childId &&
+      row.syncState !== "synced" &&
+      typeof row.payload?.spentOn === "string" &&
+      row.payload.spentOn.startsWith(yearMonth)
+  );
+}
+
+export type ThisMonthUsedInput = {
+  /** `["expenses", childId, 이번 달]` 캐시의 행. 캐시가 없으면 null/undefined. */
+  cachedExpenses: ReadonlyArray<LastMonthExpenseLike> | null | undefined;
+  /** 이 기기의 오프라인 스냅숏(아이·달로 좁혀 쓴다). */
+  offline: LastMonthOfflineInput;
+  /** 이 화면의 budget 응답 집계(`usedAmountKrw`). 예산 미설정이면 없다. */
+  serverUsedKrw?: number | null;
+  /** `["home", childId]` 캐시의 `monthly.usedAmountKrw`. 없으면 없다. */
+  homeUsedKrw?: number | null;
+};
+
+/**
+ * 이번 달 사용액으로 말할 값(원). 아무것도 모르면 undefined — 그러면 판단 줄 자체가 사라진다
+ * (0원이라고 말하지 않는다).
+ *
+ * ## 우선순위와 그 이유(라운드 40 J-4)
+ *
+ * 라운드 39 I-6은 "지난달 칩은 재조정 값인데 이번 달만 서버 집계면 한 화면의 두 숫자가 다른
+ * 모집단을 말한다"는 이유로 캐시 재조정 값을 **무조건** 1순위에 놓았다. 그런데 그 캐시는
+ * 지난달의 낡은 목록이거나(다른 달을 보다가 들어온 경우) 아직 한 건도 못 받은 빈 목록일 수
+ * 있다. 그때 재조정 결과는 0이고, 방금 서버에서 받아 온 집계(다른 기기에서 기록한 지출까지
+ * 들어 있다)를 이겨서 "이번 달 지금까지 0원 사용"이라는 **허위 표시**를 만들었다.
+ *
+ * 그래서 캐시 우선은 I-6이 실제로 필요로 한 경우로 좁힌다 — 그 달에 아직 올라가지 않은 로컬
+ * 변경이 **실제로 있을 때만**. 그런 행이 없으면 서버 집계가 항상 최소한 캐시만큼은 최신이다.
+ *
+ *  1. 대기 행이 있고 캐시도 있으면  → 재조정 값(서버가 아직 모르는 내 기록이 들어간다);
+ *  2. 아니면 서버 집계(`usedAmountKrw`) → 홈 캐시(라운드 38 H-4의 직행 경로 폴백);
+ *  3. 둘 다 없으면 캐시 합계(있으면), 그것도 없으면 undefined(줄을 그리지 않는다).
+ */
+export function resolveThisMonthUsedKrw({
+  cachedExpenses,
+  offline,
+  serverUsedKrw,
+  homeUsedKrw
+}: ThisMonthUsedInput): number | undefined {
+  const cachedTotalKrw = sumThisMonthActualKrw(cachedExpenses ?? null, offline);
+  if (cachedTotalKrw !== null && hasPendingMonthAdjustments(offline)) return cachedTotalKrw;
+  if (isUsableAmount(serverUsedKrw)) return serverUsedKrw;
+  if (isUsableAmount(homeUsedKrw)) return homeUsedKrw;
+  return cachedTotalKrw ?? undefined;
+}
+
 export type BudgetAdjustChip = {
   /** React key 및 테스트용 식별자. */
   id: "minus-step" | "plus-step" | "last-month";

@@ -1,13 +1,16 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import {
   canRecordExpenses,
   EXPENSE_EDIT_ROLES,
   EXPENSE_VIEW_ONLY_ALERT_TITLE,
   EXPENSE_VIEW_ONLY_MESSAGE,
+  guardExpenseAction,
   isExpenseEntryLocked,
+  isSingleKnownHousehold,
   isViewOnlyRole,
+  needsChildHouseholdResolution,
   resolveHouseholdRole,
   VIEW_ONLY_ROLES
 } from "./record-permissions";
@@ -77,9 +80,14 @@ describe("UX-R(M) 가구 역할 해석", () => {
     ).toBe("viewer");
   });
 
-  it("가구를 모르면 가구가 하나뿐일 때만 쓴다(다가구에서 남의 역할로 잠그지 않는다)", () => {
-    expect(resolveHouseholdRole({ householdRoles: { "h-1": "viewer" } })).toBe("viewer");
-    expect(resolveHouseholdRole({ householdRoles: { "h-1": "owner", "h-2": "viewer" } })).toBeUndefined();
+  it("가구를 모르면 서버가 '가구가 하나뿐'이라고 말했을 때만 쓴다(다가구에서 남의 역할로 잠그지 않는다)", () => {
+    expect(resolveHouseholdRole({ householdRoles: { "h-1": "viewer" }, knownHouseholdIds: ["h-1"] })).toBe("viewer");
+    expect(
+      resolveHouseholdRole({
+        householdRoles: { "h-1": "owner", "h-2": "viewer" },
+        knownHouseholdIds: ["h-1", "h-2"]
+      })
+    ).toBeUndefined();
   });
 
   it("표에 없는 가구·빈 표·null은 모두 모름이다", () => {
@@ -92,6 +100,92 @@ describe("UX-R(M) 가구 역할 해석", () => {
   it("모름은 잠금으로 이어지지 않는다(두 함수를 이어 붙인 실제 경로)", () => {
     const role = resolveHouseholdRole({ householdRoles: null, householdId: "h-1" });
     expect(isExpenseEntryLocked({ hasSession: true, role })).toBe(false);
+  });
+});
+
+/**
+ * 라운드 40 J-2 — 1행짜리 **부분 표**가 "가구가 하나뿐"으로 오해되어 다른 가구의 내 아이까지
+ * 잠그던 문제.
+ *
+ * 재현: H1의 owner이자 H2의 viewer인 사용자. v3 이전 블롭에서 올라와 역할 표가 null이 된 뒤,
+ * 가족 화면이나 초대 수락으로 {H2: "viewer"} 한 줄만 복구된다. 표의 행 수만 보면 "가구가
+ * 하나"라서, H1의 자기 아이를 보고 있어도(아이-가구 해석 실패 포함) 전부 잠겼다.
+ */
+describe("라운드 40 J-2 부분 표 vs 서버가 말한 가구 수", () => {
+  const partialTable = { householdRoles: { "h-2": "viewer" }, knownHouseholdIds: null } as const;
+
+  it("서버 가구 목록을 모르면 1행 표를 전체로 치지 않는다 — 아이-가구 해석 실패는 열림(undefined)", () => {
+    expect(isSingleKnownHousehold(partialTable)).toBe(false);
+    const role = resolveHouseholdRole({ ...partialTable, householdId: null });
+    expect(role).toBeUndefined();
+    expect(isExpenseEntryLocked({ hasSession: true, role })).toBe(false);
+  });
+
+  it("다른 가구(H1)의 아이를 보고 있으면 잠기지 않는다 — 표에 없는 가구는 모름이다", () => {
+    const role = resolveHouseholdRole({ ...partialTable, householdId: "h-1" });
+    expect(role).toBeUndefined();
+    expect(isExpenseEntryLocked({ hasSession: true, role })).toBe(false);
+  });
+
+  it("부분 표가 담고 있는 그 가구(H2)의 아이는 종전대로 잠긴다", () => {
+    const role = resolveHouseholdRole({ ...partialTable, householdId: "h-2" });
+    expect(role).toBe("viewer");
+    expect(isExpenseEntryLocked({ hasSession: true, role })).toBe(true);
+  });
+
+  it("진짜 단일 가구(로그인 응답이 그렇게 말한다)는 종전대로 잠긴다", () => {
+    const single = { householdRoles: { "h-1": "viewer" }, knownHouseholdIds: ["h-1"] };
+    expect(isSingleKnownHousehold(single)).toBe(true);
+    const role = resolveHouseholdRole({ ...single, householdId: null });
+    expect(role).toBe("viewer");
+    expect(isExpenseEntryLocked({ hasSession: true, role })).toBe(true);
+  });
+
+  it("서버가 말한 가구가 표의 가구와 다르면(잔여 표) 폴백하지 않는다", () => {
+    expect(isSingleKnownHousehold({ householdRoles: { "h-9": "viewer" }, knownHouseholdIds: ["h-1"] })).toBe(false);
+    expect(
+      resolveHouseholdRole({ householdRoles: { "h-9": "viewer" }, knownHouseholdIds: ["h-1"] })
+    ).toBeUndefined();
+  });
+
+  it("아이 목록 조회는 판정이 실제로 필요할 때만 켠다(대부분의 계정은 추가 요청 0건)", () => {
+    // 표가 비었으면 어차피 잠기지 않는다.
+    expect(needsChildHouseholdResolution({ householdRoles: null, knownHouseholdIds: null })).toBe(false);
+    expect(needsChildHouseholdResolution({ householdRoles: {}, knownHouseholdIds: ["h-1"] })).toBe(false);
+    // 서버가 가구가 하나뿐이라고 말했으면 그 하나를 쓰면 된다.
+    expect(
+      needsChildHouseholdResolution({ householdRoles: { "h-1": "viewer" }, knownHouseholdIds: ["h-1"] })
+    ).toBe(false);
+    // 다가구 · 부분 표에서만 아이-가구 해석이 필요하다.
+    expect(needsChildHouseholdResolution({ ...partialTable })).toBe(true);
+    expect(
+      needsChildHouseholdResolution({
+        householdRoles: { "h-1": "owner", "h-2": "viewer" },
+        knownHouseholdIds: ["h-1", "h-2"]
+      })
+    ).toBe(true);
+  });
+});
+
+/**
+ * 라운드 40 J-1 — 저장 **실행**을 감싸는 규칙. 진입점을 다 잠가도 목적지 화면(app/expenses/
+ * new.tsx)이 그대로면 딥링크 한 번으로 "기기에 저장했어요 → 403 failed 행"이 되살아난다.
+ */
+describe("라운드 40 J-1 저장 실행 가드", () => {
+  it("잠긴 역할의 저장 시도는 뮤테이션을 실행하지 않고 안내만 한다", () => {
+    const mutate = vi.fn();
+    const explain = vi.fn();
+    guardExpenseAction(true, explain, mutate)();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(explain).toHaveBeenCalledTimes(1);
+  });
+
+  it("잠기지 않았으면 인자까지 그대로 원래 동작으로 넘긴다", () => {
+    const action = vi.fn();
+    const explain = vi.fn();
+    guardExpenseAction<[string, number]>(false, explain, action)("expense-1", 3);
+    expect(action).toHaveBeenCalledWith("expense-1", 3);
+    expect(explain).not.toHaveBeenCalled();
   });
 });
 
@@ -114,8 +208,31 @@ describe("UX-R(M) 세션 스토어 배선 (source contract)", () => {
 
   it("역할 표를 세션 스토어가 들고, 저장 버전을 함께 올린다", () => {
     expect(sessionStoreSource).toContain("householdRoles: Record<string, string> | null;");
-    expect(sessionStoreSource).toContain("version: 3,");
+    // 라운드 40 J-2: 4는 `householdIds`(서버가 말한 가구 목록)를 더한 버전이다.
+    expect(sessionStoreSource).toContain("version: 4,");
     expect(sessionStoreSource).toContain("function normalizeHouseholdRoles(");
+    expect(sessionStoreSource).toContain("householdIds: string[] | null;");
+    expect(sessionStoreSource).toContain("function normalizeHouseholdIds(");
+  });
+
+  it("라운드 40 J-2: setHouseholdRole은 한 가구 사실만 담고 '가구 목록 전체'로 넓히지 않는다", () => {
+    const setOne = sessionStoreSource.slice(
+      sessionStoreSource.indexOf("setHouseholdRole: (householdId, role) =>"),
+      sessionStoreSource.indexOf("setHouseholdRoles: (households) =>")
+    );
+    // 이미 아는 목록에 없는 가구면 그 하나만 더한다 -- 모르는 목록(null)을 지어내지 않는다.
+    expect(setOne).toContain("state.householdIds && !state.householdIds.includes(householdId)");
+    expect(setOne).not.toContain("householdIds: [householdId]");
+  });
+
+  it("라운드 40 J-3: /me 재조회 응답은 표 전체를 갈아 끼운다(부분 표가 남지 않는다)", () => {
+    expect(sessionStoreSource).toContain("setHouseholdRoles: (households) =>");
+    const replaceAll = sessionStoreSource.slice(
+      sessionStoreSource.indexOf("setHouseholdRoles: (households) =>"),
+      sessionStoreSource.indexOf("startTestSession: () => {")
+    );
+    expect(replaceAll).toContain("householdRolesFrom(households)");
+    expect(replaceAll).toContain("householdIdsFrom(households)");
   });
 
   it("로그아웃은 역할을 지우고, 만료는 유지한다(AUTH-127 규칙과 같은 갈래)", () => {
@@ -204,8 +321,72 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     const hookSource = source("src/family/useExpenseEntryGate.ts");
     expect(hookSource).toContain('from "./record-permissions"');
     expect(hookSource).toContain("isExpenseEntryLocked({ hasSession, role })");
-    expect(hookSource).toContain("resolveHouseholdRole({ householdRoles, householdId })");
-    // 다가구가 아니면 아이 목록을 새로 부르지 않는다(추가 요청 0건).
-    expect(hookSource).toContain("enabled: hasSession && isMultiHousehold");
+    expect(hookSource).toContain("resolveHouseholdRole({ householdRoles, householdId, knownHouseholdIds })");
+    expect(hookSource).toContain("guardExpenseAction(locked, explainExpenseViewOnly, action)");
+    // 판정이 아이-가구 해석을 실제로 필요로 할 때만 아이 목록을 부른다(추가 요청 0건).
+    expect(hookSource).toContain("enabled: hasSession && needsHouseholdLookup");
+    expect(hookSource).toContain("needsChildHouseholdResolution({ householdRoles, knownHouseholdIds })");
+  });
+
+  /**
+   * 라운드 40 J-1: 진입점 화이트리스트만으로는 부족하다 — 목적지 화면 자체가 저장을 막아야
+   * 딥링크(`wooriai:///expenses/new`)와 아직 잠기지 않은 새 진입점이 같은 거짓말을 되살리지
+   * 못한다.
+   */
+  it("라운드 40 J-1: 목적지 화면(app/expenses/new.tsx)의 저장 실행이 같은 게이트를 지난다", () => {
+    const screen = source("app/expenses/new.tsx");
+    expect(screen).toContain("useExpenseEntryGate");
+    expect(screen).toContain("const expenseGate = useExpenseEntryGate();");
+    expect(screen).toContain("onPress={expenseGate.guard(() => saveExpense.mutate())}");
+    // 시트 진입 자체는 막지 않는다 -- 열람 후 안내가 이 앱의 관례다.
+    expect(screen).not.toContain("if (expenseGate.locked) return null;");
+    // 픽셀락 EXP-001: 저장 버튼의 disabled 조건은 종전 그대로다(비세션은 애초에 잠기지 않는다).
+    expect(screen).toContain("disabled={saveExpense.isPending || isAmountInvalid}");
+  });
+
+  /**
+   * 라운드 40 J-9 — **역방향 계약**. 위 화이트리스트는 "적어 둔 진입점"만 지킨다. 새 진입점이
+   * 하나 생기면 목록에 없으니 통과해 버리므로, 여기서는 반대로 소스를 훑어 `/expenses/new`로
+   * 실제로 이동하는 파일 집합을 찾아내고 **그 집합의 모든 파일**이 게이트를 참조하는지 본다.
+   * 새 진입점의 기본값은 실패다.
+   *
+   * 파일 단위 검사인 이유: app/(tabs)/index.tsx의 오프라인 실패 카드 입구
+   * (`OFFLINE_RECORDING_ENTRY_LABEL`)는 src/offline/messages.test.ts가 guard 없는 원문 그대로
+   * 고정하고 있다(그 화면은 잠금과 무관하게 "기록은 지금도 남길 수 있어요"를 약속한다).
+   * 그 한 줄은 J-1의 화면 게이트가 목적지에서 받아 주므로, 여기서는 파일이 게이트를 알고
+   * 있는지만 확인해 두 계약이 충돌하지 않게 한다.
+   */
+  it("라운드 40 J-9: /expenses/new로 이동하는 모든 파일이 게이트를 참조한다(새 진입점 = 실패)", () => {
+    const navigatesToNewExpense = /router\.(?:push|replace)\(\s*(?:\{[^{}]*)?["']\/expenses\/new["']/;
+    const referencesGate = /useExpenseEntryGate|expenseGate\.(?:guard|locked|explain)|expenseEntryLocked/;
+
+    const sourceFiles: string[] = [];
+    const walk = (directory: string) => {
+      for (const name of readdirSync(directory)) {
+        if (name === "node_modules" || name.startsWith(".")) continue;
+        const fullPath = join(directory, name);
+        if (statSync(fullPath).isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) continue;
+        sourceFiles.push(fullPath);
+      }
+    };
+    walk(join(mobileRoot, "app"));
+    walk(join(mobileRoot, "src"));
+
+    const entryPoints = sourceFiles
+      .filter((fullPath) => navigatesToNewExpense.test(readFileSync(fullPath, "utf8")))
+      .map((fullPath) => relative(mobileRoot, fullPath).split("\\").join("/"))
+      .sort();
+
+    // 스캔이 무언가를 실제로 찾았는지부터 확인한다(정규식이 조용히 죽으면 통과해 버린다).
+    expect(entryPoints.length).toBeGreaterThan(3);
+    expect(entryPoints).toContain("app/(tabs)/index.tsx");
+    expect(entryPoints).toContain("src/commerce/PurchaseFollowupPrompt.tsx");
+
+    const ungated = entryPoints.filter((path) => !referencesGate.test(source(path)));
+    expect(ungated, `게이트를 거치지 않는 지출 기록 진입점: ${ungated.join(", ")}`).toEqual([]);
   });
 });

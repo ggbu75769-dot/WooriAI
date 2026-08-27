@@ -52,7 +52,16 @@ export const PURCHASE_FOLLOWUP_MAX_ENTRIES = 5;
 export const PURCHASE_FOLLOWUP_MIN_AGE_MS = 3 * 60 * 1000;
 /** A click older than this is stale -- silently stop asking. */
 export const PURCHASE_FOLLOWUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-/** "아직이요" allows one re-prompt on a later app-return; after the 2nd prompt the entry expires. */
+/**
+ * "아직이요" 답변 예산: 한 번 미루면 나중에 한 번 더 묻고, 두 번째 "아직이요"에서 항목이
+ * 만료된다(applySnooze).
+ *
+ * 라운드 40 J-8 — 이름과 달리 이 값이 세는 것은 **표출 횟수가 아니라 "아직이요" 답변 횟수**다
+ * (promptCount를 올리는 곳은 applySnooze 하나뿐이다). 카드가 아이 전환으로 가려졌다가 다시
+ * 뜨는 것은 답이 아니므로 여기에 세지 않는다 — 세면 아이를 몇 번 오갔는지에 따라 대기 항목이
+ * 조기에 expired로 굳는다. 한 앱 세션 안의 표출 상한은 다른 축이고, 그쪽은
+ * src/commerce/purchase-followup-session.ts가 든다(PURCHASE_FOLLOWUP_MAX_SESSION_PROMPTS).
+ */
 export const PURCHASE_FOLLOWUP_MAX_PROMPTS = 2;
 
 /**
@@ -71,8 +80,8 @@ export function applyPurchaseLinkClick(
 }
 
 /** An entry may be shown as a prompt: still pending, inside the 3min–24h window, under the
- * prompt budget. (The once-per-app-session gate lives in PurchaseFollowupPrompt.tsx -- it's
- * runtime state, not persisted.)
+ * "아직이요" budget. (앱 세션 단위 게이트·표출 상한은 src/commerce/purchase-followup-session.ts에
+ * 있다 -- 런타임 상태라 저장하지 않는다.)
  *
  * 시간·상태 게이트만 본다. "지금 선택된 아이의 클릭인가"는 별도 게이트로,
  * isFollowupForSelectedChild가 판정하고 selectPromptEligibleFollowup이 둘을 함께 적용한다. */

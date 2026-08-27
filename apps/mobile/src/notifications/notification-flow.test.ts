@@ -86,7 +86,10 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
       screenSource.indexOf("useFocusEffect("),
       screenSource.indexOf("}, [markAllRead])")
     );
-    expect(focusEffect).toContain("setNewNotificationIds(selectUnreadNotificationIds(useNotificationStore.getState().entries));");
+    // 라운드 40 J-7: 그 스냅샷은 이제 **교체가 아니라 합집합**이다(재포커스가 아직 안 본
+    // 항목의 점까지 지우던 문제 — 규칙과 단위 테스트는 new-notification-marks.ts).
+    expect(focusEffect).toContain("selectUnreadNotificationIds(stored)");
+    expect(focusEffect).toContain("mergeNewNotificationMarks(");
     expect(focusEffect.indexOf("setNewNotificationIds(")).toBeLessThan(focusEffect.indexOf("markAllRead()"));
     // 아직 rehydrate 전이면 잘못된(빈) 스냅샷으로 덮어쓰지 않는다.
     expect(focusEffect).toContain("if (useNotificationStore.persist.hasHydrated()) {");

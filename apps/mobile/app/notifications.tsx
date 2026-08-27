@@ -4,6 +4,10 @@ import { router, useFocusEffect } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import { listChildren, LOCAL_SESSION_TOKEN } from "../src/api/client";
 import {
+  mergeNewNotificationMarks,
+  removeNotificationMark
+} from "../src/notifications/new-notification-marks";
+import {
   formatNotificationRowTitle,
   resolveNotificationChildLabel
 } from "../src/notifications/notification-child-label";
@@ -77,8 +81,12 @@ export default function NotificationsScreen() {
    * 라운드 39 I-7: 그 스냅샷을 **마운트 1회가 아니라 포커스마다** 다시 뜬다. 알림을 눌러 예산
    * 화면으로 갔다가 돌아오는 흔한 경로는 같은 화면 인스턴스의 재포커스라, 마운트 스냅샷은 그때
    * 이미 낡아 있다(방금 보고 온 항목에 계속 점이 붙어 있고, 화면을 떠 있는 동안 새로 들어온
-   * 항목에는 붙지 않는다). 포커스마다 "이번 포커스 직전의 안읽음"을 다시 잡으면 두 경우가 모두
-   * 맞는다 -- 방금 읽은 항목은 이미 readAt이 있어 빠지고, 새로 온 항목만 새 스냅샷에 들어온다.
+   * 항목에는 붙지 않는다).
+   *
+   * 라운드 40 J-7: 다만 그 재스냅샷은 **교체**라, 3건 중 1건만 보고 돌아오면 나머지 2건의 점까지
+   * 함께 사라졌다(돌아온 순간의 안읽음은 0건이다 — 첫 포커스가 이미 전부 읽음 처리했다).
+   * 이제 규칙은 "직전 스냅샷 ∪ 이번 포커스 직전의 안읽음 − 사용자가 실제로 탭한 항목"이다
+   * (판정은 src/notifications/new-notification-marks.ts, 탭 제거는 아래 행 onPress).
    *
    * 스토어가 아직 rehydrate되지 않은 채 마운트될 수 있어서(콜드 스타트 직후 딥링크 등)
    * 그때는 복구가 끝나는 시점에 한 번 더 잡는다. 못 잡으면 표시가 없을 뿐, 잘못된 표시는
@@ -106,7 +114,17 @@ export default function NotificationsScreen() {
     useCallback(() => {
       if (useNotificationStore.persist.hasHydrated()) {
         newIdsSnapshotTaken.current = true;
-        setNewNotificationIds(selectUnreadNotificationIds(useNotificationStore.getState().entries));
+        const stored = useNotificationStore.getState().entries;
+        // J-7: 교체가 아니라 합집합이다 -- 이번 포커스 직전의 안읽음(= 떠 있는 동안 새로 온
+        // 항목)을 더하고, 지금 목록에 없는 항목만 떨군다. 사용자가 탭한 항목은 그 순간
+        // 행 onPress에서 이미 빠져 있다.
+        setNewNotificationIds((previous) =>
+          mergeNewNotificationMarks(
+            previous,
+            selectUnreadNotificationIds(stored),
+            stored.map((entry) => entry.id)
+          )
+        );
       }
       markAllRead();
     }, [markAllRead])
@@ -176,6 +194,9 @@ export default function NotificationsScreen() {
                     value={formatRelativeTime(entry.createdAt, now)}
                     onPress={() => {
                       markRead(entry.id);
+                      // J-7: 점을 지우는 유일한 근거는 "이 줄을 열어 봤다"는 사실이다.
+                      // 나머지 줄의 점은 다음 포커스에서도 그대로 남는다.
+                      setNewNotificationIds((previous) => removeNotificationMark(previous, entry.id));
                       router.push(notificationTapRoute(entry));
                     }}
                   />

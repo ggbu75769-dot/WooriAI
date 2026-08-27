@@ -93,7 +93,42 @@ export type ResolveHouseholdRoleInput = {
   householdRoles: HouseholdRoleMap | null | undefined;
   /** 지금 보고 있는 아이가 속한 가구. 모르면 null/undefined. */
   householdId?: string | null;
+  /**
+   * 라운드 40 J-2 — 세션 스토어의 `householdIds`(로그인·재조회 응답이 말한 **가구 전체**).
+   * 모르면 null/undefined이고, 그때는 아래 단일 가구 폴백을 쓰지 않는다.
+   */
+  knownHouseholdIds?: readonly string[] | null;
 };
+
+/** 표에서 값이 실제로 있는 항목만. 손상된 값(빈 문자열 등)은 "모름"과 같게 다룬다. */
+function usableRoleEntries(householdRoles: HouseholdRoleMap | null | undefined): Array<[string, string]> {
+  if (!householdRoles) return [];
+  return Object.entries(householdRoles).filter(
+    ([householdId, role]) => householdId.length > 0 && typeof role === "string" && role.length > 0
+  );
+}
+
+/**
+ * 라운드 40 J-2 — 역할 표가 이 계정의 **전체 가구를 대변하는 단 하나의 가구**인가.
+ *
+ * 종전에는 "표의 행이 하나면 가구가 하나뿐"이라고 읽었다. 그런데 표는 세 경로에서 채워지고
+ * (로그인 = 전체, 초대 수락·가족 화면 = 한 가구씩) 뒤의 둘은 **부분 표**를 만든다. 그래서
+ * H1 owner + H2 viewer 사용자가 마이그레이션으로 표를 잃고(v3 이전 블롭 → null) 가족 화면을
+ * 한 번 열어 {H2: "viewer"} 한 줄만 복구하면, 행이 하나라는 이유로 H1의 자기 아이까지 전부
+ * 잠겼다 — 서버는 그 아이에 대해 owner라고 말하는데도.
+ *
+ * 그래서 "하나뿐"은 **서버가 말한 가구 목록**으로만 판정한다: 목록을 알고, 그 길이가 1이고,
+ * 표가 바로 그 가구를 담고 있을 때. 목록을 모르면(구세션·데모) 폴백을 쓰지 않는다 —
+ * 그쪽의 손해는 예전과 같은 실패 행 한 줄이고, 반대의 손해는 앱을 못 쓰게 되는 것이다.
+ */
+export function isSingleKnownHousehold({
+  householdRoles,
+  knownHouseholdIds
+}: Pick<ResolveHouseholdRoleInput, "householdRoles" | "knownHouseholdIds">): boolean {
+  if (!knownHouseholdIds || knownHouseholdIds.length !== 1) return false;
+  const entries = usableRoleEntries(householdRoles);
+  return entries.length === 1 && entries[0][0] === knownHouseholdIds[0];
+}
 
 /**
  * 지금 적용할 역할 하나를 고른다 — **모르면 추측하지 않는다**
@@ -101,19 +136,58 @@ export type ResolveHouseholdRoleInput = {
  *
  *  - 표가 비었으면 undefined (구세션·데모 세션 — 잠그지 않는다);
  *  - 가구를 알고 표에 있으면 그 역할;
- *  - 가구를 아는데 표에 없으면 undefined (다른 계정의 잔여 표일 수 있다);
- *  - 가구를 모르면, 표에 가구가 **하나뿐일 때만** 그 역할을 쓴다. 다가구 계정에서 아무거나
+ *  - 가구를 아는데 표에 없으면 undefined (다른 계정의 잔여 표·부분 표일 수 있다);
+ *  - 가구를 모르면, **서버가 가구가 하나뿐이라고 말했고 표가 그 가구일 때만** 그 역할을 쓴다
+ *    (라운드 40 J-2 — 위 `isSingleKnownHousehold` 참고). 다가구 계정이나 부분 표에서 아무거나
  *    고르면 A 가구의 owner를 B 가구의 viewer로 잘못 잠글 수 있다.
  */
 export function resolveHouseholdRole({
   householdRoles,
-  householdId
+  householdId,
+  knownHouseholdIds
 }: ResolveHouseholdRoleInput): string | undefined {
-  if (!householdRoles) return undefined;
-  const entries = Object.entries(householdRoles).filter(([, role]) => typeof role === "string" && role.length > 0);
+  const entries = usableRoleEntries(householdRoles);
   if (entries.length === 0) return undefined;
   if (householdId) {
     return entries.find(([id]) => id === householdId)?.[1];
   }
-  return entries.length === 1 ? entries[0][1] : undefined;
+  return isSingleKnownHousehold({ householdRoles, knownHouseholdIds }) ? entries[0][1] : undefined;
+}
+
+/**
+ * 라운드 40 J-2(2/2) — 잠금을 판정하려면 "지금 보고 있는 아이가 어느 가구인가"를 알아내야
+ * 하는가. 표가 비었으면(모름) 어차피 잠기지 않으므로 아이 목록이 필요 없고, 서버가 가구가
+ * 하나뿐이라고 말했으면 그 하나를 쓰면 되므로 역시 필요 없다. 그 밖(다가구 · 부분 표)에서만
+ * 아이-가구 해석이 필요하다 — 대부분의 계정에서 추가 요청은 여전히 0건이다.
+ */
+export function needsChildHouseholdResolution(
+  input: Pick<ResolveHouseholdRoleInput, "householdRoles" | "knownHouseholdIds">
+): boolean {
+  if (usableRoleEntries(input.householdRoles).length === 0) return false;
+  return !isSingleKnownHousehold(input);
+}
+
+/**
+ * 라운드 40 J-1 — 잠긴 세션에서 "지출을 만드는 동작"을 감싸는 규칙 한 줄.
+ *
+ * 진입점 열 곳을 잠가도 목적지 화면(app/expenses/new.tsx)이 그대로면 딥링크
+ * (`wooriai:///expenses/new`)나 아직 잠기지 않은 새 진입점 하나로 저장 버튼까지 도달할 수
+ * 있고, 거기서 저장하면 UX-R이 없애려던 바로 그 시퀀스("기기에 저장했어요" → flush 403 →
+ * failed 행)가 되살아난다. 그래서 저장 **실행** 자체도 같은 판정을 지난다.
+ *
+ * 열람은 막지 않는다(시트는 열린다) — 보기 전용 참여자도 무엇이 기록되는지 볼 수 있어야 하고,
+ * 잠긴 컨트롤은 사라지는 대신 눌렀을 때 사실을 말한다(useExpenseEntryGate 주석의 관례).
+ */
+export function guardExpenseAction<TArgs extends unknown[]>(
+  locked: boolean,
+  explain: () => void,
+  action: (...args: TArgs) => void
+): (...args: TArgs) => void {
+  return (...args: TArgs) => {
+    if (locked) {
+      explain();
+      return;
+    }
+    action(...args);
+  };
 }
