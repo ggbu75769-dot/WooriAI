@@ -47,6 +47,20 @@ export type SessionState = {
    * src/family/record-permissions.ts 주석 참고.
    */
   householdRoles: Record<string, string> | null;
+  /**
+   * 라운드 40 J-2 — **서버가 말한** 이 계정의 가구 id 전체. 모르면 null.
+   *
+   * 왜 따로 드는가: 위 `householdRoles`는 세 경로에서 채워지는데(로그인 응답 = 전체 표,
+   * 초대 수락·가족 화면 = 한 가구씩) 앞의 둘이 만든 **부분 표**를 전체로 착각하면
+   * "가구가 하나뿐이니 이 역할을 쓰자"는 폴백이 남의 가구 역할로 자기 아이를 잠근다
+   * (H1 owner + H2 viewer 사용자가 마이그레이션으로 표를 잃고 가족 화면에서 {H2:"viewer"}
+   * 한 줄만 복구한 상태 — src/family/record-permissions.ts의 resolveHouseholdRole 참고).
+   * 표의 행 수는 "내가 아는 것"이고, 이 목록은 "서버가 말한 것"이다. 둘이 일치할 때만
+   * 폴백을 쓴다.
+   *
+   * 수명은 `householdRoles`와 똑같다(로그아웃 → null, 만료 → 유지, setSession → 덮어쓰기).
+   */
+  householdIds: string[] | null;
   setSession: (session: {
     accessToken: string;
     refreshToken: string;
@@ -62,6 +76,13 @@ export type SessionState = {
    * 지워지지 않는다. 세션이 없으면(로그아웃 직후 늦게 도착한 응답) 아무것도 하지 않는다.
    */
   setHouseholdRole: (householdId: string, role: string) => void;
+  /**
+   * 라운드 40 J-3: 서버가 방금 말한 **가구 목록 전체**로 역할 표를 통째로 갈아 끼운다
+   * (GET /me 재조회 응답). 승격(viewer → co_parent)이나 새 가구 참여가 여기서 한 번에
+   * 반영되고, `householdIds`도 같은 응답으로 갱신되므로 부분 표가 남지 않는다.
+   * 세션이 없으면(응답이 늦게 도착한 로그아웃 뒤) 아무것도 하지 않는다.
+   */
+  setHouseholdRoles: (households: ReadonlyArray<{ id: string; role?: string | null }>) => void;
   startTestSession: () => void;
   /**
    * AUTH-127: `reason` defaults to `"logout"`, which is byte-for-byte the pre-AUTH-127 behavior —
@@ -94,6 +115,7 @@ type SessionData = Pick<
   | "isTestSession"
   | "lastEndReason"
   | "householdRoles"
+  | "householdIds"
 >;
 
 /** AUTH-127: a persisted blob can carry anything under `lastEndReason` (older build that never
@@ -127,11 +149,33 @@ function householdRolesFrom(
   );
 }
 
+/**
+ * 라운드 40 J-2: 저장된 블롭·응답이 `householdIds` 자리에 무엇을 들고 있든 "비어 있지 않은
+ * 문자열"만 중복 없이 남긴다. 배열이 아니거나 남는 게 없으면 null — 즉 "모름"이고, 모름은
+ * 가구 수를 근거로 한 폴백을 켜지 않으므로(= 잠그지 않는다) 최악의 결과가 예전 동작이다.
+ */
+function normalizeHouseholdIds(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const ids = Array.from(
+    new Set(value.filter((id): id is string => typeof id === "string" && id.length > 0))
+  );
+  return ids.length > 0 ? ids : null;
+}
+
+/** 응답의 households 배열 → 서버가 말한 가구 id 목록. 없으면 null(모름)이다. */
+function householdIdsFrom(
+  households: ReadonlyArray<{ id: string; role?: string | null }> | null | undefined
+): string[] | null {
+  if (!households) return null;
+  return normalizeHouseholdIds(households.map((household) => household.id));
+}
+
 function sanitizeSessionState<T extends SessionData>(state: T): T {
   const normalized: T = {
     ...state,
     lastEndReason: normalizeEndReason(state.lastEndReason),
-    householdRoles: normalizeHouseholdRoles(state.householdRoles)
+    householdRoles: normalizeHouseholdRoles(state.householdRoles),
+    householdIds: normalizeHouseholdIds(state.householdIds)
   };
   if (process.env.EXPO_PUBLIC_TEST_LOGIN === "1") {
     // AUTH-127 (round27 L-1): `lastEndReason` is part of the same leftover blob and has to go with
@@ -149,11 +193,19 @@ function sanitizeSessionState<T extends SessionData>(state: T): T {
       !normalized.accessToken &&
       !normalized.refreshToken &&
       normalized.lastEndReason === null &&
-      normalized.householdRoles === null
+      normalized.householdRoles === null &&
+      normalized.householdIds === null
     ) {
       return normalized;
     }
-    return { ...normalized, accessToken: null, refreshToken: null, lastEndReason: null, householdRoles: null };
+    return {
+      ...normalized,
+      accessToken: null,
+      refreshToken: null,
+      lastEndReason: null,
+      householdRoles: null,
+      householdIds: null
+    };
   }
   return normalized;
 }
@@ -165,7 +217,8 @@ const initialSessionState: SessionData = {
   defaultHouseholdId: null,
   isTestSession: false,
   lastEndReason: null,
-  householdRoles: null
+  householdRoles: null,
+  householdIds: null
 };
 
 /** Defensive shape check for a persisted blob from an unknown/older app version -- anything that
@@ -199,7 +252,10 @@ export const useSessionStore = create<SessionState>()(
           lastEndReason: null,
           // UX-R(M): 들어오는 세션의 역할 표로 **덮어쓴다**. 로그인 응답이 households를 주지
           // 않으면(구 스텁 응답 등) null = 모름이고, 모름은 아무 진입점도 잠그지 않는다.
-          householdRoles: householdRolesFrom(session.households)
+          householdRoles: householdRolesFrom(session.households),
+          // 라운드 40 J-2: 같은 응답이 말한 가구 목록. 로그인 응답은 이 계정의 **전체**이므로
+          // 이 순간의 역할 표는 전체 표다(그래서 폴백을 써도 안전하다).
+          householdIds: householdIdsFrom(session.households)
         }),
       setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
       setHouseholdRole: (householdId, role) =>
@@ -208,8 +264,26 @@ export const useSessionStore = create<SessionState>()(
           // 세션이 끝난 뒤 늦게 도착한 응답이 역할 표를 되살리지 않게 한다(로그아웃은
           // userId까지 지운다 — 위 clearSession 참고). 데모 세션은 isTestSession이 true다.
           if (!state.userId && !state.isTestSession) return state;
-          if (state.householdRoles?.[householdId] === role) return state;
-          return { householdRoles: { ...(state.householdRoles ?? {}), [householdId]: role } };
+          // 라운드 40 J-2: 이 갱신은 **한 가구**에 대한 사실이다. 서버가 말한 가구 목록을
+          // 여기서 "이게 전부"라고 넓히지 않는다 — 이미 알고 있는 목록에 없는 가구라면
+          // (초대 수락으로 방금 늘었다) 그 하나만 더해 두고, 목록 자체를 모르면 계속 모른다.
+          // 그래야 부분 표가 "가구가 하나뿐"으로 오해되지 않는다.
+          const householdIds =
+            state.householdIds && !state.householdIds.includes(householdId)
+              ? [...state.householdIds, householdId]
+              : state.householdIds;
+          if (state.householdRoles?.[householdId] === role) {
+            return householdIds === state.householdIds ? state : { householdIds };
+          }
+          return { householdRoles: { ...(state.householdRoles ?? {}), [householdId]: role }, householdIds };
+        }),
+      setHouseholdRoles: (households) =>
+        set((state) => {
+          if (!state.userId && !state.isTestSession) return state;
+          const householdRoles = householdRolesFrom(households);
+          // 서버가 "가구가 하나도 없다"고 말할 수도 있다(전부 탈퇴). 그때도 표를 비우는 것이
+          // 정직한 결과다 — 모름(null)이 되어 아무것도 잠기지 않는다.
+          return { householdRoles, householdIds: householdIdsFrom(households) };
         }),
       startTestSession: () => {
         ensureLocalBackendSeeded();
@@ -225,6 +299,7 @@ export const useSessionStore = create<SessionState>()(
           // UX-R(M): 데모 세션에는 서버 가구가 없다. 역할을 지어내지 않고 "모름"으로 두면
           // 데모는 예전과 한 글자도 다르지 않게 동작한다(모름은 잠그지 않는다).
           householdRoles: null,
+          householdIds: null,
           lastEndReason: null
         });
       },
@@ -262,6 +337,7 @@ export const useSessionStore = create<SessionState>()(
                 defaultHouseholdId: null,
                 isTestSession: false,
                 householdRoles: null,
+                householdIds: null,
                 lastEndReason: "logout"
               }
         )
@@ -277,7 +353,10 @@ export const useSessionStore = create<SessionState>()(
       // anyway so the shape and the version never drift apart.
       // UX-R(M): 3 adds `householdRoles`. 역시 순수 추가라 version-2 블롭은 키가 없어 null(모름)로
       // 채워지고, 모름은 아무 진입점도 잠그지 않으므로 기존 세션의 동작이 바뀌지 않는다.
-      version: 3,
+      // 라운드 40 J-2: 4 adds `householdIds`(서버가 말한 가구 목록). 같은 이유로 순수 추가이고,
+      // 없으면 null = 모름이다 — 모르면 "가구가 하나뿐"이라는 폴백을 쓰지 않으므로, 옛 블롭에서
+      // 올라온 세션은 부분 표 때문에 잘못 잠기는 일이 없다.
+      version: 4,
       migrate: (persisted) =>
         sanitizeSessionState(
           isPlausibleSessionShape(persisted)

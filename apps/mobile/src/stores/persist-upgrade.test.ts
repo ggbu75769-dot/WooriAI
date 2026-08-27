@@ -195,6 +195,135 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
       await expect(useSessionStore.persist.rehydrate()).resolves.not.toThrow();
       expect(useSessionStore.getState()).toMatchObject({ accessToken: null, refreshToken: null, isTestSession: false });
     });
+
+    /**
+     * 라운드 40 J-9(1) — UX-R(M)의 역할 표(version 3)와 J-2의 가구 목록(version 4)이 **없던**
+     * 블롭에서 올라올 때. 이 자리의 계약은 하나다: 모르는 것은 null로 남고, **모름은 아무것도
+     * 잠그지 않는다**(잘못 잠그면 정상 사용자의 핵심 루프가 통째로 죽는다).
+     */
+    it("version-2 블롭(역할 표 없음)은 householdRoles/householdIds가 null이고 아무것도 잠기지 않는다", async () => {
+      process.env.EXPO_PUBLIC_TEST_LOGIN = "0";
+      const { secureSessionStorage } = await loadModules();
+
+      await secureSessionStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({
+          state: {
+            accessToken: "real-prod-access-token",
+            refreshToken: "real-prod-refresh-token",
+            userId: "user-1",
+            defaultHouseholdId: "household-1",
+            isTestSession: false,
+            lastEndReason: null
+            // householdRoles / householdIds: 이 버전에는 아예 없던 키다.
+          },
+          version: 2
+        })
+      );
+
+      const { useSessionStore } = await import("./session.store");
+      const { isExpenseEntryLocked, resolveHouseholdRole } = await import("../family/record-permissions");
+      await useSessionStore.persist.rehydrate();
+
+      const state = useSessionStore.getState();
+      expect(state.accessToken).toBe("real-prod-access-token");
+      expect(state.householdRoles).toBeNull();
+      expect(state.householdIds).toBeNull();
+      // 이어 붙인 실제 경로: 표가 없으면 역할은 모름이고, 모름은 잠그지 않는다.
+      const role = resolveHouseholdRole({
+        householdRoles: state.householdRoles,
+        householdId: state.defaultHouseholdId,
+        knownHouseholdIds: state.householdIds
+      });
+      expect(role).toBeUndefined();
+      expect(isExpenseEntryLocked({ hasSession: true, role })).toBe(false);
+    });
+
+    it("손상된 역할 표(배열·숫자·빈 값)를 정규화한다 — 남는 게 없으면 null(모름)", async () => {
+      process.env.EXPO_PUBLIC_TEST_LOGIN = "0";
+      const { secureSessionStorage } = await loadModules();
+
+      await secureSessionStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({
+          state: {
+            accessToken: "real-prod-access-token",
+            refreshToken: "real-prod-refresh-token",
+            userId: "user-1",
+            defaultHouseholdId: "household-1",
+            isTestSession: false,
+            // 손으로 고친 저장소·미래 빌드·버그가 남길 수 있는 모양들.
+            householdRoles: ["viewer", "owner"],
+            householdIds: 12345
+          },
+          version: 4
+        })
+      );
+
+      const { useSessionStore } = await import("./session.store");
+      await useSessionStore.persist.rehydrate();
+
+      expect(useSessionStore.getState().householdRoles).toBeNull();
+      expect(useSessionStore.getState().householdIds).toBeNull();
+    });
+
+    it("역할 표에서 쓸 수 있는 쌍만 남기고, 가구 목록의 쓰레기 값은 걸러낸다", async () => {
+      process.env.EXPO_PUBLIC_TEST_LOGIN = "0";
+      const { secureSessionStorage } = await loadModules();
+
+      await secureSessionStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({
+          state: {
+            accessToken: "real-prod-access-token",
+            refreshToken: "real-prod-refresh-token",
+            userId: "user-1",
+            defaultHouseholdId: "h-1",
+            isTestSession: false,
+            householdRoles: { "h-1": "viewer", "h-2": 7, "h-3": "", "h-4": null },
+            householdIds: ["h-1", "", 7, null, "h-1"]
+          },
+          version: 4
+        })
+      );
+
+      const { useSessionStore } = await import("./session.store");
+      await useSessionStore.persist.rehydrate();
+
+      const state = useSessionStore.getState();
+      expect(state.householdRoles).toEqual({ "h-1": "viewer" });
+      // 중복·빈 값·잘못된 타입은 사라진다.
+      expect(state.householdIds).toEqual(["h-1"]);
+    });
+
+    it("데모(standalone) 빌드는 남의 역할 표와 가구 목록을 토큰과 함께 버린다", async () => {
+      process.env.EXPO_PUBLIC_TEST_LOGIN = "1";
+      const { secureSessionStorage } = await loadModules();
+
+      await secureSessionStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({
+          state: {
+            accessToken: "leftover-real-access-token",
+            refreshToken: "leftover-real-refresh-token",
+            userId: "user-from-old-build",
+            defaultHouseholdId: "household-from-old-build",
+            isTestSession: false,
+            householdRoles: { "household-from-old-build": "viewer" },
+            householdIds: ["household-from-old-build"]
+          },
+          version: 4
+        })
+      );
+
+      const { useSessionStore } = await import("./session.store");
+      await useSessionStore.persist.rehydrate();
+
+      const state = useSessionStore.getState();
+      expect(state.accessToken).toBeNull();
+      expect(state.householdRoles).toBeNull();
+      expect(state.householdIds).toBeNull();
+    });
   });
 
   describe("selected-child.store.ts", () => {

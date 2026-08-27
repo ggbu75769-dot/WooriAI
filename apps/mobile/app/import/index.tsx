@@ -2,8 +2,16 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { createExcelImport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import {
+  IMPORT_UPLOAD_GUIDE_TEXT,
+  IMPORT_UPLOAD_SIGN_IN_ALERT_MESSAGE,
+  IMPORT_UPLOAD_SIGN_IN_ALERT_TITLE,
+  importUploadFileStatusText,
+  importUploadPhase
+} from "../../src/import/upload-copy";
+import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { validateImportFile } from "../../src/import-file-validation";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -64,6 +72,8 @@ export default function ImportUploadScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  // 라운드 40 J-6: 가져오기는 지출을 만드는 경로라 다른 진입점과 같은 판정을 쓴다.
+  const expenseGate = useExpenseEntryGate();
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const upload = useMutation({
@@ -101,9 +111,31 @@ export default function ImportUploadScreen() {
   };
   const applyPreview = () => {
     if (canUpload) {
+      // 라운드 40 J-6: 업로드 자체가 서버에서 편집 권한을 요구한다(import-pipeline.service.ts의
+      // `createImportJob` → `requireChildAccess(user, childId, true)`). 확정 단계에서야 막으면
+      // 파일 고르기·분석 대기·수백 행 검수가 통째로 버려지므로, 첫 걸음에서 사실을 말한다.
+      // 잠금은 실세션 + 보기 전용 역할에서만 참이라, 비로그인 IMP-003 경로(canUpload === false)는
+      // 이 분기에 아예 오지 않는다 -- 픽셀락 캡처는 한 글자도 바뀌지 않는다.
+      if (expenseGate.locked) {
+        expenseGate.explain();
+        return;
+      }
       pickAndUpload();
+      return;
     }
+    // 라운드 41 UX-S: 예전에는 여기서 아무 일도 하지 않아 비로그인 상태의 CTA가 **눌러도
+    // 무반응**이었다. Alert은 렌더 트리를 바꾸지 않으므로(정지 화면을 찍는 IMP-003 픽셀락 캡처에
+    // 잡히지 않는다) 화면은 한 글자도 그대로 두고 막힌 길만 말해 준다.
+    Alert.alert(IMPORT_UPLOAD_SIGN_IN_ALERT_TITLE, IMPORT_UPLOAD_SIGN_IN_ALERT_MESSAGE);
   };
+
+  // 라운드 41 UX-S: 목업(가짜 파일 카드 + "총 128건 · ₩1,245,700" 분류 미리보기)은 **비로그인
+  // 경로 전용**이다. 그 경로가 곧 IMP-003 픽셀락 캡처 경로이므로(app/pixel-lock.tsx가 세션을 지운
+  // 뒤 /import로 보낸다) 캡처 화면은 예전과 완전히 동일하고, 로그인 사용자에게는 내 데이터가
+  // 아닌 숫자를 사실처럼 보여 주지 않는다.
+  const showPreviewMockup = !canUpload;
+  const showFileCard = showPreviewMockup || Boolean(selectedFileName);
+  const uploadPhase = importUploadPhase({ isUploading: upload.isPending, hasError: Boolean(upload.error) });
 
   return (
     <View testID={importUploadScreenId} style={[styles.screen, { paddingHorizontal: ExcelPreviewPixelStyles.screenPadding }, excelPreviewPixelFrameStyle()]}>
@@ -115,43 +147,62 @@ export default function ImportUploadScreen() {
         <View style={styles.backButton} />
       </View>
 
-      {/* A11Y-117: 업로드 전에는 이 파일 카드가 장식 목업("5월 지출내역.xlsx / 업로드 완료")
-          이므로 TalkBack에서 통째로 숨긴다. 실제 파일을 고른 뒤에는 진짜 파일명이 보이는
-          상태이므로 다시 노출한다. */}
-      <View
-        accessibilityElementsHidden={canUpload && selectedFileName ? undefined : true}
-        importantForAccessibility={canUpload && selectedFileName ? "auto" : "no-hide-descendants"}
-        style={excelUploadedFileCardStyle()}
-      >
-        <View accessible={false} style={styles.fileIcon}>
-          <Text accessible={false} style={styles.fileIconText}>▣</Text>
+      {/* A11Y-117: 목업 파일 카드("5월 지출내역.xlsx / 업로드 완료")는 장식이므로 TalkBack에서
+          통째로 숨긴다. 라운드 41 UX-S: 로그인 사용자에게는 이 카드가 **파일을 고른 뒤에만**
+          나오고, 그때는 진짜 파일명과 진짜 진행 상태를 말하므로 접근성 트리에도 그대로 노출한다. */}
+      {showFileCard ? (
+        <View
+          accessibilityElementsHidden={showPreviewMockup ? true : undefined}
+          importantForAccessibility={showPreviewMockup ? "no-hide-descendants" : "auto"}
+          style={excelUploadedFileCardStyle()}
+        >
+          <View accessible={false} style={styles.fileIcon}>
+            <Text accessible={false} style={styles.fileIconText}>▣</Text>
+          </View>
+          <View style={styles.fileTextColumn}>
+            <Text style={styles.fileName}>{showPreviewMockup ? "5월 지출내역.xlsx" : selectedFileName}</Text>
+            <Text style={styles.fileStatus}>
+              {showPreviewMockup ? "업로드 완료" : importUploadFileStatusText(uploadPhase)}
+            </Text>
+          </View>
+          {/* 완료 체크는 목업에만 있다 -- 실제 업로드는 성공하면 곧바로 검수 화면으로 넘어가므로,
+              이 화면에 남아 있는 동안의 ✓는 아직 사실이 아니다. */}
+          {showPreviewMockup ? (
+            <View style={styles.fileCheck}>
+              <Text style={styles.fileCheckText}>✓</Text>
+            </View>
+          ) : null}
         </View>
-        <View style={styles.fileTextColumn}>
-          <Text style={styles.fileName}>{canUpload && selectedFileName ? selectedFileName : "5월 지출내역.xlsx"}</Text>
-          <Text style={styles.fileStatus}>업로드 완료</Text>
+      ) : null}
+
+      {/* 라운드 41 UX-S: 로그인 상태에서 파일을 고르기 전에는 목업 대신 이 안내만 남는다. */}
+      {!showPreviewMockup && !selectedFileName ? (
+        <View style={styles.guideCard}>
+          <Text style={styles.guideText}>{IMPORT_UPLOAD_GUIDE_TEXT}</Text>
         </View>
-        <View style={styles.fileCheck}>
-          <Text style={styles.fileCheckText}>✓</Text>
-        </View>
-      </View>
+      ) : null}
 
       {/* A11Y-117: 가짜 "총 128건 · ₩1,245,700" 분류 미리보기는 순수 장식 -- TalkBack이 실제
           데이터처럼 읽지 않도록 서브트리를 통째로 숨긴다. 기존에 accessibilityLabel로만 있던
-          안내문은 아래 보이는 Text로 옮겨 모두가 읽을 수 있게 한다. */}
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[styles.previewCard, { borderRadius: ExcelPreviewPixelStyles.cardRadius }]}
-      >
-        <Text style={styles.previewTitle}>AI 분류 미리보기</Text>
-        <View style={styles.previewSummary}>
-          <Text style={styles.previewSummaryLabel}>총 128건</Text>
-          <Text style={styles.previewSummaryAmount}>₩1,245,700</Text>
+          안내문은 아래 보이는 Text로 옮겨 모두가 읽을 수 있게 한다.
+          라운드 41 UX-S: 숨기는 것으로는 부족했다(눈으로 보는 사람에게는 여전히 남의 숫자가
+          내 화면에 사실처럼 떠 있었다) -- 로그인 상태에서는 아예 그리지 않는다. */}
+      {showPreviewMockup ? (
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[styles.previewCard, { borderRadius: ExcelPreviewPixelStyles.cardRadius }]}
+        >
+          <Text style={styles.previewTitle}>AI 분류 미리보기</Text>
+          <View style={styles.previewSummary}>
+            <Text style={styles.previewSummaryLabel}>총 128건</Text>
+            <Text style={styles.previewSummaryAmount}>₩1,245,700</Text>
+          </View>
+          {excelPreviewRows.map((row) => (
+            <ImportPreviewCategoryRow key={row.label} row={row} />
+          ))}
         </View>
-        {excelPreviewRows.map((row) => (
-          <ImportPreviewCategoryRow key={row.label} row={row} />
-        ))}
-      </View>
+      ) : null}
 
       <Text style={styles.previewNotice}>검수 후 승인하기 전까지는 지출로 저장되지 않아요.</Text>
 
@@ -258,6 +309,23 @@ const styles = StyleSheet.create({
     color: theme.colors.white,
     fontSize: 16,
     fontWeight: "900"
+  },
+  // 라운드 41 UX-S: 로그인·파일 선택 전 안내 카드. 목업 카드와 같은 자리(marginTop 34)·같은
+  // 표면 토큰을 쓴다 -- 새 hex 없이 기존 카드 문법 그대로다.
+  guideCard: {
+    backgroundColor: theme.colors.white,
+    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 34,
+    padding: 16,
+    ...theme.shadows.card
+  },
+  guideText: {
+    color: theme.colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 20
   },
   previewCard: {
     backgroundColor: theme.colors.white,

@@ -42,6 +42,7 @@ import {
   formatRecentItemChipLabel,
   recentItemChipAccessibilityLabel
 } from "../../src/expenses/recent-items";
+import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { formatKrw } from "../../src/money";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
@@ -221,6 +222,17 @@ export default function NewExpenseScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  /**
+   * 라운드 40 J-1 — 진입점 열 곳을 잠가도 **목적지 화면**이 그대로면 소용이 없다.
+   * `wooriai:///expenses/new` 딥링크(그리고 아직 잠기지 않은 새 진입점 하나)로 이 시트에
+   * 도달한 보기 전용 참여자가 저장을 누르면, 로컬 우선 저장이 "기기에 저장했어요"라고 말한
+   * 뒤 flush에서 403을 받아 failed 행으로 굳는다 — UX-R(M)이 없애려던 바로 그 시퀀스다.
+   *
+   * 시트를 여는 것 자체는 막지 않는다: 무엇이 기록되는지 열람하는 것은 보기 전용 참여자의
+   * 몫이고, 이 앱의 관례는 "잠긴 컨트롤을 지우는 대신 눌렀을 때 사실을 말한다"이다
+   * (src/family/useExpenseEntryGate.ts 주석). 판정은 그 훅 하나에만 있다.
+   */
+  const expenseGate = useExpenseEntryGate();
   // 라운드 38 H-6/H-11: 이 화면의 8타일 id는 코드에 박힌 고정 UUID지만, 엑셀 가져오기·지출 수정
   // 화면을 거친 기록은 서버가 시드한 정식 카테고리 UUID(DB마다 다른 값)를 달고 있다. 두 값을
   // 잇는 다리가 `code`이고, 그 대응표는 리포트·수정 화면과 공유하는 ["categories"] 캐시에 이미
@@ -1014,7 +1026,9 @@ export default function NewExpenseScreen() {
           <PrimaryButton
             disabled={saveExpense.isPending || isAmountInvalid}
             label={saveExpense.isPending ? "저장 중" : "저장하기"}
-            onPress={() => saveExpense.mutate()}
+            // 라운드 40 J-1: 잠긴 역할이면 안내만 띄우고 뮤테이션은 시작하지 않는다(guard 관례).
+            // 버튼 자체는 그대로 둔다 -- disabled로 바꾸면 이유를 말할 자리가 사라진다.
+            onPress={expenseGate.guard(() => saveExpense.mutate())}
           />
         </BottomSheetFrame>
       </View>

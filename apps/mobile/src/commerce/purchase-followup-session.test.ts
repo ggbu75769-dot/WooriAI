@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   createPurchaseFollowupSessionGate,
   evaluateFollowupPrompt,
-  followupSessionKey
+  followupSessionKey,
+  PURCHASE_FOLLOWUP_MAX_SESSION_PROMPTS
 } from "./purchase-followup-session";
-import type { PurchaseFollowupEntry } from "./purchase-followup.store";
+import {
+  applySnooze,
+  PURCHASE_FOLLOWUP_MAX_PROMPTS,
+  type PurchaseFollowupEntry
+} from "./purchase-followup.store";
 
 /**
  * 라운드 39 I-3 — 아이 A↔B 왕복에서 A의 카드가 세션 내내 다시 뜨지 않던 문제.
@@ -112,5 +117,91 @@ describe("evaluateFollowupPrompt — 아이 A↔B 왕복 (I-3)", () => {
       evaluateFollowupPrompt({ gate, active: null, entries: [forA], now: NOW, selectedChildId: null })
     ).toBeNull();
     expect(gate.hasSlot(forA)).toBe(false);
+  });
+});
+
+/**
+ * 라운드 40 J-8 — 슬롯 반환에 상한이 없어서, 답하지 않은 카드 하나가 아이를 오갈 때마다
+ * 무한히 다시 떴다. 그리고 그 왕복이 스토어의 "아직이요" 예산까지 갉아먹으면 대기 항목이
+ * 조기에 expired로 굳는다. 두 예산은 서로 다른 축이어야 한다.
+ */
+describe("라운드 40 J-8 왕복 재표출 상한", () => {
+  it("가려짐 뒤 재표출은 클릭당 세션 내 1회까지다", () => {
+    const gate = createPurchaseFollowupSessionGate();
+    const entries = [forA];
+
+    // 1) A에서 최초 표출.
+    let active = evaluateFollowupPrompt({ gate, active: null, entries, now: NOW, selectedChildId: "child-a" });
+    expect(active).toBe(forA);
+    expect(gate.promptedCount(forA)).toBe(1);
+
+    // 2) B로 갔다가 A로 복귀 -> 재표출 1회(라운드 39 I-3이 지키는 동작).
+    active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-b" });
+    expect(active).toBeNull();
+    active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-a" });
+    expect(active).toBe(forA);
+    expect(gate.promptedCount(forA)).toBe(PURCHASE_FOLLOWUP_MAX_SESSION_PROMPTS);
+
+    // 3) 또 왕복 -- 이제는 다시 뜨지 않는다(답하지 않는다는 것은 지금 묻지 말라는 신호다).
+    active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-b" });
+    expect(active).toBeNull();
+    active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-a" });
+    expect(active).toBeNull();
+    // 네 번, 다섯 번을 더 오가도 마찬가지다.
+    for (let round = 0; round < 3; round += 1) {
+      active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-b" });
+      active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-a" });
+      expect(active).toBeNull();
+    }
+    expect(gate.promptedCount(forA)).toBe(PURCHASE_FOLLOWUP_MAX_SESSION_PROMPTS);
+
+    // 스토어는 손대지 않았다 -- 대기 항목은 여전히 pending이고 예산도 그대로다.
+    expect(forA.status).toBe("pending");
+    expect(forA.promptCount).toBe(0);
+  });
+
+  it("상한은 항목별이다 -- 한 항목이 다 썼다고 다른 항목이 막히지 않는다", () => {
+    const gate = createPurchaseFollowupSessionGate();
+    const entries = [forA, forB];
+
+    let active = evaluateFollowupPrompt({ gate, active: null, entries, now: NOW, selectedChildId: "child-a" });
+    active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-b" });
+    expect(active).toBe(forB);
+    active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-a" });
+    expect(active).toBe(forA);
+    // A는 예산을 다 썼지만 B는 아직 한 번 남아 있다.
+    active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-b" });
+    expect(active).toBe(forB);
+    expect(gate.promptedCount(forA)).toBe(2);
+    expect(gate.promptedCount(forB)).toBe(2);
+  });
+
+  it("가려짐은 '아직이요' 예산(promptCount)을 쓰지 않는다 -- 조기 만료 없음", () => {
+    const gate = createPurchaseFollowupSessionGate();
+    let entries = [forA];
+
+    // 표출 -> 아이 전환으로 가려짐 -> 복귀 재표출: 여기까지 답변은 0회다.
+    let active = evaluateFollowupPrompt({ gate, active: null, entries, now: NOW, selectedChildId: "child-a" });
+    active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-b" });
+    active = evaluateFollowupPrompt({ gate, active, entries, now: NOW, selectedChildId: "child-a" });
+    expect(active).toBe(forA);
+    expect(entries[0].promptCount).toBe(0);
+
+    // 이제 "아직이요" 한 번 -- 예산이 1 줄지만 아직 만료가 아니다.
+    entries = applySnooze(entries, forA.itemTemplateId);
+    expect(entries[0].promptCount).toBe(1);
+    expect(entries[0].status).toBe("pending");
+    expect(PURCHASE_FOLLOWUP_MAX_PROMPTS).toBe(2);
+
+    // 답을 받은 항목은 이번 세션에 다시 뜨지 않는다(슬롯이 잡힌 채 남는다).
+    expect(
+      evaluateFollowupPrompt({ gate, active: null, entries, now: NOW, selectedChildId: "child-a" })
+    ).toBeNull();
+    // 다음 앱 세션(새 게이트)에서 다시 물을 수 있고, 그때의 "아직이요"가 두 번째다.
+    const nextSession = createPurchaseFollowupSessionGate();
+    expect(
+      evaluateFollowupPrompt({ gate: nextSession, active: null, entries, now: NOW, selectedChildId: "child-a" })
+    ).toBe(entries[0]);
+    expect(applySnooze(entries, forA.itemTemplateId)[0].status).toBe("expired");
   });
 });

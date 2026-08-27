@@ -55,7 +55,15 @@ describe("NAV-121 settings entry point contract", () => {
     );
 
     expect(sessionRowsBlock).not.toBe("");
-    expect(sessionRowsBlock).toContain('title: "설정", onPress: () => router.push("/settings")');
+    // 라운드 41 UX-U(A): 세션 메뉴의 행 구성·이름·목적지는 src/settings/more-menu.ts로 옮겼다
+    // (더보기 화면은 vitest에서 렌더할 수 없어 정보 구조 판정만 순수 모듈로 뺀 것). NAV-121이
+    // 지키려는 계약("로그인 메뉴에 /settings 행이 있다")은 그대로이므로, 화면 쪽은 그 모듈을
+    // 세션 메뉴의 소스로 쓰는지만 보고 라우트 자체는 모듈에서 확인한다.
+    expect(sessionRowsBlock).toContain("buildMoreSessionMenuRows(");
+    expect(moreSource).toContain("() => router.push(route)");
+    const menuSource = source("src/settings/more-menu.ts");
+    expect(menuSource).toContain('title: "설정", route: "/settings"');
+    expect(moreSource).toContain("const visibleMenuRows = hasSession ? sessionMenuRows : previewMenuRowActions;");
   });
 
   it("keeps 아이 관리 · 알림 설정 · 통계 동의 · 로그아웃 reachable from the settings screen", () => {

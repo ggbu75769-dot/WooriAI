@@ -8,6 +8,8 @@ import {
   buildBudgetUsageLine,
   BUDGET_MAX_KRW,
   BUDGET_STEP_KRW,
+  hasPendingMonthAdjustments,
+  resolveThisMonthUsedKrw,
   sumLastMonthActualKrw,
   sumThisMonthActualKrw
 } from "./budget-edit";
@@ -330,6 +332,120 @@ describe("I-6 이번 달 실지출 합계 (sumThisMonthActualKrw)", () => {
 });
 
 /**
+ * 라운드 40 J-4 — 이번 달 사용액의 **우선순위**.
+ *
+ * I-6은 캐시 재조정 값을 무조건 1순위로 놓았다. 그래서 이번 달 캐시가 비었거나(콜드 스타트 뒤
+ * 다른 경로로 들어온 화면) 낡았을 때, 방금 받은 서버 집계를 이기고 "0원 사용"이라고 말했다 --
+ * 다른 기기에서 기록한 지출이 있는데도. 캐시가 앞서야 하는 이유는 단 하나, **서버가 아직
+ * 모르는 로컬 변경**이 그 달에 있을 때뿐이다.
+ */
+describe("라운드 40 J-4 이번 달 사용액 우선순위 (resolveThisMonthUsedKrw)", () => {
+  const yearMonth = "2026-08";
+  const serverRows = [{ id: "expense-1", amountKrw: 800_000, expenseType: "expense" }];
+  const pendingRow = offlineRow({ localId: "local-1", amountKrw: 45_000, spentOn: "2026-08-11" });
+  const syncedRow = offlineRow({
+    localId: "local-2",
+    canonicalId: "expense-1",
+    amountKrw: 800_000,
+    spentOn: "2026-08-05",
+    syncState: "synced"
+  });
+
+  it("대기 행이 있으면 캐시 재조정 값이 앞선다(아직 올라가지 않은 내 기록이 빠지지 않는다)", () => {
+    expect(
+      resolveThisMonthUsedKrw({
+        cachedExpenses: serverRows,
+        offline: { rows: [pendingRow], childId: "child-1", yearMonth },
+        serverUsedKrw: 800_000,
+        homeUsedKrw: 800_000
+      })
+    ).toBe(845_000);
+  });
+
+  it("삭제 대기 행도 '서버가 모르는 변경'이다", () => {
+    const pendingDelete = offlineRow({
+      localId: "local-3",
+      canonicalId: "expense-1",
+      amountKrw: 800_000,
+      spentOn: "2026-08-05",
+      syncState: "pending",
+      pendingDelete: true
+    });
+    expect(hasPendingMonthAdjustments({ rows: [pendingDelete], childId: "child-1", yearMonth })).toBe(true);
+    expect(
+      resolveThisMonthUsedKrw({
+        cachedExpenses: serverRows,
+        offline: { rows: [pendingDelete], childId: "child-1", yearMonth },
+        serverUsedKrw: 800_000
+      })
+    ).toBe(0);
+  });
+
+  it("대기 행이 없으면 서버 집계를 쓴다 — 낡은 캐시가 방금 받은 값을 이기지 않는다", () => {
+    // 캐시는 이 기기에서 아직 한 건도 못 받은 상태(빈 목록)인데 서버는 다른 기기의 기록을 안다.
+    expect(
+      resolveThisMonthUsedKrw({
+        cachedExpenses: [],
+        offline: { rows: [syncedRow], childId: "child-1", yearMonth },
+        serverUsedKrw: 1_245_700
+      })
+    ).toBe(1_245_700);
+    // 실제 화면 문장까지: 예전에는 여기서 "0원 사용"이 나왔다.
+    expect(
+      buildBudgetUsageLine({
+        budgetKrw: 1_600_000,
+        usedKrw: resolveThisMonthUsedKrw({
+          cachedExpenses: [],
+          offline: { rows: [], childId: "child-1", yearMonth },
+          serverUsedKrw: 1_245_700
+        })
+      })
+    ).toBe(`이번 달 지금까지 ${formatKrw(1_245_700)} 사용 · 남은 예산 ${formatKrw(354_300)}`);
+  });
+
+  it("다른 아이·다른 달의 대기 행은 이 달의 근거가 아니다", () => {
+    const otherChild = offlineRow({ localId: "l-9", amountKrw: 30_000, spentOn: "2026-08-03", childId: "child-2" });
+    const otherMonth = offlineRow({ localId: "l-8", amountKrw: 30_000, spentOn: "2026-07-03" });
+    expect(
+      hasPendingMonthAdjustments({ rows: [otherChild, otherMonth], childId: "child-1", yearMonth })
+    ).toBe(false);
+    expect(
+      resolveThisMonthUsedKrw({
+        cachedExpenses: [],
+        offline: { rows: [otherChild, otherMonth], childId: "child-1", yearMonth },
+        serverUsedKrw: 1_245_700
+      })
+    ).toBe(1_245_700);
+  });
+
+  it("서버 집계가 없으면(예산 미설정) 홈 캐시로, 그것도 없으면 캐시 합계로 떨어진다 (H-4 폴백 유지)", () => {
+    expect(
+      resolveThisMonthUsedKrw({
+        cachedExpenses: null,
+        offline: { rows: [], childId: "child-1", yearMonth },
+        serverUsedKrw: undefined,
+        homeUsedKrw: 700_000
+      })
+    ).toBe(700_000);
+    expect(
+      resolveThisMonthUsedKrw({
+        cachedExpenses: serverRows,
+        offline: { rows: [], childId: "child-1", yearMonth }
+      })
+    ).toBe(800_000);
+  });
+
+  it("아무것도 모르면 undefined — 줄 자체가 사라진다(0원이라고 말하지 않는다)", () => {
+    const usedKrw = resolveThisMonthUsedKrw({
+      cachedExpenses: null,
+      offline: { rows: [], childId: null, yearMonth }
+    });
+    expect(usedKrw).toBeUndefined();
+    expect(buildBudgetUsageLine({ budgetKrw: 1_600_000, usedKrw })).toBeNull();
+  });
+});
+
+/**
  * 화면 배선은 이 저장소의 관례대로 소스 문자열로 못 박는다(react-native 화면은 vitest에서
  * 렌더할 수 없다 -- ui-pixel-lock-flow.test.ts와 같은 관례).
  */
@@ -350,17 +466,19 @@ describe("BUD-001 예산 화면 배선 (app/budget.tsx)", () => {
     expect(screen).toContain("buildBudgetUsageLine({");
     expect(screen).toContain("buildBudgetAdjustChips({");
     expect(screen).toContain("sumLastMonthActualKrw(");
-    expect(screen).toContain("sumThisMonthActualKrw(");
+    expect(screen).toContain("resolveThisMonthUsedKrw({");
   });
 
-  it("라운드 39 I-6: 이번 달 사용액도 캐시 + 오프라인 재조정이 1순위, 서버 집계는 폴백이다", () => {
+  it("라운드 40 J-4: 이번 달 사용액의 우선순위 판정을 화면이 다시 적지 않는다", () => {
     const screen = screenSource();
     expect(screen).toContain('queryClient.getQueryData<{ expenses: Expense[] }>(["expenses", childId, thisYearMonth])');
-    expect(screen).toContain("const reconciledUsedKrw = sumThisMonthActualKrw(");
-    expect(screen).toContain("rows: offlineSnapshot.rows,");
-    expect(screen).toContain("yearMonth: thisYearMonth");
-    // 캐시가 없으면(직행 경로) 종전 폴백 순서가 그대로 살아 있다.
-    expect(screen).toContain("reconciledUsedKrw ?? budget.data?.usedAmountKrw ?? cachedHome?.monthly.usedAmountKrw");
+    expect(screen).toContain("const usedKrw = resolveThisMonthUsedKrw({");
+    expect(screen).toContain("cachedExpenses: cachedThisMonth?.expenses ?? null,");
+    expect(screen).toContain("offline: { rows: offlineSnapshot.rows, childId, yearMonth: thisYearMonth },");
+    expect(screen).toContain("serverUsedKrw: budget.data?.usedAmountKrw,");
+    expect(screen).toContain("homeUsedKrw: cachedHome?.monthly.usedAmountKrw");
+    // 캐시를 무조건 앞세우던 I-6의 우선순위가 화면에 남아 있지 않다(그것이 0원 허위 표시였다).
+    expect(screen).not.toContain("reconciledUsedKrw ?? budget.data?.usedAmountKrw");
   });
 
   it("라운드 38 H-1: 지난달 합계에 이 기기의 오프라인 대기 행을 childId 스코프로 함께 넘긴다", () => {
@@ -373,8 +491,10 @@ describe("BUD-001 예산 화면 배선 (app/budget.tsx)", () => {
 
   it("라운드 38 H-4: 사용액은 이 화면의 budget 응답이 1순위, 홈 캐시는 폴백이다", () => {
     const screen = screenSource();
-    // 알림 → /budget 직행(홈 미마운트)에서도 판단 줄이 살아 있어야 한다.
-    expect(screen).toContain("budget.data?.usedAmountKrw ?? cachedHome?.monthly.usedAmountKrw");
+    // 알림 → /budget 직행(홈 미마운트)에서도 판단 줄이 살아 있어야 한다 -- 두 값을 모두 넘기고,
+    // 순서는 순수 모듈이 정한다(라운드 40 J-4).
+    expect(screen).toContain("serverUsedKrw: budget.data?.usedAmountKrw,");
+    expect(screen).toContain("homeUsedKrw: cachedHome?.monthly.usedAmountKrw");
     // 홈 캐시를 1순위로 되돌리는 회귀 방지.
     expect(screen).not.toContain("usedKrw: cachedHome?.monthly.usedAmountKrw");
   });

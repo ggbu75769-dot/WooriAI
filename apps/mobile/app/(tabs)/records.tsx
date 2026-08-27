@@ -46,6 +46,7 @@ import {
   expenseMutationErrorMessage
 } from "../../src/expenses/save-error-messages";
 import {
+  buildMemoSearchSnippet,
   buildRecordsCategoryChips,
   buildRecordsEmptyMonthTitle,
   buildRecordsFilteredEmptyState,
@@ -140,6 +141,10 @@ type RecordsListItem = { key: string; spentOn: string; amountKrw: number; expens
       expense: ServerExpense;
       categoryName: CategoryNameLookup;
       authorLabel: string | null;
+      // 라운드 41 UX-T(C): 메모에서만 검색어가 맞은 행의 근거 조각. `authorLabel`과 같은 규칙으로
+      // **목록을 만들 때 문자열로 해석해 둔다** -- 행에 검색어와 메모를 넘겨 계산하게 하면 행마다
+      // 같은 판정을 반복하고, 검색과 무관한 행까지 매 렌더 다시 그린다(PERF-102 행 memo 유지).
+      memoSnippet: string | null;
       onAction: RecordRowActionHandler;
     }
 );
@@ -214,18 +219,22 @@ const ServerExpenseListRow = memo(function ServerExpenseListRow({
   expense,
   categoryName,
   authorLabel,
+  memoSnippet,
   onAction
 }: {
   expense: ServerExpense;
   categoryName: CategoryNameLookup;
   authorLabel: string | null;
+  memoSnippet: string | null;
   onAction: RecordRowActionHandler;
 }) {
   const subtitle = recordsRowSubtitle({
     expenseType: expense.expenseType,
     authorLabel,
     categoryLabel: categoryName(expense.categoryId),
-    dateLabel: formatSpentOn(expense.spentOn)
+    dateLabel: formatSpentOn(expense.spentOn),
+    // UX-T(C): 검색 중이 아니거나 품목명이 맞은 행에서는 null이라 부제가 종전과 같다.
+    memoSnippet
   });
   // 아래 ListRow의 `value`와 **같은 식**이다(스크린리더 라벨이 보이는 금액과 갈릴 수 없다).
   const amountLabel = formatKrw(expense.amountKrw);
@@ -321,6 +330,7 @@ function renderRecordsRow({ item }: ListRenderItemInfo<RecordsListItem>) {
       expense={item.expense}
       categoryName={item.categoryName}
       authorLabel={item.authorLabel}
+      memoSnippet={item.memoSnippet}
       onAction={item.onAction}
     />
   );
@@ -1009,6 +1019,9 @@ export default function RecordsScreen() {
   // Offline pending rows first (same order as the old eager render), then server rows.
   const listData = useMemo<RecordsListItem[]>(
     () => [
+      // UX-T(C): 오프라인 대기 행에는 메모 스니펫을 붙이지 않는다 -- 그 행의 부제 자리는 이미
+      // 동기화 상태("동기화 대기 · 8월 4일")가 쓰고 있고, 지금 이 기기에서 방금 적은 기록이라
+      // "왜 걸렸는지"를 설명할 이유도 적다(작성자 라벨을 생략하는 것과 같은 판단).
       ...visibleOfflineRows.map(
         (row): RecordsListItem => ({
           kind: "offline",
@@ -1031,6 +1044,14 @@ export default function RecordsScreen() {
           // FAM-127: 오프라인 대기 행에는 라벨을 붙이지 않는다 -- 아직 이 기기에서 방금 만든
           // 내 기록이라 작성자가 자명하고, 서버가 준 createdByUserId도 아직 없다.
           authorLabel: resolveExpenseAuthorLabel(expenseCreatedByUserId(expense), householdMemberRefs),
+          // UX-T(C): "조리원"으로 검색해 3건이 나왔는데 화면 어디에도 조리원이 없던 자리 --
+          // 메모에서만 맞은 행에 그 근거를 한 조각 붙인다. 검색어가 없으면 null이라 목록은
+          // 종전과 완전히 같다(판정·자르기 규칙은 순수 모듈에 있다).
+          memoSnippet: buildMemoSearchSnippet({
+            itemName: expense.itemName,
+            memo: expense.memo,
+            searchText: searchText
+          }),
           // UX-L(A): 롱프레스 액션 실행부. 안정된 참조라 행 memo(PERF-102)가 그대로 유지된다.
           // 오프라인 대기 행에는 붙이지 않는다 -- 아직 서버 id가 없어 상세로 갈 수도, 같은
           // 삭제 경로(adoptServerExpense)를 탈 수도 없다(그 행은 종전대로 동기화 상태로 간다).
@@ -1038,7 +1059,7 @@ export default function RecordsScreen() {
         })
       )
     ],
-    [visibleOfflineRows, visibleExpenses, categoryName, handleRowAction, householdMemberRefs]
+    [visibleOfflineRows, visibleExpenses, categoryName, handleRowAction, householdMemberRefs, searchText]
   );
 
   const monthlyRecordCount = monthlyServerExpenses.length + offlinePendingRows.length;
@@ -1139,7 +1160,10 @@ export default function RecordsScreen() {
   // 종전 "이번 달" 문구 그대로 -- 홈 화면의 같은 카드와 한 글자도 다르지 않다).
   const emptyMonthTitle = buildRecordsEmptyMonthTitle({
     monthLabel: recordsMonthLabel,
-    isCurrentMonth: monthOffset === 0
+    isCurrentMonth: monthOffset === 0,
+    // 라운드 40 J-5: 보기 전용 세션에는 "첫 기록을 남기면 …"이라는 약속 대신 사실을 말한다
+    // (홈의 빈 카드와 같은 문장 · 같은 단일 소스). 버튼은 그대로 서서 눌렀을 때 안내한다.
+    expenseEntryLocked
   });
 
   // UX-N: 조회 실패 카드 문구는 연결 상태에 따라 갈린다(items 탭과 같은 배선).

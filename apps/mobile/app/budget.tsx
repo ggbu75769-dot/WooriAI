@@ -16,8 +16,8 @@ import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../src/money";
 import {
   buildBudgetAdjustChips,
   buildBudgetUsageLine,
-  sumLastMonthActualKrw,
-  sumThisMonthActualKrw
+  resolveThisMonthUsedKrw,
+  sumLastMonthActualKrw
 } from "../src/home/budget-edit";
 import { previousYearMonth } from "../src/home/last-month-comparison";
 import { useLoadErrorCopy } from "../src/offline/use-load-error-copy";
@@ -35,7 +35,8 @@ import { theme } from "../src/theme";
  * 이 화면이 이미 받는 응답과 이미 채워진 react-query 캐시에서 읽는다:
  *  - 사용액: 이 화면의 budget 쿼리 응답 `usedAmountKrw`(선물·환불 제외 서버 집계, DNC-015)가
  *    1순위. 예산 미설정(budget.data === null)이라 응답이 없을 때만 `["home", childId]` 캐시의
- *    `monthly.usedAmountKrw`로 폴백한다.
+ *    `monthly.usedAmountKrw`로 폴백한다. 예외는 하나 — 이번 달에 아직 서버가 모르는 로컬 변경
+ *    (오프라인 대기·삭제 대기)이 있을 때만 이번 달 캐시 재조정 값이 앞선다(라운드 40 J-4).
  *  - 지난달 실지출: `["expenses", childId, 지난달]`(홈의 "지난달 같은 시점 대비" 한 줄과 기록
  *    탭이 공유하는 바로 그 캐시) + 이 기기의 오프라인 대기 행.
  * `getQueryData`는 구독이 아니라 **읽기**라 쿼리를 활성화하지 않는다 -- 캐시가 없으면
@@ -98,25 +99,26 @@ export default function BudgetEditScreen() {
 
   const currentBudgetKrw = budget.data?.amountKrw ?? null;
   /**
-   * 라운드 39 I-6: 이번 달 사용액도 지난달 칩과 **같은 모집단**으로 말한다.
+   * 라운드 39 I-6 + 라운드 40 J-4: 이번 달 사용액을 무엇으로 말할지.
    *
-   * 종전에는 이 줄만 서버 집계(`usedAmountKrw`)라, 아직 올라가지 않은 오프라인 대기 지출이
-   * 이번 달에서만 빠졌다 — 같은 화면 안에서 지난달 칩(재조정됨)·기록 탭 월 합계와 갈리는 숫자다.
-   * 그래서 `["expenses", childId, 이번 달]` 캐시 + 오프라인 스냅숏 재조정 값이 1순위이고,
-   * 그 캐시가 아예 없을 때만(알림 → /budget 직행 등) 서버 집계·홈 캐시로 폴백한다(H-4의 이유는
-   * 그대로 살아 있다 — 캐시가 없다고 줄이 사라지면 안 된다).
+   * I-6은 지난달 칩과 **같은 모집단**으로 말하려고 캐시 재조정 값을 1순위에 놓았다(아직
+   * 올라가지 않은 오프라인 대기 지출이 이번 달에서만 빠지면 같은 화면의 두 숫자가 갈린다).
+   * 그런데 그 우선순위가 무조건이라, 이번 달 캐시가 비었거나 낡았을 때는 방금 받은 서버 집계를
+   * 이기고 "0원 사용"이라는 허위 표시를 만들었다(다른 기기에서 기록한 지출이 있는 경우).
+   *
+   * 이제 우선순위 판정은 순수 모듈 한 곳에 있다 — 그 달에 오프라인 대기·삭제 대기 행이 **실제로
+   * 있을 때만** 캐시 재조정 값을 쓰고, 아니면 서버 집계(H-4의 직행 경로 폴백까지)를 쓴다.
    */
   const thisYearMonth = getSeoulToday().slice(0, 7);
   const cachedThisMonth = childId
     ? queryClient.getQueryData<{ expenses: Expense[] }>(["expenses", childId, thisYearMonth])
     : undefined;
-  const reconciledUsedKrw = sumThisMonthActualKrw(cachedThisMonth?.expenses ?? null, {
-    rows: offlineSnapshot.rows,
-    childId,
-    yearMonth: thisYearMonth
+  const usedKrw = resolveThisMonthUsedKrw({
+    cachedExpenses: cachedThisMonth?.expenses ?? null,
+    offline: { rows: offlineSnapshot.rows, childId, yearMonth: thisYearMonth },
+    serverUsedKrw: budget.data?.usedAmountKrw,
+    homeUsedKrw: cachedHome?.monthly.usedAmountKrw
   });
-  // H-4: 캐시가 없으면 이 화면의 응답이 1순위, 홈 캐시는 예산 미설정(응답 null)일 때만 쓰는 폴백이다.
-  const usedKrw = reconciledUsedKrw ?? budget.data?.usedAmountKrw ?? cachedHome?.monthly.usedAmountKrw;
   const usageLine = buildBudgetUsageLine({
     budgetKrw: currentBudgetKrw,
     usedKrw

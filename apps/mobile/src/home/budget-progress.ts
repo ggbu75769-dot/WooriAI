@@ -154,13 +154,24 @@ export function evaluateHomeBudgetProgress(input: HomeBudgetInput): HomeBudgetPr
  *   보이는 중인지로, 배너가 이미 초과 금액을 말하고 있으면(라운드 13 m-7) 넛지는 금액을
  *   중복해서 말하지 않는다. "다 썼는가"의 경계는 히어로·배너와 같은 `isBudgetUsedUp`(>=)이다
  *   (라운드 38 H-2 — 정확히 100%인 달에 배너와 넛지가 서로를 부정하던 자리).
+ *
+ * 라운드 41 UX-T(B) — **문구와 목적지가 같은 곳을 가리킨다**: 예산이 있는 달의 넛지는 오랫동안
+ * "/(tabs)/items"(추천/쇼핑 탭)로 갔다. 그래서 예산을 초과한 사람이 "이번 달 지출을 확인해
+ * 볼까요?"를 누르면 지출 목록이 아니라 **상품 추천**이 열렸다 — 지출을 줄이려고 누른 자리에서
+ * 물건을 권하는 셈이라, 문구가 약속한 것과 화면이 하는 일이 정반대였다(라운드 33 F1이 마일스톤
+ * 카드에서 고친 것과 같은 종류의 어긋남). 사용률 넛지는 **기록 탭**으로 보낸다: "확인해 볼까요?"도
+ * "잘 관리하고 있어요"도 근거가 되는 화면은 이번 달 지출 목록 하나뿐이다. 예산 미설정 CTA는
+ * 종전대로 /budget이다(그 문구가 약속하는 곳은 예산 편집 화면이다).
  */
 export type HomeBudgetNudge = {
   variant: "set-budget" | "usage";
   title: string;
   subtitle: string;
-  /** expo-router 경로. 예산 미설정일 때만 예산 편집 화면으로 보낸다. */
-  route: "/budget" | "/(tabs)/items";
+  /**
+   * expo-router 경로. 예산 미설정이면 예산 편집 화면, 예산이 있으면 그 숫자의 근거인 기록 탭이다
+   * (라운드 41 UX-T(B) — 종전 "/(tabs)/items"는 문구와 어긋난 목적지였다).
+   */
+  route: "/budget" | "/(tabs)/records";
 };
 
 export type HomeBudgetNudgeInput = HomeBudgetInput & {
@@ -199,7 +210,13 @@ export function buildHomeBudgetNudge(input: HomeBudgetNudgeInput): HomeBudgetNud
   return {
     variant: "usage",
     title,
-    subtitle: usedUp ? "이번 달 지출을 확인해 볼까요? 😥" : "이번 달도 잘 관리하고 있어요 👏",
-    route: "/(tabs)/items"
+    // 라운드 41 UX-T(B): 초과한 달의 보조 문구에서 "😥"를 뺐다. 예산을 넘긴 것은 대개 아이에게
+    // 필요한 것을 산 결과인데, 그 옆에 우는 얼굴을 붙이면 앱이 사용자의 한 달을 **평가**하는
+    // 문장이 된다(DNC-018의 톤 경계 -- 이 앱은 지출을 기록하게 만드는 것이 목적이지 죄책감을
+    // 주는 것이 아니다). 문장은 그대로 두고 감정 부호만 뺀 중립 권유로 남긴다. 반대쪽의 "👏"는
+    // 격려라 그대로 둔다 -- 문제는 이모지가 있다는 것이 아니라 **부정적 평가**를 붙였다는 것이다.
+    subtitle: usedUp ? "이번 달 지출을 확인해 볼까요?" : "이번 달도 잘 관리하고 있어요 👏",
+    // 문구가 가리키는 화면 = 실제 목적지(위 doc comment 참고).
+    route: "/(tabs)/records"
   };
 }

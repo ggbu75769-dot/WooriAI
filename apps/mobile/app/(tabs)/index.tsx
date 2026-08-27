@@ -16,7 +16,7 @@ import {
 } from "../../src/children/child-switch";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
-import { evaluateBabyCounter } from "../../src/home/baby-counter";
+import { evaluateBabyCounter, evaluateBirthTransitionPrompt } from "../../src/home/baby-counter";
 import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "../../src/home/budget-progress";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import {
@@ -33,6 +33,7 @@ import {
   evaluateHomeFirstRunGuide,
   hasPendingOfflineCreate,
   holdHasAnyExpenseRecordDuringRefetch,
+  homeGuideSpeaksForEmptyHome,
   homePendingSyncNoticeText,
   latchHasAnyExpenseRecord,
   shouldShowHomeRecentExpensesSection,
@@ -931,8 +932,19 @@ export default function HomeScreen() {
     recommendedItemCount: countUnpreparedRecommendedItems(home.data?.recommendedItems ?? []),
     recentRecordCount: weeklyThisMonthRecords?.length ?? null,
     serverRecentExpenseCount: home.data ? home.data.recentExpenses.length : null,
-    itemsGuideDismissed: childId ? dismissedItemsGuideChildIds.includes(childId) : false
+    itemsGuideDismissed: childId ? dismissedItemsGuideChildIds.includes(childId) : false,
+    // 라운드 40 J-5: 보기 전용 세션에서는 첫 지출 유도(약속 + 닫을 수 없는 CTA) 대신 사실을
+    // 말하는 카드가 나간다. 판정은 게이트 하나가 갖고 있고(비세션에서는 절대 잠기지 않으므로
+    // HOME-001 픽셀락 불변), 카드 문구는 순수 모듈이 고른다.
+    expenseEntryLocked: expenseGate.locked
   });
+  // 카드에 버튼이 붙는 갈래인지. `view-only`는 지금 할 수 있는 행동이 없어 ctaLabel·route가
+  // 둘 다 null이고, 그때는 버튼 자체를 그리지 않는다(약속 문장과 CTA가 한 덩어리인 카드라
+  // 버튼만 남기면 약속을 지운 의미가 없다 -- src/home/first-run-guide.ts 헤더 J-5).
+  const firstRunGuideCta =
+    firstRunGuide && firstRunGuide.ctaLabel !== null && firstRunGuide.route !== null
+      ? { label: firstRunGuide.ctaLabel, route: firstRunGuide.route }
+      : null;
   // F1: "최근 지출" 자리의 빈 상태 판정도 유도 카드·축하 배너와 **같은 소스**를 본다. 서버
   // recentExpenses만 보면, 오프라인으로 첫 기록을 남긴 순간 위에서는 "첫 기록이에요!"가, 아래
   // 에서는 "첫 기록을 남기면 …"이 한 화면에 동시에 뜬다(라운드 35 F1).
@@ -960,11 +972,25 @@ export default function HomeScreen() {
         todayIso: seoulToday
       })
     : null;
+  // 라운드 41 UX-T(A): 임신 → 출생 전환 입구. 예정일에 닿은 뒤부터 홈에 한 줄로 나오고, 유예
+  // 기간이 지나 카운터가 접힌 뒤에도(babyCounter === null) 이 줄만 남는다 -- 전환하지 않으면
+  // 준비템·마일스톤·100일 리포트가 조용히 비활성인 채로 남기 때문이다. 판정·문구는 전부 순수
+  // 모듈에 있고(경과 일수를 세지 않고 재촉하지 않는다 -- DNC-020/DNC-018), 화면은 링크만 그린다.
+  // 카운터와 같은 hasSession 게이트라 비세션 HOME-001 미리보기에는 아무것도 늘지 않는다.
+  const birthTransitionPrompt = hasSession
+    ? evaluateBirthTransitionPrompt({
+        stageMode: selectedChild?.stageMode,
+        dueDate: selectedChild?.dueDate,
+        todayIso: seoulToday
+      })
+    : null;
   // UX-G: 기록이 한 건도 없는 홈에서 주간 카드는 "이번 주 지출은 아직 없어요 / 이번 주 첫
   // 기록을 남겨보세요"만 말한다 -- 바로 위 유도 카드가 같은 말을 CTA와 함께 하고 있으므로,
   // 첫 지출 유도가 떠 있는 동안에는 그 자리를 유도 카드에 내준다(같은 말을 두 번 하지 않는다).
   // UX-J: 계산은 위 weeklySpend가 이미 했다(알림 평가와 같은 값). 여기서는 카드를 그릴지만 고른다.
-  const weeklySummary = hasSession && firstRunGuide?.variant !== "first-expense" ? weeklySpend : null;
+  // 라운드 40 J-5: 잠긴 세션의 `view-only` 카드도 같은 자리를 말하므로 함께 접는다 -- 그러지
+  // 않으면 "이번 주 첫 기록을 남겨보세요"라는 권유가 보기 전용 참여자에게 되돌아온다.
+  const weeklySummary = hasSession && !homeGuideSpeaksForEmptyHome(firstRunGuide?.variant) ? weeklySpend : null;
   const milestoneCountdown = hasSession
     ? evaluateMilestoneCountdown({
         stageMode: selectedChild?.stageMode,
@@ -1061,6 +1087,18 @@ export default function HomeScreen() {
             />
           )}
 
+          {/* UX-T(A): 출생 전환 입구. 카운터가 있으면 그 아래 한 줄, 카운터가 접힌 뒤에는 이
+              줄만 남는다. 링크 하나뿐이라 홈의 정보 밀도를 늘리지 않고, 목적지(아이 관리)는
+              종전과 같은 화면이다 -- 전환 폼을 홈으로 옮기지 않는다. */}
+          {birthTransitionPrompt ? (
+            <TextButton
+              accessibilityLabel={birthTransitionPrompt.accessibilityLabel}
+              label={birthTransitionPrompt.label}
+              onPress={() => router.push(birthTransitionPrompt.route)}
+              style={{ alignSelf: "flex-start" }}
+            />
+          ) : null}
+
           {/* 시트 본체는 위에서 한 번만 만든다(H-9) -- 에러 상태의 홈도 같은 것을 그린다. */}
           {childSwitchSheet}
 
@@ -1139,22 +1177,27 @@ export default function HomeScreen() {
                 <Text style={homeFirstRunGuideStyle.title}>{firstRunGuide.title}</Text>
                 <Text style={homeFirstRunGuideStyle.subtitle}>{firstRunGuide.subtitle}</Text>
               </View>
-              <PrimaryButton
-                accessibilityLabel={firstRunGuide.ctaLabel}
-                label={firstRunGuide.ctaLabel}
-                onPress={() => {
-                  // UX-R(M): 이 카드는 두 갈래다. 지출 기록으로 보내는 갈래만 잠그고, 준비템
-                  // 갈래는 그대로 둔다 -- 보기 전용 참여자도 준비템은 볼 수 있다(잠글 이유가
-                  // 없고, 잠그면 볼 수 있는 것까지 막는다).
-                  if (firstRunGuide.variant === "first-expense" && expenseGate.locked) {
-                    expenseGate.explain();
-                    return;
-                  }
-                  // 준비템 안내는 눌러서 확인한 순간 역할이 끝난다 -- 닫기와 같은 처리를 한다.
-                  if (firstRunGuide.variant === "first-items") dismissItemsGuide(childId);
-                  router.push(firstRunGuide.route);
-                }}
-              />
+              {/* 라운드 40 J-5: `view-only` 카드는 버튼 없이 사실만 말한다(firstRunGuideCta가
+                  null). 나머지 두 갈래의 버튼·경로·문구는 종전 그대로다. */}
+              {firstRunGuideCta ? (
+                <PrimaryButton
+                  accessibilityLabel={firstRunGuideCta.label}
+                  label={firstRunGuideCta.label}
+                  onPress={() => {
+                    // UX-R(M): 이 카드는 여러 갈래다. 지출 기록으로 보내는 갈래만 잠그고, 준비템
+                    // 갈래는 그대로 둔다 -- 보기 전용 참여자도 준비템은 볼 수 있다(잠글 이유가
+                    // 없고, 잠그면 볼 수 있는 것까지 막는다). 잠긴 세션에서는 애초에 이 갈래가
+                    // `view-only`로 대체되지만, 판정과 렌더 사이의 어긋남까지 여기서 받아 낸다.
+                    if (firstRunGuide.variant === "first-expense" && expenseGate.locked) {
+                      expenseGate.explain();
+                      return;
+                    }
+                    // 준비템 안내는 눌러서 확인한 순간 역할이 끝난다 -- 닫기와 같은 처리를 한다.
+                    if (firstRunGuide.variant === "first-items") dismissItemsGuide(childId);
+                    router.push(firstRunGuideCta.route);
+                  }}
+                />
+              ) : null}
               {firstRunGuide.dismissible ? (
                 <TextButton
                   label={FIRST_ITEMS_GUIDE_DISMISS_LABEL}

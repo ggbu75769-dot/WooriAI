@@ -86,7 +86,10 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
       screenSource.indexOf("useFocusEffect("),
       screenSource.indexOf("}, [markAllRead])")
     );
-    expect(focusEffect).toContain("setNewNotificationIds(selectUnreadNotificationIds(useNotificationStore.getState().entries));");
+    // 라운드 40 J-7: 그 스냅샷은 이제 **교체가 아니라 합집합**이다(재포커스가 아직 안 본
+    // 항목의 점까지 지우던 문제 — 규칙과 단위 테스트는 new-notification-marks.ts).
+    expect(focusEffect).toContain("selectUnreadNotificationIds(stored)");
+    expect(focusEffect).toContain("mergeNewNotificationMarks(");
     expect(focusEffect.indexOf("setNewNotificationIds(")).toBeLessThan(focusEffect.indexOf("markAllRead()"));
     // 아직 rehydrate 전이면 잘못된(빈) 스냅샷으로 덮어쓰지 않는다.
     expect(focusEffect).toContain("if (useNotificationStore.persist.hasHydrated()) {");
@@ -103,7 +106,11 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
 
   it("turns the more tab's '알림 설정 · 준비 중' stub row into a live /notifications link", () => {
     const moreSource = source("app/(tabs)/more.tsx");
-    expect(moreSource).toContain('title: "알림", onPress: () => router.push("/notifications")');
+    // 라운드 41 UX-U(A): 세션 메뉴 구성이 src/settings/more-menu.ts로 옮겨졌고, 행 이름은 설정 안의
+    // "알림 설정"(푸시 수신 관리)과 구분되도록 "알림함"이 됐다. 계약(더보기에서 /notifications로
+    // 실제 이동, "준비 중" 비활성 스텁 없음)은 그대로다.
+    expect(source("src/settings/more-menu.ts")).toContain('title: "알림함", route: "/notifications"');
+    expect(moreSource).toContain("buildMoreSessionMenuRows(");
     expect(moreSource).not.toContain('title: "알림 설정", caption: "준비 중"');
   });
 
