@@ -15,8 +15,9 @@ export type RecordsCategoryChip = {
   label: string;
   /**
    * EVERY `expenses.categoryId` this chip must match. Usually just `[id]`, but a chip that
-   * absorbed same-name duplicates (see below) matches all of their ids -- otherwise selecting
-   * the surviving "기타" chip would hide the expenses stored under the dropped duplicate's id.
+   * absorbed same-name duplicates or `mobile_` aliases of its own taxonomy code (see below)
+   * matches all of their ids -- otherwise selecting the surviving "기타" chip would hide the
+   * expenses stored under the dropped duplicate's id.
    */
   matchIds: string[];
 };
@@ -32,12 +33,22 @@ export type RecordsCategoryChip = {
  * cache the edit/report/more screens already share.
  *
  * Rules:
- *  - the offered set is R20-B's `selectableCategories` (import stub dropped, exact same-name
- *    duplicates collapsed), so the row does not show "기타" twice or offer "가져오기 기본";
- *  - a collapsed same-name group still FILTERS on every id in the group (`matchIds`). This is
- *    load-bearing on both the real seed (canonical "기타" + `mobile_etc` alias "기타", which the
- *    8-tile quick input actively writes) and the demo backend (catalog "기저귀" + the local
- *    fixture "기저귀" the seeded demo expenses use);
+ *  - the offered set is R20-B's `selectableCategories` (rows the server marks `selectable: false`
+ *    and the import stub dropped, exact same-name duplicates collapsed), so the row does not show
+ *    "기타" twice or offer "가져오기 기본". After CAT-124 that is the canonical 12 on a real
+ *    session, since the 8 quick-tile aliases are `selectable: false`;
+ *  - a chip still FILTERS on every id it stands for (`matchIds`), from two sources:
+ *      (1) the same-name group it absorbed -- load-bearing on the demo backend (catalog "기저귀"
+ *          + the local fixture "기저귀" the seeded demo expenses use), and on any pre-CAT-124
+ *          server/cache payload where the alias rows are still offered (canonical "기타" +
+ *          `mobile_etc` alias "기타");
+ *      (2) CAT-124: the quick-tile alias ids that share the chip's taxonomy `code`, taken from the
+ *          static `categoryCatalog` (whose ids ARE the server's alias-row ids -- see
+ *          `mobileCategoryAliasSeeds` in apps/api/prisma/seed-data.ts). This is what keeps the
+ *          alias-id expenses the 8-tile quick input writes visible now that the alias chips
+ *          themselves are gone: tapping "기저귀/위생" also matches the "기저귀" tile's id, and
+ *          "수유/이유식" matches both the "분유/유제품" and "식비" tiles. Without it, every
+ *          quick-recorded expense would vanish from every chip -- reachable only via "전체";
  *  - `selectedCategoryId` is passed through to `selectableCategories` so the current selection
  *    always survives the dedupe, and a selection the server list does not contain at all
  *    (legacy/inactive/demo id, or a chip picked while the fallback below was showing) is
@@ -45,8 +56,9 @@ export type RecordsCategoryChip = {
  *  - an empty/loading/failed list falls back to the static 8 tiles, so the row never disappears
  *    offline and preview/demo capture keeps its icons.
  *
- * Known gap (deliberate): the import stub category ("가져오기 기본") is not offered, so
- * import-stub rows are only reachable through "전체" -- see docs/operations/known-limitations.md.
+ * Known gap (deliberate): the import stub category ("가져오기 기본") has no taxonomy code in the
+ * catalog and is not offered, so import-stub rows stay reachable only through "전체"
+ * -- see docs/operations/known-limitations.md.
  */
 export function buildRecordsCategoryChips(
   categories: readonly SelectableCategory[] | null | undefined,
@@ -71,14 +83,27 @@ export function buildRecordsCategoryChips(
     else idsByName.set(name, [category.id]);
   }
 
+  // CAT-124: taxonomy `code` -> the quick-tile ids that record under it. The catalog's ids are
+  // byte-for-byte the server's `mobile_*` alias-row ids, so this maps a canonical chip to the
+  // alias ids whose rows the server no longer offers.
+  const catalogIdsByCode = new Map<string, string[]>();
+  for (const entry of categoryCatalog) {
+    const group = catalogIdsByCode.get(entry.code);
+    if (group) group.push(entry.id);
+    else catalogIdsByCode.set(entry.code, [entry.id]);
+  }
+  // An alias that still has a chip of its own keeps its expenses -- absorbing it into the
+  // canonical chip too would make the same expense answer to two chips. Only orphans get adopted.
+  const offeredIds = new Set(offered.map((category) => category.id));
+
   const chips = offered.map((category): RecordsCategoryChip => {
     const name = category.name.trim();
-    const group = idsByName.get(name);
-    return {
-      id: category.id,
-      label: name,
-      matchIds: group && group.length > 0 ? [...group] : [category.id]
-    };
+    const matchIds = new Set<string>([category.id]);
+    for (const id of idsByName.get(name) ?? []) matchIds.add(id);
+    for (const id of catalogIdsByCode.get(category.code ?? "") ?? []) {
+      if (!offeredIds.has(id)) matchIds.add(id);
+    }
+    return { id: category.id, label: name, matchIds: [...matchIds] };
   });
 
   if (selectedCategoryId && !chips.some((chip) => chip.matchIds.includes(selectedCategoryId))) {

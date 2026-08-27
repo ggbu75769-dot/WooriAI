@@ -55,6 +55,31 @@ describe("buildCategoryNameLookup (server GET /categories -> 카테고리 이름
     expect(lookup("dup")).toBe("나중"); // last write wins -- deterministic, documented
     expect(lookup("blank")).toBe("기타");
   });
+
+  /**
+   * CAT-124: 노출 제외(selectable=false) 행은 "고르라고 내밀지" 않을 뿐 이름은 계속 필요하다.
+   * 그래서 앱은 이름 해석용으로 `?includeAll=1` 전량을 받는다 — 이 테스트는 그 전량 목록이
+   * 실제로 별칭 라벨을 지켜 준다는 것과, 기본 목록만 받았을 때 무엇이 무너지는지를 함께 고정한다.
+   */
+  it("CAT-124: 전량 목록은 노출 제외 별칭·스텁 라벨을 그대로 해석한다", () => {
+    const aliasId = categoryCatalog[0].id; // 퀵타일 "기저귀" = 서버 mobile_diaper_hygiene 별칭
+    const importStubId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const includeAllList = [
+      ...serverSeedCategories,
+      { id: aliasId, name: "기저귀" },
+      { id: importStubId, name: "가져오기 기본" }
+    ];
+
+    const lookup = buildCategoryNameLookup(includeAllList);
+    expect(lookup(aliasId)).toBe("기저귀");
+    expect(lookup(importStubId)).toBe("가져오기 기본");
+
+    // 기본(노출 대상만) 목록이었다면 가져오기 스텁 라벨이 "기타"로 무너진다.
+    // (별칭 8개는 정적 카탈로그 폴백이 우연히 받아 주지만, 스텁은 폴백에도 없다.)
+    const selectableOnly = buildCategoryNameLookup(serverSeedCategories);
+    expect(selectableOnly(aliasId)).toBe("기저귀"); // categoryNameFor 폴백
+    expect(selectableOnly(importStubId)).toBe("기타"); // 무너지는 지점
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -69,7 +94,9 @@ describe("리포트 카테고리 비중 라벨 wiring", () => {
   it("resolves the category report's ids through the shared ['categories'] query", () => {
     expect(reportSource).toContain('import { buildCategoryNameLookup } from "../../src/categories";');
     expect(reportSource).toContain('queryKey: ["categories"]');
-    expect(reportSource).toContain("listCategories(authToken!)");
+    // CAT-124: 기본 목록은 노출 대상 12개뿐이라 별칭 id로 저장된 지출의 범례 라벨이
+    // "기타"로 무너진다. 이름 해석 경로는 반드시 전량(includeAll=1)을 받아야 한다.
+    expect(reportSource).toContain("listCategories(authToken!, { includeAll: true })");
     expect(reportSource).toContain("const categoryName = buildCategoryNameLookup(categories.data?.categories);");
     expect(reportSource).toContain("label: categoryName(entry.categoryId)");
     // The donut legend must no longer read from the static 8-tile mapping directly.

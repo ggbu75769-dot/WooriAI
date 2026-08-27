@@ -114,7 +114,16 @@ export function buildCategoryNameLookup(
  * user-facing picker: the id (chip key / stored value), the taxonomy `code` (which seed bundle
  * it came from) and the display `name` (what a duplicate looks like to the user).
  */
-export type SelectableCategory = { id: string; code: string; name: string };
+export type SelectableCategory = {
+  id: string;
+  code: string;
+  name: string;
+  /**
+   * CAT-124: server-side "is this a choice we offer?" flag (`GET /categories`). Optional so a
+   * response/cache from before the flag existed still type-checks and still behaves as it did.
+   */
+  selectable?: boolean;
+};
 
 /**
  * Server category `code` prefix of the mobile quick-tile alias rows
@@ -141,22 +150,29 @@ const IMPORT_STUB_CODE_PREFIX = "import_";
  * "기타" twice and offers the internal "가져오기 기본" — see docs/operations/known-limitations.md.
  *
  * Rules, in order:
- *   (a) drop the import stub (`code` starts with `import_`);
- *   (b) collapse entries that share the exact same display name down to one;
- *   (c) `currentCategoryId` — the category the expense being edited is already saved with — is
- *       ALWAYS kept, even if (a) or (b) would have dropped it, so the chip row can still show
- *       and re-select the current value instead of silently losing it.
+ *   (a) drop rows the server marks `selectable: false` (CAT-124 — the 8 mobile quick-tile aliases
+ *       and the excel-import stub). A MISSING flag means "offer it": that is what a response or
+ *       cache from before CAT-124 looks like, and dropping those would empty the row;
+ *   (b) drop the import stub by `code` prefix (`import_`) — kept as a belt-and-braces rule for the
+ *       pre-CAT-124 payloads rule (a) deliberately lets through, and for the demo backend;
+ *   (c) collapse entries that share the exact same display name down to one;
+ *   (d) `currentCategoryId` — the category the expense being edited is already saved with — is
+ *       ALWAYS kept, even if (a), (b) or (c) would have dropped it, so the chip row can still show
+ *       and re-select the current value instead of silently losing it. This is what keeps an
+ *       expense recorded through the 8-tile quick input (alias id) editable after CAT-124.
  *
  * Which entry survives a same-name group is deterministic: the current category first (so the
  * selection stays put), then a canonical row over a `mobile_`-prefixed alias, then input order.
  * The group takes the input position of its first member, so the caller's ordering
  * (displayOrder ascending) is preserved.
  *
- * NOTE: this only removes EXACT name duplicates. Near-duplicate pairs that read as redundant to
- * a user but are distinct labels ("기저귀/위생" vs the alias "기저귀", "수유/이유식" vs "분유/유제품")
- * are deliberately both kept — dropping one would remove a category that the 8-tile quick-input
- * screen (app/expenses/new.tsx) actively writes, which is a taxonomy decision for the server, not
- * a display filter. See known-limitations.md.
+ * CAT-124 changed what "near-duplicate" costs: pairs that read as redundant but are distinct
+ * labels ("기저귀/위생" vs the alias "기저귀", "수유/이유식" vs "분유/유제품") used to both survive,
+ * because dropping one client-side would have removed a category the 8-tile quick-input screen
+ * (app/expenses/new.tsx) actively writes. That was a taxonomy decision for the server — and the
+ * server has now made it: the alias rows are `selectable: false`, still exist, still accept new
+ * expenses, and still resolve names (the app fetches `?includeAll=1`), they are just no longer
+ * OFFERED. Rule (c) still matters for exact duplicates in the demo backend's fixture list.
  */
 export function selectableCategories<T extends SelectableCategory>(
   categories: readonly T[] | null | undefined,
@@ -166,6 +182,8 @@ export function selectableCategories<T extends SelectableCategory>(
   const isCurrent = (category: T) => Boolean(current) && category.id === current;
   const isAlias = (category: T) => (category.code ?? "").startsWith(MOBILE_ALIAS_CODE_PREFIX);
   const isImportStub = (category: T) => (category.code ?? "").startsWith(IMPORT_STUB_CODE_PREFIX);
+  // CAT-124: strictly `=== false`. `undefined` (pre-CAT-124 server/cache) means "offer it".
+  const isHiddenByServer = (category: T) => category.selectable === false;
 
   const kept: T[] = [];
   // name -> index in `kept`, so a later entry can replace an earlier one in place (keeping the
@@ -176,7 +194,7 @@ export function selectableCategories<T extends SelectableCategory>(
     if (!category?.id) continue;
     const name = category.name?.trim() ?? "";
     if (!name) continue;
-    if (isImportStub(category) && !isCurrent(category)) continue;
+    if ((isHiddenByServer(category) || isImportStub(category)) && !isCurrent(category)) continue;
 
     const slot = slotByName.get(name);
     if (slot === undefined) {

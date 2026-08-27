@@ -379,15 +379,15 @@ export class ExpensesStoreService {
    * 이득이다). FIX-121A의 `id` 타이브레이커가 여기서 두 번째 역할을 한다 — 동률 행이
    * 있어도 커서가 가리키는 지점이 유일하게 정해진다.
    *
-   * ⚠️ R24-M3 정정: 종전 주석은 "깊은 페이지에서도 앞 페이지를 다시 스캔하지 않는다"고
-   * 적었지만 **사실이 아니다**. Prisma는 튜플 비교 `(spent_on, created_at, id) < (...)`를
-   * 표현할 수 없어 위 술어가 3분기 OR로 나가고, Postgres는 그 OR를 인덱스 시작점으로
-   * 삼지 못한다 — 인덱스를 정렬 순서대로 훑으며 **Filter로 앞 페이지 행을 전부 버린
-   * 뒤** 이번 페이지를 채운다. 즉 읽는 인덱스 엔트리 수는 O(offset)이다(실측: offset
-   * 10,000에서 buffers 약 47배). 000017의 정렬 일치 인덱스가 Sort 노드를 없애고 힙
-   * 접근을 줄여 상수를 크게 낮추지만, O(offset) 자체는 남는다. 진짜 O(1) seek를
-   * 원하면 `$queryRaw`로 행 비교를 써야 하며, 그 판단·실측은
-   * docs/operations/perf-index-notes.md의 R24-M3 절에 남겼다.
+   * R24-M3 이력: Prisma는 튜플 비교 `(spent_on, created_at, id) < (...)`를 표현할 수
+   * 없어 위 술어가 3분기 OR로 나가고, OR 자체는 인덱스 시작점이 되지 못한다(Filter로
+   * 앞 페이지 행을 전부 버리는 O(offset) 재스캔 — 실측 offset 10,000에서 buffers 47배).
+   * 이를 후속(A)로 해소했다: 아래 `spentOnBounds`의 `lte: after.spentOn`이 OR가 함의하는
+   * 상한을 AND로 명시해, 000017 인덱스의 (child_id, spent_on) 범위가 Index Cond로
+   * 올라간다(실측 10,255 → 228 buf). 남는 비용은 커서 날짜와 같은 `spent_on` 동률 구간
+   * 하나에 비례할 뿐이다. 그 `lte`는 잉여 술어가 아니다 — 지우면 O(offset)으로 회귀하며,
+   * perf-indexes.db.test.ts의 R24-M3 단언이 이 플랜 모양을 고정한다. 판단·실측 이력은
+   * docs/operations/perf-index-notes.md의 R24-M3 절 참고.
    */
   async expensesForChild(
     childId: string,

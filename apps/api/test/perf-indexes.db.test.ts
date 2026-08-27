@@ -370,13 +370,37 @@ describe.skipIf(!dbAvailable)("R24-M3 expense list keyset index (migration 00001
   });
 
   /**
-   * 이 인덱스가 **고치지 못하는 것**을 명시적으로 고정한다. Prisma가 튜플 비교를
-   * 표현하지 못해 커서 술어는 3분기 OR로 나가고, Postgres는 그 OR를 인덱스 시작점
-   * (Index Cond)으로 삼지 못해 Filter로 처리한다 — 그래서 깊은 페이지에서 앞 페이지
-   * 전체를 훑는 O(offset)이 남는다(expensesForChild JSDoc의 R24-M3 정정 참고).
-   * 이 테스트가 깨지면(= OR이 Index Cond로 올라가면) 그 정정을 되돌릴 때가 온 것이다.
+   * R24-M3 후속(A) 플랜 계약. Prisma가 튜플 비교를 표현하지 못해 커서 술어는 3분기
+   * OR로 나가고, OR 자체는 인덱스 시작점(Index Cond)이 되지 못한다. 후속(A)는 OR가
+   * 함의하는 상한 `spent_on <= 커서`를 AND로 명시해(expensesForChild의 spentOnBounds)
+   * 그 상한이 Index Cond로 올라가게 한다 — 깊은 커서 실측 10,255 → 228 buf.
+   * 아래 SQL은 프로덕션 쿼리 모양 그대로다. 이 테스트가 깨지면 spentOnBounds의
+   * `lte`가 지워졌거나(45배 회귀) 플래너 동작이 바뀐 것이다.
    */
-  it("Prisma의 3분기 OR 커서 술어는 Index Cond가 아니라 Filter로 남는다 (O(offset) 잔존)", async () => {
+  it("(후속A) 프로덕션 모양: spent_on 상한 AND가 Index Cond로 올라가고 OR는 Filter로 남는다", async () => {
+    const plan = await explainWithoutSeqscan(
+      `SELECT id FROM expenses
+       WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL
+         AND spent_on <= '2026-07-06'::date
+         AND (spent_on < '2026-07-06'::date
+           OR (spent_on = '2026-07-06'::date AND created_at < '2026-07-06 03:04:05.123+00'::timestamptz)
+           OR (spent_on = '2026-07-06'::date AND created_at = '2026-07-06 03:04:05.123+00'::timestamptz
+               AND id < ${ZERO_UUID}))
+       ORDER BY spent_on DESC, created_at DESC, id DESC LIMIT 201`
+    );
+    expect(plan).toContain("idx_expenses_list_keyset");
+    // 상한이 인덱스 범위로 흡수된다 — 이것이 후속(A)의 전부다.
+    expect(plan).toMatch(/Index Cond: \(\(child_id = [^)]+\) AND \(spent_on <= /);
+    // 3분기 OR 자체는 여전히 Filter다(동률 구간 안에서만 행을 거른다).
+    expect(plan).toContain("Filter:");
+  });
+
+  /**
+   * 대조군: `lte` 상한이 없으면 커서 술어는 시작점을 전혀 좁히지 못한다(O(offset)).
+   * 후속(A) 이전의 쿼리 모양 — 위 테스트와 함께 "lte가 곧 성능"임을 플랜 수준에서
+   * 증명한다.
+   */
+  it("(대조) 상한 없는 3분기 OR만으로는 Index Cond가 child_id뿐이다", async () => {
     const plan = await explainWithoutSeqscan(
       `SELECT id FROM expenses
        WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL
@@ -388,7 +412,6 @@ describe.skipIf(!dbAvailable)("R24-M3 expense list keyset index (migration 00001
     );
     expect(plan).toContain("idx_expenses_list_keyset");
     expect(plan).toContain("Filter:");
-    // 인덱스 조건은 child_id 하나뿐 — 커서 술어는 시작점을 좁히지 못한다.
     expect(plan).toMatch(/Index Cond: \(child_id = /);
   });
 

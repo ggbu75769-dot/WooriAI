@@ -78,7 +78,11 @@ export default function ExpenseDetailScreen() {
     queryKey: ["categories"],
     enabled: Boolean(authToken),
     staleTime: 5 * 60 * 1000,
-    queryFn: () => listCategories(authToken!)
+    // CAT-124: includeAll=1 — 이 캐시 하나가 칩 목록과 이름 해석을 동시에 먹인다. 노출
+    // 제외 행(퀵타일 별칭·가져오기 스텁)까지 받아야 이미 그 id로 저장된 지출의 현재
+    // 카테고리를 칩으로 되살릴 수 있고(selectableCategories 규칙 d), 화면에 내미는 목록은
+    // selectableCategories가 정식 12개로 좁힌다.
+    queryFn: () => listCategories(authToken!, { includeAll: true })
   });
   const [itemName, setItemName] = useState("");
   const [amountDigits, setAmountDigits] = useState("");

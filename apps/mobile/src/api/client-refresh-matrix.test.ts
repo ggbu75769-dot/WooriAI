@@ -355,6 +355,35 @@ describe("client.ts 401→refresh retry matrix (COV-T3)", () => {
 
       expect(fetchMock).not.toHaveBeenCalled();
     });
+
+    // CAT-124: 노출 범위 스위치. 앱은 이름 해석 때문에 전량이 필요해 includeAll=true로 부른다.
+    it("maps listCategories' includeAll option onto the server's ?includeAll=1 query", async () => {
+      const seen: string[] = [];
+      const fetchMock = vi.fn(async (url: string) => {
+        seen.push(url);
+        return jsonResponse(200, { categories: [] });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await listCategories("live-access-token", { includeAll: true });
+      await listCategories("live-access-token");
+      await listCategories("live-access-token", { includeAll: false });
+
+      expect(seen).toEqual([
+        `${API_BASE_URL}/categories?includeAll=1`,
+        `${API_BASE_URL}/categories`,
+        `${API_BASE_URL}/categories`
+      ]);
+    });
+
+    it("keeps the local demo session off the network for the includeAll variant too", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse(401, { message: "unauthorized" }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { categories } = await listCategories(LOCAL_SESSION_TOKEN, { includeAll: true });
+      expect(categories.length).toBeGreaterThan(0);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 
   describe("requestExpenseJson (typed expense endpoints) shares the same refresh flow", () => {

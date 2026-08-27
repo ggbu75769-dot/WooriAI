@@ -174,6 +174,12 @@ export type CategoryListItem = {
   displayOrder: number;
   isSystem: boolean;
   active: boolean;
+  /**
+   * CAT-124: 사용자에게 고르라고 내밀 카테고리인지. 모바일 퀵타일 별칭 8행과 가져오기
+   * 스텁 1행이 false다. 필드가 없던 시절의 서버 응답·캐시도 그대로 동작해야 하므로
+   * optional이며, 소비자(src/categories.ts `selectableCategories`)는 `false`일 때만 감춘다.
+   */
+  selectable?: boolean;
 };
 
 export type MonthlyReport = {
@@ -673,10 +679,19 @@ export function getHome(token: string, childId: string) {
  * screen's category chip row -- see apps/api/src/finance/categories.controller.ts. A local test
  * session serves the demo fixture categories instead, whose ids match what the local backend's
  * own expenses use (see localBackend.listCategories).
+ *
+ * CAT-124: `includeAll` maps to the server's `?includeAll=1`, which adds the rows that are NOT
+ * offered as choices (the 8 mobile quick-tile aliases + the excel-import stub). The app asks for
+ * the full list on purpose: the single shared `["categories"]` cache feeds BOTH the pickers and
+ * `buildCategoryNameLookup`, and an expense already stored under an alias id would fall back to
+ * "기타" in the records rows / report legend / CSV export if those rows were missing. Narrowing
+ * for display happens client-side in `selectableCategories` (src/categories.ts), which honors the
+ * server's `selectable` flag -- so the picker shows the canonical 12, not 19.
  */
-export function listCategories(token: string) {
+export function listCategories(token: string, options?: { includeAll?: boolean }) {
   if (isLocalToken(token)) return local(() => localBackend.listCategories());
-  return requestJson<{ categories: CategoryListItem[] }>("/categories", { token });
+  const path = options?.includeAll ? "/categories?includeAll=1" : "/categories";
+  return requestJson<{ categories: CategoryListItem[] }>(path, { token });
 }
 
 export function createExpense(
