@@ -50,13 +50,19 @@ function emptyItemForm(): ItemFormState {
   };
 }
 
+/**
+ * ADM-124: 수정 폼은 저장된 값을 그대로 보여줘야 한다. 예전에는 가격 두 칸만 늘 빈칸으로
+ * 시작해서 (1) 현재 가격대를 폼에서 확인할 수 없고, (2) 빈칸=미전송이라 한 번 넣은
+ * 가격대를 지울 수도 없었다. 이제 서버가 원시 값(priceMinKrw/priceMaxKrw)을 내려주므로
+ * 다른 필드(timingLabel 등)와 같은 규칙 — 프리필하고, 비우면 지운다 — 을 따른다.
+ */
 function itemFormFromTemplate(item: ItemTemplate): ItemFormState {
   return {
     name: item.name,
     necessityLevel: item.necessityLevel,
     timingLabel: item.timingLabel ?? "",
-    priceMinKrw: "",
-    priceMaxKrw: "",
+    priceMinKrw: item.priceMinKrw == null ? "" : String(item.priceMinKrw),
+    priceMaxKrw: item.priceMaxKrw == null ? "" : String(item.priceMaxKrw),
     reasonText: item.reasonText,
     skipReasonText: item.skipReasonText ?? "",
     usedSecondhandOk: item.usedSecondhandOk,
@@ -102,8 +108,16 @@ function toItemTemplateInput(form: ItemFormState, mode: "create" | "edit"): Item
   }
   const min = form.priceMinKrw.trim();
   const max = form.priceMaxKrw.trim();
-  if (min) input.priceMinKrw = Number(min);
-  if (max) input.priceMaxKrw = Number(max);
+  if (mode === "edit") {
+    // ADM-124: 텍스트 필드와 같은 관례. PATCH는 생략한 필드를 그대로 두므로, 비운 칸도
+    // 반드시 보내야 한다 — 숫자 칸은 ""가 아니라 null이 "지움"이다(서버가 null을 받아
+    // 가격대를 비운다). 값이 있으면 종전대로 숫자를 보낸다.
+    input.priceMinKrw = min ? Number(min) : null;
+    input.priceMaxKrw = max ? Number(max) : null;
+  } else {
+    if (min) input.priceMinKrw = Number(min);
+    if (max) input.priceMaxKrw = Number(max);
+  }
   return input;
 }
 
@@ -114,12 +128,17 @@ function toggleStage(codes: ChildStageCode[], code: ChildStageCode): ChildStageC
 function ItemFormFields({
   form,
   onChange,
-  idPrefix
+  idPrefix,
+  mode
 }: {
   form: ItemFormState;
   onChange: (next: ItemFormState) => void;
   idPrefix: string;
+  mode: "create" | "edit";
 }) {
+  // ADM-124: 수정 폼에서 빈칸은 이제 "지움"이다(예전 안내 "비워두면 값을 바꾸지 않아요"는
+  // 실제 동작과 어긋난 데다, 지우는 방법 자체가 없었다).
+  const priceHint = mode === "edit" ? "비우면 가격대를 지워요." : "비워두면 가격대를 표시하지 않아요.";
   return (
     <div className={styles.form}>
       <div className={styles.formGrid}>
@@ -165,7 +184,7 @@ function ItemFormFields({
             value={form.priceMinKrw}
             onChange={(event) => onChange({ ...form, priceMinKrw: event.target.value })}
           />
-          <span className={styles.hint}>비워두면 값을 바꾸지 않아요.</span>
+          <span className={styles.hint}>{priceHint}</span>
         </div>
         <div className={styles.field}>
           <label htmlFor={`${idPrefix}-price-max`}>최대 가격(원)</label>
@@ -176,7 +195,7 @@ function ItemFormFields({
             value={form.priceMaxKrw}
             onChange={(event) => onChange({ ...form, priceMaxKrw: event.target.value })}
           />
-          <span className={styles.hint}>비워두면 값을 바꾸지 않아요.</span>
+          <span className={styles.hint}>{priceHint}</span>
         </div>
       </div>
 
@@ -380,7 +399,7 @@ export default function ItemTemplatesPage() {
       <section className={styles.card}>
         <h2>새 준비템 추가</h2>
         {isEditor ? <p className={styles.hint}>편집자 계정은 바로 저장하지 않고, 검토 요청을 관리자에게 보내요.</p> : null}
-        <ItemFormFields form={createForm} onChange={setCreateForm} idPrefix="create" />
+        <ItemFormFields form={createForm} onChange={setCreateForm} idPrefix="create" mode="create" />
         {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
         {createSuccess ? (
           <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
@@ -443,7 +462,7 @@ export default function ItemTemplatesPage() {
                     {editingId === item.id ? (
                       <tr>
                         <td colSpan={6}>
-                          <ItemFormFields form={editForm} onChange={setEditForm} idPrefix={`edit-${item.id}`} />
+                          <ItemFormFields form={editForm} onChange={setEditForm} idPrefix={`edit-${item.id}`} mode="edit" />
                           {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
                           {editError ? <p className={styles.errorBanner}>{editError}</p> : null}
                           <div className={styles.actions}>

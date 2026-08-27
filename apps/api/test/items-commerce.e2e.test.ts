@@ -731,4 +731,100 @@ describe("Items, commerce, and affiliate API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(400);
   });
+
+  /**
+   * ADM-124: 어드민 준비템 편집 폼의 가격대 왕복(프리필 -> 삭제 -> 재설정).
+   *
+   * 예전에는 어드민 응답에 표시용 문구(priceBandText)만 있어서 수정 폼의 가격 칸이 늘
+   * 빈칸으로 열렸고, 빈칸은 아예 전송되지 않아 "값을 바꾸지 않음"과 "값을 지움"을 구분할
+   * 수 없었다 — 한 번 넣은 가격대를 지울 방법이 없었다. 서버 쪽 계약 두 가지를 고정한다:
+   *  - 어드민 DTO가 원시 값(priceMinKrw/priceMaxKrw)을 함께 준다(폼 프리필의 재료).
+   *  - PATCH에서 필드 생략 = 그대로 두기, null = 지우기(timingLabel/safetyNote의 ""->null과 같은 관례).
+   * 앱용 DTO(itemSummary/itemDetail)는 그대로다 — 아래에서 원시 가격 필드가 새어 나가지
+   * 않는 것까지 확인한다(DNC-006 계약 불변).
+   */
+  it("exposes raw price bounds to the admin catalog DTO and lets a PATCH clear them with null", async () => {
+    const adminToken = "test-admin-token-adm124";
+    process.env.WOORIAI_ADMIN_TOKEN = adminToken;
+    const accessToken = await login(app, "adm124-price-band");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = moduleRef.get(PrismaService);
+    const asAdmin = (req: request.Test) => req.set("x-admin-token", adminToken);
+
+    const created = (
+      await asAdmin(request(app.getHttpServer()).post("/api/v1/admin/item-templates"))
+        .send({
+          name: "ADM-124 가격대 편집 테스트템",
+          necessityLevel: "essential",
+          reasonText: "가격대 프리필/삭제 왕복 고정용.",
+          priceMinKrw: 30000,
+          priceMaxKrw: 50000,
+          stageCodes: ["newborn_0_3"],
+          active: true
+        })
+        .expect(200)
+    ).body as { id: string; priceMinKrw: number | null; priceMaxKrw: number | null; priceBandText?: string };
+
+    try {
+      expect(created).toMatchObject({
+        priceMinKrw: 30000,
+        priceMaxKrw: 50000,
+        priceBandText: "30,000~50,000원"
+      });
+
+      // 목록(폼이 프리필에 쓰는 응답)에도 원시 값이 실린다.
+      const listed = (
+        await asAdmin(request(app.getHttpServer()).get("/api/v1/admin/item-templates")).expect(200)
+      ).body.items as Array<{ id: string; priceMinKrw: number | null; priceMaxKrw: number | null }>;
+      expect(listed.find((entry) => entry.id === created.id)).toMatchObject({
+        priceMinKrw: 30000,
+        priceMaxKrw: 50000
+      });
+
+      // 앱용 DTO는 넓어지지 않는다: 원시 가격 필드는 어드민 응답에만 있다.
+      const appItem = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/children/${childId}/items/${created.id}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body as Record<string, unknown>;
+      itemDetailSchema.parse(appItem);
+      expect(appItem.priceBandText).toBe("30,000~50,000원");
+      expect(appItem).not.toHaveProperty("priceMinKrw");
+      expect(appItem).not.toHaveProperty("priceMaxKrw");
+
+      // 필드를 생략한 PATCH는 가격대를 건드리지 않는다(부분 수정 그대로).
+      await asAdmin(request(app.getHttpServer()).patch(`/api/v1/admin/item-templates/${created.id}`))
+        .send({ reasonText: "가격대와 무관한 수정." })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ priceMinKrw: 30000, priceMaxKrw: 50000 });
+        });
+
+      // null은 "지움"이다 — 표시 문구도 함께 사라진다.
+      await asAdmin(request(app.getHttpServer()).patch(`/api/v1/admin/item-templates/${created.id}`))
+        .send({ priceMinKrw: null, priceMaxKrw: null })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.priceMinKrw).toBeNull();
+          expect(body.priceMaxKrw).toBeNull();
+          expect(body.priceBandText).toBeUndefined();
+        });
+      const cleared = await prisma.itemTemplate.findUniqueOrThrow({ where: { id: created.id } });
+      expect([cleared.priceMinKrw, cleared.priceMaxKrw]).toEqual([null, null]);
+
+      // 왕복: 다시 넣으면 그대로 돌아온다(한쪽만 넣는 것도 가능하다).
+      await asAdmin(request(app.getHttpServer()).patch(`/api/v1/admin/item-templates/${created.id}`))
+        .send({ priceMinKrw: 12000, priceMaxKrw: null })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ priceMinKrw: 12000, priceMaxKrw: null, priceBandText: "12,000원부터" });
+        });
+    } finally {
+      // 테스트 DB는 실행 간 유지되므로 이 템플릿이 다른 스위트의 카탈로그에 남지 않게 정리한다.
+      await prisma.itemTemplateStage.deleteMany({ where: { itemTemplateId: created.id } });
+      await prisma.itemTemplate.delete({ where: { id: created.id } });
+      delete process.env.WOORIAI_ADMIN_TOKEN;
+    }
+  });
 });
