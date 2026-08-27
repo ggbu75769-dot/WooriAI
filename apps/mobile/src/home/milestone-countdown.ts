@@ -79,6 +79,11 @@ export type HomeMilestoneCountdown = {
   /**
    * 지금 이 카드를 누르면 리포트 탭이 실제로 여는 마일스톤 — `selectMilestoneReportType`이
    * 정한다. 카운트다운이 가리키는 `milestone`과 다를 수 있다(100일 다음 날 ~ 첫돌 전날).
+   *
+   * 라운드 34 L10 관례: 화면은 이 값을 그리지 않는다(홈이 렌더하는 것은 `ctaLabel` 한 줄뿐이다,
+   * app/(tabs)/index.tsx). **테스트 전용 검산값**으로 남긴다 — 카드가 예고한 리포트와 리포트
+   * 탭이 실제로 여는 리포트가 같은지를 milestone-countdown.test.ts가 이 필드로 대조하기
+   * 때문이다. 지우면 `ctaLabel` 문자열을 되파싱하지 않고서는 그 검산이 사라진다.
    */
   reportMilestone: HomeMilestone;
   /** 카드 CTA 라벨 — "100일 리포트 보기" / "첫돌 리포트 보기". 여는 리포트를 그대로 예고한다. */

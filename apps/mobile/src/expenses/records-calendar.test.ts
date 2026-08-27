@@ -479,7 +479,15 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).toContain("const handleRecordsScrollToIndexFailed = useCallback(() => {");
     expect(recordsSource).toContain("if (scrollRetryCountRef.current >= RECORDS_SCROLL_RETRY_LIMIT) {");
     expect(recordsSource).toContain("scrollRetryCountRef.current += 1;");
-    expect(recordsSource).toContain("requestAnimationFrame(() => setPendingScrollDate(date));");
+    // 라운드 35 F7: 예약한 프레임은 핸들을 ref에 보관해 재예약·언마운트 때 취소한다 --
+    // 언마운트 뒤에 깨어난 프레임이 사라진 화면에 setState를 걸지 않게 한다(flashTimerRef 관례).
+    expect(recordsSource).toContain(
+      "const scrollRetryFrameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);"
+    );
+    expect(recordsSource).toContain("scrollRetryFrameRef.current = requestAnimationFrame(() => {");
+    expect(recordsSource).toContain("setPendingScrollDate(date);");
+    // 취소는 두 곳 모두에서 일어난다: 다음 예약 직전과 언마운트 cleanup.
+    expect(recordsSource.match(/cancelAnimationFrame\(scrollRetryFrameRef\.current\)/g) ?? []).toHaveLength(2);
     // 예전의 무동작 콜백은 남아 있지 않다.
     expect(recordsSource).not.toContain("function handleRecordsScrollToIndexFailed() {");
     // 실패해도 그 날짜 announce는 탭 시점에 이미 나갔다(무음 실패가 아니다).
@@ -585,11 +593,22 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   it("L6: 진해진 4단계 위에서도 칸 글자가 대비를 유지한다 (한 색으로 전 단계 통과)", () => {
     // 예전 brown(#3D3733)은 coral[400] 위에서 4.47:1로 AA 미달이라 gray900으로 낮췄다.
     expect(recordsSource).toContain("const calendarCellTextColor = theme.colors.gray900;");
-    // 단계마다 글자색을 바꾸지 않는다 -- 세 Text가 모두 같은 토큰을 쓴다.
+    // 라운드 35 F8: 종전 주석은 "세 Text가 모두 같은 토큰을 쓴다"였지만 사실이 아니다 --
+    // 아래 루프가 도는 것은 날짜·금액 **두** Text뿐이고, 세 번째인 "선물" 라벨은 보조 정보라
+    // gray600을 쓴다(calendarCellGiftStyle). 고정하려는 규칙은 "음영 단계마다 글자색을 바꾸지
+    // 않는다"이고, 그 규칙은 값을 그리는 두 Text에 걸린다. 선물 라벨 색은 아래에서 따로 못박아
+    // 두 색이 조용히 뒤섞이지 않게 한다.
     for (const styleName of ["calendarCellDayStyle", "calendarCellAmountStyle"]) {
       const block = recordsSource.slice(recordsSource.indexOf(`const ${styleName}`), recordsSource.indexOf(`const ${styleName}`) + 200);
       expect(block).toContain("color: calendarCellTextColor");
     }
+    // F8: 세 번째 Text("선물")는 gray600 보조색이다 -- 위 주석이 말하는 예외를 실제로 고정한다.
+    const giftStyleBlock = recordsSource.slice(
+      recordsSource.indexOf("const calendarCellGiftStyle"),
+      recordsSource.indexOf("const calendarLegendStyle")
+    );
+    expect(giftStyleBlock).toContain("color: theme.colors.gray600");
+    expect(giftStyleBlock).not.toContain("color: calendarCellTextColor");
     // 재검산 근거(대비 비율)가 주석에 남아 있어야 다음 팔레트 변경이 다시 계산한다.
     expect(recordsSource).toContain("4.47:1");
     expect(recordsSource).toContain("6.29:1");

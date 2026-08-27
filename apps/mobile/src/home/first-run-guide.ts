@@ -25,10 +25,28 @@
  * 개수를 모르는 경우(추천 0개)에는 카드를 아예 만들지 않는다 — "0개를 확인해 보세요"는 정보가
  * 아니다.
  *
+ * ## 왜 준비템 안내에 "신규 사용자" 게이트가 붙는가 (라운드 35 F6)
+ * 위 규칙만으로는 `first-items`가 **기록이 하나라도 있는 모든 사용자**에게 뜬다 — 5년째 쓰는
+ * 사용자가 앱을 새로 깔거나(플래그는 기기에 남는다) 캐시가 비워진 순간 "지금 시기 준비물
+ * 3개를 골라뒀어요"라는 첫 실행 안내를 다시 받는다. 이 카드는 첫 10분용이므로 "막 시작한
+ * 사람"으로 대상을 좁힌다:
+ *
+ *   - `recentRecordCount`(이번 달에 이 기기가 아는 기록 수 = 서버 캐시 + 오프라인 대기 행)가
+ *     `FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS` 이하일 때만 띄운다. 가입 일자를 홈이 알 수 없으니
+ *     (`/home`에 없다) **행동량으로 근사**한다. 모르면(null) 띄우지 않는다 — 모르는 상태에
+ *     첫 실행 안내를 띄우는 쪽이 더 큰 오류다.
+ *   - 개수는 **아직 준비되지 않은 추천만** 센다(`countUnpreparedRecommendedItems`). 준비템 탭이
+ *     "지금 시기 준비, 모두 마쳤어요"를 띄우는 아이에게 홈이 "준비물 3개를 골라뒀어요"라고
+ *     말하면 두 화면이 서로를 부정한다. 0개면 카드를 만들지 않는다(위 규칙과 동일).
+ *
  * ## 톤 (DNC-018)
  * 해요체, 짧은 문장, 비난·재촉 없음. "아직 아무것도 안 하셨네요" 대신 다음 한 걸음과 그 걸음이
  * 얼마나 가벼운지(10초)만 말한다.
  */
+
+import type { ItemStatus } from "@wooriai/domain";
+import { isResolvedItemStatus } from "../items/prep-progress";
+import { SYNC_ROW_PENDING_LABEL } from "../offline/messages";
 
 export type HomeFirstRunGuideVariant = "first-expense" | "first-items";
 
@@ -56,8 +74,17 @@ export type HomeFirstRunGuideInput = {
    * 수십 건을 기록한 사용자에게 없는 사실을 말하게 된다.
    */
   hasAnyExpenseRecord: boolean | null;
-  /** `/home` 응답의 `recommendedItems.length`(서버가 고른 지금 시기 준비물 수, 최대 3). */
+  /**
+   * `/home` 응답의 `recommendedItems` 중 **아직 준비되지 않은** 항목 수(최대 3).
+   * `countUnpreparedRecommendedItems`가 세 준다 — 준비 완료된 항목까지 세면 준비템 탭의
+   * "모두 마쳤어요" 축하와 정면으로 어긋난다(라운드 35 F6).
+   */
   recommendedItemCount: number;
+  /**
+   * 이번 달에 이 기기가 아는 지출 기록 수(서버 캐시 + 오프라인 대기 행). 아직 모르면 null.
+   * 준비템 첫 안내를 "막 시작한 사람"으로 좁히는 근사 게이트다(위 헤더 F6 참고).
+   */
+  recentRecordCount: number | null;
   /** 준비템 안내 카드를 이미 닫았는지(기기에 남는 1회성 플래그). */
   itemsGuideDismissed: boolean;
 };
@@ -66,6 +93,14 @@ export const FIRST_EXPENSE_GUIDE_TEST_ID = "home-first-expense-guide";
 export const FIRST_ITEMS_GUIDE_TEST_ID = "home-items-guide";
 /** 준비템 안내 카드의 닫기 버튼 라벨 — 준비템 탭의 축하 배너와 같은 말을 쓴다. */
 export const FIRST_ITEMS_GUIDE_DISMISS_LABEL = "닫기";
+/**
+ * 준비템 첫 안내를 띄울 "이번 달 기록 수" 상한.
+ *
+ * 3인 이유: 첫 지출 유도 카드가 사라지는 순간(1건)부터 몇 건 안에 준비템 탭으로 한 번 데려가는
+ * 것이 이 카드의 목적이다. 그보다 많이 기록한 사람은 이미 루프를 돌고 있으므로 첫 실행 안내가
+ * 아니라 방해가 된다. 값 자체에 마법은 없고, "한 자릿수 초반"이면 같은 판단이다.
+ */
+export const FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS = 3;
 
 function firstExpenseGuide(): HomeFirstRunGuide {
   const title = "첫 지출을 기록해 보세요";
@@ -105,9 +140,56 @@ export function evaluateHomeFirstRunGuide(input: HomeFirstRunGuideInput): HomeFi
   if (!input.hasAnyExpenseRecord) return firstExpenseGuide();
 
   if (input.itemsGuideDismissed) return null;
+  // F6 ①: "온보딩을 막 끝낸 사람"으로 좁히는 근사 게이트. 기록 수를 모르면(null) 띄우지 않는다.
+  if (typeof input.recentRecordCount !== "number" || !Number.isFinite(input.recentRecordCount)) return null;
+  if (input.recentRecordCount > FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS) return null;
+  // F6 ②: 이미 준비를 마친 항목은 세지 않는다(호출부가 countUnpreparedRecommendedItems로 센 값).
   const count = Number.isInteger(input.recommendedItemCount) ? input.recommendedItemCount : 0;
   if (count <= 0) return null;
   return firstItemsGuide(count);
+}
+
+/**
+ * `/home`의 `recommendedItems`에서 이 판정에 필요한 한 필드만 (contracts의 ItemSummary와 구조
+ * 호환). `status`를 넓은 `string`으로 받는 이유: 데모/테스트 세션의 로컬 백엔드
+ * (src/api/local-backend.ts)가 같은 자리에 좁혀지지 않은 문자열을 돌려주므로, 홈이 두 소스를
+ * 같은 함수로 셀 수 있어야 한다.
+ */
+export type RecommendedItemLike = { status: ItemStatus | (string & {}) };
+
+/**
+ * 아직 **준비 행동이 남은** 추천 준비물 수.
+ *
+ * "해결됨"의 정의는 준비템 탭의 준비율과 같은 도메인 규칙 하나뿐이다
+ * (`isResolvedItemStatus` = prepared / gifted / not_needed). 여기서 상태 목록을 다시 적으면
+ * 홈이 "3개 남았어요"라고 말하는 동안 준비템 탭이 "모두 마쳤어요"를 띄우는 어긋남이 생긴다.
+ *
+ * 모르는 상태 문자열은 "해결됨"으로 치지 않는다 — 그 판정은 집합 조회라(EXCLUDED_NOW_NEEDED_
+ * STATUSES) 낯선 값에서 "아직 준비 안 됨"으로 떨어지고, 이 카드에서 안전한 쪽은 그쪽이다
+ * (없는 준비 완료를 지어내지 않는다).
+ */
+export function countUnpreparedRecommendedItems(items: readonly RecommendedItemLike[]): number {
+  return items.filter((item) => !isResolvedItemStatus(item.status as ItemStatus)).length;
+}
+
+/**
+ * 라운드 35 F3 — "기록이 하나라도 있는가"의 **세션 내 이력 래치**.
+ *
+ * 동기화가 확정되는 순간 오프라인 대기 행이 먼저 사라지고(sync-controller의 스냅샷 갱신),
+ * 홈의 `["home"]` refetch는 그 다음이다. 그 사이 한 프레임 동안 서버 `recentExpenses`도 비어
+ * 있고 대기 행도 없어서 판정이 `true -> false -> true`로 순환하고, 방금 첫 기록을 남긴 사용자
+ * 눈앞에서 "첫 지출을 기록해 보세요" 카드가 다시 깜빡인다.
+ *
+ * 흡수는 **홈 쪽에서** 한다 — sync-controller의 갱신 순서는 다른 계약들이 함께 걸려 있어
+ * 건드리지 않는다. 한 번 참이었던 사실("이 아이에게 기록이 있다")은 세션 안에서 거짓으로
+ * 돌아가지 않으므로 래치가 허위를 만들지 않는다. 기록을 전부 지운 경우에도 다음 콜드 스타트에
+ * (세션 스토어이므로) 래치가 비어 있어 다시 정확해진다.
+ *
+ * `null`(아직 모름)은 래치하지 않는다 — "모른다"에 카드를 만들지 않는다는 규칙이 우선이다.
+ */
+export function latchHasAnyExpenseRecord(observed: boolean | null, everObservedTrue: boolean): boolean | null {
+  if (observed === null) return null;
+  return observed || everObservedTrue;
 }
 
 /** `LocalExpenseRow`에서 이 판정에 필요한 두 필드만 (src/offline/types.ts와 구조 호환). */
@@ -128,5 +210,30 @@ export type OfflineExpenseRowLike = {
  * 기록이므로 세지 않는다.
  */
 export function hasPendingOfflineCreate(rows: readonly OfflineExpenseRowLike[]): boolean {
-  return rows.some((row) => row.canonicalId === null && !row.pendingDelete);
+  return countPendingOfflineCreates(rows) > 0;
 }
+
+/**
+ * 같은 규칙으로 센 **개수**. 홈의 "최근 지출" 자리가 대기 행을 한 줄로 알릴 때 쓴다(F1).
+ * `hasPendingOfflineCreate`가 이 함수를 쓰므로 "있다"와 "몇 건"이 갈라질 수 없다.
+ */
+export function countPendingOfflineCreates(rows: readonly OfflineExpenseRowLike[]): number {
+  return rows.filter((row) => row.canonicalId === null && !row.pendingDelete).length;
+}
+
+/**
+ * 라운드 35 F1 — 홈 "최근 지출" 자리의 동기화 대기 한 줄.
+ *
+ * 오프라인으로 첫 기록을 남기면 서버 `recentExpenses`는 여전히 비어 있다. 그 자리에 MOB-117
+ * 빈 상태("첫 기록을 남기면 …")를 그대로 두면, 바로 위 축하 배너("첫 기록이에요!")와 같은
+ * 화면에서 서로를 부정한다. 기록 탭은 이런 행을 "동기화 대기" 부제로 그리므로, 홈도 **같은
+ * 단어**를 쓰되 목록을 복제하지 않고 한 줄만 알린다(홈의 역할은 요약이지 목록이 아니다).
+ *
+ * 문구의 "동기화 대기"는 offline/messages.ts의 단일 소스에서 가져온다 — 기록 탭·동기화 상태
+ * 화면과 표기가 갈라지지 않게 한 REC-123(H4) 규칙 그대로다.
+ */
+export function homePendingSyncNoticeText(count: number): string {
+  return `${SYNC_ROW_PENDING_LABEL} 중인 기록 ${count}건`;
+}
+
+export const HOME_PENDING_SYNC_NOTICE_TEST_ID = "home-recent-pending-sync";

@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
+import { useFirstRecordCelebrationStore } from "../home/first-record-celebration";
+import { useHomeFirstRunGuideStore } from "../home/first-run-guide.store";
 import {
   deactivateRegisteredPushDevice,
   resetPushRegistrationForTests,
@@ -59,6 +61,10 @@ async function seedUserScopedState(store: OfflineStore): Promise<void> {
     childId: "child-1",
     clickedAt: 1_700_000_000_000
   });
+  // 라운드 35 F5: 홈 첫 실행 상태 둘도 아이 id로 키가 잡힌 사용자 단위 상태다.
+  useHomeFirstRunGuideStore.getState().dismissItemsGuide("child-1");
+  useFirstRecordCelebrationStore.getState().observe("child-1", false);
+  useFirstRecordCelebrationStore.getState().observe("child-1", true);
 }
 
 async function expectStoreFullyEmpty(store: OfflineStore): Promise<void> {
@@ -81,6 +87,8 @@ async function simulateSessionTransition(
 
 beforeEach(() => {
   usePurchaseFollowupStore.setState({ entries: [] });
+  useHomeFirstRunGuideStore.getState().reset();
+  useFirstRecordCelebrationStore.getState().reset();
 });
 
 // ---------------------------------------------------------------------------
@@ -566,6 +574,40 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
     expect(await store.listOutboxMutations()).toHaveLength(1);
     expect(await store.getMeta(SYNC_CURSOR_META_KEY)).not.toBeNull();
     expect(usePurchaseFollowupStore.getState().entries).toHaveLength(1);
+    // 라운드 35 F5: 같은 사용자의 토큰 갱신에는 홈 첫 실행 상태도 그대로 남는다 -- 지우면
+    // 이미 닫은 준비템 안내가 다시 뜨고, 첫 기록 축하가 한 번 더 뜬다.
+    expect(useHomeFirstRunGuideStore.getState().dismissedItemsGuideChildIds).toEqual(["child-1"]);
+    expect(useFirstRecordCelebrationStore.getState().celebratedChildIds).toEqual({ "child-1": true });
+  });
+
+  it("라운드 35 F5: 홈 첫 실행 상태 두 스토어도 정체성 변경 때 함께 초기화된다 (NOTI-102 관례)", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+    // 사전 조건: 두 스토어 모두 A 계정의 아이 id를 들고 있다.
+    expect(useHomeFirstRunGuideStore.getState().isItemsGuideDismissed("child-1")).toBe(true);
+    expect(useFirstRecordCelebrationStore.getState().everHadRecordChildIds["child-1"]).toBe(true);
+
+    await simulateSessionTransition(store, userA, userB);
+
+    // persist되는 준비템 안내 플래그: 떠난 계정의 아이 id가 기기에 남지 않고, B의 첫 안내가
+    // A가 남긴 목록에 걸려 삼켜지지도 않는다.
+    expect(useHomeFirstRunGuideStore.getState().dismissedItemsGuideChildIds).toEqual([]);
+    // 세션 스토어인 첫 기록 축하: 관찰 이력·F3 래치·축하 여부가 모두 비워진다.
+    const celebration = useFirstRecordCelebrationStore.getState();
+    expect(celebration.observedHasRecord).toEqual({});
+    expect(celebration.celebratedChildIds).toEqual({});
+    expect(celebration.everHadRecordChildIds).toEqual({});
+    expect(celebration.activeChildId).toBeNull();
+  });
+
+  it("라운드 35 F5: 로그아웃에서도 같은 두 스토어가 비워진다", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+
+    await simulateSessionTransition(store, userA, loggedOut);
+
+    expect(useHomeFirstRunGuideStore.getState().dismissedItemsGuideChildIds).toEqual([]);
+    expect(useFirstRecordCelebrationStore.getState().everHadRecordChildIds).toEqual({});
   });
 
   it("sync-controller mounts the teardown from the same session-store subscription as the cursor invalidation (source verification -- the controller is not runtime-testable under vitest, see its header comment)", () => {

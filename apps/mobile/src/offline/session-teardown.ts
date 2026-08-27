@@ -1,4 +1,6 @@
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
+import { useFirstRecordCelebrationStore } from "../home/first-record-celebration";
+import { useHomeFirstRunGuideStore } from "../home/first-run-guide.store";
 import { useNotificationStore } from "../notifications/notification.store";
 import { deactivateRegisteredPushDevice } from "../notifications/usePushDeviceRegistration";
 import { clearAppQueryCache } from "../query/query-client-registry";
@@ -183,7 +185,8 @@ export type SessionTeardownContext = {
  *      awaited: it is a best-effort network call under the OUTGOING token, and teardown must
  *      never be delayed (or failed) by it. Kicked off before the awaits below so it uses the
  *      token while it is still valid;
- *   1. purchase-followup store reset — synchronous zustand set, effective immediately;
+ *   1. user-scoped zustand store resets (purchase-followup, notifications, and — since round 35's
+ *      F5 — the two home first-run stores) — synchronous sets, effective immediately;
  *   2. `wipeOfflineStore` STARTED (not yet awaited) — this must come before any `await` in this
  *      function because the wipe registers itself in sync-engine.ts's `inFlightWipes` map
  *      synchronously. From that moment, any `flushOutbox` call — including one that arrives
@@ -217,6 +220,14 @@ export async function teardownOfflineSessionState(
   usePurchaseFollowupStore.getState().resetAll();
   // NOTI-102: 알림 이력·중복 방지 키·시기 메타도 사용자 단위 상태이므로 함께 초기화한다.
   useNotificationStore.getState().resetAll();
+  // UX-G / 라운드 35 F5: 홈 첫 실행 상태 두 가지도 **아이 id로 키가 잡힌 사용자 단위 상태**라
+  // 같은 목록에 든다(NOTI-102와 같은 관례).
+  //  - 준비템 안내 "닫음" 플래그는 persist된다 -- 지우지 않으면 B 계정의 첫 안내가 A가 남긴
+  //    childId 목록에 걸려 조용히 삼켜질 수 있고, 떠난 계정의 아이 id가 기기에 남는다.
+  //  - 첫 기록 축하는 세션 스토어지만 관찰 이력·F3 래치를 들고 있어서, 지우지 않으면 B의 첫
+  //    기록이 A의 이력에 눌려 축하도 유도 카드도 어긋난다.
+  useHomeFirstRunGuideStore.getState().reset();
+  useFirstRecordCelebrationStore.getState().reset();
   // Step 2: start the wipe BEFORE the first await so it registers in inFlightWipes
   // synchronously — see the ordering rationale in the doc comment above.
   const wipe = wipeOfflineStore(store);
