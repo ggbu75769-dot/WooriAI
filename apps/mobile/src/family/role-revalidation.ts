@@ -28,10 +28,26 @@ export type HouseholdRoleSnapshot = { id: string; role?: string | null };
 export type RoleRevalidationRequest = {
   /** 지금 시각(Date.now()) — 모듈이 시계를 들지 않는다. */
   now: number;
-  /** 서버가 지금 말하는 가구·역할 목록(GET /me). */
-  fetchHouseholds: () => Promise<ReadonlyArray<HouseholdRoleSnapshot>>;
+  /**
+   * 서버가 지금 말하는 가구·역할 목록(GET /me).
+   *
+   * 라운드 41 K-4: 반환 타입이 **목록 없음(undefined/null)까지** 포함한다. 호출부가 부재 응답을
+   * `?? []`로 메워 넘기면 아래의 "목록이 없으면 표를 건드리지 않는다"는 계약이 그 자리에서
+   * 무력화되고(빈 배열은 배열이다), 서버가 아무 말도 하지 않은 순간에 역할 표가 통째로
+   * 지워진다 — 즉 잠겨 있어야 할 보기 전용 세션의 잠금이 근거 없이 풀린다.
+   */
+  fetchHouseholds: () => Promise<ReadonlyArray<HouseholdRoleSnapshot> | null | undefined>;
   /** 받아 온 목록으로 역할 표를 갈아 끼운다(세션 스토어의 setHouseholdRoles). */
   applyHouseholds: (households: ReadonlyArray<HouseholdRoleSnapshot>) => void;
+  /**
+   * 라운드 41 K-3: 스로틀을 건너뛴다(진행 중인 요청이 있으면 그래도 겹쳐 보내지 않는다).
+   *
+   * 스로틀의 전제는 "같은 사실을 반복해서 묻는다"이다 — 잠금 안내를 여러 번 누르는 자리가
+   * 그렇다. 그런데 **표가 방금 바뀐 것을 아는 순간**(초대 수락 응답)은 그 전제가 성립하지
+   * 않는다. 그 한 번을 스로틀에 먹히면 새 가구의 역할·가구 목록이 재로그인 전까지 갱신되지
+   * 않아, K-3가 고치려는 "ids 영구 null" 상태가 그대로 남는다.
+   */
+  force?: boolean;
 };
 
 export type HouseholdRoleRevalidator = {
@@ -59,9 +75,9 @@ export function createHouseholdRoleRevalidator(options?: {
   let inFlight = false;
 
   return {
-    request: ({ now, fetchHouseholds, applyHouseholds }) => {
+    request: ({ now, fetchHouseholds, applyHouseholds, force }) => {
       if (inFlight) return false;
-      if (lastRequestedAt !== null && now - lastRequestedAt < minIntervalMs) return false;
+      if (!force && lastRequestedAt !== null && now - lastRequestedAt < minIntervalMs) return false;
       lastRequestedAt = now;
       inFlight = true;
       // 조회는 **지금 바로** 시작한다(마이크로태스크로 미루지 않는다) — 안내가 뜬 그 순간의

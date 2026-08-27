@@ -182,6 +182,33 @@ export function needsChildHouseholdResolution(
 }
 
 /**
+ * 라운드 41 K-3 — 역할 표는 있는데 **서버가 말한 가구 목록을 모르는** 상태인가.
+ *
+ * 이 조합은 두 경로에서 실제로 만들어지고, 둘 다 스스로 빠져나오지 못했다:
+ *  - v3 블롭에서 올라온 세션(`householdRoles`는 저장돼 있고 `householdIds` 키는 없다);
+ *  - 초대 수락으로 참여한 계정(로그인 시점에는 가구가 없어 `households: []` → 둘 다 null이었고,
+ *    수락 응답의 `setHouseholdRole`이 표에 한 줄만 더한다 — 목록은 계속 null).
+ *
+ * 그 상태에서는 `isSingleKnownHousehold`가 항상 거짓이라 단일 가구 폴백이 꺼지고, 역할은
+ * undefined(모름)로 떨어져 **보기 전용이 잠기지 않는다**. 그러면 화면은 종전처럼 저장했다고
+ * 말하고 그 행은 flush에서 403을 받아 'failed'로 굳는다 — UX-R이 없애려던 바로 그 시퀀스인데,
+ * 재검증은 잠금 안내에서만 발화하므로(잠기지 않으니 안내도 없다) 회복 경로가 아예 없었다.
+ *
+ * 그래서 이 판정이 참이면 호출부가 **앱 세션당 한 번** 백그라운드 재검증을 걸어 표와 목록을
+ * 서버 응답 한 벌로 함께 채운다(useExpenseEntryGate). 판정 자체는 여기 순수 모듈에 둔다 —
+ * "표가 쓸 만한가"의 기준(usableRoleEntries)이 이 파일에만 있어야 어긋나지 않는다.
+ *
+ * 비세션·데모 판정은 하지 않는다: 호출부가 실토큰이 없으면 애초에 요청을 만들지 않는다.
+ */
+export function needsHouseholdIdsRepair({
+  householdRoles,
+  knownHouseholdIds
+}: Pick<ResolveHouseholdRoleInput, "householdRoles" | "knownHouseholdIds">): boolean {
+  if (knownHouseholdIds && knownHouseholdIds.length > 0) return false;
+  return usableRoleEntries(householdRoles).length > 0;
+}
+
+/**
  * 라운드 40 J-1 — 잠긴 세션에서 "지출을 만드는 동작"을 감싸는 규칙 한 줄.
  *
  * 진입점 열 곳을 잠가도 목적지 화면(app/expenses/new.tsx)이 그대로면 딥링크

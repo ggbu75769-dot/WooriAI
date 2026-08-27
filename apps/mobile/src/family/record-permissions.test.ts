@@ -12,6 +12,7 @@ import {
   isSingleKnownHousehold,
   isViewOnlyRole,
   needsChildHouseholdResolution,
+  needsHouseholdIdsRepair,
   resolveHouseholdRole,
   VIEW_ONLY_ROLES
 } from "./record-permissions";
@@ -165,6 +166,22 @@ describe("라운드 40 J-2 부분 표 vs 서버가 말한 가구 수", () => {
         knownHouseholdIds: ["h-1", "h-2"]
       })
     ).toBe(true);
+  });
+
+  /**
+   * 라운드 41 K-3 — "표는 있는데 목록은 모름"은 스스로 빠져나오지 못하던 막힌 상태였다.
+   * 잠기지 않으니 잠금 안내가 없고, 안내가 없으니 J-3의 재검증도 발화하지 않았다.
+   */
+  it("K-3: 표가 있는데 서버 가구 목록을 모르면 자가 치유 대상이다", () => {
+    // v3 블롭 · 초대 수락 계정이 만드는 바로 그 조합.
+    expect(needsHouseholdIdsRepair({ householdRoles: { "h-1": "viewer" }, knownHouseholdIds: null })).toBe(true);
+    expect(needsHouseholdIdsRepair({ householdRoles: { "h-1": "viewer" }, knownHouseholdIds: [] })).toBe(true);
+    // 목록을 알면 고칠 것이 없다(폴백이 정상 작동한다).
+    expect(needsHouseholdIdsRepair({ householdRoles: { "h-1": "viewer" }, knownHouseholdIds: ["h-1"] })).toBe(false);
+    // 표가 없거나 쓸 만한 항목이 없으면 애초에 "모름"이라 이 경로가 아니다(구세션·데모).
+    expect(needsHouseholdIdsRepair({ householdRoles: null, knownHouseholdIds: null })).toBe(false);
+    expect(needsHouseholdIdsRepair({ householdRoles: {}, knownHouseholdIds: null })).toBe(false);
+    expect(needsHouseholdIdsRepair({ householdRoles: { "h-1": "" }, knownHouseholdIds: null })).toBe(false);
   });
 });
 

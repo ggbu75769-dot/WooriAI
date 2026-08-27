@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Alert } from "react-native";
 import { getMe, listChildren, LOCAL_SESSION_TOKEN } from "../api/client";
 import { resolveExpenseHouseholdId } from "../expenses/records-list-view";
@@ -10,6 +11,7 @@ import {
   guardExpenseAction,
   isExpenseEntryLocked,
   needsChildHouseholdResolution,
+  needsHouseholdIdsRepair,
   resolveHouseholdRole
 } from "./record-permissions";
 import { createHouseholdRoleRevalidator } from "./role-revalidation";
@@ -55,15 +57,32 @@ const householdRoleRevalidator = createHouseholdRoleRevalidator();
  * 데모(테스트) 세션은 실토큰이 없어 그대로 지나간다 — 데모에는 서버 가구가 없고, 역할 표도
  * 애초에 null(모름)이라 잠기지 않으므로 이 경로에 오지도 않는다.
  */
-function revalidateHouseholdRoles(): void {
+export function revalidateHouseholdRoles(options?: { force?: boolean }): void {
   const { accessToken, setHouseholdRoles } = useSessionStore.getState();
   if (!accessToken) return;
   householdRoleRevalidator.request({
     now: Date.now(),
-    fetchHouseholds: () => getMe(accessToken).then((result) => result.households ?? []),
-    applyHouseholds: setHouseholdRoles
+    // 라운드 41 K-4: `?? []`를 붙이지 않는다. 부재 응답(households 키가 없는 예상 밖 응답)을
+    // 빈 배열로 메우면 role-revalidation의 "목록이 없으면 표를 건드리지 않는다"는 계약이
+    // 여기서 무너져 setHouseholdRoles([])가 불리고, 역할 표가 근거 없이 지워지면서 보기 전용
+    // 세션의 잠금이 풀린다(그다음 저장은 다시 403 → failed 행). undefined는 undefined로 넘기고,
+    // 판정은 순수 모듈이 한다.
+    fetchHouseholds: () => getMe(accessToken).then((result) => result.households),
+    applyHouseholds: setHouseholdRoles,
+    force: options?.force
   });
 }
+
+/**
+ * 라운드 41 K-3 — "표는 있는데 가구 목록은 모름"을 스스로 고치는 시도를 **앱 세션당 한 번**으로
+ * 묶는 래치. 스로틀(위)과 수명이 같은 모듈 지역 값이라 화면 리마운트에는 살아남고 콜드
+ * 스타트에는 비워진다.
+ *
+ * 왜 스로틀만으로 부족한가: 스로틀은 5분마다 다시 열리므로, 오프라인에서 이 상태로 홈에 머물면
+ * 렌더마다 판정이 참인 채로 5분 주기의 조용한 재시도가 계속된다. 자가 치유는 한 번이면 충분하고
+ * (성공하면 목록이 채워져 판정 자체가 거짓이 된다), 실패했을 때의 결과는 이 수정 이전과 똑같다.
+ */
+let attemptedHouseholdIdsRepair = false;
 
 /**
  * 안내를 띄우기만 하는 동작. 잡아 두는 값이 없어 **모듈 스코프**에 둔다 — 훅이 매 렌더 같은
@@ -86,6 +105,25 @@ export function useExpenseEntryGate(): ExpenseEntryGate {
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const hasSession = Boolean(authToken);
+
+  // 라운드 41 K-3: 역할 표는 있는데 서버가 말한 가구 목록을 모르는 세션(v3 블롭 · 초대 수락으로
+  // 참여한 계정)은 단일 가구 폴백이 꺼진 채라 **보기 전용이 잠기지 않는다**. 잠기지 않으니 잠금
+  // 안내도 없고, 안내가 없으니 J-3의 재검증도 발화하지 않는 막힌 상태였다. 그래서 이 훅이 처음
+  // 마운트되는 자리(앱 시작 후 홈)에서 백그라운드 재검증을 **한 번** 걸어 표와 목록을 서버 응답
+  // 한 벌로 함께 채운다. 실토큰이 없으면(데모·비세션) revalidateHouseholdRoles가 그대로 빠져나가고,
+  // 조회는 fire-and-forget이라 이번 렌더의 화면은 한 글자도 바뀌지 않는다.
+  const needsIdsRepair = hasSession && needsHouseholdIdsRepair({ householdRoles, knownHouseholdIds });
+  useEffect(() => {
+    if (!hasSession) {
+      // 로그아웃(또는 만료)로 세션이 끊기면 래치를 비운다 — 같은 앱 세션 안에서 다른 계정으로
+      // 다시 들어오면 그 계정에는 자가 치유가 한 번 더 필요하다.
+      attemptedHouseholdIdsRepair = false;
+      return;
+    }
+    if (!needsIdsRepair || attemptedHouseholdIdsRepair) return;
+    attemptedHouseholdIdsRepair = true;
+    revalidateHouseholdRoles();
+  }, [hasSession, needsIdsRepair]);
 
   // "지금 보고 있는 아이가 어느 가구인가"는 판정이 실제로 그것을 필요로 할 때만 알아낸다.
   // 표가 비었으면(모름) 어차피 잠기지 않고, 서버가 가구가 하나뿐이라고 말했으면 그 하나를

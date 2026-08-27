@@ -8,6 +8,8 @@ import {
   planAfterHouseholdJoin
 } from "../../../src/children/household-join";
 import { formatInviteExpiry } from "../../../src/family/memberLabels";
+// 라운드 41 K-3: 참여 직후 표·가구 목록을 서버 기준으로 한 벌로 다시 받는다(재검증 단일 소스).
+import { revalidateHouseholdRoles } from "../../../src/family/useExpenseEntryGate";
 import { useOnboardingProgressStore } from "../../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../../src/stores/selected-child.store";
 import { useSessionStore } from "../../../src/stores/session.store";
@@ -78,6 +80,17 @@ export default function AcceptInviteScreen() {
         // 모사하므로, 그 초대 역할을 내 역할로 담으면 데모에서 owner가 자기 초대를 눌러 본
         // 것만으로 기록 입구가 잠긴다. 알 수 없음으로 두면 데모는 예전 그대로다.
         useSessionStore.getState().setHouseholdRole(result.household.id, result.household.role);
+        // 라운드 41 K-3: 위 한 줄은 **한 가구에 대한 사실**이라 `householdIds`(서버가 말한 가구
+        // 목록)를 채우지 못한다 — 로그인 시점에 가구가 없던 계정(households: [])은 그 목록이
+        // null인 채로 남고, 그러면 단일 가구 폴백이 꺼져 보기 전용이 잠기지 않는다. 잠기지
+        // 않으니 잠금 안내도, 그 안내에 달린 J-3 재검증도 발화하지 않아 재로그인 전까지
+        // 회복 경로가 없었다(저장 → 403 → failed 행이 그대로 되살아난다).
+        //
+        // 그래서 참여 응답을 처리하는 이 자리에서 GET /me를 한 번 더 태워 **표와 목록을 한 벌로**
+        // 갱신한다. 새 모듈을 만들지 않고 J-3의 재검증 경로를 그대로 재사용하고, 스로틀만
+        // 건너뛴다(force) — 표가 방금 바뀐 것을 아는 순간이라 "같은 사실을 반복해 묻는다"는
+        // 스로틀의 전제가 성립하지 않는다. 조회는 백그라운드라 아래 이동 흐름을 붙잡지 않는다.
+        revalidateHouseholdRoles({ force: true });
       }
       // 데모(local-backend) 세션은 가구가 하나뿐이라 "다른 가구로 참여"를 모사하지 않는다
       // (FIX-118B(F3)와 같은 정직성 규칙) -- 알 수 없음으로 두어 허위 전환 안내를 막는다.

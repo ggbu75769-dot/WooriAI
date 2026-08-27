@@ -44,6 +44,8 @@ import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
+// 라운드 41 K-11: "이 품목 이력"의 모집단에 이 기기의 오프라인 대기·실패·충돌 행을 합류시킨다.
+import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
@@ -213,6 +215,8 @@ export default function ExpenseDetailScreen() {
   // buildItemHistory가 null을 돌려줘 섹션 자체가 사라진다(0건이라고 말하지 않는다).
   const currentYearMonth = formatExpenseDate(today).iso.slice(0, 7);
   const historyChildId = expense.data?.childId ?? null;
+  // 라운드 41 K-11: 이 기기의 오프라인 스냅숏(외부 스토어 구독 — 새 요청이 아니다).
+  const offlineSyncSnapshot = useOfflineSyncSnapshot();
   const cachedMonthExpenses =
     authToken && historyChildId
       ? queryClient.getQueryData<MonthExpenses>(["expenses", historyChildId, currentYearMonth])?.expenses
@@ -221,7 +225,12 @@ export default function ExpenseDetailScreen() {
     cachedMonthExpenses,
     cacheYearMonth: currentYearMonth,
     itemName,
-    currentExpenseId: expenseId
+    currentExpenseId: expenseId,
+    // 라운드 41 K-11: "이번 달 기록 기준"이라고 말하려면 이 기기가 아는 이번 달 기록이 전부
+    // 들어와야 한다. 서버 캐시 원본만 보면 아직 올라가지 않은 대기·실패·충돌 행이 빠지고,
+    // 로컬에서 고친 서버 행은 바뀌기 전 금액으로 보인다. 기록 탭·홈 주간 카드·예산 화면과
+    // 같은 재조정을 지나게 스냅숏을 그대로 넘긴다(순수 모듈이 childId·달로 좁힌다).
+    offline: { rows: offlineSyncSnapshot.rows, childId: historyChildId }
   });
 
   const amountKrw = Number(amountDigits || "0");

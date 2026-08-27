@@ -620,23 +620,36 @@ export function recordsRowSubtitle(input: {
 }
 
 /**
- * 라운드 41 UX-T(C): **메모에서만 맞은** 검색 결과에 붙이는 메모 조각.
+ * 라운드 41 UX-T(C) → K-12: 기록 탭 검색의 **판정과 근거 조각을 한 함수**로 낸다.
  *
- * 무엇이 문제였나 — 기록 탭 검색은 품목명과 **메모**를 함께 훑고(app/(tabs)/records.tsx의
- * `${expense.itemName} ${expense.memo ?? ""}`), placeholder도 "품목명, 메모로 검색"이라고
- * 약속한다. 그런데 행에 그려지는 것은 품목명 + "카테고리 · 날짜"뿐이라, "조리원"으로 검색해
- * 3건이 나와도 **화면 어디에도 '조리원'이 없다**. 사용자는 왜 이 세 건이 걸렸는지 알 수 없어
- * 결과를 신뢰할 수 없고, 한 건씩 열어 메모를 확인해야 했다.
+ * 무엇이 문제였나 — 기록 탭 검색은 품목명과 **메모**를 함께 훑고(placeholder도 "품목명, 메모로
+ * 검색"이라고 약속한다) 행에 그려지는 것은 품목명 + "카테고리 · 날짜"뿐이라, "조리원"으로 검색해
+ * 3건이 나와도 **화면 어디에도 '조리원'이 없다**. 그래서 UX-T(C)가 메모에서만 맞은 행에 근거
+ * 조각을 붙였다.
  *
- * 그래서 검색어가 **메모에서만** 맞은 행에 한해 부제 끝에 그 근거를 붙인다.
- *  - 품목명이 이미 검색어를 품고 있으면 붙이지 않는다 -- 행 제목이 곧 근거라, 같은 사실을 두 번
- *    말하면서 부제만 길어진다(선물/작성자 라벨이 "정보가 아니라 소음일 때는 빠진다"는 이 파일의
- *    다른 규칙과 같은 판단).
- *  - 검색어가 없으면 항상 null -- 검색하지 않는 동안 화면은 한 글자도 바뀌지 않는다
- *    (F8 스코프 줄·UX-P 범위 고지와 같은 규칙).
- *  - 메모 전체를 싣지 않는다. 긴 메모를 그대로 부제에 넣으면 목록의 행 높이가 들쭉날쭉해지고
- *    (PERF-102 가상화가 싫어하는 모양) 정작 검색어가 잘려 나갈 수 있어서, **검색어 주변만**
- *    잘라내고 잘린 쪽에 말줄임표를 붙인다.
+ * 그런데 그때 **판정이 두 벌**이었다. 화면의 필터는 `${itemName} ${memo}` 연결 문자열 하나를
+ * 훑고(app/(tabs)/records.tsx), 조각은 품목명·메모를 따로 봤다. 두 규칙은 대부분 같은 답을
+ * 내지만 **경계에 걸친 검색어**에서 갈린다: 품목명 "기저귀" + 메모 "조리원"인 행은 연결
+ * 문자열이 "기저귀 조리원"이라 "귀 조"로 검색하면 필터를 통과하는데, 조각 쪽은 품목명에도
+ * 메모에도 그 글자가 없어 null이었다 — 근거 없는 결과가 정확히 그 자리에서 되살아났다.
+ *
+ * 그래서 K-12는 판정을 **한 곳으로 합치고 명시적으로 분해**한다:
+ *   품목명 매치 | 메모 매치 | 경계 걸침 매치 — 셋 중 하나면 결과에 남고, 각 갈래가 자기 근거를
+ *   함께 낸다. 필터가 통과시키는데 조각이 설명하지 못하는 조합이 정의상 존재하지 않는다.
+ *
+ * 갈래별 근거:
+ *  - **품목명 매치**: 조각 없음. 행 제목이 곧 근거라, 같은 사실을 두 번 말하면서 부제만 길어진다
+ *    (선물/작성자 라벨이 "정보가 아니라 소음일 때는 빠진다"는 이 파일의 다른 규칙과 같은 판단).
+ *  - **메모 매치**: "메모 …조리원 2주 이용료…". 메모 전체를 싣지 않는다 -- 긴 메모를 그대로
+ *    부제에 넣으면 행 높이가 들쭉날쭉해지고(PERF-102 가상화가 싫어하는 모양) 정작 검색어가 잘려
+ *    나갈 수 있어서, **검색어 주변만** 잘라내고 잘린 쪽에 말줄임표를 붙인다.
+ *  - **경계 걸침 매치**: 검색어가 품목명 끝과 메모 앞에 나뉘어 있으므로 메모의 어느 조각도
+ *    검색어를 품지 못한다. 그 자리에 검색어가 든 척하는 조각을 놓으면 그것이야말로 허위 표시라,
+ *    **왜 걸렸는지를 사실로 말하고**(품목명과 메모에 걸쳐 일치) 사용자가 볼 수 없던 나머지 절반,
+ *    즉 메모 앞부분을 함께 준다.
+ *
+ * 검색어가 없으면 모든 행이 남고 조각은 항상 null이다 -- 검색하지 않는 동안 화면은 한 글자도
+ * 바뀌지 않는다(F8 스코프 줄·UX-P 범위 고지와 같은 규칙).
  *
  * 만들어 내는 것은 없다: 조각은 사용자가 직접 적어 둔 메모의 **원문 일부**이고, 앞에 붙는
  * "메모"는 그 출처를 밝히는 라벨이다(입력 폼·CSV 열이 쓰는 것과 같은 단어).
@@ -647,39 +660,82 @@ export const MEMO_SEARCH_SNIPPET_MAX_LENGTH = 24;
 /** 검색어 앞에 남기는 문맥 길이 -- 어디에 나온 말인지 보이되 검색어가 끝으로 밀리지 않게. */
 const MEMO_SEARCH_SNIPPET_LEAD_LENGTH = 6;
 const ELLIPSIS = "…";
+/** 라운드 41 K-12: 검색어가 품목명과 메모의 경계에 걸쳐 맞았을 때 그 사실을 말하는 라벨. */
+export const RECORD_SEARCH_SPANNING_LABEL = "품목명과 메모에 걸쳐 일치";
 
-export function buildMemoSearchSnippet(input: {
-  /** 행 제목(품목명). 여기서 이미 맞았으면 조각을 붙이지 않는다. */
-  itemName?: string | null;
-  /** `Expense.memo` -- 없거나 공백뿐이면 null. */
-  memo?: string | null;
-  /** 검색어 원본(트림 전). 비어 있으면 항상 null. */
-  searchText?: string | null;
-}): string | null {
-  const query = input.searchText?.trim().toLowerCase() ?? "";
-  if (query.length === 0) return null;
-  // 줄바꿈·연속 공백은 한 칸으로 -- 한 줄 부제에 여러 줄 메모가 그대로 들어가면 줄이 깨진다.
-  const memo = (input.memo ?? "").replace(/\s+/g, " ").trim();
-  if (memo.length === 0) return null;
-  // 품목명 매치는 화면이 이미 보여주고 있다(행 제목).
-  if ((input.itemName ?? "").toLowerCase().includes(query)) return null;
+/**
+ * 라운드 41 K-12 — 검색이 보는 문자열 정규화의 **단일 소스**: 줄바꿈·연속 공백을 한 칸으로 접고
+ * 앞뒤를 자른다. 대소문자는 여기서 건드리지 않는다 -- 조각은 사용자가 적은 그대로 보여 주고,
+ * 비교할 때만 아래에서 `toLowerCase()`를 건다.
+ *
+ * 예전에는 화면 필터가 원본 문자열을, 조각 쪽이 접은 문자열을 봐서 여러 줄 메모에서 두 판정이
+ * 또 한 번 갈릴 수 있었다. 접기를 한 곳에만 두어 그 자리를 없앤다.
+ */
+export function normalizeRecordSearchText(value: string | null | undefined): string {
+  return (value ?? "").replace(/\s+/g, " ").trim();
+}
 
-  const matchIndex = memo.toLowerCase().indexOf(query);
-  if (matchIndex < 0) return null;
+/** 검색어가 어디서 맞았는가. `none`은 "검색 중이 아님" 또는 "맞지 않음"이다(`matches`가 가른다). */
+export type RecordSearchMatchKind = "none" | "item" | "memo" | "spanning";
 
-  // 메모가 짧으면 통째로 -- 자를 이유가 없다(말줄임표도 붙지 않는다).
-  if (memo.length <= MEMO_SEARCH_SNIPPET_MAX_LENGTH) return `${MEMO_SEARCH_SNIPPET_LABEL} ${memo}`;
+export type RecordSearchMatch = {
+  /** 이 행이 검색 결과에 남는가. 검색어가 없으면 항상 true. */
+  matches: boolean;
+  kind: RecordSearchMatchKind;
+  /** 부제 끝에 붙일 근거 한 조각. 붙일 것이 없으면 null. */
+  snippet: string | null;
+};
 
-  // 검색어가 창 안에 들어오도록 시작점을 잡되, 창이 메모 끝을 넘지 않게 뒤에서 한 번 더 민다.
+/**
+ * 메모에서 잘라 낸 한 조각. `focusIndex` 주변을 창으로 잡되 창이 메모 끝을 넘지 않게 뒤에서
+ * 한 번 더 민다. 메모가 짧으면 통째로 돌려준다(말줄임표도 붙지 않는다).
+ */
+function memoSnippetWindow(memo: string, focusIndex: number): string {
+  if (memo.length <= MEMO_SEARCH_SNIPPET_MAX_LENGTH) return memo;
   const start = Math.max(
     0,
-    Math.min(matchIndex - MEMO_SEARCH_SNIPPET_LEAD_LENGTH, memo.length - MEMO_SEARCH_SNIPPET_MAX_LENGTH)
+    Math.min(focusIndex - MEMO_SEARCH_SNIPPET_LEAD_LENGTH, memo.length - MEMO_SEARCH_SNIPPET_MAX_LENGTH)
   );
   const end = Math.min(memo.length, start + MEMO_SEARCH_SNIPPET_MAX_LENGTH);
-  const body = memo.slice(start, end);
-  const prefix = start > 0 ? ELLIPSIS : "";
-  const suffix = end < memo.length ? ELLIPSIS : "";
-  return `${MEMO_SEARCH_SNIPPET_LABEL} ${prefix}${body}${suffix}`;
+  return `${start > 0 ? ELLIPSIS : ""}${memo.slice(start, end)}${end < memo.length ? ELLIPSIS : ""}`;
+}
+
+export function matchRecordSearch(input: {
+  /** 행 제목(품목명). 여기서 맞으면 화면이 이미 근거를 보여 주고 있다. */
+  itemName?: string | null;
+  /** `Expense.memo`(또는 오프라인 행의 payload.memo) -- 없으면 null. */
+  memo?: string | null;
+  /** 검색어 원본(트림 전). 비어 있으면 모든 행이 남는다. */
+  searchText?: string | null;
+}): RecordSearchMatch {
+  const query = normalizeRecordSearchText(input.searchText).toLowerCase();
+  if (query.length === 0) return { matches: true, kind: "none", snippet: null };
+
+  const itemName = normalizeRecordSearchText(input.itemName);
+  const memo = normalizeRecordSearchText(input.memo);
+
+  if (itemName.toLowerCase().includes(query)) return { matches: true, kind: "item", snippet: null };
+
+  const memoIndex = memo.toLowerCase().indexOf(query);
+  if (memoIndex >= 0) {
+    return {
+      matches: true,
+      kind: "memo",
+      snippet: `${MEMO_SEARCH_SNIPPET_LABEL} ${memoSnippetWindow(memo, memoIndex)}`
+    };
+  }
+
+  // 경계 걸침: 품목명 끝 + 메모 앞이 이어져야만 맞는 검색어. 예전 필터의 연결 문자열이 통과
+  // 시키던 바로 그 갈래이고, 이제는 그 사실을 근거로 말한다(메모가 비어 있으면 이을 것이 없다).
+  if (memo.length > 0 && `${itemName} ${memo}`.toLowerCase().includes(query)) {
+    return {
+      matches: true,
+      kind: "spanning",
+      snippet: `${RECORD_SEARCH_SPANNING_LABEL} · ${MEMO_SEARCH_SNIPPET_LABEL} ${memoSnippetWindow(memo, 0)}`
+    };
+  }
+
+  return { matches: false, kind: "none", snippet: null };
 }
 
 /**

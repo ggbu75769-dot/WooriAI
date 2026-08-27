@@ -301,4 +301,14 @@ describe("UX-A 아기 카운터 화면 배선 계약 (app/(tabs)/index.tsx)", ()
     // 문구를 화면에 하드코딩하지 않는다(설정 화면 버튼과 갈릴 수 있는 두 번째 소스 금지).
     expect(homeSource).not.toContain('"아이가 태어났어요"');
   });
+
+  it("라운드 41 K-8: 보기 전용 홈에는 전환 입구를 내지 않는다 (PATCH도 편집 권한을 요구한다)", () => {
+    // 게이트는 hasSession **그리고** 지출 기록과 같은 잠금 판정이다 -- 서버에서 두 동작의
+    // 권한 조건이 같은 requireChildAccess(..., true)이므로 판정을 두 벌로 만들지 않는다.
+    expect(homeSource).toContain("const birthTransitionPrompt = hasSession && !expenseGate.locked");
+    // 그 판정은 홈이 이미 한 번 받아 둔 값이다(새 훅·새 요청을 더하지 않는다).
+    expect(homeSource.match(/const expenseGate = useExpenseEntryGate\(\);/g) ?? []).toHaveLength(1);
+    // 잠금 판정 자체가 비세션에서 절대 참이 아니므로 HOME-001 픽셀락 렌더는 그대로다.
+    expect(homeSource).toContain("src/family/record-permissions.ts");
+  });
 });
