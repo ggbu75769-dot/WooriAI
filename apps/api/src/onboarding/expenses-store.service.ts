@@ -385,8 +385,14 @@ export class ExpensesStoreService {
    * 이를 후속(A)로 해소했다: 아래 `spentOnBounds`의 `lte: after.spentOn`이 OR가 함의하는
    * 상한을 AND로 명시해, 000017 인덱스의 (child_id, spent_on) 범위가 Index Cond로
    * 올라간다(실측 10,255 → 228 buf). 남는 비용은 커서 날짜와 같은 `spent_on` 동률 구간
-   * 하나에 비례할 뿐이다. 그 `lte`는 잉여 술어가 아니다 — 지우면 O(offset)으로 회귀하며,
-   * perf-indexes.db.test.ts의 R24-M3 단언이 이 플랜 모양을 고정한다. 판단·실측 이력은
+   * 하나에 비례할 뿐이다.
+   *
+   * 적용 범위 정확히(R26 리뷰 정정): 이 45배 이득과 "lte를 지우면 회귀한다"는 경고는
+   * **yearMonth 없이 호출되는 경우**에 대한 것이다. 모바일 클라이언트는 항상 yearMonth를
+   * 붙이므로(client.ts의 effectiveYearMonth) 앱 트래픽에서는 월 범위 gte/lt가 이미 스캔을
+   * 한 달로 묶어 O(offset) 문제 자체가 없고, 그 플랜에서 lte는 사실상 무해한 잉여다.
+   * lte를 유지하는 이유는 yearMonth 생략이 허용된 공개 API이기 때문이다 — 그 경로의
+   * 플랜 모양은 perf-indexes.db.test.ts의 R24-M3 후속A 단언이 고정한다. 판단·실측 이력은
    * docs/operations/perf-index-notes.md의 R24-M3 절 참고.
    */
   async expensesForChild(

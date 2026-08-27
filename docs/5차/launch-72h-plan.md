@@ -38,6 +38,7 @@ Android 단독 출시입니다(iOS는 다음 사이클 — D-04 결정 반영).
 - [ ] API 배포 (NestJS, `PORT=3000`). 헬스체크 경로: `GET /api/v1/health/ready`
 - [ ] 도메인 연결 + HTTPS (플랫폼 자동 인증서)
 - [ ] `pnpm --filter api prisma:deploy && pnpm --filter api seed` (마이그레이션 13개, 시드: 카테고리 12·준비템 62·링크 58)
+- ⚠️ **API·앱 동시 배포 전제 (CAT-124)**: `GET /categories` 기본 응답이 21행 → 12행(selectable만)으로 줄었고, 별칭/스텁 행이 필요한 클라이언트는 `?includeAll=1`을 보낸다. includeAll을 모르는 구버전 앱이 신버전 API를 만나면 8타일 빠른 입력 지출이 기록 탭 어떤 필터 칩에도 안 걸리고 가져오기 스텁 라벨이 "기타"로 무너진다. **첫 스토어 출시 전인 지금은 실사용 영향이 없지만, 출시 후 이런 종류의 기본 응답 축소는 앱 강제 업데이트나 버전 게이트 없이는 금지** — 이 배포에서는 API와 AAB를 같은 사이클에 내보내면 된다.
 
 ### 2.2 프로덕션 환경변수 (부트 시 `assertRequiredSecretsConfigured`가 누락을 즉시 잡음)
 ```

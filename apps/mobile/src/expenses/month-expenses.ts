@@ -23,7 +23,7 @@ import { collectExpensePages } from "../export/expense-page-collector";
  *   이 함수는 그것을 잡지 않는다 -- react-query의 기존 오류 경로(기록 탭의 "불러오지 못했어요"
  *   재시도 카드)로 그대로 나가야 한다. 부분 목록을 성공으로 위장해 돌려주면 이 티켓이 고치려는
  *   조용한 잘림이 그대로 남는다.
- - 서버의 `totalAmountKrw`는 **일부러 노출하지 않는다**. 기록 탭의 월 합계는
+ * - 서버의 `totalAmountKrw`는 **일부러 노출하지 않는다**. 기록 탭의 월 합계는
  *   `reconcileMonthlyExpenses(...).monthlyTotalKrw`(오프라인 대기 행 포함)이고 홈은
  *   `.expenses`만 쓴다 -- 여기서 서버 집계를 함께 내보내면 다음 사람이 그것을 화면
  *   합계로 쓸 수 있고, 그러면 오프라인 대기 행이 빠진 숫자가 화면의 다른 합계와
