@@ -5,6 +5,12 @@ import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-nativ
 import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
 import { getExpense, listCategories, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog, categoryNameFor, selectableCategories } from "../../src/categories";
+import {
+  EXPENSE_DELETE_FAILED_ALERT_TITLE,
+  EXPENSE_NOT_READY_ERROR,
+  expenseMutationErrorMessage,
+  INVALID_EXPENSE_INPUT_ERROR
+} from "../../src/expenses/save-error-messages";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -92,6 +98,11 @@ export default function ExpenseDetailScreen() {
   // the first time it loads -- see sync-controller.ts's adoptServerExpense.
   const [localExpenseId, setLocalExpenseId] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  // EXP-124: 수정 저장 실패 문구(문구 단일 소스는 src/expenses/save-error-messages.ts). 두
+  // 뮤테이션 모두 onSuccess만 배선되어 있어 실패가 무음이었다 -- 수정 저장은 화면이 그대로
+  // 남아 있으므로 저장 버튼 위 인라인 배너로, 삭제는 확인 Alert에서 이어지는 흐름이라 같은
+  // 자리의 Alert로 알린다(아래 remove.onError).
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!expense.data) return;
@@ -137,7 +148,7 @@ export default function ExpenseDetailScreen() {
   const save = useMutation({
     mutationFn: () => {
       if (!authToken || !localExpenseId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
-        throw new Error("invalid expense");
+        throw new Error(INVALID_EXPENSE_INPUT_ERROR);
       }
       return updateExpenseOffline(authToken, queryClient, localExpenseId, {
         amountKrw,
@@ -148,7 +159,16 @@ export default function ExpenseDetailScreen() {
         expenseType: isGift ? "gift" : "expense"
       });
     },
+    // 재시도는 "수정 저장"을 다시 누르는 것으로 충분하므로, 다음 시도가 시작될 때 이전 배너만
+    // 지운다(입력값은 그대로 남는다).
+    onMutate: () => {
+      setSaveErrorMessage(null);
+    },
+    onError: (error) => {
+      setSaveErrorMessage(expenseMutationErrorMessage("update", error));
+    },
     onSuccess: async () => {
+      setSaveErrorMessage(null);
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["expense", expenseId] });
@@ -158,8 +178,13 @@ export default function ExpenseDetailScreen() {
 
   const remove = useMutation({
     mutationFn: () => {
-      if (!authToken || !localExpenseId) throw new Error("missing expense");
+      if (!authToken || !localExpenseId) throw new Error(EXPENSE_NOT_READY_ERROR);
       return deleteExpenseOffline(authToken, queryClient, localExpenseId);
+    },
+    // 삭제는 확인 Alert에서 이어지는 흐름이라, 실패도 같은 자리(Alert)에서 알려야 사용자가
+    // 방금 누른 "삭제"가 어떻게 됐는지 놓치지 않는다. 화면은 그대로 남으므로 다시 시도할 수 있다.
+    onError: (error) => {
+      Alert.alert(EXPENSE_DELETE_FAILED_ALERT_TITLE, expenseMutationErrorMessage("delete", error));
     },
     onSuccess: async () => {
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
@@ -409,9 +434,9 @@ export default function ExpenseDetailScreen() {
               </Pressable>
             </Card>
 
-            {save.isError || remove.isError ? (
-              <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" />
-            ) : null}
+            {/* EXP-124: 수정 저장 실패 배너 -- 저장 버튼 바로 위, 입력값을 유지한 채 원인별 문구를
+                보여준다(삭제 실패는 위 remove.onError의 Alert로 알린다). */}
+            {saveErrorMessage ? <Toast message={saveErrorMessage} tone="error" /> : null}
             {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}
 
             <PrimaryButton

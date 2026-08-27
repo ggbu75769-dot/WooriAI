@@ -16,6 +16,7 @@ import {
   QUICK_AMOUNT_PRESETS_KRW
 } from "../../src/expenses/amount-presets";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
+import { expenseMutationErrorMessage, INVALID_EXPENSE_INPUT_ERROR } from "../../src/expenses/save-error-messages";
 import {
   buildRecentItemChips,
   formatRecentItemChipLabel,
@@ -267,11 +268,17 @@ export default function NewExpenseScreen() {
   // server-confirmed copy (that one only fires later, from a background flush -- see
   // src/offline/sync-controller.ts's flash-message wiring, surfaced on the records screen).
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  // EXP-124: 저장 실패 문구. 지금까지 이 뮤테이션에는 onSuccess만 배선되어 있어서, 입력 가드가
+  // 막았을 때도 createExpenseOffline의 SQLite 쓰기가 실패했을 때도 시트가 아무 반응 없이 그대로
+  // 있었다(사용자는 저장이 됐는지 알 수 없어 다시 눌러 중복 기록하거나 그냥 포기한다).
+  // 문구는 src/expenses/save-error-messages.ts가 단일 소스이고, 입력값은 그대로 남는다 —
+  // draft-storage 자동 저장도 계속 돌기 때문에 시트를 닫았다 열어도 내용이 살아 있다.
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const saveExpense = useMutation({
     mutationFn: () => {
       const amountKrw = Number(amountText);
       if (!authToken || !childId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
-        throw new Error("invalid expense");
+        throw new Error(INVALID_EXPENSE_INPUT_ERROR);
       }
       return createExpenseOffline(authToken, queryClient, {
         childId,
@@ -285,8 +292,17 @@ export default function NewExpenseScreen() {
         ...(linkedItemTemplateId ? { linkedItemTemplateId } : {})
       });
     },
+    // 다음 저장 시도가 시작되면 이전 실패 배너를 먼저 지운다 -- 재시도는 저장 버튼을 다시
+    // 누르는 것으로 충분하므로 별도 "다시 시도" 컨트롤을 만들지 않는다.
+    onMutate: () => {
+      setSaveErrorMessage(null);
+    },
+    onError: (error) => {
+      setSaveErrorMessage(expenseMutationErrorMessage("create", error));
+    },
     onSuccess: async () => {
       clearQuickExpenseDraft();
+      setSaveErrorMessage(null);
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
       // ANA-103: expense_recorded fires once per successful (local-first) create. The payload is
       // PII-safe by construction (src/analytics/events.ts): the raw amount is bucketed and the
@@ -679,7 +695,12 @@ export default function NewExpenseScreen() {
           </Pressable>
         ) : null}
 
-        {saveExpense.isError ? <Toast message="금액과 항목을 확인해 주세요." tone="error" /> : null}
+        {/* EXP-124: 저장 버튼 바로 위 인라인 오류 배너. Toast는 이 앱에서 화면 흐름 안에 그대로
+            놓이는 인라인 알림이고(accessibilityRole="alert" + live region으로 TalkBack에도
+            읽힌다), 실패해도 입력값은 그대로 남아 사용자가 고쳐서 바로 다시 저장할 수 있다.
+            초기값이 null이라 EXP-001 픽셀 락 캡처(세션 없음, 저장 시도 없음)에서는 렌더되지
+            않는다. */}
+        {saveErrorMessage ? <Toast message={saveErrorMessage} tone="error" /> : null}
         {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}
           <PrimaryButton
             disabled={saveExpense.isPending || isAmountInvalid}
