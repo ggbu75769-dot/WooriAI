@@ -1,4 +1,5 @@
 import { formatKrw } from "../money";
+import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";
 
 /**
  * REP-121 홈 "지난달 같은 시점 대비" 인사이트 한 줄 — 순수 계산 + 문구.
@@ -36,12 +37,19 @@ import { formatKrw } from "../money";
  * - 지난달에 기록 자체가 없으면(첫 달 사용자 포함) 아무것도 렌더하지 않는다(null).
  */
 
-/** 비교에 필요한 최소 지출 행 — src/api/client.ts의 Expense가 그대로 만족한다. */
+/**
+ * 비교에 필요한 최소 지출 행 — src/api/client.ts의 Expense가 그대로 만족한다.
+ *
+ * 정밀 리뷰 F3: 기록 탭은 이제 서버 행뿐 아니라 **미동기화 로컬 행**(src/offline/types.ts의
+ * ExpensePayload)도 여기에 넣는다. 그 페이로드의 `expenseType`은 선택 필드라 필드가 도입되기
+ * 전에 저장된 레거시 행에는 아예 없다 -- 그래서 optional이며, 없을 때의 취급은
+ * `countsTowardMonthlyTotal`(offline/expense-list-reconciliation.ts)이 단독으로 정한다.
+ */
 export type ComparableExpenseRecord = {
   amountKrw: number;
   /** "YYYY-MM-DD" (서버 toExpenseDto의 date-only 포맷). */
   spentOn: string;
-  expenseType: string;
+  expenseType?: string | null;
 };
 
 export type LastMonthComparisonDirection =
@@ -117,7 +125,13 @@ export function daysInYearMonth(yearMonth: string): number {
 
 /**
  * `yearMonth` 달의 1일부터 `throughDay`까지 지출 합계. 선물/환불은 제외하고
- * (`expenseType === "expense"`만) 다른 달 행이 섞여 들어와도 무시한다.
+ * (DNC-015 화이트리스트) 다른 달 행이 섞여 들어와도 무시한다.
+ *
+ * 정밀 리뷰 F3(부수): 제외 술어를 `countsTowardMonthlyTotal`(기록 탭 월 합계가 쓰는 바로 그
+ * 함수)로 통일했다. 예전에는 여기서만 `expenseType !== "expense"`로 걸러 **필드 없는 레거시
+ * 로컬 행**이 빠졌고, 기록 탭의 델타는 같은 종류의 행을 이번 달 항에서는 세고 지난달 항에서는
+ * 세지 않았다. 두 항이 같은 술어를 쓰는 편이 정직하다 -- 그리고 서버 행은 `expenseType`이 항상
+ * 채워져 있으므로 이 완화가 서버 집계와의 정합(선물·환불 제외)을 건드리지 않는다.
  */
 export function sumMonthExpensesThroughDay(
   records: ComparableExpenseRecord[],
@@ -126,7 +140,7 @@ export function sumMonthExpensesThroughDay(
 ): number {
   let total = 0;
   for (const record of records) {
-    if (record.expenseType !== "expense") continue;
+    if (!countsTowardMonthlyTotal(record.expenseType)) continue;
     const matched = DATE_ONLY_PATTERN.exec(record.spentOn);
     if (!matched) continue;
     if (record.spentOn.slice(0, 7) !== yearMonth) continue;

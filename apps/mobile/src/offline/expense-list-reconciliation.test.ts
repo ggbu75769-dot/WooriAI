@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reconcileMonthlyExpenses } from "./expense-list-reconciliation";
+import { countsTowardMonthlyTotal, reconcileMonthlyExpenses } from "./expense-list-reconciliation";
 import type { LocalExpenseRow } from "./types";
 
 const childId = "child-1";
@@ -204,5 +204,44 @@ describe("reconcileMonthlyExpenses (H-2 fix: no duplicate display / no double-su
 
     expect(result.offlinePendingRows[0].payload.expenseType).toBeUndefined();
     expect(result.monthlyTotalKrw).toBe(8_000);
+  });
+
+  it("재조정은 넘긴 yearMonth의 로컬 대기 행만 집는다 (지난달 재조정을 같은 함수로 할 수 있어야 한다)", () => {
+    // F3: 기록 탭이 지난달 목록에도 이 함수를 그대로 걸 수 있는지 -- 월 파라미터가 로컬 행
+    // 선택에 실제로 반영되는지 고정한다.
+    const offline = [
+      offlineRow({ localId: "local-jul", canonicalId: null, payload: { ...offlineRow({}).payload, amountKrw: 3_000, spentOn: "2026-07-09" } }),
+      offlineRow({ localId: "local-aug", canonicalId: null, payload: { ...offlineRow({}).payload, amountKrw: 4_000, spentOn: "2026-08-02" } })
+    ];
+
+    const july = reconcileMonthlyExpenses([], offline, "2026-07");
+    const august = reconcileMonthlyExpenses([], offline, "2026-08");
+
+    expect(july.offlinePendingRows.map((row) => row.localId)).toEqual(["local-jul"]);
+    expect(july.monthlyTotalKrw).toBe(3_000);
+    expect(august.offlinePendingRows.map((row) => row.localId)).toEqual(["local-aug"]);
+    expect(august.monthlyTotalKrw).toBe(4_000);
+  });
+});
+
+/**
+ * 정밀 리뷰 F3(부수): 이 술어는 이제 src/home/last-month-comparison.ts의
+ * sumMonthExpensesThroughDay도 import해서 쓰는 **단일 소스**다. 기록 탭 델타의 두 항이 같은
+ * 규칙으로 나오도록 하는 것이 목적이라 규칙 자체를 여기서 못 박는다.
+ */
+describe("countsTowardMonthlyTotal (월 합계 화이트리스트, DNC-015)", () => {
+  it("일반 지출만 센다 -- 선물·환불 제외", () => {
+    expect(countsTowardMonthlyTotal("expense")).toBe(true);
+    expect(countsTowardMonthlyTotal("gift")).toBe(false);
+    expect(countsTowardMonthlyTotal("refund")).toBe(false);
+  });
+
+  it("서버가 새 expenseType을 추가해도 자동으로 지출로 세지 않는다 (블랙리스트가 아니라 화이트리스트)", () => {
+    expect(countsTowardMonthlyTotal("reimbursement")).toBe(false);
+  });
+
+  it("필드가 없는 레거시 로컬 페이로드는 지출로 간주한다 (합계에서 통째로 빠지면 안 된다)", () => {
+    expect(countsTowardMonthlyTotal(undefined)).toBe(true);
+    expect(countsTowardMonthlyTotal(null)).toBe(true);
   });
 });

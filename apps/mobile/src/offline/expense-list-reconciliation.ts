@@ -56,9 +56,15 @@ export type MonthlyExpenseReconciliation<TServerExpense extends ServerExpenseLik
  * 관례와 동일하고, 필드가 도입되기 전에 저장된 오프라인 행을 합계에서 통째로 떨어뜨리지
  * 않기 위해서다. (오프라인 저장소의 ExpenseKind는 아직 "expense" | "gift"뿐이라 환불은 서버
  * 목록으로만 들어오지만, 두 집합에 같은 규칙을 적용해 두는 편이 드리프트를 막는다.)
+ *
+ * 정밀 리뷰 F3(부수): src/home/last-month-comparison.ts의 sumMonthExpensesThroughDay가 이 술어를
+ * **그대로 import해서** 쓴다. 기록 탭의 "지난달 같은 시점 대비" 한 줄은 이번 달 항을 여기서,
+ * 지난달 항을 저기서 계산하므로 두 곳의 규칙이 갈리면 그 자체가 허위 비교가 된다. 예전에는
+ * 저쪽이 `!== "expense"`로 걸러 `expenseType` 없는 레거시 로컬 행을 떨어뜨렸다 -- 같은 행이
+ * 이번 달에는 세어지고 지난달에는 빠지는 비대칭이었다. 술어를 한 곳(여기)에만 두어 막는다.
  */
-function countsTowardMonthlyTotal(expenseType: string | undefined): boolean {
-  return expenseType === undefined || expenseType === "expense";
+export function countsTowardMonthlyTotal(expenseType: string | null | undefined): boolean {
+  return expenseType === undefined || expenseType === null || expenseType === "expense";
 }
 
 export function reconcileMonthlyExpenses<TServerExpense extends ServerExpenseLike>(

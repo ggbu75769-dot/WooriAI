@@ -6,8 +6,8 @@ import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View 
 import { getSeoulToday } from "@wooriai/domain";
 import { listCategories, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { buildCategoryNameLookup, type CategoryNameLookup } from "../../src/categories";
-import { buildRecordsCategoryChips, recordsRowSubtitle } from "../../src/expenses/records-list-view";
-import { evaluateLastMonthComparison, previousYearMonth } from "../../src/home/last-month-comparison";
+import { buildRecordsCategoryChips, formatSpentOn, recordsRowSubtitle } from "../../src/expenses/records-list-view";
+import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
 import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 import {
@@ -57,11 +57,8 @@ type RecordsListItem =
   | { kind: "offline"; key: string; row: LocalExpenseRow }
   | { kind: "server"; key: string; expense: ServerExpense; categoryName: CategoryNameLookup };
 
-function formatSpentOn(spentOn: string) {
-  const parts = spentOn.split("-");
-  if (parts.length !== 3) return spentOn;
-  return `${Number(parts[1])}월 ${Number(parts[2])}일`;
-}
+// HOME-124: `formatSpentOn`은 src/expenses/records-list-view.ts로 승격했다 -- 홈의 "최근 지출"
+// 행이 같은 포맷을 쓰도록 하기 위해서다(예전에는 ISO 원본을 그대로 그렸다).
 
 function addMonths(date: Date, months: number) {
   return new Date(date.getFullYear(), date.getMonth() + months, 1);
@@ -277,15 +274,48 @@ export default function RecordsScreen() {
   // stale server row + the local pending row) and double-count in the total. See
   // src/offline/expense-list-reconciliation.ts (unit-tested) for the full rationale.
   const serverExpenses = expenses.data?.expenses;
-  const { visibleServerExpenses: monthlyServerExpenses, offlinePendingRows, monthlyTotalKrw } = useMemo(() => {
-    const childOfflineRows = childId ? syncSnapshot.rows.filter((row) => row.childId === childId) : [];
-    return reconcileMonthlyExpenses(serverExpenses ?? [], childOfflineRows, recordsYearMonth);
-  }, [serverExpenses, syncSnapshot.rows, childId, recordsYearMonth]);
+  // 이 아이의 미동기화 로컬 행 -- 보고 있는 달과 지난달 재조정이 **같은 집합**을 써야 두 항이
+  // 대칭이 된다(아래 F3 주석).
+  const childOfflineRows = useMemo(
+    () => (childId ? syncSnapshot.rows.filter((row) => row.childId === childId) : []),
+    [syncSnapshot.rows, childId]
+  );
+  const { visibleServerExpenses: monthlyServerExpenses, offlinePendingRows, monthlyTotalKrw } = useMemo(
+    () => reconcileMonthlyExpenses(serverExpenses ?? [], childOfflineRows, recordsYearMonth),
+    [serverExpenses, childOfflineRows, recordsYearMonth]
+  );
+
+  // 정밀 리뷰 F3: 델타의 두 항이 **같은 규칙**으로 나와야 한다.
+  //
+  // 이번 달 항(monthlyTotalKrw)은 reconcileMonthlyExpenses를 거쳐 미동기화 로컬 행까지 포함하는데,
+  // 지난달 항은 서버 목록 원본을 그대로 넘기고 있었다. 오프라인에서 기록해 아직 올라가지 않은 행이
+  // 남아 있으면(동기화 실패·충돌로 며칠씩 남는 경우가 실제로 있다) 이번 달에는 더해지고 지난달에는
+  // 빠져서 "지난달 같은 시점보다 200% 많이 썼어요" 같은 **허위 비교**가 나온다. 반대로 지난달 서버
+  // 행을 로컬에서 수정/삭제 대기시켜 둔 경우에는 기준액이 과대 계상된다(이미 취소한 지출로 비교).
+  //
+  // 그래서 지난달 목록에도 **똑같은 재조정**을 건다: 로컬 변경이 걸린 낡은 서버 행은 숨기고, 지난달
+  // 날짜를 가진 로컬 대기 행은 더한다. 재조정 결과를 합계가 아니라 **행 목록**으로 되돌려주는 이유는
+  // evaluateLastMonthComparison이 "같은 일자까지"를 스스로 잘라야 하기 때문이다(월 전체 합계로는
+  // 동시점 비교가 불가능하다 -- src/home/last-month-comparison.ts 참고).
+  //
+  // 선물·환불 제외 기준(DNC-015)도 양쪽이 같다: reconcileMonthlyExpenses의 countsTowardMonthlyTotal을
+  // sumMonthExpensesThroughDay가 그대로 import해 쓴다(expenseType 없는 레거시 로컬 행 = expense 포함).
+  const lastMonthComparableRecords = useMemo<ComparableExpenseRecord[] | null>(() => {
+    const lastMonthServerExpenses = lastMonthExpenses.data?.expenses;
+    if (!lastYearMonth || !lastMonthServerExpenses) return null;
+    const reconciled = reconcileMonthlyExpenses(lastMonthServerExpenses, childOfflineRows, lastYearMonth);
+    return [
+      ...reconciled.visibleServerExpenses,
+      ...reconciled.offlinePendingRows.map((row) => ({
+        amountKrw: row.payload.amountKrw,
+        spentOn: row.payload.spentOn,
+        expenseType: row.payload.expenseType
+      }))
+    ];
+  }, [lastMonthExpenses.data, childOfflineRows, lastYearMonth]);
 
   // REC-123(D1): 이번 달 값으로는 화면에 이미 보이는 합계(monthlyTotalKrw)를 그대로 넘긴다 --
   // 오프라인 대기 행까지 반영된 이 화면의 숫자와 비교 문장이 어긋나면 그 자체가 허위 표시다.
-  // 두 값 모두 expenseType === "expense"만 세므로(reconcileMonthlyExpenses의 countsTowardMonthlyTotal
-  // ↔ sumMonthExpensesThroughDay) 선물·환불 제외 기준도 서로 같다(DNC-015).
   // 서버 목록이 아직 없으면(로딩/오류) 합계 0을 "이번 달 지출 없음"으로 오해할 수 있으므로
   // 요약 줄과 똑같이 expenses.data가 있을 때만 계산한다.
   const lastMonthInsight =
@@ -293,7 +323,7 @@ export default function RecordsScreen() {
       ? evaluateLastMonthComparison({
           todayIso: seoulToday,
           thisMonthToDateKrw: monthlyTotalKrw,
-          lastMonthRecords: lastMonthExpenses.data?.expenses ?? null
+          lastMonthRecords: lastMonthComparableRecords
         })
       : null;
 

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { categoryCatalog } from "../categories";
-import { buildRecordsCategoryChips, recordsRowSubtitle } from "./records-list-view";
+import { buildRecordsCategoryChips, formatSpentOn, homeRecentExpenseSubtitle, recordsRowSubtitle } from "./records-list-view";
 
 const mobileRoot = process.cwd();
 
@@ -110,8 +110,78 @@ describe("recordsRowSubtitle", () => {
   });
 });
 
+describe("HOME-124 formatSpentOn", () => {
+  it("ISO date-only를 사람이 읽는 날짜로 바꾼다 (앞의 0 제거)", () => {
+    expect(formatSpentOn("2026-08-27")).toBe("8월 27일");
+    expect(formatSpentOn("2026-01-05")).toBe("1월 5일");
+    expect(formatSpentOn("2026-12-31")).toBe("12월 31일");
+  });
+
+  it("날짜가 아닌 값은 그대로 통과시킨다 -- 비세션 픽셀락 미리보기 픽스처가 안 바뀌도록", () => {
+    // app/(tabs)/index.tsx의 previewHome.recentExpenses가 쓰는 고정 문자열.
+    expect(formatSpentOn("오늘")).toBe("오늘");
+    expect(formatSpentOn("05.20")).toBe("05.20");
+    expect(formatSpentOn("2026-08")).toBe("2026-08");
+  });
+
+  it("숫자로 못 읽는 조각은 'NaN월 NaN일' 대신 원본을 보여준다", () => {
+    expect(formatSpentOn("2026-ab-cd")).toBe("2026-ab-cd");
+    expect(formatSpentOn("")).toBe("");
+  });
+});
+
+describe("HOME-124 homeRecentExpenseSubtitle", () => {
+  it("홈 행 부제도 기록 탭과 같은 날짜 포맷을 쓴다 (ISO 원본 노출 금지)", () => {
+    expect(homeRecentExpenseSubtitle({ expenseType: "expense", spentOn: "2026-08-27" })).toBe("8월 27일");
+    // 회귀 방지: 예전 홈은 subtitle={expense.spentOn}이라 이 값이 그대로 보였다.
+    expect(homeRecentExpenseSubtitle({ expenseType: "expense", spentOn: "2026-08-27" })).not.toContain("2026-08-27");
+  });
+
+  it("DNC-015: 구분 접두사는 recordsRowSubtitle 규칙을 그대로 재사용한다 ('선물 ·' / '환불 ·')", () => {
+    expect(homeRecentExpenseSubtitle({ expenseType: "gift", spentOn: "2026-08-04" })).toBe("선물 · 8월 4일");
+    expect(homeRecentExpenseSubtitle({ expenseType: "refund", spentOn: "2026-08-04" })).toBe("환불 · 8월 4일");
+    // 카테고리만 빠졌을 뿐 기록 탭 행과 같은 문자열 규칙이다.
+    expect(homeRecentExpenseSubtitle({ expenseType: "gift", spentOn: "2026-08-04" })).toBe(
+      recordsRowSubtitle({ expenseType: "gift", categoryLabel: null, dateLabel: "8월 4일" })
+    );
+  });
+
+  it("expenseType이 없거나 모르는 값이면 접두사 없이 날짜만 (없는 구분을 지어내지 않는다)", () => {
+    expect(homeRecentExpenseSubtitle({ spentOn: "2026-08-04" })).toBe("8월 4일");
+    expect(homeRecentExpenseSubtitle({ expenseType: null, spentOn: "2026-08-04" })).toBe("8월 4일");
+    expect(homeRecentExpenseSubtitle({ expenseType: "future_type", spentOn: "2026-08-04" })).toBe("8월 4일");
+  });
+
+  it("픽셀락: 미리보기 픽스처 3건은 예전 출력(= spentOn 원본)과 완전히 동일하다", () => {
+    for (const spentOn of ["오늘", "05.20", "05.19"]) {
+      expect(homeRecentExpenseSubtitle({ expenseType: "expense", spentOn })).toBe(spentOn);
+    }
+  });
+});
+
+describe("HOME-124 홈 화면 배선 (app/(tabs)/index.tsx)", () => {
+  const homeSource = readFileSync(join(mobileRoot, "app/(tabs)/index.tsx"), "utf8");
+
+  it("최근 지출 행 부제를 공용 헬퍼로 만든다 -- ISO 원본을 직접 그리지 않는다", () => {
+    expect(homeSource).toContain('import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";');
+    expect(homeSource).toContain("subtitle={homeRecentExpenseSubtitle(expense)}");
+    expect(homeSource).not.toContain("subtitle={expense.spentOn}");
+  });
+
+  it("미리보기 픽스처 분기는 건드리지 않는다 (HOME-001 캡처 경로)", () => {
+    expect(homeSource).toContain('spentOn: "오늘"');
+    expect(homeSource).toContain('spentOn: "05.20"');
+    expect(homeSource).toContain("const visibleHome = hasSession ? home.data! : previewHome;");
+  });
+});
+
 describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   const recordsSource = readFileSync(join(mobileRoot, "app/(tabs)/records.tsx"), "utf8");
+
+  it("HOME-124: formatSpentOn을 지역 정의가 아니라 공용 모듈에서 가져온다", () => {
+    expect(recordsSource).toContain('formatSpentOn, recordsRowSubtitle } from "../../src/expenses/records-list-view"');
+    expect(recordsSource).not.toContain("function formatSpentOn(");
+  });
 
   it("C1: 칩과 이름 해석을 같은 ['categories'] 응답에서 가져온다", () => {
     expect(recordsSource).toContain('queryKey: ["categories"]');
