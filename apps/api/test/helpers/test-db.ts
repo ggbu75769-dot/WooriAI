@@ -44,12 +44,33 @@ export async function isDatabaseAvailable(): Promise<boolean> {
 }
 
 /**
+ * Env flag set by `test/global-setup.ts` once it has applied migrations and seeded
+ * for this run. globalSetup executes in vitest's main process before any worker is
+ * spawned, so workers inherit it through `process.env` (the same mechanism the
+ * DATABASE_URL default already relies on).
+ */
+export const DB_READY_ENV_FLAG = "WOORIAI_TEST_DB_READY";
+
+/**
  * Applies all pending migrations via `prisma migrate deploy`. Invokes the locally
  * installed prisma CLI binary directly (not through `pnpm exec`) to sidestep
  * environment-specific package-manager shim issues; this only ever runs against a
  * database already confirmed reachable by `isDatabaseAvailable`.
+ *
+ * No-ops when globalSetup already migrated this run. Two reasons this matters now
+ * that test files run in parallel (PERF-130):
+ *   - Cost: ~20 suites call this in `beforeAll`, and every call spawned a fresh
+ *     prisma CLI process against an already-up-to-date database.
+ *   - Correctness: `prisma migrate deploy` takes a Postgres advisory lock, so
+ *     concurrent invocations from several workers would serialize and can time out.
+ * Kept callable (rather than deleted from the suites) so a suite run without
+ * globalSetup still migrates itself.
  */
 export function deployMigrations() {
+  if (process.env[DB_READY_ENV_FLAG] === "1") {
+    return;
+  }
+
   const prismaBin = join(
     apiRoot,
     "node_modules",

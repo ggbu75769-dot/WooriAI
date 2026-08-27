@@ -10,13 +10,31 @@ import { signAdminMfaPendingToken, verifyAdminMfaPendingToken } from "./admin-to
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000;
 
-// Computed once at module load (not per-login) so the scrypt cost is paid a single
-// time up front. Verified against on every login attempt for an email that doesn't
-// resolve to a real admin, so a "no such admin" response takes roughly the same
-// wall-clock time as a "wrong password" response -- without this, the two cases are
-// trivially distinguishable by timing (one does a full scrypt verify, the other does
-// none), which leaks which admin emails exist.
-const DUMMY_PASSWORD_HASH = hashAdminPassword("wooriai-dummy-password-for-constant-time-login");
+const DUMMY_PASSWORD = "wooriai-dummy-password-for-constant-time-login";
+let dummyPasswordHash: string | null = null;
+
+/**
+ * The hash that a login attempt for an email with no matching admin is verified
+ * against, so a "no such admin" response takes roughly the same wall-clock time as
+ * a "wrong password" response -- without it the two cases are trivially
+ * distinguishable by timing (one does a full scrypt verify, the other does none),
+ * which leaks which admin emails exist.
+ *
+ * Computed on first use and memoized, rather than at module load: `hashAdminPassword`
+ * is a ~16-32MB scrypt derivation, and paying it at import time charged it to every
+ * process that merely *loads* AdminModule -- notably each vitest worker booting a Nest
+ * app, which is why the api suite had to be pinned to a single thread (many workers
+ * deriving simultaneously could exhaust memory: "Deriving bits failed" / worker OOM).
+ *
+ * The constant-time property is preserved because `login` calls this unconditionally,
+ * before it knows whether the email resolves to an admin: the one-time derivation is
+ * charged to the first login attempt of the process whichever branch it takes, and
+ * every attempt after that -- existing email or not -- costs exactly one scrypt verify.
+ */
+function getDummyPasswordHash(): string {
+  dummyPasswordHash ??= hashAdminPassword(DUMMY_PASSWORD);
+  return dummyPasswordHash;
+}
 
 /**
  * In-memory brute-force limiter keyed by `email:ip`. Prototype-grade (no
@@ -89,12 +107,17 @@ export class AdminAuthService {
     const rateLimitKey = `${normalizedEmail}:${ip}`;
     this.limiter.assertAllowed(rateLimitKey);
 
+    // Resolved before the lookup, so the memoized first-use derivation is charged to
+    // whichever branch happens to be the process's first login attempt rather than
+    // only to the unknown-email one (see getDummyPasswordHash).
+    const fallbackHash = getDummyPasswordHash();
+
     const admin = await this.prisma.adminUser.findUnique({ where: { email: normalizedEmail } });
     // Always runs a scrypt verification, even when no admin matches the email, so
     // the two failure cases (unknown email vs. wrong password) take comparable time.
     const passwordOk = admin
       ? verifyAdminPassword(password, admin.passwordHash)
-      : verifyAdminPassword(password, DUMMY_PASSWORD_HASH);
+      : verifyAdminPassword(password, fallbackHash);
 
     if (!admin || !admin.active || !passwordOk) {
       this.limiter.recordFailure(rateLimitKey);
