@@ -609,6 +609,51 @@ export async function discardFailedMutation(store: OfflineStore, localId: string
   await store.deleteLocalExpense(localId);
 }
 
+/**
+ * SYNC-127 — the exact row set the sync-status screen's 일괄 액션 operate on: every local row
+ * currently in 'failed' state, i.e. one that flushOutboxPass will keep skipping until a user
+ * decides. Read from the store (not from the UI snapshot) so the bulk action always acts on the
+ * rows that really are failed as of press time, even if the screen's snapshot is a beat stale.
+ *
+ * Deliberately NOT including 'conflict' rows: a conflict has three meaningfully different
+ * resolutions (D-10 -- adopt server / reapply mine / merge fields) and there is no honest bulk
+ * answer to "which value wins?". Bulk-resolving them would be exactly the silent last-write-wins
+ * the conflict flow exists to prevent.
+ */
+async function listFailedLocalIds(store: OfflineStore): Promise<string[]> {
+  const rows = await store.listLocalExpenses();
+  return rows.filter((row) => row.syncState === "failed").map((row) => row.localId);
+}
+
+/**
+ * SYNC-127 "전체 재시도": requeues every 'failed' row exactly as pressing 재시도 on each row would
+ * (same per-row `retryFailedMutation`, so attemptCount/nextRetryAt/lastError reset identically and
+ * the MAX_SERVER_ERROR_ATTEMPTS budget is restored per row). Returns how many rows were requeued.
+ *
+ * Rows are requeued in `listLocalExpenses` order and the actual sending stays flushOutbox's job,
+ * which walks the outbox in creation order -- so ordering guarantees are untouched.
+ */
+export async function retryAllFailedMutations(store: OfflineStore): Promise<number> {
+  const localIds = await listFailedLocalIds(store);
+  for (const localId of localIds) {
+    await retryFailedMutation(store, localId);
+  }
+  return localIds.length;
+}
+
+/**
+ * SYNC-127 "전체 버리기": discards every 'failed' row and its queued mutation(s), same as pressing
+ * 삭제 on each. Destructive and irreversible (these rows exist only on this device), which is why
+ * the screen puts a confirmation Alert in front of it. Returns how many rows were discarded.
+ */
+export async function discardAllFailedMutations(store: OfflineStore): Promise<number> {
+  const localIds = await listFailedLocalIds(store);
+  for (const localId of localIds) {
+    await discardFailedMutation(store, localId);
+  }
+  return localIds.length;
+}
+
 // ---------------------------------------------------------------------------
 // Conflict resolution (design doc §3.4 / D-10) -- three explicit choices, no silent
 // last-write-wins. All three clear the row out of 'conflict' state and either resolve it

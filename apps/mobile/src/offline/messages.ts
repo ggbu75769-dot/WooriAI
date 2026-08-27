@@ -71,3 +71,29 @@ export const SYNC_ROW_PENDING_LABEL = "동기화 대기";
 
 export const SYNC_STATUS_RETRY_LABEL = "재시도";
 export const SYNC_STATUS_DISCARD_LABEL = "삭제";
+
+/**
+ * SYNC-127 일괄 액션 문구. 개별 행의 "재시도"/"삭제"와 같은 동사를 쓰되 범위를 앞에 붙여
+ * ("전체") 한 화면 안에서 두 액션이 서로 다른 것을 가리킨다는 사실이 문구만으로 드러나게 한다.
+ * 버리기 쪽만 "삭제"가 아니라 "버리기"인 이유: 개별 삭제는 한 건이라 취소가 쉽지만, 일괄은
+ * 되돌릴 수 없는 파괴적 동작이라 확인 Alert를 거친다 -- 문구도 그만큼 무겁게 읽혀야 한다.
+ */
+export const SYNC_STATUS_RETRY_ALL_LABEL = "전체 재시도";
+export const SYNC_STATUS_DISCARD_ALL_LABEL = "전체 버리기";
+export const SYNC_STATUS_DISCARD_ALL_CONFIRM_TITLE = "실패한 기록을 모두 버릴까요?";
+
+/** 확인 Alert 본문. 몇 건이 사라지는지 숫자로 못박고, 서버에 없는 기록이라는 사실을 밝힌다. */
+export function syncStatusDiscardAllConfirmMessage(count: number): string {
+  return `${count}건은 아직 이 기기에만 저장돼 있어요. 버리면 되돌릴 수 없어요.`;
+}
+
+/**
+ * AUTH-127 — 로그인 화면 안내. 리프레시 토큰이 만료(30일)되거나 재사용 감지로 폐기돼
+ * 사용자가 원하지 않은 로그아웃이 일어났을 때만 뜬다(명시적 로그아웃에는 뜨지 않는다).
+ * 뒷문장이 오프라인 대기분을 약속하는 이유: AUTH-127이 만료 시 outbox를 보존하기로 했고,
+ * 같은 계정으로 다시 로그인하면 실제로 그대로 이어서 전송된다(src/offline/session-expiry.ts).
+ * 지키지 못할 약속을 하지 않는다 -- 다른 계정으로 로그인하면 PRIV-104 teardown이 그대로
+ * 동작하지만, 그 경우 이 안내를 읽은 사람과 로그인한 사람이 다르다.
+ */
+export const SESSION_EXPIRED_LOGIN_NOTICE =
+  "세션이 만료됐어요. 다시 로그인하면 저장하지 않은 기록도 이어서 반영할게요.";

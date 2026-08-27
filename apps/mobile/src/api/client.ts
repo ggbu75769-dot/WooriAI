@@ -401,6 +401,26 @@ class RefreshHttpError extends Error {
  */
 let refreshPromise: Promise<{ accessToken: string; refreshToken: string }> | null = null;
 
+/**
+ * AUTH-127 — the single place that ends a session because the SERVER said the refresh token is
+ * gone (30-day TTL elapsed, or the family was revoked by reuse detection). All three transports
+ * below (requestJson, requestMultipartJson, requestExpenseJson) funnel their refresh-401 branch
+ * through here so the reason can never diverge between them.
+ *
+ * The reason matters twice downstream, and both are deliberate:
+ *   1. src/stores/session.store.ts keeps `userId` for an `"expired"` end, so PRIV-104's teardown
+ *      (which keys on a userId change) does NOT wipe the unsynced offline outbox out from under a
+ *      user who never asked to be logged out;
+ *   2. src/offline/sync-controller.ts watches for the transition and ejects the app to /login
+ *      instead of leaving the user on a tab that silently falls back to the preview fixtures.
+ *
+ * Concurrent 401s all call this (they each catch the same shared refresh rejection); the store set
+ * is idempotent and the redirect is edge-triggered, so repeats are harmless.
+ */
+function endSessionAsExpired(): void {
+  useSessionStore.getState().clearSession("expired");
+}
+
 async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
   const response = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
     method: "POST",
@@ -460,7 +480,7 @@ async function requestJson<T>(path: string, options: RequestOptions = {}, isRetr
         return requestJson<T>(path, { ...options, token: refreshed.accessToken }, true);
       } catch (refreshError) {
         if (refreshError instanceof RefreshHttpError && refreshError.status === 401) {
-          useSessionStore.getState().clearSession();
+          endSessionAsExpired();
         }
         // Falls through to the original 401 response below, whether the refresh failed due to
         // an expired/invalid refresh token or a network error while refreshing.
@@ -512,7 +532,7 @@ async function requestMultipartJson<T>(
         return requestMultipartJson<T>(path, { ...options, token: refreshed.accessToken }, true);
       } catch (refreshError) {
         if (refreshError instanceof RefreshHttpError && refreshError.status === 401) {
-          useSessionStore.getState().clearSession();
+          endSessionAsExpired();
         }
       }
     }
@@ -851,7 +871,7 @@ async function requestExpenseJson<T>(path: string, options: ExpenseRequestOption
         return requestExpenseJson<T>(path, { ...options, token: refreshed.accessToken }, true);
       } catch (refreshError) {
         if (refreshError instanceof RefreshHttpError && refreshError.status === 401) {
-          useSessionStore.getState().clearSession();
+          endSessionAsExpired();
         }
       }
     }

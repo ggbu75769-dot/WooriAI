@@ -10,6 +10,8 @@ import {
   KakaoLoginError,
   loginWithKakao
 } from "../../src/auth/kakao-login";
+import { SESSION_EXPIRED_LOGIN_NOTICE } from "../../src/offline/messages";
+import { shouldShowSessionExpiredNotice } from "../../src/offline/session-expiry";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -86,6 +88,26 @@ export default function LoginScreen() {
   useEffect(() => {
     if (loginError) announceForA11y(loginError);
   }, [loginError]);
+  // AUTH-127: 사용자가 요청하지 않은 로그아웃(리프레시 401 -- 30일 TTL 만료 또는 재사용 감지
+  // 폐기)으로 이 화면에 왔다면, 왜 여기 있는지와 오프라인 대기분이 어떻게 되는지를 알려준다.
+  // 명시적 로그아웃("logout")·첫 실행(null)에는 뜨지 않는다. 판단은 src/offline/session-expiry.ts
+  // 한 곳에만 있고(앱 인덱스의 리다이렉트도 같은 함수를 쓴다), 로그인 성공 시 setSession이
+  // lastEndReason을 비우므로 안내는 스스로 사라진다.
+  // (필드별 셀렉터 3개 -- zustand v5에서 객체를 새로 만들어 돌려주는 셀렉터는 매 렌더 새 참조라
+  // useSyncExternalStore의 스냅샷 캐시가 깨진다.)
+  const sessionAccessToken = useSessionStore((state) => state.accessToken);
+  const sessionIsTestSession = useSessionStore((state) => state.isTestSession);
+  const lastEndReason = useSessionStore((state) => state.lastEndReason);
+  const showExpiredNotice = shouldShowSessionExpiredNotice({
+    accessToken: sessionAccessToken,
+    isTestSession: sessionIsTestSession,
+    lastEndReason
+  });
+  // A11Y-115: 안내 카드는 CTA 위쪽이라 TalkBack 포커스가 바로 닿지 않는다 -- loginError와 같은
+  // 관례로 한 번 읽어준다.
+  useEffect(() => {
+    if (showExpiredNotice) announceForA11y(SESSION_EXPIRED_LOGIN_NOTICE);
+  }, [showExpiredNotice]);
   const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);
   const setSession = useSessionStore((state) => state.setSession);
   const startTestSession = useSessionStore((state) => state.startTestSession);
@@ -168,6 +190,19 @@ export default function LoginScreen() {
           <Text style={styles.subtitle}>
             준비된 테스트 계정으로 로그인하고{`\n`}우리아이의 주요 화면을 편하게 둘러보세요.
           </Text>
+          {/* AUTH-127: 만료 안내는 히어로 바로 아래(동의 카드 위)에 둔다 -- 화면에 들어오자마자
+              읽히는 자리이고, 로그인 실패 에러 카드(하단)와 위치가 겹치지 않아 둘이 동시에
+              떠도 서로를 가리지 않는다. */}
+          {showExpiredNotice ? (
+            <View
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={styles.expiredNoticeCard}
+              testID="session-expired-notice"
+            >
+              <Text style={styles.expiredNoticeText}>{SESSION_EXPIRED_LOGIN_NOTICE}</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.consentCard}>
@@ -320,6 +355,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF0ED",
     borderRadius: 14,
     padding: 12
+  },
+  // AUTH-127: 실패(errorCard, 붉은 계열)가 아니라 상태 안내이므로 브랜드 베이지/피치 톤으로
+  // 분리한다. 본문은 brown -- A11Y-117 기준 대비를 만족하는 조합(DNC-018 톤).
+  expiredNoticeCard: {
+    backgroundColor: theme.colors.beige,
+    borderRadius: 14,
+    gap: 4,
+    padding: 14
+  },
+  expiredNoticeText: {
+    color: theme.colors.brown,
+    fontSize: 13,
+    lineHeight: 20
   },
   errorText: {
     color: theme.colors.danger,

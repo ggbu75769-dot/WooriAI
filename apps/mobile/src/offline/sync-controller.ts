@@ -1,11 +1,13 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import type { QueryClient } from "@tanstack/react-query";
+import { router } from "expo-router";
 import { getSyncChanges, LOCAL_SESSION_TOKEN } from "../api/client";
 import { bucketSyncLatencyMs, trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { useSessionStore } from "../stores/session.store";
 import { isCurrentlyOnline, startConnectivityWatcher } from "./connectivity";
 import { runDeltaPull, syncCursorScopeKey } from "./delta-sync";
+import { isSessionExpiryTransition, LOGIN_HREF } from "./session-expiry";
 import { isSessionIdentityChange, teardownOfflineSessionState } from "./session-teardown";
 import { SERVER_CONFIRMED_MESSAGE } from "./messages";
 import { createMemoryOfflineStore } from "./memory-offline-store";
@@ -20,6 +22,8 @@ import {
   resolveConflictAdoptServer,
   resolveConflictReapplyMine,
   resolveConflictWithMergedPayload,
+  retryAllFailedMutations,
+  discardAllFailedMutations,
   retryFailedMutation,
   type FlushSummary
 } from "./sync-engine";
@@ -271,6 +275,28 @@ export async function discardOfflineMutation(localId: string): Promise<void> {
   await refreshSnapshot();
 }
 
+/**
+ * SYNC-127 "전체 재시도". Same shape as `retryOfflineMutation` (requeue → snapshot → one background
+ * flush) but for every failed row at once: the point of the bulk action is that 100 failed rows
+ * cost one flush pass instead of 100 individually-triggered ones. Returns the number of rows
+ * requeued so the screen can say nothing happened when there were none.
+ */
+export async function retryAllOfflineMutations(token: string, queryClient: QueryClient): Promise<number> {
+  const store = await getOfflineStore();
+  const count = await retryAllFailedMutations(store);
+  await refreshSnapshot();
+  if (count > 0) void flushInBackground(token, queryClient);
+  return count;
+}
+
+/** SYNC-127 "전체 버리기". Destructive — the screen confirms with an Alert first. */
+export async function discardAllOfflineMutations(): Promise<number> {
+  const store = await getOfflineStore();
+  const count = await discardAllFailedMutations(store);
+  await refreshSnapshot();
+  return count;
+}
+
 /** ① 다른 기기 값 유지 */
 export async function resolveConflictKeepServer(queryClient: QueryClient, localId: string): Promise<void> {
   const store = await getOfflineStore();
@@ -378,6 +404,35 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
   // fallback for the cursor if this subscription never got the chance to run (e.g. app killed
   // mid-switch). Deliberately NOT keyed on the selected child: the server cursor spans all of
   // the user's children (see delta-sync.ts's header).
+  // AUTH-127: eject to the login screen the moment a refresh-401 ends the session involuntarily.
+  //
+  // Why here, of all places: the redirect must fire no matter which screen is focused (an expiry
+  // can land on 기록 탭, 지출 상세, 설정 — anywhere a request is in flight), so it needs a mount
+  // that lives for the whole app lifetime, and it must not live in src/api/client.ts because that
+  // module is imported by dozens of vitest files that cannot load expo-router. This hook is
+  // already exactly that mount (app/_layout.tsx renders it once, inside the router tree) and
+  // already owns the session-store subscription that reacts to session transitions, so the new
+  // policy sits next to the one it is a sibling of: session-teardown decides "wipe?",
+  // session-expiry decides "eject?". Both are unit-tested pure functions; this stays glue.
+  //
+  // Without it the user simply stayed put with a dead token, and every screen's
+  // `Boolean(authToken && childId)` gate — now false — quietly swapped in the logged-out preview
+  // fixtures (다온이 / 1,245,700원), which read as their own data. The redirect removes that
+  // exposure at the source; the preview gates themselves are untouched by AUTH-127.
+  useEffect(() => {
+    const unsubscribe = useSessionStore.subscribe((state, previous) => {
+      if (!isSessionExpiryTransition(previous, state)) return;
+      try {
+        router.replace(LOGIN_HREF);
+      } catch {
+        // Navigating before the root navigator is mounted throws. Nothing is lost: the reason is
+        // persisted, so app/index.tsx's own hydrated redirect sends the user to /login on the very
+        // next render pass (and the login screen still shows the notice).
+      }
+    });
+    return unsubscribe;
+  }, []);
+
   useEffect(() => {
     const unsubscribe = useSessionStore.subscribe((state, previous) => {
       if (isSessionIdentityChange(previous, state)) {
