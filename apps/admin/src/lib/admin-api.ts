@@ -113,6 +113,10 @@ export type ItemTemplate = {
   status: string;
   timingLabel?: string;
   priceBandText?: string;
+  // ADM-124: 표시용 문구(priceBandText)와 별개로 수정 폼이 프리필할 원시 값. 서버가
+  // 어드민 응답에만 실어 준다(앱용 요약/상세 DTO는 그대로).
+  priceMinKrw: number | null;
+  priceMaxKrw: number | null;
   reasonText: string;
   skipReasonText?: string | null;
   usedSecondhandOk: boolean;
@@ -157,8 +161,9 @@ export type ItemTemplateInput = {
   name?: string;
   necessityLevel?: NecessityLevel;
   timingLabel?: string;
-  priceMinKrw?: number;
-  priceMaxKrw?: number;
+  // ADM-124: PATCH에서 null = "가격대 지우기"(생략은 종전대로 "그대로 두기").
+  priceMinKrw?: number | null;
+  priceMaxKrw?: number | null;
   reasonText?: string;
   skipReasonText?: string;
   usedSecondhandOk?: boolean;

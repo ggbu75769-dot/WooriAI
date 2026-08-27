@@ -122,6 +122,28 @@ export type Expense = {
   version: number;
 };
 
+/**
+ * API-124: `GET /children/:childId/expenses` 응답 — packages/contracts의
+ * `listExpensesResponseSchema` 수기 미러(모바일은 @wooriai/contracts에 의존하지 않는다,
+ * 위 CategoryListItem 주석과 같은 관례).
+ *
+ * `hasMore`/`nextCursor`는 **추가 필드라 optional**이다. 페이지네이션 이전 서버나
+ * 로컬 목업(local-backend.listExpenses)은 두 필드를 아예 주지 않으므로, 소비하는 쪽은
+ * `hasMore !== true`를 "더 없음"으로 읽어 자연 종료해야 한다.
+ *
+ * ⚠️ `totalAmountKrw`는 페이지 합이 아니라 **조회 범위 전체의 합**이다(DNC-015: 선물 제외).
+ * 페이지를 모아 다시 더하지 말고 이 값을 그대로 쓴다.
+ */
+export type ListExpensesResponse = {
+  expenses: Expense[];
+  totalAmountKrw: number;
+  hasMore?: boolean;
+  nextCursor?: string | null;
+};
+
+/** API-124 서버 상한(packages/contracts EXPENSE_LIST_MAX_LIMIT). 초과 요청은 400. */
+export const EXPENSE_LIST_MAX_LIMIT = 500;
+
 export type Budget = {
   childId: string;
   yearMonth: string;
@@ -680,13 +702,28 @@ export function createExpense(
   });
 }
 
-export function listExpenses(token: string, childId: string, yearMonth?: string) {
+/**
+ * CSV-124: `page`(limit/cursor)는 **선택적**이라 기존 호출부(기록 탭·홈)는 종전과 똑같이
+ * 3-인자로 부르고 서버 기본 페이지(200건)를 받는다. 전량이 필요한 CSV 내보내기만
+ * `limit`을 서버 상한까지 올리고 `cursor`로 다음 페이지를 잇는다
+ * (src/export/expense-page-collector.ts).
+ *
+ * 커서는 불투명 문자열이라 그대로 URL 인코딩해 실어 보낸다 — 손상된 커서는 서버가 400.
+ * 로컬 목업 경로는 limit/cursor를 무시하고 그 달 전량을 한 번에 돌려주므로(hasMore 없음)
+ * 수집 루프가 첫 페이지에서 자연 종료된다.
+ */
+export function listExpenses(
+  token: string,
+  childId: string,
+  yearMonth?: string,
+  page: { limit?: number; cursor?: string } = {}
+): Promise<ListExpensesResponse> {
   const effectiveYearMonth = yearMonth ?? currentYearMonth();
   if (isLocalToken(token)) return local(() => localBackend.listExpenses(childId, effectiveYearMonth));
-  return requestJson<{ expenses: Expense[]; totalAmountKrw: number }>(
-    `/children/${childId}/expenses?yearMonth=${effectiveYearMonth}`,
-    { token }
-  );
+  const query = [`yearMonth=${effectiveYearMonth}`];
+  if (page.limit !== undefined) query.push(`limit=${page.limit}`);
+  if (page.cursor) query.push(`cursor=${encodeURIComponent(page.cursor)}`);
+  return requestJson<ListExpensesResponse>(`/children/${childId}/expenses?${query.join("&")}`, { token });
 }
 
 export function getExpense(token: string, expenseId: string) {

@@ -1,17 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import {
-  sortRecommendedItems,
-  type ChildStageCode,
-  type ItemStatus,
-  type NecessityLevel,
-  type ProductPlatform
-} from "@wooriai/domain";
+import type { ChildStageCode, ItemStatus, NecessityLevel, ProductPlatform } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
 import { hashClickIp, isAllowedAffiliateUrl, PRODUCT_LINK_NOT_FOUND_ERROR } from "../items-commerce/affiliate-link-guard.util";
-import { itemStagesMatchBand, type StageBandLabel } from "../items-commerce/stage-bands";
+import { type StageBandLabel } from "../items-commerce/stage-bands";
+import { rankItemsForTab, type ItemTab } from "./item-ranking";
 import { ChildAccessService } from "./child-access.service";
 import { ExpensesStoreService } from "./expenses-store.service";
 import { cleanOptionalText, toChildDto, type DbClient } from "./store-shared";
@@ -81,30 +76,10 @@ export type AdminProductLinkInput = {
 };
 
 /**
- * ITEM-123 (B5): `all`은 상태로 거르지 않는 **전체 스냅샷** 탭이다. 기존 4개 탭은 그대로 두고
- * 추가만 했으므로(하위호환) 예전 클라이언트는 영향을 받지 않는다. 준비율(ITEM-114)처럼
- * "모든 활성 준비물의 현재 상태"가 필요한 화면이 탭 4개를 각각 부르는 대신 1요청으로
- * 같은 집합을 받는다.
+ * TEST-124: 탭 정의(ItemTab)와 탭 술어·정렬은 순수 모듈 item-ranking.ts로 옮겼다.
+ * 여기서 다시 내보내는 것은 기존 import 경로(`./items-catalog.service`)를 깨지 않기 위해서다.
  */
-export type ItemTab = "now" | "soon" | "prepared" | "not_needed" | "all";
-
-/**
- * ITEM-123 (B4): 상태 탭이 담는 상태 집합.
- *
- * gifted가 어느 탭에 속하는가 — `prepared`다. 근거:
- * - 도메인(packages/domain/src/recommendation.ts EXCLUDED_NOW_NEEDED_STATUSES)은
- *   prepared/gifted/not_needed를 "지금 필요" 추천에서 함께 제외한다. 세 상태 모두
- *   더 이상 준비 행동이 필요 없다는 뜻이다.
- * - 그 안에서 gifted는 "선물로 받아 **이미 손에 있다**"이므로 물건을 갖춘 prepared와
- *   같은 계열이고, "필요 없다고 판단해 **준비하지 않기로 했다**"인 not_needed와는
- *   의미가 정반대다. 준비완료 탭에 넣어야 사용자가 가진 물건을 한 곳에서 본다.
- * - 예전에는 어느 탭에도 없어서 gifted 항목이 앱에서 완전히 사라졌다(ITEM-114 준비율의
- *   분모에서도 빠졌다). 탭 응답이 넓어질 뿐 기존 항목이 사라지지 않으므로 하위호환이다.
- */
-const TAB_STATUSES: Record<"prepared" | "not_needed", ItemStatus[]> = {
-  prepared: ["prepared", "gifted"],
-  not_needed: ["not_needed"]
-};
+export type { ItemTab };
 
 function priceBandText(priceMinKrw: number | null, priceMaxKrw: number | null) {
   if (priceMinKrw == null && priceMaxKrw == null) {
@@ -140,7 +115,7 @@ export class ItemsCatalogService {
    * - 생략(기존 호출자 전부): 아이의 **현재 단계** 기준 — 종전 동작 그대로다.
    * - 지정: 그 **시기 밴드** 기준 — 현재 단계와 다른 시기의 준비물도 미리 볼 수 있고
    *   (예비 부모의 "다음 시기 미리 보기"), prepared/not_needed 탭도 같은 밴드로 좁힌다.
-   *   단 tab="all"(전 상태 스냅샷)은 밴드를 무시한다 — 아래 itemsForChild의 FIX/F4 참고.
+   *   단 tab="all"(전 상태 스냅샷)은 밴드를 무시한다 — item-ranking.ts의 FIX/F4 참고.
    */
   async listItems(user: AuthenticatedUser, childId: string, tab: ItemTab = "now", stageBand?: StageBandLabel) {
     await this.childAccess.requireChildAccess(user, childId);
@@ -501,6 +476,12 @@ export class ItemsCatalogService {
       status: "not_prepared" as const,
       timingLabel: item.timingLabel,
       priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw),
+      // ADM-124: 어드민 편집 폼이 가격대를 프리필하려면 표시용 문구(priceBandText)가 아니라
+      // 원시 값이 필요하다. 예전에는 문구만 내려줘서 수정 폼의 가격 칸이 늘 비어 있었고,
+      // 그 결과 "값을 바꾸지 않음"과 "값을 지움"을 구분할 수 없었다(가격대 삭제 불가).
+      // 앱용 DTO(toItemSummaryDto/toItemDetailDto)는 그대로다 — 어드민 응답만 넓힌다.
+      priceMinKrw: item.priceMinKrw,
+      priceMaxKrw: item.priceMaxKrw,
       reasonText: item.reasonText,
       skipReasonText: item.skipReasonText,
       usedSecondhandOk: item.usedSecondhandOk,
@@ -546,77 +527,22 @@ export class ItemsCatalogService {
     const statusByItem = new Map(statuses.map((row) => [row.itemTemplateId, row.status]));
     const statusFor = (itemId: string): ItemStatus => statusByItem.get(itemId) ?? "not_prepared";
 
-    // ITEM-121: 시기 필터의 기준. stageBand가 오면 "그 밴드에 걸치는가", 없으면 종전대로
-    // "아이의 현재 단계를 포함하는가". now/soon은 이 술어의 참/거짓으로 갈리고,
-    // prepared/not_needed는 밴드가 지정된 경우에만 추가로 좁힌다(미지정 시 종전 동작).
-    const inSelectedPeriod = stageBand
-      ? (item: ItemTemplateWithStages) => itemStagesMatchBand(item.stageCodes, stageBand)
-      : (item: ItemTemplateWithStages) => item.stageCodes.includes(stageCode);
-
-    // ITEM-123 (B5): 전체 스냅샷. 상태로 거르지 않으므로 now/soon/prepared/not_needed
-    // 네 탭의 합집합을 빠짐없이 담고(gifted 포함), 화면이 준비율을 계산하려고
-    // 탭을 4번 부르던 왕복을 1번으로 줄인다.
-    //
-    // FIX/F4: 예전에는 stageBand가 오면 다른 상태 탭들처럼 밴드로 좁혔는데, 그러면
-    // 합집합보다 **작아진다** — now는 밴드에 걸치는 항목, soon은 그 여집합이라 둘의
-    // 합집합은 밴드와 무관하게 "미준비·관심" 전부다. 밴드로 좁힌 all에는 soon 탭에
-    // 버젓이 보이는 항목이 빠져 있었고, 준비율의 분모도 그만큼 줄었다. 그래서 all은
-    // 밴드를 적용하지 않는다(밴드 유무와 상관없이 활성 항목 전체).
-    // 정확히 말하면 all ⊇ 네 탭의 합집합이다: 밴드가 지정되면 prepared/not_needed 탭은
-    // 밴드로 좁혀지므로, 밴드 밖의 이미 정리된 항목(prepared/gifted/not_needed)은 어느
-    // 탭에도 안 보이지만 스냅샷에는 남는다. 준비율은 분모·분자를 같은 스냅샷에서 세므로
-    // 이 여유분이 비율을 왜곡하지 않는다(오히려 밴드로 좁히면 정리된 항목만 빠져 왜곡된다).
-    if (tab === "all") {
-      return [...activeItems]
-        .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map((item) => ({ item, status: statusFor(item.id) }));
-    }
-
-    if (tab === "prepared" || tab === "not_needed") {
-      const tabStatuses = TAB_STATUSES[tab];
-      return activeItems
-        .filter((item) => tabStatuses.includes(statusFor(item.id)))
-        .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
-        .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map((item) => ({ item, status: statusFor(item.id) }));
-    }
-
-    const stageMatcher =
-      tab === "now"
-        ? (item: ItemTemplateWithStages) => inSelectedPeriod(item)
-        : (item: ItemTemplateWithStages) => !inSelectedPeriod(item);
-
-    const candidates = activeItems.filter(stageMatcher).filter((item) => {
-      const status = statusFor(item.id);
-      return status === "not_prepared" || status === "interested";
-    });
-
-    const sorted = sortRecommendedItems(
-      candidates.map((item) => ({
+    // TEST-124: 탭 술어(시기·상태)와 정렬은 순수 모듈 item-ranking.ts가 판단한다.
+    // 여기 남는 것은 DB 조회와 상태 결합뿐이라, 경계 조건은 DB 없는 단위 테스트
+    // (test/item-ranking.test.ts)로 고정된다. 응답 집합·순서는 추출 전과 동일하다.
+    const itemById = new Map(activeItems.map((item) => [item.id, item]));
+    const ranked = rankItemsForTab(
+      activeItems.map((item) => ({
         id: item.id,
-        // 점수의 stageMatches는 밴드와 무관하게 늘 "아이의 현재 단계"를 뜻한다 — 다음 시기를
-        // 미리 볼 때도 지금 당장 필요한 항목이 위로 오게 하는 편이 사용자에게 정직하다.
-        stageMatches: item.stageCodes.includes(stageCode),
+        stageCodes: item.stageCodes,
         necessityLevel: item.necessityLevel,
         status: statusFor(item.id),
-        budgetFits: true,
-        userInterest: statusFor(item.id) === "interested",
         displayOrder: item.displayOrder
-      }))
+      })),
+      { tab, stageCode, stageBand }
     );
-    // FIX/ITEM-121(F3): 예전에는 비교자 안에서 sorted.findIndex를 두 번 돌려 O(n²)였다.
-    // 순위를 Map으로 한 번만 만들어 O(n log n)으로 정렬한다(결과 순서는 동일).
-    const itemById = new Map(candidates.map((item) => [item.id, item]));
-    const rankById = new Map(sorted.map((entry, index) => [entry.id, index]));
-    return sorted
-      .map((entry) => itemById.get(entry.id))
-      .filter((item): item is ItemTemplateWithStages => Boolean(item))
-      .sort((left, right) => {
-        const leftIndex = rankById.get(left.id) ?? Number.MAX_SAFE_INTEGER;
-        const rightIndex = rankById.get(right.id) ?? Number.MAX_SAFE_INTEGER;
-        return leftIndex - rightIndex || left.displayOrder - right.displayOrder;
-      })
-      .map((item) => ({ item, status: statusFor(item.id) }));
+
+    return ranked.map((entry) => ({ item: itemById.get(entry.id)!, status: entry.status }));
   }
 
   private async itemStatusFor(childId: string, itemTemplateId: string): Promise<ItemStatus> {
@@ -670,8 +596,11 @@ export class ItemsCatalogService {
       name: name.trim(),
       necessityLevel,
       timingLabel: cleanOptionalText(input.timingLabel ?? existing.timingLabel ?? undefined) ?? "",
-      priceMinKrw: input.priceMinKrw ?? existing.priceMinKrw ?? null,
-      priceMaxKrw: input.priceMaxKrw ?? existing.priceMaxKrw ?? null,
+      // ADM-124: undefined(필드 미전송) = 그대로 두기, null = 지우기. 예전에는 `??`라
+      // null도 "미전송"과 똑같이 기존 값으로 되돌아가서, 한 번 넣은 가격대를 지울 방법이
+      // 아예 없었다(timingLabel/safetyNote가 ""→null로 지워지는 것과 어긋났다).
+      priceMinKrw: input.priceMinKrw === undefined ? existing.priceMinKrw ?? null : input.priceMinKrw,
+      priceMaxKrw: input.priceMaxKrw === undefined ? existing.priceMaxKrw ?? null : input.priceMaxKrw,
       reasonText: reasonText.trim(),
       skipReasonText,
       usedSecondhandOk: input.usedSecondhandOk ?? existing.usedSecondhandOk ?? false,

@@ -89,15 +89,18 @@ export class AdminUpdateItemTemplateDto {
   @IsString()
   timingLabel?: string;
 
+  // ADM-124: PATCH는 부분 수정이라 "안 보냄"(그대로 두기)과 "null"(지우기)이 서로 다른
+  // 뜻이다. @IsOptional()이 null도 통과시키므로 런타임 동작은 종전과 같고, 타입만
+  // 실제로 받을 수 있는 값(null 포함)에 맞춘다 — 가격대 삭제 경로가 여기로 들어온다.
   @IsOptional()
   @IsInt()
   @Min(0)
-  priceMinKrw?: number;
+  priceMinKrw?: number | null;
 
   @IsOptional()
   @IsInt()
   @Min(0)
-  priceMaxKrw?: number;
+  priceMaxKrw?: number | null;
 
   @IsOptional()
   @IsString()

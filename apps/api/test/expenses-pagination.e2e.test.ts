@@ -301,6 +301,60 @@ describe("Expense list pagination (GET /v1/children/:childId/expenses)", () => {
     }
   });
 
+  /**
+   * R24-M2 회귀: **구조는 유효한데 `id`만 UUID가 아닌** 커서. 세 조각·날짜 형식이
+   * 다 맞아 종전 검증(`!id`)을 통과했고, 그 값이 그대로 Prisma의 `@db.Uuid` 술어에
+   * 들어가 드라이버 예외 → GlobalExceptionFilter에서 **500**이 됐다. 손상된 커서는
+   * 사용자 입력이므로 다른 손상 커서와 똑같이 400 EXPENSE_CURSOR_INVALID여야 한다.
+   *
+   * R24-L4 회귀: `createdAt`에 sub-ms 정밀도가 담긴 커서도 마찬가지로 400이다 —
+   * 인코더(`encodeExpenseCursor`)는 `toISOString()`의 밀리초 3자리만 만들 수 있으므로
+   * 그런 값은 정의상 손상 커서이고, 조용히 받아 내림하면 경계 행이 유실될 수 있다.
+   */
+  it("rejects a structurally valid cursor whose id is not a UUID with 400, not 500 (R24-M2)", async () => {
+    const accessToken = await login("expenses-page-nonuuid-cursor");
+    const { childId } = await completeOnboarding(accessToken);
+    await createExpense(accessToken, childId, { amountKrw: 1000, spentOn: "2026-07-06", itemName: "커서 UUID 테스트" });
+
+    // 먼저 서버가 실제로 발급한 커서로 정상 동작을 확인해 둔다(대조군).
+    const firstPage = await listPage(accessToken, childId, "?limit=1");
+    expect(typeof firstPage.nextCursor).toBe("string");
+
+    const cursors = [
+      // ① 구조 유효 + 비UUID id (M2의 본체)
+      "2026-07-06|2026-07-06T03:04:05.123Z|not-a-uuid",
+      "2026-07-06|2026-07-06T03:04:05.123Z|12345",
+      "2026-07-06|2026-07-06T03:04:05.123Z|aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa",
+      "2026-07-06|2026-07-06T03:04:05.123Z|zzzzzzzz-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      // ② 구조 유효 + UUID id + sub-ms createdAt (L4의 저비용 가드)
+      "2026-07-06|2026-07-06T03:04:05.123456Z|aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "2026-07-06|2026-07-06T03:04:05Z|aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    ].map((raw) => Buffer.from(raw, "utf8").toString("base64"));
+
+    for (const badCursor of cursors) {
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/expenses?cursor=${encodeURIComponent(badCursor)}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(400)
+        .expect(({ body }) => {
+          expect(body.error.code).toBe("EXPENSE_CURSOR_INVALID");
+        });
+    }
+
+    // 대소문자만 다른 UUID는 정상 커서다(Postgres uuid는 대소문자 무관) — 위 검증이
+    // 유효 커서까지 막지 않는지 확인한다.
+    const upperCased = Buffer.from(
+      Buffer.from(firstPage.nextCursor as string, "base64")
+        .toString("utf8")
+        .replace(/([0-9a-f-]{36})$/, (id) => id.toUpperCase()),
+      "utf8"
+    ).toString("base64");
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses?cursor=${encodeURIComponent(upperCased)}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+  });
+
   it("validates limit bounds (1..max) and rejects anything above the max", async () => {
     const accessToken = await login("expenses-page-limit-bounds");
     const { childId } = await completeOnboarding(accessToken);

@@ -6,6 +6,7 @@ import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View 
 import { getSeoulToday } from "@wooriai/domain";
 import { listCategories, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { buildCategoryNameLookup, type CategoryNameLookup } from "../../src/categories";
+import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { buildRecordsCategoryChips, formatSpentOn, recordsRowSubtitle } from "../../src/expenses/records-list-view";
 import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
 import { formatKrw } from "../../src/money";
@@ -200,10 +201,15 @@ export default function RecordsScreen() {
     announceForA11y(periodLabelForOffset(baseDate, "month", monthOffset + 1));
   };
 
+  // REC-124(H1): 한 요청은 한 페이지(기본 200 · 상한 500건)다 -- 목록·건수·합계·지난달 비교가
+  // 모두 이 응답에서 나오므로, 첫 페이지만 읽으면 월 200건을 넘는 달이 조용히 잘린다(정렬이
+  // spentOn desc라 잘리는 쪽은 그 달의 앞날짜다). fetchMonthExpenses가 CSV 내보내기와 같은
+  // 커서 루프로 전량을 모으고, 모으지 못하면 오류를 던져 아래 재시도 카드로 드러난다
+  // (src/expenses/month-expenses.ts).
   const expenses = useQuery({
     queryKey: ["expenses", childId, recordsYearMonth],
     enabled: Boolean(authToken && childId),
-    queryFn: () => listExpenses(authToken!, childId!, recordsYearMonth)
+    queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, recordsYearMonth, page))
   });
 
   // REC-123(D1): 월 요약 줄 아래 "지난달 같은 시점 대비" 한 줄. 홈(REP-121)이 쓰는 순수 모듈
@@ -222,10 +228,14 @@ export default function RecordsScreen() {
   // 캐시 키가 홈과 완전히 동일한 ["expenses", childId, 지난달]이라 추가 네트워크 비용이 0이다
   // (react-query가 같은 응답을 공유하고, 지출 생성/수정 경로가 이미 invalidate하는 ["expenses"]
   // 프리픽스에 그대로 걸린다). 과거 달을 보는 동안에는 쿼리 자체를 비활성화한다.
+  //
+  // REC-124(H1): 비교 기준이 되는 지난달도 전량을 모은다. 첫 페이지만 읽으면 200건을 넘는 달의
+  // 앞날짜가 통째로 잘려 기준 합계가 0이 되고, "지난달 같은 시점까지는 지출 기록이 없었어요"라는
+  // 사실이 아닌 문장이 나온다. 홈도 같은 페처를 쓰므로 두 화면의 캐시 내용이 계속 같다.
   const lastMonthExpenses = useQuery({
     queryKey: ["expenses", childId, lastYearMonth],
     enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth),
-    queryFn: () => listExpenses(authToken!, childId!, lastYearMonth!)
+    queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, lastYearMonth!, page))
   });
 
   // REC-121: 카테고리 필터 칩의 원천. 예전에는 정적 8타일(categoryCatalog)이라 실세션에서 정식

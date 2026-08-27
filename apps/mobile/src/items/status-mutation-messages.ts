@@ -23,7 +23,8 @@
  *
  * 이 모듈은 react-native/react-query에 의존하지 않는 순수 모듈이라 vitest에서 그대로 테스트한다
  * (화면 자체는 렌더할 수 없어 배선은 소스 grep 계약 테스트가 맡는다 —
- * status-mutation-wiring.test.ts).
+ * status-mutation-messages.test.ts의 "ITEM-124 상태 변경 실패 배선" describe와
+ * gifted-status-flow.test.ts).
  */
 
 /**
@@ -118,11 +119,22 @@ export const GIFTED_RESET_CONFIRM_CANCEL_LABEL = "취소";
 /** 확인 Alert의 실행 버튼 문구. */
 export const GIFTED_RESET_CONFIRM_ACTION_LABEL = "계속하기";
 
+/**
+ * gifted에서 넘어갈 수 있는 조작만 남긴 좁힌 타입 (라운드 24 L7).
+ *
+ * `uninterest`(찜해제)와 `ungift`는 여기 올 수 없다. status는 단일 컬럼이라 지금 상태가 gifted면
+ * `interested`도 아니고 이미 `gifted`이므로, "찜해제"·"선물 받음 취소"라는 조작 자체가 성립하지
+ * 않는다(상세 화면의 찜 버튼은 gifted일 때 항상 "찜하기"로 보인다). 예전에는 화면이
+ * `isInterested ? "uninterest" : "interest"`를 넘기고 여기 "준비 전" 라벨을 들고 있었는데, 그
+ * 분기는 절대 실행되지 않는 죽은 코드였다 — 읽는 사람에게 "gifted면서 interested인 상태가 있다"는
+ * 잘못된 인상만 남긴다. 타입으로 막아 두면 그런 호출이 컴파일에서 걸린다.
+ */
+export type GiftedResetActionKind = Extract<ItemStatusActionKind, "prepare" | "interest" | "skip">;
+
 /** 확인 문구에서 "무엇으로 바뀌는지"를 부르는 이름 — items 탭 statusLabel과 같은 표기를 쓴다. */
-const GIFTED_RESET_TARGET_LABEL: Record<Exclude<ItemStatusActionKind, "gift" | "ungift">, string> = {
+const GIFTED_RESET_TARGET_LABEL: Record<GiftedResetActionKind, string> = {
   prepare: "이미 준비",
   interest: "관심",
-  uninterest: "준비 전",
   skip: "필요 없음"
 };
 
@@ -130,6 +142,6 @@ const GIFTED_RESET_TARGET_LABEL: Record<Exclude<ItemStatusActionKind, "gift" | "
  * gifted 상태에서 다른 상태로 넘어가기 전 확인 Alert 본문. "지금 선물 받음이고, 계속하면
  * 무엇이 된다"까지만 말한다.
  */
-export function giftedResetConfirmMessage(kind: Exclude<ItemStatusActionKind, "gift" | "ungift">): string {
+export function giftedResetConfirmMessage(kind: GiftedResetActionKind): string {
   return `지금은 선물 받음으로 표시돼 있어요. 계속하면 ${GIFTED_RESET_TARGET_LABEL[kind]} 상태로 바뀌어요.`;
 }

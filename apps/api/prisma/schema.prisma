@@ -319,9 +319,13 @@ model Expense {
   updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   version              Int           @default(1)
 
-  // SQL 전용 부분 인덱스(Prisma @@index 표현 불가) 2건이 별도로 존재한다:
+  // SQL 전용 부분 인덱스(Prisma @@index 표현 불가) 3건이 별도로 존재한다:
   //   idx_expenses_not_deleted (child_id, spent_on) WHERE deleted_at IS NULL (000001)
   //   idx_expenses_deleted_purge (deleted_at, id) WHERE deleted_at IS NOT NULL (000011, PERF-101)
+  //   idx_expenses_list_keyset (child_id, spent_on DESC, created_at DESC, id DESC)
+  //     WHERE deleted_at IS NULL (000017, R24-M3) — 지출 목록 keyset 정렬 계약
+  //     (spent_on DESC, created_at DESC, id DESC)과 컬럼·방향 일치. 정의 계약은
+  //     apps/api/test/perf-indexes.db.test.ts의 R24-M3 블록이 고정한다.
   @@index([childId, spentOn], map: "idx_expenses_child_spent_on")
   @@index([householdId, childId], map: "idx_expenses_household_child")
   @@index([categoryId], map: "idx_expenses_category")

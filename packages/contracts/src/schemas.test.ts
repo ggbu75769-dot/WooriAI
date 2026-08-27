@@ -14,6 +14,7 @@ import {
   reportCategorySchema,
   reportMonthlySchema,
   reportYearlySchema,
+  listExpensesQuerySchema,
   updateExpenseRequestSchema,
   versionConflictResponseSchema
 } from "./schemas";
@@ -374,5 +375,33 @@ describe("shared contract schemas", () => {
         monthlyTotals: monthlyTotals.slice(0, 11)
       })
     ).toThrow();
+  });
+
+  /**
+   * R24-L5: `listExpensesQuerySchema.yearMonth`의 월은 01~12로 묶여 있어야 한다.
+   * 종전 `/^\d{4}-\d{2}(-01)?$/`은 서버보다 느슨해 `2026-13`/`2026-00`을 계약상
+   * 유효로 판정했지만, 서버는 같은 값을 400 VALIDATION_ERROR로 거절한다
+   * (`apps/api/src/common/validation/year-month.ts` YEAR_MONTH_INPUT_PATTERN).
+   * 계약이 서버보다 넓으면 이 스키마를 믿는 클라이언트가 미리 잡을 수 있었던 오류를
+   * 왕복 뒤에야 알게 된다 — 두 정규식은 문자 그대로 같아야 한다.
+   */
+  it("bounds the expense list yearMonth month to 01-12, exactly like the server (R24-L5)", () => {
+    // REP-105 관용 포맷: `YYYY-MM`과 `YYYY-MM-01` 둘 다 받는다.
+    for (const yearMonth of ["2026-01", "2026-07", "2026-12", "2026-07-01", "2026-01-01", "2026-12-01"]) {
+      expect(listExpensesQuerySchema.parse({ yearMonth }).yearMonth).toBe(yearMonth);
+    }
+
+    // 존재하지 않는 달 — 종전 정규식이 통과시키던 값들.
+    for (const yearMonth of ["2026-13", "2026-00", "2026-99", "2026-13-01", "2026-00-01"]) {
+      expect(() => listExpensesQuerySchema.parse({ yearMonth }), yearMonth).toThrow();
+    }
+
+    // 월 이외의 날짜(REP-105가 의도적으로 거부하는 형태)와 잡값도 그대로 거부한다.
+    for (const yearMonth of ["2026-07-15", "2026-7", "26-07", "2026/07", ""]) {
+      expect(() => listExpensesQuerySchema.parse({ yearMonth }), yearMonth).toThrow();
+    }
+
+    // 셋 다 선택적이라는 하위호환 계약은 그대로다(limit/cursor를 모르는 기존 클라이언트).
+    expect(listExpensesQuerySchema.parse({})).toEqual({});
   });
 });

@@ -144,6 +144,11 @@ export default function ItemsScreen() {
   // 않아 실패가 곧 유실이다 -- 조용히 넘어가면 사용자는 바뀐 줄 알고 떠난다
   // (src/items/status-mutation-messages.ts).
   const [statusErrorMessage, setStatusErrorMessage] = useState<string | null>(null);
+  // ITEM-124(L6): 지금 요청이 날아가 있는 행의 itemTemplateId 집합. react-query 뮤테이션 하나를
+  // 목록 전체가 공유하므로 `updateStatus.variables`는 **마지막으로 누른 행**만 가리킨다 -- 그
+  // 값으로 비활성을 판정하면 A행 요청 중에 B행을 누르는 순간 A 버튼이 다시 활성화되어 같은 행에
+  // 중복 PATCH가 나간다. 행 단위 진행 상태는 화면이 직접 들고 있어야 경합에 견딘다.
+  const [pendingStatusIds, setPendingStatusIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -211,8 +216,23 @@ export default function ItemsScreen() {
   const updateStatus = useMutation({
     mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; itemName: string; status: ItemStatus }) =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
-    onMutate: () => {
+    onMutate: (variables) => {
       setStatusErrorMessage(null);
+      // 여러 행이 동시에 날아갈 수 있으므로 집합에 더한다(새 Set으로 갈아 끼워 리렌더를 보장).
+      setPendingStatusIds((ids) => {
+        const next = new Set(ids);
+        next.add(variables.itemTemplateId);
+        return next;
+      });
+    },
+    onSettled: (_data, _error, variables) => {
+      // 성공·실패 어느 쪽이든 그 행만 푼다 -- 다른 행의 진행 중 상태를 건드리지 않는다.
+      setPendingStatusIds((ids) => {
+        if (!ids.has(variables.itemTemplateId)) return ids;
+        const next = new Set(ids);
+        next.delete(variables.itemTemplateId);
+        return next;
+      });
     },
     onError: (error, variables) => {
       setStatusErrorMessage(itemStatusMutationErrorMessage(variables.status === "prepared" ? "prepare" : "skip", error));
@@ -233,10 +253,10 @@ export default function ItemsScreen() {
   });
   const hasSession = Boolean(authToken && childId);
 
-  // ITEM-124: 항목 단위 진행 중 판정 -- react-query가 들고 있는 마지막 variables가 곧 지금
-  // 날아간 행이라, 별도 상태 없이 그 행의 버튼만 잠근다.
-  const isStatusUpdatePending = (itemTemplateId: string) =>
-    updateStatus.isPending && updateStatus.variables?.itemTemplateId === itemTemplateId;
+  // ITEM-124(L6): 항목 단위 진행 중 판정 -- onMutate/onSettled가 관리하는 in-flight 집합만 본다.
+  // 뮤테이션의 공유 variables를 쓰던 예전 판정은 두 행을 잇달아 누르면 먼저 누른 행이 요청 중인데도
+  // 다시 눌리는 구멍이 있었다.
+  const isStatusUpdatePending = (itemTemplateId: string) => pendingStatusIds.has(itemTemplateId);
 
   /**
    * 리뷰 F2: gifted/prepared/not_needed는 서로 배타적인 단일 status 컬럼이라, 준비완료 탭에서

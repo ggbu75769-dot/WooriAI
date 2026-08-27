@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { listCategories, listExpenses, LOCAL_SESSION_TOKEN } from "../api/client";
+import { EXPENSE_LIST_MAX_LIMIT, listCategories, listExpenses, LOCAL_SESSION_TOKEN } from "../api/client";
 import { buildCategoryNameLookup } from "../categories";
+import { collectExpensePages, ExpensePageCollectionError } from "./expense-page-collector";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
 import { MoreSettingsPixelStyles } from "../pixelLock/styles";
@@ -91,8 +92,15 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     if (!authToken || !childId || busy) return;
     setBusy(true);
     try {
+      // CSV-124: API-124 이후 한 요청은 한 페이지(기본 200 · 상한 500건)다. 월별 수집기는 이
+      // 페처가 "그 달 전량"을 준다고 전제하므로, 여기서 커서를 끝까지 이어 붙여 그 전제를 지킨다
+      // -- 첫 페이지만 담고 조용히 잘린 CSV가 나가는 것을 막는다(expense-page-collector.ts).
+      // limit은 서버 상한으로 올려 월 500건 이하 사용자는 종전과 같이 요청 한 번으로 끝난다.
       const collected = await collectExpensesForRange(
-        (yearMonth) => listExpenses(authToken, childId, yearMonth).then((result) => result.expenses),
+        (yearMonth) =>
+          collectExpensePages((cursor) =>
+            listExpenses(authToken, childId, yearMonth, { limit: EXPENSE_LIST_MAX_LIMIT, cursor })
+          ).then((page) => page.expenses),
         range,
         getSeoulToday()
       );
@@ -113,8 +121,15 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
           : `기록 ${sharedRowCount}건을 내보냈어요.`,
         "success"
       );
-    } catch {
-      showToast("내보내기에 실패했어요. 잠시 후 다시 시도해주세요.", "error");
+    } catch (error) {
+      // CSV-124: 전량을 모으지 못한 경우는 "잠시 후 다시 시도"로 뭉뚱그리면 사용자가 같은 실패를
+      // 반복한다. 원인(기록이 너무 많음)과 다음 행동(기간 좁히기)을 그대로 알린다.
+      showToast(
+        error instanceof ExpensePageCollectionError
+          ? "기록이 너무 많아 한 번에 내보낼 수 없어요. 기간을 좁혀서 다시 시도해주세요."
+          : "내보내기에 실패했어요. 잠시 후 다시 시도해주세요.",
+        "error"
+      );
     } finally {
       setBusy(false);
     }

@@ -30,14 +30,26 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
   it("fetches via the existing listExpenses pager, builds the CSV, shares it, and toasts", () => {
     const hookSource = source(sharedExportModule);
     expect(hookSource).toContain("collectExpensesForRange(");
-    expect(hookSource).toContain("listExpenses(authToken, childId, yearMonth)");
+    expect(hookSource).toContain("listExpenses(authToken, childId, yearMonth, {");
     expect(hookSource).toContain("getSeoulToday()");
     expect(hookSource).toContain("buildExpenseCsv(collected.expenses, {");
     expect(hookSource).toContain("shareExpenseCsv(built.csv)");
     // Success, truncation, and error outcomes all surface through the Toast component.
     expect(hookSource).toContain("용량 제한으로 일부만 포함됐어요");
-    expect(hookSource).toContain('showToast("내보내기에 실패했어요. 잠시 후 다시 시도해주세요.", "error")');
+    expect(hookSource).toContain('"내보내기에 실패했어요. 잠시 후 다시 시도해주세요."');
     expect(hookSource).toContain("<Toast message={controller.toast.message} tone={controller.toast.tone} />");
+  });
+
+  // CSV-124: API-124가 목록 응답을 한 페이지(기본 200 · 상한 500건)로 자른 뒤로, 월별 페처가
+  // listExpenses를 한 번만 부르면 월 200건 초과 사용자의 CSV가 첫 페이지만 담고 조용히 잘린다.
+  it("walks every cursor page per month so a 200건 초과 month is exported in full (CSV-124)", () => {
+    const hookSource = source(sharedExportModule);
+    expect(hookSource).toContain("collectExpensePages((cursor) =>");
+    // 서버 상한까지 올려 요청 수를 최소화한다(월 500건 이하면 종전과 같이 요청 한 번).
+    expect(hookSource).toContain("limit: EXPENSE_LIST_MAX_LIMIT, cursor");
+    // 전량을 모으지 못한 실패는 부분 CSV가 아니라 오류 토스트로 드러난다.
+    expect(hookSource).toContain("error instanceof ExpensePageCollectionError");
+    expect(hookSource).toContain("기록이 너무 많아 한 번에 내보낼 수 없어요");
   });
 
   it("shares through RN's built-in Share (documented fallback), never expo-file-system/expo-sharing", () => {

@@ -292,7 +292,10 @@ describe("REP-121 home screen wiring contract", () => {
 
   it("reads last month from the expenses list query, sharing the 기록 탭 cache key", () => {
     expect(homeSource).toContain('queryKey: ["expenses", childId, lastYearMonth]');
-    expect(homeSource).toContain("listExpenses(authToken!, childId!, lastYearMonth!)");
+    // REC-124(H1): 한 페이지가 아니라 그 달 전량을 모은다(src/expenses/month-expenses.ts).
+    expect(homeSource).toContain(
+      "fetchMonthExpenses((page) => listExpenses(authToken!, childId!, lastYearMonth!, page))"
+    );
     // 서울 달력 기준 오늘로 지난달을 정한다(디바이스 타임존 아님).
     expect(homeSource).toContain("getSeoulToday()");
     expect(homeSource).toContain("previousYearMonth(seoulToday)");
