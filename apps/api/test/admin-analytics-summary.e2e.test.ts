@@ -253,8 +253,10 @@ describe("Admin analytics summary (ADM-009)", () => {
     await createAdmin(email, "analyst");
     const { cookie } = await loginAndEnroll(email);
 
-    // Delta assertions: the shared test DB accumulates analytics rows from
-    // other suites (vitest runs files sequentially — see vitest.config.ts).
+    // Delta assertions: totalEvents / uniqueAnonUsers / dailyTotals are all
+    // database-wide aggregates the endpoint offers no way to filter, so the only
+    // handle is the before/after difference — which is why this file takes the
+    // shared-DB lock exclusively (test/helpers/db-lock.setup.ts).
     const before7 = await fetchSummary(cookie, 7);
     const before30 = await fetchSummary(cookie, 30);
 

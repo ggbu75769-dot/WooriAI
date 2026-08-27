@@ -14,15 +14,24 @@ import { acquireSharedDb } from "./shared-db-lock";
  * database-wide by definition:
  *
  *   - the three admin aggregate suites snapshot a total before and after and assert
- *     on the delta, and those endpoints count every row in wooriai_test;
+ *     on the delta, and those endpoints count every row in wooriai_test. They also
+ *     reconcile two fields of a SINGLE response against each other (dailyTotals sum
+ *     == windowTotal, byPlatform sum == totalClicks); the service computes those with
+ *     separate concurrent queries, so even one foreign INSERT landing between them
+ *     makes an honest response fail the reconciliation;
  *   - `categories.e2e` pins the exact seeded category list (12 selectable / 21 total),
  *     which any suite that inserts a category would change;
- *   - `items-commerce` compares a `tab=all` snapshot against the union of the four
- *     status tabs, and both are derived from the global item_templates table, so a
- *     template inserted between those reads makes the two sets disagree;
  *   - `data-retention-purge` runs the purge job, which deletes withdrawn users and
  *     orphaned households across the whole database — including rows other suites
  *     are still using.
+ *
+ * TEST-131 removed `items-commerce` from this list. Nothing in it verified global
+ * state: it compared a `tab=all` snapshot against the union of the four status tabs
+ * (now scoped to the catalog rows that provably existed for the whole test, so a
+ * template another suite creates or drops mid-test cannot skew either side), and two
+ * of its tests corrupted a *seeded* product link's URL in place to exercise the click
+ * guards (now their own throwaway 준비템 + 링크, so a parallel suite clicking the
+ * seeded link can never see the corrupted row). See that file for the details.
  *
  * See test/helpers/shared-db-lock.ts for the protocol. Add a file here only if it
  * genuinely cannot scope itself — an exclusive suite stalls the whole worker pool
@@ -33,8 +42,12 @@ const EXCLUSIVE_SUITES = new Set([
   "admin-analytics-summary.e2e.test.ts",
   "admin-affiliate-click-breakdown.e2e.test.ts",
   "categories.e2e.test.ts",
-  "items-commerce.e2e.test.ts",
-  "data-retention-purge.db.test.ts"
+  "data-retention-purge.db.test.ts",
+  // R30 리뷰 F2: quarantineOtherLinks()가 DB의 모든 product_link 행에 updateMany를
+  // 걸고, 잡 후보 판정(healthCheckedAt IS NULL)이 다른 스위트가 만드는 행에 그대로
+  // 노출된다 — 정확 개수 단언(checked: N)이 깨질 수 있어 배타로 격리한다. 자기
+  // 픽스처 스코프로 좁히는 리팩터링은 후속 티켓 대상.
+  "link-health.db.test.ts"
 ]);
 
 // Vitest populates the worker's test path before it executes setup files, so this

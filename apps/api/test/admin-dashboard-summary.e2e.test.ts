@@ -272,8 +272,11 @@ describe("Admin dashboard summary (ADM-008)", () => {
 
     const after = await fetchSummary(admin.cookie);
 
-    // Delta assertions (the shared test DB accumulates rows from other suites,
-    // and vitest runs files sequentially here — see vitest.config.ts).
+    // Delta assertions: every counter here is a database-wide `count()` with no
+    // filter this test could scope to its own rows, so the only handle is the
+    // before/after difference. That is exactly why this file takes the shared-DB
+    // lock exclusively (test/helpers/db-lock.setup.ts) — a single row another
+    // suite inserts between the two snapshots would land in the delta.
     expect(after.activeUsers - before.activeUsers).toBe(1);
     expect(after.households - before.households).toBe(1);
     expect(after.childrenCount - before.childrenCount).toBe(1);
