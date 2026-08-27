@@ -4,6 +4,7 @@ import { Platform, Text, View } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../src/analytics/client";
 import { ensureLocalBackendSeeded } from "../src/api/local-backend";
 import { LOCAL_CHILD_ID } from "../src/api/local-fixtures";
+import { shouldShowSessionExpiredNotice } from "../src/offline/session-expiry";
 import { fetchOnboardingProgressForSelectedChild } from "../src/onboarding/onboarding-progress-scope";
 import {
   shouldAttemptSelectedChildRecovery,
@@ -56,6 +57,8 @@ let hasTrackedAppOpenedThisLaunch = false;
 export default function IndexScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
+  // AUTH-127: 마지막 세션이 만료로 끝났는지. 아래 로그아웃 분기의 목적지만 바꾼다.
+  const lastEndReason = useSessionStore((state) => state.lastEndReason);
   const hasReachedHome = useOnboardingProgressStore((state) => state.hasReachedHome);
   const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
   const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
@@ -213,7 +216,13 @@ export default function IndexScreen() {
   }
 
   if (!accessToken && !isTestSession) {
-    return <Redirect href="/launch-animation" />;
+    // AUTH-127: 만료로 끝난 세션은 스플래시(3.6초 성장 애니메이션 + 시작하기 탭)를 다시 볼
+    // 이유가 없다 -- 이미 이 앱을 쓰던 사람이고, 필요한 건 다시 로그인하는 것뿐이다. 곧바로
+    // 로그인 화면으로 보내면 만료 안내(SESSION_EXPIRED_LOGIN_NOTICE)도 거기서 바로 읽힌다.
+    // 앱이 살아 있는 동안의 만료는 sync-controller의 구독이 이미 같은 곳으로 보냈으므로,
+    // 이 분기는 그 리다이렉트를 못 본 경우(만료 직후 앱 종료·콜드 스타트)를 받아낸다.
+    // 명시적 로그아웃("logout")과 첫 실행(null)은 예전 그대로 스플래시로 간다.
+    return <Redirect href={shouldShowSessionExpiredNotice({ accessToken, isTestSession, lastEndReason }) ? "/login" : "/launch-animation"} />;
   }
 
   // MOB-116: while the real-session child recovery above is still needed, hold the /(tabs)

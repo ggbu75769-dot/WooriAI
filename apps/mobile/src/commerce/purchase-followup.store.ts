@@ -16,11 +16,20 @@ import { persistStorage } from "../stores/persist-storage";
 
 export type PurchaseFollowupStatus = "pending" | "done" | "dismissed" | "expired";
 
+/** Mirrors ProductLink["platform"] (src/api/client.ts) -- kept as a local literal union so this
+ * store stays a plain, dependency-free module. */
+export type PurchaseFollowupPlatform = "coupang" | "naver" | "custom";
+
 export type PurchaseFollowupEntry = {
   itemTemplateId: string;
   itemName: string;
   childId: string;
   priceBandText?: string;
+  /** ANA-127: the clicked link's product platform, so purchase_followup_answered can report the
+   * same `platform` dimension affiliate_link_clicked does and the 링크 클릭 -> 구매 전환율이
+   * 플랫폼별로 나뉜다. Optional because entries persisted by a pre-ANA-127 build have none --
+   * the prompt omits the field rather than guessing one. */
+  platform?: PurchaseFollowupPlatform;
   /** Date.now() at click time -- passed in by the caller so the pure logic stays clock-free. */
   clickedAt: number;
   status: PurchaseFollowupStatus;
@@ -33,6 +42,7 @@ export type PurchaseFollowupClick = {
   itemName: string;
   childId: string;
   priceBandText?: string;
+  platform?: PurchaseFollowupPlatform;
   clickedAt: number;
 };
 
@@ -121,6 +131,7 @@ export type PurchaseFollowupState = {
 };
 
 const VALID_STATUSES: readonly PurchaseFollowupStatus[] = ["pending", "done", "dismissed", "expired"];
+const VALID_PLATFORMS: readonly PurchaseFollowupPlatform[] = ["coupang", "naver", "custom"];
 
 /** Defensive shape check for a persisted blob from an unknown/older app version (mirrors the
  * convention in src/stores/*.store.ts): anything that doesn't look like a valid entry list falls
@@ -145,7 +156,15 @@ function sanitizedEntries(value: unknown): PurchaseFollowupEntry[] {
       typeof entry.promptCount === "number" &&
       Number.isFinite(entry.promptCount)
     ) {
-      entries.push(candidate as PurchaseFollowupEntry);
+      // ANA-127: an unknown/absent platform only costs one analytics dimension, so it is
+      // stripped rather than dropping an otherwise valid pending purchase check with it.
+      const platformValid =
+        typeof entry.platform === "string" && (VALID_PLATFORMS as readonly string[]).includes(entry.platform);
+      entries.push(
+        platformValid
+          ? (candidate as PurchaseFollowupEntry)
+          : ({ ...(candidate as PurchaseFollowupEntry), platform: undefined })
+      );
     }
   }
   return entries.slice(-PURCHASE_FOLLOWUP_MAX_ENTRIES);

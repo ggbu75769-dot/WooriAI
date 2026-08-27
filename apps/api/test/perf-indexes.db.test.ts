@@ -374,8 +374,10 @@ describe.skipIf(!dbAvailable)("R24-M3 expense list keyset index (migration 00001
    * OR로 나가고, OR 자체는 인덱스 시작점(Index Cond)이 되지 못한다. 후속(A)는 OR가
    * 함의하는 상한 `spent_on <= 커서`를 AND로 명시해(expensesForChild의 spentOnBounds)
    * 그 상한이 Index Cond로 올라가게 한다 — 깊은 커서 실측 10,255 → 228 buf.
-   * 아래 SQL은 프로덕션 쿼리 모양 그대로다. 이 테스트가 깨지면 spentOnBounds의
-   * `lte`가 지워졌거나(45배 회귀) 플래너 동작이 바뀐 것이다.
+   * 아래 SQL은 yearMonth 없는 호출의 쿼리 모양이다(R26 리뷰 정정: 모바일은 항상
+   * yearMonth를 붙여 월 범위가 스캔을 묶으므로, 이 단언이 지키는 것은 yearMonth 생략이
+   * 허용된 공개 API 경로다). 이 테스트가 깨지면 spentOnBounds의 `lte`가 지워졌거나
+   * 플래너 동작이 바뀐 것이다.
    */
   it("(후속A) 프로덕션 모양: spent_on 상한 AND가 Index Cond로 올라가고 OR는 Filter로 남는다", async () => {
     const plan = await explainWithoutSeqscan(

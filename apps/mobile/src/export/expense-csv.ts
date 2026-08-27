@@ -1,13 +1,23 @@
 import type { Expense } from "../api/client";
 import { categoryNameFor, type CategoryNameLookup } from "../categories";
+import { expenseTypeLabelKo } from "../expenses/records-list-view";
 
 /**
  * EXP-106 데이터 내보내기: pure CSV building for expense rows.
  *
  * Deliberate choices (mirrors the api-side import conventions so round-tripping works):
- * - Header is 날짜,카테고리,항목,금액(원),메모,출처 — the 날짜/금액/메모 keywords are ones
- *   apps/api/src/imports/import-parser.ts's HEADER_KEYWORDS already recognizes, so a file we
+ * - Header is 날짜,구분,카테고리,항목,판매처,금액(원),메모,출처 — the 날짜/금액/메모 keywords are
+ *   ones apps/api/src/imports/import-parser.ts's HEADER_KEYWORDS already recognizes, so a file we
  *   export can be fed straight back into the excel import.
+ * - CSV-127 added 구분 and 판매처. Both were already on every exported expense (`expenseType`,
+ *   `merchant`) and both were silently dropped, so an exported file flattened 지출·선물·환불 into
+ *   one indistinguishable list — the 선물 rows that DNC-015 deliberately keeps OUT of the 합계
+ *   looked exactly like the rows that are in it, and anyone re-adding the column in a spreadsheet
+ *   got a wrong total. Neither new header matches any HEADER_KEYWORDS entry ("판매처" is NOT one
+ *   of the item keywords 가맹점/가맹점명/상품명/품목/…), so the import's column detection — and
+ *   therefore the round-trip above — is unchanged by their presence.
+ * - 구분 labels come from src/expenses/records-list-view.ts, the same module the 기록 탭 행 부제
+ *   uses, so a row the user read as "선물" in-app exports as "선물" too.
  * - 금액(원) is the raw integer `amountKrw` (e.g. "45900"), NOT src/money.ts's formatted
  *   "45,900원" — formatted amounts would both break re-import and confuse spreadsheet math.
  * - Category labels come from src/categories.ts, the same mapping the records/reports screens
@@ -23,7 +33,7 @@ import { categoryNameFor, type CategoryNameLookup } from "../categories";
  *   `DANGEROUS_LEADING_CHARS` in apps/api/src/imports/import-parser.ts).
  */
 
-export const EXPENSE_CSV_HEADER = "날짜,카테고리,항목,금액(원),메모,출처";
+export const EXPENSE_CSV_HEADER = "날짜,구분,카테고리,항목,판매처,금액(원),메모,출처";
 
 export const UTF8_BOM = "\uFEFF";
 
@@ -73,12 +83,17 @@ function csvCell(value: string): string {
  * One CRLF-free CSV record (no trailing line break) for a single expense.
  * `categoryName` defaults to the static `categoryNameFor` mapping; pass a server-backed lookup
  * (see `buildCategoryNameLookup`) to resolve the per-database canonical category ids.
+ *
+ * Column order matches EXPENSE_CSV_HEADER exactly. A missing 판매처 exports as an empty field --
+ * the same "no invented data" rule the null memo above follows.
  */
 export function expenseToCsvRow(expense: Expense, categoryName: CategoryNameLookup = categoryNameFor): string {
   return [
     csvCell(expense.spentOn),
+    csvCell(expenseTypeLabelKo(expense.expenseType)),
     csvCell(categoryName(expense.categoryId)),
     csvCell(expense.itemName),
+    csvCell(expense.merchant ?? ""),
     csvCell(String(expense.amountKrw)),
     csvCell(expense.memo ?? ""),
     csvCell(sourceLabelKo(expense.source))

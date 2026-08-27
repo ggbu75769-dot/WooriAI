@@ -103,13 +103,61 @@ export function isChildFormValid(errors: ChildFormErrors): boolean {
 }
 
 /**
- * Builds the PATCH /children/:childId body from the edit form. Only the field that matters for
- * the child's (immutable) stageMode is sent alongside the nickname -- sending e.g. a dueDate for
- * a born-mode child would be rejected by the server's normalizeChildInput/whitelist contract.
- * An empty date is omitted (keep the stored one) rather than sent as "".
+ * CHILD-127: the PATCH body type, widened by the one field client.ts's `UpdateChildBody` does not
+ * carry yet. `updateChild(token, id, body)` accepts this because the extra property arrives on a
+ * typed value (not a fresh object literal), so TypeScript's excess-property check does not apply
+ * and the field is serialized as-is.
  */
-export function buildUpdateChildBody(stageMode: ChildStageMode, values: ChildFormValues): UpdateChildBody {
+export type UpdateChildRequestBody = UpdateChildBody & { stageMode?: ChildStageMode };
+
+/**
+ * CHILD-127: which stage-mode transitions the server accepts on PATCH /children/:childId.
+ * Only `pregnant → born` (the baby was actually born); the server answers anything else with
+ * CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED, so the UI must never offer it.
+ */
+export function canTransitionStageMode(from: ChildStageMode | null, to: ChildStageMode): boolean {
+  return from === "pregnant" && to === "born";
+}
+
+/** Copy for the 아이가 태어났어요 action and its confirmation (DNC-018 해요체). */
+export const BORN_TRANSITION_ACTION_LABEL = "아이가 태어났어요";
+export const BORN_TRANSITION_CONFIRM_TITLE = "출생일 기준으로 바꿀까요?";
+export const BORN_TRANSITION_CONFIRM_MESSAGE =
+  "출산예정일 기준으로 보여주던 화면이 출생일 기준으로 바뀌어요. 100일·첫돌 리포트도 볼 수 있게 돼요. 임신 중으로 되돌릴 수는 없어요.";
+export const BORN_TRANSITION_CONFIRM_CTA = "네, 바꿀게요";
+
+/**
+ * Builds the PATCH /children/:childId body from the edit form. Only the field that matters for
+ * the child's stageMode is sent alongside the nickname -- sending e.g. a dueDate for a born-mode
+ * child would be rejected by the server's normalizeChildInput/whitelist contract.
+ * An empty date is omitted (keep the stored one) rather than sent as "".
+ *
+ * CHILD-127: stageMode is no longer immutable, but it is also not a plain form field -- it only
+ * moves through the explicit 아이가 태어났어요 action, which passes
+ * `options.transitionToStageMode`. In that mode the body carries `stageMode` plus the new
+ * birthDate (the server requires both in one request) and leaves dueDate untouched so the stored
+ * due date survives the transition. Every other combination is a caller bug, not a user error, so
+ * it throws rather than silently sending a body the server will reject.
+ */
+export function buildUpdateChildBody(
+  stageMode: ChildStageMode,
+  values: ChildFormValues,
+  options: { transitionToStageMode?: ChildStageMode } = {}
+): UpdateChildRequestBody {
   const trimmedDate = values.dateText.trim();
+  const target = options.transitionToStageMode;
+
+  if (target !== undefined && target !== stageMode) {
+    if (!canTransitionStageMode(stageMode, target)) {
+      throw new Error(`허용되지 않은 아이 상태 전환이에요: ${stageMode} -> ${target}`);
+    }
+    return {
+      nickname: values.nickname.trim(),
+      stageMode: target,
+      ...(trimmedDate ? { birthDate: trimmedDate } : {})
+    };
+  }
+
   return {
     nickname: values.nickname.trim(),
     ...(stageMode === "pregnant" && trimmedDate ? { dueDate: trimmedDate } : {}),

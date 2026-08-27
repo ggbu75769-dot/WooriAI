@@ -137,7 +137,12 @@ describe("EXP-003 edit screen category/date wiring", () => {
   const detailSource = source("app/expenses/[expenseId].tsx");
 
   it("fetches the category chips from listCategories via react-query, with the static catalog as offline/preview fallback", () => {
-    expect(detailSource).toContain('import { getExpense, listCategories, LOCAL_SESSION_TOKEN } from "../../src/api/client";');
+    // FAM-127로 import가 여러 줄이 되면서 한 줄 통짜 비교를 그만뒀다 -- 고정하려는 것은
+    // "이 화면이 client.ts에서 getExpense/listCategories를 가져다 쓴다"이지 줄바꿈 모양이 아니다.
+    expect(detailSource).toContain('from "../../src/api/client"');
+    expect(detailSource).toContain("getExpense");
+    expect(detailSource).toContain("listCategories");
+    expect(detailSource).toContain("LOCAL_SESSION_TOKEN");
     expect(detailSource).toContain('queryKey: ["categories"]');
     // CAT-124: 전량(includeAll=1)을 받아야 현재 지출이 노출 제외 별칭 id로 저장돼 있어도
     // 그 칩이 살아남는다(selectableCategories 규칙 d). 화면 목록 자체는 그 함수가 좁힌다.

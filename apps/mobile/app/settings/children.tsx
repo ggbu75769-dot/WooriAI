@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { CHILD_STAGE_CODES, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
 import {
   createChild,
@@ -13,8 +13,13 @@ import {
   type Child
 } from "../../src/api/client";
 import {
+  BORN_TRANSITION_ACTION_LABEL,
+  BORN_TRANSITION_CONFIRM_CTA,
+  BORN_TRANSITION_CONFIRM_MESSAGE,
+  BORN_TRANSITION_CONFIRM_TITLE,
   buildCreateChildBody,
   buildUpdateChildBody,
+  canTransitionStageMode,
   CHILD_STAGE_LABELS,
   CHILD_STAGE_MODE_OPTIONS,
   isChildFormValid,
@@ -62,6 +67,40 @@ const emptyForm: ChildFormValues = { nickname: "", dateText: "", manualStage: nu
  * happened (a false success). The demo session gets an explicit 안내 instead.
  */
 
+/**
+ * CHILD-127: the labeled YYYY-MM-DD input, lifted out of ChildFormFields so the
+ * "아이가 태어났어요" 전환 카드 reuses the exact same field (label, a11y label, error styling)
+ * instead of growing a second, drifting date input.
+ */
+function ChildDateField({
+  dateLabel,
+  value,
+  error,
+  showErrors,
+  onChange
+}: {
+  dateLabel: string;
+  value: string;
+  error: string | null;
+  showErrors: boolean;
+  onChange: (dateText: string) => void;
+}) {
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={fieldLabelStyle}>{dateLabel}</Text>
+      <TextInput
+        accessibilityLabel={`${dateLabel} 입력`}
+        returnKeyType="done"
+        onChangeText={onChange}
+        placeholder="YYYY-MM-DD"
+        style={[fieldInputStyle, showErrors && error ? fieldInputErrorStyle : null]}
+        value={value}
+      />
+      {showErrors && error ? <Text style={fieldErrorStyle}>{error}</Text> : null}
+    </View>
+  );
+}
+
 /** Shared form fields (nickname + mode-appropriate date + manual stage chips) for edit/add. */
 function ChildFormFields({
   stageMode,
@@ -92,18 +131,13 @@ function ChildFormFields({
       </View>
 
       {dateLabel ? (
-        <View style={{ gap: 6 }}>
-          <Text style={fieldLabelStyle}>{dateLabel}</Text>
-          <TextInput
-            accessibilityLabel={`${dateLabel} 입력`}
-            returnKeyType="done"
-            onChangeText={(dateText) => onChange({ ...values, dateText })}
-            placeholder="YYYY-MM-DD"
-            style={[fieldInputStyle, showErrors && errors.dateError ? fieldInputErrorStyle : null]}
-            value={values.dateText}
-          />
-          {showErrors && errors.dateError ? <Text style={fieldErrorStyle}>{errors.dateError}</Text> : null}
-        </View>
+        <ChildDateField
+          dateLabel={dateLabel}
+          value={values.dateText}
+          error={errors.dateError}
+          showErrors={showErrors}
+          onChange={(dateText) => onChange({ ...values, dateText })}
+        />
       ) : null}
 
       {stageMode === "manual" ? (
@@ -151,6 +185,11 @@ export default function ManageChildrenScreen() {
   const isDemoSession = authToken === LOCAL_SESSION_TOKEN;
 
   const [editingChildId, setEditingChildId] = useState<string | null>(null);
+  // CHILD-127: the 아이가 태어났어요 전환 카드 (birth-date entry) is its own open/error state so it
+  // never fights the edit form for `form`/`showErrors`.
+  const [bornChildId, setBornChildId] = useState<string | null>(null);
+  const [bornDateText, setBornDateText] = useState("");
+  const [bornShowErrors, setBornShowErrors] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addStageMode, setAddStageMode] = useState<ChildStageMode>("born");
   const [form, setForm] = useState<ChildFormValues>(emptyForm);
@@ -211,6 +250,28 @@ export default function ManageChildrenScreen() {
     }
   });
 
+  /**
+   * CHILD-127: 임신 → 출생 전환. 서버는 stageMode와 birthDate를 한 요청에 함께 받아야 하고
+   * (CHILD_STAGE_INPUT_REQUIRED), 되돌릴 수 없다. 전환은 currentStage/준비템 밴드/홈/리포트를
+   * 전부 바꾸므로 편집과 똑같이 아이 스코프 캐시를 모두 무효화한다.
+   */
+  const markChildBorn = useMutation({
+    mutationFn: (input: { child: Child; values: ChildFormValues }) =>
+      updateChild(
+        authToken!,
+        input.child.id,
+        buildUpdateChildBody(input.child.stageMode, input.values, { transitionToStageMode: "born" })
+      ),
+    onSuccess: async (updated) => {
+      setBornChildId(null);
+      setBornDateText("");
+      setBornShowErrors(false);
+      await invalidateChildScopedQueries();
+      showToast(`${updated.nickname} 정보를 출생일 기준으로 바꿨어요.`, "success");
+      announceForA11y(`${updated.nickname} 화면이 출생일 기준으로 바뀌었어요.`);
+    }
+  });
+
   const addChild = useMutation({
     mutationFn: (input: { stageMode: ChildStageMode; values: ChildFormValues }) =>
       createChild(
@@ -247,13 +308,43 @@ export default function ManageChildrenScreen() {
   const startEdit = (child: Child) => {
     setAddOpen(false);
     setShowErrors(false);
+    setBornChildId(null);
     saveEdit.reset();
     setEditingChildId(child.id);
     setForm(formValuesForChild(child));
   };
 
+  const startBornTransition = (child: Child) => {
+    setAddOpen(false);
+    setEditingChildId(null);
+    setBornShowErrors(false);
+    setBornDateText("");
+    markChildBorn.reset();
+    setBornChildId(child.id);
+  };
+
+  const bornTransitionValues = (child: Child): ChildFormValues => ({
+    nickname: child.nickname,
+    dateText: bornDateText,
+    manualStage: null
+  });
+
+  const submitBornTransition = (child: Child) => {
+    setBornShowErrors(true);
+    const values = bornTransitionValues(child);
+    // 출생일은 편집 폼과 같은 규칙으로 검증한다 (형식·실재하는 날짜·미래 금지, 빈 값 금지).
+    const errors = validateChildForm("born", values, { requireDate: true });
+    if (!isChildFormValid(errors) || markChildBorn.isPending) return;
+    if (!canTransitionStageMode(child.stageMode, "born")) return;
+    Alert.alert(BORN_TRANSITION_CONFIRM_TITLE, BORN_TRANSITION_CONFIRM_MESSAGE, [
+      { text: "취소", style: "cancel" },
+      { text: BORN_TRANSITION_CONFIRM_CTA, onPress: () => markChildBorn.mutate({ child, values }) }
+    ]);
+  };
+
   const startAdd = () => {
     setEditingChildId(null);
+    setBornChildId(null);
     setShowErrors(false);
     addChild.reset();
     // 입력 세션당 1키: opening the form starts a new idempotency scope (a previous session's
@@ -336,6 +427,38 @@ export default function ManageChildrenScreen() {
                     </Pressable>
                   ) : null}
                 </View>
+
+                {/* CHILD-127: 임신 중으로 가입한 아이만 노출되는 단방향 전환 액션. */}
+                {canEditChildren && canTransitionStageMode(child.stageMode, "born") && bornChildId !== child.id ? (
+                  <SecondaryButton
+                    accessibilityLabel={`${child.nickname} 출생일을 입력하고 출생일 기준으로 바꾸기`}
+                    label={BORN_TRANSITION_ACTION_LABEL}
+                    onPress={() => startBornTransition(child)}
+                  />
+                ) : null}
+
+                {canEditChildren && bornChildId === child.id ? (
+                  <View style={{ gap: theme.spacing.gap }}>
+                    <Text style={mutedTextStyle}>
+                      출생일을 입력하면 지금부터 출생일 기준으로 단계와 준비템을 보여드려요. 저장한 출산 예정일은 그대로
+                      남아 있어요.
+                    </Text>
+                    <ChildDateField
+                      dateLabel={requiredDateFieldLabel("born")!}
+                      value={bornDateText}
+                      error={validateChildForm("born", bornTransitionValues(child), { requireDate: true }).dateError}
+                      showErrors={bornShowErrors}
+                      onChange={setBornDateText}
+                    />
+                    {markChildBorn.isError ? <Text style={{ color: theme.colors.danger }}>{saveFailedText}</Text> : null}
+                    <PrimaryButton
+                      disabled={markChildBorn.isPending}
+                      label={markChildBorn.isPending ? "바꾸는 중" : "출생일로 바꾸기"}
+                      onPress={() => submitBornTransition(child)}
+                    />
+                    <SecondaryButton label="취소" onPress={() => setBornChildId(null)} />
+                  </View>
+                ) : null}
 
                 {editingChild && editingChild.id === child.id ? (
                   <View style={{ gap: theme.spacing.gap }}>

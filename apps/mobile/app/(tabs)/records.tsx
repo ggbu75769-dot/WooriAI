@@ -4,10 +4,22 @@ import { router } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { listCategories, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import {
+  listCategories,
+  listExpenses,
+  listHouseholdMembers,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_SESSION_TOKEN
+} from "../../src/api/client";
 import { buildCategoryNameLookup, type CategoryNameLookup } from "../../src/categories";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
-import { buildRecordsCategoryChips, formatSpentOn, recordsRowSubtitle } from "../../src/expenses/records-list-view";
+import {
+  buildRecordsCategoryChips,
+  expenseCreatedByUserId,
+  formatSpentOn,
+  recordsRowSubtitle,
+  resolveExpenseAuthorLabel
+} from "../../src/expenses/records-list-view";
 import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
 import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
@@ -56,7 +68,9 @@ const webScrollHiddenStyle = {
 
 type RecordsListItem =
   | { kind: "offline"; key: string; row: LocalExpenseRow }
-  | { kind: "server"; key: string; expense: ServerExpense; categoryName: CategoryNameLookup };
+  // FAM-127: `authorLabel`은 목록을 만들 때 이미 해석해 둔 **문자열(또는 null)**이다 -- 행에
+  // 구성원 배열이나 해석 함수를 넘기면 PERF-102의 행 memo가 매 렌더 깨진다.
+  | { kind: "server"; key: string; expense: ServerExpense; categoryName: CategoryNameLookup; authorLabel: string | null };
 
 // HOME-124: `formatSpentOn`은 src/expenses/records-list-view.ts로 승격했다 -- 홈의 "최근 지출"
 // 행이 같은 포맷을 쓰도록 하기 위해서다(예전에는 ISO 원본을 그대로 그렸다).
@@ -105,20 +119,24 @@ const OfflineExpenseListRow = memo(function OfflineExpenseListRow({ row }: { row
   );
 });
 
-// REC-121 (D2/K1): 행 부제는 "[선물|환불 ·] 카테고리 · 날짜". `categoryName`은 화면에서 한 번만
-// 만들어(useMemo) 내려주는 안정된 함수라 PERF-102의 memo 효과가 깨지지 않는다.
+// REC-121 (D2/K1): 행 부제는 "[선물|환불 ·] [작성자 ·] 카테고리 · 날짜". `categoryName`은 화면에서
+// 한 번만 만들어(useMemo) 내려주는 안정된 함수라 PERF-102의 memo 효과가 깨지지 않는다.
+// FAM-127: `authorLabel`은 1인 가구·해석 실패 시 null이고, 그때 부제는 예전과 완전히 같다.
 const ServerExpenseListRow = memo(function ServerExpenseListRow({
   expense,
-  categoryName
+  categoryName,
+  authorLabel
 }: {
   expense: ServerExpense;
   categoryName: CategoryNameLookup;
+  authorLabel: string | null;
 }) {
   return (
     <ListRow
       title={expense.itemName}
       subtitle={recordsRowSubtitle({
         expenseType: expense.expenseType,
+        authorLabel,
         categoryLabel: categoryName(expense.categoryId),
         dateLabel: formatSpentOn(expense.spentOn)
       })}
@@ -136,7 +154,7 @@ function renderRecordsRow({ item }: ListRenderItemInfo<RecordsListItem>) {
   return item.kind === "offline" ? (
     <OfflineExpenseListRow row={item.row} />
   ) : (
-    <ServerExpenseListRow expense={item.expense} categoryName={item.categoryName} />
+    <ServerExpenseListRow expense={item.expense} categoryName={item.categoryName} authorLabel={item.authorLabel} />
   );
 }
 
@@ -253,6 +271,23 @@ export default function RecordsScreen() {
   const serverCategories = categories.data?.categories;
   // 안정된 함수 참조(행 memo 유지) + 칩과 같은 목록에서 나오는 이름 해석 — R19-A buildCategoryNameLookup.
   const categoryName = useMemo(() => buildCategoryNameLookup(serverCategories), [serverCategories]);
+
+  // FAM-127: 작성자 이름 해석용 구성원 목록. **새 엔드포인트를 부르지 않는다** -- 가족 관리
+  // (app/family/index.tsx)·설정(app/settings/index.tsx)이 이미 쓰는 ["household-members",
+  // householdId] 캐시를 그대로 재사용하므로, 그 화면들을 거친 사용자에게는 요청이 0건이다.
+  // 카테고리 캐시와 같은 이유로 staleTime을 길게 둔다(구성원은 거의 바뀌지 않고, 초대 수락·
+  // 내보내기 경로가 이미 이 키를 invalidate한다).
+  const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
+  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const householdMembers = useQuery({
+    queryKey: ["household-members", householdId],
+    enabled: Boolean(authToken && householdId),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => listHouseholdMembers(authToken!, householdId!)
+  });
+  // 목록이 아직 없으면(로딩·실패·1인 가구) undefined가 그대로 흘러가 라벨이 생략된다 --
+  // 기록 목록은 이 쿼리의 성공 여부와 무관하게 예전과 똑같이 그려진다.
+  const householdMemberRefs = householdMembers.data?.members;
 
   // MOB-117 당겨서 새로고침: 보고 있는 달의 서버 목록 refetch + 오프라인 스냅샷(대기/실패/충돌
   // 배지, 로컬 대기 행) 재조회를 함께 수행한다. 세션이 없으면(비활성 쿼리) refetch가 잘못된
@@ -376,9 +411,19 @@ export default function RecordsScreen() {
   const listData = useMemo<RecordsListItem[]>(
     () => [
       ...visibleOfflineRows.map((row): RecordsListItem => ({ kind: "offline", key: `offline:${row.localId}`, row })),
-      ...visibleExpenses.map((expense): RecordsListItem => ({ kind: "server", key: `server:${expense.id}`, expense, categoryName }))
+      ...visibleExpenses.map(
+        (expense): RecordsListItem => ({
+          kind: "server",
+          key: `server:${expense.id}`,
+          expense,
+          categoryName,
+          // FAM-127: 오프라인 대기 행에는 라벨을 붙이지 않는다 -- 아직 이 기기에서 방금 만든
+          // 내 기록이라 작성자가 자명하고, 서버가 준 createdByUserId도 아직 없다.
+          authorLabel: resolveExpenseAuthorLabel(expenseCreatedByUserId(expense), householdMemberRefs)
+        })
+      )
     ],
-    [visibleOfflineRows, visibleExpenses, categoryName]
+    [visibleOfflineRows, visibleExpenses, categoryName, householdMemberRefs]
   );
 
   const monthlyRecordCount = monthlyServerExpenses.length + offlinePendingRows.length;

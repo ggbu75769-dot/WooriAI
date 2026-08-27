@@ -48,6 +48,21 @@ export const childSchema = z.object({
   stageLabel: z.string().min(1)
 });
 
+// CHILD-127: PATCH /children/:childId 요청 계약 — 서버 UpdateChildDto(apps/api/src/onboarding/
+// dto/child.dto.ts)의 미러. 모든 필드가 optional인 부분 업데이트다.
+//
+// `stageMode`는 이번에 추가된 전환 필드로, 임신 중 가입한 사용자의 아이가 태어났을 때
+// `pregnant → born` 한 방향으로만(그리고 birthDate와 함께) 보낼 수 있다. 방향 규칙 자체는
+// 저장된 아이의 현재 stageMode를 알아야 판정할 수 있으므로 서버 도메인 규칙으로 남기고,
+// 이 스키마는 형식만 고정한다. optional이므로 이 필드를 모르는 기존 클라이언트와 하위호환.
+export const updateChildRequestSchema = z.object({
+  nickname: z.string().min(1).optional(),
+  stageMode: childStageModeSchema.optional(),
+  dueDate: dateOnlySchema.optional(),
+  birthDate: dateOnlySchema.optional(),
+  manualStage: childStageCodeSchema.optional()
+});
+
 export const categorySchema = z.object({
   id: uuidSchema,
   code: z.string().min(1),
@@ -323,6 +338,7 @@ export type CategoryBreakdownEntryDto = z.infer<typeof categoryBreakdownEntrySch
 export type CategoryListItemDto = z.infer<typeof categoryListItemSchema>;
 export type CategoryReportDto = z.infer<typeof reportCategorySchema>;
 export type ChildDto = z.infer<typeof childSchema>;
+export type UpdateChildRequestDto = z.infer<typeof updateChildRequestSchema>;
 export type CreateExpenseRequestDto = z.infer<typeof createExpenseRequestSchema>;
 export type ListCategoriesResponseDto = z.infer<typeof listCategoriesResponseSchema>;
 export type ListExpensesQueryDto = z.infer<typeof listExpensesQuerySchema>;

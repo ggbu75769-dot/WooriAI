@@ -1,0 +1,111 @@
+import { formatKrw } from "../money";
+
+/**
+ * HOME-127: 홈 히어로 카드 · 예산 넛지 카드의 "예산이 있느냐" 판정.
+ *
+ * 왜 순수 모듈인가 — 예전 홈 화면은 퍼센트를 `(monthlyUsed / Math.max(1, budget)) * 100`으로
+ * 냈다. `/home` 응답은 **예산을 설정하지 않은 달에 `monthly.amountKrw: 0`** 을 돌려주므로
+ * (apps/api/src/onboarding/reporting-store.service.ts `getHome` → `budget?.amountKrw ?? 0`),
+ * 분모가 1로 치환되어 지출 1건만 있어도 퍼센트가 100을 넘고 화면에는
+ * "예산 0원 · 100%" + "예산의 100% 사용 중이에요!"가 떴다. 사용자가 정한 적 없는 예산을
+ * 다 썼다고 말하는 **허위 표시**다. 판정을 화면 밖 순수 함수로 빼서 단위 테스트로 못 박는다.
+ *
+ * 입력 계약(HOME-BUDGET-113 `evaluateBudgetWarning`와 동일):
+ * - `budgetKrw` = HomeSummary.monthly.amountKrw. 0/음수/nullish = "예산 미설정".
+ * - `spentKrw`  = HomeSummary.monthly.usedAmountKrw — 선물 제외 월 누계(DNC-015). 호출자는
+ *   이 값을 그대로 넘겨야 하며, 선물이 섞인 합계를 다시 만들어 넘기면 안 된다.
+ *
+ * 예산이 있을 때의 퍼센트는 종전과 **한 글자도 다르지 않게** `Math.round`로 0~100에 물린다
+ * (비세션 프리뷰 HOME-001 캡처 유지: 1,245,700 / 1,600,000 → 78%).
+ */
+
+export type HomeBudgetProgress = {
+  /** 예산이 실제로 설정되어 있는지(> 0). false면 퍼센트·프로그레스 바를 그리지 않는다. */
+  hasBudget: boolean;
+  /** 0~100 정수. 예산 미설정이면 null — "0%"조차 표시하지 않는다. */
+  percent: number | null;
+  /** 히어로 카드 보조 문구. 예산 미설정이면 설정을 권하는 안내로 대체된다. */
+  subtext: string;
+};
+
+export type HomeBudgetInput = {
+  /** HomeSummary.monthly.amountKrw — 0/nullish면 "예산 미설정". */
+  budgetKrw: number | null | undefined;
+  /** HomeSummary.monthly.usedAmountKrw — 선물 제외 월 누계(DNC-015). */
+  spentKrw: number | null | undefined;
+};
+
+function normalizeAmount(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+export function evaluateHomeBudgetProgress(input: HomeBudgetInput): HomeBudgetProgress {
+  const budgetKrw = normalizeAmount(input.budgetKrw);
+  const spentKrw = normalizeAmount(input.spentKrw);
+
+  if (budgetKrw <= 0) {
+    return {
+      hasBudget: false,
+      percent: null,
+      subtext: "예산을 정하면 남은 금액을 보여드릴게요"
+    };
+  }
+
+  return {
+    hasBudget: true,
+    percent: Math.round(Math.min(100, Math.max(0, (spentKrw / budgetKrw) * 100))),
+    subtext: `예산 ${formatKrw(budgetKrw)}`
+  };
+}
+
+/**
+ * 히어로 카드 아래 넛지 카드의 문구와 이동 경로.
+ *
+ * - 예산 미설정: 홈에는 예산을 정할 진입점이 아예 없었다(설정 탭이나 알림에서만 /budget에
+ *   닿았다). 넛지 자리를 "월 예산 설정하기" CTA로 바꿔 그 구멍을 메운다.
+ * - 예산 있음: 종전 문구를 그대로 유지한다. `hasWarningBanner`는 HOME-BUDGET-113 경고 배너가
+ *   보이는 중인지로, 배너가 이미 초과 금액을 말하고 있으면(라운드 13 m-7) 넛지는 금액을
+ *   중복해서 말하지 않는다.
+ */
+export type HomeBudgetNudge = {
+  variant: "set-budget" | "usage";
+  title: string;
+  subtitle: string;
+  /** expo-router 경로. 예산 미설정일 때만 예산 편집 화면으로 보낸다. */
+  route: "/budget" | "/(tabs)/items";
+};
+
+export type HomeBudgetNudgeInput = HomeBudgetInput & {
+  /** HOME-BUDGET-113 경고 배너가 렌더 중인지(초과 금액 중복 방지). */
+  hasWarningBanner: boolean;
+};
+
+export function buildHomeBudgetNudge(input: HomeBudgetNudgeInput): HomeBudgetNudge {
+  const progress = evaluateHomeBudgetProgress(input);
+  if (!progress.hasBudget) {
+    return {
+      variant: "set-budget",
+      title: "월 예산 설정하기",
+      subtitle: "이번 달 예산을 정하면 남은 금액을 알려드려요",
+      route: "/budget"
+    };
+  }
+
+  const budgetKrw = normalizeAmount(input.budgetKrw);
+  const spentKrw = normalizeAmount(input.spentKrw);
+  const isOverBudget = spentKrw > budgetKrw;
+  const overAmountKrw = spentKrw - budgetKrw;
+
+  const title = isOverBudget
+    ? input.hasWarningBanner
+      ? "예산을 모두 사용했어요."
+      : `예산을 ${formatKrw(overAmountKrw)} 초과했어요.`
+    : `예산의 ${progress.percent}% 사용 중이에요!`;
+
+  return {
+    variant: "usage",
+    title,
+    subtitle: isOverBudget ? "이번 달 지출을 확인해 볼까요? 😥" : "이번 달도 잘 관리하고 있어요 👏",
+    route: "/(tabs)/items"
+  };
+}

@@ -20,6 +20,7 @@ import {
   type SessionIdentity
 } from "./session-teardown";
 import { flushOutbox, recordLocalCreate, wipeOfflineStore, type RemoteExpenseApi } from "./sync-engine";
+import { useSessionStore } from "../stores/session.store";
 import type { ExpensePayload, OfflineStore } from "./types";
 
 /**
@@ -145,11 +146,28 @@ describe("PRIV-104 isSessionIdentityChange policy", () => {
     expect(isSessionIdentityChange(demoSession, userA)).toBe(true);
   });
 
-  it("clearSession really does null the userId (source verification of the premise the logout wipe keys on)", () => {
-    const sessionSource = readFileSync(join(process.cwd(), "src/stores/session.store.ts"), "utf8");
-    const clearSessionBody = sessionSource.slice(sessionSource.indexOf("clearSession: () =>"));
-    expect(clearSessionBody).toContain("userId: null");
-    expect(clearSessionBody).toContain("isTestSession: false");
+  it("clearSession really does null the userId on an explicit logout (the premise the logout wipe keys on)", () => {
+    // AUTH-127 replaced the old source-grep with the real thing: the store is plain zustand and
+    // loads fine under vitest, so drive it instead of pattern-matching its source.
+    useSessionStore.setState({
+      accessToken: "access",
+      refreshToken: "refresh",
+      userId: "user-a",
+      defaultHouseholdId: "household-a",
+      isTestSession: false,
+      lastEndReason: null
+    });
+
+    // No argument = the pre-AUTH-127 meaning, which every existing call site relies on.
+    useSessionStore.getState().clearSession();
+
+    const state = useSessionStore.getState();
+    expect(state.userId).toBeNull();
+    expect(state.defaultHouseholdId).toBeNull();
+    expect(state.isTestSession).toBe(false);
+    expect(state.accessToken).toBeNull();
+    expect(state.refreshToken).toBeNull();
+    expect(state.lastEndReason).toBe("logout");
   });
 });
 

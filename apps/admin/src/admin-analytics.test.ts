@@ -19,14 +19,17 @@ function readSource(relativePath: string): string {
 
 const SAMPLE_SUMMARY: AdminAnalyticsSummary = {
   days: 7,
-  totalEvents: 42,
+  totalEvents: 46,
   byName: [
     { name: "app_opened", count: 20 },
     { name: "onboarding_completed", count: 10 },
     { name: "expense_recorded", count: 6 },
     { name: "expense_synced", count: 0 },
     { name: "item_status_changed", count: 4 },
-    { name: "affiliate_link_clicked", count: 2 }
+    // ANA-127: 레지스트리에 추가된 두 이벤트도 byName에 함께 내려온다 (0건 포함).
+    { name: "item_detail_viewed", count: 3 },
+    { name: "affiliate_link_clicked", count: 2 },
+    { name: "purchase_followup_answered", count: 1 }
   ],
   dailyTotals: [
     { date: "2026-08-14", count: 0 },
@@ -106,7 +109,9 @@ describe("admin analytics summary API client (ADM-009)", () => {
     expect((error as AdminApiError).message).toBe("days는 7 또는 30만 지원해요.");
   });
 
-  it("exposes all six registry event names with Korean labels (0건도 항상 표에 표시)", () => {
+  // admin-api.ts는 레지스트리 초기 6종의 미러다. ANA-127이 더한 두 이벤트는 이 목록이 아니라
+  // 응답의 byName(레지스트리 생성)으로 들어와 페이지의 ANA127_EVENT_LABELS가 라벨을 채운다.
+  it("exposes the six mirrored registry event names with Korean labels (0건도 항상 표에 표시)", () => {
     expect(ANALYTICS_EVENT_NAMES).toEqual([
       "app_opened",
       "onboarding_completed",
@@ -140,7 +145,7 @@ describe("Admin CMS analytics page (ADM-009)", () => {
     const source = readSource("app/analytics/page.tsx");
     expect(source).toContain("총 이벤트");
     expect(source).toContain("순 사용자");
-    // Funnel stages 온보딩 → 기록 → 체크 → 클릭, with per-stage conversion.
+    // Funnel stages 온보딩 → 기록 → 체크 → 열람 → 클릭 → 구매 확인, with per-stage conversion.
     expect(source).toContain("KPI 퍼널");
     expect(source).toContain("온보딩 완료");
     expect(source).toContain("지출 기록");
@@ -166,6 +171,66 @@ describe("Admin CMS analytics page (ADM-009)", () => {
     expect(source).toContain("최근 {option}일");
     expect(source).toContain("setDays");
     expect(source).toMatch(/DAYS_OPTIONS[^=]*=\s*\[7,\s*30\]/);
+  });
+
+  /**
+   * ANA-127: 4단 퍼널은 준비템 체크와 링크 클릭 사이가 통째로 비어 있어 전환율이 읽히지
+   * 않았다. 상세 열람/구매 확인 응답이 계측되면서 구매 루프가 6단으로 이어진다.
+   */
+  it("renders the 6-stage purchase-loop funnel in order", () => {
+    const source = readSource("app/analytics/page.tsx");
+    const block = source.split("const FUNNEL_STAGES")[1]?.split("];")[0] ?? "";
+    const stageEvents = [...block.matchAll(/eventName: "([a-z_]+)"/g)].map((match) => match[1]);
+    expect(stageEvents).toEqual([
+      "onboarding_completed",
+      "expense_recorded",
+      "item_status_changed",
+      "item_detail_viewed",
+      "affiliate_link_clicked",
+      "purchase_followup_answered"
+    ]);
+    expect(source).toContain("준비템 상세 열람");
+    expect(source).toContain("구매 확인 응답");
+  });
+
+  /**
+   * 단계 수는 `funnel` 별칭이 아니라 `byName`에서 읽어야 한다 — 별칭 맵은 API가 하드코딩하고
+   * 있어 새 이벤트 키가 없고(=항상 undefined), `byName`은 계약 레지스트리에서 생성되어 0건
+   * 포함 전 이벤트를 담는다.
+   */
+  it("reads stage counts from byName (registry-driven) rather than the hardcoded funnel aliases", () => {
+    const source = readSource("app/analytics/page.tsx");
+    expect(source).toContain("function eventCount(summary: AdminAnalyticsSummary, eventName: string): number");
+    expect(source).toContain("summary.byName.find((entry) => entry.name === eventName)?.count ?? 0");
+    expect(source).toContain("const count = eventCount(summary, stage.eventName);");
+    expect(source).toContain("eventCount(summary, FUNNEL_STAGES[index - 1].eventName)");
+    // 존재하지 않는 별칭 키로 단계 수를 읽는 옛 경로는 남아 있지 않다.
+    expect(source).not.toContain("summary.funnel[stage.key]");
+    expect(source).not.toContain("keyof AdminAnalyticsFunnel");
+  });
+
+  /**
+   * 허위 데이터 금지: 요약 API는 이벤트 이름 단위로만 집계해 payload의 answer
+   * (purchased/not_purchased/dismissed)를 나눠 보지 못한다. 마지막 단계를 "구매"라고 부르면
+   * 구매 전환율을 부풀리게 되므로 이름과 각주로 3갈래 합계임을 밝힌다.
+   */
+  it("labels the last stage as answers, not purchases, and says so in a footnote", () => {
+    const source = readSource("app/analytics/page.tsx");
+    expect(source).toContain("구매 확인 응답");
+    expect(source).toContain("샀어요·아직이요·괜찮아요 합계");
+    expect(source).toContain("구매 건수로 읽지 마세요");
+    // 구매 건수라고 단정하는 라벨은 쓰지 않는다.
+    expect(source).not.toContain('label: "구매 완료"');
+    expect(source).not.toContain('label: "구매"');
+  });
+
+  it("labels the two ANA-127 events in the per-event table (they arrive via byName, not the 6-name mirror)", () => {
+    const source = readSource("app/analytics/page.tsx");
+    expect(source).toContain('item_detail_viewed: "준비템 상세 열람"');
+    expect(source).toContain('purchase_followup_answered: "구매 확인 응답"');
+    expect(source).toContain("ANA127_EVENT_LABELS[name]");
+    // 레지스트리 밖 이름을 덧붙이는 기존 경로는 그대로 살아 있어야 이 두 이름이 표에 나온다.
+    expect(source).toContain("summary.byName.filter((entry) => !(ANALYTICS_EVENT_NAMES as string[]).includes(entry.name))");
   });
 
   it("adds the 분석 nav entry visible to every role, and admin-api exposes the summary types", () => {

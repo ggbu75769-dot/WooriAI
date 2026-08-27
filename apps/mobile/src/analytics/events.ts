@@ -39,7 +39,16 @@ export type AnalyticsItemStatus = "not_prepared" | "prepared" | "gifted" | "not_
 
 export type AnalyticsProductPlatform = "coupang" | "naver" | "custom";
 
-export type AffiliateClickScreen = "item_detail" | "checklist" | "home";
+/**
+ * ANA-127: item detail is the only screen that renders product links, so it is
+ * the only screen affiliate_link_clicked can fire from -- the contracts enum
+ * (AFFILIATE_CLICK_SCREENS) was narrowed to match and events.test.ts pins the
+ * two together.
+ */
+export type AffiliateClickScreen = "item_detail";
+
+/** ANA-127: COM-108 구매 확인 프롬프트의 3갈래 답변 (샀어요 / 아직이요 / 괜찮아요). */
+export type PurchaseFollowupAnswer = "purchased" | "not_purchased" | "dismissed";
 
 /**
  * Buckets a raw KRW amount into the same enum literal set as the contracts
@@ -139,6 +148,40 @@ export function buildItemStatusChangedPayload(input: {
     itemCategoryCode: analyticsCategoryCodeForItemName(input.itemName),
     status: input.status
   };
+}
+
+/**
+ * item_detail_viewed v1 payload (ANA-127) -- the coarse category enum plus how many purchase
+ * links the viewed detail actually offered. The item name/id never enters the payload (the name
+ * is only used on-device to derive the category enum), and `linkCount` is normalized to a
+ * non-negative integer because the contract schema is `z.number().int().min(0)`: a malformed
+ * count would otherwise be rejected server-side and silently lose the view.
+ */
+export function buildItemDetailViewedPayload(input: {
+  itemName: string;
+  productLinkCount: number;
+}): { itemCategoryCode: AnalyticsCategoryCode; hasProductLink: boolean; linkCount: number } {
+  const linkCount = Number.isFinite(input.productLinkCount)
+    ? Math.max(0, Math.trunc(input.productLinkCount))
+    : 0;
+  return {
+    itemCategoryCode: analyticsCategoryCodeForItemName(input.itemName),
+    hasProductLink: linkCount > 0,
+    linkCount
+  };
+}
+
+/**
+ * purchase_followup_answered v1 payload (ANA-127) -- which of the three answers the user gave,
+ * plus the product platform of the click being asked about so 링크 클릭 -> 구매 전환 stays
+ * joinable with affiliate_link_clicked. `platform` is omitted (not guessed) when the persisted
+ * click predates ANA-127 and carries no platform.
+ */
+export function buildPurchaseFollowupAnsweredPayload(input: {
+  answer: PurchaseFollowupAnswer;
+  platform?: AnalyticsProductPlatform;
+}): { answer: PurchaseFollowupAnswer; platform?: AnalyticsProductPlatform } {
+  return input.platform ? { answer: input.answer, platform: input.platform } : { answer: input.answer };
 }
 
 /** affiliate_link_clicked v1 payload -- platform + screen enums only (never the link URL/title/id). */

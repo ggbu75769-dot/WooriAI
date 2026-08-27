@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image, Linking, Pressable, Share, Text, View } from "react-native";
@@ -7,7 +7,11 @@ import { Image, Linking, Pressable, Share, Text, View } from "react-native";
 // (Alert = ITEM-123 B4의 "선물로 받았어요" 확인 흐름).
 import { Alert, Platform } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
-import { buildAffiliateLinkClickedPayload, buildItemStatusChangedPayload } from "../../src/analytics/events";
+import {
+  buildAffiliateLinkClickedPayload,
+  buildItemDetailViewedPayload,
+  buildItemStatusChangedPayload
+} from "../../src/analytics/events";
 import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
 import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -36,6 +40,15 @@ import { theme } from "../../src/theme";
 import { ProductDetailPixelStyles } from "../../src/pixelLock/styles/ProductDetailPixelStyles";
 
 const productImage = require("../../assets/illustrations/product_diaper_pack.png");
+
+/**
+ * ANA-127: (child, item) pairs whose detail view has already been reported this app launch.
+ * Module-level on purpose -- the same once-per-app-session convention app/index.tsx uses for
+ * app_opened (`hasTrackedAppOpenedThisLaunch`) and PurchaseFollowupPrompt.tsx uses for its
+ * prompt gate: it survives remounts (re-entering the same item from the list is one view, not
+ * several) and resets on cold start.
+ */
+const trackedItemDetailViewsThisLaunch = new Set<string>();
 const productDetailScreenId = "pixel-screen-ITEM-002 ITEM-002 · ITEM-003 · ITEM-004";
 const productDetailHeaderSpacerStyle = { minHeight: 0 } as const;
 const productDetailViewportOffset = 8;
@@ -290,6 +303,29 @@ export default function ItemDetailScreen() {
 
   const hasSession = Boolean(authToken && childId && itemTemplateId);
 
+  /**
+   * ANA-127: item_detail_viewed -- the funnel stage between 준비템 체크 and 링크 클릭 that had
+   * no event at all. Fires once the loaded detail is actually on screen (not on mount, so a
+   * bounced-off loading/error state is never counted as a view) and at most once per launch per
+   * (child, item). Gated on hasSession, which is also what keeps it out of the pixel-lock
+   * capture: app/pixel-lock.tsx clears the session before capturing, so the preview render
+   * (previewDetail) reports nothing. A no-op without ANA-102 consent (src/analytics/flag.ts).
+   */
+  useEffect(() => {
+    if (!hasSession || !detail.data) return;
+    const viewKey = `${childId}:${itemTemplateId}`;
+    if (trackedItemDetailViewsThisLaunch.has(viewKey)) return;
+    trackedItemDetailViewsThisLaunch.add(viewKey);
+    trackAndFlushAnalyticsEvent(authToken, {
+      eventName: "item_detail_viewed",
+      payload: buildItemDetailViewedPayload({
+        itemName: detail.data.name,
+        productLinkCount: detail.data.productLinks.length
+      }),
+      platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+    });
+  }, [hasSession, detail.data, authToken, childId, itemTemplateId]);
+
   if (hasSession && (detail.isLoading || !detail.data)) {
     // MOB-119 (UX-5B-5 후속, D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     // 히어로/상품정보 카드 2장 + 구매 링크 비교 행 실루엣으로 본 화면 형태를 따라간다.
@@ -372,6 +408,9 @@ export default function ItemDetailScreen() {
         itemName: visibleDetail.name,
         childId: childId!,
         priceBandText: visibleDetail.priceBandText ?? undefined,
+        // ANA-127: carried so the prompt's purchase_followup_answered can report the same
+        // `platform` dimension this click's affiliate_link_clicked just reported.
+        platform: link.platform,
         clickedAt: Date.now()
       });
       clickLink.mutate(link.id);

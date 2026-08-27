@@ -5,12 +5,28 @@ import { LOCAL_CHILD_ID } from "../api/local-fixtures";
 import { secureSessionStorage } from "./secure-session-storage";
 import { useSelectedChildStore } from "./selected-child.store";
 
+/**
+ * AUTH-127 — why a session ended.
+ *
+ * - `"logout"`: the user asked for it (설정 로그아웃, 계정 삭제, 픽셀락 진입). Deliberate, and the
+ *   user does not expect anything of theirs to survive on this device.
+ * - `"expired"`: involuntary. The refresh token was rejected with 401 — its 30-day TTL ran out, or
+ *   the server revoked the family after a reuse detection. The user did nothing and still expects
+ *   their unsynced records to be there when they log back in.
+ *
+ * The distinction is what `clearSession` branches on (see below) and what the login screen reads to
+ * decide whether to explain the interruption.
+ */
+export type SessionEndReason = "logout" | "expired";
+
 export type SessionState = {
   accessToken: string | null;
   refreshToken: string | null;
   userId: string | null;
   defaultHouseholdId: string | null;
   isTestSession: boolean;
+  /** AUTH-127: how the last session ended, or null while a session is live / never had one. */
+  lastEndReason: SessionEndReason | null;
   setSession: (session: {
     accessToken: string;
     refreshToken: string;
@@ -19,7 +35,13 @@ export type SessionState = {
   }) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
   startTestSession: () => void;
-  clearSession: () => void;
+  /**
+   * AUTH-127: `reason` defaults to `"logout"`, which is byte-for-byte the pre-AUTH-127 behavior —
+   * every existing call site (app/settings/index.tsx, app/settings/privacy.tsx, app/pixel-lock.tsx,
+   * tests) means an explicit logout and keeps it without passing anything. Only client.ts's
+   * refresh-401 paths pass `"expired"`.
+   */
+  clearSession: (reason?: SessionEndReason) => void;
 };
 
 /**
@@ -37,14 +59,22 @@ export type SessionState = {
  */
 type SessionData = Pick<
   SessionState,
-  "accessToken" | "refreshToken" | "userId" | "defaultHouseholdId" | "isTestSession"
+  "accessToken" | "refreshToken" | "userId" | "defaultHouseholdId" | "isTestSession" | "lastEndReason"
 >;
 
+/** AUTH-127: a persisted blob can carry anything under `lastEndReason` (older build that never
+ * wrote it, hand-edited storage, a future build's new reason). Anything outside the union collapses
+ * to null — an unknown reason must never make the login screen claim a session expired. */
+function normalizeEndReason(value: unknown): SessionEndReason | null {
+  return value === "logout" || value === "expired" ? value : null;
+}
+
 function sanitizeSessionState<T extends SessionData>(state: T): T {
-  if (process.env.EXPO_PUBLIC_TEST_LOGIN === "1" && state.accessToken) {
-    return { ...state, accessToken: null, refreshToken: null };
+  const normalized: T = { ...state, lastEndReason: normalizeEndReason(state.lastEndReason) };
+  if (process.env.EXPO_PUBLIC_TEST_LOGIN === "1" && normalized.accessToken) {
+    return { ...normalized, accessToken: null, refreshToken: null };
   }
-  return state;
+  return normalized;
 }
 
 const initialSessionState: SessionData = {
@@ -52,7 +82,8 @@ const initialSessionState: SessionData = {
   refreshToken: null,
   userId: null,
   defaultHouseholdId: null,
-  isTestSession: false
+  isTestSession: false,
+  lastEndReason: null
 };
 
 /** Defensive shape check for a persisted blob from an unknown/older app version -- anything that
@@ -80,7 +111,10 @@ export const useSessionStore = create<SessionState>()(
           refreshToken: session.refreshToken,
           userId: session.userId,
           defaultHouseholdId: session.defaultHouseholdId ?? null,
-          isTestSession: false
+          isTestSession: false,
+          // AUTH-127: a live session has no "how it ended" — clearing this is what takes the
+          // expiry notice off the login screen once the user is back in.
+          lastEndReason: null
         }),
       setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
       startTestSession: () => {
@@ -93,17 +127,42 @@ export const useSessionStore = create<SessionState>()(
           refreshToken: null,
           userId: null,
           defaultHouseholdId: null,
-          isTestSession: true
+          isTestSession: true,
+          lastEndReason: null
         });
       },
-      clearSession: () =>
-        set({
-          accessToken: null,
-          refreshToken: null,
-          userId: null,
-          defaultHouseholdId: null,
-          isTestSession: false
-        })
+      /**
+       * AUTH-127 — two shapes, one for each reason.
+       *
+       * `"logout"` (default, unchanged): drops credentials AND identity. PRIV-104's teardown keys
+       * on exactly that `userId` → null transition (see src/offline/session-teardown.ts), so the
+       * outbox/local rows/query cache are wiped with it — which is right, because after a
+       * deliberate logout there is no token left to ever flush those rows with.
+       *
+       * `"expired"`: drops ONLY the credentials. The refresh token died; the person holding the
+       * phone did not change. Keeping `userId`/`defaultHouseholdId` means the session-store
+       * *identity* is unchanged, so `isSessionIdentityChange` stays false and PRIV-104's teardown
+       * never fires — the unsynced outbox survives, and a re-login by the SAME user (setSession
+       * with the same userId — still not an identity change) resumes flushing it. A login by a
+       * DIFFERENT user is still an A → B identity change and still wipes everything first, so the
+       * cross-account leak PRIV-104 exists to prevent is untouched. Every auth gate in the app
+       * reads `accessToken` (app/index.tsx, app/(tabs)/_layout.tsx, every screen's
+       * `Boolean(authToken && childId)`), never `userId`, so a retained userId cannot make the app
+       * look logged in.
+       */
+      clearSession: (reason: SessionEndReason = "logout") =>
+        set(
+          reason === "expired"
+            ? { accessToken: null, refreshToken: null, lastEndReason: "expired" }
+            : {
+                accessToken: null,
+                refreshToken: null,
+                userId: null,
+                defaultHouseholdId: null,
+                isTestSession: false,
+                lastEndReason: "logout"
+              }
+        )
     }),
     {
       name: "wooriai-session",
@@ -111,7 +170,10 @@ export const useSessionStore = create<SessionState>()(
       // MOB-107: bump whenever this store's persisted shape changes so `migrate` below has a
       // chance to run against anything written by an older build (round4 and earlier wrote no
       // `version` at all, which zustand treats as version 0).
-      version: 1,
+      // AUTH-127: 2 adds `lastEndReason`. Purely additive — a version-1 blob simply lacks the key
+      // and `{...initialSessionState, ...persisted}` fills in null — but the rule above is bumped
+      // anyway so the shape and the version never drift apart.
+      version: 2,
       migrate: (persisted) =>
         sanitizeSessionState(
           isPlausibleSessionShape(persisted)

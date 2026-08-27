@@ -23,13 +23,15 @@ describe("MOB-118 children API client contract", () => {
     const clientSource = source("src/api/client.ts");
     expect(clientSource).toContain('requestJson<{ children: Child[] }>("/children", { token })');
     expect(clientSource).toContain("requestJson<Child>(`/children/${childId}`, { method: \"PATCH\", token, body })");
-    // UpdateChildBody mirrors UpdateChildDto -- stageMode is immutable server-side and must not
-    // be sendable from the client type.
+    // CHILD-127: UpdateChildBody mirrors UpdateChildDto -- stageMode is now sendable but only
+    // as the one-way pregnant -> born transition (server rejects everything else). The type must
+    // carry it, and the comment must pin the transition-only contract.
     const bodyBlock = clientSource.slice(
       clientSource.indexOf("export type UpdateChildBody"),
       clientSource.indexOf("export function updateChild")
     );
-    expect(bodyBlock).not.toContain("stageMode?");
+    expect(bodyBlock).toContain("stageMode?: ChildStageMode");
+    expect(clientSource).toContain("pregnant → born 단방향 전환 전용");
   });
 
   it("routes local test sessions to the local backend mirrors", async () => {

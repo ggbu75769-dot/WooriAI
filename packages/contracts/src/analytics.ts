@@ -46,8 +46,27 @@ export const expenseRecordSourceSchema = z.enum(EXPENSE_RECORD_SOURCES);
 export const SYNC_LATENCY_BUCKETS = ["lt1s", "1s_5s", "5s_30s", "30s_2m", "gte2m"] as const;
 export const syncLatencyBucketSchema = z.enum(SYNC_LATENCY_BUCKETS);
 
-export const AFFILIATE_CLICK_SCREENS = ["item_detail", "checklist", "home"] as const;
+/**
+ * ANA-127: item detail is the only screen that renders product links (the
+ * checklist/home item rows carry an ItemSummary, which has no productLinks),
+ * so it is the only screen affiliate_link_clicked can fire from. The
+ * previously reserved "checklist"/"home" literals were never emitted by any
+ * shipped client and were dropped rather than left as permanently-empty
+ * dimensions; adding a new fire point means adding its literal back here
+ * first (the collection endpoint validates payloads against this registry, so
+ * an unregistered screenId would be rejected, not silently stored).
+ */
+export const AFFILIATE_CLICK_SCREENS = ["item_detail"] as const;
 export const affiliateClickScreenSchema = z.enum(AFFILIATE_CLICK_SCREENS);
+
+/**
+ * ANA-127: the three answers COM-108's 구매 확인 프롬프트 offers --
+ * "샀어요" / "아직이요" / "괜찮아요". Kept as neutral analytics literals rather
+ * than the store's internal status names (done/pending/dismissed) so the
+ * funnel reads as an answer, not as a storage state.
+ */
+export const PURCHASE_FOLLOWUP_ANSWERS = ["purchased", "not_purchased", "dismissed"] as const;
+export const purchaseFollowupAnswerSchema = z.enum(PURCHASE_FOLLOWUP_ANSWERS);
 
 export const analyticsEventEnvelopeSchema = z
   .object({
@@ -100,6 +119,38 @@ const affiliateLinkClickedV1Payload = z
   })
   .strict();
 
+/**
+ * ANA-127: the purchase loop's missing middle. Fired once per app launch per
+ * (child, item) when the 준비템 상세 screen has actually rendered its loaded
+ * detail, so the funnel has a real 준비템 확인 -> 상세 열람 -> 링크 클릭 chain
+ * instead of jumping straight from a status change to a click.
+ *
+ * `hasProductLink`/`linkCount` are what make the next stage's drop-off
+ * readable: a detail view with no purchasable link can never convert, so it
+ * must be separable from one that could.
+ */
+const itemDetailViewedV1Payload = z
+  .object({
+    itemCategoryCode: analyticsCategoryCodeSchema,
+    hasProductLink: z.boolean(),
+    linkCount: z.number().int().min(0)
+  })
+  .strict();
+
+/**
+ * ANA-127: COM-108's 구매 확인 프롬프트 answer. `platform` is the product
+ * platform of the click being asked about (matching affiliate_link_clicked's
+ * `platform`), which is what makes 링크 클릭 -> 구매 전환 joinable per platform.
+ * Optional on purpose: entries persisted by a build that predates ANA-127 have
+ * no platform recorded, and guessing one would be inventing data.
+ */
+const purchaseFollowupAnsweredV1Payload = z
+  .object({
+    answer: purchaseFollowupAnswerSchema,
+    platform: productPlatformSchema.optional()
+  })
+  .strict();
+
 export type AnalyticsEventRegistryEntry = {
   eventName: string;
   eventVersion: number;
@@ -113,7 +164,12 @@ export const analyticsEventRegistry: readonly AnalyticsEventRegistryEntry[] = [
   { eventName: "expense_recorded", eventVersion: 1, payloadSchema: expenseRecordedV1Payload },
   { eventName: "expense_synced", eventVersion: 1, payloadSchema: expenseSyncedV1Payload },
   { eventName: "item_status_changed", eventVersion: 1, payloadSchema: itemStatusChangedV1Payload },
-  { eventName: "affiliate_link_clicked", eventVersion: 1, payloadSchema: affiliateLinkClickedV1Payload }
+  { eventName: "affiliate_link_clicked", eventVersion: 1, payloadSchema: affiliateLinkClickedV1Payload },
+  // ANA-127. Append-only: this array's order is the admin summary's `byName` order, and
+  // apps/api/test/admin-analytics-summary.e2e.test.ts pins the first six names in place --
+  // so a new event goes at the end, never inserted into the existing sequence.
+  { eventName: "item_detail_viewed", eventVersion: 1, payloadSchema: itemDetailViewedV1Payload },
+  { eventName: "purchase_followup_answered", eventVersion: 1, payloadSchema: purchaseFollowupAnsweredV1Payload }
 ];
 
 function registryKey(eventName: string, eventVersion: number): string {

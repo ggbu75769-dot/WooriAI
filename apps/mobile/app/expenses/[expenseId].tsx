@@ -3,28 +3,30 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
-import { getExpense, listCategories, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import {
+  getExpense,
+  listCategories,
+  listHouseholdMembers,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_SESSION_TOKEN
+} from "../../src/api/client";
 import { categoryCatalog, categoryNameFor, selectableCategories } from "../../src/categories";
+import { expenseCreatedByUserId, resolveExpenseAuthorLabel } from "../../src/expenses/records-list-view";
 import {
   EXPENSE_DELETE_FAILED_ALERT_TITLE,
   EXPENSE_NOT_READY_ERROR,
   expenseMutationErrorMessage,
   INVALID_EXPENSE_INPUT_ERROR
 } from "../../src/expenses/save-error-messages";
+import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
 
-function toDigits(value: string) {
-  return value.replace(/[^0-9]/g, "");
-}
-
-function formatAmount(digits: string) {
-  if (!digits) return "";
-  return Number(digits).toLocaleString("ko-KR");
-}
+// FMT-127: 금액 표기(콤마)·입력 정규화는 src/money.ts가 단일 소스다 -- 이 화면에 있던
+// toDigits/formatAmount 사본은 (예산 수정·온보딩 예산 화면의 같은 사본들과 함께) 제거했다.
 
 function formatExpenseDate(date: Date) {
   const year = date.getFullYear();
@@ -84,6 +86,21 @@ export default function ExpenseDetailScreen() {
     // selectableCategories가 정식 12개로 좁힌다.
     queryFn: () => listCategories(authToken!, { includeAll: true })
   });
+  // FAM-127: 작성자 표기용 구성원 목록 -- 기록 탭·가족 관리·설정과 같은 ["household-members",
+  // householdId] 캐시를 그대로 재사용한다(대개 이미 채워져 있어 추가 요청이 없다). 실패하거나
+  // 1인 가구면 아래 authorLabel이 null이 되어 이 화면은 예전과 똑같이 그려진다.
+  const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
+  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const householdMembers = useQuery({
+    queryKey: ["household-members", householdId],
+    enabled: Boolean(authToken && householdId),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => listHouseholdMembers(authToken!, householdId!)
+  });
+  const authorLabel = resolveExpenseAuthorLabel(
+    expenseCreatedByUserId(expense.data),
+    householdMembers.data?.members
+  );
   const [itemName, setItemName] = useState("");
   const [amountDigits, setAmountDigits] = useState("");
   const [memo, setMemo] = useState("");
@@ -220,6 +237,21 @@ export default function ExpenseDetailScreen() {
         ) : (
           <>
             <Card style={{ gap: theme.spacing.gap }}>
+              {/* FAM-127: 공동 기록 가구(구성원 2명 이상)에서만 나타나는 읽기 전용 줄. 나머지
+                  필드와 같은 라벨/값 구조를 그대로 써서 새 표기 관례를 만들지 않는다. 1인
+                  가구·이름 해석 실패 시에는 authorLabel이 null이라 아예 렌더되지 않으므로
+                  기존 화면이 한 픽셀도 바뀌지 않는다. */}
+              {authorLabel ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+                    기록한 사람
+                  </Text>
+                  <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
+                    {authorLabel}
+                  </Text>
+                </View>
+              ) : null}
+
               <View style={{ gap: 6 }}>
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
                   품목
@@ -267,10 +299,10 @@ export default function ExpenseDetailScreen() {
                     accessibilityLabel="지출 금액 입력"
                     keyboardType="number-pad"
                     returnKeyType="done"
-                    onChangeText={(value) => setAmountDigits(toDigits(value))}
+                    onChangeText={(value) => setAmountDigits(amountDigitsOnly(value))}
                     placeholder="금액"
                     style={{ color: theme.colors.brown, flex: 1, fontSize: theme.typography.body1.fontSize }}
-                    value={formatAmount(amountDigits)}
+                    value={formatAmountDigits(amountDigits)}
                   />
                   <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
                     원

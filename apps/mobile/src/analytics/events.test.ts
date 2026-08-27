@@ -10,7 +10,9 @@ import {
   bucketExpenseAmountKrw,
   buildAffiliateLinkClickedPayload,
   buildExpenseRecordedPayload,
-  buildItemStatusChangedPayload
+  buildItemDetailViewedPayload,
+  buildItemStatusChangedPayload,
+  buildPurchaseFollowupAnsweredPayload
 } from "./events";
 import { useAnalyticsConsentStore } from "./flag";
 
@@ -124,6 +126,71 @@ describe("payload builders (registry-shaped, PII-safe by construction)", () => {
     expect(Object.keys(payload).sort()).toEqual(["platform", "screenId"]);
     expect(payload).toEqual({ platform: "coupang", screenId: "item_detail" });
   });
+
+  // ANA-127: 상세 열람.
+  it("builds an item_detail_viewed v1 payload with exactly the registry's three fields", () => {
+    const payload = buildItemDetailViewedPayload({ itemName: "네이처러브 기저귀 팬티형", productLinkCount: 3 });
+    expect(Object.keys(payload).sort()).toEqual(["hasProductLink", "itemCategoryCode", "linkCount"]);
+    expect(payload).toEqual({ itemCategoryCode: "diaper_hygiene", hasProductLink: true, linkCount: 3 });
+  });
+
+  it("reports hasProductLink=false for a detail with no purchase link (it can never convert)", () => {
+    expect(buildItemDetailViewedPayload({ itemName: "정체불명의 무언가", productLinkCount: 0 })).toEqual({
+      itemCategoryCode: "etc",
+      hasProductLink: false,
+      linkCount: 0
+    });
+  });
+
+  it("normalizes a malformed link count to a non-negative integer instead of losing the view", () => {
+    // 계약 스키마가 z.number().int().min(0)이라, 정규화하지 않으면 서버가 PAYLOAD_INVALID로
+    // 되돌려 열람 자체가 사라진다.
+    expect(buildItemDetailViewedPayload({ itemName: "x", productLinkCount: -2 }).linkCount).toBe(0);
+    expect(buildItemDetailViewedPayload({ itemName: "x", productLinkCount: 2.7 }).linkCount).toBe(2);
+    expect(buildItemDetailViewedPayload({ itemName: "x", productLinkCount: Number.NaN }).linkCount).toBe(0);
+  });
+
+  // ANA-127: 구매 확인 응답.
+  it("builds a purchase_followup_answered v1 payload for each of the prompt's three answers", () => {
+    for (const answer of ["purchased", "not_purchased", "dismissed"] as const) {
+      const payload = buildPurchaseFollowupAnsweredPayload({ answer, platform: "naver" });
+      expect(Object.keys(payload).sort()).toEqual(["answer", "platform"]);
+      expect(payload).toEqual({ answer, platform: "naver" });
+    }
+  });
+
+  it("omits platform (never guesses one) when the persisted click predates ANA-127", () => {
+    const payload = buildPurchaseFollowupAnsweredPayload({ answer: "purchased" });
+    expect(Object.keys(payload)).toEqual(["answer"]);
+    expect(payload).toEqual({ answer: "purchased" });
+  });
+});
+
+/**
+ * ANA-127: 새 이벤트 2종의 payload가 계약(packages/contracts/src/analytics.ts)의 strict 스키마와
+ * 실제로 맞물리는지 -- 모바일은 contracts를 의존하지 않고 리터럴을 수기로 미러링하므로
+ * (events.ts 헤더 주석) 드리프트는 소스 대조로만 잡힌다.
+ */
+describe("ANA-127 payload literals stay in lockstep with the contracts registry", () => {
+  const contractsSource = readFileSync(join(mobileRoot, "../../packages/contracts/src/analytics.ts"), "utf8");
+
+  function literals(exportName: string): string[] {
+    const block = contractsSource.split(`export const ${exportName} = [`)[1]?.split("] as const;")[0] ?? "";
+    return [...block.matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+  }
+
+  it("mirrors PURCHASE_FOLLOWUP_ANSWERS exactly", () => {
+    expect(literals("PURCHASE_FOLLOWUP_ANSWERS")).toEqual(["purchased", "not_purchased", "dismissed"]);
+  });
+
+  it("mirrors the narrowed AFFILIATE_CLICK_SCREENS (item_detail only)", () => {
+    expect(literals("AFFILIATE_CLICK_SCREENS")).toEqual(["item_detail"]);
+  });
+
+  it("registers both new events at version 1", () => {
+    expect(contractsSource).toContain('eventName: "item_detail_viewed", eventVersion: 1');
+    expect(contractsSource).toContain('eventName: "purchase_followup_answered", eventVersion: 1');
+  });
 });
 
 /**
@@ -162,6 +229,36 @@ describe("newly wired events respect the consent gate", () => {
 
     expect(getQueuedAnalyticsEventCount()).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // ANA-127: 새 이벤트도 같은 동의(ANA-102) 게이트 뒤에서만 발사된다.
+  it("drops item_detail_viewed / purchase_followup_answered while consent is OFF", () => {
+    trackAnalyticsEvent({
+      eventName: "item_detail_viewed",
+      payload: buildItemDetailViewedPayload({ itemName: "네이처러브 기저귀 팬티형", productLinkCount: 2 })
+    });
+    trackAnalyticsEvent({
+      eventName: "purchase_followup_answered",
+      payload: buildPurchaseFollowupAnsweredPayload({ answer: "purchased", platform: "coupang" })
+    });
+
+    expect(getQueuedAnalyticsEventCount()).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("queues item_detail_viewed / purchase_followup_answered once consent is ON", () => {
+    useAnalyticsConsentStore.getState().setEnabled(true);
+
+    trackAnalyticsEvent({
+      eventName: "item_detail_viewed",
+      payload: buildItemDetailViewedPayload({ itemName: "네이처러브 기저귀 팬티형", productLinkCount: 2 })
+    });
+    trackAnalyticsEvent({
+      eventName: "purchase_followup_answered",
+      payload: buildPurchaseFollowupAnsweredPayload({ answer: "not_purchased", platform: "coupang" })
+    });
+
+    expect(getQueuedAnalyticsEventCount()).toBe(2);
   });
 
   it("queues the same events once the settings toggle turns consent ON", () => {

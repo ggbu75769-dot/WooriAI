@@ -87,10 +87,21 @@ export class ReportingStoreService {
     };
   }
 
+  /**
+   * PERF-127: 종전에는 그 해의 지출 행을 **전량** 읽어 와 JS에서 월별로 접었다 — 한 해의
+   * 행 수에 상한이 없어(가져오기 한 번에 수천 건이 들어올 수 있다) 전송·역직렬화 비용이
+   * 기록 수에 선형으로 늘었다. PERF-121의 getCumulativeReport와 **같은 방식**으로 바꾼다:
+   * Prisma는 파생식(월 추출) 기준 groupBy를 표현할 수 없으므로 spentOn(일자) 기준으로 DB에서
+   * 먼저 접고, 일자→월 접기만 JS에 남긴다. 전송 행 수가 "지출 건수"에서 "지출이 있었던
+   * 날짜 수"로 줄고(한 해라 366행이 상한), 합계는 DB의 SUM이 낸다. 필터(deletedAt null,
+   * expenseType='expense' — 선물 제외 DNC-015), 연도 경계(UTC 저장 date-only를 fromDateOnly로
+   * 자르는 방식), 12개월 채움, 응답 형태 모두 종전과 동치다.
+   */
   async getYearlyReport(user: AuthenticatedUser, childId: string, year = currentYear()) {
     await this.childAccess.requireChildAccess(user, childId);
     const normalizedYear = this.requireValidYear(year);
-    const rows = await this.prisma.expense.findMany({
+    const byDay = await this.prisma.expense.groupBy({
+      by: ["spentOn"],
       where: {
         childId,
         deletedAt: null,
@@ -100,13 +111,13 @@ export class ReportingStoreService {
           lt: new Date(`${Number(normalizedYear) + 1}-01-01T00:00:00.000Z`)
         }
       },
-      select: { spentOn: true, amountKrw: true }
+      _sum: { amountKrw: true }
     });
 
     const totalsByMonth = new Map<string, number>();
-    for (const row of rows) {
-      const key = fromDateOnly(row.spentOn).slice(0, 7);
-      totalsByMonth.set(key, (totalsByMonth.get(key) ?? 0) + row.amountKrw);
+    for (const day of byDay) {
+      const key = fromDateOnly(day.spentOn).slice(0, 7);
+      totalsByMonth.set(key, (totalsByMonth.get(key) ?? 0) + (day._sum.amountKrw ?? 0));
     }
 
     const monthlyTotals = Array.from({ length: 12 }, (_, index) => {

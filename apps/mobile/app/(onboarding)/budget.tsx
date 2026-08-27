@@ -8,17 +8,12 @@ import { OnboardingSaveErrorCard, OnboardingStepProgress } from "../../src/onboa
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
+import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
 import { AppScreen, Card, PrimaryButton, ScreenHeader, TextButton } from "../../src/ui";
 import { theme } from "../../src/theme";
 
-function toDigits(value: string) {
-  return value.replace(/[^0-9]/g, "");
-}
-
-function formatAmount(digits: string) {
-  if (!digits) return "";
-  return Number(digits).toLocaleString("ko-KR");
-}
+// FMT-127: 금액 표기(콤마)·입력 정규화는 src/money.ts가 단일 소스다 -- 이 화면에 있던
+// toDigits/formatAmount 사본은 (예산 수정·지출 수정 화면의 같은 사본들과 함께) 제거했다.
 
 export default function BudgetScreen() {
   const [amountDigits, setAmountDigits] = useState("500000");
@@ -88,14 +83,14 @@ export default function BudgetScreen() {
               accessibilityLabel="월 예산 입력"
               keyboardType="number-pad"
               returnKeyType="done"
-              onChangeText={(value) => setAmountDigits(toDigits(value))}
+              onChangeText={(value) => setAmountDigits(amountDigitsOnly(value))}
               style={{
                 color: theme.colors.brown,
                 fontSize: 24,
                 fontWeight: "800",
                 paddingVertical: 6
               }}
-              value={formatAmount(amountDigits)}
+              value={formatAmountDigits(amountDigits)}
             />
             <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>원</Text>
           </View>

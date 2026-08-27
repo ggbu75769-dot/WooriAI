@@ -140,6 +140,110 @@ export function formatSpentOn(spentOn: string): string {
 }
 
 /**
+ * FAM-127 공동 기록 작성자 표기: 지출 행/상세에 "누가 기록했는지"를 붙일지 정한다.
+ *
+ * 왜 모듈인가: 서버 `toExpenseDto`는 진작부터 `createdByUserId`를 내려주고 있었는데(apps/api/
+ * src/onboarding/store-shared.ts) 모바일에는 이 값을 읽는 곳이 하나도 없었다. 그래서 부모 둘이
+ * 같은 가구를 쓰면 기록 탭에서 내가 적은 기저귀와 배우자가 적은 기저귀가 **완전히 같은 행**으로
+ * 보였고, "이거 자기가 적은 거야?"를 앱 밖에서 물어야 했다.
+ *
+ * 의도적 규칙 -- 라벨은 **가구 구성원이 2명 이상일 때만** 나타난다. 1인 가구에서는 모든 행에
+ * 내 이름이 똑같이 붙을 뿐이라 정보가 아니라 소음이고, 1인 가구의 픽셀·문구가 한 글자도
+ * 바뀌지 않아야 한다(R20-C 알림함 다자녀 라벨 `resolveNotificationChildLabel`과 같은 판단).
+ *
+ * 내가 적은 행도 **똑같이** 이름을 붙인다. 내 행만 비워 두면 "라벨 없음"이 '나'와 '이름을 못
+ * 찾음' 두 가지를 동시에 뜻하게 되어, 오히려 읽는 사람이 추측을 해야 한다.
+ *
+ * 이름을 풀지 못하면 행을 이 기능이 없던 때와 **정확히 같게** 남긴다 -- "· " 빈 접두도, "가족"
+ * 같은 자리표시자도 만들지 않는다(앱의 허위/빈 표시 금지 관례).
+ */
+
+/** `HouseholdMember`(src/api/client.ts)에서 이 모듈이 필요로 하는 구조적 최소치. */
+export type ExpenseAuthorRef = {
+  userId: string;
+  displayName: string;
+  /**
+   * 구성원 상태. `GET /households/:id/members`는 **`active`와 `pending`을 함께** 내려준다
+   * (household-runtime.service.ts listMembers) -- 아직 초대를 수락하지 않은 사람도 목록에 있다.
+   * 아래 "2명 이상" 판정은 `active`만 센다: 초대만 보내 두고 상대가 수락하지 않은 1인 가구에서
+   * 갑자기 모든 행에 내 이름이 붙는 것을 막기 위해서다(수락 전에는 그 사람이 기록을 남길 수도
+   * 없으므로 세어야 할 이유도 없다). 값이 없으면 active로 본다(로컬 목업/구버전 호환).
+   */
+  status?: string | null;
+};
+
+/**
+ * 서버가 내려주는 `createdByUserId`를 타입 안전하게 꺼낸다.
+ *
+ * 모바일의 `Expense` 타입(src/api/client.ts)은 서버 DTO의 **수기 미러**라서 이 필드가 아직
+ * 선언돼 있지 않다. 응답에는 실제로 들어 있으므로, 타입에 없는 필드를 캐스팅으로 읽는 대신
+ * 여기서 한 번만 방어적으로 좁힌다 -- 값이 없거나(구버전 서버·로컬 목업·오프라인 대기 행)
+ * 문자열이 아니면 `undefined`가 되어 아래 해석이 조용히 라벨을 생략한다.
+ */
+export function expenseCreatedByUserId(expense: unknown): string | undefined {
+  if (!expense || typeof expense !== "object") return undefined;
+  const value = (expense as { createdByUserId?: unknown }).createdByUserId;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * 행에 표시할 작성자 이름, 또는 표시하지 않을 때 `null`.
+ *
+ * @param createdByUserId `expenseCreatedByUserId`가 꺼낸 값.
+ * @param members         `["household-members", householdId]` 캐시의 구성원 목록. 로딩 중이거나
+ *                        비활성(로그아웃·미리보기)이면 `undefined`.
+ */
+export function resolveExpenseAuthorLabel(
+  createdByUserId: string | undefined,
+  members: readonly ExpenseAuthorRef[] | undefined
+): string | null {
+  if (!members) return null;
+  // 초대 수락 전(pending) 구성원은 세지 않는다 -- 위 ExpenseAuthorRef.status 주석 참고.
+  const joined = members.filter((member) => (member.status ?? "active") === "active");
+  // 1인 가구(또는 아직 구성원 수를 모름): 모든 행에 같은 이름이 붙을 뿐이다.
+  if (joined.length < 2) return null;
+  if (!createdByUserId) return null;
+  const match = joined.find((member) => member.userId === createdByUserId);
+  if (!match) return null;
+  const displayName = match.displayName.trim();
+  return displayName.length > 0 ? displayName : null;
+}
+
+/**
+ * 지출 구분(`Expense.expenseType`)의 한국어 라벨 -- 기록 행 부제와 CSV '구분' 열의 단일 소스.
+ *
+ * CSV-127로 내보내기가 같은 구분을 열로 갖게 되면서 생겼다. 화면과 파일이 같은 단어를 쓰지
+ * 않으면 사용자가 앱에서 "선물"로 본 행이 엑셀에서는 다른 이름으로 보이게 되고, 그건
+ * DNC-015(선물은 합계에서 제외) 표시의 신뢰를 그대로 깎는다.
+ */
+const EXPENSE_TYPE_LABELS_KO = { expense: "지출", gift: "선물", refund: "환불" } as const;
+
+/**
+ * CSV '구분' 열용 라벨: 일반 지출도 **명시적으로** "지출"이 된다(열은 비어 있으면 안 된다).
+ *
+ * 모르는 값은 `sourceLabelKo`와 같은 관례로 **원본을 그대로 통과**시킨다 -- 서버가 나중에
+ * 구분을 하나 더 늘렸을 때 그것을 "지출"로 둔갑시키는 것이 빈 칸보다 나쁘다. 값이 아예 없으면
+ * 빈 칸으로 둔다(없는 구분을 지어내지 않는다).
+ */
+export function expenseTypeLabelKo(expenseType?: string | null): string {
+  if (!expenseType) return "";
+  return EXPENSE_TYPE_LABELS_KO[expenseType as keyof typeof EXPENSE_TYPE_LABELS_KO] ?? expenseType;
+}
+
+/**
+ * 기록/홈 행 부제의 구분 접두사, 또는 접두사를 붙이지 않을 때 `null`.
+ *
+ * 목록 행에서는 기본값 "지출"에 접두를 붙이지 않는다 -- 거의 모든 행에 같은 단어가 붙으면
+ * 정보가 아니라 소음이고, 눈에 띄어야 하는 선물/환불이 오히려 묻힌다(R20-C 다자녀 라벨이
+ * "2명 이상일 때만" 붙는 것과 같은 판단). CSV는 열이 비면 안 되므로 위 `expenseTypeLabelKo`를
+ * 쓴다 -- 두 규칙의 차이는 여기 한 곳에만 있다.
+ */
+export function expenseTypeSubtitlePrefix(expenseType?: string | null): string | null {
+  if (expenseType === "gift" || expenseType === "refund") return EXPENSE_TYPE_LABELS_KO[expenseType];
+  return null;
+}
+
+/**
  * REC-121 (D2/K1): composes a 기록 행 subtitle -- "[선물|환불 ·] 카테고리 · 8월 4일".
  *
  * D2: the row used to show only 품목명 / 날짜 / 금액, so two rows for different categories were
@@ -152,15 +256,26 @@ export function formatSpentOn(spentOn: string): string {
  * contract (src/money.ts) and this screen's 월 합계 does not subtract refunds either, so drawing
  * "-38,500원" next to a total that never went down would claim an arithmetic the app does not
  * perform. The label is the honest distinction -- see docs/operations/known-limitations.md.
+ *
+ * FAM-127: `authorLabel` (공동 기록 작성자) is an OPTIONAL addition -- omitting it produces the
+ * exact string this function produced before, which is what keeps the 홈 화면 caller
+ * (`homeRecentExpenseSubtitle`, and through it app/(tabs)/index.tsx) working untouched.
+ *
+ * Token order is 구분 → 작성자 → 카테고리 → 날짜, i.e. the author slots in AFTER the
+ * 선물/환불 prefix rather than in front of it. 구분 keeps the leading slot it already owned, so a
+ * 1인 가구(작성자 미표시)·선물 행은 예전과 한 글자도 다르지 않다.
  */
 export function recordsRowSubtitle(input: {
   expenseType?: string | null;
+  authorLabel?: string | null;
   categoryLabel?: string | null;
   dateLabel: string;
 }): string {
   const parts: string[] = [];
-  if (input.expenseType === "gift") parts.push("선물");
-  else if (input.expenseType === "refund") parts.push("환불");
+  const typePrefix = expenseTypeSubtitlePrefix(input.expenseType);
+  if (typePrefix) parts.push(typePrefix);
+  const authorLabel = input.authorLabel?.trim();
+  if (authorLabel) parts.push(authorLabel);
   const categoryLabel = input.categoryLabel?.trim();
   if (categoryLabel) parts.push(categoryLabel);
   parts.push(input.dateLabel);

@@ -15,7 +15,10 @@ export type AnalyticsEventName =
   | "expense_recorded"
   | "expense_synced"
   | "item_status_changed"
-  | "affiliate_link_clicked";
+  // ANA-127: 구매 루프 퍼널의 빈 중간 단계 -- 상세 열람과 구매 확인 응답.
+  | "item_detail_viewed"
+  | "affiliate_link_clicked"
+  | "purchase_followup_answered";
 
 export type AnalyticsEnvelope = {
   eventName: AnalyticsEventName;

@@ -164,12 +164,16 @@ describe("client.ts 401→refresh retry matrix (COV-T3)", () => {
       expect(refreshCallCount).toBe(1);
       // 2 originals + 1 shared refresh, and no retried requests.
       expect(fetchMock).toHaveBeenCalledTimes(3);
-      // Session logout: every token/identity field cleared.
+      // AUTH-127: the session ends, but as an EXPIRY, not a logout. Credentials go; the identity
+      // fields stay, which is what keeps PRIV-104's teardown (keyed on a userId change) from
+      // wiping this user's unsynced offline outbox out from under them -- they never asked to be
+      // logged out and are about to log back in. See src/offline/session-expiry.ts.
       const session = useSessionStore.getState();
       expect(session.accessToken).toBeNull();
       expect(session.refreshToken).toBeNull();
-      expect(session.userId).toBeNull();
-      expect(session.defaultHouseholdId).toBeNull();
+      expect(session.lastEndReason).toBe("expired");
+      expect(session.userId).toBe("user-1");
+      expect(session.defaultHouseholdId).toBe("household-1");
     });
 
     it("keeps the session intact when the refresh call network-fails, and still surfaces the original 401 body", async () => {
@@ -455,6 +459,9 @@ describe("client.ts 401→refresh retry matrix (COV-T3)", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2); // original + refresh, no retry
       expect(useSessionStore.getState().accessToken).toBeNull();
       expect(useSessionStore.getState().refreshToken).toBeNull();
+      // AUTH-127: same expiry semantics on the typed-expense transport as on requestJson.
+      expect(useSessionStore.getState().lastEndReason).toBe("expired");
+      expect(useSessionStore.getState().userId).toBe("user-1");
     });
   });
 
@@ -517,6 +524,10 @@ describe("client.ts 401→refresh retry matrix (COV-T3)", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(useSessionStore.getState().accessToken).toBeNull();
       expect(useSessionStore.getState().refreshToken).toBeNull();
+      // AUTH-127: and on the multipart transport too -- all three funnel through the same
+      // endSessionAsExpired helper, so the reason can never diverge between them.
+      expect(useSessionStore.getState().lastEndReason).toBe("expired");
+      expect(useSessionStore.getState().userId).toBe("user-1");
     });
   });
 });
