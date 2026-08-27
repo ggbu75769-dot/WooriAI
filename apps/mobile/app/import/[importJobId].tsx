@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
@@ -23,6 +23,7 @@ import {
   claimImportBulkRun,
   isImportBulkRunActive,
   runImportBulkSelection,
+  subscribeImportBulkRuns,
   IMPORT_BULK_CANCEL_A11Y_LABEL,
   IMPORT_BULK_CANCEL_LABEL,
   IMPORT_BULK_CANCELLED_TEXT,
@@ -565,8 +566,18 @@ export default function ImportPreviewScreen() {
    * null을 돌려줄 상태인가). 이 화면 자신이 돌리는 중이면 `isBulkRunning`이 이미 막으므로,
    * 여기서 보는 것은 "이전 루프가 아직 release되지 않은" 경우뿐이다. 눌리는 척하지 않도록
    * 버튼 disabled에 그대로 반영하고, 이미 눌러 본 사용자에게는 아래 한 줄로 이유를 말한다.
+   *
+   * 라운드 44 리뷰 N-6: 이 값을 렌더 중에 한 번 읽기만 하면 **되살아나지 않는다**. 앞 마운트의
+   * 루프가 release되는 순간에는 이 화면의 상태가 아무것도 바뀌지 않으므로 재렌더가 없고,
+   * 확정 버튼이 잠긴 채 그대로 남는다(사용자는 IMPORT_BULK_CLAIM_BUSY_TEXT만 보며 기다린다).
+   * 등록부 구독을 외부 스토어로 읽어 claim/release 시점에 다시 그린다.
    */
-  const bulkRunHeldElsewhere = !isBulkRunning && isImportBulkRunActive(importJobId);
+  const bulkRunRegistered = useSyncExternalStore(
+    subscribeImportBulkRuns,
+    useCallback(() => isImportBulkRunActive(importJobId), [importJobId]),
+    useCallback(() => false, [])
+  );
+  const bulkRunHeldElsewhere = !isBulkRunning && bulkRunRegistered;
   const canBulkSelect =
     !bulkRunHeldElsewhere &&
     canStartImportBulkRun({

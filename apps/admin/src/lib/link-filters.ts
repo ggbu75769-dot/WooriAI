@@ -85,17 +85,30 @@ export function linkFilterSummary(totalCount: number, filteredCount: number): st
 }
 
 /**
- * UX-X C5: 대시보드 "깨진 상품 링크" 카드가 /links?health=broken 으로 넘어온다.
+ * UX-X C5: 대시보드 "깨진 상품 링크" 카드가 /links?health=broken&active=1 로 넘어온다.
  * 칩 값이 아닌 값이나 파라미터 없음은 필터 없음으로 떨어뜨린다 — 화면에 없는 상태로
  * 걸려 빈 목록만 보이는 일이 없게. 초기값 1회 계산에만 쓰고(그 뒤 필터는 클라 상태)
  * URL은 다시 쓰지 않는다.
+ *
+ * 라운드 44 리뷰 N-5: `active`도 함께 읽는다. 대시보드의 깨진 링크 **숫자**는 서버가
+ * `active: true` 안에서만 센 값인데(dashboard-summary.service.ts), 넘어온 목록은 비활성
+ * 링크까지 다 보여 줬다 — 카드가 "3"인데 목록에는 7줄이 뜨는, 같은 것을 세는 두 화면이
+ * 서로 다른 수를 말하는 자리였다. 카드가 `active=1`을 붙이고 여기서 그 조건을 초기 필터로
+ * 세운다(체크박스가 켜진 채 열리므로 사용자가 직접 풀 수 있다).
  */
+export const ACTIVE_ONLY_SEARCH_PARAM_VALUE = "1";
+
 export function linkFiltersFromSearchParams(
   params: { get(name: string): string | null } | null | undefined
 ): LinkFilterState {
   const raw = params?.get("health") ?? null;
   const healthStatus = LINK_HEALTH_FILTERS.find((value) => value === raw);
-  return healthStatus ? { healthStatus } : EMPTY_LINK_FILTERS;
+  const activeOnly = params?.get("active") === ACTIVE_ONLY_SEARCH_PARAM_VALUE;
+
+  const filters: LinkFilterState = {};
+  if (healthStatus) filters.healthStatus = healthStatus;
+  if (activeOnly) filters.activeOnly = true;
+  return hasAnyLinkFilter(filters) ? filters : EMPTY_LINK_FILTERS;
 }
 
 export function hasAnyLinkFilter(filters: LinkFilterState): boolean {

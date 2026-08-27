@@ -33,6 +33,35 @@ type ImportBulkRunEntry = { cancelled: boolean };
  */
 const activeImportBulkRuns = new Map<string, ImportBulkRunEntry>();
 
+/**
+ * 라운드 44 리뷰 N-6: 등록부 구독.
+ *
+ * `isImportBulkRunActive`는 순수 읽기라, 화면이 렌더 중에 한 번 읽고 나면 그 뒤 등록부가
+ * 바뀌어도 아무도 다시 그리지 않았다. 확정 버튼은 그 값으로 잠기는데(canConfirmImport의
+ * `isBulkRunHeldElsewhere`), 앞 마운트의 루프가 `release()`로 내려온 뒤에도 재렌더를 일으킬
+ * 사건이 없으면 버튼이 계속 잠긴 채 남는다 — 사용자는 이유 문구만 보고 무한히 기다린다.
+ *
+ * 그래서 등록부가 바뀌는 두 자리(claim / release)에서 알린다. react를 import하지 않는
+ * 이 모듈의 관례는 그대로 두고(화면이 useSyncExternalStore로 꽂는다), 여기서는 리스너
+ * Set 하나만 갖는다.
+ */
+type ImportBulkRunListener = () => void;
+
+const importBulkRunListeners = new Set<ImportBulkRunListener>();
+
+/** 등록부 변화 구독. 반환값을 부르면 해지된다(useSyncExternalStore 계약 그대로). */
+export function subscribeImportBulkRuns(listener: ImportBulkRunListener): () => void {
+  importBulkRunListeners.add(listener);
+  return () => {
+    importBulkRunListeners.delete(listener);
+  };
+}
+
+function notifyImportBulkRuns(): void {
+  // 통지 중에 구독이 해지될 수 있으므로 복사본을 돈다.
+  for (const listener of [...importBulkRunListeners]) listener();
+}
+
 export type ImportBulkRunHandle = {
   /** 이 루프가 중단됐는가. 루프는 매 건 전후로 이 값을 본다. */
   isCancelled: () => boolean;
@@ -51,13 +80,18 @@ export function claimImportBulkRun(jobId: string): ImportBulkRunHandle | null {
   if (!jobId || activeImportBulkRuns.has(jobId)) return null;
   const entry: ImportBulkRunEntry = { cancelled: false };
   activeImportBulkRuns.set(jobId, entry);
+  notifyImportBulkRuns();
   return {
     isCancelled: () => entry.cancelled,
     cancel: () => {
       entry.cancelled = true;
     },
     release: () => {
-      if (activeImportBulkRuns.get(jobId) === entry) activeImportBulkRuns.delete(jobId);
+      // 실제로 내려놓은 경우에만 알린다 -- 이미 다른 핸들이 자리를 잡았다면 등록부는
+      // 그대로이고, 알릴 변화가 없다.
+      if (activeImportBulkRuns.get(jobId) !== entry) return;
+      activeImportBulkRuns.delete(jobId);
+      notifyImportBulkRuns();
     }
   };
 }
@@ -75,6 +109,9 @@ export function isImportBulkRunActive(jobId: string): boolean {
 /** 테스트 격리용 -- 프로덕션 코드에서는 부르지 않는다. */
 export function resetImportBulkRuns(): void {
   activeImportBulkRuns.clear();
+  // 구독도 함께 비운다 -- 앞 테스트가 남긴 리스너가 다음 테스트의 통지를 받으면
+  // 격리가 깨진다(등록부와 같은 이유로 여기서만 초기화한다).
+  importBulkRunListeners.clear();
 }
 
 /* ------------------------------------------------------------------- 실행기 */

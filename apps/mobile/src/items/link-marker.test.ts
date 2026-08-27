@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { LOCAL_ITEM_DIAPER, localProductLinkFixtures } from "../api/local-fixtures";
 import {
+  AFFILIATE_DISCLOSURE_CORE_TERM,
   AFFILIATE_DISCLOSURE_FALLBACK_TEXT,
   AFFILIATE_MARKER_CAPTION,
   AFFILIATE_MARKER_LABEL,
@@ -9,14 +11,14 @@ import {
   FALLBACK_PLATFORM_LABEL,
   GENERAL_MARKER_LABEL,
   hasPurchasableLink,
-  linkNeedsDisclosure,
   PRODUCT_LINKS_SECTION_TITLE,
   productLinkMarker,
   productLinksDisclosureText,
   productPlatformLabel,
   SPONSORED_DISCLOSURE_FALLBACK_TEXT,
   SPONSORED_MARKER_CAPTION,
-  SPONSORED_MARKER_LABEL
+  SPONSORED_MARKER_LABEL,
+  withAffiliateDisclosure
 } from "./link-marker";
 
 const mobileRoot = process.cwd();
@@ -140,7 +142,6 @@ describe("라운드 43 리뷰 M-1: 고지는 링크 집합이 정한다", () => 
     // "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요."가 그려졌다 -- 받지 않는 돈을
     // 받는다고 말하는 화면이었다(시드 링크 58개 중 34개가 일반 링크).
     expect(productLinksDisclosureText([general, general, general])).toBeUndefined();
-    expect(linkNeedsDisclosure(general)).toBe(false);
   });
 
   it("고지 대상이 없다는 판정은 링크 0개와 같은 근거다 (DNC-010 은닉 아님)", () => {
@@ -150,12 +151,16 @@ describe("라운드 43 리뷰 M-1: 고지는 링크 집합이 정한다", () => 
   });
 
   it("제휴가 하나라도 있으면 제휴 고지를 그린다 (DNC-010)", () => {
-    expect(linkNeedsDisclosure(affiliate)).toBe(true);
-    expect(productLinksDisclosureText([general, affiliate, general])).toBe("제휴 문구예요.");
+    // N-2: 운영 커스텀 문구를 쓰되 수수료 문장은 반드시 남는다.
+    expect(productLinksDisclosureText([general, affiliate, general])).toBe(
+      `제휴 문구예요. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`
+    );
   });
 
-  it("스폰서가 섞이면 스폰서 문구가 우선한다 (DNC-011)", () => {
-    expect(productLinksDisclosureText([affiliate, sponsored, general])).toBe("스폰서 문구예요.");
+  it("스폰서가 섞이면 스폰서 문구가 앞서되 수수료 고지를 지우지 않는다 (DNC-011 + DNC-010)", () => {
+    expect(productLinksDisclosureText([affiliate, sponsored, general])).toBe(
+      `스폰서 문구예요. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`
+    );
   });
 
   it("문구가 비어 있으면 종별 기본 문구로 떨어진다", () => {
@@ -185,12 +190,12 @@ describe("라운드 43 리뷰 M-1: 고지는 링크 집합이 정한다", () => 
     expect(productLinksDisclosureText(reordered)).toBe(productLinksDisclosureText(set));
     expect(productLinksDisclosureText(rotated)).toBe(productLinksDisclosureText(set));
     // 일반 링크가 맨 앞으로 와도 제휴 고지는 사라지지 않는다(예전 배선의 정반대 실패).
-    expect(productLinksDisclosureText([general, affiliate])).toBe("제휴 문구예요.");
+    expect(productLinksDisclosureText([general, affiliate])).toContain(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
   });
 
   it("M-2: 스폰서 문구가 뜨는 화면에서도 제휴 링크 행은 제휴 사실을 남긴다 (DNC-010)", () => {
     const links = [affiliate, sponsored];
-    expect(productLinksDisclosureText(links)).toBe("스폰서 문구예요.");
+    expect(productLinksDisclosureText(links)).toContain("스폰서 문구예요.");
 
     const markers = links.map((link) => productLinkMarker(link));
     expect(markers[0].badgeLabel).toBe(AFFILIATE_MARKER_LABEL);
@@ -210,7 +215,12 @@ describe("라운드 43 리뷰 M-1: 고지는 링크 집합이 정한다", () => 
     expect(ui).not.toContain('text ?? "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요."');
   });
 
-  it("ITEM-002 프리뷰는 제휴·스폰서를 함께 담아 고지가 계속 렌더된다 (픽셀 락 불변)", () => {
+  /**
+   * 라운드 44 리뷰 N-7: 예전 제목은 "(픽셀 락 불변)"이었는데, 이 테스트가 못박는 것은
+   * 불변이 **아니다** -- 프리뷰 고지 문구는 실제로 정정됐고(스펙 메모 → 실사용 문구),
+   * ITEM-002 기준 이미지는 그 문구 자리에서 재캡처가 필요하다. 제목을 사실대로 고친다.
+   */
+  it("ITEM-002 프리뷰 고지 문구는 정정된 실사용 문구다 (기준 이미지 재캡처 대상)", () => {
     const detail = detailSource();
     const preview = detail.slice(detail.indexOf("function previewDetail("), detail.indexOf("export default function"));
 
@@ -219,6 +229,115 @@ describe("라운드 43 리뷰 M-1: 고지는 링크 집합이 정한다", () => 
     // 스폰서가 있으므로 프리뷰에 실제로 그려지는 문장이다 -- 해요체 + 광고/수수료 고지를 함께.
     expect(preview).toContain("스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.");
     expect(preview).not.toContain("광고/제휴 고지를 표시합니다");
+  });
+});
+
+/**
+ * 라운드 44 리뷰 N-2: 스폰서 우선 규칙이 **수수료 고지를 대체**하던 자리.
+ *
+ * 종전에는 스폰서 링크에 disclosureText만 있으면 그 문장 하나로 끝났다. 그래서 제휴가 섞인
+ * 집합(= 실제로 수수료를 받는 화면)에서 CTA 인접 수수료 고지가 통째로 사라졌다. 어드민이
+ * 넣은 커스텀 문구도, 서버 시드의 기본값("스폰서 상품 예시입니다.", seed-data.ts:1225)도
+ * 수수료를 말하지 않으므로 둘 다 실재하는 경로다(DNC-010 위반).
+ */
+describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항상 남는다", () => {
+  const general = { isAffiliate: false, isSponsored: false } as const;
+  const affiliate = { isAffiliate: true, isSponsored: false } as const;
+
+  /** 조합 전수: [스폰서 문구, 그 문구가 수수료를 말하는가] */
+  const sponsoredTexts: Array<[string | null, boolean]> = [
+    ["스폰서 광고예요.", false], // 어드민 커스텀(수수료 언급 없음)
+    ["스폰서 상품 예시입니다.", false], // 서버 시드 기본값
+    ["Sponsored listing.", false], // 서버 시드가 영문으로 남은 경우
+    ["스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.", true],
+    ["스폰서예요. 구매 시 수수료가 발생할 수 있어요.", true], // 다른 표현이지만 이미 고지함
+    [null, true] // 문구 없음 → 종별 기본값(수수료 문장 포함)
+  ];
+
+  it("스폰서 문구가 무엇이든 제휴가 있으면 수수료 문장이 포함된다", () => {
+    for (const [text, alreadyDiscloses] of sponsoredTexts) {
+      const sponsored = { isAffiliate: false, isSponsored: true, disclosureText: text };
+      const result = productLinksDisclosureText([sponsored, affiliate, general]);
+
+      expect(result).toBeDefined();
+      expect(result).toContain(AFFILIATE_DISCLOSURE_CORE_TERM);
+      if (!alreadyDiscloses) {
+        // 스폰서 사실도 지우지 않는다 -- 두 고지가 함께 남는다(DNC-011 + DNC-010).
+        expect(result).toContain(text!);
+        expect(result).toContain(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
+      }
+      // 같은 말을 두 번 적지 않는다.
+      expect(result!.split(AFFILIATE_DISCLOSURE_FALLBACK_TEXT).length - 1).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("스폰서 링크 자신이 제휴인 경우도 같은 규칙을 받는다", () => {
+    const sponsoredAffiliate = { isAffiliate: true, isSponsored: true, disclosureText: "스폰서 상품 예시입니다." };
+    expect(productLinksDisclosureText([sponsoredAffiliate])).toBe(
+      `스폰서 상품 예시입니다. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`
+    );
+  });
+
+  it("제휴가 없는 스폰서 집합에는 수수료를 덧붙이지 않는다 (받지 않는 돈)", () => {
+    const sponsoredOnly = { isAffiliate: false, isSponsored: true, disclosureText: "스폰서 광고예요." };
+    expect(productLinksDisclosureText([sponsoredOnly, general])).toBe("스폰서 광고예요.");
+  });
+
+  it("제휴 커스텀 문구도 수수료를 말하지 않으면 이어붙인다", () => {
+    const custom = { isAffiliate: true, isSponsored: false, disclosureText: "우리아이 제휴 파트너 링크예요" };
+    // 종결부호가 없으면 문장 경계를 만들고 잇는다.
+    expect(productLinksDisclosureText([custom])).toBe(
+      `우리아이 제휴 파트너 링크예요. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`
+    );
+    // 이미 수수료를 말하고 있으면(표현이 달라도) 그대로 둔다.
+    const seeded = { isAffiliate: true, isSponsored: false, disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다." };
+    expect(productLinksDisclosureText([seeded])).toBe("이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다.");
+  });
+
+  it("withAffiliateDisclosure는 빈 문구를 기본 고지로 떨어뜨린다", () => {
+    expect(withAffiliateDisclosure("   ")).toBe(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
+    expect(withAffiliateDisclosure(AFFILIATE_DISCLOSURE_FALLBACK_TEXT)).toBe(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
+  });
+});
+
+/**
+ * 라운드 44 리뷰 N-1: 데모(로컬) 백엔드의 **실픽스처**로 판정을 한 번 통과시킨다.
+ *
+ * 지금까지 이 파일의 테스트는 전부 손으로 만든 입력이었고, 그래서 데모 기저귀 상세의
+ * 스폰서 링크가 개발 스펙 메모("…광고/제휴 고지를 표시합니다.")를 고지 문구로 들고 있는데도
+ * 아무 테스트도 걸리지 않았다. 실제로 화면에 들어가는 값으로 확인한다.
+ */
+describe("라운드 44 리뷰 N-1: 데모 픽스처가 실제로 그리는 고지", () => {
+  const diaperLinks = localProductLinkFixtures.filter((link) => link.itemTemplateId === LOCAL_ITEM_DIAPER);
+
+  it("데모 기저귀 상세에는 제휴·스폰서 링크가 함께 있다", () => {
+    expect(diaperLinks.length).toBeGreaterThan(1);
+    expect(diaperLinks.some((link) => link.isSponsored)).toBe(true);
+    expect(diaperLinks.some((link) => link.isAffiliate)).toBe(true);
+  });
+
+  it("그 화면의 고지에는 광고 사실과 수수료 문장이 함께 남는다 (DNC-010·DNC-011)", () => {
+    const text = productLinksDisclosureText(diaperLinks);
+
+    expect(text).toBeDefined();
+    expect(text).toContain("광고");
+    expect(text).toContain(AFFILIATE_DISCLOSURE_CORE_TERM);
+    expect(text).toContain(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
+  });
+
+  it("고지 문구는 해요체 한 줄이고 스펙 문장이 아니다 (DNC-018)", () => {
+    for (const link of localProductLinkFixtures) {
+      if (!link.disclosureText) continue;
+      expect(link.disclosureText).toContain("어요");
+      // 합쇼체(…합니다/입니다)와 내부 스펙 어휘는 사용자 화면에 나올 문구가 아니다.
+      expect(link.disclosureText).not.toMatch(/(합니다|입니다)/);
+      expect(link.disclosureText).not.toContain("CTA");
+      expect(link.disclosureText.split("\n")).toHaveLength(1);
+    }
+
+    const text = productLinksDisclosureText(diaperLinks)!;
+    expect(text).toContain("어요");
+    expect(text.split("\n")).toHaveLength(1);
   });
 });
 

@@ -125,6 +125,67 @@ describe("link health check state", () => {
     expect(linkHealthCheckLine(makeHealth({ jobs: [] }))).toContain("실행 기록 없음");
   });
 
+  /**
+   * 라운드 44 리뷰 N-3: 꺼진 워커를 "아직 첫 실행 전"이라고 부르면, 곧 결과가 나온다는
+   * 약속이 된다 — WORKER_ENABLED=0에서는 틱이 영영 없다. 멈춘(stale) 워커도 마찬가지로
+   * 기다림이 아니라 고장이다. 둘 다 "돌지 않는다"로 떨어뜨린다.
+   */
+  it("N-3: does not call a disabled or stale worker '아직 첫 실행 전'", () => {
+    const disabled = makeHealth({
+      enabled: false,
+      jobs: [],
+      lastTickStartedAt: null,
+      lastTickFinishedAt: null,
+      msSinceLastTick: null
+    });
+    expect(linkHealthCheckState(disabled)).toBe("unknown");
+    expect(linkHealthCheckLine(disabled)).not.toContain("아직 첫 실행 전");
+    expect(linkHealthCheckLine(disabled)).toContain("검사가 돌지 않아요");
+    // 상태 줄과 설명은 꺼짐이라는 사실을 그대로 말한다.
+    expect(workerHealthState(disabled)).toBe("off");
+    expect(workerHealthStateNote(disabled)).toContain("WORKER_ENABLED=0");
+
+    const stalled = makeHealth({ stale: true, jobs: [], lastTickFinishedAt: null, msSinceLastTick: null });
+    expect(linkHealthCheckState(stalled)).toBe("unknown");
+    expect(linkHealthCheckLine(stalled)).not.toContain("아직 첫 실행 전");
+
+    // 켜져 있고 멈추지도 않은 진짜 '첫 틱 전'만 pending으로 남는다.
+    expect(linkHealthCheckState(makeHealth({ jobs: [], lastTickFinishedAt: null, msSinceLastTick: null }))).toBe(
+      "pending"
+    );
+  });
+
+  /**
+   * 라운드 44 리뷰 N-9: 요약의 `errors`는 판정을 남기지 못한 링크 수다(프로브 예외·DB 쓰기
+   * 실패). 종전 한 줄은 후보 수(`checked`)만 읽어서, 전건 실패한 회차도 "10건 확인 · 깨짐 0"
+   * 으로 보였다 — 아무것도 확인하지 못한 회차가 전수 정상으로 읽혔다.
+   */
+  it("N-9: counts the links the round failed to check instead of calling them confirmed", () => {
+    const allFailed = makeHealth({
+      jobs: [makeJob({ lastSummary: { enabled: true, checked: 10, ok: 0, broken: 0, unstable: 0, errors: 10 } })]
+    });
+    const line = linkHealthCheckLine(allFailed);
+    expect(line).toContain("10건 중 0건 확인");
+    expect(line).toContain("10건은 확인하지 못했어요");
+    // "10건 확인"이라는 전수 확인 주장은 더 이상 나오지 않는다.
+    expect(line).not.toContain("최근 회차 10건 확인");
+
+    const partial = makeHealth({
+      jobs: [makeJob({ lastSummary: { enabled: true, checked: 10, ok: 6, broken: 1, unstable: 0, errors: 3 } })]
+    });
+    expect(linkHealthCheckLine(partial)).toBe(
+      "링크 검사: 최근 회차 10건 중 7건 확인 · 깨짐 1 · 불안정 0 · 3건은 확인하지 못했어요"
+    );
+
+    // errors가 0이면 한 줄은 예전 그대로다(없는 실패를 말하지 않는다).
+    expect(linkHealthCheckLine(makeHealth())).toBe("링크 검사: 최근 회차 10건 확인 · 깨짐 1 · 불안정 1");
+    // errors 필드 자체가 없는 옛 요약도 같은 취급이다.
+    const noErrorsField = makeHealth({
+      jobs: [makeJob({ lastSummary: { enabled: true, checked: 4, ok: 4, broken: 0, unstable: 0 } })]
+    });
+    expect(linkHealthCheckLine(noErrorsField)).toBe("링크 검사: 최근 회차 4건 확인 · 깨짐 0 · 불안정 0");
+  });
+
   it("ignores a different job's record when deciding the link-check state", () => {
     const other = makeHealth({ jobs: [makeJob({ name: "data_retention_purge", lastStatus: "failed", lastSummary: {} })] });
     expect(linkHealthCheckState(other)).toBe("unknown");
@@ -165,7 +226,32 @@ describe("brokenLinkCountCaption", () => {
     const caption = brokenLinkCountCaption(makeHealth(), { active: 58, unchecked: 34, broken: 0 });
     expect(caption).toContain("활성 링크 58개 중 24개 검사");
     expect(caption).toContain("미검사 34개");
-    expect(caption).toContain("확인 안 됨");
+    expect(caption).toContain("아직 검사되지 않았어요");
+  });
+
+  /**
+   * 라운드 44 리뷰 N-4: 미검사의 원인을 하나로 단정하지 않는다. 종전 괄호는 "제휴 URL이
+   * 없는 링크는 검사 대상이 아니에요"였는데, 방금 등록돼 배치 차례를 기다리는 링크도
+   * 같은 자리에 섞인다 — 확실한 사실을 앞세우고 괄호는 대표 사유 서술로 둔다.
+   */
+  it("N-4: states the fact (아직 검사되지 않았어요) instead of asserting one cause", () => {
+    const caption = brokenLinkCountCaption(makeHealth(), { active: 58, unchecked: 34, broken: 0 })!;
+    expect(caption).toContain("아직 검사되지 않았어요");
+    expect(caption).toContain("제휴 URL이 없거나 아직 차례가 오지 않은 링크예요");
+    expect(caption).not.toContain("검사 대상이 아니에요");
+  });
+
+  /**
+   * 라운드 44 리뷰 N-7: 검사가 돌고 있고(on) 깨진 링크도 있고 미검사도 남은, 실제로 가장
+   * 흔한 조합. 깨짐이 0이 아니라는 이유로 캡션이 침묵하면 "3건 깨짐"이 전수 검사 결과처럼
+   * 읽힌다 — 미검사가 남아 있다는 사실은 그대로 남아야 한다.
+   */
+  it("N-7: keeps the freshness warning when the check runs with both broken and unchecked links", () => {
+    const caption = brokenLinkCountCaption(makeHealth(), { active: 58, unchecked: 34, broken: 3 })!;
+    expect(caption).not.toBeNull();
+    expect(caption).toContain("활성 링크 58개 중 24개 검사");
+    expect(caption).toContain("미검사 34개");
+    expect(caption).toContain("아직 검사되지 않았어요");
   });
 
   it("stays silent when every active link is checked, or when the worker state is unknown", () => {

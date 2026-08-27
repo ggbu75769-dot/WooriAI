@@ -107,6 +107,11 @@ export function hasPurchasableLink(links: ReadonlyArray<unknown> | undefined | n
  *  1. 집합에 스폰서도 제휴도 없으면 고지를 그리지 않는다(undefined).
  *  2. 있으면 스폰서 > 제휴 순서로 종별을 고르고, 그 종의 링크가 들고 있는 disclosureText를
  *     쓴다. 하나도 없으면 종별 기본 문구를 쓴다.
+ *  3. 라운드 44 리뷰 N-2: 집합에 **제휴 링크가 하나라도 있으면** 최종 문구는 수수료 고지를
+ *     반드시 포함한다. 2번만으로는 스폰서 문구가 수수료 문장을 통째로 **대체**했다 —
+ *     운영이 넣어 둔 스폰서 커스텀 문구("스폰서 상품 예시입니다.", seed-data.ts:1225)나
+ *     수수료를 말하지 않는 어떤 문구든, 그 화면의 제휴 링크에 붙어야 할 CTA 인접 수수료
+ *     고지를 지웠다(DNC-010 위반). 이미 수수료를 말하고 있으면 그대로 두고, 아니면 이어붙인다.
  *
  * 스폰서가 섞인 집합에서 제휴 사실이 사라지지 않는가(M-2): 사라지지 않는다. 판매처 행마다
  * `productLinkMarker`가 배지와 캡션을 따로 붙이므로, 스폰서 문구가 위에 뜨는 화면에서도
@@ -126,9 +131,31 @@ export const AFFILIATE_DISCLOSURE_FALLBACK_TEXT = "이 링크로 구매하면 �
 export const SPONSORED_DISCLOSURE_FALLBACK_TEXT =
   "스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.";
 
-/** 이 링크가 고지 대상인가(제휴이거나 스폰서). 일반 링크는 고지할 것이 없다. */
-export function linkNeedsDisclosure(link: ProductLinkMarkerInput): boolean {
-  return Boolean(link.isSponsored || link.isAffiliate);
+/**
+ * 라운드 44 리뷰 N-2: "이 문구가 이미 수수료를 말하고 있는가"를 판정하는 어절.
+ *
+ * 문장째 비교(`includes(AFFILIATE_DISCLOSURE_FALLBACK_TEXT)`)를 쓰지 않는 이유는, 실제로
+ * 쓰이는 수수료 고지가 한 문장이 아니기 때문이다 — 서버 시드는 "…구매 시 수수료가 발생할 수
+ * 있습니다."이고 데모 픽스처는 "…제휴수수료를 받을 수 있어요."다. 문장째로 보면 둘 다
+ * "수수료 고지 없음"으로 판정돼 같은 말이 두 번 붙는다. 그래서 고지의 **핵심 어절**만 본다.
+ */
+export const AFFILIATE_DISCLOSURE_CORE_TERM = "수수료";
+
+/** 문장 끝에 종결부호가 없으면 붙인다 — 두 문장을 잇기 전에 경계를 만든다. */
+function endSentence(text: string): string {
+  return /[.!?…]$/.test(text) ? text : `${text}.`;
+}
+
+/**
+ * 수수료 고지를 **반드시 포함하는** 문구로 만든다. 이미 말하고 있으면 그대로 둔다
+ * (같은 말을 두 번 적지 않는다). 제휴 링크가 있는 집합에서만 부른다 — 제휴가 아닌 자리에
+ * 수수료를 받는다고 적는 것도 똑같이 사실과 다른 표시다.
+ */
+export function withAffiliateDisclosure(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return AFFILIATE_DISCLOSURE_FALLBACK_TEXT;
+  if (trimmed.includes(AFFILIATE_DISCLOSURE_CORE_TERM)) return trimmed;
+  return `${endSentence(trimmed)} ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`;
 }
 
 function firstDisclosureText(links: ReadonlyArray<ProductLinkDisclosureInput>): string | undefined {
@@ -149,14 +176,19 @@ export function productLinksDisclosureText(
 ): string | undefined {
   if (!links || links.length === 0) return undefined;
 
+  // 수수료 고지가 필요한지는 **집합 전체**가 정한다. 스폰서 링크 자신이 제휴이기도 한
+  // 경우(시드·데모 픽스처의 흔한 조합)와 스폰서 옆에 별도 제휴 링크가 있는 경우를 함께 덮는다.
+  const hasAffiliate = links.some((link) => link.isAffiliate);
+
   const sponsored = links.filter((link) => link.isSponsored);
   if (sponsored.length > 0) {
-    return firstDisclosureText(sponsored) ?? SPONSORED_DISCLOSURE_FALLBACK_TEXT;
+    const text = firstDisclosureText(sponsored) ?? SPONSORED_DISCLOSURE_FALLBACK_TEXT;
+    return hasAffiliate ? withAffiliateDisclosure(text) : text;
   }
 
-  const affiliate = links.filter((link) => link.isAffiliate);
-  if (affiliate.length > 0) {
-    return firstDisclosureText(affiliate) ?? AFFILIATE_DISCLOSURE_FALLBACK_TEXT;
+  if (hasAffiliate) {
+    const affiliate = links.filter((link) => link.isAffiliate);
+    return withAffiliateDisclosure(firstDisclosureText(affiliate) ?? AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
   }
 
   return undefined;
