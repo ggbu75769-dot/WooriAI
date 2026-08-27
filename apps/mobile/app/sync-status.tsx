@@ -8,8 +8,13 @@ import {
   CONFLICT_OPTION_ADOPT_SERVER_LABEL,
   CONFLICT_OPTION_REAPPLY_MINE_LABEL,
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
+  syncStatusBadgeLabel,
+  SYNC_STATUS_CONFLICT_LABEL,
   SYNC_STATUS_DISCARD_LABEL,
-  SYNC_STATUS_RETRY_LABEL
+  SYNC_STATUS_FAILED_LABEL,
+  SYNC_STATUS_PENDING_LABEL,
+  SYNC_STATUS_RETRY_LABEL,
+  SYNC_STATUS_SYNCING_LABEL
 } from "../src/offline/messages";
 import {
   discardOfflineMutation,
@@ -196,17 +201,18 @@ export default function SyncStatusScreen() {
       <View testID="screen-EXP-005" style={{ gap: theme.spacing.section }}>
         <ScreenHeader eyebrow="동기화" title="동기화 상태" subtitle="아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요." />
 
+        {/* REC-123(H4): 배지/섹션 제목 문구는 기록 탭과 같은 src/offline/messages.ts에서 온다. */}
         <View style={{ flexDirection: "row", gap: 8 }}>
-          <StatusBadge label={`대기 ${pendingRows.length}`} tone={pendingRows.length > 0 ? "warning" : "neutral"} />
-          <StatusBadge label={`실패 ${failedRows.length}`} tone={failedRows.length > 0 ? "warning" : "neutral"} />
-          <StatusBadge label={`충돌 ${conflictRows.length}`} tone={conflictRows.length > 0 ? "warning" : "neutral"} />
+          <StatusBadge label={syncStatusBadgeLabel("pending", pendingRows.length)} tone={pendingRows.length > 0 ? "warning" : "neutral"} />
+          <StatusBadge label={syncStatusBadgeLabel("failed", failedRows.length)} tone={failedRows.length > 0 ? "warning" : "neutral"} />
+          <StatusBadge label={syncStatusBadgeLabel("conflict", conflictRows.length)} tone={conflictRows.length > 0 ? "warning" : "neutral"} />
         </View>
 
         {!hasAny ? <EmptyStateCard title="모든 기록이 동기화됐어요." actionLabel="닫기" onPress={() => router.back()} /> : null}
 
         {conflictRows.length > 0 ? (
           <View style={{ gap: theme.spacing.gap }}>
-            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>충돌</Text>
+            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>{SYNC_STATUS_CONFLICT_LABEL}</Text>
             {conflictRows.map((row) => (
               <ConflictRow key={row.localId} row={row} token={authToken ?? ""} queryClient={queryClient} />
             ))}
@@ -215,7 +221,7 @@ export default function SyncStatusScreen() {
 
         {failedRows.length > 0 ? (
           <View style={{ gap: theme.spacing.gap }}>
-            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>실패</Text>
+            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>{SYNC_STATUS_FAILED_LABEL}</Text>
             {failedRows.map((row) => (
               <SyncRow key={row.localId} row={row}>
                 <View style={{ flexDirection: "row", gap: 8 }}>
@@ -233,7 +239,9 @@ export default function SyncStatusScreen() {
 
         {pendingRows.length > 0 ? (
           <View style={{ gap: theme.spacing.gap }}>
-            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>대기 / 동기화 중</Text>
+            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>
+              {`${SYNC_STATUS_PENDING_LABEL} / ${SYNC_STATUS_SYNCING_LABEL}`}
+            </Text>
             {pendingRows.map((row) => (
               <SyncRow key={row.localId} row={row}>
                 <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>

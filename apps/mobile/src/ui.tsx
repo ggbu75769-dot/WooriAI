@@ -237,10 +237,6 @@ export function InputField({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function DateField({ value }: { value: string }) {
-  return <InputField label="날짜" value={value} />;
-}
-
 export function SegmentedControl({
   options,
   value,
@@ -554,15 +550,6 @@ export function FamilyAvatarGroup({ names }: { names: string[] }) {
         </View>
       ))}
     </View>
-  );
-}
-
-export function UploadFileCard({ fileName, total }: { fileName: string; total: string }) {
-  return (
-    <Card style={{ backgroundColor: theme.colors.mint }}>
-      <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700" }]}>{fileName}</Text>
-      <Text style={[textStyles.body2, { color: theme.colors.gray600 }]}>업로드 완료 · {total}</Text>
-    </Card>
   );
 }
 

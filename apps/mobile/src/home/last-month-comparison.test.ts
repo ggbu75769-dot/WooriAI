@@ -298,3 +298,36 @@ describe("REP-121 home screen wiring contract", () => {
     expect(homeSource).toContain("color: theme.colors.brown,\n    flex: 1,");
   });
 });
+
+describe("REC-123(D1) 기록 탭 wiring contract", () => {
+  const recordsSource = readFileSync(join(process.cwd(), "app/(tabs)/records.tsx"), "utf8");
+  const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
+
+  it("reuses the home module instead of recomputing the comparison, and renders it under the month summary line", () => {
+    expect(recordsSource).toContain('from "../../src/home/last-month-comparison"');
+    expect(recordsSource).toContain("evaluateLastMonthComparison({");
+    expect(recordsSource).toContain('testID="records-last-month-insight"');
+    expect(recordsSource).toContain("{lastMonthInsight.text}");
+    // 요약 줄 바로 아래 -- 검색 입력/카테고리 칩보다 위.
+    const insightIndex = recordsSource.indexOf('testID="records-last-month-insight"');
+    expect(insightIndex).toBeGreaterThan(recordsSource.indexOf("이번 달 ${monthlyRecordCount}건"));
+    expect(insightIndex).toBeLessThan(recordsSource.indexOf('accessibilityLabel="품목명, 메모로 검색"'));
+  });
+
+  it("compares against the total this screen actually shows, and only while the current month is on screen", () => {
+    // 화면에 보이는 합계와 같은 값으로 비교한다(오프라인 대기 행 포함, 선물/환불 제외).
+    expect(recordsSource).toContain("thisMonthToDateKrw: monthlyTotalKrw");
+    // 과거 달 탐색 중에는 "같은 시점"이 성립하지 않으므로 계산도 렌더도 하지 않는다.
+    expect(recordsSource).toContain("const isCurrentMonth = monthOffset === 0;");
+    expect(recordsSource).toContain("isCurrentMonth && expenses.data");
+  });
+
+  it("shares the home cache key for last month, so the extra insight costs no extra request", () => {
+    expect(recordsSource).toContain("previousYearMonth(seoulToday)");
+    expect(recordsSource).toContain('queryKey: ["expenses", childId, lastYearMonth]');
+    // 홈(app/(tabs)/index.tsx)과 문자 그대로 같은 키여야 캐시가 실제로 공유된다.
+    expect(homeSource).toContain('queryKey: ["expenses", childId, lastYearMonth]');
+    // 과거 달을 보는 동안에는 조회 자체가 비활성.
+    expect(recordsSource).toContain("enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth)");
+  });
+});

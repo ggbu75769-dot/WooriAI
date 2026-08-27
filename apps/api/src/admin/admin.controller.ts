@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -8,6 +9,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
   UseInterceptors
@@ -19,6 +21,12 @@ import type { AuthenticatedRequest } from "../common/types/authenticated-request
 import { ItemsCatalogService } from "../onboarding/items-catalog.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AdminAuthGuard } from "./admin-auth.guard";
+import {
+  AffiliateClickBreakdownService,
+  CLICK_BREAKDOWN_WINDOWS,
+  isClickBreakdownWindow,
+  type ClickBreakdownWindow
+} from "./affiliate-click-breakdown.service";
 import {
   AdminCreateItemTemplateDto,
   AdminCreateProductLinkDto,
@@ -38,7 +46,9 @@ export class AdminController {
   constructor(
     @Inject(ItemsCatalogService) private readonly store: ItemsCatalogService,
     @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService,
-    @Inject(PrismaService) private readonly prisma: PrismaService
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(AffiliateClickBreakdownService)
+    private readonly clickBreakdown: AffiliateClickBreakdownService
   ) {}
 
   @Get("item-templates")
@@ -164,8 +174,28 @@ export class AdminController {
     return result;
   }
 
+  // ADM-123: 기존 응답({ totalClicks, byPlatform } — 둘 다 전체 기간)은 그대로
+  // 두고 기간 분해 필드(days/windowTotalClicks/topLinks/dailyTotals)를 덧붙이는
+  // 하위호환 확장이다. `days`를 안 보내던 기존 호출부는 필드가 늘어난 것 외에
+  // 동작이 같다(기본 7일). 읽기 전용이라 다른 admin GET처럼
+  // `@RequireAdminRoles(...)` 없이 admin/editor/analyst 전 역할이 열람한다.
+  //
+  // DNC-009: 클릭 통계 열람은 추천 점수와 무관하다 — 이 응답은 어드민 콘솔
+  // 표시용이고, 여기 담긴 클릭 수는 추천 랭킹/점수 계산으로 되먹임되지 않는다
+  // (수수료율은 집계에도 응답에도 포함하지 않는다).
   @Get("affiliate-clicks/summary")
-  async affiliateClickSummary() {
-    return await this.store.adminAffiliateClickSummary();
+  async affiliateClickSummary(@Query("days") daysRaw?: string) {
+    const days: number = daysRaw === undefined ? 7 : Number(daysRaw);
+    if (!isClickBreakdownWindow(days)) {
+      throw new BadRequestException({
+        code: "VALIDATION_ERROR",
+        message: `days는 ${CLICK_BREAKDOWN_WINDOWS.join(" 또는 ")}만 지원해요.`
+      });
+    }
+    const [summary, breakdown] = await Promise.all([
+      this.store.adminAffiliateClickSummary(),
+      this.clickBreakdown.getBreakdown(days satisfies ClickBreakdownWindow)
+    ]);
+    return { ...summary, ...breakdown };
   }
 }

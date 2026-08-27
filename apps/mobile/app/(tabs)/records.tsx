@@ -7,8 +7,17 @@ import { getSeoulToday } from "@wooriai/domain";
 import { listCategories, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { buildCategoryNameLookup, type CategoryNameLookup } from "../../src/categories";
 import { buildRecordsCategoryChips, recordsRowSubtitle } from "../../src/expenses/records-list-view";
+import { evaluateLastMonthComparison, previousYearMonth } from "../../src/home/last-month-comparison";
 import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
+import {
+  syncStatusBadgeLabel,
+  syncStatusCountLabel,
+  SYNC_ROW_CONFLICT_LABEL,
+  SYNC_ROW_FAILED_LABEL,
+  SYNC_ROW_PENDING_DELETE_LABEL,
+  SYNC_ROW_PENDING_LABEL
+} from "../../src/offline/messages";
 import { refreshOfflineSyncSnapshot, subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import type { LocalExpenseRow } from "../../src/offline/types";
 import { canGoToNextPeriod, periodLabelForOffset } from "../../src/period-navigation";
@@ -23,12 +32,14 @@ type ServerExpense = Awaited<ReturnType<typeof listExpenses>>["expenses"][number
 
 // A11Y-115: the sync chip row announces the actual pending/failed/conflict counts, not just
 // "동기화 상태 보기" -- sighted users read the same numbers off the StatusBadge chips.
+// REC-123(H4): 상태 이름은 src/offline/messages.ts가 단일 소스다 -- 이 화면의 배지와 동기화 상태
+// 화면(app/sync-status.tsx)이 같은 상수/헬퍼를 쓰므로 문구가 다시 갈릴 수 없다.
 function syncStatusChipAccessibilityLabel(counts: { pending: number; syncing: number; failed: number; conflict: number }) {
   const parts: string[] = [];
   const waiting = counts.pending + counts.syncing;
-  if (waiting > 0) parts.push(`대기 ${waiting}건`);
-  if (counts.failed > 0) parts.push(`실패 ${counts.failed}건`);
-  if (counts.conflict > 0) parts.push(`충돌 ${counts.conflict}건`);
+  if (waiting > 0) parts.push(syncStatusCountLabel("pending", waiting));
+  if (counts.failed > 0) parts.push(syncStatusCountLabel("failed", counts.failed));
+  if (counts.conflict > 0) parts.push(syncStatusCountLabel("conflict", counts.conflict));
   return parts.length > 0 ? `동기화 상태 보기, ${parts.join(", ")}` : "동기화 상태 보기";
 }
 
@@ -83,12 +94,12 @@ const OfflineExpenseListRow = memo(function OfflineExpenseListRow({ row }: { row
       title={row.payload.itemName}
       subtitle={
         row.pendingDelete
-          ? "삭제 대기 중"
+          ? SYNC_ROW_PENDING_DELETE_LABEL
           : row.syncState === "conflict"
-            ? "다른 기기와 충돌 · 확인 필요"
+            ? SYNC_ROW_CONFLICT_LABEL
             : row.syncState === "failed"
-              ? "동기화 실패 · 확인 필요"
-              : `동기화 대기 · ${formatSpentOn(row.payload.spentOn)}`
+              ? SYNC_ROW_FAILED_LABEL
+              : `${SYNC_ROW_PENDING_LABEL} · ${formatSpentOn(row.payload.spentOn)}`
       }
       value={formatKrw(row.payload.amountKrw)}
       onPress={pushSyncStatus}
@@ -173,7 +184,8 @@ export default function RecordsScreen() {
     };
   }, []);
 
-  const baseDate = new Date(`${getSeoulToday()}T00:00:00`);
+  const seoulToday = getSeoulToday();
+  const baseDate = new Date(`${seoulToday}T00:00:00`);
   const recordsDate = addMonths(baseDate, monthOffset);
   const recordsYearMonth = yearMonthOf(recordsDate);
   const recordsMonthLabel = periodLabelForOffset(baseDate, "month", monthOffset);
@@ -195,6 +207,28 @@ export default function RecordsScreen() {
     queryKey: ["expenses", childId, recordsYearMonth],
     enabled: Boolean(authToken && childId),
     queryFn: () => listExpenses(authToken!, childId!, recordsYearMonth)
+  });
+
+  // REC-123(D1): 월 요약 줄 아래 "지난달 같은 시점 대비" 한 줄. 홈(REP-121)이 쓰는 순수 모듈
+  // src/home/last-month-comparison.ts를 **그대로 재사용**한다 -- 부분 합계 정직 비교, 짧은 구간·
+  // 소액 기준에서의 퍼센트 발산 방지, 지난달 무기록 시 미표시까지 규칙이 한 곳에만 산다.
+  //
+  // 홈과 문구가 겹치는 것이 아니라 **위치 보완**이다: 홈의 한 줄은 "오늘 상태"를 훑는 자리에
+  // 있고, 기록 탭은 사용자가 "이 합계가 왜 이 숫자인지" 확인하러 들어오는 자리다. 합계 바로
+  // 아래에 같은 기준점이 있어야 홈으로 되돌아가지 않고 판단할 수 있다.
+  //
+  // 이번 달을 보고 있을 때만 렌더한다. 과거 달 탐색 중에는 "같은 시점"이라는 개념 자체가
+  // 성립하지 않는다(6월을 보며 "지난달 같은 시점"이라 하면 5월 전체인지 오늘 일자까지인지
+  // 알 수 없다) -- 사실이 아닌 비교를 만들 바에 아무 말도 하지 않는다.
+  const isCurrentMonth = monthOffset === 0;
+  const lastYearMonth = previousYearMonth(seoulToday);
+  // 캐시 키가 홈과 완전히 동일한 ["expenses", childId, 지난달]이라 추가 네트워크 비용이 0이다
+  // (react-query가 같은 응답을 공유하고, 지출 생성/수정 경로가 이미 invalidate하는 ["expenses"]
+  // 프리픽스에 그대로 걸린다). 과거 달을 보는 동안에는 쿼리 자체를 비활성화한다.
+  const lastMonthExpenses = useQuery({
+    queryKey: ["expenses", childId, lastYearMonth],
+    enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth),
+    queryFn: () => listExpenses(authToken!, childId!, lastYearMonth!)
   });
 
   // REC-121: 카테고리 필터 칩의 원천. 예전에는 정적 8타일(categoryCatalog)이라 실세션에서 정식
@@ -247,6 +281,21 @@ export default function RecordsScreen() {
     const childOfflineRows = childId ? syncSnapshot.rows.filter((row) => row.childId === childId) : [];
     return reconcileMonthlyExpenses(serverExpenses ?? [], childOfflineRows, recordsYearMonth);
   }, [serverExpenses, syncSnapshot.rows, childId, recordsYearMonth]);
+
+  // REC-123(D1): 이번 달 값으로는 화면에 이미 보이는 합계(monthlyTotalKrw)를 그대로 넘긴다 --
+  // 오프라인 대기 행까지 반영된 이 화면의 숫자와 비교 문장이 어긋나면 그 자체가 허위 표시다.
+  // 두 값 모두 expenseType === "expense"만 세므로(reconcileMonthlyExpenses의 countsTowardMonthlyTotal
+  // ↔ sumMonthExpensesThroughDay) 선물·환불 제외 기준도 서로 같다(DNC-015).
+  // 서버 목록이 아직 없으면(로딩/오류) 합계 0을 "이번 달 지출 없음"으로 오해할 수 있으므로
+  // 요약 줄과 똑같이 expenses.data가 있을 때만 계산한다.
+  const lastMonthInsight =
+    isCurrentMonth && expenses.data
+      ? evaluateLastMonthComparison({
+          todayIso: seoulToday,
+          thisMonthToDateKrw: monthlyTotalKrw,
+          lastMonthRecords: lastMonthExpenses.data?.expenses ?? null
+        })
+      : null;
 
   const categoryChips = useMemo(
     () => buildRecordsCategoryChips(serverCategories, selectedCategoryId),
@@ -316,10 +365,12 @@ export default function RecordsScreen() {
           style={{ alignItems: "center", flexDirection: "row", gap: 8 }}
         >
           {childSyncCounts.pending + childSyncCounts.syncing > 0 ? (
-            <StatusBadge label={`대기 ${childSyncCounts.pending + childSyncCounts.syncing}`} tone="neutral" />
+            <StatusBadge label={syncStatusBadgeLabel("pending", childSyncCounts.pending + childSyncCounts.syncing)} tone="neutral" />
           ) : null}
-          {childSyncCounts.failed > 0 ? <StatusBadge label={`실패 ${childSyncCounts.failed}`} tone="warning" /> : null}
-          {childSyncCounts.conflict > 0 ? <StatusBadge label={`충돌 ${childSyncCounts.conflict}`} tone="warning" /> : null}
+          {childSyncCounts.failed > 0 ? <StatusBadge label={syncStatusBadgeLabel("failed", childSyncCounts.failed)} tone="warning" /> : null}
+          {childSyncCounts.conflict > 0 ? (
+            <StatusBadge label={syncStatusBadgeLabel("conflict", childSyncCounts.conflict)} tone="warning" />
+          ) : null}
         </Pressable>
       ) : null}
 
@@ -354,6 +405,16 @@ export default function RecordsScreen() {
             style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
           >
             {`이번 달 ${monthlyRecordCount}건 · 합계 ${formatKrw(monthlyTotalKrw)}`}
+          </Text>
+        ) : null}
+        {/* REC-123(D1): 요약 줄 바로 아래 한 줄. 홈과 같은 모듈이 만든 같은 문장이며, 이번 달을
+            보고 있을 때만(과거 달 탐색 중에는 null) 나타난다. */}
+        {lastMonthInsight ? (
+          <Text
+            testID="records-last-month-insight"
+            style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
+          >
+            {lastMonthInsight.text}
           </Text>
         ) : null}
       </View>

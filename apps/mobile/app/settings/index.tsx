@@ -8,6 +8,14 @@ import {
   LOCAL_HOUSEHOLD_ID,
   LOCAL_SESSION_TOKEN
 } from "../../src/api/client";
+// EXP-106 / CLEAN-123(A3): 더보기 탭과 같은 공용 내보내기 모듈 -- 설정에 "가져오기"만 있고
+// "내보내기"가 없어 데이터 이동성이 한쪽으로만 열려 있던 비대칭을 메운다(중복 구현 없음).
+import {
+  EXPORT_SIGNED_OUT_CAPTION,
+  ExpenseCsvExportCard,
+  ExpenseCsvExportToast,
+  useExpenseCsvExport
+} from "../../src/export/ExpenseCsvExport";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -67,6 +75,8 @@ export default function SettingsScreen() {
   // event from being queued or sent, and the choice survives app restarts.
   const analyticsConsent = useAnalyticsConsentStore((state) => state.enabled);
   const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);
+  // 가져오기 행 바로 아래에 붙는 CSV 내보내기 -- 상태·수집·공유·토스트는 공용 모듈이 담당한다.
+  const csvExport = useExpenseCsvExport();
 
   const handleLogout = () => {
     Alert.alert("로그아웃 할까요?", "다시 로그인해야 이용할 수 있어요.", [
@@ -140,6 +150,22 @@ export default function SettingsScreen() {
           subtitle="엑셀 파일로 지출을 가져와요"
           onPress={() => router.push("/import")}
         />
+        {/* EXP-106 / CLEAN-123(A3): 가져오기의 반대 방향. 세션이 없으면 더보기 탭과 같은
+            비활성 행 패턴(안내 문구 + onPress 없음)으로 이유를 밝힌다. */}
+        <ListRow
+          icon="⇪"
+          title="CSV 내보내기"
+          subtitle={
+            csvExport.canExport
+              ? csvExport.cardOpen
+                ? "내보낼 기간을 선택해요"
+                : "지출 기록을 CSV 파일로 내보내요"
+              : EXPORT_SIGNED_OUT_CAPTION
+          }
+          onPress={csvExport.canExport ? csvExport.toggleCard : undefined}
+        />
+        <ExpenseCsvExportCard controller={csvExport} />
+        <ExpenseCsvExportToast controller={csvExport} />
         <Card style={consentRowStyle}>
           <View style={{ flex: 1, gap: 3, paddingRight: 12 }}>
             <Text style={consentTitleStyle}>통계 수집 동의(선택)</Text>

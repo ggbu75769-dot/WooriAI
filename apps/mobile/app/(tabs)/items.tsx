@@ -115,7 +115,11 @@ function getRecommendationDisplay(item: ItemSummary | RecommendationPreviewItem,
   }
 
   return {
-    badge: index === 0 ? "BEST" : statusLabel(item.status),
+    // ITEM-123 (B4): gifted 항목은 목록 순서와 무관하게 항상 상태 배지를 단다. 준비완료 탭이
+    // prepared와 gifted를 함께 보여주므로("선물로 받아 이미 있다" vs "직접 준비했다"),
+    // 첫 항목만 "BEST"로 덮으면 선물 받은 물건인지 구분할 방법이 사라진다. 문구는
+    // statusLabel을 그대로 재사용해 상태 이름을 한 곳에서만 관리한다.
+    badge: index === 0 && item.status !== "gifted" ? "BEST" : statusLabel(item.status),
     caption: undefined,
     image: recommendationPreviewImages[index % recommendationPreviewImages.length]
   };
@@ -170,18 +174,23 @@ export default function ItemsScreen() {
     queryFn: () => listItems(authToken!, childId!, statusTab, requestedStageBand)
   });
   // ITEM-114: 시기 준비율 계산용 전 상태 스냅샷. 현재 리스트 쿼리는 선택된 상태 탭 하나만
-  // 조회하므로 준비율(분모=필수 전체, 분자=해결됨)을 계산할 수 없다. 4개 탭을 합치면 gifted를
-  // 제외한 모든 활성 항목이 정확히 한 번씩 모인다(탭들은 상태 기준 서로소 -- 서버
-  // itemsForChild 참고; gifted 한계는 src/items/prep-progress.ts 주석 참고). 쿼리 키가
-  // ["items", ...] 접두어를 공유하므로 상태 변경 뮤테이션의 invalidateQueries(["items"])로
-  // 함께 갱신된다. 픽셀 락 캡처 중에는 화면에 그리지 않으므로 조회도 하지 않는다.
+  // 조회하므로 준비율(분모=필수 전체, 분자=해결됨)을 계산할 수 없다.
+  //
+  // ITEM-123 (B5): 예전에는 now/soon/prepared/not_needed 4개 탭을 Promise.all로 동시에
+  // 불러 합쳤다 -- 준비템 탭 1회 진입에 목록 1 + 스냅샷 4 + 홈 1 = 6요청. 서버가 상태로
+  // 거르지 않는 tab="all" 스냅샷을 주므로 스냅샷은 1요청이면 된다(같은 집합 + 예전에는
+  // 어느 탭에도 없어 통째로 빠지던 gifted 포함 -- ITEM-123 B4). 밴드는 넘기지 않는다:
+  // 준비율의 시기 필터는 클라이언트에서(computeEssentialPrepProgress) 적용한다.
+  //
+  // 쿼리 키가 ["items", ...] 접두어를 공유하므로 상태 변경 뮤테이션의
+  // invalidateQueries(["items"])로 함께 갱신된다. 픽셀 락 캡처 중에는 화면에 그리지
+  // 않으므로 조회도 하지 않는다.
   const allStatusItems = useQuery({
     queryKey: ["items", childId, "prep-progress"],
     enabled: Boolean(authToken && childId) && !isPixelLockMode,
     queryFn: async () => {
-      const tabs = ["now", "soon", "prepared", "not_needed"] as const;
-      const responses = await Promise.all(tabs.map((tab) => listItems(authToken!, childId!, tab)));
-      return responses.flatMap((response) => response.items);
+      const response = await listItems(authToken!, childId!, "all");
+      return response.items;
     }
   });
   useEffect(() => {
