@@ -34,9 +34,20 @@ export function productLinkCount(item: Pick<ItemTemplate, "productLinks">): numb
 /**
  * 사용자에게 실제로 보이는 구매처 수. 서버가 세어 준 값(activeLinkCount)을 그대로
  * 쓴다 — 어드민 목록과 앱이 같은 정의를 두 번 구현하지 않게.
+ *
+ * 라운드 44 리뷰 N-8: 종전 폴백은 `?? 0`이었다. 타입상 필수 필드지만 응답은 런타임에
+ * 검증되지 않으므로(admin-api.ts의 request()는 JSON을 그대로 캐스팅한다), 필드를 아직
+ * 안 내려주는 서버 버전과 붙으면 **모든 준비템이 활성 링크 0개**가 된다. 그 방향의 오류는
+ * 화면에서 "구매처 없음"이라는 단정으로 읽히고, '상품 링크 없음만 보기'가 62개 전부를
+ * 남기며, 운영자는 멀쩡한 링크를 다시 등록하러 간다.
+ *
+ * 그래서 필드가 없을 때는 0이 아니라 **등록된 링크 전체 수**로 떨어진다. 이 폴백도 정확하지는
+ * 않지만(비활성 링크를 활성으로 세는 쪽이다) 틀리는 방향이 다르다 — 없는 문제를 만들어
+ * 내지 않고, 링크가 정말 하나도 없는 준비템은 여전히 0으로 남아 필터에 걸린다.
  */
-export function activeProductLinkCount(item: Pick<ItemTemplate, "activeLinkCount">): number {
-  return item.activeLinkCount ?? 0;
+export function activeProductLinkCount(item: Pick<ItemTemplate, "productLinks" | "activeLinkCount">): number {
+  if (typeof item.activeLinkCount === "number") return item.activeLinkCount;
+  return productLinkCount(item);
 }
 
 /**

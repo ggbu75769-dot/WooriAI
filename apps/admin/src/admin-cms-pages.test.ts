@@ -173,7 +173,9 @@ describe("Admin dashboard: drill-down cards + background worker line (UX-X C5)",
   it("links the 검수 대기 콘텐츠 / 깨진 상품 링크 counters to the pre-filtered lists", () => {
     const source = readSource("app/page.tsx");
     expect(source).toContain('href: "/reviews?status=in_review"');
-    expect(source).toContain('href: "/links?health=broken"');
+    // 라운드 44 리뷰 N-5: 깨진 링크 카드의 숫자는 활성 링크 안에서만 센 값이라(서버),
+    // 목록도 같은 모집단으로 열어야 카드의 수와 줄 수가 어긋나지 않는다.
+    expect(source).toContain('href: "/links?health=broken&active=1"');
 
     // 대상 화면이 그 파라미터를 실제로 읽는다.
     expect(readSource("app/links/page.tsx")).toContain("linkFiltersFromSearchParams");

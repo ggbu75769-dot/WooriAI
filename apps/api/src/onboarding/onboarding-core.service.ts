@@ -41,6 +41,22 @@ type UpdateChildInput = {
   manualStage?: ChildStageCode;
 };
 
+/**
+ * 라운드 45 UX-Y: 삭제/탈퇴 미리보기의 `impact` 문구. 모바일 설정 화면(SET-003
+ * PreviewSummary)이 이 배열을 한 줄씩 **그대로** 사용자에게 보여주기 때문에, 영문 원문은
+ * 되돌릴 수 없는 결정을 앞둔 화면에서 읽히지 않는 문장으로 남아 있었다. 앱의 다른 문구와 같은
+ * 해요체 사실 서술로 통일한다(DNC-018).
+ *
+ * 계정 삭제/가구 탈퇴 두 줄은 같은 라운드의 UX-AA가 settings.controller.ts의
+ * leave-preview·account/delete-preview에 쓴 문장과 **글자까지 같다** — 같은 흐름을 설명하는
+ * 두 응답이 서로 다른 문장을 내면 사용자에게는 다른 결과처럼 읽힌다.
+ * (계정 삭제가 가구에서 "모두 나가게" 되는 것은 household-runtime.service.ts의 withdrawUser
+ * 동작 그대로다. 여기 목록과 아래 아이 삭제 미리보기가 같은 문구를 쓰므로 상수는 한 곳뿐이다.)
+ */
+const accountDeleteImpact = ["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"];
+const householdLeaveImpact = ["이 가구에 공유된 아이 기록을 볼 수 없어요"];
+const childProfileDeleteImpact = ["아이 프로필을 더는 볼 수 없어요", "관련 지출 기록이 리포트에서 제외돼요"];
+
 const consentDefinitions: ConsentDefinition[] = [
   { type: "terms", version: "2026-07-06", required: true, title: "서비스 이용약관" },
   { type: "privacy", version: "2026-07-06", required: true, title: "개인정보 처리 동의" },
@@ -366,6 +382,15 @@ export class OnboardingCoreService {
    * submitted id that resolves to a real, existing item template — both in the
    * same transaction, so a crash partway through can never record the step as done
    * without its status rows (or vice versa).
+   *
+   * 라운드 45 UX-Y(P1) — 계약 의미 변경: `updatedCount`는 이제 **실제로 반영된 건수**다.
+   * 예전에는 요청에 담긴 고유 id 개수를 그대로 돌려줬기 때문에, 존재하지 않는 id만 보내도
+   * (모바일 ONB-003이 데모 픽스처 id를 하드코딩해 실서버로 보내던 버그) 아무것도 반영되지
+   * 않은 채 "n건 반영"이라는 허위 성공이 돌아왔다. 바로 다음 화면인 온보딩 이어하기가
+   * childItemStatus를 세어 "0개 저장됨"이라고 말하는 것과도 정면으로 어긋났다.
+   * 이제 모르는 id를 섞어 보내면 그만큼 작은 수가 돌아온다(전부 모르는 id면 0).
+   * 단계 완료 표시(`preparedItemsSetAt`)는 종전대로 0건이어도 남긴다 — "아무것도 준비하지
+   * 않았다"도 사용자가 이 단계를 끝냈다는 사실이다.
    */
   async setPreparedItems(user: AuthenticatedUser, childId: string, itemTemplateIds: string[]) {
     await this.childAccess.requireChildAccess(user, childId, true);
@@ -375,11 +400,11 @@ export class OnboardingCoreService {
       select: { id: true }
     });
     const validIds = new Set(existing.map((item) => item.id));
+    const appliedItemTemplateIds = uniqueItemTemplateIds.filter((itemTemplateId) => validIds.has(itemTemplateId));
 
     await this.prisma.$transaction(async (tx) => {
       await tx.child.update({ where: { id: childId }, data: { preparedItemsSetAt: new Date() } });
-      for (const itemTemplateId of uniqueItemTemplateIds) {
-        if (!validIds.has(itemTemplateId)) continue;
+      for (const itemTemplateId of appliedItemTemplateIds) {
         await tx.childItemStatus.upsert({
           where: { childId_itemTemplateId: { childId, itemTemplateId } },
           update: { status: "prepared", updatedByUserId: user.id },
@@ -388,7 +413,7 @@ export class OnboardingCoreService {
       }
     });
 
-    return { updatedCount: uniqueItemTemplateIds.length };
+    return { updatedCount: appliedItemTemplateIds.length };
   }
 
   async getBudget(user: AuthenticatedUser, childId: string, yearMonth = currentYearMonth()) {
@@ -437,19 +462,19 @@ export class OnboardingCoreService {
         {
           id: "account_delete",
           title: "Delete account",
-          impact: ["account access stops", "active household memberships are left"],
+          impact: accountDeleteImpact,
           confirmationText: "DELETE ACCOUNT"
         },
         {
           id: "household_leave",
           title: "Leave household",
-          impact: ["shared child data is no longer accessible from this account"],
+          impact: householdLeaveImpact,
           confirmationText: "LEAVE HOUSEHOLD"
         },
         {
           id: "child_profile_delete",
           title: "Delete child profile",
-          impact: ["child profile becomes inaccessible", "related expense records are removed from reports"],
+          impact: childProfileDeleteImpact,
           confirmationText: "DELETE CHILD"
         }
       ]
@@ -462,7 +487,7 @@ export class OnboardingCoreService {
       flowId: "child_profile_delete",
       requiresSecondStep: true,
       confirmationText: "DELETE CHILD",
-      impact: ["child profile becomes inaccessible", "related expense records are removed from reports"]
+      impact: childProfileDeleteImpact
     };
   }
 

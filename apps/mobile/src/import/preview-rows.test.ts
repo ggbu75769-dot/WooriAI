@@ -539,7 +539,9 @@ describe("UX-S 검수 화면 배선 (app/import/[importJobId].tsx)", () => {
    */
   it("L-4: 실행권을 못 받으면 버튼이 잠기고 그 사실을 한 줄로 말한다", () => {
     const src = screen();
-    expect(src).toContain("const bulkRunHeldElsewhere = !isBulkRunning && isImportBulkRunActive(importJobId);");
+    // 라운드 44 리뷰 N-6: 등록부를 렌더 중 1회 읽는 대신 구독해서 읽는다(잠금이 스스로 풀린다).
+    expect(src).toContain("const bulkRunHeldElsewhere = !isBulkRunning && bulkRunRegistered;");
+    expect(src).toContain("useSyncExternalStore(");
     expect(src).toContain("!bulkRunHeldElsewhere &&");
     expect(src).toContain("setBulkClaimBlocked(true);");
     expect(src).toContain("IMPORT_BULK_CLAIM_BUSY_TEXT");

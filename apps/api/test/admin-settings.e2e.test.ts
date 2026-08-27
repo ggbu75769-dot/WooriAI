@@ -263,7 +263,8 @@ describe("Admin CMS and settings APIs", () => {
           confirmationText: "DELETE CHILD",
           requiresSecondStep: true
         });
-        expect(body.impact).toEqual(expect.arrayContaining([expect.stringContaining("child profile")]));
+        // 라운드 45 UX-Y: impact는 모바일 SET-003이 그대로 보여주는 사용자 문구라 한국어 해요체다.
+        expect(body.impact).toEqual(expect.arrayContaining([expect.stringContaining("아이 프로필")]));
       });
 
     await request(app.getHttpServer())
@@ -310,6 +311,9 @@ describe("Admin CMS and settings APIs", () => {
       .expect(({ body }) => {
         expect(body.flowId).toBe("household_leave");
         expect(body.confirmationText).toBe("LEAVE HOUSEHOLD");
+        // 라운드 45 UX-AA: 이 배열은 앱의 확인 상자에 그대로 그려지므로 한국어 해요체다
+        // (예전 영문 "shared child data is no longer accessible..."을 그리던 자리).
+        expect(body.impact).toEqual(["이 가구에 공유된 아이 기록을 볼 수 없어요"]);
       });
 
     await request(app.getHttpServer())
@@ -319,6 +323,7 @@ describe("Admin CMS and settings APIs", () => {
       .expect(({ body }) => {
         expect(body.flowId).toBe("account_delete");
         expect(body.confirmationText).toBe("DELETE ACCOUNT");
+        expect(body.impact).toEqual(["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"]);
       });
 
     await request(app.getHttpServer())

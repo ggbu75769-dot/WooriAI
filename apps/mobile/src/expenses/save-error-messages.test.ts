@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ApiHttpError } from "../api/api-error";
 import {
   EXPENSE_CREATE_FAILED_MESSAGE,
   EXPENSE_DELETE_FAILED_ALERT_TITLE,
@@ -107,5 +108,40 @@ describe("EXP-124 expenseMutationErrorMessage", () => {
         expect(expenseMutationErrorMessage(kind, thrown).length, `${kind} / ${String(thrown)}`).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+/**
+ * 라운드 45 UX-Z — 서버가 코드로 말해 준 사유는 종류별 폴백보다 항상 더 구체적이다.
+ * 이 앱의 저장은 SQLite 우선이라 이 경로가 자주 열리지는 않지만, 열렸을 때 같은 실패가
+ * 동기화 상태 화면(remote-api.ts)과 다른 문장으로 들리면 안 된다.
+ */
+describe("서버 오류 코드 분기", () => {
+  const apiError = (code: string, message: string) =>
+    new ApiHttpError(400, { error: { code, message, requestId: "req-1" } });
+
+  it("아는 코드는 코드별 문구를 쓴다 (세 뮤테이션 모두 같은 문장)", () => {
+    const futureDate = apiError("EXPENSE_FUTURE_DATE", "미래 날짜의 지출은 저장할 수 없어요.");
+    for (const kind of ALL_KINDS) {
+      expect(expenseMutationErrorMessage(kind, futureDate)).toBe("미래 날짜의 지출은 저장할 수 없어요.");
+    }
+    expect(expenseMutationErrorMessage("create", apiError("EXPENSE_ITEM_NAME_REQUIRED", "품목명을 입력해 주세요."))).toBe(
+      "품목명을 입력해 주세요."
+    );
+  });
+
+  it("모르는 코드는 종류별 폴백 그대로 — 서버 원문이 화면에 새지 않는다", () => {
+    const unknown = apiError("SOMETHING_NEW", "Unexpected server wording");
+    expect(expenseMutationErrorMessage("create", unknown)).toBe(EXPENSE_CREATE_FAILED_MESSAGE);
+    expect(expenseMutationErrorMessage("update", unknown)).toBe(EXPENSE_UPDATE_FAILED_MESSAGE);
+    expect(expenseMutationErrorMessage("delete", unknown)).toBe(EXPENSE_DELETE_FAILED_MESSAGE);
+    expect(expenseMutationErrorMessage("create", unknown)).not.toContain("Unexpected");
+  });
+
+  it("화면이 던지는 가드 값이 서버 코드보다 우선한다 (사용자가 지금 고칠 수 있는 문제 먼저)", () => {
+    expect(expenseMutationErrorMessage("create", new Error(INVALID_EXPENSE_INPUT_ERROR))).toBe(
+      EXPENSE_INPUT_INVALID_MESSAGE
+    );
+    expect(expenseMutationErrorMessage("update", new Error(EXPENSE_NOT_READY_ERROR))).toBe(EXPENSE_NOT_READY_MESSAGE);
   });
 });

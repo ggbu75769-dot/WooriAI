@@ -16,6 +16,7 @@ import {
 } from "../../src/api/client";
 import { resetLocalBackend } from "../../src/api/local-backend";
 import { CHILD_REMOVAL_INVALIDATE_KEYS, planAfterChildRemoval } from "../../src/children/child-deletion";
+import { buildConsentSummaryLines } from "../../src/settings/consent-summary";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -49,6 +50,18 @@ const flowCopy = {
     confirmLabel: "계정 삭제하기"
   }
 } as const;
+
+/**
+ * 라운드 45 UX-AA(후보 8ⓐ): 되돌릴 수 없는 결정 앞에서 사용자가 가장 자주 하는 질문("다시 가입하면
+ * 되지 않나?")에 대한 사실 한 줄.
+ *
+ * 근거: 탈퇴는 users.status를 withdrawn으로 바꾸고(households/household-runtime.service.ts의
+ * withdrawUser), 카카오 로그인은 그 상태를 USER_WITHDRAWN으로 거절한다(auth/kakao/
+ * kakao-auth.service.ts). 그 행은 파기 작업(worker/jobs/data-retention-purge.job.ts,
+ * DEFAULT_PURGE_RETENTION_DAYS = 30)이 물리 삭제하기 전까지 남아 있으므로 30일은 **하한**이다
+ * -- 그래서 "30일 동안은 …할 수 없어요"까지만 말하고, 30일이 지나면 된다고는 약속하지 않는다.
+ */
+const ACCOUNT_DELETE_REJOIN_NOTICE = "삭제 후 30일 동안은 같은 계정으로 다시 가입할 수 없어요.";
 
 const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
 const actionFailedText = "처리하지 못했어요. 잠시 후 다시 시도해 주세요.";
@@ -210,6 +223,10 @@ export default function PrivacySettingsScreen() {
   };
 
   const flows = privacy.data?.flows ?? [];
+  // 라운드 45 UX-AA(후보 3): 화면 부제는 "동의 내역과 삭제 · 탈퇴를 관리해요"인데 동의 내역이
+  // 어디에도 없었다. 서버 GET /settings/privacy가 이미 함께 내려주는 값이라 **새 요청 없이**
+  // 그린다. 응답에 없거나(구 서버) 불러오기에 실패하면 빈 배열 -> 카드를 아예 그리지 않는다.
+  const consentLines = buildConsentSummaryLines(privacy.data?.consents);
 
   return (
     <AppScreen>
@@ -234,6 +251,18 @@ export default function PrivacySettingsScreen() {
           </Card>
         ) : null}
 
+        {consentLines.length > 0 ? (
+          <Card style={{ gap: 8 }}>
+            <Text style={cardTitleStyle}>동의 내역</Text>
+            {consentLines.map((line) => (
+              <View key={line.title} style={rowHeaderStyle}>
+                <Text style={consentTitleStyle}>{line.title}</Text>
+                <Text style={mutedTextStyle}>{line.statusText}</Text>
+              </View>
+            ))}
+          </Card>
+        ) : null}
+
         {!privacy.isLoading && !privacy.isError && flows.length === 0 ? (
           <EmptyStateCard title="표시할 항목이 없어요" actionLabel="새로고침" onPress={() => privacy.refetch()} />
         ) : null}
@@ -242,7 +271,7 @@ export default function PrivacySettingsScreen() {
       <View testID="screen-SET-004" style={{ gap: theme.spacing.gap }}>
         <Card style={{ gap: 10 }}>
           <View style={rowHeaderStyle}>
-            <Text style={dangerTitleStyle}>{flowCopy.child_profile_delete.title}</Text>
+            <Text style={cardTitleStyle}>{flowCopy.child_profile_delete.title}</Text>
             <StatusBadge label="위험" tone="warning" />
           </View>
           <Text style={mutedTextStyle}>{flowCopy.child_profile_delete.description}</Text>
@@ -265,7 +294,7 @@ export default function PrivacySettingsScreen() {
 
         <Card style={{ gap: 10 }}>
           <View style={rowHeaderStyle}>
-            <Text style={dangerTitleStyle}>{flowCopy.household_leave.title}</Text>
+            <Text style={cardTitleStyle}>{flowCopy.household_leave.title}</Text>
             <StatusBadge label="주의" tone="warning" />
           </View>
           <Text style={mutedTextStyle}>{flowCopy.household_leave.description}</Text>
@@ -288,10 +317,11 @@ export default function PrivacySettingsScreen() {
 
         <Card style={{ gap: 10 }}>
           <View style={rowHeaderStyle}>
-            <Text style={dangerTitleStyle}>{flowCopy.account_delete.title}</Text>
+            <Text style={cardTitleStyle}>{flowCopy.account_delete.title}</Text>
             <StatusBadge label="위험" tone="warning" />
           </View>
           <Text style={mutedTextStyle}>{flowCopy.account_delete.description}</Text>
+          <Text style={mutedTextStyle}>{ACCOUNT_DELETE_REJOIN_NOTICE}</Text>
           <SecondaryButton
             label={accountPreview.isPending ? "확인하는 중..." : flowCopy.account_delete.previewLabel}
             disabled={!authToken || accountPreview.isPending}
@@ -320,7 +350,9 @@ const rowHeaderStyle = {
   justifyContent: "space-between"
 } as const;
 
-const dangerTitleStyle = {
+// 카드 제목(동의 내역 · 삭제/탈퇴 세 카드가 공유). 예전 이름은 dangerTitleStyle이었는데,
+// 위험 카드 전용이 아니게 되어(동의 내역 카드도 같은 제목 크기) 이름만 사실에 맞췄다 -- 값은 그대로다.
+const cardTitleStyle = {
   color: theme.colors.brown,
   flex: 1,
   fontSize: 15,
@@ -330,6 +362,15 @@ const dangerTitleStyle = {
 const mutedTextStyle = {
   color: theme.colors.gray600,
   fontSize: 13,
+  lineHeight: 20
+} as const;
+
+// 동의 항목 이름: 오른쪽 상태 문구(mutedTextStyle)와 같은 크기로 두되, 이름 쪽이 앞선다.
+const consentTitleStyle = {
+  color: theme.colors.brown,
+  flex: 1,
+  fontSize: 13,
+  fontWeight: "700",
   lineHeight: 20
 } as const;
 

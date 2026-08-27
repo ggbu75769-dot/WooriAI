@@ -195,7 +195,10 @@ type LocalBackendState = {
   invites: LocalInviteRecord[];
   importJobs: LocalImportJobRecord[];
   importRows: Record<string, LocalImportRowRecord[]>;
-  consents: Array<{ type: string; version: string; accepted: boolean }>;
+  // 라운드 45 UX-AA: `acceptedAt`은 약관·개인정보 화면(SET-003)의 동의 내역 카드가 읽는다.
+  // 실서버 Consent.acceptedAt과 같은 ISO 문자열이며, 예전에 저장된 데모 상태에는 없을 수 있어
+  // 선택 필드다(그때는 날짜 없이 "동의함"만 보여 준다 -- 지어낸 날짜를 쓰지 않는다).
+  consents: Array<{ type: string; version: string; accepted: boolean; acceptedAt?: string | null }>;
   accountDeletedAt: string | null;
   // MOB-102 (round5a-sprint1-plan.md §3.2): local mirror of the real API's Idempotency-Key
   // interceptor for expense creation -- maps a client-supplied idempotency key to the expense id
@@ -1557,10 +1560,13 @@ export function confirmImport(importJobId: string, selectedRowIds: string[]): Co
 
 export function upsertConsents(): { success: boolean } {
   ensureSeeded();
+  // 라운드 45 UX-AA: 실서버 upsertConsents와 같이 동의한 시각을 남긴다 -- 약관·개인정보
+  // 화면의 동의 내역 카드가 데모 세션에서도 실제 날짜를 보여줄 수 있게 하는 유일한 근거다.
+  const acceptedAt = new Date().toISOString();
   useLocalBackendStore.setState({
     consents: [
-      { type: "terms", version: "2026-07-06", accepted: true },
-      { type: "privacy", version: "2026-07-06", accepted: true }
+      { type: "terms", version: "2026-07-06", accepted: true, acceptedAt },
+      { type: "privacy", version: "2026-07-06", accepted: true, acceptedAt }
     ]
   });
   return { success: true };
@@ -1721,26 +1727,60 @@ export function setPreparedItems(_childId: string, itemTemplateIds: string[]): {
 // Settings / privacy
 // ---------------------------------------------------------------------------
 
+/**
+ * 라운드 45 UX-AA: 삭제·탈퇴 미리보기의 "진행하면 이렇게 돼요" 줄.
+ *
+ * 실서버(apps/api/src/settings/settings.controller.ts · onboarding-core.service.ts)와 **같은
+ * 문장**이어야 한다 -- 데모 세션과 실세션이 같은 화면에서 다른 말을 하면 그 자체가 오표기다.
+ * 예전에는 영문 원문("account access stops" 등)을 그대로 그렸다(DNC-018 위반).
+ * 세 배열을 상수로 뽑은 이유: 아래 목록·미리보기 두 곳이 같은 문장을 각각 들고 있었다.
+ */
+const ACCOUNT_DELETE_IMPACT = ["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"];
+const HOUSEHOLD_LEAVE_IMPACT = ["이 가구에 공유된 아이 기록을 볼 수 없어요"];
+const CHILD_DELETE_IMPACT = ["아이 프로필을 볼 수 없어요", "이 아이의 지출 기록이 리포트에서 빠져요"];
+
+/**
+ * 데모 동의 정의: 실서버 `consentDefinitions`(apps/api/src/onboarding/onboarding-core.service.ts)
+ * 와 같은 세 가지. 동의 여부·동의일은 데모 상태(upsertConsents)가 실제로 기록한 값만 싣는다 --
+ * 누른 적 없는 동의를 "동의함"으로 보이게 하지 않는다.
+ */
+const LOCAL_CONSENT_DEFINITIONS = [
+  { type: "terms", version: "2026-07-06", required: true, title: "서비스 이용약관" },
+  { type: "privacy", version: "2026-07-06", required: true, title: "개인정보 처리 동의" },
+  { type: "marketing", version: "2026-07-06", required: false, title: "소식 알림 동의" }
+] as const;
+
 export function getPrivacySettings(): PrivacySettings {
   ensureSeeded();
+  const saved = useLocalBackendStore.getState().consents;
   return {
+    consents: LOCAL_CONSENT_DEFINITIONS.map((definition) => {
+      const record = saved.find(
+        (consent) => consent.type === definition.type && consent.version === definition.version
+      );
+      return {
+        ...definition,
+        accepted: record?.accepted ?? false,
+        acceptedAt: record?.acceptedAt ?? null
+      };
+    }),
     flows: [
       {
         id: "account_delete",
         title: "계정 삭제",
-        impact: ["account access stops", "active household memberships are left"],
+        impact: ACCOUNT_DELETE_IMPACT,
         confirmationText: "DELETE ACCOUNT"
       },
       {
         id: "household_leave",
         title: "가구 탈퇴",
-        impact: ["shared child data is no longer accessible from this account"],
+        impact: HOUSEHOLD_LEAVE_IMPACT,
         confirmationText: "LEAVE HOUSEHOLD"
       },
       {
         id: "child_profile_delete",
         title: "아이 프로필 삭제",
-        impact: ["child profile becomes inaccessible", "related expense records are removed from reports"],
+        impact: CHILD_DELETE_IMPACT,
         confirmationText: "DELETE CHILD"
       }
     ]
@@ -1759,7 +1799,7 @@ export function previewChildProfileDeletion(_childId: string): SettingsPreview {
     flowId: "child_profile_delete",
     requiresSecondStep: true,
     confirmationText: "DELETE CHILD",
-    impact: ["child profile becomes inaccessible", "related expense records are removed from reports"]
+    impact: CHILD_DELETE_IMPACT
   };
 }
 
@@ -1782,7 +1822,7 @@ export function previewHouseholdLeave(_householdId: string): SettingsPreview {
     flowId: "household_leave",
     requiresSecondStep: true,
     confirmationText: "LEAVE HOUSEHOLD",
-    impact: ["shared child data is no longer accessible from this account"]
+    impact: HOUSEHOLD_LEAVE_IMPACT
   };
 }
 
@@ -1805,7 +1845,7 @@ export function previewAccountDeletion(): SettingsPreview {
     flowId: "account_delete",
     requiresSecondStep: true,
     confirmationText: "DELETE ACCOUNT",
-    impact: ["account access stops", "active household memberships are left"]
+    impact: ACCOUNT_DELETE_IMPACT
   };
 }
 

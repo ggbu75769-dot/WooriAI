@@ -82,7 +82,12 @@ export default function OnboardingResumeScreen() {
           ) : null}
           {summary.preparedItemsCount !== null ? (
             <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
-              준비물 체크 {summary.preparedItemsCount}개 저장됨
+              {/* 라운드 45 UX-Y: ONB-003의 기본값이 "전체 선택"에서 "전체 해제"로 바뀌어 0개는
+                  흔하고 정상인 결과가 됐다("건너뛰고 계속"도 0개다). 그 상태를 "0개 저장됨"이라고
+                  적으면 저장이 실패한 것처럼 읽히므로, 0일 때만 사실 그대로 다시 쓴다. */}
+              {summary.preparedItemsCount > 0
+                ? `준비물 체크 ${summary.preparedItemsCount}개 저장됨`
+                : "체크한 준비물은 아직 없어요"}
             </Text>
           ) : null}
           {summary.budget ? (

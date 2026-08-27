@@ -7,6 +7,7 @@ import {
   type Expense,
   type ExpenseConflictSnapshot
 } from "../api/client";
+import { apiErrorMessage } from "../api/api-error";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import type { ConflictSnapshot, ExpensePayload } from "./types";
 import type { RemoteExpenseApi } from "./sync-engine";
@@ -60,12 +61,24 @@ function toEngineConflictSnapshot(current: ExpenseConflictSnapshot): ConflictSna
  * 4xx만 permanent로 번역하고 5xx는 원본 그대로 재던진다 -- transient는 전용 클래스 없이
  * "위 두 타입 중 어느 것도 아님"으로 표현되므로(errors.ts 말미 주석) 새 래퍼가 필요 없다.
  */
+/**
+ * 코드를 모르는 4xx의 문구. 예전부터 모든 4xx가 쓰던 그 문장 그대로다 -- 화이트리스트에 없는
+ * 코드는 여기로 폴백하므로 이 트랙 이전과 동일하게 동작한다.
+ */
+const PERMANENT_FAILURE_MESSAGE = "요청을 처리하지 못했어요.";
+
 function rethrowAsSyncEngineError(error: unknown): never {
   if (error instanceof ExpenseVersionConflictError) {
     throw new RemoteVersionConflictError(toEngineConflictSnapshot(error.current));
   }
   if (error instanceof ExpenseHttpError && error.status < 500) {
-    throw new RemotePermanentError(error.status, "요청을 처리하지 못했어요.", error.body);
+    // 라운드 45 UX-Z: 이 문구는 동기화 상태 화면의 `lastError`로 **그대로 사용자에게 보인다**
+    // (sync-engine.ts가 RemotePermanentError.message를 그 자리에 넣는다). 지금까지는 모든 4xx가
+    // 한 문장으로 접혀서, 미래 날짜·품목명 누락처럼 사용자가 고치면 바로 풀리는 실패도 "요청을
+    // 처리하지 못했어요."라는 막다른 문장으로만 보였다 -- 무엇을 고쳐야 할지 알 수 없으니 실패
+    // 행은 큐에 그대로 쌓인다. 아는 코드만 문구로 바꾸고(화이트리스트), 모르는 코드는 예전 문구
+    // 그대로다. 분류(permanent/transient)와 status/body는 한 글자도 바뀌지 않는다.
+    throw new RemotePermanentError(error.status, apiErrorMessage(error, PERMANENT_FAILURE_MESSAGE), error.body);
   }
   throw error;
 }

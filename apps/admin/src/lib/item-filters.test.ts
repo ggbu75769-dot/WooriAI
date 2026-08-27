@@ -86,6 +86,32 @@ describe("productLinkCount / itemFilterSummary / hasAnyItemFilter", () => {
     expect(activeProductLinkCount(sterilizer)).toBe(0);
   });
 
+  /**
+   * 라운드 44 리뷰 N-8: 필드 부재를 0으로 단정하지 않는다.
+   *
+   * 목록 응답은 런타임에 검증되지 않으므로(admin-api.ts의 request()는 JSON을 그대로
+   * 캐스팅한다) activeLinkCount를 아직 안 내려주는 서버 버전과 붙을 수 있다. 종전 `?? 0`은
+   * 그 경우 **모든 준비템을 구매처 0개**로 만들었다 — 화면은 "링크 없음"이라고 단정하고,
+   * '상품 링크 없음만 보기'는 전부를 남기며, 운영자는 멀쩡한 링크를 다시 등록하러 간다.
+   */
+  it("N-8: falls back to the registered link count when the server omits activeLinkCount", () => {
+    // 구버전 응답: activeLinkCount 없음. 타입은 필수지만 런타임에는 비어 올 수 있다.
+    const legacy = { name: "신생아 속싸개", productLinks: [link("a"), link("b")] } as unknown as FilterableItem;
+
+    expect(activeProductLinkCount(legacy)).toBe(2);
+    // 없는 문제를 만들어 내지 않는다 — '링크 없음만 보기'에 걸리지 않는다.
+    expect(filterItemTemplates([legacy], { missingLinksOnly: true })).toEqual([]);
+
+    // 링크가 정말 하나도 없는 준비템은 그대로 0으로 남아 필터에 걸린다.
+    const legacyEmpty = { name: "젖병 소독기", productLinks: [] } as unknown as FilterableItem;
+    expect(activeProductLinkCount(legacyEmpty)).toBe(0);
+    expect(filterItemTemplates([legacyEmpty], { missingLinksOnly: true })).toEqual([legacyEmpty]);
+
+    // 서버가 0을 **명시**하면 그건 근거 있는 0이다 — 폴백이 덮어쓰지 않는다.
+    expect(activeProductLinkCount(bottleWarmer)).toBe(0);
+    expect(productLinkCount(bottleWarmer)).toBe(2);
+  });
+
   it("uses the same 건수 wording as the links page", () => {
     expect(itemFilterSummary(3, 3)).toBe("3개");
     expect(itemFilterSummary(3, 1)).toBe("3개 중 1개");

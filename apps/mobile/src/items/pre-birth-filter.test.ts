@@ -154,7 +154,16 @@ describe("라운드 43 UX-V: 출산 전 칩 배선", () => {
     expect(items).toContain("const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode;");
     expect(items).not.toContain("&& !isPixelLockMode && !isTestSession");
     // 기본 칩의 결정성은 그대로다 -- 데모/픽셀 락에서는 고정 밴드를 쓴다.
-    expect(items).toContain("isPixelLockMode,\n    isTestSession,\n    hasManualSelection: false,");
+    //
+    // 라운드 44 리뷰 N-7: 종전에는 세 줄을 개행·들여쓰기까지 그대로 못박아서(`"isPixelLockMode,
+    // \n    isTestSession,\n    hasManualSelection: false,"`), 포매터가 인자를 한 줄로 접기만 해도
+    // 의미는 그대로인데 테스트가 깨졌다. 못박아야 할 것은 서식이 아니라 **세 인자가 함께
+    // 넘어간다**는 사실이므로, 그 호출부 안에서 셋을 각각 확인한다.
+    const defaultBandCallIndex = items.indexOf("hasManualSelection: false,");
+    expect(defaultBandCallIndex).toBeGreaterThan(-1);
+    const callArgs = items.slice(items.lastIndexOf("(", defaultBandCallIndex), defaultBandCallIndex);
+    expect(callArgs).toContain("isPixelLockMode");
+    expect(callArgs).toContain("isTestSession");
   });
 
   it("서버로 보내는 stageBand 계약은 건드리지 않는다", () => {

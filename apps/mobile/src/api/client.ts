@@ -1,4 +1,5 @@
 import { getSeoulMonthRange, getSeoulToday, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
+import { ApiHttpError, parseApiErrorEnvelope } from "./api-error";
 import * as localBackend from "./local-backend";
 import type { StageBandLabel } from "../items/stage-bands";
 import * as localDevices from "../notifications/local-devices";
@@ -27,6 +28,12 @@ function currentYearMonthDate(): string {
  * the call to the in-memory/persisted local backend instead of a real HTTP request.
  */
 export const LOCAL_SESSION_TOKEN = "wooriai-local-session";
+
+/**
+ * 라운드 45 UX-Z: 비-2xx 응답의 타입 있는 실패. 화면들이 client.ts 하나만 import 하는 관례를
+ * 지키기 위해 여기서 다시 내보낸다(정의는 src/api/api-error.ts — 문구 화이트리스트도 그 옆).
+ */
+export { ApiHttpError };
 
 export { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID };
 
@@ -342,6 +349,22 @@ export type ConfirmImportResponse = {
 };
 
 export type PrivacySettings = {
+  /**
+   * 라운드 45 UX-AA: 서버 GET /settings/privacy는 진작부터 동의 내역을 함께 내려주고 있었는데
+   * (onboarding-core.service.ts의 getPrivacySettings → listConsents) 이 타입에 없어서 약관 및
+   * 개인정보 화면(SET-003)은 "동의 내역과 삭제 · 탈퇴를 관리해요"라고 적어 놓고 동의 내역을
+   * 한 줄도 보여주지 못했다. 선택 필드인 이유: 예전 서버·데모 응답에는 없을 수 있고, 그때
+   * 화면은 카드를 그리지 않는다(없는 동의를 지어내지 않는다).
+   */
+  consents?: Array<{
+    type: string;
+    version: string;
+    required: boolean;
+    title: string;
+    accepted: boolean;
+    /** 동의한 시각(ISO). 동의한 적이 없거나 기록이 없으면 null. */
+    acceptedAt?: string | null;
+  }>;
   flows: Array<{
     id: "account_delete" | "household_leave" | "child_profile_delete";
     title: string;
@@ -510,7 +533,13 @@ async function requestJson<T>(path: string, options: RequestOptions = {}, isRetr
 
   const data = (await response.json()) as T;
   if (!response.ok) {
-    throw new Error(JSON.stringify(data));
+    // 라운드 45 UX-Z: 예전에는 `new Error(JSON.stringify(data))`였다 -- 상태코드도 서버가 보낸
+    // 오류 코드도 잃어버려서, 화면은 "다시 눌러도 절대 성공하지 않는 실패"에까지 "잠시 후 다시
+    // 시도해 주세요."를 붙일 수밖에 없었다. ApiHttpError는 Error를 상속하고 message도 예전과
+    // 같은 JSON 원문이라(하위 호환: getBudget의 BUDGET_NOT_FOUND, delta-sync의
+    // SYNC_CURSOR_INVALID, invite-permissions의 봉투 파싱이 그대로 동작한다) 기존 소비자는
+    // 무엇도 바뀌지 않고, 새 소비자만 status/code로 분기한다(src/api/api-error.ts).
+    throw new ApiHttpError(response.status, data);
   }
   return data;
 }
@@ -560,7 +589,9 @@ async function requestMultipartJson<T>(
 
   const data = (await response.json()) as T;
   if (!response.ok) {
-    throw new Error(JSON.stringify(data));
+    // requestJson과 같은 타입 있는 실패(위 주석 참고). 가져오기 업로드 거절(행 초과·형식·용량)이
+    // 바로 이 경로로 오므로, 화면이 "잠시 후 다시" 대신 사실을 말할 수 있는 유일한 자리다.
+    throw new ApiHttpError(response.status, data);
   }
   return data;
 }
@@ -857,11 +888,18 @@ export class ExpenseVersionConflictError extends Error {
 export class ExpenseHttpError extends Error {
   readonly status: number;
   readonly body: unknown;
+  /**
+   * 라운드 45 UX-Z: 서버 봉투(`{ error: { code, message } }`)의 오류 코드. body는 예전부터
+   * 실려 있었지만 코드를 꺼내는 일을 소비자마다 반복하면 판정이 갈라지므로 여기서 한 번만
+   * 꺼낸다(봉투가 아니면 null = 모름). message는 예전 그대로 두어 기존 계약을 건드리지 않는다.
+   */
+  readonly code: string | null;
   constructor(status: number, body: unknown) {
     super(`Expense request failed with status ${status}`);
     this.name = "ExpenseHttpError";
     this.status = status;
     this.body = body;
+    this.code = parseApiErrorEnvelope(body)?.code ?? null;
   }
 }
 

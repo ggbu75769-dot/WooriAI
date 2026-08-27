@@ -202,7 +202,43 @@ describe("linkFiltersFromSearchParams (UX-X C5)", () => {
     expect(linkFiltersFromSearchParams(undefined)).toEqual(EMPTY_LINK_FILTERS);
   });
 
-  it("only ever sets the health chip (other filters stay untouched)", () => {
+  it("only ever sets filters it knows (query and other params stay untouched)", () => {
     expect(linkFiltersFromSearchParams(new URLSearchParams("health=ok&query=욕조"))).toEqual({ healthStatus: "ok" });
+  });
+
+  /**
+   * 라운드 44 리뷰 N-5: 대시보드 "깨진 상품 링크" 카드의 숫자는 서버가 활성 링크 안에서만
+   * 센 값인데(dashboard-summary.service.ts) 넘어간 목록은 비활성까지 보여 줬다 — 카드는 3인데
+   * 목록은 7줄인, 같은 것을 세는 두 화면이 다른 수를 말하는 자리였다.
+   */
+  it("N-5: reads the card's active=1 so the list opens on the same population as the count", () => {
+    expect(linkFiltersFromSearchParams(new URLSearchParams("health=broken&active=1"))).toEqual({
+      healthStatus: "broken",
+      activeOnly: true
+    });
+    // 헬스 칩 없이 active만 와도 그 조건은 선다.
+    expect(linkFiltersFromSearchParams(new URLSearchParams("active=1"))).toEqual({ activeOnly: true });
+  });
+
+  it("N-5: any other active value means no filter (opt-in only)", () => {
+    expect(linkFiltersFromSearchParams(new URLSearchParams("health=broken&active=0"))).toEqual({
+      healthStatus: "broken"
+    });
+    expect(linkFiltersFromSearchParams(new URLSearchParams("active=true"))).toEqual(EMPTY_LINK_FILTERS);
+    expect(linkFiltersFromSearchParams(new URLSearchParams("active="))).toEqual(EMPTY_LINK_FILTERS);
+  });
+
+  it("N-5: the filter it builds is one the chips can actually undo", () => {
+    const filters = linkFiltersFromSearchParams(new URLSearchParams("health=broken&active=1"));
+    // 화면이 "필터 있음"으로 인식해야 초기화 버튼이 뜬다 -- 풀 수 없는 필터로 열지 않는다.
+    expect(hasAnyLinkFilter(filters)).toBe(true);
+
+    const links = [
+      makeLink({ title: "깨진 활성", healthStatus: "broken", active: true }),
+      makeLink({ title: "깨진 비활성", healthStatus: "broken", active: false }),
+      makeLink({ title: "정상 활성", healthStatus: "ok", active: true })
+    ];
+    // 카드 숫자와 같은 모집단: 비활성 링크는 사용자에게 안 보이니 세지도 보여 주지도 않는다.
+    expect(filterProductLinks(links, filters).map((entry) => entry.title)).toEqual(["깨진 활성"]);
   });
 });

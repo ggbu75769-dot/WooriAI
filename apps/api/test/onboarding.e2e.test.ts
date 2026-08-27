@@ -175,6 +175,9 @@ describe("Auth and onboarding API", () => {
         expect(body.nickname).toBe("반짝이");
       });
 
+    // 라운드 45 UX-Y(P1): 이 두 id는 어떤 item_template에도 없는 값이다. 예전에는 서버가
+    // 요청에 담긴 개수를 그대로 돌려줘서 "2건 반영"이라고 답했지만 실제 반영은 0건이었고,
+    // 바로 아래 status의 preparedItemsCount(=0)와 정면으로 어긋났다. 이제 실반영 기준이다.
     await request(app.getHttpServer())
       .post(`/api/v1/children/${childId}/prepared-items`)
       .set("Authorization", `Bearer ${accessToken}`)
@@ -186,7 +189,7 @@ describe("Auth and onboarding API", () => {
       })
       .expect(200)
       .expect(({ body }) => {
-        expect(body).toEqual({ updatedCount: 2 });
+        expect(body).toEqual({ updatedCount: 0 });
       });
 
     await request(app.getHttpServer())
@@ -238,6 +241,86 @@ describe("Auth and onboarding API", () => {
             budget: { yearMonth: "2026-07-01", amountKrw: 500000 }
           }
         });
+      });
+  });
+
+  // 라운드 45 UX-Y(P1): updatedCount는 "요청한 개수"가 아니라 "실제로 반영된 개수"다.
+  // 모바일 ONB-003이 실서버에 없는 데모 픽스처 id를 보내던 버그가 조용한 허위 성공으로
+  // 끝나지 않도록, 모르는 id를 섞으면 그만큼 작은 수가 돌아오는 것을 고정한다.
+  it("counts only prepared-items ids that resolve to a real item template", async () => {
+    const accessToken = await login(app);
+    const householdId = (
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.households[0].id as string;
+
+    await request(app.getHttpServer())
+      .put("/api/v1/consents")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        consents: [
+          { type: "terms", version: "2026-07-06", accepted: true },
+          { type: "privacy", version: "2026-07-06", accepted: true }
+        ]
+      })
+      .expect(200);
+
+    const childId = (
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "튼튼이", stageMode: "pregnant", dueDate: "2026-08-31" })
+        .expect(200)
+    ).body.id as string;
+
+    // 화면이 실제로 쓰는 목록과 같은 소스(GET /children/:id/items?tab=now)에서 진짜 id를 얻는다.
+    const realItemIds = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items.slice(0, 2).map((item: { id: string }) => item.id) as string[];
+    expect(realItemIds).toHaveLength(2);
+
+    const unknownItemId = randomUUID();
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/prepared-items`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ itemTemplateIds: [...realItemIds, unknownItemId, realItemIds[0]] })
+      .expect(200)
+      .expect(({ body }) => {
+        // 중복 1개는 접히고, 모르는 id 1개는 세지 않는다 -- 실반영은 2건.
+        expect(body).toEqual({ updatedCount: 2 });
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/items?tab=prepared`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.items.map((item: { id: string }) => item.id).sort()).toEqual([...realItemIds].sort());
+      });
+
+    // 단계 완료 표시는 그대로 남고, 요약 개수도 응답과 같은 2개다(예전에는 응답만 부풀었다).
+    await request(app.getHttpServer())
+      .get(`/api/v1/onboarding/status?childId=${childId}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.nextStep).toBe("budget");
+        expect(body.summary.preparedItemsCount).toBe(2);
+      });
+
+    // 아무것도 고르지 않은 저장(빈 목록)은 0건 -- 그래도 단계는 완료로 남는다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/prepared-items`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ itemTemplateIds: [] })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ updatedCount: 0 });
       });
   });
 

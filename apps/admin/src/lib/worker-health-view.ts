@@ -95,7 +95,19 @@ export function linkHealthCheckState(health: WorkerHealth): LinkHealthCheckState
   // 기록이 아예 없는 두 경우를 나눈다: 워커 상태는 프로세스 메모리라(INF-007)
   // 재시작하면 jobs가 비고, 첫 틱이 끝나기 전까지는 "아직 안 돌았다"가 맞다.
   // 틱이 끝났는데도 잡 기록이 없다면 그건 진짜로 이 잡이 돌지 않는다는 뜻이다.
-  if (!job) return health.lastTickFinishedAt === null ? "pending" : "unknown";
+  //
+  // 라운드 44 리뷰 N-3: "첫 틱이 아직"이라는 판정에는 **워커가 켜져 있고 돌고 있다**는
+  // 전제가 붙는다. 그 전제가 깨진 두 경우를 pending으로 부르면 곧 결과가 나온다는 약속이
+  // 되는데, 둘 다 그렇지 않다.
+  //  - `enabled=false`(WORKER_ENABLED=0): 틱 자체가 영영 없다. 꺼져 있는 것을 "아직 첫 실행
+  //    전"이라고 부르면 운영자가 기다리기만 한다.
+  //  - `stale`: 켜져 있는데 주기의 3배가 지나도록 틱이 끝나지 않았다 -- 기다림이 아니라 고장이다.
+  // 두 경우 모두 "돌지 않는다"(unknown)로 떨어뜨린다. 왜 꺼졌는지·멈췄는지는 상태 라벨과
+  // workerHealthStateNote가 이미 말한다.
+  if (!job) {
+    const beforeFirstTick = health.enabled && !health.stale && health.lastTickFinishedAt === null;
+    return beforeFirstTick ? "pending" : "unknown";
+  }
   if (job.lastStatus === "failed") return "failed";
   if (job.lastSummary.enabled === true) return "on";
   if (job.lastSummary.enabled === false) return "off";
@@ -105,6 +117,24 @@ export function linkHealthCheckState(health: WorkerHealth): LinkHealthCheckState
 function countOf(summary: Record<string, number | boolean>, key: string): number {
   const value = summary[key];
   return typeof value === "number" ? value : 0;
+}
+
+/**
+ * 라운드 44 리뷰 N-9: 회차 요약의 `errors`는 **판정을 남기지 못한 링크 수**다.
+ *
+ * link-health.job.ts는 후보 수를 `checked`로, 개별 링크의 판정 실패(프로브 예외·DB 쓰기 실패
+ * 등, 잡을 중단시키지 않고 건너뛴 건)를 `errors`로 따로 센다. 종전 한 줄은 `checked`만 읽어서,
+ * 열 건 전부 쓰기에 실패한 회차도 "10건 확인 · 깨짐 0"으로 보였다 — 아무것도 확인하지 못한
+ * 회차가 전수 정상으로 읽히는 자리였다. 실패 건수를 함께 적고, "확인"으로 세는 수에서 뺀다.
+ */
+function checkedCounts(summary: Record<string, number | boolean>): {
+  attempted: number;
+  errors: number;
+  confirmed: number;
+} {
+  const attempted = countOf(summary, "checked");
+  const errors = countOf(summary, "errors");
+  return { attempted, errors, confirmed: Math.max(0, attempted - errors) };
 }
 
 /**
@@ -123,10 +153,10 @@ export function linkHealthCheckLine(health: WorkerHealth): string {
   if (state === "pending") return "링크 검사: 아직 첫 실행 전이에요 — 첫 회차가 끝나면 결과가 보여요.";
   if (state === "unknown") return "링크 검사: 실행 기록 없음 — 검사가 돌지 않아요.";
   const summary = linkHealthJob(health)?.lastSummary ?? {};
-  return `링크 검사: 최근 회차 ${countOf(summary, "checked")}건 확인 · 깨짐 ${countOf(
-    summary,
-    "broken"
-  )} · 불안정 ${countOf(summary, "unstable")}`;
+  const { attempted, errors, confirmed } = checkedCounts(summary);
+  const verdicts = `깨짐 ${countOf(summary, "broken")} · 불안정 ${countOf(summary, "unstable")}`;
+  if (errors <= 0) return `링크 검사: 최근 회차 ${attempted}건 확인 · ${verdicts}`;
+  return `링크 검사: 최근 회차 ${attempted}건 중 ${confirmed}건 확인 · ${verdicts} · ${errors}건은 확인하지 못했어요`;
 }
 
 /** 검사가 수행되지 않은 각 상태를 "왜 이 숫자를 믿을 수 없는지"로 옮긴다. */
@@ -171,7 +201,11 @@ export function brokenLinkCountCaption(
   if (state === "on") {
     if (counts.unchecked <= 0) return null;
     const checked = Math.max(0, counts.active - counts.unchecked);
-    return `활성 링크 ${counts.active}개 중 ${checked}개 검사 · 미검사 ${counts.unchecked}개는 확인 안 됨이에요(제휴 URL이 없는 링크는 검사 대상이 아니에요).`;
+    // 라운드 44 리뷰 N-4: 종전 괄호는 "제휴 URL이 없는 링크는 검사 대상이 아니에요"라고
+    // **원인을 단정**했다. 미검사에는 그 밖의 이유도 섞인다 — 링크가 방금 등록돼 아직
+    // 배치(LINK_HEALTH_BATCH, 기본 10건/틱) 차례가 오지 않았을 뿐인 경우가 특히 흔하다.
+    // 확실한 사실("아직 검사되지 않았다")을 앞세우고, 괄호는 단정이 아니라 대표 사유 서술로 둔다.
+    return `활성 링크 ${counts.active}개 중 ${checked}개 검사 · 미검사 ${counts.unchecked}개는 아직 검사되지 않았어요(제휴 URL이 없거나 아직 차례가 오지 않은 링크예요).`;
   }
   const reason = LINK_CHECK_NOT_RUNNING_REASON[state];
   return counts.broken === 0

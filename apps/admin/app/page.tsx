@@ -37,7 +37,10 @@ const SUMMARY_CARDS: { key: keyof AdminDashboardSummary; label: string; href?: s
   { key: "affiliateClicks7d", label: "최근 7일 제휴 클릭" },
   { key: "analyticsEvents7d", label: "최근 7일 분석 이벤트" },
   { key: "pendingContentRevisions", label: "검수 대기 콘텐츠", href: "/reviews?status=in_review" },
-  { key: "productLinksBrokenCount", label: "깨진 상품 링크", href: "/links?health=broken" }
+  // 라운드 44 리뷰 N-5: `active=1`을 함께 넘긴다. 이 카드의 숫자는 서버가 활성 링크
+  // 안에서만 센 값인데(dashboard-summary.service.ts) 목록은 비활성까지 보여 줘서,
+  // 카드의 수와 넘어간 목록의 줄 수가 어긋났다. 목록도 같은 모집단으로 열린다.
+  { key: "productLinksBrokenCount", label: "깨진 상품 링크", href: "/links?health=broken&active=1" }
 ];
 
 /**

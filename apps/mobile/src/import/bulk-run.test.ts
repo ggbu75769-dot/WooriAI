@@ -11,6 +11,7 @@ import {
   resetImportBulkRuns,
   runImportBulkSelection,
   shouldFlushImportBulkProgress,
+  subscribeImportBulkRuns,
   IMPORT_BULK_CANCELLED_TEXT,
   IMPORT_BULK_CANCEL_LABEL,
   IMPORT_BULK_CLAIM_BUSY_TEXT,
@@ -220,6 +221,74 @@ describe("K-6 잡별 실행 등록부 (재진입 이중 실행 차단)", () => {
   });
 });
 
+/**
+ * 라운드 44 리뷰 N-6: 등록부가 바뀌면 알린다.
+ *
+ * 화면은 `isImportBulkRunActive`로 확정 버튼을 잠그는데(canConfirmImport의
+ * isBulkRunHeldElsewhere), 그 값이 렌더 중 1회 읽기라 앞 마운트의 루프가 release된 뒤에도
+ * 다시 그릴 사건이 없었다 -- 버튼이 잠긴 채 남는 자리다. release/claim 통지가 그 창을 닫는다.
+ */
+describe("N-6 등록부 구독 (확정 잠금 반응형화)", () => {
+  it("release가 구독자에게 알린다 -- 잠금이 스스로 풀린다", () => {
+    const seen: boolean[] = [];
+    const unsubscribe = subscribeImportBulkRuns(() => seen.push(isImportBulkRunActive("job-1")));
+
+    const handle = claimImportBulkRun("job-1")!;
+    expect(seen).toEqual([true]);
+
+    handle.release();
+    expect(seen).toEqual([true, false]);
+    expect(isImportBulkRunActive("job-1")).toBe(false);
+
+    unsubscribe();
+  });
+
+  it("이미 내려놓은 핸들의 release는 알리지 않는다 (변화가 없다)", () => {
+    const handle = claimImportBulkRun("job-1")!;
+    handle.release();
+
+    let notified = 0;
+    const unsubscribe = subscribeImportBulkRuns(() => {
+      notified += 1;
+    });
+
+    handle.release();
+    expect(notified).toBe(0);
+
+    // 다른 핸들이 자리를 잡은 뒤의 늦은 release도 등록부를 건드리지 않는다.
+    const fresh = claimImportBulkRun("job-1")!;
+    expect(notified).toBe(1);
+    handle.release();
+    expect(notified).toBe(1);
+    expect(isImportBulkRunActive("job-1")).toBe(true);
+
+    fresh.release();
+    expect(notified).toBe(2);
+    unsubscribe();
+  });
+
+  it("해지하면 더 이상 받지 않는다 (useSyncExternalStore 계약)", () => {
+    let notified = 0;
+    const unsubscribe = subscribeImportBulkRuns(() => {
+      notified += 1;
+    });
+
+    unsubscribe();
+    claimImportBulkRun("job-1")!.release();
+    expect(notified).toBe(0);
+  });
+
+  it("화면은 등록부를 구독해 읽는다 (렌더 1회 읽기 금지)", () => {
+    const screen = readFileSync(join(process.cwd(), "app/import/[importJobId].tsx"), "utf8");
+
+    expect(screen).toContain("useSyncExternalStore(");
+    expect(screen).toContain("subscribeImportBulkRuns");
+    expect(screen).toContain("const bulkRunHeldElsewhere = !isBulkRunning && bulkRunRegistered;");
+    // 예전 배선(렌더 중 직접 읽기)은 남아 있지 않아야 한다.
+    expect(screen).not.toContain("!isBulkRunning && isImportBulkRunActive(importJobId)");
+  });
+});
+
 describe("K-6 게이팅 판정 (버튼 disabled와 실행부 첫 줄이 같은 규칙)", () => {
   const base = {
     hasAuth: true,
@@ -299,7 +368,9 @@ describe("L-2 확정 게이팅 판정", () => {
   it("리뷰 M-6: 화면이 일괄 버튼과 같은 값을 확정 판정에도 넘긴다", () => {
     const screen = readFileSync(join(process.cwd(), "app/import/[importJobId].tsx"), "utf8");
 
-    expect(screen).toContain("const bulkRunHeldElsewhere = !isBulkRunning && isImportBulkRunActive(importJobId);");
+    // N-6: 값의 출처가 렌더 1회 읽기에서 등록부 구독으로 바뀌었지만, 같은 값을 두 판정에
+    // 함께 넘긴다는 사실은 그대로다.
+    expect(screen).toContain("const bulkRunHeldElsewhere = !isBulkRunning && bulkRunRegistered;");
     expect(screen).toContain("isBulkRunHeldElsewhere: bulkRunHeldElsewhere,");
     // 확정 판정이 그 값을 읽는 곳은 canConfirmImport 호출부다(버튼 disabled와 같은 판정 하나).
     const confirmCallIndex = screen.indexOf("const canConfirm = canConfirmImport({");

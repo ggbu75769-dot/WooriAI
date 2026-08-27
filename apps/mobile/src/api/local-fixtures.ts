@@ -173,7 +173,12 @@ export const localProductLinkFixtures: LocalProductLinkFixture[] = [
     affiliateUrl: null,
     isAffiliate: true,
     isSponsored: true,
-    disclosureText: "스폰서 상품이며 구매 CTA 근처에 광고/제휴 고지를 표시합니다.",
+    // 라운드 44 리뷰 N-1: 예전 값은 "스폰서 상품이며 구매 CTA 근처에 광고/제휴 고지를
+    // 표시합니다."였다 -- 사용자에게 보여 줄 고지가 아니라 **개발 스펙을 적어 둔 메모**였고
+    // (합쇼체라 앱 어디와도 말투가 다르다), 스폰서 우선 규칙 탓에 데모 기저귀 상세의 구매
+    // CTA 옆에 그대로 렌더됐다. 실사용 문구로 바꾼다: 광고임을 먼저 밝히고(DNC-011) 같은
+    // 줄에서 수수료 고지를 잇는다(DNC-010). 해요체(DNC-018).
+    disclosureText: "스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.",
     displayOrder: 20
   },
   {

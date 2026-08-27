@@ -23,6 +23,8 @@
  * (화면 자체는 렌더할 수 없어 배선은 소스 grep 계약 테스트가 맡는다 — save-error-wiring.test.ts).
  */
 
+import { apiErrorMessage } from "../api/api-error";
+
 /** 어떤 뮤테이션이 실패했는지 — 문구 선택에만 쓰인다. */
 export type ExpenseMutationKind = "create" | "update" | "delete";
 
@@ -96,9 +98,19 @@ export function isExpenseNotReadyError(error: unknown): boolean {
 /**
  * 실패 원인 → 사용자에게 보여줄 문구. 알 수 없는 실패는 원문(스택/네트워크 메시지)을 절대
  * 그대로 노출하지 않고 뮤테이션 종류별 안내 문구로 대체한다.
+ *
+ * 라운드 45 UX-Z: 위 두 가지(입력 가드·행 준비 중) 다음에 **서버가 말해 준 사유**를 한 겹 더
+ * 본다. 순서가 이렇게인 이유: 앞의 둘은 화면 자신이 던진 값이라 서버 코드가 있을 수 없고,
+ * 서버 사유는 "다시 시도해 주세요"라는 일반 폴백보다 항상 더 구체적이기 때문이다.
+ *
+ * 이 앱의 지출 저장은 SQLite 우선(createExpenseOffline)이라 서버 오류가 이 배너까지 오는 일은
+ * 흔하지 않다 -- 대개는 outbox flush에서 잡혀 동기화 상태 화면의 `lastError`가 된다(그쪽 배선은
+ * src/offline/remote-api.ts). 그래도 여기서 같은 표를 보게 해 두는 이유는, 같은 실패가 화면마다
+ * 다른 문장으로 들리지 않게 하기 위해서다(이 모듈 첫 주석의 원칙). 아는 코드가 아니면 지금까지와
+ * 똑같이 종류별 폴백 문구를 쓴다.
  */
 export function expenseMutationErrorMessage(kind: ExpenseMutationKind, error: unknown): string {
   if (isInvalidExpenseInputError(error)) return EXPENSE_INPUT_INVALID_MESSAGE;
   if (isExpenseNotReadyError(error)) return EXPENSE_NOT_READY_MESSAGE;
-  return FALLBACK_MESSAGE_BY_KIND[kind];
+  return apiErrorMessage(error, FALLBACK_MESSAGE_BY_KIND[kind]);
 }

@@ -91,6 +91,10 @@ function ChildDateField({
       <Text style={fieldLabelStyle}>{dateLabel}</Text>
       <TextInput
         accessibilityLabel={`${dateLabel} 입력`}
+        // 라운드 45 UX-Y(S): ONB-002와 같은 숫자 키패드 + YYYY-MM-DD 10자 제한.
+        // 검증은 기존 validateChildForm/computeDateError 그대로.
+        keyboardType="numbers-and-punctuation"
+        maxLength={10}
         returnKeyType="done"
         onChangeText={onChange}
         placeholder="YYYY-MM-DD"

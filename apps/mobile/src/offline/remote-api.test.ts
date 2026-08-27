@@ -391,3 +391,55 @@ describe("토큰 캡처", () => {
     expect(deleteMock.mock.calls[0][0]).toBe("token-session-b");
   });
 });
+
+/**
+ * 라운드 45 UX-Z — 실패 행의 `lastError`는 동기화 상태 화면에 **그대로 보이는 문장**이다
+ * (sync-engine.ts가 RemotePermanentError.message를 그 자리에 넣는다). 서버가 코드로 말해 준
+ * 사유를 여기서 잃으면 사용자는 "요청을 처리하지 못했어요."만 보고 무엇을 고쳐야 할지 영영 알 수
+ * 없다. 분류(4xx=permanent)와 status/body 보존은 위 테스트들이 이미 고정하므로, 여기서는
+ * **문구만** 본다.
+ */
+describe("실패 사유 문구 (화이트리스트 매핑)", () => {
+  const cases: Array<[string, string, string]> = [
+    ["EXPENSE_FUTURE_DATE", "미래 날짜의 지출은 저장할 수 없어요.", "미래 날짜의 지출은 저장할 수 없어요."],
+    ["EXPENSE_DATE_INVALID", "날짜를 다시 확인해 주세요.", "날짜를 다시 확인해 주세요."],
+    ["EXPENSE_ITEM_NAME_REQUIRED", "품목명을 입력해 주세요.", "품목명을 입력해 주세요."],
+    ["EXPENSE_AMOUNT_INVALID", "금액은 0보다 큰 원화 정수만 입력할 수 있어요.", "금액은 0보다 큰 숫자로 입력해 주세요."],
+    ["FORBIDDEN", "접근 권한이 없어요.", "권한이 없어 처리하지 못했어요. 가족에서 내 역할을 확인해 주세요."]
+  ];
+
+  it.each(cases)("%s -> 사용자 문구", async (code, serverMessage, expected) => {
+    createMock.mockRejectedValue(new ExpenseHttpError(400, { error: { code, message: serverMessage } }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    const error = (await captureThrown(() => api.createExpense(makePayload(), `idem-${code}`))) as RemotePermanentError;
+
+    expect(error).toBeInstanceOf(RemotePermanentError);
+    expect(error.message).toBe(expected);
+    // 분류와 원본 정보는 그대로다 — 문구만 바뀐다.
+    expect(error.status).toBe(400);
+  });
+
+  it("표에 없는 코드는 예전 문구 그대로다 (서버 원문이 화면으로 새지 않는다)", async () => {
+    const body = { error: { code: "SOMETHING_NEW", message: "Unexpected server wording" } };
+    updateMock.mockRejectedValue(new ExpenseHttpError(422, body));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    const error = (await captureThrown(() =>
+      api.updateExpense("exp-1", makePayload(), 1, "idem-unknown")
+    )) as RemotePermanentError;
+
+    expect(error.message).toBe("요청을 처리하지 못했어요.");
+    expect(error.message).not.toContain("Unexpected server wording");
+    expect(error.body).toBe(body);
+  });
+
+  it("봉투가 아닌 4xx 본문도 예전 문구 그대로다", async () => {
+    deleteMock.mockRejectedValue(new ExpenseHttpError(400, { message: "Bad Request" }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    const error = (await captureThrown(() => api.deleteExpense("exp-1", 2, "idem-plain"))) as RemotePermanentError;
+
+    expect(error.message).toBe("요청을 처리하지 못했어요.");
+  });
+});

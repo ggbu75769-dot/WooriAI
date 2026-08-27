@@ -20,6 +20,11 @@ import {
 import { buildCategoryNameLookup } from "../../src/categories";
 import { formatKrw } from "../../src/money";
 import {
+  milestoneOtherCategoriesLine,
+  milestoneRecordCountLine,
+  milestoneTopCategoryLine
+} from "../../src/reports/milestone-card";
+import {
   buildMilestoneShareMessage,
   milestoneReportTitle,
   milestoneWindowPhrase
@@ -233,7 +238,11 @@ export default function ReportsScreen() {
     queryFn: () => getHome(authToken!, childId!)
   });
   const milestoneReport = milestone.data;
-  const milestoneTopCategory = milestoneReport?.topCategories[0];
+  // 라운드 45 UX-AA: 카드가 그리는 세 줄. 예전에는 1위 카테고리 이름 하나(milestoneTopCategory)만
+  // 쓰고 기록 수 · 하루 평균 · 2~3위 카테고리를 버렸다 -- 전부 같은 응답 안에 있던 값이다.
+  const milestoneCountLine = milestoneReport ? milestoneRecordCountLine(milestoneReport) : null;
+  const milestoneTopLine = milestoneReport ? milestoneTopCategoryLine(milestoneReport) : null;
+  const milestoneRestLine = milestoneReport ? milestoneOtherCategoriesLine(milestoneReport) : null;
   // UX-H: 두 공유 카드(마일스톤·월간)가 같은 이름을 쓴다. 닉네임/태명은 사용자가 스스로
   // 보내는 값이고, 이 화면이 공유 문구에 싣는 유일한 식별 정보다(이메일·계정 식별자 없음).
   const shareChildName = home.data?.child.nickname ?? "우리 아이";
@@ -605,9 +614,14 @@ export default function ReportsScreen() {
                       ? `태어나서 ${milestoneReport.daysCovered}일째 기록 중 · ${formatKrw(milestoneReport.totalKrw)}`
                       : `태어나서 ${milestoneWindowPhrase(milestoneReport.type)} ${formatKrw(milestoneReport.totalKrw)}`}
                   </Text>
-                  {milestoneTopCategory ? (
-                    <Text style={reportReferenceMemoryBodyStyle}>가장 많이 든 건 {milestoneTopCategory.name} 💛</Text>
+                  {/* 라운드 45 UX-AA: 응답이 이미 주는 기록 수 · 하루 평균 · 상위 3개 카테고리를
+                      그린다(새 요청 없음). 예전에는 1위 카테고리 **이름 하나**만 쓰고 나머지를
+                      전부 버렸다 -- 판정은 src/reports/milestone-card.ts. */}
+                  {milestoneCountLine ? (
+                    <Text style={reportReferenceMemoryBodyStyle}>{milestoneCountLine}</Text>
                   ) : null}
+                  {milestoneTopLine ? <Text style={reportReferenceMemoryBodyStyle}>{milestoneTopLine}</Text> : null}
+                  {milestoneRestLine ? <Text style={reportReferenceMemoryBodyStyle}>{milestoneRestLine}</Text> : null}
                   <Pressable
                     accessibilityLabel={`${milestoneCardTitle} 공유하기`}
                     accessibilityRole="button"
