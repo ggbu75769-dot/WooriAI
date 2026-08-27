@@ -33,7 +33,8 @@ describe("AUTH-102 login screen wiring (source verification -- follows the exist
     expect(loginSource).toContain("accessToken: result.tokens.accessToken");
     expect(loginSource).toContain("refreshToken: result.tokens.refreshToken");
     expect(loginSource).toContain("await upsertConsents(result.tokens.accessToken);");
-    expect(loginSource).toContain('router.replace("/onboarding/child-status");');
+    // FAM-121A: 초대 복귀 파라미터가 없을 때의 기본 목적지는 그대로 온보딩이다.
+    expect(loginSource).toContain('router.replace(inviteResumeHref ?? "/onboarding/child-status");');
   });
 
   it("treats the user cancelling Kakao consent as a non-error (no server-unreachable message)", () => {
