@@ -12,6 +12,12 @@ import {
   removeHouseholdMember,
   type InviteRole
 } from "../../src/api/client";
+import {
+  INVITE_CREATE_FAILED_ALERT_TITLE,
+  INVITE_OWNER_ONLY_CAPTION,
+  inviteCreateErrorMessage,
+  isInviteEntryPointLocked
+} from "../../src/family/invite-permissions";
 import { formatInviteExpiry, memberBadge, memberRoleLabel } from "../../src/family/memberLabels";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -42,18 +48,44 @@ const familyInviteRows = [
   { icon: "□", title: "초대 코드 공유", value: "DAON2025" }
 ] as const;
 
-function FamilyInviteRow({ icon, title, value, onPress }: { icon: string; title: string; value?: string; onPress: () => void }) {
+/**
+ * UX-Q(A): `onPress` 없이 `caption`만 받으면 비활성 행이 된다 — app/(tabs)/more.tsx의
+ * MoreMenuRow가 쓰는 "캡션이 › 자리를 대신하고 Pressable은 disabled" 관례 그대로다. 캡션도
+ * onPress도 없던 예전 호출부(비로그인 미리보기 = FAM-001 픽셀락 캡처)는 아래 분기가 모두
+ * 예전 가지로 떨어져 같은 노드를 그린다.
+ */
+function FamilyInviteRow({
+  icon,
+  title,
+  value,
+  caption,
+  onPress
+}: {
+  icon: string;
+  title: string;
+  value?: string;
+  caption?: string;
+  onPress?: () => void;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={value ? `${title}, ${value}` : title}
+      // 비활성 이유는 힌트로 따라 읽힌다(라벨은 A11Y-101이 고정한 형태 그대로 둔다).
+      accessibilityHint={caption}
+      accessibilityState={{ disabled: !onPress }}
+      disabled={!onPress}
       onPress={onPress}
       style={familyInviteRowStyle}
     >
       <Text style={familyInviteIconStyle}>{icon}</Text>
       <Text style={familyInviteTitleStyle}>{title}</Text>
       {value ? <Text style={familyInviteValueStyle}>{value}</Text> : null}
-      <Text accessible={false} style={familyInviteChevronStyle}>›</Text>
+      {caption ? (
+        <Text style={familyInviteCaptionStyle}>{caption}</Text>
+      ) : (
+        <Text accessible={false} style={familyInviteChevronStyle}>›</Text>
+      )}
     </Pressable>
   );
 }
@@ -82,8 +114,21 @@ export default function FamilyScreen() {
     enabled: canManageMembers,
     queryFn: () => listHouseholdInvites(authToken!, householdId!)
   });
+  // UX-Q(A): 초대 진입점(`+`·"링크로 초대"·"가족 초대하기")은 서버와 같은 기준으로만 눌린다.
+  // 판정은 src/family/invite-permissions.ts가 지고, 여기서는 그 결과만 읽는다.
+  //
+  // canManageMembers(= owner일 때 true)의 부정을 쓰지 않는 것이 핵심이다: 비로그인 미리보기는
+  // canManageMembers가 false라, 그 값으로 가리면 FAM-001 픽셀락 캡처가 찍는 화면에서 초대 행이
+  // 통째로 사라져 락이 깨진다. 잠금은 "실세션인데 owner가 아닐 때"만이다.
+  const inviteLocked = isInviteEntryPointLocked({ hasSession, myRole });
   const quickInvite = useMutation({
     mutationFn: (role: InviteRole) => createInvite(authToken!, householdId!, role, "link"),
+    // 종전에는 onError가 아예 없어서, 공동부모가 초대 버튼을 누르면 요청이 403으로 죽고 화면은
+    // 아무 말도 하지 않았다(무반응). 이제 잠금이 먼저 막지만, 잠금이 못 잡는 경우(초대 직후
+    // 역할 강등 등 구성원 캐시와 서버가 갈리는 순간)에도 실패를 반드시 말한다.
+    onError: (error) => {
+      Alert.alert(INVITE_CREATE_FAILED_ALERT_TITLE, inviteCreateErrorMessage(error));
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
       await queryClient.invalidateQueries({ queryKey: ["household-invites"] });
@@ -185,8 +230,19 @@ export default function FamilyScreen() {
 
         <View style={familyAvatarRowStyle}>
           <FamilyAvatarGroup names={avatarNames} />
-          <Pressable accessibilityRole="button" accessibilityLabel="가족 초대하기" onPress={openInvite} style={familyPlusButtonStyle}>
-            <Text style={familyPlusTextStyle}>+</Text>
+          {/* 진입점 ①: 아바타 줄의 `+`. 아이콘 버튼이라 캡션을 놓을 자리가 없으므로, 잠기면
+              글리프를 회색으로 낮춰 눈으로 알리고 이유는 accessibilityHint로 읽힌다(같은 문장이
+              바로 아래 "초대하기" 행의 캡션으로도 보인다). */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="가족 초대하기"
+            accessibilityHint={inviteLocked ? INVITE_OWNER_ONLY_CAPTION : undefined}
+            accessibilityState={{ disabled: inviteLocked }}
+            disabled={inviteLocked}
+            onPress={inviteLocked ? undefined : openInvite}
+            style={familyPlusButtonStyle}
+          >
+            <Text style={inviteLocked ? familyPlusDisabledTextStyle : familyPlusTextStyle}>+</Text>
           </Pressable>
         </View>
 
@@ -205,8 +261,17 @@ export default function FamilyScreen() {
 
         <Text style={familySectionTitleStyle}>초대하기</Text>
         <View style={familyInviteGroupStyle}>
+          {/* 진입점 ②: "링크로 초대" 행. 잠기면 › 자리에 캡션이 들어오고 행 자체가 disabled가
+              된다(more.tsx의 비활성 행 관례). 미리보기에서는 caption/onPress 모두 예전 그대로다. */}
           {(hasSession ? familyInviteRows.filter((row) => row.title !== "초대 코드 공유") : familyInviteRows).map((row) => (
-            <FamilyInviteRow key={row.title} icon={row.icon} title={row.title} value={row.value} onPress={openInvite} />
+            <FamilyInviteRow
+              key={row.title}
+              icon={row.icon}
+              title={row.title}
+              value={row.value}
+              caption={inviteLocked ? INVITE_OWNER_ONLY_CAPTION : undefined}
+              onPress={inviteLocked ? undefined : openInvite}
+            />
           ))}
         </View>
 
@@ -297,9 +362,21 @@ export default function FamilyScreen() {
           </>
         ) : null}
 
-        <Pressable accessibilityRole="button" accessibilityLabel="가족 초대하기" onPress={openInvite} style={familyInviteButtonStyle}>
-          <Text style={familyInviteButtonTextStyle}>가족 초대하기</Text>
+        {/* 진입점 ③: 화면 맨 아래 "가족 초대하기". 잠기면 버튼을 지우지 않고 비활성으로 남긴
+            뒤 바로 아래에 이유를 적는다 -- 버튼이 통째로 사라지면 "왜 나만 못 하지"라는 다른
+            혼란이 생기고, 눌리는 채로 두면 예전의 무반응으로 돌아간다. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="가족 초대하기"
+          accessibilityHint={inviteLocked ? INVITE_OWNER_ONLY_CAPTION : undefined}
+          accessibilityState={{ disabled: inviteLocked }}
+          disabled={inviteLocked}
+          onPress={inviteLocked ? undefined : openInvite}
+          style={familyInviteButtonStyle}
+        >
+          <Text style={inviteLocked ? familyInviteButtonDisabledTextStyle : familyInviteButtonTextStyle}>가족 초대하기</Text>
         </Pressable>
+        {inviteLocked ? <Text style={familyInviteHintStyle}>{INVITE_OWNER_ONLY_CAPTION}</Text> : null}
       </View>
     </AppScreen>
   );
@@ -344,6 +421,14 @@ const familyPlusButtonStyle = {
 
 const familyPlusTextStyle = {
   color: theme.colors.gray900,
+  fontSize: 24,
+  fontWeight: "700"
+} as const;
+
+// 비활성 상태의 글리프 색만 낮춘다(치수·배경은 그대로 -- 버튼이 어디 있었는지는 유지).
+// 새 hex를 만들지 않고 앱이 이미 비활성 텍스트에 쓰는 gray300을 그대로 쓴다.
+const familyPlusDisabledTextStyle = {
+  color: theme.colors.gray300,
   fontSize: 24,
   fontWeight: "700"
 } as const;
@@ -420,6 +505,16 @@ const familyInviteValueStyle = {
   color: theme.colors.gray600,
   fontSize: 12,
   fontWeight: "700"
+} as const;
+
+// 비활성 행에서 ›를 대신하는 캡션. more.tsx의 moreMenuCaptionStyle과 같은 레시피에, 문장이
+// 길어 좁은 폭에서 줄바꿈될 수 있으므로 flexShrink만 더한다.
+const familyInviteCaptionStyle = {
+  color: theme.colors.gray600,
+  flexShrink: 1,
+  fontSize: 12,
+  fontWeight: "700",
+  textAlign: "right"
 } as const;
 
 const familyInviteChevronStyle = {
@@ -502,6 +597,12 @@ const familyInviteButtonStyle = {
 
 const familyInviteButtonTextStyle = {
   color: theme.colors.brown,
+  fontSize: 14,
+  fontWeight: "800"
+} as const;
+
+const familyInviteButtonDisabledTextStyle = {
+  color: theme.colors.gray300,
   fontSize: 14,
   fontWeight: "800"
 } as const;

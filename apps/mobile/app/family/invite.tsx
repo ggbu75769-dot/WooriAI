@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { router } from "expo-router";
 import { Pressable, Share, Text, View } from "react-native";
 import { createInvite, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN, type InviteRole } from "../../src/api/client";
+import { inviteCreateErrorMessage } from "../../src/family/invite-permissions";
 import { formatInviteExpiry } from "../../src/family/memberLabels";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -13,7 +15,9 @@ const roleOptions: Array<{ role: InviteRole; label: string; description: string 
   { role: "gift_participant", label: "선물 참여", description: "선물 준비 목록만 함께 볼 수 있어요" }
 ];
 
-const createFailedText = "초대 링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
+// UX-Q(A): 실패 문구는 src/family/invite-permissions.ts가 단일 소스다. 여기 있던 일반 재시도
+// 문구(INVITE_CREATE_FAILED_MESSAGE)는 그대로 남고, 403(가족 초대는 관리자만)만 재시도를 권하지
+// 않는 전용 문구로 갈라진다 — 권한이 없어서 막힌 사람에게 "다시 시도해 주세요"는 거짓말이다.
 
 export default function FamilyInviteScreen() {
   const [role, setRole] = useState<InviteRole>("co_parent");
@@ -39,7 +43,12 @@ export default function FamilyInviteScreen() {
   return (
     <AppScreen>
       <View testID="screen-FAM-002" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="가족 관리" title="가족 초대" subtitle="함께할 역할을 선택하고 초대 링크를 만들어요" />
+        <ScreenHeader
+          eyebrow="가족 관리"
+          title="가족 초대"
+          subtitle="함께할 역할을 선택하고 초대 링크를 만들어요"
+          onBack={() => router.back()}
+        />
 
         <Card style={{ gap: 8 }}>
           {roleOptions.map((option) => (
@@ -69,7 +78,9 @@ export default function FamilyInviteScreen() {
           onPress={() => invite.mutate()}
         />
 
-        {invite.isError ? <Text style={{ color: theme.colors.danger }}>{createFailedText}</Text> : null}
+        {invite.isError ? (
+          <Text style={{ color: theme.colors.danger }}>{inviteCreateErrorMessage(invite.error)}</Text>
+        ) : null}
 
         {invite.data ? (
           <Card style={{ gap: 10 }}>

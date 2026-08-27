@@ -101,19 +101,47 @@ export function AppScreen({ children, refreshControl }: ChildrenProps & { refres
   );
 }
 
+/**
+ * UX-Q(C): `onBack`은 **옵셔널**이다.
+ *
+ * 앱 전역이 `headerShown: false`라 스택 화면에는 OS 헤더가 없고, ScreenHeader에도 되돌아가는
+ * 슬롯이 없었다 — 설정 하위 4화면·지출 수정·가족 초대·가져오기 진행 상황은 안드로이드 시스템
+ * 뒤로가기 말고는 나가는 길이 화면 안에 없었다(iOS엔 그것마저 없다).
+ *
+ * 표기는 새로 만들지 않고 app/family/index.tsx의 기존 관례를 그대로 재사용한다:
+ * ‹ 글리프 · 44dp 터치 타깃 · accessibilityLabel "뒤로가기".
+ *
+ * 픽셀락 주의: `onBack`을 넘기지 않은 화면(HOME/EXP/ITEM/REP/FAM/IMP/SET 캡처가 지나가는 곳들)은
+ * 렌더 트리가 예전과 한 노드도 달라지지 않아야 한다. 그래서 "비활성 Pressable을 투명하게
+ * 숨겨 두는" 방식이 아니라, 조건부로 **Pressable 자체를 만들지 않는다**(아래 `null` 분기는
+ * 이미 같은 자리에 있던 `{action}`과 마찬가지로 노드를 낳지 않는다).
+ */
 export function ScreenHeader({
   eyebrow,
   title,
   subtitle,
-  action
+  action,
+  onBack
 }: {
   eyebrow?: string;
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
+  onBack?: () => void;
 }) {
   return (
     <View style={{ flexDirection: "row", gap: 12, justifyContent: "space-between" }}>
+      {onBack ? (
+        <Pressable
+          accessibilityLabel="뒤로가기"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onBack}
+          style={screenHeaderBackButtonStyle}
+        >
+          <Text style={screenHeaderBackGlyphStyle}>‹</Text>
+        </Pressable>
+      ) : null}
       <View style={{ flex: 1, gap: 4 }}>
         {eyebrow ? <Text style={[textStyles.caption, { color: smallCoralText }]}>{eyebrow}</Text> : null}
         <Text style={[textStyles.h2, { color: theme.colors.brown }]}>{title}</Text>
@@ -123,6 +151,24 @@ export function ScreenHeader({
     </View>
   );
 }
+
+// 44dp 정사각 터치 타깃(theme.touchTarget). alignSelf로 제목 줄 위쪽에 붙여, 부제까지 있는
+// 헤더에서도 화살표가 세로 가운데로 떠내려가지 않게 한다. marginLeft 음수로 화살표의 좌측
+// 여백을 상쇄해 글리프가 화면 콘텐츠 왼쪽 정렬선에 맞는다.
+const screenHeaderBackButtonStyle = {
+  alignItems: "center",
+  alignSelf: "flex-start",
+  height: theme.touchTarget,
+  justifyContent: "center",
+  marginLeft: -12,
+  width: theme.touchTarget
+} as const;
+
+const screenHeaderBackGlyphStyle = {
+  color: theme.colors.gray900,
+  fontSize: 24,
+  fontWeight: "900"
+} as const;
 
 // CLN-130: `BrandLogo`는 어느 화면도 렌더하지 않는 죽은 export였다(런치 화면은 자체
 // 애니메이션 마크를 그린다 -- ui-pixel-lock-flow.test.ts의 `not.toContain("<BrandLogo")` 참고).

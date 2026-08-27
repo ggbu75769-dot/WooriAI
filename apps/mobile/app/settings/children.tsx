@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { router } from "expo-router";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { CHILD_STAGE_CODES, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
 import {
@@ -377,7 +378,7 @@ export default function ManageChildrenScreen() {
   return (
     <AppScreen>
       <View testID="screen-SET-005" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="설정" title="아이 관리" subtitle="아이를 전환하거나 정보를 수정해요" />
+        <ScreenHeader eyebrow="설정" title="아이 관리" subtitle="아이를 전환하거나 정보를 수정해요" onBack={() => router.back()} />
 
         {!hasSession ? <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" /> : null}
 

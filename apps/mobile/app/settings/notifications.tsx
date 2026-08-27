@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { router } from "expo-router";
 import { Switch, Text, View } from "react-native";
 import {
   listMyDevices,
@@ -101,7 +102,7 @@ export default function NotificationSettingsScreen() {
   return (
     <AppScreen>
       <View testID="screen-SET-006" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="설정" title="알림 설정" subtitle="푸시 알림과 기기별 수신을 관리해요" />
+        <ScreenHeader eyebrow="설정" title="알림 설정" subtitle="푸시 알림과 기기별 수신을 관리해요" onBack={() => router.back()} />
 
         {!hasSession ? <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" /> : null}
 

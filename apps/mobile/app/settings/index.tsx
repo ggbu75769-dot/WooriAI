@@ -97,7 +97,7 @@ export default function SettingsScreen() {
   return (
     <AppScreen>
       <View testID="screen-SET-001" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="설정" title="설정" subtitle="계정과 가족 정보를 관리해요" />
+        <ScreenHeader eyebrow="설정" title="설정" subtitle="계정과 가족 정보를 관리해요" onBack={() => router.back()} />
         <Card style={{ gap: 6 }}>
           <View style={summaryRowStyle}>
             <Text style={summaryLabelStyle}>현재 가구</Text>
