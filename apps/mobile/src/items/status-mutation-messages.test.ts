@@ -91,14 +91,33 @@ describe("리뷰 F2 gifted 해제 확인 문구", () => {
     expect(giftedResetConfirmMessage("prepare")).toBe("지금은 선물 받음으로 표시돼 있어요. 계속하면 이미 준비 상태로 바뀌어요.");
     expect(giftedResetConfirmMessage("interest")).toContain("관심 상태로 바뀌어요.");
     expect(giftedResetConfirmMessage("skip")).toContain("필요 없음 상태로 바뀌어요.");
-    expect(giftedResetConfirmMessage("uninterest")).toContain("준비 전 상태로 바뀌어요.");
+  });
+
+  /**
+   * 라운드 24 L7: 확인이 뜨는 경우는 지금 상태가 gifted일 때뿐인데, status가 단일 컬럼이라
+   * 그때는 interested도 gifted도 "동시에"일 수 없다. 즉 gifted에서 출발하는 조작에 "찜해제"
+   * (uninterest)나 "선물 받음 취소"(ungift)는 존재하지 않는다 -- 라벨 표를 그만큼 좁혀
+   * 도달 불가 분기를 없앴다.
+   */
+  it("gifted에서 출발할 수 있는 조작만 받는다 (uninterest/gift/ungift는 타입에서 제외)", () => {
+    const messagesSource = source("src/items/status-mutation-messages.ts");
+    expect(messagesSource).toContain(
+      'export type GiftedResetActionKind = Extract<ItemStatusActionKind, "prepare" | "interest" | "skip">;'
+    );
+    // 죽은 라벨("준비 전")은 확인 문구 표에서 사라졌다 -- statusLabel과 달리 여기서는 쓸 일이 없다.
+    const labelTable = messagesSource.slice(
+      messagesSource.indexOf("const GIFTED_RESET_TARGET_LABEL"),
+      messagesSource.indexOf("export function giftedResetConfirmMessage")
+    );
+    expect(labelTable).not.toContain("uninterest");
+    expect(labelTable).not.toContain("준비 전");
   });
 
   it("겁주지 않는 안내 톤이고, 취소/실행 라벨은 앱 Alert 관례를 따른다", () => {
     expect(GIFTED_RESET_CONFIRM_TITLE).toBe("선물받은 상태가 해제돼요");
     expect(GIFTED_RESET_CONFIRM_CANCEL_LABEL).toBe("취소");
     expect(GIFTED_RESET_CONFIRM_ACTION_LABEL).toBe("계속하기");
-    for (const kind of ["prepare", "interest", "uninterest", "skip"] as const) {
+    for (const kind of ["prepare", "interest", "skip"] as const) {
       const message = giftedResetConfirmMessage(kind);
       expect(message.endsWith("요.")).toBe(true);
       expect(message).not.toContain("삭제");
@@ -131,7 +150,9 @@ describe("ITEM-124 상태 변경 실패 배선", () => {
       expect(block.length, `${name} block found`).toBeGreaterThan(0);
       expect(block, `${name} handles failure`).toContain("onError:");
       // 다음 시도를 시작할 때 이전 오류를 지운다 -- 낡은 배너가 남아 있으면 안 된다.
-      expect(block, `${name} clears the previous error`).toContain("onMutate: () => {");
+      // items 탭은 L6 이후 onMutate가 variables를 받아 in-flight 집합에 더한다 -- 인자 유무와
+      // 무관하게 "다음 시도 시작 시 이전 오류를 지운다"만 잠근다.
+      expect(block, `${name} clears the previous error`).toMatch(/onMutate: \([a-zA-Z]*\) => \{/);
       expect(block, `${name} clears the previous error`).toContain("setStatusErrorMessage(null);");
       expect(block, `${name} takes the copy from the shared module`).toContain("itemStatusMutationErrorMessage(");
     }
@@ -182,10 +203,26 @@ describe("ITEM-124 상태 변경 실패 배선", () => {
   });
 
   it("목록 버튼은 항목 단위로만 비활성된다 (한 행이 목록 전체를 잠그지 않는다)", () => {
-    expect(items).toContain("updateStatus.isPending && updateStatus.variables?.itemTemplateId === itemTemplateId");
+    expect(items).toContain("const isStatusUpdatePending = (itemTemplateId: string) => pendingStatusIds.has(itemTemplateId);");
     expect(items.match(/disabled={isStatusUpdatePending\(item\.id\)}/g)).toHaveLength(2);
     // 목록 전체를 잠그는 배선은 없어야 한다.
     expect(items).not.toContain("disabled={updateStatus.isPending}");
+  });
+
+  /**
+   * 라운드 24 L6: 항목 단위 비활성이 뮤테이션 하나가 공유하는 `variables`에 얹혀 있었다. 목록의
+   * 모든 행이 같은 useMutation을 쓰므로 A행 요청이 날아가는 중에 B행을 누르면 variables가 B로
+   * 갈아 끼워지고, 그 순간 A행 버튼이 다시 활성화되어 같은 항목에 중복 PATCH가 나갈 수 있었다.
+   */
+  it("in-flight 판정은 화면이 들고 있는 id 집합으로 한다 (행 간 경합에 견딘다)", () => {
+    // 공유 variables에 얹은 예전 판정은 남아 있으면 안 된다.
+    expect(items).not.toContain("updateStatus.variables?.itemTemplateId");
+    expect(items).toContain("const [pendingStatusIds, setPendingStatusIds] = useState<ReadonlySet<string>>");
+    // 시작에서 더하고, 성공·실패 어느 쪽이든 그 행만 푼다.
+    expect(items).toContain("onMutate: (variables) => {");
+    expect(items).toContain("next.add(variables.itemTemplateId);");
+    expect(items).toContain("onSettled: (_data, _error, variables) => {");
+    expect(items).toContain("next.delete(variables.itemTemplateId);");
   });
 
   it("상세 버튼도 요청이 나가는 동안 다시 눌리지 않는다", () => {

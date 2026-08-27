@@ -103,7 +103,10 @@ describe("gifted를 잃게 만드는 조작은 확인을 거친다 (리뷰 F2)",
     // gifted가 아닐 때는 확인 없이 그대로 실행한다(조작 비용을 늘리지 않는다).
     expect(detail).toContain("if (!isGifted) {");
     expect(detail).toContain("Alert.alert(GIFTED_RESET_CONFIRM_TITLE, giftedResetConfirmMessage(kind), [");
-    expect(detail).toContain('confirmGiftedReset(isInterested ? "uninterest" : "interest", () =>');
+    // 라운드 24 L7: 확인이 뜨는 경우는 gifted일 때뿐이고, status가 단일 컬럼이라 그때
+    // isInterested는 항상 false다 -- 도달 불가 분기 대신 "interest"를 그대로 넘긴다.
+    expect(detail).toContain('confirmGiftedReset("interest", () =>');
+    expect(detail).not.toContain('isInterested ? "uninterest" : "interest"');
     expect(detail).toContain('confirmGiftedReset("prepare", () => markPrepared.mutate());');
     // 확인을 건너뛰던 예전 배선은 남아 있으면 안 된다.
     expect(detail).not.toContain('onPress={() => toggleInterested.mutate(isInterested ? "not_prepared" : "interested")}');

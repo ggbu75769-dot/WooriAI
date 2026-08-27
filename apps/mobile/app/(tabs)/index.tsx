@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getHome, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import { evaluateLastMonthComparison, previousYearMonth } from "../../src/home/last-month-comparison";
@@ -242,10 +243,16 @@ export default function HomeScreen() {
   // 이미 invalidate하는 ["expenses"] 프리픽스에 그대로 걸려 최신 상태가 유지된다.
   const seoulToday = getSeoulToday();
   const lastYearMonth = previousYearMonth(seoulToday);
+  //
+  // REC-124(H1): API-124 이후 한 요청은 한 페이지(기본 200 · 상한 500건)이고 정렬이 spentOn desc라,
+  // 첫 페이지만 읽으면 200건을 넘는 달의 **앞날짜가 통째로 빠진다**. 그러면 "같은 일자까지"의 부분
+  // 합계가 0이 되어 이 한 줄이 "지난달 같은 시점까지는 지출 기록이 없었어요"라는 없는 사실을
+  // 말한다. fetchMonthExpenses가 CSV 내보내기와 같은 커서 루프로 전량을 모은다
+  // (src/expenses/month-expenses.ts). 기록 탭도 같은 페처를 쓰므로 공유 캐시의 내용이 어긋나지 않는다.
   const lastMonthExpenses = useQuery({
     queryKey: ["expenses", childId, lastYearMonth],
     enabled: Boolean(authToken && childId && lastYearMonth),
-    queryFn: () => listExpenses(authToken!, childId!, lastYearMonth!)
+    queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, lastYearMonth!, page))
   });
   // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
   // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.

@@ -18,7 +18,7 @@ import {
   GIFTED_RESET_CONFIRM_TITLE,
   giftedResetConfirmMessage,
   itemStatusMutationErrorMessage,
-  type ItemStatusActionKind
+  type GiftedResetActionKind
 } from "../../src/items/status-mutation-messages";
 import {
   AffiliateDisclosure,
@@ -342,7 +342,7 @@ export default function ItemDetailScreen() {
    * 정리해 둔 항목에서 찜하기나 준비 완료를 누르면 "선물 받음"이 아무 말 없이 사라진다. 지금
    * 상태가 gifted일 때만 한 번 확인하고, 그 밖에는 예전처럼 바로 실행한다(추가 탭 비용 0).
    */
-  function confirmGiftedReset(kind: Exclude<ItemStatusActionKind, "gift" | "ungift">, run: () => void) {
+  function confirmGiftedReset(kind: GiftedResetActionKind, run: () => void) {
     if (!isGifted) {
       run();
       return;
@@ -449,8 +449,12 @@ export default function ItemDetailScreen() {
             <SecondaryButton
               disabled={!hasSession || toggleInterested.isPending}
               label={isInterested ? "찜해제" : "찜하기"}
+              // 라운드 24 L7: 확인 문구는 "interest" 고정이다. 확인이 뜨는 경우는 지금 상태가
+              // gifted일 때뿐인데, status가 단일 컬럼이라 그때 isInterested는 항상 false다
+              // (=버튼은 "찜하기", 실행은 interested로의 변경). gifted가 아니면 확인 없이 그대로
+              // 실행되므로 kind는 쓰이지도 않는다.
               onPress={() =>
-                confirmGiftedReset(isInterested ? "uninterest" : "interest", () =>
+                confirmGiftedReset("interest", () =>
                   toggleInterested.mutate(isInterested ? "not_prepared" : "interested")
                 )
               }
