@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_WORKER_INTERVAL_MS, SchedulerService } from "../src/worker/scheduler.service";
 import type { WorkerJob } from "../src/worker/worker-job";
-import { WorkerStatusService } from "../src/worker/worker-status.service";
+import { DEFAULT_JOB_FAILURE_DEGRADED_THRESHOLD, WorkerStatusService } from "../src/worker/worker-status.service";
 
 // INF-006-lite: pure unit tests for the in-process scheduler — env gating
 // (disabled by default so tests/multi-instance deployments never run jobs
@@ -175,6 +175,7 @@ describe("SchedulerService (INF-006-lite)", () => {
         lastStatus: "ok",
         lastRunAt: logicalNow.toISOString(),
         lastDurationMs: expect.any(Number),
+        consecutiveFailures: 0,
         lastSummary: { deleted: 3, retentionDays: 30 }
       });
     });
@@ -234,6 +235,126 @@ describe("SchedulerService (INF-006-lite)", () => {
 
       const snapshot = status.snapshot({ enabled: true, intervalMs: 60_000 });
       expect(snapshot.jobs[0]!.lastSummary).toEqual({ publishedCount: 2, enabled: true });
+    });
+  });
+
+  // OPS-130: consecutive-failure tracking behind the `degraded` flag — the
+  // "worker keeps ticking but a job never succeeds" failure mode that
+  // `stale` structurally cannot see.
+  describe("consecutive job failures / degraded (OPS-130)", () => {
+    const intervalMs = 60_000;
+
+    function alwaysFailing(): [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob] {
+      const jobs = stubJobs();
+      jobs[3].run.mockImplementation(async () => {
+        throw new Error("boom");
+      });
+      return jobs;
+    }
+
+    it("counts consecutive failures per job and flips degraded once the threshold is reached", async () => {
+      const jobs = alwaysFailing();
+      const status = new WorkerStatusService();
+      const scheduler = schedulerWith(jobs, status);
+
+      await scheduler.tick();
+      let snapshot = status.snapshot({ enabled: true, intervalMs });
+      expect(snapshot.jobs.find((job) => job.name === "job_d")).toMatchObject({ consecutiveFailures: 1 });
+      expect(snapshot.degraded).toBe(false);
+      // The loop is fine — this is precisely what `stale` cannot catch.
+      expect(snapshot.stale).toBe(false);
+
+      await scheduler.tick();
+      snapshot = status.snapshot({ enabled: true, intervalMs });
+      expect(snapshot.degraded).toBe(false);
+
+      await scheduler.tick();
+      snapshot = status.snapshot({ enabled: true, intervalMs });
+      expect(snapshot.jobs.find((job) => job.name === "job_d")).toMatchObject({
+        lastStatus: "failed",
+        consecutiveFailures: 3
+      });
+      expect(snapshot.degraded).toBe(true);
+      expect(snapshot.failureThreshold).toBe(DEFAULT_JOB_FAILURE_DEGRADED_THRESHOLD);
+      // Healthy jobs on the same tick keep a zero streak.
+      expect(snapshot.jobs.find((job) => job.name === "job_a")).toMatchObject({ consecutiveFailures: 0 });
+    });
+
+    it("a single success resets the streak and clears degraded", async () => {
+      const jobs = alwaysFailing();
+      const status = new WorkerStatusService();
+      const scheduler = schedulerWith(jobs, status);
+
+      await scheduler.tick();
+      await scheduler.tick();
+      await scheduler.tick();
+      expect(status.snapshot({ enabled: true, intervalMs }).degraded).toBe(true);
+
+      jobs[3].run.mockImplementation(async () => ({ deleted: 0 }));
+      await scheduler.tick();
+
+      const snapshot = status.snapshot({ enabled: true, intervalMs });
+      expect(snapshot.jobs.find((job) => job.name === "job_d")).toMatchObject({
+        lastStatus: "ok",
+        consecutiveFailures: 0
+      });
+      expect(snapshot.degraded).toBe(false);
+    });
+
+    it("an interleaved failure/success/failure pattern never reaches the threshold", async () => {
+      const jobs = stubJobs();
+      const status = new WorkerStatusService();
+      const scheduler = schedulerWith(jobs, status);
+
+      for (const shouldFail of [true, false, true, false, true]) {
+        jobs[0].run.mockImplementation(async () => {
+          if (shouldFail) throw new Error("flaky");
+          return {};
+        });
+        await scheduler.tick();
+      }
+
+      const snapshot = status.snapshot({ enabled: true, intervalMs });
+      expect(snapshot.jobs[0]).toMatchObject({ lastStatus: "failed", consecutiveFailures: 1 });
+      expect(snapshot.degraded).toBe(false);
+    });
+
+    it("honors an explicit threshold override and WORKER_JOB_FAILURE_THRESHOLD", async () => {
+      const jobs = alwaysFailing();
+      const status = new WorkerStatusService();
+      const scheduler = schedulerWith(jobs, status);
+
+      await scheduler.tick();
+      expect(status.snapshot({ enabled: true, intervalMs, failureThreshold: 1 }).degraded).toBe(true);
+      expect(status.snapshot({ enabled: true, intervalMs, failureThreshold: 5 }).degraded).toBe(false);
+
+      process.env.WORKER_JOB_FAILURE_THRESHOLD = "1";
+      try {
+        const snapshot = status.snapshot({ enabled: true, intervalMs });
+        expect(snapshot.failureThreshold).toBe(1);
+        expect(snapshot.degraded).toBe(true);
+      } finally {
+        delete process.env.WORKER_JOB_FAILURE_THRESHOLD;
+      }
+    });
+
+    it("parses WORKER_JOB_FAILURE_THRESHOLD with a default of 3 and rejects junk/non-positive values", () => {
+      expect(WorkerStatusService.failureThreshold({})).toBe(DEFAULT_JOB_FAILURE_DEGRADED_THRESHOLD);
+      expect(WorkerStatusService.failureThreshold({ WORKER_JOB_FAILURE_THRESHOLD: "abc" })).toBe(
+        DEFAULT_JOB_FAILURE_DEGRADED_THRESHOLD
+      );
+      expect(WorkerStatusService.failureThreshold({ WORKER_JOB_FAILURE_THRESHOLD: "0" })).toBe(
+        DEFAULT_JOB_FAILURE_DEGRADED_THRESHOLD
+      );
+      expect(WorkerStatusService.failureThreshold({ WORKER_JOB_FAILURE_THRESHOLD: "-2" })).toBe(
+        DEFAULT_JOB_FAILURE_DEGRADED_THRESHOLD
+      );
+      expect(WorkerStatusService.failureThreshold({ WORKER_JOB_FAILURE_THRESHOLD: "5" })).toBe(5);
+    });
+
+    it("a worker with no recorded jobs is never degraded", () => {
+      const status = new WorkerStatusService();
+      expect(status.snapshot({ enabled: true, intervalMs }).degraded).toBe(false);
     });
   });
 

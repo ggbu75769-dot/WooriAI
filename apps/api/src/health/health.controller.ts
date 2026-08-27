@@ -27,12 +27,22 @@ export class HealthController {
    * status with count/config-only summaries — WorkerStatusService strips
    * ids/error strings before they ever reach this endpoint).
    *
-   * Always HTTP 200 — including when enabled=false or stale=true — so a
-   * process whose worker died still answers and an uptime checker can alert
-   * on the BODY instead of the status code: configure it to match the
-   * substring `"stale":true` (stale = enabled but no finished tick within
-   * 3× the interval). enabled=false responses always report stale=false, so
-   * monitors stay quiet on deployments that intentionally run no worker.
+   * Always HTTP 200 — including when enabled=false, stale=true or
+   * degraded=true — so a process whose worker died still answers and an uptime
+   * checker can alert on the BODY instead of the status code: configure it to
+   * match EITHER substring, `"stale":true` OR `"degraded":true` (most keyword
+   * monitors accept only one string — then create two monitors, one per
+   * keyword; see release-runbook.md §3.2).
+   *
+   * The two flags cover the two distinct failure modes:
+   * - stale (INF-007) = enabled but no finished tick within 3× the interval,
+   *   i.e. the loop itself stopped. enabled=false responses always report
+   *   stale=false, so monitors stay quiet on deployments that intentionally
+   *   run no worker.
+   * - degraded (OPS-130) = the loop is ticking, but some job has failed
+   *   `failureThreshold` (default 3, WORKER_JOB_FAILURE_THRESHOLD) ticks in a
+   *   row — nothing that job owns is making progress. Per-job
+   *   `consecutiveFailures` in the body names the culprit.
    */
   @Get("worker")
   worker() {

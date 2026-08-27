@@ -808,4 +808,142 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       await prisma.auditLog.deleteMany({ where: { id: { in: [masked.id, otherAction.id] } } });
     });
   });
+
+  // SEC-130: time-based telemetry retention. Unlike phases 1-4 these tables
+  // hold no tombstones — every row is live telemetry that only ever grows, so
+  // the cutoff is the row's own timestamp and the default window is much
+  // longer (400 days) because deleting these rows destroys 정산/통계 근거.
+  describe("telemetry retention (phases 6-7, SEC-130)", () => {
+    afterEach(() => {
+      delete process.env.ANALYTICS_EVENTS_RETENTION_DAYS;
+      delete process.env.AFFILIATE_CLICKS_RETENTION_DAYS;
+    });
+
+    async function createAnalyticsEvent(occurredAt: Date) {
+      return prisma.analyticsEvent.create({
+        data: {
+          eventName: "app_opened",
+          eventVersion: 1,
+          eventId: randomUUID(),
+          occurredAt,
+          userAnonId: `purge-sec130-${randomUUID().slice(0, 8)}`,
+          payload: {}
+        }
+      });
+    }
+
+    async function createClick(clickedAt: Date) {
+      return prisma.affiliateClick.create({
+        data: { itemTemplateId, productLinkId, platform: "coupang", clickedAt }
+      });
+    }
+
+    it("defaults to a 400-day window and reports it in the summary", async () => {
+      const now = new Date();
+      const summary = await job.run(now);
+      expect(summary.analyticsEventsRetentionDays).toBe(400);
+      expect(summary.affiliateClicksRetentionDays).toBe(400);
+    });
+
+    it("hard-deletes analytics events older than the retention window and keeps everything inside it", async () => {
+      const now = new Date();
+      const agedOut = await createAnalyticsEvent(daysAgo(now, 401));
+      const onTheEdge = await createAnalyticsEvent(daysAgo(now, 399));
+      const recent = await createAnalyticsEvent(now);
+
+      const summary = await job.run(now);
+      expect(summary.analyticsEventsPurged as number).toBeGreaterThanOrEqual(1);
+
+      expect(await prisma.analyticsEvent.findUnique({ where: { id: agedOut.id } })).toBeNull();
+      expect(await prisma.analyticsEvent.findUnique({ where: { id: onTheEdge.id } })).not.toBeNull();
+      expect(await prisma.analyticsEvent.findUnique({ where: { id: recent.id } })).not.toBeNull();
+
+      await prisma.analyticsEvent.deleteMany({ where: { id: { in: [onTheEdge.id, recent.id] } } });
+    });
+
+    it("hard-deletes affiliate clicks older than the retention window and keeps everything inside it", async () => {
+      const now = new Date();
+      const agedOut = await createClick(daysAgo(now, 401));
+      const onTheEdge = await createClick(daysAgo(now, 399));
+      const recent = await createClick(now);
+
+      const summary = await job.run(now);
+      expect(summary.affiliateClicksPurged as number).toBeGreaterThanOrEqual(1);
+
+      expect(await prisma.affiliateClick.findUnique({ where: { id: agedOut.id } })).toBeNull();
+      expect(await prisma.affiliateClick.findUnique({ where: { id: onTheEdge.id } })).not.toBeNull();
+      expect(await prisma.affiliateClick.findUnique({ where: { id: recent.id } })).not.toBeNull();
+
+      await prisma.affiliateClick.deleteMany({ where: { id: { in: [onTheEdge.id, recent.id] } } });
+    });
+
+    it("honors the ANALYTICS_EVENTS_RETENTION_DAYS / AFFILIATE_CLICKS_RETENTION_DAYS overrides independently of PURGE_RETENTION_DAYS", async () => {
+      const now = new Date();
+      // Both overrides stay far longer than anything other suites seed, so
+      // this test can only ever select its own rows.
+      process.env.ANALYTICS_EVENTS_RETENTION_DAYS = "700";
+      process.env.AFFILIATE_CLICKS_RETENTION_DAYS = "800";
+
+      const eventBeyond = await createAnalyticsEvent(daysAgo(now, 750));
+      const eventWithin = await createAnalyticsEvent(daysAgo(now, 650));
+      // 750 days is beyond the analytics window but INSIDE the click window —
+      // pins that the two phases use their own cutoffs, not a shared one.
+      const clickWithin = await createClick(daysAgo(now, 750));
+      const clickBeyond = await createClick(daysAgo(now, 850));
+
+      const summary = await job.run(now);
+      expect(summary.analyticsEventsRetentionDays).toBe(700);
+      expect(summary.affiliateClicksRetentionDays).toBe(800);
+      // The tombstone window is untouched by these overrides.
+      expect(summary.retentionDays).toBe(30);
+
+      expect(await prisma.analyticsEvent.findUnique({ where: { id: eventBeyond.id } })).toBeNull();
+      expect(await prisma.analyticsEvent.findUnique({ where: { id: eventWithin.id } })).not.toBeNull();
+      expect(await prisma.affiliateClick.findUnique({ where: { id: clickBeyond.id } })).toBeNull();
+      expect(await prisma.affiliateClick.findUnique({ where: { id: clickWithin.id } })).not.toBeNull();
+
+      await prisma.analyticsEvent.deleteMany({ where: { id: eventWithin.id } });
+      await prisma.affiliateClick.deleteMany({ where: { id: clickWithin.id } });
+    });
+
+    it("caps each phase at PURGE_BATCH_SIZE rows per tick and drains the backlog across ticks (restartable)", async () => {
+      const now = new Date();
+      // Default 400-day window on purpose: no other suite seeds telemetry
+      // anywhere near this old, so these three rows are the ENTIRE aged-out
+      // population and the batch cap is observable exactly.
+      process.env.PURGE_BATCH_SIZE = "2";
+
+      const events = [
+        await createAnalyticsEvent(daysAgo(now, 1000)),
+        await createAnalyticsEvent(daysAgo(now, 999)),
+        await createAnalyticsEvent(daysAgo(now, 998))
+      ];
+      const clicks = [
+        await createClick(daysAgo(now, 1000)),
+        await createClick(daysAgo(now, 999)),
+        await createClick(daysAgo(now, 998))
+      ];
+      const eventIds = events.map((row) => row.id);
+      const clickIds = clicks.map((row) => row.id);
+
+      const first = await job.run(now);
+      expect(first.batchSize).toBe(2);
+      expect(first.analyticsEventsPurged).toBe(2);
+      expect(first.affiliateClicksPurged).toBe(2);
+      // Oldest-first: the newest of the three survives the first tick.
+      expect(await prisma.analyticsEvent.findUnique({ where: { id: eventIds[2]! } })).not.toBeNull();
+      expect(await prisma.affiliateClick.findUnique({ where: { id: clickIds[2]! } })).not.toBeNull();
+
+      // Restartable: the next tick drains the remainder, and a third is a no-op.
+      const second = await job.run(now);
+      expect(second.analyticsEventsPurged).toBe(1);
+      expect(second.affiliateClicksPurged).toBe(1);
+      expect(await prisma.analyticsEvent.count({ where: { id: { in: eventIds } } })).toBe(0);
+      expect(await prisma.affiliateClick.count({ where: { id: { in: clickIds } } })).toBe(0);
+
+      const third = await job.run(now);
+      expect(third.analyticsEventsPurged).toBe(0);
+      expect(third.affiliateClicksPurged).toBe(0);
+    });
+  });
 });

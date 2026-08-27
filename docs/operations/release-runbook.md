@@ -58,22 +58,28 @@ cd apps/mobile/android && ./gradlew assembleRelease   # 또는 bundleRelease (AA
 
 ```bash
 curl -fsS https://<도메인>/api/v1/health/ready    # {"status":"ok","db":{"connected":true},...}
-curl -fsS https://<도메인>/api/v1/health/worker   # {"enabled":...,"stale":...,"jobs":[...]}
+curl -fsS https://<도메인>/api/v1/health/worker   # {"enabled":...,"stale":...,"degraded":...,"jobs":[...]}
 ```
 
 ### 3.2 워커 모니터 설정 (`GET /api/v1/health/worker`)
 
-INF-007이 막으려는 상황은 **"퍼지/정리 워커가 죽었는데 아무도 모르는 것"**이다. 이 엔드포인트는
-워커가 죽어 있어도 **HTTP 200**을 준다(`health.controller.ts` 주석의 계약). 상태 코드로
-알림을 걸면 영원히 울리지 않으므로, 업타임 체커를 **본문 문자열 매칭**으로 설정한다.
+INF-007이 막으려는 상황은 **"퍼지/정리 워커가 죽었는데 아무도 모르는 것"**이고, OPS-130이
+더한 것은 **"워커는 도는데 특정 잡만 계속 실패하는 것"**이다. 이 엔드포인트는 어느 쪽이든
+**HTTP 200**을 준다(`health.controller.ts` 주석의 계약). 상태 코드로 알림을 걸면 영원히
+울리지 않으므로, 업타임 체커를 **본문 문자열 매칭**으로 설정한다.
 
 1. 무료 업타임 체커(UptimeRobot 등)에 `GET https://<도메인>/api/v1/health/worker` 모니터 생성.
 2. 모니터 타입을 **"keyword"(본문 문자열 매칭)**로 설정.
 3. 키워드에 `"stale":true` 를 **그대로**(따옴표 포함) 넣는다.
 4. 알림 조건을 **"키워드가 존재하면 알림"**(keyword *exists* / found)으로 둔다 — 흔히 기본값인
    "키워드가 없으면 알림"과 반대다. 뒤집으면 정상일 때 계속 울린다.
-5. 점검 주기는 워커 인터벌보다 길게(예: 5분). `stale`은 "enabled인데 인터벌의 3배 안에 끝난
-   틱이 없음"이라 이미 여유를 포함한 판정이다.
+5. **같은 방식으로 두 번째 모니터를 `"degraded":true` 키워드로 하나 더 만든다.** 대부분의 무료
+   체커는 키워드를 1개만 받으므로 OR 조건은 모니터 2개로 표현한다. 두 신호는 서로 다른 장애다 —
+   `stale`은 루프 정지, `degraded`는 루프는 돌지만 어떤 잡이 `failureThreshold`회(기본 3,
+   `WORKER_JOB_FAILURE_THRESHOLD`) 연속 실패. 어느 잡인지는 본문
+   `jobs[].consecutiveFailures`로 확인한다.
+6. 점검 주기는 워커 인터벌보다 길게(예: 5분). `stale`은 "enabled인데 인터벌의 3배 안에 끝난
+   틱이 없음", `degraded`는 "3틱 연속 실패"라 둘 다 이미 여유를 포함한 판정이다.
 
 워커는 **`WORKER_ENABLED=1`일 때만** 돈다(주기는 `WORKER_INTERVAL_MS`, 미설정 시 기본값) —
 워커를 돌려야 하는 배포라면 §1 env 체크리스트에서 이 값을 함께 확인한다.
@@ -110,7 +116,7 @@ INF-007이 막으려는 상황은 **"퍼지/정리 워커가 죽었는데 아무
 | 로그인 501 | 프로덕션에서 OAuth 실검증 미구현(`auth.service.ts`) — 실 OAuth 연동 필요 |
 | cleartext 차단 오류 | `EXPO_PUBLIC_API_BASE_URL`이 http — https로 변경 |
 | 홈/리포트 금액 불일치 | 집계 헬퍼 단일화 확인(`expensesForChild`) — 회귀 시 e2e `expense-home-report` |
-| 오래된 데이터가 안 지워짐 | 워커 정지 — `/health/worker`의 `stale`·`jobs[].lastStatus` 확인(§3.2) |
+| 오래된 데이터가 안 지워짐 | 워커 정지/잡 실패 — `/health/worker`의 `stale`·`degraded`·`jobs[].lastStatus` 확인(§3.2) |
 | 마이그레이션 미적용 | `prisma migrate deploy` 누락 — `pnpm --filter api prisma:deploy` 재실행 |
 
 ## 6. 알려진 외부 의존성
