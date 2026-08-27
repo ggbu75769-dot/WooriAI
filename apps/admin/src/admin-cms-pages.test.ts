@@ -166,3 +166,60 @@ describe("Admin CMS click summary page", () => {
     expect(source).toContain("getAffiliateClickSummary");
   });
 });
+
+// UX-X(R43) C5: 대시보드 숫자에서 그 숫자를 만든 목록으로 바로 넘어가고, 워커가
+// 실제로 돌고 있는지 한 줄로 보여준다.
+describe("Admin dashboard: drill-down cards + background worker line (UX-X C5)", () => {
+  it("links the 검수 대기 콘텐츠 / 깨진 상품 링크 counters to the pre-filtered lists", () => {
+    const source = readSource("app/page.tsx");
+    expect(source).toContain('href: "/reviews?status=in_review"');
+    expect(source).toContain('href: "/links?health=broken"');
+
+    // 대상 화면이 그 파라미터를 실제로 읽는다.
+    expect(readSource("app/links/page.tsx")).toContain("linkFiltersFromSearchParams");
+    expect(readSource("app/reviews/page.tsx")).toContain("revisionStatusFilterFromSearchParams");
+  });
+
+  it("shows worker liveness from the public /health/worker snapshot", () => {
+    const source = readSource("app/page.tsx");
+    expect(source).toContain("백그라운드 작업");
+    expect(source).toContain("getWorkerHealth");
+    expect(source).toContain("workerHealthState");
+    expect(source).toContain("linkHealthCheckLine");
+
+    const api = readSource("src/lib/admin-api.ts");
+    expect(api).toContain("/health/worker");
+  });
+
+  // 허위 안심 제거: 검사가 꺼져 있으면 "깨진 상품 링크 0"은 이상 없음이 아니다.
+  it("labels a broken-link count of 0 as 확인 안 됨 while the link check is not running", () => {
+    expect(readSource("app/page.tsx")).toContain("brokenLinkCountCaption");
+    expect(readSource("src/lib/worker-health-view.ts")).toContain("0건 = 확인 안 됨");
+  });
+});
+
+// UX-X(R43) C6: 검토 목록에서 상세를 열지 않고도 대상과 예약 시각을 알 수 있다.
+describe("Admin content review list: 대상/예약 columns (UX-X C6)", () => {
+  it("renders the target name and the scheduled time from the list payload (no API change)", () => {
+    const source = readSource("app/reviews/page.tsx");
+    expect(source).toContain("<th>대상</th>");
+    expect(source).toContain("<th>예약</th>");
+    expect(source).toContain("revisionTargetLabel(revision)");
+    expect(source).toContain("formatDate(revision.scheduledFor)");
+  });
+});
+
+// UX-X(R43) C7: 준비템 목록에서 이름으로 찾고, 링크가 없어 구매로 이어지지 않는
+// 준비템을 골라낸다.
+describe("Admin item templates list: search + link count (UX-X C7)", () => {
+  it("filters by name and by '상품 링크 없음' without extra requests", () => {
+    const source = readSource("app/items/page.tsx");
+    expect(source).toContain("filterItemTemplates");
+    expect(source).toContain("상품 링크 없음만 보기");
+    expect(source).toContain("필터 초기화");
+    expect(source).toContain("<th>링크 수</th>");
+    expect(source).toContain("productLinkCount(item)");
+    // 목록은 한 번만 불러온다 — 필터는 받아온 배열만 좁힌다.
+    expect(source).toContain("listItemTemplates");
+  });
+});

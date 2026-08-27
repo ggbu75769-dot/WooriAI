@@ -141,6 +141,19 @@ export function confirmableSelectedRowIds(rows: readonly ImportPreviewRow[]): st
 }
 
 /**
+ * 라운드 42 L-2 — **체크는 켜졌는데 서버가 아직 valid로 다시 계산해 주지 않은** 검토 가능 행 수.
+ *
+ * 왜 세는가: 검토 가능 행을 체크하면 낙관 갱신은 `selected`만 뒤집고(K-1의 규칙 그대로)
+ * `validationStatus`는 PATCH 응답이 와야 valid로 바뀐다. 그 왕복 사이에 확정을 누르면 그 행들은
+ * `confirmableSelectedRowIds`에서 빠진 채 요청이 나가고, 서버는 잡을 `confirmed`로 넘긴다 --
+ * 그 뒤로는 편집도 재확정도 받지 않으므로(IMPORT_NOT_EDITABLE) 그 행들을 **영원히** 가져올 수
+ * 없다. 되돌릴 수 없는 손실이라, 화면은 이 수가 0이 될 때까지 확정을 열지 않는다.
+ */
+export function countUnappliedReviewedRows(rows: readonly ImportPreviewRow[]): number {
+  return rows.reduce((count, row) => (row.selected && isImportRowReviewable(row) ? count + 1 : count), 0);
+}
+
+/**
  * 행 부제. 날짜를 보여 주는 이유: 같은 품목명·같은 금액이 여러 줄인 파일(정기 구매)에서 날짜가
  * 없으면 어떤 줄이 무엇인지 구분할 수 없다. 포맷은 기록 탭 행 부제와 같은 "8월 27일" 꼴이다.
  * ISO가 아닌 값은 그대로 통과시킨다(허위 표시보다 원본이 정직하다 -- formatSpentOn과 같은 규칙).
@@ -350,3 +363,31 @@ export function resolveImportTargetChildName(
 
 /** 헤더 카드 한 줄의 라벨(값은 위 이름). */
 export const IMPORT_TARGET_CHILD_LABEL = "대상 아이";
+
+/**
+ * 라운드 42 L-6 — 잡에는 `childId`가 있는데 그 아이의 이름을 해석하지 못했을 때의 한 줄.
+ *
+ * 예전에는 이 경우 줄이 그냥 사라졌고, 화면은 **대상 아이를 밝히지 않은 채** 확정 버튼을 열어
+ * 뒀다 -- K-2가 겨냥한 "엉뚱한 아이에게 수백 건 확정"과 같은 자리다. 그렇다고 아무 이름이나
+ * 지어내거나 선택 아이 스토어 값으로 메울 수는 없으므로(그게 정확히 K-2가 지운 거짓말이다),
+ * **모른다는 사실**과 확인할 곳을 말한다. 확정 자체는 막지 않는다: 서버가 지출을 넣는 곳은
+ * 어차피 `job.childId`이고, 캐시가 비어 있다는 이유로 정상적인 가져오기를 잠그면 그게 더 나쁘다.
+ */
+export const IMPORT_TARGET_CHILD_UNKNOWN_TEXT =
+  "대상 아이를 확인할 수 없어요. 아이 관리에서 확인 후 진행해 주세요";
+
+/**
+ * 헤더 카드에 붙일 **경고 한 줄**, 붙이지 않을 때 `null`.
+ *
+ * - `childId`가 없다(아직 잡을 못 받았다 · 비세션): 아무 말도 하지 않는다. 모르는 것은 모르는
+ *   것이지 문제가 아니고, 비로그인 렌더(IMP-003)를 한 픽셀도 바꾸지 않아야 한다.
+ * - 이름을 찾았다: 위 `resolveImportTargetChildName`이 그 이름을 값으로 그린다.
+ * - `childId`는 있는데 이름을 못 찾았다(캐시 없음 · 목록에 없는 아이): 이 문장을 낸다.
+ */
+export function importTargetChildNotice(
+  childId: string | null | undefined,
+  children: readonly ImportTargetChildRef[] | null | undefined
+): string | null {
+  if (!childId) return null;
+  return resolveImportTargetChildName(childId, children) ? null : IMPORT_TARGET_CHILD_UNKNOWN_TEXT;
+}

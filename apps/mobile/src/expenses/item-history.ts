@@ -182,7 +182,10 @@ export function buildItemHistory({
   if (normalizedItemName.length === 0) return null;
   if (maxRows <= 0) return null;
 
-  const matched = sortByRecency(itemHistoryPopulation([...cachedMonthExpenses], cacheYearMonth, offline))
+  // 라운드 42 L-5: 복사본을 미리 뜨지 않는다 -- `sortByRecency`가 이미 **복사본**을 정렬해
+  // 돌려주고(item-name-match.ts), 그 사이의 어떤 단계도 입력 배열을 제자리에서 바꾸지 않는다.
+  // 500행짜리 캐시에서 한 번의 불필요한 전체 복사가 렌더마다 사라진다.
+  const matched = sortByRecency(itemHistoryPopulation(cachedMonthExpenses, cacheYearMonth, offline))
     .filter((row) => row.id !== currentExpenseId)
     .filter((row) => normalizeItemName(row.itemName ?? "") === normalizedItemName)
     .slice(0, maxRows);

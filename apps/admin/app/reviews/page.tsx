@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   AdminApiError,
   approvePublishContentRevision,
@@ -16,6 +17,12 @@ import {
   type ContentRevisionEntityType,
   type ContentRevisionStatus
 } from "../../src/lib/admin-api";
+import {
+  REVISION_STATUS_FILTERS,
+  revisionStatusFilterFromSearchParams,
+  revisionTargetLabel,
+  type RevisionStatusFilter
+} from "../../src/lib/revision-rows";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
@@ -34,7 +41,9 @@ const STATUS_LABELS: Record<ContentRevisionStatus, string> = {
   archived: "보관됨"
 };
 
-const STATUS_FILTERS: Array<ContentRevisionStatus | "all"> = ["in_review", "published", "rejected", "all"];
+// UX-X C5: 선택지는 revision-rows.ts가 단일 소스 — URL(?status=)이 받아 주는 값과
+// select가 고를 수 있는 값이 어긋나지 않게 한다.
+const STATUS_FILTERS: readonly RevisionStatusFilter[] = REVISION_STATUS_FILTERS;
 
 function formatDate(value: string | null): string {
   if (!value) return "-";
@@ -56,9 +65,26 @@ function diffFields(
   });
 }
 
+/**
+ * UX-X C5: 대시보드 "검수 대기 콘텐츠" 카드가 /reviews?status=in_review 로 들어온다.
+ * useSearchParams는 정적 프리렌더 중 Suspense 경계를 요구하므로(Next App Router)
+ * 화면 본체를 감싼다.
+ */
 export default function ContentReviewsPage() {
+  return (
+    <Suspense fallback={<p className={styles.emptyState}>불러오는 중...</p>}>
+      <ContentReviewsPageContent />
+    </Suspense>
+  );
+}
+
+function ContentReviewsPageContent() {
   const { session, clearSession } = useAdminSession();
-  const [statusFilter, setStatusFilter] = useState<ContentRevisionStatus | "all">("in_review");
+  const searchParams = useSearchParams();
+  // 초기값만 URL에서 1회 읽고, 그 뒤 상태 필터는 종전대로 클라 상태다.
+  const [statusFilter, setStatusFilter] = useState<RevisionStatusFilter>(() =>
+    revisionStatusFilterFromSearchParams(searchParams)
+  );
   const [revisions, setRevisions] = useState<ContentRevision[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -266,7 +292,7 @@ export default function ContentReviewsPage() {
             <select
               id="status-filter"
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as ContentRevisionStatus | "all")}
+              onChange={(event) => setStatusFilter(event.target.value as RevisionStatusFilter)}
             >
               {STATUS_FILTERS.map((status) => (
                 <option key={status} value={status}>
@@ -293,9 +319,12 @@ export default function ContentReviewsPage() {
               <thead>
                 <tr>
                   <th>종류</th>
+                  {/* UX-X C6: 어떤 준비템·링크를 고치는 초안인지 상세를 열지 않고도 알 수 있게. */}
+                  <th>대상</th>
                   <th>버전</th>
                   <th>상태</th>
                   <th>제출일</th>
+                  <th>예약</th>
                   <th />
                 </tr>
               </thead>
@@ -303,9 +332,11 @@ export default function ContentReviewsPage() {
                 {revisions.map((revision) => (
                   <tr key={revision.id}>
                     <td>{ENTITY_TYPE_LABELS[revision.entityType]}</td>
+                    <td>{revisionTargetLabel(revision)}</td>
                     <td>#{revision.revisionNo}</td>
                     <td>{STATUS_LABELS[revision.status]}</td>
                     <td>{formatDate(revision.submittedAt)}</td>
+                    <td>{formatDate(revision.scheduledFor)}</td>
                     <td>
                       <button type="button" className={styles.secondaryButton} onClick={() => setSelectedId(revision.id)}>
                         {selectedId === revision.id ? "선택됨" : "상세 보기"}

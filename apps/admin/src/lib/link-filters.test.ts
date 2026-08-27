@@ -7,6 +7,7 @@ import {
   hasAnyLinkFilter,
   healthFilterValue,
   linkFilterSummary,
+  linkFiltersFromSearchParams,
   linkHealthFilterLabel,
   type FilterableLink
 } from "./link-filters";
@@ -185,5 +186,23 @@ describe("hasAnyLinkFilter (ADM-125)", () => {
     expect(hasAnyLinkFilter({ itemTemplateId: "item-tub" })).toBe(true);
     expect(hasAnyLinkFilter({ query: "욕조" })).toBe(true);
     expect(hasAnyLinkFilter({ activeOnly: true })).toBe(true);
+  });
+});
+
+describe("linkFiltersFromSearchParams (UX-X C5)", () => {
+  it("reads the dashboard card's ?health=broken as the initial health chip", () => {
+    expect(linkFiltersFromSearchParams(new URLSearchParams("health=broken"))).toEqual({ healthStatus: "broken" });
+    expect(linkFiltersFromSearchParams(new URLSearchParams("health=unknown"))).toEqual({ healthStatus: "unknown" });
+  });
+
+  it("ignores a missing or unknown value instead of filtering to nothing", () => {
+    expect(linkFiltersFromSearchParams(new URLSearchParams(""))).toEqual(EMPTY_LINK_FILTERS);
+    expect(linkFiltersFromSearchParams(new URLSearchParams("health=nonsense"))).toEqual(EMPTY_LINK_FILTERS);
+    expect(linkFiltersFromSearchParams(null)).toEqual(EMPTY_LINK_FILTERS);
+    expect(linkFiltersFromSearchParams(undefined)).toEqual(EMPTY_LINK_FILTERS);
+  });
+
+  it("only ever sets the health chip (other filters stay untouched)", () => {
+    expect(linkFiltersFromSearchParams(new URLSearchParams("health=ok&query=욕조"))).toEqual({ healthStatus: "ok" });
   });
 });

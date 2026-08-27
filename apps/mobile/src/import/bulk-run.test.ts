@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  canConfirmImport,
   canStartImportBulkRun,
   canToggleImportRow,
   cancelImportBulkRun,
@@ -10,8 +11,10 @@ import {
   shouldFlushImportBulkProgress,
   IMPORT_BULK_CANCELLED_TEXT,
   IMPORT_BULK_CANCEL_LABEL,
+  IMPORT_BULK_CLAIM_BUSY_TEXT,
   IMPORT_BULK_PARTIAL_FAILURE_TEXT,
   IMPORT_BULK_PROGRESS_BATCH_SIZE,
+  IMPORT_CONFIRM_PENDING_TEXT,
   type ImportBulkRunProgress
 } from "./bulk-run";
 
@@ -245,6 +248,67 @@ describe("K-6 게이팅 판정 (버튼 disabled와 실행부 첫 줄이 같은 �
     // 잠기는 것은 그 행 하나뿐이라는 규칙은 그대로다.
     expect(canToggleImportRow({ isPreviewReady: true, isBulkRunning: false, isRowPending: true })).toBe(false);
     expect(canToggleImportRow({ isPreviewReady: false, isBulkRunning: false, isRowPending: false })).toBe(false);
+  });
+});
+
+/**
+ * 라운드 42 L-2 — 확정 게이트. 되돌릴 수 없는 한 자리이므로, 반영이 끝날 때까지 기다리게 한다.
+ */
+describe("L-2 확정 게이팅 판정", () => {
+  const base = {
+    isPreviewReady: true,
+    isConfirming: false,
+    isBulkRunning: false,
+    confirmableSelectedCount: 3,
+    pendingRowCount: 0,
+    unappliedReviewedCount: 0
+  };
+
+  it("종전 조건(상태·중복 요청·일괄·빈 선택)은 그대로다", () => {
+    expect(canConfirmImport(base)).toBe(true);
+    expect(canConfirmImport({ ...base, isPreviewReady: false })).toBe(false);
+    expect(canConfirmImport({ ...base, isConfirming: true })).toBe(false);
+    expect(canConfirmImport({ ...base, isBulkRunning: true })).toBe(false);
+    expect(canConfirmImport({ ...base, confirmableSelectedCount: 0 })).toBe(false);
+  });
+
+  it("진행 중인 단건 토글이 있으면 확정하지 않는다 (PATCH 왕복 전 확정 = 영구 손실)", () => {
+    expect(canConfirmImport({ ...base, pendingRowCount: 1 })).toBe(false);
+  });
+
+  it("체크했지만 아직 valid가 아닌 검토 행이 남아 있으면 확정하지 않는다", () => {
+    expect(canConfirmImport({ ...base, unappliedReviewedCount: 1 })).toBe(false);
+    // 반영이 끝나면(0) 곧바로 열린다 -- 영구히 잠그는 게이트가 아니다.
+    expect(canConfirmImport({ ...base, unappliedReviewedCount: 0 })).toBe(true);
+  });
+
+  it("잠긴 이유를 말하는 문구는 사과가 아니라 지금 일어나는 일이다 (해요체)", () => {
+    expect(IMPORT_CONFIRM_PENDING_TEXT).toBe("체크한 항목을 아직 반영 중이에요. 잠시만 기다려 주세요");
+    expect(IMPORT_CONFIRM_PENDING_TEXT).not.toContain("못했어요");
+    // 목록 조회 실패 문구를 돌려 쓰지 않는다.
+    expect(IMPORT_CONFIRM_PENDING_TEXT).not.toBe("불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+  });
+});
+
+/**
+ * 라운드 42 L-4 — 실행권을 못 받은 한 번을 설명한다.
+ */
+describe("L-4 실행권 실패 안내", () => {
+  it("이전 루프가 아직 등록부에 있으면 claim이 실패한다(그 상태를 화면이 읽을 수 있다)", () => {
+    expect(isImportBulkRunActive("job-1")).toBe(false);
+    const handle = claimImportBulkRun("job-1");
+    expect(isImportBulkRunActive("job-1")).toBe(true);
+    expect(claimImportBulkRun("job-1")).toBeNull();
+
+    handle!.release();
+    // 내려온 뒤에는 버튼도 다시 열린다.
+    expect(isImportBulkRunActive("job-1")).toBe(false);
+    expect(claimImportBulkRun("job-1")).not.toBeNull();
+  });
+
+  it("문구는 실패가 아니라 잠깐의 상태와 다음 행동을 말한다 (해요체)", () => {
+    expect(IMPORT_BULK_CLAIM_BUSY_TEXT).toBe("이전 작업을 정리하고 있어요. 잠시 후 다시 시도해 주세요");
+    expect(IMPORT_BULK_CLAIM_BUSY_TEXT).not.toContain("못했어요");
   });
 });
 

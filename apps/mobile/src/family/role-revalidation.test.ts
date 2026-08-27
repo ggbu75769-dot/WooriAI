@@ -8,6 +8,7 @@ import {
 } from "./record-permissions";
 import {
   createHouseholdRoleRevalidator,
+  createOneShotRevalidationLatch,
   ROLE_REVALIDATE_MIN_INTERVAL_MS,
   type HouseholdRoleSnapshot
 } from "./role-revalidation";
@@ -214,8 +215,8 @@ describe("라운드 40 J-3 배선 (source contract)", () => {
     // 서버 목록은 GET /me 하나로 받고, 표는 세션 스토어가 통째로 갈아 끼운다.
     expect(hookSource).toContain("getMe(accessToken)");
     expect(hookSource).toContain("applyHouseholds: setHouseholdRoles");
-    // 데모(로컬) 세션에는 서버 가구가 없다 -- 실토큰일 때만 부른다.
-    expect(hookSource).toContain("if (!accessToken) return;");
+    // 데모(로컬) 세션에는 서버 가구가 없다 -- 실토큰일 때만 부른다(L-1: 발사 안 함 = false).
+    expect(hookSource).toContain("if (!accessToken) return false;");
   });
 
   it("K-4: 호출부가 부재 응답을 빈 목록으로 메우지 않는다", () => {
@@ -246,12 +247,116 @@ describe("라운드 40 J-3 배선 (source contract)", () => {
     const hookSource = source("src/family/useExpenseEntryGate.ts");
     // 판정은 순수 모듈에 있다(표가 쓸 만한가의 기준이 두 벌이 되지 않게).
     expect(hookSource).toContain("needsHouseholdIdsRepair({ householdRoles, knownHouseholdIds })");
-    expect(hookSource).toContain("let attemptedHouseholdIdsRepair = false;");
-    expect(hookSource).toContain("attemptedHouseholdIdsRepair = true;");
+    // 라운드 42 L-1: 래치도 순수 모듈이다(소진 조건이 화면 코드에 흩어지지 않게).
+    expect(hookSource).toContain("const householdIdsRepairLatch = createOneShotRevalidationLatch();");
+    expect(hookSource).toContain("householdIdsRepairLatch.reset();");
     // 트리거는 렌더가 아니라 이펙트다(조회는 백그라운드라 이번 렌더의 화면은 그대로다).
     expect(hookSource).toContain("useEffect(() => {");
     // 잠금 안내 경로와 같은 함수를 쓴다 -- 재검증이 두 벌로 갈리지 않는다.
     expect(hookSource.match(/revalidateHouseholdRoles\(/g) ?? []).toHaveLength(3);
+  });
+
+  /**
+   * 라운드 42 L-1 — 래치를 **먼저** 소진하던 배선(K-3의 첫 판)이 되돌아오면 안 된다.
+   */
+  it("L-1: 자가 치유는 실제 발사 여부를 보고 소진하고, force로 스로틀을 건너뛴다", () => {
+    const hookSource = source("src/family/useExpenseEntryGate.ts");
+    // 반환값(발사 여부)이 래치의 유일한 소진 조건이다.
+    expect(hookSource).toContain(
+      "householdIdsRepairLatch.attempt(() => revalidateHouseholdRoles({ force: true }));"
+    );
+    // 재검증 함수는 발사 여부를 boolean으로 돌려준다(버려지면 L-1이 그대로 되돌아온다).
+    expect(hookSource).toContain("export function revalidateHouseholdRoles(options?: { force?: boolean }): boolean {");
+    expect(hookSource).toContain("if (!accessToken) return false;");
+    expect(hookSource).toContain("return householdRoleRevalidator.request({");
+    // 래치를 먼저 세우고 부르던 옛 배선.
+    expect(hookSource).not.toContain("attemptedHouseholdIdsRepair = true;");
+  });
+});
+
+/**
+ * 라운드 42 L-1 — 요청이 나가지도 않았는데 소진되던 래치.
+ *
+ * 시나리오: 초대 수락 직후의 force 재검증이 실패해 `lastRequestedAt`만 세워진 상태에서 홈이
+ * 뜬다. 훅은 래치를 먼저 소진한 뒤 재검증을 부르는데, 그 요청은 5분 스로틀에 먹혀 나가지
+ * 않는다 -- 래치만 비고 세션 내내 재시도가 없다.
+ */
+describe("라운드 42 L-1 자가 치유 래치", () => {
+  it("발사되면 소진되고, 두 번째 기회에는 부르지도 않는다", () => {
+    const latch = createOneShotRevalidationLatch();
+    const fire = vi.fn(() => true);
+
+    expect(latch.attempt(fire)).toBe(true);
+    expect(latch.isSpent()).toBe(true);
+    expect(latch.attempt(fire)).toBe(false);
+    expect(fire).toHaveBeenCalledTimes(1);
+  });
+
+  it("스로틀에 먹혀 발사되지 않으면 래치는 열린 채로 남아 다음 기회에 다시 시도한다", () => {
+    const latch = createOneShotRevalidationLatch();
+    let allowed = false;
+    const fire = vi.fn(() => {
+      if (!allowed) return false;
+      return true;
+    });
+
+    expect(latch.attempt(fire)).toBe(false);
+    expect(latch.isSpent()).toBe(false);
+    expect(latch.attempt(fire)).toBe(false);
+    expect(fire).toHaveBeenCalledTimes(2);
+
+    // 스로틀이 풀린 다음 기회에 비로소 소진된다.
+    allowed = true;
+    expect(latch.attempt(fire)).toBe(true);
+    expect(latch.isSpent()).toBe(true);
+    expect(latch.attempt(fire)).toBe(false);
+    expect(fire).toHaveBeenCalledTimes(3);
+  });
+
+  it("세션이 끊기면 다시 열린다(같은 앱 세션의 다른 계정에는 그 계정 몫의 한 번이 필요하다)", () => {
+    const latch = createOneShotRevalidationLatch();
+    latch.attempt(() => true);
+    expect(latch.isSpent()).toBe(true);
+
+    latch.reset();
+    expect(latch.isSpent()).toBe(false);
+    expect(latch.attempt(() => true)).toBe(true);
+  });
+
+  /**
+   * 훅 상호작용 그대로: 실제 재검증기(스로틀 포함)에 래치를 물려 본다. 진행 중인 요청 때문에
+   * 건너뛴 첫 시도가 래치를 태우지 않고, 그 요청이 끝난 뒤의 다음 기회에 실제로 발사된다.
+   */
+  it("실제 재검증기와 물렸을 때: 겹침으로 건너뛴 시도는 래치를 태우지 않는다", async () => {
+    const revalidator = createHouseholdRoleRevalidator({ minIntervalMs: 0 });
+    const latch = createOneShotRevalidationLatch();
+    const applyHouseholds = vi.fn();
+
+    // 이미 도는 조회 하나(끝나지 않는다).
+    let settle: (households: HouseholdRoleSnapshot[]) => void = () => {};
+    const pending = vi.fn(
+      () => new Promise<HouseholdRoleSnapshot[]>((resolve) => {
+        settle = resolve;
+      })
+    );
+    expect(revalidator.request({ now: NOW, fetchHouseholds: pending, applyHouseholds })).toBe(true);
+
+    // 자가 치유의 첫 기회: force여도 겹쳐 보내지 않으므로 발사되지 않는다 -> 래치는 그대로.
+    const repair = fakeMe([{ id: "h-1", role: "co_parent" }]);
+    const attemptRepair = () =>
+      latch.attempt(() =>
+        revalidator.request({ now: NOW, fetchHouseholds: repair, applyHouseholds, force: true })
+      );
+    expect(attemptRepair()).toBe(false);
+    expect(latch.isSpent()).toBe(false);
+    expect(repair).not.toHaveBeenCalled();
+
+    // 진행 중이던 조회가 끝나면 다음 기회에 실제로 나간다.
+    settle([{ id: "h-1", role: "viewer" }]);
+    await vi.waitFor(() => expect(applyHouseholds).toHaveBeenCalledTimes(1));
+    expect(attemptRepair()).toBe(true);
+    expect(latch.isSpent()).toBe(true);
+    await vi.waitFor(() => expect(repair).toHaveBeenCalledTimes(1));
   });
 
   it("클라이언트는 서버 계약 그대로의 GET /me 하나만 더한다", () => {

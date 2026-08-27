@@ -16,15 +16,19 @@ import {
 } from "../../src/api/client";
 import { explainExpenseViewOnly, useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import {
+  canConfirmImport,
   canStartImportBulkRun,
   canToggleImportRow,
   cancelImportBulkRun,
   claimImportBulkRun,
+  isImportBulkRunActive,
   runImportBulkSelection,
   IMPORT_BULK_CANCEL_A11Y_LABEL,
   IMPORT_BULK_CANCEL_LABEL,
   IMPORT_BULK_CANCELLED_TEXT,
+  IMPORT_BULK_CLAIM_BUSY_TEXT,
   IMPORT_BULK_PARTIAL_FAILURE_TEXT,
+  IMPORT_CONFIRM_PENDING_TEXT,
   type ImportBulkRunHandle,
   type ImportBulkRunOutcome
 } from "../../src/import/bulk-run";
@@ -33,6 +37,7 @@ import {
   buildImportBulkSelectionPlan,
   confirmableSelectedRowIds,
   countImportRowsNeedingAttention,
+  countUnappliedReviewedRows,
   filterImportRows,
   importBulkProgressLabel,
   importBulkSelectionLabel,
@@ -48,6 +53,7 @@ import {
   IMPORT_ROW_LOCKED_A11Y_PREFIX,
   IMPORT_ROW_LOCKED_MESSAGE,
   IMPORT_TARGET_CHILD_LABEL,
+  importTargetChildNotice,
   resolveImportTargetChildName,
   type ImportRowFilter
 } from "../../src/import/preview-rows";
@@ -234,6 +240,11 @@ export default function ImportPreviewScreen() {
   const [pendingRowIds, setPendingRowIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const [bulkOutcome, setBulkOutcome] = useState<ImportBulkRunOutcome | null>(null);
+  /**
+   * 라운드 42 L-4: 직전 루프가 아직 등록부에서 내려오지 않아 실행권을 못 받은 상태. 예전에는
+   * 그냥 return이라 버튼을 눌러도 아무 일도, 아무 말도 없었다(고장과 구분되지 않았다).
+   */
+  const [bulkClaimBlocked, setBulkClaimBlocked] = useState(false);
 
   const rowsQueryKey = useMemo(() => ["import-rows", importJobId] as const, [importJobId]);
 
@@ -296,6 +307,14 @@ export default function ImportPreviewScreen() {
    */
   const cachedChildren = queryClient.getQueryData<{ children: Child[] }>(["children"])?.children;
   const targetChildName = resolveImportTargetChildName(job.data?.childId, cachedChildren);
+  /**
+   * 라운드 42 L-6: 잡에는 아이가 박혀 있는데(childId) 그 이름을 이 기기가 모를 때 -- 캐시가 아직
+   * 없거나, 목록에 없는 아이다. 예전에는 줄이 그냥 사라져 화면이 **대상 아이를 밝히지 않은 채**
+   * 확정을 열어 뒀다(K-2가 겨냥한 그 자리다). 이름을 지어내지 않고 모른다는 사실만 말한다.
+   * 확정은 막지 않는다: 서버가 지출을 넣는 곳은 어차피 job.childId이고, 캐시가 비었다는 이유로
+   * 정상적인 가져오기를 잠그는 쪽이 더 나쁘다. 비세션에서는 job.data가 없어 null이다(IMP-003 불변).
+   */
+  const targetChildNotice = importTargetChildNotice(job.data?.childId, cachedChildren);
 
   const toggleRow = useMutation({
     mutationFn: (row: ImportRow) =>
@@ -364,10 +383,26 @@ export default function ImportPreviewScreen() {
   const rowList = rows.data?.rows ?? [];
   const selectedCount = selectedRowIds(rowList).length;
   const attentionCount = countImportRowsNeedingAttention(rowList);
+  // 라운드 42 L-2: 체크는 켜졌는데 서버가 아직 valid로 바꿔 주지 않은 검토 가능 행(판정은 순수 모듈).
+  const unappliedReviewedCount = countUnappliedReviewedRows(rowList);
   const status = job.data?.status;
   const isPreviewReady = status === "preview_ready";
   const isBulkRunning = bulkProgress !== null;
   const goToRecords = () => router.replace("/(tabs)/records");
+
+  /**
+   * 라운드 42 L-3 — "확인 필요만 보기"의 막다른 길.
+   *
+   * 칩은 확인 필요 행이 하나라도 있을 때만 그려진다(shouldShowAttentionFilter). 그런데 필터를 켠
+   * 채 그 행들을 전부 처리하면 -- 체크 한 번이면 valid가 되는 검토 가능 행이 대부분이라 흔한
+   * 경로다 -- 칩이 언마운트되면서 `rowFilter`만 "attention"으로 남는다. 그러면 목록은 비었는데
+   * ("확인이 필요한 행이 없어요") 필터를 **끌 컨트롤이 화면에 없다**: 가져올 행이 다 있는데도
+   * 뒤로 나갔다 다시 들어오는 것 말고는 목록을 되살릴 방법이 없었다. 칩이 사라지는 그 조건에서
+   * 필터도 함께 푼다(판정은 칩과 같은 순수 함수를 쓴다 -- 두 벌로 갈리면 이 버그가 되돌아온다).
+   */
+  useEffect(() => {
+    if (rowFilter === "attention" && !shouldShowAttentionFilter(attentionCount)) setRowFilter("all");
+  }, [attentionCount, rowFilter]);
 
   /**
    * 라운드 41 K-7: 토글·일괄도 확정과 **같은 게이트**를 지난다.
@@ -442,7 +477,12 @@ export default function ImportPreviewScreen() {
     }
     const handle = claimImportBulkRun(importJobId);
     // 이미 이 잡의 루프가 돌고 있다(화면이 두 번 마운트됐거나 탭이 빨리 두 번 들어왔다).
-    if (!handle) return;
+    // 라운드 42 L-4: 조용히 돌아가지 않고 그 사실을 한 줄로 말한다 -- 곧 풀리는 상태다.
+    if (!handle) {
+      setBulkClaimBlocked(true);
+      return;
+    }
+    setBulkClaimBlocked(false);
     bulkRunRef.current = handle;
     setBulkOutcome(null);
     setBulkProgress({ done: 0, total: plan.targetRowIds.length });
@@ -474,11 +514,22 @@ export default function ImportPreviewScreen() {
     } finally {
       handle.release();
       if (bulkRunRef.current === handle) bulkRunRef.current = null;
-      if (mountedRef.current) {
-        setBulkProgress(null);
-        // 완료·중단·실패 어느 쪽이든 서버가 진실이다(검토 가능 행은 상태까지 바뀐다).
-        await queryClient.invalidateQueries({ queryKey: rowsQueryKey });
-      }
+      if (mountedRef.current) setBulkProgress(null);
+      /**
+       * 완료·중단·실패 어느 쪽이든 서버가 진실이다(검토 가능 행은 selected만이 아니라
+       * validationStatus까지 바뀐다).
+       *
+       * 라운드 42 L-2: 이 재조회는 **마운트 여부와 무관하게** 실행한다. 예전에는
+       * `if (mountedRef.current)` 안에 있어서, 화면을 벗어나며 루프가 취소된 경우
+       * (언마운트·blur가 정확히 그 경로다) 캐시에는 진행 중 onProgress가 써 둔 `selected`만
+       * 남고 `validationStatus`는 낡은 값 그대로였다. 게다가 그 쓰기가 `dataUpdatedAt`을
+       * 갱신해 캐시가 fresh해지므로, 30초 안에 다시 들어오면 재조회조차 돌지 않아 화면이
+       * "체크는 켜졌지만 확인 필요"라는 존재하지 않는 상태를 보여 줬다.
+       *
+       * queryClient는 전역이라 언마운트 뒤에도 안전하게 부를 수 있다 -- 비활성 쿼리는
+       * stale 표시만 되고(네트워크는 다음 진입 때) 사라진 화면의 상태를 건드리지 않는다.
+       */
+      await queryClient.invalidateQueries({ queryKey: rowsQueryKey });
     }
   }, [
     authToken,
@@ -509,12 +560,35 @@ export default function ImportPreviewScreen() {
   );
 
   const showList = !rows.isLoading && !rows.isError && rowList.length > 0;
-  const canBulkSelect = canStartImportBulkRun({
-    hasAuth: Boolean(authToken),
+  /**
+   * 라운드 42 L-4: **다른 마운트의 루프가 아직 등록부에 남아 있는가**(claimImportBulkRun이
+   * null을 돌려줄 상태인가). 이 화면 자신이 돌리는 중이면 `isBulkRunning`이 이미 막으므로,
+   * 여기서 보는 것은 "이전 루프가 아직 release되지 않은" 경우뿐이다. 눌리는 척하지 않도록
+   * 버튼 disabled에 그대로 반영하고, 이미 눌러 본 사용자에게는 아래 한 줄로 이유를 말한다.
+   */
+  const bulkRunHeldElsewhere = !isBulkRunning && isImportBulkRunActive(importJobId);
+  const canBulkSelect =
+    !bulkRunHeldElsewhere &&
+    canStartImportBulkRun({
+      hasAuth: Boolean(authToken),
+      isPreviewReady,
+      isBulkRunning,
+      pendingRowCount: pendingRowIds.size,
+      targetRowCount: bulkPlan.targetRowIds.length
+    });
+  /**
+   * 라운드 42 L-2: 확정 판정도 순수 모듈 하나가 갖는다. 새로 들어온 두 조건(진행 중인 단건
+   * 토글 · 아직 반영되지 않은 검토 체크)이 **영구 손실 창**을 닫는다 -- 그 상태로 확정이 나가면
+   * 그 행들은 본문에서 빠진 채 잡이 confirmed로 넘어가 다시는 가져올 수 없다.
+   */
+  const confirmBlockedByPending = pendingRowIds.size > 0 || unappliedReviewedCount > 0;
+  const canConfirm = canConfirmImport({
     isPreviewReady,
+    isConfirming: confirm.isPending,
     isBulkRunning,
+    confirmableSelectedCount: selectedCount,
     pendingRowCount: pendingRowIds.size,
-    targetRowCount: bulkPlan.targetRowIds.length
+    unappliedReviewedCount
   });
 
   const listHeader = (
@@ -548,6 +622,8 @@ export default function ImportPreviewScreen() {
               <Text style={summaryValueStyle}>{targetChildName}</Text>
             </View>
           ) : null}
+          {/* 라운드 42 L-6: 이름을 못 찾았을 때만 나오는 한 줄(사실 고지 -- 확정은 막지 않는다). */}
+          {targetChildNotice ? <Text style={mutedTextStyle}>{targetChildNotice}</Text> : null}
           <View style={summaryRowStyle}>
             <Text style={summaryLabelStyle}>전체 행</Text>
             <Text style={summaryValueStyle}>{job.data.rowCount}건</Text>
@@ -602,6 +678,11 @@ export default function ImportPreviewScreen() {
             <Text style={{ color: theme.colors.danger }}>{IMPORT_BULK_PARTIAL_FAILURE_TEXT}</Text>
           ) : null}
           {bulkOutcome === "cancelled" ? <Text style={mutedTextStyle}>{IMPORT_BULK_CANCELLED_TEXT}</Text> : null}
+          {/* L-4: 실행권을 못 받아 아무 일도 일어나지 않은 그 한 번을 설명한다. 이전 루프가
+              등록부에서 내려오면 이 줄도 함께 사라진다(상태를 붙잡아 두지 않는다). */}
+          {bulkClaimBlocked && bulkRunHeldElsewhere ? (
+            <Text style={mutedTextStyle}>{IMPORT_BULK_CLAIM_BUSY_TEXT}</Text>
+          ) : null}
         </View>
       ) : null}
 
@@ -628,11 +709,17 @@ export default function ImportPreviewScreen() {
           업로드·검수를 다 끝낸 뒤 마지막 버튼에서 "불러오지 못했어요. 잠시 후 다시 시도해
           주세요."라는 **틀린 이유**를 받는다(다시 시도해도 결과가 같다). 다른 지출 진입점과
           같은 판정 하나를 거쳐, 잠겼으면 뮤테이션을 실행하지 않고 사실을 말한다. */}
+      {/* 라운드 42 L-2: 체크가 아직 서버에 반영되지 않은 동안에는 확정을 열지 않는다 --
+          그 상태로 확정하면 그 행들이 본문에서 빠진 채 잡이 confirmed로 넘어가 영영 가져올 수
+          없다(IMPORT_NOT_EDITABLE). 버튼이 왜 잠겼는지는 아래 한 줄이 말한다. */}
       <PrimaryButton
         label={confirm.isPending ? "가져오는 중..." : "선택한 항목 가져오기"}
-        disabled={!isPreviewReady || !selectedCount || confirm.isPending || isBulkRunning}
+        disabled={!canConfirm}
         onPress={expenseGate.guard(() => confirm.mutate())}
       />
+      {isPreviewReady && confirmBlockedByPending ? (
+        <Text style={mutedTextStyle}>{IMPORT_CONFIRM_PENDING_TEXT}</Text>
+      ) : null}
       {confirm.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
     </View>
   );

@@ -287,10 +287,54 @@ describe("라운드 41 UX-U(B-ⓓ) 지출 상세 배선", () => {
   });
 
   it("순수 모듈의 결과가 null이면 섹션을 아예 렌더하지 않는다", () => {
-    expect(screen()).toContain("const itemHistory = buildItemHistory({");
+    expect(screen()).toContain("buildItemHistory({");
     expect(screen()).toContain("{itemHistory ? (");
     expect(screen()).toContain("{itemHistory.scopeNotice}");
     expect(screen()).toContain("{itemHistory.title}");
+  });
+
+  /**
+   * 라운드 42 L-5 — 상세 화면은 품목·금액·메모가 전부 입력 상태라, 이력 재조정이 렌더 본문에
+   * 있으면 **키 한 번마다** 이번 달 전체(수백 행)를 다시 합치고 정렬하고 걸렀다.
+   */
+  it("L-5: 이력은 useMemo 안에서 만들고, 품목명은 정규화 값이 의존성이다", () => {
+    const screenSource = screen();
+    expect(screenSource).toContain("const itemHistory = useMemo(");
+    expect(screenSource).toContain("const normalizedHistoryItemName = normalizeItemName(itemName);");
+    expect(screenSource).toContain("normalizedHistoryItemName");
+    // 재료가 바뀔 때만 다시 돈다(캐시 참조 · 스냅숏 참조 · 달 · 이 지출 · 대상 아이).
+    expect(screenSource).toContain("cachedMonthExpenses, currentYearMonth, normalizedHistoryItemName, expenseId");
+    expect(screenSource).toContain("offlineSyncSnapshot.rows, historyChildId");
+    // 렌더 본문에서 직접 부르던 옛 배선.
+    expect(screenSource).not.toContain("const itemHistory = buildItemHistory({");
+    // 정규화는 UX-C의 단일 소스를 쓴다(사본 금지).
+    expect(screenSource).toContain('from "../../src/expenses/item-name-match"');
+    // 같은 모듈을 두 번 import하던 중복(K-11 때 갈라진 두 줄)도 한 줄로 합쳤다.
+    expect(screenSource.match(/from "\.\.\/\.\.\/src\/offline\/sync-controller"/g) ?? []).toHaveLength(1);
+  });
+
+  /**
+   * 라운드 42 L-5 — `sortByRecency`가 이미 복사본을 정렬해 돌려주므로(item-name-match.ts) 그
+   * 앞에서 한 번 더 뜨던 전체 복사는 순수 낭비였다. 복사를 뺀 뒤에도 **입력 배열은 그대로**여야 한다.
+   */
+  it("L-5: 입력 배열을 제자리에서 바꾸지 않는다(복사 제거 후에도 무해)", () => {
+    const cached = [
+      { id: "e-1", itemName: "기저귀", amountKrw: 10_000, spentOn: "2026-08-02" },
+      { id: "e-2", itemName: "기저귀", amountKrw: 12_000, spentOn: "2026-08-20" }
+    ];
+    const before = [...cached];
+
+    const history = buildItemHistory({
+      cachedMonthExpenses: cached,
+      cacheYearMonth: "2026-08",
+      itemName: "기저귀",
+      currentExpenseId: "e-9"
+    });
+
+    expect(history?.rows.map((row) => row.id)).toEqual(["e-2", "e-1"]);
+    // 원본 순서·참조가 그대로다(캐시 배열을 정렬해 버리면 목록 화면이 함께 흔들린다).
+    expect(cached).toEqual(before);
+    expect(cached[0]).toBe(before[0]);
   });
 
   it("범위 고지 줄이 목록과 같은 카드 안에 있다(고지 없이 목록만 보이지 않는다)", () => {

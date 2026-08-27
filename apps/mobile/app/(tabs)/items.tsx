@@ -46,6 +46,11 @@ import {
   type NecessityFilter
 } from "../../src/items/item-filters";
 import {
+  applyPreBirthFilter,
+  PRE_BIRTH_FILTER_LABEL,
+  shouldOfferPreBirthFilter
+} from "../../src/items/pre-birth-filter";
+import {
   GIFTED_RESET_CONFIRM_ACTION_LABEL,
   GIFTED_RESET_CONFIRM_CANCEL_LABEL,
   GIFTED_RESET_CONFIRM_TITLE,
@@ -164,6 +169,11 @@ export default function ItemsScreen() {
   // ITEM-121 (B2/B3): 목록을 더 좁히는 클라이언트 전용 조건. 시기/상태와 달리 이미 받은
   // 항목의 필드만 보므로 서버 왕복이 없다(src/items/item-filters.ts).
   const [necessityFilter, setNecessityFilter] = useState<NecessityFilter>("all");
+  // 라운드 43 UX-V: "출산 전"만 보기. 시기 밴드 "0-6개월"이 임신 초기~생후 6개월을 한 칩에
+  // 묶어서, 아직 아이가 태어나지 않은 사람에게 임신 준비물과 출생 직후 물건이 뒤섞여 나온다.
+  // 밴드 계약(서버 stageBand·ITEM-001 칩)은 그대로 두고 화면에서 한 번 더 좁힌다
+  // (src/items/pre-birth-filter.ts).
+  const [preBirthOnly, setPreBirthOnly] = useState(false);
   const [searchText, setSearchText] = useState("");
   // ITEM-124: 상태 변경 실패 문구. 이 목록 버튼은 지출 기록과 달리 오프라인 아웃박스를 타지
   // 않아 실패가 곧 유실이다 -- 조용히 넘어가면 사용자는 바뀐 줄 알고 떠난다
@@ -403,10 +413,18 @@ export default function ItemsScreen() {
   // 시기(stageBand)·상태(tab)는 서버가 이미 걸렀다. 여기서는 필수도 칩과 이름 검색만 적용한다
   // -- 비세션 미리보기에는 두 컨트롤을 노출하지 않으므로 목록도 손대지 않는다.
   const itemFilterInput = { necessity: necessityFilter, searchText };
+  // 라운드 43 UX-V: 칩은 아이가 아직 태어나기 전일 때만 나온다. 출생 뒤에는 좁혀 봐야 지나간
+  // 준비물만 남기 때문이다. 켜 둔 채로 아이가 출생 전환을 하면 칩이 사라지는데, 그때 필터만
+  // 살아 남아 목록이 이유 없이 비지 않도록 **노출 판정과 적용 판정을 같은 값으로 묶는다**.
+  const offersPreBirthFilter = shouldOfferPreBirthFilter({ hasSession, currentStage: home.data?.child.currentStage });
+  const preBirthFilterActive = offersPreBirthFilter && preBirthOnly;
   const listedItems: Array<ItemSummary | RecommendationPreviewItem> = hasSession
-    ? filterItems<ItemSummary | RecommendationPreviewItem>(visibleItems, itemFilterInput)
+    ? applyPreBirthFilter(
+        filterItems<ItemSummary | RecommendationPreviewItem>(visibleItems, itemFilterInput),
+        preBirthFilterActive
+      )
     : visibleItems;
-  const isNarrowedByFilter = hasSession && hasActiveItemFilter(itemFilterInput);
+  const isNarrowedByFilter = hasSession && (hasActiveItemFilter(itemFilterInput) || preBirthFilterActive);
   const showEmptyState = hasSession ? listedItems.length === 0 : false;
   const canUpdateStatus = hasSession;
   // ITEM-114: 선택된 시기 밴드(기본 칩은 아이의 현재 시기) 기준 필수템 준비율. 필수템이
@@ -518,6 +536,16 @@ export default function ItemsScreen() {
                   onPress={() => setNecessityFilter(option.value)}
                 />
               ))}
+              {/* 라운드 43 UX-V: "출산 전"만 보기. 같은 줄에 붙는 이유는 필수도 칩과 성격이
+                  같아서다 — 서버 왕복 없이 이미 받은 목록을 좁히고, 필수도·검색과 AND로 겹친다.
+                  임신 중인 아이의 세션에서만 나타난다(출생 뒤에는 무의미). */}
+              {offersPreBirthFilter ? (
+                <CategoryChip
+                  label={PRE_BIRTH_FILTER_LABEL}
+                  selected={preBirthOnly}
+                  onPress={() => setPreBirthOnly((on) => !on)}
+                />
+              ) : null}
             </View>
           ) : null}
 
@@ -664,6 +692,7 @@ export default function ItemsScreen() {
                 onPress={() => {
                   setNecessityFilter("all");
                   setSearchText("");
+                  setPreBirthOnly(false);
                 }}
               />
             ) : (

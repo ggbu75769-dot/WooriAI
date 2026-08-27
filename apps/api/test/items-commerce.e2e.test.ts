@@ -422,6 +422,82 @@ describe("Items, commerce, and affiliate API", () => {
     expect(loggedClick.userAgent).toBe("wooriai-e2e-test-agent/1.0");
   });
 
+  it("pushes health-broken links to the end of the item detail without changing the response shape (UX-W C1)", async () => {
+    const accessToken = await login(app, "batch07-link-health-order");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = moduleRef.get(PrismaService);
+
+    // 시기(stage) 행 없이 만든 일회용 준비템 — now/홈 추천의 정확 개수 단언에 끼지 않는다
+    // (createOwnClickFixture 주석의 근거 그대로). 상세 조회는 시기와 무관하므로 충분하다.
+    const template = await prisma.itemTemplate.create({
+      data: {
+        code: `${OWN_TEMPLATE_CODE_PREFIX}${randomUUID()}`,
+        name: "링크 헬스 정렬 테스트 준비템",
+        necessityLevel: "essential",
+        reasonText: "UX-W(C1) 링크 헬스 정렬 검증 전용 픽스처.",
+        active: true
+      }
+    });
+
+    // affiliateUrl을 비워 두어 link-health 워커의 후보 조건(affiliateUrl != null)에서 빠진다.
+    const linkFixtures = [
+      { displayOrder: 10, title: "깨진 링크", healthStatus: "broken" },
+      { displayOrder: 20, title: "정상 링크", healthStatus: "ok" },
+      { displayOrder: 30, title: "불안정 링크", healthStatus: "unstable" },
+      { displayOrder: 40, title: "미확인 링크", healthStatus: null }
+    ];
+
+    try {
+      for (const fixture of linkFixtures) {
+        await prisma.productLink.create({
+          data: {
+            itemTemplateId: template.id,
+            platform: "coupang",
+            title: fixture.title,
+            url: `https://example.com/dev/link/${fixture.displayOrder}`,
+            affiliateUrl: null,
+            isAffiliate: false,
+            isSponsored: false,
+            displayOrder: fixture.displayOrder,
+            active: true,
+            healthStatus: fixture.healthStatus,
+            healthCheckedAt: fixture.healthStatus ? new Date() : null
+          }
+        });
+      }
+
+      const detail = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/children/${childId}/items/${template.id}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body as { productLinks: ProductLink[] };
+
+      // 계약 무변경: 상세 응답 전체가 종전 스키마 그대로여야 한다.
+      itemDetailSchema.parse(detail);
+
+      // 깨진 링크는 맨 뒤. 불안정은 그 앞(일시적 실패라 워커가 다음 회차에 재확인한다).
+      // ok/미확인은 강등하지 않으므로 둘 사이 순서는 displayOrder 그대로(20 -> 40).
+      expect(detail.productLinks.map((link) => link.title)).toEqual([
+        "정상 링크",
+        "미확인 링크",
+        "불안정 링크",
+        "깨진 링크"
+      ]);
+      // 개수 불변 — 정렬일 뿐 필터가 아니다.
+      expect(detail.productLinks).toHaveLength(linkFixtures.length);
+      // DTO에 health가 새어 나가지 않는다(어드민 응답 전용 필드).
+      for (const link of detail.productLinks) {
+        expect(link).not.toHaveProperty("healthStatus");
+        expect(link).not.toHaveProperty("healthCheckedAt");
+      }
+    } finally {
+      await prisma.productLink.deleteMany({ where: { itemTemplateId: template.id } });
+      await prisma.childItemStatus.deleteMany({ where: { itemTemplateId: template.id } });
+      await prisma.itemTemplate.deleteMany({ where: { id: template.id } });
+    }
+  });
+
   it("rejects a click on a product link whose target domain is not on the affiliate allowlist, and does not log it", async () => {
     const accessToken = await login(app, "batch07-click-domain-blocked");
     const { childId } = await completeOnboarding(app, accessToken);

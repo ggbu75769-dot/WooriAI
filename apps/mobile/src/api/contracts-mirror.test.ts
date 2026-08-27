@@ -35,4 +35,29 @@ describe("contracts 수기 미러 드리프트 가드", () => {
     expect(TREND_REPORT_DEFAULT_MONTHS).toBeGreaterThanOrEqual(1);
     expect(TREND_REPORT_DEFAULT_MONTHS).toBeLessThanOrEqual(Number(maxMatch![1]));
   });
+
+  /**
+   * 라운드 42 L-7 — `ImportJob.childId`가 양쪽에 남아 있는지 고정한다.
+   *
+   * 이 필드는 라운드 41 K-2가 응답 계약에 새로 실은 값이고, 검수 화면(app/import/[importJobId].tsx)의
+   * "대상 아이" 표시가 **오직 이 값**에 걸려 있다 -- 선택 아이 스토어로 되돌아가면 아이를 바꾼 뒤
+   * 예전 검수 링크에서 헤더가 틀린 이름을 확신에 차서 보여 주고, 그대로 수백 건이 엉뚱한 아이의
+   * 가계부로 확정된다. 모바일은 contracts를 import하지 않고 수기로 미러하므로(known-limitations §D),
+   * 서버 계약에서 이 필드가 빠지는 순간을 커밋 시점에 잡는 드리프트 가드를 둔다.
+   */
+  it("L-7: ImportJob.childId가 서버 계약과 모바일 미러 양쪽에 있다", () => {
+    const contractsSource = contractsSchemasSource();
+    const importJobBlock = contractsSource.slice(
+      contractsSource.indexOf("export const importJobSchema = z.object({"),
+      contractsSource.indexOf("export const importRowSchema = z.object({")
+    );
+    expect(importJobBlock).toContain("childId: uuidSchema,");
+
+    const clientSource = readFileSync(join(process.cwd(), "src", "api", "client.ts"), "utf8");
+    const mirrorBlock = clientSource.slice(
+      clientSource.indexOf("export type ImportJob = {"),
+      clientSource.indexOf("export type ImportRow = {")
+    );
+    expect(mirrorBlock).toContain("childId: string;");
+  });
 });

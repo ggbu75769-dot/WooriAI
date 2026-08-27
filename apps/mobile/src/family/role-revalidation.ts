@@ -98,3 +98,46 @@ export function createHouseholdRoleRevalidator(options?: {
     }
   };
 }
+
+/* ------------------------------------------------- 1회성 자가 치유 래치 (L-1) */
+
+/**
+ * 라운드 42 L-1 — "앱 세션당 한 번"짜리 시도를 묶는 래치.
+ *
+ * 왜 모듈로 빼는가: 라운드 41 K-3의 자가 치유(표는 있는데 가구 목록은 모름)는 호출부에서
+ * **먼저 래치를 소진한 뒤** 재검증을 부르는 모양이었다. 그런데 재검증은 스로틀에 먹혀
+ * 요청이 아예 나가지 않을 수 있다(초대 수락 직후 force 요청이 실패해 `lastRequestedAt`만
+ * 세워진 경우가 정확히 그렇다). 그러면 **요청은 안 나갔는데 래치만 소진**되어, 그 앱 세션이
+ * 끝날 때까지 다시는 시도하지 않는 막힌 상태가 남는다 — K-3가 고치려던 바로 그 상태다.
+ *
+ * 그래서 "소진 조건"을 여기 한 줄로 못 박는다: **실제로 발사됐을 때만** 소진한다.
+ * 발사 여부는 `request`가 이미 boolean으로 돌려주고 있다(위 `HouseholdRoleRevalidator`).
+ */
+export type OneShotRevalidationLatch = {
+  /**
+   * 아직 소진되지 않았으면 `fire`를 부른다. `fire`가 true(실제 발사)를 돌려줬을 때만 래치를
+   * 소진하고, false(스로틀·중복·비세션으로 건너뜀)면 **그대로 열어 둔다** — 다음 기회에 다시
+   * 시도한다. 반환값은 이번에 실제로 발사됐는지 여부다.
+   */
+  attempt: (fire: () => boolean) => boolean;
+  /** 래치를 다시 연다(로그아웃·세션 만료 — 다음 계정에는 그 계정 몫의 한 번이 필요하다). */
+  reset: () => void;
+  /** 이미 소진됐는가(테스트·진단용). */
+  isSpent: () => boolean;
+};
+
+export function createOneShotRevalidationLatch(): OneShotRevalidationLatch {
+  let spent = false;
+  return {
+    attempt: (fire) => {
+      if (spent) return false;
+      const fired = fire();
+      if (fired) spent = true;
+      return fired;
+    },
+    reset: () => {
+      spent = false;
+    },
+    isSpent: () => spent
+  };
+}

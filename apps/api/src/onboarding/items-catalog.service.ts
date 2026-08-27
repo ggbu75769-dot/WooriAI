@@ -81,6 +81,48 @@ export type AdminProductLinkInput = {
  */
 export type { ItemTab };
 
+/**
+ * UX-W(C1): 링크 헬스 워커(COM-105, LinkHealthJob)가 product_links.health_status에
+ * 남긴 판정을 앱 상세의 링크 **순서**에만 반영하는 강등 표다. 값이 클수록 뒤로 간다.
+ *
+ * 왜 필요한가: 워커는 죽은 링크를 이미 알고 있는데 앱 경로는 그 값을 읽지 않아서,
+ * displayOrder가 가장 앞인 링크가 깨져 있으면 사용자는 매번 첫 줄에서 404를 만난다.
+ * (핵심 루프의 "구매 링크 클릭"이 그 자리에서 끊긴다.)
+ *
+ * 등급 근거:
+ *  - broken(2): 4xx 또는 5홉 초과 리디렉트 = **확정된 죽은 링크**. 맨 뒤로 보낸다.
+ *  - unstable(1): 5xx·타임아웃·네트워크 오류 = 일시적일 수 있고 워커가 다음 회차에
+ *    바로 재확인한다(link-health.job.ts의 후보 조건). 그래서 broken처럼 맨 뒤로
+ *    내리지 않고 그 **중간**에 둔다 — 살아 있을 가능성이 높은 링크를 죽은 링크와
+ *    같은 취급으로 벌주지 않으면서, 방금 도달 실패한 링크를 "정상 확인됨"보다는
+ *    뒤에 둔다.
+ *  - ok / null(미확인) / 미지의 값(0): 문제의 근거가 없으므로 큐레이션 순서를 그대로
+ *    둔다. 미확인을 ok보다 뒤로 내리면, 워커가 꺼져 있거나(LINK_HEALTH_ENABLED 기본
+ *    off) 일부만 확인된 흔한 상태에서 이득 없이 어드민이 정한 순서만 흐트러진다.
+ *
+ * DNC-009 무관: 이건 추천 **점수**가 아니라 사용자 보호용 표시 순서다. 수수료율·제휴
+ * 여부는 이 계산에 전혀 들어가지 않고(입력은 health_status 하나), 응답 필드와 링크
+ * 개수도 그대로다 — toProductLinkDto는 health를 노출하지 않는다(계약 무변경).
+ */
+const PRODUCT_LINK_HEALTH_DEMOTION: Record<string, number> = { unstable: 1, broken: 2 };
+
+function productLinkHealthRank(healthStatus: string | null | undefined): number {
+  return PRODUCT_LINK_HEALTH_DEMOTION[healthStatus ?? ""] ?? 0;
+}
+
+/**
+ * 앱 상세용 링크 정렬: 헬스 강등 등급을 1순위로 두고, **같은 등급 안에서는
+ * displayOrder 순서를 그대로** 유지한다(어드민이 정한 큐레이션 순서 보존).
+ * 전부 ok/미확인이면 결과는 종전과 완전히 동일하다.
+ */
+function sortProductLinksForApp<T extends { displayOrder: number; healthStatus?: string | null }>(links: T[]): T[] {
+  return [...links].sort(
+    (left, right) =>
+      productLinkHealthRank(left.healthStatus) - productLinkHealthRank(right.healthStatus) ||
+      left.displayOrder - right.displayOrder
+  );
+}
+
 function priceBandText(priceMinKrw: number | null, priceMaxKrw: number | null) {
   if (priceMinKrw == null && priceMaxKrw == null) {
     return undefined;
@@ -127,10 +169,13 @@ export class ItemsCatalogService {
     await this.childAccess.requireChildAccess(user, childId);
     const item = await this.requireItemTemplate(itemTemplateId);
     const status = await this.itemStatusFor(childId, itemTemplateId);
-    const links = await this.prisma.productLink.findMany({
+    const linkRows = await this.prisma.productLink.findMany({
       where: { itemTemplateId: item.id, active: true },
       orderBy: { displayOrder: "asc" }
     });
+    // UX-W(C1): 깨진 링크를 뒤로 보낸다. 집합·개수·필드는 그대로이고 순서만 바뀐다 —
+    // 근거는 PRODUCT_LINK_HEALTH_DEMOTION 주석.
+    const links = sortProductLinksForApp(linkRows);
     const disclosures = await this.disclosuresByKey();
 
     return {
@@ -288,7 +333,12 @@ export class ItemsCatalogService {
   }
 
   async adminListProductLinks() {
-    const links = await this.prisma.productLink.findMany();
+    // UX-X(R43) C7: 어드민 목록 정렬 고정 — 준비템별로 묶고 그 안에서는 노출 순서대로.
+    // 종전에는 정렬이 없어 같은 준비템의 링크들이 표 곳곳에 흩어져 보였다(DB 반환
+    // 순서에 의존). 결과 집합은 그대로이고 순서만 결정적이 된다.
+    const links = await this.prisma.productLink.findMany({
+      orderBy: [{ itemTemplateId: "asc" }, { displayOrder: "asc" }]
+    });
     const disclosures = await this.disclosuresByKey();
     return { links: links.map((link) => this.toAdminProductLinkDto(link, disclosures)) };
   }

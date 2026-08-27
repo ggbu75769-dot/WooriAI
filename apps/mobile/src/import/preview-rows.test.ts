@@ -7,6 +7,7 @@ import {
   canBulkSelectImportRows,
   confirmableSelectedRowIds,
   countImportRowsNeedingAttention,
+  countUnappliedReviewedRows,
   filterImportRows,
   formatImportRowDate,
   importBulkProgressLabel,
@@ -15,6 +16,7 @@ import {
   importRowDisplay,
   importRowNotice,
   importRowSelectability,
+  importTargetChildNotice,
   isImportRowConfirmable,
   isImportRowReviewable,
   isImportRowSelectable,
@@ -28,6 +30,7 @@ import {
   IMPORT_ROW_REVIEW_MESSAGE,
   IMPORT_ROW_REVIEWABLE_STATUSES,
   IMPORT_TARGET_CHILD_LABEL,
+  IMPORT_TARGET_CHILD_UNKNOWN_TEXT,
   type ImportPreviewRow
 } from "./preview-rows";
 
@@ -324,6 +327,72 @@ describe("UX-S 대상 아이 한 줄", () => {
     expect(resolveImportTargetChildName("child-9", children)).toBeNull();
     expect(resolveImportTargetChildName("child-1", [{ id: "child-1", nickname: "  " }])).toBeNull();
   });
+
+  /**
+   * 라운드 42 L-6 — 이름 해석에 실패하면 줄이 그냥 사라져, 화면이 **대상 아이를 밝히지 않은 채**
+   * 확정을 열어 뒀다(K-2가 겨냥한 그 자리와 같은 시나리오다).
+   */
+  it("L-6: childId는 있는데 이름을 못 찾으면 모른다는 사실을 한 줄로 말한다", () => {
+    expect(importTargetChildNotice("child-9", children)).toBe(IMPORT_TARGET_CHILD_UNKNOWN_TEXT);
+    expect(importTargetChildNotice("child-1", undefined)).toBe(IMPORT_TARGET_CHILD_UNKNOWN_TEXT);
+    expect(importTargetChildNotice("child-1", null)).toBe(IMPORT_TARGET_CHILD_UNKNOWN_TEXT);
+    expect(importTargetChildNotice("child-1", [{ id: "child-1", nickname: "  " }])).toBe(
+      IMPORT_TARGET_CHILD_UNKNOWN_TEXT
+    );
+  });
+
+  it("L-6: 이름을 찾았거나 childId 자체가 없으면 아무 말도 하지 않는다", () => {
+    // 이름이 있으면 그 이름을 값으로 그린다(경고를 겹쳐 붙이지 않는다).
+    expect(importTargetChildNotice("child-2", children)).toBeNull();
+    // 비세션·잡 미수신: 모르는 것은 모르는 것이지 문제가 아니다(IMP-003 비로그인 렌더 불변).
+    expect(importTargetChildNotice(null, children)).toBeNull();
+    expect(importTargetChildNotice(undefined, undefined)).toBeNull();
+  });
+
+  it("L-6: 문구는 해요체이고 확정을 막는다고 말하지 않는다 (DNC-018)", () => {
+    expect(IMPORT_TARGET_CHILD_UNKNOWN_TEXT).toBe(
+      "대상 아이를 확인할 수 없어요. 아이 관리에서 확인 후 진행해 주세요"
+    );
+    expect(IMPORT_TARGET_CHILD_UNKNOWN_TEXT).toContain("확인할 수 없어요");
+    // 이름을 지어내거나 자리 문구로 메우지 않는다.
+    expect(IMPORT_TARGET_CHILD_UNKNOWN_TEXT).not.toContain("아이 이름");
+  });
+});
+
+/**
+ * 라운드 42 L-2 — 검토 가능 행을 체크한 **직후**(PATCH 왕복 전)의 확정은 영구 손실이다.
+ * 낙관 갱신은 selected만 뒤집으므로 그 행들은 아직 valid가 아니라 확정 본문에서 빠지는데,
+ * 잡은 confirmed로 넘어가 그 뒤로는 편집도 재확정도 받지 않는다(IMPORT_NOT_EDITABLE).
+ */
+describe("L-2 아직 반영되지 않은 검토 체크", () => {
+  it("체크는 켜졌는데 아직 valid가 아닌 검토 가능 행만 센다", () => {
+    const rows = [
+      row({ id: "a", validationStatus: "valid", selected: true }),
+      row({ id: "b", validationStatus: "duplicate_candidate", selected: true }),
+      row({ id: "c", validationStatus: "low_confidence_duplicate_candidate", selected: true }),
+      // 체크하지 않은 검토 가능 행은 확정 본문에 애초에 실리지 않는다 -- 기다릴 이유가 없다.
+      row({ id: "d", validationStatus: "duplicate_candidate", selected: false }),
+      // 잠긴 행은 어차피 가져올 수 없다(체크 자체가 서버에서 false로 되돌아간다).
+      row({ id: "e", validationStatus: "parse_error", selected: true })
+    ];
+    expect(countUnappliedReviewedRows(rows)).toBe(2);
+  });
+
+  it("서버 응답이 도착해 valid가 되면 0이 된다(그때 확정이 열린다)", () => {
+    const pending = [row({ id: "b", validationStatus: "duplicate_candidate", selected: true })];
+    expect(countUnappliedReviewedRows(pending)).toBe(1);
+    // PATCH 응답을 캐시에 꽂은 뒤의 같은 행.
+    const applied = [row({ id: "b", validationStatus: "valid", selected: true })];
+    expect(countUnappliedReviewedRows(applied)).toBe(0);
+    // 그리고 그때 비로소 확정 본문에 실린다.
+    expect(confirmableSelectedRowIds(pending)).toEqual([]);
+    expect(confirmableSelectedRowIds(applied)).toEqual(["b"]);
+  });
+
+  it("빈 목록·전부 valid면 0이다", () => {
+    expect(countUnappliedReviewedRows([])).toBe(0);
+    expect(countUnappliedReviewedRows([row({ selected: true }), row({ id: "b", selected: false })])).toBe(0);
+  });
 });
 
 /**
@@ -427,5 +496,68 @@ describe("UX-S 검수 화면 배선 (app/import/[importJobId].tsx)", () => {
     expect(src).toContain("IMPORT_BULK_CANCELLED_TEXT");
     expect(src).toContain("IMPORT_BULK_CANCEL_LABEL");
     expect(src).not.toContain("bulkFailed ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}");
+  });
+
+  /**
+   * 라운드 42 L-2 — 검토 행 반영 전 확정 시 영구 손실 창.
+   */
+  it("L-2: 확정 disabled가 진행 중인 반영까지 본다 (판정은 순수 모듈 하나)", () => {
+    const src = screen();
+    expect(src).toContain("const canConfirm = canConfirmImport({");
+    expect(src).toContain("pendingRowCount: pendingRowIds.size,");
+    expect(src).toContain("unappliedReviewedCount");
+    expect(src).toContain("countUnappliedReviewedRows(rowList)");
+    expect(src).toContain("disabled={!canConfirm}");
+    // 반영 중인 이유를 말한다(버튼이 왜 안 눌리는지 침묵하면 고장으로 읽힌다).
+    expect(src).toContain("IMPORT_CONFIRM_PENDING_TEXT");
+    // pendingRowIds를 보지 않던 옛 disabled 식이 되돌아오면 안 된다.
+    expect(src).not.toContain("disabled={!isPreviewReady || !selectedCount || confirm.isPending || isBulkRunning}");
+  });
+
+  it("L-2: 일괄 종료 재조회는 마운트 여부와 무관하게 돈다 (언마운트 뒤 낡은 상태 방지)", () => {
+    const src = screen();
+    const finallyBlock = src.slice(src.indexOf("} finally {"), src.indexOf("const cancelBulkSelection"));
+    expect(finallyBlock).toContain("await queryClient.invalidateQueries({ queryKey: rowsQueryKey });");
+    // 화면 상태(setBulkProgress)만 마운트 조건 안에 남는다.
+    expect(finallyBlock).toContain("if (mountedRef.current) setBulkProgress(null);");
+    // 재조회를 마운트 조건 안에 가두던 옛 배선.
+    expect(finallyBlock).not.toMatch(/if \(mountedRef\.current\) \{[\s\S]*invalidateQueries/);
+  });
+
+  /**
+   * 라운드 42 L-3 — 확인 필요 행이 0이 되면 칩은 사라지는데 필터 상태만 "attention"으로 남아,
+   * 빈 목록에 끌 컨트롤이 없는 막다른 길이 됐다.
+   */
+  it("L-3: 칩이 사라지는 조건에서 필터도 함께 풀린다 (칩과 같은 판정 함수)", () => {
+    const src = screen();
+    expect(src).toContain('if (rowFilter === "attention" && !shouldShowAttentionFilter(attentionCount)) setRowFilter("all");');
+    expect(src).toContain("}, [attentionCount, rowFilter]);");
+  });
+
+  /**
+   * 라운드 42 L-4 — claim 실패가 조용한 무동작이었다.
+   */
+  it("L-4: 실행권을 못 받으면 버튼이 잠기고 그 사실을 한 줄로 말한다", () => {
+    const src = screen();
+    expect(src).toContain("const bulkRunHeldElsewhere = !isBulkRunning && isImportBulkRunActive(importJobId);");
+    expect(src).toContain("!bulkRunHeldElsewhere &&");
+    expect(src).toContain("setBulkClaimBlocked(true);");
+    expect(src).toContain("IMPORT_BULK_CLAIM_BUSY_TEXT");
+    // 아무 말 없이 돌아가던 옛 배선.
+    expect(src).not.toContain("if (!handle) return;");
+  });
+
+  /**
+   * 라운드 42 L-6 — 대상 아이 이름을 못 찾았을 때의 사실 한 줄(확정은 막지 않는다).
+   */
+  it("L-6: 이름 해석 실패를 침묵하지 않는다 (판정·문구는 순수 모듈)", () => {
+    const src = screen();
+    expect(src).toContain("const targetChildNotice = importTargetChildNotice(job.data?.childId, cachedChildren);");
+    expect(src).toContain("{targetChildNotice ? <Text style={mutedTextStyle}>{targetChildNotice}</Text> : null}");
+    // 안내가 확정 버튼을 잠그지는 않는다(서버가 쓰는 값은 어차피 job.childId다).
+    expect(src).not.toContain("targetChildNotice ? true :");
+    expect(src).not.toContain("!targetChildNotice &&");
+    // 새 hex 금지 -- 이 화면은 theme 토큰만 쓴다.
+    expect(src).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });

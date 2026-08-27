@@ -599,6 +599,39 @@ export function getAdminDashboardSummary() {
   return request<AdminDashboardSummary>("/admin/dashboard/summary");
 }
 
+// UX-X C5: GET /health/worker (INF-007/OPS-130). 백그라운드 워커가 실제로 돌고 있는지
+// 대시보드에서 확인하기 위한 읽기. `/admin/*`이 아니라 무인증 공개 엔드포인트이고
+// (서버가 id·에러 문자열을 걷어낸 카운트/불리언만 내려준다), 같은 `/api/v1` 리라이트
+// 프록시를 타므로 별도 클라이언트 없이 request()를 그대로 쓴다.
+export type WorkerHealthJob = {
+  name: string;
+  lastStatus: "ok" | "failed";
+  lastRunAt: string;
+  lastDurationMs: number;
+  /** 연속 실패 횟수. 성공하면 0으로 초기화된다. */
+  consecutiveFailures: number;
+  /** 서버가 sanitize한 잡 요약 — 숫자/불리언만 남는다. */
+  lastSummary: Record<string, number | boolean>;
+};
+
+export type WorkerHealth = {
+  enabled: boolean;
+  intervalMs: number;
+  lastTickStartedAt: string | null;
+  lastTickFinishedAt: string | null;
+  msSinceLastTick: number | null;
+  /** 켜져 있는데 주기의 3배 동안 틱이 끝난 적 없음. */
+  stale: boolean;
+  /** 어떤 잡이 failureThreshold회 연속 실패 중. */
+  degraded: boolean;
+  failureThreshold: number;
+  jobs: WorkerHealthJob[];
+};
+
+export function getWorkerHealth() {
+  return request<WorkerHealth>("/health/worker");
+}
+
 // ADM-009: read-only analytics-event aggregation for the KPI funnel page
 // (/analytics). Any admin role (admin/editor/analyst) may read it — the API
 // route has no RequireAdminRoles, same as the dashboard summary.
