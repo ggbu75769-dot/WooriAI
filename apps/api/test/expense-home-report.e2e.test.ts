@@ -405,6 +405,71 @@ describe("Expense, budget, home, and report API", () => {
       });
   });
 
+  /**
+   * 라운드 36 F-7: DNC-013 "미래 지출 금지"의 **서버 방어선**을 경계에서 고정한다.
+   *
+   * 기존 케이스는 2999-01-01처럼 아주 먼 미래만 봤다 -- 그건 어떤 구현이든 걸리므로 "오늘까지는
+   * 되고 내일부터는 안 된다"는 경계 자체를 지켜 주지 못한다(예: UTC 기준으로 판정하면 한국
+   * 저녁에 오늘 날짜가 미래로 걸린다). 이 스위트의 오늘은 WOORIAI_STAGE_TODAY=2026-07-06라
+   * 서울 기준 오늘/내일이 결정적이다.
+   *
+   * 규칙은 DTO가 아니라 서비스 계층에 있으므로(store-shared.assertNotFutureDate) 에러 코드는
+   * VALIDATION_ERROR가 아니라 EXPENSE_FUTURE_DATE이고, **생성·수정 두 경로가 같은 코드를 쓴다**
+   * (모바일 3경로의 isFutureSeoulDate를 우회해 API를 직접 호출해도 막힌다).
+   */
+  it("F-7: rejects tomorrow but accepts today on both create and update (DNC-013, Seoul-based)", async () => {
+    const accessToken = await login(app, `r36-future-date-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+    const seoulToday = "2026-07-06";
+    const seoulTomorrow = "2026-07-07";
+
+    // 오늘은 정상 경로다 -- 경계를 하루 당겨 오늘 지출을 막아 버리면 그게 더 큰 사고다.
+    const created = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ categoryId, amountKrw: 12000, spentOn: seoulToday, itemName: "오늘 기저귀" })
+        .expect(200)
+        .expect(({ body }) => {
+          expenseSchema.parse(body);
+          expect(body.spentOn).toBe(seoulToday);
+        })
+    ).body as { id: string; version: number };
+
+    // 내일은 하루만 넘어도 막힌다(생성 경로).
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId, amountKrw: 12000, spentOn: seoulTomorrow, itemName: "내일 기저귀" })
+      .expect(400)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("EXPENSE_FUTURE_DATE");
+      });
+
+    // 수정 경로도 같은 방어선을 지난다 -- 오늘로 만든 지출을 나중에 내일로 밀 수 없다.
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ spentOn: seoulTomorrow })
+      .expect(400)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("EXPENSE_FUTURE_DATE");
+      });
+
+    // 거절된 수정이 행을 건드리지 않았는지까지 확인한다(부분 적용 금지).
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ spentOn: seoulToday, itemName: "오늘 기저귀(수정)" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.spentOn).toBe(seoulToday);
+        expect(body.itemName).toBe("오늘 기저귀(수정)");
+      });
+  });
+
   it("creates a gift expense through the public create-expense API and excludes it from home and report totals", async () => {
     const accessToken = await login(app, `batch06-gift-api-${randomUUID()}`);
     const { childId } = await completeOnboarding(app, accessToken);

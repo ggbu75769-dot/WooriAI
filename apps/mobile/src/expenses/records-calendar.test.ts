@@ -486,8 +486,19 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     );
     expect(recordsSource).toContain("scrollRetryFrameRef.current = requestAnimationFrame(() => {");
     expect(recordsSource).toContain("setPendingScrollDate(date);");
-    // 취소는 두 곳 모두에서 일어난다: 다음 예약 직전과 언마운트 cleanup.
-    expect(recordsSource.match(/cancelAnimationFrame\(scrollRetryFrameRef\.current\)/g) ?? []).toHaveLength(2);
+    // 취소는 세 곳에서 일어난다: 다음 예약 직전 · 언마운트 cleanup · 그리고 라운드 36 F-6으로
+    // 더해진 **날짜 재선택**(살아남은 프레임이 이전 날짜로 스크롤을 되돌리지 못하게).
+    expect(recordsSource.match(/cancelAnimationFrame\(scrollRetryFrameRef\.current\)/g) ?? []).toHaveLength(3);
+    const selectHandler = recordsSource.slice(
+      recordsSource.indexOf("const handleSelectCalendarDate = useCallback("),
+      recordsSource.indexOf("announceForA11y(`${formatSpentOn(date)} 기록`);")
+    );
+    expect(selectHandler).toContain("cancelAnimationFrame(scrollRetryFrameRef.current)");
+    expect(selectHandler).toContain("scrollRetryFrameRef.current = null;");
+    // 취소는 재시도 예산 초기화보다 먼저다(예약된 프레임이 새 예산을 쓰고 깨어나지 않게).
+    expect(selectHandler.indexOf("cancelAnimationFrame")).toBeLessThan(
+      selectHandler.indexOf("scrollTargetDateRef.current = date;")
+    );
     // 예전의 무동작 콜백은 남아 있지 않다.
     expect(recordsSource).not.toContain("function handleRecordsScrollToIndexFailed() {");
     // 실패해도 그 날짜 announce는 탭 시점에 이미 나갔다(무음 실패가 아니다).

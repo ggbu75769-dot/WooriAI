@@ -25,6 +25,11 @@ import type { MonthlyInsight } from "./monthly-insight";
  * 없으므로 "8월 1일~27일 기준" 줄을 금액 바로 아래에 넣는다. 이미 끝난 달에는 머리글의
  * "2026년 8월"이 곧 구간이므로 그 줄을 넣지 않는다.
  *
+ * 라운드 36 F-5: 그 구간 줄과 "진행 중인가"의 소스는 **인사이트 하나**다(`partialRangeLine` /
+ * `monthStatus`). 예전에는 상태는 인사이트에서, 줄은 따로 받은 yearMonth/todayIso에서 만들어
+ * 두 소스가 어긋나면 줄만 조용히 빠졌다 — 부분 합계가 한 달치처럼 나가는 fail-unsafe였다.
+ * 이제 어긋난 인사이트(진행 중인데 구간 줄이 없음)를 만나면 **메시지 전체를 만들지 않는다**.
+ *
  * ## 개인정보
  * 공유 텍스트에 들어가는 식별 정보는 **호출자가 넘긴 아이 이름/태명 하나뿐**이다(사용자가
  * 스스로 보내는 값). childId·이메일·계정 식별자는 입력으로 받지도, 출력에 넣지도 않는다.
@@ -53,37 +58,14 @@ export function shareTopCategoryLine(categoryNames: readonly string[]): string |
   return `가장 많이 준비한 것: ${names.join("·")}`;
 }
 
-const YEAR_MONTH_PATTERN = /^\d{4}-\d{2}$/;
-const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-/**
- * 진행 중인 달의 구간 표기 — "8월 1일~27일 기준".
- *
- * 보고 있는 달이 오늘이 속한 달이 아니거나 날짜 형식이 어긋나면 null(줄 없음)이다. 오늘이
- * 그 달의 1일이면 "8월 1일~1일 기준"이 되는데, 하루치라는 사실이 그대로 드러나므로 그대로 둔다.
- */
-export function partialMonthRangeLine(yearMonth: string, todayIso: string): string | null {
-  if (!YEAR_MONTH_PATTERN.test(yearMonth) || !DATE_ONLY_PATTERN.test(todayIso)) return null;
-  if (todayIso.slice(0, 7) !== yearMonth) return null;
-  const month = Number(yearMonth.slice(5, 7));
-  const day = Number(todayIso.slice(8, 10));
-  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
-  if (!Number.isInteger(day) || day < 1) return null;
-  return `${month}월 1일~${day}일 기준`;
-}
-
 /** 빈 줄(null/공백)을 걸러 개행으로 잇는다. 카카오톡에 그대로 붙여넣는 형태. */
 export function joinShareLines(lines: ReadonlyArray<string | null | undefined>): string {
   return lines.filter((line): line is string => typeof line === "string" && line.trim().length > 0).join("\n");
 }
 
 export type MonthlyShareInput = {
-  /** 화면이 보고 있는 달 "YYYY-MM"(reports.tsx의 reportYearMonth). */
-  yearMonth: string;
   /** 화면 머리글과 같은 라벨("2026년 8월") — 공유 문구가 화면과 다른 달 이름을 쓰지 않게. */
   monthLabel: string;
-  /** 서울 기준 오늘 "YYYY-MM-DD". */
-  todayIso: string;
   /** 아이 닉네임/태명. 사용자가 스스로 보내는 값이라 그대로 싣는다. */
   childName: string;
   /** 월간 리포트 totalExpenseKrw — 화면의 "총 지출" 카드와 같은 값. */
@@ -103,22 +85,28 @@ export type MonthlyShareInput = {
  *   이번 달은 기저귀/위생에 가장 많이 썼어요 (84,200원 · 전체의 32%)
  *   — 우리아이 앱에서
  *
- * 카드의 **첫 문장(headline)만** 싣는다. 둘째 문장은 예산 달성률·하루 평균처럼 화면에서
- * 읽는 개인 목표에 가깝다 — 가족에게 보내는 카드에 예산을 얹지 않고, 줄 수도 붙여넣기 좋은
- * 다섯 줄 안에 묶어 둔다.
+ * 카드의 문장 중 **카테고리 1위 문장(`shareableHeadline`)만** 싣는다. 나머지(예산 달성률·하루
+ * 평균·지난달 비교)는 화면에서 읽는 개인 목표에 가깝다 — 가족에게 보내는 카드에 예산을 얹지
+ * 않고, 줄 수도 붙여넣기 좋은 다섯 줄 안에 묶어 둔다.
+ *
+ * 라운드 36 F-1: 여기서 `headline`(= 살아남은 첫 문장)을 쓰면 안 된다. 카테고리 분해가 아직
+ * 안 온 달에는 예산 문장이 headline 자리로 올라와 "예산의 67%를 썼고, 하루 평균 37,037원이에요"가
+ * 그대로 단톡방으로 나간다. 문장 종류를 인사이트가 태그해 주고(`shareableHeadline`), 없으면
+ * 그 줄 자체를 생략한다.
  */
 export function buildMonthlyShareMessage(input: MonthlyShareInput): string | null {
   const { insight } = input;
   if (!insight) return null;
   if (!Number.isFinite(input.totalExpenseKrw) || input.totalExpenseKrw <= 0) return null;
-
-  const rangeLine = insight.monthStatus === "in-progress" ? partialMonthRangeLine(input.yearMonth, input.todayIso) : null;
+  // F-5 fail-safe: 진행 중인 달인데 구간 줄이 없으면 부분 합계를 한 달치처럼 보내게 된다.
+  // 줄 하나를 조용히 빼는 대신 공유 자체를 접는다(호출부는 null이면 버튼을 붙이지 않는다).
+  if (insight.monthStatus === "in-progress" && insight.partialRangeLine === null) return null;
 
   return joinShareLines([
     `📊 ${input.childName}의 ${input.monthLabel}`,
     shareTotalLine(input.totalExpenseKrw),
-    rangeLine,
-    insight.headline,
+    insight.partialRangeLine,
+    insight.shareableHeadline,
     SHARE_APP_LINE
   ]);
 }

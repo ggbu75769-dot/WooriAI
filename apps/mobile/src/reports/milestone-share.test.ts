@@ -57,10 +57,14 @@ describe("REP-103 / UX-H milestone share message builder", () => {
       "다온이"
     );
 
-    expect(message).toContain("💛 다온이의 100일까지 67일째");
+    expect(message).toContain("💛 다온이의 100일 기록, 태어나서 67일째");
     expect(message).toContain("함께한 지출 830,000원");
     // 아직 오지 않은 D-day를 축하 문구로 단정하지 않는다.
     expect(message).not.toContain("🎉");
+    // 라운드 36 F-4: daysCovered는 **경과일**이다. "100일까지 67일째"는 "D-67(67일 남음)"으로
+    // 읽혀 실제 남은 날(33일)과 어긋났다 -- "까지 N일째" 조합은 다시 들어오지 않는다.
+    expect(message).not.toContain("까지 67일째");
+    expect(message).not.toMatch(/까지 \d+일째/);
   });
 
   it("falls back to a warm invitation when there are no expenses (never renders 0원)", () => {
