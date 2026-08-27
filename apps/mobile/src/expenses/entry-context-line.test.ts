@@ -180,6 +180,74 @@ describe("buildEntryContextLine — 카테고리 항", () => {
   });
 });
 
+describe("buildEntryContextLine — 라운드 37 G-4: 8타일 밖 분류가 섞인 달", () => {
+  // 엑셀 임포트/지출 수정 화면을 거친 행은 서버가 시드한 정식 카테고리 UUID(DB마다 다른 값)를
+  // 달고 온다 -- 이 화면의 8타일 어디에도 매칭되지 않아 카테고리 합계에서 통째로 빠진다.
+  const SERVER_SEED_CATEGORY = "8f2a1c40-7d3e-4b91-9a55-0f1c2d3e4b5a";
+
+  it("임포트 행이 하나라도 섞여 있으면 카테고리 항을 생략한다 (과소 표기 금지)", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER }),
+        // 엑셀로 들어온 기저귀 구매 -- 이 화면은 이 행이 어느 분류인지 알 방법이 없다.
+        serverExpense({ id: "e2", amountKrw: 140_000, categoryId: SERVER_SEED_CATEGORY })
+      ],
+      selectedCategory: { id: DIAPER, label: "기저귀" }
+    });
+    // 월 합계는 정확하다(합산 규칙은 categoryId를 보지 않는다).
+    expect(line?.text).toBe("8월 지금까지 200,000원");
+    // "기저귀 60,000원"이라고 말했다면 실제보다 작은 숫자를 사실처럼 내놓는 것이다.
+    expect(line?.text).not.toContain("기저귀");
+  });
+
+  it("로컬 대기 행이 8타일 밖 분류여도 같은 판정을 받는다", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER })],
+      offlineRows: [offlineRow({ localId: "l1", amountKrw: 8_000, categoryId: SERVER_SEED_CATEGORY })],
+      selectedCategory: { id: DIAPER, label: "기저귀" }
+    });
+    expect(line?.text).toBe("8월 지금까지 68,000원");
+  });
+
+  it("합계에서 이미 빠지는 행(선물)의 분류는 판정에 끼어들지 않는다", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER }),
+        serverExpense({ id: "e2", amountKrw: 80_000, categoryId: SERVER_SEED_CATEGORY, expenseType: "gift" })
+      ],
+      selectedCategory: { id: DIAPER, label: "기저귀" }
+    });
+    expect(line?.text).toBe("8월 지금까지 60,000원 · 기저귀 60,000원");
+  });
+
+  it("분류가 아직 없는 행(빈 categoryId)은 어느 타일 합계도 갉지 않으므로 그대로 말한다", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER }),
+        serverExpense({ id: "e2", amountKrw: 40_000, categoryId: "" })
+      ],
+      selectedCategory: { id: DIAPER, label: "기저귀" }
+    });
+    expect(line?.text).toBe("8월 지금까지 100,000원 · 기저귀 60,000원");
+  });
+
+  it("순수 타일 행만 있는 달은 종전대로 카테고리 항을 말한다", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER }),
+        serverExpense({ id: "e2", amountKrw: 40_000, categoryId: CLOTHES })
+      ],
+      selectedCategory: { id: DIAPER, label: "기저귀" }
+    });
+    expect(line?.text).toBe("8월 지금까지 100,000원 · 기저귀 60,000원");
+  });
+});
+
 describe("buildEntryContextLine — 월 경계", () => {
   it("지난달 지출을 적는 중이면 이번 달 합계를 붙이지 않는다", () => {
     const line = buildEntryContextLine({

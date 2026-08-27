@@ -49,6 +49,7 @@ import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconci
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import type { LocalExpenseRow } from "../../src/offline/types";
 import { formatKrw } from "../../src/money";
+import { resolveWeeklySpendForNotification } from "../../src/notifications/generators";
 import { NotificationBell } from "../../src/notifications/NotificationBell";
 import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
@@ -641,6 +642,22 @@ export default function HomeScreen() {
         : null,
     [hasSession, seoulToday, weeklyThisMonthRecords, weeklyLastMonthRecords]
   );
+  // 라운드 37 G-1: 알림 평가에 넘길 주간 값은 "없음"을 **두 가지로** 나눠서 말해야 한다. 콜드
+  // 스타트에서는 /home 응답이 지출 캐시보다 먼저 오는 것이 정상이라, 그 첫 평가에 weekly=null을
+  // 넘기면 주간 알림이 월 페이스 폴백으로 발화하고 그 주의 dedupeKey가 소진된다 -- 곧이어 지출
+  // 캐시가 도착해도 dedupe에 막혀, 홈 카드와 알림함이 그 주 내내 다른 숫자를 말한다.
+  // 그래서 지출 쿼리가 아직 결과를 내지 않았으면 undefined(판정 불가)를 넘겨 주간 후보 자체를
+  // 미루고, 월 페이스 폴백은 지출 쿼리가 **확정 실패**했을 때만 허용한다(규칙은 순수 모듈에).
+  // 지난달 쿼리까지 보는 이유: 달을 걸친 주(예: 9월 1일 화요일)는 지난달 캐시가 있어야 이번 주
+  // 합계를 낼 수 있어서, 그쪽이 로딩 중이면 주간 값은 여전히 "아직 모른다"이다.
+  const weeklySpendForNotification = useMemo(
+    () =>
+      resolveWeeklySpendForNotification({
+        weekly: weeklySpend,
+        expensesFailed: thisMonthExpenses.isError || lastMonthExpenses.isError
+      }),
+    [weeklySpend, thisMonthExpenses.isError, lastMonthExpenses.isError]
+  );
   const childrenQuery = useQuery({
     queryKey: ["children"],
     enabled: Boolean(authToken),
@@ -709,8 +726,9 @@ export default function HomeScreen() {
   // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
   // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.
   // UX-J: 주간 요약 알림이 홈 주간 카드와 같은 숫자를 말하도록 이미 계산된 값을 함께 넘긴다
-  // (새 요청 없음). 아직 없으면 알림은 종전 월 페이스 문구로 폴백한다.
-  useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpend);
+  // (새 요청 없음). 라운드 37 G-1: 아직 판정할 수 없으면(지출 캐시 로딩 중) 주간 알림을 미루고,
+  // 확정 실패했을 때만 월 페이스 문구로 폴백한다 -- 위 weeklySpendForNotification 참고.
+  useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification);
   // MOB-117 당겨서 새로고침: 홈 요약·최근 지출은 모두 ["home"] 쿼리에서 나온다. invalidate는
   // 활성 쿼리 refetch 완료까지 resolve되므로 스피너가 실제 완료에 맞춰 닫힌다.
   const queryClient = useQueryClient();

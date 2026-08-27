@@ -23,7 +23,11 @@ import {
 } from "../../src/expenses/category-suggestion";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
 import { buildEntryContextLine } from "../../src/expenses/entry-context-line";
-import { hasQuickExpenseInput, shouldTileFillItemName } from "../../src/expenses/entry-form-guards";
+import {
+  shouldClearQuickExpenseDraftOnClose,
+  shouldTileFillItemName,
+  type QuickExpenseInputSnapshot
+} from "../../src/expenses/entry-form-guards";
 import {
   buildItemAutocompleteSuggestions,
   formatItemAutocompleteChipLabel,
@@ -296,6 +300,11 @@ export default function NewExpenseScreen() {
   // 타일 탭이 조용히 덮어쓰지 않도록 하는 판단 재료다(shouldTileFillItemName). 타이핑이나
   // 최근/자동완성 칩으로 이름이 바뀌면 그 순간부터 "타일이 넣은 값"이 아니므로 null로 되돌린다.
   const lastTileFilledItemNameRef = useRef<string | null>(null);
+  // 라운드 37 G-7: 화면에 처음 들어왔을 때의 입력값(= 프리필로 채워진 값, 일반 진입이면 빈 값).
+  // 닫기가 "사용자가 친 것이 있는가"를 판정할 때의 기준선이다 -- useRef라 첫 렌더의 값만 담고
+  // 이후 절대 바뀌지 않으며, 비동기로 복원되는 초안은 여기에 들어오지 않는다(복원값은 기준선과
+  // 달라 그대로 지켜진다). 판정 자체는 순수 함수 한 곳에만 있다(entry-form-guards.ts).
+  const initialInputSnapshotRef = useRef<QuickExpenseInputSnapshot>({ itemName, amountText, memo });
 
   // Restores a saved quick-expense draft on mount, so a user who closes the sheet mid-entry
   // (e.g. interrupted by a call) doesn't lose what they typed. Skipped in pixel-lock capture
@@ -581,7 +590,18 @@ export default function NewExpenseScreen() {
               // 판정은 순수 함수 한 곳(entry-form-guards.ts)에만 있고, 확인 Alert은 일부러 띄우지
               // 않는다 -- 빠른 기록 흐름에 확인 한 단계를 더 얹는 값이 없다.
               // 저장 성공 경로의 clearQuickExpenseDraft(onSuccess)는 그대로다.
-              if (!hasQuickExpenseInput({ itemName, amountText, memo })) clearQuickExpenseDraft();
+              //
+              // 라운드 37 G-7: "친 것"에서 **프리필로 채워진 초기값을 제외**한다. 준비템에서
+              // 넘어와 아무것도 안 치고 그대로 닫으면 예전에는 『젖병 소독기』가 초안으로 남아,
+              // 다음 FAB 진입에서 준비템과 연결되지 않은 채 되살아났다.
+              if (
+                shouldClearQuickExpenseDraftOnClose({
+                  current: { itemName, amountText, memo },
+                  initial: initialInputSnapshotRef.current
+                })
+              ) {
+                clearQuickExpenseDraft();
+              }
               router.back();
             }}
             style={{ minWidth: 36 }}

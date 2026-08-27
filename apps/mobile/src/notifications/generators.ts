@@ -168,6 +168,37 @@ export function purchasePendingNotifications(
  */
 export type WeeklySpendSnapshot = Pick<WeeklySummary, "totalKrw" | "text">;
 
+/**
+ * 라운드 37 G-1 — 주간 값의 **세 가지** 상태. `WeeklySpendSnapshot | null` 두 가지로는 "아직
+ * 모른다"와 "영영 못 낸다"가 구분되지 않아, 콜드 스타트의 경합에서 주간 알림 키가 폴백 문구로
+ * 소진됐다(아래 weeklySummaryNotification 문서 참고).
+ *
+ *  - `undefined` = **판정 불가**. 주간 값을 만드는 지출 캐시가 아직 로딩 중이다. 이번 평가에서는
+ *    주간 후보를 만들지 않고 다음 평가로 미룬다(키를 쓰지 않으므로 확정값으로 다시 뜬다).
+ *  - `null` = **판정됨, 값 없음**. 지출 캐시가 확정 실패해 이번 주 숫자를 낼 수 없다 -> 월 페이스 폴백.
+ *  - 객체 = 홈 주간 카드가 실제로 만든 값(0원인 주도 포함).
+ */
+export type WeeklySpendResolution = WeeklySpendSnapshot | null | undefined;
+
+/** 위 세 상태를 화면의 쿼리 상태에서 만들어 내는 순수 규칙(홈이 그대로 부른다). */
+export type WeeklySpendResolutionInput = {
+  /** `evaluateWeeklySummary` 결과. 아직/영영 못 내면 null. */
+  weekly: WeeklySpendSnapshot | null;
+  /**
+   * 주간 값의 원천인 지출 쿼리(["expenses", childId, 이번 달/지난달])가 **확정 실패**했는지.
+   * 로딩 중은 false다 -- 그때는 "아직 모른다"이지 "못 낸다"가 아니다.
+   */
+  expensesFailed: boolean;
+};
+
+export function resolveWeeklySpendForNotification({
+  weekly,
+  expensesFailed
+}: WeeklySpendResolutionInput): WeeklySpendResolution {
+  if (weekly) return weekly;
+  return expensesFailed ? null : undefined;
+}
+
 export type WeeklySummaryInput = {
   childId: string;
   childName: string;
@@ -178,10 +209,13 @@ export type WeeklySummaryInput = {
   /** Epoch ms "now", used only to derive the Seoul-calendar ISO week identity. */
   now: number;
   /**
-   * UX-J: 홈이 계산한 이번 주 합계. 있으면 이것으로 문구를 만들고, 없으면(주간 캐시가 아직/영영
-   * 안 왔거나 구간을 못 덮어 홈 카드도 접힌 경우) 아래 월 페이스 폴백을 쓴다.
+   * UX-J + 라운드 37 G-1: 홈이 계산한 이번 주 합계. **세 상태를 반드시 구분해서** 넘긴다
+   * (WeeklySpendResolution 참고): 객체 = 실주간 값, `null` = 확정 실패라 월 페이스 폴백,
+   * `undefined` = 아직 모름이라 이번 평가에서는 주간 알림을 만들지 않는다.
+   * 선택 항목이 아니라 **필수**다 -- 넘기지 않은 호출부가 조용히 "판정 불가"로 떨어지면
+   * 주간 알림이 영영 안 뜨는 회귀를 아무도 못 잡는다.
    */
-  weekly?: WeeklySpendSnapshot | null;
+  weekly: WeeklySpendResolution;
 };
 
 /**
@@ -203,11 +237,14 @@ export type WeeklySummaryInput = {
  * - `weekly` 있음: 문구는 홈 카드 첫 줄 그대로다. 이번 주 합계가 0원이면 candidate 자체를 만들지
  *   않는다("이번 주 지출은 아직 없어요"를 목록에 얼려 두는 것은 소음이다). 월 누적과 같은 이유로
  *   자연스러운 결과가 따라온다: 그 주에 지출이 생기면(키가 아직 안 쓰였으므로) 그때 발화한다.
- * - `weekly` 없음: 종전 월 페이스 문구로 폴백한다. 주간 캐시가 실패했다고 주간 알림이 통째로
- *   사라지면 안 된다. **순서 주의**: /home 응답이 지출 캐시보다 먼저 도착한 그 주 첫 평가는
- *   폴백 문구로 발화하고, 키가 그것으로 소진된다(주간 값이 늦게 와도 같은 주에는 다시 뜨지
- *   않는다). 둘 다 사실인 문장이라 허용하되, 홈이 두 값을 같은 렌더에서 넘기므로 지출 캐시가
- *   이미 채워진 평소 경로에서는 주간 문구가 나온다.
+ * - `weekly === undefined`(판정 불가): **후보 자체를 만들지 않는다**(라운드 37 G-1). 콜드 스타트
+ *   에서는 /home 응답이 `["expenses", …]` 캐시보다 먼저 도착하는 것이 정상 순서인데, 종전에는
+ *   그 첫 평가가 주간 값을 "없음"으로 읽고 월 페이스 폴백으로 발화해 **그 주의 dedupeKey를
+ *   소진**했다. 잠시 뒤 지출 캐시가 도착해 진짜 주간 문구를 만들어도 dedupe에 막혀, 홈 카드는
+ *   "이번 주 84,200원"인데 알림함에는 그 주 내내 월 누적 문구만 남았다. 발화를 미루면(키를 쓰지
+ *   않으면) 같은 주의 다음 평가가 확정값으로 정확히 한 번 ingest한다. dedupeKey는 불변이다.
+ * - `weekly === null`(확정 실패): 종전 월 페이스 문구로 폴백한다. 지출 캐시가 정말로 실패했다고
+ *   주간 알림이 통째로 사라지면 안 된다 -- 그때는 월 누적도 사실이므로 그것을 말한다.
  *   - zero (or negative/invalid) month-to-date spend: return null -- a "0원 지금까지" summary is
  *     pure noise.
  *   - budget unset (amountKrw 0 from the home API): still fire, total only, no percentage.
@@ -227,9 +264,11 @@ export function weeklySummaryNotification(input: WeeklySummaryInput): AppNotific
   };
 }
 
-/** 위 문서의 두 갈래(실주간 / 월 페이스 폴백). null이면 이번 평가에서는 알리지 않는다. */
+/** 위 문서의 세 갈래(판정 불가 / 실주간 / 월 페이스 폴백). null이면 이번 평가에서는 알리지 않는다. */
 function weeklySummaryTitle(input: WeeklySummaryInput): string | null {
   const { weekly, budgetKrw, spentKrw } = input;
+  // 판정 불가(undefined): 아직 주간 값을 낼 수 없다 -- 폴백으로 키를 태우지 않고 미룬다(G-1).
+  if (weekly === undefined) return null;
   // 넘어온 주간 값이 온전할 때만 그것을 쓴다. 망가진 값(NaN 합계·빈 문구)은 "주간 값이 없다"와
   // 같이 다뤄 폴백으로 보낸다 -- 빈 제목의 알림을 목록에 남기지 않기 위해서다.
   if (weekly && Number.isFinite(weekly.totalKrw) && weekly.text.length > 0) {
@@ -247,8 +286,12 @@ export type HomeNotificationInput = {
   lastSeenStageLabel: string | null | undefined;
   followupEntries: PurchaseFollowupEntry[];
   now: number;
-  /** UX-J: 홈 주간 카드가 이미 만든 이번 주 합계. 없으면 주간 알림이 월 페이스로 폴백한다. */
-  weekly?: WeeklySpendSnapshot | null;
+  /**
+   * UX-J + 라운드 37 G-1: 홈 주간 카드가 이미 만든 이번 주 합계. 세 상태를 구분해 넘긴다
+   * (WeeklySpendResolution): 객체 = 실주간, `null` = 확정 실패라 월 페이스 폴백,
+   * `undefined` = 아직 모름이라 주간 알림을 이번 평가에서 만들지 않는다.
+   */
+  weekly: WeeklySpendResolution;
 };
 
 /** Everything the home screen's evaluation hook needs in one pure call. */
@@ -270,8 +313,9 @@ export function evaluateHomeNotifications(input: HomeNotificationInput): AppNoti
   if (stage) candidates.push(stage);
   candidates.push(...purchasePendingNotifications(input.followupEntries, input.now));
   // NOTI-103 + UX-J: weekly (Seoul ISO-week) summary. 홈이 주간 값을 함께 넘기면 홈 카드와 같은
-  // 실제 주간 문구가 되고, 없으면 종전 월 페이스 문구로 폴백한다(요청은 늘지 않는다 -- 주간 값도
-  // 홈이 이미 들고 있는 지출 캐시에서 나온다).
+  // 실제 주간 문구가 되고, 확정 실패면 종전 월 페이스 문구로 폴백한다(요청은 늘지 않는다 -- 주간
+  // 값도 홈이 이미 들고 있는 지출 캐시에서 나온다). 아직 판정 불가면 이번 평가에서는 만들지
+  // 않는다(라운드 37 G-1 -- 폴백 문구가 그 주의 dedupeKey를 소진하지 않게).
   const weeklyCandidate = weeklySummaryNotification({
     childId: input.child.id,
     childName: input.child.nickname,

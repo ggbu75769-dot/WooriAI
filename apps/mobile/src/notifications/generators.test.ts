@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   PURCHASE_FOLLOWUP_MAX_AGE_MS,
   PURCHASE_FOLLOWUP_MIN_AGE_MS,
@@ -12,9 +12,12 @@ import {
   itemTemplateIdFromPurchaseDedupeKey,
   purchasePendingDedupeKey,
   purchasePendingNotifications,
+  resolveWeeklySpendForNotification,
   stageTransitionNotification,
-  weeklySummaryNotification
+  weeklySummaryNotification,
+  type WeeklySpendResolution
 } from "./generators";
+import { useNotificationStore } from "./notification.store";
 import { SEOUL_UTC_OFFSET_MS } from "./iso-week";
 
 const NOW = 1_700_000_000_000;
@@ -225,12 +228,15 @@ describe("NOTI-103 weekly_summary generator (monthly-pace variant)", () => {
   const kst = (year: number, month1: number, day: number, hour = 12, minute = 0) =>
     Date.UTC(year, month1 - 1, day, hour, minute) - SEOUL_UTC_OFFSET_MS;
   // Thursday 2026-08-20 KST = ISO week 2026-W34 (Seoul calendar).
+  // 라운드 37 G-1: `weekly: null` = "지출 캐시가 확정 실패해 주간 숫자를 못 낸다" -- 월 페이스
+  // 폴백이 서는 유일한 경우다(아직 로딩 중이면 undefined이고, 그때는 후보 자체를 만들지 않는다).
   const base = {
     childId: "child-1",
     childName: "다온이",
     budgetKrw: 1_000_000,
     spentKrw: 300_000,
-    now: kst(2026, 8, 20)
+    now: kst(2026, 8, 20),
+    weekly: null
   };
 
   it("fires with the month-to-date total and budget pace, keyed on the Seoul ISO week", () => {
@@ -297,7 +303,8 @@ describe("UX-J weekly_summary -- 홈 주간 카드와 같은 실제 주간 숫�
     childName: "다온이",
     budgetKrw: 1_000_000,
     spentKrw: 300_000,
-    now: kst(2026, 8, 20)
+    now: kst(2026, 8, 20),
+    weekly: null
   };
 
   it("주간 값이 있으면 홈 카드 첫 줄을 그대로 제목으로 쓴다 (비교 있음: 적게)", () => {
@@ -341,18 +348,24 @@ describe("UX-J weekly_summary -- 홈 주간 카드와 같은 실제 주간 숫�
     ).toBeNull();
   });
 
-  it("주간 값이 없으면 종전 월 페이스 문구로 폴백한다 -- 알림이 통째로 사라지지 않는다", () => {
-    for (const weekly of [undefined, null]) {
-      const candidate = weeklySummaryNotification({ ...base, weekly });
-      expect(candidate!.title).toBe("이번 달 지금까지 300,000원 · 예산의 30%예요");
-      expect(candidate!.dedupeKey).toBe("weekly_summary:child-1:2026-W34");
-    }
+  it("주간 값을 확정적으로 못 내면(null) 종전 월 페이스 문구로 폴백한다 -- 알림이 통째로 사라지지 않는다", () => {
+    const candidate = weeklySummaryNotification({ ...base, weekly: null });
+    expect(candidate!.title).toBe("이번 달 지금까지 300,000원 · 예산의 30%예요");
+    expect(candidate!.dedupeKey).toBe("weekly_summary:child-1:2026-W34");
     // 예산이 없는 달의 폴백 문구도 그대로다.
     expect(weeklySummaryNotification({ ...base, budgetKrw: 0, weekly: null })!.title).toBe(
       "이번 달 지금까지 300,000원을 함께했어요"
     );
     // 폴백 경로의 "월 누적 0원이면 침묵" 규칙도 그대로다.
     expect(weeklySummaryNotification({ ...base, spentKrw: 0, weekly: null })).toBeNull();
+  });
+
+  it("라운드 37 G-1: 주간 판정 불가(undefined)면 후보 자체를 만들지 않는다 -- 폴백으로 키를 태우지 않는다", () => {
+    // 콜드 스타트에서 /home만 먼저 도착한 그 첫 평가. 종전에는 여기서 월 페이스 문구가 발화해
+    // 그 주의 dedupeKey가 소진됐고, 잠시 뒤 도착한 진짜 주간 문구는 dedupe에 막혀 못 떴다.
+    expect(weeklySummaryNotification({ ...base, weekly: undefined })).toBeNull();
+    // 월 누적이 넉넉해 폴백 문구를 만들 수 있는 상황에서도 만들지 않는다 -- 미루는 것이 요지다.
+    expect(weeklySummaryNotification({ ...base, spentKrw: 900_000, weekly: undefined })).toBeNull();
   });
 
   it("망가진 주간 값(NaN 합계·빈 문구)은 폴백으로 보낸다 -- 빈 제목 알림 금지", () => {
@@ -402,7 +415,8 @@ describe("NOTI-102 combined home evaluation", () => {
       monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 1_100_000 },
       lastSeenStageLabel: "24개월",
       followupEntries: [followupEntry()],
-      now: NOW
+      now: NOW,
+      weekly: null
     });
     expect(candidates.map((candidate) => candidate.type)).toEqual([
       "budget_100",
@@ -425,7 +439,8 @@ describe("NOTI-102 combined home evaluation", () => {
       monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 100_000 },
       lastSeenStageLabel: "24개월",
       followupEntries: [],
-      now: NOW
+      now: NOW,
+      weekly: null
     });
     expect(candidates.map((candidate) => candidate.type)).toEqual(["weekly_summary"]);
     expect(candidates[0]!.title).toBe("이번 달 지금까지 100,000원 · 예산의 10%예요");
@@ -437,7 +452,8 @@ describe("NOTI-102 combined home evaluation", () => {
       monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 0 },
       lastSeenStageLabel: "24개월",
       followupEntries: [],
-      now: NOW
+      now: NOW,
+      weekly: null
     });
     expect(candidates).toEqual([]);
   });
@@ -448,7 +464,8 @@ describe("NOTI-102 combined home evaluation", () => {
       monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 100_000 },
       lastSeenStageLabel: "24개월",
       followupEntries: [],
-      now: NOW
+      now: NOW,
+      weekly: null
     };
 
     const withWeekly = evaluateHomeNotifications({
@@ -467,5 +484,85 @@ describe("NOTI-102 combined home evaluation", () => {
       weekly: { totalKrw: 0, text: "이번 주 지출은 아직 없어요" }
     });
     expect(quietWeek.map((candidate) => candidate.type)).toEqual(["budget_80"]);
+  });
+});
+
+describe("라운드 37 G-1: 콜드 스타트 경합 (스토어 통합)", () => {
+  /** Epoch ms for a Seoul (KST) civil date/time. */
+  const kst = (year: number, month1: number, day: number, hour = 12, minute = 0) =>
+    Date.UTC(year, month1 - 1, day, hour, minute) - SEOUL_UTC_OFFSET_MS;
+  // 2026-08-20(목) KST = Seoul ISO 2026-W34.
+  const now = kst(2026, 8, 20);
+  const home = {
+    child: { id: "child-1", nickname: "다온이", stageLabel: "24개월" },
+    monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 300_000 },
+    lastSeenStageLabel: "24개월",
+    followupEntries: [],
+    now
+  };
+  const realWeekly = { totalKrw: 84_200, text: "이번 주 84,200원 · 지난주 같은 요일까지보다 12,000원 적게 썼어요" };
+
+  /** 홈 화면이 하는 일 그대로: 평가 -> 스토어 ingest. */
+  const evaluateAndIngest = (weekly: WeeklySpendResolution) =>
+    useNotificationStore.getState().ingest(evaluateHomeNotifications({ ...home, weekly }), now);
+  const weeklyEntries = () =>
+    useNotificationStore.getState().entries.filter((entry) => entry.type === "weekly_summary");
+
+  beforeEach(() => {
+    useNotificationStore.getState().resetAll();
+  });
+
+  it("resolveWeeklySpendForNotification가 세 상태를 가른다", () => {
+    // 값이 있으면 로딩/실패 여부와 무관하게 그 값이다(홈 카드가 이미 그 숫자를 그리고 있다).
+    expect(resolveWeeklySpendForNotification({ weekly: realWeekly, expensesFailed: false })).toBe(realWeekly);
+    expect(resolveWeeklySpendForNotification({ weekly: realWeekly, expensesFailed: true })).toBe(realWeekly);
+    // 값이 없을 때만 갈린다: 로딩 중이면 "아직 모른다", 확정 실패면 "못 낸다".
+    expect(resolveWeeklySpendForNotification({ weekly: null, expensesFailed: false })).toBeUndefined();
+    expect(resolveWeeklySpendForNotification({ weekly: null, expensesFailed: true })).toBeNull();
+  });
+
+  it("지출 캐시가 늦게 와도 그 주의 주간 알림은 실제 주간 문구로 뜬다", () => {
+    // 1차: /home만 도착했다(지출 쿼리 pending) -> 판정 불가.
+    evaluateAndIngest(resolveWeeklySpendForNotification({ weekly: null, expensesFailed: false }));
+    expect(weeklyEntries()).toEqual([]);
+    // 키를 쓰지 않았으므로 dedupe 메모리에도 남지 않는다 -- 다음 평가가 막히지 않는다.
+    expect(useNotificationStore.getState().seenDedupeKeys).not.toContain("weekly_summary:child-1:2026-W34");
+
+    // 2차: 지출 캐시가 도착해 홈 주간 카드와 같은 값이 나왔다.
+    evaluateAndIngest(resolveWeeklySpendForNotification({ weekly: realWeekly, expensesFailed: false }));
+    expect(weeklyEntries().map((entry) => entry.title)).toEqual([realWeekly.text]);
+    expect(weeklyEntries()[0]!.dedupeKey).toBe("weekly_summary:child-1:2026-W34");
+
+    // 3차(같은 주 재평가): dedupe가 그대로 막아 한 주에 한 번만 뜬다.
+    evaluateAndIngest(resolveWeeklySpendForNotification({ weekly: realWeekly, expensesFailed: false }));
+    expect(weeklyEntries()).toHaveLength(1);
+  });
+
+  it("결함 재현 방지: 폴백을 먼저 흘려보내면 그 주 내내 월 페이스 문구가 남는다", () => {
+    // 종전 동작(1차 평가에 null을 넘김)을 그대로 재현해 둔다 -- 왜 undefined가 필요한지의 근거.
+    evaluateAndIngest(null);
+    expect(weeklyEntries().map((entry) => entry.title)).toEqual(["이번 달 지금까지 300,000원 · 예산의 30%예요"]);
+    evaluateAndIngest(realWeekly);
+    // 진짜 주간 값이 와도 키가 이미 소진돼 목록은 바뀌지 않는다.
+    expect(weeklyEntries().map((entry) => entry.title)).toEqual(["이번 달 지금까지 300,000원 · 예산의 30%예요"]);
+  });
+
+  it("지출 캐시가 확정 실패한 경우에만 월 페이스로 폴백한다", () => {
+    evaluateAndIngest(resolveWeeklySpendForNotification({ weekly: null, expensesFailed: true }));
+    expect(weeklyEntries().map((entry) => entry.title)).toEqual(["이번 달 지금까지 300,000원 · 예산의 30%예요"]);
+  });
+
+  it("주간 알림을 미뤄도 나머지 알림은 그 평가에서 평소대로 뜬다", () => {
+    useNotificationStore
+      .getState()
+      .ingest(
+        evaluateHomeNotifications({
+          ...home,
+          monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 900_000 },
+          weekly: undefined
+        }),
+        now
+      );
+    expect(useNotificationStore.getState().entries.map((entry) => entry.type)).toEqual(["budget_80"]);
   });
 });

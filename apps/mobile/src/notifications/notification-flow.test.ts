@@ -10,7 +10,12 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     const homeSource = source("app/(tabs)/index.tsx");
     expect(homeSource).toContain("action={<NotificationBell />}");
     // UX-J: 두 번째 인자는 홈 주간 카드가 이미 만든 값(새 요청 없음) -- 세션 게이트는 그대로다.
-    expect(homeSource).toContain("useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpend)");
+    // 라운드 37 G-1: 그 값은 "아직 모름(undefined)"과 "확정 실패(null)"를 구분해서 넘어간다.
+    expect(homeSource).toContain(
+      "useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification)"
+    );
+    expect(homeSource).toContain("resolveWeeklySpendForNotification({");
+    expect(homeSource).toContain("expensesFailed: thisMonthExpenses.isError || lastMonthExpenses.isError");
     // The UX-5B-8 hide-the-bell note must be gone -- the bell is a real feature again.
     expect(homeSource).not.toContain("홈의 알림 벨은 당분간 숨긴다");
 
@@ -80,7 +85,10 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     const hookSource = source("src/notifications/useHomeNotificationEvaluation.ts");
     expect(hookSource).toContain("monthly: home.monthly");
     expect(hookSource).toContain("evaluateHomeNotifications(");
-    expect(hookSource).toContain("weekly: weekly ?? null");
+    // 라운드 37 G-1: 훅은 세 상태를 그대로 흘린다 -- `?? null`로 평탄화하면 "아직 모름"이
+    // "확정 실패"가 되어 첫 평가가 월 페이스 폴백으로 그 주의 dedupeKey를 소진한다.
+    expect(hookSource).toContain("weekly: WeeklySpendResolution");
+    expect(hookSource).not.toContain("weekly ?? null");
 
     // The store's persisted-blob sanitizer accepts the new type.
     const storeSource = source("src/notifications/notification.store.ts");

@@ -48,10 +48,33 @@ describe("HOME-127 예산 미설정 홈 판정 (evaluateHomeBudgetProgress)", ()
     expect(progress.percent).toBe(78);
   });
 
-  it("UX-J: 예산을 딱 다 쓴 달은 '남은 예산 0원'으로 사실대로 말한다(초과가 아니다)", () => {
+  it("라운드 37 G-5: 정확히 다 쓴 달은 배너에 맡기고 히어로는 총액만 말한다 (중복 금지)", () => {
+    // 종전에는 히어로만 `>`(초과)를 경계로 삼아 "남은 예산 0원"을 말했고, 같은 화면의 경고
+    // 배너는 `>=`(도달)라 "이번 달 예산을 모두 사용했어요"를 함께 말했다 -- 한 화면 두 문장.
     const progress = evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 100_000, showRemaining: true });
-    expect(progress.subtext).toBe("남은 예산 0원 · 예산 100,000원");
+    expect(progress.subtext).toBe("예산 100,000원");
+    expect(progress.subtext).not.toContain("남은 예산");
+    // 실제로 다 쓴 달이므로 100%는 그대로다(아래 G-2 캡은 미소진 구간에만 걸린다).
     expect(progress.percent).toBe(100);
+  });
+
+  it("라운드 37 G-2: 미소진인데 반올림만으로 100%가 되는 구간은 99로 캡한다", () => {
+    // 99.5% -- 종전 Math.round는 100을 냈고, 바로 옆 보조 문구는 "남은 예산 500원"이었다.
+    const boundary = evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 99_500, showRemaining: true });
+    expect(boundary.percent).toBe(99);
+    expect(boundary.subtext).toBe("남은 예산 500원 · 예산 100,000원");
+
+    // 경계 바로 아래(99.4%)는 종전대로 반올림 99, 1원만 남아도 여전히 99다.
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 99_400 }).percent).toBe(99);
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 99_999 }).percent).toBe(99);
+    // 100%는 실제로 다 쓴 달(spent >= budget)에서만 나온다.
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 100_000 }).percent).toBe(100);
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 100_001 }).percent).toBe(100);
+  });
+
+  it("라운드 37 G-2: 캡은 반올림을 대체하지 않는다 -- HOME-001 캡처 78%가 그대로다", () => {
+    // floor(77.86%)면 77%가 되어 픽셀락 캡처가 깨진다. 캡 방식을 고른 이유가 이 한 줄이다.
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 1_600_000, spentKrw: 1_245_700 }).percent).toBe(78);
   });
 
   it("UX-J: 초과한 달에는 남은 예산을 말하지 않는다 -- 경고 배너와 중복/음수 금지", () => {
@@ -122,6 +145,11 @@ describe("HOME-127 홈 넛지 카드 (buildHomeBudgetNudge)", () => {
 
     const withBanner = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 130_000, hasWarningBanner: true });
     expect(withBanner.title).toBe("예산을 모두 사용했어요.");
+  });
+
+  it("라운드 37 G-2: 넛지 문구도 미소진 구간에서 100%를 말하지 않는다", () => {
+    const nudge = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 99_500, hasWarningBanner: true });
+    expect(nudge.title).toBe("예산의 99% 사용 중이에요!");
   });
 
   it("예산을 정확히 다 쓴 경우는 초과가 아니다 -- '0원 초과' 허위 문구 금지", () => {
