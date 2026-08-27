@@ -12,8 +12,32 @@ const KAKAO_ISSUER = "https://kauth.kakao.com";
 const KAKAO_TOKEN_ENDPOINT = "https://kauth.kakao.com/oauth/token";
 const KAKAO_JWKS_URI = "https://kauth.kakao.com/.well-known/jwks.json";
 
+/**
+ * RES-130: 코드↔토큰 교환의 HTTP 타임아웃 기본값(ms).
+ *
+ * 맨 `fetch`는 undici 기본값(headers timeout 300초)을 그대로 물려받는다 —
+ * 카카오가 응답을 멈추면 로그인 요청 하나가 5분간 워커 슬롯을 붙잡고, 그 사이
+ * 재시도가 쌓이면 API 전체가 말라붙는다. 사용자가 로그인 버튼 앞에서 기다릴 수
+ * 있는 시간은 그보다 훨씬 짧으므로 5초에서 끊고 기존 실패 경로로 보낸다
+ * (link-health.job.ts의 LINK_HEALTH_TIMEOUT_MS와 같은 선례).
+ */
+export const DEFAULT_KAKAO_HTTP_TIMEOUT_MS = 5_000;
+
 function kakaoClientId(): string {
   return requireSecret("OAUTH_KAKAO_CLIENT_ID", "dev-kakao-client-id");
+}
+
+/**
+ * RES-130: KAKAO_HTTP_TIMEOUT_MS로 덮어쓸 수 있다 (숫자가 아니거나 0 이하이면
+ * 기본값 — scheduler.service.ts의 WORKER_INTERVAL_MS 파싱 관례와 동일).
+ * 호출 시점에 읽으므로 프로세스 재시작 없이 테스트에서 주입할 수 있다.
+ */
+export function kakaoHttpTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.KAKAO_HTTP_TIMEOUT_MS);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return DEFAULT_KAKAO_HTTP_TIMEOUT_MS;
+  }
+  return Math.floor(raw);
 }
 
 function errorMessage(error: unknown): string {
@@ -66,7 +90,12 @@ export class HttpKakaoOidcClient implements KakaoOidcClient {
       response = await fetch(KAKAO_TOKEN_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8" },
-        body: body.toString()
+        body: body.toString(),
+        // RES-130: 타임아웃이 걸리면 fetch가 TimeoutError로 reject되어 아래
+        // "네트워크 계층 실패" 분기를 그대로 탄다 — 외부 계약(401
+        // OAUTH_CODE_EXCHANGE_FAILED)은 바뀌지 않고, 로그에만 타임아웃
+        // 메시지가 남는다.
+        signal: AbortSignal.timeout(kakaoHttpTimeoutMs())
       });
     } catch (error) {
       // 네트워크 계층 실패 — 카카오까지 도달하지 못함(장애/DNS/타임아웃 추정).

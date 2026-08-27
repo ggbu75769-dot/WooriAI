@@ -32,8 +32,6 @@ export class YearMonthQueryDto {
  * `endYearMonth`는 다른 기간 필드와 같은 REP-105 관용 포맷(`YYYY-MM` 또는 `YYYY-MM-01`)을
  * 받는다.
  */
-export { TREND_REPORT_DEFAULT_MONTHS, TREND_REPORT_MAX_MONTHS };
-
 export class TrendReportQueryDto {
   @IsOptional()
   @Type(() => Number)

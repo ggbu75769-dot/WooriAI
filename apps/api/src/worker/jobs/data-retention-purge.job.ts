@@ -14,6 +14,39 @@ export const DEFAULT_PURGE_RETENTION_DAYS = 30;
 export const DEFAULT_PURGE_BATCH_SIZE = 200;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * SEC-130: telemetry retention. Unlike phases 1–4, these two tables hold no
+ * tombstones — every row is live operational telemetry that simply grows
+ * forever, so they need a time-based ceiling of their own rather than the
+ * 30-day post-deletion grace period (PURGE_RETENTION_DAYS) the other phases
+ * use.
+ *
+ * 400 days (≈13 months) is deliberately generous, for two independent
+ * reasons:
+ *  - 정산/통계: affiliate_clicks is the raw substrate of the admin click
+ *    breakdown and of any commission reconciliation against a partner's own
+ *    numbers; analytics_events backs the admin KPI/funnel aggregates. Both are
+ *    routinely compared year-over-year ("작년 이맘때"), so anything under 12
+ *    months would silently break a comparison an operator can no longer
+ *    reconstruct — deletion here is irreversible and the aggregates are not
+ *    pre-materialized anywhere.
+ *  - 정산 주기: affiliate networks settle and can claw back/adjust commissions
+ *    months after the click. 13 months leaves a full year plus a month of
+ *    slack for a late dispute to still be checkable against click rows.
+ * Erring long is the safe direction: these rows carry no raw identifiers
+ * (analytics_events only stores HMAC anon ids; affiliate_clicks' user/
+ * household/child ids are nulled by phases 2–3 when the referenced person is
+ * purged, and ip_hash is a salted one-way hash), so keeping them longer is a
+ * storage cost, not a privacy exposure — while deleting them too early
+ * destroys settlement evidence.
+ *
+ * Overridable via ANALYTICS_EVENTS_RETENTION_DAYS /
+ * AFFILIATE_CLICKS_RETENTION_DAYS. Shortening either is a data-destroying
+ * change — confirm with whoever owns 정산/통계 first.
+ */
+export const DEFAULT_ANALYTICS_EVENTS_RETENTION_DAYS = 400;
+export const DEFAULT_AFFILIATE_CLICKS_RETENTION_DAYS = 400;
+
 // Poison-row escalation (review M1): after this many CONSECUTIVE ticks in
 // which a phase failed terminally (first attempt AND halved retry), the phase
 // starts skipping head rows of its deterministic ordering — see runPhase.
@@ -67,7 +100,7 @@ function errorMessage(error: unknown): string {
  * idempotency_keys never had one). Deletion order below is therefore not just
  * hygiene — Postgres enforces it.
  *
- * Four phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
+ * Seven phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
  * run INDEPENDENTLY: each is wrapped in its own try/catch so one poisoned
  * phase can never block the others; a phase's terminal error is reported in
  * the summary (`<phase>Error`) and the later phases still run. A phase whose
@@ -219,6 +252,29 @@ function errorMessage(error: unknown): string {
  *    That is not a new exposure (the rows are already there); it is the same
  *    "파기 경로가 워커 하나뿐" trade-off documented in
  *    docs/operations/known-limitations.md.
+ *
+ * 6. Aged-out analytics events (AnalyticsEvent.occurredAt < now −
+ *    ANALYTICS_EVENTS_RETENTION_DAYS, default 400 — see the constant's doc for
+ *    why the default is deliberately long). SEC-130: this table only ever
+ *    grows (one row per collected client event, up to 50 per request), and
+ *    nothing else deletes from it. Selection uses occurred_at, served by
+ *    idx_analytics_events_occurred_at (PERF-101/000011). Chosen over
+ *    received_at because occurred_at is the event's own semantic time — the
+ *    same column every admin KPI window filters on, so "purged" and "outside
+ *    every queryable window" mean exactly the same thing, and a batch that
+ *    arrived late can never be deleted while still inside a reporting window.
+ *    Rows have no dependents (nothing FKs analytics_events), so the delete is
+ *    a plain batched deleteMany.
+ *
+ * 7. Aged-out affiliate clicks (AffiliateClick.clickedAt < now −
+ *    AFFILIATE_CLICKS_RETENTION_DAYS, default 400). Same shape as phase 6:
+ *    an append-only table (one row per redirect/click, and the public /r/:code
+ *    redirect is unauthenticated) that phases 2–3 only ever anonymize, never
+ *    delete. Selection uses clicked_at, served by
+ *    idx_affiliate_clicks_clicked_at (PERF-101/000011). Nothing FKs
+ *    affiliate_clicks either, so this too is a plain batched deleteMany —
+ *    but note it destroys settlement/analytics evidence, hence the long
+ *    default window.
  */
 /**
  * Terminal wrapper thrown by run() AFTER all phases have executed, when at
@@ -254,6 +310,12 @@ export class DataRetentionPurgeJob implements WorkerJob {
     const retentionDays = this.retentionDays();
     const batchSize = this.batchSize();
     const cutoff = new Date(now.getTime() - retentionDays * DAY_MS);
+    // SEC-130: telemetry tables get their own (much longer) windows — they
+    // hold live rows, not tombstones, so PURGE_RETENTION_DAYS does not apply.
+    const analyticsEventsRetentionDays = this.analyticsEventsRetentionDays();
+    const affiliateClicksRetentionDays = this.affiliateClicksRetentionDays();
+    const analyticsEventsCutoff = new Date(now.getTime() - analyticsEventsRetentionDays * DAY_MS);
+    const affiliateClicksCutoff = new Date(now.getTime() - affiliateClicksRetentionDays * DAY_MS);
 
     // Phases run independently (see class doc): a failure in one is captured
     // in the summary and never prevents the later phases from running.
@@ -287,8 +349,33 @@ export class DataRetentionPurgeJob implements WorkerJob {
       (size, skip) => this.scrubLegacyLookupQueries(now, size, skip),
       { lookupQueriesScrubbed: 0 }
     );
+    // Phases 6-7 (SEC-130): time-based telemetry retention.
+    const analyticsEvents = await this.runPhase(
+      "analyticsEventPurge",
+      batchSize,
+      (size, skip) => this.purgeAnalyticsEvents(analyticsEventsCutoff, size, skip),
+      { analyticsEventsPurged: 0 }
+    );
+    const affiliateClicks = await this.runPhase(
+      "affiliateClickPurge",
+      batchSize,
+      (size, skip) => this.purgeAffiliateClicks(affiliateClicksCutoff, size, skip),
+      { affiliateClicksPurged: 0 }
+    );
 
-    const summary = { retentionDays, batchSize, ...expenses, ...children, ...users, ...stubs, ...lookupQueries };
+    const summary = {
+      retentionDays,
+      batchSize,
+      analyticsEventsRetentionDays,
+      affiliateClicksRetentionDays,
+      ...expenses,
+      ...children,
+      ...users,
+      ...stubs,
+      ...lookupQueries,
+      ...analyticsEvents,
+      ...affiliateClicks
+    };
 
     // Review M1b: all phases have run; if any of them failed terminally,
     // surface that to the scheduler as a job failure (class doc, monitoring
@@ -762,6 +849,79 @@ export class DataRetentionPurgeJob implements WorkerJob {
   }
 
   /**
+   * Phase 6 (SEC-130): analytics events past their retention window.
+   *
+   * Same shape as every other phase — deterministic (occurred_at, id) ordering
+   * so the halved retry and the poison-skip window are strict prefixes of the
+   * same sequence, one batch per tick, deletion inside a transaction. The
+   * selection predicate is a plain range on occurred_at, served by
+   * idx_analytics_events_occurred_at.
+   */
+  private async purgeAnalyticsEvents(cutoff: Date, batchSize: number, skip: number) {
+    const where = { occurredAt: { lt: cutoff } } satisfies Prisma.AnalyticsEventWhereInput;
+    // id tiebreaker: strict total order (see purgeExpenses / review L1).
+    const orderBy = [{ occurredAt: "asc" }, { id: "asc" }] satisfies Prisma.AnalyticsEventOrderByWithRelationInput[];
+    if (skip > 0) {
+      const skipped = await this.prisma.analyticsEvent.findMany({ where, select: { id: true }, orderBy, take: skip });
+      this.logPoisonSkippedRows("analyticsEventPurge", "analytics_events", skipped.map((row) => row.id));
+    }
+    const rows = await this.prisma.analyticsEvent.findMany({
+      where,
+      select: { id: true },
+      orderBy,
+      skip,
+      take: batchSize
+    });
+    if (rows.length === 0) {
+      return { analyticsEventsPurged: 0 };
+    }
+    const ids = rows.map((row) => row.id);
+    // Nothing FKs analytics_events, so there is no cascade to order — the
+    // transaction exists only to keep the batch all-or-nothing with the rest
+    // of the phase machinery (a partial delete would still be safe, but a
+    // failed batch must not leave the summary count lying).
+    const deleted = await this.prisma.$transaction(
+      (tx) => tx.analyticsEvent.deleteMany({ where: { id: { in: ids } } }),
+      PURGE_TX_OPTIONS
+    );
+    return { analyticsEventsPurged: deleted.count };
+  }
+
+  /**
+   * Phase 7 (SEC-130): affiliate clicks past their retention window.
+   *
+   * Identical machinery to phase 6 on clicked_at (idx_affiliate_clicks_clicked_at).
+   * Note this is the one phase that destroys 정산 근거 rather than personal
+   * data, which is why its default window is ~13 months — see
+   * DEFAULT_AFFILIATE_CLICKS_RETENTION_DAYS.
+   */
+  private async purgeAffiliateClicks(cutoff: Date, batchSize: number, skip: number) {
+    const where = { clickedAt: { lt: cutoff } } satisfies Prisma.AffiliateClickWhereInput;
+    // id tiebreaker: strict total order (see purgeExpenses / review L1).
+    const orderBy = [{ clickedAt: "asc" }, { id: "asc" }] satisfies Prisma.AffiliateClickOrderByWithRelationInput[];
+    if (skip > 0) {
+      const skipped = await this.prisma.affiliateClick.findMany({ where, select: { id: true }, orderBy, take: skip });
+      this.logPoisonSkippedRows("affiliateClickPurge", "affiliate_clicks", skipped.map((row) => row.id));
+    }
+    const rows = await this.prisma.affiliateClick.findMany({
+      where,
+      select: { id: true },
+      orderBy,
+      skip,
+      take: batchSize
+    });
+    if (rows.length === 0) {
+      return { affiliateClicksPurged: 0 };
+    }
+    const ids = rows.map((row) => row.id);
+    const deleted = await this.prisma.$transaction(
+      (tx) => tx.affiliateClick.deleteMany({ where: { id: { in: ids } } }),
+      PURGE_TX_OPTIONS
+    );
+    return { affiliateClicksPurged: deleted.count };
+  }
+
+  /**
    * Returns the subset of userIds still referenced by a NOT NULL FK column on
    * a surviving row — the references that make a hard DELETE of the users row
    * impossible without destroying another member's shared household data.
@@ -886,5 +1046,15 @@ export class DataRetentionPurgeJob implements WorkerJob {
   private batchSize(): number {
     const raw = Number(process.env.PURGE_BATCH_SIZE);
     return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_PURGE_BATCH_SIZE;
+  }
+
+  private analyticsEventsRetentionDays(): number {
+    const raw = Number(process.env.ANALYTICS_EVENTS_RETENTION_DAYS);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_ANALYTICS_EVENTS_RETENTION_DAYS;
+  }
+
+  private affiliateClicksRetentionDays(): number {
+    const raw = Number(process.env.AFFILIATE_CLICKS_RETENTION_DAYS);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_AFFILIATE_CLICKS_RETENTION_DAYS;
   }
 }

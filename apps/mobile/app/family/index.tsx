@@ -17,6 +17,7 @@ import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
+import { resolveScreenPhase } from "../../src/screen-phase";
 import { FamilyPixelStyles } from "../../src/pixelLock/styles";
 
 const previewMembers = [
@@ -103,7 +104,26 @@ export default function FamilyScreen() {
     }
   });
 
-  if (hasSession && (members.isLoading || !members.data)) {
+  // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
+  const membersPhase = resolveScreenPhase({
+    isPending: members.isPending,
+    isError: members.isError,
+    hasData: Boolean(members.data)
+  });
+
+  if (hasSession && membersPhase === "error") {
+    return (
+      <AppScreen>
+        <EmptyStateCard
+          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+          actionLabel="다시 시도"
+          onPress={() => members.refetch()}
+        />
+      </AppScreen>
+    );
+  }
+
+  if (hasSession && membersPhase === "loading") {
     // MOB-119 (UX-5B-5 후속, D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     // 가족계정 카드 1장 + 멤버 행 실루엣으로 본 화면 형태를 따라간다.
     return (
@@ -114,18 +134,6 @@ export default function FamilyScreen() {
           <SkeletonRow />
           <SkeletonRow />
         </View>
-      </AppScreen>
-    );
-  }
-
-  if (hasSession && members.isError) {
-    return (
-      <AppScreen>
-        <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
-          onPress={() => members.refetch()}
-        />
       </AppScreen>
     );
   }

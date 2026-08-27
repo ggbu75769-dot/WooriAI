@@ -73,6 +73,7 @@ describe("Security middleware (rate limit, headers, body size, idempotency)", ()
     delete process.env.RATE_LIMIT_GLOBAL_MAX;
     delete process.env.RATE_LIMIT_AUTH_MAX;
     delete process.env.RATE_LIMIT_REDIRECT_MAX;
+    delete process.env.RATE_LIMIT_ANALYTICS_MAX;
     delete process.env.RATE_LIMIT_WINDOW_MS;
     delete process.env.TRUST_PROXY;
     await app.close();
@@ -163,6 +164,35 @@ describe("Security middleware (rate limit, headers, body size, idempotency)", ()
 
     // The redirect bucket must not throttle the rest of the API.
     await request(app.getHttpServer()).get("/api/v1/health").expect(200);
+  });
+
+  // SEC-130: POST /api/v1/analytics/events inserts up to 50 analytics_events
+  // rows per request — by far the highest write amplification in the API — so
+  // it gets its own tighter per-IP bucket on top of the global ceiling. The
+  // middleware runs before Nest's router/guards, so unauthenticated requests
+  // (401) exercise the bucket without needing a login.
+  it("applies a dedicated tighter ceiling to POST analytics/events than the global limit", async () => {
+    process.env.RATE_LIMIT_GLOBAL_MAX = "100";
+    process.env.RATE_LIMIT_ANALYTICS_MAX = "2";
+    process.env.RATE_LIMIT_WINDOW_MS = "60000";
+
+    const statuses: number[] = [];
+    let lastBody: unknown;
+    for (let i = 0; i < 4; i++) {
+      const response = await request(app.getHttpServer()).post("/api/v1/analytics/events").send({ events: [] });
+      statuses.push(response.status);
+      lastBody = response.body;
+    }
+
+    expect(statuses).toEqual([401, 401, 429, 429]);
+    expect(lastBody).toMatchObject({ error: { code: "RATE_LIMITED" } });
+
+    // The analytics bucket must not throttle the rest of the API...
+    await request(app.getHttpServer()).get("/api/v1/health").expect(200);
+    // ...and it is method-scoped: a non-POST request to the same path is not
+    // a batch insert, so it must not be charged to the write budget.
+    const nonPost = await request(app.getHttpServer()).get("/api/v1/analytics/events");
+    expect(nonPost.status).not.toBe(429);
   });
 
   it("with TRUST_PROXY=1 keys rate-limit buckets on the X-Forwarded-For client IP, so each attacker hits their own ceiling", async () => {

@@ -17,8 +17,12 @@ describe("Real session data integrity contract", () => {
     const homeSource = source("app/(tabs)/index.tsx");
     expect(homeSource).toContain("const hasSession = Boolean(authToken && childId);");
     expect(homeSource).toContain("const visibleHome = hasSession ? home.data! : previewHome;");
-    expect(homeSource).toContain("home.isLoading");
-    expect(homeSource).toContain("home.isError");
+    // MOB-130: 로딩/에러 판정은 resolveScreenPhase가 한다 -- 손으로 적은
+    // `home.isLoading || !home.data`가 에러 분기를 가로채던 형태로 되돌아가지 않는다.
+    // 분기 순서 자체는 src/screen-phase.test.ts가 고정한다.
+    expect(homeSource).toContain("isPending: home.isPending");
+    expect(homeSource).toContain("isError: home.isError");
+    expect(homeSource).toContain("hasData: Boolean(home.data)");
 
     const itemsSource = source("app/(tabs)/items.tsx");
     expect(itemsSource).toContain("const visibleItems = hasSession ? items.data!.items : previewItems;");

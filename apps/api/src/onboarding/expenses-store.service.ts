@@ -430,6 +430,19 @@ export class ExpensesStoreService {
     });
   }
 
+  /**
+   * DNC-015 합산 술어의 서버 쪽 인메모리 판본 — 이미 읽어 온 행 배열을 더할 때만 쓴다.
+   * 조회 범위 전체의 합은 항상 DB 집계인 `sumExpenses`가 낸다(listExpenses 주석 참고).
+   *
+   * CLN-131(상호 참조): 같은 규칙이 세 곳에 산다 —
+   *   - 서버: 이 함수와 `sumExpenses`(`expenseType: "expense"` where 절)
+   *   - 모바일: `countsTowardMonthlyTotal`(apps/mobile/src/offline/expense-list-reconciliation.ts)
+   * 모바일 판본은 `expenseType`이 **없는** 레거시 오프라인 페이로드를 지출로 간주하지만,
+   * 여기 엄격 비교와 의미 차이는 없다: Prisma 스키마의 `expenses.expense_type`이 not-null
+   * (`ExpenseType @default(expense)`)이라 DB에서 온 행은 값이 항상 채워져 있다.
+   * 모바일은 관례상 contracts/서버 코드에 의존하지 않으므로 술어를 공유하지 않고
+   * 값으로 미러링한다 — 한쪽을 바꾸면 반드시 다른 쪽도 함께 본다.
+   */
   totalExpenseKrw(expenses: ExpenseRow[]) {
     return expenses.filter((expense) => expense.expenseType === "expense").reduce((sum, expense) => sum + expense.amountKrw, 0);
   }

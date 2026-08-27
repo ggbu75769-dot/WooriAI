@@ -10,6 +10,17 @@ type RefreshTokenRecord = {
   expiresAt: Date;
   usedAt: Date | null;
   revokedAt: Date | null;
+  /**
+   * SEC-131: 이 토큰이 속한 family가 **처음 만들어진**(= 로그인한) 시각. 회전으로
+   * 새 행을 만들 때 그대로 물려받으므로 family 안의 모든 행이 같은 값을 갖는다.
+   *
+   * `MIN(created_at)`으로 유도하지 않는 이유: 로그인 시 만들어진 첫 행은 30일 뒤
+   * expiresAt이 지나면 `deleteExpired`가 지운다. 절대 수명 상한(90일)이 30일보다
+   * 길어서, 상한 판정이 필요한 시점에는 family의 최초 행이 이미 사라지고 없을 수
+   * 있다 — 남은 행들의 MIN(created_at)은 "마지막 회전 시각"에 가까워 상한이 계속
+   * 뒤로 밀린다(= 상한이 사실상 없는 것과 같다).
+   */
+  familyStartedAt: Date;
 };
 
 /**
@@ -35,7 +46,20 @@ export class RefreshTokenStore {
     return createHash("sha256").update(token).digest("hex");
   }
 
-  async create(params: { userId: string; familyId: string; jti: string; token: string; expiresAt: Date }) {
+  /**
+   * Inserts the first token of a brand-new family (login). `familyStartedAt` defaults
+   * to now — i.e. the absolute-lifetime clock (SEC-131) starts at login. Callers that
+   * revive an existing `familyId` must pass the family's original start so reusing a
+   * familyId can never reset that clock.
+   */
+  async create(params: {
+    userId: string;
+    familyId: string;
+    jti: string;
+    token: string;
+    expiresAt: Date;
+    familyStartedAt?: Date;
+  }) {
     this.requireDb();
     await this.prisma.refreshToken.create({
       data: {
@@ -43,7 +67,8 @@ export class RefreshTokenStore {
         familyId: params.familyId,
         jti: params.jti,
         tokenHash: RefreshTokenStore.hashToken(params.token),
-        expiresAt: params.expiresAt
+        expiresAt: params.expiresAt,
+        familyStartedAt: params.familyStartedAt ?? new Date()
       }
     });
   }
@@ -59,7 +84,8 @@ export class RefreshTokenStore {
           tokenHash: row.tokenHash,
           expiresAt: row.expiresAt,
           usedAt: row.usedAt,
-          revokedAt: row.revokedAt
+          revokedAt: row.revokedAt,
+          familyStartedAt: row.familyStartedAt
         }
       : null;
   }
@@ -92,6 +118,8 @@ export class RefreshTokenStore {
     newJti: string;
     newToken: string;
     newExpiresAt: Date;
+    /** SEC-131: 회전 결과 행은 family의 최초 생성 시각을 그대로 물려받는다. */
+    familyStartedAt: Date;
   }): Promise<boolean> {
     this.requireDb();
     return this.prisma.$transaction(async (tx) => {
@@ -111,7 +139,8 @@ export class RefreshTokenStore {
           familyId: params.familyId,
           jti: params.newJti,
           tokenHash: RefreshTokenStore.hashToken(params.newToken),
-          expiresAt: params.newExpiresAt
+          expiresAt: params.newExpiresAt,
+          familyStartedAt: params.familyStartedAt
         }
       });
       return true;

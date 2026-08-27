@@ -4,6 +4,7 @@ const DEFAULT_WINDOW_MS = 60_000;
 const DEFAULT_GLOBAL_MAX = 300;
 const DEFAULT_AUTH_MAX = 30;
 const DEFAULT_REDIRECT_MAX = 60;
+const DEFAULT_ANALYTICS_MAX = 30;
 
 // api/v1 is the global prefix set in bootstrap.ts's configureApiApp; this
 // middleware runs at the raw Express level (registered before Nest's router
@@ -16,6 +17,21 @@ const AUTH_PATH_PATTERN = /^\/api\/v1\/(admin\/)?auth\//;
 // could write 300 rows/min. 60 req/min is still far beyond any human
 // click-through pace (1/sec sustained) but caps the write amplification.
 const REDIRECT_PATH_PATTERN = /^\/api\/v1\/r\//;
+
+// SEC-130: analytics collection is the only endpoint where ONE request writes
+// MANY rows — POST /api/v1/analytics/events accepts a batch of up to
+// ANALYTICS_EVENTS_BATCH_MAX (= 50, analytics.service.ts) envelopes and inserts
+// one analytics_events row per accepted event. Under the global-only ceiling
+// (300 req/min) a single IP could therefore drive 300 × 50 = 15,000 inserts per
+// minute — two orders of magnitude above any other endpoint's per-request write
+// amplification, and the cheapest way to bloat the analytics table (which the
+// admin KPI aggregates then have to scan). A dedicated 30 req/min bucket caps
+// that at 30 × 50 = 1,500 rows/min per IP while leaving the mobile client
+// enormous headroom: it flushes its queue in batches every few minutes, i.e.
+// well under 1 req/min per device. Being authenticated (JwtAuthGuard) does not
+// make the endpoint safe on its own — one valid token plus a loop is all an
+// abuser needs, and the auth/* bucket does not cover this path.
+const ANALYTICS_PATH_PATTERN = /^\/api\/v1\/analytics\/events\/?$/;
 
 type Bucket = { count: number; windowStart: number };
 
@@ -47,10 +63,13 @@ function requestIdOf(req: Request): string | undefined {
  * email+IP attempt limiter in AdminAuthService, which is unrelated and
  * unaffected by this), and the public affiliate redirect `r/*` obeys its own
  * ceiling (default 60 req/min) since each request inserts an
- * affiliate_clicks row (SEC-115 F3).
+ * affiliate_clicks row (SEC-115 F3). `POST analytics/events` likewise obeys
+ * its own ceiling (default 30 req/min) since each request inserts up to 50
+ * analytics_events rows (SEC-130).
  *
  * Test isolation: limits are read from RATE_LIMIT_GLOBAL_MAX /
- * RATE_LIMIT_AUTH_MAX / RATE_LIMIT_REDIRECT_MAX / RATE_LIMIT_WINDOW_MS env
+ * RATE_LIMIT_AUTH_MAX / RATE_LIMIT_REDIRECT_MAX / RATE_LIMIT_ANALYTICS_MAX /
+ * RATE_LIMIT_WINDOW_MS env
  * vars on every request (not
  * captured once at startup), and each call to this factory creates a fresh,
  * closure-scoped bucket Map -- so a dedicated test can set very low limits
@@ -92,6 +111,7 @@ export function rateLimitMiddleware() {
     const globalMax = envInt("RATE_LIMIT_GLOBAL_MAX", DEFAULT_GLOBAL_MAX);
     const authMax = envInt("RATE_LIMIT_AUTH_MAX", DEFAULT_AUTH_MAX);
     const redirectMax = envInt("RATE_LIMIT_REDIRECT_MAX", DEFAULT_REDIRECT_MAX);
+    const analyticsMax = envInt("RATE_LIMIT_ANALYTICS_MAX", DEFAULT_ANALYTICS_MAX);
     const ip = clientIp(req);
     const path = req.path ?? req.url ?? "";
 
@@ -99,8 +119,15 @@ export function rateLimitMiddleware() {
     const withinAuth = !AUTH_PATH_PATTERN.test(path) || checkAndIncrement(`auth:${ip}`, authMax, windowMs);
     const withinRedirect =
       !REDIRECT_PATH_PATTERN.test(path) || checkAndIncrement(`redirect:${ip}`, redirectMax, windowMs);
+    // Method-scoped (unlike the other buckets): only the POST collection call
+    // writes rows, so a future read-only analytics endpoint would not be
+    // throttled by the write budget.
+    const withinAnalytics =
+      req.method !== "POST" ||
+      !ANALYTICS_PATH_PATTERN.test(path) ||
+      checkAndIncrement(`analytics:${ip}`, analyticsMax, windowMs);
 
-    if (!withinGlobal || !withinAuth || !withinRedirect) {
+    if (!withinGlobal || !withinAuth || !withinRedirect || !withinAnalytics) {
       res.setHeader("Retry-After", Math.ceil(windowMs / 1000).toString());
       res.status(429).json({
         error: {

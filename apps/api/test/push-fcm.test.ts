@@ -8,7 +8,15 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { FcmSenderService } from "../src/push/fcm-sender.service";
 import { FcmTokenService, TOKEN_REFRESH_MARGIN_MS } from "../src/push/fcm-token.service";
 import { PushConfigService } from "../src/push/push-config.service";
-import type { PushHttpClient, PushHttpResponse } from "../src/push/push-http.client";
+import {
+  DEFAULT_FCM_SEND_TIMEOUT_MS,
+  DEFAULT_FCM_TOKEN_TIMEOUT_MS,
+  FetchPushHttpClient,
+  fcmSendTimeoutMs,
+  fcmTokenTimeoutMs,
+  type PushHttpClient,
+  type PushHttpResponse
+} from "../src/push/push-http.client";
 
 // PUSH-113: FCM 발송 스캐폴드 단위 테스트 — HTTP 계층(PushHttpClient)을 스텁으로
 // 주입해 실제 네트워크 없이 검증한다: 플래그 게이트/no-op, 토큰 캐시·만료 5분 전
@@ -353,6 +361,106 @@ describe("FcmSenderService (발송 결과 — 예외 없음 계약)", () => {
     expect(result.skipped).toBe(false);
     expect(result.unregistered).toBe(false);
     expect(result.errorCode).toBe("SEND_ERROR");
+    expect(sender.countersSnapshot().sendFailed).toBe(1);
+  });
+});
+
+// ---- RES-130: 실 HTTP 클라이언트(FetchPushHttpClient) 타임아웃 ---------------
+// 위 테스트들은 PushHttpClient를 스텁으로 갈아끼워 발송 로직만 본다. 여기서는
+// 실제로 전역 fetch를 쓰는 구현체가 AbortSignal.timeout을 붙이는지, 그리고
+// 응답이 오지 않을 때(undici 기본 300초 대신) 끊고 기존 실패 경로로 흘러가는지를
+// fetch 목으로 확인한다.
+
+describe("RES-130 FetchPushHttpClient 타임아웃", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+  const savedTimeoutEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    savedTimeoutEnv.FCM_TOKEN_HTTP_TIMEOUT_MS = process.env.FCM_TOKEN_HTTP_TIMEOUT_MS;
+    savedTimeoutEnv.FCM_SEND_HTTP_TIMEOUT_MS = process.env.FCM_SEND_HTTP_TIMEOUT_MS;
+    delete process.env.FCM_TOKEN_HTTP_TIMEOUT_MS;
+    delete process.env.FCM_SEND_HTTP_TIMEOUT_MS;
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedTimeoutEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    vi.unstubAllGlobals();
+  });
+
+  /** 시그널이 abort될 때까지 응답하지 않는 서버를 흉내낸다(undici와 같은 거절 방식). */
+  function neverResponds(): void {
+    fetchMock.mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          const signal = (init as RequestInit).signal!;
+          signal.addEventListener("abort", () => reject(signal.reason));
+        })
+    );
+  }
+
+  it("타임아웃 env 파싱: 미설정/비숫자/0 이하이면 기본값(토큰 5초·발송 10초)", () => {
+    expect(DEFAULT_FCM_TOKEN_TIMEOUT_MS).toBe(5_000);
+    expect(DEFAULT_FCM_SEND_TIMEOUT_MS).toBe(10_000);
+    expect(fcmTokenTimeoutMs({})).toBe(DEFAULT_FCM_TOKEN_TIMEOUT_MS);
+    expect(fcmTokenTimeoutMs({ FCM_TOKEN_HTTP_TIMEOUT_MS: "0" })).toBe(DEFAULT_FCM_TOKEN_TIMEOUT_MS);
+    expect(fcmTokenTimeoutMs({ FCM_TOKEN_HTTP_TIMEOUT_MS: "abc" })).toBe(DEFAULT_FCM_TOKEN_TIMEOUT_MS);
+    expect(fcmTokenTimeoutMs({ FCM_TOKEN_HTTP_TIMEOUT_MS: "2500" })).toBe(2_500);
+    expect(fcmSendTimeoutMs({})).toBe(DEFAULT_FCM_SEND_TIMEOUT_MS);
+    expect(fcmSendTimeoutMs({ FCM_SEND_HTTP_TIMEOUT_MS: "-5" })).toBe(DEFAULT_FCM_SEND_TIMEOUT_MS);
+    expect(fcmSendTimeoutMs({ FCM_SEND_HTTP_TIMEOUT_MS: "7000" })).toBe(7_000);
+  });
+
+  it("postForm/postJson 모두 abort 시그널을 붙여 호출한다", async () => {
+    // 호출마다 새 Response — 본문 스트림은 한 번만 읽을 수 있다.
+    fetchMock.mockImplementation(() => Promise.resolve(new Response("{}", { status: 200 })));
+    const client = new FetchPushHttpClient();
+
+    await client.postForm("https://oauth2.googleapis.com/token", { grant_type: "x" });
+    await client.postJson("https://fcm.googleapis.com/v1/projects/p/messages:send", { message: {} }, {});
+
+    for (const call of fetchMock.mock.calls) {
+      const init = call[1] as RequestInit;
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+      expect(init.signal!.aborted).toBe(false);
+    }
+  });
+
+  it("토큰 발급이 응답하지 않으면 타임아웃으로 끊고, 발송은 기존 실패 집계(SEND_ERROR)로 흘러간다", async () => {
+    process.env.FCM_TOKEN_HTTP_TIMEOUT_MS = "25";
+    enablePush();
+    neverResponds();
+
+    const { sender } = buildServices(new FetchPushHttpClient());
+    const result = await sender.sendToDevice("device-token-1", { title: "t", body: "b" });
+
+    expect(result).toMatchObject({ ok: false, skipped: false, unregistered: false, errorCode: "SEND_ERROR" });
+    expect(sender.countersSnapshot().sendFailed).toBe(1);
+  });
+
+  it("발송(postJson)이 응답하지 않아도 타임아웃으로 끊고 실패 결과를 돌려준다 (예외 없음 계약 유지)", async () => {
+    process.env.FCM_SEND_HTTP_TIMEOUT_MS = "25";
+    enablePush();
+    fetchMock.mockImplementation((url, init) => {
+      if (String(url).includes("oauth2.googleapis.com")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ access_token: "test-access-token", expires_in: 3600 }), { status: 200 })
+        );
+      }
+      return new Promise((_resolve, reject) => {
+        const signal = (init as RequestInit).signal!;
+        signal.addEventListener("abort", () => reject(signal.reason));
+      });
+    });
+
+    const { sender } = buildServices(new FetchPushHttpClient());
+    const result = await sender.sendToDevice("device-token-1", { title: "t", body: "b" });
+
+    expect(result).toMatchObject({ ok: false, unregistered: false, errorCode: "SEND_ERROR" });
     expect(sender.countersSnapshot().sendFailed).toBe(1);
   });
 });

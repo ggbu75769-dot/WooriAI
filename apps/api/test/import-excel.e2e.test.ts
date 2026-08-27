@@ -1,6 +1,7 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
+import ExcelJS from "exceljs";
 import request from "supertest";
 import { errorResponseSchema, importJobSchema, importRowSchema } from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -259,5 +260,100 @@ describe("Excel import beta API", () => {
     expect(response.body.error.details.fields).toEqual([
       expect.objectContaining({ field: "fileName" })
     ]);
+  });
+
+  // API-130: 형식 판정이 파일명 확장자에만 기대던 것을 (1) mimetype 1차 관문과
+  // (2) 매직바이트 본검사로 나눠 잡는다. 둘 다 기존 400 IMPORT_FILE_TYPE_INVALID
+  // 봉투를 그대로 쓴다 — 사용자에게는 "지원하지 않는 파일" 하나의 사실이다.
+  describe("API-130 업로드 형식 판정", () => {
+    const validCsv = "날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n";
+
+    async function upload(
+      accessToken: string,
+      childId: string,
+      fileName: string,
+      buffer: Buffer,
+      attachOptions: string | { filename: string; contentType?: string }
+    ) {
+      return await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", fileName)
+        .attach("file", buffer, attachOptions);
+    }
+
+    it("확장자만 .xlsx인 위장 파일(zip 시그니처 아님)을 400 IMPORT_FILE_TYPE_INVALID로 거절한다", async () => {
+      const accessToken = await login(app, "api130-disguised");
+      const { childId } = await completeOnboarding(app, accessToken);
+
+      // mimetype은 진짜 xlsx처럼 보이지만(1차 관문 통과) 내용은 그냥 텍스트다.
+      const response = await upload(
+        accessToken,
+        childId,
+        "disguised.xlsx",
+        Buffer.from(validCsv, "utf8"),
+        "disguised.xlsx"
+      );
+
+      expect(response.status).toBe(400);
+      errorResponseSchema.parse(response.body);
+      expect(response.body.error.code).toBe("IMPORT_FILE_TYPE_INVALID");
+    });
+
+    it("확장자만 .csv인 바이너리(널바이트 포함)도 400 IMPORT_FILE_TYPE_INVALID로 거절한다", async () => {
+      const accessToken = await login(app, "api130-binary-csv");
+      const { childId } = await completeOnboarding(app, accessToken);
+
+      const response = await upload(
+        accessToken,
+        childId,
+        "renamed.csv",
+        Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]),
+        "renamed.csv"
+      );
+
+      expect(response.status).toBe(400);
+      errorResponseSchema.parse(response.body);
+      expect(response.body.error.code).toBe("IMPORT_FILE_TYPE_INVALID");
+    });
+
+    it("명백히 다른 mimetype(image/png)은 mimetype 관문에서 400으로 거른다", async () => {
+      const accessToken = await login(app, "api130-mimetype");
+      const { childId } = await completeOnboarding(app, accessToken);
+
+      const response = await upload(accessToken, childId, "photo.csv", Buffer.from(validCsv, "utf8"), {
+        filename: "photo.png",
+        contentType: "image/png"
+      });
+
+      expect(response.status).toBe(400);
+      errorResponseSchema.parse(response.body);
+      expect(response.body.error.code).toBe("IMPORT_FILE_TYPE_INVALID");
+    });
+
+    it("정상 csv/xlsx는 그대로 통과한다 (mimetype이 octet-stream으로 와도 매직바이트로 판정)", async () => {
+      const accessToken = await login(app, "api130-happy");
+      const { childId } = await completeOnboarding(app, accessToken);
+
+      // 모바일 앱(client.ts)은 mimeType을 모를 때 application/octet-stream을 보낸다.
+      const csvJob = await upload(accessToken, childId, "plain.csv", Buffer.from(validCsv, "utf8"), {
+        filename: "plain.csv",
+        contentType: "application/octet-stream"
+      });
+      expect(csvJob.status).toBe(200);
+      importJobSchema.parse(csvJob.body);
+      expect(csvJob.body.rowCount).toBe(1);
+
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("Sheet1");
+      sheet.addRow(["날짜", "적요", "금액"]);
+      sheet.addRow(["2026-07-06", "기저귀 구매", 32000]);
+      const xlsxBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+      const xlsxJob = await upload(accessToken, childId, "real.xlsx", xlsxBuffer, "real.xlsx");
+      expect(xlsxJob.status).toBe(200);
+      importJobSchema.parse(xlsxJob.body);
+      expect(xlsxJob.body.rowCount).toBe(1);
+    });
   });
 });

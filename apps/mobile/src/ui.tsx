@@ -124,23 +124,8 @@ export function ScreenHeader({
   );
 }
 
-export function BrandLogo({ size = 56 }: { size?: number }) {
-  return (
-    <View
-      style={{
-        alignItems: "center",
-        backgroundColor: theme.colors.white,
-        borderRadius: Math.round(size * 0.28),
-        height: size,
-        justifyContent: "center",
-        width: size,
-        ...theme.shadows.card
-      }}
-    >
-      <Text accessible={false} style={{ color: theme.colors.mainCoral, fontSize: Math.round(size * 0.54), fontWeight: "700" }}>⌁</Text>
-    </View>
-  );
-}
+// CLN-130: `BrandLogo`는 어느 화면도 렌더하지 않는 죽은 export였다(런치 화면은 자체
+// 애니메이션 마크를 그린다 -- ui-pixel-lock-flow.test.ts의 `not.toContain("<BrandLogo")` 참고).
 
 export function Card({ children, style }: ChildrenProps & { style?: StyleProp<ViewStyle> }) {
   return (
@@ -228,14 +213,8 @@ export function TextButton({ label, onPress, disabled, style, accessibilityLabel
   );
 }
 
-export function InputField({ label, value }: { label: string; value: string }) {
-  return (
-    <Card style={{ borderRadius: 16, paddingVertical: 12 }}>
-      <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{label}</Text>
-      <Text style={[textStyles.body1, { color: theme.colors.brown }]}>{value}</Text>
-    </Card>
-  );
-}
+// CLN-130: `InputField`는 값을 표시만 하는 읽기 전용 목업이었고 어느 화면도 쓰지 않았다
+// -- 실제 입력은 각 화면이 react-native TextInput을 직접 쓴다.
 
 export function SegmentedControl({
   options,
@@ -407,9 +386,8 @@ export function QuickActionIconButton({ icon, label, onPress }: { icon: string; 
   );
 }
 
-export function BottomTabBar({ children }: ChildrenProps) {
-  return <View style={{ flexDirection: "row", gap: 6 }}>{children}</View>;
-}
+// CLN-130: `BottomTabBar`는 죽은 export였다 -- 탭 바는 expo-router/@react-navigation의
+// bottom-tabs가 app/(tabs)/_layout.tsx에서 그린다.
 
 export function FloatingActionButton({ onPress, accessibilityLabel = "지출 기록하기" }: { onPress?: () => void; accessibilityLabel?: string }) {
   return (

@@ -25,6 +25,7 @@ import {
   ScreenHeader
 } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
+import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
 import { HomePixelStyles } from "../../src/pixelLock/styles/HomePixelStyles";
 
@@ -272,7 +273,22 @@ export default function HomeScreen() {
     />
   ) : undefined;
 
-  if (hasSession && (home.isLoading || !home.data)) {
+  // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
+  const homePhase = resolveScreenPhase({ isPending: home.isPending, isError: home.isError, hasData: Boolean(home.data) });
+
+  if (hasSession && homePhase === "error") {
+    return (
+      <AppScreen>
+        <EmptyStateCard
+          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+          actionLabel="다시 시도"
+          onPress={() => home.refetch()}
+        />
+      </AppScreen>
+    );
+  }
+
+  if (hasSession && homePhase === "loading") {
     // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     return (
       <AppScreen>
@@ -283,18 +299,6 @@ export default function HomeScreen() {
           <SkeletonRow />
           <SkeletonRow />
         </View>
-      </AppScreen>
-    );
-  }
-
-  if (hasSession && home.isError) {
-    return (
-      <AppScreen>
-        <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
-          onPress={() => home.refetch()}
-        />
       </AppScreen>
     );
   }

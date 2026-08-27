@@ -160,10 +160,10 @@ describe("A11Y-101 accessibility source contract", () => {
     const quickActionBlock = uiSource.slice(uiSource.indexOf("export function QuickActionIconButton"));
     expect(quickActionBlock).toContain("accessibilityLabel={label}");
 
-    const d0ListRowSource = source("src/ui/ListRow.tsx");
-    expect(d0ListRowSource).toContain('accessibilityRole="button"');
     // MOB-121: src/ui/EmptyState.tsx was removed (dead D0 component) — its CTA-role assertion
     // went with it; screens use src/ui.tsx's EmptyStateCard, covered above via uiSource.
+    // CLN-130: src/ui/ListRow.tsx followed for the same reason — the pressable-row button role
+    // that mattered is src/ui.tsx's ListRow, asserted above via uiSource.
   });
 });
 
@@ -258,15 +258,15 @@ describe("A11Y-115 accessibility sweep contract", () => {
     expect(recordsSource).toContain('returnKeyType="search"');
   });
 
-  it("hides decorative glyphs (♡, ›, ▣, ⌁) from the accessibility tree", () => {
+  it("hides decorative glyphs (♡, ›, ▣) from the accessibility tree", () => {
     expect(source("app/(tabs)/items.tsx")).toContain(
       '<Text accessible={false} style={{ color: theme.colors.brown, fontSize: 18 }}>♡</Text>'
     );
     expect(source("app/(tabs)/more.tsx")).toContain("<Text accessible={false} style={moreMenuChevronStyle}>›</Text>");
     expect(source("app/family/index.tsx")).toContain("<Text accessible={false} style={familyInviteChevronStyle}>›</Text>");
     expect(source("app/import/index.tsx")).toContain("<Text accessible={false} style={styles.fileIconText}>▣</Text>");
-    const brandLogoBlock = source("src/ui.tsx").slice(source("src/ui.tsx").indexOf("export function BrandLogo"));
-    expect(brandLogoBlock.slice(0, 600)).toContain("accessible={false}");
+    // CLN-130: the ⌁ mark belonged to src/ui.tsx's BrandLogo, a dead export removed along with
+    // its assertion — no screen rendered it.
   });
 });
 
@@ -280,9 +280,11 @@ describe("A11Y-117 accessibility round-2 contract", () => {
     const uiSource = source("src/ui.tsx");
     // Shared contrast token + the documented hold on white-on-coral brand surfaces.
     expect(uiSource).toContain("const smallCoralText = theme.colors.coral[700]");
-    const textButtonBlock = uiSource.slice(uiSource.indexOf("export function TextButton"), uiSource.indexOf("export function InputField"));
+    // CLN-130: 슬라이스 끝 경계였던 InputField/BrandLogo가 죽은 export라 제거됐다 --
+    // 각각 바로 뒤에 오는 SegmentedControl/Card로 경계를 옮긴다(구간 내용은 그대로).
+    const textButtonBlock = uiSource.slice(uiSource.indexOf("export function TextButton"), uiSource.indexOf("export function SegmentedControl"));
     expect(textButtonBlock).toContain("smallCoralText");
-    const eyebrowBlock = uiSource.slice(uiSource.indexOf("export function ScreenHeader"), uiSource.indexOf("export function BrandLogo"));
+    const eyebrowBlock = uiSource.slice(uiSource.indexOf("export function ScreenHeader"), uiSource.indexOf("export function Card"));
     expect(eyebrowBlock).toContain("smallCoralText");
     const productCardBlock = uiSource.slice(uiSource.indexOf("export function ProductCard"), uiSource.indexOf("export function ProductComparisonRow"));
     expect(productCardBlock).toContain("smallCoralText");

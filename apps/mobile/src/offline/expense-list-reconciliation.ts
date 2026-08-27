@@ -62,6 +62,15 @@ export type MonthlyExpenseReconciliation<TServerExpense extends ServerExpenseLik
  * 지난달 항을 저기서 계산하므로 두 곳의 규칙이 갈리면 그 자체가 허위 비교가 된다. 예전에는
  * 저쪽이 `!== "expense"`로 걸러 `expenseType` 없는 레거시 로컬 행을 떨어뜨렸다 -- 같은 행이
  * 이번 달에는 세어지고 지난달에는 빠지는 비대칭이었다. 술어를 한 곳(여기)에만 두어 막는다.
+ *
+ * CLN-131: src/api/local-backend.ts(데모/로컬 세션 백엔드)의 totalExpenseKrw·categoryBreakdown·
+ * getCumulativeReport·getMilestoneReport도 이 함수를 import한다. 예전에는 그쪽이
+ * `expenseType === "expense"` 엄격 비교를 네 번 인라인으로 들고 있어서, 술어가 바뀔 때
+ * 같은 데모 세션의 홈/리포트(local-backend)와 기록 탭(여기)이 서로 다른 합계를 낼 수 있었다.
+ * (실제 값 차이는 없었다 — LocalExpenseRecord.expenseType은 생성·재수화·픽스처 전 경로에서
+ * 항상 채워진다. 단일화의 목적은 앞으로의 드리프트 차단이다.)
+ * 서버 쪽 같은 규칙은 apps/api의 sumExpenses(DB 집계)/totalExpenseKrw가 따로 들고 있다 —
+ * 모바일은 관례상 contracts/서버 코드에 의존하지 않으므로 술어를 값으로 미러링만 한다.
  */
 export function countsTowardMonthlyTotal(expenseType: string | null | undefined): boolean {
   return expenseType === undefined || expenseType === null || expenseType === "expense";

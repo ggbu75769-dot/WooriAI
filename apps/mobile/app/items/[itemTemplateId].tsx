@@ -37,6 +37,7 @@ import {
   Toast
 } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
+import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
 import { ProductDetailPixelStyles } from "../../src/pixelLock/styles/ProductDetailPixelStyles";
 
@@ -351,7 +352,26 @@ export default function ItemDetailScreen() {
     trackedItemDetailViewsThisLaunch.add(viewKey);
   }, [hasSession, detail.data, authToken, analyticsConsent, viewerKey, childId, itemTemplateId]);
 
-  if (hasSession && (detail.isLoading || !detail.data)) {
+  // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
+  const detailPhase = resolveScreenPhase({
+    isPending: detail.isPending,
+    isError: detail.isError,
+    hasData: Boolean(detail.data)
+  });
+
+  if (hasSession && detailPhase === "error") {
+    return (
+      <AppScreen>
+        <EmptyStateCard
+          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+          actionLabel="다시 시도"
+          onPress={() => detail.refetch()}
+        />
+      </AppScreen>
+    );
+  }
+
+  if (hasSession && detailPhase === "loading") {
     // MOB-119 (UX-5B-5 후속, D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     // 히어로/상품정보 카드 2장 + 구매 링크 비교 행 실루엣으로 본 화면 형태를 따라간다.
     return (
@@ -363,18 +383,6 @@ export default function ItemDetailScreen() {
           <SkeletonRow />
           <SkeletonRow />
         </View>
-      </AppScreen>
-    );
-  }
-
-  if (hasSession && detail.isError) {
-    return (
-      <AppScreen>
-        <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
-          onPress={() => detail.refetch()}
-        />
       </AppScreen>
     );
   }

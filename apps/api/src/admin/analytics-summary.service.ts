@@ -202,10 +202,11 @@ export class AnalyticsSummaryService {
       dismissed: 0
     };
     for (const row of followupRows) {
-      const key = row.answer === null ? undefined : PURCHASE_FOLLOWUP_KEY_BY_ANSWER[
-        row.answer as keyof typeof PURCHASE_FOLLOWUP_KEY_BY_ANSWER
-      ];
-      if (key === undefined) continue;
+      // R29 리뷰: DB 텍스트를 그대로 객체 인덱싱하면 "__proto__"·"toString" 같은 값이
+      // Object.prototype을 타고 undefined가 아닌 것을 돌려줘 미분류 가드를 우회한다 —
+      // 자기 소유 키일 때만 리터럴로 인정한다.
+      if (row.answer === null || !Object.hasOwn(PURCHASE_FOLLOWUP_KEY_BY_ANSWER, row.answer)) continue;
+      const key = PURCHASE_FOLLOWUP_KEY_BY_ANSWER[row.answer as keyof typeof PURCHASE_FOLLOWUP_KEY_BY_ANSWER];
       purchaseFollowup[key] += Number(row.count);
     }
 

@@ -562,6 +562,11 @@ model RefreshToken {
   usedAt     DateTime? @map("used_at") @db.Timestamptz(6)
   revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  // SEC-131(000019): 이 토큰이 속한 family가 처음 생성된(로그인) 시각. 회전 시
+  // 그대로 승계되어 family 전체가 같은 값을 갖는다 — refresh 회전의 절대 수명
+  // 상한(REFRESH_FAMILY_MAX_AGE_DAYS, 기본 90일) 판정 기준.
+  // created_at의 MIN으로 대체할 수 없는 이유는 마이그레이션 헤더 참고.
+  familyStartedAt DateTime @default(now()) @map("family_started_at") @db.Timestamptz(6)
 
   // PERF-101(000011): SQL 전용 부분 인덱스 idx_refresh_tokens_revoked_at
   // (revoked_at) WHERE revoked_at IS NOT NULL 이 별도로 존재한다(정리 워커의

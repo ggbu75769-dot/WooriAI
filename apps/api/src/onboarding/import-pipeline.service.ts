@@ -3,8 +3,12 @@ import { BadRequestException, HttpException, Inject, Injectable, NotFoundExcepti
 import type { Prisma } from "@prisma/client";
 import type { ImportStatus } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  IMPORT_FILE_TOO_LARGE_CODE,
+  IMPORT_FILE_TOO_LARGE_MESSAGE
+} from "../common/filters/global-exception.filter";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
-import { parseImportFile, type ParsedImportRow } from "../imports/import-parser";
+import { assertImportFileMatchesExtension, parseImportFile, type ParsedImportRow } from "../imports/import-parser";
 import { PushDispatchService } from "../push/push-dispatch.service";
 import { ChildAccessService } from "./child-access.service";
 import { ExpensesStoreService } from "./expenses-store.service";
@@ -51,7 +55,12 @@ export type ConfirmImportInput = {
 };
 
 const defaultImportCategoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const importMaxFileSizeBytes = 10 * 1024 * 1024;
+/**
+ * 업로드 크기 상한. 여기서는 클라이언트가 알려준 fileSizeBytes를 사전 검증하고,
+ * 실제 스트림 크기는 ImportsController의 multer `limits.fileSize`가 같은 값으로
+ * 끊는다(API-130) — 그래서 컨트롤러가 이 상수를 가져다 쓴다.
+ */
+export const IMPORT_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const importMaxRows = 2000;
 
 /**
@@ -80,6 +89,11 @@ export class ImportPipelineService {
     if (!input.fileBuffer || input.fileBuffer.length === 0) {
       throw new BadRequestException({ code: "IMPORT_FILE_REQUIRED", message: "Import file is required." });
     }
+
+    // API-130: 형식 판정의 본검사 — 확장자/클라이언트 mimetype이 아니라 실제
+    // 바이트로 확인한다(컨트롤러의 mimetype fileFilter는 명백한 불일치만 거르는
+    // 1차 관문일 뿐이다).
+    assertImportFileMatchesExtension(input.fileBuffer, fileName);
 
     const referenceYear = Number(currentYearMonth().slice(0, 4));
     let parsed: Awaited<ReturnType<typeof parseImportFile>>;
@@ -317,8 +331,10 @@ export class ImportPipelineService {
       throw new BadRequestException({ code: "IMPORT_FILE_TYPE_INVALID", message: "Only csv or xlsx files are allowed." });
     }
 
-    if (input.fileSizeBytes !== undefined && input.fileSizeBytes > importMaxFileSizeBytes) {
-      throw new BadRequestException({ code: "IMPORT_FILE_TOO_LARGE", message: "Import files must be 10MB or smaller." });
+    if (input.fileSizeBytes !== undefined && input.fileSizeBytes > IMPORT_MAX_FILE_SIZE_BYTES) {
+      // API-130: 실제 스트림이 상한을 넘어 multer가 끊는 경우(413)와 같은
+      // 코드/문구를 쓴다 — 상수는 GlobalExceptionFilter가 단일 소스.
+      throw new BadRequestException({ code: IMPORT_FILE_TOO_LARGE_CODE, message: IMPORT_FILE_TOO_LARGE_MESSAGE });
     }
 
     if (input.estimatedRowCount !== undefined && input.estimatedRowCount > importMaxRows) {

@@ -10,6 +10,7 @@ import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton, Toast } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
+import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
 import { ItemListPixelStyles } from "../../src/pixelLock/styles";
 import { bandDefinitions, resolveDefaultStageLabel, type StageBandLabel } from "../../src/items/stage-bands";
@@ -289,7 +290,22 @@ export default function ItemsScreen() {
     ])
   );
 
-  if (hasSession && (items.isLoading || !items.data)) {
+  // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
+  const itemsPhase = resolveScreenPhase({ isPending: items.isPending, isError: items.isError, hasData: Boolean(items.data) });
+
+  if (hasSession && itemsPhase === "error") {
+    return (
+      <AppScreen>
+        <EmptyStateCard
+          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
+          actionLabel="다시 시도"
+          onPress={() => items.refetch()}
+        />
+      </AppScreen>
+    );
+  }
+
+  if (hasSession && itemsPhase === "loading") {
     // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     return (
       <AppScreen>
@@ -299,18 +315,6 @@ export default function ItemsScreen() {
           <SkeletonRow />
           <SkeletonRow />
         </View>
-      </AppScreen>
-    );
-  }
-
-  if (hasSession && items.isError) {
-    return (
-      <AppScreen>
-        <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
-          onPress={() => items.refetch()}
-        />
       </AppScreen>
     );
   }

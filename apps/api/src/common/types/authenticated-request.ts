@@ -1,5 +1,13 @@
 import type { MemberRole, UserStatus } from "@wooriai/domain";
 
+/**
+ * 요청을 수행하는 사용자. SEC-131 이후 이 객체의 **모든 필드는 DB에서 온다** —
+ * `HouseholdRuntimeService.enrichUser`가 매 토큰 검증마다 users/household_members를
+ * 읽어 새로 만든다. JWT 페이로드는 더 이상 displayName/email/households를 담지 않으며
+ * (평문 base64url이라 헤더·로그에 PII가 상주했다), `sub`(사용자 id)만 이 조회의
+ * 입력으로 쓰인다. 따라서 이 타입에 필드를 더할 때 "토큰 클레임에서 읽어 채우는"
+ * 방식은 선택지가 아니다 — 조회 대상 테이블을 정해 enrichUser에서 채울 것.
+ */
 export type AuthenticatedUser = {
   id: string;
   displayName: string;

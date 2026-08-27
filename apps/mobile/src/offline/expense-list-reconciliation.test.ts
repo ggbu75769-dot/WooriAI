@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { countsTowardMonthlyTotal, reconcileMonthlyExpenses } from "./expense-list-reconciliation";
 import type { LocalExpenseRow } from "./types";
@@ -243,5 +245,28 @@ describe("countsTowardMonthlyTotal (월 합계 화이트리스트, DNC-015)", ()
   it("필드가 없는 레거시 로컬 페이로드는 지출로 간주한다 (합계에서 통째로 빠지면 안 된다)", () => {
     expect(countsTowardMonthlyTotal(undefined)).toBe(true);
     expect(countsTowardMonthlyTotal(null)).toBe(true);
+  });
+});
+
+/**
+ * CLN-131 재인라인 가드 — src/offline/messages.test.ts의 "인라인 재발 방지" 관례와 같은 형태.
+ *
+ * 데모/로컬 세션 백엔드(src/api/local-backend.ts)는 홈 총액·카테고리·누적·마일스톤 네 곳에서
+ * 합계를 낸다. 그 술어가 기록 탭(여기)과 갈리면 같은 데모 세션 안에서 화면마다 다른 총액이
+ * 나오므로, 인라인 `expenseType === "expense"`로 되돌아가는 변경을 소스 수준에서 막는다.
+ */
+describe("CLN-131 합산 술어 단일 소스 (재인라인 가드)", () => {
+  const localBackendSource = readFileSync(join(process.cwd(), "src/api/local-backend.ts"), "utf8");
+
+  it("데모 백엔드는 술어를 여기서 import한다", () => {
+    expect(localBackendSource).toContain('import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation"');
+  });
+
+  it("합계를 내는 네 곳이 모두 그 함수를 통과한다 -- 인라인 엄격 비교가 다시 나타나면 실패", () => {
+    expect(localBackendSource.match(/countsTowardMonthlyTotal\(/g) ?? []).toHaveLength(4);
+    expect(
+      localBackendSource,
+      "local-backend must not re-inline the DNC-015 predicate -- use countsTowardMonthlyTotal"
+    ).not.toMatch(/expenseType === "expense"/);
   });
 });

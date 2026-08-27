@@ -14,8 +14,9 @@
    [release-runbook.md §3.1](release-runbook.md)에 있다.
    - `GET /api/v1/health` — liveness. 200이어도 DB를 보지 않으므로 **이것만으로 정상 판정 금지**.
    - `GET /api/v1/health/ready` — readiness(DB 연결 포함). **503이면 DB 문제**.
-   - `GET /api/v1/health/worker` — 워커 상태. **항상 200**이므로 본문의 `"stale":true`와
-     `jobs[].lastStatus`를 읽는다(모니터 설정은 [release-runbook.md §3.2](release-runbook.md)).
+   - `GET /api/v1/health/worker` — 워커 상태. **항상 200**이므로 본문의 `"stale":true`·
+     `"degraded":true`와 `jobs[].lastStatus`를 읽는다(모니터 설정은
+     [release-runbook.md §3.2](release-runbook.md)).
 2. 서버 로그에서 requestId 기준으로 오류 추적 (structured JSON 로그, Authorization 헤더는 redact됨).
 3. DB 상태: `pnpm db status`, 연결 수·디스크 확인. 데이터는 PostgreSQL에 영속되므로
    **API를 재기동해도 사용자 데이터가 사라지지 않는다** — "재시작하면 초기화되는" 프로토타입
@@ -43,15 +44,23 @@
 퍼지/정리 잡이 멈추면 화면에는 아무 증상이 없고 오래된 데이터만 계속 쌓인다 — 그래서 별도
 항목으로 둔다.
 
+증상은 두 갈래다 — **루프가 멈춤(`stale`)** 과 **루프는 도는데 특정 잡이 계속 실패
+(`degraded`, OPS-130)**. 둘 다 화면에는 아무 증상이 없다.
+
 1. `GET /api/v1/health/worker` 본문 확인: `enabled`(의도적으로 끈 배포인가), `stale`(enabled인데
-   인터벌 3배 안에 끝난 틱이 없음), `jobs[].lastStatus`/`lastRunAt`.
+   인터벌 3배 안에 끝난 틱이 없음), `degraded`(어떤 잡이 `failureThreshold`회 연속 실패),
+   `jobs[].lastStatus`/`lastRunAt`/`consecutiveFailures`.
 2. `stale=true`면 API 프로세스 재기동으로 스케줄러를 되살린다. 상태는 프로세스 단위라
    재기동 시 초기화된다.
-3. `enabled=false`인데 워커가 돌아야 하는 배포라면 **`WORKER_ENABLED=1`이 주입됐는지** 확인한다
+3. `degraded=true`면 **재기동으로 해결되지 않는다**(카운터만 초기화됨). `consecutiveFailures`가
+   가장 큰 잡을 찾아 서버 로그에서 `job=<이름> status=failed` 라인의 스택을 읽는다 — 오류
+   문자열은 무인증 엔드포인트에 노출되지 않고 로그에만 남는다. 파기 잡이라면
+   `phase=<라벨> ... 수동 조치 필요` ERROR 로그(poison-skip)를 함께 확인한다.
+4. `enabled=false`인데 워커가 돌아야 하는 배포라면 **`WORKER_ENABLED=1`이 주입됐는지** 확인한다
    (주기는 `WORKER_INTERVAL_MS`, 미설정 시 기본값). `enabled=false`는 `stale`을 항상 `false`로
    만들어 모니터가 조용하므로, "알림이 없었다"가 "워커가 돌았다"를 뜻하지 않는다.
-4. 재발 방지: 업타임 체커의 keyword 모니터가 실제로 걸려 있는지 확인
-   ([release-runbook.md §3.2](release-runbook.md)).
+5. 재발 방지: 업타임 체커의 keyword 모니터(`"stale":true`·`"degraded":true` **둘 다**)가 실제로
+   걸려 있는지 확인 ([release-runbook.md §3.2](release-runbook.md)).
 
 ## 사후
 

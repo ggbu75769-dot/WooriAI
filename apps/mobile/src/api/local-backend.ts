@@ -15,6 +15,10 @@ import {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { persistStorage } from "../stores/persist-storage";
+// CLN-131: 월/총 합계에 잡히는 행인지 판정하는 술어(DNC-015)의 단일 소스. 기록 탭이 쓰는
+// reconcileMonthlyExpenses와 같은 함수를 써야 데모 세션의 홈·리포트·기록 합계가 갈리지 않는다.
+// (offline/expense-list-reconciliation.ts는 React/네이티브 의존이 없어 여기서 안전하게 쓴다.)
+import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";
 import { categoryCatalog } from "../categories";
 import { itemMatchesBand, type StageBandLabel } from "../items/stage-bands";
 import type {
@@ -506,13 +510,27 @@ function expensesForChild(childId: string, yearMonth?: string): LocalExpenseReco
     .sort((left, right) => right.spentOn.localeCompare(left.spentOn) || right.createdAt.localeCompare(left.createdAt));
 }
 
+/**
+ * CLN-131: 합산 술어(DNC-015)는 `countsTowardMonthlyTotal` 한 곳에서만 온다.
+ *
+ * 데모/로컬 세션의 홈 총액·리포트는 여기서, 기록 탭의 월 합계는
+ * `reconcileMonthlyExpenses`(src/offline/expense-list-reconciliation.ts)에서 나온다. 두
+ * 경로가 각자 expenseType 엄격 비교를 인라인으로 들고 있으면 한쪽만 고쳐질 때 같은
+ * 세션의 두 화면이 다른 총액을 보여준다 — 그래서 술어를 import해 쓴다.
+ *
+ * 의미 차이 없음(CLN-131 판정): `countsTowardMonthlyTotal`은 `expenseType`이 없는 레거시
+ * 페이로드를 지출로 간주하지만, `LocalExpenseRecord.expenseType`은 항상 채워져 있다 —
+ * createExpense가 `body.expenseType ?? "expense"`로 찍고(:689 부근),
+ * sanitizeLocalExpenseRecord가 재수화 때 문자열이 아니면 `"expense"`로 되돌리며,
+ * 픽스처(local-fixtures.ts)도 전부 명시한다. 따라서 데모 픽스처 렌더 결과는 그대로다.
+ */
 function totalExpenseKrw(expenses: LocalExpenseRecord[]): number {
-  return expenses.filter((expense) => expense.expenseType === "expense").reduce((sum, expense) => sum + expense.amountKrw, 0);
+  return expenses.filter((expense) => countsTowardMonthlyTotal(expense.expenseType)).reduce((sum, expense) => sum + expense.amountKrw, 0);
 }
 
 function categoryBreakdown(expenses: LocalExpenseRecord[]) {
   const byCategory = new Map<string, { categoryId: string; amountKrw: number; count: number }>();
-  for (const expense of expenses.filter((record) => record.expenseType === "expense")) {
+  for (const expense of expenses.filter((record) => countsTowardMonthlyTotal(record.expenseType))) {
     const current = byCategory.get(expense.categoryId) ?? { categoryId: expense.categoryId, amountKrw: 0, count: 0 };
     current.amountKrw += expense.amountKrw;
     current.count += 1;
@@ -912,7 +930,7 @@ export function getTrendReport(childId: string, endYearMonth: string, months: nu
 
 export function getCumulativeReport(childId: string): CumulativeReport {
   ensureSeeded();
-  const expenses = expensesForChild(childId).filter((expense) => expense.expenseType === "expense");
+  const expenses = expensesForChild(childId).filter((expense) => countsTowardMonthlyTotal(expense.expenseType));
   const yearly = new Map<string, { year: string; amountKrw: number; count: number }>();
   for (const expense of expenses) {
     const year = expense.spentOn.slice(0, 4);
@@ -979,7 +997,7 @@ export function getMilestoneReport(childId: string, type: MilestoneReportType): 
   const partial = coveredEndExclusive < windowEndExclusive;
   const daysCovered = diffDateOnlyDays(startDate, coveredEndExclusive);
 
-  const stored = expensesForChild(childId).filter((expense) => expense.expenseType === "expense");
+  const stored = expensesForChild(childId).filter((expense) => countsTowardMonthlyTotal(expense.expenseType));
   const inWindow = stored.filter((expense) => expense.spentOn >= startDate && expense.spentOn < coveredEndExclusive);
   const aggregated = inWindow.length > 0 ? inWindow : stored;
 
