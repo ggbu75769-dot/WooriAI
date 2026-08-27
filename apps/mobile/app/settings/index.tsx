@@ -1,16 +1,59 @@
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Alert, Pressable, Switch, Text, View } from "react-native";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
+import {
+  listChildren,
+  listHouseholdMembers,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_SESSION_TOKEN
+} from "../../src/api/client";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, ListRow, ScreenHeader } from "../../src/ui";
 
+const summaryLoadingText = "불러오는 중...";
+const summaryUnavailableText = "불러오지 못했어요";
+
 export default function SettingsScreen() {
-  const householdId = useSessionStore((state) => state.defaultHouseholdId);
+  const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
+  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const clearSession = useSessionStore((state) => state.clearSession);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const clearSelectedChild = useSelectedChildStore((state) => state.clearSelectedChildId);
+  // NAV-121: 요약 카드가 연결 여부만 알려주는 무정보 문구 대신 실제 값을 보여주도록, 아이 관리
+  // (app/settings/children.tsx)·가족 관리(app/family/index.tsx) 화면과 같은 캐시 키를 재사용한다.
+  // 새 엔드포인트를 부르지 않고 이미 채워진 캐시를 그대로 읽는 게 대부분이다.
+  const children = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
+  });
+  const members = useQuery({
+    queryKey: ["household-members", householdId],
+    enabled: Boolean(authToken && householdId),
+    queryFn: () => listHouseholdMembers(authToken!, householdId!)
+  });
+
+  const householdSummary = !householdId
+    ? "연결된 가구가 없어요"
+    : members.data
+      ? `가족 ${members.data.members.length}명`
+      : members.isError
+        ? summaryUnavailableText
+        : summaryLoadingText;
+  const selectedChild = children.data?.children.find((child) => child.id === childId);
+  const childSummary = !childId
+    ? "선택된 아이가 없어요"
+    : selectedChild
+      ? `${selectedChild.nickname} · ${selectedChild.stageLabel}`
+      : children.isError
+        ? summaryUnavailableText
+        : summaryLoadingText;
   // ANA-102: opt-in analytics consent -- backed by the persisted zustand store that gates the
   // entire analytics client (src/analytics/flag.ts), so flipping this off immediately stops any
   // event from being queued or sent, and the choice survives app restarts.
@@ -39,28 +82,30 @@ export default function SettingsScreen() {
         <Card style={{ gap: 6 }}>
           <View style={summaryRowStyle}>
             <Text style={summaryLabelStyle}>현재 가구</Text>
-            <Text style={summaryValueStyle}>{householdId ? "연결됨" : "연결된 가구가 없어요"}</Text>
+            <Text style={summaryValueStyle}>{householdSummary}</Text>
           </View>
           <View style={summaryRowStyle}>
             <Text style={summaryLabelStyle}>선택된 아이</Text>
-            <Text style={summaryValueStyle}>{childId ? "선택됨" : "선택된 아이가 없어요"}</Text>
+            <Text style={summaryValueStyle}>{childSummary}</Text>
           </View>
         </Card>
       </View>
 
       <View testID="screen-SET-002" style={{ gap: theme.spacing.gap }}>
-        <ListRow
-          icon="◐"
-          title="아이 · 가구 프로필"
-          subtitle="아이 정보와 가구 구성을 확인해요"
-          onPress={() => router.push("/family")}
-        />
         {/* MOB-118: 아이 목록 · 전환 · 편집 · 추가 (SET-005) */}
         <ListRow
           icon="✎"
           title="아이 관리"
           subtitle="아이를 전환하거나 정보를 수정해요"
           onPress={() => router.push("/settings/children")}
+        />
+        {/* NAV-121: "아이 · 가구 프로필"과 "가족 관리"가 둘 다 /family로 가던 중복 행을 하나로 합쳤다.
+            아이 정보는 위의 아이 관리(SET-005)가, 가구 구성·초대·멤버는 이 행이 담당한다. */}
+        <ListRow
+          icon="♥"
+          title="가족 관리"
+          subtitle="가구 프로필과 초대 · 멤버를 관리해요"
+          onPress={() => router.push("/family")}
         />
         <ListRow
           icon="₩"
@@ -80,12 +125,6 @@ export default function SettingsScreen() {
           title="약관 및 개인정보"
           subtitle="동의 내역과 삭제 · 탈퇴를 관리해요"
           onPress={() => router.push("/settings/privacy")}
-        />
-        <ListRow
-          icon="♥"
-          title="가족 관리"
-          subtitle="초대와 멤버를 관리해요"
-          onPress={() => router.push("/family")}
         />
         <ListRow
           icon="⇩"
