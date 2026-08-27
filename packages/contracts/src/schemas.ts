@@ -143,8 +143,16 @@ export const EXPENSE_LIST_MAX_LIMIT = 500;
 // API-124: GET /children/:childId/expenses 쿼리 계약 — 서버 ListExpensesQueryDto의 미러.
 // 셋 다 선택적이라, limit/cursor를 모르는 기존 클라이언트는 종전과 같은 요청을 보내고
 // 서버가 기본 limit(200)의 첫 페이지를 돌려준다(하위호환).
+//
+// R24-L5: `yearMonth`의 월은 01~12로 묶는다. 종전 `\d{2}`는 서버보다 느슨해
+// `2026-13`/`2026-00`을 계약상 유효로 판정했지만, 서버는 같은 값을 400
+// VALIDATION_ERROR로 거절한다(`apps/api/src/common/validation/year-month.ts`
+// `YEAR_MONTH_INPUT_PATTERN` — 무제한 `\d{2}`가 getSeoulMonthRange에서 Invalid
+// Date로 터져 500이 되는 것을 막으려고 좁힌 패턴이다). 계약이 서버보다 넓으면
+// 계약을 통과한 요청이 서버에서 거절당해, 이 스키마를 믿는 클라이언트가 잡을 수
+// 있었던 오류를 왕복 뒤에야 알게 된다. 두 정규식은 **문자 그대로 같아야 한다**.
 export const listExpensesQuerySchema = z.object({
-  yearMonth: z.string().regex(/^\d{4}-\d{2}(-01)?$/).optional(),
+  yearMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])(-01)?$/).optional(),
   limit: z.number().int().min(1).max(EXPENSE_LIST_MAX_LIMIT).optional(),
   cursor: z.string().min(1).optional()
 });

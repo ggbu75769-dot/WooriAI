@@ -225,8 +225,18 @@ describe.skipIf(!dbAvailable)("PERF-119 user_devices push_token index (migration
  *
  * 실측 수치(스크래치 DB 5만 행, 아이당 1,250건)는
  * docs/operations/perf-index-notes.md의 PERF-121 절 참고.
+ *
+ * R24-M3 갱신: 000017이 같은 술어를 서빙할 수 있는 두 번째 부분 인덱스
+ * `idx_expenses_list_keyset (child_id, spent_on DESC, created_at DESC, id DESC)
+ * WHERE deleted_at IS NULL`을 추가했다. 두 인덱스 모두 선두가 `child_id`이고 부분
+ * 술어가 같아 **어느 쪽을 타도 이 블록의 전제("seq scan으로 떨어지지 않는다")는
+ * 성립한다** — 어느 쪽이 뽑히는지는 순전히 통계 문제다(테스트 DB는 몇 행뿐이라
+ * 새 인덱스가, 실측 볼륨에서는 더 좁은 idx_expenses_not_deleted가 선택됐다.
+ * perf-index-notes.md R24-M3의 Q6 참고). 그래서 아래 검증은 둘 중 하나를 OR로 받는다.
  */
-describe.skipIf(!dbAvailable)("PERF-121 reporting hot-path queries reuse idx_expenses_not_deleted", () => {
+const EXPENSE_CHILD_PARTIAL_INDEX = /idx_expenses_not_deleted|idx_expenses_list_keyset/;
+
+describe.skipIf(!dbAvailable)("PERF-121 reporting hot-path queries reuse a (child_id, spent_on ...) partial index", () => {
   let prisma: PrismaClient;
 
   beforeAll(() => {
@@ -255,19 +265,26 @@ describe.skipIf(!dbAvailable)("PERF-121 reporting hot-path queries reuse idx_exp
       `SELECT SUM(amount_krw) FROM expenses
        WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL AND expense_type = ${EXPENSE_TYPE}`
     );
-    expect(plan).toContain("idx_expenses_not_deleted");
+    expect(plan).toMatch(EXPENSE_CHILD_PARTIAL_INDEX);
   });
 
-  it("홈 최근 3건(LIMIT 3)이 부분 인덱스를 탄다", async () => {
+  it("홈 최근 3건(LIMIT 3)이 정렬 계약에 맞는 부분 인덱스를 탄다", async () => {
     // ExpensesStoreService.expensesForChild(childId, undefined, 3).
     // FIX-121A(F1): 정렬에 `id DESC` 결정적 타이브레이커가 붙었다 — 서비스가 실제로
     // 발행하는 모양 그대로 유지한다(인덱스 사용 여부는 WHERE 술어가 결정하므로 불변).
+    //
+    // R24-M3 갱신: 000017이 정렬 계약과 컬럼·방향까지 일치하는 부분 인덱스
+    // idx_expenses_list_keyset을 추가한 뒤로는 **둘 중 어느 쪽을 타도 정상**이다.
+    // 두 인덱스 모두 (child_id, spent_on ...) WHERE deleted_at IS NULL 이라 이 술어를
+    // 서빙할 수 있고, 어느 쪽이 선택되는지는 통계에 달렸다(실측 DB에서는 Sort 노드가
+    // 사라지는 새 인덱스가 선택된다 — docs/operations/perf-index-notes.md R24-M3).
+    // 이 테스트가 고정하려는 것은 "seq scan으로 떨어지지 않는다"이므로 OR로 받는다.
     const plan = await explainWithoutSeqscan(
       `SELECT id FROM expenses
        WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL
        ORDER BY spent_on DESC, created_at DESC, id DESC LIMIT 3`
     );
-    expect(plan).toContain("idx_expenses_not_deleted");
+    expect(plan).toMatch(EXPENSE_CHILD_PARTIAL_INDEX);
   });
 
   it("누적 리포트 일자 groupBy가 부분 인덱스를 탄다", async () => {
@@ -277,6 +294,118 @@ describe.skipIf(!dbAvailable)("PERF-121 reporting hot-path queries reuse idx_exp
        WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL AND expense_type = ${EXPENSE_TYPE}
        GROUP BY spent_on`
     );
-    expect(plan).toContain("idx_expenses_not_deleted");
+    expect(plan).toMatch(EXPENSE_CHILD_PARTIAL_INDEX);
+  });
+});
+
+/**
+ * R24-M3: 마이그레이션 000017_expenses_list_keyset_idx 검증. 위 블록들과 같은 관례로
+ * pg_indexes 정의(계약)를 고정한다 — 부분 인덱스라 schema.prisma에 `@@index`로
+ * 표현할 수 없으므로(000001 idx_expenses_not_deleted 관례) **이 테스트가 마이그레이션
+ * 적용 여부를 확인하는 유일한 자동 검증**이다.
+ *
+ * 추가로, 이 인덱스가 실제로 사는 값("정렬 커버")과 사지 못하는 값("깊은 커서 seek")을
+ * 둘 다 플랜으로 고정한다 — JSDoc/문서의 주장이 다시 어긋나지 않게 하기 위함이다.
+ * 실측 수치는 docs/operations/perf-index-notes.md의 R24-M3 절 참고.
+ */
+describe.skipIf(!dbAvailable)("R24-M3 expense list keyset index (migration 000017)", () => {
+  let prisma: PrismaClient;
+
+  beforeAll(() => {
+    deployMigrations();
+    prisma = new PrismaClient();
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  async function indexDef(table: string, index: string): Promise<string | undefined> {
+    const rows = await prisma.$queryRaw<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public' AND tablename = ${table} AND indexname = ${index}`;
+    return rows[0]?.indexdef;
+  }
+
+  async function explainWithoutSeqscan(sql: string): Promise<string> {
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+      const rows = await tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(`EXPLAIN ${sql}`);
+      return rows.map((row) => row["QUERY PLAN"]).join("\n");
+    });
+  }
+
+  const ZERO_UUID = "'00000000-0000-0000-0000-000000000000'::uuid";
+
+  it("idx_expenses_list_keyset이 정렬 계약과 같은 컬럼·방향의 부분 인덱스로 존재한다", async () => {
+    const def = await indexDef("expenses", "idx_expenses_list_keyset");
+    expect(def).toBeDefined();
+    // 정렬 계약: spent_on DESC, created_at DESC, id DESC (FIX-121A) + child_id 선두.
+    expect(def).toContain("(child_id, spent_on DESC, created_at DESC, id DESC)");
+    // soft delete 행을 담지 않는 부분 인덱스 — 목록 쿼리는 항상 deleted_at IS NULL이다.
+    expect(def).toContain("WHERE (deleted_at IS NULL)");
+  });
+
+  it("커서 없는 첫 페이지가 이 인덱스를 타고 별도 Sort 노드 없이 정렬된다", async () => {
+    // ExpensesStoreService.expensesForChild(childId, undefined, limit + 1) — 커서 없음.
+    const plan = await explainWithoutSeqscan(
+      `SELECT id FROM expenses
+       WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL
+       ORDER BY spent_on DESC, created_at DESC, id DESC LIMIT 201`
+    );
+    expect(plan).toContain("idx_expenses_list_keyset");
+    // 인덱스 순서가 정렬 계약과 같으므로 Sort/Incremental Sort 노드가 필요 없다.
+    expect(plan).not.toMatch(/(Incremental )?Sort/);
+  });
+
+  it("yearMonth 범위가 Index Cond로 흡수된다", async () => {
+    const plan = await explainWithoutSeqscan(
+      `SELECT id FROM expenses
+       WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL
+         AND spent_on >= '2026-07-01'::date AND spent_on < '2026-08-01'::date
+       ORDER BY spent_on DESC, created_at DESC, id DESC LIMIT 201`
+    );
+    expect(plan).toContain("idx_expenses_list_keyset");
+    expect(plan).toContain("spent_on");
+  });
+
+  /**
+   * 이 인덱스가 **고치지 못하는 것**을 명시적으로 고정한다. Prisma가 튜플 비교를
+   * 표현하지 못해 커서 술어는 3분기 OR로 나가고, Postgres는 그 OR를 인덱스 시작점
+   * (Index Cond)으로 삼지 못해 Filter로 처리한다 — 그래서 깊은 페이지에서 앞 페이지
+   * 전체를 훑는 O(offset)이 남는다(expensesForChild JSDoc의 R24-M3 정정 참고).
+   * 이 테스트가 깨지면(= OR이 Index Cond로 올라가면) 그 정정을 되돌릴 때가 온 것이다.
+   */
+  it("Prisma의 3분기 OR 커서 술어는 Index Cond가 아니라 Filter로 남는다 (O(offset) 잔존)", async () => {
+    const plan = await explainWithoutSeqscan(
+      `SELECT id FROM expenses
+       WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL
+         AND (spent_on < '2026-07-06'::date
+           OR (spent_on = '2026-07-06'::date AND created_at < '2026-07-06 03:04:05.123+00'::timestamptz)
+           OR (spent_on = '2026-07-06'::date AND created_at = '2026-07-06 03:04:05.123+00'::timestamptz
+               AND id < ${ZERO_UUID}))
+       ORDER BY spent_on DESC, created_at DESC, id DESC LIMIT 201`
+    );
+    expect(plan).toContain("idx_expenses_list_keyset");
+    expect(plan).toContain("Filter:");
+    // 인덱스 조건은 child_id 하나뿐 — 커서 술어는 시작점을 좁히지 못한다.
+    expect(plan).toMatch(/Index Cond: \(child_id = /);
+  });
+
+  /**
+   * 반대로 "행 비교(row comparison)로 바꾸면 실제로 seek가 된다"는 후속 판단의 근거도
+   * 고정해 둔다 — 같은 인덱스에서 튜플 비교는 Index Cond로 올라간다(Prisma가 표현하지
+   * 못할 뿐 인덱스는 이미 준비돼 있다는 뜻). 노트의 후속 항목이 실행 가능한지의 증거.
+   */
+  it("(후속 근거) 같은 인덱스에서 행 비교 커서는 Index Cond로 올라간다", async () => {
+    const plan = await explainWithoutSeqscan(
+      `SELECT id FROM expenses
+       WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL
+         AND (spent_on, created_at, id)
+             < ('2026-07-06'::date, '2026-07-06 03:04:05.123+00'::timestamptz, ${ZERO_UUID})
+       ORDER BY spent_on DESC, created_at DESC, id DESC LIMIT 201`
+    );
+    expect(plan).toContain("idx_expenses_list_keyset");
+    expect(plan).toMatch(/Index Cond:[\s\S]*ROW\(spent_on, created_at, id\)/);
   });
 });

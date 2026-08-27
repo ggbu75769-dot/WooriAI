@@ -4,6 +4,7 @@ import { EXPENSE_LIST_DEFAULT_LIMIT } from "@wooriai/contracts";
 import { getSeoulMonthRange, type ExpenseSource, type ExpenseType, type PaymentMethod } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
+import { isUuid } from "../common/validation/uuid";
 import { ChildAccessService } from "./child-access.service";
 import {
   assertNotFutureDate,
@@ -56,9 +57,26 @@ export type ExpenseListCursor = {
 
 const EXPENSE_CURSOR_SEPARATOR = "|";
 
+/**
+ * R24-L4: 커서의 `createdAt` 조각은 **항상 `Date.prototype.toISOString()`이 찍는
+ * UTC 밀리초 3자리 형태**다(`YYYY-MM-DDTHH:mm:ss.sssZ`). 이것이 이 커서의 정밀도
+ * 불변식이다 — `expenses.created_at`은 `timestamptz(6)`(마이크로초)이지만 Prisma
+ * 클라이언트가 만드는 값은 JS `Date`라 밀리초 단위이고, 그래서 커서 왕복
+ * (Date → ISO ms 문자열 → Date)이 무손실이다.
+ *
+ * 만약 raw SQL/복구/백필로 **sub-ms 정밀도의 `created_at` 행**이 들어오면 이
+ * 불변식이 깨져 커서 경계에서 행이 유실될 수 있다(마이크로초가 잘려 내림된 커서
+ * 값이 그 행 자신과 같아져 `created_at < 커서` 술어에서 빠진다). 백필은
+ * `date_trunc('milliseconds', now())`로 넣을 것 — 자세한 조건·증상·해소는
+ * docs/operations/known-limitations.md 참고.
+ */
+const CREATED_AT_ISO_MS_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
 /** base64("<spentOn YYYY-MM-DD>|<createdAt ISO 8601>|<id>") — sync/cursor.ts와 같은 모양의 불투명 문자열. */
 export function encodeExpenseCursor(row: { spentOn: Date; createdAt: Date; id: string }): string {
   const raw = [
+    // `toISOString()`은 항상 밀리초 3자리 UTC — 위 CREATED_AT_ISO_MS_PATTERN의 불변식이
+    // 여기서 성립하고, 디코더가 같은 형태만 받아들인다(R24-L4).
     row.spentOn.toISOString().slice(0, 10),
     row.createdAt.toISOString(),
     row.id
@@ -66,6 +84,20 @@ export function encodeExpenseCursor(row: { spentOn: Date; createdAt: Date; id: s
   return Buffer.from(raw, "utf8").toString("base64");
 }
 
+/**
+ * 커서 문자열 → 정렬키. **인코더가 만들 수 없는 값은 전부 손상 커서로 보고**
+ * 400 `EXPENSE_CURSOR_INVALID`로 돌린다(조용히 무시하면 클라이언트가 첫 페이지를
+ * 다음 페이지로 오인해 무한 루프에 빠질 수 있다 — sync.service.ts와 같은 태도).
+ *
+ * R24-M2: `id`는 UUID 형식까지 확인한다. 종전에는 빈 문자열만 걸러서, 구조는
+ * 맞지만 id가 UUID가 아닌 커서(`base64("2026-07-06|...|not-a-uuid")`)가 그대로
+ * Prisma의 `@db.Uuid` 술어에 들어가 드라이버 예외 → **500**이 됐다. 사용자
+ * 입력이 원인인 오류이므로 여기서 400으로 잡는다.
+ *
+ * R24-L4: `createdAt`도 인코더가 찍는 밀리초 3자리 ISO 형태만 받아들인다 —
+ * sub-ms 정밀도(`...05.123456Z`)는 인코더가 만들 수 없는 값이라 손상 커서다.
+ * (`new Date()`가 잘라 삼키면 경계에서 행이 유실될 수 있다.)
+ */
 export function decodeExpenseCursor(value: string): ExpenseListCursor {
   const raw = Buffer.from(value, "base64").toString("utf8");
   const parts = raw.split(EXPENSE_CURSOR_SEPARATOR);
@@ -75,7 +107,13 @@ export function decodeExpenseCursor(value: string): ExpenseListCursor {
   const [spentOnPart, createdAtPart, id] = parts;
   const spentOn = new Date(`${spentOnPart}T00:00:00.000Z`);
   const createdAt = new Date(createdAtPart);
-  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(spentOnPart) || Number.isNaN(spentOn.getTime()) || Number.isNaN(createdAt.getTime())) {
+  if (
+    !isUuid(id) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(spentOnPart) ||
+    !CREATED_AT_ISO_MS_PATTERN.test(createdAtPart) ||
+    Number.isNaN(spentOn.getTime()) ||
+    Number.isNaN(createdAt.getTime())
+  ) {
     throw new BadRequestException({ code: "EXPENSE_CURSOR_INVALID", message: "목록 커서가 올바르지 않아요." });
   }
   return { spentOn, createdAt, id };
@@ -337,9 +375,19 @@ export class ExpensesStoreService {
    *
    * API-124(F1): `after`는 keyset 커서다 — 정렬키 (spentOn, createdAt, id) 전체에 대한
    * 사전식 "미만" 술어라 위 정렬 계약과 정확히 맞물린다. OFFSET을 쓰지 않으므로 페이지
-   * 사이에 행이 생기거나 지워져도 건너뜀/중복이 생기지 않고, 깊은 페이지에서도 앞
-   * 페이지를 다시 스캔하지 않는다. FIX-121A의 `id` 타이브레이커가 여기서 두 번째
-   * 역할을 한다 — 동률 행이 있어도 커서가 가리키는 지점이 유일하게 정해진다.
+   * 사이에 행이 생기거나 지워져도 건너뜀/중복이 생기지 않는다(이것이 이 커서의 실제
+   * 이득이다). FIX-121A의 `id` 타이브레이커가 여기서 두 번째 역할을 한다 — 동률 행이
+   * 있어도 커서가 가리키는 지점이 유일하게 정해진다.
+   *
+   * ⚠️ R24-M3 정정: 종전 주석은 "깊은 페이지에서도 앞 페이지를 다시 스캔하지 않는다"고
+   * 적었지만 **사실이 아니다**. Prisma는 튜플 비교 `(spent_on, created_at, id) < (...)`를
+   * 표현할 수 없어 위 술어가 3분기 OR로 나가고, Postgres는 그 OR를 인덱스 시작점으로
+   * 삼지 못한다 — 인덱스를 정렬 순서대로 훑으며 **Filter로 앞 페이지 행을 전부 버린
+   * 뒤** 이번 페이지를 채운다. 즉 읽는 인덱스 엔트리 수는 O(offset)이다(실측: offset
+   * 10,000에서 buffers 약 47배). 000017의 정렬 일치 인덱스가 Sort 노드를 없애고 힙
+   * 접근을 줄여 상수를 크게 낮추지만, O(offset) 자체는 남는다. 진짜 O(1) seek를
+   * 원하면 `$queryRaw`로 행 비교를 써야 하며, 그 판단·실측은
+   * docs/operations/perf-index-notes.md의 R24-M3 절에 남겼다.
    */
   async expensesForChild(
     childId: string,

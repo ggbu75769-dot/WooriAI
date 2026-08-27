@@ -290,3 +290,116 @@ Prisma는 파생식(연도 추출) 기준 groupBy를 표현할 수 없어 일자
   `CREATE INDEX CONCURRENTLY`(트랜잭션 밖 실행 필요)로 **별도 마이그레이션**을 새로 만든다.
   Prisma의 마이그레이션은 기본적으로 트랜잭션으로 감싸므로 CONCURRENTLY 문은 단독 마이그레이션
   파일로 분리해야 한다.
+
+---
+
+# R24-M3 (000017) — 지출 목록 keyset 커서: 정렬 일치 인덱스 + "앞 페이지 재스캔" 주장 정정
+
+라운드 24 리뷰 M3의 처리 기록. 이 절은 **인덱스를 추가하면서도 "이 인덱스가 그 문제를
+고치지는 못한다"를 함께 남기는** 항목이라, PERF-101 이래의 원칙("측정 없이 추가 금지")에
+더해 *측정으로 반증된 주석을 정정한 기록*을 같이 둔다.
+
+## 발단 — 코드 주석이 사실과 반대였다
+
+`expensesForChild`(`apps/api/src/onboarding/expenses-store.service.ts`)의 API-124 JSDoc은
+keyset 커서에 대해 이렇게 적고 있었다:
+
+> OFFSET을 쓰지 않으므로 … **깊은 페이지에서도 앞 페이지를 다시 스캔하지 않는다**.
+
+측정 결과 뒷부분은 **틀렸다**. Prisma는 튜플 비교 `(spent_on, created_at, id) < (…)`를
+표현할 수 없어 커서 술어가 3분기 OR로 나가고, Postgres는 그 OR를 인덱스 시작점
+(Index Cond)으로 삼지 못한다 — 인덱스를 정렬 순서대로 훑으며 **Filter로 앞 페이지 행을
+전부 버린 뒤** 이번 페이지를 채운다. 즉 읽는 엔트리 수는 여전히 O(offset)이다.
+(OFFSET을 쓰지 않는 데서 오는 진짜 이득 — 페이지 사이에 행이 생기거나 지워져도
+건너뜀/중복이 없다는 안정성 — 은 그대로 유효하다. 틀린 것은 비용에 대한 주장뿐이다.)
+
+## 측정 환경
+
+- PostgreSQL 16, 스크래치 DB `wooriai_perf124`(000001~000016 적용 후 볼륨 생성, 측정 후 드랍)
+- 볼륨: 가구 8 / 사용자 8 / 아이 16 / **지출 80,000건**, 그중 **대상 아이 1명에 20,000건**
+  (24개월 730일 분산 = 하루 약 27건의 군집형, 선물 10% 혼합, 2% soft-delete 톰스톤,
+  memo를 현실적 크기로 채움). `created_at`은 `date_trunc('milliseconds', …)`로 넣어
+  Prisma 클라이언트가 만드는 값과 같은 정밀도를 유지했다(R24-L4의 ms 불변식).
+- 쿼리 모양은 Prisma 쿼리 로그로 실제 발행 SQL(21컬럼 SELECT, `LIMIT 201`)을 뜬 뒤 그대로 EXPLAIN
+- 수치는 warm cache `EXPLAIN (ANALYZE, BUFFERS)`, 각 쿼리 8회 이상 반복해 중앙값 확인
+
+## Before/After — `idx_expenses_list_keyset (child_id, spent_on DESC, created_at DESC, id DESC) WHERE deleted_at IS NULL`
+
+| # | 쿼리 (발행 위치) | Before (000016) | After (000017) | 판정 |
+|---|---|---|---|---|
+| Q1 | 첫 페이지, 커서 없음 `LIMIT 201` (`listExpenses` 1페이지) | 231buf / **0.76ms** — `Index Scan Backward idx_expenses_not_deleted` + **Incremental Sort** | 205buf / **0.35ms** — `Index Scan idx_expenses_list_keyset`, **Sort 노드 없음** | **개선 2.2배** |
+| Q2 | 커서 @ offset 1,000 (3분기 OR) | 1,225buf / 1.06ms, `Rows Removed by Filter: 1001` | 1,211buf / 0.88ms, `Rows Removed by Filter: 1001` | 거의 동률 |
+| Q3 | **커서 @ offset 10,000** (3분기 OR) | **10,243buf / 7.3ms**, `Rows Removed by Filter: 10001` | **10,255buf / 7.6ms**, `Rows Removed by Filter: 10001` | **개선 없음** |
+| Q4 | 홈 `recentExpenses` `LIMIT 3` (`getHome`) | 30buf / 0.073ms (+Incremental Sort) | **6buf / 0.042ms** | **개선 5배(buf)** |
+| Q5 | 월 범위 목록 `yearMonth=2026-07` | 219buf / 0.47ms | 205buf / 0.27ms — 범위가 `Index Cond`로 흡수 | **개선 1.7배** |
+| Q6 | `sumExpenses` 전 기간 SUM | 772buf / 7.6ms — `idx_expenses_not_deleted` | 772buf / 7.9ms — **여전히 `idx_expenses_not_deleted`** | 불변(아래 참고) |
+
+buf = `EXPLAIN (ANALYZE, BUFFERS)`의 shared 버퍼 접근 수(8KB 페이지).
+
+**Q3이 이 절의 핵심이다.** 리뷰가 지적한 "offset 10,000에서 buffers 약 47배"는 재현됐고
+(231 → 10,243buf = 44배), **새 인덱스로도 그대로 남는다**(10,255buf). 플랜을 보면 이유가
+분명하다 — `Index Cond`는 `child_id = …` 하나뿐이고 3분기 OR 전체가 `Filter:`로 내려가
+있다. 인덱스를 바꿔도 "정렬 순서로 훑으며 앞 페이지를 버린다"는 구조는 그대로다.
+
+## 그래도 000017을 추가한 이유
+
+이 인덱스가 사는 값은 **깊은 페이지 seek가 아니라 "정렬 커버"**다:
+
+1. **Sort 노드 제거** — Before의 모든 목록 플랜에 `Incremental Sort`가 붙어 있었다
+   (`idx_expenses_not_deleted`는 `(child_id, spent_on)`뿐이라 `created_at`/`id` 타이브레이커를
+   인덱스로 못 준다). 000017은 정렬 계약 `spent_on DESC, created_at DESC, id DESC`
+   (FIX-121A)와 컬럼·방향이 정확히 같아 인덱스 순서 그대로 읽고 멈춘다.
+2. **가장 자주 호출되는 경로가 가장 크게 좋아진다** — 홈/준비템 탭이 매번 호출하는
+   `recentExpenses`(Q4)가 30 → 6buf. 기록 탭 첫 페이지(Q1)와 월 범위(Q5)도 함께 개선된다.
+   **깊은 페이지는 드물고 첫 페이지는 항상 열린다** — 개선이 실사용 분포와 맞는 쪽에 있다.
+3. **후속 수정이 이 인덱스를 전제한다** — 아래 "남은 일" 두 방안 모두 이 인덱스가 있어야
+   성립한다(둘 다 `(child_id, spent_on, created_at, id)` 순서를 요구한다).
+
+**부분 인덱스(`WHERE deleted_at IS NULL`)로 만든 이유**: 이 인덱스를 타는 쿼리는 전부
+`deleted_at IS NULL`을 함께 건다(DNC-014 soft delete). 000001 `idx_expenses_not_deleted`의
+관례와 같고, 술어가 인덱스 조건에 흡수돼 플랜에 `Filter: (deleted_at IS NULL)`이 남지
+않는다. 비부분 버전도 만들어 대조했다 — 크기는 5,312kB vs **5,208kB**(톰스톤 2%만큼만
+작다)로 차이가 작지만, 비부분 쪽은 모든 플랜에 `deleted_at IS NULL` Filter가 남고
+행 비교(아래) 경로에서 Index **Only** Scan이 되지 못한다(6buf vs 9buf). 부분 인덱스는
+Prisma `@@index`로 표현할 수 없어 `schema.prisma`에는 주석으로 남기고, 정의 계약은
+`apps/api/test/perf-indexes.db.test.ts`의 R24-M3 블록이 고정한다(000001·000011과 동일 관례).
+
+**Q6이 안 바뀐 것은 정상이다**: 집계(SUM/groupBy)는 아이의 행 *전체*를 Bitmap으로 모으는
+쿼리라 더 좁은 `idx_expenses_not_deleted`가 계속 유리하다. 즉 000001의 부분 인덱스는
+000017이 생겨도 **잉여가 아니다** — 목록 경로는 000017, 집계 경로는 000001이 나눠 맡는다.
+(ADM-123의 중복 인덱스 관찰과 달리 여기서는 제거 후보가 없다.)
+
+## 남은 일 — 깊은 페이지 O(offset)을 실제로 없애려면 (측정 완료, 미적용)
+
+이번 티켓의 범위는 인덱스 추가 + 주석 정정이라 **쿼리 모양은 바꾸지 않았다**. 다만 다음
+두 방안을 같은 DB에서 실측해 뒀으므로, 별도 티켓에서 바로 집행할 수 있다.
+
+| 방안 | offset 10,000 (000017 적용 상태) | 성립 조건 |
+|---|---|---|
+| 현재 (3분기 OR) | **10,255buf / 7.6ms** | — |
+| **(A) 잉여 sargable 술어 추가** — OR와 함께 `spentOn: { lte: after.spentOn }`를 AND로 더한다 | **228buf / 0.20ms** (**45배 / 38배**) | OR 세 분기가 모두 `spent_on <= S`를 함의하므로 **논리적으로 항등**(결과 집합 불변). Prisma로 표현 가능. 단 `yearMonth` 사용 시 기존 `spentOn: { gte, lt }`와 같은 키라 객체를 병합해야 한다 |
+| **(B) raw SQL 행 비교** — `(spent_on, created_at, id) < (…)` | **206buf / 0.18ms** | `$queryRaw`가 필요(21컬럼 수기 매핑 + 타입 안전성 상실). 대신 `Index Cond`에 `ROW(...)`가 그대로 올라가 진짜 seek가 된다 |
+
+(A)가 비용 대비 효과가 압도적이다 — 한 줄짜리 항등 술어로 45배다. Postgres가 (B)의
+행 비교에서 스스로 `spent_on <= S`를 Index Cond로 끌어올리는 것과 정확히 같은 효과를,
+Prisma가 표현할 수 있는 형태로 손으로 주는 것이기 때문이다. 다만 **결과 집합이 바뀌지
+않는다는 항등성**과 `yearMonth` 병합을 회귀 테스트로 고정해야 하므로(기존
+`expenses-pagination.e2e.test.ts`의 "왕복하면 페이지 없는 목록과 정확히 같다" 계약이
+그 안전망이다) 별도 티켓으로 남긴다.
+
+두 방안이 실행 가능하다는 증거(같은 인덱스에서 행 비교가 `Index Cond`로 올라간다는 것)와
+현재 상태(3분기 OR은 `Filter`로 남는다는 것)는 `perf-indexes.db.test.ts`의 R24-M3 블록이
+플랜 단위로 고정한다 — 언젠가 Prisma가 튜플 비교를 지원해 그 테스트가 깨지면, 그때가
+`expensesForChild`의 정정 주석을 되돌릴 때다.
+
+## 검증
+
+- `pnpm --filter api prisma:validate` ✅ (부분 인덱스라 `@@index` 추가 없음 — `schema.prisma`
+  Expense 모델의 "SQL 전용 부분 인덱스" 주석 목록에 3번째 항목으로 반영)
+- `prisma migrate deploy`로 000017이 기존 DB(000016까지 적용)에 정상 적용 ✅
+- `apps/api/test/perf-indexes.db.test.ts` R24-M3 블록 5건 추가 — 정의 계약 + 첫 페이지의
+  Sort 노드 부재 + yearMonth 범위 흡수 + **OR이 Filter로 남는다는 한계** + 행 비교가
+  Index Cond로 올라간다는 후속 근거
+- 기존 PERF-121 블록의 "홈 최근 3건" 테스트는 새 인덱스가 선택될 수 있으므로 두 인덱스
+  중 하나를 타면 통과하도록 완화(고정하려는 것은 "seq scan으로 떨어지지 않는다"이다)
+- 스크래치 DB `wooriai_perf124`는 측정 종료 후 드랍
