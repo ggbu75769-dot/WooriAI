@@ -53,9 +53,10 @@ mobile의 라인 커버리지가 낮은 주원인: Expo Router 화면(`app/**/*.
 - 제안 테스트: 프리즈마 목 또는 실DB로 동시 2요청(같은 키+같은/다른 body), 핸들러 예외 후 재시도 성공, 만료 예약 회수 시나리오 4건.
 
 ### 7) `apps/api/src/admin/admin-token-crypto.ts` — 54.32% L (관리자 토큰 서명/검증)
-- 미커버: `signAdminAccessToken`·`verifyAdminAccessToken` 본문 전체(L41-76; admin-token.guard 테스트가 별도 픽스처로 우회 중인 듯), MFA pending 토큰의 형식 불량(L114-115)·서명 불일치(L119-120)·type/만료(L125-126) 거부 분기.
+- 미커버: MFA pending 토큰의 형식 불량(L61-63)·서명 불일치(L66-68)·type/만료(L72-74) 거부 분기.
+  - 이 측정 당시 함께 미커버였던 `signAdminAccessToken`·`verifyAdminAccessToken`(admin JWT 액세스 토큰 경로)은 참조처가 없어 CLEAN-121에서 제거됨.
 - 리스크: 관리자 세션 위조 방어 로직이 직접 검증되지 않음.
-- 제안 테스트: sign→verify 라운드트립 + 서명 변조/만료/`type` 스왑(access↔mfa_pending 상호 거부) 6케이스 단위 테스트.
+- 제안 테스트: sign→verify 라운드트립 + 서명 변조/만료/`type` 스왑 거부 단위 테스트.
 
 ### 8) `apps/mobile/src/offline/remote-api.ts` — 0% (동기화 원격 어댑터)
 - 미커버: 파일 전체 — `ExpenseHttpError`/`ExpenseVersionConflictError` → `RemotePermanentError`/`RemoteVersionConflictError` 매핑, payload→patch 변환.

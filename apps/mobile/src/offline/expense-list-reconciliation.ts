@@ -34,10 +34,32 @@ export type MonthlyExpenseReconciliation<TServerExpense extends ServerExpenseLik
    * (records.tsx shows the ⚠ conflict icon with the "삭제 대기 중" subtitle) and its amount is
    * counted the same way every other conflict row's is: from its local payload. */
   offlinePendingRows: LocalExpenseRow[];
-  /** Sum of `visibleServerExpenses` + `offlinePendingRows`, excluding gifts -- computed directly
-   * from the already-deduped sets above so it can never drift from what's actually listed. */
+  /** Sum of `visibleServerExpenses` + `offlinePendingRows`, counting only real expenses
+   * (`expenseType === "expense"`) -- computed directly from the already-deduped sets above so it
+   * can never drift from what's actually listed. See `countsTowardMonthlyTotal`. */
   monthlyTotalKrw: number;
 };
+
+/**
+ * REC-121b: 월 합계에 잡히는 행인지 판정한다 — 서버 집계와 **같은 술어**를 쓴다.
+ *
+ * 서버의 `sumExpenses`(apps/api/src/onboarding/expenses-store.service.ts)는 `expenseType ===
+ * "expense"`만 더해 선물(gift)과 환불(refund)을 **둘 다** 제외한다(DNC-015). 홈의 총액·예산
+ * 사용액과 리포트 월 합계가 전부 그 집계다. 그런데 여기서는 `!== "gift"`로만 걸러 환불을
+ * 지출처럼 더하고 있었고, 그래서 환불 행이 있는 달에는 홈/리포트와 기록 탭 합계가 어긋났다
+ * (REC-121이 "곁가지로 드러난 불일치"로 문서화만 하고 남긴 항목).
+ *
+ * 화이트리스트(`=== "expense"`)가 블랙리스트(`!== "gift"`)보다 안전하기도 하다 — 서버가 새
+ * `expenseType`을 추가해도 기록 탭이 그걸 자동으로 지출로 세지 않는다.
+ *
+ * `expenseType`이 없는 레거시 페이로드는 expense로 간주한다 — src/expenses/recent-items.ts의
+ * 관례와 동일하고, 필드가 도입되기 전에 저장된 오프라인 행을 합계에서 통째로 떨어뜨리지
+ * 않기 위해서다. (오프라인 저장소의 ExpenseKind는 아직 "expense" | "gift"뿐이라 환불은 서버
+ * 목록으로만 들어오지만, 두 집합에 같은 규칙을 적용해 두는 편이 드리프트를 막는다.)
+ */
+function countsTowardMonthlyTotal(expenseType: string | undefined): boolean {
+  return expenseType === undefined || expenseType === "expense";
+}
 
 export function reconcileMonthlyExpenses<TServerExpense extends ServerExpenseLike>(
   serverExpenses: TServerExpense[],
@@ -63,10 +85,10 @@ export function reconcileMonthlyExpenses<TServerExpense extends ServerExpenseLik
 
   const monthlyTotalKrw =
     visibleServerExpenses
-      .filter((expense) => expense.expenseType !== "gift")
+      .filter((expense) => countsTowardMonthlyTotal(expense.expenseType))
       .reduce((sum, expense) => sum + expense.amountKrw, 0) +
     offlinePendingRows
-      .filter((row) => row.payload.expenseType !== "gift")
+      .filter((row) => countsTowardMonthlyTotal(row.payload.expenseType))
       .reduce((sum, row) => sum + row.payload.amountKrw, 0);
 
   return { visibleServerExpenses, offlinePendingRows, monthlyTotalKrw };

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
 import { LOCAL_SESSION_TOKEN, oauthLogin, upsertConsents } from "../../src/api/client";
+import { INVITE_RESUME_PARAM, resumeHrefAfterLogin } from "../../src/children/household-join";
 import {
   isKakaoLoginAvailable,
   KakaoLoginCancelledError,
@@ -52,6 +53,11 @@ function ConsentRow({
 }
 
 export default function LoginScreen() {
+  // FAM-121A: 초대 수락 화면(FAM-003)이 비로그인 방문자를 보낼 때 실어 준 초대 토큰.
+  // 로그인 성공 직후 그 초대 화면으로 되돌려 중단된 참여 여정을 이어간다. 파라미터가 없으면
+  // 두 로그인 경로 모두 기존 목적지(온보딩 / 탭)로 그대로 간다.
+  const params = useLocalSearchParams<{ invite?: string }>();
+  const inviteResumeHref = resumeHrefAfterLogin(params[INVITE_RESUME_PARAM]);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   // ANA-104: local checkbox state only -- the shared analytics consent store is
@@ -103,7 +109,7 @@ export default function LoginScreen() {
         defaultHouseholdId: result.user.households?.[0]?.id ?? null
       });
       await upsertConsents(result.tokens.accessToken);
-      router.replace("/onboarding/child-status");
+      router.replace(inviteResumeHref ?? "/onboarding/child-status");
     } catch (error) {
       // Pressing 취소 on Kakao's consent screen is a normal outcome, not an error state.
       if (error instanceof KakaoLoginCancelledError) return;
@@ -138,7 +144,7 @@ export default function LoginScreen() {
       startTestSession();
       markHomeReached();
       void upsertConsents(LOCAL_SESSION_TOKEN).catch(() => {});
-      router.replace("/(tabs)");
+      router.replace(inviteResumeHref ?? "/(tabs)");
       return;
     }
     void login();

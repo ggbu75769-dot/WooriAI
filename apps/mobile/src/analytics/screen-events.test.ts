@@ -61,6 +61,10 @@ describe("ANA-103 event firing source contract", () => {
     expect(expenseSource).toContain('linkedItemTemplateId ? "followup" : "manual"');
     expect(expenseSource).toContain("isCurrentlyOnline().then((online)");
     expect(expenseSource).toContain("offline: !online");
+    // C2/REC-121: 정적 8타일 밖의 categoryId가 전부 "etc"로 뭉개지지 않도록 공용
+    // ["categories"] 캐시를 그대로 넘긴다(추가 요청 없음, 목록은 payload에 들어가지 않는다).
+    expect(expenseSource).toContain('queryClient.getQueryData<{ categories: Array<{ id: string; code: string }> }>(["categories"])');
+    expect(expenseSource).toContain("serverCategories: cachedCategories?.categories");
   });
 
   it("fires item_status_changed from the items tab status buttons after server confirmation", () => {

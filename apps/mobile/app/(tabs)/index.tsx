@@ -1,8 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { getSeoulToday } from "@wooriai/domain";
+import { getHome, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
+import { evaluateLastMonthComparison, previousYearMonth } from "../../src/home/last-month-comparison";
 import { formatKrw } from "../../src/money";
 import { NotificationBell } from "../../src/notifications/NotificationBell";
 import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
@@ -127,6 +129,32 @@ const homeBudgetWarningStyle = StyleSheet.create({
   }
 });
 
+// REP-121: "지난달 같은 시점 대비" 한 줄. 의미는 전부 문장이 지고(색상 단독 전달 금지) 앞의
+// 글리프는 장식이라 accessible={false}로 TalkBack에서 감춘다. 텍스트는 본문 색(brown)이라
+// 크림 배경에서 대비가 충분하다(coral 계열 소형 텍스트 금지 규칙, A11Y-117).
+const homeLastMonthInsightStyle = StyleSheet.create({
+  card: {
+    alignItems: "center",
+    backgroundColor: theme.colors.white,
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  glyph: {
+    color: theme.colors.gray600,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  text: {
+    color: theme.colors.brown,
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 20
+  }
+});
+
 const homeBudgetNudgeArrowStyle = StyleSheet.create({
   button: {
     alignItems: "center",
@@ -204,6 +232,20 @@ export default function HomeScreen() {
     queryFn: () => getHome(authToken!, childId!)
   });
   const hasSession = Boolean(authToken && childId);
+  // REP-121: 홈 한 줄 인사이트는 "지난달 같은 일자까지"의 부분 합계를 필요로 한다. /home 응답에는
+  // 지난달 값이 없고, 월간 리포트 API(reports/monthly)는 yearMonth 단위 **월 전체** 합계만 주므로
+  // (endDate 파라미터 없음 -- apps/api/src/onboarding/reporting-store.service.ts) 그 값으로 비교하면
+  // 월초마다 "적게 썼어요"가 뜨는 허위 비교가 된다. 그래서 지난달 지출 행을 한 번 조회해 클라이언트
+  // 에서 같은 일자까지 잘라 더한다(src/home/last-month-comparison.ts). 캐시 키는 기록 탭과 같은
+  // ["expenses", childId, yearMonth]라 두 화면이 응답을 공유하고, 지출 생성/수정/가져오기 경로가
+  // 이미 invalidate하는 ["expenses"] 프리픽스에 그대로 걸려 최신 상태가 유지된다.
+  const seoulToday = getSeoulToday();
+  const lastYearMonth = previousYearMonth(seoulToday);
+  const lastMonthExpenses = useQuery({
+    queryKey: ["expenses", childId, lastYearMonth],
+    enabled: Boolean(authToken && childId && lastYearMonth),
+    queryFn: () => listExpenses(authToken!, childId!, lastYearMonth!)
+  });
   // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
   // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.
   useHomeNotificationEvaluation(hasSession ? home.data : undefined);
@@ -260,6 +302,16 @@ export default function HomeScreen() {
   // HOME-BUDGET-113: session-gated like isOverBudget/NOTI-102 so the logged-out preview stays
   // inert. usedAmountKrw is the gift-excluded month total (DNC-015), see budget-warning.ts.
   const budgetWarning = hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null;
+  // REP-121: 세션이 있을 때만 계산한다 -- 비세션 픽셀락 미리보기(previewHome)에는 지난달 데이터가
+  // 없으므로 한 줄이 아예 렌더되지 않고, 미리보기 스크린샷은 기존과 동일하게 유지된다. 지난달에
+  // 기록이 없는 첫 달 사용자도 순수 모듈이 null을 돌려줘 렌더되지 않는다.
+  const lastMonthInsight = hasSession
+    ? evaluateLastMonthComparison({
+        todayIso: seoulToday,
+        thisMonthToDateKrw: monthlyUsed,
+        lastMonthRecords: lastMonthExpenses.data?.expenses ?? null
+      })
+    : null;
   // 라운드 13 m-7: 초과 금액은 HOME-BUDGET-113 배너가 상위 정보로 이미 알린다. 배너가 보이는
   // 동안(임박·초과)에는 넛지가 "예산을 N원 초과했어요"를 중복 렌더하지 않고, 초과 상태에서는
   // 금액 없는 "예산을 모두 사용했어요."로 대체한다. 배너가 없을 때(80% 미만 등)는 기존 동작 유지.
@@ -346,6 +398,20 @@ export default function HomeScreen() {
               </View>
             </Card>
           </Pressable>
+
+          {lastMonthInsight ? (
+            <View
+              accessible
+              accessibilityLabel={lastMonthInsight.text}
+              testID="home-last-month-insight"
+              style={[homeLastMonthInsightStyle.card, theme.shadows.card]}
+            >
+              <Text accessible={false} style={homeLastMonthInsightStyle.glyph}>
+                ▤
+              </Text>
+              <Text style={homeLastMonthInsightStyle.text}>{lastMonthInsight.text}</Text>
+            </View>
+          ) : null}
 
           <ScreenHeader
             title="최근 지출"

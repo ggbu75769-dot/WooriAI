@@ -2,6 +2,7 @@ import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
+import { errorResponseSchema, importJobSchema, importRowSchema } from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -137,6 +138,8 @@ describe("Excel import beta API", () => {
         .expect(200)
     ).body as ImportJob;
 
+    // CON-121: 가져오기 잡 응답 계약 — status는 IMPORT_STATUSES 열거값이어야 한다.
+    importJobSchema.parse(job);
     expect(job).toMatchObject({
       id: expect.any(String),
       status: "preview_ready",
@@ -150,6 +153,7 @@ describe("Excel import beta API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        importJobSchema.parse(body);
         expect(body.status).toBe("preview_ready");
       });
 
@@ -159,6 +163,12 @@ describe("Excel import beta API", () => {
         .set("Authorization", `Bearer ${accessToken}`)
         .expect(200)
     ).body.rows as ImportRow[];
+
+    // CON-121: 미리보기 행 각각이 importRowSchema를 만족해야 한다 — 저신뢰/중복후보
+    // 행까지 포함해 confidence(0~1), selected, validationStatus 형태가 고정된다.
+    for (const row of rows) {
+      importRowSchema.parse(row);
+    }
 
     expect(rows).toHaveLength(3);
     expect(rows.filter((row) => row.selected)).toHaveLength(2);
@@ -190,6 +200,8 @@ describe("Excel import beta API", () => {
         .expect(200)
     ).body as ImportRow;
 
+    // CON-121: 행 수정 응답도 같은 행 계약을 돌려준다.
+    importRowSchema.parse(editedRow);
     expect(editedRow).toMatchObject({
       selected: true,
       parsedItemName: "Imported wipes",
@@ -242,6 +254,7 @@ describe("Excel import beta API", () => {
       .attach("file", Buffer.from("날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n", "utf8"), "short.csv")
       .expect(400);
 
+    errorResponseSchema.parse(response.body);
     expect(response.body.error.code).toBe("VALIDATION_ERROR");
     expect(response.body.error.details.fields).toEqual([
       expect.objectContaining({ field: "fileName" })

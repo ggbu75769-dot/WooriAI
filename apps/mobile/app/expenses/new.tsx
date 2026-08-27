@@ -7,6 +7,13 @@ import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildExpenseRecordedPayload } from "../../src/analytics/events";
 import { LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
+import {
+  addAmountPreset,
+  clearAmountText,
+  formatPresetChipLabel,
+  presetChipAccessibilityLabel,
+  QUICK_AMOUNT_PRESETS_KRW
+} from "../../src/expenses/amount-presets";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
 import {
   buildRecentItemChips,
@@ -289,6 +296,11 @@ export default function NewExpenseScreen() {
       const recordedAmountKrw = Number(amountText);
       const recordedCategoryId = selectedCategory.id;
       const recordedSource = linkedItemTemplateId ? "followup" : "manual";
+      // C2/REC-121: 공용 ["categories"] 캐시(기록·리포트·더보기·지출 수정 화면이 채운다)를 그대로
+      // 읽어 categoryId를 분석 코드로 해석한다. 정적 8타일 밖의 id(정식 12개 시드 UUID, 데모
+      // 픽스처, 오래된 초안)가 전부 "etc"로 뭉개지지 않게 하려는 것 — 캐시가 비어 있으면 기존
+      // 8타일 매핑으로 폴백하고, 목록 자체는 payload에 들어가지 않는다(코드 enum만 나간다).
+      const cachedCategories = queryClient.getQueryData<{ categories: Array<{ id: string; code: string }> }>(["categories"]);
       void isCurrentlyOnline().then((online) => {
         trackAndFlushAnalyticsEvent(authToken, {
           eventName: "expense_recorded",
@@ -296,7 +308,8 @@ export default function NewExpenseScreen() {
             categoryId: recordedCategoryId,
             amountKrw: recordedAmountKrw,
             source: recordedSource,
-            offline: !online
+            offline: !online,
+            serverCategories: cachedCategories?.categories
           }),
           platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
         });
@@ -441,6 +454,53 @@ export default function NewExpenseScreen() {
             value={formattedAmount}
           />
         </View>
+
+        {/* UX-121: 금액 누적 프리셋 칩 -- 탭할 때마다 현재 금액에 더한다(빈 값이면 그 값으로 시작).
+            숫자 키패드를 대체하지 않고 보조하므로 칩을 누른 뒤에도 자유롭게 타이핑할 수 있고,
+            칩을 길게 누르거나 "지우기"를 누르면 0으로 리셋된다. 가산·상한 계산은
+            src/expenses/amount-presets.ts에 분리(DNC-013 정수·상한 규칙과 정합, 단위 테스트 대상).
+            금액 입력 카드 "아래"의 독립 행이라 EXP-001 픽셀 락이 고정한 카드/카테고리 그리드
+            레이아웃을 건드리지 않으며, 픽셀 락 캡처는 세션 없이(authToken null) 실행되므로
+            (app/pixel-lock.tsx가 clearSession 후 이동) 캡처 화면에는 아예 렌더되지 않는다. */}
+        {authToken ? (
+          <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
+            {QUICK_AMOUNT_PRESETS_KRW.map((presetKrw) => (
+              <Pressable
+                key={presetKrw}
+                accessibilityRole="button"
+                accessibilityLabel={presetChipAccessibilityLabel(presetKrw)}
+                accessibilityHint="길게 누르면 금액을 지워요"
+                hitSlop={8}
+                onPress={() => setAmountText((value) => addAmountPreset(value, presetKrw))}
+                onLongPress={() => setAmountText(clearAmountText())}
+                style={{
+                  alignItems: "center",
+                  backgroundColor: theme.colors.white,
+                  borderColor: theme.colors.primary100,
+                  borderRadius: theme.radii.pill,
+                  borderWidth: 1,
+                  flex: 1,
+                  justifyContent: "center",
+                  minHeight: 40
+                }}
+              >
+                {/* A11Y-117: 13px coral 텍스트 -- coral[500] 3.16:1(AA 미달) → coral[700] */}
+                <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "800" }}>
+                  {formatPresetChipLabel(presetKrw)}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="금액 지우기"
+              hitSlop={8}
+              onPress={() => setAmountText(clearAmountText())}
+              style={{ alignItems: "center", justifyContent: "center", minHeight: 40, paddingHorizontal: 4 }}
+            >
+              <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>지우기</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {authToken && showDatePicker ? (
           <View style={{ gap: 10 }}>

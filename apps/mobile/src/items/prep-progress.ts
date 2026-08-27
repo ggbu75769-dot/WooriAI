@@ -13,7 +13,7 @@ import { itemMatchesBand, type StageBandLabel } from "./stage-bands";
  * not_prepared / interested는 아직 행동이 남은 미해결 상태다(관심 표시는 준비가 아니다).
  *
  * 알려진 한계: items 목록 API의 4개 탭(now/soon/prepared/not_needed)은 gifted 상태
- * 항목을 어느 탭에도 반환하지 않는다(서버 apps/api/src/onboarding/onboarding-store.service.ts
+ * 항목을 어느 탭에도 반환하지 않는다(서버 apps/api/src/onboarding/items-catalog.service.ts
  * itemsForChild 참고). 따라서 탭 응답 합집합으로 계산하면 gifted 필수템은 분자·분모에서
  * 함께 빠진다. 계산 자체는 gifted를 해결됨으로 취급하므로, API가 나중에 gifted를 노출하면
  * 코드 변경 없이 올바르게 집계된다.

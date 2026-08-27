@@ -38,3 +38,53 @@ describe("Batch 10 mobile settings contract", () => {
     }
   });
 });
+
+/**
+ * NAV-121 설정 진입 회복: 로그인 사용자에게 /settings로 가는 메뉴 행이 없어 아이 관리 · 알림 설정 ·
+ * 통계 동의 철회 · 로그아웃이 모두 도달 불가였다. (react-native가 vitest에서 네이티브 바인딩 없이
+ * 렌더되지 않으므로 import-flow/export-flow와 같은 source-grep 관례를 따른다.)
+ */
+describe("NAV-121 settings entry point contract", () => {
+  const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+
+  it("puts a 설정 row into the signed-in more menu, not just the logged-out preview", () => {
+    const moreSource = source("app/(tabs)/more.tsx");
+    const sessionRowsBlock = moreSource.slice(
+      moreSource.indexOf("const sessionMenuRows"),
+      moreSource.indexOf("const previewMenuRowActions")
+    );
+
+    expect(sessionRowsBlock).not.toBe("");
+    expect(sessionRowsBlock).toContain('title: "설정", onPress: () => router.push("/settings")');
+  });
+
+  it("keeps 아이 관리 · 알림 설정 · 통계 동의 · 로그아웃 reachable from the settings screen", () => {
+    const settingsSource = source("app/settings/index.tsx");
+
+    for (const expectedText of [
+      'router.push("/settings/children")',
+      'router.push("/settings/notifications")',
+      'router.push("/settings/privacy")',
+      "통계 수집 동의(선택)",
+      "setAnalyticsConsent",
+      "handleLogout",
+      "clearSession()"
+    ]) {
+      expect(settingsSource).toContain(expectedText);
+    }
+  });
+
+  it("collapses the duplicated /family rows into one and shows real summary values", () => {
+    const settingsSource = source("app/settings/index.tsx");
+
+    expect(settingsSource.match(/router\.push\("\/family"\)/g) ?? []).toHaveLength(1);
+    // 무정보 요약("연결됨"/"선택됨") 대신 이미 로드된 가족 인원수 · 선택된 아이 태명을 보여준다.
+    expect(settingsSource).not.toContain('"연결됨"');
+    expect(settingsSource).not.toContain('"선택됨"');
+    expect(settingsSource).toContain("`가족 ${members.data.members.length}명`");
+    expect(settingsSource).toContain("`${selectedChild.nickname} · ${selectedChild.stageLabel}`");
+    // 새 엔드포인트가 아니라 아이 관리 · 가족 관리 화면과 같은 캐시 키를 재사용한다.
+    expect(settingsSource).toContain('queryKey: ["children"]');
+    expect(settingsSource).toContain('queryKey: ["household-members", householdId]');
+  });
+});

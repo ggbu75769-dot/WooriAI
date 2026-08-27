@@ -214,3 +214,67 @@ describe.skipIf(!dbAvailable)("PERF-119 user_devices push_token index (migration
     expect(def).toContain("(user_id, push_token)");
   });
 });
+
+/**
+ * PERF-121: 홈(getHome)과 누적 리포트(getCumulativeReport)의 "전 행 로드 후 JS 집계"를
+ * DB 집계(aggregate/groupBy) + LIMIT으로 치환하면서 **신규 인덱스를 추가하지 않았다**.
+ * 그 판단의 전제는 "치환 후 쿼리도 000001의 부분 인덱스 idx_expenses_not_deleted
+ * (child_id, spent_on) WHERE deleted_at IS NULL 이 그대로 서빙한다"이며, 여기서
+ * 그 전제를 고정한다 — 위 PERF-115/119 블록과 같은 관례로 enable_seqscan=off를 걸고
+ * 플랜에 인덱스명이 나타나는지 본다(통계와 무관하게 결정적).
+ *
+ * 실측 수치(스크래치 DB 5만 행, 아이당 1,250건)는
+ * docs/operations/perf-index-notes.md의 PERF-121 절 참고.
+ */
+describe.skipIf(!dbAvailable)("PERF-121 reporting hot-path queries reuse idx_expenses_not_deleted", () => {
+  let prisma: PrismaClient;
+
+  beforeAll(() => {
+    deployMigrations();
+    prisma = new PrismaClient();
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  async function explainWithoutSeqscan(sql: string): Promise<string> {
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+      const rows = await tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(`EXPLAIN ${sql}`);
+      return rows.map((row) => row["QUERY PLAN"]).join("\n");
+    });
+  }
+
+  const ZERO_UUID = "'00000000-0000-0000-0000-000000000000'::uuid";
+  const EXPENSE_TYPE = `CAST('expense'::text AS "public"."expense_type")`;
+
+  it("홈 전 기간 합계(aggregate SUM)가 부분 인덱스를 탄다", async () => {
+    // ExpensesStoreService.sumExpenses(childId) — range 없는 전 기간 SUM.
+    const plan = await explainWithoutSeqscan(
+      `SELECT SUM(amount_krw) FROM expenses
+       WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL AND expense_type = ${EXPENSE_TYPE}`
+    );
+    expect(plan).toContain("idx_expenses_not_deleted");
+  });
+
+  it("홈 최근 3건(LIMIT 3)이 부분 인덱스를 탄다", async () => {
+    // ExpensesStoreService.expensesForChild(childId, undefined, 3).
+    const plan = await explainWithoutSeqscan(
+      `SELECT id FROM expenses
+       WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL
+       ORDER BY spent_on DESC, created_at DESC LIMIT 3`
+    );
+    expect(plan).toContain("idx_expenses_not_deleted");
+  });
+
+  it("누적 리포트 일자 groupBy가 부분 인덱스를 탄다", async () => {
+    // ReportingStoreService.getCumulativeReport의 groupBy(spentOn).
+    const plan = await explainWithoutSeqscan(
+      `SELECT SUM(amount_krw), COUNT(*), spent_on FROM expenses
+       WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL AND expense_type = ${EXPENSE_TYPE}
+       GROUP BY spent_on`
+    );
+    expect(plan).toContain("idx_expenses_not_deleted");
+  });
+});

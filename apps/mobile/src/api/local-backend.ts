@@ -16,6 +16,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { persistStorage } from "../stores/persist-storage";
 import { categoryCatalog } from "../categories";
+import { itemMatchesBand, type StageBandLabel } from "../items/stage-bands";
 import type {
   AffiliateClickResponse,
   Budget,
@@ -31,6 +32,7 @@ import type {
   InviteChannel,
   InviteResponse,
   InvitePreview,
+  PendingInvite,
   AcceptInviteResponse,
   ItemDetail,
   ItemSummary,
@@ -123,6 +125,10 @@ type LocalMemberRecord = {
 };
 
 type LocalInviteRecord = {
+  // FAM-121B: `id` and `revokedAt` are optional because demo sessions persisted before
+  // this ticket have neither; localInviteId()/localInviteStatus() below derive sane
+  // values for those older records instead of crashing the new 대기 초대 list.
+  id?: string;
   token: string;
   householdId: string;
   householdName: string;
@@ -131,6 +137,7 @@ type LocalInviteRecord = {
   createdAt: string;
   expiresAt: string;
   acceptedByUserId: string | null;
+  revokedAt?: string | null;
 };
 
 type LocalImportJobRecord = {
@@ -1010,23 +1017,26 @@ function toItemSummaryDto(item: (typeof localItemTemplateFixtures)[number]): Ite
   };
 }
 
-export function listItems(_childId: string, tab: ItemTab = "now"): { items: ItemSummary[] } {
+/**
+ * ITEM-121: 서버 GET /children/:childId/items의 선택적 `stageBand`와 같은 의미를 로컬
+ * 세션에서도 지원한다 — 밴드를 넘기면 그 시기 기준, 생략하면 아이의 현재 단계 기준
+ * (기존 호출자 동작 그대로).
+ */
+export function listItems(
+  _childId: string,
+  tab: ItemTab = "now",
+  stageBand?: StageBandLabel
+): { items: ItemSummary[] } {
   ensureSeeded();
   const stageCode = currentStageCode();
+  const inSelectedPeriod = (item: (typeof localItemTemplateFixtures)[number]) =>
+    stageBand ? itemMatchesBand({ stageCodes: item.stageCodes, timingLabel: item.timingLabel }, stageBand) : item.stageCodes.includes(stageCode);
 
-  if (tab === "prepared") {
+  if (tab === "prepared" || tab === "not_needed") {
     return {
       items: localItemTemplateFixtures
-        .filter((item) => itemStatusFor(item.id) === "prepared")
-        .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map(toItemSummaryDto)
-    };
-  }
-
-  if (tab === "not_needed") {
-    return {
-      items: localItemTemplateFixtures
-        .filter((item) => itemStatusFor(item.id) === "not_needed")
+        .filter((item) => itemStatusFor(item.id) === tab)
+        .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
         .sort((left, right) => left.displayOrder - right.displayOrder)
         .map(toItemSummaryDto)
     };
@@ -1034,8 +1044,8 @@ export function listItems(_childId: string, tab: ItemTab = "now"): { items: Item
 
   const stageMatcher =
     tab === "now"
-      ? (item: (typeof localItemTemplateFixtures)[number]) => item.stageCodes.includes(stageCode)
-      : (item: (typeof localItemTemplateFixtures)[number]) => !item.stageCodes.includes(stageCode);
+      ? (item: (typeof localItemTemplateFixtures)[number]) => inSelectedPeriod(item)
+      : (item: (typeof localItemTemplateFixtures)[number]) => !inSelectedPeriod(item);
 
   const candidates = localItemTemplateFixtures.filter(stageMatcher).filter((item) => {
     const status = itemStatusFor(item.id);
@@ -1155,6 +1165,7 @@ export function createInvite(householdId: string, role: "co_parent" | "viewer" |
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const invite: LocalInviteRecord = {
+    id: generateLocalId("invite-id"),
     token,
     householdId,
     householdName: "다온이 패밀리",
@@ -1162,7 +1173,8 @@ export function createInvite(householdId: string, role: "co_parent" | "viewer" |
     channel,
     createdAt: now.toISOString(),
     expiresAt,
-    acceptedByUserId: null
+    acceptedByUserId: null,
+    revokedAt: null
   };
   useLocalBackendStore.setState((state) => ({ invites: [...state.invites, invite] }));
   return { inviteUrl: `https://wooriai.app/invite/${token}`, expiresAt, householdName: invite.householdName };
@@ -1170,6 +1182,62 @@ export function createInvite(householdId: string, role: "co_parent" | "viewer" |
 
 export function findLocalInvite(token: string): LocalInviteRecord | undefined {
   return useLocalBackendStore.getState().invites.find((invite) => invite.token === token);
+}
+
+function localInviteId(invite: LocalInviteRecord) {
+  return invite.id ?? invite.token;
+}
+
+function localInviteStatus(invite: LocalInviteRecord, now = Date.now()) {
+  if (invite.acceptedByUserId) return "accepted" as const;
+  if (invite.revokedAt) return "revoked" as const;
+  if (new Date(invite.expiresAt).getTime() <= now) return "expired" as const;
+  return "pending" as const;
+}
+
+/**
+ * FAM-121B: mirrors the server's owner-only pending-invite listing. Like the server,
+ * it exposes no token and no link — the demo backend keeps the token so it can honor
+ * an accept, but the list must behave exactly like the hashed-token API so the UI
+ * can't be built around a re-share that production cannot deliver.
+ */
+export function listHouseholdInvites(householdId: string): { invites: PendingInvite[] } {
+  ensureSeeded();
+  const now = Date.now();
+  const invites = useLocalBackendStore
+    .getState()
+    .invites.filter((invite) => invite.householdId === householdId && localInviteStatus(invite, now) === "pending")
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .map((invite) => ({
+      id: localInviteId(invite),
+      householdId: invite.householdId,
+      role: invite.role,
+      channel: invite.channel,
+      status: "pending" as const,
+      expiresAt: invite.expiresAt,
+      createdAt: invite.createdAt,
+      invitedByUserId: LOCAL_USER_ID,
+      canReshareLink: false
+    }));
+  return { invites };
+}
+
+export function cancelHouseholdInvite(householdId: string, inviteId: string): { success: boolean } {
+  ensureSeeded();
+  const invite = useLocalBackendStore
+    .getState()
+    .invites.find((record) => record.householdId === householdId && localInviteId(record) === inviteId);
+  if (!invite) {
+    throw new Error("초대를 찾을 수 없어요.");
+  }
+  if (localInviteStatus(invite) !== "pending") {
+    throw new Error("이미 사용했거나 만료된 초대예요.");
+  }
+  const revokedAt = new Date().toISOString();
+  useLocalBackendStore.setState((state) => ({
+    invites: state.invites.map((record) => (localInviteId(record) === inviteId ? { ...record, revokedAt } : record))
+  }));
+  return { success: true };
 }
 
 export function getInvitePreview(token: string): InvitePreview {
@@ -1186,7 +1254,9 @@ export function acceptInvite(token: string): AcceptInviteResponse {
   if (!invite) {
     throw new Error("초대 정보를 찾을 수 없어요.");
   }
-  if (new Date(invite.expiresAt).getTime() <= Date.now()) {
+  // FAM-121B: a cancelled (revoked) invite has to be as dead as an expired one here,
+  // otherwise the demo backend would still honor a link the owner just took back.
+  if (localInviteStatus(invite) !== "pending") {
     throw new Error("사용할 수 없는 초대 링크예요.");
   }
   const now = new Date().toISOString();

@@ -50,6 +50,32 @@ export class HouseholdsController {
     return await this.households.createInvite(request.user!, householdId, body.role, body.channel);
   }
 
+  @Get("households/:householdId/invites")
+  @UseGuards(JwtAuthGuard)
+  async listInvites(@Req() request: AuthenticatedRequest, @Param("householdId") householdId: string) {
+    return await this.households.listInvites(request.user!, householdId);
+  }
+
+  @Delete("households/:householdId/invites/:inviteId")
+  @UseGuards(JwtAuthGuard)
+  async cancelInvite(
+    @Req() request: AuthenticatedRequest,
+    @Param("householdId") householdId: string,
+    @Param("inviteId") inviteId: string
+  ) {
+    const result = await this.households.cancelInvite(request.user!, householdId, inviteId);
+    await this.auditLogger.record({
+      actorUserId: request.user!.id,
+      householdId: result.householdId,
+      action: "household.invite.cancel",
+      targetType: "household_invite",
+      targetId: inviteId,
+      before: result.before,
+      after: result.after
+    });
+    return { success: true };
+  }
+
   @Get("invites/:token")
   async getInvite(@Param("token") token: string) {
     return await this.households.getInvite(token);

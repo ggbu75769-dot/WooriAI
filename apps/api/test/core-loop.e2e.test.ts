@@ -2,6 +2,13 @@ import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
+import {
+  affiliateClickResponseSchema,
+  homeSummarySchema,
+  itemDetailSchema,
+  reportCategorySchema,
+  reportMonthlySchema
+} from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -142,6 +149,9 @@ describe("Release core loop e2e", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        // CON-121: 릴리즈 스모크의 홈 응답 — recommendedItems·recentExpenses까지
+        // 공유 계약(homeSummarySchema)으로 한 번에 확인한다.
+        homeSummarySchema.parse(body);
         expect(body.totalExpenseKrw).toBe(49800);
         expect(body.monthly.usedAmountKrw).toBe(49800);
         expect(body.recommendedItems.length).toBeGreaterThan(0);
@@ -152,6 +162,7 @@ describe("Release core loop e2e", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        reportMonthlySchema.parse(body);
         expect(body.totalExpenseKrw).toBe(49800);
       });
 
@@ -162,6 +173,7 @@ describe("Release core loop e2e", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        reportCategorySchema.parse(body);
         expect(body.childId).toBe(childId);
         expect(body.categories).toEqual([{ categoryId, amountKrw: 49800, count: 1 }]);
       });
@@ -202,6 +214,9 @@ describe("Release core loop e2e", () => {
           .set("Authorization", `Bearer ${accessToken}`)
           .expect(200)
       ).body as { productLinks: Array<{ id: string; isAffiliate: boolean; disclosureText?: string }> };
+      // CON-121: 스모크가 훑는 모든 준비템 상세가 공유 계약을 만족해야 한다 —
+      // 시드 카탈로그 전체를 지나가므로 계약 위반 항목이 하나라도 있으면 여기서 걸린다.
+      itemDetailSchema.parse(detail);
       affiliateLink = detail.productLinks.find((link) => link.isAffiliate);
       if (affiliateLink) break;
     }
@@ -214,6 +229,7 @@ describe("Release core loop e2e", () => {
       .send({ childId, referrerScreenId: "ITEM-003" })
       .expect(200)
       .expect(({ body }) => {
+        affiliateClickResponseSchema.parse(body);
         expect(body.clickId).toEqual(expect.any(String));
         expect(body.disclosureText).toBeTruthy();
       });

@@ -11,6 +11,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
 import { hashClickIp, isAllowedAffiliateUrl, PRODUCT_LINK_NOT_FOUND_ERROR } from "../items-commerce/affiliate-link-guard.util";
+import { itemStagesMatchBand, type StageBandLabel } from "../items-commerce/stage-bands";
 import { ChildAccessService } from "./child-access.service";
 import { ExpensesStoreService } from "./expenses-store.service";
 import { cleanOptionalText, toChildDto, type DbClient } from "./store-shared";
@@ -110,9 +111,15 @@ export class ItemsCatalogService {
     @Inject(ExpensesStoreService) private readonly expensesStore: ExpensesStoreService
   ) {}
 
-  async listItems(user: AuthenticatedUser, childId: string, tab: ItemTab = "now") {
+  /**
+   * ITEM-121: `stageBand`는 선택적이다.
+   * - 생략(기존 호출자 전부): 아이의 **현재 단계** 기준 — 종전 동작 그대로다.
+   * - 지정: 그 **시기 밴드** 기준 — 현재 단계와 다른 시기의 준비물도 미리 볼 수 있고
+   *   (예비 부모의 "다음 시기 미리 보기"), prepared/not_needed 탭도 같은 밴드로 좁힌다.
+   */
+  async listItems(user: AuthenticatedUser, childId: string, tab: ItemTab = "now", stageBand?: StageBandLabel) {
     await this.childAccess.requireChildAccess(user, childId);
-    const items = await this.itemsForChild(childId, tab);
+    const items = await this.itemsForChild(childId, tab, stageBand);
     return { items: items.map(({ item, status }) => this.toItemSummaryDto(item, status)) };
   }
 
@@ -500,7 +507,11 @@ export class ItemsCatalogService {
     };
   }
 
-  private async itemsForChild(childId: string, tab: ItemTab): Promise<Array<{ item: ItemTemplateWithStages; status: ItemStatus }>> {
+  private async itemsForChild(
+    childId: string,
+    tab: ItemTab,
+    stageBand?: StageBandLabel
+  ): Promise<Array<{ item: ItemTemplateWithStages; status: ItemStatus }>> {
     const child = await this.prisma.child.findUnique({ where: { id: childId } });
     if (!child) return [];
 
@@ -510,24 +521,25 @@ export class ItemsCatalogService {
     const statusByItem = new Map(statuses.map((row) => [row.itemTemplateId, row.status]));
     const statusFor = (itemId: string): ItemStatus => statusByItem.get(itemId) ?? "not_prepared";
 
-    if (tab === "prepared") {
-      return activeItems
-        .filter((item) => statusFor(item.id) === "prepared")
-        .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map((item) => ({ item, status: statusFor(item.id) }));
-    }
+    // ITEM-121: 시기 필터의 기준. stageBand가 오면 "그 밴드에 걸치는가", 없으면 종전대로
+    // "아이의 현재 단계를 포함하는가". now/soon은 이 술어의 참/거짓으로 갈리고,
+    // prepared/not_needed는 밴드가 지정된 경우에만 추가로 좁힌다(미지정 시 종전 동작).
+    const inSelectedPeriod = stageBand
+      ? (item: ItemTemplateWithStages) => itemStagesMatchBand(item.stageCodes, stageBand)
+      : (item: ItemTemplateWithStages) => item.stageCodes.includes(stageCode);
 
-    if (tab === "not_needed") {
+    if (tab === "prepared" || tab === "not_needed") {
       return activeItems
-        .filter((item) => statusFor(item.id) === "not_needed")
+        .filter((item) => statusFor(item.id) === tab)
+        .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
         .sort((left, right) => left.displayOrder - right.displayOrder)
         .map((item) => ({ item, status: statusFor(item.id) }));
     }
 
     const stageMatcher =
       tab === "now"
-        ? (item: ItemTemplateWithStages) => item.stageCodes.includes(stageCode)
-        : (item: ItemTemplateWithStages) => !item.stageCodes.includes(stageCode);
+        ? (item: ItemTemplateWithStages) => inSelectedPeriod(item)
+        : (item: ItemTemplateWithStages) => !inSelectedPeriod(item);
 
     const candidates = activeItems.filter(stageMatcher).filter((item) => {
       const status = statusFor(item.id);
@@ -537,6 +549,8 @@ export class ItemsCatalogService {
     const sorted = sortRecommendedItems(
       candidates.map((item) => ({
         id: item.id,
+        // 점수의 stageMatches는 밴드와 무관하게 늘 "아이의 현재 단계"를 뜻한다 — 다음 시기를
+        // 미리 볼 때도 지금 당장 필요한 항목이 위로 오게 하는 편이 사용자에게 정직하다.
         stageMatches: item.stageCodes.includes(stageCode),
         necessityLevel: item.necessityLevel,
         status: statusFor(item.id),
@@ -545,13 +559,16 @@ export class ItemsCatalogService {
         displayOrder: item.displayOrder
       }))
     );
+    // FIX/ITEM-121(F3): 예전에는 비교자 안에서 sorted.findIndex를 두 번 돌려 O(n²)였다.
+    // 순위를 Map으로 한 번만 만들어 O(n log n)으로 정렬한다(결과 순서는 동일).
     const itemById = new Map(candidates.map((item) => [item.id, item]));
+    const rankById = new Map(sorted.map((entry, index) => [entry.id, index]));
     return sorted
       .map((entry) => itemById.get(entry.id))
       .filter((item): item is ItemTemplateWithStages => Boolean(item))
       .sort((left, right) => {
-        const leftIndex = sorted.findIndex((entry) => entry.id === left.id);
-        const rightIndex = sorted.findIndex((entry) => entry.id === right.id);
+        const leftIndex = rankById.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+        const rightIndex = rankById.get(right.id) ?? Number.MAX_SAFE_INTEGER;
         return leftIndex - rightIndex || left.displayOrder - right.displayOrder;
       })
       .map((item) => ({ item, status: statusFor(item.id) }));

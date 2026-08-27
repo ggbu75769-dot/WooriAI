@@ -2,6 +2,13 @@ import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
+import {
+  affiliateClickResponseSchema,
+  errorResponseSchema,
+  itemDetailSchema,
+  itemSummarySchema,
+  productLinkSchema
+} from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -115,6 +122,12 @@ describe("Items, commerce, and affiliate API", () => {
         .expect(200)
     ).body.items as ItemSummary[];
 
+    // CON-121: 준비템 목록의 각 항목이 공유 계약(itemSummarySchema)에 맞아야 한다 —
+    // DB에서 nullable인 timingLabel이 null로 새어 나오면 여기서 잡힌다.
+    for (const item of nowItems) {
+      itemSummarySchema.parse(item);
+    }
+
     expect(nowItems.length).toBeGreaterThanOrEqual(4);
     expect(nowItems.map((item) => item.status)).not.toContain("prepared");
     expect(nowItems.map((item) => item.status)).not.toContain("not_needed");
@@ -131,6 +144,8 @@ describe("Items, commerce, and affiliate API", () => {
       .send({ status: "prepared" })
       .expect(200)
       .expect(({ body }) => {
+        // CON-121: 상태 변경 응답도 같은 요약 계약을 돌려준다.
+        itemSummarySchema.parse(body);
         expect(body).toMatchObject({ id: carSeat!.id, name: "카시트", status: "prepared" });
       });
 
@@ -189,6 +204,10 @@ describe("Items, commerce, and affiliate API", () => {
       productLinks: ProductLink[];
     };
 
+    // CON-121: 준비템 상세 응답 전체 계약 — 요약 필드 + 신뢰 필드(reasonText 등) +
+    // productLinks 배열(각 항목 productLinkSchema)까지 한 번에 고정된다.
+    itemDetailSchema.parse(carSeatDetail);
+
     expect(carSeatDetail).toMatchObject({
       id: carSeat!.id,
       reasonText: expect.any(String),
@@ -196,6 +215,8 @@ describe("Items, commerce, and affiliate API", () => {
     });
     expect(carSeatDetail.reasonText.length).toBeGreaterThan(0);
     const affiliateLink = carSeatDetail.productLinks.find((link) => link.isAffiliate);
+    // DNC-010/DNC-011: 제휴 고지 문구는 계약상 필드로 존재해야 한다 (productLinkSchema).
+    productLinkSchema.parse(affiliateLink);
     expect(affiliateLink).toMatchObject({
       isAffiliate: true,
       isSponsored: false,
@@ -208,6 +229,7 @@ describe("Items, commerce, and affiliate API", () => {
         .set("Authorization", `Bearer ${accessToken}`)
         .expect(200)
     ).body as { productLinks: ProductLink[] };
+    itemDetailSchema.parse(strollerDetail);
     expect(strollerDetail.productLinks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -224,6 +246,8 @@ describe("Items, commerce, and affiliate API", () => {
       .send({ childId, referrerScreenId: "ITEM-003" })
       .expect(200);
 
+    // CON-121: 제휴 클릭 응답 계약 — redirectUrl은 실제 URL 형태여야 한다.
+    affiliateClickResponseSchema.parse(clickResponse.body);
     expect(clickResponse.body).toMatchObject({
       clickId: expect.any(String),
       redirectUrl: "https://example.com/dev/affiliate/car-seat",
@@ -296,6 +320,8 @@ describe("Items, commerce, and affiliate API", () => {
         .send({ childId, referrerScreenId: "ITEM-003" })
         .expect(404)
         .expect(({ body }) => {
+          // CON-121: 404 대표 케이스 — 봉투 전체가 errorResponseSchema다.
+          errorResponseSchema.parse(body);
           // Same code as "link not found" so a disallowed domain can't be distinguished
           // from an unknown link id.
           expect(body.error.code).toBe("PRODUCT_LINK_NOT_FOUND");
@@ -357,6 +383,8 @@ describe("Items, commerce, and affiliate API", () => {
       .send({ status: "prepared", expenseId: otherChildExpense.id })
       .expect(403)
       .expect(({ body }) => {
+        // CON-121: 403 대표 케이스 — 봉투 전체가 errorResponseSchema다.
+        errorResponseSchema.parse(body);
         expect(body.error.code).toBe("EXPENSE_CHILD_MISMATCH");
       });
 
@@ -532,6 +560,7 @@ describe("Items, commerce, and affiliate API", () => {
         .send({ childId, referrerScreenId: "ITEM-003" })
         .expect(400)
         .expect(({ body }) => {
+          errorResponseSchema.parse(body);
           expect(body.error.code).toBe("PRODUCT_LINK_URL_SCHEME_INVALID");
         });
 

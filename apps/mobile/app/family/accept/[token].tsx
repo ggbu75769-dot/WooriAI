@@ -1,10 +1,16 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Text, View } from "react-native";
-import { acceptInvite, getInvite, LOCAL_SESSION_TOKEN } from "../../../src/api/client";
+import { acceptInvite, getInvite, listChildren, LOCAL_SESSION_TOKEN } from "../../../src/api/client";
+import {
+  HOUSEHOLD_JOIN_INVALIDATE_KEYS,
+  loginHrefForInvite,
+  planAfterHouseholdJoin
+} from "../../../src/children/household-join";
+import { useSelectedChildStore } from "../../../src/stores/selected-child.store";
 import { useSessionStore } from "../../../src/stores/session.store";
 import { theme } from "../../../src/theme";
-import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../../src/ui";
+import { announceForA11y, AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../../src/ui";
 
 const roleLabel: Record<string, string> = {
   co_parent: "공동부모",
@@ -36,6 +42,13 @@ export default function AcceptInviteScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const isDemoSession = authToken === LOCAL_SESSION_TOKEN;
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
+  const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
+  const queryClient = useQueryClient();
+  // FAM-121A: 비로그인 방문자가 로그인 화면으로 갈 때 초대 토큰을 함께 실어 보내는 목적지.
+  // 로그인 성공 후 app/(auth)/login.tsx가 이 초대 수락 화면으로 되돌려 준다.
+  const loginHref = loginHrefForInvite(token);
 
   const invite = useQuery({
     queryKey: ["invite", token],
@@ -45,12 +58,42 @@ export default function AcceptInviteScreen() {
 
   const accept = useMutation({
     mutationFn: () => acceptInvite(authToken!, token),
-    onSuccess: (result) => {
+    /**
+     * FAM-121A: 예전에는 defaultHouseholdId만 바꾸고 끝나서 ["children"]·["household-members"]가
+     * 예전 가구 응답 그대로 남고, 선택된 아이도 이전 가구 아이를 계속 가리켰다. R19-C의
+     * 삭제/탈퇴 뒤처리(app/settings/privacy.tsx)와 같은 순서로 정리한다:
+     * 새 목록 조회 -> 캐시 무효화 -> 계획대로 아이 재선택 + 안내 -> 이동.
+     */
+    onSuccess: async (result) => {
       if (!isTestSession) {
         useSessionStore.setState({ defaultHouseholdId: result.household.id });
       }
-      Alert.alert("가족에 참여했어요", `${result.household.name}과 함께해요.`, [
-        { text: "확인", onPress: () => router.replace("/family") }
+      // 데모(local-backend) 세션은 가구가 하나뿐이라 "다른 가구로 참여"를 모사하지 않는다
+      // (FIX-118B(F3)와 같은 정직성 규칙) -- 알 수 없음으로 두어 허위 전환 안내를 막는다.
+      const children = isDemoSession
+        ? null
+        : await listChildren(authToken!)
+            .then((response) => response.children)
+            .catch(() => null);
+      await Promise.all(
+        HOUSEHOLD_JOIN_INVALIDATE_KEYS.map((key) => queryClient.invalidateQueries({ queryKey: [...key] }))
+      );
+      const plan = planAfterHouseholdJoin({
+        householdId: result.household.id,
+        children,
+        currentChildId: selectedChildId
+      });
+      const joinedText = `${result.household.name}과 함께해요.`;
+      if (plan.kind === "select") {
+        setSelectedChildId(plan.childId);
+        announceForA11y(plan.notice);
+        Alert.alert("가족에 참여했어요", `${joinedText}\n${plan.notice}`, [
+          { text: "확인", onPress: () => router.replace(plan.href) }
+        ]);
+        return;
+      }
+      Alert.alert("가족에 참여했어요", joinedText, [
+        { text: "확인", onPress: () => router.replace(plan.href) }
       ]);
     }
   });
@@ -81,14 +124,26 @@ export default function AcceptInviteScreen() {
           </Card>
         ) : null}
 
-        {!authToken ? <Text style={mutedTextStyle}>로그인 후 가족에 참여할 수 있어요.</Text> : null}
         {accept.isError ? <Text style={{ color: theme.colors.danger }}>{acceptErrorText(accept.error)}</Text> : null}
 
-        <PrimaryButton
-          label={accept.isPending ? "참여하는 중..." : "가족에 참여하기"}
-          disabled={!invite.data || !authToken || accept.isPending}
-          onPress={() => accept.mutate()}
-        />
+        {!authToken ? (
+          <>
+            <Text style={mutedTextStyle}>로그인하면 이 초대로 바로 돌아와서 참여할 수 있어요.</Text>
+            <PrimaryButton
+              label="로그인하고 참여하기"
+              disabled={!loginHref}
+              onPress={() => {
+                if (loginHref) router.push(loginHref);
+              }}
+            />
+          </>
+        ) : (
+          <PrimaryButton
+            label={accept.isPending ? "참여하는 중..." : "가족에 참여하기"}
+            disabled={!invite.data || accept.isPending}
+            onPress={() => accept.mutate()}
+          />
+        )}
       </View>
     </AppScreen>
   );

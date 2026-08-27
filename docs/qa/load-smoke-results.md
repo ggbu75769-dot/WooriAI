@@ -35,10 +35,13 @@
 ## 해석
 
 - **가장 느린 엔드포인트는 GET /home** (p50 114ms, p95 251ms — 다른 GET 대비 2~3배).
-  첫 번째 추정 원인: `OnboardingStoreService.getHome`(apps/api/src/onboarding/onboarding-store.service.ts:768)이
-  child 접근 검증 → budget 조회 → 지출 목록 → 추천 아이템 → 예산 DTO를 **순차 await**로 실행하고,
-  특히 `expensesForChild(childId)`를 **두 번 호출**(recentExpenses용 774행 + totalExpenseKrw용 778행)해서
-  child의 전체 지출을 중복으로 읽는다. `Promise.all` 병렬화 + 지출 1회 조회 재사용만으로도 눈에 띄게 줄 여지가 있다.
+  첫 번째 추정 원인(측정 당시 `OnboardingStoreService.getHome`): child 접근 검증 → budget 조회 → 지출 목록
+  → 추천 아이템 → 예산 DTO를 **순차 await**로 실행하고, 특히 `expensesForChild(childId)`를 **두 번 호출**해서
+  child의 전체 지출을 중복으로 읽는다. `Promise.all` 병렬화 + 지출 1회 조회 재사용만으로도 눈에 띌 여지가 있다.
+  → **후속 조치 완료**: REF-118로 갓 서비스가 분해되어 이 메서드는 현재
+  `apps/api/src/onboarding/reporting-store.service.ts`의 `ReportingStoreService.getHome`이며,
+  PERF-103이 독립 조회를 `Promise.all`로 병렬화하고 PERF-121(F1)이 전량 조회를 SUM + LIMIT 3 두 쿼리로 대체했다.
+  (위 수치는 그 이전 측정값이므로 현행 성능과 다르다.)
 - 그 외 엔드포인트는 p50 40~80ms, p95 80~150ms 수준으로 dev 모드 치고 무난.
 - /health/ready p99가 126ms로 튄 것은 동시성 10에서 이벤트 루프/DB 커넥션 경합에 의한 꼬리 지연으로 보임(단건 p50은 9.5ms).
 

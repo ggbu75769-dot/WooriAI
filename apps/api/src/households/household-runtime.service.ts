@@ -314,6 +314,73 @@ export class HouseholdRuntimeService {
     };
   }
 
+  /**
+   * FAM-121B: owner-only list of invites that are still usable — `pending` and not
+   * yet past `expiresAt`. Invites whose TTL has lapsed are flipped to `expired`
+   * first, the same lazy expiry `requirePendingInvite` already performs on lookup,
+   * so the list never shows a link that acceptInvite would reject.
+   *
+   * `canReshareLink` is always false and that is deliberate, not a stub: only the
+   * sha256 hash of the invite token is stored (`inviteTokenHash`, see createInvite),
+   * so the original link is unrecoverable once the create response is gone. Callers
+   * must offer "취소 후 재생성" rather than pretending a re-share is possible.
+   */
+  async listInvites(user: AuthenticatedUser, householdId: string) {
+    this.assertOwner(user, householdId);
+    await this.requireHousehold(householdId);
+
+    const now = new Date();
+    await this.prisma.householdInvite.updateMany({
+      where: { householdId, status: "pending", expiresAt: { lte: now } },
+      data: { status: "expired" }
+    });
+
+    const invites = await this.prisma.householdInvite.findMany({
+      where: { householdId, status: "pending", expiresAt: { gt: now } },
+      orderBy: { createdAt: "desc" }
+    });
+
+    return { invites: invites.map((invite) => toInviteDto(invite)) };
+  }
+
+  /**
+   * FAM-121B: owner cancels a still-pending invite (status -> `revoked`, one of the
+   * four values the `household_invites.status` check constraint allows). The write
+   * is a compare-and-swap on `status = pending` for the same reason acceptInvite
+   * uses one: a cancel racing an accept must not "revoke" an invite that has already
+   * created a membership — the loser gets INVITE_NOT_PENDING instead.
+   */
+  async cancelInvite(user: AuthenticatedUser, householdId: string, inviteId: string) {
+    this.assertOwner(user, householdId);
+    await this.requireHousehold(householdId);
+
+    const invite = await this.prisma.householdInvite.findFirst({ where: { id: inviteId, householdId } });
+    if (!invite) {
+      throw new NotFoundException({ code: "INVITE_NOT_FOUND", message: "초대를 찾을 수 없어요." });
+    }
+
+    const now = new Date();
+    if (invite.status === "pending" && invite.expiresAt.getTime() <= now.getTime()) {
+      await this.prisma.householdInvite.update({ where: { id: invite.id }, data: { status: "expired" } });
+      invite.status = "expired";
+    }
+
+    if (invite.status !== "pending") {
+      throw new BadRequestException({ code: "INVITE_NOT_PENDING", message: "이미 사용했거나 만료된 초대예요." });
+    }
+
+    const before = toInviteDto(invite);
+    const claimed = await this.prisma.householdInvite.updateMany({
+      where: { id: invite.id, status: "pending" },
+      data: { status: "revoked" }
+    });
+    if (claimed.count === 0) {
+      throw new BadRequestException({ code: "INVITE_NOT_PENDING", message: "이미 사용했거나 만료된 초대예요." });
+    }
+
+    return { success: true, householdId, before, after: { ...before, status: "revoked" } };
+  }
+
   async getInvite(token: string) {
     const invite = await this.requirePendingInvite(token);
     const household = await this.requireHousehold(invite.householdId);
@@ -470,6 +537,31 @@ export class HouseholdRuntimeService {
     }
     return invite;
   }
+}
+
+function toInviteDto(invite: {
+  id: string;
+  householdId: string;
+  role: MemberRole;
+  channel: string;
+  status: string;
+  expiresAt: Date;
+  createdAt: Date;
+  invitedByUserId: string;
+}) {
+  return {
+    id: invite.id,
+    householdId: invite.householdId,
+    role: invite.role,
+    channel: invite.channel,
+    status: invite.status,
+    expiresAt: invite.expiresAt.toISOString(),
+    createdAt: invite.createdAt.toISOString(),
+    invitedByUserId: invite.invitedByUserId,
+    // Invite tokens are stored hashed (sha256), so the original link can never be
+    // shown again — the honest recovery path is cancel + create a new invite.
+    canReshareLink: false
+  };
 }
 
 function roleOrder(role: MemberRole) {

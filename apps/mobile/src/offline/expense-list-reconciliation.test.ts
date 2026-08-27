@@ -153,4 +153,56 @@ describe("reconcileMonthlyExpenses (H-2 fix: no duplicate display / no double-su
 
     expect(result.monthlyTotalKrw).toBe(0);
   });
+
+  // REC-121b: 서버 sumExpenses(expenseType === "expense")와 같은 술어를 쓴다 — 환불도 제외.
+  it("excludes refunds from the total too, matching the server's `expenseType === 'expense'` aggregate", () => {
+    const server = [serverExpense({ id: "server-1", amountKrw: 10_000, expenseType: "refund" })];
+
+    const result = reconcileMonthlyExpenses(server, [], "2026-07");
+
+    // 종전에는 `!== "gift"`로만 걸러 환불이 지출처럼 더해졌다(합계 10_000) -- 홈/리포트는
+    // 같은 달에 0을 보여주므로 두 숫자가 어긋났다.
+    expect(result.monthlyTotalKrw).toBe(0);
+    // 행 자체는 목록에 그대로 남는다(기록 탭은 환불도 "환불 ·" 부제로 보여준다) -- 합계 규칙만 바뀐다.
+    expect(result.visibleServerExpenses).toHaveLength(1);
+  });
+
+  it("sums only the real expenses in a month mixing expense + gift + refund rows (server and offline)", () => {
+    const server = [
+      serverExpense({ id: "server-expense", amountKrw: 30_000, expenseType: "expense" }),
+      serverExpense({ id: "server-gift", amountKrw: 50_000, expenseType: "gift" }),
+      serverExpense({ id: "server-refund", amountKrw: 12_000, expenseType: "refund" })
+    ];
+    const offline = [
+      offlineRow({
+        localId: "local-expense",
+        canonicalId: null,
+        payload: { ...offlineRow({}).payload, amountKrw: 7_000, expenseType: "expense" }
+      }),
+      offlineRow({
+        localId: "local-gift",
+        canonicalId: null,
+        payload: { ...offlineRow({}).payload, amountKrw: 9_000, expenseType: "gift" }
+      })
+    ];
+
+    const result = reconcileMonthlyExpenses(server, offline, "2026-07");
+
+    // 30_000 + 7_000 -- 선물(50_000/9_000)도 환불(12_000)도 더하지 않는다.
+    expect(result.monthlyTotalKrw).toBe(37_000);
+    // 목록은 여전히 전부 보여준다: 제외는 합계 규칙일 뿐 표시 규칙이 아니다.
+    expect(result.visibleServerExpenses).toHaveLength(3);
+    expect(result.offlinePendingRows).toHaveLength(2);
+  });
+
+  it("counts a legacy offline row with no expenseType field as a plain expense (recent-items.ts 관례)", () => {
+    // 오프라인 페이로드의 expenseType은 선택 필드다(offline/types.ts) -- 필드가 도입되기 전에
+    // 저장된 행이 합계에서 통째로 빠지면 안 된다.
+    const offline = [offlineRow({ localId: "local-legacy", canonicalId: null, payload: { ...offlineRow({}).payload, amountKrw: 8_000 } })];
+
+    const result = reconcileMonthlyExpenses([], offline, "2026-07");
+
+    expect(result.offlinePendingRows[0].payload.expenseType).toBeUndefined();
+    expect(result.monthlyTotalKrw).toBe(8_000);
+  });
 });

@@ -11,6 +11,8 @@ import {
   itemSummarySchema,
   moneyKrwSchema,
   productLinkSchema,
+  reportCategorySchema,
+  reportMonthlySchema,
   reportYearlySchema,
   updateExpenseRequestSchema,
   versionConflictResponseSchema
@@ -293,6 +295,58 @@ describe("shared contract schemas", () => {
             active: true
           }
         ]
+      })
+    ).toThrow();
+  });
+
+  // CON-121(CON-115 권고 잔여분): categoryTop이 z.record(z.unknown())였을 때는
+  // 아무 객체나 통과했다. 실응답 형태({categoryId, amountKrw, count})로 조인 뒤의 계약.
+  it("pins the monthly report categoryTop rows to the real category breakdown shape", () => {
+    const parsed = reportMonthlySchema.parse({
+      childId: "66666666-6666-4666-8666-666666666666",
+      yearMonth: "2026-07-01",
+      totalExpenseKrw: 49800,
+      budgetAmountKrw: 100000,
+      categoryTop: [
+        { categoryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", amountKrw: 49800, count: 1 }
+      ]
+    });
+    expect(parsed.categoryTop[0].count).toBe(1);
+
+    // 예산 미설정 월은 budgetAmountKrw가 null이다.
+    expect(
+      reportMonthlySchema.parse({
+        childId: "66666666-6666-4666-8666-666666666666",
+        yearMonth: "2026-07-01",
+        totalExpenseKrw: 0,
+        budgetAmountKrw: null,
+        categoryTop: []
+      }).budgetAmountKrw
+    ).toBeNull();
+
+    // 임의의 객체는 더 이상 통과하지 않는다 (조이기 전 계약이 놓치던 것).
+    expect(() =>
+      reportMonthlySchema.parse({
+        childId: "66666666-6666-4666-8666-666666666666",
+        yearMonth: "2026-07-01",
+        totalExpenseKrw: 49800,
+        categoryTop: [{ 아무거나: "값" }]
+      })
+    ).toThrow();
+
+    // 카테고리 리포트는 같은 항목 계약을 공유한다.
+    expect(
+      reportCategorySchema.parse({
+        childId: "66666666-6666-4666-8666-666666666666",
+        categories: [
+          { categoryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", amountKrw: 20000, count: 2 }
+        ]
+      }).categories
+    ).toHaveLength(1);
+    expect(() =>
+      reportCategorySchema.parse({
+        childId: "66666666-6666-4666-8666-666666666666",
+        categories: [{ categoryId: "not-a-uuid", amountKrw: 20000, count: 2 }]
       })
     ).toThrow();
   });

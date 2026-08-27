@@ -2,7 +2,15 @@ import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
-import { expenseSchema } from "@wooriai/contracts";
+import {
+  budgetSchema,
+  errorResponseSchema,
+  expenseSchema,
+  homeSummarySchema,
+  reportCategorySchema,
+  reportMonthlySchema,
+  reportYearlySchema
+} from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -107,6 +115,9 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        // CON-121: 홈 응답 전체가 공유 계약(homeSummarySchema)에 맞아야 한다 —
+        // child/monthly/recommendedItems/recentExpenses까지 한 번에 고정된다.
+        homeSummarySchema.parse(body);
         expect(body.totalExpenseKrw).toBe(0);
         expect(body.monthly).toMatchObject({
           childId,
@@ -194,6 +205,7 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        homeSummarySchema.parse(body);
         expect(body.totalExpenseKrw).toBe(0);
         expect(body.monthly.usedAmountKrw).toBe(0);
         expect(body.recentExpenses).toEqual([]);
@@ -204,6 +216,7 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        reportMonthlySchema.parse(body);
         expect(body.totalExpenseKrw).toBe(0);
         expect(body.budgetAmountKrw).toBe(100000);
         expect(body.categoryTop).toEqual([]);
@@ -250,6 +263,9 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        // CON-121: recentExpenses가 실제로 채워진 홈 응답 — 각 항목이 expenseSchema
+        // (required categoryId·version 포함)를 만족하는지까지 여기서 고정된다.
+        homeSummarySchema.parse(body);
         // totalExpenseKrw is the sum of ALL five expenses (not just the sliced recent 3,
         // not just the current month).
         expect(body.totalExpenseKrw).toBe(11000 + 1000 + 2000 + 3000 + 4000);
@@ -293,6 +309,9 @@ describe("Expense, budget, home, and report API", () => {
       })
       .expect(400)
       .expect(({ body }) => {
+        // CON-121: 400 대표 케이스 — 에러 봉투 전체가 errorResponseSchema다
+        // (DTO 검증 실패라 details.fields까지 실린 형태).
+        errorResponseSchema.parse(body);
         expect(body.error.code).toBe("VALIDATION_ERROR");
       });
 
@@ -307,6 +326,9 @@ describe("Expense, budget, home, and report API", () => {
       })
       .expect(400)
       .expect(({ body }) => {
+        // CON-121: 서비스가 던진 도메인 400 — details 없이 code/message/requestId만
+        // 실리는 형태도 같은 봉투 계약을 만족해야 한다(details는 optional).
+        errorResponseSchema.parse(body);
         expect(body.error.code).toBe("EXPENSE_FUTURE_DATE");
       });
 
@@ -409,6 +431,9 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        // CON-121: 선물 지출이 recentExpenses에 실린 홈 응답 — expenseType "gift"도
+        // 같은 expenseSchema를 통과해야 한다(합계에서 빠지는 것과는 별개).
+        homeSummarySchema.parse(body);
         expect(body.totalExpenseKrw).toBe(0);
         expect(body.monthly.usedAmountKrw).toBe(0);
       });
@@ -418,6 +443,7 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        reportMonthlySchema.parse(body);
         expect(body.totalExpenseKrw).toBe(0);
         expect(body.categoryTop).toEqual([]);
       });
@@ -534,6 +560,8 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        // CON-121: 연간 리포트 응답 계약 — 12개월 전부 채워진 형태까지 스키마가 고정한다.
+        reportYearlySchema.parse(body);
         expect(body.childId).toBe(childId);
         expect(body.year).toBe("2026");
         expect(body.monthlyTotals).toHaveLength(12);
@@ -568,6 +596,7 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        reportYearlySchema.parse(body);
         expect(body.year).toBe("2026");
         expect(body.totalExpenseKrw).toBe(50000);
       });
@@ -614,6 +643,9 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        // CON-121: 카테고리 리포트는 월간 리포트의 categoryTop과 같은 집계를 쓰므로
+        // 같은 항목 계약(categoryBreakdownEntrySchema)을 공유한다.
+        reportCategorySchema.parse(body);
         expect(body.childId).toBe(childId);
         expect(body.categories).toEqual([
           { categoryId: otherCategoryId, amountKrw: 30000, count: 1 }
@@ -683,6 +715,7 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        reportCategorySchema.parse(body);
         expect(body.childId).toBe(childId);
         expect(body.categories).toEqual([
           { categoryId: otherCategoryId, amountKrw: 20000, count: 1 },
@@ -734,6 +767,7 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(400)
       .expect(({ body }) => {
+        errorResponseSchema.parse(body);
         expect(body.error.code).toBe("REPORT_PERIOD_INVALID");
       });
 
@@ -768,6 +802,8 @@ describe("Expense, budget, home, and report API", () => {
       .send({ yearMonth: "2026-07", amountKrw: 120000 })
       .expect(200)
       .expect(({ body }) => {
+        // CON-121: 예산 upsert 응답도 조회와 같은 budgetSchema를 만족한다.
+        budgetSchema.parse(body);
         expect(body).toMatchObject({ childId, yearMonth: "2026-07-01", amountKrw: 120000 });
       });
 
@@ -806,6 +842,7 @@ describe("Expense, budget, home, and report API", () => {
       .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=2026-07-01`)
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200);
+    reportMonthlySchema.parse(monthlyShort.body);
     expect(monthlyLong.body).toEqual(monthlyShort.body);
     expect(monthlyShort.body).toMatchObject({
       childId,
@@ -831,6 +868,7 @@ describe("Expense, budget, home, and report API", () => {
       .get(`/api/v1/children/${childId}/reports/category?yearMonth=2026-07-01`)
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200);
+    reportCategorySchema.parse(categoryShort.body);
     expect(categoryLong.body).toEqual(categoryShort.body);
     expect(categoryShort.body.categories).toEqual([{ categoryId, amountKrw: 10000, count: 1 }]);
 
@@ -1021,6 +1059,11 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        // CON-115/CON-121: 목록 항목도 생성·수정 응답과 같은 expenseSchema다
+        // (ExpensesVersionService.hydrateMany가 version을 채운다).
+        for (const expense of body.expenses) {
+          expenseSchema.parse(expense);
+        }
         expect(body.totalAmountKrw).toBe(usedAmountKrw);
         expect(body.expenses).toHaveLength(1);
         expect(body.expenses[0].id).toBe(expenseId);
@@ -1031,6 +1074,9 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        // CON-121: 예산 조회 응답 계약(budgetSchema) — 홈의 monthly와 달리
+        // amountKrw는 moneyKrwSchema(1원 이상)다. 예산이 없으면 404라 0은 나오지 않는다.
+        budgetSchema.parse(body);
         expect(body).toMatchObject({
           childId,
           yearMonth: "2026-07-01",
@@ -1045,6 +1091,7 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        homeSummarySchema.parse(body);
         expect(body.totalExpenseKrw).toBe(usedAmountKrw);
         expect(body.monthly.usedAmountKrw).toBe(usedAmountKrw);
         expect(body.monthly.remainingAmountKrw).toBe(remainingAmountKrw);
@@ -1056,6 +1103,9 @@ describe("Expense, budget, home, and report API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        // CON-121: categoryTop이 z.record(z.unknown())에서 실형태로 조여졌으므로
+        // 이 parse가 {categoryId, amountKrw, count}까지 함께 고정한다.
+        reportMonthlySchema.parse(body);
         expect(body).toMatchObject({
           childId,
           yearMonth: "2026-07-01",

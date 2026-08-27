@@ -264,6 +264,159 @@ describe("Family invites and household RBAC", () => {
       .expect(403);
   });
 
+  it("lists only still-usable pending invites for the owner and never re-exposes the invite token", async () => {
+    const ownerToken = await login(app, "fam121b-list-owner");
+    const { householdId } = await completeOwnerOnboarding(app, ownerToken);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.invites).toEqual([]);
+      });
+
+    const coParentInvite = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "co_parent", channel: "link" })
+      .expect(200);
+    const viewerInvite = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "viewer", channel: "link" })
+      .expect(200);
+
+    const listed = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/households/${householdId}/invites`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .expect(200)
+    ).body.invites as Array<Record<string, unknown>>;
+
+    expect(listed).toHaveLength(2);
+    expect(listed.map((invite) => invite.role).sort()).toEqual(["co_parent", "viewer"]);
+    for (const invite of listed) {
+      expect(invite).toMatchObject({
+        householdId,
+        status: "pending",
+        channel: "link",
+        canReshareLink: false,
+        expiresAt: expect.any(String),
+        createdAt: expect.any(String)
+      });
+      // The plaintext token only ever exists in the create response; the row keeps a
+      // sha256 hash, so the listing must not leak a token, a hash, or a usable link.
+      const serialized = JSON.stringify(invite);
+      expect(serialized).not.toContain("/invite/");
+      expect(serialized.toLowerCase()).not.toContain("token");
+      expect(serialized).not.toContain(tokenFromInviteUrl(coParentInvite.body.inviteUrl));
+      expect(serialized).not.toContain(tokenFromInviteUrl(viewerInvite.body.inviteUrl));
+    }
+
+    // An accepted invite drops out of the pending listing.
+    const coParentToken = await login(app, "fam121b-list-co-parent");
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${tokenFromInviteUrl(coParentInvite.body.inviteUrl)}/accept`)
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.invites.map((invite: { role: string }) => invite.role)).toEqual(["viewer"]);
+      });
+
+    // Non-owner members cannot see the household's pending invites.
+    await request(app.getHttpServer())
+      .get(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .expect(403);
+
+    const outsiderToken = await login(app, "fam121b-list-outsider");
+    await request(app.getHttpServer())
+      .get(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${outsiderToken}`)
+      .expect(403);
+  });
+
+  it("lets an owner cancel a pending invite, which then stops working and disappears from the listing", async () => {
+    const ownerToken = await login(app, "fam121b-cancel-owner");
+    const { householdId } = await completeOwnerOnboarding(app, ownerToken);
+
+    const invite = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "viewer", channel: "link" })
+      .expect(200);
+    const inviteToken = tokenFromInviteUrl(invite.body.inviteUrl);
+
+    const inviteId = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/households/${householdId}/invites`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .expect(200)
+    ).body.invites[0].id as string;
+
+    const otherOwnerToken = await login(app, "fam121b-cancel-other-owner");
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/invites/${inviteId}`)
+      .set("Authorization", `Bearer ${otherOwnerToken}`)
+      .expect(403);
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/invites/00000000-0000-4000-8000-000000000000`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(404)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("INVITE_NOT_FOUND");
+      });
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/invites/${inviteId}`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ success: true });
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.invites).toEqual([]);
+      });
+
+    // The cancelled link is dead for both preview and acceptance.
+    await request(app.getHttpServer())
+      .get(`/api/v1/invites/${inviteToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("INVITE_NOT_PENDING");
+      });
+
+    const inviteeToken = await login(app, "fam121b-cancel-invitee");
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${inviteToken}/accept`)
+      .set("Authorization", `Bearer ${inviteeToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("INVITE_NOT_PENDING");
+      });
+
+    // Cancelling twice is rejected rather than silently succeeding.
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/invites/${inviteId}`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("INVITE_NOT_PENDING");
+      });
+  });
+
   it("lets an owner force-remove a member; blocks non-owners and self-removal, and revokes access", async () => {
     const ownerToken = await login(app, "batch08-remove-owner");
     const { householdId, childId } = await completeOwnerOnboarding(app, ownerToken);

@@ -79,9 +79,29 @@ export default function FamilyInviteScreen() {
         {invite.data ? (
           <Card style={{ gap: 10 }}>
             <Text style={inviteSuccessTitleStyle}>초대 링크가 준비됐어요</Text>
-            <Text style={inviteLinkStyle}>{invite.data.inviteUrl}</Text>
+            {/*
+              FAM-121B: `selectable` gives a real copy affordance (길게 눌러 복사) without
+              adding a clipboard dependency — expo-clipboard is not in apps/mobile's
+              dependencies and this ticket doesn't introduce new ones, so Share stays the
+              one-tap path and long-press-to-copy covers "copy the link" natively.
+            */}
+            <Text
+              selectable
+              accessibilityHint="길게 눌러서 링크를 복사할 수 있어요"
+              style={inviteLinkStyle}
+            >
+              {invite.data.inviteUrl}
+            </Text>
             <Text style={inviteExpiryStyle}>{formatInviteExpiry(invite.data.expiresAt)}</Text>
             <SecondaryButton label="링크 공유하기" onPress={handleShare} />
+            {/*
+              Honest warning, matching how the server stores invites: only a sha256 hash
+              of the token is kept, so this link can never be shown again. 가족 화면의
+              "대기 중인 초대"에서 취소하고 새로 만드는 것이 유일한 복구 경로다.
+            */}
+            <Text style={mutedTextStyle}>
+              이 링크는 지금 화면에서만 볼 수 있어요. 지금 공유하거나 길게 눌러 복사해 두세요. 잃어버리면 가족 화면의 “대기 중인 초대”에서 취소하고 새로 만들 수 있어요.
+            </Text>
             {isTestSession ? (
               <Text style={mutedTextStyle}>테스트 모드예요. 이 초대 링크는 실제로 전송되지 않아요.</Text>
             ) : null}

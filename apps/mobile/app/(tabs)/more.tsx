@@ -138,8 +138,11 @@ export default function MoreScreen() {
   };
 
   // NOTI-102: 알림 센터가 실제 기능이 되어 "알림 설정 · 준비 중" 비활성 행 대신 /notifications로 이동한다.
+  // NAV-121: 로그인 상태에서 /settings로 가는 유일한 진입점 -- 이 행이 없으면 아이 관리 · 알림 설정 ·
+  // 통계 동의 철회 · 로그아웃에 도달할 방법이 없다. (비로그인 미리보기는 헤더 ⌕ 버튼이 /settings로 간다.)
   const sessionMenuRows: Array<{ icon: string; title: string; caption?: string; onPress?: () => void }> = [
     { icon: "♙", title: "프로필 관리", onPress: () => router.push("/family") },
+    { icon: "◐", title: "설정", onPress: () => router.push("/settings") },
     { icon: "♧", title: "알림", onPress: () => router.push("/notifications") },
     { icon: "⌁", title: "엑셀 가져오기", onPress: () => router.push("/import") },
     // EXP-106: 엑셀 가져오기의 반대 방향(데이터 이동성) -- 지출 기록을 CSV로 공유 시트에 내보낸다.

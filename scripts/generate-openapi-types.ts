@@ -9,4 +9,7 @@ if (!existsSync(sourcePath)) {
   process.exit(1);
 }
 
-console.log("[contracts] OpenAPI type generation is deferred to Batch 02.");
+console.log(
+  "[contracts] OpenAPI type generation is a permanent no-op stub (CON-115) — " +
+    "contract types live in packages/contracts as hand-written zod schemas."
+);

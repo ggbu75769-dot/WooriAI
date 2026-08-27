@@ -247,8 +247,13 @@ export class ExpensesStoreService {
    * ⚠️ 호출 전 접근검증 필수 (FIX-118B/F5): childId만 받는 원시 조회다 — 권한
    * 확인이 없으므로 호출자가 requireChildAccess를 먼저 통과시켜야 한다
    * (listExpenses / ReportingStoreService.getHome 등이 그 규약을 지킨다).
+   *
+   * PERF-121(F1): `take`는 "최신순 N건"만 필요한 호출자(홈의 recentExpenses)를 위한
+   * LIMIT이다. 정렬 계약(spentOn desc, createdAt desc)을 이 한 곳에 유지하려고
+   * 별도 메서드를 만들지 않고 옵션으로 받는다 — 최신 N건은 정렬 순서에 의존하므로
+   * 정렬 정의가 갈라지면 안 된다. 생략하면 종전대로 전량을 돌려준다.
    */
-  async expensesForChild(childId: string, yearMonth?: string): Promise<ExpenseRow[]> {
+  async expensesForChild(childId: string, yearMonth?: string, take?: number): Promise<ExpenseRow[]> {
     const range = yearMonth ? getSeoulMonthRange(yearMonth) : null;
     return this.prisma.expense.findMany({
       where: {
@@ -256,7 +261,8 @@ export class ExpensesStoreService {
         deletedAt: null,
         ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {})
       },
-      orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }]
+      orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }],
+      ...(take === undefined ? {} : { take })
     });
   }
 
@@ -268,14 +274,21 @@ export class ExpensesStoreService {
    * ⚠️ 호출 전 접근검증 필수 (FIX-118B/F5): expensesForChild와 동일하게 childId
    * 기반 집계만 수행한다 — 예산(getBudget/upsertBudget)·리포트 경로가 각자
    * requireChildAccess를 먼저 호출한 뒤 사용한다.
+   *
+   * DNC-015: `expenseType: "expense"` 필터가 선물(gift)을 합계에서 제외한다 —
+   * 범위 유무와 무관하게 항상 적용된다.
+   *
+   * PERF-121(F1): `range`를 생략하면 전 기간 합계다(홈의 totalExpenseKrw). 종전에는
+   * 홈이 전 행을 읽어 JS에서 더했지만, 같은 술어의 SUM을 DB에 맡기는 것이 동치이면서
+   * 행을 하나도 옮기지 않는다. categoryBreakdown의 선택적 range 관례와 동일한 모양.
    */
-  async sumExpenses(childId: string, range: { startInclusive: string; endExclusive: string }) {
+  async sumExpenses(childId: string, range?: { startInclusive: string; endExclusive: string }) {
     const result = await this.prisma.expense.aggregate({
       where: {
         childId,
         deletedAt: null,
         expenseType: "expense",
-        spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) }
+        ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {})
       },
       _sum: { amountKrw: true }
     });
