@@ -68,6 +68,54 @@ function normalizeAmount(value: number | null | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+/**
+ * "이번 달 예산을 다 썼는가"의 **단일 판정**.
+ *
+ * 부등호가 `>=`인 것은 경고 배너(@wooriai/domain `reachedBudgetBoundaries`의 reached100 =
+ * `spent >= budget`)와 같은 경계를 쓰기 위해서다. 이 모듈 안에서 히어로(subtext)와 넛지가
+ * 각자 부등호를 들고 있으면 정확히 100%인 달에 한쪽은 "다 썼다", 다른 쪽은 "잘 관리하고
+ * 있다"고 말한다(라운드 38 H-2) -- 그래서 판정을 여기 한 줄로 모은다.
+ */
+function isBudgetUsedUp(budgetKrw: number, spentKrw: number): boolean {
+  return spentKrw >= budgetKrw;
+}
+
+export type BudgetUsagePercentInput = {
+  /** 월 예산(원). 0 이하/비정상이면 0%를 돌려준다(퍼센트를 말할 근거가 없다). */
+  budgetKrw: number;
+  /** 선물 제외 월 누계(원, DNC-015). */
+  spentKrw: number;
+  /**
+   * 초과 구간을 100으로 물릴지.
+   * - 홈 히어로·넛지: `true` — 프로그레스 바가 100을 넘을 수 없고, 초과 **금액**은 경고 배너가
+   *   따로 말한다.
+   * - 주간 알림(src/notifications/generators.ts): `false` — 종전처럼 "예산의 120%예요"라고
+   *   초과율을 그대로 말한다(그쪽에는 바가 없고, 초과 사실을 숨길 이유도 없다).
+   */
+  clampToFull: boolean;
+};
+
+/**
+ * 예산 대비 사용률(%) — **반올림 + "미소진 100% 금지" 캡**의 단일 소스.
+ *
+ * 라운드 37 G-2: 아직 다 쓰지 않았는데 반올림만으로 100%가 되는 구간(99.5% ~ 100% 직전)에서는
+ * 바로 옆 보조 문구가 "남은 예산 5,000원"이라고 말한다 — 한 카드 안에서 "다 썼다"와 "남았다"가
+ * 동시에 서는 자기모순이다. 그 구간을 99로 캡해 **100%는 실제로 다 쓴 달에만** 나오게 한다
+ * (준비율 카드와 같은 규칙). 경고 배너는 미소진 구간을 Math.floor로 99%라 말하므로 100%
+ * 경계에서 두 표기가 어긋나지 않고, 78% 같은 평소 값은 반올림 그대로라 HOME-001 캡처도 불변이다.
+ *
+ * 라운드 38 H-3: 그 캡이 홈에만 있어서, 99.5%~99.99%인 달에 홈은 "남은 예산 N원 · 99%"인데
+ * 주간 알림만 "예산의 100%예요"라고 말했다(같은 사실을 두 화면이 다르게 말하는 허위 표시다).
+ * 계산을 이 함수 하나로 모아 두 곳이 갈릴 수 없게 한다 — 알림은 `clampToFull: false`로,
+ * 초과율만 종전처럼 그대로 말한다.
+ */
+export function budgetUsagePercent({ budgetKrw, spentKrw, clampToFull }: BudgetUsagePercentInput): number {
+  if (!Number.isFinite(budgetKrw) || budgetKrw <= 0 || !Number.isFinite(spentKrw)) return 0;
+  const raw = (spentKrw / budgetKrw) * 100;
+  const rounded = Math.round(Math.max(0, clampToFull ? Math.min(100, raw) : raw));
+  return !isBudgetUsedUp(budgetKrw, spentKrw) && rounded >= 100 ? 99 : rounded;
+}
+
 export function evaluateHomeBudgetProgress(input: HomeBudgetInput): HomeBudgetProgress {
   const budgetKrw = normalizeAmount(input.budgetKrw);
   const spentKrw = normalizeAmount(input.spentKrw);
@@ -82,22 +130,16 @@ export function evaluateHomeBudgetProgress(input: HomeBudgetInput): HomeBudgetPr
 
   // 예산을 다 쓴 달에는 말할 "남은 금액"이 없다(0원도 음수도 남은 예산이 아니다) — 경고 배너에
   // 맡기고 총액만 말한다. 부등호(>=)는 배너의 reached100과 같다(라운드 37 G-5, 위 주석).
-  const isBudgetUsedUp = spentKrw >= budgetKrw;
+  const usedUp = isBudgetUsedUp(budgetKrw, spentKrw);
   // 0 ≤ 남은 예산 ≤ 예산: 잘못된 입력(음수 지출)에도 "예산보다 많이 남았다"고 말하지 않는다.
   const remainingKrw = Math.min(budgetKrw, Math.max(0, budgetKrw - spentKrw));
 
-  // 라운드 37 G-2: 아직 다 쓰지 않았는데 반올림만으로 100%가 되는 구간(99.5% ~ 100% 직전)에서는
-  // 바로 옆 보조 문구가 "남은 예산 5,000원"이라고 말한다 — 한 카드 안에서 "다 썼다"와 "남았다"가
-  // 동시에 서는 자기모순이다. 그 구간을 99로 캡해 **100%는 실제로 다 쓴 달에만** 나오게 한다
-  // (준비율 카드와 같은 규칙). 경고 배너는 미소진 구간을 Math.floor로 99%라 말하므로 100%
-  // 경계에서 두 표기가 어긋나지 않고, 78% 같은 평소 값은 반올림 그대로라 HOME-001 캡처도 불변이다.
-  const roundedPercent = Math.round(Math.min(100, Math.max(0, (spentKrw / budgetKrw) * 100)));
-
   return {
     hasBudget: true,
-    percent: !isBudgetUsedUp && roundedPercent >= 100 ? 99 : roundedPercent,
+    // 반올림·100% 캡 규칙은 budgetUsagePercent 하나에만 있다(라운드 37 G-2 / 38 H-3).
+    percent: budgetUsagePercent({ budgetKrw, spentKrw, clampToFull: true }),
     subtext:
-      input.showRemaining && !isBudgetUsedUp
+      input.showRemaining && !usedUp
         ? `남은 예산 ${formatKrw(remainingKrw)} · 예산 ${formatKrw(budgetKrw)}`
         : `예산 ${formatKrw(budgetKrw)}`
   };
@@ -110,7 +152,8 @@ export function evaluateHomeBudgetProgress(input: HomeBudgetInput): HomeBudgetPr
  *   닿았다). 넛지 자리를 "월 예산 설정하기" CTA로 바꿔 그 구멍을 메운다.
  * - 예산 있음: 종전 문구를 그대로 유지한다. `hasWarningBanner`는 HOME-BUDGET-113 경고 배너가
  *   보이는 중인지로, 배너가 이미 초과 금액을 말하고 있으면(라운드 13 m-7) 넛지는 금액을
- *   중복해서 말하지 않는다.
+ *   중복해서 말하지 않는다. "다 썼는가"의 경계는 히어로·배너와 같은 `isBudgetUsedUp`(>=)이다
+ *   (라운드 38 H-2 — 정확히 100%인 달에 배너와 넛지가 서로를 부정하던 자리).
  */
 export type HomeBudgetNudge = {
   variant: "set-budget" | "usage";
@@ -138,11 +181,17 @@ export function buildHomeBudgetNudge(input: HomeBudgetNudgeInput): HomeBudgetNud
 
   const budgetKrw = normalizeAmount(input.budgetKrw);
   const spentKrw = normalizeAmount(input.spentKrw);
-  const isOverBudget = spentKrw > budgetKrw;
+  // 라운드 38 H-2: 히어로·경고 배너와 **같은 경계**(>=)를 쓴다. 종전에는 여기만 `>`라, 정확히
+  // 100%인 달에 배너는 "이번 달 예산을 모두 사용했어요"인데 넛지는 "예산의 100% 사용 중이에요!
+  // / 이번 달도 잘 관리하고 있어요 👏"를 한 화면에서 함께 말했다(서로를 부정하는 두 문장).
+  // 경계를 맞추면 그 달에도 hasWarningBanner 중복 방지 분기(라운드 13 m-7)가 정상 작동한다.
+  const usedUp = isBudgetUsedUp(budgetKrw, spentKrw);
   const overAmountKrw = spentKrw - budgetKrw;
 
-  const title = isOverBudget
-    ? input.hasWarningBanner
+  // 초과 **금액**을 말할 수 있는 건 실제로 초과했을 때뿐이다 — 정확히 다 쓴 달에 "예산을 0원
+  // 초과했어요."는 없는 사실이라, 배너 유무와 무관하게 "모두 사용했어요"로 말한다.
+  const title = usedUp
+    ? input.hasWarningBanner || overAmountKrw <= 0
       ? "예산을 모두 사용했어요."
       : `예산을 ${formatKrw(overAmountKrw)} 초과했어요.`
     : `예산의 ${progress.percent}% 사용 중이에요!`;
@@ -150,7 +199,7 @@ export function buildHomeBudgetNudge(input: HomeBudgetNudgeInput): HomeBudgetNud
   return {
     variant: "usage",
     title,
-    subtitle: isOverBudget ? "이번 달 지출을 확인해 볼까요? 😥" : "이번 달도 잘 관리하고 있어요 👏",
+    subtitle: usedUp ? "이번 달 지출을 확인해 볼까요? 😥" : "이번 달도 잘 관리하고 있어요 👏",
     route: "/(tabs)/items"
   };
 }

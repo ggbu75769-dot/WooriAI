@@ -52,6 +52,70 @@ describe("UX-L(A) 행 액션 목록", () => {
     expect(buildRecordRowActions({}).map((action) => action.key)).toEqual(["edit", "repeat", "delete"]);
   });
 
+  /**
+   * 라운드 38 H-7 — 눌러도 아무 일이 없는 항목.
+   *
+   * 프리필을 만드는 `buildRepeatExpenseParams`는 선물·환불에 더해 **빈 품목명·0 이하 금액**도
+   * 막는데, 액션 목록은 `expenseType`만 봤다. 그래서 손상된 레거시 행(이름이 비었거나 금액이 0)
+   * 에서는 "같은 내용으로 또 기록"이 보이는데 눌러도 아무 일도 일어나지 않았다.
+   */
+  it("H-7: 프리필을 만들 수 없는 행에서는 '또 기록' 항목 자체를 빼서 두 함수 규칙이 같다", () => {
+    const rows = [
+      { itemName: "기저귀", amountKrw: 38_500 },
+      { itemName: "   ", amountKrw: 38_500 },
+      { itemName: "", amountKrw: 38_500 },
+      { itemName: "기저귀", amountKrw: 0 },
+      { itemName: "기저귀", amountKrw: -1_000 },
+      { itemName: "기저귀", amountKrw: 1_000.5 },
+      { itemName: "기저귀", amountKrw: Number.NaN },
+      { itemName: "기저귀", amountKrw: 38_500, expenseType: "gift" }
+    ];
+
+    for (const row of rows) {
+      const offered = buildRecordRowActions(row).some((action) => action.key === "repeat");
+      const usable = buildRepeatExpenseParams({ expenseType: "expense", ...row }) !== null;
+      expect(offered, JSON.stringify(row)).toBe(usable);
+      // 스크린리더 커스텀 액션도 같은 목록에서 나오므로 함께 사라진다.
+      expect(
+        recordRowAccessibilityActions(buildRecordRowActions(row)).some((action) => action.name === "repeat"),
+        JSON.stringify(row)
+      ).toBe(usable);
+      // 목록에 없는 이름은 어떤 경로로도 실행되지 않는다.
+      expect(resolveRecordRowAction("repeat", buildRecordRowActions(row)) !== null, JSON.stringify(row)).toBe(usable);
+    }
+  });
+
+  it("H-7: 이름·금액을 넘기지 않는 호출부는 종전대로 expenseType만으로 판정한다", () => {
+    expect(buildRecordRowActions({ expenseType: "expense" }).map((action) => action.key)).toEqual([
+      "edit",
+      "repeat",
+      "delete"
+    ]);
+    // 이름만 아는 호출부는 아는 만큼만 검사한다(금액은 판정에서 빠진다).
+    expect(buildRecordRowActions({ itemName: "기저귀" }).map((action) => action.key)).toContain("repeat");
+    expect(buildRecordRowActions({ itemName: "  " }).map((action) => action.key)).not.toContain("repeat");
+  });
+
+  it("H-7: 액션시트도 같은 규칙이라 반응 없는 버튼이 뜨지 않는다", () => {
+    const broken = buildRecordRowActionSheet({
+      itemName: "  ",
+      amountKrw: 38_500,
+      expenseType: "expense",
+      platform: "ios"
+    });
+    expect(broken.buttons.map((button) => button.actionKey)).toEqual(["edit", "delete", null]);
+    // 이름을 지어내지 않는다(종전 규칙 유지).
+    expect(broken.title).toBe(RECORD_ROW_SHEET_FALLBACK_TITLE);
+
+    const zeroAmount = buildRecordRowActionSheet({
+      itemName: "기저귀",
+      amountKrw: 0,
+      expenseType: "expense",
+      platform: "ios"
+    });
+    expect(zeroAmount.buttons.map((button) => button.actionKey)).toEqual(["edit", "delete", null]);
+  });
+
   it("삭제는 언제나 마지막이고 파괴적 동작으로 표시된다", () => {
     for (const expenseType of ["expense", "gift", undefined]) {
       const actions = buildRecordRowActions({ expenseType });
@@ -273,8 +337,13 @@ describe("UX-L(A) 배선 계약", () => {
     expect(newExpenseSource).toContain('from "../../src/expenses/record-row-actions"');
     expect(newExpenseSource).toContain("const prefill = parseExpensePrefillParams(params);");
     expect(newExpenseSource).toContain("const prefilledItemName = prefill.itemName;");
-    expect(newExpenseSource).toContain("quickExpenseCategories.find((category) => category.id === prefill.categoryId)");
-    // 8타일 밖 카테고리는 무시하고 기본 타일로 둔다(최근 품목 칩과 같은 판단).
+    // 라운드 38 H-6: 8타일 id와 완전히 같지 않아도(서버 시드 UUID) 공용 매핑으로 타일을 찾는다.
+    expect(newExpenseSource).toContain("buildTileCategoryIdResolver(");
+    expect(newExpenseSource).toContain("resolveTileCategoryId(prefill.categoryId)");
+    expect(newExpenseSource).toContain(
+      "quickExpenseCategories.find((category) => category.id === prefilledCategoryTileId)"
+    );
+    // 매핑조차 안 되는 카테고리는 무시하고 기본 타일로 둔다(최근 품목 칩과 같은 판단).
     expect(newExpenseSource).toContain("const [selectedCategory, setSelectedCategory] = useState(prefilledCategory ?? quickExpenseCategories[0]);");
   });
 });

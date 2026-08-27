@@ -1,4 +1,5 @@
-import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";
+import { countsTowardMonthlyTotal, reconcileMonthlyExpenses } from "../offline/expense-list-reconciliation";
+import type { LocalExpenseRow } from "../offline/types";
 import { formatKrw } from "../money";
 
 /**
@@ -83,21 +84,61 @@ export function buildBudgetUsageLine(input: BudgetUsageLineInput): string | null
   return `${usedText} · 남은 예산 ${formatKrw(budgetKrw - usedKrw)}`;
 }
 
+/** 지난달 합계가 읽는 서버 캐시 행의 최소 모양(src/api/client.ts의 `Expense`가 그대로 대입된다). */
+export type LastMonthExpenseLike = {
+  /** 서버 지출 id. 아래 오프라인 재조정이 "로컬 변경이 걸린 낡은 서버 행"을 걸러낼 때만 쓴다. */
+  id?: string;
+  amountKrw: number;
+  expenseType?: string | null;
+};
+
+export type LastMonthOfflineInput = {
+  /** 오프라인 저장소 스냅숏의 전체 행. 아래에서 `childId`로 걸러 쓴다. */
+  rows: readonly LocalExpenseRow[];
+  childId: string | null;
+  /** 위 서버 캐시가 담고 있는 달("YYYY-MM") — 대기 행을 그 달로 좁힌다. */
+  yearMonth: string;
+};
+
 /**
  * 지난달 실지출 합계(원). `["expenses", childId, 지난달]` 캐시의 행을 받아 월 합계와 **같은
  * 술어**로만 더한다(DNC-015 선물·환불 제외). 캐시가 없으면 null을 넘기고 null을 돌려받는다.
+ *
+ * 라운드 38 H-1: 서버 원본 행만 더하면 기록 탭이 같은 달에 보여 주는 합계와 어긋난다 — 아직
+ * 올라가지 않은 오프라인 대기 행이 빠지고, 삭제 대기 중인 행은 그대로 들어간다. 그래서 기록
+ * 탭·입력 화면 맥락 줄과 **같은 함수**(`reconcileMonthlyExpenses`)를 통과시킬 수 있도록
+ * `offline` 인자를 받는다. 넘기지 않으면 종전 동작 그대로다(서버 행만 합산).
  */
 export function sumLastMonthActualKrw(
-  records: ReadonlyArray<{ amountKrw: number; expenseType?: string | null }> | null | undefined
+  records: ReadonlyArray<LastMonthExpenseLike> | null | undefined,
+  offline?: LastMonthOfflineInput
 ): number | null {
   if (!records) return null;
-  let total = 0;
-  for (const record of records) {
-    if (!countsTowardMonthlyTotal(record.expenseType)) continue;
-    if (!Number.isFinite(record.amountKrw)) continue;
-    total += record.amountKrw;
+  // 재조정에 넘기기 전에 값이 깨진 행만 떨군다(합계가 NaN이 되는 쪽이 더 나쁜 거짓말이다).
+  const usableRecords = records.filter((record) => Number.isFinite(record.amountKrw));
+
+  if (!offline || !offline.childId) {
+    let total = 0;
+    for (const record of usableRecords) {
+      if (!countsTowardMonthlyTotal(record.expenseType)) continue;
+      total += record.amountKrw;
+    }
+    return total;
   }
-  return total;
+
+  const childRows = offline.rows.filter((row) => row.childId === offline.childId);
+  // id가 없는 행은 어떤 canonicalId와도 매칭되지 않는다(재조정은 빈 canonicalId를 집합에 넣지
+  // 않는다) — 즉 "로컬 변경이 걸리지 않은 서버 행"으로 다뤄져 종전처럼 그대로 합산된다.
+  const { monthlyTotalKrw } = reconcileMonthlyExpenses(
+    usableRecords.map((record) => ({
+      id: record.id ?? "",
+      amountKrw: record.amountKrw,
+      expenseType: record.expenseType ?? "expense"
+    })),
+    [...childRows],
+    offline.yearMonth
+  );
+  return monthlyTotalKrw;
 }
 
 export type BudgetAdjustChip = {
@@ -154,6 +195,12 @@ export function adjustBudgetDigits(
  * 지난달 칩은 **캐시가 있고 실지출이 0보다 클 때만** 만든다. 캐시가 없으면 근거가 없고,
  * 0원이면 "지난달 실지출(0원)로"라는 제안이 저장할 수 없는 값(0 이하)을 권하게 된다 —
  * 둘 다 칩을 감추는 편이 정직하다.
+ *
+ * 라운드 38 H-10: 실지출이 상한(1억)을 넘는 달도 칩을 감춘다. 종전에는 라벨에 원본 금액을
+ * 적으면서 입력값만 상한으로 잘라, "지난달 실지출(120,000,000원)로"를 누르면 입력칸에
+ * 100,000,000원이 들어갔다 — 칩이 약속한 금액과 실제로 들어가는 금액이 다른 것은 그 자체로
+ * 허위 표시다. 자를 수 없으면 제안하지 않는다(이 상한은 입력 보조용 클램프일 뿐이고, 그런
+ * 달은 애초에 이 칩의 용도인 "지난달만큼으로 맞추기"가 성립하지 않는다).
  */
 export function buildBudgetAdjustChips(input: BudgetAdjustChipsInput): BudgetAdjustChip[] {
   const chips: BudgetAdjustChip[] = [
@@ -172,13 +219,15 @@ export function buildBudgetAdjustChips(input: BudgetAdjustChipsInput): BudgetAdj
   ];
 
   const lastMonthKrw = input.lastMonthActualKrw;
-  if (isUsableAmount(lastMonthKrw) && lastMonthKrw > 0) {
-    const amountText = formatKrw(lastMonthKrw);
+  if (isUsableAmount(lastMonthKrw) && lastMonthKrw > 0 && lastMonthKrw <= BUDGET_MAX_KRW) {
+    const nextDigits = String(Math.floor(lastMonthKrw));
+    // 라벨과 입력값이 같은 숫자에서 나온다 — 칩이 약속한 금액이 곧 입력칸에 들어가는 금액이다.
+    const amountText = formatKrw(Number(nextDigits));
     chips.push({
       id: "last-month",
       label: `지난달 실지출(${amountText})로`,
       accessibilityLabel: `지난달 실지출 ${amountText}으로 맞추기`,
-      nextDigits: String(Math.min(BUDGET_MAX_KRW, Math.floor(lastMonthKrw)))
+      nextDigits
     });
   }
 

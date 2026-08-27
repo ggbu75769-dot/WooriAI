@@ -63,12 +63,50 @@ export function isRepeatableExpenseType(expenseType?: string | null): boolean {
   return expenseType === undefined || expenseType === null || expenseType === "expense";
 }
 
+/** 행에서 "또 기록"을 내놓을 수 있는지 판정할 때 보는 필드. 모르는 필드는 넘기지 않는다. */
+export type RepeatableRowInput = {
+  /** 품목명. `undefined`면 "이 호출부가 아직 모르는 값"이라 검사에서 빠진다. */
+  itemName?: string | null;
+  /** 원화 정수 금액(DNC-013). `undefined`면 위와 같이 검사에서 빠진다. */
+  amountKrw?: number | null;
+  expenseType?: string | null;
+};
+
+/**
+ * 라운드 38 H-7 — 아는 필드만으로 "또 기록"을 검사할 때 통과시키는 대체값.
+ * 판정 규칙을 여기 다시 적지 않기 위한 자리 채움일 뿐이라 화면에 나가지 않는다.
+ */
+const REPEAT_CHECK_KNOWN_GOOD_ITEM_NAME = "-";
+const REPEAT_CHECK_KNOWN_GOOD_AMOUNT_KRW = 1;
+
+/**
+ * 이 행에 "또 기록" 항목을 내놓을 수 있는가.
+ *
+ * 라운드 38 H-7: 종전에는 이 목록이 `expenseType`만 봤고, 프리필을 만드는
+ * `buildRepeatExpenseParams`는 여기에 더해 **빈 품목명·0 이하 금액**도 막았다. 두 규칙이 갈린
+ * 만큼(손상된 레거시 행, 금액이 0인 행) 액션시트와 스크린리더 액션 메뉴에 "같은 내용으로 또
+ * 기록"이 보이는데 눌러도 아무 일도 일어나지 않는 항목이 남았다 — 반응 없는 버튼은 고장으로
+ * 읽힌다. 그래서 판정을 그 함수에 **그대로 위임한다**(규칙을 이 파일에 두 번 적지 않는 것이
+ * 요점이다). 아직 넘어오지 않은 필드는 통과값으로 채워, 아는 만큼만 검사한다.
+ */
+export function canRepeatRecordRow(row: RepeatableRowInput): boolean {
+  return (
+    buildRepeatExpenseParams({
+      itemName: typeof row.itemName === "string" ? row.itemName : REPEAT_CHECK_KNOWN_GOOD_ITEM_NAME,
+      amountKrw: typeof row.amountKrw === "number" ? row.amountKrw : REPEAT_CHECK_KNOWN_GOOD_AMOUNT_KRW,
+      expenseType: row.expenseType
+    }) !== null
+  );
+}
+
 /** 행에서 고를 수 있는 동작 목록. 삭제는 **항상 마지막**이다(아래 힌트 문장의 조사 근거이기도 하다). */
-export function buildRecordRowActions(input: { expenseType?: string | null }): RecordRowAction[] {
+export function buildRecordRowActions(input: RepeatableRowInput): RecordRowAction[] {
   const actions: RecordRowAction[] = [
     { key: "edit", label: RECORD_ROW_EDIT_LABEL, shortLabel: "수정", destructive: false }
   ];
-  if (isRepeatableExpenseType(input.expenseType)) {
+  // 프리필을 만들 수 없는 행에서는 항목 자체를 빼므로, 액션시트와 accessibilityActions
+  // (recordRowAccessibilityActions는 이 목록을 그대로 옮긴다) 어디에도 남지 않는다.
+  if (canRepeatRecordRow(input)) {
     actions.push({ key: "repeat", label: RECORD_ROW_REPEAT_LABEL, shortLabel: "또 기록", destructive: false });
   }
   actions.push({ key: "delete", label: RECORD_ROW_DELETE_LABEL, shortLabel: "삭제", destructive: true });
@@ -150,10 +188,16 @@ export type RecordRowActionSheet = {
  */
 export function buildRecordRowActionSheet(input: {
   itemName: string;
+  /** 라운드 38 H-7: 넘기면 "또 기록"이 프리필 규칙(0 이하 금액 제외)까지 통과한 경우에만 뜬다. */
+  amountKrw?: number | null;
   expenseType?: string | null;
   platform: string;
 }): RecordRowActionSheet {
-  const actions = buildRecordRowActions({ expenseType: input.expenseType });
+  const actions = buildRecordRowActions({
+    itemName: input.itemName,
+    amountKrw: input.amountKrw,
+    expenseType: input.expenseType
+  });
   const buttons: RecordRowAlertButton[] = actions.map((action) => ({
     label: action.label,
     actionKey: action.key,
@@ -192,8 +236,11 @@ export type RepeatExpenseParams = {
 };
 
 /**
- * 행 → 프리필 파라미터. 그대로 다시 기록할 수 없는 행이면 null이다(호출 쪽이 항목을 내놓지
- * 않지만, 계약 위반이 파라미터로 새어 나가지 않도록 여기서도 같은 규칙을 건다).
+ * 행 → 프리필 파라미터. 그대로 다시 기록할 수 없는 행이면 null이다.
+ *
+ * 라운드 38 H-7: 이 세 줄이 "또 기록이 가능한가"의 **유일한 정의**다 — 행 액션 목록
+ * (`canRepeatRecordRow` → `buildRecordRowActions`)이 이 함수를 호출해 판정하므로, 목록에 뜨는데
+ * 눌러도 아무 일이 없는 항목이 생길 수 없다.
  *
  * 금액 규칙은 DNC-013(0보다 큰 원화 정수)과 같다.
  */

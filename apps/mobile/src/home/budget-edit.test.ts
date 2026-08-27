@@ -10,9 +10,45 @@ import {
   BUDGET_STEP_KRW,
   sumLastMonthActualKrw
 } from "./budget-edit";
+import { formatKrw } from "../money";
+import type { LocalExpenseRow } from "../offline/types";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+
+/** 오프라인 저장소 행 하나(src/expenses/entry-context-line.test.ts와 같은 관례). */
+function offlineRow(partial: {
+  localId: string;
+  childId?: string;
+  canonicalId?: string | null;
+  syncState?: LocalExpenseRow["syncState"];
+  pendingDelete?: boolean;
+  spentOn: string;
+  amountKrw: number;
+  expenseType?: "expense" | "gift";
+}): LocalExpenseRow {
+  const childId = partial.childId ?? "child-1";
+  return {
+    localId: partial.localId,
+    canonicalId: partial.canonicalId ?? null,
+    childId,
+    payload: {
+      childId,
+      categoryId: "c0a7e901-0000-4c01-8c01-c47e900ec001",
+      amountKrw: partial.amountKrw,
+      spentOn: partial.spentOn,
+      itemName: "기저귀",
+      expenseType: partial.expenseType ?? "expense"
+    },
+    version: null,
+    syncState: partial.syncState ?? "pending",
+    pendingDelete: partial.pendingDelete ?? false,
+    conflictCurrent: null,
+    lastError: null,
+    createdAt: "2026-07-11T00:00:00.000Z",
+    updatedAt: "2026-07-11T00:00:00.000Z"
+  };
+}
 
 /**
  * BUD-001(라운드 38 UX-M) — 예산 수정 화면의 판단 근거.
@@ -82,9 +118,64 @@ describe("BUD-001 지난달 실지출 합계 (sumLastMonthActualKrw)", () => {
     expect(sumLastMonthActualKrw([{ amountKrw: 50_000, expenseType: "gift" }])).toBe(0);
   });
 
+  /**
+   * 라운드 38 H-1 — 서버 원본 행만 더하면 기록 탭과 어긋난다.
+   *
+   * 기록 탭의 월 합계는 `reconcileMonthlyExpenses`를 거친다: 아직 올라가지 않은 로컬 대기 행을
+   * 더하고, 로컬 변경이 걸린 낡은 서버 행과 삭제 대기 행은 뺀다. 이 칩이 그 재조정을 건너뛰면
+   * "지난달 실지출"이라는 같은 이름의 숫자가 화면마다 다르게 나온다.
+   */
+  it("H-1: 오프라인 대기 행을 함께 넘기면 기록 탭 월 합계와 같은 규칙으로 더한다", () => {
+    const serverRows = [
+      { id: "expense-1", amountKrw: 1_000_000, expenseType: "expense" },
+      { id: "expense-2", amountKrw: 300_000, expenseType: "gift" }
+    ];
+    const offlineRows = [
+      // 아직 올라가지 않은 신규 행 -- 기록 탭은 이 행을 지난달 합계에 넣는다.
+      offlineRow({ localId: "local-1", amountKrw: 120_000, spentOn: "2026-07-11" }),
+      // 다른 아이의 행은 세지 않는다.
+      offlineRow({ localId: "local-2", amountKrw: 999_000, spentOn: "2026-07-12", childId: "child-2" }),
+      // 이번 달 행은 지난달 합계가 아니다.
+      offlineRow({ localId: "local-3", amountKrw: 500_000, spentOn: "2026-08-01" })
+    ];
+
+    expect(sumLastMonthActualKrw(serverRows, { rows: offlineRows, childId: "child-1", yearMonth: "2026-07" })).toBe(
+      1_120_000
+    );
+    // 인자를 넘기지 않으면 종전 동작 그대로다(서버 행만).
+    expect(sumLastMonthActualKrw(serverRows)).toBe(1_000_000);
+  });
+
+  it("H-1: 삭제 대기 중인 행은 곧 사라질 기록이라 지난달 실지출에서 빠진다", () => {
+    const serverRows = [{ id: "expense-1", amountKrw: 1_000_000, expenseType: "expense" }];
+    const offlineRows = [
+      offlineRow({
+        localId: "local-1",
+        canonicalId: "expense-1",
+        amountKrw: 1_000_000,
+        spentOn: "2026-07-11",
+        pendingDelete: true
+      })
+    ];
+
+    // 낡은 서버 행은 숨겨지고(로컬 변경이 걸렸다), 삭제 대기 행도 세지 않는다 -> 0원.
+    expect(sumLastMonthActualKrw(serverRows, { rows: offlineRows, childId: "child-1", yearMonth: "2026-07" })).toBe(0);
+  });
+
+  it("H-1: 아이가 선택되지 않았으면 재조정 없이 서버 행만 더한다(대기 행의 주인을 모른다)", () => {
+    const serverRows = [{ id: "expense-1", amountKrw: 1_000_000, expenseType: "expense" }];
+    const offlineRows = [offlineRow({ localId: "local-1", amountKrw: 120_000, spentOn: "2026-07-11" })];
+
+    expect(sumLastMonthActualKrw(serverRows, { rows: offlineRows, childId: null, yearMonth: "2026-07" })).toBe(
+      1_000_000
+    );
+  });
+
   it("합산 술어를 다시 인라인하지 않고 한 곳에서 import한다", () => {
     const moduleSource = source("src/home/budget-edit.ts");
-    expect(moduleSource).toContain('import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation"');
+    expect(moduleSource).toContain(
+      'import { countsTowardMonthlyTotal, reconcileMonthlyExpenses } from "../offline/expense-list-reconciliation"'
+    );
     expect(moduleSource).not.toContain('=== "expense"');
   });
 });
@@ -135,6 +226,46 @@ describe("BUD-001 조정 칩 (buildBudgetAdjustChips)", () => {
   it("지난달 실지출이 0이면 칩을 감춘다 — 저장할 수 없는 값을 권하지 않는다", () => {
     const chips = buildBudgetAdjustChips({ amountDigits: "", currentBudgetKrw: 1_600_000, lastMonthActualKrw: 0 });
     expect(chips.some((chip) => chip.id === "last-month")).toBe(false);
+  });
+
+  /**
+   * 라운드 38 H-10 — 라벨과 입력값이 갈리던 자리.
+   *
+   * 상한(1억)을 넘는 달에는 라벨에 원본 금액을 적으면서 입력값만 잘라, "지난달 실지출
+   * (120,000,000원)로"를 눌렀는데 입력칸에는 100,000,000원이 들어갔다. 칩이 약속한 금액과 실제로
+   * 들어가는 금액이 다른 것은 그 자체로 허위 표시다 — 자를 수 없으면 제안하지 않는다.
+   */
+  it("H-10: 실지출이 상한을 넘으면 칩 자체를 감춘다 (라벨과 입력값이 갈리지 않는다)", () => {
+    const chips = buildBudgetAdjustChips({
+      amountDigits: "",
+      currentBudgetKrw: 1_600_000,
+      lastMonthActualKrw: BUDGET_MAX_KRW + 20_000_000
+    });
+    expect(chips.map((chip) => chip.id)).toEqual(["minus-step", "plus-step"]);
+  });
+
+  it("H-10: 상한과 정확히 같은 달은 그대로 제안한다 (자를 것이 없다)", () => {
+    const chip = buildBudgetAdjustChips({
+      amountDigits: "",
+      currentBudgetKrw: 1_600_000,
+      lastMonthActualKrw: BUDGET_MAX_KRW
+    }).find((entry) => entry.id === "last-month");
+
+    expect(chip?.nextDigits).toBe(String(BUDGET_MAX_KRW));
+    expect(chip?.label).toBe("지난달 실지출(100,000,000원)로");
+  });
+
+  it("H-10: 만들어진 칩은 라벨의 금액과 입력값이 언제나 같은 숫자다", () => {
+    for (const lastMonthActualKrw of [1, 1_412_000, 99_999_999.7, BUDGET_MAX_KRW, BUDGET_MAX_KRW + 1]) {
+      const chip = buildBudgetAdjustChips({
+        amountDigits: "",
+        currentBudgetKrw: 1_600_000,
+        lastMonthActualKrw
+      }).find((entry) => entry.id === "last-month");
+      if (!chip) continue;
+      expect(chip.label, String(lastMonthActualKrw)).toContain(formatKrw(Number(chip.nextDigits)));
+      expect(Number(chip.nextDigits), String(lastMonthActualKrw)).toBeLessThanOrEqual(BUDGET_MAX_KRW);
+    }
   });
 
   it("모든 칩은 스크린리더용 문장을 따로 가진다(-10만이 소리로 뭉개지지 않게)", () => {

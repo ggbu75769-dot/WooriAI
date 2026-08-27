@@ -35,16 +35,23 @@
  * 엑셀 임포트·지출 수정 화면을 거친 행은 서버가 시드한 정식 카테고리 UUID(DB마다 다른 값)를
  * 달고 들어온다 — 그 행들은 어떤 타일에도 매칭되지 않아 카테고리 합계에서 통째로 빠지고,
  * 화면에는 실제보다 작은 "기저귀 68,000원"이 남는다(월 합계는 정확한데 카테고리 항만 과소).
- * 이 화면은 서버 카테고리 목록을 들고 있지 않아 그 행이 어느 분류인지 알 방법이 없으므로,
- * **모르면 말하지 않는다**: 그 달에 8타일 밖 categoryId를 가진 행이 하나라도 있으면 카테고리
- * 항을 통째로 생략하고 월 합계만 말한다(작은 숫자를 사실처럼 내놓는 것보다 낫다). 분류가
- * 아직 없는 행(categoryId 없음/빈 문자열)은 어느 타일의 합계도 갉아먹지 않으므로 제외한다.
+ * 그래서 **모르면 말하지 않는다**: 그 달에 어느 타일로도 옮길 수 없는 categoryId를 가진 행이
+ * 하나라도 있으면 카테고리 항을 통째로 생략하고 월 합계만 말한다(작은 숫자를 사실처럼 내놓는
+ * 것보다 낫다). 분류가 아직 없는 행(categoryId 없음/빈 문자열)은 어느 타일의 합계도 갉아먹지
+ * 않으므로 제외한다.
+ *
+ * 라운드 38 H-11 — 그 생략의 **범위를 좁힌다**: 서버 시드 UUID라고 해서 분류를 모르는 것은
+ * 아니다. 화면이 이미 들고 있는 `["categories"]` 캐시가 `id -> code`를 알려 주므로, 공용 매핑
+ * (`buildTileCategoryIdResolver`)을 `resolveTileCategoryId`로 넘겨 주면 임포트·수정 행도 제
+ * 타일에 정상 합산된다. 생략은 **끝내 매핑되지 않는 행이 남을 때만** 한다(8타일에 대응이 없는
+ * 분류, 임포트 스텁, 캐시가 아직 없는 콜드 스타트). 인자를 넘기지 않으면 종전처럼 타일 id 완전
+ * 일치만 보는 규칙이고, 그때의 동작은 라운드 37 G-4 그대로다.
  *
  * React/react-native에 의존하지 않으므로 vitest에서 그대로 단위 테스트한다
  * (이 저장소의 화면은 vitest에서 렌더할 수 없다 — src/expenses/month-expenses.test.ts 관례).
  */
 
-import { categoryCatalog } from "../categories";
+import { categoryCatalog, type TileCategoryIdResolver } from "../categories";
 import { formatKrw } from "../money";
 import { countsTowardMonthlyTotal, reconcileMonthlyExpenses } from "../offline/expense-list-reconciliation";
 import type { LocalExpenseRow } from "../offline/types";
@@ -76,6 +83,12 @@ export type EntryContextLineInput = {
   childId: string | null;
   /** 지금 선택된 카테고리 타일. 선택이 없으면 null(월 합계만 말한다). */
   selectedCategory: { id: string; label: string } | null;
+  /**
+   * 라운드 38 H-11: 행의 `categoryId`를 8타일 id로 옮기는 매핑(src/categories.ts
+   * `buildTileCategoryIdResolver`). 넘기지 않으면 타일 id 완전 일치만 보는 종전 규칙이다.
+   * `null`을 돌려주는 행이 하나라도 있으면 카테고리 항 자체를 생략한다.
+   */
+  resolveTileCategoryId?: TileCategoryIdResolver;
 };
 
 export type EntryContextLine = {
@@ -88,12 +101,22 @@ export type EntryContextLine = {
 /** 카테고리 합산이 실제로 세는 행의 최소 모양(서버 캐시 행·오프라인 대기 행 공통). */
 type CountedCategoryRow = { categoryId: string; amountKrw: number; expenseType: string | null | undefined };
 
+/** 매핑을 넘기지 않은 호출부의 기본 규칙 — 타일 id 완전 일치(라운드 37 G-4의 동작 그대로). */
+const tileIdExactMatchOnly: TileCategoryIdResolver = (categoryId) =>
+  TILE_CATEGORY_IDS.has(categoryId) ? categoryId : null;
+
+/** 합산 단계에서 본 행 하나: 어느 타일로 갔는지와, 끝내 옮기지 못했는지. */
+type ResolvedCategoryRow = { tileCategoryId: string | null; unknown: boolean; amountKrw: number };
+
 /**
- * 라운드 37 G-4: 이 화면이 이름을 아는 8타일 밖의 분류인가. 분류가 아직 없는 행(빈 값)은
- * 어느 타일의 합계에서도 빠지지 않으므로 "알 수 없는 분류"로 치지 않는다.
+ * 라운드 37 G-4 + 38 H-11: 행의 분류를 8타일로 옮긴다. 분류가 아직 없는 행(빈 값)은 어느 타일의
+ * 합계에서도 빠지지 않으므로 "알 수 없는 분류"로 치지 않는다 — 옮길 곳이 없을 뿐이다.
  */
-function hasUnknownCategory(row: CountedCategoryRow): boolean {
-  return typeof row.categoryId === "string" && row.categoryId.length > 0 && !TILE_CATEGORY_IDS.has(row.categoryId);
+function resolveCategoryRow(row: CountedCategoryRow, resolve: TileCategoryIdResolver): ResolvedCategoryRow {
+  const rawCategoryId = typeof row.categoryId === "string" ? row.categoryId : "";
+  if (rawCategoryId.length === 0) return { tileCategoryId: null, unknown: false, amountKrw: row.amountKrw };
+  const tileCategoryId = resolve(rawCategoryId);
+  return { tileCategoryId, unknown: tileCategoryId === null, amountKrw: row.amountKrw };
 }
 
 /**
@@ -105,7 +128,8 @@ export function buildEntryContextLine({
   entryYearMonth,
   offlineRows,
   childId,
-  selectedCategory
+  selectedCategory,
+  resolveTileCategoryId
 }: EntryContextLineInput): EntryContextLine | null {
   // 콜드 스타트: 아직 이번 달 목록을 한 번도 못 받았다 -- 0원이라고 말하지 않고 침묵한다.
   if (!cachedMonthExpenses) return null;
@@ -137,12 +161,17 @@ export function buildEntryContextLine({
         expenseType: row.payload.expenseType
       }))
     ].filter((row) => countsTowardMonthlyTotal(row.expenseType));
-    // 라운드 37 G-4: 8타일 밖 분류(엑셀 임포트·수정 화면을 거친 서버 시드 UUID)가 이 달에 하나라도
-    // 섞여 있으면 카테고리 합계를 믿을 수 없다 — 과소 표기된 숫자를 내놓느니 항을 생략한다.
-    const categoryTotalKrw = countedRows.some(hasUnknownCategory)
+    // 라운드 38 H-11: 서버 시드 UUID(엑셀 임포트·수정 화면을 거친 행)는 매핑으로 제 타일에
+    // 정상 합산한다. 그래도 옮길 곳이 없는 행이 하나라도 남으면 — 8타일에 대응이 없는 분류나
+    // 캐시가 아직 없는 콜드 스타트 — 카테고리 합계를 믿을 수 없으므로(라운드 37 G-4) 과소 표기된
+    // 숫자를 내놓느니 항을 생략한다.
+    const resolvedRows = countedRows.map((row) =>
+      resolveCategoryRow(row, resolveTileCategoryId ?? tileIdExactMatchOnly)
+    );
+    const categoryTotalKrw = resolvedRows.some((row) => row.unknown)
       ? 0
-      : countedRows
-          .filter((row) => row.categoryId === selectedCategory.id)
+      : resolvedRows
+          .filter((row) => row.tileCategoryId === selectedCategory.id)
           .reduce((sum, row) => sum + row.amountKrw, 0);
     if (categoryTotalKrw > 0) {
       const categoryPart = `${selectedCategory.label} ${formatKrw(categoryTotalKrw)}`;

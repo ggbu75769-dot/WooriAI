@@ -61,10 +61,15 @@ describe("ANA-103 event firing source contract", () => {
     expect(expenseSource).toContain('linkedItemTemplateId ? "followup" : "manual"');
     expect(expenseSource).toContain("isCurrentlyOnline().then((online)");
     expect(expenseSource).toContain("offline: !online");
-    // 리뷰 F6: 이 화면의 categoryId는 8타일(categoryCatalog)뿐이라 서버 카테고리 목록 해석은
-    // 도달 불가였다 -- 배선을 걷어냈고, 되살아나면 여기서 걸린다.
+    // 리뷰 F6: 이 화면이 **저장하는** categoryId는 언제나 8타일(categoryCatalog)의 id라, 분석
+    // 페이로드가 서버 카테고리 목록을 해석할 필요가 없다(그 배선은 도달 불가라 걷어냈다).
+    // 페이로드에 들어가는 값이 화면이 고른 그 id 하나뿐인지를 여기서 고정한다.
+    expect(expenseSource).toContain("categoryId: recordedCategoryId,");
     expect(expenseSource).not.toContain("serverCategories");
-    expect(expenseSource).not.toContain('getQueryData<{ categories:');
+    // 라운드 38 H-6/H-11: ["categories"] 캐시를 읽는 배선이 다시 생겼지만, 그것은 프리필·맥락
+    // 한 줄이 쓰는 **타일 매핑**이고 분석 페이로드와 무관하다(getQueryData 한 번, 새 요청 없음).
+    expect(expenseSource.match(/getQueryData<\{ categories:/g) ?? []).toHaveLength(1);
+    expect(expenseSource).toContain("buildTileCategoryIdResolver(");
   });
 
   it("fires item_status_changed from the items tab status buttons after server confirmation", () => {
@@ -125,6 +130,49 @@ describe("ANA-127 purchase-loop funnel firing source contract", () => {
     }
     // 같은 동의 게이트(ANA-102)를 쓰는 공용 클라이언트를 통해서만 발사한다.
     expect(promptSource).toContain('import { trackAndFlushAnalyticsEvent } from "../analytics/client";');
+  });
+});
+
+/**
+ * 라운드 39 UX-P: 리포트 공유 계측. 리포트 탭의 두 공유 카드(마일스톤 REP-103 · 월간 UX-H)는
+ * 지금까지 아무 계측도 없어서, "공유까지 가는 사람이 있는가"를 알 방법이 없었다.
+ */
+describe("라운드 39 UX-P report_share_tapped 발사 계약", () => {
+  const reportSource = source("app/(tabs)/reports.tsx");
+
+  it("두 공유 핸들러가 각각 자기 reportType으로 정확히 한 번씩 발사한다", () => {
+    expect(reportSource).toContain('eventName: "report_share_tapped"');
+    expect(reportSource).toContain("buildReportShareTappedPayload({ reportType })");
+    expect(reportSource).toContain('trackReportShareTapped("milestone");');
+    expect(reportSource).toContain('trackReportShareTapped("monthly");');
+    for (const reportType of ["milestone", "monthly"]) {
+      expect(reportSource.split(`trackReportShareTapped("${reportType}")`).length - 1).toBe(1);
+    }
+  });
+
+  it("공유할 내용이 없으면(가드에 걸리면) 발사하지 않는다 -- 누른 적 없는 공유를 세지 않는다", () => {
+    for (const guard of ["if (!milestoneReport) return;", "if (!monthlyShareMessage) return;"]) {
+      const guardIndex = reportSource.indexOf(guard);
+      expect(guardIndex, guard).toBeGreaterThan(-1);
+      const fireIndex = reportSource.indexOf("trackReportShareTapped(", guardIndex);
+      expect(fireIndex).toBeGreaterThan(guardIndex);
+    }
+  });
+
+  it("다른 발사 지점과 같은 동의 게이트·데모 세션 토큰 규약을 쓴다", () => {
+    expect(reportSource).toContain('import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";');
+    expect(reportSource).toContain("const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);");
+    expect(reportSource).toContain("trackAndFlushAnalyticsEvent(authToken, {");
+    expect(reportSource).not.toContain("trackAndFlushAnalyticsEvent(accessToken");
+  });
+
+  it("페이로드에는 아이 애칭·금액이 실리지 않는다 (enum 하나뿐)", () => {
+    // 화면이 들고 있는 공유용 값들이 payload로 새지 않는지 -- 발사 블록만 잘라 확인한다.
+    const fireIndex = reportSource.indexOf('eventName: "report_share_tapped"');
+    const fireBlock = reportSource.slice(fireIndex, fireIndex + 400);
+    for (const leak of ["shareChildName", "totalExpenseKrw", "monthlyShareMessage", "reportMonthLabel"]) {
+      expect(fireBlock, leak).not.toContain(leak);
+    }
   });
 });
 
