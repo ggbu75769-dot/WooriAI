@@ -24,6 +24,7 @@ import {
 } from "../../src/reports/milestone-share";
 import { selectMilestoneReportType } from "../../src/reports/milestone-selection";
 import { buildMonthlyInsight, resolveMonthStatus } from "../../src/reports/monthly-insight";
+import { buildMonthlyShareMessage } from "../../src/reports/share-text";
 import { evaluateTrendDirection } from "../../src/reports/trend-direction";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
@@ -217,7 +218,7 @@ export default function ReportsScreen() {
     queryFn: () => getMilestoneReport(authToken!, childId!, milestoneType)
   });
   // Shares the home screen's query cache entry -- only used for the child nickname in the
-  // milestone share message.
+  // 공유 문구(마일스톤 카드 + UX-H 월간 요약). 새 요청이 아니라 홈 탭이 이미 채워 둔 캐시다.
   const home = useQuery({
     queryKey: ["home", childId],
     enabled: Boolean(authToken && childId),
@@ -225,14 +226,16 @@ export default function ReportsScreen() {
   });
   const milestoneReport = milestone.data;
   const milestoneTopCategory = milestoneReport?.topCategories[0];
-  const milestoneChildName = home.data?.child.nickname ?? "우리 아이";
+  // UX-H: 두 공유 카드(마일스톤·월간)가 같은 이름을 쓴다. 닉네임/태명은 사용자가 스스로
+  // 보내는 값이고, 이 화면이 공유 문구에 싣는 유일한 식별 정보다(이메일·계정 식별자 없음).
+  const shareChildName = home.data?.child.nickname ?? "우리 아이";
   // REP-127: 제목·공유 라벨은 요청한 타입이 아니라 **응답의 type**에서 파생한다. 요청 타입이
   // 바뀌는 사이(첫돌 도달 직후 재조회)에도 화면에 남아 있는 데이터와 제목이 어긋나지 않는다.
   const milestoneCardTitle = milestoneReport ? milestoneReportTitle(milestoneReport.type) : "";
   const shareMilestoneReport = async () => {
     if (!milestoneReport) return;
     try {
-      await Share.share({ message: buildMilestoneShareMessage(milestoneReport, milestoneChildName) });
+      await Share.share({ message: buildMilestoneShareMessage(milestoneReport, shareChildName) });
     } catch {
       // Share sheet dismissed/unavailable -- nothing to recover.
     }
@@ -333,6 +336,27 @@ export default function ReportsScreen() {
           previousMonthTotalKrw: previousMonth.isSuccess ? previousMonth.data.totalExpenseKrw : null
         })
       : null;
+
+  // UX-H: 월간 요약 공유 문구. 인사이트 카드가 화면에 그린 문장(headline)과 "총 지출" 카드가
+  // 그린 금액을 **그대로** 실어, 보낸 문구와 화면이 어긋날 수 없게 한다(DNC-013/015).
+  // 진행 중인 달이면 조립 모듈이 "8월 1일~27일 기준" 줄을 넣는다 — 부분 구간 합계를 한 달치인
+  // 것처럼 보내지 않기 위해서다. 카드가 없으면(말할 근거 없음) null이라 버튼도 붙지 않는다.
+  const monthlyShareMessage = buildMonthlyShareMessage({
+    yearMonth: reportYearMonth,
+    monthLabel: reportMonthLabel,
+    todayIso: seoulToday,
+    childName: shareChildName,
+    totalExpenseKrw: monthly.data?.totalExpenseKrw ?? 0,
+    insight: monthlyInsight
+  });
+  const shareMonthlySummary = async () => {
+    if (!monthlyShareMessage) return;
+    try {
+      await Share.share({ message: monthlyShareMessage });
+    } catch {
+      // 공유 시트를 닫은(취소) 경우가 정상 경로다 -- 오류 배너를 띄우지 않는다.
+    }
+  };
 
   // UX-F: 6개월 추이 차트의 전월 대비 방향 한 줄. 차트가 그리는 값(monthlyTrendPoints)의 마지막
   // 두 달만 비교하므로 추가 요청이 없다. 색은 기존 토큰에서 고르고 **증가는 중립**이다 --
@@ -461,6 +485,19 @@ export default function ReportsScreen() {
                     <Text style={reportInsightHeadlineStyle}>{monthlyInsight.headline}</Text>
                     {monthlyInsight.detail ? <Text style={reportInsightDetailStyle}>{monthlyInsight.detail}</Text> : null}
                   </View>
+                  {/* UX-H: 버튼은 위 accessible 그룹의 **형제**여야 한다 -- 그룹 안에 넣으면
+                      TalkBack이 카드를 한 덩어리로 읽으면서 버튼을 삼킨다. */}
+                  {monthlyShareMessage ? (
+                    <Pressable
+                      accessibilityLabel={`${reportMonthLabel} 요약 공유하기`}
+                      accessibilityRole="button"
+                      hitSlop={8}
+                      onPress={shareMonthlySummary}
+                      style={reportShareButtonStyle}
+                    >
+                      <Text style={reportShareButtonTextStyle}>공유하기</Text>
+                    </Pressable>
+                  ) : null}
                 </Card>
               ) : null}
 
@@ -541,9 +578,9 @@ export default function ReportsScreen() {
                     accessibilityRole="button"
                     hitSlop={8}
                     onPress={shareMilestoneReport}
-                    style={reportMilestoneShareButtonStyle}
+                    style={reportShareButtonStyle}
                   >
-                    <Text style={reportMilestoneShareButtonTextStyle}>공유하기</Text>
+                    <Text style={reportShareButtonTextStyle}>공유하기</Text>
                   </Pressable>
                 </Card>
               ) : null}
@@ -677,7 +714,9 @@ const reportMilestoneCardStyle = StyleSheet.flatten([
   }
 ]);
 
-const reportMilestoneShareButtonStyle = {
+// UX-H: 마일스톤 카드와 월간 인사이트 카드가 **같은** 공유 버튼을 쓴다(둘 다 peach 카드 안의
+// 알약 버튼). 카드마다 다른 버튼을 만들면 같은 동작이 두 모양으로 보인다.
+const reportShareButtonStyle = {
   alignItems: "center",
   alignSelf: "flex-start",
   backgroundColor: theme.colors.brown,
@@ -687,7 +726,7 @@ const reportMilestoneShareButtonStyle = {
   paddingVertical: 8
 } as const;
 
-const reportMilestoneShareButtonTextStyle = {
+const reportShareButtonTextStyle = {
   color: theme.colors.white,
   fontSize: 14,
   fontWeight: "800",
