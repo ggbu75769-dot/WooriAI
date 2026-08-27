@@ -106,6 +106,20 @@ export function toChildDto(child: ChildRow) {
 
 export type ChildDto = ReturnType<typeof toChildDto>;
 
+/**
+ * 라운드 48 T3: `paymentMethod`·`linkedItemTemplateId`는 **쓰기 전용 필드**였다 — 입력
+ * 화면(apps/mobile/app/expenses/new.tsx)과 준비템 연결 경로가 저장은 하는데(insertExpense)
+ * 어떤 응답에도 실리지 않아 사용자가 자기가 고른 값을 다시 볼 방법이 없었다. 둘 다
+ * **additive**라 구 클라이언트는 그대로 동작한다(CAT-124 `selectable` 관례와 같다).
+ *
+ * ⚠️ 페이로드 크기(PERF-121): 이 DTO 하나가 홈(recentExpenses) · 목록 · 동기화 응답을 함께
+ * 먹인다. 그래서 필드를 **스칼라 두 개**만 늘린다 — 준비템 이름/상태 같은 조인 값을 여기에
+ * 얹으면 목록 한 페이지(최대 500건)마다 조인이 따라붙는다. 준비템 이름이 필요한 화면은
+ * 이미 있는 `GET /children/:childId/items/:itemTemplateId`로 따로 물어본다.
+ *
+ * `linkedProductLinkId`는 아직 **어떤 쓰기 경로도 채우지 않는 다크 필드**라 노출하지 않는다
+ * (없는 값을 계약에 올려 두면 클라이언트가 영원히 null을 받는 열을 갖게 된다).
+ */
 export function toExpenseDto(expense: ExpenseRow) {
   return {
     id: expense.id,
@@ -115,7 +129,9 @@ export function toExpenseDto(expense: ExpenseRow) {
     spentOn: fromDateOnly(expense.spentOn),
     itemName: expense.itemName,
     merchant: expense.merchant ?? null,
+    paymentMethod: expense.paymentMethod,
     memo: expense.memo ?? null,
+    linkedItemTemplateId: expense.linkedItemTemplateId ?? null,
     expenseType: expense.expenseType,
     source: expense.source,
     createdByUserId: expense.createdByUserId

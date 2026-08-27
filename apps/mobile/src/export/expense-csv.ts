@@ -1,14 +1,15 @@
 import type { Expense } from "../api/client";
 import { categoryNameFor, type CategoryNameLookup } from "../categories";
+import { paymentMethodLabelKo } from "../expenses/expense-detail-rows";
 import { expenseTypeLabelKo } from "../expenses/records-list-view";
 
 /**
  * EXP-106 데이터 내보내기: pure CSV building for expense rows.
  *
  * Deliberate choices (mirrors the api-side import conventions so round-tripping works):
- * - Header is 날짜,구분,카테고리,항목,판매처,금액(원),메모,출처 — the 날짜/금액/메모 keywords are
- *   ones apps/api/src/imports/import-parser.ts's HEADER_KEYWORDS already recognizes, so a file we
- *   export can be fed straight back into the excel import.
+ * - Header is 날짜,구분,카테고리,항목,판매처,결제수단,금액(원),메모,출처 — the 날짜/금액/메모 keywords
+ *   are ones apps/api/src/imports/import-parser.ts's HEADER_KEYWORDS already recognizes, so a file
+ *   we export can be fed straight back into the excel import.
  * - CSV-127 added 구분 and 판매처. Both were already on every exported expense (`expenseType`,
  *   `merchant`) and both were silently dropped, so an exported file flattened 지출·선물·환불 into
  *   one indistinguishable list — the 선물 rows that DNC-015 deliberately keeps OUT of the 합계
@@ -18,6 +19,20 @@ import { expenseTypeLabelKo } from "../expenses/records-list-view";
  *   therefore the round-trip above — is unchanged by their presence.
  * - 구분 labels come from src/expenses/records-list-view.ts, the same module the 기록 탭 행 부제
  *   uses, so a row the user read as "선물" in-app exports as "선물" too.
+ * - 라운드 48 T3 added 결제수단 (labels from src/expenses/expense-detail-rows.ts, the same module
+ *   the 지출 상세 결제 수단 행 reads, for the same reason 구분 shares its module). The user picks
+ *   it on every quick record, so leaving it out of the export dropped a field they had actually
+ *   filled in. Placement follows CSV-127's own precedent -- the column sits next to 판매처, the
+ *   other "where/how it was bought" field, rather than being tacked onto the end. Column detection
+ *   on re-import is by header KEYWORD, not position, so the round-trip above is unchanged:
+ *   "결제수단" contains none of the date/amount/item/memo keywords (note "결제일"/"결제금액" ARE
+ *   keywords -- "결제수단" contains neither string, which is what keeps it from stealing a column).
+ *   `unknown`/absent exports as an empty field, never as "알 수 없음".
+ * - 판매처(`merchant`) has NO input path in the app today -- no screen writes it (the quick sheet
+ *   and the detail screen never ask for a 상호), so the column is empty for every app-authored
+ *   expense. It is deliberately KEPT: excel-imported rows and future/manual data can carry it, the
+ *   API round-trips it, and dropping the column would break header compatibility with every CSV
+ *   already exported. Adding an input for it is a separate piece of work.
  * - 금액(원) is the raw integer `amountKrw` (e.g. "45900"), NOT src/money.ts's formatted
  *   "45,900원" — formatted amounts would both break re-import and confuse spreadsheet math.
  * - Category labels come from src/categories.ts, the same mapping the records/reports screens
@@ -33,7 +48,7 @@ import { expenseTypeLabelKo } from "../expenses/records-list-view";
  *   `DANGEROUS_LEADING_CHARS` in apps/api/src/imports/import-parser.ts).
  */
 
-export const EXPENSE_CSV_HEADER = "날짜,구분,카테고리,항목,판매처,금액(원),메모,출처";
+export const EXPENSE_CSV_HEADER = "날짜,구분,카테고리,항목,판매처,결제수단,금액(원),메모,출처";
 
 export const UTF8_BOM = "\uFEFF";
 
@@ -84,8 +99,8 @@ function csvCell(value: string): string {
  * `categoryName` defaults to the static `categoryNameFor` mapping; pass a server-backed lookup
  * (see `buildCategoryNameLookup`) to resolve the per-database canonical category ids.
  *
- * Column order matches EXPENSE_CSV_HEADER exactly. A missing 판매처 exports as an empty field --
- * the same "no invented data" rule the null memo above follows.
+ * Column order matches EXPENSE_CSV_HEADER exactly. A missing 판매처 or 결제수단 exports as an empty
+ * field -- the same "no invented data" rule the null memo above follows.
  */
 export function expenseToCsvRow(expense: Expense, categoryName: CategoryNameLookup = categoryNameFor): string {
   return [
@@ -94,6 +109,7 @@ export function expenseToCsvRow(expense: Expense, categoryName: CategoryNameLook
     csvCell(categoryName(expense.categoryId)),
     csvCell(expense.itemName),
     csvCell(expense.merchant ?? ""),
+    csvCell(paymentMethodLabelKo(expense.paymentMethod) ?? ""),
     csvCell(String(expense.amountKrw)),
     csvCell(expense.memo ?? ""),
     csvCell(sourceLabelKo(expense.source))

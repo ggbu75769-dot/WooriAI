@@ -119,7 +119,20 @@ export type Expense = {
   spentOn: string;
   itemName: string;
   merchant?: string | null;
+  /**
+   * 라운드 48 T3: 입력 화면(app/expenses/new.tsx)이 저장하던 결제 수단이 이제 응답에도
+   * 실린다(서버 toExpenseDto). **optional**이다 — 로컬 목업(local-backend)·오프라인 대기
+   * 행·구버전 서버 응답에는 없고, 그때 화면은 이 행을 아예 그리지 않는다(없는 값을
+   * "unknown"으로 지어내지 않는다).
+   */
+  paymentMethod?: "unknown" | "cash" | "card" | "transfer" | "mobile_pay" | null;
   memo?: string | null;
+  /**
+   * 라운드 48 T3: 준비템 → 지출 역방향 링크. 준비템 상세에서 "이 준비템으로 기록하기"로
+   * 남긴 지출에만 값이 있고(없으면 null/미포함), 지출 상세가 그 준비템으로 되돌아가는
+   * 링크를 그린다. 품목 이름은 이 응답에 없다 — 이름이 필요하면 준비템 상세를 따로 연다.
+   */
+  linkedItemTemplateId?: string | null;
   expenseType: "expense" | "gift" | "refund";
   source: "manual" | "excel_import" | "purchase_followup" | "admin";
   // MOB-103 (round5a-sprint1-plan.md §2.1): optimistic-concurrency version, 1 on create, +1 on
@@ -255,6 +268,9 @@ export type ItemDetail = ItemSummary & {
   skipReasonText?: string | null;
   usedSecondhandOk: boolean;
   safetyNote?: string | null;
+  // 라운드 48 T1: 의료/영양제 성격 준비템의 상담 안내 표시 여부(DNC-020). 서버는 항상
+  // boolean을 주지만, 로컬 백엔드 픽스처처럼 값을 갖지 않는 경로가 있어 optional이다.
+  medicalDisclaimerRequired?: boolean;
   productLinks: ProductLink[];
 };
 
