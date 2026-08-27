@@ -641,6 +641,23 @@ export type AdminAnalyticsFunnel = {
   expenseSynced: number;
 };
 
+/**
+ * ANA-128: 구매 확인 프롬프트(COM-108) 응답을 payload의 answer별로 쪼갠 값.
+ * byName의 `purchase_followup_answered`는 세 갈래의 합계라서 구매 건수가 아니다 —
+ * 링크 클릭 → 실구매 전환율은 `purchased`로만 계산해야 한다.
+ *
+ * 세 값의 합 <= byName 총계일 수 있다: answer가 없거나(레거시·손상 페이로드)
+ * 알 수 없는 값인 행은 API가 어느 갈래에도 넣지 않고 무시한다.
+ */
+export type AdminPurchaseFollowupBreakdown = {
+  /** "샀어요" */
+  purchased: number;
+  /** "아직이요" */
+  notPurchased: number;
+  /** "괜찮아요" */
+  dismissed: number;
+};
+
 export type AdminAnalyticsSummary = {
   days: AnalyticsSummaryDays;
   totalEvents: number;
@@ -650,6 +667,8 @@ export type AdminAnalyticsSummary = {
   dailyTotals: { date: string; count: number }[];
   /** Same counts as byName, keyed for convenience (KPI funnel). */
   funnel: AdminAnalyticsFunnel;
+  /** ANA-128: purchase_followup_answered의 answer 3갈래 분해. */
+  purchaseFollowup: AdminPurchaseFollowupBreakdown;
   /** count(distinct user_anon_id) in the window. */
   uniqueAnonUsers: number;
 };
