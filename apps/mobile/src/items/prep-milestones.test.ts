@@ -288,11 +288,47 @@ describe("items tab journey wiring (UX-E)", () => {
   it("renders the progress bar with the module's headline, tier copy, and a progressbar role", () => {
     const text = itemsSource();
     expect(text).toContain('accessibilityRole="progressbar"');
-    expect(text).toContain("accessibilityLabel={prepMilestone.accessibilityLabel}");
-    expect(text).toContain("accessibilityValue={{ min: 0, max: 100, now: prepMilestone.percent }}");
+    expect(text).toContain("accessibilityLabel={prepAccessibilityLabel}");
+    expect(text).toContain("accessibilityValue={{ min: 0, max: 100, now: prepDisplayPercent }}");
     expect(text).toContain("{prepMilestone.headline}");
     expect(text).toContain("{prepMilestone.tierText}");
-    expect(text).toContain("width: `${prepMilestone.percent}%`");
+    expect(text).toContain("width: `${prepDisplayPercent}%`");
+  });
+
+  /**
+   * 라운드 35 F9: 헤드라인은 개수("200개 중 199개")를 말하는데 그 옆 퍼센트는 표시용 반올림이라
+   * 100%가 됐다 -- 한 줄 안에서 두 숫자가 서로를 부정한다. 판정(isComplete)은 이미 개수로만
+   * 하므로(라운드 34 L2), 남은 것은 **표기**를 그 판정에 맞추는 일이다.
+   */
+  it("F9: 다 준비하지 않았으면 화면에 100%를 그리지 않는다 (반올림 100% 모순 제거)", () => {
+    const text = itemsSource();
+    expect(text).toContain("Math.min(prepMilestone.percent, 99)");
+    // 캡은 표기에만 건다 -- 순수 모듈의 개수 판정에는 손대지 않는다.
+    expect(text).toContain("prepMilestone.isComplete");
+    // 화면이 percent를 직접 그리는 자리는 남지 않는다(퍼센트 텍스트·바 폭·accessibilityValue 셋 다).
+    expect(text).not.toContain("{prepMilestone.percent}%");
+    expect(text).not.toContain("now: prepMilestone.percent");
+    expect(text).not.toContain("width: `${prepMilestone.percent}%`");
+
+    // 표기 규칙 자체를 숫자로 못박는다: 199/200은 percent 100이지만 화면 표기는 99다.
+    const almost = buildPrepMilestoneView({
+      totalCount: 200,
+      resolvedCount: 199,
+      percent: 100,
+      summaryText: "이번 시기 필수 준비물 200개 중 199개 준비됨"
+    })!;
+    expect(almost.percent).toBe(100);
+    expect(almost.isComplete).toBe(false);
+    expect(Math.min(almost.percent, 99)).toBe(99);
+
+    const done = buildPrepMilestoneView({
+      totalCount: 200,
+      resolvedCount: 200,
+      percent: 100,
+      summaryText: "이번 시기 필수 준비물 200개 중 200개 준비됨"
+    })!;
+    expect(done.isComplete).toBe(true);
+    expect(done.percent).toBe(100);
   });
 
   it("keeps every UX-E surface behind the session gate so the ITEM-001 pixel-lock preview is untouched", () => {

@@ -546,6 +546,11 @@ export default function RecordsScreen() {
   // 직전에 비워지므로(아래 effect) 실패 콜백이 왔을 때는 이미 null이다.
   const scrollTargetDateRef = useRef<string | null>(null);
   const scrollRetryCountRef = useRef(0);
+  // 라운드 35 F7: 재시도 rAF 핸들. flashTimerRef와 같은 이유로 ref에 보관한다 -- 예약해 둔
+  // 프레임이 언마운트 뒤에 깨어나면 사라진 화면에 setState가 걸린다(달력에서 날짜를 누르고 곧장
+  // 탭을 떠나면 실제로 그 순서가 된다). 언마운트 시 취소하고, 다음 예약 전에도 이전 것을
+  // 취소해서 프레임이 겹쳐 쌓이지 않게 한다.
+  const scrollRetryFrameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
   const sectionListRef = useRef<SectionList<RecordsListItem, RecordsSection>>(null);
   // MOB-102 (round5a-sprint1-plan.md §3.3): flash message shown once a background flush confirms
   // a write that was previously only saved locally -- see src/offline/sync-controller.ts.
@@ -930,9 +935,21 @@ export default function RecordsScreen() {
     }
     scrollRetryCountRef.current += 1;
     // 같은 프레임에 다시 부르면 리스트가 아직 그대로라 똑같이 실패한다 -- 한 틱 미뤄 그 사이
-    // 마운트된 행을 반영시킨다.
-    requestAnimationFrame(() => setPendingScrollDate(date));
+    // 마운트된 행을 반영시킨다. F7: 핸들을 보관해 언마운트/재예약 때 취소한다.
+    if (scrollRetryFrameRef.current !== null) cancelAnimationFrame(scrollRetryFrameRef.current);
+    scrollRetryFrameRef.current = requestAnimationFrame(() => {
+      scrollRetryFrameRef.current = null;
+      setPendingScrollDate(date);
+    });
   }, []);
+
+  // F7: 예약된 재시도 프레임은 화면과 함께 사라져야 한다.
+  useEffect(
+    () => () => {
+      if (scrollRetryFrameRef.current !== null) cancelAnimationFrame(scrollRetryFrameRef.current);
+    },
+    []
+  );
 
   // Rendered as an element (not an inline component) so the TextInput keeps focus across
   // re-renders -- FlatList remounts ListHeaderComponent when it's a new function each render.

@@ -1,5 +1,5 @@
 import type { MilestoneReport, MilestoneReportType } from "../api/client";
-import { formatKrw } from "../money";
+import { joinShareLines, SHARE_APP_LINE, shareTopCategoryLine, shareTotalLine } from "./share-text";
 
 /**
  * REP-127: 마일스톤 이름은 **응답의 `type`에서만** 파생한다. 리포트 탭의 카드 제목이
@@ -20,41 +20,53 @@ export function milestoneWindowPhrase(type: MilestoneReportType): string {
   return type === "d100" ? "100일 동안" : "첫돌까지";
 }
 
+/** 공유 카드의 "가장 많이 준비한 것" 줄에 싣는 카테고리 수. */
+const SHARE_TOP_CATEGORY_COUNT = 2;
+
 /**
- * REP-103: builds the warm Korean share text for the 100일/첫돌 milestone report card
+ * REP-103 / UX-H: builds the warm Korean share text for the 100일/첫돌 milestone report card
  * (reports 탭 → "공유하기" → React Native `Share.share`).
  *
  * Pure function so it can be unit-tested without any React Native surface. All amounts go
  * through src/money.ts's `formatKrw` (the app-wide "12,000원" money rule).
  *
+ * UX-H에서 문구를 **카드 모양**으로 바꿨다. 종전에는 한 줄이 길어(『다온이』 태어나서 100일
+ * 동안 1,234,000원을 함께했어요.) 카카오톡에 붙여넣으면 화면 폭에서 제멋대로 접혔고, 자랑
+ * 대상인 **숫자가 문장 한가운데 묻혔다**. 이제는 머리글 / 금액 / 맥락 / 앱 네 줄로 끊어
+ * 어느 폭에서도 같은 모양으로 읽힌다. 줄 조립기와 마지막 앱 한 줄은 월간 요약 공유와
+ * 공유한다(src/reports/share-text.ts).
+ *
  * Shapes:
- *  - complete d100:      『다온이』 태어나서 100일 동안 1,234,000원을 함께했어요.
- *  - complete first-birthday uses "첫돌까지" instead of "100일 동안".
- *  - partial window:     『다온이』 태어나서 67일째, 지금까지 1,234,000원을 함께했어요. (D-day still ahead)
- *  - zero expenses:      warm invitation copy without any 0원 figure.
- * All variants end with the app attribution line so shared text always credits the record.
+ *  - complete d100:
+ *      🎉 다온이의 100일
+ *      함께한 지출 1,234,000원
+ *      가장 많이 준비한 것: 기저귀·분유
+ *      — 우리아이 앱에서
+ *  - complete first-birthday: 머리글만 "다온이의 첫돌"로 바뀐다.
+ *  - partial window: 아직 오지 않은 D-day를 지난 일처럼 말하지 않는다 —
+ *      💛 다온이의 100일까지 67일째
+ *  - zero expenses: 0원을 렌더하지 않고 따뜻한 초대 문구로 대체한다.
+ * All variants end with the shared app line so shared text always credits the record.
  */
 export function buildMilestoneShareMessage(report: MilestoneReport, childName: string): string {
   const label = milestoneLabel(report.type);
-  const attribution = "우리아이 앱으로 기록했어요";
 
   if (report.expenseCount === 0 || report.totalKrw <= 0) {
-    return [
-      `『${childName}』 ${label}을 향해 함께 걷는 중이에요 💛`,
-      `소중한 순간들을 이제 막 기록하기 시작했어요.`,
-      attribution
-    ].join("\n");
+    return joinShareLines([
+      `💛 ${childName}의 ${label}을 향해 걷는 중이에요`,
+      "소중한 순간들을 이제 막 기록하기 시작했어요",
+      SHARE_APP_LINE
+    ]);
   }
 
+  // 창이 아직 안 끝난 리포트는 "100일"을 이미 지난 일처럼 쓰지 않는다(화면 카드와 같은 기준).
   const headline = report.partial
-    ? `『${childName}』 태어나서 ${report.daysCovered}일째, 지금까지 ${formatKrw(report.totalKrw)}을 함께했어요.`
-    : `『${childName}』 태어나서 ${milestoneWindowPhrase(report.type)} ${formatKrw(report.totalKrw)}을 함께했어요.`;
+    ? `💛 ${childName}의 ${label}까지 ${report.daysCovered}일째`
+    : `🎉 ${childName}의 ${label}`;
 
-  const topCategoryNames = report.topCategories
-    .slice(0, 2)
-    .map((category) => category.name)
-    .join("·");
-  const topLine = topCategoryNames ? `가장 많이 든 건 ${topCategoryNames} 💛` : `하루하루가 소중한 기록이었어요 💛`;
+  const topCategoryLine = shareTopCategoryLine(
+    report.topCategories.slice(0, SHARE_TOP_CATEGORY_COUNT).map((category) => category.name)
+  );
 
-  return [headline, topLine, attribution].join("\n");
+  return joinShareLines([headline, shareTotalLine(report.totalKrw), topCategoryLine, SHARE_APP_LINE]);
 }

@@ -18,9 +18,14 @@ import {
   useFirstRecordCelebrationStore
 } from "../../src/home/first-record-celebration";
 import {
+  countPendingOfflineCreates,
+  countUnpreparedRecommendedItems,
   evaluateHomeFirstRunGuide,
   hasPendingOfflineCreate,
-  FIRST_ITEMS_GUIDE_DISMISS_LABEL
+  homePendingSyncNoticeText,
+  latchHasAnyExpenseRecord,
+  FIRST_ITEMS_GUIDE_DISMISS_LABEL,
+  HOME_PENDING_SYNC_NOTICE_TEST_ID
 } from "../../src/home/first-run-guide";
 import { useHomeFirstRunGuideStore } from "../../src/home/first-run-guide.store";
 import {
@@ -421,6 +426,32 @@ const homeFirstRecordCelebrationStyle = StyleSheet.create({
   }
 });
 
+// 라운드 35 F1: 홈 "최근 지출" 자리의 동기화 대기 한 줄. 기록 탭처럼 대기 행 목록을 그리지
+// 않고(홈의 역할은 요약이다) 상태 한 줄만 둔다 -- 같은 자리에 CTA를 하나 더 세우지 않기 위해
+// 버튼도 링크도 붙이지 않는다(F2와 같은 이유). 앞 글리프는 장식이라 접근성 트리에서 감춘다.
+const homePendingSyncNoticeStyle = StyleSheet.create({
+  glyph: {
+    color: theme.colors.gray600,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  row: {
+    alignItems: "center",
+    backgroundColor: theme.colors.white,
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  text: {
+    color: theme.colors.gray600,
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 20
+  }
+});
+
 const previewHome = {
   child: { id: "preview-child-daon", nickname: "다온이", currentStage: "toddler", stageLabel: "24개월" },
   monthly: {
@@ -543,7 +574,7 @@ export default function HomeScreen() {
   //    기록을 남긴 사용자에게 홈이 "첫 지출을 기록해 보세요"라고 말한다(주간 카드가 같은
   //    이유로 대기 행을 합산한다 -- 라운드 33 F6).
   // 홈 응답이 아직 없으면 null = "모른다"이고, 그때는 어떤 카드도 만들지 않는다.
-  const hasAnyExpenseRecord =
+  const observedHasAnyExpenseRecord =
     hasSession && home.data
       ? home.data.recentExpenses.length > 0 || hasPendingOfflineCreate(childOfflineRows)
       : null;
@@ -553,6 +584,14 @@ export default function HomeScreen() {
   const observeFirstRecord = useFirstRecordCelebrationStore((state) => state.observe);
   const celebrationChildId = useFirstRecordCelebrationStore((state) => state.activeChildId);
   const dismissFirstRecordCelebration = useFirstRecordCelebrationStore((state) => state.dismiss);
+  // 라운드 35 F3: 동기화 확정 순간의 true -> false -> true 순환을 **홈에서 흡수**한다.
+  // 대기 행은 sync-controller의 스냅샷 갱신에서 먼저 사라지고 ["home"] refetch는 그 뒤라,
+  // 래치가 없으면 그 한 프레임에 첫 지출 유도 카드가 다시 깜빡인다. 이력은 같은 세션 스토어가
+  // 아이별로 들고 있고(everHadRecordChildIds), 래치 규칙은 순수 함수가 정한다.
+  const everHadExpenseRecord = useFirstRecordCelebrationStore((state) =>
+    childId ? Boolean(state.everHadRecordChildIds[childId]) : false
+  );
+  const hasAnyExpenseRecord = latchHasAnyExpenseRecord(observedHasAnyExpenseRecord, everHadExpenseRecord);
   useEffect(() => {
     if (!childId || hasAnyExpenseRecord === null) return;
     observeFirstRecord(childId, hasAnyExpenseRecord);
@@ -646,13 +685,31 @@ export default function HomeScreen() {
   // UX-G: 빈 홈에 놓을 "다음 한 걸음" 카드 하나(첫 지출 유도 / 준비템 첫 안내 중 **하나만**).
   // 판정과 문구는 순수 모듈이 정한다(src/home/first-run-guide.ts) -- 비세션 미리보기는 항상
   // null이라 HOME-001 픽셀락 캡처는 종전 그대로다(UX-A 카드들과 같은 관례).
-  // 준비물 개수는 /home이 이미 준 recommendedItems 길이라 요청이 늘지 않고 숫자가 참이다.
+  // 준비물 개수는 /home이 이미 준 recommendedItems에서 세므로 요청이 늘지 않고 숫자가 참이다.
+  // 라운드 35 F6: 그중 **아직 준비되지 않은** 항목만 센다(준비템 탭의 "모두 마쳤어요" 축하와
+  // 어긋나지 않게), 그리고 "이번 달 기록 수"로 첫 사용자만 좁혀 5년 사용자에게는 뜨지 않게 한다.
+  // 기록 수는 주간 카드가 이미 쓰는 재조정 결과(서버 캐시 + 오프라인 대기 행)를 그대로 재사용해
+  // 요청을 늘리지 않고, 아직 모르면(null) 카드를 만들지 않는다.
   const firstRunGuide = evaluateHomeFirstRunGuide({
     hasSession,
     hasAnyExpenseRecord,
-    recommendedItemCount: home.data?.recommendedItems.length ?? 0,
+    recommendedItemCount: countUnpreparedRecommendedItems(home.data?.recommendedItems ?? []),
+    recentRecordCount: weeklyThisMonthRecords?.length ?? null,
     itemsGuideDismissed: childId ? dismissedItemsGuideChildIds.includes(childId) : false
   });
+  // F1: "최근 지출" 자리의 빈 상태 판정도 유도 카드·축하 배너와 **같은 소스**를 본다. 서버
+  // recentExpenses만 보면, 오프라인으로 첫 기록을 남긴 순간 위에서는 "첫 기록이에요!"가, 아래
+  // 에서는 "첫 기록을 남기면 …"이 한 화면에 동시에 뜬다(라운드 35 F1).
+  const pendingOfflineCreateCount = countPendingOfflineCreates(childOfflineRows);
+  // F2: 이 섹션이 할 말이 하나도 없으면 제목("최근 지출 / 전체 보기")까지 함께 접는다 --
+  // 본문 없는 제목만 남기면 접은 자리가 고장난 것처럼 보인다. 할 말이 있는 경우는 셋뿐이다:
+  //  1) 서버 목록에 행이 있다(평소),
+  //  2) 아직 올라가지 않은 대기 행이 있다(F1의 한 줄),
+  //  3) 정말 기록이 하나도 없고 그 사실을 대신 말해 줄 첫 지출 유도 카드도 없다(MOB-117 빈 상태).
+  const showRecentExpensesSection =
+    visibleHome.recentExpenses.length > 0 ||
+    pendingOfflineCreateCount > 0 ||
+    (!hasAnyExpenseRecord && firstRunGuide?.variant !== "first-expense");
   const showFirstRecordCelebration = hasSession && Boolean(childId) && celebrationChildId === childId;
   // UX-A: 아래 세 가지는 전부 세션이 있을 때만 계산한다 -- 비세션 픽셀락 미리보기(previewHome)에는
   // 아이의 실제 날짜도 지출 행도 없으므로 아무것도 렌더되지 않고, HOME-001 캡처는 종전 그대로다
@@ -903,27 +960,50 @@ export default function HomeScreen() {
             </View>
           ) : null}
 
-          <ScreenHeader
-            title="최근 지출"
-            action={
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="최근 지출 전체 보기"
-                hitSlop={12}
-                onPress={() => router.push("/(tabs)/records")}
-              >
-                <Text style={{ color: theme.colors.brown, fontSize: 12, fontWeight: "700" }}>전체 보기</Text>
-              </Pressable>
-            }
-          />
-          {visibleHome.recentExpenses.length === 0 ? (
-            // MOB-117 홈 최근 지출 빈 상태: 기록 탭(records.tsx)의 첫-기록 빈 상태 문구와 톤
-            // 일치. 비세션 미리보기(previewHome)는 항상 3건이라 이 분기에 도달하지 않는다.
-            <EmptyStateCard
-              title="첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
-              actionLabel="기록하기"
-              onPress={() => router.push("/expenses/new")}
+          {showRecentExpensesSection ? (
+            <ScreenHeader
+              title="최근 지출"
+              action={
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="최근 지출 전체 보기"
+                  hitSlop={12}
+                  onPress={() => router.push("/(tabs)/records")}
+                >
+                  <Text style={{ color: theme.colors.brown, fontSize: 12, fontWeight: "700" }}>전체 보기</Text>
+                </Pressable>
+              }
             />
+          ) : null}
+          {!showRecentExpensesSection ? null : visibleHome.recentExpenses.length === 0 ? (
+            pendingOfflineCreateCount > 0 ? (
+              // 라운드 35 F1: 서버 목록은 비었지만 이 기기에는 아직 올라가지 않은 기록이 있다.
+              // 여기서 MOB-117 빈 상태를 그대로 그리면 바로 위 "첫 기록이에요!" 축하와 한 화면
+              // 에서 서로를 부정한다. 기록 탭과 같은 단어("동기화 대기")로 사실만 한 줄 알린다.
+              <View
+                accessible
+                accessibilityLabel={homePendingSyncNoticeText(pendingOfflineCreateCount)}
+                testID={HOME_PENDING_SYNC_NOTICE_TEST_ID}
+                style={[homePendingSyncNoticeStyle.row, theme.shadows.card]}
+              >
+                <Text accessible={false} style={homePendingSyncNoticeStyle.glyph}>
+                  ⟳
+                </Text>
+                <Text style={homePendingSyncNoticeStyle.text}>
+                  {homePendingSyncNoticeText(pendingOfflineCreateCount)}
+                </Text>
+              </View>
+            ) : (
+              // MOB-117 홈 최근 지출 빈 상태: 기록 탭(records.tsx)의 첫-기록 빈 상태 문구와 톤
+              // 일치. 비세션 미리보기(previewHome)는 항상 3건이라 이 분기에 도달하지 않는다.
+              // 여기까지 왔다면 showRecentExpensesSection이 이미 "이 문구가 참인 상황"만 통과
+              // 시킨 뒤다(위 정의 — F2 유도 카드 표출 중과 F3 래치 창은 섹션째 접힌다).
+              <EmptyStateCard
+                title="첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
+                actionLabel="기록하기"
+                onPress={() => router.push("/expenses/new")}
+              />
+            )
           ) : (
             // HOME-124: 부제는 기록 탭과 **같은 함수**가 만든다. 예전에는 서버가 준 ISO 원본을
             // 그대로 그려("2026-08-27") 같은 지출이 기록 탭에서는 "8월 27일"로 보였고, 선물/환불
@@ -942,6 +1022,11 @@ export default function HomeScreen() {
             ))
           )}
 
+          {/* 라운드 35 F2: FAB는 유지한다. 이건 빈 홈 전용 CTA가 아니라 **전역 관례**로,
+              기록이 쌓인 뒤에도 같은 자리에서 같은 일을 하는 유일한 상수다. 없애면 목록이 찬
+              홈에서 지출 기록 진입점이 퀵액션 하나로 줄어든다. 중복으로 읽히던 것은 같은 자리에
+              세 번 서 있던 /expenses/new 큰 버튼들이었고, 그중 접은 것은 최근 지출 섹션의
+              빈 상태 버튼이다(위 분기) -- 남는 큰 CTA는 유도 카드 1개 + FAB. */}
           <FloatingActionButton onPress={() => router.push("/expenses/new")} />
         </View>
       </View>

@@ -46,7 +46,7 @@ describe("REP-103 milestone report card contract", () => {
     // Share button uses React Native's built-in Share API (no extra deps) and the pure
     // message builder.
     expect(reportSource).toContain("Share.share");
-    expect(reportSource).toContain("buildMilestoneShareMessage(milestoneReport, milestoneChildName)");
+    expect(reportSource).toContain("buildMilestoneShareMessage(milestoneReport, shareChildName)");
     expect(reportSource).toContain("accessibilityLabel={`${milestoneCardTitle} 공유하기`}");
     expect(reportSource).toContain("공유하기");
   });
@@ -54,9 +54,14 @@ describe("REP-103 milestone report card contract", () => {
   it("keeps the share message builder as a pure helper under src/reports", () => {
     const helperSource = source("src/reports/milestone-share.ts");
     expect(helperSource).toContain("export function buildMilestoneShareMessage");
-    // Money strings must come from the app-wide formatter, never hand-rolled.
-    expect(helperSource).toContain('import { formatKrw } from "../money"');
+    // UX-H: 줄 조립·금액 줄·앱 서명은 월간 요약 공유와 같은 모듈에서 온다. 금액 포맷은 그
+    // 모듈이 앱 전역 formatKrw로 낸다(공유 전용 포맷을 손으로 만들지 않는다).
+    expect(helperSource).toContain('from "./share-text"');
     expect(helperSource).not.toContain("react-native");
+
+    const shareTextSource = source("src/reports/share-text.ts");
+    expect(shareTextSource).toContain('import { formatKrw } from "../money"');
+    expect(shareTextSource).not.toContain("react-native");
   });
 
   /**

@@ -92,6 +92,22 @@ describe("UX-G useFirstRecordCelebrationStore", () => {
     expect(state.activeChildId).toBeNull();
     expect(state.observedHasRecord).toEqual({});
     expect(state.celebratedChildIds).toEqual({});
+    expect(state.everHadRecordChildIds).toEqual({});
+  });
+
+  it("F3: \"한 번이라도 기록이 있었다\"는 이력이 아이별로 남고, 거짓 관찰에 덮이지 않는다", () => {
+    const { observe } = useFirstRecordCelebrationStore.getState();
+    observe("child-a", false);
+    expect(useFirstRecordCelebrationStore.getState().everHadRecordChildIds["child-a"]).toBeUndefined();
+
+    observe("child-a", true);
+    expect(useFirstRecordCelebrationStore.getState().everHadRecordChildIds["child-a"]).toBe(true);
+
+    // 동기화 확정 순간의 한 프레임(대기 행은 사라졌고 서버 목록은 아직 안 왔다).
+    observe("child-a", false);
+    expect(useFirstRecordCelebrationStore.getState().everHadRecordChildIds["child-a"]).toBe(true);
+    // 다른 아이는 그 이력을 물려받지 않는다.
+    expect(useFirstRecordCelebrationStore.getState().everHadRecordChildIds["child-b"]).toBeUndefined();
   });
 
   it("스토어 모듈이 zustand persist를 쓰지 않는다 (디스크 스키마를 만들지 않는다)", () => {
@@ -102,9 +118,14 @@ describe("UX-G useFirstRecordCelebrationStore", () => {
 });
 
 describe("UX-G 축하 배너 문구·배선", () => {
-  it("문구는 총액이 쌓이는 곳을 가리키고, 소리용 문장은 두 줄을 합친 것이다", () => {
+  it("라운드 35 F4: 문구가 특정 화면 요소를 지목하지 않는다 (선물·지난달 첫 기록에도 참이다)", () => {
     expect(FIRST_RECORD_CELEBRATION_TITLE).toBe("첫 기록이에요!");
-    expect(FIRST_RECORD_CELEBRATION_BODY).toContain("총액");
+    // 예전 문구는 "이제 이번 달 총액이 여기 쌓여요."로 히어로 카드를 지목했다. 첫 기록이 선물
+    // (DNC-015: 월 사용액에서 제외)이거나 지난달 날짜면 히어로는 0원 그대로라 거짓 지목이 된다.
+    expect(FIRST_RECORD_CELEBRATION_BODY).toBe("기록 탭에서 언제든 다시 볼 수 있어요.");
+    expect(FIRST_RECORD_CELEBRATION_BODY).not.toContain("이번 달");
+    expect(FIRST_RECORD_CELEBRATION_BODY).not.toContain("총액");
+    expect(FIRST_RECORD_CELEBRATION_BODY).not.toContain("여기");
     expect(FIRST_RECORD_CELEBRATION_MESSAGE).toBe(
       `${FIRST_RECORD_CELEBRATION_TITLE} ${FIRST_RECORD_CELEBRATION_BODY}`
     );
