@@ -4,8 +4,9 @@ import { router } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
-import { categoryCatalog } from "../../src/categories";
+import { listCategories, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { buildCategoryNameLookup, type CategoryNameLookup } from "../../src/categories";
+import { buildRecordsCategoryChips, recordsRowSubtitle } from "../../src/expenses/records-list-view";
 import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 import { refreshOfflineSyncSnapshot, subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
@@ -43,7 +44,7 @@ const webScrollHiddenStyle = {
 
 type RecordsListItem =
   | { kind: "offline"; key: string; row: LocalExpenseRow }
-  | { kind: "server"; key: string; expense: ServerExpense };
+  | { kind: "server"; key: string; expense: ServerExpense; categoryName: CategoryNameLookup };
 
 function formatSpentOn(spentOn: string) {
   const parts = spentOn.split("-");
@@ -95,15 +96,23 @@ const OfflineExpenseListRow = memo(function OfflineExpenseListRow({ row }: { row
   );
 });
 
-const ServerExpenseListRow = memo(function ServerExpenseListRow({ expense }: { expense: ServerExpense }) {
+// REC-121 (D2/K1): 행 부제는 "[선물|환불 ·] 카테고리 · 날짜". `categoryName`은 화면에서 한 번만
+// 만들어(useMemo) 내려주는 안정된 함수라 PERF-102의 memo 효과가 깨지지 않는다.
+const ServerExpenseListRow = memo(function ServerExpenseListRow({
+  expense,
+  categoryName
+}: {
+  expense: ServerExpense;
+  categoryName: CategoryNameLookup;
+}) {
   return (
     <ListRow
       title={expense.itemName}
-      subtitle={
-        expense.expenseType === "gift"
-          ? `선물 · ${formatSpentOn(expense.spentOn)}`
-          : formatSpentOn(expense.spentOn)
-      }
+      subtitle={recordsRowSubtitle({
+        expenseType: expense.expenseType,
+        categoryLabel: categoryName(expense.categoryId),
+        dateLabel: formatSpentOn(expense.spentOn)
+      })}
       value={formatKrw(expense.amountKrw)}
       onPress={() => router.push(`/expenses/${expense.id}`)}
     />
@@ -111,9 +120,15 @@ const ServerExpenseListRow = memo(function ServerExpenseListRow({ expense }: { e
 });
 
 // Stable renderItem / keyExtractor / separator (module scope -- no inline lambdas handed to the
-// FlatList, so the list props stay referentially identical across screen re-renders).
+// FlatList, so the list props stay referentially identical across screen re-renders). REC-121's
+// category-name lookup rides along on each list item (it is a stable useMemo'd function, so the
+// row memo still holds), which keeps renderItem itself a module-scope function.
 function renderRecordsRow({ item }: ListRenderItemInfo<RecordsListItem>) {
-  return item.kind === "offline" ? <OfflineExpenseListRow row={item.row} /> : <ServerExpenseListRow expense={item.expense} />;
+  return item.kind === "offline" ? (
+    <OfflineExpenseListRow row={item.row} />
+  ) : (
+    <ServerExpenseListRow expense={item.expense} categoryName={item.categoryName} />
+  );
 }
 
 function recordsRowKey(item: RecordsListItem) {
@@ -182,6 +197,20 @@ export default function RecordsScreen() {
     queryFn: () => listExpenses(authToken!, childId!, recordsYearMonth)
   });
 
+  // REC-121: 카테고리 필터 칩의 원천. 예전에는 정적 8타일(categoryCatalog)이라 실세션에서 정식
+  // 12개 카테고리(서버가 DB마다 랜덤 UUID로 시드)로 기록된 지출은 어떤 칩을 눌러도 0건이었다.
+  // 지출 수정·리포트·더보기 화면과 같은 ["categories"] 캐시를 공유하므로 보통 이미 채워져 있고,
+  // 로딩/실패/오프라인이면 buildRecordsCategoryChips가 기존 8타일로 폴백한다.
+  const categories = useQuery({
+    queryKey: ["categories"],
+    enabled: Boolean(authToken),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => listCategories(authToken!)
+  });
+  const serverCategories = categories.data?.categories;
+  // 안정된 함수 참조(행 memo 유지) + 칩과 같은 목록에서 나오는 이름 해석 — R19-A buildCategoryNameLookup.
+  const categoryName = useMemo(() => buildCategoryNameLookup(serverCategories), [serverCategories]);
+
   // MOB-117 당겨서 새로고침: 보고 있는 달의 서버 목록 refetch + 오프라인 스냅샷(대기/실패/충돌
   // 배지, 로컬 대기 행) 재조회를 함께 수행한다. 세션이 없으면(비활성 쿼리) refetch가 잘못된
   // 토큰으로 queryFn을 강제 실행하므로 RefreshControl 자체를 붙이지 않는다.
@@ -219,32 +248,46 @@ export default function RecordsScreen() {
     return reconcileMonthlyExpenses(serverExpenses ?? [], childOfflineRows, recordsYearMonth);
   }, [serverExpenses, syncSnapshot.rows, childId, recordsYearMonth]);
 
+  const categoryChips = useMemo(
+    () => buildRecordsCategoryChips(serverCategories, selectedCategoryId),
+    [serverCategories, selectedCategoryId]
+  );
+  // 선택된 칩이 흡수한 동명 중복 id까지 모두 매칭한다 -- 서버 시드에는 정식 "기타"와 mobile_etc
+  // 별칭 "기타"가 함께 있고(별칭 id는 빠른 기록 8타일이 실제로 쓰는 값), 데모 백엔드에도 카탈로그
+  // "기저귀"와 픽스처 "기저귀"가 함께 있어서, 살아남은 칩의 id 하나로만 거르면 나머지 절반이
+  // 통째로 사라진다. src/expenses/records-list-view.ts 참고.
+  const selectedCategoryIds = useMemo(() => {
+    if (!selectedCategoryId) return null;
+    const chip = categoryChips.find((candidate) => candidate.id === selectedCategoryId);
+    return new Set(chip ? chip.matchIds : [selectedCategoryId]);
+  }, [categoryChips, selectedCategoryId]);
+
   const normalizedSearch = searchText.trim().toLowerCase();
   const { visibleExpenses, visibleOfflineRows } = useMemo(() => {
     return {
       visibleExpenses: monthlyServerExpenses.filter((expense) => {
-        if (selectedCategoryId && expense.categoryId !== selectedCategoryId) return false;
+        if (selectedCategoryIds && !selectedCategoryIds.has(expense.categoryId)) return false;
         if (!normalizedSearch) return true;
         const haystack = `${expense.itemName} ${expense.memo ?? ""}`.toLowerCase();
         return haystack.includes(normalizedSearch);
       }),
       visibleOfflineRows: offlinePendingRows.filter((row) => {
-        if (selectedCategoryId && row.payload.categoryId !== selectedCategoryId) return false;
+        if (selectedCategoryIds && !selectedCategoryIds.has(row.payload.categoryId)) return false;
         if (!normalizedSearch) return true;
         const haystack = `${row.payload.itemName} ${row.payload.memo ?? ""}`.toLowerCase();
         return haystack.includes(normalizedSearch);
       })
     };
-  }, [monthlyServerExpenses, offlinePendingRows, selectedCategoryId, normalizedSearch]);
+  }, [monthlyServerExpenses, offlinePendingRows, selectedCategoryIds, normalizedSearch]);
   const hasSearchQuery = normalizedSearch.length > 0;
 
   // Offline pending rows first (same order as the old eager render), then server rows.
   const listData = useMemo<RecordsListItem[]>(
     () => [
       ...visibleOfflineRows.map((row): RecordsListItem => ({ kind: "offline", key: `offline:${row.localId}`, row })),
-      ...visibleExpenses.map((expense): RecordsListItem => ({ kind: "server", key: `server:${expense.id}`, expense }))
+      ...visibleExpenses.map((expense): RecordsListItem => ({ kind: "server", key: `server:${expense.id}`, expense, categoryName }))
     ],
-    [visibleOfflineRows, visibleExpenses]
+    [visibleOfflineRows, visibleExpenses, categoryName]
   );
 
   const monthlyRecordCount = monthlyServerExpenses.length + offlinePendingRows.length;
@@ -335,10 +378,10 @@ export default function RecordsScreen() {
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
         <CategoryChip label="전체" selected={selectedCategoryId === null} onPress={() => setSelectedCategoryId(null)} />
-        {categoryCatalog.map((category) => (
+        {categoryChips.map((category) => (
           <CategoryChip
             key={category.id}
-            label={`${category.icon} ${category.label}`}
+            label={category.label}
             selected={category.id === selectedCategoryId}
             onPress={() => setSelectedCategoryId(category.id)}
           />

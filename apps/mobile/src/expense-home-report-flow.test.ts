@@ -54,7 +54,15 @@ describe("Batch 06 mobile expense, home, budget, and report contract", () => {
 
     expect(recordsSource).toContain("selectedCategoryId");
     expect(recordsSource).toContain("CategoryChip");
-    expect(recordsSource).toContain("categoryCatalog");
+    // REC-121: the chip row used to be the static 8-tile `categoryCatalog`, and this line used to
+    // assert exactly that -- which pinned a broken behavior: those 8 ids only match expenses
+    // created through the quick-input screen, so on a real session (canonical 12 categories,
+    // random per-database UUIDs) every chip filtered down to 0건. The chips now come from the
+    // shared ["categories"] cache, with the 8 tiles kept only as the loading/offline fallback
+    // inside buildRecordsCategoryChips (src/expenses/records-list-view.ts).
+    expect(recordsSource).toContain('queryKey: ["categories"]');
+    expect(recordsSource).toContain("buildRecordsCategoryChips(serverCategories, selectedCategoryId)");
+    expect(recordsSource).not.toContain("categoryCatalog.map(");
     // MOB-102 H-2 fix (round5a-sprint1-plan.md §3, diff review): the total card now reads
     // `monthlyTotalKrw` (reconciled against outstanding local mutations -- see
     // src/offline/expense-list-reconciliation.ts) instead of the raw

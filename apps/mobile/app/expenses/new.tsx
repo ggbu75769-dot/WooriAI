@@ -296,6 +296,11 @@ export default function NewExpenseScreen() {
       const recordedAmountKrw = Number(amountText);
       const recordedCategoryId = selectedCategory.id;
       const recordedSource = linkedItemTemplateId ? "followup" : "manual";
+      // C2/REC-121: 공용 ["categories"] 캐시(기록·리포트·더보기·지출 수정 화면이 채운다)를 그대로
+      // 읽어 categoryId를 분석 코드로 해석한다. 정적 8타일 밖의 id(정식 12개 시드 UUID, 데모
+      // 픽스처, 오래된 초안)가 전부 "etc"로 뭉개지지 않게 하려는 것 — 캐시가 비어 있으면 기존
+      // 8타일 매핑으로 폴백하고, 목록 자체는 payload에 들어가지 않는다(코드 enum만 나간다).
+      const cachedCategories = queryClient.getQueryData<{ categories: Array<{ id: string; code: string }> }>(["categories"]);
       void isCurrentlyOnline().then((online) => {
         trackAndFlushAnalyticsEvent(authToken, {
           eventName: "expense_recorded",
@@ -303,7 +308,8 @@ export default function NewExpenseScreen() {
             categoryId: recordedCategoryId,
             amountKrw: recordedAmountKrw,
             source: recordedSource,
-            offline: !online
+            offline: !online,
+            serverCategories: cachedCategories?.categories
           }),
           platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
         });

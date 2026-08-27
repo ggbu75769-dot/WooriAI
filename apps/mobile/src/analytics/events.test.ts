@@ -1,15 +1,21 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { categoryCatalog } from "../categories";
 import { __resetAnalyticsClientForTests, getQueuedAnalyticsEventCount, trackAnalyticsEvent } from "./client";
 import {
+  ANALYTICS_CATEGORY_CODES,
   analyticsCategoryCodeForCategoryId,
   analyticsCategoryCodeForItemName,
+  analyticsCategoryCodeForServerCode,
   bucketExpenseAmountKrw,
   buildAffiliateLinkClickedPayload,
   buildExpenseRecordedPayload,
   buildItemStatusChangedPayload
 } from "./events";
 import { useAnalyticsConsentStore } from "./flag";
+
+const mobileRoot = process.cwd();
 
 describe("bucketExpenseAmountKrw", () => {
   it("buckets amounts into the same enum literals as the expense_recorded contract", () => {
@@ -37,6 +43,91 @@ describe("analyticsCategoryCodeForCategoryId", () => {
     expect(analyticsCategoryCodeForCategoryId("local-category-diaper")).toBe("etc");
     expect(analyticsCategoryCodeForCategoryId("")).toBe("etc");
     expect(analyticsCategoryCodeForCategoryId("not-a-real-id")).toBe("etc");
+  });
+
+  // C2/REC-121: 정식 12개 시드 카테고리는 DB마다 랜덤 UUID라 정적 8타일 매핑으로는 전부 "etc"로
+  // 뭉개졌다 -- 공용 ["categories"] 목록을 넘기면 서버 code로 해석한다.
+  it("resolves ids outside the 8 tiles through the server category list's code", () => {
+    const serverCategories = [
+      { id: "srv-sleep", code: "sleep_furniture" },
+      { id: "srv-care", code: "care_education" },
+      { id: "local-category-diaper", code: "diaper_hygiene" }
+    ];
+
+    expect(analyticsCategoryCodeForCategoryId("srv-sleep", serverCategories)).toBe("sleep_furniture");
+    expect(analyticsCategoryCodeForCategoryId("srv-care", serverCategories)).toBe("care_education");
+    expect(analyticsCategoryCodeForCategoryId("local-category-diaper", serverCategories)).toBe("diaper_hygiene");
+  });
+
+  it("keeps the static catalog authoritative and still falls back to etc for anything unresolvable", () => {
+    const serverCategories = [
+      // 별칭 행은 8타일과 같은 id를 쓰므로 카탈로그가 먼저 답한다.
+      { id: categoryCatalog[0].id, code: "mobile_diaper_hygiene" },
+      { id: "srv-stub", code: "import_stub_default" },
+      { id: "srv-future", code: "brand_new_code" },
+      { id: "srv-empty", code: "" }
+    ];
+
+    expect(analyticsCategoryCodeForCategoryId(categoryCatalog[0].id, serverCategories)).toBe(categoryCatalog[0].code);
+    expect(analyticsCategoryCodeForCategoryId("srv-stub", serverCategories)).toBe("etc");
+    expect(analyticsCategoryCodeForCategoryId("srv-future", serverCategories)).toBe("etc");
+    expect(analyticsCategoryCodeForCategoryId("srv-empty", serverCategories)).toBe("etc");
+    expect(analyticsCategoryCodeForCategoryId("srv-missing", serverCategories)).toBe("etc");
+    expect(analyticsCategoryCodeForCategoryId("", serverCategories)).toBe("etc");
+  });
+});
+
+describe("analyticsCategoryCodeForServerCode", () => {
+  it("passes the registry's 12 codes through unchanged", () => {
+    for (const code of ANALYTICS_CATEGORY_CODES) {
+      expect(analyticsCategoryCodeForServerCode(code)).toBe(code);
+    }
+  });
+
+  it("maps every mobile_ alias seed onto a registry code", () => {
+    // apps/api/prisma/seed-data.ts mobileCategoryAliasSeeds -- 접미사가 정식 코드가 아닌 둘
+    // (mobile_feeding_dairy / mobile_feeding_meal)은 categoryCatalog와 같은 판단으로 묶는다.
+    const aliasCodes = [
+      "mobile_diaper_hygiene",
+      "mobile_feeding_dairy",
+      "mobile_feeding_meal",
+      "mobile_clothes_laundry",
+      "mobile_outing_mobility",
+      "mobile_hospital_checkup",
+      "mobile_toys_books",
+      "mobile_etc"
+    ];
+    for (const code of aliasCodes) {
+      const resolved = analyticsCategoryCodeForServerCode(code);
+      expect(resolved, code).not.toBeNull();
+      expect(ANALYTICS_CATEGORY_CODES).toContain(resolved!);
+    }
+    expect(analyticsCategoryCodeForServerCode("mobile_feeding_dairy")).toBe("feeding_babyfood");
+    expect(analyticsCategoryCodeForServerCode("mobile_feeding_meal")).toBe("feeding_babyfood");
+    expect(analyticsCategoryCodeForServerCode("mobile_etc")).toBe("etc");
+  });
+
+  it("returns null (never an off-contract literal) for codes the registry does not know", () => {
+    expect(analyticsCategoryCodeForServerCode("import_stub_default")).toBeNull();
+    expect(analyticsCategoryCodeForServerCode("mobile_unknown_family")).toBeNull();
+    expect(analyticsCategoryCodeForServerCode("")).toBeNull();
+    expect(analyticsCategoryCodeForServerCode(null)).toBeNull();
+    expect(analyticsCategoryCodeForServerCode(undefined)).toBeNull();
+  });
+
+  it("stays in lockstep with the contracts analytics registry enum", () => {
+    // 계약(packages/contracts/src/analytics.ts ANALYTICS_CATEGORY_CODES)이 늘어나면 여기서 깨진다.
+    const contractsSource = readFileSync(
+      join(mobileRoot, "../../packages/contracts/src/analytics.ts"),
+      "utf8"
+    );
+    const block = contractsSource.split("export const ANALYTICS_CATEGORY_CODES = [")[1]?.split("] as const;")[0] ?? "";
+    const contractCodes = [...block.matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+
+    expect(contractCodes).toEqual([...ANALYTICS_CATEGORY_CODES]);
+    for (const code of contractCodes) {
+      expect(analyticsCategoryCodeForServerCode(code), code).toBe(code);
+    }
   });
 });
 
@@ -84,6 +175,21 @@ describe("payload builders (registry-shaped, PII-safe by construction)", () => {
     expect(payload.source).toBe("followup");
     expect(payload.offline).toBe(true);
     expect(payload.amountBucket).toBe("lt10k");
+  });
+
+  it("resolves the categoryCode through the server list without widening the payload (C2)", () => {
+    const payload = buildExpenseRecordedPayload({
+      categoryId: "srv-sleep",
+      amountKrw: 620_000,
+      source: "manual",
+      offline: false,
+      serverCategories: [{ id: "srv-sleep", code: "sleep_furniture" }]
+    });
+
+    // 목록 자체는 절대 payload에 실리지 않는다 -- 코드 enum만 나간다(.strict() 계약).
+    expect(Object.keys(payload).sort()).toEqual(["amountBucket", "categoryCode", "offline", "source"]);
+    expect(payload.categoryCode).toBe("sleep_furniture");
+    expect(payload.amountBucket).toBe("gte500k");
   });
 
   it("builds an item_status_changed v1 payload with exactly the registry's two fields", () => {
