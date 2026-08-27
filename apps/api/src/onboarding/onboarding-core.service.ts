@@ -34,6 +34,7 @@ type CreateChildInput = {
 
 type UpdateChildInput = {
   nickname?: string;
+  stageMode?: ChildStageMode;
   dueDate?: string;
   birthDate?: string;
   manualStage?: ChildStageCode;
@@ -256,14 +257,46 @@ export class OnboardingCoreService {
     return toChildDto(await this.childAccess.requireChildAccess(user, childId));
   }
 
+  /**
+   * CHILD-127: `stageMode`는 더 이상 완전 불변이 아니다 — 임신 중 가입한 사용자의 아이가
+   * 실제로 태어나면 `pregnant → born` 한 방향으로만 전환할 수 있다. 그 전에는 birthDate를
+   * 채울 방법 자체가 없어서 100일/첫돌 리포트(MILESTONE_UNAVAILABLE)가 영구히 막히고,
+   * 단계 계산·준비템 밴드가 출산예정일에 고정돼 있었다.
+   *
+   * 규칙:
+   * - `born → pregnant`, `manual ↔ *` 등 그 외 모든 전환은 CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED(400).
+   *   (같은 값을 그대로 보내는 것은 전환이 아니므로 항상 허용 — 기존 클라이언트 하위호환.)
+   * - 전환에는 birthDate가 같은 요청에 반드시 함께 와야 한다. 없으면 기존 생성 경로와 같은
+   *   CHILD_STAGE_INPUT_REQUIRED(400)/같은 문구를 쓴다.
+   * - dueDate는 지우지 않는다: 컬럼을 그대로 남겨 "예정일 대비 며칠" 같은 회고와 되돌리기 문의에
+   *   필요한 원본 입력을 보존한다(전환 후 단계 계산은 birthDate만 본다 — store-shared.toChildDto).
+   * 별도의 감사 로그 인프라는 만들지 않는다(audit_logs는 어드민 행위 전용).
+   */
   async updateChild(user: AuthenticatedUser, childId: string, input: UpdateChildInput) {
     const child = await this.childAccess.requireChildAccess(user, childId, true);
     const definedInput = Object.fromEntries(
       Object.entries(input).filter(([, value]) => value !== undefined)
     ) as UpdateChildInput;
 
+    const nextStageMode = definedInput.stageMode ?? child.stageMode;
+    const isTransition = nextStageMode !== child.stageMode;
+    if (isTransition) {
+      if (!(child.stageMode === "pregnant" && nextStageMode === "born")) {
+        throw new BadRequestException({
+          code: "CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED",
+          message: "아이 상태는 '임신 중'에서 '태어났어요'로만 바꿀 수 있어요."
+        });
+      }
+      if (!definedInput.birthDate) {
+        throw new BadRequestException({
+          code: "CHILD_STAGE_INPUT_REQUIRED",
+          message: "아이 생년월일을 입력해 주세요."
+        });
+      }
+    }
+
     normalizeChildInput({
-      stageMode: child.stageMode,
+      stageMode: nextStageMode,
       dueDate: definedInput.dueDate ?? (child.dueDate ? fromDateOnly(child.dueDate) : undefined),
       birthDate: definedInput.birthDate ?? (child.birthDate ? fromDateOnly(child.birthDate) : undefined),
       manualStage: definedInput.manualStage ?? child.manualStage ?? undefined
@@ -273,6 +306,7 @@ export class OnboardingCoreService {
       where: { id: childId },
       data: {
         ...(definedInput.nickname !== undefined ? { nickname: definedInput.nickname } : {}),
+        ...(isTransition ? { stageMode: nextStageMode } : {}),
         ...(definedInput.dueDate !== undefined ? { dueDate: toDateOnly(definedInput.dueDate) } : {}),
         ...(definedInput.birthDate !== undefined ? { birthDate: toDateOnly(definedInput.birthDate) } : {}),
         ...(definedInput.manualStage !== undefined ? { manualStage: definedInput.manualStage } : {})
