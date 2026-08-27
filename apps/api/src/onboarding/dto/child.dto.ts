@@ -14,10 +14,16 @@ export class CreateChildDto {
   @IsIn([...CHILD_STAGE_MODES])
   stageMode!: ChildStageMode;
 
+  /** 출산 예정일은 미래인 것이 정상이므로 형식만 본다. */
   @IsOptional()
   @Matches(datePattern)
   dueDate?: string;
 
+  /**
+   * R27(L-6): 여기서는 `YYYY-MM-DD` 형식만 본다. "오늘보다 미래일 수 없다"는 도메인
+   * 규칙이라 OnboardingCoreService가 서울 기준으로 판정하고, VALIDATION_ERROR가 아니라
+   * CHILD_BIRTH_DATE_FUTURE(400)로 나간다 — 생성·수정·전환 세 경로가 같은 코드를 쓴다.
+   */
   @IsOptional()
   @Matches(datePattern)
   birthDate?: string;
@@ -48,6 +54,7 @@ export class UpdateChildDto {
   @Matches(datePattern)
   dueDate?: string;
 
+  /** R27(L-6): CreateChildDto.birthDate와 동일 — 미래 날짜 거부는 서비스 계층(CHILD_BIRTH_DATE_FUTURE). */
   @IsOptional()
   @Matches(datePattern)
   birthDate?: string;

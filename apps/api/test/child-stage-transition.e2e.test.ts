@@ -267,4 +267,140 @@ describe("CHILD-127 아이 상태 전환 (임신 → 출생)", () => {
         expect(body.error.code).toBe("FORBIDDEN");
       });
   });
+
+  /**
+   * R27(L-6): birthDate 미래 날짜 서버측 거부. 모바일 UI는 이미
+   * (child-form.ts의 isFutureSeoulDate 가드로) 막고 있었지만 API를 직접 호출하면
+   * 뚫렸고, 그렇게 들어온 아이는 생후 0개월에 고정되고 100일/첫돌 창이 미래에서
+   * 시작했다. 생성·전환·단순 수정 세 경로를 모두 고정한다.
+   *
+   * 기준일은 이 파일의 WOORIAI_STAGE_TODAY = 2026-04-10 (서울 기준 "오늘").
+   */
+  describe("R27(L-6) 미래 생년월일 거부", () => {
+    const TODAY = "2026-04-10";
+    const TOMORROW = "2026-04-11";
+
+    const expectFutureBirthDateError = ({ body }: { body: { error: { code: string; message: string } } }) => {
+      expect(body.error.code).toBe("CHILD_BIRTH_DATE_FUTURE");
+      expect(body.error.message).toBe("출생일은 오늘보다 미래일 수 없어요.");
+    };
+
+    it("refuses to create a born child with a future birth date", async () => {
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "미래둥이", stageMode: "born", birthDate: TOMORROW })
+        .expect(400)
+        .expect(expectFutureBirthDateError);
+
+      // 거부된 생성은 아무것도 남기지 않는다.
+      await request(app.getHttpServer())
+        .get("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.children).toHaveLength(0);
+        });
+    });
+
+    it("refuses a future birth date even when it rides along with another stage mode", async () => {
+      // pregnant/manual로 만들면서 미래 birthDate를 심어두면 나중 전환·마일스톤에서 되살아난다.
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          householdId,
+          nickname: "몰래둥이",
+          stageMode: "pregnant",
+          dueDate: "2026-05-20",
+          birthDate: TOMORROW
+        })
+        .expect(400)
+        .expect(expectFutureBirthDateError);
+    });
+
+    it("allows today's date as a birth date (Seoul boundary)", async () => {
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "오늘둥이", stageMode: "born", birthDate: TODAY })
+        .expect(200)
+        .expect(({ body }) => {
+          childSchema.parse(body);
+          expect(body).toMatchObject({ stageMode: "born", birthDate: TODAY });
+        });
+    });
+
+    it("refuses the pregnant → born transition when the birth date is in the future", async () => {
+      const childId = await createPregnantChild();
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ stageMode: "born", birthDate: TOMORROW })
+        .expect(400)
+        .expect(expectFutureBirthDateError);
+
+      // 실패한 전환은 아무것도 바꾸지 않는다 — 임신 상태 그대로.
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ stageMode: "pregnant", birthDate: null });
+        });
+    });
+
+    it("still allows the transition on the boundary day itself", async () => {
+      const childId = await createPregnantChild();
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ stageMode: "born", birthDate: TODAY })
+        .expect(200)
+        .expect(({ body }) => {
+          childSchema.parse(body);
+          expect(body).toMatchObject({ stageMode: "born", birthDate: TODAY });
+        });
+    });
+
+    it("refuses a plain birth-date edit into the future on an already-born child", async () => {
+      const childId = await createPregnantChild();
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ stageMode: "born", birthDate: "2026-03-01" })
+        .expect(200);
+
+      // 전환이 아닌 단순 수정(stageMode 미전송)도 같은 규칙을 받는다.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ birthDate: TOMORROW })
+        .expect(400)
+        .expect(expectFutureBirthDateError);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.birthDate).toBe("2026-03-01");
+        });
+    });
+
+    it("leaves the due date alone — a future due date is the normal case", async () => {
+      // dueDate에는 이 규칙을 적용하지 않는다(출산 예정일은 미래인 것이 정상).
+      const childId = await createPregnantChild("2026-12-25");
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ dueDate: "2027-01-31" })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ stageMode: "pregnant", dueDate: "2027-01-31" });
+        });
+    });
+  });
 });

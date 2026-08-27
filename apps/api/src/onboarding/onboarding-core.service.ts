@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { getSeoulMonthRange, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
+import { getSeoulMonthRange, isFutureSeoulDate, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { ChildAccessService } from "./child-access.service";
@@ -10,6 +10,7 @@ import {
   currentYearMonth,
   fromDateOnly,
   memberRoleFor,
+  referenceNow,
   requireMoneyKrw,
   toChildDto,
   toDateOnly,
@@ -60,6 +61,38 @@ function normalizeChildInput(input: {
   }
   if (input.stageMode === "manual" && !input.manualStage) {
     throw new BadRequestException({ code: "CHILD_STAGE_INPUT_REQUIRED", message: "아이 단계를 선택해 주세요." });
+  }
+}
+
+/**
+ * R27(L-6): birthDate는 "이미 태어났다"는 사실이라 미래일 수 없다. 지금까지는
+ * normalizeChildInput이 존재 여부만 보고 DTO는 `YYYY-MM-DD` 형식만 봤기 때문에,
+ * 모바일 UI의 가드(apps/mobile/src/children/child-form.ts — 같은
+ * isFutureSeoulDate)를 우회해 API를 직접 호출하면 미래 생년월일로 아이를 만들거나
+ * pregnant → born 전환을 할 수 있었다. 그 결과 생후 개월수가 0개월에 고정되고
+ * 100일/첫돌 마일스톤 창이 미래에서 시작해(milestone-report.service.ts) 리포트가
+ * 사실과 다른 값을 냈다.
+ *
+ * 기준 시각은 기존 지출 검증(store-shared.assertNotFutureDate)과 같은
+ * `referenceNow()` — 서울 기준 오늘이며, 테스트는 WOORIAI_STAGE_TODAY로 고정한다.
+ * 서울 기준 "오늘"은 정상 입력이므로 허용한다(오늘 태어난 아이).
+ *
+ * dueDate에는 적용하지 않는다: 출산 예정일은 미래인 것이 정상이다.
+ */
+function assertNotFutureBirthDate(birthDate: string) {
+  let future: boolean;
+  try {
+    future = isFutureSeoulDate(birthDate, referenceNow());
+  } catch {
+    // 형식 검증은 DTO(@Matches(datePattern))의 몫 — 여기서는 raw Error가 500으로
+    // 새지 않게만 막고, 형식이 깨진 값은 그대로 통과시켜 기존 동작을 유지한다.
+    return;
+  }
+  if (future) {
+    throw new BadRequestException({
+      code: "CHILD_BIRTH_DATE_FUTURE",
+      message: "출생일은 오늘보다 미래일 수 없어요."
+    });
   }
 }
 
@@ -235,6 +268,11 @@ export class OnboardingCoreService {
     }
 
     normalizeChildInput(input);
+    // L-6: 넘어온 birthDate는 stageMode와 무관하게 검사한다 — pregnant/manual로
+    // 만들면서 미리 심어둔 미래 birthDate가 나중 전환/마일스톤에서 되살아나면 안 된다.
+    if (input.birthDate !== undefined) {
+      assertNotFutureBirthDate(input.birthDate);
+    }
     const created = await this.prisma.child.create({
       data: {
         householdId: input.householdId,
@@ -301,6 +339,13 @@ export class OnboardingCoreService {
       birthDate: definedInput.birthDate ?? (child.birthDate ? fromDateOnly(child.birthDate) : undefined),
       manualStage: definedInput.manualStage ?? child.manualStage ?? undefined
     });
+
+    // L-6: 이번 요청이 실제로 보낸 birthDate만 검사한다(전환 포함). 저장돼 있던 값까지
+    // 다시 보면, 이 규칙이 생기기 전에 들어온 미래 birthDate 때문에 닉네임 수정 같은
+    // 무관한 PATCH가 영영 막힌다.
+    if (definedInput.birthDate !== undefined) {
+      assertNotFutureBirthDate(definedInput.birthDate);
+    }
 
     const updated = await this.prisma.child.update({
       where: { id: childId },
