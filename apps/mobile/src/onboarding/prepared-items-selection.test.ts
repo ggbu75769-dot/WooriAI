@@ -162,10 +162,30 @@ describe("라운드 45 UX-Y(P1) ONB-003 준비물 선택 판정", () => {
 
     it("저장 응답의 반영 수를 읽고, 요청보다 작으면 중립 안내를 남긴다 (라운드 45 O-3)", () => {
       expect(screenSource).toContain("preparedItemsPartialNotice(idsToSubmit.length, result?.updatedCount)");
-      expect(screenSource).toContain("Alert.alert(PREPARED_ITEMS_PARTIAL_ALERT_TITLE, notice)");
       // 안내는 진행을 막지 않는다 -- 저장 자체는 성공이다.
       expect(screenSource).toContain('completeStep("ONB-003")');
       expect(screenSource).toContain('router.push("/onboarding/budget")');
+    });
+
+    it("라운드 46 Q-2: 안내는 확인 버튼을 누른 뒤 다음 화면으로 넘어간다", () => {
+      // 예전 배선은 Alert를 띄우자마자 push해서, 안내가 이미 넘어간 예산 화면 위에 떴다.
+      // 가족 초대 수락(app/family/accept/[token].tsx)과 같은 관례: onPress에서 이동한다.
+      expect(screenSource).toContain(
+        "Alert.alert(PREPARED_ITEMS_PARTIAL_ALERT_TITLE, notice, [{ text: \"확인\", onPress: proceed }]);"
+      );
+      // fire-and-forget 형태(버튼 없이 띄우고 바로 진행)는 남아 있으면 안 된다.
+      expect(screenSource).not.toContain("Alert.alert(PREPARED_ITEMS_PARTIAL_ALERT_TITLE, notice);");
+
+      // 단계 완료·이동은 한 곳(proceed)에만 있고, 안내가 없을 때만 즉시 호출된다.
+      const onSuccess = screenSource.slice(
+        screenSource.indexOf("onSuccess: (result) => {"),
+        screenSource.indexOf("const canSkip")
+      );
+      expect(onSuccess).toContain("const proceed = () => {");
+      expect(onSuccess.indexOf("proceed();")).toBeGreaterThan(onSuccess.indexOf("if (!notice) {"));
+      // 이동 호출은 proceed 안에 한 번씩만 존재한다.
+      expect(onSuccess.split('router.push("/onboarding/budget")').length - 1).toBe(1);
+      expect(onSuccess.split('completeStep("ONB-003")').length - 1).toBe(1);
     });
 
     it("ONB-006 이어하기 문구가 0개를 실패처럼 읽히게 두지 않는다", () => {

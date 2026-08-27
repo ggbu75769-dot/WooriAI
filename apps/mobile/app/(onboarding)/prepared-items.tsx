@@ -64,11 +64,22 @@ export default function PreparedItemsScreen() {
     // 서버가 돌려준 `updatedCount`는 **실제로 반영된 건수**다. 보낸 개수보다 작으면(목록이
     // 갱신되며 사라진 항목을 체크해 둔 경우) 저장은 성공이지만 화면이 아는 수와 다르다 —
     // 진행을 막지 않고 중립 안내 한 줄만 남긴다(preparedItemsPartialNotice 주석 참고).
+    //
+    // 라운드 46 Q-2: 안내를 fire-and-forget으로 띄우고 바로 push하면, Alert가 이미 넘어간
+    // 다음 화면(예산 입력) 위에 떠서 무엇에 대한 안내인지 알 수 없다. 가족 초대 수락
+    // (app/family/accept/[token].tsx)의 관례대로 **확인 버튼을 누른 뒤** 단계 완료·이동을
+    // 실행한다. 안내가 없을 때는 종전대로 즉시 진행한다(불필요한 탭 한 번을 만들지 않는다).
     onSuccess: (result) => {
       const notice = preparedItemsPartialNotice(idsToSubmit.length, result?.updatedCount);
-      if (notice) Alert.alert(PREPARED_ITEMS_PARTIAL_ALERT_TITLE, notice);
-      completeStep("ONB-003");
-      router.push("/onboarding/budget");
+      const proceed = () => {
+        completeStep("ONB-003");
+        router.push("/onboarding/budget");
+      };
+      if (!notice) {
+        proceed();
+        return;
+      }
+      Alert.alert(PREPARED_ITEMS_PARTIAL_ALERT_TITLE, notice, [{ text: "확인", onPress: proceed }]);
     }
   });
 

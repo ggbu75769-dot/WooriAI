@@ -1147,18 +1147,34 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
   }
 ];
 
+/**
+ * 종별 기본 고지 문구. 링크가 `disclosureText`를 비워 두면 items-catalog.service.ts의
+ * `defaultDisclosureFor`가 여기서 골라 응답에 실어 주고, 그 값이 앱 구매 CTA 옆에 **그대로**
+ * 그려진다(운영은 `PUT /admin/disclosures/:key`로 언제든 갈아끼운다).
+ *
+ * 라운드 46 Q-4: 그래서 영문으로 두면 안 된다. 종전 값("Purchases through affiliate links
+ * may generate a commission for WooriAI.")은 (1) 앱 어디와도 말투가 다른 영문이 사용자
+ * 화면에 뜨고(DNC-018 해요체 위반), (2) 모바일의 수수료 고지 판정
+ * (src/items/link-marker.ts `statesAffiliateCommission`)이 한국어 어절로 보므로 "고지 없음"
+ * 으로 떨어져 한국어 승인 문구가 뒤에 덧붙는 **영문+한국어 이중 고지**가 됐다.
+ * 해요체 한국어 + 수령 맥락 어절("수수료를 받")로 적어 한 번만 고지되게 한다(DNC-010).
+ */
 export const disclosureSeeds: DisclosureSeed[] = [
   {
     key: "affiliate_purchase",
-    text: "Purchases through affiliate links may generate a commission for WooriAI."
+    text: "제휴 링크예요. 구매하시면 우리아이가 수수료를 받을 수 있어요."
   },
   {
+    // 스폰서 자체는 광고 사실만 밝힌다 — 수수료를 말하지 않는다. 제휴가 아닌 스폰서 링크에
+    // 수수료 문장을 넣으면 받지 않는 돈을 받는다고 적는 셈이다(DNC-010의 반대 방향 오류).
+    // 제휴가 섞인 집합에서는 앱이 이 문구 뒤에 수수료 고지를 이어 붙인다(라운드 44 N-2).
     key: "sponsored_product",
-    text: "Sponsored products are marked separately from general recommendations."
+    text: "스폰서 광고 상품이에요. 일반 추천과 구분해서 보여드려요."
   },
   {
+    // 같은 이유로 한국어 해요체. 의료 자문이 아니라는 사실을 사용자가 읽는 말로 적는다.
     key: "nutrition_supplement",
-    text: "Nutrition and supplement content is informational and is not medical advice."
+    text: "영양제·보충제 정보는 참고용이에요. 의학적 조언이 아니니 담당 의료진 안내를 우선해요."
   }
 ];
 

@@ -38,8 +38,20 @@ export const CONFLICT_UNKNOWN_CATEGORY_LABEL = "알 수 없는 분류";
  *
  * "기타"를 피해 "알 수 없는 분류"로 바꿔도, 미지 id가 두 개면 두 후보가 여전히 글자까지 같아
  * 구별이 안 됐다 — 무엇을 고르든 같은 것을 고르는 화면이었다. UUID 전체를 그리면 다시 읽을 수
- * 없는 값이 되므로, 끝 4자만 붙여 "서로 다르다"는 사실만 보이게 한다(끝자리를 쓰는 이유: 시드·
- * 픽스처 UUID는 앞부분이 겹치고 뒤에서 갈린다). 4자는 이름이 아니라 **구별용 꼬리표**다.
+ * 없는 값이 되므로, 끝 4자만 붙여 "서로 다르다"는 사실만 보이게 한다. 4자는 이름이 아니라
+ * **구별용 꼬리표**다.
+ *
+ * 라운드 46 Q-10 — 꼬리 4자로 충분한 근거를 실제 도달 집합으로 정정한다. 종전 주석은
+ * "시드·픽스처 UUID는 앞부분이 겹치고 뒤에서 갈린다"며 모바일 별칭 8행
+ * (`c0a7e901-0000-4c0…`)의 모양을 근거로 들었는데, 그 8행은 이 함수에 **도달하지 않는다**:
+ * `buildConflictValueFormatter`가 categoryCatalog(정적 8타일)와 데모 픽스처를 먼저 걸러
+ * 이름을 붙이기 때문이다(isKnownServerIds / isKnownStaticCategoryId).
+ *
+ * 여기까지 오는 id는 캐시가 비었을 때의 **서버 카테고리 행**(정식 12행 + 가져오기 스텁)이다.
+ * 그 행들의 id는 Postgres `gen_random_uuid()`가 만든 값이라(schema.prisma의 Category.id)
+ * 앞뒤 어디도 고정 접두사가 없다 — 꼬리 4자(16진 4자리)는 그 안에서 충분히 갈린다. 즉 꼬리를
+ * 쓰는 이유는 "앞이 겹쳐서"가 아니라 "전 구간이 임의라 어느 4자를 잘라도 같은 구별력"이고,
+ * 끝자리는 그 중 읽기 편한 선택일 뿐이다.
  */
 export function conflictUnknownCategoryLabel(categoryId: string): string {
   const trimmed = categoryId.trim();

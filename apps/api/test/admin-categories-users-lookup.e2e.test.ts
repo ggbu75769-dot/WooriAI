@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { generate as generateTotp } from "otplib";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Prisma } from "@prisma/client";
 import { hashAdminPassword } from "../src/admin/admin-password";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -47,10 +48,50 @@ describe("Admin categories & end-user lookup (ADM-127)", () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
 
-  /** 이 테스트가 만든 행들 — afterEach에서 역순으로 정리한다. */
+  /**
+   * 이 테스트가 만든 행들 — afterEach에서 역순으로 정리한다.
+   *
+   * 라운드 46 Q-9: 종전에는 카테고리·최종 사용자·가구만 추적했다. 하지만 이 스위트는
+   * `createAdmin`으로 admin_users 행(+ MFA 등록 상태·admin_sessions)을, 앱 경로 검증용
+   * dev 로그인(`POST /auth/oauth-login` → ensureDevUser)으로 users + households +
+   * household_members + refresh_tokens 행을 **매 실행 새로** 만든다. 그 행들이 공유 DB에
+   * 그대로 쌓여 왔다 — 시드 행은 건드리지 않지만 유출은 유출이다. 이 스위트가 만든 것만
+   * 추적해 지운다(시드 불변).
+   */
   const createdCategoryIds: string[] = [];
   const createdUserIds: string[] = [];
   const createdHouseholdIds: string[] = [];
+  const createdAdminUserIds: string[] = [];
+
+  /** 이 스위트 전용 카테고리 code 접두사 — 자가 치유 스윕의 기준이기도 하다. */
+  const TEST_CATEGORY_CODE_PREFIX = "adm127_test_";
+
+  /**
+   * 지출을 지우기 전에 그 지출을 **참조하는 자식 행**을 먼저 지운다(구매확인 연결·첨부·
+   * 임포트 행의 중복 후보 포인터). 이 순서가 틀리면 FK 위반으로 정리가 중단돼 만든 행이
+   * 공유 DB에 남고, 이후 실행의 categories.e2e(정식 12개 검증)가 오염으로 깨진다 —
+   * 실제로 겪은 사고다.
+   *
+   * 라운드 46 Q-8: 종전에는 이 선처리가 **사용자 분기에만** 있었고, 카테고리 분기는
+   * `expense.deleteMany`를 바로 불렀다. 같은 지출이 어느 경로로 들어오든 같은 순서로
+   * 지워지도록 한 헬퍼로 합친다.
+   */
+  async function purgeExpenses(where: Prisma.ExpenseWhereInput) {
+    const expenseIds = (await prisma.expense.findMany({ where, select: { id: true } })).map((row) => row.id);
+    if (!expenseIds.length) return;
+    await prisma.childItemStatus.deleteMany({ where: { expenseId: { in: expenseIds } } });
+    await prisma.attachment.deleteMany({ where: { expenseId: { in: expenseIds } } });
+    await prisma.importRow.deleteMany({ where: { duplicateCandidateExpenseId: { in: expenseIds } } });
+    await prisma.expense.deleteMany({ where: { id: { in: expenseIds } } });
+  }
+
+  /** 카테고리를 지우기 전 그것을 참조하는 행들(임포트 행·지출)을 먼저 치운다. */
+  async function purgeCategories(categoryIds: string[]) {
+    if (!categoryIds.length) return;
+    await prisma.importRow.deleteMany({ where: { categoryId: { in: categoryIds } } });
+    await purgeExpenses({ categoryId: { in: categoryIds } });
+    await prisma.category.deleteMany({ where: { id: { in: categoryIds } } });
+  }
 
   beforeEach(async () => {
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
@@ -62,49 +103,84 @@ describe("Admin categories & end-user lookup (ADM-127)", () => {
     configureApiApp(app);
     await app.init();
     prisma = moduleRef.get(PrismaService);
+
+    // 라운드 46 Q-7 자가 치유: 앞선 실행이 중간에 죽어 남긴 **이 스위트 전용** 카테고리를
+    // 먼저 쓸어낸다. afterEach가 한 번 실패해도 다음 실행이 스스로 깨끗한 상태에서 시작한다
+    // (접두사가 이 파일 것만 고르므로 시드 21행은 절대 대상이 아니다).
+    const leftovers = await prisma.category.findMany({
+      where: { code: { startsWith: TEST_CATEGORY_CODE_PREFIX } },
+      select: { id: true }
+    });
+    await purgeCategories(leftovers.map((row) => row.id));
   });
 
+  /**
+   * 라운드 46 Q-7: 정리 전체를 try/finally로 감싼다. 종전에는 deleteMany 하나가 던지면
+   * 남은 정리도, `app.close()`도 실행되지 않았다 — 카테고리가 공유 DB에 잔류하고 Nest
+   * 앱까지 새는, 라운드 45와 **똑같은 사고**가 그대로 재현 가능한 상태였다. 추적 배열
+   * 초기화와 app.close는 무슨 일이 있어도 실행되고, 남은 카테고리는 다음 beforeEach의
+   * 접두사 스윕이 주워 담는다.
+   */
   afterEach(async () => {
-    if (createdUserIds.length) {
-      // 정리 순서 주의: 지출을 참조하는 자식 행(구매확인 연결·임포트 행)을 먼저 지운다.
-      // 이 순서가 틀리면 FK 위반으로 afterEach 전체가 중단돼 만든 행이 공유 DB에 남고,
-      // 이후 실행의 categories.e2e(정식 12개 검증)가 오염으로 깨진다 — 실제로 겪은 사고.
-      const expenseIds = (
-        await prisma.expense.findMany({
-          where: { createdByUserId: { in: createdUserIds } },
-          select: { id: true }
-        })
-      ).map((row) => row.id);
-      if (expenseIds.length) {
-        await prisma.childItemStatus.deleteMany({ where: { expenseId: { in: expenseIds } } });
+    try {
+      if (createdUserIds.length) {
+        await purgeExpenses({ createdByUserId: { in: createdUserIds } });
       }
-      await prisma.expense.deleteMany({ where: { createdByUserId: { in: createdUserIds } } });
+      await purgeCategories(createdCategoryIds);
+      if (createdHouseholdIds.length) {
+        await prisma.child.deleteMany({ where: { householdId: { in: createdHouseholdIds } } });
+        await prisma.householdMember.deleteMany({ where: { householdId: { in: createdHouseholdIds } } });
+        await prisma.household.deleteMany({ where: { id: { in: createdHouseholdIds } } });
+      }
+      if (createdUserIds.length) {
+        // dev 로그인이 발급한 리프레시 토큰(FK 없는 컬럼이라 지우지 않으면 조용히 쌓인다).
+        await prisma.refreshToken.deleteMany({ where: { userId: { in: createdUserIds } } });
+        await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
+      }
+      if (createdAdminUserIds.length) {
+        // MFA 등록 상태는 admin_users의 컬럼(totp_secret/mfa_*)이라 행과 함께 사라진다.
+        // 쿠키 세션 행은 별도 테이블이므로 먼저 지운다.
+        await prisma.adminSession.deleteMany({ where: { adminUserId: { in: createdAdminUserIds } } });
+        await prisma.adminUser.deleteMany({ where: { id: { in: createdAdminUserIds } } });
+      }
+    } finally {
+      createdCategoryIds.length = 0;
+      createdUserIds.length = 0;
+      createdHouseholdIds.length = 0;
+      createdAdminUserIds.length = 0;
+      await app.close();
     }
-    if (createdCategoryIds.length) {
-      await prisma.importRow.deleteMany({ where: { categoryId: { in: createdCategoryIds } } });
-      await prisma.expense.deleteMany({ where: { categoryId: { in: createdCategoryIds } } });
-    }
-    if (createdHouseholdIds.length) {
-      await prisma.child.deleteMany({ where: { householdId: { in: createdHouseholdIds } } });
-      await prisma.householdMember.deleteMany({ where: { householdId: { in: createdHouseholdIds } } });
-      await prisma.household.deleteMany({ where: { id: { in: createdHouseholdIds } } });
-    }
-    if (createdUserIds.length) {
-      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
-    }
-    if (createdCategoryIds.length) {
-      await prisma.category.deleteMany({ where: { id: { in: createdCategoryIds } } });
-    }
-    createdCategoryIds.length = 0;
-    createdUserIds.length = 0;
-    createdHouseholdIds.length = 0;
-    await app.close();
   });
 
   async function createAdmin(email: string, role: "admin" | "editor" | "analyst" = "admin") {
-    return prisma.adminUser.create({
+    const admin = await prisma.adminUser.create({
       data: { email, passwordHash: hashAdminPassword(PASSWORD), displayName: email, role, active: true }
     });
+    createdAdminUserIds.push(admin.id);
+    return admin;
+  }
+
+  /**
+   * 앱 경로(GET /categories) 검증용 dev 로그인. ensureDevUser가 users + 기본 가구 +
+   * owner 멤버십을 만들므로, 그 행들을 그대로 추적 배열에 넣는다(Q-9).
+   */
+  async function devLoginAccessToken() {
+    const providerToken = `adm127-token-${randomUUID()}`;
+    const login = await request(app.getHttpServer())
+      .post("/api/v1/auth/oauth-login")
+      .send({ provider: "kakao", providerToken })
+      .expect(200);
+
+    const user = await prisma.user.findFirst({ where: { authProvider: "kakao", providerUserId: providerToken } });
+    expect(user, "dev 로그인이 users 행을 만들어야 한다").not.toBeNull();
+    createdUserIds.push(user!.id);
+    const memberships = await prisma.householdMember.findMany({
+      where: { userId: user!.id },
+      select: { householdId: true }
+    });
+    createdHouseholdIds.push(...memberships.map((row) => row.householdId));
+
+    return login.body.tokens.accessToken as string;
   }
 
   /** admin-audit-logs.e2e.test.ts와 동일한 실제 플로우: 로그인 + TOTP 등록까지 마친 세션. */
@@ -144,7 +220,7 @@ describe("Admin categories & end-user lookup (ADM-127)", () => {
   async function createTestCategory(overrides: { selectable?: boolean; active?: boolean } = {}) {
     const category = await prisma.category.create({
       data: {
-        code: `adm127_test_${randomUUID().slice(0, 8)}`,
+        code: `${TEST_CATEGORY_CODE_PREFIX}${randomUUID().slice(0, 8)}`,
         name: "테스트 카테고리",
         iconName: "more",
         // 시드 정식 행(10~999)·별칭(1001~1009)과 안 겹치도록 멀찍이 둔다.
@@ -304,11 +380,7 @@ describe("Admin categories & end-user lookup (ADM-127)", () => {
       const session = await adminSession("admin");
       const category = await createTestCategory({ selectable: true });
 
-      const login = await request(app.getHttpServer())
-        .post("/api/v1/auth/oauth-login")
-        .send({ provider: "kakao", providerToken: `adm127-token-${randomUUID()}` })
-        .expect(200);
-      const accessToken = login.body.tokens.accessToken as string;
+      const accessToken = await devLoginAccessToken();
 
       const appCodes = async (includeAll = false) => {
         const response = await request(app.getHttpServer())
@@ -345,11 +417,7 @@ describe("Admin categories & end-user lookup (ADM-127)", () => {
       const session = await adminSession("admin");
       const category = await createTestCategory({ active: true, selectable: true });
 
-      const login = await request(app.getHttpServer())
-        .post("/api/v1/auth/oauth-login")
-        .send({ provider: "kakao", providerToken: `adm127-token-${randomUUID()}` })
-        .expect(200);
-      const accessToken = login.body.tokens.accessToken as string;
+      const accessToken = await devLoginAccessToken();
 
       const appRows = async (includeAll = false) => {
         const response = await request(app.getHttpServer())

@@ -320,6 +320,11 @@ export default function SyncStatusScreen() {
    * 탭 전환) 여기 이름은 UUID 꼬리표인 채로 남았다. `enabled:false` + `queryFn: skipToken`은
    * **요청을 만들지 않으면서** 같은 캐시 항목을 구독한다 — 캐시가 채워지는 순간 이 화면도 이름을
    * 얻는다(새 요청 0건은 그대로다).
+   *
+   * 라운드 46 Q-6(잠재 결합 기록): 이 구독은 `queryFn`이 없어 **스스로 다시 못 채운다**. 나중에
+   * 어딘가에서 `["categories"]`를 invalidate/remove 하도록 바뀌면, 이 화면만 이름을 잃고 UUID
+   * 꼬리표로 되돌아갈 수 있다 — 무효화를 추가할 때 이 화면(과 conflict-display 포매터)이 채워진
+   * 캐시에 의존한다는 사실을 함께 본다.
    */
   const cachedCategoriesQuery = useQuery<{ categories: CategoryListItem[] }>({
     queryKey: ["categories"],

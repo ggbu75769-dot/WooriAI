@@ -34,9 +34,13 @@ describe("공유 [\"categories\"] 캐시 규약 (전역 가드)", () => {
       // enabled:false + queryFn: skipToken으로 캐시를 구독만 한다). 규약이 막는 것은 "기본
       // 12행 목록으로 캐시를 **채우는**" 일이므로, 요청을 아예 만들지 않는 구독자는 대상이
       // 아니다 — 대신 정말 요청이 없는지(skipToken)를 같은 강도로 고정한다.
+      //
+      // 라운드 46 Q-5: 그 "같은 강도"가 문자열 하나였던 탓에, 소비처의 **주석**에
+      // `queryFn: skipToken`이 적혀 있기만 해도 통과했다(sync-status.tsx가 실제로 그랬다).
+      // 두 옵션이 붙어 있는 코드 형태로 본다 — 주석 한 줄은 이 모양을 만들지 못한다.
       if (!source.includes("listCategories(")) {
-        expect(source, `${file} 는 요청 없이 ["categories"] 캐시를 구독만 해야 한다`).toContain(
-          "queryFn: skipToken"
+        expect(source, `${file} 는 요청 없이 ["categories"] 캐시를 구독만 해야 한다`).toMatch(
+          /enabled:\s*false,\s*\n\s*queryFn:\s*skipToken/
         );
         continue;
       }
