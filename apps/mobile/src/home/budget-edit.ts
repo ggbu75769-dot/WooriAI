@@ -227,7 +227,7 @@ export function resolveThisMonthUsedKrw({
 
 export type BudgetAdjustChip = {
   /** React key 및 테스트용 식별자. */
-  id: "minus-step" | "plus-step" | "last-month";
+  id: "minus-step" | "plus-step" | "last-month" | "last-month-budget";
   /** 칩에 그리는 문구. */
   label: string;
   /** 스크린리더용 문장 — "-10만" 같은 축약이 소리로 뭉개지지 않게 따로 준다. */
@@ -243,6 +243,16 @@ export type BudgetAdjustChipsInput = {
   currentBudgetKrw: number | null | undefined;
   /** 지난달 실지출 합계(원). 캐시가 없으면 null → 그 칩은 만들지 않는다. */
   lastMonthActualKrw: number | null | undefined;
+  /**
+   * 라운드 48 B1 — 지난달에 **설정되어 있던 월 예산**(원). 조회하지 않았거나 지난달에도
+   * 예산이 없었으면 null/undefined → 그 칩은 만들지 않는다(실지출 칩과 같은 규율).
+   *
+   * 실지출(`lastMonthActualKrw`)과는 다른 값이다: 하나는 "지난달에 실제로 쓴 돈",
+   * 다른 하나는 "지난달에 스스로 정했던 한도"다. 매달 1일에 예산이 사라지는 이 앱에서
+   * 사람이 가장 자주 하려는 일은 후자를 그대로 다시 세우는 것이라, 둘을 한 칩으로
+   * 합치지 않고 각각의 사실을 각각의 라벨로 말한다.
+   */
+  lastMonthBudgetKrw?: number | null;
 };
 
 /**
@@ -285,6 +295,19 @@ export function adjustBudgetDigits(
  * 100,000,000원이 들어갔다 — 칩이 약속한 금액과 실제로 들어가는 금액이 다른 것은 그 자체로
  * 허위 표시다. 자를 수 없으면 제안하지 않는다(이 상한은 입력 보조용 클램프일 뿐이고, 그런
  * 달은 애초에 이 칩의 용도인 "지난달만큼으로 맞추기"가 성립하지 않는다).
+ *
+ * ## 라운드 48 B1 — "지난달과 같은 N원으로 시작" 칩(이월 제안)
+ *
+ * 월 예산은 (childId, yearMonth) 유니크이고 이월 규칙이 없다. 그래서 매달 1일이면 예산이
+ * 통째로 사라지고, 홈 진행바·경고·주간 알림이 한꺼번에 침묵한다. 서버나 앱이 지난달 값을
+ * **몰래 복사해 새 달의 예산으로 만드는 것은 하지 않는다** — 사용자가 정한 적 없는 예산을
+ * 앱이 지어내는 것이기 때문이다(허위 데이터 표시 금지). 대신 지난달 값을 **제안**으로만
+ * 내놓고, 실제 생성은 사람이 칩을 눌러 저장할 때만 일어난다.
+ *
+ * 이 칩은 **이번 달 예산이 아직 없을 때만** 만든다. 이미 이번 달 예산이 있는 화면에서
+ * "…으로 시작"은 참이 아니고(시작할 것이 없다), 그때 필요한 제안은 종전의 ±10만·실지출 칩이다.
+ * 나머지 규칙(0원 제외·상한 초과 제외·라벨과 입력값이 같은 숫자에서 나온다)은 실지출 칩과
+ * 똑같다 — 규율이 갈릴 자리를 만들지 않는다.
  */
 export function buildBudgetAdjustChips(input: BudgetAdjustChipsInput): BudgetAdjustChip[] {
   const chips: BudgetAdjustChip[] = [
@@ -301,6 +324,26 @@ export function buildBudgetAdjustChips(input: BudgetAdjustChipsInput): BudgetAdj
       nextDigits: adjustBudgetDigits(input.amountDigits, input.currentBudgetKrw, BUDGET_STEP_KRW)
     }
   ];
+
+  // 이월 제안은 "이번 달에 예산이 없다"는 상태에서만 성립한다(위 B1 주석).
+  const lastMonthBudgetKrw = input.lastMonthBudgetKrw;
+  const thisMonthHasBudget = isUsableAmount(input.currentBudgetKrw) && input.currentBudgetKrw > 0;
+  if (
+    !thisMonthHasBudget &&
+    isUsableAmount(lastMonthBudgetKrw) &&
+    lastMonthBudgetKrw > 0 &&
+    lastMonthBudgetKrw <= BUDGET_MAX_KRW
+  ) {
+    const nextDigits = String(Math.floor(lastMonthBudgetKrw));
+    const amountText = formatKrw(Number(nextDigits));
+    // 예산이 없는 달에 사람이 가장 먼저 시도하는 값이라 맨 앞에 둔다(±10만은 그 뒤의 미세 조정).
+    chips.unshift({
+      id: "last-month-budget",
+      label: `지난달과 같은 ${amountText}으로 시작`,
+      accessibilityLabel: `지난달과 같은 ${amountText}으로 시작하기`,
+      nextDigits
+    });
+  }
 
   const lastMonthKrw = input.lastMonthActualKrw;
   if (isUsableAmount(lastMonthKrw) && lastMonthKrw > 0 && lastMonthKrw <= BUDGET_MAX_KRW) {

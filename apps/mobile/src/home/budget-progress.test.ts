@@ -304,4 +304,70 @@ describe("HOME-127 홈/히어로 카드 배선", () => {
     expect(homeSource).toContain("budgetNudge.title");
     expect(homeSource).toContain("budgetNudge.subtitle");
   });
+
+  /**
+   * 라운드 48 B1(c) — 지난달 예산 조회는 **이번 달 예산이 없다고 확인된 뒤에만** 켠다.
+   * 예산이 있는 달(대다수)에는 왕복이 아예 생기지 않고 첫 페인트도 이 요청을 기다리지 않는다
+   * (UX-W(C8) 콜드 스타트 defer 관례와 같은 판단).
+   */
+  it("지난달 예산 조회는 이번 달 예산이 없을 때만 켜진다", () => {
+    const homeSource = source("app/(tabs)/index.tsx");
+    expect(homeSource).toContain("const homeHasNoBudgetThisMonth = Boolean(home.data) && !(home.data!.monthly.amountKrw > 0)");
+    expect(homeSource).toContain(
+      "enabled: Boolean(authToken && childId && lastYearMonth) && homeHasNoBudgetThisMonth"
+    );
+    // 예산 저장이 무효화하는 ["budget"] 프리픽스에 그대로 걸리는 캐시 키다(app/budget.tsx).
+    expect(homeSource).toContain('queryKey: ["budget", childId, lastYearMonth]');
+    // 세션 게이트: 비세션 미리보기의 넛지 문구는 데이터와 무관하게 종전 그대로다(HOME-001).
+    expect(homeSource).toContain("lastMonthBudgetKrw: hasSession ? (lastMonthBudget.data?.amountKrw ?? null) : null");
+  });
+});
+
+/**
+ * 라운드 48 B1(c) — **매달 1일에 예산이 사라진 이유를 홈이 말한다.**
+ *
+ * 월 예산은 (childId, yearMonth) 유니크이고 이월 규칙이 없다. 9월 1일 아침의 홈은 진행바도
+ * 경고도 없이 "월 예산 설정하기"만 남는데, 어제까지 있던 숫자가 왜 사라졌는지 아무도 말해
+ * 주지 않았다. 지난달 값을 알면 그 사실만 한 줄 덧붙인다 — 앱이 예산을 대신 만들지는 않는다.
+ */
+describe("B1(c) 예산 미설정 넛지의 지난달 한 줄", () => {
+  const noBudget = { budgetKrw: 0, spentKrw: 320_000, hasWarningBanner: false } as const;
+
+  it("지난달 예산을 알면 부제에 과거형 사실 한 줄이 붙는다", () => {
+    const nudge = buildHomeBudgetNudge({ ...noBudget, lastMonthBudgetKrw: 1_600_000 });
+    expect(nudge.variant).toBe("set-budget");
+    expect(nudge.title).toBe("월 예산 설정하기");
+    expect(nudge.subtitle).toBe("이번 달 예산을 정하면 남은 금액을 알려드려요 · 지난달 예산은 1,600,000원이었어요");
+    // 목적지는 종전 그대로 -- 문구가 약속하는 곳은 예산 편집 화면이다.
+    expect(nudge.route).toBe("/budget");
+  });
+
+  it("모르면(조회 전·지난달에도 미설정) 종전 문구와 한 글자도 다르지 않다", () => {
+    for (const lastMonthBudgetKrw of [null, undefined, 0, Number.NaN]) {
+      expect(buildHomeBudgetNudge({ ...noBudget, lastMonthBudgetKrw }).subtitle).toBe(
+        "이번 달 예산을 정하면 남은 금액을 알려드려요"
+      );
+    }
+    // 인자를 아예 넘기지 않는 호출부(있다면)도 종전 동작 그대로다.
+    expect(buildHomeBudgetNudge(noBudget).subtitle).toBe("이번 달 예산을 정하면 남은 금액을 알려드려요");
+  });
+
+  it("이번 달 예산이 있으면 지난달 값을 넘겨도 사용률 문구는 그대로다(중복 정보 금지)", () => {
+    const nudge = buildHomeBudgetNudge({
+      budgetKrw: 1_600_000,
+      spentKrw: 1_245_700,
+      hasWarningBanner: false,
+      lastMonthBudgetKrw: 1_600_000
+    });
+    expect(nudge.variant).toBe("usage");
+    expect(nudge.subtitle).toBe("이번 달도 잘 관리하고 있어요 👏");
+  });
+
+  it("재촉·죄책감 없이 사실만 말한다(DNC-018)", () => {
+    const subtitle = buildHomeBudgetNudge({ ...noBudget, lastMonthBudgetKrw: 1_600_000 }).subtitle;
+    for (const forbidden of ["아직도", "빨리", "잊지", "다시 설정해야", "!"]) {
+      expect(subtitle).not.toContain(forbidden);
+    }
+    expect(subtitle.endsWith("이었어요")).toBe(true);
+  });
 });

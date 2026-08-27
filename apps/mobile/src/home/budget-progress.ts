@@ -177,7 +177,34 @@ export type HomeBudgetNudge = {
 export type HomeBudgetNudgeInput = HomeBudgetInput & {
   /** HOME-BUDGET-113 경고 배너가 렌더 중인지(초과 금액 중복 방지). */
   hasWarningBanner: boolean;
+  /**
+   * 라운드 48 B1(c) — 지난달에 설정되어 있던 월 예산(원). 모르면 null/undefined.
+   *
+   * 월 예산은 (childId, yearMonth) 유니크라 **매달 1일에 사라진다**. 그날 홈은 진행바도
+   * 경고도 없이 "월 예산 설정하기"만 남고, 왜 어제까지 있던 숫자가 없어졌는지 아무도 말해
+   * 주지 않았다. 지난달 값을 알면 그 사실을 한 줄로 덧붙인다 — 앱이 예산을 대신 만들어 주는
+   * 것이 아니라(그건 사용자가 정한 적 없는 값을 지어내는 것이다) **지난달에 무엇이었는지만**
+   * 말하고, 실제 설정은 사람이 /budget에서 저장할 때 일어난다.
+   *
+   * 데이터가 없으면(아직 조회 전·지난달에도 예산 없음) 문구는 종전과 한 글자도 다르지 않다.
+   */
+  lastMonthBudgetKrw?: number | null;
 };
+
+/**
+ * 예산 미설정 넛지의 보조 문구. 지난달 예산을 알 때만 사실 한 조각을 덧붙인다.
+ *
+ * 순서는 "약속 → 사실"이다: 앞부분(이 카드를 누르면 무엇이 좋아지는지)은 종전 문장 그대로 두고,
+ * 뒤에 지난달 값을 붙인다. 과거형("이었어요")으로 말해 지금 그 예산이 살아 있다고 오해할 여지를
+ * 남기지 않는다(DNC-018 해요체 · 재촉·죄책감 없음).
+ */
+function setBudgetNudgeSubtitle(lastMonthBudgetKrw: number | null | undefined): string {
+  const base = "이번 달 예산을 정하면 남은 금액을 알려드려요";
+  if (typeof lastMonthBudgetKrw !== "number" || !Number.isFinite(lastMonthBudgetKrw) || lastMonthBudgetKrw <= 0) {
+    return base;
+  }
+  return `${base} · 지난달 예산은 ${formatKrw(lastMonthBudgetKrw)}이었어요`;
+}
 
 export function buildHomeBudgetNudge(input: HomeBudgetNudgeInput): HomeBudgetNudge {
   const progress = evaluateHomeBudgetProgress(input);
@@ -185,7 +212,7 @@ export function buildHomeBudgetNudge(input: HomeBudgetNudgeInput): HomeBudgetNud
     return {
       variant: "set-budget",
       title: "월 예산 설정하기",
-      subtitle: "이번 달 예산을 정하면 남은 금액을 알려드려요",
+      subtitle: setBudgetNudgeSubtitle(input.lastMonthBudgetKrw),
       route: "/budget"
     };
   }

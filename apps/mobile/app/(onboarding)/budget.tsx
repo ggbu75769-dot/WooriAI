@@ -77,6 +77,21 @@ export default function BudgetScreen() {
           title="한 달 예산을 정해주세요"
           subtitle="나중에 예산 화면에서 언제든 바꿀 수 있어요. 이제 홈에서 첫 지출만 기록하면 준비 끝이에요."
         />
+        {/* 라운드 48 B1(d): 예산은 (아이, 연월) 단위로 저장되고 **이월되지 않는다**. 그래서 매달
+            1일이면 홈의 진행바·경고가 함께 조용해지는데, 지금까지 온보딩은 그 사실을 한 번도
+            말하지 않아 사용자는 "예산이 사라졌다 = 고장"으로 읽을 수밖에 없었다. 여기서 미리
+            한 줄로 밝힌다 -- 재촉이나 숙제가 아니라 사실 고지이고, 홈의 넛지가 매달 초에 지난달
+            값을 알려 주며 이어 받는다(app/(tabs)/index.tsx의 B1(c)). */}
+        <Text
+          testID="onboarding-budget-monthly-notice"
+          style={{
+            color: theme.colors.gray600,
+            fontSize: theme.typography.caption.fontSize,
+            lineHeight: 18
+          }}
+        >
+          예산은 달마다 따로 설정해요 — 매달 초에 홈에서 이어서 설정할 수 있어요.
+        </Text>
 
         <Card style={{ gap: 6 }}>
           <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>

@@ -110,8 +110,20 @@ const MILESTONE_LABEL: Record<HomeMilestone, string> = {
   "first-birthday": "첫돌"
 };
 
+/**
+ * 라운드 48 B2 — 이 카드의 부제가 **실제로 누적 총액을 말하는가**.
+ *
+ * 카드가 떠 있어도 기록이 없는 달에는 부제가 금액이 아니라 권유 한 줄이다. 홈의 누적 총액
+ * 카드(src/home/cumulative-total.ts)는 "이미 말하고 있으면 접는다"는 중복 방지 규칙을 쓰는데,
+ * 그 판정이 이 파일의 문구 규칙과 갈리면 같은 금액이 홈에 두 번 뜨거나 아무 데도 안 뜬다.
+ * 그래서 조건을 여기 한 곳에 두고 아래 `totalSubtitle`과 그 카드가 **같은 함수**를 본다.
+ */
+export function milestoneSubtitleShowsTotal(totalExpenseKrw: number | null | undefined): totalExpenseKrw is number {
+  return typeof totalExpenseKrw === "number" && Number.isFinite(totalExpenseKrw) && totalExpenseKrw > 0;
+}
+
 function totalSubtitle(totalExpenseKrw: number | null | undefined): string {
-  if (typeof totalExpenseKrw !== "number" || !Number.isFinite(totalExpenseKrw) || totalExpenseKrw <= 0) {
+  if (!milestoneSubtitleShowsTotal(totalExpenseKrw)) {
     return "기록을 남기면 그날까지의 지출을 함께 모아드릴게요.";
   }
   // "함께한"이 아니라 "총" — 임신기부터의 전 기간 누적임을 문구가 스스로 말한다(F5).

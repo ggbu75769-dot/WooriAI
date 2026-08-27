@@ -96,6 +96,28 @@ export default function BudgetEditScreen() {
     childId && lastYearMonth
       ? queryClient.getQueryData<{ expenses: Expense[] }>(["expenses", childId, lastYearMonth])
       : undefined;
+  /**
+   * 라운드 48 B1(b) — 매달 1일에 예산이 통째로 사라지는 자리.
+   *
+   * 월 예산은 (childId, yearMonth) 유니크이고 **이월 규칙이 없다**. 9월 1일이 되면 이 화면은
+   * "아직 예산이 없어요"만 남고, 8월에 스스로 정해 둔 값을 다시 세우려면 앱 밖의 기억에
+   * 의존해야 했다. 지난달 예산을 **1건** 조회해 "지난달과 같은 N원으로 시작" 칩의 근거로만
+   * 쓴다(칩 판정·문구는 전부 src/home/budget-edit.ts의 순수 함수에 있다).
+   *
+   * 이 화면의 다른 맥락 값들과 달리 캐시 읽기로는 안 된다 — 지난달 **예산**은 이 앱의 어떤
+   * 화면도 받아 두지 않는 데이터라(캐시에 있을 수가 없다) 조회가 유일한 근거다. 대신 요청은
+   * 이번 달 예산이 **없다고 확인된 뒤에만** 켠다(`budget.data === null`): 예산이 있는 달에는
+   * 이월 제안이 성립하지 않으므로, 대다수 사용자에게는 이 왕복이 아예 생기지 않는다(홈의
+   * 콜드 스타트 defer와 같은 판단 — 지금 필요하지 않은 요청은 켜지 않는다).
+   *
+   * 앱이 이 값을 새 달의 예산으로 **자동 저장하지 않는다**. 사용자가 정한 적 없는 예산을 앱이
+   * 지어내는 것이기 때문이다 — 제안만 하고, 저장은 사람이 칩을 눌러 [저장]할 때만 일어난다.
+   */
+  const lastMonthBudget = useQuery({
+    queryKey: ["budget", childId, lastYearMonth],
+    enabled: Boolean(authToken && childId && lastYearMonth) && budget.data === null,
+    queryFn: () => getBudget(authToken!, childId!, lastYearMonth!)
+  });
 
   const currentBudgetKrw = budget.data?.amountKrw ?? null;
   /**
@@ -132,7 +154,13 @@ export default function BudgetEditScreen() {
     cachedLastMonth?.expenses ?? null,
     lastYearMonth ? { rows: offlineSnapshot.rows, childId, yearMonth: lastYearMonth } : undefined
   );
-  const adjustChips = buildBudgetAdjustChips({ amountDigits, currentBudgetKrw, lastMonthActualKrw });
+  // B1(b): 지난달 예산은 이번 달 예산이 없을 때만 조회되고(위), 없으면 undefined -> 칩도 없다.
+  const adjustChips = buildBudgetAdjustChips({
+    amountDigits,
+    currentBudgetKrw,
+    lastMonthActualKrw,
+    lastMonthBudgetKrw: lastMonthBudget.data?.amountKrw ?? null
+  });
 
   const save = useMutation({
     mutationFn: () => {
