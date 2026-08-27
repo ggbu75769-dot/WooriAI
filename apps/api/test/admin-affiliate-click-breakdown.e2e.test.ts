@@ -1,9 +1,10 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
+import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { generate as generateTotp } from "otplib";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getSeoulToday } from "@wooriai/domain";
 import { hashAdminPassword } from "../src/admin/admin-password";
 import { AppModule } from "../src/app.module";
@@ -12,6 +13,30 @@ import { PrismaService } from "../src/prisma/prisma.service";
 
 const PASSWORD = "adm123-e2e-password-1";
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** 이 스위트가 만드는 준비템 코드 접두 (아래 선제 정리의 식별자). */
+const FIXTURE_ITEM_CODE_PREFIX = "adm123-";
+
+/**
+ * TEST-131: 이전 실행이 크래시로 afterEach를 못 돌았을 때 남는 이 스위트 소유의
+ * 준비템/링크/클릭을 시작 전에 지운다. 자기 접두에 걸리는 행만 건드린다.
+ *
+ * afterEach의 주석이 말하는 눈덩이를 크래시 경로에서도 막는 장치다: 남은 클릭이
+ * `windowMaxCount` 기준선을 계속 끌어올리면 다음 실행이 심어야 할 클릭 수가 실행마다
+ * 불어나고, 이 배타 스위트가 워커 풀을 붙잡는 시간도 같이 늘어난다.
+ */
+async function removeOwnFixtureLeftovers(prisma: PrismaClient) {
+  const staleTemplates = await prisma.itemTemplate.findMany({
+    where: { code: { startsWith: FIXTURE_ITEM_CODE_PREFIX } },
+    select: { id: true }
+  });
+  if (staleTemplates.length === 0) return;
+
+  const itemTemplateId = { in: staleTemplates.map((template) => template.id) };
+  await prisma.affiliateClick.deleteMany({ where: { itemTemplateId } });
+  await prisma.childItemStatus.deleteMany({ where: { itemTemplateId } });
+  await prisma.productLink.deleteMany({ where: { itemTemplateId } });
+  await prisma.itemTemplate.deleteMany({ where: { id: itemTemplateId } });
+}
 
 type TopLink = {
   productLinkId: string;
@@ -89,6 +114,17 @@ describe("Admin affiliate click breakdown (ADM-123)", () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let seeded: SeededLink[] = [];
+  let cleanupPrisma: PrismaClient;
+
+  beforeAll(async () => {
+    cleanupPrisma = new PrismaClient();
+    await removeOwnFixtureLeftovers(cleanupPrisma);
+  });
+
+  afterAll(async () => {
+    await removeOwnFixtureLeftovers(cleanupPrisma);
+    await cleanupPrisma.$disconnect();
+  });
 
   beforeEach(async () => {
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
@@ -163,7 +199,7 @@ describe("Admin affiliate click breakdown (ADM-123)", () => {
     const suffix = randomUUID();
     const template = await prisma.itemTemplate.create({
       data: {
-        code: `adm123-${label}-${suffix}`,
+        code: `${FIXTURE_ITEM_CODE_PREFIX}${label}-${suffix}`,
         name: `ADM123 준비템 ${label}`,
         necessityLevel: "essential",
         reasonText: "ADM-123 집계 테스트용",

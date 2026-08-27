@@ -12,6 +12,54 @@ const dbAvailable = await isDatabaseAvailable();
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** 이 스위트가 만드는 카탈로그 픽스처의 고유 접두 (아래 선제 정리의 식별자). */
+const FIXTURE_CATEGORY_CODE_PREFIX = "purge_test_";
+const FIXTURE_ITEM_CODE_PREFIX = "purge_test_item_";
+
+/**
+ * TEST-131: 이전 실행이 크래시로 afterAll을 못 돌았을 때 남는 이 스위트 소유의
+ * 카탈로그 행을 **시작 전에** 지운다. 자기 접두에 걸리는 행만 건드리므로 시드나 다른
+ * 스위트의 데이터는 절대 지우지 않는다.
+ *
+ * 이게 없으면 남은 `purge_test_*` 카테고리 한 줄이 categories.e2e의 시드 계약
+ * (`?includeAll=1` = 정확히 21행)을 그 뒤로 계속 깨뜨린다 — 정확 개수 단언이라
+ * 오염이 자동으로 씻기지 않고, 사람이 손으로 DB를 치울 때까지 빨간불이 남는다.
+ */
+async function removeOwnFixtureLeftovers(prisma: PrismaClient) {
+  const staleTemplates = await prisma.itemTemplate.findMany({
+    where: { code: { startsWith: FIXTURE_ITEM_CODE_PREFIX } },
+    select: { id: true }
+  });
+  if (staleTemplates.length > 0) {
+    const itemTemplateId = { in: staleTemplates.map((template) => template.id) };
+    await prisma.affiliateClick.deleteMany({ where: { itemTemplateId } });
+    await prisma.childItemStatus.deleteMany({ where: { itemTemplateId } });
+    await prisma.productLink.deleteMany({ where: { itemTemplateId } });
+    await prisma.itemTemplate.deleteMany({ where: { id: itemTemplateId } });
+  }
+
+  const staleCategories = await prisma.category.findMany({
+    where: { code: { startsWith: FIXTURE_CATEGORY_CODE_PREFIX } },
+    select: { id: true }
+  });
+  if (staleCategories.length > 0) {
+    const categoryId = { in: staleCategories.map((category) => category.id) };
+    // 지출이 카테고리를 FK로 잡고 있고, child_item_statuses.expense_id가 다시 그 지출을
+    // 잡는다(마이그레이션 000001의 실제 SQL 제약 — Prisma 스키마에는 관계가 없다).
+    // 안쪽부터 끊어야 삭제가 통과한다.
+    const staleExpenses = await prisma.expense.findMany({ where: { categoryId }, select: { id: true } });
+    if (staleExpenses.length > 0) {
+      const expenseIds = staleExpenses.map((expense) => expense.id);
+      await prisma.childItemStatus.updateMany({
+        where: { expenseId: { in: expenseIds } },
+        data: { expenseId: null }
+      });
+      await prisma.expense.deleteMany({ where: { id: { in: expenseIds } } });
+    }
+    await prisma.category.deleteMany({ where: { id: categoryId } });
+  }
+}
+
 // PRIV-105: real-database tests for the retention purge job. Same conventions
 // as worker-jobs.db.test.ts: rows are created with this suite's own random
 // ids, run(now) is driven directly (no scheduler/timers), and assertions are
@@ -31,6 +79,8 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
   beforeAll(async () => {
     deployMigrations();
     prisma = new PrismaClient();
+    // 이전 실행의 잔여 픽스처를 먼저 걷어낸다 (위 removeOwnFixtureLeftovers 주석 참고).
+    await removeOwnFixtureLeftovers(prisma);
 
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
     process.env.JWT_REFRESH_SECRET = "test-refresh-secret";
@@ -47,12 +97,12 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
     // Shared FK fixtures (expenses/statuses/clicks reference these).
     const suffix = randomUUID().slice(0, 8);
     categoryId = (
-      await prisma.category.create({ data: { code: `purge_test_${suffix}`, name: "파기 테스트" } })
+      await prisma.category.create({ data: { code: `${FIXTURE_CATEGORY_CODE_PREFIX}${suffix}`, name: "파기 테스트" } })
     ).id;
     itemTemplateId = (
       await prisma.itemTemplate.create({
         data: {
-          code: `purge_test_item_${suffix}`,
+          code: `${FIXTURE_ITEM_CODE_PREFIX}${suffix}`,
           name: "파기 테스트 준비템",
           necessityLevel: "essential",
           reasonText: "테스트"

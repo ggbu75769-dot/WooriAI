@@ -10,9 +10,14 @@ import { join } from "node:path";
  * assert on database-wide totals, pin the exact seeded reference data, or run a job
  * that deletes rows across the whole database. Those take the lock exclusively and
  * everyone else takes it shared, so one of them runs while nothing else does and the
- * remaining ~65 files run fully in parallel. That is far cheaper than the old
+ * remaining ~66 files run fully in parallel. That is far cheaper than the old
  * run-wide single-thread pin: a few short serialization points instead of every file.
  * test/helpers/db-lock.setup.ts holds the list and the reason for each entry.
+ *
+ * Every entry costs the whole pool the suite's full runtime, so the list is kept as
+ * short as the assertions allow: TEST-131 scoped `items-commerce` to its own fixtures
+ * and took it off the list, which is why the exclusive section is now the five short
+ * suites rather than six. Prefer scoping a suite's assertions over adding it here.
  *
  * Vitest 2.x has no per-file "run this one alone" switch (`fileParallelism` is a
  * run-wide flag and separate pools execute concurrently), so the gate is built out

@@ -1,5 +1,6 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
+import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import {
@@ -9,10 +10,52 @@ import {
   itemSummarySchema,
   productLinkSchema
 } from "@wooriai/contracts";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { PrismaService } from "../src/prisma/prisma.service";
+
+/**
+ * TEST-131: 이 파일은 더 이상 공유 DB 락을 배타로 잡지 않는다
+ * (test/helpers/db-lock.setup.ts). 배타를 뗄 수 있었던 근거 셋을 여기 모아 둔다.
+ *
+ * 1) 이 스위트가 만드는 카탈로그 행(준비템/상품 링크)은 전부 아래 접두를 달고, 크래시로
+ *    정리를 못 했더라도 다음 실행의 beforeAll이 선제적으로 지운다. 남은 활성 준비템이
+ *    다른 스위트의 목록 스냅샷에 슬쩍 끼어드는 오염이 누적되지 않는다.
+ * 2) 클릭 가드(도메인 허용목록 / URL 스킴) 두 테스트는 예전에 **시드된** 상품 링크의
+ *    url을 잠깐 악성 값으로 덮어썼다가 되돌렸다. 병렬 실행에서는 그 찰나에 다른
+ *    스위트(core-loop 등)가 같은 시드 링크를 클릭하면 엉뚱하게 404/400을 받는다.
+ *    이제 두 테스트는 자기 준비템+링크를 만들어서 검증한다 — 가드는 링크 행 하나를
+ *    기준으로 도므로 검증하는 코드 경로도 단언의 정확도도 그대로다.
+ * 3) `tab=all`이 네 탭의 합집합과 같은지 보는 테스트는 두 스냅샷 사이에 다른 스위트가
+ *    준비템을 만들거나 지우면 흔들렸다. 이제 테스트 시작/끝 카탈로그의 교집합(=이
+ *    테스트가 도는 내내 존재가 확정된 행)으로 양쪽을 좁혀서 비교한다. "이상"으로
+ *    무르게 만든 것이 아니라, 모집단을 확정한 뒤 그 안에서 **정확한 집합 일치**를
+ *    그대로 요구한다.
+ */
+/** 이 파일이 직접 만드는 준비템 코드 접두 (잔여물 선제 정리용 식별자). */
+const OWN_TEMPLATE_CODE_PREFIX = "items_commerce_test_";
+/** 어드민 API로 만드는 준비템은 코드가 서버 생성이라, 이름을 잔여물 식별자로 쓴다. */
+const ADM124_TEMPLATE_NAME = "ADM-124 가격대 편집 테스트템";
+
+/**
+ * 이전 실행이 남긴 이 파일 소유의 카탈로그 행을 지운다. 자기 접두/이름에 걸리는 행만
+ * 건드리므로 시드나 다른 스위트의 데이터는 절대 지우지 않는다.
+ */
+async function removeOwnCatalogLeftovers(prisma: PrismaClient) {
+  const leftovers = await prisma.itemTemplate.findMany({
+    where: { OR: [{ code: { startsWith: OWN_TEMPLATE_CODE_PREFIX } }, { name: ADM124_TEMPLATE_NAME }] },
+    select: { id: true }
+  });
+  if (leftovers.length === 0) return;
+
+  const itemTemplateId = { in: leftovers.map((template) => template.id) };
+  await prisma.affiliateClick.deleteMany({ where: { itemTemplateId } });
+  await prisma.childItemStatus.deleteMany({ where: { itemTemplateId } });
+  await prisma.productLink.deleteMany({ where: { itemTemplateId } });
+  await prisma.itemTemplateStage.deleteMany({ where: { itemTemplateId } });
+  await prisma.itemTemplate.deleteMany({ where: { id: itemTemplateId } });
+}
 
 // See admin-settings.e2e.test.ts's login() comment: a random suffix keeps dev-login
 // isolated per test run against the persistent Postgres database.
@@ -91,6 +134,60 @@ type ProductLink = {
 describe("Items, commerce, and affiliate API", () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
+  let cleanupPrisma: PrismaClient;
+
+  beforeAll(async () => {
+    cleanupPrisma = new PrismaClient();
+    await removeOwnCatalogLeftovers(cleanupPrisma);
+  });
+
+  afterAll(async () => {
+    // 정상 종료 경로에서도 한 번 더 — 개별 테스트의 finally가 하나라도 빠지면
+    // 여기서 걸러진다.
+    await removeOwnCatalogLeftovers(cleanupPrisma);
+    await cleanupPrisma.$disconnect();
+  });
+
+  /**
+   * 클릭 가드 검증용 일회용 준비템 + 상품 링크. 시기(stage) 행을 일부러 만들지 않는다:
+   * 시기가 없는 준비템은 어떤 아이의 `tab=now`(홈 추천 포함)에도 들어가지 않아서,
+   * 살아 있는 짧은 동안 다른 스위트의 목록 스냅샷을 흔들지 않는다. healthCheckedAt을
+   * 미리 채워 두는 것도 같은 이유 — link-health.db 스위트의 후보 배치에 끼지 않는다.
+   */
+  async function createOwnClickFixture(
+    prisma: PrismaService,
+    link: { url: string; affiliateUrl: string | null }
+  ): Promise<{ templateId: string; linkId: string }> {
+    const template = await prisma.itemTemplate.create({
+      data: {
+        code: `${OWN_TEMPLATE_CODE_PREFIX}${randomUUID()}`,
+        name: "클릭 가드 테스트 준비템",
+        necessityLevel: "essential",
+        reasonText: "클릭 가드(도메인 허용목록 / URL 스킴) 검증 전용 픽스처.",
+        active: true
+      }
+    });
+    const productLink = await prisma.productLink.create({
+      data: {
+        itemTemplateId: template.id,
+        platform: "coupang",
+        title: "클릭 가드 테스트 링크",
+        url: link.url,
+        affiliateUrl: link.affiliateUrl,
+        isAffiliate: true,
+        active: true,
+        healthStatus: "ok",
+        healthCheckedAt: new Date()
+      }
+    });
+    return { templateId: template.id, linkId: productLink.id };
+  }
+
+  async function removeOwnClickFixture(prisma: PrismaService, fixture: { templateId: string }) {
+    await prisma.affiliateClick.deleteMany({ where: { itemTemplateId: fixture.templateId } });
+    await prisma.productLink.deleteMany({ where: { itemTemplateId: fixture.templateId } });
+    await prisma.itemTemplate.deleteMany({ where: { id: fixture.templateId } });
+  }
 
   beforeEach(async () => {
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
@@ -283,39 +380,22 @@ describe("Items, commerce, and affiliate API", () => {
     const accessToken = await login(app, "batch07-click-domain-blocked");
     const { childId } = await completeOnboarding(app, accessToken);
 
-    const nowItems = (
-      await request(app.getHttpServer())
-        .get(`/api/v1/children/${childId}/items?tab=now`)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .expect(200)
-    ).body.items as ItemSummary[];
-    const carSeat = nowItems.find((item) => item.name === "카시트");
-    expect(carSeat).toBeDefined();
-
-    const carSeatDetail = (
-      await request(app.getHttpServer())
-        .get(`/api/v1/children/${childId}/items/${carSeat!.id}`)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .expect(200)
-    ).body as { productLinks: ProductLink[] };
-    const affiliateLink = carSeatDetail.productLinks.find((link) => link.isAffiliate);
-    expect(affiliateLink).toBeDefined();
-
     // The dev/test allowlist fallback includes example.com so seeded fixtures normally pass;
     // point this link at a domain nowhere near the allowlist (including lookalikes such as
     // "coupang.com.evil.com") to exercise the rejection path.
+    //
+    // TEST-131: 예전에는 **시드된** 제휴 링크의 url을 이 값으로 잠깐 덮어썼다. 가드는
+    // 링크 행 단위로 돌기 때문에 자기 링크로 검증해도 같은 코드 경로를 지나며, 시드 행을
+    // 건드리지 않으니 같은 링크를 클릭하는 다른 스위트를 병렬 실행에서 깨뜨리지 않는다.
     const prisma = moduleRef.get(PrismaService);
-    const storedLink = await prisma.productLink.findUniqueOrThrow({ where: { id: affiliateLink!.id } });
-    const originalUrl = storedLink.url;
-    const originalAffiliateUrl = storedLink.affiliateUrl;
-    await prisma.productLink.update({
-      where: { id: affiliateLink!.id },
-      data: { url: "https://coupang.com.evil-lookalike.net/x", affiliateUrl: "https://coupang.com.evil-lookalike.net/x" }
+    const fixture = await createOwnClickFixture(prisma, {
+      url: "https://coupang.com.evil-lookalike.net/x",
+      affiliateUrl: "https://coupang.com.evil-lookalike.net/x"
     });
 
     try {
       await request(app.getHttpServer())
-        .post(`/api/v1/product-links/${affiliateLink!.id}/click`)
+        .post(`/api/v1/product-links/${fixture.linkId}/click`)
         .set("Authorization", `Bearer ${accessToken}`)
         .send({ childId, referrerScreenId: "ITEM-003" })
         .expect(404)
@@ -327,13 +407,10 @@ describe("Items, commerce, and affiliate API", () => {
           expect(body.error.code).toBe("PRODUCT_LINK_NOT_FOUND");
         });
 
-      const clickEntries = await prisma.affiliateClick.findMany({ where: { productLinkId: affiliateLink!.id, childId } });
+      const clickEntries = await prisma.affiliateClick.findMany({ where: { productLinkId: fixture.linkId } });
       expect(clickEntries).toHaveLength(0);
     } finally {
-      await prisma.productLink.update({
-        where: { id: affiliateLink!.id },
-        data: { url: originalUrl, affiliateUrl: originalAffiliateUrl }
-      });
+      await removeOwnClickFixture(prisma, fixture);
     }
   });
 
@@ -533,39 +610,19 @@ describe("Items, commerce, and affiliate API", () => {
     const accessToken = await login(app, "batch07-click-order");
     const { childId } = await completeOnboarding(app, accessToken);
 
-    const nowItems = (
-      await request(app.getHttpServer())
-        .get(`/api/v1/children/${childId}/items?tab=now`)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .expect(200)
-    ).body.items as ItemSummary[];
-    const carSeat = nowItems.find((item) => item.name === "카시트");
-    expect(carSeat).toBeDefined();
-
-    const carSeatDetail = (
-      await request(app.getHttpServer())
-        .get(`/api/v1/children/${childId}/items/${carSeat!.id}`)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .expect(200)
-    ).body as { productLinks: ProductLink[] };
-    const affiliateLink = carSeatDetail.productLinks.find((link) => link.isAffiliate);
-    expect(affiliateLink).toBeDefined();
-
     // Simulate a stored link whose redirect URL is unsafe (e.g. legacy data or a bypassed
     // guard) to prove clickProductLink validates the URL before recording the click log,
     // rather than logging first and only rejecting the redirect afterward.
+    //
+    // TEST-131: 위 도메인 가드 테스트와 같은 이유로 시드 링크를 덮어쓰는 대신 자기 링크를
+    // 만든다. 링크 id가 이 실행에만 존재하므로 클릭 로그 단언도 productLinkId 하나로
+    // 정확해진다 — 예전에는 시드 id를 재사용해서 childId까지 함께 걸러야 했다.
     const prisma = moduleRef.get(PrismaService);
-    const storedLink = await prisma.productLink.findUniqueOrThrow({ where: { id: affiliateLink!.id } });
-    const originalUrl = storedLink.url;
-    const originalAffiliateUrl = storedLink.affiliateUrl;
-    await prisma.productLink.update({
-      where: { id: affiliateLink!.id },
-      data: { url: "javascript:alert(1)", affiliateUrl: null }
-    });
+    const fixture = await createOwnClickFixture(prisma, { url: "javascript:alert(1)", affiliateUrl: null });
 
     try {
       await request(app.getHttpServer())
-        .post(`/api/v1/product-links/${affiliateLink!.id}/click`)
+        .post(`/api/v1/product-links/${fixture.linkId}/click`)
         .set("Authorization", `Bearer ${accessToken}`)
         .send({ childId, referrerScreenId: "ITEM-003" })
         .expect(400)
@@ -574,17 +631,10 @@ describe("Items, commerce, and affiliate API", () => {
           expect(body.error.code).toBe("PRODUCT_LINK_URL_SCHEME_INVALID");
         });
 
-      // Scoped to this test's own childId (fresh per run) rather than just
-      // productLinkId: product link ids come from deterministic seed data, so a
-      // productLinkId-only query would also match affiliate_clicks rows left behind
-      // by earlier runs of this same suite against the persistent test database.
-      const clickEntries = await prisma.affiliateClick.findMany({ where: { productLinkId: affiliateLink!.id, childId } });
+      const clickEntries = await prisma.affiliateClick.findMany({ where: { productLinkId: fixture.linkId } });
       expect(clickEntries).toHaveLength(0);
     } finally {
-      await prisma.productLink.update({
-        where: { id: affiliateLink!.id },
-        data: { url: originalUrl, affiliateUrl: originalAffiliateUrl }
-      });
+      await removeOwnClickFixture(prisma, fixture);
     }
   });
 
@@ -664,6 +714,18 @@ describe("Items, commerce, and affiliate API", () => {
     const { childId } = await completeOnboarding(app, accessToken);
     const authorized = (path: string) =>
       request(app.getHttpServer()).get(path).set("Authorization", `Bearer ${accessToken}`).expect(200);
+    const idsOfAll = async () =>
+      new Set(((await authorized(`/api/v1/children/${childId}/items?tab=all`)).body.items as ItemSummary[]).map((item) => item.id));
+
+    // TEST-131: 이 테스트는 여러 번의 요청 결과를 서로 비교하는데, 이 파일은 더 이상
+    // DB를 독점하지 않으므로 그 사이에 다른 스위트가 준비템을 만들거나 지울 수 있다.
+    // 시작·끝 카탈로그의 교집합 = "이 테스트가 도는 내내 존재가 확정된 준비템"으로
+    // 양쪽을 좁혀서 비교한다. 모집단만 확정할 뿐, 그 안에서는 부분집합/이상이 아니라
+    // 예전과 똑같이 **정확한 집합 일치**를 요구한다.
+    const catalogAtStart = await idsOfAll();
+    /** 모집단(stable) 확정은 테스트 끝에서 이뤄지므로, 비교는 그 뒤에 몰아서 한다. */
+    const scopedTo = (stable: Set<string>, ids: Iterable<string>) =>
+      new Set([...ids].filter((id) => stable.has(id)));
 
     const nowItems = (await authorized(`/api/v1/children/${childId}/items?tab=now`)).body.items as ItemSummary[];
     const [giftedItem, notNeededItem] = nowItems;
@@ -689,9 +751,9 @@ describe("Items, commerce, and affiliate API", () => {
     for (const item of allItems) {
       itemSummarySchema.parse(item);
     }
-    // 중복 없이 한 번씩, 그리고 네 탭 합집합과 같은 집합이다.
-    expect(new Set(allItems.map((item) => item.id)).size).toBe(allItems.length);
-    expect(new Set(allItems.map((item) => item.id))).toEqual(unionIds);
+    const allIds = new Set(allItems.map((item) => item.id));
+    // 중복 없이 한 번씩 (모집단과 무관한 응답 자체의 성질).
+    expect(allIds.size).toBe(allItems.length);
     // 상태는 그대로 실려 온다 -- 준비율이 해결됨/미해결을 이 값으로 가른다.
     expect(allItems.find((item) => item.id === giftedItem.id)?.status).toBe("gifted");
     expect(allItems.find((item) => item.id === notNeededItem.id)?.status).toBe("not_needed");
@@ -716,12 +778,23 @@ describe("Items, commerce, and affiliate API", () => {
       .items as ItemSummary[];
     const bandItemIds = new Set(bandItems.map((item) => item.id));
     expect(bandItemIds.size).toBe(bandItems.length);
+
+    // 모든 스냅샷을 다 찍은 뒤에야 모집단이 확정된다: 시작과 끝 카탈로그에 모두 있던
+    // 준비템 = 이 테스트가 도는 내내 존재가 확정된 행. 그 밖(= 다른 스위트가 중간에
+    // 만들었거나 지운 행)은 어느 쪽 집합에서도 빼고 비교한다.
+    const catalogAtEnd = await idsOfAll();
+    const stable = scopedTo(catalogAtStart, catalogAtEnd);
+    expect(stable.size).toBeGreaterThan(0);
+    const scoped = (ids: Iterable<string>) => scopedTo(stable, ids);
+
+    // all은 네 탭 합집합과 정확히 같은 집합이다.
+    expect(scoped(allIds)).toEqual(scoped(unionIds));
     // 밴드가 있어도 스냅샷은 밴드 없는 all과 같은 집합이고, 네 탭 합집합을 모두 포함한다.
-    expect(bandItemIds).toEqual(new Set(allItems.map((item) => item.id)));
-    for (const item of bandSoon) {
-      expect(bandItemIds.has(item.id)).toBe(true);
+    expect(scoped(bandItemIds)).toEqual(scoped(allIds));
+    for (const id of scoped(bandSoon.map((item) => item.id))) {
+      expect(bandItemIds.has(id)).toBe(true);
     }
-    for (const id of bandUnionIds) {
+    for (const id of scoped(bandUnionIds)) {
       expect(bandItemIds.has(id)).toBe(true);
     }
 
@@ -754,12 +827,16 @@ describe("Items, commerce, and affiliate API", () => {
     const created = (
       await asAdmin(request(app.getHttpServer()).post("/api/v1/admin/item-templates"))
         .send({
-          name: "ADM-124 가격대 편집 테스트템",
+          name: ADM124_TEMPLATE_NAME,
           necessityLevel: "essential",
           reasonText: "가격대 프리필/삭제 왕복 고정용.",
           priceMinKrw: 30000,
           priceMaxKrw: 50000,
-          stageCodes: ["newborn_0_3"],
+          // TEST-131: 시기는 검증 대상이 아니지만 어드민 API가 생략 시 infant_4_6(테스트
+          // 아이들이 가장 많이 쓰는 시기)을 붙이므로 명시한다. 아기 시기 아이만 만드는
+          // 이 저장소의 다른 스위트에서는 이 준비템이 `tab=now`에 절대 뜨지 않아,
+          // 살아 있는 짧은 동안 그들의 목록 스냅샷을 흔들지 않는다.
+          stageCodes: ["middle_school"],
           active: true
         })
         .expect(200)
