@@ -126,11 +126,14 @@ describe("A11Y-101 accessibility source contract", () => {
     // what the visible StatusBadge chips show -- not just a bare "동기화 상태 보기".
     // FIX-118A(m-11): 배지/라벨 모두 현재 아이 기준 counts를 쓴다(전역 counts는 다른 아이 대기
     // 건수까지 합산해 목록과 어긋났다).
+    // REC-123(H4): 문구 자체는 src/offline/messages.ts가 단일 소스이고(동기화 상태 화면과 공유),
+    // "대기 N건"/"실패 N건"/"충돌 N건"이라는 결과 문자열은 src/offline/messages.test.ts가 핀한다.
+    // 여기서는 이 화면이 그 헬퍼로 세 카운트를 모두 읽어준다는 사실만 계약으로 고정한다.
     expect(recordsSource).toContain("accessibilityLabel={syncStatusChipAccessibilityLabel(childSyncCounts)}");
     expect(recordsSource).toContain("function syncStatusChipAccessibilityLabel");
-    expect(recordsSource).toContain("`대기 ${waiting}건`");
-    expect(recordsSource).toContain("`실패 ${counts.failed}건`");
-    expect(recordsSource).toContain("`충돌 ${counts.conflict}건`");
+    expect(recordsSource).toContain('syncStatusCountLabel("pending", waiting)');
+    expect(recordsSource).toContain('syncStatusCountLabel("failed", counts.failed)');
+    expect(recordsSource).toContain('syncStatusCountLabel("conflict", counts.conflict)');
     expect(recordsSource).toContain('accessibilityLabel="이전 달"');
     expect(recordsSource).toContain('accessibilityLabel="다음 달"');
   });

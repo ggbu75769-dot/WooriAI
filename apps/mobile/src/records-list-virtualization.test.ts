@@ -70,6 +70,11 @@ describe("PERF-102 records list virtualization (source verification -- follows t
     expect(src).toContain("이번 달 ${monthlyRecordCount}건 · 합계 ${formatKrw(monthlyTotalKrw)}");
     // No new API surface was added for the summary -- it derives from the existing
     // listExpenses query + offline snapshot reconciliation.
-    expect(src).not.toMatch(/listExpenses\([\s\S]{0,400}listExpenses\(/);
+    // REC-123(D1)이 그 아래 붙인 "지난달 같은 시점" 한 줄은 홈(REP-121)과 **같은 캐시 키**
+    // (["expenses", childId, 지난달])를 공유하는 두 번째 listExpenses 조회라, 새 엔드포인트가
+    // 아니라 이미 받아둔 응답의 재사용이다. 호출 지점은 딱 이 둘까지만 허용한다.
+    const listExpensesCalls = src.match(/listExpenses\(authToken!/g) ?? [];
+    expect(listExpensesCalls).toHaveLength(2);
+    expect(src).toContain('queryKey: ["expenses", childId, lastYearMonth]');
   });
 });
