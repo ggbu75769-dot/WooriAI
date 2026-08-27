@@ -3,7 +3,7 @@ import { createDtoValidationPipe } from "../bootstrap";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
 import { AdminAuthGuard } from "./admin-auth.guard";
-import { AdminUsersLookupService } from "./admin-users-lookup.service";
+import { AdminUsersLookupService, maskLookupQuery } from "./admin-users-lookup.service";
 import { AdminUsersLookupQueryDto } from "./dto/admin-users-lookup.dto";
 import { RequireAdminRoles } from "./require-admin-roles.decorator";
 
@@ -38,15 +38,18 @@ export class AdminUsersLookupController {
   ) {
     const result = await this.service.search(query);
 
-    // 민감 조회는 쓰기와 같은 무게로 기록한다: 누가 어떤 검색어로 최종 사용자
-    // 개인정보를 열람했는지가 남아야 오남용을 사후에 확인할 수 있다. 조회된
-    // 사용자의 개인정보 자체(이메일·이름 등)는 로그에 남기지 않고, 검색어와
-    // 건수만 남긴다 — 감사 로그가 또 하나의 개인정보 사본이 되지 않게.
+    // 민감 조회는 쓰기와 같은 무게로 기록한다: 누가 어떤 대상을 몇 건이나 열람했는지가
+    // 남아야 오남용을 사후에 확인할 수 있다. 다만 조회된 사용자의 개인정보(이메일·이름
+    // 등)도, **검색어 원문**도 남기지 않는다 — 이 조회의 검색어는 사실상 이메일 원문이라
+    // 그대로 저장하면 audit_logs가 개인정보의 두 번째 사본이 되고(감사 뷰어·CSV로 그대로
+    // 흘러나가며, 파기 잡은 audit_logs 본문을 지우지 않는다) 사용자가 탈퇴한 뒤에도
+    // 이메일이 남는다. 그래서 부분 마스킹(`maskLookupQuery`: 앞 2자 + 길이)과 결과
+    // 건수만 남긴다 — 라운드 28 리뷰 F1.
     await this.auditLogger.record({
       actorUserId: actorId(request),
       action: "admin.user_lookup.search",
       targetType: "users",
-      after: { query: query.query.trim(), resultCount: result.users.length }
+      after: { queryMasked: maskLookupQuery(query.query), resultCount: result.users.length }
     });
 
     return result;

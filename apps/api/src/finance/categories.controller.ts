@@ -27,6 +27,15 @@ import { ListCategoriesQueryDto, includeAllRequested } from "./dto/query.dto";
  *     하나로 쓰므로 includeAll=1로 받아 표시 단계에서 `selectableCategories`로 좁힌다
  *     (apps/mobile/src/categories.ts).
  *   * 응답 DTO의 `selectable` 필드는 계약상 optional이라 구 클라이언트는 무시하면 된다.
+ *
+ * 라운드 28 리뷰 F3 — `?includeAll=1`은 이제 **`active`와도 무관하게 전량**을 돌려준다.
+ * 이 스위치의 용도는 "고를 목록"이 아니라 **이름 해석**이기 때문이다: 어드민에서 어떤
+ * 카테고리의 `active`를 끄면 그 행이 전량 목록에서까지 사라져, 그 카테고리로 이미 기록된
+ * 과거 지출의 라벨이 기록 탭·리포트 범례·CSV에서 일제히 "기타"로 바뀌었다 — 사용자가
+ * 실제로 적어 둔 이름이 아니므로 허위 표시다(운영자가 노출만 끄려던 조작이 과거 데이터의
+ * 표시를 조용히 바꿨다). 이름은 유지하고 "새로 고를 수는 없게" 하는 것이 의도이므로,
+ * 전량 조회는 `active`를 보지 않고 기본 목록(`active && selectable`)만 좁힌다. 비활성
+ * 카테고리를 픽커에서 빼는 판단은 클라이언트의 `selectableCategories`가 맡는다.
  */
 @Controller("categories")
 @UseGuards(JwtAuthGuard)
@@ -37,7 +46,8 @@ export class CategoriesController {
   async list(@Query(createDtoValidationPipe(ListCategoriesQueryDto)) query: ListCategoriesQueryDto) {
     const includeAll = includeAllRequested(query.includeAll);
     const categories = await this.prisma.category.findMany({
-      where: includeAll ? { active: true } : { active: true, selectable: true },
+      // includeAll=1 → 필터 없음(이름 해석용 전량, F3). 기본 → active + selectable.
+      where: includeAll ? {} : { active: true, selectable: true },
       orderBy: [{ displayOrder: "asc" }, { code: "asc" }],
       select: {
         id: true,

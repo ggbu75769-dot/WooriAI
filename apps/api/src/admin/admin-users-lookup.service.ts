@@ -46,11 +46,37 @@ export type AdminUserLookupResult = {
 /**
  * LIKE 와일드카드(`%`, `_`)를 뺀 실질 검색어 길이. Prisma `contains`는 값 안의
  * 와일드카드를 이스케이프하지 않으므로, `%%` 같은 입력이 최소 길이 검사를 통과해
- * 사실상 "전체 사용자 명단 덤프"가 되는 길을 막는다. 정상 입력(이메일에 섞인 `_`
- * 등)은 그대로 통과하므로 검색 동작 자체는 달라지지 않는다.
+ * **한 번의 요청으로** "전체 사용자 명단 덤프"가 되는 길을 막는다. 정상 입력(이메일에
+ * 섞인 `_` 등)은 그대로 통과하므로 검색 동작 자체는 달라지지 않는다. 반복 호출로 명단을
+ * 훑는 것까지 막지는 못한다 — 그쪽 통제는 클래스 주석(라운드 28 F4) 참고.
  */
 export function effectiveQueryLength(query: string): number {
   return query.trim().replaceAll("%", "").replaceAll("_", "").length;
+}
+
+/** 마스킹된 검색어에 남기는 앞자리 수. 2자면 "ad***"처럼 어떤 계열을 찾았는지는 보이되,
+ * 이메일 로컬파트/닉네임을 복원할 수는 없다. */
+const LOOKUP_QUERY_MASK_PREFIX = 2;
+
+/**
+ * 감사 로그에 남길 검색어의 **부분 마스킹** 형태 — `앞 2자 + *** + (길이)`.
+ *
+ * 왜: 이 조회의 검색어는 사실상 이메일 원문이다(CS가 문의자 이메일을 그대로 붙여 넣는다).
+ * 원문을 감사 로그에 남기면 audit_logs가 개인정보의 두 번째 사본이 되고, 감사 뷰어(ADM-113)
+ * ·CSV 내보내기로 그대로 흘러나가며, 사용자가 탈퇴해 users 행이 파기된 뒤에도 이메일이
+ * 남는다(파기 잡은 audit_logs를 지우지 않는다 — 법적/운영 기록이라 actor만 익명화한다).
+ *
+ * 그렇다고 검색어를 통째로 버리면 감사의 목적("누가 **무엇을** 찾아봤는가")이 사라지므로,
+ * 오남용 판단에 필요한 만큼만 남긴다: 앞 2자로 같은 대상을 반복 조회했는지의 단서를 주고,
+ * 길이로 "두 글자 훑기"류의 광범위 조회를 구분할 수 있게 한다. 원문 복원은 불가능하다.
+ *
+ * 코드포인트 단위로 자른다 — 한글/이모지 닉네임에서 서로게이트가 반토막 나지 않게.
+ */
+export function maskLookupQuery(query: string): string {
+  const trimmed = query.trim();
+  const codePoints = [...trimmed];
+  const prefix = codePoints.slice(0, LOOKUP_QUERY_MASK_PREFIX).join("");
+  return `${prefix}***(${codePoints.length}자)`;
 }
 
 /**
@@ -70,6 +96,16 @@ export function effectiveQueryLength(query: string): number {
  * 스태프 계정은 애초에 다른 테이블(`admin_users`)이라 이 결과에 섞이지 않는다.
  * 탈퇴(soft delete) 계정은 결과에 포함하되 `deletedAt`으로 표시한다 — 탈퇴 직후
  * 문의가 CS의 실제 사례라, 숨기면 "찾을 수 없음"과 구분이 되지 않는다.
+ *
+ * 라운드 28 리뷰 F4 — "명단 훑기 방지"의 성격 정정: 아래 최소 길이 검사와
+ * 와일드카드 제거(`effectiveQueryLength`), `limit` 상한(50)은 **한 번의 요청으로**
+ * 전체 명단을 받아 가는 경로를 막을 뿐, 명단 열람 자체를 기술적으로 막지는 못한다
+ * — 두 글자짜리 검색어를 조합해 반복 호출하면 상당수를 훑을 수 있다. 이 도구가
+ * "특정 문의자를 찾는 용도"로만 쓰이게 하는 실제 통제는 **운영 통제**다:
+ * `RequireAdminRoles("admin")`(editor/analyst 403)로 사용 주체를 좁히고, 호출마다
+ * 감사 로그(`admin.user_lookup.search`, 마스킹된 검색어 + 결과 건수)를 남겨
+ * 오남용을 **사후에** 확인·추궁할 수 있게 한다. 사전 차단이 아니라 사후 책임 추적이
+ * 이 설계의 보장 범위다.
  */
 @Injectable()
 export class AdminUsersLookupService {
@@ -94,6 +130,10 @@ export class AdminUsersLookupService {
       });
     }
 
+    // 성능(라운드 28 F4): `contains`는 `ILIKE '%…%'`로 나가 앞자리 인덱스를 못 타므로
+    // users 전건 seq scan이다. 지금 규모(수천~수만 행)·호출 빈도(CS 문의 시 수동)에서는
+    // 문제가 아니지만, users가 커지면 pg_trgm GIN 인덱스가 필요하다 —
+    // docs/operations/perf-index-notes.md "ADM-127 사용자 조회" 절 참고.
     const users = await this.prisma.user.findMany({
       where: {
         OR: [

@@ -79,6 +79,10 @@ export class AdminCategoriesService {
       where: { id: categoryId },
       // 값이 오지 않은 축은 `undefined`라 Prisma가 그대로 건드리지 않는다 —
       // 부분 수정(PATCH) 계약이 그대로 유지된다.
+      //
+      // `name`은 DTO가 이미 trim한 뒤 검증했다(F2) — 여기 `.trim()`은 그 계약을 두 번째로
+      // 확인하는 무해한 항등 연산이고, DTO를 거치지 않는 호출부가 생겨도 공백이 그대로
+      // 저장되지 않게 남겨 둔다. 공백만 있는 이름은 DTO에서 400으로 걸린다.
       data: {
         name: input.name?.trim(),
         displayOrder: input.displayOrder,

@@ -61,6 +61,17 @@ describe("Categories page (ADM-127)", () => {
     expect(source).toContain("window.confirm");
   });
 
+  // R28-F3: 사용(active)을 끄는 것도 앱에서 눈에 띄는 변화라 저장 전에 확인한다.
+  // 문구는 이제 정확해야 한다 — 라벨은 유지되고, 사라지는 것은 "고를 수 있음"뿐이다.
+  it("confirms before turning active OFF, and says labels are kept (R28-F3)", () => {
+    const source = readSource("app/categories/page.tsx");
+    expect(source).toContain("activeToggleWarning");
+    expect(source).toContain("patch.active === false");
+    // 안내 카드 문구도 정정됐다: "사용을 끄면 이름 표시에도 쓰이지 않아요"는 더는 사실이 아니다.
+    expect(source).not.toContain("사용을 끄면 이름 표시에도 쓰이지 않아요");
+    expect(source).toContain("이미 기록된 지출의 표시 이름은 그대로 유지돼요");
+  });
+
   it("reuses the shared admin page styles and clears the session on auth errors", () => {
     const source = readSource("app/categories/page.tsx");
     expect(source).toContain("admin-page.module.css");

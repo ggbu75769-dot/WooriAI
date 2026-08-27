@@ -405,3 +405,41 @@ API 경로를 위해 lte와 R24-M3 후속A 플랜 단언(그 경로 형태 기�
 - 기존 PERF-121 블록의 "홈 최근 3건" 테스트는 새 인덱스가 선택될 수 있으므로 두 인덱스
   중 하나를 타면 통과하도록 완화(고정하려는 것은 "seq scan으로 떨어지지 않는다"이다)
 - 스크래치 DB `wooriai_perf124`는 측정 종료 후 드랍
+
+---
+
+# ADM-127 사용자 조회 — `ILIKE '%…%'`는 seq scan이다 (라운드 28 리뷰 F4, 측정 없음·관찰만)
+
+`GET /admin/users-lookup`(`apps/api/src/admin/admin-users-lookup.service.ts`)의 검색 조건은
+Prisma `contains` + `mode: "insensitive"` 두 개의 OR다:
+
+```sql
+WHERE email ILIKE '%' || $1 || '%' OR display_name ILIKE '%' || $1 || '%'
+```
+
+**앞자리가 열려 있는 패턴이라 B-tree 인덱스를 탈 수 없다** — `users_email_key`(unique)도,
+어떤 `(email)` 인덱스도 쓰이지 않고 `users` 전건 **Seq Scan + Filter**로 떨어진다.
+`ORDER BY created_at DESC, id ASC` + `LIMIT 20`도 도움이 되지 않는다: 필터가 인덱스로
+좁혀지지 않으므로 정렬 전에 전건을 훑어야 한다.
+
+지금은 **추가하지 않는다**. 근거:
+
+- 볼륨: 현 단계 `users`는 수천~수만 행 규모이고, 그 정도면 seq scan이 수 ms다.
+- 호출 빈도: CS 문의가 들어왔을 때 운영자가 손으로 한 번 치는 조회다(초당 요청이 아니다).
+  게다가 `RequireAdminRoles("admin")` + 최소 2자 + `limit ≤ 50` 제한이 걸려 있다.
+- 비용: pg_trgm은 확장 설치(`CREATE EXTENSION pg_trgm`)와 GIN 인덱스 2개(email,
+  display_name)를 요구하고, 두 컬럼 모두 쓰기 경로(가입·프로필 수정·파기 잡의 익명화)에서
+  갱신되므로 인덱스 유지 비용이 붙는다. PERF-101 관례상 **측정된 개선 없이는 추가하지 않는다.**
+
+**성장 시 처방**(같은 관례대로, 먼저 스크래치 DB에서 `EXPLAIN (ANALYZE, BUFFERS)`로 확인한 뒤):
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX CONCURRENTLY idx_users_email_trgm ON users USING gin (email gin_trgm_ops);
+CREATE INDEX CONCURRENTLY idx_users_display_name_trgm ON users USING gin (display_name gin_trgm_ops);
+```
+
+트리거로 삼을 신호: `users` 행 수가 10만을 넘거나, 이 엔드포인트의 p95가 눈에 띄게(수백 ms)
+늘어날 때. 참고로 trigram 인덱스는 검색어가 3자 이상일 때 효과가 있다 — 현재 최소 길이는
+2자(`USERS_LOOKUP_MIN_QUERY_LENGTH`)라, 2자 검색은 인덱스를 붙여도 여전히 전건에 가깝다.
+(`CONCURRENTLY`는 ADM-123 절의 관찰과 같은 이유로 운영 반영 시 필수다.)

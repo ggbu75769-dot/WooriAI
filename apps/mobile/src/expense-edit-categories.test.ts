@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listCategories, LOCAL_SESSION_TOKEN } from "./api/client";
 import * as localBackend from "./api/local-backend";
 import { LOCAL_CATEGORY_IMPORT, LOCAL_CHILD_ID, localSeedExpenses } from "./api/local-fixtures";
-import { categoryCatalog, selectableCategories } from "./categories";
+import { buildCategoryNameLookup, categoryCatalog, selectableCategories } from "./categories";
 import { createMemoryOfflineStore } from "./offline/memory-offline-store";
 import { flushOutbox, recordLocalCreate, recordLocalUpdate, type RemoteExpenseApi } from "./offline/sync-engine";
 import type { ExpensePayload } from "./offline/types";
@@ -422,5 +422,61 @@ describe("selectableCategories + CAT-124 selectable 플래그", () => {
 
     expect(result.some((row) => row.id === "legacy")).toBe(true);
     expect(result).toHaveLength(13);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R28-F3: `active: false` (an operator switched the category off in the admin).
+// `?includeAll=1` now returns those rows too, deliberately -- the picker must stop OFFERING them
+// while `buildCategoryNameLookup` keeps resolving the NAME of expenses already recorded under
+// them. Before F3 the server dropped the row from the full list as well, so those past expenses
+// silently relabeled themselves "기타" -- a false display of what the user actually recorded.
+// ---------------------------------------------------------------------------
+
+describe("selectableCategories + R28-F3 active 플래그", () => {
+  type Row = { id: string; code: string; name: string; displayOrder: number; selectable?: boolean; active?: boolean };
+
+  const rows: Row[] = [
+    { id: "s-04", code: "diaper_hygiene", name: "기저귀/위생", displayOrder: 40, selectable: true, active: true },
+    { id: "s-11", code: "insurance_savings", name: "보험/저축", displayOrder: 110, selectable: true, active: false },
+    { id: "s-12", code: "etc", name: "기타", displayOrder: 999, selectable: true, active: true }
+  ];
+
+  it("사용(active)이 꺼진 카테고리는 픽커에 나오지 않는다", () => {
+    const result = selectableCategories(rows, "");
+    expect(result.map((row) => row.id)).toEqual(["s-04", "s-12"]);
+    expect(result.map((row) => row.name)).not.toContain("보험/저축");
+  });
+
+  it("그래도 이름 해석은 그대로다 — 그 카테고리로 기록된 과거 지출이 '기타'로 바뀌지 않는다", () => {
+    const lookup = buildCategoryNameLookup(rows);
+    expect(lookup("s-11")).toBe("보험/저축");
+    expect(lookup("s-04")).toBe("기저귀/위생");
+    // 목록에 아예 없는 id만 예전처럼 폴백한다.
+    expect(lookup("unknown-id")).toBe("기타");
+  });
+
+  it("수정 중인 지출이 이미 그 카테고리면 칩은 남는다 (규칙 d — 선택을 조용히 잃지 않는다)", () => {
+    const result = selectableCategories(rows, "s-11");
+    expect(result.find((row) => row.id === "s-11")?.name).toBe("보험/저축");
+    expect(result).toHaveLength(3);
+  });
+
+  it("active 필드가 없던 시절의 응답·캐시는 예전과 똑같이 동작한다 (없음 = 노출)", () => {
+    const legacyRows: Row[] = [
+      { id: "s-04", code: "diaper_hygiene", name: "기저귀/위생", displayOrder: 40 },
+      { id: "s-11", code: "insurance_savings", name: "보험/저축", displayOrder: 110 }
+    ];
+    expect(selectableCategories(legacyRows, "").map((row) => row.id)).toEqual(["s-04", "s-11"]);
+  });
+
+  it("selectable=false 와 active=false 는 각각 독립적으로 제외 사유다", () => {
+    const mixed: Row[] = [
+      { id: "a", code: "etc", name: "A", displayOrder: 1, selectable: false, active: true },
+      { id: "b", code: "etc", name: "B", displayOrder: 2, selectable: true, active: false },
+      { id: "c", code: "etc", name: "C", displayOrder: 3, selectable: false, active: false },
+      { id: "d", code: "etc", name: "D", displayOrder: 4, selectable: true, active: true }
+    ];
+    expect(selectableCategories(mixed, "").map((row) => row.id)).toEqual(["d"]);
   });
 });

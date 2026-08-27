@@ -53,6 +53,25 @@ export function selectableToggleWarning(
   return `"${category.name}"은(는) 앱 내부용 별칭 행이에요. 노출로 바꾸면 앱 선택 목록에 다시 나타나서 뜻이 겹치는 정식 카테고리와 중복돼요. 계속할까요?`;
 }
 
+/**
+ * 라운드 28 리뷰 F3 — `active`를 끌 때의 확인 문구.
+ *
+ * 무엇이 바뀌는지 정확히 말하는 것이 목적이다: 예전에는 `?includeAll=1`까지 `active=true`로
+ * 걸러서, 사용을 끄는 순간 그 카테고리로 기록된 **과거 지출의 표시 이름**이 앱에서 일제히
+ * "기타"로 바뀌었다(허위 표시). F3에서 전량 조회가 active를 보지 않게 바뀌어 **라벨은 그대로
+ * 유지**되고, 달라지는 것은 "앞으로 이 카테고리를 새로 고를 수 없다"뿐이다. 되돌릴 수 있는
+ * 조작이지만 앱 선택 목록에서 항목이 사라지는 눈에 띄는 변화라 저장 전에 한 번 확인한다.
+ *
+ * 켜는 방향(false → true)에는 경고가 없다 — 선택지가 다시 생길 뿐이다.
+ */
+export function activeToggleWarning(
+  category: Pick<AdminCategory, "name">,
+  nextActive: boolean
+): string | null {
+  if (nextActive) return null;
+  return `"${category.name}"의 사용을 끄면 앱에서 새 지출에 이 카테고리를 고를 수 없게 돼요. 이미 기록된 지출의 표시 이름은 그대로 유지돼요. 계속할까요?`;
+}
+
 /** 행이 실제로 앱의 선택 목록에 실리는가 = active AND selectable (CAT-124 기본 조회 조건). */
 export function isOfferedInApp(category: Pick<AdminCategory, "active" | "selectable">): boolean {
   return category.active && category.selectable;

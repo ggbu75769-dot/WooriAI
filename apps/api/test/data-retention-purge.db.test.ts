@@ -729,4 +729,83 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       expect(await prisma.user.findUnique({ where: { id: stub.id } })).toBeNull();
     });
   });
+
+  // 라운드 28 리뷰 F1: legacy users-lookup audit rows still holding the raw
+  // search term (= an end user's email) are masked in place by phase 5.
+  describe("legacy users-lookup search-term scrub (phase 5, F1)", () => {
+    /** Writes an audit row exactly as the pre-F1 controller did. */
+    async function createLegacyLookupAudit(rawQuery: string, resultCount = 1) {
+      return prisma.auditLog.create({
+        data: {
+          actorUserId: null,
+          action: "admin.user_lookup.search",
+          targetType: "users",
+          afterJson: { query: rawQuery, resultCount }
+        }
+      });
+    }
+
+    it("replaces a raw after_json.query with the masked form, keeps resultCount, and never touches it again", async () => {
+      const now = new Date();
+      const rawQuery = `purge-f1-${randomUUID()}@example.test`;
+      const legacy = await createLegacyLookupAudit(rawQuery, 3);
+
+      const summary = await job.run(now);
+      expect(summary.lookupQueriesScrubbed as number).toBeGreaterThanOrEqual(1);
+
+      const scrubbed = await prisma.auditLog.findUnique({ where: { id: legacy.id } });
+      const after = scrubbed?.afterJson as Record<string, unknown>;
+      // The row itself survives — audit logs are the legal/ops record.
+      expect(scrubbed).not.toBeNull();
+      expect(after.query).toBeUndefined();
+      expect(after.queryMasked).toBe(`pu***(${rawQuery.length}자)`);
+      expect(after.resultCount).toBe(3);
+      // Honest marker that this value was derived, not originally recorded.
+      expect(typeof after.queryScrubbedAt).toBe("string");
+      expect(JSON.stringify(after)).not.toContain(rawQuery);
+
+      // Idempotent + self-terminating: a second tick no longer selects it.
+      const scrubbedAt = after.queryScrubbedAt;
+      const second = await job.run(new Date(now.getTime() + 1000));
+      expect(second.lookupQueriesScrubbed).toBe(0);
+      const unchanged = (await prisma.auditLog.findUnique({ where: { id: legacy.id } }))
+        ?.afterJson as Record<string, unknown>;
+      expect(unchanged.queryScrubbedAt).toBe(scrubbedAt);
+
+      await prisma.auditLog.delete({ where: { id: legacy.id } });
+    });
+
+    it("leaves audit rows of other actions — and already-masked lookup rows — completely alone", async () => {
+      const now = new Date();
+      const masked = await prisma.auditLog.create({
+        data: {
+          action: "admin.user_lookup.search",
+          targetType: "users",
+          afterJson: { queryMasked: "ab***(12자)", resultCount: 0 }
+        }
+      });
+      // Another action whose after_json legitimately has a `query`-shaped key.
+      const otherAction = await prisma.auditLog.create({
+        data: {
+          action: "admin.category.update",
+          targetType: "categories",
+          afterJson: { query: "not-a-lookup-term", name: "기저귀" }
+        }
+      });
+
+      const summary = await job.run(now);
+      expect(summary.lookupQueriesScrubbed).toBe(0);
+
+      expect((await prisma.auditLog.findUnique({ where: { id: masked.id } }))?.afterJson).toEqual({
+        queryMasked: "ab***(12자)",
+        resultCount: 0
+      });
+      expect((await prisma.auditLog.findUnique({ where: { id: otherAction.id } }))?.afterJson).toEqual({
+        query: "not-a-lookup-term",
+        name: "기저귀"
+      });
+
+      await prisma.auditLog.deleteMany({ where: { id: { in: [masked.id, otherAction.id] } } });
+    });
+  });
 });

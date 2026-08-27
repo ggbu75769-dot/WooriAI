@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AdminCategory } from "./admin-api";
 import {
   CATEGORY_GROUP_LABELS,
+  activeToggleWarning,
   categoryDraftError,
   categoryDraftPatch,
   categoryGroup,
@@ -68,6 +69,31 @@ describe("selectableToggleWarning (CAT-124 규약 안내)", () => {
     expect(selectableToggleWarning(category(), true)).toBeNull();
     expect(selectableToggleWarning(category(), false)).toBeNull();
     expect(selectableToggleWarning(category({ code: "mobile_etc", name: "기타" }), false)).toBeNull();
+  });
+});
+
+// 라운드 28 리뷰 F3: active를 끄는 조작은 "새로 고를 수 없게 된다"까지만 뜻한다 —
+// 과거 지출의 표시 이름은 그대로 유지된다(`GET /categories?includeAll=1`이 이제 active를
+// 보지 않는다). 확인 문구가 그 사실을 정확히 말하는지 고정한다.
+describe("activeToggleWarning (R28-F3)", () => {
+  it("warns when active is being turned OFF, naming the category", () => {
+    const warning = activeToggleWarning(category({ name: "보험/저축" }), false);
+    expect(warning).toContain("보험/저축");
+    expect(warning).toContain("고를 수 없게");
+  });
+
+  it("promises that already-recorded expenses keep their label — never 'becomes 기타'", () => {
+    const warning = activeToggleWarning(category(), false) as string;
+    expect(warning).toContain("이미 기록된 지출의 표시 이름은 그대로 유지");
+    expect(warning).not.toContain("기타");
+  });
+
+  it("stays silent when turning active back ON", () => {
+    expect(activeToggleWarning(category({ active: false }), true)).toBeNull();
+  });
+
+  it("applies to alias rows too — the warning is about active, not about the row's group", () => {
+    expect(activeToggleWarning(category({ code: "mobile_etc", name: "기타" }), false)).toContain("기타");
   });
 });
 

@@ -325,6 +325,52 @@ describe("Admin categories & end-user lookup (ADM-127)", () => {
       expect(await appCodes()).toContain(category.code);
     });
 
+    it("turning active OFF hides the category from the picker list but keeps it in ?includeAll=1 (F3 — 과거 지출 라벨 유지)", async () => {
+      const session = await adminSession("admin");
+      const category = await createTestCategory({ active: true, selectable: true });
+
+      const login = await request(app.getHttpServer())
+        .post("/api/v1/auth/oauth-login")
+        .send({ provider: "kakao", providerToken: `adm127-token-${randomUUID()}` })
+        .expect(200);
+      const accessToken = login.body.tokens.accessToken as string;
+
+      const appRows = async (includeAll = false) => {
+        const response = await request(app.getHttpServer())
+          .get(`/api/v1/categories${includeAll ? "?includeAll=1" : ""}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200);
+        return response.body.categories as { code: string; name: string; active: boolean; selectable: boolean }[];
+      };
+
+      expect((await appRows()).map((row) => row.code)).toContain(category.code);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/categories/${category.id}`)
+        .set("Cookie", session.cookie)
+        .set("X-CSRF-Token", session.csrfToken)
+        .send({ active: false })
+        .expect(200);
+
+      // 기본(고를 목록)에서는 빠진다.
+      expect((await appRows()).map((row) => row.code)).not.toContain(category.code);
+
+      // 전량 조회에는 남는다 — 이 목록이 이미 기록된 지출의 **이름 해석** 소스다.
+      // 예전에는 여기서도 active=true로 걸러 과거 지출 라벨이 일제히 "기타"가 됐다.
+      const allRow = (await appRows(true)).find((row) => row.code === category.code);
+      expect(allRow).toBeDefined();
+      expect(allRow).toMatchObject({ name: "테스트 카테고리", active: false, selectable: true });
+
+      // 되돌리면 다시 고를 수 있다.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/categories/${category.id}`)
+        .set("Cookie", session.cookie)
+        .set("X-CSRF-Token", session.csrfToken)
+        .send({ active: true })
+        .expect(200);
+      expect((await appRows()).map((row) => row.code)).toContain(category.code);
+    });
+
     it("refuses to touch identity columns and rejects empty/invalid payloads (DNC-007)", async () => {
       const session = await adminSession("admin");
       const category = await createTestCategory();
@@ -350,6 +396,33 @@ describe("Admin categories & end-user lookup (ADM-127)", () => {
         .set("X-CSRF-Token", session.csrfToken)
         .send({ name: "", displayOrder: -1 })
         .expect(400);
+
+      // F2: 공백만 있는 이름도 400이다. 예전에는 @MinLength(1)이 trim 전 값을 봐서 통과했고,
+      // 서비스가 trim 후 빈 이름을 저장해 앱의 이름 해석이 그 카테고리 전량을 "기타"로 만들었다.
+      for (const blankName of ["   ", "\t", "\n ", " 　 "]) {
+        await request(app.getHttpServer())
+          .patch(`/api/v1/admin/categories/${category.id}`)
+          .set("Cookie", session.cookie)
+          .set("X-CSRF-Token", session.csrfToken)
+          .send({ name: blankName })
+          .expect(400)
+          .expect(({ body }) => expect(body.error.code).toBe("VALIDATION_ERROR"));
+      }
+
+      // 앞뒤 공백이 붙은 정상 이름은 통과하되 trim된 값이 저장된다(같은 @Transform의 결과).
+      const trimmed = await request(app.getHttpServer())
+        .patch(`/api/v1/admin/categories/${category.id}`)
+        .set("Cookie", session.cookie)
+        .set("X-CSRF-Token", session.csrfToken)
+        .send({ name: "  공백 정리  " })
+        .expect(200);
+      expect(trimmed.body.category.name).toBe("공백 정리");
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/categories/${category.id}`)
+        .set("Cookie", session.cookie)
+        .set("X-CSRF-Token", session.csrfToken)
+        .send({ name: "테스트 카테고리" })
+        .expect(200);
 
       const unchanged = await prisma.category.findUnique({ where: { id: category.id } });
       expect(unchanged).toMatchObject({ code: category.code, name: "테스트 카테고리", displayOrder: 50_000 });
@@ -530,7 +603,7 @@ describe("Admin categories & end-user lookup (ADM-127)", () => {
         .expect(400);
     });
 
-    it("audits the lookup itself with the search term and result count, but not the looked-up PII", async () => {
+    it("audits the lookup with a MASKED search term and result count — never the raw term or the looked-up PII (F1)", async () => {
       const session = await adminSession("admin");
       const marker = randomUUID().slice(0, 8);
       const user = await createEndUser({ email: `adm127-audit-${marker}@example.test`, displayName: `감사${marker}` });
@@ -547,9 +620,41 @@ describe("Admin categories & end-user lookup (ADM-127)", () => {
       });
       expect(auditEntry).not.toBeNull();
       expect(auditEntry?.targetType).toBe("users");
-      expect(auditEntry?.afterJson).toMatchObject({ query: term, resultCount: 1 });
+      // 앞 2자 + 길이만 남는다 — 원문 복원 불가.
+      expect(auditEntry?.afterJson).toMatchObject({
+        queryMasked: `ad***(${term.length}자)`,
+        resultCount: 1
+      });
+      const serializedAudit = JSON.stringify(auditEntry?.afterJson);
+      expect(serializedAudit).not.toContain(term);
+      expect(serializedAudit).not.toContain(marker);
       // 조회된 사용자의 개인정보가 감사 로그의 두 번째 사본이 되면 안 된다.
-      expect(JSON.stringify(auditEntry?.afterJson)).not.toContain(user.displayName as string);
+      expect(serializedAudit).not.toContain(user.displayName as string);
+      expect(serializedAudit).not.toContain(user.email as string);
+    });
+
+    it("keeps the raw term out of the audit VIEWER too — the CSV export reads that same payload (F1)", async () => {
+      const session = await adminSession("admin");
+      const marker = randomUUID().slice(0, 8);
+      await createEndUser({ email: `adm127-viewer-${marker}@example.test`, displayName: `뷰어${marker}` });
+
+      const term = `adm127-viewer-${marker}@example.test`;
+      await request(app.getHttpServer())
+        .get(`/api/v1/admin/users-lookup?query=${encodeURIComponent(term)}`)
+        .set("Cookie", session.cookie)
+        .expect(200);
+
+      // 어드민 감사 뷰어(ADM-113). CSV 내보내기는 이 응답의 before/after를 그대로 직렬화하므로
+      // (apps/admin/src/lib/audit-log-csv.ts), 여기서 안 나오면 CSV로도 안 나간다.
+      const viewer = await request(app.getHttpServer())
+        .get(`/api/v1/admin/audit-logs?action=admin.user_lookup.search&actorUserId=${session.admin.id}&limit=5`)
+        .set("Cookie", session.cookie)
+        .expect(200);
+
+      const serializedViewer = JSON.stringify(viewer.body);
+      expect(serializedViewer).toContain(`ad***(${term.length}자)`);
+      expect(serializedViewer).not.toContain(term);
+      expect(serializedViewer).not.toContain(marker);
     });
 
     it("is read-only: there is no write route under /admin/users-lookup", async () => {
