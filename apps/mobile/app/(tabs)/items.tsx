@@ -16,6 +16,17 @@ import { ItemListPixelStyles } from "../../src/pixelLock/styles";
 import { bandDefinitions, resolveDefaultStageLabel, type StageBandLabel } from "../../src/items/stage-bands";
 import { computeEssentialPrepProgress } from "../../src/items/prep-progress";
 import {
+  buildPrepMilestoneView,
+  nextPrepFocusHintText,
+  nextPrepFocusIds,
+  nextStageBandLabel,
+  nextStageBandPreviewLabel,
+  NEXT_PREP_FOCUS_BADGE_LABEL,
+  PREP_CELEBRATION_BODY,
+  PREP_CELEBRATION_DISMISS_LABEL,
+  PREP_CELEBRATION_TITLE
+} from "../../src/items/prep-milestones";
+import {
   filterItems,
   hasActiveItemFilter,
   NECESSITY_FILTER_OPTIONS,
@@ -150,6 +161,13 @@ export default function ItemsScreen() {
   // 값으로 비활성을 판정하면 A행 요청 중에 B행을 누르는 순간 A 버튼이 다시 활성화되어 같은 행에
   // 중복 PATCH가 나간다. 행 단위 진행 상태는 화면이 직접 들고 있어야 경합에 견딘다.
   const [pendingStatusIds, setPendingStatusIds] = useState<ReadonlySet<string>>(() => new Set<string>());
+  // UX-E: 100% 축하 배너를 닫은 시기 밴드들. 축하는 "도달했다"는 사실을 한 번 알리는 것이지
+  // 계속 붙어 있는 라벨이 아니다 -- 닫으면 이 화면이 살아 있는 동안 같은 밴드에서는 다시
+  // 뜨지 않는다(밴드별로 기억하므로 다른 시기를 100% 채우면 그때는 다시 축하한다).
+  // 전역 모듈 상태 대신 화면 상태를 쓰는 이유: 테스트/재진입 사이에 남는 가변 전역이 없다.
+  const [dismissedCelebrationBands, setDismissedCelebrationBands] = useState<ReadonlySet<StageBandLabel>>(
+    () => new Set<StageBandLabel>()
+  );
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -335,6 +353,26 @@ export default function ItemsScreen() {
     hasSession && !isPixelLockMode && allStatusItems.data
       ? computeEssentialPrepProgress(allStatusItems.data, stageLabel)
       : null;
+  // UX-E: 준비율을 "여정"으로 읽히게 하는 파생값들. 전부 순수 모듈(src/items/prep-milestones.ts)이
+  // 계산하고, 화면은 그리기만 한다. prepProgress 자체가 hasSession + !isPixelLockMode 게이트를
+  // 이미 통과한 값이라 ITEM-001 픽셀 락 캡처(비세션 미리보기)에는 어느 것도 나오지 않는다.
+  const prepMilestone = buildPrepMilestoneView(prepProgress);
+  // 축하 배너는 "지금 보고 있는 시기"가 100%일 때만, 그리고 닫기 전까지만.
+  const showPrepCelebration = Boolean(prepMilestone?.isComplete) && !dismissedCelebrationBands.has(stageLabel);
+  // 100%에서 자연스럽게 이어 줄 다음 시기 칩(마지막 밴드에서는 null -- 그때는 축하만 한다).
+  const nextStageBand = nextStageBandLabel(stageLabel);
+  const dismissPrepCelebration = () =>
+    setDismissedCelebrationBands((bands) => {
+      if (bands.has(stageLabel)) return bands;
+      const next = new Set(bands);
+      next.add(stageLabel);
+      return next;
+    });
+  // "먼저 챙기면 좋아요" 대상: 서버가 준 순서 그대로에서 앞선 미준비 필수템 1~2개를 **고르기만**
+  // 한다(클라이언트 재정렬 없음). 같은 항목을 카드로 다시 그리지 않고, 목록 위 한 줄 안내 +
+  // 제자리 배지로만 구분한다.
+  const prepFocusIds = hasSession && !isPixelLockMode ? nextPrepFocusIds(listedItems) : null;
+  const prepFocusHint = hasSession && !isPixelLockMode ? nextPrepFocusHintText(listedItems) : null;
 
   return (
     <AppScreen
@@ -434,39 +472,94 @@ export default function ItemsScreen() {
             />
           </View>
 
-          {/* ITEM-114: 리스트 상단 얇은 준비율 요약 한 줄. 정보는 텍스트가 전달하고 바는
-              보조 시각화다(색만으로 의미 전달 금지). progressbar 롤 + accessibilityValue로
-              스크린 리더에도 동일 정보를 제공한다. DNC-002/003: 탭·리스트 구조는 그대로다. */}
-          {prepProgress ? (
+          {/* UX-E: 100% 축하 배너. 부드러운 축하 한 마디 + 다음 시기로 넘어갈 길만 제시하고,
+              구매를 재촉하지 않는다(DNC-018). 닫으면 이 화면이 살아 있는 동안 같은 밴드에서
+              다시 뜨지 않는다. 세션이 있을 때만 계산되는 prepMilestone에 걸려 있어 ITEM-001
+              픽셀 락 캡처에는 존재하지 않는다. */}
+          {showPrepCelebration ? (
+            <View
+              accessibilityRole="alert"
+              style={{ backgroundColor: theme.colors.mint, borderRadius: theme.radii.card, gap: 8, padding: 14 }}
+            >
+              <Text style={{ color: theme.colors.brown, fontSize: 15, fontWeight: "800", lineHeight: 22 }}>
+                {PREP_CELEBRATION_TITLE}
+              </Text>
+              <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>{PREP_CELEBRATION_BODY}</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {/* 다음 시기 보기는 새 화면이 아니라 **기존 시기 칩 선택**이다 -- 칩을 직접 누른
+                    것과 똑같이 동작한다(수동 선택 표시 + 라벨 변경). */}
+                {nextStageBand ? (
+                  <SecondaryButton
+                    label={nextStageBandPreviewLabel(nextStageBand)}
+                    accessibilityLabel={`${nextStageBand} 준비물 미리보기`}
+                    onPress={() => {
+                      setHasManualStageSelection(true);
+                      setStageLabel(nextStageBand);
+                      dismissPrepCelebration();
+                    }}
+                    style={{ flex: 1 }}
+                  />
+                ) : null}
+                <SecondaryButton
+                  label={PREP_CELEBRATION_DISMISS_LABEL}
+                  accessibilityLabel="준비 완료 축하 안내 닫기"
+                  onPress={dismissPrepCelebration}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </View>
+          ) : null}
+
+          {/* ITEM-114 → UX-E: 리스트 상단 준비율. 여전히 정보는 텍스트가 전달하고 바는 보조
+              시각화다(색만으로 의미 전달 금지). progressbar 롤 + accessibilityValue로 스크린
+              리더에도 개수·퍼센트·구간 문구를 한 번에 읽어 준다. UX-E에서 더해진 것은 구간
+              (25/50/75/100%) 문구 한 줄뿐이고, 수치는 기존 ITEM-114 스냅샷 그대로다.
+              DNC-002/003: 탭·리스트 구조는 그대로다. */}
+          {prepMilestone ? (
             <View
               accessible
               accessibilityRole="progressbar"
-              accessibilityLabel={`${prepProgress.summaryText}, ${prepProgress.percent}%`}
-              accessibilityValue={{ min: 0, max: 100, now: prepProgress.percent }}
+              accessibilityLabel={prepMilestone.accessibilityLabel}
+              accessibilityValue={{ min: 0, max: 100, now: prepMilestone.percent }}
               style={{ gap: 6 }}
             >
               <View style={{ alignItems: "baseline", flexDirection: "row", justifyContent: "space-between" }}>
-                <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>{prepProgress.summaryText}</Text>
-                <Text style={{ color: theme.colors.brown, fontSize: 12, fontWeight: "700", lineHeight: 18 }}>
-                  {prepProgress.percent}%
+                <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700", lineHeight: 20 }}>
+                  {prepMilestone.headline}
+                </Text>
+                <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "700", lineHeight: 20 }}>
+                  {prepMilestone.percent}%
                 </Text>
               </View>
-              <View style={{ backgroundColor: theme.colors.peach, borderRadius: theme.radii.pill, height: 6, overflow: "hidden" }}>
+              <View style={{ backgroundColor: theme.colors.peach, borderRadius: theme.radii.pill, height: 8, overflow: "hidden" }}>
                 <View
                   style={{
                     backgroundColor: theme.colors.mainCoral,
                     borderRadius: theme.radii.pill,
-                    height: 6,
-                    width: `${prepProgress.percent}%`
+                    height: 8,
+                    width: `${prepMilestone.percent}%`
                   }}
                 />
               </View>
+              <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>{prepMilestone.tierText}</Text>
             </View>
           ) : null}
 
           {/* ITEM-124: 상태 변경 실패 배너 -- 누른 버튼이 있는 목록 바로 위에 둬서 무엇이
               저장되지 않았는지 그 자리에서 읽히게 한다(Toast tone="error" = accessibilityRole="alert"). */}
           {statusErrorMessage ? <Toast message={statusErrorMessage} tone="error" /> : null}
+
+          {/* UX-E "다음에 챙길 것": 이름만 짚어 주는 한 줄. 같은 항목을 카드로 다시 그리면 목록에
+              같은 물건이 두 번 보이므로, 실제 카드는 목록 안 제자리에 그대로 두고 배지로만
+              구분한다. 선정 근거는 카탈로그 필수(essential) 표시 하나뿐이다(DNC-020). */}
+          {prepFocusHint ? (
+            <Text
+              accessibilityRole="text"
+              style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700", lineHeight: 18 }}
+            >
+              {prepFocusHint}
+            </Text>
+          ) : null}
 
           {showEmptyState ? (
             isNarrowedByFilter ? (
@@ -490,9 +583,25 @@ export default function ItemsScreen() {
             <View style={{ gap: 10 }}>
               {listedItems.map((item, index) => {
                 const display = getRecommendationDisplay(item, index);
+                // UX-E: 서버 순서상 앞선 미준비 필수템이면 제자리에서 살짝 구분한다. 순서는
+                // 건드리지 않는다 -- 강조는 배경/라벨로만 한다. 스폰서 구분(DNC-011)과 헷갈리지
+                // 않도록 문구는 "먼저 챙기면 좋아요"로 광고성 표현을 쓰지 않는다.
+                const isPrepFocusItem = Boolean(prepFocusIds?.has(item.id));
 
                 return (
-                  <View key={item.id} style={{ gap: 8 }}>
+                  <View
+                    key={item.id}
+                    style={
+                      isPrepFocusItem
+                        ? { backgroundColor: theme.colors.coral[50], borderRadius: theme.radii.card, gap: 8, padding: 10 }
+                        : { gap: 8 }
+                    }
+                  >
+                    {isPrepFocusItem ? (
+                      <Text style={{ color: theme.colors.coral[700], fontSize: 11, fontWeight: "700", lineHeight: 16 }}>
+                        {NEXT_PREP_FOCUS_BADGE_LABEL}
+                      </Text>
+                    ) : null}
                     <ProductCard
                       title={item.name}
                       price={item.priceBandText ?? "가격 정보 확인"}

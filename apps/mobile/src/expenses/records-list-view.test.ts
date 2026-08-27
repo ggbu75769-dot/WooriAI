@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { categoryCatalog } from "../categories";
+import { groupExpensesByDate } from "./records-date-groups";
 import {
   buildRecordsCategoryChips,
+  buildRecordsFilterScopeSummary,
   expenseCreatedByUserId,
   expenseTypeLabelKo,
   expenseTypeSubtitlePrefix,
@@ -477,6 +479,105 @@ describe("HOME-124 홈 화면 배선 (app/(tabs)/index.tsx)", () => {
   });
 });
 
+/**
+ * F8: 필터가 걸렸을 때 상단 요약이 **무엇의 합인지** 밝히는 스코프 줄.
+ *
+ * 고정하려는 것:
+ *  1. 무필터(전체)에서는 null -- 기존 화면이 한 글자도 바뀌지 않는다;
+ *  2. 라벨이 스코프를 정확히 말한다(카테고리 이름 / 검색 / 둘 다), 이름을 모르면 지어내지 않는다;
+ *  3. 수치가 **일별 소계의 합**과 정확히 일치한다(groupExpensesByDate와 맞대어 검산).
+ */
+describe("F8 buildRecordsFilterScopeSummary", () => {
+  it("필터가 하나도 없으면 null (전체 = 기존 표시 그대로)", () => {
+    expect(buildRecordsFilterScopeSummary({ recordCount: 42, totalKrw: 1_200_000 })).toBeNull();
+    expect(
+      buildRecordsFilterScopeSummary({ categoryLabel: null, searchText: "   ", recordCount: 42, totalKrw: 1_200_000 })
+    ).toBeNull();
+  });
+
+  it("카테고리 칩만 켜졌을 때 -- 칩 이름 · 건수 · 필터된 합계", () => {
+    const summary = buildRecordsFilterScopeSummary({
+      categoryLabel: "기저귀/위생",
+      categoryFiltered: true,
+      recordCount: 12,
+      totalKrw: 180_000
+    });
+
+    expect(summary).not.toBeNull();
+    expect(summary!.scopeLabel).toBe("기저귀/위생 필터");
+    expect(summary!.text).toBe("기저귀/위생 필터: 12건 · 180,000원");
+    expect(summary!.accessibilityLabel).toBe("기저귀/위생 필터, 12건, 합계 180,000원");
+    expect(summary!.recordCount).toBe(12);
+    expect(summary!.totalKrw).toBe(180_000);
+  });
+
+  it("검색만 켜졌을 때 / 둘 다 켜졌을 때 스코프를 둘 다 밝힌다", () => {
+    expect(buildRecordsFilterScopeSummary({ searchText: "기저귀", recordCount: 3, totalKrw: 45_000 })!.text).toBe(
+      "검색 결과: 3건 · 45,000원"
+    );
+    expect(
+      buildRecordsFilterScopeSummary({
+        categoryLabel: "수유/이유식",
+        categoryFiltered: true,
+        searchText: " 분유 ",
+        recordCount: 2,
+        totalKrw: 30_000
+      })!.scopeLabel
+    ).toBe("수유/이유식 필터 · 검색 결과");
+  });
+
+  it("칩 라벨을 못 찾아도 카테고리 이름을 지어내지 않는다 (허위 표시 금지)", () => {
+    const summary = buildRecordsFilterScopeSummary({
+      categoryLabel: null,
+      categoryFiltered: true,
+      recordCount: 0,
+      totalKrw: 0
+    });
+
+    expect(summary!.scopeLabel).toBe("카테고리 필터");
+    expect(summary!.text).toBe("카테고리 필터: 0건 · 0원");
+  });
+
+  it("음수/비유한 입력은 0으로 떨어뜨린다 (NaN원 표시 금지)", () => {
+    const summary = buildRecordsFilterScopeSummary({
+      categoryLabel: "기타",
+      categoryFiltered: true,
+      recordCount: Number.NaN,
+      totalKrw: -1
+    });
+
+    expect(summary!.text).toBe("기타 필터: 0건 · 0원");
+  });
+
+  it("수치가 화면의 일별 소계 합과 정확히 일치한다 (선물·환불은 소계에서 빠지고 건수에는 남는다)", () => {
+    // 카테고리 칩이 "기저귀/위생"으로 걸린 뒤 화면에 남는 행(= listData)을 그대로 흉내 낸다.
+    const filteredRows = [
+      { spentOn: "2026-08-27", amountKrw: 12_000, expenseType: "expense" },
+      { spentOn: "2026-08-27", amountKrw: 8_000, expenseType: "expense" },
+      { spentOn: "2026-08-26", amountKrw: 30_000 }, // 레거시(구분 없음) = 지출로 센다
+      { spentOn: "2026-08-25", amountKrw: 50_000, expenseType: "gift" }, // 소계 제외, 목록에는 보인다
+      { spentOn: "2026-08-24", amountKrw: 5_000, expenseType: "refund" } // 소계 제외
+    ];
+
+    // 화면이 하는 것과 같은 계산: 날짜 그룹의 소계를 그대로 더한다.
+    const dateGroups = groupExpensesByDate(filteredRows, "2026-08-27");
+    const dailySubtotalSum = dateGroups.reduce((sum, group) => sum + group.subtotalKrw, 0);
+
+    const summary = buildRecordsFilterScopeSummary({
+      categoryLabel: "기저귀/위생",
+      categoryFiltered: true,
+      recordCount: filteredRows.length,
+      totalKrw: dailySubtotalSum
+    });
+
+    expect(dailySubtotalSum).toBe(50_000); // 12,000 + 8,000 + 30,000
+    expect(summary!.totalKrw).toBe(dailySubtotalSum);
+    expect(summary!.text).toBe("기저귀/위생 필터: 5건 · 50,000원");
+    // 소계가 감춰지는 날(선물·환불만 있는 날)의 subtotalKrw는 0이라 더해도 합이 흔들리지 않는다.
+    expect(dateGroups.filter((group) => !group.hasSubtotal).map((group) => group.subtotalKrw)).toEqual([0, 0]);
+  });
+});
+
 describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   const recordsSource = readFileSync(join(mobileRoot, "app/(tabs)/records.tsx"), "utf8");
 
@@ -546,6 +647,27 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     // 행에 구성원 배열이나 해석 함수를 내려주면 매 렌더 새 참조라 memo가 무의미해진다.
     expect(recordsSource).toContain("authorLabel: string | null");
     expect(recordsSource).toContain("householdMemberRefs]");
+  });
+
+  it("F8: 스코프 줄의 금액은 화면의 일별 소계를 그대로 더한 값이다 (새 집계 규칙 없음)", () => {
+    expect(recordsSource).toContain("dateGroups.reduce((sum, group) => sum + group.subtotalKrw, 0)");
+    expect(recordsSource).toContain("buildRecordsFilterScopeSummary({");
+    expect(recordsSource).toContain("totalKrw: filteredSubtotalKrw");
+    // 건수는 필터가 걸린 목록 그대로 -- 월 요약 줄의 monthlyRecordCount를 재사용하지 않는다.
+    expect(recordsSource).toContain("recordCount: listData.length");
+    // 카테고리 이름은 칩에서만 온다(칩과 다른 이름이 나오면 그 자체가 불일치다).
+    expect(recordsSource).toContain("categoryChips.find((chip) => chip.id === selectedCategoryId)?.label");
+    expect(recordsSource).toContain("categoryFiltered: selectedCategoryId !== null");
+  });
+
+  it("F8: 스코프 줄은 필터가 켜졌고 목록이 실제로 나온 때에만 그린다 -- 월 합계는 그대로 월 전체", () => {
+    expect(recordsSource).toContain("{showList && filterScopeSummary ? (");
+    expect(recordsSource).toContain('testID="records-filter-scope"');
+    expect(recordsSource).toContain("accessibilityLabel={filterScopeSummary.accessibilityLabel}");
+    expect(recordsSource).toContain("{filterScopeSummary.text}");
+    // 무필터 화면은 예전 그대로: 월 요약 줄과 하단 합계 카드가 계속 월 전체(monthlyTotalKrw)다.
+    expect(recordsSource).toContain("이번 달 ${monthlyRecordCount}건 · 합계 ${formatKrw(monthlyTotalKrw)}");
+    expect(recordsSource).not.toContain("formatKrw(filteredSubtotalKrw)");
   });
 });
 

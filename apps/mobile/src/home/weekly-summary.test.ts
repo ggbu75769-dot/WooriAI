@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { reconcileMonthlyExpenses } from "../offline/expense-list-reconciliation";
+import type { LocalExpenseRow } from "../offline/types";
 import type { ComparableExpenseRecord } from "./last-month-comparison";
 import { evaluateWeeklySummary } from "./weekly-summary";
 
@@ -156,6 +158,149 @@ describe("UX-A 기록 스트릭 · 금액 기준", () => {
   });
 });
 
+/**
+ * 라운드 33 F6: 홈(app/(tabs)/index.tsx)의 `reconciledMonthRecords` + 주간 요약 조합을 그대로
+ * 재현한다. 화면은 vitest에서 렌더할 수 없으므로(이 저장소 관례) 같은 순수 함수 조합을 여기서
+ * 조립해 "오프라인 대기 행이 주간 합계·스트릭에 반영되는가"를 실제 값으로 확인한다.
+ */
+type ServerExpenseRecord = { id: string; amountKrw: number; spentOn: string; expenseType: string };
+
+function serverExpense(id: string, spentOn: string, amountKrw: number, expenseType = "expense"): ServerExpenseRecord {
+  return { id, amountKrw, spentOn, expenseType };
+}
+
+function localRow(overrides: {
+  localId: string;
+  spentOn: string;
+  amountKrw: number;
+  canonicalId?: string | null;
+  syncState?: LocalExpenseRow["syncState"];
+  pendingDelete?: boolean;
+  expenseType?: "expense" | "gift";
+}): LocalExpenseRow {
+  return {
+    localId: overrides.localId,
+    canonicalId: overrides.canonicalId ?? null,
+    childId: "child-1",
+    payload: {
+      childId: "child-1",
+      categoryId: "cat-1",
+      amountKrw: overrides.amountKrw,
+      spentOn: overrides.spentOn,
+      itemName: "기저귀",
+      ...(overrides.expenseType ? { expenseType: overrides.expenseType } : {})
+    },
+    version: null,
+    syncState: overrides.syncState ?? "pending",
+    pendingDelete: overrides.pendingDelete ?? false,
+    conflictCurrent: null,
+    lastError: null,
+    createdAt: `${overrides.spentOn}T00:00:00.000Z`,
+    updatedAt: `${overrides.spentOn}T00:00:00.000Z`
+  };
+}
+
+/** app/(tabs)/index.tsx의 reconciledMonthRecords와 같은 계산. */
+function reconciledMonthRecords(
+  serverExpenses: ServerExpenseRecord[],
+  offlineRows: LocalExpenseRow[],
+  yearMonth: string
+): ComparableExpenseRecord[] {
+  const reconciled = reconcileMonthlyExpenses(serverExpenses, offlineRows, yearMonth);
+  return [
+    ...reconciled.visibleServerExpenses,
+    ...reconciled.offlinePendingRows.map((row) => ({
+      amountKrw: row.payload.amountKrw,
+      spentOn: row.payload.spentOn,
+      expenseType: row.payload.expenseType
+    }))
+  ];
+}
+
+function homeWeeklySummary(input: {
+  todayIso?: string;
+  thisMonthServer?: ServerExpenseRecord[];
+  lastMonthServer?: ServerExpenseRecord[];
+  offlineRows?: LocalExpenseRow[];
+}) {
+  const todayIso = input.todayIso ?? THURSDAY;
+  const offlineRows = input.offlineRows ?? [];
+  return evaluateWeeklySummary({
+    todayIso,
+    thisMonthRecords: reconciledMonthRecords(input.thisMonthServer ?? [], offlineRows, todayIso.slice(0, 7)),
+    lastMonthRecords: reconciledMonthRecords(input.lastMonthServer ?? [], offlineRows, "2026-07")
+  });
+}
+
+describe("F6 주간 요약 · 오프라인 재조정", () => {
+  it("아직 서버에 못 올라간 오프라인 기록이 이번 주 합계와 스트릭에 들어간다", () => {
+    const serverOnly = homeWeeklySummary({ thisMonthServer: [serverExpense("s1", "2026-08-24", 30_000)] });
+    expect(serverOnly).toMatchObject({ totalKrw: 30_000, recordedDayCount: 1 });
+
+    const withOffline = homeWeeklySummary({
+      thisMonthServer: [serverExpense("s1", "2026-08-24", 30_000)],
+      offlineRows: [localRow({ localId: "local-1", spentOn: "2026-08-27", amountKrw: 12_000 })]
+    });
+    // 방금 오프라인으로 기록한 12,000원이 빠지면 홈이 "이번 주 30,000원 · 1일"이라고 말한다.
+    expect(withOffline).toMatchObject({ totalKrw: 42_000, recordedDayCount: 2 });
+    expect(withOffline?.streakText).toBe("이번 주 2일 기록했어요");
+  });
+
+  it("오프라인 기록만 있는 주에도 '첫 기록을 남겨보세요'라고 말하지 않는다", () => {
+    const summary = homeWeeklySummary({
+      offlineRows: [localRow({ localId: "local-1", spentOn: "2026-08-25", amountKrw: 8_000 })]
+    });
+    expect(summary?.streakText).toBe("이번 주 1일 기록했어요");
+    expect(summary?.text).toBe("이번 주 8,000원");
+  });
+
+  it("로컬에서 수정 대기 중인 서버 행은 낡은 값이 아니라 수정값으로 센다 (중복 계상 없음)", () => {
+    const summary = homeWeeklySummary({
+      thisMonthServer: [serverExpense("s1", "2026-08-24", 30_000)],
+      offlineRows: [
+        localRow({ localId: "local-1", canonicalId: "s1", spentOn: "2026-08-24", amountKrw: 5_000 })
+      ]
+    });
+    expect(summary).toMatchObject({ totalKrw: 5_000, recordedDayCount: 1 });
+  });
+
+  it("삭제 대기 중인 행은 합계에서 빠진다", () => {
+    const summary = homeWeeklySummary({
+      thisMonthServer: [serverExpense("s1", "2026-08-24", 30_000), serverExpense("s2", "2026-08-25", 7_000)],
+      offlineRows: [
+        localRow({ localId: "local-1", canonicalId: "s1", spentOn: "2026-08-24", amountKrw: 30_000, pendingDelete: true })
+      ]
+    });
+    expect(summary).toMatchObject({ totalKrw: 7_000, recordedDayCount: 1 });
+  });
+
+  it("동기화가 끝난 로컬 행은 서버 목록으로만 세어 두 번 더해지지 않는다", () => {
+    const summary = homeWeeklySummary({
+      thisMonthServer: [serverExpense("s1", "2026-08-24", 30_000)],
+      offlineRows: [
+        localRow({ localId: "local-1", canonicalId: "s1", spentOn: "2026-08-24", amountKrw: 30_000, syncState: "synced" })
+      ]
+    });
+    expect(summary).toMatchObject({ totalKrw: 30_000, recordedDayCount: 1 });
+  });
+
+  it("오프라인 선물 행은 합계에서 빠지고 기록한 날로만 센다 (DNC-015)", () => {
+    const summary = homeWeeklySummary({
+      offlineRows: [localRow({ localId: "local-1", spentOn: "2026-08-26", amountKrw: 50_000, expenseType: "gift" })]
+    });
+    expect(summary).toMatchObject({ totalKrw: 0, recordedDayCount: 1 });
+    expect(summary?.text).toBe("이번 주 지출은 아직 없어요");
+  });
+
+  it("지난주 비교의 기준액에도 같은 재조정이 걸린다 (한쪽만 반영되면 허위 비교)", () => {
+    const summary = homeWeeklySummary({
+      thisMonthServer: [serverExpense("s1", "2026-08-24", 30_000)],
+      offlineRows: [localRow({ localId: "local-1", spentOn: "2026-08-17", amountKrw: 50_000 })]
+    });
+    expect(summary?.comparison).toMatchObject({ direction: "less", lastWeekToDateKrw: 50_000, differenceKrw: 20_000 });
+  });
+});
+
 describe("UX-A 주간 요약 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
   const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
   const recordsSource = readFileSync(join(process.cwd(), "app/(tabs)/records.tsx"), "utf8");
@@ -171,8 +316,30 @@ describe("UX-A 주간 요약 화면 배선 계약 (app/(tabs)/index.tsx)", () =>
 
   it("세션이 있을 때만 계산하고 두 달치 캐시를 함께 넘긴다", () => {
     expect(homeSource).toContain("const weeklySummary = hasSession");
-    expect(homeSource).toContain("thisMonthRecords: thisMonthExpenses.data?.expenses ?? null");
+    expect(homeSource).toContain("thisMonthRecords: weeklyThisMonthRecords");
+    expect(homeSource).toContain("lastMonthRecords: weeklyLastMonthRecords");
+  });
+
+  /**
+   * 라운드 33 F6: 서버 목록만 더하면 오프라인에서 기록해 아직 올라가지 않은 행이 주간 합계·
+   * 스트릭에서 통째로 빠진다(방금 기록했는데 홈은 "이번 주 첫 기록을 남겨보세요"라고 말한다).
+   * 기록 탭이 이미 쓰는 reconcileMonthlyExpenses를 **같은 함수로** 거쳐서 넘긴다.
+   */
+  it("F6: 두 달치 모두 기록 탭과 같은 오프라인 재조정을 거친다", () => {
+    expect(homeSource).toContain(
+      'import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";'
+    );
+    expect(homeSource).toContain("reconciledMonthRecords(thisMonthExpenses.data?.expenses, childOfflineRows, thisYearMonth)");
+    expect(homeSource).toContain("reconciledMonthRecords(lastMonthExpenses.data?.expenses, childOfflineRows, lastYearMonth)");
+    // 재조정 대상은 선택된 아이의 행뿐이다(기록 탭과 같은 필터).
+    expect(homeSource).toContain("offlineSyncSnapshot.rows.filter((row) => row.childId === childId)");
+    expect(recordsSource).toContain("reconcileMonthlyExpenses(serverExpenses ?? [], childOfflineRows, recordsYearMonth)");
+  });
+
+  it("F6: REP-121 전월 비교 한 줄의 데이터 경로는 그대로 둔다 (별건)", () => {
+    // 그 줄의 이번 달 항은 /home 서버 집계라, 지난달 항만 재조정하면 두 항의 규칙이 갈린다.
     expect(homeSource).toContain("lastMonthRecords: lastMonthExpenses.data?.expenses ?? null");
+    expect(homeSource).toContain("thisMonthToDateKrw: monthlyUsed");
   });
 
   it("카드에 소리용 라벨이 붙고 장식 글리프는 접근성 트리에서 감춰진다", () => {

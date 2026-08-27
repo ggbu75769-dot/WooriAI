@@ -23,6 +23,8 @@ import {
   milestoneWindowPhrase
 } from "../../src/reports/milestone-share";
 import { selectMilestoneReportType } from "../../src/reports/milestone-selection";
+import { buildMonthlyInsight, resolveMonthStatus } from "../../src/reports/monthly-insight";
+import { evaluateTrendDirection } from "../../src/reports/trend-direction";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -266,7 +268,7 @@ export default function ReportsScreen() {
     else yearly.refetch();
   };
 
-  // The delta/tip comparisons only make sense against last month while the 월간 tab is active.
+  // The delta comparison only makes sense against last month while the 월간 tab is active.
   const hasDeltaData = hasSession && period === "월간" && monthly.isSuccess && previousMonth.isSuccess;
   const deltaPercent =
     hasDeltaData && previousMonth.data!.totalExpenseKrw > 0
@@ -279,8 +281,23 @@ export default function ReportsScreen() {
     ? categoryData.map((entry) => ({ label: categoryName(entry.categoryId), amountKrw: entry.amountKrw }))
     : undefined;
 
-  const tipDeltaKrw = hasDeltaData ? previousMonth.data!.totalExpenseKrw - monthly.data!.totalExpenseKrw : null;
-  const showTip = hasSession && period === "월간" && tipDeltaKrw !== null && tipDeltaKrw !== 0;
+  // 세션 경로의 절약 팁 카드는 제거했다 (허위 비교 제거).
+  //
+  // 무엇이 문제였나: 카드는 `previousMonth`(지난달 **월 전체** 합계)에서 `monthly`(보고 있는 달
+  // 합계)를 빼 그 차액만큼 아꼈다고 **단언**하고 습관을 칭찬했다. 진행 중인 달에서는 두 항의 구간
+  // 길이가 다르다 -- 매달 1일이면 하루치 vs 한 달치라 언제나 "덜 썼다"가 된다.
+  // src/home/last-month-comparison.ts 헤더가 바로 이 형태를 허위 비교로 규정하고, 그래서
+  // 홈은 지난달 **행 목록**을 따로 받아 같은 시점까지로 잘라 비교한다. 리포트 화면에는 그 행
+  // 목록이 없다(월간 리포트 API에 부분 구간 파라미터가 없다).
+  //
+  // 왜 "다른 내용으로 교체"가 아니라 제거인가: 끝난 달의 정직한 비교는 UX-F 인사이트 카드가 이미
+  // 같은 자리(월간 탭 상단)에서 "지난달 전체보다 …"로 말하고 있어 카드를 남기면 같은 비교를 두 번
+  // 하게 된다(추이 방향 행에서 `deltaLabel`을 숨긴 것과 같은 판단). 그리고 대체 후보로 검토한
+  // "이번 달 최다 지출일"은 이 화면이 가진 데이터로 만들 수 없다 -- monthly/trend/category 응답에는
+  // 일자별 값이 없어 지출 행 목록을 새로 불러와야 하고(REP-128이 줄인 요청 수를 다시 늘린다),
+  // 그건 "화면이 이미 가진 정직한 데이터"라는 전제 자체를 깬다.
+  //
+  // 비세션 프리뷰(REP-001 픽셀락 캡처)의 팁 카드는 고정 문구 픽스처라 그대로 둔다.
 
   // Real per-period amounts for the line chart's trend, only once every underlying query for
   // the active tab has resolved (otherwise leave undefined so LineChartCard keeps its
@@ -296,6 +313,34 @@ export default function ReportsScreen() {
   const yearlyPoints =
     period === "연간" && yearly.isSuccess ? yearly.data!.monthlyTotals.map((entry) => entry.totalExpenseKrw) : undefined;
   const activePoints = period === "월간" ? monthlyTrendPoints : period === "분기" ? quarterPoints : yearlyPoints;
+
+  // UX-F: 월간 탭 상단 "이번 달 한 문장" 인사이트. 새 요청 없이 이 화면이 이미 받아 둔 집계값
+  // (monthly 응답의 총액·예산·categoryTop + previousMonth 응답의 지난달 월 전체 합계)만 조합한다
+  // -- 문장 규칙과 "왜 지난달 전체 기준인가"는 src/reports/monthly-insight.ts 헤더 참고.
+  const monthStatus = resolveMonthStatus(reportYearMonth, seoulToday);
+  const monthlyInsight =
+    hasSession && period === "월간" && monthly.isSuccess
+      ? buildMonthlyInsight({
+          yearMonth: reportYearMonth,
+          todayIso: seoulToday,
+          totalExpenseKrw: monthly.data.totalExpenseKrw,
+          budgetAmountKrw: monthly.data.budgetAmountKrw,
+          // 카테고리 이름 목록이 아직 없으면 1위 문장을 만들지 않는다 -- 이름 폴백("기타")으로
+          // 엉뚱한 카테고리를 지목하느니 문장을 생략한다(도넛 범례와 같은 ["categories"] 캐시).
+          categoryTop: categories.isSuccess ? monthly.data.categoryTop : undefined,
+          categoryLabel: categoryName,
+          // 지난달 **월 전체** 합계. 진행 중인 달에서는 모듈이 비교 문장을 스스로 생략한다.
+          previousMonthTotalKrw: previousMonth.isSuccess ? previousMonth.data.totalExpenseKrw : null
+        })
+      : null;
+
+  // UX-F: 6개월 추이 차트의 전월 대비 방향 한 줄. 차트가 그리는 값(monthlyTrendPoints)의 마지막
+  // 두 달만 비교하므로 추가 요청이 없다. 색은 기존 토큰에서 고르고 **증가는 중립**이다 --
+  // 지출이 늘었다는 사실에 경고색을 찍어 죄책감을 주지 않는다(DNC-018).
+  const trendDirection =
+    hasSession && period === "월간" ? evaluateTrendDirection({ points: monthlyTrendPoints, monthStatus }) : null;
+  const trendDirectionColor =
+    trendDirection?.tone === "positive" ? theme.colors.semantic.success : theme.colors.gray600;
 
   return (
     <AppScreen
@@ -402,7 +447,38 @@ export default function ReportsScreen() {
             />
           ) : (
             <>
-              <LineChartCard title="총 지출" value={formatKrw(activeTotal ?? 0)} deltaLabel={deltaLabel} points={activePoints} />
+              {/* UX-F: 숫자 카드보다 먼저 읽히는 한 문장. 말할 근거가 없으면(총액 0원·카테고리
+                  없음·지난달 0원) 카드 자체가 렌더되지 않는다. */}
+              {monthlyInsight ? (
+                <Card style={reportInsightCardStyle}>
+                  <View accessible accessibilityLabel={monthlyInsight.accessibilityLabel} style={reportInsightTextGroupStyle}>
+                    <Text style={reportInsightHeadlineStyle}>{monthlyInsight.headline}</Text>
+                    {monthlyInsight.detail ? <Text style={reportInsightDetailStyle}>{monthlyInsight.detail}</Text> : null}
+                  </View>
+                </Card>
+              ) : null}
+
+              <LineChartCard
+                title="총 지출"
+                value={formatKrw(activeTotal ?? 0)}
+                // UX-F: 방향 행이 붙는 달에는 카드 내장 델타를 숨긴다 -- 같은 비교를 두 번 말하지
+                // 않고, 비교 의미(진행 중 / 끝난 달)를 밝힌 아래 행만 남긴다.
+                deltaLabel={trendDirection ? null : deltaLabel}
+                points={activePoints}
+              />
+
+              {trendDirection ? (
+                <View
+                  accessible
+                  accessibilityLabel={trendDirection.accessibilityLabel}
+                  style={reportTrendDirectionRowStyle}
+                >
+                  <Text style={reportTrendDirectionCaptionStyle}>{trendDirection.captionText}</Text>
+                  <Text style={[reportTrendDirectionValueStyle, { color: trendDirectionColor }]}>
+                    {trendDirection.arrow} {trendDirection.valueText}
+                  </Text>
+                </View>
+              ) : null}
 
               {activeCategory.isLoading ? (
                 <SkeletonCard />
@@ -422,22 +498,6 @@ export default function ReportsScreen() {
                 // 월간/분기/연간 모두 categoryPeriod로 해당 기간만 집계한 비중을 보여준다 (REP-104).
                 <DonutChartCard title={categoryCardTitle} segments={categorySegments} />
               )}
-
-              {showTip ? (
-                <Card style={reportReferenceTipCardStyle}>
-                  <Text style={reportReferenceTipTitleStyle}>이번 달 절약 팁</Text>
-                  {tipDeltaKrw !== null && tipDeltaKrw > 0 ? (
-                    <>
-                      <Text style={reportReferenceTipBodyStyle}>지난 달보다 {formatKrw(tipDeltaKrw)}을 절약했어요!</Text>
-                      <Text style={reportReferenceTipBodyStyle}>절약 습관 최고예요!</Text>
-                    </>
-                  ) : (
-                    <Text style={reportReferenceTipBodyStyle}>
-                      지난 달보다 {formatKrw(Math.abs(tipDeltaKrw ?? 0))} 더 썼어요. 다음 구매 전에 같이 확인해 볼까요?
-                    </Text>
-                  )}
-                </Card>
-              ) : null}
 
               {cumulative.isLoading ? (
                 <SkeletonCard />
@@ -547,6 +607,43 @@ const reportReferenceTipBodyStyle = {
   color: theme.colors.gray600,
   fontSize: 13,
   lineHeight: 20
+} as const;
+
+// UX-F 인사이트 카드: 새 카드 스타일을 만들지 않고 기존 팁 카드 스타일(peach 배경)을 그대로
+// 쓴다 -- 리포트 탭의 카드 룩을 하나 더 늘리지 않기 위해서다.
+const reportInsightCardStyle = reportReferenceTipCardStyle;
+
+// 두 문장을 한 요소로 묶어 TalkBack이 카드를 한 번에 읽게 한다(Card는 접근성 props를 받지 않는다).
+const reportInsightTextGroupStyle = { gap: 4 } as const;
+
+const reportInsightHeadlineStyle = {
+  color: theme.colors.brown,
+  fontSize: 16,
+  fontWeight: "800",
+  lineHeight: 24
+} as const;
+
+const reportInsightDetailStyle = reportReferenceTipBodyStyle;
+
+// 추이 차트 바로 아래에 붙는 전월 대비 방향 행(카드 밖, 화면 gap 18을 -10으로 당겨 차트에 붙인다).
+const reportTrendDirectionRowStyle = {
+  alignItems: "center",
+  flexDirection: "row",
+  gap: 6,
+  marginTop: -10,
+  paddingHorizontal: 6
+} as const;
+
+const reportTrendDirectionCaptionStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 18
+} as const;
+
+const reportTrendDirectionValueStyle = {
+  fontSize: 12,
+  fontWeight: "800",
+  lineHeight: 18
 } as const;
 
 const reportReferenceMemoryCardStyle = StyleSheet.flatten([
