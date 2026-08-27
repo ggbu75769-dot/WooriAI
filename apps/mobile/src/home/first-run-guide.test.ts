@@ -191,6 +191,43 @@ describe("UX-G evaluateHomeFirstRunGuide", () => {
     expect(HOME_RECENT_EXPENSES_LIMIT).toBe(3);
   });
 
+  /**
+   * 라운드 37 G-6 — 두 경계가 정확히 3에서 부딪히던 자리.
+   *
+   * ①의 계약은 "이번 달 `FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS`건 **이하**면 첫 실행"인데,
+   * F3의 전체 기간 게이트는 "서버 목록이 3이면 총량을 모르니 차단"이었다. 첫 세션에 3건을 기록한
+   * 신규 사용자는 두 신호가 모두 3이라, 계약상 대상인데도 준비물 안내를 영영 보지 못했다.
+   * 이제 서버 목록이 LIMIT에 닿았을 때는 "그 목록이 전부 이번 달 것인가"로 가른다.
+   */
+  it("G-6: 두 상한은 같은 숫자 하나에서 나온다 (≤3 허용 계약과 >=3 차단이 갈라지지 않는다)", () => {
+    expect(FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS).toBe(HOME_RECENT_EXPENSES_LIMIT);
+  });
+
+  it("G-6 진리표: 첫 세션에 3건을 기록한 신규 사용자도 준비물 안내를 본다", () => {
+    const cases = [
+      // [이번 달 기록 수, 서버 recentExpenses 길이, 기대 variant]
+      [1, 1, "first-items"],
+      [2, 2, "first-items"],
+      // 경계: 이번 달 3건 = 서버가 보여줄 수 있는 3건이 전부 이번 달 것 -> 막 시작한 사람.
+      [3, 3, "first-items"],
+      // 장기 사용자의 월초: 이번 달 0건인데 서버 목록은 꽉 차 있다 = 나머지는 지난달 이전 기록.
+      [0, 3, null],
+      [1, 3, null],
+      [2, 3, null],
+      // 이번 달이 상한을 넘으면 전체가 적어도 첫 실행 안내가 아니다(종전 ① 규칙).
+      [4, 2, null]
+    ] as const;
+
+    for (const [recentRecordCount, serverRecentExpenseCount, expected] of cases) {
+      const guide = evaluateHomeFirstRunGuide(
+        input({ hasAnyExpenseRecord: true, recommendedItemCount: 3, recentRecordCount, serverRecentExpenseCount })
+      );
+      expect(guide?.variant ?? null, `이번 달 ${recentRecordCount}건 · 서버 ${serverRecentExpenseCount}건`).toBe(
+        expected
+      );
+    }
+  });
+
   it("기록 수 게이트는 첫 지출 유도에는 걸리지 않는다 -- 기록이 0건인 것 자체가 그 카드의 조건이다", () => {
     expect(
       evaluateHomeFirstRunGuide(input({ hasAnyExpenseRecord: false, recentRecordCount: null }))?.variant
