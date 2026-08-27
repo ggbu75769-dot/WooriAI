@@ -47,6 +47,9 @@ const ACCEPTED_IMPORT_MIME_TYPES = new Set([
   "application/csv",
   "application/x-csv",
   "application/vnd.ms-excel", // 윈도우가 .csv를 이렇게 보고하는 경우가 흔하다
+  "application/x-msexcel", // R30 리뷰 F9: 구형 윈도우/한국 환경 변형 표기
+  "application/excel",
+  "application/haansoftxlsx", // 한컴오피스가 xlsx를 이렇게 보고한다
   // xlsx (OOXML = zip 컨테이너라 zip 계열로 보고되기도 한다)
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/zip",

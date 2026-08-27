@@ -42,7 +42,12 @@ const EXCLUSIVE_SUITES = new Set([
   "admin-analytics-summary.e2e.test.ts",
   "admin-affiliate-click-breakdown.e2e.test.ts",
   "categories.e2e.test.ts",
-  "data-retention-purge.db.test.ts"
+  "data-retention-purge.db.test.ts",
+  // R30 리뷰 F2: quarantineOtherLinks()가 DB의 모든 product_link 행에 updateMany를
+  // 걸고, 잡 후보 판정(healthCheckedAt IS NULL)이 다른 스위트가 만드는 행에 그대로
+  // 노출된다 — 정확 개수 단언(checked: N)이 깨질 수 있어 배타로 격리한다. 자기
+  // 픽스처 스코프로 좁히는 리팩터링은 후속 티켓 대상.
+  "link-health.db.test.ts"
 ]);
 
 // Vitest populates the worker's test path before it executes setup files, so this

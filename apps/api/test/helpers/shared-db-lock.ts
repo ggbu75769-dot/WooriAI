@@ -108,8 +108,9 @@ async function acquireExclusive(dir: string): Promise<LockRelease> {
 
   while (!tryTakeWriterMarker(dir)) {
     if (Date.now() > deadline) {
-      console.warn("[shared-db-lock] 다른 배타 스위트의 락을 기다리다 시간이 초과됐어요. 그대로 진행합니다.");
-      return () => {};
+      // R30 리뷰 F4: 무보호로 진행하면 전역 델타 단언이 원인 불명으로 깨진다 —
+      // 명시적 실패가 진단에 낫다.
+      throw new Error("[shared-db-lock] 다른 배타 스위트의 락을 기다리다 시간이 초과됐어요 (워커 크래시 의심).");
     }
     await sleep(POLL_MS);
   }
@@ -119,10 +120,10 @@ async function acquireExclusive(dir: string): Promise<LockRelease> {
   const release: LockRelease = () => rmSync(join(dir, WRITER_MARKER), { recursive: true, force: true });
   while (readersPresent(dir)) {
     if (Date.now() > deadline) {
-      console.warn(
-        "[shared-db-lock] 진행 중인 스위트가 락을 반납하지 않아 시간이 초과됐어요 (워커가 죽었을 수 있어요). 그대로 진행합니다."
+      release();
+      throw new Error(
+        "[shared-db-lock] 진행 중인 스위트가 락을 반납하지 않아 시간이 초과됐어요 (워커가 죽었을 수 있어요)."
       );
-      return release;
     }
     await sleep(POLL_MS);
   }
@@ -138,8 +139,7 @@ async function acquireShared(dir: string, id: string): Promise<LockRelease> {
   for (;;) {
     while (writerHeld(dir)) {
       if (Date.now() > deadline) {
-        console.warn("[shared-db-lock] 배타 스위트를 기다리다 시간이 초과됐어요. 그대로 진행합니다.");
-        return () => {};
+        throw new Error("[shared-db-lock] 배타 스위트를 기다리다 시간이 초과됐어요 (워커 크래시 의심).");
       }
       await sleep(POLL_MS);
     }

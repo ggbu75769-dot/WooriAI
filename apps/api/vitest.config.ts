@@ -14,7 +14,11 @@ import { defineConfig } from "vitest/config";
 // the live Prisma connection pools and the row-level contention on shared tables.
 // Measured on the 4-core box this repo is validated on, 4 workers is also simply
 // the fastest setting -- 6 was ~20% slower. Override per-run with
-// `--poolOptions.threads.maxThreads=N` on a wider machine.
+// `--maxWorkers=N` on a wider machine.
+//
+// R30 리뷰 F1: vitest 2.x의 기본 pool은 "forks"이고 forks 풀은
+// poolOptions.threads.*를 읽지 않는다(그 설정은 조용히 무시돼 코어-1 워커가 떴다).
+// 그래서 풀 종류와 무관하게 적용되는 최상위 maxWorkers/minWorkers로 상한을 건다.
 const MAX_WORKERS = Math.max(2, Math.min(4, cpus().length));
 
 export default defineConfig({
@@ -29,11 +33,7 @@ export default defineConfig({
     setupFiles: ["./test/helpers/db-lock.setup.ts"],
     testTimeout: 30_000,
     hookTimeout: 30_000,
-    poolOptions: {
-      threads: {
-        maxThreads: MAX_WORKERS,
-        minThreads: 1
-      }
-    }
+    maxWorkers: MAX_WORKERS,
+    minWorkers: 1
   }
 });
