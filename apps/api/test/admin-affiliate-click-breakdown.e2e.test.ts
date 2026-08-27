@@ -23,6 +23,16 @@ const FIXTURE_ITEM_CODE_PREFIX = "adm123-";
  * afterEach의 주석이 말하는 눈덩이를 크래시 경로에서도 막는 장치다: 남은 클릭이
  * `windowMaxCount` 기준선을 계속 끌어올리면 다음 실행이 심어야 할 클릭 수가 실행마다
  * 불어나고, 이 배타 스위트가 워커 풀을 붙잡는 시간도 같이 늘어난다.
+ *
+ * R31 리뷰 F6 (자가 봉쇄 예방): 마이그레이션 000001은 Prisma 스키마에 없는 진짜 SQL FK를
+ * 만든다. item_templates / product_links를 **캐스케이드 없이** 참조하는 것은
+ * `expenses.linked_item_template_id`와 `expenses.linked_product_link_id` 둘뿐이다. 이
+ * 스위트는 지금 지출을 만들지 않으므로 도달 불가 경로지만, 한 번이라도 연결되는 순간
+ * 정리가 FK 위반으로 실패하고 그 뒤로는 남은 잔여물이 매 실행을 막는 자가 봉쇄가 된다 —
+ * 그래서 지우기 전에 **null로 끊기만** 한다(지출 자체는 남의 것일 수 있어 삭제하지 않는다).
+ *
+ * ⚠ 이 스위트가 나중에 자기 카탈로그 행을 import_rows·attachments 같은 다른 테이블에
+ * 연결하게 되면 이 헬퍼도 같이 넓혀야 한다. (현재 그 둘은 expenses(id)만 참조한다.)
  */
 async function removeOwnFixtureLeftovers(prisma: PrismaClient) {
   const staleTemplates = await prisma.itemTemplate.findMany({
@@ -31,7 +41,19 @@ async function removeOwnFixtureLeftovers(prisma: PrismaClient) {
   });
   if (staleTemplates.length === 0) return;
 
-  const itemTemplateId = { in: staleTemplates.map((template) => template.id) };
+  const templateIds = staleTemplates.map((template) => template.id);
+  const itemTemplateId = { in: templateIds };
+  const staleLinks = await prisma.productLink.findMany({ where: { itemTemplateId }, select: { id: true } });
+  await prisma.expense.updateMany({
+    where: { linkedItemTemplateId: { in: templateIds } },
+    data: { linkedItemTemplateId: null }
+  });
+  if (staleLinks.length > 0) {
+    await prisma.expense.updateMany({
+      where: { linkedProductLinkId: { in: staleLinks.map((link) => link.id) } },
+      data: { linkedProductLinkId: null }
+    });
+  }
   await prisma.affiliateClick.deleteMany({ where: { itemTemplateId } });
   await prisma.childItemStatus.deleteMany({ where: { itemTemplateId } });
   await prisma.productLink.deleteMany({ where: { itemTemplateId } });

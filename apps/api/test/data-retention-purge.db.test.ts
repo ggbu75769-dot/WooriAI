@@ -24,6 +24,17 @@ const FIXTURE_ITEM_CODE_PREFIX = "purge_test_item_";
  * 이게 없으면 남은 `purge_test_*` 카테고리 한 줄이 categories.e2e의 시드 계약
  * (`?includeAll=1` = 정확히 21행)을 그 뒤로 계속 깨뜨린다 — 정확 개수 단언이라
  * 오염이 자동으로 씻기지 않고, 사람이 손으로 DB를 치울 때까지 빨간불이 남는다.
+ *
+ * R31 리뷰 F6 (자가 봉쇄 예방): 마이그레이션 000001의 실제 SQL FK 중 캐스케이드가 없는
+ * 것들을 안쪽부터 끊는다. 정리 실패는 곧 잔여물이 남는다는 뜻이고, 남은 잔여물이 다음
+ * 실행의 정리를 또 실패시키는 자가 봉쇄가 된다.
+ *   - item_templates / product_links ← expenses.linked_item_template_id,
+ *     expenses.linked_product_link_id (null로 끊는다 — 지출은 남의 것일 수 있다)
+ *   - expenses ← child_item_statuses.expense_id (null), import_rows
+ *     .duplicate_candidate_expense_id (null), attachments.expense_id (null)
+ *   - categories ← expenses.category_id (NOT NULL이라 지출을 지운다),
+ *     import_rows.category_id (null)
+ * ⚠ 새 테이블이 이 픽스처가 만드는 행을 참조하게 되면 여기도 같이 넓혀야 한다.
  */
 async function removeOwnFixtureLeftovers(prisma: PrismaClient) {
   const staleTemplates = await prisma.itemTemplate.findMany({
@@ -31,7 +42,19 @@ async function removeOwnFixtureLeftovers(prisma: PrismaClient) {
     select: { id: true }
   });
   if (staleTemplates.length > 0) {
-    const itemTemplateId = { in: staleTemplates.map((template) => template.id) };
+    const templateIds = staleTemplates.map((template) => template.id);
+    const itemTemplateId = { in: templateIds };
+    const staleLinks = await prisma.productLink.findMany({ where: { itemTemplateId }, select: { id: true } });
+    await prisma.expense.updateMany({
+      where: { linkedItemTemplateId: { in: templateIds } },
+      data: { linkedItemTemplateId: null }
+    });
+    if (staleLinks.length > 0) {
+      await prisma.expense.updateMany({
+        where: { linkedProductLinkId: { in: staleLinks.map((link) => link.id) } },
+        data: { linkedProductLinkId: null }
+      });
+    }
     await prisma.affiliateClick.deleteMany({ where: { itemTemplateId } });
     await prisma.childItemStatus.deleteMany({ where: { itemTemplateId } });
     await prisma.productLink.deleteMany({ where: { itemTemplateId } });
@@ -50,12 +73,18 @@ async function removeOwnFixtureLeftovers(prisma: PrismaClient) {
     const staleExpenses = await prisma.expense.findMany({ where: { categoryId }, select: { id: true } });
     if (staleExpenses.length > 0) {
       const expenseIds = staleExpenses.map((expense) => expense.id);
-      await prisma.childItemStatus.updateMany({
-        where: { expenseId: { in: expenseIds } },
-        data: { expenseId: null }
+      const expenseId = { in: expenseIds };
+      await prisma.childItemStatus.updateMany({ where: { expenseId }, data: { expenseId: null } });
+      // 위 주석의 나머지 non-cascading 참조들. 지금은 이 스위트가 만들지 않는 행이라
+      // 도달 불가지만, 연결되는 날 정리가 막히지 않도록 미리 끊어 둔다.
+      await prisma.importRow.updateMany({
+        where: { duplicateCandidateExpenseId: expenseId },
+        data: { duplicateCandidateExpenseId: null }
       });
-      await prisma.expense.deleteMany({ where: { id: { in: expenseIds } } });
+      await prisma.attachment.updateMany({ where: { expenseId }, data: { expenseId: null } });
+      await prisma.expense.deleteMany({ where: { id: expenseId } });
     }
+    await prisma.importRow.updateMany({ where: { categoryId }, data: { categoryId: null } });
     await prisma.category.deleteMany({ where: { id: categoryId } });
   }
 }

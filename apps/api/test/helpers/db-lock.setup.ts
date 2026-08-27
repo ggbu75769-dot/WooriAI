@@ -10,8 +10,11 @@ import { acquireSharedDb } from "./shared-db-lock";
  *
  * Almost every suite scopes what it reads and writes to identifiers it generated
  * itself (see the note at the bottom of test/helpers/test-db.ts) and so runs fully in
- * parallel. The exceptions below cannot, because they read or write state that is
- * database-wide by definition:
+ * parallel. `EXCLUSIVE_SUITES` below is the authoritative list of the ones that cannot
+ * — everything else in the repo (comments, docs) should point at it rather than repeat
+ * a count, which is how the "four suites"/"~66 files" prose went stale (R31 리뷰 F1).
+ * They are exceptions because they read or write state that is database-wide by
+ * definition:
  *
  *   - the three admin aggregate suites snapshot a total before and after and assert
  *     on the delta, and those endpoints count every row in wooriai_test. They also
@@ -25,7 +28,9 @@ import { acquireSharedDb } from "./shared-db-lock";
  *     orphaned households across the whole database — including rows other suites
  *     are still using.
  *
- * TEST-132 removed `link-health.db` from this list. It used to mark every product
+ * TEST-132 removed `link-health.db` from this list — it was never an original entry:
+ * the round-30 review (F2) added it here to stop a global write from trampling other
+ * suites, and TEST-132 removed the global write instead. It used to mark every product
  * link outside its own fixtures as freshly checked (a `updateMany` over the whole
  * table) so that the job's global candidate batch would only contain its own rows —
  * a database-wide write that trampled other suites' links. The job's candidate query
