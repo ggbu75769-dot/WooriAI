@@ -66,7 +66,23 @@ describe("Admin categories & end-user lookup (ADM-127)", () => {
 
   afterEach(async () => {
     if (createdUserIds.length) {
+      // 정리 순서 주의: 지출을 참조하는 자식 행(구매확인 연결·임포트 행)을 먼저 지운다.
+      // 이 순서가 틀리면 FK 위반으로 afterEach 전체가 중단돼 만든 행이 공유 DB에 남고,
+      // 이후 실행의 categories.e2e(정식 12개 검증)가 오염으로 깨진다 — 실제로 겪은 사고.
+      const expenseIds = (
+        await prisma.expense.findMany({
+          where: { createdByUserId: { in: createdUserIds } },
+          select: { id: true }
+        })
+      ).map((row) => row.id);
+      if (expenseIds.length) {
+        await prisma.childItemStatus.deleteMany({ where: { expenseId: { in: expenseIds } } });
+      }
       await prisma.expense.deleteMany({ where: { createdByUserId: { in: createdUserIds } } });
+    }
+    if (createdCategoryIds.length) {
+      await prisma.importRow.deleteMany({ where: { categoryId: { in: createdCategoryIds } } });
+      await prisma.expense.deleteMany({ where: { categoryId: { in: createdCategoryIds } } });
     }
     if (createdHouseholdIds.length) {
       await prisma.child.deleteMany({ where: { householdId: { in: createdHouseholdIds } } });
