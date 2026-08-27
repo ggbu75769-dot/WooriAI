@@ -134,8 +134,17 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     }
   });
 
-  it("is the single source for the three screens wired this round", () => {
-    const screens = ["app/(tabs)/items.tsx", "app/items/[itemTemplateId].tsx", "app/(tabs)/reports.tsx"] as const;
+  // 라운드 39 UX-P: 남아 있던 세 화면(홈·기록·예산)까지 같은 단일 소스로 배선했다 -- 이제
+  // 조회 실패 카드를 그리는 화면 여섯 곳이 모두 같은 문구를 쓴다(가족 화면은 다른 트랙 소관).
+  it("is the single source for every screen wired so far", () => {
+    const screens = [
+      "app/(tabs)/items.tsx",
+      "app/items/[itemTemplateId].tsx",
+      "app/(tabs)/reports.tsx",
+      "app/(tabs)/index.tsx",
+      "app/(tabs)/records.tsx",
+      "app/budget.tsx"
+    ] as const;
     for (const path of screens) {
       const screenSource = source(path);
       expect(screenSource, `${path} imports the shared hook`).toContain('src/offline/use-load-error-copy"');
@@ -147,6 +156,28 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
       expect(screenSource, `${path} must not inline the old copy again`).not.toContain(
         'title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."'
       );
+    }
+  });
+
+  /**
+   * 라운드 39 UX-P: 홈은 실패 시 화면 전체가 카드 하나로 대체되므로(early return) FAB도 빠른
+   * 기록 버튼도 함께 사라진다. "기록은 지금도 남길 수 있어요"는 사실이지만(SQLite 우선 저장),
+   * 그 자리에서 할 수 없다면 못 지킬 약속이 된다 -- 그래서 문장과 입구를 함께 고정한다.
+   */
+  it("라운드 39 UX-P: 홈 실패 카드만 보조문을 달고, 그 문장이 약속하는 입구를 같이 내준다", () => {
+    const hookSource = source("src/offline/use-load-error-copy.ts");
+    expect(hookSource).toContain('export const OFFLINE_RECORDING_STILL_AVAILABLE_NOTICE = "기록은 지금도 남길 수 있어요.";');
+    expect(hookSource).toContain('export const OFFLINE_RECORDING_ENTRY_LABEL = "지금 기록하기";');
+
+    const homeSource = source("app/(tabs)/index.tsx");
+    expect(homeSource).toContain("{OFFLINE_RECORDING_STILL_AVAILABLE_NOTICE}");
+    expect(homeSource).toContain(
+      '<TextButton label={OFFLINE_RECORDING_ENTRY_LABEL} onPress={() => router.push("/expenses/new")} />'
+    );
+
+    // 기록·예산 화면에는 붙이지 않는다 -- 문구만 오프라인 인지로 갈리고 구조는 그대로다.
+    for (const path of ["app/(tabs)/records.tsx", "app/budget.tsx"] as const) {
+      expect(source(path), path).not.toContain("OFFLINE_RECORDING_STILL_AVAILABLE_NOTICE");
     }
   });
 

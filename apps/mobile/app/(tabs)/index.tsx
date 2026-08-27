@@ -47,6 +47,11 @@ import { evaluateMilestoneCountdown } from "../../src/home/milestone-countdown";
 import { evaluateWeeklySummary } from "../../src/home/weekly-summary";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import {
+  OFFLINE_RECORDING_ENTRY_LABEL,
+  OFFLINE_RECORDING_STILL_AVAILABLE_NOTICE,
+  useLoadErrorCopy
+} from "../../src/offline/use-load-error-copy";
 import type { LocalExpenseRow } from "../../src/offline/types";
 import { formatKrw } from "../../src/money";
 import { resolveWeeklySpendForNotification } from "../../src/notifications/generators";
@@ -758,15 +763,30 @@ export default function HomeScreen() {
 
   // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
   const homePhase = resolveScreenPhase({ isPending: home.isPending, isError: home.isError, hasData: Boolean(home.data) });
+  // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
+  // 버튼은 그대로 -- 문구만 바뀐다(src/offline/messages.ts).
+  //
+  // 홈에만 보조문("기록은 지금도 남길 수 있어요")을 덧붙인다: 이 앱에서 지출 기록은 SQLite
+  // 우선 저장이라 조회가 실패한 순간에도 **실제로** 남길 수 있고(src/offline/sync-controller.ts),
+  // 홈은 그 입구(빠른 기록·FAB)를 늘 들고 있는 화면이다. 지킬 수 있는 약속만 한다.
+  const loadErrorCopy = useLoadErrorCopy(home.isError);
 
   if (hasSession && homePhase === "error") {
     return (
       <AppScreen>
         <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
+          title={loadErrorCopy.title}
+          actionLabel={loadErrorCopy.actionLabel}
           onPress={() => home.refetch()}
         />
+        {/* 실패 카드가 화면 전체를 대체하므로 FAB도 빠른 기록 버튼도 함께 사라진다. 보조문이
+            약속하는 행동을 그 자리에서 할 수 있도록 입구를 같이 내준다. */}
+        <View style={{ alignItems: "center", gap: 2 }}>
+          <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}>
+            {OFFLINE_RECORDING_STILL_AVAILABLE_NOTICE}
+          </Text>
+          <TextButton label={OFFLINE_RECORDING_ENTRY_LABEL} onPress={() => router.push("/expenses/new")} />
+        </View>
       </AppScreen>
     );
   }

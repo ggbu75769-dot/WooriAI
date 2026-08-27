@@ -6,6 +6,10 @@ import { groupExpensesByDate } from "./records-date-groups";
 import {
   buildRecordsCategoryChips,
   buildRecordsFilterScopeSummary,
+  buildRecordsMonthSummary,
+  buildRecordsSearchPreviousMonthAction,
+  buildRecordsSearchScopeNotice,
+  RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL,
   expenseCreatedByUserId,
   expenseTypeLabelKo,
   expenseTypeSubtitlePrefix,
@@ -612,6 +616,115 @@ describe("F8 buildRecordsFilterScopeSummary", () => {
   });
 });
 
+/**
+ * 라운드 39 UX-P: 기록 탭이 "이번 달"이라고 하드코딩해 두던 두 문장(헤더 부제 · 월 요약 줄)이
+ * 과거 달을 볼 때 사실과 어긋났다. 요약 줄을 만드는 순수 함수가 그 사실을 진다.
+ */
+describe("UX-P buildRecordsMonthSummary", () => {
+  it("보고 있는 달의 라벨로 말한다 -- 과거 달에서도 '이번 달'이라고 하지 않는다", () => {
+    const summary = buildRecordsMonthSummary({ monthLabel: "2026년 6월", recordCount: 42, totalKrw: 1_200_000 });
+
+    expect(summary.text).toBe("2026년 6월 42건 · 합계 1,200,000원");
+    expect(summary.text).not.toContain("이번 달");
+  });
+
+  it("이번 달을 보고 있을 때도 같은 규칙이다 (달 이름이 곧 라벨)", () => {
+    expect(buildRecordsMonthSummary({ monthLabel: "2026년 8월", recordCount: 3, totalKrw: 45_000 }).text).toBe(
+      "2026년 8월 3건 · 합계 45,000원"
+    );
+  });
+
+  it("접근성 라벨은 F8 스코프 줄·섹션 헤더와 같은 관례다 ('·' → 쉼표, 금액 앞 '합계')", () => {
+    const summary = buildRecordsMonthSummary({ monthLabel: "2026년 6월", recordCount: 42, totalKrw: 1_200_000 });
+
+    expect(summary.accessibilityLabel).toBe("2026년 6월 42건, 합계 1,200,000원");
+  });
+
+  it("기록이 없는 달도 0건 · 0원으로 정직하게 말한다", () => {
+    expect(buildRecordsMonthSummary({ monthLabel: "2026년 5월", recordCount: 0, totalKrw: 0 }).text).toBe(
+      "2026년 5월 0건 · 합계 0원"
+    );
+  });
+
+  it("음수·NaN 같은 망가진 값은 0으로 떨어뜨린다 (F8 스코프 줄과 같은 정규화)", () => {
+    expect(buildRecordsMonthSummary({ monthLabel: "2026년 5월", recordCount: -3, totalKrw: Number.NaN }).text).toBe(
+      "2026년 5월 0건 · 합계 0원"
+    );
+  });
+
+  it("달 라벨을 모르면 없는 달 이름을 지어내지 않고 건수·합계만 말한다", () => {
+    const summary = buildRecordsMonthSummary({ monthLabel: "  ", recordCount: 2, totalKrw: 10_000 });
+
+    expect(summary.text).toBe("2건 · 합계 10,000원");
+    expect(summary.accessibilityLabel).toBe("2건, 합계 10,000원");
+  });
+});
+
+/**
+ * 라운드 39 UX-P: 기록 탭 검색은 보고 있는 한 달치 응답에만 걸리는데 화면 어디에도 그 사실이
+ * 없었다 -- 0건 화면이 "이 앱에 그런 기록이 없다"로 읽혔다.
+ */
+describe("UX-P buildRecordsSearchScopeNotice", () => {
+  it("검색어가 있을 때만 범위를 밝힌다", () => {
+    expect(buildRecordsSearchScopeNotice({ searchText: "유모차", monthLabel: "2026년 8월" })).toBe(
+      "'유모차' 검색은 2026년 8월 안에서만 찾아요"
+    );
+  });
+
+  it("검색어가 없으면(빈 값·공백·null·undefined) null -- 화면이 한 글자도 바뀌지 않는다", () => {
+    for (const searchText of ["", "   ", null, undefined]) {
+      expect(buildRecordsSearchScopeNotice({ searchText, monthLabel: "2026년 8월" })).toBeNull();
+    }
+  });
+
+  it("달이 바뀌면 문장의 달도 함께 바뀐다 (화면의 월 라벨을 그대로 받는다)", () => {
+    expect(buildRecordsSearchScopeNotice({ searchText: "유모차", monthLabel: "2026년 6월" })).toBe(
+      "'유모차' 검색은 2026년 6월 안에서만 찾아요"
+    );
+  });
+
+  it("검색어 앞뒤 공백은 화면의 필터링과 같은 기준으로 다듬는다", () => {
+    expect(buildRecordsSearchScopeNotice({ searchText: "  유모차  ", monthLabel: "2026년 8월" })).toBe(
+      "'유모차' 검색은 2026년 8월 안에서만 찾아요"
+    );
+  });
+
+  it("달 라벨을 모르면 범위를 반만 말하지 않는다 (아예 생략)", () => {
+    expect(buildRecordsSearchScopeNotice({ searchText: "유모차", monthLabel: "" })).toBeNull();
+  });
+});
+
+/**
+ * 라운드 39 UX-P: 0건 카드가 제안하던 유일한 다음 행동이 "검색어 지우기"(= 찾기 포기)였다.
+ */
+describe("UX-P buildRecordsSearchPreviousMonthAction", () => {
+  it("검색 중일 때만 보조 액션이 생긴다", () => {
+    const action = buildRecordsSearchPreviousMonthAction({ searchText: "유모차", previousMonthLabel: "2026년 7월" });
+
+    expect(action).not.toBeNull();
+    expect(action!.label).toBe(RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL);
+    expect(action!.label).toBe("지난달에서 찾기");
+  });
+
+  it("검색어가 없으면 null -- 카테고리 필터만 걸린 0건 카드는 예전 그대로다", () => {
+    for (const searchText of ["", "   ", null, undefined]) {
+      expect(buildRecordsSearchPreviousMonthAction({ searchText, previousMonthLabel: "2026년 7월" })).toBeNull();
+    }
+  });
+
+  it("스크린리더에는 '지난달' 대신 실제 달 이름과 검색어를 말한다 (어디로 가는지가 문장 안에)", () => {
+    const action = buildRecordsSearchPreviousMonthAction({ searchText: " 유모차 ", previousMonthLabel: "2026년 7월" });
+
+    expect(action!.accessibilityLabel).toBe("2026년 7월에서 '유모차' 계속 찾기");
+  });
+
+  it("달 이름을 모르면 지어내지 않고 보이는 라벨을 그대로 읽어준다", () => {
+    const action = buildRecordsSearchPreviousMonthAction({ searchText: "유모차", previousMonthLabel: "  " });
+
+    expect(action!.accessibilityLabel).toBe("지난달에서 찾기");
+  });
+});
+
 describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   const recordsSource = readFileSync(join(mobileRoot, "app/(tabs)/records.tsx"), "utf8");
 
@@ -701,8 +814,52 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).toContain("accessibilityLabel={filterScopeSummary.accessibilityLabel}");
     expect(recordsSource).toContain("{filterScopeSummary.text}");
     // 무필터 화면은 예전 그대로: 월 요약 줄과 하단 합계 카드가 계속 월 전체(monthlyTotalKrw)다.
-    expect(recordsSource).toContain("이번 달 ${monthlyRecordCount}건 · 합계 ${formatKrw(monthlyTotalKrw)}");
+    expect(recordsSource).toContain("recordCount: monthlyRecordCount,");
+    expect(recordsSource).toContain("totalKrw: monthlyTotalKrw");
     expect(recordsSource).not.toContain("formatKrw(filteredSubtotalKrw)");
+  });
+
+  it("UX-P: '이번 달' 하드코딩이 화면에서 사라졌다 -- 헤더 부제·월 요약 줄이 보고 있는 달을 말한다", () => {
+    expect(recordsSource).toContain("subtitle={`${recordsMonthLabel} 지출 내역을 한눈에 확인해 보세요.`}");
+    expect(recordsSource).toContain("const monthSummary = buildRecordsMonthSummary({");
+    expect(recordsSource).toContain("monthLabel: recordsMonthLabel,");
+    expect(recordsSource).toContain("{monthSummary.text}");
+    expect(recordsSource).toContain("accessibilityLabel={monthSummary.accessibilityLabel}");
+    // 종전 하드코딩 문장은 두 자리 모두에서 사라졌다.
+    expect(recordsSource).not.toContain("이번 달 지출 내역을 한눈에 확인해 보세요.");
+    expect(recordsSource).not.toContain("이번 달 ${monthlyRecordCount}건");
+    // 하단 합계 카드는 원래부터 달 라벨을 쓰고 있었다 -- 이제 세 자리가 같은 문자열이다.
+    expect(recordsSource).toContain("{recordsMonthLabel} 합계");
+  });
+
+  it("UX-P: 검색 범위 고지는 요약 줄 바로 아래에, 검색 중일 때만 그린다", () => {
+    expect(recordsSource).toContain(
+      "const searchScopeNotice = buildRecordsSearchScopeNotice({ searchText, monthLabel: recordsMonthLabel });"
+    );
+    expect(recordsSource).toContain('testID="records-search-scope"');
+    expect(recordsSource).toContain("{searchScopeNotice ? (");
+    // 위치: 월 요약 줄 다음, F8 스코프 줄 앞.
+    const summaryIndex = recordsSource.indexOf('testID="records-month-summary"');
+    const noticeIndex = recordsSource.indexOf('testID="records-search-scope"');
+    const filterScopeIndex = recordsSource.indexOf('testID="records-filter-scope"');
+    expect(summaryIndex).toBeGreaterThan(-1);
+    expect(noticeIndex).toBeGreaterThan(summaryIndex);
+    expect(filterScopeIndex).toBeGreaterThan(noticeIndex);
+  });
+
+  it("UX-P: 0건 카드의 '지난달에서 찾기'는 기존 ‹ 이동을 재사용하고 검색어를 지우지 않는다", () => {
+    expect(recordsSource).toContain(
+      "const previousMonthSearchAction = buildRecordsSearchPreviousMonthAction({ searchText, previousMonthLabel });"
+    );
+    expect(recordsSource).toContain('const previousMonthLabel = periodLabelForOffset(baseDate, "month", monthOffset - 1);');
+    expect(recordsSource).toContain("label={previousMonthSearchAction.label}");
+    expect(recordsSource).toContain("accessibilityLabel={previousMonthSearchAction.accessibilityLabel}");
+    // 이동은 기존 ‹ 핸들러 그대로다 -- 검색어 state(setSearchText)는 건드리지 않으므로 유지된다.
+    expect(recordsSource).toContain("onPress={goToPreviousMonth}");
+    // 두 개의 0건 분기(달에 기록이 있는데 필터로 가려진 경우 / 달 자체가 빈 경우) 모두에 붙는다.
+    expect((recordsSource.match(/\{previousMonthSearchActionButton\}/g) ?? []).length).toBe(2);
+    // 기존 액션("검색어 지우기")도 그대로 남는다 -- 대체가 아니라 추가다.
+    expect(recordsSource).toContain('"검색어 지우기"');
   });
 });
 

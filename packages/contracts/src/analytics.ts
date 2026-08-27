@@ -68,6 +68,15 @@ export const affiliateClickScreenSchema = z.enum(AFFILIATE_CLICK_SCREENS);
 export const PURCHASE_FOLLOWUP_ANSWERS = ["purchased", "not_purchased", "dismissed"] as const;
 export const purchaseFollowupAnswerSchema = z.enum(PURCHASE_FOLLOWUP_ANSWERS);
 
+/**
+ * 라운드 39 UX-P: 리포트 탭이 실제로 내보내는 두 공유 카드 -- 월간 요약(UX-H)과 마일스톤
+ * 비용 리포트(REP-103). 다른 화면에는 공유 버튼이 없으므로 리터럴도 이 둘뿐이다
+ * (AFFILIATE_CLICK_SCREENS와 같은 판단: 아직 발화하지 않는 차원은 미리 열어 두지 않는다 --
+ * 수집 엔드포인트가 레지스트리로 검증하므로, 새 공유 지점이 생기면 여기부터 늘린다).
+ */
+export const REPORT_SHARE_TYPES = ["monthly", "milestone"] as const;
+export const reportShareTypeSchema = z.enum(REPORT_SHARE_TYPES);
+
 export const analyticsEventEnvelopeSchema = z
   .object({
     eventName: z.string().min(1).max(64),
@@ -151,6 +160,21 @@ const purchaseFollowupAnsweredV1Payload = z
   })
   .strict();
 
+/**
+ * 라운드 39 UX-P: 리포트 공유 버튼 탭. 공유 시트를 **띄운** 시점을 세며, 사용자가 실제로 어디에
+ * 보냈는지(또는 취소했는지)는 OS가 알려주지 않으므로 세지 않는다 -- 그 이상을 이 이벤트 이름으로
+ * 주장하지 않는다.
+ *
+ * 페이로드는 어느 카드에서 눌렸는지 하나뿐이다. 공유 문구에는 아이 애칭·금액이 들어가지만
+ * (buildMonthlyShareMessage/buildMilestoneShareMessage) 그중 어느 것도 페이로드에 실리지 않는다 --
+ * 이 레지스트리의 PII 규칙상 문자열 필드는 enum만 허용되고, analytics.pii-lint가 이를 강제한다.
+ */
+const reportShareTappedV1Payload = z
+  .object({
+    reportType: reportShareTypeSchema
+  })
+  .strict();
+
 export type AnalyticsEventRegistryEntry = {
   eventName: string;
   eventVersion: number;
@@ -169,7 +193,9 @@ export const analyticsEventRegistry: readonly AnalyticsEventRegistryEntry[] = [
   // apps/api/test/admin-analytics-summary.e2e.test.ts pins the first six names in place --
   // so a new event goes at the end, never inserted into the existing sequence.
   { eventName: "item_detail_viewed", eventVersion: 1, payloadSchema: itemDetailViewedV1Payload },
-  { eventName: "purchase_followup_answered", eventVersion: 1, payloadSchema: purchaseFollowupAnsweredV1Payload }
+  { eventName: "purchase_followup_answered", eventVersion: 1, payloadSchema: purchaseFollowupAnsweredV1Payload },
+  // 라운드 39 UX-P. 위 append-only 규칙 그대로 맨 뒤에 붙인다.
+  { eventName: "report_share_tapped", eventVersion: 1, payloadSchema: reportShareTappedV1Payload }
 ];
 
 function registryKey(eventName: string, eventVersion: number): string {

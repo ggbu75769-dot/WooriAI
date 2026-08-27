@@ -67,11 +67,11 @@ describe("MOB-130 screen branch-order contract", () => {
    * UX-N: `offlineAwareCopy`는 그 화면이 조회 실패 문구를 오프라인 여부로 갈라 쓰는지를 뜻한다.
    * 갈라 쓰는 화면은 문구가 더 이상 JSX 리터럴이 아니라 useLoadErrorCopy가 돌려주는 값이므로,
    * 문자열 대신 **그 공용 단일 소스를 쓴다는 사실**을 고정한다(문구 자체는
-   * src/offline/messages.test.ts가 고정). 아직 배선되지 않은 화면(홈·가족)은 예전 리터럴 그대로다
-   * — 다음 라운드에 배선되면 이 플래그만 켜면 된다.
+   * src/offline/messages.test.ts가 고정). 라운드 39 UX-P가 홈까지 배선을 끝냈고, 남은
+   * 가족 화면만 예전 리터럴 그대로다 — 배선되면 이 플래그만 켜면 된다.
    */
   const screens = [
-    { path: "app/(tabs)/index.tsx", query: "home", phase: "homePhase", offlineAwareCopy: false },
+    { path: "app/(tabs)/index.tsx", query: "home", phase: "homePhase", offlineAwareCopy: true },
     { path: "app/(tabs)/items.tsx", query: "items", phase: "itemsPhase", offlineAwareCopy: true },
     { path: "app/family/index.tsx", query: "members", phase: "membersPhase", offlineAwareCopy: false },
     { path: "app/items/[itemTemplateId].tsx", query: "detail", phase: "detailPhase", offlineAwareCopy: true }

@@ -20,7 +20,10 @@ function readSource(relativePath: string): string {
 const screens = [
   { path: "app/family/index.tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"], offlineAwareCopy: false },
   { path: "app/items/[itemTemplateId].tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"], offlineAwareCopy: true },
-  { path: "app/budget.tsx", skeletons: ["<SkeletonCard />"], offlineAwareCopy: false }
+  { path: "app/budget.tsx", skeletons: ["<SkeletonCard />"], offlineAwareCopy: true },
+  // UX-Q(B): 지출 수정 화면은 MOB-119 당시 목록에 없어 "불러오고 있어요. / 잠시만요"(onPress
+  // 없는 죽은 버튼)가 저장소에서 유일하게 살아남아 있었다. 같은 계약으로 들여 재발을 막는다.
+  { path: "app/expenses/[expenseId].tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"], offlineAwareCopy: false }
 ] as const;
 
 describe("MOB-119 loading skeleton contract", () => {

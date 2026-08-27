@@ -184,6 +184,27 @@ export function buildPurchaseFollowupAnsweredPayload(input: {
   return input.platform ? { answer: input.answer, platform: input.platform } : { answer: input.answer };
 }
 
+/**
+ * 라운드 39 UX-P: 리포트 탭이 내보내는 두 공유 카드 -- 월간 요약(UX-H)과 마일스톤 비용
+ * 리포트(REP-103). packages/contracts/src/analytics.ts의 REPORT_SHARE_TYPES 미러다.
+ */
+export type ReportShareType = "monthly" | "milestone";
+
+/**
+ * report_share_tapped v1 payload (라운드 39 UX-P) -- 어느 리포트의 공유 버튼이었는지 **하나뿐**이다.
+ *
+ * 공유 문구 자체에는 아이 애칭과 금액이 들어가지만(src/reports/share-text.ts,
+ * src/reports/milestone-share.ts) 그중 무엇도 페이로드에 싣지 않는다 -- 이 모듈의 PII 규칙상
+ * 필드는 enum·boolean·정수 카운트뿐이고, 계약 레지스트리의 strict 스키마가 나머지를 거부한다.
+ * "얼마짜리 달을 더 많이 공유하는가" 같은 질문은 이 이벤트가 답할 수 없고, 답하려 하면 금액이
+ * 기기를 떠나야 한다.
+ */
+export function buildReportShareTappedPayload(input: { reportType: ReportShareType }): {
+  reportType: ReportShareType;
+} {
+  return { reportType: input.reportType };
+}
+
 /** affiliate_link_clicked v1 payload -- platform + screen enums only (never the link URL/title/id). */
 export function buildAffiliateLinkClickedPayload(input: {
   platform: AnalyticsProductPlatform;

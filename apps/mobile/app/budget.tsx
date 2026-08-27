@@ -15,6 +15,7 @@ import { useSessionStore } from "../src/stores/session.store";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../src/money";
 import { buildBudgetAdjustChips, buildBudgetUsageLine, sumLastMonthActualKrw } from "../src/home/budget-edit";
 import { previousYearMonth } from "../src/home/last-month-comparison";
+import { useLoadErrorCopy } from "../src/offline/use-load-error-copy";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../src/ui";
 import { SkeletonCard } from "../src/ui/Skeleton";
 import { theme } from "../src/theme";
@@ -116,6 +117,10 @@ export default function BudgetEditScreen() {
 
   const canSave = !amountError && Boolean(authToken && childId) && (amountDigits.length > 0 || Boolean(budget.data));
 
+  // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
+  // 버튼은 그대로 -- 문구만 바뀐다(src/offline/messages.ts).
+  const loadErrorCopy = useLoadErrorCopy(budget.isError);
+
   return (
     <AppScreen>
       <View testID="screen-BUD-001" style={{ gap: theme.spacing.section }}>
@@ -130,8 +135,8 @@ export default function BudgetEditScreen() {
           </>
         ) : budget.isError ? (
           <EmptyStateCard
-            title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-            actionLabel="다시 시도"
+            title={loadErrorCopy.title}
+            actionLabel={loadErrorCopy.actionLabel}
             onPress={() => budget.refetch()}
           />
         ) : (

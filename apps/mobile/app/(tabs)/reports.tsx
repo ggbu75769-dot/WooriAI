@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Pressable, RefreshControl, Share, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, RefreshControl, Share, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
+import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
+import { buildReportShareTappedPayload } from "../../src/analytics/events";
 import {
   getCategoryReport,
   getCumulativeReport,
@@ -233,8 +235,21 @@ export default function ReportsScreen() {
   // REP-127: 제목·공유 라벨은 요청한 타입이 아니라 **응답의 type**에서 파생한다. 요청 타입이
   // 바뀌는 사이(첫돌 도달 직후 재조회)에도 화면에 남아 있는 데이터와 제목이 어긋나지 않는다.
   const milestoneCardTitle = milestoneReport ? milestoneReportTitle(milestoneReport.type) : "";
+  // 라운드 39 UX-P: 두 공유 버튼의 계측. `report_share_tapped`는 **공유 시트를 띄운 시점**만
+  // 센다 -- Share.share의 결과(어디로 보냈는지·취소했는지)는 플랫폼마다 신뢰할 수 없고, 그
+  // 이상을 이 이름으로 주장하면 그게 허위 집계다. 그래서 시트를 여는 자리에서 한 번 발사한다.
+  // 동의 게이트(ANA-102)와 데모 세션 토큰 규약(라운드 27 L-2)은 공용 클라이언트가 그대로 진다.
+  const trackReportShareTapped = (reportType: "monthly" | "milestone") => {
+    trackAndFlushAnalyticsEvent(authToken, {
+      eventName: "report_share_tapped",
+      payload: buildReportShareTappedPayload({ reportType }),
+      platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+    });
+  };
+
   const shareMilestoneReport = async () => {
     if (!milestoneReport) return;
+    trackReportShareTapped("milestone");
     try {
       await Share.share({ message: buildMilestoneShareMessage(milestoneReport, shareChildName) });
     } catch {
@@ -358,6 +373,7 @@ export default function ReportsScreen() {
   });
   const shareMonthlySummary = async () => {
     if (!monthlyShareMessage) return;
+    trackReportShareTapped("monthly");
     try {
       await Share.share({ message: monthlyShareMessage });
     } catch {

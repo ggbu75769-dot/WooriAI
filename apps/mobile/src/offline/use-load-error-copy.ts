@@ -21,6 +21,28 @@ import { resolveLoadErrorCopy, type LoadErrorCopy } from "./messages";
  * 플랫폼(web — isCurrentlyOnline이 항상 true를 돌려준다) 모두에서 기존 문구가 그대로 나온다.
  * 새 문구는 "오프라인이라고 확인된" 경우에만 대체한다.
  */
+/**
+ * 라운드 39 UX-P — 홈 조회 실패 카드에만 붙는 보조문.
+ *
+ * 홈이 실패하면 화면 전체가 이 카드 하나로 대체된다(early return). 그때 사용자가 실제로 잃는
+ * 것은 **요약을 보는 일**뿐이고, 지출 기록은 SQLite 우선 저장이라 연결이 없어도 그대로 남길 수
+ * 있다(MOB-102/EXP-005 — src/offline/sync-controller.ts). 그 사실을 말해 주지 않으면 "앱이
+ * 통째로 멎었다"로 읽히고, 오프라인 구간에서 기록 자체를 포기하게 된다.
+ *
+ * 지킬 수 있는 약속만 한다는 원칙(messages.ts의 LOAD_ERROR_NOTICE 헤더 참고)에 따라, 이 문장을
+ * 붙이는 화면은 **기록 입구를 같이 내주는 화면**뿐이다 — 홈의 실패 카드는 이 문장 아래에
+ * 빠른 기록으로 가는 버튼을 함께 그린다. 다른 화면(기록·예산·준비템)은 문구만 오프라인 인지로
+ * 갈리고 이 보조문은 붙이지 않는다.
+ *
+ * 왜 messages.ts가 아니라 여기인가: 이 상수는 위 훅을 쓰는 화면들만의 배선용 문구이고,
+ * messages.ts는 이미 UX-N 판정 문구(LOAD_ERROR_NOTICE/OFFLINE_LOAD_NOTICE)의 단일 소스로
+ * 고정돼 있다 — 판정에 참여하지 않는 문장을 그 쪽에 섞지 않는다.
+ */
+export const OFFLINE_RECORDING_STILL_AVAILABLE_NOTICE = "기록은 지금도 남길 수 있어요.";
+
+/** 위 보조문과 짝을 이루는 입구 버튼의 라벨. 문장이 약속한 행동을 그 자리에서 할 수 있어야 한다. */
+export const OFFLINE_RECORDING_ENTRY_LABEL = "지금 기록하기";
+
 export function useLoadErrorCopy(isError: boolean): LoadErrorCopy {
   const [isOnline, setIsOnline] = useState(true);
 

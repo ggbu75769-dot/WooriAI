@@ -88,7 +88,7 @@ describe("analytics event envelope (ANA-101, round5a-sprint2-plan.md §5)", () =
 });
 
 describe("analytics event registry lookup", () => {
-  it("has exactly the 8 events at version 1 (6 initial + ANA-127's two purchase-loop events)", () => {
+  it("has exactly the 9 events at version 1 (6 initial + ANA-127's two purchase-loop events + UX-P's report share)", () => {
     const keys = analyticsEventRegistry.map((entry) => `${entry.eventName}@${entry.eventVersion}`).sort();
     expect(keys).toEqual(
       [
@@ -99,7 +99,8 @@ describe("analytics event registry lookup", () => {
         "item_status_changed@1",
         "item_detail_viewed@1",
         "affiliate_link_clicked@1",
-        "purchase_followup_answered@1"
+        "purchase_followup_answered@1",
+        "report_share_tapped@1"
       ].sort()
     );
   });
@@ -120,7 +121,7 @@ describe("analytics event registry lookup", () => {
       "item_status_changed",
       "affiliate_link_clicked"
     ]);
-    expect(names.slice(6)).toEqual(["item_detail_viewed", "purchase_followup_answered"]);
+    expect(names.slice(6)).toEqual(["item_detail_viewed", "purchase_followup_answered", "report_share_tapped"]);
   });
 
   it("returns the payload schema for a registered eventName@version", () => {

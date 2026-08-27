@@ -229,7 +229,10 @@ describe("UX-B 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   });
 
   it("월 합계·전월 델타·작성자 라벨·오프라인 대기 행 등 기존 표시는 그대로다", () => {
-    expect(recordsSource).toContain("이번 달 ${monthlyRecordCount}건 · 합계 ${formatKrw(monthlyTotalKrw)}");
+    // 라운드 39 UX-P: 월 요약 줄은 여전히 월 전체(monthlyRecordCount/monthlyTotalKrw)를 말한다 --
+    // 달 이름만 "이번 달" 하드코딩에서 보고 있는 달 라벨로 바뀌었다.
+    expect(recordsSource).toContain("recordCount: monthlyRecordCount,");
+    expect(recordsSource).toContain("totalKrw: monthlyTotalKrw");
     expect(recordsSource).toContain('testID="records-last-month-insight"');
     expect(recordsSource).toContain("resolveExpenseAuthorLabel(expenseCreatedByUserId(expense), householdMemberRefs)");
     expect(recordsSource).toContain("offlineStatusIcon(row.syncState)");
