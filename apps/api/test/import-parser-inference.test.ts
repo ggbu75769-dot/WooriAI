@@ -2,7 +2,7 @@ import { BadRequestException } from "@nestjs/common";
 import ExcelJS from "exceljs";
 import iconv from "iconv-lite";
 import { describe, expect, it } from "vitest";
-import { parseImportFile } from "../src/imports/import-parser";
+import { assertImportFileMatchesExtension, parseImportFile } from "../src/imports/import-parser";
 
 /**
  * COV-T1: unit coverage for the header-less column-inference path
@@ -423,5 +423,60 @@ describe("parseImportFile - header-less column inference (inferColumns)", () => 
       amountKrw: 15000,
       categoryCode: "toys_books"
     });
+  });
+});
+
+/**
+ * API-130: 확장자 위장 방어(매직바이트). 형식 판정이 파일명 확장자에만 기대던
+ * 것을 실제 바이트로 확인하도록 바꾼 부분의 계약을 고정한다 — 특히 CP949 csv를
+ * 계속 받아야 하므로 csv 쪽은 "UTF-8 유효성"이 아니라 널바이트/바이너리
+ * 시그니처만 본다.
+ */
+describe("assertImportFileMatchesExtension (API-130)", () => {
+  function expectTypeInvalid(buffer: Buffer, fileName: string) {
+    let caught: unknown;
+    try {
+      assertImportFileMatchesExtension(buffer, fileName);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(BadRequestException);
+    expect((caught as BadRequestException).getStatus()).toBe(400);
+    expect(((caught as BadRequestException).getResponse() as { code?: string }).code).toBe("IMPORT_FILE_TYPE_INVALID");
+  }
+
+  it("xlsx는 zip 로컬 파일 헤더(PK\\x03\\x04)로 시작해야 한다 — 실제 xlsx는 통과", async () => {
+    const workbook = new ExcelJS.Workbook();
+    workbook.addWorksheet("Sheet1").addRow(["날짜", "적요", "금액"]);
+    const xlsx = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    expect(xlsx.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    expect(() => assertImportFileMatchesExtension(xlsx, "real.xlsx")).not.toThrow();
+  });
+
+  it("확장자만 .xlsx인 위장 파일(zip 시그니처 아님)을 IMPORT_FILE_TYPE_INVALID로 거절한다", () => {
+    expectTypeInvalid(Buffer.from("날짜,적요,금액\n2026-07-06,기저귀,32000\n", "utf8"), "disguised.xlsx");
+    expectTypeInvalid(Buffer.from("%PDF-1.7\n...", "ascii"), "invoice.xlsx");
+    expectTypeInvalid(Buffer.alloc(0), "empty.xlsx");
+  });
+
+  it("csv는 UTF-8/BOM/CP949 모두 통과한다 (CP949 지원이 깨지면 안 된다)", () => {
+    const utf8 = Buffer.from("날짜,적요,금액\n2026-07-06,기저귀,32000\n", "utf8");
+    const withBom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), utf8]);
+    const cp949 = iconv.encode("날짜,적요,금액\n2026-07-06,기저귀,32000\n", "cp949");
+
+    expect(() => assertImportFileMatchesExtension(utf8, "a.csv")).not.toThrow();
+    expect(() => assertImportFileMatchesExtension(withBom, "a.csv")).not.toThrow();
+    expect(() => assertImportFileMatchesExtension(cp949, "a.csv")).not.toThrow();
+    // 확장자가 없거나 낯설면 csv로 취급하는 기존 동작 그대로.
+    expect(() => assertImportFileMatchesExtension(utf8, "noextension")).not.toThrow();
+  });
+
+  it("csv 자리에 온 바이너리(널바이트/알려진 시그니처)를 거절한다", () => {
+    expectTypeInvalid(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]), "renamed-xlsx.csv");
+    expectTypeInvalid(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]), "photo.csv");
+    expectTypeInvalid(Buffer.from("%PDF-1.7 text only", "ascii"), "doc.csv");
+    // UTF-16LE 텍스트: 널바이트가 섞여 있어 CSV 파서가 읽으면 쓰레기가 된다.
+    expectTypeInvalid(Buffer.from("날짜,금액\n", "utf16le"), "utf16.csv");
   });
 });

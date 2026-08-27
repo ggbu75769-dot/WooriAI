@@ -59,6 +59,77 @@ const CATEGORY_KEYWORDS: Array<{ code: string; keywords: string[] }> = [
 
 const DANGEROUS_LEADING_CHARS = new Set(["=", "+", "-", "@", "\t", "\r"]);
 
+// ---------------------------------------------------------------------------
+// API-130: 확장자 위장 방어 (매직바이트 검사)
+// ---------------------------------------------------------------------------
+
+/** xlsx는 zip 컨테이너(OOXML) — 로컬 파일 헤더 시그니처로 시작한다. */
+const ZIP_LOCAL_FILE_HEADER = Buffer.from([0x50, 0x4b, 0x03, 0x04]); // "PK\x03\x04"
+
+/**
+ * csv 자리에 올 수 없는 것이 명백한 바이너리 컨테이너 시그니처들. 여기 없는
+ * 바이너리는 아래 널바이트 검사가 대부분 걸러낸다.
+ */
+const BINARY_SIGNATURES: Array<{ label: string; bytes: Buffer }> = [
+  { label: "zip/xlsx", bytes: ZIP_LOCAL_FILE_HEADER },
+  { label: "zip(empty)", bytes: Buffer.from([0x50, 0x4b, 0x05, 0x06]) },
+  { label: "xls(OLE2)", bytes: Buffer.from([0xd0, 0xcf, 0x11, 0xe0]) },
+  { label: "pdf", bytes: Buffer.from("%PDF-", "ascii") },
+  { label: "png", bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]) },
+  { label: "jpeg", bytes: Buffer.from([0xff, 0xd8, 0xff]) },
+  { label: "gif", bytes: Buffer.from("GIF8", "ascii") },
+  { label: "gzip", bytes: Buffer.from([0x1f, 0x8b]) }
+];
+
+function fileTypeFromName(fileName: string): "csv" | "xlsx" {
+  return fileName.split(".").pop()?.toLowerCase() === "xlsx" ? "xlsx" : "csv";
+}
+
+/**
+ * API-130: 업로드 파일의 형식을 **확장자 대신 실제 바이트**로 확인한다.
+ *
+ * 왜 필요한가: 지금까지 형식 판정은 파일명 확장자뿐이었다. `.xlsx`로 이름만
+ * 바꾼 임의의 바이너리는 exceljs가 zip을 열다 실패해야 비로소 걸러졌고,
+ * `.csv`로 이름만 바꾼 바이너리는 CP949 폴백 디코딩까지 통과해 쓰레기 행으로
+ * 파싱될 수 있었다.
+ *
+ * 규칙(느슨하게, 명백한 불일치만):
+ *  - xlsx: zip 로컬 파일 헤더 `PK\x03\x04`로 시작해야 한다. (OOXML은 항상 zip)
+ *  - csv:  널바이트(0x00)가 없어야 하고, 알려진 바이너리 시그니처로 시작하지
+ *          않아야 한다.
+ *
+ * csv에 **UTF-8 유효성은 요구하지 않는다** — 이 파서는 은행/카드사 내보내기의
+ * CP949(EUC-KR) csv를 명시적으로 지원하고(decodeCsvBuffer), CP949 바이트열은
+ * UTF-8로 유효하지 않기 때문이다. 널바이트 부재만으로도 UTF-16/실행파일/압축
+ * 파일 같은 실제 위장 사례는 걸러진다.
+ *
+ * 형식 불일치는 확장자 화이트리스트와 같은 오류 코드(IMPORT_FILE_TYPE_INVALID)로
+ * 400을 던진다 — 사용자에게는 "지원하지 않는 파일" 하나의 사실이기 때문.
+ */
+export function assertImportFileMatchesExtension(buffer: Buffer, fileName: string): void {
+  const fileType = fileTypeFromName(fileName);
+
+  if (fileType === "xlsx") {
+    if (!buffer.subarray(0, ZIP_LOCAL_FILE_HEADER.length).equals(ZIP_LOCAL_FILE_HEADER)) {
+      throw new BadRequestException({
+        code: "IMPORT_FILE_TYPE_INVALID",
+        message: "Only csv or xlsx files are allowed."
+      });
+    }
+    return;
+  }
+
+  const disguised =
+    buffer.includes(0) ||
+    BINARY_SIGNATURES.some(({ bytes }) => buffer.subarray(0, bytes.length).equals(bytes));
+  if (disguised) {
+    throw new BadRequestException({
+      code: "IMPORT_FILE_TYPE_INVALID",
+      message: "Only csv or xlsx files are allowed."
+    });
+  }
+}
+
 /**
  * Parses an uploaded import file (CSV or XLSX) buffer into normalized row
  * candidates. Pure/DB-free: callers (ImportPipelineService) resolve
@@ -72,11 +143,10 @@ export async function parseImportFile(
   fileName: string,
   options: ParseImportFileOptions = {}
 ): Promise<ParseImportFileResult> {
-  const extension = fileName.split(".").pop()?.toLowerCase();
   const maxRows = options.maxRows ?? DEFAULT_MAX_ROWS;
   const referenceYear = options.referenceYear ?? new Date().getUTCFullYear();
 
-  const fileType: "csv" | "xlsx" = extension === "xlsx" ? "xlsx" : "csv";
+  const fileType = fileTypeFromName(fileName);
   const grid = fileType === "xlsx" ? await parseXlsxGrid(buffer, maxRows) : parseCsvGrid(buffer);
 
   if (grid.length === 0) {

@@ -15,7 +15,11 @@ import {
   vi,
   type MockInstance
 } from "vitest";
-import { HttpKakaoOidcClient } from "../src/auth/kakao/kakao-oidc-client.http";
+import {
+  DEFAULT_KAKAO_HTTP_TIMEOUT_MS,
+  HttpKakaoOidcClient,
+  kakaoHttpTimeoutMs
+} from "../src/auth/kakao/kakao-oidc-client.http";
 
 // COV-T4: 카카오 실 HTTP OIDC 클라이언트 단위 테스트.
 //
@@ -170,6 +174,7 @@ async function expectUnauthorized(promise: Promise<unknown>, code: string): Prom
 
 const originalClientId = process.env.OAUTH_KAKAO_CLIENT_ID;
 const originalClientSecret = process.env.OAUTH_KAKAO_CLIENT_SECRET;
+const originalHttpTimeout = process.env.KAKAO_HTTP_TIMEOUT_MS;
 
 // FIX-KAKAO-DIAG: Nest Logger.warn 스파이 — 실패 경로가 진단 로그를 남기는지,
 // 그리고 로그에 code/token/nonce 같은 자격증명 값이 새지 않는지 단언하는 데 쓴다.
@@ -182,6 +187,7 @@ function warnOutput(): string {
 beforeEach(() => {
   process.env.OAUTH_KAKAO_CLIENT_ID = TEST_CLIENT_ID;
   delete process.env.OAUTH_KAKAO_CLIENT_SECRET;
+  delete process.env.KAKAO_HTTP_TIMEOUT_MS;
   fetchMock.mockReset();
   jwksHits = 0;
   connectionAttempts = 0;
@@ -208,6 +214,11 @@ afterAll(() => {
     delete process.env.OAUTH_KAKAO_CLIENT_SECRET;
   } else {
     process.env.OAUTH_KAKAO_CLIENT_SECRET = originalClientSecret;
+  }
+  if (originalHttpTimeout === undefined) {
+    delete process.env.KAKAO_HTTP_TIMEOUT_MS;
+  } else {
+    process.env.KAKAO_HTTP_TIMEOUT_MS = originalHttpTimeout;
   }
 });
 
@@ -294,6 +305,58 @@ describe("HttpKakaoOidcClient.exchangeCode", () => {
       client.exchangeCode({ code: "c", redirectUri: "https://app.wooriai.test/cb" }),
       "OAUTH_CODE_EXCHANGE_FAILED"
     );
+  });
+});
+
+// ---- RES-130: 코드↔토큰 교환 타임아웃 -------------------------------------
+// 맨 fetch는 undici 기본값(300초)을 물려받아, 카카오가 응답을 멈추면 로그인
+// 요청 하나가 5분간 매달린다. AbortSignal.timeout으로 끊고 기존 "네트워크 계층
+// 실패" 경로(401 OAUTH_CODE_EXCHANGE_FAILED)로 보내는지 확인한다.
+
+describe("RES-130 exchangeCode 타임아웃", () => {
+  it("KAKAO_HTTP_TIMEOUT_MS 파싱: 미설정/비숫자/0 이하이면 기본값 5초, 유효하면 그 값", () => {
+    expect(DEFAULT_KAKAO_HTTP_TIMEOUT_MS).toBe(5_000);
+    expect(kakaoHttpTimeoutMs({})).toBe(DEFAULT_KAKAO_HTTP_TIMEOUT_MS);
+    expect(kakaoHttpTimeoutMs({ KAKAO_HTTP_TIMEOUT_MS: "" })).toBe(DEFAULT_KAKAO_HTTP_TIMEOUT_MS);
+    expect(kakaoHttpTimeoutMs({ KAKAO_HTTP_TIMEOUT_MS: "abc" })).toBe(DEFAULT_KAKAO_HTTP_TIMEOUT_MS);
+    expect(kakaoHttpTimeoutMs({ KAKAO_HTTP_TIMEOUT_MS: "0" })).toBe(DEFAULT_KAKAO_HTTP_TIMEOUT_MS);
+    expect(kakaoHttpTimeoutMs({ KAKAO_HTTP_TIMEOUT_MS: "-1" })).toBe(DEFAULT_KAKAO_HTTP_TIMEOUT_MS);
+    expect(kakaoHttpTimeoutMs({ KAKAO_HTTP_TIMEOUT_MS: "1500" })).toBe(1_500);
+    expect(kakaoHttpTimeoutMs({ KAKAO_HTTP_TIMEOUT_MS: "1500.9" })).toBe(1_500);
+  });
+
+  it("토큰 엔드포인트에 abort 시그널을 붙여 호출한다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { id_token: "t" }));
+
+    const client = new HttpKakaoOidcClient();
+    await client.exchangeCode({ code: "c", redirectUri: "https://app.wooriai.test/cb" });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal!.aborted).toBe(false);
+  });
+
+  it("응답이 오지 않으면 타임아웃으로 끊고 401 OAUTH_CODE_EXCHANGE_FAILED로 매핑한다 (매달리지 않는다)", async () => {
+    process.env.KAKAO_HTTP_TIMEOUT_MS = "25";
+    // 실제 undici처럼: 시그널이 abort될 때까지 응답하지 않는 서버를 흉내낸다.
+    fetchMock.mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          const signal = (init as RequestInit).signal!;
+          signal.addEventListener("abort", () => reject(signal.reason));
+        })
+    );
+
+    const client = new HttpKakaoOidcClient();
+    await expectUnauthorized(
+      client.exchangeCode({ code: "secret-timeout-code", redirectUri: "https://app.wooriai.test/cb" }),
+      "OAUTH_CODE_EXCHANGE_FAILED"
+    );
+
+    // 진단 로그는 기존 네트워크 실패 경로 그대로 — 인가 코드는 남기지 않는다.
+    const output = warnOutput();
+    expect(output).toContain("네트워크");
+    expect(output).not.toContain("secret-timeout-code");
   });
 });
 
