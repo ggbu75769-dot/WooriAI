@@ -65,7 +65,11 @@ export class SettingsController {
       householdId,
       requiresSecondStep: true,
       confirmationText: "LEAVE HOUSEHOLD",
-      impact: ["shared child data is no longer accessible from this account"]
+      // 라운드 45 UX-AA: 이 배열은 앱의 "진행하면 이렇게 돼요" 상자에 **그대로** 그려진다
+      // (apps/mobile/app/settings/privacy.tsx의 PreviewSummary). 영문 원문은 되돌릴 수 없는
+      // 결정을 앞둔 화면에서 읽히지 않는 문장이었으므로, 앱의 다른 문구와 같은 해요체 사실
+      // 서술로 적는다(DNC-018). 데모 세션 거울은 apps/mobile/src/api/local-backend.ts.
+      impact: ["이 가구에 공유된 아이 기록을 볼 수 없어요"]
     };
   }
 
@@ -87,7 +91,11 @@ export class SettingsController {
       flowId: "account_delete",
       requiresSecondStep: true,
       confirmationText: "DELETE ACCOUNT",
-      impact: ["account access stops", "active household memberships are left"]
+      // 라운드 45 UX-AA: 위 leave-preview와 같은 이유로 해요체 사실 서술. 두 줄은 실제 동작
+      // 그대로다 -- withdrawUser(households/household-runtime.service.ts)가 사용자를
+      // withdrawn으로 바꾸고(카카오 로그인은 USER_WITHDRAWN으로 거절된다) 활성/대기 가구
+      // 구성원 행을 전부 left로 만든다.
+      impact: ["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"]
     };
   }
 

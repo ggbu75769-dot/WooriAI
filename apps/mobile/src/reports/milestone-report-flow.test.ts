@@ -41,7 +41,8 @@ describe("REP-103 milestone report card contract", () => {
     expect(reportSource).toContain("milestoneReportTitle(milestoneReport.type)");
     expect(reportSource).toContain("formatKrw(milestoneReport.totalKrw)");
     expect(reportSource).toContain("milestoneReport.daysCovered");
-    expect(reportSource).toContain("milestoneTopCategory.name");
+    // 라운드 45 UX-AA: 상위 카테고리 줄은 이제 순수 모듈이 만든다(이름 하나 → 상위 3개 + 비중).
+    expect(reportSource).toContain("milestoneTopCategoryLine(milestoneReport)");
 
     // Share button uses React Native's built-in Share API (no extra deps) and the pure
     // message builder.

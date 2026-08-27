@@ -1,9 +1,10 @@
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
 import { Alert, FlatList, Pressable, Text, View } from "react-native";
-import { LOCAL_SESSION_TOKEN } from "../src/api/client";
+import { LOCAL_SESSION_TOKEN, type CategoryListItem } from "../src/api/client";
+import { buildConflictValueFormatter, type ConflictValueFormatter } from "../src/offline/conflict-display";
 import {
   CONFLICT_BANNER_MESSAGE,
   CONFLICT_OPTION_ADOPT_SERVER_LABEL,
@@ -78,10 +79,12 @@ function SyncRow({ row, children }: { row: LocalExpenseRow; children?: React.Rea
 function ConflictFieldPicker({
   local,
   server,
+  formatValue,
   onConfirm
 }: {
   local: ExpensePayload;
   server: ExpensePayload;
+  formatValue: ConflictValueFormatter;
   onConfirm: (merged: ExpensePayload) => void;
 }) {
   const diff = diffExpenseFieldsForDisplay(local, server);
@@ -111,7 +114,11 @@ function ConflictFieldPicker({
                 paddingVertical: 8
               }}
             >
-              <Text style={{ color: theme.colors.brown, fontSize: 12, textAlign: "center" }}>내 값: {String(entry.localValue ?? "-")}</Text>
+              {/* 라운드 45 UX-AA: 표시만 사람 말로 바꾼다 -- 아래 병합 루프가 저장하는 값은
+                  여전히 원시 entry.serverValue다(src/offline/conflict-display.ts 주석). */}
+              <Text style={{ color: theme.colors.brown, fontSize: 12, textAlign: "center" }}>
+                내 값: {formatValue(entry.field, entry.localValue)}
+              </Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -131,7 +138,9 @@ function ConflictFieldPicker({
                 paddingVertical: 8
               }}
             >
-              <Text style={{ color: theme.colors.brown, fontSize: 12, textAlign: "center" }}>다른 기기 값: {String(entry.serverValue ?? "-")}</Text>
+              <Text style={{ color: theme.colors.brown, fontSize: 12, textAlign: "center" }}>
+                다른 기기 값: {formatValue(entry.field, entry.serverValue)}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -152,7 +161,17 @@ function ConflictFieldPicker({
   );
 }
 
-function ConflictRow({ row, token, queryClient }: { row: LocalExpenseRow; token: string; queryClient: ReturnType<typeof useQueryClient> }) {
+function ConflictRow({
+  row,
+  token,
+  queryClient,
+  formatValue
+}: {
+  row: LocalExpenseRow;
+  token: string;
+  queryClient: ReturnType<typeof useQueryClient>;
+  formatValue: ConflictValueFormatter;
+}) {
   const [sideBySide, setSideBySide] = useState(false);
   if (!row.conflictCurrent || row.conflictCurrent.deleted) {
     return (
@@ -184,6 +203,7 @@ function ConflictRow({ row, token, queryClient }: { row: LocalExpenseRow; token:
         <ConflictFieldPicker
           local={row.payload}
           server={row.conflictCurrent.expense}
+          formatValue={formatValue}
           onConfirm={(merged) => {
             setSideBySide(false);
             resolveConflictKeepChosenFields(token, queryClient, row.localId, merged);
@@ -276,6 +296,18 @@ export default function SyncStatusScreen() {
     void refreshOfflineSyncSnapshot();
   }, []);
 
+  /**
+   * 라운드 45 UX-AA: 충돌 값의 카테고리 이름은 기록 탭·리포트·CSV와 **같은 ["categories"] 캐시**
+   * 에서 온다. 여기서 useQuery로 새로 부르지 않는 이유: 이 화면은 오프라인·동기화 실패 상황에서
+   * 열리는 화면이라, 여기서만 새 요청을 쏘면 실패가 하나 더 늘 뿐이다. 캐시가 비어 있으면
+   * 포매터가 정적 8타일까지만 알고 나머지는 "알 수 없는 분류"라고 말한다(지어내지 않는다).
+   */
+  const cachedCategories = queryClient.getQueryData<{ categories: CategoryListItem[] }>(["categories"]);
+  const formatConflictValue = useMemo(
+    () => buildConflictValueFormatter(cachedCategories?.categories),
+    [cachedCategories?.categories]
+  );
+
   const pendingRows = snapshot.rows.filter((row) => row.syncState === "pending" || row.syncState === "syncing");
   const failedRows = snapshot.rows.filter((row) => row.syncState === "failed");
   const conflictRows = snapshot.rows.filter((row) => row.syncState === "conflict");
@@ -347,14 +379,21 @@ export default function SyncStatusScreen() {
         );
       }
       if (item.kind === "conflict") {
-        return <ConflictRow row={item.row} token={authToken ?? ""} queryClient={queryClient} />;
+        return (
+          <ConflictRow
+            row={item.row}
+            token={authToken ?? ""}
+            queryClient={queryClient}
+            formatValue={formatConflictValue}
+          />
+        );
       }
       if (item.kind === "failed") {
         return <FailedRow row={item.row} token={authToken ?? ""} queryClient={queryClient} />;
       }
       return <PendingRow row={item.row} />;
     },
-    [authToken, discardAll, failedRows.length, queryClient, retryAll]
+    [authToken, discardAll, failedRows.length, formatConflictValue, queryClient, retryAll]
   );
 
   const listHeader = (

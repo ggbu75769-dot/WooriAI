@@ -23,8 +23,25 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     const cardSource = source(sharedExportModule);
     expect(cardSource).toContain("EXPORT_RANGE_OPTIONS.map((option)");
     expect(cardSource).toContain("selected={controller.range === option.value}");
-    expect(cardSource).toContain('controller.busy ? "내보내는 중..." : "CSV로 내보내기"');
+    expect(cardSource).toContain('controller.busy ? "내보내는 중..." : EXPORT_SHARE_BUTTON_LABEL');
     expect(cardSource).toContain("disabled={controller.busy}");
+  });
+
+  /**
+   * 라운드 45 UX-AA(후보 7): 이 흐름은 파일을 만들지 않는다(share-csv.ts의 경로 결정 주석 --
+   * expo-file-system/expo-sharing이 없어 Share.share({ message })로 본문 텍스트를 보낸다).
+   * "CSV로 내보내기"만 보고 첨부 파일을 기다리면 아무 파일도 오지 않으므로, 화면이 그 사실과
+   * 다음 행동(붙여 넣고 .csv로 저장)을 먼저 말한다.
+   */
+  it("says the CSV goes out as text, not a file, and names the next step", () => {
+    const cardSource = source(sharedExportModule);
+    expect(cardSource).toContain(
+      '"파일이 아니라 텍스트로 공유돼요. 메일·메모에 붙여 넣고 .csv로 저장하면 엑셀에서 열 수 있어요."'
+    );
+    expect(cardSource).toContain('export const EXPORT_SHARE_BUTTON_LABEL = "CSV 텍스트로 공유"');
+    expect(cardSource).toContain("<Text style={exportCardNoticeStyle}>{EXPORT_TEXT_SHARE_NOTICE}</Text>");
+    // 공유 시트 제목도 같은 사실을 말한다(받는 쪽이 첨부 파일을 기대하지 않도록).
+    expect(source("src/export/share-csv.ts")).toContain('const CSV_SHARE_TITLE = "우리아이 지출 내역 (CSV 텍스트)"');
   });
 
   it("fetches via the existing listExpenses pager, builds the CSV, shares it, and toasts", () => {

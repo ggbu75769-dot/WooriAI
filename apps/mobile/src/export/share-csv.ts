@@ -27,11 +27,18 @@ export type ShareCsvOutcome = {
   droppedRows: number;
 };
 
+/**
+ * 라운드 45 UX-AA(후보 7): 제목이 "(CSV)"라고만 적혀 있으면 받는 쪽은 첨부 파일을 기대한다 --
+ * 실제로 가는 것은 위 주석대로 **본문 텍스트**다. 무엇이 가는지 제목에서 먼저 말한다
+ * (화면 쪽 안내는 src/export/ExpenseCsvExport.tsx의 카드 문구).
+ */
+const CSV_SHARE_TITLE = "우리아이 지출 내역 (CSV 텍스트)";
+
 export async function shareExpenseCsv(csv: string): Promise<ShareCsvOutcome> {
   const payload = capCsvForShare(csv);
   const result = await Share.share(
-    { message: payload.message, title: "우리아이 지출 내역 (CSV)" },
-    { dialogTitle: "우리아이 지출 내역 (CSV)", subject: "우리아이 지출 내역 (CSV)" }
+    { message: payload.message, title: CSV_SHARE_TITLE },
+    { dialogTitle: CSV_SHARE_TITLE, subject: CSV_SHARE_TITLE }
   );
   return {
     shared: result.action !== Share.dismissedAction,

@@ -45,6 +45,18 @@ export type ExpenseCsvExportController = {
 export const EXPORT_SIGNED_OUT_CAPTION = "로그인 후 이용 가능";
 export const EXPORT_MENU_TITLE = "데이터 내보내기(CSV)";
 
+/**
+ * 라운드 45 UX-AA(후보 7): 공유되는 것이 파일이 아니라 텍스트임을 미리 말한다.
+ *
+ * 사실 근거: share-csv.ts는 expo-file-system/expo-sharing 없이 RN Share.share({ message })로
+ * 보내므로 첨부 파일이 생기지 않는다. 그 사실을 화면이 말하지 않으면 사용자는 파일함을 뒤지게 되고,
+ * 다음 행동(붙여 넣고 .csv로 저장)도 알 길이 없다.
+ */
+export const EXPORT_TEXT_SHARE_NOTICE =
+  "파일이 아니라 텍스트로 공유돼요. 메일·메모에 붙여 넣고 .csv로 저장하면 엑셀에서 열 수 있어요.";
+/** 버튼 라벨도 실제 동작(공유 시트 열기)을 그대로 말한다. */
+export const EXPORT_SHARE_BUTTON_LABEL = "CSV 텍스트로 공유";
+
 export function useExpenseCsvExport(): ExpenseCsvExportController {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
@@ -155,9 +167,14 @@ export function ExpenseCsvExportCard({ controller }: { controller: ExpenseCsvExp
           />
         ))}
       </View>
+      {/* 라운드 45 UX-AA(후보 7): 이 흐름은 파일을 만들지 않는다 -- expo-file-system/expo-sharing이
+          없어 RN의 Share.share({ message })로 **본문 텍스트**를 보낸다(src/export/share-csv.ts의
+          경로 결정 주석). "CSV로 내보내기"만 보고 첨부 파일을 기다리면 아무 파일도 오지 않으므로,
+          무엇이 공유되고 어떻게 엑셀에서 여는지를 버튼 앞에서 밝힌다. */}
+      <Text style={exportCardNoticeStyle}>{EXPORT_TEXT_SHARE_NOTICE}</Text>
       <SecondaryButton
-        label={controller.busy ? "내보내는 중..." : "CSV로 내보내기"}
-        accessibilityLabel={controller.busy ? "내보내는 중" : "CSV로 내보내기"}
+        label={controller.busy ? "내보내는 중..." : EXPORT_SHARE_BUTTON_LABEL}
+        accessibilityLabel={controller.busy ? "내보내는 중" : EXPORT_SHARE_BUTTON_LABEL}
         disabled={controller.busy}
         onPress={() => {
           void controller.runExport();
@@ -188,6 +205,14 @@ const exportCardTitleStyle = {
   color: theme.colors.brown,
   fontSize: 14,
   fontWeight: "700"
+} as const;
+
+// 안내 한 줄: 카드 안의 보조 설명이라 본문 회색(gray600) 12px -- 흰 카드 위 대비는 앱 전역
+// 규칙과 같다(새 색을 만들지 않는다).
+const exportCardNoticeStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 18
 } as const;
 
 const exportChipRowStyle = {
