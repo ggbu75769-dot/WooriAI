@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import type { ListRenderItemInfo, SectionListData, ViewStyle } from "react-native";
@@ -14,6 +14,16 @@ import {
 } from "../../src/api/client";
 import { buildCategoryNameLookup, type CategoryNameLookup } from "../../src/categories";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
+import {
+  buildCalendarMonth,
+  calendarCellAccessibilityLabel,
+  CALENDAR_LEGEND_TEXT,
+  CALENDAR_WEEKDAY_LABELS_KO,
+  dailyTotalsFromDateGroups,
+  formatCompactKrw,
+  type CalendarCell,
+  type CalendarMonth
+} from "../../src/expenses/records-calendar";
 import { groupExpensesByDate, type RecordsDateGroup } from "../../src/expenses/records-date-groups";
 import {
   buildRecordsCategoryChips,
@@ -40,7 +50,18 @@ import { canGoToNextPeriod, periodLabelForOffset } from "../../src/period-naviga
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { announceForA11y, Card, CategoryChip, EmptyStateCard, ListRow, PrimaryButton, ScreenHeader, StatusBadge, Toast } from "../../src/ui";
+import {
+  announceForA11y,
+  Card,
+  CategoryChip,
+  EmptyStateCard,
+  ListRow,
+  PrimaryButton,
+  ScreenHeader,
+  SegmentedControl,
+  StatusBadge,
+  Toast
+} from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
@@ -237,6 +258,181 @@ function renderRecordsSectionHeader({ section }: { section: SectionListData<Reco
 // Note on getItemLayout: intentionally omitted -- ListRow height is not fixed (optional subtitle,
 // wrapping text under large font scales), so a hardcoded row height would corrupt scroll offsets.
 
+// ---------------------------------------------------------------------------------------------
+// UX-D: 월 캘린더 뷰
+//
+// 왜 리스트 안에 있나: 이 화면의 스크롤러는 SectionList 자체다(PERF-102 -- AppScreen/ScrollView로
+// 감싸면 가상화가 꺼진다). 그래서 달력도 별도 스크롤 컨테이너를 만들지 않고 ListHeaderComponent
+// 안에 그린다. 한 달은 최대 6주 × 7칸 = 42칸이라 가상화가 필요 없고(가상화 계약이 막는 것은
+// "행/섹션 헤더를 map으로 미리 마운트하는 것"이다 -- 지출 행은 여전히 renderItem으로만 나온다),
+// 42칸은 한 화면 안에 들어오는 고정 격자다.
+// ---------------------------------------------------------------------------------------------
+
+const RECORDS_VIEW_LIST = "리스트";
+const RECORDS_VIEW_CALENDAR = "달력";
+// SegmentedControl(src/ui.tsx)은 옵션 문자열 자체를 accessibilityLabel/accessibilityState로 쓴다
+// -- TalkBack은 "리스트, 탭, 선택됨"처럼 읽는다.
+const RECORDS_VIEW_OPTIONS = [RECORDS_VIEW_LIST, RECORDS_VIEW_CALENDAR];
+
+/**
+ * 음영 팔레트(DNC-017): **새 색을 만들지 않는다**. 0단계(지출 없음)는 카드 배경톤,
+ * 1~4단계는 기존 coral 스케일 토큰을 옅은 것부터 그대로 쓴다. rgba로 새 alpha 값을 지어내는
+ * 대신 스케일 토큰을 쓰는 이유: 그 다섯 색은 이미 디자인 시스템이 고른 단계라, 팔레트가
+ * 바뀌어도 달력만 따로 어긋나지 않는다.
+ *
+ * 글자는 전 단계 모두 brown(text.primary)이다 -- 가장 진한 coral[300] 위에서도 대비가
+ * 충분하고(A11Y-117의 "작은 coral 글자" 함정을 애초에 피한다), 단계마다 글자색을 바꾸면
+ * 옅은 칸의 숫자가 배경에 묻힌다.
+ */
+const calendarIntensityBackgrounds = [
+  theme.colors.beige,
+  theme.colors.coral[50],
+  theme.colors.coral[100],
+  theme.colors.coral[200],
+  theme.colors.coral[300]
+] as const;
+
+const calendarWeekRowStyle = {
+  flexDirection: "row",
+  gap: 4
+} as const;
+
+const calendarWeekdayLabelStyle = {
+  color: theme.colors.gray600,
+  flex: 1,
+  fontSize: theme.typography.caption.fontSize,
+  fontWeight: "700",
+  textAlign: "center"
+} as const;
+
+// 테두리 두께를 오늘/평일 모두 2로 고정하고 **색만** 바꾼다 -- 두께를 바꾸면 오늘 칸만 안쪽
+// 크기가 달라져 격자가 한 줄 흔들린다.
+const calendarCellStyle = {
+  alignItems: "center",
+  borderColor: "rgba(74, 63, 53, 0.10)",
+  borderRadius: theme.radii.small,
+  borderWidth: 2,
+  flex: 1,
+  gap: 1,
+  justifyContent: "center",
+  minHeight: theme.touchTarget,
+  paddingVertical: 4
+} as const;
+
+const calendarCellTodayBorderStyle = {
+  borderColor: theme.colors.mainCoral
+} as const;
+
+// 달 밖 빈 칸: 자리만 차지하고 눌리지 않는다(옆 달 날짜를 그려 봐야 이 달 목록에는 그날 기록이
+// 없어서 눌러도 아무 일도 일어나지 않는다).
+const calendarCellSpacerStyle = {
+  flex: 1,
+  minHeight: theme.touchTarget
+} as const;
+
+const calendarCellDayStyle = {
+  color: theme.colors.brown,
+  fontSize: theme.typography.caption.fontSize,
+  fontWeight: "700"
+} as const;
+
+const calendarCellAmountStyle = {
+  color: theme.colors.brown,
+  fontSize: 10,
+  fontWeight: "800"
+} as const;
+
+const calendarCellGiftStyle = {
+  color: theme.colors.gray600,
+  fontSize: 9,
+  fontWeight: "700"
+} as const;
+
+const calendarLegendStyle = {
+  color: theme.colors.gray600,
+  fontSize: theme.typography.caption.fontSize,
+  lineHeight: theme.typography.caption.lineHeight
+} as const;
+
+/**
+ * 달력 한 칸. 라벨/축약 표기 규칙은 전부 순수 모듈(src/expenses/records-calendar.ts)에 있다.
+ *
+ * 칸에 보이는 금액은 축약("4.5만")이고 스크린리더 라벨은 정확한 금액("45,000원")이다 --
+ * 44pt 칸에 "45,000원"을 넣으면 잘려서 **틀린 숫자**로 읽힌다.
+ */
+const CalendarDayCell = memo(function CalendarDayCell({
+  cell,
+  onSelectDate
+}: {
+  cell: CalendarCell;
+  onSelectDate: (date: string) => void;
+}) {
+  const date = cell.date;
+  if (date === null) return <View style={calendarCellSpacerStyle} />;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={calendarCellAccessibilityLabel(cell) ?? undefined}
+      onPress={() => onSelectDate(date)}
+      style={[
+        calendarCellStyle,
+        { backgroundColor: calendarIntensityBackgrounds[cell.intensity] },
+        cell.isToday ? calendarCellTodayBorderStyle : null
+      ]}
+    >
+      <Text style={calendarCellDayStyle}>{cell.day}</Text>
+      {cell.totalKrw > 0 ? (
+        <Text numberOfLines={1} style={calendarCellAmountStyle}>
+          {formatCompactKrw(cell.totalKrw)}
+        </Text>
+      ) : cell.hasGiftOnly ? (
+        // 선물·환불만 있던 날. "0원"을 찍으면 아무것도 안 한 날처럼 보이는데 그날엔 기록이 있다
+        // (UX-B 날짜 헤더가 소계를 감추는 것과 같은 판단).
+        <Text style={calendarCellGiftStyle}>선물</Text>
+      ) : null}
+    </Pressable>
+  );
+});
+
+/** 요일 헤더 + 주 격자 + 범례. 주 배열은 순수 모듈이 만들어 둔 것을 그대로 그린다. */
+const RecordsCalendarGrid = memo(function RecordsCalendarGrid({
+  month,
+  onSelectDate
+}: {
+  month: CalendarMonth;
+  onSelectDate: (date: string) => void;
+}) {
+  return (
+    <Card>
+      <View style={{ gap: 4 }}>
+        {/* 요일 머리글은 스크린리더에는 소음이다 -- 각 칸 라벨이 이미 "8월 27일"이라는 완전한
+            날짜를 읽어준다. */}
+        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={calendarWeekRowStyle}>
+          {CALENDAR_WEEKDAY_LABELS_KO.map((label) => (
+            <Text key={label} style={calendarWeekdayLabelStyle}>
+              {label}
+            </Text>
+          ))}
+        </View>
+        {month.weeks.map((week, weekIndex) => (
+          <View key={`${month.yearMonth}-week-${weekIndex}`} style={calendarWeekRowStyle}>
+            {week.map((cell) => (
+              <CalendarDayCell key={cell.key} cell={cell} onSelectDate={onSelectDate} />
+            ))}
+          </View>
+        ))}
+        <Text style={calendarLegendStyle}>{CALENDAR_LEGEND_TEXT}</Text>
+      </View>
+    </Card>
+  );
+});
+
+// scrollToLocation은 대상 섹션이 아직 마운트되지 않았을 때 실패할 수 있다. 목록으로의 전환은 이미
+// 끝났으므로(사용자가 원한 것의 대부분) 여기서는 조용히 삼킨다 -- 크래시나 경고를 띄우지 않는다.
+function handleRecordsScrollToIndexFailed() {
+  // no-op (실패 안전): 사용자는 이미 그 달의 목록을 보고 있다.
+}
+
 export default function RecordsScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
@@ -245,6 +441,15 @@ export default function RecordsScreen() {
   const [monthOffset, setMonthOffset] = useState(0);
   const [searchText, setSearchText] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  // UX-D: 리스트/달력 보기. 리포트 탭의 기간 세그먼트(app/(tabs)/reports.tsx의 `period`)와 같은
+  // 관례로 **화면 상태**만 둔다 -- 세션 간 저장은 하지 않는다. 기록 탭의 기본 동작은 "방금 적은
+  // 것을 확인하는 목록"이고, 달력은 그 위에서 잠깐 훑는 뷰다.
+  const [viewMode, setViewMode] = useState<string>(RECORDS_VIEW_LIST);
+  const isCalendarView = viewMode === RECORDS_VIEW_CALENDAR;
+  // 달력에서 누른 날짜. 리스트로 전환된 **다음 렌더**에 그 섹션으로 스크롤한다(전환과 스크롤을
+  // 한 렌더에서 하려 하면 아직 섹션이 만들어지기 전이라 좌표가 없다).
+  const [pendingScrollDate, setPendingScrollDate] = useState<string | null>(null);
+  const sectionListRef = useRef<SectionList<RecordsListItem, RecordsSection>>(null);
   // MOB-102 (round5a-sprint1-plan.md §3.3): flash message shown once a background flush confirms
   // a write that was previously only saved locally -- see src/offline/sync-controller.ts.
   const [confirmedFlash, setConfirmedFlash] = useState<string | null>(null);
@@ -533,14 +738,53 @@ export default function RecordsScreen() {
   // 화면에 실제로 보이는 행의 합이 된다(보이지 않는 행이 소계에 섞이면 그게 허위 표시다).
   // 필터가 없을 때 모든 소계의 합은 위 월 합계(monthlyTotalKrw)와 정확히 같다 -- 양쪽이
   // countsTowardMonthlyTotal(DNC-015)이라는 같은 술어를 쓰기 때문이다.
-  const sections = useMemo<RecordsSection[]>(
-    () =>
-      (showList ? groupExpensesByDate(listData, seoulToday) : []).map(({ rows, ...group }) => ({
-        ...group,
-        data: rows
-      })),
+  const dateGroups = useMemo(
+    () => (showList ? groupExpensesByDate(listData, seoulToday) : []),
     [showList, listData, seoulToday]
   );
+
+  // 달력 뷰에서는 섹션을 비운다 -- 같은 데이터를 격자와 목록으로 동시에 마운트할 이유가 없고,
+  // 목록을 그대로 둔 채 격자를 헤더에 얹으면 한 화면에 같은 내용이 두 번 나온다.
+  const sections = useMemo<RecordsSection[]>(
+    () =>
+      isCalendarView
+        ? []
+        : dateGroups.map(({ rows, ...group }) => ({
+            ...group,
+            data: rows
+          })),
+    [isCalendarView, dateGroups]
+  );
+
+  // UX-D: 달력 격자. 일별 합계는 **UX-B가 이미 만든 날짜 그룹**에서 그대로 나온다(소계 술어는
+  // countsTowardMonthlyTotal 한 곳뿐이라 칸의 금액 = 그날 섹션 헤더의 소계 = 월 합계의 부분).
+  // 필터가 걸린 listData에서 나온 그룹이므로, 카테고리 칩을 고르면 달력이 그 카테고리의
+  // 히트맵이 된다 -- 목록과 달력이 늘 같은 모집단을 본다.
+  const calendarMonth = useMemo(
+    () => (isCalendarView ? buildCalendarMonth(recordsYearMonth, dailyTotalsFromDateGroups(dateGroups), seoulToday) : null),
+    [isCalendarView, recordsYearMonth, dateGroups, seoulToday]
+  );
+
+  // 달력 칸 → 그날 기록. 목록으로 전환하고, 그 다음 렌더에서 해당 날짜 섹션으로 스크롤한다.
+  // 안정된 참조여야 CalendarDayCell의 memo가 매 렌더 깨지지 않는다.
+  const handleSelectCalendarDate = useCallback((date: string) => {
+    setViewMode(RECORDS_VIEW_LIST);
+    setPendingScrollDate(date);
+    announceForA11y(`${formatSpentOn(date)} 기록`);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingScrollDate) return;
+    const sectionIndex = sections.findIndex((section) => section.key === pendingScrollDate);
+    // 한 번 시도하고 끝낸다 -- 재시도 루프를 돌면 사용자가 직접 스크롤한 위치를 빼앗는다.
+    setPendingScrollDate(null);
+    if (sectionIndex < 0) return;
+    try {
+      sectionListRef.current?.scrollToLocation({ sectionIndex, itemIndex: 0, viewPosition: 0, animated: true });
+    } catch {
+      // 실패 안전: 스크롤이 안 되더라도 사용자는 이미 그 달의 목록을 보고 있다(onScrollToIndexFailed도 참고).
+    }
+  }, [pendingScrollDate, sections]);
 
   // Rendered as an element (not an inline component) so the TextInput keeps focus across
   // re-renders -- FlatList remounts ListHeaderComponent when it's a new function each render.
@@ -612,6 +856,11 @@ export default function RecordsScreen() {
             {lastMonthInsight.text}
           </Text>
         ) : null}
+        {/* UX-D: 월 요약 바로 아래 리스트/달력 토글. 요약 숫자를 본 다음 "그래서 언제 썼지?"로
+            넘어가는 자리라, 달력 진입점이 그 숫자 옆에 있어야 한다. */}
+        <View style={{ paddingTop: 6 }}>
+          <SegmentedControl options={RECORDS_VIEW_OPTIONS} value={viewMode} onChange={setViewMode} />
+        </View>
       </View>
 
       <TextInput
@@ -643,6 +892,13 @@ export default function RecordsScreen() {
           />
         ))}
       </ScrollView>
+
+      {/* UX-D: 달력 격자. 서버 목록이 아직 안 왔을 때(로딩·오류)는 그리지 않는다 -- 빈 격자는
+          "이번 달 지출이 하나도 없다"는 **사실이 아닌** 말이 된다. 그때는 아래 ListEmptyComponent의
+          스켈레톤/재시도 카드가 그대로 나온다. */}
+      {isCalendarView && showList && calendarMonth ? (
+        <RecordsCalendarGrid month={calendarMonth} onSelectDate={handleSelectCalendarDate} />
+      ) : null}
 
       {hasVisibleRecords ? (
         <Card>
@@ -692,6 +948,7 @@ export default function RecordsScreen() {
   return (
     <View testID="screen-EXP-004" style={{ backgroundColor: theme.colors.background, flex: 1 }}>
       <SectionList
+        ref={sectionListRef}
         sections={sections}
         keyExtractor={recordsRowKey}
         renderItem={renderRecordsRow}
@@ -711,7 +968,12 @@ export default function RecordsScreen() {
         }
         ItemSeparatorComponent={RecordsRowSeparator}
         ListHeaderComponent={listHeader}
-        ListEmptyComponent={listEmpty}
+        // UX-D: 달력 뷰에서는 섹션이 비어 있는 것이 **정상**이라(격자가 헤더에 있다) 빈 상태 카드를
+        // 띄우지 않는다. 다만 보여줄 기록이 실제로 없을 때(로딩·오류·빈 달·필터 0건)는 달력 뷰에서도
+        // 같은 안내가 필요하므로 그대로 내보낸다.
+        ListEmptyComponent={isCalendarView && hasVisibleRecords ? undefined : listEmpty}
+        // UX-D: 달력에서 누른 날짜로 스크롤할 때 대상 섹션이 아직 마운트되지 않았으면 조용히 포기한다.
+        onScrollToIndexFailed={handleRecordsScrollToIndexFailed}
         initialNumToRender={12}
         maxToRenderPerBatch={12}
         windowSize={7}
