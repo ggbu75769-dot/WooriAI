@@ -111,8 +111,9 @@ describe("admin analytics summary API client (ADM-009)", () => {
     expect((error as AdminApiError).message).toBe("days는 7 또는 30만 지원해요.");
   });
 
-  // admin-api.ts는 레지스트리 초기 6종의 미러다. ANA-127이 더한 두 이벤트는 이 목록이 아니라
-  // 응답의 byName(레지스트리 생성)으로 들어와 페이지의 ANA127_EVENT_LABELS가 라벨을 채운다.
+  // admin-api.ts는 레지스트리 초기 6종의 미러다. ANA-127이 더한 두 이벤트와 라운드 39 UX-P가
+  // 더한 report_share_tapped는 이 목록이 아니라 응답의 byName(레지스트리 생성)으로 들어와
+  // 페이지의 ANA127_EVENT_LABELS가 라벨을 채운다.
   it("exposes the six mirrored registry event names with Korean labels (0건도 항상 표에 표시)", () => {
     expect(ANALYTICS_EVENT_NAMES).toEqual([
       "app_opened",
@@ -270,10 +271,12 @@ describe("Admin CMS analytics page (ADM-009)", () => {
     expect(source).toContain("summary.purchaseFollowup");
   });
 
-  it("labels the two ANA-127 events in the per-event table (they arrive via byName, not the 6-name mirror)", () => {
+  it("labels the appended registry events in the per-event table (they arrive via byName, not the 6-name mirror)", () => {
     const source = readSource("app/analytics/page.tsx");
     expect(source).toContain('item_detail_viewed: "준비템 상세 열람"');
     expect(source).toContain('purchase_followup_answered: "구매 확인 응답"');
+    // 라운드 39 UX-P가 레지스트리 맨 뒤에 붙인 이름 — 라벨이 없으면 표에 원문 이름이 노출된다.
+    expect(source).toContain('report_share_tapped: "리포트 공유"');
     expect(source).toContain("ANA127_EVENT_LABELS[name]");
     // 레지스트리 밖 이름을 덧붙이는 기존 경로는 그대로 살아 있어야 이 두 이름이 표에 나온다.
     expect(source).toContain("summary.byName.filter((entry) => !(ANALYTICS_EVENT_NAMES as string[]).includes(entry.name))");

@@ -238,7 +238,7 @@ describe("라운드 43 리뷰 M-1: 고지는 링크 집합이 정한다", () => 
  *
  * 종전에는 스폰서 링크에 disclosureText만 있으면 그 문장 하나로 끝났다. 그래서 제휴가 섞인
  * 집합(= 실제로 수수료를 받는 화면)에서 CTA 인접 수수료 고지가 통째로 사라졌다. 어드민이
- * 넣은 커스텀 문구도, 서버 시드의 기본값("스폰서 상품 예시입니다.", seed-data.ts:1225)도
+ * 넣은 커스텀 문구도, 서버 시드의 기본값("스폰서 상품 예시예요.", seed-data.ts:1225)도
  * 수수료를 말하지 않으므로 둘 다 실재하는 경로다(DNC-010 위반).
  */
 describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항상 남는다", () => {
@@ -248,7 +248,7 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
   /** 조합 전수: [스폰서 문구, 그 문구가 수수료를 말하는가] */
   const sponsoredTexts: Array<[string | null, boolean]> = [
     ["스폰서 광고예요.", false], // 어드민 커스텀(수수료 언급 없음)
-    ["스폰서 상품 예시입니다.", false], // 서버 시드 기본값
+    ["스폰서 상품 예시예요.", false], // 서버 시드 기본값
     ["Sponsored listing.", false], // 서버 시드가 영문으로 남은 경우
     ["스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.", true],
     ["스폰서예요. 구매 시 수수료가 발생할 수 있어요.", true], // 다른 표현이지만 이미 고지함
@@ -273,9 +273,9 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
   });
 
   it("스폰서 링크 자신이 제휴인 경우도 같은 규칙을 받는다", () => {
-    const sponsoredAffiliate = { isAffiliate: true, isSponsored: true, disclosureText: "스폰서 상품 예시입니다." };
+    const sponsoredAffiliate = { isAffiliate: true, isSponsored: true, disclosureText: "스폰서 상품 예시예요." };
     expect(productLinksDisclosureText([sponsoredAffiliate])).toBe(
-      `스폰서 상품 예시입니다. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`
+      `스폰서 상품 예시예요. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`
     );
   });
 
@@ -291,8 +291,8 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
       `우리아이 제휴 파트너 링크예요. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`
     );
     // 이미 수수료를 말하고 있으면(표현이 달라도) 그대로 둔다.
-    const seeded = { isAffiliate: true, isSponsored: false, disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다." };
-    expect(productLinksDisclosureText([seeded])).toBe("이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다.");
+    const seeded = { isAffiliate: true, isSponsored: false, disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요." };
+    expect(productLinksDisclosureText([seeded])).toBe("제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요.");
   });
 
   it("라운드 45 O-6: '수수료'가 들어 있어도 우리가 받는 돈이 아니면 고지를 덧붙인다", () => {
@@ -304,7 +304,7 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
     expect(statesAffiliateCommission("배송 수수료는 별도예요.")).toBe(false);
     expect(statesAffiliateCommission("카드 수수료 포함 금액이에요.")).toBe(false);
     // 실제로 쓰이는 두 고지(서버 시드 · 데모 픽스처)는 그대로 "이미 고지함"이다.
-    expect(statesAffiliateCommission("이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다.")).toBe(true);
+    expect(statesAffiliateCommission("제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요.")).toBe(true);
     expect(statesAffiliateCommission("이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.")).toBe(true);
     expect(AFFILIATE_DISCLOSURE_CORE_TERMS.length).toBeGreaterThan(1);
   });

@@ -840,7 +840,15 @@ export default function NewExpenseScreen() {
                   value={customDateText}
                 />
                 {dateInputError ? (
-                  <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{dateInputError}</Text>
+                  // a11y: 입력 도중 나타나는 오류라 포커스가 TextInput에 남아 있다 — 스크린리더가
+                  // 스스로 읽어 주지 않으면 조용히 막힌다. (auth)/login.tsx:285 관례와 같은 조합.
+                  <Text
+                    accessibilityRole="alert"
+                    accessibilityLiveRegion="polite"
+                    style={{ color: theme.colors.danger, fontSize: 12 }}
+                  >
+                    {dateInputError}
+                  </Text>
                 ) : null}
               </View>
             ) : null}

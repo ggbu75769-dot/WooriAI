@@ -1,6 +1,7 @@
 import { MAX_DELAY_MS, computeNextRetryAtIso } from "./backoff";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import { mergeOutboxMutation } from "./outbox-merge";
+import { isPermissionDeniedSyncError } from "./permission-denied";
 import {
   generateOfflineId,
   type ExpensePayload,
@@ -632,9 +633,17 @@ async function listFailedLocalIds(store: OfflineStore): Promise<string[]> {
  *
  * Rows are requeued in `listLocalExpenses` order and the actual sending stays flushOutbox's job,
  * which walks the outbox in creation order -- so ordering guarantees are untouched.
+ *
+ * 라운드 47 UX-AB: 403 권한 거절 행은 제외한다. 화면이 그 행의 개별 "재시도" 버튼을 이미 안내로
+ * 바꿔 두었는데(app/sync-status.tsx), 일괄 버튼이 같은 행을 다시 큐에 올리면 화면이 말한 것과
+ * 실제 동작이 어긋난다 -- 게다가 재시도해 봐야 같은 403이라 attemptCount만 소모한다.
+ * "전체 버리기"는 그대로 전량을 대상으로 한다(버리는 것은 403 행에도 유효한 유일한 선택지다).
  */
 export async function retryAllFailedMutations(store: OfflineStore): Promise<number> {
-  const localIds = await listFailedLocalIds(store);
+  const rows = await store.listLocalExpenses();
+  const localIds = rows
+    .filter((row) => row.syncState === "failed" && !isPermissionDeniedSyncError(row.lastError))
+    .map((row) => row.localId);
   for (const localId of localIds) {
     await retryFailedMutation(store, localId);
   }

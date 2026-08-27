@@ -22,6 +22,7 @@ import {
   SYNC_STATUS_RETRY_LABEL,
   SYNC_STATUS_SYNCING_LABEL
 } from "../src/offline/messages";
+import { isPermissionDeniedSyncError, SYNC_STATUS_PERMISSION_DENIED_HINT } from "../src/offline/permission-denied";
 import {
   discardAllOfflineMutations,
   discardOfflineMutation,
@@ -231,7 +232,11 @@ function ConflictRow({
 }
 
 /** SYNC-127: 개별 재시도/삭제 버튼 묶음. 문구·동작 모두 예전 그대로 -- 일괄 액션이 생겼다고
- * 한 건만 다루고 싶은 사용자의 길을 없애지 않는다. */
+ * 한 건만 다루고 싶은 사용자의 길을 없애지 않는다.
+ *
+ * 라운드 47 UX-AB: 단 하나의 예외가 403 권한 거절이다. 재시도가 정의상 무익한 행에까지 재시도
+ * 버튼을 남겨 두면 눌러도 같은 403이 돌아오는 버튼을 반복해 누르게 된다 -- 그 자리만 안내 한 줄로
+ * 바꾸고 삭제는 그대로 남긴다(판정 근거는 src/offline/permission-denied.ts). */
 const FailedRow = memo(function FailedRow({
   row,
   token,
@@ -241,6 +246,14 @@ const FailedRow = memo(function FailedRow({
   token: string;
   queryClient: ReturnType<typeof useQueryClient>;
 }) {
+  if (isPermissionDeniedSyncError(row.lastError)) {
+    return (
+      <SyncRow row={row}>
+        <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMISSION_DENIED_HINT}</Text>
+        <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
+      </SyncRow>
+    );
+  }
   return (
     <SyncRow row={row}>
       <View style={{ flexDirection: "row", gap: 8 }}>

@@ -16,11 +16,16 @@ import styles from "../../src/components/admin-page.module.css";
 /**
  * ANA-127: registry 이벤트 이름 중 admin-api.ts의 6종 미러가 작성된 뒤 추가된 것들.
  * API 응답의 `byName`은 계약 레지스트리(packages/contracts/src/analytics.ts)에서 생성되므로
- * 이 두 이름도 0건 포함해 이미 내려온다 — 여기서는 한국어 라벨만 보탠다.
+ * 이 이름들도 0건 포함해 이미 내려온다 — 여기서는 한국어 라벨만 보탠다.
+ *
+ * 라운드 39 UX-P가 `report_share_tapped`를 같은 규칙으로 뒤에 붙이면서 세 종이 됐다
+ * (근거: packages/contracts/src/analytics.ts:195-198). 라벨이 없으면 표에 원문 이벤트
+ * 이름이 그대로 노출되므로 레지스트리에 이름이 늘 때마다 여기도 같이 채운다.
  */
 const ANA127_EVENT_LABELS: Record<string, string> = {
   item_detail_viewed: "준비템 상세 열람",
-  purchase_followup_answered: "구매 확인 응답"
+  purchase_followup_answered: "구매 확인 응답",
+  report_share_tapped: "리포트 공유"
 };
 
 type FunnelStage = {
