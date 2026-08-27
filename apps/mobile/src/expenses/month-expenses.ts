@@ -23,7 +23,12 @@ import { collectExpensePages } from "../export/expense-page-collector";
  *   이 함수는 그것을 잡지 않는다 -- react-query의 기존 오류 경로(기록 탭의 "불러오지 못했어요"
  *   재시도 카드)로 그대로 나가야 한다. 부분 목록을 성공으로 위장해 돌려주면 이 티켓이 고치려는
  *   조용한 잘림이 그대로 남는다.
- * - `totalAmountKrw`는 첫 페이지 값(그 달 전체 집계 -- 페이지 합이 아니다)을 그대로 잇는다.
+ - 서버의 `totalAmountKrw`는 **일부러 노출하지 않는다**. 기록 탭의 월 합계는
+ *   `reconcileMonthlyExpenses(...).monthlyTotalKrw`(오프라인 대기 행 포함)이고 홈은
+ *   `.expenses`만 쓴다 -- 여기서 서버 집계를 함께 내보내면 다음 사람이 그것을 화면
+ *   합계로 쓸 수 있고, 그러면 오프라인 대기 행이 빠진 숫자가 화면의 다른 합계와
+ *   어긋난다(F3가 잡았던 소스 비대칭의 재생산). 서버 집계가 필요하면
+ *   collectExpensePages를 직접 쓰는 CSV 경로처럼 명시적으로 받아라.
  * - 로컬 목업(src/api/local-backend.ts)은 limit/cursor를 무시하고 그 달 전량을 한 번에 주며
  *   `hasMore`를 붙이지 않으므로, 수집 루프가 첫 페이지에서 자연 종료한다(동작 불변).
  *
@@ -38,11 +43,9 @@ export type MonthExpensePageFetcher = (page: { limit: number; cursor?: string })
 export type MonthExpenses = {
   /** 그 달의 모든 페이지를 이어 붙인 전량. */
   expenses: Expense[];
-  /** 첫 페이지의 totalAmountKrw = 그 달 전체 집계. */
-  totalAmountKrw: number;
 };
 
 export async function fetchMonthExpenses(fetchPage: MonthExpensePageFetcher): Promise<MonthExpenses> {
   const collected = await collectExpensePages((cursor) => fetchPage({ limit: EXPENSE_LIST_MAX_LIMIT, cursor }));
-  return { expenses: collected.expenses, totalAmountKrw: collected.totalAmountKrw };
+  return { expenses: collected.expenses };
 }

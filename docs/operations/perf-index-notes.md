@@ -369,10 +369,14 @@ Prisma `@@index`로 표현할 수 없어 `schema.prisma`에는 주석으로 남�
 000017이 생겨도 **잉여가 아니다** — 목록 경로는 000017, 집계 경로는 000001이 나눠 맡는다.
 (ADM-123의 중복 인덱스 관찰과 달리 여기서는 제거 후보가 없다.)
 
-## 남은 일 — 깊은 페이지 O(offset)을 실제로 없애려면 (측정 완료, 미적용)
+## 후속 집행 기록 — 깊은 페이지 O(offset) 해소 ((A) 적용 완료, 라운드 25 `0ec1ab3`)
 
-이번 티켓의 범위는 인덱스 추가 + 주석 정정이라 **쿼리 모양은 바꾸지 않았다**. 다만 다음
-두 방안을 같은 DB에서 실측해 뒀으므로, 별도 티켓에서 바로 집행할 수 있다.
+아래 두 방안을 같은 DB에서 실측했고, **(A)를 같은 라운드에서 집행했다** —
+`expensesForChild`의 `spentOnBounds`가 커서 상한 `lte: after.spentOn`을 AND로 명시하며,
+`yearMonth`의 `gte/lt`와 같은 키를 객체 병합으로 함께 담는다. 결과 집합 항등성은
+`expenses-pagination.e2e.test.ts`의 왕복 계약(205행 동일 `spent_on` 동률 포함)이,
+플랜 모양(`spent_on <= S`가 Index Cond로 상승)은 `perf-indexes.db.test.ts`의 R24-M3
+후속A 단언이 고정한다. (B)는 이득 폭이 미미해 집행하지 않는다.
 
 | 방안 | offset 10,000 (000017 적용 상태) | 성립 조건 |
 |---|---|---|
@@ -380,17 +384,11 @@ Prisma `@@index`로 표현할 수 없어 `schema.prisma`에는 주석으로 남�
 | **(A) 잉여 sargable 술어 추가** — OR와 함께 `spentOn: { lte: after.spentOn }`를 AND로 더한다 | **228buf / 0.20ms** (**45배 / 38배**) | OR 세 분기가 모두 `spent_on <= S`를 함의하므로 **논리적으로 항등**(결과 집합 불변). Prisma로 표현 가능. 단 `yearMonth` 사용 시 기존 `spentOn: { gte, lt }`와 같은 키라 객체를 병합해야 한다 |
 | **(B) raw SQL 행 비교** — `(spent_on, created_at, id) < (…)` | **206buf / 0.18ms** | `$queryRaw`가 필요(21컬럼 수기 매핑 + 타입 안전성 상실). 대신 `Index Cond`에 `ROW(...)`가 그대로 올라가 진짜 seek가 된다 |
 
-(A)가 비용 대비 효과가 압도적이다 — 한 줄짜리 항등 술어로 45배다. Postgres가 (B)의
-행 비교에서 스스로 `spent_on <= S`를 Index Cond로 끌어올리는 것과 정확히 같은 효과를,
-Prisma가 표현할 수 있는 형태로 손으로 주는 것이기 때문이다. 다만 **결과 집합이 바뀌지
-않는다는 항등성**과 `yearMonth` 병합을 회귀 테스트로 고정해야 하므로(기존
-`expenses-pagination.e2e.test.ts`의 "왕복하면 페이지 없는 목록과 정확히 같다" 계약이
-그 안전망이다) 별도 티켓으로 남긴다.
-
-두 방안이 실행 가능하다는 증거(같은 인덱스에서 행 비교가 `Index Cond`로 올라간다는 것)와
-현재 상태(3분기 OR은 `Filter`로 남는다는 것)는 `perf-indexes.db.test.ts`의 R24-M3 블록이
-플랜 단위로 고정한다 — 언젠가 Prisma가 튜플 비교를 지원해 그 테스트가 깨지면, 그때가
-`expensesForChild`의 정정 주석을 되돌릴 때다.
+(A)를 택한 이유: 한 줄짜리 항등 술어로 45배 — Postgres가 (B)의 행 비교에서 스스로
+`spent_on <= S`를 Index Cond로 끌어올리는 것과 같은 효과를 Prisma가 표현 가능한 형태로
+손으로 주는 것이다. 3분기 OR 자체는 여전히 Filter로 남지만(플랜에서 확인), 인덱스 범위가
+커서 날짜 이하로 좁혀져 재스캔 규모가 동률 구간 하나로 준다. ⚠️ `lte`는 잉여 술어처럼
+보여도 지우면 O(offset)으로 회귀한다 — R24-M3 후속A 플랜 단언이 지키는 것이 바로 이것이다.
 
 ## 검증
 

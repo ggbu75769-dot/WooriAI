@@ -77,8 +77,9 @@ describe("REC-124(H1) 한 달 지출 전량 수집", () => {
 
     expect(result.expenses).toHaveLength(300);
     expect(result.expenses.map((expense) => expense.id)).toEqual(all.map((expense) => expense.id));
-    // 첫 페이지의 totalAmountKrw(= 그 달 전체 집계)를 그대로 잇는다 -- 페이지 합이 아니다.
-    expect(result.totalAmountKrw).toBe(3_000_000);
+    // 서버 집계 totalAmountKrw는 노출하지 않는다 -- 화면 합계는 오프라인 대기 행을 포함하는
+    // reconcileMonthlyExpenses가 계산하며, 여기서 서버 값을 내보내면 소스 비대칭(F3)이 재생산된다.
+    expect("totalAmountKrw" in result).toBe(false);
     // 요청은 항상 서버 상한 limit으로 나가고, 두 번째부터 직전 nextCursor를 싣는다.
     expect(requests).toEqual([
       { limit: EXPENSE_LIST_MAX_LIMIT, cursor: undefined },
@@ -101,7 +102,6 @@ describe("REC-124(H1) 한 달 지출 전량 수집", () => {
     const collected = await fetchMonthExpenses(localLike);
     expect(calls).toBe(1);
     expect(collected.expenses).toHaveLength(12);
-    expect(collected.totalAmountKrw).toBe(120_000);
   });
 
   it("전량을 모으지 못하면 부분 목록을 성공으로 위장하지 않고 오류를 던진다", async () => {
