@@ -636,6 +636,14 @@ export default function HomeScreen() {
       lastYearMonth ? reconciledMonthRecords(lastMonthExpenses.data?.expenses, childOfflineRows, lastYearMonth) : null,
     [lastMonthExpenses.data, childOfflineRows, lastYearMonth]
   );
+  // UX-R(M): 보기 전용(viewer·gift_participant)으로 참여한 사람에게는 서버가 지출 쓰기를 막는다.
+  // 홈은 그 입구를 세 개(퀵액션·빈 상태·FAB) 들고 있는 화면이라, 잠금 판정 하나를 여기서 받아
+  // 전부 같은 안내로 답한다. 비세션 미리보기·역할 미상에서는 항상 열려 있다(픽셀락 HOME-001은
+  // 세션을 지운 렌더라 판정이 발동하지 않는다) -- src/family/record-permissions.ts.
+  //
+  // 라운드 41 K-5/K-8: 이 판정이 주간 카드 문구와 출생 전환 프롬프트에도 쓰이므로 선언이 그
+  // 두 계산보다 **위**에 있어야 한다(훅 호출 순서는 렌더마다 같아야 하니 자리는 여기로 고정).
+  const expenseGate = useExpenseEntryGate();
   // UX-J: 주간 계산을 조기 반환(에러/로딩)보다 위로 올린다 -- 아래 알림 평가 훅과 화면의 주간
   // 카드가 **같은 한 값**을 쓰게 하기 위해서다(훅은 조건부로 호출할 수 없으므로 자리는 여기).
   // 비세션 미리보기는 종전처럼 계산하지 않는다.
@@ -646,10 +654,14 @@ export default function HomeScreen() {
             todayIso: seoulToday,
             // F6: 서버 목록 원본이 아니라 오프라인 대기·수정 행까지 반영한 재조정 결과다.
             thisMonthRecords: weeklyThisMonthRecords,
-            lastMonthRecords: weeklyLastMonthRecords
+            lastMonthRecords: weeklyLastMonthRecords,
+            // 라운드 41 K-5: 가족이 기록한 보기 전용 홈에서도 카드는 그대로 뜬다(합계·비교는
+            // 이 사람에게도 참이다). 다만 기록 0일일 때의 스트릭 줄만 권유 → 중립 서술로
+            // 바뀐다 -- 판정과 문구는 전부 순수 모듈에 있다(src/home/weekly-summary.ts).
+            expenseEntryLocked: expenseGate.locked
           })
         : null,
-    [hasSession, seoulToday, weeklyThisMonthRecords, weeklyLastMonthRecords]
+    [hasSession, seoulToday, weeklyThisMonthRecords, weeklyLastMonthRecords, expenseGate.locked]
   );
   // 라운드 37 G-1: 알림 평가에 넘길 주간 값은 "없음"을 **두 가지로** 나눠서 말해야 한다. 콜드
   // 스타트에서는 /home 응답이 지출 캐시보다 먼저 오는 것이 정상이라, 그 첫 평가에 weekly=null을
@@ -673,11 +685,6 @@ export default function HomeScreen() {
     queryFn: () => listChildren(authToken!)
   });
   const selectedChild = childrenQuery.data?.children.find((child) => child.id === childId) ?? null;
-  // UX-R(M): 보기 전용(viewer·gift_participant)으로 참여한 사람에게는 서버가 지출 쓰기를 막는다.
-  // 홈은 그 입구를 세 개(퀵액션·빈 상태·FAB) 들고 있는 화면이라, 잠금 판정 하나를 여기서 받아
-  // 전부 같은 안내로 답한다. 비세션 미리보기·역할 미상에서는 항상 열려 있다(픽셀락 HOME-001은
-  // 세션을 지운 렌더라 판정이 발동하지 않는다) -- src/family/record-permissions.ts.
-  const expenseGate = useExpenseEntryGate();
   // UX-G 첫 10분: "이 아이에게 지출 기록이 하나라도 있는가" -- 첫 실행 안내 카드와 첫 기록
   // 축하 배너가 **같은 한 값**을 본다(두 판정이 어긋나면 축하와 유도가 동시에 뜬다).
   //  - 서버 항: /home의 recentExpenses는 선물 포함 · spentOn desc LIMIT 3이므로
@@ -977,7 +984,15 @@ export default function HomeScreen() {
   // 준비템·마일스톤·100일 리포트가 조용히 비활성인 채로 남기 때문이다. 판정·문구는 전부 순수
   // 모듈에 있고(경과 일수를 세지 않고 재촉하지 않는다 -- DNC-020/DNC-018), 화면은 링크만 그린다.
   // 카운터와 같은 hasSession 게이트라 비세션 HOME-001 미리보기에는 아무것도 늘지 않는다.
-  const birthTransitionPrompt = hasSession
+  //
+  // 라운드 41 K-8: 잠긴 세션에는 이 줄을 만들지 않는다. 프롬프트가 데려가는 곳은 아이 설정
+  // (PATCH /children/:id)이고, 서버는 **아이 수정에도 편집 권한**을 요구한다 —
+  // apps/api/src/onboarding/onboarding-core.service.ts의 updateChild가 지출 생성과 똑같이
+  // `requireChildAccess(user, childId, true)`를 지난다(아니면 403). 그래서 보기 전용
+  // 참여자에게 이 프롬프트는 눌러도 403으로 끝나는 입구였다(문구는 순수 모듈에만 있다).
+  // 새 판정을 만들지 않고 expenseGate.locked를 그대로 쓰는 근거가 바로 그 공통 관문이다 —
+  // 두 동작의 권한 조건이 서버에서 같으므로 판정을 두 벌로 갈라 두면 어긋날 자리만 생긴다.
+  const birthTransitionPrompt = hasSession && !expenseGate.locked
     ? evaluateBirthTransitionPrompt({
         stageMode: selectedChild?.stageMode,
         dueDate: selectedChild?.dueDate,

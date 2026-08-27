@@ -8,6 +8,7 @@ import {
   itemHistoryScopeNotice,
   type ItemHistoryExpense
 } from "./item-history";
+import type { LocalExpenseRow } from "../offline/types";
 
 const source = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
 
@@ -23,6 +24,40 @@ const base = {
   itemName: "기저귀",
   currentExpenseId: "current"
 };
+
+/** 오프라인 저장소 행 하나(src/home/budget-edit.test.ts와 같은 관례). */
+function offlineRow(partial: {
+  localId: string;
+  childId?: string;
+  canonicalId?: string | null;
+  syncState?: LocalExpenseRow["syncState"];
+  pendingDelete?: boolean;
+  itemName?: string;
+  amountKrw?: number;
+  spentOn?: string;
+}): LocalExpenseRow {
+  const childId = partial.childId ?? "child-1";
+  return {
+    localId: partial.localId,
+    canonicalId: partial.canonicalId ?? null,
+    childId,
+    payload: {
+      childId,
+      categoryId: "c0a7e901-0000-4c01-8c01-c47e900ec001",
+      amountKrw: partial.amountKrw ?? 9000,
+      spentOn: partial.spentOn ?? "2026-08-18",
+      itemName: partial.itemName ?? "기저귀",
+      expenseType: "expense"
+    },
+    version: null,
+    syncState: partial.syncState ?? "pending",
+    pendingDelete: partial.pendingDelete ?? false,
+    conflictCurrent: null,
+    lastError: null,
+    createdAt: "2026-08-18T00:00:00.000Z",
+    updatedAt: "2026-08-18T00:00:00.000Z"
+  };
+}
 
 describe("라운드 41 UX-U(B-ⓓ) 이 품목 이력", () => {
   it("캐시가 없으면(콜드 스타트) 섹션 자체를 만들지 않는다 -- 새 요청도 '0건'도 없다", () => {
@@ -54,17 +89,17 @@ describe("라운드 41 UX-U(B-ⓓ) 이 품목 이력", () => {
     expect(buildItemHistory({ ...base, cachedMonthExpenses: [row({ id: "current" })] })).toBeNull();
   });
 
-  it("매칭 규칙은 item-name-match(부분일치 · 공백/대소문자 무시)를 그대로 쓴다", () => {
+  it("정규화(공백·대소문자)는 item-name-match의 단일 소스를 그대로 쓴다", () => {
     const history = buildItemHistory({
       ...base,
       itemName: "물티슈",
       cachedMonthExpenses: [
         row({ id: "spaced", itemName: "물 티슈", spentOn: "2026-08-03" }),
-        row({ id: "prefix", itemName: "물티슈 대용량", spentOn: "2026-08-02" }),
         row({ id: "other", itemName: "기저귀", spentOn: "2026-08-01" })
       ]
     });
-    expect(history?.rows.map((entry) => entry.id)).toEqual(["spaced", "prefix"]);
+    // "물 티슈"와 "물티슈"는 같은 물건을 띄어쓰기만 다르게 적은 것이다.
+    expect(history?.rows.map((entry) => entry.id)).toEqual(["spaced"]);
 
     // 영문 상품명은 대소문자를 무시한다.
     const english = buildItemHistory({
@@ -75,16 +110,38 @@ describe("라운드 41 UX-U(B-ⓓ) 이 품목 이력", () => {
     expect(english?.rows.map((entry) => entry.id)).toEqual(["en"]);
   });
 
-  it("정확히 같은 이름이 먼저, 같은 등급 안에서는 최신순으로 놓는다", () => {
+  it("라운드 41 K-11 ②: 느슨한 매치(prefix/contains/containedBy)는 이력에 넣지 않는다", () => {
+    // "기저귀 크림" 상세에서 "기저귀" 기록이 이력으로 뜨면, 사용자는 **다른 물건의 단가**로
+    // 이 지출이 비싼지 싼지를 판단하게 된다. 자동완성(넓게 건져 올리는 것이 목적)과 목적이 다르다.
+    const cream = buildItemHistory({
+      ...base,
+      itemName: "기저귀 크림",
+      cachedMonthExpenses: [
+        row({ id: "diaper", itemName: "기저귀", spentOn: "2026-08-20" }),
+        row({ id: "cream", itemName: "기저귀크림", spentOn: "2026-08-02" })
+      ]
+    });
+    expect(cream?.rows.map((entry) => entry.id)).toEqual(["cream"]);
+
+    // 반대 방향(prefix)도 마찬가지 -- "기저귀" 상세에 "기저귀 대형"은 다른 물건이다.
+    expect(
+      buildItemHistory({
+        ...base,
+        itemName: "기저귀",
+        cachedMonthExpenses: [row({ id: "prefix", itemName: "기저귀 대형" })]
+      })
+    ).toBeNull();
+  });
+
+  it("같은 이름끼리는 최신순으로 놓는다", () => {
     const history = buildItemHistory({
       ...base,
       cachedMonthExpenses: [
-        row({ id: "partial-new", itemName: "기저귀 크림", spentOn: "2026-08-20" }),
         row({ id: "exact-old", itemName: "기저귀", spentOn: "2026-08-02" }),
         row({ id: "exact-new", itemName: "기저귀", spentOn: "2026-08-15" })
       ]
     });
-    expect(history?.rows.map((entry) => entry.id)).toEqual(["exact-new", "exact-old", "partial-new"]);
+    expect(history?.rows.map((entry) => entry.id)).toEqual(["exact-new", "exact-old"]);
   });
 
   it("기본 3건까지만 보여 준다", () => {
@@ -123,6 +180,77 @@ describe("라운드 41 UX-U(B-ⓓ) 이 품목 이력", () => {
     expect(history?.rows[0].dateLabel).toBe("2026/08/09");
   });
 
+  it("라운드 41 K-11 ①: 아직 올라가지 않은 대기·실패·충돌 행도 '이번 달 기록'에 든다", () => {
+    const history = buildItemHistory({
+      ...base,
+      cachedMonthExpenses: [row({ id: "server", spentOn: "2026-08-01", amountKrw: 12000 })],
+      offline: {
+        childId: "child-1",
+        rows: [
+          offlineRow({ localId: "l-pending", spentOn: "2026-08-05", amountKrw: 9000 }),
+          offlineRow({ localId: "l-failed", syncState: "failed", spentOn: "2026-08-06", amountKrw: 8000 }),
+          offlineRow({ localId: "l-conflict", syncState: "conflict", spentOn: "2026-08-07", amountKrw: 7000 })
+        ]
+      }
+    });
+    // 서버 id가 없는 신규 행은 로컬 id로 식별한다 -- 어떤 서버 지출 id와도 겹치지 않는다.
+    expect(history?.rows.map((entry) => entry.id)).toEqual(["local:l-conflict", "local:l-failed", "local:l-pending"]);
+    expect(history?.rows.map((entry) => entry.amountLabel)).toEqual(["7,000원", "8,000원", "9,000원"]);
+  });
+
+  it("K-11 ①: 로컬에서 고친 서버 행은 **바뀐 값**으로 한 번만 나온다(중복·낡은 금액 금지)", () => {
+    const history = buildItemHistory({
+      ...base,
+      cachedMonthExpenses: [row({ id: "e-1", spentOn: "2026-08-10", amountKrw: 12000 })],
+      offline: {
+        childId: "child-1",
+        rows: [offlineRow({ localId: "l-1", canonicalId: "e-1", spentOn: "2026-08-10", amountKrw: 15000 })]
+      }
+    });
+    expect(history?.rows.map((entry) => entry.id)).toEqual(["e-1"]);
+    expect(history?.rows[0].amountLabel).toBe("15,000원");
+  });
+
+  it("K-11 ①: 삭제 대기 행은 빠지고, 다른 아이의 행은 섞이지 않는다", () => {
+    expect(
+      buildItemHistory({
+        ...base,
+        cachedMonthExpenses: [],
+        offline: {
+          childId: "child-1",
+          rows: [offlineRow({ localId: "l-gone", pendingDelete: true })]
+        }
+      })
+    ).toBeNull();
+
+    expect(
+      buildItemHistory({
+        ...base,
+        cachedMonthExpenses: [],
+        offline: { childId: "child-1", rows: [offlineRow({ localId: "l-other", childId: "child-2" })] }
+      })
+    ).toBeNull();
+  });
+
+  it("K-11 ①: 지금 편집 중인 서버 행의 로컬 사본은 '자기 자신'으로 걸러진다", () => {
+    expect(
+      buildItemHistory({
+        ...base,
+        cachedMonthExpenses: [row({ id: "current" })],
+        offline: {
+          childId: "child-1",
+          rows: [offlineRow({ localId: "l-current", canonicalId: "current", amountKrw: 15000 })]
+        }
+      })
+    ).toBeNull();
+  });
+
+  it("K-11 ①: 스냅숏을 넘기지 않거나 아이를 모르면 종전대로 서버 캐시만 본다", () => {
+    const rows = [offlineRow({ localId: "l-1" })];
+    expect(buildItemHistory({ ...base, cachedMonthExpenses: [] })).toBeNull();
+    expect(buildItemHistory({ ...base, cachedMonthExpenses: [], offline: { childId: null, rows } })).toBeNull();
+  });
+
   it("이 목록이 이번 달 캐시만 본다는 사실을 범위 고지로 밝힌다(라운드 39 UX-P 관례)", () => {
     expect(itemHistoryScopeNotice("2026-08")).toBe("이번 달(8월) 기록 기준이에요");
     expect(itemHistoryScopeNotice("2026-12")).toBe("이번 달(12월) 기록 기준이에요");
@@ -148,6 +276,14 @@ describe("라운드 41 UX-U(B-ⓓ) 지출 상세 배선", () => {
     );
     // 기존 네 개(expense · categories · children · household-members) 외에 새 쿼리가 생기지 않았다.
     expect(screenSource.match(/useQuery\(\{/g) ?? []).toHaveLength(4);
+  });
+
+  it("라운드 41 K-11 ①: 오프라인 스냅숏을 그대로 넘겨 모집단을 맞춘다(새 요청 없음)", () => {
+    const screenSource = screen();
+    expect(screenSource).toContain("const offlineSyncSnapshot = useOfflineSyncSnapshot();");
+    expect(screenSource).toContain("offline: { rows: offlineSyncSnapshot.rows, childId: historyChildId }");
+    // 화면이 직접 재조정하지 않는다 -- childId·달로 좁히는 일도 순수 모듈이 한다.
+    expect(screenSource).not.toContain("reconcileMonthlyExpenses(");
   });
 
   it("순수 모듈의 결과가 null이면 섹션을 아예 렌더하지 않는다", () => {

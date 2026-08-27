@@ -51,6 +51,12 @@ import { previousYearMonth, type ComparableExpenseRecord } from "./last-month-co
  * ## 톤 (DNC-018)
  * 사실만 말한다. 기록이 없는 주에도 "며칠이나 빼먹었어요" 같은 말을 하지 않고 다음 한 걸음만
  * 권한다 — "이번 주 첫 기록을 남겨보세요".
+ *
+ * 라운드 41 K-5: 그 "다음 한 걸음"이 **할 수 없는 걸음**인 세션이 있다. 보기 전용·선물 참여로
+ * 참여한 사람은 서버가 지출 쓰기를 막으므로(record-permissions.ts), 가족이 남긴 기록으로 카드가
+ * 떠 있는데 스트릭 줄만 "첫 기록을 남겨보세요"라고 권하는 상태가 만들어졌다. 그래서 잠긴
+ * 세션에서는 그 한 줄만 중립 서술로 바꾼다 — 카드(합계·비교)는 그대로 둔다. 자세한 근거는
+ * 아래 `expenseEntryLocked` 주석.
  */
 
 export type WeeklyComparisonDirection = "less" | "more" | "same";
@@ -89,10 +95,31 @@ export type WeeklySummaryInput = {
   thisMonthRecords: ComparableExpenseRecord[] | null | undefined;
   /** 지난달 지출 행 — `["expenses", childId, 지난달]` 캐시. 미로딩/실패면 null. */
   lastMonthRecords: ComparableExpenseRecord[] | null | undefined;
+  /**
+   * 라운드 41 K-5 — 이 세션이 **보기 전용이라 지출 기록 진입이 잠겼는지**
+   * (src/family/record-permissions.ts의 `isExpenseEntryLocked` 결과 그대로, 홈은
+   * `useExpenseEntryGate().locked`를 넘긴다). 기본값 false = 종전 동작.
+   *
+   * 바꾸는 것은 **스트릭 줄의 권유 문구 하나뿐**이다(아래 `streakText` 참고). 카드 자체는
+   * 접지 않는다 — 합계와 지난주 비교는 기록할 수 없는 사람에게도 그대로 참이고, 가족이 남긴
+   * 지출을 보는 것이 이 사람이 이 앱에서 하는 일이다. 라운드 40 J-5가 빈 홈의 **약속 문장**만
+   * 사실로 바꾸고 카드를 지우지 않은 것과 같은 판단이다.
+   */
+  expenseEntryLocked?: boolean;
 };
 
 /** 주는 월요일에 시작한다. */
 export const WEEK_LENGTH_DAYS = 7;
+
+/** 이번 주 기록이 0일일 때의 기본 문구 — 다음 한 걸음을 권한다(기록할 수 있는 세션). */
+export const WEEKLY_STREAK_EMPTY_NUDGE_TEXT = "이번 주 첫 기록을 남겨보세요";
+
+/**
+ * 라운드 41 K-5 — 같은 자리의 **보기 전용** 문구. 권유 대신 사실만 말한다.
+ * 문장이 참인지가 기준이다: 이 사람에게 "이번 주 기록이 아직 없어요"는 끝까지 참이고,
+ * "남겨보세요"는 서버가 허용하지 않는 행동을 권하는 말이다.
+ */
+export const WEEKLY_STREAK_VIEW_ONLY_EMPTY_TEXT = "이번 주 기록이 아직 없어요";
 
 function inRange(spentOn: string, startIso: string, endIso: string): boolean {
   // date-only 문자열은 사전순 비교 = 날짜순 비교다.
@@ -177,7 +204,16 @@ export function evaluateWeeklySummary(input: WeeklySummaryInput): WeeklySummary 
         ? `이번 주 ${formatKrw(totalKrw)} · ${comparisonSentence(comparison)}`
         : `이번 주 ${formatKrw(totalKrw)}`
       : "이번 주 지출은 아직 없어요";
-  const streakText = recordedDayCount > 0 ? `이번 주 ${recordedDayCount}일 기록했어요` : "이번 주 첫 기록을 남겨보세요";
+  // 라운드 41 K-5: 기록이 0일인 주의 문구는 **권유**다("이번 주 첫 기록을 남겨보세요"). 보기 전용
+  // 참여자에게 그 권유는 지킬 수 없는 약속이라(눌러도 "기록은 관리자·공동부모가 남길 수 있어요"만
+  // 돌아온다) 같은 자리에 중립 서술을 놓는다 — 없는 사실을 만들지 않고, 비난하지도 않는다
+  // (DNC-018). 기록이 1일이라도 있으면 그 문장은 이미 사실 서술이라 잠금과 무관하게 그대로다.
+  const streakText =
+    recordedDayCount > 0
+      ? `이번 주 ${recordedDayCount}일 기록했어요`
+      : input.expenseEntryLocked
+        ? WEEKLY_STREAK_VIEW_ONLY_EMPTY_TEXT
+        : WEEKLY_STREAK_EMPTY_NUDGE_TEXT;
 
   return {
     weekStartIso,

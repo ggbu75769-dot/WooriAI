@@ -239,6 +239,104 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
       expect(isExpenseEntryLocked({ hasSession: true, role })).toBe(false);
     });
 
+    /**
+     * 라운드 41 K-3 — v3 블롭: **역할 표는 있는데 가구 목록(householdIds)이 없다**.
+     *
+     * 이 조합이 위 version-2 블롭보다 나쁜 이유: 표가 있으므로 "모름"이 아닌데도
+     * `isSingleKnownHousehold`가 목록을 요구해 거짓이 되고, 결국 역할이 undefined로 떨어져
+     * **보기 전용이 잠기지 않는다**. 잠기지 않으니 잠금 안내도 없고, 안내가 없으니 J-3의
+     * 재검증도 발화하지 않아 재로그인 전까지 회복 경로가 아예 없었다. 그래서 이 상태는
+     * "고쳐야 할 상태"로 판정되고(`needsHouseholdIdsRepair`), 호출부가 백그라운드 재검증으로
+     * 스스로 빠져나온다.
+     */
+    it("v3 블롭(역할 표 있음 · 가구 목록 없음)은 잠기지 않은 채로 남고, 자가 치유 대상으로 판정된다", async () => {
+      process.env.EXPO_PUBLIC_TEST_LOGIN = "0";
+      const { secureSessionStorage } = await loadModules();
+
+      await secureSessionStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({
+          state: {
+            accessToken: "real-prod-access-token",
+            refreshToken: "real-prod-refresh-token",
+            userId: "user-1",
+            defaultHouseholdId: "household-1",
+            isTestSession: false,
+            lastEndReason: null,
+            householdRoles: { "household-1": "viewer" }
+            // householdIds: version 4에서 추가된 키 -- v3 블롭에는 없다.
+          },
+          version: 3
+        })
+      );
+
+      const { useSessionStore } = await import("./session.store");
+      const { isExpenseEntryLocked, needsHouseholdIdsRepair, resolveHouseholdRole } = await import(
+        "../family/record-permissions"
+      );
+      await useSessionStore.persist.rehydrate();
+
+      const state = useSessionStore.getState();
+      expect(state.householdRoles).toEqual({ "household-1": "viewer" });
+      expect(state.householdIds).toBeNull();
+
+      // 실제 화면 경로: 아이-가구 해석이 아직 없으면(홈 첫 프레임) 폴백이 꺼져 있어 잠기지 않는다.
+      const unresolvedRole = resolveHouseholdRole({
+        householdRoles: state.householdRoles,
+        knownHouseholdIds: state.householdIds
+      });
+      expect(unresolvedRole).toBeUndefined();
+      expect(isExpenseEntryLocked({ hasSession: true, role: unresolvedRole })).toBe(false);
+
+      // 그래서 이 세션은 재검증으로 스스로 고쳐야 하는 상태다.
+      expect(
+        needsHouseholdIdsRepair({ householdRoles: state.householdRoles, knownHouseholdIds: state.householdIds })
+      ).toBe(true);
+
+      // 재검증이 서버 응답 한 벌(표 + 목록)을 넣고 나면 같은 경로가 정확히 잠긴다.
+      useSessionStore.getState().setHouseholdRoles([{ id: "household-1", role: "viewer" }]);
+      const healed = useSessionStore.getState();
+      expect(healed.householdIds).toEqual(["household-1"]);
+      expect(
+        needsHouseholdIdsRepair({ householdRoles: healed.householdRoles, knownHouseholdIds: healed.householdIds })
+      ).toBe(false);
+      const healedRole = resolveHouseholdRole({
+        householdRoles: healed.householdRoles,
+        knownHouseholdIds: healed.householdIds
+      });
+      expect(healedRole).toBe("viewer");
+      expect(isExpenseEntryLocked({ hasSession: true, role: healedRole })).toBe(true);
+    });
+
+    /**
+     * 라운드 41 K-3 — 같은 상태를 만드는 다른 경로: 로그인 시점에 가구가 없던 계정
+     * (`households: []`)이 초대를 수락한 순간. `setHouseholdRole`은 **한 가구에 대한 사실**만
+     * 담으므로 목록은 계속 null이고, 그래서 v3 블롭과 똑같이 잠기지 않는다.
+     */
+    it("초대 수락 계정(로그인 시 households: [])도 같은 '표 있음 · 목록 없음' 상태가 된다", async () => {
+      process.env.EXPO_PUBLIC_TEST_LOGIN = "0";
+      await loadModules();
+      const { useSessionStore } = await import("./session.store");
+      const { needsHouseholdIdsRepair } = await import("../family/record-permissions");
+
+      useSessionStore.getState().setSession({
+        accessToken: "real-prod-access-token",
+        refreshToken: "real-prod-refresh-token",
+        userId: "user-1",
+        households: []
+      });
+      expect(useSessionStore.getState().householdRoles).toBeNull();
+      expect(useSessionStore.getState().householdIds).toBeNull();
+
+      useSessionStore.getState().setHouseholdRole("household-new", "viewer");
+      const joined = useSessionStore.getState();
+      expect(joined.householdRoles).toEqual({ "household-new": "viewer" });
+      expect(joined.householdIds).toBeNull();
+      expect(
+        needsHouseholdIdsRepair({ householdRoles: joined.householdRoles, knownHouseholdIds: joined.householdIds })
+      ).toBe(true);
+    });
+
     it("손상된 역할 표(배열·숫자·빈 값)를 정규화한다 — 남는 게 없으면 null(모름)", async () => {
       process.env.EXPO_PUBLIC_TEST_LOGIN = "0";
       const { secureSessionStorage } = await loadModules();

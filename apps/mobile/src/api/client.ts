@@ -312,6 +312,12 @@ export type AcceptInviteResponse = {
 
 export type ImportJob = {
   id: string;
+  /**
+   * 라운드 41 K-2: 이 잡이 묶인 아이. 서버가 확정 시 지출을 넣는 곳이 바로 이 값이라
+   * (import-pipeline.service.ts의 confirmImport → insertExpense(job.childId)), 검수 화면의
+   * "대상 아이" 표시는 선택 아이 스토어가 아니라 **이 필드**를 기준으로 삼는다.
+   */
+  childId: string;
   status: "uploaded" | "analyzing" | "preview_ready" | "confirmed" | "failed" | "cancelled";
   rowCount: number;
   candidateCount: number;

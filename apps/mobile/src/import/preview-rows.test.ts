@@ -13,7 +13,11 @@ import {
   importBulkSelectionLabel,
   importRowBadge,
   importRowDisplay,
+  importRowNotice,
+  importRowSelectability,
   isImportRowConfirmable,
+  isImportRowReviewable,
+  isImportRowSelectable,
   resolveImportTargetChildName,
   rollbackImportRowSelection,
   setImportRowSelection,
@@ -21,6 +25,8 @@ import {
   toggleImportRowSelection,
   IMPORT_ATTENTION_FILTER_EMPTY_TEXT,
   IMPORT_ROW_LOCKED_MESSAGE,
+  IMPORT_ROW_REVIEW_MESSAGE,
+  IMPORT_ROW_REVIEWABLE_STATUSES,
   IMPORT_TARGET_CHILD_LABEL,
   type ImportPreviewRow
 } from "./preview-rows";
@@ -41,22 +47,67 @@ function row(overrides: Partial<ImportPreviewRow> = {}): ImportPreviewRow {
   };
 }
 
-describe("UX-S 확정 불가 행 잠금 (서버 규칙을 화면이 말한다)", () => {
-  it('validationStatus가 "valid"일 때만 확정 가능하다 -- 모르는 사유는 잠금 쪽에 선다', () => {
-    expect(isImportRowConfirmable(row())).toBe(true);
+/**
+ * 라운드 41 K-1. 이 describe가 지키는 것은 **서버 규칙의 미러**다:
+ * apps/api/src/onboarding/import-pipeline.service.ts:405-432의 validationStatusForImportRow는
+ * `duplicate_candidate` / `low_confidence_duplicate_candidate`를 **`!row.userReviewed`일 때만**
+ * 매기고, updateImportRow는 어떤 PATCH에서도 userReviewed를 세운다 -- 즉 그 두 행은 체크 한
+ * 번이면 valid가 된다. e2e 증거는 apps/api/test/import-parsing.db.test.ts에 있다.
+ */
+describe("K-1 행 상태 3분류 (valid · 검토 가능 · 잠금)", () => {
+  it("검토 가능 상태는 서버가 userReviewed 하나로 푸는 두 가지뿐이다", () => {
+    expect([...IMPORT_ROW_REVIEWABLE_STATUSES]).toEqual(["duplicate_candidate", "low_confidence_duplicate_candidate"]);
+  });
+
+  it("valid / 검토 가능 / 잠금으로 갈리고, 모르는 새 상태는 잠금 쪽에 선다", () => {
+    expect(importRowSelectability(row())).toBe("valid");
+    for (const status of IMPORT_ROW_REVIEWABLE_STATUSES) {
+      expect(importRowSelectability(row({ validationStatus: status })), status).toBe("reviewable");
+    }
     for (const status of [
       "missing_date",
       "invalid_date",
       "missing_item_name",
       "invalid_amount",
-      "low_confidence_duplicate_candidate",
+      "missing_category",
       "some_future_server_reason"
     ]) {
-      expect(isImportRowConfirmable(row({ validationStatus: status })), status).toBe(false);
+      expect(importRowSelectability(row({ validationStatus: status })), status).toBe("locked");
     }
   });
 
-  it("확정 불가 행은 낙관적으로도 체크되지 않는다 (서버가 selected를 false로 되돌리므로)", () => {
+  it("확정 가능(=지금 이대로 가져갈 수 있음)은 valid뿐 -- 검토 가능 행은 아직 아니다", () => {
+    expect(isImportRowConfirmable(row())).toBe(true);
+    for (const status of [...IMPORT_ROW_REVIEWABLE_STATUSES, "missing_date", "some_future_server_reason"]) {
+      expect(isImportRowConfirmable(row({ validationStatus: status })), status).toBe(false);
+    }
+    // 확정 본문에도 실리지 않는다 -- 서버가 조용히 버릴 id를 보내지 않는다(체크가 서버에
+    // 반영돼 valid가 된 뒤에 실린다).
+    expect(confirmableSelectedRowIds([row({ id: "dup", selected: true, validationStatus: "duplicate_candidate" })])).toEqual([]);
+  });
+
+  it("체크박스를 그리는 행 = valid + 검토 가능. 잠금만 빠진다", () => {
+    expect(isImportRowSelectable(row())).toBe(true);
+    for (const status of IMPORT_ROW_REVIEWABLE_STATUSES) {
+      expect(isImportRowSelectable(row({ validationStatus: status })), status).toBe(true);
+      expect(isImportRowReviewable(row({ validationStatus: status })), status).toBe(true);
+    }
+    expect(isImportRowSelectable(row({ validationStatus: "missing_date" }))).toBe(false);
+    expect(isImportRowReviewable(row())).toBe(false);
+  });
+
+  it("검토 가능 행은 탭하면 낙관적으로 체크된다 (서버가 valid로 재계산해 주므로 거짓 체크가 아니다)", () => {
+    for (const status of IMPORT_ROW_REVIEWABLE_STATUSES) {
+      const rows = [row({ id: "a", selected: false, validationStatus: status })];
+      const next = toggleImportRowSelection(rows, "a");
+      expect(next, status).not.toBe(rows);
+      expect(next[0].selected, status).toBe(true);
+      // 상태까지 앞질러 고치지는 않는다 -- 정정은 서버 응답의 몫이다.
+      expect(next[0].validationStatus, status).toBe(status);
+    }
+  });
+
+  it("잠긴 행은 낙관적으로도 체크되지 않는다 (서버가 selected를 false로 되돌리므로)", () => {
     const rows = [row({ id: "a", selected: false, validationStatus: "missing_date" })];
     const next = toggleImportRowSelection(rows, "a");
     // 같은 배열 참조를 그대로 돌려준다 -- 캐시가 갈아 끼워지지 않아 행 memo가 유지된다.
@@ -64,27 +115,47 @@ describe("UX-S 확정 불가 행 잠금 (서버 규칙을 화면이 말한다)",
     expect(next[0].selected).toBe(false);
   });
 
-  it("확정 불가 행은 일괄 선택 대상에서도 빠지고, 확정 요청 본문에도 실리지 않는다", () => {
+  it("일괄 선택은 검토 가능 행을 포함하고 잠긴 행만 뺀다", () => {
     const rows = [
       row({ id: "ok", selected: false }),
+      row({ id: "dup", selected: false, validationStatus: "duplicate_candidate" }),
+      row({ id: "low", selected: false, validationStatus: "low_confidence_duplicate_candidate" }),
       row({ id: "locked", selected: true, validationStatus: "missing_item_name" })
     ];
-    expect(buildImportBulkSelectionPlan(rows).targetRowIds).toEqual(["ok"]);
+    expect(buildImportBulkSelectionPlan(rows)).toEqual({ nextSelected: true, targetRowIds: ["ok", "dup", "low"] });
     // selected=true인 잠금 행(서버가 미처 되돌리기 전의 캐시)도 확정 id에서 빠진다.
     expect(confirmableSelectedRowIds(rows)).toEqual([]);
     expect(confirmableSelectedRowIds([row({ id: "ok" })])).toEqual(["ok"]);
+    expect(setImportRowSelection(rows, "dup", true)).not.toBe(rows);
+    expect(setImportRowSelection(rows, "locked", false)).toBe(rows);
   });
 
-  it("잠금 안내 문구는 앱 밖에서 고쳐야 한다는 사실을 말한다 (해요체)", () => {
+  it("안내 문장: 검토 가능은 '확인하면 된다'고, 잠금만 '원본을 고쳐 다시 올리라'고 말한다", () => {
+    expect(importRowNotice(row())).toBeNull();
+    for (const status of IMPORT_ROW_REVIEWABLE_STATUSES) {
+      expect(importRowNotice(row({ validationStatus: status })), status).toBe(IMPORT_ROW_REVIEW_MESSAGE);
+    }
+    expect(importRowNotice(row({ validationStatus: "missing_date" }))).toBe(IMPORT_ROW_LOCKED_MESSAGE);
+    expect(importRowNotice(row({ validationStatus: "some_future_server_reason" }))).toBe(IMPORT_ROW_LOCKED_MESSAGE);
+  });
+
+  it("문구는 해요체이고, 검토 가능 행에는 다시 올리라는 거짓 안내가 붙지 않는다", () => {
     expect(IMPORT_ROW_LOCKED_MESSAGE).toBe("이 행은 가져올 수 없어요 · 원본 파일에서 고친 뒤 다시 올려 주세요");
     expect(IMPORT_ROW_LOCKED_MESSAGE.endsWith("주세요")).toBe(true);
+    expect(IMPORT_ROW_REVIEW_MESSAGE).toBe("확인하면 가져올 수 있어요 · 체크하면 확인한 것으로 볼게요");
+    expect(IMPORT_ROW_REVIEW_MESSAGE).toContain("가져올 수 있어요");
+    expect(IMPORT_ROW_REVIEW_MESSAGE).not.toContain("다시 올려");
   });
 
-  it("배지: 낮은 신뢰도 > 확인 필요 > 없음 순으로 하나만 붙는다", () => {
+  it("배지: 낮은 신뢰도 > 중복 후보 > 확인 필요 > 없음 순으로 하나만 붙는다", () => {
     expect(importRowBadge(row())).toBeNull();
     expect(importRowBadge(row({ confidence: 0.4 }))).toEqual({ label: "낮은 신뢰도 · 중복 확인 필요", tone: "warning" });
     expect(importRowBadge(row({ validationStatus: "low_confidence_duplicate_candidate" }))).toEqual({
       label: "낮은 신뢰도 · 중복 확인 필요",
+      tone: "warning"
+    });
+    expect(importRowBadge(row({ validationStatus: "duplicate_candidate" }))).toEqual({
+      label: "이미 있는 지출과 같아 보여요",
       tone: "warning"
     });
     expect(importRowBadge(row({ validationStatus: "missing_date" }))).toEqual({ label: "확인이 필요해요", tone: "warning" });
@@ -183,20 +254,42 @@ describe("UX-S 낙관적 토글과 롤백", () => {
   });
 });
 
-describe("UX-S 전체 선택/해제", () => {
-  it("하나라도 꺼져 있으면 전체 선택, 다 켜져 있으면 전체 해제", () => {
+describe("UX-S 전체 선택/해제 + K-9 필터 정합", () => {
+  it("하나라도 꺼져 있으면 선택, 다 켜져 있으면 해제", () => {
     const mixed = [row({ id: "a", selected: true }), row({ id: "b", selected: false })];
     expect(buildImportBulkSelectionPlan(mixed)).toEqual({ nextSelected: true, targetRowIds: ["b"] });
-    expect(importBulkSelectionLabel(mixed)).toBe("전체 선택");
+    expect(importBulkSelectionLabel(mixed, "all")).toBe("전체 선택");
 
     const allOn = [row({ id: "a", selected: true }), row({ id: "b", selected: true })];
     expect(buildImportBulkSelectionPlan(allOn)).toEqual({ nextSelected: false, targetRowIds: ["a", "b"] });
-    expect(importBulkSelectionLabel(allOn)).toBe("전체 해제");
+    expect(importBulkSelectionLabel(allOn, "all")).toBe("전체 해제");
   });
 
-  it("확정 가능한 행이 하나도 없으면 누를 것이 없다", () => {
+  /**
+   * K-9: 필터를 켜면 버튼이 건드리는 범위가 화면에 보이는 행으로 줄어든다. 라벨이 "전체"라고
+   * 말한 채 보이지 않는 행까지 바꾸면, 사용자가 승인한 적 없는 변경이 조용히 일어난다.
+   */
+  it("필터 중에는 라벨이 '보이는 행'이라고 말한다", () => {
+    const visible = [row({ id: "b", selected: false, validationStatus: "duplicate_candidate" })];
+    expect(importBulkSelectionLabel(visible, "attention")).toBe("보이는 행 선택");
+    expect(importBulkSelectionLabel([row({ id: "b", selected: true })], "attention")).toBe("보이는 행 해제");
+  });
+
+  it("계획은 넘겨받은(=보이는) 행에서만 세워진다 -- 필터 밖 행은 대상이 아니다", () => {
+    const all = [
+      row({ id: "visible", selected: false, validationStatus: "low_confidence_duplicate_candidate" }),
+      row({ id: "hidden", selected: false })
+    ];
+    const visible = filterImportRows(all, "attention");
+    expect(visible.map((item) => item.id)).toEqual(["visible"]);
+    expect(buildImportBulkSelectionPlan(visible).targetRowIds).toEqual(["visible"]);
+  });
+
+  it("체크할 수 있는 행이 하나도 없으면 누를 것이 없다", () => {
     expect(canBulkSelectImportRows([row({ validationStatus: "missing_date" })])).toBe(false);
     expect(canBulkSelectImportRows([row()])).toBe(true);
+    // K-1 이후: 검토 가능 행만 있어도 누를 것이 있다.
+    expect(canBulkSelectImportRows([row({ validationStatus: "duplicate_candidate" })])).toBe(true);
     expect(buildImportBulkSelectionPlan([row({ validationStatus: "missing_date" })]).targetRowIds).toEqual([]);
   });
 
@@ -205,7 +298,7 @@ describe("UX-S 전체 선택/해제", () => {
     expect(importBulkProgressLabel(120, 120)).toBe("반영 중이에요 120/120");
   });
 
-  it("일괄 세터는 확정 불가 행과 이미 그 상태인 행을 건너뛴다", () => {
+  it("일괄 세터는 잠긴 행과 이미 그 상태인 행을 건너뛴다", () => {
     const rows = [row({ id: "a", selected: false }), row({ id: "b", selected: false, validationStatus: "missing_date" })];
     expect(setImportRowSelection(rows, "b", true)).toBe(rows);
     expect(setImportRowSelection(rows, "a", false)).toBe(rows);
@@ -272,29 +365,67 @@ describe("UX-S 검수 화면 배선 (app/import/[importJobId].tsx)", () => {
     expect(src).not.toContain("disabled={toggleRow.isPending}");
   });
 
-  it("확정 불가 행은 체크박스 대신 잠금 표시와 안내를 그린다", () => {
+  it("K-1: 체크박스는 선택 가능(valid+검토 가능) 행에, 잠금 카드는 나머지에만 그린다", () => {
     const src = screen();
-    expect(src).toContain("isImportRowConfirmable(item.row)");
+    expect(src).toContain("isImportRowSelectable(item.row)");
+    // 확정 가능(valid) 판정으로 행을 잠그던 회귀가 되돌아오면 안 된다.
+    expect(src).not.toContain("isImportRowConfirmable(item.row)");
     expect(src).toContain("IMPORT_ROW_LOCKED_MESSAGE");
+    // 안내 문장은 순수 모듈이 고른다(화면 JSX에서 상태를 다시 판정하지 않는다).
+    expect(src).toContain("importRowNotice(row)");
     // 체크박스 역할/상태는 선택 가능한 행에만 남는다(A11Y 계약과 같은 문자열).
     expect(src).toContain("accessibilityState={{ checked: row.selected, disabled }}");
   });
 
-  it("대상 아이는 새 요청 없이 기존 캐시에서 읽는다", () => {
+  it("K-2: 대상 아이는 잡 응답의 childId 기준이고, 새 요청 없이 기존 캐시에서 이름만 읽는다", () => {
     const src = screen();
     expect(src).toContain('queryClient.getQueryData<{ children: Child[] }>(["children"])');
-    expect(src).toContain("resolveImportTargetChildName(childId, cachedChildren)");
+    expect(src).toContain("resolveImportTargetChildName(job.data?.childId, cachedChildren)");
+    // 선택 아이 스토어를 "대상 아이"로 단언하던 경로가 되돌아오면 안 된다.
+    expect(src).not.toContain("useSelectedChildStore");
     // useQuery로 새로 부르면 안 된다.
     expect(src).not.toContain('queryKey: ["children"]');
   });
 
-  it("확인 필요 필터 칩과 전체 선택/해제를 배선한다", () => {
+  it("확인 필요 필터 칩과 일괄 선택/해제를 배선한다 (K-9: 라벨·계획 모두 보이는 행 기준)", () => {
     const src = screen();
     expect(src).toContain("attentionFilterChipLabel(attentionCount)");
     expect(src).toContain("shouldShowAttentionFilter(attentionCount)");
-    expect(src).toContain("importBulkSelectionLabel(rowList)");
+    expect(src).toContain("importBulkSelectionLabel(filteredRows, rowFilter)");
+    expect(src).toContain("buildImportBulkSelectionPlan(filteredRows)");
+    expect(src).toContain("buildImportBulkSelectionPlan(filterImportRows(cached, rowFilter))");
     expect(src).toContain("importBulkProgressLabel(bulkProgress.done, bulkProgress.total)");
     // 44dp 터치 타깃(새 치수 금지).
     expect(src).toContain("minHeight: theme.touchTarget");
+  });
+
+  it("K-6: 일괄 루프는 순수 모듈의 취소·재진입 규칙을 지나고, 끝나면 재조회한다", () => {
+    const src = screen();
+    expect(src).toContain("claimImportBulkRun(importJobId)");
+    expect(src).toContain("runImportBulkSelection(");
+    expect(src).toContain("isCancelled: handle.isCancelled");
+    expect(src).toContain("handle.release()");
+    expect(src).toContain("useFocusEffect(");
+    expect(src).toContain("mountedRef.current");
+    expect(src).toContain("cancelImportBulkRun(importJobId)");
+    expect(src).toContain('invalidateQueries({ queryKey: rowsQueryKey })');
+    // 화면이 직접 for 루프를 돌며 PATCH하던 옛 배선이 되돌아오면 안 된다.
+    expect(src).not.toMatch(/for \(const rowId of plan\.targetRowIds\)/);
+  });
+
+  it("K-7: 토글·일괄도 확정과 같은 보기 전용 게이트를 지난다", () => {
+    const src = screen();
+    expect(src).toContain("const gateLocked = expenseGate.locked;");
+    expect(src).toContain("explainExpenseViewOnly()");
+    // 게이트 판정은 boolean 하나여야 한다 -- guard()를 의존성에 넣으면 행 memo가 깨진다.
+    expect(src).not.toContain("expenseGate.guard(() => toggleMutate");
+  });
+
+  it("K-10: 일괄 부분 실패·중단은 목록 조회 실패 문구를 돌려 쓰지 않는다", () => {
+    const src = screen();
+    expect(src).toContain("IMPORT_BULK_PARTIAL_FAILURE_TEXT");
+    expect(src).toContain("IMPORT_BULK_CANCELLED_TEXT");
+    expect(src).toContain("IMPORT_BULK_CANCEL_LABEL");
+    expect(src).not.toContain("bulkFailed ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}");
   });
 });

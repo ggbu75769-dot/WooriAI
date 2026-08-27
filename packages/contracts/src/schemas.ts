@@ -348,6 +348,10 @@ export const reportYearlySchema = z.object({
 
 export const importJobSchema = z.object({
   id: uuidSchema,
+  // 라운드 41 K-2: 잡이 묶인 아이. 검수 화면의 "대상 아이" 표시가 클라이언트의 선택 아이 값을
+  // 추측하지 않고 서버가 실제로 쓰는 값(confirmImport → insertExpense(job.childId))을 그대로
+  // 읽도록, 응답 계약에 고정한다.
+  childId: uuidSchema,
   status: importStatusSchema,
   rowCount: z.number().int().optional(),
   candidateCount: z.number().int().optional(),

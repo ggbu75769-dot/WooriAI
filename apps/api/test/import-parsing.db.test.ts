@@ -12,7 +12,15 @@ import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
 const dbAvailable = await isDatabaseAvailable();
 const importStubCategoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
-type ImportJob = { id: string; status: string; rowCount: number; candidateCount: number; importedCount: number };
+type ImportJob = {
+  id: string;
+  // 라운드 41 K-2: 잡이 묶인 아이(검수 화면의 "대상 아이" 표시가 읽는 유일한 근거).
+  childId: string;
+  status: string;
+  rowCount: number;
+  candidateCount: number;
+  importedCount: number;
+};
 type ImportRow = {
   id: string;
   rowIndex: number;
@@ -200,6 +208,91 @@ describe.skipIf(!dbAvailable)("Import CSV/XLSX real parsing (real Postgres)", ()
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200);
     expect(homeResponse.body.totalExpenseKrw).toBe(88000);
+  });
+
+  /**
+   * 라운드 41 K-1: `duplicate_candidate`와 `low_confidence_duplicate_candidate`는 **검토 가능**
+   * 상태다 -- 확정 불가 상태가 아니다.
+   *
+   * validationStatusForImportRow(import-pipeline.service.ts:430-431)가 두 판정을 모두
+   * `!row.userReviewed` 조건 아래 두고, updateImportRow(189-192줄)는 어떤 PATCH에서도
+   * `userReviewed: true`를 세운 뒤 상태를 다시 계산한다. 그래서 사람이 체크 한 번만 하면
+   * 두 행 모두 valid가 되고 `selected: true`가 그대로 살아남는다.
+   *
+   * 검수 화면(app/import/[importJobId].tsx)이 이 두 상태를 잠가 버려서 가져올 방법 자체가
+   * 사라진 회귀가 있었다. 화면 쪽 미러는 src/import/preview-rows.test.ts가 지키고, 이 테스트는
+   * 그 미러가 흉내 내는 **서버 규칙 자체**를 고정한다.
+   */
+  it("lets the user clear duplicate/low-confidence rows by reviewing them: one PATCH makes them valid and keeps them selected", async () => {
+    const accessToken = await login("import-parsing-review");
+    const { childId } = await completeOnboarding(accessToken, "검토-아이");
+
+    // 기존 지출 하나 -> CSV의 같은 날짜+금액 행이 중복 후보로 잡힌다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId: importStubCategoryId, amountKrw: 21000, spentOn: "2026-07-04", itemName: "기존 지출" })
+      .expect(200);
+
+    const csvContent =
+      "날짜,적요,금액\n" +
+      "2026-07-04,기저귀 재구매,21000\n" + // duplicate_candidate (기존 지출과 날짜+금액 일치)
+      "2026-07-02,알수없는결제,7000\n"; // low_confidence_duplicate_candidate (키워드 매칭 없음)
+
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", "review-test.csv")
+        .attach("file", Buffer.from(csvContent, "utf8"), "review-test.csv")
+        .expect(200)
+    ).body as ImportJob;
+    expect(job.childId).toBe(childId);
+
+    const rows = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/imports/${job.id}/rows`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.rows as ImportRow[];
+
+    const duplicateRow = rows.find((row) => row.validationStatus === "duplicate_candidate");
+    const lowConfidenceRow = rows.find((row) => row.validationStatus === "low_confidence_duplicate_candidate");
+    // 둘 다 처음에는 선택되지 않은 상태로 온다(사람의 확인을 기다린다).
+    expect(duplicateRow).toMatchObject({ selected: false });
+    expect(lowConfidenceRow).toMatchObject({ selected: false });
+
+    // 화면이 보내는 것과 같은 최소 PATCH: `selected`만 담는다(서버가 나머지를 병합한다).
+    for (const row of [duplicateRow!, lowConfidenceRow!]) {
+      const reviewed = (
+        await request(app.getHttpServer())
+          .patch(`/api/v1/imports/${job.id}/rows/${row.id}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ selected: true })
+          .expect(200)
+      ).body as ImportRow;
+
+      // 핵심 계약: 검토가 상태를 valid로 풀고, 체크가 false로 되돌려지지 않는다.
+      expect(reviewed, row.validationStatus).toMatchObject({ id: row.id, validationStatus: "valid", selected: true });
+    }
+
+    // 그리고 그 두 행은 실제로 가져와진다 -- "가져올 방법이 없는 행"이 아니었다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: [duplicateRow!.id, lowConfidenceRow!.id] })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ importedCount: 2, skippedCount: 0 });
+      });
+
+    const expensesResponse = await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    // 기존 1건 + 검토를 마친 2건 = 3건.
+    expect(expensesResponse.body.expenses).toHaveLength(3);
+    expect(expensesResponse.body.totalAmountKrw).toBe(21000 + 21000 + 7000);
   });
 
   it("decodes a CP949-encoded CSV (no UTF-8 BOM) without garbling Korean text", async () => {

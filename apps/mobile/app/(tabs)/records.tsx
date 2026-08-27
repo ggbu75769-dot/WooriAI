@@ -46,7 +46,6 @@ import {
   expenseMutationErrorMessage
 } from "../../src/expenses/save-error-messages";
 import {
-  buildMemoSearchSnippet,
   buildRecordsCategoryChips,
   buildRecordsEmptyMonthTitle,
   buildRecordsFilteredEmptyState,
@@ -56,6 +55,7 @@ import {
   buildRecordsSearchScopeNotice,
   expenseCreatedByUserId,
   formatSpentOn,
+  matchRecordSearch,
   recordsRowSubtitle,
   resolveExpenseAuthorLabel,
   resolveExpenseHouseholdId
@@ -998,23 +998,22 @@ export default function RecordsScreen() {
     return new Set(chip ? chip.matchIds : [selectedCategoryId]);
   }, [categoryChips, selectedCategoryId]);
 
-  const normalizedSearch = searchText.trim().toLowerCase();
+  // 라운드 41 K-12: 검색 판정은 **순수 모듈 한 곳**에 있다. 예전에는 여기서
+  // `${itemName} ${memo}` 연결 문자열을 훑고 스니펫은 품목명·메모를 따로 봐서, 경계에 걸친
+  // 검색어("귀 조" ← "기저귀" + "조리원")가 필터만 통과하고 근거는 없는 행을 만들었다.
+  // 이제 두 자리가 같은 함수를 부르므로 그런 조합이 정의상 생기지 않는다.
   const { visibleExpenses, visibleOfflineRows } = useMemo(() => {
     return {
       visibleExpenses: monthlyServerExpenses.filter((expense) => {
         if (selectedCategoryIds && !selectedCategoryIds.has(expense.categoryId)) return false;
-        if (!normalizedSearch) return true;
-        const haystack = `${expense.itemName} ${expense.memo ?? ""}`.toLowerCase();
-        return haystack.includes(normalizedSearch);
+        return matchRecordSearch({ itemName: expense.itemName, memo: expense.memo, searchText }).matches;
       }),
       visibleOfflineRows: offlinePendingRows.filter((row) => {
         if (selectedCategoryIds && !selectedCategoryIds.has(row.payload.categoryId)) return false;
-        if (!normalizedSearch) return true;
-        const haystack = `${row.payload.itemName} ${row.payload.memo ?? ""}`.toLowerCase();
-        return haystack.includes(normalizedSearch);
+        return matchRecordSearch({ itemName: row.payload.itemName, memo: row.payload.memo, searchText }).matches;
       })
     };
-  }, [monthlyServerExpenses, offlinePendingRows, selectedCategoryIds, normalizedSearch]);
+  }, [monthlyServerExpenses, offlinePendingRows, selectedCategoryIds, searchText]);
 
   // Offline pending rows first (same order as the old eager render), then server rows.
   const listData = useMemo<RecordsListItem[]>(
@@ -1044,14 +1043,15 @@ export default function RecordsScreen() {
           // FAM-127: 오프라인 대기 행에는 라벨을 붙이지 않는다 -- 아직 이 기기에서 방금 만든
           // 내 기록이라 작성자가 자명하고, 서버가 준 createdByUserId도 아직 없다.
           authorLabel: resolveExpenseAuthorLabel(expenseCreatedByUserId(expense), householdMemberRefs),
-          // UX-T(C): "조리원"으로 검색해 3건이 나왔는데 화면 어디에도 조리원이 없던 자리 --
-          // 메모에서만 맞은 행에 그 근거를 한 조각 붙인다. 검색어가 없으면 null이라 목록은
-          // 종전과 완전히 같다(판정·자르기 규칙은 순수 모듈에 있다).
-          memoSnippet: buildMemoSearchSnippet({
+          // UX-T(C) → K-12: "조리원"으로 검색해 3건이 나왔는데 화면 어디에도 조리원이 없던
+          // 자리 -- 위 필터와 **같은 함수**가 "어디서 맞았는지"까지 돌려주므로, 그 근거를 그대로
+          // 부제에 붙인다(품목명에서 맞은 행은 제목이 곧 근거라 null). 검색어가 없으면 null이라
+          // 목록은 종전과 완전히 같다(판정·자르기 규칙은 순수 모듈에 있다).
+          memoSnippet: matchRecordSearch({
             itemName: expense.itemName,
             memo: expense.memo,
             searchText: searchText
-          }),
+          }).snippet,
           // UX-L(A): 롱프레스 액션 실행부. 안정된 참조라 행 memo(PERF-102)가 그대로 유지된다.
           // 오프라인 대기 행에는 붙이지 않는다 -- 아직 서버 id가 없어 상세로 갈 수도, 같은
           // 삭제 경로(adoptServerExpense)를 탈 수도 없다(그 행은 종전대로 동기화 상태로 간다).

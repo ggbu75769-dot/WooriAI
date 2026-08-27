@@ -4,7 +4,11 @@ import { describe, expect, it } from "vitest";
 import { reconcileMonthlyExpenses } from "../offline/expense-list-reconciliation";
 import type { LocalExpenseRow } from "../offline/types";
 import type { ComparableExpenseRecord } from "./last-month-comparison";
-import { evaluateWeeklySummary } from "./weekly-summary";
+import {
+  evaluateWeeklySummary,
+  WEEKLY_STREAK_EMPTY_NUDGE_TEXT,
+  WEEKLY_STREAK_VIEW_ONLY_EMPTY_TEXT
+} from "./weekly-summary";
 
 /** 2026-08-27은 목요일 -- 이번 주는 08-24(월)~08-27, 지난주 같은 요일까지는 08-17~08-20. */
 const THURSDAY = "2026-08-27";
@@ -126,6 +130,60 @@ describe("UX-A 기록 스트릭 · 금액 기준", () => {
     expect(summary).toMatchObject({ totalKrw: 0, recordedDayCount: 0, comparison: null });
     expect(summary?.text).toBe("이번 주 지출은 아직 없어요");
     expect(summary?.streakText).toBe("이번 주 첫 기록을 남겨보세요");
+  });
+
+  /**
+   * 라운드 41 K-5 — 잠긴(보기 전용) 세션의 진리표.
+   *
+   * 문제였던 자리: 가족이 기록한 보기 전용 홈은 첫 실행 안내가 뜨지 않으므로 주간 카드가
+   * 그대로 뜨는데, 그 주에 기록이 아직 없으면 스트릭 줄이 "이번 주 첫 기록을 남겨보세요"라는
+   * **지킬 수 없는 권유**를 되돌려줬다(눌러도 "기록은 관리자·공동부모가 남길 수 있어요"뿐).
+   *
+   * 바꾸는 것은 그 한 줄뿐이다 -- 합계·비교는 잠금과 무관하게 참이므로 그대로 둔다.
+   */
+  it("K-5: 기록 0일 + 잠김이면 권유 대신 중립 서술을 놓는다", () => {
+    const input = { todayIso: THURSDAY, thisMonthRecords: [] as ComparableExpenseRecord[], lastMonthRecords: [] };
+
+    expect(evaluateWeeklySummary({ ...input, expenseEntryLocked: false })?.streakText).toBe(
+      WEEKLY_STREAK_EMPTY_NUDGE_TEXT
+    );
+    const locked = evaluateWeeklySummary({ ...input, expenseEntryLocked: true });
+    expect(locked?.streakText).toBe(WEEKLY_STREAK_VIEW_ONLY_EMPTY_TEXT);
+    expect(locked?.streakText).not.toContain("남겨보세요");
+    // 소리로 듣는 문장도 같은 값에서 조립된다(두 번째 소스를 만들지 않는다).
+    expect(locked?.accessibilityLabel).toBe(`이번 주 지출은 아직 없어요. ${WEEKLY_STREAK_VIEW_ONLY_EMPTY_TEXT}`);
+  });
+
+  it("K-5: 기록이 하루라도 있으면 그 문장은 이미 사실이라 잠금과 무관하게 그대로다", () => {
+    const thisMonthRecords = [record("2026-08-25", 30_000), record("2026-08-26", 20_000)];
+    for (const expenseEntryLocked of [true, false]) {
+      const summary = evaluateWeeklySummary({
+        todayIso: THURSDAY,
+        thisMonthRecords,
+        lastMonthRecords: [],
+        expenseEntryLocked
+      });
+      expect(summary?.streakText).toBe("이번 주 2일 기록했어요");
+    }
+  });
+
+  it("K-5: 카드 자체(합계·비교)는 잠긴 세션에도 그대로 있다 -- 접지 않는다", () => {
+    const args = {
+      todayIso: THURSDAY,
+      thisMonthRecords: [record("2026-08-25", 30_000), record("2026-08-17", 50_000)],
+      lastMonthRecords: []
+    };
+    const open = evaluateWeeklySummary({ ...args, expenseEntryLocked: false });
+    const locked = evaluateWeeklySummary({ ...args, expenseEntryLocked: true });
+    expect(locked).not.toBeNull();
+    expect(locked?.totalKrw).toBe(open?.totalKrw);
+    expect(locked?.text).toBe(open?.text);
+    expect(locked?.comparison).toEqual(open?.comparison);
+  });
+
+  it("K-5: 인자를 넘기지 않으면 종전 동작 그대로다 (기본값 false)", () => {
+    const before = evaluateWeeklySummary({ todayIso: THURSDAY, thisMonthRecords: [], lastMonthRecords: [] });
+    expect(before?.streakText).toBe(WEEKLY_STREAK_EMPTY_NUDGE_TEXT);
   });
 
   it("합계는 선물·환불을 빼고(DNC-015) 세지만, 기록한 날은 그 행들도 센다", () => {
@@ -318,6 +376,21 @@ describe("UX-A 주간 요약 화면 배선 계약 (app/(tabs)/index.tsx)", () =>
     expect(homeSource).toContain("const weeklySummary = hasSession");
     expect(homeSource).toContain("thisMonthRecords: weeklyThisMonthRecords");
     expect(homeSource).toContain("lastMonthRecords: weeklyLastMonthRecords");
+  });
+
+  it("K-5: 잠금 판정을 순수 모듈에 넘기고, 카드 게이트 자체는 건드리지 않는다", () => {
+    // 문구 갈래는 순수 모듈이 고른다 -- 화면이 잠긴 세션용 문장을 따로 들지 않는다.
+    expect(homeSource).toContain("expenseEntryLocked: expenseGate.locked");
+    // 잠긴 세션용 문장을 화면이 따로 들지 않는다 -- 스트릭 줄은 순수 모듈의 값을 그대로 꽂는다
+    // (기존 권유 문구는 J-5 주석에서 사례로만 언급된다).
+    expect(homeSource).not.toContain('"이번 주 기록이 아직 없어요"');
+    expect(homeSource).toContain("<Text style={homeWeeklySummaryStyle.streak}>{weeklySummary.streakText}</Text>");
+    // 잠금이 바뀌면 값이 다시 계산돼야 문구가 따라간다.
+    expect(homeSource).toContain("weeklyLastMonthRecords, expenseGate.locked]");
+    // 카드를 그릴지의 게이트는 종전 그대로다(잠겼다고 카드를 접지 않는다).
+    expect(homeSource).toContain(
+      "const weeklySummary = hasSession && !homeGuideSpeaksForEmptyHome(firstRunGuide?.variant) ? weeklySpend : null;"
+    );
   });
 
   /**

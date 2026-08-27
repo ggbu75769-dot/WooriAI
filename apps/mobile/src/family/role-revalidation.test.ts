@@ -112,6 +112,79 @@ describe("라운드 40 J-3 역할 재검증 스로틀", () => {
     expect(fetchHouseholds).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * 라운드 41 K-4 — "목록이 없으면 표를 건드리지 않는다"는 계약이 실제로 지켜지는가.
+   *
+   * 이 모듈은 처음부터 그 계약을 갖고 있었는데(`Array.isArray(households)`), 호출부가
+   * `result.households ?? []`로 부재 응답을 **빈 배열로 메워** 넘기는 바람에 계약이 그 자리에서
+   * 무력화됐다: 빈 배열은 배열이므로 apply가 불리고, setHouseholdRoles([])가 역할 표를 지워
+   * 보기 전용 세션의 잠금이 근거 없이 풀렸다(그다음 저장은 다시 403 → failed 행).
+   */
+  it("K-4: 목록이 없는 응답(undefined/null)은 표를 건드리지 않는다", async () => {
+    for (const absent of [undefined, null]) {
+      const revalidator = createHouseholdRoleRevalidator({ minIntervalMs: 0 });
+      const applyHouseholds = vi.fn();
+      const fetchHouseholds = vi.fn(() => Promise.resolve(absent));
+
+      expect(revalidator.request({ now: NOW, fetchHouseholds, applyHouseholds })).toBe(true);
+      await vi.waitFor(() => expect(fetchHouseholds).toHaveBeenCalledTimes(1));
+      await Promise.resolve();
+      expect(applyHouseholds).not.toHaveBeenCalled();
+    }
+  });
+
+  it("K-4: 부재 응답을 받아도 잠긴 세션은 잠긴 채로 남는다(표가 지워지지 않는다)", async () => {
+    let householdRoles: HouseholdRoleMap | null = { "h-1": "viewer" };
+    let knownHouseholdIds: string[] | null = ["h-1"];
+    const lockedNow = () =>
+      isExpenseEntryLocked({
+        hasSession: true,
+        role: resolveHouseholdRole({ householdRoles, knownHouseholdIds })
+      });
+    expect(lockedNow()).toBe(true);
+
+    const revalidator = createHouseholdRoleRevalidator({ minIntervalMs: 0 });
+    const fetchHouseholds = vi.fn(() => Promise.resolve(undefined));
+    revalidator.request({
+      now: NOW,
+      fetchHouseholds,
+      applyHouseholds: (households) => {
+        householdRoles = Object.fromEntries(households.map((h) => [h.id, h.role ?? ""]));
+        knownHouseholdIds = households.map((h) => h.id);
+      }
+    });
+
+    await vi.waitFor(() => expect(fetchHouseholds).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    expect(householdRoles).toEqual({ "h-1": "viewer" });
+    expect(lockedNow()).toBe(true);
+  });
+
+  /**
+   * 라운드 41 K-3 — 초대 수락처럼 "표가 방금 바뀐 것을 아는" 순간은 스로틀의 전제
+   * (같은 사실을 반복해 묻는다)가 성립하지 않는다. 그 한 번이 스로틀에 먹히면 새 가구의
+   * 역할·목록이 재로그인 전까지 갱신되지 않는다.
+   */
+  it("K-3: force는 스로틀만 건너뛴다(진행 중인 요청은 여전히 겹치지 않는다)", async () => {
+    const revalidator = createHouseholdRoleRevalidator();
+    const fetchHouseholds = fakeMe([{ id: "h-1", role: "viewer" }]);
+    const applyHouseholds = vi.fn();
+
+    expect(revalidator.request({ now: NOW, fetchHouseholds, applyHouseholds })).toBe(true);
+    await vi.waitFor(() => expect(applyHouseholds).toHaveBeenCalledTimes(1));
+    // 간격 안이라 평소에는 막히는 자리.
+    expect(revalidator.request({ now: NOW + 1_000, fetchHouseholds, applyHouseholds })).toBe(false);
+    expect(revalidator.request({ now: NOW + 1_000, fetchHouseholds, applyHouseholds, force: true })).toBe(true);
+    await vi.waitFor(() => expect(fetchHouseholds).toHaveBeenCalledTimes(2));
+
+    // 진행 중인 조회가 있으면 force여도 겹쳐 보내지 않는다.
+    const busy = createHouseholdRoleRevalidator();
+    const pending = vi.fn(() => new Promise<HouseholdRoleSnapshot[]>(() => {}));
+    expect(busy.request({ now: NOW, fetchHouseholds: pending, applyHouseholds })).toBe(true);
+    expect(busy.request({ now: NOW, fetchHouseholds: pending, applyHouseholds, force: true })).toBe(false);
+    expect(pending).toHaveBeenCalledTimes(1);
+  });
+
   it("실패하면 표를 건드리지 않는다(예전 표 그대로 = 새로 잠기는 것이 없다)", async () => {
     const revalidator = createHouseholdRoleRevalidator({ minIntervalMs: 0 });
     const applyHouseholds = vi.fn();
@@ -143,6 +216,42 @@ describe("라운드 40 J-3 배선 (source contract)", () => {
     expect(hookSource).toContain("applyHouseholds: setHouseholdRoles");
     // 데모(로컬) 세션에는 서버 가구가 없다 -- 실토큰일 때만 부른다.
     expect(hookSource).toContain("if (!accessToken) return;");
+  });
+
+  it("K-4: 호출부가 부재 응답을 빈 목록으로 메우지 않는다", () => {
+    const hookSource = source("src/family/useExpenseEntryGate.ts");
+    expect(hookSource).toContain("getMe(accessToken).then((result) => result.households)");
+    // `?? []`가 다시 들어오면 role-revalidation의 계약이 그 자리에서 무력화된다.
+    expect(hookSource).not.toContain("result.households ?? []");
+  });
+
+  /**
+   * 라운드 41 K-3 — 회복 경로가 없던 두 자리를 각각 막는다.
+   */
+  it("K-3: 초대 수락 응답이 표·목록을 서버 기준으로 한 벌로 다시 받는다", () => {
+    const acceptSource = source("app/family/accept/[token].tsx");
+    // 새 모듈을 만들지 않고 J-3의 재검증 경로를 그대로 재사용한다.
+    expect(acceptSource).toContain('from "../../../src/family/useExpenseEntryGate"');
+    expect(acceptSource).toContain("revalidateHouseholdRoles({ force: true });");
+    // 한 가구짜리 사실(setHouseholdRole)은 그대로 두고, 그 **뒤에** 전체 갱신이 온다.
+    const acceptIndex = acceptSource.indexOf("setHouseholdRole(result.household.id, result.household.role)");
+    expect(acceptIndex).toBeGreaterThan(0);
+    expect(acceptSource.indexOf("revalidateHouseholdRoles({ force: true })")).toBeGreaterThan(acceptIndex);
+    // 데모 세션은 종전대로 제외된다(로컬 백엔드에는 서버 가구가 없다).
+    const realSessionBlock = acceptSource.slice(acceptSource.indexOf("if (!isTestSession) {"), acceptIndex);
+    expect(realSessionBlock).toContain("useSessionStore.setState({ defaultHouseholdId: result.household.id });");
+  });
+
+  it("K-3: 표는 있는데 목록이 없는 세션은 앱 세션당 한 번 스스로 재검증한다", () => {
+    const hookSource = source("src/family/useExpenseEntryGate.ts");
+    // 판정은 순수 모듈에 있다(표가 쓸 만한가의 기준이 두 벌이 되지 않게).
+    expect(hookSource).toContain("needsHouseholdIdsRepair({ householdRoles, knownHouseholdIds })");
+    expect(hookSource).toContain("let attemptedHouseholdIdsRepair = false;");
+    expect(hookSource).toContain("attemptedHouseholdIdsRepair = true;");
+    // 트리거는 렌더가 아니라 이펙트다(조회는 백그라운드라 이번 렌더의 화면은 그대로다).
+    expect(hookSource).toContain("useEffect(() => {");
+    // 잠금 안내 경로와 같은 함수를 쓴다 -- 재검증이 두 벌로 갈리지 않는다.
+    expect(hookSource.match(/revalidateHouseholdRoles\(/g) ?? []).toHaveLength(3);
   });
 
   it("클라이언트는 서버 계약 그대로의 GET /me 하나만 더한다", () => {

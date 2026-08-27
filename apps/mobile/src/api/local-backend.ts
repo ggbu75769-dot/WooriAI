@@ -1361,6 +1361,18 @@ export function acceptInvite(token: string): AcceptInviteResponse {
 // Excel import
 // ---------------------------------------------------------------------------
 
+/**
+ * 서버 `ImportPipelineService.validationStatusForImportRow`의 데모 미러.
+ *
+ * 라운드 41 K-1 확인: 검토 가능 상태의 핵심 규칙 -- `userReviewed`가 서면 저신뢰 판정이 풀리고
+ * valid가 된다는 것 -- 은 여기서도 같다(아래 `!row.userReviewed &&` 조건, 그리고
+ * `updateImportRow`가 매 PATCH에서 `userReviewed: true`를 세우는 것). 즉 데모에서도 저신뢰 행을
+ * 한 번 체크하면 실제로 선택되고 확정에 실린다.
+ *
+ * `duplicate_candidate`는 여기 없다: 데모 백엔드에는 중복 후보 탐지 자체가 없어(기존 지출과
+ * 날짜+금액을 맞춰 보지 않는다) 그 상태를 만들어 낼 경로가 없다. 없는 판정을 흉내 내면 데모가
+ * 서버보다 더 많은 것을 아는 척하게 되므로 만들지 않는다.
+ */
 function validationStatusForImportRow(row: LocalImportRowRecord): string {
   if (!row.parsedDate) return "missing_date";
   try {
@@ -1394,7 +1406,16 @@ function toImportRowDto(row: LocalImportRowRecord): ImportRow {
 }
 
 function toImportJobDto(job: LocalImportJobRecord): ImportJob {
-  return { id: job.id, status: job.status, rowCount: job.rowCount, candidateCount: job.candidateCount, importedCount: job.importedCount };
+  // 라운드 41 K-2: 서버 응답과 같은 모양 -- childId를 실어야 검수 화면의 "대상 아이" 줄이
+  // 데모 세션에서도 서버와 같은 기준(잡에 박힌 아이)으로 그려진다.
+  return {
+    id: job.id,
+    childId: job.childId,
+    status: job.status,
+    rowCount: job.rowCount,
+    candidateCount: job.candidateCount,
+    importedCount: job.importedCount
+  };
 }
 
 export function createExcelImport(childId: string, fileName: string): ImportJob {
