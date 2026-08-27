@@ -48,6 +48,8 @@ const SAMPLE_SUMMARY: AdminAnalyticsSummary = {
     affiliateLinkClicked: 2,
     expenseSynced: 0
   },
+  // ANA-128: 이벤트 이름 총계(byName의 1건)와 별개로 answer별 분해가 함께 내려온다.
+  purchaseFollowup: { purchased: 1, notPurchased: 0, dismissed: 0 },
   uniqueAnonUsers: 9
 };
 
@@ -175,53 +177,97 @@ describe("Admin CMS analytics page (ADM-009)", () => {
 
   /**
    * ANA-127: 4단 퍼널은 준비템 체크와 링크 클릭 사이가 통째로 비어 있어 전환율이 읽히지
-   * 않았다. 상세 열람/구매 확인 응답이 계측되면서 구매 루프가 6단으로 이어진다.
+   * 않았다. 상세 열람/구매 확인이 계측되면서 구매 루프가 6단으로 이어진다.
+   * ANA-128: 마지막 단은 이벤트 전체가 아니라 "샀어요" 답변이므로 단계 식별자도
+   * 이벤트 이름이 아닌 단계 이름(purchase_followup_purchased)이다.
    */
-  it("renders the 6-stage purchase-loop funnel in order", () => {
+  it("renders the 6-stage purchase-loop funnel in order, ending at purchased-only", () => {
     const source = readSource("app/analytics/page.tsx");
     const block = source.split("const FUNNEL_STAGES")[1]?.split("];")[0] ?? "";
-    const stageEvents = [...block.matchAll(/eventName: "([a-z_]+)"/g)].map((match) => match[1]);
-    expect(stageEvents).toEqual([
+    const stageKeys = [...block.matchAll(/key: "([a-z_]+)"/g)].map((match) => match[1]);
+    expect(stageKeys).toEqual([
       "onboarding_completed",
       "expense_recorded",
       "item_status_changed",
       "item_detail_viewed",
       "affiliate_link_clicked",
-      "purchase_followup_answered"
+      "purchase_followup_purchased"
     ]);
     expect(source).toContain("준비템 상세 열람");
-    expect(source).toContain("구매 확인 응답");
+    // 마지막 단계 수는 이벤트 이름 총계가 아니라 answer 분해의 purchased에서 온다.
+    expect(block).toContain("summary.purchaseFollowup.purchased");
+    expect(block).not.toContain('eventCount(summary, "purchase_followup_answered")');
   });
 
   /**
-   * 단계 수는 `funnel` 별칭이 아니라 `byName`에서 읽어야 한다 — 별칭 맵은 API가 하드코딩하고
-   * 있어 새 이벤트 키가 없고(=항상 undefined), `byName`은 계약 레지스트리에서 생성되어 0건
-   * 포함 전 이벤트를 담는다.
+   * 이벤트 이름 단위 단계 수는 `funnel` 별칭이 아니라 `byName`에서 읽어야 한다 — 별칭 맵은
+   * 레거시 6종으로 동결돼 새 이벤트 키가 없고(=항상 undefined), `byName`은 계약 레지스트리에서
+   * 생성되어 0건 포함 전 이벤트를 담는다.
    */
   it("reads stage counts from byName (registry-driven) rather than the hardcoded funnel aliases", () => {
     const source = readSource("app/analytics/page.tsx");
     expect(source).toContain("function eventCount(summary: AdminAnalyticsSummary, eventName: string): number");
     expect(source).toContain("summary.byName.find((entry) => entry.name === eventName)?.count ?? 0");
-    expect(source).toContain("const count = eventCount(summary, stage.eventName);");
-    expect(source).toContain("eventCount(summary, FUNNEL_STAGES[index - 1].eventName)");
+    expect(source).toContain("const count = stage.count(summary);");
+    expect(source).toContain("FUNNEL_STAGES[index - 1].count(summary)");
     // 존재하지 않는 별칭 키로 단계 수를 읽는 옛 경로는 남아 있지 않다.
     expect(source).not.toContain("summary.funnel[stage.key]");
     expect(source).not.toContain("keyof AdminAnalyticsFunnel");
   });
 
   /**
-   * 허위 데이터 금지: 요약 API는 이벤트 이름 단위로만 집계해 payload의 answer
-   * (purchased/not_purchased/dismissed)를 나눠 보지 못한다. 마지막 단계를 "구매"라고 부르면
-   * 구매 전환율을 부풀리게 되므로 이름과 각주로 3갈래 합계임을 밝힌다.
+   * ANA-128 (허위 데이터 금지): 마지막 단계 라벨은 실제 집계 의미와 정확히 일치해야 한다.
+   * 이제 "샀어요"만 세므로 라벨에 그렇게 적고, 각주도 3갈래 합계라던 옛 문구가 아니라
+   * "샀어요로 답한 건수만"으로 갱신됐다.
    */
-  it("labels the last stage as answers, not purchases, and says so in a footnote", () => {
+  it("labels the last stage as purchased-only and says exactly that in the footnote", () => {
     const source = readSource("app/analytics/page.tsx");
-    expect(source).toContain("구매 확인 응답");
-    expect(source).toContain("샀어요·아직이요·괜찮아요 합계");
-    expect(source).toContain("구매 건수로 읽지 마세요");
-    // 구매 건수라고 단정하는 라벨은 쓰지 않는다.
-    expect(source).not.toContain('label: "구매 완료"');
+    expect(source).toContain('label: "구매 확인 (구매했어요)"');
+    expect(source).toContain("&quot;샀어요&quot;로 답한 건수만");
+    // 3갈래 합계를 마지막 단계로 쓰던 옛 각주는 남아 있지 않다.
+    expect(source).not.toContain("샀어요·아직이요·괜찮아요 합계");
+    expect(source).not.toContain("답변별 분해는 아직");
+    // 근거 없이 "구매"라고만 단정하는 라벨도 쓰지 않는다.
     expect(source).not.toContain('label: "구매"');
+    expect(source).not.toContain('label: "구매 완료"');
+  });
+
+  /**
+   * ANA-128: 3갈래 분해 표 + 응답률/구매율 카드. 분해 합계가 이벤트 이름 총계보다 작을 수
+   * 있다는 사실(answer 없는 레거시·손상 페이로드)을 숨기지 않고 "분류 불가"로 드러낸다.
+   */
+  it("renders the purchase-followup breakdown with 응답률/구매율 and an unclassified row", () => {
+    const source = readSource("app/analytics/page.tsx");
+    expect(source).toContain("구매 확인 응답 (링크 클릭 → 실구매)");
+    expect(source).toContain("응답률 (클릭 대비 응답)");
+    expect(source).toContain("구매율 (클릭 대비 샀어요)");
+    // 3갈래가 모두 표에 있고, 각 행은 payload의 answer 리터럴을 그대로 밝힌다.
+    const rows = source.split("const PURCHASE_FOLLOWUP_ROWS")[1]?.split("];")[0] ?? "";
+    expect([...rows.matchAll(/answer: "([a-z_]+)"/g)].map((match) => match[1])).toEqual([
+      "purchased",
+      "not_purchased",
+      "dismissed"
+    ]);
+    expect(rows).toContain('label: "샀어요"');
+    expect(rows).toContain('label: "아직이요"');
+    expect(rows).toContain('label: "괜찮아요"');
+    // 분류 불가(answer 없음/미상)를 감추지 않는다.
+    expect(source).toContain("분류 불가");
+    expect(source).toContain("const unclassified = Math.max(0, answeredEvents - classified);");
+    // 비율의 분모는 제휴 링크 클릭 수.
+    expect(source).toContain('const clicks = eventCount(summary, "affiliate_link_clicked");');
+    expect(source).toContain("conversionRate(clicks, followup.purchased)");
+  });
+
+  it("consumes the API's purchaseFollowup breakdown (admin-api exposes its type)", () => {
+    const api = readSource("src/lib/admin-api.ts");
+    expect(api).toContain("AdminPurchaseFollowupBreakdown");
+    expect(api).toContain("purchaseFollowup: AdminPurchaseFollowupBreakdown;");
+    expect(api).toContain("notPurchased: number;");
+
+    const source = readSource("app/analytics/page.tsx");
+    expect(source).toContain("type AdminPurchaseFollowupBreakdown");
+    expect(source).toContain("summary.purchaseFollowup");
   });
 
   it("labels the two ANA-127 events in the per-event table (they arrive via byName, not the 6-name mirror)", () => {

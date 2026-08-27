@@ -94,7 +94,10 @@ export type CategoryNameLookup = (categoryId: string) => string;
  * the labels honest without any change to the server response contract.
  *
  * Falls back to `categoryNameFor` for ids the server list doesn't contain (offline first run,
- * deactivated categories, legacy ids), so the previous behavior is preserved — never a raw id.
+ * legacy ids), so the previous behavior is preserved — never a raw id. Deactivated categories
+ * are NOT such a case any more: R28-F3 makes `?includeAll=1` return `active: false` rows too, so
+ * switching a category off in the admin no longer relabels past expenses as "기타" (it only stops
+ * the category being OFFERED — see `selectableCategories` below).
  * Callers pass the react-query `["categories"]` cache, which is enough of an "offline memory":
  * the last successful list keeps resolving names until the query refetches.
  */
@@ -123,6 +126,14 @@ export type SelectableCategory = {
    * response/cache from before the flag existed still type-checks and still behaves as it did.
    */
   selectable?: boolean;
+  /**
+   * R28-F3: server-side "is this row still in use?" flag (`GET /categories`). `?includeAll=1` now
+   * returns inactive rows too — deliberately, so a category an operator switched off keeps
+   * resolving the NAME of expenses already recorded under it instead of collapsing them to "기타".
+   * Optional for the same reason as `selectable`: a response/cache from before the flag existed
+   * must keep behaving exactly as it did (missing = offer it).
+   */
+  active?: boolean;
 };
 
 /**
@@ -151,8 +162,11 @@ const IMPORT_STUB_CODE_PREFIX = "import_";
  *
  * Rules, in order:
  *   (a) drop rows the server marks `selectable: false` (CAT-124 — the 8 mobile quick-tile aliases
- *       and the excel-import stub). A MISSING flag means "offer it": that is what a response or
- *       cache from before CAT-124 looks like, and dropping those would empty the row;
+ *       and the excel-import stub) or `active: false` (R28-F3 — a category an operator switched
+ *       off: it must not be OFFERED any more, while `buildCategoryNameLookup` above keeps using
+ *       the full list so past expenses still show the name they were recorded under). A MISSING
+ *       flag means "offer it": that is what a response or cache from before those flags existed
+ *       looks like, and dropping those would empty the row;
  *   (b) drop the import stub by `code` prefix (`import_`) — kept as a belt-and-braces rule for the
  *       pre-CAT-124 payloads rule (a) deliberately lets through, and for the demo backend;
  *   (c) collapse entries that share the exact same display name down to one;
@@ -182,8 +196,9 @@ export function selectableCategories<T extends SelectableCategory>(
   const isCurrent = (category: T) => Boolean(current) && category.id === current;
   const isAlias = (category: T) => (category.code ?? "").startsWith(MOBILE_ALIAS_CODE_PREFIX);
   const isImportStub = (category: T) => (category.code ?? "").startsWith(IMPORT_STUB_CODE_PREFIX);
-  // CAT-124: strictly `=== false`. `undefined` (pre-CAT-124 server/cache) means "offer it".
-  const isHiddenByServer = (category: T) => category.selectable === false;
+  // CAT-124 / R28-F3: strictly `=== false`. `undefined` (a server/cache from before the flag)
+  // means "offer it" — never let a missing field empty the chip row.
+  const isHiddenByServer = (category: T) => category.selectable === false || category.active === false;
 
   const kept: T[] = [];
   // name -> index in `kept`, so a later entry can replace an earlier one in place (keeping the

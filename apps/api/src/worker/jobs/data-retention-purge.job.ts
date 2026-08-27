@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import { maskLookupQuery } from "../../admin/admin-users-lookup.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import type { WorkerJob } from "../worker-job";
 
@@ -17,6 +18,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // which a phase failed terminally (first attempt AND halved retry), the phase
 // starts skipping head rows of its deterministic ordering — see runPhase.
 export const POISON_FAILURE_THRESHOLD = 3;
+
+/**
+ * Audit action whose after_json used to carry the raw admin users-lookup search
+ * term (= an end user's email, in practice). Phase 5 scrubs those legacy rows —
+ * see the class doc, item 5.
+ */
+export const LOOKUP_SEARCH_ACTION = "admin.user_lookup.search";
 
 // Per-phase in-memory escalation state (job instance field — resets on
 // restart, which is fine: a genuinely poisoned row keeps failing and the
@@ -177,6 +185,40 @@ function errorMessage(error: unknown): string {
  *    (findReferenceBlockedUserIds) decides deletability; still-referenced
  *    stubs are left alone. No cutoff applies — a stub was already past the
  *    retention window when it was anonymized.
+ *
+ * 5. Legacy admin users-lookup search terms (라운드 28 리뷰 F1). Audit rows are
+ *    kept forever as the legal/ops record and phase 3 only nullifies their
+ *    actorUserId — their after_json is never touched. That was a personal-data
+ *    leak for one action: `admin.user_lookup.search` used to store the raw
+ *    search term (`after_json.query`), which in practice IS an end user's
+ *    email, so a withdrawn user's email survived the purge inside the audit
+ *    trail (and flowed out through the audit viewer + its CSV export).
+ *
+ *    The write path now stores only `queryMasked` (앞 2자 + 길이, see
+ *    admin-users-lookup.controller.ts / maskLookupQuery), so NEW rows need no
+ *    scrubbing. Rows written before that change still hold the raw term, and
+ *    they cannot be reached from the withdrawn user: the audit row's actor is
+ *    the ADMIN, and the searched user is identified nowhere but inside that
+ *    very string — so no per-user purge scope can find it. Hence this phase:
+ *    a one-time, self-terminating sweep that rewrites `query` into the same
+ *    masked form (plus `queryScrubbedAt`, so the row is honest about having
+ *    been rewritten). Chosen over a SQL migration because it is batched and
+ *    restartable like every other phase (a single UPDATE over an unbounded
+ *    audit table is exactly the kind of long lock this job exists to avoid),
+ *    and because it also catches rows an older deployment writes while a
+ *    rollout is in flight. Once every legacy row is masked the selection
+ *    (`after_json ->> 'query' IS NOT NULL`, served by
+ *    idx_audit_logs_action_created) matches nothing and the phase is a
+ *    no-op — leaving it in place costs one indexed empty read per tick and
+ *    keeps the upgrade path working for any DB restored from an old backup.
+ *
+ *    Caveat, same as every other phase: this only runs where the worker runs
+ *    (WORKER_ENABLED). A deployment that never starts the worker keeps its
+ *    legacy raw terms — there, the one-shot equivalent is
+ *    `UPDATE audit_logs SET after_json = (after_json - 'query') || …` by hand.
+ *    That is not a new exposure (the rows are already there); it is the same
+ *    "파기 경로가 워커 하나뿐" trade-off documented in
+ *    docs/operations/known-limitations.md.
  */
 /**
  * Terminal wrapper thrown by run() AFTER all phases have executed, when at
@@ -238,8 +280,15 @@ export class DataRetentionPurgeJob implements WorkerJob {
     const stubs = await this.runPhase("stubPurge", batchSize, (size, skip) => this.purgeAnonymizedStubs(size, skip), {
       userStubsPurged: 0
     });
+    // Phase 5 (class doc, item 5): legacy raw search terms inside audit rows.
+    const lookupQueries = await this.runPhase(
+      "lookupQueryScrub",
+      batchSize,
+      (size, skip) => this.scrubLegacyLookupQueries(now, size, skip),
+      { lookupQueriesScrubbed: 0 }
+    );
 
-    const summary = { retentionDays, batchSize, ...expenses, ...children, ...users, ...stubs };
+    const summary = { retentionDays, batchSize, ...expenses, ...children, ...users, ...stubs, ...lookupQueries };
 
     // Review M1b: all phases have run; if any of them failed terminally,
     // surface that to the scheduler as a job failure (class doc, monitoring
@@ -649,6 +698,67 @@ export class DataRetentionPurgeJob implements WorkerJob {
       const deleted = await tx.user.deleteMany({ where: { id: { in: deletableIds } } });
       return { userStubsPurged: deleted.count };
     }, PURGE_TX_OPTIONS);
+  }
+
+  /**
+   * Phase 5: rewrite the raw `after_json.query` of legacy
+   * `admin.user_lookup.search` audit rows into the masked form the write path
+   * now produces (class doc, item 5 — 라운드 28 리뷰 F1).
+   *
+   * Selection is by `after_json ->> 'query' IS NOT NULL`, i.e. exactly "this
+   * row still holds a raw term": rows already carrying only `queryMasked` are
+   * invisible to it, which makes the phase idempotent and self-terminating.
+   * The ordering (created_at, id) is the same strict total order every other
+   * phase uses, so the halved retry / poison-skip machinery works unchanged.
+   * No cutoff — a raw email inside an audit row is not something to keep for
+   * another retention window.
+   */
+  private async scrubLegacyLookupQueries(now: Date, batchSize: number, skip: number) {
+    if (skip > 0) {
+      const skipped = await this.selectLegacyLookupQueryRows(skip, 0);
+      this.logPoisonSkippedRows("lookupQueryScrub", "audit_logs", skipped.map((row) => row.id));
+    }
+    const rows = await this.selectLegacyLookupQueryRows(batchSize, skip);
+    if (rows.length === 0) {
+      return { lookupQueriesScrubbed: 0 };
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      let lookupQueriesScrubbed = 0;
+      for (const row of rows) {
+        const after: Record<string, unknown> = { ...(row.after_json ?? {}) };
+        const raw = typeof after.query === "string" ? after.query : "";
+        delete after.query;
+        after.queryMasked = maskLookupQuery(raw);
+        // Honest marker: this value was DERIVED from a raw term that used to
+        // sit here, it was not what the request originally recorded.
+        after.queryScrubbedAt = now.toISOString();
+        await tx.auditLog.update({
+          where: { id: row.id },
+          data: { afterJson: after as Prisma.InputJsonValue }
+        });
+        lookupQueriesScrubbed += 1;
+      }
+      return { lookupQueriesScrubbed };
+    }, PURGE_TX_OPTIONS);
+  }
+
+  /**
+   * Phase-5 candidate selection: audit rows of the users-lookup action that
+   * still carry a raw `query` string, oldest first with the id tiebreaker.
+   * `offset` implements the poison-skip window, same as the other phases.
+   */
+  private selectLegacyLookupQueryRows(
+    limit: number,
+    offset: number
+  ): Promise<{ id: string; after_json: Record<string, unknown> | null }[]> {
+    return this.prisma.$queryRaw`
+      SELECT id, after_json
+      FROM audit_logs
+      WHERE action = ${LOOKUP_SEARCH_ACTION}
+        AND after_json ->> 'query' IS NOT NULL
+      ORDER BY created_at ASC, id ASC
+      LIMIT ${limit} OFFSET ${offset}`;
   }
 
   /**

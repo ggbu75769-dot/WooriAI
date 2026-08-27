@@ -40,6 +40,8 @@ type Summary = {
   byName: { name: string; count: number }[];
   dailyTotals: { date: string; count: number }[];
   funnel: Record<(typeof FUNNEL_KEYS)[number], number>;
+  // ANA-128: purchase_followup_answered의 payload.answer 3갈래 분해.
+  purchaseFollowup: { purchased: number; notPurchased: number; dismissed: number };
   uniqueAnonUsers: number;
 };
 
@@ -146,7 +148,14 @@ describe("Admin analytics summary (ADM-009)", () => {
 
   /** Direct-prisma seeding (same table the ANA-101 ingestion endpoint writes),
    * so the test controls occurredAt and user_anon_id exactly. */
-  async function seedEvent(eventName: string, occurredAt: Date, userAnonId: string | null) {
+  async function seedEvent(
+    eventName: string,
+    occurredAt: Date,
+    userAnonId: string | null,
+    // ANA-128: 이 스위트가 심는 페이로드는 문자열 값(answer/platform)뿐이고,
+    // 레거시/손상 케이스로 null도 넣는다.
+    payload: Record<string, string | null> = {}
+  ) {
     await prisma.analyticsEvent.create({
       data: {
         eventName,
@@ -154,7 +163,7 @@ describe("Admin analytics summary (ADM-009)", () => {
         eventId: randomUUID(),
         occurredAt,
         userAnonId,
-        payload: {}
+        payload
       }
     });
   }
@@ -211,6 +220,19 @@ describe("Admin analytics summary (ADM-009)", () => {
     expect(summary.funnel.itemStatusChanged).toBe(byNameCount(summary, "item_status_changed"));
     expect(summary.funnel.affiliateLinkClicked).toBe(byNameCount(summary, "affiliate_link_clicked"));
     expect(summary.funnel.expenseSynced).toBe(byNameCount(summary, "expense_synced"));
+
+    // ANA-128: purchaseFollowup은 항상 세 키가 모두 있는 정수 분해다 (0건 포함).
+    expect(Object.keys(summary.purchaseFollowup).sort()).toEqual(["dismissed", "notPurchased", "purchased"]);
+    for (const value of Object.values(summary.purchaseFollowup)) {
+      expect(Number.isInteger(value)).toBe(true);
+      expect(value).toBeGreaterThanOrEqual(0);
+    }
+    // 분해 합계는 이벤트 이름 총계를 넘지 않는다 (answer 없는 행은 무시되므로 작을 수는 있다).
+    const classified =
+      summary.purchaseFollowup.purchased +
+      summary.purchaseFollowup.notPurchased +
+      summary.purchaseFollowup.dismissed;
+    expect(classified).toBeLessThanOrEqual(byNameCount(summary, "purchase_followup_answered"));
 
     // dailyTotals: exactly 7 ascending Seoul-calendar days ending today, and
     // their sum reconciles with totalEvents (same occurredAt window).
@@ -281,5 +303,84 @@ describe("Admin analytics summary (ADM-009)", () => {
     expect(byNameCount(after30, "app_opened") - byNameCount(before30, "app_opened")).toBe(1);
     expect(after30.uniqueAnonUsers - before30.uniqueAnonUsers).toBe(3);
     expect(after30.dailyTotals.reduce((sum, entry) => sum + entry.count, 0)).toBe(after30.totalEvents);
+  });
+
+  /**
+   * ANA-128: 이벤트 이름 단위 집계만으로는 "구매 확인 응답" 3갈래 합계밖에 낼 수 없어
+   * 링크 클릭 → 실구매 전환율이 부풀려졌다. payload.answer별 분해가 byName 총계와
+   * **병존**하는지(기존 필드 불변), 그리고 answer가 없는 레거시/손상 페이로드가 어느
+   * 갈래에도 섞이지 않는지 고정한다.
+   */
+  it("breaks purchase_followup_answered down by payload.answer, alongside the unchanged byName total", async () => {
+    const email = freshEmail("ana128-followup");
+    await createAdmin(email, "analyst");
+    const { cookie } = await loginAndEnroll(email);
+
+    // 델타 비교: 공유 테스트 DB에 다른 스위트의 행이 이미 있을 수 있다.
+    const before7 = await fetchSummary(cookie, 7);
+    const before30 = await fetchSummary(cookie, 30);
+
+    const anon = `ana128-anon-${randomUUID()}`;
+    // 7일 창: 샀어요 x2, 아직이요 x1, 괜찮아요 x1.
+    await seedEvent("purchase_followup_answered", seoulNoonDaysAgo(0), anon, {
+      answer: "purchased",
+      platform: "coupang"
+    });
+    await seedEvent("purchase_followup_answered", seoulNoonDaysAgo(1), anon, { answer: "purchased" });
+    await seedEvent("purchase_followup_answered", seoulNoonDaysAgo(2), anon, { answer: "not_purchased" });
+    await seedEvent("purchase_followup_answered", seoulNoonDaysAgo(3), anon, { answer: "dismissed" });
+    // 30일 창에만: 샀어요 x1.
+    await seedEvent("purchase_followup_answered", seoulNoonDaysAgo(12), anon, { answer: "purchased" });
+
+    const after7 = await fetchSummary(cookie, 7);
+    const after30 = await fetchSummary(cookie, 30);
+
+    expect(after7.purchaseFollowup.purchased - before7.purchaseFollowup.purchased).toBe(2);
+    expect(after7.purchaseFollowup.notPurchased - before7.purchaseFollowup.notPurchased).toBe(1);
+    expect(after7.purchaseFollowup.dismissed - before7.purchaseFollowup.dismissed).toBe(1);
+    // 기존 이벤트 이름 총계는 그대로 4건 증가 — 분해가 총계를 대체하지 않는다.
+    expect(
+      byNameCount(after7, "purchase_followup_answered") - byNameCount(before7, "purchase_followup_answered")
+    ).toBe(4);
+    expect(after7.totalEvents - before7.totalEvents).toBe(4);
+
+    // 30일 창은 12일 전 "샀어요"까지 포함한다.
+    expect(after30.purchaseFollowup.purchased - before30.purchaseFollowup.purchased).toBe(3);
+    expect(after30.purchaseFollowup.notPurchased - before30.purchaseFollowup.notPurchased).toBe(1);
+    expect(after30.purchaseFollowup.dismissed - before30.purchaseFollowup.dismissed).toBe(1);
+    expect(
+      byNameCount(after30, "purchase_followup_answered") - byNameCount(before30, "purchase_followup_answered")
+    ).toBe(5);
+  });
+
+  /**
+   * ANA-128: answer가 없거나(레거시 페이로드) 레지스트리에 없는 문자열이면 **무시**한다 —
+   * 임의로 한 갈래에 넣으면 그 자체가 허위 집계다. 이벤트 이름 총계에는 그대로 남으므로
+   * 분해 합계 < byName 총계라는 차이가 화면에서 "분류 불가"로 드러난다.
+   */
+  it("ignores purchase_followup_answered rows whose payload has no usable answer (they stay in byName)", async () => {
+    const email = freshEmail("ana128-legacy");
+    await createAdmin(email, "analyst");
+    const { cookie } = await loginAndEnroll(email);
+
+    const before = await fetchSummary(cookie, 7);
+    const anon = `ana128-legacy-anon-${randomUUID()}`;
+
+    await seedEvent("purchase_followup_answered", seoulNoonDaysAgo(0), anon, {}); // 레거시: answer 없음
+    await seedEvent("purchase_followup_answered", seoulNoonDaysAgo(0), anon, { answer: null }); // 손상: null
+    await seedEvent("purchase_followup_answered", seoulNoonDaysAgo(0), anon, { answer: "maybe" }); // 미등록 값
+    await seedEvent("purchase_followup_answered", seoulNoonDaysAgo(0), anon, { answer: "purchased" }); // 정상 1건
+
+    const after = await fetchSummary(cookie, 7);
+
+    // 정상 1건만 분해에 잡힌다.
+    expect(after.purchaseFollowup.purchased - before.purchaseFollowup.purchased).toBe(1);
+    expect(after.purchaseFollowup.notPurchased - before.purchaseFollowup.notPurchased).toBe(0);
+    expect(after.purchaseFollowup.dismissed - before.purchaseFollowup.dismissed).toBe(0);
+    // 그래도 4건 모두 이벤트 이름 총계에는 남는다 (버려지는 것은 분류뿐).
+    expect(
+      byNameCount(after, "purchase_followup_answered") - byNameCount(before, "purchase_followup_answered")
+    ).toBe(4);
+    expect(after.totalEvents - before.totalEvents).toBe(4);
   });
 });

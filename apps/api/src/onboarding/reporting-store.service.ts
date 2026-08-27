@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { TREND_REPORT_DEFAULT_MONTHS } from "@wooriai/contracts";
 import { getSeoulMonthRange } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
@@ -14,6 +15,23 @@ import {
   toDateOnly,
   toExpenseDto
 } from "./store-shared";
+
+/**
+ * REP-128: `endYearMonth`(내부 `YYYY-MM-01` 형태)로 끝나는 연속 `months`개월을 오름차순으로
+ * 돌려준다 — 마지막 원소가 endYearMonth다. 연말/연초를 넘는 구간(예: 2026-02에서 6개월 →
+ * 2025-09..2026-02)을 위해 Date 산술 대신 순수 정수 산술로 계산한다(서버 로컬 타임존과
+ * 무관해야 하므로).
+ */
+function trailingYearMonths(endYearMonth: string, months: number): string[] {
+  const [endYear, endMonth] = endYearMonth.split("-").map(Number) as [number, number];
+  return Array.from({ length: months }, (_, index) => {
+    // 0-based month index since year 0, so the year rollover is plain division.
+    const absoluteMonth = endYear * 12 + (endMonth - 1) - (months - 1 - index);
+    const year = Math.floor(absoluteMonth / 12);
+    const month = absoluteMonth - year * 12 + 1;
+    return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`;
+  });
+}
 
 /**
  * REF-118: home dashboard + report reads split out of the former
@@ -84,6 +102,57 @@ export class ReportingStoreService {
       totalExpenseKrw,
       budgetAmountKrw: budget?.amountKrw ?? null,
       categoryTop
+    };
+  }
+
+  /**
+   * REP-128: 최근 N개월(기본 6, 상한 12) 월별 합계를 **한 번의 질의**로 돌려준다.
+   *
+   * 모바일 리포트 월간 탭의 추이 차트는 종전에 `getMonthlyReport`를 6번 호출하는
+   * 워터폴이었다(막대 하나당 요청 하나). 차트가 실제로 쓰는 값은 달마다 `totalExpenseKrw`
+   * 하나뿐이라 예산·카테고리 분해까지 6번 다시 계산할 이유가 없다.
+   *
+   * 집계 방식은 getYearlyReport(PERF-127)와 **같다**: Prisma가 파생식(월 추출) 기준
+   * groupBy를 표현하지 못하므로 spentOn(일자) 기준으로 DB에서 먼저 접고, 일자→월 접기만
+   * JS에 남긴다. 술어(deletedAt null + expenseType 'expense' — 선물 제외 DNC-015)와 월 경계
+   * (getSeoulMonthRange의 [startInclusive, endExclusive))는 sumExpenses/getMonthlyReport와
+   * 글자 그대로 같으므로, 이 응답의 각 달은 같은 달의 `GET /reports/monthly`
+   * `totalExpenseKrw`와 정확히 일치한다(동치 e2e로 고정). 기록이 없는 달은 0으로 채운다.
+   */
+  async getTrendReport(
+    user: AuthenticatedUser,
+    childId: string,
+    options: { months?: number; endYearMonth?: string } = {}
+  ) {
+    await this.childAccess.requireChildAccess(user, childId);
+    const months = options.months ?? TREND_REPORT_DEFAULT_MONTHS;
+    const endRange = getSeoulMonthRange(options.endYearMonth ?? currentYearMonth());
+    const yearMonths = trailingYearMonths(endRange.yearMonth, months);
+    const startInclusive = getSeoulMonthRange(yearMonths[0]!).startInclusive;
+
+    const byDay = await this.prisma.expense.groupBy({
+      by: ["spentOn"],
+      where: {
+        childId,
+        deletedAt: null,
+        expenseType: "expense",
+        spentOn: { gte: toDateOnly(startInclusive), lt: toDateOnly(endRange.endExclusive) }
+      },
+      _sum: { amountKrw: true }
+    });
+
+    const totalsByMonth = new Map<string, number>();
+    for (const day of byDay) {
+      const key = fromDateOnly(day.spentOn).slice(0, 7);
+      totalsByMonth.set(key, (totalsByMonth.get(key) ?? 0) + (day._sum.amountKrw ?? 0));
+    }
+
+    return {
+      childId,
+      months: yearMonths.map((yearMonth) => ({
+        yearMonth,
+        totalExpenseKrw: totalsByMonth.get(yearMonth.slice(0, 7)) ?? 0
+      }))
     };
   }
 

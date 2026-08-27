@@ -13,7 +13,10 @@ import {
   productLinkSchema,
   reportCategorySchema,
   reportMonthlySchema,
+  reportTrendSchema,
   reportYearlySchema,
+  TREND_REPORT_DEFAULT_MONTHS,
+  TREND_REPORT_MAX_MONTHS,
   listExpensesQuerySchema,
   updateExpenseRequestSchema,
   versionConflictResponseSchema
@@ -434,6 +437,41 @@ describe("shared contract schemas", () => {
         totalExpenseKrw: 0,
         monthlyTotals: monthlyTotals.slice(0, 11)
       })
+    ).toThrow();
+  });
+
+  /**
+   * REP-128: 추이 리포트 응답 계약. 차트가 소비하는 값은 달마다 totalExpenseKrw 하나뿐이라
+   * 예산·카테고리 분해는 담기지 않는다 — 그게 필요한 화면은 reportMonthlySchema 쪽이다.
+   * 길이 상한(12)은 서버 DTO의 months 상한(TREND_REPORT_MAX_MONTHS)과 같은 값이어야 한다.
+   */
+  it("bounds the trend report to 1-12 months of yearMonth/total pairs (REP-128)", () => {
+    const uuid = "66666666-6666-4666-8666-666666666666";
+    const months = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        yearMonth: `2026-${String(index + 1).padStart(2, "0")}-01`,
+        totalExpenseKrw: 0
+      }));
+
+    expect(
+      reportTrendSchema.parse({ childId: uuid, months: months(TREND_REPORT_DEFAULT_MONTHS) }).months
+    ).toHaveLength(6);
+    expect(TREND_REPORT_DEFAULT_MONTHS).toBe(6);
+    expect(TREND_REPORT_MAX_MONTHS).toBe(12);
+
+    // 1개월(단일 막대)과 상한 12개월은 유효, 0개월과 13개월은 무효.
+    expect(() => reportTrendSchema.parse({ childId: uuid, months: months(1) })).not.toThrow();
+    expect(() => reportTrendSchema.parse({ childId: uuid, months: months(TREND_REPORT_MAX_MONTHS) })).not.toThrow();
+    expect(() => reportTrendSchema.parse({ childId: uuid, months: [] })).toThrow();
+    expect(() => reportTrendSchema.parse({ childId: uuid, months: months(13) })).toThrow();
+
+    // 월간 리포트와 같은 내부 `YYYY-MM-01` 형태만 받는다(연간 리포트의 `YYYY-MM`이 아니다).
+    expect(() =>
+      reportTrendSchema.parse({ childId: uuid, months: [{ yearMonth: "2026-02", totalExpenseKrw: 0 }] })
+    ).toThrow();
+    // 기록 없는 달은 0으로 채워지므로 음수는 계약 위반이다.
+    expect(() =>
+      reportTrendSchema.parse({ childId: uuid, months: [{ yearMonth: "2026-02-01", totalExpenseKrw: -1 }] })
     ).toThrow();
   });
 

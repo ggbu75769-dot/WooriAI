@@ -12,6 +12,7 @@ import {
 import {
   CATEGORY_GROUPS,
   CATEGORY_GROUP_LABELS,
+  activeToggleWarning,
   categoryDraftError,
   categoryDraftPatch,
   categoryGroup,
@@ -106,6 +107,11 @@ export default function CategoriesPage() {
       const warning = selectableToggleWarning(category, true);
       if (warning && !window.confirm(warning)) return;
     }
+    // R28-F3: 사용을 끄면 앱에서 더 이상 고를 수 없다(과거 지출의 표시 이름은 유지된다).
+    if (patch.active === false) {
+      const warning = activeToggleWarning(category, false);
+      if (warning && !window.confirm(warning)) return;
+    }
 
     setSaving(true);
     setRowError(null);
@@ -147,7 +153,8 @@ export default function CategoriesPage() {
         <h2>알아두기</h2>
         <p className={styles.hint}>
           <strong>노출(selectable)</strong>은 앱의 카테고리 선택 목록에 이 카테고리를 내밀지 여부예요.{" "}
-          <strong>사용(active)</strong>은 카테고리 행 자체를 살려 둘지 여부고요 — 사용을 끄면 이름 표시에도 쓰이지 않아요.
+          <strong>사용(active)</strong>은 이 카테고리를 앞으로도 쓸지 여부고요 — 사용을 끄면 새 지출에서 고를 수 없게 되지만,
+          이미 기록된 지출의 표시 이름은 그대로 유지돼요.
         </p>
         <p className={styles.hint}>
           <strong>앱 별칭</strong> 행은 앱의 빠른 입력 타일이 쓰는 내부용 카테고리라 지금은 숨김 상태예요. 별칭 행을 노출로
