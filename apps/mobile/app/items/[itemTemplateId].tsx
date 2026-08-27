@@ -21,6 +21,7 @@ import {
   shouldShowItemDetailExpenseLink,
   ITEM_DETAIL_EXPENSE_LINK_LABEL
 } from "../../src/items/expense-link-prompt";
+import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -365,12 +366,16 @@ export default function ItemDetailScreen() {
     hasData: Boolean(detail.data)
   });
 
+  // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
+  // 버튼은 그대로 — 문구만 바뀐다(src/offline/messages.ts).
+  const loadErrorCopy = useLoadErrorCopy(detail.isError);
+
   if (hasSession && detailPhase === "error") {
     return (
       <AppScreen>
         <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
+          title={loadErrorCopy.title}
+          actionLabel={loadErrorCopy.actionLabel}
           onPress={() => detail.refetch()}
         />
       </AppScreen>

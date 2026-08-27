@@ -5,6 +5,7 @@ import { Alert, Image, Platform, RefreshControl, Text, TextInput, View, type Ima
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildItemStatusChangedPayload } from "../../src/analytics/events";
 import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -336,13 +337,16 @@ export default function ItemsScreen() {
 
   // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
   const itemsPhase = resolveScreenPhase({ isPending: items.isPending, isError: items.isError, hasData: Boolean(items.data) });
+  // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
+  // 버튼은 그대로 — 문구만 바뀐다(src/offline/messages.ts).
+  const loadErrorCopy = useLoadErrorCopy(items.isError);
 
   if (hasSession && itemsPhase === "error") {
     return (
       <AppScreen>
         <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
+          title={loadErrorCopy.title}
+          actionLabel={loadErrorCopy.actionLabel}
           onPress={() => items.refetch()}
         />
       </AppScreen>

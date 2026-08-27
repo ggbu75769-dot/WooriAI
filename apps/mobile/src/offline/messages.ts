@@ -97,3 +97,52 @@ export function syncStatusDiscardAllConfirmMessage(count: number): string {
  */
 export const SESSION_EXPIRED_LOGIN_NOTICE =
   "세션이 만료됐어요. 다시 로그인하면 저장하지 않은 기록도 이어서 반영할게요.";
+
+/**
+ * UX-N — 조회 실패 카드 문구 단일 소스.
+ *
+ * ## 무엇이 문제였나
+ *
+ * 조회 실패 카드는 원인과 상관없이 늘 "불러오지 못했어요. 잠시 후 다시 시도해 주세요."였다.
+ * 지하철·엘리베이터처럼 아예 연결이 없는 자리에서는 이 문장이 사실과 어긋난다: 기다릴 대상이
+ * 없고, [다시 시도]를 눌러도 같은 실패로 되돌아온다. 사용자가 읽는 것은 "앱이 고장났다"이고,
+ * 실제로는 그냥 오프라인이다.
+ *
+ * ## 왜 "연결되면 자동으로 불러올게요"라고 하지 않았나
+ *
+ * 처음 후보 문구는 "지금은 오프라인이에요. 연결되면 자동으로 불러올게요."였다. 확인해 보니 이
+ * 앱에서는 그 약속을 지킬 수 없다 — react-query의 `refetchOnReconnect` 기본값(true)은 그대로지만,
+ * 그 트리거가 되는 onlineManager 배선은 FIX-118A에서 의도적으로 제거됐다(src/query/app-refetch.ts
+ * 헤더 참고: online=false 동안 쿼리가 paused로 묶여 무한 스피너·백지 화면을 만들었다). RN에는
+ * window의 online 이벤트도 없으므로 네이티브에서 재연결 재조회는 **한 번도 발화하지 않는다**.
+ * 실제로 배선된 자동 갱신은 포그라운드 복귀(focusManager ← AppState "active")뿐이다.
+ *
+ * 그래서 못 지킬 약속 대신 지금 할 수 있는 행동을 말한다: "연결된 뒤 다시 시도해 주세요".
+ * (onlineManager를 다시 배선하게 되면 이 문구를 "연결되면 자동으로"로 되돌릴 수 있다.)
+ *
+ * ## 버튼은 그대로 둔다
+ *
+ * 오프라인이라고 [다시 시도]를 숨기지 않는다. 오프라인 판정은 point-in-time 폴 한 번이라
+ * (isCurrentlyOnline, web에서는 항상 true) 틀릴 수 있고, 판정이 틀렸을 때 사용자가 되돌릴
+ * 유일한 수단이 이 버튼이다. 문구만 정직해지고 구조·동작은 그대로다(DNC-018: 비난·불안 문구 금지 —
+ * "연결을 확인하세요" 같은 지시형 대신 상태를 담담히 말한다).
+ */
+export const LOAD_ERROR_NOTICE = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
+export const OFFLINE_LOAD_NOTICE = "지금은 오프라인이에요. 연결된 뒤 다시 시도해 주세요.";
+export const LOAD_ERROR_RETRY_LABEL = "다시 시도";
+
+export type LoadErrorCopy = { title: string; actionLabel: string };
+
+/**
+ * 순수 판정 함수: 연결 상태만 보고 카드 문구·버튼 라벨을 고른다. 화면은 이 결과를
+ * EmptyStateCard에 그대로 넘긴다(문자열만 교체, 구조 변경 없음).
+ *
+ * `isOnline: true`는 "온라인인데 요청이 실패했다"(서버 오류·타임아웃 등)와 "연결 상태를 알 수
+ * 없다"(web 폴백)를 함께 덮는 기본값이라, 판정이 어긋나도 기존 문구로 안전하게 떨어진다.
+ */
+export function resolveLoadErrorCopy({ isOnline }: { isOnline: boolean }): LoadErrorCopy {
+  return {
+    title: isOnline ? LOAD_ERROR_NOTICE : OFFLINE_LOAD_NOTICE,
+    actionLabel: LOAD_ERROR_RETRY_LABEL
+  };
+}

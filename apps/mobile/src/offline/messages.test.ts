@@ -8,6 +8,10 @@ import {
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
   OFFLINE_SAVED_MESSAGE,
   SERVER_CONFIRMED_MESSAGE,
+  LOAD_ERROR_NOTICE,
+  LOAD_ERROR_RETRY_LABEL,
+  OFFLINE_LOAD_NOTICE,
+  resolveLoadErrorCopy,
   syncStatusBadgeLabel,
   syncStatusCountLabel,
   SYNC_ROW_CONFLICT_LABEL,
@@ -84,5 +88,77 @@ describe("REC-123(H4) 동기화 상태 문구 단일 소스", () => {
     expect(recordsSource).toContain("syncStatusBadgeLabel(");
     expect(recordsSource).toContain("syncStatusCountLabel(");
     expect(syncStatusSource).toContain("syncStatusBadgeLabel(");
+  });
+});
+
+describe("UX-N 오프라인 조회 실패 문구", () => {
+  const mobileRoot = process.cwd();
+  const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+
+  it("keeps the existing copy when the device is online (server error, timeout, unknown)", () => {
+    expect(resolveLoadErrorCopy({ isOnline: true })).toEqual({
+      title: "불러오지 못했어요. 잠시 후 다시 시도해 주세요.",
+      actionLabel: "다시 시도"
+    });
+    expect(LOAD_ERROR_NOTICE).toBe("불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+  });
+
+  it("says the honest thing when the device is offline", () => {
+    expect(resolveLoadErrorCopy({ isOnline: false }).title).toBe(OFFLINE_LOAD_NOTICE);
+    expect(OFFLINE_LOAD_NOTICE).toBe("지금은 오프라인이에요. 연결된 뒤 다시 시도해 주세요.");
+  });
+
+  it("never promises an automatic reload -- FIX-118A removed the onlineManager wiring that would refetch on reconnect", () => {
+    // 이 테스트는 문구와 배선을 함께 묶어 둔다: 누군가 "연결되면 자동으로"라고 약속하려면 먼저
+    // 재연결 재조회를 실제로 배선해야 하고, 그러면 아래 소스 스캔이 먼저 깨져 이 결정이 드러난다.
+    // (배선 부재 자체의 계약은 src/query/app-refetch.test.ts가 진다.)
+    expect(OFFLINE_LOAD_NOTICE).not.toContain("자동으로");
+    // 주석은 제거하고 본다 -- 해당 모듈들은 제거된 배선을 문서 주석에서 이름으로 설명한다.
+    const glueCode = source("src/query/install-app-refetch.ts")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    expect(glueCode).not.toContain("onlineManager");
+  });
+
+  it("keeps the retry button on both branches -- offline never hides the only way back", () => {
+    expect(resolveLoadErrorCopy({ isOnline: true }).actionLabel).toBe(LOAD_ERROR_RETRY_LABEL);
+    expect(resolveLoadErrorCopy({ isOnline: false }).actionLabel).toBe(LOAD_ERROR_RETRY_LABEL);
+    expect(LOAD_ERROR_RETRY_LABEL).toBe("다시 시도");
+  });
+
+  it("stays a 해요체 statement of fact, with no blame or alarm (DNC-018)", () => {
+    for (const copy of [LOAD_ERROR_NOTICE, OFFLINE_LOAD_NOTICE]) {
+      expect(copy).toMatch(/요\.$/);
+      // "연결을 확인하세요"류 지시·비난, 기술 용어, 경고 톤 금지.
+      expect(copy).not.toMatch(/확인하세요|하십시오|오류|에러|실패|네트워크|offline|error/i);
+    }
+  });
+
+  it("is the single source for the three screens wired this round", () => {
+    const screens = ["app/(tabs)/items.tsx", "app/items/[itemTemplateId].tsx", "app/(tabs)/reports.tsx"] as const;
+    for (const path of screens) {
+      const screenSource = source(path);
+      expect(screenSource, `${path} imports the shared hook`).toContain('src/offline/use-load-error-copy"');
+      expect(screenSource, `${path} renders the resolved copy`).toContain("title={loadErrorCopy.title}");
+      expect(screenSource, `${path} keeps the retry label from the same source`).toContain(
+        "actionLabel={loadErrorCopy.actionLabel}"
+      );
+      // 재발 방지: 같은 화면에 옛 리터럴이 다시 인라인되면 두 문구가 갈린다.
+      expect(screenSource, `${path} must not inline the old copy again`).not.toContain(
+        'title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."'
+      );
+    }
+  });
+
+  it("probes connectivity once per error, from the existing isCurrentlyOnline helper", () => {
+    const hookSource = source("src/offline/use-load-error-copy.ts");
+    expect(hookSource).toContain('from "./connectivity"');
+    expect(hookSource).toContain("isCurrentlyOnline()");
+    expect(hookSource).toContain("resolveLoadErrorCopy(");
+    // 판정 실패/미확정 시 기존 문구로 떨어지는 안전 폴백(웹은 isCurrentlyOnline이 항상 true).
+    expect(hookSource).toContain("useState(true)");
+    // 문구 리터럴은 messages.ts에만 있다 -- 훅은 문자열을 만들지 않는다.
+    expect(hookSource).not.toContain("불러오지 못했어요");
+    expect(hookSource).not.toContain("오프라인이에요");
   });
 });
