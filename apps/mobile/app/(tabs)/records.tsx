@@ -6,6 +6,7 @@ import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View 
 import { getSeoulToday } from "@wooriai/domain";
 import {
   listCategories,
+  listChildren,
   listExpenses,
   listHouseholdMembers,
   LOCAL_HOUSEHOLD_ID,
@@ -18,7 +19,8 @@ import {
   expenseCreatedByUserId,
   formatSpentOn,
   recordsRowSubtitle,
-  resolveExpenseAuthorLabel
+  resolveExpenseAuthorLabel,
+  resolveExpenseHouseholdId
 } from "../../src/expenses/records-list-view";
 import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
 import { formatKrw } from "../../src/money";
@@ -277,8 +279,21 @@ export default function RecordsScreen() {
   // householdId] 캐시를 그대로 재사용하므로, 그 화면들을 거친 사용자에게는 요청이 0건이다.
   // 카테고리 캐시와 같은 이유로 staleTime을 길게 둔다(구성원은 거의 바뀌지 않고, 초대 수락·
   // 내보내기 경로가 이미 이 키를 invalidate한다).
+  //
+  // 라운드 27 L-4: 물어볼 가구는 세션의 기본 가구가 아니라 **보고 있는 아이의 가구**다. 아이의
+  // householdId도 새 엔드포인트 없이 아이 관리·설정·리포트 화면과 같은 ["children"] 캐시에서
+  // 읽는다(대개 이미 채워져 있다). 판정 규칙은 resolveExpenseHouseholdId에 있다.
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const childrenQuery = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
+  });
+  const householdId = resolveExpenseHouseholdId({
+    children: childrenQuery.data?.children,
+    childId,
+    fallbackHouseholdId: sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null)
+  });
   const householdMembers = useQuery({
     queryKey: ["household-members", householdId],
     enabled: Boolean(authToken && householdId),

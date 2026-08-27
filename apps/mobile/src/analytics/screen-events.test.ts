@@ -99,7 +99,7 @@ describe("ANA-127 purchase-loop funnel firing source contract", () => {
     expect(detailSource).toContain("productLinkCount: detail.data.productLinks.length");
     // 세션당 중복 억제: app/index.tsx의 app_opened와 같은 모듈 레벨 관례.
     expect(detailSource).toContain("const trackedItemDetailViewsThisLaunch = new Set<string>();");
-    expect(detailSource).toContain("const viewKey = `${childId}:${itemTemplateId}`;");
+    expect(detailSource).toContain("const viewKey = `${viewerKey}:${childId}:${itemTemplateId}`;");
     expect(detailSource).toContain("if (trackedItemDetailViewsThisLaunch.has(viewKey)) return;");
     expect(detailSource).toContain("trackedItemDetailViewsThisLaunch.add(viewKey);");
     // 세션 게이트: 픽셀 락(app/pixel-lock.tsx)은 세션을 지우고 캡처하므로 프리뷰 렌더에서는
@@ -125,5 +125,72 @@ describe("ANA-127 purchase-loop funnel firing source contract", () => {
     }
     // 같은 동의 게이트(ANA-102)를 쓰는 공용 클라이언트를 통해서만 발사한다.
     expect(promptSource).toContain('import { trackAndFlushAnalyticsEvent } from "../analytics/client";');
+  });
+});
+
+/**
+ * 라운드 27 리뷰 L-2 / L-3: 이벤트 발사 지점의 **세션 규약**을 고정한다.
+ *
+ * 두 발견 모두 "누구의 세션에서 발사됐는가"를 잘못 다루던 문제다 -- L-2는 데모 세션의 답변이
+ * 실계정 토큰으로 새어 나갈 수 있었고, L-3은 한 기기를 나눠 쓰는 가구에서 뒤에 로그인한 사람의
+ * 열람이 통째로 사라졌다. 화면/오버레이 파일은 vitest에서 import할 수 없어 소스 대조로 고정한다.
+ */
+describe("라운드 27 L-2: 발사 토큰은 데모 세션 규약을 따른다", () => {
+  it("구매 확인 응답도 다른 발사 지점과 같은 authToken 폴백을 쓴다 (accessToken 직접 전달 금지)", () => {
+    const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
+    expect(promptSource).toContain('import { LOCAL_SESSION_TOKEN } from "../api/client";');
+    expect(promptSource).toContain("const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);");
+    expect(promptSource).toContain("trackAndFlushAnalyticsEvent(authToken, {");
+    // 데모 세션(accessToken=null)에서 큐에 쌓였다가 이후 실계정 로그인 시 실토큰으로 전송되는
+    // 경로를 막는 것이 이 규약의 전부다 -- 예전 형태가 되살아나면 여기서 걸린다.
+    expect(promptSource).not.toContain("trackAndFlushAnalyticsEvent(accessToken");
+  });
+
+  it("다른 발사 지점들의 폴백 표현과 글자 그대로 같다 (관례 단일화)", () => {
+    const fallback = "const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);";
+    for (const path of [
+      "src/commerce/PurchaseFollowupPrompt.tsx",
+      "app/items/[itemTemplateId].tsx",
+      "app/(tabs)/records.tsx"
+    ]) {
+      expect(source(path), path).toContain(fallback);
+    }
+  });
+});
+
+describe("라운드 27 L-3: 상세 열람 dedupe는 세션 전환·동의 지연을 반영한다", () => {
+  const detailSource = source("app/items/[itemTemplateId].tsx");
+
+  it("사용자 전환: 중복 억제 키에 사용자 식별자가 들어간다 (데모 세션은 고정 문자열)", () => {
+    expect(detailSource).toContain("const userId = useSessionStore((state) => state.userId);");
+    expect(detailSource).toContain('const DEMO_SESSION_VIEWER_KEY = "demo-session";');
+    expect(detailSource).toContain("const viewerKey = userId ?? (isTestSession ? DEMO_SESSION_VIEWER_KEY : UNKNOWN_VIEWER_KEY);");
+    expect(detailSource).toContain("const viewKey = `${viewerKey}:${childId}:${itemTemplateId}`;");
+    // 예전의 (child, item) 전용 키는 남아 있지 않아야 한다 -- A 로그아웃 → B 로그인 시
+    // B의 열람이 A의 기록에 잡아먹혔다.
+    expect(detailSource).not.toContain("const viewKey = `${childId}:${itemTemplateId}`;");
+    // 키가 이펙트 의존성에도 들어가야 세션이 바뀐 직후 다시 판정된다.
+    expect(detailSource).toContain("analyticsConsent, viewerKey, childId, itemTemplateId]");
+  });
+
+  it("동의 지연: 동의 게이트를 먼저 보고, 발사한 뒤에만 Set에 넣는다", () => {
+    // trackAndFlushAnalyticsEvent는 void를 돌려주므로(동의 OFF면 조용히 버린다) 반환값으로
+    // 발사 여부를 구분할 수 없다 -- 동의 상태를 직접 구독해서 판별한다.
+    expect(source("src/analytics/client.ts")).toContain(
+      "export function trackAndFlushAnalyticsEvent(token: string | null | undefined, input: TrackEventInput): void"
+    );
+    expect(detailSource).toContain('import { useAnalyticsConsentStore } from "../../src/analytics/flag";');
+    expect(detailSource).toContain("const analyticsConsent = useAnalyticsConsentStore((state) => state.enabled);");
+    expect(detailSource).toContain("if (!analyticsConsent) return;");
+
+    const consentGate = detailSource.indexOf("if (!analyticsConsent) return;");
+    const dedupeCheck = detailSource.indexOf("if (trackedItemDetailViewsThisLaunch.has(viewKey)) return;");
+    const fire = detailSource.indexOf('eventName: "item_detail_viewed"');
+    const add = detailSource.indexOf("trackedItemDetailViewsThisLaunch.add(viewKey);");
+    expect(consentGate).toBeGreaterThan(-1);
+    // 동의 OFF면 Set을 건드리기 전에 빠져나간다 -> 나중에 동의를 켜면 그때 발사된다.
+    expect(dedupeCheck).toBeGreaterThan(consentGate);
+    // add는 실제 발사 뒤다 (예전에는 발사 앞이라 동의 OFF 열람이 영구히 소진됐다).
+    expect(add).toBeGreaterThan(fire);
   });
 });

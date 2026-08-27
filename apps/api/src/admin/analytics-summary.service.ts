@@ -15,7 +15,13 @@ export function isAnalyticsSummaryWindow(value: number): value is AnalyticsSumma
 /**
  * Convenience aliases for the KPI funnel (design doc docs/5차 §4.3): the same
  * per-event counts as `byName`, but keyed so the admin frontend never has to
- * find-by-name. One camelCase key per registry event name.
+ * find-by-name.
+ *
+ * R27(L-5): these six keys are the LEGACY set, frozen — not "one key per
+ * registry event". ANA-127 appended `item_detail_viewed` and
+ * `purchase_followup_answered` to the registry without alias keys, and that is
+ * the intended end state: the admin funnel view reads `byName`, so new events
+ * surface there and this shape stays stable for anything already reading it.
  */
 export type AdminAnalyticsFunnel = {
   appOpened: number;
@@ -42,8 +48,19 @@ export type AdminAnalyticsSummary = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** eventName -> funnel alias key. Must cover every registry event name. */
-const FUNNEL_KEY_BY_EVENT_NAME: Record<string, keyof AdminAnalyticsFunnel> = {
+/**
+ * eventName -> funnel alias key.
+ *
+ * R27(L-5): the alias set is the six LEGACY events only — exactly the first six
+ * entries of `analyticsEventRegistry` — and it does NOT (and need not) cover the
+ * whole registry; the previous "Must cover every registry event name" claim has
+ * been false since ANA-127 appended two events. New events are exposed through
+ * `byName` alone, which is what the admin funnel view reads; do not add keys
+ * here, because `funnel`'s response shape is frozen for existing readers.
+ * Exported so `admin-analytics-funnel-alias.test.ts` can pin that correspondence
+ * against the registry without a database.
+ */
+export const FUNNEL_KEY_BY_EVENT_NAME: Record<string, keyof AdminAnalyticsFunnel> = {
   app_opened: "appOpened",
   onboarding_completed: "onboardingCompleted",
   expense_recorded: "expenseRecorded",

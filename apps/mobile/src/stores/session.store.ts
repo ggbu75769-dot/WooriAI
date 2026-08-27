@@ -71,8 +71,19 @@ function normalizeEndReason(value: unknown): SessionEndReason | null {
 
 function sanitizeSessionState<T extends SessionData>(state: T): T {
   const normalized: T = { ...state, lastEndReason: normalizeEndReason(state.lastEndReason) };
-  if (process.env.EXPO_PUBLIC_TEST_LOGIN === "1" && normalized.accessToken) {
-    return { ...normalized, accessToken: null, refreshToken: null };
+  if (process.env.EXPO_PUBLIC_TEST_LOGIN === "1") {
+    // AUTH-127 (round27 L-1): `lastEndReason` is part of the same leftover blob and has to go with
+    // the tokens. A standalone/demo build can never *have* an expiry — client.ts's `isLocalToken`
+    // short-circuits the refresh flow before any 401 handling — so a reason inherited from the
+    // real-login build this one was installed over is corrupt state by the same MOB-107 rule that
+    // condemns the token, and keeping it would put "세션이 만료됐어요" on the demo build's login
+    // screen for a session that never existed on it. The reason is cleared even when the blob
+    // carries no leftover token (the previous install's session had already expired, so its
+    // tokens were null but the "expired" marker survived) — same corrupt-state rule.
+    if (!normalized.accessToken && !normalized.refreshToken && normalized.lastEndReason === null) {
+      return normalized;
+    }
+    return { ...normalized, accessToken: null, refreshToken: null, lastEndReason: null };
   }
   return normalized;
 }

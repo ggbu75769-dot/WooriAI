@@ -940,3 +940,97 @@ export async function draftAndSubmitContentRevision(input: {
   const draft = await createContentRevision(input);
   return await submitContentRevision(draft.id);
 }
+
+// ADM-127: 카테고리 운영 조회/수정. 조회(GET)는 로그인한 모든 어드민 역할에
+// 열려 있고, 수정(PATCH)만 admin 전용이다(API의
+// admin-categories.controller.ts — RequireAdminRoles("admin")). 그래서
+// /categories 페이지는 editor/analyst에게도 표를 보여주되 편집 컨트롤만 감춘다.
+//
+// DNC-007: 생성·삭제 함수는 의도적으로 없다. 카테고리 행의 id/code는 모바일
+// 퀵타일 별칭이 하드코딩해 쓰고 이미 저장된 지출이 참조하므로, 편집 축은
+// 이름/순서/active/selectable 넷뿐이다.
+export type AdminCategory = {
+  id: string;
+  code: string;
+  name: string;
+  iconName: string | null;
+  displayOrder: number;
+  isSystem: boolean;
+  /** 행이 살아 있는가 — false면 `GET /categories`에서 완전히 빠진다. */
+  active: boolean;
+  /** CAT-124: 앱이 "고르라고" 내미는 선택지인가. active와 독립된 축. */
+  selectable: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminCategoryUpdateInput = {
+  name?: string;
+  displayOrder?: number;
+  active?: boolean;
+  selectable?: boolean;
+};
+
+export function listAdminCategories() {
+  return request<{ categories: AdminCategory[] }>("/admin/categories");
+}
+
+export function updateAdminCategory(categoryId: string, input: AdminCategoryUpdateInput) {
+  return request<{ category: AdminCategory }>(`/admin/categories/${categoryId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+// ADM-127: 최종 사용자 조회(CS 문의 대응). 읽기 전용이고 admin 전용이다
+// (RequireAdminRoles("admin") — 개인정보를 다루므로 ADM-006/ADM-113과 같은 등급).
+// 서버는 이 조회 자체도 감사 로그(admin.user_lookup.search)에 남긴다.
+//
+// 노출 범위는 서버가 select 화이트리스트로 좁혀 둔다 — 전화번호, 소셜 고유키,
+// 프로필 이미지, 아이 생년월일/출산예정일, 그리고 지출 금액·품목은 응답에 없다.
+// 지출은 **건수**(expenseCount)만 온다.
+export type AdminLookupChildStageMode = "pregnant" | "born" | "manual";
+export type AdminLookupMemberRole = "owner" | "co_parent" | "viewer" | "gift_participant";
+export type AdminLookupMemberStatus = "pending" | "active" | "removed" | "left";
+export type AdminLookupUserStatus = "active" | "withdrawn" | "blocked";
+export type AdminLookupAuthProvider = "kakao" | "apple" | "google";
+
+export type AdminLookupChild = {
+  id: string;
+  nickname: string;
+  stageMode: AdminLookupChildStageMode;
+};
+
+export type AdminLookupHousehold = {
+  id: string;
+  name: string;
+  role: AdminLookupMemberRole;
+  memberStatus: AdminLookupMemberStatus;
+  isOwner: boolean;
+  children: AdminLookupChild[];
+};
+
+export type AdminLookupUser = {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  authProvider: AdminLookupAuthProvider;
+  status: AdminLookupUserStatus;
+  createdAt: string;
+  /** 마지막 활동 = users.last_login_at (기존 컬럼 그대로). */
+  lastLoginAt: string | null;
+  /** 탈퇴(soft delete) 시각. null이면 살아 있는 계정. */
+  deletedAt: string | null;
+  households: AdminLookupHousehold[];
+  /** 살아 있는 지출 건수만 — 금액/품목은 서버가 내려주지 않는다. */
+  expenseCount: number;
+};
+
+export type AdminUsersLookupResult = { users: AdminLookupUser[]; limit: number };
+
+export function lookupAdminEndUsers(query: string, limit?: number) {
+  const params = new URLSearchParams();
+  params.set("query", query);
+  if (limit !== undefined) params.set("limit", String(limit));
+  return request<AdminUsersLookupResult>(`/admin/users-lookup?${params.toString()}`);
+}

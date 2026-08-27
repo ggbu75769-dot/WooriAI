@@ -12,10 +12,13 @@ import {
   registerAppQueryClient,
   resetAppQueryClientRegistryForTests
 } from "../query/query-client-registry";
+import { secureSessionStorage } from "../stores/secure-session-storage";
 import { saveSyncCursor, SYNC_CURSOR_META_KEY } from "./delta-sync";
 import { createMemoryOfflineStore } from "./memory-offline-store";
 import {
+  clearSessionScopedQueryCache,
   isSessionIdentityChange,
+  subscribeToHydratedSessionTransitions,
   teardownOfflineSessionState,
   type SessionIdentity
 } from "./session-teardown";
@@ -78,6 +81,357 @@ async function simulateSessionTransition(
 
 beforeEach(() => {
   usePurchaseFollowupStore.setState({ entries: [] });
+});
+
+// ---------------------------------------------------------------------------
+// AUTH-127 round27 H-1 / M-1 — the controller's identity-change subscription itself: when it is
+// allowed to observe a transition, and what it must do synchronously when it does.
+// ---------------------------------------------------------------------------
+
+/** The three session-store fields sync-controller.ts's teardown subscription reads. */
+type SessionSnapshot = SessionIdentity & { accessToken: string | null };
+
+const loggedOutSnapshot: SessionSnapshot = { userId: null, isTestSession: false, accessToken: null };
+const userASnapshot: SessionSnapshot = { userId: "user-a", isTestSession: false, accessToken: "access-a" };
+/** What AUTH-127's `clearSession("expired")` leaves behind: identity kept, credentials gone. */
+const expiredUserASnapshot: SessionSnapshot = { userId: "user-a", isTestSession: false, accessToken: null };
+const userBSnapshot: SessionSnapshot = { userId: "user-b", isTestSession: false, accessToken: "access-b" };
+const demoSnapshot: SessionSnapshot = { userId: null, isTestSession: true, accessToken: null };
+
+/**
+ * Stand-in for the persisted session store, reproducing the two zustand-persist behaviors H-1
+ * turns on (verified against zustand 5's persist middleware, and against the real store in the
+ * "real persisted session store" describe below):
+ *
+ *   - hydration ends with an ordinary replace-set, so every `subscribe` listener is notified with
+ *     the PRE-hydration (initial) state as `previous`;
+ *   - `hasHydrated()` is false for the whole duration of a hydration pass and flips true — with
+ *     the finish-hydration listeners firing — only after that set.
+ */
+function createFakePersistedSessionStore(initial: SessionSnapshot) {
+  let state = initial;
+  let hydrated = false;
+  const listeners = new Set<(next: SessionSnapshot, previous: SessionSnapshot) => void>();
+  const finishHydrationListeners = new Set<() => void>();
+
+  const emit = (next: SessionSnapshot) => {
+    const previous = state;
+    state = next;
+    for (const listener of [...listeners]) listener(state, previous);
+  };
+
+  return {
+    store: {
+      subscribe(listener: (next: SessionSnapshot, previous: SessionSnapshot) => void) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+      persist: {
+        hasHydrated: () => hydrated,
+        onFinishHydration(listener: () => void) {
+          finishHydrationListeners.add(listener);
+          return () => {
+            finishHydrationListeners.delete(listener);
+          };
+        }
+      }
+    },
+    /** One hydration pass, in zustand's order. */
+    rehydrateAs(next: SessionSnapshot) {
+      hydrated = false;
+      emit(next);
+      hydrated = true;
+      for (const listener of [...finishHydrationListeners]) listener();
+    },
+    /** An ordinary store write: setSession / clearSession / setTokens / startTestSession. */
+    write(next: SessionSnapshot) {
+      emit(next);
+    },
+    listenerCount: () => listeners.size
+  };
+}
+
+/**
+ * Mirrors sync-controller.ts's teardown subscription verbatim — the hydration-guarded subscribe,
+ * the synchronous query-cache clear, and the offline-store teardown behind a promise hop (the
+ * controller's `getOfflineStore()`). Lets these tests drive the real policy end to end; the
+ * controller stays glue and is pinned separately by source verification.
+ */
+function mountControllerTeardownSubscription(
+  fake: ReturnType<typeof createFakePersistedSessionStore>,
+  store: OfflineStore
+) {
+  const order: string[] = [];
+  const pending: Array<Promise<void>> = [];
+  const unsubscribe = subscribeToHydratedSessionTransitions(fake.store, (state, previous) => {
+    if (!isSessionIdentityChange(previous, state)) return;
+    clearSessionScopedQueryCache();
+    order.push("query-cache-cleared");
+    pending.push(
+      Promise.resolve(store).then(async (resolved) => {
+        order.push("offline-store-torn-down");
+        await teardownOfflineSessionState(resolved, { authToken: previous.accessToken });
+      })
+    );
+  });
+  return {
+    unsubscribe,
+    order,
+    settle: async () => {
+      await Promise.all(pending);
+    }
+  };
+}
+
+describe("AUTH-127 (round27 H-1) a persist rehydration is not a session transition", () => {
+  it("the rehydration notification really does read as a login to the identity policy (the hazard the guard exists for)", () => {
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const seen: boolean[] = [];
+    fake.store.subscribe((state, previous) => {
+      seen.push(isSessionIdentityChange(previous, state));
+    });
+
+    fake.rehydrateAs(expiredUserASnapshot);
+
+    // An unguarded subscriber sees userId null -> "user-a" and calls that an account arriving.
+    expect(seen).toEqual([true]);
+  });
+
+  it("a cold start after an expiry keeps the outbox that expiry deliberately preserved", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+
+    // App start: the store still holds its initial state because the storage read is async, and
+    // the controller mounts inside that window.
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const wiring = mountControllerTeardownSubscription(fake, store);
+
+    // The persisted blob the expiry left behind comes back.
+    fake.rehydrateAs(expiredUserASnapshot);
+    await wiring.settle();
+
+    expect(wiring.order).toEqual([]);
+    expect(await store.listLocalExpenses()).toHaveLength(1);
+    expect(await store.listOutboxMutations()).toHaveLength(1);
+    expect(await store.getMeta(SYNC_CURSOR_META_KEY)).not.toBeNull();
+    expect(usePurchaseFollowupStore.getState().entries).toHaveLength(1);
+
+    // ...and nothing was traded away: the very next real account switch still wipes.
+    fake.write(userBSnapshot);
+    await wiring.settle();
+
+    await expectStoreFullyEmpty(store);
+    expect(usePurchaseFollowupStore.getState().entries).toEqual([]);
+    wiring.unsubscribe();
+  });
+
+  /** Cold start restoring `restored`, then one real transition to `next`. True = it wiped. */
+  async function wipesAfterHydration(restored: SessionSnapshot, next: SessionSnapshot): Promise<boolean> {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const wiring = mountControllerTeardownSubscription(fake, store);
+
+    fake.rehydrateAs(restored);
+    await wiring.settle();
+    fake.write(next);
+    await wiring.settle();
+    wiring.unsubscribe();
+
+    return (await store.listOutboxMutations()).length === 0;
+  }
+
+  it("every real transition after hydration still wipes, exactly as before the guard", async () => {
+    // Explicit logout, A -> B switch, demo toggle.
+    expect(await wipesAfterHydration(userASnapshot, loggedOutSnapshot)).toBe(true);
+    expect(await wipesAfterHydration(userASnapshot, userBSnapshot)).toBe(true);
+    expect(await wipesAfterHydration(userASnapshot, demoSnapshot)).toBe(true);
+    // ...including the login that follows a cold start into a logged-out state.
+    expect(await wipesAfterHydration(loggedOutSnapshot, userBSnapshot)).toBe(true);
+  });
+
+  it("a token refresh and a same-user re-login after hydration still keep the outbox", async () => {
+    expect(await wipesAfterHydration(userASnapshot, { ...userASnapshot, accessToken: "rotated" })).toBe(false);
+    // The AUTH-127 loop in full: cold start into the expired session, then the same user back in.
+    expect(await wipesAfterHydration(expiredUserASnapshot, userASnapshot)).toBe(false);
+  });
+
+  it("a later hydration pass is ignored too — persist.rehydrate() re-opens the identical hole", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const wiring = mountControllerTeardownSubscription(fake, store);
+
+    fake.rehydrateAs(expiredUserASnapshot);
+    await wiring.settle();
+    // Any notification emitted while a hydration pass is running is state being restored, not a
+    // session changing -- whatever the two userIds happen to be.
+    fake.rehydrateAs(userBSnapshot);
+    await wiring.settle();
+
+    expect(wiring.order).toEqual([]);
+    expect(await store.listOutboxMutations()).toHaveLength(1);
+    wiring.unsubscribe();
+  });
+
+  it("unmounting before hydration finishes never leaves a subscription behind", () => {
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const wiring = mountControllerTeardownSubscription(fake, createMemoryOfflineStore());
+
+    // Nothing is subscribed while the store is still un-hydrated.
+    expect(fake.listenerCount()).toBe(0);
+
+    wiring.unsubscribe();
+    fake.rehydrateAs(userASnapshot);
+    fake.write(userBSnapshot);
+
+    expect(fake.listenerCount()).toBe(0);
+    expect(wiring.order).toEqual([]);
+  });
+
+  it("sync-controller wires the teardown through the hydration guard, not a raw subscription (source verification -- the controller is not runtime-testable under vitest)", () => {
+    const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
+    expect(controllerSource).toContain(
+      "subscribeToHydratedSessionTransitions(useSessionStore, (state, previous) => {"
+    );
+    // Exactly one raw subscription is left: the AUTH-127 expiry redirect, which is edge-triggered
+    // on lastEndReason and deliberately not gated (a cold start into an expired session does
+    // belong on the login screen).
+    expect(controllerSource.match(/useSessionStore\.subscribe\(/g) ?? []).toHaveLength(1);
+  });
+});
+
+describe("AUTH-127 (round27 H-1) against the real persisted session store", () => {
+  it("a real persist.rehydrate() notifies raw subscribers but never the guarded listener, and real transitions still land", async () => {
+    const rawTransitions: Array<[string | null, string | null]> = [];
+    const guardedTransitions: Array<[string | null, string | null]> = [];
+
+    // The pre-hydration state zustand hands the subscription as `previous` on a cold start.
+    useSessionStore.setState({
+      accessToken: null,
+      refreshToken: null,
+      userId: null,
+      defaultHouseholdId: null,
+      isTestSession: false,
+      lastEndReason: null
+    });
+    await secureSessionStorage.setItem(
+      "wooriai-session",
+      JSON.stringify({
+        state: {
+          accessToken: null,
+          refreshToken: null,
+          userId: "user-a",
+          defaultHouseholdId: "household-a",
+          isTestSession: false,
+          lastEndReason: "expired"
+        },
+        version: 2
+      })
+    );
+
+    const unsubscribeRaw = useSessionStore.subscribe((state, previous) => {
+      rawTransitions.push([previous.userId, state.userId]);
+    });
+    const unsubscribeGuarded = subscribeToHydratedSessionTransitions(useSessionStore, (state, previous) => {
+      if (isSessionIdentityChange(previous, state)) guardedTransitions.push([previous.userId, state.userId]);
+    });
+
+    await useSessionStore.persist.rehydrate();
+
+    // The hazard, live: the raw subscriber is told about a null -> "user-a" transition...
+    expect(rawTransitions).toEqual([[null, "user-a"]]);
+    // ...and the teardown listener is not.
+    expect(guardedTransitions).toEqual([]);
+    expect(useSessionStore.getState().userId).toBe("user-a");
+
+    // A genuine A -> B login afterwards is delivered exactly as it always was.
+    useSessionStore.getState().setSession({
+      accessToken: "access-b",
+      refreshToken: "refresh-b",
+      userId: "user-b"
+    });
+    expect(guardedTransitions).toEqual([["user-a", "user-b"]]);
+
+    unsubscribeRaw();
+    unsubscribeGuarded();
+    useSessionStore.getState().clearSession();
+  });
+});
+
+describe("AUTH-127 (round27 M-1) the query-cache clear runs ahead of the async store teardown", () => {
+  beforeEach(() => {
+    resetAppQueryClientRegistryForTests();
+  });
+
+  afterEach(() => {
+    resetAppQueryClientRegistryForTests();
+  });
+
+  it("clearSessionScopedQueryCache empties a registered client synchronously (the contract the ordering rests on)", () => {
+    const client = new QueryClient();
+    registerAppQueryClient(client);
+    client.setQueryData(["children"], { children: [{ id: "child-of-user-a" }] });
+
+    // No await: the function is synchronous by contract, and the assertion below runs in the
+    // same tick as the call.
+    clearSessionScopedQueryCache();
+
+    expect(client.getQueryCache().getAll()).toEqual([]);
+  });
+
+  it("is a no-op before app/_layout.tsx registers a client", () => {
+    expect(() => clearSessionScopedQueryCache()).not.toThrow();
+  });
+
+  it("an A -> B switch clears the cache in the same tick as the session write, while the store teardown is still parked behind its promise hop", async () => {
+    const client = new QueryClient();
+    registerAppQueryClient(client);
+    client.setQueryData(["children"], { children: [{ id: "child-of-user-a" }] });
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const wiring = mountControllerTeardownSubscription(fake, store);
+    fake.rehydrateAs(userASnapshot);
+    await wiring.settle();
+
+    // The setSession that admits B. Nothing is awaited between here and the assertions.
+    fake.write(userBSnapshot);
+
+    // Cache already empty; the offline-store teardown has not even started (its marker is pushed
+    // from the `then` callback, still queued).
+    expect(client.getQueryCache().getAll()).toEqual([]);
+    expect(wiring.order).toEqual(["query-cache-cleared"]);
+    // Limitation, stated plainly: vitest mounts no navigator and no screens, so what is pinned
+    // here is "the clear completes in the same tick as the store notification, ahead of the
+    // async teardown" -- not the React commit itself. That tick is the one in which the store's
+    // `set` schedules B's re-render, which is what puts the clear on the right side of the
+    // boundary.
+
+    await wiring.settle();
+
+    expect(wiring.order).toEqual(["query-cache-cleared", "offline-store-torn-down"]);
+    await expectStoreFullyEmpty(store);
+    wiring.unsubscribe();
+  });
+
+  it("sync-controller clears the cache from the subscription body, before the promise hop (source verification)", () => {
+    const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
+    const body = controllerSource.slice(
+      controllerSource.indexOf("subscribeToHydratedSessionTransitions(useSessionStore")
+    );
+    const clearAt = body.indexOf("clearSessionScopedQueryCache();");
+    const storeAt = body.indexOf("void getOfflineStore()");
+    expect(clearAt).toBeGreaterThan(-1);
+    expect(storeAt).toBeGreaterThan(-1);
+    expect(clearAt).toBeLessThan(storeAt);
+    // Nothing may yield between the session-store notification and the clear.
+    expect(body.slice(0, clearAt)).not.toContain("await ");
+    expect(body.slice(0, clearAt)).not.toContain(".then(");
+  });
 });
 
 describe("PRIV-104 OfflineStore.clearAll", () => {

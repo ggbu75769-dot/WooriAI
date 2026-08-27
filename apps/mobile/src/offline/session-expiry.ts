@@ -32,8 +32,19 @@ import type { SessionEndReason } from "../stores/session.store";
  *     account: the app is on the login screen, no screen is mounted against a token, and the only
  *     way to get back in is a login — which either re-establishes the SAME user (cache is
  *     correctly warm, exactly like the same-user token refresh FIX-118A already exempts) or is an
- *     A → B identity change that runs the full teardown, cache clear included, before B's screens
- *     can render. So the leak FIX-118A closes stays closed.
+ *     A → B identity change that clears the cache on the way in. So the leak FIX-118A closes
+ *     stays closed.
+ *
+ *     What that A → B clear actually guarantees (round27 M-1 corrected the claim that used to
+ *     stand here): sync-controller.ts's identity-change subscription calls
+ *     `clearSessionScopedQueryCache()` *synchronously*, inside the notification `setSession`
+ *     itself emits — so it completes before React can flush the re-render that same `set` just
+ *     scheduled for B's screens. The rest of the teardown (the SQLite wipe, the cursor, the
+ *     purchase-followup reset) stays asynchronous behind `getOfflineStore()` and may well land
+ *     after B's first paint; none of it is read by a react-query render path, which is exactly
+ *     why the cache clear — and only the cache clear — is pulled out in front of the awaits.
+ *     The earlier wording claimed the whole teardown beat B's render; it could not, because it
+ *     begins with a promise hop.
  *   - **push device deactivation: NOT attempted.** Same reason plus a practical one: it is a
  *     network call authenticated with the OUTGOING access token, and after an expiry that token is
  *     precisely what the server has stopped accepting — the call could only 401. (This is not a

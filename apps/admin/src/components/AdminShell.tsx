@@ -27,6 +27,10 @@ const NAV_ITEMS: Array<{ href: string; label: string; roles?: AdminRole[] }> = [
   { href: "/reviews", label: "콘텐츠 검토" },
   { href: "/clicks", label: "클릭 통계" },
   { href: "/analytics", label: "분석" },
+  // ADM-127: 카테고리 관리는 조회가 모든 역할에 열려 있어(수정만 admin) 메뉴도 전원에게 보인다.
+  { href: "/categories", label: "카테고리 관리" },
+  // ADM-127: 사용자 조회는 개인정보를 다뤄 API가 admin 전용이라 나머지 역할에는 숨긴다.
+  { href: "/users-lookup", label: "사용자 조회", roles: ["admin"] },
   { href: "/users", label: "관리자 계정", roles: ["admin"] },
   // ADM-113: 감사 로그 뷰어 — API가 admin 전용이라 나머지 역할에는 숨긴다.
   { href: "/audit-logs", label: "감사 로그", roles: ["admin"] }

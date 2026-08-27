@@ -3,6 +3,7 @@ import { AppState, Platform, Text, View } from "react-native";
 import { router } from "expo-router";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { buildPurchaseFollowupAnsweredPayload, type PurchaseFollowupAnswer } from "../analytics/events";
+import { LOCAL_SESSION_TOKEN } from "../api/client";
 import { useSessionStore } from "../stores/session.store";
 import { announceForA11y, Card, PrimaryButton, SecondaryButton, TextButton } from "../ui";
 import { theme } from "../theme";
@@ -46,6 +47,17 @@ export function PurchaseFollowupLifecycle() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   // Demo/test sessions count too: this is a pure client feature (see the store's doc comment).
   const hasSession = Boolean(accessToken) || isTestSession;
+  /**
+   * 라운드 27 L-2: 이벤트 발사에 쓰는 토큰은 화면들과 **같은 관례**로 고른다
+   * (app/items/[itemTemplateId].tsx, app/(tabs)/records.tsx의 `authToken`).
+   *
+   * 예전에는 `accessToken`을 그대로 넘겨서, 데모 세션(accessToken=null·isTestSession)에서 누른
+   * 답변이 큐에만 쌓였다가 **나중에 실계정으로 로그인한 순간 실토큰으로 전송**될 수 있었다
+   * (src/analytics/client.ts의 flushAnalyticsQueue는 큐를 세션별로 나누지 않는다). 데모 세션은
+   * 데모 토큰으로 곧바로 flush를 시도하고 실패하면 그 자리에서 버려지는 편이 맞다 --
+   * 데모에서 누른 답변이 실계정 통계에 섞이는 것이 훨씬 나쁘다.
+   */
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const snoozeFollowup = usePurchaseFollowupStore((state) => state.snoozeFollowup);
   const completeFollowup = usePurchaseFollowupStore((state) => state.completeFollowup);
   const dismissFollowup = usePurchaseFollowupStore((state) => state.dismissFollowup);
@@ -97,7 +109,7 @@ export function PurchaseFollowupLifecycle() {
    * consent (src/analytics/flag.ts), same gate every other event goes through.
    */
   const trackAnswer = (answer: PurchaseFollowupAnswer) => {
-    trackAndFlushAnalyticsEvent(accessToken, {
+    trackAndFlushAnalyticsEvent(authToken, {
       eventName: "purchase_followup_answered",
       payload: buildPurchaseFollowupAnsweredPayload({ answer, platform: activeFollowup.platform }),
       platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
