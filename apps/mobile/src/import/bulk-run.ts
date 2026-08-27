@@ -193,8 +193,19 @@ export type ImportConfirmInput = {
   isPreviewReady: boolean;
   /** 확정 요청이 이미 나가 있는가. */
   isConfirming: boolean;
-  /** 일괄 반영 루프가 도는 중인가. */
+  /** 일괄 반영 루프가 도는 중인가(이 화면이 돌리고 있는 루프). */
   isBulkRunning: boolean;
+  /**
+   * 라운드 43 리뷰 M-6: **다른 마운트의 루프**가 아직 등록부에 남아 있는가
+   * (`isImportBulkRunActive` — claimImportBulkRun이 null을 돌려줄 상태).
+   *
+   * `isBulkRunning`은 이 화면의 진행 상태(bulkProgress)라, 앞 마운트의 루프가 아직 release되지
+   * 않은 좁은 창에서는 false다. 그 창에서 확정이 열려 있으면 남의 루프가 계속 PATCH를 보내는
+   * 동안 잡이 confirmed로 넘어가고, 그 뒤 PATCH는 전부 IMPORT_NOT_EDITABLE로 튕긴다 — 사용자가
+   * 방금 체크한 행들이 본문에서 빠진 채 되돌릴 수 없게 되는, L-2와 같은 종류의 영구 손실이다.
+   * 일괄 버튼(canStartImportBulkRun 호출부)이 이미 보던 값을 확정 판정에서도 함께 본다.
+   */
+  isBulkRunHeldElsewhere: boolean;
   /** 지금 본문에 실릴 행 수(confirmableSelectedRowIds의 길이) -- 0이면 보낼 것이 없다. */
   confirmableSelectedCount: number;
   /** 진행 중인 단건 토글 수. */
@@ -213,12 +224,17 @@ export type ImportConfirmInput = {
  *
  * 그래서 되돌릴 수 없는 이 한 자리에서는 **기다리게 한다** -- 왕복은 짧고(단건 PATCH),
  * 기다림의 이유는 아래 문구가 말한다.
+ *
+ * 라운드 43 리뷰 M-6: 같은 이유로 **다른 마운트의 루프가 아직 정리되지 않은 창**
+ * (`isBulkRunHeldElsewhere`)에서도 확정을 열지 않는다. 그 창의 이유는 이미 있는
+ * IMPORT_BULK_CLAIM_BUSY_TEXT가 그대로 말한다 -- 새 문구를 만들지 않는다.
  */
 export function canConfirmImport(input: ImportConfirmInput): boolean {
   return (
     input.isPreviewReady &&
     !input.isConfirming &&
     !input.isBulkRunning &&
+    !input.isBulkRunHeldElsewhere &&
     input.confirmableSelectedCount > 0 &&
     input.pendingRowCount === 0 &&
     input.unappliedReviewedCount === 0

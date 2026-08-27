@@ -213,7 +213,22 @@ export default function ItemsScreen() {
   // Default the selected chip to the child's actual current stage once it's known, unless the
   // pixel-lock capture is running, we're in the loginless test session (fixture data must render
   // deterministically), or the user already tapped a chip. Falls back to "12-24개월" otherwise.
-  const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode && !isTestSession;
+  //
+  // 라운드 43 리뷰 M-8: 데모(로그인 없는 테스트) 세션도 홈 요약을 조회한다. 예전에는
+  // `!isTestSession`이 여기에 걸려 있어 데모에서는 `home.data`가 영영 undefined였고, 그 값에
+  // 기대는 "출산 전" 칩(offersPreBirthFilter)이 **구조적으로** 절대 뜨지 않았다. 데모 세션의
+  // 홈 조회는 로컬 백엔드(src/api/local-backend.ts의 getHome — 픽스처 child)로 가므로 네트워크
+  // 왕복이 없고, 판정 근거가 "쿼리를 껐다"가 아니라 실제 아이 데이터가 된다.
+  //
+  // 기본 칩의 결정성은 그대로다: `resolveDefaultStageLabel`이 여전히 isTestSession을 받아
+  // 데모에서는 고정값("12-24개월")을 돌려준다. 픽셀 락 캡처는 `isPixelLockMode`가 따로 막는다.
+  //
+  // 남는 한계(의도): 로컬 픽스처 child는 born 모드에 생후 24개월(local-backend.ts의
+  // `seoulDateMinusMonths(today, 24)`)이라 currentStage가 임신 시기가 될 수 없다. 즉 데모에서
+  // "출산 전" 칩을 눈으로 보려면 픽스처 아이를 임신 모드로 바꿔야 하는데, 그건 데모 데이터
+  // 계약(홈·리포트·준비율 전부가 이 아이 기준)을 통째로 흔드는 변경이라 이 라운드에서는 하지
+  // 않는다. 여기서는 "칩이 안 뜨는 이유"를 쿼리 비활성이 아닌 실제 시기로 바꿔 둔다.
+  const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode;
   const home = useQuery({
     queryKey: ["home", childId],
     enabled: shouldResolveChildStage,
@@ -416,7 +431,14 @@ export default function ItemsScreen() {
   // 라운드 43 UX-V: 칩은 아이가 아직 태어나기 전일 때만 나온다. 출생 뒤에는 좁혀 봐야 지나간
   // 준비물만 남기 때문이다. 켜 둔 채로 아이가 출생 전환을 하면 칩이 사라지는데, 그때 필터만
   // 살아 남아 목록이 이유 없이 비지 않도록 **노출 판정과 적용 판정을 같은 값으로 묶는다**.
-  const offersPreBirthFilter = shouldOfferPreBirthFilter({ hasSession, currentStage: home.data?.child.currentStage });
+  // 라운드 43 리뷰 M-7: 보고 있는 밴드도 함께 본다. 임신 중이어도 "6-12개월"처럼 임신 시기를
+  // 담지 않는 밴드를 미리 보는 중이면 칩이 확정적으로 0건이라 내주지 않는다. 밴드로 돌아오면
+  // 칩과 함께 켜 둔 필터도 그대로 다시 적용된다(아래 preBirthFilterActive가 같은 값을 쓴다).
+  const offersPreBirthFilter = shouldOfferPreBirthFilter({
+    hasSession,
+    currentStage: home.data?.child.currentStage,
+    selectedBand: stageLabel
+  });
   const preBirthFilterActive = offersPreBirthFilter && preBirthOnly;
   const listedItems: Array<ItemSummary | RecommendationPreviewItem> = hasSession
     ? applyPreBirthFilter(

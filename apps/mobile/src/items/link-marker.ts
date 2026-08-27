@@ -80,7 +80,84 @@ export const EMPTY_PRODUCT_LINKS_TEXT = "아직 등록된 구매처가 없어요
 /** C4: 세션 경로의 판매처 목록 제목. 값이 하나뿐인 "가격 비교"를 대신한다. */
 export const PRODUCT_LINKS_SECTION_TITLE = "구매처";
 
-/** 링크가 하나라도 있어야 구매 CTA와 제휴 고지가 의미를 가진다. */
+/** 링크가 하나라도 있어야 구매 CTA가 의미를 가진다. */
 export function hasPurchasableLink(links: ReadonlyArray<unknown> | undefined | null): boolean {
   return Boolean(links && links.length > 0);
+}
+
+/* ------------------------------------------------------- 구매 CTA 옆 고지 문구 */
+
+/**
+ * 라운드 43 리뷰 M-1/M-2: 구매 CTA 옆 고지를 **링크 집합**으로 판정한다.
+ *
+ * 고치는 문제: 상세 화면은 `productLinks[0]?.disclosureText`만 읽고, 값이 없으면 컴포넌트
+ * 기본 문구("이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.")를 그렸다. 그래서
+ * 두 가지가 동시에 틀렸다.
+ *
+ *  - 허위 고지: 시드 링크 58개 중 34개가 제휴도 스폰서도 아닌 **일반 링크**다. 그런 링크만
+ *    달린 화면이 "수수료를 받을 수 있어요"라고 말했다 — 받지 않는 돈을 받는다고 말하는 쪽도
+ *    사실과 다른 표시다(DNC-010은 고지를 숨기지 말라는 계약이지, 고지 대상이 없는 자리에도
+ *    띄우라는 계약이 아니다. 고지 대상 자체가 없을 때 렌더하지 않는 것은 C2의 "구매처 0개"
+ *    근거와 같고, 은닉이 아니다).
+ *  - 정렬 결합(M-2): 문구가 **index 0**에 달려 있으니, 워커 헬스로 깨진 링크를 뒤로 미는
+ *    정렬(UX-W)이 바뀌면 고지 문구가 조용히 따라 바뀌었다. 고지는 어떤 링크가 맨 앞에
+ *    왔는지가 아니라 **집합에 무엇이 있는지**로 정해져야 한다.
+ *
+ * 규칙:
+ *  1. 집합에 스폰서도 제휴도 없으면 고지를 그리지 않는다(undefined).
+ *  2. 있으면 스폰서 > 제휴 순서로 종별을 고르고, 그 종의 링크가 들고 있는 disclosureText를
+ *     쓴다. 하나도 없으면 종별 기본 문구를 쓴다.
+ *
+ * 스폰서가 섞인 집합에서 제휴 사실이 사라지지 않는가(M-2): 사라지지 않는다. 판매처 행마다
+ * `productLinkMarker`가 배지와 캡션을 따로 붙이므로, 스폰서 문구가 위에 뜨는 화면에서도
+ * 제휴 링크 행에는 "제휴" 배지 + "제휴 링크" 캡션이 그대로 남는다(DNC-010·DNC-011).
+ */
+export type ProductLinkDisclosureInput = ProductLinkMarkerInput & {
+  disclosureText?: string | null;
+};
+
+/** DNC-010의 고정 문구. 제휴 링크가 있는데 운영이 문구를 안 넣어 둔 경우의 기본값이다. */
+export const AFFILIATE_DISCLOSURE_FALLBACK_TEXT = "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.";
+
+/**
+ * 스폰서가 섞인 집합의 기본값. 광고임을 먼저 밝히고(DNC-011) 수수료 고지를 그대로 잇는다
+ * (DNC-010의 승인 문구를 문장째 포함한다). 해요체(DNC-018).
+ */
+export const SPONSORED_DISCLOSURE_FALLBACK_TEXT =
+  "스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.";
+
+/** 이 링크가 고지 대상인가(제휴이거나 스폰서). 일반 링크는 고지할 것이 없다. */
+export function linkNeedsDisclosure(link: ProductLinkMarkerInput): boolean {
+  return Boolean(link.isSponsored || link.isAffiliate);
+}
+
+function firstDisclosureText(links: ReadonlyArray<ProductLinkDisclosureInput>): string | undefined {
+  for (const link of links) {
+    const text = link.disclosureText?.trim();
+    if (text) return text;
+  }
+  return undefined;
+}
+
+/**
+ * 구매 CTA 옆에 그릴 고지 문구. 고지 대상이 하나도 없으면 undefined(= 렌더하지 않는다).
+ *
+ * 순서 비의존: 같은 집합이면 어떤 순서로 들어와도 같은 값이 나온다.
+ */
+export function productLinksDisclosureText(
+  links: ReadonlyArray<ProductLinkDisclosureInput> | undefined | null
+): string | undefined {
+  if (!links || links.length === 0) return undefined;
+
+  const sponsored = links.filter((link) => link.isSponsored);
+  if (sponsored.length > 0) {
+    return firstDisclosureText(sponsored) ?? SPONSORED_DISCLOSURE_FALLBACK_TEXT;
+  }
+
+  const affiliate = links.filter((link) => link.isAffiliate);
+  if (affiliate.length > 0) {
+    return firstDisclosureText(affiliate) ?? AFFILIATE_DISCLOSURE_FALLBACK_TEXT;
+  }
+
+  return undefined;
 }

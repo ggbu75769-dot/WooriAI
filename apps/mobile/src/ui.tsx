@@ -914,12 +914,17 @@ export function Toast({ message, tone = "success" }: { message: string; tone?: "
   );
 }
 
-export function AffiliateDisclosure({ text }: { text?: string }) {
-  return (
-    <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>
-      {text ?? "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요."}
-    </Text>
-  );
+/**
+ * 라운드 43 리뷰 M-1: `text`는 **필수**다. 예전에는 선택 인자였고 값이 없으면 컴포넌트가
+ * "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요."를 스스로 그렸는데, 제휴도 스폰서도
+ * 아닌 일반 링크뿐인 화면까지 그 문장을 말하게 만드는 자리였다(허위 고지).
+ *
+ * 이제 "무엇을 고지할지"는 링크 집합을 보는 순수 함수가 정하고
+ * (src/items/link-marker.ts의 `productLinksDisclosureText`), 이 컴포넌트는 받은 문장을
+ * 구매 CTA 인접 위치에 그리기만 한다(DNC-010의 위치·문구 계약은 그대로).
+ */
+export function AffiliateDisclosure({ text }: { text: string }) {
+  return <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{text}</Text>;
 }
 
 const textStyles = {
