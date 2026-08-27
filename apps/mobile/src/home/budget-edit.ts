@@ -101,15 +101,20 @@ export type LastMonthOfflineInput = {
 };
 
 /**
- * 지난달 실지출 합계(원). `["expenses", childId, 지난달]` 캐시의 행을 받아 월 합계와 **같은
+ * 한 달 실지출 합계(원). `["expenses", childId, 그 달]` 캐시의 행을 받아 월 합계와 **같은
  * 술어**로만 더한다(DNC-015 선물·환불 제외). 캐시가 없으면 null을 넘기고 null을 돌려받는다.
  *
  * 라운드 38 H-1: 서버 원본 행만 더하면 기록 탭이 같은 달에 보여 주는 합계와 어긋난다 — 아직
  * 올라가지 않은 오프라인 대기 행이 빠지고, 삭제 대기 중인 행은 그대로 들어간다. 그래서 기록
  * 탭·입력 화면 맥락 줄과 **같은 함수**(`reconcileMonthlyExpenses`)를 통과시킬 수 있도록
  * `offline` 인자를 받는다. 넘기지 않으면 종전 동작 그대로다(서버 행만 합산).
+ *
+ * 라운드 39 I-6: 이번 달 사용액도 같은 규칙을 쓰기 위해 이름에서 "지난달"을 뺐다 — 지난달 항은
+ * 재조정된 값이고 이번 달 항만 서버 집계라면, 한 화면의 두 숫자가 다른 모집단을 말하게 된다.
+ * 호출부 가독성을 위해 `sumLastMonthActualKrw` / `sumThisMonthActualKrw` 두 이름으로도 내보낸다
+ * (같은 함수다 — 규칙이 갈릴 자리를 만들지 않는다).
  */
-export function sumLastMonthActualKrw(
+export function sumMonthActualKrw(
   records: ReadonlyArray<LastMonthExpenseLike> | null | undefined,
   offline?: LastMonthOfflineInput
 ): number | null {
@@ -140,6 +145,21 @@ export function sumLastMonthActualKrw(
   );
   return monthlyTotalKrw;
 }
+
+/** 지난달 실지출 합계 — 위 함수 그대로(칩의 근거가 되는 달). */
+export const sumLastMonthActualKrw = sumMonthActualKrw;
+
+/**
+ * 이번 달 실지출 합계 — 위 함수 그대로.
+ *
+ * 라운드 39 I-6: 예산 화면의 "이번 달 지금까지 …" 줄은 서버 집계(`usedAmountKrw`)만 보고 있었다.
+ * 같은 화면의 지난달 칩은 오프라인 대기 행까지 재조정한 값이라, 기록 탭·입력 맥락 줄과 정합인
+ * 숫자 옆에 그렇지 않은 숫자가 나란히 놓였다(아직 올라가지 않은 지출이 이번 달에서만 빠진다).
+ * 캐시가 있으면 이 함수의 값이 1순위이고, 캐시가 없을 때만 서버 집계로 폴백한다 — 알림에서
+ * `/budget`으로 직행해 이번 달 목록을 한 번도 받지 않은 경로에서도 줄이 살아 있어야 하기 때문이다
+ * (라운드 38 H-4).
+ */
+export const sumThisMonthActualKrw = sumMonthActualKrw;
 
 export type BudgetAdjustChip = {
   /** React key 및 테스트용 식별자. */

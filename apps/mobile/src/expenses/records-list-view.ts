@@ -273,6 +273,17 @@ export function buildRecordsSearchScopeNotice(input: {
 export const RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL = "지난달에서 찾기";
 
 /**
+ * 스코프 줄(F8)과 **같은 관례**로 만든 카테고리 필터 이름 — 이름을 못 찾으면 지어내지 않고
+ * "카테고리 필터"라고만 말한다. 필터가 없으면 null이라 문장에서 통째로 빠진다.
+ */
+function categoryFilterName(input: { categoryFiltered?: boolean; categoryLabel?: string | null }): string | null {
+  const label = input.categoryLabel?.trim() ?? "";
+  const filtered = input.categoryFiltered ?? label.length > 0;
+  if (!filtered) return null;
+  return label.length > 0 ? `${label} 필터` : "카테고리 필터";
+}
+
+/**
  * 라운드 39 UX-P: 검색 0건 카드의 **보조 액션**.
  *
  * 기존 0건 카드의 유일한 액션은 "검색어 지우기"였다 — 즉 앱이 제안하는 유일한 다음 행동이
@@ -283,24 +294,103 @@ export const RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL = "지난달에서 찾�
  * 라벨은 상대 표현("지난달")이고 접근성 라벨은 **실제 달 이름**을 말한다: 버튼 자리가 좁아
  * 짧은 쪽이 읽기 쉽지만, 스크린리더에서는 지금 보고 있는 달이 무엇인지 모른 채 듣게 되므로
  * "2026년 7월에서 '유모차' 계속 찾기"가 되어야 어디로 가는지가 문장 안에 있다.
+ *
+ * 라운드 39 I-4 — **카테고리 필터가 함께 걸려 있으면 그 사실도 말한다**: 이 이동은 검색어만
+ * 유지하는 것이 아니라 화면의 필터 상태를 통째로 들고 간다. 칩이 걸린 채로 "2026년 7월에서
+ * '유모차' 계속 찾기"라고만 읽어 주면, 넘어간 달에서 0건이 나왔을 때 그것이 "그 달에 유모차
+ * 기록이 없다"로 들린다 — 실제로는 그 카테고리 안에서만 없는 것이다. 그래서 필터가 켜져 있으면
+ * 라벨 끝에 "(기저귀/위생 필터 유지)"를 덧붙인다(보이는 라벨은 자리가 좁아 그대로 둔다).
  */
 export function buildRecordsSearchPreviousMonthAction(input: {
   /** 검색어 원본(트림 전). 비어 있으면 이 액션 자체가 없다. */
   searchText?: string | null;
   /** 이동해 갈 달의 라벨(현재 달의 한 달 전) — 화면이 월 이동에 쓰는 것과 같은 계산에서 온다. */
   previousMonthLabel: string;
+  /** 카테고리 칩이 걸려 있는지(스코프 줄과 같은 관례로 라벨과 따로 받는다). */
+  categoryFiltered?: boolean;
+  /** 그 칩의 이모지 없는 이름. 모르면 이름 없이 "카테고리 필터"라고만 말한다. */
+  categoryLabel?: string | null;
 }): { label: string; accessibilityLabel: string } | null {
   const query = input.searchText?.trim() ?? "";
   if (query.length === 0) return null;
   const monthLabel = input.previousMonthLabel.trim();
+  const filterName = categoryFilterName(input);
+  const filterSuffix = filterName ? `(${filterName} 유지)` : "";
   return {
     label: RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL,
-    // 달 이름을 모르면 지어내지 않고 보이는 라벨을 그대로 읽어준다.
+    // 달 이름을 모르면 지어내지 않고 보이는 라벨을 그대로 읽어준다(필터 고지는 그때도 붙인다).
     accessibilityLabel:
       monthLabel.length > 0
-        ? `${monthLabel}에서 '${query}' 계속 찾기`
-        : RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL
+        ? `${monthLabel}에서 '${query}' 계속 찾기${filterSuffix}`
+        : `${RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL}${filterSuffix}`
   };
+}
+
+/** 필터/검색 0건 카드가 제안하는 다음 행동 — 화면은 이 키로 어느 필터를 풀지 정한다. */
+export type RecordsEmptyFilterAction = "clear-category" | "clear-search";
+
+export type RecordsFilteredEmptyState = {
+  /** 0건 카드 제목. */
+  title: string;
+  /** 기본 액션 버튼 라벨. */
+  actionLabel: string;
+  /** 그 버튼이 실제로 하는 일. */
+  action: RecordsEmptyFilterAction;
+};
+
+/**
+ * 라운드 39 I-4 — 카테고리 칩과 검색이 **함께** 걸린 0건 카드.
+ *
+ * 무엇이 문제였나: 화면은 둘 중 하나만 걸린 것처럼 말했다. 칩이 걸려 있으면 제목이 무조건
+ * "이 카테고리의 기록이 없어요"였고(검색어를 친 사실이 사라진다), 그 아래 보조 액션은
+ * "지난달에서 찾기"라 검색 프레이밍으로 말했다 — 한 카드 안에서 두 문장이 서로 다른 이야기를
+ * 했다. 반대로 검색만 걸린 것처럼 "검색 결과가 없어요"라고만 말하면, 칩 때문에 가려진 기록을
+ * "이 앱에 없다"로 읽게 된다.
+ *
+ * 규칙:
+ *  - 검색어가 있으면 **검색 프레이밍이 우선**이고, 무엇을 찾았는지 제목에 그대로 싣는다
+ *    ("'유모차' 검색 결과가 없어요."). 검색어는 사용자가 방금 친 값이라 새로 노출되는 정보가 없다.
+ *  - 카테고리 칩이 함께 걸려 있으면 **그 필터를 푸는 것**을 기본 액션으로 제안하고, 라벨에
+ *    필터 이름을 적어 지금 무엇이 걸려 있는지 카드 안에서 말하게 한다("기저귀/위생 필터 해제").
+ *    검색어를 지우는 것보다 범위를 넓히는 쪽이 사용자가 하려던 일(그 물건 찾기)에 가깝다.
+ *  - 둘 다 없으면 null — 그 달에 기록이 없다는 뜻이라 화면이 다른 카드를 그린다.
+ */
+export function buildRecordsFilteredEmptyState(input: {
+  searchText?: string | null;
+  categoryFiltered?: boolean;
+  categoryLabel?: string | null;
+}): RecordsFilteredEmptyState | null {
+  const query = input.searchText?.trim() ?? "";
+  const filterName = categoryFilterName(input);
+
+  if (filterName) {
+    return {
+      title: query.length > 0 ? `'${query}' 검색 결과가 없어요.` : "이 카테고리의 기록이 없어요.",
+      actionLabel: `${filterName} 해제`,
+      action: "clear-category"
+    };
+  }
+  if (query.length === 0) return null;
+  return { title: `'${query}' 검색 결과가 없어요.`, actionLabel: "검색어 지우기", action: "clear-search" };
+}
+
+/**
+ * 라운드 39 I-5 — 그 달에 기록이 하나도 없을 때의 카드 제목.
+ *
+ * 종전 문구는 어느 달을 보고 있든 "첫 기록을 남기면 **이번 달** 비용을 바로 보여드릴게요."였다.
+ * 기록 탭은 ‹ ›로 달을 옮기는 화면이라, 6월을 보면서 "이번 달"을 안내받으면 그 문장이 가리키는
+ * 달이 화면의 월 라벨·합계 카드와 갈린다(라운드 39 UX-P가 월 요약 줄에서 이미 고친 것과 같은
+ * 종류의 어긋남이다).
+ *
+ * 현재 달에서는 "이번 달"이 가장 자연스럽고 홈 화면의 같은 카드와도 한 글자도 다르지 않다
+ * (refresh-wiring-contract.test.ts가 두 화면의 문구 일치를 고정한다 — 홈은 언제나 현재 달이다).
+ * 과거 달을 보고 있을 때만 그 달의 이름을 쓴다.
+ */
+export function buildRecordsEmptyMonthTitle(input: { monthLabel: string; isCurrentMonth: boolean }): string {
+  const monthLabel = input.monthLabel.trim();
+  // 달 이름을 모르면 지어내지 않고 종전 문구를 쓴다.
+  const monthPart = input.isCurrentMonth || monthLabel.length === 0 ? "이번 달" : monthLabel;
+  return `첫 기록을 남기면 ${monthPart} 비용을 바로 보여드릴게요.`;
 }
 
 /**

@@ -104,8 +104,15 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(promptSource).toContain('if (status === "active") check();');
     expect(promptSource).toContain("usePurchaseFollowupStore.persist.hasHydrated()");
     expect(promptSource).toContain("usePurchaseFollowupStore.persist.onFinishHydration");
-    // Once per app session per click.
-    expect(promptSource).toContain("const promptedThisSession = new Set<string>();");
+    // Once per app session per click -- 라운드 39 I-3부터 게이트는 순수 모듈에 있고(왕복 단위
+    // 테스트: purchase-followup-session.test.ts), 화면은 **모듈 지역**에 하나만 둔다(리마운트에는
+    // 살아남고 콜드 스타트에는 비워지는 것이 "이번 앱 세션"의 정의다).
+    expect(promptSource).toContain("const promptSessionGate = createPurchaseFollowupSessionGate();");
+    expect(promptSource).toContain(
+      'import { createPurchaseFollowupSessionGate, evaluateFollowupPrompt } from "./purchase-followup-session";'
+    );
+    const gateSource = source("src/commerce/purchase-followup-session.ts");
+    expect(gateSource).toContain("if (prompted.has(key)) return false;");
     // Never blocks navigation: overlay lets touches pass through outside the card.
     expect(promptSource).toContain('pointerEvents="box-none"');
     expect(promptSource).toContain('position: "absolute"');
@@ -121,13 +128,18 @@ describe("COM-108 purchase follow-up source contract", () => {
     const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
     expect(promptSource).toContain('import { useSelectedChildStore } from "../stores/selected-child.store";');
     expect(promptSource).toContain("const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);");
-    // 후보 판정에 지금 아이를 함께 넘긴다(인자 순서: entries, now, selectedChildId).
-    const selectCall = promptSource.slice(
-      promptSource.indexOf("selectPromptEligibleFollowup("),
-      promptSource.indexOf("if (!candidate")
+    // 후보 판정에 지금 아이를 함께 넘긴다(라운드 39 I-3부터 판정 자체는 순수 모듈에 있다).
+    const evaluateCall = promptSource.slice(
+      promptSource.indexOf("evaluateFollowupPrompt({"),
+      promptSource.indexOf("activeFollowupRef.current = next;")
     );
-    expect(selectCall).toContain("usePurchaseFollowupStore.getState().entries");
-    expect(selectCall).toContain("selectedChildId");
+    expect(evaluateCall).toContain("usePurchaseFollowupStore.getState().entries");
+    expect(evaluateCall).toContain("selectedChildId");
+    const gateSource = source("src/commerce/purchase-followup-session.ts");
+    expect(gateSource).toContain("const candidate = selectPromptEligibleFollowup(entries, now, selectedChildId);");
+    // 아이가 바뀌어 가려진 카드는 세션 슬롯을 돌려받는다 -- 그 아이로 돌아오면 다시 묻는다(I-3).
+    expect(gateSource).toContain("if (current && !isFollowupForSelectedChild(current, selectedChildId)) {");
+    expect(gateSource).toContain("gate.returnSlot(current);");
     // 카드가 떠 있는 동안 아이를 바꿔도 그리지 않는다(그 프레임의 "샀어요"가 곧 오기록).
     expect(promptSource).toContain("if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return null;");
     // 아이 전환이 effect 재실행 -> 재판정으로 이어진다.

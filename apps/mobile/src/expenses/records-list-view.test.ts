@@ -5,6 +5,8 @@ import { categoryCatalog } from "../categories";
 import { groupExpensesByDate } from "./records-date-groups";
 import {
   buildRecordsCategoryChips,
+  buildRecordsEmptyMonthTitle,
+  buildRecordsFilteredEmptyState,
   buildRecordsFilterScopeSummary,
   buildRecordsMonthSummary,
   buildRecordsSearchPreviousMonthAction,
@@ -725,6 +727,110 @@ describe("UX-P buildRecordsSearchPreviousMonthAction", () => {
   });
 });
 
+/**
+ * 라운드 39 I-4 — 카테고리 칩과 검색이 함께 걸린 0건 카드가 한 가지 이야기만 하던 문제.
+ */
+describe("I-4 buildRecordsSearchPreviousMonthAction — 필터 동반 고지", () => {
+  it("카테고리 필터가 켜져 있으면 그 필터를 들고 간다는 사실을 스크린리더에 말한다", () => {
+    const action = buildRecordsSearchPreviousMonthAction({
+      searchText: "유모차",
+      previousMonthLabel: "2026년 7월",
+      categoryFiltered: true,
+      categoryLabel: "기저귀/위생"
+    });
+
+    expect(action!.accessibilityLabel).toBe("2026년 7월에서 '유모차' 계속 찾기(기저귀/위생 필터 유지)");
+    // 보이는 라벨은 자리가 좁아 그대로다.
+    expect(action!.label).toBe(RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL);
+  });
+
+  it("필터 이름을 모르면 지어내지 않고 '카테고리 필터'라고만 말한다", () => {
+    const action = buildRecordsSearchPreviousMonthAction({
+      searchText: "유모차",
+      previousMonthLabel: "2026년 7월",
+      categoryFiltered: true,
+      categoryLabel: null
+    });
+
+    expect(action!.accessibilityLabel).toBe("2026년 7월에서 '유모차' 계속 찾기(카테고리 필터 유지)");
+  });
+
+  it("필터가 없으면 문장이 예전과 한 글자도 다르지 않다", () => {
+    const action = buildRecordsSearchPreviousMonthAction({
+      searchText: "유모차",
+      previousMonthLabel: "2026년 7월",
+      categoryFiltered: false,
+      categoryLabel: "기저귀/위생"
+    });
+
+    expect(action!.accessibilityLabel).toBe("2026년 7월에서 '유모차' 계속 찾기");
+  });
+});
+
+describe("I-4 buildRecordsFilteredEmptyState", () => {
+  it("검색 + 카테고리 필터: 검색 프레이밍이 제목이고, 기본 액션은 그 필터 해제다", () => {
+    expect(
+      buildRecordsFilteredEmptyState({
+        searchText: " 유모차 ",
+        categoryFiltered: true,
+        categoryLabel: "기저귀/위생"
+      })
+    ).toEqual({
+      title: "'유모차' 검색 결과가 없어요.",
+      actionLabel: "기저귀/위생 필터 해제",
+      action: "clear-category"
+    });
+  });
+
+  it("카테고리 필터만: 종전 제목 그대로이고 액션 라벨에 필터 이름이 들어간다", () => {
+    expect(buildRecordsFilteredEmptyState({ categoryFiltered: true, categoryLabel: "기저귀/위생" })).toEqual({
+      title: "이 카테고리의 기록이 없어요.",
+      actionLabel: "기저귀/위생 필터 해제",
+      action: "clear-category"
+    });
+    // 이름을 모르면 지어내지 않는다.
+    expect(buildRecordsFilteredEmptyState({ categoryFiltered: true, categoryLabel: "  " })?.actionLabel).toBe(
+      "카테고리 필터 해제"
+    );
+  });
+
+  it("검색만: 무엇을 찾았는지 제목에 싣고 검색어 지우기를 제안한다", () => {
+    expect(buildRecordsFilteredEmptyState({ searchText: "유모차" })).toEqual({
+      title: "'유모차' 검색 결과가 없어요.",
+      actionLabel: "검색어 지우기",
+      action: "clear-search"
+    });
+  });
+
+  it("아무 필터도 없으면 null -- 그 달에 기록이 없다는 뜻이라 다른 카드를 그린다", () => {
+    expect(buildRecordsFilteredEmptyState({})).toBeNull();
+    expect(buildRecordsFilteredEmptyState({ searchText: "   ", categoryFiltered: false })).toBeNull();
+  });
+});
+
+/**
+ * 라운드 39 I-5 — 달을 옮겨도 "이번 달"이라고 말하던 마지막 한 곳.
+ */
+describe("I-5 buildRecordsEmptyMonthTitle", () => {
+  it("현재 달에서는 홈 화면과 같은 문구다", () => {
+    expect(buildRecordsEmptyMonthTitle({ monthLabel: "2026년 8월", isCurrentMonth: true })).toBe(
+      "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
+    );
+  });
+
+  it("과거 달을 보고 있으면 그 달의 이름을 말한다", () => {
+    expect(buildRecordsEmptyMonthTitle({ monthLabel: "2026년 6월", isCurrentMonth: false })).toBe(
+      "첫 기록을 남기면 2026년 6월 비용을 바로 보여드릴게요."
+    );
+  });
+
+  it("달 라벨을 모르면 지어내지 않고 종전 문구를 쓴다", () => {
+    expect(buildRecordsEmptyMonthTitle({ monthLabel: "   ", isCurrentMonth: false })).toBe(
+      "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
+    );
+  });
+});
+
 describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   const recordsSource = readFileSync(join(mobileRoot, "app/(tabs)/records.tsx"), "utf8");
 
@@ -848,9 +954,10 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   });
 
   it("UX-P: 0건 카드의 '지난달에서 찾기'는 기존 ‹ 이동을 재사용하고 검색어를 지우지 않는다", () => {
-    expect(recordsSource).toContain(
-      "const previousMonthSearchAction = buildRecordsSearchPreviousMonthAction({ searchText, previousMonthLabel });"
-    );
+    expect(recordsSource).toContain("const previousMonthSearchAction = buildRecordsSearchPreviousMonthAction({");
+    // 라운드 39 I-4: 이동이 함께 들고 가는 카테고리 필터도 같은 호출부에서 넘어간다.
+    expect(recordsSource).toContain("categoryFiltered: selectedCategoryId !== null,");
+    expect(recordsSource).toContain("categoryLabel: selectedCategoryLabel");
     expect(recordsSource).toContain('const previousMonthLabel = periodLabelForOffset(baseDate, "month", monthOffset - 1);');
     expect(recordsSource).toContain("label={previousMonthSearchAction.label}");
     expect(recordsSource).toContain("accessibilityLabel={previousMonthSearchAction.accessibilityLabel}");
@@ -858,8 +965,22 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).toContain("onPress={goToPreviousMonth}");
     // 두 개의 0건 분기(달에 기록이 있는데 필터로 가려진 경우 / 달 자체가 빈 경우) 모두에 붙는다.
     expect((recordsSource.match(/\{previousMonthSearchActionButton\}/g) ?? []).length).toBe(2);
-    // 기존 액션("검색어 지우기")도 그대로 남는다 -- 대체가 아니라 추가다.
-    expect(recordsSource).toContain('"검색어 지우기"');
+    // 기존 액션("검색어 지우기")도 그대로 남는다 -- 대체가 아니라 추가다(문구는 순수 모듈에).
+    expect(recordsSource).toContain("filteredEmptyState.actionLabel");
+  });
+
+  /**
+   * 라운드 39 I-4 / I-5 — 0건 카드 두 장의 문구가 화면 안에서 만들어지지 않는다.
+   */
+  it("I-4/I-5: 0건 카드의 제목·액션은 순수 모듈이 만든다 (하드코딩 문구가 화면에 없다)", () => {
+    expect(recordsSource).toContain("const filteredEmptyState = buildRecordsFilteredEmptyState({");
+    expect(recordsSource).toContain('if (filteredEmptyState.action === "clear-category") setSelectedCategoryId(null);');
+    expect(recordsSource).toContain("const emptyMonthTitle = buildRecordsEmptyMonthTitle({");
+    expect(recordsSource).toContain("isCurrentMonth: monthOffset === 0");
+    // 종전 하드코딩 문구는 화면에서 사라졌다.
+    expect(recordsSource).not.toContain('"이 카테고리의 기록이 없어요."');
+    expect(recordsSource).not.toContain('"카테고리 필터 해제"');
+    expect(recordsSource).not.toContain("첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요.");
   });
 });
 

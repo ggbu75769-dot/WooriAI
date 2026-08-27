@@ -69,11 +69,16 @@ export default function NotificationsScreen() {
   const householdChildren = childrenQuery.data?.children;
 
   /**
-   * 라운드 39 UX-O "새 소식" 스냅샷: 화면이 열리는 순간의 안읽음 id를 **한 번만** 떠 둔다.
-   * 아래 읽음 처리가 곧바로 모든 항목의 readAt을 채우므로, 이 스냅샷이 없으면 "이번에 새로
-   * 들어온 것"이라는 정보는 그 자리에서 영영 사라진다. 화면 상태로만 살아 있어서 나갔다
-   * 들어오면 자연히 비워지고(그때는 정말 다 읽은 것이다), 스토어의 dedupe·readAt 규칙은
-   * 그대로다 -- selector는 읽기 전용이다.
+   * 라운드 39 UX-O "새 소식" 스냅샷: 읽음 처리 **직전의** 안읽음 id를 떠 둔다. 포커스와 동시에
+   * 모든 항목의 readAt이 채워지므로, 이 스냅샷이 없으면 "이번에 새로 들어온 것"이라는 정보는
+   * 그 자리에서 영영 사라진다. 화면 상태로만 살아 있고, 스토어의 dedupe·readAt 규칙은 그대로다
+   * -- selector는 읽기 전용이다.
+   *
+   * 라운드 39 I-7: 그 스냅샷을 **마운트 1회가 아니라 포커스마다** 다시 뜬다. 알림을 눌러 예산
+   * 화면으로 갔다가 돌아오는 흔한 경로는 같은 화면 인스턴스의 재포커스라, 마운트 스냅샷은 그때
+   * 이미 낡아 있다(방금 보고 온 항목에 계속 점이 붙어 있고, 화면을 떠 있는 동안 새로 들어온
+   * 항목에는 붙지 않는다). 포커스마다 "이번 포커스 직전의 안읽음"을 다시 잡으면 두 경우가 모두
+   * 맞는다 -- 방금 읽은 항목은 이미 readAt이 있어 빠지고, 새로 온 항목만 새 스냅샷에 들어온다.
    *
    * 스토어가 아직 rehydrate되지 않은 채 마운트될 수 있어서(콜드 스타트 직후 딥링크 등)
    * 그때는 복구가 끝나는 시점에 한 번 더 잡는다. 못 잡으면 표시가 없을 뿐, 잘못된 표시는
@@ -95,9 +100,14 @@ export default function NotificationsScreen() {
   }, []);
 
   // Read marks on open: whenever this screen gains focus, everything becomes read (no-op when
-  // nothing is unread -- markAllNotificationsRead returns the same array then).
+  // nothing is unread -- markAllNotificationsRead returns the same array then). 순서가 중요하다:
+  // 읽음 처리 **전에** 스냅샷을 떠야 이번 포커스의 "새 소식"이 남는다(I-7).
   useFocusEffect(
     useCallback(() => {
+      if (useNotificationStore.persist.hasHydrated()) {
+        newIdsSnapshotTaken.current = true;
+        setNewNotificationIds(selectUnreadNotificationIds(useNotificationStore.getState().entries));
+      }
       markAllRead();
     }, [markAllRead])
   );

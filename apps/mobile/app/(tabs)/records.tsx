@@ -47,6 +47,8 @@ import {
 } from "../../src/expenses/save-error-messages";
 import {
   buildRecordsCategoryChips,
+  buildRecordsEmptyMonthTitle,
+  buildRecordsFilteredEmptyState,
   buildRecordsFilterScopeSummary,
   buildRecordsMonthSummary,
   buildRecordsSearchPreviousMonthAction,
@@ -228,7 +230,20 @@ const ServerExpenseListRow = memo(function ServerExpenseListRow({
   // 아래 ListRow의 `value`와 **같은 식**이다(스크린리더 라벨이 보이는 금액과 갈릴 수 없다).
   const amountLabel = formatKrw(expense.amountKrw);
   // 이 행이 실제로 제공하는 동작. 선물·환불 행에는 "또 기록"이 없다(DNC-015 -- 모듈 주석 참고).
-  const rowActions = useMemo(() => buildRecordRowActions({ expenseType: expense.expenseType }), [expense.expenseType]);
+  //
+  // 라운드 39 I-2: 품목명·금액까지 넘긴다. 판정 모듈은 라운드 38 H-7부터 프리필 규칙(빈 품목명·
+  // 0 이하 금액 제외)까지 함께 보는데, 이 호출부가 expenseType만 넘겨서 0원·품목명 없는 행에는
+  // 눌러도 아무 일도 일어나지 않는 "또 기록"이 그대로 남아 있었다. 아래 액션시트도 같은 세 필드를
+  // 받으므로 눈에 보이는 목록과 스크린리더 액션 메뉴가 갈릴 수 없다.
+  const rowActions = useMemo(
+    () =>
+      buildRecordRowActions({
+        itemName: expense.itemName,
+        amountKrw: expense.amountKrw,
+        expenseType: expense.expenseType
+      }),
+    [expense.itemName, expense.amountKrw, expense.expenseType]
+  );
   // A11Y: 롱프레스는 스크린리더로 **발견할 수 없는** 제스처다. 같은 목록을 커스텀 액션으로도
   // 내놓아 TalkBack/VoiceOver의 액션 메뉴에서 똑같이 고를 수 있게 한다.
   const rowAccessibilityActions = useMemo(() => recordRowAccessibilityActions(rowActions), [rowActions]);
@@ -237,6 +252,7 @@ const ServerExpenseListRow = memo(function ServerExpenseListRow({
   const openRowActionSheet = useCallback(() => {
     const sheet = buildRecordRowActionSheet({
       itemName: expense.itemName,
+      amountKrw: expense.amountKrw,
       expenseType: expense.expenseType,
       platform: Platform.OS
     });
@@ -989,7 +1005,6 @@ export default function RecordsScreen() {
       })
     };
   }, [monthlyServerExpenses, offlinePendingRows, selectedCategoryIds, normalizedSearch]);
-  const hasSearchQuery = normalizedSearch.length > 0;
 
   // Offline pending rows first (same order as the old eager render), then server rows.
   const listData = useMemo<RecordsListItem[]>(
@@ -1106,7 +1121,26 @@ export default function RecordsScreen() {
     totalKrw: monthlyTotalKrw
   });
   const searchScopeNotice = buildRecordsSearchScopeNotice({ searchText, monthLabel: recordsMonthLabel });
-  const previousMonthSearchAction = buildRecordsSearchPreviousMonthAction({ searchText, previousMonthLabel });
+  // 라운드 39 I-4: 이 이동은 검색어뿐 아니라 카테고리 칩도 그대로 들고 간다 -- 스크린리더 라벨이
+  // 그 사실을 말해야 넘어간 달의 0건이 "그 달에 없다"로 잘못 들리지 않는다. 0건 카드의 제목·기본
+  // 액션도 같은 두 필터를 함께 보고 만든다(문구는 전부 순수 모듈에서 나온다).
+  const previousMonthSearchAction = buildRecordsSearchPreviousMonthAction({
+    searchText,
+    previousMonthLabel,
+    categoryFiltered: selectedCategoryId !== null,
+    categoryLabel: selectedCategoryLabel
+  });
+  const filteredEmptyState = buildRecordsFilteredEmptyState({
+    searchText,
+    categoryFiltered: selectedCategoryId !== null,
+    categoryLabel: selectedCategoryLabel
+  });
+  // 라운드 39 I-5: 그 달에 기록이 하나도 없을 때의 문구도 보고 있는 달을 따른다(현재 달이면
+  // 종전 "이번 달" 문구 그대로 -- 홈 화면의 같은 카드와 한 글자도 다르지 않다).
+  const emptyMonthTitle = buildRecordsEmptyMonthTitle({
+    monthLabel: recordsMonthLabel,
+    isCurrentMonth: monthOffset === 0
+  });
 
   // UX-N: 조회 실패 카드 문구는 연결 상태에 따라 갈린다(items 탭과 같은 배선).
   const loadErrorCopy = useLoadErrorCopy(expenses.isError);
@@ -1366,14 +1400,16 @@ export default function RecordsScreen() {
       actionLabel={loadErrorCopy.actionLabel}
       onPress={() => expenses.refetch()}
     />
-  ) : hasMonthlyRecords ? (
+  ) : hasMonthlyRecords && filteredEmptyState ? (
     // The month has records, but the category filter / search hid them all.
+    // 라운드 39 I-4: 제목·액션 라벨은 두 필터를 함께 본 결과다(검색어가 있으면 검색 프레이밍이
+    // 우선이고, 칩이 걸려 있으면 그 필터 이름과 해제 액션이 카드 안에 그대로 적힌다).
     <View style={{ gap: theme.spacing.gap }}>
       <EmptyStateCard
-        title={selectedCategoryId ? "이 카테고리의 기록이 없어요." : "검색 결과가 없어요."}
-        actionLabel={selectedCategoryId ? "카테고리 필터 해제" : "검색어 지우기"}
+        title={filteredEmptyState.title}
+        actionLabel={filteredEmptyState.actionLabel}
         onPress={() => {
-          if (selectedCategoryId) setSelectedCategoryId(null);
+          if (filteredEmptyState.action === "clear-category") setSelectedCategoryId(null);
           else setSearchText("");
         }}
       />
@@ -1382,12 +1418,13 @@ export default function RecordsScreen() {
   ) : (
     <View style={{ gap: theme.spacing.gap }}>
       <EmptyStateCard
-        title={hasSearchQuery ? "검색 결과가 없어요." : "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."}
-        actionLabel={hasSearchQuery ? "검색어 지우기" : "기록하기"}
+        title={filteredEmptyState ? filteredEmptyState.title : emptyMonthTitle}
+        actionLabel={filteredEmptyState ? filteredEmptyState.actionLabel : "기록하기"}
         onPress={() => {
-          // 검색어를 지우는 갈래는 잠금과 무관하다(읽기 동작이다).
-          if (hasSearchQuery) {
-            setSearchText("");
+          // 필터/검색을 푸는 갈래는 잠금과 무관하다(읽기 동작이다).
+          if (filteredEmptyState) {
+            if (filteredEmptyState.action === "clear-category") setSelectedCategoryId(null);
+            else setSearchText("");
             return;
           }
           expenseGate.guard(() => router.push("/expenses/new"))();

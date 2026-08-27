@@ -6,7 +6,7 @@ import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildExpenseRecordedPayload } from "../../src/analytics/events";
 import { LOCAL_SESSION_TOKEN, type CategoryListItem } from "../../src/api/client";
-import { buildTileCategoryIdResolver, categoryCatalog } from "../../src/categories";
+import { buildTileCategoryIdResolver, buildTileCategoryResolver, categoryCatalog } from "../../src/categories";
 import {
   addAmountPreset,
   canAddAmountPreset,
@@ -227,10 +227,16 @@ export default function NewExpenseScreen() {
   // 들어 있다 -- **새 요청 없이**(useQuery가 아니라 getQueryData) 읽어 매핑만 만든다. 캐시가
   // 아직 없으면(콜드 스타트·오프라인 첫 실행) 매핑도 없고, 그때의 동작은 종전과 정확히 같다
   // (타일 id 완전 일치만 인정 -- 지어낸 분류를 쓰느니 모른다고 말한다).
+  //
+  // 라운드 39 I-1: 같은 캐시에서 매핑을 **두 모양**으로 만든다. 프리필(아래 H-6)은 어느 쪽이든
+  // 타일 하나를 골라야 하므로 id만 주는 쪽을 쓰고, 합계를 말하는 맥락 한 줄은 "이 code는 타일이
+  // 둘이라 확정할 수 없다"까지 받는 쪽을 쓴다(feeding_babyfood = 분유/유제품 + 식비).
   const queryClient = useQueryClient();
-  const resolveTileCategoryId = buildTileCategoryIdResolver(
-    authToken ? queryClient.getQueryData<{ categories: CategoryListItem[] }>(["categories"])?.categories : undefined
-  );
+  const cachedCategories = authToken
+    ? queryClient.getQueryData<{ categories: CategoryListItem[] }>(["categories"])?.categories
+    : undefined;
+  const resolveTileCategoryId = buildTileCategoryIdResolver(cachedCategories);
+  const resolveTileCategory = buildTileCategoryResolver(cachedCategories);
   // Preview/pixel-lock capture (no session) keeps the fixed "기저귀"/"38500" seed so the
   // reference screenshot stays deterministic. A real or test session starts blank so opening
   // the sheet never silently records a 38,500원 지출 the user didn't enter (see save-button
@@ -461,8 +467,9 @@ export default function NewExpenseScreen() {
     childId,
     selectedCategory,
     // 라운드 38 H-11: 서버 시드 UUID를 단 행(엑셀 가져오기·수정 화면 경유)도 제 타일에 합산된다.
-    // 매핑이 없는 행이 남을 때만 카테고리 항을 생략한다(라운드 37 G-4의 "모르면 말하지 않는다").
-    resolveTileCategoryId
+    // 매핑이 없거나 타일을 확정할 수 없는 행이 남을 때만 카테고리 항을 생략한다(라운드 37 G-4의
+    // "모르면 말하지 않는다" + 라운드 39 I-1의 모호한 code).
+    resolveTileCategory
   });
 
   // MOB-102 (round5a-sprint1-plan.md §3.2, §3.3): saves to the local offline store first --
