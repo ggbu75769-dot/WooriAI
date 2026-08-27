@@ -15,6 +15,12 @@ import {
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
 import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
 import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
+import {
+  expenseLinkParams,
+  itemDetailExpenseLinkAccessibilityLabel,
+  shouldShowItemDetailExpenseLink,
+  ITEM_DETAIL_EXPENSE_LINK_LABEL
+} from "../../src/items/expense-link-prompt";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -558,6 +564,31 @@ export default function ItemDetailScreen() {
                 isGifted ? `${visibleDetail.name} 선물 받음 취소` : `${visibleDetail.name} 선물로 받았어요`
               }
               onPress={confirmGiftedChange}
+            />
+          ) : null}
+
+          {/* 라운드 37 UX-I: 앱 밖(마트·당근·지인)에서 이미 산 사람을 위한 상시 진입점.
+              예전에는 아래 `clickedTitle` 카드 안의 "지출 기록하고 준비 완료"가 유일한 길이라
+              **제휴 링크를 연 뒤에만** 지출과 준비템을 이을 수 있었다 -- 링크를 누를 일이 없는
+              사람에게는 없는 기능이었다(핵심 루프의 빈 고리).
+
+              배치: "선물로 받았어요"와 같은 이유로 구매 CTA **아래**다. 제휴 고지(AffiliateDisclosure)와
+              구매 CTA 사이에는 아무것도 끼우지 않는다(DNC-010 인접성). 새 저장 경로를 만들지 않고
+              기존 /expenses/new 프리필 계약(itemName, itemTemplateId)을 그대로 쓴다 --
+              지출을 저장하면 서버가 이 준비템도 준비 완료로 처리한다(R19-B).
+
+              세션이 없으면 렌더하지 않는다: 기록할 대상이 없고, 픽셀 락 ITEM-002 캡처가 세션을
+              지운 프리뷰 렌더라 버튼 한 줄이 더 들어가면 기준 이미지와 어긋난다. */}
+          {shouldShowItemDetailExpenseLink({ hasSession }) ? (
+            <SecondaryButton
+              label={ITEM_DETAIL_EXPENSE_LINK_LABEL}
+              accessibilityLabel={itemDetailExpenseLinkAccessibilityLabel(visibleDetail.name)}
+              onPress={() =>
+                router.push({
+                  pathname: "/expenses/new",
+                  params: expenseLinkParams({ itemName: visibleDetail.name, itemTemplateId })
+                })
+              }
             />
           ) : null}
 
