@@ -61,7 +61,8 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     queryKey: ["categories"],
     enabled: canExport,
     staleTime: 5 * 60 * 1000,
-    queryFn: () => listCategories(authToken!)
+    // CAT-124: includeAll=1 — CSV "카테고리" 열도 전량이 필요하다(별칭 id로 저장된 지출).
+    queryFn: () => listCategories(authToken!, { includeAll: true })
   });
 
   const [cardOpen, setCardOpen] = useState(false);

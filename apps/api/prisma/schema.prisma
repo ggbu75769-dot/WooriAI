@@ -254,6 +254,13 @@ model Category {
   displayOrder     Int      @default(0) @map("display_order")
   isSystem         Boolean  @default(true) @map("is_system")
   active           Boolean  @default(true)
+  // CAT-124: 사용자에게 "고르라고" 내밀 카테고리인지. `active`(행이 살아 있는가)와도,
+  // `isSystem`(시스템 시드인가)과도 다른 축이다 — 모바일 퀵타일 별칭 8행과 엑셀 가져오기
+  // 스텁 1행은 시스템이 만든 살아 있는 행이지만 선택지로 내밀면 안 된다(정식 12개와 뜻이
+  // 겹친다). `GET /categories`는 기본적으로 selectable=true만 돌려주고 `?includeAll=1`이
+  // 전량을 돌려준다. 지출의 categoryId 검증은 이 플래그를 보지 않는다(하위 호환).
+  // 마이그레이션: 000018_categories_selectable.
+  selectable       Boolean  @default(true)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

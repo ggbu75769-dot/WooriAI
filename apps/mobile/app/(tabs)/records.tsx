@@ -246,7 +246,9 @@ export default function RecordsScreen() {
     queryKey: ["categories"],
     enabled: Boolean(authToken),
     staleTime: 5 * 60 * 1000,
-    queryFn: () => listCategories(authToken!)
+    // CAT-124: includeAll=1 — 같은 응답이 칩(selectableCategories로 좁힘)과 행 부제의 이름
+    // 해석(buildCategoryNameLookup, 별칭 라벨까지 필요)을 동시에 먹인다.
+    queryFn: () => listCategories(authToken!, { includeAll: true })
   });
   const serverCategories = categories.data?.categories;
   // 안정된 함수 참조(행 memo 유지) + 칩과 같은 목록에서 나오는 이름 해석 — R19-A buildCategoryNameLookup.

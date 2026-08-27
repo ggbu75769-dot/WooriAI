@@ -588,6 +588,13 @@ const localOnlyCategorySeeds: Array<{ id: string; code: string }> = [
  *      excel-import flow store,
  * so that in demo mode every expense's `categoryId` resolves to a chip on the edit screen.
  * Sorted by displayOrder ascending, matching the real endpoint's ordering guarantee.
+ *
+ * CAT-124: every demo row is `selectable: true`, and the `includeAll` switch is therefore a no-op
+ * here. That is not an oversight — the demo catalog has no canonical/alias split to collapse. The
+ * real server's alias rows exist only to keep the 8 hardcoded quick-tile UUIDs valid alongside a
+ * DIFFERENT canonical taxonomy (12 random-UUID rows); in demo mode those 8 tiles ARE the taxonomy,
+ * and the 4 fixture ids are the only other categories the demo expenses use. Marking any of them
+ * `selectable: false` would delete a chip a demo expense is filed under, with nothing to absorb it.
  */
 export function listCategories(): { categories: CategoryListItem[] } {
   ensureSeeded();
@@ -598,7 +605,8 @@ export function listCategories(): { categories: CategoryListItem[] } {
     iconName: entry.icon,
     displayOrder: (index + 1) * 10,
     isSystem: true,
-    active: true
+    active: true,
+    selectable: true
   }));
   const localOnlyCategories: CategoryListItem[] = localOnlyCategorySeeds.map((seed, index) => ({
     id: seed.id,
@@ -607,7 +615,8 @@ export function listCategories(): { categories: CategoryListItem[] } {
     iconName: null,
     displayOrder: 900 + (index + 1) * 10,
     isSystem: true,
-    active: true
+    active: true,
+    selectable: true
   }));
   return {
     categories: [...catalogCategories, ...localOnlyCategories].sort(

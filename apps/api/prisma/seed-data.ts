@@ -64,6 +64,15 @@ export type MobileCategoryAliasSeed = {
   name: string;
   iconName: string;
   displayOrder: number;
+  /**
+   * CAT-124: always `false` for these bundles. The rows must keep existing (expenses are
+   * already stored under these ids, and the 8-tile quick input + offline resend keep writing
+   * them), but they must not be OFFERED as choices — they duplicate the canonical 12 under a
+   * different name ("기저귀" vs "기저귀/위생"), which is exactly what a client-side same-name
+   * dedupe could not fix. `GET /categories` hides them unless `?includeAll=1`.
+   * Migration: prisma/migrations/000018_categories_selectable.
+   */
+  selectable: false;
 };
 
 export const categorySeeds: CategorySeed[] = [
@@ -1156,14 +1165,14 @@ export const disclosureSeeds: DisclosureSeed[] = [
 // Mirrors apps/mobile/src/categories.ts `categoryCatalog` exactly (id, code, label -> name).
 // See MobileCategoryAliasSeed's doc comment for why these live outside categorySeeds.
 export const mobileCategoryAliasSeeds: MobileCategoryAliasSeed[] = [
-  { id: "c0a7e901-0000-4c01-8c01-c47e900ec001", code: "mobile_diaper_hygiene", name: "기저귀", iconName: "diaper", displayOrder: 1001 },
-  { id: "c0a7e901-0000-4c02-8c02-c47e900ec002", code: "mobile_feeding_dairy", name: "분유/유제품", iconName: "bottle", displayOrder: 1002 },
-  { id: "c0a7e901-0000-4c03-8c03-c47e900ec003", code: "mobile_feeding_meal", name: "식비", iconName: "bottle", displayOrder: 1003 },
-  { id: "c0a7e901-0000-4c04-8c04-c47e900ec004", code: "mobile_clothes_laundry", name: "의류", iconName: "clothes", displayOrder: 1004 },
-  { id: "c0a7e901-0000-4c05-8c05-c47e900ec005", code: "mobile_outing_mobility", name: "약품/교통", iconName: "stroller", displayOrder: 1005 },
-  { id: "c0a7e901-0000-4c06-8c06-c47e900ec006", code: "mobile_hospital_checkup", name: "병원/약", iconName: "hospital", displayOrder: 1006 },
-  { id: "c0a7e901-0000-4c07-8c07-c47e900ec007", code: "mobile_toys_books", name: "교육/도서", iconName: "book", displayOrder: 1007 },
-  { id: "c0a7e901-0000-4c08-8c08-c47e900ec008", code: "mobile_etc", name: "기타", iconName: "more", displayOrder: 1008 }
+  { id: "c0a7e901-0000-4c01-8c01-c47e900ec001", code: "mobile_diaper_hygiene", name: "기저귀", iconName: "diaper", displayOrder: 1001, selectable: false },
+  { id: "c0a7e901-0000-4c02-8c02-c47e900ec002", code: "mobile_feeding_dairy", name: "분유/유제품", iconName: "bottle", displayOrder: 1002, selectable: false },
+  { id: "c0a7e901-0000-4c03-8c03-c47e900ec003", code: "mobile_feeding_meal", name: "식비", iconName: "bottle", displayOrder: 1003, selectable: false },
+  { id: "c0a7e901-0000-4c04-8c04-c47e900ec004", code: "mobile_clothes_laundry", name: "의류", iconName: "clothes", displayOrder: 1004, selectable: false },
+  { id: "c0a7e901-0000-4c05-8c05-c47e900ec005", code: "mobile_outing_mobility", name: "약품/교통", iconName: "stroller", displayOrder: 1005, selectable: false },
+  { id: "c0a7e901-0000-4c06-8c06-c47e900ec006", code: "mobile_hospital_checkup", name: "병원/약", iconName: "hospital", displayOrder: 1006, selectable: false },
+  { id: "c0a7e901-0000-4c07-8c07-c47e900ec007", code: "mobile_toys_books", name: "교육/도서", iconName: "book", displayOrder: 1007, selectable: false },
+  { id: "c0a7e901-0000-4c08-8c08-c47e900ec008", code: "mobile_etc", name: "기타", iconName: "more", displayOrder: 1008, selectable: false }
 ];
 
 /**
@@ -1179,7 +1188,8 @@ export const importStubCategorySeeds: MobileCategoryAliasSeed[] = [
     code: "import_stub_default",
     name: "가져오기 기본",
     iconName: "more",
-    displayOrder: 1009
+    displayOrder: 1009,
+    selectable: false
   }
 ];
 

@@ -75,7 +75,8 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     // 정식 시드 카테고리 12개는 서버 DB마다 id가 달라 정적 매핑으로는 전부 "기타"가 됐다.
     const hookSource = source(sharedExportModule);
     expect(hookSource).toContain('queryKey: ["categories"]');
-    expect(hookSource).toContain("listCategories(authToken!)");
+    // CAT-124: CSV 카테고리 열도 이름 해석이라 전량(includeAll=1)이 필요하다.
+    expect(hookSource).toContain("listCategories(authToken!, { includeAll: true })");
     expect(hookSource).toContain("categoryName: buildCategoryNameLookup(categories.data?.categories)");
   });
 

@@ -154,7 +154,9 @@ export default function ReportsScreen() {
     queryKey: ["categories"],
     enabled: Boolean(authToken),
     staleTime: 5 * 60 * 1000,
-    queryFn: () => listCategories(authToken!)
+    // CAT-124: includeAll=1 — 범례 이름 해석은 전량이 필요하다. 기본 목록(노출 대상 12개)만
+    // 받으면 퀵타일 별칭 id로 저장된 지출이 범례에서 "기타"로 무너진다.
+    queryFn: () => listCategories(authToken!, { includeAll: true })
   });
   const categoryName = buildCategoryNameLookup(categories.data?.categories);
   const categoryCardTitle = period === "월간" ? `${reportDate.getMonth() + 1}월 카테고리 비중` : `${periodLabel} 카테고리 비중`;

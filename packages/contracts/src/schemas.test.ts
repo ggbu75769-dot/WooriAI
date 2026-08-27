@@ -300,6 +300,66 @@ describe("shared contract schemas", () => {
     ).toThrow();
   });
 
+  // CAT-124: 노출 범위 플래그(selectable)의 계약.
+  it("carries the CAT-124 selectable flag as an optional, backward-compatible field", () => {
+    const parsed = listCategoriesResponseSchema.parse({
+      categories: [
+        {
+          id: "77777777-7777-4777-8777-777777777777",
+          code: "diaper_hygiene",
+          name: "기저귀/위생",
+          iconName: "diaper",
+          displayOrder: 40,
+          isSystem: true,
+          active: true,
+          selectable: true
+        },
+        {
+          // 노출 제외 행: 살아 있고(active) 시스템 시드지만 선택지로는 내밀지 않는다.
+          id: "c0a7e901-0000-4c01-8c01-c47e900ec001",
+          code: "mobile_diaper_hygiene",
+          name: "기저귀",
+          iconName: "diaper",
+          displayOrder: 1001,
+          isSystem: false,
+          active: true,
+          selectable: false
+        },
+        {
+          // CAT-124 이전 응답/캐시: 필드가 없어도 계약을 통과해야 한다(하위 호환).
+          id: "88888888-8888-4888-8888-888888888888",
+          code: "etc",
+          name: "기타",
+          iconName: null,
+          displayOrder: 999,
+          isSystem: true,
+          active: true
+        }
+      ]
+    });
+
+    expect(parsed.categories.map((category) => category.selectable)).toEqual([true, false, undefined]);
+    // active와 다른 축이다 — 노출 제외 행도 active는 true다(행이 삭제되지 않는다, DNC-007).
+    expect(parsed.categories.every((category) => category.active)).toBe(true);
+
+    // 불리언이 아닌 값은 거부한다("1" 같은 쿼리 문자열이 응답에 새어 들어오지 않도록).
+    expect(() =>
+      listCategoriesResponseSchema.parse({
+        categories: [
+          {
+            id: "77777777-7777-4777-8777-777777777777",
+            code: "diaper_hygiene",
+            name: "기저귀/위생",
+            displayOrder: 40,
+            isSystem: true,
+            active: true,
+            selectable: "1"
+          }
+        ]
+      })
+    ).toThrow();
+  });
+
   // CON-121(CON-115 권고 잔여분): categoryTop이 z.record(z.unknown())였을 때는
   // 아무 객체나 통과했다. 실응답 형태({categoryId, amountKrw, count})로 조인 뒤의 계약.
   it("pins the monthly report categoryTop rows to the real category breakdown shape", () => {

@@ -28,7 +28,10 @@ async function seedCategories() {
         iconName: category.iconName,
         displayOrder: category.displayOrder,
         isSystem: true,
-        active: true
+        active: true,
+        // CAT-124: 정식 12개만 사용자에게 내미는 선택지다. 재시드가 마이그레이션 000018의
+        // 결과를 되돌리지 않도록 두 경로(정식/별칭) 모두 플래그를 명시한다.
+        selectable: true
       },
       create: {
         code: category.code,
@@ -36,7 +39,8 @@ async function seedCategories() {
         iconName: category.iconName,
         displayOrder: category.displayOrder,
         isSystem: true,
-        active: true
+        active: true,
+        selectable: true
       }
     });
   }
@@ -45,6 +49,12 @@ async function seedCategories() {
   // mobile app's hardcoded quick-expense `categoryId` literals valid against the
   // server-side "categoryId must exist in categories" check, without disturbing the
   // locked 12-category list above (seed-data.test.ts asserts that list exactly).
+  //
+  // CAT-124: these rows stay `active: true` (already-recorded spending references them, and the
+  // 8-tile quick input keeps writing them) but are seeded `selectable: false`, so
+  // `GET /categories` only offers them under `?includeAll=1`. The seed carries the flag
+  // explicitly rather than relying on migration 000018's UPDATE, so a re-seed on an
+  // already-migrated database stays consistent.
   for (const alias of [...mobileCategoryAliasSeeds, ...importStubCategorySeeds]) {
     await prisma.category.upsert({
       where: { id: alias.id },
@@ -54,7 +64,8 @@ async function seedCategories() {
         iconName: alias.iconName,
         displayOrder: alias.displayOrder,
         isSystem: false,
-        active: true
+        active: true,
+        selectable: alias.selectable
       },
       create: {
         id: alias.id,
@@ -63,7 +74,8 @@ async function seedCategories() {
         iconName: alias.iconName,
         displayOrder: alias.displayOrder,
         isSystem: false,
-        active: true
+        active: true,
+        selectable: alias.selectable
       }
     });
   }

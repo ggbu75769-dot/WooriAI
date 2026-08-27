@@ -61,10 +61,17 @@ export const categoryListItemSchema = categorySchema.extend({
   iconName: z.string().nullable().optional(),
   displayOrder: z.number().int().min(0),
   isSystem: z.boolean(),
-  active: z.boolean()
+  active: z.boolean(),
+  // CAT-124: 사용자에게 고르라고 내밀 카테고리인지. `active`(행이 살아 있는가)·
+  // `isSystem`(시스템 시드인가)과는 다른 축이며, 모바일 퀵타일 별칭 8행과 가져오기
+  // 스텁 1행이 false다. **optional인 이유**: 이 필드가 없던 시절의 응답(구 서버·구
+  // 캐시)도 계약을 계속 통과해야 한다. 없으면 "노출 대상"으로 간주하는 것이 기존
+  // 동작과 같으므로, 소비자는 `selectable === false`일 때만 감춘다.
+  selectable: z.boolean().optional()
 });
 
 // CAT-101: GET /categories 응답 계약 (활성 카테고리만, displayOrder 오름차순).
+// CAT-124: 기본 응답은 selectable=true인 항목만, `?includeAll=1`이면 전량.
 export const listCategoriesResponseSchema = z.object({
   categories: z.array(categoryListItemSchema)
 });

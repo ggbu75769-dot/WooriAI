@@ -139,7 +139,9 @@ describe("EXP-003 edit screen category/date wiring", () => {
   it("fetches the category chips from listCategories via react-query, with the static catalog as offline/preview fallback", () => {
     expect(detailSource).toContain('import { getExpense, listCategories, LOCAL_SESSION_TOKEN } from "../../src/api/client";');
     expect(detailSource).toContain('queryKey: ["categories"]');
-    expect(detailSource).toContain("listCategories(authToken!)");
+    // CAT-124: 전량(includeAll=1)을 받아야 현재 지출이 노출 제외 별칭 id로 저장돼 있어도
+    // 그 칩이 살아남는다(selectableCategories 규칙 d). 화면 목록 자체는 그 함수가 좁힌다.
+    expect(detailSource).toContain("listCategories(authToken!, { includeAll: true })");
     // Fallback list so the chip row keeps working while the query is loading/failing (offline).
     expect(detailSource).toContain("categoryCatalog.map");
     // Unknown/legacy current category still gets a (preselected) chip.
@@ -222,6 +224,11 @@ describe("offline outbox passthrough of spentOn/categoryId", () => {
 // ---------------------------------------------------------------------------
 // R20-B: selectableCategories -- display-only narrowing of the GET /categories list for the
 // edit screen's chip row (import stub dropped, exact-name duplicates collapsed, current kept).
+//
+// The fixture rows below deliberately carry NO `selectable` field: they are what a pre-CAT-124
+// server (or a react-query cache persisted before the upgrade) returns, so this whole block
+// doubles as the backward-compatibility contract -- the narrowing must still land on 19 rows
+// there. The CAT-124 block further down uses the same seed shape WITH the flag.
 // ---------------------------------------------------------------------------
 
 describe("selectableCategories", () => {
@@ -331,5 +338,84 @@ describe("selectableCategories", () => {
     expect(new Set(names).size).toBe(names.length);
     expect(names).toContain("기저귀");
     expect(result.length).toBeLessThan(rows.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CAT-124: the server now says which rows are choices (`selectable`). Same seed shape as the
+// R20-B block above, but as `GET /categories?includeAll=1` returns it after the migration.
+// ---------------------------------------------------------------------------
+
+describe("selectableCategories + CAT-124 selectable 플래그", () => {
+  type Row = { id: string; code: string; name: string; displayOrder: number; selectable?: boolean };
+
+  const canonical: Row[] = [
+    { id: "s-01", code: "pregnancy_mother", name: "임신/산모", displayOrder: 10 },
+    { id: "s-02", code: "hospital_checkup", name: "병원/검사", displayOrder: 20 },
+    { id: "s-03", code: "birth_postpartum", name: "출산/조리원", displayOrder: 30 },
+    { id: "s-04", code: "diaper_hygiene", name: "기저귀/위생", displayOrder: 40 },
+    { id: "s-05", code: "feeding_babyfood", name: "수유/이유식", displayOrder: 50 },
+    { id: "s-06", code: "clothes_laundry", name: "의류/세탁", displayOrder: 60 },
+    { id: "s-07", code: "sleep_furniture", name: "수면/가구", displayOrder: 70 },
+    { id: "s-08", code: "outing_mobility", name: "외출/이동", displayOrder: 80 },
+    { id: "s-09", code: "toys_books", name: "장난감/책", displayOrder: 90 },
+    { id: "s-10", code: "care_education", name: "돌봄/교육", displayOrder: 100 },
+    { id: "s-11", code: "insurance_savings", name: "보험/저축", displayOrder: 110 },
+    { id: "s-12", code: "etc", name: "기타", displayOrder: 999 }
+  ].map((row) => ({ ...row, selectable: true }));
+
+  const hidden: Row[] = [
+    { id: "m-01", code: "mobile_diaper_hygiene", name: "기저귀", displayOrder: 1001 },
+    { id: "m-02", code: "mobile_feeding_dairy", name: "분유/유제품", displayOrder: 1002 },
+    { id: "m-03", code: "mobile_feeding_meal", name: "식비", displayOrder: 1003 },
+    { id: "m-04", code: "mobile_clothes_laundry", name: "의류", displayOrder: 1004 },
+    { id: "m-05", code: "mobile_outing_mobility", name: "약품/교통", displayOrder: 1005 },
+    { id: "m-06", code: "mobile_hospital_checkup", name: "병원/약", displayOrder: 1006 },
+    { id: "m-07", code: "mobile_toys_books", name: "교육/도서", displayOrder: 1007 },
+    { id: "m-08", code: "mobile_etc", name: "기타", displayOrder: 1008 },
+    { id: "i-01", code: "import_stub_default", name: "가져오기 기본", displayOrder: 1009 }
+  ].map((row) => ({ ...row, selectable: false }));
+
+  const allRows: Row[] = [...canonical, ...hidden];
+
+  it("21행 전량을 받아도 선택 목록은 정식 12개다 (R20-B의 19개에서 좁혀짐)", () => {
+    const result = selectableCategories(allRows, "");
+
+    expect(result).toHaveLength(12);
+    expect(result.map((row) => row.id)).toEqual(canonical.map((row) => row.id));
+    // 이 티켓이 없애려던 "뜻은 같고 이름만 다른" 쌍이 더는 나란히 뜨지 않는다.
+    const names = result.map((row) => row.name);
+    expect(names).toContain("기저귀/위생");
+    expect(names).not.toContain("기저귀");
+    expect(names).toContain("수유/이유식");
+    expect(names).not.toContain("분유/유제품");
+    expect(names).not.toContain("가져오기 기본");
+  });
+
+  it("서버가 이미 좁혀 준 목록(기본 응답 12행)은 그대로 통과한다", () => {
+    expect(selectableCategories(canonical, "")).toEqual(canonical);
+  });
+
+  it("현재 지출의 카테고리가 노출 제외 별칭이어도 칩으로 살아남는다 (빠른 기록 지출 수정 경로)", () => {
+    const result = selectableCategories(allRows, "m-01");
+
+    expect(result.find((row) => row.id === "m-01")?.name).toBe("기저귀");
+    // 이름이 다르므로 정식 "기저귀/위생"도 그대로 남는다 = 12 + 1.
+    expect(result).toHaveLength(13);
+    expect(result.some((row) => row.id === "s-04")).toBe(true);
+  });
+
+  it("가져오기 스텁도 현재 선택이면 살아남는다", () => {
+    const result = selectableCategories(allRows, "i-01");
+    expect(result.find((row) => row.id === "i-01")?.name).toBe("가져오기 기본");
+    expect(result).toHaveLength(13);
+  });
+
+  it("플래그가 없는 항목은 감추지 않는다 — 구 서버/구 캐시 응답 하위 호환", () => {
+    const legacyRow: Row = { id: "legacy", code: "custom_thing", name: "예전 카테고리", displayOrder: 5 };
+    const result = selectableCategories([legacyRow, ...allRows], "");
+
+    expect(result.some((row) => row.id === "legacy")).toBe(true);
+    expect(result).toHaveLength(13);
   });
 });

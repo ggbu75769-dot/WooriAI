@@ -91,6 +91,93 @@ describe("buildRecordsCategoryChips", () => {
   });
 });
 
+/**
+ * CAT-124: 서버가 별칭·스텁 행을 `selectable: false`로 내려보내면 그 칩들이 사라진다.
+ * 여기서 고정하는 것은 **사라진 칩의 지출이 어디로 가는가** — 정식 칩이 taxonomy code로
+ * 흡수해야 한다. 흡수하지 않으면 8타일 빠른 입력으로 기록한 지출이 전부 "전체"에서만
+ * 보이게 되어, 서버가 목록을 좁힌 대가로 필터가 망가진다.
+ */
+describe("buildRecordsCategoryChips + CAT-124 selectable", () => {
+  // 실 시드(apps/api/prisma/seed-data.ts)와 같은 모양: 정식 12 + 별칭 8 + 스텁 1 = 21행.
+  const canonicalRows = [
+    { id: "srv-01", code: "pregnancy_mother", name: "임신/산모" },
+    { id: "srv-02", code: "hospital_checkup", name: "병원/검사" },
+    { id: "srv-03", code: "birth_postpartum", name: "출산/조리원" },
+    { id: "srv-04", code: "diaper_hygiene", name: "기저귀/위생" },
+    { id: "srv-05", code: "feeding_babyfood", name: "수유/이유식" },
+    { id: "srv-06", code: "clothes_laundry", name: "의류/세탁" },
+    { id: "srv-07", code: "sleep_furniture", name: "수면/가구" },
+    { id: "srv-08", code: "outing_mobility", name: "외출/이동" },
+    { id: "srv-09", code: "toys_books", name: "장난감/책" },
+    { id: "srv-10", code: "care_education", name: "돌봄/교육" },
+    { id: "srv-11", code: "insurance_savings", name: "보험/저축" },
+    { id: "srv-12", code: "etc", name: "기타" }
+  ].map((row) => ({ ...row, selectable: true }));
+  // 퀵타일 별칭 id는 categoryCatalog와 바이트 단위로 같다(seed-data.ts mobileCategoryAliasSeeds).
+  const catalogId = (label: string) => categoryCatalog.find((entry) => entry.label === label)!.id;
+  const hiddenRows = [
+    { id: catalogId("기저귀"), code: "mobile_diaper_hygiene", name: "기저귀" },
+    { id: catalogId("분유/유제품"), code: "mobile_feeding_dairy", name: "분유/유제품" },
+    { id: catalogId("식비"), code: "mobile_feeding_meal", name: "식비" },
+    { id: catalogId("의류"), code: "mobile_clothes_laundry", name: "의류" },
+    { id: catalogId("약품/교통"), code: "mobile_outing_mobility", name: "약품/교통" },
+    { id: catalogId("병원/약"), code: "mobile_hospital_checkup", name: "병원/약" },
+    { id: catalogId("교육/도서"), code: "mobile_toys_books", name: "교육/도서" },
+    { id: catalogId("기타"), code: "mobile_etc", name: "기타" },
+    { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", code: "import_stub_default", name: "가져오기 기본" }
+  ].map((row) => ({ ...row, selectable: false }));
+  const rows = [...canonicalRows, ...hiddenRows];
+
+  it("칩은 정식 카테고리만 남는다 — 별칭 칩이 사라진다", () => {
+    const chips = buildRecordsCategoryChips(rows, null);
+    expect(chips.map((chip) => chip.label)).toEqual(canonicalRows.map((row) => row.name));
+    expect(chips).toHaveLength(12);
+  });
+
+  it("사라진 별칭 id는 같은 taxonomy code의 정식 칩이 matchIds로 흡수한다", () => {
+    const chips = buildRecordsCategoryChips(rows, null);
+    const byLabel = new Map(chips.map((chip) => [chip.label, chip]));
+
+    expect(byLabel.get("기저귀/위생")!.matchIds).toContain(catalogId("기저귀"));
+    expect(byLabel.get("장난감/책")!.matchIds).toContain(catalogId("교육/도서"));
+    // 한 정식 카테고리가 별칭 2개를 흡수하는 경우("분유/유제품"·"식비" 둘 다 feeding_babyfood).
+    expect(byLabel.get("수유/이유식")!.matchIds).toEqual(
+      expect.arrayContaining([catalogId("분유/유제품"), catalogId("식비")])
+    );
+    // 동명 흡수(REC-121)와 code 흡수가 겹쳐도 중복 없이 한 번씩만 들어간다.
+    expect(byLabel.get("기타")!.matchIds).toEqual(["srv-12", catalogId("기타")]);
+
+    // 8타일이 쓰는 id가 전부 어떤 칩엔가 잡힌다 = 빠른 기록 지출이 필터에서 사라지지 않는다.
+    for (const entry of categoryCatalog) {
+      expect(chips.some((chip) => chip.matchIds.includes(entry.id)), `${entry.label} 타일 id`).toBe(true);
+    }
+  });
+
+  it("한 지출이 두 칩에 동시에 잡히지 않는다 (matchIds는 서로 겹치지 않는다)", () => {
+    const chips = buildRecordsCategoryChips(rows, null);
+    const seen = new Set<string>();
+    for (const chip of chips) {
+      for (const id of chip.matchIds) {
+        expect(seen.has(id), `${id}가 두 칩에 들어갔어요`).toBe(false);
+        seen.add(id);
+      }
+    }
+  });
+
+  it("가져오기 스텁은 흡수되지 않는다 — 대응하는 taxonomy code가 없어 '전체'에서만 보인다 (기존 한계 유지)", () => {
+    const chips = buildRecordsCategoryChips(rows, null);
+    expect(chips.some((chip) => chip.matchIds.includes("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"))).toBe(false);
+  });
+
+  it("선택 중인 별칭 id는 여전히 자기 칩을 갖는다 (그때는 정식 칩이 흡수하지 않는다)", () => {
+    const chips = buildRecordsCategoryChips(rows, catalogId("기저귀"));
+    const alias = chips.find((chip) => chip.id === catalogId("기저귀"));
+
+    expect(alias?.label).toBe("기저귀");
+    expect(chips.find((chip) => chip.label === "기저귀/위생")!.matchIds).toEqual(["srv-04"]);
+  });
+});
+
 describe("recordsRowSubtitle", () => {
   it("D2: 일반 지출 행에 카테고리 라벨을 넣는다", () => {
     expect(recordsRowSubtitle({ expenseType: "expense", categoryLabel: "기저귀", dateLabel: "8월 4일" })).toBe("기저귀 · 8월 4일");
@@ -187,6 +274,10 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).toContain('queryKey: ["categories"]');
     expect(recordsSource).toContain("buildRecordsCategoryChips(serverCategories, selectedCategoryId)");
     expect(recordsSource).toContain("buildCategoryNameLookup(serverCategories)");
+  });
+
+  it("CAT-124: 그 하나의 응답은 전량(includeAll=1)이어야 한다 — 칩은 좁히고 이름은 전부 푼다", () => {
+    expect(recordsSource).toContain("listCategories(authToken!, { includeAll: true })");
   });
 
   it("C1: 필터는 선택 칩의 matchIds 집합으로 건다 (id 1개 비교가 아니라)", () => {

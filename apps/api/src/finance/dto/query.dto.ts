@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, IsUUID, Matches, Max, Min } from "class-validator";
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, Min } from "class-validator";
 import { Transform, Type } from "class-transformer";
 import { EXPENSE_LIST_DEFAULT_LIMIT, EXPENSE_LIST_MAX_LIMIT } from "@wooriai/contracts";
 import { YEAR_MONTH_INPUT_PATTERN, normalizeYearMonthInput } from "../../common/validation/year-month";
@@ -71,6 +71,30 @@ export class CategoryReportQueryDto {
 export class HomeQueryDto {
   @IsUUID()
   childId!: string;
+}
+
+/**
+ * CAT-124: GET /categories 의 노출 범위 스위치.
+ *
+ * 생략(기본) → 사용자에게 내밀 카테고리(`selectable = true`)만. `includeAll=1` → 별칭·
+ * 가져오기 스텁까지 전량. 전량이 필요한 쪽은 **이름 해석**이다 — 이미 별칭 id로 저장된
+ * 지출의 라벨(모바일 `buildCategoryNameLookup`, 리포트 범례, CSV 내보내기)이 기본 목록만
+ * 받으면 "기타"로 무너진다.
+ *
+ * 값은 문자열 플래그 관례("1"/"true")를 따르고, 그 외 값은 조용히 무시하는 대신
+ * VALIDATION_ERROR 400으로 돌려준다 — `?includeAll=yes`가 조용히 12개만 받아 가면
+ * 호출자는 그게 전량인 줄 안다. (class-validator에 쿼리용 boolean 변환 관례가 아직
+ * 없어 문자열 화이트리스트로 검증한다.)
+ */
+export class ListCategoriesQueryDto {
+  @IsOptional()
+  @IsIn(["0", "1", "true", "false"])
+  includeAll?: string;
+}
+
+/** `ListCategoriesQueryDto.includeAll` → boolean. */
+export function includeAllRequested(includeAll?: string): boolean {
+  return includeAll === "1" || includeAll === "true";
 }
 
 export class YearQueryDto {
