@@ -430,6 +430,9 @@ model AffiliateClick {
   @@index([childId, clickedAt], map: "idx_affiliate_clicks_child_clicked")
   // PERF-101(000011): 어드민 대시보드 "최근 7일 클릭" 등 clicked_at 단독 범위용.
   @@index([clickedAt], map: "idx_affiliate_clicks_clicked_at")
+  // ADM-123(000016): 어드민 클릭 통계 분해의 상위 링크 집계
+  // (clicked_at 범위 + product_link_id GROUP BY)를 index-only로 처리한다.
+  @@index([clickedAt, productLinkId], map: "idx_affiliate_clicks_clicked_product")
   @@map("affiliate_clicks")
 }
 

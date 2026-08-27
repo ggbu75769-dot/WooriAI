@@ -124,9 +124,33 @@ export type ItemTemplate = {
 
 export type Disclosure = { id: string | null; key: string; text: string };
 
+// ADM-123: 클릭 통계 분해. 기존 두 필드(totalClicks/byPlatform)는 전체 기간
+// 집계 그대로이고, 아래 네 필드가 선택한 기간(7/30일) 분해다 — 서버가 하위호환
+// 확장으로 같은 엔드포인트에 덧붙인다.
+export type ClickSummaryDays = 7 | 30;
+
+export const CLICK_SUMMARY_DAYS_OPTIONS: ClickSummaryDays[] = [7, 30];
+
+/** 상위 링크 한 줄. 링크가 삭제되면 이름/리테일러가 null로 떨어지지만
+ * 클릭 수는 남는다(집계가 windowTotalClicks와 어긋나지 않게). */
+export type ClickTopLink = {
+  productLinkId: string;
+  productLinkTitle: string | null;
+  itemTemplateId: string | null;
+  itemTemplateName: string | null;
+  platform: string | null;
+  count: number;
+};
+
 export type ClickSummary = {
   totalClicks: number;
   byPlatform: { platform: string; count: number }[];
+  days: ClickSummaryDays;
+  /** 선택 기간 안의 클릭 수(전체 기간 totalClicks와 별개). */
+  windowTotalClicks: number;
+  topLinks: ClickTopLink[];
+  /** 기간 내 서울 기준 날짜별 클릭 수(오름차순, 0건도 채워짐). */
+  dailyTotals: { date: string; count: number }[];
 };
 
 export type ItemTemplateInput = {
@@ -549,8 +573,8 @@ export function updateDisclosure(key: string, text: string) {
   });
 }
 
-export function getAffiliateClickSummary() {
-  return request<ClickSummary>("/admin/affiliate-clicks/summary");
+export function getAffiliateClickSummary(days: ClickSummaryDays = 7) {
+  return request<ClickSummary>(`/admin/affiliate-clicks/summary?days=${days}`);
 }
 
 // ADM-008: read-only ops counters for the admin dashboard home. Any admin role

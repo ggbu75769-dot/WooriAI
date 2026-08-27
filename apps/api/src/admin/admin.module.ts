@@ -9,6 +9,7 @@ import { AdminMfaService } from "./admin-mfa.service";
 import { AdminSessionService } from "./admin-session.service";
 import { AdminTokenGuard } from "./admin-token.guard";
 import { AdminUsersController } from "./admin-users.controller";
+import { AffiliateClickBreakdownService } from "./affiliate-click-breakdown.service";
 import { AnalyticsSummaryController } from "./analytics-summary.controller";
 import { AnalyticsSummaryService } from "./analytics-summary.service";
 import { AuditLogsController } from "./audit-logs.controller";
@@ -38,6 +39,7 @@ import { ProductLinkBulkService } from "./product-link-bulk.service";
     AdminAuthService,
     AdminSessionService,
     AdminMfaService,
+    AffiliateClickBreakdownService,
     AnalyticsSummaryService,
     AuditLogsService,
     ContentRevisionsService,

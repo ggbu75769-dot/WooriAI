@@ -1,0 +1,43 @@
+-- ADM-123: 어드민 "클릭 통계 분해"(상위 링크 표 + 일별 추이)가 쓰는
+-- affiliate_clicks 집계용 인덱스. 000011/000012/000014/000015와 동일한 additive
+-- CREATE INDEX IF NOT EXISTS 관례이며 000001~000015는 수정하지 않는다.
+-- 런칭 전이라 CONCURRENTLY 미사용(000011·000014·000015와 동일).
+--
+-- 문제: 상위 링크 집계는
+--   SELECT product_link_id, COUNT(*) FROM affiliate_clicks
+--    WHERE clicked_at >= $1 AND clicked_at < $2
+--    GROUP BY product_link_id ORDER BY COUNT(product_link_id) DESC LIMIT 10
+-- 인데, 기존 인덱스는 (product_link_id, clicked_at) / (child_id, clicked_at) /
+-- (clicked_at) 셋뿐이다. 앞의 둘은 선두 컬럼이 clicked_at이 아니라 기간 술어에
+-- 쓸 수 없고, (clicked_at) 단독은 범위는 좁혀주지만 product_link_id가 없어
+-- 윈도우 안의 모든 클릭 행을 힙에서 다시 읽어야 한다(bitmap heap scan).
+--
+-- 실측 (wooriai_perf_adm123 스크래치 DB, affiliate_clicks 400,000행 —
+-- 상품 링크 300개, clicked_at 최근 730일 균등 분포라 30일 윈도우가 16,298행.
+-- VACUUM (ANALYZE) 후 3회 측정):
+--   before: Bitmap Index Scan(idx_affiliate_clicks_clicked_at)
+--           -> Bitmap Heap Scan, Heap Blocks: exact=6,786 / shared hit 6,858,
+--           20.5~21.2ms
+--   after : Index Only Scan using idx_affiliate_clicks_clicked_product,
+--           Heap Fetches: 0 / shared hit 84~90, 4.4~5.0ms
+-- 윈도우가 테이블의 4%뿐이라 집계에 필요한 두 컬럼이 인덱스에 다 있으면
+-- 힙 접근이 통째로 사라진다(버퍼 6,858 -> ~87, 약 76배). 인덱스 크기는
+-- 40만 행 기준 15MB(clicked_at 단독 인덱스는 10MB).
+--
+-- 컬럼 순서: 기간 술어가 항상 먼저 오고 그 범위 안에서 그룹핑하므로
+-- (clicked_at, product_link_id). 반대 순서는 기존
+-- idx_affiliate_clicks_product_clicked가 이미 갖고 있고 이 쿼리에는 못 쓴다.
+--
+-- 추가하지 않은 것: 일별 추이 쿼리
+--   SELECT to_char(clicked_at AT TIME ZONE 'Asia/Seoul','YYYY-MM-DD'), COUNT(*)
+--     FROM affiliate_clicks WHERE clicked_at >= $1 AND clicked_at < $2 GROUP BY 1
+-- 는 clicked_at만 읽어서 기존 idx_affiliate_clicks_clicked_at으로 이미
+-- Index Only Scan(Heap Fetches 0, shared hit 67, 13.5~14.9ms)이라 전용 인덱스가
+-- 필요 없다. platform을 인덱스에 넣지 않은 이유는 상위 링크 표의 리테일러
+-- 표시를 product_links에서 id로 조회하기 때문이다(집계 키가 아니다).
+--
+-- 이 인덱스는 Prisma @@index로 표현 가능해 schema.prisma에도 함께 선언한다
+-- (000015와 동일 판단).
+
+CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_clicked_product
+  ON affiliate_clicks (clicked_at, product_link_id);
