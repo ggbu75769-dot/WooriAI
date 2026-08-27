@@ -16,8 +16,9 @@ import { join } from "node:path";
  *
  * Every entry costs the whole pool the suite's full runtime, so the list is kept as
  * short as the assertions allow: TEST-131 scoped `items-commerce` to its own fixtures
- * and took it off the list, which is why the exclusive section is now the five short
- * suites rather than six. Prefer scoping a suite's assertions over adding it here.
+ * and took it off the list; TEST-132 did the same for link-health, so the exclusive
+ * section is now the four short suites. Prefer scoping a suite's assertions over
+ * adding it here.
  *
  * Vitest 2.x has no per-file "run this one alone" switch (`fileParallelism` is a
  * run-wide flag and separate pools execute concurrently), so the gate is built out
