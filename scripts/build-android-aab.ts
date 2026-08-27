@@ -178,8 +178,27 @@ function verifySigningInjected(signing: SigningEnv) {
   }
 }
 
+/** REL-120: RN gradle plugin은 JDK 17 툴체인을 요구한다. JAVA_HOME이 다른 메이저(예: 21)를
+ *  가리키면 gradle 깊은 단계에서 늦게 실패하므로, release 파일의 버전 문자열로 미리 검사해
+ *  17이 아니면 폴백 탐색으로 넘어가고 경고를 남긴다(진단 시간 단축). */
+function javaMajorVersionOf(home: string): number | null {
+  try {
+    const release = readFileSync(join(home, "release"), "utf8");
+    const match = release.match(/JAVA_VERSION="(\d+)/);
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 function findJavaHome() {
-  if (process.env.JAVA_HOME && existsSync(process.env.JAVA_HOME)) return process.env.JAVA_HOME;
+  if (process.env.JAVA_HOME && existsSync(process.env.JAVA_HOME)) {
+    const major = javaMajorVersionOf(process.env.JAVA_HOME);
+    if (major === null || major === 17) return process.env.JAVA_HOME;
+    console.warn(
+      `[android:build-aab] JAVA_HOME이 JDK ${major}을 가리킵니다 — RN gradle plugin은 17이 필요해 폴백 탐색합니다.`
+    );
+  }
   // 4차 리뷰 F6: windows 외에 linux/mac 공통 설치 경로도 폴백 탐색한다.
   const roots = [
     "C:\\Program Files\\Eclipse Adoptium",
