@@ -30,8 +30,12 @@ describe("Batch 07 mobile items and commerce contract", () => {
       ["app/items/[itemTemplateId].tsx", "getItemDetail"],
       ["app/items/[itemTemplateId].tsx", "clickProductLink"],
       ["app/items/[itemTemplateId].tsx", "disclosureText"],
-      ["app/items/[itemTemplateId].tsx", "스폰서"],
-      ["app/items/[itemTemplateId].tsx", "제휴"]
+      // 라운드 43 UX-V (C3): 배지/캡션 문구는 화면에 인라인하지 않는다 -- 순수 모듈이 단일
+      // 소스다(expense-link-prompt와 같은 관례). 화면은 그 판정을 쓰는지만 확인하고, 문구
+      // 자체는 아래 모듈 쪽에서 확인한다.
+      ["app/items/[itemTemplateId].tsx", "productLinkMarker"],
+      ["src/items/link-marker.ts", "스폰서"],
+      ["src/items/link-marker.ts", "제휴"]
     ];
 
     for (const [relativePath, expectedText] of routeExpectations) {
@@ -77,8 +81,12 @@ describe("Batch 07 mobile items and commerce contract", () => {
 
     // Affiliate CTA disclosure position/copy must be unchanged (still directly after the new
     // sections, right before the cart/purchase buttons).
+    //
+    // 라운드 43 UX-V (C2): 문구와 위치는 그대로고, 링크가 하나라도 있을 때만 렌더된다는
+    // 게이트만 앞에 붙었다 -- 구매 CTA도 제휴 링크도 없는 화면에는 고지할 대상 자체가 없다
+    // (DNC-010은 "고지를 숨기지 않는다"는 계약이지 "제휴가 없는 자리에도 띄운다"가 아니다).
     expect(productDetailSource).toMatch(
-      /\) : null}\s*<AffiliateDisclosure text={visibleDetail\.productLinks\[0\]\?\.disclosureText} \/>/
+      /{hasProductLinks \? <AffiliateDisclosure text={visibleDetail\.productLinks\[0\]\?\.disclosureText} \/> : null}/
     );
     const affiliateDisclosureIndex = productDetailSource.indexOf("<AffiliateDisclosure");
     expect(affiliateDisclosureIndex).toBeGreaterThan(skipSectionIndex);

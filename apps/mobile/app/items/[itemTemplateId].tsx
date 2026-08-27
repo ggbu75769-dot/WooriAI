@@ -21,6 +21,13 @@ import {
   shouldShowItemDetailExpenseLink,
   ITEM_DETAIL_EXPENSE_LINK_LABEL
 } from "../../src/items/expense-link-prompt";
+import {
+  EMPTY_PRODUCT_LINKS_TEXT,
+  hasPurchasableLink,
+  PRODUCT_LINKS_SECTION_TITLE,
+  productLinkMarker,
+  productPlatformLabel
+} from "../../src/items/link-marker";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -183,12 +190,6 @@ function previewDetail(itemTemplateId: string): ItemDetail {
       }
     ]
   };
-}
-
-function marker(link: ProductLink) {
-  if (link.isSponsored) return "스폰서";
-  if (link.isAffiliate) return "제휴";
-  return "일반";
 }
 
 export default function ItemDetailScreen() {
@@ -407,6 +408,18 @@ export default function ItemDetailScreen() {
   const visibleDetail = hasSession ? detail.data! : previewDetail(itemTemplateId);
   const isInterested = visibleDetail.status === "interested";
   const isGifted = visibleDetail.status === "gifted";
+  /**
+   * 라운드 43 UX-V (C2): 구매처가 하나도 없는 준비템 — 시드 62개 품목 중 4개
+   * (영양제·기저귀 재고·이유식 메이커·첫 그림책)가 링크 0개다. 예전에는 그 화면에서도
+   * 구매 CTA가 그대로 서 있었고(누르면 productLinks[0]이 없어 **아무 일도 일어나지 않는**
+   * 죽은 버튼), 제휴 고지도 기본 문구로 렌더됐다.
+   *
+   * DNC-010은 "구매 CTA 인접 위치의 제휴 고지를 숨기지 않는다"는 계약이다. 구매 CTA도
+   * 제휴 링크도 없는 화면에는 고지할 대상 자체가 없으므로, 여기서 고지를 그리지 않는 것은
+   * 숨기는 것이 아니다 — 오히려 제휴 관계가 없는 자리에 제휴 문구를 띄우는 쪽이 허위 표시다.
+   * 링크가 하나라도 있으면 예전과 똑같이 고지 + CTA가 함께 렌더된다(ITEM-002 프리뷰 포함).
+   */
+  const hasProductLinks = hasPurchasableLink(visibleDetail.productLinks);
   // ITEM-123 (B4): 상태를 바꾸기 전 확인 -- 지출 삭제/설정 화면과 같은 Alert 관례
   // (질문형 제목 + "취소" cancel 버튼 + 실행 버튼). 준비 전으로 되돌리는 쪽도 목록에서
   // 항목이 다시 나타나는 눈에 띄는 변화라 같이 확인한다.
@@ -494,27 +507,59 @@ export default function ItemDetailScreen() {
               <Text style={{ color: theme.colors.gray900, fontSize: 26, fontWeight: "800" }}>{visibleDetail.priceBandText}</Text>
             ) : null}
 
-            <View style={{ borderBottomColor: theme.colors.gray300, borderBottomWidth: 1, flexDirection: "row", gap: 28, paddingTop: 8 }}>
-              <Text style={{ borderBottomColor: theme.colors.gray900, borderBottomWidth: 2, color: theme.colors.brown, fontSize: 13, fontWeight: "800", paddingBottom: 9 }}>
-                가격 비교
-              </Text>
-              <Text style={{ color: theme.colors.gray600, fontSize: 13, fontWeight: "700", paddingBottom: 9 }}>제품 정보</Text>
-            </View>
-
-            {visibleDetail.productLinks.map((link) => (
-              <View key={link.id} style={{ gap: 6 }}>
-                <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
-                  <StatusBadge label={marker(link)} tone={link.isSponsored ? "warning" : "neutral"} />
-                  <Text style={{ color: theme.colors.gray600, flex: 1, fontSize: 11 }}>{link.isSponsored ? "광고/스폰서" : "제휴 링크"}</Text>
-                </View>
-                {/* UX-5B-1: 링크별 가짜 판매가 대신, API가 주는 가격대만 표시 (없으면 빈칸). */}
-                <ProductComparisonRow
-                  seller={link.title}
-                  price={visibleDetail.priceBandText ?? ""}
-                  onPress={() => handleProductLinkPress(link)}
-                />
+            {/* 라운드 43 UX-V (C4): 세션 경로는 단순 섹션 제목 한 줄이다. 예전에는
+                "가격 비교 / 제품 정보" 두 칸이 밑줄까지 두르고 탭처럼 생겼는데 어느 쪽도
+                눌리지 않는 죽은 텍스트였다 — 누를 수 없는 것을 탭처럼 그리지 않는다.
+                비세션 프리뷰(ITEM-002 픽셀 락 캡처)는 기준 이미지 그대로 둔다. */}
+            {hasSession ? (
+              <View style={{ borderBottomColor: theme.colors.gray300, borderBottomWidth: 1, paddingTop: 8 }}>
+                <Text
+                  accessibilityRole="header"
+                  style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800", paddingBottom: 9 }}
+                >
+                  {PRODUCT_LINKS_SECTION_TITLE}
+                </Text>
               </View>
-            ))}
+            ) : (
+              <View style={{ borderBottomColor: theme.colors.gray300, borderBottomWidth: 1, flexDirection: "row", gap: 28, paddingTop: 8 }}>
+                <Text style={{ borderBottomColor: theme.colors.gray900, borderBottomWidth: 2, color: theme.colors.brown, fontSize: 13, fontWeight: "800", paddingBottom: 9 }}>
+                  가격 비교
+                </Text>
+                <Text style={{ color: theme.colors.gray600, fontSize: 13, fontWeight: "700", paddingBottom: 9 }}>제품 정보</Text>
+              </View>
+            )}
+
+            {hasProductLinks ? (
+              visibleDetail.productLinks.map((link) => {
+                // C3: 배지와 캡션을 한 판정에서 함께 받는다(src/items/link-marker.ts).
+                // 예전에는 배지만 3분기하고 캡션은 스폰서 여부로만 갈라, 일반 링크에
+                // "일반" 배지와 "제휴 링크" 캡션이 나란히 붙는 모순이 있었다.
+                const linkMarker = productLinkMarker(link);
+                return (
+                  <View key={link.id} style={{ gap: 6 }}>
+                    <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
+                      <StatusBadge label={linkMarker.badgeLabel} tone={linkMarker.badgeTone} />
+                      {linkMarker.caption ? (
+                        <Text style={{ color: theme.colors.gray600, flex: 1, fontSize: 11 }}>{linkMarker.caption}</Text>
+                      ) : null}
+                    </View>
+                    {/* UX-5B-1: 링크별 가짜 판매가 대신, API가 주는 가격대만 표시 (없으면 빈칸).
+                        C4: 세션 경로에서는 그마저 비운다 — 세 판매처 행에 **같은** 가격대를
+                        나란히 찍으면 서로 다른 값을 견준 것처럼 읽히는데, 그 값은 이미 카드
+                        상단에 큰 글씨로 한 번 나와 있다. 판매처별 실판매가는 API에 없다.
+                        C3: 판매처 아래 한 줄도 "무료배송"(근거 없음) 대신 실제 platform 값. */}
+                    <ProductComparisonRow
+                      seller={link.title}
+                      price={hasSession ? "" : visibleDetail.priceBandText ?? ""}
+                      caption={hasSession ? productPlatformLabel(link.platform) : undefined}
+                      onPress={() => handleProductLinkPress(link)}
+                    />
+                  </View>
+                );
+              })
+            ) : (
+              <Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 20 }}>{EMPTY_PRODUCT_LINKS_TEXT}</Text>
+            )}
           </Card>
 
           <Card>
@@ -533,7 +578,10 @@ export default function ItemDetailScreen() {
             </Card>
           ) : null}
 
-          <AffiliateDisclosure text={visibleDetail.productLinks[0]?.disclosureText} />
+          {/* C2: 고지는 구매 CTA와 짝이다 — 링크가 있을 때만 함께 렌더된다(위 hasProductLinks
+              주석의 DNC-010 근거 참고). 위치·문구는 그대로: 구매 CTA 바로 위, 사이에 아무것도
+              끼우지 않는다. */}
+          {hasProductLinks ? <AffiliateDisclosure text={visibleDetail.productLinks[0]?.disclosureText} /> : null}
           <View style={{ flexDirection: "row", gap: 10 }}>
             <SecondaryButton
               disabled={!hasSession || toggleInterested.isPending}
@@ -549,14 +597,19 @@ export default function ItemDetailScreen() {
               }
               style={{ flex: 1 }}
             />
-            <PrimaryButton
-              label="바로 구매하기"
-              onPress={() => {
-                const firstLink = visibleDetail.productLinks[0];
-                if (firstLink) handleProductLinkPress(firstLink);
-              }}
-              style={{ flex: 1 }}
-            />
+            {/* C2: 열 링크가 없으면 렌더하지 않는다 — 예전에는 버튼이 그대로 있고 누르면
+                아무 반응이 없었다(productLinks[0] 부재). 없는 기능을 있는 것처럼 보이지
+                않게 하는 쪽이, 눌러 보고 나서야 아는 것보다 낫다. */}
+            {hasProductLinks ? (
+              <PrimaryButton
+                label="바로 구매하기"
+                onPress={() => {
+                  const firstLink = visibleDetail.productLinks[0];
+                  if (firstLink) handleProductLinkPress(firstLink);
+                }}
+                style={{ flex: 1 }}
+              />
+            ) : null}
           </View>
 
           {/* ITEM-123 (B4): 구매 CTA 아래에 두는 이유 -- (1) DNC-010의 제휴 고지는 구매 CTA에

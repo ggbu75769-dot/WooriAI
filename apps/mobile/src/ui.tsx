@@ -550,14 +550,30 @@ export function ProductCard({
   );
 }
 
-export function ProductComparisonRow({ seller, price, onPress }: { seller: string; price: string; onPress?: () => void }) {
+/**
+ * 라운드 43 UX-V (C3): `caption`은 판매처 이름 아래 한 줄. 기본값 "무료배송"은 ITEM-002
+ * 픽셀 락 기준 이미지(비세션 프리뷰)를 그대로 두기 위한 값이고, 실제 데이터를 그리는
+ * 세션 경로는 API가 주는 값에서 뽑은 문구(src/items/link-marker.ts의 플랫폼 라벨)를
+ * 넘긴다 — 배송 조건은 어떤 응답에도 없어서 근거 없는 주장이었다.
+ */
+export function ProductComparisonRow({
+  seller,
+  price,
+  caption = "무료배송",
+  onPress
+}: {
+  seller: string;
+  price: string;
+  caption?: string;
+  onPress?: () => void;
+}) {
   return (
     <View style={{ alignItems: "center", flexDirection: "row", gap: 10 }}>
       <View style={{ flex: 1 }}>
         <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "700" }]}>{seller}</Text>
-        <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>무료배송</Text>
+        {caption ? <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{caption}</Text> : null}
       </View>
-      <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "800" }]}>{price}</Text>
+      {price ? <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "800" }]}>{price}</Text> : null}
       <SecondaryButton
         label="구매"
         accessibilityLabel={`${seller}에서 구매하기`}
