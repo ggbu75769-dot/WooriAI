@@ -47,7 +47,11 @@ describe("FAM-121A 초대 수락 여정 배선 (source contract -- 화면은 vit
     // 예전: "로그인 후 가족에 참여할 수 있어요." 텍스트 + 비활성 버튼만 있고 갈 곳이 없었다.
     expect(acceptSource).toContain("로그인하고 참여하기");
     expect(acceptSource).toContain("const loginHref = loginHrefForInvite(token);");
-    expect(acceptSource).toContain("router.push(loginHref)");
+    // FIX-121C(F4): replace여야 한다 -- 로그인 성공 후 login.tsx가 이 수락 화면을 다시 replace로
+    // 열기 때문에, push면 수락 화면이 스택에 두 겹 남아 뒤로가기로 되돌아온 사용자가 이미 참여한
+    // 초대를 다시 눌러 409(HOUSEHOLD_ALREADY_MEMBER)를 맞는다.
+    expect(acceptSource).toContain("router.replace(loginHref)");
+    expect(acceptSource).not.toContain("router.push(loginHref)");
     expect(acceptSource).not.toContain("로그인 후 가족에 참여할 수 있어요.");
   });
 
@@ -72,5 +76,34 @@ describe("FAM-121A 초대 수락 여정 배선 (source contract -- 화면은 vit
     expect(acceptSource).toContain("router.replace(plan.href)");
     // 예전에는 defaultHouseholdId만 바꾸고 무조건 /family로 갔다.
     expect(acceptSource).not.toContain('router.replace("/family")');
+  });
+
+  it("FIX-121C(F4): 탭 셸로 보내기 전에 온보딩 게이트를 통과시킨다 (참여 직후 온보딩 되돌림 방지)", () => {
+    const acceptSource = source("app/family/accept/[token].tsx");
+    const gateSource = source("app/(tabs)/_layout.tsx");
+
+    // 게이트가 여전히 hasReachedHome을 본다는 전제 -- 이 조건이 바뀌면 아래 수정도 재검토해야 한다.
+    expect(gateSource).toContain("if (!hasReachedHome && !isTestSession) {");
+    // 카카오/OIDC 로그인 경로는 markHomeReached를 세우지 않는다(테스트 로그인 경로만 세운다).
+    // 따라서 수락 화면이 직접 세워 주지 않으면 "/(tabs)" 진입이 곧바로 "/"로 되돌려진다.
+    expect(acceptSource).toContain("state.markHomeReached");
+    // select 분기(= 참여한 가구에 아이가 있음) 안에서, 이동 전에 호출돼야 한다.
+    const selectBranch = acceptSource.slice(
+      acceptSource.indexOf('if (plan.kind === "select") {'),
+      acceptSource.indexOf("router.replace(plan.href)")
+    );
+    expect(selectBranch).toContain("markHomeReached();");
+  });
+
+  it("FIX-121C(F9-a): 초대 만료 문구는 memberLabels 단일 소스만 쓴다 (3벌 분기 제거)", () => {
+    for (const relativePath of ["app/family/invite.tsx", "app/family/accept/[token].tsx"]) {
+      const screenSource = source(relativePath);
+      expect(screenSource).toContain("formatInviteExpiry");
+      expect(screenSource).toContain("family/memberLabels");
+      // 로컬 복제본과 그 문구("...유효해요")는 남아 있으면 안 된다 -- 만료된 초대에도
+      // "유효해요"라고 말하던 허위 표시가 그 복제본에서 나왔다.
+      expect(screenSource).not.toContain("function formatInviteExpiry");
+      expect(screenSource).not.toContain("일까지 유효해요");
+    }
   });
 });
