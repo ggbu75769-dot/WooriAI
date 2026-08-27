@@ -2,7 +2,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { categoryCatalog } from "../categories";
-import { buildRecordsCategoryChips, formatSpentOn, homeRecentExpenseSubtitle, recordsRowSubtitle } from "./records-list-view";
+import {
+  buildRecordsCategoryChips,
+  expenseCreatedByUserId,
+  expenseTypeLabelKo,
+  expenseTypeSubtitlePrefix,
+  formatSpentOn,
+  homeRecentExpenseSubtitle,
+  recordsRowSubtitle,
+  resolveExpenseAuthorLabel
+} from "./records-list-view";
 
 const mobileRoot = process.cwd();
 
@@ -197,6 +206,134 @@ describe("recordsRowSubtitle", () => {
   });
 });
 
+describe("FAM-127 expenseCreatedByUserId", () => {
+  it("서버 DTO의 createdByUserId를 꺼낸다", () => {
+    expect(expenseCreatedByUserId({ id: "e-1", createdByUserId: "user-b" })).toBe("user-b");
+  });
+
+  it("없거나 문자열이 아니면 undefined -- 구버전 서버·로컬 목업·오프라인 대기 행에서 조용히 생략된다", () => {
+    expect(expenseCreatedByUserId({ id: "e-1" })).toBeUndefined();
+    expect(expenseCreatedByUserId({ id: "e-1", createdByUserId: null })).toBeUndefined();
+    expect(expenseCreatedByUserId({ id: "e-1", createdByUserId: "" })).toBeUndefined();
+    expect(expenseCreatedByUserId({ id: "e-1", createdByUserId: 42 })).toBeUndefined();
+    expect(expenseCreatedByUserId(undefined)).toBeUndefined();
+    expect(expenseCreatedByUserId(null)).toBeUndefined();
+    expect(expenseCreatedByUserId("not-an-object")).toBeUndefined();
+  });
+});
+
+describe("FAM-127 resolveExpenseAuthorLabel", () => {
+  const members = [
+    { userId: "user-a", displayName: "다온맘" },
+    { userId: "user-b", displayName: "다온빠" }
+  ];
+
+  it("구성원이 2명 이상이면 작성자 이름을 돌려준다", () => {
+    expect(resolveExpenseAuthorLabel("user-a", members)).toBe("다온맘");
+    expect(resolveExpenseAuthorLabel("user-b", members)).toBe("다온빠");
+  });
+
+  it("1인 가구에서는 절대 표시하지 않는다 -- 모든 행에 같은 이름이 붙을 뿐이라 소음이다", () => {
+    expect(resolveExpenseAuthorLabel("user-a", [members[0]])).toBeNull();
+    expect(resolveExpenseAuthorLabel("user-a", [])).toBeNull();
+  });
+
+  it("목록을 아직 모르면(로딩·실패·로그아웃) 표시하지 않는다", () => {
+    expect(resolveExpenseAuthorLabel("user-a", undefined)).toBeNull();
+  });
+
+  it("작성자 id가 없거나 목록에 없으면 표시하지 않는다 (내보내진 구성원의 옛 기록 등)", () => {
+    expect(resolveExpenseAuthorLabel(undefined, members)).toBeNull();
+    expect(resolveExpenseAuthorLabel("user-zzz", members)).toBeNull();
+  });
+
+  it("빈 이름은 '· ' 빈 접두 대신 미표시 -- 허위/빈 표시 금지", () => {
+    expect(resolveExpenseAuthorLabel("user-a", [{ userId: "user-a", displayName: "   " }, members[1]])).toBeNull();
+  });
+
+  it("내가 적은 행도 똑같이 이름을 붙인다 (미표시가 '나'와 '해석 실패' 둘을 뜻하면 안 된다)", () => {
+    // 'user-a'가 나 자신이어도 규칙은 동일하다 -- 모듈은 '나'가 누구인지 알 필요가 없다.
+    expect(resolveExpenseAuthorLabel("user-a", members)).toBe("다온맘");
+  });
+
+  it("초대 수락 전(pending) 구성원은 2명 판정에 넣지 않는다 -- 혼자인데 이름이 붙으면 안 된다", () => {
+    // GET /households/:id/members는 active와 pending을 함께 내려준다(서버 listMembers).
+    // 초대만 보내 둔 1인 가구에서 라벨이 켜지면 모든 행에 내 이름만 반복된다.
+    const soloWithPendingInvite = [
+      { userId: "user-a", displayName: "다온맘", status: "active" },
+      { userId: "user-b", displayName: "다온빠", status: "pending" }
+    ];
+    expect(resolveExpenseAuthorLabel("user-a", soloWithPendingInvite)).toBeNull();
+
+    // 상대가 수락하면(active) 그때부터 표시된다.
+    const bothJoined = [
+      { userId: "user-a", displayName: "다온맘", status: "active" },
+      { userId: "user-b", displayName: "다온빠", status: "active" }
+    ];
+    expect(resolveExpenseAuthorLabel("user-a", bothJoined)).toBe("다온맘");
+  });
+
+  it("status가 없는 목록(로컬 목업·구버전)은 active로 본다", () => {
+    expect(resolveExpenseAuthorLabel("user-a", members)).toBe("다온맘");
+    expect(resolveExpenseAuthorLabel("user-a", [{ userId: "user-a", displayName: "다온맘", status: null }, members[1]])).toBe(
+      "다온맘"
+    );
+  });
+});
+
+describe("FAM-127 recordsRowSubtitle 작성자 표기", () => {
+  it("작성자가 있으면 카테고리 앞에 붙는다 -- '다온맘 · 기저귀 · 8월 4일'", () => {
+    expect(
+      recordsRowSubtitle({ expenseType: "expense", authorLabel: "다온맘", categoryLabel: "기저귀", dateLabel: "8월 4일" })
+    ).toBe("다온맘 · 기저귀 · 8월 4일");
+  });
+
+  it("구분 접두사는 계속 맨 앞이다 -- '선물 · 다온맘 · 기저귀 · 8월 4일'", () => {
+    expect(
+      recordsRowSubtitle({ expenseType: "gift", authorLabel: "다온맘", categoryLabel: "기저귀", dateLabel: "8월 4일" })
+    ).toBe("선물 · 다온맘 · 기저귀 · 8월 4일");
+    expect(
+      recordsRowSubtitle({ expenseType: "refund", authorLabel: "다온빠", categoryLabel: "기저귀", dateLabel: "8월 4일" })
+    ).toBe("환불 · 다온빠 · 기저귀 · 8월 4일");
+  });
+
+  it("하위 호환: authorLabel을 넘기지 않으면 이 기능 이전과 완전히 같은 문자열이다", () => {
+    // 홈(homeRecentExpenseSubtitle -> app/(tabs)/index.tsx)이 그대로 쓰는 경로.
+    expect(recordsRowSubtitle({ expenseType: "expense", categoryLabel: "기저귀", dateLabel: "8월 4일" })).toBe("기저귀 · 8월 4일");
+    expect(recordsRowSubtitle({ expenseType: "gift", categoryLabel: "기저귀", dateLabel: "8월 4일" })).toBe("선물 · 기저귀 · 8월 4일");
+  });
+
+  it("1인 가구(=null)·빈 문자열은 접두를 만들지 않는다", () => {
+    for (const authorLabel of [null, undefined, "", "   "]) {
+      expect(recordsRowSubtitle({ expenseType: "expense", authorLabel, categoryLabel: "기저귀", dateLabel: "8월 4일" })).toBe(
+        "기저귀 · 8월 4일"
+      );
+    }
+  });
+});
+
+describe("CSV-127 expenseTypeLabelKo / expenseTypeSubtitlePrefix", () => {
+  it("CSV 열은 일반 지출도 '지출'로 명시한다 (열이 비면 안 된다)", () => {
+    expect(expenseTypeLabelKo("expense")).toBe("지출");
+    expect(expenseTypeLabelKo("gift")).toBe("선물");
+    expect(expenseTypeLabelKo("refund")).toBe("환불");
+  });
+
+  it("목록 행 접두사는 기본값 '지출'을 붙이지 않는다 (거의 모든 행에 같은 단어 = 소음)", () => {
+    expect(expenseTypeSubtitlePrefix("expense")).toBeNull();
+    expect(expenseTypeSubtitlePrefix("gift")).toBe("선물");
+    expect(expenseTypeSubtitlePrefix("refund")).toBe("환불");
+  });
+
+  it("모르는 값: CSV는 원본 통과, 행 접두사는 미표시 (없는 구분을 지어내지 않는다)", () => {
+    expect(expenseTypeLabelKo("future_type")).toBe("future_type");
+    expect(expenseTypeLabelKo(null)).toBe("");
+    expect(expenseTypeLabelKo(undefined)).toBe("");
+    expect(expenseTypeSubtitlePrefix("future_type")).toBeNull();
+    expect(expenseTypeSubtitlePrefix(null)).toBeNull();
+  });
+});
+
 describe("HOME-124 formatSpentOn", () => {
   it("ISO date-only를 사람이 읽는 날짜로 바꾼다 (앞의 0 제거)", () => {
     expect(formatSpentOn("2026-08-27")).toBe("8월 27일");
@@ -266,7 +403,11 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   const recordsSource = readFileSync(join(mobileRoot, "app/(tabs)/records.tsx"), "utf8");
 
   it("HOME-124: formatSpentOn을 지역 정의가 아니라 공용 모듈에서 가져온다", () => {
-    expect(recordsSource).toContain('formatSpentOn, recordsRowSubtitle } from "../../src/expenses/records-list-view"');
+    // FAM-127로 import가 여러 줄이 되면서 한 줄 통짜 비교를 그만뒀다 -- 고정하려는 것은
+    // "이 화면이 공용 모듈에서 가져다 쓴다"이지 import 문의 줄바꿈 모양이 아니다.
+    expect(recordsSource).toContain('from "../../src/expenses/records-list-view"');
+    expect(recordsSource).toContain("formatSpentOn");
+    expect(recordsSource).toContain("recordsRowSubtitle");
     expect(recordsSource).not.toContain("function formatSpentOn(");
   });
 
@@ -296,5 +437,42 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   it("K1: 금액은 부호 없이 그대로 둔다 (formatKrw 계약 + 월 합계가 환불을 빼지 않으므로)", () => {
     expect(recordsSource).toContain("value={formatKrw(expense.amountKrw)}");
     expect(recordsSource).not.toContain("`-${formatKrw(");
+  });
+
+  it("FAM-127: 작성자 이름은 기존 household-members 캐시를 재사용한다 (새 엔드포인트 금지)", () => {
+    expect(recordsSource).toContain('queryKey: ["household-members", householdId]');
+    expect(recordsSource).toContain("listHouseholdMembers(authToken!, householdId!)");
+    // 가족/설정 화면과 같은 householdId 해석 (테스트 세션 폴백 포함).
+    expect(recordsSource).toContain("sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null)");
+  });
+
+  it("FAM-127: 행 부제에 해석된 작성자 라벨을 넘긴다", () => {
+    expect(recordsSource).toContain("resolveExpenseAuthorLabel(expenseCreatedByUserId(expense), householdMemberRefs)");
+    expect(recordsSource).toContain("authorLabel,");
+  });
+
+  it("FAM-127: 라벨은 목록을 만들 때 문자열로 해석해 둔다 (PERF-102 행 memo 유지)", () => {
+    // 행에 구성원 배열이나 해석 함수를 내려주면 매 렌더 새 참조라 memo가 무의미해진다.
+    expect(recordsSource).toContain("authorLabel: string | null");
+    expect(recordsSource).toContain("householdMemberRefs]");
+  });
+});
+
+/**
+ * FAM-127: 지출 상세(app/expenses/[expenseId].tsx)도 같은 규칙으로 작성자를 보여준다.
+ */
+describe("FAM-127 지출 상세 배선 (app/expenses/[expenseId].tsx)", () => {
+  const detailSource = readFileSync(join(mobileRoot, "app/expenses/[expenseId].tsx"), "utf8");
+
+  it("같은 household-members 캐시에서 이름을 해석한다", () => {
+    expect(detailSource).toContain('queryKey: ["household-members", householdId]');
+    expect(detailSource).toContain("listHouseholdMembers(authToken!, householdId!)");
+    expect(detailSource).toContain("resolveExpenseAuthorLabel(");
+    expect(detailSource).toContain("expenseCreatedByUserId(expense.data)");
+  });
+
+  it("라벨이 없으면(1인 가구·해석 실패) 아예 렌더하지 않는다 -- 기존 화면 무변경", () => {
+    expect(detailSource).toContain("{authorLabel ? (");
+    expect(detailSource).toContain("기록한 사람");
   });
 });
