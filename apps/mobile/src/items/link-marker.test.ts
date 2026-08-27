@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LOCAL_ITEM_DIAPER, localProductLinkFixtures } from "../api/local-fixtures";
 import {
-  AFFILIATE_DISCLOSURE_CORE_TERM,
+  AFFILIATE_DISCLOSURE_CORE_TERMS,
+  statesAffiliateCommission,
   AFFILIATE_DISCLOSURE_FALLBACK_TEXT,
   AFFILIATE_MARKER_CAPTION,
   AFFILIATE_MARKER_LABEL,
@@ -260,7 +261,7 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
       const result = productLinksDisclosureText([sponsored, affiliate, general]);
 
       expect(result).toBeDefined();
-      expect(result).toContain(AFFILIATE_DISCLOSURE_CORE_TERM);
+      expect(statesAffiliateCommission(result!)).toBe(true);
       if (!alreadyDiscloses) {
         // 스폰서 사실도 지우지 않는다 -- 두 고지가 함께 남는다(DNC-011 + DNC-010).
         expect(result).toContain(text!);
@@ -294,6 +295,20 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
     expect(productLinksDisclosureText([seeded])).toBe("이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다.");
   });
 
+  it("라운드 45 O-6: '수수료'가 들어 있어도 우리가 받는 돈이 아니면 고지를 덧붙인다", () => {
+    // 사용자가 내는 비용을 말하는 문구까지 "이미 고지함"으로 보면, 그 화면의 제휴 고지가
+    // 통째로 사라진다(DNC-010). 낱말이 아니라 어절 결합으로 판정한다.
+    const costOnly = { isAffiliate: true, isSponsored: false, disclosureText: "배송 수수료는 별도예요." };
+    expect(productLinksDisclosureText([costOnly])).toBe(`배송 수수료는 별도예요. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`);
+
+    expect(statesAffiliateCommission("배송 수수료는 별도예요.")).toBe(false);
+    expect(statesAffiliateCommission("카드 수수료 포함 금액이에요.")).toBe(false);
+    // 실제로 쓰이는 두 고지(서버 시드 · 데모 픽스처)는 그대로 "이미 고지함"이다.
+    expect(statesAffiliateCommission("이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다.")).toBe(true);
+    expect(statesAffiliateCommission("이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.")).toBe(true);
+    expect(AFFILIATE_DISCLOSURE_CORE_TERMS.length).toBeGreaterThan(1);
+  });
+
   it("withAffiliateDisclosure는 빈 문구를 기본 고지로 떨어뜨린다", () => {
     expect(withAffiliateDisclosure("   ")).toBe(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
     expect(withAffiliateDisclosure(AFFILIATE_DISCLOSURE_FALLBACK_TEXT)).toBe(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
@@ -321,7 +336,7 @@ describe("라운드 44 리뷰 N-1: 데모 픽스처가 실제로 그리는 고�
 
     expect(text).toBeDefined();
     expect(text).toContain("광고");
-    expect(text).toContain(AFFILIATE_DISCLOSURE_CORE_TERM);
+    expect(statesAffiliateCommission(text!)).toBe(true);
     expect(text).toContain(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
   });
 

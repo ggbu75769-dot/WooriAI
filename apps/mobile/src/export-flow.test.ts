@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { csvShareToastMessage } from "./export/share-payload";
+
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
@@ -52,7 +54,7 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     expect(hookSource).toContain("buildExpenseCsv(collected.expenses, {");
     expect(hookSource).toContain("shareExpenseCsv(built.csv)");
     // Success, truncation, and error outcomes all surface through the Toast component.
-    expect(hookSource).toContain("용량 제한으로 일부만 포함됐어요");
+    expect(hookSource).toContain("csvShareToastMessage({ outcomeKnown: outcome.outcomeKnown");
     expect(hookSource).toContain('"내보내기에 실패했어요. 잠시 후 다시 시도해주세요."');
     expect(hookSource).toContain("<Toast message={controller.toast.message} tone={controller.toast.tone} />");
   });
@@ -69,9 +71,40 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     expect(hookSource).toContain("기록이 너무 많아 한 번에 내보낼 수 없어요");
   });
 
+  /**
+   * 라운드 45 O-8: `Share.dismissedAction`은 iOS 전용이라 Android는 시트를 그냥 닫아도
+   * `sharedAction`으로 resolve한다. 그 자리에서 "내보냈어요"라고 단정하면 아무것도 안 보낸
+   * 사람에게 성공을 알리는 허위 표시다.
+   */
+  it("only claims a completed export on the platform that reports it (O-8)", () => {
+    const shareSource = source("src/export/share-csv.ts");
+    expect(shareSource).toContain('import { Platform, Share } from "react-native"');
+    expect(shareSource).toContain('outcomeKnown: Platform.OS === "ios"');
+
+    const hookSource = source(sharedExportModule);
+    expect(hookSource).toContain("csvShareToastMessage({ outcomeKnown: outcome.outcomeKnown");
+    // 성공 단정 문구가 화면 모듈에 하드코딩돼 있으면 플랫폼 분기를 우회한다.
+    expect(hookSource).not.toContain("건을 내보냈어요.`");
+
+    // 문구 판정은 순수 모듈에 있고(share-payload.ts), 두 문장이 서로 다른 사실을 말한다.
+    expect(csvShareToastMessage({ outcomeKnown: true, rowCount: 12, truncated: false })).toBe(
+      "기록 12건을 내보냈어요."
+    );
+    expect(csvShareToastMessage({ outcomeKnown: false, rowCount: 12, truncated: false })).toBe(
+      "기록 12건으로 공유 화면을 열었어요."
+    );
+    // 잘림 안내는 어느 쪽이든 사실이라 그대로 붙는다.
+    expect(csvShareToastMessage({ outcomeKnown: false, rowCount: 3, truncated: true })).toBe(
+      "기록 3건으로 공유 화면을 열었어요. (용량 제한으로 일부만 포함됐어요)"
+    );
+    expect(csvShareToastMessage({ outcomeKnown: true, rowCount: 3, truncated: true })).toContain(
+      "용량 제한으로 일부만 포함됐어요"
+    );
+  });
+
   it("shares through RN's built-in Share (documented fallback), never expo-file-system/expo-sharing", () => {
     const shareSource = source("src/export/share-csv.ts");
-    expect(shareSource).toContain('import { Share } from "react-native"');
+    expect(shareSource).toContain('Share } from "react-native"');
     expect(shareSource).toContain("Share.share(");
     expect(shareSource).toContain("capCsvForShare(csv)");
     // Neither package is resolvable without adding a new dependency (pnpm strict layout;

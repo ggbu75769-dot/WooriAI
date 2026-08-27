@@ -137,6 +137,7 @@ describe("화이트리스트 표 — 아는 코드만 문구로 바꾼다", () =
     "EXPENSE_ITEM_NAME_REQUIRED",
     "IMPORT_TOO_MANY_ROWS",
     "IMPORT_FILE_TYPE_INVALID",
+    "IMPORT_FILE_TOO_LARGE",
     "USER_WITHDRAWN",
     "USER_BLOCKED",
     "FORBIDDEN",
@@ -223,7 +224,7 @@ describe("hasApiErrorCode — 부분 문자열 검색을 대체하는 판정", (
 describe("accountStatusErrorMessage — 로그인 화면 전용 판정", () => {
   it("탈퇴·이용 제한만 문구를 돌려준다", () => {
     expect(accountStatusErrorMessage(new ApiHttpError(403, envelope("USER_WITHDRAWN", "탈퇴한 계정이에요.")))).toBe(
-      "탈퇴한 계정이에요. 삭제 후 30일이 지나면 다시 가입할 수 있어요."
+      "탈퇴한 계정이에요. 삭제 후 30일 동안은 같은 계정으로 다시 가입할 수 없어요."
     );
     expect(accountStatusErrorMessage(new ApiHttpError(403, envelope("USER_BLOCKED", "이용이 제한된 계정이에요.")))).toBe(
       "이용이 제한된 계정이에요."

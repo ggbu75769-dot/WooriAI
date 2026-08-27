@@ -6,7 +6,8 @@ import { categoryCatalog } from "../categories";
 import {
   buildConflictValueFormatter,
   CONFLICT_EMPTY_VALUE_LABEL,
-  CONFLICT_UNKNOWN_CATEGORY_LABEL
+  CONFLICT_UNKNOWN_CATEGORY_LABEL,
+  conflictUnknownCategoryLabel
 } from "./conflict-display";
 import type { ExpensePayload } from "./types";
 
@@ -35,11 +36,30 @@ describe("buildConflictValueFormatter (동기화 충돌 값 표시)", () => {
 
   it("아는 이름이 없는 categoryId는 '기타'로 뭉뚱그리지 않고 모른다고 말한다", () => {
     // 두 후보를 구별하라는 화면이라 서로 다른 UUID가 같은 라벨("기타")로 보이면 안 된다.
-    expect(format("categoryId", "00000000-dead-4bee-8fff-000000000000")).toBe(CONFLICT_UNKNOWN_CATEGORY_LABEL);
+    const unknown = format("categoryId", "00000000-dead-4bee-8fff-000000000000");
+    expect(unknown).toContain(CONFLICT_UNKNOWN_CATEGORY_LABEL);
     // 캐시가 아예 없을 때(오프라인 첫 실행)도 마찬가지 -- 새 요청 없이 아는 것만 말한다.
     const noCache = buildConflictValueFormatter(undefined);
-    expect(noCache("categoryId", serverCategories[0].id)).toBe(CONFLICT_UNKNOWN_CATEGORY_LABEL);
+    expect(noCache("categoryId", serverCategories[0].id)).toContain(CONFLICT_UNKNOWN_CATEGORY_LABEL);
     expect(noCache("categoryId", categoryCatalog[1].id)).toBe(categoryCatalog[1].label);
+  });
+
+  it("라운드 45 O-4: 미지 id가 둘이면 서로 다른 라벨이다 (같은 글자면 고를 수가 없다)", () => {
+    const left = format("categoryId", "00000000-dead-4bee-8fff-00000000a1b2");
+    const right = format("categoryId", "00000000-dead-4bee-8fff-00000000c3d4");
+
+    expect(left).not.toBe(right);
+    expect(left).toBe("알 수 없는 분류 (a1b2)");
+    expect(right).toBe("알 수 없는 분류 (c3d4)");
+    // 꼬리표는 구별용이라 UUID 전체를 그리지 않는다 -- 다시 읽을 수 없는 값이 되면 안 된다.
+    expect(left).not.toContain("00000000-dead");
+  });
+
+  it("conflictUnknownCategoryLabel: 붙일 꼬리가 없으면 기본 라벨 그대로", () => {
+    expect(conflictUnknownCategoryLabel("   ")).toBe(CONFLICT_UNKNOWN_CATEGORY_LABEL);
+    expect(conflictUnknownCategoryLabel("---")).toBe(CONFLICT_UNKNOWN_CATEGORY_LABEL);
+    // 4자보다 짧은 id도 있는 그대로 붙인다(잘라낼 것이 없다).
+    expect(conflictUnknownCategoryLabel("ab")).toBe(`${CONFLICT_UNKNOWN_CATEGORY_LABEL} (ab)`);
   });
 
   it("구분 · 결제 수단은 입력 화면과 같은 한국어 라벨, 모르는 값은 원문 그대로", () => {
@@ -99,7 +119,12 @@ describe("app/sync-status.tsx 충돌 화면 wiring (source contract)", () => {
   });
 
   it("카테고리 이름은 이미 있는 캐시에서만 읽고 새 요청을 만들지 않는다", () => {
-    expect(screenSource).toContain('queryClient.getQueryData<{ categories: CategoryListItem[] }>(["categories"])');
+    // 라운드 45 O-5: 렌더 1회 스냅샷(getQueryData)이 아니라 캐시 **구독**이다. enabled:false +
+    // skipToken이라 요청은 여전히 0건이면서, 다른 화면이 목록을 받아 오면 이 화면도 따라간다.
+    expect(screenSource).toContain('queryKey: ["categories"]');
+    expect(screenSource).toContain("enabled: false");
+    expect(screenSource).toContain("queryFn: skipToken");
+    expect(screenSource).not.toContain('getQueryData<{ categories: CategoryListItem[] }>(["categories"])');
     expect(screenSource).not.toContain("listCategories(");
   });
 });

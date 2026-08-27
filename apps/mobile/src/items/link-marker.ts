@@ -132,14 +132,30 @@ export const SPONSORED_DISCLOSURE_FALLBACK_TEXT =
   "스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.";
 
 /**
- * 라운드 44 리뷰 N-2: "이 문구가 이미 수수료를 말하고 있는가"를 판정하는 어절.
+ * 라운드 44 리뷰 N-2: "이 문구가 이미 수수료를 말하고 있는가"를 판정하는 표현 집합.
  *
  * 문장째 비교(`includes(AFFILIATE_DISCLOSURE_FALLBACK_TEXT)`)를 쓰지 않는 이유는, 실제로
  * 쓰이는 수수료 고지가 한 문장이 아니기 때문이다 — 서버 시드는 "…구매 시 수수료가 발생할 수
  * 있습니다."이고 데모 픽스처는 "…제휴수수료를 받을 수 있어요."다. 문장째로 보면 둘 다
- * "수수료 고지 없음"으로 판정돼 같은 말이 두 번 붙는다. 그래서 고지의 **핵심 어절**만 본다.
+ * "수수료 고지 없음"으로 판정돼 같은 말이 두 번 붙는다.
+ *
+ * 라운드 45 O-6: 그렇다고 "수수료" 한 낱말로 보면 반대쪽으로 틀린다. "배송 수수료는 별도예요"
+ * 처럼 **사용자가 내는 비용**을 말하는 문구도 "이미 고지함"으로 판정돼, 그 화면의 제휴 고지가
+ * 통째로 빠졌다 — 고지 누락 방향의 오탐이라 DNC-010에 직접 걸린다. 그래서 "우리가 수수료를
+ * 받는다"는 뜻을 만드는 **어절 결합**만 본다(받는다 / 발생한다 / 지급받는다). 여기 없는 새 표현은
+ * "고지 없음"으로 판정돼 승인 문구가 덧붙는 쪽으로 틀린다 — 안전한 방향이다.
  */
-export const AFFILIATE_DISCLOSURE_CORE_TERM = "수수료";
+export const AFFILIATE_DISCLOSURE_CORE_TERMS = [
+  "수수료를 받",
+  "수수료가 발생",
+  "수수료를 지급",
+  "수수료를 제공받"
+] as const;
+
+/** 이 문구가 이미 "수수료를 받는다"는 사실을 말하고 있는가. */
+export function statesAffiliateCommission(text: string): boolean {
+  return AFFILIATE_DISCLOSURE_CORE_TERMS.some((term) => text.includes(term));
+}
 
 /** 문장 끝에 종결부호가 없으면 붙인다 — 두 문장을 잇기 전에 경계를 만든다. */
 function endSentence(text: string): string {
@@ -154,7 +170,7 @@ function endSentence(text: string): string {
 export function withAffiliateDisclosure(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return AFFILIATE_DISCLOSURE_FALLBACK_TEXT;
-  if (trimmed.includes(AFFILIATE_DISCLOSURE_CORE_TERM)) return trimmed;
+  if (statesAffiliateCommission(trimmed)) return trimmed;
   return `${endSentence(trimmed)} ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`;
 }
 

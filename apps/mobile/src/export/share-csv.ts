@@ -1,4 +1,4 @@
-import { Share } from "react-native";
+import { Platform, Share } from "react-native";
 import { capCsvForShare } from "./share-payload";
 
 /**
@@ -20,8 +20,21 @@ import { capCsvForShare } from "./share-payload";
  * share-file-URI path.
  */
 export type ShareCsvOutcome = {
-  /** False when the user dismissed the share sheet (iOS reports this; Android always shares). */
+  /**
+   * False only when we **know** the user dismissed the share sheet. `Share.dismissedAction` is
+   * an iOS-only result, so on Android this stays true even when nothing was shared — read it
+   * together with `outcomeKnown` before claiming success.
+   */
   shared: boolean;
+  /**
+   * 라운드 45 O-8: 공유가 실제로 끝났는지 OS가 알려 주는가.
+   *
+   * iOS만 `sharedAction`/`dismissedAction`을 구분해 돌려준다. Android의 `Share.share`는 시트를
+   * 띄운 뒤 항상 `{ action: "sharedAction" }`으로 resolve하므로, 사용자가 시트를 그냥 닫아도
+   * 예전 코드는 "내보냈어요"라는 **허위 성공 토스트**를 띄웠다. 모르는 것을 안다고 말하지 않도록
+   * 플랫폼을 그대로 싣고, 문구 선택은 호출부(ExpenseCsvExport.tsx)가 한다.
+   */
+  outcomeKnown: boolean;
   /** True when the ~100KB share cap dropped rows — surface in a toast. */
   truncated: boolean;
   droppedRows: number;
@@ -42,6 +55,7 @@ export async function shareExpenseCsv(csv: string): Promise<ShareCsvOutcome> {
   );
   return {
     shared: result.action !== Share.dismissedAction,
+    outcomeKnown: Platform.OS === "ios",
     truncated: payload.truncated,
     droppedRows: payload.droppedRows
   };

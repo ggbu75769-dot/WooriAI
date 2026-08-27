@@ -91,8 +91,10 @@ function ChildDateField({
       <Text style={fieldLabelStyle}>{dateLabel}</Text>
       <TextInput
         accessibilityLabel={`${dateLabel} 입력`}
-        // 라운드 45 UX-Y(S): ONB-002와 같은 숫자 키패드 + YYYY-MM-DD 10자 제한.
-        // 검증은 기존 validateChildForm/computeDateError 그대로.
+        // 라운드 45 UX-Y(S): ONB-002와 같은 키보드 값 + YYYY-MM-DD 10자 제한.
+        // 라운드 45 O-7(주석 정정): numbers-and-punctuation은 iOS 숫자·기호 키보드이고,
+        // Android는 기본 키보드 + maxLength만 적용된다. 검증은 기존
+        // validateChildForm/computeDateError 그대로.
         keyboardType="numbers-and-punctuation"
         maxLength={10}
         returnKeyType="done"

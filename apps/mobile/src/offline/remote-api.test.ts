@@ -405,7 +405,7 @@ describe("실패 사유 문구 (화이트리스트 매핑)", () => {
     ["EXPENSE_DATE_INVALID", "날짜를 다시 확인해 주세요.", "날짜를 다시 확인해 주세요."],
     ["EXPENSE_ITEM_NAME_REQUIRED", "품목명을 입력해 주세요.", "품목명을 입력해 주세요."],
     ["EXPENSE_AMOUNT_INVALID", "금액은 0보다 큰 원화 정수만 입력할 수 있어요.", "금액은 0보다 큰 숫자로 입력해 주세요."],
-    ["FORBIDDEN", "접근 권한이 없어요.", "권한이 없어 처리하지 못했어요. 가족에서 내 역할을 확인해 주세요."]
+    ["FORBIDDEN", "접근 권한이 없어요.", "권한이 없어 처리하지 못했어요. 가족 구성원 여부와 내 역할을 확인해 주세요."]
   ];
 
   it.each(cases)("%s -> 사용자 문구", async (code, serverMessage, expected) => {
