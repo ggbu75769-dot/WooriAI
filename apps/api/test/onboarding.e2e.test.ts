@@ -2,6 +2,7 @@ import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
+import { childSchema, errorResponseSchema } from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -131,6 +132,9 @@ describe("Auth and onboarding API", () => {
       .send(createChildBody)
       .expect(200);
 
+    // CON-121: 아이 생성 응답 전체가 공유 계약(childSchema)에 맞아야 한다 —
+    // dueDate/birthDate/manualStage의 null 허용과 currentStage/stageLabel 존재까지.
+    childSchema.parse(childResponse.body);
     expect(childResponse.body).toMatchObject({
       id: expect.any(String),
       householdId,
@@ -154,6 +158,9 @@ describe("Auth and onboarding API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(200)
       .expect(({ body }) => {
+        for (const child of body.children) {
+          childSchema.parse(child);
+        }
         expect(body.children).toHaveLength(1);
         expect(body.children[0].id).toBe(childId);
       });
@@ -164,6 +171,7 @@ describe("Auth and onboarding API", () => {
       .send({ nickname: "반짝이" })
       .expect(200)
       .expect(({ body }) => {
+        childSchema.parse(body);
         expect(body.nickname).toBe("반짝이");
       });
 
@@ -433,6 +441,8 @@ describe("Auth and onboarding API", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(404)
       .expect(({ body }) => {
+        // CON-121: 404 대표 케이스 — 도메인 코드가 실린 봉투도 같은 계약이다.
+        errorResponseSchema.parse(body);
         expect(body.error.code).toBe("CHILD_NOT_FOUND");
       });
 

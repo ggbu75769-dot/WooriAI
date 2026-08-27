@@ -2,6 +2,7 @@ import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
+import { errorResponseSchema } from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -34,7 +35,15 @@ describe("API foundation", () => {
         expect(body).toEqual({ status: "ok" });
       });
 
-    await request(app.getHttpServer()).get("/health").expect(404);
+    // CON-121: 라우트 자체가 없을 때의 404(GlobalExceptionFilter 기본값)도 같은
+    // 에러 봉투를 쓴다 — 프리픽스 밖 경로가 Nest 기본 형태로 새지 않는지 고정한다.
+    await request(app.getHttpServer())
+      .get("/health")
+      .expect(404)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("NOT_FOUND");
+      });
   });
 
   it("returns OpenAPI-style error responses for validation failures", async () => {
@@ -43,6 +52,8 @@ describe("API foundation", () => {
       .send({ provider: "email", extra: "blocked" })
       .expect(400)
       .expect(({ body }) => {
+        // CON-121: 400 대표 케이스 — 공유 계약(errorResponseSchema)이 이 봉투의 단일 소스다.
+        errorResponseSchema.parse(body);
         expect(body.error.code).toBe("VALIDATION_ERROR");
         expect(body.error.message).toContain("요청");
         expect(body.error.requestId).toEqual(expect.any(String));
@@ -74,6 +85,7 @@ describe("API foundation", () => {
       .get("/api/v1/me")
       .expect(401)
       .expect(({ body }) => {
+        errorResponseSchema.parse(body);
         expect(body.error.code).toBe("UNAUTHORIZED");
       });
 
