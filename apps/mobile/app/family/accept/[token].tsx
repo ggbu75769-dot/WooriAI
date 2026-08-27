@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Text, View } from "react-native";
+import { hasApiErrorCode } from "../../../src/api/api-error";
 import { acceptInvite, getInvite, listChildren, LOCAL_SESSION_TOKEN } from "../../../src/api/client";
 import {
   HOUSEHOLD_JOIN_INVALIDATE_KEYS,
@@ -26,12 +27,17 @@ const loadFailedText = "초대 정보를 불러오지 못했어요. 잠시 후 �
 const acceptFailedText = "가족에 참여하지 못했어요. 잠시 후 다시 시도해 주세요.";
 const alreadyMemberText = "이미 이 가족의 구성원이에요.";
 
-// requestJson throws `new Error(JSON.stringify(body))`, so the server's error code (e.g.
-// HOUSEHOLD_ALREADY_MEMBER from a 409) lives inside the message string. Retrying can never
-// succeed for that case, so it gets a dedicated copy instead of the generic retry nudge.
+// 이미 구성원인 사람이 다시 수락하면 서버는 409 HOUSEHOLD_ALREADY_MEMBER로 거절한다. 재시도로는
+// 절대 풀리지 않는 실패라 일반적인 "잠시 후 다시" 대신 전용 문구를 쓴다.
+//
+// 라운드 45 UX-Z: 예전에는 응답 JSON 문자열에서 코드 조각을 부분 검색했다(error.message에
+// 담긴 본문 전체를 훑었다). 그 방식은 코드가 아니라 **문자열 어디에든** 그 조각이 있으면 참이라(서버가
+// 보내는 사람이 읽는 message나 다른 필드에 우연히 섞여도 참이 된다) 판정이 조용히 틀릴 수 있다.
+// 이제는 서버 봉투에서 꺼낸 코드로 판정한다(src/api/api-error.ts). 이 화면은 문구 표를 쓰지 않고
+// 자기 문구를 유지한다 -- 같은 409라도 여기서 사용자가 알아야 할 사실은 "권한"이 아니라 "이미
+// 이 가족의 구성원"이기 때문이다.
 function acceptErrorText(error: unknown): string {
-  const message = error instanceof Error ? error.message : "";
-  return message.includes("ALREADY_MEMBER") ? alreadyMemberText : acceptFailedText;
+  return hasApiErrorCode(error, "HOUSEHOLD_ALREADY_MEMBER") ? alreadyMemberText : acceptFailedText;
 }
 
 export default function AcceptInviteScreen() {

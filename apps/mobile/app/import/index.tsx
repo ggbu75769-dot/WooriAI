@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { apiErrorMessage } from "../../src/api/api-error";
 import { createExcelImport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import {
   IMPORT_UPLOAD_GUIDE_TEXT,
@@ -218,8 +219,15 @@ export default function ImportUploadScreen() {
         </Text>
       </Pressable>
       {validationMessage ? <Text style={{ color: theme.colors.danger }}>{validationMessage}</Text> : null}
+      {/* 라운드 45 UX-Z: 예전에는 어떤 실패든 "잠시 후 다시 시도해 주세요."였다. 그런데 서버가
+          거절하는 대표적인 이유(2,000행 초과 · csv/xlsx 아님 · 10MB 초과)는 **다시 눌러도 절대
+          성공하지 않는다** -- 그 사람에게 필요한 것은 재시도가 아니라 파일을 나누거나 바꾸라는
+          사실이다. 아는 코드만 문구로 바꾸고(src/api/api-error.ts의 화이트리스트), 나머지는
+          예전 문장 그대로 폴백한다. */}
       {upload.error ? (
-        <Text style={{ color: theme.colors.danger }}>업로드하지 못했어요. 잠시 후 다시 시도해 주세요.</Text>
+        <Text style={{ color: theme.colors.danger }}>
+          {apiErrorMessage(upload.error, "업로드하지 못했어요. 잠시 후 다시 시도해 주세요.")}
+        </Text>
       ) : null}
     </View>
   );

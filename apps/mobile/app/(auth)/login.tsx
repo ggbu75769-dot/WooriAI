@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
+import { accountStatusErrorMessage } from "../../src/api/api-error";
 import { LOCAL_SESSION_TOKEN, oauthLogin, upsertConsents } from "../../src/api/client";
 import { INVITE_RESUME_PARAM, resumeHrefAfterLogin } from "../../src/children/household-join";
 import {
@@ -145,6 +146,17 @@ export default function LoginScreen() {
       // Korean message; surface it instead of the misleading dev-stub connection copy.
       if (error instanceof KakaoLoginError) {
         setLoginError(error.message);
+        return;
+      }
+      // 라운드 45 UX-Z: 계정 상태로 거절된 로그인(탈퇴·이용 제한)은 KakaoLoginError가 아니라
+      // 서버 응답이다 -- kakaoExchange/oauthLogin이 던지는 ApiHttpError가 그대로 여기까지 온다
+      // (loginWithKakao는 exchange 실패를 감싸지 않는다). 그래서 지금까지 이 사람들은 아래의
+      // "네트워크 연결을 확인한 뒤 다시 시도해 주세요."를 봤다 -- 네트워크는 멀쩡했고, 몇 번을
+      // 다시 눌러도 결과는 같다. 서버는 이미 이유를 코드로 말해 줬으니(USER_WITHDRAWN /
+      // USER_BLOCKED) 그 사실을 그대로 전한다. 아는 코드가 아니면 아래 기존 분기 그대로다.
+      const accountStatusMessage = accountStatusErrorMessage(error);
+      if (accountStatusMessage) {
+        setLoginError(accountStatusMessage);
         return;
       }
       // Untyped errors: on the real Kakao path these are network/API failures against the
