@@ -68,10 +68,14 @@ export default function BudgetScreen() {
     <AppScreen>
       <View testID="screen-ONB-004" style={{ gap: theme.spacing.section }}>
         <OnboardingStepProgress screenId="ONB-004" />
+        {/* UX-G: 마지막 단계의 부제가 온보딩 다음에 올 **첫 행동**(홈에서의 첫 지출 기록)을
+            미리 알려 준다 -- 홈의 첫 지출 유도 카드(src/home/first-run-guide.ts)와 이어지는
+            한 문장이라, 예산을 건너뛴 사용자도 빈 홈 앞에서 "이제 뭘 하지?"로 멈추지 않는다.
+            흐름·구조는 그대로이고 문구만 다듬었다. */}
         <ScreenHeader
           eyebrow="마지막 단계"
           title="한 달 예산을 정해주세요"
-          subtitle="나중에 예산 화면에서 언제든 바꿀 수 있어요."
+          subtitle="나중에 예산 화면에서 언제든 바꿀 수 있어요. 이제 홈에서 첫 지출만 기록하면 준비 끝이에요."
         />
 
         <Card style={{ gap: 6 }}>

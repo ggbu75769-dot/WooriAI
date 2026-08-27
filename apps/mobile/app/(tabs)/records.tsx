@@ -17,10 +17,11 @@ import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import {
   buildCalendarMonth,
   calendarCellAccessibilityLabel,
-  CALENDAR_LEGEND_TEXT,
+  calendarLegendText,
   CALENDAR_WEEKDAY_LABELS_KO,
   dailyTotalsFromDateGroups,
   formatCompactKrw,
+  isCalendarCellInteractive,
   type CalendarCell,
   type CalendarMonth
 } from "../../src/expenses/records-calendar";
@@ -281,21 +282,68 @@ const RECORDS_VIEW_OPTIONS = [RECORDS_VIEW_LIST, RECORDS_VIEW_CALENDAR];
  * 대신 스케일 토큰을 쓰는 이유: 그 다섯 색은 이미 디자인 시스템이 고른 단계라, 팔레트가
  * 바뀌어도 달력만 따로 어긋나지 않는다.
  *
- * 글자는 전 단계 모두 brown(text.primary)이다 -- 가장 진한 coral[300] 위에서도 대비가
- * 충분하고(A11Y-117의 "작은 coral 글자" 함정을 애초에 피한다), 단계마다 글자색을 바꾸면
- * 옅은 칸의 숫자가 배경에 묻힌다.
+ * 라운드 34 L6 — 1단계를 coral[50]에서 **coral[100]으로 한 칸 올렸다**. beige(#FFF9F3)와
+ * coral[50](#FFF3F0)은 채널 차이가 (0,6,3)뿐이라, "그날 돈을 썼다"와 "안 썼다"가 사실상
+ * 같은 색이었다 -- 히트맵의 첫 단계가 안 보이면 달력이 하려던 말("언제 몰아서 썼나")의 절반이
+ * 사라진다. coral[100](#FFE4DD)은 beige와 (0,21,22) 떨어져 눈에 잡히고, 위 단계 간격
+ * (100→200: 0,27,34 / 200→300: 0,33,29 / 300→400: 0,30,20)과도 균일하다.
+ *
+ * 글자색 재검산(WCAG 2.1 상대휘도, 소형 볼드 = AA 4.5:1 기준): 단계가 한 칸씩 진해지면서
+ * 가장 진한 칸이 coral[300](#FFA88E) → coral[400](#F97B5C)이 됐고, 예전 글자색
+ * brown(#3D3733)은 그 위에서 **4.47:1로 AA에 미달**한다(coral[300] 위에서는 6.27:1이었다).
+ * 그래서 칸 글자만 gray900(#1F1F1F)으로 낮춘다 -- 0단계 beige 위 15.8:1, 4단계 coral[400] 위
+ * 6.29:1로 다섯 단계가 모두 AA를 넘는다. 단계마다 글자색을 바꾸지 않는 원칙은 그대로다
+ * (한 색으로 전 단계를 통과시키는 것이 요점이고, 옅은 칸의 숫자도 그만큼 더 또렷해진다).
+ * gray900은 이 화면이 이미 쓰는 토큰이라(월 이동 화살표) 새 색이 아니다.
  */
 const calendarIntensityBackgrounds = [
   theme.colors.beige,
-  theme.colors.coral[50],
   theme.colors.coral[100],
   theme.colors.coral[200],
-  theme.colors.coral[300]
+  theme.colors.coral[300],
+  theme.colors.coral[400]
 ] as const;
+
+/** 위 대비 재검산에 따른 칸 글자색. 다섯 단계 공통이다. */
+const calendarCellTextColor = theme.colors.gray900;
+
+/**
+ * 라운드 34 M1 — 칸 가로 실측을 44dp에 최대한 붙인다.
+ *
+ * 예전 폭(폭 360dp 기기 기준):
+ *   360 − 48(리스트 contentContainer padding = theme.spacing.screen 24 × 2)
+ *       − 34(Card 테두리 1 × 2 + 기본 padding theme.spacing.card 16 × 2)
+ *       − 24(칸 사이 gap 4 × 6) = 254 ÷ 7 = **36.3dp**.
+ * 44dp 최소 터치 타깃에 8dp 가까이 모자랐고, 인접 간격이 4dp뿐이라 hitSlop으로 넓히면 옆
+ * 날짜의 영역을 침범한다(잘못된 날짜로 이동하는 편이 좁은 것보다 나쁘다).
+ *
+ * 지금:
+ *   360 − 48 − 18(테두리 1 × 2 + 축소한 카드 padding 8 × 2) − 12(gap 2 × 6) = 282 ÷ 7 = **40.3dp**.
+ * 격자에서 44dp를 온전히 얻으려면 7 × 44 + gap = 314dp가 필요해 화면 가로 여백(48dp)을 통째로
+ * 없애야 한다 -- 그건 이 화면만 다른 레이아웃을 갖게 되므로 하지 않는다. 대신 **세로로 갚는다**:
+ * 칸 높이를 44 → 48dp로 올려 터치 면적을 40.3 × 48 ≈ 1,934dp²로 만들었다(44 × 44 = 1,936dp²와
+ * 사실상 같다). 좁아진 축은 가로 한 방향뿐이고, 세로 여유가 위아래 오탭도 함께 줄인다.
+ */
+const CALENDAR_CARD_PADDING = 8;
+const CALENDAR_CELL_GAP = 2;
+const CALENDAR_CELL_MIN_HEIGHT = 48;
+
+/**
+ * 라운드 34 M2 — 칸 글자의 배율 상한.
+ *
+ * 축약 표기(formatCompactKrw)의 근거는 "잘린 숫자는 틀린 숫자"(45,0…)인데, 기기 글꼴 배율을
+ * 크게 올리면 그 축약마저 칸을 넘쳐 잘렸다 -- 모듈이 지키던 규칙을 화면이 도로 깨고 있었다.
+ * 여기서 배율을 1.2배로 물려 **칸 안에서 끝까지 읽히는 숫자**를 보장한다. 앱의 글꼴 최소치를
+ * 새로 낮추지 않는다(fontSize는 그대로, 상한만 둔다). 정확한 금액은 어차피 스크린리더 라벨과
+ * 그날 목록이 전한다.
+ */
+const CALENDAR_CELL_MAX_FONT_SCALE = 1.2;
+
+const calendarCardStyle = { padding: CALENDAR_CARD_PADDING } as const;
 
 const calendarWeekRowStyle = {
   flexDirection: "row",
-  gap: 4
+  gap: CALENDAR_CELL_GAP
 } as const;
 
 const calendarWeekdayLabelStyle = {
@@ -316,7 +364,7 @@ const calendarCellStyle = {
   flex: 1,
   gap: 1,
   justifyContent: "center",
-  minHeight: theme.touchTarget,
+  minHeight: CALENDAR_CELL_MIN_HEIGHT,
   paddingVertical: 4
 } as const;
 
@@ -328,24 +376,26 @@ const calendarCellTodayBorderStyle = {
 // 없어서 눌러도 아무 일도 일어나지 않는다).
 const calendarCellSpacerStyle = {
   flex: 1,
-  minHeight: theme.touchTarget
+  minHeight: CALENDAR_CELL_MIN_HEIGHT
 } as const;
 
 const calendarCellDayStyle = {
-  color: theme.colors.brown,
+  color: calendarCellTextColor,
   fontSize: theme.typography.caption.fontSize,
   fontWeight: "700"
 } as const;
 
 const calendarCellAmountStyle = {
-  color: theme.colors.brown,
+  color: calendarCellTextColor,
   fontSize: 10,
   fontWeight: "800"
 } as const;
 
+// L9: 9px는 이 앱에서 가장 작은 글자였다(다음으로 작은 것이 10px). 한 단어("선물")뿐이라
+// 칸을 넘치지 않으므로 10px로 올리고, 금액과 **같은 배율 상한**을 함께 물린다.
 const calendarCellGiftStyle = {
   color: theme.colors.gray600,
-  fontSize: 9,
+  fontSize: 10,
   fontWeight: "700"
 } as const;
 
@@ -363,34 +413,62 @@ const calendarLegendStyle = {
  */
 const CalendarDayCell = memo(function CalendarDayCell({
   cell,
+  filterLabel,
   onSelectDate
 }: {
   cell: CalendarCell;
+  filterLabel: string | null;
   onSelectDate: (date: string) => void;
 }) {
   const date = cell.date;
   if (date === null) return <View style={calendarCellSpacerStyle} />;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={calendarCellAccessibilityLabel(cell) ?? undefined}
-      onPress={() => onSelectDate(date)}
-      style={[
-        calendarCellStyle,
-        { backgroundColor: calendarIntensityBackgrounds[cell.intensity] },
-        cell.isToday ? calendarCellTodayBorderStyle : null
-      ]}
-    >
-      <Text style={calendarCellDayStyle}>{cell.day}</Text>
+  // 칸 안쪽(날짜 + 금액/선물)은 누를 수 있든 없든 완전히 같다 -- 비대화형이라고 정보를 지우지
+  // 않는다(그날 지출이 없었다는 것도 히트맵이 말해야 할 사실이다).
+  const cellContent = (
+    <>
+      <Text maxFontSizeMultiplier={CALENDAR_CELL_MAX_FONT_SCALE} style={calendarCellDayStyle}>
+        {cell.day}
+      </Text>
       {cell.totalKrw > 0 ? (
-        <Text numberOfLines={1} style={calendarCellAmountStyle}>
+        <Text maxFontSizeMultiplier={CALENDAR_CELL_MAX_FONT_SCALE} numberOfLines={1} style={calendarCellAmountStyle}>
           {formatCompactKrw(cell.totalKrw)}
         </Text>
       ) : cell.hasGiftOnly ? (
         // 선물·환불만 있던 날. "0원"을 찍으면 아무것도 안 한 날처럼 보이는데 그날엔 기록이 있다
         // (UX-B 날짜 헤더가 소계를 감추는 것과 같은 판단).
-        <Text style={calendarCellGiftStyle}>선물</Text>
+        <Text maxFontSizeMultiplier={CALENDAR_CELL_MAX_FONT_SCALE} style={calendarCellGiftStyle}>
+          선물
+        </Text>
       ) : null}
+    </>
+  );
+  const cellStyle = [
+    calendarCellStyle,
+    { backgroundColor: calendarIntensityBackgrounds[cell.intensity] },
+    cell.isToday ? calendarCellTodayBorderStyle : null
+  ];
+  const accessibilityLabel = calendarCellAccessibilityLabel(cell, { filterLabel }) ?? undefined;
+
+  // 라운드 34 L4: 그날 기록이 없는 칸은 **누를 수 없다**. 달 밖 빈 칸과 같은 근거로, 눌러도
+  // 이동할 섹션이 목록에 없어 아무 일도 일어나지 않는다(버튼처럼 보이는데 반응이 없는 편이
+  // 비대화형보다 나쁘다). disabled Pressable 대신 아예 View로 그리는 이유: disabled 버튼도
+  // 스크린리더에는 "버튼, 비활성"으로 읽혀 "왜 못 누르지"라는 질문을 남긴다. 라벨은 그대로
+  // 읽어 주므로 "8월 6일, 지출 없음"이라는 사실은 사라지지 않는다.
+  if (!isCalendarCellInteractive(cell)) {
+    return (
+      <View accessible accessibilityLabel={accessibilityLabel} style={cellStyle}>
+        {cellContent}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={() => onSelectDate(date)}
+      style={cellStyle}
+    >
+      {cellContent}
     </Pressable>
   );
 });
@@ -398,13 +476,17 @@ const CalendarDayCell = memo(function CalendarDayCell({
 /** 요일 헤더 + 주 격자 + 범례. 주 배열은 순수 모듈이 만들어 둔 것을 그대로 그린다. */
 const RecordsCalendarGrid = memo(function RecordsCalendarGrid({
   month,
+  filterLabel,
   onSelectDate
 }: {
   month: CalendarMonth;
+  /** L5: 필터가 걸렸을 때의 스코프 이름(F8 스코프 줄과 같은 문자열). 없으면 null. */
+  filterLabel: string | null;
   onSelectDate: (date: string) => void;
 }) {
   return (
-    <Card>
+    // M1: 카드 내부 패딩을 줄여 칸 폭을 벌었다(위 CALENDAR_CARD_PADDING 계산 참고).
+    <Card style={calendarCardStyle}>
       <View style={{ gap: 4 }}>
         {/* 요일 머리글은 스크린리더에는 소음이다 -- 각 칸 라벨이 이미 "8월 27일"이라는 완전한
             날짜를 읽어준다. */}
@@ -418,21 +500,31 @@ const RecordsCalendarGrid = memo(function RecordsCalendarGrid({
         {month.weeks.map((week, weekIndex) => (
           <View key={`${month.yearMonth}-week-${weekIndex}`} style={calendarWeekRowStyle}>
             {week.map((cell) => (
-              <CalendarDayCell key={cell.key} cell={cell} onSelectDate={onSelectDate} />
+              <CalendarDayCell key={cell.key} cell={cell} filterLabel={filterLabel} onSelectDate={onSelectDate} />
             ))}
           </View>
         ))}
-        <Text style={calendarLegendStyle}>{CALENDAR_LEGEND_TEXT}</Text>
+        {/* L5: 필터가 걸리면 범례가 "무엇의 히트맵인지"까지 말한다(칸 라벨 접두와 같은 사실). */}
+        <Text style={calendarLegendStyle}>{calendarLegendText(filterLabel)}</Text>
       </View>
     </Card>
   );
 });
 
-// scrollToLocation은 대상 섹션이 아직 마운트되지 않았을 때 실패할 수 있다. 목록으로의 전환은 이미
-// 끝났으므로(사용자가 원한 것의 대부분) 여기서는 조용히 삼킨다 -- 크래시나 경고를 띄우지 않는다.
-function handleRecordsScrollToIndexFailed() {
-  // no-op (실패 안전): 사용자는 이미 그 달의 목록을 보고 있다.
-}
+/**
+ * 라운드 34 M3: 스크롤 재시도 상한.
+ *
+ * scrollToLocation은 대상 섹션이 아직 마운트되지 않았을 때 실패한다 -- 달력에서 누른 날짜가
+ * 목록 한참 아래에 있으면(초기 렌더 12행 밖) 첫 시도가 거의 항상 실패했고, 예전 코드는 그것을
+ * 그냥 삼켜서 "날짜를 눌렀는데 목록 맨 위만 보이는" 상태로 끝났다. 실패 콜백이 오면 그 사이
+ * 리스트가 몇 행 더 마운트됐다는 뜻이므로, 다음 프레임에 한 번 더 시도하면 대개 도달한다.
+ *
+ * 상한이 2인 이유: 재시도는 **무한 루프가 될 수 있다**(도달할 수 없는 좌표면 실패 → 재시도 →
+ * 실패가 끝없이 반복되고, 그동안 사용자가 직접 스크롤한 위치까지 계속 빼앗긴다). 두 번으로
+ * 끊고, 그 뒤에는 목록 상단을 그대로 둔다 -- 사용자는 이미 그 달의 목록을 보고 있고, 누른
+ * 날짜는 탭 시점의 announce가 이미 말해 줬다(무음 실패가 아니다).
+ */
+const RECORDS_SCROLL_RETRY_LIMIT = 2;
 
 export default function RecordsScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -450,6 +542,10 @@ export default function RecordsScreen() {
   // 달력에서 누른 날짜. 리스트로 전환된 **다음 렌더**에 그 섹션으로 스크롤한다(전환과 스크롤을
   // 한 렌더에서 하려 하면 아직 섹션이 만들어지기 전이라 좌표가 없다).
   const [pendingScrollDate, setPendingScrollDate] = useState<string | null>(null);
+  // M3: 재시도용으로 "무슨 날짜를 향하고 있었는지"를 따로 들고 있는다. pendingScrollDate는 시도
+  // 직전에 비워지므로(아래 effect) 실패 콜백이 왔을 때는 이미 null이다.
+  const scrollTargetDateRef = useRef<string | null>(null);
+  const scrollRetryCountRef = useRef(0);
   const sectionListRef = useRef<SectionList<RecordsListItem, RecordsSection>>(null);
   // MOB-102 (round5a-sprint1-plan.md §3.3): flash message shown once a background flush confirms
   // a write that was previously only saved locally -- see src/offline/sync-controller.ts.
@@ -777,8 +873,12 @@ export default function RecordsScreen() {
   // 선택한 칩의 라벨. 칩은 selectedCategoryId를 항상 흡수하도록 만들어지지만(선택이 서버 목록에
   // 없으면 buildRecordsCategoryChips가 맨 앞에 끼워 넣는다), 못 찾은 경우에도 이름을 지어내지
   // 않도록 categoryFiltered를 따로 넘긴다.
+  //
+  // 라운드 34 L7: 문장에 넣는 것은 칩의 표시 라벨이 아니라 **이모지 없는 이름**(plainLabel)이다.
+  // 폴백 8타일 칩의 라벨에는 아이콘이 붙어 있어("🧷 기저귀") 그대로 넣으면 스코프 줄과 달력
+  // 라벨/범례 문장 한가운데로 이모지가 흘러들었다.
   const selectedCategoryLabel = selectedCategoryId
-    ? (categoryChips.find((chip) => chip.id === selectedCategoryId)?.label ?? null)
+    ? (categoryChips.find((chip) => chip.id === selectedCategoryId)?.plainLabel ?? null)
     : null;
   const filterScopeSummary = useMemo(
     () =>
@@ -796,6 +896,9 @@ export default function RecordsScreen() {
   // 안정된 참조여야 CalendarDayCell의 memo가 매 렌더 깨지지 않는다.
   const handleSelectCalendarDate = useCallback((date: string) => {
     setViewMode(RECORDS_VIEW_LIST);
+    // M3: 새로 고른 날짜마다 재시도 예산을 처음부터 준다(칸을 다시 누르는 것이 곧 재시도 요청이다).
+    scrollTargetDateRef.current = date;
+    scrollRetryCountRef.current = 0;
     setPendingScrollDate(date);
     announceForA11y(`${formatSpentOn(date)} 기록`);
   }, []);
@@ -803,15 +906,33 @@ export default function RecordsScreen() {
   useEffect(() => {
     if (!pendingScrollDate) return;
     const sectionIndex = sections.findIndex((section) => section.key === pendingScrollDate);
-    // 한 번 시도하고 끝낸다 -- 재시도 루프를 돌면 사용자가 직접 스크롤한 위치를 빼앗는다.
+    // 시도 표시는 여기서 지운다. 실제 재시도는 onScrollToIndexFailed가 상한(2회) 안에서만 건다.
     setPendingScrollDate(null);
-    if (sectionIndex < 0) return;
+    if (sectionIndex < 0) {
+      // 그 날짜 섹션이 아예 없다(필터가 그 사이 바뀌었다 등) -- 재시도해도 결과가 같으므로 멈춘다.
+      scrollTargetDateRef.current = null;
+      return;
+    }
     try {
       sectionListRef.current?.scrollToLocation({ sectionIndex, itemIndex: 0, viewPosition: 0, animated: true });
     } catch {
       // 실패 안전: 스크롤이 안 되더라도 사용자는 이미 그 달의 목록을 보고 있다(onScrollToIndexFailed도 참고).
     }
   }, [pendingScrollDate, sections]);
+
+  // M3: 실패 → 다음 프레임에 같은 날짜로 한 번 더(최대 2회). 상한을 넘으면 목록 상단을 유지한다.
+  const handleRecordsScrollToIndexFailed = useCallback(() => {
+    const date = scrollTargetDateRef.current;
+    if (!date) return;
+    if (scrollRetryCountRef.current >= RECORDS_SCROLL_RETRY_LIMIT) {
+      scrollTargetDateRef.current = null;
+      return;
+    }
+    scrollRetryCountRef.current += 1;
+    // 같은 프레임에 다시 부르면 리스트가 아직 그대로라 똑같이 실패한다 -- 한 틱 미뤄 그 사이
+    // 마운트된 행을 반영시킨다.
+    requestAnimationFrame(() => setPendingScrollDate(date));
+  }, []);
 
   // Rendered as an element (not an inline component) so the TextInput keeps focus across
   // re-renders -- FlatList remounts ListHeaderComponent when it's a new function each render.
@@ -942,7 +1063,13 @@ export default function RecordsScreen() {
           "이번 달 지출이 하나도 없다"는 **사실이 아닌** 말이 된다. 그때는 아래 ListEmptyComponent의
           스켈레톤/재시도 카드가 그대로 나온다. */}
       {isCalendarView && showList && calendarMonth ? (
-        <RecordsCalendarGrid month={calendarMonth} onSelectDate={handleSelectCalendarDate} />
+        // L5: 필터가 걸렸으면 그 스코프 이름을 그대로 넘긴다 -- 칸 라벨 접두와 범례가 F8 스코프
+        // 줄과 **같은 문자열**을 쓰므로 세 표기가 갈릴 수 없다.
+        <RecordsCalendarGrid
+          month={calendarMonth}
+          filterLabel={filterScopeSummary?.scopeLabel ?? null}
+          onSelectDate={handleSelectCalendarDate}
+        />
       ) : null}
 
       {hasVisibleRecords ? (

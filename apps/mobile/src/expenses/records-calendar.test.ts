@@ -5,11 +5,14 @@ import {
   buildCalendarMonth,
   calendarCellAccessibilityLabel,
   calendarIntensity,
+  calendarLegendText,
+  CALENDAR_LEGEND_TEXT,
   CALENDAR_MAX_INTENSITY,
   CALENDAR_WEEKDAY_LABELS_KO,
   dailyTotalsFromDateGroups,
   daysInMonth,
   formatCompactKrw,
+  isCalendarCellInteractive,
   type CalendarCell,
   type CalendarDailyTotal
 } from "./records-calendar";
@@ -284,6 +287,71 @@ describe("칸 접근성 라벨", () => {
     expect(blank.date).toBeNull();
     expect(calendarCellAccessibilityLabel(blank)).toBeNull();
   });
+
+  /**
+   * 라운드 34 L5: 필터가 걸리면 달력은 **그 필터의 히트맵**이다. 눈으로 보는 사람은 칩 줄과
+   * 스코프 줄에서 그 사실을 읽지만, 칸 라벨만 듣는 사람에게는 그 달 전체 지출로 들린다.
+   */
+  it("L5: 필터 스코프를 칸 라벨 앞에 붙인다 (필터가 없으면 예전 문장 그대로)", () => {
+    const cell = cellFor(month.weeks, "2026-08-27");
+
+    expect(calendarCellAccessibilityLabel(cell, { filterLabel: "기저귀/위생 필터" })).toBe(
+      "기저귀/위생 필터 기준, 오늘, 8월 27일, 45,000원"
+    );
+    expect(calendarCellAccessibilityLabel(cellFor(month.weeks, "2026-08-06"), { filterLabel: "검색 결과" })).toBe(
+      "검색 결과 기준, 8월 6일, 지출 없음"
+    );
+    // 가운뎃점은 TalkBack이 읽지 않으므로 쉼표로 바꾼다.
+    expect(calendarCellAccessibilityLabel(cell, { filterLabel: "기저귀/위생 필터 · 검색 결과" })).toBe(
+      "기저귀/위생 필터, 검색 결과 기준, 오늘, 8월 27일, 45,000원"
+    );
+    // 필터가 없으면 접두가 붙지 않는다(옵션 자체를 넘기지 않은 경우와 같다).
+    for (const filterLabel of [null, undefined, "   "]) {
+      expect(calendarCellAccessibilityLabel(cell, { filterLabel })).toBe("오늘, 8월 27일, 45,000원");
+    }
+    // 달 밖 빈 칸은 필터가 걸려도 여전히 라벨이 없다.
+    expect(calendarCellAccessibilityLabel(month.weeks[0][0], { filterLabel: "검색 결과" })).toBeNull();
+  });
+
+  it("L5: 범례도 같은 스코프를 말한다 (칸 라벨과 범례가 갈리지 않는다)", () => {
+    expect(calendarLegendText()).toBe(CALENDAR_LEGEND_TEXT);
+    expect(calendarLegendText(null)).toBe(CALENDAR_LEGEND_TEXT);
+    expect(calendarLegendText("  ")).toBe(CALENDAR_LEGEND_TEXT);
+    expect(calendarLegendText("기저귀/위생 필터")).toBe(
+      `${CALENDAR_LEGEND_TEXT} 지금은 기저귀/위생 필터 기준으로 보고 있어요.`
+    );
+  });
+});
+
+/**
+ * 라운드 34 L4: 그날 기록이 없는 칸은 눌러도 이동할 섹션이 없다 -- 달 밖 빈 칸과 같은 근거로
+ * 비대화형이어야 한다(버튼처럼 보이는데 반응이 없는 편이 더 나쁘다).
+ */
+describe("L4 칸 상호작용 판정", () => {
+  const month = buildCalendarMonth(
+    "2026-08",
+    [daily("2026-08-27", 45_000), daily("2026-08-05", 0, false)],
+    "2026-08-27"
+  )!;
+
+  it("기록이 있는 날만 누를 수 있다", () => {
+    // 지출이 있던 날.
+    expect(isCalendarCellInteractive(cellFor(month.weeks, "2026-08-27"))).toBe(true);
+    // 선물·환불만 있던 날도 목록에 그 행이 보이므로 누를 수 있어야 한다(소계 0에 속으면 안 된다).
+    expect(cellFor(month.weeks, "2026-08-05").totalKrw).toBe(0);
+    expect(isCalendarCellInteractive(cellFor(month.weeks, "2026-08-05"))).toBe(true);
+    // 달 안이지만 그날 기록이 하나도 없는 칸.
+    expect(isCalendarCellInteractive(cellFor(month.weeks, "2026-08-06"))).toBe(false);
+    // 달 밖 빈 칸.
+    expect(isCalendarCellInteractive(month.weeks[0][0])).toBe(false);
+  });
+
+  it("hasRecords는 금액이 아니라 '그날 그룹이 있었는지'다", () => {
+    expect(cellFor(month.weeks, "2026-08-27").hasRecords).toBe(true);
+    expect(cellFor(month.weeks, "2026-08-05")).toMatchObject({ hasRecords: true, hasGiftOnly: true, totalKrw: 0 });
+    expect(cellFor(month.weeks, "2026-08-06")).toMatchObject({ hasRecords: false, hasGiftOnly: false, totalKrw: 0 });
+    expect(month.weeks[0][0].hasRecords).toBe(false);
+  });
 });
 
 describe("UX-B 날짜 그룹 재사용 (소계 규칙은 한 곳뿐이다 — DNC-015)", () => {
@@ -343,7 +411,7 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   it("격자·음영·라벨 규칙을 화면에 다시 적지 않고 순수 모듈에서 가져온다", () => {
     expect(recordsSource).toContain('from "../../src/expenses/records-calendar"');
     expect(recordsSource).toContain("buildCalendarMonth(recordsYearMonth, dailyTotalsFromDateGroups(dateGroups), seoulToday)");
-    expect(recordsSource).toContain("calendarCellAccessibilityLabel(cell)");
+    expect(recordsSource).toContain("calendarCellAccessibilityLabel(cell, { filterLabel })");
     expect(recordsSource).toContain("formatCompactKrw(cell.totalKrw)");
     expect(recordsSource).toContain("CALENDAR_WEEKDAY_LABELS_KO.map(");
     // 화면이 자체 분위 계산을 갖지 않는다 — 음영 규칙이 두 벌이 되면 칸 색과 테스트가 갈린다.
@@ -394,22 +462,136 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).toMatch(/try \{[\s\S]{0,240}scrollToLocation[\s\S]{0,240}\} catch \{/);
   });
 
+  /**
+   * 라운드 34 M3: 첫 시도는 대상 섹션이 아직 마운트되지 않아 자주 실패한다(초기 렌더 12행).
+   * 실패를 그냥 삼키면 "날짜를 눌렀는데 목록 맨 위"로 끝난다 -- 다음 프레임에 상한 안에서
+   * 다시 시도하고, 상한을 넘으면 조용히 멈춘다(무한 루프 금지).
+   */
+  it("M3: 스크롤 실패는 다음 프레임에 재시도하되 상한이 있다", () => {
+    // 재시도 대상 날짜는 pendingScrollDate와 별도로 ref에 남는다(시도 직전에 state를 비우므로).
+    expect(recordsSource).toContain("const scrollTargetDateRef = useRef<string | null>(null);");
+    expect(recordsSource).toContain("const scrollRetryCountRef = useRef(0);");
+    expect(recordsSource).toContain("const RECORDS_SCROLL_RETRY_LIMIT = 2;");
+    // 새 날짜를 고르면 재시도 예산이 초기화된다.
+    expect(recordsSource).toContain("scrollTargetDateRef.current = date;");
+    expect(recordsSource).toContain("scrollRetryCountRef.current = 0;");
+    // 실패 콜백: 상한 검사 → 카운트 증가 → requestAnimationFrame 한 틱 뒤 재시도.
+    expect(recordsSource).toContain("const handleRecordsScrollToIndexFailed = useCallback(() => {");
+    expect(recordsSource).toContain("if (scrollRetryCountRef.current >= RECORDS_SCROLL_RETRY_LIMIT) {");
+    expect(recordsSource).toContain("scrollRetryCountRef.current += 1;");
+    expect(recordsSource).toContain("requestAnimationFrame(() => setPendingScrollDate(date));");
+    // 예전의 무동작 콜백은 남아 있지 않다.
+    expect(recordsSource).not.toContain("function handleRecordsScrollToIndexFailed() {");
+    // 실패해도 그 날짜 announce는 탭 시점에 이미 나갔다(무음 실패가 아니다).
+    expect(recordsSource).toContain("announceForA11y(`${formatSpentOn(date)} 기록`);");
+  });
+
+  /**
+   * 라운드 34 M1: 360dp 기기에서 칸 실폭이 36.3dp였다(44dp 미달). 인접 간격이 4dp뿐이라
+   * hitSlop으로는 옆 날짜를 침범하므로, gap·카드 패딩을 줄여 폭을 벌고 높이로 면적을 갚는다.
+   */
+  it("M1: 칸 폭 계산 상수(카드 패딩·gap·높이)가 화면에 한 곳으로 있다", () => {
+    expect(recordsSource).toContain("const CALENDAR_CARD_PADDING = 8;");
+    expect(recordsSource).toContain("const CALENDAR_CELL_GAP = 2;");
+    expect(recordsSource).toContain("const CALENDAR_CELL_MIN_HEIGHT = 48;");
+    // 실측 근거가 주석으로 남아 있어야 다음 리뷰가 다시 재기 시작하지 않는다.
+    expect(recordsSource).toContain("÷ 7 = **40.3dp**");
+    // 카드 패딩 축소가 실제로 격자 카드에 걸린다.
+    expect(recordsSource).toContain("const calendarCardStyle = { padding: CALENDAR_CARD_PADDING } as const;");
+    expect(recordsSource).toContain("<Card style={calendarCardStyle}>");
+    expect(recordsSource).toContain("gap: CALENDAR_CELL_GAP");
+    expect(recordsSource).toContain("minHeight: CALENDAR_CELL_MIN_HEIGHT");
+    // 44dp를 채우지 못하는 폭에 hitSlop을 얹어 옆 날짜를 침범하지 않는다.
+    const cellBlock = recordsSource.slice(
+      recordsSource.indexOf("const CalendarDayCell = memo("),
+      recordsSource.indexOf("const RecordsCalendarGrid = memo(")
+    );
+    expect(cellBlock).not.toContain("hitSlop");
+  });
+
+  /**
+   * 라운드 34 M2/L9: 축약 표기의 근거는 "잘린 숫자는 틀린 숫자"인데, 글꼴 배율을 키우면 그
+   * 축약마저 잘렸다 -- 화면이 모듈의 규칙을 도로 깨고 있었다.
+   */
+  it("M2: 칸 글자에 배율 상한이 걸려 있고, 선물 라벨도 같은 상한을 쓴다", () => {
+    expect(recordsSource).toContain("const CALENDAR_CELL_MAX_FONT_SCALE = 1.2;");
+    const cellBlock = recordsSource.slice(
+      recordsSource.indexOf("const CalendarDayCell = memo("),
+      recordsSource.indexOf("const RecordsCalendarGrid = memo(")
+    );
+    // 날짜·금액·선물 세 Text 모두.
+    expect(cellBlock.match(/maxFontSizeMultiplier=\{CALENDAR_CELL_MAX_FONT_SCALE\}/g) ?? []).toHaveLength(3);
+    expect(cellBlock).toContain("numberOfLines={1}");
+    // L9: 앱 최소 글자였던 9px 선물 라벨을 10px로 올린다(새 최소치를 만들지 않는다).
+    const giftStyleBlock = recordsSource.slice(
+      recordsSource.indexOf("const calendarCellGiftStyle"),
+      recordsSource.indexOf("const calendarLegendStyle")
+    );
+    expect(giftStyleBlock).toContain("fontSize: 10");
+    expect(giftStyleBlock).not.toContain("fontSize: 9");
+  });
+
+  it("L4: 기록 없는 날 칸은 Pressable이 아니다 (달 밖 빈 칸과 같은 근거)", () => {
+    expect(recordsSource).toContain("isCalendarCellInteractive(cell)");
+    expect(recordsSource).toContain("if (!isCalendarCellInteractive(cell)) {");
+    // 판정은 순수 모듈에만 있다 -- 화면이 금액으로 다시 판정하면 선물만 있던 날이 잘못 걸린다.
+    expect(recordsSource).not.toContain("cell.hasRecords ?");
+    // 비대화형 칸도 라벨은 그대로 읽어 준다("8월 6일, 지출 없음"이 사라지지 않는다).
+    expect(recordsSource).toContain("<View accessible accessibilityLabel={accessibilityLabel} style={cellStyle}>");
+    // disabled 버튼으로 남겨 두지 않는다(스크린리더에 "버튼, 비활성"으로 읽힌다).
+    const cellBlock = recordsSource.slice(
+      recordsSource.indexOf("const CalendarDayCell = memo("),
+      recordsSource.indexOf("const RecordsCalendarGrid = memo(")
+    );
+    expect(cellBlock).not.toContain("disabled=");
+    expect(cellBlock).not.toContain("accessibilityState");
+  });
+
+  it("L5: 필터 스코프는 F8 스코프 줄과 같은 문자열로 달력에 흘러간다", () => {
+    expect(recordsSource).toContain("filterLabel={filterScopeSummary?.scopeLabel ?? null}");
+    expect(recordsSource).toContain("{calendarLegendText(filterLabel)}");
+  });
+
   it("달력 뷰에서도 로딩·오류·빈 달 안내는 그대로 나온다", () => {
     expect(recordsSource).toContain("isCalendarView && showList && calendarMonth ?");
     expect(recordsSource).toContain("ListEmptyComponent={isCalendarView && hasVisibleRecords ? undefined : listEmpty}");
   });
 
-  it("음영은 기존 coral 토큰 단계만 쓴다 (DNC-017: 새 색 도입 금지)", () => {
+  /**
+   * 라운드 34 L6: 0단계(beige #FFF9F3)와 1단계(coral[50] #FFF3F0)는 채널 차이가 (0,6,3)뿐이라
+   * "썼다/안 썼다"가 사실상 같은 색이었다. 1단계를 coral[100]으로 한 칸 올린다 -- 새 hex를
+   * 만들지 않고 기존 스케일 안에서만 옮긴다(DNC-017).
+   */
+  it("음영은 기존 coral 토큰 단계만 쓰고, 1단계가 0단계와 구별된다 (DNC-017: 새 색 도입 금지)", () => {
     const paletteBlock = recordsSource.slice(
       recordsSource.indexOf("const calendarIntensityBackgrounds"),
-      recordsSource.indexOf("const calendarWeekRowStyle")
+      recordsSource.indexOf("const calendarCellTextColor")
     );
     expect(paletteBlock).toContain("theme.colors.beige");
-    expect(paletteBlock).toContain("theme.colors.coral[50]");
     expect(paletteBlock).toContain("theme.colors.coral[100]");
     expect(paletteBlock).toContain("theme.colors.coral[200]");
     expect(paletteBlock).toContain("theme.colors.coral[300]");
-    // 새 hex를 지어내지 않는다.
-    expect(paletteBlock).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+    expect(paletteBlock).toContain("theme.colors.coral[400]");
+    // 배경과 사실상 구별되지 않던 첫 단계는 더 쓰지 않는다.
+    expect(paletteBlock).not.toContain("theme.colors.coral[50]");
+    // 새 hex를 지어내지 않는다(주석의 대비 재검산 값은 hex 표기가 아니라 비율로 적는다).
+    const paletteCode = paletteBlock
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("*") && !line.trimStart().startsWith("/*"))
+      .join("\n");
+    expect(paletteCode).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+  });
+
+  it("L6: 진해진 4단계 위에서도 칸 글자가 대비를 유지한다 (한 색으로 전 단계 통과)", () => {
+    // 예전 brown(#3D3733)은 coral[400] 위에서 4.47:1로 AA 미달이라 gray900으로 낮췄다.
+    expect(recordsSource).toContain("const calendarCellTextColor = theme.colors.gray900;");
+    // 단계마다 글자색을 바꾸지 않는다 -- 세 Text가 모두 같은 토큰을 쓴다.
+    for (const styleName of ["calendarCellDayStyle", "calendarCellAmountStyle"]) {
+      const block = recordsSource.slice(recordsSource.indexOf(`const ${styleName}`), recordsSource.indexOf(`const ${styleName}`) + 200);
+      expect(block).toContain("color: calendarCellTextColor");
+    }
+    // 재검산 근거(대비 비율)가 주석에 남아 있어야 다음 팔레트 변경이 다시 계산한다.
+    expect(recordsSource).toContain("4.47:1");
+    expect(recordsSource).toContain("6.29:1");
   });
 });

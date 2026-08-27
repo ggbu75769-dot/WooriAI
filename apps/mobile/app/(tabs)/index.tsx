@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getHome, listChildren, listExpenses, LOCAL_SESSION_TOKEN, type Expense } from "../../src/api/client";
@@ -9,6 +9,20 @@ import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view"
 import { evaluateBabyCounter } from "../../src/home/baby-counter";
 import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "../../src/home/budget-progress";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
+import {
+  FIRST_RECORD_CELEBRATION_BODY,
+  FIRST_RECORD_CELEBRATION_DISMISS_LABEL,
+  FIRST_RECORD_CELEBRATION_MESSAGE,
+  FIRST_RECORD_CELEBRATION_TEST_ID,
+  FIRST_RECORD_CELEBRATION_TITLE,
+  useFirstRecordCelebrationStore
+} from "../../src/home/first-record-celebration";
+import {
+  evaluateHomeFirstRunGuide,
+  hasPendingOfflineCreate,
+  FIRST_ITEMS_GUIDE_DISMISS_LABEL
+} from "../../src/home/first-run-guide";
+import { useHomeFirstRunGuideStore } from "../../src/home/first-run-guide.store";
 import {
   evaluateLastMonthComparison,
   previousYearMonth,
@@ -32,8 +46,10 @@ import {
   FloatingActionButton,
   HeroSummaryCard,
   ListRow,
+  PrimaryButton,
   QuickActionIconButton,
-  ScreenHeader
+  ScreenHeader,
+  TextButton
 } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { resolveScreenPhase } from "../../src/screen-phase";
@@ -337,6 +353,74 @@ const homeMilestoneStyle = StyleSheet.create({
   }
 });
 
+// UX-G 첫 실행 안내 카드(첫 지출 유도 / 준비템 첫 안내). 빈 홈에서 이 카드가 "다음 한 걸음"
+// 이므로 다른 카드보다 눈에 띄어야 한다 -- peach 배경 + 큰 CTA 버튼. 의미는 전부 문장이 지고
+// (색상 단독 전달 금지) 제목·부제는 brown 본문색이라 peach 위에서 대비가 충분하다(A11Y-117).
+const homeFirstRunGuideStyle = StyleSheet.create({
+  card: {
+    backgroundColor: theme.colors.peach,
+    borderRadius: 18,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16
+  },
+  copy: {
+    gap: 4
+  },
+  subtitle: {
+    color: theme.colors.gray600,
+    fontSize: 13,
+    lineHeight: 20
+  },
+  title: {
+    color: theme.colors.brown,
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 24
+  }
+});
+
+// UX-G 첫 기록 축하 배너. 히어로 카드 바로 아래에서 "총액이 여기 쌓인다"를 가리킨다.
+// 예산 경고 배너(HOME-BUDGET-113)와 같은 골격이되 색만 success 계열이고, 뜻은 언제나 문장이
+// 진다. ✓ 글리프는 장식이라 accessible={false}로 TalkBack에서 감춘다.
+const homeFirstRecordCelebrationStyle = StyleSheet.create({
+  banner: {
+    alignItems: "center",
+    backgroundColor: theme.colors.white,
+    borderLeftColor: theme.colors.success,
+    borderLeftWidth: 4,
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  body: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    lineHeight: 18
+  },
+  copy: {
+    flex: 1,
+    gap: 2
+  },
+  dismiss: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  icon: {
+    color: theme.colors.success,
+    fontSize: 16,
+    fontWeight: "800"
+  },
+  title: {
+    color: theme.colors.brown,
+    fontSize: 14,
+    fontWeight: "800"
+  }
+});
+
 const previewHome = {
   child: { id: "preview-child-daon", nickname: "다온이", currentStage: "toddler", stageLabel: "24개월" },
   monthly: {
@@ -451,6 +535,33 @@ export default function HomeScreen() {
     queryFn: () => listChildren(authToken!)
   });
   const selectedChild = childrenQuery.data?.children.find((child) => child.id === childId) ?? null;
+  // UX-G 첫 10분: "이 아이에게 지출 기록이 하나라도 있는가" -- 첫 실행 안내 카드와 첫 기록
+  // 축하 배너가 **같은 한 값**을 본다(두 판정이 어긋나면 축하와 유도가 동시에 뜬다).
+  //  - 서버 항: /home의 recentExpenses는 선물 포함 · spentOn desc LIMIT 3이므로
+  //    (apps/api/src/onboarding/reporting-store.service.ts), 비어 있다 = 서버에 기록이 없다.
+  //  - 오프라인 항: 아직 올라가지 않은 로컬 신규 행을 더한다. 빠뜨리면 방금 오프라인으로 첫
+  //    기록을 남긴 사용자에게 홈이 "첫 지출을 기록해 보세요"라고 말한다(주간 카드가 같은
+  //    이유로 대기 행을 합산한다 -- 라운드 33 F6).
+  // 홈 응답이 아직 없으면 null = "모른다"이고, 그때는 어떤 카드도 만들지 않는다.
+  const hasAnyExpenseRecord =
+    hasSession && home.data
+      ? home.data.recentExpenses.length > 0 || hasPendingOfflineCreate(childOfflineRows)
+      : null;
+  // 축하 배너는 persist하지 않는 세션 스토어가 0 -> 1 전이에서만 켠다
+  // (src/home/first-record-celebration.ts). 지출 저장 화면이 ["home"]을 invalidate하므로
+  // 홈으로 돌아오는 순간 그 전이가 실제로 관찰된다.
+  const observeFirstRecord = useFirstRecordCelebrationStore((state) => state.observe);
+  const celebrationChildId = useFirstRecordCelebrationStore((state) => state.activeChildId);
+  const dismissFirstRecordCelebration = useFirstRecordCelebrationStore((state) => state.dismiss);
+  useEffect(() => {
+    if (!childId || hasAnyExpenseRecord === null) return;
+    observeFirstRecord(childId, hasAnyExpenseRecord);
+  }, [childId, hasAnyExpenseRecord, observeFirstRecord]);
+  // 준비템 첫 안내는 1회성이라 "닫았다"가 기기에 남는다(persist). 스토어의
+  // isItemsGuideDismissed()가 아니라 목록 자체를 구독한다 -- 렌더 중에 함수를 호출하면 그 값이
+  // 바뀌어도 리렌더가 걸리지 않아 닫기 버튼이 즉시 반응하지 않는다.
+  const dismissedItemsGuideChildIds = useHomeFirstRunGuideStore((state) => state.dismissedItemsGuideChildIds);
+  const dismissItemsGuide = useHomeFirstRunGuideStore((state) => state.dismissItemsGuide);
   // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
   // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.
   useHomeNotificationEvaluation(hasSession ? home.data : undefined);
@@ -532,6 +643,17 @@ export default function HomeScreen() {
     spentKrw: monthlyUsed,
     hasWarningBanner: Boolean(budgetWarning)
   });
+  // UX-G: 빈 홈에 놓을 "다음 한 걸음" 카드 하나(첫 지출 유도 / 준비템 첫 안내 중 **하나만**).
+  // 판정과 문구는 순수 모듈이 정한다(src/home/first-run-guide.ts) -- 비세션 미리보기는 항상
+  // null이라 HOME-001 픽셀락 캡처는 종전 그대로다(UX-A 카드들과 같은 관례).
+  // 준비물 개수는 /home이 이미 준 recommendedItems 길이라 요청이 늘지 않고 숫자가 참이다.
+  const firstRunGuide = evaluateHomeFirstRunGuide({
+    hasSession,
+    hasAnyExpenseRecord,
+    recommendedItemCount: home.data?.recommendedItems.length ?? 0,
+    itemsGuideDismissed: childId ? dismissedItemsGuideChildIds.includes(childId) : false
+  });
+  const showFirstRecordCelebration = hasSession && Boolean(childId) && celebrationChildId === childId;
   // UX-A: 아래 세 가지는 전부 세션이 있을 때만 계산한다 -- 비세션 픽셀락 미리보기(previewHome)에는
   // 아이의 실제 날짜도 지출 행도 없으므로 아무것도 렌더되지 않고, HOME-001 캡처는 종전 그대로다
   // (REP-121 한 줄과 같은 관례). 셋 다 순수 모듈이 null을 돌려주면 그 자리는 비어 있는다.
@@ -544,7 +666,10 @@ export default function HomeScreen() {
         todayIso: seoulToday
       })
     : null;
-  const weeklySummary = hasSession
+  // UX-G: 기록이 한 건도 없는 홈에서 주간 카드는 "이번 주 지출은 아직 없어요 / 이번 주 첫
+  // 기록을 남겨보세요"만 말한다 -- 바로 위 유도 카드가 같은 말을 CTA와 함께 하고 있으므로,
+  // 첫 지출 유도가 떠 있는 동안에는 그 자리를 유도 카드에 내준다(같은 말을 두 번 하지 않는다).
+  const weeklySummary = hasSession && firstRunGuide?.variant !== "first-expense"
     ? evaluateWeeklySummary({
         todayIso: seoulToday,
         // F6: 서버 목록 원본이 아니라 오프라인 대기·수정 행까지 반영한 재조정 결과다.
@@ -603,6 +728,34 @@ export default function HomeScreen() {
             showProgress={budgetProgress.hasBudget}
           />
 
+          {showFirstRecordCelebration ? (
+            // UX-G: 첫 기록이 막 쌓인 순간. 히어로 카드 **바로 아래**에 붙어 "여기"가 어디인지
+            // 가리킨다. 이번 세션에 한 번만 뜨고(스토어가 축하 여부를 들고 있다) 닫으면 끝난다.
+            <View
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              accessibilityLabel={FIRST_RECORD_CELEBRATION_MESSAGE}
+              testID={FIRST_RECORD_CELEBRATION_TEST_ID}
+              style={[homeFirstRecordCelebrationStyle.banner, theme.shadows.card]}
+            >
+              <Text accessible={false} style={homeFirstRecordCelebrationStyle.icon}>
+                ✓
+              </Text>
+              <View style={homeFirstRecordCelebrationStyle.copy}>
+                <Text style={homeFirstRecordCelebrationStyle.title}>{FIRST_RECORD_CELEBRATION_TITLE}</Text>
+                <Text style={homeFirstRecordCelebrationStyle.body}>{FIRST_RECORD_CELEBRATION_BODY}</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={FIRST_RECORD_CELEBRATION_DISMISS_LABEL}
+                hitSlop={12}
+                onPress={dismissFirstRecordCelebration}
+              >
+                <Text style={homeFirstRecordCelebrationStyle.dismiss}>{FIRST_RECORD_CELEBRATION_DISMISS_LABEL}</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           {budgetWarning ? (
             <View
               accessibilityRole="alert"
@@ -631,6 +784,33 @@ export default function HomeScreen() {
                 <Text style={homeBudgetWarningStyle.title}>{budgetWarning.title}</Text>
                 <Text style={homeBudgetWarningStyle.body}>{budgetWarning.body}</Text>
               </View>
+            </View>
+          ) : null}
+
+          {firstRunGuide ? (
+            // UX-G: 온보딩 직후의 빈 홈이 "0원"만 보여주고 끝나지 않도록, 루프의 첫 단계(지출
+            // 기록) 또는 셋째 단계(준비템 확인) 중 **하나로만** 보낸다(DNC-002).
+            <View testID={firstRunGuide.testID} style={[homeFirstRunGuideStyle.card, theme.shadows.card]}>
+              <View accessible accessibilityLabel={firstRunGuide.accessibilityLabel} style={homeFirstRunGuideStyle.copy}>
+                <Text style={homeFirstRunGuideStyle.title}>{firstRunGuide.title}</Text>
+                <Text style={homeFirstRunGuideStyle.subtitle}>{firstRunGuide.subtitle}</Text>
+              </View>
+              <PrimaryButton
+                accessibilityLabel={firstRunGuide.ctaLabel}
+                label={firstRunGuide.ctaLabel}
+                onPress={() => {
+                  // 준비템 안내는 눌러서 확인한 순간 역할이 끝난다 -- 닫기와 같은 처리를 한다.
+                  if (firstRunGuide.variant === "first-items") dismissItemsGuide(childId);
+                  router.push(firstRunGuide.route);
+                }}
+              />
+              {firstRunGuide.dismissible ? (
+                <TextButton
+                  label={FIRST_ITEMS_GUIDE_DISMISS_LABEL}
+                  onPress={() => dismissItemsGuide(childId)}
+                  style={{ alignSelf: "center" }}
+                />
+              ) : null}
             </View>
           ) : null}
 

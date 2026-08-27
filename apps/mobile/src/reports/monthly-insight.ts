@@ -79,11 +79,27 @@ export type MonthlyInsight = {
   sentences: string[];
   /** 카드를 한 요소로 읽어 주는 TalkBack 라벨. */
   accessibilityLabel: string;
-  /** 지난달 비교 문장을 실제로 넣었는지(화면의 중복 문구 방지용). */
+  /**
+   * 지난달 비교 문장을 실제로 넣었는지.
+   *
+   * 라운드 34 L1: 화면(app/(tabs)/reports.tsx)이 이 값을 읽어 **추이 방향 행과 카드 내장 델타를
+   * 접는다** — 인사이트가 이미 "지난달 전체보다 …"라고 말한 달에 같은 비교를 두 번 하지 않기
+   * 위해서다(방향 행이 붙을 때 deltaLabel을 숨긴 것과 같은 기준).
+   */
   hasComparison: boolean;
-  /** 하루 평균의 분모로 쓴 경과일(진행 중인 달은 오늘 일자, 끝난 달은 그 달의 마지막 날). */
+  /**
+   * 하루 평균의 분모로 쓴 경과일(진행 중인 달은 오늘 일자, 끝난 달은 그 달의 마지막 날).
+   *
+   * 라운드 34 L10: 화면은 이 값을 그리지 않는다 — 문장의 **분모를 검산하는 테스트 전용 값**이다
+   * (monthly-insight.test.ts가 "하루 평균 = 총액 / elapsedDays"를 이 필드로 고정한다).
+   */
   elapsedDays: number | null;
-  /** 문장에 쓴 하루 평균. 말하지 않았으면 null. */
+  /**
+   * 문장에 쓴 하루 평균. 말하지 않았으면 null.
+   *
+   * 라운드 34 L10: `elapsedDays`와 같은 테스트 전용 검산값이다(화면 미사용). 문장 상한에 밀려
+   * 예산 문장이 빠진 달에는 null이 되어야 한다는 규칙을 이 필드가 드러낸다.
+   */
   dailyAverageKrw: number | null;
 };
 

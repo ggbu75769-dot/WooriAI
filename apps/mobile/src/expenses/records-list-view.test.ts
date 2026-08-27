@@ -97,6 +97,40 @@ describe("buildRecordsCategoryChips", () => {
     }
   });
 
+  /**
+   * 라운드 34 L7: 폴백 칩의 라벨에는 아이콘 이모지가 붙는다. 칩에는 그대로 두되, **문장으로
+   * 흘러가는 이름**은 이모지 없는 값이어야 한다 -- 스코프 줄/달력 라벨 한가운데 이모지가 끼면
+   * 스크린리더가 아이콘 이름을 카테고리 이름처럼 읽는다.
+   */
+  it("L7: 폴백 칩은 표시 라벨(이모지 포함)과 문장용 plainLabel을 따로 준다", () => {
+    const fallback = buildRecordsCategoryChips([], null);
+    for (const [index, chip] of fallback.entries()) {
+      const entry = categoryCatalog[index];
+      expect(chip.label).toBe(`${entry.icon} ${entry.label}`);
+      expect(chip.plainLabel).toBe(entry.label);
+      // 이모지는 표시 라벨에만 남는다.
+      expect(chip.plainLabel).not.toContain(entry.icon);
+    }
+
+    // 서버 목록에서 온 칩은 두 값이 같다(이름에 아이콘이 없다).
+    for (const chip of buildRecordsCategoryChips(serverCategories, null)) {
+      expect(chip.plainLabel).toBe(chip.label);
+    }
+  });
+
+  it("L7: 폴백 칩 이름으로 만든 스코프 줄에 이모지가 흘러들지 않는다", () => {
+    const chip = buildRecordsCategoryChips([], null)[0];
+    const summary = buildRecordsFilterScopeSummary({
+      categoryLabel: chip.plainLabel,
+      categoryFiltered: true,
+      recordCount: 3,
+      totalKrw: 45_000
+    })!;
+
+    expect(summary.text).toBe(`${categoryCatalog[0].label} 필터: 3건 · 45,000원`);
+    expect(summary.accessibilityLabel).not.toContain(categoryCatalog[0].icon);
+  });
+
   it("칩 순서는 서버 목록 순서(displayOrder)를 유지한다", () => {
     const chips = buildRecordsCategoryChips(serverCategories, null);
     expect(chips.map((chip) => chip.label)).toEqual(["기저귀/위생", "수유/이유식", "기타", "기저귀"]);
@@ -656,7 +690,8 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     // 건수는 필터가 걸린 목록 그대로 -- 월 요약 줄의 monthlyRecordCount를 재사용하지 않는다.
     expect(recordsSource).toContain("recordCount: listData.length");
     // 카테고리 이름은 칩에서만 온다(칩과 다른 이름이 나오면 그 자체가 불일치다).
-    expect(recordsSource).toContain("categoryChips.find((chip) => chip.id === selectedCategoryId)?.label");
+    // 라운드 34 L7: 문장에 들어가는 것은 이모지 없는 plainLabel이다.
+    expect(recordsSource).toContain("categoryChips.find((chip) => chip.id === selectedCategoryId)?.plainLabel");
     expect(recordsSource).toContain("categoryFiltered: selectedCategoryId !== null");
   });
 

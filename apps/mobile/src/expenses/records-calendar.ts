@@ -78,6 +78,15 @@ export type CalendarCell = {
    * "지출 없음"이라고 단정하지 않고 따로 표시한다.
    */
   hasGiftOnly: boolean;
+  /**
+   * 라운드 34 L4: 그날 **목록에 보이는 기록이 하나라도 있는지**(= 날짜 그룹이 존재했는지).
+   *
+   * 왜 금액이 아니라 이 값인가: 칸을 누르면 그날 섹션으로 스크롤하는데, 기록이 없는 날에는
+   * 스크롤할 섹션 자체가 없어 눌러도 아무 일도 일어나지 않는다. 달 밖 빈 칸을 누를 수 없게
+   * 만든 것과 **같은 근거**다(누를 수 있어 보이는데 반응이 없는 편이 비대화형보다 나쁘다).
+   * `totalKrw > 0`으로 대신 판정하면 선물·환불만 있던 날(소계 0)이 비대화형으로 잘못 걸린다.
+   */
+  hasRecords: boolean;
 };
 
 export type CalendarMonth = {
@@ -88,11 +97,27 @@ export type CalendarMonth = {
   month: number;
   /** 주 배열(월요일 시작). 이번 달을 덮는 4~6주만 만든다 — 최대 6×7 = 42칸. */
   weeks: CalendarCell[][];
-  /** 그 달 최대 일지출(분위의 분모). 기록이 없으면 0. */
+  /**
+   * 그 달 최대 일지출(분위의 분모). 기록이 없으면 0.
+   *
+   * 라운드 34 L10: 화면은 이 값을 그리지 않는다 — **음영 분위의 분모를 검산하는 계약값**이라
+   * 남겨 둔다(records-calendar.test.ts가 "가장 많이 쓴 날 = 4단계"를 이 값으로 고정한다).
+   * 화면이 자체 분위 계산을 갖지 못하게 막는 것도 같은 테스트다.
+   */
   maxDailyKrw: number;
-  /** 그 달 소계의 합(= 화면 월 합계, 필터가 걸렸다면 그 필터 기준). */
+  /**
+   * 그 달 소계의 합(= 화면 월 합계, 필터가 걸렸다면 그 필터 기준).
+   *
+   * 라운드 34 L10: 화면은 이 값 대신 자기 합계(monthlyTotalKrw)를 그린다. 여기 남는 이유는
+   * **두 합계가 같아야 한다**는 불변식을 테스트가 이 필드로 검산하기 때문이다(달력 칸 금액의
+   * 합 = 일별 소계의 합 = 월 합계). 지우면 그 검산이 사라진다.
+   */
   totalKrw: number;
-  /** 지출이 1원이라도 있는 날의 수. */
+  /**
+   * 지출이 1원이라도 있는 날의 수.
+   *
+   * 라운드 34 L10: 위 두 필드와 같은 **테스트 전용 검산값**이다(화면 미사용).
+   */
   spentDayCount: number;
 };
 
@@ -209,7 +234,8 @@ export function buildCalendarMonth(
       isToday: false,
       totalKrw: 0,
       intensity: 0,
-      hasGiftOnly: false
+      hasGiftOnly: false,
+      hasRecords: false
     });
   }
   for (let day = 1; day <= lastDay; day += 1) {
@@ -225,7 +251,9 @@ export function buildCalendarMonth(
       totalKrw: amount,
       intensity: calendarIntensity(amount, maxDailyKrw),
       // 기록은 있는데(그룹이 존재) 합산 대상이 하나도 없던 날 = 선물·환불만 있던 날.
-      hasGiftOnly: entry !== undefined && !entry.hasSubtotal
+      hasGiftOnly: entry !== undefined && !entry.hasSubtotal,
+      // 그룹이 존재했다는 사실 자체(금액과 무관) = 그날 목록에 보이는 행이 있다.
+      hasRecords: entry !== undefined
     });
   }
   while (cells.length % 7 !== 0) {
@@ -238,7 +266,8 @@ export function buildCalendarMonth(
       isToday: false,
       totalKrw: 0,
       intensity: 0,
-      hasGiftOnly: false
+      hasGiftOnly: false,
+      hasRecords: false
     });
   }
 
@@ -289,14 +318,59 @@ function trimOneDecimal(value: number): string {
  *
  * 빈 칸(달 밖)은 null — 화면이 라벨 없는 비대화형 자리로 그린다.
  */
-export function calendarCellAccessibilityLabel(cell: CalendarCell): string | null {
+export function calendarCellAccessibilityLabel(
+  cell: CalendarCell,
+  options?: { filterLabel?: string | null }
+): string | null {
   if (!cell.date) return null;
-  const prefix = cell.isToday ? "오늘, " : "";
+  const scopePrefix = calendarFilterScopePrefix(options?.filterLabel);
+  const prefix = `${scopePrefix}${cell.isToday ? "오늘, " : ""}`;
   const dateLabel = formatSpentOn(cell.date);
   if (cell.totalKrw > 0) return `${prefix}${dateLabel}, ${formatKrw(cell.totalKrw)}`;
   if (cell.hasGiftOnly) return `${prefix}${dateLabel}, 선물·환불 기록만 있어요`;
   return `${prefix}${dateLabel}, 지출 없음`;
 }
 
+/**
+ * 라운드 34 L5: 필터가 걸린 달력의 스코프 접두 — "기저귀/위생 필터 기준, ".
+ *
+ * 왜 필요한가: 카테고리 칩·검색이 켜지면 달력은 **그 필터의 히트맵**이 된다(화면이 필터가 걸린
+ * 목록에서 나온 그룹을 그대로 넘기므로). 눈으로 보는 사람은 바로 위 칩 줄과 스코프 줄(F8)에서
+ * 그 사실을 읽지만, 칸 라벨만 듣는 사람에게는 "8월 27일, 45,000원"이 **그 달 전체 지출**로
+ * 들린다 — 같은 화면이 두 사람에게 다른 사실을 말하는 셈이다.
+ *
+ * 화면이 넘기는 값은 F8 스코프 줄과 **같은 문자열**(`RecordsFilterScopeSummary.scopeLabel`)이라
+ * 두 표기가 갈릴 수 없다. 가운뎃점은 TalkBack이 읽지 않으므로 쉼표로 바꾼다(같은 모듈의
+ * `accessibilityLabel` 관례).
+ */
+function calendarFilterScopePrefix(filterLabel?: string | null): string {
+  const label = filterLabel?.trim();
+  if (!label) return "";
+  return `${label.replace(/\s*·\s*/g, ", ")} 기준, `;
+}
+
+/**
+ * 라운드 34 L4: 이 칸이 **누를 수 있는 칸인지**.
+ *
+ * 달 밖 빈 칸(`date === null`)과 같은 근거로, 그날 기록이 하나도 없는 칸도 비대화형이다 —
+ * 누를 대상(그날 섹션)이 목록에 없어서 눌러도 아무 일도 일어나지 않기 때문이다. 화면은 이
+ * 판정으로 Pressable 자체를 걸지 말지 정한다(disabled 버튼도 "눌리는 것처럼" 보인다).
+ */
+export function isCalendarCellInteractive(cell: CalendarCell): boolean {
+  return cell.date !== null && cell.hasRecords;
+}
+
 /** 달력 아래 한 줄 안내(DNC-018 해요체). 음영이 무엇을 뜻하는지 말해주지 않으면 그냥 색일 뿐이다. */
-export const CALENDAR_LEGEND_TEXT = "색이 진할수록 그날 지출이 많아요. 날짜를 누르면 그날 기록으로 이동해요.";
+export const CALENDAR_LEGEND_TEXT = "색이 진할수록 그날 지출이 많아요. 기록이 있는 날짜를 누르면 그날 기록으로 이동해요.";
+
+/**
+ * 라운드 34 L5: 범례 한 줄 — 필터가 걸렸으면 **무엇의 히트맵인지**를 덧붙인다.
+ *
+ * 칸 라벨의 접두(위)와 같은 사실을 눈으로 보는 사람에게도 달력 **안에서** 말한다. 필터가 없으면
+ * 예전 문장 그대로다(기존 화면 한 글자도 안 바뀐다).
+ */
+export function calendarLegendText(filterLabel?: string | null): string {
+  const label = filterLabel?.trim();
+  if (!label) return CALENDAR_LEGEND_TEXT;
+  return `${CALENDAR_LEGEND_TEXT} 지금은 ${label} 기준으로 보고 있어요.`;
+}

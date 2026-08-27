@@ -339,6 +339,12 @@ export default function ReportsScreen() {
   // 지출이 늘었다는 사실에 경고색을 찍어 죄책감을 주지 않는다(DNC-018).
   const trendDirection =
     hasSession && period === "월간" ? evaluateTrendDirection({ points: monthlyTrendPoints, monthStatus }) : null;
+  // 라운드 34 L1: 인사이트 카드가 이미 "지난달 전체보다 …"를 말한 달에는 방향 행을 접는다.
+  // 두 줄은 **같은 두 달을 같은 방향으로** 비교한 결과라(끝난 달에서만 비교 문장이 붙는다),
+  // 나란히 두면 한 화면에서 같은 사실을 세 번(카드 델타·방향 행·인사이트) 말하게 된다.
+  // 남기는 쪽이 인사이트인 이유: 문장이 비교 대상("지난달 전체")을 못 박고 있어 의미가 더 분명하다.
+  const insightSpokeComparison = Boolean(monthlyInsight?.hasComparison);
+  const showTrendDirectionRow = Boolean(trendDirection) && !insightSpokeComparison;
   const trendDirectionColor =
     trendDirection?.tone === "positive" ? theme.colors.semantic.success : theme.colors.gray600;
 
@@ -463,11 +469,13 @@ export default function ReportsScreen() {
                 value={formatKrw(activeTotal ?? 0)}
                 // UX-F: 방향 행이 붙는 달에는 카드 내장 델타를 숨긴다 -- 같은 비교를 두 번 말하지
                 // 않고, 비교 의미(진행 중 / 끝난 달)를 밝힌 아래 행만 남긴다.
-                deltaLabel={trendDirection ? null : deltaLabel}
+                // 라운드 34 L1: 방향 행을 접은 달(인사이트가 이미 비교를 말했다)에도 델타를 되살리지
+                // 않는다 -- 되살리면 접은 이유였던 중복이 카드 안으로 옮겨 갈 뿐이다.
+                deltaLabel={trendDirection || insightSpokeComparison ? null : deltaLabel}
                 points={activePoints}
               />
 
-              {trendDirection ? (
+              {showTrendDirectionRow && trendDirection ? (
                 <View
                   accessible
                   accessibilityLabel={trendDirection.accessibilityLabel}
