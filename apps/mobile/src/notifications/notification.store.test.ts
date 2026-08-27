@@ -6,6 +6,7 @@ import {
   NOTIFICATION_MAX_ENTRIES,
   NOTIFICATION_MAX_SEEN_KEYS,
   selectUnreadCount,
+  selectUnreadNotificationIds,
   useNotificationStore,
   type AppNotification,
   type AppNotificationCandidate
@@ -190,6 +191,38 @@ describe("NOTI-102 read marks and unread count", () => {
     const twice = markNotificationRead(once, "notif:a", NOW + 999);
     expect(twice).toBe(once);
     expect(twice[0]!.readAt).toBe(NOW + 10);
+  });
+});
+
+/**
+ * 라운드 39 UX-O: 알림함은 포커스 즉시 전부 읽음 처리하므로, 화면이 열리는 순간의 안읽음
+ * 목록을 스냅샷해 두지 않으면 "이번에 새로 온 소식"이 어느 줄인지 알 방법이 사라진다.
+ */
+describe("라운드 39 UX-O 새 소식 스냅샷", () => {
+  it("안읽음 항목의 id만, 목록 순서 그대로 돌려준다", () => {
+    const { entries } = addNotifications(
+      [],
+      [],
+      [candidate({ dedupeKey: "a" }), candidate({ dedupeKey: "b" }), candidate({ dedupeKey: "c" })],
+      NOW
+    );
+    const partiallyRead = markNotificationRead(entries, "notif:b", NOW + 1);
+    // 스냅샷은 목록 순서를 그대로 따른다(한 배치는 후보 순서대로 들어간다).
+    expect(selectUnreadNotificationIds(partiallyRead)).toEqual(["notif:a", "notif:c"]);
+  });
+
+  it("전부 읽은 뒤에는 비어 있다 (다시 들어오면 새 소식 표시가 없다)", () => {
+    const { entries } = addNotifications([], [], [candidate({ dedupeKey: "a" })], NOW);
+    expect(selectUnreadNotificationIds(entries)).toEqual(["notif:a"]);
+    expect(selectUnreadNotificationIds(markAllNotificationsRead(entries, NOW + 5))).toEqual([]);
+    expect(selectUnreadNotificationIds([])).toEqual([]);
+  });
+
+  it("읽기 전용이다 -- 스냅샷을 떠도 readAt/목록이 그대로다 (읽음 처리는 markAllRead가 한다)", () => {
+    const { entries } = addNotifications([], [], [candidate({ dedupeKey: "a" })], NOW);
+    const before = JSON.stringify(entries);
+    selectUnreadNotificationIds(entries);
+    expect(JSON.stringify(entries)).toBe(before);
   });
 });
 

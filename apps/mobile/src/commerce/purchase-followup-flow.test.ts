@@ -111,6 +111,39 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(promptSource).toContain('position: "absolute"');
   });
 
+  /**
+   * 라운드 39 UX-O: 전역 오버레이가 아이 전환 뒤에도 떠 있으면 "샀어요"가 다른 아이의 지출로
+   * 기록된다(R19-B로 그 아이의 준비템까지 준비 완료). 판정과 렌더 두 곳 모두에 아이 게이트가
+   * 걸려 있어야 하고, 아이 전환 자체가 재판정을 유발해야 한다(앱 안 전환이라 AppState가
+   * "active"로 다시 뜨지 않는다).
+   */
+  it("scopes the prompt to the currently selected child (판정 + 렌더 + 전환 시 재판정)", () => {
+    const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
+    expect(promptSource).toContain('import { useSelectedChildStore } from "../stores/selected-child.store";');
+    expect(promptSource).toContain("const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);");
+    // 후보 판정에 지금 아이를 함께 넘긴다(인자 순서: entries, now, selectedChildId).
+    const selectCall = promptSource.slice(
+      promptSource.indexOf("selectPromptEligibleFollowup("),
+      promptSource.indexOf("if (!candidate")
+    );
+    expect(selectCall).toContain("usePurchaseFollowupStore.getState().entries");
+    expect(selectCall).toContain("selectedChildId");
+    // 카드가 떠 있는 동안 아이를 바꿔도 그리지 않는다(그 프레임의 "샀어요"가 곧 오기록).
+    expect(promptSource).toContain("if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return null;");
+    // 아이 전환이 effect 재실행 -> 재판정으로 이어진다.
+    expect(promptSource).toContain("}, [hasSession, selectedChildId]);");
+    // 다른 아이의 항목은 숨겨질 뿐, 상태를 바꾸는 호출은 없다(그 아이로 돌아오면 다시 뜬다).
+    const guardIndex = promptSource.indexOf("if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return null;");
+    expect(guardIndex).toBeGreaterThan(promptSource.indexOf("if (!hasSession || !activeFollowup) return null;"));
+
+    const storeSource = source("src/commerce/purchase-followup.store.ts");
+    expect(storeSource).toContain("export function isFollowupForSelectedChild(");
+    expect(storeSource).toContain("selectedChildId: string | null");
+    // 아이를 모르면(선택 전/레거시 항목) 묻지 않는다 -- 보수적 기본값.
+    expect(storeSource).toContain("if (!selectedChildId) return false;");
+    expect(storeSource).toContain("if (!entry.childId) return false;");
+  });
+
   it("asks 구매하셨나요? with the three follow-up actions, reusing the expenses/new followup params", () => {
     const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
     expect(promptSource).toContain("구매하셨나요?");

@@ -72,7 +72,10 @@ export function applyPurchaseLinkClick(
 
 /** An entry may be shown as a prompt: still pending, inside the 3min–24h window, under the
  * prompt budget. (The once-per-app-session gate lives in PurchaseFollowupPrompt.tsx -- it's
- * runtime state, not persisted.) */
+ * runtime state, not persisted.)
+ *
+ * 시간·상태 게이트만 본다. "지금 선택된 아이의 클릭인가"는 별도 게이트로,
+ * isFollowupForSelectedChild가 판정하고 selectPromptEligibleFollowup이 둘을 함께 적용한다. */
 export function isPromptEligible(entry: PurchaseFollowupEntry, now: number): boolean {
   if (entry.status !== "pending") return false;
   if (entry.promptCount >= PURCHASE_FOLLOWUP_MAX_PROMPTS) return false;
@@ -80,14 +83,54 @@ export function isPromptEligible(entry: PurchaseFollowupEntry, now: number): boo
   return age >= PURCHASE_FOLLOWUP_MIN_AGE_MS && age <= PURCHASE_FOLLOWUP_MAX_AGE_MS;
 }
 
-/** The single entry to prompt for right now (most recent eligible click), or null. */
+/**
+ * 라운드 39 UX-O: 이 대기 항목이 **지금 선택돼 있는 아이의 것인가**.
+ *
+ * 클릭은 처음부터 childId와 함께 기록되는데(recordLinkClick), 노출 판정은 그것을 보지 않았다.
+ * 카드가 app/_layout.tsx에 걸린 전역 오버레이라, A의 링크를 누르고 설정에서 B로 전환한 뒤에도
+ * 같은 카드가 그대로 떠 있었고 "샀어요"를 누르면 **B의 지출**로 기록되며 서버는 그 지출에 딸린
+ * B의 준비템까지 준비 완료로 바꾼다(R19-B). 즉 A에서 한 행동이 B의 데이터를 바꾼다 --
+ * 형제 기능인 준비템 → 지출 프롬프트가 scope.childId로 이미 막아 둔 것과 같은 사고다
+ * (src/items/expense-link-prompt.ts의 ExpenseLinkPromptScope 주석 참고). 같은 원칙을 적용한다.
+ *
+ * 보수적으로 판정하는 두 경우 -- 둘 다 "잘못된 아이에게 기록될 수 있으면 묻지 않는다":
+ * - `selectedChildId`가 null: 아직 아이를 고르지 않았거나 selected-child 스토어가 rehydrate
+ *   되기 전이다. 이때 "샀어요"가 어느 아이로 갈지 알 수 없으므로 띄우지 않는다. 스토어가
+ *   복구되면 lifecycle이 다시 판정하므로 대기 항목은 그대로 살아 있다.
+ * - 항목에 childId가 없다(레거시): 지금 persist 계약에서는 사실상 오지 않는 경우다 --
+ *   sanitizedEntries가 `typeof entry.childId === "string"`을 요구해서 childId 없는 옛 blob은
+ *   rehydrate 단계에서 이미 걸러진다. 그래도 방어적으로 미노출을 택한다. 마이그레이션(예: 지금
+ *   선택된 아이로 소급 배정)은 하지 않는다 -- 어느 아이의 클릭인지 모르는 항목을 지금 아이의
+ *   것으로 단정하면 이 과제가 막으려는 바로 그 오기록을 우리 손으로 만드는 셈이고, 대기 항목은
+ *   최대 24시간이면 스스로 만료된다(PURCHASE_FOLLOWUP_MAX_AGE_MS).
+ */
+export function isFollowupForSelectedChild(
+  entry: PurchaseFollowupEntry,
+  selectedChildId: string | null
+): boolean {
+  if (!selectedChildId) return false;
+  if (!entry.childId) return false;
+  return entry.childId === selectedChildId;
+}
+
+/**
+ * The single entry to prompt for right now (most recent eligible click **for the currently
+ * selected child**), or null.
+ *
+ * selectedChildId는 선택 인자가 아니라 필수다 -- 빠뜨리면 아이를 안 보던 예전 동작으로 조용히
+ * 되돌아가므로, 호출부가 항상 "지금 어느 아이인가"를 함께 넘기도록 타입으로 강제한다.
+ * 다른 아이의 항목은 여기서 걸러질 뿐 상태는 그대로 pending이다 -- 그 아이로 돌아오면 자격
+ * 시간(3분~24시간) 안인 한 다시 후보가 된다.
+ */
 export function selectPromptEligibleFollowup(
   entries: PurchaseFollowupEntry[],
-  now: number
+  now: number,
+  selectedChildId: string | null
 ): PurchaseFollowupEntry | null {
   let best: PurchaseFollowupEntry | null = null;
   for (const entry of entries) {
     if (!isPromptEligible(entry, now)) continue;
+    if (!isFollowupForSelectedChild(entry, selectedChildId)) continue;
     if (!best || entry.clickedAt >= best.clickedAt) best = entry;
   }
   return best;

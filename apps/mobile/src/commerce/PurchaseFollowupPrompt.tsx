@@ -4,10 +4,12 @@ import { router } from "expo-router";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { buildPurchaseFollowupAnsweredPayload, type PurchaseFollowupAnswer } from "../analytics/events";
 import { LOCAL_SESSION_TOKEN } from "../api/client";
+import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
 import { announceForA11y, Card, PrimaryButton, SecondaryButton, TextButton } from "../ui";
 import { theme } from "../theme";
 import {
+  isFollowupForSelectedChild,
   selectPromptEligibleFollowup,
   usePurchaseFollowupStore,
   type PurchaseFollowupEntry
@@ -23,6 +25,11 @@ import {
  * Never blocks navigation: the overlay wrapper uses pointerEvents="box-none" so only the card
  * itself is touchable, and the component renders null (and attaches no listeners) whenever
  * there is no real/demo session -- preview & logged-out states stay completely inert.
+ *
+ * 라운드 39 UX-O(아이 스코프): 이 카드는 전역 오버레이라 **아이를 전환해도 그대로 떠 있었다**.
+ * 그 상태에서 "샀어요"를 누르면 A의 클릭이 B의 지출로 기록되고 B의 준비템까지 준비 완료가
+ * 된다(R19-B). 이제 후보 판정(selectPromptEligibleFollowup)과 렌더 둘 다 지금 선택된 아이를
+ * 함께 본다 -- 판정 규칙과 그 근거는 purchase-followup.store.ts의 isFollowupForSelectedChild에.
  */
 
 /** Clicks already prompted in this app session (module-level on purpose: survives remounts of
@@ -58,6 +65,12 @@ export function PurchaseFollowupLifecycle() {
    * 데모에서 누른 답변이 실계정 통계에 섞이는 것이 훨씬 나쁘다.
    */
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  /**
+   * 지금 선택된 아이. 값이 바뀌면 아래 effect가 다시 돌아 **그 아이의 대기 항목**을 새로
+   * 판정한다 -- 아이 전환은 앱 안에서 일어나므로 AppState "active"가 뜨지 않아 이 구독이
+   * 없으면 아이로 돌아와도 다음 포그라운드 복귀까지 카드가 나타나지 않는다.
+   */
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const snoozeFollowup = usePurchaseFollowupStore((state) => state.snoozeFollowup);
   const completeFollowup = usePurchaseFollowupStore((state) => state.completeFollowup);
   const dismissFollowup = usePurchaseFollowupStore((state) => state.dismissFollowup);
@@ -69,7 +82,11 @@ export function PurchaseFollowupLifecycle() {
       return;
     }
     const check = () => {
-      const candidate = selectPromptEligibleFollowup(usePurchaseFollowupStore.getState().entries, Date.now());
+      const candidate = selectPromptEligibleFollowup(
+        usePurchaseFollowupStore.getState().entries,
+        Date.now(),
+        selectedChildId
+      );
       if (!candidate || promptedThisSession.has(sessionPromptKey(candidate))) return;
       promptedThisSession.add(sessionPromptKey(candidate));
       setActiveFollowup(candidate);
@@ -85,7 +102,7 @@ export function PurchaseFollowupLifecycle() {
       unsubscribeHydration();
       subscription.remove();
     };
-  }, [hasSession]);
+  }, [hasSession, selectedChildId]);
 
   // A11Y-115: the card overlays the bottom of whatever screen the user is on, so a screen-reader
   // user gets an audible cue when it appears instead of discovering it by chance.
@@ -94,6 +111,13 @@ export function PurchaseFollowupLifecycle() {
   }, [activeFollowup]);
 
   if (!hasSession || !activeFollowup) return null;
+  /**
+   * 렌더 시점의 아이 게이트(라운드 39 UX-O). 후보 판정에서 이미 걸렀지만, 카드가 떠 있는 동안
+   * 설정에서 아이를 바꾸면 화면에 남은 카드가 다른 아이의 것이 된다 -- 그 한 프레임에 "샀어요"를
+   * 누르면 바로 오기록이므로 그리지 않는다. 상태(activeFollowup)는 일부러 그대로 둔다:
+   * 그 아이로 돌아오면 같은 카드가 다시 보이고, 스토어의 대기 항목도 여전히 pending이다.
+   */
+  if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return null;
 
   const closeWith = (action: (itemTemplateId: string) => void) => {
     action(activeFollowup.itemTemplateId);

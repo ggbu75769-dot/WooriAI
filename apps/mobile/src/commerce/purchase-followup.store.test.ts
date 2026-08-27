@@ -3,6 +3,7 @@ import {
   applyPurchaseLinkClick,
   applySnooze,
   applyStatus,
+  isFollowupForSelectedChild,
   isPromptEligible,
   PURCHASE_FOLLOWUP_MAX_AGE_MS,
   PURCHASE_FOLLOWUP_MAX_ENTRIES,
@@ -13,6 +14,7 @@ import {
   type PurchaseFollowupClick,
   type PurchaseFollowupEntry
 } from "./purchase-followup.store";
+import { persistStorage } from "../stores/persist-storage";
 
 const NOW = 1_700_000_000_000;
 
@@ -88,12 +90,69 @@ describe("COM-108 prompt eligibility window (3min–24h)", () => {
     const older = pendingEntry({ itemTemplateId: "item-a", clickedAt: NOW - 2 * 60 * 60 * 1000 });
     const newer = pendingEntry({ itemTemplateId: "item-b", clickedAt: NOW - 10 * 60 * 1000 });
     const tooFresh = pendingEntry({ itemTemplateId: "item-c", clickedAt: NOW - 1000 });
-    expect(selectPromptEligibleFollowup([older, newer, tooFresh], NOW)?.itemTemplateId).toBe("item-b");
+    expect(selectPromptEligibleFollowup([older, newer, tooFresh], NOW, "child-1")?.itemTemplateId).toBe("item-b");
   });
 
   it("returns null when nothing is eligible", () => {
-    expect(selectPromptEligibleFollowup([], NOW)).toBeNull();
-    expect(selectPromptEligibleFollowup([pendingEntry({ clickedAt: NOW })], NOW)).toBeNull();
+    expect(selectPromptEligibleFollowup([], NOW, "child-1")).toBeNull();
+    expect(selectPromptEligibleFollowup([pendingEntry({ clickedAt: NOW })], NOW, "child-1")).toBeNull();
+  });
+});
+
+/**
+ * 라운드 39 UX-O: 구매 확인 카드는 전역 오버레이라 아이를 전환해도 그대로 떠 있었고, 거기서
+ * 누른 "샀어요"는 **지금 선택된 아이**의 지출로 기록되며 서버가 그 아이의 준비템까지 준비
+ * 완료로 올렸다(R19-B). 노출 판정이 클릭에 이미 박혀 있던 childId를 보게 한다 --
+ * 형제 기능(src/items/expense-link-prompt.ts의 scope.childId)과 같은 원칙.
+ */
+describe("라운드 39 UX-O 구매 확인 프롬프트의 아이 스코프", () => {
+  const eligibleAt = NOW - 10 * 60 * 1000;
+
+  it("같은 아이를 보고 있으면 그대로 띄운다", () => {
+    const entry = pendingEntry({ childId: "child-1", clickedAt: eligibleAt });
+    expect(isFollowupForSelectedChild(entry, "child-1")).toBe(true);
+    expect(selectPromptEligibleFollowup([entry], NOW, "child-1")?.itemTemplateId).toBe("item-diaper");
+  });
+
+  it("다른 아이를 보고 있으면 띄우지 않는다 (오기록 방지)", () => {
+    const entry = pendingEntry({ childId: "child-1", clickedAt: eligibleAt });
+    expect(isFollowupForSelectedChild(entry, "child-2")).toBe(false);
+    expect(selectPromptEligibleFollowup([entry], NOW, "child-2")).toBeNull();
+  });
+
+  it("다른 아이의 대기 항목은 숨겨질 뿐 상태가 바뀌지 않아, 그 아이로 돌아오면 다시 나온다", () => {
+    const entries = [pendingEntry({ childId: "child-1", clickedAt: eligibleAt })];
+    // B를 보는 동안 미노출 -- 판정은 순수 함수라 entries를 건드리지 않는다.
+    expect(selectPromptEligibleFollowup(entries, NOW, "child-2")).toBeNull();
+    expect(entries[0]).toMatchObject({ status: "pending", promptCount: 0 });
+    // A로 복귀: 자격 시간(3분~24시간) 안이면 그대로 다시 후보가 된다.
+    expect(selectPromptEligibleFollowup(entries, NOW, "child-1")?.itemTemplateId).toBe("item-diaper");
+    // 24시간이 지나 자격을 잃은 뒤에 돌아오면 아이가 맞아도 조용히 만료된 채로 둔다.
+    expect(selectPromptEligibleFollowup(entries, eligibleAt + PURCHASE_FOLLOWUP_MAX_AGE_MS + 1, "child-1")).toBeNull();
+  });
+
+  it("여러 아이의 대기 항목이 섞여 있으면 지금 아이의 것 중 가장 최근 것만 고른다", () => {
+    const mine = pendingEntry({ itemTemplateId: "item-mine", childId: "child-1", clickedAt: NOW - 30 * 60 * 1000 });
+    const others = pendingEntry({ itemTemplateId: "item-other", childId: "child-2", clickedAt: NOW - 5 * 60 * 1000 });
+    expect(selectPromptEligibleFollowup([mine, others], NOW, "child-1")?.itemTemplateId).toBe("item-mine");
+    expect(selectPromptEligibleFollowup([mine, others], NOW, "child-2")?.itemTemplateId).toBe("item-other");
+  });
+
+  it("아이가 아직 선택되지 않았으면(rehydrate 전 포함) 묻지 않는다", () => {
+    const entry = pendingEntry({ childId: "child-1", clickedAt: eligibleAt });
+    expect(isFollowupForSelectedChild(entry, null)).toBe(false);
+    expect(selectPromptEligibleFollowup([entry], NOW, null)).toBeNull();
+  });
+
+  it("childId 없는 레거시 항목은 보수적으로 미노출 (지금 아이의 것으로 소급 배정하지 않는다)", () => {
+    // 실제로는 sanitizedEntries가 childId 없는 옛 blob을 rehydrate에서 이미 걸러내므로 이
+    // 경우는 방어선이다 -- 아래 "childId 없는 옛 blob은 rehydrate 단계에서 걸러진다"가 그 사실을
+    // 함께 못박는다.
+    const legacy = { ...pendingEntry({ clickedAt: eligibleAt }), childId: undefined } as unknown as PurchaseFollowupEntry;
+    expect(isFollowupForSelectedChild(legacy, "child-1")).toBe(false);
+    expect(selectPromptEligibleFollowup([legacy], NOW, "child-1")).toBeNull();
+    // 시간·상태 게이트 자체는 통과한다 -- 걸러 낸 이유가 오직 아이라는 것을 분명히 한다.
+    expect(isPromptEligible(legacy, NOW)).toBe(true);
   });
 });
 
@@ -110,7 +169,7 @@ describe("COM-108 snooze (아직이요) -- max 2 prompts total, then auto-expire
     let entries = applySnooze([pendingEntry({ clickedAt: eligibleAt })], "item-diaper");
     entries = applySnooze(entries, "item-diaper");
     expect(entries[0]).toMatchObject({ status: "expired", promptCount: PURCHASE_FOLLOWUP_MAX_PROMPTS });
-    expect(selectPromptEligibleFollowup(entries, NOW)).toBeNull();
+    expect(selectPromptEligibleFollowup(entries, NOW, "child-1")).toBeNull();
   });
 
   it("only touches the targeted pending entry", () => {
@@ -126,14 +185,14 @@ describe("COM-108 done (샀어요) and dismiss (괜찮아요)", () => {
     const eligibleAt = NOW - 10 * 60 * 1000;
     const entries = applyStatus([pendingEntry({ clickedAt: eligibleAt })], "item-diaper", "done");
     expect(entries[0]!.status).toBe("done");
-    expect(selectPromptEligibleFollowup(entries, NOW)).toBeNull();
+    expect(selectPromptEligibleFollowup(entries, NOW, "child-1")).toBeNull();
   });
 
   it("dismisses the entry permanently", () => {
     const eligibleAt = NOW - 10 * 60 * 1000;
     const entries = applyStatus([pendingEntry({ clickedAt: eligibleAt })], "item-diaper", "dismissed");
     expect(entries[0]!.status).toBe("dismissed");
-    expect(selectPromptEligibleFollowup(entries, NOW)).toBeNull();
+    expect(selectPromptEligibleFollowup(entries, NOW, "child-1")).toBeNull();
   });
 });
 
@@ -194,6 +253,37 @@ describe("COM-108 persisted store wiring", () => {
     expect(usePurchaseFollowupStore.getState().entries.find((entry) => entry.itemTemplateId === "item-b")?.status).toBe(
       "dismissed"
     );
+  });
+
+  /**
+   * 라운드 39 UX-O 마이그레이션 판단의 근거: childId 없는 항목은 **rehydrate 단계에서 이미
+   * 사라진다**(sanitizedEntries가 childId를 필수 문자열로 본다). 그래서 노출 판정에 childId
+   * 게이트를 넣어도 "옛 항목이 통째로 안 뜨게 되는" 회귀가 실제 사용자에게 생기지 않고,
+   * 별도 마이그레이션(소급 배정)도 필요 없다.
+   */
+  it("childId 없는 옛 blob은 rehydrate 단계에서 걸러진다", async () => {
+    await persistStorage.setItem(
+      "wooriai-purchase-followup",
+      JSON.stringify({
+        state: {
+          entries: [
+            {
+              itemTemplateId: "item-legacy",
+              itemName: "옛 클릭",
+              clickedAt: NOW,
+              status: "pending",
+              promptCount: 0
+              // childId intentionally absent -- childId를 쓰기 전 빌드가 남긴 모양.
+            },
+            { ...pendingEntry({ itemTemplateId: "item-current" }) }
+          ]
+        },
+        version: 1
+      })
+    );
+    await usePurchaseFollowupStore.persist.rehydrate();
+    expect(usePurchaseFollowupStore.getState().entries.map((entry) => entry.itemTemplateId)).toEqual(["item-current"]);
+    await persistStorage.removeItem("wooriai-purchase-followup");
   });
 
   it("re-clicking a done item re-arms a fresh pending entry", () => {
