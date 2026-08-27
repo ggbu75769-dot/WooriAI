@@ -11,7 +11,9 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
     expect(newExpenseSource).toContain('import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";');
     expect(newExpenseSource).toContain('import { createExpenseOffline } from "../../src/offline/sync-controller";');
     expect(newExpenseSource).toContain("createExpenseOffline(authToken, queryClient,");
-    expect(newExpenseSource).toContain("setSavedMessage(OFFLINE_SAVED_MESSAGE)");
+    // 라운드 48 T4(D1): "저장하고 계속 기록"만 다른 문구를 쓴다(화면에 남아 칸이 비워지는 이유를
+    // 말해야 한다). 종전 경로 -- 저장 후 화면을 떠나는 저장 -- 는 여전히 OFFLINE_SAVED_MESSAGE다.
+    expect(newExpenseSource).toContain("continueRecording ? CONTINUE_RECORDING_SAVED_MESSAGE : OFFLINE_SAVED_MESSAGE");
     expect(newExpenseSource).not.toContain("기록했어요. 이번 달 우리 아이 비용에 더해둘게요.");
     // The real createExpense (server-immediate, no local-first staging) must not be used here.
     expect(newExpenseSource).not.toMatch(/[^.]\bcreateExpense\(authToken/);

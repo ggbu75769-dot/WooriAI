@@ -35,6 +35,12 @@ import {
   type ItemAutocompleteSuggestion
 } from "../../src/expenses/item-autocomplete";
 import type { MonthExpenses } from "../../src/expenses/month-expenses";
+import {
+  canContinueRecording,
+  CONTINUE_RECORDING_LABEL,
+  CONTINUE_RECORDING_SAVED_MESSAGE,
+  resolvePostSaveDestination
+} from "../../src/expenses/post-save-destination";
 import { parseExpensePrefillParams } from "../../src/expenses/record-row-actions";
 import { expenseMutationErrorMessage, INVALID_EXPENSE_INPUT_ERROR } from "../../src/expenses/save-error-messages";
 import {
@@ -50,7 +56,7 @@ import { createExpenseOffline } from "../../src/offline/sync-controller";
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, Toast } from "../../src/ui";
+import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, SecondaryButton, Toast } from "../../src/ui";
 import { theme } from "../../src/theme";
 import { QuickExpensePixelStyles } from "../../src/pixelLock/styles";
 
@@ -210,8 +216,13 @@ export default function NewExpenseScreen() {
     itemTemplateId?: string;
     amountKrw?: string;
     categoryId?: string;
+    from?: string;
   }>();
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
+  // 라운드 48 T4(D1): 저장 뒤 어디로 갈지는 **어디에서 왔는지**가 정한다. 판정과 방어적 파싱은
+  // 전부 순수 모듈에 있고(src/expenses/post-save-destination.ts), 모르는 값·미지정은 종전
+  // 그대로 기록 탭이라 아직 `from`을 붙이지 않은 진입점의 동작은 한 글자도 바뀌지 않는다.
+  const postSaveDestination = resolvePostSaveDestination(params);
   // UX-L(A): 프리필 계약이 itemName·itemTemplateId에서 amountKrw·categoryId까지 넓어졌다
   // (기록 탭 행 액션 "같은 내용으로 또 기록"). 파싱 규칙은 직렬화하는 쪽과 같은 순수 모듈에
   // 있고(src/expenses/record-row-actions.ts), 유효하지 않은 값은 조용히 버려 예전처럼 빈 칸에서
@@ -363,11 +374,22 @@ export default function NewExpenseScreen() {
 
   // Debounced draft autosave: persists the in-progress quick-expense entry ~500ms after the
   // last edit, so it can be restored by the effect above if the sheet is closed before saving.
+  //
+  // 라운드 48 T4(D1): 세 칸이 모두 비면 초안을 **쓰는 대신 지운다**. 종전에는 빈 값이 그대로
+  // 저장됐고, 그런 초안이 남으면 위 복원 effect가 다음 진입에서 그것을 읽어 아무것도 채우지
+  // 않은 채 `categoryTouchedRef`만 세운다 -- 자동 분류 추천만 조용히 꺼진 화면이 된다.
+  // "저장하고 계속 기록"이 폼을 비우는 순간이 정확히 그 상태라 여기서 막는다(사용자가 직접
+  // 다 지운 경우에도 "복원할 것 없음"이라는 사실은 똑같으므로 동작이 어긋나지 않는다).
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!authToken) return;
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    const hasTypedInput = Boolean(itemName.trim() || amountText.trim() || memo.trim());
     draftSaveTimerRef.current = setTimeout(() => {
+      if (!hasTypedInput) {
+        clearQuickExpenseDraft();
+        return;
+      }
       writeQuickExpenseDraft({
         itemName,
         amountText,
@@ -496,6 +518,35 @@ export default function NewExpenseScreen() {
   // 문구는 src/expenses/save-error-messages.ts가 단일 소스이고, 입력값은 그대로 남는다 —
   // draft-storage 자동 저장도 계속 돌기 때문에 시트를 닫았다 열어도 내용이 살아 있다.
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  /**
+   * 라운드 48 T4(D1) — 이번 저장이 "저장하고 계속 기록"인가.
+   *
+   * ref인 이유: 값을 읽는 곳이 뮤테이션의 onSuccess라 렌더를 기다릴 수 없다(state로 두면 버튼을
+   * 누른 그 렌더에서는 아직 옛 값이다). 저장이 끝나면 두 버튼 모두 이 자리에서 결론이 나므로
+   * 성공·실패 어느 쪽이든 다음 저장에 새어 나가지 않도록 onSuccess/onError에서 되돌린다.
+   */
+  const continueAfterSaveRef = useRef(false);
+  /**
+   * 폼을 비우고 같은 화면에 머무는 "다음 항목" 초기화.
+   *
+   * **비우지 않는 것**: 지출 날짜와 결제 수단. 마트에서 연속으로 적는 상황은 같은 날 같은 카드라,
+   * 매번 다시 고르게 만들면 이 버튼이 없애려던 왕복이 그대로 돌아온다. 나머지(품목명·금액·메모·
+   * 선물 여부·분류)는 항목마다 달라지므로 남겨 두면 다음 기록에 잘못 섞인다.
+   *
+   * 자동 추천 관련 표시도 함께 처음 상태로 되돌린다 -- 그러지 않으면 방금 확정된 분류 때문에
+   * (categoryTouchedRef) 다음 품목명에 대한 추천이 영영 꺼진 채로 남는다.
+   */
+  const resetFormForNextEntry = () => {
+    setItemName("");
+    setAmountText("");
+    setMemo("");
+    setIsGift(false);
+    setSelectedCategory(quickExpenseCategories[0]);
+    setAutoPickedCategory(null);
+    setAutocompleteApplied(false);
+    categoryTouchedRef.current = false;
+    lastTileFilledItemNameRef.current = null;
+  };
   const saveExpense = useMutation({
     mutationFn: () => {
       const amountKrw = Number(amountText);
@@ -520,12 +571,18 @@ export default function NewExpenseScreen() {
       setSaveErrorMessage(null);
     },
     onError: (error) => {
+      // 실패한 저장은 "계속 기록"도 아니다 -- 입력값은 그대로 남고 사용자가 고쳐서 다시 누른다.
+      continueAfterSaveRef.current = false;
       setSaveErrorMessage(expenseMutationErrorMessage("create", error));
     },
     onSuccess: async () => {
+      // 이번 저장이 어느 버튼이었는지를 먼저 확정해 둔다(아래 await 사이에 값이 바뀔 여지를
+      // 남기지 않는다). 다음 저장은 버튼이 다시 세운다.
+      const continueRecording = continueAfterSaveRef.current;
+      continueAfterSaveRef.current = false;
       clearQuickExpenseDraft();
       setSaveErrorMessage(null);
-      setSavedMessage(OFFLINE_SAVED_MESSAGE);
+      setSavedMessage(continueRecording ? CONTINUE_RECORDING_SAVED_MESSAGE : OFFLINE_SAVED_MESSAGE);
       // ANA-103: expense_recorded fires once per successful (local-first) create. The payload is
       // PII-safe by construction (src/analytics/events.ts): the raw amount is bucketed and the
       // categoryId mapped to the coarse enum on-device; itemName/memo never enter it. `source`
@@ -568,7 +625,14 @@ export default function NewExpenseScreen() {
         await queryClient.invalidateQueries({ queryKey: ["items"] });
         await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
       }
-      setTimeout(() => router.replace("/(tabs)/records"), 650);
+      // 라운드 48 T4(D1): "저장하고 계속 기록"은 **화면을 떠나지 않는다** -- 폼만 비우고 같은
+      // 자리에 남아 다음 항목을 바로 받는다(마트 연속 기록). 그 외에는 종전처럼 목적지로
+      // 이동하되, 그 목적지가 이제 진입점을 따른다(post-save-destination.ts).
+      if (continueRecording) {
+        resetFormForNextEntry();
+        return;
+      }
+      setTimeout(() => router.replace(postSaveDestination), 650);
     }
   });
   // FMT-127: 금액 표기를 src/money.ts(콤마 + '원', '₩' 금지)로 되돌린다. 예전에는 세션 유무와
@@ -1036,8 +1100,29 @@ export default function NewExpenseScreen() {
             label={saveExpense.isPending ? "저장 중" : "저장하기"}
             // 라운드 40 J-1: 잠긴 역할이면 안내만 띄우고 뮤테이션은 시작하지 않는다(guard 관례).
             // 버튼 자체는 그대로 둔다 -- disabled로 바꾸면 이유를 말할 자리가 사라진다.
-            onPress={expenseGate.guard(() => saveExpense.mutate())}
+            onPress={expenseGate.guard(() => {
+              continueAfterSaveRef.current = false;
+              saveExpense.mutate();
+            })}
           />
+          {/* 라운드 48 T4(D1): 마트 연속 기록용 보조 버튼. 저장은 위 버튼과 **완전히 같은
+              뮤테이션**을 타고(저장 규칙이 두 벌이 되지 않는다), 다른 것은 성공 후 화면을
+              떠나는지 여부뿐이다. 준비템에서 넘어온 기록에서는 내놓지 않는다 -- 이유는
+              canContinueRecording 주석에.
+
+              EXP-001 픽셀락: 캡처는 세션 없이(app/pixel-lock.tsx가 clearSession 후 이동)
+              초기 렌더만 찍으므로 authToken 게이트 뒤의 이 버튼은 기준 이미지에 나타나지 않는다
+              (금액 프리셋 칩·선물 체크박스와 같은 게이트다). */}
+          {authToken && canContinueRecording({ linkedItemTemplateId }) ? (
+            <SecondaryButton
+              disabled={saveExpense.isPending || isAmountInvalid}
+              label={CONTINUE_RECORDING_LABEL}
+              onPress={expenseGate.guard(() => {
+                continueAfterSaveRef.current = true;
+                saveExpense.mutate();
+              })}
+            />
+          ) : null}
         </BottomSheetFrame>
       </View>
     </AppScreen>

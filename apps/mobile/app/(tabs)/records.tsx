@@ -13,6 +13,7 @@ import {
   LOCAL_SESSION_TOKEN
 } from "../../src/api/client";
 import { buildCategoryNameLookup, type CategoryNameLookup } from "../../src/categories";
+import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import {
   buildCalendarMonth,
@@ -1141,6 +1142,11 @@ export default function RecordsScreen() {
     recordCount: monthlyRecordCount,
     totalKrw: monthlyTotalKrw
   });
+  // 라운드 48 T4(D3): 다자녀 가구에서만 이 숫자가 **누구의 것인지**를 요약 줄 앞에 붙인다.
+  // 새 요청은 없다 -- 위에서 이미 읽고 있는 ["children"] 캐시(householdId 해석용)를 그대로 쓴다.
+  // 아이가 하나이거나 목록을 아직/영영 해석할 수 없으면 null이라 화면이 종전과 한 글자도
+  // 다르지 않다(규칙은 src/children/child-switch.ts resolveChildScopeLabel).
+  const childScopeLabel = resolveChildScopeLabel(childId, childrenQuery.data?.children);
   const searchScopeNotice = buildRecordsSearchScopeNotice({ searchText, monthLabel: recordsMonthLabel });
   // 라운드 39 I-4: 이 이동은 검색어뿐 아니라 카테고리 칩도 그대로 들고 간다 -- 스크린리더 라벨이
   // 그 사실을 말해야 넘어간 달의 0건이 "그 달에 없다"로 잘못 들리지 않는다. 0건 카드의 제목·기본
@@ -1283,14 +1289,16 @@ export default function RecordsScreen() {
         </View>
         {/* PERF-102: lightweight month summary from already-fetched data (no extra API call).
             라운드 39 UX-P: 문구는 보고 있는 달의 라벨에서 나온다(buildRecordsMonthSummary) --
-            아래 합계 카드의 "{recordsMonthLabel} 합계"와 같은 한 문자열이라 표기가 갈릴 수 없다. */}
+            아래 합계 카드의 "{recordsMonthLabel} 합계"와 같은 한 문자열이라 표기가 갈릴 수 없다.
+            라운드 48 T4(D3): 다자녀 가구에서만 그 앞에 아이 이름/태명이 붙는다(childScopeLabel).
+            아이가 하나면 라벨이 null이라 아래 두 값 모두 종전 문자열 그대로다. */}
         {expenses.data ? (
           <Text
             testID="records-month-summary"
-            accessibilityLabel={monthSummary.accessibilityLabel}
+            accessibilityLabel={withChildScopeLabel(monthSummary.accessibilityLabel, childScopeLabel)}
             style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
           >
-            {monthSummary.text}
+            {withChildScopeLabel(monthSummary.text, childScopeLabel)}
           </Text>
         ) : null}
         {/* 라운드 39 UX-P: 검색 범위 고지. 이 화면의 검색은 보고 있는 한 달치 응답
