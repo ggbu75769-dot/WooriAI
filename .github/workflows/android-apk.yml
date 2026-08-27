@@ -1,0 +1,55 @@
+# APK-CI: GitHub-hosted 러너(ubuntu-latest, Android SDK 사전 설치)에서 standalone 데모 APK를
+# 빌드해 artifact로 올린다. 컨테이너 개발 환경에서는 dl.google.com이 차단되어 로컬 빌드가
+# 불가능하므로(docs/5차/apk-build-guide.md 참고) 이 워크플로가 유일한 자동 빌드 경로.
+# 서명: WOORIAI_UPLOAD_* env를 설정하지 않으므로 config plugin(REL-011)이 debug 서명으로
+# 폴백한다 — 데모/테스트 설치용으로 충분하며 비밀값이 전혀 필요 없다.
+name: android-apk
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "빌드 프로필 (standalone=테스트 로그인 켜짐 데모용)"
+        type: choice
+        default: standalone
+        options:
+          - standalone
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: 의존성 설치
+        run: pnpm install --frozen-lockfile
+
+      # android/는 gitignore — prebuild가 생성하고 config plugin이 릴리즈 패치를 자동 적용한다.
+      - name: expo prebuild (android)
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --platform android --no-install
+
+      - name: APK 빌드 (standalone)
+        run: pnpm android:build-apk --profile standalone
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wooriai-standalone-apk
+          path: |
+            artifacts/android/wooriai-0.0.0-release-standalone.apk
+            artifacts/android/wooriai-0.0.0-release-standalone.json
+          if-no-files-found: error
+          retention-days: 14
