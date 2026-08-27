@@ -2,12 +2,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { getHome, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { getHome, listChildren, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
+import { evaluateBabyCounter } from "../../src/home/baby-counter";
 import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "../../src/home/budget-progress";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import { evaluateLastMonthComparison, previousYearMonth } from "../../src/home/last-month-comparison";
+import { evaluateMilestoneCountdown } from "../../src/home/milestone-countdown";
+import { evaluateWeeklySummary } from "../../src/home/weekly-summary";
 import { formatKrw } from "../../src/money";
 import { NotificationBell } from "../../src/notifications/NotificationBell";
 import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
@@ -178,6 +181,115 @@ const homeBudgetNudgeArrowStyle = StyleSheet.create({
   }
 });
 
+// UX-A 아기 카운터 헤더: 홈 최상단의 인사말을 "아이 자신"으로 바꾼다. 기존 ScreenHeader와 같은
+// 골격(왼쪽 카피 + 오른쪽 알림 벨)이지만 제목이 카운터 문장이라 한 줄이 길어질 수 있어 자체
+// 스타일을 쓴다. 단계 라벨("24개월")은 아이브로우로 살아남는다 -- 기존 헤더가 주던 정보를
+// 잃지 않기 위해서다. 아이브로우 색은 A11Y-117 규칙대로 coral[700](소형 coral 텍스트).
+const homeBabyCounterStyle = StyleSheet.create({
+  copy: {
+    flex: 1,
+    gap: 4
+  },
+  eyebrow: {
+    color: theme.colors.coral[700],
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.2
+  },
+  header: {
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between"
+  },
+  subtitle: {
+    color: theme.colors.gray600,
+    fontSize: 13,
+    lineHeight: 20
+  },
+  title: {
+    color: theme.colors.brown,
+    fontSize: 22,
+    fontWeight: "800",
+    lineHeight: 30
+  }
+});
+
+// UX-A 이번 주 요약 · 기록 스트릭: 한 달보다 짧은 호흡의 숫자 + 습관 한 줄. 의미는 전부 문장이
+// 지고(색상 단독 전달 금지) 앞의 글리프는 장식이라 accessible={false}로 감춘다.
+const homeWeeklySummaryStyle = StyleSheet.create({
+  card: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 14,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  glyph: {
+    color: theme.colors.gray600,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  row: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10
+  },
+  streak: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingLeft: 24
+  },
+  text: {
+    color: theme.colors.brown,
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 20
+  }
+});
+
+// UX-A 100일 · 첫돌 카운트다운: 눌러서 리포트 탭으로 가는 카드라 넛지 카드와 같은 골격
+// (아이콘 박스 + 카피 + › 화살표)을 따른다.
+const homeMilestoneStyle = StyleSheet.create({
+  card: {
+    alignItems: "center",
+    backgroundColor: theme.colors.white,
+    borderRadius: 18,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 64,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  copy: {
+    flex: 1,
+    gap: 4
+  },
+  icon: {
+    color: theme.colors.coral[700],
+    fontSize: 20,
+    fontWeight: "800"
+  },
+  iconBox: {
+    alignItems: "center",
+    backgroundColor: theme.colors.peach,
+    borderRadius: 14,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  subtitle: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    lineHeight: 18
+  },
+  title: {
+    color: theme.colors.brown,
+    fontSize: 14,
+    fontWeight: "800"
+  }
+});
+
 const previewHome = {
   child: { id: "preview-child-daon", nickname: "다온이", currentStage: "toddler", stageLabel: "24개월" },
   monthly: {
@@ -256,6 +368,26 @@ export default function HomeScreen() {
     enabled: Boolean(authToken && childId && lastYearMonth),
     queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, lastYearMonth!, page))
   });
+  // UX-A 주간 요약: 이번 달 지출 행. 기록 탭이 이번 달을 볼 때와 **같은 캐시 키**라
+  // (["expenses", childId, 이번 달]) 대개 이미 채워진 캐시를 그대로 읽고, 지출 생성/수정/
+  // 가져오기가 invalidate하는 ["expenses"] 프리픽스에 그대로 걸린다. 지난달 캐시(위)와 함께
+  // 넘겨야 달을 걸친 주("9월 1일 화요일"의 이번 주 월요일 = 8월 31일)도 정확히 더해진다 --
+  // 근거는 src/home/weekly-summary.ts.
+  const thisYearMonth = seoulToday.slice(0, 7);
+  const thisMonthExpenses = useQuery({
+    queryKey: ["expenses", childId, thisYearMonth],
+    enabled: Boolean(authToken && childId),
+    queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, thisYearMonth, page))
+  });
+  // UX-A 아기 카운터·마일스톤 카드가 쓰는 dueDate/birthDate/stageMode는 /home 응답에 없다
+  // (HomeSummary.child는 nickname/currentStage/stageLabel만 준다). 새 엔드포인트를 만들지 않고
+  // 아이 관리·설정·리포트 화면과 **같은 캐시 키**(["children"])를 재사용해 읽는다.
+  const childrenQuery = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
+  });
+  const selectedChild = childrenQuery.data?.children.find((child) => child.id === childId) ?? null;
   // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
   // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.
   useHomeNotificationEvaluation(hasSession ? home.data : undefined);
@@ -337,16 +469,67 @@ export default function HomeScreen() {
     spentKrw: monthlyUsed,
     hasWarningBanner: Boolean(budgetWarning)
   });
+  // UX-A: 아래 세 가지는 전부 세션이 있을 때만 계산한다 -- 비세션 픽셀락 미리보기(previewHome)에는
+  // 아이의 실제 날짜도 지출 행도 없으므로 아무것도 렌더되지 않고, HOME-001 캡처는 종전 그대로다
+  // (REP-121 한 줄과 같은 관례). 셋 다 순수 모듈이 null을 돌려주면 그 자리는 비어 있는다.
+  const babyCounter = hasSession
+    ? evaluateBabyCounter({
+        stageMode: selectedChild?.stageMode,
+        nickname: selectedChild?.nickname ?? visibleHome.child.nickname,
+        dueDate: selectedChild?.dueDate,
+        birthDate: selectedChild?.birthDate,
+        todayIso: seoulToday
+      })
+    : null;
+  const weeklySummary = hasSession
+    ? evaluateWeeklySummary({
+        todayIso: seoulToday,
+        thisMonthRecords: thisMonthExpenses.data?.expenses ?? null,
+        lastMonthRecords: lastMonthExpenses.data?.expenses ?? null
+      })
+    : null;
+  const milestoneCountdown = hasSession
+    ? evaluateMilestoneCountdown({
+        stageMode: selectedChild?.stageMode,
+        birthDate: selectedChild?.birthDate,
+        nickname: selectedChild?.nickname ?? visibleHome.child.nickname,
+        todayIso: seoulToday,
+        // 누적 총액은 홈 캐시가 이미 들고 있는 서버 집계다(선물 제외, DNC-015). 비세션
+        // 미리보기 픽스처에는 없는 필드라 home.data에서 직접 읽는다.
+        totalExpenseKrw: home.data?.totalExpenseKrw ?? null
+      })
+    : null;
   // NOTI-102: 알림 센터가 실제 기능이 되어 UX-5B-8에서 숨겼던 홈 알림 벨을 미확인 배지와 함께 복원.
   return (
     <AppScreen refreshControl={refreshControl}>
       <View testID="pixel-screen-HOME-001" style={homePixelScaleFrameStyle()}>
         <View style={homePixelFrameStyle()}>
-          <ScreenHeader
-            title={`${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`}
-            subtitle="우리 아이에게 해준 것을 따뜻하게 기록해요."
-            action={<NotificationBell />}
-          />
+          {babyCounter ? (
+            // UX-A: 홈을 여는 사람이 가장 먼저 보는 줄. 단계 라벨은 아이브로우로 남고, 화면에
+            // 그리는 "D-32"는 TalkBack이 "디 마이너스 삼십이"로 읽으므로 소리용 문장을 따로 준다.
+            <View style={homeBabyCounterStyle.header}>
+              <View style={homeBabyCounterStyle.copy}>
+                <Text style={homeBabyCounterStyle.eyebrow}>{visibleHome.child.stageLabel}</Text>
+                <Text
+                  accessible
+                  accessibilityRole="header"
+                  accessibilityLabel={babyCounter.accessibilityLabel}
+                  testID="home-baby-counter"
+                  style={homeBabyCounterStyle.title}
+                >
+                  {babyCounter.title}
+                </Text>
+                <Text style={homeBabyCounterStyle.subtitle}>우리 아이에게 해준 것을 따뜻하게 기록해요.</Text>
+              </View>
+              <NotificationBell />
+            </View>
+          ) : (
+            <ScreenHeader
+              title={`${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`}
+              subtitle="우리 아이에게 해준 것을 따뜻하게 기록해요."
+              action={<NotificationBell />}
+            />
+          )}
 
           <HeroSummaryCard
             label="이번 달 지출"
@@ -385,6 +568,50 @@ export default function HomeScreen() {
                 <Text style={homeBudgetWarningStyle.body}>{budgetWarning.body}</Text>
               </View>
             </View>
+          ) : null}
+
+          {weeklySummary ? (
+            <View
+              accessible
+              accessibilityLabel={weeklySummary.accessibilityLabel}
+              testID="home-weekly-summary"
+              style={[homeWeeklySummaryStyle.card, theme.shadows.card]}
+            >
+              <View style={homeWeeklySummaryStyle.row}>
+                <Text accessible={false} style={homeWeeklySummaryStyle.glyph}>
+                  ▦
+                </Text>
+                <Text style={homeWeeklySummaryStyle.text}>{weeklySummary.text}</Text>
+              </View>
+              <Text style={homeWeeklySummaryStyle.streak}>{weeklySummary.streakText}</Text>
+            </View>
+          ) : null}
+
+          {milestoneCountdown ? (
+            // 탭하면 리포트 탭 -- 그 탭이 100일/첫돌 마일스톤 리포트를 이미 연다(REP-127).
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={milestoneCountdown.accessibilityLabel}
+              testID="home-milestone-countdown"
+              onPress={() => router.push("/(tabs)/reports")}
+            >
+              <Card style={homeMilestoneStyle.card}>
+                <View style={homeMilestoneStyle.iconBox}>
+                  <Text accessible={false} style={homeMilestoneStyle.icon}>
+                    ★
+                  </Text>
+                </View>
+                <View style={homeMilestoneStyle.copy}>
+                  <Text style={homeMilestoneStyle.title}>{milestoneCountdown.title}</Text>
+                  <Text style={homeMilestoneStyle.subtitle}>{milestoneCountdown.subtitle}</Text>
+                </View>
+                <View accessible={false} style={homeBudgetNudgeArrowStyle.button}>
+                  <Text accessible={false} style={homeBudgetNudgeArrowStyle.glyph}>
+                    ›
+                  </Text>
+                </View>
+              </Card>
+            </Pressable>
           ) : null}
 
           <View style={{ flexDirection: "row", gap: 8 }}>
