@@ -1235,7 +1235,11 @@ export function cancelHouseholdInvite(householdId: string, inviteId: string): { 
   }
   const revokedAt = new Date().toISOString();
   useLocalBackendStore.setState((state) => ({
-    invites: state.invites.map((record) => (localInviteId(record) === inviteId ? { ...record, revokedAt } : record))
+    // 리뷰 F9-e: 조회와 같은 조건(가구 + 초대 id)으로 다시 좁힌다 -- id만 보면 다른 가구의
+    // 동명 초대까지 함께 취소될 수 있다.
+    invites: state.invites.map((record) =>
+      record.householdId === householdId && localInviteId(record) === inviteId ? { ...record, revokedAt } : record
+    )
   }));
   return { success: true };
 }

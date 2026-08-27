@@ -15,6 +15,10 @@ import { AppScreen, Card, ListRow, ScreenHeader } from "../../src/ui";
 
 const summaryLoadingText = "불러오는 중...";
 const summaryUnavailableText = "불러오지 못했어요";
+// 리뷰 F7: 로그아웃해도 selectedChildId는 기기에 남는다(clearSelectedChild를 부르지 않는 경로 존재).
+// 그 상태에서는 ["children"] 쿼리가 enabled:false라 영원히 로딩도, 실패도 아니므로 요약 줄이
+// "불러오는 중..."에 붙박인다 -- 세션이 없다는 사실을 그대로 말한다.
+const summarySignedOutText = "로그인이 필요해요";
 
 export default function SettingsScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -39,21 +43,25 @@ export default function SettingsScreen() {
     queryFn: () => listHouseholdMembers(authToken!, householdId!)
   });
 
-  const householdSummary = !householdId
-    ? "연결된 가구가 없어요"
-    : members.data
-      ? `가족 ${members.data.members.length}명`
-      : members.isError
-        ? summaryUnavailableText
-        : summaryLoadingText;
+  const householdSummary = !authToken
+    ? summarySignedOutText
+    : !householdId
+      ? "연결된 가구가 없어요"
+      : members.data
+        ? `가족 ${members.data.members.length}명`
+        : members.isError
+          ? summaryUnavailableText
+          : summaryLoadingText;
   const selectedChild = children.data?.children.find((child) => child.id === childId);
-  const childSummary = !childId
-    ? "선택된 아이가 없어요"
-    : selectedChild
-      ? `${selectedChild.nickname} · ${selectedChild.stageLabel}`
-      : children.isError
-        ? summaryUnavailableText
-        : summaryLoadingText;
+  const childSummary = !authToken
+    ? summarySignedOutText
+    : !childId
+      ? "선택된 아이가 없어요"
+      : selectedChild
+        ? `${selectedChild.nickname} · ${selectedChild.stageLabel}`
+        : children.isError
+          ? summaryUnavailableText
+          : summaryLoadingText;
   // ANA-102: opt-in analytics consent -- backed by the persisted zustand store that gates the
   // entire analytics client (src/analytics/flag.ts), so flipping this off immediately stops any
   // event from being queued or sent, and the choice survives app restarts.
