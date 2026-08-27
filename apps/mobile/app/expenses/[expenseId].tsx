@@ -12,6 +12,19 @@ import {
   LOCAL_SESSION_TOKEN
 } from "../../src/api/client";
 import { categoryCatalog, categoryNameFor, selectableCategories } from "../../src/categories";
+// 라운드 41 UX-U(B-ⓒ): 금액 프리셋 칩은 빠른 기록 시트(app/expenses/new.tsx)와 **같은 모듈**을 쓴다.
+import {
+  addAmountPreset,
+  canAddAmountPreset,
+  clearAmountText,
+  formatPresetChipLabel,
+  presetChipAccessibilityLabel,
+  QUICK_AMOUNT_PRESETS_KRW
+} from "../../src/expenses/amount-presets";
+// 라운드 41 UX-U(B-ⓐ/ⓓ): source 한 줄과 "이 품목 이력"의 판정은 순수 모듈이 단일 소스다.
+import { expenseSourceLine } from "../../src/expenses/expense-source-line";
+import { buildItemHistory } from "../../src/expenses/item-history";
+import type { MonthExpenses } from "../../src/expenses/month-expenses";
 import {
   expenseCreatedByUserId,
   resolveExpenseAuthorLabel,
@@ -132,6 +145,10 @@ export default function ExpenseDetailScreen() {
     expenseCreatedByUserId(expense.data),
     householdMembers.data?.members
   );
+  // 라운드 41 UX-U(B-ⓐ): 응답으로 이미 받고 있던 `source`를 읽기 전용 한 줄로 쓴다. 손으로 적은
+  // 기록("manual")과 모르는 값에는 아무 말도 하지 않으므로(src/expenses/expense-source-line.ts),
+  // 지금까지의 대부분의 화면은 한 픽셀도 바뀌지 않는다.
+  const sourceLine = expenseSourceLine(expense.data?.source);
   const [itemName, setItemName] = useState("");
   const [amountDigits, setAmountDigits] = useState("");
   const [memo, setMemo] = useState("");
@@ -190,12 +207,39 @@ export default function ExpenseDetailScreen() {
       ? [{ id: categoryId, label: categoryNameFor(categoryId) }, ...baseCategoryChips]
       : baseCategoryChips;
 
+  // 라운드 41 UX-U(B-ⓓ): "이 품목 이력"의 원천은 홈/기록 탭이 이미 채워 둔
+  // ["expenses", childId, 이번 달] 캐시를 **읽기만** 한 값이다(useQuery가 아니라 getQueryData —
+  // 상세 화면을 여는 것만으로 새 요청이 도는 일이 없다, known-limitations H). 캐시가 없으면
+  // buildItemHistory가 null을 돌려줘 섹션 자체가 사라진다(0건이라고 말하지 않는다).
+  const currentYearMonth = formatExpenseDate(today).iso.slice(0, 7);
+  const historyChildId = expense.data?.childId ?? null;
+  const cachedMonthExpenses =
+    authToken && historyChildId
+      ? queryClient.getQueryData<MonthExpenses>(["expenses", historyChildId, currentYearMonth])?.expenses
+      : undefined;
+  const itemHistory = buildItemHistory({
+    cachedMonthExpenses,
+    cacheYearMonth: currentYearMonth,
+    itemName,
+    currentExpenseId: expenseId
+  });
+
   const amountKrw = Number(amountDigits || "0");
   const itemNameError = itemName.trim().length === 0 ? "품목을 입력해 주세요." : null;
   const amountError = amountDigits.length > 0 && amountKrw <= 0 ? "0보다 큰 금액을 입력해 주세요." : null;
   const dateInputError = customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
   const spentOnLabel = spentOnIso ? formatExpenseDate(new Date(`${spentOnIso}T00:00:00`)).label : "";
   const canSave = !itemNameError && !amountError && !dateInputError && amountKrw > 0 && Boolean(authToken && expenseId && localExpenseId);
+  const canTapAmountPreset = canAddAmountPreset(amountDigits);
+
+  // 라운드 41 UX-U(B-ⓑ): 저장·삭제가 끝나면 **왔던 자리로** 돌아간다. 예전에는 무조건
+  // router.replace("/(tabs)/records")라, 홈의 최근 기록·검색 결과·리포트에서 이 화면에 들어온
+  // 사람도 전부 기록 탭에 떨궈져 진입 스택(그리고 그 화면의 스크롤·검색어·필터)이 사라졌다.
+  // 스택이 없을 때(딥링크·알림에서 바로 열린 경우)만 종전처럼 기록 탭으로 보낸다.
+  function leaveAfterMutation() {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/records");
+  }
 
   const save = useMutation({
     mutationFn: () => {
@@ -224,7 +268,7 @@ export default function ExpenseDetailScreen() {
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["expense", expenseId] });
-      setTimeout(() => router.replace("/(tabs)/records"), 650);
+      setTimeout(leaveAfterMutation, 650);
     }
   });
 
@@ -241,7 +285,7 @@ export default function ExpenseDetailScreen() {
     onSuccess: async () => {
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      setTimeout(() => router.replace("/(tabs)/records"), 650);
+      setTimeout(leaveAfterMutation, 650);
     }
   });
 
@@ -314,6 +358,21 @@ export default function ExpenseDetailScreen() {
                 </View>
               ) : null}
 
+              {/* 라운드 41 UX-U(B-ⓐ): 손으로 적지 않은 기록(엑셀 가져오기 · 구매 확인)에만 붙는
+                  읽기 전용 줄. 위 "기록한 사람" 줄과 **같은 라벨/값 구조**를 그대로 써서 새 표기
+                  관례를 만들지 않는다. "manual"이나 모르는 값이면 sourceLine이 null이라 아예
+                  렌더되지 않으므로 기존 화면이 한 픽셀도 바뀌지 않는다. */}
+              {sourceLine ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+                    {sourceLine.label}
+                  </Text>
+                  <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
+                    {sourceLine.value}
+                  </Text>
+                </View>
+              ) : null}
+
               <View style={{ gap: 6 }}>
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
                   품목
@@ -373,6 +432,56 @@ export default function ExpenseDetailScreen() {
                 {amountError ? (
                   <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{amountError}</Text>
                 ) : null}
+                {/* 라운드 41 UX-U(B-ⓒ): 빠른 기록 시트와 **같은 프리셋 칩**(src/expenses/amount-presets.ts).
+                    금액을 고치러 들어온 화면에서 "5,000원만 더"를 숫자 키패드로 다시 치게 하지
+                    않는다. 칩은 입력을 대체하지 않고 현재 금액에 더할 뿐이라 누른 뒤에도 자유롭게
+                    타이핑할 수 있고, 길게 누르거나 "지우기"를 누르면 0으로 리셋된다(상한 도달 시
+                    비활성). 가산·상한 규칙은 그 모듈 한 곳에만 있다(DNC-013 정수 규칙과 정합). */}
+                <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
+                  {QUICK_AMOUNT_PRESETS_KRW.map((presetKrw) => (
+                    <Pressable
+                      key={presetKrw}
+                      accessibilityRole="button"
+                      accessibilityLabel={presetChipAccessibilityLabel(presetKrw)}
+                      accessibilityHint="길게 누르면 금액을 지워요"
+                      accessibilityState={{ disabled: !canTapAmountPreset }}
+                      disabled={!canTapAmountPreset}
+                      hitSlop={8}
+                      onPress={() => setAmountDigits((value) => addAmountPreset(value, presetKrw))}
+                      onLongPress={() => setAmountDigits(clearAmountText())}
+                      style={{
+                        alignItems: "center",
+                        backgroundColor: theme.colors.white,
+                        borderColor: theme.colors.primary100,
+                        borderRadius: theme.radii.pill,
+                        borderWidth: 1,
+                        flex: 1,
+                        justifyContent: "center",
+                        minHeight: theme.touchTarget,
+                        opacity: canTapAmountPreset ? 1 : 0.4
+                      }}
+                    >
+                      {/* A11Y-117: 13px coral 텍스트 -- coral[500] 3.16:1(AA 미달) → coral[700] */}
+                      <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "800" }}>
+                        {formatPresetChipLabel(presetKrw)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="금액 지우기"
+                    hitSlop={8}
+                    onPress={() => setAmountDigits(clearAmountText())}
+                    style={{
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minHeight: theme.touchTarget,
+                      paddingHorizontal: 4
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>지우기</Text>
+                  </Pressable>
+                </View>
               </View>
 
               <View style={{ gap: 6 }}>
@@ -531,6 +640,36 @@ export default function ExpenseDetailScreen() {
                 </View>
               </Pressable>
             </Card>
+
+            {/* 라운드 41 UX-U(B-ⓓ): "이 품목 이력" -- 같은 품목을 이번 달에 언제 · 얼마에 적었는지
+                최근 3건. 원천은 홈/기록 탭이 이미 채워 둔 캐시를 getQueryData로 읽기만 한 값이라
+                **새 요청이 0건**이고, 캐시가 없으면 itemHistory가 null이라 섹션 자체가 사라진다
+                (0건이라고 말하지 않는다). 이 목록이 무엇을 보고 만든 것인지는 아래 범위 고지 한
+                줄이 밝힌다(라운드 39 UX-P 검색 범위 고지와 같은 관례) -- 지난달 기록은 여기에
+                없다는 사실을 말하지 않으면 그것이 조용한 허위 표시가 된다. */}
+            {itemHistory ? (
+              <Card style={{ gap: 10 }}>
+                <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>{itemHistory.title}</Text>
+                {itemHistory.rows.map((row) => (
+                  <View
+                    key={row.id}
+                    accessibilityLabel={row.accessibilityLabel}
+                    style={{ alignItems: "center", flexDirection: "row", gap: 10 }}
+                  >
+                    <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+                      {row.dateLabel}
+                    </Text>
+                    <Text numberOfLines={1} style={{ color: theme.colors.brown, flex: 1, fontSize: 13, fontWeight: "700" }}>
+                      {row.itemName}
+                    </Text>
+                    <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>{row.amountLabel}</Text>
+                  </View>
+                ))}
+                <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
+                  {itemHistory.scopeNotice}
+                </Text>
+              </Card>
+            ) : null}
 
             {/* EXP-124: 수정 저장 실패 배너 -- 저장 버튼 바로 위, 입력값을 유지한 채 원인별 문구를
                 보여준다(삭제 실패는 위 remove.onError의 Alert로 알린다). */}

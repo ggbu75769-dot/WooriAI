@@ -11,6 +11,8 @@ import {
   ExpenseCsvExportToast,
   useExpenseCsvExport
 } from "../../src/export/ExpenseCsvExport";
+// 라운드 41 UX-U(A): 로그인 메뉴의 정보 구조(행 구성 · 이름 · 목적지)는 순수 모듈이 단일 소스다.
+import { buildMoreSessionMenuRows, MORE_PROFILE_CARD_ROUTE } from "../../src/settings/more-menu";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
@@ -76,19 +78,28 @@ export default function MoreScreen() {
     router.push(hasSession ? "/(tabs)/records" : "/settings");
   };
 
-  // NOTI-102: 알림 센터가 실제 기능이 되어 "알림 설정 · 준비 중" 비활성 행 대신 /notifications로 이동한다.
-  // NAV-121: 로그인 상태에서 /settings로 가는 유일한 진입점 -- 이 행이 없으면 아이 관리 · 알림 설정 ·
-  // 통계 동의 철회 · 로그아웃에 도달할 방법이 없다. (비로그인 미리보기는 헤더 ⌕ 버튼이 /settings로 간다.)
-  const sessionMenuRows: Array<{ icon: string; title: string; caption?: string; onPress?: () => void }> = [
-    { icon: "♙", title: "프로필 관리", onPress: () => router.push("/family") },
-    { icon: "◐", title: "설정", onPress: () => router.push("/settings") },
-    { icon: "♧", title: "알림", onPress: () => router.push("/notifications") },
-    { icon: "⌁", title: "엑셀 가져오기", onPress: () => router.push("/import") },
-    // EXP-106: 엑셀 가져오기의 반대 방향(데이터 이동성) -- 지출 기록을 CSV로 공유 시트에 내보낸다.
-    { icon: "⇪", title: EXPORT_MENU_TITLE, onPress: csvExport.toggleCard },
-    { icon: "?", title: "약관 및 개인정보", onPress: () => router.push("/settings/privacy") },
-    { icon: "ⓘ", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }
-  ];
+  // 라운드 41 UX-U(A): 행 구성 · 이름 · 목적지는 src/settings/more-menu.ts(buildMoreSessionMenuRows)가
+  // 정한다 -- 여기서는 그 스펙을 라우팅과 화면 안 동작(내보내기 카드 토글 · 앱 정보 Alert)에 잇기만
+  // 한다. 비로그인 미리보기(previewMenuRowActions)는 SET-001 픽셀 락 캡처 경로라 손대지 않는다.
+  //
+  // NOTI-102: 알림 센터가 실제 기능이 되어 "알림 설정 · 준비 중" 비활성 행 대신 /notifications로 이동한다
+  //   (라운드 41 UX-U: 설정 안의 "알림 설정"과 구분되도록 행 이름은 "알림함"이다).
+  // NAV-121: 로그인 상태에서 /settings로 가는 유일한 진입점 -- 이 행이 없으면 알림 설정 · 통계 동의
+  //   철회 · 로그아웃에 도달할 방법이 없다. (비로그인 미리보기는 헤더 ⌕ 버튼이 /settings로 간다.)
+  // EXP-106: 엑셀 가져오기의 반대 방향(데이터 이동성) -- 지출 기록을 CSV로 공유 시트에 내보낸다.
+  const sessionMenuRows: Array<{ icon: string; title: string; caption?: string; onPress?: () => void }> =
+    buildMoreSessionMenuRows({ exportTitle: EXPORT_MENU_TITLE }).map((row) => {
+      const route = row.route;
+      return {
+        icon: row.icon,
+        title: row.title,
+        onPress: route
+          ? () => router.push(route)
+          : row.id === "export"
+            ? csvExport.toggleCard
+            : () => Alert.alert("앱 정보", appInfoText)
+      };
+    });
   const previewMenuRowActions: Array<{ icon: string; title: string; caption?: string; onPress?: () => void }> = [
     ...moreMenuRows.map((row) => ({
       icon: row.icon,
@@ -119,10 +130,15 @@ export default function MoreScreen() {
           </Pressable>
         </View>
 
+        {/* 라운드 41 UX-U(A): 이 카드는 **아이** 이름과 개월수를 보여 주므로 목적지도 아이 관리
+            (/settings/children)여야 한다 -- 예전에는 가구 화면(/family)으로 보내서, 카드가 말하는
+            정보와 도착하는 화면이 어긋났고 바로 아래 행과 목적지가 겹쳤다. 가구 화면 입구는 아래
+            "가족 관리" 행 하나뿐이다. SET-001 픽셀 락 캡처는 비로그인 경로라, 라벨·스타일은 한
+            글자도 건드리지 않고 목적지만 바꾼다. */}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${visibleProfile.nickname} 프로필 관리`}
-          onPress={() => router.push("/family")}
+          onPress={() => router.push(MORE_PROFILE_CARD_ROUTE)}
           style={moreProfileCardStyle}
         >
           <Image source={moreAvatarImage} style={moreAvatarStyle()} resizeMode="cover" />
