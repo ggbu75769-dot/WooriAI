@@ -74,6 +74,7 @@ describe("Security middleware (rate limit, headers, body size, idempotency)", ()
     delete process.env.RATE_LIMIT_AUTH_MAX;
     delete process.env.RATE_LIMIT_REDIRECT_MAX;
     delete process.env.RATE_LIMIT_ANALYTICS_MAX;
+    delete process.env.RATE_LIMIT_ANALYTICS_USER_MAX;
     delete process.env.RATE_LIMIT_WINDOW_MS;
     delete process.env.TRUST_PROXY;
     await app.close();
@@ -193,6 +194,112 @@ describe("Security middleware (rate limit, headers, body size, idempotency)", ()
     // a batch insert, so it must not be charged to the write budget.
     const nonPost = await request(app.getHttpServer()).get("/api/v1/analytics/events");
     expect(nonPost.status).not.toBe(429);
+  });
+
+  // SEC-132: the per-IP analytics bucket is both too coarse (carrier NAT puts
+  // many honest users in one bucket) and too narrow (an IP is attacker-chosen,
+  // so one token replayed across rotating IPs never fills any single bucket --
+  // the acknowledged residual of the Round 30 P3 review). A companion bucket
+  // keyed on the *verified* JWT subject closes both gaps; the two are ANDed.
+  //
+  // These tests log in before setting the RATE_LIMIT_* overrides so the login
+  // round-trips themselves aren't charged against the tiny ceilings.
+  describe("SEC-132 per-account analytics bucket", () => {
+    it("429s a single account that exceeds its own ceiling, without touching another account sharing the same IP", async () => {
+      const abuserToken = await login(app, "sec132-abuser");
+      const bystanderToken = await login(app, "sec132-bystander");
+
+      process.env.RATE_LIMIT_GLOBAL_MAX = "200";
+      // Deliberately roomy: this test must be failed by the ACCOUNT bucket, so
+      // the IP bucket (shared by both users here) can't be what rejects.
+      process.env.RATE_LIMIT_ANALYTICS_MAX = "200";
+      process.env.RATE_LIMIT_ANALYTICS_USER_MAX = "2";
+      process.env.RATE_LIMIT_WINDOW_MS = "60000";
+
+      const statuses: number[] = [];
+      let lastBody: unknown;
+      for (let i = 0; i < 4; i++) {
+        const response = await request(app.getHttpServer())
+          .post("/api/v1/analytics/events")
+          .set("Authorization", `Bearer ${abuserToken}`)
+          .send({ events: [] });
+        statuses.push(response.status);
+        lastBody = response.body;
+      }
+      expect(statuses).toEqual([200, 200, 429, 429]);
+      expect(lastBody).toMatchObject({ error: { code: "RATE_LIMITED" } });
+
+      // Same IP, different account: its own budget is untouched.
+      await request(app.getHttpServer())
+        .post("/api/v1/analytics/events")
+        .set("Authorization", `Bearer ${bystanderToken}`)
+        .send({ events: [] })
+        .expect(200);
+
+      // ...and the account bucket is scoped to this one endpoint.
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${abuserToken}`)
+        .expect(200);
+    });
+
+    it("still enforces the per-IP ceiling when the requests come from different accounts (the two buckets are independent, ANDed)", async () => {
+      const firstToken = await login(app, "sec132-ip-first");
+      const secondToken = await login(app, "sec132-ip-second");
+
+      process.env.RATE_LIMIT_GLOBAL_MAX = "200";
+      process.env.RATE_LIMIT_ANALYTICS_MAX = "2";
+      // Roomy the other way round: only the IP bucket can reject here.
+      process.env.RATE_LIMIT_ANALYTICS_USER_MAX = "200";
+      process.env.RATE_LIMIT_WINDOW_MS = "60000";
+
+      const statuses: number[] = [];
+      for (const token of [firstToken, secondToken, firstToken, secondToken]) {
+        const response = await request(app.getHttpServer())
+          .post("/api/v1/analytics/events")
+          .set("Authorization", `Bearer ${token}`)
+          .send({ events: [] });
+        statuses.push(response.status);
+      }
+      // Rotating accounts does not mint a fresh IP bucket: the third request
+      // from this IP is rejected no matter whose token it carries.
+      expect(statuses).toEqual([200, 200, 429, 429]);
+    });
+
+    it("ignores an unsigned/forged Authorization header, so nobody can burn another account's budget (and unauthenticated calls are charged to no account)", async () => {
+      const victimToken = await login(app, "sec132-victim");
+      const [header, payload] = victimToken.split(".");
+      // Same (real) payload -- i.e. the victim's `sub` -- with a signature the
+      // attacker cannot produce. If the middleware parsed `sub` without
+      // verifying the HMAC, these would drain the victim's bucket; worse, an
+      // attacker could also forge a fresh `sub` per request for unlimited
+      // buckets. Neither may happen: an unverifiable token gets no bucket.
+      const forgedToken = `${header}.${payload}.dGhpcy1pcy1ub3QtYS12YWxpZC1zaWduYXR1cmU`;
+
+      process.env.RATE_LIMIT_GLOBAL_MAX = "200";
+      process.env.RATE_LIMIT_ANALYTICS_MAX = "200";
+      process.env.RATE_LIMIT_ANALYTICS_USER_MAX = "1";
+      process.env.RATE_LIMIT_WINDOW_MS = "60000";
+
+      for (const authorization of [`Bearer ${forgedToken}`, "Bearer not-even-a-jwt", null]) {
+        const pending = request(app.getHttpServer()).post("/api/v1/analytics/events").send({ events: [] });
+        const response = await (authorization ? pending.set("Authorization", authorization) : pending);
+        expect(response.status).toBe(401);
+      }
+
+      // The victim's single-request budget survived all three attempts...
+      await request(app.getHttpServer())
+        .post("/api/v1/analytics/events")
+        .set("Authorization", `Bearer ${victimToken}`)
+        .send({ events: [] })
+        .expect(200);
+      // ...and is then genuinely spent by the victim's own second request.
+      await request(app.getHttpServer())
+        .post("/api/v1/analytics/events")
+        .set("Authorization", `Bearer ${victimToken}`)
+        .send({ events: [] })
+        .expect(429);
+    });
   });
 
   it("with TRUST_PROXY=1 keys rate-limit buckets on the X-Forwarded-For client IP, so each attacker hits their own ceiling", async () => {
