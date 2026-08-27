@@ -19,6 +19,12 @@ import { bandDefinitions, type StageBandLabel } from "./stage-bands";
  * `prepMilestoneTier`는 percent 경계만 보는 순수 함수로 두고, **개수로 하는 최종 판정**은
  * `buildPrepMilestoneView`가 한다.
  *
+ * 라운드 35 F9 → 36 F8: 그래서 **화면에 그리는 퍼센트**는 원본 percent가 아니라 캡을 거친
+ * `displayPercent`다(아직 다 하지 않았으면 99). 이 캡 규칙은 예전에 화면(items.tsx)에만 있었고
+ * 모듈이 미리 만든 `accessibilityLabel`은 캡 이전 값을 담고 있었다 -- 화면이 라벨을 통째로 다시
+ * 조립해 쓰고 있어서 눈에 띄지 않았을 뿐, 다음 소비자가 그 라벨을 그대로 쓰면 "199/200 → 100%"
+ * 모순이 되살아난다. 규칙을 이 모듈 하나로 올리고 라벨도 그 값으로 만든다.
+ *
  * ## 문구 원칙
  * - 해요체 · 쉬운 문장(DNC-018). 아직 못 챙긴 것을 탓하는 표현 금지.
  * - 구매를 재촉하지 않는다. 100%에서도 "더 사세요"가 아니라 "다음 시기를 미리 볼까요?"로
@@ -50,6 +56,23 @@ export function prepMilestoneTier(percent: number): PrepMilestoneTier {
 }
 
 /**
+ * 라운드 36 F8 — **표시용 퍼센트 한 곳**.
+ *
+ * 준비율 percent는 표시용 반올림이라 199/200이 100이 된다. 그 값을 그대로 그리면 바로 옆
+ * 헤드라인("200개 중 199개 준비했어요")과 한 줄 안에서 서로를 부정한다. 그래서 "전부
+ * 준비했다"(개수 판정)가 아닌 동안에는 99로 캡한다 -- 100%는 완료에만 쓰는 숫자다.
+ *
+ * 판정(`isComplete`·`tier`)에는 손대지 않는다. 여기서 바뀌는 것은 **표기**뿐이다.
+ * 범위 밖 값은 0-100으로 눌러 담는다(진행 바 폭에 그대로 들어가는 숫자라 음수/초과가 가면
+ * 레이아웃이 깨진다).
+ */
+export function prepDisplayPercent(percent: number, isComplete: boolean): number {
+  if (!Number.isFinite(percent)) return 0;
+  const bounded = Math.min(100, Math.max(0, Math.round(percent)));
+  return isComplete ? bounded : Math.min(bounded, 99);
+}
+
+/**
  * 구간별 한 줄 응원 문구. 색이 아니라 이 텍스트가 "어디까지 왔는지"를 말한다.
  *
  * 라운드 34 L3 — 문구는 **수 중립**이다. 구간은 25/50/75%라는 *범위*인데 문구가 분수를 못 박으면
@@ -70,8 +93,13 @@ export const PREP_MILESTONE_TIER_TEXT: Record<PrepMilestoneTier, string> = {
 
 export type PrepMilestoneView = {
   tier: PrepMilestoneTier;
-  /** 0-100 정수(그대로 진행 바 폭에 쓴다). */
+  /** 스냅샷이 준 0-100 정수 원본(표시용 반올림). **판정에도 표기에도 쓰지 않는다** -- 아래 참고. */
   percent: number;
+  /**
+   * 화면에 그리는 퍼센트(퍼센트 텍스트 · 진행 바 폭 · accessibilityValue · 이 뷰의
+   * accessibilityLabel이 모두 이 값 하나를 쓴다). `prepDisplayPercent`의 캡을 이미 거쳤다.
+   */
+  displayPercent: number;
   totalCount: number;
   resolvedCount: number;
   /** 헤더 큰 줄 -- "지금 시기 필수템 8개 중 6개 준비했어요". */
@@ -87,7 +115,10 @@ export type PrepMilestoneView = {
    * 판정은 개수로만 한다 — 반올림은 표시용이지 사실 판정용이 아니다.
    */
   isComplete: boolean;
-  /** 진행 바 하나에 붙는 TalkBack 문장(개수·퍼센트·구간 문구를 한 번에 읽어 준다). */
+  /**
+   * 진행 바 하나에 붙는 TalkBack 문장(개수·퍼센트·구간 문구를 한 번에 읽어 준다).
+   * 퍼센트는 **눈에 보이는 값과 같은** `displayPercent`다(라운드 36 F8).
+   */
   accessibilityLabel: string;
 };
 
@@ -110,16 +141,19 @@ export function buildPrepMilestoneView(progress: EssentialPrepProgress | null | 
   const tier: PrepMilestoneTier = percentTier === "complete" && !isComplete ? "almost" : percentTier;
   const headline = `지금 시기 필수템 ${progress.totalCount}개 중 ${progress.resolvedCount}개 준비했어요`;
   const tierText = PREP_MILESTONE_TIER_TEXT[tier];
+  // F8: 눈에 보이는 숫자와 소리로 읽히는 숫자가 같은 한 값에서 나온다.
+  const displayPercent = prepDisplayPercent(progress.percent, isComplete);
 
   return {
     tier,
     percent: progress.percent,
+    displayPercent,
     totalCount: progress.totalCount,
     resolvedCount: progress.resolvedCount,
     headline,
     tierText,
     isComplete,
-    accessibilityLabel: `${headline}, ${progress.percent}%. ${tierText}`
+    accessibilityLabel: `${headline}, ${displayPercent}%. ${tierText}`
   };
 }
 

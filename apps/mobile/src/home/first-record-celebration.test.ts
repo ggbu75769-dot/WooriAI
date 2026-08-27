@@ -133,7 +133,10 @@ describe("UX-G 축하 배너 문구·배선", () => {
 
   it("홈이 0 -> 1 전이를 관찰해 배너를 켠다", () => {
     expect(homeSource).toContain('from "../../src/home/first-record-celebration"');
-    expect(homeSource).toContain("observeFirstRecord(childId, hasAnyExpenseRecord)");
+    // 라운드 36 F2: 배너에 흘러 들어가는 값은 **세션 이력 래치**다. 화면 표시(안내 카드 · 최근
+    // 지출 섹션)는 관찰값을 쓰지만, 배너는 false -> true 전이로 켜지므로 관찰값을 그대로 흘리면
+    // "전부 삭제 후 다시 기록"이 새 전이로 읽혀 축하가 두 번 뜬다.
+    expect(homeSource).toContain("observeFirstRecord(childId, latchedHasAnyExpenseRecord)");
     expect(homeSource).toContain(
       "const showFirstRecordCelebration = hasSession && Boolean(childId) && celebrationChildId === childId;"
     );

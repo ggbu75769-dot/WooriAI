@@ -29,10 +29,39 @@ describe("UX-H 리포트 공유 배선", () => {
     expect(reportSource).toContain("totalExpenseKrw: monthly.data?.totalExpenseKrw ?? 0");
     expect(reportSource).toContain("insight: monthlyInsight");
     expect(reportSource).toContain("monthLabel: reportMonthLabel");
+    // 라운드 36 F-9: 공유 문구에 들어가는 **유일한 개인정보**가 닉네임이다. 화면이 다른 값
+    // (실명·childId 같은 것)을 슬쩍 끼워 넣지 못하게 배선을 여기서 못 박는다
+    // (마일스톤 쪽 milestone-report-flow.test.ts의 shareChildName 계약과 같은 기준).
+    expect(reportSource).toContain("childName: shareChildName");
+    expect(reportSource).toContain('const shareChildName = home.data?.child.nickname ?? "우리 아이";');
+    // 인사이트를 만들 때만 yearMonth/todayIso를 쓴다 -- 공유 조립기에는 넘기지 않는다.
     expect(reportSource).toContain("yearMonth: reportYearMonth");
     expect(reportSource).toContain("todayIso: seoulToday");
     // 공유를 위해 새 요청을 만들지 않는다(REP-128의 요청 예산 그대로).
     expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(3);
+  });
+
+  /**
+   * 라운드 36 F-5: 구간 줄("8월 1일~27일 기준")과 "진행 중인 달인가"의 소스는 인사이트 하나다.
+   * 화면이 공유 조립기에 달/오늘을 따로 넘기면 두 소스가 어긋날 수 있고, 그때 사라지는 것이
+   * 하필 **부분 합계임을 밝히는 줄**이다.
+   */
+  it("F-5: 공유 조립기에 달/오늘을 이중으로 넘기지 않는다", () => {
+    const reportSource = source("app/(tabs)/reports.tsx");
+
+    const shareCall = reportSource.slice(
+      reportSource.indexOf("buildMonthlyShareMessage({"),
+      reportSource.indexOf("const shareMonthlySummary")
+    );
+    expect(shareCall).not.toContain("yearMonth:");
+    expect(shareCall).not.toContain("todayIso:");
+
+    // 조립기도 인사이트가 굳혀 준 줄만 읽는다(스스로 구간을 다시 계산하지 않는다).
+    const shareTextSource = source("src/reports/share-text.ts");
+    expect(shareTextSource).toContain("insight.partialRangeLine");
+    expect(shareTextSource).toContain("insight.shareableHeadline");
+    // F-1: "첫 문장"을 맹목적으로 싣던 경로는 남아 있지 않다.
+    expect(shareTextSource).not.toContain("insight.headline");
   });
 
   it("hides the share button when there is nothing to share, and swallows cancel", () => {

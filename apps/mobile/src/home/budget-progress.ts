@@ -17,6 +17,21 @@ import { formatKrw } from "../money";
  *
  * 예산이 있을 때의 퍼센트는 종전과 **한 글자도 다르지 않게** `Math.round`로 0~100에 물린다
  * (비세션 프리뷰 HOME-001 캡처 유지: 1,245,700 / 1,600,000 → 78%).
+ *
+ * UX-J "남은 예산": 이 화면은 예산 미설정일 때 "예산을 정하면 남은 금액을 보여드릴게요"라고,
+ * 넛지 카드는 "이번 달 예산을 정하면 남은 금액을 알려드려요"라고 약속해 놓고, 정작 예산이 있는
+ * 달에는 **총액만**("예산 1,600,000원") 말했다. 약속한 숫자를 실제로 보여준다:
+ * `남은 예산 354,300원 · 예산 1,600,000원`.
+ *  - 남은 금액은 `budgetKrw - spentKrw`로 **여기서** 낸다. 서버도 같은 식으로 계산해
+ *    `HomeSummary.monthly.remainingAmountKrw`를 주지만(apps/api/src/onboarding/store-shared.ts),
+ *    바로 옆 퍼센트·프로그레스 바가 budget/spent에서 나오므로 한 카드 안의 세 숫자를 한 소스에서
+ *    내야 "남은 예산 + 사용 = 예산"이 어긋날 여지가 없다(같은 값의 출처가 둘이면 언젠가 갈린다).
+ *  - 초과한 달(spent > budget)은 종전 문구를 유지한다. 초과 금액은 HOME-BUDGET-113 경고 배너가
+ *    이미 상위 정보로 말하고 있어서(라운드 13 m-7의 중복 방지 규칙), 히어로가 "남은 예산 0원"을
+ *    덧붙이면 같은 사실을 두 번 말하게 된다.
+ *  - `showRemaining`은 **세션이 있을 때만** true다. 비세션 미리보기(previewHome)는 픽셀락
+ *    HOME-001 캡처의 원본이라 기존 문자열 그대로여야 한다(UX-A 카드들과 같은 관례). 기본값
+ *    false라 이 플래그를 넘기지 않는 호출부의 동작도 종전과 같다.
  */
 
 export type HomeBudgetProgress = {
@@ -33,6 +48,11 @@ export type HomeBudgetInput = {
   budgetKrw: number | null | undefined;
   /** HomeSummary.monthly.usedAmountKrw — 선물 제외 월 누계(DNC-015). */
   spentKrw: number | null | undefined;
+  /**
+   * UX-J: 보조 문구에 "남은 예산 N원 ·"을 앞세울지. 세션이 있는 실제 홈에서만 true이고,
+   * 비세션 미리보기는 기본값 false로 HOME-001 픽셀락 문자열을 그대로 유지한다.
+   */
+  showRemaining?: boolean;
 };
 
 function normalizeAmount(value: number | null | undefined): number {
@@ -51,10 +71,18 @@ export function evaluateHomeBudgetProgress(input: HomeBudgetInput): HomeBudgetPr
     };
   }
 
+  // 초과한 달에는 남은 금액이 없다(음수는 "남은 예산"이 아니다) — 경고 배너에 맡기고 총액만 말한다.
+  const isOverBudget = spentKrw > budgetKrw;
+  // 0 ≤ 남은 예산 ≤ 예산: 잘못된 입력(음수 지출)에도 "예산보다 많이 남았다"고 말하지 않는다.
+  const remainingKrw = Math.min(budgetKrw, Math.max(0, budgetKrw - spentKrw));
+
   return {
     hasBudget: true,
     percent: Math.round(Math.min(100, Math.max(0, (spentKrw / budgetKrw) * 100))),
-    subtext: `예산 ${formatKrw(budgetKrw)}`
+    subtext:
+      input.showRemaining && !isOverBudget
+        ? `남은 예산 ${formatKrw(remainingKrw)} · 예산 ${formatKrw(budgetKrw)}`
+        : `예산 ${formatKrw(budgetKrw)}`
   };
 }
 

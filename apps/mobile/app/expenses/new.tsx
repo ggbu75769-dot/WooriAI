@@ -22,6 +22,8 @@ import {
   type AutoPickedCategory
 } from "../../src/expenses/category-suggestion";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
+import { buildEntryContextLine } from "../../src/expenses/entry-context-line";
+import { hasQuickExpenseInput, shouldTileFillItemName } from "../../src/expenses/entry-form-guards";
 import {
   buildItemAutocompleteSuggestions,
   formatItemAutocompleteChipLabel,
@@ -239,10 +241,14 @@ export default function NewExpenseScreen() {
   // 받아 둔 목록으로 그대로 동작하며, 캐시가 비어 있으면 추천/자동완성이 없을 뿐 기록 흐름은
   // 아무 영향을 받지 않는다. 세션이 없는 픽셀 락 캡처에서는 애초에 읽지 않는다.
   const currentYearMonth = formatExpenseDate(today).iso.slice(0, 7);
-  const expenseHistory =
-    (authToken && childId
+  // UX-K(A): 캐시가 "없음"(undefined)인지 "비어 있음"([])인지를 구분해서 들고 있는다 -- 아래
+  // 맥락 한 줄은 그 둘을 다르게 다뤄야 한다(콜드 스타트에 0원이라고 말하면 허위 표시다).
+  // 추천/자동완성 쪽은 종전대로 안정된 빈 배열(noExpenseHistory)로 평탄화해서 쓴다.
+  const cachedMonthExpenses =
+    authToken && childId
       ? queryClient.getQueryData<MonthExpenses>(["expenses", childId, currentYearMonth])?.expenses
-      : undefined) ?? noExpenseHistory;
+      : undefined;
+  const expenseHistory = cachedMonthExpenses ?? noExpenseHistory;
   // 자동완성 칩 부제("· 기저귀")의 카테고리 이름. 이 화면이 실제로 선택할 수 있는 8타일일 때만
   // 붙인다 -- 엑셀 가져오기/지출 수정을 거쳐 서버 정식 카테고리(DB마다 다른 UUID)를 단 행은
   // 이 화면에서 이름을 확신할 수 없고(categoryNameFor는 그런 id를 "기타"로 떨어뜨린다), 칩에
@@ -261,6 +267,10 @@ export default function NewExpenseScreen() {
   // 자동완성 칩으로 한 번에 채운 직후에는 같은 칩이 그대로 남지 않도록 접는다. 다시 타이핑하면
   // (handleItemNameChange) 풀린다.
   const [autocompleteApplied, setAutocompleteApplied] = useState(false);
+  // UX-K(B-b): 직전에 **카테고리 타일이** 품목명 칸에 넣어 둔 라벨. 사용자가 직접 친 이름을
+  // 타일 탭이 조용히 덮어쓰지 않도록 하는 판단 재료다(shouldTileFillItemName). 타이핑이나
+  // 최근/자동완성 칩으로 이름이 바뀌면 그 순간부터 "타일이 넣은 값"이 아니므로 null로 되돌린다.
+  const lastTileFilledItemNameRef = useRef<string | null>(null);
 
   // Restores a saved quick-expense draft on mount, so a user who closes the sheet mid-entry
   // (e.g. interrupted by a call) doesn't lose what they typed. Skipped in pixel-lock capture
@@ -348,6 +358,8 @@ export default function NewExpenseScreen() {
   const handleItemNameChange = (value: string) => {
     setItemName(value);
     setAutocompleteApplied(false);
+    // 사용자가 직접 친 순간부터 이 값은 더 이상 "타일이 넣어 둔 라벨"이 아니다.
+    lastTileFilledItemNameRef.current = null;
   };
 
   // 자동완성 칩 1탭 = 이름·금액·카테고리 일괄 채움. 저장은 여전히 저장하기 버튼으로만 일어난다.
@@ -359,6 +371,7 @@ export default function NewExpenseScreen() {
   // 맞는 추천조차 못 하게 된다). 카테고리를 안 바꿨으면 추천을 끌 근거도 없다.
   const applyItemAutocompleteChip = (chip: ItemAutocompleteSuggestion) => {
     setItemName(chip.itemName);
+    lastTileFilledItemNameRef.current = null;
     setAmountText(String(chip.amountKrw));
     const matchedCategory = quickExpenseCategories.find((category) => category.id === chip.categoryId);
     if (matchedCategory) {
@@ -377,6 +390,25 @@ export default function NewExpenseScreen() {
   // 숨겨질 뿐 -- 어떤 실패도 기록 흐름을 막지 않는다.
   const offlineSnapshot = useOfflineSyncSnapshot();
   const recentItemChips = authToken && childId ? buildRecentItemChips(offlineSnapshot.rows, childId) : [];
+
+  // UX-K(A): 금액 카드 바로 아래에 붙는 "이번 달 지금까지" 한 줄.
+  //
+  // 숫자는 전부 src/expenses/entry-context-line.ts가 만든다 -- 기록 탭 월 합계와 **같은**
+  // reconcileMonthlyExpenses/countsTowardMonthlyTotal(DNC-015 선물·환불 제외, 로컬 대기 행 포함)을
+  // 통과시키므로 이 줄과 홈/기록 탭의 숫자가 갈라질 수 없다. 새 요청은 없다: 위 UX-C와 똑같이
+  // 이미 받아 둔 월 캐시와 오프라인 스냅숏만 읽는다.
+  //
+  // 캐시가 없으면(콜드 스타트) 모듈이 null을 돌려주고 줄 자체가 사라진다 -- "0원"이라고 말하는
+  // 대신 침묵한다. 세션이 없는 픽셀 락 캡처에서는 cachedMonthExpenses가 애초에 undefined이고,
+  // 렌더도 authToken 게이트 뒤에 있어 EXP-001 기준 이미지는 그대로다.
+  const entryContextLine = buildEntryContextLine({
+    cachedMonthExpenses,
+    cacheYearMonth: currentYearMonth,
+    entryYearMonth: expenseDate.iso.slice(0, 7),
+    offlineRows: offlineSnapshot.rows,
+    childId,
+    selectedCategory
+  });
 
   // MOB-102 (round5a-sprint1-plan.md §3.2, §3.3): saves to the local offline store first --
   // this always "succeeds" as soon as the local write lands, well before the server has
@@ -511,7 +543,14 @@ export default function NewExpenseScreen() {
             accessibilityLabel="닫기"
             hitSlop={8}
             onPress={() => {
-              clearQuickExpenseDraft();
+              // UX-K(B-a): 쓰다 만 값이 있으면 초안을 **지우지 않고** 닫는다. 이 화면은 입력을
+              // 500ms 디바운스로 계속 저장해 두고 다음 진입 때 복원하는데(:270-288), 닫기가 그
+              // 초안을 스스로 지워 버리면 전화 한 통에 친 내용이 통째로 사라진다. 아무것도 안
+              // 쳤으면 남길 것이 없으므로 종전대로 지운다(빈 초안이 다음 진입을 방해하지 않는다).
+              // 판정은 순수 함수 한 곳(entry-form-guards.ts)에만 있고, 확인 Alert은 일부러 띄우지
+              // 않는다 -- 빠른 기록 흐름에 확인 한 단계를 더 얹는 값이 없다.
+              // 저장 성공 경로의 clearQuickExpenseDraft(onSuccess)는 그대로다.
+              if (!hasQuickExpenseInput({ itemName, amountText, memo })) clearQuickExpenseDraft();
               router.back();
             }}
             style={{ minWidth: 36 }}
@@ -538,6 +577,7 @@ export default function NewExpenseScreen() {
                   hitSlop={3}
                   onPress={() => {
                     setItemName(chip.itemName);
+                    lastTileFilledItemNameRef.current = null;
                     setAmountText(String(chip.amountKrw));
                     // 라운드 34 L8: "카테고리를 확정했다"는 표시는 칩이 **실제로 카테고리를 바꿨을
                     // 때만** 세운다 -- 자동완성 칩(applyItemAutocompleteChip, 라운드 33 F3)과 같은
@@ -605,6 +645,17 @@ export default function NewExpenseScreen() {
             value={formattedAmount}
           />
         </View>
+
+        {/* UX-K(A): 금액을 치는 그 자리에서 "이번 달 지금까지"를 한 줄로 알려 준다 -- 탭을
+            옮기지 않고도 총액을 확인할 수 있어야 핵심 루프(기록 -> 총액 확인)가 끊기지 않는다.
+            숫자와 문구는 전부 src/expenses/entry-context-line.ts에서 오고, 캐시가 없으면 그
+            모듈이 null을 돌려줘 줄 자체가 사라진다(0원이라고 말하지 않는다). 세션 없는 픽셀 락
+            캡처에서는 이 분기 자체가 렌더되지 않는다. */}
+        {authToken && entryContextLine ? (
+          <Text accessibilityLabel={entryContextLine.accessibilityLabel} style={{ color: theme.colors.gray600, fontSize: 12 }}>
+            {entryContextLine.text}
+          </Text>
+        ) : null}
 
         {/* UX-121: 금액 누적 프리셋 칩 -- 탭할 때마다 현재 금액에 더한다(빈 값이면 그 값으로 시작).
             숫자 키패드를 대체하지 않고 보조하므로 칩을 누른 뒤에도 자유롭게 타이핑할 수 있고,
@@ -724,7 +775,14 @@ export default function NewExpenseScreen() {
                   categoryTouchedRef.current = true;
                   setAutoPickedCategory(null);
                   setSelectedCategory(category);
-                  setItemName(category.label);
+                  // UX-K(B-b): 품목명은 **비어 있거나, 직전에 타일이 넣은 라벨 그대로일 때만**
+                  // 채운다. 예전에는 무조건 덮어써서, "하기스 밴드형 4단계"를 다 쳐 놓고 분류만
+                  // 바꾸려 타일을 누르면 그 이름이 경고 없이 "의류"로 바뀌었다(못 알아채면 실제로
+                  // 산 물건과 다른 이름이 기록에 남는다). 판정은 순수 함수 한 곳에만 있다.
+                  if (shouldTileFillItemName({ itemName, lastTileFilledItemName: lastTileFilledItemNameRef.current })) {
+                    setItemName(category.label);
+                    lastTileFilledItemNameRef.current = category.label;
+                  }
                 }}
               />
             );

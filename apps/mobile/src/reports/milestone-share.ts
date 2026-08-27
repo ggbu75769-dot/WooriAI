@@ -44,7 +44,7 @@ const SHARE_TOP_CATEGORY_COUNT = 2;
  *      — 우리아이 앱에서
  *  - complete first-birthday: 머리글만 "다온이의 첫돌"로 바뀐다.
  *  - partial window: 아직 오지 않은 D-day를 지난 일처럼 말하지 않는다 —
- *      💛 다온이의 100일까지 67일째
+ *      💛 다온이의 100일 기록, 태어나서 67일째
  *  - zero expenses: 0원을 렌더하지 않고 따뜻한 초대 문구로 대체한다.
  * All variants end with the shared app line so shared text always credits the record.
  */
@@ -60,8 +60,13 @@ export function buildMilestoneShareMessage(report: MilestoneReport, childName: s
   }
 
   // 창이 아직 안 끝난 리포트는 "100일"을 이미 지난 일처럼 쓰지 않는다(화면 카드와 같은 기준).
+  //
+  // 라운드 36 F-4: 예전 문구 "100일까지 67일째"는 "100일까지 67일 남음(D-67)"으로 읽혔다
+  // (실제로는 태어난 뒤 67일이 지났고 남은 날은 33일이다). daysCovered는 **경과일**이므로
+  // 화면 카드가 쓰는 "태어나서 67일째"와 같은 표현으로 통일한다 — "까지 N일째" 조합을 피하면
+  // 남은 날로 오독될 여지가 없다(app/(tabs)/reports.tsx의 마일스톤 카드 본문과 같은 말).
   const headline = report.partial
-    ? `💛 ${childName}의 ${label}까지 ${report.daysCovered}일째`
+    ? `💛 ${childName}의 ${label} 기록, 태어나서 ${report.daysCovered}일째`
     : `🎉 ${childName}의 ${label}`;
 
   const topCategoryLine = shareTopCategoryLine(

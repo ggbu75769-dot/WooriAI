@@ -901,6 +901,11 @@ export default function RecordsScreen() {
   // 안정된 참조여야 CalendarDayCell의 memo가 매 렌더 깨지지 않는다.
   const handleSelectCalendarDate = useCallback((date: string) => {
     setViewMode(RECORDS_VIEW_LIST);
+    // 라운드 36 F-6: 이전 날짜로 예약해 둔 재시도 프레임을 먼저 취소한다. 8/12를 누르고
+    // (스크롤 실패로 rAF가 예약된 채) 곧바로 8/20을 누르면, 살아남은 프레임이 깨어나
+    // pendingScrollDate를 8/12로 되돌려 방금 고른 날짜의 스크롤을 덮어썼다.
+    if (scrollRetryFrameRef.current !== null) cancelAnimationFrame(scrollRetryFrameRef.current);
+    scrollRetryFrameRef.current = null;
     // M3: 새로 고른 날짜마다 재시도 예산을 처음부터 준다(칸을 다시 누르는 것이 곧 재시도 요청이다).
     scrollTargetDateRef.current = date;
     scrollRetryCountRef.current = 0;

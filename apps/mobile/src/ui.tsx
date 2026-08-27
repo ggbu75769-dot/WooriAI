@@ -350,7 +350,12 @@ export function HeroSummaryCard({
       <Text style={[textStyles.caption, { color: theme.colors.white }]}>{label}</Text>
       <Text style={{ color: theme.colors.white, fontSize: 28, fontWeight: "800" }}>{amount}</Text>
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-        <Text style={[textStyles.caption, { color: theme.colors.white }]}>{subtext}</Text>
+        {/* UX-J 후속: subtext는 퍼센트와 한 줄(row/space-between)을 나눠 쓴다. 종전 문구
+            ("예산 1,600,000원")는 짧아 문제가 없었지만, 세션 홈의 "남은 예산 N원 · 예산 M원"은
+            두 배 가까이 길어 좁은 기기에서 퍼센트를 밀어내거나 잘릴 수 있다. flexShrink로
+            **긴 경우에만** 줄어들게 한다 -- 짧은 문구는 폭이 그대로라 HOME-001 픽셀락 캡처
+            (비세션 미리보기)는 한 픽셀도 바뀌지 않는다. */}
+        <Text style={[textStyles.caption, { color: theme.colors.white, flexShrink: 1 }]}>{subtext}</Text>
         {showProgress ? (
           <Text style={[textStyles.caption, { color: theme.colors.white, fontWeight: "700" }]}>{progress}%</Text>
         ) : null}

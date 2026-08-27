@@ -8,7 +8,7 @@ import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemSta
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton, Toast } from "../../src/ui";
+import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton, TextButton, Toast } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
@@ -26,6 +26,15 @@ import {
   PREP_CELEBRATION_DISMISS_LABEL,
   PREP_CELEBRATION_TITLE
 } from "../../src/items/prep-milestones";
+import {
+  expenseLinkParams,
+  expenseLinkPromptPlacement,
+  isExpenseLinkPromptRow,
+  itemListExpenseLinkAccessibilityLabel,
+  itemListExpenseLinkLabel,
+  nextExpenseLinkPrompt,
+  type ExpenseLinkPrompt
+} from "../../src/items/expense-link-prompt";
 import {
   filterItems,
   hasActiveItemFilter,
@@ -161,6 +170,11 @@ export default function ItemsScreen() {
   // 값으로 비활성을 판정하면 A행 요청 중에 B행을 누르는 순간 A 버튼이 다시 활성화되어 같은 행에
   // 중복 PATCH가 나간다. 행 단위 진행 상태는 화면이 직접 들고 있어야 경합에 견딘다.
   const [pendingStatusIds, setPendingStatusIds] = useState<ReadonlySet<string>>(() => new Set<string>());
+  // 라운드 37 UX-I: 방금 "준비했어요"를 누른 행. 그 행에서만 "지출도 기록할까요?" 한 줄이 뜬다
+  // (카드/모달 없이 텍스트 링크 하나). 한 번에 하나만 기억하므로 다른 행을 누르면 이전 줄은
+  // 조용히 사라진다 -- 목록에 안내가 쌓이지 않게 하기 위해서다. 노출 판정과 문구는 전부
+  // 순수 모듈(src/items/expense-link-prompt.ts)에 있다.
+  const [expenseLinkPrompt, setExpenseLinkPrompt] = useState<ExpenseLinkPrompt | null>(null);
   // UX-E: 100% 축하 배너를 닫은 시기 밴드들. 축하는 "도달했다"는 사실을 한 번 알리는 것이지
   // 계속 붙어 있는 라벨이 아니다 -- 닫으면 이 화면이 살아 있는 동안 같은 밴드에서는 다시
   // 뜨지 않는다(밴드별로 기억하므로 다른 시기를 100% 채우면 그때는 다시 축하한다).
@@ -237,6 +251,8 @@ export default function ItemsScreen() {
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
     onMutate: (variables) => {
       setStatusErrorMessage(null);
+      // 새 조작이 시작되면 앞선 행의 "지출도 기록할까요?" 줄은 걷는다(한 행에서만 보인다).
+      setExpenseLinkPrompt(null);
       // 여러 행이 동시에 날아갈 수 있으므로 집합에 더한다(새 Set으로 갈아 끼워 리렌더를 보장).
       setPendingStatusIds((ids) => {
         const next = new Set(ids);
@@ -257,6 +273,16 @@ export default function ItemsScreen() {
       setStatusErrorMessage(itemStatusMutationErrorMessage(variables.status === "prepared" ? "prepare" : "skip", error));
     },
     onSuccess: async (_data, variables) => {
+      // 라운드 37 UX-I: 서버가 확인한 뒤에만 남긴다. "괜찮아요"(not_needed)에는 남기지 않는다 --
+      // 사지 않기로 한 판단에 지출 기록을 권하면 판단을 되묻는 잔소리가 된다(DNC-018).
+      // 캐시 무효화(await)보다 **먼저** 세워 둬야 목록이 갱신되는 동안에도 줄이 유지된다.
+      setExpenseLinkPrompt(
+        nextExpenseLinkPrompt({
+          itemTemplateId: variables.itemTemplateId,
+          itemName: variables.itemName,
+          status: variables.status
+        })
+      );
       // ANA-103: fires only after the server confirmed the status change. The payload carries
       // only the coarse category enum (derived on-device from the item name, which itself never
       // leaves the device -- src/analytics/events.ts) and the new status. A no-op without
@@ -357,22 +383,10 @@ export default function ItemsScreen() {
   // 계산하고, 화면은 그리기만 한다. prepProgress 자체가 hasSession + !isPixelLockMode 게이트를
   // 이미 통과한 값이라 ITEM-001 픽셀 락 캡처(비세션 미리보기)에는 어느 것도 나오지 않는다.
   const prepMilestone = buildPrepMilestoneView(prepProgress);
-  // 라운드 35 F9: 화면에 **그리는** 퍼센트는 개수와 어긋나지 않는 값만 쓴다.
-  // `prepMilestone.percent`는 표시용 반올림이라 199/200이 100%가 되고, 바로 옆 헤드라인
-  // ("200개 중 199개 준비했어요")과 한 줄 안에서 서로를 부정한다(같은 이유로 구간 문구와 축하
-  // 배너는 이미 개수로 판정한다 -- prep-milestones.ts 라운드 34 L2). 아직 다 하지 않았으면 99로
-  // 캡한다: 100%는 "전부 준비했다"에만 쓰는 숫자다. 판정은 손대지 않고 표기만 정직해진다.
-  const prepDisplayPercent = prepMilestone
-    ? prepMilestone.isComplete
-      ? prepMilestone.percent
-      : Math.min(prepMilestone.percent, 99)
-    : 0;
-  // 소리로 읽히는 문장도 같은 숫자를 말해야 한다. 모듈이 미리 만든 accessibilityLabel은 캡 이전
-  // 값을 담고 있으므로, 같은 순서(개수 · 퍼센트 · 구간 문구)로 여기서 다시 조립한다 -- 문구
-  // 조각(headline/tierText)은 여전히 순수 모듈 하나에서만 나온다.
-  const prepAccessibilityLabel = prepMilestone
-    ? `${prepMilestone.headline}, ${prepDisplayPercent}%. ${prepMilestone.tierText}`
-    : "";
+  // 라운드 35 F9 → 36 F8: 화면에 **그리는** 퍼센트(개수와 어긋나지 않게 캡한 값)는 이제 순수
+  // 모듈이 `displayPercent`로 준다. 예전에는 이 캡이 화면에만 있어서, 모듈이 미리 만든
+  // accessibilityLabel은 캡 이전 값("199/200 → 100%")을 담은 채 아무도 쓰지 않고 남아 있었다.
+  // 화면은 재조립을 그만두고 모듈의 한 값을 그대로 쓴다 -- 표시 퍼센트 규칙이 한 곳이 된다.
   // 축하 배너는 "지금 보고 있는 시기"가 100%일 때만, 그리고 닫기 전까지만.
   const showPrepCelebration = Boolean(prepMilestone?.isComplete) && !dismissedCelebrationBands.has(stageLabel);
   // 100%에서 자연스럽게 이어 줄 다음 시기 칩(마지막 밴드에서는 null -- 그때는 축하만 한다).
@@ -389,6 +403,21 @@ export default function ItemsScreen() {
   // 제자리 배지로만 구분한다.
   const prepFocusIds = hasSession && !isPixelLockMode ? nextPrepFocusIds(listedItems) : null;
   const prepFocusHint = hasSession && !isPixelLockMode ? nextPrepFocusHintText(listedItems) : null;
+  // 라운드 37 UX-I: "지출도 기록할까요?" 한 줄을 어디에 그릴지. 준비했어요를 누른 행은 상태 탭이
+  // "지금 필요"면 준비완료 탭으로 옮겨 가 **목록에서 사라지므로**(가장 흔한 경로), 행이 남아 있으면
+  // 그 행 아래(inline), 사라졌으면 목록 위 한 줄(detached)로 자리만 옮긴다. 판정은 순수 모듈이 한다.
+  const expenseLinkPlacement = expenseLinkPromptPlacement({
+    hasSession,
+    prompt: expenseLinkPrompt,
+    visibleItemIds: listedItems.map((item) => item.id)
+  });
+  const openExpenseLinkPrompt = (prompt: ExpenseLinkPrompt) => {
+    setExpenseLinkPrompt(null);
+    router.push({
+      pathname: "/expenses/new",
+      params: expenseLinkParams({ itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId })
+    });
+  };
 
   return (
     <AppScreen
@@ -535,8 +564,8 @@ export default function ItemsScreen() {
             <View
               accessible
               accessibilityRole="progressbar"
-              accessibilityLabel={prepAccessibilityLabel}
-              accessibilityValue={{ min: 0, max: 100, now: prepDisplayPercent }}
+              accessibilityLabel={prepMilestone.accessibilityLabel}
+              accessibilityValue={{ min: 0, max: 100, now: prepMilestone.displayPercent }}
               style={{ gap: 6 }}
             >
               <View style={{ alignItems: "baseline", flexDirection: "row", justifyContent: "space-between" }}>
@@ -544,7 +573,7 @@ export default function ItemsScreen() {
                   {prepMilestone.headline}
                 </Text>
                 <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "700", lineHeight: 20 }}>
-                  {prepDisplayPercent}%
+                  {prepMilestone.displayPercent}%
                 </Text>
               </View>
               <View style={{ backgroundColor: theme.colors.peach, borderRadius: theme.radii.pill, height: 8, overflow: "hidden" }}>
@@ -553,7 +582,7 @@ export default function ItemsScreen() {
                     backgroundColor: theme.colors.mainCoral,
                     borderRadius: theme.radii.pill,
                     height: 8,
-                    width: `${prepDisplayPercent}%`
+                    width: `${prepMilestone.displayPercent}%`
                   }}
                 />
               </View>
@@ -575,6 +604,16 @@ export default function ItemsScreen() {
             >
               {prepFocusHint}
             </Text>
+          ) : null}
+
+          {/* 라운드 37 UX-I(detached): 준비했어요를 누른 행이 상태 탭이 바뀌며 목록에서 빠졌을 때의
+              같은 한 줄. 어느 준비템인지 이름을 붙인다(행 옆이 아니라 목록 위에 서 있으므로). */}
+          {expenseLinkPlacement === "detached" && expenseLinkPrompt ? (
+            <TextButton
+              label={itemListExpenseLinkLabel(expenseLinkPlacement, expenseLinkPrompt.itemName)}
+              accessibilityLabel={itemListExpenseLinkAccessibilityLabel(expenseLinkPrompt.itemName)}
+              onPress={() => openExpenseLinkPrompt(expenseLinkPrompt)}
+            />
           ) : null}
 
           {showEmptyState ? (
@@ -645,6 +684,21 @@ export default function ItemsScreen() {
                           style={{ flex: 1 }}
                         />
                       </View>
+                    ) : null}
+                    {/* 라운드 37 UX-I(inline): 방금 준비했어요를 누른 그 행에서만 뜨는 한 줄 링크.
+                        카드나 모달을 세우지 않는다 -- 준비 상태를 정리하던 흐름을 끊지 않고, 이름은
+                        바로 위 카드가 이미 말하고 있으므로 문구에 넣지 않는다(행 높이 변화 최소화).
+                        무시해도 아무 일도 일어나지 않는 권유다(DNC-018). */}
+                    {isExpenseLinkPromptRow({
+                      placement: expenseLinkPlacement,
+                      prompt: expenseLinkPrompt,
+                      itemTemplateId: item.id
+                    }) ? (
+                      <TextButton
+                        label={itemListExpenseLinkLabel(expenseLinkPlacement, item.name)}
+                        accessibilityLabel={itemListExpenseLinkAccessibilityLabel(item.name)}
+                        onPress={() => openExpenseLinkPrompt({ itemTemplateId: item.id, itemName: item.name })}
+                      />
                     ) : null}
                   </View>
                 );

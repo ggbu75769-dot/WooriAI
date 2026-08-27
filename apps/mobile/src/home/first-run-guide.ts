@@ -31,10 +31,17 @@
  * 3개를 골라뒀어요"라는 첫 실행 안내를 다시 받는다. 이 카드는 첫 10분용이므로 "막 시작한
  * 사람"으로 대상을 좁힌다:
  *
- *   - `recentRecordCount`(이번 달에 이 기기가 아는 기록 수 = 서버 캐시 + 오프라인 대기 행)가
+ *   - `recentRecordCount`(**이번 달**에 이 기기가 아는 기록 수 = 서버 캐시 + 오프라인 대기 행)가
  *     `FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS` 이하일 때만 띄운다. 가입 일자를 홈이 알 수 없으니
  *     (`/home`에 없다) **행동량으로 근사**한다. 모르면(null) 띄우지 않는다 — 모르는 상태에
  *     첫 실행 안내를 띄우는 쪽이 더 큰 오류다.
+ *   - 라운드 36 F3: 그런데 그 근사는 **이번 달**만 본다. 1년째 쓰는 사용자도 매달 1~2일에는
+ *     이번 달 기록이 0건이라, 매달 초 "지금 시기 준비물 N개를 골라뒀어요" 첫 실행 안내가
+ *     되돌아왔다(달이 바뀌는 것은 사용자의 행동이 아닌데 안내가 그것에 반응했다). 그래서
+ *     **전체 기간 신호**를 함께 요구한다: `serverRecentExpenseCount`(`/home`의 recentExpenses
+ *     길이)가 `HOME_RECENT_EXPENSES_LIMIT` **미만**일 때만. 그 목록은 서버에서 LIMIT 3이라
+ *     길이가 3이면 "3건 이상"이라는 뜻일 뿐 총량을 모른다 — 모르면 띄우지 않는 쪽(보수적)으로
+ *     간다. 즉 "이번 달도 적고 전체도 적다"에서만 첫 실행 안내다.
  *   - 개수는 **아직 준비되지 않은 추천만** 센다(`countUnpreparedRecommendedItems`). 준비템 탭이
  *     "지금 시기 준비, 모두 마쳤어요"를 띄우는 아이에게 홈이 "준비물 3개를 골라뒀어요"라고
  *     말하면 두 화면이 서로를 부정한다. 0개면 카드를 만들지 않는다(위 규칙과 동일).
@@ -72,6 +79,10 @@ export type HomeFirstRunGuideInput = {
    * 이 아이에게 지출 기록이 하나라도 있는지. **아직 모르면 null**(홈 응답 로딩/실패) —
    * 그때는 카드를 만들지 않는다. 모르는 상태에 "첫 지출을 기록해 보세요"를 띄우면 이미
    * 수십 건을 기록한 사용자에게 없는 사실을 말하게 된다.
+   *
+   * 라운드 36 F2: 여기 들어오는 값은 **관찰값**이다(세션 이력 래치가 아니다). 래치된 값을
+   * 넣으면 마지막 기록을 지운 뒤에도 계속 "기록이 있다"로 읽혀 첫 지출 유도 카드가 영영
+   * 돌아오지 않는다 — 래치는 축하 배너 재발화 방지 전용이다(latchHasAnyExpenseRecord 주석).
    */
   hasAnyExpenseRecord: boolean | null;
   /**
@@ -85,6 +96,12 @@ export type HomeFirstRunGuideInput = {
    * 준비템 첫 안내를 "막 시작한 사람"으로 좁히는 근사 게이트다(위 헤더 F6 참고).
    */
   recentRecordCount: number | null;
+  /**
+   * `/home` 응답 `recentExpenses`의 길이(서버 LIMIT 3). **전체 기간** 신호로만 쓴다 —
+   * 라운드 36 F3의 "매달 초에 되돌아오는 첫 안내"를 막는 항이다. 3이면 그 이상일 수 있어
+   * 총량을 모르므로 안내를 만들지 않는다. 모르면(null) 역시 만들지 않는다.
+   */
+  serverRecentExpenseCount: number | null;
   /** 준비템 안내 카드를 이미 닫았는지(기기에 남는 1회성 플래그). */
   itemsGuideDismissed: boolean;
 };
@@ -101,6 +118,15 @@ export const FIRST_ITEMS_GUIDE_DISMISS_LABEL = "닫기";
  * 아니라 방해가 된다. 값 자체에 마법은 없고, "한 자릿수 초반"이면 같은 판단이다.
  */
 export const FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS = 3;
+/**
+ * `/home`의 `recentExpenses`가 서버에서 잘리는 개수(apps/api/src/onboarding/
+ * reporting-store.service.ts의 `slice(0, 3)`).
+ *
+ * 이 값이 "전체 기간 기록이 몇 건인지"를 홈이 **어디까지 알 수 있는지**의 경계다. 길이가 이
+ * 값보다 작으면 그게 곧 전체 건수이고, 같으면 "이 이상"이라는 것만 안다. 라운드 36 F3의 게이트가
+ * 후자를 "모른다"로 다루는 근거가 이 숫자다.
+ */
+export const HOME_RECENT_EXPENSES_LIMIT = 3;
 
 function firstExpenseGuide(): HomeFirstRunGuide {
   const title = "첫 지출을 기록해 보세요";
@@ -143,6 +169,13 @@ export function evaluateHomeFirstRunGuide(input: HomeFirstRunGuideInput): HomeFi
   // F6 ①: "온보딩을 막 끝낸 사람"으로 좁히는 근사 게이트. 기록 수를 모르면(null) 띄우지 않는다.
   if (typeof input.recentRecordCount !== "number" || !Number.isFinite(input.recentRecordCount)) return null;
   if (input.recentRecordCount > FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS) return null;
+  // 라운드 36 F3 ①': 이번 달 기록 수만으로는 매달 1일에 모든 기존 사용자가 "첫 실행"으로
+  // 되돌아간다(달이 바뀐 것은 사용자의 행동이 아니다). 전체 기간 신호를 함께 요구한다 --
+  // recentExpenses가 서버 LIMIT에 닿아 있으면 총량을 모르는 것이므로 띄우지 않는다.
+  if (typeof input.serverRecentExpenseCount !== "number" || !Number.isFinite(input.serverRecentExpenseCount)) {
+    return null;
+  }
+  if (input.serverRecentExpenseCount >= HOME_RECENT_EXPENSES_LIMIT) return null;
   // F6 ②: 이미 준비를 마친 항목은 세지 않는다(호출부가 countUnpreparedRecommendedItems로 센 값).
   const count = Number.isInteger(input.recommendedItemCount) ? input.recommendedItemCount : 0;
   if (count <= 0) return null;
@@ -177,19 +210,89 @@ export function countUnpreparedRecommendedItems(items: readonly RecommendedItemL
  *
  * 동기화가 확정되는 순간 오프라인 대기 행이 먼저 사라지고(sync-controller의 스냅샷 갱신),
  * 홈의 `["home"]` refetch는 그 다음이다. 그 사이 한 프레임 동안 서버 `recentExpenses`도 비어
- * 있고 대기 행도 없어서 판정이 `true -> false -> true`로 순환하고, 방금 첫 기록을 남긴 사용자
- * 눈앞에서 "첫 지출을 기록해 보세요" 카드가 다시 깜빡인다.
+ * 있고 대기 행도 없어서 판정이 `true -> false -> true`로 순환한다.
  *
- * 흡수는 **홈 쪽에서** 한다 — sync-controller의 갱신 순서는 다른 계약들이 함께 걸려 있어
- * 건드리지 않는다. 한 번 참이었던 사실("이 아이에게 기록이 있다")은 세션 안에서 거짓으로
- * 돌아가지 않으므로 래치가 허위를 만들지 않는다. 기록을 전부 지운 경우에도 다음 콜드 스타트에
- * (세션 스토어이므로) 래치가 비어 있어 다시 정확해진다.
+ * ## 라운드 36 F2 — 이 래치가 하는 일이 하나로 줄었다
+ * 예전에는 이 값 하나가 화면의 세 가지를 동시에 정했다: 축하 배너, 첫 실행 안내 카드, "최근
+ * 지출" 섹션 접기. 그런데 래치는 정의상 **거짓으로 돌아가지 않으므로**, 기록을 1건 남겼다가
+ * 그 한 건을 지우면 홈이 앱 재시작 전까지 "기록이 있다"고 믿는다. 그 결과 최근 지출 섹션이
+ * 헤더째 접힌 채로(할 말이 없다고 판단) 첫 지출 유도 카드도 뜨지 않아, 화면에 지출로 가는 큰
+ * 입구가 사라진 구멍이 생겼다.
+ *
+ * 그래서 지금 이 래치는 **축하 배너 재발화 방지 전용**이다(홈은 이 값을
+ * `useFirstRecordCelebrationStore.observe`에만 흘린다). 배너는 `false -> true` 전이에서 켜지므로,
+ * 관찰값을 그대로 흘리면 "전부 삭제 후 다시 기록"이 새 전이로 읽혀 축하가 두 번 뜬다. 래치가
+ * 참을 붙들고 있으면 그 전이 자체가 생기지 않는다.
+ *
+ * 화면 표시(안내 카드 · 섹션 접기)는 관찰값을 쓰고, 동기화 확정 순간의 깜빡임은
+ * `holdHasAnyExpenseRecordDuringRefetch`가 **refetch 창 안에서만** 흡수한다.
  *
  * `null`(아직 모름)은 래치하지 않는다 — "모른다"에 카드를 만들지 않는다는 규칙이 우선이다.
  */
 export function latchHasAnyExpenseRecord(observed: boolean | null, everObservedTrue: boolean): boolean | null {
   if (observed === null) return null;
   return observed || everObservedTrue;
+}
+
+export type HoldHasAnyExpenseRecordInput = {
+  /** 지금 관찰한 값(서버 recentExpenses + 오프라인 대기 신규 행). 모르면 null. */
+  observed: boolean | null;
+  /** `["home"]` 쿼리가 지금 다시 불러오는 중인지(react-query의 isFetching). */
+  isFetching: boolean;
+  /** **마지막으로 refetch가 끝나 있던 프레임**에서 관찰한 값. 아직 없으면 null. */
+  lastSettled: boolean | null;
+};
+
+/**
+ * 라운드 36 F2 — 세션 이력 래치를 대신하는 **프레임 가드**.
+ *
+ * 막으려는 것은 라운드 35 F3와 같은 한 프레임짜리 깜빡임이다: 동기화가 확정되면 대기 행이 먼저
+ * 사라지고 서버 응답 갱신이 그 뒤라, `["home"]` refetch가 도는 동안만 관찰값이 거짓으로 떨어진다.
+ * 그 창은 정확히 `isFetching === true`인 구간이므로, **그 구간에서만** 직전에 확정돼 있던 값을
+ * 붙든다. refetch가 끝나면 가드는 즉시 손을 떼고 관찰값이 화면을 정한다.
+ *
+ * 세션 래치 대신 이것을 고른 이유: 래치는 창을 닫는 조건이 "앱 재시작"이라 **정상적인 삭제**까지
+ * 영구히 흡수해 버렸다(F2의 구멍). 프레임 가드는 창이 refetch 하나로 끝나므로, 마지막 기록을
+ * 지우면 그 refetch가 끝나는 순간 홈이 "기록 없음"으로 정확히 돌아온다.
+ *
+ * **붙드는 방향은 하나뿐이다** — `true -> false`(사라지는 쪽)만. 그 반대(`false -> true`)는
+ * 깜빡임이 아니라 방금 기록을 남긴 진짜 변화라, 붙들면 축하와 안내가 refetch만큼 늦어진다.
+ */
+export function holdHasAnyExpenseRecordDuringRefetch(input: HoldHasAnyExpenseRecordInput): boolean | null {
+  if (input.observed === null) return null;
+  if (input.isFetching && input.lastSettled === true && input.observed === false) return true;
+  return input.observed;
+}
+
+export type HomeRecentExpensesSectionInput = {
+  /** 서버 `/home`이 준 최근 지출 행 수(비세션 미리보기에서는 픽스처 길이). */
+  serverRecentExpenseCount: number;
+  /** 아직 올라가지 않은 로컬 신규 행 수(`countPendingOfflineCreates`). */
+  pendingOfflineCreateCount: number;
+  /** "이 아이에게 기록이 하나라도 있는가"의 **관찰값**(래치 아님). 모르면 null. */
+  hasAnyExpenseRecord: boolean | null;
+  /** 지금 홈에 떠 있는 첫 실행 안내 카드의 종류. 없으면 null. */
+  guideVariant: HomeFirstRunGuideVariant | null;
+};
+
+/**
+ * 라운드 35 F2 → 36 F2 — 홈 "최근 지출" 섹션(헤더 · 전체 보기 · 본문)을 통째로 그릴지.
+ *
+ * 본문만 지우고 제목을 남기면 접은 자리가 고장난 것처럼 보이므로 판정을 하나로 모은다. 할 말이
+ * 있는 경우는 셋뿐이다:
+ *  1) 서버 목록에 행이 있다(평소),
+ *  2) 아직 올라가지 않은 대기 행이 있다(F1의 "동기화 대기" 한 줄),
+ *  3) 정말 기록이 하나도 없고, 그 사실을 대신 말해 줄 첫 지출 유도 카드도 없다(MOB-117 빈 상태).
+ *
+ * 라운드 36 F2: 3)의 "기록이 하나도 없다"는 **관찰값**으로 판단한다. 세션 래치를 쓰면 마지막
+ * 기록을 지운 뒤에도 영영 참이 아니게 되어, 섹션도 유도 카드도 없는 빈 화면이 남는다. 관찰값을
+ * 쓰면 유도 카드와 이 섹션이 언제나 같은 사실을 보므로 **둘 다 사라지는 상태가 존재하지 않는다**
+ * (기록 없음이면 유도 카드가 뜨고, 유도 카드가 없으면 이 섹션이 그 자리를 말한다).
+ */
+export function shouldShowHomeRecentExpensesSection(input: HomeRecentExpensesSectionInput): boolean {
+  if (input.serverRecentExpenseCount > 0) return true;
+  if (input.pendingOfflineCreateCount > 0) return true;
+  return !input.hasAnyExpenseRecord && input.guideVariant !== "first-expense";
 }
 
 /** `LocalExpenseRow`에서 이 판정에 필요한 두 필드만 (src/offline/types.ts와 구조 호환). */

@@ -337,14 +337,14 @@ export default function ReportsScreen() {
         })
       : null;
 
-  // UX-H: 월간 요약 공유 문구. 인사이트 카드가 화면에 그린 문장(headline)과 "총 지출" 카드가
-  // 그린 금액을 **그대로** 실어, 보낸 문구와 화면이 어긋날 수 없게 한다(DNC-013/015).
-  // 진행 중인 달이면 조립 모듈이 "8월 1일~27일 기준" 줄을 넣는다 — 부분 구간 합계를 한 달치인
-  // 것처럼 보내지 않기 위해서다. 카드가 없으면(말할 근거 없음) null이라 버튼도 붙지 않는다.
+  // UX-H: 월간 요약 공유 문구. 인사이트 카드가 화면에 그린 문장과 "총 지출" 카드가 그린 금액을
+  // **그대로** 실어, 보낸 문구와 화면이 어긋날 수 없게 한다(DNC-013/015).
+  // 라운드 36 F-1/F-5: 어느 문장을 싣는지("가족에게 보내도 되는" 카테고리 1위 문장)와 진행 중인
+  // 달의 "8월 1일~27일 기준" 줄은 **인사이트 하나에서만** 나온다 — 이 화면이 yearMonth/todayIso를
+  // 공유 조립기에 따로 넘기면 두 소스가 어긋나 부분 구간 합계가 한 달치처럼 나갈 수 있었다.
+  // 카드가 없으면(말할 근거 없음) null이라 버튼도 붙지 않는다.
   const monthlyShareMessage = buildMonthlyShareMessage({
-    yearMonth: reportYearMonth,
     monthLabel: reportMonthLabel,
-    todayIso: seoulToday,
     childName: shareChildName,
     totalExpenseKrw: monthly.data?.totalExpenseKrw ?? 0,
     insight: monthlyInsight

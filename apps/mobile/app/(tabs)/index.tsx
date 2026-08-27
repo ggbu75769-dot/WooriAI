@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getHome, listChildren, listExpenses, LOCAL_SESSION_TOKEN, type Expense } from "../../src/api/client";
@@ -22,8 +22,10 @@ import {
   countUnpreparedRecommendedItems,
   evaluateHomeFirstRunGuide,
   hasPendingOfflineCreate,
+  holdHasAnyExpenseRecordDuringRefetch,
   homePendingSyncNoticeText,
   latchHasAnyExpenseRecord,
+  shouldShowHomeRecentExpensesSection,
   FIRST_ITEMS_GUIDE_DISMISS_LABEL,
   HOME_PENDING_SYNC_NOTICE_TEST_ID
 } from "../../src/home/first-run-guide";
@@ -560,6 +562,21 @@ export default function HomeScreen() {
       lastYearMonth ? reconciledMonthRecords(lastMonthExpenses.data?.expenses, childOfflineRows, lastYearMonth) : null,
     [lastMonthExpenses.data, childOfflineRows, lastYearMonth]
   );
+  // UX-J: 주간 계산을 조기 반환(에러/로딩)보다 위로 올린다 -- 아래 알림 평가 훅과 화면의 주간
+  // 카드가 **같은 한 값**을 쓰게 하기 위해서다(훅은 조건부로 호출할 수 없으므로 자리는 여기).
+  // 비세션 미리보기는 종전처럼 계산하지 않는다.
+  const weeklySpend = useMemo(
+    () =>
+      hasSession
+        ? evaluateWeeklySummary({
+            todayIso: seoulToday,
+            // F6: 서버 목록 원본이 아니라 오프라인 대기·수정 행까지 반영한 재조정 결과다.
+            thisMonthRecords: weeklyThisMonthRecords,
+            lastMonthRecords: weeklyLastMonthRecords
+          })
+        : null,
+    [hasSession, seoulToday, weeklyThisMonthRecords, weeklyLastMonthRecords]
+  );
   const childrenQuery = useQuery({
     queryKey: ["children"],
     enabled: Boolean(authToken),
@@ -584,18 +601,42 @@ export default function HomeScreen() {
   const observeFirstRecord = useFirstRecordCelebrationStore((state) => state.observe);
   const celebrationChildId = useFirstRecordCelebrationStore((state) => state.activeChildId);
   const dismissFirstRecordCelebration = useFirstRecordCelebrationStore((state) => state.dismiss);
-  // 라운드 35 F3: 동기화 확정 순간의 true -> false -> true 순환을 **홈에서 흡수**한다.
-  // 대기 행은 sync-controller의 스냅샷 갱신에서 먼저 사라지고 ["home"] refetch는 그 뒤라,
-  // 래치가 없으면 그 한 프레임에 첫 지출 유도 카드가 다시 깜빡인다. 이력은 같은 세션 스토어가
-  // 아이별로 들고 있고(everHadRecordChildIds), 래치 규칙은 순수 함수가 정한다.
+  // 라운드 35 F3 → 36 F2: 세션 이력 래치는 이제 **축하 배너 재발화 방지 전용**이다. 이 값을
+  // 화면 표시(안내 카드 · 최근 지출 섹션)까지 쓰면 래치가 거짓으로 돌아가지 않는 성질 때문에
+  // "기록 1건 → 그 한 건 삭제" 뒤에 홈이 앱 재시작 전까지 기록이 있다고 믿고, 섹션은 접힌 채
+  // 유도 카드도 뜨지 않아 지출로 가는 큰 입구가 사라진다(F2). 래치가 여기 남는 이유는 하나뿐:
+  // 배너는 false -> true 전이로 켜지므로, 관찰값을 그대로 흘리면 "전부 삭제 후 다시 기록"이
+  // 새 전이로 읽혀 축하가 두 번 뜬다.
   const everHadExpenseRecord = useFirstRecordCelebrationStore((state) =>
     childId ? Boolean(state.everHadRecordChildIds[childId]) : false
   );
-  const hasAnyExpenseRecord = latchHasAnyExpenseRecord(observedHasAnyExpenseRecord, everHadExpenseRecord);
+  const latchedHasAnyExpenseRecord = latchHasAnyExpenseRecord(observedHasAnyExpenseRecord, everHadExpenseRecord);
   useEffect(() => {
-    if (!childId || hasAnyExpenseRecord === null) return;
-    observeFirstRecord(childId, hasAnyExpenseRecord);
-  }, [childId, hasAnyExpenseRecord, observeFirstRecord]);
+    if (!childId || latchedHasAnyExpenseRecord === null) return;
+    observeFirstRecord(childId, latchedHasAnyExpenseRecord);
+  }, [childId, latchedHasAnyExpenseRecord, observeFirstRecord]);
+  // F2: 화면이 쓰는 값은 관찰값 + **refetch 창 한정** 프레임 가드다. 라운드 35 F3가 막으려던
+  // 깜빡임(동기화 확정 프레임에 대기 행이 먼저 사라지고 서버 반영이 늦는 한 프레임)은 정확히
+  // ["home"]이 다시 도는 동안에만 생기므로, 그 구간에서만 직전 확정값을 붙든다. refetch가
+  // 끝나면 손을 떼므로 "마지막 기록 삭제"는 그 refetch가 끝나는 순간 정확히 반영된다.
+  // 직전 확정값은 아이별로 기억한다 -- 아이를 바꾸면 다른 아이의 사실을 붙들면 안 된다.
+  const settledHasAnyExpenseRecord = useRef<{ childId: string | null; value: boolean | null }>({
+    childId: null,
+    value: null
+  });
+  const lastSettled =
+    settledHasAnyExpenseRecord.current.childId === (childId ?? null)
+      ? settledHasAnyExpenseRecord.current.value
+      : null;
+  const hasAnyExpenseRecord = holdHasAnyExpenseRecordDuringRefetch({
+    observed: observedHasAnyExpenseRecord,
+    isFetching: home.isFetching,
+    lastSettled
+  });
+  useEffect(() => {
+    if (home.isFetching || observedHasAnyExpenseRecord === null) return;
+    settledHasAnyExpenseRecord.current = { childId: childId ?? null, value: observedHasAnyExpenseRecord };
+  }, [childId, home.isFetching, observedHasAnyExpenseRecord]);
   // 준비템 첫 안내는 1회성이라 "닫았다"가 기기에 남는다(persist). 스토어의
   // isItemsGuideDismissed()가 아니라 목록 자체를 구독한다 -- 렌더 중에 함수를 호출하면 그 값이
   // 바뀌어도 리렌더가 걸리지 않아 닫기 버튼이 즉시 반응하지 않는다.
@@ -603,7 +644,9 @@ export default function HomeScreen() {
   const dismissItemsGuide = useHomeFirstRunGuideStore((state) => state.dismissItemsGuide);
   // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
   // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.
-  useHomeNotificationEvaluation(hasSession ? home.data : undefined);
+  // UX-J: 주간 요약 알림이 홈 주간 카드와 같은 숫자를 말하도록 이미 계산된 값을 함께 넘긴다
+  // (새 요청 없음). 아직 없으면 알림은 종전 월 페이스 문구로 폴백한다.
+  useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpend);
   // MOB-117 당겨서 새로고침: 홈 요약·최근 지출은 모두 ["home"] 쿼리에서 나온다. invalidate는
   // 활성 쿼리 refetch 완료까지 resolve되므로 스피너가 실제 완료에 맞춰 닫힌다.
   const queryClient = useQueryClient();
@@ -655,7 +698,13 @@ export default function HomeScreen() {
   // `(monthlyUsed / Math.max(1, budget)) * 100`으로 냈는데, /home은 예산 미설정 달에
   // amountKrw: 0을 주므로 분모가 1이 되어 지출 한 건에 "예산 0원 · 100% 사용 중"이라는
   // 허위 표시가 됐다. 예산이 없으면 퍼센트 자체를 만들지 않는다(hasBudget: false).
-  const budgetProgress = evaluateHomeBudgetProgress({ budgetKrw: budget, spentKrw: monthlyUsed });
+  // UX-J: 세션이 있는 홈에서만 "남은 예산 N원 · 예산 M원"을 보여준다(예산이 있고 초과 전일 때).
+  // 비세션 미리보기(previewHome)는 HOME-001 픽셀락 캡처의 원본이라 종전 문자열 그대로 둔다.
+  const budgetProgress = evaluateHomeBudgetProgress({
+    budgetKrw: budget,
+    spentKrw: monthlyUsed,
+    showRemaining: hasSession
+  });
   const progress = budgetProgress.percent ?? 0;
   // HOME-BUDGET-113: session-gated like NOTI-102 so the logged-out preview stays inert.
   // usedAmountKrw is the gift-excluded month total (DNC-015), see budget-warning.ts.
@@ -690,11 +739,16 @@ export default function HomeScreen() {
   // 어긋나지 않게), 그리고 "이번 달 기록 수"로 첫 사용자만 좁혀 5년 사용자에게는 뜨지 않게 한다.
   // 기록 수는 주간 카드가 이미 쓰는 재조정 결과(서버 캐시 + 오프라인 대기 행)를 그대로 재사용해
   // 요청을 늘리지 않고, 아직 모르면(null) 카드를 만들지 않는다.
+  // 라운드 36 F3: "이번 달"만 보면 1년째 사용자도 매달 1~2일에 0건이 되어 첫 실행 안내가
+  // 되돌아왔다. 전체 기간 신호(/home recentExpenses 길이, 서버 LIMIT 3)를 함께 넘겨 "이번 달도
+  // 적고 전체도 적은" 진짜 초기 사용자에게만 뜨게 한다. 이 값도 홈이 이미 들고 있어 요청이
+  // 늘지 않는다.
   const firstRunGuide = evaluateHomeFirstRunGuide({
     hasSession,
     hasAnyExpenseRecord,
     recommendedItemCount: countUnpreparedRecommendedItems(home.data?.recommendedItems ?? []),
     recentRecordCount: weeklyThisMonthRecords?.length ?? null,
+    serverRecentExpenseCount: home.data ? home.data.recentExpenses.length : null,
     itemsGuideDismissed: childId ? dismissedItemsGuideChildIds.includes(childId) : false
   });
   // F1: "최근 지출" 자리의 빈 상태 판정도 유도 카드·축하 배너와 **같은 소스**를 본다. 서버
@@ -702,14 +756,15 @@ export default function HomeScreen() {
   // 에서는 "첫 기록을 남기면 …"이 한 화면에 동시에 뜬다(라운드 35 F1).
   const pendingOfflineCreateCount = countPendingOfflineCreates(childOfflineRows);
   // F2: 이 섹션이 할 말이 하나도 없으면 제목("최근 지출 / 전체 보기")까지 함께 접는다 --
-  // 본문 없는 제목만 남기면 접은 자리가 고장난 것처럼 보인다. 할 말이 있는 경우는 셋뿐이다:
-  //  1) 서버 목록에 행이 있다(평소),
-  //  2) 아직 올라가지 않은 대기 행이 있다(F1의 한 줄),
-  //  3) 정말 기록이 하나도 없고 그 사실을 대신 말해 줄 첫 지출 유도 카드도 없다(MOB-117 빈 상태).
-  const showRecentExpensesSection =
-    visibleHome.recentExpenses.length > 0 ||
-    pendingOfflineCreateCount > 0 ||
-    (!hasAnyExpenseRecord && firstRunGuide?.variant !== "first-expense");
+  // 본문 없는 제목만 남기면 접은 자리가 고장난 것처럼 보인다. 판정은 순수 모듈이 한다(라운드
+  // 36 F2: 유도 카드와 **같은 관찰값**을 보게 해서, 섹션도 유도 카드도 없는 상태가 아예
+  // 만들어지지 않게 했다 -- 예전에는 래치 때문에 "마지막 기록 삭제" 후 그 구멍이 남았다).
+  const showRecentExpensesSection = shouldShowHomeRecentExpensesSection({
+    serverRecentExpenseCount: visibleHome.recentExpenses.length,
+    pendingOfflineCreateCount,
+    hasAnyExpenseRecord,
+    guideVariant: firstRunGuide?.variant ?? null
+  });
   const showFirstRecordCelebration = hasSession && Boolean(childId) && celebrationChildId === childId;
   // UX-A: 아래 세 가지는 전부 세션이 있을 때만 계산한다 -- 비세션 픽셀락 미리보기(previewHome)에는
   // 아이의 실제 날짜도 지출 행도 없으므로 아무것도 렌더되지 않고, HOME-001 캡처는 종전 그대로다
@@ -726,14 +781,8 @@ export default function HomeScreen() {
   // UX-G: 기록이 한 건도 없는 홈에서 주간 카드는 "이번 주 지출은 아직 없어요 / 이번 주 첫
   // 기록을 남겨보세요"만 말한다 -- 바로 위 유도 카드가 같은 말을 CTA와 함께 하고 있으므로,
   // 첫 지출 유도가 떠 있는 동안에는 그 자리를 유도 카드에 내준다(같은 말을 두 번 하지 않는다).
-  const weeklySummary = hasSession && firstRunGuide?.variant !== "first-expense"
-    ? evaluateWeeklySummary({
-        todayIso: seoulToday,
-        // F6: 서버 목록 원본이 아니라 오프라인 대기·수정 행까지 반영한 재조정 결과다.
-        thisMonthRecords: weeklyThisMonthRecords,
-        lastMonthRecords: weeklyLastMonthRecords
-      })
-    : null;
+  // UX-J: 계산은 위 weeklySpend가 이미 했다(알림 평가와 같은 값). 여기서는 카드를 그릴지만 고른다.
+  const weeklySummary = hasSession && firstRunGuide?.variant !== "first-expense" ? weeklySpend : null;
   const milestoneCountdown = hasSession
     ? evaluateMilestoneCountdown({
         stageMode: selectedChild?.stageMode,
@@ -997,7 +1046,7 @@ export default function HomeScreen() {
               // MOB-117 홈 최근 지출 빈 상태: 기록 탭(records.tsx)의 첫-기록 빈 상태 문구와 톤
               // 일치. 비세션 미리보기(previewHome)는 항상 3건이라 이 분기에 도달하지 않는다.
               // 여기까지 왔다면 showRecentExpensesSection이 이미 "이 문구가 참인 상황"만 통과
-              // 시킨 뒤다(위 정의 — F2 유도 카드 표출 중과 F3 래치 창은 섹션째 접힌다).
+              // 시킨 뒤다(위 정의 — 유도 카드가 떠 있는 동안과 동기화 refetch 창은 섹션째 접힌다).
               <EmptyStateCard
                 title="첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
                 actionLabel="기록하기"

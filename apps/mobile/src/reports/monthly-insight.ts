@@ -75,6 +75,26 @@ export type MonthlyInsight = {
   headline: string;
   /** 카드 둘째 줄(없으면 null). */
   detail: string | null;
+  /**
+   * 가족에게 **보내도 되는** 문장(카테고리 1위 문장)만. 말할 근거가 없으면 null.
+   *
+   * 라운드 36 F-1: 공유 문구는 `headline`을 쓰면 안 된다. headline은 "우선순위 목록의 첫 번째
+   * 살아남은 문장"일 뿐이라, 카테고리 분해가 아직 안 왔거나(리포트 탭 콜드 진입에서 categories
+   * 쿼리가 늦거나 실패하면 화면이 `categoryTop: undefined`를 넘긴다) 비어 있으면 **예산·하루
+   * 평균 문장이 headline 자리로 올라온다** — "예산의 67%를 썼고, 하루 평균 37,037원이에요"가
+   * 가족 단톡방으로 나가는 경로다. 문장 종류를 여기서 못 박아, 공유 조립기가 "첫 문장"이 아니라
+   * "공유해도 되는 문장"을 집게 한다(share-text.ts).
+   */
+  shareableHeadline: string | null;
+  /**
+   * 진행 중인 달의 구간 줄("8월 1일~27일 기준"). 끝난 달이면 null.
+   *
+   * 라운드 36 F-5: 이 줄의 유일한 소스다. 예전에는 공유 조립기가 `monthStatus`는 인사이트에서,
+   * 구간 줄은 **따로 받은** yearMonth/todayIso에서 만들었다 — 두 소스가 어긋나면 구간 줄만
+   * 조용히 사라져 27일치 부분 합계가 한 달치처럼 나갔다. 인사이트를 만든 그 시점의
+   * yearMonth/todayIso로 여기서 함께 굳힌다.
+   */
+  partialRangeLine: string | null;
   /** 렌더 순서 그대로의 문장들(최대 2). */
   sentences: string[];
   /** 카드를 한 요소로 읽어 주는 TalkBack 라벨. */
@@ -142,6 +162,25 @@ export function elapsedDaysInMonth(
   const todayDay = Number(todayIso.slice(8, 10));
   if (!Number.isInteger(todayDay) || todayDay < 1) return null;
   return Math.min(todayDay, monthLength);
+}
+
+/**
+ * 진행 중인 달의 구간 표기 — "8월 1일~27일 기준".
+ *
+ * 보고 있는 달이 오늘이 속한 달이 아니거나 날짜 형식이 어긋나면 null(줄 없음)이다. 오늘이
+ * 그 달의 1일이면 "8월 1일~1일 기준"이 되는데, 하루치라는 사실이 그대로 드러나므로 그대로 둔다.
+ *
+ * 라운드 36 F-5로 share-text.ts에서 이리로 옮겼다 — 구간 줄은 "지금 보고 있는 달이 어디까지
+ * 채워졌는가"라는 인사이트의 사실이고, 공유 조립기는 그 결과를 받아 쓰기만 한다.
+ */
+export function partialMonthRangeLine(yearMonth: string, todayIso: string): string | null {
+  if (!YEAR_MONTH_PATTERN.test(yearMonth) || !DATE_ONLY_PATTERN.test(todayIso)) return null;
+  if (todayIso.slice(0, 7) !== yearMonth) return null;
+  const month = Number(yearMonth.slice(5, 7));
+  const day = Number(todayIso.slice(8, 10));
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  if (!Number.isInteger(day) || day < 1) return null;
+  return `${month}월 1일~${day}일 기준`;
 }
 
 function normalizedAmount(value: number | null | undefined): number | null {
@@ -257,6 +296,12 @@ export function buildMonthlyInsight(input: MonthlyInsightInput): MonthlyInsight 
     monthStatus,
     headline: sentences[0],
     detail: sentences[1] ?? null,
+    // F-1: 공유해도 되는 문장은 카테고리 1위 문장 하나뿐이다(예산·하루 평균·지난달 비교는
+    // 화면에서 읽는 개인 목표에 가깝다). 상한에 밀려 실제로 렌더되지 않았으면 없는 것으로 친다.
+    shareableHeadline:
+      topCategorySentence !== null && sentences.includes(topCategorySentence) ? topCategorySentence : null,
+    // F-5: 구간 줄도 이 시점의 yearMonth/todayIso로 함께 굳힌다.
+    partialRangeLine: monthStatus === "in-progress" ? partialMonthRangeLine(input.yearMonth, input.todayIso) : null,
     sentences,
     accessibilityLabel: sentences.join(" "),
     hasComparison: comparisonSentence !== null && sentences.includes(comparisonSentence),

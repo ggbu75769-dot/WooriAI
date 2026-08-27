@@ -14,6 +14,18 @@ export class CreateExpenseDto {
   @Min(1)
   amountKrw!: number;
 
+  /**
+   * 라운드 36 F-7: 여기서는 `YYYY-MM-DD` 형식만 본다. "오늘보다 미래일 수 없다"(DNC-013)는
+   * 도메인 규칙이라 서비스 계층이 서울 기준으로 판정하고
+   * (`store-shared.assertNotFutureDate` → `isFutureSeoulDate(spentOn, referenceNow())`),
+   * VALIDATION_ERROR가 아니라 **EXPENSE_FUTURE_DATE(400)** 로 나간다. 달력상 불가능한 날짜
+   * (2026-02-31)도 같은 곳에서 EXPENSE_DATE_INVALID로 걸린다 — 정규식만으로는 통과하기 때문이다.
+   *
+   * 이 층에 미래 차단을 또 넣지 않는 이유: 생성(insertExpense)·수정(updateExpense)·엑셀 임포트
+   * 확정(import-pipeline) 세 경로가 이미 같은 함수를 지나므로 DTO에 얹으면 규칙이 두 벌이 되고,
+   * 클라이언트가 코드로 분기하는 에러 봉투가 경로마다 갈린다(생년월일 규칙도 같은 이유로
+   * 서비스 계층에 둔다 — onboarding/dto/child.dto.ts의 birthDate 주석 참고).
+   */
   @Matches(datePattern)
   spentOn!: string;
 
@@ -55,6 +67,7 @@ export class UpdateExpenseDto {
   @Min(1)
   amountKrw?: number;
 
+  /** F-7: CreateExpenseDto.spentOn과 동일 — 미래 날짜 거부는 서비스 계층(EXPENSE_FUTURE_DATE). */
   @IsOptional()
   @Matches(datePattern)
   spentOn?: string;

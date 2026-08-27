@@ -36,6 +36,54 @@ describe("HOME-127 예산 미설정 홈 판정 (evaluateHomeBudgetProgress)", ()
     expect(progress).toEqual({ hasBudget: true, percent: 78, subtext: "예산 1,600,000원" });
   });
 
+  it("UX-J: showRemaining이면 남은 예산을 앞세운다 -- 앱이 약속한 그 숫자", () => {
+    // "예산을 정하면 남은 금액을 보여드릴게요"(예산 미설정 문구)의 약속을 실제로 지킨다.
+    const progress = evaluateHomeBudgetProgress({
+      budgetKrw: 1_600_000,
+      spentKrw: 1_245_700,
+      showRemaining: true
+    });
+    expect(progress.subtext).toBe("남은 예산 354,300원 · 예산 1,600,000원");
+    // 남은 금액은 화면 옆 퍼센트와 같은 소스에서 나온다: 예산 - 사용 = 남은 예산.
+    expect(progress.percent).toBe(78);
+  });
+
+  it("UX-J: 예산을 딱 다 쓴 달은 '남은 예산 0원'으로 사실대로 말한다(초과가 아니다)", () => {
+    const progress = evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 100_000, showRemaining: true });
+    expect(progress.subtext).toBe("남은 예산 0원 · 예산 100,000원");
+    expect(progress.percent).toBe(100);
+  });
+
+  it("UX-J: 초과한 달에는 남은 예산을 말하지 않는다 -- 경고 배너와 중복/음수 금지", () => {
+    const progress = evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 130_000, showRemaining: true });
+    expect(progress.subtext).toBe("예산 100,000원");
+    expect(progress.subtext).not.toContain("남은 예산");
+    // 음수 잔액을 "남은 예산"이라고 부르는 허위 표시가 절대 나오지 않는다.
+    expect(progress.subtext).not.toContain("-");
+  });
+
+  it("UX-J: 예산이 없으면 showRemaining이어도 종전 안내 그대로다 -- 없는 예산의 잔액은 없다", () => {
+    const progress = evaluateHomeBudgetProgress({ budgetKrw: 0, spentKrw: 45_900, showRemaining: true });
+    expect(progress).toEqual({
+      hasBudget: false,
+      percent: null,
+      subtext: "예산을 정하면 남은 금액을 보여드릴게요"
+    });
+  });
+
+  it("UX-J: showRemaining 기본값(비세션 미리보기)은 HOME-001 픽셀락 문자열을 유지한다", () => {
+    // 플래그를 넘기지 않는 호출부 = 종전 동작. 캡처 고정값에서 한 글자도 달라지지 않는다.
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 1_600_000, spentKrw: 1_245_700 }).subtext).toBe("예산 1,600,000원");
+    expect(evaluateHomeBudgetProgress({ budgetKrw: 1_600_000, spentKrw: 1_245_700, showRemaining: false }).subtext).toBe(
+      "예산 1,600,000원"
+    );
+  });
+
+  it("UX-J: 잘못된 입력(음수 지출)에도 남은 예산이 예산을 넘지 않는다", () => {
+    const progress = evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: -5_000, showRemaining: true });
+    expect(progress.subtext).toBe("남은 예산 100,000원 · 예산 100,000원");
+  });
+
   it("퍼센트를 0~100에 물린다", () => {
     expect(evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 0 }).percent).toBe(0);
     expect(evaluateHomeBudgetProgress({ budgetKrw: 100_000, spentKrw: 100_000 }).percent).toBe(100);
@@ -101,6 +149,8 @@ describe("HOME-127 홈/히어로 카드 배선", () => {
     const homeSource = source("app/(tabs)/index.tsx");
     expect(homeSource).toContain("showProgress={budgetProgress.hasBudget}");
     expect(homeSource).toContain("subtext={budgetProgress.subtext}");
+    // UX-J: 남은 예산 한 줄은 세션이 있을 때만 -- 비세션 미리보기는 픽셀락 캡처 그대로다.
+    expect(homeSource).toContain("showRemaining: hasSession");
 
     const uiSource = source("src/ui.tsx");
     const heroBlock = uiSource.slice(

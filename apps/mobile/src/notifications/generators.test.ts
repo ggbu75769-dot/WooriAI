@@ -5,6 +5,7 @@ import {
   type PurchaseFollowupEntry
 } from "../commerce/purchase-followup.store";
 import { evaluateBudgetWarning } from "../home/budget-warning";
+import { evaluateWeeklySummary } from "../home/weekly-summary";
 import {
   budgetNotifications,
   evaluateHomeNotifications,
@@ -286,6 +287,114 @@ describe("NOTI-103 weekly_summary generator (monthly-pace variant)", () => {
   });
 });
 
+describe("UX-J weekly_summary -- 홈 주간 카드와 같은 실제 주간 숫자", () => {
+  /** Epoch ms for a Seoul (KST) civil date/time. */
+  const kst = (year: number, month1: number, day: number, hour = 12, minute = 0) =>
+    Date.UTC(year, month1 - 1, day, hour, minute) - SEOUL_UTC_OFFSET_MS;
+  // 2026-08-20(목) KST = Seoul ISO 2026-W34.
+  const base = {
+    childId: "child-1",
+    childName: "다온이",
+    budgetKrw: 1_000_000,
+    spentKrw: 300_000,
+    now: kst(2026, 8, 20)
+  };
+
+  it("주간 값이 있으면 홈 카드 첫 줄을 그대로 제목으로 쓴다 (비교 있음: 적게)", () => {
+    const candidate = weeklySummaryNotification({
+      ...base,
+      weekly: { totalKrw: 84_200, text: "이번 주 84,200원 · 지난주 같은 요일까지보다 12,000원 적게 썼어요" }
+    });
+
+    expect(candidate).toEqual({
+      type: "weekly_summary",
+      title: "이번 주 84,200원 · 지난주 같은 요일까지보다 12,000원 적게 썼어요",
+      body: "『다온이』 지출 내역을 확인해보세요.",
+      // 키는 UX-J에서도 그대로다(서울 ISO 주 · 아이별).
+      dedupeKey: "weekly_summary:child-1:2026-W34",
+      childId: "child-1"
+    });
+    // 월 누적 문구가 섞이지 않는다 -- 홈 주간 카드와 어긋나던 원인.
+    expect(candidate!.title).not.toContain("이번 달");
+    // 부분 주 비교라는 사실을 문장이 스스로 밝힌다(허위 비교 금지).
+    expect(candidate!.title).toContain("같은 요일까지");
+  });
+
+  it("지난주보다 많이 쓴 주와 비교가 없는 주도 홈 카드 문구를 따른다", () => {
+    expect(
+      weeklySummaryNotification({
+        ...base,
+        weekly: { totalKrw: 100_000, text: "이번 주 100,000원 · 지난주 같은 요일까지보다 60,000원 많이 썼어요" }
+      })!.title
+    ).toBe("이번 주 100,000원 · 지난주 같은 요일까지보다 60,000원 많이 썼어요");
+
+    // 지난주 구간이 캐시에 없거나 지난주가 0원이면 홈 카드도 합계만 말한다 -- 알림도 같다.
+    expect(weeklySummaryNotification({ ...base, weekly: { totalKrw: 42_000, text: "이번 주 42,000원" } })!.title).toBe(
+      "이번 주 42,000원"
+    );
+  });
+
+  it("이번 주 지출이 0원이면 알리지 않는다 -- 그 주에 지출이 생기면 그때 발화한다", () => {
+    // 키가 아직 쓰이지 않았으므로(candidate 자체를 안 만든다) 같은 주 뒤 평가에서 뜬다.
+    expect(
+      weeklySummaryNotification({ ...base, weekly: { totalKrw: 0, text: "이번 주 지출은 아직 없어요" } })
+    ).toBeNull();
+  });
+
+  it("주간 값이 없으면 종전 월 페이스 문구로 폴백한다 -- 알림이 통째로 사라지지 않는다", () => {
+    for (const weekly of [undefined, null]) {
+      const candidate = weeklySummaryNotification({ ...base, weekly });
+      expect(candidate!.title).toBe("이번 달 지금까지 300,000원 · 예산의 30%예요");
+      expect(candidate!.dedupeKey).toBe("weekly_summary:child-1:2026-W34");
+    }
+    // 예산이 없는 달의 폴백 문구도 그대로다.
+    expect(weeklySummaryNotification({ ...base, budgetKrw: 0, weekly: null })!.title).toBe(
+      "이번 달 지금까지 300,000원을 함께했어요"
+    );
+    // 폴백 경로의 "월 누적 0원이면 침묵" 규칙도 그대로다.
+    expect(weeklySummaryNotification({ ...base, spentKrw: 0, weekly: null })).toBeNull();
+  });
+
+  it("망가진 주간 값(NaN 합계·빈 문구)은 폴백으로 보낸다 -- 빈 제목 알림 금지", () => {
+    expect(weeklySummaryNotification({ ...base, weekly: { totalKrw: Number.NaN, text: "이번 주 ?" } })!.title).toBe(
+      "이번 달 지금까지 300,000원 · 예산의 30%예요"
+    );
+    expect(weeklySummaryNotification({ ...base, weekly: { totalKrw: 84_200, text: "" } })!.title).toBe(
+      "이번 달 지금까지 300,000원 · 예산의 30%예요"
+    );
+  });
+
+  it("주 경계·아이별 키는 UX-J에서도 변하지 않는다", () => {
+    const weekly = { totalKrw: 84_200, text: "이번 주 84,200원" };
+    expect(weeklySummaryNotification({ ...base, weekly, now: kst(2026, 8, 24, 0, 0) })!.dedupeKey).toBe(
+      "weekly_summary:child-1:2026-W35"
+    );
+    expect(weeklySummaryNotification({ ...base, weekly, childId: "child-2" })!.dedupeKey).toBe(
+      "weekly_summary:child-2:2026-W34"
+    );
+  });
+
+  it("홈 카드 모듈의 결과를 그대로 넘기면 두 화면의 문장이 같아진다 (정합 계약)", () => {
+    // 홈이 실제로 하는 일: evaluateWeeklySummary 결과를 그대로 알림 평가에 넘긴다.
+    const summary = evaluateWeeklySummary({
+      todayIso: "2026-08-27", // 목요일
+      thisMonthRecords: [
+        { spentOn: "2026-08-24", amountKrw: 30_000, expenseType: "expense" },
+        { spentOn: "2026-08-25", amountKrw: 24_200, expenseType: "expense" },
+        { spentOn: "2026-08-26", amountKrw: 20_000, expenseType: "expense" },
+        { spentOn: "2026-08-27", amountKrw: 10_000, expenseType: "expense" },
+        { spentOn: "2026-08-17", amountKrw: 50_000, expenseType: "expense" },
+        { spentOn: "2026-08-19", amountKrw: 46_200, expenseType: "expense" }
+      ],
+      lastMonthRecords: []
+    });
+
+    const candidate = weeklySummaryNotification({ ...base, now: kst(2026, 8, 27), weekly: summary });
+    expect(candidate!.title).toBe(summary!.text);
+    expect(candidate!.title).toBe("이번 주 84,200원 · 지난주 같은 요일까지보다 12,000원 적게 썼어요");
+  });
+});
+
 describe("NOTI-102 combined home evaluation", () => {
   it("merges budget, stage, purchase, and weekly-summary candidates from one home snapshot", () => {
     const candidates = evaluateHomeNotifications({
@@ -331,5 +440,32 @@ describe("NOTI-102 combined home evaluation", () => {
       now: NOW
     });
     expect(candidates).toEqual([]);
+  });
+
+  it("UX-J: 홈이 넘긴 주간 값이 주간 알림까지 그대로 흐른다 (다른 알림은 그대로)", () => {
+    const home = {
+      child: { id: "child-1", nickname: "다온이", stageLabel: "24개월" },
+      monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 100_000 },
+      lastSeenStageLabel: "24개월",
+      followupEntries: [],
+      now: NOW
+    };
+
+    const withWeekly = evaluateHomeNotifications({
+      ...home,
+      weekly: { totalKrw: 84_200, text: "이번 주 84,200원 · 지난주 같은 요일까지보다 12,000원 적게 썼어요" }
+    });
+    expect(withWeekly.map((candidate) => candidate.type)).toEqual(["weekly_summary"]);
+    expect(withWeekly[0]!.title).toBe("이번 주 84,200원 · 지난주 같은 요일까지보다 12,000원 적게 썼어요");
+    // 키는 인자 유무와 무관하게 같다 -- 한 주에 두 번 뜨지 않는다.
+    expect(withWeekly[0]!.dedupeKey).toBe(evaluateHomeNotifications(home)[0]!.dedupeKey);
+
+    // 이번 주 0원이면 주간 알림만 빠지고, 나머지 알림 경로는 영향을 받지 않는다.
+    const quietWeek = evaluateHomeNotifications({
+      ...home,
+      monthly: { yearMonth: "2026-08", amountKrw: 1_000_000, usedAmountKrw: 900_000 },
+      weekly: { totalKrw: 0, text: "이번 주 지출은 아직 없어요" }
+    });
+    expect(quietWeek.map((candidate) => candidate.type)).toEqual(["budget_80"]);
   });
 });
