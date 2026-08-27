@@ -61,11 +61,13 @@ describe("items tab stage-band wiring", () => {
     expect(itemsSource).toContain("const tabOptions = bandDefinitions.map((band) => band.label);");
   });
 
-  it("keeps the prep-progress snapshot band-agnostic (all four tabs, no stageBand)", () => {
-    // 준비율은 밴드와 무관한 전 상태 스냅샷의 합집합에서 계산한다 -- 여기에 stageBand를
-    // 넘기면 분모가 좁아져 준비율이 틀어진다(computeEssentialPrepProgress가 밴드를 본다).
+  it("keeps the prep-progress snapshot band-agnostic (ITEM-123: 한 번의 tab=all, no stageBand)", () => {
+    // 준비율은 밴드와 무관한 전 상태 스냅샷에서 계산한다 -- 여기에 stageBand를 넘기면
+    // 분모가 좁아져 준비율이 틀어진다(computeEssentialPrepProgress가 밴드를 본다).
+    // ITEM-123 (B5): 탭 4개를 각각 부르던 스냅샷이 tab="all" 1요청으로 바뀌었다.
     const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain("tabs.map((tab) => listItems(authToken!, childId!, tab))");
+    expect(itemsSource).toContain('listItems(authToken!, childId!, "all")');
+    expect(itemsSource).not.toContain("tabs.map((tab) => listItems(authToken!, childId!, tab))");
   });
 
   it("exposes the necessity chips and the name search only inside a real session (B2/B3)", () => {

@@ -171,8 +171,15 @@ export const STAGE_BAND_LABELS = stageBandLabelSchema.options;
 // ITEM-121: GET /children/:childId/items 쿼리 계약 — 서버 ListItemsQueryDto의 미러
 // (apps/api/src/items-commerce/dto/items.dto.ts). 두 파라미터 모두 선택적이며,
 // stageBand를 생략하면 기존 동작(아이의 현재 단계 기준)이 그대로 유지된다(하위호환).
+//
+// ITEM-123 (B4/B5): 두 가지가 확장됐다(둘 다 값 추가/응답 확대라 기존 클라이언트는 무영향).
+// - `prepared` 탭은 이제 prepared뿐 아니라 gifted 상태 항목도 함께 돌려준다. gifted는
+//   "선물로 받아 이미 손에 있다"라 준비 완료와 같은 계열이고, "필요 없다고 판단했다"인
+//   not_needed와는 다르다(서버 items-catalog.service.ts TAB_STATUSES 주석 참고).
+// - `all`은 상태로 거르지 않는 전체 스냅샷 탭이다. 네 탭의 합집합과 같은 집합을 1요청으로
+//   준다 — 준비율(ITEM-114)처럼 전 상태가 필요한 화면의 4연속 요청을 없앤다.
 export const listItemsQuerySchema = z.object({
-  tab: z.enum(["now", "soon", "prepared", "not_needed"]).optional(),
+  tab: z.enum(["now", "soon", "prepared", "not_needed", "all"]).optional(),
   stageBand: stageBandLabelSchema.optional()
 });
 

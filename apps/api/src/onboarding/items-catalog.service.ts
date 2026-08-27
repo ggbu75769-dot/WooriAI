@@ -80,7 +80,31 @@ export type AdminProductLinkInput = {
   active?: boolean;
 };
 
-export type ItemTab = "now" | "soon" | "prepared" | "not_needed";
+/**
+ * ITEM-123 (B5): `all`은 상태로 거르지 않는 **전체 스냅샷** 탭이다. 기존 4개 탭은 그대로 두고
+ * 추가만 했으므로(하위호환) 예전 클라이언트는 영향을 받지 않는다. 준비율(ITEM-114)처럼
+ * "모든 활성 준비물의 현재 상태"가 필요한 화면이 탭 4개를 각각 부르는 대신 1요청으로
+ * 같은 집합을 받는다.
+ */
+export type ItemTab = "now" | "soon" | "prepared" | "not_needed" | "all";
+
+/**
+ * ITEM-123 (B4): 상태 탭이 담는 상태 집합.
+ *
+ * gifted가 어느 탭에 속하는가 — `prepared`다. 근거:
+ * - 도메인(packages/domain/src/recommendation.ts EXCLUDED_NOW_NEEDED_STATUSES)은
+ *   prepared/gifted/not_needed를 "지금 필요" 추천에서 함께 제외한다. 세 상태 모두
+ *   더 이상 준비 행동이 필요 없다는 뜻이다.
+ * - 그 안에서 gifted는 "선물로 받아 **이미 손에 있다**"이므로 물건을 갖춘 prepared와
+ *   같은 계열이고, "필요 없다고 판단해 **준비하지 않기로 했다**"인 not_needed와는
+ *   의미가 정반대다. 준비완료 탭에 넣어야 사용자가 가진 물건을 한 곳에서 본다.
+ * - 예전에는 어느 탭에도 없어서 gifted 항목이 앱에서 완전히 사라졌다(ITEM-114 준비율의
+ *   분모에서도 빠졌다). 탭 응답이 넓어질 뿐 기존 항목이 사라지지 않으므로 하위호환이다.
+ */
+const TAB_STATUSES: Record<"prepared" | "not_needed", ItemStatus[]> = {
+  prepared: ["prepared", "gifted"],
+  not_needed: ["not_needed"]
+};
 
 function priceBandText(priceMinKrw: number | null, priceMaxKrw: number | null) {
   if (priceMinKrw == null && priceMaxKrw == null) {
@@ -528,9 +552,21 @@ export class ItemsCatalogService {
       ? (item: ItemTemplateWithStages) => itemStagesMatchBand(item.stageCodes, stageBand)
       : (item: ItemTemplateWithStages) => item.stageCodes.includes(stageCode);
 
-    if (tab === "prepared" || tab === "not_needed") {
+    // ITEM-123 (B5): 전체 스냅샷. 상태로 거르지 않으므로 now/soon/prepared/not_needed
+    // 네 탭의 합집합과 정확히 같은 집합이고(gifted 포함), 화면이 준비율을 계산하려고
+    // 탭을 4번 부르던 왕복을 1번으로 줄인다. stageBand가 오면 다른 상태 탭들과 같은
+    // 규칙으로 밴드까지 좁힌다(생략 시 전 시기 — 준비율 스냅샷이 쓰는 방식).
+    if (tab === "all") {
       return activeItems
-        .filter((item) => statusFor(item.id) === tab)
+        .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
+        .sort((left, right) => left.displayOrder - right.displayOrder)
+        .map((item) => ({ item, status: statusFor(item.id) }));
+    }
+
+    if (tab === "prepared" || tab === "not_needed") {
+      const tabStatuses = TAB_STATUSES[tab];
+      return activeItems
+        .filter((item) => tabStatuses.includes(statusFor(item.id)))
         .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
         .sort((left, right) => left.displayOrder - right.displayOrder)
         .map((item) => ({ item, status: statusFor(item.id) }));

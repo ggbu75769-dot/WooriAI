@@ -975,11 +975,15 @@ export function getMilestoneReport(token: string, childId: string, type: Milesto
  * ITEM-121: `stageBand`는 선택적이다. 넘기면 서버가 그 시기 밴드 기준으로 목록을 만들고
  * (현재 단계와 다른 시기의 준비물도 미리 볼 수 있다), 생략하면 종전대로 아이의 현재 단계
  * 기준이다 — 준비율 스냅샷처럼 밴드와 무관한 호출은 그대로 두면 된다.
+ *
+ * ITEM-123 (B5): tab="all"은 상태로 거르지 않는 전체 스냅샷이다 — 네 상태 탭의 합집합과
+ * 같은 집합(gifted 포함)을 한 번에 받는다. 준비율(ITEM-114)이 탭 4개를 각각 부르던 것을
+ * 이 한 요청으로 대체한다.
  */
 export function listItems(
   token: string,
   childId: string,
-  tab: "now" | "soon" | "prepared" | "not_needed" = "now",
+  tab: "now" | "soon" | "prepared" | "not_needed" | "all" = "now",
   stageBand?: StageBandLabel
 ) {
   if (isLocalToken(token)) return local(() => localBackend.listItems(childId, tab, stageBand));

@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image, Linking, Pressable, Share, Text, View } from "react-native";
-// Platform is imported separately: items-commerce-flow.test.ts (COM-106) pins the exact
-// react-native import line above.
-import { Platform } from "react-native";
+// Platform/Alert are imported separately: items-commerce-flow.test.ts (COM-106) pins the
+// exact react-native import line above, so later additions go on this second line
+// (Alert = ITEM-123 B4의 "선물로 받았어요" 확인 흐름).
+import { Alert, Platform } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildAffiliateLinkClickedPayload, buildItemStatusChangedPayload } from "../../src/analytics/events";
 import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
@@ -202,6 +203,24 @@ export default function ItemDetailScreen() {
     }
   });
 
+  /**
+   * ITEM-123 (B4): "선물로 받았어요" — 도메인·DTO·statusLabel에는 있었지만 앱 어디에서도
+   * 고를 수 없던 gifted 상태의 유일한 진입점이다. 찜하기 토글과 같은 관례(같은 status
+   * PATCH, 같은 캐시 무효화, 같은 ANA-103 이벤트)를 쓰고, 되돌리기는 not_prepared로
+   * 돌린다. DNC-015(선물 받은 물건은 지출 합계에서 제외)와도 맞물린다 — 지출을 만들지
+   * 않고 준비 상태만 정리하는 경로다.
+   */
+  const markGifted = useMutation({
+    mutationFn: (status: "gifted" | "not_prepared") =>
+      updateItemStatus(authToken!, childId!, itemTemplateId, status),
+    onSuccess: async (_data, status) => {
+      trackItemStatusChanged(status);
+      await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
+      await queryClient.invalidateQueries({ queryKey: ["items"] });
+      await queryClient.invalidateQueries({ queryKey: ["home"] });
+    }
+  });
+
   const clickLink = useMutation({
     mutationFn: (productLinkId: string) => clickProductLink(authToken!, productLinkId, childId!, "ITEM-003"),
     onSuccess: async (result) => {
@@ -272,6 +291,23 @@ export default function ItemDetailScreen() {
 
   const visibleDetail = hasSession ? detail.data! : previewDetail(itemTemplateId);
   const isInterested = visibleDetail.status === "interested";
+  const isGifted = visibleDetail.status === "gifted";
+  // ITEM-123 (B4): 상태를 바꾸기 전 확인 -- 지출 삭제/설정 화면과 같은 Alert 관례
+  // (질문형 제목 + "취소" cancel 버튼 + 실행 버튼). 준비 전으로 되돌리는 쪽도 목록에서
+  // 항목이 다시 나타나는 눈에 띄는 변화라 같이 확인한다.
+  function confirmGiftedChange() {
+    if (isGifted) {
+      Alert.alert("선물 받음을 취소할까요?", "다시 준비 전으로 돌아가요.", [
+        { text: "취소", style: "cancel" },
+        { text: "되돌리기", onPress: () => markGifted.mutate("not_prepared") }
+      ]);
+      return;
+    }
+    Alert.alert("선물로 받았어요", "이 준비템을 선물로 받은 걸로 표시할까요? 준비완료 탭에서 볼 수 있어요.", [
+      { text: "취소", style: "cancel" },
+      { text: "표시하기", onPress: () => markGifted.mutate("gifted") }
+    ]);
+  }
   const canCallLinkApi = hasSession;
   const handleProductLinkPress = (link: ProductLink) => {
     if (canCallLinkApi) {
@@ -381,6 +417,18 @@ export default function ItemDetailScreen() {
               style={{ flex: 1 }}
             />
           </View>
+
+          {/* ITEM-123 (B4): 구매 CTA 아래에 두는 이유 -- (1) DNC-010의 제휴 고지는 구매 CTA에
+              인접해야 하므로 그 사이에 아무것도 끼우지 않고, (2) "이미 선물로 받았다"는 구매를
+              대체하는 선택지라 CTA 다음 줄에서 보여주는 편이 핵심 루프를 흐리지 않는다. */}
+          <SecondaryButton
+            disabled={!hasSession || markGifted.isPending}
+            label={isGifted ? "선물 받음 취소" : "선물로 받았어요"}
+            accessibilityLabel={
+              isGifted ? `${visibleDetail.name} 선물 받음 취소` : `${visibleDetail.name} 선물로 받았어요`
+            }
+            onPress={confirmGiftedChange}
+          />
 
           {clickedTitle ? (
             <Card style={{ backgroundColor: theme.colors.mint }}>

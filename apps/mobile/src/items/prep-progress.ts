@@ -12,11 +12,12 @@ import { itemMatchesBand, type StageBandLabel } from "./stage-bands";
  * (별도 상태 목록을 복제하면 도메인 enum 변경 시 어긋날 수 있다).
  * not_prepared / interested는 아직 행동이 남은 미해결 상태다(관심 표시는 준비가 아니다).
  *
- * 알려진 한계: items 목록 API의 4개 탭(now/soon/prepared/not_needed)은 gifted 상태
- * 항목을 어느 탭에도 반환하지 않는다(서버 apps/api/src/onboarding/items-catalog.service.ts
- * itemsForChild 참고). 따라서 탭 응답 합집합으로 계산하면 gifted 필수템은 분자·분모에서
- * 함께 빠진다. 계산 자체는 gifted를 해결됨으로 취급하므로, API가 나중에 gifted를 노출하면
- * 코드 변경 없이 올바르게 집계된다.
+ * ITEM-123 (B4) 해소: 예전에는 items 목록 API의 4개 탭(now/soon/prepared/not_needed)이
+ * gifted 항목을 어느 탭에도 반환하지 않아, 탭 응답 합집합으로 계산하면 gifted 필수템이
+ * 분자·분모에서 함께 빠졌다. 이제 서버가 gifted를 prepared 탭에 담고(TAB_STATUSES), 화면은
+ * 상태로 거르지 않는 tab="all" 스냅샷 하나로 준비율을 계산한다(B5). 여기 계산은 처음부터
+ * gifted를 해결됨으로 취급했으므로 이 파일의 규칙은 그대로 둬도 정합이 맞는다 —
+ * 그 약속이 실제로 성립하는지는 prep-progress.test.ts의 gifted 케이스가 고정한다.
  */
 export type PrepProgressItem = {
   id: string;

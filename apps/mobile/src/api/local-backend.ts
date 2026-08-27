@@ -46,7 +46,17 @@ import type {
   YearlyReport
 } from "./client";
 
-type ItemTab = "now" | "soon" | "prepared" | "not_needed";
+// ITEM-123: 서버 ItemTab의 미러 (apps/api/src/onboarding/items-catalog.service.ts).
+// "all"은 상태 필터 없는 전체 스냅샷 탭이다(B5).
+type ItemTab = "now" | "soon" | "prepared" | "not_needed" | "all";
+
+// ITEM-123 (B4): 서버 TAB_STATUSES의 미러 — gifted는 "선물로 받아 이미 손에 있다"이므로
+// 준비완료 탭에 함께 담긴다(근거는 서버 쪽 주석 참고). 두 정의가 어긋나면 로컬 세션과
+// 실서버가 다른 목록을 보여주므로 값 자체를 같은 형태로 둔다.
+const LOCAL_TAB_STATUSES: Record<"prepared" | "not_needed", ItemStatus[]> = {
+  prepared: ["prepared", "gifted"],
+  not_needed: ["not_needed"]
+};
 import {
   LOCAL_CATEGORY_DETERGENT,
   LOCAL_CATEGORY_DIAPER,
@@ -1032,10 +1042,21 @@ export function listItems(
   const inSelectedPeriod = (item: (typeof localItemTemplateFixtures)[number]) =>
     stageBand ? itemMatchesBand({ stageCodes: item.stageCodes, timingLabel: item.timingLabel }, stageBand) : item.stageCodes.includes(stageCode);
 
-  if (tab === "prepared" || tab === "not_needed") {
+  // ITEM-123 (B5): 상태로 거르지 않는 전체 스냅샷 — 서버 tab="all"과 같은 집합.
+  if (tab === "all") {
     return {
       items: localItemTemplateFixtures
-        .filter((item) => itemStatusFor(item.id) === tab)
+        .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
+        .sort((left, right) => left.displayOrder - right.displayOrder)
+        .map(toItemSummaryDto)
+    };
+  }
+
+  if (tab === "prepared" || tab === "not_needed") {
+    const tabStatuses = LOCAL_TAB_STATUSES[tab];
+    return {
+      items: localItemTemplateFixtures
+        .filter((item) => tabStatuses.includes(itemStatusFor(item.id)))
         .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
         .sort((left, right) => left.displayOrder - right.displayOrder)
         .map(toItemSummaryDto)
