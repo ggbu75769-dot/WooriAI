@@ -10,8 +10,8 @@
  *
  * (MOB-121 removed the D0 `MoneyText` component and, with it, this module's only caller of the
  * split number/suffix variant; `formatKrwParts`/`MoneyKrwParts` were dropped in R19-E as dead
- * exports. The money type scale those two rendered lives on in `theme.money`, which `ui/ListRow`
- * still consumes.)
+ * exports. The money type scale those two rendered lives on in `theme.money`; CLN-130 removed
+ * its last consumer (`src/ui/ListRow.tsx`), so the token now has no renderer — see theme.ts.)
  */
 
 const krwFormatter = new Intl.NumberFormat("ko-KR");

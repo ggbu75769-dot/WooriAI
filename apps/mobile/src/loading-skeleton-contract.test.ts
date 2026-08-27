@@ -33,6 +33,8 @@ describe("MOB-119 loading skeleton contract", () => {
       }
     });
 
+    // 주의(MOB-130): 아래는 에러 카드가 소스에 "있다"만 말한다 -- 실제로 도달 가능한지는
+    // 분기 순서의 문제이고, 그 계약은 src/screen-phase.test.ts가 진다.
     it(`${screen.path} keeps the retry EmptyStateCard on the error branch`, () => {
       const source = readSource(screen.path);
       expect(source).toContain('title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."');

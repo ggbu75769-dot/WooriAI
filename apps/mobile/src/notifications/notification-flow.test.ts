@@ -88,8 +88,13 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     // re-closed (see the KnownAppNotificationType note in notification.store.ts).
     const screenSource = source("app/notifications.tsx");
     expect(screenSource).toContain('router.push("/(tabs)/items")');
-    const listRowSource = source("src/ui/ListRow.tsx");
-    expect(listRowSource).toContain("icon?: string;");
+    // CLN-130: 이 단언은 app/notifications.tsx가 실제로 쓰지 않는 src/ui/ListRow.tsx(죽은 D0
+    // 컴포넌트, 제거됨)를 보고 있었다. 화면이 `../src/ui`에서 가져오는 ListRow는 src/ui.tsx의
+    // 것이므로 그쪽으로 옮긴다 -- guarded optional icon이라는 요지는 그대로다.
+    const listRowSource = source("src/ui.tsx");
+    const listRowBlock = listRowSource.slice(listRowSource.indexOf("export function ListRow"), listRowSource.indexOf("export function ProductCard"));
+    expect(listRowBlock).toContain("icon?: string;");
+    expect(listRowBlock).toContain("{icon ? <Text");
   });
 
   it("keeps the notification store on the persisted-store conventions (cap, dedupe, teardown)", () => {

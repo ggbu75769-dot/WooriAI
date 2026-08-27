@@ -85,27 +85,10 @@ describe("D0 theme tokens", () => {
 // MOB-121: the D0 MoneyText contract block was removed along with src/ui/MoneyText.tsx —
 // a dead component no screen adopted; money rendering goes through src/money.ts's formatKrw.
 
-describe("D0 ListRow component contract", () => {
-  const source = readSource("src/ui/ListRow.tsx");
-
-  it("is additive -- does not replace the pre-existing ListRow in src/ui.tsx", () => {
-    const legacyUiSource = readSource("src/ui.tsx");
-    expect(legacyUiSource).toContain("export function ListRow(");
-  });
-
-  it("exposes a left circular color icon slot, title+subtitle, and a right value/badge slot", () => {
-    expect(source).toContain("iconBackgroundColor");
-    expect(source).toContain("borderRadius: 20");
-    expect(source).toContain("title: string");
-    expect(source).toContain("subtitle?: string");
-    expect(source).toContain("value?: string");
-    expect(source).toContain("badge?: React.ReactNode");
-  });
-
-  it("keeps the row's touch target at theme.touchTarget (>= 44dp) regardless of onPress", () => {
-    expect(source).toContain("minHeight: theme.touchTarget");
-  });
-});
+// CLN-130: the D0 ListRow contract block was removed along with src/ui/ListRow.tsx — the
+// "additive, alongside src/ui.tsx" component that no screen ever adopted. Rows go through
+// src/ui.tsx's ListRow (settings, records, notifications), whose touch-target and button-role
+// contracts live in src/a11y-contract.test.ts.
 
 describe("D0/D6 Skeleton component contract", () => {
   const source = readSource("src/ui/Skeleton.tsx");
@@ -128,14 +111,9 @@ describe("D0/D6 Skeleton component contract", () => {
 // MOB-121: the D6 EmptyState contract block was removed along with src/ui/EmptyState.tsx —
 // a dead component no screen adopted; screens use src/ui.tsx's EmptyStateCard instead.
 
-describe("D0 StageBadge component contract", () => {
-  const source = readSource("src/ui/StageBadge.tsx");
-
-  it("uses coral-50 background with coral-700 text", () => {
-    expect(source).toContain("theme.colors.coral[50]");
-    expect(source).toContain("theme.colors.coral[700]");
-  });
-});
+// CLN-130: the D0 StageBadge contract block was removed along with src/ui/StageBadge.tsx —
+// another unadopted D0 component. The coral[50]/coral[700] badge recipe it defined survives in
+// src/ui.tsx's StatusBadge (warning tone), pinned by src/a11y-contract.test.ts (A11Y-117).
 
 // R20-A: the report tab's 카테고리 비중 chart. The old donut arc was drawn with the
 // border-quadrant trick (four border colors on a rounded View), which can only express four fixed
