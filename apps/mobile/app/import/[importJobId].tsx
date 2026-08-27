@@ -1,6 +1,6 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
 import { FlatList, Pressable, Text, View } from "react-native";
 import {
@@ -14,11 +14,23 @@ import {
   type ImportJob,
   type ImportRow
 } from "../../src/api/client";
-import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+import { explainExpenseViewOnly, useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+import {
+  canStartImportBulkRun,
+  canToggleImportRow,
+  cancelImportBulkRun,
+  claimImportBulkRun,
+  runImportBulkSelection,
+  IMPORT_BULK_CANCEL_A11Y_LABEL,
+  IMPORT_BULK_CANCEL_LABEL,
+  IMPORT_BULK_CANCELLED_TEXT,
+  IMPORT_BULK_PARTIAL_FAILURE_TEXT,
+  type ImportBulkRunHandle,
+  type ImportBulkRunOutcome
+} from "../../src/import/bulk-run";
 import {
   attentionFilterChipLabel,
   buildImportBulkSelectionPlan,
-  canBulkSelectImportRows,
   confirmableSelectedRowIds,
   countImportRowsNeedingAttention,
   filterImportRows,
@@ -26,7 +38,8 @@ import {
   importBulkSelectionLabel,
   importRowBadge,
   importRowDisplay,
-  isImportRowConfirmable,
+  importRowNotice,
+  isImportRowSelectable,
   rollbackImportRowSelection,
   setImportRowSelection,
   shouldShowAttentionFilter,
@@ -38,7 +51,6 @@ import {
   resolveImportTargetChildName,
   type ImportRowFilter
 } from "../../src/import/preview-rows";
-import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { Card, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
@@ -80,11 +92,16 @@ type ImportRowListItem = {
 };
 
 /**
- * 확정 불가 행. 체크박스를 그리지 않는 이유:
+ * 정말로 확정 불가한 행. 체크박스를 그리지 않는 이유:
  * 서버는 `validationStatus !== "valid"`인 행의 `selected`를 무조건 false로 되돌린다
  * (apps/api/src/onboarding/import-pipeline.service.ts:192). 예전 화면은 그 행도 똑같은
  * 체크박스로 그려서, 눌러도 아무 일이 없는 **침묵하는 컨트롤**이 2,000행짜리 목록 안에 섞여
  * 있었다. 이제는 누를 수 있는 척을 하지 않고, 서버 규칙을 화면이 문장으로 말한다.
+ *
+ * 라운드 41 K-1: 이 카드는 이제 `importRowSelectability(row) === "locked"`인 행에만 쓴다.
+ * 체크 한 번이면 valid가 되는 **검토 가능** 행(duplicate_candidate / low_confidence_...)은
+ * 아래 선택 가능 카드로 간다 -- 여기에 두면 가져올 방법 자체가 사라지고, 아래 안내문("원본
+ * 파일에서 고친 뒤 다시 올려 주세요")까지 거짓이 된다(다시 올려도 판정은 같다).
  */
 const LockedImportRowCard = memo(function LockedImportRowCard({ row }: { row: ImportRow }) {
   const display = importRowDisplay(row);
@@ -105,7 +122,7 @@ const LockedImportRowCard = memo(function LockedImportRowCard({ row }: { row: Im
       <Text style={rowAmountStyle}>{display.amountText}</Text>
       <Text style={rowDateStyle}>{display.dateText}</Text>
       {badge ? <StatusBadge label={badge.label} tone={badge.tone} /> : null}
-      <Text style={rowLockedNoticeStyle}>{IMPORT_ROW_LOCKED_MESSAGE}</Text>
+      <Text style={rowNoticeStyle}>{IMPORT_ROW_LOCKED_MESSAGE}</Text>
     </View>
   );
 });
@@ -121,6 +138,8 @@ function ImportRowCard({
 }) {
   const display = importRowDisplay(row);
   const badge = importRowBadge(row);
+  // K-1: 검토 가능 행이면 "체크 = 확인 완료"라는 사실을 한 줄로 말한다(valid 행에는 null).
+  const notice = importRowNotice(row);
   const handlePress = useCallback(() => onToggle(row), [onToggle, row]);
 
   return (
@@ -140,6 +159,7 @@ function ImportRowCard({
           있어야 한다. */}
       <Text style={rowDateStyle}>{display.dateText}</Text>
       {badge ? <StatusBadge label={badge.label} tone={badge.tone} /> : null}
+      {notice ? <Text style={rowNoticeStyle}>{notice}</Text> : null}
     </Pressable>
   );
 }
@@ -151,7 +171,7 @@ const SelectableImportRowCard = memo(ImportRowCard);
 // 모듈 스코프 renderItem / keyExtractor / 구분자 -- 화면이 리렌더돼도 FlatList가 받는 prop
 // 참조가 그대로다(기록 탭과 같은 관례).
 function renderImportRow({ item }: ListRenderItemInfo<ImportRowListItem>) {
-  return isImportRowConfirmable(item.row) ? (
+  return isImportRowSelectable(item.row) ? (
     <SelectableImportRowCard row={item.row} disabled={item.disabled} onToggle={item.onToggle} />
   ) : (
     <LockedImportRowCard row={item.row} />
@@ -205,7 +225,6 @@ export default function ImportPreviewScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
-  const childId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
   // 라운드 40 J-6: CSV 임포트 확정도 결국 지출을 만드는 동작이라 다른 진입점과 같은 판정을
   // 쓴다(잠금은 실세션 + 보기 전용 역할에서만 참이므로 비세션 IMP-003 렌더는 불변이다).
@@ -214,9 +233,39 @@ export default function ImportPreviewScreen() {
   const [rowFilter, setRowFilter] = useState<ImportRowFilter>("all");
   const [pendingRowIds, setPendingRowIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
-  const [bulkFailed, setBulkFailed] = useState(false);
+  const [bulkOutcome, setBulkOutcome] = useState<ImportBulkRunOutcome | null>(null);
 
   const rowsQueryKey = useMemo(() => ["import-rows", importJobId] as const, [importJobId]);
+
+  /**
+   * 라운드 41 K-6: 순차 PATCH 루프의 취소 토큰과 마운트 표식.
+   *
+   * 루프는 최대 2,000건이라 화면보다 오래 살 수 있었다 -- 이탈 후에도 고아 루프가 계속 PATCH를
+   * 보내고 캐시에 썼고, 다시 들어와 버튼을 누르면 두 루프가 같은 행을 반대 방향으로 뒤집었다.
+   * 규칙 자체는 순수 모듈(src/import/bulk-run.ts)에 있고, 여기서는 그 핸들을 붙잡아 둔다.
+   */
+  const bulkRunRef = useRef<ImportBulkRunHandle | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      bulkRunRef.current?.cancel();
+      // 핸들을 아직 못 잡은 사이(claim 직전)에 언마운트되는 경우까지 덮는다.
+      cancelImportBulkRun(importJobId);
+    };
+  }, [importJobId]);
+
+  // 화면을 벗어나면(blur) 진행 중인 일괄 반영을 멈춘다 -- 사용자가 이미 떠난 화면의 상태를
+  // 계속 서버에 쓰지 않는다. cleanup은 blur와 언마운트 양쪽에서 돈다.
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        bulkRunRef.current?.cancel();
+      };
+    }, [])
+  );
 
   const job = useQuery({
     queryKey: ["import-job", importJobId],
@@ -237,11 +286,16 @@ export default function ImportPreviewScreen() {
    * 이 화면에는 그 이름이 어디에도 없어서 다자녀 가구에서 아이를 바꾼 뒤 예전 링크로 돌아오면
    * 엉뚱한 아이에게 수백 건을 확정할 수 있었다.
    *
+   * 라운드 41 K-2: 기준은 **`job.childId`**다(서버 응답에 새로 실린 필드). 예전에는 선택 아이
+   * 스토어 값을 그대로 "대상 아이"라고 단언했는데, 서버가 지출을 붙이는 곳은 잡에 박힌
+   * `job.childId`다 -- 아이를 바꾼 뒤 예전 검수 링크로 돌아오면 헤더가 **틀린 이름**을 확신에 차서
+   * 보여 줬다. 이제 그 두 값이 갈릴 수가 없다.
+   *
    * `["children"]` 캐시를 **읽기만** 한다(useQuery가 아니라 getQueryData -- 이 화면 때문에 새로
    * 도는 요청은 0). 캐시가 없으면 순수 모듈이 null을 돌려주고 줄 자체가 사라진다(허위 표시 금지).
    */
   const cachedChildren = queryClient.getQueryData<{ children: Child[] }>(["children"])?.children;
-  const targetChildName = resolveImportTargetChildName(childId, cachedChildren);
+  const targetChildName = resolveImportTargetChildName(job.data?.childId, cachedChildren);
 
   const toggleRow = useMutation({
     mutationFn: (row: ImportRow) =>
@@ -315,10 +369,41 @@ export default function ImportPreviewScreen() {
   const isBulkRunning = bulkProgress !== null;
   const goToRecords = () => router.replace("/(tabs)/records");
 
+  /**
+   * 라운드 41 K-7: 토글·일괄도 확정과 **같은 게이트**를 지난다.
+   *
+   * 서버는 행 PATCH에도 편집 권한을 요구한다(`requireImportJobAccess(user, id, true)` → 403).
+   * 게이트가 확정 버튼에만 걸려 있어서, 보기 전용 참여자가 딥링크로 검수 화면에 닿으면 체크가
+   * 켜졌다가 403으로 되돌아가고 "불러오지 못했어요. 잠시 후 다시 시도해 주세요."라는 **틀린
+   * 이유**만 남았다(다시 시도해도 결과가 같다).
+   *
+   * `expenseGate.guard`를 쓰지 않고 `locked` + 모듈 스코프 `explainExpenseViewOnly`를 직접
+   * 쓰는 이유: guard는 렌더마다 새 함수라 의존성에 넣으면 행 memo가 통째로 깨진다. 판정은
+   * 같은 훅의 같은 boolean이다.
+   */
+  const gateLocked = expenseGate.locked;
+
   // `mutate`는 react-query가 렌더마다 같은 참조로 돌려주는 값이다 -- 뮤테이션 객체(`toggleRow`)를
   // 의존성으로 잡으면 매 렌더 새 핸들러가 생겨 행 memo가 통째로 깨진다.
   const toggleMutate = toggleRow.mutate;
-  const handleToggle = useCallback<ImportRowToggleHandler>((row) => toggleMutate(row), [toggleMutate]);
+  const handleToggle = useCallback<ImportRowToggleHandler>(
+    (row) => {
+      if (gateLocked) {
+        explainExpenseViewOnly();
+        return;
+      }
+      toggleMutate(row);
+    },
+    [gateLocked, toggleMutate]
+  );
+
+  const filteredRows = useMemo(() => filterImportRows(rowList, rowFilter), [rowList, rowFilter]);
+  /**
+   * 라운드 41 K-9: 일괄 계획은 **화면에 보이는 행**에서만 세운다. "확인 필요만 보기" 필터를 켜
+   * 둔 채 누른 버튼이 보이지 않는 수백 행까지 뒤집으면, 사용자가 승인한 적 없는 변경이다.
+   * 라벨도 같은 사실을 말한다(필터 중에는 "보이는 행 선택/해제").
+   */
+  const bulkPlan = useMemo(() => buildImportBulkSelectionPlan(filteredRows), [filteredRows]);
 
   /**
    * "전체 선택/해제". 서버 계약에 **일괄 PATCH가 없어서**
@@ -327,50 +412,110 @@ export default function ImportPreviewScreen() {
    * 2,000행 상한에서는 수백 건이 오갈 수 있다. 서버에 일괄 엔드포인트가 생기면 순수 모듈이 이미
    * 계산해 둔 `targetRowIds`를 그대로 본문에 실으면 되므로 이 호출부만 바뀐다.
    *
-   * 이미 원하는 상태인 행과 확정 불가 행은 계획에서 빠진다 — 서버가 false로 되돌릴 요청을
-   * 굳이 보내지 않는다.
+   * 이미 원하는 상태인 행과 잠긴 행은 계획에서 빠진다 — 서버가 false로 되돌릴 요청을 굳이 보내지
+   * 않는다. 검토 가능 행은 포함된다(K-1): 일괄 선택이 곧 "이 행들 확인했어요"다.
+   *
+   * 경합 규칙(K-6)은 전부 순수 모듈이 갖고 있다. 여기서 하는 일은 세 가지뿐이다:
+   *  - `claimImportBulkRun`으로 **잡 하나에 루프 하나**를 보장하고(재진입 이중 실행 차단),
+   *  - 진행 보고를 받을 때마다 아직 마운트돼 있는지 확인하고(고아 루프의 캐시 쓰기 차단),
+   *  - 끝나면 무슨 일이 있었든 **재조회**로 진실을 다시 받아 온다.
+   * 마지막 항목이 특히 중요하다: 낙관 갱신은 `selected`만 뒤집는데, 검토 가능 행은 서버에서
+   * `validationStatus`까지 valid로 바뀐다 — 재조회하지 않으면 확정 본문에서 조용히 빠진다.
    */
   const applyBulkSelection = useCallback(async () => {
-    if (!authToken || isBulkRunning) return;
-    const plan = buildImportBulkSelectionPlan(queryClient.getQueryData<ImportRowsResponse>(rowsQueryKey)?.rows ?? []);
-    if (plan.targetRowIds.length === 0) return;
-    setBulkFailed(false);
-    setBulkProgress({ done: 0, total: plan.targetRowIds.length });
-    let done = 0;
-    try {
-      for (const rowId of plan.targetRowIds) {
-        // `selected`만 보낸다 — 서버는 나머지 필드를 현재 값과 병합한다(같은 서비스의 merge 규칙).
-        await updateImportRow(authToken, importJobId, rowId, { selected: plan.nextSelected });
-        done += 1;
-        setBulkProgress({ done, total: plan.targetRowIds.length });
-        queryClient.setQueryData<ImportRowsResponse>(rowsQueryKey, (current) =>
-          current ? { rows: setImportRowSelection(current.rows, rowId, plan.nextSelected) as ImportRow[] } : current
-        );
-      }
-    } catch {
-      // 중간에 끊기면 몇 건이 반영됐는지 화면이 알 수 없다 — 재조회로 진실을 다시 받아 온다.
-      setBulkFailed(true);
-      await queryClient.invalidateQueries({ queryKey: rowsQueryKey });
-    } finally {
-      setBulkProgress(null);
+    if (gateLocked) {
+      explainExpenseViewOnly();
+      return;
     }
-  }, [authToken, importJobId, isBulkRunning, queryClient, rowsQueryKey]);
+    const cached = queryClient.getQueryData<ImportRowsResponse>(rowsQueryKey)?.rows ?? [];
+    const plan = buildImportBulkSelectionPlan(filterImportRows(cached, rowFilter));
+    if (
+      !canStartImportBulkRun({
+        hasAuth: Boolean(authToken),
+        isPreviewReady,
+        isBulkRunning,
+        pendingRowCount: pendingRowIds.size,
+        targetRowCount: plan.targetRowIds.length
+      })
+    ) {
+      return;
+    }
+    const handle = claimImportBulkRun(importJobId);
+    // 이미 이 잡의 루프가 돌고 있다(화면이 두 번 마운트됐거나 탭이 빨리 두 번 들어왔다).
+    if (!handle) return;
+    bulkRunRef.current = handle;
+    setBulkOutcome(null);
+    setBulkProgress({ done: 0, total: plan.targetRowIds.length });
 
-  const filteredRows = useMemo(() => filterImportRows(rowList, rowFilter), [rowList, rowFilter]);
+    try {
+      const result = await runImportBulkSelection({
+        rowIds: plan.targetRowIds,
+        selected: plan.nextSelected,
+        isCancelled: handle.isCancelled,
+        // `selected`만 보낸다 — 서버는 나머지 필드를 현재 값과 병합한다(같은 서비스의 merge 규칙).
+        patchRow: (rowId, selected) => updateImportRow(authToken!, importJobId, rowId, { selected }),
+        // PERF: 캐시 쓰기를 N건씩 모은다(순수 모듈의 배치 규칙) — 매 건마다 2,000행 배열을
+        // 새로 만들면 O(n^2)다.
+        onProgress: ({ done, total, appliedRowIds }) => {
+          if (!mountedRef.current || handle.isCancelled()) return;
+          setBulkProgress({ done, total });
+          queryClient.setQueryData<ImportRowsResponse>(rowsQueryKey, (current) => {
+            if (!current) return current;
+            let next: readonly ImportRow[] = current.rows;
+            for (const rowId of appliedRowIds) {
+              next = setImportRowSelection(next, rowId, plan.nextSelected) as ImportRow[];
+            }
+            return next === current.rows ? current : { rows: next as ImportRow[] };
+          });
+        }
+      });
+      if (!mountedRef.current) return;
+      setBulkOutcome(result.outcome);
+    } finally {
+      handle.release();
+      if (bulkRunRef.current === handle) bulkRunRef.current = null;
+      if (mountedRef.current) {
+        setBulkProgress(null);
+        // 완료·중단·실패 어느 쪽이든 서버가 진실이다(검토 가능 행은 상태까지 바뀐다).
+        await queryClient.invalidateQueries({ queryKey: rowsQueryKey });
+      }
+    }
+  }, [
+    authToken,
+    gateLocked,
+    importJobId,
+    isBulkRunning,
+    isPreviewReady,
+    pendingRowIds,
+    queryClient,
+    rowFilter,
+    rowsQueryKey
+  ]);
+
+  const cancelBulkSelection = useCallback(() => {
+    bulkRunRef.current?.cancel();
+  }, []);
+
   const listData = useMemo<ImportRowListItem[]>(
     () =>
       filteredRows.map((row) => ({
         row,
         // 잠기는 것은 **그 행 하나**뿐이다(진행 중이거나, 일괄 작업 중이거나, 서버가 편집을 더는
         // 받지 않는 상태). 예전처럼 목록 전체가 굳지 않는다.
-        disabled: pendingRowIds.has(row.id) || isBulkRunning || !isPreviewReady,
+        disabled: !canToggleImportRow({ isPreviewReady, isBulkRunning, isRowPending: pendingRowIds.has(row.id) }),
         onToggle: handleToggle
       })),
     [filteredRows, handleToggle, isBulkRunning, isPreviewReady, pendingRowIds]
   );
 
   const showList = !rows.isLoading && !rows.isError && rowList.length > 0;
-  const canBulkSelect = canBulkSelectImportRows(rowList);
+  const canBulkSelect = canStartImportBulkRun({
+    hasAuth: Boolean(authToken),
+    isPreviewReady,
+    isBulkRunning,
+    pendingRowCount: pendingRowIds.size,
+    targetRowCount: bulkPlan.targetRowIds.length
+  });
 
   const listHeader = (
     <View style={{ gap: theme.spacing.section, marginBottom: theme.spacing.section }}>
@@ -433,13 +578,30 @@ export default function ImportPreviewScreen() {
               />
             ) : null}
             <SecondaryButton
-              label={bulkProgress ? importBulkProgressLabel(bulkProgress.done, bulkProgress.total) : importBulkSelectionLabel(rowList)}
-              disabled={!isPreviewReady || !canBulkSelect || isBulkRunning}
+              label={
+                bulkProgress
+                  ? importBulkProgressLabel(bulkProgress.done, bulkProgress.total)
+                  : importBulkSelectionLabel(filteredRows, rowFilter)
+              }
+              disabled={!canBulkSelect}
               onPress={applyBulkSelection}
               style={{ flexGrow: 1, flexShrink: 1 }}
             />
+            {/* K-6: 수백 건짜리 순차 PATCH에 탈출구가 없으면 유일한 방법이 "앱 끄기"였다. */}
+            {isBulkRunning ? (
+              <SecondaryButton
+                label={IMPORT_BULK_CANCEL_LABEL}
+                accessibilityLabel={IMPORT_BULK_CANCEL_A11Y_LABEL}
+                onPress={cancelBulkSelection}
+              />
+            ) : null}
           </View>
-          {bulkFailed ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+          {/* K-10: 중간 실패는 "아무것도 안 됐어요"가 아니다 — 앞부분은 이미 서버에 남아 있다.
+              목록 조회 실패 문구(loadFailedText)를 돌려 쓰면 그 사실을 감추게 된다. */}
+          {bulkOutcome === "failed" ? (
+            <Text style={{ color: theme.colors.danger }}>{IMPORT_BULK_PARTIAL_FAILURE_TEXT}</Text>
+          ) : null}
+          {bulkOutcome === "cancelled" ? <Text style={mutedTextStyle}>{IMPORT_BULK_CANCELLED_TEXT}</Text> : null}
         </View>
       ) : null}
 
@@ -690,7 +852,7 @@ const rowDateStyle = {
   fontWeight: "600"
 } as const;
 
-const rowLockedNoticeStyle = {
+const rowNoticeStyle = {
   color: theme.colors.gray600,
   fontSize: 12,
   fontWeight: "600",

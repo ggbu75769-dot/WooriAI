@@ -290,8 +290,22 @@ export class ImportPipelineService {
     return job;
   }
 
+  /**
+   * 라운드 41 K-2: `childId`를 응답에 싣는다.
+   *
+   * 가져오기 잡은 생성 시점에 아이 하나에 박히고(`POST /children/:childId/imports/excel`),
+   * `confirmImport`는 그 `job.childId`의 가계부에 지출을 넣는다(insertExpense 인자). 그런데
+   * 응답에는 그 아이가 없어서, 검수 화면은 "대상 아이"를 클라이언트의 선택 아이 스토어 값으로
+   * 추측할 수밖에 없었다 -- 다자녀 가구에서 아이를 바꾼 뒤 예전 검수 링크로 돌아오면 화면이
+   * 틀린 이름을 단언했다.
+   *
+   * 개인정보 노출이 아니다: 이 엔드포인트들은 이미 `requireImportJobAccess` →
+   * `requireChildAccess`를 지나므로, 응답을 받는 사용자는 그 아이에 접근 권한이 있는 사용자뿐이고
+   * 아이 id 자체도 이미 그 사용자가 알고 있는 값이다(children 목록에 들어 있다).
+   */
   private toImportJobDto(job: {
     id: string;
+    childId: string;
     status: ImportStatus;
     rowCount: number | null;
     candidateCount: number | null;
@@ -299,6 +313,7 @@ export class ImportPipelineService {
   }) {
     return {
       id: job.id,
+      childId: job.childId,
       status: job.status,
       rowCount: job.rowCount ?? 0,
       candidateCount: job.candidateCount ?? 0,

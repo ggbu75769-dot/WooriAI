@@ -2,11 +2,17 @@
  * 라운드 41 UX-S: 엑셀 가져오기 **검수 화면**(app/import/[importJobId].tsx)의 판정·문구 단일 소스.
  *
  * 왜 모듈인가: 검수 화면이 말해야 하는 규칙 대부분은 **서버 규칙**이다.
- * `apps/api/src/onboarding/import-pipeline.service.ts`의 `updateImportRow`는
- * `validationStatus !== "valid"`인 행의 `selected`를 **무조건 false로 되돌리고**(같은 파일 192줄),
- * `confirmImport`도 그런 행을 가져오기 대상에서 제외한다(233줄). 그런데 화면은 그 행을 다른 행과
- * 똑같은 체크박스로 그려 놓아서, 눌러도 아무 일이 없는 **침묵하는 컨트롤**이었다. 그 판정을 화면
- * JSX 안에 흩어 두면 서버 규칙과 다시 갈리므로, 여기 순수 함수로 모아 두고 화면은 꽂기만 한다.
+ * `apps/api/src/onboarding/import-pipeline.service.ts`의 `updateImportRow`는 PATCH마다
+ * `userReviewed: true`를 세운 뒤 상태를 다시 계산하고(189-192줄), 그렇게 계산한 상태가 여전히
+ * "valid"가 아니면 `selected`를 무조건 false로 되돌린다. `confirmImport`도 valid가 아닌 행을
+ * 가져오기 대상에서 제외한다(233줄).
+ *
+ * 그 규칙을 화면 JSX 안에 흩어 두면 서버와 다시 갈린다 -- 실제로 두 번 갈렸다:
+ *  - 처음엔 모든 행을 똑같은 체크박스로 그려서, 눌러도 아무 일이 없는 **침묵하는 컨트롤**이
+ *    2,000행 목록에 섞여 있었다(UX-S가 고침);
+ *  - 그 수정이 이번엔 너무 넓게 잠가서, `userReviewed`만 세우면 valid가 되는 **검토 가능** 행
+ *    두 종류까지 가져올 수 없게 만들고 거짓 안내를 붙였다(라운드 41 K-1이 고침).
+ * 그래서 판정은 전부 여기 순수 함수로 모으고 화면은 꽂기만 한다.
  *
  * react / react-native import 없음 -- vitest에서 바로 단위 테스트한다
  * (src/expenses/records-list-view.ts와 같은 관례).
@@ -26,33 +32,102 @@ export type ImportPreviewRow = {
 };
 
 /**
- * 서버가 "가져올 수 있다"고 보는 유일한 값. 나머지(missing_date/invalid_date/missing_item_name/
- * invalid_amount/low_confidence_duplicate_candidate...)는 전부 확정 불가다 -- 목록을 여기에
- * 나열하지 않는 이유는, 서버가 새 사유를 하나 더 만들어도 화면이 자동으로 "잠금" 쪽에 서기
- * 때문이다(모르는 사유를 선택 가능으로 열어 두면 눌러도 침묵하는 옛 버그가 되돌아온다).
+ * 서버가 "지금 이대로 가져갈 수 있다"고 보는 유일한 값
+ * (`validationStatusForImportRow` -> "valid").
  */
 export const IMPORT_ROW_VALID_STATUS = "valid";
 
-/** 신뢰도 배지 임계값 (화면에서 옮겨 온 기존 값). */
+/**
+ * 라운드 41 K-1: **검토하면 가져올 수 있는** 상태 두 가지.
+ *
+ * 서버 규칙(import-pipeline.service.ts:430-431)은 이 둘을 `!row.userReviewed`일 때만 매긴다:
+ *
+ *     if (!row.userReviewed && row.duplicateCandidateExpenseId) return "duplicate_candidate";
+ *     if (!row.userReviewed && Number(row.confidence) < 0.7) return "low_confidence_duplicate_candidate";
+ *
+ * 그리고 `updateImportRow`는 어떤 PATCH에서도 `userReviewed: true`를 세운 뒤 상태를 다시
+ * 계산한다(같은 파일 189-192줄). 즉 이 두 행은 **체크 한 번이면 valid가 되어 가져올 수 있다** --
+ * 사람이 "중복 아니에요 / 이거 맞아요"라고 말해 주는 것이 서버가 기다리는 전부다.
+ *
+ * 이전 판(UX-S)은 이 둘을 `validationStatus !== "valid"` 한 줄로 잠가 버려서, 그 행들을 가져올
+ * 방법이 화면에서 사라졌고 "원본 파일에서 고친 뒤 다시 올려 주세요"라는 **거짓 안내**까지 붙었다
+ * (같은 파일을 다시 올리면 판정도 똑같다). 그래서 상태를 셋으로 나눈다.
+ */
+export const IMPORT_ROW_REVIEWABLE_STATUSES = ["duplicate_candidate", "low_confidence_duplicate_candidate"] as const;
+
+const reviewableStatusSet: ReadonlySet<string> = new Set<string>(IMPORT_ROW_REVIEWABLE_STATUSES);
+
+/** 신뢰도 배지 임계값 (화면에서 옮겨 온 기존 값 -- 서버의 0.7과 같다). */
 export const LOW_CONFIDENCE_THRESHOLD = 0.7;
 
 /**
- * 확정 불가 행에 붙는 안내. 서버 규칙을 화면이 **말해 주는** 문장이다: 앱 안에서는 고칠 수 없고
- * (검수 화면에 편집 UI가 없다) 원본 파일을 고쳐 다시 올리는 것이 유일한 길이다.
+ * 행 하나의 세 갈래 판정.
+ *  - `"valid"`      : 그냥 체크하면 된다.
+ *  - `"reviewable"` : 체크가 곧 "확인했어요"다 -- 서버가 valid로 다시 계산해 준다.
+ *  - `"locked"`     : 앱 안에서 고칠 방법이 없다(파싱 오류 등). 원본을 고쳐 다시 올려야 한다.
+ *
+ * 모르는 새 상태는 **`"locked"`**로 떨어진다(보수적 기본값): 서버가 사유를 하나 더 만들어도
+ * 화면이 선택 가능한 척하지 않는다. 눌러도 아무 일이 없는 침묵하는 컨트롤이 되돌아오는 것보다,
+ * 잠금 안내가 하나 더 붙는 쪽이 덜 나쁘다.
+ */
+export type ImportRowSelectability = "valid" | "reviewable" | "locked";
+
+export function importRowSelectability(row: ImportPreviewRow): ImportRowSelectability {
+  if (row.validationStatus === IMPORT_ROW_VALID_STATUS) return "valid";
+  if (reviewableStatusSet.has(row.validationStatus)) return "reviewable";
+  return "locked";
+}
+
+/**
+ * 정말로 확정 불가한 행에 붙는 안내. 서버 규칙을 화면이 **말해 주는** 문장이다: 앱 안에서는
+ * 고칠 수 없고(검수 화면에 편집 UI가 없다) 원본 파일을 고쳐 다시 올리는 것이 유일한 길이다.
+ * 이 문장은 이제 `"locked"` 행에만 붙는다 -- 검토 가능 행에 붙으면 거짓말이었다(K-1).
  */
 export const IMPORT_ROW_LOCKED_MESSAGE = "이 행은 가져올 수 없어요 · 원본 파일에서 고친 뒤 다시 올려 주세요";
 
 /** 잠금 표시의 스크린리더 라벨 접두. 체크박스가 아니라는 사실을 먼저 알린다. */
 export const IMPORT_ROW_LOCKED_A11Y_PREFIX = "가져올 수 없는 행";
 
+/**
+ * 검토 가능 행에 붙는 안내. 체크가 무엇을 뜻하는지(=확인 완료) 한 줄로 말한다.
+ * 이 행들은 체크박스를 그대로 갖는다 -- 누르면 서버가 valid로 다시 계산해 준다.
+ */
+export const IMPORT_ROW_REVIEW_MESSAGE = "확인하면 가져올 수 있어요 · 체크하면 확인한 것으로 볼게요";
+
 /** 품목명/금액/날짜가 비어 있을 때의 자리 문구 (없는 값을 지어내지 않는다). */
 export const IMPORT_ROW_MISSING_ITEM_NAME = "품목명을 확인해 주세요";
 export const IMPORT_ROW_MISSING_AMOUNT = "금액을 확인해 주세요";
 export const IMPORT_ROW_MISSING_DATE = "날짜를 확인해 주세요";
 
-/** 이 행을 확정(가져오기)할 수 있는가 -- 서버 `validationStatusForImportRow`와 같은 판정. */
+/**
+ * 이 행을 **지금 이대로** 확정(가져오기)할 수 있는가 -- 서버 `confirmImport`가 가져가는 조건과
+ * 같다(import-pipeline.service.ts:233은 valid만 가져간다). 검토 가능 행은 여기서 false다:
+ * 체크가 서버에 반영돼 valid가 된 뒤에야 확정 본문에 실린다.
+ */
 export function isImportRowConfirmable(row: ImportPreviewRow): boolean {
-  return row.validationStatus === IMPORT_ROW_VALID_STATUS;
+  return importRowSelectability(row) === "valid";
+}
+
+/** 체크 한 번이면 valid가 되는 행인가 (K-1의 ②). */
+export function isImportRowReviewable(row: ImportPreviewRow): boolean {
+  return importRowSelectability(row) === "reviewable";
+}
+
+/**
+ * 체크박스를 그려도 되는 행인가 = ① valid + ② 검토 가능. 토글·일괄 선택이 쓰는 판정이다
+ * (확정 본문은 `isImportRowConfirmable` 쪽을 쓴다 -- 둘을 섞으면 서버가 조용히 버리는 id를
+ * 다시 실어 보내게 된다).
+ */
+export function isImportRowSelectable(row: ImportPreviewRow): boolean {
+  return importRowSelectability(row) !== "locked";
+}
+
+/** 행 아래에 붙일 안내 문장, 없으면 null. valid 행에는 아무것도 붙지 않는다. */
+export function importRowNotice(row: ImportPreviewRow): string | null {
+  const selectability = importRowSelectability(row);
+  if (selectability === "reviewable") return IMPORT_ROW_REVIEW_MESSAGE;
+  if (selectability === "locked") return IMPORT_ROW_LOCKED_MESSAGE;
+  return null;
 }
 
 /** 확인이 필요한(=확정 불가) 행 수. 필터 칩과 헤더 카드가 같은 수를 쓴다. */
@@ -97,13 +172,15 @@ export function importRowDisplay(row: ImportPreviewRow): {
 export type ImportRowBadge = { label: string; tone: "warning" };
 
 /**
- * 행 배지. 확정 가능한 행에는 붙지 않는다(예전 화면과 같다). 확정 불가 행은 배지 대신 잠금 안내가
- * 본문으로 붙으므로, 낮은 신뢰도/중복 후보만 배지로 남는다.
+ * 행 배지 -- **왜** 이 행이 눈에 띄는지 한 마디로 말한다. 무엇을 할 수 있는지(체크하면 되는지,
+ * 원본을 고쳐야 하는지)는 배지가 아니라 `importRowNotice`의 문장이 말한다. valid 행에는 아무
+ * 배지도 붙지 않는다(예전 화면과 같다).
  */
 export function importRowBadge(row: ImportPreviewRow): ImportRowBadge | null {
   const isLowConfidence =
     row.confidence < LOW_CONFIDENCE_THRESHOLD || row.validationStatus === "low_confidence_duplicate_candidate";
   if (isLowConfidence) return { label: "낮은 신뢰도 · 중복 확인 필요", tone: "warning" };
+  if (row.validationStatus === "duplicate_candidate") return { label: "이미 있는 지출과 같아 보여요", tone: "warning" };
   if (!isImportRowConfirmable(row)) return { label: "확인이 필요해요", tone: "warning" };
   return null;
 }
@@ -139,8 +216,11 @@ export const IMPORT_ATTENTION_FILTER_EMPTY_TEXT = "확인이 필요한 행이 �
 
 /**
  * 체크 토글의 낙관적 갱신. 규칙 두 가지.
- *  1) 확정 불가 행은 **뒤집지 않는다**. 서버가 어차피 selected를 false로 되돌리므로(위 주석),
+ *  1) **잠긴 행만** 뒤집지 않는다. 서버가 그런 행의 selected를 무조건 false로 되돌리므로,
  *     낙관적으로 체크해 두면 잠깐 켜졌다가 재조회 때 꺼지는 거짓 체크가 된다.
+ *     검토 가능 행(K-1의 ②)은 반대로 **반드시 뒤집는다** -- PATCH가 userReviewed를 세워
+ *     valid로 만들어 주므로 체크는 진짜로 남는다. validationStatus까지 여기서 미리 고쳐
+ *     쓰지는 않는다: 낙관 갱신은 selected 하나뿐이고, 상태 정정은 서버 응답이 한다.
  *  2) 아무것도 바뀌지 않으면 **같은 배열 참조를 그대로** 돌려준다 -- 캐시가 새 객체로 갈아
  *     끼워지지 않아 FlatList 행 memo가 깨지지 않는다.
  */
@@ -149,7 +229,7 @@ export function toggleImportRowSelection<TRow extends ImportPreviewRow>(
   rowId: string
 ): TRow[] | readonly TRow[] {
   const target = rows.find((row) => row.id === rowId);
-  if (!target || !isImportRowConfirmable(target)) return rows;
+  if (!target || !isImportRowSelectable(target)) return rows;
   return rows.map((row) => (row.id === rowId ? { ...row, selected: !row.selected } : row));
 }
 
@@ -160,7 +240,7 @@ export function setImportRowSelection<TRow extends ImportPreviewRow>(
   selected: boolean
 ): TRow[] | readonly TRow[] {
   const target = rows.find((row) => row.id === rowId);
-  if (!target || !isImportRowConfirmable(target) || target.selected === selected) return rows;
+  if (!target || !isImportRowSelectable(target) || target.selected === selected) return rows;
   return rows.map((row) => (row.id === rowId ? { ...row, selected } : row));
 }
 
@@ -198,25 +278,35 @@ export type ImportBulkSelectionPlan = {
  * 노출한다 -- 129줄). 그래서 화면은 이 목록을 순차로 PATCH하고 진행 표시를 띄운다. 서버에 일괄
  * 엔드포인트가 생기면 이 함수의 `targetRowIds`를 그대로 본문에 실으면 되므로 호출부는 그대로다.
  *
- * 확정 불가 행은 애초에 대상에서 뺀다 -- 서버가 false로 되돌릴 요청을 2,000번 보낼 이유가 없다.
+ * 잠긴 행은 애초에 대상에서 뺀다 -- 서버가 false로 되돌릴 요청을 2,000번 보낼 이유가 없다.
+ * 반대로 검토 가능 행은 **대상에 포함한다**(K-1): 일괄 선택이 곧 "이 행들 확인했어요"다.
+ *
+ * 라운드 41 K-9: 호출부는 **화면에 보이는 행**(필터 적용 후)을 넘긴다. 필터를 켜 둔 채 누른
+ * 버튼이 보이지 않는 행까지 바꾸면, 사용자가 승인한 적 없는 변경이 조용히 일어난다.
  */
 export function buildImportBulkSelectionPlan(rows: readonly ImportPreviewRow[]): ImportBulkSelectionPlan {
-  const confirmable = rows.filter(isImportRowConfirmable);
-  const nextSelected = confirmable.some((row) => !row.selected);
+  const selectable = rows.filter(isImportRowSelectable);
+  const nextSelected = selectable.some((row) => !row.selected);
   return {
     nextSelected,
-    targetRowIds: confirmable.filter((row) => row.selected !== nextSelected).map((row) => row.id)
+    targetRowIds: selectable.filter((row) => row.selected !== nextSelected).map((row) => row.id)
   };
 }
 
-/** 버튼 라벨. 하나라도 안 켜진 행이 있으면 "전체 선택", 다 켜져 있으면 "전체 해제". */
-export function importBulkSelectionLabel(rows: readonly ImportPreviewRow[]): string {
-  return buildImportBulkSelectionPlan(rows).nextSelected ? "전체 선택" : "전체 해제";
+/**
+ * 버튼 라벨. 하나라도 안 켜진 행이 있으면 선택, 다 켜져 있으면 해제.
+ *
+ * K-9: 필터가 켜져 있으면 "전체"라고 말하지 않는다 -- 이 버튼이 건드리는 것은 지금 화면에
+ * 보이는 행뿐이고, 라벨이 그 사실을 그대로 말해야 한다.
+ */
+export function importBulkSelectionLabel(visibleRows: readonly ImportPreviewRow[], filter: ImportRowFilter): string {
+  const scope = filter === "all" ? "전체" : "보이는 행";
+  return `${scope} ${buildImportBulkSelectionPlan(visibleRows).nextSelected ? "선택" : "해제"}`;
 }
 
-/** 확정 가능한 행이 하나도 없으면 누를 것이 없다. */
+/** 체크할 수 있는 행이 하나도 없으면 누를 것이 없다. */
 export function canBulkSelectImportRows(rows: readonly ImportPreviewRow[]): boolean {
-  return rows.some(isImportRowConfirmable);
+  return rows.some(isImportRowSelectable);
 }
 
 /** 순차 PATCH 진행 표시. 2,000행 상한이라 "잠시만요"로는 부족하다. */
@@ -238,6 +328,11 @@ export type ImportTargetChildRef = {
  * 왜 필요한가: 가져오기 작업은 `POST /children/:childId/imports/excel`로 만들어지므로 특정 아이에
  * 묶이는데, 검수 화면에는 그 이름이 어디에도 없었다. 다자녀 가구에서 아이를 바꾼 뒤 예전 검수
  * 링크로 돌아오면 **엉뚱한 아이의 가계부에 수백 건을 확정**할 수 있었다.
+ *
+ * 라운드 41 K-2: 여기 넘기는 `childId`는 반드시 **잡 응답의 `job.childId`**여야 한다. 예전에는
+ * 선택 아이 스토어 값을 넘겼는데, 서버가 지출을 붙이는 곳은 `job.childId`다
+ * (import-pipeline.service.ts의 confirmImport -> insertExpense(job.childId)). 두 값이 갈리는
+ * 순간(아이를 바꾼 뒤 예전 링크로 복귀) 헤더가 **거짓을 단언**했다.
  *
  * `["children"]` 캐시를 **읽기만** 한다(useQuery가 아니라 getQueryData -- 새 요청 0). 캐시가
  * 아직 없거나 그 아이를 찾지 못하면 `null`을 돌려 줄 자체를 그리지 않는다: 빈 줄이나 "아이" 같은

@@ -12,6 +12,7 @@ const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 type ImportJob = {
   id: string;
+  childId: string;
   status: string;
   rowCount: number;
   candidateCount: number;
@@ -143,6 +144,9 @@ describe("Excel import beta API", () => {
     importJobSchema.parse(job);
     expect(job).toMatchObject({
       id: expect.any(String),
+      // 라운드 41 K-2: 잡이 묶인 아이를 응답이 직접 말한다. 검수 화면의 "대상 아이" 표시가
+      // 클라이언트의 선택 아이 값을 추측하지 않도록 하는 유일한 근거라 계약으로 고정한다.
+      childId,
       status: "preview_ready",
       rowCount: 3,
       candidateCount: 2,
@@ -156,6 +160,8 @@ describe("Excel import beta API", () => {
       .expect(({ body }) => {
         importJobSchema.parse(body);
         expect(body.status).toBe("preview_ready");
+        // 조회 응답도 같은 childId를 돌려준다(딥링크로 검수 화면에 바로 들어오는 경로).
+        expect(body.childId).toBe(childId);
       });
 
     const rows = (
