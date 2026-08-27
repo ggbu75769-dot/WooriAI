@@ -130,3 +130,103 @@ psql ... -c "EXPLAIN (ANALYZE, BUFFERS) <서비스 코드의 쿼리 모양 그�
 
 런칭 후 재측정 시에는 이 라운드 인덱스도 상단 "재측정 방법"대로 before/after 실측을
 남길 것 (F3은 예방 채택이므로 볼륨이 생기면 실측으로 사후 정당화하거나 제거를 판단).
+
+---
+
+# PERF-121 — 홈/누적 리포트 핫패스: 전 행 로드 → DB 집계
+
+이번 라운드는 **인덱스를 하나도 추가하지 않은** 항목이다. 느린 원인이 인덱스 부재가 아니라
+"인덱스로 잘 찾은 행을 전부 앱으로 끌고 와서 JS로 접는 것"이었기 때문이다. 그래서 이 절은
+PERF-101/115와 달리 *쿼리 모양 자체*의 before/after를 남기고, **기존 부분 인덱스
+`idx_expenses_not_deleted (child_id, spent_on) WHERE deleted_at IS NULL`(000001)이 치환 후
+쿼리도 그대로 서빙한다**는 것을 EXPLAIN으로 확인한 근거를 남긴다.
+
+## 대상 2건
+
+| # | 위치 | Before | After |
+|---|---|---|---|
+| F1 | `onboarding/reporting-store.service.ts` `getHome` | 아이의 **전 기간 지출 행 전량**(memo/merchant 등 본문 컬럼 포함)을 `findMany`로 읽어 → 합계는 JS 순회, 최근 목록은 `slice(0, 3)` | `sumExpenses(childId)`(range 없는 `aggregate` SUM) + `expensesForChild(childId, undefined, 3)`(같은 정렬의 `take: 3`) |
+| F2 | 같은 파일 `getCumulativeReport` | 전 기간 행을 `select: {spentOn, amountKrw}`로 읽어 JS에서 연도별 접기 | `groupBy(["spentOn"])` + `_sum`/`_count`로 DB에서 일자별 접고, 일자→연도 접기만 JS |
+
+F1은 **홈 탭과 준비템 탭이 매번 호출**하는 경로다 — 아이의 지출이 쌓일수록 비용이 선형으로
+늘고, 그 비용의 대부분이 DB 실행 시간이 아니라 행 전송/역직렬화다.
+
+응답 형태·정렬·필터는 완전 불변이다:
+- `totalExpenseKrw`는 전 기간 + `expense_type='expense'` — 선물 제외(DNC-015) 그대로.
+- `recentExpenses`는 **선물 포함**(종전 `slice`가 타입을 가리지 않았다) + `spent_on DESC, created_at DESC`.
+- soft delete 행 제외(DNC-014), 누적 리포트의 연도 경계 계산(UTC date-only 문자열 절단) 그대로.
+
+## 측정 환경
+
+- PostgreSQL 16, 스크래치 DB `wooriai_perf121`(000001~000015 적용 + 시드 후 볼륨 생성, 측정 후 드랍)
+- 볼륨: PERF-101과 같은 모양 — 가구 20 / 사용자 20 / 아이 40 / **지출 50,000건**(24개월 분산,
+  2% 톰스톤, **선물 10% 혼합**, memo를 현실적 크기로 채움) → **아이당 약 1,250건**
+- 쿼리 모양은 Prisma 쿼리 로그로 실제 발행 SQL을 뜬 뒤 그대로 EXPLAIN
+- DB 수치는 warm cache `EXPLAIN (ANALYZE, BUFFERS)`, 앱 수치는 Prisma 클라이언트 호출
+  왕복 30회의 median/p90 (**행 전송·역직렬화 포함** — 이 티켓의 진짜 비용이 여기 있다)
+- 아이당 지출 날짜 분포가 결과를 가르므로 두 가지로 측정: **분산형**(1,225행 / 657 distinct day,
+  거의 매일 기록)과 **군집형**(1,250행 / 126 distinct day, 장 보는 날에 몰아 기록 — 실사용에 가깝다)
+
+## F1 — 홈 (군집형 아이 기준, 1,250행)
+
+| 쿼리 | 플랜 | Execution Time | buf | 앱까지 온 행 |
+|---|---|---|---|---|
+| **Before** 전 행 `findMany` | Bitmap Index Scan `idx_expenses_not_deleted` → Bitmap Heap Scan → **Sort (quicksort, 390kB)** | **1.93ms** | 65 | **1,250행 × 21컬럼** |
+| **After (a)** 전 기간 SUM | Bitmap Index Scan `idx_expenses_not_deleted` → Bitmap Heap Scan → Aggregate | **0.68ms** | 50 | **1행** |
+| **After (b)** 최근 3건 | **Index Scan Backward** `idx_expenses_not_deleted` → Incremental Sort(top-N) → Limit | **0.20ms** | 22 | **3행** |
+
+DB 실행 시간만 봐도 1.93ms → 0.68ms(둘은 `Promise.all`로 병렬이라 벽시계는 느린 쪽) 이지만,
+실제 격차는 앱 왕복에서 나온다:
+
+| Prisma 왕복(30회) | median | p90 |
+|---|---|---|
+| Before (전 행) | **47.35ms** | 60.81ms |
+| After (SUM) | 1.17ms | 1.37ms |
+| After (LIMIT 3) | 1.31ms | 1.52ms |
+| **After (둘 병렬 = 실제 getHome 모양)** | **1.57ms** | **1.86ms** |
+
+**약 30배**(47.35 → 1.57ms). 분산형 아이에서도 동일(48.62 → 2.11ms). DB가 1.9ms 만에 끝낸
+일을 앱이 47ms 동안 받아 적고 있었다는 뜻이고, 이 차이는 아이당 지출 건수에 비례해 커진다.
+
+부수 효과 하나: `Sort (quicksort, 390kB)`가 사라진다. Before는 전량 정렬이 필요했지만,
+After (b)는 부분 인덱스가 `(child_id, spent_on)` 순서라 **역방향 인덱스 스캔 + 조기 종료**로
+풀린다(플랜의 `rows=12`만 읽고 멈춘다 — 같은 날짜 타이브레이커 `created_at` 처리분).
+
+## F2 — 누적 리포트
+
+| 분포 | Before(전 행) DB | After(groupBy) DB | Before 앱 median | After 앱 median |
+|---|---|---|---|---|
+| 군집형 1,250행 / 126일 | 0.62ms / 50buf / **1,125행 전송** | 0.81ms / 50buf / **125행 전송** | **6.61ms** | **2.46ms** (2.7배) |
+| 분산형 1,225행 / 657일 | 0.62ms / 54buf / 1,125행 | 1.07ms / 54buf / 657행 | 8.03ms | 7.46ms (≈동률) |
+
+정직하게 남길 점: **DB 실행 시간은 오히려 조금 늘어난다**(HashAggregate 비용). 이득은 전적으로
+전송 행 수 감소에서 나오므로, 같은 날짜에 여러 건을 적는 실사용 패턴에서 2.7배이고, 거의
+매일 한두 건씩만 적는 극단적 분산에서는 본전이다. **어느 쪽에서도 나빠지지 않고**, 행 수 상한이
+"지출 건수"(무제한)에서 "지출이 있었던 날짜 수"(달력일)로 바뀌는 것이 구조적 이득이라 채택했다.
+
+Prisma는 파생식(연도 추출) 기준 groupBy를 표현할 수 없어 일자 기준으로 접고 연도 접기만 JS에
+남겼다. 연도 기준 SQL(`EXTRACT(YEAR ...)`)을 쓰려면 `$queryRaw`가 필요한데, 응답 1건을 위해
+타입 안전성을 버릴 만큼의 격차는 위 실측에서 확인되지 않았다.
+
+## 인덱스를 추가하지 않은 근거
+
+치환 후 3개 쿼리 모양 **모두** 000001의 부분 인덱스 `idx_expenses_not_deleted`를 탄다
+(위 플랜의 `Bitmap Index Scan` / `Index Scan Backward` 노드). 비부분 인덱스
+`idx_expenses_child_spent_on (child_id, spent_on)`이 함께 있는데도 플래너가 매번 부분 인덱스를
+고른다 — `deleted_at IS NULL` 술어가 인덱스 조건에 흡수되기 때문이다.
+
+- 새 인덱스 후보 **`(child_id, expense_type)`**: SUM 쪽 플랜에서 `Rows Removed by Filter: 100`
+  (선물 10%)에 불과하다 — 선택도가 낮아 인덱스로 거를 값이 없고, 쓰기 비용만 는다. **스킵**.
+- 새 인덱스 후보 **`(child_id, spent_on, created_at)`**: 최근 3건의 Incremental Sort를 없앨 수
+  있지만, 그 정렬은 이미 `Full-sort Groups: 1 / Peak Memory: 26kB`로 사실상 공짜다(0.20ms 중
+  대부분은 힙 접근). **스킵**.
+
+## 검증
+
+- 동치 회귀 테스트: `apps/api/test/reporting-hotpath.db.test.ts` (4건) — 기대값을 손으로 적지
+  않고 **치환 전과 동일한 "전 행 → JS 접기" 참조 구현**을 테스트 안에서 돌려 API 응답과 비교한다.
+  데이터는 행 다수·같은 날짜 복수 건·선물 혼합·soft delete·연도 경계(12-31/01-01)를 모두 섞는다.
+- 인덱스 사용 고정: `apps/api/test/perf-indexes.db.test.ts`의 PERF-121 블록 — PERF-115 관례대로
+  `SET LOCAL enable_seqscan = off` 후 세 쿼리 모양이 `idx_expenses_not_deleted`를 태우는지 확인.
+- 기존 e2e 안전망 그대로 통과(`expense-home-report.e2e.test.ts`의 PERF-103 홈 일관성 테스트 포함).
+- 스크래치 DB `wooriai_perf121`은 측정 종료 후 드랍.
