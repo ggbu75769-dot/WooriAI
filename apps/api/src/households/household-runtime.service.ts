@@ -194,18 +194,30 @@ export class HouseholdRuntimeService {
   }
 
   /**
-   * Rebuilds the trustworthy parts of an `AuthenticatedUser` (status, households)
-   * straight from the database rather than trusting whatever a decoded JWT payload
-   * says — membership changes (removal, leaving, withdrawal) must take effect
-   * immediately, not only once a token happens to expire.
+   * Builds the whole `AuthenticatedUser` straight from the database rather than
+   * trusting whatever a decoded JWT payload says — membership changes (removal,
+   * leaving, withdrawal) must take effect immediately, not only once a token happens
+   * to expire.
+   *
+   * SEC-131: the parameter is now just the user id. It used to take a full
+   * `AuthenticatedUser` and fall back to the caller-supplied `displayName`/`email`
+   * when the DB row was missing or inactive — those fallbacks only ever had a value
+   * because `TokenService` copied the entire user object into the JWT payload, which
+   * is exactly the PII exposure SEC-131 removes. Now that issued tokens carry no such
+   * claims there is nothing to fall back *to*, so the row (or its absence) is the sole
+   * source of truth. The `Partial<AuthenticatedUser>` intersection keeps existing
+   * callers that still pass a full object compiling; anything beyond `id` is ignored.
    */
-  async enrichUser(user: AuthenticatedUser): Promise<AuthenticatedUser> {
+  async enrichUser(user: { id: string } & Partial<AuthenticatedUser>): Promise<AuthenticatedUser> {
     const row = await this.prisma.user.findUnique({ where: { id: user.id } });
     if (!row || row.status !== "active") {
+      // 행이 없다 = 이 토큰이 가리키는 사용자가 더는 존재하지 않는다(하드 삭제/미존재
+      // id). 탈퇴와 동일하게 취급하면 JwtAuthGuard가 status !== "active"로 401을
+      // 내므로, 없는 사용자를 클레임에 남아 있던 이름/이메일로 되살리지 않는다.
       return {
         id: user.id,
-        displayName: row?.displayName ?? user.displayName,
-        email: row?.email ?? user.email,
+        displayName: row?.displayName ?? "",
+        email: row?.email ?? null,
         status: row?.status ?? "withdrawn",
         households: []
       };
@@ -213,7 +225,7 @@ export class HouseholdRuntimeService {
 
     return {
       id: row.id,
-      displayName: row.displayName ?? user.displayName,
+      displayName: row.displayName ?? "",
       email: row.email,
       status: row.status,
       households: await this.householdsForUser(row.id)
