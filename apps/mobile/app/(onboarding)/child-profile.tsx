@@ -116,9 +116,11 @@ export default function ChildProfileScreen() {
               <TextInput
                 accessibilityLabel={`${dateLabel} 입력`}
                 // 라운드 45 UX-Y(S): 예정일/생년월일은 숫자와 하이픈만 쓰는 입력이라 지출 화면의
-                // 날짜 직접 입력(app/expenses/[expenseId].tsx)과 같은 숫자 키패드를 띄운다.
-                // 길이도 YYYY-MM-DD 10자로 막아 오타를 줄인다 — 형식/달력 검증은 그대로
-                // computeDateError가 한다.
+                // 날짜 직접 입력(app/expenses/[expenseId].tsx)과 **같은 값**을 쓴다.
+                // 라운드 45 O-7(주석 정정): numbers-and-punctuation은 iOS 전용 값이다 — iOS에서는
+                // 숫자·기호 키보드가 뜨고, Android는 이 값을 모르므로 기본 키보드가 그대로 뜬다
+                // (거기서는 maxLength 10자만 오타를 줄인다). 지출 화면과 값을 맞추는 것이 목적이라
+                // 동작은 그대로 두고, 형식/달력 검증은 종전대로 computeDateError가 한다.
                 keyboardType="numbers-and-punctuation"
                 maxLength={10}
                 returnKeyType="done"

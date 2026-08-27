@@ -13,6 +13,7 @@ import { CategoryChip, SecondaryButton, Toast } from "../ui";
 import { buildExpenseCsv } from "./expense-csv";
 import { collectExpensesForRange, EXPORT_RANGE_OPTIONS, type ExportRange } from "./export-range";
 import { shareExpenseCsv } from "./share-csv";
+import { csvShareToastMessage } from "./share-payload";
 
 /**
  * EXP-106 데이터 내보내기(CSV) 공용 모듈 (CLEAN-123/A3).
@@ -128,10 +129,10 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
       if (!outcome.shared) return; // user closed the share sheet -- not a success, not an error
       const truncated = collected.truncated || built.truncated || outcome.truncated;
       const sharedRowCount = built.rowCount - outcome.droppedRows;
+      // 라운드 45 O-8: Android는 시트를 닫아도 성공으로 resolve된다(share-csv.ts outcomeKnown).
+      // 그 플랫폼에서는 "내보냈어요"라고 단정하지 않고 실제로 일어난 일만 적는다.
       showToast(
-        truncated
-          ? `기록 ${sharedRowCount}건을 내보냈어요. (용량 제한으로 일부만 포함됐어요)`
-          : `기록 ${sharedRowCount}건을 내보냈어요.`,
+        csvShareToastMessage({ outcomeKnown: outcome.outcomeKnown, rowCount: sharedRowCount, truncated }),
         "success"
       );
     } catch (error) {

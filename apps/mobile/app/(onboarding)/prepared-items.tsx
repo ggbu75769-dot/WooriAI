@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { listItems, LOCAL_SESSION_TOKEN, setPreparedItems } from "../../src/api/client";
 import { LOCAL_ITEM_CARRIER, LOCAL_ITEM_DIAPER } from "../../src/api/local-fixtures";
 import {
+  PREPARED_ITEMS_PARTIAL_ALERT_TITLE,
   preparedIdsToSubmit,
+  preparedItemsPartialNotice,
   selectPreparedItemOptions,
   togglePreparedItemId,
   type PreparedItemOption
@@ -59,7 +61,12 @@ export default function PreparedItemsScreen() {
       }
       return setPreparedItems(authToken, selectedChildId, idsToSubmit);
     },
-    onSuccess: () => {
+    // 서버가 돌려준 `updatedCount`는 **실제로 반영된 건수**다. 보낸 개수보다 작으면(목록이
+    // 갱신되며 사라진 항목을 체크해 둔 경우) 저장은 성공이지만 화면이 아는 수와 다르다 —
+    // 진행을 막지 않고 중립 안내 한 줄만 남긴다(preparedItemsPartialNotice 주석 참고).
+    onSuccess: (result) => {
+      const notice = preparedItemsPartialNotice(idsToSubmit.length, result?.updatedCount);
+      if (notice) Alert.alert(PREPARED_ITEMS_PARTIAL_ALERT_TITLE, notice);
       completeStep("ONB-003");
       router.push("/onboarding/budget");
     }

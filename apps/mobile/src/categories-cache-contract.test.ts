@@ -30,6 +30,16 @@ describe("공유 [\"categories\"] 캐시 규약 (전역 가드)", () => {
     expect(consumers.length).toBeGreaterThanOrEqual(4);
     for (const file of consumers) {
       const source = readFileSync(file, "utf8");
+      // 라운드 45 O-5: 이 키를 **읽기만** 하는 화면도 생겼다(app/sync-status.tsx는
+      // enabled:false + queryFn: skipToken으로 캐시를 구독만 한다). 규약이 막는 것은 "기본
+      // 12행 목록으로 캐시를 **채우는**" 일이므로, 요청을 아예 만들지 않는 구독자는 대상이
+      // 아니다 — 대신 정말 요청이 없는지(skipToken)를 같은 강도로 고정한다.
+      if (!source.includes("listCategories(")) {
+        expect(source, `${file} 는 요청 없이 ["categories"] 캐시를 구독만 해야 한다`).toContain(
+          "queryFn: skipToken"
+        );
+        continue;
+      }
       expect(source, `${file} 는 ["categories"] 캐시를 기본(12행) 목록으로 채우면 안 된다`).toContain(
         "includeAll: true"
       );

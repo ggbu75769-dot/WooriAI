@@ -34,6 +34,20 @@ export const CONFLICT_EMPTY_VALUE_LABEL = "없음";
 export const CONFLICT_UNKNOWN_CATEGORY_LABEL = "알 수 없는 분류";
 
 /**
+ * 라운드 45 O-4: 미지 categoryId에 **짧은 구분자**를 병기한다.
+ *
+ * "기타"를 피해 "알 수 없는 분류"로 바꿔도, 미지 id가 두 개면 두 후보가 여전히 글자까지 같아
+ * 구별이 안 됐다 — 무엇을 고르든 같은 것을 고르는 화면이었다. UUID 전체를 그리면 다시 읽을 수
+ * 없는 값이 되므로, 끝 4자만 붙여 "서로 다르다"는 사실만 보이게 한다(끝자리를 쓰는 이유: 시드·
+ * 픽스처 UUID는 앞부분이 겹치고 뒤에서 갈린다). 4자는 이름이 아니라 **구별용 꼬리표**다.
+ */
+export function conflictUnknownCategoryLabel(categoryId: string): string {
+  const trimmed = categoryId.trim();
+  const tail = trimmed.replace(/-/g, "").slice(-4);
+  return tail.length > 0 ? `${CONFLICT_UNKNOWN_CATEGORY_LABEL} (${tail})` : CONFLICT_UNKNOWN_CATEGORY_LABEL;
+}
+
+/**
  * 결제 수단 라벨. 지출 입력 화면의 칩(app/expenses/new.tsx `quickExpensePaymentMethods`)과 같은
  * 단어를 쓴다 -- 같은 값이 화면마다 다른 이름으로 보이면 안 된다. "unknown"은 그 화면에 칩이
  * 없는(=고른 적 없는) 값이라 사실 그대로 적는다.
@@ -86,7 +100,7 @@ export function buildConflictValueFormatter(
     if (field === "categoryId") {
       const categoryId = String(value);
       if (knownServerIds.has(categoryId) || isKnownStaticCategoryId(categoryId)) return lookup(categoryId);
-      return CONFLICT_UNKNOWN_CATEGORY_LABEL;
+      return conflictUnknownCategoryLabel(categoryId);
     }
 
     if (field === "spentOn") {

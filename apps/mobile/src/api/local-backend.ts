@@ -1708,19 +1708,26 @@ export function onboardingStatus(): {
   };
 }
 
+/**
+ * 라운드 45 O-3: `updatedCount`는 실서버와 같은 뜻 — **실제로 반영된 건수**다
+ * (apps/api/src/onboarding/onboarding-core.service.ts의 validIds 필터). 예전에는 고유 id 개수를
+ * 그대로 돌려줘서, 픽스처에 없는 id만 보내도 아무것도 바뀌지 않은 채 "n건 반영"이라는 허위 성공이
+ * 나왔다 — 데모 세션에서만 실세션과 다른 수를 말하는 셈이었다. 단계 완료 표시는 종전대로 0건이어도
+ * 남긴다(실서버의 preparedItemsSetAt과 같은 규칙).
+ */
 export function setPreparedItems(_childId: string, itemTemplateIds: string[]): { updatedCount: number } {
   ensureSeeded();
-  const unique = new Set(itemTemplateIds);
+  const applied = [...new Set(itemTemplateIds)].filter((itemTemplateId) =>
+    localItemTemplateFixtures.some((item) => item.id === itemTemplateId)
+  );
   useLocalBackendStore.setState((state) => {
     const nextStatuses = { ...state.itemStatuses };
-    for (const itemTemplateId of unique) {
-      if (localItemTemplateFixtures.some((item) => item.id === itemTemplateId)) {
-        nextStatuses[itemTemplateId] = { status: "prepared", expenseId: null };
-      }
+    for (const itemTemplateId of applied) {
+      nextStatuses[itemTemplateId] = { status: "prepared", expenseId: null };
     }
     return { itemStatuses: nextStatuses, preparedItemsCompleted: true };
   });
-  return { updatedCount: unique.size };
+  return { updatedCount: applied.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -1737,7 +1744,10 @@ export function setPreparedItems(_childId: string, itemTemplateIds: string[]): {
  */
 const ACCOUNT_DELETE_IMPACT = ["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"];
 const HOUSEHOLD_LEAVE_IMPACT = ["이 가구에 공유된 아이 기록을 볼 수 없어요"];
-const CHILD_DELETE_IMPACT = ["아이 프로필을 볼 수 없어요", "이 아이의 지출 기록이 리포트에서 빠져요"];
+// 아이 삭제 미리보기는 실서버 `childProfileDeleteImpact`(onboarding-core.service.ts)와 글자까지
+// 같게 둔다. 예전에는 뜻만 같고 문장이 달라("아이 프로필을 볼 수 없어요" / "이 아이의 지출 기록이
+// 리포트에서 빠져요") 위 주석의 "같은 문장" 약속이 이 배열에서만 깨져 있었다.
+const CHILD_DELETE_IMPACT = ["아이 프로필을 더는 볼 수 없어요", "관련 지출 기록이 리포트에서 제외돼요"];
 
 /**
  * 데모 동의 정의: 실서버 `consentDefinitions`(apps/api/src/onboarding/onboarding-core.service.ts)

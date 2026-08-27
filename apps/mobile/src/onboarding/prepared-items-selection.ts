@@ -73,3 +73,26 @@ export function preparedIdsToSubmit(checkedIds: string[], options: PreparedItemO
   const checked = new Set(checkedIds);
   return options.filter((option) => checked.has(option.id)).map((option) => option.id);
 }
+
+/** 일부만 반영됐을 때의 안내 제목·문구(Alert 관례: 제목은 짧게, 본문은 사실 한 줄). */
+export const PREPARED_ITEMS_PARTIAL_ALERT_TITLE = "일부만 반영됐어요";
+export const PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE =
+  "일부 항목은 목록이 바뀌어 반영되지 않았어요. 준비템 탭에서 다시 체크할 수 있어요.";
+
+/**
+ * 저장 응답의 `updatedCount`가 보낸 개수보다 작으면 안내 문구, 같거나 크면 `null`.
+ *
+ * 라운드 45 O-3: 서버 `setPreparedItems`는 **실제로 반영된 건수**를 돌려준다
+ * (apps/api/src/onboarding/onboarding-core.service.ts — 존재하지 않는 id는 세지 않는다).
+ * 화면이 이 수를 읽지 않고 무조건 다음 단계로 넘어가면, 화면은 "3개 체크했다"고 알고 다음
+ * 화면(ONB-006 이어하기)은 "1개 저장됨"이라고 말하는 축소판 자기모순이 그대로 남는다.
+ * 저장 자체는 성공이므로 **막지 않고** 중립 안내 한 줄만 남기고 진행한다 — 사용자가 고른 것을
+ * 실패로 되돌리는 것이 아니라, 목록이 바뀌었다는 사실을 알려 준비템 탭에서 다시 체크하게 한다.
+ *
+ * 0건을 보낸 경우(건너뛰기)는 애초에 비교할 것이 없어 항상 `null`이다.
+ */
+export function preparedItemsPartialNotice(requestedCount: number, updatedCount: unknown): string | null {
+  if (requestedCount <= 0) return null;
+  if (typeof updatedCount !== "number" || !Number.isFinite(updatedCount)) return null;
+  return updatedCount < requestedCount ? PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE : null;
+}

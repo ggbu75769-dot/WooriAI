@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
 import { Alert, FlatList, Pressable, Text, View } from "react-native";
@@ -298,11 +298,22 @@ export default function SyncStatusScreen() {
 
   /**
    * 라운드 45 UX-AA: 충돌 값의 카테고리 이름은 기록 탭·리포트·CSV와 **같은 ["categories"] 캐시**
-   * 에서 온다. 여기서 useQuery로 새로 부르지 않는 이유: 이 화면은 오프라인·동기화 실패 상황에서
+   * 에서 온다. 여기서 목록을 새로 부르지 않는 이유: 이 화면은 오프라인·동기화 실패 상황에서
    * 열리는 화면이라, 여기서만 새 요청을 쏘면 실패가 하나 더 늘 뿐이다. 캐시가 비어 있으면
    * 포매터가 정적 8타일까지만 알고 나머지는 "알 수 없는 분류"라고 말한다(지어내지 않는다).
+   *
+   * 라운드 45 O-5: 읽는 방법만 바꿨다. `queryClient.getQueryData`는 렌더 순간의 값을 **한 번**
+   * 베끼는 것이라, 이 화면이 열려 있는 동안 다른 화면이 목록을 받아 와도(백그라운드 refetch,
+   * 탭 전환) 여기 이름은 UUID 꼬리표인 채로 남았다. `enabled:false` + `queryFn: skipToken`은
+   * **요청을 만들지 않으면서** 같은 캐시 항목을 구독한다 — 캐시가 채워지는 순간 이 화면도 이름을
+   * 얻는다(새 요청 0건은 그대로다).
    */
-  const cachedCategories = queryClient.getQueryData<{ categories: CategoryListItem[] }>(["categories"]);
+  const cachedCategoriesQuery = useQuery<{ categories: CategoryListItem[] }>({
+    queryKey: ["categories"],
+    enabled: false,
+    queryFn: skipToken
+  });
+  const cachedCategories = cachedCategoriesQuery.data;
   const formatConflictValue = useMemo(
     () => buildConflictValueFormatter(cachedCategories?.categories),
     [cachedCategories?.categories]

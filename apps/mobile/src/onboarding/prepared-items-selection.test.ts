@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 import type { ItemSummary } from "../api/client";
 import {
   PREPARED_ITEM_OPTION_LIMIT,
+  PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE,
   preparedIdsToSubmit,
+  preparedItemsPartialNotice,
   selectPreparedItemOptions,
   togglePreparedItemId
 } from "./prepared-items-selection";
@@ -90,6 +92,27 @@ describe("라운드 45 UX-Y(P1) ONB-003 준비물 선택 판정", () => {
     });
   });
 
+  describe("preparedItemsPartialNotice (라운드 45 O-3)", () => {
+    it("반영 수가 보낸 수보다 작으면 중립 안내 한 줄", () => {
+      expect(preparedItemsPartialNotice(3, 1)).toBe(PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE);
+      expect(preparedItemsPartialNotice(2, 0)).toBe(PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE);
+      // 안내일 뿐 실패가 아니다 -- 저장은 성공했고 다시 체크할 곳을 알려 준다.
+      expect(PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE).toContain("준비템 탭");
+    });
+
+    it("전부 반영됐거나 보낼 것이 없었으면 조용하다", () => {
+      expect(preparedItemsPartialNotice(2, 2)).toBeNull();
+      // 건너뛰기(0건 신고)는 비교할 것이 없다.
+      expect(preparedItemsPartialNotice(0, 0)).toBeNull();
+    });
+
+    it("응답이 수를 안 주면(구버전·이상 응답) 지어내지 않는다", () => {
+      expect(preparedItemsPartialNotice(2, undefined)).toBeNull();
+      expect(preparedItemsPartialNotice(2, "1")).toBeNull();
+      expect(preparedItemsPartialNotice(2, Number.NaN)).toBeNull();
+    });
+  });
+
   describe("ONB-003 화면 배선(소스 계약)", () => {
     const screenSource = source("app/(onboarding)/prepared-items.tsx");
 
@@ -116,6 +139,35 @@ describe("라운드 45 UX-Y(P1) ONB-003 준비물 선택 판정", () => {
       expect(screenSource).toContain("목록 다시 불러오기");
     });
 
+    it("데모 세션은 서버 목록 쿼리를 아예 켜지 않는다 (데모 토큰으로 실요청 금지)", () => {
+      expect(screenSource).toContain(
+        "const isItemsQueryEnabled = Boolean(authToken && selectedChildId) && !isDemoSession"
+      );
+      expect(screenSource).toContain("enabled: isItemsQueryEnabled");
+    });
+
+    it("로딩 판정은 '실제로 조회 중'일 때만 참 (비활성 쿼리도 isPending이다)", () => {
+      // 이 판정이 isPending만 보면 데모 세션은 영원히 스켈레톤이고, 건너뛰기 창도 열리지 않는다.
+      expect(screenSource).toContain("const isLoadingOptions = isItemsQueryEnabled && itemsQuery.isPending");
+    });
+
+    it("다시 불러오는 동안에도 건너뛰기 창이 닫히지 않는다", () => {
+      // canSkip은 isFetching이 아니라 isLoadingOptions(첫 조회)만 본다 -- refetch 중에 버튼이
+      // "건너뛰고 계속"에서 "저장하고 계속"으로 흔들리면 사용자가 무엇을 누르는지 알 수 없다.
+      expect(screenSource).toContain("const canSkip = !isLoadingOptions && !hasOptions");
+      expect(screenSource).not.toContain("canSkip = !itemsQuery.isFetching");
+      // 다시 불러오기 버튼만 그 사이 비활성이다.
+      expect(screenSource).toContain("disabled={itemsQuery.isFetching}");
+    });
+
+    it("저장 응답의 반영 수를 읽고, 요청보다 작으면 중립 안내를 남긴다 (라운드 45 O-3)", () => {
+      expect(screenSource).toContain("preparedItemsPartialNotice(idsToSubmit.length, result?.updatedCount)");
+      expect(screenSource).toContain("Alert.alert(PREPARED_ITEMS_PARTIAL_ALERT_TITLE, notice)");
+      // 안내는 진행을 막지 않는다 -- 저장 자체는 성공이다.
+      expect(screenSource).toContain('completeStep("ONB-003")');
+      expect(screenSource).toContain('router.push("/onboarding/budget")');
+    });
+
     it("ONB-006 이어하기 문구가 0개를 실패처럼 읽히게 두지 않는다", () => {
       const resumeSource = source("app/(onboarding)/resume.tsx");
       expect(resumeSource).toContain("체크한 준비물은 아직 없어요");
@@ -124,7 +176,9 @@ describe("라운드 45 UX-Y(P1) ONB-003 준비물 선택 판정", () => {
   });
 
   describe("라운드 45 UX-Y(S) 날짜 입력 키패드", () => {
-    it("예정일·생년월일 입력이 지출 화면과 같은 숫자 키패드와 10자 제한을 쓴다", () => {
+    // 라운드 45 O-7: numbers-and-punctuation은 iOS 전용 값이다(Android는 기본 키보드 + maxLength).
+    // 계약은 "지출 화면과 같은 값"이지 "모든 플랫폼에서 숫자 키패드"가 아니다.
+    it("예정일·생년월일 입력이 지출 화면과 같은 키보드 값과 10자 제한을 쓴다", () => {
       for (const relativePath of ["app/(onboarding)/child-profile.tsx", "app/settings/children.tsx"]) {
         const dateScreenSource = source(relativePath);
         expect(dateScreenSource, `${relativePath}`).toContain('keyboardType="numbers-and-punctuation"');
