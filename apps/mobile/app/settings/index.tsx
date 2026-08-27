@@ -11,6 +11,7 @@ import {
 // EXP-106 / CLEAN-123(A3): 더보기 탭과 같은 공용 내보내기 모듈 -- 설정에 "가져오기"만 있고
 // "내보내기"가 없어 데이터 이동성이 한쪽으로만 열려 있던 비대칭을 메운다(중복 구현 없음).
 import {
+  EXPORT_MENU_TITLE,
   EXPORT_SIGNED_OUT_CAPTION,
   ExpenseCsvExportCard,
   ExpenseCsvExportToast,
@@ -151,10 +152,12 @@ export default function SettingsScreen() {
           onPress={() => router.push("/import")}
         />
         {/* EXP-106 / CLEAN-123(A3): 가져오기의 반대 방향. 세션이 없으면 더보기 탭과 같은
-            비활성 행 패턴(안내 문구 + onPress 없음)으로 이유를 밝힌다. */}
+            비활성 행 패턴(안내 문구 + onPress 없음)으로 이유를 밝힌다.
+            FIX/F5: 행 제목은 더보기 탭과 같은 EXPORT_MENU_TITLE 한 벌만 쓴다 -- 예전에는 여기만
+            "CSV 내보내기"로 인라인돼 있어 같은 기능이 화면마다 다른 이름으로 보였다. */}
         <ListRow
           icon="⇪"
-          title="CSV 내보내기"
+          title={EXPORT_MENU_TITLE}
           subtitle={
             csvExport.canExport
               ? csvExport.cardOpen

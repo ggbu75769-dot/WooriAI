@@ -252,3 +252,41 @@ Prisma는 파생식(연도 추출) 기준 groupBy를 표현할 수 없어 일자
   `SET LOCAL enable_seqscan = off` 후 세 쿼리 모양이 `idx_expenses_not_deleted`를 태우는지 확인.
 - 기존 e2e 안전망 그대로 통과(`expense-home-report.e2e.test.ts`의 PERF-103 홈 일관성 테스트 포함).
 - 스크래치 DB `wooriai_perf121`은 측정 종료 후 드랍.
+
+---
+
+# ADM-123 (000016) — 후속 관찰 2건 (라운드 정밀 리뷰 F7)
+
+`000016_affiliate_clicks_clicked_product`가 추가한 `idx_affiliate_clicks_clicked_product
+(clicked_at, product_link_id)`에 대한 **관찰 기록**이다. 지금 당장 바꾸는 것은 없고
+(마이그레이션 파일은 Prisma 체크섬 때문에 수정 금지), 런칭 후 판단할 항목만 남긴다.
+
+## 1) `idx_affiliate_clicks_clicked_at` 단일 인덱스와의 중복
+
+새 복합 인덱스는 선두 컬럼이 `clicked_at`이라, 000011이 추가한 단일 인덱스
+`idx_affiliate_clicks_clicked_at (clicked_at)`이 서빙하던 쿼리(어드민 대시보드 최근 7일 합계,
+일별 추이 GROUP BY)를 **그대로 다 서빙할 수 있다** — 범위 술어가 같은 선두 컬럼에 걸리고,
+일별 추이는 `clicked_at`만 읽으므로 넓어진 인덱스에서도 Index Only Scan이다.
+
+- 남는 비용: `affiliate_clicks`는 `/r/:code`가 INSERT만 하는 append 전용 테이블이라 중복 인덱스
+  하나가 **매 클릭마다 쓰기 비용**을 더한다. 용량도 40만 행 기준 복합 15MB + 단일 10MB로,
+  단일 인덱스 몫 10MB가 사실상 잉여다.
+- 지금 지우지 않는 이유: 클릭 실데이터가 아직 없어 두 인덱스의 실제 플랜 선택(단일 인덱스가
+  더 작아 일별 추이에서 계속 선택될 여지)을 실측으로 확인할 수 없다. 000016의 실측은 합성
+  스크래치 DB(`wooriai_perf_adm123`) 기준이다.
+- 할 일: 운영 데이터가 쌓인 뒤 `pg_stat_user_indexes.idx_scan`으로 `idx_affiliate_clicks_clicked_at`
+  사용 횟수를 확인하고, 복합 인덱스만으로 같은 플랜이 나오면 **단일 인덱스 제거**를 검토한다
+  (제거도 `DROP INDEX CONCURRENTLY`로 별도 마이그레이션).
+
+## 2) 000016은 `CONCURRENTLY`가 아니다 — 운영 중 재적용 시 `/r/:code` INSERT 블록
+
+000016은 000011·000014·000015와 같은 관례로 **런칭 전**임을 전제해 `CREATE INDEX IF NOT EXISTS`
+(비-CONCURRENTLY)를 쓴다. 일반 `CREATE INDEX`는 대상 테이블에 `SHARE` 락을 잡아 인덱스 빌드가
+끝날 때까지 **INSERT를 막는다**. `affiliate_clicks`의 INSERT 경로는 제휴 링크 리다이렉트
+`/r/:code`이므로, 트래픽이 있는 상태에서 이 마이그레이션이 (새 환경 구축·복구 등으로) 다시
+돌면 그동안 클릭 리다이렉트가 지연·타임아웃될 수 있다 — 핵심 루프의 "구매 링크 클릭" 단계다.
+
+- 할 일: **런칭 후**에 affiliate_clicks 인덱스를 추가·교체할 일이 생기면 기존 파일을 고치지 말고
+  `CREATE INDEX CONCURRENTLY`(트랜잭션 밖 실행 필요)로 **별도 마이그레이션**을 새로 만든다.
+  Prisma의 마이그레이션은 기본적으로 트랜잭션으로 감싸므로 CONCURRENTLY 문은 단독 마이그레이션
+  파일로 분리해야 한다.

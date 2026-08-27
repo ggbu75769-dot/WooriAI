@@ -83,10 +83,13 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
  * 내보내기 로직이 화면 안에서 다시 갈라지지 않는지까지 함께 잠근다.
  */
 describe("CLEAN-123(A3) data-portability symmetry", () => {
-  it("offers CSV 내보내기 next to 데이터 가져오기 on the settings screen", () => {
+  it("offers the export row next to 데이터 가져오기 on the settings screen", () => {
     const settingsSource = source("app/settings/index.tsx");
     expect(settingsSource).toContain('title="데이터 가져오기"');
-    expect(settingsSource).toContain('title="CSV 내보내기"');
+    // FIX/F5: 두 화면의 메뉴 제목은 EXPORT_MENU_TITLE 한 벌 -- 설정 화면이 다시 문자열을
+    // 인라인하면(예전의 "CSV 내보내기") 같은 기능이 화면마다 다른 이름으로 보인다.
+    expect(settingsSource).toContain("title={EXPORT_MENU_TITLE}");
+    expect(settingsSource).not.toContain('title="CSV 내보내기"');
     expect(settingsSource).toContain("<ExpenseCsvExportCard controller={csvExport} />");
     expect(settingsSource).toContain("<ExpenseCsvExportToast controller={csvExport} />");
     // 세션이 없으면 더보기 탭과 같은 비활성 행 패턴(안내 문구 + onPress 없음).
