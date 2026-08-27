@@ -27,6 +27,7 @@ import { buildMonthlyInsight, resolveMonthStatus } from "../../src/reports/month
 import { buildMonthlyShareMessage } from "../../src/reports/share-text";
 import { evaluateTrendDirection } from "../../src/reports/trend-direction";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
+import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -271,6 +272,12 @@ export default function ReportsScreen() {
     else yearly.refetch();
   };
 
+  // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다(src/offline/messages.ts).
+  // 이 화면은 카드 세 장(기간 합계·카테고리 비중·누적)이 각자 실패할 수 있지만, 연결 판정은
+  // 화면당 한 번이면 충분하다 — 셋 중 무엇이든 실패하면 그때의 연결 상태를 한 번 확인해 세 카드가
+  // 같은 문구를 쓴다. 한 화면 안에서 같은 원인의 실패가 서로 다르게 읽히면 안 된다(DNC-018 톤 일관성).
+  const loadErrorCopy = useLoadErrorCopy(activeIsError || activeCategory.isError || cumulative.isError);
+
   // The delta comparison only makes sense against last month while the 월간 tab is active.
   const hasDeltaData = hasSession && period === "월간" && monthly.isSuccess && previousMonth.isSuccess;
   const deltaPercent =
@@ -471,8 +478,8 @@ export default function ReportsScreen() {
             </>
           ) : activeIsError ? (
             <EmptyStateCard
-              title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-              actionLabel="다시 시도"
+              title={loadErrorCopy.title}
+              actionLabel={loadErrorCopy.actionLabel}
               onPress={refetchActive}
             />
           ) : (
@@ -529,8 +536,8 @@ export default function ReportsScreen() {
                 <SkeletonCard />
               ) : activeCategory.isError ? (
                 <EmptyStateCard
-                  title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-                  actionLabel="다시 시도"
+                  title={loadErrorCopy.title}
+                  actionLabel={loadErrorCopy.actionLabel}
                   onPress={() => activeCategory.refetch()}
                 />
               ) : categoryData.length === 0 ? (
@@ -548,8 +555,8 @@ export default function ReportsScreen() {
                 <SkeletonCard />
               ) : cumulative.isError ? (
                 <EmptyStateCard
-                  title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-                  actionLabel="다시 시도"
+                  title={loadErrorCopy.title}
+                  actionLabel={loadErrorCopy.actionLabel}
                   onPress={() => cumulative.refetch()}
                 />
               ) : cumulative.data ? (

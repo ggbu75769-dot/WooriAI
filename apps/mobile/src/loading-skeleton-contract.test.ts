@@ -13,10 +13,14 @@ function readSource(relativePath: string): string {
   return readFileSync(filePath, "utf8");
 }
 
+// UX-N: `offlineAwareCopy`가 켜진 화면은 에러 카드 문구를 오프라인 여부로 갈라 쓰므로 문구가
+// JSX 리터럴이 아니다(공용 단일 소스 useLoadErrorCopy → src/offline/messages.ts). 여기서 고정하는
+// 것은 원래도 "재시도 수단이 달린 EmptyStateCard가 에러 분기에 남아 있다"이므로, 그 화면에서는
+// 같은 사실을 리터럴 대신 공용 문구 사용으로 확인한다.
 const screens = [
-  { path: "app/family/index.tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"] },
-  { path: "app/items/[itemTemplateId].tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"] },
-  { path: "app/budget.tsx", skeletons: ["<SkeletonCard />"] }
+  { path: "app/family/index.tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"], offlineAwareCopy: false },
+  { path: "app/items/[itemTemplateId].tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"], offlineAwareCopy: true },
+  { path: "app/budget.tsx", skeletons: ["<SkeletonCard />"], offlineAwareCopy: false }
 ] as const;
 
 describe("MOB-119 loading skeleton contract", () => {
@@ -37,8 +41,13 @@ describe("MOB-119 loading skeleton contract", () => {
     // 분기 순서의 문제이고, 그 계약은 src/screen-phase.test.ts가 진다.
     it(`${screen.path} keeps the retry EmptyStateCard on the error branch`, () => {
       const source = readSource(screen.path);
-      expect(source).toContain('title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."');
-      expect(source).toContain('actionLabel="다시 시도"');
+      if (screen.offlineAwareCopy) {
+        expect(source).toContain("title={loadErrorCopy.title}");
+        expect(source).toContain("actionLabel={loadErrorCopy.actionLabel}");
+      } else {
+        expect(source).toContain('title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."');
+        expect(source).toContain('actionLabel="다시 시도"');
+      }
     });
   }
 });

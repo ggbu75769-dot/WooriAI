@@ -28,7 +28,7 @@ import {
   type ChildFormValues
 } from "../../src/children/child-form";
 import { getOrCreateChildCreateKey, rotateChildCreateKey } from "../../src/children/child-create-idempotency";
-import { planChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES } from "../../src/children/child-switch";
+import { applyChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES } from "../../src/children/child-switch";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -295,14 +295,14 @@ export default function ManageChildrenScreen() {
     }
   });
 
+  // HOME-138: 전환의 부수효과 순서(스토어 쓰기 → 아이 스코프 캐시 무효화 → 안내)는
+  // applyChildSwitch 한 곳에만 있다 -- 홈 헤더 1탭 전환이 같은 함수를 부른다.
   const handleSelect = (child: Child) => {
-    const plan = planChildSwitch(selectedChildId, child);
-    if (!plan) return;
-    setSelectedChildId(plan.childId);
-    for (const key of plan.invalidateKeys) {
-      queryClient.invalidateQueries({ queryKey: [...key] });
-    }
-    announceForA11y(plan.announcement);
+    applyChildSwitch(selectedChildId, child, {
+      setSelectedChildId,
+      invalidateQueries: (input) => queryClient.invalidateQueries(input),
+      announce: announceForA11y
+    });
   };
 
   const startEdit = (child: Child) => {

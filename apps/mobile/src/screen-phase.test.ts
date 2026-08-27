@@ -63,11 +63,18 @@ describe("MOB-130 resolveScreenPhase", () => {
  * resolveScreenPhase에 위임하며, 에러 분기가 로딩 분기보다 먼저 온다.
  */
 describe("MOB-130 screen branch-order contract", () => {
+  /**
+   * UX-N: `offlineAwareCopy`는 그 화면이 조회 실패 문구를 오프라인 여부로 갈라 쓰는지를 뜻한다.
+   * 갈라 쓰는 화면은 문구가 더 이상 JSX 리터럴이 아니라 useLoadErrorCopy가 돌려주는 값이므로,
+   * 문자열 대신 **그 공용 단일 소스를 쓴다는 사실**을 고정한다(문구 자체는
+   * src/offline/messages.test.ts가 고정). 아직 배선되지 않은 화면(홈·가족)은 예전 리터럴 그대로다
+   * — 다음 라운드에 배선되면 이 플래그만 켜면 된다.
+   */
   const screens = [
-    { path: "app/(tabs)/index.tsx", query: "home", phase: "homePhase" },
-    { path: "app/(tabs)/items.tsx", query: "items", phase: "itemsPhase" },
-    { path: "app/family/index.tsx", query: "members", phase: "membersPhase" },
-    { path: "app/items/[itemTemplateId].tsx", query: "detail", phase: "detailPhase" }
+    { path: "app/(tabs)/index.tsx", query: "home", phase: "homePhase", offlineAwareCopy: false },
+    { path: "app/(tabs)/items.tsx", query: "items", phase: "itemsPhase", offlineAwareCopy: true },
+    { path: "app/family/index.tsx", query: "members", phase: "membersPhase", offlineAwareCopy: false },
+    { path: "app/items/[itemTemplateId].tsx", query: "detail", phase: "detailPhase", offlineAwareCopy: true }
   ] as const;
 
   for (const screen of screens) {
@@ -89,10 +96,17 @@ describe("MOB-130 screen branch-order contract", () => {
       expect(loadingBranch, "loading branch should exist").toBeGreaterThan(-1);
       expect(errorBranch).toBeLessThan(loadingBranch);
 
-      // 에러 카드는 계속 재시도 수단을 단 EmptyStateCard다.
+      // 에러 카드는 계속 재시도 수단을 단 EmptyStateCard다 -- 오프라인에서도 버튼은 숨기지 않는다.
       const errorBlock = source.slice(errorBranch, loadingBranch);
-      expect(errorBlock).toContain('title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."');
-      expect(errorBlock).toContain('actionLabel="다시 시도"');
+      if (screen.offlineAwareCopy) {
+        expect(source).toContain('from "../../src/offline/use-load-error-copy"');
+        expect(source).toContain(`const loadErrorCopy = useLoadErrorCopy(${screen.query}.isError);`);
+        expect(errorBlock).toContain("title={loadErrorCopy.title}");
+        expect(errorBlock).toContain("actionLabel={loadErrorCopy.actionLabel}");
+      } else {
+        expect(errorBlock).toContain('title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."');
+        expect(errorBlock).toContain('actionLabel="다시 시도"');
+      }
       expect(errorBlock).toContain(`${screen.query}.refetch()`);
     });
 

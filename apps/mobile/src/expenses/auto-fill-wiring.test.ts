@@ -41,7 +41,9 @@ describe("UX-C quick-expense auto-fill wiring", () => {
   });
 
   it("F4: 카테고리 기본값은 '기타'가 아니라 8타일 중 첫 타일이다 (주석이 사실과 맞는지)", () => {
-    expect(newExpenseSource).toContain("useState(quickExpenseCategories[0])");
+    // UX-L(A): '또 기록' 프리필로 8타일 안의 분류가 오면 그 타일로 시작한다. 프리필이 없거나
+    // 8타일 밖이면(prefilledCategory === null) 예전과 같은 첫 타일이다 -- 지키려는 사실은 그대로.
+    expect(newExpenseSource).toContain("useState(prefilledCategory ?? quickExpenseCategories[0])");
     expect(categoryCatalog[0].label).toBe("기저귀");
     expect(categoryCatalog[0].code).not.toBe("etc");
     const suggestionModuleSource = readFileSync(join(mobileRoot, "src/expenses/category-suggestion.ts"), "utf8");
@@ -61,7 +63,11 @@ describe("UX-C quick-expense auto-fill wiring", () => {
   });
 
   it("never overwrites a category the user picked themselves", () => {
-    expect(newExpenseSource).toContain("const categoryTouchedRef = useRef(false);");
+    // UX-L(A): 초기값이 false 고정에서 "프리필로 분류가 함께 왔는가"로 바뀌었다. 지키려는 것은
+    // 그대로다 -- 사용자가 고른(= 여기서는 '또 기록'으로 그 기록을 골라서 온) 분류를 추천이
+    // 덮어쓰지 않는다. 프리필이 없는 일반 진입에서는 predicate가 false라 예전과 같다.
+    expect(newExpenseSource).toContain("const categoryTouchedRef = useRef(prefilledCategory !== null);");
+    expect(newExpenseSource).toContain("const prefilledCategory =");
     expect(newExpenseSource).toContain("if (categoryTouchedRef.current) return;");
     // 직접 선택으로 치는 네 경로: 카테고리 타일 / 최근 품목 칩 / 자동완성 칩 / 임시 저장 복원.
     expect(newExpenseSource.match(/categoryTouchedRef\.current = true;/g)?.length).toBeGreaterThanOrEqual(4);
@@ -139,6 +145,11 @@ describe("UX-C quick-expense auto-fill wiring", () => {
     // 픽셀 락 계약 불변: 캡처 조건과 캡처 문자열은 그대로.
     expect(newExpenseSource).toContain('const isPixelLockAmountCapture = !authToken && amountText === "38500";');
     expect(newExpenseSource).toContain('const quickExpenseAmountPreview = "₩ 38,500";');
-    expect(newExpenseSource).toContain('const [amountText, setAmountText] = useState(() => (authToken ? "" : "38500"));');
+    // UX-L(A): 세션이 있을 때의 초기 금액이 "빈 문자열 고정"에서 "프리필 금액(없으면 빈 칸)"이
+    // 됐다. 캡처 조건(세션 없음)에서는 프리필이 올 수 없어 여전히 고정 시드 "38500"이다 --
+    // EXP-001 기준 이미지는 그대로이고, 시트를 여는 것만으로 금액이 생기지도 않는다.
+    expect(newExpenseSource).toContain(
+      'const [amountText, setAmountText] = useState(() => (authToken ? prefill.amountText : "38500"));'
+    );
   });
 });

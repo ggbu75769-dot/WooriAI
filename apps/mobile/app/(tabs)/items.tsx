@@ -5,6 +5,7 @@ import { Alert, Image, Platform, RefreshControl, Text, TextInput, View, type Ima
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildItemStatusChangedPayload } from "../../src/analytics/events";
 import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -30,10 +31,12 @@ import {
   expenseLinkParams,
   expenseLinkPromptPlacement,
   isExpenseLinkPromptRow,
+  isExpenseLinkPromptStale,
   itemListExpenseLinkAccessibilityLabel,
   itemListExpenseLinkLabel,
   nextExpenseLinkPrompt,
-  type ExpenseLinkPrompt
+  type ExpenseLinkPrompt,
+  type ExpenseLinkPromptScope
 } from "../../src/items/expense-link-prompt";
 import {
   filterItems,
@@ -174,6 +177,11 @@ export default function ItemsScreen() {
   // (카드/모달 없이 텍스트 링크 하나). 한 번에 하나만 기억하므로 다른 행을 누르면 이전 줄은
   // 조용히 사라진다 -- 목록에 안내가 쌓이지 않게 하기 위해서다. 노출 판정과 문구는 전부
   // 순수 모듈(src/items/expense-link-prompt.ts)에 있다.
+  //
+  // 라운드 37 G-3: 이 줄은 **어느 목록을 보다가 남긴 것인지**(아이·시기 밴드·필수도·검색어)를
+  // 함께 들고 있다. 특히 아이를 바꾸고 돌아왔을 때 남아 있던 줄을 누르면 다른 아이의 지출로
+  // 기록되고 서버가 그 아이의 준비템까지 준비 완료로 바꿔 버렸다(R19-B) -- 사용자가 시킨 적
+  // 없는 데이터 변경이다.
   const [expenseLinkPrompt, setExpenseLinkPrompt] = useState<ExpenseLinkPrompt | null>(null);
   // UX-E: 100% 축하 배너를 닫은 시기 밴드들. 축하는 "도달했다"는 사실을 한 번 알리는 것이지
   // 계속 붙어 있는 라벨이 아니다 -- 닫으면 이 화면이 살아 있는 동안 같은 밴드에서는 다시
@@ -246,6 +254,24 @@ export default function ItemsScreen() {
     if (hasManualStageSelection) return;
     setStageLabel(defaultStageLabel);
   }, [defaultStageLabel, hasManualStageSelection]);
+  // 라운드 37 G-3: "지출도 기록할까요?" 줄이 살아 있어도 되는 화면 좌표. 목록을 갈아 끼우는
+  // 입력(아이·시기 밴드·필수도 칩·검색어)만 담는다 -- 상태 탭은 일부러 빠져 있다(모듈 주석 참고:
+  // 준비완료 탭으로 옮겨 간 그 항목을 보러 가는 이동은 프롬프트를 버리는 행동이 아니다).
+  const expenseLinkPromptScope: ExpenseLinkPromptScope = {
+    childId,
+    stageLabel,
+    necessityFilter,
+    searchText
+  };
+  // 좌표가 바뀌면 상태에서도 걷는다. 렌더 쪽(expenseLinkPromptPlacement)이 같은 판정으로 이미
+  // 그리지 않으므로 이 정리는 "화면에 없는 줄이 상태에만 남는" 상황을 없애는 뒷정리다.
+  useEffect(() => {
+    setExpenseLinkPrompt((prompt) =>
+      isExpenseLinkPromptStale({ prompt, scope: { childId, stageLabel, necessityFilter, searchText } })
+        ? null
+        : prompt
+    );
+  }, [childId, stageLabel, necessityFilter, searchText]);
   const updateStatus = useMutation({
     mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; itemName: string; status: ItemStatus }) =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
@@ -280,7 +306,9 @@ export default function ItemsScreen() {
         nextExpenseLinkPrompt({
           itemTemplateId: variables.itemTemplateId,
           itemName: variables.itemName,
-          status: variables.status
+          status: variables.status,
+          // G-3: 지금 보고 있는 목록의 좌표를 함께 박아 둔다.
+          scope: { childId, stageLabel, necessityFilter, searchText }
         })
       );
       // ANA-103: fires only after the server confirmed the status change. The payload carries
@@ -336,13 +364,16 @@ export default function ItemsScreen() {
 
   // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
   const itemsPhase = resolveScreenPhase({ isPending: items.isPending, isError: items.isError, hasData: Boolean(items.data) });
+  // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
+  // 버튼은 그대로 — 문구만 바뀐다(src/offline/messages.ts).
+  const loadErrorCopy = useLoadErrorCopy(items.isError);
 
   if (hasSession && itemsPhase === "error") {
     return (
       <AppScreen>
         <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
+          title={loadErrorCopy.title}
+          actionLabel={loadErrorCopy.actionLabel}
           onPress={() => items.refetch()}
         />
       </AppScreen>
@@ -406,12 +437,15 @@ export default function ItemsScreen() {
   // 라운드 37 UX-I: "지출도 기록할까요?" 한 줄을 어디에 그릴지. 준비했어요를 누른 행은 상태 탭이
   // "지금 필요"면 준비완료 탭으로 옮겨 가 **목록에서 사라지므로**(가장 흔한 경로), 행이 남아 있으면
   // 그 행 아래(inline), 사라졌으면 목록 위 한 줄(detached)로 자리만 옮긴다. 판정은 순수 모듈이 한다.
+  // G-3: 좌표가 어긋난 프롬프트(다른 아이·다른 밴드·다른 필터에서 남은 줄)는 "none"으로 떨어져
+  // 한 프레임도 그려지지 않는다.
   const expenseLinkPlacement = expenseLinkPromptPlacement({
     hasSession,
     prompt: expenseLinkPrompt,
+    scope: expenseLinkPromptScope,
     visibleItemIds: listedItems.map((item) => item.id)
   });
-  const openExpenseLinkPrompt = (prompt: ExpenseLinkPrompt) => {
+  const openExpenseLinkPrompt = (prompt: { itemTemplateId: string; itemName: string }) => {
     setExpenseLinkPrompt(null);
     router.push({
       pathname: "/expenses/new",

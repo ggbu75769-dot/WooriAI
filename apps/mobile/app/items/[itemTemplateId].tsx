@@ -21,6 +21,7 @@ import {
   shouldShowItemDetailExpenseLink,
   ITEM_DETAIL_EXPENSE_LINK_LABEL
 } from "../../src/items/expense-link-prompt";
+import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -365,12 +366,16 @@ export default function ItemDetailScreen() {
     hasData: Boolean(detail.data)
   });
 
+  // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
+  // 버튼은 그대로 — 문구만 바뀐다(src/offline/messages.ts).
+  const loadErrorCopy = useLoadErrorCopy(detail.isError);
+
   if (hasSession && detailPhase === "error") {
     return (
       <AppScreen>
         <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
+          title={loadErrorCopy.title}
+          actionLabel={loadErrorCopy.actionLabel}
           onPress={() => detail.refetch()}
         />
       </AppScreen>
@@ -578,8 +583,12 @@ export default function ItemDetailScreen() {
               지출을 저장하면 서버가 이 준비템도 준비 완료로 처리한다(R19-B).
 
               세션이 없으면 렌더하지 않는다: 기록할 대상이 없고, 픽셀 락 ITEM-002 캡처가 세션을
-              지운 프리뷰 렌더라 버튼 한 줄이 더 들어가면 기준 이미지와 어긋난다. */}
-          {shouldShowItemDetailExpenseLink({ hasSession }) ? (
+              지운 프리뷰 렌더라 버튼 한 줄이 더 들어가면 기준 이미지와 어긋난다.
+
+              라운드 37 G-8: 링크를 눌러 아래 "준비 완료로 남길까요?" 카드가 서 있는 동안에는
+              숨긴다 -- 그 카드의 "지출 기록하고 준비 완료"와 목적지·행동이 같아서, 함께 보이면
+              같은 화면에 지출 기록 입구가 두 개가 된다. 카드가 사라지면 다시 돌아온다. */}
+          {shouldShowItemDetailExpenseLink({ hasSession, clickedPromptVisible: Boolean(clickedTitle) }) ? (
             <SecondaryButton
               label={ITEM_DETAIL_EXPENSE_LINK_LABEL}
               accessibilityLabel={itemDetailExpenseLinkAccessibilityLabel(visibleDetail.name)}

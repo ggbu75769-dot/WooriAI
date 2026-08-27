@@ -12,7 +12,12 @@
  *    (src/offline/expense-list-reconciliation.ts)를 그대로 통과시킨다 — 로컬 변경이 걸린 낡은
  *    서버 행은 숨기고, 아직 올라가지 않은 로컬 대기 행은 더한다. 선물·환불 제외(DNC-015)도
  *    같은 술어(`countsTowardMonthlyTotal`)에서만 온다. 여기서 합계를 다시 손으로 쓰면
- *    같은 달을 두고 이 줄과 홈/기록 탭이 다른 숫자를 말하게 된다.
+ *    같은 달을 두고 이 줄과 **기록 탭**이 다른 숫자를 말하게 된다.
+ *    라운드 37 G-9(주석 정정): 이 줄이 지는 정합 계약은 **기록 탭 월 합계와의 일치**뿐이다.
+ *    홈 히어로의 "이번 달 지출"은 /home 서버 집계(HomeSummary.monthly.usedAmountKrw)라 아직
+ *    올라가지 않은 오프라인 대기 행이 들어 있지 않고, 그래서 이 줄과 정당하게 갈릴 수 있다
+ *    (둘 다 자기 출처를 정확히 말하고 있다). 종전 주석은 홈까지 같은 숫자여야 하는 것처럼
+ *    읽혀서, 그 차이를 결함으로 오해하게 만들었다.
  *  - **캐시가 없으면 줄 자체를 그리지 않는다**(null 반환). 콜드 스타트라 아직 아무것도 못
  *    받아 온 상태를 "0원 썼어요"로 말하면 그건 없는 사실을 만드는 것이다. 캐시가 있는데
  *    합계가 0이어도(첫 기록 전, 그 달이 전부 선물) 마찬가지로 줄을 생략한다 — 0원 한 줄은
@@ -25,13 +30,27 @@
  * 이번 달 합계가 0이면 항 자체를 붙이지 않는다 — 월 합계만 말하면 충분하고, "0원"은 위와
  * 같은 이유로 붙일 값이 아니다.
  *
+ * 라운드 37 G-4 — 카테고리 항을 **말할 수 없는 달**: 카테고리 합산은 이 화면의 8타일이 쓰는
+ * 고정 UUID(src/categories.ts `categoryCatalog`)와의 완전 일치로만 센다. 그런데 같은 달에
+ * 엑셀 임포트·지출 수정 화면을 거친 행은 서버가 시드한 정식 카테고리 UUID(DB마다 다른 값)를
+ * 달고 들어온다 — 그 행들은 어떤 타일에도 매칭되지 않아 카테고리 합계에서 통째로 빠지고,
+ * 화면에는 실제보다 작은 "기저귀 68,000원"이 남는다(월 합계는 정확한데 카테고리 항만 과소).
+ * 이 화면은 서버 카테고리 목록을 들고 있지 않아 그 행이 어느 분류인지 알 방법이 없으므로,
+ * **모르면 말하지 않는다**: 그 달에 8타일 밖 categoryId를 가진 행이 하나라도 있으면 카테고리
+ * 항을 통째로 생략하고 월 합계만 말한다(작은 숫자를 사실처럼 내놓는 것보다 낫다). 분류가
+ * 아직 없는 행(categoryId 없음/빈 문자열)은 어느 타일의 합계도 갉아먹지 않으므로 제외한다.
+ *
  * React/react-native에 의존하지 않으므로 vitest에서 그대로 단위 테스트한다
  * (이 저장소의 화면은 vitest에서 렌더할 수 없다 — src/expenses/month-expenses.test.ts 관례).
  */
 
+import { categoryCatalog } from "../categories";
 import { formatKrw } from "../money";
 import { countsTowardMonthlyTotal, reconcileMonthlyExpenses } from "../offline/expense-list-reconciliation";
 import type { LocalExpenseRow } from "../offline/types";
+
+/** 이 화면이 고를 수 있는 8타일의 고정 UUID — 이 집합 밖의 categoryId는 "알 수 없는 분류"다. */
+const TILE_CATEGORY_IDS = new Set(categoryCatalog.map((entry) => entry.id));
 
 /** 이 모듈이 서버 캐시 행에서 실제로 읽는 필드 — src/api/client.ts의 `Expense`가 그대로 대입된다. */
 export type EntryContextServerExpense = {
@@ -66,13 +85,15 @@ export type EntryContextLine = {
   accessibilityLabel: string;
 };
 
-function sumCategory(
-  rows: { categoryId: string; amountKrw: number; expenseType: string | null | undefined }[],
-  categoryId: string
-): number {
-  return rows
-    .filter((row) => row.categoryId === categoryId && countsTowardMonthlyTotal(row.expenseType))
-    .reduce((sum, row) => sum + row.amountKrw, 0);
+/** 카테고리 합산이 실제로 세는 행의 최소 모양(서버 캐시 행·오프라인 대기 행 공통). */
+type CountedCategoryRow = { categoryId: string; amountKrw: number; expenseType: string | null | undefined };
+
+/**
+ * 라운드 37 G-4: 이 화면이 이름을 아는 8타일 밖의 분류인가. 분류가 아직 없는 행(빈 값)은
+ * 어느 타일의 합계에서도 빠지지 않으므로 "알 수 없는 분류"로 치지 않는다.
+ */
+function hasUnknownCategory(row: CountedCategoryRow): boolean {
+  return typeof row.categoryId === "string" && row.categoryId.length > 0 && !TILE_CATEGORY_IDS.has(row.categoryId);
 }
 
 /**
@@ -106,16 +127,23 @@ export function buildEntryContextLine({
   const monthPart = `${monthLabel} 지금까지 ${formatKrw(monthlyTotalKrw)}`;
 
   if (selectedCategory) {
-    const categoryTotalKrw =
-      sumCategory(visibleServerExpenses, selectedCategory.id) +
-      sumCategory(
-        offlinePendingRows.map((row) => ({
-          categoryId: row.payload.categoryId,
-          amountKrw: row.payload.amountKrw,
-          expenseType: row.payload.expenseType
-        })),
-        selectedCategory.id
-      );
+    // 카테고리 항이 세는 행은 월 합계와 **같은 집합**이다 — 재조정을 거친 서버 행 + 로컬 대기 행,
+    // 선물·환불 제외(DNC-015). 아래 두 판정(알 수 없는 분류 / 선택 분류 합계)이 같은 목록을 본다.
+    const countedRows: CountedCategoryRow[] = [
+      ...visibleServerExpenses,
+      ...offlinePendingRows.map((row) => ({
+        categoryId: row.payload.categoryId,
+        amountKrw: row.payload.amountKrw,
+        expenseType: row.payload.expenseType
+      }))
+    ].filter((row) => countsTowardMonthlyTotal(row.expenseType));
+    // 라운드 37 G-4: 8타일 밖 분류(엑셀 임포트·수정 화면을 거친 서버 시드 UUID)가 이 달에 하나라도
+    // 섞여 있으면 카테고리 합계를 믿을 수 없다 — 과소 표기된 숫자를 내놓느니 항을 생략한다.
+    const categoryTotalKrw = countedRows.some(hasUnknownCategory)
+      ? 0
+      : countedRows
+          .filter((row) => row.categoryId === selectedCategory.id)
+          .reduce((sum, row) => sum + row.amountKrw, 0);
     if (categoryTotalKrw > 0) {
       const categoryPart = `${selectedCategory.label} ${formatKrw(categoryTotalKrw)}`;
       return { text: `${monthPart} · ${categoryPart}`, accessibilityLabel: `${monthPart}, ${categoryPart}` };

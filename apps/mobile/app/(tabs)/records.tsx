@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import type { ListRenderItemInfo, SectionListData, ViewStyle } from "react-native";
-import { Pressable, RefreshControl, ScrollView, SectionList, Text, TextInput, View } from "react-native";
+import type { AccessibilityActionEvent, ListRenderItemInfo, SectionListData, ViewStyle } from "react-native";
+import { Alert, Platform, Pressable, RefreshControl, ScrollView, SectionList, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import {
   listCategories,
@@ -27,6 +27,25 @@ import {
 } from "../../src/expenses/records-calendar";
 import { groupExpensesByDate, type RecordsDateGroup } from "../../src/expenses/records-date-groups";
 import {
+  buildRecordRowActions,
+  buildRecordRowActionSheet,
+  buildRepeatExpenseParams,
+  recordRowAccessibilityActions,
+  recordRowAccessibilityHint,
+  recordRowAccessibilityLabel,
+  resolveRecordRowAction,
+  type RecordRowActionKey
+} from "../../src/expenses/record-row-actions";
+import {
+  EXPENSE_DELETE_CONFIRM_ACTION_LABEL,
+  EXPENSE_DELETE_CONFIRM_CANCEL_LABEL,
+  EXPENSE_DELETE_CONFIRM_MESSAGE,
+  EXPENSE_DELETE_CONFIRM_TITLE,
+  EXPENSE_DELETE_FAILED_ALERT_TITLE,
+  EXPENSE_NOT_READY_ERROR,
+  expenseMutationErrorMessage
+} from "../../src/expenses/save-error-messages";
+import {
   buildRecordsCategoryChips,
   buildRecordsFilterScopeSummary,
   expenseCreatedByUserId,
@@ -46,7 +65,13 @@ import {
   SYNC_ROW_PENDING_DELETE_LABEL,
   SYNC_ROW_PENDING_LABEL
 } from "../../src/offline/messages";
-import { refreshOfflineSyncSnapshot, subscribeOfflineFlashMessage, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import {
+  adoptServerExpense,
+  deleteExpenseOffline,
+  refreshOfflineSyncSnapshot,
+  subscribeOfflineFlashMessage,
+  useOfflineSyncSnapshot
+} from "../../src/offline/sync-controller";
 import type { LocalExpenseRow } from "../../src/offline/types";
 import { canGoToNextPeriod, periodLabelForOffset } from "../../src/period-navigation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
@@ -100,8 +125,19 @@ type RecordsListItem = { key: string; spentOn: string; amountKrw: number; expens
   | { kind: "offline"; row: LocalExpenseRow }
   // FAM-127: `authorLabel`은 목록을 만들 때 이미 해석해 둔 **문자열(또는 null)**이다 -- 행에
   // 구성원 배열이나 해석 함수를 넘기면 PERF-102의 행 memo가 매 렌더 깨진다.
-  | { kind: "server"; expense: ServerExpense; categoryName: CategoryNameLookup; authorLabel: string | null }
+  // UX-L(A): `onAction`도 같은 규칙을 따른다 -- 화면에서 useCallback으로 한 번만 만든 안정된
+  // 참조를 그대로 태워 보낸다(행마다 새 람다를 만들면 memo가 무의미해진다).
+  | {
+      kind: "server";
+      expense: ServerExpense;
+      categoryName: CategoryNameLookup;
+      authorLabel: string | null;
+      onAction: RecordRowActionHandler;
+    }
 );
+
+/** UX-L(A): 행에서 고른 동작을 화면 쪽 실행부로 넘기는 핸들러(수정 이동 / 또 기록 / 삭제 확인). */
+type RecordRowActionHandler = (action: RecordRowActionKey, expense: ServerExpense) => void;
 
 /** UX-B: SectionList가 요구하는 `data`를 붙인 날짜 그룹(순수 모듈의 `rows`를 그대로 옮긴다). */
 type RecordsSection = Omit<RecordsDateGroup<RecordsListItem>, "rows"> & { data: RecordsListItem[] };
@@ -156,27 +192,98 @@ const OfflineExpenseListRow = memo(function OfflineExpenseListRow({ row }: { row
 // REC-121 (D2/K1): 행 부제는 "[선물|환불 ·] [작성자 ·] 카테고리 · 날짜". `categoryName`은 화면에서
 // 한 번만 만들어(useMemo) 내려주는 안정된 함수라 PERF-102의 memo 효과가 깨지지 않는다.
 // FAM-127: `authorLabel`은 1인 가구·해석 실패 시 null이고, 그때 부제는 예전과 완전히 같다.
+//
+// UX-L(A): 행 하나에서 수정 / 같은 내용으로 또 기록 / 삭제를 바로 고른다.
+//
+// 예전에는 행 탭이 무조건 상세로 갔고, 삭제는 그 상세 맨 아래 텍스트 링크였다(탭 3회 + 스크롤).
+// 반복 구매를 다시 적는 경로는 없었다. 탭의 기본 동작(상세 이동)은 그대로 두고 **롱프레스**로
+// 세 갈래를 연다 -- 항목 구성·문구·선물 행 제외 규칙은 전부 순수 모듈
+// (src/expenses/record-row-actions.ts)에 있고, 이 컴포넌트는 그것을 RN Alert과
+// accessibilityActions에 꽂기만 한다.
+//
+// ListRow는 공용 컴포넌트라(다른 화면 다수가 쓴다) 손대지 않고, 이 화면 전용 래퍼로 감싼다.
 const ServerExpenseListRow = memo(function ServerExpenseListRow({
   expense,
   categoryName,
-  authorLabel
+  authorLabel,
+  onAction
 }: {
   expense: ServerExpense;
   categoryName: CategoryNameLookup;
   authorLabel: string | null;
+  onAction: RecordRowActionHandler;
 }) {
+  const subtitle = recordsRowSubtitle({
+    expenseType: expense.expenseType,
+    authorLabel,
+    categoryLabel: categoryName(expense.categoryId),
+    dateLabel: formatSpentOn(expense.spentOn)
+  });
+  // 아래 ListRow의 `value`와 **같은 식**이다(스크린리더 라벨이 보이는 금액과 갈릴 수 없다).
+  const amountLabel = formatKrw(expense.amountKrw);
+  // 이 행이 실제로 제공하는 동작. 선물·환불 행에는 "또 기록"이 없다(DNC-015 -- 모듈 주석 참고).
+  const rowActions = useMemo(() => buildRecordRowActions({ expenseType: expense.expenseType }), [expense.expenseType]);
+  // A11Y: 롱프레스는 스크린리더로 **발견할 수 없는** 제스처다. 같은 목록을 커스텀 액션으로도
+  // 내놓아 TalkBack/VoiceOver의 액션 메뉴에서 똑같이 고를 수 있게 한다.
+  const rowAccessibilityActions = useMemo(() => recordRowAccessibilityActions(rowActions), [rowActions]);
+  const rowAccessibilityHint = useMemo(() => recordRowAccessibilityHint(rowActions), [rowActions]);
+
+  const openRowActionSheet = useCallback(() => {
+    const sheet = buildRecordRowActionSheet({
+      itemName: expense.itemName,
+      expenseType: expense.expenseType,
+      platform: Platform.OS
+    });
+    Alert.alert(
+      sheet.title,
+      sheet.message,
+      sheet.buttons.map((button) => {
+        const actionKey = button.actionKey;
+        return {
+          text: button.label,
+          style: button.style,
+          ...(actionKey ? { onPress: () => onAction(actionKey, expense) } : {})
+        };
+      }),
+      { cancelable: sheet.cancelable }
+    );
+  }, [expense, onAction]);
+
+  const handleRowAccessibilityAction = useCallback(
+    (event: AccessibilityActionEvent) => {
+      // 이 행이 내놓지 않은 액션 이름은 무시한다 -- 선물 행에 "또 기록"이 어떤 경로로도
+      // 실행되지 않아야 한다.
+      const action = resolveRecordRowAction(event.nativeEvent.actionName, rowActions);
+      if (action) onAction(action, expense);
+    },
+    [expense, onAction, rowActions]
+  );
+
+  const openExpenseDetail = useCallback(() => onAction("edit", expense), [expense, onAction]);
+
   return (
-    <ListRow
-      title={expense.itemName}
-      subtitle={recordsRowSubtitle({
-        expenseType: expense.expenseType,
-        authorLabel,
-        categoryLabel: categoryName(expense.categoryId),
-        dateLabel: formatSpentOn(expense.spentOn)
-      })}
-      value={formatKrw(expense.amountKrw)}
-      onPress={() => router.push(`/expenses/${expense.id}`)}
-    />
+    <Pressable
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={recordRowAccessibilityLabel({ itemName: expense.itemName, subtitle, amountLabel })}
+      accessibilityActions={rowAccessibilityActions}
+      accessibilityHint={rowAccessibilityHint}
+      onAccessibilityAction={handleRowAccessibilityAction}
+      onLongPress={openRowActionSheet}
+      onPress={openExpenseDetail}
+    >
+      {/* 안쪽을 잠그는 이유 두 가지.
+          (1) 터치: 공용 ListRow는 자기 루트가 Pressable이라 그대로 두면 그것이 responder를
+              가져가 바깥의 롱프레스가 영영 오지 않는다. onPress를 넘기지 않고
+              pointerEvents="none"으로 잠가 탭/롱프레스를 바깥 하나가 소유한다.
+          (2) 접근성: Pressable은 기본적으로 스스로 접근성 요소라, 감추지 않으면 행 안에 초점이
+              두 개 생겨 커스텀 액션이 붙은 바깥이 아닌 안쪽에 초점이 갈 수 있다. 감추는 대신
+              바깥이 같은 세 문자열로 만든 라벨을 읽어 준다(보이는 것과 읽히는 것이 같다).
+          그려지는 모양은 예전과 같은 ListRow 그대로이고, 다른 화면의 ListRow 사용은 그대로다. */}
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none">
+        <ListRow title={expense.itemName} subtitle={subtitle} value={formatKrw(expense.amountKrw)} />
+      </View>
+    </Pressable>
   );
 });
 
@@ -188,7 +295,12 @@ function renderRecordsRow({ item }: ListRenderItemInfo<RecordsListItem>) {
   return item.kind === "offline" ? (
     <OfflineExpenseListRow row={item.row} />
   ) : (
-    <ServerExpenseListRow expense={item.expense} categoryName={item.categoryName} authorLabel={item.authorLabel} />
+    <ServerExpenseListRow
+      expense={item.expense}
+      categoryName={item.categoryName}
+      authorLabel={item.authorLabel}
+      onAction={item.onAction}
+    />
   );
 }
 
@@ -685,6 +797,62 @@ export default function RecordsScreen() {
     Promise.all([expenses.refetch(), refreshOfflineSyncSnapshot()])
   );
 
+  // -------------------------------------------------------------------------------------------
+  // UX-L(A): 행 액션 실행부(수정 이동 / 같은 내용으로 또 기록 / 삭제 확인).
+  //
+  // 삭제는 지출 상세 화면(app/expenses/[expenseId].tsx)과 **완전히 같은 경로**를 탄다:
+  // adoptServerExpense로 서버 행을 로컬 테이블에 들인 뒤(오프라인 아웃박스가 expectedVersion을
+  // 붙여 보낼 수 있게) deleteExpenseOffline으로 삭제 대기를 건다. 목록에서만 쓰는 두 번째 삭제
+  // 경로를 만들면 오프라인 큐·충돌 처리 규칙이 화면마다 갈린다.
+  // -------------------------------------------------------------------------------------------
+  const queryClient = useQueryClient();
+  const removeExpense = useMutation({
+    mutationFn: async (expense: ServerExpense) => {
+      if (!authToken) throw new Error(EXPENSE_NOT_READY_ERROR);
+      const localRow = await adoptServerExpense(expense);
+      await deleteExpenseOffline(authToken, queryClient, localRow.localId);
+    },
+    // 삭제는 확인 Alert에서 이어지는 흐름이라 실패도 같은 자리(Alert)에서 알린다 -- 상세 화면과
+    // 같은 판단이고 문구도 같은 모듈에서 온다.
+    onError: (error) => {
+      Alert.alert(EXPENSE_DELETE_FAILED_ALERT_TITLE, expenseMutationErrorMessage("delete", error));
+    },
+    // 삭제 대기 행은 오프라인 스냅숏이 곧바로 알려 주고(아래 재조정이 낡은 서버 행을 숨긴다),
+    // 서버 확정 뒤의 목록 정리는 이 무효화가 맡는다 -- 상세 화면의 삭제와 같은 키다.
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+    }
+  });
+  // react-query의 `mutate`는 렌더마다 같은 참조라, 아래 핸들러가 안정된 참조로 남아 행 memo가
+  // 깨지지 않는다(뮤테이션 객체 자체는 isPending이 바뀔 때마다 새로 만들어진다).
+  const removeExpenseMutate = removeExpense.mutate;
+
+  const handleRowAction = useCallback<RecordRowActionHandler>(
+    (action, expense) => {
+      if (action === "edit") {
+        router.push(`/expenses/${expense.id}`);
+        return;
+      }
+      if (action === "repeat") {
+        // 프리필은 품목명·금액·카테고리까지이고 **날짜는 넘기지 않는다** -- 과거 기록의 복사가
+        // 아니라 새 기록이라 시트가 늘 하듯 오늘로 시작해야 한다(record-row-actions.ts 주석).
+        const params = buildRepeatExpenseParams(expense);
+        if (!params) return;
+        router.push({ pathname: "/expenses/new", params });
+        return;
+      }
+      Alert.alert(EXPENSE_DELETE_CONFIRM_TITLE, EXPENSE_DELETE_CONFIRM_MESSAGE, [
+        { text: EXPENSE_DELETE_CONFIRM_CANCEL_LABEL, style: "cancel" },
+        {
+          text: EXPENSE_DELETE_CONFIRM_ACTION_LABEL,
+          style: "destructive",
+          onPress: () => removeExpenseMutate(expense)
+        }
+      ]);
+    },
+    [removeExpenseMutate]
+  );
+
   // EXP-005: not-yet-synced local expenses for this child, so a record created/edited while
   // offline shows up immediately even though the server hasn't confirmed it yet.
   const syncSnapshot = useOfflineSyncSnapshot();
@@ -819,11 +987,15 @@ export default function RecordsScreen() {
           categoryName,
           // FAM-127: 오프라인 대기 행에는 라벨을 붙이지 않는다 -- 아직 이 기기에서 방금 만든
           // 내 기록이라 작성자가 자명하고, 서버가 준 createdByUserId도 아직 없다.
-          authorLabel: resolveExpenseAuthorLabel(expenseCreatedByUserId(expense), householdMemberRefs)
+          authorLabel: resolveExpenseAuthorLabel(expenseCreatedByUserId(expense), householdMemberRefs),
+          // UX-L(A): 롱프레스 액션 실행부. 안정된 참조라 행 memo(PERF-102)가 그대로 유지된다.
+          // 오프라인 대기 행에는 붙이지 않는다 -- 아직 서버 id가 없어 상세로 갈 수도, 같은
+          // 삭제 경로(adoptServerExpense)를 탈 수도 없다(그 행은 종전대로 동기화 상태로 간다).
+          onAction: handleRowAction
         })
       )
     ],
-    [visibleOfflineRows, visibleExpenses, categoryName, householdMemberRefs]
+    [visibleOfflineRows, visibleExpenses, categoryName, handleRowAction, householdMemberRefs]
   );
 
   const monthlyRecordCount = monthlyServerExpenses.length + offlinePendingRows.length;

@@ -32,6 +32,40 @@ export function hasQuickExpenseInput({ itemName, amountText, memo }: QuickExpens
   return [itemName, amountText, memo].some((value) => value.trim().length > 0);
 }
 
+export type QuickExpenseCloseInput = {
+  /** 닫기를 누른 시점의 입력값. */
+  current: QuickExpenseInputSnapshot;
+  /**
+   * 화면에 **처음 들어왔을 때**의 입력값. 일반 진입이면 전부 빈 문자열이고, 준비템·"같은 내용으로
+   * 또 기록" 프리필로 들어왔으면 그 프리필 값이다. 비동기로 복원되는 임시 저장(초안)은 여기에
+   * 들어오지 않는다 -- 복원된 값은 기준선과 달라서 아래 판정이 "지키는 쪽"으로 떨어진다.
+   */
+  initial: QuickExpenseInputSnapshot;
+};
+
+/**
+ * (c) 라운드 37 G-7 — 닫기(×)에서 초안을 지워도 되는지의 **최종** 판정.
+ *
+ * (a)의 `hasQuickExpenseInput`만으로는 프리필 진입을 가릴 수 없었다. 준비템에서 "지출 기록하고
+ * 준비 완료"로 들어오면 품목명이 『젖병 소독기』로 이미 채워져 있으므로, 사용자가 아무것도 치지
+ * 않고 그대로 닫아도 (1) 500ms 자동 저장이 그 값을 초안으로 남기고 (2) 닫기는 "친 것이 있다"고
+ * 보아 지우지 않는다. 그 초안은 itemTemplateId를 담지 않으므로, 다음에 FAB로 빈 시트를 열면
+ * 준비템과 **연결되지 않은** 『젖병 소독기』가 되살아나 사용자가 고른 적 없는 이름으로 기록된다.
+ *
+ * 그래서 "사용자가 친 것"에서 **프리필로 채워진 초기값을 제외**한다: 지금 값이 진입 시 스냅숏과
+ * 전부 같으면 사용자가 손댄 것이 하나도 없다는 뜻이므로, 빈 값으로 닫는 것과 똑같이 초안을
+ * 지운다. 일반 진입(초기값이 전부 빈 문자열)에서는 이 규칙이 종전 동작과 정확히 같다.
+ *
+ * 반대로 프리필을 지우고 닫은 경우(지금 값이 전부 빔)도 지운다 -- 남길 것이 없다.
+ * 공백 차이는 무시한다(hasQuickExpenseInput의 trim 관례와 같다).
+ */
+export function shouldClearQuickExpenseDraftOnClose({ current, initial }: QuickExpenseCloseInput): boolean {
+  const untouched = (["itemName", "amountText", "memo"] as const).every(
+    (field) => current[field].trim() === initial[field].trim()
+  );
+  return untouched || !hasQuickExpenseInput(current);
+}
+
 export type TileItemNameFillInput = {
   /** 지금 품목명 입력칸에 있는 값. */
   itemName: string;
