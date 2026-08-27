@@ -5,6 +5,7 @@ import { Alert, Image, Platform, RefreshControl, Text, TextInput, View, type Ima
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildItemStatusChangedPayload } from "../../src/analytics/events";
 import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -194,6 +195,10 @@ export default function ItemsScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  // UX-R(M): "지출도 기록할까요?"는 지출 생성 화면으로 가는 입구다. 보기 전용 참여자에게는
+  // 서버가 그 저장을 403으로 막으므로, 여기서 같은 판정으로 안내한다
+  // (준비 상태 변경 자체는 이 라운드 범위 밖이라 건드리지 않는다).
+  const expenseGate = useExpenseEntryGate();
   const queryClient = useQueryClient();
   // Default the selected chip to the child's actual current stage once it's known, unless the
   // pixel-lock capture is running, we're in the loginless test session (fixture data must render
@@ -445,13 +450,13 @@ export default function ItemsScreen() {
     scope: expenseLinkPromptScope,
     visibleItemIds: listedItems.map((item) => item.id)
   });
-  const openExpenseLinkPrompt = (prompt: { itemTemplateId: string; itemName: string }) => {
+  const openExpenseLinkPrompt = expenseGate.guard((prompt: { itemTemplateId: string; itemName: string }) => {
     setExpenseLinkPrompt(null);
     router.push({
       pathname: "/expenses/new",
       params: expenseLinkParams({ itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId })
     });
-  };
+  });
 
   return (
     <AppScreen

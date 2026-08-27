@@ -78,6 +78,7 @@ import {
 } from "../../src/offline/sync-controller";
 import type { LocalExpenseRow } from "../../src/offline/types";
 import { canGoToNextPeriod, periodLabelForOffset } from "../../src/period-navigation";
+import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -648,6 +649,14 @@ export default function RecordsScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  // UX-R(M): 보기 전용 참여자에게는 서버가 지출 생성·수정·삭제를 막는다(403). 이 탭의 기록
+  // 진입점(상단 "빠른 지출 기록" 버튼, 빈 상태의 "기록하기", 행 롱프레스의 "또 기록"·"삭제")을
+  // 같은 판정 하나로 잠근다 -- src/family/record-permissions.ts.
+  const expenseGate = useExpenseEntryGate();
+  // 행 액션 핸들러(useCallback)가 읽을 두 값만 따로 뽑아 둔다 -- 훅이 돌려주는 객체는 매 렌더
+  // 새 참조지만 이 둘은 아니라, 의존성에 넣어도 핸들러가 안정적으로 남는다.
+  const expenseEntryLocked = expenseGate.locked;
+  const explainExpenseEntryLock = expenseGate.explain;
   const [monthOffset, setMonthOffset] = useState(0);
   const [searchText, setSearchText] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -838,7 +847,16 @@ export default function RecordsScreen() {
   const handleRowAction = useCallback<RecordRowActionHandler>(
     (action, expense) => {
       if (action === "edit") {
+        // UX-R(M): "수정"은 상세 화면으로 **가는** 동작이고, 상세 화면은 보기 전용 참여자도
+        // 볼 수 있어야 한다(행 탭도 같은 경로로 온다 -- openExpenseDetail). 그래서 여기서는
+        // 막지 않고, 그 화면의 저장·삭제 버튼이 같은 판정으로 답한다.
         router.push(`/expenses/${expense.id}`);
+        return;
+      }
+      // "또 기록"(새 지출 생성)과 "삭제"는 서버 쓰기라 여기서 막는다. 액션시트 항목 자체는
+      // 남겨 둔다 -- 항목이 사라지면 왜 사라졌는지 알 길이 없고, 눌렀을 때의 안내가 그 답이다.
+      if (expenseEntryLocked) {
+        explainExpenseEntryLock();
         return;
       }
       if (action === "repeat") {
@@ -858,7 +876,9 @@ export default function RecordsScreen() {
         }
       ]);
     },
-    [removeExpenseMutate]
+    // 두 값 모두 렌더 간 참조가 안정적이다(불리언 · 모듈 스코프 함수)라, 행 memo를 깨는
+    // 새 핸들러가 매 렌더 만들어지지 않는다 -- 위 removeExpenseMutate와 같은 이유다.
+    [removeExpenseMutate, expenseEntryLocked, explainExpenseEntryLock]
   );
 
   // EXP-005: not-yet-synced local expenses for this child, so a record created/edited while
@@ -1158,7 +1178,7 @@ export default function RecordsScreen() {
           지출 내역"이라고 적혀 있어, 바로 아래 월 이동 라벨("2026년 6월")과 어긋났다. */}
       <ScreenHeader eyebrow="지출 기록" title="기록" subtitle={`${recordsMonthLabel} 지출 내역을 한눈에 확인해 보세요.`} />
 
-      <PrimaryButton label="빠른 지출 기록" onPress={() => router.push("/expenses/new")} />
+      <PrimaryButton label="빠른 지출 기록" onPress={expenseGate.guard(() => router.push("/expenses/new"))} />
 
       {confirmedFlash ? <Toast message={confirmedFlash} tone="success" /> : null}
 
@@ -1364,7 +1384,14 @@ export default function RecordsScreen() {
       <EmptyStateCard
         title={hasSearchQuery ? "검색 결과가 없어요." : "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."}
         actionLabel={hasSearchQuery ? "검색어 지우기" : "기록하기"}
-        onPress={() => (hasSearchQuery ? setSearchText("") : router.push("/expenses/new"))}
+        onPress={() => {
+          // 검색어를 지우는 갈래는 잠금과 무관하다(읽기 동작이다).
+          if (hasSearchQuery) {
+            setSearchText("");
+            return;
+          }
+          expenseGate.guard(() => router.push("/expenses/new"))();
+        }}
       />
       {previousMonthSearchActionButton}
     </View>

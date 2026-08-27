@@ -27,6 +27,7 @@ import {
   expenseMutationErrorMessage,
   INVALID_EXPENSE_INPUT_ERROR
 } from "../../src/expenses/save-error-messages";
+import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
@@ -78,6 +79,11 @@ export default function ExpenseDetailScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  // UX-R(M): 보기 전용(viewer·gift_participant) 참여자는 지출을 **볼 수는 있지만** 고치거나
+  // 지울 수 없다(서버 child-access.service.ts가 edit 경로만 403으로 막는다). 그래서 이 화면은
+  // 그대로 열리고, 아래 "수정 저장"·"이 지출 삭제하기"만 같은 판정으로 안내한다 --
+  // src/family/record-permissions.ts. 역할 미상·비세션에서는 예전 동작 그대로다.
+  const expenseGate = useExpenseEntryGate();
   const queryClient = useQueryClient();
   const canLoadExpense = Boolean(authToken && expenseId);
   const expense = useQuery({
@@ -243,6 +249,12 @@ export default function ExpenseDetailScreen() {
   // 액션시트(app/(tabs)/records.tsx)가 같은 삭제를 실행하면서 같은 상수를 읽는다. 문구를 양쪽에
   // 적어 두면 같은 파괴적 동작이 화면마다 다르게 물어보게 된다.
   function confirmDelete() {
+    // 잠긴 세션에서는 파괴적 확인 Alert 자체를 띄우지 않는다 -- 지울 수 없는 사람에게
+    // "정말 삭제할까요?"를 먼저 묻는 것은 두 번째 거짓말이다.
+    if (expenseGate.locked) {
+      expenseGate.explain();
+      return;
+    }
     Alert.alert(EXPENSE_DELETE_CONFIRM_TITLE, EXPENSE_DELETE_CONFIRM_MESSAGE, [
       { text: EXPENSE_DELETE_CONFIRM_CANCEL_LABEL, style: "cancel" },
       { text: EXPENSE_DELETE_CONFIRM_ACTION_LABEL, style: "destructive", onPress: () => remove.mutate() }
@@ -528,7 +540,7 @@ export default function ExpenseDetailScreen() {
             <PrimaryButton
               disabled={!canSave || save.isPending}
               label={save.isPending ? "저장하는 중" : "수정 저장"}
-              onPress={() => save.mutate()}
+              onPress={expenseGate.guard(() => save.mutate())}
             />
             <Pressable
               accessibilityRole="button"

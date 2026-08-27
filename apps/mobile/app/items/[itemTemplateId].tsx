@@ -21,6 +21,7 @@ import {
   shouldShowItemDetailExpenseLink,
   ITEM_DETAIL_EXPENSE_LINK_LABEL
 } from "../../src/items/expense-link-prompt";
+import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -203,6 +204,11 @@ export default function ItemDetailScreen() {
   // 돌아오면 아래 이펙트가 다시 돌아 그때 발사되도록 하기 위해서다.
   const analyticsConsent = useAnalyticsConsentStore((state) => state.enabled);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  // UX-R(M): 이 화면의 지출 기록 입구 두 개("이미 샀어요 · 지출로 기록", 링크를 연 뒤의
+  // "지출 기록하고 준비 완료")는 보기 전용 참여자에게 서버가 403으로 막는 저장으로 이어진다.
+  // 판정은 src/family/record-permissions.ts 한 곳에 있고, 비세션(ITEM-002 픽셀락 캡처)에서는
+  // 애초에 두 입구가 렌더되지 않는다.
+  const expenseGate = useExpenseEntryGate();
   const [clickedTitle, setClickedTitle] = useState<string | null>(null);
   // COM-106 fallback: when Linking.openURL fails (or canOpenURL is false), keep the
   // redirect URL around so we can offer "링크 공유하기" (Share.share) and "다시 시도"
@@ -592,12 +598,12 @@ export default function ItemDetailScreen() {
             <SecondaryButton
               label={ITEM_DETAIL_EXPENSE_LINK_LABEL}
               accessibilityLabel={itemDetailExpenseLinkAccessibilityLabel(visibleDetail.name)}
-              onPress={() =>
+              onPress={expenseGate.guard(() =>
                 router.push({
                   pathname: "/expenses/new",
                   params: expenseLinkParams({ itemName: visibleDetail.name, itemTemplateId })
                 })
-              }
+              )}
             />
           ) : null}
 
@@ -621,9 +627,9 @@ export default function ItemDetailScreen() {
               </Text>
               <PrimaryButton
                 label="지출 기록하고 준비 완료"
-                onPress={() =>
+                onPress={expenseGate.guard(() =>
                   router.push({ pathname: "/expenses/new", params: { itemName: visibleDetail.name, itemTemplateId } })
-                }
+                )}
               />
               <SecondaryButton
                 disabled={markPrepared.isPending}

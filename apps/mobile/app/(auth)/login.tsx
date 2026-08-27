@@ -128,7 +128,12 @@ export default function LoginScreen() {
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
         userId: result.user.id,
-        defaultHouseholdId: result.user.households?.[0]?.id ?? null
+        defaultHouseholdId: result.user.households?.[0]?.id ?? null,
+        // UX-R(M): 로그인 응답이 이미 내려주는 가구별 역할을 같은 자리에서 세션에 담는다
+        // (새 요청 0건). 이 값이 없으면 보기 전용 참여자에게도 기록 CTA가 그대로 나가고,
+        // 로컬 우선 저장이 늘 "성공"이라고 말한 뒤 flush에서 403으로 굳는다.
+        // households가 없는 응답(구 스텁)은 null = 모름이고, 모름은 아무것도 잠그지 않는다.
+        households: result.user.households
       });
       await upsertConsents(result.tokens.accessToken);
       router.replace(inviteResumeHref ?? "/onboarding/child-status");

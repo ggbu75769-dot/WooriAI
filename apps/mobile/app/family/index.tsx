@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
+import { useEffect } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import {
   cancelHouseholdInvite,
@@ -141,6 +142,18 @@ export default function FamilyScreen() {
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
     }
   });
+  // UX-R(M): 이 화면은 앱에서 유일하게 **서버가 지금 말하는 내 역할**을 읽는 자리다(구성원
+  // 목록). 로그인·초대 수락 때 담아 둔 세션 스토어의 역할 표를 여기서 최신화해, 역할이 바뀐
+  // 뒤(보기 전용 → 공동부모 승격 등)에도 기록 진입점 판정이 서버와 같은 값을 본다.
+  // 새 요청은 없다 — 이미 이 화면이 부르는 members 응답을 그대로 옮길 뿐이다. 비로그인
+  // 미리보기(previewMembers)는 hasSession이 false라 여기까지 오지 않으므로 FAM-001 픽셀락
+  // 캡처와 무관하고, 데모 세션의 나는 owner라(src/api/local-fixtures.ts) 담아도 아무것도
+  // 잠기지 않는다.
+  const setHouseholdRole = useSessionStore((state) => state.setHouseholdRole);
+  useEffect(() => {
+    if (!hasSession || !householdId || !myRole) return;
+    setHouseholdRole(householdId, myRole);
+  }, [hasSession, householdId, myRole, setHouseholdRole]);
   const cancelInvite = useMutation({
     mutationFn: (inviteId: string) => cancelHouseholdInvite(authToken!, householdId!, inviteId),
     onSuccess: async () => {

@@ -60,6 +60,7 @@ import { resolveWeeklySpendForNotification } from "../../src/notifications/gener
 import { NotificationBell } from "../../src/notifications/NotificationBell";
 import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
+import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -671,6 +672,11 @@ export default function HomeScreen() {
     queryFn: () => listChildren(authToken!)
   });
   const selectedChild = childrenQuery.data?.children.find((child) => child.id === childId) ?? null;
+  // UX-R(M): 보기 전용(viewer·gift_participant)으로 참여한 사람에게는 서버가 지출 쓰기를 막는다.
+  // 홈은 그 입구를 세 개(퀵액션·빈 상태·FAB) 들고 있는 화면이라, 잠금 판정 하나를 여기서 받아
+  // 전부 같은 안내로 답한다. 비세션 미리보기·역할 미상에서는 항상 열려 있다(픽셀락 HOME-001은
+  // 세션을 지운 렌더라 판정이 발동하지 않는다) -- src/family/record-permissions.ts.
+  const expenseGate = useExpenseEntryGate();
   // UX-G 첫 10분: "이 아이에게 지출 기록이 하나라도 있는가" -- 첫 실행 안내 카드와 첫 기록
   // 축하 배너가 **같은 한 값**을 본다(두 판정이 어긋나면 축하와 유도가 동시에 뜬다).
   //  - 서버 항: /home의 recentExpenses는 선물 포함 · spentOn desc LIMIT 3이므로
@@ -834,13 +840,20 @@ export default function HomeScreen() {
           onPress={() => home.refetch()}
         />
         {/* 실패 카드가 화면 전체를 대체하므로 FAB도 빠른 기록 버튼도 함께 사라진다. 보조문이
-            약속하는 행동을 그 자리에서 할 수 있도록 입구를 같이 내준다. */}
-        <View style={{ alignItems: "center", gap: 2 }}>
-          <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}>
-            {OFFLINE_RECORDING_STILL_AVAILABLE_NOTICE}
-          </Text>
-          <TextButton label={OFFLINE_RECORDING_ENTRY_LABEL} onPress={() => router.push("/expenses/new")} />
-        </View>
+            약속하는 행동을 그 자리에서 할 수 있도록 입구를 같이 내준다.
+
+            UX-R(M): 보기 전용 참여자에게는 이 한 쌍을 통째로 접는다. 여기서 버튼만 잠그면
+            바로 위 "기록은 지금도 남길 수 있어요"라는 **약속 문장이 남는다** -- 지킬 수 없는
+            약속을 한 줄 남기느니 하지 않는 편이 정직하다(다른 진입점들은 문장 없이 서 있으므로
+            눌렀을 때 안내하는 것으로 충분하다). */}
+        {expenseGate.locked ? null : (
+          <View style={{ alignItems: "center", gap: 2 }}>
+            <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}>
+              {OFFLINE_RECORDING_STILL_AVAILABLE_NOTICE}
+            </Text>
+            <TextButton label={OFFLINE_RECORDING_ENTRY_LABEL} onPress={() => router.push("/expenses/new")} />
+          </View>
+        )}
       </AppScreen>
     );
   }
@@ -1130,6 +1143,13 @@ export default function HomeScreen() {
                 accessibilityLabel={firstRunGuide.ctaLabel}
                 label={firstRunGuide.ctaLabel}
                 onPress={() => {
+                  // UX-R(M): 이 카드는 두 갈래다. 지출 기록으로 보내는 갈래만 잠그고, 준비템
+                  // 갈래는 그대로 둔다 -- 보기 전용 참여자도 준비템은 볼 수 있다(잠글 이유가
+                  // 없고, 잠그면 볼 수 있는 것까지 막는다).
+                  if (firstRunGuide.variant === "first-expense" && expenseGate.locked) {
+                    expenseGate.explain();
+                    return;
+                  }
                   // 준비템 안내는 눌러서 확인한 순간 역할이 끝난다 -- 닫기와 같은 처리를 한다.
                   if (firstRunGuide.variant === "first-items") dismissItemsGuide(childId);
                   router.push(firstRunGuide.route);
@@ -1194,7 +1214,7 @@ export default function HomeScreen() {
           ) : null}
 
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <QuickActionIconButton icon="▣" label="지출 기록" onPress={() => router.push("/expenses/new")} />
+            <QuickActionIconButton icon="▣" label="지출 기록" onPress={expenseGate.guard(() => router.push("/expenses/new"))} />
             <QuickActionIconButton icon="☆" label="추천템" onPress={() => router.push("/(tabs)/items")} />
             <QuickActionIconButton icon="▥" label="성장 리포트" onPress={() => router.push("/(tabs)/reports")} />
             <QuickActionIconButton icon="☰" label="더보기" onPress={() => router.push("/(tabs)/more")} />
@@ -1275,7 +1295,7 @@ export default function HomeScreen() {
               <EmptyStateCard
                 title="첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
                 actionLabel="기록하기"
-                onPress={() => router.push("/expenses/new")}
+                onPress={expenseGate.guard(() => router.push("/expenses/new"))}
               />
             )
           ) : (
@@ -1301,7 +1321,7 @@ export default function HomeScreen() {
               홈에서 지출 기록 진입점이 퀵액션 하나로 줄어든다. 중복으로 읽히던 것은 같은 자리에
               세 번 서 있던 /expenses/new 큰 버튼들이었고, 그중 접은 것은 최근 지출 섹션의
               빈 상태 버튼이다(위 분기) -- 남는 큰 CTA는 유도 카드 1개 + FAB. */}
-          <FloatingActionButton onPress={() => router.push("/expenses/new")} />
+          <FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />
         </View>
       </View>
     </AppScreen>

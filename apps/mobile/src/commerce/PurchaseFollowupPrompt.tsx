@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { buildPurchaseFollowupAnsweredPayload, type PurchaseFollowupAnswer } from "../analytics/events";
 import { LOCAL_SESSION_TOKEN } from "../api/client";
+import { useExpenseEntryGate } from "../family/useExpenseEntryGate";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
 import { announceForA11y, Card, PrimaryButton, SecondaryButton, TextButton } from "../ui";
@@ -54,6 +55,9 @@ export function PurchaseFollowupLifecycle() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   // Demo/test sessions count too: this is a pure client feature (see the store's doc comment).
   const hasSession = Boolean(accessToken) || isTestSession;
+  // UX-R(M): "샀어요"는 지출 생성 화면으로 가는 입구다. 보기 전용 참여자에게는 그 저장이
+  // 403으로 막히므로 같은 판정으로 안내한다. 훅이라 아래 조기 반환들보다 위에 있어야 한다.
+  const expenseGate = useExpenseEntryGate();
   /**
    * 라운드 27 L-2: 이벤트 발사에 쓰는 토큰은 화면들과 **같은 관례**로 고른다
    * (app/items/[itemTemplateId].tsx, app/(tabs)/records.tsx의 `authToken`).
@@ -157,6 +161,12 @@ export function PurchaseFollowupLifecycle() {
             // linkedItemTemplateId (analytics source becomes "followup"). Not edited here.
             // R19-B: 그 덕분에 이 "샀어요" 경로도 저장 시 서버가 준비템을 준비 완료로
             // 올리는 동일한 효과를 얻는다 -- 여기서 별도 상태 API를 부르지 않는다.
+            // 잠긴 세션에서는 카드를 닫지도, 답변을 기록하지도 않는다 -- 아직 답하지 않은
+            // 물음이라 다음에 다시 물어야 하고, "샀어요"는 여기서 실행되지 않았다.
+            if (expenseGate.locked) {
+              expenseGate.explain();
+              return;
+            }
             const { itemName, itemTemplateId } = activeFollowup;
             trackAnswer("purchased");
             closeWith(completeFollowup);
