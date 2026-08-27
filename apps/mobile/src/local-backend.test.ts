@@ -138,6 +138,37 @@ describe("Local test-mode backend data layer", () => {
     expect(after).toBe(before);
   });
 
+  /**
+   * CLN-131: 합산 술어(DNC-015)를 countsTowardMonthlyTotal 한 곳으로 모은 뒤에도 데모 세션의
+   * **모든** 집계가 같은 기준을 쓴다는 것을 값으로 못 박는다. 예전에는 홈·카테고리·누적·
+   * 마일스톤이 각자 `expenseType === "expense"`를 인라인으로 들고 있어서, 한 곳만 고쳐지면
+   * 같은 세션의 두 화면이 다른 총액을 보여줄 수 있었다.
+   */
+  it("선물 행은 홈·카테고리·누적·마일스톤 집계에서 모두 똑같이 빠진다 (CLN-131)", () => {
+    const beforeCategoryCount = localBackend
+      .getCategoryReport(childId)
+      .categories.reduce((sum, entry) => sum + entry.count, 0);
+    const beforeCumulative = localBackend.getCumulativeReport(childId);
+    const beforeMilestone = localBackend.getMilestoneReport(childId, "d100");
+
+    localBackend.createExpense(childId, {
+      categoryId: "local-category-diaper",
+      amountKrw: 70_000,
+      spentOn: getSeoulToday(),
+      itemName: "선물 받은 유모차",
+      expenseType: "gift"
+    });
+
+    const afterCategoryCount = localBackend
+      .getCategoryReport(childId)
+      .categories.reduce((sum, entry) => sum + entry.count, 0);
+    expect(afterCategoryCount).toBe(beforeCategoryCount);
+    expect(localBackend.getCumulativeReport(childId).totalExpenseKrw).toBe(beforeCumulative.totalExpenseKrw);
+    const afterMilestone = localBackend.getMilestoneReport(childId, "d100");
+    expect(afterMilestone.totalKrw).toBe(beforeMilestone.totalKrw);
+    expect(afterMilestone.expenseCount).toBe(beforeMilestone.expenseCount);
+  });
+
   it("rejects a manually entered future date the same way an automatic future date is rejected", () => {
     const futureDate = `${Number(getSeoulToday().slice(0, 4)) + 1}-06-15`;
     expect(() =>
