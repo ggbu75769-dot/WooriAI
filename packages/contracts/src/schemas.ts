@@ -302,6 +302,38 @@ export const reportMonthlySchema = z.object({
   categoryTop: z.array(categoryBreakdownEntrySchema)
 });
 
+// REP-128: GET /children/:childId/reports/trend 의 구간 크기 계약.
+// 서버 DTO(apps/api/src/finance/dto/query.dto.ts TrendReportQueryDto)가 이 값을 그대로
+// 가져다 쓴다 — EXPENSE_LIST_* 와 같은 관례.
+export const TREND_REPORT_DEFAULT_MONTHS = 6;
+export const TREND_REPORT_MAX_MONTHS = 12;
+
+/**
+ * REP-128: GET /children/:childId/reports/trend 응답 계약.
+ *
+ * 모바일 리포트 월간 탭의 추이 차트가 `GET /reports/monthly`를 6번 부르던 워터폴을 한 번의
+ * 범위 질의로 접은 엔드포인트다. 차트가 실제로 소비하는 값은 달마다 `totalExpenseKrw`
+ * 하나뿐이라 예산·카테고리 분해는 담지 않는다 — 그게 필요한 화면은 종전대로
+ * `GET /reports/monthly`(불변, 하위호환)를 부른다.
+ *
+ * `months`는 **오름차순 연속** 배열이고 마지막 원소가 요청한 `endYearMonth`다. 기록이
+ * 없는 달도 0으로 채워 빠지지 않으므로 길이는 요청한 months와 항상 같다. 각 달의
+ * `yearMonth`는 다른 리포트 응답과 같은 내부 `YYYY-MM-01` 형태이고, 같은 달의 월간 리포트
+ * `totalExpenseKrw`와 정확히 일치한다(선물 제외 DNC-015 — 서버 sumExpenses와 같은 술어).
+ */
+export const reportTrendSchema = z.object({
+  childId: uuidSchema,
+  months: z
+    .array(
+      z.object({
+        yearMonth: dateOnlySchema,
+        totalExpenseKrw: z.number().int().min(0)
+      })
+    )
+    .min(1)
+    .max(TREND_REPORT_MAX_MONTHS)
+});
+
 export const reportYearlySchema = z.object({
   childId: uuidSchema,
   year: z.string().regex(/^\d{4}$/),
@@ -356,4 +388,5 @@ export type ItemSummaryDto = z.infer<typeof itemSummarySchema>;
 export type ListItemsQueryDto = z.infer<typeof listItemsQuerySchema>;
 export type StageBandLabel = z.infer<typeof stageBandLabelSchema>;
 export type ProductLinkDto = z.infer<typeof productLinkSchema>;
+export type TrendReportDto = z.infer<typeof reportTrendSchema>;
 export type YearlyReportDto = z.infer<typeof reportYearlySchema>;

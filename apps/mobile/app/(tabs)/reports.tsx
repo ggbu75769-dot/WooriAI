@@ -9,6 +9,7 @@ import {
   getHome,
   getMilestoneReport,
   getMonthlyReport,
+  getTrendReport,
   getYearlyReport,
   listCategories,
   listChildren,
@@ -34,6 +35,9 @@ import { ReportPixelStyles } from "../../src/pixelLock/styles";
 const reportReferenceScreenId = "pixel-screen-REP-001 REP-001 · REP-002";
 const previewReportTotalKrw = 1_245_700;
 const previewCumulativeTotalKrw = 1_245_700;
+// REP-128: 월간 탭 라인 차트가 그리는 막대 수(선택한 달 포함 최근 6개월). 서버 기본값과
+// 같은 값이지만, 캐시 키에 들어가고 요청에도 실리므로 화면 쪽에서 명시한다.
+const MONTHLY_TREND_MONTHS = 6;
 const reportReferenceHorizontalOffset = -16;
 const reportReferenceVerticalOffset = -4;
 function reportReferenceScaleFrameStyle() {
@@ -232,18 +236,17 @@ export default function ReportsScreen() {
     }
   };
 
-  // Trailing 6 months (current month included) feeding the 월간 tab's line chart, following
-  // the same useQueries pattern as quarterQueries above.
-  const monthlyTrendMonths = Array.from({ length: 6 }, (_, index) => addMonths(reportDate, index - 5));
-  const monthlyTrendQueries = useQueries({
-    queries: monthlyTrendMonths.map((date) => {
-      const ym = yearMonthOf(date);
-      return {
-        queryKey: ["report", "monthly", childId, ym],
-        enabled: Boolean(authToken && childId && period === "월간"),
-        queryFn: () => getMonthlyReport(authToken!, childId!, ym)
-      };
-    })
+  // REP-128: 월간 탭 라인 차트의 최근 6개월(선택한 달 포함) 추이. 종전에는 quarterQueries와
+  // 같은 useQueries 패턴으로 `getMonthlyReport`를 **막대 하나당 한 번씩 6번** 불렀다 — 탭을
+  // 열 때마다, 그리고 달을 옮길 때마다 6개의 요청이 나가는 워터폴이었다. 차트가 실제로 쓰는
+  // 값은 달마다 totalExpenseKrw 하나뿐이라(아래 monthlyTrendPoints) 예산·카테고리 분해까지
+  // 6번 다시 계산할 이유가 없어, 서버가 한 번의 범위 질의로 접어 주는 단일 엔드포인트로
+  // 바꾼다. 달 이동은 endYearMonth만 바뀌므로 캐시 키도 그것만 달라진다.
+  // 위 monthly/previousMonth 카드는 예산·카테고리 분해를 쓰므로 종전 monthly 요청 그대로다.
+  const monthlyTrend = useQuery({
+    queryKey: ["report", "trend", childId, reportYearMonth, MONTHLY_TREND_MONTHS],
+    enabled: Boolean(authToken && childId && period === "월간"),
+    queryFn: () => getTrendReport(authToken!, childId!, reportYearMonth, MONTHLY_TREND_MONTHS)
   });
 
   const monthlyTotal = monthly.data?.totalExpenseKrw ?? previewReportTotalKrw;
@@ -283,8 +286,8 @@ export default function ReportsScreen() {
   // the active tab has resolved (otherwise leave undefined so LineChartCard keeps its
   // decorative placeholder line instead of drawing a series full of zeros mid-fetch).
   const monthlyTrendPoints =
-    period === "월간" && monthlyTrendQueries.every((query) => query.isSuccess)
-      ? monthlyTrendQueries.map((query) => query.data!.totalExpenseKrw)
+    period === "월간" && monthlyTrend.isSuccess
+      ? monthlyTrend.data!.months.map((month) => month.totalExpenseKrw)
       : undefined;
   const quarterPoints =
     period === "분기" && quarterQueries.every((query) => query.isSuccess)

@@ -43,6 +43,7 @@ import type {
   ProductLink,
   SettingsConfirmResponse,
   SettingsPreview,
+  TrendReport,
   YearlyReport
 } from "./client";
 
@@ -882,6 +883,30 @@ export function getMonthlyReport(childId: string, yearMonth: string): MonthlyRep
     totalExpenseKrw: totalExpenseKrw(expenses),
     budgetAmountKrw,
     categoryTop: categoryBreakdown(expenses)
+  };
+}
+
+/**
+ * REP-128: local-session mirror of GET /children/:childId/reports/trend -- the demo session's
+ * 6개월 추이. Assembled from the same fixture expenses getMonthlyReport folds, one month at a
+ * time, so every bar matches what the demo's 월간 리포트 카드 would show for that month
+ * (기록이 없는 달은 0). Month stepping is plain integer arithmetic on the `YYYY-MM-01` key so
+ * a window crossing a year boundary (e.g. 2026-02 back to 2025-09) lands on the right months
+ * regardless of the device timezone -- the server does the same (reporting-store.service.ts
+ * trailingYearMonths).
+ */
+export function getTrendReport(childId: string, endYearMonth: string, months: number): TrendReport {
+  ensureSeeded();
+  const [endYear, endMonth] = budgetKey(endYearMonth).split("-").map(Number) as [number, number];
+  return {
+    childId,
+    months: Array.from({ length: months }, (_, index) => {
+      const absoluteMonth = endYear * 12 + (endMonth - 1) - (months - 1 - index);
+      const year = Math.floor(absoluteMonth / 12);
+      const month = absoluteMonth - year * 12 + 1;
+      const yearMonth = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`;
+      return { yearMonth, totalExpenseKrw: totalExpenseKrw(expensesForChild(childId, yearMonth)) };
+    })
   };
 }
 

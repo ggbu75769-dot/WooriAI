@@ -201,6 +201,20 @@ export type CategoryReport = {
   categories: Array<{ categoryId: string; amountKrw: number; count: number }>;
 };
 
+/**
+ * REP-128: `GET /children/:childId/reports/trend` 응답. 리포트 월간 탭의 추이 차트가
+ * `getMonthlyReport`를 6번 부르던 워터폴을 이 한 번으로 접는다 -- 차트가 쓰는 값은 달마다
+ * `totalExpenseKrw` 하나뿐이라 예산·카테고리 분해는 담기지 않는다(그게 필요한 카드는
+ * 종전대로 `getMonthlyReport`를 쓴다). `months`는 오름차순 연속 배열이고 마지막 원소가
+ * 요청한 `endYearMonth`, 기록이 없는 달도 0으로 채워 길이가 항상 요청한 개월 수와 같다.
+ * 손으로 선언한 `reportTrendSchema`(packages/contracts/src/schemas.ts)의 미러 -- 이 파일의
+ * 다른 응답 타입과 같은 관례다.
+ */
+export type TrendReport = {
+  childId: string;
+  months: Array<{ yearMonth: string; totalExpenseKrw: number }>;
+};
+
 export type YearlyReport = {
   childId: string;
   year: string;
@@ -993,6 +1007,27 @@ export function getMonthlyReport(token: string, childId: string, yearMonth?: str
   return requestJson<MonthlyReport>(`/children/${childId}/reports/monthly?yearMonth=${effectiveYearMonth}`, {
     token
   });
+}
+
+/**
+ * REP-128: 리포트 월간 탭 추이 차트가 그리는 막대 수. 서버 계약(`TREND_REPORT_DEFAULT_MONTHS`
+ * -- packages/contracts/src/schemas.ts)의 손선언 미러다(모바일은 @wooriai/contracts에
+ * 의존하지 않는다 -- 이 파일의 응답 타입들과 같은 관례). 서버 상한은 12.
+ */
+export const TREND_REPORT_DEFAULT_MONTHS = 6;
+
+/**
+ * REP-128: 최근 `months`개월(기본 6) 월별 합계를 한 번에. 종전 6번의 getMonthlyReport
+ * 워터폴을 대체한다 -- `endYearMonth`를 생략하면 서울 기준 이번 달이 구간의 마지막 달이다.
+ */
+export function getTrendReport(token: string, childId: string, endYearMonth?: string, months?: number) {
+  const effectiveEndYearMonth = endYearMonth ?? currentYearMonth();
+  const effectiveMonths = months ?? TREND_REPORT_DEFAULT_MONTHS;
+  if (isLocalToken(token)) return local(() => localBackend.getTrendReport(childId, effectiveEndYearMonth, effectiveMonths));
+  return requestJson<TrendReport>(
+    `/children/${childId}/reports/trend?endYearMonth=${effectiveEndYearMonth}&months=${effectiveMonths}`,
+    { token }
+  );
 }
 
 export function getCumulativeReport(token: string, childId: string) {

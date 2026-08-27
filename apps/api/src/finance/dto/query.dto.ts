@@ -1,6 +1,11 @@
 import { IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, Min } from "class-validator";
 import { Transform, Type } from "class-transformer";
-import { EXPENSE_LIST_DEFAULT_LIMIT, EXPENSE_LIST_MAX_LIMIT } from "@wooriai/contracts";
+import {
+  EXPENSE_LIST_DEFAULT_LIMIT,
+  EXPENSE_LIST_MAX_LIMIT,
+  TREND_REPORT_DEFAULT_MONTHS,
+  TREND_REPORT_MAX_MONTHS
+} from "@wooriai/contracts";
 import { YEAR_MONTH_INPUT_PATTERN, normalizeYearMonthInput } from "../../common/validation/year-month";
 
 // REP-105 contract tolerance: every yearMonth input below accepts `YYYY-MM` or
@@ -12,6 +17,35 @@ export class YearMonthQueryDto {
   @Transform(({ value }) => normalizeYearMonthInput(value))
   @Matches(YEAR_MONTH_INPUT_PATTERN)
   yearMonth?: string;
+}
+
+/**
+ * REP-128: GET /children/:childId/reports/trend 의 쿼리 계약.
+ *
+ * 모바일 리포트 월간 탭의 6개월 추이 차트가 `GET /reports/monthly`를 6번 부르던
+ * 워터폴을 한 번의 범위 질의로 접기 위한 엔드포인트다. `months`는 차트가 그릴 막대 수
+ * (1~12, 생략 시 6), `endYearMonth`는 그 구간의 **마지막** 달(생략 시 서울 기준 이번 달).
+ * 상한 12를 두는 이유는 그 이상은 연간 리포트(`GET /reports/yearly`)의 자리이고,
+ * 상한 없는 months가 곧바로 무제한 범위 스캔이 되기 때문이다 — 초과는
+ * VALIDATION_ERROR 400(ListExpensesQueryDto의 limit 관례와 동일).
+ *
+ * `endYearMonth`는 다른 기간 필드와 같은 REP-105 관용 포맷(`YYYY-MM` 또는 `YYYY-MM-01`)을
+ * 받는다.
+ */
+export { TREND_REPORT_DEFAULT_MONTHS, TREND_REPORT_MAX_MONTHS };
+
+export class TrendReportQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(TREND_REPORT_MAX_MONTHS)
+  months?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => normalizeYearMonthInput(value))
+  @Matches(YEAR_MONTH_INPUT_PATTERN)
+  endYearMonth?: string;
 }
 
 /**

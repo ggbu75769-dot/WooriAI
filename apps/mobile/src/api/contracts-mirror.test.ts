@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { EXPENSE_LIST_MAX_LIMIT } from "./client";
+import { EXPENSE_LIST_MAX_LIMIT, TREND_REPORT_DEFAULT_MONTHS } from "./client";
+
+const contractsSchemasSource = () =>
+  readFileSync(join(process.cwd(), "..", "..", "packages", "contracts", "src", "schemas.ts"), "utf8");
 
 /**
  * R25 리뷰 후속: 모바일은 packages/contracts를 import하지 않고 수기로 미러한다
@@ -12,12 +15,24 @@ import { EXPENSE_LIST_MAX_LIMIT } from "./client";
  */
 describe("contracts 수기 미러 드리프트 가드", () => {
   it("EXPENSE_LIST_MAX_LIMIT이 packages/contracts의 값과 같다", () => {
-    const contractsSource = readFileSync(
-      join(process.cwd(), "..", "..", "packages", "contracts", "src", "schemas.ts"),
-      "utf8"
-    );
-    const match = contractsSource.match(/export const EXPENSE_LIST_MAX_LIMIT = (\d+);/);
+    const match = contractsSchemasSource().match(/export const EXPENSE_LIST_MAX_LIMIT = (\d+);/);
     expect(match).not.toBeNull();
     expect(Number(match![1])).toBe(EXPENSE_LIST_MAX_LIMIT);
+  });
+
+  /**
+   * REP-128: 리포트 월간 탭이 요청하는 추이 개월 수도 같은 수기 미러다. 서버 상한
+   * (TREND_REPORT_MAX_MONTHS)을 넘으면 @Max 위반 → 400이라 추이 차트가 통째로 죽으므로,
+   * 기본값이 상한 안에 있는지까지 함께 못 박는다.
+   */
+  it("TREND_REPORT_DEFAULT_MONTHS가 packages/contracts의 값과 같고 서버 상한 안에 있다", () => {
+    const source = contractsSchemasSource();
+    const defaultMatch = source.match(/export const TREND_REPORT_DEFAULT_MONTHS = (\d+);/);
+    const maxMatch = source.match(/export const TREND_REPORT_MAX_MONTHS = (\d+);/);
+    expect(defaultMatch).not.toBeNull();
+    expect(maxMatch).not.toBeNull();
+    expect(Number(defaultMatch![1])).toBe(TREND_REPORT_DEFAULT_MONTHS);
+    expect(TREND_REPORT_DEFAULT_MONTHS).toBeGreaterThanOrEqual(1);
+    expect(TREND_REPORT_DEFAULT_MONTHS).toBeLessThanOrEqual(Number(maxMatch![1]));
   });
 });

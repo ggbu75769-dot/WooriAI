@@ -18,6 +18,9 @@ describe("Batch 06 mobile expense, home, budget, and report contract", () => {
     expect(client.getMonthlyReport).toEqual(expect.any(Function));
     expect(client.getCumulativeReport).toEqual(expect.any(Function));
     expect(client.getCategoryReport).toEqual(expect.any(Function));
+    // REP-128: 6개월 추이를 한 번에 받는 함수. 기존 getMonthlyReport는 그대로 남는다
+    // (서버의 GET /reports/monthly도 하위호환으로 불변).
+    expect(client.getTrendReport).toEqual(expect.any(Function));
   });
 
   it("creates the locked Batch 06 route files without changing the bottom tabs", () => {

@@ -30,6 +30,52 @@ describe("Local test-mode backend data layer", () => {
     expect(after.totalExpenseKrw).toBe(monthly.totalExpenseKrw);
   });
 
+  /**
+   * REP-128: 데모 세션의 추이 미러도 서버와 같은 동치를 만족해야 한다 — 6개월 추이의 각
+   * 달이 같은 달의 월간 리포트와 정확히 일치하고, 마지막 원소가 요청한 endYearMonth,
+   * 기록 없는 달은 0으로 채워 길이가 항상 요청한 개월 수와 같다.
+   */
+  it("assembles the 6-month trend from the same fixture months getMonthlyReport folds (REP-128)", () => {
+    localBackend.createExpense(childId, {
+      categoryId: "local-category-diaper",
+      amountKrw: 33_000,
+      spentOn: getSeoulToday(),
+      itemName: "이번 달 지출"
+    });
+
+    const endYearMonth = currentYearMonth();
+    const trend = localBackend.getTrendReport(childId, endYearMonth, 6);
+
+    expect(trend.childId).toBe(childId);
+    expect(trend.months).toHaveLength(6);
+    expect(trend.months.at(-1)!.yearMonth).toBe(`${endYearMonth}-01`);
+    // 오름차순 연속: 인접한 두 달의 간격이 정확히 1개월이다(연 경계 포함).
+    const absoluteMonth = (yearMonth: string) => {
+      const [year, month] = yearMonth.split("-").map(Number) as [number, number];
+      return year * 12 + month;
+    };
+    for (let index = 1; index < trend.months.length; index += 1) {
+      expect(absoluteMonth(trend.months[index]!.yearMonth) - absoluteMonth(trend.months[index - 1]!.yearMonth)).toBe(1);
+    }
+    // 동치: 종전 화면이 보내던 6번의 getMonthlyReport와 같은 값·같은 순서.
+    expect(trend.months).toEqual(
+      trend.months.map(({ yearMonth }) => {
+        const monthly = localBackend.getMonthlyReport(childId, yearMonth);
+        return { yearMonth: monthly.yearMonth, totalExpenseKrw: monthly.totalExpenseKrw };
+      })
+    );
+    expect(trend.months.at(-1)!.totalExpenseKrw).toBe(localBackend.getMonthlyReport(childId, endYearMonth).totalExpenseKrw);
+
+    // 연 경계를 넘는 창(1월로 끝나는 6개월)도 12월/11월... 로 이어진다.
+    const crossYear = localBackend.getTrendReport(childId, `${Number(endYearMonth.slice(0, 4)) + 1}-01`, 6);
+    expect(crossYear.months.map((month) => month.yearMonth.slice(5, 7))).toEqual(["08", "09", "10", "11", "12", "01"]);
+    // 미래 창이라 데모 지출이 하나도 없는 달은 0으로 채워진다(막대가 빠지지 않는다).
+    expect(crossYear.months.at(-1)).toEqual({
+      yearMonth: `${Number(endYearMonth.slice(0, 4)) + 1}-01-01`,
+      totalExpenseKrw: 0
+    });
+  });
+
   it("excludes soft-deleted expenses from the total once removed", () => {
     const created = localBackend.createExpense(childId, {
       categoryId: "local-category-diaper",
