@@ -181,7 +181,11 @@ export default function AdminHomePage() {
             {SUMMARY_CARDS.map((card) => {
               const caption =
                 card.key === "productLinksBrokenCount"
-                  ? brokenLinkCountCaption(worker, summary.productLinksBrokenCount)
+                  ? brokenLinkCountCaption(worker, {
+                      active: summary.productLinksActiveCount,
+                      unchecked: summary.productLinksUncheckedCount,
+                      broken: summary.productLinksBrokenCount
+                    })
                   : null;
               const body = (
                 <>

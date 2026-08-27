@@ -19,6 +19,7 @@ import {
 } from "../../src/lib/admin-api";
 import {
   EMPTY_ITEM_FILTERS,
+  activeProductLinkCount,
   filterItemTemplates,
   hasAnyItemFilter,
   itemFilterSummary,
@@ -466,6 +467,9 @@ export default function ItemTemplatesPage() {
               />
               <label htmlFor="item-filter-missing-links">상품 링크 없음만 보기</label>
             </div>
+            {/* UX-X(R43) M-5: 기준은 활성 링크다 — 비활성 링크만 남은 준비템도
+                사용자 화면에서는 구매처가 0이라 함께 걸린다. */}
+            <span className={styles.hint}>링크가 전부 비활성인 준비템도 함께 나와요.</span>
 
             {filtersApplied ? (
               <div className={styles.actions}>
@@ -503,7 +507,18 @@ export default function ItemTemplatesPage() {
                       <td>{item.stageCodes.map((code) => CHILD_STAGE_LABELS[code]).join(", ") || "-"}</td>
                       <td>{NECESSITY_LEVEL_LABELS[item.necessityLevel]}</td>
                       <td>{item.priceBandText ?? "-"}</td>
-                      <td>{productLinkCount(item)}</td>
+                      {/* UX-X(R43) M-5: 표시 기준은 사용자에게 보이는 활성 링크 수다.
+                          비활성 링크가 있으면 그 수를 옆에 덧붙인다 — "링크 자체가 없음"과
+                          "있는데 전부 내려가 있음"은 운영자가 할 일이 다르다. */}
+                      <td>
+                        {activeProductLinkCount(item)}
+                        {productLinkCount(item) > activeProductLinkCount(item) ? (
+                          <span className={styles.hint}>
+                            {" "}
+                            (비활성 {productLinkCount(item) - activeProductLinkCount(item)})
+                          </span>
+                        ) : null}
+                      </td>
                       <td>
                         <span className={item.active ? `${styles.badge} ${styles.badgeActive}` : `${styles.badge} ${styles.badgeInactive}`}>
                           {item.active ? "활성" : "비활성"}

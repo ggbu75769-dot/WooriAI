@@ -538,6 +538,13 @@ export class ItemsCatalogService {
       safetyNote: item.safetyNote,
       active: item.active,
       stageCodes: item.stageCodes,
+      // UX-X(R43) M-5: 사용자 관점의 구매처 수. productLinks 자체는 비활성 링크까지
+      // 그대로 둔다 — 어드민은 내려둔 링크를 보고 되살릴 수 있어야 한다 — 대신
+      // "이 준비템을 연 사용자에게 실제로 보이는 링크가 몇 개인가"를 서버가 한 번만
+      // 정해서 내려준다. 종전에는 어드민 목록이 productLinks.length를 그대로 세어,
+      // 전부 비활성인 준비템이 "링크 1"로 표시되고 '상품 링크 없음만 보기'에서도
+      // 빠졌다 — 구매처가 0인 지점(핵심 루프가 끊기는 지점)이 그대로 가려졌다.
+      activeLinkCount: links.filter((link) => link.active).length,
       productLinks: [...links]
         .sort((left, right) => left.displayOrder - right.displayOrder)
         .map((link) => this.toAdminProductLinkDto(link, disclosures))

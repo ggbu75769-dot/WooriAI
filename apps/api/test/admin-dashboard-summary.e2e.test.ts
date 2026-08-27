@@ -42,7 +42,12 @@ const SUMMARY_KEYS = [
   "affiliateClicks7d",
   "analyticsEvents7d",
   "pendingContentRevisions",
-  "productLinksBrokenCount"
+  "productLinksBrokenCount",
+  // UX-X(R43) M-4: 링크 헬스는 활성 링크(active=true) 안에서만 세고, "아직 한 번도
+  // 검사되지 않은 활성 링크" 수를 함께 내려준다 — 어드민 대시보드가 "깨짐 0"을
+  // 전수 검사 결과인 양 보여주지 않으려면 미검사 수가 필요하다.
+  "productLinksActiveCount",
+  "productLinksUncheckedCount"
 ] as const;
 
 type Summary = Record<(typeof SUMMARY_KEYS)[number], number>;
@@ -250,7 +255,12 @@ describe("Admin dashboard summary (ADM-008)", () => {
       }
     });
 
-    // Product links: one broken (counted) and one ok (not counted).
+    // Product links. UX-X(R43) M-4: every health counter is scoped to
+    // active=true, and an active link with no verdict yet counts as 미검사.
+    //  - active + broken   -> broken +1, active +1
+    //  - active + ok       -> active +1 only
+    //  - INACTIVE + broken -> nothing (a link users can't see isn't a broken 구매처)
+    //  - active + no verdict -> unchecked +1, active +1
     await prisma.productLink.create({
       data: {
         itemTemplateId: productLink.itemTemplateId,
@@ -269,6 +279,26 @@ describe("Admin dashboard summary (ADM-008)", () => {
         healthStatus: "ok"
       }
     });
+    await prisma.productLink.create({
+      data: {
+        itemTemplateId: productLink.itemTemplateId,
+        platform: "custom",
+        title: "adm008 retired broken link",
+        url: "https://example.com/adm008-retired",
+        active: false,
+        healthStatus: "broken"
+      }
+    });
+    await prisma.productLink.create({
+      data: {
+        itemTemplateId: productLink.itemTemplateId,
+        platform: "custom",
+        title: "adm008 never checked link",
+        url: "https://example.com/adm008-unchecked",
+        // affiliateUrl 없음 = link-health.job.ts의 검사 대상이 아니라 영원히 NULL로 남는다.
+        healthStatus: null
+      }
+    });
 
     const after = await fetchSummary(admin.cookie);
 
@@ -284,6 +314,9 @@ describe("Admin dashboard summary (ADM-008)", () => {
     expect(after.affiliateClicks7d - before.affiliateClicks7d).toBe(1);
     expect(after.analyticsEvents7d - before.analyticsEvents7d).toBe(1);
     expect(after.pendingContentRevisions - before.pendingContentRevisions).toBe(1);
+    // 비활성 깨진 링크는 세지 않는다 — 4개를 만들었지만 깨짐은 활성 1개뿐이다.
     expect(after.productLinksBrokenCount - before.productLinksBrokenCount).toBe(1);
+    expect(after.productLinksActiveCount - before.productLinksActiveCount).toBe(3);
+    expect(after.productLinksUncheckedCount - before.productLinksUncheckedCount).toBe(1);
   });
 });
