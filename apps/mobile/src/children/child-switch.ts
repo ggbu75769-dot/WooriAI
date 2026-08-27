@@ -93,6 +93,27 @@ export const CHILD_SWITCH_SHEET_TITLE = "아이 전환";
 /** 헤더 탭 대상의 accessibilityHint — "이걸 누르면 무슨 일이 일어나는가". */
 export const CHILD_SWITCH_TRIGGER_HINT = "아이 전환";
 
+/**
+ * 라운드 38 H-8: 홈의 아이 카운터 줄은 이 화면의 **제목**(header 랜드마크)이자 전환 버튼이다.
+ * react-native는 노드 하나에 접근성 role을 하나만 줄 수 있어, 그 줄을 Pressable로 감싸며
+ * role="button"을 주는 순간 아이가 2명 이상인 사용자만 홈 제목 랜드마크를 잃었다(스크린리더의
+ * "제목으로 이동"이 홈에서만 지나쳐 간다). 랜드마크가 사라지는 쪽이 더 큰 손실이라 role은
+ * header로 두고, "누를 수 있다"는 사실은 힌트와 접근성 액션으로 전한다.
+ *
+ * 그래서 힌트가 이름표("아이 전환")가 아니라 **문장**이다 — role이 button이 아닐 때는
+ * 스크린리더가 "두 번 탭하세요"를 스스로 붙여주지 않으므로 힌트가 그 말을 대신해야 한다.
+ */
+export const CHILD_SWITCH_HEADER_TRIGGER_HINT = "두 번 탭하면 아이를 전환할 수 있어요";
+
+/**
+ * header role을 유지한 채 TalkBack/VoiceOver의 액션 메뉴에 "아이 전환"을 노출한다(활성화
+ * 제스처는 그대로 onPress로 들어온다). react-native의 `accessibilityActions`에 그대로 넘어가는
+ * 순수 데이터라 여기(문구 단일 소스)에 둔다.
+ */
+export const CHILD_SWITCH_HEADER_ACCESSIBILITY_ACTIONS: ReadonlyArray<{ name: string; label: string }> = [
+  { name: "activate", label: CHILD_SWITCH_SHEET_TITLE }
+];
+
 /** 헤더 탭 대상의 accessibilityLabel: 보이는 문구 + 무엇을 여는지. */
 export function childSwitchTriggerAccessibilityLabel(headerText: string): string {
   return `${headerText}, ${CHILD_SWITCH_SHEET_TITLE}`;

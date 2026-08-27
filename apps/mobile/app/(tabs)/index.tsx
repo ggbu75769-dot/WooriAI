@@ -9,6 +9,8 @@ import {
   canSwitchChildFromHome,
   childSwitchOptionAccessibilityLabel,
   childSwitchTriggerAccessibilityLabel,
+  CHILD_SWITCH_HEADER_ACCESSIBILITY_ACTIONS,
+  CHILD_SWITCH_HEADER_TRIGGER_HINT,
   CHILD_SWITCH_SHEET_TITLE,
   CHILD_SWITCH_TRIGGER_HINT
 } from "../../src/children/child-switch";
@@ -751,6 +753,38 @@ export default function HomeScreen() {
       announce: announceForA11y
     });
   };
+  // 라운드 38 H-9: 전환 시트와 그 입구는 **정상 홈과 에러 홈이 함께 쓴다**. 아래 에러 조기
+  // 반환이 헤더보다 위에 있어서, 아이 B로 전환한 직후 네트워크가 끊기면 화면에 남는 것이 실패
+  // 카드뿐이었다 -- 아이 A로 되돌아갈 입구가 홈에서 사라져 설정 → 아이 관리로 우회해야 했다
+  // (전환 자체는 이미 성공했으므로 [다시 시도]는 계속 B를 다시 받으려 한다). 시트 JSX를 한 번만
+  // 만들어 두 상태에서 같은 것을 그린다 -- 두 벌로 적으면 한쪽만 고쳐지는 종류의 버그가 된다.
+  const childSwitchHeaderText = selectedChild?.nickname ?? CHILD_SWITCH_SHEET_TITLE;
+  const childSwitchSheet =
+    canSwitchChild && childSwitchOpen ? (
+      // 목록은 ["children"] 캐시(설정 · 리포트와 같은 키)를 그대로 읽는다 -- 새 요청 0.
+      <View testID="home-child-switch-sheet">
+        <BottomSheetFrame title={CHILD_SWITCH_SHEET_TITLE} showHandle={false}>
+          {switchableChildren.map((child) => {
+            const isCurrent = child.id === childId;
+            return (
+              <Pressable
+                key={child.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isCurrent }}
+                accessibilityLabel={childSwitchOptionAccessibilityLabel(child.nickname, isCurrent)}
+                onPress={() => handleChildSwitch(child)}
+                style={homeChildSwitchStyle.row}
+              >
+                <Text style={homeChildSwitchStyle.rowName}>{child.nickname}</Text>
+                {isCurrent ? <StatusBadge label="현재 선택" tone="success" /> : null}
+              </Pressable>
+            );
+          })}
+          <TextButton label="닫기" onPress={() => setChildSwitchOpen(false)} />
+        </BottomSheetFrame>
+      </View>
+    ) : null;
+
   // 세션 없는 미리보기에는 새로고침할 서버 데이터가 없으므로 RefreshControl을 붙이지 않는다.
   const refreshControl = hasSession ? (
     <RefreshControl
@@ -774,6 +808,26 @@ export default function HomeScreen() {
   if (hasSession && homePhase === "error") {
     return (
       <AppScreen>
+        {/* 라운드 38 H-9: 실패 카드 **위에** 전환 입구를 남긴다. 아이 이름은 이미 받아 둔
+            ["children"] 캐시에서 오므로(실패한 것은 ["home"]이다) 새 요청도, 확인한 적 없는
+            사실도 없다. 카운터·부제는 홈 데이터가 있어야 만들 수 있어 여기서는 그리지 않는다. */}
+        {canSwitchChild ? (
+          <View style={homeChildSwitchStyle.header}>
+            <View style={homeChildSwitchStyle.copy}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={childSwitchTriggerAccessibilityLabel(childSwitchHeaderText)}
+                accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
+                hitSlop={8}
+                onPress={() => setChildSwitchOpen((open) => !open)}
+                testID="home-child-switch-trigger"
+              >
+                <Text style={homeChildSwitchStyle.title}>{childSwitchHeaderText}</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+        {childSwitchSheet}
         <EmptyStateCard
           title={loadErrorCopy.title}
           actionLabel={loadErrorCopy.actionLabel}
@@ -924,10 +978,21 @@ export default function HomeScreen() {
                   // HOME-138: 아이가 2명 이상일 때만 이름 줄이 버튼이 된다. 감싸는 Pressable이
                   // 접근성 노드를 대신 들고(라벨 = 들리는 카운터 문장 + "아이 전환"), 문구·크기·
                   // 위치는 아래 비전환 분기와 한 글자도 다르지 않다.
+                  //
+                  // 라운드 38 H-8: role은 header다(button이 아니다). 이 줄은 아래 비전환 분기와
+                  // **같은 줄**이고 거기서는 accessibilityRole="header"라, 여기서 button으로
+                  // 바꾸면 아이가 2명 이상인 사용자만 홈의 제목 랜드마크를 잃는다. react-native는
+                  // role을 하나만 주므로 랜드마크를 지키고, "누를 수 있다"는 사실은 힌트 문장 +
+                  // 접근성 액션으로 전한다(src/children/child-switch.ts에 근거 주석).
                   <Pressable
-                    accessibilityRole="button"
+                    accessible
+                    accessibilityRole="header"
                     accessibilityLabel={childSwitchTriggerAccessibilityLabel(babyCounter.accessibilityLabel)}
-                    accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
+                    accessibilityHint={CHILD_SWITCH_HEADER_TRIGGER_HINT}
+                    accessibilityActions={CHILD_SWITCH_HEADER_ACCESSIBILITY_ACTIONS}
+                    onAccessibilityAction={(event) => {
+                      if (event.nativeEvent.actionName === "activate") setChildSwitchOpen((open) => !open);
+                    }}
                     hitSlop={8}
                     onPress={() => setChildSwitchOpen((open) => !open)}
                     testID="home-child-switch-trigger"
@@ -983,30 +1048,8 @@ export default function HomeScreen() {
             />
           )}
 
-          {canSwitchChild && childSwitchOpen ? (
-            // 목록은 ["children"] 캐시(설정 · 리포트와 같은 키)를 그대로 읽는다 -- 새 요청 0.
-            <View testID="home-child-switch-sheet">
-              <BottomSheetFrame title={CHILD_SWITCH_SHEET_TITLE} showHandle={false}>
-                {switchableChildren.map((child) => {
-                  const isCurrent = child.id === childId;
-                  return (
-                    <Pressable
-                      key={child.id}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: isCurrent }}
-                      accessibilityLabel={childSwitchOptionAccessibilityLabel(child.nickname, isCurrent)}
-                      onPress={() => handleChildSwitch(child)}
-                      style={homeChildSwitchStyle.row}
-                    >
-                      <Text style={homeChildSwitchStyle.rowName}>{child.nickname}</Text>
-                      {isCurrent ? <StatusBadge label="현재 선택" tone="success" /> : null}
-                    </Pressable>
-                  );
-                })}
-                <TextButton label="닫기" onPress={() => setChildSwitchOpen(false)} />
-              </BottomSheetFrame>
-            </View>
-          ) : null}
+          {/* 시트 본체는 위에서 한 번만 만든다(H-9) -- 에러 상태의 홈도 같은 것을 그린다. */}
+          {childSwitchSheet}
 
           <HeroSummaryCard
             label="이번 달 지출"

@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { usesOfflineAwareLoadErrorCopy } from "./offline/offline-aware-screens";
+
 // MOB-119 (UX-5B-5 후속): 로딩 분기의 "가짜 버튼" EmptyStateCard(잠시만요) 잔여 3곳을
 // D6 스켈레톤으로 교체하는 소스 계약. 이 repo의 vitest는 react-native 컴포넌트를 실행할 수
 // 없으므로(ui-pixel-lock-flow.test.ts 참고) 소스 문자열 계약으로 고정한다.
@@ -13,17 +15,23 @@ function readSource(relativePath: string): string {
   return readFileSync(filePath, "utf8");
 }
 
-// UX-N: `offlineAwareCopy`가 켜진 화면은 에러 카드 문구를 오프라인 여부로 갈라 쓰므로 문구가
-// JSX 리터럴이 아니다(공용 단일 소스 useLoadErrorCopy → src/offline/messages.ts). 여기서 고정하는
-// 것은 원래도 "재시도 수단이 달린 EmptyStateCard가 에러 분기에 남아 있다"이므로, 그 화면에서는
-// 같은 사실을 리터럴 대신 공용 문구 사용으로 확인한다.
+// UX-N: 오프라인 인지 문구를 쓰는 화면은 에러 카드 문구가 JSX 리터럴이 아니다(공용 단일 소스
+// useLoadErrorCopy → src/offline/messages.ts). 여기서 고정하는 것은 원래도 "재시도 수단이 달린
+// EmptyStateCard가 에러 분기에 남아 있다"이므로, 그 화면에서는 같은 사실을 리터럴 대신 공용
+// 문구 사용으로 확인한다.
+//
+// 라운드 38 H-12: 어느 화면이 그런 화면인지는 이 파일이 손으로 적지 않는다 —
+// src/offline/offline-aware-screens.ts 한 곳을 읽는다(screen-phase.test.ts와 같은 목록).
 const screens = [
-  { path: "app/family/index.tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"], offlineAwareCopy: false },
-  { path: "app/items/[itemTemplateId].tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"], offlineAwareCopy: true },
-  { path: "app/budget.tsx", skeletons: ["<SkeletonCard />"], offlineAwareCopy: true },
+  { path: "app/family/index.tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"] },
+  { path: "app/items/[itemTemplateId].tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"] },
+  { path: "app/budget.tsx", skeletons: ["<SkeletonCard />"] },
   // UX-Q(B): 지출 수정 화면은 MOB-119 당시 목록에 없어 "불러오고 있어요. / 잠시만요"(onPress
   // 없는 죽은 버튼)가 저장소에서 유일하게 살아남아 있었다. 같은 계약으로 들여 재발을 막는다.
-  { path: "app/expenses/[expenseId].tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"], offlineAwareCopy: false }
+  { path: "app/expenses/[expenseId].tsx", skeletons: ["<SkeletonCard />", "<SkeletonRow />"] },
+  // 라운드 38 H-12: 리포트 화면도 스켈레톤·오프라인 인지 문구를 이미 쓰는데 이 목록에도,
+  // screen-phase.test.ts에도 없어 두 계약 모두 지나쳐 갔다(아래 세 오류 카드 계약도 함께 추가).
+  { path: "app/(tabs)/reports.tsx", skeletons: ["<SkeletonCard />"] }
 ] as const;
 
 describe("MOB-119 loading skeleton contract", () => {
@@ -44,7 +52,7 @@ describe("MOB-119 loading skeleton contract", () => {
     // 분기 순서의 문제이고, 그 계약은 src/screen-phase.test.ts가 진다.
     it(`${screen.path} keeps the retry EmptyStateCard on the error branch`, () => {
       const source = readSource(screen.path);
-      if (screen.offlineAwareCopy) {
+      if (usesOfflineAwareLoadErrorCopy(screen.path)) {
         expect(source).toContain("title={loadErrorCopy.title}");
         expect(source).toContain("actionLabel={loadErrorCopy.actionLabel}");
       } else {
@@ -53,4 +61,27 @@ describe("MOB-119 loading skeleton contract", () => {
       }
     });
   }
+
+  /**
+   * 라운드 38 H-12: 리포트는 한 화면에 조회가 셋(기간 총액 · 카테고리 비중 · 누적)이고 오류
+   * 카드도 셋이다. 위 루프는 "공용 문구를 쓴다"만 확인하므로(toContain 한 번), 셋 중 하나가
+   * 옛 리터럴로 되돌아가도 통과한다. 세 자리가 **모두** 같은 단일 소스에서 오고 각자 자기
+   * 조회를 다시 부르는지 여기서 못 박는다.
+   */
+  it("app/(tabs)/reports.tsx wires all three error cards to the shared offline-aware copy", () => {
+    const source = readSource("app/(tabs)/reports.tsx");
+    expect(source).toContain('from "../../src/offline/use-load-error-copy"');
+    // 세 조회의 에러를 한 훅에 모아 판정한다(연결 확인은 화면당 한 번).
+    expect(source).toContain(
+      "const loadErrorCopy = useLoadErrorCopy(activeIsError || activeCategory.isError || cumulative.isError);"
+    );
+    expect(source.match(/title=\{loadErrorCopy\.title\}/g) ?? []).toHaveLength(3);
+    expect(source.match(/actionLabel=\{loadErrorCopy\.actionLabel\}/g) ?? []).toHaveLength(3);
+    // 각 카드는 자기 조회만 다시 부른다 -- 재시도가 엉뚱한 쿼리로 가면 카드가 영영 안 걷힌다.
+    expect(source).toContain("onPress={refetchActive}");
+    expect(source).toContain("onPress={() => activeCategory.refetch()}");
+    expect(source).toContain("onPress={() => cumulative.refetch()}");
+    // 옛 리터럴이 어느 한 자리에라도 되살아나면 세 카드의 문구가 갈린다.
+    expect(source).not.toContain('title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."');
+  });
 });

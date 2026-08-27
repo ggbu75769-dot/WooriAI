@@ -301,6 +301,17 @@ describe("UX-L(A) 배선 계약", () => {
     expect(recordsSource).toContain("resolveRecordRowAction(event.nativeEvent.actionName, rowActions)");
   });
 
+  it("라운드 38 H-12: 행을 한 번 탭하면 여전히 상세로 간다(래퍼가 탭을 삼키지 않는다)", () => {
+    // 롱프레스·커스텀 액션을 붙이려고 행 전체를 Pressable로 감싼 뒤 안쪽 ListRow의 터치를
+    // 잠갔다 -- 바깥이 onPress를 들지 않으면 "행 탭 → 상세"라는 이 화면의 기본 동작이 통째로
+    // 사라진다. 계약에 없으면 조용히 되돌아갈 수 있는 회귀라 여기서 못 박는다.
+    expect(recordsSource).toContain("onPress={openExpenseDetail}");
+    expect(recordsSource).toContain('const openExpenseDetail = useCallback(() => onAction("edit", expense), ');
+    // 탭도 롱프레스 시트의 "수정"도 같은 핸들러 한 곳으로 들어간다(경로가 갈리지 않는다).
+    expect(recordsSource).toContain('if (action === "edit") {');
+    expect(recordsSource).toContain("router.push(`/expenses/${expense.id}`);");
+  });
+
   it("공용 ListRow를 고치지 않고 이 화면 전용 래퍼로 감싼다 (안쪽은 터치·접근성 모두 잠근다)", () => {
     expect(recordsSource).toContain('<View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none">');
     // 안쪽 ListRow에 onPress를 다시 주면 그것이 responder를 가져가 롱프레스가 오지 않는다.

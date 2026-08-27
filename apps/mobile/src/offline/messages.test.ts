@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import { OFFLINE_AWARE_LOAD_ERROR_SCREENS } from "./offline-aware-screens";
 import {
   CONFLICT_BANNER_MESSAGE,
   CONFLICT_OPTION_ADOPT_SERVER_LABEL,
@@ -136,15 +137,10 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
 
   // 라운드 39 UX-P: 남아 있던 세 화면(홈·기록·예산)까지 같은 단일 소스로 배선했다 -- 이제
   // 조회 실패 카드를 그리는 화면 여섯 곳이 모두 같은 문구를 쓴다(가족 화면은 다른 트랙 소관).
+  // 라운드 38 H-12: 목록은 여기 다시 적지 않는다 -- 세 계약 파일이 함께 읽는 단일 소스에서 온다.
   it("is the single source for every screen wired so far", () => {
-    const screens = [
-      "app/(tabs)/items.tsx",
-      "app/items/[itemTemplateId].tsx",
-      "app/(tabs)/reports.tsx",
-      "app/(tabs)/index.tsx",
-      "app/(tabs)/records.tsx",
-      "app/budget.tsx"
-    ] as const;
+    const screens = OFFLINE_AWARE_LOAD_ERROR_SCREENS;
+    expect(screens.length).toBeGreaterThan(0);
     for (const path of screens) {
       const screenSource = source(path);
       expect(screenSource, `${path} imports the shared hook`).toContain('src/offline/use-load-error-copy"');
@@ -157,6 +153,35 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
         'title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."'
       );
     }
+  });
+
+  /**
+   * 라운드 38 H-12: 위 목록(src/offline/offline-aware-screens.ts)이 현실과 갈라지지 않게 한다.
+   *
+   * 그 목록은 세 계약 파일(여기 · screen-phase.test.ts · loading-skeleton-contract.test.ts)이
+   * 함께 읽는 단일 소스라, 새 화면을 배선하고 목록에 넣는 것을 잊으면 세 계약이 **한꺼번에**
+   * 그 화면을 지나쳐 간다(실제로 reports.tsx가 그렇게 두 목록 어디에도 없었다). app/**을 훑어
+   * 훅을 실제로 쓰는 화면 집합과 목록이 정확히 같은지 확인한다.
+   */
+  it("라운드 38 H-12: 목록이 useLoadErrorCopy를 실제로 쓰는 화면 집합과 정확히 일치한다", () => {
+    const appRoot = join(mobileRoot, "app");
+    const wired: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!entry.name.endsWith(".tsx")) continue;
+        if (!readFileSync(fullPath, "utf8").includes("useLoadErrorCopy(")) continue;
+        // 목록은 mobile 루트 기준 상대 경로(POSIX 구분자)로 적는다.
+        wired.push(relative(mobileRoot, fullPath).split(sep).join("/"));
+      }
+    };
+    walk(appRoot);
+
+    expect(wired.sort()).toEqual([...OFFLINE_AWARE_LOAD_ERROR_SCREENS].sort());
   });
 
   /**

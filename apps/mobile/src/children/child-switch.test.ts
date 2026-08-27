@@ -7,6 +7,8 @@ import {
   childSwitchOptionAccessibilityLabel,
   childSwitchTriggerAccessibilityLabel,
   CHILD_SCOPED_QUERY_KEY_PREFIXES,
+  CHILD_SWITCH_HEADER_ACCESSIBILITY_ACTIONS,
+  CHILD_SWITCH_HEADER_TRIGGER_HINT,
   CHILD_SWITCH_SHEET_TITLE,
   CHILD_SWITCH_TRIGGER_HINT,
   planChildSwitch
@@ -123,6 +125,43 @@ describe("HOME-138 홈 헤더 전환 입구", () => {
     expect(homeSource.match(/queryKey: \["children"\]/g) ?? []).toHaveLength(1);
     // 1명이면 종전 헤더 그대로여야 한다(HOME-001 픽셀락 캡처는 비세션·1명 미리보기).
     expect(homeSource).toContain("<ScreenHeader");
+  });
+
+  it("라운드 38 H-8: 아이 2명 이상이어도 홈 제목 랜드마크(header)를 잃지 않는다", () => {
+    const homeSource = source("app/(tabs)/index.tsx");
+    // 카운터 헤더 분기(= 이 화면의 제목 줄)만 잘라 본다 -- 에러 화면의 보조 입구(H-9)는 제목을
+    // 대신하지 않으므로 종전대로 버튼이다.
+    const triggerBlock = homeSource.slice(
+      homeSource.indexOf("{babyCounter ? ("),
+      homeSource.indexOf('testID="home-baby-counter"')
+    );
+    // RN은 role을 하나만 준다 -- 랜드마크를 지키고 버튼성은 힌트·액션으로 전한다.
+    expect(triggerBlock).toContain('accessibilityRole="header"');
+    expect(triggerBlock).not.toContain('accessibilityRole="button"');
+    expect(triggerBlock).toContain("accessibilityHint={CHILD_SWITCH_HEADER_TRIGGER_HINT}");
+    expect(triggerBlock).toContain("accessibilityActions={CHILD_SWITCH_HEADER_ACCESSIBILITY_ACTIONS}");
+    expect(triggerBlock).toContain('actionName === "activate"');
+  });
+
+  it("라운드 38 H-8: header role일 때 힌트가 '두 번 탭' 문장을 대신 말한다", () => {
+    expect(CHILD_SWITCH_HEADER_TRIGGER_HINT).toBe("두 번 탭하면 아이를 전환할 수 있어요");
+    expect(CHILD_SWITCH_HEADER_ACCESSIBILITY_ACTIONS).toEqual([{ name: "activate", label: CHILD_SWITCH_SHEET_TITLE }]);
+  });
+
+  it("라운드 38 H-9: 홈 로드 실패 화면에도 아이 전환 입구와 시트가 남는다", () => {
+    const homeSource = source("app/(tabs)/index.tsx");
+    const errorBranch = homeSource.slice(
+      homeSource.indexOf('if (hasSession && homePhase === "error") {'),
+      homeSource.indexOf('if (hasSession && homePhase === "loading") {')
+    );
+    // 전환 직후 실패했을 때 원래 아이로 되돌아갈 길이 홈 안에 있어야 한다.
+    expect(errorBranch).toContain('testID="home-child-switch-trigger"');
+    expect(errorBranch).toContain("{childSwitchSheet}");
+    // 오프라인 문구 배선(UX-N)은 그대로 -- 실패 카드는 loadErrorCopy를 계속 쓴다.
+    expect(errorBranch).toContain("title={loadErrorCopy.title}");
+    // 시트는 두 상태가 **같은 노드**를 그린다(두 벌로 적으면 한쪽만 고쳐진다).
+    expect(homeSource.match(/testID="home-child-switch-sheet"/g) ?? []).toHaveLength(1);
+    expect(homeSource.match(/\{childSwitchSheet\}/g) ?? []).toHaveLength(2);
   });
 
   it("전환 목록의 각 줄은 44dp 터치 타깃을 지킨다", () => {

@@ -305,6 +305,22 @@ describe("BUD-001 예산 화면 배선 (app/budget.tsx)", () => {
     expect(screen).toContain("sumLastMonthActualKrw(");
   });
 
+  it("라운드 38 H-1: 지난달 합계에 이 기기의 오프라인 대기 행을 childId 스코프로 함께 넘긴다", () => {
+    const screen = screenSource();
+    expect(screen).toContain('from "../src/offline/sync-controller"');
+    expect(screen).toContain("useOfflineSyncSnapshot()");
+    // 서버 캐시만 더하면 기록 탭 합계와 갈라진다 -- 두 번째 인자가 재조정 입력이다.
+    expect(screen).toContain("{ rows: offlineSnapshot.rows, childId, yearMonth: lastYearMonth }");
+  });
+
+  it("라운드 38 H-4: 사용액은 이 화면의 budget 응답이 1순위, 홈 캐시는 폴백이다", () => {
+    const screen = screenSource();
+    // 알림 → /budget 직행(홈 미마운트)에서도 판단 줄이 살아 있어야 한다.
+    expect(screen).toContain("budget.data?.usedAmountKrw ?? cachedHome?.monthly.usedAmountKrw");
+    // 홈 캐시를 1순위로 되돌리는 회귀 방지.
+    expect(screen).not.toContain("usedKrw: cachedHome?.monthly.usedAmountKrw");
+  });
+
   it("저장 후 무효화를 예산이 실제로 바꾸는 캐시로 좁힌다(전 캐시 무효화 금지)", () => {
     const screen = screenSource();
     expect(screen).not.toContain("invalidateQueries()");
