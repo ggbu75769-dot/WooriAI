@@ -570,7 +570,12 @@ describe("UX-G 홈 화면 배선", () => {
     expect(homeSource).toContain("{showRecentExpensesSection ? (");
     expect(homeSource).toContain("{!showRecentExpensesSection ? null : visibleHome.recentExpenses.length === 0 ? (");
     // FAB는 전역 관례라 유지한다 -- 근거가 주석으로 남아 있어야 다음 라운드가 다시 지우지 않는다.
-    expect(homeSource).toContain("<FloatingActionButton onPress={() => router.push(\"/expenses/new\")} />");
+    // UX-R(M): FAB 자체는 그대로 서 있고 목적지도 그대로다. 눌렀을 때만 보기 전용 판정을
+    // 거친다(expenseGate.guard) -- 잠금은 실세션 + 보기 전용 역할에서만 발동하므로 이 자리의
+    // "FAB는 사라지지 않는다"는 계약은 그대로다.
+    expect(homeSource).toContain(
+      '<FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />'
+    );
     expect(homeSource).toContain("전역 관례");
   });
 

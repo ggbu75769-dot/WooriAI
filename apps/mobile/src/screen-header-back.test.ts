@@ -23,7 +23,9 @@ const screenHeaderBlock = () => {
   return uiSource.slice(uiSource.indexOf("export function ScreenHeader"), uiSource.indexOf("export function Card"));
 };
 
-// app/budget.tsx · app/notifications.tsx는 다른 트랙 소유라 이번 라운드에서 제외했다(잔여 2곳).
+// 라운드 39 I-8: 남아 있던 두 곳도 배선했다 -- app/notifications.tsx(UX-O에서 이미 배선됐는데
+// 이 목록·주석만 낡아 있었다)와 app/budget.tsx(알림 → 예산 직행이 가장 갇히기 쉬운 경로였다).
+// 스택으로만 도달하는 화면 중 나가는 길이 없는 곳은 이제 없다.
 const backWiredScreens = [
   "app/settings/index.tsx",
   "app/settings/children.tsx",
@@ -31,7 +33,9 @@ const backWiredScreens = [
   "app/settings/privacy.tsx",
   "app/expenses/[expenseId].tsx",
   "app/family/invite.tsx",
-  "app/import/[importJobId].tsx"
+  "app/import/[importJobId].tsx",
+  "app/notifications.tsx",
+  "app/budget.tsx"
 ] as const;
 
 describe("UX-Q(C) ScreenHeader 뒤로가기 슬롯", () => {
@@ -75,7 +79,7 @@ describe("UX-Q(C) ScreenHeader 뒤로가기 슬롯", () => {
   });
 });
 
-describe("UX-Q(C) 스택 화면 7곳에 나가는 길이 있다", () => {
+describe("UX-Q(C) 스택 화면 9곳에 나가는 길이 있다 (라운드 39 I-8: 잔여 0곳)", () => {
   for (const relativePath of backWiredScreens) {
     it(`${relativePath}의 ScreenHeader가 router.back()을 배선한다`, () => {
       const screenSource = source(relativePath);

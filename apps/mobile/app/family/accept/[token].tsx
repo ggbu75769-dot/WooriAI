@@ -68,6 +68,16 @@ export default function AcceptInviteScreen() {
     onSuccess: async (result) => {
       if (!isTestSession) {
         useSessionStore.setState({ defaultHouseholdId: result.household.id });
+        // UX-R(M): 참여 응답이 내려준 **내 역할**을 여기서 담는다. 보기 전용·선물 참여
+        // 참여자는 로그인 시점에 이 가구가 아직 없었으므로(초대를 이제 막 수락했다) 로그인
+        // 응답만으로는 역할을 영영 알 수 없다 — 이 한 줄이 그 사람들에게 정직한 기록 CTA를
+        // 만든다.
+        //
+        // 데모 세션은 위 defaultHouseholdId와 **같은 이유로** 제외한다: local-backend의
+        // acceptInvite는 참여자를 데모 사용자(엄마·owner)가 아니라 별도의 "아빠" 구성원으로
+        // 모사하므로, 그 초대 역할을 내 역할로 담으면 데모에서 owner가 자기 초대를 눌러 본
+        // 것만으로 기록 입구가 잠긴다. 알 수 없음으로 두면 데모는 예전 그대로다.
+        useSessionStore.getState().setHouseholdRole(result.household.id, result.household.role);
       }
       // 데모(local-backend) 세션은 가구가 하나뿐이라 "다른 가구로 참여"를 모사하지 않는다
       // (FIX-118B(F3)와 같은 정직성 규칙) -- 알 수 없음으로 두어 허위 전환 안내를 막는다.

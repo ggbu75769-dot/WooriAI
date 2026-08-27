@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildTileCategoryIdResolver } from "../categories";
+import { buildTileCategoryResolver } from "../categories";
 import { buildEntryContextLine, type EntryContextServerExpense } from "./entry-context-line";
 import type { LocalExpenseRow } from "../offline/types";
 
@@ -261,7 +261,7 @@ describe("buildEntryContextLine — 라운드 37 G-4: 8타일 밖 분류가 섞�
 describe("buildEntryContextLine — H-11: 매핑을 받으면 임포트 행도 합산한다", () => {
   const SERVER_DIAPER = "8f2a1c40-7d3e-4b91-9a55-0f1c2d3e4b5a";
   const SERVER_SLEEP = "8f2a1c40-7d3e-4b91-9a55-0f1c2d3e4b5b";
-  const resolveTileCategoryId = buildTileCategoryIdResolver([
+  const resolveTileCategory = buildTileCategoryResolver([
     { id: SERVER_DIAPER, code: "diaper_hygiene" },
     // 8타일에 대응이 없는 정식 분류 -- 매핑해도 갈 곳이 없다.
     { id: SERVER_SLEEP, code: "sleep_furniture" }
@@ -275,7 +275,7 @@ describe("buildEntryContextLine — H-11: 매핑을 받으면 임포트 행도 �
         serverExpense({ id: "e2", amountKrw: 140_000, categoryId: SERVER_DIAPER })
       ],
       selectedCategory: { id: DIAPER, label: "기저귀" },
-      resolveTileCategoryId
+      resolveTileCategory
     });
     // 매핑 전에는 이 달의 카테고리 항이 통째로 사라졌다(G-4).
     expect(line?.text).toBe("8월 지금까지 200,000원 · 기저귀 200,000원");
@@ -287,7 +287,7 @@ describe("buildEntryContextLine — H-11: 매핑을 받으면 임포트 행도 �
       cachedMonthExpenses: [serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER })],
       offlineRows: [offlineRow({ localId: "l1", amountKrw: 8_000, categoryId: SERVER_DIAPER })],
       selectedCategory: { id: DIAPER, label: "기저귀" },
-      resolveTileCategoryId
+      resolveTileCategory
     });
     expect(line?.text).toBe("8월 지금까지 68,000원 · 기저귀 68,000원");
   });
@@ -302,7 +302,7 @@ describe("buildEntryContextLine — H-11: 매핑을 받으면 임포트 행도 �
         serverExpense({ id: "e3", amountKrw: 300_000, categoryId: SERVER_SLEEP })
       ],
       selectedCategory: { id: DIAPER, label: "기저귀" },
-      resolveTileCategoryId
+      resolveTileCategory
     });
     expect(line?.text).toBe("8월 지금까지 500,000원");
     expect(line?.text).not.toContain("기저귀");
@@ -316,7 +316,7 @@ describe("buildEntryContextLine — H-11: 매핑을 받으면 임포트 행도 �
         serverExpense({ id: "e2", amountKrw: 40_000, categoryId: CLOTHES })
       ],
       selectedCategory: { id: DIAPER, label: "기저귀" },
-      resolveTileCategoryId
+      resolveTileCategory
     });
     expect(line?.text).toBe("8월 지금까지 100,000원 · 기저귀 60,000원");
   });
@@ -333,6 +333,89 @@ describe("buildEntryContextLine — H-11: 매핑을 받으면 임포트 행도 �
         selectedCategory: { id: DIAPER, label: "기저귀" }
       })?.text
     ).toBe("8월 지금까지 200,000원");
+  });
+});
+
+/**
+ * 라운드 39 I-1 — 서버 code 하나에 타일이 둘 걸린 분류(`feeding_babyfood` = "분유/유제품" · "식비")는
+ * **합계를 말할 수 없는 달**을 만든다.
+ *
+ * 매핑은 그런 행을 결정적으로 첫 타일로 보내는데, 그 선택에는 근거가 없다. 그대로 두면 화면이
+ * "식비 30,000원"처럼 실제와 다른 숫자를 사실로 적는다(분유 행이 식비에서 빠지거나, 그 반대).
+ * 그래서 이 경로는 매핑 실패와 똑같이 다뤄 카테고리 항을 통째로 생략한다(G-4의 정직한 침묵).
+ */
+describe("buildEntryContextLine — I-1: 타일이 둘 걸린 code는 모르는 분류다", () => {
+  const FOOD = "c0a7e901-0000-4c03-8c03-c47e900ec003"; // "식비" 타일
+  const FORMULA = "c0a7e901-0000-4c02-8c02-c47e900ec002"; // "분유/유제품" 타일
+  const SERVER_FEEDING = "8f2a1c40-7d3e-4b91-9a55-0f1c2d3e4bcc";
+  const SERVER_DIAPER = "8f2a1c40-7d3e-4b91-9a55-0f1c2d3e4b5a";
+  const resolveTileCategory = buildTileCategoryResolver([
+    { id: SERVER_FEEDING, code: "feeding_babyfood" },
+    { id: SERVER_DIAPER, code: "diaper_hygiene" }
+  ]);
+
+  it("서버 시드 수유/이유식 행이 섞이면 카테고리 항을 생략한다 (틀린 식비 합계를 적지 않는다)", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 30_000, categoryId: FOOD }),
+        serverExpense({ id: "e2", amountKrw: 20_000, categoryId: SERVER_FEEDING })
+      ],
+      selectedCategory: { id: FOOD, label: "식비" },
+      resolveTileCategory
+    });
+    expect(line?.text).toBe("8월 지금까지 50,000원");
+    expect(line?.text).not.toContain("식비");
+  });
+
+  it("분유/유제품 타일을 골라도 마찬가지다 (첫 타일이라고 사실이 되지는 않는다)", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 30_000, categoryId: FORMULA }),
+        serverExpense({ id: "e2", amountKrw: 20_000, categoryId: SERVER_FEEDING })
+      ],
+      selectedCategory: { id: FORMULA, label: "분유/유제품" },
+      resolveTileCategory
+    });
+    expect(line?.text).toBe("8월 지금까지 50,000원");
+  });
+
+  it("로컬 대기 행의 모호한 분류도 같은 판정을 받는다", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [serverExpense({ id: "e1", amountKrw: 30_000, categoryId: FOOD })],
+      offlineRows: [offlineRow({ localId: "l1", amountKrw: 8_000, categoryId: SERVER_FEEDING })],
+      selectedCategory: { id: FOOD, label: "식비" },
+      resolveTileCategory
+    });
+    expect(line?.text).toBe("8월 지금까지 38,000원");
+  });
+
+  it("1:1 code(기저귀 등)만 있는 달은 종전대로 정상 합산한다", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER }),
+        serverExpense({ id: "e2", amountKrw: 40_000, categoryId: SERVER_DIAPER })
+      ],
+      selectedCategory: { id: DIAPER, label: "기저귀" },
+      resolveTileCategory
+    });
+    expect(line?.text).toBe("8월 지금까지 100,000원 · 기저귀 100,000원");
+  });
+
+  it("두 타일의 id로 직접 기록된 행끼리는 모호하지 않다 (타일 id는 code를 거치지 않는다)", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 30_000, categoryId: FOOD }),
+        serverExpense({ id: "e2", amountKrw: 20_000, categoryId: FORMULA })
+      ],
+      selectedCategory: { id: FOOD, label: "식비" },
+      resolveTileCategory
+    });
+    expect(line?.text).toBe("8월 지금까지 50,000원 · 식비 30,000원");
   });
 });
 
@@ -392,6 +475,6 @@ describe("H-11 배선 계약 (app/expenses/new.tsx)", () => {
   });
 
   it("맥락 한 줄이 그 매핑을 그대로 받는다", () => {
-    expect(newExpenseSource).toContain("resolveTileCategoryId\n  });");
+    expect(newExpenseSource).toContain("resolveTileCategory\n  });");
   });
 });

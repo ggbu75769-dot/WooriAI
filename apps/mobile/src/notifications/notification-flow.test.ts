@@ -67,16 +67,29 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
 
   /**
    * 라운드 39 UX-O: 알림함의 두 구멍.
-   * - 포커스 즉시 전부 읽음 처리라 20줄이 전부 똑같이 보였다 -> 마운트 시 안읽음 스냅샷 1회.
+   * - 포커스 즉시 전부 읽음 처리라 20줄이 전부 똑같이 보였다 -> 읽음 처리 직전의 안읽음 스냅샷.
    * - 뒤로가기가 빈 상태 카드에만 있어서, 알림이 있으면 화면 안에 나갈 길이 없었다.
+   *
+   * 라운드 39 I-7: 그 스냅샷은 **포커스마다** 다시 뜬다. 알림을 눌러 나갔다 돌아오는 경로는 같은
+   * 인스턴스의 재포커스라 마운트 1회 스냅샷이 낡는다(방금 본 항목에 점이 남고, 그 사이 새로 온
+   * 항목에는 점이 붙지 않는다).
    */
   it("marks the notifications that were new when the screen opened, and keeps a 뒤로가기 in the list state", () => {
     const screenSource = source("app/notifications.tsx");
-    // 스냅샷: 스토어 selector를 마운트 시 1회만 읽는다(읽음 처리는 지금까지처럼 markAllRead).
+    // 스냅샷: 스토어 selector를 읽음 처리 직전에 읽는다(읽음 처리는 지금까지처럼 markAllRead).
     expect(screenSource).toContain("selectUnreadNotificationIds(useNotificationStore.getState().entries)");
     expect(screenSource).toContain("useState<string[]>(");
     expect(screenSource).toContain("newNotificationIds.includes(entry.id)");
     expect(screenSource).toContain("markAllRead()");
+    // I-7: 포커스 콜백 안에서, markAllRead()보다 **먼저** 스냅샷을 뜬다.
+    const focusEffect = screenSource.slice(
+      screenSource.indexOf("useFocusEffect("),
+      screenSource.indexOf("}, [markAllRead])")
+    );
+    expect(focusEffect).toContain("setNewNotificationIds(selectUnreadNotificationIds(useNotificationStore.getState().entries));");
+    expect(focusEffect.indexOf("setNewNotificationIds(")).toBeLessThan(focusEffect.indexOf("markAllRead()"));
+    // 아직 rehydrate 전이면 잘못된(빈) 스냅샷으로 덮어쓰지 않는다.
+    expect(focusEffect).toContain("if (useNotificationStore.persist.hasHydrated()) {");
     // 시각 구분 + 스크린 리더 접두. 새 hex 없이 기존 토큰만 쓴다.
     expect(screenSource).toContain('accessibilityLabel="새 소식"');
     expect(screenSource).toContain("backgroundColor: theme.colors.mainCoral");

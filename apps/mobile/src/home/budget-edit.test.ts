@@ -8,8 +8,10 @@ import {
   buildBudgetUsageLine,
   BUDGET_MAX_KRW,
   BUDGET_STEP_KRW,
-  sumLastMonthActualKrw
+  sumLastMonthActualKrw,
+  sumThisMonthActualKrw
 } from "./budget-edit";
+import { reconcileMonthlyExpenses } from "../offline/expense-list-reconciliation";
 import { formatKrw } from "../money";
 import type { LocalExpenseRow } from "../offline/types";
 
@@ -283,6 +285,51 @@ describe("BUD-001 조정 칩 (buildBudgetAdjustChips)", () => {
 });
 
 /**
+ * 라운드 39 I-6 — 예산 화면의 **이번 달 사용액**도 오프라인 재조정을 거친다.
+ *
+ * 종전에는 이 줄만 서버 집계였다. 같은 화면의 지난달 칩은 재조정된 값이라, 아직 올라가지 않은
+ * 지출이 있는 기기에서 두 숫자가 다른 모집단을 말했다(그리고 기록 탭과도 갈렸다).
+ */
+describe("I-6 이번 달 실지출 합계 (sumThisMonthActualKrw)", () => {
+  const serverRows = [
+    { id: "expense-1", amountKrw: 800_000, expenseType: "expense" },
+    { id: "expense-2", amountKrw: 200_000, expenseType: "gift" }
+  ];
+  const offlineRows = [
+    // 아직 올라가지 않은 이번 달 행 -- 기록 탭은 이 행을 이번 달 합계에 넣는다.
+    offlineRow({ localId: "local-1", amountKrw: 45_000, spentOn: "2026-08-11" }),
+    // 다른 아이·다른 달은 세지 않는다.
+    offlineRow({ localId: "local-2", amountKrw: 999_000, spentOn: "2026-08-12", childId: "child-2" }),
+    offlineRow({ localId: "local-3", amountKrw: 500_000, spentOn: "2026-07-01" })
+  ];
+
+  it("3자 정합: 기록 탭 월 합계와 **같은 함수**의 결과다", () => {
+    const viaBudget = sumThisMonthActualKrw(serverRows, {
+      rows: offlineRows,
+      childId: "child-1",
+      yearMonth: "2026-08"
+    });
+    const viaRecordsTab = reconcileMonthlyExpenses(
+      serverRows.map((row) => ({ id: row.id, amountKrw: row.amountKrw, expenseType: row.expenseType })),
+      offlineRows.filter((row) => row.childId === "child-1"),
+      "2026-08"
+    ).monthlyTotalKrw;
+
+    expect(viaBudget).toBe(845_000);
+    expect(viaBudget).toBe(viaRecordsTab);
+  });
+
+  it("캐시가 없으면 null이라 화면이 서버 집계로 폴백한다 (알림 → /budget 직행)", () => {
+    expect(sumThisMonthActualKrw(null, { rows: offlineRows, childId: "child-1", yearMonth: "2026-08" })).toBeNull();
+    expect(sumThisMonthActualKrw(undefined)).toBeNull();
+  });
+
+  it("지난달과 규칙이 갈릴 자리를 만들지 않는다 (같은 함수다)", () => {
+    expect(sumThisMonthActualKrw).toBe(sumLastMonthActualKrw);
+  });
+});
+
+/**
  * 화면 배선은 이 저장소의 관례대로 소스 문자열로 못 박는다(react-native 화면은 vitest에서
  * 렌더할 수 없다 -- ui-pixel-lock-flow.test.ts와 같은 관례).
  */
@@ -303,6 +350,17 @@ describe("BUD-001 예산 화면 배선 (app/budget.tsx)", () => {
     expect(screen).toContain("buildBudgetUsageLine({");
     expect(screen).toContain("buildBudgetAdjustChips({");
     expect(screen).toContain("sumLastMonthActualKrw(");
+    expect(screen).toContain("sumThisMonthActualKrw(");
+  });
+
+  it("라운드 39 I-6: 이번 달 사용액도 캐시 + 오프라인 재조정이 1순위, 서버 집계는 폴백이다", () => {
+    const screen = screenSource();
+    expect(screen).toContain('queryClient.getQueryData<{ expenses: Expense[] }>(["expenses", childId, thisYearMonth])');
+    expect(screen).toContain("const reconciledUsedKrw = sumThisMonthActualKrw(");
+    expect(screen).toContain("rows: offlineSnapshot.rows,");
+    expect(screen).toContain("yearMonth: thisYearMonth");
+    // 캐시가 없으면(직행 경로) 종전 폴백 순서가 그대로 살아 있다.
+    expect(screen).toContain("reconciledUsedKrw ?? budget.data?.usedAmountKrw ?? cachedHome?.monthly.usedAmountKrw");
   });
 
   it("라운드 38 H-1: 지난달 합계에 이 기기의 오프라인 대기 행을 childId 스코프로 함께 넘긴다", () => {

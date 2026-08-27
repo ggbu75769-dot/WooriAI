@@ -1,16 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppState, Platform, Text, View } from "react-native";
 import { router } from "expo-router";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { buildPurchaseFollowupAnsweredPayload, type PurchaseFollowupAnswer } from "../analytics/events";
 import { LOCAL_SESSION_TOKEN } from "../api/client";
+import { useExpenseEntryGate } from "../family/useExpenseEntryGate";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
 import { announceForA11y, Card, PrimaryButton, SecondaryButton, TextButton } from "../ui";
 import { theme } from "../theme";
+import { createPurchaseFollowupSessionGate, evaluateFollowupPrompt } from "./purchase-followup-session";
 import {
   isFollowupForSelectedChild,
-  selectPromptEligibleFollowup,
   usePurchaseFollowupStore,
   type PurchaseFollowupEntry
 } from "./purchase-followup.store";
@@ -32,14 +33,16 @@ import {
  * 함께 본다 -- 판정 규칙과 그 근거는 purchase-followup.store.ts의 isFollowupForSelectedChild에.
  */
 
-/** Clicks already prompted in this app session (module-level on purpose: survives remounts of
+/**
+ * Clicks already prompted in this app session (module-level on purpose: survives remounts of
  * the lifecycle component but resets on every cold start, which is exactly the "not yet
- * prompted this session" gate). Keyed by click identity, so a fresh re-click may prompt again. */
-const promptedThisSession = new Set<string>();
-
-function sessionPromptKey(entry: PurchaseFollowupEntry): string {
-  return `${entry.itemTemplateId}:${entry.clickedAt}`;
-}
+ * prompted this session" gate). Keyed by click identity, so a fresh re-click may prompt again.
+ *
+ * 라운드 39 I-3: 게이트와 판정 자체는 src/commerce/purchase-followup-session.ts에 있다 — 아이
+ * A↔B 왕복(A 표시 → B 후보 표시 → A 복귀 재표시)을 단위 테스트로 고정하기 위해서다. 이 파일은
+ * 그 순수 판정을 스토어·AppState·화면 상태에 꽂기만 한다.
+ */
+const promptSessionGate = createPurchaseFollowupSessionGate();
 
 const purchaseFollowupOverlayStyle = {
   bottom: 28,
@@ -54,6 +57,9 @@ export function PurchaseFollowupLifecycle() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   // Demo/test sessions count too: this is a pure client feature (see the store's doc comment).
   const hasSession = Boolean(accessToken) || isTestSession;
+  // UX-R(M): "샀어요"는 지출 생성 화면으로 가는 입구다. 보기 전용 참여자에게는 그 저장이
+  // 403으로 막히므로 같은 판정으로 안내한다. 훅이라 아래 조기 반환들보다 위에 있어야 한다.
+  const expenseGate = useExpenseEntryGate();
   /**
    * 라운드 27 L-2: 이벤트 발사에 쓰는 토큰은 화면들과 **같은 관례**로 고른다
    * (app/items/[itemTemplateId].tsx, app/(tabs)/records.tsx의 `authToken`).
@@ -75,21 +81,30 @@ export function PurchaseFollowupLifecycle() {
   const completeFollowup = usePurchaseFollowupStore((state) => state.completeFollowup);
   const dismissFollowup = usePurchaseFollowupStore((state) => state.dismissFollowup);
   const [activeFollowup, setActiveFollowup] = useState<PurchaseFollowupEntry | null>(null);
+  /**
+   * 판정은 effect 안에서 도는데(AppState 리스너·rehydration 콜백) 그 판정이 "지금 떠 있는 카드"를
+   * 알아야 한다 — 상태를 의존성에 넣으면 카드가 뜰 때마다 리스너를 다시 걸게 되므로 ref로 읽는다.
+   */
+  const activeFollowupRef = useRef<PurchaseFollowupEntry | null>(null);
 
   useEffect(() => {
     if (!hasSession) {
+      activeFollowupRef.current = null;
       setActiveFollowup(null);
       return;
     }
     const check = () => {
-      const candidate = selectPromptEligibleFollowup(
-        usePurchaseFollowupStore.getState().entries,
-        Date.now(),
+      // 라운드 39 I-3: 아이가 바뀌어 가려진 카드는 세션 슬롯을 돌려받고 내려간다 — 그래야 그
+      // 아이로 돌아왔을 때 다시 묻는다(규칙과 근거는 purchase-followup-session.ts).
+      const next = evaluateFollowupPrompt({
+        gate: promptSessionGate,
+        active: activeFollowupRef.current,
+        entries: usePurchaseFollowupStore.getState().entries,
+        now: Date.now(),
         selectedChildId
-      );
-      if (!candidate || promptedThisSession.has(sessionPromptKey(candidate))) return;
-      promptedThisSession.add(sessionPromptKey(candidate));
-      setActiveFollowup(candidate);
+      });
+      activeFollowupRef.current = next;
+      setActiveFollowup(next);
     };
     // Cold start: only check once the persisted entries have actually rehydrated -- checking the
     // (still-empty) initial state would silently miss the stored click.
@@ -114,13 +129,16 @@ export function PurchaseFollowupLifecycle() {
   /**
    * 렌더 시점의 아이 게이트(라운드 39 UX-O). 후보 판정에서 이미 걸렀지만, 카드가 떠 있는 동안
    * 설정에서 아이를 바꾸면 화면에 남은 카드가 다른 아이의 것이 된다 -- 그 한 프레임에 "샀어요"를
-   * 누르면 바로 오기록이므로 그리지 않는다. 상태(activeFollowup)는 일부러 그대로 둔다:
-   * 그 아이로 돌아오면 같은 카드가 다시 보이고, 스토어의 대기 항목도 여전히 pending이다.
+   * 누르면 바로 오기록이므로 그리지 않는다. 스토어의 대기 항목은 여전히 pending이고, 아이 전환은
+   * 위 effect를 다시 돌려 이 카드의 세션 슬롯을 돌려주므로(라운드 39 I-3) **그 아이로 돌아오면
+   * 같은 카드가 다시 보인다** -- 종전에는 그 슬롯이 잠긴 채라 세션 내내 다시 뜨지 않았다.
    */
   if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return null;
 
   const closeWith = (action: (itemTemplateId: string) => void) => {
     action(activeFollowup.itemTemplateId);
+    // 답을 받은 항목이다 -- 세션 슬롯은 그대로 잡아 둔다(스토어 상태도 pending을 벗어난다).
+    activeFollowupRef.current = null;
     setActiveFollowup(null);
   };
 
@@ -157,6 +175,12 @@ export function PurchaseFollowupLifecycle() {
             // linkedItemTemplateId (analytics source becomes "followup"). Not edited here.
             // R19-B: 그 덕분에 이 "샀어요" 경로도 저장 시 서버가 준비템을 준비 완료로
             // 올리는 동일한 효과를 얻는다 -- 여기서 별도 상태 API를 부르지 않는다.
+            // 잠긴 세션에서는 카드를 닫지도, 답변을 기록하지도 않는다 -- 아직 답하지 않은
+            // 물음이라 다음에 다시 물어야 하고, "샀어요"는 여기서 실행되지 않았다.
+            if (expenseGate.locked) {
+              expenseGate.explain();
+              return;
+            }
             const { itemName, itemTemplateId } = activeFollowup;
             trackAnswer("purchased");
             closeWith(completeFollowup);

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildTileCategoryIdResolver, categoryCatalog } from "./categories";
+import {
+  ambiguousTileCategoryCodes,
+  buildTileCategoryIdResolver,
+  buildTileCategoryResolver,
+  categoryCatalog
+} from "./categories";
 
 /**
  * 라운드 38 H-6 / H-11 — 서버 카테고리 UUID를 8타일로 옮기는 공용 매핑.
@@ -80,5 +85,55 @@ describe("buildTileCategoryIdResolver (서버 카테고리 UUID -> 8타일)", ()
 
     expect(resolve("broken-1")).toBeNull();
     expect(resolve("")).toBeNull();
+  });
+});
+
+/**
+ * 라운드 39 I-1 — 같은 매핑이 "이 선택이 임의값인가"를 함께 말한다.
+ *
+ * `feeding_babyfood` 하나에 이 앱의 타일이 둘 걸려 있어서(분유/유제품 · 식비), 서버 시드 행은
+ * 늘 첫 타일로 간다. 프리필처럼 어느 쪽이든 골라야 하는 경로에는 그것으로 충분하지만, 카테고리
+ * **합계를 문장으로 말하는** 경로에서는 그 임의 선택이 곧 틀린 사실 진술이 된다. 그래서 매핑이
+ * 그 사실(ambiguous)을 밖으로 내보내고, 합계 경로만 그것을 "모름"으로 되돌린다.
+ */
+describe("buildTileCategoryResolver — 모호한 code를 밝힌다 (I-1)", () => {
+  it("타일이 둘 걸린 code 집합은 카탈로그에서 파생된다", () => {
+    expect([...ambiguousTileCategoryCodes]).toEqual(["feeding_babyfood"]);
+  });
+
+  it("모호한 code의 서버 행은 타일을 고르되 ambiguous로 표시한다", () => {
+    const resolve = buildTileCategoryResolver(serverCategories);
+    expect(resolve("0f3d0f1a-1f2b-4c3d-8e4f-000000000002")).toEqual({
+      tileCategoryId: tileId("분유/유제품"),
+      ambiguous: true
+    });
+  });
+
+  it("1:1 code·타일 id·대응 없는 분류는 모호하지 않다", () => {
+    const resolve = buildTileCategoryResolver(serverCategories);
+    // 1:1 (기저귀/위생)
+    expect(resolve("0f3d0f1a-1f2b-4c3d-8e4f-000000000001")).toEqual({
+      tileCategoryId: tileId("기저귀"),
+      ambiguous: false
+    });
+    // 타일 id는 code를 거치지 않는다 — "식비" 타일 자신도 모호하지 않다.
+    expect(resolve(tileId("식비"))).toEqual({ tileCategoryId: tileId("식비"), ambiguous: false });
+    expect(resolve(tileId("분유/유제품"))).toEqual({ tileCategoryId: tileId("분유/유제품"), ambiguous: false });
+    // 갈 곳이 아예 없는 분류는 "모름"이지 "모호"가 아니다.
+    expect(resolve("0f3d0f1a-1f2b-4c3d-8e4f-000000000004")).toEqual({ tileCategoryId: null, ambiguous: false });
+    expect(resolve("")).toEqual({ tileCategoryId: null, ambiguous: false });
+  });
+
+  it("id만 쓰는 래퍼는 종전 동작 그대로다 (프리필 경로의 결정적 선택)", () => {
+    const resolveId = buildTileCategoryIdResolver(serverCategories);
+    const resolve = buildTileCategoryResolver(serverCategories);
+    for (const id of [
+      "0f3d0f1a-1f2b-4c3d-8e4f-000000000001",
+      "0f3d0f1a-1f2b-4c3d-8e4f-000000000002",
+      "0f3d0f1a-1f2b-4c3d-8e4f-000000000004",
+      categoryCatalog[0].id
+    ]) {
+      expect(resolveId(id), id).toBe(resolve(id).tileCategoryId);
+    }
   });
 });

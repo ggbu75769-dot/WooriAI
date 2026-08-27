@@ -13,7 +13,12 @@ import {
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../src/money";
-import { buildBudgetAdjustChips, buildBudgetUsageLine, sumLastMonthActualKrw } from "../src/home/budget-edit";
+import {
+  buildBudgetAdjustChips,
+  buildBudgetUsageLine,
+  sumLastMonthActualKrw,
+  sumThisMonthActualKrw
+} from "../src/home/budget-edit";
 import { previousYearMonth } from "../src/home/last-month-comparison";
 import { useLoadErrorCopy } from "../src/offline/use-load-error-copy";
 import { useOfflineSyncSnapshot } from "../src/offline/sync-controller";
@@ -92,8 +97,26 @@ export default function BudgetEditScreen() {
       : undefined;
 
   const currentBudgetKrw = budget.data?.amountKrw ?? null;
-  // H-4: 이 화면의 응답이 1순위, 홈 캐시는 예산 미설정(응답 null)일 때만 쓰는 폴백이다.
-  const usedKrw = budget.data?.usedAmountKrw ?? cachedHome?.monthly.usedAmountKrw;
+  /**
+   * 라운드 39 I-6: 이번 달 사용액도 지난달 칩과 **같은 모집단**으로 말한다.
+   *
+   * 종전에는 이 줄만 서버 집계(`usedAmountKrw`)라, 아직 올라가지 않은 오프라인 대기 지출이
+   * 이번 달에서만 빠졌다 — 같은 화면 안에서 지난달 칩(재조정됨)·기록 탭 월 합계와 갈리는 숫자다.
+   * 그래서 `["expenses", childId, 이번 달]` 캐시 + 오프라인 스냅숏 재조정 값이 1순위이고,
+   * 그 캐시가 아예 없을 때만(알림 → /budget 직행 등) 서버 집계·홈 캐시로 폴백한다(H-4의 이유는
+   * 그대로 살아 있다 — 캐시가 없다고 줄이 사라지면 안 된다).
+   */
+  const thisYearMonth = getSeoulToday().slice(0, 7);
+  const cachedThisMonth = childId
+    ? queryClient.getQueryData<{ expenses: Expense[] }>(["expenses", childId, thisYearMonth])
+    : undefined;
+  const reconciledUsedKrw = sumThisMonthActualKrw(cachedThisMonth?.expenses ?? null, {
+    rows: offlineSnapshot.rows,
+    childId,
+    yearMonth: thisYearMonth
+  });
+  // H-4: 캐시가 없으면 이 화면의 응답이 1순위, 홈 캐시는 예산 미설정(응답 null)일 때만 쓰는 폴백이다.
+  const usedKrw = reconciledUsedKrw ?? budget.data?.usedAmountKrw ?? cachedHome?.monthly.usedAmountKrw;
   const usageLine = buildBudgetUsageLine({
     budgetKrw: currentBudgetKrw,
     usedKrw
@@ -141,7 +164,15 @@ export default function BudgetEditScreen() {
   return (
     <AppScreen>
       <View testID="screen-BUD-001" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="예산 관리" title="월 예산 수정" subtitle="필요할 때 언제든 예산을 조정할 수 있어요." />
+        {/* 라운드 39 I-8: 스택으로만 도달하는 화면이라 OS 헤더가 없다(전역 headerShown:false).
+            알림함 → /budget 직행이 가장 갇히기 쉬운 경로였다 -- UX-Q(C)가 낸 ScreenHeader의
+            onBack 슬롯을 그대로 쓴다(‹ 표기·"뒤로가기" 라벨·44dp 타깃이 한 곳에 있다). */}
+        <ScreenHeader
+          eyebrow="예산 관리"
+          title="월 예산 수정"
+          subtitle="필요할 때 언제든 예산을 조정할 수 있어요."
+          onBack={() => router.back()}
+        />
 
         {budget.isLoading ? (
           // MOB-119 (UX-5B-5 후속, D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.

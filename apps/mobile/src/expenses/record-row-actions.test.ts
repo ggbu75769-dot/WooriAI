@@ -293,12 +293,39 @@ describe("UX-L(A) 배선 계약", () => {
 
   it("기록 행은 롱프레스와 스크린리더 커스텀 액션을 **같은 목록**에서 얻는다", () => {
     expect(recordsSource).toContain('from "../../src/expenses/record-row-actions"');
-    expect(recordsSource).toContain("buildRecordRowActions({ expenseType: expense.expenseType })");
     expect(recordsSource).toContain("recordRowAccessibilityActions(rowActions)");
     expect(recordsSource).toContain("onLongPress={openRowActionSheet}");
     expect(recordsSource).toContain("accessibilityActions={rowAccessibilityActions}");
     expect(recordsSource).toContain("onAccessibilityAction={handleRowAccessibilityAction}");
     expect(recordsSource).toContain("resolveRecordRowAction(event.nativeEvent.actionName, rowActions)");
+  });
+
+  /**
+   * 라운드 39 I-2 — H-7의 판정이 실제로 화면까지 오는지.
+   *
+   * 모듈은 라운드 38부터 품목명·금액까지 보고 "또 기록"을 뺐는데, 기록 탭 호출부는 `expenseType`
+   * 하나만 넘기고 있었다. 그래서 0원·품목명 없는 행에는 눌러도 아무 일이 없는 항목이 그대로
+   * 남았고, 액션시트(금액을 넘기지 않음)와 스크린리더 액션 목록의 내용이 서로 갈렸다.
+   * 두 호출부가 **같은 세 필드**를 넘기는 것을 계약으로 고정한다.
+   */
+  it("I-2: 행 액션 목록과 액션시트가 같은 세 필드(품목명·금액·구분)로 판정된다", () => {
+    for (const field of ["itemName: expense.itemName", "amountKrw: expense.amountKrw", "expenseType: expense.expenseType"]) {
+      // buildRecordRowActions 호출부
+      expect(recordsSource, field).toContain(field);
+    }
+    const actionsCall = recordsSource.slice(
+      recordsSource.indexOf("buildRecordRowActions({"),
+      recordsSource.indexOf("})", recordsSource.indexOf("buildRecordRowActions({")) + 2
+    );
+    const sheetCall = recordsSource.slice(
+      recordsSource.indexOf("buildRecordRowActionSheet({"),
+      recordsSource.indexOf("})", recordsSource.indexOf("buildRecordRowActionSheet({")) + 2
+    );
+    for (const call of [actionsCall, sheetCall]) {
+      expect(call).toContain("itemName: expense.itemName");
+      expect(call).toContain("amountKrw: expense.amountKrw");
+      expect(call).toContain("expenseType: expense.expenseType");
+    }
   });
 
   it("라운드 38 H-12: 행을 한 번 탭하면 여전히 상세로 간다(래퍼가 탭을 삼키지 않는다)", () => {

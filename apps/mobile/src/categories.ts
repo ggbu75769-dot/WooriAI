@@ -123,6 +123,34 @@ export type ServerCategoryCode = { id: string; code: string };
 export type TileCategoryIdResolver = (categoryId: string) => string | null;
 
 /**
+ * 라운드 39 I-1 — 매핑 결과 한 건. `tileCategoryId`만으로는 **그 타일이 확실한지**를 알 수 없어
+ * 따로 낸다.
+ *
+ * `ambiguous`는 "서버 `code` 하나에 이 앱의 타일이 둘 이상 걸려 있어, 그 중 하나를 임의로 골랐다"는
+ * 뜻이다(현재 `feeding_babyfood` = "분유/유제품" + "식비"). 프리필처럼 **어느 쪽이든 골라야 하는**
+ * 경로에서는 결정적 선택이면 충분하지만, 카테고리별 **합계를 말하는** 경로에서는 그 선택이 곧
+ * 틀린 사실 진술이 된다(식비 행이 분유 합계로 가고, 그 합계가 화면에 숫자로 적힌다). 그래서 합계
+ * 경로는 이 플래그를 보고 "모르는 분류"로 되돌린다 — entry-context-line.ts의 G-4 침묵 규칙.
+ */
+export type TileCategoryResolution = {
+  tileCategoryId: string | null;
+  ambiguous: boolean;
+};
+
+/** `categoryId` -> 타일 매핑 결과(모호 여부 포함). */
+export type TileCategoryResolver = (categoryId: string) => TileCategoryResolution;
+
+/**
+ * 타일이 둘 이상 걸린 서버 `code` 집합 — `code`만으로는 타일을 특정할 수 없는 분류다.
+ * 카탈로그에서 파생되므로 타일을 늘리거나 code를 바꿔도 손으로 고칠 목록이 없다.
+ */
+export const ambiguousTileCategoryCodes: ReadonlySet<string> = new Set(
+  categoryCatalog
+    .map((entry) => entry.code)
+    .filter((code, index, codes) => codes.indexOf(code) !== codes.lastIndexOf(code))
+);
+
+/**
  * 라운드 38 H-6 / H-11 — 서버 카테고리 UUID를 **이 앱의 8타일 중 하나**로 옮기는 공용 매핑.
  *
  * 왜 필요한가: 8타일(`categoryCatalog`)의 id는 코드에 박힌 고정 UUID지만, 엑셀 임포트나 지출
@@ -140,14 +168,16 @@ export type TileCategoryIdResolver = (categoryId: string) => string | null;
  * - 타일 id는 **그대로 통과**시킨다. 8타일의 별칭 행(`mobileCategoryAliasSeeds`, code
  *   `mobile_*`)은 애초에 타일과 같은 id라 이 규칙 하나로 해결되고, 캐시가 비어 있어도 동작한다.
  * - 한 code에 타일이 둘인 경우(`feeding_babyfood` = "분유/유제품"과 "식비")는 **카탈로그 순서상
- *   첫 타일**로 보낸다. 서버 code만으로는 둘을 구별할 수 없으므로 어느 쪽이든 임의 선택이고,
- *   결정적(deterministic)이기만 하면 같은 행이 화면마다 다른 타일로 가는 일은 없다.
+ *   첫 타일**로 보내되, 그 결과에 `ambiguous: true`를 함께 실어 준다. 서버 code만으로는 둘을
+ *   구별할 수 없으므로 어느 쪽이든 임의 선택이고, 결정적(deterministic)이기만 하면 같은 행이
+ *   화면마다 다른 타일로 가는 일은 없다 — 다만 **그 임의 선택을 사실처럼 말해도 되는 경로**와
+ *   그렇지 않은 경로가 갈린다(위 `TileCategoryResolution` 주석 · 라운드 39 I-1).
  * - 8타일에 대응 code가 없는 분류(임신/산모·수면/가구·보험/저축 …)와 임포트 스텁
  *   (`import_stub_default`)은 `null`이다. 이 화면이 고를 수 없는 분류를 지어내지 않는다.
  */
-export function buildTileCategoryIdResolver(
+export function buildTileCategoryResolver(
   categories: readonly ServerCategoryCode[] | null | undefined
-): TileCategoryIdResolver {
+): TileCategoryResolver {
   const tileIds = new Set(categoryCatalog.map((entry) => entry.id));
   const tileIdByCode = new Map<string, string>();
   for (const entry of categoryCatalog) {
@@ -160,12 +190,31 @@ export function buildTileCategoryIdResolver(
   }
 
   return (categoryId: string) => {
-    if (typeof categoryId !== "string" || categoryId.length === 0) return null;
-    if (tileIds.has(categoryId)) return categoryId;
+    if (typeof categoryId !== "string" || categoryId.length === 0) {
+      return { tileCategoryId: null, ambiguous: false };
+    }
+    // 타일 id는 그 타일 자신이다 — code를 거치지 않으므로 모호할 수 없다.
+    if (tileIds.has(categoryId)) return { tileCategoryId: categoryId, ambiguous: false };
     const code = codeById.get(categoryId);
-    if (!code) return null;
-    return tileIdByCode.get(code) ?? null;
+    if (!code) return { tileCategoryId: null, ambiguous: false };
+    const tileCategoryId = tileIdByCode.get(code) ?? null;
+    return {
+      tileCategoryId,
+      // 갈 곳이 아예 없으면(대응 타일 없음) 모호한 게 아니라 그냥 모르는 분류다.
+      ambiguous: tileCategoryId !== null && ambiguousTileCategoryCodes.has(code)
+    };
   };
+}
+
+/**
+ * 위 매핑의 **타일 id만** 필요한 호출부용 얇은 래퍼(프리필처럼 어느 쪽이든 하나를 골라야 하는
+ * 경로). 모호한 code에서도 결정적으로 첫 타일을 돌려주므로 라운드 38 H-6의 동작 그대로다.
+ */
+export function buildTileCategoryIdResolver(
+  categories: readonly ServerCategoryCode[] | null | undefined
+): TileCategoryIdResolver {
+  const resolve = buildTileCategoryResolver(categories);
+  return (categoryId: string) => resolve(categoryId).tileCategoryId;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildRecordsEmptyMonthTitle } from "./expenses/records-list-view";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
@@ -67,8 +68,13 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
     expect(homeSource).toContain(emptyCopy);
     expect(homeSource).toContain('actionLabel="기록하기"');
     expect(homeSource).toContain('router.push("/expenses/new")');
-    // 기록 탭 선례 문구가 바뀌면 홈도 함께 바꾸도록 두 화면의 문구 일치를 고정한다.
-    expect(recordsSource).toContain(emptyCopy);
+    /**
+     * 라운드 39 I-5: 기록 탭은 ‹ ›로 달을 옮기는 화면이라 이 문구가 **보고 있는 달**을 따른다
+     * (과거 달에서는 "2026년 6월 비용을 …"). 홈은 언제나 현재 달이므로, 두 화면의 일치는
+     * 이제 "현재 달일 때 같은 문구"로 고정한다 -- 문구 자체는 순수 모듈이 단일 소스다.
+     */
+    expect(recordsSource).toContain("const emptyMonthTitle = buildRecordsEmptyMonthTitle({");
+    expect(buildRecordsEmptyMonthTitle({ monthLabel: "2026년 8월", isCurrentMonth: true })).toBe(emptyCopy);
     // 픽셀락 미리보기(비세션)는 항상 previewHome의 3건을 그리므로 빈 상태 분기의 영향이 없다.
     expect(homeSource).toContain("previewHome");
   });

@@ -30,6 +30,7 @@ import { buildMonthlyShareMessage } from "../../src/reports/share-text";
 import { evaluateTrendDirection } from "../../src/reports/trend-direction";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
+import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -79,6 +80,9 @@ export default function ReportsScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  // UX-R(M): 빈 리포트의 "지출 기록하기"도 지출 생성 화면 입구다 — 보기 전용 참여자에게는
+  // 같은 판정으로 안내한다(src/family/record-permissions.ts).
+  const expenseGate = useExpenseEntryGate();
   const hasSession = Boolean(authToken && childId);
 
   // MOB-117 당겨서 새로고침: 이 화면의 쿼리 키는 모두 ["report", ...]로 시작한다(월간/이전달/
@@ -560,7 +564,7 @@ export default function ReportsScreen() {
                 <EmptyStateCard
                   title="첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
                   actionLabel="지출 기록하기"
-                  onPress={() => router.push("/expenses/new")}
+                  onPress={expenseGate.guard(() => router.push("/expenses/new"))}
                 />
               ) : (
                 // 월간/분기/연간 모두 categoryPeriod로 해당 기간만 집계한 비중을 보여준다 (REP-104).
