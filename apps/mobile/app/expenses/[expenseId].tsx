@@ -6,12 +6,17 @@ import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/
 import {
   getExpense,
   listCategories,
+  listChildren,
   listHouseholdMembers,
   LOCAL_HOUSEHOLD_ID,
   LOCAL_SESSION_TOKEN
 } from "../../src/api/client";
 import { categoryCatalog, categoryNameFor, selectableCategories } from "../../src/categories";
-import { expenseCreatedByUserId, resolveExpenseAuthorLabel } from "../../src/expenses/records-list-view";
+import {
+  expenseCreatedByUserId,
+  resolveExpenseAuthorLabel,
+  resolveExpenseHouseholdId
+} from "../../src/expenses/records-list-view";
 import {
   EXPENSE_DELETE_FAILED_ALERT_TITLE,
   EXPENSE_NOT_READY_ERROR,
@@ -89,8 +94,21 @@ export default function ExpenseDetailScreen() {
   // FAM-127: 작성자 표기용 구성원 목록 -- 기록 탭·가족 관리·설정과 같은 ["household-members",
   // householdId] 캐시를 그대로 재사용한다(대개 이미 채워져 있어 추가 요청이 없다). 실패하거나
   // 1인 가구면 아래 authorLabel이 null이 되어 이 화면은 예전과 똑같이 그려진다.
+  //
+  // 라운드 27 L-4: 구성원을 물어볼 가구는 세션의 기본 가구가 아니라 **이 지출이 속한 아이의
+  // 가구**다(다가구 계정에서 두 값이 갈린다 -- resolveExpenseHouseholdId 주석 참고). 아이의
+  // householdId는 새 엔드포인트 없이 같은 ["children"] 캐시에서 읽는다.
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const childrenQuery = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
+  });
+  const householdId = resolveExpenseHouseholdId({
+    children: childrenQuery.data?.children,
+    childId: expense.data?.childId,
+    fallbackHouseholdId: sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null)
+  });
   const householdMembers = useQuery({
     queryKey: ["household-members", householdId],
     enabled: Boolean(authToken && householdId),

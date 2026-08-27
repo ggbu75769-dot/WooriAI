@@ -10,7 +10,8 @@ import {
   formatSpentOn,
   homeRecentExpenseSubtitle,
   recordsRowSubtitle,
-  resolveExpenseAuthorLabel
+  resolveExpenseAuthorLabel,
+  resolveExpenseHouseholdId
 } from "./records-list-view";
 
 const mobileRoot = process.cwd();
@@ -281,6 +282,83 @@ describe("FAM-127 resolveExpenseAuthorLabel", () => {
   });
 });
 
+/**
+ * 라운드 27 L-4: 작성자 라벨을 물어볼 가구는 세션의 기본 가구가 아니라 **보고 있는 아이의
+ * 가구**다. 1가구 계정에서는 두 값이 같아 동작이 한 글자도 바뀌지 않아야 하고, 다가구 계정에서만
+ * 결과가 달라져야 한다.
+ */
+describe("라운드 27 L-4 resolveExpenseHouseholdId", () => {
+  // 1가구 계정: 아이의 가구 == 세션 기본 가구.
+  const singleHousehold = [{ id: "child-daon", householdId: "household-1" }];
+  // 다가구 계정: 기본 가구(2인)와, 배우자 쪽 1인 가구의 아이가 함께 있다.
+  const multiHousehold = [
+    { id: "child-daon", householdId: "household-1" },
+    { id: "child-sol", householdId: "household-2" }
+  ];
+
+  it("1가구 계정: 예전과 같은 가구를 고른다 (동작 불변)", () => {
+    expect(
+      resolveExpenseHouseholdId({
+        children: singleHousehold,
+        childId: "child-daon",
+        fallbackHouseholdId: "household-1"
+      })
+    ).toBe("household-1");
+  });
+
+  it("다가구 계정: 기본 가구가 아니라 선택한 아이의 가구를 고른다", () => {
+    // 기본 가구는 household-1이지만, 보고 있는 아이는 household-2 소속이다.
+    expect(
+      resolveExpenseHouseholdId({
+        children: multiHousehold,
+        childId: "child-sol",
+        fallbackHouseholdId: "household-1"
+      })
+    ).toBe("household-2");
+    // 반대 방향도 같다 -- 아이를 바꾸면 물어보는 가구도 함께 바뀐다.
+    expect(
+      resolveExpenseHouseholdId({
+        children: multiHousehold,
+        childId: "child-daon",
+        fallbackHouseholdId: "household-2"
+      })
+    ).toBe("household-1");
+  });
+
+  it("모르면 추측하지 않는다: 아이 미선택 · 목록 미도착 · 목록에 없는 아이는 null", () => {
+    // 아직 아이를 고르지 않았다.
+    expect(resolveExpenseHouseholdId({ children: multiHousehold, childId: null, fallbackHouseholdId: "household-1" })).toBeNull();
+    // ["children"] 캐시가 아직 없다(로딩·실패) -- 여기서 기본 가구로 폴백하면 다가구 계정에서
+    // 잠깐 틀린 가구의 라벨이 그려진다.
+    expect(resolveExpenseHouseholdId({ children: undefined, childId: "child-sol", fallbackHouseholdId: "household-1" })).toBeNull();
+    expect(resolveExpenseHouseholdId({ children: null, childId: "child-sol", fallbackHouseholdId: "household-1" })).toBeNull();
+    // 목록에 없는 아이(삭제됨·다른 계정의 잔여 선택값).
+    expect(resolveExpenseHouseholdId({ children: [], childId: "child-sol", fallbackHouseholdId: "household-1" })).toBeNull();
+    expect(
+      resolveExpenseHouseholdId({ children: singleHousehold, childId: "child-sol", fallbackHouseholdId: "household-1" })
+    ).toBeNull();
+  });
+
+  it("아이를 찾았는데 householdId가 비어 있으면 그때만 폴백을 쓴다 (구버전 캐시·목업)", () => {
+    expect(
+      resolveExpenseHouseholdId({
+        children: [{ id: "child-daon" }],
+        childId: "child-daon",
+        fallbackHouseholdId: "local-household-daon"
+      })
+    ).toBe("local-household-daon");
+    expect(
+      resolveExpenseHouseholdId({
+        children: [{ id: "child-daon", householdId: "  " }],
+        childId: "child-daon",
+        fallbackHouseholdId: "local-household-daon"
+      })
+    ).toBe("local-household-daon");
+    // 폴백조차 없으면 라벨을 생략한다 (FAM-127: 자리표시자를 만들지 않는다).
+    expect(resolveExpenseHouseholdId({ children: [{ id: "child-daon", householdId: null }], childId: "child-daon" })).toBeNull();
+  });
+});
+
 describe("FAM-127 recordsRowSubtitle 작성자 표기", () => {
   it("작성자가 있으면 카테고리 앞에 붙는다 -- '다온맘 · 기저귀 · 8월 4일'", () => {
     expect(
@@ -442,8 +520,21 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   it("FAM-127: 작성자 이름은 기존 household-members 캐시를 재사용한다 (새 엔드포인트 금지)", () => {
     expect(recordsSource).toContain('queryKey: ["household-members", householdId]');
     expect(recordsSource).toContain("listHouseholdMembers(authToken!, householdId!)");
-    // 가족/설정 화면과 같은 householdId 해석 (테스트 세션 폴백 포함).
+    // 가족/설정 화면과 같은 테스트 세션 폴백.
     expect(recordsSource).toContain("sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null)");
+  });
+
+  it("라운드 27 L-4: 구성원은 기본 가구가 아니라 선택한 아이의 가구에서 조회한다", () => {
+    // 아이의 householdId도 새 엔드포인트 없이 아이 관리·설정·리포트와 같은 캐시에서 읽는다.
+    expect(recordsSource).toContain('queryKey: ["children"]');
+    expect(recordsSource).toContain("listChildren(authToken!)");
+    expect(recordsSource).toContain("resolveExpenseHouseholdId({");
+    expect(recordsSource).toContain("children: childrenQuery.data?.children");
+    expect(recordsSource).toContain("childId,");
+    // 캐시 키는 가구별로 계속 분리된다 (["household-members", householdId] 유지).
+    expect(recordsSource).toContain('queryKey: ["household-members", householdId]');
+    // 예전처럼 세션 기본 가구를 그대로 쓰지 않는다.
+    expect(recordsSource).not.toContain("const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);");
   });
 
   it("FAM-127: 행 부제에 해석된 작성자 라벨을 넘긴다", () => {
@@ -474,5 +565,14 @@ describe("FAM-127 지출 상세 배선 (app/expenses/[expenseId].tsx)", () => {
   it("라벨이 없으면(1인 가구·해석 실패) 아예 렌더하지 않는다 -- 기존 화면 무변경", () => {
     expect(detailSource).toContain("{authorLabel ? (");
     expect(detailSource).toContain("기록한 사람");
+  });
+
+  it("라운드 27 L-4: 가구는 이 지출이 속한 아이의 가구로 정한다", () => {
+    expect(detailSource).toContain('queryKey: ["children"]');
+    expect(detailSource).toContain("listChildren(authToken!)");
+    expect(detailSource).toContain("resolveExpenseHouseholdId({");
+    // 기록 탭이 선택된 아이를 쓰는 자리에서, 상세는 화면에 떠 있는 지출의 아이를 쓴다.
+    expect(detailSource).toContain("childId: expense.data?.childId");
+    expect(detailSource).not.toContain("const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);");
   });
 });

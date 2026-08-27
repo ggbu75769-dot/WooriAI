@@ -186,6 +186,45 @@ export function expenseCreatedByUserId(expense: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/** `Child`(src/api/client.ts)에서 이 모듈이 필요로 하는 구조적 최소치. */
+export type ChildHouseholdRef = {
+  id: string;
+  householdId?: string | null;
+};
+
+/**
+ * 라운드 27 L-4: 작성자 라벨을 물어볼 **가구**를 고른다.
+ *
+ * 왜 필요한가: 기록 탭과 지출 상세는 구성원 목록을 세션의 `defaultHouseholdId`로 불러왔는데,
+ * 화면에 보이는 지출은 **선택된 아이**의 것이다. 두 가구에 속한 계정(예: 본가구 2인 + 배우자
+ * 쪽 가구 1인)에서는 두 값이 갈려서, 1인 가구 아이의 기록 행에 엉뚱한 라벨이 붙거나(기본 가구가
+ * 2인) 2인 가구 아이의 라벨이 통째로 사라졌다(기본 가구가 1인). `resolveExpenseAuthorLabel`의
+ * "2명 이상일 때만" 판정 자체가 잘못된 가구 위에서 돌던 셈이다.
+ *
+ * 규칙 -- **모르면 추측하지 않는다**:
+ *  - 고른 아이가 없으면 `null` (표시 대상 자체가 없다);
+ *  - `["children"]` 캐시가 아직 없으면(로딩·실패) `null`. 여기서 `defaultHouseholdId`로 폴백하면
+ *    다가구 계정에서 잠깐이나마 **틀린 가구의 라벨**이 그려진다. 라벨은 없어도 화면이 예전과
+ *    같지만(FAM-127), 틀린 라벨은 허위 표시다;
+ *  - 목록에 그 아이가 없어도 `null` (같은 이유);
+ *  - 아이를 찾았는데 `householdId`가 비어 있으면(MOB-118 이전 캐시·구버전 목업) 그때만
+ *    `fallbackHouseholdId`를 쓴다.
+ *
+ * 1가구 계정에서는 아이의 `householdId`가 곧 `defaultHouseholdId`라 결과가 예전과 같다.
+ */
+export function resolveExpenseHouseholdId(input: {
+  children: readonly ChildHouseholdRef[] | null | undefined;
+  childId: string | null | undefined;
+  fallbackHouseholdId?: string | null;
+}): string | null {
+  const { children, childId, fallbackHouseholdId = null } = input;
+  if (!childId || !children) return null;
+  const child = children.find((candidate) => candidate?.id === childId);
+  if (!child) return null;
+  const householdId = child.householdId?.trim();
+  return householdId ? householdId : fallbackHouseholdId;
+}
+
 /**
  * 행에 표시할 작성자 이름, 또는 표시하지 않을 때 `null`.
  *

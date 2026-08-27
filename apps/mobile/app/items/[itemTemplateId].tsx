@@ -12,6 +12,7 @@ import {
   buildItemDetailViewedPayload,
   buildItemStatusChangedPayload
 } from "../../src/analytics/events";
+import { useAnalyticsConsentStore } from "../../src/analytics/flag";
 import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
 import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -42,13 +43,24 @@ import { ProductDetailPixelStyles } from "../../src/pixelLock/styles/ProductDeta
 const productImage = require("../../assets/illustrations/product_diaper_pack.png");
 
 /**
- * ANA-127: (child, item) pairs whose detail view has already been reported this app launch.
- * Module-level on purpose -- the same once-per-app-session convention app/index.tsx uses for
- * app_opened (`hasTrackedAppOpenedThisLaunch`) and PurchaseFollowupPrompt.tsx uses for its
+ * ANA-127: (viewer, child, item) triples whose detail view has already been reported this app
+ * launch. Module-level on purpose -- the same once-per-app-session convention app/index.tsx uses
+ * for app_opened (`hasTrackedAppOpenedThisLaunch`) and PurchaseFollowupPrompt.tsx uses for its
  * prompt gate: it survives remounts (re-entering the same item from the list is one view, not
  * several) and resets on cold start.
+ *
+ * 라운드 27 L-3: 키에 **보는 사람**이 들어간다. 예전 키는 `${childId}:${itemTemplateId}`뿐이라,
+ * 한 기기를 같이 쓰는 가구에서 A가 보고 로그아웃한 뒤 B가 로그인해 같은 아이의 같은 아이템을
+ * 열면 B의 열람이 통째로 사라졌다(모듈 상태는 로그아웃으로 지워지지 않는다).
  */
 const trackedItemDetailViewsThisLaunch = new Set<string>();
+/**
+ * 데모/테스트 세션에는 userId가 없다(session.store의 startTestSession이 null로 둔다). 실계정
+ * userId와 절대 겹칠 수 없는 고정 문자열을 써서 데모 열람이 실계정 열람을 잡아먹지 않게 한다.
+ */
+const DEMO_SESSION_VIEWER_KEY = "demo-session";
+/** 실세션인데 userId를 모르는 예외 상황(구버전 persist 블롭 등)의 자리표시자. */
+const UNKNOWN_VIEWER_KEY = "unknown-user";
 const productDetailScreenId = "pixel-screen-ITEM-002 ITEM-002 · ITEM-003 · ITEM-004";
 const productDetailHeaderSpacerStyle = { minHeight: 0 } as const;
 const productDetailViewportOffset = 8;
@@ -176,6 +188,12 @@ export default function ItemDetailScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  // 라운드 27 L-3: 열람 중복 억제 키에 들어갈 "보는 사람". 세션 스토어의 userId가 단일 소스다.
+  const userId = useSessionStore((state) => state.userId);
+  const viewerKey = userId ?? (isTestSession ? DEMO_SESSION_VIEWER_KEY : UNKNOWN_VIEWER_KEY);
+  // 동의 상태를 **구독**한다(단발 isAnalyticsEnabled() 호출이 아니라) -- 설정에서 동의를 켜고
+  // 돌아오면 아래 이펙트가 다시 돌아 그때 발사되도록 하기 위해서다.
+  const analyticsConsent = useAnalyticsConsentStore((state) => state.enabled);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const [clickedTitle, setClickedTitle] = useState<string | null>(null);
   // COM-106 fallback: when Linking.openURL fails (or canOpenURL is false), keep the
@@ -307,15 +325,21 @@ export default function ItemDetailScreen() {
    * ANA-127: item_detail_viewed -- the funnel stage between 준비템 체크 and 링크 클릭 that had
    * no event at all. Fires once the loaded detail is actually on screen (not on mount, so a
    * bounced-off loading/error state is never counted as a view) and at most once per launch per
-   * (child, item). Gated on hasSession, which is also what keeps it out of the pixel-lock
+   * (viewer, child, item). Gated on hasSession, which is also what keeps it out of the pixel-lock
    * capture: app/pixel-lock.tsx clears the session before capturing, so the preview render
    * (previewDetail) reports nothing. A no-op without ANA-102 consent (src/analytics/flag.ts).
+   *
+   * 라운드 27 L-3: 동의 게이트를 **여기서 먼저** 본 뒤, 실제로 발사한 경우에만 중복 억제 Set에
+   * 넣는다. trackAndFlushAnalyticsEvent는 void를 돌려주므로(src/analytics/client.ts의
+   * trackAnalyticsEvent가 동의 OFF면 조용히 return) "발사됐는지"를 반환값으로 알 수 없고,
+   * 예전처럼 add를 먼저 하면 동의 OFF로 본 아이템은 이후 동의를 켜도 이번 실행 내내 영영
+   * 미발사로 남았다.
    */
   useEffect(() => {
     if (!hasSession || !detail.data) return;
-    const viewKey = `${childId}:${itemTemplateId}`;
+    if (!analyticsConsent) return;
+    const viewKey = `${viewerKey}:${childId}:${itemTemplateId}`;
     if (trackedItemDetailViewsThisLaunch.has(viewKey)) return;
-    trackedItemDetailViewsThisLaunch.add(viewKey);
     trackAndFlushAnalyticsEvent(authToken, {
       eventName: "item_detail_viewed",
       payload: buildItemDetailViewedPayload({
@@ -324,7 +348,8 @@ export default function ItemDetailScreen() {
       }),
       platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
     });
-  }, [hasSession, detail.data, authToken, childId, itemTemplateId]);
+    trackedItemDetailViewsThisLaunch.add(viewKey);
+  }, [hasSession, detail.data, authToken, analyticsConsent, viewerKey, childId, itemTemplateId]);
 
   if (hasSession && (detail.isLoading || !detail.data)) {
     // MOB-119 (UX-5B-5 후속, D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
