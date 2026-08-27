@@ -137,6 +137,38 @@ describe("COM-108 done (샀어요) and dismiss (괜찮아요)", () => {
   });
 });
 
+/**
+ * ANA-127: 프롬프트의 purchase_followup_answered가 affiliate_link_clicked와 같은 platform
+ * 차원을 실을 수 있으려면 클릭 시점의 플랫폼이 답변 시점까지 살아 있어야 한다.
+ */
+describe("ANA-127 clicked-link platform survives to the answer", () => {
+  it("carries the platform onto the recorded entry", () => {
+    const entries = applyPurchaseLinkClick([], click({ platform: "coupang" }));
+    expect(entries[0].platform).toBe("coupang");
+  });
+
+  it("keeps the platform through snooze and through done/dismissed transitions", () => {
+    let entries = applyPurchaseLinkClick([], click({ platform: "naver" }));
+    entries = applySnooze(entries, "item-diaper");
+    expect(entries[0]).toMatchObject({ platform: "naver", promptCount: 1 });
+    entries = applyStatus(entries, "item-diaper", "done");
+    expect(entries[0]).toMatchObject({ platform: "naver", status: "done" });
+  });
+
+  it("leaves the platform absent for a click recorded by a pre-ANA-127 build (never invented)", () => {
+    const entries = applyPurchaseLinkClick([], click());
+    expect(entries[0].platform).toBeUndefined();
+    expect(Object.keys(entries[0])).not.toContain("platform");
+  });
+
+  it("re-clicking through a different platform replaces the remembered platform", () => {
+    let entries = applyPurchaseLinkClick([], click({ platform: "coupang" }));
+    entries = applyPurchaseLinkClick(entries, click({ platform: "custom", clickedAt: NOW + 1000 }));
+    expect(entries).toHaveLength(1);
+    expect(entries[0].platform).toBe("custom");
+  });
+});
+
 describe("COM-108 persisted store wiring", () => {
   beforeEach(() => {
     usePurchaseFollowupStore.setState({ entries: [] });

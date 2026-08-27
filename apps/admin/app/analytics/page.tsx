@@ -6,26 +6,51 @@ import {
   ANALYTICS_EVENT_NAMES,
   getAdminAnalyticsSummary,
   isAuthError,
-  type AdminAnalyticsFunnel,
   type AdminAnalyticsSummary,
   type AnalyticsSummaryDays
 } from "../../src/lib/admin-api";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
-// ADM-009: KPI 퍼널 (docs/5차 설계 문서 §4.3) — 온보딩 완료 → 지출 기록 →
-// 준비템 체크 → 제휴 링크 클릭. 각 단계 수와 직전 단계 대비 전환율을 보여준다.
-const FUNNEL_STAGES: { key: keyof AdminAnalyticsFunnel; label: string }[] = [
-  { key: "onboardingCompleted", label: "온보딩 완료" },
-  { key: "expenseRecorded", label: "지출 기록" },
-  { key: "itemStatusChanged", label: "준비템 체크" },
-  { key: "affiliateLinkClicked", label: "제휴 링크 클릭" }
+/**
+ * ANA-127: registry 이벤트 이름 중 admin-api.ts의 6종 미러가 작성된 뒤 추가된 것들.
+ * API 응답의 `byName`은 계약 레지스트리(packages/contracts/src/analytics.ts)에서 생성되므로
+ * 이 두 이름도 0건 포함해 이미 내려온다 — 여기서는 한국어 라벨만 보탠다.
+ */
+const ANA127_EVENT_LABELS: Record<string, string> = {
+  item_detail_viewed: "준비템 상세 열람",
+  purchase_followup_answered: "구매 확인 응답"
+};
+
+/**
+ * ADM-009 + ANA-127: KPI 퍼널 (docs/5차 설계 문서 §4.3). 원래 4단
+ * (온보딩 완료 → 지출 기록 → 준비템 체크 → 제휴 링크 클릭)이었지만 준비템 체크와 링크 클릭
+ * 사이가 통째로 비어 있어 전환율이 읽히지 않았다. ANA-127이 상세 열람과 구매 확인 응답을
+ * 계측하면서 구매 루프가 6단으로 이어진다.
+ *
+ * 단계 수는 `funnel` 별칭이 아니라 `byName`에서 읽는다 — 별칭 맵은 API가 하드코딩하고 있어
+ * (apps/api/src/admin/analytics-summary.service.ts의 FUNNEL_KEY_BY_EVENT_NAME) 새 이벤트에
+ * 대한 키가 아직 없는 반면, `byName`은 레지스트리에서 생성되어 항상 전 이벤트를 담는다.
+ */
+const FUNNEL_STAGES: { eventName: string; label: string }[] = [
+  { eventName: "onboarding_completed", label: "온보딩 완료" },
+  { eventName: "expense_recorded", label: "지출 기록" },
+  { eventName: "item_status_changed", label: "준비템 체크" },
+  { eventName: "item_detail_viewed", label: "준비템 상세 열람" },
+  { eventName: "affiliate_link_clicked", label: "제휴 링크 클릭" },
+  { eventName: "purchase_followup_answered", label: "구매 확인 응답" }
 ];
 
 const DAYS_OPTIONS: AnalyticsSummaryDays[] = [7, 30];
 
 function eventLabel(name: string): string {
-  return (ANALYTICS_EVENT_LABELS as Record<string, string | undefined>)[name] ?? name;
+  return (ANALYTICS_EVENT_LABELS as Record<string, string | undefined>)[name] ?? ANA127_EVENT_LABELS[name] ?? name;
+}
+
+/** 기간 내 해당 이벤트 수. `byName`은 레지스트리 전 이름을 0건 포함해 담고 있으므로,
+ * 목록에 없는 이름은 실제로 0건이다. */
+function eventCount(summary: AdminAnalyticsSummary, eventName: string): number {
+  return summary.byName.find((entry) => entry.name === eventName)?.count ?? 0;
 }
 
 /** 직전 단계 대비 전환율(%). 직전 단계가 0이면 계산 불가("-"). */
@@ -132,10 +157,10 @@ export default function AnalyticsSummaryPage() {
                 </thead>
                 <tbody>
                   {FUNNEL_STAGES.map((stage, index) => {
-                    const count = summary.funnel[stage.key];
-                    const previous = index === 0 ? null : summary.funnel[FUNNEL_STAGES[index - 1].key];
+                    const count = eventCount(summary, stage.eventName);
+                    const previous = index === 0 ? null : eventCount(summary, FUNNEL_STAGES[index - 1].eventName);
                     return (
-                      <tr key={stage.key}>
+                      <tr key={stage.eventName}>
                         <td>
                           {index + 1}. {stage.label}
                         </td>
@@ -151,6 +176,14 @@ export default function AnalyticsSummaryPage() {
               ※ 전환율은 사용자 단위 추적이 아니라 기간 내 이벤트 수 기반의 근사치예요. 참고: 같은 기간 앱 실행{" "}
               {summary.funnel.appOpened.toLocaleString("ko-KR")}건.
             </p>
+            {/* ANA-127: 마지막 단계는 "샀어요"만이 아니라 프롬프트에 답한 3갈래
+                (샀어요/아직이요/괜찮아요)를 모두 센다. 요약 API가 이벤트 이름 단위로만 집계해
+                payload의 answer를 나눠 보지 못하기 때문인데, 이걸 "구매"라고 부르면 구매
+                전환율을 부풀리게 된다 — 그래서 이름과 각주로 있는 그대로 밝힌다. */}
+            <p className={styles.hint}>
+              ※ 마지막 단계는 구매 확인 프롬프트에 답한 건수(샀어요·아직이요·괜찮아요 합계)예요. 답변별 분해는 아직
+              집계하지 않으니 이 수를 구매 건수로 읽지 마세요.
+            </p>
           </section>
 
           <section className={styles.card}>
@@ -165,7 +198,9 @@ export default function AnalyticsSummaryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {/* 6종 고정: 레지스트리 이름은 0건이어도 항상 표시하고, 그 외 이름이 오면 뒤에 덧붙인다. */}
+                  {/* 레지스트리 이름(admin-api.ts의 6종 미러)은 0건이어도 항상 표시하고, 그 외 이름이
+                      오면 뒤에 덧붙인다 — ANA-127이 더한 두 이벤트가 이 경로로 들어오고, 라벨은
+                      ANA127_EVENT_LABELS가 채운다. */}
                   {[
                     ...ANALYTICS_EVENT_NAMES.map(
                       (name) => summary.byName.find((entry) => entry.name === name) ?? { name, count: 0 }

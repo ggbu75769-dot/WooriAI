@@ -84,3 +84,46 @@ describe("ANA-103 event firing source contract", () => {
     expect(detailSource).toContain('buildAffiliateLinkClickedPayload({ platform: link.platform, screenId: "item_detail" })');
   });
 });
+
+/**
+ * ANA-127: 구매 루프 퍼널의 빈 중간 단계를 메운 배선. 상세 열람은 화면 파일(vitest에서
+ * import 불가)에, 구매 확인 응답은 오버레이 컴포넌트에 있어 여기서 소스 대조로 고정한다.
+ * 순수 payload 빌더 자체는 events.test.ts가 단위 테스트한다.
+ */
+describe("ANA-127 purchase-loop funnel firing source contract", () => {
+  it("fires item_detail_viewed once per launch per (child, item), only after the loaded detail renders", () => {
+    const detailSource = source("app/items/[itemTemplateId].tsx");
+    expect(detailSource).toContain('eventName: "item_detail_viewed"');
+    expect(detailSource).toContain("buildItemDetailViewedPayload");
+    expect(detailSource).toContain("itemName: detail.data.name");
+    expect(detailSource).toContain("productLinkCount: detail.data.productLinks.length");
+    // 세션당 중복 억제: app/index.tsx의 app_opened와 같은 모듈 레벨 관례.
+    expect(detailSource).toContain("const trackedItemDetailViewsThisLaunch = new Set<string>();");
+    expect(detailSource).toContain("const viewKey = `${childId}:${itemTemplateId}`;");
+    expect(detailSource).toContain("if (trackedItemDetailViewsThisLaunch.has(viewKey)) return;");
+    expect(detailSource).toContain("trackedItemDetailViewsThisLaunch.add(viewKey);");
+    // 세션 게이트: 픽셀 락(app/pixel-lock.tsx)은 세션을 지우고 캡처하므로 프리뷰 렌더에서는
+    // 발사되지 않는다. 로딩/에러로 튕긴 화면도 열람으로 세지 않는다(detail.data 필요).
+    expect(detailSource).toContain("if (!hasSession || !detail.data) return;");
+  });
+
+  it("records the clicked link's platform so the follow-up answer can report the same dimension", () => {
+    const detailSource = source("app/items/[itemTemplateId].tsx");
+    expect(detailSource).toContain("platform: link.platform,");
+  });
+
+  it("fires purchase_followup_answered on all three prompt answers", () => {
+    const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
+    expect(promptSource).toContain('eventName: "purchase_followup_answered"');
+    expect(promptSource).toContain("buildPurchaseFollowupAnsweredPayload({ answer, platform: activeFollowup.platform })");
+    expect(promptSource).toContain('trackAnswer("purchased");');
+    expect(promptSource).toContain('trackAnswer("not_purchased");');
+    expect(promptSource).toContain('trackAnswer("dismissed");');
+    // 세 갈래 모두 계측되어야 구매율이 부풀지 않는다 -- 답변당 정확히 한 번.
+    for (const answer of ["purchased", "not_purchased", "dismissed"]) {
+      expect(promptSource.split(`trackAnswer("${answer}")`).length - 1).toBe(1);
+    }
+    // 같은 동의 게이트(ANA-102)를 쓰는 공용 클라이언트를 통해서만 발사한다.
+    expect(promptSource).toContain('import { trackAndFlushAnalyticsEvent } from "../analytics/client";');
+  });
+});

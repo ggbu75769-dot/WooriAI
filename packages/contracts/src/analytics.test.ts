@@ -7,7 +7,9 @@ import {
   getAnalyticsEventPayloadSchema,
   isAllowedAnalyticsFieldSchema,
   isForbiddenAnalyticsPayloadKey,
-  ANALYTICS_FORBIDDEN_PAYLOAD_KEYS
+  AFFILIATE_CLICK_SCREENS,
+  ANALYTICS_FORBIDDEN_PAYLOAD_KEYS,
+  PURCHASE_FOLLOWUP_ANSWERS
 } from "./analytics";
 
 describe("analytics event envelope (ANA-101, round5a-sprint2-plan.md §5)", () => {
@@ -86,7 +88,7 @@ describe("analytics event envelope (ANA-101, round5a-sprint2-plan.md §5)", () =
 });
 
 describe("analytics event registry lookup", () => {
-  it("has exactly the initial 6 events at version 1", () => {
+  it("has exactly the 8 events at version 1 (6 initial + ANA-127's two purchase-loop events)", () => {
     const keys = analyticsEventRegistry.map((entry) => `${entry.eventName}@${entry.eventVersion}`).sort();
     expect(keys).toEqual(
       [
@@ -95,9 +97,30 @@ describe("analytics event registry lookup", () => {
         "expense_recorded@1",
         "expense_synced@1",
         "item_status_changed@1",
-        "affiliate_link_clicked@1"
+        "item_detail_viewed@1",
+        "affiliate_link_clicked@1",
+        "purchase_followup_answered@1"
       ].sort()
     );
+  });
+
+  /**
+   * ANA-127: the registry array's order is the admin summary's `byName` order, and
+   * apps/api/test/admin-analytics-summary.e2e.test.ts pins the original six names to the
+   * first six slots. New events must therefore be appended, never inserted -- the admin
+   * KPI funnel orders its own stages, so nothing needs them in loop order here.
+   */
+  it("is append-only: the original six keep the first six slots", () => {
+    const names = analyticsEventRegistry.map((entry) => entry.eventName);
+    expect(names.slice(0, 6)).toEqual([
+      "app_opened",
+      "onboarding_completed",
+      "expense_recorded",
+      "expense_synced",
+      "item_status_changed",
+      "affiliate_link_clicked"
+    ]);
+    expect(names.slice(6)).toEqual(["item_detail_viewed", "purchase_followup_answered"]);
   });
 
   it("returns the payload schema for a registered eventName@version", () => {
@@ -141,6 +164,66 @@ describe("expense_recorded v1 payload", () => {
         offline: false
       })
     ).toThrow();
+  });
+});
+
+describe("item_detail_viewed v1 payload (ANA-127)", () => {
+  const schema = () => getAnalyticsEventPayloadSchema("item_detail_viewed", 1)!;
+
+  it("accepts the coarse category + link-availability shape", () => {
+    expect(schema().parse({ itemCategoryCode: "diaper_hygiene", hasProductLink: true, linkCount: 3 })).toEqual({
+      itemCategoryCode: "diaper_hygiene",
+      hasProductLink: true,
+      linkCount: 3
+    });
+    expect(schema().parse({ itemCategoryCode: "etc", hasProductLink: false, linkCount: 0 })).toMatchObject({
+      hasProductLink: false,
+      linkCount: 0
+    });
+  });
+
+  it("rejects the item name/id sneaking in, a fractional or negative linkCount, and an unknown category", () => {
+    expect(() =>
+      schema().parse({ itemCategoryCode: "diaper_hygiene", hasProductLink: true, linkCount: 1, itemName: "기저귀" })
+    ).toThrow();
+    expect(() => schema().parse({ itemCategoryCode: "diaper_hygiene", hasProductLink: true, linkCount: 1.5 })).toThrow();
+    expect(() => schema().parse({ itemCategoryCode: "diaper_hygiene", hasProductLink: true, linkCount: -1 })).toThrow();
+    expect(() => schema().parse({ itemCategoryCode: "unknown_category", hasProductLink: true, linkCount: 1 })).toThrow();
+  });
+});
+
+describe("purchase_followup_answered v1 payload (ANA-127)", () => {
+  const schema = () => getAnalyticsEventPayloadSchema("purchase_followup_answered", 1)!;
+
+  it("accepts each of the prompt's three answers", () => {
+    for (const answer of PURCHASE_FOLLOWUP_ANSWERS) {
+      expect(schema().parse({ answer, platform: "coupang" })).toEqual({ answer, platform: "coupang" });
+    }
+  });
+
+  it("accepts an answer without a platform (click persisted by a pre-ANA-127 build)", () => {
+    expect(schema().parse({ answer: "purchased" })).toEqual({ answer: "purchased" });
+  });
+
+  it("rejects an answer outside the enum and any extra field", () => {
+    expect(() => schema().parse({ answer: "maybe" })).toThrow();
+    expect(() => schema().parse({ answer: "purchased", itemName: "기저귀" })).toThrow();
+    expect(() => schema().parse({ answer: "purchased", amountKrw: 38500 })).toThrow();
+  });
+});
+
+describe("AFFILIATE_CLICK_SCREENS (ANA-127 cleanup)", () => {
+  it("lists only the screens that actually render product links", () => {
+    // 준비템 목록/홈은 ItemSummary만 들고 있어 구매 링크가 없다 -- 예약만 해 두고
+    // 한 번도 발사되지 않은 "checklist"/"home"은 제거했다.
+    expect([...AFFILIATE_CLICK_SCREENS]).toEqual(["item_detail"]);
+  });
+
+  it("rejects the removed screen ids at the collection gate", () => {
+    const schema = getAnalyticsEventPayloadSchema("affiliate_link_clicked", 1)!;
+    expect(schema.parse({ platform: "coupang", screenId: "item_detail" })).toBeTruthy();
+    expect(() => schema.parse({ platform: "coupang", screenId: "checklist" })).toThrow();
+    expect(() => schema.parse({ platform: "coupang", screenId: "home" })).toThrow();
   });
 });
 
