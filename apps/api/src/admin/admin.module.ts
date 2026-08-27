@@ -4,11 +4,15 @@ import { OnboardingModule } from "../onboarding/onboarding.module";
 import { AdminAuthController } from "./admin-auth.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminAuthService } from "./admin-auth.service";
+import { AdminCategoriesController } from "./admin-categories.controller";
+import { AdminCategoriesService } from "./admin-categories.service";
 import { AdminController } from "./admin.controller";
 import { AdminMfaService } from "./admin-mfa.service";
 import { AdminSessionService } from "./admin-session.service";
 import { AdminTokenGuard } from "./admin-token.guard";
 import { AdminUsersController } from "./admin-users.controller";
+import { AdminUsersLookupController } from "./admin-users-lookup.controller";
+import { AdminUsersLookupService } from "./admin-users-lookup.service";
 import { AffiliateClickBreakdownService } from "./affiliate-click-breakdown.service";
 import { AnalyticsSummaryController } from "./analytics-summary.controller";
 import { AnalyticsSummaryService } from "./analytics-summary.service";
@@ -26,7 +30,9 @@ import { ProductLinkBulkService } from "./product-link-bulk.service";
   controllers: [
     AdminController,
     AdminAuthController,
+    AdminCategoriesController,
     AdminUsersController,
+    AdminUsersLookupController,
     AnalyticsSummaryController,
     AuditLogsController,
     ContentRevisionsController,
@@ -39,6 +45,8 @@ import { ProductLinkBulkService } from "./product-link-bulk.service";
     AdminAuthService,
     AdminSessionService,
     AdminMfaService,
+    AdminCategoriesService,
+    AdminUsersLookupService,
     AffiliateClickBreakdownService,
     AnalyticsSummaryService,
     AuditLogsService,
