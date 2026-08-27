@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { categoryCatalog } from "../categories";
 
 /**
  * UX-C 화면 배선 계약 (source verification — react-native 화면은 vitest에서 렌더할 수 없어
@@ -21,8 +22,32 @@ const newExpenseSource = readFileSync(join(mobileRoot, "app/expenses/new.tsx"), 
 describe("UX-C quick-expense auto-fill wiring", () => {
   it("drives the category suggestion from the shared pure module", () => {
     expect(newExpenseSource).toContain('from "../../src/expenses/category-suggestion"');
-    expect(newExpenseSource).toContain("suggestCategoryId(itemName, expenseHistory)");
+    // 라운드 33 F3: 추천 적용/되돌리기 판정 전체가 순수 모듈(resolveAutoCategorySelection)에 있다 --
+    // 화면에는 규칙이 한 줄도 없어서 단위 테스트가 실제 동작을 그대로 보호한다.
+    expect(newExpenseSource).toContain("const nextSelection = resolveAutoCategorySelection({");
+    expect(newExpenseSource).toContain("defaultCategoryId: quickExpenseCategories[0].id");
     expect(newExpenseSource).toContain("AUTO_CATEGORY_CAPTION");
+  });
+
+  it("F3: 자동 선택은 근거가 사라지면 되돌아가고, 그 판정에 현재 선택과 직전 자동 선택을 넘긴다", () => {
+    // 화면이 넘기지 않으면 순수 모듈이 "지금 눌려 있는 것이 기계가 고른 값인지" 알 수 없다.
+    expect(newExpenseSource).toContain("currentCategoryId: selectedCategory.id");
+    expect(newExpenseSource).toContain("autoPicked: autoPickedCategory");
+    expect(newExpenseSource).toContain("if (!isSameAutoPickedCategory(autoPickedCategory, nextSelection.autoPicked)) {");
+    // 자동 선택 상태는 boolean이 아니라 "어떤 이름으로 무엇을 골랐는지"다.
+    expect(newExpenseSource).toContain("useState<AutoPickedCategory | null>(null)");
+    expect(newExpenseSource).not.toContain("setAutoPickedCategory(true)");
+    expect(newExpenseSource).not.toContain("setAutoPickedCategory(false)");
+  });
+
+  it("F4: 카테고리 기본값은 '기타'가 아니라 8타일 중 첫 타일이다 (주석이 사실과 맞는지)", () => {
+    expect(newExpenseSource).toContain("useState(quickExpenseCategories[0])");
+    expect(categoryCatalog[0].label).toBe("기저귀");
+    expect(categoryCatalog[0].code).not.toBe("etc");
+    const suggestionModuleSource = readFileSync(join(mobileRoot, "src/expenses/category-suggestion.ts"), "utf8");
+    // 예전 주석의 거짓 전제("기타는 이미 기본값")가 되살아나지 않는다.
+    expect(suggestionModuleSource).not.toContain("기타\"는 이미 기본값");
+    expect(suggestionModuleSource).toContain("기본 선택값은 8타일 중 첫 타일인 \"기저귀\"");
   });
 
   it("drives the typing-linked autocomplete chips from the shared pure module", () => {
@@ -44,6 +69,21 @@ describe("UX-C quick-expense auto-fill wiring", () => {
     expect(newExpenseSource).toContain(
       "setSelectedCategory((current) => (current.id === suggestedCategory.id ? current : suggestedCategory));"
     );
+  });
+
+  it("F3: 자동완성 칩이 카테고리를 못 바꾼 경우에는 추천을 끄지 않는다", () => {
+    // 칩의 categoryId가 8타일 밖이면 이 화면은 카테고리를 바꾸지 못한다 -- 그때 touched로 쳐 버리면
+    // 사용자가 고른 적 없는데 추천만 영구히 꺼진다. 그래서 표시는 matchedCategory 안에서만 세운다.
+    const applyStart = newExpenseSource.indexOf(
+      "const applyItemAutocompleteChip = (chip: ItemAutocompleteSuggestion) => {"
+    );
+    expect(applyStart).toBeGreaterThan(0);
+    const applyBlock = newExpenseSource.slice(applyStart, newExpenseSource.indexOf("\n  };", applyStart));
+    expect(applyBlock).toContain(
+      "if (matchedCategory) {\n      categoryTouchedRef.current = true;\n      setAutoPickedCategory(null);\n      setSelectedCategory(matchedCategory);\n    }"
+    );
+    // 블록 안에서 touched를 세우는 곳은 그 한 군데뿐이다.
+    expect(applyBlock.match(/categoryTouchedRef\.current = true;/g)?.length).toBe(1);
   });
 
   it("reads only the already-cached month expenses and category names — no new request", () => {

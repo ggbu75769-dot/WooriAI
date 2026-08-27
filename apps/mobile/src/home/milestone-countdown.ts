@@ -1,16 +1,29 @@
 import { formatKrw } from "../money";
-import { firstBirthdayOf } from "../reports/milestone-selection";
+import { firstBirthdayOf, selectMilestoneReportType } from "../reports/milestone-selection";
 import { displayNickname } from "./baby-counter";
 import { addDays, daysBetween, isDateOnly } from "./day-math";
 
 /**
  * UX-A 홈 "100일 · 첫돌 카운트다운" 카드 — 순수 판정 + 문구.
  *
- *   "100일까지 D-13 · 지금까지 함께한 지출 1,245,700원"
+ *   "100일까지 D-13 · 지금까지 총 지출 1,245,700원 · 100일 리포트 보기"
  *
  * 탭하면 리포트 탭으로 간다(그 탭이 100일/첫돌 마일스톤 리포트를 이미 연다 —
  * `selectMilestoneReportType`, app/(tabs)/reports.tsx). 홈은 "그날이 다가온다"는 사실만 알리고,
  * 실제 리포트는 기존 화면이 낸다.
+ *
+ * ## CTA 라벨은 리포트 탭의 판정을 그대로 따른다 (라운드 33 F1)
+ * 카운트다운 문구와 **눌렀을 때 열리는 리포트는 서로 다른 임계값**을 쓴다.
+ *  - 카운트다운: 100일 **다음 날**부터 "첫돌까지 D-N"으로 넘어간다(아래 표시 규칙).
+ *  - 리포트 탭: `selectMilestoneReportType`이 **첫돌 당일**부터 first-birthday를 부른다.
+ * 그래서 100일 다음 날 ~ 첫돌 전날의 약 9개월 동안 카드는 "첫돌까지 D-N"인데 눌러서 열리는
+ * 것은 **100일 리포트**다. 예전에는 부제·a11y가 그냥 "리포트 보기"라, 첫돌 이야기를 기대하고
+ * 눌렀다가 100일 리포트를 보게 되는 오해가 남았다.
+ *
+ * 고치는 방향은 기능 축소(카운트다운 문구 변경)가 아니라 **예고를 사실과 맞추는 것**이다:
+ * CTA 라벨을 `selectMilestoneReportType`을 **import해서** 만든다 — 첫돌 도달 전에는
+ * "100일 리포트 보기"(완결된 100일 리포트가 열린다는 정확한 예고), 첫돌 도달 후에는
+ * "첫돌 리포트 보기". 판정 함수가 한 벌이라 임계값이 갈릴 수 없다.
  *
  * ## 날짜 규칙 (기존 계산 재사용)
  * - 첫돌 = `firstBirthdayOf(birthDate)` — 리포트 탭이 어떤 마일스톤 리포트를 부를지 정할 때 쓰는
@@ -32,6 +45,14 @@ import { addDays, daysBetween, isDateOnly } from "./day-math";
  * 부제의 금액은 홈 캐시가 이미 들고 있는 `HomeSummary.totalExpenseKrw`(서버 누적 집계, DNC-015에
  * 따라 선물·환불 제외)를 **그대로** 쓴다. 새 API도, 클라이언트 재집계도 없다. 기록이 아직 없으면
  * "0원"을 크게 말하는 대신 다음 행동을 권하는 한 줄로 바꾼다(죄책감 문구 금지, DNC-018).
+ *
+ * 라운드 33 F5 — 이 금액은 **임신기를 포함한 전 기간 누적**이라 카드를 눌러서 열리는 마일스톤
+ * 리포트의 창 합계(100일 = [출생일, 출생일+100일), 첫돌 = [출생일, 출생일+1년))와 당연히 다르다.
+ * 예전 문구 "지금까지 함께한 지출"은 그 "지금까지"가 어느 구간인지 말하지 않아 카드 금액과 리포트
+ * 숫자가 같아야 할 것처럼 읽혔다. 그래서 **"지금까지 총 지출"**로 바꿨다 — 전체 누적임이 문구에서
+ * 드러나고, CTA가 "100일 리포트 보기"라고 창을 따로 예고하므로 두 숫자가 다른 것이 자연스럽게
+ * 읽힌다. 창 합계를 여기서 다시 계산하지는 않는다: 홈에는 지출 행이 아니라 서버 누적 집계 하나만
+ * 있어서, 재계산하면 근거 없는 숫자를 지어내는 셈이 된다.
  */
 
 /** 100일은 태어난 날을 1일로 세어 100번째 날 = 생일 + 99일. */
@@ -53,8 +74,15 @@ export type HomeMilestoneCountdown = {
   daysRemaining: number;
   /** 카드 제목 — "100일까지 D-13" / "오늘은 다온이의 100일이에요". */
   title: string;
-  /** 카드 부제 — "지금까지 함께한 지출 1,245,700원". */
+  /** 카드 부제 — "지금까지 총 지출 1,245,700원"(전 기간 누적, 위 금액 규칙 참고). */
   subtitle: string;
+  /**
+   * 지금 이 카드를 누르면 리포트 탭이 실제로 여는 마일스톤 — `selectMilestoneReportType`이
+   * 정한다. 카운트다운이 가리키는 `milestone`과 다를 수 있다(100일 다음 날 ~ 첫돌 전날).
+   */
+  reportMilestone: HomeMilestone;
+  /** 카드 CTA 라벨 — "100일 리포트 보기" / "첫돌 리포트 보기". 여는 리포트를 그대로 예고한다. */
+  ctaLabel: string;
   /** TalkBack 문장("D-13"을 소리로 풀어 읽고, 눌렀을 때 무슨 일이 생기는지까지 말한다). */
   accessibilityLabel: string;
 };
@@ -81,7 +109,8 @@ function totalSubtitle(totalExpenseKrw: number | null | undefined): string {
   if (typeof totalExpenseKrw !== "number" || !Number.isFinite(totalExpenseKrw) || totalExpenseKrw <= 0) {
     return "기록을 남기면 그날까지의 지출을 함께 모아드릴게요.";
   }
-  return `지금까지 함께한 지출 ${formatKrw(totalExpenseKrw)}`;
+  // "함께한"이 아니라 "총" — 임신기부터의 전 기간 누적임을 문구가 스스로 말한다(F5).
+  return `지금까지 총 지출 ${formatKrw(totalExpenseKrw)}`;
 }
 
 /** 홈 마일스톤 카드를 만든다. 보여줄 마일스톤이 없으면 null. */
@@ -111,12 +140,22 @@ export function evaluateMilestoneCountdown(input: HomeMilestoneCountdownInput): 
   const title = daysRemaining === 0 ? `오늘은 ${name}의 ${label}이에요` : `${label}까지 D-${daysRemaining}`;
   const spokenTitle = daysRemaining === 0 ? title : `${label}까지 ${daysRemaining}일 남았어요`;
 
+  // F1: 눌렀을 때 열릴 리포트는 카운트다운이 아니라 **리포트 탭의 판정**이 정한다. 같은 함수를
+  // 쓰므로 임계값이 갈릴 수 없고, CTA가 그 결과를 그대로 예고한다.
+  const reportMilestone: HomeMilestone = selectMilestoneReportType({
+    birthDate: input.birthDate,
+    todayIso: input.todayIso
+  });
+  const ctaLabel = `${MILESTONE_LABEL[reportMilestone]} 리포트 보기`;
+
   return {
     milestone,
     targetDateIso,
     daysRemaining,
     title,
     subtitle,
-    accessibilityLabel: `${spokenTitle}. ${subtitle}. 리포트 보기`
+    reportMilestone,
+    ctaLabel,
+    accessibilityLabel: `${spokenTitle}. ${subtitle}. ${ctaLabel}`
   };
 }

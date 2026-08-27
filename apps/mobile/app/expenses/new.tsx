@@ -15,7 +15,12 @@ import {
   presetChipAccessibilityLabel,
   QUICK_AMOUNT_PRESETS_KRW
 } from "../../src/expenses/amount-presets";
-import { AUTO_CATEGORY_CAPTION, suggestCategoryId } from "../../src/expenses/category-suggestion";
+import {
+  AUTO_CATEGORY_CAPTION,
+  isSameAutoPickedCategory,
+  resolveAutoCategorySelection,
+  type AutoPickedCategory
+} from "../../src/expenses/category-suggestion";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
 import {
   buildItemAutocompleteSuggestions,
@@ -249,7 +254,10 @@ export default function NewExpenseScreen() {
   // / 임시 저장 복원) 자동 추천은 그 뒤로 절대 덮어쓰지 않는다 -- 저장 직전에 분류가 조용히
   // 바뀌면 그건 사용자가 기록한 것과 다른 사실이 남는 것이다.
   const categoryTouchedRef = useRef(false);
-  const [autoPickedCategory, setAutoPickedCategory] = useState(false);
+  // 라운드 33 F3: "자동으로 골라 줬다"를 boolean이 아니라 **무엇을 어떤 이름 기준으로 골랐는지**로
+  // 들고 있는다. 근거(추천)가 사라졌을 때 그 선택이 아직 기계가 고른 그대로인지 판단하려면
+  // 이 두 가지가 필요하다 -- 아래 추천 effect 참고.
+  const [autoPickedCategory, setAutoPickedCategory] = useState<AutoPickedCategory | null>(null);
   // 자동완성 칩으로 한 번에 채운 직후에는 같은 칩이 그대로 남지 않도록 접는다. 다시 타이핑하면
   // (handleItemNameChange) 풀린다.
   const [autocompleteApplied, setAutocompleteApplied] = useState(false);
@@ -306,20 +314,32 @@ export default function NewExpenseScreen() {
   //
   // 덮어쓰기 금지: categoryTouchedRef가 true면 -- 사용자가 타일을 직접 눌렀거나, 최근/자동완성
   // 칩으로 카테고리까지 확정했거나, 임시 저장을 복원했다면 -- 추천은 손대지 않는다.
-  // 추천할 근거가 사라지면(이름을 지웠다면) 캡션도 함께 내린다.
+  //
+  // 라운드 33 F3: 추천할 근거가 사라지면 캡션만 내리는 것으로는 부족하다. 예전에는 직전 추천으로
+  // 눌려 있던 타일이 그대로 남아서, "물티슈"를 지우고 "가습기"를 친 사용자가 아무것도 하지
+  // 않았는데도 기저귀/위생 분류로 저장할 수 있었다(캡션이 사라져 있으니 자동으로 골라 준 값이라는
+  // 표시조차 없다). 그래서 근거가 사라지면 **기계가 고른 그 값일 때만** 기본 타일로 되돌린다 --
+  // 사용자가 한 번이라도 손댔으면(categoryTouchedRef) 위에서 이미 반환했으므로 절대 건드리지 않고,
+  // 되돌린 뒤에는 남는 것이 처음 상태(기본 타일 · 캡션 없음)뿐이라 아무것도 지어내지 않는다.
   useEffect(() => {
     if (!authToken) return;
     if (categoryTouchedRef.current) return;
-    const suggestion = suggestCategoryId(itemName, expenseHistory);
-    if (!suggestion) {
-      setAutoPickedCategory(false);
-      return;
-    }
-    const suggestedCategory = quickExpenseCategories.find((category) => category.id === suggestion.categoryId);
+    const nextSelection = resolveAutoCategorySelection({
+      itemName,
+      history: expenseHistory,
+      currentCategoryId: selectedCategory.id,
+      autoPicked: autoPickedCategory,
+      defaultCategoryId: quickExpenseCategories[0].id
+    });
+    const suggestedCategory = quickExpenseCategories.find((category) => category.id === nextSelection.categoryId);
     if (!suggestedCategory) return;
     setSelectedCategory((current) => (current.id === suggestedCategory.id ? current : suggestedCategory));
-    setAutoPickedCategory(true);
-  }, [authToken, itemName, expenseHistory]);
+    // 같은 값이면 새 객체로 갈아끼우지 않는다 -- autoPickedCategory가 이 effect의 의존성이라
+    // 매번 새 객체를 쓰면 렌더 루프가 된다.
+    if (!isSameAutoPickedCategory(autoPickedCategory, nextSelection.autoPicked)) {
+      setAutoPickedCategory(nextSelection.autoPicked);
+    }
+  }, [authToken, itemName, expenseHistory, selectedCategory.id, autoPickedCategory]);
 
   // 타이핑 연동 자동완성 후보(상위 3개). 칩으로 한 번 채운 뒤에는 다시 타이핑할 때까지 접힌다.
   const itemAutocompleteChips =
@@ -331,13 +351,21 @@ export default function NewExpenseScreen() {
   };
 
   // 자동완성 칩 1탭 = 이름·금액·카테고리 일괄 채움. 저장은 여전히 저장하기 버튼으로만 일어난다.
+  //
+  // 라운드 33 F3(2/2): "카테고리를 확정했다"(categoryTouchedRef)는 표시는 칩이 **실제로 카테고리를
+  // 바꿨을 때만** 세운다. 칩의 categoryId가 8타일 밖(엑셀 가져오기·지출 수정 화면을 거쳐 서버 정식
+  // 카테고리를 단 행)이면 이 화면은 아무 타일도 바꾸지 못하는데, 그때도 touched로 쳐 버리면
+  // 사용자가 카테고리를 고른 적이 없는데 자동 추천만 영구히 꺼진 채로 남는다(칩으로 채운 품목명에
+  // 맞는 추천조차 못 하게 된다). 카테고리를 안 바꿨으면 추천을 끌 근거도 없다.
   const applyItemAutocompleteChip = (chip: ItemAutocompleteSuggestion) => {
-    categoryTouchedRef.current = true;
-    setAutoPickedCategory(false);
     setItemName(chip.itemName);
     setAmountText(String(chip.amountKrw));
     const matchedCategory = quickExpenseCategories.find((category) => category.id === chip.categoryId);
-    if (matchedCategory) setSelectedCategory(matchedCategory);
+    if (matchedCategory) {
+      categoryTouchedRef.current = true;
+      setAutoPickedCategory(null);
+      setSelectedCategory(matchedCategory);
+    }
     setAutocompleteApplied(true);
   };
 
@@ -511,7 +539,7 @@ export default function NewExpenseScreen() {
                   onPress={() => {
                     // UX-C: 칩이 카테고리까지 확정하므로 그 뒤 자동 추천이 덮어쓰지 않는다.
                     categoryTouchedRef.current = true;
-                    setAutoPickedCategory(false);
+                    setAutoPickedCategory(null);
                     setItemName(chip.itemName);
                     setAmountText(String(chip.amountKrw));
                     const matchedCategory = quickExpenseCategories.find((category) => category.id === chip.categoryId);
@@ -688,7 +716,7 @@ export default function NewExpenseScreen() {
                 onPress={() => {
                   // UX-C: 직접 고른 순간부터 자동 추천은 이 선택을 덮어쓰지 않는다.
                   categoryTouchedRef.current = true;
-                  setAutoPickedCategory(false);
+                  setAutoPickedCategory(null);
                   setSelectedCategory(category);
                   setItemName(category.label);
                 }}

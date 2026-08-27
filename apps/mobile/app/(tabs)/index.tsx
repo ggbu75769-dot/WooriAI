@@ -1,16 +1,24 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
+import { useMemo } from "react";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { getHome, listChildren, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { getHome, listChildren, listExpenses, LOCAL_SESSION_TOKEN, type Expense } from "../../src/api/client";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
 import { evaluateBabyCounter } from "../../src/home/baby-counter";
 import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "../../src/home/budget-progress";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
-import { evaluateLastMonthComparison, previousYearMonth } from "../../src/home/last-month-comparison";
+import {
+  evaluateLastMonthComparison,
+  previousYearMonth,
+  type ComparableExpenseRecord
+} from "../../src/home/last-month-comparison";
 import { evaluateMilestoneCountdown } from "../../src/home/milestone-countdown";
 import { evaluateWeeklySummary } from "../../src/home/weekly-summary";
+import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
+import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import type { LocalExpenseRow } from "../../src/offline/types";
 import { formatKrw } from "../../src/money";
 import { NotificationBell } from "../../src/notifications/NotificationBell";
 import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
@@ -31,6 +39,39 @@ import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
 import { HomePixelStyles } from "../../src/pixelLock/styles/HomePixelStyles";
+
+/**
+ * 라운드 33 F6: 주간 카드에 넘길 한 달치 지출 행을 **기록 탭과 같은 방식으로** 재조정한다.
+ *
+ * 서버 목록(listExpenses)만 그대로 더하면 오프라인에서 기록해 아직 올라가지 않은 행이 "이번 주
+ * 합계"와 "이번 주 N일 기록했어요"에서 통째로 빠진다 — 방금 기록한 사용자에게 홈이 "이번 주 첫
+ * 기록을 남겨보세요"라고 말하는 상황이다. 반대로 서버 행을 로컬에서 수정/삭제 대기시켜 두면
+ * 낡은 값이 그대로 더해진다. `reconcileMonthlyExpenses`가 기록 탭에서 이미 그 둘을 한 벌로
+ * 처리하므로(중복 제거 + 대기 행 포함) 여기서도 **같은 함수**를 쓴다.
+ *
+ * 합계(monthlyTotalKrw)가 아니라 **행 목록**을 돌려주는 이유는 주간 요약이 "이번 주 월요일부터
+ * 오늘까지"를 스스로 잘라야 하기 때문이다(records.tsx의 지난달 비교와 같은 이유).
+ *
+ * 범위 주석: REP-121 "지난달 같은 시점 대비" 한 줄은 종전 데이터 경로(서버 목록 원본)를 그대로
+ * 둔다 — 이번 라운드의 지적은 신규 주간 카드에 한정되고, 그 줄의 이번 달 항은 /home 서버 집계라
+ * 재조정된 지난달 항과 짝을 맞추려면 별도 판단이 필요하다(별건으로 남긴다).
+ */
+function reconciledMonthRecords(
+  serverExpenses: Expense[] | undefined,
+  childOfflineRows: LocalExpenseRow[],
+  yearMonth: string
+): ComparableExpenseRecord[] | null {
+  if (!serverExpenses) return null;
+  const reconciled = reconcileMonthlyExpenses(serverExpenses, childOfflineRows, yearMonth);
+  return [
+    ...reconciled.visibleServerExpenses,
+    ...reconciled.offlinePendingRows.map((row) => ({
+      amountKrw: row.payload.amountKrw,
+      spentOn: row.payload.spentOn,
+      expenseType: row.payload.expenseType
+    }))
+  ];
+}
 
 function homePixelScaleFrameStyle() {
   return {
@@ -265,6 +306,12 @@ const homeMilestoneStyle = StyleSheet.create({
     flex: 1,
     gap: 4
   },
+  cta: {
+    color: theme.colors.coral[700],
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 16
+  },
   icon: {
     color: theme.colors.coral[700],
     fontSize: 20,
@@ -382,6 +429,22 @@ export default function HomeScreen() {
   // UX-A 아기 카운터·마일스톤 카드가 쓰는 dueDate/birthDate/stageMode는 /home 응답에 없다
   // (HomeSummary.child는 nickname/currentStage/stageLabel만 준다). 새 엔드포인트를 만들지 않고
   // 아이 관리·설정·리포트 화면과 **같은 캐시 키**(["children"])를 재사용해 읽는다.
+  // 라운드 33 F6: 주간 카드가 읽는 두 달치 지출을 이 기기의 오프라인 대기 행과 재조정한다
+  // (기록 탭과 같은 reconcileMonthlyExpenses — 위 reconciledMonthRecords 주석 참고).
+  const offlineSyncSnapshot = useOfflineSyncSnapshot();
+  const childOfflineRows = useMemo(
+    () => (childId ? offlineSyncSnapshot.rows.filter((row) => row.childId === childId) : []),
+    [offlineSyncSnapshot.rows, childId]
+  );
+  const weeklyThisMonthRecords = useMemo(
+    () => reconciledMonthRecords(thisMonthExpenses.data?.expenses, childOfflineRows, thisYearMonth),
+    [thisMonthExpenses.data, childOfflineRows, thisYearMonth]
+  );
+  const weeklyLastMonthRecords = useMemo(
+    () =>
+      lastYearMonth ? reconciledMonthRecords(lastMonthExpenses.data?.expenses, childOfflineRows, lastYearMonth) : null,
+    [lastMonthExpenses.data, childOfflineRows, lastYearMonth]
+  );
   const childrenQuery = useQuery({
     queryKey: ["children"],
     enabled: Boolean(authToken),
@@ -484,8 +547,9 @@ export default function HomeScreen() {
   const weeklySummary = hasSession
     ? evaluateWeeklySummary({
         todayIso: seoulToday,
-        thisMonthRecords: thisMonthExpenses.data?.expenses ?? null,
-        lastMonthRecords: lastMonthExpenses.data?.expenses ?? null
+        // F6: 서버 목록 원본이 아니라 오프라인 대기·수정 행까지 반영한 재조정 결과다.
+        thisMonthRecords: weeklyThisMonthRecords,
+        lastMonthRecords: weeklyLastMonthRecords
       })
     : null;
   const milestoneCountdown = hasSession
@@ -604,6 +668,10 @@ export default function HomeScreen() {
                 <View style={homeMilestoneStyle.copy}>
                   <Text style={homeMilestoneStyle.title}>{milestoneCountdown.title}</Text>
                   <Text style={homeMilestoneStyle.subtitle}>{milestoneCountdown.subtitle}</Text>
+                  {/* 라운드 33 F1: 눌렀을 때 실제로 열리는 리포트를 그대로 예고한다. 카운트다운이
+                      "첫돌까지 D-N"이어도 첫돌 전이면 리포트 탭은 100일 리포트를 열기 때문에
+                      (src/home/milestone-countdown.ts의 CTA 규칙), 라벨은 순수 모듈이 정한다. */}
+                  <Text style={homeMilestoneStyle.cta}>{milestoneCountdown.ctaLabel}</Text>
                 </View>
                 <View accessible={false} style={homeBudgetNudgeArrowStyle.button}>
                   <Text accessible={false} style={homeBudgetNudgeArrowStyle.glyph}>
