@@ -160,6 +160,22 @@ export const itemSummarySchema = z.object({
   stageCodes: z.array(childStageCodeSchema).optional()
 });
 
+// ITEM-121: 준비템 화면의 "시기 칩" 라벨 — GET /children/:childId/items의 선택적
+// `stageBand` 쿼리 파라미터 값이자 클라이언트 칩 라벨의 단일 소스다. 밴드 -> 스테이지
+// 코드 매핑은 서버(apps/api/src/items-commerce/stage-bands.ts)와 모바일
+// (apps/mobile/src/items/stage-bands.ts)이 각각 들고 있고, 두 정의가 어긋나지 않도록
+// apps/api/test/mobile-stage-band-contract.test.ts가 대조한다.
+export const stageBandLabelSchema = z.enum(["0-6개월", "6-12개월", "12-24개월", "24개월+"]);
+export const STAGE_BAND_LABELS = stageBandLabelSchema.options;
+
+// ITEM-121: GET /children/:childId/items 쿼리 계약 — 서버 ListItemsQueryDto의 미러
+// (apps/api/src/items-commerce/dto/items.dto.ts). 두 파라미터 모두 선택적이며,
+// stageBand를 생략하면 기존 동작(아이의 현재 단계 기준)이 그대로 유지된다(하위호환).
+export const listItemsQuerySchema = z.object({
+  tab: z.enum(["now", "soon", "prepared", "not_needed"]).optional(),
+  stageBand: stageBandLabelSchema.optional()
+});
+
 export const productLinkSchema = z.object({
   id: uuidSchema,
   platform: productPlatformSchema,
@@ -191,12 +207,31 @@ export const affiliateClickResponseSchema = z.object({
   disclosureText: z.string().optional()
 });
 
+// CON-121: 카테고리별 합계 한 줄 — 월간 리포트의 categoryTop과
+// GET /children/:childId/reports/category의 categories가 같은 서버 집계
+// (ReportingStoreService.categoryBreakdown)에서 나오므로 하나의 계약을 공유한다.
+// amountKrw/count는 groupBy 합계라 0 이상(빈 그룹은 애초에 나오지 않지만
+// moneyKrwSchema의 "1원 이상" 계약과는 다른 축이라 min(0)으로 둔다).
+export const categoryBreakdownEntrySchema = z.object({
+  categoryId: uuidSchema,
+  amountKrw: z.number().int().min(0),
+  count: z.number().int().min(0)
+});
+
+// CON-121: GET /children/:childId/reports/category 응답 계약.
+export const reportCategorySchema = z.object({
+  childId: uuidSchema,
+  categories: z.array(categoryBreakdownEntrySchema)
+});
+
 export const reportMonthlySchema = z.object({
   childId: uuidSchema,
   yearMonth: dateOnlySchema,
   totalExpenseKrw: z.number().int().min(0),
   budgetAmountKrw: z.number().int().min(1).nullable().optional(),
-  categoryTop: z.array(z.record(z.unknown()))
+  // CON-121(CON-115 권고 잔여분): z.record(z.unknown())였던 자리를 실응답 형태로
+  // 조인다 — 월간 리포트의 categoryTop은 카테고리 합계 내림차순 목록이다.
+  categoryTop: z.array(categoryBreakdownEntrySchema)
 });
 
 export const reportYearlySchema = z.object({
@@ -231,7 +266,9 @@ export const importRowSchema = z.object({
   validationStatus: z.string().min(1)
 });
 
+export type CategoryBreakdownEntryDto = z.infer<typeof categoryBreakdownEntrySchema>;
 export type CategoryListItemDto = z.infer<typeof categoryListItemSchema>;
+export type CategoryReportDto = z.infer<typeof reportCategorySchema>;
 export type ChildDto = z.infer<typeof childSchema>;
 export type CreateExpenseRequestDto = z.infer<typeof createExpenseRequestSchema>;
 export type ListCategoriesResponseDto = z.infer<typeof listCategoriesResponseSchema>;
@@ -242,6 +279,10 @@ export type UpdateExpenseRequestDto = z.infer<typeof updateExpenseRequestSchema>
 export type VersionConflictResponseDto = z.infer<typeof versionConflictResponseSchema>;
 export type HomeSummaryDto = z.infer<typeof homeSummarySchema>;
 export type ImportRowDto = z.infer<typeof importRowSchema>;
+export type ImportJobDto = z.infer<typeof importJobSchema>;
+export type ItemDetailDto = z.infer<typeof itemDetailSchema>;
 export type ItemSummaryDto = z.infer<typeof itemSummarySchema>;
+export type ListItemsQueryDto = z.infer<typeof listItemsQuerySchema>;
+export type StageBandLabel = z.infer<typeof stageBandLabelSchema>;
 export type ProductLinkDto = z.infer<typeof productLinkSchema>;
 export type YearlyReportDto = z.infer<typeof reportYearlySchema>;

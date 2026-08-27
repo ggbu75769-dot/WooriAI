@@ -16,7 +16,7 @@ export class ItemsController {
     @Param("childId") childId: string,
     @Query(createDtoValidationPipe(ListItemsQueryDto)) query: ListItemsQueryDto
   ) {
-    return await this.store.listItems(request.user!, childId, query.tab);
+    return await this.store.listItems(request.user!, childId, query.tab, query.stageBand);
   }
 
   @Get(":itemTemplateId")
