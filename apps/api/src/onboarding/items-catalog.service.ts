@@ -23,6 +23,10 @@ type ItemTemplateRow = {
   skipReasonText: string | null;
   usedSecondhandOk: boolean;
   safetyNote: string | null;
+  // 라운드 48 T1: 의료/영양제 성격이라 전문가 확인 안내가 필요한 준비템(DNC-020).
+  // 스키마(migration 000001)와 시드에는 처음부터 있었지만 어떤 DTO에도 실리지 않아
+  // 앱/어드민 어디에서도 볼 수 없던 필드다.
+  medicalDisclaimerRequired: boolean;
   displayOrder: number;
   active: boolean;
 };
@@ -59,6 +63,7 @@ export type AdminItemTemplateInput = {
   skipReasonText?: string | null;
   usedSecondhandOk?: boolean;
   safetyNote?: string | null;
+  medicalDisclaimerRequired?: boolean;
   stageCodes?: ChildStageCode[];
   active?: boolean;
 };
@@ -184,6 +189,9 @@ export class ItemsCatalogService {
       skipReasonText: item.skipReasonText,
       usedSecondhandOk: item.usedSecondhandOk,
       safetyNote: item.safetyNote,
+      // 라운드 48 T1: 앱 상세가 "구매 전 의사·약사와 상담해 주세요" 안내를 그릴 근거
+      // (DNC-020). 가산 필드라 구버전 클라이언트는 무영향이다.
+      medicalDisclaimerRequired: item.medicalDisclaimerRequired,
       productLinks: links.map((link) => this.toProductLinkDto(link, disclosures))
     };
   }
@@ -288,6 +296,7 @@ export class ItemsCatalogService {
           skipReasonText: normalized.skipReasonText ?? null,
           usedSecondhandOk: normalized.usedSecondhandOk ?? false,
           safetyNote: normalized.safetyNote ?? null,
+          medicalDisclaimerRequired: normalized.medicalDisclaimerRequired ?? false,
           displayOrder: await this.nextItemDisplayOrder(tx),
           active: normalized.active ?? true
         }
@@ -318,6 +327,7 @@ export class ItemsCatalogService {
           skipReasonText: normalized.skipReasonText ?? null,
           usedSecondhandOk: normalized.usedSecondhandOk ?? false,
           safetyNote: normalized.safetyNote ?? null,
+          medicalDisclaimerRequired: normalized.medicalDisclaimerRequired ?? false,
           active: normalized.active ?? true
         }
       });
@@ -536,6 +546,8 @@ export class ItemsCatalogService {
       skipReasonText: item.skipReasonText,
       usedSecondhandOk: item.usedSecondhandOk,
       safetyNote: item.safetyNote,
+      // 라운드 48 T1: 어드민 편집 폼이 체크박스를 프리필하려면 저장된 값이 필요하다.
+      medicalDisclaimerRequired: item.medicalDisclaimerRequired,
       active: item.active,
       stageCodes: item.stageCodes,
       // UX-X(R43) M-5: 사용자 관점의 구매처 수. productLinks 자체는 비활성 링크까지
@@ -662,6 +674,9 @@ export class ItemsCatalogService {
       skipReasonText,
       usedSecondhandOk: input.usedSecondhandOk ?? existing.usedSecondhandOk ?? false,
       safetyNote: cleanOptionalText(input.safetyNote ?? existing.safetyNote ?? undefined),
+      // 라운드 48 T1: usedSecondhandOk와 같은 관례 — 안 보내면 기존 값 유지, 신규 생성의
+      // 기본값은 false(스키마 default와 동일).
+      medicalDisclaimerRequired: input.medicalDisclaimerRequired ?? existing.medicalDisclaimerRequired ?? false,
       active: input.active ?? existing.active ?? true,
       stageCodes: input.stageCodes?.length ? input.stageCodes : existing.stageCodes
     };

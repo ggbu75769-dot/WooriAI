@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { itemListBadgeLabel } from "./item-labels";
 import { computeEssentialPrepProgress } from "./prep-progress";
 
 const mobileRoot = process.cwd();
@@ -158,11 +159,20 @@ describe("gifted를 잃게 만드는 조작은 확인을 거친다 (리뷰 F2)",
 });
 
 describe("준비완료 탭의 선물 배지 (items 탭)", () => {
-  it("gifted 항목은 순서와 무관하게 statusLabel 배지를 단다", () => {
+  /**
+   * 라운드 48 T1(A3b): 배지 판정이 화면에서 순수 모듈로 나갔다
+   * (src/items/item-labels.ts의 itemListBadgeLabel). ITEM-123 B4가 지키려던 사실은
+   * 그대로다 -- 준비완료 탭이 prepared와 gifted를 함께 보여주므로 gifted 항목은 순서와
+   * 무관하게 "선물 받음"으로 구분돼야 한다. 예전에는 첫 행만 "BEST"가 덮어썼는데(근거
+   * 없는 평가라 이번 라운드에 삭제), 이제는 상태 라벨이 항상 필수도 배지보다 우선한다.
+   */
+  it("gifted 항목은 순서와 무관하게 상태 라벨 배지를 단다", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain('badge: index === 0 && item.status !== "gifted" ? "BEST" : statusLabel(item.status)');
-    // 문구는 statusLabel 한 곳에서만 관리한다("선물 받음").
-    expect(itemsSource).toContain('if (status === "gifted") return "선물 받음";');
+    expect(itemsSource).toContain("badge: itemListBadgeLabel(item)");
+    // 문구는 item-labels 한 곳에서만 관리한다("선물 받음").
+    expect(itemsSource).not.toContain('return "선물 받음";');
+    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "essential" })).toBe("선물 받음");
+    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "optional" })).toBe("선물 받음");
   });
 });
 

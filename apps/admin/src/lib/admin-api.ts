@@ -121,6 +121,9 @@ export type ItemTemplate = {
   skipReasonText?: string | null;
   usedSecondhandOk: boolean;
   safetyNote?: string | null;
+  // 라운드 48 T1: 의료/영양제 성격 준비템의 상담 안내 표시 여부(DNC-020). 서버는 항상
+  // boolean을 주지만, 이 필드 이전에 캐시된 응답과 섞여도 폼이 깨지지 않게 optional이다.
+  medicalDisclaimerRequired?: boolean;
   active: boolean;
   stageCodes: ChildStageCode[];
   // UX-X(R43) M-5: productLinks에는 비활성 링크도 그대로 실린다(어드민은 내려둔 링크를
@@ -172,6 +175,7 @@ export type ItemTemplateInput = {
   skipReasonText?: string;
   usedSecondhandOk?: boolean;
   safetyNote?: string;
+  medicalDisclaimerRequired?: boolean;
   stageCodes?: ChildStageCode[];
   active?: boolean;
 };

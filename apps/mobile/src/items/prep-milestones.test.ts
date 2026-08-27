@@ -406,7 +406,9 @@ describe("items tab journey wiring (UX-E)", () => {
     expect(text).toContain("{NEXT_PREP_FOCUS_BADGE_LABEL}");
     // 강조 대상을 별도 목록으로 한 번 더 map 하지 않는다(같은 항목이 두 번 보이면 안 된다).
     expect(text).not.toMatch(/prepFocus\w*\.map\(/);
-    expect(text).toContain("{listedItems.map((item, index) => {");
+    // 라운드 48 T1(A3b): 배지가 더 이상 목록 순서를 보지 않으므로 map 콜백에서 index가
+    // 빠졌다. 이 단언이 지키려는 사실은 그대로다 -- 목록은 한 번만 돈다.
+    expect(text).toContain("{listedItems.map((item) => {");
   });
 
   it("does not reorder the server list anywhere on the screen", () => {

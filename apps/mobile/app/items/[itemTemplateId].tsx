@@ -29,6 +29,8 @@ import {
   productLinksDisclosureText,
   productPlatformLabel
 } from "../../src/items/link-marker";
+import { itemStatusBadgeLabel } from "../../src/items/item-labels";
+import { itemTrustNotes } from "../../src/items/item-trust-notes";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -113,6 +115,19 @@ function productDetailHeroImageStyle() {
     width: "100%"
   } as const;
 }
+/**
+ * 라운드 48 T1(A3c): 세션 경로에는 히어로 사진이 없다.
+ *
+ * `productImage`(기저귀 팩 일러스트) 한 장이 시드 62개 품목 **전부**의 대표 사진으로
+ * 붙어 있었다 — 카시트 상세에도 기저귀 사진이 떴다. 응답에 상품 이미지가 없으므로 그릴
+ * 사실이 없고, 없는 사진을 지어내느니 비워 두는 편이 낫다. 대신 상단에 떠 있는
+ * 뒤로가기/공유 버튼(absolute, top 16 + height 34)이 카드 제목 위에 겹치지 않도록
+ * 그만큼의 자리만 남긴다.
+ *
+ * 비세션 프리뷰(ITEM-002 픽셀 락 캡처)는 예전 히어로 카드를 그대로 그린다.
+ */
+const productDetailSessionHeroSpacerStyle = { height: 44 } as const;
+
 function productDetailInfoCardStyle() {
   return {
     borderRadius: ProductDetailPixelStyles.cardRadius,
@@ -412,6 +427,9 @@ export default function ItemDetailScreen() {
 
   const visibleDetail = hasSession ? detail.data! : previewDetail(itemTemplateId);
   const isInterested = visibleDetail.status === "interested";
+  // 라운드 48 T1(A4): 내 준비 상태 라벨. 목록 카드 배지와 같은 모듈이 정하고
+  // (src/items/item-labels.ts), 준비 전(기본값)이면 undefined라 줄 자체가 사라진다.
+  const statusBadgeLabel = itemStatusBadgeLabel(visibleDetail.status);
   const isGifted = visibleDetail.status === "gifted";
   /**
    * 라운드 43 UX-V (C2): 구매처가 하나도 없는 준비템 — 시드 62개 품목 중 4개
@@ -514,12 +532,22 @@ export default function ItemDetailScreen() {
           />
           <View testID={productDetailScreenId} style={productDetailHeaderSpacerStyle} />
 
-          <Card style={productDetailHeroCardStyle()}>
-            <Image source={productImage} style={productDetailHeroImageStyle()} resizeMode="cover" />
-          </Card>
+          {hasSession ? (
+            <View style={productDetailSessionHeroSpacerStyle} />
+          ) : (
+            <Card style={productDetailHeroCardStyle()}>
+              <Image source={productImage} style={productDetailHeroImageStyle()} resizeMode="cover" />
+            </Card>
+          )}
 
           <Card style={productDetailInfoCardStyle()}>
             <Text style={{ color: theme.colors.brown, fontSize: 21, fontWeight: "800" }}>{visibleDetail.name}</Text>
+            {/* 라운드 48 T1(A4): 내 준비 상태 한 줄. 목록 카드 배지와 **같은 문구**를 쓴다
+                (src/items/item-labels.ts) -- 목록에서 "선물 받음"으로 보이던 항목이 상세에서는
+                아무 말도 없거나 다른 단어로 불리면 같은 물건인지 확신할 수 없다. 준비 전
+                (not_prepared)은 알릴 사실이 없어 줄 자체가 나오지 않는다.
+                세션 게이트: ITEM-002 픽셀 락 캡처(비세션 프리뷰)에는 존재하지 않는다. */}
+            {hasSession && statusBadgeLabel ? <StatusBadge label={statusBadgeLabel} /> : null}
             {/* UX-5B-1: 별점·최저가 등 API에 없는 가짜 수치는 렌더하지 않는다 -- 실제 응답의
                 가격대(priceBandText)만 보여주고, 없으면 아무것도 표시하지 않는다. */}
             {visibleDetail.priceBandText ? (
@@ -596,6 +624,30 @@ export default function ItemDetailScreen() {
               <Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 20 }}>{visibleDetail.skipReasonText}</Text>
             </Card>
           ) : null}
+
+          {/* 라운드 48 T1(A1/A2c): 서버가 준비템마다 들고 있었지만 앱이 한 번도 그리지 않던
+              신뢰 정보 세 가지 -- 의료 상담 안내(medicalDisclaimerRequired), 안전 확인
+              (safetyNote), 중고 구매 OK(usedSecondhandOk). 판정과 문구는 순수 모듈이 정하고
+              (src/items/item-trust-notes.ts) 화면은 그리기만 한다.
+
+              위치: "이런 경우엔 안 사도 돼요" 다음, 제휴 고지 **앞**이다 -- 고지와 구매 CTA
+              사이에는 아무것도 끼우지 않는다(DNC-010 인접성).
+
+              세션 게이트는 모듈 안에 있다(hasSession=false면 빈 배열): 프리뷰 픽스처가
+              safetyNote를 갖고 있어도 ITEM-002 픽셀 락 캡처에는 카드가 한 장도 나오지 않는다. */}
+          {itemTrustNotes({
+            hasSession,
+            usedSecondhandOk: visibleDetail.usedSecondhandOk,
+            safetyNote: visibleDetail.safetyNote,
+            medicalDisclaimerRequired: visibleDetail.medicalDisclaimerRequired
+          }).map((note) => (
+            <Card key={note.id}>
+              <Text accessibilityRole="header" style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>
+                {note.title}
+              </Text>
+              <Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 20 }}>{note.body}</Text>
+            </Card>
+          ))}
 
           {/* C2 → 라운드 43 리뷰 M-1: 고지는 **고지 대상이 있을 때** 구매 CTA 바로 위에 그린다
               (위 affiliateDisclosureText 주석의 DNC-010 근거 참고). 위치는 그대로: 고지와 구매
