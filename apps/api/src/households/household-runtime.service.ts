@@ -238,13 +238,16 @@ export class HouseholdRuntimeService {
       });
     }
 
-    const before = await this.toMemberDto(member);
+    // before/after are the same person, so one displayName lookup covers both DTOs
+    // (this used to be two separate findUnique calls for one and the same user).
+    const displayNames = await this.memberDisplayNames([member]);
+    const before = toMemberDto(member, displayNames);
     const updated = await this.prisma.householdMember.update({
       where: { id: member.id },
       data: { status: "removed" }
     });
 
-    return { success: true, before, after: await this.toMemberDto(updated), householdId };
+    return { success: true, before, after: toMemberDto(updated, displayNames), householdId };
   }
 
   async leaveHousehold(user: AuthenticatedUser, householdId: string) {
@@ -284,7 +287,8 @@ export class HouseholdRuntimeService {
       where: { householdId, status: { in: ["active", "pending"] } }
     });
     const sorted = [...members].sort((left, right) => roleOrder(left.role) - roleOrder(right.role));
-    return { members: await Promise.all(sorted.map((member) => this.toMemberDto(member))) };
+    const displayNames = await this.memberDisplayNames(sorted);
+    return { members: sorted.map((member) => toMemberDto(member, displayNames)) };
   }
 
   async createInvite(user: AuthenticatedUser, householdId: string, role: InviteRole, channel: InviteChannel) {
@@ -493,24 +497,28 @@ export class HouseholdRuntimeService {
       .filter((entry): entry is { id: string; name: string; role: MemberRole } => Boolean(entry));
   }
 
-  private async toMemberDto(member: {
-    id: string;
-    householdId: string;
-    userId: string;
-    role: MemberRole;
-    status: string;
-    joinedAt: Date | null;
-  }) {
-    const memberUser = await this.prisma.user.findUnique({ where: { id: member.userId } });
-    return {
-      id: member.id,
-      householdId: member.householdId,
-      userId: member.userId,
-      displayName: memberUser?.displayName ?? "",
-      role: member.role,
-      status: member.status,
-      joinedAt: member.joinedAt?.toISOString() ?? null
-    };
+  /**
+   * PERF(E4): resolves every member's `displayName` in ONE `id IN (...)` query.
+   *
+   * This used to be a `user.findUnique` per member inside `toMemberDto`, i.e. a
+   * classic N+1 on `listMembers` — a 6-person household issued 7 queries where 2
+   * suffice, and the cost grew linearly with family size. The `users` rows are
+   * fetched by primary key, so a single batched read is strictly cheaper.
+   *
+   * Members whose user row is missing (or whose `displayName` is null — the column
+   * is nullable) are simply absent from the map, which `toMemberDto` renders as the
+   * same `""` the per-member lookup produced. The response shape is unchanged.
+   */
+  private async memberDisplayNames(members: ReadonlyArray<{ userId: string }>): Promise<Map<string, string>> {
+    const userIds = [...new Set(members.map((member) => member.userId))];
+    if (userIds.length === 0) {
+      return new Map();
+    }
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, displayName: true }
+    });
+    return new Map(users.flatMap((row) => (row.displayName ? [[row.id, row.displayName] as const] : [])));
   }
 
   private assertMember(user: AuthenticatedUser, householdId: string) {
@@ -564,6 +572,32 @@ export class HouseholdRuntimeService {
     }
     return invite;
   }
+}
+
+/**
+ * Member row -> API DTO. Pure: `displayNames` is the batch resolved by
+ * `HouseholdRuntimeService.memberDisplayNames`, so building a DTO costs no query.
+ */
+function toMemberDto(
+  member: {
+    id: string;
+    householdId: string;
+    userId: string;
+    role: MemberRole;
+    status: string;
+    joinedAt: Date | null;
+  },
+  displayNames: ReadonlyMap<string, string>
+) {
+  return {
+    id: member.id,
+    householdId: member.householdId,
+    userId: member.userId,
+    displayName: displayNames.get(member.userId) ?? "",
+    role: member.role,
+    status: member.status,
+    joinedAt: member.joinedAt?.toISOString() ?? null
+  };
 }
 
 function toInviteDto(invite: {

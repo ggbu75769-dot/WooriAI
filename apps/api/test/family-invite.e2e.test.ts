@@ -1,6 +1,6 @@
 import { HttpException, type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
@@ -72,6 +72,42 @@ function prismaRacingOnInviteRead(
   };
 
   return { household: prisma.household, householdInvite: raced } as unknown as PrismaService;
+}
+
+/**
+ * E4 계측용 대역. 위 `prismaRacingOnInviteRead`와 같은 이유로 vi.spyOn 대신 서비스가
+ * 실제로 쓰는 delegate만 옮겨 담은 통과(pass-through) 대역을 만들고, `users` 읽기 횟수만
+ * 센다 — "몇 번 조회하나"가 곧 N+1 회귀 판정 기준이다.
+ */
+function prismaCountingUserReads(prisma: PrismaService, counts: { findUnique: number; findMany: number }): PrismaService {
+  return {
+    householdMember: prisma.householdMember,
+    user: {
+      findUnique: (args: never) => {
+        counts.findUnique += 1;
+        return prisma.user.findUnique(args);
+      },
+      findMany: (args: never) => {
+        counts.findMany += 1;
+        return prisma.user.findMany(args);
+      }
+    }
+  } as unknown as PrismaService;
+}
+
+/** listMembers가 쓰는 정렬 순서(서비스의 roleOrder와 같은 규칙)의 테스트측 복제본. */
+function roleOrder(role: string) {
+  if (role === "owner") return 0;
+  if (role === "co_parent") return 1;
+  if (role === "viewer") return 2;
+  return 3;
+}
+
+/** 초대 토큰은 sha256 해시로만 저장된다(createInvite) — 생성 응답의 토큰으로 행을 되찾는다. */
+function inviteRowFor(prisma: PrismaService, inviteToken: string) {
+  return prisma.householdInvite.findUniqueOrThrow({
+    where: { inviteTokenHash: createHash("sha256").update(inviteToken).digest("hex") }
+  });
 }
 
 /** 서비스를 직접 부를 때의 에러 판정 (import-parser-inference.test.ts와 같은 관례). */
@@ -667,5 +703,202 @@ describe("Family invites and household RBAC", () => {
         paymentMethod: "card"
       })
       .expect(403);
+  });
+
+  /**
+   * E4 회귀. listMembers는 멤버마다 `user.findUnique`를 돌리는 N+1이었다(6인 가구 = 7 쿼리).
+   * 이제 `id IN (...)` 한 번으로 이름을 모아 오는데, 성능만 바꾸고 응답은 한 글자도 달라지면
+   * 안 되므로 (a) 사용자 조회 횟수와 (b) 예전 방식(멤버별 findUnique)으로 만든 DTO와의 동치,
+   * (c) HTTP 응답 본문과의 동치를 함께 고정한다.
+   */
+  it("E4: listMembers가 멤버 수와 무관하게 사용자 조회를 1회로 배치한다 (응답 동치)", async () => {
+    const ownerToken = await login(app, "e4-batch-owner");
+    const { householdId } = await completeOwnerOnboarding(app, ownerToken);
+    const ownerUserId = await userIdFor(app, ownerToken);
+
+    for (const [role, providerToken] of [
+      ["co_parent", "e4-batch-co-parent"],
+      ["viewer", "e4-batch-viewer"]
+    ] as const) {
+      const invite = await request(app.getHttpServer())
+        .post(`/api/v1/households/${householdId}/invites`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ role, channel: "link" })
+        .expect(200);
+      await request(app.getHttpServer())
+        .post(`/api/v1/invites/${tokenFromInviteUrl(invite.body.inviteUrl)}/accept`)
+        .set("Authorization", `Bearer ${await login(app, providerToken)}`)
+        .expect(200);
+    }
+
+    const prisma = app.get(PrismaService);
+    const runtime = app.get(HouseholdRuntimeService);
+    const owner = await runtime.enrichUser({
+      id: ownerUserId,
+      displayName: "owner",
+      email: null,
+      status: "active",
+      households: []
+    });
+
+    const counts = { findUnique: 0, findMany: 0 };
+    const batched = await new HouseholdRuntimeService(prismaCountingUserReads(prisma, counts)).listMembers(owner, householdId);
+
+    expect(batched.members).toHaveLength(3);
+    // 멤버가 3명이어도 사용자 조회는 정확히 한 번(배치)이어야 한다 — 예전에는 3번이었다.
+    expect(counts).toEqual({ findUnique: 0, findMany: 1 });
+    // 배치가 실제로 이름을 채웠는지(전부 빈 문자열로 퇴화하지 않았는지) 확인.
+    expect(batched.members.every((member) => member.displayName.length > 0)).toBe(true);
+
+    // 동치 1: 예전 구현(멤버 행마다 user.findUnique)이 만들던 DTO와 완전히 같아야 한다.
+    const rows = await prisma.householdMember.findMany({
+      where: { householdId, status: { in: ["active", "pending"] } }
+    });
+    const perMember = await Promise.all(
+      rows.map(async (member) => {
+        const memberUser = await prisma.user.findUnique({ where: { id: member.userId } });
+        return {
+          id: member.id,
+          householdId: member.householdId,
+          userId: member.userId,
+          displayName: memberUser?.displayName ?? "",
+          role: member.role,
+          status: member.status,
+          joinedAt: member.joinedAt?.toISOString() ?? null
+        };
+      })
+    );
+    perMember.sort((left, right) => roleOrder(left.role) - roleOrder(right.role));
+    expect(batched.members).toEqual(perMember);
+    expect(batched.members.map((member) => member.role)).toEqual(["owner", "co_parent", "viewer"]);
+
+    // 동치 2: 실제 엔드포인트 응답 본문도 그대로다(직렬화 포함).
+    const httpMembers = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/households/${householdId}/members`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .expect(200)
+    ).body.members;
+    expect(httpMembers).toEqual(batched.members);
+  });
+
+  /**
+   * G2: 초대 TTL 경계. 지금까지 e2e는 "갓 만든 초대"와 "취소된 초대"만 다뤘고, 실제 사용자가
+   * 가장 흔하게 부딪히는 만료 경계(`expiresAt <= now`)는 FIX-121A의 경합 테스트가 부수적으로
+   * 스쳐 갈 뿐 수락/목록/취소 세 경로 모두를 직접 확인한 적이 없었다.
+   *
+   * 만료 직전(아직 pending)과 직후를 같은 가구에서 나란히 세우고, 직후의 세 경로가 모두
+   * INVITE_NOT_PENDING으로 닫히는지 + lazy expiry가 행을 `expired`로 남기는지(취소 경로는
+   * `revoked`로 바꾸지 않는지)까지 본다.
+   */
+  it("G2: 만료 경계 — 직전 초대는 수락되고, 직후 초대는 수락·목록·취소 모두에서 닫힌다", async () => {
+    const ownerToken = await login(app, "g2-expiry-owner");
+    const { householdId } = await completeOwnerOnboarding(app, ownerToken);
+    const prisma = app.get(PrismaService);
+
+    const createInvite = async (role: "co_parent" | "viewer" | "gift_participant") => {
+      const created = await request(app.getHttpServer())
+        .post(`/api/v1/households/${householdId}/invites`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ role, channel: "link" })
+        .expect(200);
+      const inviteToken = tokenFromInviteUrl(created.body.inviteUrl);
+      return { inviteToken, row: await inviteRowFor(prisma, inviteToken) };
+    };
+
+    /**
+     * `chk_household_invites_expiry (expires_at > created_at)` 때문에 만료 시각을 과거로
+     * 옮길 때는 생성 시각도 함께 옮긴다(기존 FIX-121A 테스트와 같은 방식).
+     */
+    const shiftExpiry = (id: string, expiresInMs: number) =>
+      prisma.householdInvite.update({
+        where: { id },
+        data: {
+          createdAt: new Date(Date.now() + Math.min(expiresInMs, 0) - 2_000),
+          expiresAt: new Date(Date.now() + expiresInMs)
+        }
+      });
+
+    // --- 만료 직전: 아직 유효하므로 목록에도 남고 수락도 된다. -------------------
+    // 30초는 이 테스트가 도는 동안 경계를 넘지 않게 두는 여유일 뿐, 판정 대상은
+    // `expiresAt > now` 술어의 "아직 살아 있는 쪽"이다.
+    const almost = await createInvite("co_parent");
+    await shiftExpiry(almost.row.id, 30_000);
+
+    const pendingList = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/households/${householdId}/invites`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .expect(200)
+    ).body.invites as Array<{ id: string }>;
+    expect(pendingList.map((invite) => invite.id)).toContain(almost.row.id);
+    // 목록 조회의 lazy expiry가 아직 살아 있는 초대를 건드리지 않았다.
+    expect((await prisma.householdInvite.findUniqueOrThrow({ where: { id: almost.row.id } })).status).toBe("pending");
+
+    await request(app.getHttpServer()).get(`/api/v1/invites/${almost.inviteToken}`).expect(200);
+    const inviteeToken = await login(app, "g2-expiry-invitee");
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${almost.inviteToken}/accept`)
+      .set("Authorization", `Bearer ${inviteeToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.household).toMatchObject({ id: householdId, role: "co_parent" });
+      });
+
+    // --- 만료 직후(1) 수락 경로: 미리보기도 수락도 닫히고 행은 expired가 된다. ----
+    const lapsedAccept = await createInvite("viewer");
+    await shiftExpiry(lapsedAccept.row.id, -1_000);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/invites/${lapsedAccept.inviteToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("INVITE_NOT_PENDING");
+      });
+    expect((await prisma.householdInvite.findUniqueOrThrow({ where: { id: lapsedAccept.row.id } })).status).toBe("expired");
+
+    const lateToken = await login(app, "g2-expiry-late-invitee");
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${lapsedAccept.inviteToken}/accept`)
+      .set("Authorization", `Bearer ${lateToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("INVITE_NOT_PENDING");
+      });
+    // 수락이 실패했으므로 멤버십도 생기면 안 된다(만료 초대로 조용히 가족에 들어오는 일 금지).
+    await request(app.getHttpServer())
+      .get(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${lateToken}`)
+      .expect(403);
+
+    // --- 만료 직후(2) 목록 경로: 감춰지고, 조회 자체가 행을 expired로 정리한다. ---
+    const lapsedList = await createInvite("gift_participant");
+    await shiftExpiry(lapsedList.row.id, -1_000);
+
+    const listedAfterExpiry = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/households/${householdId}/invites`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .expect(200)
+    ).body.invites as Array<{ id: string }>;
+    expect(listedAfterExpiry.map((invite) => invite.id)).not.toContain(lapsedList.row.id);
+    // 이미 수락된 만료-직전 초대까지 합쳐, 이 시점에 남는 pending 초대는 하나도 없다.
+    expect(listedAfterExpiry).toEqual([]);
+    expect((await prisma.householdInvite.findUniqueOrThrow({ where: { id: lapsedList.row.id } })).status).toBe("expired");
+
+    // --- 만료 직후(3) 취소 경로: 400이고, 행은 revoked가 아니라 expired로 남는다. --
+    const lapsedCancel = await createInvite("viewer");
+    await shiftExpiry(lapsedCancel.row.id, -1_000);
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/invites/${lapsedCancel.row.id}`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("INVITE_NOT_PENDING");
+      });
+    const afterCancelAttempt = await prisma.householdInvite.findUniqueOrThrow({ where: { id: lapsedCancel.row.id } });
+    expect(afterCancelAttempt.status).toBe("expired");
+    expect(afterCancelAttempt.acceptedByUserId).toBeNull();
   });
 });
