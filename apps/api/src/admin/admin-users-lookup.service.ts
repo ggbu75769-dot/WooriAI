@@ -67,15 +67,20 @@ const LOOKUP_QUERY_MASK_PREFIX = 2;
  * 남는다(파기 잡은 audit_logs를 지우지 않는다 — 법적/운영 기록이라 actor만 익명화한다).
  *
  * 그렇다고 검색어를 통째로 버리면 감사의 목적("누가 **무엇을** 찾아봤는가")이 사라지므로,
- * 오남용 판단에 필요한 만큼만 남긴다: 앞 2자로 같은 대상을 반복 조회했는지의 단서를 주고,
- * 길이로 "두 글자 훑기"류의 광범위 조회를 구분할 수 있게 한다. 원문 복원은 불가능하다.
+ * 오남용 판단에 필요한 만큼만 남긴다: 접두 몇 자로 같은 대상을 반복 조회했는지의 단서를
+ * 주고, 길이로 "두 글자 훑기"류의 광범위 조회를 구분할 수 있게 한다.
+ *
+ * R29 리뷰 정정: 접두는 **항상 원문보다 짧게** 남긴다(최소 1자 마스킹). 고정 2자를 남기면
+ * 이 엔드포인트가 받는 최단 검색어(2자)가 통째로 보존돼 "원문은 남기지 않는다"는 보장이
+ * 깨진다 — 그래서 접두 길이는 min(2, 길이-1)이다. 2자 검색어는 앞 1자만 남는다.
  *
  * 코드포인트 단위로 자른다 — 한글/이모지 닉네임에서 서로게이트가 반토막 나지 않게.
  */
 export function maskLookupQuery(query: string): string {
   const trimmed = query.trim();
   const codePoints = [...trimmed];
-  const prefix = codePoints.slice(0, LOOKUP_QUERY_MASK_PREFIX).join("");
+  const prefixLength = Math.min(LOOKUP_QUERY_MASK_PREFIX, Math.max(0, codePoints.length - 1));
+  const prefix = codePoints.slice(0, prefixLength).join("");
   return `${prefix}***(${codePoints.length}자)`;
 }
 
