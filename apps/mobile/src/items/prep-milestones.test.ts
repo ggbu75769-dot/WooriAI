@@ -8,6 +8,7 @@ import {
   nextPrepFocusIds,
   nextStageBandLabel,
   nextStageBandPreviewLabel,
+  prepDisplayPercent,
   prepMilestoneTier,
   selectNextPrepFocusItems,
   NEXT_PREP_FOCUS_BADGE_LABEL,
@@ -114,8 +115,10 @@ describe("buildPrepMilestoneView (UX-E)", () => {
   it("L2: 199/200은 반올림 100%여도 완료가 아니다 (판정은 개수로만 한다)", () => {
     const almostDone = buildPrepMilestoneView(progress(200, 199));
 
-    // 화면에 그려지는 퍼센트는 그대로 100(진행 바 폭·라벨은 반올림 값을 쓴다).
+    // 스냅샷 원본 percent는 반올림으로 100이다.
     expect(almostDone?.percent).toBe(100);
+    // 라운드 36 F8: 그러나 **그려지는** 퍼센트는 99로 캡된다(100%는 완료에만 쓰는 숫자다).
+    expect(almostDone?.displayPercent).toBe(99);
     // 그러나 축하 배너의 조건은 서지 않는다.
     expect(almostDone?.isComplete).toBe(false);
     // 구간 문구도 "준비 완료"라고 말하지 않는다 -- 헤드라인이 "200개 중 199개"라고 적혀 있다.
@@ -125,7 +128,7 @@ describe("buildPrepMilestoneView (UX-E)", () => {
 
     // 마지막 하나를 채우면 그때 완료가 된다.
     const done = buildPrepMilestoneView(progress(200, 200));
-    expect(done).toMatchObject({ isComplete: true, tier: "complete", percent: 100 });
+    expect(done).toMatchObject({ isComplete: true, tier: "complete", percent: 100, displayPercent: 100 });
   });
 
   it("flags 100% as complete and 0% as the starting tier", () => {
@@ -140,6 +143,38 @@ describe("buildPrepMilestoneView (UX-E)", () => {
   it("gives the progress bar one TalkBack sentence carrying counts, percent, and tier copy", () => {
     const view = buildPrepMilestoneView(progress(2, 1));
     expect(view?.accessibilityLabel).toBe("지금 시기 필수템 2개 중 1개 준비했어요, 50%. 절반까지 왔어요!");
+  });
+
+  /**
+   * 라운드 36 F8: 예전에는 이 라벨이 캡 이전 percent를 담은 채 **어느 화면에서도 쓰이지 않았다**
+   * (items.tsx가 같은 문장을 다시 조립했다). 그 상태로 두면 다음 소비자가 "199/200 → 100%"
+   * 모순을 그대로 되살린다. 라벨과 화면 표기는 이제 같은 한 값(displayPercent)에서 나온다.
+   */
+  it("F8: TalkBack 문장의 퍼센트가 화면 표기와 같은 값이다 (캡 이전 값이 남지 않는다)", () => {
+    const almostDone = buildPrepMilestoneView(progress(200, 199))!;
+
+    expect(almostDone.accessibilityLabel).toBe("지금 시기 필수템 200개 중 199개 준비했어요, 99%. 거의 다 왔어요!");
+    expect(almostDone.accessibilityLabel).toContain(`${almostDone.displayPercent}%`);
+    expect(almostDone.accessibilityLabel).not.toContain("100%");
+
+    const done = buildPrepMilestoneView(progress(200, 200))!;
+    expect(done.accessibilityLabel).toContain("100%");
+    expect(done.displayPercent).toBe(100);
+  });
+
+  it("F8: 표시 퍼센트 규칙이 순수 함수 하나다 (캡 · 0-100 클램프)", () => {
+    // 완료가 아니면 100은 99로 내려간다.
+    expect(prepDisplayPercent(100, false)).toBe(99);
+    expect(prepDisplayPercent(100, true)).toBe(100);
+    // 완료가 아닌 보통 값은 그대로.
+    expect(prepDisplayPercent(0, false)).toBe(0);
+    expect(prepDisplayPercent(50, false)).toBe(50);
+    expect(prepDisplayPercent(99, false)).toBe(99);
+    // 진행 바 폭에 그대로 들어가는 숫자라 범위 밖 값은 눌러 담는다.
+    expect(prepDisplayPercent(-10, false)).toBe(0);
+    expect(prepDisplayPercent(140, true)).toBe(100);
+    expect(prepDisplayPercent(140, false)).toBe(99);
+    expect(prepDisplayPercent(Number.NaN, true)).toBe(0);
   });
 
   it("keeps every tier copy in 해요체 with no purchase pressure and no developmental/medical claims (DNC-018/020)", () => {
@@ -288,11 +323,11 @@ describe("items tab journey wiring (UX-E)", () => {
   it("renders the progress bar with the module's headline, tier copy, and a progressbar role", () => {
     const text = itemsSource();
     expect(text).toContain('accessibilityRole="progressbar"');
-    expect(text).toContain("accessibilityLabel={prepAccessibilityLabel}");
-    expect(text).toContain("accessibilityValue={{ min: 0, max: 100, now: prepDisplayPercent }}");
+    expect(text).toContain("accessibilityLabel={prepMilestone.accessibilityLabel}");
+    expect(text).toContain("accessibilityValue={{ min: 0, max: 100, now: prepMilestone.displayPercent }}");
     expect(text).toContain("{prepMilestone.headline}");
     expect(text).toContain("{prepMilestone.tierText}");
-    expect(text).toContain("width: `${prepDisplayPercent}%`");
+    expect(text).toContain("width: `${prepMilestone.displayPercent}%`");
   });
 
   /**
@@ -300,11 +335,12 @@ describe("items tab journey wiring (UX-E)", () => {
    * 100%가 됐다 -- 한 줄 안에서 두 숫자가 서로를 부정한다. 판정(isComplete)은 이미 개수로만
    * 하므로(라운드 34 L2), 남은 것은 **표기**를 그 판정에 맞추는 일이다.
    */
-  it("F9: 다 준비하지 않았으면 화면에 100%를 그리지 않는다 (반올림 100% 모순 제거)", () => {
+  it("F9 → F8: 다 준비하지 않았으면 화면에 100%를 그리지 않고, 캡 규칙은 한 곳에만 있다", () => {
     const text = itemsSource();
-    expect(text).toContain("Math.min(prepMilestone.percent, 99)");
-    // 캡은 표기에만 건다 -- 순수 모듈의 개수 판정에는 손대지 않는다.
-    expect(text).toContain("prepMilestone.isComplete");
+    // 라운드 36 F8: 캡을 화면이 다시 계산하지 않는다 -- 규칙은 순수 모듈 하나뿐이다.
+    expect(text).not.toContain("Math.min(prepMilestone.percent, 99)");
+    expect(text).not.toContain("const prepDisplayPercent");
+    expect(text).not.toContain("const prepAccessibilityLabel");
     // 화면이 percent를 직접 그리는 자리는 남지 않는다(퍼센트 텍스트·바 폭·accessibilityValue 셋 다).
     expect(text).not.toContain("{prepMilestone.percent}%");
     expect(text).not.toContain("now: prepMilestone.percent");
@@ -319,7 +355,7 @@ describe("items tab journey wiring (UX-E)", () => {
     })!;
     expect(almost.percent).toBe(100);
     expect(almost.isComplete).toBe(false);
-    expect(Math.min(almost.percent, 99)).toBe(99);
+    expect(almost.displayPercent).toBe(99);
 
     const done = buildPrepMilestoneView({
       totalCount: 200,
@@ -329,6 +365,7 @@ describe("items tab journey wiring (UX-E)", () => {
     })!;
     expect(done.isComplete).toBe(true);
     expect(done.percent).toBe(100);
+    expect(done.displayPercent).toBe(100);
   });
 
   it("keeps every UX-E surface behind the session gate so the ITEM-001 pixel-lock preview is untouched", () => {

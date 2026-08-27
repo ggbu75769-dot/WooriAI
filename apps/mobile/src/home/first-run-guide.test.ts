@@ -6,15 +6,19 @@ import {
   countUnpreparedRecommendedItems,
   evaluateHomeFirstRunGuide,
   hasPendingOfflineCreate,
+  holdHasAnyExpenseRecordDuringRefetch,
   homePendingSyncNoticeText,
   latchHasAnyExpenseRecord,
+  shouldShowHomeRecentExpensesSection,
   FIRST_EXPENSE_GUIDE_TEST_ID,
   FIRST_ITEMS_GUIDE_DISMISS_LABEL,
   FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS,
   FIRST_ITEMS_GUIDE_TEST_ID,
   HOME_PENDING_SYNC_NOTICE_TEST_ID,
+  HOME_RECENT_EXPENSES_LIMIT,
   type HomeFirstRunGuideInput
 } from "./first-run-guide";
+import { shouldCelebrateFirstRecord } from "./first-record-celebration";
 
 const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
 
@@ -24,6 +28,8 @@ function input(overrides: Partial<HomeFirstRunGuideInput> = {}): HomeFirstRunGui
     hasAnyExpenseRecord: false,
     recommendedItemCount: 3,
     recentRecordCount: 1,
+    // 라운드 36 F3: 전체 기간 신호. 기본값은 "정말 초기 사용자"(전체 1건).
+    serverRecentExpenseCount: 1,
     itemsGuideDismissed: false,
     ...overrides
   };
@@ -130,6 +136,61 @@ describe("UX-G evaluateHomeFirstRunGuide", () => {
     ).toBeNull();
   });
 
+  /**
+   * 라운드 36 F3 — 월초 경계.
+   *
+   * `recentRecordCount`는 **이번 달** 기록 수라, 1년째 쓰는 사용자도 매달 1~2일에는 0건이 되어
+   * "지금 시기 준비물 N개를 골라뒀어요" 첫 실행 안내가 되돌아왔다. 달이 바뀌는 것은 사용자의
+   * 행동이 아닌데 안내가 그것에 반응한 셈이다.
+   */
+  it("F3: 기존 사용자는 매달 초(이번 달 0건)에도 준비템 첫 안내를 다시 보지 않는다", () => {
+    const monthStart = { hasAnyExpenseRecord: true as const, recentRecordCount: 0, recommendedItemCount: 3 };
+
+    // 전체 기간 신호가 서버 LIMIT에 닿아 있으면(=3건 이상일 수 있다) 총량을 모르므로 미노출.
+    expect(
+      evaluateHomeFirstRunGuide(input({ ...monthStart, serverRecentExpenseCount: HOME_RECENT_EXPENSES_LIMIT }))
+    ).toBeNull();
+    // 그 아래 값은 그게 곧 전체 건수다 -- 진짜 초기 사용자에게는 그대로 뜬다.
+    expect(
+      evaluateHomeFirstRunGuide(input({ ...monthStart, serverRecentExpenseCount: 1 }))?.variant
+    ).toBe("first-items");
+    expect(
+      evaluateHomeFirstRunGuide(input({ ...monthStart, serverRecentExpenseCount: 2 }))?.variant
+    ).toBe("first-items");
+  });
+
+  it("F3: 전체 기간 신호를 모르면(홈 응답 없음) 준비템 안내를 만들지 않는다", () => {
+    expect(
+      evaluateHomeFirstRunGuide(input({ hasAnyExpenseRecord: true, serverRecentExpenseCount: null }))
+    ).toBeNull();
+    expect(
+      evaluateHomeFirstRunGuide(input({ hasAnyExpenseRecord: true, serverRecentExpenseCount: Number.NaN }))
+    ).toBeNull();
+  });
+
+  it("F3: 두 신호는 AND다 -- 이번 달이 조용해도 전체가 많으면 첫 실행 안내가 아니다", () => {
+    // 이번 달 1건 + 전체 3건 이상: 예전에는 떴다.
+    expect(
+      evaluateHomeFirstRunGuide(
+        input({ hasAnyExpenseRecord: true, recentRecordCount: 1, serverRecentExpenseCount: 3 })
+      )
+    ).toBeNull();
+    // 이번 달이 많으면 전체가 적어도(첫 달에 몰아 기록) 첫 실행 안내가 아니다 -- 종전 규칙 유지.
+    expect(
+      evaluateHomeFirstRunGuide(
+        input({
+          hasAnyExpenseRecord: true,
+          recentRecordCount: FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS + 1,
+          serverRecentExpenseCount: 2
+        })
+      )
+    ).toBeNull();
+  });
+
+  it("F3: 전체 기간 신호의 상한은 서버 LIMIT과 같은 숫자 하나다", () => {
+    expect(HOME_RECENT_EXPENSES_LIMIT).toBe(3);
+  });
+
   it("기록 수 게이트는 첫 지출 유도에는 걸리지 않는다 -- 기록이 0건인 것 자체가 그 카드의 조건이다", () => {
     expect(
       evaluateHomeFirstRunGuide(input({ hasAnyExpenseRecord: false, recentRecordCount: null }))?.variant
@@ -214,6 +275,149 @@ describe("라운드 35 F3 latchHasAnyExpenseRecord", () => {
   });
 });
 
+/**
+ * 라운드 36 F2 — 래치가 만들던 "전부 삭제" 구멍.
+ *
+ * 예전에는 래치 하나가 축하 배너 · 안내 카드 · 최근 지출 섹션을 모두 정했다. 래치는 거짓으로
+ * 돌아가지 않으므로, 기록 1건을 남겼다가 그 한 건을 지우면 홈이 앱 재시작 전까지 "기록이 있다"고
+ * 믿었다 -- 최근 지출 섹션은 헤더째 접히고 첫 지출 유도 카드도 뜨지 않아, 지출로 가는 큰 입구가
+ * 없는 화면이 남았다. 지금은 표시 판정이 관찰값을 쓰고, 깜빡임은 refetch 창 한정 가드가 막는다.
+ */
+describe("라운드 36 F2 프레임 가드 · 최근 지출 섹션", () => {
+  it("refetch 창 안에서만 직전 확정값을 붙든다 (동기화 확정 프레임의 깜빡임 흡수)", () => {
+    // 대기 행이 먼저 사라지고 서버 반영이 늦는 한 프레임: 관찰은 false지만 화면은 true를 유지.
+    expect(
+      holdHasAnyExpenseRecordDuringRefetch({ observed: false, isFetching: true, lastSettled: true })
+    ).toBe(true);
+    // refetch가 끝나면 즉시 손을 뗀다 -- 이것이 세션 래치와 다른 점이다.
+    expect(
+      holdHasAnyExpenseRecordDuringRefetch({ observed: false, isFetching: false, lastSettled: true })
+    ).toBe(false);
+  });
+
+  it("붙드는 방향은 사라지는 쪽 하나뿐이다 -- 방금 남긴 기록은 refetch를 기다리지 않는다", () => {
+    expect(
+      holdHasAnyExpenseRecordDuringRefetch({ observed: true, isFetching: true, lastSettled: false })
+    ).toBe(true);
+    expect(
+      holdHasAnyExpenseRecordDuringRefetch({ observed: false, isFetching: true, lastSettled: false })
+    ).toBe(false);
+    expect(
+      holdHasAnyExpenseRecordDuringRefetch({ observed: false, isFetching: true, lastSettled: null })
+    ).toBe(false);
+  });
+
+  it("\"모른다\"(null)는 어떤 경우에도 붙들지 않는다", () => {
+    expect(
+      holdHasAnyExpenseRecordDuringRefetch({ observed: null, isFetching: true, lastSettled: true })
+    ).toBeNull();
+    expect(
+      holdHasAnyExpenseRecordDuringRefetch({ observed: null, isFetching: false, lastSettled: false })
+    ).toBeNull();
+  });
+
+  it("섹션은 서버 행 · 대기 행 · \"할 말이 남은 빈 상태\" 셋 중 하나에서만 열린다", () => {
+    const base = { serverRecentExpenseCount: 0, pendingOfflineCreateCount: 0, guideVariant: null } as const;
+
+    // 1) 평소.
+    expect(
+      shouldShowHomeRecentExpensesSection({ ...base, serverRecentExpenseCount: 3, hasAnyExpenseRecord: true })
+    ).toBe(true);
+    // 2) 아직 올라가지 않은 대기 행.
+    expect(
+      shouldShowHomeRecentExpensesSection({ ...base, pendingOfflineCreateCount: 1, hasAnyExpenseRecord: true })
+    ).toBe(true);
+    // 3) 기록이 없고 유도 카드도 없다 -- 그 사실을 이 섹션이 말한다(MOB-117 빈 상태).
+    expect(shouldShowHomeRecentExpensesSection({ ...base, hasAnyExpenseRecord: false })).toBe(true);
+    // 유도 카드가 같은 말을 하고 있으면 접는다(큰 CTA 1개 + FAB).
+    expect(
+      shouldShowHomeRecentExpensesSection({ ...base, hasAnyExpenseRecord: false, guideVariant: "first-expense" })
+    ).toBe(false);
+  });
+
+  /**
+   * 이 파일의 핵심 진리표: **지출로 가는 큰 입구가 사라지는 조합이 없다**.
+   * (섹션이 접혔다) → (첫 지출 유도 카드가 떠 있다) 이거나 (목록/대기 행이 이미 보인다).
+   */
+  it("F2 진리표: 확정된 어떤 조합에서도 섹션과 유도 카드가 함께 사라지지 않는다", () => {
+    for (const serverRecentExpenseCount of [0, 1, 3]) {
+      for (const pendingOfflineCreateCount of [0, 2]) {
+        // refetch가 끝난 프레임에서는 관찰값이 두 개수와 항상 일치한다(래치가 아니므로).
+        // "아직 모름"(null)도 같은 규칙을 통과해야 한다.
+        for (const hasAnyExpenseRecord of [
+          serverRecentExpenseCount > 0 || pendingOfflineCreateCount > 0,
+          null
+        ]) {
+          const guide = evaluateHomeFirstRunGuide(input({ hasAnyExpenseRecord, serverRecentExpenseCount }));
+          const section = shouldShowHomeRecentExpensesSection({
+            serverRecentExpenseCount,
+            pendingOfflineCreateCount,
+            hasAnyExpenseRecord,
+            guideVariant: guide?.variant ?? null
+          });
+          // 섹션이 접혔다면 그 자리를 대신 말하는 것이 반드시 있다.
+          expect(section || guide?.variant === "first-expense").toBe(true);
+        }
+      }
+    }
+  });
+
+  it("F2 시나리오: 기록 1건 → 마지막 기록 삭제 → refetch 완료에서 첫 지출 안내가 돌아온다", () => {
+    // (1) 기록 1건이 있던 평소 상태.
+    const before = holdHasAnyExpenseRecordDuringRefetch({ observed: true, isFetching: false, lastSettled: null });
+    expect(before).toBe(true);
+    expect(
+      shouldShowHomeRecentExpensesSection({
+        serverRecentExpenseCount: 1,
+        pendingOfflineCreateCount: 0,
+        hasAnyExpenseRecord: before,
+        guideVariant: null
+      })
+    ).toBe(true);
+
+    // (2) 삭제 직후 refetch 중 -- 서버 캐시는 아직 그 한 건을 들고 있어 화면이 흔들리지 않는다.
+    expect(holdHasAnyExpenseRecordDuringRefetch({ observed: true, isFetching: true, lastSettled: true })).toBe(true);
+
+    // (3) refetch 완료: 관찰값이 false로 확정된다.
+    const after = holdHasAnyExpenseRecordDuringRefetch({ observed: false, isFetching: false, lastSettled: true });
+    expect(after).toBe(false);
+
+    // 첫 지출 유도 카드가 돌아오고,
+    const guide = evaluateHomeFirstRunGuide(
+      input({ hasAnyExpenseRecord: after, serverRecentExpenseCount: 0, recentRecordCount: 0 })
+    );
+    expect(guide?.variant).toBe("first-expense");
+    // 그 카드가 지출 CTA를 들고 있으므로 최근 지출 섹션은 같은 말을 반복하지 않는다.
+    expect(
+      shouldShowHomeRecentExpensesSection({
+        serverRecentExpenseCount: 0,
+        pendingOfflineCreateCount: 0,
+        hasAnyExpenseRecord: after,
+        guideVariant: guide?.variant ?? null
+      })
+    ).toBe(false);
+    // 유도 카드가 없었다면(예: 세션 밖) 섹션이 대신 그 자리를 말한다 -- 구멍이 남지 않는다.
+    expect(
+      shouldShowHomeRecentExpensesSection({
+        serverRecentExpenseCount: 0,
+        pendingOfflineCreateCount: 0,
+        hasAnyExpenseRecord: after,
+        guideVariant: null
+      })
+    ).toBe(true);
+  });
+
+  it("F2: 그 상태에서 축하 배너는 재발화하지 않는다 (래치가 남아 있는 유일한 이유)", () => {
+    // 관찰값을 그대로 흘리면 "전부 삭제 후 다시 기록"이 새 false -> true 전이가 된다.
+    expect(shouldCelebrateFirstRecord({ previous: false, next: true, alreadyCelebrated: false })).toBe(true);
+    // 래치는 참을 붙들고 있으므로 스토어가 보는 값은 true -> true다(전이 자체가 생기지 않는다).
+    expect(latchHasAnyExpenseRecord(false, true)).toBe(true);
+    expect(shouldCelebrateFirstRecord({ previous: true, next: true, alreadyCelebrated: false })).toBe(false);
+    // 설령 전이로 읽혀도 같은 세션에서 이미 축하했으면 다시 뜨지 않는다(이중 방어).
+    expect(shouldCelebrateFirstRecord({ previous: false, next: true, alreadyCelebrated: true })).toBe(false);
+  });
+});
+
 describe("라운드 35 F6 countUnpreparedRecommendedItems", () => {
   it("준비 완료 계열(prepared/gifted/not_needed)은 세지 않는다 -- 준비템 탭 축하와 어긋나지 않게", () => {
     expect(
@@ -252,6 +456,8 @@ describe("UX-G 홈 화면 배선", () => {
     );
     // 요청을 늘리지 않는다 -- 기록 수 게이트는 주간 카드가 이미 쓰는 재조정 결과를 재사용한다.
     expect(homeSource).toContain("recentRecordCount: weeklyThisMonthRecords?.length ?? null");
+    // 라운드 36 F3: 전체 기간 신호도 홈이 이미 들고 있는 응답에서 읽는다(요청 추가 없음).
+    expect(homeSource).toContain("serverRecentExpenseCount: home.data ? home.data.recentExpenses.length : null");
   });
 
   it("기록 유무 판정에 서버 최근 지출 + 오프라인 대기 신규 행을 함께 본다", () => {
@@ -260,14 +466,24 @@ describe("UX-G 홈 화면 배선", () => {
     );
   });
 
-  it("F3: 홈이 그 판정을 세션 이력으로 래치해 동기화 확정 순간의 재점멸을 막는다", () => {
+  it("F3 → 36 F2: 세션 이력 래치는 축하 배너에만 흘러간다", () => {
     expect(homeSource).toContain(
-      "const hasAnyExpenseRecord = latchHasAnyExpenseRecord(observedHasAnyExpenseRecord, everHadExpenseRecord);"
+      "const latchedHasAnyExpenseRecord = latchHasAnyExpenseRecord(observedHasAnyExpenseRecord, everHadExpenseRecord);"
     );
     expect(homeSource).toContain("state.everHadRecordChildIds[childId]");
+    // 래치의 유일한 소비자는 축하 배너 스토어다(표시 판정은 관찰값을 쓴다 -- F2).
+    expect(homeSource).toContain("observeFirstRecord(childId, latchedHasAnyExpenseRecord);");
     // 래치는 홈 쪽에서만 흡수한다 -- sync-controller의 갱신 순서는 건드리지 않는다.
     const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
     expect(controllerSource).not.toContain("latchHasAnyExpenseRecord");
+  });
+
+  it("F2: 표시 판정은 관찰값 + refetch 창 한정 프레임 가드를 쓴다 (래치 아님)", () => {
+    expect(homeSource).toContain("const hasAnyExpenseRecord = holdHasAnyExpenseRecordDuringRefetch({");
+    expect(homeSource).toContain("observed: observedHasAnyExpenseRecord,");
+    expect(homeSource).toContain("isFetching: home.isFetching,");
+    // 직전 확정값은 아이별로 기억한다 -- 아이를 바꾸면 다른 아이의 사실을 붙들면 안 된다.
+    expect(homeSource).toContain("settledHasAnyExpenseRecord");
   });
 
   it("첫 지출 유도가 떠 있는 동안에는 주간 카드가 같은 말을 반복하지 않는다", () => {
@@ -294,9 +510,11 @@ describe("UX-G 홈 화면 배선", () => {
 
   it("F2: 첫 지출 유도 카드가 떠 있는 동안에는 최근 지출 섹션을 헤더째 접는다 (큰 CTA 1개 + FAB)", () => {
     // 섹션을 그리는 조건 하나로 모은다 -- 본문만 지우고 제목("최근 지출 / 전체 보기")을 남기면
-    // 접은 자리가 고장난 것처럼 보인다. 래치가 "기록이 있다"고 아는 한 프레임(F3)도 같이 접힌다.
-    expect(homeSource).toContain("const showRecentExpensesSection =");
-    expect(homeSource).toContain('(!hasAnyExpenseRecord && firstRunGuide?.variant !== "first-expense")');
+    // 접은 자리가 고장난 것처럼 보인다. 라운드 36 F2: 판정은 순수 모듈이 하고, 유도 카드와
+    // **같은 관찰값**을 본다(래치를 쓰면 마지막 기록 삭제 후 둘 다 사라지는 구멍이 남았다).
+    expect(homeSource).toContain("const showRecentExpensesSection = shouldShowHomeRecentExpensesSection({");
+    expect(homeSource).toContain("guideVariant: firstRunGuide?.variant ?? null");
+    expect(homeSource).not.toContain('(!hasAnyExpenseRecord && firstRunGuide?.variant !== "first-expense")');
     expect(homeSource).toContain("{showRecentExpensesSection ? (");
     expect(homeSource).toContain("{!showRecentExpensesSection ? null : visibleHome.recentExpenses.length === 0 ? (");
     // FAB는 전역 관례라 유지한다 -- 근거가 주석으로 남아 있어야 다음 라운드가 다시 지우지 않는다.

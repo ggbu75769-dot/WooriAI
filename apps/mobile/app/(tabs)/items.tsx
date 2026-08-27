@@ -383,22 +383,10 @@ export default function ItemsScreen() {
   // 계산하고, 화면은 그리기만 한다. prepProgress 자체가 hasSession + !isPixelLockMode 게이트를
   // 이미 통과한 값이라 ITEM-001 픽셀 락 캡처(비세션 미리보기)에는 어느 것도 나오지 않는다.
   const prepMilestone = buildPrepMilestoneView(prepProgress);
-  // 라운드 35 F9: 화면에 **그리는** 퍼센트는 개수와 어긋나지 않는 값만 쓴다.
-  // `prepMilestone.percent`는 표시용 반올림이라 199/200이 100%가 되고, 바로 옆 헤드라인
-  // ("200개 중 199개 준비했어요")과 한 줄 안에서 서로를 부정한다(같은 이유로 구간 문구와 축하
-  // 배너는 이미 개수로 판정한다 -- prep-milestones.ts 라운드 34 L2). 아직 다 하지 않았으면 99로
-  // 캡한다: 100%는 "전부 준비했다"에만 쓰는 숫자다. 판정은 손대지 않고 표기만 정직해진다.
-  const prepDisplayPercent = prepMilestone
-    ? prepMilestone.isComplete
-      ? prepMilestone.percent
-      : Math.min(prepMilestone.percent, 99)
-    : 0;
-  // 소리로 읽히는 문장도 같은 숫자를 말해야 한다. 모듈이 미리 만든 accessibilityLabel은 캡 이전
-  // 값을 담고 있으므로, 같은 순서(개수 · 퍼센트 · 구간 문구)로 여기서 다시 조립한다 -- 문구
-  // 조각(headline/tierText)은 여전히 순수 모듈 하나에서만 나온다.
-  const prepAccessibilityLabel = prepMilestone
-    ? `${prepMilestone.headline}, ${prepDisplayPercent}%. ${prepMilestone.tierText}`
-    : "";
+  // 라운드 35 F9 → 36 F8: 화면에 **그리는** 퍼센트(개수와 어긋나지 않게 캡한 값)는 이제 순수
+  // 모듈이 `displayPercent`로 준다. 예전에는 이 캡이 화면에만 있어서, 모듈이 미리 만든
+  // accessibilityLabel은 캡 이전 값("199/200 → 100%")을 담은 채 아무도 쓰지 않고 남아 있었다.
+  // 화면은 재조립을 그만두고 모듈의 한 값을 그대로 쓴다 -- 표시 퍼센트 규칙이 한 곳이 된다.
   // 축하 배너는 "지금 보고 있는 시기"가 100%일 때만, 그리고 닫기 전까지만.
   const showPrepCelebration = Boolean(prepMilestone?.isComplete) && !dismissedCelebrationBands.has(stageLabel);
   // 100%에서 자연스럽게 이어 줄 다음 시기 칩(마지막 밴드에서는 null -- 그때는 축하만 한다).
@@ -576,8 +564,8 @@ export default function ItemsScreen() {
             <View
               accessible
               accessibilityRole="progressbar"
-              accessibilityLabel={prepAccessibilityLabel}
-              accessibilityValue={{ min: 0, max: 100, now: prepDisplayPercent }}
+              accessibilityLabel={prepMilestone.accessibilityLabel}
+              accessibilityValue={{ min: 0, max: 100, now: prepMilestone.displayPercent }}
               style={{ gap: 6 }}
             >
               <View style={{ alignItems: "baseline", flexDirection: "row", justifyContent: "space-between" }}>
@@ -585,7 +573,7 @@ export default function ItemsScreen() {
                   {prepMilestone.headline}
                 </Text>
                 <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "700", lineHeight: 20 }}>
-                  {prepDisplayPercent}%
+                  {prepMilestone.displayPercent}%
                 </Text>
               </View>
               <View style={{ backgroundColor: theme.colors.peach, borderRadius: theme.radii.pill, height: 8, overflow: "hidden" }}>
@@ -594,7 +582,7 @@ export default function ItemsScreen() {
                     backgroundColor: theme.colors.mainCoral,
                     borderRadius: theme.radii.pill,
                     height: 8,
-                    width: `${prepDisplayPercent}%`
+                    width: `${prepMilestone.displayPercent}%`
                   }}
                 />
               </View>
