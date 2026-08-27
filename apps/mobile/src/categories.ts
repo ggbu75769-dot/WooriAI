@@ -113,6 +113,62 @@ export function buildCategoryNameLookup(
 }
 
 /**
+ * Minimal structural shape of one `GET /categories` entry needed to map it onto a quick-expense
+ * tile: the id an expense is stored under, and the taxonomy `code` that says which of the 12
+ * canonical categories it is.
+ */
+export type ServerCategoryCode = { id: string; code: string };
+
+/** `categoryId` -> the 8타일 catalog id that represents it, or `null` when no tile does. */
+export type TileCategoryIdResolver = (categoryId: string) => string | null;
+
+/**
+ * 라운드 38 H-6 / H-11 — 서버 카테고리 UUID를 **이 앱의 8타일 중 하나**로 옮기는 공용 매핑.
+ *
+ * 왜 필요한가: 8타일(`categoryCatalog`)의 id는 코드에 박힌 고정 UUID지만, 엑셀 임포트나 지출
+ * 수정 화면을 거친 행은 서버가 시드한 **정식 카테고리 UUID**(DB마다 다른 랜덤 값,
+ * `categorySeeds`)를 달고 들어온다. 두 값은 같은 분류를 가리키면서도 문자열이 다르므로,
+ * id 완전 일치만 보는 코드는 그런 행에서 전부 "모르는 분류"로 떨어진다 — "또 기록"은 카테고리
+ * 복사에 실패하고(H-6), 입력 화면 맥락 줄은 카테고리 항을 통째로 생략한다(H-11).
+ *
+ * 다리 역할을 하는 것이 `code`다. `["categories"]` 캐시(전량 21행 규약)가 `id -> code`를 주고,
+ * `categoryCatalog`이 `code -> 타일 id`를 준다. 그래서 **새 요청 없이** 이미 받아 둔 목록만으로
+ * 매핑이 된다. 캐시가 없으면(콜드 스타트·오프라인 첫 실행) 매핑도 없다 — 그때는 id 완전 일치만
+ * 남아 종전 동작 그대로다(지어낸 분류를 쓰느니 모른다고 말한다).
+ *
+ * 판단 두 가지:
+ * - 타일 id는 **그대로 통과**시킨다. 8타일의 별칭 행(`mobileCategoryAliasSeeds`, code
+ *   `mobile_*`)은 애초에 타일과 같은 id라 이 규칙 하나로 해결되고, 캐시가 비어 있어도 동작한다.
+ * - 한 code에 타일이 둘인 경우(`feeding_babyfood` = "분유/유제품"과 "식비")는 **카탈로그 순서상
+ *   첫 타일**로 보낸다. 서버 code만으로는 둘을 구별할 수 없으므로 어느 쪽이든 임의 선택이고,
+ *   결정적(deterministic)이기만 하면 같은 행이 화면마다 다른 타일로 가는 일은 없다.
+ * - 8타일에 대응 code가 없는 분류(임신/산모·수면/가구·보험/저축 …)와 임포트 스텁
+ *   (`import_stub_default`)은 `null`이다. 이 화면이 고를 수 없는 분류를 지어내지 않는다.
+ */
+export function buildTileCategoryIdResolver(
+  categories: readonly ServerCategoryCode[] | null | undefined
+): TileCategoryIdResolver {
+  const tileIds = new Set(categoryCatalog.map((entry) => entry.id));
+  const tileIdByCode = new Map<string, string>();
+  for (const entry of categoryCatalog) {
+    if (!tileIdByCode.has(entry.code)) tileIdByCode.set(entry.code, entry.id);
+  }
+  const codeById = new Map<string, string>();
+  for (const category of categories ?? []) {
+    const code = category?.code?.trim();
+    if (category?.id && code) codeById.set(category.id, code);
+  }
+
+  return (categoryId: string) => {
+    if (typeof categoryId !== "string" || categoryId.length === 0) return null;
+    if (tileIds.has(categoryId)) return categoryId;
+    const code = codeById.get(categoryId);
+    if (!code) return null;
+    return tileIdByCode.get(code) ?? null;
+  };
+}
+
+/**
  * Minimal structural shape needed to decide whether a `GET /categories` entry belongs in a
  * user-facing picker: the id (chip key / stored value), the taxonomy `code` (which seed bundle
  * it came from) and the display `name` (what a duplicate looks like to the user).

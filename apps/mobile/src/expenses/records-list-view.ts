@@ -208,6 +208,102 @@ export function buildRecordsFilterScopeSummary(input: {
 }
 
 /**
+ * 라운드 39 UX-P: 기록 탭 상단 **월 요약 줄** — "2026년 8월 42건 · 합계 1,200,000원".
+ *
+ * 무엇이 문제였나: 이 줄은 달을 옮겨도 늘 "이번 달 N건 · 합계 …"라고 적혀 있었다. 화면 바로
+ * 위 월 이동 라벨은 "2026년 6월"인데 그 아래 줄은 "이번 달"이라고 말하니, 같은 화면 안에서
+ * 두 문장이 서로 다른 달을 가리켰다. 아래 합계 카드는 진작부터 `{recordsMonthLabel} 합계`였으므로
+ * 표기가 셋으로 갈려 있던 셈이다(DNC-018 톤 일관성, 허위 표시 금지).
+ *
+ * 고치는 방향은 **화면이 이미 들고 있는 달 라벨을 그대로 쓰는 것**이다 — 새 날짜 계산을
+ * 하지 않으므로 라벨이 어긋날 여지 자체가 없다(월 이동 라벨·합계 카드·이 줄이 한 문자열).
+ * 이번 달을 보고 있으면 "2026년 8월 …"이 되어 종전의 "이번 달 …"보다 오히려 더 명확하다.
+ *
+ * 접근성 라벨은 F8 스코프 줄·날짜 섹션 헤더와 같은 관례다 — "·"를 쉼표로 풀고 금액 앞에
+ * "합계"를 붙인다.
+ */
+export function buildRecordsMonthSummary(input: {
+  monthLabel: string;
+  /** 그 달의 행 수(선물·환불 포함 — 위 스코프 줄과 같은 관례). */
+  recordCount: number;
+  /** 그 달의 합계(DNC-015 countsTowardMonthlyTotal 기준). */
+  totalKrw: number;
+}): { text: string; accessibilityLabel: string } {
+  const monthLabel = input.monthLabel.trim();
+  const recordCount = nonNegativeInteger(input.recordCount);
+  const amountText = formatKrw(nonNegativeInteger(input.totalKrw));
+  // 라벨을 모르면 없는 달 이름을 지어내지 않는다 — 건수·합계만 말한다(허위 표시보다 생략).
+  const prefix = monthLabel.length > 0 ? `${monthLabel} ` : "";
+  return {
+    text: `${prefix}${recordCount}건 · 합계 ${amountText}`,
+    accessibilityLabel: `${prefix}${recordCount}건, 합계 ${amountText}`
+  };
+}
+
+/**
+ * 라운드 39 UX-P: 기록 탭 검색의 **범위 고지** 한 줄.
+ *
+ * 무엇이 문제였나: 이 화면의 검색은 `["expenses", childId, recordsYearMonth]` — 즉 **보고 있는
+ * 한 달치 응답**에만 걸린다. 그런데 화면 어디에도 그 사실이 없어서, "유모차"를 검색해 0건이
+ * 나오면 사용자는 "이 앱에 유모차 기록이 없다"고 읽는다. 실제로는 지난달에 적어 뒀을 뿐이다.
+ * 검색창의 placeholder("품목명, 메모로 검색")도 범위를 말하지 않는다.
+ *
+ * 그래서 **검색어가 있을 때만** 요약 줄 아래 한 줄로 범위를 밝힌다. 검색을 하지 않는 동안에는
+ * `null`이라 화면이 한 글자도 바뀌지 않는다(F8 스코프 줄과 같은 규칙).
+ *
+ * 검색어를 문장에 그대로 싣는 이유: 무엇을 어디에서 찾았는지가 한 문장에 다 있어야 0건 카드의
+ * "지난달에서 찾기"가 무슨 뜻인지 따로 설명하지 않아도 된다. 검색어는 사용자가 방금 친 값이고
+ * 화면(검색창)에 이미 그대로 보이므로 새로 노출되는 정보가 없다.
+ */
+export function buildRecordsSearchScopeNotice(input: {
+  /** 검색어 원본(트림 전). */
+  searchText?: string | null;
+  /** 보고 있는 달의 라벨 — 화면의 월 이동 라벨과 **같은 문자열**을 넘긴다. */
+  monthLabel: string;
+}): string | null {
+  const query = input.searchText?.trim() ?? "";
+  const monthLabel = input.monthLabel.trim();
+  // 검색 중이 아니거나 달 라벨을 모르면 아무 말도 하지 않는다 — 범위를 반만 말하면
+  // "어디에서만"이 빠져 고지의 의미가 없다.
+  if (query.length === 0 || monthLabel.length === 0) return null;
+  return `'${query}' 검색은 ${monthLabel} 안에서만 찾아요`;
+}
+
+/** 0건 카드에서 검색어를 유지한 채 이전 달로 넘어가는 보조 액션의 라벨. */
+export const RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL = "지난달에서 찾기";
+
+/**
+ * 라운드 39 UX-P: 검색 0건 카드의 **보조 액션**.
+ *
+ * 기존 0건 카드의 유일한 액션은 "검색어 지우기"였다 — 즉 앱이 제안하는 유일한 다음 행동이
+ * "찾기를 포기하는 것"이었다. 정작 사용자가 하려던 일(그 물건을 언제 샀는지 찾기)은 대개 한 달
+ * 뒤에 있고, 그 이동은 이미 화면에 있는 ‹ 버튼 하나다. 그래서 같은 이동을 카드 안에서 바로
+ * 제안한다 — **검색어는 건드리지 않으므로**(달만 바뀐다) 넘어간 달에서 같은 검색이 이어진다.
+ *
+ * 라벨은 상대 표현("지난달")이고 접근성 라벨은 **실제 달 이름**을 말한다: 버튼 자리가 좁아
+ * 짧은 쪽이 읽기 쉽지만, 스크린리더에서는 지금 보고 있는 달이 무엇인지 모른 채 듣게 되므로
+ * "2026년 7월에서 '유모차' 계속 찾기"가 되어야 어디로 가는지가 문장 안에 있다.
+ */
+export function buildRecordsSearchPreviousMonthAction(input: {
+  /** 검색어 원본(트림 전). 비어 있으면 이 액션 자체가 없다. */
+  searchText?: string | null;
+  /** 이동해 갈 달의 라벨(현재 달의 한 달 전) — 화면이 월 이동에 쓰는 것과 같은 계산에서 온다. */
+  previousMonthLabel: string;
+}): { label: string; accessibilityLabel: string } | null {
+  const query = input.searchText?.trim() ?? "";
+  if (query.length === 0) return null;
+  const monthLabel = input.previousMonthLabel.trim();
+  return {
+    label: RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL,
+    // 달 이름을 모르면 지어내지 않고 보이는 라벨을 그대로 읽어준다.
+    accessibilityLabel:
+      monthLabel.length > 0
+        ? `${monthLabel}에서 '${query}' 계속 찾기`
+        : RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL
+  };
+}
+
+/**
  * HOME-124: "YYYY-MM-DD"(서버 toExpenseDto의 date-only 포맷) → "8월 4일".
  *
  * 원래 app/(tabs)/records.tsx 안의 파일 지역 함수였는데, 홈의 "최근 지출" 행(app/(tabs)/index.tsx)이

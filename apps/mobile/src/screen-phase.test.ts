@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { usesOfflineAwareLoadErrorCopy } from "./offline/offline-aware-screens";
 import { resolveScreenPhase } from "./screen-phase";
 
 const mobileRoot = process.cwd();
@@ -64,17 +65,20 @@ describe("MOB-130 resolveScreenPhase", () => {
  */
 describe("MOB-130 screen branch-order contract", () => {
   /**
-   * UX-N: `offlineAwareCopy`는 그 화면이 조회 실패 문구를 오프라인 여부로 갈라 쓰는지를 뜻한다.
+   * UX-N: "이 화면이 조회 실패 문구를 오프라인 여부로 갈라 쓰는가"는 여기서 손으로 적지 않는다.
    * 갈라 쓰는 화면은 문구가 더 이상 JSX 리터럴이 아니라 useLoadErrorCopy가 돌려주는 값이므로,
    * 문자열 대신 **그 공용 단일 소스를 쓴다는 사실**을 고정한다(문구 자체는
-   * src/offline/messages.test.ts가 고정). 아직 배선되지 않은 화면(홈·가족)은 예전 리터럴 그대로다
-   * — 다음 라운드에 배선되면 이 플래그만 켜면 된다.
+   * src/offline/messages.test.ts가 고정).
+   *
+   * 라운드 38 H-12: 같은 사실이 이 파일과 loading-skeleton-contract.test.ts에 두 벌로 적혀 있어
+   * 서로 갈릴 수 있었다(한쪽만 켜면 다른 쪽은 옛 리터럴을 계속 기대한다). 이제 두 파일 모두
+   * src/offline/offline-aware-screens.ts 한 곳을 읽는다.
    */
   const screens = [
-    { path: "app/(tabs)/index.tsx", query: "home", phase: "homePhase", offlineAwareCopy: false },
-    { path: "app/(tabs)/items.tsx", query: "items", phase: "itemsPhase", offlineAwareCopy: true },
-    { path: "app/family/index.tsx", query: "members", phase: "membersPhase", offlineAwareCopy: false },
-    { path: "app/items/[itemTemplateId].tsx", query: "detail", phase: "detailPhase", offlineAwareCopy: true }
+    { path: "app/(tabs)/index.tsx", query: "home", phase: "homePhase" },
+    { path: "app/(tabs)/items.tsx", query: "items", phase: "itemsPhase" },
+    { path: "app/family/index.tsx", query: "members", phase: "membersPhase" },
+    { path: "app/items/[itemTemplateId].tsx", query: "detail", phase: "detailPhase" }
   ] as const;
 
   for (const screen of screens) {
@@ -98,7 +102,7 @@ describe("MOB-130 screen branch-order contract", () => {
 
       // 에러 카드는 계속 재시도 수단을 단 EmptyStateCard다 -- 오프라인에서도 버튼은 숨기지 않는다.
       const errorBlock = source.slice(errorBranch, loadingBranch);
-      if (screen.offlineAwareCopy) {
+      if (usesOfflineAwareLoadErrorCopy(screen.path)) {
         expect(source).toContain('from "../../src/offline/use-load-error-copy"');
         expect(source).toContain(`const loadErrorCopy = useLoadErrorCopy(${screen.query}.isError);`);
         expect(errorBlock).toContain("title={loadErrorCopy.title}");

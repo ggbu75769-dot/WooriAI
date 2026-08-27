@@ -156,6 +156,21 @@ export function selectUnreadCount(entries: AppNotification[]): number {
   return entries.reduce((count, entry) => (entry.readAt === undefined ? count + 1 : count), 0);
 }
 
+/**
+ * 라운드 39 UX-O: 알림함을 여는 **그 순간** 아직 안 읽은 항목들의 id.
+ *
+ * 알림함은 포커스와 동시에 전부 읽음 처리하므로(app/notifications.tsx의 markAllRead), 화면에
+ * 그려지는 20줄은 방금 들어온 소식이든 지난주에 본 것이든 모양이 완전히 같았다 -- "새 소식"이
+ * 어느 것인지 알 방법이 없다. 화면이 이 스냅샷을 마운트 시 한 번만 떠서, 그 목록에 든 행에만
+ * 시각 구분과 스크린 리더 접두를 붙인다.
+ *
+ * dedupe·readAt 규칙은 건드리지 않는다: 이건 읽기 전용 selector이고, 읽음 처리는 지금까지처럼
+ * markAllRead가 한다. 스냅샷이 화면 상태로만 살아 있으므로 다시 들어오면 자연히 사라진다.
+ */
+export function selectUnreadNotificationIds(entries: AppNotification[]): string[] {
+  return entries.filter((entry) => entry.readAt === undefined).map((entry) => entry.id);
+}
+
 /** Marks every unread entry read. Returns the SAME array when nothing was unread so store
  * subscribers (e.g. the focus-effect in app/notifications.tsx) don't loop on no-op updates. */
 export function markAllNotificationsRead(entries: AppNotification[], now: number): AppNotification[] {

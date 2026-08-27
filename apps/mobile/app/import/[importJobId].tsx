@@ -139,7 +139,12 @@ export default function ImportPreviewScreen() {
   return (
     <AppScreen>
       <View testID="screen-IMP-003" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="데이터 가져오기" title="가져오기 진행 상황" subtitle="분석 결과를 확인하고 가져올 항목을 골라요" />
+        <ScreenHeader
+          eyebrow="데이터 가져오기"
+          title="가져오기 진행 상황"
+          subtitle="분석 결과를 확인하고 가져올 항목을 골라요"
+          onBack={() => router.back()}
+        />
 
         {job.isLoading ? (
           <Card>

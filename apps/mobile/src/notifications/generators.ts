@@ -4,6 +4,7 @@ import {
   PURCHASE_FOLLOWUP_MIN_AGE_MS,
   type PurchaseFollowupEntry
 } from "../commerce/purchase-followup.store";
+import { budgetUsagePercent } from "../home/budget-progress";
 import type { WeeklySummary } from "../home/weekly-summary";
 import { formatKrw } from "../money";
 import { seoulIsoWeekKey } from "./iso-week";
@@ -248,8 +249,13 @@ export type WeeklySummaryInput = {
  *   - zero (or negative/invalid) month-to-date spend: return null -- a "0원 지금까지" summary is
  *     pure noise.
  *   - budget unset (amountKrw 0 from the home API): still fire, total only, no percentage.
- *   - budget set: "예산의 NN%" with NN = Math.round(spent/budget*100) -- may legitimately read
- *     0% for tiny spend or exceed 100% when over budget.
+ *   - budget set: "예산의 NN%" with NN from `budgetUsagePercent` (src/home/budget-progress.ts) --
+ *     may legitimately read 0% for tiny spend or exceed 100% when over budget (`clampToFull:
+ *     false`: 초과 구간을 100으로 접지 않는다 -- 여기에는 프로그레스 바가 없고 초과 사실을 숨길
+ *     이유도 없다).
+ *     라운드 38 H-3: 그 반올림을 여기서 직접 하던 동안, 99.5%~99.99%인 달에 홈은 "남은 예산 N원 ·
+ *     99%"인데 이 알림만 "예산의 100%예요"라고 말했다(홈의 미소진 100% 캡을 알림이 몰랐다).
+ *     같은 함수를 쓰므로 이제 그 경계에서 두 화면이 갈릴 수 없다.
  */
 export function weeklySummaryNotification(input: WeeklySummaryInput): AppNotificationCandidate | null {
   const { childId, childName, now } = input;
@@ -276,7 +282,7 @@ function weeklySummaryTitle(input: WeeklySummaryInput): string | null {
   }
   if (!Number.isFinite(spentKrw) || spentKrw <= 0) return null;
   return budgetKrw > 0
-    ? `이번 달 지금까지 ${formatKrw(spentKrw)} · 예산의 ${Math.round((spentKrw / budgetKrw) * 100)}%예요`
+    ? `이번 달 지금까지 ${formatKrw(spentKrw)} · 예산의 ${budgetUsagePercent({ budgetKrw, spentKrw, clampToFull: false })}%예요`
     : `이번 달 지금까지 ${formatKrw(spentKrw)}을 함께했어요`;
 }
 

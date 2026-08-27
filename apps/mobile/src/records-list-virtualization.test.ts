@@ -85,7 +85,12 @@ describe("PERF-102 records list virtualization (source verification -- follows t
 
   it("shows the lightweight month summary line from already-fetched data only", () => {
     const src = recordsSource();
-    expect(src).toContain("이번 달 ${monthlyRecordCount}건 · 합계 ${formatKrw(monthlyTotalKrw)}");
+    // 라운드 39 UX-P: 문구는 보고 있는 달의 라벨에서 나온다(더 이상 "이번 달" 하드코딩이 아니다).
+    expect(src).toContain("const monthSummary = buildRecordsMonthSummary({");
+    expect(src).toContain("monthLabel: recordsMonthLabel,");
+    expect(src).toContain("recordCount: monthlyRecordCount,");
+    expect(src).toContain("totalKrw: monthlyTotalKrw");
+    expect(src).not.toContain("이번 달 ${monthlyRecordCount}건");
     // No new API surface was added for the summary -- it derives from the existing
     // listExpenses query + offline snapshot reconciliation.
     // REC-123(D1)이 그 아래 붙인 "지난달 같은 시점" 한 줄은 홈(REP-121)과 **같은 캐시 키**

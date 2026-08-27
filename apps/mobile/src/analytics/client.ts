@@ -18,7 +18,9 @@ export type AnalyticsEventName =
   // ANA-127: 구매 루프 퍼널의 빈 중간 단계 -- 상세 열람과 구매 확인 응답.
   | "item_detail_viewed"
   | "affiliate_link_clicked"
-  | "purchase_followup_answered";
+  | "purchase_followup_answered"
+  // 라운드 39 UX-P: 리포트 공유 버튼 탭(월간 요약 · 마일스톤). 공유 시트를 띄운 것까지만 센다.
+  | "report_share_tapped";
 
 export type AnalyticsEnvelope = {
   eventName: AnalyticsEventName;

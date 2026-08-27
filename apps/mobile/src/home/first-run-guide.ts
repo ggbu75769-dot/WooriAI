@@ -40,16 +40,15 @@
  *     되돌아왔다(달이 바뀌는 것은 사용자의 행동이 아닌데 안내가 그것에 반응했다). 그래서
  *     **전체 기간 신호**를 함께 요구한다: `serverRecentExpenseCount`(`/home`의 recentExpenses
  *     길이). 그 목록은 서버에서 LIMIT 3이라 길이가 3이면 "3건 이상"이라는 뜻일 뿐 총량을 모른다.
- *   - 라운드 37 G-6: 그 "모르면 띄우지 않는다"를 `>= 3` 차단으로 옮겨 적었더니, 위 ①의 계약
- *     (`FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS` **이하**는 허용)과 정확히 3에서 부딪혔다 —
- *     첫 세션에 3건을 기록한 신규 사용자는 두 신호가 모두 3이라 준비물 안내를 **영영** 못 봤다
- *     (이 카드는 첫 10분용이라 "다음에"가 없다). 이제 두 신호를 따로 자르지 않고 한 문장으로
- *     읽는다: 서버 목록이 LIMIT에 닿아 총량을 모를 때는, **그 3건이 전부 이번 달 것인지**를
- *     본다(`recentRecordCount >= HOME_RECENT_EXPENSES_LIMIT`). 전부 이번 달 것이면 이 기기가
- *     아는 기록은 이번 달 3건이 전부이므로 ①의 "막 시작한 사람"과 같은 그림이고, 이번 달이
- *     그보다 적으면(월초 0건·1건) 서버 목록의 나머지는 지난달 이전의 기록이라는 뜻이라 F3의
- *     장기 사용자다 — 그때는 그대로 차단한다. 즉 두 경계는 이제 같은 숫자 하나
- *     (`HOME_RECENT_EXPENSES_LIMIT`)를 공유한다.
+ *   - 라운드 37 G-6 → 38 H-5: 한때 이 게이트는 "서버 목록이 LIMIT(3)에 닿았어도 **그 3건이
+ *     전부 이번 달 것이면** 막 시작한 사람"이라는 예외를 뒀다(`recentRecordCount >= 3`이면 통과).
+ *     그런데 그 예외는 **8개월째 쓰는 사용자가 이번 달에 정확히 3건**을 기록한 상태와 구별되지
+ *     않는다 — 서버 목록은 LIMIT 3이라 "3건 이상"까지만 말해 주고, 이번 달 3건이 그 3건과 같은
+ *     것인지 알 방법이 없다. 구별할 수 없는 두 상태에 다른 화면을 주려던 것이 오류였다.
+ *     그래서 예외를 없애고 **노출 상한을 2로 내린다**(`FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS`):
+ *     이 카드의 목적은 기록 0~2건일 때의 초기 유도이고, 3건째부터는 이미 루프를 돌고 있는
+ *     사람이라 첫 실행 안내가 방해가 된다. 상한이 LIMIT보다 **작아진** 덕분에 두 게이트가 더는
+ *     같은 숫자에서 부딪히지 않는다 — 서버 목록이 LIMIT에 닿으면(총량을 모른다) 그냥 막는다.
  *   - 개수는 **아직 준비되지 않은 추천만** 센다(`countUnpreparedRecommendedItems`). 준비템 탭이
  *     "지금 시기 준비, 모두 마쳤어요"를 띄우는 아이에게 홈이 "준비물 3개를 골라뒀어요"라고
  *     말하면 두 화면이 서로를 부정한다. 0개면 카드를 만들지 않는다(위 규칙과 동일).
@@ -128,18 +127,19 @@ export const FIRST_ITEMS_GUIDE_DISMISS_LABEL = "닫기";
  */
 export const HOME_RECENT_EXPENSES_LIMIT = 3;
 /**
- * 준비템 첫 안내를 띄울 "이번 달 기록 수" 상한.
+ * 준비템 첫 안내를 띄울 "이번 달 기록 수" 상한 — 즉 **기록 0~2건**일 때만 띄운다.
  *
- * 3인 이유: 첫 지출 유도 카드가 사라지는 순간(1건)부터 몇 건 안에 준비템 탭으로 한 번 데려가는
- * 것이 이 카드의 목적이다. 그보다 많이 기록한 사람은 이미 루프를 돌고 있으므로 첫 실행 안내가
- * 아니라 방해가 된다. 값 자체에 마법은 없고, "한 자릿수 초반"이면 같은 판단이다.
+ * 첫 지출 유도 카드가 사라지는 순간(1건)부터 몇 건 안에 준비템 탭으로 한 번 데려가는 것이 이
+ * 카드의 목적이다. 그보다 많이 기록한 사람은 이미 루프를 돌고 있으므로 첫 실행 안내가 아니라
+ * 방해가 된다.
  *
- * 라운드 37 G-6: 그 숫자를 `HOME_RECENT_EXPENSES_LIMIT`에서 **파생**시킨다. 두 값이 우연히
- * 같은 3이던 동안 한쪽은 "3까지 허용", 다른 쪽은 "3부터 차단"으로 갈라져 정확히 3에서
- * 서로를 잘랐다. 이제 경계가 하나뿐이므로 그 모순이 다시 생길 수 없다 — 서버 목록이 잘리는
- * 지점이 곧 "이 기기가 총량을 아는 마지막 건수"이고, 그 안에서의 기록은 전부 첫 실행으로 본다.
+ * 라운드 38 H-5: 그 상한을 `HOME_RECENT_EXPENSES_LIMIT`보다 **하나 작게** 잡는다(3 → 2). 두 값이
+ * 같은 3이던 동안에는 "서버 목록이 3이면 총량을 모른다"는 F3 게이트와 "이번 달 3건까지는 첫
+ * 실행"이라는 이 상한이 정확히 3에서 겹쳤고, 그 겹침을 통과시키는 예외(G-6)가 곧 8개월째 쓰는
+ * 사용자의 "이번 달 3건"까지 함께 통과시키는 구멍이 됐다(둘은 서버 LIMIT 3으로는 구별할 수
+ * 없다). 상한이 LIMIT보다 작으면 두 게이트의 경계가 겹치지 않으므로 예외 자체가 필요 없다.
  */
-export const FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS = HOME_RECENT_EXPENSES_LIMIT;
+export const FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS = HOME_RECENT_EXPENSES_LIMIT - 1;
 
 function firstExpenseGuide(): HomeFirstRunGuide {
   const title = "첫 지출을 기록해 보세요";
@@ -187,16 +187,10 @@ export function evaluateHomeFirstRunGuide(input: HomeFirstRunGuideInput): HomeFi
   if (typeof input.serverRecentExpenseCount !== "number" || !Number.isFinite(input.serverRecentExpenseCount)) {
     return null;
   }
-  // 라운드 37 G-6: 서버 목록이 LIMIT에 닿았다 = 총량을 모른다. 그때는 "그 목록이 전부 이번 달
-  // 것인가"로 가른다. 이번 달 기록이 그만큼 있으면(신규 사용자가 첫 세션에 3건) 이 기기가 아는
-  // 기록은 전부 이번 달 것이라 ①의 그림과 같고, 이번 달이 그보다 적으면(월초 0~2건) 나머지는
-  // 지난달 이전 기록이라는 뜻이라 F3의 장기 사용자다 -- 그때만 차단한다.
-  if (
-    input.serverRecentExpenseCount >= HOME_RECENT_EXPENSES_LIMIT &&
-    input.recentRecordCount < HOME_RECENT_EXPENSES_LIMIT
-  ) {
-    return null;
-  }
+  // 라운드 38 H-5: 서버 목록이 LIMIT에 닿았다 = 전체 기간 총량을 **모른다**. 모르는 상태에
+  // 첫 실행 안내를 띄우지 않는다는 규칙 그대로 차단한다(G-6의 "그 목록이 전부 이번 달 것인가"
+  // 예외는 8개월 사용자의 '이번 달 3건'과 구별할 수 없어 폐기했다 -- 위 헤더 참고).
+  if (input.serverRecentExpenseCount >= HOME_RECENT_EXPENSES_LIMIT) return null;
   // F6 ②: 이미 준비를 마친 항목은 세지 않는다(호출부가 countUnpreparedRecommendedItems로 센 값).
   const count = Number.isInteger(input.recommendedItemCount) ? input.recommendedItemCount : 0;
   if (count <= 0) return null;

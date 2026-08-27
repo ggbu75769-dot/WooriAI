@@ -12,7 +12,8 @@ import {
   buildExpenseRecordedPayload,
   buildItemDetailViewedPayload,
   buildItemStatusChangedPayload,
-  buildPurchaseFollowupAnsweredPayload
+  buildPurchaseFollowupAnsweredPayload,
+  buildReportShareTappedPayload
 } from "./events";
 import { useAnalyticsConsentStore } from "./flag";
 
@@ -164,6 +165,23 @@ describe("payload builders (registry-shaped, PII-safe by construction)", () => {
     expect(Object.keys(payload)).toEqual(["answer"]);
     expect(payload).toEqual({ answer: "purchased" });
   });
+
+  // 라운드 39 UX-P: 리포트 공유 탭.
+  it("builds a report_share_tapped v1 payload carrying only which report was shared", () => {
+    for (const reportType of ["monthly", "milestone"] as const) {
+      const payload = buildReportShareTappedPayload({ reportType });
+      expect(Object.keys(payload)).toEqual(["reportType"]);
+      expect(payload).toEqual({ reportType });
+    }
+  });
+
+  it("공유 문구의 애칭·금액은 payload에 실리지 않는다 (기기를 떠나는 것은 enum 하나뿐)", () => {
+    const payload = buildReportShareTappedPayload({ reportType: "monthly" });
+    // 필드가 하나이고 그 값이 enum 리터럴이라는 사실 자체가 PII 안전성의 근거다.
+    expect(Object.keys(payload)).toHaveLength(1);
+    expect(typeof payload.reportType).toBe("string");
+    expect(JSON.stringify(payload)).not.toMatch(/[0-9]/);
+  });
 });
 
 /**
@@ -190,6 +208,24 @@ describe("ANA-127 payload literals stay in lockstep with the contracts registry"
   it("registers both new events at version 1", () => {
     expect(contractsSource).toContain('eventName: "item_detail_viewed", eventVersion: 1');
     expect(contractsSource).toContain('eventName: "purchase_followup_answered", eventVersion: 1');
+  });
+
+  /**
+   * 라운드 39 UX-P: 수집 엔드포인트는 레지스트리에 없는 이벤트를 EVENT_NOT_REGISTERED로 버린다
+   * (apps/api/src/analytics/analytics.service.ts). 모바일 유니온에만 이름을 더하면 이벤트가
+   * 발사되고도 전부 거부되는 "죽은 계측"이 되므로, 두 쪽을 함께 고정한다.
+   */
+  it("라운드 39 UX-P: report_share_tapped도 계약 레지스트리에 등록돼 있다 (죽은 계측 금지)", () => {
+    expect(contractsSource).toContain('eventName: "report_share_tapped", eventVersion: 1');
+    expect(literals("REPORT_SHARE_TYPES")).toEqual(["monthly", "milestone"]);
+    // 모바일 유니온·빌더가 같은 리터럴을 쓴다.
+    const clientSource = readFileSync(join(mobileRoot, "src/analytics/client.ts"), "utf8");
+    expect(clientSource).toContain('| "report_share_tapped"');
+    for (const reportType of literals("REPORT_SHARE_TYPES")) {
+      expect(buildReportShareTappedPayload({ reportType: reportType as "monthly" | "milestone" }).reportType).toBe(
+        reportType
+      );
+    }
   });
 });
 
@@ -244,6 +280,23 @@ describe("newly wired events respect the consent gate", () => {
 
     expect(getQueuedAnalyticsEventCount()).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // 라운드 39 UX-P: 리포트 공유 이벤트도 같은 동의 게이트 뒤에서만 발사된다.
+  it("drops report_share_tapped while consent is OFF, and queues it once consent is ON", () => {
+    trackAnalyticsEvent({
+      eventName: "report_share_tapped",
+      payload: buildReportShareTappedPayload({ reportType: "monthly" })
+    });
+    expect(getQueuedAnalyticsEventCount()).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    useAnalyticsConsentStore.getState().setEnabled(true);
+    trackAnalyticsEvent({
+      eventName: "report_share_tapped",
+      payload: buildReportShareTappedPayload({ reportType: "milestone" })
+    });
+    expect(getQueuedAnalyticsEventCount()).toBe(1);
   });
 
   it("queues item_detail_viewed / purchase_followup_answered once consent is ON", () => {

@@ -255,6 +255,26 @@ describe("NOTI-103 weekly_summary generator (monthly-pace variant)", () => {
     expect(weeklySummaryNotification({ ...base, spentKrw: 1_200_000 })!.title).toContain("예산의 120%예요");
   });
 
+  /**
+   * 라운드 38 H-3 — 홈이 99%라 말하는 달에 알림만 100%였다.
+   *
+   * 홈 히어로·넛지는 "아직 다 쓰지 않았는데 반올림만으로 100%가 되는 구간"을 99로 캡한다
+   * (budget-progress.ts G-2). 이 폴백 문구는 그 규칙을 몰라서, 남은 예산이 5,000원 있는 달에도
+   * "예산의 100%예요"라고 말했다. 이제 두 곳이 같은 함수를 쓴다.
+   */
+  it("H-3: 미소진 구간의 반올림 100%는 홈과 같은 규칙으로 99%가 된다", () => {
+    const boundary = { ...base, budgetKrw: 1_000_000 };
+    // 99.4% -- 반올림해도 100이 아니다(종전과 동일).
+    expect(weeklySummaryNotification({ ...boundary, spentKrw: 994_000 })!.title).toContain("예산의 99%예요");
+    // 99.5% / 99.99% -- 종전에는 여기서만 알림이 "100%"였다.
+    expect(weeklySummaryNotification({ ...boundary, spentKrw: 995_000 })!.title).toContain("예산의 99%예요");
+    expect(weeklySummaryNotification({ ...boundary, spentKrw: 999_900 })!.title).toContain("예산의 99%예요");
+    // 실제로 다 쓴 달에만 100%다.
+    expect(weeklySummaryNotification({ ...boundary, spentKrw: 1_000_000 })!.title).toContain("예산의 100%예요");
+    // 초과 구간은 종전대로 그대로 말한다(여기에는 프로그레스 바가 없다).
+    expect(weeklySummaryNotification({ ...boundary, spentKrw: 1_200_000 })!.title).toContain("예산의 120%예요");
+  });
+
   it("still fires with total only when no budget is set (amountKrw 0), without a percentage", () => {
     const candidate = weeklySummaryNotification({ ...base, budgetKrw: 0 });
     expect(candidate).toEqual({

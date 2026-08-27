@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "./budget-progress";
+import { budgetUsagePercent, buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "./budget-progress";
 
 describe("HOME-127 예산 미설정 홈 판정 (evaluateHomeBudgetProgress)", () => {
   it("예산이 0이면 퍼센트를 만들지 않는다 -- 지출이 있어도 100%가 아니다", () => {
@@ -115,6 +115,52 @@ describe("HOME-127 예산 미설정 홈 판정 (evaluateHomeBudgetProgress)", ()
   });
 });
 
+/**
+ * 라운드 38 H-3 — 사용률 계산의 단일 소스.
+ *
+ * 홈은 "아직 다 쓰지 않았는데 반올림만으로 100%가 되는 구간"을 99로 캡하는데(G-2), 주간 알림은
+ * 같은 달에 자기 식으로 반올림해 "예산의 100%예요"라고 말했다. 두 화면이 같은 사실을 다르게
+ * 말하지 않도록 계산을 이 함수 하나로 모았다.
+ */
+describe("H-3 예산 사용률 (budgetUsagePercent)", () => {
+  it("미소진 구간의 반올림 100%는 99로 캡한다 -- 홈·알림이 같은 숫자를 쓴다", () => {
+    const cases = [
+      // [지출, clampToFull=true, clampToFull=false]
+      [99_400, 99, 99],
+      // 99.5% -- Math.round만 하면 100이 되던 자리(이 캡이 없으면 알림만 100%였다).
+      [99_500, 99, 99],
+      [99_990, 99, 99],
+      // 실제로 다 쓴 달에만 100%가 나온다.
+      [100_000, 100, 100],
+      // 초과: 홈은 프로그레스 바 때문에 100으로 물리고, 알림은 초과율을 그대로 말한다.
+      [120_000, 100, 120]
+    ] as const;
+
+    for (const [spentKrw, clamped, unclamped] of cases) {
+      expect(budgetUsagePercent({ budgetKrw: 100_000, spentKrw, clampToFull: true }), String(spentKrw)).toBe(clamped);
+      expect(budgetUsagePercent({ budgetKrw: 100_000, spentKrw, clampToFull: false }), String(spentKrw)).toBe(
+        unclamped
+      );
+    }
+  });
+
+  it("0%·음수 지출은 0으로, 예산이 없거나 값이 깨졌으면 0으로 떨어진다", () => {
+    expect(budgetUsagePercent({ budgetKrw: 100_000, spentKrw: 0, clampToFull: true })).toBe(0);
+    expect(budgetUsagePercent({ budgetKrw: 100_000, spentKrw: -5_000, clampToFull: false })).toBe(0);
+    expect(budgetUsagePercent({ budgetKrw: 0, spentKrw: 45_900, clampToFull: true })).toBe(0);
+    expect(budgetUsagePercent({ budgetKrw: Number.NaN, spentKrw: 1_000, clampToFull: true })).toBe(0);
+    expect(budgetUsagePercent({ budgetKrw: 100_000, spentKrw: Number.NaN, clampToFull: true })).toBe(0);
+  });
+
+  it("히어로 카드의 퍼센트가 이 함수와 정확히 같다(계산이 두 벌이 아니다)", () => {
+    for (const spentKrw of [0, 1_245_700, 1_599_000, 1_600_000, 2_000_000]) {
+      expect(evaluateHomeBudgetProgress({ budgetKrw: 1_600_000, spentKrw }).percent, String(spentKrw)).toBe(
+        budgetUsagePercent({ budgetKrw: 1_600_000, spentKrw, clampToFull: true })
+      );
+    }
+  });
+});
+
 describe("HOME-127 홈 넛지 카드 (buildHomeBudgetNudge)", () => {
   it("예산이 없으면 예산 설정 CTA로 바뀌고 /budget으로 보낸다", () => {
     const nudge = buildHomeBudgetNudge({ budgetKrw: 0, spentKrw: 45_900, hasWarningBanner: false });
@@ -152,10 +198,33 @@ describe("HOME-127 홈 넛지 카드 (buildHomeBudgetNudge)", () => {
     expect(nudge.title).toBe("예산의 99% 사용 중이에요!");
   });
 
-  it("예산을 정확히 다 쓴 경우는 초과가 아니다 -- '0원 초과' 허위 문구 금지", () => {
+  /**
+   * 라운드 38 H-2 — 정확히 100%인 달.
+   *
+   * 경고 배너의 판정(reached100 = `spent >= budget`)은 이 달을 "모두 사용"으로 읽고, 히어로도
+   * 라운드 37 G-5에서 같은 부등호로 맞췄다. 넛지만 `>`로 남아 있어서, 실제 화면에서는 배너가
+   * "이번 달 예산을 모두 사용했어요"라고 말하는 옆에서 넛지가 "예산의 100% 사용 중이에요! /
+   * 이번 달도 잘 관리하고 있어요 👏"를 함께 말했다.
+   */
+  it("H-2: 정확히 100%면 배너와 같은 사실을 말한다 (배너가 있을 때 금액 중복 없이)", () => {
+    const nudge = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 100_000, hasWarningBanner: true });
+    expect(nudge.title).toBe("예산을 모두 사용했어요.");
+    expect(nudge.subtitle).toBe("이번 달 지출을 확인해 볼까요? 😥");
+    // 배너와 넛지가 서로를 부정하던 조합이 다시 생기지 않는다.
+    expect(nudge.title).not.toContain("사용 중");
+    expect(nudge.subtitle).not.toContain("잘 관리하고 있어요");
+  });
+
+  it("H-2: 배너가 없어도 '예산을 0원 초과했어요'라는 없는 사실을 만들지 않는다", () => {
     const nudge = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 100_000, hasWarningBanner: false });
-    expect(nudge.title).toBe("예산의 100% 사용 중이에요!");
+    expect(nudge.title).toBe("예산을 모두 사용했어요.");
     expect(nudge.title).not.toContain("0원 초과");
+  });
+
+  it("H-2: 100% 직전(미소진)까지는 종전 사용률 문구 그대로다", () => {
+    const nudge = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 99_999, hasWarningBanner: true });
+    expect(nudge.title).toBe("예산의 99% 사용 중이에요!");
+    expect(nudge.subtitle).toBe("이번 달도 잘 관리하고 있어요 👏");
   });
 });
 

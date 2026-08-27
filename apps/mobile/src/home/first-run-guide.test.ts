@@ -168,6 +168,18 @@ describe("UX-G evaluateHomeFirstRunGuide", () => {
     ).toBeNull();
   });
 
+  it("H-5: 이번 달 기록이 0~2건일 때만 뜬다 (3건째부터는 이미 루프를 돌고 있는 사람)", () => {
+    const overrides = { hasAnyExpenseRecord: true as const, recommendedItemCount: 3, serverRecentExpenseCount: 2 };
+
+    for (const recentRecordCount of [0, 1, 2]) {
+      expect(
+        evaluateHomeFirstRunGuide(input({ ...overrides, recentRecordCount }))?.variant,
+        `이번 달 ${recentRecordCount}건`
+      ).toBe("first-items");
+    }
+    expect(evaluateHomeFirstRunGuide(input({ ...overrides, recentRecordCount: 3 }))).toBeNull();
+  });
+
   it("F3: 두 신호는 AND다 -- 이번 달이 조용해도 전체가 많으면 첫 실행 안내가 아니다", () => {
     // 이번 달 1건 + 전체 3건 이상: 예전에는 떴다.
     expect(
@@ -192,29 +204,32 @@ describe("UX-G evaluateHomeFirstRunGuide", () => {
   });
 
   /**
-   * 라운드 37 G-6 — 두 경계가 정확히 3에서 부딪히던 자리.
+   * 라운드 38 H-5 — 두 경계가 정확히 3에서 부딪히던 자리를 **겹치지 않게** 떼어 놓는다.
    *
-   * ①의 계약은 "이번 달 `FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS`건 **이하**면 첫 실행"인데,
-   * F3의 전체 기간 게이트는 "서버 목록이 3이면 총량을 모르니 차단"이었다. 첫 세션에 3건을 기록한
-   * 신규 사용자는 두 신호가 모두 3이라, 계약상 대상인데도 준비물 안내를 영영 보지 못했다.
-   * 이제 서버 목록이 LIMIT에 닿았을 때는 "그 목록이 전부 이번 달 것인가"로 가른다.
+   * G-6은 "서버 목록이 3이어도 이번 달 기록이 3건이면 막 시작한 사람"이라는 예외로 그 충돌을
+   * 풀었지만, 서버 목록은 LIMIT 3이라 "3건 이상"까지만 말해 준다 — 8개월째 쓰는 사용자가 이번
+   * 달에 정확히 3건을 기록한 상태가 그 예외를 그대로 통과해 첫 실행 안내를 다시 받았다.
+   * 이제 노출 상한(2)이 LIMIT(3)보다 작아 두 게이트가 겹칠 수 없고, 예외도 없다.
    */
-  it("G-6: 두 상한은 같은 숫자 하나에서 나온다 (≤3 허용 계약과 >=3 차단이 갈라지지 않는다)", () => {
-    expect(FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS).toBe(HOME_RECENT_EXPENSES_LIMIT);
+  it("H-5: 노출 상한은 서버 LIMIT보다 하나 작다 (두 게이트의 경계가 겹치지 않는다)", () => {
+    expect(FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS).toBe(2);
+    expect(FIRST_ITEMS_GUIDE_MAX_RECENT_RECORDS).toBeLessThan(HOME_RECENT_EXPENSES_LIMIT);
   });
 
-  it("G-6 진리표: 첫 세션에 3건을 기록한 신규 사용자도 준비물 안내를 본다", () => {
+  it("H-5 진리표: 8개월 사용자의 '이번 달 3건'이 첫 실행으로 새지 않는다", () => {
     const cases = [
       // [이번 달 기록 수, 서버 recentExpenses 길이, 기대 variant]
       [1, 1, "first-items"],
       [2, 2, "first-items"],
-      // 경계: 이번 달 3건 = 서버가 보여줄 수 있는 3건이 전부 이번 달 것 -> 막 시작한 사람.
-      [3, 3, "first-items"],
+      // 경계: 이번 달 3건 = 이미 루프를 돌고 있는 사람(신규인지 8개월째인지 서버 LIMIT 3으로는
+      // 구별할 수 없다 -- 구별할 수 없는 두 상태에 다른 화면을 주지 않는다).
+      [3, 3, null],
       // 장기 사용자의 월초: 이번 달 0건인데 서버 목록은 꽉 차 있다 = 나머지는 지난달 이전 기록.
       [0, 3, null],
       [1, 3, null],
       [2, 3, null],
       // 이번 달이 상한을 넘으면 전체가 적어도 첫 실행 안내가 아니다(종전 ① 규칙).
+      [3, 2, null],
       [4, 2, null]
     ] as const;
 

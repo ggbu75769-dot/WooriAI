@@ -48,6 +48,9 @@ import {
 import {
   buildRecordsCategoryChips,
   buildRecordsFilterScopeSummary,
+  buildRecordsMonthSummary,
+  buildRecordsSearchPreviousMonthAction,
+  buildRecordsSearchScopeNotice,
   expenseCreatedByUserId,
   formatSpentOn,
   recordsRowSubtitle,
@@ -65,6 +68,7 @@ import {
   SYNC_ROW_PENDING_DELETE_LABEL,
   SYNC_ROW_PENDING_LABEL
 } from "../../src/offline/messages";
+import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import {
   adoptServerExpense,
   deleteExpenseOffline,
@@ -87,6 +91,7 @@ import {
   ScreenHeader,
   SegmentedControl,
   StatusBadge,
+  TextButton,
   Toast
 } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
@@ -692,6 +697,9 @@ export default function RecordsScreen() {
   const recordsDate = addMonths(baseDate, monthOffset);
   const recordsYearMonth = yearMonthOf(recordsDate);
   const recordsMonthLabel = periodLabelForOffset(baseDate, "month", monthOffset);
+  // 라운드 39 UX-P: 0건 카드의 "지난달에서 찾기"가 어디로 가는지 스크린리더에 말해 주려면
+  // 이동해 갈 달의 이름이 필요하다. ‹ 이동(goToPreviousMonth)이 읽어주는 라벨과 **같은 계산**이다.
+  const previousMonthLabel = periodLabelForOffset(baseDate, "month", monthOffset - 1);
 
   // A11Y-117: 월 이동 시 새 기간 라벨을 TalkBack으로 읽어주고(포커스가 화살표에 머물러 라벨
   // 변경을 놓치는 문제), 현재 달 이후로는 "다음 달" 이동을 막는다(미래 빈 화면 제거).
@@ -1069,6 +1077,20 @@ export default function RecordsScreen() {
     [selectedCategoryLabel, selectedCategoryId, searchText, listData.length, filteredSubtotalKrw]
   );
 
+  // 라운드 39 UX-P: 월 요약 줄 · 검색 범위 고지 · 0건 카드의 "지난달에서 찾기" 보조 액션.
+  // 셋 다 순수 문구 모듈(src/expenses/records-list-view.ts)에서 나오고, 달 이름은 화면이 이미
+  // 그리고 있는 라벨을 그대로 넘긴다 -- 여기서 날짜를 다시 계산하지 않으므로 어긋날 수 없다.
+  const monthSummary = buildRecordsMonthSummary({
+    monthLabel: recordsMonthLabel,
+    recordCount: monthlyRecordCount,
+    totalKrw: monthlyTotalKrw
+  });
+  const searchScopeNotice = buildRecordsSearchScopeNotice({ searchText, monthLabel: recordsMonthLabel });
+  const previousMonthSearchAction = buildRecordsSearchPreviousMonthAction({ searchText, previousMonthLabel });
+
+  // UX-N: 조회 실패 카드 문구는 연결 상태에 따라 갈린다(items 탭과 같은 배선).
+  const loadErrorCopy = useLoadErrorCopy(expenses.isError);
+
   // 달력 칸 → 그날 기록. 목록으로 전환하고, 그 다음 렌더에서 해당 날짜 섹션으로 스크롤한다.
   // 안정된 참조여야 CalendarDayCell의 memo가 매 렌더 깨지지 않는다.
   const handleSelectCalendarDate = useCallback((date: string) => {
@@ -1132,7 +1154,9 @@ export default function RecordsScreen() {
   // re-renders -- FlatList remounts ListHeaderComponent when it's a new function each render.
   const listHeader = (
     <View style={{ gap: theme.spacing.section, marginBottom: theme.spacing.section }}>
-      <ScreenHeader eyebrow="지출 기록" title="기록" subtitle="이번 달 지출 내역을 한눈에 확인해 보세요." />
+      {/* 라운드 39 UX-P: 부제도 보고 있는 달을 말한다. 종전에는 6월을 펼쳐 놓고도 "이번 달
+          지출 내역"이라고 적혀 있어, 바로 아래 월 이동 라벨("2026년 6월")과 어긋났다. */}
+      <ScreenHeader eyebrow="지출 기록" title="기록" subtitle={`${recordsMonthLabel} 지출 내역을 한눈에 확인해 보세요.`} />
 
       <PrimaryButton label="빠른 지출 기록" onPress={() => router.push("/expenses/new")} />
 
@@ -1179,13 +1203,27 @@ export default function RecordsScreen() {
             <Text style={{ color: canGoNextMonth ? theme.colors.gray900 : theme.colors.gray300, fontSize: 22, fontWeight: "900" }}>›</Text>
           </Pressable>
         </View>
-        {/* PERF-102: lightweight month summary from already-fetched data (no extra API call). */}
+        {/* PERF-102: lightweight month summary from already-fetched data (no extra API call).
+            라운드 39 UX-P: 문구는 보고 있는 달의 라벨에서 나온다(buildRecordsMonthSummary) --
+            아래 합계 카드의 "{recordsMonthLabel} 합계"와 같은 한 문자열이라 표기가 갈릴 수 없다. */}
         {expenses.data ? (
           <Text
-            accessibilityLabel={`이번 달 ${monthlyRecordCount}건, 합계 ${formatKrw(monthlyTotalKrw)}`}
+            testID="records-month-summary"
+            accessibilityLabel={monthSummary.accessibilityLabel}
             style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
           >
-            {`이번 달 ${monthlyRecordCount}건 · 합계 ${formatKrw(monthlyTotalKrw)}`}
+            {monthSummary.text}
+          </Text>
+        ) : null}
+        {/* 라운드 39 UX-P: 검색 범위 고지. 이 화면의 검색은 보고 있는 한 달치 응답
+            (["expenses", childId, recordsYearMonth])에만 걸리므로, 검색 중일 때만 그 사실을
+            한 줄로 밝힌다. 검색어가 없으면 null이라 예전 화면 그대로다. */}
+        {searchScopeNotice ? (
+          <Text
+            testID="records-search-scope"
+            style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
+          >
+            {searchScopeNotice}
           </Text>
         ) : null}
         {/* F8: 카테고리 칩/검색이 켜져 있을 때만 붙는 스코프 줄. 위 월 요약 줄은 필터와 무관한
@@ -1279,6 +1317,19 @@ export default function RecordsScreen() {
     </View>
   );
 
+  // 라운드 39 UX-P: 검색 0건일 때만 붙는 보조 액션. 종전 0건 카드가 제안하는 유일한 다음 행동은
+  // "검색어 지우기"(= 찾기를 포기하기)였는데, 이 화면의 검색은 한 달 안에서만 걸리므로 사용자가
+  // 찾던 기록은 대개 이전 달에 있다. 이동은 **기존 ‹ 동작을 그대로 재사용**한다 -- 검색어 state는
+  // 건드리지 않으므로 넘어간 달에서 같은 검색이 이어진다.
+  const previousMonthSearchActionButton = previousMonthSearchAction ? (
+    <TextButton
+      accessibilityLabel={previousMonthSearchAction.accessibilityLabel}
+      label={previousMonthSearchAction.label}
+      onPress={goToPreviousMonth}
+      style={{ alignItems: "center" }}
+    />
+  ) : null;
+
   const listEmpty = expenses.isLoading ? (
     // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     <View style={{ gap: theme.spacing.gap }}>
@@ -1288,27 +1339,35 @@ export default function RecordsScreen() {
       <SkeletonRow />
     </View>
   ) : expenses.isError ? (
+    // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와
+    // [다시 시도] 버튼은 그대로 -- 문구만 바뀐다(src/offline/messages.ts).
     <EmptyStateCard
-      title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-      actionLabel="다시 시도"
+      title={loadErrorCopy.title}
+      actionLabel={loadErrorCopy.actionLabel}
       onPress={() => expenses.refetch()}
     />
   ) : hasMonthlyRecords ? (
     // The month has records, but the category filter / search hid them all.
-    <EmptyStateCard
-      title={selectedCategoryId ? "이 카테고리의 기록이 없어요." : "검색 결과가 없어요."}
-      actionLabel={selectedCategoryId ? "카테고리 필터 해제" : "검색어 지우기"}
-      onPress={() => {
-        if (selectedCategoryId) setSelectedCategoryId(null);
-        else setSearchText("");
-      }}
-    />
+    <View style={{ gap: theme.spacing.gap }}>
+      <EmptyStateCard
+        title={selectedCategoryId ? "이 카테고리의 기록이 없어요." : "검색 결과가 없어요."}
+        actionLabel={selectedCategoryId ? "카테고리 필터 해제" : "검색어 지우기"}
+        onPress={() => {
+          if (selectedCategoryId) setSelectedCategoryId(null);
+          else setSearchText("");
+        }}
+      />
+      {previousMonthSearchActionButton}
+    </View>
   ) : (
-    <EmptyStateCard
-      title={hasSearchQuery ? "검색 결과가 없어요." : "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."}
-      actionLabel={hasSearchQuery ? "검색어 지우기" : "기록하기"}
-      onPress={() => (hasSearchQuery ? setSearchText("") : router.push("/expenses/new"))}
-    />
+    <View style={{ gap: theme.spacing.gap }}>
+      <EmptyStateCard
+        title={hasSearchQuery ? "검색 결과가 없어요." : "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."}
+        actionLabel={hasSearchQuery ? "검색어 지우기" : "기록하기"}
+        onPress={() => (hasSearchQuery ? setSearchText("") : router.push("/expenses/new"))}
+      />
+      {previousMonthSearchActionButton}
+    </View>
   );
 
   return (

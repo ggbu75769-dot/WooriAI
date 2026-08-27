@@ -5,8 +5,8 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildExpenseRecordedPayload } from "../../src/analytics/events";
-import { LOCAL_SESSION_TOKEN } from "../../src/api/client";
-import { categoryCatalog } from "../../src/categories";
+import { LOCAL_SESSION_TOKEN, type CategoryListItem } from "../../src/api/client";
+import { buildTileCategoryIdResolver, categoryCatalog } from "../../src/categories";
 import {
   addAmountPreset,
   canAddAmountPreset,
@@ -221,6 +221,16 @@ export default function NewExpenseScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  // 라운드 38 H-6/H-11: 이 화면의 8타일 id는 코드에 박힌 고정 UUID지만, 엑셀 가져오기·지출 수정
+  // 화면을 거친 기록은 서버가 시드한 정식 카테고리 UUID(DB마다 다른 값)를 달고 있다. 두 값을
+  // 잇는 다리가 `code`이고, 그 대응표는 리포트·수정 화면과 공유하는 ["categories"] 캐시에 이미
+  // 들어 있다 -- **새 요청 없이**(useQuery가 아니라 getQueryData) 읽어 매핑만 만든다. 캐시가
+  // 아직 없으면(콜드 스타트·오프라인 첫 실행) 매핑도 없고, 그때의 동작은 종전과 정확히 같다
+  // (타일 id 완전 일치만 인정 -- 지어낸 분류를 쓰느니 모른다고 말한다).
+  const queryClient = useQueryClient();
+  const resolveTileCategoryId = buildTileCategoryIdResolver(
+    authToken ? queryClient.getQueryData<{ categories: CategoryListItem[] }>(["categories"])?.categories : undefined
+  );
   // Preview/pixel-lock capture (no session) keeps the fixed "기저귀"/"38500" seed so the
   // reference screenshot stays deterministic. A real or test session starts blank so opening
   // the sheet never silently records a 38,500원 지출 the user didn't enter (see save-button
@@ -231,14 +241,17 @@ export default function NewExpenseScreen() {
   // 프리필 자체가 올 수 없어 고정 시드 "38500" 그대로다(EXP-001 기준 이미지 불변).
   const [amountText, setAmountText] = useState(() => (authToken ? prefill.amountText : "38500"));
   const [memo, setMemo] = useState("");
-  // UX-L(A): 프리필 카테고리가 이 화면의 8타일 안에 있을 때만 그 타일로 시작한다. 8타일 밖
-  // (엑셀 가져오기·지출 수정 화면을 거쳐 서버 정식 카테고리를 단 행)이면 이 화면은 그 분류를
-  // 고를 방법이 없으므로 기본 타일로 두고 자동 추천도 평소대로 돈다 -- 최근 품목 칩(라운드 34 L8)
-  // 과 같은 판단이다.
-  const prefilledCategory =
-    authToken && prefill.categoryId
-      ? (quickExpenseCategories.find((category) => category.id === prefill.categoryId) ?? null)
-      : null;
+  // UX-L(A): 프리필 카테고리가 이 화면의 8타일로 옮겨질 때만 그 타일로 시작한다.
+  // 라운드 38 H-6: 종전에는 타일 id와 **완전히 같을 때만** 복사했다. 그래서 엑셀 가져오기나 지출
+  // 수정 화면을 거친 기록(= 서버 정식 카테고리 UUID)에서 "또 기록"을 누르면 품목명·금액은 따라
+  // 오는데 분류만 조용히 기본 타일로 떨어졌다 -- 사용자가 방금 고른 그 기록의 분류인데도. 이제
+  // 위 매핑으로 code를 거쳐 같은 분류의 타일을 찾는다. 매핑이 없으면(대응 타일이 없는 분류,
+  // 캐시 없음) 예전과 같이 기본 타일로 두고 자동 추천도 평소대로 돈다.
+  const prefilledCategoryTileId =
+    authToken && prefill.categoryId ? resolveTileCategoryId(prefill.categoryId) : null;
+  const prefilledCategory = prefilledCategoryTileId
+    ? (quickExpenseCategories.find((category) => category.id === prefilledCategoryTileId) ?? null)
+    : null;
   const [selectedCategory, setSelectedCategory] = useState(prefilledCategory ?? quickExpenseCategories[0]);
   const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
   const [isGift, setIsGift] = useState(false);
@@ -259,7 +272,6 @@ export default function NewExpenseScreen() {
     authToken && customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
   const paymentMethod = quickExpensePaymentMethods[paymentMethodIndex];
   const childId = useSelectedChildStore((state) => state.selectedChildId);
-  const queryClient = useQueryClient();
 
   // UX-C(1/2): 품목명을 치는 동안 읽는 "과거 기록"의 원천 -- 홈/기록 탭이 이미 채워 둔
   // ["expenses", childId, 이번 달] 캐시다. 여기서 새 요청은 절대 하지 않는다(useQuery가 아니라
@@ -447,7 +459,10 @@ export default function NewExpenseScreen() {
     entryYearMonth: expenseDate.iso.slice(0, 7),
     offlineRows: offlineSnapshot.rows,
     childId,
-    selectedCategory
+    selectedCategory,
+    // 라운드 38 H-11: 서버 시드 UUID를 단 행(엑셀 가져오기·수정 화면 경유)도 제 타일에 합산된다.
+    // 매핑이 없는 행이 남을 때만 카테고리 항을 생략한다(라운드 37 G-4의 "모르면 말하지 않는다").
+    resolveTileCategoryId
   });
 
   // MOB-102 (round5a-sprint1-plan.md §3.2, §3.3): saves to the local offline store first --

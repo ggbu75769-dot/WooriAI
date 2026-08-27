@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildTileCategoryIdResolver } from "../categories";
 import { buildEntryContextLine, type EntryContextServerExpense } from "./entry-context-line";
 import type { LocalExpenseRow } from "../offline/types";
 
@@ -248,6 +251,91 @@ describe("buildEntryContextLine — 라운드 37 G-4: 8타일 밖 분류가 섞�
   });
 });
 
+/**
+ * 라운드 38 H-11 — G-4의 생략 범위를 좁힌다.
+ *
+ * 서버 시드 UUID라고 해서 분류를 모르는 것은 아니다. 화면이 이미 들고 있는 `["categories"]`
+ * 캐시가 `id -> code`를 알려 주므로, 공용 매핑을 넘겨 주면 임포트·수정 행도 제 타일에 정상
+ * 합산된다. 생략은 **끝내 매핑되지 않는 행이 남을 때만** 한다.
+ */
+describe("buildEntryContextLine — H-11: 매핑을 받으면 임포트 행도 합산한다", () => {
+  const SERVER_DIAPER = "8f2a1c40-7d3e-4b91-9a55-0f1c2d3e4b5a";
+  const SERVER_SLEEP = "8f2a1c40-7d3e-4b91-9a55-0f1c2d3e4b5b";
+  const resolveTileCategoryId = buildTileCategoryIdResolver([
+    { id: SERVER_DIAPER, code: "diaper_hygiene" },
+    // 8타일에 대응이 없는 정식 분류 -- 매핑해도 갈 곳이 없다.
+    { id: SERVER_SLEEP, code: "sleep_furniture" }
+  ]);
+
+  it("매핑되는 임포트 행은 같은 타일 합계에 정상적으로 더해진다", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER }),
+        serverExpense({ id: "e2", amountKrw: 140_000, categoryId: SERVER_DIAPER })
+      ],
+      selectedCategory: { id: DIAPER, label: "기저귀" },
+      resolveTileCategoryId
+    });
+    // 매핑 전에는 이 달의 카테고리 항이 통째로 사라졌다(G-4).
+    expect(line?.text).toBe("8월 지금까지 200,000원 · 기저귀 200,000원");
+  });
+
+  it("로컬 대기 행의 서버 시드 분류도 같은 매핑을 통과한다", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER })],
+      offlineRows: [offlineRow({ localId: "l1", amountKrw: 8_000, categoryId: SERVER_DIAPER })],
+      selectedCategory: { id: DIAPER, label: "기저귀" },
+      resolveTileCategoryId
+    });
+    expect(line?.text).toBe("8월 지금까지 68,000원 · 기저귀 68,000원");
+  });
+
+  it("매핑 불가 행이 하나라도 남으면 종전대로 카테고리 항을 생략한다 (모르면 말하지 않는다)", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER }),
+        serverExpense({ id: "e2", amountKrw: 140_000, categoryId: SERVER_DIAPER }),
+        // 수면/가구: 이 화면에 대응 타일이 없어 어느 타일 합계에도 넣을 수 없다.
+        serverExpense({ id: "e3", amountKrw: 300_000, categoryId: SERVER_SLEEP })
+      ],
+      selectedCategory: { id: DIAPER, label: "기저귀" },
+      resolveTileCategoryId
+    });
+    expect(line?.text).toBe("8월 지금까지 500,000원");
+    expect(line?.text).not.toContain("기저귀");
+  });
+
+  it("다른 타일로 매핑된 행은 선택 타일의 합계를 부풀리지 않는다", () => {
+    const line = buildEntryContextLine({
+      ...baseInput,
+      cachedMonthExpenses: [
+        serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER }),
+        serverExpense({ id: "e2", amountKrw: 40_000, categoryId: CLOTHES })
+      ],
+      selectedCategory: { id: DIAPER, label: "기저귀" },
+      resolveTileCategoryId
+    });
+    expect(line?.text).toBe("8월 지금까지 100,000원 · 기저귀 60,000원");
+  });
+
+  it("매핑을 넘기지 않으면 라운드 37 G-4의 동작 그대로다", () => {
+    const cachedMonthExpenses = [
+      serverExpense({ id: "e1", amountKrw: 60_000, categoryId: DIAPER }),
+      serverExpense({ id: "e2", amountKrw: 140_000, categoryId: SERVER_DIAPER })
+    ];
+    expect(
+      buildEntryContextLine({
+        ...baseInput,
+        cachedMonthExpenses,
+        selectedCategory: { id: DIAPER, label: "기저귀" }
+      })?.text
+    ).toBe("8월 지금까지 200,000원");
+  });
+});
+
 describe("buildEntryContextLine — 월 경계", () => {
   it("지난달 지출을 적는 중이면 이번 달 합계를 붙이지 않는다", () => {
     const line = buildEntryContextLine({
@@ -286,5 +374,24 @@ describe("buildEntryContextLine — 월 경계", () => {
       cachedMonthExpenses: [serverExpense({ id: "e1", amountKrw: 1_000 })]
     });
     expect(line).toBeNull();
+  });
+});
+
+/**
+ * 화면 배선 계약(source verification) — react-native 화면은 vitest에서 렌더할 수 없어 이 저장소의
+ * 관례대로 소스 grep으로 확인한다(record-row-actions.test.ts와 같은 관례).
+ */
+describe("H-11 배선 계약 (app/expenses/new.tsx)", () => {
+  const newExpenseSource = readFileSync(join(process.cwd(), "app/expenses/new.tsx"), "utf8");
+
+  it("매핑은 이미 받아 둔 캐시만 읽어 만든다 — 이 화면은 새 요청을 하지 않는다", () => {
+    expect(newExpenseSource).toContain('from "../../src/categories"');
+    expect(newExpenseSource).toContain('queryClient.getQueryData<{ categories: CategoryListItem[] }>(["categories"])');
+    // useQuery로 바꾸면 시트를 여는 것만으로 요청이 하나 늘어난다(UX-C의 규칙).
+    expect(newExpenseSource).not.toContain('queryKey: ["categories"]');
+  });
+
+  it("맥락 한 줄이 그 매핑을 그대로 받는다", () => {
+    expect(newExpenseSource).toContain("resolveTileCategoryId\n  });");
   });
 });

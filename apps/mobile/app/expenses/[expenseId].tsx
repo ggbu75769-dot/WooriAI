@@ -31,7 +31,9 @@ import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
+import { resolveScreenPhase } from "../../src/screen-phase";
 import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
+import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
 // FMT-127: 금액 표기(콤마)·입력 정규화는 src/money.ts가 단일 소스다 -- 이 화면에 있던
@@ -77,9 +79,10 @@ export default function ExpenseDetailScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const queryClient = useQueryClient();
+  const canLoadExpense = Boolean(authToken && expenseId);
   const expense = useQuery({
     queryKey: ["expense", expenseId],
-    enabled: Boolean(authToken && expenseId),
+    enabled: canLoadExpense,
     queryFn: () => getExpense(authToken!, expenseId)
   });
   // CAT-101/UX-5B-EXP: server-backed category list for the chip row (demo fixture categories in
@@ -246,19 +249,41 @@ export default function ExpenseDetailScreen() {
     ]);
   }
 
+  // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
+  // 쿼리가 꺼져 있을 때(토큰/expenseId 없음)는 isPending이 영영 true로 남으므로, 가족 화면과
+  // 같은 관례로 `canLoadExpense &&`를 앞에 두어 판정 자체를 적용하지 않는다.
+  const expensePhase = resolveScreenPhase({
+    isPending: expense.isPending,
+    isError: expense.isError,
+    hasData: Boolean(expense.data)
+  });
+
   return (
     <AppScreen>
       <View testID="screen-EXP-003" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="지출 상세" title="지출 수정" subtitle="품목과 금액을 확인하고 수정할 수 있어요." />
+        <ScreenHeader
+          eyebrow="지출 상세"
+          title="지출 수정"
+          subtitle="품목과 금액을 확인하고 수정할 수 있어요."
+          onBack={() => router.back()}
+        />
 
-        {expense.isLoading ? (
-          <EmptyStateCard title="불러오고 있어요." actionLabel="잠시만요" />
-        ) : expense.isError ? (
+        {canLoadExpense && expensePhase === "error" ? (
           <EmptyStateCard
             title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
             actionLabel="다시 시도"
             onPress={() => expense.refetch()}
           />
+        ) : canLoadExpense && expensePhase === "loading" ? (
+          // UX-Q(B): 저장소에 마지막까지 남아 있던 가짜 버튼 로딩 카드(EmptyStateCard의 액션
+          // 라벨만 있고 onPress는 없어, 누를 수 있게 생겼는데 아무 일도 일어나지 않았다)를
+          // 걷어낸다 -- MOB-119가 나머지 화면에서 걷어낸 것과 같은 패턴이다. 본 화면의 형태
+          // (입력 카드 + 저장/삭제 줄)를 따라가는 스켈레톤으로 바꾼다.
+          <View style={{ gap: theme.spacing.section }}>
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonRow />
+          </View>
         ) : (
           <>
             <Card style={{ gap: theme.spacing.gap }}>

@@ -89,12 +89,22 @@ describe("UX-H 리포트 공유 배선", () => {
     expect(reportSource).not.toContain("우리아이 앱에서");
   });
 
-  it("adds no analytics event for the share action (레지스트리 무접촉)", () => {
+  /**
+   * 라운드 39 UX-P: UX-H 당시에는 공유에 붙는 이벤트가 없어서 "레지스트리 무접촉"이 계약이었다.
+   * 이제 `report_share_tapped`가 붙었으므로 고정하는 대상이 바뀐다 -- **어떤 계측이든 금지**가
+   * 아니라, **공용 클라이언트를 통해서만**(동의 게이트 ANA-102 + 데모 세션 토큰 규약) 발사한다는
+   * 사실이다. 화면이 자체 계측 함수를 들이면 동의 게이트를 우회하게 되므로 그 경로만 막는다.
+   */
+  it("fires the share event only through the shared consent-gated client (자체 계측 함수 금지)", () => {
     const reportSource = source("app/(tabs)/reports.tsx");
 
+    expect(reportSource).toContain('import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";');
+    expect(reportSource).toContain("trackAndFlushAnalyticsEvent(authToken, {");
+    // 다른 발사 지점과 같은 데모 세션 토큰 규약(라운드 27 L-2) -- accessToken 직접 전달 금지.
+    expect(reportSource).not.toContain("trackAndFlushAnalyticsEvent(accessToken");
+    // 화면이 자체 계측 경로를 만들지 않는다.
     expect(reportSource).not.toContain("trackEvent");
     expect(reportSource).not.toContain("logEvent");
-    expect(reportSource).not.toContain("analytics");
   });
 
   it("leaves the non-session REP-001 preview branch without any share button", () => {

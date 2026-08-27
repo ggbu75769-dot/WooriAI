@@ -45,11 +45,15 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     expect(screenSource).toContain("useFocusEffect(");
     expect(screenSource).toContain("markAllRead()");
     // Per-row tap: mark read, then route to the surface the notification is about.
+    // 라운드 39 UX-O: 목적지 판정 자체는 src/notifications/notification-route.ts의 순수 함수로
+    // 옮겼다(종류별 목적지는 notification-route.test.ts가 값으로 검증한다). 화면은 그 판정을
+    // 그대로 router.push에 넘기기만 한다.
     expect(screenSource).toContain("markRead(entry.id)");
-    expect(screenSource).toContain('router.push("/budget")');
-    expect(screenSource).toContain('router.push("/(tabs)/items")');
-    expect(screenSource).toContain("itemTemplateIdFromPurchaseDedupeKey(entry.dedupeKey)");
-    expect(screenSource).toContain("router.push(`/items/${itemTemplateId}`)");
+    expect(screenSource).toContain("router.push(notificationTapRoute(entry))");
+    expect(screenSource).toContain('import { notificationTapRoute } from "../src/notifications/notification-route";');
+    // 예전의 화면 내 if 사슬은 남아 있지 않다 -- 특히 weekly_summary를 /budget으로 보내던 조건.
+    expect(screenSource).not.toContain('entry.type === "weekly_summary"');
+    expect(screenSource).not.toContain("function openNotification(");
     // Relative timestamps + list rows from the shared pixel-lock component set.
     expect(screenSource).toContain("formatRelativeTime(entry.createdAt, now)");
     expect(screenSource).toContain("<ListRow");
@@ -59,6 +63,29 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     expect(screenSource).toContain("아직 알림이 없어요");
     expect(screenSource).toContain('actionLabel="뒤로가기"');
     expect(screenSource).toContain("EmptyStateCard");
+  });
+
+  /**
+   * 라운드 39 UX-O: 알림함의 두 구멍.
+   * - 포커스 즉시 전부 읽음 처리라 20줄이 전부 똑같이 보였다 -> 마운트 시 안읽음 스냅샷 1회.
+   * - 뒤로가기가 빈 상태 카드에만 있어서, 알림이 있으면 화면 안에 나갈 길이 없었다.
+   */
+  it("marks the notifications that were new when the screen opened, and keeps a 뒤로가기 in the list state", () => {
+    const screenSource = source("app/notifications.tsx");
+    // 스냅샷: 스토어 selector를 마운트 시 1회만 읽는다(읽음 처리는 지금까지처럼 markAllRead).
+    expect(screenSource).toContain("selectUnreadNotificationIds(useNotificationStore.getState().entries)");
+    expect(screenSource).toContain("useState<string[]>(");
+    expect(screenSource).toContain("newNotificationIds.includes(entry.id)");
+    expect(screenSource).toContain("markAllRead()");
+    // 시각 구분 + 스크린 리더 접두. 새 hex 없이 기존 토큰만 쓴다.
+    expect(screenSource).toContain('accessibilityLabel="새 소식"');
+    expect(screenSource).toContain("backgroundColor: theme.colors.mainCoral");
+    expect(screenSource).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    // 목록 상태에서도 화면 안 뒤로가기: UX-Q(C)가 낸 ScreenHeader의 onBack 슬롯을 쓴다
+    // (‹ 표기·"뒤로가기" 라벨·44dp 타깃이 그 컴포넌트 한 곳에 있다 -- screen-header-back.test.ts).
+    // 빈 상태 카드의 뒤로가기는 그대로 남는다.
+    const headerBlock = screenSource.slice(screenSource.indexOf("<ScreenHeader"), screenSource.indexOf("/>", screenSource.indexOf("<ScreenHeader")) + 2);
+    expect(headerBlock).toContain("onBack={() => router.back()}");
   });
 
   it("turns the more tab's '알림 설정 · 준비 중' stub row into a live /notifications link", () => {
@@ -94,13 +121,13 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     const storeSource = source("src/notifications/notification.store.ts");
     expect(storeSource).toContain('"weekly_summary"');
 
-    // app/notifications.tsx (off-limits to NOTI-103) renders unknown types safely today: the
-    // icon lookup may yield undefined (ListRow's icon prop is optional and guarded) and
-    // openNotification falls through to the /(tabs)/items push. A follow-up one-liner there can
-    // add a weekly_summary icon + /budget route, after which AppNotificationType can be
-    // re-closed (see the KnownAppNotificationType note in notification.store.ts).
-    const screenSource = source("app/notifications.tsx");
-    expect(screenSource).toContain('router.push("/(tabs)/items")');
+    // 알 수 없는 종류는 여전히 안전하게 그려진다: 아이콘 조회는 undefined일 수 있고(ListRow의
+    // icon prop은 선택·가드됨), 목적지는 준비템 목록으로 떨어진다. 라운드 39 UX-O에서 그
+    // 폴백은 화면에서 src/notifications/notification-route.ts로 옮겨 갔고, weekly_summary는
+    // 이제 폴백이 아니라 제 목적지(/(tabs)/records)를 갖는다 -- notification-route.test.ts 참고.
+    const routeSource = source("src/notifications/notification-route.ts");
+    expect(routeSource).toContain('return "/(tabs)/items";');
+    expect(routeSource).toContain('if (entry.type === "weekly_summary") return "/(tabs)/records";');
     // CLN-130: 이 단언은 app/notifications.tsx가 실제로 쓰지 않는 src/ui/ListRow.tsx(죽은 D0
     // 컴포넌트, 제거됨)를 보고 있었다. 화면이 `../src/ui`에서 가져오는 ListRow는 src/ui.tsx의
     // 것이므로 그쪽으로 옮긴다 -- guarded optional icon이라는 요지는 그대로다.

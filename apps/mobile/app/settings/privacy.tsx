@@ -214,7 +214,12 @@ export default function PrivacySettingsScreen() {
   return (
     <AppScreen>
       <View testID="screen-SET-003" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="설정" title="약관 및 개인정보" subtitle="동의 내역과 삭제 · 탈퇴를 관리해요" />
+        <ScreenHeader
+          eyebrow="설정"
+          title="약관 및 개인정보"
+          subtitle="동의 내역과 삭제 · 탈퇴를 관리해요"
+          onBack={() => router.back()}
+        />
 
         {privacy.isLoading ? (
           <Card>
