@@ -13,6 +13,14 @@ import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.s
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
+  GIFTED_RESET_CONFIRM_ACTION_LABEL,
+  GIFTED_RESET_CONFIRM_CANCEL_LABEL,
+  GIFTED_RESET_CONFIRM_TITLE,
+  giftedResetConfirmMessage,
+  itemStatusMutationErrorMessage,
+  type ItemStatusActionKind
+} from "../../src/items/status-mutation-messages";
+import {
   AffiliateDisclosure,
   AppScreen,
   Card,
@@ -161,6 +169,9 @@ export default function ItemDetailScreen() {
   // redirect URL around so we can offer "링크 공유하기" (Share.share) and "다시 시도"
   // instead of leaving the user stuck with just an error message.
   const [linkOpenFallback, setLinkOpenFallback] = useState<{ redirectUrl: string; disclosureText?: string } | null>(null);
+  // ITEM-124: 상태 변경(찜하기/선물 받음/준비 완료) 실패 문구. 이 경로는 오프라인 아웃박스를
+  // 타지 않아 실패가 곧 유실이라, 화면이 조용히 있으면 안 된다(src/items/status-mutation-messages.ts).
+  const [statusErrorMessage, setStatusErrorMessage] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const detail = useQuery({
     queryKey: ["item-detail", childId, itemTemplateId],
@@ -182,6 +193,12 @@ export default function ItemDetailScreen() {
 
   const markPrepared = useMutation({
     mutationFn: () => updateItemStatus(authToken!, childId!, itemTemplateId, "prepared"),
+    onMutate: () => {
+      setStatusErrorMessage(null);
+    },
+    onError: (error) => {
+      setStatusErrorMessage(itemStatusMutationErrorMessage("prepare", error));
+    },
     onSuccess: async () => {
       trackItemStatusChanged("prepared");
       await queryClient.invalidateQueries({ queryKey: ["items"] });
@@ -195,6 +212,12 @@ export default function ItemDetailScreen() {
   const toggleInterested = useMutation({
     mutationFn: (status: "interested" | "not_prepared") =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
+    onMutate: () => {
+      setStatusErrorMessage(null);
+    },
+    onError: (error, status) => {
+      setStatusErrorMessage(itemStatusMutationErrorMessage(status === "interested" ? "interest" : "uninterest", error));
+    },
     onSuccess: async (_data, status) => {
       trackItemStatusChanged(status);
       await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
@@ -213,6 +236,12 @@ export default function ItemDetailScreen() {
   const markGifted = useMutation({
     mutationFn: (status: "gifted" | "not_prepared") =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
+    onMutate: () => {
+      setStatusErrorMessage(null);
+    },
+    onError: (error, status) => {
+      setStatusErrorMessage(itemStatusMutationErrorMessage(status === "gifted" ? "gift" : "ungift", error));
+    },
     onSuccess: async (_data, status) => {
       trackItemStatusChanged(status);
       await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
@@ -306,6 +335,21 @@ export default function ItemDetailScreen() {
     Alert.alert("선물로 받았어요", "이 준비템을 선물로 받은 걸로 표시할까요? 준비완료 탭에서 볼 수 있어요.", [
       { text: "취소", style: "cancel" },
       { text: "표시하기", onPress: () => markGifted.mutate("gifted") }
+    ]);
+  }
+  /**
+   * 리뷰 F2: gifted는 interested/prepared와 같은 단일 status 컬럼을 쓴다. 그래서 선물로 받았다고
+   * 정리해 둔 항목에서 찜하기나 준비 완료를 누르면 "선물 받음"이 아무 말 없이 사라진다. 지금
+   * 상태가 gifted일 때만 한 번 확인하고, 그 밖에는 예전처럼 바로 실행한다(추가 탭 비용 0).
+   */
+  function confirmGiftedReset(kind: Exclude<ItemStatusActionKind, "gift" | "ungift">, run: () => void) {
+    if (!isGifted) {
+      run();
+      return;
+    }
+    Alert.alert(GIFTED_RESET_CONFIRM_TITLE, giftedResetConfirmMessage(kind), [
+      { text: GIFTED_RESET_CONFIRM_CANCEL_LABEL, style: "cancel" },
+      { text: GIFTED_RESET_CONFIRM_ACTION_LABEL, onPress: run }
     ]);
   }
   const canCallLinkApi = hasSession;
@@ -405,7 +449,11 @@ export default function ItemDetailScreen() {
             <SecondaryButton
               disabled={!hasSession || toggleInterested.isPending}
               label={isInterested ? "찜해제" : "찜하기"}
-              onPress={() => toggleInterested.mutate(isInterested ? "not_prepared" : "interested")}
+              onPress={() =>
+                confirmGiftedReset(isInterested ? "uninterest" : "interest", () =>
+                  toggleInterested.mutate(isInterested ? "not_prepared" : "interested")
+                )
+              }
               style={{ flex: 1 }}
             />
             <PrimaryButton
@@ -420,15 +468,27 @@ export default function ItemDetailScreen() {
 
           {/* ITEM-123 (B4): 구매 CTA 아래에 두는 이유 -- (1) DNC-010의 제휴 고지는 구매 CTA에
               인접해야 하므로 그 사이에 아무것도 끼우지 않고, (2) "이미 선물로 받았다"는 구매를
-              대체하는 선택지라 CTA 다음 줄에서 보여주는 편이 핵심 루프를 흐리지 않는다. */}
-          <SecondaryButton
-            disabled={!hasSession || markGifted.isPending}
-            label={isGifted ? "선물 받음 취소" : "선물로 받았어요"}
-            accessibilityLabel={
-              isGifted ? `${visibleDetail.name} 선물 받음 취소` : `${visibleDetail.name} 선물로 받았어요`
-            }
-            onPress={confirmGiftedChange}
-          />
+              대체하는 선택지라 CTA 다음 줄에서 보여주는 편이 핵심 루프를 흐리지 않는다.
+
+              리뷰 F1: 세션이 없을 때는 비활성 버튼을 남기지 않고 아예 렌더하지 않는다 --
+              같은 화면군의 세션 전용 컨트롤 관례(app/(tabs)/items.tsx의 상태/필터/검색)와 같고,
+              픽셀 락 ITEM-002 캡처가 비세션 프리뷰라 이 게이트가 캡처 불변의 조건이다
+              (app/pixel-lock.tsx는 캡처 전 세션을 지운다). */}
+          {hasSession ? (
+            <SecondaryButton
+              disabled={markGifted.isPending}
+              label={isGifted ? "선물 받음 취소" : "선물로 받았어요"}
+              accessibilityLabel={
+                isGifted ? `${visibleDetail.name} 선물 받음 취소` : `${visibleDetail.name} 선물로 받았어요`
+              }
+              onPress={confirmGiftedChange}
+            />
+          ) : null}
+
+          {/* ITEM-124: 상태 변경 실패는 여기 한 곳에서만 알린다 -- 찜하기/선물 받음/준비 완료가
+              모두 같은 status PATCH라 실패 문구도 한 자리에서 읽히는 편이 낫다. DNC-010의
+              제휴 고지-구매 CTA 인접은 건드리지 않도록 CTA 아래에 둔다. */}
+          {statusErrorMessage ? <Toast message={statusErrorMessage} tone="error" /> : null}
 
           {clickedTitle ? (
             <Card style={{ backgroundColor: theme.colors.mint }}>
@@ -450,9 +510,11 @@ export default function ItemDetailScreen() {
                 }
               />
               <SecondaryButton
+                disabled={markPrepared.isPending}
                 label="지출 없이 준비 완료로 표시"
                 onPress={() => {
-                  if (authToken && childId) markPrepared.mutate();
+                  if (!authToken || !childId) return;
+                  confirmGiftedReset("prepare", () => markPrepared.mutate());
                 }}
               />
             </Card>

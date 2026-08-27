@@ -655,8 +655,9 @@ describe("Items, commerce, and affiliate API", () => {
   /**
    * ITEM-123 (B5): 준비템 탭 1회 진입에 목록 1 + 준비율 스냅샷 4(탭별 Promise.all) +
    * 홈 1 = 6요청이 나가던 것을, 상태로 거르지 않는 tab=all 스냅샷으로 3요청으로 줄인다.
-   * 이 테스트는 "all이 네 탭의 합집합과 정확히 같다"를 고정해, 스냅샷을 1요청으로 바꿔도
-   * 준비율의 분모가 달라지지 않음을 보증한다.
+   * 이 테스트는 "all이 네 탭의 합집합과 정확히 같다"(밴드 미지정)를 고정해, 스냅샷을 1요청으로
+   * 바꿔도 준비율의 분모가 달라지지 않음을 보증한다. stageBand가 붙으면 prepared/not_needed
+   * 탭만 밴드로 좁으므로 all은 합집합의 상위집합이 된다 — 아래 FIX/F4 블록 참고.
    */
   it("serves the whole status snapshot in one request via tab=all (union of the four status tabs)", async () => {
     const accessToken = await login(app, "item123-tab-all");
@@ -695,10 +696,34 @@ describe("Items, commerce, and affiliate API", () => {
     expect(allItems.find((item) => item.id === giftedItem.id)?.status).toBe("gifted");
     expect(allItems.find((item) => item.id === notNeededItem.id)?.status).toBe("not_needed");
 
-    // stageBand를 주면 다른 상태 탭들과 같은 규칙으로 시기까지 좁힌다(생략 시 전 시기).
-    const bandItems = (await authorized(`/api/v1/children/${childId}/items?tab=all&stageBand=${encodeURIComponent("24개월+")}`))
-      .body.items as ItemSummary[];
-    expect(bandItems.length).toBeLessThan(allItems.length);
+    // FIX/F4: stageBand가 붙어도 all은 네 탭의 합집합을 빠짐없이 담는다. 예전에는 all에도
+    // 밴드 필터를 걸어서, 밴드의 여집합인 soon 탭 항목이 스냅샷에서 통째로 빠졌다
+    // (준비율의 분모도 그만큼 줄었다). now/soon은 서로 여집합이라 두 탭의 합집합이 이미
+    // 전 시기이므로, all은 밴드를 무시하는 것이 합집합 정의와 맞는다.
+    const band = encodeURIComponent("24개월+");
+    const bandUnionIds = new Set<string>();
+    for (const tab of tabs) {
+      const items = (await authorized(`/api/v1/children/${childId}/items?tab=${tab}&stageBand=${band}`)).body
+        .items as ItemSummary[];
+      for (const item of items) bandUnionIds.add(item.id);
+    }
+    const bandSoon = (await authorized(`/api/v1/children/${childId}/items?tab=soon&stageBand=${band}`)).body
+      .items as ItemSummary[];
+    // 회귀 가드: 밴드 밖(=soon)의 항목이 실제로 존재하는 상황에서만 의미 있는 검증이다.
+    expect(bandSoon.length).toBeGreaterThan(0);
+
+    const bandItems = (await authorized(`/api/v1/children/${childId}/items?tab=all&stageBand=${band}`)).body
+      .items as ItemSummary[];
+    const bandItemIds = new Set(bandItems.map((item) => item.id));
+    expect(bandItemIds.size).toBe(bandItems.length);
+    // 밴드가 있어도 스냅샷은 밴드 없는 all과 같은 집합이고, 네 탭 합집합을 모두 포함한다.
+    expect(bandItemIds).toEqual(new Set(allItems.map((item) => item.id)));
+    for (const item of bandSoon) {
+      expect(bandItemIds.has(item.id)).toBe(true);
+    }
+    for (const id of bandUnionIds) {
+      expect(bandItemIds.has(id)).toBe(true);
+    }
 
     // 하위호환: 알 수 없는 tab 값은 종전처럼 400이다(허용 값만 늘어났다).
     await request(app.getHttpServer())

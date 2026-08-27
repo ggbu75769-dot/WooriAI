@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Image, Platform, RefreshControl, Text, TextInput, View, type ImageSourcePropType } from "react-native";
+import { Alert, Image, Platform, RefreshControl, Text, TextInput, View, type ImageSourcePropType } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildItemStatusChangedPayload } from "../../src/analytics/events";
 import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton } from "../../src/ui";
+import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton, Toast } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 import { ItemListPixelStyles } from "../../src/pixelLock/styles";
@@ -20,6 +20,13 @@ import {
   NECESSITY_FILTER_OPTIONS,
   type NecessityFilter
 } from "../../src/items/item-filters";
+import {
+  GIFTED_RESET_CONFIRM_ACTION_LABEL,
+  GIFTED_RESET_CONFIRM_CANCEL_LABEL,
+  GIFTED_RESET_CONFIRM_TITLE,
+  giftedResetConfirmMessage,
+  itemStatusMutationErrorMessage
+} from "../../src/items/status-mutation-messages";
 
 const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 
@@ -133,6 +140,10 @@ export default function ItemsScreen() {
   // 항목의 필드만 보므로 서버 왕복이 없다(src/items/item-filters.ts).
   const [necessityFilter, setNecessityFilter] = useState<NecessityFilter>("all");
   const [searchText, setSearchText] = useState("");
+  // ITEM-124: 상태 변경 실패 문구. 이 목록 버튼은 지출 기록과 달리 오프라인 아웃박스를 타지
+  // 않아 실패가 곧 유실이다 -- 조용히 넘어가면 사용자는 바뀐 줄 알고 떠난다
+  // (src/items/status-mutation-messages.ts).
+  const [statusErrorMessage, setStatusErrorMessage] = useState<string | null>(null);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -200,6 +211,12 @@ export default function ItemsScreen() {
   const updateStatus = useMutation({
     mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; itemName: string; status: ItemStatus }) =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
+    onMutate: () => {
+      setStatusErrorMessage(null);
+    },
+    onError: (error, variables) => {
+      setStatusErrorMessage(itemStatusMutationErrorMessage(variables.status === "prepared" ? "prepare" : "skip", error));
+    },
     onSuccess: async (_data, variables) => {
       // ANA-103: fires only after the server confirmed the status change. The payload carries
       // only the coarse category enum (derived on-device from the item name, which itself never
@@ -215,6 +232,33 @@ export default function ItemsScreen() {
     }
   });
   const hasSession = Boolean(authToken && childId);
+
+  // ITEM-124: 항목 단위 진행 중 판정 -- react-query가 들고 있는 마지막 variables가 곧 지금
+  // 날아간 행이라, 별도 상태 없이 그 행의 버튼만 잠근다.
+  const isStatusUpdatePending = (itemTemplateId: string) =>
+    updateStatus.isPending && updateStatus.variables?.itemTemplateId === itemTemplateId;
+
+  /**
+   * 리뷰 F2: gifted/prepared/not_needed는 서로 배타적인 단일 status 컬럼이라, 준비완료 탭에서
+   * "선물 받음" 배지를 단 행의 준비했어요/괜찮아요를 누르면 선물 받았다는 기록이 아무 말 없이
+   * 사라진다. 지금 상태가 gifted인 행에서만 확인을 한 번 거치고(문구는 상세 화면과 같은
+   * 단일 소스), 그 밖에는 예전처럼 바로 실행한다.
+   */
+  const requestStatusChange = (
+    item: { id: string; name: string; status: ItemStatus },
+    status: "prepared" | "not_needed"
+  ) => {
+    const kind = status === "prepared" ? "prepare" : "skip";
+    const run = () => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status });
+    if (item.status !== "gifted") {
+      run();
+      return;
+    }
+    Alert.alert(GIFTED_RESET_CONFIRM_TITLE, giftedResetConfirmMessage(kind), [
+      { text: GIFTED_RESET_CONFIRM_CANCEL_LABEL, style: "cancel" },
+      { text: GIFTED_RESET_CONFIRM_ACTION_LABEL, onPress: run }
+    ]);
+  };
 
   // MOB-117 당겨서 새로고침: ["items"] 접두어 invalidate로 현재 상태 탭 목록 + ITEM-114
   // 준비율 스냅샷을 함께 갱신하고, 기본 시기 칩이 읽는 ["home"] 캐시도 갱신한다.
@@ -396,6 +440,10 @@ export default function ItemsScreen() {
             </View>
           ) : null}
 
+          {/* ITEM-124: 상태 변경 실패 배너 -- 누른 버튼이 있는 목록 바로 위에 둬서 무엇이
+              저장되지 않았는지 그 자리에서 읽히게 한다(Toast tone="error" = accessibilityRole="alert"). */}
+          {statusErrorMessage ? <Toast message={statusErrorMessage} tone="error" /> : null}
+
           {showEmptyState ? (
             isNarrowedByFilter ? (
               // 필터/검색 때문에 비었을 때는 홈으로 보내는 대신 조건을 풀 수 있게 한다.
@@ -431,16 +479,20 @@ export default function ItemsScreen() {
                     />
                     {canUpdateStatus ? (
                       <View style={{ flexDirection: "row", gap: 8 }}>
+                        {/* ITEM-124: 비활성은 항목 단위다 -- 한 행의 요청이 나가는 동안 다른 행까지
+                            잠기면 목록 전체가 멈춘 것처럼 보인다. */}
                         <SecondaryButton
+                          disabled={isStatusUpdatePending(item.id)}
                           label="준비했어요"
                           accessibilityLabel={`${item.name} 준비했어요`}
-                          onPress={() => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status: "prepared" })}
+                          onPress={() => requestStatusChange(item, "prepared")}
                           style={{ flex: 1 }}
                         />
                         <SecondaryButton
+                          disabled={isStatusUpdatePending(item.id)}
                           label="괜찮아요"
                           accessibilityLabel={`${item.name} 괜찮아요`}
-                          onPress={() => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status: "not_needed" })}
+                          onPress={() => requestStatusChange(item, "not_needed")}
                           style={{ flex: 1 }}
                         />
                       </View>

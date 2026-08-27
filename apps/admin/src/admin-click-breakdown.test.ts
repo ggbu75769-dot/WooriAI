@@ -188,6 +188,24 @@ describe("Admin CMS clicks page (ADM-123)", () => {
     expect(source).toMatch(/\[session, clearSession, days\]/);
   });
 
+  /**
+   * FIX/F6: 기간을 바꾸는 동안 이전 창의 집계가 그대로 남아 있어서, 버튼은 "최근 30일"이
+   * 눌린 상태(aria-pressed)인데 표 제목·데이터는 최근 7일을 보여줬다. 실패했을 때도
+   * 마찬가지로 옛 데이터가 에러 배너 위에 남았다.
+   */
+  it("기간 전환·실패 중에 이전 창 집계를 화면에 남기지 않는다", () => {
+    const source = readSource("app/clicks/page.tsx");
+    // 새 요청을 시작하면 이전 집계를 비우고 명시적 로딩 상태로 들어간다.
+    expect(source).toContain("setLoading(true)");
+    expect(source).toContain("setSummary(null)");
+    expect(source).toContain("{loading ? <p className={styles.emptyState}>불러오는 중...</p> : null}");
+    // 실패 경로에서도 집계를 비운다(에러 배너 + 다시 시도만 남는다).
+    expect(source).toMatch(/catch \(error\) \{[\s\S]*setSummary\(null\)/);
+    // 늦게 도착한 이전 요청이 최신 창을 덮어쓰지 않는다.
+    expect(source).toContain("requestSeq");
+    expect(source).toContain("if (requestSeq.current !== seq) return;");
+  });
+
   it("admin-api가 분해 타입/쿼리를 노출한다", () => {
     const api = readSource("src/lib/admin-api.ts");
     expect(api).toContain("/admin/affiliate-clicks/summary?days=");

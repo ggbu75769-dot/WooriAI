@@ -67,8 +67,90 @@ describe("gifted 상태 진입점 (아이템 상세)", () => {
     expect(detailSource()).toContain("`${visibleDetail.name} 선물 받음 취소`");
   });
 
-  it("비세션 미리보기에서는 비활성이다 (로그인 없이 상태를 바꿀 수 없다)", () => {
-    expect(detailSource()).toContain("disabled={!hasSession || markGifted.isPending}");
+  it("비세션 미리보기에는 아예 렌더되지 않는다 (픽셀 락 ITEM-002 캡처 불변 — 리뷰 F1)", () => {
+    const detail = detailSource();
+    // 예전 배선은 버튼을 무조건 렌더하고 hasSession을 disabled에만 걸었다. 그런데 픽셀 락은
+    // 세션을 지운 비세션 프리뷰로 ITEM-002를 캡처하므로(app/pixel-lock.tsx), 캡처 화면에
+    // 기준 이미지에 없던 버튼이 한 줄 더 들어갔다. 같은 화면군의 세션 전용 컨트롤 관례
+    // (app/(tabs)/items.tsx의 `{hasSession ? ... : null}`)대로 렌더 자체를 막는다.
+    expect(detail).not.toContain("disabled={!hasSession || markGifted.isPending}");
+    expect(detail).toContain("disabled={markGifted.isPending}");
+
+    const giftedIndex = detail.indexOf('label={isGifted ? "선물 받음 취소" : "선물로 받았어요"}');
+    expect(giftedIndex).toBeGreaterThan(-1);
+    const gateIndex = detail.lastIndexOf("{hasSession ? (", giftedIndex);
+    expect(gateIndex).toBeGreaterThan(-1);
+    // 게이트와 버튼 사이에 다른 조건 블록이 닫히지 않는다 = 이 버튼을 감싸는 게이트가 맞다.
+    expect(detail.slice(gateIndex, giftedIndex)).not.toContain(") : null}");
+  });
+});
+
+/**
+ * 리뷰 F2: gifted/interested/prepared/not_needed는 서로 배타적인 **단일 status 컬럼**이라,
+ * 선물로 받았다고 정리해 둔 항목에서 다른 상태 버튼을 누르면 gifted가 아무 말 없이 사라진다.
+ *  - 시나리오 A: 상세에서 선물 받음 표시 -> "찜하기" 탭 -> gifted 소멸.
+ *  - 시나리오 B: 준비완료 탭의 gifted 행에서 "준비했어요"/"괜찮아요" 탭 -> 무확인 변환.
+ * 두 경로 모두 확인(Alert)을 한 번 거치게 하고, 문구는 화면에 인라인하지 않고 단일 소스
+ * (src/items/status-mutation-messages.ts)에서만 가져온다.
+ */
+describe("gifted를 잃게 만드는 조작은 확인을 거친다 (리뷰 F2)", () => {
+  const detailSource = () => source("app/items/[itemTemplateId].tsx");
+  const itemsSource = () => source("app/(tabs)/items.tsx");
+
+  it("상세: 찜하기와 '지출 없이 준비 완료로 표시'가 확인 함수를 거친다", () => {
+    const detail = detailSource();
+    expect(detail).toContain("function confirmGiftedReset(");
+    // gifted가 아닐 때는 확인 없이 그대로 실행한다(조작 비용을 늘리지 않는다).
+    expect(detail).toContain("if (!isGifted) {");
+    expect(detail).toContain("Alert.alert(GIFTED_RESET_CONFIRM_TITLE, giftedResetConfirmMessage(kind), [");
+    expect(detail).toContain('confirmGiftedReset(isInterested ? "uninterest" : "interest", () =>');
+    expect(detail).toContain('confirmGiftedReset("prepare", () => markPrepared.mutate());');
+    // 확인을 건너뛰던 예전 배선은 남아 있으면 안 된다.
+    expect(detail).not.toContain('onPress={() => toggleInterested.mutate(isInterested ? "not_prepared" : "interested")}');
+    expect(detail).not.toContain("if (authToken && childId) markPrepared.mutate();");
+  });
+
+  it("목록: 준비했어요/괜찮아요가 gifted 행에서만 확인을 거친다", () => {
+    const items = itemsSource();
+    expect(items).toContain('if (item.status !== "gifted") {');
+    expect(items).toContain("Alert.alert(GIFTED_RESET_CONFIRM_TITLE, giftedResetConfirmMessage(kind), [");
+    expect(items).toContain('onPress={() => requestStatusChange(item, "prepared")}');
+    expect(items).toContain('onPress={() => requestStatusChange(item, "not_needed")}');
+    expect(items).not.toContain(
+      'onPress={() => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status: "prepared" })}'
+    );
+    expect(items).not.toContain(
+      'onPress={() => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status: "not_needed" })}'
+    );
+  });
+
+  it("확인 Alert은 앱 관례를 따른다 (취소 cancel 버튼 + 단일 소스 문구)", () => {
+    for (const screen of ["app/items/[itemTemplateId].tsx", "app/(tabs)/items.tsx"]) {
+      const screenSource = source(screen);
+      expect(screenSource, `${screen} imports the shared copy`).toContain(
+        'from "../../src/items/status-mutation-messages"'
+      );
+      expect(screenSource, `${screen} keeps a cancel button`).toContain(
+        '{ text: GIFTED_RESET_CONFIRM_CANCEL_LABEL, style: "cancel" }'
+      );
+      expect(screenSource, `${screen} runs the change only from the confirm callback`).toContain(
+        "{ text: GIFTED_RESET_CONFIRM_ACTION_LABEL, onPress: run }"
+      );
+      // 문구는 화면에 인라인하지 않는다 -- 두 화면이 같은 말을 해야 한다.
+      expect(screenSource, `${screen} must not inline the confirm copy`).not.toContain("선물받은 상태가 해제돼요");
+    }
+  });
+
+  it("gifted 해제(선물 받음 취소) 자체는 기존 확인 흐름을 그대로 쓴다", () => {
+    const detail = detailSource();
+    expect(detail).toContain('Alert.alert("선물 받음을 취소할까요?"');
+    expect(detail).toContain("onPress={confirmGiftedChange}");
+    // 선물 받음 버튼은 새 확인 흐름(confirmGiftedReset)을 타지 않는다 -- 이중 확인 방지.
+    const giftedButtonBlock = detail.slice(
+      detail.indexOf('label={isGifted ? "선물 받음 취소" : "선물로 받았어요"}'),
+      detail.indexOf("{statusErrorMessage ?")
+    );
+    expect(giftedButtonBlock).not.toContain("confirmGiftedReset");
   });
 });
 

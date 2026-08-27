@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getHome, listExpenses, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import { evaluateLastMonthComparison, previousYearMonth } from "../../src/home/last-month-comparison";
 import { formatKrw } from "../../src/money";
@@ -435,12 +436,17 @@ export default function HomeScreen() {
               onPress={() => router.push("/expenses/new")}
             />
           ) : (
+            // HOME-124: 부제는 기록 탭과 **같은 함수**가 만든다. 예전에는 서버가 준 ISO 원본을
+            // 그대로 그려("2026-08-27") 같은 지출이 기록 탭에서는 "8월 27일"로 보였고, 선물/환불
+            // 행은 홈에서 일반 지출과 전혀 구분되지 않았다(기록 탭은 "선물 ·"/"환불 ·" 접두).
+            // 비세션 미리보기 픽스처("오늘"/"05.20")는 formatSpentOn의 통과 규칙 + expenseType
+            // "expense"라 출력이 한 글자도 바뀌지 않는다 -- HOME-001 픽셀락 캡처 유지.
             visibleHome.recentExpenses.slice(0, 3).map((expense) => (
               <ListRow
                 key={expense.id}
                 icon="▣"
                 title={expense.itemName}
-                subtitle={expense.spentOn}
+                subtitle={homeRecentExpenseSubtitle(expense)}
                 value={formatKrw(expense.amountKrw)}
                 onPress={() => router.push(`/expenses/${expense.id}`)}
               />

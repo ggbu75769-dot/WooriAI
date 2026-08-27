@@ -140,6 +140,7 @@ export class ItemsCatalogService {
    * - 생략(기존 호출자 전부): 아이의 **현재 단계** 기준 — 종전 동작 그대로다.
    * - 지정: 그 **시기 밴드** 기준 — 현재 단계와 다른 시기의 준비물도 미리 볼 수 있고
    *   (예비 부모의 "다음 시기 미리 보기"), prepared/not_needed 탭도 같은 밴드로 좁힌다.
+   *   단 tab="all"(전 상태 스냅샷)은 밴드를 무시한다 — 아래 itemsForChild의 FIX/F4 참고.
    */
   async listItems(user: AuthenticatedUser, childId: string, tab: ItemTab = "now", stageBand?: StageBandLabel) {
     await this.childAccess.requireChildAccess(user, childId);
@@ -553,12 +554,20 @@ export class ItemsCatalogService {
       : (item: ItemTemplateWithStages) => item.stageCodes.includes(stageCode);
 
     // ITEM-123 (B5): 전체 스냅샷. 상태로 거르지 않으므로 now/soon/prepared/not_needed
-    // 네 탭의 합집합과 정확히 같은 집합이고(gifted 포함), 화면이 준비율을 계산하려고
-    // 탭을 4번 부르던 왕복을 1번으로 줄인다. stageBand가 오면 다른 상태 탭들과 같은
-    // 규칙으로 밴드까지 좁힌다(생략 시 전 시기 — 준비율 스냅샷이 쓰는 방식).
+    // 네 탭의 합집합을 빠짐없이 담고(gifted 포함), 화면이 준비율을 계산하려고
+    // 탭을 4번 부르던 왕복을 1번으로 줄인다.
+    //
+    // FIX/F4: 예전에는 stageBand가 오면 다른 상태 탭들처럼 밴드로 좁혔는데, 그러면
+    // 합집합보다 **작아진다** — now는 밴드에 걸치는 항목, soon은 그 여집합이라 둘의
+    // 합집합은 밴드와 무관하게 "미준비·관심" 전부다. 밴드로 좁힌 all에는 soon 탭에
+    // 버젓이 보이는 항목이 빠져 있었고, 준비율의 분모도 그만큼 줄었다. 그래서 all은
+    // 밴드를 적용하지 않는다(밴드 유무와 상관없이 활성 항목 전체).
+    // 정확히 말하면 all ⊇ 네 탭의 합집합이다: 밴드가 지정되면 prepared/not_needed 탭은
+    // 밴드로 좁혀지므로, 밴드 밖의 이미 정리된 항목(prepared/gifted/not_needed)은 어느
+    // 탭에도 안 보이지만 스냅샷에는 남는다. 준비율은 분모·분자를 같은 스냅샷에서 세므로
+    // 이 여유분이 비율을 왜곡하지 않는다(오히려 밴드로 좁히면 정리된 항목만 빠져 왜곡된다).
     if (tab === "all") {
-      return activeItems
-        .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
+      return [...activeItems]
         .sort((left, right) => left.displayOrder - right.displayOrder)
         .map((item) => ({ item, status: statusFor(item.id) }));
     }

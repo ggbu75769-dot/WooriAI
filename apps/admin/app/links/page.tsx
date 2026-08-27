@@ -19,6 +19,17 @@ import {
   type ProductLinkInput,
   type ProductPlatform
 } from "../../src/lib/admin-api";
+import {
+  EMPTY_LINK_FILTERS,
+  LINK_HEALTH_FILTERS,
+  collectItemTemplateOptions,
+  filterProductLinks,
+  hasAnyLinkFilter,
+  linkFilterSummary,
+  linkHealthFilterLabel,
+  type LinkFilterState,
+  type LinkHealthFilter
+} from "../../src/lib/link-filters";
 import { isHttpUrl } from "../../src/lib/validation";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import { ProductLinkBulkReplace } from "../../src/components/ProductLinkBulkReplace";
@@ -256,6 +267,9 @@ export default function ProductLinksPage() {
   // 재시도가 같은 링크를 두 번 만들어 displayOrder를 어지럽히지 않게 한다.
   const createKey = useRef(createIdempotencyKeyHolder()).current;
 
+  // ADM-125: 목록 필터는 전부 클라이언트 상태 — 서버에서 이미 전체 링크를 받아온다.
+  const [filters, setFilters] = useState<LinkFilterState>(EMPTY_LINK_FILTERS);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<LinkFormState>(emptyLinkForm(""));
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -289,6 +303,14 @@ export default function ProductLinksPage() {
   const isEditor = session.admin.role === "editor";
 
   const itemNameById = (id: string) => itemTemplates.find((item) => item.id === id)?.name ?? id;
+
+  const filteredLinks = links ? filterProductLinks(links, filters) : null;
+  const itemFilterOptions = links ? collectItemTemplateOptions(links, itemNameById) : [];
+  const filtersApplied = hasAnyLinkFilter(filters);
+
+  const setHealthFilter = (value: LinkHealthFilter | undefined) => {
+    setFilters((current) => ({ ...current, healthStatus: value }));
+  };
 
   const handleCreate = async () => {
     const validationMessage = validateLinkForm(createForm);
@@ -399,7 +421,7 @@ export default function ProductLinksPage() {
       </section>
 
       <section className={styles.card}>
-        <h2>상품 링크 목록</h2>
+        <h2>상품 링크 목록{links ? ` (${linkFilterSummary(links.length, filteredLinks?.length ?? 0)})` : ""}</h2>
         {links === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
@@ -409,8 +431,94 @@ export default function ProductLinksPage() {
             </button>
           </p>
         ) : null}
-        {links && links.length === 0 ? <p className={styles.emptyState}>등록된 상품 링크가 없어요.</p> : null}
+
+        {/* ADM-125: 깨진 링크를 눈으로 훑지 않도록 헬스 상태·준비템·검색어·활성 여부로 좁힌다. */}
         {links && links.length > 0 ? (
+          <div className={styles.form}>
+            <div className={styles.field}>
+              <label id="link-filter-health-label">링크 상태</label>
+              <div className={styles.actions} role="group" aria-labelledby="link-filter-health-label">
+                <button
+                  type="button"
+                  className={filters.healthStatus === undefined ? styles.primaryButton : styles.secondaryButton}
+                  aria-pressed={filters.healthStatus === undefined}
+                  onClick={() => setHealthFilter(undefined)}
+                >
+                  전체
+                </button>
+                {LINK_HEALTH_FILTERS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={filters.healthStatus === value ? styles.primaryButton : styles.secondaryButton}
+                    aria-pressed={filters.healthStatus === value}
+                    onClick={() => setHealthFilter(filters.healthStatus === value ? undefined : value)}
+                  >
+                    {linkHealthFilterLabel(value)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles.formGrid}>
+              <div className={styles.field}>
+                <label htmlFor="link-filter-query">검색</label>
+                <input
+                  id="link-filter-query"
+                  type="text"
+                  maxLength={160}
+                  placeholder="제목 또는 URL"
+                  value={filters.query ?? ""}
+                  onChange={(event) => setFilters({ ...filters, query: event.target.value })}
+                />
+                <span className={styles.hint}>대소문자를 가리지 않고 부분 일치로 찾아요.</span>
+              </div>
+              <div className={styles.field}>
+                <label htmlFor="link-filter-item">준비템</label>
+                <select
+                  id="link-filter-item"
+                  value={filters.itemTemplateId ?? ""}
+                  onChange={(event) => setFilters({ ...filters, itemTemplateId: event.target.value || undefined })}
+                >
+                  <option value="">전체</option>
+                  {itemFilterOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className={styles.checkboxRow}>
+              <input
+                id="link-filter-active"
+                type="checkbox"
+                checked={filters.activeOnly ?? false}
+                onChange={(event) => setFilters({ ...filters, activeOnly: event.target.checked })}
+              />
+              <label htmlFor="link-filter-active">활성 링크만 보기</label>
+            </div>
+
+            {filtersApplied ? (
+              <div className={styles.actions}>
+                <button
+                  type="button"
+                  className={styles.secondaryButton}
+                  onClick={() => setFilters(EMPTY_LINK_FILTERS)}
+                >
+                  필터 초기화
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {links && links.length === 0 ? <p className={styles.emptyState}>등록된 상품 링크가 없어요.</p> : null}
+        {links && links.length > 0 && filteredLinks && filteredLinks.length === 0 ? (
+          <p className={styles.emptyState}>조건에 맞는 상품 링크가 없어요.</p>
+        ) : null}
+        {filteredLinks && filteredLinks.length > 0 ? (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <thead>
@@ -427,7 +535,7 @@ export default function ProductLinksPage() {
                 </tr>
               </thead>
               <tbody>
-                {links.map((link) => (
+                {filteredLinks.map((link) => (
                   <Fragment key={link.id}>
                     <tr>
                       <td>{itemNameById(link.itemTemplateId)}</td>

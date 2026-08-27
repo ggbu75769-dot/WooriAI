@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { reconcileMonthlyExpenses } from "../offline/expense-list-reconciliation";
+import type { LocalExpenseRow } from "../offline/types";
 import {
   daysInYearMonth,
   evaluateLastMonthComparison,
@@ -51,6 +53,19 @@ describe("REP-121 sumMonthExpensesThroughDay", () => {
   it("ignores rows from another month or with an unparseable date", () => {
     const records = [expense(5, 40_000), expense(5, 70_000, "expense", "2025-06"), { amountKrw: 1_000, spentOn: "오늘", expenseType: "expense" }];
     expect(sumMonthExpensesThroughDay(records, "2025-07", 31)).toBe(40_000);
+  });
+
+  // 정밀 리뷰 F3(부수): 술어를 countsTowardMonthlyTotal 한 곳으로 모은 결과.
+  it("expenseType이 없는 레거시 로컬 행도 지출로 센다 -- 기록 탭 월 합계와 같은 술어", () => {
+    const records = [{ amountKrw: 20_000, spentOn: "2025-07-03" }, { amountKrw: 5_000, spentOn: "2025-07-04", expenseType: undefined }];
+    // 예전에는 `expenseType !== "expense"`로 걸러 둘 다 0원 취급했다 -- 같은 행이 이번 달
+    // 합계(reconcileMonthlyExpenses)에는 들어가므로 델타의 두 항이 어긋났다.
+    expect(sumMonthExpensesThroughDay(records, "2025-07", 31)).toBe(25_000);
+  });
+
+  it("알 수 없는 새 expenseType은 여전히 제외한다 (화이트리스트 유지)", () => {
+    const records = [expense(3, 10_000), expense(4, 90_000, "reimbursement")];
+    expect(sumMonthExpensesThroughDay(records, "2025-07", 31)).toBe(10_000);
   });
 });
 
@@ -329,5 +344,182 @@ describe("REC-123(D1) 기록 탭 wiring contract", () => {
     expect(homeSource).toContain('queryKey: ["expenses", childId, lastYearMonth]');
     // 과거 달을 보는 동안에는 조회 자체가 비활성.
     expect(recordsSource).toContain("enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth)");
+  });
+});
+
+/**
+ * 정밀 리뷰 F3: 기록 탭 델타의 두 항이 **같은 데이터 소스/같은 산출 규칙**에서 나와야 한다.
+ *
+ * 예전에는 이번 달 항만 reconcileMonthlyExpenses(미동기화 로컬 행 포함)를 거치고 지난달 항은
+ * 서버 목록 원본이었다. 아래 헬퍼는 기록 탭(app/(tabs)/records.tsx)이 지금 실제로 하는 계산을
+ * 그대로 재현한다 -- 두 달 모두 같은 로컬 행 집합으로 재조정한 뒤 비교한다.
+ */
+const F3_TODAY = "2025-08-15";
+
+type ServerRecord = { id: string; amountKrw: number; spentOn: string; expenseType: string };
+
+function serverRecord(id: string, spentOn: string, amountKrw: number, expenseType = "expense"): ServerRecord {
+  return { id, amountKrw, spentOn, expenseType };
+}
+
+type LocalRowOverrides = Omit<Partial<LocalExpenseRow>, "payload"> & { payload?: Partial<LocalExpenseRow["payload"]> };
+
+function localRow(overrides: LocalRowOverrides): LocalExpenseRow {
+  const { payload, ...rest } = overrides;
+  return {
+    localId: "local-1",
+    canonicalId: null,
+    childId: "child-1",
+    payload: { childId: "child-1", categoryId: "cat-1", amountKrw: 10_000, spentOn: "2025-07-12", itemName: "기저귀", ...payload },
+    version: null,
+    syncState: "pending",
+    pendingDelete: false,
+    conflictCurrent: null,
+    lastError: null,
+    createdAt: "2025-07-12T00:00:00.000Z",
+    updatedAt: "2025-07-12T00:00:00.000Z",
+    ...rest
+  };
+}
+
+/** app/(tabs)/records.tsx의 두 항 산출을 그대로 흉내 낸다(F3 수정 후). */
+function recordsScreenComparison(input: {
+  thisMonthServer: ServerRecord[];
+  lastMonthServer: ServerRecord[];
+  offlineRows: LocalExpenseRow[];
+  todayIso?: string;
+}) {
+  const todayIso = input.todayIso ?? F3_TODAY;
+  const thisYearMonth = todayIso.slice(0, 7);
+  const lastYearMonth = previousYearMonth(todayIso)!;
+  const thisMonth = reconcileMonthlyExpenses(input.thisMonthServer, input.offlineRows, thisYearMonth);
+  const lastMonth = reconcileMonthlyExpenses(input.lastMonthServer, input.offlineRows, lastYearMonth);
+  const lastMonthRecords: ComparableExpenseRecord[] = [
+    ...lastMonth.visibleServerExpenses,
+    ...lastMonth.offlinePendingRows.map((row) => ({
+      amountKrw: row.payload.amountKrw,
+      spentOn: row.payload.spentOn,
+      expenseType: row.payload.expenseType
+    }))
+  ];
+  return evaluateLastMonthComparison({
+    todayIso,
+    thisMonthToDateKrw: thisMonth.monthlyTotalKrw,
+    lastMonthRecords
+  });
+}
+
+describe("F3 기록 탭 전월 동시점 델타 -- 두 항의 대칭", () => {
+  it("지난달에 남아 있는 미동기화 로컬 행도 기준액에 넣는다 (허위 '200% 많이' 방지)", () => {
+    const offlineRows = [
+      // 오프라인에서 기록해 아직 서버에 못 올라간 지난달 행 -- 서버 목록에는 없다.
+      localRow({ localId: "local-jul", payload: { amountKrw: 900_000, spentOn: "2025-07-12" } })
+    ];
+
+    const result = recordsScreenComparison({
+      thisMonthServer: [serverRecord("aug-1", "2025-08-05", 300_000)],
+      lastMonthServer: [serverRecord("jul-1", "2025-07-10", 100_000)],
+      offlineRows
+    });
+
+    // 수정 전: 기준액 100,000원(서버 원본) 대 이번 달 300,000원 -> "200% 많이 썼어요".
+    // 수정 후: 기준액 1,000,000원(= 100,000 + 미동기화 900,000) 대 300,000원.
+    expect(result?.lastMonthToDateKrw).toBe(1_000_000);
+    expect(result?.direction).toBe("less");
+    expect(result?.text).toBe("지난달 같은 시점보다 70% 적게 썼어요.");
+  });
+
+  it("지난달 서버 행을 로컬에서 수정해 둔 상태면 기준액도 새 금액으로 본다 (낡은 서버 값 중복 금지)", () => {
+    const offlineRows = [
+      localRow({
+        localId: "local-edit",
+        canonicalId: "jul-1",
+        payload: { amountKrw: 200_000, spentOn: "2025-07-10" }
+      })
+    ];
+
+    const result = recordsScreenComparison({
+      thisMonthServer: [serverRecord("aug-1", "2025-08-05", 200_000)],
+      lastMonthServer: [serverRecord("jul-1", "2025-07-10", 800_000)],
+      offlineRows
+    });
+
+    // 낡은 서버 행(800,000)은 숨고 로컬 값(200,000)만 센다 -- 이번 달 항과 같은 규칙.
+    expect(result?.lastMonthToDateKrw).toBe(200_000);
+    expect(result?.direction).toBe("same");
+  });
+
+  it("지난달 행에 삭제 대기가 걸려 있으면 기준액에서도 빠진다 (이미 취소한 지출로 비교하지 않는다)", () => {
+    const offlineRows = [
+      localRow({ localId: "local-del", canonicalId: "jul-2", pendingDelete: true, payload: { spentOn: "2025-07-11" } })
+    ];
+
+    const result = recordsScreenComparison({
+      thisMonthServer: [serverRecord("aug-1", "2025-08-05", 100_000)],
+      lastMonthServer: [serverRecord("jul-1", "2025-07-10", 100_000), serverRecord("jul-2", "2025-07-11", 500_000)],
+      offlineRows
+    });
+
+    expect(result?.lastMonthToDateKrw).toBe(100_000);
+    expect(result?.direction).toBe("same");
+  });
+
+  it("같은 종류의 레거시 로컬 행(expenseType 없음)이 두 항에서 똑같이 취급된다", () => {
+    // 같은 금액·같은 일자의 레거시 로컬 행을 두 달에 하나씩 두면 결과는 '동일'이어야 한다.
+    // 한쪽만 세던 시절에는 이 입력이 "100% 많이/적게"로 갈렸다.
+    const offlineRows = [
+      localRow({ localId: "local-jul-legacy", payload: { amountKrw: 60_000, spentOn: "2025-07-08" } }),
+      localRow({ localId: "local-aug-legacy", payload: { amountKrw: 60_000, spentOn: "2025-08-08" } })
+    ];
+    expect(offlineRows[0].payload.expenseType).toBeUndefined();
+
+    const result = recordsScreenComparison({ thisMonthServer: [], lastMonthServer: [], offlineRows });
+
+    expect(result?.lastMonthToDateKrw).toBe(60_000);
+    expect(result?.thisMonthToDateKrw).toBe(60_000);
+    expect(result?.direction).toBe("same");
+  });
+
+  it("선물·환불 제외(DNC-015)는 두 항 모두에 그대로 걸린다", () => {
+    const offlineRows = [
+      localRow({ localId: "local-gift", payload: { amountKrw: 500_000, spentOn: "2025-07-09", expenseType: "gift" } })
+    ];
+
+    const result = recordsScreenComparison({
+      thisMonthServer: [serverRecord("aug-1", "2025-08-05", 100_000), serverRecord("aug-gift", "2025-08-06", 400_000, "gift")],
+      lastMonthServer: [serverRecord("jul-1", "2025-07-10", 100_000), serverRecord("jul-refund", "2025-07-11", 300_000, "refund")],
+      offlineRows
+    });
+
+    expect(result?.lastMonthToDateKrw).toBe(100_000);
+    expect(result?.thisMonthToDateKrw).toBe(100_000);
+    expect(result?.direction).toBe("same");
+  });
+
+  it("로컬 대기 행이 없으면 예전과 동일한 결과다 (서버-서버 비교 회귀 없음)", () => {
+    const result = recordsScreenComparison({
+      thisMonthServer: [serverRecord("aug-1", "2025-08-05", 880_000)],
+      lastMonthServer: [serverRecord("jul-1", "2025-07-01", 600_000), serverRecord("jul-2", "2025-07-15", 400_000), serverRecord("jul-3", "2025-07-20", 300_000)],
+      offlineRows: []
+    });
+
+    expect(result?.lastMonthToDateKrw).toBe(1_000_000);
+    expect(result?.text).toBe("지난달 같은 시점보다 12% 적게 썼어요.");
+  });
+});
+
+describe("F3 기록 탭 배선 계약 (app/(tabs)/records.tsx)", () => {
+  const recordsSource = readFileSync(join(process.cwd(), "app/(tabs)/records.tsx"), "utf8");
+
+  it("지난달 목록에도 같은 재조정을 건다 -- 서버 목록 원본을 그대로 넘기지 않는다", () => {
+    expect(recordsSource).toContain("reconcileMonthlyExpenses(lastMonthServerExpenses, childOfflineRows, lastYearMonth)");
+    expect(recordsSource).toContain("lastMonthRecords: lastMonthComparableRecords");
+    // 회귀 방지: 예전에는 서버 응답을 곧바로 비교 항으로 썼다.
+    expect(recordsSource).not.toContain("lastMonthRecords: lastMonthExpenses.data?.expenses ?? null");
+  });
+
+  it("두 달 재조정이 같은 로컬 행 집합을 쓴다 (대칭의 전제)", () => {
+    expect(recordsSource).toContain("const childOfflineRows = useMemo(");
+    expect(recordsSource).toContain("reconcileMonthlyExpenses(serverExpenses ?? [], childOfflineRows, recordsYearMonth)");
   });
 });

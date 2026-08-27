@@ -1043,10 +1043,11 @@ export function listItems(
     stageBand ? itemMatchesBand({ stageCodes: item.stageCodes, timingLabel: item.timingLabel }, stageBand) : item.stageCodes.includes(stageCode);
 
   // ITEM-123 (B5): 상태로 거르지 않는 전체 스냅샷 — 서버 tab="all"과 같은 집합.
+  // F4 정합: 서버와 동일하게 stageBand를 무시해 네 탭의 합집합을 보장한다
+  // (now∪soon은 밴드 무관 전체이므로 밴드로 좁히면 soon 집합을 잃는다).
   if (tab === "all") {
     return {
-      items: localItemTemplateFixtures
-        .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
+      items: [...localItemTemplateFixtures]
         .sort((left, right) => left.displayOrder - right.displayOrder)
         .map(toItemSummaryDto)
     };

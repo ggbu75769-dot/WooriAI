@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CLICK_SUMMARY_DAYS_OPTIONS,
   PRODUCT_PLATFORM_LABELS,
@@ -21,20 +21,34 @@ export default function ClickSummaryPage() {
   const { session, clearSession } = useAdminSession();
   const [days, setDays] = useState<ClickSummaryDays>(7);
   const [summary, setSummary] = useState<ClickSummary | null>(null);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // FIX/F6: 기간 토글을 빠르게 누르면 먼저 보낸 요청이 나중에 도착할 수 있다. 마지막 요청만
+  // 화면에 반영해 버튼(aria-pressed)과 표 제목("최근 N일")이 어긋나지 않게 한다.
+  const requestSeq = useRef(0);
 
   const loadSummary = useCallback(async () => {
     if (!session) return;
+    const seq = ++requestSeq.current;
     setLoadError(null);
+    setLoading(true);
+    // FIX/F6: 이전 기간의 집계를 남겨두면 로딩 동안 "최근 30일" 버튼이 눌린 채 표에는
+    // 최근 7일 데이터가 보인다 -- 새 창을 받을 때까지 이전 데이터를 감춘다.
+    setSummary(null);
     try {
       const result = await getAffiliateClickSummary(days);
+      if (requestSeq.current !== seq) return;
       setSummary(result);
     } catch (error) {
+      if (requestSeq.current !== seq) return;
+      setSummary(null);
       if (isAuthError(error)) {
         clearSession();
         return;
       }
       setLoadError("클릭 통계를 불러오지 못했어요.");
+    } finally {
+      if (requestSeq.current === seq) setLoading(false);
     }
   }, [session, clearSession, days]);
 
@@ -70,7 +84,7 @@ export default function ClickSummaryPage() {
 
       <section className={styles.card}>
         <h2>전체 클릭 수</h2>
-        {summary === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
+        {loading ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
             {loadError}

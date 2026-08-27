@@ -93,6 +93,28 @@ export function buildRecordsCategoryChips(
 }
 
 /**
+ * HOME-124: "YYYY-MM-DD"(서버 toExpenseDto의 date-only 포맷) → "8월 4일".
+ *
+ * 원래 app/(tabs)/records.tsx 안의 파일 지역 함수였는데, 홈의 "최근 지출" 행(app/(tabs)/index.tsx)이
+ * 이 함수를 쓰지 못해 `subtitle={expense.spentOn}`으로 **ISO 원본("2026-08-27")을 그대로** 그리고
+ * 있었다. 같은 지출이 홈에서는 "2026-08-27", 기록 탭에서는 "8월 27일"로 보이던 불일치를 없애려고
+ * 이 모듈로 승격했다(두 화면의 단일 소스).
+ *
+ * 파싱할 수 없는 값은 **그대로 돌려준다**. 비세션 픽셀락 미리보기(previewHome)의 고정 픽스처는
+ * 날짜가 아니라 이미 사람이 읽는 문자열("오늘", "05.20")이므로, 이 통과 규칙 덕분에 HOME-001
+ * 캡처가 한 글자도 바뀌지 않는다. `Number()`가 NaN을 내는 값("2026-ab-cd")도 "NaN월 NaN일" 대신
+ * 원본을 보여준다 -- 허위 표시보다 원본이 정직하다.
+ */
+export function formatSpentOn(spentOn: string): string {
+  const parts = spentOn.split("-");
+  if (parts.length !== 3) return spentOn;
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (!Number.isInteger(month) || !Number.isInteger(day)) return spentOn;
+  return `${month}월 ${day}일`;
+}
+
+/**
  * REC-121 (D2/K1): composes a 기록 행 subtitle -- "[선물|환불 ·] 카테고리 · 8월 4일".
  *
  * D2: the row used to show only 품목명 / 날짜 / 금액, so two rows for different categories were
@@ -118,4 +140,17 @@ export function recordsRowSubtitle(input: {
   if (categoryLabel) parts.push(categoryLabel);
   parts.push(input.dateLabel);
   return parts.join(" · ");
+}
+
+/**
+ * HOME-124: 홈 "최근 지출" 행의 부제 -- "[선물|환불 ·] 8월 27일".
+ *
+ * 홈은 `GET /home` 응답만 읽고 `["categories"]` 캐시를 구독하지 않으므로(그러려고 요청을 하나
+ * 더 붙이면 홈 첫 화면 비용이 늘어난다) 카테고리 라벨 없이 같은 규칙을 쓴다. 구분 접두사는
+ * **새 규칙을 만들지 않고** 위의 `recordsRowSubtitle`에 그대로 위임한다 -- 선물/환불 표기가
+ * 두 화면에서 갈리면 그 자체가 DNC-015(선물 제외) 표시의 신뢰를 깎는다. 카테고리 라벨을 넘기지
+ * 않으면 "선물 · 8월 27일" / "8월 27일"이 되어 기록 탭 행에서 카테고리만 빠진 형태가 된다.
+ */
+export function homeRecentExpenseSubtitle(expense: { expenseType?: string | null; spentOn: string }): string {
+  return recordsRowSubtitle({ expenseType: expense.expenseType, dateLabel: formatSpentOn(expense.spentOn) });
 }
