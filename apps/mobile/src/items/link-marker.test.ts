@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LOCAL_ITEM_DIAPER, localProductLinkFixtures } from "../api/local-fixtures";
@@ -238,7 +238,7 @@ describe("라운드 43 리뷰 M-1: 고지는 링크 집합이 정한다", () => 
  *
  * 종전에는 스폰서 링크에 disclosureText만 있으면 그 문장 하나로 끝났다. 그래서 제휴가 섞인
  * 집합(= 실제로 수수료를 받는 화면)에서 CTA 인접 수수료 고지가 통째로 사라졌다. 어드민이
- * 넣은 커스텀 문구도, 서버 시드의 기본값("스폰서 상품 예시입니다.", seed-data.ts:1225)도
+ * 넣은 커스텀 문구도, 서버 시드의 기본값("스폰서 상품 예시예요.", seed-data.ts:1225)도
  * 수수료를 말하지 않으므로 둘 다 실재하는 경로다(DNC-010 위반).
  */
 describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항상 남는다", () => {
@@ -248,7 +248,7 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
   /** 조합 전수: [스폰서 문구, 그 문구가 수수료를 말하는가] */
   const sponsoredTexts: Array<[string | null, boolean]> = [
     ["스폰서 광고예요.", false], // 어드민 커스텀(수수료 언급 없음)
-    ["스폰서 상품 예시입니다.", false], // 서버 시드 기본값
+    ["스폰서 상품 예시예요.", false], // 서버 시드 기본값
     ["Sponsored listing.", false], // 서버 시드가 영문으로 남은 경우
     ["스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.", true],
     ["스폰서예요. 구매 시 수수료가 발생할 수 있어요.", true], // 다른 표현이지만 이미 고지함
@@ -273,9 +273,9 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
   });
 
   it("스폰서 링크 자신이 제휴인 경우도 같은 규칙을 받는다", () => {
-    const sponsoredAffiliate = { isAffiliate: true, isSponsored: true, disclosureText: "스폰서 상품 예시입니다." };
+    const sponsoredAffiliate = { isAffiliate: true, isSponsored: true, disclosureText: "스폰서 상품 예시예요." };
     expect(productLinksDisclosureText([sponsoredAffiliate])).toBe(
-      `스폰서 상품 예시입니다. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`
+      `스폰서 상품 예시예요. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`
     );
   });
 
@@ -291,8 +291,8 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
       `우리아이 제휴 파트너 링크예요. ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`
     );
     // 이미 수수료를 말하고 있으면(표현이 달라도) 그대로 둔다.
-    const seeded = { isAffiliate: true, isSponsored: false, disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다." };
-    expect(productLinksDisclosureText([seeded])).toBe("이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다.");
+    const seeded = { isAffiliate: true, isSponsored: false, disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요." };
+    expect(productLinksDisclosureText([seeded])).toBe("제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요.");
   });
 
   it("라운드 45 O-6: '수수료'가 들어 있어도 우리가 받는 돈이 아니면 고지를 덧붙인다", () => {
@@ -304,7 +304,7 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
     expect(statesAffiliateCommission("배송 수수료는 별도예요.")).toBe(false);
     expect(statesAffiliateCommission("카드 수수료 포함 금액이에요.")).toBe(false);
     // 실제로 쓰이는 두 고지(서버 시드 · 데모 픽스처)는 그대로 "이미 고지함"이다.
-    expect(statesAffiliateCommission("이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다.")).toBe(true);
+    expect(statesAffiliateCommission("제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요.")).toBe(true);
     expect(statesAffiliateCommission("이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.")).toBe(true);
     expect(AFFILIATE_DISCLOSURE_CORE_TERMS.length).toBeGreaterThan(1);
   });
@@ -312,6 +312,120 @@ describe("라운드 44 리뷰 N-2: 제휴가 섞이면 수수료 고지가 항�
   it("withAffiliateDisclosure는 빈 문구를 기본 고지로 떨어뜨린다", () => {
     expect(withAffiliateDisclosure("   ")).toBe(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
     expect(withAffiliateDisclosure(AFFILIATE_DISCLOSURE_FALLBACK_TEXT)).toBe(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
+  });
+});
+
+/**
+ * 라운드 46 리뷰 Q-3: "수수료가 발생" 어절이 **사용자 부담 비용** 문구까지 삼키던 자리.
+ *
+ * O-6이 "수수료" 한 낱말 판정을 어절 결합으로 좁혔지만, "수수료가 발생"만은 여전히 주체가
+ * 비어 있었다. 그래서 운영이 `PUT /admin/disclosures/:key`나 링크 문구로 넣을 수 있는
+ * "결제 취소 시 수수료가 발생할 수 있어요" 같은 문장이 "이미 고지함"으로 판정돼, 그 화면의
+ * 제휴 고지가 통째로 사라졌다(DNC-010 위반 방향).
+ *
+ * 이 describe는 두 방향을 함께 못박는다.
+ *  - 실재하는 문구(서버 시드 · 데모 픽스처 · 종별 폴백)는 **전부** 인식된다 → 이중 고지 없음.
+ *  - 사용자 부담 비용 문구는 인식되지 않는다 → 승인 문구가 덧붙는다.
+ */
+describe("라운드 46 리뷰 Q-3: 수령 맥락이 있어야 '이미 고지함'이다", () => {
+  const repoRoot = join(mobileRoot, "..", "..");
+  const apiSeedDataPath = join(repoRoot, "apps", "api", "prisma", "seed-data.ts");
+  const seedSource = () => readFileSync(apiSeedDataPath, "utf8");
+
+  /** 서버 시드 파일에서 실제 문구 리터럴을 그대로 긁어온다(손으로 베끼면 드리프트한다). */
+  function seedDisclosureTexts(): string[] {
+    const source = seedSource();
+    const texts = [...source.matchAll(/disclosureText: "([^"]+)"/g)].map((match) => match[1]);
+    // 종별 기본값(disclosureSeeds) — 링크가 문구를 비워 두면 서버가 이 값을 실어 준다.
+    const seedsStart = source.indexOf("export const disclosureSeeds");
+    expect(seedsStart, "disclosureSeeds 블록을 찾지 못했다 — 시드가 옮겨졌다").toBeGreaterThan(-1);
+    const seedsBlock = source.slice(seedsStart, source.indexOf("];", seedsStart));
+    texts.push(...[...seedsBlock.matchAll(/text: "([^"]+)"/g)].map((match) => match[1]));
+    return [...new Set(texts)];
+  }
+
+  it("시드 파일에서 실제 고지 문구를 읽어온다 (경로가 바뀌면 여기서 깨진다)", () => {
+    expect(existsSync(apiSeedDataPath), `${apiSeedDataPath} must exist`).toBe(true);
+    expect(seedDisclosureTexts().length).toBeGreaterThan(2);
+  });
+
+  it("수수료를 말하는 서버 시드 문구는 전부 인식된다 (이중 고지 없음)", () => {
+    const commissionTexts = seedDisclosureTexts().filter((text) => text.includes("수수료"));
+    // 서버 시드에서 "수수료"를 말하는 문구는 전부 **우리가 받는다**는 뜻이다.
+    expect(commissionTexts.length).toBeGreaterThan(0);
+    for (const text of commissionTexts) {
+      expect(statesAffiliateCommission(text), `서버 시드 문구가 인식되지 않는다: ${text}`).toBe(true);
+      // 인식되므로 승인 문구가 뒤에 덧붙지 않는다 — 같은 말이 두 번 적히지 않는다.
+      expect(withAffiliateDisclosure(text)).toBe(text);
+    }
+  });
+
+  it("종별 기본 고지(affiliate_purchase)는 한국어 해요체이고 인식된다 (Q-4 연동)", () => {
+    const source = seedSource();
+    const seedsBlock = source.slice(
+      source.indexOf("export const disclosureSeeds"),
+      source.indexOf("];", source.indexOf("export const disclosureSeeds"))
+    );
+    const affiliateSeed = /key: "affiliate_purchase",\s*\n\s*text: "([^"]+)"/.exec(seedsBlock);
+    expect(affiliateSeed, "affiliate_purchase 시드를 찾지 못했다").not.toBeNull();
+
+    const text = affiliateSeed![1];
+    // 영문으로 두면 이 판정이 "고지 없음"으로 떨어져 영문 + 한국어 이중 고지가 된다(Q-4).
+    expect(text).toMatch(/[가-힣]/);
+    expect(text).toContain("어요");
+    expect(statesAffiliateCommission(text)).toBe(true);
+
+    // 실제 경로 재현: 서버가 이 문구를 실어 준 제휴 링크 하나짜리 화면.
+    expect(productLinksDisclosureText([{ isAffiliate: true, isSponsored: false, disclosureText: text }])).toBe(text);
+  });
+
+  it("데모 픽스처와 종별 폴백 문구도 전부 인식된다", () => {
+    for (const link of localProductLinkFixtures) {
+      if (!link.disclosureText?.includes("수수료")) continue;
+      expect(statesAffiliateCommission(link.disclosureText), link.disclosureText).toBe(true);
+    }
+    expect(statesAffiliateCommission(AFFILIATE_DISCLOSURE_FALLBACK_TEXT)).toBe(true);
+    expect(statesAffiliateCommission(SPONSORED_DISCLOSURE_FALLBACK_TEXT)).toBe(true);
+  });
+
+  it("표현이 달라도 수령 맥락이 붙으면 인식된다 (운영이 쓸 법한 변형 전수)", () => {
+    for (const text of [
+      "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요.", // 서버 시드
+      "스폰서예요. 구매 시 수수료가 발생할 수 있어요.",
+      "이 링크로 구매하면 수수료가 발생해요.",
+      "구매하실 때 수수료가 발생할 수 있어요.",
+      "이 링크를 통한 구매를 통해 수수료가 발생할 수 있어요.",
+      "제휴 수수료가 발생할 수 있어요.",
+      "제휴수수료가 발생할 수 있어요.",
+      "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.",
+      "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요."
+    ]) {
+      expect(statesAffiliateCommission(text), `인식돼야 한다: ${text}`).toBe(true);
+      expect(withAffiliateDisclosure(text)).toBe(text);
+    }
+  });
+
+  it("사용자가 내는 비용을 말하는 '수수료가 발생'은 인식하지 않는다 → 승인 문구를 덧붙인다", () => {
+    for (const text of [
+      "결제 취소 시 수수료가 발생할 수 있어요.",
+      "해외 결제 수수료가 발생해요.",
+      "환불 수수료가 발생할 수 있어요.",
+      "배송 수수료는 별도예요."
+    ]) {
+      expect(statesAffiliateCommission(text), `인식되면 안 된다: ${text}`).toBe(false);
+      // 제휴 링크에 이런 문구가 달려 있어도 승인 문구가 반드시 남는다(DNC-010).
+      const link = { isAffiliate: true, isSponsored: false, disclosureText: text };
+      expect(productLinksDisclosureText([link])).toBe(`${text} ${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}`);
+    }
+  });
+
+  it("판정 표현 목록에 맨몸 '수수료가 발생'은 남아 있지 않다", () => {
+    // 이 항목이 되살아나면 위 반례들이 다시 삼켜진다.
+    expect(AFFILIATE_DISCLOSURE_CORE_TERMS).not.toContain("수수료가 발생");
+    for (const term of AFFILIATE_DISCLOSURE_CORE_TERMS) {
+      if (!term.includes("수수료가 발생")) continue;
+      expect(term.length, `"${term}"에 수령 맥락 어절이 없다`).toBeGreaterThan("수수료가 발생".length);
+    }
   });
 });
 

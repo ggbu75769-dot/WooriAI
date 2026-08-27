@@ -99,10 +99,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "임신 초기부터",
     priceMinKrw: 20000,
     priceMaxKrw: 80000,
-    reasonText: "산모가 매달 챙기는 지출을 아이 준비 기록과 함께 남길 수 있습니다.",
+    reasonText: "산모가 매달 챙기는 지출을 아이 준비 기록과 함께 남길 수 있어요.",
     skipReasonText: null,
     usedSecondhandOk: false,
-    safetyNote: "복용 여부와 종류는 담당 의료진 안내를 우선합니다.",
+    safetyNote: "복용 여부와 종류는 담당 의료진 안내를 우선해요.",
     medicalDisclaimerRequired: true,
     displayOrder: 10,
     active: true,
@@ -116,10 +116,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "출산 전후",
     priceMinKrw: 150000,
     priceMaxKrw: 700000,
-    reasonText: "차량 이동이 있다면 퇴원과 외출 전에 안전 준비 상태를 확인해야 합니다.",
+    reasonText: "차량 이동이 있다면 퇴원과 외출 전에 안전 준비 상태를 확인해야 해요.",
     skipReasonText: null,
     usedSecondhandOk: false,
-    safetyNote: "안전 인증과 설치 상태를 확인하고 사고 이력이 있는 중고 제품은 피합니다.",
+    safetyNote: "안전 인증과 설치 상태를 확인하고 사고 이력이 있는 중고 제품은 피해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 20,
     active: true,
@@ -133,7 +133,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "출산 직전~0개월",
     priceMinKrw: 30000,
     priceMaxKrw: 120000,
-    reasonText: "출산 직후 반복 구매가 시작되는 기본 소모품입니다.",
+    reasonText: "출산 직후 반복 구매가 시작되는 기본 소모품이에요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -150,10 +150,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "출산 전후",
     priceMinKrw: 15000,
     priceMaxKrw: 80000,
-    reasonText: "초기 목욕 시간을 안정적으로 만들 수 있는 편의 준비템입니다.",
-    skipReasonText: "세면대나 큰 대야를 안전하게 쓸 수 있다면 바로 사지 않아도 됩니다.",
+    reasonText: "초기 목욕 시간을 안정적으로 만들 수 있는 편의 준비템이에요.",
+    skipReasonText: "세면대나 큰 대야를 안전하게 쓸 수 있다면 바로 사지 않아도 돼요.",
     usedSecondhandOk: true,
-    safetyNote: "물 사용 중에는 아이 곁을 떠나지 않습니다.",
+    safetyNote: "물 사용 중에는 아이 곁을 떠나지 않아요.",
     medicalDisclaimerRequired: false,
     displayOrder: 40,
     active: true,
@@ -167,10 +167,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "외출이 늘어날 때",
     priceMinKrw: 100000,
     priceMaxKrw: 1200000,
-    reasonText: "생활 반경과 이동 방식에 따라 외출 부담을 줄여주는 선택 준비템입니다.",
-    skipReasonText: "차량 이동이 적거나 아기띠로 충분한 시기라면 구매를 늦춰도 됩니다.",
+    reasonText: "생활 반경과 이동 방식에 따라 외출 부담을 줄여주는 선택 준비템이에요.",
+    skipReasonText: "차량 이동이 적거나 아기띠로 충분한 시기라면 구매를 늦춰도 돼요.",
     usedSecondhandOk: true,
-    safetyNote: "프레임 잠금, 브레이크, 안전벨트 상태를 확인합니다.",
+    safetyNote: "프레임 잠금, 브레이크, 안전벨트 상태를 확인해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 50,
     active: true,
@@ -184,10 +184,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "4~6개월 전후",
     priceMinKrw: 20000,
     priceMaxKrw: 200000,
-    reasonText: "이유식 시작 시 조리와 보관 흐름을 편하게 만드는 준비템입니다.",
-    skipReasonText: "집에 있는 조리 도구와 보관 용기로 충분하면 별도 구매하지 않아도 됩니다.",
+    reasonText: "이유식 시작 시 조리와 보관 흐름을 편하게 만드는 준비템이에요.",
+    skipReasonText: "집에 있는 조리 도구와 보관 용기로 충분하면 별도 구매하지 않아도 돼요.",
     usedSecondhandOk: true,
-    safetyNote: "소독과 세척이 쉬운 구조인지 확인합니다.",
+    safetyNote: "소독과 세척이 쉬운 구조인지 확인해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 60,
     active: true,
@@ -201,10 +201,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "7~12개월",
     priceMinKrw: 10000,
     priceMaxKrw: 150000,
-    reasonText: "놀이와 책 읽기 기록을 남기고 싶을 때 준비할 수 있습니다.",
-    skipReasonText: "도서관, 물려받은 책, 선물 책이 충분하면 새로 사지 않아도 됩니다.",
+    reasonText: "놀이와 책 읽기 기록을 남기고 싶을 때 준비할 수 있어요.",
+    skipReasonText: "도서관, 물려받은 책, 선물 책이 충분하면 새로 사지 않아도 돼요.",
     usedSecondhandOk: true,
-    safetyNote: "찢어진 모서리나 작은 부품이 없는지 확인합니다.",
+    safetyNote: "찢어진 모서리나 작은 부품이 없는지 확인해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 70,
     active: true,
@@ -218,8 +218,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "임신 초기~중기",
     priceMinKrw: 15000,
     priceMaxKrw: 60000,
-    reasonText: "체형 변화에 맞춰 편안하게 입을 수 있는 임산부 전용 속옷입니다.",
-    skipReasonText: "기존 속옷을 늘려 입거나 여유 있는 제품으로 버틸 수 있다면 바로 사지 않아도 됩니다.",
+    reasonText: "체형 변화에 맞춰 편안하게 입을 수 있는 임산부 전용 속옷이에요.",
+    skipReasonText: "기존 속옷을 늘려 입거나 여유 있는 제품으로 버틸 수 있다면 바로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -235,10 +235,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "임신 초기",
     priceMinKrw: 8000,
     priceMaxKrw: 40000,
-    reasonText: "입덧이 심한 시기에 식사를 대신하거나 도와줄 수 있는 완화 식품입니다.",
-    skipReasonText: "입덧 증상이 가볍다면 별도로 구매하지 않아도 됩니다.",
+    reasonText: "입덧이 심한 시기에 식사를 대신하거나 도와줄 수 있는 완화 식품이에요.",
+    skipReasonText: "입덧 증상이 가볍다면 별도로 구매하지 않아도 돼요.",
     usedSecondhandOk: false,
-    safetyNote: "증상이 심하면 자가 대처보다 담당 의료진 상담을 우선합니다.",
+    safetyNote: "증상이 심하면 자가 대처보다 담당 의료진 상담을 우선해요.",
     medicalDisclaimerRequired: true,
     displayOrder: 90,
     active: true,
@@ -252,8 +252,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "임신 초기~중기",
     priceMinKrw: 5000,
     priceMaxKrw: 25000,
-    reasonText: "태교 과정과 감정을 기록하고 싶을 때 준비하는 선택 준비템입니다.",
-    skipReasonText: "메모 앱이나 다른 기록 방법으로 충분하면 따로 사지 않아도 됩니다.",
+    reasonText: "태교 과정과 감정을 기록하고 싶을 때 준비하는 선택 준비템이에요.",
+    skipReasonText: "메모 앱이나 다른 기록 방법으로 충분하면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -269,7 +269,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "임신 중기~후기",
     priceMinKrw: 30000,
     priceMaxKrw: 150000,
-    reasonText: "배가 불러오는 시기에 활동과 일상을 편하게 만들어주는 필수 의류입니다.",
+    reasonText: "배가 불러오는 시기에 활동과 일상을 편하게 만들어주는 필수 의류예요.",
     skipReasonText: null,
     usedSecondhandOk: true,
     safetyNote: null,
@@ -286,8 +286,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "임신 중기~후기",
     priceMinKrw: 30000,
     priceMaxKrw: 120000,
-    reasonText: "배가 무거워지는 시기에 수면 자세를 편하게 잡아주는 편의 준비템입니다.",
-    skipReasonText: "기존 베개나 쿠션으로 자세가 편하다면 따로 사지 않아도 됩니다.",
+    reasonText: "배가 무거워지는 시기에 수면 자세를 편하게 잡아주는 편의 준비템이에요.",
+    skipReasonText: "기존 베개나 쿠션으로 자세가 편하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -303,8 +303,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "임신 중기~후기",
     priceMinKrw: 15000,
     priceMaxKrw: 60000,
-    reasonText: "튼살 관리를 원할 때 선택적으로 사용하는 관리 제품입니다.",
-    skipReasonText: "피부 관리가 필수는 아니므로 사용하지 않아도 됩니다.",
+    reasonText: "튼살 관리를 원할 때 선택적으로 사용하는 관리 제품이에요.",
+    skipReasonText: "피부 관리가 필수는 아니므로 사용하지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -320,10 +320,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "임신 초기~후기",
     priceMinKrw: 10000,
     priceMaxKrw: 40000,
-    reasonText: "빈혈 관리를 위해 임신 중 챙기는 필수 영양제입니다.",
+    reasonText: "빈혈 관리를 위해 임신 중 챙기는 필수 영양제예요.",
     skipReasonText: null,
     usedSecondhandOk: false,
-    safetyNote: "복용 여부와 용량은 담당 의료진 안내를 우선합니다.",
+    safetyNote: "복용 여부와 용량은 담당 의료진 안내를 우선해요.",
     medicalDisclaimerRequired: true,
     displayOrder: 140,
     active: true,
@@ -337,8 +337,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "임신 중기~후기",
     priceMinKrw: 0,
     priceMaxKrw: 200000,
-    reasonText: "출산과 육아를 미리 준비하고 싶을 때 참여하는 선택 교육 프로그램입니다.",
-    skipReasonText: "다른 경로로 정보를 충분히 얻고 있다면 참여하지 않아도 됩니다.",
+    reasonText: "출산과 육아를 미리 준비하고 싶을 때 참여하는 선택 교육 프로그램이에요.",
+    skipReasonText: "다른 경로로 정보를 충분히 얻고 있다면 참여하지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -354,7 +354,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "임신 후기·출산 전",
     priceMinKrw: 50000,
     priceMaxKrw: 200000,
-    reasonText: "입원과 퇴원까지 필요한 물품을 미리 챙기는 필수 준비 과정입니다.",
+    reasonText: "입원과 퇴원까지 필요한 물품을 미리 챙기는 필수 준비 과정이에요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -371,7 +371,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "출산 전후",
     priceMinKrw: 20000,
     priceMaxKrw: 80000,
-    reasonText: "신생아가 퇴원 후 바로 입을 수 있는 필수 첫 의류입니다.",
+    reasonText: "신생아가 퇴원 후 바로 입을 수 있는 필수 첫 의류예요.",
     skipReasonText: null,
     usedSecondhandOk: true,
     safetyNote: null,
@@ -388,10 +388,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "출산 전후",
     priceMinKrw: 30000,
     priceMaxKrw: 150000,
-    reasonText: "수유를 시작하기 전 젖병과 소독 도구를 갖추는 필수 준비템입니다.",
+    reasonText: "수유를 시작하기 전 젖병과 소독 도구를 갖추는 필수 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: false,
-    safetyNote: "소독 상태를 꾸준히 확인하고 위생을 관리합니다.",
+    safetyNote: "소독 상태를 꾸준히 확인하고 위생을 관리해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 180,
     active: true,
@@ -405,8 +405,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "출산 전후",
     priceMinKrw: 50000,
     priceMaxKrw: 400000,
-    reasonText: "직접 수유가 어려운 상황에서 모유를 보관하고 수유를 돕는 편의 준비템입니다.",
-    skipReasonText: "직접 수유로 충분하거나 병원·조리원 대여로 해결된다면 따로 사지 않아도 됩니다.",
+    reasonText: "직접 수유가 어려운 상황에서 모유를 보관하고 수유를 돕는 편의 준비템이에요.",
+    skipReasonText: "직접 수유로 충분하거나 병원·조리원 대여로 해결된다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -422,7 +422,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "출산 전후",
     priceMinKrw: 10000,
     priceMaxKrw: 40000,
-    reasonText: "출산 후 분비물과 모유 흡수를 관리하는 필수 위생 준비템입니다.",
+    reasonText: "출산 후 분비물과 모유 흡수를 관리하는 필수 위생 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -439,10 +439,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "출산 전후",
     priceMinKrw: 100000,
     priceMaxKrw: 600000,
-    reasonText: "아이가 안전하게 잠들 수 있는 독립된 수면 공간을 마련하는 편의 준비템입니다.",
-    skipReasonText: "부모와 함께 자는 방식으로 충분하다면 따로 사지 않아도 됩니다.",
+    reasonText: "아이가 안전하게 잠들 수 있는 독립된 수면 공간을 마련하는 편의 준비템이에요.",
+    skipReasonText: "부모와 함께 자는 방식으로 충분하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
-    safetyNote: "중고 제품이라면 안전 인증 여부와 부품 파손 여부를 꼭 확인합니다.",
+    safetyNote: "중고 제품이라면 안전 인증 여부와 부품 파손 여부를 꼭 확인해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 210,
     active: true,
@@ -456,7 +456,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "0~12개월",
     priceMinKrw: 15000,
     priceMaxKrw: 60000,
-    reasonText: "매일 반복해서 사용하는 필수 소모품이라 미리 대량으로 준비하면 편합니다.",
+    reasonText: "매일 반복해서 사용하는 필수 소모품이라 미리 대량으로 준비하면 편해요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -473,10 +473,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "0~6개월",
     priceMinKrw: 25000,
     priceMaxKrw: 120000,
-    reasonText: "모유 수유를 보완하거나 대체할 때 필요한 필수 먹거리입니다.",
-    skipReasonText: "완전 모유 수유를 하고 있다면 따로 구매하지 않아도 됩니다.",
+    reasonText: "모유 수유를 보완하거나 대체할 때 필요한 필수 먹거리예요.",
+    skipReasonText: "완전 모유 수유를 하고 있다면 따로 구매하지 않아도 돼요.",
     usedSecondhandOk: false,
-    safetyNote: "아이 상태에 따른 분유 선택은 담당 의료진과 상담 후 결정합니다.",
+    safetyNote: "아이 상태에 따른 분유 선택은 담당 의료진과 상담 후 결정해요.",
     medicalDisclaimerRequired: true,
     displayOrder: 230,
     active: true,
@@ -490,7 +490,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "0~3개월",
     priceMinKrw: 15000,
     priceMaxKrw: 60000,
-    reasonText: "신생아를 안정적으로 감싸 체온과 안정감을 지켜주는 필수 준비템입니다.",
+    reasonText: "신생아를 안정적으로 감싸 체온과 안정감을 지켜주는 필수 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: true,
     safetyNote: null,
@@ -507,7 +507,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "0~24개월",
     priceMinKrw: 15000,
     priceMaxKrw: 80000,
-    reasonText: "발열 여부를 빠르게 확인할 수 있는 필수 건강 관리 준비템입니다.",
+    reasonText: "발열 여부를 빠르게 확인할 수 있는 필수 건강 관리 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -524,8 +524,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "0~12개월",
     priceMinKrw: 8000,
     priceMaxKrw: 30000,
-    reasonText: "아기 피부에 순한 성분으로 세탁을 관리하는 편의 준비템입니다.",
-    skipReasonText: "순한 성분의 기존 세제로 충분하면 따로 구매하지 않아도 됩니다.",
+    reasonText: "아기 피부에 순한 성분으로 세탁을 관리하는 편의 준비템이에요.",
+    skipReasonText: "순한 성분의 기존 세제로 충분하면 따로 구매하지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -541,8 +541,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "0~24개월",
     priceMinKrw: 10000,
     priceMaxKrw: 40000,
-    reasonText: "건조하기 쉬운 아기 피부를 보습하는 편의 준비템입니다.",
-    skipReasonText: "피부 상태가 양호하다면 매일 사용하지 않아도 됩니다.",
+    reasonText: "건조하기 쉬운 아기 피부를 보습하는 편의 준비템이에요.",
+    skipReasonText: "피부 상태가 양호하다면 매일 사용하지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -558,10 +558,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "0~3개월",
     priceMinKrw: 5000,
     priceMaxKrw: 20000,
-    reasonText: "빨리 자라는 아기 손톱을 안전하게 정리하는 편의 준비템입니다.",
-    skipReasonText: "가위나 다른 도구로 관리가 가능하다면 따로 사지 않아도 됩니다.",
+    reasonText: "빨리 자라는 아기 손톱을 안전하게 정리하는 편의 준비템이에요.",
+    skipReasonText: "가위나 다른 도구로 관리가 가능하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
-    safetyNote: "잠든 시간을 활용하고 끝이 뭉툭한 전용 도구를 사용합니다.",
+    safetyNote: "잠든 시간을 활용하고 끝이 뭉툭한 전용 도구를 사용해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 280,
     active: true,
@@ -575,10 +575,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "0~12개월",
     priceMinKrw: 50000,
     priceMaxKrw: 250000,
-    reasonText: "두 손이 자유로운 외출과 이동을 돕는 편의 준비템입니다.",
-    skipReasonText: "유모차 이동으로 충분하다면 따로 사지 않아도 됩니다.",
+    reasonText: "두 손이 자유로운 외출과 이동을 돕는 편의 준비템이에요.",
+    skipReasonText: "유모차 이동으로 충분하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
-    safetyNote: "체중 범위와 착용 방법을 확인하고 사용합니다.",
+    safetyNote: "체중 범위와 착용 방법을 확인하고 사용해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 290,
     active: true,
@@ -592,8 +592,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "0~6개월",
     priceMinKrw: 15000,
     priceMaxKrw: 80000,
-    reasonText: "시각 자극과 안정적인 수면 환경을 돕는 선택 준비템입니다.",
-    skipReasonText: "다른 방법으로 아이가 잘 안정된다면 따로 사지 않아도 됩니다.",
+    reasonText: "시각 자극과 안정적인 수면 환경을 돕는 선택 준비템이에요.",
+    skipReasonText: "다른 방법으로 아이가 잘 안정된다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -609,10 +609,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "6~24개월",
     priceMinKrw: 50000,
     priceMaxKrw: 300000,
-    reasonText: "이유식과 식사 시간을 안정적으로 만들어주는 편의 준비템입니다.",
-    skipReasonText: "안고 먹이거나 다른 좌석으로 대체할 수 있다면 따로 사지 않아도 됩니다.",
+    reasonText: "이유식과 식사 시간을 안정적으로 만들어주는 편의 준비템이에요.",
+    skipReasonText: "안고 먹이거나 다른 좌석으로 대체할 수 있다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
-    safetyNote: "안전벨트와 잠금장치 상태를 확인합니다.",
+    safetyNote: "안전벨트와 잠금장치 상태를 확인해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 310,
     active: true,
@@ -626,7 +626,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "4~12개월",
     priceMinKrw: 10000,
     priceMaxKrw: 50000,
-    reasonText: "이유식을 시작할 때 필요한 필수 식사 도구입니다.",
+    reasonText: "이유식을 시작할 때 필요한 필수 식사 도구예요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -643,10 +643,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "4~12개월",
     priceMinKrw: 5000,
     priceMaxKrw: 25000,
-    reasonText: "잇몸이 간지러운 시기에 아이를 달래주는 편의 준비템입니다.",
-    skipReasonText: "다른 방법으로 아이가 편안해한다면 따로 사지 않아도 됩니다.",
+    reasonText: "잇몸이 간지러운 시기에 아이를 달래주는 편의 준비템이에요.",
+    skipReasonText: "다른 방법으로 아이가 편안해한다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
-    safetyNote: "입에 넣는 제품이므로 소독 상태를 꾸준히 관리합니다.",
+    safetyNote: "입에 넣는 제품이므로 소독 상태를 꾸준히 관리해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 330,
     active: true,
@@ -660,8 +660,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "6~24개월",
     priceMinKrw: 50000,
     priceMaxKrw: 300000,
-    reasonText: "바닥 놀이와 안전한 활동 공간을 마련하는 편의 준비템입니다.",
-    skipReasonText: "기존 바닥 환경이 안전하다면 따로 사지 않아도 됩니다.",
+    reasonText: "바닥 놀이와 안전한 활동 공간을 마련하는 편의 준비템이에요.",
+    skipReasonText: "기존 바닥 환경이 안전하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -677,10 +677,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "12~24개월",
     priceMinKrw: 30000,
     priceMaxKrw: 150000,
-    reasonText: "이동이 활발해지는 시기에 위험 구역을 막아주는 필수 안전 준비템입니다.",
+    reasonText: "이동이 활발해지는 시기에 위험 구역을 막아주는 필수 안전 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: true,
-    safetyNote: "중고 제품이라면 잠금장치와 고정 상태를 꼭 확인합니다.",
+    safetyNote: "중고 제품이라면 잠금장치와 고정 상태를 꼭 확인해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 350,
     active: true,
@@ -694,8 +694,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "12~24개월",
     priceMinKrw: 5000,
     priceMaxKrw: 30000,
-    reasonText: "기어다니고 걷기 시작하는 시기에 부딪힘을 줄여주는 편의 준비템입니다.",
-    skipReasonText: "가구 배치로 위험을 줄일 수 있다면 따로 사지 않아도 됩니다.",
+    reasonText: "기어다니고 걷기 시작하는 시기에 부딪힘을 줄여주는 편의 준비템이에요.",
+    skipReasonText: "가구 배치로 위험을 줄일 수 있다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -711,10 +711,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "12~24개월",
     priceMinKrw: 30000,
     priceMaxKrw: 120000,
-    reasonText: "걸음마를 연습하는 시기에 흥미를 더해주는 선택 준비템입니다.",
-    skipReasonText: "손을 잡아주거나 다른 방식으로 연습해도 충분하면 따로 사지 않아도 됩니다.",
+    reasonText: "걸음마를 연습하는 시기에 흥미를 더해주는 선택 준비템이에요.",
+    skipReasonText: "손을 잡아주거나 다른 방식으로 연습해도 충분하면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
-    safetyNote: "바퀴 잠금과 계단 근처 사용 여부를 확인합니다.",
+    safetyNote: "바퀴 잠금과 계단 근처 사용 여부를 확인해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 370,
     active: true,
@@ -728,8 +728,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "12~24개월",
     priceMinKrw: 20000,
     priceMaxKrw: 80000,
-    reasonText: "걷기 시작하는 시기에 발을 보호해주는 편의 준비템입니다.",
-    skipReasonText: "실내 위주 생활이라면 양말이나 실내화로 대체해도 됩니다.",
+    reasonText: "걷기 시작하는 시기에 발을 보호해주는 편의 준비템이에요.",
+    skipReasonText: "실내 위주 생활이라면 양말이나 실내화로 대체해도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -745,8 +745,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "12~24개월",
     priceMinKrw: 5000,
     priceMaxKrw: 30000,
-    reasonText: "외출 시 간식과 음료를 편리하게 챙길 수 있는 준비템입니다.",
-    skipReasonText: "기존 그릇이나 컵으로 충분하면 따로 사지 않아도 됩니다.",
+    reasonText: "외출 시 간식과 음료를 편리하게 챙길 수 있는 준비템이에요.",
+    skipReasonText: "기존 그릇이나 컵으로 충분하면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -762,7 +762,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "12~24개월",
     priceMinKrw: 15000,
     priceMaxKrw: 60000,
-    reasonText: "배변 훈련을 시작할 때 필요한 필수 준비템입니다.",
+    reasonText: "배변 훈련을 시작할 때 필요한 필수 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: true,
     safetyNote: null,
@@ -779,7 +779,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "24개월 이후",
     priceMinKrw: 5000,
     priceMaxKrw: 25000,
-    reasonText: "유치가 나기 시작하며 필요한 필수 구강 관리 준비템입니다.",
+    reasonText: "유치가 나기 시작하며 필요한 필수 구강 관리 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -796,8 +796,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "24개월 이후",
     priceMinKrw: 10000,
     priceMaxKrw: 50000,
-    reasonText: "혼자 먹는 연습을 시작할 때 편리한 식사 준비템입니다.",
-    skipReasonText: "기존 식기로 충분하면 따로 사지 않아도 됩니다.",
+    reasonText: "혼자 먹는 연습을 시작할 때 편리한 식사 준비템이에요.",
+    skipReasonText: "기존 식기로 충분하면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -813,8 +813,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "12~24개월",
     priceMinKrw: 30000,
     priceMaxKrw: 150000,
-    reasonText: "실내외에서 활동적으로 놀 수 있게 해주는 선택 준비템입니다.",
-    skipReasonText: "다른 놀이로 충분하다면 따로 사지 않아도 됩니다.",
+    reasonText: "실내외에서 활동적으로 놀 수 있게 해주는 선택 준비템이에요.",
+    skipReasonText: "다른 놀이로 충분하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -830,8 +830,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "24개월 이후",
     priceMinKrw: 8000,
     priceMaxKrw: 60000,
-    reasonText: "집중력과 소근육 발달을 돕는 편의 놀이 준비템입니다.",
-    skipReasonText: "도서관이나 기존 놀이책으로 충분하면 따로 사지 않아도 됩니다.",
+    reasonText: "집중력과 소근육 발달을 돕는 편의 놀이 준비템이에요.",
+    skipReasonText: "도서관이나 기존 놀이책으로 충분하면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -847,7 +847,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "24개월 이후",
     priceMinKrw: 30000,
     priceMaxKrw: 120000,
-    reasonText: "어린이집 등원 시 필요한 개인 물품을 갖추는 필수 준비템입니다.",
+    reasonText: "어린이집 등원 시 필요한 개인 물품을 갖추는 필수 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -864,8 +864,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "24개월 이후",
     priceMinKrw: 10000,
     priceMaxKrw: 50000,
-    reasonText: "비 오는 날 외출과 물놀이를 즐길 수 있게 해주는 선택 준비템입니다.",
-    skipReasonText: "비 오는 날 외출이 적다면 따로 사지 않아도 됩니다.",
+    reasonText: "비 오는 날 외출과 물놀이를 즐길 수 있게 해주는 선택 준비템이에요.",
+    skipReasonText: "비 오는 날 외출이 적다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -881,10 +881,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "4~7세~초등",
     priceMinKrw: 40000,
     priceMaxKrw: 200000,
-    reasonText: "야외 활동 범위가 넓어지는 시기에 즐길 수 있는 편의 준비템입니다.",
-    skipReasonText: "다른 야외 활동으로 충분하다면 따로 사지 않아도 됩니다.",
+    reasonText: "야외 활동 범위가 넓어지는 시기에 즐길 수 있는 편의 준비템이에요.",
+    skipReasonText: "다른 야외 활동으로 충분하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
-    safetyNote: "헬멧과 무릎·손목 보호대를 함께 착용하고 안전한 장소에서 사용합니다.",
+    safetyNote: "헬멧과 무릎·손목 보호대를 함께 착용하고 안전한 장소에서 사용해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 470,
     active: true,
@@ -898,8 +898,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "4~7세",
     priceMinKrw: 80000,
     priceMaxKrw: 400000,
-    reasonText: "앉아서 집중하는 습관을 만들어주는 편의 준비템입니다.",
-    skipReasonText: "거실 책상이나 기존 가구로 충분하면 따로 사지 않아도 됩니다.",
+    reasonText: "앉아서 집중하는 습관을 만들어주는 편의 준비템이에요.",
+    skipReasonText: "거실 책상이나 기존 가구로 충분하면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -915,8 +915,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "4~7세",
     priceMinKrw: 15000,
     priceMaxKrw: 150000,
-    reasonText: "한글과 숫자에 관심을 갖기 시작할 때 활용하는 선택 교육 준비템입니다.",
-    skipReasonText: "다른 놀이나 기관 학습으로 충분하다면 따로 사지 않아도 됩니다.",
+    reasonText: "한글과 숫자에 관심을 갖기 시작할 때 활용하는 선택 교육 준비템이에요.",
+    skipReasonText: "다른 놀이나 기관 학습으로 충분하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -932,8 +932,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "4~7세~초등",
     priceMinKrw: 10000,
     priceMaxKrw: 60000,
-    reasonText: "그리기와 만들기 놀이를 즐길 수 있게 해주는 편의 준비템입니다.",
-    skipReasonText: "기관에서 재료를 제공한다면 따로 사지 않아도 됩니다.",
+    reasonText: "그리기와 만들기 놀이를 즐길 수 있게 해주는 편의 준비템이에요.",
+    skipReasonText: "기관에서 재료를 제공한다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -949,7 +949,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "4~7세",
     priceMinKrw: 50000,
     priceMaxKrw: 200000,
-    reasonText: "유치원 입학 시 필요한 개인 물품을 갖추는 필수 준비템입니다.",
+    reasonText: "유치원 입학 시 필요한 개인 물품을 갖추는 필수 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -966,10 +966,10 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "4~7세~초등",
     priceMinKrw: 80000,
     priceMaxKrw: 350000,
-    reasonText: "자전거 타기를 배우기 시작할 때 활용하는 선택 준비템입니다.",
-    skipReasonText: "아직 관심이 없거나 다른 놀이로 충분하다면 따로 사지 않아도 됩니다.",
+    reasonText: "자전거 타기를 배우기 시작할 때 활용하는 선택 준비템이에요.",
+    skipReasonText: "아직 관심이 없거나 다른 놀이로 충분하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
-    safetyNote: "헬멧은 머리 크기에 맞는 제품을 새로 준비하고 반드시 착용합니다.",
+    safetyNote: "헬멧은 머리 크기에 맞는 제품을 새로 준비하고 반드시 착용해요.",
     medicalDisclaimerRequired: false,
     displayOrder: 520,
     active: true,
@@ -983,7 +983,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "초등학생 시기",
     priceMinKrw: 40000,
     priceMaxKrw: 250000,
-    reasonText: "초등학교 입학과 함께 매일 사용하는 필수 준비템입니다.",
+    reasonText: "초등학교 입학과 함께 매일 사용하는 필수 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -1000,7 +1000,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "초등학생 시기",
     priceMinKrw: 20000,
     priceMaxKrw: 100000,
-    reasonText: "학교 수업에 필요한 필수 학용품을 갖추는 준비템입니다.",
+    reasonText: "학교 수업에 필요한 필수 학용품을 갖추는 준비템이에요.",
     skipReasonText: null,
     usedSecondhandOk: false,
     safetyNote: null,
@@ -1017,8 +1017,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "초등~중등",
     priceMinKrw: 100000,
     priceMaxKrw: 500000,
-    reasonText: "본격적인 학습 습관을 만들어주는 편의 준비템입니다.",
-    skipReasonText: "기존 책상과 조명으로 충분하면 따로 사지 않아도 됩니다.",
+    reasonText: "본격적인 학습 습관을 만들어주는 편의 준비템이에요.",
+    skipReasonText: "기존 책상과 조명으로 충분하면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -1034,8 +1034,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "초등학생 시기",
     priceMinKrw: 50000,
     priceMaxKrw: 300000,
-    reasonText: "등하교 안전과 연락을 위해 준비하는 편의 준비템입니다.",
-    skipReasonText: "다른 연락 수단으로 충분하다면 따로 사지 않아도 됩니다.",
+    reasonText: "등하교 안전과 연락을 위해 준비하는 편의 준비템이에요.",
+    skipReasonText: "다른 연락 수단으로 충분하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -1051,8 +1051,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "초등~중등",
     priceMinKrw: 10000,
     priceMaxKrw: 80000,
-    reasonText: "학습 내용을 복습하고 보충하고 싶을 때 활용하는 선택 준비템입니다.",
-    skipReasonText: "학교 학습만으로 충분하다면 따로 사지 않아도 됩니다.",
+    reasonText: "학습 내용을 복습하고 보충하고 싶을 때 활용하는 선택 준비템이에요.",
+    skipReasonText: "학교 학습만으로 충분하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -1068,8 +1068,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "초등~중등",
     priceMinKrw: 10000,
     priceMaxKrw: 100000,
-    reasonText: "체육 활동이나 취미 운동을 시작할 때 활용하는 선택 준비템입니다.",
-    skipReasonText: "학교 비품이나 기존 장비로 충분하다면 따로 사지 않아도 됩니다.",
+    reasonText: "체육 활동이나 취미 운동을 시작할 때 활용하는 선택 준비템이에요.",
+    skipReasonText: "학교 비품이나 기존 장비로 충분하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -1085,7 +1085,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "중학생 시기",
     priceMinKrw: 150000,
     priceMaxKrw: 500000,
-    reasonText: "중학교 입학과 함께 필수로 갖춰야 하는 의류입니다.",
+    reasonText: "중학교 입학과 함께 필수로 갖춰야 하는 의류예요.",
     skipReasonText: null,
     usedSecondhandOk: true,
     safetyNote: null,
@@ -1102,8 +1102,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "중학생 시기",
     priceMinKrw: 300000,
     priceMaxKrw: 900000,
-    reasonText: "온라인 강의 수강 환경을 갖추는 편의 준비템입니다.",
-    skipReasonText: "기존 컴퓨터나 다른 기기로 수강이 가능하다면 따로 사지 않아도 됩니다.",
+    reasonText: "온라인 강의 수강 환경을 갖추는 편의 준비템이에요.",
+    skipReasonText: "기존 컴퓨터나 다른 기기로 수강이 가능하다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: false,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -1119,7 +1119,7 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "중학생 시기",
     priceMinKrw: 30000,
     priceMaxKrw: 150000,
-    reasonText: "교과 학습을 보충하기 위한 필수 참고서입니다.",
+    reasonText: "교과 학습을 보충하기 위한 필수 참고서예요.",
     skipReasonText: null,
     usedSecondhandOk: true,
     safetyNote: null,
@@ -1136,8 +1136,8 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
     timingLabel: "중학생 시기",
     priceMinKrw: 80000,
     priceMaxKrw: 400000,
-    reasonText: "장시간 학습 시 바른 자세를 도와주는 선택 준비템입니다.",
-    skipReasonText: "기존 의자로 자세에 문제가 없다면 따로 사지 않아도 됩니다.",
+    reasonText: "장시간 학습 시 바른 자세를 도와주는 선택 준비템이에요.",
+    skipReasonText: "기존 의자로 자세에 문제가 없다면 따로 사지 않아도 돼요.",
     usedSecondhandOk: true,
     safetyNote: null,
     medicalDisclaimerRequired: false,
@@ -1147,18 +1147,34 @@ export const itemTemplateSeeds: ItemTemplateSeed[] = [
   }
 ];
 
+/**
+ * 종별 기본 고지 문구. 링크가 `disclosureText`를 비워 두면 items-catalog.service.ts의
+ * `defaultDisclosureFor`가 여기서 골라 응답에 실어 주고, 그 값이 앱 구매 CTA 옆에 **그대로**
+ * 그려진다(운영은 `PUT /admin/disclosures/:key`로 언제든 갈아끼운다).
+ *
+ * 라운드 46 Q-4: 그래서 영문으로 두면 안 된다. 종전 값("Purchases through affiliate links
+ * may generate a commission for WooriAI.")은 (1) 앱 어디와도 말투가 다른 영문이 사용자
+ * 화면에 뜨고(DNC-018 해요체 위반), (2) 모바일의 수수료 고지 판정
+ * (src/items/link-marker.ts `statesAffiliateCommission`)이 한국어 어절로 보므로 "고지 없음"
+ * 으로 떨어져 한국어 승인 문구가 뒤에 덧붙는 **영문+한국어 이중 고지**가 됐다.
+ * 해요체 한국어 + 수령 맥락 어절("수수료를 받")로 적어 한 번만 고지되게 한다(DNC-010).
+ */
 export const disclosureSeeds: DisclosureSeed[] = [
   {
     key: "affiliate_purchase",
-    text: "Purchases through affiliate links may generate a commission for WooriAI."
+    text: "제휴 링크예요. 구매하시면 우리아이가 수수료를 받을 수 있어요."
   },
   {
+    // 스폰서 자체는 광고 사실만 밝힌다 — 수수료를 말하지 않는다. 제휴가 아닌 스폰서 링크에
+    // 수수료 문장을 넣으면 받지 않는 돈을 받는다고 적는 셈이다(DNC-010의 반대 방향 오류).
+    // 제휴가 섞인 집합에서는 앱이 이 문구 뒤에 수수료 고지를 이어 붙인다(라운드 44 N-2).
     key: "sponsored_product",
-    text: "Sponsored products are marked separately from general recommendations."
+    text: "스폰서 광고 상품이에요. 일반 추천과 구분해서 보여드려요."
   },
   {
+    // 같은 이유로 한국어 해요체. 의료 자문이 아니라는 사실을 사용자가 읽는 말로 적는다.
     key: "nutrition_supplement",
-    text: "Nutrition and supplement content is informational and is not medical advice."
+    text: "영양제·보충제 정보는 참고용이에요. 의학적 조언이 아니니 담당 의료진 안내를 우선해요."
   }
 ];
 
@@ -1207,7 +1223,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 250000,
     displayOrder: 10,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "stroller",
@@ -1222,7 +1238,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 320000,
     displayOrder: 20,
     active: true,
-    disclosureText: "스폰서 상품 예시입니다."
+    disclosureText: "스폰서 상품 예시예요."
   },
   {
     itemTemplateCode: "baby_bath",
@@ -1252,7 +1268,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 37500,
     displayOrder: 40,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "anti_nausea_relief",
@@ -1282,7 +1298,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 15000,
     displayOrder: 60,
     active: true,
-    disclosureText: "스폰서 상품 예시입니다."
+    disclosureText: "스폰서 상품 예시예요."
   },
   {
     itemTemplateCode: "maternity_clothes",
@@ -1297,7 +1313,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 90000,
     displayOrder: 70,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "body_pillow",
@@ -1342,7 +1358,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 25000,
     displayOrder: 100,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "prenatal_class",
@@ -1387,7 +1403,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 50000,
     displayOrder: 130,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "feeding_bottle_set",
@@ -1432,7 +1448,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 25000,
     displayOrder: 160,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "crib",
@@ -1462,7 +1478,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 37500,
     displayOrder: 180,
     active: true,
-    disclosureText: "스폰서 상품 예시입니다."
+    disclosureText: "스폰서 상품 예시예요."
   },
   {
     itemTemplateCode: "formula",
@@ -1477,7 +1493,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 72500,
     displayOrder: 190,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "swaddle",
@@ -1522,7 +1538,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 19000,
     displayOrder: 220,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "baby_skincare",
@@ -1567,7 +1583,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 150000,
     displayOrder: 250,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "mobile_toy",
@@ -1612,7 +1628,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 30000,
     displayOrder: 280,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "teether",
@@ -1657,7 +1673,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 90000,
     displayOrder: 310,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "corner_guards",
@@ -1687,7 +1703,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 75000,
     displayOrder: 330,
     active: true,
-    disclosureText: "스폰서 상품 예시입니다."
+    disclosureText: "스폰서 상품 예시예요."
   },
   {
     itemTemplateCode: "first_shoes",
@@ -1702,7 +1718,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 50000,
     displayOrder: 340,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "snack_container",
@@ -1747,7 +1763,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 15000,
     displayOrder: 370,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "toddler_tableware",
@@ -1792,7 +1808,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 34000,
     displayOrder: 400,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "daycare_kit",
@@ -1837,7 +1853,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 120000,
     displayOrder: 430,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "learning_desk",
@@ -1882,7 +1898,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 35000,
     displayOrder: 460,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "kindergarten_kit",
@@ -1912,7 +1928,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 215000,
     displayOrder: 480,
     active: true,
-    disclosureText: "스폰서 상품 예시입니다."
+    disclosureText: "스폰서 상품 예시예요."
   },
   {
     itemTemplateCode: "school_bag",
@@ -1927,7 +1943,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 145000,
     displayOrder: 490,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "school_supplies",
@@ -1972,7 +1988,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 175000,
     displayOrder: 520,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "workbook_set",
@@ -2017,7 +2033,7 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     priceSnapshotKrw: 325000,
     displayOrder: 550,
     active: true,
-    disclosureText: "이 링크는 제휴 링크 예시이며 구매 시 수수료가 발생할 수 있습니다."
+    disclosureText: "제휴 링크 예시예요. 구매하시면 수수료가 발생할 수 있어요."
   },
   {
     itemTemplateCode: "study_tablet",

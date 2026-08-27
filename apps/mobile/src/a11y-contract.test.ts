@@ -209,6 +209,16 @@ describe("A11Y-115 accessibility sweep contract", () => {
     expect(loginSource).toContain('accessibilityLiveRegion="polite"');
   });
 
+  it("announces the expense date input error (포커스가 입력란에 남아 있어 자동 낭독이 필요하다)", () => {
+    const newExpenseSource = source("app/expenses/new.tsx");
+    const errorBlock = newExpenseSource.slice(
+      newExpenseSource.indexOf("{dateInputError ? ("),
+      newExpenseSource.indexOf("{dateInputError}")
+    );
+    expect(errorBlock).toContain('accessibilityRole="alert"');
+    expect(errorBlock).toContain('accessibilityLiveRegion="polite"');
+  });
+
   it("labels skeleton loading containers for screen readers", () => {
     const skeletonSource = source("src/ui/Skeleton.tsx");
     const labelCount = skeletonSource.split('accessibilityLabel="불러오는 중"').length - 1;

@@ -5,7 +5,7 @@
 ## 1. 배포 전 체크리스트
 
 - [ ] `npx --yes pnpm@11.7.0 install --frozen-lockfile` 성공
-- [ ] `npx --yes pnpm@11.7.0 release:gate` 10/10 PASS
+- [ ] `npx --yes pnpm@11.7.0 release:gate` 11/11 PASS (근거: `grep -c 'label:' scripts/release-gate.ts`의 단계 정의 — Install·Env example·Prisma validate·Prisma generate·Database up·Lint·Typecheck·All tests·API e2e·Build dry-run·Peer dependencies)
 - [ ] 프로덕션 env 설정: `NODE_ENV=production`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `WOORIAI_ADMIN_TOKEN`, `DATABASE_URL`, OAuth client id/secret, `EXPO_PUBLIC_API_BASE_URL`(https)
 - [ ] `pnpm check:env` 통과 (누락 시 API 부팅 실패)
 - [ ] DB 마이그레이션: `pnpm --filter api prisma:deploy` (= `prisma migrate deploy`)

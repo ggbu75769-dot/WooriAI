@@ -6,6 +6,7 @@ import { childSchema, errorResponseSchema } from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
+import { PrismaService } from "../src/prisma/prisma.service";
 
 // Round 4: dev-login persists a real users/households row per providerToken, and
 // this helper is called from two separate `it` blocks in this file plus reused
@@ -22,6 +23,7 @@ async function login(app: INestApplication) {
 
 describe("Auth and onboarding API", () => {
   let app: INestApplication;
+  let prisma: PrismaService;
 
   beforeEach(async () => {
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
@@ -35,6 +37,7 @@ describe("Auth and onboarding API", () => {
     app = moduleRef.createNestApplication();
     configureApiApp(app);
     await app.init();
+    prisma = moduleRef.get(PrismaService);
   });
 
   afterEach(async () => {
@@ -322,6 +325,90 @@ describe("Auth and onboarding API", () => {
       .expect(({ body }) => {
         expect(body).toEqual({ updatedCount: 0 });
       });
+  });
+
+  // 라운드 46 리뷰 Q-1: 유효 판정 기준은 "존재하는가"가 아니라 "화면에 보일 수 있었는가"다.
+  // 종전에는 active 무필터라 어드민이 방금 비활성화한 항목까지 세어졌고, 그래서
+  // updatedCount < 요청 수가 도달 불가였다 — 모바일 ONB-003의 부분 반영 안내
+  // (preparedItemsPartialNotice)가 영영 뜨지 않는 죽은 코드였다.
+  it("does not count a deactivated (active=false) item template — the partial-notice path is reachable", async () => {
+    const accessToken = await login(app);
+    const householdId = (
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.households[0].id as string;
+
+    await request(app.getHttpServer())
+      .put("/api/v1/consents")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        consents: [
+          { type: "terms", version: "2026-07-06", accepted: true },
+          { type: "privacy", version: "2026-07-06", accepted: true }
+        ]
+      })
+      .expect(200);
+
+    const childId = (
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "튼튼이", stageMode: "pregnant", dueDate: "2026-08-31" })
+        .expect(200)
+    ).body.id as string;
+
+    const realItemId = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items[0].id as string;
+
+    // 시드 행을 건드리지 않으려고 전용 비활성 템플릿을 직접 만든다(단계 행은 달지 않는다 —
+    // 어차피 목록에 안 나오는 항목이고, 정리도 한 행으로 끝난다).
+    const inactive = await prisma.itemTemplate.create({
+      data: {
+        code: `onb_q1_inactive_${randomUUID().slice(0, 8)}`,
+        name: "비활성 준비템",
+        necessityLevel: "optional",
+        reasonText: "라운드 46 Q-1 회귀 테스트용 비활성 템플릿이에요.",
+        displayOrder: 90_000,
+        active: false
+      }
+    });
+
+    try {
+      // 화면은 2개를 보냈다고 알지만 서버가 반영하는 것은 1건이다.
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/prepared-items`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ itemTemplateIds: [realItemId, inactive.id] })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toEqual({ updatedCount: 1 });
+        });
+
+      // 비활성 항목에는 상태 행 자체가 생기지 않는다 — 준비템 탭 어디에도 안 나오는 항목을
+      // "준비 완료"로 적어 두면 다음 화면의 개수와 또 어긋난다.
+      expect(
+        await prisma.childItemStatus.findFirst({ where: { childId, itemTemplateId: inactive.id } })
+      ).toBeNull();
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/onboarding/status?childId=${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.summary.preparedItemsCount).toBe(1);
+        });
+    } finally {
+      // 공유 DB에 남기지 않는다(라운드 45 오염 사고 재발 차단). 상태 행이 먼저다.
+      await prisma.childItemStatus.deleteMany({ where: { itemTemplateId: inactive.id } });
+      await prisma.itemTemplateStage.deleteMany({ where: { itemTemplateId: inactive.id } });
+      await prisma.itemTemplate.deleteMany({ where: { id: inactive.id } });
+    }
   });
 
   it("keeps onboarding budget amounts as positive KRW integers", async () => {

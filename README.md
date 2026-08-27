@@ -50,7 +50,7 @@ ADMIN_API_PROXY_TARGET=http://localhost:3000 pnpm --filter admin dev
 - 패키지별: `pnpm --filter api test`, `pnpm --filter mobile test`, `pnpm --filter admin test` 등 (전체: `pnpm test`)
 - **api 테스트는 실 PostgreSQL 필수** — 기본 DB는 `wooriai_test` (vitest globalSetup이 연결 확인·마이그레이션·시드까지 수행, `DATABASE_URL`로 덮어쓰기 가능)
 - 릴리즈 게이트(설치→env→prisma→lint→typecheck→테스트→빌드 일괄): `pnpm release:gate` — evidence는 `docs/qa/evidence/`에 기록
-- 실서버 스모크(29검사): dev 서버 기동 후 `SMOKE_BASE_URL=<베이스> bash scripts/qa/server-smoke.sh` (기본 `http://localhost:3400/api/v1`, `jq` 필요)
+- 실서버 스모크(31검사 — 근거: `grep -c '^chk ' scripts/qa/server-smoke.sh`): dev 서버 기동 후 `SMOKE_BASE_URL=<베이스> bash scripts/qa/server-smoke.sh` (기본 `http://localhost:3400/api/v1`, `jq` 필요)
 - 어드민 브라우저 E2E: `node scripts/qa/admin-e2e.mjs` — 전제조건: API(3400)·어드민(3100) dev 서버 기동, 시드된 dev 어드민 계정(`admin@wooriai.local`), playwright-core + Chromium (자세한 전제는 스크립트 상단 주석)
 
 ## 배포

@@ -121,9 +121,11 @@ describe("app/sync-status.tsx 충돌 화면 wiring (source contract)", () => {
   it("카테고리 이름은 이미 있는 캐시에서만 읽고 새 요청을 만들지 않는다", () => {
     // 라운드 45 O-5: 렌더 1회 스냅샷(getQueryData)이 아니라 캐시 **구독**이다. enabled:false +
     // skipToken이라 요청은 여전히 0건이면서, 다른 화면이 목록을 받아 오면 이 화면도 따라간다.
+    // 라운드 46 Q-5: 낱개 toContain은 **JSDoc만으로도** 통과했다 -- 바로 위 주석에
+    // `enabled:false` + `queryFn: skipToken`이 적혀 있어서, 코드에서 옵션을 지워도 초록이었다.
+    // 두 줄이 실제로 붙어 있는 **코드 형태**로 고정한다(주석은 이 모양을 만들지 못한다).
     expect(screenSource).toContain('queryKey: ["categories"]');
-    expect(screenSource).toContain("enabled: false");
-    expect(screenSource).toContain("queryFn: skipToken");
+    expect(screenSource).toMatch(/enabled:\s*false,\s*\n\s*queryFn:\s*skipToken/);
     expect(screenSource).not.toContain('getQueryData<{ categories: CategoryListItem[] }>(["categories"])');
     expect(screenSource).not.toContain("listCategories(");
   });

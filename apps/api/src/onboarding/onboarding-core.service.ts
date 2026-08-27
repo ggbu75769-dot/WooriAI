@@ -391,12 +391,24 @@ export class OnboardingCoreService {
    * 이제 모르는 id를 섞어 보내면 그만큼 작은 수가 돌아온다(전부 모르는 id면 0).
    * 단계 완료 표시(`preparedItemsSetAt`)는 종전대로 0건이어도 남긴다 — "아무것도 준비하지
    * 않았다"도 사용자가 이 단계를 끝냈다는 사실이다.
+   *
+   * 라운드 46 Q-1 — 유효 판정 기준은 **화면에 보일 수 있었던 준비템**이다(`active: true`).
+   * 종전에는 존재 여부만 봤기 때문에, 사용자가 목록을 띄워 둔 사이 어드민이 비활성화한
+   * 항목도 그대로 세어졌다. 그 결과 `updatedCount < 요청 수`가 실제로는 **도달 불가**였고,
+   * 그 상태를 알리려고 만든 클라이언트의 부분 반영 안내(모바일 ONB-003
+   * `preparedItemsPartialNotice`)가 영영 발동하지 않는 죽은 코드였다. 화면에서 사라진
+   * 항목을 "준비 완료"로 기록하면 준비템 탭에도 나타나지 않으므로, 세지 않는 편이 사실에
+   * 맞다(비활성 항목의 childItemStatus 행도 만들지 않는다).
+   *
+   * stage는 일부러 거르지 않는다: 시기 밴드는 탭 전환(ITEM-121 stageBand)으로 사용자가
+   * 직접 바꿔 볼 수 있는 값이라, 현재 단계와 다르다는 이유로 거절하면 실제로 화면에서 고른
+   * 항목이 조용히 누락된다. `active`만이 "어디서도 더는 보이지 않는다"는 뜻이다.
    */
   async setPreparedItems(user: AuthenticatedUser, childId: string, itemTemplateIds: string[]) {
     await this.childAccess.requireChildAccess(user, childId, true);
     const uniqueItemTemplateIds = [...new Set(itemTemplateIds)];
     const existing = await this.prisma.itemTemplate.findMany({
-      where: { id: { in: uniqueItemTemplateIds } },
+      where: { id: { in: uniqueItemTemplateIds }, active: true },
       select: { id: true }
     });
     const validIds = new Set(existing.map((item) => item.id));

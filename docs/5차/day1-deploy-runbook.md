@@ -101,7 +101,7 @@ curl -s -X POST $BASE/auth/kakao/prepare -H 'content-type: application/json' \
 # 미인증 제휴 리다이렉트 (시드 링크가 example.com이라 404가 정상 — allowlist 차단 확인)
 curl -si $BASE/../r/AAAAAAAAAAAA | head -1
 ```
-전체 스모크(29검사)를 돌리려면: `SMOKE_BASE_URL=$BASE bash scripts/qa/server-smoke.sh` — 단, 테스트 사용자·지출 데이터를 실제로 생성하므로 실서버에서는 감안하고 실행하세요.
+전체 스모크(31검사 — 근거: `grep -c '^chk ' scripts/qa/server-smoke.sh`)를 돌리려면: `SMOKE_BASE_URL=$BASE bash scripts/qa/server-smoke.sh` — 단, 테스트 사용자·지출 데이터를 실제로 생성하므로 실서버에서는 감안하고 실행하세요.
 어드민: 로그인→MFA→준비템/링크 목록 로드 확인 (admin 역할이면 **감사 로그** 메뉴도 로드 확인). 링크 헬스체크를 켤 거면 `LINK_HEALTH_ENABLED=1` 시크릿 추가(실링크 투입 후 권장).
 
 ## D. 체크리스트 요약
