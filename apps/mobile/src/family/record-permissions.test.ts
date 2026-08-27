@@ -5,6 +5,7 @@ import {
   canRecordExpenses,
   EXPENSE_EDIT_ROLES,
   EXPENSE_VIEW_ONLY_ALERT_TITLE,
+  EXPENSE_VIEW_ONLY_EMPTY_TITLE,
   EXPENSE_VIEW_ONLY_MESSAGE,
   guardExpenseAction,
   isExpenseEntryLocked,
@@ -280,7 +281,10 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
       ["src/commerce/PurchaseFollowupPrompt.tsx", "if (expenseGate.locked) {"],
       // 지출 상세의 수정 저장 · 삭제.
       ["app/expenses/[expenseId].tsx", "onPress={expenseGate.guard(() => save.mutate())}"],
-      ["app/expenses/[expenseId].tsx", "if (expenseGate.locked) {"]
+      ["app/expenses/[expenseId].tsx", "if (expenseGate.locked) {"],
+      // 라운드 40 J-6: CSV/엑셀 가져오기 -- 업로드(첫 걸음)와 확정(마지막 걸음) 둘 다.
+      ["app/import/index.tsx", "if (expenseGate.locked) {"],
+      ["app/import/[importJobId].tsx", "onPress={expenseGate.guard(() => confirm.mutate())}"]
     ];
     for (const [file, snippet] of wired) {
       expect(source(file), `${file} — ${snippet}`).toContain(snippet);
@@ -295,6 +299,8 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
       "app/(tabs)/items.tsx",
       "app/items/[itemTemplateId].tsx",
       "app/expenses/[expenseId].tsx",
+      "app/import/index.tsx",
+      "app/import/[importJobId].tsx",
       "src/commerce/PurchaseFollowupPrompt.tsx"
     ];
     for (const screen of screens) {
@@ -388,5 +394,73 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
 
     const ungated = entryPoints.filter((path) => !referencesGate.test(source(path)));
     expect(ungated, `게이트를 거치지 않는 지출 기록 진입점: ${ungated.join(", ")}`).toEqual([]);
+  });
+
+  /**
+   * 라운드 40 J-6 — **두 번째 역방향 계약**. J-9의 스캔은 `/expenses/new`로 **이동**하는 파일만
+   * 본다. 그래서 CSV 임포트 확정처럼 화면 이동 없이 곧바로 지출을 만드는 경로는 그 그물에
+   * 걸리지 않았고, 보기 전용 참여자가 업로드 → 검수 → 확정까지 간 뒤 마지막 버튼에서
+   * "불러오지 못했어요. 잠시 후 다시 시도해 주세요."라는 틀린 이유(실제로는 403)를 받았다.
+   *
+   * 그래서 이번에는 **지출을 실제로 만드는/바꾸는 호출**을 기준으로 훑는다. 새 화면이 이 함수를
+   * 부르기 시작하면 기본값은 실패다.
+   */
+  it("라운드 40 J-6: 지출을 만들거나 바꾸는 호출을 하는 모든 화면이 게이트를 참조한다", () => {
+    const writesExpenses = /\b(?:createExpenseOffline|updateExpenseOffline|deleteExpenseOffline|confirmImport|createExcelImport)\s*\(/;
+    const referencesGate = /useExpenseEntryGate|expenseGate\.(?:guard|locked|explain)|expenseEntryLocked/;
+
+    const screenFiles: string[] = [];
+    const walk = (directory: string) => {
+      for (const name of readdirSync(directory)) {
+        if (name === "node_modules" || name.startsWith(".")) continue;
+        const fullPath = join(directory, name);
+        if (statSync(fullPath).isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) continue;
+        screenFiles.push(fullPath);
+      }
+    };
+    walk(join(mobileRoot, "app"));
+
+    const writers = screenFiles
+      .filter((fullPath) => writesExpenses.test(readFileSync(fullPath, "utf8")))
+      .map((fullPath) => relative(mobileRoot, fullPath).split("\\").join("/"))
+      .sort();
+
+    // 스캔이 실제로 무언가를 찾았는지부터 확인한다(정규식이 조용히 죽으면 통과해 버린다).
+    expect(writers).toContain("app/expenses/new.tsx");
+    expect(writers).toContain("app/import/[importJobId].tsx");
+    expect(writers).toContain("app/import/index.tsx");
+
+    const ungated = writers.filter((path) => !referencesGate.test(source(path)));
+    expect(ungated, `게이트를 거치지 않는 지출 생성 경로: ${ungated.join(", ")}`).toEqual([]);
+  });
+
+  /**
+   * 라운드 40 J-5 — 잠긴 세션에 남아 있던 **약속 문장들**. 진입점을 잠그는 것만으로는 화면이
+   * 여전히 "첫 지출을 기록해 보세요 / 10초면 돼요", "첫 기록을 남기면 … 보여드릴게요"라고
+   * 말한다. 그 조건을 만족시킬 수 없는 사람에게 조건부 약속을 남기지 않는다.
+   */
+  it("라운드 40 J-5: 빈 자리의 약속 문구는 잠긴 세션에서 사실 한 줄로 바뀐다", () => {
+    // 홈: 판정·문구 모두 순수 모듈이 고른다(첫 실행 카드).
+    expect(source("app/(tabs)/index.tsx")).toContain("expenseEntryLocked: expenseGate.locked");
+    // 기록 탭: 그 달 빈 상태 제목이 같은 판정을 받는다.
+    expect(source("app/(tabs)/records.tsx")).toContain("expenseEntryLocked\n  });");
+    // 리포트 탭: 카테고리 빈 상태 제목.
+    expect(source("app/(tabs)/reports.tsx")).toContain("expenseGate.locked\n                      ? EXPENSE_VIEW_ONLY_EMPTY_TITLE");
+    // 문구는 한 곳에서만 정의된다 -- 화면들이 각자 적으면 갈라진다.
+    for (const screen of ["app/(tabs)/index.tsx", "app/(tabs)/records.tsx", "app/(tabs)/reports.tsx"]) {
+      expect(source(screen), screen).not.toContain(`"${EXPENSE_VIEW_ONLY_EMPTY_TITLE}"`);
+    }
+  });
+
+  it("라운드 40 J-5 문구: 사실만 말하고 약속·재촉이 없다 (DNC-018)", () => {
+    expect(EXPENSE_VIEW_ONLY_EMPTY_TITLE).toBe("가족이 기록하면 여기에 쌓여요");
+    expect(EXPENSE_VIEW_ONLY_EMPTY_TITLE).toMatch(/요\.?$/);
+    expect(EXPENSE_VIEW_ONLY_EMPTY_TITLE).not.toMatch(/하세요|해야|다시 시도|권한이 없/);
+    // "첫 기록을 남기면 …"처럼 이 사람이 만족시킬 수 없는 조건을 걸지 않는다.
+    expect(EXPENSE_VIEW_ONLY_EMPTY_TITLE).not.toContain("첫 기록을 남기면");
   });
 });

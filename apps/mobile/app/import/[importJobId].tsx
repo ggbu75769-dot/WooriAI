@@ -14,6 +14,7 @@ import {
   type ImportJob,
   type ImportRow
 } from "../../src/api/client";
+import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import {
   attentionFilterChipLabel,
   buildImportBulkSelectionPlan,
@@ -206,6 +207,9 @@ export default function ImportPreviewScreen() {
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
+  // 라운드 40 J-6: CSV 임포트 확정도 결국 지출을 만드는 동작이라 다른 진입점과 같은 판정을
+  // 쓴다(잠금은 실세션 + 보기 전용 역할에서만 참이므로 비세션 IMP-003 렌더는 불변이다).
+  const expenseGate = useExpenseEntryGate();
   const [completionSummary, setCompletionSummary] = useState<ConfirmImportResponse | null>(null);
   const [rowFilter, setRowFilter] = useState<ImportRowFilter>("all");
   const [pendingRowIds, setPendingRowIds] = useState<ReadonlySet<string>>(() => new Set<string>());
@@ -457,10 +461,15 @@ export default function ImportPreviewScreen() {
   const listFooter = (
     <View style={{ gap: theme.spacing.gap, marginTop: theme.spacing.section }}>
       {toggleRow.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+      {/* 라운드 40 J-6: 확정은 서버에서 **편집 권한**을 요구한다(import-pipeline.service.ts의
+          `requireImportJobAccess(user, id, true)` → 403). 게이트가 없으면 보기 전용 참여자가
+          업로드·검수를 다 끝낸 뒤 마지막 버튼에서 "불러오지 못했어요. 잠시 후 다시 시도해
+          주세요."라는 **틀린 이유**를 받는다(다시 시도해도 결과가 같다). 다른 지출 진입점과
+          같은 판정 하나를 거쳐, 잠겼으면 뮤테이션을 실행하지 않고 사실을 말한다. */}
       <PrimaryButton
         label={confirm.isPending ? "가져오는 중..." : "선택한 항목 가져오기"}
         disabled={!isPreviewReady || !selectedCount || confirm.isPending || isBulkRunning}
-        onPress={() => confirm.mutate()}
+        onPress={expenseGate.guard(() => confirm.mutate())}
       />
       {confirm.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
     </View>

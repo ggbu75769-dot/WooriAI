@@ -53,25 +53,48 @@
  *     "지금 시기 준비, 모두 마쳤어요"를 띄우는 아이에게 홈이 "준비물 3개를 골라뒀어요"라고
  *     말하면 두 화면이 서로를 부정한다. 0개면 카드를 만들지 않는다(위 규칙과 동일).
  *
+ * ## 왜 잠긴 세션에는 다른 카드가 나가는가 (라운드 40 J-5)
+ * 보기 전용 참여자(viewer·gift_participant)에게도 이 카드는 그대로 떴다 — "첫 지출을 기록해
+ * 보세요 / 10초면 돼요. 기록하면 …"이라는 **약속**을 하고, 닫을 수도 없고(dismissible: false),
+ * 눌러도 "보기 전용으로 참여하고 있어요"라는 안내만 돌아왔다. 같은 커밋이 홈의 오프라인 실패
+ * 카드에서 "기록은 지금도 남길 수 있어요 + 기록 입구" 한 쌍을 잠긴 세션에서 통째로 접은 것과
+ * 정확히 같은 문제다(지킬 수 없는 약속을 한 줄 남기지 않는다).
+ *
+ * 다만 여기서는 **접지 않고 바꾼다**. 그 자리는 빈 홈의 유일한 설명이라 통째로 지우면 "0원"만
+ * 남은 화면이 되고, 최근 지출 섹션도 이 카드가 떠 있는 것을 전제로 접히기 때문이다. 그래서
+ * 약속 대신 참인 사실을 놓는다: `view-only` 카드는 "가족이 기록하면 여기에 쌓여요 / 보기
+ * 전용으로 참여하고 있어요 …"만 말하고 **버튼이 없다**(ctaLabel·route가 null). 눌렀을 때
+ * 안내를 띄우는 관례(useExpenseEntryGate 주석)는 화면 곳곳의 **단독 컨트롤**을 위한 것이고,
+ * 이 카드는 약속 문장과 CTA가 한 덩어리라 버튼만 남기면 약속을 지운 의미가 없다.
+ *
+ * 잠금은 `first-expense` 갈래에만 적용한다. `first-items`(준비템 탭으로 보내는 안내)는 보기
+ * 전용 참여자도 할 수 있는 일이고, 그 카드의 문장은 아무것도 약속하지 않는다 — 여기서까지
+ * 접으면 볼 수 있는 것을 이유 없이 가리게 된다(홈 화면의 같은 판단, app/(tabs)/index.tsx의
+ * 카드 onPress 주석).
+ *
  * ## 톤 (DNC-018)
  * 해요체, 짧은 문장, 비난·재촉 없음. "아직 아무것도 안 하셨네요" 대신 다음 한 걸음과 그 걸음이
  * 얼마나 가벼운지(10초)만 말한다.
  */
 
 import type { ItemStatus } from "@wooriai/domain";
+import { EXPENSE_VIEW_ONLY_EMPTY_TITLE, EXPENSE_VIEW_ONLY_MESSAGE } from "../family/record-permissions";
 import { isResolvedItemStatus } from "../items/prep-progress";
 import { SYNC_ROW_PENDING_LABEL } from "../offline/messages";
 
-export type HomeFirstRunGuideVariant = "first-expense" | "first-items";
+export type HomeFirstRunGuideVariant = "first-expense" | "first-items" | "view-only";
 
 export type HomeFirstRunGuide = {
   variant: HomeFirstRunGuideVariant;
   title: string;
   subtitle: string;
-  /** 카드 안 큰 버튼의 라벨. */
-  ctaLabel: string;
-  /** expo-router 경로 — 루프 1단계(지출 입력) 또는 3단계(준비템 탭)로만 간다. */
-  route: "/expenses/new" | "/(tabs)/items";
+  /**
+   * 카드 안 큰 버튼의 라벨. **null이면 버튼 없는 카드**다(라운드 40 J-5의 `view-only` —
+   * 지금 이 사람이 할 수 있는 행동이 없으므로 CTA를 만들지 않는다).
+   */
+  ctaLabel: string | null;
+  /** expo-router 경로 — 루프 1단계(지출 입력) 또는 3단계(준비템 탭)로만 간다. 버튼이 없으면 null. */
+  route: "/expenses/new" | "/(tabs)/items" | null;
   /** 카드를 닫을 수 있는지. 빈 홈의 첫 기록 유도는 닫을 대상이 아니다(기록이 생기면 사라진다). */
   dismissible: boolean;
   testID: string;
@@ -111,10 +134,22 @@ export type HomeFirstRunGuideInput = {
   serverRecentExpenseCount: number | null;
   /** 준비템 안내 카드를 이미 닫았는지(기기에 남는 1회성 플래그). */
   itemsGuideDismissed: boolean;
+  /**
+   * 라운드 40 J-5 — 이 세션이 **보기 전용이라 지출 기록 진입이 잠겼는지**
+   * (src/family/record-permissions.ts의 `isExpenseEntryLocked` 결과 그대로, 홈은
+   * `useExpenseEntryGate().locked`를 넘긴다).
+   *
+   * 이 값이 참이면 첫 지출 유도(`first-expense`) 자리에 `view-only` 카드가 대신 나간다.
+   * 잠금 판정 자체는 여기서 다시 적지 않는다 — 역할·가구 해석은 record-permissions.ts 하나가
+   * 갖고 있고, 그 판정이 비세션에서 절대 참이 되지 않으므로 HOME-001 픽셀락도 그대로다.
+   */
+  expenseEntryLocked: boolean;
 };
 
 export const FIRST_EXPENSE_GUIDE_TEST_ID = "home-first-expense-guide";
 export const FIRST_ITEMS_GUIDE_TEST_ID = "home-items-guide";
+/** 라운드 40 J-5 — 잠긴 세션에서 첫 지출 유도 카드를 대신하는 사실 카드. */
+export const VIEW_ONLY_GUIDE_TEST_ID = "home-view-only-guide";
 /** 준비템 안내 카드의 닫기 버튼 라벨 — 준비템 탭의 축하 배너와 같은 말을 쓴다. */
 export const FIRST_ITEMS_GUIDE_DISMISS_LABEL = "닫기";
 /**
@@ -156,6 +191,28 @@ function firstExpenseGuide(): HomeFirstRunGuide {
   };
 }
 
+/**
+ * 라운드 40 J-5 — 잠긴 세션의 빈 홈. 약속(10초·기록하면 …) 대신 **지금 참인 두 문장**만 남기고
+ * 버튼은 만들지 않는다. 문구는 보기 전용 판정과 같은 단일 소스에서 가져오므로, 이 카드와
+ * 잠긴 버튼을 눌렀을 때의 안내가 서로 다른 말을 할 수 없다(src/family/record-permissions.ts).
+ */
+function viewOnlyGuide(): HomeFirstRunGuide {
+  const title = EXPENSE_VIEW_ONLY_EMPTY_TITLE;
+  const subtitle = EXPENSE_VIEW_ONLY_MESSAGE;
+  return {
+    variant: "view-only",
+    title,
+    subtitle,
+    ctaLabel: null,
+    route: null,
+    // 닫을 수 있게 하면 빈 홈에 정말 아무 설명도 없는 상태가 만들어진다(첫 지출 유도 카드와
+    // 같은 이유). 가족이 기록을 남기면 이 카드는 스스로 사라진다.
+    dismissible: false,
+    testID: VIEW_ONLY_GUIDE_TEST_ID,
+    accessibilityLabel: `${title}. ${subtitle}`
+  };
+}
+
 function firstItemsGuide(count: number): HomeFirstRunGuide {
   const title = `지금 시기 준비물 ${count}개를 골라뒀어요`;
   const subtitle = "준비템 탭에서 확인하고 준비한 것만 체크해 보세요.";
@@ -176,8 +233,12 @@ export function evaluateHomeFirstRunGuide(input: HomeFirstRunGuideInput): HomeFi
   if (!input.hasSession) return null;
   if (input.hasAnyExpenseRecord === null) return null;
 
-  if (!input.hasAnyExpenseRecord) return firstExpenseGuide();
+  // 라운드 40 J-5: 같은 "기록 0건"이라도 잠긴 세션에는 약속이 아니라 사실을 준다. 잠금 판정은
+  // record-permissions.ts가 이미 했고(비세션에서는 절대 참이 아니다) 여기서는 그 결과만 읽는다.
+  if (!input.hasAnyExpenseRecord) return input.expenseEntryLocked ? viewOnlyGuide() : firstExpenseGuide();
 
+  // 아래 준비템 안내는 잠금과 무관하다 -- 보기 전용 참여자도 준비템 탭은 볼 수 있고, 그 카드는
+  // 아무것도 약속하지 않는다(위 헤더 J-5 참고).
   if (input.itemsGuideDismissed) return null;
   // F6 ①: "온보딩을 막 끝낸 사람"으로 좁히는 근사 게이트. 기록 수를 모르면(null) 띄우지 않는다.
   if (typeof input.recentRecordCount !== "number" || !Number.isFinite(input.recentRecordCount)) return null;
@@ -307,7 +368,22 @@ export type HomeRecentExpensesSectionInput = {
 export function shouldShowHomeRecentExpensesSection(input: HomeRecentExpensesSectionInput): boolean {
   if (input.serverRecentExpenseCount > 0) return true;
   if (input.pendingOfflineCreateCount > 0) return true;
-  return !input.hasAnyExpenseRecord && input.guideVariant !== "first-expense";
+  return !input.hasAnyExpenseRecord && !homeGuideSpeaksForEmptyHome(input.guideVariant);
+}
+
+/**
+ * 라운드 40 J-5 — 이 카드가 **빈 홈의 그 자리를 이미 말하고 있는가**.
+ *
+ * 두 갈래가 그렇다: `first-expense`(약속 + CTA)와 `view-only`(사실 한 줄). 둘 중 하나가 떠
+ * 있으면 최근 지출 빈 상태("첫 기록을 남기면 …")도 주간 카드("이번 주 첫 기록을 남겨보세요")도
+ * 같은 말을 반복하지 않는다 — 잠긴 세션에서는 그 반복이 곧 지킬 수 없는 약속의 재등장이라
+ * 새 갈래를 예전 갈래와 같은 자리에 넣는 것이 핵심이다.
+ *
+ * `first-items`는 다르다. 그 카드는 기록이 이미 있을 때만 나오므로 빈 자리를 대신 말하는 일이
+ * 애초에 없다.
+ */
+export function homeGuideSpeaksForEmptyHome(variant: HomeFirstRunGuideVariant | null | undefined): boolean {
+  return variant === "first-expense" || variant === "view-only";
 }
 
 /** `LocalExpenseRow`에서 이 판정에 필요한 두 필드만 (src/offline/types.ts와 구조 호환). */

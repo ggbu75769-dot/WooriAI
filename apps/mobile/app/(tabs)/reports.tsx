@@ -30,6 +30,7 @@ import { buildMonthlyShareMessage } from "../../src/reports/share-text";
 import { evaluateTrendDirection } from "../../src/reports/trend-direction";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
+import { EXPENSE_VIEW_ONLY_EMPTY_TITLE } from "../../src/family/record-permissions";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -562,7 +563,14 @@ export default function ReportsScreen() {
                 />
               ) : categoryData.length === 0 ? (
                 <EmptyStateCard
-                  title="첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
+                  // 라운드 40 J-5: 보기 전용 세션에서는 "첫 기록을 남기면 …"이 지킬 수 없는
+                  // 약속이 된다(그 조건을 이 사람은 만족시킬 수 없다) -- 홈·기록 탭의 빈 자리와
+                  // 같은 사실 한 줄로 바꾼다(문구 단일 소스: src/family/record-permissions.ts).
+                  title={
+                    expenseGate.locked
+                      ? EXPENSE_VIEW_ONLY_EMPTY_TITLE
+                      : "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
+                  }
                   actionLabel="지출 기록하기"
                   onPress={expenseGate.guard(() => router.push("/expenses/new"))}
                 />

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { categoryCatalog } from "../categories";
+import { EXPENSE_VIEW_ONLY_EMPTY_TITLE } from "../family/record-permissions";
 import { groupExpensesByDate } from "./records-date-groups";
 import {
   buildMemoSearchSnippet,
@@ -828,6 +829,27 @@ describe("I-5 buildRecordsEmptyMonthTitle", () => {
 
   it("달 라벨을 모르면 지어내지 않고 종전 문구를 쓴다", () => {
     expect(buildRecordsEmptyMonthTitle({ monthLabel: "   ", isCurrentMonth: false })).toBe(
+      "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
+    );
+  });
+
+  /**
+   * 라운드 40 J-5 — "첫 기록을 남기면 …"은 보기 전용 참여자가 만족시킬 수 없는 조건이다.
+   * 홈의 빈 카드와 **같은 문장**으로 바꾼다(단일 소스: src/family/record-permissions.ts).
+   */
+  it("J-5: 보기 전용 세션에서는 약속 대신 사실을 말한다 (어느 달을 보고 있든)", () => {
+    for (const isCurrentMonth of [true, false]) {
+      expect(
+        buildRecordsEmptyMonthTitle({ monthLabel: "2026년 6월", isCurrentMonth, expenseEntryLocked: true })
+      ).toBe(EXPENSE_VIEW_ONLY_EMPTY_TITLE);
+    }
+  });
+
+  it("J-5: 잠기지 않은 세션(기본값)에서는 한 글자도 바뀌지 않는다", () => {
+    expect(
+      buildRecordsEmptyMonthTitle({ monthLabel: "2026년 8월", isCurrentMonth: true, expenseEntryLocked: false })
+    ).toBe("첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요.");
+    expect(buildRecordsEmptyMonthTitle({ monthLabel: "2026년 8월", isCurrentMonth: true })).toBe(
       "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
     );
   });

@@ -1160,7 +1160,10 @@ export default function RecordsScreen() {
   // 종전 "이번 달" 문구 그대로 -- 홈 화면의 같은 카드와 한 글자도 다르지 않다).
   const emptyMonthTitle = buildRecordsEmptyMonthTitle({
     monthLabel: recordsMonthLabel,
-    isCurrentMonth: monthOffset === 0
+    isCurrentMonth: monthOffset === 0,
+    // 라운드 40 J-5: 보기 전용 세션에는 "첫 기록을 남기면 …"이라는 약속 대신 사실을 말한다
+    // (홈의 빈 카드와 같은 문장 · 같은 단일 소스). 버튼은 그대로 서서 눌렀을 때 안내한다.
+    expenseEntryLocked
   });
 
   // UX-N: 조회 실패 카드 문구는 연결 상태에 따라 갈린다(items 탭과 같은 배선).

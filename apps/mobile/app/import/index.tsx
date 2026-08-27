@@ -11,6 +11,7 @@ import {
   importUploadFileStatusText,
   importUploadPhase
 } from "../../src/import/upload-copy";
+import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { validateImportFile } from "../../src/import-file-validation";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -71,6 +72,8 @@ export default function ImportUploadScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  // 라운드 40 J-6: 가져오기는 지출을 만드는 경로라 다른 진입점과 같은 판정을 쓴다.
+  const expenseGate = useExpenseEntryGate();
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const upload = useMutation({
@@ -108,6 +111,15 @@ export default function ImportUploadScreen() {
   };
   const applyPreview = () => {
     if (canUpload) {
+      // 라운드 40 J-6: 업로드 자체가 서버에서 편집 권한을 요구한다(import-pipeline.service.ts의
+      // `createImportJob` → `requireChildAccess(user, childId, true)`). 확정 단계에서야 막으면
+      // 파일 고르기·분석 대기·수백 행 검수가 통째로 버려지므로, 첫 걸음에서 사실을 말한다.
+      // 잠금은 실세션 + 보기 전용 역할에서만 참이라, 비로그인 IMP-003 경로(canUpload === false)는
+      // 이 분기에 아예 오지 않는다 -- 픽셀락 캡처는 한 글자도 바뀌지 않는다.
+      if (expenseGate.locked) {
+        expenseGate.explain();
+        return;
+      }
       pickAndUpload();
       return;
     }

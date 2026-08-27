@@ -7,6 +7,7 @@ import {
   evaluateHomeFirstRunGuide,
   hasPendingOfflineCreate,
   holdHasAnyExpenseRecordDuringRefetch,
+  homeGuideSpeaksForEmptyHome,
   homePendingSyncNoticeText,
   latchHasAnyExpenseRecord,
   shouldShowHomeRecentExpensesSection,
@@ -16,8 +17,10 @@ import {
   FIRST_ITEMS_GUIDE_TEST_ID,
   HOME_PENDING_SYNC_NOTICE_TEST_ID,
   HOME_RECENT_EXPENSES_LIMIT,
+  VIEW_ONLY_GUIDE_TEST_ID,
   type HomeFirstRunGuideInput
 } from "./first-run-guide";
+import { EXPENSE_VIEW_ONLY_EMPTY_TITLE, EXPENSE_VIEW_ONLY_MESSAGE } from "../family/record-permissions";
 import { shouldCelebrateFirstRecord } from "./first-record-celebration";
 
 const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
@@ -31,6 +34,9 @@ function input(overrides: Partial<HomeFirstRunGuideInput> = {}): HomeFirstRunGui
     // 라운드 36 F3: 전체 기간 신호. 기본값은 "정말 초기 사용자"(전체 1건).
     serverRecentExpenseCount: 1,
     itemsGuideDismissed: false,
+    // 라운드 40 J-5: 기본값은 "기록할 수 있는 세션"이다 -- 잠금은 실세션 + 보기 전용 역할에서만
+    // 참이고, 그때만 카드가 바뀐다.
+    expenseEntryLocked: false,
     ...overrides
   };
 }
@@ -262,6 +268,126 @@ describe("UX-G evaluateHomeFirstRunGuide", () => {
       const copy = `${guide.title} ${guide.subtitle} ${guide.ctaLabel}`;
       expect(copy).not.toMatch(/하세요|해야|아직도|늦었|안 하셨/);
       expect(guide.accessibilityLabel).toBe(`${guide.title}. ${guide.subtitle}`);
+    }
+  });
+});
+
+/**
+ * 라운드 40 J-5 — 잠긴 세션에 뜨던 **닫을 수 없는 약속 카드**.
+ *
+ * 보기 전용 참여자(viewer·gift_participant)의 빈 홈에도 "첫 지출을 기록해 보세요 / 10초면
+ * 돼요. 기록하면 …"이 dismissible: false로 떠 있었다. 이 사람이 그 조건을 만족시킬 방법은 없고,
+ * 눌러도 "보기 전용으로 참여하고 있어요"라는 안내만 돌아온다. 같은 홈이 오프라인 실패 카드의
+ * "기록은 지금도 남길 수 있어요"를 잠긴 세션에서 접은 것과 같은 규칙을, 여기서는 **접는 대신
+ * 바꾸는** 방식으로 적용한다(빈 홈에 아무 설명도 없는 상태를 만들지 않기 위해).
+ */
+describe("라운드 40 J-5 보기 전용 세션의 빈 홈", () => {
+  it("잠긴 세션 + 기록 0건 → 약속 대신 사실을 말하는 카드", () => {
+    const guide = evaluateHomeFirstRunGuide(input({ hasAnyExpenseRecord: false, expenseEntryLocked: true }));
+
+    expect(guide?.variant).toBe("view-only");
+    expect(guide?.title).toBe(EXPENSE_VIEW_ONLY_EMPTY_TITLE);
+    expect(guide?.subtitle).toBe(EXPENSE_VIEW_ONLY_MESSAGE);
+    expect(guide?.testID).toBe(VIEW_ONLY_GUIDE_TEST_ID);
+    // 지금 이 사람이 할 수 있는 행동이 없으므로 버튼을 만들지 않는다.
+    expect(guide?.ctaLabel).toBeNull();
+    expect(guide?.route).toBeNull();
+    // 닫을 수 있게 하면 빈 홈에 정말 아무 설명도 없는 상태가 생긴다(첫 지출 카드와 같은 이유).
+    expect(guide?.dismissible).toBe(false);
+    // 약속형 문장이 한 조각도 남지 않는다.
+    expect(`${guide?.title} ${guide?.subtitle}`).not.toContain("10초");
+    expect(`${guide?.title} ${guide?.subtitle}`).not.toContain("기록해 보세요");
+  });
+
+  it("문구는 잠금 안내와 같은 단일 소스에서 온다 -- 카드와 Alert이 다른 말을 할 수 없다", () => {
+    const guide = evaluateHomeFirstRunGuide(input({ hasAnyExpenseRecord: false, expenseEntryLocked: true }))!;
+
+    expect(guide.accessibilityLabel).toBe(`${EXPENSE_VIEW_ONLY_EMPTY_TITLE}. ${EXPENSE_VIEW_ONLY_MESSAGE}`);
+    // DNC-018: 해요체, 비난·재촉·재시도 권유 없음.
+    for (const copy of [guide.title, guide.subtitle]) {
+      expect(copy).toMatch(/요\.?$/);
+      expect(copy).not.toMatch(/하세요|해야|아직도|늦었|안 하셨|다시 시도/);
+    }
+  });
+
+  it("J-5 진리표: 잠금 × 기록 유무", () => {
+    const cases = [
+      // [잠김, 기록 있음, 기대 variant]
+      [true, false, "view-only"],
+      [false, false, "first-expense"],
+      // 기록이 생기면 이 카드는 스스로 사라진다 -- 보기 전용 참여자에게도 마찬가지다.
+      [true, true, null],
+      [false, true, null]
+    ] as const;
+
+    for (const [expenseEntryLocked, hasAnyExpenseRecord, expected] of cases) {
+      const guide = evaluateHomeFirstRunGuide(
+        // 준비템 갈래를 끄고(추천 0개) 첫 지출 자리만 본다 -- 그 갈래는 아래에서 따로 고정한다.
+        input({ expenseEntryLocked, hasAnyExpenseRecord, recommendedItemCount: 0 })
+      );
+      expect(guide?.variant ?? null, `잠김=${expenseEntryLocked} 기록=${hasAnyExpenseRecord}`).toBe(expected);
+    }
+  });
+
+  it("준비템 안내는 잠금과 무관하다 -- 보기 전용 참여자도 준비템 탭은 볼 수 있다", () => {
+    const guide = evaluateHomeFirstRunGuide(
+      input({ hasAnyExpenseRecord: true, recommendedItemCount: 2, expenseEntryLocked: true })
+    );
+
+    expect(guide?.variant).toBe("first-items");
+    expect(guide?.route).toBe("/(tabs)/items");
+    // 그 카드의 문장은 아무것도 약속하지 않는다(기록을 조건으로 걸지 않는다).
+    expect(guide?.subtitle).not.toContain("기록하면");
+  });
+
+  it("⚠ 픽셀락 HOME-001: 비세션에서는 잠금 값과 무관하게 아무 카드도 만들지 않는다", () => {
+    for (const expenseEntryLocked of [true, false]) {
+      expect(
+        evaluateHomeFirstRunGuide(input({ hasSession: false, hasAnyExpenseRecord: false, expenseEntryLocked }))
+      ).toBeNull();
+    }
+  });
+
+  it("빈 홈의 그 자리를 대신 말하는 카드는 두 갈래다 -- 최근 지출 섹션·주간 카드가 같은 말을 반복하지 않는다", () => {
+    expect(homeGuideSpeaksForEmptyHome("first-expense")).toBe(true);
+    expect(homeGuideSpeaksForEmptyHome("view-only")).toBe(true);
+    expect(homeGuideSpeaksForEmptyHome("first-items")).toBe(false);
+    expect(homeGuideSpeaksForEmptyHome(null)).toBe(false);
+    expect(homeGuideSpeaksForEmptyHome(undefined)).toBe(false);
+
+    // 잠긴 빈 홈에서 "첫 기록을 남기면 …" 빈 상태가 되살아나지 않는다.
+    const guide = evaluateHomeFirstRunGuide(input({ hasAnyExpenseRecord: false, expenseEntryLocked: true }));
+    expect(
+      shouldShowHomeRecentExpensesSection({
+        serverRecentExpenseCount: 0,
+        pendingOfflineCreateCount: 0,
+        hasAnyExpenseRecord: false,
+        guideVariant: guide?.variant ?? null
+      })
+    ).toBe(false);
+  });
+
+  it("J-5 진리표(2/2): 잠긴 세션에서도 섹션과 카드가 함께 사라지는 조합이 없다", () => {
+    for (const serverRecentExpenseCount of [0, 1, 3]) {
+      for (const pendingOfflineCreateCount of [0, 2]) {
+        for (const hasAnyExpenseRecord of [
+          serverRecentExpenseCount > 0 || pendingOfflineCreateCount > 0,
+          null
+        ]) {
+          const guide = evaluateHomeFirstRunGuide(
+            input({ hasAnyExpenseRecord, serverRecentExpenseCount, expenseEntryLocked: true })
+          );
+          const section = shouldShowHomeRecentExpensesSection({
+            serverRecentExpenseCount,
+            pendingOfflineCreateCount,
+            hasAnyExpenseRecord,
+            guideVariant: guide?.variant ?? null
+          });
+          expect(section || homeGuideSpeaksForEmptyHome(guide?.variant)).toBe(true);
+          // 잠긴 세션에는 지출 CTA를 들고 있는 카드가 절대 나가지 않는다.
+          expect(guide?.route).not.toBe("/expenses/new");
+        }
+      }
     }
   });
 });
@@ -539,7 +665,23 @@ describe("UX-G 홈 화면 배선", () => {
   });
 
   it("첫 지출 유도가 떠 있는 동안에는 주간 카드가 같은 말을 반복하지 않는다", () => {
-    expect(homeSource).toContain('const weeklySummary = hasSession && firstRunGuide?.variant !== "first-expense"');
+    // 라운드 40 J-5: 잠긴 세션의 `view-only` 카드도 같은 자리를 말하므로 함께 접는다 --
+    // 판정은 순수 모듈 하나(homeGuideSpeaksForEmptyHome)가 갖고, 화면은 문자열 비교를 하지 않는다.
+    expect(homeSource).toContain(
+      "const weeklySummary = hasSession && !homeGuideSpeaksForEmptyHome(firstRunGuide?.variant) ? weeklySpend : null;"
+    );
+    expect(homeSource).not.toContain('firstRunGuide?.variant !== "first-expense" ? weeklySpend');
+  });
+
+  it("라운드 40 J-5: 홈이 잠금 판정을 순수 모듈에 넘기고, 버튼 없는 카드를 그릴 수 있다", () => {
+    expect(homeSource).toContain("expenseEntryLocked: expenseGate.locked");
+    // 카드 안 버튼은 ctaLabel·route가 모두 있을 때만 그린다(`view-only`는 둘 다 null).
+    expect(homeSource).toContain("const firstRunGuideCta =");
+    expect(homeSource).toContain("{firstRunGuideCta ? (");
+    expect(homeSource).toContain("label={firstRunGuideCta.label}");
+    expect(homeSource).toContain("router.push(firstRunGuideCta.route)");
+    // 잠금 문구를 화면에서 다시 적지 않는다(문구 단일 소스는 record-permissions.ts).
+    expect(homeSource).not.toContain("가족이 기록하면 여기에 쌓여요");
   });
 
   it("최근 지출 섹션의 빈 상태(MOB-117) 문구는 남아 있되, 사실일 때만 그린다", () => {
@@ -582,8 +724,9 @@ describe("UX-G 홈 화면 배선", () => {
   it("카드 전체에 소리용 라벨이 붙고 CTA는 버튼 역할을 갖는다", () => {
     expect(homeSource).toContain("testID={firstRunGuide.testID}");
     expect(homeSource).toContain("accessibilityLabel={firstRunGuide.accessibilityLabel}");
-    expect(homeSource).toContain("label={firstRunGuide.ctaLabel}");
-    expect(homeSource).toContain("router.push(firstRunGuide.route)");
+    expect(homeSource).toContain("accessibilityLabel={firstRunGuideCta.label}");
+    expect(homeSource).toContain("label={firstRunGuideCta.label}");
+    expect(homeSource).toContain("router.push(firstRunGuideCta.route)");
   });
 
   it("준비템 안내는 눌러도·닫아도 1회성 플래그가 남는다", () => {

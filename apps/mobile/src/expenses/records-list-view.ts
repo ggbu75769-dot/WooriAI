@@ -1,4 +1,5 @@
 import { categoryCatalog, categoryNameFor, selectableCategories, type SelectableCategory } from "../categories";
+import { EXPENSE_VIEW_ONLY_EMPTY_TITLE } from "../family/record-permissions";
 import { formatKrw } from "../money";
 
 /**
@@ -385,8 +386,18 @@ export function buildRecordsFilteredEmptyState(input: {
  * 현재 달에서는 "이번 달"이 가장 자연스럽고 홈 화면의 같은 카드와도 한 글자도 다르지 않다
  * (refresh-wiring-contract.test.ts가 두 화면의 문구 일치를 고정한다 — 홈은 언제나 현재 달이다).
  * 과거 달을 보고 있을 때만 그 달의 이름을 쓴다.
+ *
+ * 라운드 40 J-5 — 보기 전용 세션에서는 이 문장이 **약속**이 된다("첫 기록을 남기면 …"의 조건을
+ * 이 사람은 만족시킬 수 없다). 그때는 홈의 빈 카드와 같은 사실 한 줄로 바꾼다(문구는
+ * src/family/record-permissions.ts가 단일 소스). 잠금은 실세션 + 알려진 보기 전용 역할에서만
+ * 참이므로 기본값(false)에서는 한 글자도 바뀌지 않는다.
  */
-export function buildRecordsEmptyMonthTitle(input: { monthLabel: string; isCurrentMonth: boolean }): string {
+export function buildRecordsEmptyMonthTitle(input: {
+  monthLabel: string;
+  isCurrentMonth: boolean;
+  expenseEntryLocked?: boolean;
+}): string {
+  if (input.expenseEntryLocked) return EXPENSE_VIEW_ONLY_EMPTY_TITLE;
   const monthLabel = input.monthLabel.trim();
   // 달 이름을 모르면 지어내지 않고 종전 문구를 쓴다.
   const monthPart = input.isCurrentMonth || monthLabel.length === 0 ? "이번 달" : monthLabel;
