@@ -8,7 +8,12 @@ import { useSessionStore } from "../stores/session.store";
 import { isCurrentlyOnline, startConnectivityWatcher } from "./connectivity";
 import { runDeltaPull, syncCursorScopeKey } from "./delta-sync";
 import { isSessionExpiryTransition, LOGIN_HREF } from "./session-expiry";
-import { isSessionIdentityChange, teardownOfflineSessionState } from "./session-teardown";
+import {
+  clearSessionScopedQueryCache,
+  isSessionIdentityChange,
+  subscribeToHydratedSessionTransitions,
+  teardownOfflineSessionState
+} from "./session-teardown";
 import { SERVER_CONFIRMED_MESSAGE } from "./messages";
 import { createMemoryOfflineStore } from "./memory-offline-store";
 import { createClientRemoteExpenseApi } from "./remote-api";
@@ -433,19 +438,35 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
-    const unsubscribe = useSessionStore.subscribe((state, previous) => {
-      if (isSessionIdentityChange(previous, state)) {
-        // FIX-118A: the token of the session that is LEAVING (the store already holds the
-        // incoming one), so teardown's best-effort push-device deactivation can still
-        // authenticate as the outgoing account. Mirrors the token derivation in
-        // app/_layout.tsx's OfflineSyncLifecycle.
-        const outgoingToken = previous.accessToken ?? (previous.isTestSession ? LOCAL_SESSION_TOKEN : null);
-        void getOfflineStore()
-          .then((store) => teardownOfflineSessionState(store, { authToken: outgoingToken }))
-          .catch(() => undefined);
-      }
-    });
-    return unsubscribe;
-  }, []);
+  // AUTH-127 (round27 H-1): subscribed through subscribeToHydratedSessionTransitions, NOT
+  // useSessionStore.subscribe directly. zustand's persist middleware ends its rehydration with an
+  // ordinary replace-set, which notifies every subscriber with the pre-hydration (initial,
+  // userId: null) state as `previous` — so on a cold start a raw subscriber reads the restored
+  // `null → "user-a"` as a login and wipes the outbox an expiry had deliberately preserved. The
+  // helper (unit-tested in session-teardown.test.ts) defers this subscription until hydration is
+  // done; every real transition after that arrives unchanged.
+  //
+  // The expiry subscription above is deliberately NOT gated the same way: rehydrating into a
+  // persisted "expired" state on a cold start genuinely does belong on the login screen (which is
+  // where app/index.tsx sends it anyway), and that path is edge-triggered and idempotent.
+  useEffect(
+    () =>
+      subscribeToHydratedSessionTransitions(useSessionStore, (state, previous) => {
+        if (isSessionIdentityChange(previous, state)) {
+          // FIX-118A: the token of the session that is LEAVING (the store already holds the
+          // incoming one), so teardown's best-effort push-device deactivation can still
+          // authenticate as the outgoing account. Mirrors the token derivation in
+          // app/_layout.tsx's OfflineSyncLifecycle.
+          const outgoingToken = previous.accessToken ?? (previous.isTestSession ? LOCAL_SESSION_TOKEN : null);
+          // Round27 M-1: synchronous, in the same tick as the session-store `set` that just
+          // scheduled the incoming account's re-render — everything below is a promise hop and
+          // therefore lands after it. See clearSessionScopedQueryCache's contract.
+          clearSessionScopedQueryCache();
+          void getOfflineStore()
+            .then((store) => teardownOfflineSessionState(store, { authToken: outgoingToken }))
+            .catch(() => undefined);
+        }
+      }),
+    []
+  );
 }

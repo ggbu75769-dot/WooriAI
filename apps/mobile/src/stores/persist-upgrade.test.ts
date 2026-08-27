@@ -92,6 +92,46 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
       expect(state.userId).toBe("user-from-old-build");
     });
 
+    it("drops a leftover lastEndReason with the leftover token, so a demo build never claims a session expired (AUTH-127 round27 L-1)", async () => {
+      process.env.EXPO_PUBLIC_TEST_LOGIN = "1";
+      const { secureSessionStorage } = await loadModules();
+
+      // The same in-place upgrade as the test above, but the real build it replaced had ended its
+      // last session on a refresh-401. A standalone build can never *have* an expiry (client.ts's
+      // isLocalToken short-circuits before any 401 handling), so the inherited reason is corrupt
+      // state exactly like the inherited token -- and left in place it puts AUTH-127's
+      // "세션이 만료됐어요" notice on the demo build's login screen.
+      await secureSessionStorage.setItem(
+        SESSION_KEY,
+        JSON.stringify({
+          state: {
+            accessToken: "leftover-real-access-token",
+            refreshToken: "leftover-real-refresh-token",
+            userId: "user-from-old-build",
+            defaultHouseholdId: "household-from-old-build",
+            isTestSession: false,
+            lastEndReason: "expired"
+          },
+          version: 2
+        })
+      );
+
+      const { useSessionStore } = await import("./session.store");
+      const { shouldShowSessionExpiredNotice } = await import("../offline/session-expiry");
+      await useSessionStore.persist.rehydrate();
+
+      const state = useSessionStore.getState();
+      expect(state.accessToken).toBeNull();
+      expect(state.lastEndReason).toBeNull();
+      expect(
+        shouldShowSessionExpiredNotice({
+          accessToken: state.accessToken,
+          isTestSession: state.isTestSession,
+          lastEndReason: state.lastEndReason
+        })
+      ).toBe(false);
+    });
+
     it("leaves a genuine test session (round4 shape) untouched", async () => {
       process.env.EXPO_PUBLIC_TEST_LOGIN = "1";
       const { secureSessionStorage } = await loadModules();
