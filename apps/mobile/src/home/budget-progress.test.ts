@@ -173,21 +173,60 @@ describe("HOME-127 홈 넛지 카드 (buildHomeBudgetNudge)", () => {
     expect(nudge.title).not.toContain("사용 중");
   });
 
-  it("예산이 있으면 종전 사용률 문구와 추천템 경로를 그대로 유지한다", () => {
+  it("예산이 있으면 종전 사용률 문구를 유지하고 기록 탭으로 보낸다 (라운드 41 UX-T)", () => {
     const nudge = buildHomeBudgetNudge({ budgetKrw: 1_600_000, spentKrw: 1_245_700, hasWarningBanner: false });
 
     expect(nudge).toEqual({
       variant: "usage",
       title: "예산의 78% 사용 중이에요!",
       subtitle: "이번 달도 잘 관리하고 있어요 👏",
-      route: "/(tabs)/items"
+      route: "/(tabs)/records"
     });
+  });
+
+  /**
+   * 라운드 41 UX-T(B) — 문구와 목적지의 불일치.
+   *
+   * "이번 달 지출을 확인해 볼까요?"를 눌렀는데 상품 추천 탭이 열리면, 지출을 줄이려고 누른
+   * 자리에서 앱이 물건을 권하는 셈이다. 사용률 넛지의 근거가 되는 화면은 이번 달 지출 목록뿐이다.
+   */
+  it("UX-T: 초과 상태의 '지출 확인' 문구가 추천 탭이 아니라 기록 탭으로 간다", () => {
+    const overspent = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 130_000, hasWarningBanner: false });
+
+    expect(overspent.subtitle).toContain("지출을 확인해");
+    expect(overspent.route).toBe("/(tabs)/records");
+    // 회귀 방지: 어떤 사용률 상태에서도 추천/쇼핑 탭으로 새지 않는다.
+    for (const spentKrw of [0, 50_000, 99_999, 100_000, 130_000]) {
+      expect(buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw, hasWarningBanner: false }).route).toBe(
+        "/(tabs)/records"
+      );
+    }
+    // 예산 미설정 CTA는 종전대로 예산 편집 화면이다(그 문구가 약속하는 곳).
+    expect(buildHomeBudgetNudge({ budgetKrw: 0, spentKrw: 50_000, hasWarningBanner: false }).route).toBe("/budget");
+  });
+
+  /**
+   * 라운드 41 UX-T(B) — DNC-018 톤 경계.
+   *
+   * 예산 초과는 대개 아이에게 필요한 것을 산 결과다. 그 옆의 우는 얼굴("😥")은 안내가 아니라
+   * 사용자의 한 달에 대한 **부정적 평가**라서, 문장은 그대로 두고 감정 부호만 뺐다.
+   */
+  it("UX-T: 초과 보조 문구에 죄책감을 주는 이모지를 붙이지 않는다 (문장은 그대로)", () => {
+    for (const hasWarningBanner of [true, false]) {
+      const nudge = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 130_000, hasWarningBanner });
+      expect(nudge.subtitle).toBe("이번 달 지출을 확인해 볼까요?");
+      expect(nudge.subtitle).not.toContain("😥");
+    }
+    // 격려 쪽(👏)은 그대로다 -- 문제는 이모지 자체가 아니라 부정적 평가였다.
+    expect(buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 10_000, hasWarningBanner: false }).subtitle).toBe(
+      "이번 달도 잘 관리하고 있어요 👏"
+    );
   });
 
   it("초과 시 배너가 없으면 금액을, 배너가 있으면 금액 없는 문구를 쓴다 (라운드 13 m-7)", () => {
     const withoutBanner = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 130_000, hasWarningBanner: false });
     expect(withoutBanner.title).toBe("예산을 30,000원 초과했어요.");
-    expect(withoutBanner.subtitle).toBe("이번 달 지출을 확인해 볼까요? 😥");
+    expect(withoutBanner.subtitle).toBe("이번 달 지출을 확인해 볼까요?");
 
     const withBanner = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 130_000, hasWarningBanner: true });
     expect(withBanner.title).toBe("예산을 모두 사용했어요.");
@@ -209,7 +248,7 @@ describe("HOME-127 홈 넛지 카드 (buildHomeBudgetNudge)", () => {
   it("H-2: 정확히 100%면 배너와 같은 사실을 말한다 (배너가 있을 때 금액 중복 없이)", () => {
     const nudge = buildHomeBudgetNudge({ budgetKrw: 100_000, spentKrw: 100_000, hasWarningBanner: true });
     expect(nudge.title).toBe("예산을 모두 사용했어요.");
-    expect(nudge.subtitle).toBe("이번 달 지출을 확인해 볼까요? 😥");
+    expect(nudge.subtitle).toBe("이번 달 지출을 확인해 볼까요?");
     // 배너와 넛지가 서로를 부정하던 조합이 다시 생기지 않는다.
     expect(nudge.title).not.toContain("사용 중");
     expect(nudge.subtitle).not.toContain("잘 관리하고 있어요");

@@ -585,6 +585,13 @@ export function recordsRowSubtitle(input: {
   authorLabel?: string | null;
   categoryLabel?: string | null;
   dateLabel: string;
+  /**
+   * 라운드 41 UX-T(C): 메모에서만 검색어가 맞은 행에 붙는 근거 조각(`buildMemoSearchSnippet`).
+   * 검색 중이 아니거나 품목명이 이미 맞은 행에서는 null이고, 그때 부제는 이 기능이 없던 때와
+   * **한 글자도 다르지 않다** -- 기존 호출부(홈 `homeRecentExpenseSubtitle` 포함)는 이 필드를
+   * 넘기지 않으므로 그대로다.
+   */
+  memoSnippet?: string | null;
 }): string {
   const parts: string[] = [];
   const typePrefix = expenseTypeSubtitlePrefix(input.expenseType);
@@ -594,7 +601,74 @@ export function recordsRowSubtitle(input: {
   const categoryLabel = input.categoryLabel?.trim();
   if (categoryLabel) parts.push(categoryLabel);
   parts.push(input.dateLabel);
+  // 스니펫은 **맨 끝**이다: 앞쪽 토큰(구분·작성자·카테고리·날짜)의 자리가 검색 여부에 따라
+  // 움직이면 같은 행이 검색 중에만 다르게 읽힌다.
+  const memoSnippet = input.memoSnippet?.trim();
+  if (memoSnippet) parts.push(memoSnippet);
   return parts.join(" · ");
+}
+
+/**
+ * 라운드 41 UX-T(C): **메모에서만 맞은** 검색 결과에 붙이는 메모 조각.
+ *
+ * 무엇이 문제였나 — 기록 탭 검색은 품목명과 **메모**를 함께 훑고(app/(tabs)/records.tsx의
+ * `${expense.itemName} ${expense.memo ?? ""}`), placeholder도 "품목명, 메모로 검색"이라고
+ * 약속한다. 그런데 행에 그려지는 것은 품목명 + "카테고리 · 날짜"뿐이라, "조리원"으로 검색해
+ * 3건이 나와도 **화면 어디에도 '조리원'이 없다**. 사용자는 왜 이 세 건이 걸렸는지 알 수 없어
+ * 결과를 신뢰할 수 없고, 한 건씩 열어 메모를 확인해야 했다.
+ *
+ * 그래서 검색어가 **메모에서만** 맞은 행에 한해 부제 끝에 그 근거를 붙인다.
+ *  - 품목명이 이미 검색어를 품고 있으면 붙이지 않는다 -- 행 제목이 곧 근거라, 같은 사실을 두 번
+ *    말하면서 부제만 길어진다(선물/작성자 라벨이 "정보가 아니라 소음일 때는 빠진다"는 이 파일의
+ *    다른 규칙과 같은 판단).
+ *  - 검색어가 없으면 항상 null -- 검색하지 않는 동안 화면은 한 글자도 바뀌지 않는다
+ *    (F8 스코프 줄·UX-P 범위 고지와 같은 규칙).
+ *  - 메모 전체를 싣지 않는다. 긴 메모를 그대로 부제에 넣으면 목록의 행 높이가 들쭉날쭉해지고
+ *    (PERF-102 가상화가 싫어하는 모양) 정작 검색어가 잘려 나갈 수 있어서, **검색어 주변만**
+ *    잘라내고 잘린 쪽에 말줄임표를 붙인다.
+ *
+ * 만들어 내는 것은 없다: 조각은 사용자가 직접 적어 둔 메모의 **원문 일부**이고, 앞에 붙는
+ * "메모"는 그 출처를 밝히는 라벨이다(입력 폼·CSV 열이 쓰는 것과 같은 단어).
+ */
+export const MEMO_SEARCH_SNIPPET_LABEL = "메모";
+/** 조각의 최대 길이(라벨·말줄임표 제외). 한 줄 부제에 얹을 수 있는 만큼만. */
+export const MEMO_SEARCH_SNIPPET_MAX_LENGTH = 24;
+/** 검색어 앞에 남기는 문맥 길이 -- 어디에 나온 말인지 보이되 검색어가 끝으로 밀리지 않게. */
+const MEMO_SEARCH_SNIPPET_LEAD_LENGTH = 6;
+const ELLIPSIS = "…";
+
+export function buildMemoSearchSnippet(input: {
+  /** 행 제목(품목명). 여기서 이미 맞았으면 조각을 붙이지 않는다. */
+  itemName?: string | null;
+  /** `Expense.memo` -- 없거나 공백뿐이면 null. */
+  memo?: string | null;
+  /** 검색어 원본(트림 전). 비어 있으면 항상 null. */
+  searchText?: string | null;
+}): string | null {
+  const query = input.searchText?.trim().toLowerCase() ?? "";
+  if (query.length === 0) return null;
+  // 줄바꿈·연속 공백은 한 칸으로 -- 한 줄 부제에 여러 줄 메모가 그대로 들어가면 줄이 깨진다.
+  const memo = (input.memo ?? "").replace(/\s+/g, " ").trim();
+  if (memo.length === 0) return null;
+  // 품목명 매치는 화면이 이미 보여주고 있다(행 제목).
+  if ((input.itemName ?? "").toLowerCase().includes(query)) return null;
+
+  const matchIndex = memo.toLowerCase().indexOf(query);
+  if (matchIndex < 0) return null;
+
+  // 메모가 짧으면 통째로 -- 자를 이유가 없다(말줄임표도 붙지 않는다).
+  if (memo.length <= MEMO_SEARCH_SNIPPET_MAX_LENGTH) return `${MEMO_SEARCH_SNIPPET_LABEL} ${memo}`;
+
+  // 검색어가 창 안에 들어오도록 시작점을 잡되, 창이 메모 끝을 넘지 않게 뒤에서 한 번 더 민다.
+  const start = Math.max(
+    0,
+    Math.min(matchIndex - MEMO_SEARCH_SNIPPET_LEAD_LENGTH, memo.length - MEMO_SEARCH_SNIPPET_MAX_LENGTH)
+  );
+  const end = Math.min(memo.length, start + MEMO_SEARCH_SNIPPET_MAX_LENGTH);
+  const body = memo.slice(start, end);
+  const prefix = start > 0 ? ELLIPSIS : "";
+  const suffix = end < memo.length ? ELLIPSIS : "";
+  return `${MEMO_SEARCH_SNIPPET_LABEL} ${prefix}${body}${suffix}`;
 }
 
 /**

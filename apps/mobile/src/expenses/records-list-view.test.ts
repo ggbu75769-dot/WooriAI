@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { categoryCatalog } from "../categories";
 import { groupExpensesByDate } from "./records-date-groups";
 import {
+  buildMemoSearchSnippet,
+  MEMO_SEARCH_SNIPPET_MAX_LENGTH,
   buildRecordsCategoryChips,
   buildRecordsEmptyMonthTitle,
   buildRecordsFilteredEmptyState,
@@ -831,6 +833,125 @@ describe("I-5 buildRecordsEmptyMonthTitle", () => {
   });
 });
 
+/**
+ * 라운드 41 UX-T(C) — 메모 매치 검색 결과의 근거.
+ *
+ * 검색은 품목명과 메모를 함께 훑는데(placeholder도 "품목명, 메모로 검색") 행에는 메모가 없어서,
+ * "조리원"으로 검색해 나온 3건 어디에도 조리원이 보이지 않았다.
+ */
+describe("UX-T buildMemoSearchSnippet", () => {
+  it("메모에서만 맞은 행에 검색어가 보이는 조각을 만든다", () => {
+    expect(
+      buildMemoSearchSnippet({ itemName: "산후조리", memo: "조리원 2주 이용료", searchText: "조리원" })
+    ).toBe("메모 조리원 2주 이용료");
+  });
+
+  it("품목명이 이미 검색어를 품고 있으면 붙이지 않는다 (행 제목이 곧 근거다)", () => {
+    expect(
+      buildMemoSearchSnippet({ itemName: "조리원 잔금", memo: "조리원 2주 이용료", searchText: "조리원" })
+    ).toBeNull();
+    // 대소문자는 검색 필터와 같은 기준으로 본다.
+    expect(buildMemoSearchSnippet({ itemName: "Pampers", memo: "pampers 대형", searchText: "pampers" })).toBeNull();
+    expect(buildMemoSearchSnippet({ itemName: "기저귀", memo: "PAMPERS 대형", searchText: "pampers" })).toBe(
+      "메모 PAMPERS 대형"
+    );
+  });
+
+  it("검색어가 없으면 항상 null -- 검색하지 않는 화면은 한 글자도 바뀌지 않는다", () => {
+    for (const searchText of ["", "   ", null, undefined]) {
+      expect(buildMemoSearchSnippet({ itemName: "산후조리", memo: "조리원 2주 이용료", searchText })).toBeNull();
+    }
+  });
+
+  it("메모가 없거나 검색어가 메모에 없으면 null", () => {
+    expect(buildMemoSearchSnippet({ itemName: "산후조리", memo: null, searchText: "조리원" })).toBeNull();
+    expect(buildMemoSearchSnippet({ itemName: "산후조리", memo: "   ", searchText: "조리원" })).toBeNull();
+    expect(buildMemoSearchSnippet({ itemName: "산후조리", memo: "2주 이용료", searchText: "조리원" })).toBeNull();
+  });
+
+  it("긴 메모는 검색어 주변만 잘라 말줄임표를 붙인다 (행 높이·검색어 잘림 방지)", () => {
+    const memo = "1월에 미리 계약금을 넣어 둔 조리원 2주 이용료 잔금까지 전부 카드로 결제했어요";
+    const snippet = buildMemoSearchSnippet({ itemName: "산후조리", memo, searchText: "조리원" });
+
+    expect(snippet).toContain("조리원");
+    expect(snippet?.startsWith("메모 …")).toBe(true);
+    expect(snippet?.endsWith("…")).toBe(true);
+    // 라벨·말줄임표를 뺀 본문은 최대 길이를 넘지 않는다.
+    expect(snippet!.replace("메모 ", "").replaceAll("…", "").length).toBe(MEMO_SEARCH_SNIPPET_MAX_LENGTH);
+    // 원문에 없는 말을 지어내지 않는다 -- 잘라낸 조각은 메모의 부분 문자열이다.
+    expect(memo).toContain(snippet!.replace("메모 ", "").replaceAll("…", ""));
+  });
+
+  it("검색어가 메모 앞/뒤 끝에 있어도 필요한 쪽에만 말줄임표가 붙는다", () => {
+    const memo = "조리원 2주 이용료 잔금까지 전부 카드로 한 번에 결제했어요 다음 달 청구";
+    const head = buildMemoSearchSnippet({ itemName: "산후조리", memo, searchText: "조리원" });
+    expect(head?.startsWith("메모 조리원")).toBe(true);
+    expect(head?.endsWith("…")).toBe(true);
+
+    const tail = buildMemoSearchSnippet({ itemName: "산후조리", memo, searchText: "청구" });
+    expect(tail?.startsWith("메모 …")).toBe(true);
+    expect(tail?.endsWith("청구")).toBe(true);
+  });
+
+  it("여러 줄 메모는 한 줄로 눌러 담는다 (부제는 한 줄이다)", () => {
+    expect(buildMemoSearchSnippet({ itemName: "산후조리", memo: "조리원\n  2주 이용료", searchText: "조리원" })).toBe(
+      "메모 조리원 2주 이용료"
+    );
+  });
+});
+
+describe("UX-T recordsRowSubtitle + 메모 스니펫", () => {
+  it("스니펫이 있으면 부제 맨 끝에 붙는다 (앞쪽 토큰의 자리는 그대로)", () => {
+    expect(
+      recordsRowSubtitle({
+        expenseType: "expense",
+        categoryLabel: "기저귀/위생",
+        dateLabel: "8월 4일",
+        memoSnippet: "메모 조리원 2주 이용료"
+      })
+    ).toBe("기저귀/위생 · 8월 4일 · 메모 조리원 2주 이용료");
+
+    expect(
+      recordsRowSubtitle({
+        expenseType: "gift",
+        authorLabel: "다온맘",
+        categoryLabel: "기저귀/위생",
+        dateLabel: "8월 4일",
+        memoSnippet: "메모 조리원"
+      })
+    ).toBe("선물 · 다온맘 · 기저귀/위생 · 8월 4일 · 메모 조리원");
+  });
+
+  it("스니펫이 없으면 이 기능이 없던 때와 한 글자도 다르지 않다", () => {
+    const before = recordsRowSubtitle({ expenseType: "expense", categoryLabel: "기저귀/위생", dateLabel: "8월 4일" });
+    for (const memoSnippet of [null, undefined, "   "]) {
+      expect(
+        recordsRowSubtitle({
+          expenseType: "expense",
+          categoryLabel: "기저귀/위생",
+          dateLabel: "8월 4일",
+          memoSnippet
+        })
+      ).toBe(before);
+    }
+    // 홈의 "최근 지출" 행도 이 필드를 넘기지 않으므로 종전 그대로다.
+    expect(homeRecentExpenseSubtitle({ expenseType: "expense", spentOn: "2026-08-04" })).toBe("8월 4일");
+  });
+
+  it("검색 중이라도 품목명이 맞은 행에는 스니펫이 없다 (판정과 조립이 한 규칙이다)", () => {
+    const rowSubtitle = (itemName: string, memo: string) =>
+      recordsRowSubtitle({
+        expenseType: "expense",
+        categoryLabel: "기저귀/위생",
+        dateLabel: "8월 4일",
+        memoSnippet: buildMemoSearchSnippet({ itemName, memo, searchText: "조리원" })
+      });
+
+    expect(rowSubtitle("조리원 잔금", "2주 이용료")).toBe("기저귀/위생 · 8월 4일");
+    expect(rowSubtitle("산후조리", "조리원 2주 이용료")).toBe("기저귀/위생 · 8월 4일 · 메모 조리원 2주 이용료");
+  });
+});
+
 describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   const recordsSource = readFileSync(join(mobileRoot, "app/(tabs)/records.tsx"), "utf8");
 
@@ -866,6 +987,21 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).not.toContain('`선물 · ${formatSpentOn(expense.spentOn)}`');
   });
 
+  it("UX-T(C): 메모 스니펫은 목록을 만들 때 문자열로 해석해 행에 내려준다 (PERF-102 memo 유지)", () => {
+    // 판정·자르기는 순수 모듈 한 곳에만 있다 -- 화면이 메모를 직접 자르지 않는다.
+    expect(recordsSource).toContain("buildMemoSearchSnippet({");
+    expect(recordsSource).toContain("memo: expense.memo");
+    expect(recordsSource).toContain("searchText: searchText");
+    expect(recordsSource).toContain("memoSnippet: string | null");
+    expect(recordsSource).toContain("memoSnippet={item.memoSnippet}");
+    // 행에는 해석된 문자열만 간다 -- 검색어를 행 prop으로 넘겨 행마다 판정하게 하지 않는다.
+    expect(recordsSource).not.toContain("searchText={");
+    // 검색어가 바뀌면 목록이 다시 만들어져야 스니펫이 따라간다.
+    expect(recordsSource).toContain("householdMemberRefs, searchText]");
+    // 검색은 종전대로 품목명 + 메모를 함께 훑는다(스니펫이 그 계약을 바꾸지 않는다).
+    expect(recordsSource).toContain('`${expense.itemName} ${expense.memo ?? ""}`.toLowerCase()');
+  });
+
   it("K1: 금액은 부호 없이 그대로 둔다 (formatKrw 계약 + 월 합계가 환불을 빼지 않으므로)", () => {
     expect(recordsSource).toContain("value={formatKrw(expense.amountKrw)}");
     expect(recordsSource).not.toContain("`-${formatKrw(");
@@ -899,7 +1035,9 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   it("FAM-127: 라벨은 목록을 만들 때 문자열로 해석해 둔다 (PERF-102 행 memo 유지)", () => {
     // 행에 구성원 배열이나 해석 함수를 내려주면 매 렌더 새 참조라 memo가 무의미해진다.
     expect(recordsSource).toContain("authorLabel: string | null");
-    expect(recordsSource).toContain("householdMemberRefs]");
+    // 목록 useMemo의 의존성으로 남아 있어야 구성원 목록이 바뀔 때 라벨이 따라간다.
+    // (UX-T(C)에서 검색어가 뒤에 하나 더 붙었다 -- 고정하려는 것은 "의존성에 있다"이지 순서가 아니다.)
+    expect(recordsSource).toContain("householdMemberRefs, searchText]");
   });
 
   it("F8: 스코프 줄의 금액은 화면의 일별 소계를 그대로 더한 값이다 (새 집계 규칙 없음)", () => {

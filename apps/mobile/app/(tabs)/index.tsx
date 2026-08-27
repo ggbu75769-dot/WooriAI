@@ -16,7 +16,7 @@ import {
 } from "../../src/children/child-switch";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
-import { evaluateBabyCounter } from "../../src/home/baby-counter";
+import { evaluateBabyCounter, evaluateBirthTransitionPrompt } from "../../src/home/baby-counter";
 import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "../../src/home/budget-progress";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import {
@@ -960,6 +960,18 @@ export default function HomeScreen() {
         todayIso: seoulToday
       })
     : null;
+  // 라운드 41 UX-T(A): 임신 → 출생 전환 입구. 예정일에 닿은 뒤부터 홈에 한 줄로 나오고, 유예
+  // 기간이 지나 카운터가 접힌 뒤에도(babyCounter === null) 이 줄만 남는다 -- 전환하지 않으면
+  // 준비템·마일스톤·100일 리포트가 조용히 비활성인 채로 남기 때문이다. 판정·문구는 전부 순수
+  // 모듈에 있고(경과 일수를 세지 않고 재촉하지 않는다 -- DNC-020/DNC-018), 화면은 링크만 그린다.
+  // 카운터와 같은 hasSession 게이트라 비세션 HOME-001 미리보기에는 아무것도 늘지 않는다.
+  const birthTransitionPrompt = hasSession
+    ? evaluateBirthTransitionPrompt({
+        stageMode: selectedChild?.stageMode,
+        dueDate: selectedChild?.dueDate,
+        todayIso: seoulToday
+      })
+    : null;
   // UX-G: 기록이 한 건도 없는 홈에서 주간 카드는 "이번 주 지출은 아직 없어요 / 이번 주 첫
   // 기록을 남겨보세요"만 말한다 -- 바로 위 유도 카드가 같은 말을 CTA와 함께 하고 있으므로,
   // 첫 지출 유도가 떠 있는 동안에는 그 자리를 유도 카드에 내준다(같은 말을 두 번 하지 않는다).
@@ -1060,6 +1072,18 @@ export default function HomeScreen() {
               action={<NotificationBell />}
             />
           )}
+
+          {/* UX-T(A): 출생 전환 입구. 카운터가 있으면 그 아래 한 줄, 카운터가 접힌 뒤에는 이
+              줄만 남는다. 링크 하나뿐이라 홈의 정보 밀도를 늘리지 않고, 목적지(아이 관리)는
+              종전과 같은 화면이다 -- 전환 폼을 홈으로 옮기지 않는다. */}
+          {birthTransitionPrompt ? (
+            <TextButton
+              accessibilityLabel={birthTransitionPrompt.accessibilityLabel}
+              label={birthTransitionPrompt.label}
+              onPress={() => router.push(birthTransitionPrompt.route)}
+              style={{ alignSelf: "flex-start" }}
+            />
+          ) : null}
 
           {/* 시트 본체는 위에서 한 번만 만든다(H-9) -- 에러 상태의 홈도 같은 것을 그린다. */}
           {childSwitchSheet}
