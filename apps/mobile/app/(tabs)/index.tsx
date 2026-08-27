@@ -595,20 +595,9 @@ export default function HomeScreen() {
   // 이미 invalidate하는 ["expenses"] 프리픽스에 그대로 걸려 최신 상태가 유지된다.
   const seoulToday = getSeoulToday();
   const lastYearMonth = previousYearMonth(seoulToday);
-  //
-  // REC-124(H1): API-124 이후 한 요청은 한 페이지(기본 200 · 상한 500건)이고 정렬이 spentOn desc라,
-  // 첫 페이지만 읽으면 200건을 넘는 달의 **앞날짜가 통째로 빠진다**. 그러면 "같은 일자까지"의 부분
-  // 합계가 0이 되어 이 한 줄이 "지난달 같은 시점까지는 지출 기록이 없었어요"라는 없는 사실을
-  // 말한다. fetchMonthExpenses가 CSV 내보내기와 같은 커서 루프로 전량을 모은다
-  // (src/expenses/month-expenses.ts). 기록 탭도 같은 페처를 쓰므로 공유 캐시의 내용이 어긋나지 않는다.
-  const lastMonthExpenses = useQuery({
-    queryKey: ["expenses", childId, lastYearMonth],
-    enabled: Boolean(authToken && childId && lastYearMonth),
-    queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, lastYearMonth!, page))
-  });
   // UX-A 주간 요약: 이번 달 지출 행. 기록 탭이 이번 달을 볼 때와 **같은 캐시 키**라
   // (["expenses", childId, 이번 달]) 대개 이미 채워진 캐시를 그대로 읽고, 지출 생성/수정/
-  // 가져오기가 invalidate하는 ["expenses"] 프리픽스에 그대로 걸린다. 지난달 캐시(위)와 함께
+  // 가져오기가 invalidate하는 ["expenses"] 프리픽스에 그대로 걸린다. 지난달 캐시(아래)와 함께
   // 넘겨야 달을 걸친 주("9월 1일 화요일"의 이번 주 월요일 = 8월 31일)도 정확히 더해진다 --
   // 근거는 src/home/weekly-summary.ts.
   const thisYearMonth = seoulToday.slice(0, 7);
@@ -616,6 +605,37 @@ export default function HomeScreen() {
     queryKey: ["expenses", childId, thisYearMonth],
     enabled: Boolean(authToken && childId),
     queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, thisYearMonth, page))
+  });
+  //
+  // REC-124(H1): API-124 이후 한 요청은 한 페이지(기본 200 · 상한 500건)이고 정렬이 spentOn desc라,
+  // 첫 페이지만 읽으면 200건을 넘는 달의 **앞날짜가 통째로 빠진다**. 그러면 "같은 일자까지"의 부분
+  // 합계가 0이 되어 이 한 줄이 "지난달 같은 시점까지는 지출 기록이 없었어요"라는 없는 사실을
+  // 말한다. fetchMonthExpenses가 CSV 내보내기와 같은 커서 루프로 전량을 모은다
+  // (src/expenses/month-expenses.ts). 기록 탭도 같은 페처를 쓰므로 공유 캐시의 내용이 어긋나지 않는다.
+  //
+  // UX-W(C8) — 이 쿼리는 **첫 페인트 이후로 미룬다**(`thisMonthExpenses.isFetched`). 콜드 스타트에
+  // 홈은 두 달치를 동시에 커서 루프로 전량 조회했는데, 그 두 번째 달을 지금 당장 필요로 하는 화면은
+  // 홈뿐이고(지난달 캐시의 소비자는 홈과 기록 탭이며 기록 탭은 자기 화면에서 따로 켠다) 홈에서도
+  // 쓰임새가 아래 두 곳뿐이다:
+  //   1) 지난달 대비 한 줄 인사이트 — 지난달 행이 없으면 순수 모듈이 null을 내서 줄 자체가 안 뜬다
+  //      (src/home/last-month-comparison.ts의 `if (!records) return null`).
+  //   2) 주간 카드 — 이번 주가 달을 걸치는 주(예: 9월 1일 화요일)에만 지난달이 필요하고, 안 덮이면
+  //      카드를 통째로 접는다(weekly-summary.ts의 `covers(weekStartIso, todayIso)`). 지난주 비교
+  //      구간만 지난달로 넘어가는 주는 비교 **문장만** 빠진다.
+  // 두 소비자 모두 "완전한 데이터일 때만 렌더"라, 미루는 동안 부분 합계나 틀린 숫자가 보이는 경로가
+  // 없다 -- 늦게 나타날 뿐이다(달을 걸친 주에만 카드 등장이 수백 ms 늦는다).
+  // 이미 채워진 공유 캐시가 있으면(기록 탭에서 넘어온 경우) enabled:false여도 그 값을 그대로 읽으므로
+  // 미루는 비용이 0이다.
+  //
+  // 라운드 37 G-1 상호작용: `isError`는 비활성 쿼리에서 false이므로, 미루는 동안 아래
+  // `expensesFailed`는 **참이 될 수 없다**. 즉 defer는 주간 알림을 "판정 불가(undefined)" 상태로
+  // 조금 더 오래 둘 뿐, 월 페이스 폴백을 오발화시켜 그 주의 dedupeKey를 태우지 않는다. 이번 달
+  // 쿼리가 확정 실패해도 `isFetched`는 true가 되므로(에러도 fetch 완료다) 지난달 쿼리가 영영
+  // 잠기지 않는다 -- 종전처럼 두 쿼리가 모두 실패하면 그때 폴백이 열린다.
+  const lastMonthExpenses = useQuery({
+    queryKey: ["expenses", childId, lastYearMonth],
+    enabled: Boolean(authToken && childId && lastYearMonth && thisMonthExpenses.isFetched),
+    queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, lastYearMonth!, page))
   });
   // UX-A 아기 카운터·마일스톤 카드가 쓰는 dueDate/birthDate/stageMode는 /home 응답에 없다
   // (HomeSummary.child는 nickname/currentStage/stageLabel만 준다). 새 엔드포인트를 만들지 않고
