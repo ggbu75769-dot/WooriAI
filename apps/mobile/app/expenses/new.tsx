@@ -31,6 +31,7 @@ import {
   type ItemAutocompleteSuggestion
 } from "../../src/expenses/item-autocomplete";
 import type { MonthExpenses } from "../../src/expenses/month-expenses";
+import { parseExpensePrefillParams } from "../../src/expenses/record-row-actions";
 import { expenseMutationErrorMessage, INVALID_EXPENSE_INPUT_ERROR } from "../../src/expenses/save-error-messages";
 import {
   buildRecentItemChips,
@@ -199,9 +200,20 @@ function ExpenseCategoryIconButton({
 }
 
 export default function NewExpenseScreen() {
-  const params = useLocalSearchParams<{ itemName?: string; itemTemplateId?: string }>();
+  const params = useLocalSearchParams<{
+    itemName?: string;
+    itemTemplateId?: string;
+    amountKrw?: string;
+    categoryId?: string;
+  }>();
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
-  const prefilledItemName = params.itemName ? String(params.itemName) : "";
+  // UX-L(A): 프리필 계약이 itemName·itemTemplateId에서 amountKrw·categoryId까지 넓어졌다
+  // (기록 탭 행 액션 "같은 내용으로 또 기록"). 파싱 규칙은 직렬화하는 쪽과 같은 순수 모듈에
+  // 있고(src/expenses/record-row-actions.ts), 유효하지 않은 값은 조용히 버려 예전처럼 빈 칸에서
+  // 시작한다 -- 링크로 들어온 값 때문에 저장 가드에 걸려 막히는 화면이 생기지 않도록.
+  // 날짜는 계약에 없다: 새 기록이므로 아래 initialExpenseDate가 늘 그렇듯 오늘로 시작한다.
+  const prefill = parseExpensePrefillParams(params);
+  const prefilledItemName = prefill.itemName;
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -211,9 +223,19 @@ export default function NewExpenseScreen() {
   // disabled guard below). A session that arrived from "준비템 -> 지출 기록하고 준비 완료" prefills the
   // item name from the prepared-item template instead (see items/[itemTemplateId].tsx).
   const [itemName, setItemName] = useState(() => (authToken ? prefilledItemName : "기저귀"));
-  const [amountText, setAmountText] = useState(() => (authToken ? "" : "38500"));
+  // UX-L(A): 세션이 있으면 프리필 금액(없으면 빈 칸 -- 예전과 같다). 세션 없는 픽셀 락 캡처는
+  // 프리필 자체가 올 수 없어 고정 시드 "38500" 그대로다(EXP-001 기준 이미지 불변).
+  const [amountText, setAmountText] = useState(() => (authToken ? prefill.amountText : "38500"));
   const [memo, setMemo] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState(quickExpenseCategories[0]);
+  // UX-L(A): 프리필 카테고리가 이 화면의 8타일 안에 있을 때만 그 타일로 시작한다. 8타일 밖
+  // (엑셀 가져오기·지출 수정 화면을 거쳐 서버 정식 카테고리를 단 행)이면 이 화면은 그 분류를
+  // 고를 방법이 없으므로 기본 타일로 두고 자동 추천도 평소대로 돈다 -- 최근 품목 칩(라운드 34 L8)
+  // 과 같은 판단이다.
+  const prefilledCategory =
+    authToken && prefill.categoryId
+      ? (quickExpenseCategories.find((category) => category.id === prefill.categoryId) ?? null)
+      : null;
+  const [selectedCategory, setSelectedCategory] = useState(prefilledCategory ?? quickExpenseCategories[0]);
   const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
   const [isGift, setIsGift] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -259,7 +281,10 @@ export default function NewExpenseScreen() {
   // 사용자가 카테고리를 직접 골랐는지. 한 번이라도 손대면(타일 탭 / 최근 품목 칩 / 자동완성 칩
   // / 임시 저장 복원) 자동 추천은 그 뒤로 절대 덮어쓰지 않는다 -- 저장 직전에 분류가 조용히
   // 바뀌면 그건 사용자가 기록한 것과 다른 사실이 남는 것이다.
-  const categoryTouchedRef = useRef(false);
+  // UX-L(A): "또 기록" 프리필로 8타일 안의 분류가 함께 넘어왔다면 처음부터 확정된 것으로 친다
+  // -- 사용자가 방금 그 기록을 골라서 온 것이라, 품목명 기반 자동 추천이 그 분류를 조용히
+  // 다른 것으로 바꿔서는 안 된다. 프리필이 없으면(일반 진입) 예전 그대로 false다.
+  const categoryTouchedRef = useRef(prefilledCategory !== null);
   // 라운드 33 F3: "자동으로 골라 줬다"를 boolean이 아니라 **무엇을 어떤 이름 기준으로 골랐는지**로
   // 들고 있는다. 근거(추천)가 사라졌을 때 그 선택이 아직 기계가 고른 그대로인지 판단하려면
   // 이 두 가지가 필요하다 -- 아래 추천 effect 참고.
@@ -388,8 +413,14 @@ export default function NewExpenseScreen() {
   // 최대 5개 상한 등 순수 계산은 src/expenses/recent-items.ts에 분리해 단위 테스트한다.
   // 스냅숏이 비어 있으면(첫 기록 전, 콜드 스타트 직후, 저장소 초기화 실패) 칩 영역이 그냥
   // 숨겨질 뿐 -- 어떤 실패도 기록 흐름을 막지 않는다.
+  //
+  // UX-L(B): 그 스냅숏은 **이 기기의** 이력이라, 재설치·기종 변경·두 번째 기기에서는 서버에
+  // 기록이 멀쩡히 있어도 칩이 비었다. 로컬에서 칩이 하나도 안 나올 때만 위 자동완성이 이미
+  // 읽고 있는 서버 월 캐시(expenseHistory)로 폴백한다 -- 새 요청은 없고, 로컬이 있으면 예전
+  // 동작 그대로다(우선순위 로컬). 규칙은 전부 src/expenses/recent-items.ts에 있다.
   const offlineSnapshot = useOfflineSyncSnapshot();
-  const recentItemChips = authToken && childId ? buildRecentItemChips(offlineSnapshot.rows, childId) : [];
+  const recentItemChips =
+    authToken && childId ? buildRecentItemChips(offlineSnapshot.rows, childId, { serverRows: expenseHistory }) : [];
 
   // UX-K(A): 금액 카드 바로 아래에 붙는 "이번 달 지금까지" 한 줄.
   //

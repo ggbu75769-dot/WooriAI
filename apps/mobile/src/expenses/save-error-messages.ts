@@ -53,6 +53,20 @@ export const EXPENSE_DELETE_FAILED_MESSAGE = "삭제하지 못했어요. 잠시 
 /** 삭제 실패는 화면에 남아 있을 배너 자리가 없어 Alert로 알린다 — 그 제목. */
 export const EXPENSE_DELETE_FAILED_ALERT_TITLE = "삭제하지 못했어요";
 
+/**
+ * UX-L(A): 삭제 **확인** Alert 문구.
+ *
+ * 원래 이 네 문구는 지출 상세 화면(app/expenses/[expenseId].tsx)의 confirmDelete 안에 인라인으로
+ * 박혀 있었다. 기록 목록의 행 액션시트에서도 같은 삭제를 실행하게 되면서, 그 자리에 문구를 한 벌
+ * 더 적으면 두 경로의 확인 문장이 언제든 갈라질 수 있다(같은 파괴적 동작이 화면마다 다르게
+ * 물어보는 것은 그 자체로 신뢰를 깎는다). 그래서 실패 문구와 같은 이 모듈로 올려 두 화면이
+ * 같은 상수를 읽게 한다 — 문구 자체는 상세 화면이 쓰던 것 그대로다.
+ */
+export const EXPENSE_DELETE_CONFIRM_TITLE = "지출 삭제";
+export const EXPENSE_DELETE_CONFIRM_MESSAGE = "이 지출 기록을 삭제할까요?";
+export const EXPENSE_DELETE_CONFIRM_CANCEL_LABEL = "취소";
+export const EXPENSE_DELETE_CONFIRM_ACTION_LABEL = "삭제";
+
 const FALLBACK_MESSAGE_BY_KIND: Record<ExpenseMutationKind, string> = {
   create: EXPENSE_CREATE_FAILED_MESSAGE,
   update: EXPENSE_UPDATE_FAILED_MESSAGE,

@@ -18,6 +18,10 @@ import {
   resolveExpenseHouseholdId
 } from "../../src/expenses/records-list-view";
 import {
+  EXPENSE_DELETE_CONFIRM_ACTION_LABEL,
+  EXPENSE_DELETE_CONFIRM_CANCEL_LABEL,
+  EXPENSE_DELETE_CONFIRM_MESSAGE,
+  EXPENSE_DELETE_CONFIRM_TITLE,
   EXPENSE_DELETE_FAILED_ALERT_TITLE,
   EXPENSE_NOT_READY_ERROR,
   expenseMutationErrorMessage,
@@ -232,10 +236,13 @@ export default function ExpenseDetailScreen() {
     }
   });
 
+  // UX-L(A): 확인 문구는 src/expenses/save-error-messages.ts가 단일 소스다 — 기록 목록의 행
+  // 액션시트(app/(tabs)/records.tsx)가 같은 삭제를 실행하면서 같은 상수를 읽는다. 문구를 양쪽에
+  // 적어 두면 같은 파괴적 동작이 화면마다 다르게 물어보게 된다.
   function confirmDelete() {
-    Alert.alert("지출 삭제", "이 지출 기록을 삭제할까요?", [
-      { text: "취소", style: "cancel" },
-      { text: "삭제", style: "destructive", onPress: () => remove.mutate() }
+    Alert.alert(EXPENSE_DELETE_CONFIRM_TITLE, EXPENSE_DELETE_CONFIRM_MESSAGE, [
+      { text: EXPENSE_DELETE_CONFIRM_CANCEL_LABEL, style: "cancel" },
+      { text: EXPENSE_DELETE_CONFIRM_ACTION_LABEL, style: "destructive", onPress: () => remove.mutate() }
     ]);
   }
 
