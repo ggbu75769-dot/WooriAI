@@ -12,8 +12,17 @@ import { formatKrw } from "../money";
 export type RecordsCategoryChip = {
   /** Chip identity (also the `selectedCategoryId` state value). */
   id: string;
-  /** Korean display label. */
+  /** Korean display label. 폴백 칩(아래)에서는 아이콘 이모지가 앞에 붙는다. */
   label: string;
+  /**
+   * 라운드 34 L7: 이모지 없는 **순수 이름**. 칩 자체는 아이콘이 있는 편이 눈에 잘 들어오지만,
+   * 그 라벨이 그대로 문장으로 흘러가면("🧷 기저귀 필터: 3건 · 45,000원") 스크린리더가 이모지
+   * 이름("반창고")을 카테고리 이름처럼 읽고, F8 스코프 줄·달력 범례 문장도 아이콘을 문장 한가운데
+   * 끼워 넣게 된다. **표시용 라벨과 문장용 이름을 필드로 갈라** 두면 정규식으로 이모지를
+   * 걷어내는(언제든 새 아이콘에 깨지는) 처리를 하지 않아도 된다.
+   * 서버 목록에서 온 칩은 `label`과 같은 값이다.
+   */
+  plainLabel: string;
   /**
    * EVERY `expenses.categoryId` this chip must match. Usually just `[id]`, but a chip that
    * absorbed same-name duplicates or `mobile_` aliases of its own taxonomy code (see below)
@@ -71,6 +80,8 @@ export function buildRecordsCategoryChips(
     return categoryCatalog.map((entry) => ({
       id: entry.id,
       label: `${entry.icon} ${entry.label}`,
+      // L7: 문장에 들어가는 것은 아이콘 없는 이름이다.
+      plainLabel: entry.label,
       matchIds: [entry.id]
     }));
   }
@@ -104,13 +115,15 @@ export function buildRecordsCategoryChips(
     for (const id of catalogIdsByCode.get(category.code ?? "") ?? []) {
       if (!offeredIds.has(id)) matchIds.add(id);
     }
-    return { id: category.id, label: name, matchIds: [...matchIds] };
+    return { id: category.id, label: name, plainLabel: name, matchIds: [...matchIds] };
   });
 
   if (selectedCategoryId && !chips.some((chip) => chip.matchIds.includes(selectedCategoryId))) {
+    const fallbackName = categoryNameFor(selectedCategoryId);
     chips.unshift({
       id: selectedCategoryId,
-      label: categoryNameFor(selectedCategoryId),
+      label: fallbackName,
+      plainLabel: fallbackName,
       matchIds: [selectedCategoryId]
     });
   }

@@ -537,13 +537,19 @@ export default function NewExpenseScreen() {
                   accessibilityLabel={recentItemChipAccessibilityLabel(chip)}
                   hitSlop={3}
                   onPress={() => {
-                    // UX-C: 칩이 카테고리까지 확정하므로 그 뒤 자동 추천이 덮어쓰지 않는다.
-                    categoryTouchedRef.current = true;
-                    setAutoPickedCategory(null);
                     setItemName(chip.itemName);
                     setAmountText(String(chip.amountKrw));
+                    // 라운드 34 L8: "카테고리를 확정했다"는 표시는 칩이 **실제로 카테고리를 바꿨을
+                    // 때만** 세운다 -- 자동완성 칩(applyItemAutocompleteChip, 라운드 33 F3)과 같은
+                    // 규칙이다. 칩의 categoryId가 8타일 밖(엑셀 가져오기·지출 수정 화면을 거친 행)
+                    // 이면 이 화면은 아무 타일도 바꾸지 못하는데, 그때도 touched로 쳐 버리면 사용자가
+                    // 카테고리를 고른 적이 없는데 자동 추천만 영구히 꺼진 채로 남는다.
                     const matchedCategory = quickExpenseCategories.find((category) => category.id === chip.categoryId);
-                    if (matchedCategory) setSelectedCategory(matchedCategory);
+                    if (matchedCategory) {
+                      categoryTouchedRef.current = true;
+                      setAutoPickedCategory(null);
+                      setSelectedCategory(matchedCategory);
+                    }
                   }}
                   style={{
                     alignItems: "center",

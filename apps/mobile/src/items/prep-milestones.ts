@@ -12,8 +12,12 @@ import { bandDefinitions, type StageBandLabel } from "./stage-bands";
  *
  * ## 구간(마일스톤) 규칙
  * 25 / 50 / 75 / 100%를 경계로 다섯 구간. 경계값은 **다음 구간에 속한다**(25% = "quarter",
- * 50% = "half", 100% = "complete") -- "절반을 넘었어요"를 49%에서 말하지 않기 위해서다.
+ * 50% = "half", 100% = "complete") -- "절반까지 왔어요"를 49%에서 말하지 않기 위해서다.
  * percent는 computeEssentialPrepProgress가 이미 0-100 정수로 반올림해 준 값이다.
+ *
+ * 라운드 34 L2: 그 반올림 때문에 percent만으로는 "다 했다"를 판정할 수 없다(199/200 = 100%).
+ * `prepMilestoneTier`는 percent 경계만 보는 순수 함수로 두고, **개수로 하는 최종 판정**은
+ * `buildPrepMilestoneView`가 한다.
  *
  * ## 문구 원칙
  * - 해요체 · 쉬운 문장(DNC-018). 아직 못 챙긴 것을 탓하는 표현 금지.
@@ -45,11 +49,21 @@ export function prepMilestoneTier(percent: number): PrepMilestoneTier {
   return "start";
 }
 
-/** 구간별 한 줄 응원 문구. 색이 아니라 이 텍스트가 "어디까지 왔는지"를 말한다. */
+/**
+ * 구간별 한 줄 응원 문구. 색이 아니라 이 텍스트가 "어디까지 왔는지"를 말한다.
+ *
+ * 라운드 34 L3 — 문구는 **수 중립**이다. 구간은 25/50/75%라는 *범위*인데 문구가 분수를 못 박으면
+ * 화면에 함께 떠 있는 개수("8개 중 3개")와 어긋난다:
+ *  - 예전 quarter 문구 "벌써 4분의 1을 채웠어요"는 3/8(38%)·1/3(33%)처럼 4분의 1이 아닌 값에서도
+ *    떴다. 지금은 "좋은 출발이에요!" — 어느 분수에서도 참인 말만 한다.
+ *  - 예전 half 문구 "절반을 넘었어요!"는 경계값 50%(2/4)에서 **거짓**이었다(넘지 않고 도달했다).
+ *    경계값을 half에 넣기로 한 판정(위 헤더)과 문구가 서로 반대였던 셈이라 "절반까지 왔어요!"로
+ *    바꾼다 — 정확히 50%에서도, 50%를 넘은 값에서도 참이다.
+ */
 export const PREP_MILESTONE_TIER_TEXT: Record<PrepMilestoneTier, string> = {
   start: "하나씩 천천히 챙겨 봐요.",
-  quarter: "시작이 좋아요! 벌써 4분의 1을 채웠어요.",
-  half: "절반을 넘었어요!",
+  quarter: "좋은 출발이에요!",
+  half: "절반까지 왔어요!",
   almost: "거의 다 왔어요!",
   complete: "지금 시기 준비 완료! 다음 시기를 미리 볼까요?"
 };
@@ -64,7 +78,14 @@ export type PrepMilestoneView = {
   headline: string;
   /** 헤더 작은 줄 -- 구간 문구. */
   tierText: string;
-  /** 100% 도달 여부. 축하 배너와 다음 시기 안내의 유일한 조건. */
+  /**
+   * **전부 준비했는지**(resolvedCount === totalCount). 축하 배너와 다음 시기 안내의 유일한 조건.
+   *
+   * 라운드 34 L2: 예전에는 반올림된 `percent === 100`으로 판정해서, 199/200(99.5% → 반올림 100)
+   * 처럼 **아직 하나 남은** 상태에서 "지금 시기 준비, 모두 마쳤어요" 배너가 떴다. 같은 화면이
+   * 바로 위에 "200개 중 199개"라고 적어 두고 다 마쳤다고 말하는, 스스로 어긋나는 표시다.
+   * 판정은 개수로만 한다 — 반올림은 표시용이지 사실 판정용이 아니다.
+   */
   isComplete: boolean;
   /** 진행 바 하나에 붙는 TalkBack 문장(개수·퍼센트·구간 문구를 한 번에 읽어 준다). */
   accessibilityLabel: string;
@@ -80,7 +101,13 @@ export type PrepMilestoneView = {
 export function buildPrepMilestoneView(progress: EssentialPrepProgress | null | undefined): PrepMilestoneView | null {
   if (!progress || progress.totalCount <= 0) return null;
 
-  const tier = prepMilestoneTier(progress.percent);
+  // L2: "다 했다"는 개수로만 판정한다(반올림 100%는 아직 다 한 것이 아니다).
+  const isComplete = progress.resolvedCount >= progress.totalCount;
+  // 같은 이유로 **구간 문구**도 개수를 따른다: percent가 반올림으로 100이 된 199/200에서
+  // "지금 시기 준비 완료!"가 뜨면 배너만 막아 봐야 헤더가 여전히 거짓말을 한다. 그때는 한 단계
+  // 아래("거의 다 왔어요!")가 사실이다. 경계 판정 자체는 prepMilestoneTier 한 곳에 그대로 둔다.
+  const percentTier = prepMilestoneTier(progress.percent);
+  const tier: PrepMilestoneTier = percentTier === "complete" && !isComplete ? "almost" : percentTier;
   const headline = `지금 시기 필수템 ${progress.totalCount}개 중 ${progress.resolvedCount}개 준비했어요`;
   const tierText = PREP_MILESTONE_TIER_TEXT[tier];
 
@@ -91,7 +118,7 @@ export function buildPrepMilestoneView(progress: EssentialPrepProgress | null | 
     resolvedCount: progress.resolvedCount,
     headline,
     tierText,
-    isComplete: tier === "complete",
+    isComplete,
     accessibilityLabel: `${headline}, ${progress.percent}%. ${tierText}`
   };
 }

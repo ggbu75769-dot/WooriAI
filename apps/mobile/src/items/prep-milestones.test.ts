@@ -34,7 +34,7 @@ function progress(totalCount: number, resolvedCount: number) {
 }
 
 /**
- * UX-E 구간 판정. 경계값(25/50/75/100)은 **다음 구간에 속한다** -- "절반을 넘었어요"를
+ * UX-E 구간 판정. 경계값(25/50/75/100)은 **다음 구간에 속한다** -- "절반까지 왔어요"를
  * 49%에서 말하지 않기 위해서다.
  */
 describe("prepMilestoneTier (UX-E)", () => {
@@ -87,9 +87,45 @@ describe("buildPrepMilestoneView (UX-E)", () => {
   it("varies the tier copy across the 25/50/75/100 bands", () => {
     expect(buildPrepMilestoneView(progress(4, 0))?.tierText).toBe(PREP_MILESTONE_TIER_TEXT.start);
     expect(buildPrepMilestoneView(progress(4, 1))?.tierText).toBe(PREP_MILESTONE_TIER_TEXT.quarter);
-    expect(buildPrepMilestoneView(progress(4, 2))?.tierText).toBe("절반을 넘었어요!");
+    expect(buildPrepMilestoneView(progress(4, 2))?.tierText).toBe("절반까지 왔어요!");
     expect(buildPrepMilestoneView(progress(4, 3))?.tierText).toBe(PREP_MILESTONE_TIER_TEXT.almost);
     expect(buildPrepMilestoneView(progress(4, 4))?.tierText).toBe("지금 시기 준비 완료! 다음 시기를 미리 볼까요?");
+  });
+
+  /**
+   * 라운드 34 L3: 구간은 *범위*인데 문구가 분수를 못 박으면 같은 화면의 개수와 어긋난다.
+   * 여기서 고정하는 것은 "어떤 분수에서 떠도 참인가"다.
+   */
+  it("L3: 구간 문구는 수 중립이다 -- 4분의 1이 아닌 quarter, 정확히 절반인 half에서도 참이다", () => {
+    // 3/8 = 38% → quarter 구간이지만 "4분의 1"은 아니다.
+    expect(buildPrepMilestoneView(progress(8, 3))?.tier).toBe("quarter");
+    expect(buildPrepMilestoneView(progress(8, 3))?.tierText).toBe("좋은 출발이에요!");
+    expect(PREP_MILESTONE_TIER_TEXT.quarter).not.toMatch(/4분의 1|사분|25%/);
+
+    // 정확히 50%(2/4)는 half 구간에 속한다 -- 그런데 예전 문구는 "절반을 넘었어요"였다(거짓).
+    expect(buildPrepMilestoneView(progress(4, 2))?.tier).toBe("half");
+    expect(PREP_MILESTONE_TIER_TEXT.half).toBe("절반까지 왔어요!");
+    expect(PREP_MILESTONE_TIER_TEXT.half).not.toContain("넘었");
+  });
+
+  /**
+   * 라운드 34 L2: percent는 표시용 반올림이라 "다 했다"의 근거가 될 수 없다.
+   */
+  it("L2: 199/200은 반올림 100%여도 완료가 아니다 (판정은 개수로만 한다)", () => {
+    const almostDone = buildPrepMilestoneView(progress(200, 199));
+
+    // 화면에 그려지는 퍼센트는 그대로 100(진행 바 폭·라벨은 반올림 값을 쓴다).
+    expect(almostDone?.percent).toBe(100);
+    // 그러나 축하 배너의 조건은 서지 않는다.
+    expect(almostDone?.isComplete).toBe(false);
+    // 구간 문구도 "준비 완료"라고 말하지 않는다 -- 헤드라인이 "200개 중 199개"라고 적혀 있다.
+    expect(almostDone?.tier).toBe("almost");
+    expect(almostDone?.tierText).toBe(PREP_MILESTONE_TIER_TEXT.almost);
+    expect(almostDone?.headline).toBe("지금 시기 필수템 200개 중 199개 준비했어요");
+
+    // 마지막 하나를 채우면 그때 완료가 된다.
+    const done = buildPrepMilestoneView(progress(200, 200));
+    expect(done).toMatchObject({ isComplete: true, tier: "complete", percent: 100 });
   });
 
   it("flags 100% as complete and 0% as the starting tier", () => {
@@ -103,7 +139,7 @@ describe("buildPrepMilestoneView (UX-E)", () => {
 
   it("gives the progress bar one TalkBack sentence carrying counts, percent, and tier copy", () => {
     const view = buildPrepMilestoneView(progress(2, 1));
-    expect(view?.accessibilityLabel).toBe("지금 시기 필수템 2개 중 1개 준비했어요, 50%. 절반을 넘었어요!");
+    expect(view?.accessibilityLabel).toBe("지금 시기 필수템 2개 중 1개 준비했어요, 50%. 절반까지 왔어요!");
   });
 
   it("keeps every tier copy in 해요체 with no purchase pressure and no developmental/medical claims (DNC-018/020)", () => {

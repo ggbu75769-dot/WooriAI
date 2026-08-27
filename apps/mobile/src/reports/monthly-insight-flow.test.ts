@@ -58,7 +58,27 @@ describe("UX-F 리포트 인사이트 배선", () => {
     expect(reportSource).not.toContain("theme.colors.danger");
 
     // 같은 비교를 두 번 말하지 않는다: 방향 행이 붙으면 카드 내장 델타는 숨긴다.
-    expect(reportSource).toContain("deltaLabel={trendDirection ? null : deltaLabel}");
+    expect(reportSource).toContain("deltaLabel={trendDirection || insightSpokeComparison ? null : deltaLabel}");
+  });
+
+  /**
+   * 라운드 34 L1: 인사이트가 이미 "지난달 전체보다 …"를 말한 달에는 추이 방향 행을 접는다 --
+   * 두 줄이 같은 두 달을 같은 방향으로 비교하므로 나란히 두면 한 화면에서 같은 사실을 두 번
+   * 말한다(방향 행이 붙을 때 deltaLabel을 숨긴 것과 같은 기준).
+   */
+  it("L1: 인사이트에 비교 문장이 있으면 방향 행을 접고, 델타도 되살리지 않는다", () => {
+    const reportSource = source("app/(tabs)/reports.tsx");
+
+    // 판정은 모듈이 이미 돌려준 hasComparison 하나뿐이다(화면이 비교 여부를 다시 계산하지 않는다).
+    expect(reportSource).toContain("const insightSpokeComparison = Boolean(monthlyInsight?.hasComparison);");
+    expect(reportSource).toContain(
+      "const showTrendDirectionRow = Boolean(trendDirection) && !insightSpokeComparison;"
+    );
+    // 행 렌더는 그 판정을 통과해야만 한다.
+    expect(reportSource).toContain("{showTrendDirectionRow && trendDirection ? (");
+    // 접은 자리에 카드 내장 델타가 되돌아오면 중복이 카드 안으로 옮겨 갈 뿐이다.
+    expect(reportSource).toContain("deltaLabel={trendDirection || insightSpokeComparison ? null : deltaLabel}");
+    expect(reportSource).not.toContain("deltaLabel={trendDirection ? null : deltaLabel}");
   });
 
   /**
