@@ -14,7 +14,7 @@ import {
   needsHouseholdIdsRepair,
   resolveHouseholdRole
 } from "./record-permissions";
-import { createHouseholdRoleRevalidator } from "./role-revalidation";
+import { createHouseholdRoleRevalidator, createOneShotRevalidationLatch } from "./role-revalidation";
 
 /**
  * UX-R(M) — 지출 생성·수정·삭제 진입점 하나를 감싸는 얇은 배선.
@@ -56,11 +56,15 @@ const householdRoleRevalidator = createHouseholdRoleRevalidator();
  *
  * 데모(테스트) 세션은 실토큰이 없어 그대로 지나간다 — 데모에는 서버 가구가 없고, 역할 표도
  * 애초에 null(모름)이라 잠기지 않으므로 이 경로에 오지도 않는다.
+ *
+ * 라운드 42 L-1: **실제로 요청이 나갔는지**를 그대로 돌려준다(스로틀·중복 요청·비세션이면
+ * false). 안내 경로는 이 값을 쓰지 않지만, 아래 자가 치유 래치는 이 값 하나로 "소진할지"를
+ * 정한다 — 나가지도 않은 요청에 래치를 태우면 그 앱 세션 내내 재시도가 사라진다.
  */
-export function revalidateHouseholdRoles(options?: { force?: boolean }): void {
+export function revalidateHouseholdRoles(options?: { force?: boolean }): boolean {
   const { accessToken, setHouseholdRoles } = useSessionStore.getState();
-  if (!accessToken) return;
-  householdRoleRevalidator.request({
+  if (!accessToken) return false;
+  return householdRoleRevalidator.request({
     now: Date.now(),
     // 라운드 41 K-4: `?? []`를 붙이지 않는다. 부재 응답(households 키가 없는 예상 밖 응답)을
     // 빈 배열로 메우면 role-revalidation의 "목록이 없으면 표를 건드리지 않는다"는 계약이
@@ -81,8 +85,12 @@ export function revalidateHouseholdRoles(options?: { force?: boolean }): void {
  * 왜 스로틀만으로 부족한가: 스로틀은 5분마다 다시 열리므로, 오프라인에서 이 상태로 홈에 머물면
  * 렌더마다 판정이 참인 채로 5분 주기의 조용한 재시도가 계속된다. 자가 치유는 한 번이면 충분하고
  * (성공하면 목록이 채워져 판정 자체가 거짓이 된다), 실패했을 때의 결과는 이 수정 이전과 똑같다.
+ *
+ * 라운드 42 L-1: 소진 규칙은 순수 모듈이 갖는다(role-revalidation.ts) — **실제로 발사됐을 때만**
+ * 소진한다. 예전에는 래치를 먼저 세우고 재검증을 불렀는데, 그 요청이 스로틀에 먹히면 요청은
+ * 나가지 않은 채 래치만 소진되어 그 앱 세션 내내 재시도가 사라졌다.
  */
-let attemptedHouseholdIdsRepair = false;
+const householdIdsRepairLatch = createOneShotRevalidationLatch();
 
 /**
  * 안내를 띄우기만 하는 동작. 잡아 두는 값이 없어 **모듈 스코프**에 둔다 — 훅이 매 렌더 같은
@@ -113,16 +121,22 @@ export function useExpenseEntryGate(): ExpenseEntryGate {
   // 한 벌로 함께 채운다. 실토큰이 없으면(데모·비세션) revalidateHouseholdRoles가 그대로 빠져나가고,
   // 조회는 fire-and-forget이라 이번 렌더의 화면은 한 글자도 바뀌지 않는다.
   const needsIdsRepair = hasSession && needsHouseholdIdsRepair({ householdRoles, knownHouseholdIds });
+  //
+  // 라운드 42 L-1: `force: true`로 부른다. 스로틀의 전제는 "같은 사실을 반복해서 묻는다"인데
+  // 이 자가 치유는 **앱 세션당 한 번**이라 그 전제가 성립하지 않는다 — 조금 전 잠금 안내나 초대
+  // 수락이 스로틀을 소진해 뒀다는 이유만으로 이 한 번을 건너뛰면, 목록이 null인 상태가 재로그인
+  // 전까지 그대로 남는다(K-3가 겨냥한 그 상태다). 반대 방향의 폭주는 래치가 막는다.
   useEffect(() => {
     if (!hasSession) {
       // 로그아웃(또는 만료)로 세션이 끊기면 래치를 비운다 — 같은 앱 세션 안에서 다른 계정으로
       // 다시 들어오면 그 계정에는 자가 치유가 한 번 더 필요하다.
-      attemptedHouseholdIdsRepair = false;
+      householdIdsRepairLatch.reset();
       return;
     }
-    if (!needsIdsRepair || attemptedHouseholdIdsRepair) return;
-    attemptedHouseholdIdsRepair = true;
-    revalidateHouseholdRoles();
+    if (!needsIdsRepair) return;
+    // 발사되지 않았으면(진행 중인 재검증이 이미 있다) 래치는 열린 채로 남아 다음 기회에 다시
+    // 시도한다 — 그 진행 중인 요청이 표와 목록을 함께 채워 주면 판정 자체가 거짓이 된다.
+    householdIdsRepairLatch.attempt(() => revalidateHouseholdRoles({ force: true }));
   }, [hasSession, needsIdsRepair]);
 
   // "지금 보고 있는 아이가 어느 가구인가"는 판정이 실제로 그것을 필요로 할 때만 알아낸다.

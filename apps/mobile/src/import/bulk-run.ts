@@ -188,6 +188,58 @@ export function canToggleImportRow(input: ImportRowToggleInput): boolean {
   return input.isPreviewReady && !input.isBulkRunning && !input.isRowPending;
 }
 
+export type ImportConfirmInput = {
+  /** 서버가 아직 편집을 받는 상태인가(preview_ready). */
+  isPreviewReady: boolean;
+  /** 확정 요청이 이미 나가 있는가. */
+  isConfirming: boolean;
+  /** 일괄 반영 루프가 도는 중인가. */
+  isBulkRunning: boolean;
+  /** 지금 본문에 실릴 행 수(confirmableSelectedRowIds의 길이) -- 0이면 보낼 것이 없다. */
+  confirmableSelectedCount: number;
+  /** 진행 중인 단건 토글 수. */
+  pendingRowCount: number;
+  /** 체크는 켜졌는데 서버가 아직 valid로 바꿔 주지 않은 검토 가능 행 수. */
+  unappliedReviewedCount: number;
+};
+
+/**
+ * 라운드 42 L-2 — 확정 버튼을 누를 수 있는가.
+ *
+ * 앞의 네 조건은 종전 화면의 `disabled` 그대로다. 새로 들어온 두 조건이 **영구 손실 창**을 닫는다:
+ * 검토 가능 행을 체크한 직후(PATCH 왕복 전)에 확정을 누르면, 그 행들은 아직 valid가 아니라
+ * 확정 본문에서 빠지는데 잡은 `confirmed`로 넘어간다. 그 뒤로 서버는 편집도 재확정도 받지
+ * 않으므로(IMPORT_NOT_EDITABLE) 방금 "확인했어요"라고 체크한 행들을 되찾을 방법이 없다.
+ *
+ * 그래서 되돌릴 수 없는 이 한 자리에서는 **기다리게 한다** -- 왕복은 짧고(단건 PATCH),
+ * 기다림의 이유는 아래 문구가 말한다.
+ */
+export function canConfirmImport(input: ImportConfirmInput): boolean {
+  return (
+    input.isPreviewReady &&
+    !input.isConfirming &&
+    !input.isBulkRunning &&
+    input.confirmableSelectedCount > 0 &&
+    input.pendingRowCount === 0 &&
+    input.unappliedReviewedCount === 0
+  );
+}
+
+/**
+ * 확정이 잠깐 잠긴 이유. 버튼이 왜 안 눌리는지 말하지 않으면 사용자는 고장으로 읽는다.
+ * 실패가 아니므로 사과하지 않고 지금 일어나는 일을 그대로 말한다(DNC-018 해요체).
+ */
+export const IMPORT_CONFIRM_PENDING_TEXT = "체크한 항목을 아직 반영 중이에요. 잠시만 기다려 주세요";
+
+/**
+ * 라운드 42 L-4 — 이전 루프가 아직 등록부에서 내려오지 않아 실행권을 못 받은 경우.
+ *
+ * `claimImportBulkRun`이 null을 돌려주면 화면은 그냥 return했다 -- 버튼을 눌렀는데 아무 일도
+ * 일어나지 않고 아무 말도 없는, 고장과 구분되지 않는 자리였다. 곧 풀리는 상태이므로 사실과
+ * 다음 행동만 한 줄로 말한다.
+ */
+export const IMPORT_BULK_CLAIM_BUSY_TEXT = "이전 작업을 정리하고 있어요. 잠시 후 다시 시도해 주세요";
+
 /* -------------------------------------------------------------------- 문구 */
 
 /**

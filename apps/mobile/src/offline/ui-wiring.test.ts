@@ -19,7 +19,16 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
 
   it("adopts a server-loaded expense into the local offline table before allowing edit/delete, and routes both through the offline outbox", () => {
     const detailSource = source("app/expenses/[expenseId].tsx");
-    expect(detailSource).toContain("import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from \"../../src/offline/sync-controller\";");
+    // 라운드 42 L-5: 같은 모듈을 두 번 import하던 두 줄(K-11의 useOfflineSyncSnapshot)을 한 줄로
+    // 합치면서 여러 줄 import가 됐다 -- 확인하는 것은 여전히 "이 세 함수가 이 모듈에서 온다"이다.
+    const syncControllerImport = detailSource.slice(
+      detailSource.indexOf("import {\n  adoptServerExpense,"),
+      detailSource.indexOf('} from "../../src/offline/sync-controller";')
+    );
+    expect(syncControllerImport).toContain("adoptServerExpense,");
+    expect(syncControllerImport).toContain("deleteExpenseOffline,");
+    expect(syncControllerImport).toContain("updateExpenseOffline,");
+    expect(detailSource.match(/from "\.\.\/\.\.\/src\/offline\/sync-controller"/g) ?? []).toHaveLength(1);
     expect(detailSource).toContain("adoptServerExpense(expense.data)");
     expect(detailSource).toContain("updateExpenseOffline(authToken, queryClient, localExpenseId,");
     expect(detailSource).toContain("deleteExpenseOffline(authToken, queryClient, localExpenseId)");

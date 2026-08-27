@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -24,6 +24,9 @@ import {
 // 라운드 41 UX-U(B-ⓐ/ⓓ): source 한 줄과 "이 품목 이력"의 판정은 순수 모듈이 단일 소스다.
 import { expenseSourceLine } from "../../src/expenses/expense-source-line";
 import { buildItemHistory } from "../../src/expenses/item-history";
+// 라운드 42 L-5: 이력 재조정을 **정규화된 품목명이 실제로 바뀔 때만** 돌리기 위한 같은 단일 소스
+// (UX-C의 src/expenses/item-name-match.ts) -- buildItemHistory가 안에서 쓰는 정규화와 같은 함수다.
+import { normalizeItemName } from "../../src/expenses/item-name-match";
 import type { MonthExpenses } from "../../src/expenses/month-expenses";
 import {
   expenseCreatedByUserId,
@@ -43,9 +46,14 @@ import {
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
-import { adoptServerExpense, deleteExpenseOffline, updateExpenseOffline } from "../../src/offline/sync-controller";
-// 라운드 41 K-11: "이 품목 이력"의 모집단에 이 기기의 오프라인 대기·실패·충돌 행을 합류시킨다.
-import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+// 라운드 41 K-11의 useOfflineSyncSnapshot("이 품목 이력"의 모집단에 이 기기의 오프라인 대기·
+// 실패·충돌 행을 합류시킨다)도 같은 모듈이라 한 줄로 합쳤다(라운드 42 L-5).
+import {
+  adoptServerExpense,
+  deleteExpenseOffline,
+  updateExpenseOffline,
+  useOfflineSyncSnapshot
+} from "../../src/offline/sync-controller";
 import { useSessionStore } from "../../src/stores/session.store";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
@@ -221,17 +229,36 @@ export default function ExpenseDetailScreen() {
     authToken && historyChildId
       ? queryClient.getQueryData<MonthExpenses>(["expenses", historyChildId, currentYearMonth])?.expenses
       : undefined;
-  const itemHistory = buildItemHistory({
-    cachedMonthExpenses,
-    cacheYearMonth: currentYearMonth,
-    itemName,
-    currentExpenseId: expenseId,
-    // 라운드 41 K-11: "이번 달 기록 기준"이라고 말하려면 이 기기가 아는 이번 달 기록이 전부
-    // 들어와야 한다. 서버 캐시 원본만 보면 아직 올라가지 않은 대기·실패·충돌 행이 빠지고,
-    // 로컬에서 고친 서버 행은 바뀌기 전 금액으로 보인다. 기록 탭·홈 주간 카드·예산 화면과
-    // 같은 재조정을 지나게 스냅숏을 그대로 넘긴다(순수 모듈이 childId·달로 좁힌다).
-    offline: { rows: offlineSyncSnapshot.rows, childId: historyChildId }
-  });
+  /**
+   * 라운드 42 L-5 — 이력 재조정은 **입력을 칠 때마다**가 아니라 재료가 바뀔 때만 돌린다.
+   *
+   * 예전에는 `buildItemHistory`를 렌더 본문에서 그냥 불렀다. 그런데 이 화면은 품목·금액·메모
+   * 입력이 전부 상태라, 키 한 번마다 이번 달 전체(서버 캐시 + 오프라인 스냅숏)를 다시 합치고
+   * 정렬하고 걸렀다 -- 캐시가 수백 행이면 그 비용이 그대로 타이핑 지연이 된다.
+   *
+   * 의존성은 결과를 실제로 바꾸는 값들뿐이다. 품목명은 **정규화한 값**으로 잡는다: 이력 매칭이
+   * 정규화 후 이름으로만 이뤄지므로(item-history.ts의 K-11 ②), "물티슈 "처럼 정규화가 같은
+   * 입력에서는 다시 계산할 이유가 없다. 캐시·스냅숏은 참조가 바뀔 때만(= 내용이 바뀔 때만)
+   * 다시 도는 값이다.
+   */
+  const normalizedHistoryItemName = normalizeItemName(itemName);
+  const itemHistory = useMemo(
+    () =>
+      buildItemHistory({
+        cachedMonthExpenses,
+        cacheYearMonth: currentYearMonth,
+        itemName,
+        currentExpenseId: expenseId,
+        // 라운드 41 K-11: "이번 달 기록 기준"이라고 말하려면 이 기기가 아는 이번 달 기록이 전부
+        // 들어와야 한다. 서버 캐시 원본만 보면 아직 올라가지 않은 대기·실패·충돌 행이 빠지고,
+        // 로컬에서 고친 서버 행은 바뀌기 전 금액으로 보인다. 기록 탭·홈 주간 카드·예산 화면과
+        // 같은 재조정을 지나게 스냅숏을 그대로 넘긴다(순수 모듈이 childId·달로 좁힌다).
+        offline: { rows: offlineSyncSnapshot.rows, childId: historyChildId }
+      }),
+    // itemName 자체가 아니라 정규화 값이 의존성이다(위 근거) -- 두 값은 같은 함수로 이어져 있다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cachedMonthExpenses, currentYearMonth, normalizedHistoryItemName, expenseId, offlineSyncSnapshot.rows, historyChildId]
+  );
 
   const amountKrw = Number(amountDigits || "0");
   const itemNameError = itemName.trim().length === 0 ? "품목을 입력해 주세요." : null;
