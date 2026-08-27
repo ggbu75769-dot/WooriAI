@@ -1,9 +1,17 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getHome, listChildren, listExpenses, LOCAL_SESSION_TOKEN, type Expense } from "../../src/api/client";
+import {
+  applyChildSwitch,
+  canSwitchChildFromHome,
+  childSwitchOptionAccessibilityLabel,
+  childSwitchTriggerAccessibilityLabel,
+  CHILD_SWITCH_SHEET_TITLE,
+  CHILD_SWITCH_TRIGGER_HINT
+} from "../../src/children/child-switch";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
 import { evaluateBabyCounter } from "../../src/home/baby-counter";
@@ -47,7 +55,9 @@ import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
+  announceForA11y,
   AppScreen,
+  BottomSheetFrame,
   Card,
   EmptyStateCard,
   FloatingActionButton,
@@ -56,6 +66,7 @@ import {
   PrimaryButton,
   QuickActionIconButton,
   ScreenHeader,
+  StatusBadge,
   TextButton
 } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
@@ -275,6 +286,56 @@ const homeBabyCounterStyle = StyleSheet.create({
     fontSize: 22,
     fontWeight: "800",
     lineHeight: 30
+  }
+});
+
+/**
+ * HOME-138(라운드 38 UX-M) 아이 전환 1탭.
+ *
+ * 다자녀 사용자가 아이를 바꾸려면 설정 → 아이 관리(탭 4번)까지 들어가야 했다. 홈 헤더의 아이
+ * 이름 자리를 **아이가 2명 이상일 때만** 눌러서 전환 시트를 여는 버튼으로 만든다.
+ *
+ * 1명이면 아무것도 바뀌지 않는다(Pressable로 감싸지도 않는다) -- HOME-001 픽셀락 캡처는
+ * 비세션·아이 1명 미리보기라 헤더가 종전 그대로 남아야 한다. 헤더의 위치·크기·문구는 두 경우
+ * 모두 동일하고, 달라지는 것은 "누를 수 있는가"뿐이다.
+ *
+ * 아래 스타일은 공용 ScreenHeader와 **같은 토큰**을 쓴다. 카운터가 없는 헤더(수동 단계 등)에서
+ * 제목만 Pressable로 감싸야 하는데 ScreenHeader는 title을 문자열로만 받기 때문에, 전환이
+ * 가능한 경우에만 같은 골격을 이 화면에서 직접 그린다(불가능한 경우는 종전대로 ScreenHeader).
+ */
+const homeChildSwitchStyle = StyleSheet.create({
+  copy: {
+    flex: 1,
+    gap: 4
+  },
+  header: {
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between"
+  },
+  row: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+    minHeight: theme.touchTarget
+  },
+  rowName: {
+    color: theme.colors.brown,
+    flex: 1,
+    fontSize: theme.typography.body1.fontSize,
+    fontWeight: "700"
+  },
+  subtitle: {
+    color: theme.colors.gray600,
+    fontSize: theme.typography.body2.fontSize,
+    lineHeight: theme.typography.body2.lineHeight
+  },
+  title: {
+    color: theme.colors.brown,
+    fontSize: theme.typography.headline2.fontSize,
+    fontWeight: theme.typography.headline2.fontWeight,
+    lineHeight: theme.typography.headline2.lineHeight
   }
 });
 
@@ -506,6 +567,9 @@ export default function HomeScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
+  // HOME-138: 헤더 탭으로 여는 아이 전환 시트의 열림 상태. 조기 반환(에러/로딩)보다 위에 둔다.
+  const [childSwitchOpen, setChildSwitchOpen] = useState(false);
   const home = useQuery({
     queryKey: ["home", childId],
     enabled: Boolean(authToken && childId),
@@ -651,6 +715,19 @@ export default function HomeScreen() {
   // 활성 쿼리 refetch 완료까지 resolve되므로 스피너가 실제 완료에 맞춰 닫힌다.
   const queryClient = useQueryClient();
   const { refreshing, onRefresh } = usePullToRefresh(() => queryClient.invalidateQueries({ queryKey: ["home"] }));
+  // HOME-138: 아이 전환은 아이 관리 화면과 **같은 경로**(applyChildSwitch)로만 일어난다.
+  // 여기서 스토어 쓰기·캐시 무효화를 손으로 다시 적으면 한쪽이 무효화를 빠뜨렸을 때 아이 A의
+  // 홈/기록/리포트 캐시가 아이 B 화면에 그대로 남는다(라운드 28의 A→B 캐시 오염).
+  const switchableChildren = childrenQuery.data?.children ?? [];
+  const canSwitchChild = hasSession && canSwitchChildFromHome(switchableChildren);
+  const handleChildSwitch = (child: { id: string; nickname: string }) => {
+    setChildSwitchOpen(false);
+    applyChildSwitch(childId, child, {
+      setSelectedChildId,
+      invalidateQueries: (input) => queryClient.invalidateQueries(input),
+      announce: announceForA11y
+    });
+  };
   // 세션 없는 미리보기에는 새로고침할 서버 데이터가 없으므로 RefreshControl을 붙이지 않는다.
   const refreshControl = hasSession ? (
     <RefreshControl
@@ -805,16 +882,58 @@ export default function HomeScreen() {
             <View style={homeBabyCounterStyle.header}>
               <View style={homeBabyCounterStyle.copy}>
                 <Text style={homeBabyCounterStyle.eyebrow}>{visibleHome.child.stageLabel}</Text>
-                <Text
-                  accessible
-                  accessibilityRole="header"
-                  accessibilityLabel={babyCounter.accessibilityLabel}
-                  testID="home-baby-counter"
-                  style={homeBabyCounterStyle.title}
-                >
-                  {babyCounter.title}
-                </Text>
+                {canSwitchChild ? (
+                  // HOME-138: 아이가 2명 이상일 때만 이름 줄이 버튼이 된다. 감싸는 Pressable이
+                  // 접근성 노드를 대신 들고(라벨 = 들리는 카운터 문장 + "아이 전환"), 문구·크기·
+                  // 위치는 아래 비전환 분기와 한 글자도 다르지 않다.
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={childSwitchTriggerAccessibilityLabel(babyCounter.accessibilityLabel)}
+                    accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
+                    hitSlop={8}
+                    onPress={() => setChildSwitchOpen((open) => !open)}
+                    testID="home-child-switch-trigger"
+                  >
+                    <Text testID="home-baby-counter" style={homeBabyCounterStyle.title}>
+                      {babyCounter.title}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Text
+                    accessible
+                    accessibilityRole="header"
+                    accessibilityLabel={babyCounter.accessibilityLabel}
+                    testID="home-baby-counter"
+                    style={homeBabyCounterStyle.title}
+                  >
+                    {babyCounter.title}
+                  </Text>
+                )}
                 <Text style={homeBabyCounterStyle.subtitle}>우리 아이에게 해준 것을 따뜻하게 기록해요.</Text>
+              </View>
+              <NotificationBell />
+            </View>
+          ) : canSwitchChild ? (
+            // HOME-138: 카운터가 없는 헤더(수동 단계 등)에서도 전환 입구는 있어야 한다.
+            // ScreenHeader는 title을 문자열로만 받아 그 줄만 감쌀 수 없으므로, 전환이 가능한
+            // 경우에 한해 같은 토큰·같은 골격을 여기서 그린다(비전환 홈은 아래 ScreenHeader 그대로).
+            <View style={homeChildSwitchStyle.header}>
+              <View style={homeChildSwitchStyle.copy}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={childSwitchTriggerAccessibilityLabel(
+                    `${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`
+                  )}
+                  accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
+                  hitSlop={8}
+                  onPress={() => setChildSwitchOpen((open) => !open)}
+                  testID="home-child-switch-trigger"
+                >
+                  <Text style={homeChildSwitchStyle.title}>
+                    {`${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`}
+                  </Text>
+                </Pressable>
+                <Text style={homeChildSwitchStyle.subtitle}>우리 아이에게 해준 것을 따뜻하게 기록해요.</Text>
               </View>
               <NotificationBell />
             </View>
@@ -825,6 +944,31 @@ export default function HomeScreen() {
               action={<NotificationBell />}
             />
           )}
+
+          {canSwitchChild && childSwitchOpen ? (
+            // 목록은 ["children"] 캐시(설정 · 리포트와 같은 키)를 그대로 읽는다 -- 새 요청 0.
+            <View testID="home-child-switch-sheet">
+              <BottomSheetFrame title={CHILD_SWITCH_SHEET_TITLE} showHandle={false}>
+                {switchableChildren.map((child) => {
+                  const isCurrent = child.id === childId;
+                  return (
+                    <Pressable
+                      key={child.id}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isCurrent }}
+                      accessibilityLabel={childSwitchOptionAccessibilityLabel(child.nickname, isCurrent)}
+                      onPress={() => handleChildSwitch(child)}
+                      style={homeChildSwitchStyle.row}
+                    >
+                      <Text style={homeChildSwitchStyle.rowName}>{child.nickname}</Text>
+                      {isCurrent ? <StatusBadge label="현재 선택" tone="success" /> : null}
+                    </Pressable>
+                  );
+                })}
+                <TextButton label="닫기" onPress={() => setChildSwitchOpen(false)} />
+              </BottomSheetFrame>
+            </View>
+          ) : null}
 
           <HeroSummaryCard
             label="이번 달 지출"

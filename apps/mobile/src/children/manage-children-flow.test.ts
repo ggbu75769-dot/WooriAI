@@ -62,12 +62,16 @@ describe("MOB-118 아이 관리 screen contract (app/settings/children.tsx)", ()
     expect(settingsIndexSource).toContain("아이 관리");
   });
 
-  it("lists children, marks the current selection, and switches via planChildSwitch", () => {
+  it("lists children, marks the current selection, and switches via the shared applyChildSwitch path", () => {
     const screenSource = source(screenPath);
     expect(screenSource).toContain('queryKey: ["children"]');
     expect(screenSource).toContain("listChildren(authToken!)");
-    expect(screenSource).toContain("planChildSwitch(selectedChildId, child)");
-    expect(screenSource).toContain("setSelectedChildId(plan.childId)");
+    // HOME-138: 스토어 쓰기 + 아이 스코프 무효화 + 안내는 src/children/child-switch.ts의
+    // applyChildSwitch 한 곳에만 있다(홈 헤더 1탭 전환과 같은 경로). 화면이 그 세 줄을 다시
+    // 손으로 적으면 한쪽이 무효화를 빠뜨렸을 때 A→B 캐시 오염이 되살아난다.
+    expect(screenSource).toContain("applyChildSwitch(selectedChildId, child, {");
+    expect(screenSource).not.toContain("planChildSwitch(");
+    expect(screenSource).toContain("setSelectedChildId,");
     expect(screenSource).toContain("queryClient.invalidateQueries");
     expect(screenSource).toContain('<StatusBadge label="현재 선택" tone="success" />');
   });
@@ -135,7 +139,10 @@ describe("MOB-118 아이 관리 screen contract (app/settings/children.tsx)", ()
     expect(screenSource).toContain("accessibilityLabel={`${child.nickname} 정보 편집`}");
     expect(screenSource).toContain("accessibilityState={{ selected }}");
     expect(screenSource).toContain("hitSlop={8}");
-    expect(screenSource).toContain("announceForA11y(plan.announcement)");
+    // HOME-138: 전환 안내(announceForA11y(plan.announcement))는 applyChildSwitch 안으로
+    // 옮겼다 -- 화면은 announce 콜백으로 같은 함수를 넘긴다(src/children/child-switch.test.ts가
+    // 안내가 실제로 불리는지까지 검증한다).
+    expect(screenSource).toContain("announce: announceForA11y");
     // No internal screen IDs in labels (a11y-contract sweep covers this globally too).
     expect(screenSource).not.toMatch(/accessibilityLabel=\{?\s*["'`](?:pixel-)?screen-/);
   });
