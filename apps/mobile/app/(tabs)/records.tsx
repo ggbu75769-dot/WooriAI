@@ -27,6 +27,7 @@ import {
 import { groupExpensesByDate, type RecordsDateGroup } from "../../src/expenses/records-date-groups";
 import {
   buildRecordsCategoryChips,
+  buildRecordsFilterScopeSummary,
   expenseCreatedByUserId,
   formatSpentOn,
   recordsRowSubtitle,
@@ -765,6 +766,32 @@ export default function RecordsScreen() {
     [isCalendarView, recordsYearMonth, dateGroups, seoulToday]
   );
 
+  // F8: 필터가 걸렸을 때의 스코프 줄. 금액은 **새로 계산하지 않고** 화면이 이미 그리는 일별
+  // 소계(dateGroups[].subtotalKrw)를 그대로 더한다 -- 정의상 "화면에 보이는 소계의 합"이라
+  // 사용자가 눈으로 검산해도 어긋날 수 없다(달력 뷰의 칸 금액도 같은 그룹에서 나온다).
+  // 소계가 없는 날(선물·환불만 있는 날)의 subtotalKrw는 0이므로 그대로 더해도 된다.
+  const filteredSubtotalKrw = useMemo(
+    () => dateGroups.reduce((sum, group) => sum + group.subtotalKrw, 0),
+    [dateGroups]
+  );
+  // 선택한 칩의 라벨. 칩은 selectedCategoryId를 항상 흡수하도록 만들어지지만(선택이 서버 목록에
+  // 없으면 buildRecordsCategoryChips가 맨 앞에 끼워 넣는다), 못 찾은 경우에도 이름을 지어내지
+  // 않도록 categoryFiltered를 따로 넘긴다.
+  const selectedCategoryLabel = selectedCategoryId
+    ? (categoryChips.find((chip) => chip.id === selectedCategoryId)?.label ?? null)
+    : null;
+  const filterScopeSummary = useMemo(
+    () =>
+      buildRecordsFilterScopeSummary({
+        categoryLabel: selectedCategoryLabel,
+        categoryFiltered: selectedCategoryId !== null,
+        searchText,
+        recordCount: listData.length,
+        totalKrw: filteredSubtotalKrw
+      }),
+    [selectedCategoryLabel, selectedCategoryId, searchText, listData.length, filteredSubtotalKrw]
+  );
+
   // 달력 칸 → 그날 기록. 목록으로 전환하고, 그 다음 렌더에서 해당 날짜 섹션으로 스크롤한다.
   // 안정된 참조여야 CalendarDayCell의 memo가 매 렌더 깨지지 않는다.
   const handleSelectCalendarDate = useCallback((date: string) => {
@@ -844,6 +871,24 @@ export default function RecordsScreen() {
             style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
           >
             {`이번 달 ${monthlyRecordCount}건 · 합계 ${formatKrw(monthlyTotalKrw)}`}
+          </Text>
+        ) : null}
+        {/* F8: 카테고리 칩/검색이 켜져 있을 때만 붙는 스코프 줄. 위 월 요약 줄은 필터와 무관한
+            그 달 전체이고, 이 줄은 화면에 보이는 행(=일별 소계의 합)이다 -- 필터가 없으면
+            buildRecordsFilterScopeSummary가 null을 돌려주어 예전 화면 그대로다. 목록이 아직
+            안 나온 상태(로딩·오류)에서는 그리지 않는다: 그때 "0건 · 0원"은 사실이 아니다. */}
+        {showList && filterScopeSummary ? (
+          <Text
+            testID="records-filter-scope"
+            accessibilityLabel={filterScopeSummary.accessibilityLabel}
+            style={{
+              color: theme.colors.gray600,
+              fontSize: theme.typography.caption.fontSize,
+              fontWeight: "700",
+              textAlign: "center"
+            }}
+          >
+            {filterScopeSummary.text}
           </Text>
         ) : null}
         {/* REC-123(D1): 요약 줄 바로 아래 한 줄. 홈과 같은 모듈이 만든 같은 문장이며, 이번 달을

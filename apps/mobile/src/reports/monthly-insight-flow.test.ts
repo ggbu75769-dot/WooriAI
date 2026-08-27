@@ -61,6 +61,39 @@ describe("UX-F 리포트 인사이트 배선", () => {
     expect(reportSource).toContain("deltaLabel={trendDirection ? null : deltaLabel}");
   });
 
+  /**
+   * 후속 F: 세션 경로의 "이번 달 절약 팁" 카드는 지난달 **월 전체** vs 이번 달 **부분** 합계를
+   * 비교해 "절약했어요"라고 단언했다(진행 중인 달에서는 매달 1일에 언제나 참이 되는 허위 비교 --
+   * src/home/last-month-comparison.ts가 규정한 바로 그 형태). 끝난 달의 정직한 비교는 위 인사이트
+   * 카드가 "지난달 전체보다 …"로 이미 말하므로 카드를 제거했다.
+   */
+  it("removes the session-path 절약 팁 card -- no month-total vs partial-total claim survives", () => {
+    const reportSource = source("app/(tabs)/reports.tsx");
+
+    // 카드를 그리던 상태/분기가 전부 사라졌다.
+    expect(reportSource).not.toContain("tipDeltaKrw");
+    expect(reportSource).not.toContain("showTip");
+    expect(reportSource).not.toContain("{showTip ? (");
+    // 단언 문구 자체가 세션 경로에서 만들어질 수 없다(템플릿 리터럴 형태도 함께 막는다).
+    expect(reportSource).not.toContain("절약했어요! ");
+    expect(reportSource).not.toContain("{formatKrw(tipDeltaKrw)}");
+    expect(reportSource).not.toContain("더 썼어요. 다음 구매 전에");
+  });
+
+  it("leaves the non-session REP-001 preview branch (and its fixed tip fixture) untouched", () => {
+    const reportSource = source("app/(tabs)/reports.tsx");
+
+    // 픽셀락 프리뷰는 고정 문구 픽스처 그대로다 -- 세션 경로만 고쳤다.
+    expect(reportSource).toContain("{!hasSession ? (");
+    expect(reportSource).toContain("<Text style={reportReferenceTipTitleStyle}>이번 달 절약 팁</Text>");
+    expect(reportSource).toContain("지난 달보다 112,000원을 절약했어요!");
+    expect(reportSource).toContain("절약 습관 최고예요!");
+    // 팁 카드 스타일은 프리뷰와 인사이트 카드가 계속 공유한다(새 카드 룩 없음).
+    expect(reportSource).toContain("const reportInsightCardStyle = reportReferenceTipCardStyle;");
+    // 문구가 남은 곳은 프리뷰 한 군데뿐이다.
+    expect(reportSource.match(/이번 달 절약 팁/g) ?? []).toHaveLength(1);
+  });
+
   it("keeps both helpers pure (no react-native import) so they stay unit testable", () => {
     for (const helper of ["src/reports/monthly-insight.ts", "src/reports/trend-direction.ts"]) {
       expect(source(helper), `${helper} should not import react-native`).not.toContain("react-native");

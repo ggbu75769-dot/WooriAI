@@ -268,7 +268,7 @@ export default function ReportsScreen() {
     else yearly.refetch();
   };
 
-  // The delta/tip comparisons only make sense against last month while the 월간 tab is active.
+  // The delta comparison only makes sense against last month while the 월간 tab is active.
   const hasDeltaData = hasSession && period === "월간" && monthly.isSuccess && previousMonth.isSuccess;
   const deltaPercent =
     hasDeltaData && previousMonth.data!.totalExpenseKrw > 0
@@ -281,8 +281,23 @@ export default function ReportsScreen() {
     ? categoryData.map((entry) => ({ label: categoryName(entry.categoryId), amountKrw: entry.amountKrw }))
     : undefined;
 
-  const tipDeltaKrw = hasDeltaData ? previousMonth.data!.totalExpenseKrw - monthly.data!.totalExpenseKrw : null;
-  const showTip = hasSession && period === "월간" && tipDeltaKrw !== null && tipDeltaKrw !== 0;
+  // 세션 경로의 절약 팁 카드는 제거했다 (허위 비교 제거).
+  //
+  // 무엇이 문제였나: 카드는 `previousMonth`(지난달 **월 전체** 합계)에서 `monthly`(보고 있는 달
+  // 합계)를 빼 그 차액만큼 아꼈다고 **단언**하고 습관을 칭찬했다. 진행 중인 달에서는 두 항의 구간
+  // 길이가 다르다 -- 매달 1일이면 하루치 vs 한 달치라 언제나 "덜 썼다"가 된다.
+  // src/home/last-month-comparison.ts 헤더가 바로 이 형태를 허위 비교로 규정하고, 그래서
+  // 홈은 지난달 **행 목록**을 따로 받아 같은 시점까지로 잘라 비교한다. 리포트 화면에는 그 행
+  // 목록이 없다(월간 리포트 API에 부분 구간 파라미터가 없다).
+  //
+  // 왜 "다른 내용으로 교체"가 아니라 제거인가: 끝난 달의 정직한 비교는 UX-F 인사이트 카드가 이미
+  // 같은 자리(월간 탭 상단)에서 "지난달 전체보다 …"로 말하고 있어 카드를 남기면 같은 비교를 두 번
+  // 하게 된다(추이 방향 행에서 `deltaLabel`을 숨긴 것과 같은 판단). 그리고 대체 후보로 검토한
+  // "이번 달 최다 지출일"은 이 화면이 가진 데이터로 만들 수 없다 -- monthly/trend/category 응답에는
+  // 일자별 값이 없어 지출 행 목록을 새로 불러와야 하고(REP-128이 줄인 요청 수를 다시 늘린다),
+  // 그건 "화면이 이미 가진 정직한 데이터"라는 전제 자체를 깬다.
+  //
+  // 비세션 프리뷰(REP-001 픽셀락 캡처)의 팁 카드는 고정 문구 픽스처라 그대로 둔다.
 
   // Real per-period amounts for the line chart's trend, only once every underlying query for
   // the active tab has resolved (otherwise leave undefined so LineChartCard keeps its
@@ -483,22 +498,6 @@ export default function ReportsScreen() {
                 // 월간/분기/연간 모두 categoryPeriod로 해당 기간만 집계한 비중을 보여준다 (REP-104).
                 <DonutChartCard title={categoryCardTitle} segments={categorySegments} />
               )}
-
-              {showTip ? (
-                <Card style={reportReferenceTipCardStyle}>
-                  <Text style={reportReferenceTipTitleStyle}>이번 달 절약 팁</Text>
-                  {tipDeltaKrw !== null && tipDeltaKrw > 0 ? (
-                    <>
-                      <Text style={reportReferenceTipBodyStyle}>지난 달보다 {formatKrw(tipDeltaKrw)}을 절약했어요!</Text>
-                      <Text style={reportReferenceTipBodyStyle}>절약 습관 최고예요!</Text>
-                    </>
-                  ) : (
-                    <Text style={reportReferenceTipBodyStyle}>
-                      지난 달보다 {formatKrw(Math.abs(tipDeltaKrw ?? 0))} 더 썼어요. 다음 구매 전에 같이 확인해 볼까요?
-                    </Text>
-                  )}
-                </Card>
-              ) : null}
 
               {cumulative.isLoading ? (
                 <SkeletonCard />

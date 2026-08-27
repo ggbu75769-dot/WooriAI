@@ -1,4 +1,5 @@
 import { categoryCatalog, categoryNameFor, selectableCategories, type SelectableCategory } from "../categories";
+import { formatKrw } from "../money";
 
 /**
  * REC-121: pure presentation helpers for the 기록 탭 list (app/(tabs)/records.tsx).
@@ -115,6 +116,82 @@ export function buildRecordsCategoryChips(
   }
 
   return chips;
+}
+
+/**
+ * F8: 기록 탭 상단 요약의 **스코프 줄** — 카테고리 칩/검색이 걸렸을 때만 나타난다.
+ *
+ * 왜 필요한가: UX-B가 날짜 그룹 헤더에 **일별 소계**를 그리면서, 화면 위쪽의 월 요약 줄
+ * ("이번 달 42건 · 합계 1,200,000원")과 아래 소계들이 한 화면에서 직접 검산 가능해졌다. 그런데
+ * 두 숫자의 모집단이 다르다 — 월 요약은 **필터와 무관한 그 달 전체**(reconcileMonthlyExpenses의
+ * monthlyTotalKrw)이고, 일별 소계는 **화면에 실제로 보이는 행**(카테고리 칩·검색이 걸린 listData)의
+ * 합이다. 필터를 켜면 "42건 · 1,200,000원"이라고 적힌 화면에서 소계를 다 더해도 180,000원밖에
+ * 안 나오는, 스스로 어긋나 보이는 상태가 된다.
+ *
+ * 고치는 방향은 **월 합계를 필터에 맞춰 줄이는 것이 아니다**(그러면 "이번 달 얼마 썼나"라는
+ * 화면의 핵심 숫자가 칩 하나에 흔들린다). 대신 **필터가 켜졌을 때만** 그 아래에 필터 스코프의
+ * 건수·합계를 한 줄 더 적어, 위 숫자가 무엇의 합이고 아래 소계들이 무엇의 합인지 화면이 직접
+ * 말하게 한다. 필터가 없으면 `null`을 돌려주므로 기존 화면은 한 글자도 바뀌지 않는다.
+ *
+ * 합계는 **새로 계산하지 않는다**: 화면이 날짜 그룹(records-date-groups.ts)의 `subtotalKrw`를
+ * 그대로 더해 넘긴다. 그래서 이 줄의 금액은 정의상 "화면에 보이는 일별 소계의 합"이고,
+ * 선물·환불 제외 기준(DNC-015 `countsTowardMonthlyTotal`)도 소계·월 합계와 같은 한 술어에서 나온다.
+ * 건수는 월 요약 줄과 같은 관례로 **보이는 행 전부**를 센다(소계에서 빠지는 선물·환불 행도 목록에는
+ * 그대로 보이므로 건수에서까지 지우면 그게 또 다른 불일치가 된다).
+ */
+export type RecordsFilterScopeSummary = {
+  /** 스코프 이름만 — "기저귀/위생 필터", "검색 결과", "기저귀/위생 필터 · 검색 결과". */
+  scopeLabel: string;
+  /** 화면에 그대로 그리는 한 줄. */
+  text: string;
+  /** TalkBack 라벨("·" 대신 쉼표, 금액에 "합계"를 붙인다). */
+  accessibilityLabel: string;
+  recordCount: number;
+  totalKrw: number;
+};
+
+function nonNegativeInteger(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+export function buildRecordsFilterScopeSummary(input: {
+  /** 선택된 카테고리 칩의 라벨. 칩을 찾지 못했으면 null/빈 문자열이어도 된다. */
+  categoryLabel?: string | null;
+  /**
+   * 카테고리 필터가 걸려 있는지. 라벨을 해석하지 못한 경우(칩 목록 폴백 중 선택 등)와
+   * "필터 없음"을 구분하기 위해 별도로 받는다. 생략하면 라벨 유무로 판단한다.
+   */
+  categoryFiltered?: boolean;
+  /** 검색어 원본(트림 전). */
+  searchText?: string | null;
+  /** 필터가 걸린 목록의 행 수(선물·환불 포함 — 위 doc comment 참고). */
+  recordCount: number;
+  /** 그 목록의 일별 소계 합. */
+  totalKrw: number;
+}): RecordsFilterScopeSummary | null {
+  const categoryLabel = input.categoryLabel?.trim() ?? "";
+  const categoryFiltered = input.categoryFiltered ?? categoryLabel.length > 0;
+  const searchQuery = input.searchText?.trim() ?? "";
+  // 전체(무필터)에서는 아무것도 만들지 않는다 — 기존 요약 줄만 남는다.
+  if (!categoryFiltered && searchQuery.length === 0) return null;
+
+  const scopeParts: string[] = [];
+  // 이름을 못 찾았다고 그럴듯한 카테고리 이름을 지어내지 않는다(허위 표시 금지) — 그때는
+  // 필터가 걸렸다는 사실만 말한다.
+  if (categoryFiltered) scopeParts.push(categoryLabel.length > 0 ? `${categoryLabel} 필터` : "카테고리 필터");
+  if (searchQuery.length > 0) scopeParts.push("검색 결과");
+  const scopeLabel = scopeParts.join(" · ");
+
+  const recordCount = nonNegativeInteger(input.recordCount);
+  const totalKrw = nonNegativeInteger(input.totalKrw);
+  const amountText = formatKrw(totalKrw);
+  return {
+    scopeLabel,
+    text: `${scopeLabel}: ${recordCount}건 · ${amountText}`,
+    accessibilityLabel: `${scopeLabel}, ${recordCount}건, 합계 ${amountText}`,
+    recordCount,
+    totalKrw
+  };
 }
 
 /**
