@@ -176,7 +176,7 @@ export type WeeklySummaryInput = {
  * 함께했어요") needs last week's spend, but the evaluation hook only receives HomeSummary
  * (src/api/client.ts): `monthly` carries month totals (yearMonth/amountKrw/usedAmountKrw), and
  * `recentExpenses` is capped server-side at the 3 most recent rows (see
- * apps/api/src/onboarding/onboarding-store.service.ts, `.slice(0, 3)`), so a weekly sum computed
+ * apps/api/src/onboarding/reporting-store.service.ts, `expensesForChild(childId, undefined, 3)`), so a weekly sum computed
  * from it would silently undercount whenever a week has more than 3 expenses. Deriving weekly
  * spend would therefore require a new API call (e.g. listExpenses), which NOTI-103 explicitly
  * rules out. Fallback per ticket: fire on the first evaluation of each ISO week with the

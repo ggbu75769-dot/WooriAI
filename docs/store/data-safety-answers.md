@@ -2,7 +2,8 @@
 
 > 상태: 제출용 초안 v1 (2026-08-20). **모든 답은 코드로 확인한 실제 구현 기준.**
 > 근거 파일: `apps/api/prisma/schema.prisma`, `apps/api/src/settings/settings.controller.ts`,
-> `apps/api/src/households/household-runtime.service.ts`, `apps/api/src/onboarding/onboarding-store.service.ts`,
+> `apps/api/src/households/household-runtime.service.ts`, `apps/api/src/onboarding/onboarding-core.service.ts`,
+> `apps/api/src/onboarding/expenses-store.service.ts`,
 > `apps/mobile/src/analytics/flag.ts`, `packages/contracts/src/analytics.ts`,
 > `apps/api/src/items-commerce/affiliate-link-guard.util.ts`,
 > `apps/mobile/android/.../xml/network_security_config.xml`.
