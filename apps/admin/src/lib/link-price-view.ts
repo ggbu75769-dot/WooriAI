@@ -29,7 +29,10 @@ import type { ProductLink } from "./admin-api";
  */
 
 export type LinkPriceState =
-  /** 가격이 없다(확인 시각만 있는 행 포함 — 가리킬 값이 없다). */
+  /**
+   * 그릴 수 있는 가격이 없다. 값 자체가 없는 행, 확인 시각만 있는 행(가리킬 값이 없다),
+   * 그리고 **앱이 그리지 않는 금액**(0원·음수·소수)이 전부 여기로 떨어진다 — 라운드 64 S-2.
+   */
   | "none"
   /** 가격은 있는데 확인 시각이 없다 → 앱은 이 가격을 아예 내려받지 못한다. */
   | "undated"
@@ -47,14 +50,32 @@ export const LINK_PRICE_STATE_LABELS: Record<Exclude<LinkPriceState, "none" | "f
 /** 가격이 없을 때 셀에 남기는 문자. */
 export const LINK_PRICE_EMPTY_TEXT = "-";
 
+/**
+ * 라운드 64 S-2 — 앱이 실제로 그리는 금액의 판정을 그대로 쓴다.
+ *
+ * 앱은 **양의 정수만** 그린다(apps/mobile/src/items/link-price.ts `isDisplayablePriceKrw`):
+ * 계약(productLinkSchema)은 0 이상을 허용하지만 "0원"은 판매가로 읽을 수 없고, 그렇게
+ * 찍으면 "무료"라는 없는 주장이 된다. 어드민이 `typeof price === "number"`만 보면 0원 행을
+ * "앱에 보이는 가격"으로 세어, 커버리지 한 줄(#4ⓒ)이 앱 화면보다 큰 수를 말한다 — 조용한
+ * 만료를 드러내려고 만든 수치가 스스로 부풀려진 값을 보고하는 셈이라 정직성 문제다.
+ */
+function isDisplayablePriceKrw(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
 export function linkPriceState(link: Pick<ProductLink, "priceSnapshotKrw" | "priceCheckedAt" | "priceExpired">): LinkPriceState {
-  const price = link.priceSnapshotKrw;
-  if (typeof price !== "number") return "none";
+  if (!isDisplayablePriceKrw(link.priceSnapshotKrw)) return "none";
   if (!link.priceCheckedAt) return "undated";
   return link.priceExpired ? "expired" : "fresh";
 }
 
-/** "159,000원". 가격이 없으면 "-". 금액 표기는 어드민의 다른 표와 같은 ko-KR 관례. */
+/**
+ * "159,000원". 저장된 값이 없으면 "-". 금액 표기는 어드민의 다른 표와 같은 ko-KR 관례.
+ *
+ * 라운드 64 S-2에서도 이 함수는 **저장된 값을 그대로 적는다**. 0원처럼 앱이 그리지 않는
+ * 금액도 어드민에서는 되읽혀야 하고(머리말 규칙 1: 반쪽짜리 상태도 보여준다), 대신
+ * `linkPriceState`가 그 행을 "앱에 안 보임"으로 판정해 셀이 흐리게 그려진다.
+ */
 export function linkPriceText(link: Pick<ProductLink, "priceSnapshotKrw">): string {
   const price = link.priceSnapshotKrw;
   if (typeof price !== "number") return LINK_PRICE_EMPTY_TEXT;
@@ -93,9 +114,14 @@ export function isLinkPriceVisibleInApp(
  *
  * 두 수를 **함께** 말하는 것이 요점이다: 하나만 말하면 "가격을 넣었는데 앱에 안 보이는"
  * 구간이 그대로 가려진다(그 구간이 이 후보가 든 조용한 만료다).
+ *
+ * 라운드 64 S-2: 앞의 수는 **저장된 값이 있는 행**을 센다(`linkPriceState !== "none"`이
+ * 아니다). 0원처럼 앱이 그리지 않는 금액이 상태 판정에서 "none"으로 떨어지는데 그 기준으로
+ * 앞의 수까지 세면, 그 행이 두 수 어디에도 없어서 정확히 이 한 줄이 드러내려던 간극에서
+ * 사라진다 — "넣었는데 안 보이는" 행이야말로 여기 보여야 한다.
  */
 export function linkPriceCoverageSummary(links: Array<Pick<ProductLink, "priceSnapshotKrw" | "priceCheckedAt" | "priceExpired">>): string {
-  const withPrice = links.filter((link) => linkPriceState(link) !== "none").length;
+  const withPrice = links.filter((link) => typeof link.priceSnapshotKrw === "number").length;
   const visible = links.filter((link) => isLinkPriceVisibleInApp(link)).length;
   return `가격 있는 링크 ${withPrice}건 · 앱에 보이는 가격 ${visible}건`;
 }

@@ -359,8 +359,14 @@ export const listItemsQuerySchema = z.object({
  * 내려보낸다 — 숫자 자체는 어드민 번들에 실리지 않는다.
  *
  * 손으로 유지되는 사본이 하나 더 있다: `apps/mobile/src/items/link-price.ts`의
- * `LINK_PRICE_MAX_AGE_DAYS`(이 라운드의 트랙 D는 모바일 무접촉이라 재수출 배선은 후속이다).
- * 두 값이 어긋나면 apps/api/test/mobile-link-price-contract.test.ts가 빨개진다.
+ * `LINK_PRICE_MAX_AGE_DAYS`(모바일은 @wooriai/contracts를 의존하지 않는다 —
+ * known-limitations §D. 재수출 배선은 후속이다).
+ *
+ * 라운드 64 M-2: 두 값이 어긋나는 순간을 잡는 가드는 **모바일 쪽 수기 미러 계약 테스트**에
+ * 있다 — `apps/mobile/src/api/contracts-mirror.test.ts`의
+ * "LINK_PRICE_MAX_AGE_DAYS가 packages/contracts의 값과 같다". (종전 주석은 존재하지도 않는
+ * `apps/api/test/mobile-link-price-contract.test.ts`를 근거로 들어, 이중 소스가 아무 가드
+ * 없이 놓인 상태를 보호받는 것처럼 적어 두고 있었다.)
  */
 export const LINK_PRICE_MAX_AGE_DAYS = 180;
 

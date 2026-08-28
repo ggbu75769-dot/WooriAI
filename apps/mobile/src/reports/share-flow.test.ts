@@ -83,10 +83,13 @@ describe("UX-H 리포트 공유 배선", () => {
     expect(reportSource.match(/useOfflineSyncSnapshot\(\)/g) ?? []).toHaveLength(1);
 
     // 조립기는 건수만 받는다(행도, 기간도 넘기지 않는다 -- F-5와 같은 이유로 소스는 하나다).
-    const shareCall = reportSource.slice(
-      reportSource.indexOf("buildMonthlyShareMessage({"),
-      reportSource.indexOf("const shareMonthlySummary")
-    );
+    const shareCallStart = reportSource.indexOf("buildMonthlyShareMessage({");
+    const shareCallEnd = reportSource.indexOf("const shareMonthlySummary");
+    // 라운드 64 S-3: 두 표식이 사라지면 slice(-1, ...)가 엉뚱한(혹은 빈) 조각을 만들고
+    // 아래 not.toContain이 전부 통과한다 -- 계약을 무력화한 변경을 초록으로 덮는 셈이다.
+    expect(shareCallStart, "buildMonthlyShareMessage({ 호출을 찾지 못했다").toBeGreaterThan(-1);
+    expect(shareCallEnd, "const shareMonthlySummary 표식을 찾지 못했다").toBeGreaterThan(shareCallStart);
+    const shareCall = reportSource.slice(shareCallStart, shareCallEnd);
     expect(shareCall).not.toContain("offlineSyncSnapshot");
     expect(shareCall).not.toContain("scope:");
   });

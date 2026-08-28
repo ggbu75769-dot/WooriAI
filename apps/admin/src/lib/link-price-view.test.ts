@@ -20,6 +20,8 @@ const expired: PriceFields = { priceSnapshotKrw: 89_000, priceCheckedAt: "2025-0
 const undated: PriceFields = { priceSnapshotKrw: 42_000, priceCheckedAt: null, priceExpired: false };
 const dateOnly: PriceFields = { priceSnapshotKrw: null, priceCheckedAt: "2026-08-20T03:00:00.000Z", priceExpired: false };
 const empty: PriceFields = { priceSnapshotKrw: null, priceCheckedAt: null, priceExpired: false };
+// 라운드 64 S-2: 앱이 그리지 않는 금액(0원). 시각도 있고 만료도 아니라 종전에는 "fresh"였다.
+const zeroPrice: PriceFields = { priceSnapshotKrw: 0, priceCheckedAt: "2026-08-20T03:00:00.000Z", priceExpired: false };
 
 describe("linkPriceState", () => {
   it("가격 + 확인 시각이 있고 만료가 아니면 앱에 보이는 상태다", () => {
@@ -53,6 +55,23 @@ describe("linkPriceState", () => {
   });
 
   /**
+   * 라운드 64 S-2 — 0원은 "앱에 보이는 가격"이 아니다.
+   *
+   * 앱은 양의 정수만 그린다(apps/mobile/src/items/link-price.ts `isDisplayablePriceKrw`):
+   * "0원"은 판매가로 읽을 수 없고 그렇게 찍으면 "무료"라는 없는 주장이 된다. 어드민이
+   * `typeof price === "number"`만 보면 그 행을 앱에 보이는 것으로 세어, 조용한 만료를
+   * 드러내려고 만든 커버리지 수치가 스스로 부풀려진 값을 보고한다.
+   */
+  it("0원·음수·소수는 앱이 그리지 않는다 — 어드민도 '보인다'로 세지 않는다", () => {
+    expect(linkPriceState(zeroPrice)).toBe("none");
+    expect(isLinkPriceVisibleInApp(zeroPrice)).toBe(false);
+    expect(linkPriceState({ ...zeroPrice, priceSnapshotKrw: -1_000 })).toBe("none");
+    expect(linkPriceState({ ...zeroPrice, priceSnapshotKrw: 1_999.5 })).toBe("none");
+    // 값 자체는 감추지 않는다 — 운영은 자기가 쓴(혹은 CSV가 써 넣은) 값을 되읽어야 한다.
+    expect(linkPriceText(zeroPrice)).toBe("0원");
+  });
+
+  /**
    * 라운드 63 #9의 교훈: 만료 문턱(180일)은 계약의 LINK_PRICE_MAX_AGE_DAYS 하나이고,
    * 어드민은 서버가 계산한 `priceExpired`만 읽는다. 이 파일에 숫자가 되살아나면 실패한다.
    */
@@ -71,6 +90,14 @@ describe("linkPriceCoverageSummary", () => {
     expect(linkPriceCoverageSummary([fresh, expired, undated, dateOnly, empty])).toBe(
       "가격 있는 링크 3건 · 앱에 보이는 가격 1건"
     );
+  });
+
+  /**
+   * 라운드 64 S-2: 0원 행은 **앞의 수에는 남고 뒤의 수에서는 빠진다**. 두 수 어디에도 없으면
+   * 정확히 이 한 줄이 드러내려던 간극("넣었는데 앱에 안 보이는" 행)에서 사라진다.
+   */
+  it("앱이 그리지 않는 0원 행도 '가격 있는 링크'에는 남는다 (간극이 보여야 한다)", () => {
+    expect(linkPriceCoverageSummary([fresh, zeroPrice])).toBe("가격 있는 링크 2건 · 앱에 보이는 가격 1건");
   });
 
   it("가격이 하나도 없으면 0건 두 개다", () => {
