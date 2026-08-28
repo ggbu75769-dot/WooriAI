@@ -13,6 +13,8 @@ import {
   daysInMonth,
   formatCompactKrw,
   isCalendarCellInteractive,
+  resolveCalendarCellAction,
+  CALENDAR_FUTURE_HINT,
   type CalendarCell,
   type CalendarDailyTotal
 } from "./records-calendar";
@@ -313,6 +315,27 @@ describe("칸 접근성 라벨", () => {
     expect(calendarCellAccessibilityLabel(month.weeks[0][0], { filterLabel: "검색 결과" })).toBeNull();
   });
 
+  /**
+   * 라운드 63 C(#8): 이 라운드부터 기록 없는 칸의 대다수가 눌린다("그날로 기록"). 이유를 적지
+   * 않으면 스크린리더 사용자에게 "8월 6일, 지출 없음"(눌린다)과 "8월 30일, 지출 없음"(안 눌린다)이
+   * 똑같이 들린다 -- 날짜 픽커가 라운드 61 #8에서 고정한 관례를 이 달력에도 적용한다.
+   */
+  it("#8: 누를 수 없는 미래 칸만 **왜** 못 누르는지를 말한다", () => {
+    expect(calendarCellAccessibilityLabel(cellFor(month.weeks, "2026-08-28"))).toBe(
+      `8월 28일, 지출 없음, ${CALENDAR_FUTURE_HINT}`
+    );
+    // 누를 수 있는 칸(지난 빈 날·기록 있는 날)의 문장은 한 글자도 바뀌지 않는다.
+    expect(calendarCellAccessibilityLabel(cellFor(month.weeks, "2026-08-06"))).toBe("8월 6일, 지출 없음");
+    expect(calendarCellAccessibilityLabel(cellFor(month.weeks, "2026-08-27"))).toBe("오늘, 8월 27일, 45,000원");
+    // 필터 접두와 함께 와도 꼬리말은 맨 뒤다(스코프 → 날짜 → 사실 → 이유 순서).
+    expect(calendarCellAccessibilityLabel(cellFor(month.weeks, "2026-08-28"), { filterLabel: "검색 결과" })).toBe(
+      `검색 결과 기준, 8월 28일, 지출 없음, ${CALENDAR_FUTURE_HINT}`
+    );
+    // 미래 힌트는 "고를 수 없다"가 아니라 "기록할 수 없다"다 -- 이 칸은 날짜 선택지가 아니라
+    // 기록 입구이고, 미래를 막는 규칙 자체는 한 벌이다(DNC-013).
+    expect(CALENDAR_FUTURE_HINT).toBe("아직 오지 않은 날이라 기록할 수 없어요");
+  });
+
   it("L5: 범례도 같은 스코프를 말한다 (칸 라벨과 범례가 갈리지 않는다)", () => {
     expect(calendarLegendText()).toBe(CALENDAR_LEGEND_TEXT);
     expect(calendarLegendText(null)).toBe(CALENDAR_LEGEND_TEXT);
@@ -321,29 +344,73 @@ describe("칸 접근성 라벨", () => {
       `${CALENDAR_LEGEND_TEXT} 지금은 기저귀/위생 필터 기준으로 보고 있어요.`
     );
   });
+
+  /**
+   * 라운드 63 C(#8): 범례는 라운드 34의 세계관("기록이 있는 날짜를 누르면…")을 그대로 말하고
+   * 있었다. 빈 칸에 목적지가 생긴 이상 그 문장은 사실이 아니다 -- 화면에서 유일하게 "무엇을
+   * 누를 수 있는가"를 말하는 줄이라, 여기서 빠지면 새 동선은 발견되지 않는다.
+   */
+  it("#8: 범례가 두 목적지를 모두 말한다 (DNC-018 해요체)", () => {
+    expect(CALENDAR_LEGEND_TEXT).toBe(
+      "색이 진할수록 그날 지출이 많아요. 기록이 있는 날짜를 누르면 그날 기록으로 이동하고, 기록이 없는 날짜를 누르면 그날로 기록할 수 있어요."
+    );
+  });
 });
 
 /**
- * 라운드 34 L4: 그날 기록이 없는 칸은 눌러도 이동할 섹션이 없다 -- 달 밖 빈 칸과 같은 근거로
- * 비대화형이어야 한다(버튼처럼 보이는데 반응이 없는 편이 더 나쁘다).
+ * 라운드 34 L4 / 라운드 63 C(#8): 칸을 누르면 **무슨 일이 일어나는가**.
+ *
+ * L4는 기록 없는 칸을 통째로 비대화형으로 만들었고 근거는 목록 내비게이션이었다("이동할 섹션이
+ * 없다"). 라운드 56 D#10이 `record_gap` 알림("3일 동안 기록이 없어요")의 목적지를 이 달력으로
+ * 옮기면서 그 빈 칸에 목적지가 생겼다 -- 그날로 기록하기. L4의 원칙(반응 없는 버튼 금지)은
+ * 그대로이고, 대상이 없는 칸(달 밖 · 미래)은 여전히 비대화형이다(DNC-013).
  */
-describe("L4 칸 상호작용 판정", () => {
+describe("L4/#8 칸 상호작용 판정", () => {
   const month = buildCalendarMonth(
     "2026-08",
     [daily("2026-08-27", 45_000), daily("2026-08-05", 0, false)],
     "2026-08-27"
   )!;
 
-  it("기록이 있는 날만 누를 수 있다", () => {
+  it("기록이 있는 날은 그날 기록으로 간다", () => {
     // 지출이 있던 날.
-    expect(isCalendarCellInteractive(cellFor(month.weeks, "2026-08-27"))).toBe(true);
+    expect(resolveCalendarCellAction(cellFor(month.weeks, "2026-08-27"))).toBe("open-records");
     // 선물·환불만 있던 날도 목록에 그 행이 보이므로 누를 수 있어야 한다(소계 0에 속으면 안 된다).
     expect(cellFor(month.weeks, "2026-08-05").totalKrw).toBe(0);
-    expect(isCalendarCellInteractive(cellFor(month.weeks, "2026-08-05"))).toBe(true);
-    // 달 안이지만 그날 기록이 하나도 없는 칸.
-    expect(isCalendarCellInteractive(cellFor(month.weeks, "2026-08-06"))).toBe(false);
-    // 달 밖 빈 칸.
+    expect(resolveCalendarCellAction(cellFor(month.weeks, "2026-08-05"))).toBe("open-records");
+  });
+
+  it("기록이 없는 **지난** 날은 그날로 기록하는 목적지를 갖는다 (알림이 지목한 그 칸)", () => {
+    expect(resolveCalendarCellAction(cellFor(month.weeks, "2026-08-06"))).toBe("record-new");
+    expect(isCalendarCellInteractive(cellFor(month.weeks, "2026-08-06"))).toBe(true);
+    // 오늘도 기록할 수 있는 날이다.
+    const emptyToday = buildCalendarMonth("2026-08", [], "2026-08-27")!;
+    expect(resolveCalendarCellAction(cellFor(emptyToday.weeks, "2026-08-27"))).toBe("record-new");
+  });
+
+  it("미래 날짜와 달 밖 빈 칸은 계속 비대화형이다 (DNC-013)", () => {
+    for (const date of ["2026-08-28", "2026-08-31"]) {
+      expect(cellFor(month.weeks, date).isFuture).toBe(true);
+      expect(resolveCalendarCellAction(cellFor(month.weeks, date))).toBeNull();
+      expect(isCalendarCellInteractive(cellFor(month.weeks, date))).toBe(false);
+    }
+    expect(month.weeks[0][0].isFuture).toBe(false);
+    expect(resolveCalendarCellAction(month.weeks[0][0])).toBeNull();
     expect(isCalendarCellInteractive(month.weeks[0][0])).toBe(false);
+  });
+
+  it("미래인데 기록이 있는 칸(기기 시계가 앞선 오프라인 행)은 그 기록을 보여 준다", () => {
+    // 보여 주지 않으면 사용자가 그 행을 고칠 수도 지울 수도 없다.
+    const skewed = buildCalendarMonth("2026-08", [daily("2026-08-30", 12_000)], "2026-08-27")!;
+    const cell = cellFor(skewed.weeks, "2026-08-30");
+    expect(cell).toMatchObject({ isFuture: true, hasRecords: true });
+    expect(resolveCalendarCellAction(cell)).toBe("open-records");
+  });
+
+  it("isCalendarCellInteractive는 목적지 판정의 파생이다 (규칙이 두 벌이 되지 않는다)", () => {
+    for (const cell of month.weeks.flat()) {
+      expect(isCalendarCellInteractive(cell)).toBe(resolveCalendarCellAction(cell) !== null);
+    }
   });
 
   it("hasRecords는 금액이 아니라 '그날 그룹이 있었는지'다", () => {
@@ -550,12 +617,13 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(giftStyleBlock).not.toContain("fontSize: 9");
   });
 
-  it("L4: 기록 없는 날 칸은 Pressable이 아니다 (달 밖 빈 칸과 같은 근거)", () => {
-    expect(recordsSource).toContain("isCalendarCellInteractive(cell)");
-    expect(recordsSource).toContain("if (!isCalendarCellInteractive(cell)) {");
-    // 판정은 순수 모듈에만 있다 -- 화면이 금액으로 다시 판정하면 선물만 있던 날이 잘못 걸린다.
+  it("L4/#8: 목적지 판정은 순수 모듈이 하고, 비대화형 칸은 Pressable이 아니다", () => {
+    expect(recordsSource).toContain("const action = resolveCalendarCellAction(cell);");
+    expect(recordsSource).toContain("if (action === null) {");
+    // 판정은 순수 모듈에만 있다 -- 화면이 금액·미래를 다시 판정하면 규칙이 두 벌이 된다.
     expect(recordsSource).not.toContain("cell.hasRecords ?");
-    // 비대화형 칸도 라벨은 그대로 읽어 준다("8월 6일, 지출 없음"이 사라지지 않는다).
+    expect(recordsSource).not.toContain("cell.isFuture ?");
+    // 비대화형 칸도 라벨은 그대로 읽어 준다(이제 그 라벨이 이유까지 말한다).
     expect(recordsSource).toContain("<View accessible accessibilityLabel={accessibilityLabel} style={cellStyle}>");
     // disabled 버튼으로 남겨 두지 않는다(스크린리더에 "버튼, 비활성"으로 읽힌다).
     const cellBlock = recordsSource.slice(
@@ -564,6 +632,31 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     );
     expect(cellBlock).not.toContain("disabled=");
     expect(cellBlock).not.toContain("accessibilityState");
+  });
+
+  /**
+   * 라운드 63 C(#8) — `record_gap` 알림의 착지가 막다른 길이 아니게 되는 마지막 한 걸음.
+   * 순수 모듈이 "record-new"라고 답해도 화면이 그 갈래를 만들지 않으면 아무 일도 일어나지 않는다.
+   */
+  it("#8: 빈 칸 탭이 그 날짜를 실은 기록 시트로 간다 (보기 전용은 종전 안내로 막힌다)", () => {
+    expect(recordsSource).toContain(
+      'onPress={() => (action === "record-new" ? onRecordForDate(date) : onSelectDate(date))}'
+    );
+    expect(recordsSource).toContain("const handleRecordForCalendarDate = useCallback(");
+    // 프리필 파라미터는 "고쳐서 다시 보내기"와 같은 이름을 쓴다 -- 시트에 새 파싱이 0건이다.
+    expect(recordsSource).toContain('router.push({ pathname: "/expenses/new", params: { spentOn: date } });');
+    // 보기 전용 참여자는 행 액션의 "또 기록"과 같은 판정·같은 안내로 막힌다.
+    const handlerBlock = recordsSource.slice(
+      recordsSource.indexOf("const handleRecordForCalendarDate = useCallback("),
+      recordsSource.indexOf("[expenseEntryLocked, explainExpenseEntryLock]")
+    );
+    expect(handlerBlock).toContain("if (expenseEntryLocked) {");
+    expect(handlerBlock).toContain("explainExpenseEntryLock();");
+    // 새 프리필 규칙을 화면에 적지 않는다(날짜 검증은 시트의 순수 모듈 한 곳).
+    expect(recordsSource).not.toContain("resolveFailedRowPrefillDate(");
+    // 예외의 근거는 프리필 계약 파일 머리말에 남는다 -- 규칙이 두 벌이 되지 않게.
+    const rowActionsSource = readFileSync(join(process.cwd(), "src/expenses/record-row-actions.ts"), "utf8");
+    expect(rowActionsSource).toContain("라운드 63 C(#8) — **두 번째 예외**");
   });
 
   it("L5: 필터 스코프는 F8 스코프 줄과 같은 문자열로 달력에 흘러간다", () => {
