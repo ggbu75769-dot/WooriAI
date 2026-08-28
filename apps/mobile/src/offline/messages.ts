@@ -156,7 +156,16 @@ export const SESSION_EXPIRED_LOGIN_NOTICE =
  * "연결을 확인하세요" 같은 지시형 대신 상태를 담담히 말한다).
  */
 export const LOAD_ERROR_NOTICE = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
-export const OFFLINE_LOAD_NOTICE = "지금은 오프라인이에요. 연결된 뒤 다시 시도해 주세요.";
+
+/**
+ * "지금은 연결이 없다 + 다음에 할 수 있는 일"을 말하는 한 문장. 조회 실패 카드에서 시작했지만
+ * 같은 문장이 필요한 자리가 더 있다(라운드 52 C-05: 구성원 삭제·초대 취소 실패). 이름을 동작에
+ * 묶지 않고 여기 한 번만 적는다 — 같은 상황을 화면마다 다른 말로 부르지 않기 위해서다.
+ */
+export const OFFLINE_RETRY_NOTICE = "지금은 오프라인이에요. 연결된 뒤 다시 시도해 주세요.";
+
+/** UX-N 조회 실패 카드가 쓰는 이름. 위 문장과 **같은 값**이다(기존 소비자 이름을 유지한다). */
+export const OFFLINE_LOAD_NOTICE = OFFLINE_RETRY_NOTICE;
 export const LOAD_ERROR_RETRY_LABEL = "다시 시도";
 
 export type LoadErrorCopy = { title: string; actionLabel: string };
@@ -173,4 +182,40 @@ export function resolveLoadErrorCopy({ isOnline }: { isOnline: boolean }): LoadE
     title: isOnline ? LOAD_ERROR_NOTICE : OFFLINE_LOAD_NOTICE,
     actionLabel: LOAD_ERROR_RETRY_LABEL
   };
+}
+
+/**
+ * 라운드 52 C-07 — **저장** 실패 문구의 오프라인 갈래.
+ *
+ * ## 어떤 저장인가 (여기가 적용 범위의 전부다)
+ *
+ * 이 앱의 지출 기록은 SQLite 우선 저장이라 연결이 없어도 성공하고, 대기분은 아웃박스가 나중에
+ * 올린다(MOB-102/EXP-005). 그런데 **월 예산 저장(app/budget.tsx)** 과 **아이 프로필 저장·추가
+ * (app/settings/children.tsx)** 는 아웃박스를 거치지 않는 서버 직행 쓰기다. 그래서 오프라인에서
+ * 누르면 그냥 실패하는데, 두 화면 모두 원인과 무관하게 "저장하지 못했어요. 잠시 후 다시 시도해
+ * 주세요."라는 한 문장만 띄웠다. 지하철·엘리베이터에서 그 문장은 사실과 어긋난다 — 기다릴 대상이
+ * 없고, 다시 눌러도 같은 실패로 되돌아온다(LOAD_ERROR_NOTICE 헤더의 조회 쪽 문제와 같은 모양이다).
+ *
+ * ## "연결되면 자동으로 저장할게요"라고 하지 않는 이유
+ *
+ * 그렇게 말하려면 이 두 쓰기를 담아 둘 대기열이 있어야 한다. 예산·아이 프로필에는 없다(아웃박스는
+ * 지출 전용이고, 이번 변경은 새 대기열을 만들지 않는다). 지키지 못할 약속 대신 지금 할 수 있는
+ * 행동만 말한다: "연결된 뒤 다시 저장해 주세요".
+ *
+ * 온라인 쪽 문장이 지출 저장 실패(EXPENSE_CREATE_FAILED_MESSAGE)와 **글자까지 같은 것은
+ * 의도한 것**이다 — 같은 실패가 화면마다 다르게 들리지 않아야 한다. 갈라지는 것은 오프라인
+ * 갈래뿐이다.
+ */
+export const SAVE_ERROR_NOTICE = "저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+export const OFFLINE_SAVE_NOTICE = "지금은 오프라인이에요. 연결된 뒤 다시 저장해 주세요.";
+
+/**
+ * 순수 판정 함수: 연결 상태만 보고 저장 실패 문구를 고른다. 화면은 저장이 실패한 그 순간에
+ * 연결을 한 번 확인해(isCurrentlyOnline) 이 함수에 넘긴다.
+ *
+ * `isOnline: true`가 기본 안전값인 이유는 resolveLoadErrorCopy와 같다 — "온라인인데 실패했다"와
+ * "연결 상태를 알 수 없다"(web 폴백)를 함께 덮어, 판정이 어긋나도 기존 문구로 떨어진다.
+ */
+export function resolveSaveErrorCopy({ isOnline }: { isOnline: boolean }): string {
+  return isOnline ? SAVE_ERROR_NOTICE : OFFLINE_SAVE_NOTICE;
 }

@@ -30,6 +30,8 @@ import {
 } from "../../src/children/child-form";
 import { getOrCreateChildCreateKey, rotateChildCreateKey } from "../../src/children/child-create-idempotency";
 import { applyChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES } from "../../src/children/child-switch";
+import { isCurrentlyOnline } from "../../src/offline/connectivity";
+import { resolveSaveErrorCopy, SAVE_ERROR_NOTICE } from "../../src/offline/messages";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -45,8 +47,6 @@ import {
   StatusBadge,
   Toast
 } from "../../src/ui";
-
-const saveFailedText = "저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
 
 const emptyForm: ChildFormValues = { nickname: "", dateText: "", manualStage: null };
 
@@ -202,6 +202,16 @@ export default function ManageChildrenScreen() {
   const [form, setForm] = useState<ChildFormValues>(emptyForm);
   const [showErrors, setShowErrors] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
+  /**
+   * 라운드 52 C-07: 아이 프로필 저장/추가는 아웃박스를 거치지 않는 서버 직행 쓰기라 오프라인에서는
+   * 그냥 실패한다. 그때 "잠시 후 다시 시도해 주세요"는 기다릴 대상이 있다는 뜻이라 사실과
+   * 어긋난다 -- 실패한 그 순간에 연결을 한 번 확인해 문구를 고른다(src/offline/messages.ts).
+   * 세 뮤테이션(편집·출생 전환·추가)이 같은 자리 문구를 쓰므로 상태도 하나다.
+   */
+  const [saveFailedText, setSaveFailedText] = useState(SAVE_ERROR_NOTICE);
+  const reportSaveFailure = () => {
+    void isCurrentlyOnline().then((isOnline) => setSaveFailedText(resolveSaveErrorCopy({ isOnline })));
+  };
   // Same timer-in-ref discipline as more.tsx's export toast: never setState after unmount.
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // FIX-118B(F2): Idempotency-Key holder for 아이 추가 -- see child-create-idempotency.ts.
@@ -247,6 +257,7 @@ export default function ManageChildrenScreen() {
   const saveEdit = useMutation({
     mutationFn: (input: { child: Child; values: ChildFormValues }) =>
       updateChild(authToken!, input.child.id, buildUpdateChildBody(input.child.stageMode, input.values)),
+    onError: reportSaveFailure,
     onSuccess: async (updated) => {
       setEditingChildId(null);
       setShowErrors(false);
@@ -269,6 +280,7 @@ export default function ManageChildrenScreen() {
         input.child.id,
         buildUpdateChildBody(input.child.stageMode, input.values, { transitionToStageMode: "born" })
       ),
+    onError: reportSaveFailure,
     onSuccess: async (updated) => {
       setBornChildId(null);
       setBornDateText("");
@@ -288,6 +300,7 @@ export default function ManageChildrenScreen() {
         // a lost response can no longer be retried into a second child.
         getOrCreateChildCreateKey(addIdempotencyKeyRef)
       ),
+    onError: reportSaveFailure,
     onSuccess: async (created, input) => {
       // 성공 시 회전: the next 아이 추가 must be a genuinely new creation, not a replay of this one.
       rotateChildCreateKey(addIdempotencyKeyRef);

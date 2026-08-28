@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  INVITE_CREATE_FAILED_ALERT_TITLE,
   INVITE_CREATE_FAILED_MESSAGE,
   INVITE_FORBIDDEN_MESSAGE,
   INVITE_OWNER_ONLY_CAPTION,
@@ -111,16 +110,16 @@ describe("UX-Q(A) 화면 배선 (source contract — 화면은 vitest에서 렌�
     expect(familySource).toContain("accessibilityHint={caption}");
   });
 
-  it("quickInvite에 onError가 생겨 403이 더는 무음이 아니다", () => {
+  /**
+   * 라운드 52 C-04: 이 자리에는 원래 "quickInvite 뮤테이션에 onError가 있는가"라는 계약이 있었다.
+   * 그 뮤테이션이 통째로 사라졌으므로(가족 화면은 더 이상 초대를 만들지 않는다 —
+   * src/family/invite-flow.ts) 같은 사실을 더 강한 형태로 바꿔 적는다: 실패를 말할 자리가 없는
+   * 화면에서는 **애초에 초대를 만들지 않는다.**
+   */
+  it("가족 화면에는 실패를 말하지 못하는 초대 생성 경로가 남아 있지 않다", () => {
     const familySource = source("app/family/index.tsx");
-    const quickInviteBlock = familySource.slice(
-      familySource.indexOf("const quickInvite = useMutation({"),
-      familySource.indexOf("const removeMember = useMutation({")
-    );
-    expect(quickInviteBlock).toContain("onError:");
-    expect(quickInviteBlock).toContain("inviteCreateErrorMessage(error)");
-    expect(quickInviteBlock).toContain("INVITE_CREATE_FAILED_ALERT_TITLE");
-    expect(INVITE_CREATE_FAILED_ALERT_TITLE).toBe("초대를 만들지 못했어요");
+    expect(familySource).not.toContain("const quickInvite = useMutation({");
+    expect(familySource).not.toContain("createInvite(");
   });
 
   it("초대 만들기 화면이 403을 일반 재시도 문구와 분리해서 말한다", () => {

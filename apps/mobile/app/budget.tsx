@@ -20,6 +20,8 @@ import {
   sumLastMonthActualKrw
 } from "../src/home/budget-edit";
 import { previousYearMonth } from "../src/home/last-month-comparison";
+import { isCurrentlyOnline } from "../src/offline/connectivity";
+import { resolveSaveErrorCopy, SAVE_ERROR_NOTICE } from "../src/offline/messages";
 import { useLoadErrorCopy } from "../src/offline/use-load-error-copy";
 import { useOfflineSyncSnapshot } from "../src/offline/sync-controller";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../src/ui";
@@ -162,6 +164,10 @@ export default function BudgetEditScreen() {
     lastMonthBudgetKrw: lastMonthBudget.data?.amountKrw ?? null
   });
 
+  // 라운드 52 C-07: 예산 저장은 아웃박스를 거치지 않는 서버 직행 쓰기라, 오프라인에서는 그냥
+  // 실패한다. 그때 "잠시 후 다시 시도해 주세요"는 기다릴 대상이 있다는 뜻이라 사실과 어긋난다 --
+  // 실패한 그 순간에 연결을 한 번 확인해 문구를 고른다(src/offline/messages.ts).
+  const [saveErrorText, setSaveErrorText] = useState(SAVE_ERROR_NOTICE);
   const save = useMutation({
     mutationFn: () => {
       const amountKrw = Number(amountDigits || budget.data?.amountKrw);
@@ -169,6 +175,9 @@ export default function BudgetEditScreen() {
         throw new Error("invalid budget");
       }
       return upsertBudget(authToken, childId, amountKrw);
+    },
+    onError: () => {
+      void isCurrentlyOnline().then((isOnline) => setSaveErrorText(resolveSaveErrorCopy({ isOnline })));
     },
     onSuccess: async () => {
       // BUD-001: 예전에는 인자 없이 무효화를 불러 **앱 전체 캐시**를 날렸다 -- 준비템
@@ -279,7 +288,7 @@ export default function BudgetEditScreen() {
               )}
             </Card>
 
-            {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
+            {save.isError ? <Toast message={saveErrorText} tone="error" /> : null}
 
             <PrimaryButton
               disabled={!canSave || save.isPending}

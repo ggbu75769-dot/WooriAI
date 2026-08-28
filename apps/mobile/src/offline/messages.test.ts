@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import { EXPENSE_CREATE_FAILED_MESSAGE } from "../expenses/save-error-messages";
 import { OFFLINE_AWARE_LOAD_ERROR_SCREENS } from "./offline-aware-screens";
 import {
   CONFLICT_BANNER_MESSAGE,
@@ -12,7 +13,11 @@ import {
   LOAD_ERROR_NOTICE,
   LOAD_ERROR_RETRY_LABEL,
   OFFLINE_LOAD_NOTICE,
+  OFFLINE_RETRY_NOTICE,
+  OFFLINE_SAVE_NOTICE,
   resolveLoadErrorCopy,
+  resolveSaveErrorCopy,
+  SAVE_ERROR_NOTICE,
   syncStatusBadgeLabel,
   syncStatusCountLabel,
   SYNC_ROW_CONFLICT_LABEL,
@@ -135,8 +140,9 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     }
   });
 
-  // 라운드 39 UX-P: 남아 있던 세 화면(홈·기록·예산)까지 같은 단일 소스로 배선했다 -- 이제
-  // 조회 실패 카드를 그리는 화면 여섯 곳이 모두 같은 문구를 쓴다(가족 화면은 다른 트랙 소관).
+  // 라운드 39 UX-P: 남아 있던 세 화면(홈·기록·예산)까지 같은 단일 소스로 배선했다.
+  // 라운드 52 C-05: 마지막으로 남아 있던 가족 화면까지 들어와, 조회 실패 카드를 그리는 화면은
+  // 모두 같은 문구를 쓴다.
   // 라운드 38 H-12: 목록은 여기 다시 적지 않는다 -- 세 계약 파일이 함께 읽는 단일 소스에서 온다.
   it("is the single source for every screen wired so far", () => {
     const screens = OFFLINE_AWARE_LOAD_ERROR_SCREENS;
@@ -206,6 +212,12 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     }
   });
 
+  it("라운드 52 C-05: 오프라인 문장은 조회 카드 밖에서도 같은 단일 소스에서 온다", () => {
+    // 이름만 다를 뿐 같은 문장이다 -- 구성원 삭제·초대 취소 실패가 이 상수를 읽는다
+    // (src/family/member-mutation-messages.ts).
+    expect(OFFLINE_RETRY_NOTICE).toBe(OFFLINE_LOAD_NOTICE);
+  });
+
   it("probes connectivity once per error, from the existing isCurrentlyOnline helper", () => {
     const hookSource = source("src/offline/use-load-error-copy.ts");
     expect(hookSource).toContain('from "./connectivity"');
@@ -216,5 +228,60 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     // 문구 리터럴은 messages.ts에만 있다 -- 훅은 문자열을 만들지 않는다.
     expect(hookSource).not.toContain("불러오지 못했어요");
     expect(hookSource).not.toContain("오프라인이에요");
+  });
+});
+
+/**
+ * 라운드 52 C-07 — 서버 직행 저장(월 예산 · 아이 프로필)의 실패 문구.
+ *
+ * 지출 기록은 SQLite 우선이라 오프라인에서도 성공하지만, 이 두 쓰기는 아웃박스를 거치지 않아
+ * 그냥 실패한다. 그런데도 두 화면은 원인과 무관하게 "잠시 후 다시 시도해 주세요."만 띄웠다.
+ */
+describe("UX/C-07 저장 실패 문구", () => {
+  const mobileRoot = process.cwd();
+  const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+
+  it("온라인 실패는 종전 문구 그대로다", () => {
+    expect(resolveSaveErrorCopy({ isOnline: true })).toBe("저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
+    expect(SAVE_ERROR_NOTICE).toBe("저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
+    // 같은 실패가 화면마다 다르게 들리지 않게, 지출 저장 실패 문구와 글자까지 같다.
+    expect(SAVE_ERROR_NOTICE).toBe(EXPENSE_CREATE_FAILED_MESSAGE);
+  });
+
+  it("오프라인이면 기다릴 대상이 없다는 사실을 말한다", () => {
+    expect(resolveSaveErrorCopy({ isOnline: false })).toBe(OFFLINE_SAVE_NOTICE);
+    expect(OFFLINE_SAVE_NOTICE).toBe("지금은 오프라인이에요. 연결된 뒤 다시 저장해 주세요.");
+  });
+
+  it("자동 저장을 약속하지 않는다 -- 예산·아이 프로필에는 담아 둘 대기열이 없다", () => {
+    // 약속하려면 먼저 대기열을 만들어야 하고, 그러면 이 테스트가 먼저 깨져 그 결정이 드러난다.
+    expect(OFFLINE_SAVE_NOTICE).not.toContain("자동");
+    expect(OFFLINE_SAVE_NOTICE).not.toContain("연결되면");
+    // 아웃박스가 실제로 받아 주는 지출 저장 문구와는 다른 문장이어야 한다.
+    expect(OFFLINE_SAVE_NOTICE).not.toBe(OFFLINE_SAVED_MESSAGE);
+  });
+
+  it("DNC-018: 해요체 사실 진술이고 비난·기술 용어가 없다", () => {
+    for (const copy of [SAVE_ERROR_NOTICE, OFFLINE_SAVE_NOTICE]) {
+      expect(copy).toMatch(/요\.$/);
+      expect(copy).not.toMatch(/확인하세요|하십시오|오류|에러|네트워크|offline|error/i);
+    }
+  });
+
+  it("두 화면이 옛 리터럴 대신 이 단일 소스를 쓰고, 실패 시점에 연결을 확인한다", () => {
+    for (const path of ["app/budget.tsx", "app/settings/children.tsx"] as const) {
+      const screenSource = source(path);
+      expect(screenSource, `${path} imports the shared copy`).toContain('src/offline/messages"');
+      expect(screenSource, `${path} resolves the copy`).toContain("resolveSaveErrorCopy({ isOnline })");
+      expect(screenSource, `${path} probes connectivity`).toContain("isCurrentlyOnline()");
+      // 재발 방지: 고정 문구가 다시 인라인되면 오프라인에서 틀린 안내가 돌아온다.
+      expect(screenSource, `${path} must not inline the old copy again`).not.toContain(
+        '"저장하지 못했어요. 잠시 후 다시 시도해 주세요."'
+      );
+    }
+
+    // 예산 화면은 토스트 한 곳, 아이 관리 화면은 세 뮤테이션(편집·출생 전환·추가)이 같은 자리를 쓴다.
+    expect(source("app/budget.tsx")).toContain("<Toast message={saveErrorText} tone=\"error\" />");
+    expect(source("app/settings/children.tsx").match(/onError: reportSaveFailure/g) ?? []).toHaveLength(3);
   });
 });
