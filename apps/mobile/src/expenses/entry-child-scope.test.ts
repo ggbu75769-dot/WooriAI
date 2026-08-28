@@ -71,3 +71,103 @@ describe("#7 빠른 기록 시트의 아이 스코프 라벨", () => {
     expect(resolveChildScopeLabel(null, undefined)).toBeNull();
   });
 });
+
+/**
+ * GAP-060 #7(트랙 E 몫) — 남은 세 쓰기 화면(지출 상세·예산·정기 지출)의 같은 라벨.
+ *
+ * 위 시트가 세운 어휘를 **한 글자도 새로 만들지 않고** 따른다: 해석은 `resolveChildScopeLabel`,
+ * 조립은 `withChildScopeLabel`, 조건은 다자녀 ∧ 세션 ∧ 아이 확정. 세 화면 다 공용
+ * `ScreenHeader`(src/ui.tsx)의 `title` 슬롯을 쓰므로 라벨은 그 문자열에 붙는다.
+ *
+ * 낭독 전용 변형(`withSpokenChildScopeLabel`)이 여기서는 쓰이지 않는 이유는 어휘를 어긴 것이
+ * 아니라 붙일 자리가 없어서다: 시트 제목은 `numberOfLines={1}`로 잘려 잘리지 않은
+ * accessibilityLabel을 따로 두지만(위 테스트), `ScreenHeader`의 제목 Text는 잘리지 않아
+ * **보이는 문구가 곧 접근성 이름**이고 덮어쓸 accessibilityLabel 슬롯 자체가 없다. 그 슬롯이
+ * 생기면 그때 이 세 화면도 쉼표 변형을 함께 단다.
+ */
+describe("#7 지출 상세·예산·정기 지출의 아이 스코프 라벨 (트랙 E)", () => {
+  it("세 화면 모두 ScreenHeader 제목에 같은 함수로 라벨을 붙인다 (부제·eyebrow·뒤로가기는 그대로)", () => {
+    const expectations: ReadonlyArray<[string, string, string]> = [
+      ["app/expenses/[expenseId].tsx", "지출 수정", 'eyebrow="지출 상세"'],
+      ["app/budget.tsx", "월 예산 수정", 'eyebrow="예산 관리"'],
+      ["app/expenses/recurring.tsx", "정기 지출", 'eyebrow="지출"']
+    ];
+    for (const [path, title, eyebrow] of expectations) {
+      const screenSource = source(path);
+      expect(screenSource, `${path}의 제목이 라벨 함수를 지나지 않는다`).toContain(
+        `title={withChildScopeLabel("${title}", childScopeLabel)}`
+      );
+      // 문자열 결합·삼항 연산자를 화면에서 다시 적지 않는다(한 화면만 어긋나는 종류의 버그).
+      expect(screenSource, `${path}가 라벨을 손으로 조립한다`).not.toContain("childScopeLabel} — ");
+      expect(screenSource, `${path}의 종전 제목 리터럴이 남아 있다`).not.toContain(`title="${title}"`);
+      // 나머지 헤더 슬롯은 손대지 않는다.
+      expect(screenSource, `${path}의 eyebrow가 달라졌다`).toContain(eyebrow);
+      expect(screenSource, `${path}의 뒤로가기 슬롯이 사라졌다`).toContain("onBack={() => router.back()}");
+    }
+  });
+
+  it("지출 상세는 **이 지출이 속한 아이**로 라벨을 정하고, 목록은 이미 있는 useQuery(['children'])를 재사용한다", () => {
+    const detailSource = source("app/expenses/[expenseId].tsx");
+    // 선택된 아이(selectedChildId)가 아니라 지출의 childId다 -- 알림/딥링크로 다른 아이의 지출을
+    // 열 수 있고, 화면이 보여 주는 숫자의 주인을 말해야 한다(라운드 49 C-05와 같은 근거).
+    expect(detailSource).toContain(
+      "const childScopeLabel = resolveChildScopeLabel(expense.data?.childId, childrenQuery.data?.children);"
+    );
+    expect(detailSource).not.toContain("resolveChildScopeLabel(selectedChildId");
+    // 새 요청 0건: 가구 판정(L-4)이 이미 켜 둔 그 쿼리 하나뿐이고 두 번째가 생기지 않았다.
+    expect((detailSource.match(/queryKey: \["children"\]/g) ?? []).length).toBe(1);
+
+    // 판정 자체: 다자녀 가구에서 지출의 아이가 선택된 아이와 달라도 그 지출의 아이 이름이 선다.
+    const children = [
+      { id: "child-1", nickname: "다온이" },
+      { id: "child-2", nickname: "하온이" }
+    ];
+    expect(withChildScopeLabel("지출 수정", resolveChildScopeLabel("child-2", children))).toBe(
+      "하온이 — 지출 수정"
+    );
+    // 응답 전(로딩·실패)에는 childId가 undefined라 종전 제목 그대로다.
+    expect(withChildScopeLabel("지출 수정", resolveChildScopeLabel(undefined, children))).toBe("지출 수정");
+  });
+
+  it("예산·정기 지출은 선택된 아이 기준이고, 목록은 **새 요청 없이** 캐시에서만 읽는다", () => {
+    for (const [path, childIdExpression] of [
+      ["app/budget.tsx", "childId"],
+      ["app/expenses/recurring.tsx", "selectedChildId"]
+    ] as const) {
+      const screenSource = source(path);
+      expect(screenSource, `${path}가 ["children"] 조회를 새로 켠다`).toContain(
+        'queryClient.getQueryData<{ children: Child[] }>(["children"])?.children'
+      );
+      expect(screenSource, `${path}에 ["children"] useQuery가 생겼다`).not.toContain(
+        'queryKey: ["children"]'
+      );
+      expect(screenSource, `${path}의 라벨 기준 아이가 다르다`).toContain(
+        `const childScopeLabel = resolveChildScopeLabel(${childIdExpression}, cachedChildren);`
+      );
+      // BUD-001 / 비세션 경로 불변: 캐시 읽기가 authToken 게이트 뒤에 있다.
+      expect(screenSource, `${path}의 캐시 읽기가 세션 게이트 밖에 있다`).toContain(
+        "const cachedChildren = authToken\n    ? queryClient.getQueryData"
+      );
+    }
+  });
+
+  it("어휘는 트랙 B와 한 벌이다: 외동·비세션·미해석이면 세 제목이 종전 문자열 그대로다", () => {
+    for (const title of ["지출 수정", "월 예산 수정", "정기 지출"]) {
+      expect(withChildScopeLabel(title, null)).toBe(title);
+      expect(withChildScopeLabel(title, resolveChildScopeLabel("child-1", [{ id: "child-1", nickname: "다온이" }]))).toBe(
+        title
+      );
+      expect(withChildScopeLabel(title, resolveChildScopeLabel("child-1", undefined))).toBe(title);
+      // 빈 태명은 접두사를 만들지 않는다(허위/빈 표시 금지).
+      expect(
+        withChildScopeLabel(
+          title,
+          resolveChildScopeLabel("child-1", [
+            { id: "child-1", nickname: "  " },
+            { id: "child-2", nickname: "하온이" }
+          ])
+        )
+      ).toBe(title);
+    }
+  });
+});

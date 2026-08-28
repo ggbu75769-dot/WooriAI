@@ -12,6 +12,9 @@ import {
   LOCAL_SESSION_TOKEN
 } from "../../src/api/client";
 import { categoryCatalog, categoryNameFor, selectableCategories } from "../../src/categories";
+// GAP-060 #7(트랙 E): 다자녀 스코프 라벨의 해석·조립은 4탭·빠른 기록 시트와 **같은 순수 모듈**
+// 한 벌에서만 온다(새 어휘를 만들지 않는다 — src/expenses/entry-child-scope.test.ts).
+import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";
 // 라운드 41 UX-U(B-ⓒ): 금액 프리셋 칩은 빠른 기록 시트(app/expenses/new.tsx)와 **같은 모듈**을 쓴다.
 import {
   addAmountPreset,
@@ -236,6 +239,32 @@ export default function ExpenseDetailScreen() {
     childId: expense.data?.childId,
     fallbackHouseholdId: sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null)
   });
+  /**
+   * GAP-060 #7(트랙 E) — 이 화면의 제목이 **누구의 지출인지** 말한다.
+   *
+   * 4탭은 라운드 48~49에 전부 스코프 라벨을 달았고 빠른 기록 시트는 트랙 B가 달았는데, 정작
+   * 이미 적힌 지출을 **고치는** 자리에는 없었다. 알림함·홈 최근 기록·기록 탭 어디서 들어와도
+   * 화면은 똑같이 "지출 수정"이라, 다자녀 가구에서는 지금 고치는 금액이 누구 밑에서 줄어드는지
+   * 저장한 뒤에야 알 수 있었다.
+   *
+   * 여기서 라벨의 기준은 **선택된 아이가 아니라 이 지출이 속한 아이**(`expense.data.childId`)다.
+   * 두 값은 실제로 갈린다 — 알림/딥링크로 다른 아이의 지출을 열 수 있고, 이 화면은 그 어긋남을
+   * 이미 알고 있다(라운드 49 C-05의 `linkedItemTemplateLink`가 같은 이유로 링크를 접는다).
+   * 화면이 보여 주는 숫자의 주인을 말해야 하므로 지출 쪽 childId가 맞고, 덕분에 어긋난 상태가
+   * 제목에서 바로 드러난다.
+   *
+   * **새 요청 0건**: 목록은 위 `childrenQuery`(가구 판정이 이미 쓰는 ["children"] 캐시)를 그대로
+   * 재사용한다 — 이 화면의 데이터 원천 규칙(라운드 27 L-4 주석)을 벗어나지 않는다. 응답이 아직
+   * 없거나(로딩·실패) 외동 가구면 `resolveChildScopeLabel`이 null을 주고, 그러면 제목 문자열이
+   * 종전과 한 글자도 달라지지 않는다. EXP-003 픽셀 캡처는 비세션이라 두 쿼리 모두 enabled:false —
+   * 라벨은 항상 null이다.
+   *
+   * 낭독은 별도 문자열을 만들지 않는다: 공용 `ScreenHeader`(src/ui.tsx)의 제목 Text는 잘리지
+   * 않으므로 **보이는 문구가 곧 접근성 이름**이고, 거기에는 덮어쓸 accessibilityLabel 슬롯 자체가
+   * 없다(그 파일은 트랙 E 소유 밖이다). 시트 제목처럼 numberOfLines로 잘리는 자리에서만
+   * `withSpokenChildScopeLabel`이 필요했다(app/expenses/new.tsx의 같은 주석).
+   */
+  const childScopeLabel = resolveChildScopeLabel(expense.data?.childId, childrenQuery.data?.children);
   const householdMembers = useQuery({
     queryKey: ["household-members", householdId],
     enabled: Boolean(authToken && householdId),
@@ -733,7 +762,7 @@ export default function ExpenseDetailScreen() {
       <View testID="screen-EXP-003" style={{ gap: theme.spacing.section }}>
         <ScreenHeader
           eyebrow="지출 상세"
-          title="지출 수정"
+          title={withChildScopeLabel("지출 수정", childScopeLabel)}
           subtitle="품목과 금액을 확인하고 수정할 수 있어요."
           onBack={() => router.back()}
         />

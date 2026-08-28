@@ -141,7 +141,13 @@ describe("HOME-138 홈 헤더 전환 입구", () => {
     expect(homeSource).toContain('testID="home-child-switch-sheet"');
     expect(homeSource).toContain("childrenQuery.data?.children ?? []");
     // 전환용 새 요청은 없다: 목록은 설정·리포트와 같은 ["children"] 캐시에서 온다.
-    expect(homeSource.match(/queryKey: \["children"\]/g) ?? []).toHaveLength(1);
+    //
+    // GAP-060 #10: 문자열 전체 개수가 아니라 **쿼리 선언**(useQuery 옵션 형태, 줄머리에 오는
+    // `queryKey:`)만 센다 — 당겨서 새로고침이 같은 키를 인라인으로 무효화하기 시작했고
+    // (`invalidateQueries({ queryKey: ["children"] })`), 그것은 새 요청이 아니라 이미 켜져
+    // 있는 그 쿼리를 다시 받는 일이다. 규칙 자체는 그대로다: 홈에 ["children"] 쿼리는 하나뿐.
+    expect(homeSource.match(/^\s+queryKey: \["children"\]/gm) ?? []).toHaveLength(1);
+    expect(homeSource.match(/queryFn: \(\) => listChildren\(/g) ?? []).toHaveLength(1);
     // 1명이면 종전 헤더 그대로여야 한다(HOME-001 픽셀락 캡처는 비세션·1명 미리보기).
     expect(homeSource).toContain("<ScreenHeader");
   });

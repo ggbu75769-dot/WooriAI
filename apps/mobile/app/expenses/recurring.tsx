@@ -2,8 +2,11 @@ import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, Switch, Text, TextInput, View } from "react-native";
-import { LOCAL_SESSION_TOKEN, type CategoryListItem } from "../../src/api/client";
+import { LOCAL_SESSION_TOKEN, type CategoryListItem, type Child } from "../../src/api/client";
 import { buildCategoryNameLookup, categoryCatalog } from "../../src/categories";
+// GAP-060 #7(트랙 E): 다자녀 스코프 라벨의 해석·조립은 4탭·빠른 기록 시트와 **같은 순수 모듈**
+// 한 벌에서만 온다(새 어휘를 만들지 않는다 — src/expenses/entry-child-scope.test.ts).
+import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
 import {
   formatRecurringTemplateLine,
@@ -197,6 +200,28 @@ export default function RecurringExpensesScreen() {
     ? queryClient.getQueryData<{ categories: CategoryListItem[] }>(["categories"])?.categories
     : undefined;
   const categoryName = useMemo(() => buildCategoryNameLookup(cachedCategories), [cachedCategories]);
+  /**
+   * GAP-060 #7(트랙 E) — 이 화면의 목록은 **선택된 아이의 것만**인데 제목이 그 말을 안 했다.
+   *
+   * 아래 `childTemplates`가 이미 `selectedChildId`로 목록을 좁히고 있다(둘째의 약속이 첫째
+   * 화면에 섞이지 않게). 그런데 화면 어디에도 그 좁힘이 적혀 있지 않아, 다자녀 가구에서는
+   * 둘째의 기저귀 정기 지출을 적어 둔 뒤 첫째로 전환하면 목록이 비어 보이고 방금 적은 것이
+   * 사라진 것처럼 읽힌다. 제목이 "다온이 — 정기 지출"이 되면 목록이 비어 있는 이유가 제목에서
+   * 바로 읽힌다.
+   *
+   * 원천은 바로 위 분류 이름과 **같은 규칙**이다: `useQuery`가 아니라 `getQueryData` — 이 화면은
+   * 지출을 만들지 않는 메모 화면이라 열었다는 이유로 네트워크가 돌지 않는다(라운드 58 P2-1 주석의
+   * "새 요청 0건" 계약). ["children"]은 홈·기록·리포트·설정이 이미 채워 두는 캐시이고, 비어 있으면
+   * (딥링크 콜드 스타트) 라벨이 null이라 제목이 종전 그대로다 — 모르면 말하지 않는다.
+   *
+   * 비세션이면 `authToken`이 null이라 캐시를 읽지도 않고, 외동 가구도 `resolveChildScopeLabel`이
+   * null을 준다. (낭독 전용 변형은 쓰지 않는다 — 공용 `ScreenHeader`의 제목 Text는 잘리지 않아
+   * 보이는 문구가 곧 접근성 이름이고, 덮어쓸 accessibilityLabel 슬롯이 없다.)
+   */
+  const cachedChildren = authToken
+    ? queryClient.getQueryData<{ children: Child[] }>(["children"])?.children
+    : undefined;
+  const childScopeLabel = resolveChildScopeLabel(selectedChildId, cachedChildren);
   /** 이 앱이 **이름으로 부를 수 있는** 분류인가(8타일 + 캐시에 실제로 있는 서버 분류). */
   const isNamedCategoryId = useMemo(() => {
     const named = new Set<string>(categoryCatalog.map((category) => category.id));
@@ -309,7 +334,7 @@ export default function RecurringExpensesScreen() {
       <View testID={recurringScreenId} style={{ gap: theme.spacing.section }}>
         <ScreenHeader
           eyebrow="지출"
-          title="정기 지출"
+          title={withChildScopeLabel("정기 지출", childScopeLabel)}
           subtitle="매월 반복되는 지출을 적어 두면 홈에서 확인할 수 있어요"
           onBack={() => router.back()}
         />

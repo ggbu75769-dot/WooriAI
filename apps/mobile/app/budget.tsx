@@ -7,9 +7,13 @@ import {
   getBudget,
   LOCAL_SESSION_TOKEN,
   upsertBudget,
+  type Child,
   type Expense,
   type HomeSummary
 } from "../src/api/client";
+// GAP-060 #7(트랙 E): 다자녀 스코프 라벨의 해석·조립은 4탭·빠른 기록 시트와 **같은 순수 모듈**
+// 한 벌에서만 온다(새 어휘를 만들지 않는다 — src/expenses/entry-child-scope.test.ts).
+import { resolveChildScopeLabel, withChildScopeLabel } from "../src/children/child-switch";
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../src/money";
@@ -103,6 +107,32 @@ export default function BudgetEditScreen() {
       : isAmountOverLimit(typedAmountKrw ?? 0)
         ? amountOverLimitMessage()
         : null;
+
+  /**
+   * GAP-060 #7(트랙 E) — 이 화면이 고치는 예산은 **(아이, 월) 한 칸**이다.
+   *
+   * 월은 이미 제목이 말하고 있었지만("월 예산 수정") 아이는 어디에도 없었다. 예산 행은
+   * `(childId, yearMonth)` 유니크이고 이월 규칙이 없는데(위 B1(b) 주석), 다자녀 가구에서 이
+   * 화면은 첫째든 둘째든 완전히 같은 그림이라 방금 세운 20만 원이 누구의 8월에 들어갔는지
+   * 확인할 방법이 화면 안에 없었다 — 홈 히어로로 돌아가서야 알게 된다. 라벨이 붙으면 제목
+   * 한 줄이 "다온이 — 월 예산 수정"이 되어 (아이, 월) 두 축이 모두 화면에 선다.
+   *
+   * 원천은 이 화면의 다른 맥락 값들과 **같은 규칙**이다(이 파일 머리 주석의 "새 요청 없이 이미
+   * 채워진 캐시에서 읽는다"): `useQuery`가 아니라 `getQueryData`라 쿼리를 활성화하지 않는다.
+   * ["children"]은 홈·기록·리포트·설정이 이미 채워 두는 캐시라 앱을 통해 들어왔다면 거의 언제나
+   * 있고, 알림 → /budget 직행 콜드 스타트처럼 비어 있으면 라벨이 null이라 제목이 종전 그대로다.
+   * 지난달 **예산**만 조회를 켰던 것(B1(b))은 그 값이 어떤 화면도 받아 두지 않는 데이터여서였고,
+   * 아이 목록은 그 예외에 해당하지 않는다 — 모르면 말하지 않는다.
+   *
+   * BUD-001 픽셀 캡처는 비세션이라 `authToken`이 null이고 캐시를 읽지도 않는다. 외동 가구도
+   * `resolveChildScopeLabel`이 null을 주므로 종전 화면 그대로다. (낭독 전용 변형은 쓰지 않는다 —
+   * 공용 `ScreenHeader`의 제목 Text는 잘리지 않아 보이는 문구가 곧 접근성 이름이고, 덮어쓸
+   * accessibilityLabel 슬롯이 없다.)
+   */
+  const cachedChildren = authToken
+    ? queryClient.getQueryData<{ children: Child[] }>(["children"])?.children
+    : undefined;
+  const childScopeLabel = resolveChildScopeLabel(childId, cachedChildren);
 
   // 새 요청 0: 캐시에 있으면 읽고, 없으면 undefined -> 줄/칩을 만들지 않는다.
   const offlineSnapshot = useOfflineSyncSnapshot();
@@ -228,7 +258,7 @@ export default function BudgetEditScreen() {
             onBack 슬롯을 그대로 쓴다(‹ 표기·"뒤로가기" 라벨·44dp 타깃이 한 곳에 있다). */}
         <ScreenHeader
           eyebrow="예산 관리"
-          title="월 예산 수정"
+          title={withChildScopeLabel("월 예산 수정", childScopeLabel)}
           subtitle="필요할 때 언제든 예산을 조정할 수 있어요."
           onBack={() => router.back()}
         />
