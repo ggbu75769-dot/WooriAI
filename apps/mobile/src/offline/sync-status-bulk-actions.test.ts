@@ -156,7 +156,9 @@ describe("SYNC-127 sync-status screen virtualization (source verification -- the
   it("offers 일괄 재시도 / 버리기, and puts a destructive-action confirmation in front of the discard", () => {
     const src = syncStatusSource();
     // 라운드 51 QA(P2-3): 두 버튼의 라벨은 대상(지출)과 건수를 함께 말하는 함수에서 온다.
-    expect(src).toContain("syncStatusRetryFailedExpensesLabel(failedRows.length)");
+    // 라운드 58 #4: 재시도 쪽 건수는 **재시도가 다룰 수 있는 행**만 센다(아래 describe에서
+    // 계수 판정까지 고정한다). 버리기는 그대로 실패 행 전량이다.
+    expect(src).toContain("syncStatusRetryFailedExpensesLabel(retryableFailedCount)");
     expect(src).toContain("syncStatusDiscardFailedExpensesLabel(failedRows.length)");
     expect(src).toContain("SYNC_STATUS_DISCARD_ALL_LABEL");
     expect(src).toContain("retryAllOfflineMutations(authToken, queryClient)");
@@ -197,8 +199,10 @@ describe("SYNC-127 sync-status screen virtualization (source verification -- the
     const src = syncStatusSource();
     expect(src).toContain("retryAllOfflineMutations");
     expect(src).toContain("discardAllOfflineMutations");
-    expect(src).not.toContain("retryAllFailedMutations");
-    expect(src).not.toContain("discardAllFailedMutations");
+    // 호출을 금지하는 것이지 이름을 언급하지 못하게 하는 것이 아니다 -- 라운드 58 #4의 주석이
+    // "라벨의 건수와 엔진이 되돌리는 행이 같아야 한다"는 이유로 엔진 함수 이름을 인용한다.
+    expect(src).not.toContain("retryAllFailedMutations(");
+    expect(src).not.toContain("discardAllFailedMutations(");
 
     const controllerSource = source("src/offline/sync-controller.ts");
     // 100건이 한 번의 flush로 끝나는 것이 이 티켓의 요점이다.
@@ -243,6 +247,61 @@ describe("라운드 51 QA(P2-3) 실패 섹션 일괄 액션의 범위", () => {
     expect(discardAllBody).toContain("const count = failedRows.length;");
     expect(discardAllBody).toContain("if (count === 0) return;");
     expect(discardAllBody).not.toContain("failedItemStatusRows");
+  });
+});
+
+/**
+ * 라운드 58 #4 — 일괄 재시도 라벨이 **실제로 되돌아갈 행 수**를 말한다.
+ *
+ * 종전 라벨은 실패 행 전량을 셌는데(`failedRows.length`), 그 버튼이 부르는 엔진은 라운드 47·57
+ * 이후 403과 재시도가 무익한 4xx를 빼고 큐에 올린다. 그래서 403 한 건 + 400 두 건만 남은 화면이
+ * "지출 3건 재시도"라고 적힌 버튼을 내밀고, 눌러도 0건이 되돌아갔다 — 화면이 개별 행에서는 이미
+ * "다시 보내도 같은 결과예요"라고 말해 놓고 섹션 머리에서는 반대로 말한 셈이다.
+ *
+ * 계수 판정 자체(0건·레거시 403 포함)는 permission-denied.test.ts가 값으로 고정한다. 여기서는
+ * 화면이 그 판정을 쓰는지와, 0건일 때 버튼이 아예 없는지를 소스로 고정한다.
+ */
+describe("라운드 58 #4 일괄 재시도 라벨 정합", () => {
+  const syncStatusSource = () => source("app/sync-status.tsx");
+
+  it("라벨의 건수는 재시도가 다룰 수 있는 행만 센다 (판정은 엔진과 같은 모듈)", () => {
+    const src = syncStatusSource();
+    expect(src).toContain('import {\n  countRetryableFailedRows,');
+    expect(src).toContain("const retryableFailedCount = countRetryableFailedRows(failedRows);");
+    expect(src).toContain("syncStatusRetryFailedExpensesLabel(retryableFailedCount)");
+    // 종전의 거짓 계수는 남아 있지 않다.
+    expect(src).not.toContain("syncStatusRetryFailedExpensesLabel(failedRows.length)");
+  });
+
+  it("재시도 가능한 행이 0건이면 재시도 버튼을 아예 그리지 않는다 (라운드 51 P2-3의 확장)", () => {
+    const src = syncStatusSource();
+    expect(src).toContain("{retryableFailedCount > 0 ? (");
+    // 계수가 렌더 콜백의 의존성에 들어가 있지 않으면 버튼이 옛 숫자로 굳는다.
+    const renderBody = src.slice(src.indexOf("const renderSyncRow = useCallback("), src.indexOf("const listHeader ="));
+    expect(renderBody.slice(renderBody.lastIndexOf("\n    ["))).toContain("retryableFailedCount");
+  });
+
+  it("버리기는 그대로 실패 행 전량이 대상이다 — 재시도가 무익한 행에도 유효한 선택지다", () => {
+    const src = syncStatusSource();
+    expect(src).toContain("syncStatusDiscardFailedExpensesLabel(failedRows.length)");
+    const discardAllBody = src.slice(src.indexOf("const discardAll = useCallback("), src.indexOf("const listData"));
+    expect(discardAllBody).toContain("const count = failedRows.length;");
+    expect(discardAllBody).not.toContain("retryableFailedCount");
+  });
+
+  it("엔진의 제외 규칙과 화면의 계수가 같은 함수에서 온다", () => {
+    const engine = source("src/offline/sync-engine.ts");
+    expect(engine).toContain("isBulkRetryableFailedRow(row)");
+    // 같은 규칙을 손으로 두 번 적는 자리로 되돌아가지 않는다.
+    expect(engine).not.toContain("!isPermissionDeniedSyncError(row)");
+  });
+
+  it("준비템 실패 행에는 일괄 버튼이 없다 — 규칙이 갈릴 자리 자체가 없다", () => {
+    const src = syncStatusSource();
+    // 일괄 액션은 지출 큐만 다루고(라운드 51 P2-3), 준비템 행은 개별 행에서 같은 판정을 받는다.
+    expect(src).toContain('...(failedRows.length > 0 ? { actions: "failed-bulk" as const } : {})');
+    expect(src).not.toContain("countRetryableFailedRows(failedItemStatusRows)");
+    expect(source("src/offline/sync-engine.ts")).not.toContain("retryAllFailedItemStatusMutations");
   });
 });
 

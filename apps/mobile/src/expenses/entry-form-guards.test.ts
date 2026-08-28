@@ -240,7 +240,10 @@ describe("GAP-054 #2 화면 배선 (지출 입력)", () => {
     expect(guardBlock).toContain("isAmountOverLimit");
     // GAP-056 #1: 버튼 식의 이름이 isAmountInvalid -> isSaveBlocked로 넓어졌다(텍스트 길이 상한이
     // 같은 자리에 합류했다). 금액 가드는 그 안에 그대로 있고, 두 버튼은 여전히 같은 한 줄을 지난다.
-    expect(source).toContain("const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;");
+    // 라운드 58 통합리뷰 P1-1: 아이 어긋남 가드가 같은 줄에 합류했다(두 버튼은 여전히 한 줄로 잠긴다).
+    expect(source).toContain(
+      "const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0 || failedRowChildMismatch;"
+    );
     expect(source.match(/disabled=\{saveExpense\.isPending \|\| isSaveBlocked\}/g) ?? []).toHaveLength(2);
   });
 
@@ -292,7 +295,8 @@ describe("라운드 51 C-#5 화면 배선", () => {
     expect(source).toContain("if (!prepareSave(false)) return;");
     expect(source).toContain("if (!prepareSave(true)) return;");
     // 뮤테이션 자체도 분류 없이는 시작하지 않는다(가드가 화면 핸들러에만 있지 않다).
-    expect(source).toContain("!childId || !selectedCategory ||");
+    // 라운드 58 통합리뷰 P1-1: 뮤테이션 가드에 아이 어긋남 판정이 childId 바로 뒤에 합류했다.
+    expect(source).toContain("!childId || isFailedRowChildMismatch(params.childId, childId) || !selectedCategory ||");
     expect(source).toContain("{CATEGORY_REQUIRED_NOTICE}");
   });
 

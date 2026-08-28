@@ -1,7 +1,7 @@
 import { MAX_DELAY_MS, computeNextRetryAtIso } from "./backoff";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import { mergeItemStatusMutation, mergeOutboxMutation } from "./outbox-merge";
-import { isPermissionDeniedSyncError, isRetryableSyncFailureRow, syncFailureReasonOf } from "./permission-denied";
+import { isBulkRetryableFailedRow, syncFailureReasonOf } from "./permission-denied";
 import {
   generateOfflineId,
   type ExpensePayload,
@@ -1078,8 +1078,11 @@ export async function retryAllFailedMutations(store: OfflineStore): Promise<numb
         // 재시도 자리를 안내로 바꾸므로, 여기서 그 행들을 다시 큐에 올리면 화면이 말한 것과 실제
         // 동작이 어긋난다(게다가 같은 4xx를 다시 받아 attemptCount만 소모한다).
         // status를 모르는 레거시 행은 두 판정 모두에서 예전 그대로 재시도 대상이다.
-        isRetryableSyncFailureRow(row) &&
-        !isPermissionDeniedSyncError(row)
+        //
+        // 라운드 58 #4: 그 두 판정의 논리곱에 이름이 생겼다(permission-denied.ts
+        // `isBulkRetryableFailedRow`). 화면의 일괄 버튼 **라벨**이 세는 건수도 같은 함수를
+        // 쓰므로, "지출 N건 재시도"의 N과 여기서 실제로 되돌리는 행 수가 갈릴 수 없다.
+        isBulkRetryableFailedRow(row)
     )
     .map((row) => row.localId);
   for (const localId of localIds) {

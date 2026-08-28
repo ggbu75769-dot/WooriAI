@@ -232,6 +232,10 @@ describe("UX-L(A) '같은 내용으로 또 기록' 프리필 계약", () => {
 
     expect(params).toEqual({ itemName: "기저귀", amountKrw: "38500", categoryId: "cat-diaper" });
     expect(params && "spentOn" in params).toBe(false);
+    // 라운드 58 #5: 날짜를 싣는 동선이 하나 생겼지만(동기화 실패 행의 "고쳐서 다시 보내기" —
+    // failed-row-prefill.ts) **이 함수는 아니다**. 두 동선을 한 함수에 옵션으로 합치지 않는다는
+    // 판단이 그 파일에 근거와 함께 적혀 있고, 여기서는 이 계약이 그대로임을 고정한다.
+    expect(source("src/expenses/record-row-actions.ts")).toContain("라운드 58 #5");
   });
 
   it("선물·환불 행은 파라미터를 만들지 않는다 (액션 목록과 같은 규칙)", () => {

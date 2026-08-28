@@ -227,6 +227,18 @@ export function buildRecordRowActionSheet(input: {
 // 시트가 늘 하듯 오늘 날짜로 시작해야 한다(지난달 행에서 또 기록을 눌러 지난달로 저장되면
 // 이번 달 합계가 조용히 어긋난다).
 //
+// 라운드 58 #5 — 그 원칙의 **명시적 예외 하나**가 생겼다: 동기화 실패 행의 "고쳐서 다시
+// 보내기"(src/expenses/failed-row-prefill.ts)는 날짜를 함께 싣는다. 원칙이 뒤집힌 것이 아니라
+// 질문이 다르다.
+//  - "같은 내용으로 또 기록"은 **새로 산 물건**을 적는 동선이다. 언제 샀는지는 앱이 모르므로
+//    오늘에서 시작하고, 사용자가 필요하면 뒤로 옮긴다.
+//  - "고쳐서 다시 보내기"는 **이미 적은 그 기록**을 서버가 받아 줄 수 있게 다시 쓰는 동선이다.
+//    그 기록의 날짜는 사용자가 이미 골라 둔 사실이고, 여기서 오늘로 갈아 끼우면 8월 3일에 산
+//    기저귀가 8월 27일 지출로 남는다 — 사용자가 고른 적 없는 날짜를 앱이 지어내는 것이고,
+//    그 달 합계가 조용히 어긋난다(위 괄호가 걱정한 것과 **같은 종류의 거짓**이다).
+// 두 동선이 서로 다른 파일에 있는 이유이기도 하다: 한 함수에 옵션으로 날짜를 붙이면 어느
+// 호출부가 무엇을 뜻했는지 나중에 읽을 수 없다.
+//
 // 라운드 55 트랙 A: 파싱 쪽 계약에 `paymentMethod`가 하나 더해졌다(위 ExpensePrefill).
 // 직렬화 쪽인 아래 `buildRepeatExpenseParams`는 **일부러 그대로 둔다** — 그 함수의 유일한
 // 호출부는 기록 탭의 "같은 내용으로 또 기록"이고, 인자로 서버 행 전체를 넘기므로 여기에
@@ -298,8 +310,14 @@ export type ExpensePrefill = {
   paymentMethod: ExpensePrefillPaymentMethod | null;
 };
 
-/** expo-router의 파라미터는 string | string[] 둘 다 올 수 있다 — 첫 값만 읽는다. */
-function firstParamValue(value: unknown): string {
+/**
+ * expo-router의 파라미터는 string | string[] 둘 다 올 수 있다 — 첫 값만 읽는다.
+ *
+ * 라운드 58 #5: `failed-row-prefill.ts`(고쳐서 다시 보내기)도 같은 정규화를 쓰므로 내보낸다.
+ * 두 프리필 모듈이 파라미터 모양을 각자 읽기 시작하면 한쪽만 배열 형태를 놓치는 날이 오고,
+ * 그건 "값이 조용히 사라진다"는 이 파일 위쪽 계약이 막으려던 바로 그 증상이다.
+ */
+export function firstPrefillParamValue(value: unknown): string {
   if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : "";
   return typeof value === "string" ? value : "";
 }
@@ -310,7 +328,7 @@ function firstParamValue(value: unknown): string {
  * 막히는 화면을 만들지 않고, 그때 시트는 예전처럼 자기 기본값에서 시작한다.
  */
 export function parseExpensePrefillPaymentMethod(value: unknown): ExpensePrefillPaymentMethod | null {
-  const raw = firstParamValue(value).trim();
+  const raw = firstPrefillParamValue(value).trim();
   return EXPENSE_PREFILL_PAYMENT_METHODS.find((method) => method === raw) ?? null;
 }
 
@@ -325,11 +343,11 @@ export function parseExpensePrefillParams(params: {
   categoryId?: unknown;
   paymentMethod?: unknown;
 }): ExpensePrefill {
-  const itemName = firstParamValue(params.itemName).trim();
-  const amountRaw = firstParamValue(params.amountKrw).trim();
+  const itemName = firstPrefillParamValue(params.itemName).trim();
+  const amountRaw = firstPrefillParamValue(params.amountKrw).trim();
   const amountKrw = /^\d+$/.test(amountRaw) ? Number(amountRaw) : Number.NaN;
   const amountText = Number.isInteger(amountKrw) && amountKrw > 0 ? String(amountKrw) : "";
-  const categoryId = firstParamValue(params.categoryId).trim();
+  const categoryId = firstPrefillParamValue(params.categoryId).trim();
   return {
     itemName,
     amountText,

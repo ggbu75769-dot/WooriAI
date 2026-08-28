@@ -41,7 +41,9 @@ import { normalizeItemName } from "./item-name-match";
 import { merchantOverLimitMessage } from "./text-limits";
 import {
   EXPENSE_PREFILL_PAYMENT_METHODS,
+  firstPrefillParamValue,
   isRepeatableExpenseType,
+  parseExpensePrefillParams,
   type ExpensePrefillPaymentMethod
 } from "./record-row-actions";
 
@@ -165,6 +167,26 @@ export function recurringYearMonthOf(isoDate: unknown): string | null {
   if (typeof isoDate !== "string") return null;
   const yearMonth = isoDate.slice(0, 7);
   return isRecurringYearMonth(yearMonth) ? yearMonth : null;
+}
+
+/**
+ * "2026-08-27" → 27. 형식이 아니면 `null`.
+ *
+ * 라운드 58 #1에서 생겼다: 지출 하나를 정기 지출로 올릴 때 "매월 며칠"의 기본값은 **그 지출을
+ * 쓴 날의 일자**다. 그 날짜를 지어내지 않고 그 기록에서 그대로 읽는다.
+ *
+ * 왜 `Date`를 만들지 않나: 이 모듈의 규율은 문자열을 문자열로 다룬다는 것이다(위 월말 클램프
+ * 주석 참고 — `Date.UTC`가 범위를 넘긴 날짜를 조용히 넘겨 버린다). "2026-02-31" 같은 값이
+ * 들어와도 여기서는 31이 그대로 나오고, 그 뒤 판정(`recurringDueDateForMonth`)이 달마다
+ * 말일로 클램프한다 — 없는 날짜를 저장할 수 있게 두되 그때 무슨 일이 생기는지 미리 말하는
+ * 화면의 규칙과 같다.
+ */
+export function recurringDayOfMonthOf(isoDate: unknown): number | null {
+  if (typeof isoDate !== "string") return null;
+  const match = /^\d{4}-\d{2}-(\d{2})$/.exec(isoDate);
+  if (!match) return null;
+  const day = Number(match[1]);
+  return day >= 1 && day <= 31 ? day : null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -565,10 +587,12 @@ function recordedItemNamesForMonth(input: RecurringReminderInput, childId: strin
 /**
  * 이 진입점의 `from` 값.
  *
- * `resolvePostSaveDestination`(post-save-destination.ts)이 **모르는 값**이라 저장 후 목적지는
- * 종전 그대로 기록 탭이다 — 하위호환이 목적이라 그 모듈에 새 분기를 넣지 않는다. 값을 싣는
- * 이유는 나중에 "저장하면 홈으로" 같은 규칙이 필요해졌을 때 판정할 근거가 남아 있어야 하기
- * 때문이다(파라미터가 없으면 어디서 왔는지 되짚을 방법이 없다).
+ * 라운드 55에서는 `resolvePostSaveDestination`(post-save-destination.ts)이 **모르는 값**이라
+ * 저장 후 목적지가 종전 그대로 기록 탭이었다. 값을 싣기만 해 둔 이유는 "나중에 판정할 근거를
+ * 남긴다"였고, 라운드 58 #7에서 그 판정이 생겼다: 이 출처의 저장은 **홈**으로 돌아간다
+ * (`POST_SAVE_HOME_DESTINATION`). 근거는 그 모듈의 `resolvePostSaveDestination` 주석에 한 번만
+ * 적는다 — 요약하면, 이 진입점이 출발한 홈 카드가 방금 기록한 줄을 **즉시 지워 보여 주는**
+ * 유일한 화면이기 때문이다(판정이 오프라인 대기 행까지 세므로 서버 반영을 기다리지 않는다).
  */
 export const RECURRING_ENTRY_SOURCE = "recurring";
 
@@ -605,5 +629,180 @@ export function recurringPrefillParams(template: RecurringExpenseTemplate): {
     paymentMethod: template.paymentMethod,
     ...(merchant.length > 0 ? { merchant } : {}),
     from: RECURRING_ENTRY_SOURCE
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// 역방향 프리필 (지출 상세 → /expenses/recurring) — 라운드 58 #1
+//
+// 지금까지 템플릿을 만드는 길은 **빈 폼 하나**뿐이었다(관리 화면의 "정기 지출 추가"). 그런데
+// 사용자가 "이건 매달 나가는 돈이네"라고 깨닫는 순간은 빈 폼 앞이 아니라 **방금 그 지출을 보고
+// 있을 때**다. 그 자리에서 품목·금액·분류·결제 수단·결제일을 손으로 다시 옮겨 적게 하면, 옮겨
+// 적는 동안 숫자 하나가 어긋나도 앱은 그것을 알 방법이 없다.
+//
+// ## 계약은 새로 만들지 않는다
+//
+// 파라미터 이름은 이미 이 앱에 있는 프리필 계약 그대로다(itemName·amountKrw·categoryId·
+// paymentMethod). 파싱도 그 계약의 파서(`parseExpensePrefillParams`)를 **그대로 지나게** 하고,
+// 여기서 다시 적지 않는다 — 금액·분류·결제 수단의 방어적 파싱(음수·소수·화이트리스트 밖 값은
+// 조용히 버린다)이 두 벌이 되면, 같은 링크가 화면마다 다른 값을 채운다.
+//
+// 새로 생긴 이름은 `dayOfMonth` 하나뿐이다. "매월 며칠"은 지출 시트에 없는 개념이라 빌려 쓸
+// 이름이 없다(날짜 `spentOn`을 그대로 실으면 "그날 하루"와 "매월 그날"이 한 이름이 된다).
+//
+// ## 판매처를 싣지 않는 이유
+//
+// 한 건의 판매처는 **그 한 번의 구매처**이지 "매월 여기서 산다"는 약속이 아니다. 템플릿의
+// 판매처는 목록 줄에 그대로 붙어 매월 보이는 값이라(관리 화면), 사용자가 적은 적 없는 가게
+// 이름이 그 자리에 서 있게 된다. 필요하면 그 화면에서 한 번 적으면 되고, 그 칸은 선택 입력이다.
+// ---------------------------------------------------------------------------------------------
+
+/** 지출 상세의 진입 버튼 문구. 무엇이 되는지를 말한다(등록되는 것은 지출이 아니라 템플릿이다). */
+export const RECURRING_REGISTER_ACTION_LABEL = "정기 지출로 등록";
+
+/**
+ * 그 버튼 아래 한 줄. DNC-013을 **누르기 전에** 말한다 — 이 버튼이 이번 달 기록을 하나 더
+ * 만드는 것으로 읽히면, 사용자는 같은 지출이 두 번 세어졌다고 믿는다.
+ */
+export const RECURRING_REGISTER_ACTION_NOTICE =
+  "매월 반복되는 지출이면 적어 둘 수 있어요. 지출이 자동으로 기록되지는 않아요.";
+
+/**
+ * 프리필로 열린 관리 화면 폼 위의 한 줄.
+ *
+ * 폼이 이미 채워진 채로 열리면 "저장된 것"으로 보인다 — 아직 아무것도 저장되지 않았고 저장
+ * 버튼을 눌러야 남는다는 사실을 그 자리에서 말한다.
+ */
+export const RECURRING_PREFILL_NOTICE = "지출에서 가져온 내용이에요. 확인하고 저장해 주세요.";
+
+/** 역방향 진입이 읽는 지출 행의 필드. 서버 `Expense`(src/api/client.ts)가 그대로 대입된다. */
+export type RecurringPrefillExpenseRow = {
+  itemName?: string | null;
+  amountKrw?: number | null;
+  categoryId?: string | null;
+  paymentMethod?: string | null;
+  /** 그 지출을 쓴 날(YYYY-MM-DD). 여기서 읽는 것은 **일자 하나**뿐이다. */
+  spentOn?: string | null;
+  expenseType?: string | null;
+};
+
+/** `/expenses/recurring` 라우트 파라미터(전부 문자열 — URL로 실려 간다). */
+export type RecurringTemplatePrefillParams = {
+  itemName: string;
+  amountKrw: string;
+  categoryId?: string;
+  paymentMethod?: RecurringPaymentMethod;
+  dayOfMonth?: string;
+};
+
+/**
+ * 지출 행 → 관리 화면 프리필 파라미터. 이 행에서 정기 지출을 만들 수 없으면 `null`.
+ *
+ * `null`은 곧 **버튼을 내놓지 않는다**는 뜻이다(호출부가 같은 값으로 렌더를 정한다). 판정과
+ * 프리필이 한 함수인 이유는 라운드 38 H-7과 같다: 둘이 갈리면 눌러도 아무 일도 일어나지 않는
+ * 버튼이 남는다.
+ *
+ * 막는 행:
+ *  - **선물·환불**(`isRepeatableExpenseType`). 둘 다 월 합계에서 빠지는 기록이라(DNC-015)
+ *    "매월 이만큼 쓴다"의 근거가 될 수 없다. 선물을 정기 지출로 올리면 받은 물건이 매월
+ *    나가는 돈으로 둔갑하고, 환불은 애초에 반복되는 구매가 아니다. 액션시트의 "또 기록"이
+ *    같은 이유로 같은 행에서 사라지는 것과 한 규칙이다.
+ *  - 품목명이 비었거나 금액이 저장 가능한 값이 아닌 행. 채워 봐야 저장 버튼에서 막히는 폼을
+ *    열지 않는다(`recurringPrefillParams`와 같은 규율).
+ *  - **품목명이 상한(100자)을 넘는 행**(라운드 58 통합리뷰 P2-3). 엑셀 가져오기를 거친 기록은
+ *    실제로 101~120자짜리 품목명을 들고 있을 수 있다(가져오기 컬럼은 varchar(120)이다). 그대로
+ *    프리필하면 폼은 채워진 채로 열리지만 저장은 `RECURRING_ITEM_NAME_TOO_LONG_MESSAGE`로
+ *    막히고, 입력 칸의 `maxLength`는 **새로 치는 글자만** 막으므로 사용자는 그 칸을 다 지우기
+ *    전까지 빠져나갈 수 없다 — 눌러도 소용없는 버튼과 같은 자리다.
+ *
+ *    ⚠️ failed-row-prefill.ts는 같은 상황에서 **반대로** 판단한다(길이 초과 메모·품목명을 그대로
+ *    싣는다). 규칙이 갈리는 이유는 두 버튼이 사용자에게 약속하는 것이 다르기 때문이다:
+ *    "고쳐서 다시 보내기"는 **이미 실패한 그 기록을 고칠 기회**라 원문이 없으면 고칠 것 자체가
+ *    없고(잘라 실으면 사용자가 적은 값이 영영 사라진다), 이 버튼은 **새 약속을 만드는 입구**라
+ *    저장할 수 없는 값으로 폼을 여는 것이 아무에게도 이롭지 않다. 필요하면 사용자는 관리 화면의
+ *    빈 폼에서 짧은 이름으로 직접 적을 수 있다 — 그 길은 그대로 남는다.
+ */
+export function recurringTemplatePrefillParams(
+  row: RecurringPrefillExpenseRow
+): RecurringTemplatePrefillParams | null {
+  if (!isRepeatableExpenseType(row.expenseType)) return null;
+  const itemName = row.itemName?.trim() ?? "";
+  if (itemName.length === 0) return null;
+  // 상한 판정은 저장 검증과 **같은 상수**를 본다(숫자를 여기 다시 적지 않는다).
+  if (itemName.length > RECURRING_ITEM_NAME_MAX_LENGTH) return null;
+  const amountKrw = row.amountKrw;
+  if (typeof amountKrw !== "number" || !Number.isInteger(amountKrw) || amountKrw <= 0) return null;
+  if (isAmountOverLimit(amountKrw)) return null;
+  const categoryId = row.categoryId?.trim() ?? "";
+  const dayOfMonth = recurringDayOfMonthOf(row.spentOn);
+  return {
+    itemName,
+    amountKrw: String(amountKrw),
+    ...(categoryId.length > 0 ? { categoryId } : {}),
+    // 화이트리스트 밖("unknown"·고른 적 없음)은 키 자체를 싣지 않는다 — 화면 기본값 그대로.
+    ...(isRecurringPaymentMethod(row.paymentMethod) ? { paymentMethod: row.paymentMethod } : {}),
+    ...(dayOfMonth === null ? {} : { dayOfMonth: String(dayOfMonth) })
+  };
+}
+
+/** 관리 화면 폼이 실제로 쓰는 프리필 값(입력 칸에 그대로 들어가는 문자열). */
+export type RecurringTemplatePrefill = {
+  itemName: string;
+  /** 금액 입력칸의 숫자 문자열. 유효하지 않으면 빈 문자열(= 빈 칸에서 시작). */
+  amountDigits: string;
+  categoryId: string | null;
+  paymentMethod: RecurringPaymentMethod | null;
+  /** 결제일 입력칸("1"~"31"). 유효하지 않으면 빈 문자열. */
+  dayDigits: string;
+  /** 파라미터로 채워진 값이 하나라도 있는가(= 프리필로 열렸는가 — 화면이 안내 한 줄을 켠다). */
+  hasPrefill: boolean;
+};
+
+/**
+ * 결제일 파라미터 → 입력칸 문자열. 1~31 밖의 값·숫자가 아닌 값은 **조용히 빈 칸**이다.
+ *
+ * 기존 프리필 파싱과 같은 규율이다: 링크로 들어온 값을 그대로 믿고 채우면 저장 가드에 걸려
+ * 이유 없이 막히는 폼이 된다. 버리면 사용자는 평소처럼 날짜를 고르면 된다.
+ *
+ * 라운드 58 통합리뷰 P2-6: 파라미터 정규화(string | string[])는 프리필 계약의 것을 그대로
+ * 쓴다(`firstPrefillParamValue`). 이 파일에도 같은 함수의 사본이 있었는데, 사본이 남아 있으면
+ * 언젠가 한쪽만 고쳐져 같은 링크가 화면마다 다른 값을 채운다 — record-row-actions.ts가 그
+ * 함수를 내보내는 이유가 정확히 그것이다(그 주석 참고).
+ */
+function parseRecurringDayParam(value: unknown): string {
+  const raw = firstPrefillParamValue(value).trim();
+  if (!/^\d{1,2}$/.test(raw)) return "";
+  const day = Number(raw);
+  return day >= 1 && day <= 31 ? String(day) : "";
+}
+
+/**
+ * 라우트 파라미터 → 폼 프리필.
+ *
+ * 금액·분류·결제 수단은 기존 계약의 파서를 그대로 지난다(`parseExpensePrefillParams`) — 이
+ * 모듈은 결제일 한 칸만 더 본다. 파라미터가 없으면 전부 빈 값이라, 프리필 없이 열린 화면은
+ * 예전과 한 픽셀도 다르지 않다.
+ */
+export function parseRecurringTemplatePrefill(params: {
+  itemName?: unknown;
+  amountKrw?: unknown;
+  categoryId?: unknown;
+  paymentMethod?: unknown;
+  dayOfMonth?: unknown;
+}): RecurringTemplatePrefill {
+  const shared = parseExpensePrefillParams(params);
+  const dayDigits = parseRecurringDayParam(params.dayOfMonth);
+  return {
+    itemName: shared.itemName,
+    amountDigits: shared.amountText,
+    categoryId: shared.categoryId,
+    paymentMethod: shared.paymentMethod,
+    dayDigits,
+    hasPrefill:
+      shared.itemName.length > 0 ||
+      shared.amountText.length > 0 ||
+      shared.categoryId !== null ||
+      shared.paymentMethod !== null ||
+      dayDigits.length > 0
   };
 }

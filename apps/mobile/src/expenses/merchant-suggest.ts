@@ -16,8 +16,14 @@
  * ## 이웃 모듈과의 역할 구분
  *  - `item-autocomplete.ts`: 같은 캐시를 읽는 **품목명** 자동완성. 이 모듈은 그 문법(순수 함수,
  *    구조적 소스 타입, 상한 상수, 칩 라벨 헬퍼)을 그대로 본떴다.
- *  - `recent-items.ts`: 폼 상단의 최근 품목 칩. 아래 `buildRecentMerchantSuggestions`가 판매처
- *    쪽에서 같은 자리를 맡는다(타이핑과 무관하게 포커스 시 보여 주는 칩).
+ *  - `recent-items.ts`: 폼 상단의 최근 품목 칩. 판매처 쪽에서 같은 자리(타이핑 전 포커스 칩)를
+ *    맡는 것은 **이 함수 자신**이다 — 빈 입력이면 최근 판매처 상위 N을 돌려주므로 두 갈래가
+ *    한 함수·한 정렬이고, 첫 글자를 치는 순간 칩이 뒤집히지 않는다.
+ *    (GAP-058 P3: 그 갈래에 이름만 다른 얇은 별칭 `buildRecentMerchantSuggestions`가 있었는데
+ *    호출부가 0건이라 지웠다. 두 화면 모두 사용자가 친 값을 그대로 넘기므로 — `merchantFocused`가
+ *    칩 표시 여부를 가르고 값은 빈 문자열일 수 있다 — 별칭이 들어갈 자리가 애초에 없다.)
+ *  - `suggest-source.ts`: GAP-058 #6의 공용 원천. 이 모듈에 넘길 행 목록(`SuggestSourceRow[]`)을
+ *    오프라인 스냅숏 + 서버 이번 달·지난달 캐시에서 한 벌로 만든다 — 아래 소스 타입 주석 참고.
  *
  * ## 정규화·매칭 규칙은 한 벌뿐이다
  * 판매처 문자열을 다루는 규칙은 이미 기록 탭 검색에 있다(GAP-054 D#8의 판매처 갈래 —
@@ -41,6 +47,12 @@ import { matchRecordSearch, normalizeRecordSearchText } from "./records-list-vie
  * 과거 기록 행 중 이 모듈이 읽는 필드만 구조적으로 요구한다 — `Expense`(src/api/client.ts)가
  * 그대로 대입되고, 오프라인 대기 행도 `{ merchant: row.payload.merchant, spentOn: … }` 한 줄로
  * 맞춰 넣을 수 있다.
+ *
+ * GAP-058 #6: 그 "한 줄로 맞춰 넣는" 일을 화면마다 다시 하지 않도록, 두 원천을 합친 통합 행
+ * `SuggestSourceRow`(suggest-source.ts)가 **이 타입에 그대로 대입되도록** 고정해 두었다
+ * (그쪽의 `SuggestSourceRowFitsMerchantSuggest` — 어긋나면 tsc가 먼저 막는다). 그래서 이 함수의
+ * 시그니처를 바꾸지 않고도 `buildMerchantSuggestions(merchant, suggestSourceRows)`가 그대로
+ * 동작한다 — 배선 전인 지금의 호출부(서버 캐시 배열)도 물론 그대로다.
  */
 export type MerchantSuggestSourceRow = {
   /** `Expense.merchant` — 선택 입력이라 대개 비어 있다. 비면 이 행은 후보가 아니다. */
@@ -170,18 +182,6 @@ function compareMerchantGroups(a: MerchantGroup, b: MerchantGroup): number {
     return a.lastSpentOn < b.lastSpentOn ? 1 : -1;
   }
   return a.order - b.order;
-}
-
-/**
- * 폼 포커스 시 보여 주는 **최근 판매처 칩**. `buildMerchantSuggestions("")`와 같은 함수·같은
- * 정렬이라, 첫 글자를 치는 순간 칩 순서가 통째로 뒤집히는 일이 없다(같은 목록이 좁혀질 뿐이다).
- * 호출부에서 "빈 문자열을 넘긴다"는 트릭을 읽게 하지 않으려고 이름만 따로 둔다.
- */
-export function buildRecentMerchantSuggestions(
-  rows: readonly MerchantSuggestSourceRow[],
-  limit: number = MERCHANT_SUGGEST_RECENT_LIMIT
-): MerchantSuggestion[] {
-  return buildMerchantSuggestions("", rows, { limit });
 }
 
 /**

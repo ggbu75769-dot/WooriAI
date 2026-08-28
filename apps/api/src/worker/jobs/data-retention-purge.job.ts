@@ -47,6 +47,43 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_ANALYTICS_EVENTS_RETENTION_DAYS = 400;
 export const DEFAULT_AFFILIATE_CLICKS_RETENTION_DAYS = 400;
 
+/**
+ * GAP-058 #10: audit_logs retention (phase 8).
+ *
+ * Until this constant existed, `audit_logs` was the one table with NO deletion
+ * path at all: phase 3 nullifies its actorUserId, phase 5 rewrites one legacy
+ * field, and nothing anywhere deletes a row. Every admin action, every expense
+ * update (CS-101), every consent write appends forever, so the table grows
+ * without bound and — more importantly — an operational record that nobody has
+ * decided to keep is kept anyway, indefinitely.
+ *
+ * **730 days (2 years), deliberately LONGER than the 400-day telemetry
+ * windows.** The two tables serve different purposes and that difference is
+ * the whole reason the number differs:
+ *  - analytics/clicks are 정산·통계 substrate — their value decays with the
+ *    reporting window they feed (year-over-year + a settlement dispute
+ *    margin), hence ~13 months.
+ *  - audit_logs is the 책임 추적(accountability) record: "who changed this
+ *    amount / who looked this user up / who removed this member". Those
+ *    questions arrive LATE — a CS dispute, an internal review, a regulator's
+ *    or a user's inquiry about something that happened last year — and the
+ *    row is the only evidence that exists. 2 years covers a full year plus a
+ *    year of lag, which is also the conventional floor for 이용자 문의·분쟁
+ *    대응 기록.
+ * Erring long is the safe direction here too: these rows carry no raw
+ * identifiers by the time a person is purged (phase 3 nulls actorUserId,
+ * ipHash is a salted one-way hash, phase 5 masks the one legacy free-text
+ * field), so keeping them longer is a storage cost, not a privacy exposure —
+ * while deleting them early destroys the only record of who did what.
+ *
+ * Overridable via AUDIT_LOGS_RETENTION_DAYS. ⚠️ **짧게 조정하는 것은 PM/법무
+ * 확인 대상이다**: 보존 기간을 줄이는 순간 되돌릴 수 없는 삭제가 시작되고,
+ * 그 기간은 개인정보처리방침("법적 근거에 따른 보관" — infra/legal/
+ * privacy-policy.html)과 내부 감사 정책이 함께 정하는 값이다. 코드에서 혼자
+ * 줄이지 말 것. 늘리는 방향은 안전하다.
+ */
+export const DEFAULT_AUDIT_LOGS_RETENTION_DAYS = 730;
+
 // Poison-row escalation (review M1): after this many CONSECUTIVE ticks in
 // which a phase failed terminally (first attempt AND halved retry), the phase
 // starts skipping head rows of its deterministic ordering — see runPhase.
@@ -100,7 +137,7 @@ function errorMessage(error: unknown): string {
  * idempotency_keys never had one). Deletion order below is therefore not just
  * hygiene — Postgres enforces it.
  *
- * Seven phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
+ * Eight phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
  * run INDEPENDENTLY: each is wrapped in its own try/catch so one poisoned
  * phase can never block the others; a phase's terminal error is reported in
  * the summary (`<phase>Error`) and the later phases still run. A phase whose
@@ -275,6 +312,25 @@ function errorMessage(error: unknown): string {
  *    affiliate_clicks either, so this too is a plain batched deleteMany —
  *    but note it destroys settlement/analytics evidence, hence the long
  *    default window.
+ *
+ * 8. Aged-out audit logs (AuditLog.createdAt < now −
+ *    AUDIT_LOGS_RETENTION_DAYS, default 730 — see the constant's doc for why
+ *    the accountability record is kept LONGER than the 400-day telemetry
+ *    windows, and why shortening it is a PM/법무 decision rather than a code
+ *    one). GAP-058 #10: audit_logs was the last table with no deletion path
+ *    at all — phase 3 only nullifies its actorUserId and phase 5 only masks
+ *    one legacy field, so it grew forever and the retention question was
+ *    never actually answered anywhere. Same shape as phases 6-7: selection is
+ *    a plain range on created_at ordered (created_at, id), which is exactly
+ *    idx_audit_logs_created_at (ADM-113/000012) — no new index needed — and
+ *    nothing FKs audit_logs (its user/household FKs were dropped in 000002),
+ *    so the delete is a plain batched deleteMany.
+ *
+ *    Ordering note: this phase runs AFTER phase 5, so a legacy row inside the
+ *    window is still scrubbed on the tick it would be deleted; a row past the
+ *    window is deleted outright, which subsumes the scrub. Both orders are
+ *    correct — this one just never leaves a raw term behind if the delete
+ *    fails.
  */
 /**
  * Terminal wrapper thrown by run() AFTER all phases have executed, when at
@@ -316,6 +372,9 @@ export class DataRetentionPurgeJob implements WorkerJob {
     const affiliateClicksRetentionDays = this.affiliateClicksRetentionDays();
     const analyticsEventsCutoff = new Date(now.getTime() - analyticsEventsRetentionDays * DAY_MS);
     const affiliateClicksCutoff = new Date(now.getTime() - affiliateClicksRetentionDays * DAY_MS);
+    // GAP-058 #10: 감사 로그도 자기 창(기본 730일)을 쓴다 — 텔레메트리보다 길다(상수 주석).
+    const auditLogsRetentionDays = this.auditLogsRetentionDays();
+    const auditLogsCutoff = new Date(now.getTime() - auditLogsRetentionDays * DAY_MS);
 
     // Phases run independently (see class doc): a failure in one is captured
     // in the summary and never prevents the later phases from running.
@@ -362,19 +421,29 @@ export class DataRetentionPurgeJob implements WorkerJob {
       (size, skip) => this.purgeAffiliateClicks(affiliateClicksCutoff, size, skip),
       { affiliateClicksPurged: 0 }
     );
+    // Phase 8 (GAP-058 #10): accountability-record retention. Runs after the
+    // phase-5 scrub on purpose (class doc, item 8).
+    const auditLogs = await this.runPhase(
+      "auditLogPurge",
+      batchSize,
+      (size, skip) => this.purgeAuditLogs(auditLogsCutoff, size, skip),
+      { auditLogsPurged: 0 }
+    );
 
     const summary = {
       retentionDays,
       batchSize,
       analyticsEventsRetentionDays,
       affiliateClicksRetentionDays,
+      auditLogsRetentionDays,
       ...expenses,
       ...children,
       ...users,
       ...stubs,
       ...lookupQueries,
       ...analyticsEvents,
-      ...affiliateClicks
+      ...affiliateClicks,
+      ...auditLogs
     };
 
     // Review M1b: all phases have run; if any of them failed terminally,
@@ -922,6 +991,46 @@ export class DataRetentionPurgeJob implements WorkerJob {
   }
 
   /**
+   * Phase 8 (GAP-058 #10): audit logs past their retention window.
+   *
+   * Identical machinery to phases 6-7, on created_at: the (created_at, id)
+   * ordering is served by idx_audit_logs_created_at (ADM-113/000012), the same
+   * index the admin audit viewer's list query uses, so no new index is needed.
+   * Nothing FKs audit_logs (its user/household FKs were dropped in migration
+   * 000002), so this is a plain batched deleteMany inside the usual
+   * transaction.
+   *
+   * Note what this destroys: the 책임 추적 기록 itself, not personal data —
+   * which is why the default window is the longest of all phases and why
+   * shortening it is a PM/법무 결정 (see DEFAULT_AUDIT_LOGS_RETENTION_DAYS).
+   */
+  private async purgeAuditLogs(cutoff: Date, batchSize: number, skip: number) {
+    const where = { createdAt: { lt: cutoff } } satisfies Prisma.AuditLogWhereInput;
+    // id tiebreaker: strict total order (see purgeExpenses / review L1).
+    const orderBy = [{ createdAt: "asc" }, { id: "asc" }] satisfies Prisma.AuditLogOrderByWithRelationInput[];
+    if (skip > 0) {
+      const skipped = await this.prisma.auditLog.findMany({ where, select: { id: true }, orderBy, take: skip });
+      this.logPoisonSkippedRows("auditLogPurge", "audit_logs", skipped.map((row) => row.id));
+    }
+    const rows = await this.prisma.auditLog.findMany({
+      where,
+      select: { id: true },
+      orderBy,
+      skip,
+      take: batchSize
+    });
+    if (rows.length === 0) {
+      return { auditLogsPurged: 0 };
+    }
+    const ids = rows.map((row) => row.id);
+    const deleted = await this.prisma.$transaction(
+      (tx) => tx.auditLog.deleteMany({ where: { id: { in: ids } } }),
+      PURGE_TX_OPTIONS
+    );
+    return { auditLogsPurged: deleted.count };
+  }
+
+  /**
    * Returns the subset of userIds still referenced by a NOT NULL FK column on
    * a surviving row — the references that make a hard DELETE of the users row
    * impossible without destroying another member's shared household data.
@@ -1056,5 +1165,10 @@ export class DataRetentionPurgeJob implements WorkerJob {
   private affiliateClicksRetentionDays(): number {
     const raw = Number(process.env.AFFILIATE_CLICKS_RETENTION_DAYS);
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_AFFILIATE_CLICKS_RETENTION_DAYS;
+  }
+
+  private auditLogsRetentionDays(): number {
+    const raw = Number(process.env.AUDIT_LOGS_RETENTION_DAYS);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_AUDIT_LOGS_RETENTION_DAYS;
   }
 }

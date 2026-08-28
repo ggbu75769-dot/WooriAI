@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { BadRequestException, HttpException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import { EXPENSE_ITEM_NAME_MAX_LENGTH } from "@wooriai/contracts";
 import { isMoneyKrw, type ImportStatus } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -24,19 +25,53 @@ import {
 /**
  * 라운드 57 QA(P2-13) — `import_rows`의 텍스트 컬럼 폭(`@db.VarChar(120)`).
  *
- * DTO의 `@MaxLength(100)`(검수 화면이 고쳐 보내는 값의 계약)이 아니라 **물리적 한계**다. 엑셀
- * 가져오기는 사용자가 만든 파일을 그대로 읽으므로 계약보다 넓은 값이 들어올 수 있고, 이 숫자를
- * 넘는 순간 insert가 DB에서 터진다. 두 숫자의 관계는 모바일 text-limits.ts 머리말의 "컬럼은
+ * **물리적 한계 하나만** 뜻한다(계약이 아니다). 엑셀 가져오기는 사용자가 만든 파일을 그대로
+ * 읽으므로 계약보다 넓은 값이 들어올 수 있고, 이 숫자를 넘는 순간 `import_rows` insert가 DB에서
+ * 터진다 — 그래서 이 숫자를 넘는 값은 **저장 자체를 포기**하고 비운다(아래 buildImportRowsFromParsed).
+ * "무엇이 유효한 품목명인가"를 정하는 숫자는 이것이 아니라 바로 아래
+ * `IMPORT_ITEM_NAME_MAX_LENGTH`다. 두 숫자의 관계는 모바일 text-limits.ts 머리말의 "컬럼은
  * 120인데 상한이 100인 이유"와 같다.
  */
 const IMPORT_TEXT_COLUMN_MAX_LENGTH = 120;
 
-/** 이 행의 `validationStatus` — 품목명이 컬럼 폭을 넘어 저장할 수 없었다. */
+/**
+ * GAP-058 #8 — 가져오기 행이 만들어 낼 수 있는 품목명의 **계약 상한**(= 지출 계약의 상한).
+ *
+ * 무엇이 남아 있었나: 라운드 57은 컬럼 폭(120)만 봤다. 그런데 확정(`confirmImport`)은 DTO를
+ * 지나지 않고 `insertExpense`를 직접 호출하므로, 101~120자짜리 품목명이 그대로 **지출로**
+ * 생성됐다. 그렇게 생긴 지출은 지출 상세에서 열어 저장하는 순간 `UpdateExpenseDto.itemName`의
+ * `@MaxLength(100)`에 걸려 400이 된다 — 앱이 만들어 놓고 앱이 고칠 수 없는 기록이다(모바일
+ * text-limits.ts 머리말이 말하는 "이미 들어 있는 값" 문제의 발생원이 바로 이 경로였다).
+ *
+ * 그래서 강등 임계를 **계약값(contracts `EXPENSE_ITEM_NAME_MAX_LENGTH` = 100)** 으로 맞춘다.
+ * 121자 이상과 **같은 경로**다: 같은 `item_name_too_long` 상태, 같은 "행 미선택". 다른 점은
+ * 값을 지우느냐뿐이고, 그 판단의 근거는 순전히 물리적이다(121자 이상은 담을 칸이 없어서 비운다).
+ *
+ * 판매처(`import_rows.merchant`)에는 지금 해당 사항이 없다 — 파서가 `merchant`를 만들지 않고
+ * (`ParsedImportRow`에 그 필드가 없다) 이 insert도 그 컬럼을 쓰지 않는다. 파서가 판매처를
+ * 만들게 되는 날 **같은 자리에서 같은 규칙으로**(계약값 `EXPENSE_MERCHANT_MAX_LENGTH` = 100로
+ * 강등, 컬럼 폭 120 초과는 비움) 막으면 된다. 없는 경로를 위한 코드를 미리 적어 두면 다음
+ * 사람이 그것을 "이미 쓰이는 값"으로 읽는다.
+ */
+const IMPORT_ITEM_NAME_MAX_LENGTH = EXPENSE_ITEM_NAME_MAX_LENGTH;
+
+/** 이 행의 `validationStatus` — 품목명이 상한을 넘어 이 행만 가져올 수 없다. */
 const IMPORT_ROW_ITEM_NAME_TOO_LONG_STATUS = "item_name_too_long";
 
-/** 저장할 수 없는 길이인가. 값이 없으면(선택 입력·빈 셀) 길이 문제는 아니다. */
+/** 컬럼에 **담을 수조차** 없는 길이인가. 값이 없으면(선택 입력·빈 셀) 길이 문제는 아니다. */
 function isOverImportTextColumn(value: string | null | undefined): boolean {
   return typeof value === "string" && value.length > IMPORT_TEXT_COLUMN_MAX_LENGTH;
+}
+
+/**
+ * 지출로 만들 수 없는 길이인가(계약 상한 초과).
+ *
+ * `trim()`한 길이로 본다 — 확정이 지출에 넣는 값이 `insertExpense`의 `input.itemName.trim()`이고
+ * (expenses-store.service.ts), 검수 화면이 PATCH로 보내는 값도 서버가 `cleanOptionalText`로 다듬은
+ * 값이다. 같은 값으로 재지 않으면 "여기서는 통과했는데 저장하면 400"이 다시 생긴다.
+ */
+function isOverImportItemNameLimit(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.trim().length > IMPORT_ITEM_NAME_MAX_LENGTH;
 }
 
 type ImportRowRow = {
@@ -349,8 +384,33 @@ export class ImportPipelineService {
       categoryId: row.categoryId ?? undefined,
       confidence: Number(row.confidence),
       selected: row.selected,
-      validationStatus: row.validationStatus
+      validationStatus: this.displayValidationStatusForImportRow(row)
     };
+  }
+
+  /**
+   * 라운드 58 통합리뷰 P2-4 — 검수 화면에 내보내는 상태는 **저장된 값이 아니라 지금 판정한 값**이다.
+   *
+   * 무엇이 어긋나 있었나: 이 파이프라인에는 상태를 묻는 자리가 셋이다 — 미리보기 생성
+   * (`buildImportRowsFromParsed`) · 검수 PATCH(`updateImportRow`) · 확정(`confirmImport`).
+   * 뒤의 둘은 언제나 `validationStatusForImportRow`를 지나는데, **읽기 경로**(listImportRows →
+   * toImportRowDto)만 미리보기 생성 시점에 저장된 문자열을 그대로 돌려주고 있었다. 그래서 그
+   * 판정이 바뀐 배포(GAP-058 #8: 101~120자 품목명 강등) 이전에 만들어진 잡의 110자 행은
+   * 검수 화면에 여전히 `valid`로, 체크된 채로, "가져올 수 있어요"라는 얼굴로 서 있었다 —
+   * 그리고 확정을 누르면 그 행만 조용히 빠졌다(확정은 다시 판정하므로). 화면이 사용자에게
+   * 참이 아닌 것을 보여 준 뒤 말없이 다르게 행동하는 자리다.
+   *
+   * 세 경로가 같은 자를 쓰면 그 어긋남이 구조적으로 사라진다. 저장된 컬럼은 건드리지 않는다
+   * (읽기 요청이 쓰기를 하지 않는다 — 다음 PATCH가 그 행을 지날 때 자연히 맞춰진다).
+   *
+   * 예외 하나: **121자 이상이라 값을 비운 행**(`item_name_too_long`). 저장된 행만 보면 품목명이
+   * 빈 행과 구별되지 않아 다시 판정하면 `missing_item_name`이 되는데, 그건 사실보다 덜 정확한
+   * 사유다(원본은 비어 있던 것이 아니라 너무 길었다 — buildImportRowsFromParsed 주석). 그 행은
+   * 저장된 상태가 더 정확하므로 그대로 둔다.
+   */
+  private displayValidationStatusForImportRow(row: ImportRowRow) {
+    if (row.validationStatus === IMPORT_ROW_ITEM_NAME_TOO_LONG_STATUS) return row.validationStatus;
+    return this.validationStatusForImportRow(row);
   }
 
   private requireAcceptedImportFile(input: CreateImportJobInput) {
@@ -427,7 +487,7 @@ export class ImportPipelineService {
         row.dateIso && row.amountKrw != null ? existingExpenseIdByKey.get(`${row.dateIso}|${row.amountKrw}`) ?? null : null;
 
       /**
-       * 라운드 57 QA(P2-13) — **컬럼 폭을 넘는 품목명이 파일 전체를 500으로 만들지 않게.**
+       * 라운드 57 QA(P2-13) — **너무 긴 품목명이 파일 전체를 500으로 만들지 않게.**
        *
        * `import_rows.parsed_item_name`은 `varchar(120)`이다(prisma/schema.prisma). 파일에 121자
        * 이상인 셀이 한 줄이라도 있으면 아래 `importRow.create`가 DB에서 터지고, 그 insert는
@@ -437,25 +497,27 @@ export class ImportPipelineService {
        *
        * 자르지 않는다. 사용자가 적은 값을 앱이 조용히 짧게 만들면 그 뒤로는 원본을 되찾을 방법이
        * 없고, 그건 이 저장소의 계약 위반이다(모바일 text-limits.ts 머리말: "조용히 잘라 버리지
-       * 않는다"). 검수 화면에 **원본을 보존한 채로 보여줄 자리도 없다** — 보여줄 값이 곧 저장된
-       * 값이고, 컬럼이 그 길이를 담지 못한다. 그래서 금액과 같은 선택을 한다: 값을 비우고 그
-       * 행만 별도 상태로 떨군다. 사용자에게는 "이 행은 가져올 수 없어요 · 원본 파일에서 고친 뒤
-       * 다시 올려 주세요"로 보이고(모바일 preview-rows.ts는 모르는 상태를 보수적으로 `locked`로
-       * 떨어뜨린다), 같은 파일의 나머지 행은 평소대로 살아난다.
+       * 않는다"). 121자 이상은 검수 화면에 **원본을 보존한 채로 보여줄 자리도 없다** — 보여줄
+       * 값이 곧 저장된 값이고, 컬럼이 그 길이를 담지 못한다. 그래서 금액과 같은 선택을 한다:
+       * 값을 비우고 그 행만 별도 상태로 떨군다. 사용자에게는 "이 행은 가져올 수 없어요 · 원본
+       * 파일에서 고친 뒤 다시 올려 주세요"로 보이고(모바일 preview-rows.ts는 모르는 상태를
+       * 보수적으로 `locked`로 떨어뜨린다), 같은 파일의 나머지 행은 평소대로 살아난다.
        *
-       * 판매처는 여기서 방어할 것이 없다: `import_rows.merchant` 컬럼은 있지만 파서가
-       * `merchant`를 만들지 않고(`ParsedImportRow`에 그 필드가 없다) 이 insert도 그 컬럼을 쓰지
-       * 않는다. 없는 경로를 위한 방어를 미리 적어 두면 다음 사람이 그것을 "이미 쓰이는 값"으로
-       * 읽는다 — 파서가 판매처를 만들게 되는 날 같은 자리에서 같은 규칙으로 막으면 된다.
+       * GAP-058 #8 — 101~120자는 **담을 수는 있지만 지출이 될 수는 없는** 구간이다(계약 상한은
+       * 100 — IMPORT_ITEM_NAME_MAX_LENGTH 주석). 121자 이상과 같은 상태·같은 미선택으로 떨구되
+       * **값은 지우지 않는다**: 컬럼이 담을 수 있는 값을 굳이 비우면 사용자가 어느 행인지조차
+       * 알 수 없고, 원본을 보존하는 편이 이 저장소의 기본값이다. 길이 판정 자체는
+       * `validationStatusForImportRow`가 들고 있으므로(그래야 검수 화면의 PATCH·확정도 같은
+       * 자를 쓴다) 여기서는 값을 비울지만 정한다.
        */
-      const itemNameTooLong = isOverImportTextColumn(row.itemName);
+      const itemNameOverColumn = isOverImportTextColumn(row.itemName);
 
       const base = {
         id: randomUUID(),
         importJobId: "",
         rowIndex: row.rowIndex,
         parsedDate: row.dateIso ? toDateOnly(row.dateIso) : null,
-        parsedItemName: itemNameTooLong ? null : row.itemName,
+        parsedItemName: itemNameOverColumn ? null : row.itemName,
         /**
          * GAP-054 라운드 54 P1-1: `import_rows.parsed_amount_krw`도 int4다. 파일이 그 범위를
          * 넘는 값을 들고 오면 **미리보기 행 생성 자체가 500**이라, 검증 상태를 붙이기는커녕
@@ -472,10 +534,11 @@ export class ImportPipelineService {
         duplicateCandidateExpenseId
       };
 
-      // 길이 초과는 저장된 행만 봐서는 알 수 없다(값을 비웠으므로 "빈 품목명"과 구별되지 않는다).
+      // 121자 이상은 저장된 행만 봐서는 알 수 없다(값을 비웠으므로 "빈 품목명"과 구별되지 않는다).
       // 그래서 원본을 아는 이 자리에서 상태를 정한다 -- 그래야 화면이 "비어 있다"가 아니라
-      // "너무 길다"라는 **실제 사유**를 말할 수 있다.
-      const validationStatus = itemNameTooLong
+      // "너무 길다"라는 **실제 사유**를 말할 수 있다. 101~120자는 값이 그대로 남아 있으므로
+      // validationStatusForImportRow가 같은 상태를 스스로 판정한다(같은 임계·같은 상태).
+      const validationStatus = itemNameOverColumn
         ? IMPORT_ROW_ITEM_NAME_TOO_LONG_STATUS
         : this.validationStatusForImportRow(base);
       return { ...base, validationStatus, selected: validationStatus === "valid" };
@@ -499,6 +562,15 @@ export class ImportPipelineService {
     }
 
     if (!row.parsedItemName?.trim()) return "missing_item_name";
+
+    /**
+     * GAP-058 #8: 확정은 DTO를 지나지 않는다(`confirmImport` -> `insertExpense`). 그러니 "지출
+     * 계약에 맞는 길이인가"는 **여기서** 한 번 물어야 한다 — 여기가 미리보기 생성·검수 PATCH·
+     * 확정이 모두 지나는 유일한 자리다. 금액이 `requireMoneyKrw`로 int4 상한을 함께 보는 것과
+     * 같은 구조다(라운드 54 P1-1). 통과하지 못한 행은 `selected`에서 빠지고(update 경로) 확정의
+     * `importableRows`에서도 빠지므로, 상한을 넘긴 품목명이 지출이 되는 경로가 없어진다.
+     */
+    if (isOverImportItemNameLimit(row.parsedItemName)) return IMPORT_ROW_ITEM_NAME_TOO_LONG_STATUS;
 
     // GAP-054 라운드 54 P1-1: 이 판정은 도메인 술어(`assertMoneyKrw`)를 그대로 지나므로
     // **int4 상한**까지 함께 본다. 상한이 없던 동안 초과 금액 행이 `valid`로 판정돼 기본

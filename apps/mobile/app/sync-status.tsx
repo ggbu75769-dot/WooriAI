@@ -19,18 +19,22 @@ import {
   SYNC_STATUS_DISCARD_ALL_LABEL,
   SYNC_STATUS_DISCARD_LABEL,
   SYNC_STATUS_FAILED_LABEL,
+  SYNC_STATUS_FIX_AND_RESEND_LABEL,
   SYNC_STATUS_PENDING_LABEL,
   SYNC_STATUS_RETRY_LABEL,
   SYNC_STATUS_SYNCING_LABEL,
   SYNC_STATUS_SYNCING_ROW_MESSAGE
 } from "../src/offline/messages";
 import {
+  countRetryableFailedRows,
   isPermissionDeniedSyncError,
   isRetryableSyncFailureRow,
   SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT,
   SYNC_STATUS_PERMANENT_FAILURE_HINT,
   SYNC_STATUS_PERMISSION_DENIED_HINT
 } from "../src/offline/permission-denied";
+import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";
+import { useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
 import { itemStatusLabel } from "../src/items/item-labels";
 import { ITEM_STATUS_QUEUED_MESSAGE } from "../src/items/status-mutation-messages";
 import {
@@ -49,6 +53,7 @@ import {
 } from "../src/offline/sync-controller";
 import type { ExpensePayload, ItemStatusOutboxRow, LocalExpenseRow } from "../src/offline/types";
 import { formatKrw } from "../src/money";
+import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
@@ -266,11 +271,27 @@ function ConflictRow({
 const FailedRow = memo(function FailedRow({
   row,
   token,
-  queryClient
+  queryClient,
+  selectedChildId,
+  expenseEntryLocked,
+  explainExpenseEntryLock
 }: {
   row: LocalExpenseRow;
   token: string;
   queryClient: ReturnType<typeof useQueryClient>;
+  /**
+   * 라운드 58 통합리뷰 P1-1 — 지금 선택된 아이. 아래 "고쳐서 다시 보내기" 게이트의 재료다
+   * (문자열이라 참조가 안정적이고 이 memo를 깨지 않는다).
+   */
+  selectedChildId: string | null;
+  /**
+   * 라운드 58 #5 / UX-R(M): "고쳐서 다시 보내기"는 **새 지출을 만드는 진입점**이라 보기 전용
+   * 참여자에게는 잠긴다(라운드 40 J-9의 역방향 계약 — /expenses/new로 가는 파일은 전부 이
+   * 게이트를 지난다). 판정은 화면 하나에서 한 번만 하고(useExpenseEntryGate) 행에는 참조가
+   * 안정적인 두 값만 내려 보낸다 — 매 렌더 새 핸들러를 만들면 이 memo가 무의미해진다.
+   */
+  expenseEntryLocked: boolean;
+  explainExpenseEntryLock: () => void;
 }) {
   if (isPermissionDeniedSyncError(row)) {
     return (
@@ -281,10 +302,50 @@ const FailedRow = memo(function FailedRow({
     );
   }
   if (!isRetryableSyncFailureRow(row)) {
+    // 라운드 58 #5: 위 안내가 시키는 "내용을 고쳐 새로 기록"에 실제 경로를 준다. 프리필을 만들
+    // 수 없는 행(선물·환불, 빈 품목명, 0 이하 금액)에서는 params가 null이라 버튼 자체를 내지
+    // 않는다 -- 눌러도 아무 일이 없는 버튼을 남기지 않는다(그 행에도 버리기는 그대로 남는다).
+    // 원본 행은 여기서 지우지 않는다: 새 저장이 확정된 뒤에 기록 시트가 버린다(failedLocalId).
+    //
+    // 라운드 58 통합리뷰 P1-1 — **아이 게이트**. 트랙 A의 canRegisterRecurring이 같은 자리에서
+    // 같은 판단을 한다(app/expenses/[expenseId].tsx): "관리 화면은 언제나 **지금 선택된 아이**의
+    // 템플릿을 만든다(app/expenses/recurring.tsx의 `selectedChildId`). 그래서 다른 아이의 지출을
+    // 보다가 이 버튼을 누르면, 사용자가 고른 적 없는 아이 밑으로 정기 지출이 조용히 들어간다".
+    // 기록 시트도 언제나 지금 선택된 아이 밑으로 저장하므로 같은 규칙이 그대로 적용되는데,
+    // 여기서는 대가가 더 크다: 새 저장이 확정되면 **원본 실패 행이 폐기된다**. 즉 아이 A의 행을
+    // B 선택 상태에서 고치면 A의 지출 한 건이 B 밑으로 옮겨 앉고 원본은 사라진다(서버에 없는
+    // 행이라 되돌릴 수 없다 — 데이터 손실). 그래서 어긋난 행에는 버튼을 내지 않는다.
+    // **버리기는 그대로 남는다**: 그 행에서 사용자가 취할 수 있는 행동을 없애지 않는다.
+    // 시트에도 같은 판정이 한 겹 더 있다(failed-row-prefill.ts `isFailedRowChildMismatch`).
+    const fixParams = row.payload.childId === selectedChildId ? buildFailedRowPrefillParams(row) : null;
     return (
       <SyncRow row={row}>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMANENT_FAILURE_HINT}</Text>
-        <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
+        {fixParams ? (
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <SecondaryButton
+              label={SYNC_STATUS_FIX_AND_RESEND_LABEL}
+              onPress={() => {
+                // 보기 전용 참여자에게는 안내로 답한다. 목적지 시트의 저장도 같은 판정을
+                // 지나지만(라운드 40 J-1), 다 채운 뒤 저장에서 막히는 것보다 지금 말하는 편이
+                // 정직하다. 버튼을 지우지 않는 것은 이 앱의 관례다(useExpenseEntryGate 주석).
+                if (expenseEntryLocked) {
+                  explainExpenseEntryLock();
+                  return;
+                }
+                router.push({ pathname: "/expenses/new", params: fixParams });
+              }}
+              style={{ flex: 1 }}
+            />
+            <SecondaryButton
+              label={SYNC_STATUS_DISCARD_LABEL}
+              onPress={() => discardOfflineMutation(row.localId)}
+              style={{ flex: 1 }}
+            />
+          </View>
+        ) : (
+          <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
+        )}
       </SyncRow>
     );
   }
@@ -413,6 +474,15 @@ export default function SyncStatusScreen() {
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const queryClient = useQueryClient();
   const snapshot = useOfflineSyncSnapshot();
+  // 라운드 58 #5: 이 화면이 /expenses/new 진입점이 됐다("고쳐서 다시 보내기"). 판정은 여기서
+  // 한 번만 하고, 두 값 모두 렌더 간 참조가 안정적이라(불리언 · 모듈 스코프 함수) 행 memo를
+  // 깨지 않는다 -- 기록 탭의 행 액션이 같은 이유로 같은 모양을 쓴다.
+  const expenseGate = useExpenseEntryGate();
+  const expenseEntryLocked = expenseGate.locked;
+  const explainExpenseEntryLock = expenseGate.explain;
+  // 라운드 58 통합리뷰 P1-1: "고쳐서 다시 보내기"가 여는 시트는 **지금 선택된 아이** 밑으로
+  // 저장한다. 그래서 그 버튼은 이 아이의 행에만 선다(판정 근거는 FailedRow의 fixParams 주석).
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
 
   useEffect(() => {
     void refreshOfflineSyncSnapshot();
@@ -449,6 +519,21 @@ export default function SyncStatusScreen() {
   const pendingRows = snapshot.rows.filter((row) => row.syncState === "pending" || row.syncState === "syncing");
   const failedRows = snapshot.rows.filter((row) => row.syncState === "failed");
   const conflictRows = snapshot.rows.filter((row) => row.syncState === "conflict");
+  /**
+   * 라운드 58 #4 — 일괄 "재시도"가 **실제로 다룰 수 있는** 지출 실패 행 수.
+   *
+   * 종전에는 라벨이 실패 행을 전량 셌다(`failedRows.length`). 그런데 그 버튼이 부르는
+   * `retryAllFailedMutations`는 라운드 47·57 이후 403과 재시도가 무익한 4xx를 제외하고 큐에
+   * 올린다 -- 화면에 403 한 건과 400 두 건만 남으면 "지출 3건 재시도"라고 적힌 버튼이 0건을
+   * 되돌렸다. 개별 행에서는 이미 재시도 자리를 안내로 바꿔 두고서, 섹션 머리의 라벨만 그
+   * 사실과 어긋난 숫자를 말하고 있었던 것이다.
+   *
+   * 계수 판정은 엔진의 필터와 **같은 함수**다(permission-denied.ts `isBulkRetryableFailedRow`).
+   * 0건이면 아래에서 버튼을 아예 그리지 않는다 -- 준비템 실패만 남은 섹션에서 일괄 액션을
+   * 떼어낸 라운드 51 P2-3의 규칙을 같은 이유로 넓힌 것이다. "버리기"는 그대로 전량이 대상이라
+   * 라벨도 `failedRows.length`를 유지한다.
+   */
+  const retryableFailedCount = countRetryableFailedRows(failedRows);
   // 라운드 51 C-10: 준비템 상태 큐. 충돌 갈래는 없다(상태에는 버전 충돌이 없다).
   const pendingItemStatusRows = snapshot.itemStatusRows.filter((row) => row.syncState !== "failed");
   const failedItemStatusRows = snapshot.itemStatusRows.filter((row) => row.syncState === "failed");
@@ -527,12 +612,17 @@ export default function SyncStatusScreen() {
             {item.actions === "failed-bulk" ? (
               <View style={{ flexDirection: "row", gap: 8 }}>
                 {/* 라운드 51 QA(P2-3): 라벨이 대상(지출)과 건수를 함께 말하므로 스크린리더용
-                    문구를 따로 두지 않는다 -- 두 문장이 갈라질 자리를 만들지 않는다. */}
-                <TextButton
-                  label={syncStatusRetryFailedExpensesLabel(failedRows.length)}
-                  onPress={retryAll}
-                  disabled={!authToken}
-                />
+                    문구를 따로 두지 않는다 -- 두 문장이 갈라질 자리를 만들지 않는다.
+                    라운드 58 #4: 그 건수는 이제 **재시도가 다룰 수 있는 행**만 센다(위
+                    retryableFailedCount). 0건이면 버튼 자체가 없다 -- 눌러도 아무 일이 없는
+                    버튼과 거짓 숫자를 함께 없앤다. */}
+                {retryableFailedCount > 0 ? (
+                  <TextButton
+                    label={syncStatusRetryFailedExpensesLabel(retryableFailedCount)}
+                    onPress={retryAll}
+                    disabled={!authToken}
+                  />
+                ) : null}
                 <TextButton label={syncStatusDiscardFailedExpensesLabel(failedRows.length)} onPress={discardAll} />
               </View>
             ) : null}
@@ -550,14 +640,34 @@ export default function SyncStatusScreen() {
         );
       }
       if (item.kind === "failed") {
-        return <FailedRow row={item.row} token={authToken ?? ""} queryClient={queryClient} />;
+        return (
+          <FailedRow
+            row={item.row}
+            token={authToken ?? ""}
+            queryClient={queryClient}
+            selectedChildId={selectedChildId}
+            expenseEntryLocked={expenseEntryLocked}
+            explainExpenseEntryLock={explainExpenseEntryLock}
+          />
+        );
       }
       if (item.kind === "item-status-failed" || item.kind === "item-status-pending") {
         return <ItemStatusSyncRow row={item.row} token={authToken ?? ""} queryClient={queryClient} />;
       }
       return <PendingRow row={item.row} />;
     },
-    [authToken, discardAll, failedRows.length, formatConflictValue, queryClient, retryAll]
+    [
+      authToken,
+      discardAll,
+      expenseEntryLocked,
+      explainExpenseEntryLock,
+      failedRows.length,
+      formatConflictValue,
+      queryClient,
+      retryAll,
+      retryableFailedCount,
+      selectedChildId
+    ]
   );
 
   const listHeader = (

@@ -35,8 +35,10 @@
  * - `items` — 준비템 목록 탭(app/(tabs)/items.tsx)의 기록 액션.
  * - `item-detail` — 준비템 상세(app/items/[itemTemplateId].tsx)의 "지출 기록하고 준비 완료".
  * - `purchase-followup` — 구매 확인 카드(src/commerce/PurchaseFollowupPrompt.tsx)의 "샀어요".
+ * - `recurring` — 정기 지출의 "기록하기"(홈 카드 src/…/index.tsx · 관리 화면 app/expenses/recurring.tsx).
+ *   값 자체는 라운드 55부터 실려 왔고, 라운드 58에서 **아는 값**이 됐다(아래 목적지 규칙).
  */
-export type ExpenseEntrySource = "items" | "item-detail" | "purchase-followup";
+export type ExpenseEntrySource = "items" | "item-detail" | "purchase-followup" | "recurring";
 
 /** 라우트 파라미터 이름. 붙이는 쪽과 읽는 쪽이 갈리지 않도록 문자열을 한 곳에 둔다. */
 export const EXPENSE_ENTRY_SOURCE_PARAM = "from";
@@ -46,7 +48,7 @@ export const EXPENSE_ENTRY_SOURCE_PARAM = "from";
  * Href로 검사되므로, 없는 경로를 반환하면 typecheck에서 걸린다
  * (src/notifications/notification-route.ts와 같은 장치).
  */
-export type PostSaveDestination = "/(tabs)/records" | "/(tabs)/items";
+export type PostSaveDestination = "/(tabs)/records" | "/(tabs)/items" | "/(tabs)";
 
 /** 종전 동작. 출처를 모르거나 규칙이 없는 값은 전부 여기로 떨어진다. */
 export const POST_SAVE_DEFAULT_DESTINATION: PostSaveDestination = "/(tabs)/records";
@@ -54,7 +56,18 @@ export const POST_SAVE_DEFAULT_DESTINATION: PostSaveDestination = "/(tabs)/recor
 /** 준비템 계열에서 온 기록이 돌아가는 곳(방금 오른 준비율·100% 축하 배너가 있는 화면). */
 export const POST_SAVE_ITEMS_DESTINATION: PostSaveDestination = "/(tabs)/items";
 
-const KNOWN_ENTRY_SOURCES: ReadonlyArray<ExpenseEntrySource> = ["items", "item-detail", "purchase-followup"];
+/**
+ * 홈 탭. **정기 지출 리마인더 카드가 서 있는 유일한 화면**이다(라운드 55 §1.5 — 리마인더의
+ * 자리는 홈 한 곳뿐이고 기록 탭에는 두지 않기로 했다).
+ */
+export const POST_SAVE_HOME_DESTINATION: PostSaveDestination = "/(tabs)";
+
+const KNOWN_ENTRY_SOURCES: ReadonlyArray<ExpenseEntrySource> = [
+  "items",
+  "item-detail",
+  "purchase-followup",
+  "recurring"
+];
 
 /** expo-router의 파라미터는 string | string[] 둘 다 올 수 있다 — 첫 값만 읽는다. */
 function firstParamValue(value: unknown): string {
@@ -83,11 +96,28 @@ export function parseExpenseEntrySource(value: unknown): ExpenseEntrySource | nu
  *   "샀어요"를 누른 사람이 방금 한 일은 **지출을 적은 것**이고, 묻지도 않은 준비템 목록으로
  *   보내면 하던 일에서 튕겨 나간다. 규칙을 여기 적어 두는 이유는 이 값이 "아직 안 정한 값"이
  *   아니라 **정해서 기본값과 같게 둔 값**이기 때문이다.
+ * - `recurring` → **홈**. 아래 문단이 근거다.
  * - 그 외/미지정/오염 → 종전 동작(기록 탭).
+ *
+ * ## 왜 정기 지출만 홈인가 (라운드 58 #7)
+ *
+ * 이 진입점의 출발지는 **홈의 정기 지출 카드**다("이번 달 정기 지출 2건이 아직 기록에 없어요" —
+ * 리마인더가 서는 자리는 홈 하나뿐이다, 라운드 55 §1.5). 사용자가 그 카드의 "기록하기"를 눌러
+ * 시트에서 저장하면, 그 저장이 무엇을 했는지 **눈으로 확인할 수 있는 화면은 홈뿐**이다:
+ * 홈 카드의 판정(`buildRecurringReminder`)은 서버 캐시와 함께 이 기기의 오프라인 대기 행
+ * (`pendingRows` — 로컬 우선 저장이라 방금 적은 행이 그 안에 있다)을 함께 세므로, 돌아간 즉시
+ * 방금 기록한 그 줄이 목록에서 사라지고 2건이 1건이 된다. 마지막 한 건이면 카드 자체가 없어진다.
+ *
+ * 기록 탭으로 보내면 저장된 행 하나는 보이지만 **재촉이 끝났다는 사실**은 어디에도 보이지 않고,
+ * 사용자는 홈으로 돌아가 카드가 줄었는지 직접 확인해야 한다 — 준비템 경로를 준비템 탭으로
+ * 되돌린 것(방금 오른 준비율을 보게 한다)과 정확히 같은 이유다. 관리 화면(app/expenses/recurring.tsx)의
+ * "기록하기"도 같은 값을 싣는데, 그쪽도 목적지가 홈인 편이 낫다: 그 화면은 "적어 두는" 자리지
+ * "기록을 보는" 자리가 아니라, 저장 후 되돌아가 봐야 방금 기록한 사실을 말해 주는 것이 없다.
  */
 export function resolvePostSaveDestination(params: { from?: unknown } | null | undefined): PostSaveDestination {
   const source = parseExpenseEntrySource(params?.from);
   if (source === "items" || source === "item-detail") return POST_SAVE_ITEMS_DESTINATION;
+  if (source === "recurring") return POST_SAVE_HOME_DESTINATION;
   return POST_SAVE_DEFAULT_DESTINATION;
 }
 

@@ -77,6 +77,16 @@ import {
   resolveExpenseAuthorLabel,
   resolveExpenseHouseholdId
 } from "../../src/expenses/records-list-view";
+/**
+ * 라운드 58 #1 — "정기 지출로 등록"의 판정·문구·파라미터 조립은 전부 순수 모듈이 한다
+ * (src/expenses/recurring-template.ts). 이 화면은 결과가 null이면 버튼을 그리지 않고, null이
+ * 아니면 그 값을 그대로 관리 화면에 실어 보낸다 — 규칙이 화면에 두 벌로 적히지 않게.
+ */
+import {
+  recurringTemplatePrefillParams,
+  RECURRING_REGISTER_ACTION_LABEL,
+  RECURRING_REGISTER_ACTION_NOTICE
+} from "../../src/expenses/recurring-template";
 import {
   EXPENSE_DELETE_CONFIRM_ACTION_LABEL,
   EXPENSE_DELETE_CONFIRM_CANCEL_LABEL,
@@ -87,7 +97,16 @@ import {
   expenseMutationErrorMessage,
   INVALID_EXPENSE_INPUT_ERROR
 } from "../../src/expenses/save-error-messages";
+/**
+ * GAP-058 #6 — 판매처 후보가 읽는 **제안 원천 한 벌**. 빠른 기록 시트와 같은 모듈·같은 규칙이고,
+ * 재료는 이 화면이 이미 손에 들고 있는 것뿐이다(오프라인 스냅숏 + 이미 받아 둔 월 캐시 두 달치)
+ * — 새 요청은 0건이다.
+ */
+import { buildSuggestSourceRows, type SuggestSourceRow } from "../../src/expenses/suggest-source";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+// GAP-058 #6: "지난달"은 홈의 지난달 비교 한 줄과 **같은 함수**로 센다(달 경계를 화면에서 다시
+// 계산하면 12월→1월에 두 화면이 다른 달을 가리킬 수 있다).
+import { previousYearMonth } from "../../src/home/last-month-comparison";
 import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 // 라운드 41 K-11의 useOfflineSyncSnapshot("이 품목 이력"의 모집단에 이 기기의 오프라인 대기·
@@ -103,12 +122,25 @@ import {
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { resolveScreenPhase } from "../../src/screen-phase";
-import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
+import {
+  AppScreen,
+  Card,
+  CategoryChip,
+  EmptyStateCard,
+  PrimaryButton,
+  ScreenHeader,
+  SecondaryButton,
+  Toast
+} from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
 // FMT-127: 금액 표기(콤마)·입력 정규화는 src/money.ts가 단일 소스다 -- 이 화면에 있던
 // toDigits/formatAmount 사본은 (예산 수정·온보딩 예산 화면의 같은 사본들과 함께) 제거했다.
+
+// GAP-058 #6: 세션이나 아이를 아직 모를 때 통합 제안 원천이 돌려주는 고정 빈 배열. 매 렌더 새
+// 배열을 만들면 그것을 의존성으로 받는 useMemo가 매번 다시 돈다.
+const noSuggestRows: SuggestSourceRow[] = [];
 
 function formatExpenseDate(date: Date) {
   const year = date.getFullYear();
@@ -337,6 +369,36 @@ export default function ExpenseDetailScreen() {
       ? queryClient.getQueryData<MonthExpenses>(["expenses", historyChildId, currentYearMonth])?.expenses
       : undefined;
   /**
+   * GAP-058 #6 — 지난달 캐시도 **같은 방식으로 읽기만** 한다(getQueryData, 새 요청 0건).
+   *
+   * 이번 달 캐시는 매달 1일 아침에 거의 비어 있다. 그때 판매처 칩이 통째로 사라지는 것이 여태의
+   * 동작이었다 — 사용자의 이력이 사라진 것이 아닌데도. 홈/기록 탭이 이미 채워 두는 캐시가 있으면
+   * 읽고, 없으면(콜드 스타트) undefined다: 있는 것만 쓰고 없는 것을 부르지 않는다.
+   */
+  const previousMonth = previousYearMonth(currentYearMonth);
+  const cachedPreviousMonthExpenses =
+    authToken && historyChildId && previousMonth
+      ? queryClient.getQueryData<MonthExpenses>(["expenses", historyChildId, previousMonth])?.expenses
+      : undefined;
+  /**
+   * GAP-058 #6 — 빠른 기록 시트와 **같은 모집단**(오프라인 스냅숏 + 월 캐시 두 달치).
+   *
+   * 이 기기에서 방금 오프라인으로 적은 판매처가 이 화면의 후보에도 있어야 한다(같은 사실을 두
+   * 화면이 다르게 아는 상태를 없앤다). 합치는 규칙은 전부 순수 모듈에 있고 화면에는 한 줄도 없다.
+   */
+  const suggestRows = useMemo(
+    () =>
+      authToken && historyChildId
+        ? buildSuggestSourceRows({
+            childId: historyChildId,
+            localRows: offlineSyncSnapshot.rows,
+            currentMonthRows: cachedMonthExpenses,
+            previousMonthRows: cachedPreviousMonthExpenses
+          })
+        : noSuggestRows,
+    [authToken, historyChildId, offlineSyncSnapshot.rows, cachedMonthExpenses, cachedPreviousMonthExpenses]
+  );
+  /**
    * 라운드 42 L-5 — 이력 재조정은 **입력을 칠 때마다**가 아니라 재료가 바뀔 때만 돌린다.
    *
    * 예전에는 `buildItemHistory`를 렌더 본문에서 그냥 불렀다. 그런데 이 화면은 품목·금액·메모
@@ -370,12 +432,16 @@ export default function ExpenseDetailScreen() {
   /**
    * GAP-056 #2 — 판매처 자동완성 후보(타이핑 중 3개 / 빈 칸이면 최근 5개).
    *
-   * 원천은 위 "이 품목 이력"과 **같은 캐시 한 개**(cachedMonthExpenses)라 새 요청이 없다.
-   * 캐시가 없으면 빈 배열이고, 그때 이 화면은 이 기능이 없던 때와 한 픽셀도 다르지 않다.
+   * GAP-058 #6: 원천이 이번 달 캐시 하나에서 **통합 제안 원천**(suggestRows)으로 넓어졌다 —
+   * 재료는 이 화면이 이미 들고 있는 것뿐이라 새 요청은 여전히 0건이고, 두 원천이 다 비면 빈
+   * 배열이라 이 화면은 이 기능이 없던 때와 한 픽셀도 다르지 않다.
    *
    * **자기 행은 뺀다**: 지금 열려 있는 그 기록이 후보에 섞이면, 판매처를 고치려고 칸을 비운
    * 사람에게 방금 지운 그 값을 되돌려 주는 칩이 첫 번째로 선다(순수 모듈은 "다 친 값과 같은
-   * 후보"만 거르므로 빈 칸에서는 걸러지지 않는다).
+   * 후보"만 거르므로 빈 칸에서는 걸러지지 않는다). 통합 목록에서도 **같은 한 줄**이 그대로
+   * 통한다 — 동기화가 끝난 로컬 행이 서버 id(canonicalId)를 들고 오기 때문이다(suggest-source.ts
+   * 의 `id` 주석). 아직 안 올라간 행에는 id가 없지만, 그런 행은 지금 열려 있는 이 서버 기록일
+   * 수 없다.
    *
    * useMemo인 이유는 이력 재조정과 같다 — 이 화면의 입력은 전부 상태라, 키 한 번마다 이번 달
    * 전체를 다시 묶고 정렬할 이유가 없다.
@@ -387,9 +453,9 @@ export default function ExpenseDetailScreen() {
   const merchantSuggestions = useMemo(
     () =>
       merchantFocused
-        ? buildMerchantSuggestions(merchant, (cachedMonthExpenses ?? []).filter((row) => row.id !== expenseId))
+        ? buildMerchantSuggestions(merchant, suggestRows.filter((row) => row.id !== expenseId))
         : [],
-    [merchantFocused, merchant, cachedMonthExpenses, expenseId]
+    [merchantFocused, merchant, suggestRows, expenseId]
   );
 
   const amountKrw = Number(amountDigits || "0");
@@ -582,6 +648,46 @@ export default function ExpenseDetailScreen() {
       { text: EXPENSE_DELETE_CONFIRM_ACTION_LABEL, style: "destructive", onPress: () => remove.mutate() }
     ]);
   }
+
+  /**
+   * 라운드 58 #1 — "이건 매달 나가는 돈이네"를 깨닫는 자리에서 정기 지출로 올리는 길.
+   *
+   * 지금까지 템플릿을 만드는 입구는 관리 화면의 **빈 폼** 하나뿐이라, 방금 이 기록을 보고
+   * 깨달은 사람도 품목·금액·분류·결제 수단·결제일을 손으로 다시 옮겨 적어야 했다(옮겨 적는
+   * 동안 숫자가 어긋나도 앱은 알 수 없다).
+   *
+   * **액션시트에는 넣지 않는다**: 기록 행의 액션시트는 이미 수정·또 기록·삭제 세 개이고,
+   * 안드로이드 Alert의 버튼 상한이 3이라(record-row-actions.ts `ANDROID_ALERT_BUTTON_LIMIT`)
+   * 하나를 더하면 취소가 말없이 잘려 나간다. 이 화면에는 자리가 있다.
+   *
+   * 값은 **서버가 말해 준 지금 저장된 기록**에서 읽는다(화면의 편집 상태가 아니라). 저장하지
+   * 않은 입력을 옮기면 아직 어디에도 없는 금액이 매월 반복되는 약속으로 굳고, 타이핑 중에
+   * 버튼이 나타났다 사라지기도 한다 — 이 버튼이 복사하는 것은 "저장된 이 기록"이다.
+   *
+   * 선물·환불 행에서는 순수 모듈이 null을 돌려줘 버튼 자체가 없다(DNC-015: 월 합계에서 빠지는
+   * 기록은 "매월 이만큼 쓴다"의 근거가 될 수 없다).
+   */
+  const recurringPrefill = recurringTemplatePrefillParams({
+    itemName: expense.data?.itemName,
+    amountKrw: expense.data?.amountKrw,
+    categoryId: expense.data?.categoryId,
+    paymentMethod: expense.data?.paymentMethod,
+    spentOn: expense.data?.spentOn,
+    expenseType: expense.data?.expenseType
+  });
+  /**
+   * 세션 게이트 + **아이 게이트**.
+   *
+   * 관리 화면은 언제나 **지금 선택된 아이**의 템플릿을 만든다(app/expenses/recurring.tsx의
+   * `selectedChildId`). 그래서 다른 아이의 지출을 보다가 이 버튼을 누르면, 사용자가 고른 적
+   * 없는 아이 밑으로 정기 지출이 조용히 들어간다 — "연결된 준비템 보기" 링크를 같은 이유로
+   * 같은 조건에서만 그리는 것과 한 규칙이다(라운드 49 C-05).
+   *
+   * 세션이 없으면 그리지 않는다(EXP-003 비세션 캡처 경로 불변).
+   */
+  const canRegisterRecurring = Boolean(
+    authToken && selectedChildId && expense.data?.childId === selectedChildId && recurringPrefill
+  );
 
   // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
   // 쿼리가 꺼져 있을 때(토큰/expenseId 없음)는 isPending이 영영 true로 남으므로, 가족 화면과
@@ -1187,6 +1293,35 @@ export default function ExpenseDetailScreen() {
               label={save.isPending ? "저장하는 중" : "수정 저장"}
               onPress={expenseGate.guard(() => save.mutate())}
             />
+
+            {/* 라운드 58 #1 — 역방향 진입(판정·문구는 위 recurringPrefill 주석 참고).
+
+                보기 전용 게이트(expenseGate)를 지나지 않는다: 여기서 저장되는 것은 지출이
+                아니라 **이 기기의 메모**이고, 관리 화면도 같은 이유로 템플릿 CRUD를 게이트
+                뒤에 두지 않는다(app/expenses/recurring.tsx). 이 버튼이 여는 것은 폼일 뿐이라
+                누른 것만으로는 아무것도 저장되지 않는다.
+
+                상한(20개)에 닿아 있으면 그 화면의 저장에서 RECURRING_LIMIT_MESSAGE가 그대로
+                뜬다 — 이 진입점은 상한을 우회하는 두 번째 저장 경로를 만들지 않는다(저장은
+                여전히 스토어 한 곳을 지난다).
+
+                왜 상한(20개)은 버튼을 지우지 않는데 품목명 100자 초과는 지우는가(라운드 58
+                통합리뷰 P2-3): 상한은 **사용자가 그 화면에서 지금 풀 수 있는 상태**라(쓰지 않는
+                항목 하나를 지우면 곧바로 저장된다) 안내와 함께 열어 두는 편이 낫고, 100자 초과는
+                이 프리필로는 풀 수 없는 상태다(칸의 maxLength가 새 글자만 막아 다 지우기 전에는
+                저장이 열리지 않는다). 후자는 순수 모듈이 null을 돌려줘 버튼 자체가 서지 않는다. */}
+            {canRegisterRecurring && recurringPrefill ? (
+              <View testID="expense-to-recurring" style={{ gap: 6 }}>
+                <SecondaryButton
+                  label={RECURRING_REGISTER_ACTION_LABEL}
+                  onPress={() => router.push({ pathname: "/expenses/recurring", params: recurringPrefill })}
+                />
+                <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
+                  {RECURRING_REGISTER_ACTION_NOTICE}
+                </Text>
+              </View>
+            ) : null}
+
             <Pressable
               accessibilityRole="button"
               disabled={remove.isPending}

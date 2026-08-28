@@ -276,12 +276,27 @@ describe("UX-L(B) 서버 월 캐시 폴백", () => {
 });
 
 describe("UX-L(B) 배선 계약 (app/expenses/new.tsx)", () => {
-  it("폴백 원천은 자동완성이 이미 쓰는 서버 월 캐시다 (새 요청 없음)", () => {
+  /**
+   * 라운드 58 E(GAP-058 #6) — 폴백 원천이 **이번 달 + 지난달**로 넓어졌다.
+   *
+   * 예전 사실: 폴백은 이번 달 캐시(expenseHistory) 하나였다. 폴백이 필요한 사람은 정확히 "이
+   * 기기에 이력이 없는" 사람인데(기종 변경·재설치·두 번째 기기), 그 사람이 매달 1일에 앱을 열면
+   * 이번 달 캐시도 비어 있어 칩이 또 통째로 사라졌다 — 서버에는 이력이 멀쩡히 있는데도.
+   * 이 모듈은 넘겨받은 배열이 어느 달인지 묻지 않으므로(정렬 기준은 spentOn뿐) 두 캐시를 이어
+   * 붙이는 것으로 끝난다. 지난달 캐시도 getQueryData로 **읽기만** 하므로 새 요청은 여전히 0건이다.
+   */
+  it("폴백 원천은 이미 받아 둔 서버 월 캐시 두 달치다 (새 요청 없음)", () => {
     const newExpenseSource = readFileSync(join(process.cwd(), "app/expenses/new.tsx"), "utf8");
 
-    expect(newExpenseSource).toContain("buildRecentItemChips(offlineSnapshot.rows, childId, { serverRows: expenseHistory })");
-    // expenseHistory는 useQuery가 아니라 getQueryData로 읽은 **이미 받아 둔** 캐시다.
+    expect(newExpenseSource).toContain(
+      "buildRecentItemChips(offlineSnapshot.rows, childId, { serverRows: recentItemServerRows })"
+    );
+    expect(newExpenseSource).toContain(
+      "() => [...expenseHistory, ...(cachedPreviousMonthExpenses ?? noExpenseHistory)],"
+    );
+    // 두 캐시 모두 useQuery가 아니라 getQueryData로 읽은 **이미 받아 둔** 값이다.
     expect(newExpenseSource).toContain("queryClient.getQueryData<MonthExpenses>([\"expenses\", childId, currentYearMonth])?.expenses");
+    expect(newExpenseSource).toContain("queryClient.getQueryData<MonthExpenses>([\"expenses\", childId, previousMonth])?.expenses");
   });
 });
 

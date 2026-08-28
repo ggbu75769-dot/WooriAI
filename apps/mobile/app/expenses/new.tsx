@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import {
@@ -75,12 +75,25 @@ import {
   quickExpenseItemsForCategory
 } from "../../src/expenses/quick-expense-catalog";
 import { parseExpensePrefillParams } from "../../src/expenses/record-row-actions";
+import {
+  isFailedRowChildMismatch,
+  NO_FAILED_ROW_PREFILL_DATE,
+  parseFailedRowLocalId,
+  parseFailedRowPrefillText,
+  resolveFailedRowPrefillDate
+} from "../../src/expenses/failed-row-prefill";
 import { expenseMutationErrorMessage, INVALID_EXPENSE_INPUT_ERROR } from "../../src/expenses/save-error-messages";
 import {
   buildRecentItemChips,
   formatRecentItemChipLabel,
   recentItemChipAccessibilityLabel
 } from "../../src/expenses/recent-items";
+/**
+ * GAP-058 #6 — 입력 보조 세 갈래가 함께 읽는 **제안 원천 한 벌**. 이 화면이 이미 손에 들고 있는
+ * 두 배열(오프라인 스냅숏 + 이미 받아 둔 월 캐시)을 합칠 뿐이라 **새 요청은 0건**이다.
+ * 규칙(아이 좁히기·삭제 대기 제외·선물/환불 제외·중복 제거·정렬)은 전부 그 순수 모듈에 있다.
+ */
+import { buildSuggestSourceRows, type SuggestSourceRow } from "../../src/expenses/suggest-source";
 // GAP-056 #1: 텍스트 길이 상한도 금액 상한과 **같은 방식**의 단일 소스에서 온다(숫자를 여기
 // 적지 않는다 — 서버 @MaxLength와 갈리면 오프라인 flush가 400으로 떨어져 영구 실패 행이 된다).
 // 지출 상세(app/expenses/[expenseId].tsx)가 쓰는 그 모듈·그 문구 그대로다.
@@ -97,11 +110,19 @@ import {
   MERCHANT_MAX_LENGTH
 } from "../../src/expenses/text-limits";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+// GAP-058 #6: "지난달"을 세는 규칙은 홈의 지난달 비교 한 줄과 **같은 함수**다 — 달 경계를
+// 화면에서 다시 계산하면 12월→1월에서 두 화면이 다른 달을 가리킬 수 있다.
+import { previousYearMonth } from "../../src/home/last-month-comparison";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
+import {
+  FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE,
+  FAILED_ROW_PREFILL_DATE_RESET_NOTICE
+} from "../../src/offline/messages";
 import { createExpenseOffline } from "../../src/offline/sync-controller";
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import { discardOfflineMutation } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, SecondaryButton, Toast } from "../../src/ui";
@@ -142,6 +163,10 @@ const quickExpensePaymentMethods = [
 // useEffect의 의존성이 매번 바뀌어 무한 재실행이 된다(react-query는 캐시가 갱신되기 전까지
 // 같은 배열 참조를 돌려주므로, 캐시가 있을 때는 이미 안정적이다).
 const noExpenseHistory: MonthExpenses["expenses"] = [];
+// GAP-058 #6: 세션이 없을 때(픽셀 락 캡처) 통합 제안 원천이 돌려주는 고정 빈 배열. 위와 같은
+// 이유로 매 렌더 새 배열을 만들지 않는다 — 이 값은 아래 useMemo의 결과로 나가고, 그 결과를
+// 다시 의존성으로 받는 계산들이 있다.
+const noSuggestRows: SuggestSourceRow[] = [];
 
 function formatExpenseDate(date: Date) {
   const year = date.getFullYear();
@@ -379,6 +404,15 @@ export default function NewExpenseScreen() {
     linkedProductLinkId?: string;
     // 라운드 55 트랙 A: 정기 지출 카드의 "기록하기"가 템플릿에 저장된 결제 수단을 함께 넘긴다.
     paymentMethod?: string;
+    // 라운드 58 #5: 동기화 실패 행의 "고쳐서 다시 보내기"가 그 행의 payload를 그대로 싣고 온다
+    // (src/expenses/failed-row-prefill.ts). 메모·날짜는 이 진입점에서만 오는 값이고,
+    // failedLocalId가 있으면 저장이 확정된 뒤 그 원본 행을 버린다(아래 onSuccess).
+    memo?: string;
+    spentOn?: string;
+    failedLocalId?: string;
+    // 라운드 58 통합리뷰 P1-1: 그 행이 **어느 아이의 기록인가**. 지금 선택된 아이와 어긋나면
+    // 저장을 막고 사실을 말한다(아래 failedRowChildMismatch — 이중 방어의 둘째 겹).
+    childId?: string;
   }>();
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
   /**
@@ -407,6 +441,16 @@ export default function NewExpenseScreen() {
   // 날짜는 계약에 없다: 새 기록이므로 아래 initialExpenseDate가 늘 그렇듯 오늘로 시작한다.
   const prefill = parseExpensePrefillParams(params);
   const prefilledItemName = prefill.itemName;
+  /**
+   * 라운드 58 #5 — "고쳐서 다시 보내기"로 들어왔는가. 값이 있으면 **그 실패 행을 다시 쓰는
+   * 중**이라는 뜻이고, 저장이 확정된 뒤에만 원본을 버린다(아래 saveExpense.onSuccess).
+   * 저장 전에 버리면 저장이 실패했을 때 원본도 새 기록도 없다 — 서버에 없는 행이라 되돌릴
+   * 방법이 없다(이중 손실 금지).
+   */
+  const failedLocalId = parseFailedRowLocalId(params.failedLocalId);
+  // 메모 프리필도 그 진입점에서만 온다. 다른 진입점에는 이 파라미터가 없어 빈 문자열이다
+  // (= 예전 그대로 빈 칸에서 시작한다).
+  const prefilledMemo = parseFailedRowPrefillText(params.memo);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -471,7 +515,9 @@ export default function NewExpenseScreen() {
    * (applyMerchantSuggestion)와 "저장하고 계속 기록"의 폼 초기화에서만 접는다.
    */
   const [merchantFocused, setMerchantFocused] = useState(false);
-  const [memo, setMemo] = useState("");
+  // 라운드 58 #5: 실패 행을 다시 쓰는 경우에만 메모가 채워져 있다. 다른 진입점·비세션(픽셀 락
+  // 캡처)에서는 파라미터가 없어 종전 그대로 빈 칸이다.
+  const [memo, setMemo] = useState(() => (authToken ? prefilledMemo : ""));
   // UX-L(A): 프리필 카테고리가 이 화면의 8타일로 옮겨질 때만 그 타일로 시작한다.
   // 라운드 38 H-6: 종전에는 타일 id와 **완전히 같을 때만** 복사했다. 그래서 엑셀 가져오기나 지출
   // 수정 화면을 거친 기록(= 서버 정식 카테고리 UUID)에서 "또 기록"을 누르면 품목명·금액은 따라
@@ -530,7 +576,41 @@ export default function NewExpenseScreen() {
   // src/android-native-ui-quality.test.ts) -- this seeds the initial selected date; past-date
   // selection below can move `expenseDateIso` away from today for a real/test session.
   const initialExpenseDate = authToken ? formatExpenseDate(today) : previewExpenseDate;
-  const [expenseDateIso, setExpenseDateIso] = useState(() => initialExpenseDate.iso);
+  /**
+   * 라운드 58 #5 — 실패 행의 지출 날짜 프리필.
+   *
+   * 이 화면의 프리필 계약은 여태 날짜를 싣지 않았고(record-row-actions.ts의 "날짜 미전달"),
+   * "고쳐서 다시 보내기"만 그 명시적 예외다: 새로 사는 물건이 아니라 **이미 적은 그 기록**을
+   * 다시 쓰는 동선이라, 오늘로 갈아 끼우면 사용자가 고른 적 없는 날짜가 기록에 남는다.
+   *
+   * 다만 원본 날짜가 미래면(기기 시계가 앞섰거나 자정 경계 — 그래서 400으로 실패한 바로 그
+   * 행이다) 이 시트의 날짜 가드가 거부한다. 그때는 오늘로 물러서되 **말없이 바꾸지 않고**
+   * 아래 안내 한 줄로 밝힌다. 판정은 순수 모듈에 있다(failed-row-prefill.ts).
+   *
+   * 비세션(픽셀 락 캡처)은 프리필을 보지 않는다 — EXP-001 기준 이미지의 고정 날짜 그대로다.
+   */
+  const prefilledSpentOn = authToken
+    ? resolveFailedRowPrefillDate(params.spentOn, initialExpenseDate.iso)
+    : NO_FAILED_ROW_PREFILL_DATE;
+  const [expenseDateIso, setExpenseDateIso] = useState(() => prefilledSpentOn.spentOn ?? initialExpenseDate.iso);
+  /**
+   * 라운드 58 통합리뷰 P3-7·P3-8 — 지금 화면의 날짜를 **프리필이 정했는가**(사용자가 아직 손대지
+   * 않았는가).
+   *
+   * 왜 `expenseDateIso === initialExpenseDate.iso`로는 부족했나(P3-7): 폴백 안내는 "오늘로
+   * 두었어요"라고 말하는데, 사용자가 어제로 옮겼다가 다시 오늘 칩을 누르면 그 비교가 다시
+   * 참이 되어 **이미 스스로 고른 사람에게 안내가 되살아났다**. 날짜 값이 아니라 "누가 정했는가"를
+   * 물어야 하는 자리다.
+   *
+   * 연속 기록에서도 같은 값을 본다(P3-8): 프리필이 물려준 날짜는 다음 항목으로 승계하지 않고
+   * 오늘로 되돌리고(resetFormForNextEntry), 사용자가 직접 고른 날짜는 그대로 승계한다.
+   *
+   * 초기값: 프리필이 날짜를 정했거나(spentOn) 정하려다 오늘로 물러선(fellBackToToday) 경우에만
+   * true다. 다른 진입점에서는 언제나 false라 종전과 동작이 같다.
+   */
+  const [dateFollowsPrefill, setDateFollowsPrefill] = useState(
+    () => prefilledSpentOn.spentOn !== null || prefilledSpentOn.fellBackToToday
+  );
   const expenseDate = authToken ? formatExpenseDate(new Date(`${expenseDateIso}T00:00:00`)) : previewExpenseDate;
   // GAP-054 #7: 달력 픽커의 "오늘" 기준일. `today`는 이미 getSeoulToday()로 만든 서울 날짜라
   // 여기서 시계를 한 번 더 읽지 않는다(같은 렌더 안에서 두 날짜가 갈리지 않게).
@@ -571,6 +651,45 @@ export default function NewExpenseScreen() {
       ? queryClient.getQueryData<MonthExpenses>(["expenses", childId, currentYearMonth])?.expenses
       : undefined;
   const expenseHistory = cachedMonthExpenses ?? noExpenseHistory;
+  /**
+   * GAP-058 #6 — **지난달 캐시**도 함께 읽는다(같은 방식: getQueryData, 새 요청 0건).
+   *
+   * 이번 달 캐시는 매달 1일 아침에 거의 비어 있다. 어제까지 잘 뜨던 자동완성·판매처 칩이 달이
+   * 바뀌는 순간 통째로 사라지는 것이 여태의 동작이었다 — 사용자의 이력이 사라진 것이 아닌데도.
+   * 홈/기록 탭이 "지난달 같은 시점 대비" 한 줄을 위해 이미 채워 두는 캐시가 있으면 그것을 읽고,
+   * 없으면(콜드 스타트) 그냥 undefined다. 즉 있는 것만 쓰고 없는 것은 부르지 않는다.
+   */
+  const previousMonth = previousYearMonth(currentYearMonth);
+  const cachedPreviousMonthExpenses =
+    authToken && childId && previousMonth
+      ? queryClient.getQueryData<MonthExpenses>(["expenses", childId, previousMonth])?.expenses
+      : undefined;
+  // 라운드 41 K-11과 같은 값(외부 스토어 구독 — 새 요청이 아니다). EXP-113 최근 칩과 UX-K(A)
+  // 맥락 한 줄이 이미 읽고 있던 스냅숏을, 이제 통합 제안 원천도 함께 읽는다.
+  const offlineSnapshot = useOfflineSyncSnapshot();
+  /**
+   * GAP-058 #6 — 품목 자동완성·판매처 칩이 함께 보는 **모집단 하나**.
+   *
+   * 원천은 둘뿐이다: 이 기기의 오프라인 스냅숏 행(방금 비행기 모드에서 적은 것 포함)과 이미
+   * 받아 둔 서버 월 캐시 두 달치. 합치는 규칙(중복 제거·정렬)은 전부 순수 모듈에 있고 이 화면에는
+   * 한 줄도 없다. 세션이 없으면(픽셀 락 캡처 EXP-001) 아예 계산하지 않는다 — 새 계산 전부가
+   * authToken 뒤에 있어 비세션 초기 렌더는 한 픽셀도 바뀌지 않는다.
+   *
+   * useMemo인 이유: 이 화면의 입력은 전부 상태라, 키 한 번마다 두 달치 캐시와 스냅숏 전체를
+   * 다시 합치고 정렬할 이유가 없다(지출 상세의 이력 재조정과 같은 판단, 라운드 42 L-5).
+   */
+  const suggestRows = useMemo(
+    () =>
+      authToken && childId
+        ? buildSuggestSourceRows({
+            childId,
+            localRows: offlineSnapshot.rows,
+            currentMonthRows: cachedMonthExpenses,
+            previousMonthRows: cachedPreviousMonthExpenses
+          })
+        : noSuggestRows,
+    [authToken, childId, offlineSnapshot.rows, cachedMonthExpenses, cachedPreviousMonthExpenses]
+  );
   // 자동완성 칩 부제("· 기저귀")의 카테고리 이름. 이 화면이 실제로 선택할 수 있는 8타일일 때만
   // 붙인다 -- 엑셀 가져오기/지출 수정을 거쳐 서버 정식 카테고리(DB마다 다른 UUID)를 단 행은
   // 이 화면에서 이름을 확신할 수 없고(categoryNameFor는 그런 id를 "기타"로 떨어뜨린다), 칩에
@@ -691,6 +810,15 @@ export default function NewExpenseScreen() {
     if (categoryTouchedRef.current) return;
     const nextSelection = resolveAutoCategorySelection({
       itemName,
+      /**
+       * 라운드 58 E — 여기만 **이번 달 서버 캐시 그대로**다(통합 원천 suggestRows로 바꾸지 않았다).
+       *
+       * 자동 분류는 후보를 제안하는 것이 아니라 사용자가 손대지 않은 타일을 **대신 누르는** 판정이라,
+       * 원천을 넓히면 판정 자체가 달라진다(같은 품목명의 과거 분류가 여러 개일 때 어느 것이 이기는지,
+       * 아직 안 올라간 로컬 행이 그 다툼에 끼는지). 그것은 이 티켓이 고치려는 "세 보조가 서로 다른
+       * 데이터를 본다"와 **별개의 판단**이고, 판정 규칙과 함께 따로 다뤄야 한다. 넓힐 근거가 설
+       * 때까지 이 화면의 저장 결과를 바꾸지 않는 쪽을 고른다.
+       */
       history: expenseHistory,
       currentCategoryId: selectedCategoryId,
       autoPicked: autoPickedCategory,
@@ -710,19 +838,29 @@ export default function NewExpenseScreen() {
   }, [authToken, itemName, expenseHistory, selectedCategoryId, autoPickedCategory]);
 
   // 타이핑 연동 자동완성 후보(상위 3개). 칩으로 한 번 채운 뒤에는 다시 타이핑할 때까지 접힌다.
+  //
+  // GAP-058 #6: 원천이 이번 달 서버 캐시(expenseHistory)에서 **통합 제안 원천**(suggestRows)으로
+  // 바뀌었다 — 최근 칩에는 보이는데 두 글자만 치면 후보에서 사라지던 오프라인 행이 이제 여기에도
+  // 있고, 매달 1일에도 지난달 이력이 남는다. 새 요청은 여전히 0건이다.
   const itemAutocompleteChips =
-    authToken && !autocompleteApplied ? buildItemAutocompleteSuggestions(itemName, expenseHistory) : [];
+    authToken && !autocompleteApplied ? buildItemAutocompleteSuggestions(itemName, suggestRows) : [];
 
   /**
    * GAP-056 #2 — 판매처 후보(타이핑 중 3개 / 빈 칸이면 최근 5개).
    *
-   * 원천은 위 자동완성·자동 분류가 이미 읽고 있는 이번 달 캐시(expenseHistory) 하나뿐이라
-   * **새 요청은 0건**이고, 캐시가 비어 있으면(콜드 스타트·판매처를 한 번도 안 적은 사용자)
-   * 빈 배열이라 칩 줄 자체가 없다 — 없는 상호를 지어내지 않는다. 규칙(정규화·매칭·정렬·상한)은
-   * 전부 순수 모듈에 있고, 이 화면에는 한 줄도 없다.
+   * GAP-058 #6: 원천은 품목 자동완성과 **같은 통합 목록 하나**(suggestRows)다. 이미 화면이 들고
+   * 있는 배열만 합친 것이라 **새 요청은 0건**이고, 두 원천이 모두 비어 있으면(콜드 스타트·판매처를
+   * 한 번도 안 적은 사용자) 빈 배열이라 칩 줄 자체가 없다 — 없는 상호를 지어내지 않는다.
+   * 규칙(정규화·매칭·정렬·상한)은 전부 순수 모듈에 있고, 이 화면에는 한 줄도 없다.
+   *
+   * 라운드 58 E: useMemo인 이유는 지출 상세와 같다(P3 비대칭 해소) — 이 화면의 입력은 전부
+   * 상태라, 같은 재료로 키 한 번마다 두 달치 목록을 다시 묶고 정렬할 이유가 없다. 게이트를
+   * 계산 자리에 두는 것도 그쪽과 같다: 칩 줄이 사라지는 것과 계산이 없어지는 것이 한 조건이다.
    */
-  const merchantSuggestions =
-    authToken && merchantFocused ? buildMerchantSuggestions(merchant, expenseHistory) : [];
+  const merchantSuggestions = useMemo(
+    () => (authToken && merchantFocused ? buildMerchantSuggestions(merchant, suggestRows) : []),
+    [authToken, merchantFocused, merchant, suggestRows]
+  );
 
   /**
    * 칩 1탭 = 판매처 채우기. 품목 자동완성 칩과 달리 **판매처 한 칸만** 바꾼다(금액·분류는
@@ -770,11 +908,24 @@ export default function NewExpenseScreen() {
   //
   // UX-L(B): 그 스냅숏은 **이 기기의** 이력이라, 재설치·기종 변경·두 번째 기기에서는 서버에
   // 기록이 멀쩡히 있어도 칩이 비었다. 로컬에서 칩이 하나도 안 나올 때만 위 자동완성이 이미
-  // 읽고 있는 서버 월 캐시(expenseHistory)로 폴백한다 -- 새 요청은 없고, 로컬이 있으면 예전
-  // 동작 그대로다(우선순위 로컬). 규칙은 전부 src/expenses/recent-items.ts에 있다.
-  const offlineSnapshot = useOfflineSyncSnapshot();
+  // 읽고 있는 서버 월 캐시로 폴백한다 -- 새 요청은 없고, 로컬이 있으면 예전 동작 그대로다
+  // (우선순위 로컬). 규칙은 전부 src/expenses/recent-items.ts에 있다.
+  //
+  // GAP-058 #6: 그 폴백 원천이 **이번 달 + 지난달**로 넓어졌다. 폴백이 필요한 사람은 정확히
+  // "이 기기에 이력이 없는" 사람이고(방금 기종을 바꿨거나 다시 깔았다), 그 사람이 매달 1일에
+  // 앱을 열면 이번 달 캐시도 비어 있어 칩이 또 통째로 사라졌다 -- 서버에는 이력이 멀쩡히 있는데도.
+  // 모듈은 넘겨받은 배열이 어느 달인지 묻지 않고 spentOn 최신순으로만 보므로(recent-items.ts의
+  // RecentItemChipOptions 주석), 이어 붙이는 것 말고 새 인자도 새 요청도 필요 없다.
+  // 스냅숏(offlineSnapshot.rows)을 그대로 넘기는 것은 종전 그대로다 -- 이 칩은 로컬 우선이라
+  // 통합 목록(suggestRows)이 아니라 두 원천을 **갈라서** 받아야 한다.
+  const recentItemServerRows = useMemo(
+    () => [...expenseHistory, ...(cachedPreviousMonthExpenses ?? noExpenseHistory)],
+    [expenseHistory, cachedPreviousMonthExpenses]
+  );
   const recentItemChips =
-    authToken && childId ? buildRecentItemChips(offlineSnapshot.rows, childId, { serverRows: expenseHistory }) : [];
+    authToken && childId
+      ? buildRecentItemChips(offlineSnapshot.rows, childId, { serverRows: recentItemServerRows })
+      : [];
 
   // UX-K(A): 금액 카드 바로 아래에 붙는 "이번 달 지금까지" 한 줄.
   //
@@ -850,6 +1001,25 @@ export default function NewExpenseScreen() {
   const resetFormForNextEntry = () => {
     setItemName("");
     setAmountText("");
+    /**
+     * 라운드 58 통합리뷰 P3-8 — 날짜 승계의 **예외 한 가지**.
+     *
+     * 날짜를 비우지 않는 근거(위 주석)는 "마트에서 같은 날 이어 적는다"이고, 그건 사용자가
+     * 스스로 고른 날짜에 대한 이야기다. "고쳐서 다시 보내기"가 물려준 날짜는 다르다: 그건 **그
+     * 실패 행 한 건의 날짜**이지 사용자가 지금 이어 적으려는 항목의 날짜가 아니다. 그대로
+     * 승계하면 이어 적은 새 항목이 몇 주 전 날짜로 조용히 저장되고, 그 달 합계가 사실과
+     * 어긋난다(사용자는 날짜 칸을 다시 보지 않는다 -- 방금 저장이 성공했으니까).
+     *
+     * 그래서 **프리필이 정한 날짜만** 오늘로 되돌리고, 사용자가 직접 고른 날짜는 그대로 둔다
+     * (dateFollowsPrefill이 그 둘을 가른다). 되돌린 뒤에는 프리필이 더는 이 칸을 정하지 않으므로
+     * 날짜 폴백 안내도 함께 사라진다 -- 새 항목에 대해서는 참이 아닌 문장이다.
+     */
+    if (dateFollowsPrefill) {
+      setExpenseDateIso(initialExpenseDate.iso);
+      setCustomDateMode(false);
+      setCustomDateText("");
+      setDateFollowsPrefill(false);
+    }
     // 라운드 49 C-03(a): 판매처도 함께 비운다. 같은 마트에서 이어 적는 경우가 많다고 해서
     // 값을 남겨 두면, 다른 곳에서 산 다음 항목에 **사용자가 적지 않은 판매처**가 조용히
     // 따라붙는다 -- 이 화면이 "계속 기록"에서 품목·금액을 비우는 것과 같은 판단이다.
@@ -879,7 +1049,10 @@ export default function NewExpenseScreen() {
       // 로컬 저장을 먼저 성공시키고("기기에 저장했어요") flush에서 400을 만나 되살릴 수 없는
       // 실패 행이 된다(4xx는 재시도하지 않는다 — src/offline/remote-api.ts). 넘기는 값은
       // **실제로 보낼 값 그대로**다: 품목명은 원문(payload의 itemName), 판매처는 trim, 메모는 원문.
-      if (!authToken || !childId || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || isAmountOverLimitForSave({ hasSession: true, amountText }) || hasExpenseTextOverLimit({ itemName, merchant: merchant.trim(), memo }) || !itemName.trim() || Boolean(dateInputError)) {
+      // 라운드 58 통합리뷰 P1-1: 아이 어긋남도 **로컬 저장 전에** 여기서 한 번 더 막는다. 버튼은
+      // 이미 비활성이지만(isSaveBlocked), 저장 규칙이 화면 상태에만 있으면 다른 경로가 생겼을 때
+      // 조용히 빠져나가고 그 한 건이 다른 아이 밑으로 굳는다(그리고 원본 실패 행이 폐기된다).
+      if (!authToken || !childId || isFailedRowChildMismatch(params.childId, childId) || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || isAmountOverLimitForSave({ hasSession: true, amountText }) || hasExpenseTextOverLimit({ itemName, merchant: merchant.trim(), memo }) || !itemName.trim() || Boolean(dateInputError)) {
         throw new Error(INVALID_EXPENSE_INPUT_ERROR);
       }
       return createExpenseOffline(authToken, queryClient, {
@@ -921,6 +1094,32 @@ export default function NewExpenseScreen() {
       // 남기지 않는다). 다음 저장은 버튼이 다시 세운다.
       const continueRecording = continueAfterSaveRef.current;
       continueAfterSaveRef.current = false;
+      /**
+       * 라운드 58 #5 — "고쳐서 다시 보내기"의 마지막 절반: 원본 실패 행 폐기.
+       *
+       * **여기가 유일하게 옳은 자리다.** 이 콜백은 로컬 저장이 확정된 뒤에만 돈다
+       * (createExpenseOffline은 SQLite 우선 저장이라 오프라인에서도 여기까지 온다 — 그래서
+       * 이 동선은 연결이 없어도 그대로 완결된다). 저장 실패는 onError로 가고, 그쪽은 원본을
+       * 건드리지 않는다: 사용자는 고치던 값을 그대로 들고 다시 누르면 되고, 실패 행도 제자리에
+       * 남는다(같은 기록이 두 번 사라지는 일이 없다).
+       *
+       * 폐기가 실패해도 저장을 되돌리지 않는다 -- 그 경우 남는 것은 "새 기록 + 원본 실패 행"
+       * 이고, 사용자는 동기화 화면에서 그 행을 직접 버릴 수 있다. 반대 방향(새 기록을 지우는
+       * 것)이 진짜 손실이다.
+       *
+       * 라운드 58 통합리뷰 P3-9 — **await하지 않는다(void)**. "저장 확정 후에만 버린다"는 계약은
+       * 그대로다: 이 줄은 여전히 onSuccess 안에만 있고(저장이 확정된 뒤에만 실행된다) onError는
+       * 원본을 건드리지 않는다. 바뀌는 것은 순서가 아니라 **대기**다. 폐기는 SQLite 쓰기라
+       * 느려질 수 있는데, await하면 그동안 성공 토스트·캐시 무효화·화면 이동이 전부 뒤로 밀려
+       * 저장이 끝났는데도 시트가 굳은 것처럼 보인다. 결과를 쓰는 곳이 없고 실패해도 무시하는
+       * 작업이라(위 문단) 지연을 이 자리에서 격리한다. catch는 그대로 둔다 -- 처리되지 않은
+       * 거절을 남기지 않기 위해서다.
+       */
+      if (failedLocalId) {
+        void discardOfflineMutation(failedLocalId).catch(() => {
+          // 무시한다(위 주석). 원본 행은 동기화 상태 화면에 그대로 남는다.
+        });
+      }
       clearQuickExpenseDraft();
       setSaveErrorMessage(null);
       setSavedMessage(continueRecording ? CONTINUE_RECORDING_SAVED_MESSAGE : OFFLINE_SAVED_MESSAGE);
@@ -1047,12 +1246,27 @@ export default function NewExpenseScreen() {
       ].filter((notice): notice is string => notice !== null)
     : [];
   /**
+   * 라운드 58 통합리뷰 P1-1 — **아이 어긋남 가드**(이중 방어의 둘째 겹).
+   *
+   * 첫 겹은 동기화 상태 화면이다: "고쳐서 다시 보내기"는 지금 선택된 아이의 실패 행에만 선다
+   * (app/sync-status.tsx). 그런데 이 시트가 열려 있는 동안에도 선택된 아이는 바뀔 수 있고
+   * (전역 스토어다), 딥링크·복원된 내비게이션 상태로 이 화면이 직접 열릴 수도 있다.
+   *
+   * 그 상태로 저장하면 아이 A의 지출이 B의 합계에 들어가고, 저장이 확정되는 순간 A의 원본
+   * 실패 행이 폐기된다(아래 onSuccess) — 되돌릴 원본이 없는 **데이터 손실**이다. 그래서 저장을
+   * 막고 아래 안내 한 줄로 이유를 말한다. 입력값은 그대로 남으므로 아이를 되돌리면 이어서
+   * 저장할 수 있다. 판정은 순수 모듈 한 곳에 있다(failed-row-prefill.ts).
+   *
+   * 이 파라미터를 싣지 않는 다른 진입점("또 기록"·준비템·정기 지출)에서는 언제나 false다.
+   */
+  const failedRowChildMismatch = Boolean(authToken) && isFailedRowChildMismatch(params.childId, childId);
+  /**
    * 저장 버튼을 잠그는 판정 한 곳. 금액 가드와 길이 가드가 **같은 자리**를 지나야 두 저장
    * 버튼(저장하기 · 저장하고 계속 기록)이 서로 다른 규칙으로 갈리지 않는다. 잠그기만 하고
    * 이유를 말하지 않으면 "왜 저장이 안 되지"만 남으므로, 두 가드 모두 버튼 바로 위에 안내
    * 한 줄을 세운다(아래). 뮤테이션 안에도 같은 판정이 한 번 더 있다 — 지출 상세와 같은 이중 가드.
    */
-  const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;
+  const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0 || failedRowChildMismatch;
   /**
    * 라운드 51 C-#5 — 분류 없이 저장을 눌렀을 때.
    *
@@ -1247,6 +1461,9 @@ export default function NewExpenseScreen() {
                   selected={!customDateMode && chip.iso === expenseDateIso}
                   onPress={() => {
                     setExpenseDateIso(chip.iso);
+                    // 라운드 58 통합리뷰 P3-7: 여기서부터 날짜는 **사용자가 정한 값**이다. 같은
+                    // 날짜를 다시 고르더라도 프리필로 되돌아가지 않는다(안내가 되살아나지 않게).
+                    setDateFollowsPrefill(false);
                     setCustomDateMode(false);
                     setCustomDateText("");
                   }}
@@ -1278,6 +1495,16 @@ export default function NewExpenseScreen() {
         {/* 고른 날짜는 pill 라벨만으로는 알 수 없다(달력 패널에서 2주 전을 고르면 어느 칩도
             눌려 있지 않다) -- 그래서 실제 저장될 날짜를 한 줄로 그대로 적는다. */}
         <Text style={{ color: theme.colors.gray600, fontSize: 11, fontWeight: "700" }}>{expenseDate.label}</Text>
+        {/* 라운드 58 #5: 실패 행의 날짜를 그대로 쓸 수 없어 오늘로 물러선 경우에만 뜬다. 사용자가
+            날짜를 한 번이라도 고르면(칩·달력·직접 입력) 사라지고 **다시 나타나지 않는다** -- 이미
+            고른 뒤에도 남아 있으면 지금 화면과 어긋나는 말이 된다. 앱이 날짜를 지어내지 않는다는
+            사실 자체가 이 줄의 존재 이유다(문구는 src/offline/messages.ts 단일 소스).
+            라운드 58 통합리뷰 P3-7: 조건이 날짜 값 비교가 아니라 **누가 정했는가**(dateFollowsPrefill)
+            다. 값으로 비교하면 어제로 옮겼다가 오늘 칩을 다시 누른 사용자에게 안내가 되살아났다 --
+            스스로 오늘을 고른 사람에게 "오늘로 두었어요"는 사실이 아니다. */}
+        {prefilledSpentOn.fellBackToToday && dateFollowsPrefill ? (
+          <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>{FAILED_ROW_PREFILL_DATE_RESET_NOTICE}</Text>
+        ) : null}
 
         {authToken && showDatePicker ? (
           <View style={{ gap: 10 }}>
@@ -1292,6 +1519,7 @@ export default function NewExpenseScreen() {
                 // 칩 탭과 **같은 상태 갱신**이다 -- 초안 자동 저장(spentOnIso)·요약 줄·
                 // 저장 payload가 전부 이 한 값(expenseDateIso)만 본다.
                 setExpenseDateIso(dateIso);
+                setDateFollowsPrefill(false);
                 setCustomDateMode(false);
                 setCustomDateText("");
               }}
@@ -1306,6 +1534,7 @@ export default function NewExpenseScreen() {
                   selected={!customDateMode && chip.iso === expenseDateIso}
                   onPress={() => {
                     setExpenseDateIso(chip.iso);
+                    setDateFollowsPrefill(false);
                     setCustomDateMode(false);
                     setCustomDateText("");
                   }}
@@ -1328,7 +1557,10 @@ export default function NewExpenseScreen() {
                     setCustomDateText(cleaned);
                     if (cleaned.length > 0) {
                       const error = validateExpenseDateInput(cleaned);
-                      if (!error) setExpenseDateIso(cleaned);
+                      if (!error) {
+                        setExpenseDateIso(cleaned);
+                        setDateFollowsPrefill(false);
+                      }
                     }
                   }}
                   placeholder="YYYY-MM-DD"
@@ -1927,6 +2159,20 @@ export default function NewExpenseScreen() {
               {notice}
             </Text>
           ))}
+          {/* 라운드 58 통합리뷰 P1-1 — 아이 어긋남 안내. 금액·길이 안내와 **같은 자리·같은 문법**
+              이다(저장 버튼 바로 위, danger, alert + live region): 저장 버튼이 잠기는 이유를
+              말하지 않으면 "왜 저장이 안 되지"만 남는다. 문구는 src/offline/messages.ts 단일
+              소스이고, 아이를 되돌리면 저절로 사라진다. 세션 없는 EXP-001 캡처에서는 언제나
+              false다(파라미터 자체가 올 수 없고 판정도 authToken 뒤에 있다). */}
+          {failedRowChildMismatch ? (
+            <Text
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={{ color: theme.colors.danger, fontSize: 12, fontWeight: "700" }}
+            >
+              {FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE}
+            </Text>
+          ) : null}
           <PrimaryButton
             disabled={saveExpense.isPending || isSaveBlocked}
             label={saveExpense.isPending ? "저장 중" : "저장하기"}

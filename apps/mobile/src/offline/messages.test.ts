@@ -5,6 +5,9 @@ import { EXPENSE_CREATE_FAILED_MESSAGE } from "../expenses/save-error-messages";
 import { OFFLINE_AWARE_LOAD_ERROR_SCREENS } from "./offline-aware-screens";
 import {
   CONFLICT_BANNER_MESSAGE,
+  FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE,
+  FAILED_ROW_PREFILL_DATE_RESET_NOTICE,
+  SYNC_STATUS_FIX_AND_RESEND_LABEL,
   CONFLICT_OPTION_ADOPT_SERVER_LABEL,
   CONFLICT_OPTION_REAPPLY_MINE_LABEL,
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
@@ -94,6 +97,53 @@ describe("REC-123(H4) 동기화 상태 문구 단일 소스", () => {
     expect(recordsSource).toContain("syncStatusBadgeLabel(");
     expect(recordsSource).toContain("syncStatusCountLabel(");
     expect(syncStatusSource).toContain("syncStatusBadgeLabel(");
+  });
+});
+
+describe("라운드 58 #5 '고쳐서 다시 보내기' 문구", () => {
+  it("행동을 그대로 말하는 문장형 라벨이다 ('수정'이 아니다 — 서버에 없는 기록이다)", () => {
+    expect(SYNC_STATUS_FIX_AND_RESEND_LABEL).toBe("고쳐서 다시 보내기");
+  });
+
+  it("날짜 폴백 안내는 지금 상태와 다음에 할 일만 말한다 (DNC-018 해요체, 비난 없음)", () => {
+    expect(FAILED_ROW_PREFILL_DATE_RESET_NOTICE).toBe("그 날짜로는 저장할 수 없어서 오늘로 두었어요. 맞는 날짜를 골라 주세요.");
+    expect(FAILED_ROW_PREFILL_DATE_RESET_NOTICE.split("\n")).toHaveLength(1);
+    expect(FAILED_ROW_PREFILL_DATE_RESET_NOTICE).toMatch(/요\.$/);
+    expect(FAILED_ROW_PREFILL_DATE_RESET_NOTICE).not.toMatch(/확인하세요|하십시오|오류|에러|잘못|실수/);
+    // 앱이 날짜를 대신 고쳐 놓고 침묵하지 않는다는 것이 이 문장의 존재 이유다.
+    expect(FAILED_ROW_PREFILL_DATE_RESET_NOTICE).toContain("오늘로 두었어요");
+  });
+
+  it("두 문구 모두 화면이 아니라 이 모듈에서 온다 (인라인 리터럴 금지)", () => {
+    // 주석은 걷어내고 본다 — 화면 주석이 문구를 **설명하려고** 인용하는 것은 금지 대상이 아니다
+    // (recurring-flow.test.ts의 codeOnly와 같은 관례).
+    const codeOnly = (relativePath: string) =>
+      readFileSync(join(process.cwd(), relativePath), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/\/\/[^\n]*/g, " ");
+    const syncStatus = codeOnly("app/sync-status.tsx");
+    const newExpense = codeOnly("app/expenses/new.tsx");
+    expect(syncStatus).not.toContain(`"${SYNC_STATUS_FIX_AND_RESEND_LABEL}"`);
+    expect(newExpense).not.toContain(`"${FAILED_ROW_PREFILL_DATE_RESET_NOTICE}"`);
+    expect(syncStatus).toContain("SYNC_STATUS_FIX_AND_RESEND_LABEL");
+    expect(newExpense).toContain("FAILED_ROW_PREFILL_DATE_RESET_NOTICE");
+  });
+
+  /**
+   * 라운드 58 통합리뷰 P1-1 — 아이 어긋남 안내. 이 문장이 뜨는 순간은 저장을 막는 순간이라,
+   * 무엇이 사실이고 무엇을 하면 되는지를 한 줄에 담아야 한다(그러지 않으면 "왜 저장이 안 되지"만
+   * 남는다). 조용히 지금 아이 밑으로 저장하면 아이 A의 지출이 B의 합계에 들어가고 원본 실패
+   * 행까지 폐기된다 — 그래서 말한다.
+   */
+  it("아이 어긋남 안내는 사실과 다음에 할 일만 말한다 (DNC-018 해요체, 비난 없음)", () => {
+    expect(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE).toBe(
+      "이 기록은 다른 아이의 기록이에요. 그 아이로 바꾼 뒤에 저장할 수 있어요."
+    );
+    expect(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE.split("\n")).toHaveLength(1);
+    expect(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE).toMatch(/요\.$/);
+    expect(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE).not.toMatch(/확인하세요|하십시오|오류|에러|잘못|실수/);
+    // 무엇을 하면 되는지가 문장 안에 있다(막기만 하고 침묵하지 않는다).
+    expect(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE).toContain("바꾼 뒤에 저장할 수 있어요");
   });
 });
 

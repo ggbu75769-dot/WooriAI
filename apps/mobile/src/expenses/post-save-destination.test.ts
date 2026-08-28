@@ -8,9 +8,11 @@ import {
   EXPENSE_ENTRY_SOURCE_PARAM,
   parseExpenseEntrySource,
   POST_SAVE_DEFAULT_DESTINATION,
+  POST_SAVE_HOME_DESTINATION,
   POST_SAVE_ITEMS_DESTINATION,
   resolvePostSaveDestination
 } from "./post-save-destination";
+import { RECURRING_ENTRY_SOURCE } from "./recurring-template";
 import { OFFLINE_SAVED_MESSAGE, SERVER_CONFIRMED_MESSAGE } from "../offline/messages";
 import { expenseLinkParams } from "../items/expense-link-prompt";
 
@@ -59,6 +61,60 @@ describe("라운드 48 T4(D1) 저장 후 목적지 판정", () => {
     expect(parseExpenseEntrySource("items")).toBe("items");
     expect(parseExpenseEntrySource("purchase-followup")).toBe("purchase-followup");
     expect(parseExpenseEntrySource("whatever")).toBeNull();
+  });
+});
+
+/**
+ * 라운드 58 #7 — 정기 지출에서 온 기록은 **홈**으로 돌아간다.
+ *
+ * 왜 홈인가: 이 진입점의 출발지는 홈의 정기 지출 카드이고("이번 달 정기 지출 2건이 아직 기록에
+ * 없어요"), 그 카드의 판정은 서버 캐시와 함께 이 기기의 오프라인 대기 행까지 세므로 —
+ * 로컬 우선 저장이라 방금 적은 행이 그 안에 있다 — 돌아간 즉시 **그 줄이 목록에서 사라지는
+ * 것을 사용자가 눈으로 본다**(마지막 한 건이면 카드 자체가 없어진다). 기록 탭으로 보내면 행
+ * 하나는 보이지만 재촉이 끝났다는 사실은 어디에도 보이지 않는다.
+ *
+ * 리마인더가 서는 자리는 홈 하나뿐이라(라운드 55 §1.5, recurring-flow.test.ts가 고정) 이
+ * 목적지에는 대안이 없다.
+ */
+describe("라운드 58 #7 정기 지출 저장 후 홈 착지", () => {
+  it("from=recurring은 홈으로 간다", () => {
+    expect(resolvePostSaveDestination({ from: "recurring" })).toBe(POST_SAVE_HOME_DESTINATION);
+    expect(POST_SAVE_HOME_DESTINATION).toBe("/(tabs)");
+    // 정기 지출 모듈이 싣는 값과 같은 문자열이다(양 끝이 갈리면 이 규칙이 조용히 죽는다).
+    expect(RECURRING_ENTRY_SOURCE).toBe("recurring");
+    expect(resolvePostSaveDestination({ from: RECURRING_ENTRY_SOURCE })).toBe(POST_SAVE_HOME_DESTINATION);
+  });
+
+  it("아는 값이 됐으므로 파싱에서도 살아남는다", () => {
+    expect(parseExpenseEntrySource("recurring")).toBe("recurring");
+    expect(parseExpenseEntrySource([" recurring "])).toBe("recurring");
+    // 흉내 낸 값은 여전히 모르는 값이다.
+    expect(parseExpenseEntrySource("RECURRING")).toBeNull();
+    expect(parseExpenseEntrySource("recurring-expense")).toBeNull();
+  });
+
+  /**
+   * 이 규칙이 더한 것은 **한 값의 목적지 하나**뿐이다. 나머지 셋(기존 진입점)과 미지정·오염
+   * 값의 동작이 함께 움직이면, 준비템 복귀와 기본 동작이 이 변경에 딸려 바뀐 것이 된다.
+   */
+  it("기존 세 값과 미지정·오염 값의 목적지는 하나도 바뀌지 않는다", () => {
+    expect(resolvePostSaveDestination({ from: "items" })).toBe(POST_SAVE_ITEMS_DESTINATION);
+    expect(resolvePostSaveDestination({ from: "item-detail" })).toBe(POST_SAVE_ITEMS_DESTINATION);
+    expect(resolvePostSaveDestination({ from: "purchase-followup" })).toBe(POST_SAVE_DEFAULT_DESTINATION);
+    expect(resolvePostSaveDestination({})).toBe(POST_SAVE_DEFAULT_DESTINATION);
+    expect(resolvePostSaveDestination(undefined)).toBe(POST_SAVE_DEFAULT_DESTINATION);
+    for (const value of ["", "   ", "home", "/(tabs)", 42, true, {}, []]) {
+      expect(resolvePostSaveDestination({ from: value }), `from=${JSON.stringify(value)}`).toBe(
+        POST_SAVE_DEFAULT_DESTINATION
+      );
+    }
+  });
+
+  it("빠른 기록 시트는 판정 모듈의 목적지를 그대로 쓴다 (화면에 새 분기를 만들지 않는다)", () => {
+    // 라운드 48 T4의 배선 그대로다 — 이 라운드는 화면을 손대지 않았고, 목적지 하나가 늘었다.
+    const newExpenseSource = source("app/expenses/new.tsx");
+    expect(newExpenseSource).toContain("const postSaveDestination = resolvePostSaveDestination(params);");
+    expect(newExpenseSource).not.toContain('router.replace("/(tabs)")');
   });
 });
 
@@ -200,7 +256,10 @@ describe("라운드 48 T4(D1) 화면 배선 (app/expenses/new.tsx)", () => {
     // GAP-056 #1: 잠금 판정이 isAmountInvalid -> isSaveBlocked(금액 + 텍스트 길이 상한)로
     // 넓어졌다. 지키려는 것은 그대로다 -- 두 버튼이 **같은 한 줄**로 잠긴다.
     expect(newExpenseSource.match(/disabled=\{saveExpense\.isPending \|\| isSaveBlocked\}/g) ?? []).toHaveLength(2);
-    expect(newExpenseSource).toContain("const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;");
+    // 라운드 58 통합리뷰 P1-1: 아이 어긋남 가드도 같은 한 줄에 있다.
+    expect(newExpenseSource).toContain(
+      "const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0 || failedRowChildMismatch;"
+    );
   });
 
   it("두 버튼 모두 보기 전용 게이트를 통과한다(라운드 40 J-1)", () => {

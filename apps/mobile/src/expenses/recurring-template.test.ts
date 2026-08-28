@@ -10,8 +10,11 @@ import {
   buildRecurringTemplate,
   formatRecurringTemplateLine,
   isRecurringYearMonth,
+  parseRecurringTemplatePrefill,
+  recurringDayOfMonthOf,
   recurringDueDateForMonth,
   recurringPrefillParams,
+  recurringTemplatePrefillParams,
   recurringRecordAccessibilityLabel,
   recurringReminderCopy,
   recurringReminderTitle,
@@ -472,8 +475,185 @@ describe("라운드 55 #4 원탭 프리필 (수용 기준 5)", () => {
     expect(recurringPrefillParams(template({ paymentMethod: "unknown" as never }))).toBeNull();
   });
 
-  it("from 값은 post-save-destination이 모르는 값이라 저장 후 목적지가 종전 그대로다", async () => {
-    const { resolvePostSaveDestination, POST_SAVE_DEFAULT_DESTINATION } = await import("./post-save-destination");
-    expect(resolvePostSaveDestination({ from: RECURRING_ENTRY_SOURCE })).toBe(POST_SAVE_DEFAULT_DESTINATION);
+  /**
+   * 라운드 58 #7 — 라운드 55에서는 이 값이 **모르는 값**이라 저장 후 목적지가 종전(기록 탭)
+   * 이었다. 이제는 아는 값이고 목적지는 홈이다: 이 진입점이 출발한 홈 카드가 방금 기록한 줄을
+   * 즉시 지워 보여 주는 유일한 화면이기 때문이다(근거는 post-save-destination.ts 주석).
+   */
+  it("from 값을 post-save-destination이 알아보고 홈으로 보낸다 (라운드 58 #7)", async () => {
+    const { resolvePostSaveDestination, POST_SAVE_HOME_DESTINATION, parseExpenseEntrySource } = await import(
+      "./post-save-destination"
+    );
+    expect(parseExpenseEntrySource(RECURRING_ENTRY_SOURCE)).toBe(RECURRING_ENTRY_SOURCE);
+    expect(resolvePostSaveDestination({ from: RECURRING_ENTRY_SOURCE })).toBe(POST_SAVE_HOME_DESTINATION);
+    expect(POST_SAVE_HOME_DESTINATION).toBe("/(tabs)");
+  });
+
+  it("템플릿이 만드는 파라미터가 그대로 그 판정에 들어간다 (양 끝이 맞물린다)", async () => {
+    const { resolvePostSaveDestination, POST_SAVE_HOME_DESTINATION } = await import("./post-save-destination");
+    const params = recurringPrefillParams(template());
+    expect(resolvePostSaveDestination(params!)).toBe(POST_SAVE_HOME_DESTINATION);
+  });
+});
+
+/**
+ * 라운드 58 #1 — 역방향 진입(지출 상세 → /expenses/recurring).
+ *
+ * 여기서 고정하는 것은 세 가지다: ① 옮겨진 값이 폼 칸까지 **왕복**한다, ② 선물·환불 행에서는
+ * 아예 만들어지지 않는다(= 버튼이 없다), ③ 이름은 기존 프리필 계약을 재사용하고 새로 생긴
+ * 이름은 dayOfMonth 하나뿐이다.
+ */
+describe("라운드 58 #1 역방향 프리필 (지출 → 정기 지출)", () => {
+  const expenseRow = {
+    itemName: "기저귀",
+    amountKrw: 38_500,
+    categoryId: CATEGORY,
+    paymentMethod: "card",
+    spentOn: "2026-08-27",
+    expenseType: "expense"
+  };
+
+  it("지출의 값이 관리 화면 폼 칸까지 왕복한다 (결제일은 그 지출을 쓴 날의 일자)", () => {
+    const params = recurringTemplatePrefillParams(expenseRow);
+    expect(params).toEqual({
+      itemName: "기저귀",
+      amountKrw: "38500",
+      categoryId: CATEGORY,
+      paymentMethod: "card",
+      dayOfMonth: "27"
+    });
+
+    expect(parseRecurringTemplatePrefill(params!)).toEqual({
+      itemName: "기저귀",
+      amountDigits: "38500",
+      categoryId: CATEGORY,
+      paymentMethod: "card",
+      dayDigits: "27",
+      hasPrefill: true
+    });
+  });
+
+  it("왕복한 값이 실제로 저장 가능한 템플릿이 된다 (열자마자 막히는 폼을 열지 않는다)", () => {
+    const prefill = parseRecurringTemplatePrefill(recurringTemplatePrefillParams(expenseRow)!);
+    const fromForm: RecurringTemplateDraft = {
+      childId: CHILD,
+      itemName: prefill.itemName,
+      amountKrw: Number(prefill.amountDigits),
+      categoryId: prefill.categoryId ?? "",
+      paymentMethod: prefill.paymentMethod ?? "card",
+      dayOfMonth: Number(prefill.dayDigits)
+    };
+    expect(recurringTemplateValidationError(fromForm)).toBeNull();
+  });
+
+  it("선물·환불 행에서는 만들어지지 않는다 (버튼이 없다 — DNC-015)", () => {
+    expect(recurringTemplatePrefillParams({ ...expenseRow, expenseType: "gift" })).toBeNull();
+    expect(recurringTemplatePrefillParams({ ...expenseRow, expenseType: "refund" })).toBeNull();
+    // 필드가 없는 레거시 행은 지출로 본다(recent-items.ts와 같은 규칙).
+    expect(recurringTemplatePrefillParams({ ...expenseRow, expenseType: undefined })).not.toBeNull();
+    expect(recurringTemplatePrefillParams({ ...expenseRow, expenseType: null })).not.toBeNull();
+  });
+
+  it("저장할 수 없는 행에서도 만들어지지 않는다 (품목명 없음 · 금액 0 · 상한 초과)", () => {
+    expect(recurringTemplatePrefillParams({ ...expenseRow, itemName: "   " })).toBeNull();
+    expect(recurringTemplatePrefillParams({ ...expenseRow, amountKrw: 0 })).toBeNull();
+    expect(recurringTemplatePrefillParams({ ...expenseRow, amountKrw: 1.5 })).toBeNull();
+    expect(recurringTemplatePrefillParams({ ...expenseRow, amountKrw: EXPENSE_AMOUNT_MAX_KRW + 1 })).toBeNull();
+    // 지출을 아직 불러오지 못한 화면(값이 전부 undefined)에서도 버튼이 서지 않는다.
+    expect(recurringTemplatePrefillParams({})).toBeNull();
+  });
+
+  /**
+   * 라운드 58 통합리뷰 P2-3 — 품목명이 계약 상한(100자)을 넘는 행에서는 버튼이 서지 않는다.
+   *
+   * 엑셀 가져오기를 거친 기록은 실제로 101~120자 품목명을 들고 있을 수 있다(가져오기 컬럼은
+   * varchar(120)). 그대로 프리필하면 폼은 채워진 채 열리지만 저장은 상한 문구로 막히고, 칸의
+   * maxLength가 새 글자만 막으므로 사용자는 그 칸을 다 지우기 전까지 빠져나갈 수 없다.
+   */
+  it("품목명이 상한을 넘는 행에서는 프리필을 만들지 않는다 (열자마자 막히는 폼을 열지 않는다)", () => {
+    const boundary = "가".repeat(RECURRING_ITEM_NAME_MAX_LENGTH);
+    const over = "가".repeat(RECURRING_ITEM_NAME_MAX_LENGTH + 1);
+
+    // 경계(정확히 100자)는 저장 가능한 값이므로 그대로 열린다.
+    expect(recurringTemplatePrefillParams({ ...expenseRow, itemName: boundary })?.itemName).toBe(boundary);
+    expect(recurringTemplatePrefillParams({ ...expenseRow, itemName: over })).toBeNull();
+    // 판정은 **저장할 값**(trim된 문자열)으로 한다 — 공백만으로 상한을 넘긴 값은 통과한다.
+    expect(recurringTemplatePrefillParams({ ...expenseRow, itemName: `  ${boundary}  ` })?.itemName).toBe(boundary);
+    // 저장 검증과 같은 자를 쓴다(같은 값이 폼에서도 같은 이유로 막힌다).
+    expect(
+      recurringTemplateValidationError({
+        childId: CHILD,
+        itemName: over,
+        amountKrw: 38_500,
+        categoryId: CATEGORY,
+        paymentMethod: "card",
+        dayOfMonth: 27
+      })
+    ).toBe(RECURRING_ITEM_NAME_TOO_LONG_MESSAGE);
+  });
+
+  it("모르는 값은 키 자체를 싣지 않는다 (화면 기본값이 그대로 남는다)", () => {
+    const params = recurringTemplatePrefillParams({
+      ...expenseRow,
+      // 서버 enum의 "unknown"은 사용자가 고른 적 없는 값이라 세그먼트를 움직이지 않는다.
+      paymentMethod: "unknown",
+      categoryId: "  ",
+      spentOn: "2026-08"
+    });
+    expect(params).toEqual({ itemName: "기저귀", amountKrw: "38500" });
+    expect(parseRecurringTemplatePrefill(params!)).toEqual({
+      itemName: "기저귀",
+      amountDigits: "38500",
+      categoryId: null,
+      paymentMethod: null,
+      dayDigits: "",
+      hasPrefill: true
+    });
+  });
+
+  it("파라미터 없이 열린 화면은 빈 폼 그대로다 (프리필 이전과 한 픽셀도 다르지 않다)", () => {
+    expect(parseRecurringTemplatePrefill({})).toEqual({
+      itemName: "",
+      amountDigits: "",
+      categoryId: null,
+      paymentMethod: null,
+      dayDigits: "",
+      hasPrefill: false
+    });
+  });
+
+  it("오염된 파라미터는 조용히 버려진다 (링크 하나로 저장 가드에 걸리는 폼이 열리지 않는다)", () => {
+    for (const dayOfMonth of ["0", "32", "99", "-5", "5.5", "다섯", "", "  ", 5, true, {}, []]) {
+      expect(parseRecurringTemplatePrefill({ dayOfMonth }).dayDigits, `dayOfMonth=${JSON.stringify(dayOfMonth)}`).toBe(
+        ""
+      );
+    }
+    // expo-router가 배열로 넘겨도 첫 값만 읽는다(기존 프리필 파싱과 같은 규율).
+    expect(parseRecurringTemplatePrefill({ dayOfMonth: ["27", "3"] }).dayDigits).toBe("27");
+    // 앞뒤 공백·0 패딩은 같은 날로 읽는다(폼 칸에는 정규화된 값이 들어간다).
+    expect(parseRecurringTemplatePrefill({ dayOfMonth: " 05 " }).dayDigits).toBe("5");
+  });
+
+  it("파라미터 이름은 기존 프리필 계약을 재사용하고 새 이름은 dayOfMonth 하나뿐이다", () => {
+    const params = recurringTemplatePrefillParams(expenseRow)!;
+    const sharedWithQuickSheet = ["itemName", "amountKrw", "categoryId", "paymentMethod"];
+    expect(Object.keys(params).filter((name) => !sharedWithQuickSheet.includes(name))).toEqual(["dayOfMonth"]);
+    // 파싱도 그 계약의 파서를 그대로 지난다(방어 규칙이 두 벌이 되지 않게).
+    const moduleSource = source("src/expenses/recurring-template.ts");
+    expect(moduleSource).toContain("parseExpensePrefillParams(params)");
+    // 라운드 58 통합리뷰 P2-6: 파라미터 정규화(string | string[])도 그 계약의 함수를 쓴다 —
+    // 사본이 남아 있으면 언젠가 한쪽만 고쳐져 같은 링크가 화면마다 다른 값을 채운다.
+    expect(moduleSource).toContain("firstPrefillParamValue");
+    expect(moduleSource).not.toContain("function firstParamValue(");
+  });
+
+  it("결제일은 그 지출의 날짜에서 읽고 지어내지 않는다", () => {
+    expect(recurringDayOfMonthOf("2026-08-27")).toBe(27);
+    expect(recurringDayOfMonthOf("2026-08-01")).toBe(1);
+    // 없는 날짜(2월 31일)도 그대로 읽는다 — 판정이 달마다 말일로 클램프한다.
+    expect(recurringDayOfMonthOf("2026-02-31")).toBe(31);
+    for (const value of ["2026-08", "2026-08-00", "2026-08-32", "20260827", "", null, undefined, 27]) {
+      expect(recurringDayOfMonthOf(value), `${JSON.stringify(value)}`).toBeNull();
+    }
   });
 });

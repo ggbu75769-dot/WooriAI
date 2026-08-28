@@ -1025,4 +1025,159 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       expect(third.affiliateClicksPurged).toBe(0);
     });
   });
+
+  // GAP-058 #10: audit_logs was the last table with no deletion path at all —
+  // phase 3 only nullifies actorUserId and phase 5 only masks one legacy
+  // field, so it grew forever. Phase 8 gives it a window of its own, longer
+  // than the telemetry windows because this is the 책임 추적 record.
+  describe("audit log retention (phase 8, GAP-058 #10)", () => {
+    afterEach(() => {
+      delete process.env.AUDIT_LOGS_RETENTION_DAYS;
+      delete process.env.ANALYTICS_EVENTS_RETENTION_DAYS;
+      delete process.env.AFFILIATE_CLICKS_RETENTION_DAYS;
+    });
+
+    async function createAuditLog(createdAt: Date, action = "expense.update") {
+      return prisma.auditLog.create({
+        data: {
+          actorUserId: null,
+          action,
+          targetType: "expense",
+          targetId: randomUUID(),
+          afterJson: { marker: `purge-gap058-${randomUUID().slice(0, 8)}` },
+          createdAt
+        }
+      });
+    }
+
+    it("defaults to a 730-day window — longer than the telemetry windows — and reports it in the summary", async () => {
+      const now = new Date();
+      const summary = await job.run(now);
+      expect(summary.auditLogsRetentionDays).toBe(730);
+      // 책임 추적 기록은 정산/통계 substrate보다 오래 남는다는 판단이 숫자로 보이게 한다.
+      expect(summary.auditLogsRetentionDays as number).toBeGreaterThan(summary.analyticsEventsRetentionDays as number);
+    });
+
+    it("hard-deletes audit logs older than the retention window and keeps everything inside it", async () => {
+      const now = new Date();
+      const agedOut = await createAuditLog(daysAgo(now, 731));
+      const onTheEdge = await createAuditLog(daysAgo(now, 729));
+      const recent = await createAuditLog(now);
+
+      const summary = await job.run(now);
+      expect(summary.auditLogsPurged as number).toBeGreaterThanOrEqual(1);
+
+      expect(await prisma.auditLog.findUnique({ where: { id: agedOut.id } })).toBeNull();
+      expect(await prisma.auditLog.findUnique({ where: { id: onTheEdge.id } })).not.toBeNull();
+      expect(await prisma.auditLog.findUnique({ where: { id: recent.id } })).not.toBeNull();
+
+      await prisma.auditLog.deleteMany({ where: { id: { in: [onTheEdge.id, recent.id] } } });
+    });
+
+    it("honors the AUDIT_LOGS_RETENTION_DAYS override independently of the other windows", async () => {
+      const now = new Date();
+      process.env.AUDIT_LOGS_RETENTION_DAYS = "900";
+
+      const beyond = await createAuditLog(daysAgo(now, 950));
+      // 800일은 기본 창(730)이면 지워질 나이지만 override(900) 안이다 — 이 행이 살아남는다는
+      // 사실이 곧 "env가 실제로 반영됐다"는 증거다.
+      const within = await createAuditLog(daysAgo(now, 800));
+
+      const summary = await job.run(now);
+      expect(summary.auditLogsRetentionDays).toBe(900);
+      // 다른 창은 이 override에 흔들리지 않는다.
+      expect(summary.retentionDays).toBe(30);
+      expect(summary.analyticsEventsRetentionDays).toBe(400);
+
+      expect(await prisma.auditLog.findUnique({ where: { id: beyond.id } })).toBeNull();
+      expect(await prisma.auditLog.findUnique({ where: { id: within.id } })).not.toBeNull();
+
+      await prisma.auditLog.deleteMany({ where: { id: within.id } });
+    });
+
+    it("touches nothing but audit_logs: telemetry inside its own window survives, and an in-window legacy lookup row is still only scrubbed", async () => {
+      const now = new Date();
+      // 텔레메트리 창을 감사 로그 창보다 훨씬 길게 열어 둔다 — 같은 나이의 행을 놓고
+      // "감사 로그만 지워지는가"를 본다(단계 간 커트라인이 섞이면 여기서 잡힌다).
+      process.env.ANALYTICS_EVENTS_RETENTION_DAYS = "2000";
+      process.env.AFFILIATE_CLICKS_RETENTION_DAYS = "2000";
+
+      const agedOutAudit = await createAuditLog(daysAgo(now, 800));
+      const oldEvent = await prisma.analyticsEvent.create({
+        data: {
+          eventName: "app_opened",
+          eventVersion: 1,
+          eventId: randomUUID(),
+          occurredAt: daysAgo(now, 800),
+          userAnonId: `purge-gap058-${randomUUID().slice(0, 8)}`,
+          payload: {}
+        }
+      });
+      const oldClick = await prisma.affiliateClick.create({
+        data: { itemTemplateId, productLinkId, platform: "coupang", clickedAt: daysAgo(now, 800) }
+      });
+      // 5단계가 담당하는 행: 창 안(최근)이므로 마스킹만 되고 지워지지 않는다.
+      const rawQuery = `purge-gap058-${randomUUID()}@example.test`;
+      const legacyLookup = await prisma.auditLog.create({
+        data: {
+          action: "admin.user_lookup.search",
+          targetType: "users",
+          afterJson: { query: rawQuery, resultCount: 1 }
+        }
+      });
+      // 최근 지출 툼스톤: 1단계의 30일 창 안이라 이 틱에서 살아남아야 한다.
+      const user = await createUser();
+      const household = await createHousehold(user.id);
+      const child = await createChild(household.id, null);
+      const freshTombstone = await createExpense(household.id, child.id, user.id, daysAgo(now, 3));
+
+      const summary = await job.run(now);
+      expect(summary.auditLogsPurged as number).toBeGreaterThanOrEqual(1);
+
+      expect(await prisma.auditLog.findUnique({ where: { id: agedOutAudit.id } })).toBeNull();
+      expect(await prisma.analyticsEvent.findUnique({ where: { id: oldEvent.id } })).not.toBeNull();
+      expect(await prisma.affiliateClick.findUnique({ where: { id: oldClick.id } })).not.toBeNull();
+      expect(await prisma.expense.findUnique({ where: { id: freshTombstone.id } })).not.toBeNull();
+
+      const scrubbed = await prisma.auditLog.findUnique({ where: { id: legacyLookup.id } });
+      expect(scrubbed, "창 안의 감사 로그가 지워졌다").not.toBeNull();
+      const after = scrubbed?.afterJson as Record<string, unknown>;
+      expect(after.query).toBeUndefined();
+      expect(after.queryMasked).toBe(`pu***(${rawQuery.length}자)`);
+
+      await prisma.auditLog.deleteMany({ where: { id: legacyLookup.id } });
+      await prisma.analyticsEvent.deleteMany({ where: { id: oldEvent.id } });
+      await prisma.affiliateClick.deleteMany({ where: { id: oldClick.id } });
+      await prisma.expense.deleteMany({ where: { id: freshTombstone.id } });
+      await prisma.child.deleteMany({ where: { id: child.id } });
+      await prisma.household.deleteMany({ where: { id: household.id } });
+      await prisma.user.deleteMany({ where: { id: user.id } });
+    });
+
+    it("caps the phase at PURGE_BATCH_SIZE rows per tick and drains the backlog across ticks (restartable)", async () => {
+      const now = new Date();
+      // 기본 730일 창 그대로: 다른 스위트는 이만큼 오래된 감사 로그를 만들지 않으므로
+      // 이 세 행이 파기 대상 전부이고 배치 상한이 정확히 관측된다.
+      process.env.PURGE_BATCH_SIZE = "2";
+
+      const logs = [
+        await createAuditLog(daysAgo(now, 1000)),
+        await createAuditLog(daysAgo(now, 999)),
+        await createAuditLog(daysAgo(now, 998))
+      ];
+      const ids = logs.map((row) => row.id);
+
+      const first = await job.run(now);
+      expect(first.auditLogsPurged).toBe(2);
+      // 오래된 것부터: 셋 중 가장 최근 행은 첫 틱을 살아남는다.
+      expect(await prisma.auditLog.findUnique({ where: { id: ids[2]! } })).not.toBeNull();
+
+      const second = await job.run(now);
+      expect(second.auditLogsPurged).toBe(1);
+      expect(await prisma.auditLog.count({ where: { id: { in: ids } } })).toBe(0);
+
+      const third = await job.run(now);
+      expect(third.auditLogsPurged).toBe(0);
+    });
+  });
 });

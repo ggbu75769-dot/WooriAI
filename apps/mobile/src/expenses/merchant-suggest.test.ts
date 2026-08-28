@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMerchantSuggestions,
-  buildRecentMerchantSuggestions,
   formatMerchantSuggestionChipLabel,
   merchantSuggestionChipAccessibilityLabel,
   MERCHANT_SUGGEST_LIMIT,
@@ -132,9 +131,8 @@ describe("GAP-056 #2 판매처 자동완성", () => {
   it("캐시가 비면 빈 배열이다 (후보를 지어내지 않는다)", () => {
     expect(buildMerchantSuggestions("쿠", [])).toEqual([]);
     expect(buildMerchantSuggestions("", [])).toEqual([]);
-    expect(buildRecentMerchantSuggestions([])).toEqual([]);
     // 판매처를 한 번도 적지 않은 달도 같다.
-    expect(buildRecentMerchantSuggestions([row({ merchant: "", spentOn: "2026-08-20" })])).toEqual([]);
+    expect(buildMerchantSuggestions("", [row({ merchant: "", spentOn: "2026-08-20" })])).toEqual([]);
   });
 
   it("빈 입력이면 최근 판매처 상위 N을 돌려준다 (폼 포커스 칩)", () => {
@@ -143,11 +141,12 @@ describe("GAP-056 #2 판매처 자동완성", () => {
       row({ merchant: `상점${index}`, spentOn: `2026-08-0${index + 1}` })
     );
 
-    const chips = buildRecentMerchantSuggestions(rows);
+    // GAP-058 P3: 이 갈래에는 이름만 다른 별칭(buildRecentMerchantSuggestions)이 있었지만
+    // 호출부가 0건이라 지웠다 -- 빈 입력 칩은 이 함수 자신이 맡는다.
+    const chips = buildMerchantSuggestions("", rows);
     expect(chips).toHaveLength(5);
     expect(names(chips)).toEqual(["상점6", "상점5", "상점4", "상점3", "상점2"]);
-    expect(buildMerchantSuggestions("", rows)).toEqual(chips);
-    expect(buildRecentMerchantSuggestions(rows, 2)).toHaveLength(2);
+    expect(buildMerchantSuggestions("", rows, { limit: 2 })).toHaveLength(2);
   });
 
   it("타이핑 중 기본 상한은 3개이고, 0 이하 상한은 빈 배열이다", () => {
@@ -159,7 +158,7 @@ describe("GAP-056 #2 판매처 자동완성", () => {
     expect(buildMerchantSuggestions("쿠팡", rows)).toHaveLength(3);
     expect(buildMerchantSuggestions("쿠팡", rows, { limit: 1 })).toHaveLength(1);
     expect(buildMerchantSuggestions("쿠팡", rows, { limit: 0 })).toEqual([]);
-    expect(buildRecentMerchantSuggestions(rows, 0)).toEqual([]);
+    expect(buildMerchantSuggestions("", rows, { limit: 0 })).toEqual([]);
   });
 
   it("첫 글자를 쳐도 칩 순서가 뒤집히지 않는다 (같은 정렬로 좁혀지기만 한다)", () => {
@@ -170,7 +169,7 @@ describe("GAP-056 #2 판매처 자동완성", () => {
       row({ merchant: "이마트", spentOn: "2026-08-26" })
     ];
 
-    expect(names(buildRecentMerchantSuggestions(rows))).toEqual(["쿠팡", "이마트", "쿠팡몰"]);
+    expect(names(buildMerchantSuggestions("", rows))).toEqual(["쿠팡", "이마트", "쿠팡몰"]);
     expect(names(buildMerchantSuggestions("쿠", rows))).toEqual(["쿠팡", "쿠팡몰"]);
   });
 
