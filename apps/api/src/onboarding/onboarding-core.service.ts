@@ -440,8 +440,26 @@ export class OnboardingCoreService {
     return this.toBudgetDto(childId, normalizedMonth, budget.amountKrw);
   }
 
+  /**
+   * GAP-063 #5: 반환값이 예산 DTO **하나**에서 DTO + 감사 봉투로 바뀌었다.
+   * 호출부는 `budgets.controller.ts` 하나뿐이고(저장소 전체 검색), 그 컨트롤러가
+   * `budget`만 응답으로 돌려주므로 **API 응답은 한 글자도 달라지지 않는다**.
+   *
+   * 왜 여기서 스냅샷을 만드는가: `budgets` 행은 `(child_id, year_month)` 유니크 한 칸이라
+   * 덮어쓰면 이전 금액이 **사실 자체로 사라진다**(이월도 이력도 없다). 그리고 이 경로는
+   * 가구의 쓰기 권한자 누구나 탈 수 있어(`requireChildAccess(user, childId, true)`)
+   * 공동 가구에서 한쪽이 세운 예산을 다른 쪽이 조용히 갈아 끼울 수 있다.
+   * before는 upsert **직전** 조회 1회다 — 지출 수정 경로(expenses.service.ts의
+   * updateExpense)와 같은 정밀도이고, 같은 트랜잭션이 아니라는 성질도 그와 같다.
+   *
+   * `createdByUserId`를 손대지 않는 이유: 이 컬럼은 create에서만 채워지므로 행이 아는 것은
+   * "처음 만든 사람"뿐이고, "마지막으로 바꾼 사람"을 행에 담으려면 `updated_by_user_id`
+   * 컬럼 신설 = 마이그레이션이다(schema.prisma의 Budget 주석 참조). 이번 라운드의
+   * 마이그레이션 0 원칙에 따라 그 사실은 **감사 로그가 대신 답한다** — 행위자는
+   * audit_logs.actor_user_id, 시각은 그 행의 created_at이다.
+   */
   async upsertBudget(user: AuthenticatedUser, childId: string, yearMonth: string, amountKrw: number) {
-    await this.childAccess.requireChildAccess(user, childId, true);
+    const child = await this.childAccess.requireChildAccess(user, childId, true);
     // REP-105: yearMonth arrives DTO-normalized to `YYYY-MM-01` (inputs accept
     // `YYYY-MM` or `YYYY-MM-01`; see common/validation/year-month.ts), and
     // getSeoulMonthRange itself truncates any date to its month, so this
@@ -449,12 +467,22 @@ export class OnboardingCoreService {
     // tolerant of both forms. Responses keep the first-of-month form.
     const normalizedMonth = getSeoulMonthRange(yearMonth).yearMonth;
     const amount = requireMoneyKrw(amountKrw);
+    const where = { childId_yearMonth: { childId, yearMonth: toDateOnly(normalizedMonth) } };
+    const existing = await this.prisma.budget.findUnique({ where });
     const budget = await this.prisma.budget.upsert({
-      where: { childId_yearMonth: { childId, yearMonth: toDateOnly(normalizedMonth) } },
+      where,
       update: { amountKrw: amount },
       create: { childId, yearMonth: toDateOnly(normalizedMonth), amountKrw: amount, createdByUserId: user.id }
     });
-    return this.toBudgetDto(childId, normalizedMonth, budget.amountKrw);
+    return {
+      budget: await this.toBudgetDto(childId, normalizedMonth, budget.amountKrw),
+      householdId: child.householdId,
+      budgetId: budget.id,
+      // 봉투에는 금액·연월·childId만 싣는다 — PII(닉네임·이메일)도, 지출 원문도 없다.
+      // before가 null이면 "이 달 예산이 처음 세워졌다"는 뜻이다(덮어쓰기가 아니다).
+      before: existing ? { childId, yearMonth: normalizedMonth, amountKrw: existing.amountKrw } : null,
+      after: { childId, yearMonth: normalizedMonth, amountKrw: budget.amountKrw }
+    };
   }
 
   private async toBudgetDto(childId: string, yearMonth: string, amountKrw: number) {

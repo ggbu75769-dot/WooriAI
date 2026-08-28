@@ -449,6 +449,97 @@ describe("Auth and onboarding API", () => {
       });
   });
 
+  /**
+   * GAP-063 #5: 예산 덮어쓰기는 앱의 돈 관련 쓰기 중 유일하게 흔적이 0이었다.
+   * budgets 행은 (아이, 연월)당 **한 칸**이라 덮어쓰면 이전 금액이 사라지므로,
+   * "누가·언제·얼마에서 얼마로"를 답할 근거는 이 감사 로그밖에 없다.
+   * 조회 화면(ADM-113)이 읽는 것은 audit_logs **테이블**이므로 인메모리 entries가
+   * 아니라 실제로 영속된 행을 확인한다.
+   */
+  it("records a budget.upsert audit row for every month-budget write (first set → null before, overwrite → previous amount)", async () => {
+    const accessToken = await login(app);
+    await request(app.getHttpServer())
+      .put("/api/v1/consents")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        consents: [
+          { type: "terms", version: "2026-07-06", accepted: true },
+          { type: "privacy", version: "2026-07-06", accepted: true }
+        ]
+      })
+      .expect(200);
+
+    const me = await request(app.getHttpServer())
+      .get("/api/v1/me")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    const actorUserId = me.body.user.id as string;
+    const householdId = me.body.households[0].id as string;
+
+    const childId = (
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "예산이", stageMode: "manual", manualStage: "infant_4_6" })
+        .expect(200)
+    ).body.id as string;
+
+    // 1) 첫 설정 — 응답 계약은 종전 그대로(감사 봉투가 응답으로 새지 않는다).
+    await request(app.getHttpServer())
+      .put(`/api/v1/children/${childId}/budget`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ yearMonth: "2026-07", amountKrw: 600000 })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ childId, yearMonth: "2026-07-01", amountKrw: 600000 });
+        expect(body).not.toHaveProperty("before");
+        expect(body).not.toHaveProperty("householdId");
+      });
+
+    // 2) 덮어쓰기 — 이 순간 600,000원이라는 사실이 budgets 행에서 사라진다.
+    await request(app.getHttpServer())
+      .put(`/api/v1/children/${childId}/budget`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ yearMonth: "2026-07", amountKrw: 400000 })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.amountKrw).toBe(400000);
+      });
+
+    const budgetRow = await prisma.budget.findFirst({ where: { childId } });
+    expect(budgetRow).not.toBeNull();
+
+    const rows = await prisma.auditLog.findMany({
+      where: { action: "budget.upsert", targetId: budgetRow!.id },
+      orderBy: { createdAt: "asc" }
+    });
+    expect(rows).toHaveLength(2);
+
+    expect(rows[0]).toMatchObject({ actorUserId, householdId, targetType: "budget" });
+    // 첫 설정은 덮어쓰기가 아니다 — before가 없다는 사실 자체가 정보다.
+    expect(rows[0]!.beforeJson).toBeNull();
+    expect(rows[0]!.afterJson).toEqual({ childId, yearMonth: "2026-07-01", amountKrw: 600000 });
+
+    expect(rows[1]).toMatchObject({ actorUserId, householdId, targetType: "budget" });
+    expect(rows[1]!.beforeJson).toEqual({ childId, yearMonth: "2026-07-01", amountKrw: 600000 });
+    expect(rows[1]!.afterJson).toEqual({ childId, yearMonth: "2026-07-01", amountKrw: 400000 });
+
+    // 봉투에 개인정보가 섞이지 않는다: 키는 금액·연월·childId 셋뿐이다.
+    for (const row of rows) {
+      for (const envelope of [row.beforeJson, row.afterJson]) {
+        if (!envelope) continue;
+        expect(Object.keys(envelope as Record<string, unknown>).sort()).toEqual([
+          "amountKrw",
+          "childId",
+          "yearMonth"
+        ]);
+      }
+    }
+
+    // 공유 DB에 남기지 않는다(라운드 45 오염 사고 재발 차단).
+    await prisma.auditLog.deleteMany({ where: { targetId: budgetRow!.id } });
+  });
+
   // MOB-101: the onboarding resume screen (ONB-006) only offers "처음부터 시작" while no child
   // has been created yet for the household -- once a child exists, restarting risks orphaning
   // it or (if the user re-enters child-profile) creating a duplicate, so canRestart flips to

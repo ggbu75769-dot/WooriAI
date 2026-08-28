@@ -149,6 +149,41 @@ export const DEFAULT_IMPORT_ROWS_RETENTION_DAYS = 90;
 export const IMPORT_ROWS_PURGEABLE_JOB_STATUSES = ["confirmed", "cancelled", "failed"] as const;
 
 /**
+ * GAP-063 #6: 잡 헤더(`import_jobs.file_name` · `source_file_url`) 마스킹 자리표시자
+ * (phase 11).
+ *
+ * **왜 필요한가.** phase 9는 잡의 **행**만 지우고 잡 헤더는 남긴다(그게 사용자에게 보이는
+ * 가져오기 이력이므로 의도한 설계다). 그런데 그 헤더는 사용자가 고른 **파일명 원문**을
+ * 들고 있다 — 실사용에서 파일명은 `김민준_카드내역_2026상반기.xlsx`처럼 **이름·카드사·기간**이
+ * 한 문자열에 들어간다(`imports.controller.ts`가 `file.originalname`을 그대로 싣는다 —
+ * import.dto.ts의 SEC-115 F2 주석도 "verbatim"이라고 적어 뒀다). 그 문자열이 사라지는
+ * 경우는 아이/가구 파기 캐스케이드 하나뿐이었으므로, 확정한 지 3년이 지나도 DB에 그대로
+ * 남았다 — **덜 민감한 검수 행(금액 데이터)은 90일에 지우면서 더 식별성 높은 파일명은
+ * 영구 보존**하는 상태였다.
+ *
+ * **왜 삭제가 아니라 마스킹인가.** `fk_expenses_import_job`(000001)이 살아 있는 지출을
+ * 잡 행에 묶고 있어 잡 행을 지우면 사용자의 진짜 지출이 함께 무너진다. 그래서 행은 남기고
+ * **값만** 자리표시자로 갈아 끼운다 — FK도, 지출의 `source` 계보도, 건수·시각 같은
+ * 비식별 이력도 그대로다. 선례는 같은 잡의 phase 5(레거시 감사 자유 문자열 마스킹)다.
+ *
+ * **왜 빈 문자열이 아닌가.** "원래 없었다"와 "보존 기간이 지나 지웠다"를 구분해야
+ * CS가 오해하지 않는다. 그래서 명시적 자리표시자를 쓰고, 이 값 자체가 phase 11의
+ * 선택 술어(= 아직 마스킹되지 않은 행)이기도 하다 — 재실행해도 같은 행을 다시 고르지
+ * 않는다(멱등·자기 종료).
+ *
+ * **제품 영향 0.** 어떤 API도 이 값을 응답에 싣지 않는다 —
+ * `import-pipeline.service.ts`의 `toImportJobDto`는 id·childId·status·건수만 돌려주고,
+ * 파서는 확장자 판정에만 파일명을 쓴다(업로드 시점). 즉 마스킹으로 사라지는 것은
+ * 화면에 나가던 문자열이 아니라 **DB 안에만 남아 있던 사본**이다.
+ *
+ * 창은 `IMPORT_ROWS_RETENTION_DAYS`를 **그대로** 쓴다. 파일명이 답할 수 있는 질문
+ * ("그때 무슨 파일을 올렸더라")은 검수 행이 살아 있는 동안에만 의미가 있고, 행이 사라진
+ * 뒤에는 파일명만으로 답할 것이 없다 — phase 9가 90일을 고른 이유(CS 조회 가능성) 그대로다.
+ * 그래서 새 상수도 새 env도 만들지 않는다.
+ */
+export const IMPORT_JOB_HEADER_MASK = "[보존기간 경과 파기]";
+
+/**
  * GAP-062 #8: household_invites retention (phase 10).
  *
  * `household_invites` was the last table with **no retention period at all**:
@@ -250,7 +285,7 @@ function errorMessage(error: unknown): string {
  * idempotency_keys never had one). Deletion order below is therefore not just
  * hygiene — Postgres enforces it.
  *
- * Ten phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
+ * Eleven phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
  * run INDEPENDENTLY: each is wrapped in its own try/catch so one poisoned
  * phase can never block the others; a phase's terminal error is reported in
  * the summary (`<phase>Error`) and the later phases still run. A phase whose
@@ -490,11 +525,17 @@ function errorMessage(error: unknown): string {
  *    이력).
  *
  *    The import_jobs row itself survives: it is the user-visible history of
- *    the import (파일명·건수·시각) and it carries no line-level detail. Only
+ *    the import (건수·시각·상태) and it carries no line-level detail. Only
  *    the preview rows go. One consequence to keep in mind when reading CS
  *    tickets: `GET /import-jobs/:id/rows` on a job older than the window
  *    returns an empty list — the job is not broken, its preview has simply
  *    been destroyed on schedule.
+ *
+ *    ⚠️ GAP-063 #6 정정: 이 항목은 예전에 살아남는 이력을 "파일명·건수·시각"이라고
+ *    적었는데, **파일명은 남겨도 되는 값이 아니었다** — 사용자가 붙인 이름이라
+ *    사실상 식별정보를 담는다. 그 헤더 문자열은 이제 phase 11이 같은 창에서
+ *    자리표시자로 마스킹한다(아래 item 11). 즉 잡 행은 계속 남지만, 남는 것은
+ *    비식별 이력뿐이다.
  *
  *    Batch note: unlike phases 6-8 the cap counts jobs, and one job holds up
  *    to 2,000 rows (importMaxRows), so a full batch can delete ~400k rows in
@@ -531,6 +572,40 @@ function errorMessage(error: unknown): string {
  *    cancelled one as the `household.invite.cancel` audit row (kept under the
  *    730-day window) — the constant's doc spells out why this is duplicate
  *    retention rather than evidence.
+ *
+ * 11. Aged-out import job HEADERS (GAP-063 #6) — a **mask, not a delete**.
+ *     `import_jobs.file_name` holds the uploaded file's original name verbatim
+ *     and `source_file_url` its (today always null) location; both survived
+ *     forever because phase 9 only ever touched the preview rows. See
+ *     IMPORT_JOB_HEADER_MASK for why a user-chosen filename is identifying
+ *     data, why the row itself must NOT be deleted (`fk_expenses_import_job`
+ *     ties surviving expenses to it), and why the placeholder is explicit
+ *     rather than an empty string.
+ *
+ *     Same window as phase 9 (IMPORT_ROWS_RETENTION_DAYS) and the same status
+ *     filter (IMPORT_ROWS_PURGEABLE_JOB_STATUSES), so a `preview_ready` job —
+ *     the user's in-flight work, whose review screen still shows the filename —
+ *     is never touched. Selection is `status IN (...) AND updated_at < cutoff
+ *     AND (file_name <> mask OR source_file_url NOT IN (null, mask))`, i.e.
+ *     exactly "this header still holds a raw value": already-masked rows are
+ *     invisible to it, which makes the phase idempotent and self-terminating
+ *     the same way phase 5's `after_json ->> 'query' IS NOT NULL` does. It is
+ *     deliberately NOT folded into phase 9: that phase's `EXISTS(import_rows)`
+ *     clause makes an already-drained job invisible, so headers of jobs drained
+ *     before this phase existed (or drained on an earlier tick) would never be
+ *     reached.
+ *
+ *     ⚠️ The UPDATE is raw SQL for a load-bearing reason beyond the CASE
+ *     expression: `ImportJob.updatedAt` is `@updatedAt`, so a Prisma
+ *     `updateMany` would bump it — and updated_at is the very column phases 9
+ *     and 11 order and cut on. Masking through Prisma would therefore push the
+ *     job back outside the window and DELAY the purge of its preview rows.
+ *     Raw SQL leaves updated_at alone (Prisma's @updatedAt is client-side).
+ *
+ *     Ordering note: this phase runs AFTER phase 9, so within one tick a job's
+ *     preview rows go first and its header is masked second. Both orders are
+ *     correct (neither predicate depends on the other's effect), but this one
+ *     keeps the phase-9 counters reading as they always did.
  */
 /**
  * Terminal wrapper thrown by run() AFTER all phases have executed, when at
@@ -651,6 +726,14 @@ export class DataRetentionPurgeJob implements WorkerJob {
       (size, skip) => this.purgeHouseholdInvites(householdInvitesCutoff, size, skip),
       { householdInvitesPurged: 0 }
     );
+    // Phase 11 (GAP-063 #6): 같은 창을 지난 잡 헤더(파일명 원문) 마스킹.
+    // phase 9 뒤에 둔다(클래스 문서 item 11의 ordering note).
+    const importJobHeaders = await this.runPhase(
+      "importJobHeaderScrub",
+      batchSize,
+      (size, skip) => this.maskImportJobHeaders(importRowsCutoff, size, skip),
+      { importJobHeadersMasked: 0 }
+    );
 
     const summary = {
       retentionDays,
@@ -669,7 +752,8 @@ export class DataRetentionPurgeJob implements WorkerJob {
       ...affiliateClicks,
       ...auditLogs,
       ...importRows,
-      ...householdInvites
+      ...householdInvites,
+      ...importJobHeaders
     };
 
     // Review M1b: all phases have run; if any of them failed terminally,
@@ -1312,6 +1396,77 @@ export class DataRetentionPurgeJob implements WorkerJob {
       PURGE_TX_OPTIONS
     );
     return { importRowsPurged: deleted.count, importJobPreviewsDrained: importJobIds.length };
+  }
+
+  /**
+   * Phase-11 candidate selection: finished import jobs past the window whose
+   * header STILL holds a raw value — oldest first with the id tiebreaker,
+   * `offset` implementing the poison-skip window like every other phase.
+   *
+   * The `<> mask` predicate is what makes the phase idempotent and
+   * self-terminating (same role as phase 5's `after_json ->> 'query' IS NOT
+   * NULL`): a row masked on an earlier tick is invisible to it, so a drained
+   * backlog turns the phase into a cheap no-op instead of re-selecting the same
+   * head rows forever. `source_file_url IS NOT NULL AND <> mask` keeps a row
+   * that was ALWAYS null out of the batch — "원래 없었다"는 마스킹할 것이 없다.
+   *
+   * Raw SQL for the same reason as phase 9's selection: schema.prisma declares
+   * no relations and the `::import_status` casts are required (Prisma binds
+   * every parameter as text and `import_status = text` has no operator, 42883).
+   */
+  private selectUnmaskedImportJobHeaders(cutoff: Date, limit: number, offset: number): Promise<{ id: string }[]> {
+    const statuses = Prisma.join(
+      IMPORT_ROWS_PURGEABLE_JOB_STATUSES.map((status) => Prisma.sql`${status}::import_status`)
+    );
+    return this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT j.id
+      FROM import_jobs j
+      WHERE j.status IN (${statuses})
+        AND j.updated_at < ${cutoff}
+        AND (
+          j.file_name <> ${IMPORT_JOB_HEADER_MASK}
+          OR (j.source_file_url IS NOT NULL AND j.source_file_url <> ${IMPORT_JOB_HEADER_MASK})
+        )
+      ORDER BY j.updated_at ASC, j.id ASC
+      LIMIT ${limit} OFFSET ${offset}`;
+  }
+
+  /**
+   * Phase 11 (GAP-063 #6): mask the header of finished imports past their
+   * window (class doc, item 11).
+   *
+   * The row is NEVER deleted — `fk_expenses_import_job` ties surviving expenses
+   * to it — so this is an UPDATE of two columns only. Raw SQL is load-bearing:
+   * a Prisma `updateMany` would bump `updated_at` (@updatedAt), which is the
+   * ordering/cutoff column of phases 9 and 11, pushing the job back outside the
+   * window and delaying its preview purge.
+   *
+   * `source_file_url` keeps its NULL when it had one: an explicit placeholder
+   * means "보존 기간이 지나 지웠다", and writing it over a column that never
+   * held anything would say something untrue.
+   */
+  private async maskImportJobHeaders(cutoff: Date, batchSize: number, skip: number) {
+    if (skip > 0) {
+      const skipped = await this.selectUnmaskedImportJobHeaders(cutoff, skip, 0);
+      this.logPoisonSkippedRows("importJobHeaderScrub", "import_jobs(header)", skipped.map((row) => row.id));
+    }
+    const jobs = await this.selectUnmaskedImportJobHeaders(cutoff, batchSize, skip);
+    if (jobs.length === 0) {
+      return { importJobHeadersMasked: 0 };
+    }
+    const ids = Prisma.join(jobs.map((row) => Prisma.sql`${row.id}::uuid`));
+    const masked = await this.prisma.$transaction(
+      (tx) => tx.$executeRaw`
+        UPDATE import_jobs
+        SET file_name = ${IMPORT_JOB_HEADER_MASK},
+            source_file_url = CASE
+              WHEN source_file_url IS NULL THEN NULL
+              ELSE ${IMPORT_JOB_HEADER_MASK}
+            END
+        WHERE id IN (${ids})`,
+      PURGE_TX_OPTIONS
+    );
+    return { importJobHeadersMasked: masked };
   }
 
   /**

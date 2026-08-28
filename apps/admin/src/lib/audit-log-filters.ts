@@ -140,6 +140,9 @@ export type AuditLogActionPreset = {
  * - household.member.remove / household.invite.cancel: apps/api/src/households/households.controller.ts
  * - household.leave / account.delete: apps/api/src/settings/settings.controller.ts (GAP-062 #7 —
  *   본인이 스스로 나가거나 탈퇴한 흐름. "내보내기"(household.member.remove)와 다른 액션이다)
+ * - budget.upsert: apps/api/src/onboarding/budgets.controller.ts (GAP-063 #5 — 월 예산 설정·덮어쓰기.
+ *   budgets 행은 (아이, 연월)당 한 칸이라 덮어쓰면 이전 금액이 사라진다: "왜 갑자기 예산 경고가
+ *   뜨죠" 문의에서 누가·언제·얼마에서 얼마로 바꿨는지는 이 액션의 before/after에만 있다)
  * - auth.login / auth.logout: apps/api/src/auth/auth.service.ts (카카오는 kakao-auth.service.ts)
  * - admin.*: apps/api/src/admin/* (admin-auth / admin-users / admin-categories /
  *   content-revisions / admin.controller / admin-users-lookup)
@@ -148,6 +151,7 @@ export type AuditLogActionPreset = {
 export const AUDIT_LOG_ACTION_PRESETS: readonly AuditLogActionPreset[] = [
   { action: "expense.update", label: "지출 수정 (금액·메모 등)" },
   { action: "expense.delete", label: "지출 삭제" },
+  { action: "budget.upsert", label: "월 예산 변경 (설정·덮어쓰기)" },
   { action: "child_profile.delete", label: "아이 프로필 삭제" },
   { action: "household.member.remove", label: "가구 구성원 내보내기" },
   { action: "household.invite.cancel", label: "가구 초대 취소" },
