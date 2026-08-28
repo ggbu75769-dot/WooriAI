@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,9 +39,44 @@ import { join } from "node:path";
  * The check/re-check in `acquireShared` is what makes it correct: a reader that
  * published its file too late for the writer's scan to see it will observe the
  * writer marker on its own re-check and stand down.
+ *
+ * ---------------------------------------------------------------------------
+ * 라운드 61 A — 이 프로토콜이 기대는 **락 반납 순서 불변식**
+ * ---------------------------------------------------------------------------
+ * 마커/리더 파일을 지우는 것(= 반납)은 "그 스위트가 DB를 더는 건드리지 않는다"는 뜻이어야
+ * 한다. 그렇지 않으면 다음 스위트가 락을 잡은 뒤에도 떠나는 스위트의 DELETE/INSERT가 계속
+ * 착지하고, 전역 델타를 세는 배타 스위트가 확률적으로 깨진다.
+ *
+ * 반납은 `db-lock.setup.ts`의 `afterAll(release)`로 예약되므로, 그 뜻이 성립하려면
+ * **release가 그 파일 자신의 정리 훅보다 뒤에** 돌아야 한다. vitest에서 그것을 보장하는
+ * 것은 `sequence.hooks: "stack"`이다 — setup 파일의 afterAll이 가장 먼저 등록되므로,
+ * after 훅을 역순으로(그리고 **순차로**) 도는 stack 아래에서만 release가 마지막이 된다.
+ *
+ * 라운드 61 A에서 실측한 표 (vitest 2.1.9, 훅을 파일 최상위에 등록했을 때):
+ *
+ *   sequence.hooks | release 시점
+ *   ---------------+---------------------------------------------
+ *   "stack"        | 스위트 정리가 **끝난 뒤** (안전)
+ *   "parallel"     | 스위트 정리와 **동시에** 시작 (구멍이 열린다)
+ *   "list"         | 스위트 정리보다 **먼저** (구멍이 열린다)
+ *
+ * 이 저장소가 지금까지 안전했던 이유는 두 겹의 **암묵적** 우연이었다:
+ *   ⓐ vitest 2.1.9의 resolveConfig가 `sequence.hooks`를 "stack"으로 채운다. 같은 버전의
+ *     CLI 도움말은 기본값을 "parallel"이라고 적고 있어(문서가 코드와 어긋난다) 이 값에
+ *     기대는 것은 그 자체로 위험했다;
+ *   ⓑ DB를 쓰는 스위트가 전부 정리 훅을 `describe(...)` **안에** 두고 있다. 자식 스위트의
+ *     afterAll은 부모(파일) 스위트의 afterAll보다 항상 먼저 끝나므로 hooks 설정과 무관하게
+ *     안전하다 — 정리를 `describe` 밖으로 한 줄 옮기는 순간 사라지는 보호막이다.
+ *
+ * 그래서 라운드 61 A는 ⓐ를 **명시**로 바꿨다: `vitest.config.ts`가 `sequence.hooks: "stack"`을
+ * 직접 고정하고, 아래 `assertReleaseOrderingGuarantee`가 실제로 적용된 값을 워커에서 읽어
+ * 확인한다. CLI `--sequence.hooks=parallel`이나 훗날의 기본값 변경은 이제 1/3 확률의
+ * 플레이크가 아니라 첫 파일에서 즉시 빨간불이 된다. 그러면 ⓑ에 기대지 않아도 된다.
  */
 
 const LOCK_DIR_ENV = "WOORIAI_TEST_DB_LOCK_DIR";
+/** 동시 실행 감지용 레지스트리 경로 — createLockDir이 채우고 teardown이 읽는다(진단 전용). */
+const RUN_REGISTRY_ENV = "WOORIAI_TEST_DB_RUN_REGISTRY_DIR";
 const WRITER_MARKER = "writer.lock";
 /** Owner record written *inside* the writer marker directory (diagnostics + stale reclaim). */
 const WRITER_OWNER_FILE = "owner.json";
@@ -69,33 +105,220 @@ const EXCLUSIVE_WAIT_TIMEOUT_MS = 60_000;
  */
 const STALE_OWNER_GRACE_MS = 1_000;
 /**
- * Grace period after the readers list empties. A reader releases the lock from its
- * `afterAll`, which by default runs in parallel with the suite's own `afterAll`
- * row cleanup; this gives that cleanup time to land before an exclusive suite starts
- * counting. (The exclusive suites also boot a Nest app between acquiring the lock and
- * taking their `before` snapshot, so in practice there are seconds of slack on top.)
+ * Settle period at the end of `acquireExclusive` — note it runs **unconditionally**,
+ * after the drain loop, so it applies to the exclusive→exclusive hand-off just as much
+ * as to the reader→writer one. (Only its name and this comment used to be
+ * reader-specific; 라운드 61 A corrected the prose, not the placement.)
+ *
+ * 이것이 막는 것은 **순서가 아니라 잔향**이다. 순서는 `sequence.hooks: "stack"`이 보장한다
+ * (파일 머리말 참고) — 즉 앞선 스위트의 `await`된 정리는 반납 시점에 이미 끝나 있다. 남는
+ * 것은 그 스위트가 await하지 않고 흘려보낸 작업(닫히는 Nest 앱의 뒷정리 등)뿐이고, 이
+ * 유예는 그 여운에 주는 여유다. 순서 보장을 대신하지 못하므로 이 값을 키워 플레이크를
+ * 덮으려는 시도는 잘못된 방향이다. (배타 스위트는 락을 잡은 뒤 Nest를 띄우고 "before"
+ * 스냅샷을 찍으므로 실제로는 그 위에 수 초의 여유가 더 붙는다.)
  */
 const READER_DRAIN_SETTLE_MS = 250;
+
+/**
+ * vitest 워커에 실제로 적용된 `sequence.hooks` 값. 읽을 수 없으면 null.
+ *
+ * `__vitest_worker__`는 공개 API가 아니라 vitest가 워커 전역에 두는 내부 상태다. 그래서
+ * 읽히지 않을 때는 **검사를 건너뛴다** — 내부 구조가 바뀌었다는 이유로 멀쩡한 실행을
+ * 세우는 것은 이 가드가 막으려는 문제보다 나쁘다. 값을 확실히 읽었고 그 값이 틀렸을
+ * 때에만 실패한다.
+ */
+function effectiveHookSequence(): string | null {
+  const worker = (globalThis as { __vitest_worker__?: { config?: { sequence?: { hooks?: unknown } } } })
+    .__vitest_worker__;
+  const hooks = worker?.config?.sequence?.hooks;
+  return typeof hooks === "string" ? hooks : null;
+}
+
+/** 반납 순서 불변식이 실제로 서 있는지 확인한다 — 파일 머리말의 라운드 61 A 표 참고. */
+export function assertReleaseOrderingGuarantee(id: string): void {
+  const hooks = effectiveHookSequence();
+  if (hooks === null || hooks === "stack") {
+    return;
+  }
+  throw new Error(
+    `[shared-db-lock] sequence.hooks가 "${hooks}"예요 — 이 값에서는 락 반납(afterAll)이 ` +
+      `스위트 자신의 정리보다 먼저(또는 동시에) 돌아서, 반납이 "DB를 더는 건드리지 않는다"를 ` +
+      `뜻하지 않게 돼요. 다음 배타 스위트가 이전 스위트의 DELETE 위에서 전역 델타를 세다가 ` +
+      `확률적으로 깨져요(라운드 61 A). "stack"으로 돌려주세요 — apps/api/vitest.config.ts가 ` +
+      `고정하고 있으니, CLI \`--sequence.hooks\`나 상위 설정이 덮어쓰고 있는지 확인해 주세요 ` +
+      `(요청 스위트: ${id}).`
+  );
+}
 
 export type LockRelease = () => void;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
+ * 라운드 61 A — 이 락의 두 번째 경계: **한 실행 안에서만** 배타가 성립한다.
+ *
+ * 락 디렉터리 이름이 그 실행의 pid라서, 같은 `wooriai_test`를 향한 `pnpm --filter api test`가
+ * 둘 동시에 돌면 서로의 락 디렉터리를 보지 못한다 — 배타 스위트가 서로를 전혀 모른 채 겹쳐
+ * 돌고, 전역 델타 단언이 정확히 라운드 60이 관측한 모양으로 깨진다
+ * (`expected 2 to be 1` — 남의 실행이 만든 사용자 한 명이 before/after 사이에 낀다).
+ *
+ * 라운드 61 A는 이것을 **닫지 않고 이름을 붙였다**. 닫으려면 락 디렉터리를 DB 단위 고정
+ * 경로로 옮겨야 하는데, `createLockDir`의 초기화 `rmSync`와 teardown의 삭제가 곧바로 남의
+ * 실행이 들고 있는 락을 지워 버린다 — 참조 카운팅이 필요한 별개의 설계 변경이고, 지금
+ * 실패는 "동시에 돌리지 않는다"로 피할 수 있다. 대신 **원인 불명으로 남지 않게** 한다:
+ * 같은 DB를 쓰는 다른 실행이 살아 있으면 globalSetup이 크게 경고한다. 실패시키지는 않는다 —
+ * 한 대의 개발 머신/CI 러너에서 여러 세션이 도는 것은 흔한 현실이고, 여기서 하드 실패로
+ * 만들면 막으려는 플레이크보다 더 자주 앞을 가로막는다.
+ */
+const RUN_REGISTRY_PREFIX = "wooriai-api-test-runs";
+
+export type RunRecord = { pid: number; startedAt: string; lockDir: string };
+
+/** 같은 DATABASE_URL을 쓰는 실행끼리만 서로를 본다 — 다른 DB를 향한 실행은 무관하다. */
+function runRegistryDir(databaseUrl = process.env.DATABASE_URL ?? "unset"): string {
+  const key = createHash("sha1").update(databaseUrl).digest("hex").slice(0, 12);
+  return join(tmpdir(), `${RUN_REGISTRY_PREFIX}-${key}`);
+}
+
+/**
+ * 레지스트리에서 **살아 있는 남의 실행**만 골라낸다. 죽은 실행(크래시로 teardown을 못 돈
+ * 기록)은 지우고 지나간다. `ownerAlive`와 같은 보수적 판정을 쓴다 — 살았는지 죽었는지 알 수
+ * 없으면 살아 있다고 본다.
+ */
+export function findConcurrentRuns(registryDir = runRegistryDir(), selfPid = process.pid): RunRecord[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(registryDir);
+  } catch {
+    return [];
+  }
+
+  const live: RunRecord[] = [];
+  for (const entry of entries) {
+    // `<pid>.json.partial`은 다른 실행이 지금 쓰는 중인 임시 파일이다 — 건드리지 않는다.
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
+    const path = join(registryDir, entry);
+    let record: RunRecord | null = null;
+    try {
+      record = JSON.parse(readFileSync(path, "utf8")) as RunRecord;
+    } catch {
+      record = null;
+    }
+    if (!record || typeof record.pid !== "number") {
+      rmSync(path, { force: true });
+      continue;
+    }
+    if (!ownerAlive({ pid: record.pid, suite: "", takenAt: record.startedAt })) {
+      rmSync(path, { force: true });
+      continue;
+    }
+    if (record.pid !== selfPid) {
+      live.push(record);
+    }
+  }
+  return live;
+}
+
+/**
  * Creates the lock directory for this vitest run and exports its path through the
  * environment so worker threads inherit it. Called from globalSetup, which runs in
  * the main process before any worker exists.
  */
+/**
+ * 동시 실행 경고 한 덩어리. 문구는 라운드 61 A가 정한 그대로이고(전역 델타가 깨질 때의
+ * 서명 `expected 2 to be 1`을 인용한다), 달라지는 것은 **언제 감지했는지** 한 줄뿐이다.
+ */
+export function concurrentRunsWarning(others: RunRecord[], context: string): string {
+  const list = others.map((run) => `pid ${run.pid} (${run.startedAt})`).join(", ");
+  return (
+    `\n[shared-db-lock] ⚠️ 같은 테스트 DB를 쓰는 api 테스트 실행이 이미 돌고 있어요: ${list}.\n` +
+    `(감지 시점: ${context})\n` +
+    `이 락은 **한 실행 안에서만** 배타를 보장해요(락 디렉터리가 실행 pid로 나뉘어요). 두 실행의 ` +
+    `배타 스위트는 서로를 보지 못한 채 겹쳐 돌고, 전역 델타 단언이 "expected 2 to be 1" 같은 ` +
+    `모양으로 깨질 수 있어요.\n` +
+    `이 실행이 그렇게 깨졌다면 코드가 아니라 이 동시 실행을 먼저 의심해 주세요 — 한 번에 하나만 ` +
+    `돌리거나, DATABASE_URL로 실행마다 다른 DB를 주세요. (라운드 61 A / docs/5차/round61-backlog.md B-1)\n`
+  );
+}
+
+/**
+ * 라운드 61 M-2 — **경고는 실행 중에도, 실행 끝에도 다시 본다.**
+ *
+ * 라운드 61 A가 심은 감지는 `createLockDir`(globalSetup) 한 번뿐이라 **먼저 시작한 실행에는
+ * 영영 뜨지 않았다**: 나중에 시작한 실행만 앞선 실행을 보고, 정작 그 앞선 실행은 자기 위로
+ * 남의 배타 스위트가 겹쳐 들어와 `expected 2 to be 1`로 깨지면서도 이유를 한 줄도 못 봤다.
+ * 그래서 같은 검사를 두 자리에 더 둔다 — 배타 스위트가 마커를 잡은 직후(그 스위트가 곧
+ * 전역 델타를 세기 시작하는 자리)와 teardown(실행 끝에 요약으로 한 번 더).
+ *
+ * **진단 전용이다.** 실패시키지 않고, 예외도 전부 삼킨다 — 이 검사가 실행을 깨면 막으려는
+ * 플레이크보다 나쁘다. 비용은 `readdir` 한 번이고, 배타 스위트는 다섯뿐이라 무시할 수 있다
+ * (test/helpers/exclusive-suites.ts).
+ */
+function warnIfConcurrentRuns(context: string): void {
+  try {
+    // 워커에는 globalSetup이 심은 env가 있지만, 없더라도 같은 DATABASE_URL에서 같은 경로가 나온다.
+    const registryDir = process.env[RUN_REGISTRY_ENV] ?? runRegistryDir();
+    /**
+     * **pid가 아니라 락 디렉터리로 자기 자신을 가린다.** 레지스트리 기록은 globalSetup(메인
+     * 프로세스)이 그 pid로 쓰는데, 이 함수가 도는 자리 하나(`acquireExclusive`)는 vitest의
+     * forks 풀 **워커 프로세스**라 pid가 다르다. `findConcurrentRuns`의 pid 비교만 믿으면 그
+     * 워커는 자기 실행의 globalSetup 기록을 "남의 실행"으로 보고 매번 헛경고를 낸다.
+     *
+     * 한 실행의 워커와 globalSetup이 공유하는 것은 락 디렉터리 경로다(LOCK_DIR_ENV로 상속되고,
+     * 기록에도 `lockDir`로 함께 적힌다 — 정확히 이런 대조를 위해 들어 있는 필드다).
+     */
+    const selfLockDir = process.env[LOCK_DIR_ENV];
+    const others = findConcurrentRuns(registryDir).filter((run) => run.lockDir !== selfLockDir);
+    if (others.length > 0) {
+      console.warn(concurrentRunsWarning(others, context));
+    }
+  } catch {
+    // 진단이 실행을 깨면 안 된다.
+  }
+}
+
 export function createLockDir(): string {
   const dir = join(tmpdir(), `wooriai-api-test-db-lock-${process.pid}`);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, READERS_DIR), { recursive: true });
   process.env[LOCK_DIR_ENV] = dir;
+
+  // 진단 전용 — 여기서 던지면 안 된다(globalSetup이 죽으면 실행 전체가 날아간다).
+  try {
+    const registryDir = runRegistryDir();
+    mkdirSync(registryDir, { recursive: true });
+    const others = findConcurrentRuns(registryDir);
+    if (others.length > 0) {
+      console.warn(concurrentRunsWarning(others, "globalSetup 시작"));
+    }
+    // 원자적으로 쓴다(write→rename): 동시에 시작한 다른 실행이 절반만 쓰인 JSON을 읽고
+    // "손상된 기록"으로 지워 버리면, 정작 경고해야 할 그 실행을 못 보게 된다.
+    const recordPath = join(registryDir, `${process.pid}.json`);
+    const stagingPath = `${recordPath}.partial`;
+    writeFileSync(
+      stagingPath,
+      JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), lockDir: dir } satisfies RunRecord)
+    );
+    renameSync(stagingPath, recordPath);
+    process.env[RUN_REGISTRY_ENV] = registryDir;
+  } catch {
+    // 레지스트리는 진단일 뿐이고, 락 자체는 이것 없이도 그대로 옳다.
+  }
+
   return dir;
 }
 
 /** Removes this run's lock directory. Called from globalSetup's teardown. */
 export function removeLockDir() {
+  // 라운드 61 M-2: 실행 **끝에도** 한 번 더 본다. 이 실행이 도는 중간에 남의 실행이 시작됐다면
+  // globalSetup의 검사는 그것을 볼 수 없었다 — 여기서 뜬 경고가 그 실행의 빨간불을 설명한다.
+  warnIfConcurrentRuns("globalSetup teardown (실행 종료)");
+  const registryDir = process.env[RUN_REGISTRY_ENV];
+  if (registryDir) {
+    rmSync(join(registryDir, `${process.pid}.json`), { force: true });
+  }
   const dir = process.env[LOCK_DIR_ENV];
   if (dir) {
     rmSync(dir, { recursive: true, force: true });
@@ -233,6 +456,11 @@ async function acquireExclusive(dir: string, id: string): Promise<LockRelease> {
     await sleep(POLL_MS);
   }
 
+  // 라운드 61 M-2: 마커를 잡은 **직후**가 이 실행이 "지금부터 나 혼자"라고 믿기 시작하는
+  // 자리다. 그 믿음이 성립하지 않는 유일한 경우(같은 DB를 향한 남의 실행)를 여기서 한 번 더
+  // 확인한다 — globalSetup의 검사는 이 실행보다 나중에 시작한 실행을 볼 수 없었다.
+  warnIfConcurrentRuns(`배타 스위트 ${id}가 락을 잡은 직후`);
+
   // The marker is held from here on, so no new reader can start: the readers list
   // only shrinks and this wait always terminates.
   const release: LockRelease = () => rmSync(join(dir, WRITER_MARKER), { recursive: true, force: true });
@@ -303,6 +531,10 @@ const ALLOW_NO_LOCK_ENV = "WOORIAI_TEST_ALLOW_NO_LOCK";
  * ALLOW_NO_LOCK_ENV 주석 참고. 조용한 통과보다 즉시 실패가 낫다.
  */
 export async function acquireSharedDb(mode: "shared" | "exclusive", id: string): Promise<LockRelease> {
+  // 라운드 61 A: 락을 잡기 **전에** 반납 순서 불변식부터 확인한다. 여기가 모든 스위트가
+  // 반드시 지나가는 한 지점이라, 이 검사를 우회하고 락을 잡을 방법이 없다.
+  assertReleaseOrderingGuarantee(id);
+
   const dir = lockDir();
   if (!dir) {
     if (process.env[ALLOW_NO_LOCK_ENV] !== "1") {

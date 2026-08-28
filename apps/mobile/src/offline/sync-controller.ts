@@ -16,6 +16,7 @@ import {
 } from "./session-teardown";
 import { SERVER_CONFIRMED_MESSAGE } from "./messages";
 import { createMemoryOfflineStore } from "./memory-offline-store";
+import { createOneShotReopenGate } from "./store-open-gate";
 import { createClientRemoteExpenseApi } from "./remote-api";
 import {
   diffExpenseFields,
@@ -56,25 +57,46 @@ import type { Expense } from "../api/client";
  * decision-making to sync-engine.ts.
  */
 
-let storePromise: Promise<OfflineStore> | null = null;
-
-/** expo-sqlite is imported lazily (dynamic import, not a top-level static import) specifically
- * so no test file can accidentally pull in a native module by importing this controller module
- * -- see sqlite-offline-store.ts's header comment. */
-async function getOfflineStore(): Promise<OfflineStore> {
-  if (!storePromise) {
-    storePromise = (async () => {
-      if (Platform.OS === "web") {
-        return createMemoryOfflineStore();
-      }
-      const { createSqliteOfflineStore } = await import("./sqlite-offline-store");
-      return createSqliteOfflineStore();
-    })();
+/**
+ * 라운드 61 #6 — 저장소 열기의 결과를 담는 자리. 예전에는 `storePromise` 하나에 성공이든
+ * **거절이든** 그대로 눌러 담아, 부팅 한 번의 실패가 앱을 껐다 켤 때까지 굳었다. 이제 성공만
+ * 캐시하고 실패는 "한 번 더"까지 허용한다(계약·근거는 store-open-gate.ts 헤더).
+ *
+ * expo-sqlite는 여전히 **동적** import다(정적 import가 아니다) — 어떤 테스트 파일도 이 컨트롤러를
+ * import했다는 이유로 네이티브 모듈을 끌어오지 않게 하기 위해서다(sqlite-offline-store.ts 헤더).
+ */
+const storeGate = createOneShotReopenGate<OfflineStore>(
+  async () => {
+    if (Platform.OS === "web") {
+      return createMemoryOfflineStore();
+    }
+    const { createSqliteOfflineStore } = await import("./sqlite-offline-store");
+    return createSqliteOfflineStore();
+  },
+  {
+    // 실패한 그 순간 화면이 읽는 스냅샷을 정직하게 만든다. 여기서 아무 말도 하지 않으면 모든
+    // 호출부가 오류를 최선 노력으로 삼키므로(대부분 catch(() => undefined)) 사용자에게는
+    // "대기 0건"으로만 보인다 -- 이 티켓이 없애려는 바로 그 침묵이다.
+    onFailure: () => {
+      publishStorageUnavailableSnapshot();
+    }
   }
-  return storePromise;
+);
+
+async function getOfflineStore(): Promise<OfflineStore> {
+  return storeGate.open();
 }
 
 export type SyncStatusCounts = { pending: number; syncing: number; failed: number; conflict: number };
+
+/**
+ * 라운드 61 #6 — 저장소 자체의 상태 한 칸.
+ *
+ * `"unavailable"`은 **"대기 0건"이 아니라 "모른다"** 는 뜻이다: 저장소를 열지 못했으므로 대기·실패
+ * 건수도, 행 목록도 확인할 방법이 없다. 화면은 이 값을 보고 숫자 대신 정직한 한 줄을 띄운다
+ * (app/sync-status.tsx, 문구는 messages.ts의 OFFLINE_STORAGE_UNAVAILABLE_NOTICE).
+ */
+export type OfflineStorageState = "ok" | "unavailable";
 
 export type SyncSnapshot = {
   /**
@@ -87,12 +109,15 @@ export type SyncSnapshot = {
   rows: LocalExpenseRow[];
   /** 라운드 51 C-10: 아직 서버에 닿지 않은 준비템 상태 변경(item_status_outbox). */
   itemStatusRows: ItemStatusOutboxRow[];
+  /** 라운드 61 #6: 이 숫자·목록을 **믿어도 되는가**(OfflineStorageState 주석). */
+  storage: OfflineStorageState;
 };
 
 const emptySnapshot: SyncSnapshot = {
   counts: { pending: 0, syncing: 0, failed: 0, conflict: 0 },
   rows: [],
-  itemStatusRows: []
+  itemStatusRows: [],
+  storage: "ok"
 };
 
 let latestSnapshot: SyncSnapshot = emptySnapshot;
@@ -106,16 +131,69 @@ export async function refreshOfflineSyncSnapshot(): Promise<void> {
   await refreshSnapshot();
 }
 
+/**
+ * 라운드 61 #6 — 저장소를 읽지 못했다는 사실만 스냅샷에 싣는다.
+ *
+ * **행과 건수는 마지막으로 읽어 둔 값을 그대로 둔다.** 0으로 밀지 않는 이유: 그 값들은 실제로
+ * 저장소에서 읽어 온 사실이고, 지금 못 읽는다고 해서 거짓이 되지 않는다. 반대로 0으로 밀면
+ * 기록 탭 배지·홈·리포트 고지가 일제히 "대기 0건"이라고 말하게 되는데(그 화면들은 이 상태 칸을
+ * 읽지 않는다) 그것이 정확히 이 티켓이 없애려는 거짓말이다. 부팅 직후 실패한 경우에는 읽어 둔
+ * 값이 애초에 없으므로 빈 스냅샷 + `unavailable`이 되고, 동기화 상태 화면이 "모든 기록이
+ * 동기화됐어요" 대신 정직한 한 줄을 띄운다.
+ */
+function publishStorageUnavailableSnapshot(): void {
+  if (latestSnapshot.storage === "unavailable") return;
+  latestSnapshot = { ...latestSnapshot, storage: "unavailable" };
+  notifySnapshotListeners();
+}
+
 async function refreshSnapshot(): Promise<void> {
-  const store = await getOfflineStore();
-  const rows = await store.listLocalExpenses();
+  let rows: LocalExpenseRow[];
+  let itemStatusRows: ItemStatusOutboxRow[];
+  /**
+   * 라운드 61 #6 — **읽기 전체**를 감싼다(저장소를 얻는 한 줄만이 아니라).
+   *
+   * 네이티브에서 부팅 실패가 실제로 드러나는 자리가 여기이기 때문이다: `createSqliteOfflineStore()`
+   * 는 팩토리일 뿐이라 언제나 즉시 성공하고, `openDatabaseAsync`·WAL·마이그레이션의 실패는 그
+   * 저장소의 **첫 메서드 호출**에서야 던져진다(sqlite-offline-store.ts의 `getDb`). 그러니까 문
+   * 하나만 감싸면 정작 실기기의 그 실패는 여기서 그대로 새어 나가고, 스냅샷은 옛 값을 든 채
+   * 아무 말도 하지 않는다.
+   *
+   * 던지지 않는 이유: 이 함수의 호출부는 전부 "스냅샷을 최신으로 만들어 둔다"는 최선 노력
+   * 경로이고, 그 오류는 어차피 삼켜진다. 삼켜지되 **사실 하나는 남긴다** — 저장소 상태 칸.
+   */
+  try {
+    const store = await getOfflineStore();
+    rows = await store.listLocalExpenses();
+    itemStatusRows = await store.listItemStatusMutations();
+  } catch {
+    publishStorageUnavailableSnapshot();
+    return;
+  }
+  /**
+   * 라운드 61 #4 — **여기서 전량을 싣는 것은 그대로다.** 왜 배지용 COUNT 쿼리를 따로 두거나
+   * rows를 비-synced로 좁히지 않았는가:
+   *
+   *  - 이 스냅샷의 `rows`는 8개 화면이 함께 읽는 값이고, 그중 입력 보조의 제안 모집단
+   *    (src/expenses/suggest-source.ts → 최근 칩·품목/판매처 자동완성)은 **synced 행 자체를**
+   *    "네트워크 없이 읽는 이력"으로 쓴다. 좁히면 그 기능이 조용히 반쯤 죽는다.
+   *  - 나머지 소비자(reconciliation·정기 지출·리포트/CSV 고지·예산 경고)는 각자
+   *    `syncState !== "synced"`로 거르므로 rows가 넓어도 결과가 같다 = 좁혀도 얻는 것이 없다.
+   *  - rows를 좁히고 synced 이력만 따로 넘기려면 그 배선이 8개 화면 파일에 걸린다(이 트랙의
+   *    금지 구역). 즉 화면을 건드리지 않고는 불가능한 설계다.
+   *  - 아래 `counts`는 정의상 synced 행을 세지 않으므로, 이미 손에 든 이 배열에서 세는 것이
+   *    가장 싸다. 별도 COUNT 쿼리는 같은 숫자를 얻는 **두 번째** 왕복이 될 뿐이다.
+   *
+   * 그래서 이번 라운드가 실제로 줄인 것은 "전량"의 **크기**다: 오래된 synced 행을 부팅 때 한 번
+   * 파기해(sqlite-offline-store.ts `PURGE_EXPIRED_SYNCED_LOCAL_EXPENSES_SQL`) 이 배열이 기기
+   * 사용 기간에 비례해 무한히 자라지 않게 묶는다.
+   */
   const counts: SyncStatusCounts = { pending: 0, syncing: 0, failed: 0, conflict: 0 };
   for (const row of rows) {
     if (row.syncState === "synced") continue;
     counts[row.syncState] += 1;
   }
-  const itemStatusRows = await store.listItemStatusMutations();
-  latestSnapshot = { counts, rows, itemStatusRows };
+  latestSnapshot = { counts, rows, itemStatusRows, storage: "ok" };
   notifySnapshotListeners();
 }
 

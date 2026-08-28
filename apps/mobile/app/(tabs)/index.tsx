@@ -70,6 +70,7 @@ import {
   HOME_QUICK_RECORD_SECTION_TITLE
 } from "../../src/home/quick-record-chips";
 import { evaluateMilestoneCountdown } from "../../src/home/milestone-countdown";
+import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 import { evaluateHomePrepNudge, type PrepNudgeRecommendedItem } from "../../src/home/prep-nudge";
 import { buildPendingItemStatusIndex, effectiveItemStatus } from "../../src/items/pending-status";
 import { evaluateWeeklySummary } from "../../src/home/weekly-summary";
@@ -1735,9 +1736,29 @@ export default function HomeScreen() {
    * 큐는 **둘**이라 둘 다 넘긴다: `counts`는 지출 행만 세고(sync-controller의 의도된 범위),
    * 준비템 상태 변경은 `itemStatusRows`에 따로 쌓인다. 예전에는 counts만 보고 판정해서, 준비템
    * 상태가 서버 반영을 기다리는 동안에도 홈이 "모든 기록이 동기화됐어요"라고 말했다.
+   *
+   * 라운드 61 M-1: `storage`도 함께 넘긴다. 저장소를 못 연 부팅에서는 위 두 값이 "읽어 온 0"이
+   * 아니라 **초기값 0**이라, 그 상태 칸 없이는 이 줄이 다시 완료를 단언한다(같은 상황에서 동기화
+   * 상태 화면은 이미 정직한 한 줄을 띄운다 — 라운드 61 #6).
    */
-  const homeSyncStatus = resolveHomeSyncStatus(offlineSyncSnapshot.counts, offlineSyncSnapshot.itemStatusRows);
-  const headerSpokenLabel = `${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`;
+  const homeSyncStatus = resolveHomeSyncStatus(
+    offlineSyncSnapshot.counts,
+    offlineSyncSnapshot.itemStatusRows,
+    offlineSyncSnapshot.storage
+  );
+  /**
+   * GAP-061 #10: 헤더가 읽어 주는 단계 라벨. 예정일이 유예를 넘겨 지난 임신 프로필에서는 도메인
+   * 라벨이 "임신 42주차"에 고착돼 몇 달이고 같은 문장을 되풀이하므로(주차 clamp), 표시층에서만
+   * 주차 없는 사실 한 줄로 바꾼다 — 계산·stageCode·서버 DTO는 그대로다(src/home/stage-display-label.ts).
+   * 세션 렌더에서만 쓴다: 위 비세션 HOME-001 미리보기는 종전 문자열 그대로다.
+   */
+  const headerStageLabel = resolveStageDisplayLabel({
+    stageMode: selectedChild?.stageMode,
+    dueDate: selectedChild?.dueDate,
+    todayIso: seoulToday,
+    stageLabel: visibleHome.child.stageLabel
+  });
+  const headerSpokenLabel = `${visibleHome.child.nickname} ${headerStageLabel}`;
 
   /**
    * 접힘 대상 카드의 렌더. 카드 **내용**은 종전과 한 글자도 다르지 않다 -- 달라진 것은 이 카드가
@@ -2139,7 +2160,7 @@ export default function HomeScreen() {
                 <View style={homeHeaderStyle.copy}>
                   <KoreanText style={homeHeaderStyle.name}>{visibleHome.child.nickname}</KoreanText>
                   <View style={homeHeaderStyle.meta}>
-                    <KoreanText style={homeHeaderStyle.stage}>{visibleHome.child.stageLabel}</KoreanText>
+                    <KoreanText style={homeHeaderStyle.stage}>{headerStageLabel}</KoreanText>
                     <KoreanText style={homeHeaderStyle.switchAffordance}>아이 전환⌄</KoreanText>
                   </View>
                 </View>
@@ -2150,7 +2171,7 @@ export default function HomeScreen() {
                 <View style={homeHeaderStyle.copy}>
                   <KoreanText style={homeHeaderStyle.name}>{visibleHome.child.nickname}</KoreanText>
                   <View style={homeHeaderStyle.meta}>
-                    <KoreanText style={homeHeaderStyle.stage}>{visibleHome.child.stageLabel}</KoreanText>
+                    <KoreanText style={homeHeaderStyle.stage}>{headerStageLabel}</KoreanText>
                   </View>
                 </View>
               </View>

@@ -2,10 +2,19 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveExpenseHouseholdId } from "../expenses/records-list-view";
+// 라운드 61 #2: 탈퇴 뒤 세션 상태는 스토어의 **기존 API로만** 재현해 확인한다(스토어 무변경).
+import { useSessionStore } from "../stores/session.store";
+import { isExpenseEntryLocked } from "./record-permissions";
 import {
+  ANDROID_ALERT_BUTTON_LIMIT,
   collectKnownHouseholdIds,
   describeHouseholdScope,
   HOUSEHOLD_SCOPE_EMPTY_LABEL,
+  HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL,
+  HOUSEHOLD_SCOPE_SWITCH_LABEL,
+  HOUSEHOLD_SCOPE_SWITCH_MESSAGE,
+  HOUSEHOLD_SCOPE_SWITCH_OVERFLOW_NOTICE,
+  householdSwitchPrompt,
   householdScopeAddChildNotice,
   householdScopeInviteNotice,
   householdScopeLeaveNotice,
@@ -481,6 +490,242 @@ describe("가구 전환 후보 (라운드 60 리뷰 P1-3)", () => {
     expect(screenSource).toContain("const scopedHouseholdId = resolveManagedHouseholdId({");
     expect(screenSource).toContain(
       "viewedHouseholdId && knownHouseholdIdList.includes(viewedHouseholdId) ? viewedHouseholdId : scopedHouseholdId;"
+    );
+  });
+});
+
+/**
+ * 라운드 61 #1 — **전환 Alert이 Android 3버튼 상한에서 살아남는다.**
+ *
+ * react-native의 Android Alert은 `buttons.slice(0, 3)`으로 네 번째부터를 조용히 버린다. 라운드
+ * 60이 신설한 "다른 가구 보기"는 버튼이 `닫기 + 가구 수`였으므로 **3가구부터 마지막 후보가
+ * 말없이 사라졌다** — 이 저장소가 이미 세 번 적어 둔 함정(record-row-actions ·
+ * notification-row-actions · invite-flow)을 그 신설만 지나쳤다.
+ */
+describe("가구 전환 Alert의 버튼 수 계약 (라운드 61 #1)", () => {
+  const optionsOf = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      householdId: `household-${index + 1}`,
+      label: `가구 ${index + 1}`,
+      isCurrent: index === 0
+    }));
+
+  /** 화면이 실제로 만드는 버튼 배열 그대로(닫기가 앞, 후보가 뒤) — Android는 여기서 잘라낸다. */
+  const renderedButtons = (platform: string, count: number) => {
+    const prompt = householdSwitchPrompt(platform, optionsOf(count));
+    const buttons = [
+      ...(prompt.showsCloseButton ? [HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL] : []),
+      ...prompt.options.map((option) => option.label)
+    ];
+    return platform === "android" ? buttons.slice(0, ANDROID_ALERT_BUTTON_LIMIT) : buttons;
+  };
+
+  it("2가구(오늘의 대부분)에서는 종전 그대로다 — 닫기 + 두 후보", () => {
+    const prompt = householdSwitchPrompt("android", optionsOf(2));
+    expect(prompt.showsCloseButton).toBe(true);
+    expect(prompt.cancelable).toBe(false);
+    expect(prompt.exceedsButtonLimit).toBe(false);
+    expect(prompt.message).toBe(HOUSEHOLD_SCOPE_SWITCH_MESSAGE);
+    expect(prompt.title).toBe(HOUSEHOLD_SCOPE_SWITCH_LABEL);
+    expect(renderedButtons("android", 2)).toEqual([HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL, "가구 1", "가구 2"]);
+  });
+
+  it("3가구: 잘리는 것은 후보가 아니라 닫기다 — 대신 바깥 탭으로 닫는다", () => {
+    const prompt = householdSwitchPrompt("android", optionsOf(3));
+    expect(prompt.showsCloseButton).toBe(false);
+    // 닫기 버튼이 없으면 닫을 길이 반드시 있어야 한다(Android 다이얼로그 기본값은 cancelable=false).
+    expect(prompt.cancelable).toBe(true);
+    expect(prompt.exceedsButtonLimit).toBe(false);
+    // 종전에는 여기서 세 번째 가구가 말없이 사라졌다.
+    expect(renderedButtons("android", 3)).toEqual(["가구 1", "가구 2", "가구 3"]);
+  });
+
+  it("어떤 후보 수에서도 그려지는 버튼은 상한을 넘지 않는다", () => {
+    for (let count = 2; count <= 6; count += 1) {
+      expect(renderedButtons("android", count).length, `${count}가구`).toBeLessThanOrEqual(
+        ANDROID_ALERT_BUTTON_LIMIT
+      );
+    }
+  });
+
+  it("후보 4+에서는 Alert이 맞지 않다는 사실을 판정 결과로 돌려준다 (자르지 않는다)", () => {
+    const prompt = householdSwitchPrompt("android", optionsOf(4));
+    // 후보는 한 줄도 잘리지 않는다 -- 자르는 일은 RN이 하고, 이 판정은 그 사실을 말한다.
+    expect(prompt.options).toHaveLength(4);
+    expect(prompt.exceedsButtonLimit).toBe(true);
+    expect(prompt.reachableOptionCount).toBe(ANDROID_ALERT_BUTTON_LIMIT);
+    expect(prompt.showsCloseButton).toBe(false);
+    expect(prompt.cancelable).toBe(true);
+    // 사용자에게도 같은 사실을 말한다 — 조용히 사라지던 종전과 다른 점이 이것이다.
+    expect(prompt.message).toContain(HOUSEHOLD_SCOPE_SWITCH_OVERFLOW_NOTICE);
+    // DNC-018: 해요체.
+    expect(HOUSEHOLD_SCOPE_SWITCH_OVERFLOW_NOTICE).toMatch(/요\.$/);
+    expect(HOUSEHOLD_SCOPE_SWITCH_MESSAGE).toMatch(/요\.$/);
+  });
+
+  it("상한이 없는 플랫폼에서는 닫기도 후보도 그대로다", () => {
+    for (const platform of ["ios", "web"]) {
+      const prompt = householdSwitchPrompt(platform, optionsOf(5));
+      expect(prompt.showsCloseButton, platform).toBe(true);
+      expect(prompt.cancelable, platform).toBe(false);
+      expect(prompt.exceedsButtonLimit, platform).toBe(false);
+      expect(prompt.reachableOptionCount, platform).toBe(5);
+      expect(renderedButtons(platform, 5), platform).toHaveLength(6);
+    }
+  });
+
+  it("1가구 계정은 이 Alert 자체가 없다(후보 0~1) — 판정은 그래도 안전하게 답한다", () => {
+    for (const count of [0, 1]) {
+      const prompt = householdSwitchPrompt("android", optionsOf(count));
+      expect(prompt.showsCloseButton, `${count}`).toBe(true);
+      expect(prompt.exceedsButtonLimit, `${count}`).toBe(false);
+    }
+    // 화면이 이 Alert을 여는 문턱은 후보 2 이상이다(1가구 계정 불변 · FAM-001 픽셀락).
+    expect(source("app/family/index.tsx")).toContain("{householdSwitchOptions.length >= 2 ? (");
+  });
+
+  it("가족 화면은 버튼 구성을 스스로 정하지 않는다 (소스 계약)", () => {
+    const screenSource = source("app/family/index.tsx");
+    expect(screenSource).toContain("const prompt = householdSwitchPrompt(Platform.OS, householdSwitchOptions);");
+    expect(screenSource).toContain(
+      "...(prompt.showsCloseButton\n          ? [{ text: HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL, style: \"cancel\" as const }]\n          : []),"
+    );
+    expect(screenSource).toContain("{ cancelable: prompt.cancelable }");
+    // 종전의 하드코딩(늘 붙던 닫기 버튼 · 화면 안의 본문 문자열)이 되살아나면 상한이 다시 깨진다.
+    expect(screenSource).not.toContain('{ text: "닫기", style: "cancel" as const },');
+    expect(screenSource).not.toContain("관리할 가구를 골라 주세요");
+  });
+});
+
+/**
+ * 라운드 61 #2 — **가구를 나가면 세션에서도 나간다.**
+ *
+ * 탈퇴 성공 뒤 캐시만 무효화하던 자리. 이 계정이 아는 가구는 캐시가 아니라 세션 스토어에
+ * 있으므로(persist), 나간 가구가 전환 후보·다가구 판정·다음 탈퇴 대상으로 계속 남아 있었다.
+ */
+describe("탈퇴 후 세션 잔재 정리 (라운드 61 #2 — source contract)", () => {
+  const privacySource = () => source("app/settings/privacy.tsx");
+
+  it("나간 가구가 기본 가구면 비운다 — 죽은 값을 붙들지 않는다", () => {
+    const screenSource = privacySource();
+    expect(screenSource).toContain(
+      "if (leftHouseholdId && useSessionStore.getState().defaultHouseholdId === leftHouseholdId) {"
+    );
+    expect(screenSource).toContain("useSessionStore.setState({ defaultHouseholdId: null });");
+    // 남은 가구 중 하나를 기본으로 **지어내지** 않는다(사용자가 고른 적 없는 선택이다).
+    expect(screenSource).not.toMatch(/defaultHouseholdId: (?!null)/);
+  });
+
+  it("라운드 60 '덮어쓰기 금지' 계약과 구분되는 근거가 코드 옆에 적혀 있다", () => {
+    // 수락 화면은 여전히 **살아 있는** 기본 가구를 덮어쓰지 않는다(그 계약은 그대로다).
+    const acceptSource = source("app/family/accept/[token].tsx");
+    expect(acceptSource).toContain("if (!useSessionStore.getState().defaultHouseholdId) {");
+    // 탈퇴 쪽에는 왜 지우는 것이 그 계약과 충돌하지 않는지가 적혀 있어야 한다 -- 두 규칙이
+    // 근거 없이 마주 보면 다음 라운드가 둘 중 하나를 되돌린다.
+    const screenSource = privacySource();
+    expect(screenSource).toContain("덮어쓰기 금지");
+    expect(screenSource).toContain("죽은 값");
+  });
+
+  it("가구 목록·역할 표를 서버 기준으로 다시 받는다 (초대 수락과 같은 관례)", () => {
+    const screenSource = privacySource();
+    expect(screenSource).toContain(
+      'import { revalidateHouseholdRoles } from "../../src/family/useExpenseEntryGate";'
+    );
+    expect(screenSource).toContain("revalidateHouseholdRoles({ force: true });");
+    // 같은 한 줄이 초대 수락에도 있다 -- 재검증 경로는 한 벌뿐이다(새 모듈을 만들지 않는다).
+    expect(source("app/family/accept/[token].tsx")).toContain("revalidateHouseholdRoles({ force: true });");
+  });
+
+  it("정리는 탈퇴가 **성공한 뒤**에만 일어난다", () => {
+    const screenSource = privacySource();
+    const mutationBlock = screenSource.slice(
+      screenSource.indexOf("const householdLeave = useMutation({"),
+      screenSource.indexOf("const accountPreview = useMutation({")
+    );
+    expect(mutationBlock).toContain("onSuccess: async () => {");
+    expect(mutationBlock).toContain("revalidateHouseholdRoles({ force: true });");
+    expect(mutationBlock).toContain("useSessionStore.setState({ defaultHouseholdId: null });");
+    // 세션 자체는 건드리지 않는다 -- 가구를 나갔을 뿐 로그아웃이 아니다(계정 삭제 쪽만
+    // clearSession을 부른다). 주석에서 그 함수를 **언급**하는 것은 호출이 아니므로, 줄 첫
+    // 토큰이 호출인 형태만 잡는다.
+    expect(mutationBlock).not.toMatch(/\n\s*clearSession\(/);
+  });
+
+  /**
+   * 소스 계약 위에 **결과**를 한 번 확인한다: 화면이 하는 그 두 가지(기본 가구 비우기 ·
+   * 서버 응답으로 표 갈아 끼우기)를 스토어의 **기존 API로만** 재현해, 나간 가구가 전환
+   * 후보에서 실제로 사라지는지 본다. 스토어는 이 라운드에서 한 줄도 바뀌지 않았다.
+   */
+  it("나간 가구는 전환 후보에서 사라진다 (스토어 기존 API로 재현)", () => {
+    useSessionStore.getState().setSession({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      userId: "user-1",
+      defaultHouseholdId: "household-1",
+      households: [
+        { id: "household-1", role: "owner" },
+        { id: "household-2", role: "co_parent" }
+      ]
+    });
+    // household-1에서 나갔다: ① 기본 가구가 그 가구였으므로 비우고, ② 서버가 지금 말하는
+    // 목록으로 표를 갈아 끼운다(revalidateHouseholdRoles → setHouseholdRoles).
+    useSessionStore.setState({ defaultHouseholdId: null });
+    useSessionStore.getState().setHouseholdRoles([{ id: "household-2", role: "co_parent" }]);
+
+    const session = useSessionStore.getState();
+    expect(session.defaultHouseholdId).toBeNull();
+    expect(session.householdIds).toEqual(["household-2"]);
+    expect(session.householdRoles).toEqual({ "household-2": "co_parent" });
+    // 종전에는 여기서 household-1이 후보로 남아 있었다(고르면 403/404뿐인 가구).
+    expect(
+      listHouseholdSwitchOptions({
+        currentHouseholdId: "household-2",
+        children: [],
+        knownHouseholdIds: session.householdIds,
+        fallbackHouseholdId: session.defaultHouseholdId
+      })
+    ).toEqual([]);
+    expect(
+      collectKnownHouseholdIds({
+        children: [],
+        knownHouseholdIds: session.householdIds,
+        fallbackHouseholdId: session.defaultHouseholdId
+      })
+    ).toEqual(["household-2"]);
+  });
+
+  it("마지막 가구에서 나오면 빈 목록이 표·목록을 둘 다 '모름'으로 만든다(잠그지 않는다)", () => {
+    useSessionStore.getState().setSession({
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      userId: "user-1",
+      defaultHouseholdId: "household-1",
+      households: [{ id: "household-1", role: "viewer" }]
+    });
+    useSessionStore.setState({ defaultHouseholdId: null });
+    // 서버는 "가구가 하나도 없다"고 답한다 -- setHouseholdRoles의 빈 목록 경로.
+    useSessionStore.getState().setHouseholdRoles([]);
+
+    const session = useSessionStore.getState();
+    expect(session.householdRoles).toBeNull();
+    expect(session.householdIds).toBeNull();
+    // 모름은 아무것도 잠그지 않는다(record-permissions의 계약) -- 가구 없는 계정이 자기
+    // 화면에서 잠기는 일은 생기지 않는다.
+    expect(isExpenseEntryLocked({ hasSession: true, role: null })).toBe(false);
+    // 세션 자체는 살아 있다(탈퇴는 로그아웃이 아니다).
+    expect(session.accessToken).toBe("access-token");
+    expect(session.userId).toBe("user-1");
+  });
+
+  it("P3: 탈퇴 가구의 템플릿·알림 잔재는 근거만 남긴다(이번 범위 밖)", () => {
+    const screenSource = privacySource();
+    expect(screenSource).toContain("src/stores/recurring-expense.store.ts");
+    expect(screenSource).toContain("src/notifications/notification.store.ts");
+    // 근거가 사실과 어긋나면 안 된다: 두 저장소는 가구가 아니라 **아이 단위**로 쌓이고,
+    // PRIV-104 teardown은 정체성 전환에만 걸린다(탈퇴는 같은 사람이 계속 로그인해 있다).
+    expect(source("src/offline/session-teardown.ts")).toContain(
+      "return next.userId !== previous.userId || next.isTestSession !== previous.isTestSession;"
     );
   });
 });

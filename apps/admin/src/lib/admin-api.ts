@@ -717,6 +717,26 @@ export type AdminPurchaseFollowupBreakdown = {
   dismissed: number;
 };
 
+/**
+ * 라운드 61 #5: `onboarding_step_viewed`를 payload의 `step`별로 쪼갠 값. 라운드 60 #9는
+ * 계측만 붙였고 요약 API가 이벤트 이름 단위로만 집계해서, 어드민은 네 단계의 **합계**
+ * 하나만 볼 수 있었다 — "온보딩 중 어디서 그만두는가"에는 합계로 답할 수 없다.
+ *
+ * 항상 계약 레지스트리(packages/contracts/src/analytics.ts의 `ONBOARDING_STEPS`) 순서로
+ * 전 단계가 0건 포함 내려온다. `stepNumber`는 그 배열 위치(1부터)이고, 페이로드가 실어
+ * 보낸 번호가 아니다.
+ *
+ * 네 값의 합 <= byName의 `onboarding_step_viewed`일 수 있다: `step`이 없거나 알 수 없는
+ * 값인 행은 API가 어느 단계에도 넣지 않고 무시한다(ANA-128의 answer 분해와 같은 규칙).
+ */
+export type AdminOnboardingStepBreakdown = {
+  /** 계약 레지스트리의 단계 리터럴 (예: "child_status"). */
+  step: string;
+  /** 1부터 세는 단계 순서. */
+  stepNumber: number;
+  count: number;
+};
+
 export type AdminAnalyticsSummary = {
   days: AnalyticsSummaryDays;
   totalEvents: number;
@@ -728,6 +748,17 @@ export type AdminAnalyticsSummary = {
   funnel: AdminAnalyticsFunnel;
   /** ANA-128: purchase_followup_answered의 answer 3갈래 분해. */
   purchaseFollowup: AdminPurchaseFollowupBreakdown;
+  /**
+   * 라운드 61 #5: onboarding_step_viewed의 step 단계별 분해 (레지스트리 순서, 0건 포함).
+   *
+   * 라운드 61 S-2 — 이 타입은 **지금 계약이 무엇을 주기로 했는가**의 미러라 필수로 둔다. 다만
+   * 실행 시점의 응답은 그것과 다를 수 있다(정적 번들이 API보다 앞서 배포되거나 API가 롤백된
+   * 경우 이 키가 아예 없다). 읽는 쪽은 그래서 `?? []`로 방어한다 —
+   * `src/lib/onboarding-steps-view.ts`가 그 자리이고, 왜 0으로 그리는 것이 거짓이 아닌지의
+   * 근거도 그 파일 머리말에 있다. 방어가 없으면 카드 하나가 아니라 분석 페이지 전체가 오류
+   * 경계로 떨어진다.
+   */
+  onboardingSteps: AdminOnboardingStepBreakdown[];
   /** count(distinct user_anon_id) in the window. */
   uniqueAnonUsers: number;
 };

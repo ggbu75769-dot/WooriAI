@@ -8,6 +8,7 @@ import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 import { AppModule } from "../src/app.module";
 import { ItemsCatalogService } from "../src/onboarding/items-catalog.service";
 import type { PrismaService } from "../src/prisma/prisma.service";
+import { AdminSessionCleanupJob } from "../src/worker/jobs/admin-session-cleanup.job";
 import { IdempotencyKeyCleanupJob } from "../src/worker/jobs/idempotency-key-cleanup.job";
 import { OauthTransactionCleanupJob } from "../src/worker/jobs/oauth-transaction-cleanup.job";
 import { RefreshTokenCleanupJob } from "../src/worker/jobs/refresh-token-cleanup.job";
@@ -53,6 +54,7 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
   let refreshTokenCleanupJob: RefreshTokenCleanupJob;
   let oauthTransactionCleanupJob: OauthTransactionCleanupJob;
   let idempotencyKeyCleanupJob: IdempotencyKeyCleanupJob;
+  let adminSessionCleanupJob: AdminSessionCleanupJob;
   let auditLogger: AuditLoggerService;
 
   /**
@@ -66,7 +68,8 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     contentRevision: [] as string[],
     refreshToken: [] as string[],
     oauthTransaction: [] as string[],
-    idempotencyKey: [] as string[]
+    idempotencyKey: [] as string[],
+    adminSession: [] as string[]
   };
 
   /**
@@ -113,6 +116,16 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
               where: { AND: [args.where ?? {}, { id: { in: [...fixtureIds.idempotencyKey] } }] }
             });
           }
+        },
+        // 라운드 61 #7: 어드민 세션 정리 잡의 삭제도 같은 방식으로 이 파일의 픽스처로 좁힌다
+        // (다른 스위트가 실제 로그인으로 만든 admin_sessions 행을 지우면 그쪽이 401로 깨진다).
+        adminSession: {
+          deleteMany({ args, query }) {
+            return query({
+              ...args,
+              where: { AND: [args.where ?? {}, { id: { in: [...fixtureIds.adminSession] } }] }
+            });
+          }
         }
       }
     }) as unknown as PrismaService;
@@ -128,6 +141,7 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     // The scheduler must stay env-gated off — these tests drive run() directly.
     delete process.env.WORKER_ENABLED;
     delete process.env.WORKER_TOKEN_RETENTION_DAYS;
+    delete process.env.ADMIN_SESSIONS_RETENTION_DAYS;
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
@@ -147,10 +161,12 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     refreshTokenCleanupJob = new RefreshTokenCleanupJob(scopedPrisma);
     oauthTransactionCleanupJob = new OauthTransactionCleanupJob(scopedPrisma);
     idempotencyKeyCleanupJob = new IdempotencyKeyCleanupJob(scopedPrisma);
+    adminSessionCleanupJob = new AdminSessionCleanupJob(scopedPrisma);
   });
 
   afterAll(async () => {
     delete process.env.WORKER_TOKEN_RETENTION_DAYS;
+    delete process.env.ADMIN_SESSIONS_RETENTION_DAYS;
     await app.close();
     await prisma.$disconnect();
   });
@@ -161,6 +177,7 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     fixtureIds.refreshToken.length = 0;
     fixtureIds.oauthTransaction.length = 0;
     fixtureIds.idempotencyKey.length = 0;
+    fixtureIds.adminSession.length = 0;
   });
 
   /** 생성 + 스코프 등록. 등록된 리비전만 예약 게시 잡의 후보가 된다. */
@@ -227,6 +244,30 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     return row;
   }
 
+  /**
+   * 라운드 61 #7 픽스처. admin_sessions는 FK가 없는 plain uuid 컬럼을 쓰므로(migration 000006)
+   * 임의의 adminUserId로 만들 수 있다 — 잡이 보는 컬럼은 expires_at/revoked_at뿐이다.
+   */
+  async function createAdminSession(
+    adminUserId: string,
+    overrides: { expiresAt: Date; revokedAt?: Date },
+    options: FixtureOptions = {}
+  ) {
+    const row = await prisma.adminSession.create({
+      data: {
+        adminUserId,
+        tokenHash: `worker-test-admin-session-${randomUUID()}`,
+        expiresAt: overrides.expiresAt,
+        lastSeenAt: overrides.expiresAt,
+        ip: "203.0.113.7",
+        userAgent: "worker-jobs.db.test",
+        revokedAt: overrides.revokedAt ?? null
+      }
+    });
+    if (options.register !== false) fixtureIds.adminSession.push(row.id);
+    return row;
+  }
+
   // C-11g 하네스 가드(link-health.db.test.ts의 TEST-132 가드와 같은 역할):
   // 스코프가 조용히 풀리면(예: Prisma 확장 API 변경, 등록을 빼먹은 새 픽스처 헬퍼)
   // 아래 테스트들은 "마침 DB에 다른 후보가 없을 때만" 통과하는 플래키로 퇴화하고,
@@ -241,26 +282,48 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     it("cleanup jobs cannot delete rows outside the registered fixture ids", async () => {
       const now = new Date();
       // 스코프에 등록하지 않은 행 = 병렬 스위트가 방금 만든 행과 같은 처지.
+      //
+      // 모양 주의(라운드 61 정리): 생존을 단언할 행은 "만료는 미래, 폐기/소비만 과거"로
+      // 만든다. 만료(expiresAt)가 과거인 행은 이 파일의 잡이 아니어도 죽는다 —
+      // auth.service.ts가 로그인마다 RefreshTokenStore.deleteExpired()(expires_at < now
+      // 전역 삭제)를, kakao-auth.service.begin()이 만료 oauth_transactions 전역 삭제를
+      // 실행하므로, 병렬 스위트의 로그인 한 번이 여기 만료 픽스처를 지워 이 단언을
+      // 플레이크로 만든다(라운드 61 전체 실행에서 실제 재현). 폐기/소비 브랜치는 잡의
+      // 조건(OR)에는 똑같이 걸리면서 그 프로덕션 경로들의 술어 밖이라 면역이다.
       const foreignJti = await createToken(
         randomUUID(),
-        { expiresAt: new Date(now.getTime() - 40 * DAY_MS) },
+        {
+          expiresAt: new Date(now.getTime() + 10 * DAY_MS),
+          revokedAt: new Date(now.getTime() - 40 * DAY_MS)
+        },
         { register: false }
       );
       const foreignState = await createTransaction(
-        { expiresAt: new Date(now.getTime() - 2 * DAY_MS) },
+        {
+          expiresAt: new Date(now.getTime() + 10 * MINUTE_MS),
+          consumedAt: new Date(now.getTime() - 2 * DAY_MS)
+        },
         { register: false }
       );
       const foreignKey = await createIdempotencyKey(randomUUID(), new Date(now.getTime() - MINUTE_MS), {
         register: false
       });
+      // 라운드 61 #7: 같은 처지의 어드민 세션 행(다른 스위트가 로그인해서 만든 세션).
+      const foreignSession = await createAdminSession(
+        randomUUID(),
+        { expiresAt: new Date(now.getTime() - 40 * DAY_MS) },
+        { register: false }
+      );
 
       await refreshTokenCleanupJob.run(now);
       await oauthTransactionCleanupJob.run(now);
       await idempotencyKeyCleanupJob.run(now);
+      await adminSessionCleanupJob.run(now);
 
       expect(await prisma.refreshToken.findUnique({ where: { jti: foreignJti } })).not.toBeNull();
       expect(await prisma.oauthTransaction.findUnique({ where: { state: foreignState } })).not.toBeNull();
       expect(await prisma.idempotencyKey.findUnique({ where: { id: foreignKey.id } })).not.toBeNull();
+      expect(await prisma.adminSession.findUnique({ where: { id: foreignSession.id } })).not.toBeNull();
 
       // 같은 행을 스코프 안으로 들여놓으면 곧바로 지워진다 — 위 생존이 스코프
       // 덕분이었음을 보이고, 겸사겸사 이 테스트의 뒷정리도 된다.
@@ -269,14 +332,17 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
       const transaction = await prisma.oauthTransaction.findUniqueOrThrow({ where: { state: foreignState } });
       fixtureIds.oauthTransaction.push(transaction.id);
       fixtureIds.idempotencyKey.push(foreignKey.id);
+      fixtureIds.adminSession.push(foreignSession.id);
 
       await refreshTokenCleanupJob.run(now);
       await oauthTransactionCleanupJob.run(now);
       await idempotencyKeyCleanupJob.run(now);
+      await adminSessionCleanupJob.run(now);
 
       expect(await prisma.refreshToken.findUnique({ where: { jti: foreignJti } })).toBeNull();
       expect(await prisma.oauthTransaction.findUnique({ where: { state: foreignState } })).toBeNull();
       expect(await prisma.idempotencyKey.findUnique({ where: { id: foreignKey.id } })).toBeNull();
+      expect(await prisma.adminSession.findUnique({ where: { id: foreignSession.id } })).toBeNull();
     });
 
     it("the scheduled-publish job only treats registered revisions as due", async () => {
@@ -494,12 +560,20 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
       const userId = randomUUID();
       const now = new Date();
 
+      // 만료(expiresAt) 브랜치는 "지워진다" 방향만 단언한다. 만료가 과거인 행의 *생존*은
+      // 공유 레인에서 관측 불가다: auth.service.ts 로그인 경로가 deleteExpired()로
+      // expires_at < now 행을 전역 삭제하므로, 병렬 스위트의 로그인이 "최근 만료라 잡은
+      // 남겼다"를 언제든 뒤집는다. 유예 경계의 kept 쪽은 폐기(revokedAt) 브랜치로 고정한다
+      // — 같은 cutoff 산술, 같은 OR 조건이고, 그 경로들의 술어 밖이라 면역이다.
       const expiredOld = await createToken(userId, { expiresAt: new Date(now.getTime() - 40 * DAY_MS) });
       const revokedOld = await createToken(userId, {
         expiresAt: new Date(now.getTime() + 10 * DAY_MS),
         revokedAt: new Date(now.getTime() - 40 * DAY_MS)
       });
-      const expiredRecent = await createToken(userId, { expiresAt: new Date(now.getTime() - DAY_MS) });
+      const revokedRecent = await createToken(userId, {
+        expiresAt: new Date(now.getTime() + 10 * DAY_MS),
+        revokedAt: new Date(now.getTime() - DAY_MS)
+      });
       const usedActive = await createToken(userId, {
         expiresAt: new Date(now.getTime() + 10 * DAY_MS),
         usedAt: new Date(now.getTime() - DAY_MS)
@@ -511,7 +585,7 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
 
       const remaining = await prisma.refreshToken.findMany({ where: { userId }, select: { jti: true } });
       const remainingJtis = remaining.map((row) => row.jti).sort();
-      expect(remainingJtis).toEqual([expiredRecent, usedActive, active].sort());
+      expect(remainingJtis).toEqual([revokedRecent, usedActive, active].sort());
       expect(remainingJtis).not.toContain(expiredOld);
       expect(remainingJtis).not.toContain(revokedOld);
 
@@ -523,8 +597,15 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
       const now = new Date();
       process.env.WORKER_TOKEN_RETENTION_DAYS = "7";
       try {
-        const beyondWindow = await createToken(userId, { expiresAt: new Date(now.getTime() - 10 * DAY_MS) });
-        const withinWindow = await createToken(userId, { expiresAt: new Date(now.getTime() - 3 * DAY_MS) });
+        // 폐기 브랜치 모양인 이유는 위 테스트의 주석 참고(만료 과거 행의 생존은 관측 불가).
+        const beyondWindow = await createToken(userId, {
+          expiresAt: new Date(now.getTime() + 10 * DAY_MS),
+          revokedAt: new Date(now.getTime() - 10 * DAY_MS)
+        });
+        const withinWindow = await createToken(userId, {
+          expiresAt: new Date(now.getTime() + 10 * DAY_MS),
+          revokedAt: new Date(now.getTime() - 3 * DAY_MS)
+        });
 
         const result = await refreshTokenCleanupJob.run(now);
         expect(result.retentionDays).toBe(7);
@@ -548,17 +629,147 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
         expiresAt: new Date(now.getTime() - HOUR_MS),
         consumedAt: new Date(now.getTime() - 2 * DAY_MS)
       });
-      const expiredRecent = await createTransaction({ expiresAt: new Date(now.getTime() - HOUR_MS) });
+      // 만료 과거 행의 생존은 공유 레인에서 관측 불가(카카오 begin()이 만료 행을 전역
+      // 삭제) — kept 쪽 유예 경계는 소비(consumedAt) 브랜치로 고정한다.
+      const consumedRecent = await createTransaction({
+        expiresAt: new Date(now.getTime() + 10 * MINUTE_MS),
+        consumedAt: new Date(now.getTime() - HOUR_MS)
+      });
       const activeState = await createTransaction({ expiresAt: new Date(now.getTime() + 10 * MINUTE_MS) });
 
       await oauthTransactionCleanupJob.run(now);
 
       expect(await prisma.oauthTransaction.findUnique({ where: { state: expiredOld } })).toBeNull();
       expect(await prisma.oauthTransaction.findUnique({ where: { state: consumedOld } })).toBeNull();
-      expect(await prisma.oauthTransaction.findUnique({ where: { state: expiredRecent } })).not.toBeNull();
+      expect(await prisma.oauthTransaction.findUnique({ where: { state: consumedRecent } })).not.toBeNull();
       expect(await prisma.oauthTransaction.findUnique({ where: { state: activeState } })).not.toBeNull();
 
-      await prisma.oauthTransaction.deleteMany({ where: { state: { in: [expiredRecent, activeState] } } });
+      await prisma.oauthTransaction.deleteMany({ where: { state: { in: [consumedRecent, activeState] } } });
+    });
+  });
+
+  /**
+   * 라운드 61 #7: admin_sessions 정리. 다른 세션 테이블에는 전부 정리 잡이 있었는데 여기만
+   * 없어서 ip·user_agent가 실린 행이 무기한 쌓였다. 고정하는 성질은 셋이다 —
+   * 유예 경계(만료 직후 행은 남는다), revoked_at도 같은 기준으로 본다, 그리고 이 잡은
+   * 자기 테이블 밖을 건드리지 않는다.
+   */
+  describe("AdminSessionCleanupJob (admin_session_cleanup)", () => {
+    it("deletes sessions expired or revoked beyond the 30-day default grace, keeps recent/live ones (경계)", async () => {
+      const adminUserId = randomUUID();
+      const now = new Date();
+
+      // 경계의 양쪽: 유예(30일)를 넘긴 행과 아직 안 넘긴 행.
+      const expiredOld = await createAdminSession(adminUserId, {
+        expiresAt: new Date(now.getTime() - 40 * DAY_MS)
+      });
+      const expiredJustOutside = await createAdminSession(adminUserId, {
+        expiresAt: new Date(now.getTime() - 30 * DAY_MS - MINUTE_MS)
+      });
+      const expiredJustInside = await createAdminSession(adminUserId, {
+        expiresAt: new Date(now.getTime() - 30 * DAY_MS + MINUTE_MS)
+      });
+      // 만료된 지 하루밖에 안 된 세션: 사고 조사 창 안이라 남긴다.
+      const expiredRecent = await createAdminSession(adminUserId, {
+        expiresAt: new Date(now.getTime() - DAY_MS)
+      });
+      // 아직 유효한 세션은 어떤 경우에도 후보가 아니다(로그인 중인 관리자가 튕기지 않는다).
+      const active = await createAdminSession(adminUserId, {
+        expiresAt: new Date(now.getTime() + 6 * HOUR_MS)
+      });
+
+      const result = await adminSessionCleanupJob.run(now);
+      expect(result.retentionDays).toBe(30);
+      expect(result.deleted).toBe(2);
+
+      const remaining = await prisma.adminSession.findMany({ where: { adminUserId }, select: { id: true } });
+      const remainingIds = remaining.map((row) => row.id).sort();
+      expect(remainingIds).toEqual([expiredJustInside.id, expiredRecent.id, active.id].sort());
+      expect(remainingIds).not.toContain(expiredOld.id);
+      expect(remainingIds).not.toContain(expiredJustOutside.id);
+
+      await prisma.adminSession.deleteMany({ where: { adminUserId } });
+    });
+
+    it("treats revoked_at the same way — a session revoked long ago goes even though it would still be unexpired (revoked)", async () => {
+      const adminUserId = randomUUID();
+      const now = new Date();
+
+      // 로그아웃/일괄 폐기로 revoked만 찍힌 행은 만료가 미래일 수 있다.
+      const revokedOld = await createAdminSession(adminUserId, {
+        expiresAt: new Date(now.getTime() + 6 * HOUR_MS),
+        revokedAt: new Date(now.getTime() - 40 * DAY_MS)
+      });
+      const revokedRecent = await createAdminSession(adminUserId, {
+        expiresAt: new Date(now.getTime() + 6 * HOUR_MS),
+        revokedAt: new Date(now.getTime() - DAY_MS)
+      });
+
+      const result = await adminSessionCleanupJob.run(now);
+      expect(result.deleted).toBe(1);
+
+      const remaining = await prisma.adminSession.findMany({ where: { adminUserId }, select: { id: true } });
+      expect(remaining.map((row) => row.id)).toEqual([revokedRecent.id]);
+      expect(remaining.map((row) => row.id)).not.toContain(revokedOld.id);
+
+      await prisma.adminSession.deleteMany({ where: { adminUserId } });
+    });
+
+    it("honors ADMIN_SESSIONS_RETENTION_DAYS", async () => {
+      const adminUserId = randomUUID();
+      const now = new Date();
+      process.env.ADMIN_SESSIONS_RETENTION_DAYS = "7";
+      try {
+        const beyondWindow = await createAdminSession(adminUserId, {
+          expiresAt: new Date(now.getTime() - 10 * DAY_MS)
+        });
+        const withinWindow = await createAdminSession(adminUserId, {
+          expiresAt: new Date(now.getTime() - 3 * DAY_MS)
+        });
+
+        const result = await adminSessionCleanupJob.run(now);
+        expect(result.retentionDays).toBe(7);
+
+        const remaining = await prisma.adminSession.findMany({ where: { adminUserId }, select: { id: true } });
+        expect(remaining.map((row) => row.id)).toEqual([withinWindow.id]);
+        expect(remaining.map((row) => row.id)).not.toContain(beyondWindow.id);
+      } finally {
+        delete process.env.ADMIN_SESSIONS_RETENTION_DAYS;
+        await prisma.adminSession.deleteMany({ where: { adminUserId } });
+      }
+    });
+
+    it("touches nothing outside admin_sessions (타 테이블 무간섭)", async () => {
+      const userId = randomUUID();
+      const adminUserId = randomUUID();
+      const now = new Date();
+
+      // 다른 정리 잡들의 조건에는 걸리는 행들 — 이 잡이 돌아도 살아 있어야 한다.
+      // (생존 단언이므로 전역 퍼지 면역 모양: 만료는 미래, 폐기/소비만 과거 — 위 주석 참고.)
+      const otherJti = await createToken(userId, {
+        expiresAt: new Date(now.getTime() + 10 * DAY_MS),
+        revokedAt: new Date(now.getTime() - 40 * DAY_MS)
+      });
+      const otherState = await createTransaction({
+        expiresAt: new Date(now.getTime() + 10 * MINUTE_MS),
+        consumedAt: new Date(now.getTime() - 2 * DAY_MS)
+      });
+      const otherKey = await createIdempotencyKey(userId, new Date(now.getTime() - MINUTE_MS));
+      const session = await createAdminSession(adminUserId, {
+        expiresAt: new Date(now.getTime() - 40 * DAY_MS)
+      });
+
+      const result = await adminSessionCleanupJob.run(now);
+      expect(result.deleted).toBe(1);
+
+      expect(await prisma.adminSession.findUnique({ where: { id: session.id } })).toBeNull();
+      expect(await prisma.refreshToken.findUnique({ where: { jti: otherJti } })).not.toBeNull();
+      expect(await prisma.oauthTransaction.findUnique({ where: { state: otherState } })).not.toBeNull();
+      expect(await prisma.idempotencyKey.findUnique({ where: { id: otherKey.id } })).not.toBeNull();
+
+      await prisma.refreshToken.deleteMany({ where: { userId } });
+      await prisma.oauthTransaction.deleteMany({ where: { state: otherState } });
+      await prisma.idempotencyKey.deleteMany({ where: { userId } });
     });
   });
 

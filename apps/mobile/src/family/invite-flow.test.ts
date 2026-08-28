@@ -3,6 +3,7 @@ import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_INVITE_ROLE,
+  INVITE_HOUSEHOLD_PARAM,
   INVITE_ROLE_CHOICES,
   INVITE_ROLE_PARAM,
   INVITE_ROLE_PROMPT_MESSAGE,
@@ -10,6 +11,7 @@ import {
   inviteRolePrompt,
   inviteScreenHref,
   isInviteRole,
+  parseInviteHouseholdParam,
   parseInviteRoleParam
 } from "./invite-flow";
 
@@ -125,6 +127,72 @@ describe("라운드 52 C-04 역할 파라미터 방어 파싱", () => {
 });
 
 /**
+ * 라운드 61 #3 — 가족 화면의 **가구 전환**을 초대 화면까지 들고 간다.
+ *
+ * 전환은 가족 화면의 지역 상태라 초대 화면에서는 보이지 않았고, 거기서 아이 기준으로 다시
+ * 판정해 다른 가구의 초대를 만들었다. 그 초대는 돌아간 가족 화면의 대기 목록에도 없다
+ * (C-04 재발 — 링크를 잃었을 때의 유일한 복구 경로가 그 목록이다).
+ */
+describe("라운드 61 #3 가구 파라미터 관례", () => {
+  const known = ["household-1", "household-2"];
+
+  it("역할과 같은 관례로 실어 보낸다 — 전환 중일 때만", () => {
+    expect(INVITE_HOUSEHOLD_PARAM).toBe("householdId");
+    expect(inviteScreenHref("co_parent", "household-2")).toEqual({
+      pathname: "/family/invite",
+      params: { role: "co_parent", householdId: "household-2" }
+    });
+    // 전환하지 않았으면 파라미터 자체가 없다 -- 1가구 계정의 링크는 종전과 한 글자도 같다.
+    for (const value of [undefined, null, "", "   "]) {
+      expect(inviteScreenHref("co_parent", value)).toEqual({
+        pathname: "/family/invite",
+        params: { role: "co_parent" }
+      });
+    }
+  });
+
+  it("아는 가구만 통과한다 (화이트리스트 — 모르는 값은 조용히 무시)", () => {
+    expect(parseInviteHouseholdParam("household-2", known)).toBe("household-2");
+    // 남의 가구 id를 들이민 딥링크·수동 URL은 없던 일이 된다(화면은 종전 판정으로 떨어진다).
+    expect(parseInviteHouseholdParam("household-9", known)).toBeNull();
+    expect(parseInviteHouseholdParam("household-2", [])).toBeNull();
+    expect(parseInviteHouseholdParam("household-2", null)).toBeNull();
+  });
+
+  it("expo-router가 배열로 줄 때는 첫 값을 보고, 값이 아니면 null이다", () => {
+    expect(parseInviteHouseholdParam(["household-2", "household-1"], known)).toBe("household-2");
+    expect(parseInviteHouseholdParam([], known)).toBeNull();
+    for (const value of ["", "   ", undefined, null, 3, {}, ["nope"]]) {
+      expect(parseInviteHouseholdParam(value, known)).toBeNull();
+    }
+    // 공백은 다듬어서 비교한다(파라미터가 인코딩을 거쳐 오는 자리다).
+    expect(parseInviteHouseholdParam(" household-1 ", known)).toBe("household-1");
+  });
+
+  it("초대 생성·대기 목록·표기가 모두 같은 가구를 본다 (소스 계약 — C-04 재발 방지)", () => {
+    const inviteSource = source("app/family/invite.tsx");
+    // 수신 측 검증은 화이트리스트를 지난다.
+    expect(inviteSource).toContain("const requestedHouseholdId = parseInviteHouseholdParam(");
+    expect(inviteSource).toContain("collectKnownHouseholdIds({");
+    expect(inviteSource).toContain("const householdId = requestedHouseholdId ?? scopedHouseholdId;");
+    // 그 하나의 값이 생성·표기 양쪽의 근거다(둘이 갈리면 "이 가구로 초대해요"가 거짓말이 된다).
+    expect(inviteSource).toContain('createInvite(authToken!, householdId!, role, "link")');
+    expect(inviteSource).toContain("describeHouseholdScope({\n        householdId,");
+    // 대기 목록 무효화는 접두 하나라 전환된 가구의 목록도 함께 갱신된다(가족 화면의 키는
+    // ["household-invites", householdId]다 -- 접두가 그것을 덮는다).
+    expect(inviteSource).toContain('await queryClient.invalidateQueries({ queryKey: ["household-invites"] });');
+    expect(source("app/family/index.tsx")).toContain('queryKey: ["household-invites", householdId]');
+  });
+
+  it("가족 화면은 전환 중일 때만 가구를 싣는다", () => {
+    const familySource = source("app/family/index.tsx");
+    expect(familySource).toContain(
+      "const switchedHouseholdId = householdId && householdId !== scopedHouseholdId ? householdId : null;"
+    );
+  });
+});
+
+/**
  * 화면은 이 repo의 vitest에서 렌더할 수 없으므로 배선은 소스 grep 계약으로 고정한다
  * (invite-permissions.test.ts와 같은 관례).
  */
@@ -161,7 +229,8 @@ describe("라운드 52 C-04 초대 생성 배선 계약 (source contract)", () =
 
     expect(familySource).toContain('src/family/invite-flow"');
     expect(familySource).toContain("const prompt = inviteRolePrompt(Platform.OS);");
-    expect(familySource).toContain("onPress: () => router.push(inviteScreenHref(choice.role))");
+    // 라운드 61 #3: 목적지에 전환 중인 가구가 함께 실린다(전환하지 않았으면 null = 종전 링크).
+    expect(familySource).toContain("onPress: () => router.push(inviteScreenHref(choice.role, switchedHouseholdId))");
     // 역할 선택은 생성 전이고, 생성은 여기서 일어나지 않는다.
     expect(familySource).not.toContain("createInvite");
     expect(familySource).not.toContain("quickInvite");

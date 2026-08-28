@@ -10,6 +10,7 @@ import {
   CONFLICT_OPTION_ADOPT_SERVER_LABEL,
   CONFLICT_OPTION_REAPPLY_MINE_LABEL,
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
+  OFFLINE_STORAGE_UNAVAILABLE_NOTICE,
   syncStatusBadgeLabel,
   syncStatusDiscardAllConfirmMessage,
   syncStatusDiscardFailedExpensesLabel,
@@ -736,7 +737,15 @@ export default function SyncStatusScreen() {
     </View>
   );
 
-  const listEmpty = !hasAny ? <EmptyStateCard title="모든 기록이 동기화됐어요." actionLabel="닫기" onPress={() => router.back()} /> : null;
+  // 라운드 61 #6: 저장소를 못 연 상태에서 "모든 기록이 동기화됐어요"는 확인할 방법이 없는
+  // 주장이다 -- 그때 화면이 아는 것은 0건이 아니라 **모름**이다(문구 근거는 messages.ts).
+  const listEmpty = !hasAny ? (
+    <EmptyStateCard
+      title={snapshot.storage === "unavailable" ? OFFLINE_STORAGE_UNAVAILABLE_NOTICE : "모든 기록이 동기화됐어요."}
+      actionLabel="닫기"
+      onPress={() => router.back()}
+    />
+  ) : null;
 
   return (
     <FlatList

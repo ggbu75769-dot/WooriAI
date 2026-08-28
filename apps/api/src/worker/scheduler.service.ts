@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnApplicationShutdown } from "@nestjs/common";
+import { AdminSessionCleanupJob } from "./jobs/admin-session-cleanup.job";
 import { DataRetentionPurgeJob } from "./jobs/data-retention-purge.job";
 import { IdempotencyKeyCleanupJob } from "./jobs/idempotency-key-cleanup.job";
 import { LinkHealthJob } from "./jobs/link-health.job";
@@ -42,6 +43,8 @@ export class SchedulerService implements OnApplicationBootstrap, OnApplicationSh
     @Inject(RefreshTokenCleanupJob) refreshTokenCleanup: RefreshTokenCleanupJob,
     @Inject(OauthTransactionCleanupJob) oauthTransactionCleanup: OauthTransactionCleanupJob,
     @Inject(IdempotencyKeyCleanupJob) idempotencyKeyCleanup: IdempotencyKeyCleanupJob,
+    // 라운드 61 #7: 만료·폐기된 어드민 세션 정리 — 다른 세션 테이블과 같은 대우.
+    @Inject(AdminSessionCleanupJob) adminSessionCleanup: AdminSessionCleanupJob,
     // PRIV-105: retention purge — batch-capped per tick (see data-retention-purge.job.ts).
     @Inject(DataRetentionPurgeJob) dataRetentionPurge: DataRetentionPurgeJob,
     // COM-105: runs on the same tick but is internally rate-limited and gated
@@ -51,7 +54,15 @@ export class SchedulerService implements OnApplicationBootstrap, OnApplicationSh
     // GET /health/worker can tell whether the worker is actually running.
     @Inject(WorkerStatusService) private readonly status: WorkerStatusService
   ) {
-    this.jobs = [scheduledPublish, refreshTokenCleanup, oauthTransactionCleanup, idempotencyKeyCleanup, dataRetentionPurge, linkHealth];
+    this.jobs = [
+      scheduledPublish,
+      refreshTokenCleanup,
+      oauthTransactionCleanup,
+      idempotencyKeyCleanup,
+      adminSessionCleanup,
+      dataRetentionPurge,
+      linkHealth
+    ];
   }
 
   static isEnabled(env: NodeJS.ProcessEnv = process.env): boolean {

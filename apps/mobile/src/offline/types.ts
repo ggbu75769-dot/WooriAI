@@ -221,6 +221,18 @@ export interface OfflineStore {
   getLocalExpense(localId: string): Promise<LocalExpenseRow | null>;
   updateLocalExpense(localId: string, patch: Partial<LocalExpenseRow>): Promise<void>;
   deleteLocalExpense(localId: string): Promise<void>;
+  /**
+   * 이 저장소의 지출 행 전부(아이로 좁힐 수 있다). **동기화가 끝난(`synced`) 행도 함께 온다** —
+   * 입력 보조의 제안 모집단(src/expenses/suggest-source.ts)이 네트워크 없이 읽는 이력이 그 행들
+   * 이기 때문이다.
+   *
+   * 라운드 61 #4 — 다만 그 보관은 **무한하지 않다.** SQLite 구현은 부팅 때 한 번,
+   * `SYNCED_ROW_RETENTION_DAYS`(90일)보다 오래된 synced 행을 파기한다. 파기 대상에서 빠지는
+   * 행(충돌·삭제 대기·서버 id 없는 행·미결 아웃박스가 걸린 행)의 계약은
+   * `sqlite-offline-store.ts`의 `PURGE_EXPIRED_SYNCED_LOCAL_EXPENSES_SQL` 주석이 단일 소스다.
+   * 메모리 구현(테스트·web)에는 그 정리가 없다 — 그쪽 저장소는 앱 세션과 함께 사라지므로
+   * 쌓일 것이 없다.
+   */
   listLocalExpenses(childId?: string): Promise<LocalExpenseRow[]>;
 
   /**

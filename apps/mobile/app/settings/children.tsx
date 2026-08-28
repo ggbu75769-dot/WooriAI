@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
-import { CHILD_STAGE_CODES, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
+import { CHILD_STAGE_CODES, getSeoulToday, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
 import {
   createChild,
   listChildren,
@@ -37,6 +37,7 @@ import {
   isChildrenSettled,
   resolveManagedHouseholdId
 } from "../../src/family/household-scope";
+import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -478,7 +479,16 @@ export default function ManageChildrenScreen() {
                     style={{ flex: 1, gap: 2 }}
                   >
                     <Text style={childNameStyle}>{child.nickname}</Text>
-                    <Text style={childStageStyle}>{child.stageLabel}</Text>
+                    {/* GAP-061 #10: 예정일이 유예를 넘겨 지난 임신 프로필의 "임신 42주차" 고착을
+                        표시층에서만 사실 문구로 바꾼다(도메인 stageCode·계산 불변). */}
+                    <Text style={childStageStyle}>
+                      {resolveStageDisplayLabel({
+                        stageMode: child.stageMode,
+                        dueDate: child.dueDate,
+                        todayIso: getSeoulToday(),
+                        stageLabel: child.stageLabel
+                      })}
+                    </Text>
                   </Pressable>
                   {selected ? <StatusBadge label="현재 선택" tone="success" /> : null}
                   {canEditChildren ? (

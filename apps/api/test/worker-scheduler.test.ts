@@ -15,16 +15,28 @@ function stubJob(name: string, impl?: (now: Date) => Promise<Record<string, unkn
   return { name, run: vi.fn(impl ?? (async () => ({}))) };
 }
 
-function stubJobs(): [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob] {
-  return [stubJob("job_a"), stubJob("job_b"), stubJob("job_c"), stubJob("job_d"), stubJob("job_e"), stubJob("job_f")];
+type StubJobs = [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob, StubJob];
+
+function stubJobs(): StubJobs {
+  return [
+    stubJob("job_a"),
+    stubJob("job_b"),
+    stubJob("job_c"),
+    stubJob("job_d"),
+    stubJob("job_e"),
+    stubJob("job_f"),
+    // 라운드 61 #7: admin_session_cleanup이 더해져 잡이 일곱이 됐다. 스텁 개수는
+    // 생성자 인자 수와 같아야 한다 — 모자라면 status 자리로 밀려 들어간다.
+    stubJob("job_g")
+  ];
 }
 
-// The constructor positionally takes the six concrete job classes for Nest
+// The constructor positionally takes the seven concrete job classes for Nest
 // DI; the scheduler only ever uses their WorkerJob surface, so stubs suffice.
 // INF-007: the trailing WorkerStatusService is real (it is a dependency-free
 // in-memory store) so status-recording assertions run against the actual code.
 function schedulerWith(
-  jobs: [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob],
+  jobs: StubJobs,
   status: WorkerStatusService = new WorkerStatusService()
 ): SchedulerService {
   return new SchedulerService(
@@ -34,6 +46,7 @@ function schedulerWith(
     jobs[3] as never,
     jobs[4] as never,
     jobs[5] as never,
+    jobs[6] as never,
     status
   );
 }
@@ -168,8 +181,16 @@ describe("SchedulerService (INF-006-lite)", () => {
       expect(snapshot.lastTickStartedAt).toBe(logicalNow.toISOString());
       expect(snapshot.lastTickFinishedAt).toEqual(expect.any(String));
       expect(snapshot.msSinceLastTick).toEqual(expect.any(Number));
-      expect(snapshot.jobs).toHaveLength(6);
-      expect(snapshot.jobs.map((job) => job.name)).toEqual(["job_a", "job_b", "job_c", "job_d", "job_e", "job_f"]);
+      expect(snapshot.jobs).toHaveLength(7);
+      expect(snapshot.jobs.map((job) => job.name)).toEqual([
+        "job_a",
+        "job_b",
+        "job_c",
+        "job_d",
+        "job_e",
+        "job_f",
+        "job_g"
+      ]);
       expect(snapshot.jobs[0]).toEqual({
         name: "job_a",
         lastStatus: "ok",
@@ -244,7 +265,7 @@ describe("SchedulerService (INF-006-lite)", () => {
   describe("consecutive job failures / degraded (OPS-130)", () => {
     const intervalMs = 60_000;
 
-    function alwaysFailing(): [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob] {
+    function alwaysFailing(): StubJobs {
       const jobs = stubJobs();
       jobs[3].run.mockImplementation(async () => {
         throw new Error("boom");

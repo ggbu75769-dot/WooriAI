@@ -92,11 +92,13 @@ describe("GET /api/v1/health/worker (INF-007)", () => {
       stubJob("refresh_token_cleanup", async () => ({ deleted: 5, retentionDays: 30 })),
       stubJob("oauth_transaction_cleanup", async () => ({ deleted: 0 })),
       stubJob("idempotency_key_cleanup", async () => ({ deleted: 2 })),
+      // 라운드 61 #7: 잡 등록 순서와 같은 자리(멱등키 정리 뒤, 파기 앞).
+      stubJob("admin_session_cleanup", async () => ({ deleted: 1, retentionDays: 30 })),
       stubJob("data_retention_purge", async () => ({ retentionDays: 30, batchSize: 500, expensesPurged: 4 })),
       stubJob("link_health", async () => {
         throw new Error("probe blew up");
       })
-    ] as [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob];
+    ] as [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob, StubJob];
     const scheduler = new SchedulerService(
       jobs[0] as never,
       jobs[1] as never,
@@ -104,6 +106,7 @@ describe("GET /api/v1/health/worker (INF-007)", () => {
       jobs[3] as never,
       jobs[4] as never,
       jobs[5] as never,
+      jobs[6] as never,
       status
     );
 
@@ -129,7 +132,9 @@ describe("GET /api/v1/health/worker (INF-007)", () => {
     expect(body.lastTickFinishedAt).toEqual(expect.any(String));
     expect(body.msSinceLastTick).toEqual(expect.any(Number));
 
-    expect(body.jobs).toHaveLength(6);
+    expect(body.jobs).toHaveLength(7);
+    // 라운드 61 #7: 정리 잡이 하나 늘었다 — 상태 스냅샷도 그 잡을 담아야 한다.
+    expect(body.jobs.map((job) => job.name)).toContain("admin_session_cleanup");
     expect(body.jobs[0]).toEqual({
       name: "cms_scheduled_publish",
       lastStatus: "ok",
@@ -161,11 +166,12 @@ describe("GET /api/v1/health/worker (INF-007)", () => {
       stubJob("refresh_token_cleanup"),
       stubJob("oauth_transaction_cleanup"),
       stubJob("idempotency_key_cleanup"),
+      stubJob("admin_session_cleanup"),
       stubJob("data_retention_purge", async () => {
         throw new Error("purge phase keeps failing");
       }),
       stubJob("link_health")
-    ] as [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob];
+    ] as [StubJob, StubJob, StubJob, StubJob, StubJob, StubJob, StubJob];
     const scheduler = new SchedulerService(
       jobs[0] as never,
       jobs[1] as never,
@@ -173,6 +179,7 @@ describe("GET /api/v1/health/worker (INF-007)", () => {
       jobs[3] as never,
       jobs[4] as never,
       jobs[5] as never,
+      jobs[6] as never,
       status
     );
 
@@ -197,7 +204,7 @@ describe("GET /api/v1/health/worker (INF-007)", () => {
     expect(degradedResponse.text).not.toContain("purge phase keeps failing");
 
     // A single successful tick resets the streak and clears the flag.
-    jobs[4].run.mockImplementation(async () => ({ expensesPurged: 0 }));
+    jobs[5].run.mockImplementation(async () => ({ expensesPurged: 0 }));
     await scheduler.tick();
     const recovered = await request(app.getHttpServer()).get("/api/v1/health/worker").expect(200);
     expect(recovered.body.degraded).toBe(false);

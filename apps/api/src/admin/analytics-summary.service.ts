@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { PURCHASE_FOLLOWUP_ANSWERS, analyticsEventRegistry } from "@wooriai/contracts";
+import { ONBOARDING_STEPS, PURCHASE_FOLLOWUP_ANSWERS, analyticsEventRegistry } from "@wooriai/contracts";
 import { getSeoulToday } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -52,6 +52,33 @@ export type AdminPurchaseFollowupBreakdown = {
   dismissed: number;
 };
 
+/**
+ * 라운드 61 #5: `onboarding_step_viewed`(라운드 60 #9 계측)를 payload의 `step`별로
+ * 쪼갠 값. 라운드 60은 계측만 붙이고 읽기 경로가 없어서, 어드민은 네 단계의 **합계**
+ * 하나만 볼 수 있었다 — "온보딩 중 어디서 그만두는가"라는 정확히 그 질문에는
+ * 합계로 답할 수 없다(합계는 사람당 최대 4건이라 완료 대비 배수로밖에 못 읽는다).
+ *
+ * 한 단계당 한 항목이고, **계약 레지스트리(`ONBOARDING_STEPS`) 순서로 0건까지 채워서**
+ * 내려간다(byName과 같은 규칙): 창 안에 어떤 단계가 있었는지에 따라 응답 형태가
+ * 달라지지 않아야 화면이 표를 고정된 4행으로 그릴 수 있다.
+ *
+ * `stepNumber`는 **레지스트리 배열 위치(1부터)**에서 계산하지, 페이로드에 실려 온
+ * `stepNumber`를 읽지 않는다 — 순서의 단일 소스는 계약이고, 클라이언트가 보낸 번호와
+ * 단계 이름이 어긋난 행이 있어도 집계의 순서가 흔들리면 안 된다.
+ *
+ * 네 값의 합은 byName의 `onboarding_step_viewed`와 같지 않을 수 있다: `step`이
+ * 없거나(레거시·손상 페이로드) 레지스트리 밖 문자열인 행은 어느 단계에도 더하지 않고
+ * 무시한다(ANA-128의 answer 분해와 같은 판단 — 없는 단계를 지어내지 않는다). 그 차이를
+ * 보여줄 곳은 화면이며, 여기서는 레지스트리 리터럴만 정확히 센다.
+ */
+export type AdminOnboardingStepBreakdown = {
+  /** 계약 레지스트리의 단계 리터럴 (예: "child_status"). */
+  step: string;
+  /** 1부터 세는 단계 순서 = 레지스트리 배열 위치. */
+  stepNumber: number;
+  count: number;
+};
+
 /** ADM-009: shape returned by GET /admin/analytics/summary. */
 export type AdminAnalyticsSummary = {
   days: AnalyticsSummaryWindow;
@@ -65,12 +92,18 @@ export type AdminAnalyticsSummary = {
   /** ANA-128: purchase_followup_answered를 payload.answer 3갈래로 분해한 값
    * (기존 필드는 그대로 두고 추가만 한 필드). */
   purchaseFollowup: AdminPurchaseFollowupBreakdown;
+  /** 라운드 61 #5: onboarding_step_viewed를 payload.step 4단계로 분해한 값
+   * (레지스트리 순서, 0건 포함 — 기존 필드는 그대로 두고 추가만 한 필드). */
+  onboardingSteps: AdminOnboardingStepBreakdown[];
   /** count(distinct user_anon_id) in the window (null anon ids excluded). */
   uniqueAnonUsers: number;
 };
 
 /** ANA-128: 계측 이벤트 이름 — 분해 집계 대상. */
 const PURCHASE_FOLLOWUP_EVENT_NAME = "purchase_followup_answered";
+
+/** 라운드 61 #5: 단계 분해 집계 대상 이벤트 이름(라운드 60 #9가 심은 계측). */
+const ONBOARDING_STEP_EVENT_NAME = "onboarding_step_viewed";
 
 /**
  * ANA-128: payload.answer 리터럴 -> 응답 키. 리터럴은 계약 레지스트리
@@ -111,11 +144,13 @@ export const FUNNEL_KEY_BY_EVENT_NAME: Record<string, keyof AdminAnalyticsFunnel
 
 /**
  * ADM-009: read-only aggregation over analytics_events for the admin KPI
- * funnel view. Deliberately four grouped/aggregate queries (Prisma groupBy +
- * three raw GROUP BY/COUNT DISTINCT) -- no rows are ever pulled into memory, so
+ * funnel view. Deliberately five grouped/aggregate queries (Prisma groupBy +
+ * four raw GROUP BY/COUNT DISTINCT) -- no rows are ever pulled into memory, so
  * the endpoint stays cheap as events accumulate. ANA-128 added the fourth: it
  * reads a single payload key (`answer`) but still only as a GROUP BY expression,
- * so the payload never crosses the DB boundary either.
+ * so the payload never crosses the DB boundary either. 라운드 61 #5's fifth
+ * query is the same shape for `step` -- payload를 읽되 GROUP BY 식으로만 읽으므로
+ * 행(그리고 페이로드)이 DB 경계를 넘지 않는 성질은 그대로다.
  *
  * Window semantics: the last `days` Seoul-calendar days INCLUDING today, i.e.
  * occurred_at in [Seoul midnight (days-1) days ago, next Seoul midnight).
@@ -133,7 +168,7 @@ export class AnalyticsSummaryService {
     const windowEnd = new Date(new Date(`${seoulToday}T00:00:00+09:00`).getTime() + DAY_MS);
     const windowStart = new Date(windowEnd.getTime() - days * DAY_MS);
 
-    const [byNameRows, dailyRows, uniqueRows, followupRows] = await Promise.all([
+    const [byNameRows, dailyRows, uniqueRows, followupRows, onboardingStepRows] = await Promise.all([
       this.prisma.analyticsEvent.groupBy({
         by: ["eventName"],
         where: { occurredAt: { gte: windowStart, lt: windowEnd } },
@@ -162,6 +197,18 @@ export class AnalyticsSummaryService {
                COUNT(*) AS count
         FROM analytics_events
         WHERE event_name = ${PURCHASE_FOLLOWUP_EVENT_NAME}
+          AND occurred_at >= ${windowStart} AND occurred_at < ${windowEnd}
+        GROUP BY 1
+      `),
+      // 라운드 61 #5: ANA-128 쿼리의 복제 — 같은 성질을 그대로 유지한다. payload에서
+      // 키 하나(`step`)만, 그것도 GROUP BY 식으로만 읽으므로 결과는 최대 대여섯 행이고
+      // 행/페이로드가 메모리로 넘어오지 않는다. 필터가 (event_name, occurred_at)
+      // 선두라 idx_analytics_events_name_occurred를 그대로 쓴다 — 새 인덱스 불필요.
+      this.prisma.$queryRaw<{ step: string | null; count: bigint }[]>(Prisma.sql`
+        SELECT payload->>'step' AS step,
+               COUNT(*) AS count
+        FROM analytics_events
+        WHERE event_name = ${ONBOARDING_STEP_EVENT_NAME}
           AND occurred_at >= ${windowStart} AND occurred_at < ${windowEnd}
         GROUP BY 1
       `)
@@ -210,6 +257,23 @@ export class AnalyticsSummaryService {
       purchaseFollowup[key] += Number(row.count);
     }
 
+    // 라운드 61 #5: 레지스트리 4단계만, 레지스트리 순서로, 0건까지 채워서 만든다.
+    // Map 조회라 프로토타입 오염 우회(ANA-128의 R29 리뷰 사유)가 성립하지 않고,
+    // 레지스트리에 없는 step 문자열이나 step이 NULL인 행은 아예 매치되지 않으므로
+    // 어느 단계에도 섞이지 않는다 — 그 행들은 byName 총계에만 남는다(화면이 그 차이를
+    // "분류 불가"로 드러낸다).
+    const countByStep = new Map<string, number>(
+      onboardingStepRows
+        .filter((row): row is { step: string; count: bigint } => row.step !== null)
+        .map((row) => [row.step, Number(row.count)])
+    );
+    const onboardingSteps: AdminOnboardingStepBreakdown[] = ONBOARDING_STEPS.map((step, index) => ({
+      step,
+      // 순서의 단일 소스는 계약 배열이다 — 페이로드의 stepNumber는 읽지 않는다.
+      stepNumber: index + 1,
+      count: countByStep.get(step) ?? 0
+    }));
+
     const countByDate = new Map<string, number>(
       dailyRows.map((row) => [row.date, Number(row.count)])
     );
@@ -227,6 +291,7 @@ export class AnalyticsSummaryService {
       dailyTotals,
       funnel,
       purchaseFollowup,
+      onboardingSteps,
       uniqueAnonUsers: Number(uniqueRows[0]?.count ?? 0)
     };
   }

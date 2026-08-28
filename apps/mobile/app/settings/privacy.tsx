@@ -23,6 +23,9 @@ import {
   isChildrenSettled,
   resolveManagedHouseholdId
 } from "../../src/family/household-scope";
+// 라운드 61 #2: 탈퇴 직후 가구 목록·역할 표를 서버 기준으로 다시 받는 그 경로 그대로
+// (초대 수락과 같은 단일 소스 — app/family/accept/[token].tsx).
+import { revalidateHouseholdRoles } from "../../src/family/useExpenseEntryGate";
 import { buildConsentSummaryLines } from "../../src/settings/consent-summary";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -219,10 +222,73 @@ export default function PrivacySettingsScreen() {
   });
   const householdLeave = useMutation({
     mutationFn: () => confirmHouseholdLeave(authToken!, householdId!, householdPreview.data?.confirmationText ?? ""),
+    /**
+     * 라운드 61 #2 — **나간 가구를 세션에서도 내보낸다.**
+     *
+     * 종전에는 성공 뒤 캐시만 무효화했다. 그런데 이 계정이 아는 가구는 캐시가 아니라 세션
+     * 스토어에 있다(`householdIds` · `householdRoles` · `defaultHouseholdId` — persist라 앱을
+     * 다시 켜도 남는다). 그래서 방금 나온 가구가
+     *   - 가족 화면의 "다른 가구 보기" 후보로 계속 서 있고(고르면 403/404뿐이다),
+     *   - 다가구 표기·역할 판정의 근거로 계속 세어지고,
+     *   - `defaultHouseholdId`였다면 **다음 탈퇴의 대상**으로까지 남았다(아이가 없는 계정에서
+     *     대상 가구는 그 값이다 — resolveManagedHouseholdId의 3단계 폴백).
+     *
+     * 두 줄로 정리한다. 새 스토어 API도, 새 요청 경로도 만들지 않는다.
+     */
     onSuccess: async () => {
       householdPreview.reset();
+      const leftHouseholdId = householdId;
       // 탈퇴한 가구의 아이만 접근을 잃는다 -- 다른 가구에 아이가 남아 있으면 그쪽으로 이어간다.
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
+      /**
+       * ① 기본 가구가 방금 나온 그 가구면 **비운다**.
+       *
+       * 라운드 60의 "덮어쓰기 금지" 계약(app/family/accept/[token].tsx)과 충돌하지 않는다 --
+       * 그 계약이 막는 것은 **살아 있는 사실을 다른 살아 있는 사실로 갈아 끼우는 일**이다
+       * (초대를 수락했다는 이유로 원래 가구를 가리키던 유일한 값을 잃는 것). 여기서 지우는
+       * 값은 서버가 방금 "당신은 이 가구의 구성원이 아니다"라고 답한 **죽은 값**이고, 죽은
+       * 값을 붙들고 있으면 그것이 곧 다음 화면의 거짓말이 된다. 그래서 규칙은 이렇게 갈린다:
+       *   - 살아 있는 값은 덮어쓰지 않는다(수락);
+       *   - 죽은 값은 붙들지 않는다(탈퇴).
+       * 대신 **다른 가구를 골라 채우지도 않는다** -- null은 "모름"이고, 모름이면 판정은
+       * 아이 기준으로 돌아간다(그게 우리가 아는 유일한 사실이다). 남은 가구 중 하나를
+       * 기본으로 지어내는 것은 사용자가 고른 적 없는 선택이다.
+       */
+      if (leftHouseholdId && useSessionStore.getState().defaultHouseholdId === leftHouseholdId) {
+        useSessionStore.setState({ defaultHouseholdId: null });
+      }
+      /**
+       * ② 가구 목록·역할 표를 **서버 기준으로** 다시 받는다(초대 수락과 같은 관례 —
+       * app/family/accept/[token].tsx). 표가 방금 바뀐 것을 아는 순간이라 스로틀의 전제
+       * ("같은 사실을 반복해 묻는다")가 성립하지 않으므로 `force`다.
+       *
+       * 마지막 가구에서 나온 사람은 서버가 `households: []`로 답한다 -- 그 빈 목록은
+       * `setHouseholdRoles`를 지나 표·목록을 **둘 다 null(모름)**로 만든다(세션 스토어의
+       * 빈 목록 경로 주석 그대로). 모름은 아무 진입점도 잠그지 않으므로, 가구가 하나도 없는
+       * 계정이 자기 아이 기록에서 잠기는 일은 생기지 않는다.
+       *
+       * 조회는 백그라운드다. 응답이 늦게 도착했는데 그사이 세션이 끝났다면(로그아웃 →
+       * userId null) `setHouseholdRoles`가 그대로 빠져나가므로 떠난 계정의 표가 되살아나지
+       * 않는다. 만료(`clearSession("expired")`)는 정체성을 남기므로 갱신이 그대로 착지하고,
+       * 그게 맞다 -- 사람도 계정도 그대로이고 방금 탈퇴한 사실도 그대로다.
+       */
+      revalidateHouseholdRoles({ force: true });
+      /**
+       * P3(라운드 61 정찰) — 여기서 **정리되지 않는 것**을 적어 둔다(이번 라운드 범위 밖).
+       *
+       * 정기 지출 템플릿(src/stores/recurring-expense.store.ts)과 알림 목록
+       * (src/notifications/notification.store.ts)은 가구가 아니라 **아이 단위**로 쌓인다
+       * (`template.childId` · `entry.childId`). 탈퇴로 접근을 잃는 것은 그 가구의 아이들이므로,
+       * 그 아이들의 템플릿·알림은 기기에 그대로 남아 이번 달 리마인더로 다시 뜬다 -- 사용자는
+       * 더 이상 볼 수 없는 아이의 "기저귀 살 때예요"를 계속 받는다. PRIV-104의 teardown은
+       * 정체성 전환(userId·isTestSession)에만 걸리는데(src/offline/session-teardown.ts) 탈퇴는
+       * 같은 사람이 계속 로그인해 있는 상태라 발화하지 않는다. 아래 `finishChildRemoval`이
+       * 지우는 것은 쿼리 캐시뿐이다(CHILD_REMOVAL_INVALIDATE_KEYS).
+       *
+       * 고치려면 "어느 아이가 사라졌는가"를 알아야 하는데, 탈퇴 응답도 이후 목록 조회도 그것을
+       * 말해 주지 않는다(남은 아이만 온다). 탈퇴 직전 목록과의 차집합을 뜨는 설계가 필요하고,
+       * 그건 이 라운드의 "세션 잔재" 한 줄과는 범위가 다르다 -- 근거만 남긴다.
+       */
       await finishChildRemoval("가구에서 나갔어요.");
     }
   });

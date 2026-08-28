@@ -94,6 +94,13 @@ const OPTIONAL_SPECS: EnvSpec[] = [
   { key: "AFFILIATE_CLICKS_RETENTION_DAYS", scope: "api", note: "기본 400(SEC-130)" },
   { key: "AUDIT_LOGS_RETENTION_DAYS", scope: "api", note: "기본 730(GAP-058 #10)" },
   { key: "IMPORT_ROWS_RETENTION_DAYS", scope: "api", note: "기본 90(GAP-060 #5, 검수용 가져오기 행)" },
+  {
+    key: "ADMIN_SESSIONS_RETENTION_DAYS",
+    scope: "api",
+    // 미설정이 정상: 기본값 30일이 코드에 문서화돼 있고(admin-session-cleanup.job.ts),
+    // 로그인 이력은 감사 로그(730일)가 따로 보존하므로 세션 행 삭제로 추적을 잃지 않는다.
+    note: "기본 30(라운드 61 #7, 만료·폐기된 어드민 세션 행 — 로그인 이력은 감사 로그가 보존)"
+  },
   { key: "PUSH_ENABLED", scope: "api", note: "opt-in — 꺼짐이 정상, 부팅 시 1회 안내 로그" },
   { key: "FCM_SERVICE_ACCOUNT_PATH", scope: "api", note: "PUSH_ENABLED=1일 때만 필요(파일 경로, 내용 아님)" },
   { key: "FCM_TOKEN_HTTP_TIMEOUT_MS", scope: "api", note: "기본 5000(RES-130)" },

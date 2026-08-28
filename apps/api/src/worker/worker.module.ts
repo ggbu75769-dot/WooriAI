@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AdminModule } from "../admin/admin.module";
+import { AdminSessionCleanupJob } from "./jobs/admin-session-cleanup.job";
 import { DataRetentionPurgeJob } from "./jobs/data-retention-purge.job";
 import { IdempotencyKeyCleanupJob } from "./jobs/idempotency-key-cleanup.job";
 import { defaultLinkHealthFetch, LINK_HEALTH_FETCH, LinkHealthJob } from "./jobs/link-health.job";
@@ -22,6 +23,8 @@ import { WorkerStatusService } from "./worker-status.service";
     RefreshTokenCleanupJob,
     OauthTransactionCleanupJob,
     IdempotencyKeyCleanupJob,
+    // 라운드 61 #7: 만료·폐기된 어드민 세션 행(ip·user_agent 포함) 정리.
+    AdminSessionCleanupJob,
     // PRIV-105: physical purge of soft-deleted / withdrawn data past retention.
     DataRetentionPurgeJob,
     // COM-105: real (undici fetch) HTTP prober by default; tests inject a mock

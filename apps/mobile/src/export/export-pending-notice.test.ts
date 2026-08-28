@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   OFFLINE_RETRY_NOTICE,
+  OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE,
   SYNC_ROW_PENDING_LABEL,
   SYNC_ROW_UNSENDABLE_LABEL,
   recordsCountPhrase,
@@ -334,6 +335,62 @@ describe("라운드 59 트랙 A CSV 고지 — 대기와 '보낼 수 없음'을 
 });
 
 /**
+ * 라운드 61 S-4 — 홈 최하단 줄(M-1)과 **같은 뿌리**: 저장소를 열지 못하면 스냅숏의 0건은
+ * 관측이 아니라 초기값이고, 이 고지는 0건에서 통째로 사라진다. 그 침묵이 "이 파일에 다
+ * 담겼어요"로 읽히는 것이 정확히 DNC가 막는 허위 표시다.
+ */
+describe("라운드 61 S-4 저장소를 못 열었을 때의 내보내기 고지", () => {
+  const scope = { childId: "child-1", range: "month" as const, todaySeoul: today };
+
+  it("대기 0건이어도 고지가 사라지지 않는다 (0건은 관측이 아니다)", () => {
+    const notice = evaluateExportPendingNotice({ rows: [], ...scope, storage: "unavailable" });
+    expect(notice).not.toBeNull();
+    expect(notice!.count).toBe(0);
+    // 평소(ok)에는 종전 그대로 null이다 — 이 변경이 평소 카드를 한 줄도 밀어내지 않는다.
+    expect(evaluateExportPendingNotice({ rows: [], ...scope, storage: "ok" })).toBeNull();
+    expect(evaluateExportPendingNotice({ rows: [], ...scope })).toBeNull();
+  });
+
+  it("건수를 단정하지 않고, 어휘는 홈·동기화 상태 화면과 같은 단일 소스다", () => {
+    const notice = evaluateExportPendingNotice({ rows: [row(), row({ spentOn: "2026-08-06" })], ...scope, storage: "unavailable" });
+    const suffix = exportPendingToastSuffix(2, 0, "unavailable");
+    for (const text of [notice!.text, suffix]) {
+      expect(text).toContain(OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE);
+      // 읽지 못한 숫자로 "N건"이라고 말하지 않는다.
+      expect(text).not.toMatch(/\d+건/);
+      // "동기화 대기"라고도 부르지 않는다 — 대기 중인지조차 모르는 상태다.
+      expect(text).not.toContain(SYNC_ROW_PENDING_LABEL);
+      // DNC-018 해요체.
+      expect(text.trim().endsWith("요.")).toBe(true);
+    }
+    // 갈라지는 것은 평소 갈래와 같은 목적어 하나뿐이다.
+    expect(notice!.text).toContain("이 파일에 아직 반영되지 않은 기록이 있을 수 있어요.");
+    expect(suffix).toContain("이 CSV에 아직 반영되지 않은 기록이 있을 수 있어요.");
+  });
+
+  it("토스트 꼬리표는 0건에서도 비지 않는다 (평소 0건은 그대로 빈 문자열)", () => {
+    expect(exportPendingToastSuffix(0, 0, "unavailable")).not.toBe("");
+    expect(exportPendingToastSuffix(0, 0, "unavailable").startsWith(" ")).toBe(true);
+    expect(exportPendingToastSuffix(0, 0, "ok")).toBe("");
+    expect(exportPendingToastSuffix(0, 0)).toBe("");
+  });
+
+  it("저장소가 ok이거나 생략되면 문구·판정이 한 글자도 바뀌지 않는다 (후방 호환)", () => {
+    expect(exportPendingNoticeText(2, 0, "ok")).toBe(exportPendingNoticeText(2, 0));
+    expect(exportPendingNoticeText(3, 1, "ok")).toBe(exportPendingNoticeText(3, 1));
+    expect(exportPendingToastSuffix(2, 0, "ok")).toBe(exportPendingToastSuffix(2, 0));
+    const rows = [row(), row({ spentOn: "2026-08-06" })];
+    expect(evaluateExportPendingNotice({ rows, ...scope, storage: "ok" })).toEqual(
+      evaluateExportPendingNotice({ rows, ...scope })
+    );
+  });
+
+  it("아이가 없으면 여전히 아무것도 말하지 않는다 (내보내기 자체가 없는 상태)", () => {
+    expect(evaluateExportPendingNotice({ rows: [row()], ...scope, childId: null, storage: "unavailable" })).toBeNull();
+  });
+});
+
+/**
  * 화면 배선(소스 검증 -- react-native는 vitest에서 네이티브 바인딩이 없어 렌더할 수 없다.
  * export-flow.test.ts / export-custom-range-wiring.test.ts와 같은 grep 관례).
  */
@@ -370,12 +427,12 @@ describe("GAP-056 #3 내보내기 카드 배선", () => {
   it("성공·빈 결과 토스트가 대기 건을 덮지 않는다", () => {
     const src = cardSource();
     // 성공 문구 뒤에 꼬리표가 붙는다(0건이면 빈 문자열이라 종전 문장 그대로다).
-    expect(src).toContain("}${exportPendingToastSuffix(pendingCount, pendingUnsendableCount)}`");
+    expect(src).toContain("}${exportPendingToastSuffix(pendingCount, pendingUnsendableCount, pendingStorage)}`");
     expect(src).toContain(
-      '`선택한 기간에 내보낼 기록이 없어요.${exportPendingToastSuffix(pendingCount, pendingUnsendableCount)}`'
+      '`선택한 기간에 내보낼 기록이 없어요.${exportPendingToastSuffix(pendingCount, pendingUnsendableCount, pendingStorage)}`'
     );
     // 대기 건수가 바뀌면 다음 내보내기의 문구도 바뀐다(고정 클로저에 갇히지 않는다).
-    expect(src).toContain("customRange, pendingCount, pendingUnsendableCount, range, showToast]");
+    expect(src).toContain("customRange, pendingCount, pendingStorage, pendingUnsendableCount, range, showToast]");
   });
 
   /**
@@ -389,7 +446,7 @@ describe("GAP-056 #3 내보내기 카드 배선", () => {
     // 값은 카드 고지가 이미 계산해 둔 것을 그대로 쓴다 -- 카드가 세는 규칙을 다시 적지 않는다.
     expect(src).toContain("const pendingUnsendableCount = pendingNotice?.unsendableCount ?? 0;");
     // 꼬리표 호출 두 곳 모두 두 인자를 넘긴다(한 곳만 넘기면 어휘가 다시 갈린다).
-    expect(src.match(/exportPendingToastSuffix\(pendingCount, pendingUnsendableCount\)/g) ?? []).toHaveLength(2);
+    expect(src.match(/exportPendingToastSuffix\(pendingCount, pendingUnsendableCount, pendingStorage\)/g) ?? []).toHaveLength(2);
     expect(src).not.toMatch(/exportPendingToastSuffix\(pendingCount\)/);
     // 문구는 여전히 순수 모듈 한 곳에서만 나온다.
     expect(src).not.toContain(SYNC_ROW_UNSENDABLE_LABEL);

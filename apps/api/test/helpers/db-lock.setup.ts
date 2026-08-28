@@ -51,9 +51,15 @@ if (!testPath) {
 const suiteFileName = basename(testPath);
 const mode = EXCLUSIVE_SUITES.has(suiteFileName) ? "exclusive" : "shared";
 
-// Top-level await: the gate closes before the test file's own module graph loads,
-// which keeps it independent of `sequence.hooks` ordering between this setup file's
-// hooks and the suite's.
+// Top-level await: the gate closes before the test file's own module graph loads, so
+// **acquiring** is independent of hook ordering entirely.
+//
+// 라운드 61 A: 반대쪽인 **반납**은 그렇지 않다. 아래 `afterAll(release)`는 이 파일이 가장
+// 먼저 등록하는 훅이므로, after 훅을 역순·순차로 도는 `sequence.hooks: "stack"`에서만
+// 스위트 자신의 정리 훅보다 뒤에 돈다 — 그리고 그래야만 "반납 = 이 스위트의 DB 작업 끝"이
+// 성립한다. 그 조건은 vitest.config.ts가 고정하고, `acquireSharedDb`가 워커에 실제로 적용된
+// 값을 확인한 뒤에야 락을 내준다(shared-db-lock.ts의 `assertReleaseOrderingGuarantee`).
+// 순서 자체는 test/db-lock-release-order.test.ts가 런타임에 재현해 고정한다.
 const release = await acquireSharedDb(mode, `${suiteFileName}-${randomUUID()}`);
 
 afterAll(release);

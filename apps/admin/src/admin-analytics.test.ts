@@ -8,6 +8,7 @@ import {
   getAdminAnalyticsSummary,
   type AdminAnalyticsSummary
 } from "./lib/admin-api";
+import { classifiedOnboardingStepTotal, onboardingStepCount } from "./lib/onboarding-steps-view";
 
 const adminRoot = process.cwd();
 
@@ -50,6 +51,13 @@ const SAMPLE_SUMMARY: AdminAnalyticsSummary = {
   },
   // ANA-128: 이벤트 이름 총계(byName의 1건)와 별개로 answer별 분해가 함께 내려온다.
   purchaseFollowup: { purchased: 1, notPurchased: 0, dismissed: 0 },
+  // 라운드 61 #5: 온보딩 단계 분해도 같은 방식으로 함께 내려온다 (레지스트리 순서, 0건 포함).
+  onboardingSteps: [
+    { step: "child_status", stepNumber: 1, count: 14 },
+    { step: "child_profile", stepNumber: 2, count: 12 },
+    { step: "prepared_items", stepNumber: 3, count: 11 },
+    { step: "budget", stepNumber: 4, count: 10 }
+  ],
   uniqueAnonUsers: 9
 };
 
@@ -185,6 +193,9 @@ describe("Admin CMS analytics page (ADM-009)", () => {
   it("renders the 6-stage purchase-loop funnel in order, ending at purchased-only", () => {
     const source = readSource("app/analytics/page.tsx");
     const block = source.split("const FUNNEL_STAGES")[1]?.split("];")[0] ?? "";
+    // 라운드 61 #5가 앞에 붙인 온보딩 4단은 계약 미러에서 생성되므로 리터럴 key가 없다
+    // (아래 "온보딩 4단 접두" 테스트가 그 4단을 따로 고정한다) — 여기서는 구매 루프 6단이
+    // 그 뒤에 순서 그대로 남아 있는지만 본다.
     const stageKeys = [...block.matchAll(/key: "([a-z_]+)"/g)].map((match) => match[1]);
     expect(stageKeys).toEqual([
       "onboarding_completed",
@@ -251,25 +262,32 @@ describe("Admin CMS analytics page (ADM-009)", () => {
   });
 
   /**
-   * 라운드 60 리뷰(P2-8): 온보딩 단계 수는 계약(packages/contracts/src/analytics.ts의
-   * `ONBOARDING_STEPS`)이 정한다. 어드민은 그 패키지를 의존성으로 들지 않으므로 값을 손으로
-   * 적어 두고, **여기서 대조**한다 — 레지스트리에 단계가 하나 늘면 이 테스트가 깨진다.
+   * 라운드 60 리뷰(P2-8) → 라운드 61 #5: 온보딩 단계는 계약(packages/contracts/src/analytics.ts의
+   * `ONBOARDING_STEPS`)이 정한다. 어드민은 그 패키지를 의존성으로 들지 않으므로 목록을 손으로
+   * 미러해 두고, **여기서 대조**한다. 라운드 60에는 대조할 것이 개수뿐이었지만 이제 그 목록이
+   * 퍼널 앞 4단의 **순서와 라벨**까지 만들므로, 리터럴과 순서를 그대로 고정한다 — 레지스트리에
+   * 단계가 늘거나 순서가 바뀌면 이 테스트가 깨지고, 고칠 곳은 페이지의 미러 배열 하나다.
    */
-  it("keeps ONBOARDING_STEP_COUNT in sync with the contracts registry (대조 테스트)", () => {
+  it("keeps the ONBOARDING_STEPS mirror (literals + order) in sync with the contracts registry (대조 테스트)", () => {
     const source = readSource("app/analytics/page.tsx");
-    const declared = Number(source.match(/const ONBOARDING_STEP_COUNT = (\d+);/)?.[1]);
-    expect(Number.isInteger(declared)).toBe(true);
+    const mirrorBlock = source.split("const ONBOARDING_STEPS:")[1]?.split("];")[0] ?? "";
+    const mirrored = [...mirrorBlock.matchAll(/step: "([a-z_]+)"/g)].map((match) => match[1]);
+    expect(mirrored.length).toBeGreaterThan(0);
+    // 개수는 미러 배열에서 파생한다 — 손으로 적은 숫자가 목록과 어긋날 자리를 없앤다.
+    expect(source).toContain("const ONBOARDING_STEP_COUNT = ONBOARDING_STEPS.length;");
 
     const contractsSource = readSource(join("..", "..", "packages", "contracts", "src", "analytics.ts"));
     const steps = contractsSource.match(/export const ONBOARDING_STEPS = \[([^\]]*)\] as const;/)?.[1];
     expect(steps, "packages/contracts/src/analytics.ts should declare ONBOARDING_STEPS").toBeTruthy();
-    const stepCount = [...steps!.matchAll(/"[a-z_]+"/g)].length;
-    expect(stepCount).toBeGreaterThan(0);
+    const contractSteps = [...steps!.matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+    expect(contractSteps.length).toBeGreaterThan(0);
 
     expect(
-      declared,
-      `ONBOARDING_STEP_COUNT(${declared})가 계약의 ONBOARDING_STEPS 길이(${stepCount})와 달라요`
-    ).toBe(stepCount);
+      mirrored,
+      `어드민의 ONBOARDING_STEPS 미러(${mirrored.join(", ")})가 계약(${contractSteps.join(", ")})과 달라요`
+    ).toEqual(contractSteps);
+    // 라벨은 계약이 아니라 앱 화면 제목(steps.ts)의 말이므로 존재만 확인한다.
+    expect([...mirrorBlock.matchAll(/label: "[^"]+"/g)]).toHaveLength(mirrored.length);
   });
 
   /**
@@ -324,10 +342,16 @@ describe("Admin CMS analytics page (ADM-009)", () => {
       expect(source.indexOf("온보딩 단계 이탈")).toBeLessThan(source.indexOf("<h2>KPI 퍼널</h2>"));
     });
 
-    it("퍼널 단계 목록은 그대로다 (진입 이벤트를 단계로 끼워 넣지 않는다)", () => {
+    /**
+     * 라운드 61 #5로 갱신: 퍼널에 들어간 것은 **단계별 분해**이지 이벤트 이름 합계가 아니다.
+     * 합계(`onboarding_step_viewed`)를 단으로 쓰면 사람당 최대 4건이라 전환율이 구조적으로
+     * 틀린다 — 그 금지는 그대로 두고, 분해(onboardingSteps)만 단이 된다.
+     */
+    it("퍼널에는 단계별 분해만 들어가고 이벤트 이름 합계는 여전히 단이 아니다", () => {
       const source = readSource("app/analytics/page.tsx");
       const block = source.split("const FUNNEL_STAGES")[1]?.split("];")[0] ?? "";
       expect(block).not.toContain("onboarding_step_viewed");
+      expect(block).toContain("onboardingStepCount(summary, step.step)");
     });
 
     it("사람 수가 아니라는 사실을 숨기지 않고, 비율 대신 배수로만 적는다 (허위 데이터 금지)", () => {
@@ -340,10 +364,94 @@ describe("Admin CMS analytics page (ADM-009)", () => {
       expect(source).not.toContain("conversionRate(stepViews");
     });
 
-    it("단계별 분해가 아직 없다는 한계를 화면에서 밝힌다", () => {
+    it("어느 단계에서 멈췄는지를 어디서 보는지 화면이 가리킨다 (라운드 61 #5로 갱신)", () => {
       const source = readSource("app/analytics/page.tsx");
       expect(source).toContain("<strong>어느 단계에서</strong>");
-      expect(source).toContain("요약 API는 이벤트 이름 단위로만 집계해요");
+      // 분해가 생겼으므로 "요약 API는 이벤트 이름 단위로만 집계해요"라던 옛 한계 문구는 없다.
+      expect(source).not.toContain("요약 API는 이벤트 이름 단위로만 집계해요");
+      expect(source).toContain("아래 KPI 퍼널의 앞 {ONBOARDING_STEP_COUNT}단");
+    });
+  });
+
+  /**
+   * 라운드 61 #5: 온보딩 단계 분해 읽기 경로. 퍼널의 1단이 "온보딩 완료"라 그 앞의 이탈이
+   * 보이지 않던 사각지대를, 계약 순서 그대로의 4단 접두로 메운다.
+   */
+  describe("라운드 61 #5 온보딩 4단 퍼널 접두", () => {
+    it("퍼널 앞에 계약 미러 순서대로 온보딩 4단을 접두한다", () => {
+      const source = readSource("app/analytics/page.tsx");
+      const block = source.split("const FUNNEL_STAGES")[1]?.split("];")[0] ?? "";
+      // 접두는 미러 배열의 spread이므로 순서는 계약 순서와 같다(위 대조 테스트가 미러를 고정).
+      expect(block).toContain("...ONBOARDING_STEPS.map((step) => ({");
+      expect(block).toContain("key: `onboarding_step_${step.step}`");
+      // 접두가 목록의 **맨 앞**이다 — 온보딩 완료(옛 1단)보다 먼저 나온다.
+      expect(block.indexOf("...ONBOARDING_STEPS.map")).toBeLessThan(block.indexOf('key: "onboarding_completed"'));
+    });
+
+    /**
+     * 라운드 61 S-5로 갱신: 이 계약을 지키던 것이 페이지 소스 문자열 대조뿐이었다. 글자는
+     * 지키지만 동작은 지키지 못하는 테스트라(같은 뜻의 리팩터링에 빨개지고, 글자가 남은 채
+     * 동작이 틀어지면 통과한다) 두 헬퍼를 순수 모듈로 옮기고 **실제로 호출해** 고정한다
+     * (src/lib/onboarding-steps-view.ts).
+     *
+     * 이 모듈이 지지 않는 책임: "API가 정말 이 배열을 이 순서로 내려주는가"라는 계약 왕복은
+     * 이 앱 밖의 사실이고, apps/api의 어드민 분석 e2e가 실행으로 고정한다.
+     */
+    it("단계 수는 API의 onboardingSteps에서 step 값으로 찾아 읽는다 (배열 위치를 믿지 않는다)", () => {
+      // 순서를 뒤집어도 step 값으로 찾으므로 숫자가 엉뚱한 단계에 붙지 않는다.
+      const shuffled = { onboardingSteps: [...SAMPLE_SUMMARY.onboardingSteps].reverse() };
+      expect(onboardingStepCount(SAMPLE_SUMMARY, "child_status")).toBe(14);
+      expect(onboardingStepCount(shuffled, "child_status")).toBe(14);
+      expect(onboardingStepCount(SAMPLE_SUMMARY, "budget")).toBe(10);
+      // 목록에 없는 단계는 실제로 0건이다(API가 전 단계를 0건 포함해 내려준다).
+      expect(onboardingStepCount(SAMPLE_SUMMARY, "no_such_step")).toBe(0);
+      expect(classifiedOnboardingStepTotal(SAMPLE_SUMMARY)).toBe(14 + 12 + 11 + 10);
+      // 화면은 이 두 함수만 부른다 -- 배열을 직접 훑지 않는다.
+      const source = readSource("app/analytics/page.tsx");
+      expect(source).toContain(
+        'import { classifiedOnboardingStepTotal, onboardingStepCount } from "../../src/lib/onboarding-steps-view";'
+      );
+      expect(source).not.toContain("summary.onboardingSteps");
+    });
+
+    /**
+     * 라운드 61 S-2: `onboardingSteps`는 라운드 61 #5에 붙은 새 필드다. 어드민 정적 번들과
+     * API의 배포 시점은 어긋날 수 있고(번들 선행·API 롤백), 그 응답에서 무방비 `.find()`는
+     * 카드 한 장이 아니라 **분석 페이지 전체**를 오류 경계로 떨어뜨렸다.
+     */
+    it("구버전 API 응답(onboardingSteps 없음)에서도 0으로 그리고 던지지 않는다", () => {
+      for (const summary of [{}, { onboardingSteps: undefined }, { onboardingSteps: null }, { onboardingSteps: [] }]) {
+        expect(() => onboardingStepCount(summary, "budget")).not.toThrow();
+        expect(onboardingStepCount(summary, "budget")).toBe(0);
+        expect(classifiedOnboardingStepTotal(summary)).toBe(0);
+      }
+      // 0으로 그리는 것이 거짓이 아닌 이유: 0건일 때도 API는 그 단계를 0으로 실어 보낸다
+      // (레지스트리 zero-fill) -- 화면에서 두 경우는 원래 같은 그림이고, 지어낸 숫자가 없다.
+      const zeroFilled = { onboardingSteps: SAMPLE_SUMMARY.onboardingSteps.map((entry) => ({ ...entry, count: 0 })) };
+      expect(classifiedOnboardingStepTotal(zeroFilled)).toBe(classifiedOnboardingStepTotal({ onboardingSteps: [] }));
+    });
+
+    it("분류 불가와 동의 기반 과소 계수를 숨기지 않는다 (허위 데이터 금지)", () => {
+      const source = readSource("app/analytics/page.tsx");
+      expect(source).toContain("const unclassifiedSteps = Math.max(0, stepViews - classifiedSteps);");
+      expect(source).toContain("단계 값이 없거나 알 수 없는 이벤트");
+      // P3(라운드 61 정찰): 동의 타이밍 때문에 단계 진입은 실제보다 적게 잡힌다 — 그 사실을 적는다.
+      expect(source).toContain("<strong>통계 수집 동의를 켠 사용자만</strong>");
+      expect(source).toContain("<strong>하한</strong>");
+    });
+
+    it("완료 건수가 퍼널의 몇 번째 단인지 접두 수에 맞춰 말한다", () => {
+      const source = readSource("app/analytics/page.tsx");
+      // 접두 전에는 "아래 퍼널의 1단과 같은 수예요"였다 — 4단이 앞에 붙었으므로 5단이다.
+      expect(source).not.toContain("아래 퍼널의 1단과 같은 수예요");
+      expect(source).toContain("아래 퍼널의 {ONBOARDING_STEP_COUNT + 1}단과 같은 수예요");
+    });
+
+    it("admin-api가 onboardingSteps 분해 타입을 노출한다", () => {
+      const api = readSource("src/lib/admin-api.ts");
+      expect(api).toContain("AdminOnboardingStepBreakdown");
+      expect(api).toContain("onboardingSteps: AdminOnboardingStepBreakdown[];");
+      expect(api).toContain("stepNumber: number;");
     });
   });
 

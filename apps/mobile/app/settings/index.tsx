@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { getSeoulToday } from "@wooriai/domain";
 import { router } from "expo-router";
 import { Alert, Pressable, Switch, Text, View } from "react-native";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
@@ -23,6 +24,8 @@ import {
 import { RECURRING_MANAGE_LABEL } from "../../src/expenses/recurring-template";
 // 라운드 60 A: 요약 카드의 두 줄이 같은 가구를 말하게 하는 판정(선택 아이 기준).
 import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
+// GAP-061 #10: 예정일이 유예를 넘긴 임신 프로필의 "임신 42주차" 고착을 표시층에서만 걷어낸다.
+import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 import { APP_LOCK_TITLE } from "../../src/security/app-lock";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -104,7 +107,12 @@ export default function SettingsScreen() {
     : !childId
       ? "선택된 아이가 없어요"
       : selectedChild
-        ? `${selectedChild.nickname} · ${selectedChild.stageLabel}`
+        ? `${selectedChild.nickname} · ${resolveStageDisplayLabel({
+            stageMode: selectedChild.stageMode,
+            dueDate: selectedChild.dueDate,
+            todayIso: getSeoulToday(),
+            stageLabel: selectedChild.stageLabel
+          })}`
         : children.isError
           ? summaryUnavailableText
           : summaryLoadingText;
