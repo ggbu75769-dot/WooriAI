@@ -1852,7 +1852,9 @@ export function updateChild(
     requestedMode !== child.stageMode &&
     !(child.stageMode === "pregnant" && requestedMode === "born")
   ) {
-    throw new Error("아이 상태는 임신 중에서 태어남으로만 바꿀 수 있어요.");
+    // 실서버 onboarding-core.service.ts(CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED)와 **글자까지**
+    // 같은 문장이다 -- 같은 거절을 데모와 실세션이 다른 말로 설명하면 그 자체가 어긋남이다.
+    throw new Error("아이 상태는 '임신 중'에서 '태어났어요'로만 바꿀 수 있어요.");
   }
 
   const next: LocalChildRecord = {
@@ -2050,6 +2052,20 @@ export function previewChildProfileDeletion(_childId: string): SettingsPreview {
   };
 }
 
+/**
+ * 라운드 49 QA(P2-1): 아이를 지우면 **그 아이 스코프의 상태를 전부** 함께 비운다.
+ *
+ * 로컬 백엔드의 아이 자리는 하나이고 `createChild`가 언제나 같은 `LOCAL_CHILD_ID`로 새
+ * 프로필을 만든다(위 createChild 주석). 그래서 예산(budgets)·준비 상태(itemStatuses)·준비물
+ * 단계 완료 표시(preparedItemsCompleted)·멱등키(idempotencyKeys)를 남겨 두면, 삭제 뒤 새로
+ * 만든 **다른 아이**에게 이전 아이의 값이 그대로 달라붙는다 -- 예산 화면은 설정한 적 없는
+ * 금액을, 준비템 탭은 체크한 적 없는 준비율을, 온보딩은 이미 지난 단계를 말한다. 사용자가
+ * 지운 데이터가 다른 이름표를 달고 되살아나는 셈이라 그 자체가 허위 표시다.
+ *
+ * 지출은 종전대로 soft delete(deletedAt)로 둔다 -- 실서버(DNC-014)와 같은 규칙이고, 조회는
+ * 전부 deletedAt으로 거르므로 새 아이의 합계에 섞이지 않는다. 멱등키는 그 지워진 지출 id를
+ * 가리키므로 함께 비운다(재생 시 죽은 행을 되돌려주지 않게).
+ */
 export function confirmChildProfileDeletion(childId: string, confirmationText: string): SettingsConfirmResponse {
   assertConfirmation(confirmationText, "DELETE CHILD");
   requireChild();
@@ -2058,7 +2074,11 @@ export function confirmChildProfileDeletion(childId: string, confirmationText: s
     child: state.child ? { ...state.child, deletedAt: now } : state.child,
     expenses: state.expenses.map((expense) =>
       expense.childId === childId ? { ...expense, deletedAt: now, updatedAt: now } : expense
-    )
+    ),
+    budgets: {},
+    itemStatuses: {},
+    preparedItemsCompleted: false,
+    idempotencyKeys: {}
   }));
   return { success: true, flowId: "child_profile_delete" };
 }

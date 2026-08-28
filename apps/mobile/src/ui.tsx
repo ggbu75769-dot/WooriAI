@@ -310,17 +310,27 @@ export function SegmentedControl({
 export function CategoryChip({
   label,
   selected,
+  disabled,
   onPress
 }: {
   label: string;
   selected?: boolean;
+  /**
+   * 라운드 49 QA(P3-3): 지금은 적용되지 않는 칩. **숨기지 않고 비활성으로 둔다** — 사라지면
+   * "왜 없어졌지"가 되고, 그대로 누를 수 있게 두면 눌러도 아무 일이 없는 거짓 컨트롤이 된다.
+   * 스크린 리더에도 같은 사실(disabled)을 알린다.
+   */
+  disabled?: boolean;
   onPress?: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={selected === undefined ? undefined : { selected }}
+      accessibilityState={
+        selected === undefined ? (disabled ? { disabled: true } : undefined) : { selected, disabled: Boolean(disabled) }
+      }
+      disabled={disabled}
       hitSlop={3}
       onPress={onPress}
       style={{
@@ -331,6 +341,8 @@ export function CategoryChip({
         borderWidth: 1,
         minHeight: 38,
         justifyContent: "center",
+        // 비활성은 색을 새로 만들지 않고 같은 칩을 흐리게만 한다(기존 칩 스타일 불변).
+        opacity: disabled ? 0.4 : 1,
         paddingHorizontal: 14
       }}
     >
@@ -506,6 +518,10 @@ export function ListRow({
    * D1 후속(실기기 피드백 2): 문자열 글리프 외에 노드(Ionicons 등)도 받는다. 문자열이면
    * 예전 그대로 coral Text로 그리므로 남아 있는 문자열 호출부는 그대로 동작한다.
    * 여전히 선택 항목이라 알 수 없는 알림 종류처럼 undefined가 와도 안전하게 비운다.
+   *
+   * 라운드 49 QA(P3-8): **빈 문자열도 "아이콘 없음"이다.** 노드 지원을 넣으면서 이 방어가
+   * 빠져, `icon=""`이면 글자 없는 Text가 그려져 행마다 20px짜리 빈 칸이 생기고(제목 정렬이
+   * 어긋난다) 접근성 트리에도 빈 요소가 하나 늘었다.
    */
   icon?: React.ReactNode;
   title: string;
@@ -516,7 +532,13 @@ export function ListRow({
   return (
     <Pressable accessibilityRole={onPress ? "button" : undefined} onPress={onPress}>
       <Card style={{ alignItems: "center", flexDirection: "row", gap: 12, paddingVertical: 12 }}>
-        {typeof icon === "string" ? <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text> : icon}
+        {typeof icon === "string" ? (
+          icon ? (
+            <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text>
+          ) : null
+        ) : (
+          icon
+        )}
         <View style={{ flex: 1 }}>
           <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700" }]}>{title}</Text>
           {subtitle ? <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{subtitle}</Text> : null}

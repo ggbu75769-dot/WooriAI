@@ -39,6 +39,8 @@ const OWN_TEMPLATE_CODE_PREFIX = "items_commerce_test_";
 const ADM124_TEMPLATE_NAME = "ADM-124 가격대 편집 테스트템";
 /** 라운드 48 T1: 의료 상담 안내 플래그 왕복 테스트가 만드는 준비템(같은 잔여물 관례). */
 const R48_MEDICAL_TEMPLATE_NAME = "R48-T1 의료 안내 테스트템";
+/** 라운드 49 QA(P3-6): 어드민 분류(categoryId) 왕복 테스트가 만드는 준비템(같은 잔여물 관례). */
+const R49_CATEGORY_TEMPLATE_NAME = "R49-P3-6 분류 프리필 테스트템";
 
 /**
  * 이전 실행이 남긴 이 파일 소유의 카탈로그 행을 지운다. 자기 접두/이름에 걸리는 행만
@@ -62,7 +64,8 @@ async function removeOwnCatalogLeftovers(prisma: PrismaClient) {
       OR: [
         { code: { startsWith: OWN_TEMPLATE_CODE_PREFIX } },
         { name: ADM124_TEMPLATE_NAME },
-        { name: R48_MEDICAL_TEMPLATE_NAME }
+        { name: R48_MEDICAL_TEMPLATE_NAME },
+        { name: R49_CATEGORY_TEMPLATE_NAME }
       ]
     },
     select: { id: true }
@@ -1049,6 +1052,82 @@ describe("Items, commerce, and affiliate API", () => {
         });
     } finally {
       // 테스트 DB는 실행 간 유지되므로 이 템플릿이 다른 스위트의 카탈로그에 남지 않게 정리한다.
+      await prisma.itemTemplateStage.deleteMany({ where: { itemTemplateId: created.id } });
+      await prisma.itemTemplate.delete({ where: { id: created.id } });
+      delete process.env.WOORIAI_ADMIN_TOKEN;
+    }
+  });
+
+  /**
+   * 라운드 49 QA(P3-6): 어드민 준비템 응답이 `categoryId`를 싣는다.
+   *
+   * 어드민 수정 폼은 이미 `item.categoryId ?? ""`로 프리필할 준비가 돼 있었지만(apps/admin
+   * app/items/page.tsx) 응답에 그 키가 없어 언제나 "분류 없음"으로 열렸다. 운영자가 분류와
+   * 무관한 칸만 고쳐 저장해도 폼이 말하는 값(분류 없음)과 저장된 값이 달랐다 -- 화면이 저장된
+   * 사실을 잘못 말하는 셈이다. PATCH 관례(생략 = 그대로 두기)는 그대로 두고 응답만 넓힌다.
+   */
+  it("라운드 49 QA(P3-6): 어드민 카탈로그 DTO가 categoryId를 싣고 PATCH 생략은 그대로 둔다", async () => {
+    const adminToken = "test-admin-token-r49p36";
+    process.env.WOORIAI_ADMIN_TOKEN = adminToken;
+    const accessToken = await login(app, "r49p36-admin-category");
+    await completeOnboarding(app, accessToken);
+    const prisma = moduleRef.get(PrismaService);
+    const asAdmin = (req: request.Test) => req.set("x-admin-token", adminToken);
+
+    const categories = (
+      await request(app.getHttpServer())
+        .get("/api/v1/categories")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.categories as Array<{ id: string }>;
+    expect(categories.length).toBeGreaterThan(1);
+    const [firstCategory, secondCategory] = categories;
+
+    const created = (
+      await asAdmin(request(app.getHttpServer()).post("/api/v1/admin/item-templates"))
+        .send({
+          name: R49_CATEGORY_TEMPLATE_NAME,
+          necessityLevel: "convenience",
+          reasonText: "분류 프리필 왕복 고정용.",
+          // 필수가 아닌 준비템은 "안 사도 되는 이유"가 있어야 한다(ADMIN_SKIP_REASON_REQUIRED).
+          skipReasonText: "집에 있는 것으로 충분하면 사지 않아도 돼요.",
+          categoryId: firstCategory.id,
+          // ADM-124 테스트와 같은 격리: 다른 스위트의 now/홈 추천에 끼지 않는 시기를 붙인다.
+          stageCodes: ["middle_school"],
+          active: true
+        })
+        .expect(200)
+    ).body as { id: string; categoryId: string | null };
+
+    try {
+      // 생성 응답부터 값을 그대로 돌려준다(폼이 곧바로 프리필할 수 있다).
+      expect(created.categoryId).toBe(firstCategory.id);
+
+      // 목록(수정 폼이 프리필에 쓰는 응답)에도 실린다.
+      const listed = (
+        await asAdmin(request(app.getHttpServer()).get("/api/v1/admin/item-templates")).expect(200)
+      ).body.items as Array<{ id: string; categoryId: string | null }>;
+      expect(listed.find((entry) => entry.id === created.id)?.categoryId).toBe(firstCategory.id);
+
+      // 분류를 보내지 않은 PATCH는 저장된 분류를 건드리지 않는다(폼 안내 "비워두면 지금 분류를
+      // 그대로 둬요"와 같은 동작).
+      await asAdmin(request(app.getHttpServer()).patch(`/api/v1/admin/item-templates/${created.id}`))
+        .send({ reasonText: "분류와 무관한 수정." })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.categoryId).toBe(firstCategory.id);
+        });
+
+      // 다른 분류를 고르면 그 값이 그대로 반영돼 돌아온다.
+      await asAdmin(request(app.getHttpServer()).patch(`/api/v1/admin/item-templates/${created.id}`))
+        .send({ categoryId: secondCategory.id })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.categoryId).toBe(secondCategory.id);
+        });
+      const stored = await prisma.itemTemplate.findUniqueOrThrow({ where: { id: created.id } });
+      expect(stored.categoryId).toBe(secondCategory.id);
+    } finally {
       await prisma.itemTemplateStage.deleteMany({ where: { itemTemplateId: created.id } });
       await prisma.itemTemplate.delete({ where: { id: created.id } });
       delete process.env.WOORIAI_ADMIN_TOKEN;

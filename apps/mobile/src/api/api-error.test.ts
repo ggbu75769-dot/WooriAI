@@ -150,6 +150,23 @@ describe("화이트리스트 표 — 아는 코드만 문구로 바꾼다", () =
     }
   });
 
+  /**
+   * 라운드 49 QA(P2-4): 존재하지 않는 구매 링크로 저장하려 한 지출(서버 400
+   * LINKED_PRODUCT_LINK_NOT_FOUND). 4xx이므로 오프라인 아웃박스는 이 행을 실패 행으로
+   * 파킹하고, 그 화면에 뜨는 문구가 바로 이 표의 값이다 — "잠시 후 다시"가 아니라 사용자가
+   * 지금 할 수 있는 일(링크 없이 저장)을 말해야 한다.
+   */
+  it("존재하지 않는 구매 링크 실패는 다음 할 일을 말한다", () => {
+    const error = new ApiHttpError(
+      400,
+      envelope("LINKED_PRODUCT_LINK_NOT_FOUND", "연결하려던 구매 링크를 찾지 못했어요. 링크 없이 다시 저장해 주세요.")
+    );
+    expect(apiErrorMessage(error, "저장하지 못했어요. 잠시 후 다시 시도해 주세요.")).toBe(
+      API_ERROR_MESSAGES.LINKED_PRODUCT_LINK_NOT_FOUND
+    );
+    expect(API_ERROR_MESSAGES.LINKED_PRODUCT_LINK_NOT_FOUND).not.toContain("잠시 후 다시");
+  });
+
   it("모르는 코드는 폴백 — 서버 원문을 절대 그대로 노출하지 않는다", () => {
     // 표에 없는 코드의 서버 원문(영어·내부 용어일 수 있다)이 화면에 새면 안 된다.
     const unknown = new ApiHttpError(422, envelope("VALIDATION_ERROR", "Validation failed: amountKrw"));

@@ -274,7 +274,14 @@ describe("G2: 가족 초대·수락 여정 (local backend)", () => {
     });
 
     // 데모 세션의 실제 경로: 수락 화면이 children에 null을 넘긴다(위 SKIPPED-STEP 참고).
+    // 라운드 49 QA(P3-10): 그때 보고 있는 아이도 없으면 /family는 막다른 길(탭 밖 + 온보딩
+    // 게이트)이라 온보딩 시작점으로 잇는다. 아이가 있으면 종전대로 가족 화면에 남는다.
     expect(planAfterHouseholdJoin({ householdId, children: null, currentChildId: null })).toEqual({
+      kind: "onboarding",
+      notice: "아직 볼 수 있는 아이가 없어요. 아이 정보를 등록하면 바로 시작할 수 있어요.",
+      href: "/onboarding/child-status"
+    });
+    expect(planAfterHouseholdJoin({ householdId, children: null, currentChildId: LOCAL_CHILD_ID })).toEqual({
       kind: "keep",
       href: "/family"
     });
@@ -284,7 +291,7 @@ describe("G2: 가족 초대·수락 여정 (local backend)", () => {
       planAfterHouseholdJoin({
         householdId: "other-household",
         children,
-        currentChildId: null
+        currentChildId: LOCAL_CHILD_ID
       })
     ).toEqual({ kind: "keep", href: "/family" });
 

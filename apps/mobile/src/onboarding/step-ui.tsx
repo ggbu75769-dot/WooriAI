@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Text, View } from "react-native";
 import { Card, SecondaryButton } from "../ui";
 import { theme } from "../theme";
@@ -55,7 +56,16 @@ export function OnboardingSaveErrorCard({
     <View accessibilityRole="alert">
       <Card style={{ borderColor: theme.colors.danger, borderWidth: 1, gap: theme.spacing.gap }}>
         <View style={{ alignItems: "center", flexDirection: "row", gap: 10 }}>
-          <Text style={{ color: theme.colors.danger, fontSize: theme.typography.body1.fontSize }}>⚠</Text>
+          {/* D1 후속(실기기 피드백 2) 마무리: 마지막까지 남아 있던 텍스트 글리프(⚠)를 다른
+              화면과 같은 Ionicons로 바꾼다 -- 글리프는 기기 폰트에 따라 네모(tofu)로 떨어져,
+              하필 "저장하지 못했어요" 카드에서 깨진 글자로 보였다. 아이콘은 장식이다: 카드는
+              accessibilityRole="alert"이고 바로 옆 Text가 사실을 말한다. */}
+          <Ionicons
+            accessible={false}
+            name="warning"
+            size={theme.typography.body1.fontSize}
+            color={theme.colors.danger}
+          />
           <Text style={{ color: theme.colors.brown, flex: 1, fontSize: theme.typography.body2.fontSize }}>{message}</Text>
         </View>
         <SecondaryButton accessibilityLabel="저장 재시도" label="재시도" onPress={onRetry} />

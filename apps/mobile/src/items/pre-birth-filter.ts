@@ -77,6 +77,26 @@ export function shouldOfferPreBirthFilter(input: PreBirthFilterOfferInput): bool
 }
 
 /**
+ * 라운드 49 QA(P3-3): 찜(♡) 칩이 켜져 있는 동안에는 이 시기 좁히기를 **적용하지 않는다**.
+ *
+ * 찜 목록의 모집단은 시기 밴드를 무시하는 전 상태 스냅샷이고, 화면도 그 자리에서 그렇게
+ * 말한다("찜한 준비템은 시기와 상관없이 모두 보여요." — INTERESTED_FILTER_SCOPE_NOTE).
+ * 그런데 "출산 전"은 시기 필터라, 켜진 채로 함께 적용되면 그 안내가 곧바로 거짓이 된다:
+ * 화면은 "시기와 상관없이 모두"라고 말하면서 임신 시기 항목만 남긴 목록을 보여 준다.
+ *
+ * 상태(`preBirthOnly`)는 지우지 않고 적용만 멈춘다 — 찜을 끄면 보고 있던 좁히기가 그대로
+ * 돌아온다(밴드를 옮겼다 돌아올 때와 같은 규칙). 그동안 칩은 비활성으로 그려 "지금은
+ * 적용되지 않는다"는 사실을 눈과 스크린 리더 양쪽에 알린다(CategoryChip의 disabled).
+ */
+export function isPreBirthFilterActive(input: {
+  offered: boolean;
+  preBirthOnly: boolean;
+  interestedOnly: boolean;
+}): boolean {
+  return input.offered && input.preBirthOnly && !input.interestedOnly;
+}
+
+/**
  * 필수도·검색 필터와 AND로 겹쳐 쓰는 좁히기. 순서는 서버가 준 그대로 둔다(DNC-009 —
  * 필터가 추천 순서를 다시 정렬하지 않는다).
  */

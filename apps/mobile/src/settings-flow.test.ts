@@ -63,7 +63,10 @@ describe("NAV-121 settings entry point contract", () => {
     expect(moreSource).toContain("() => router.push(route)");
     const menuSource = source("src/settings/more-menu.ts");
     expect(menuSource).toContain('title: "설정", route: "/settings"');
-    expect(moreSource).toContain("const visibleMenuRows = hasSession ? sessionMenuRows : previewMenuRowActions;");
+    // 라운드 49 QA(P2-3): 세션 메뉴에 닿는 조건이 `hasSession`(토큰 + 아이)에서 **토큰**으로
+    // 넓어졌다. NAV-121이 지키려는 것("로그인 메뉴에 /settings 행이 있다")은 오히려 더 강해진다
+    // -- 아이가 아직 없는 사용자도 설정·로그아웃에 닿는다.
+    expect(moreSource).toContain("const visibleMenuRows = authToken ? sessionMenuRows : previewMenuRowActions;");
   });
 
   it("keeps 아이 관리 · 알림 설정 · 통계 동의 · 로그아웃 reachable from the settings screen", () => {

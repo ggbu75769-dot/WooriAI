@@ -383,7 +383,7 @@ describe("Local test-mode backend zero start (테스트 로그인 = 신규 가�
     expect(localBackend.listChildren().children[0]).toMatchObject({ stageMode: "born", birthDate, dueDate: "2999-01-01" });
     // 되돌리기는 막는다.
     expect(() => localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "pregnant" })).toThrow(
-      "아이 상태는 임신 중에서 태어남으로만 바꿀 수 있어요."
+      "아이 상태는 '임신 중'에서 '태어났어요'로만 바꿀 수 있어요."
     );
   });
 
@@ -404,6 +404,45 @@ describe("Local test-mode backend zero start (테스트 로그인 = 신규 가�
       dueDate: "2999-01-01",
       birthDate: null
     });
+  });
+
+  /**
+   * 라운드 49 QA(P2-1): 아이를 지우고 다시 만들면 **새 아이는 0에서 시작한다**.
+   *
+   * 로컬 백엔드의 아이 자리는 하나뿐이고 createChild가 언제나 같은 LOCAL_CHILD_ID를 쓴다.
+   * 예전에는 삭제가 아이 행과 지출만 건드려서, 새로 만든 아이가 지운 아이의 예산·준비
+   * 상태·준비물 단계 완료 표시를 그대로 물려받았다 -- 설정한 적 없는 예산과 체크한 적 없는
+   * 준비율을 자기 것으로 읽게 되는 허위 표시다.
+   */
+  it("wipes the deleted child's budget/prepared state so a re-created child starts empty (P2-1)", () => {
+    const yearMonth = currentYearMonth();
+    localBackend.createChild({ nickname: "튼튼이" });
+    localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "born", birthDate: seoulMonthsAgo(20) });
+    localBackend.upsertBudget(LOCAL_CHILD_ID, 500_000, yearMonth);
+    localBackend.setPreparedItems(LOCAL_CHILD_ID, [LOCAL_ITEM_DIAPER]);
+    localBackend.createExpense(LOCAL_CHILD_ID, {
+      categoryId: "local-category-diaper",
+      amountKrw: 11_000,
+      spentOn: getSeoulToday(),
+      itemName: "지워질 아이의 지출"
+    });
+
+    localBackend.confirmChildProfileDeletion(LOCAL_CHILD_ID, "DELETE CHILD");
+
+    localBackend.createChild({ nickname: "여정이" });
+    localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "manual", manualStage: "toddler_1_3" });
+
+    // 예산: 설정한 적 없는 달이므로 "찾을 수 없어요"여야 한다(0원이라고 지어내지도 않는다).
+    expect(() => localBackend.getBudget(LOCAL_CHILD_ID, yearMonth)).toThrow("월 예산을 찾을 수 없어요.");
+    expect(localBackend.getMonthlyReport(LOCAL_CHILD_ID, yearMonth).budgetAmountKrw).toBeNull();
+    // 준비 상태: 전 아이가 체크해 둔 항목이 새 아이의 "준비 완료"로 남지 않는다.
+    expect(localBackend.listItems(LOCAL_CHILD_ID, "prepared").items).toEqual([]);
+    expect(localBackend.getItemDetail(LOCAL_CHILD_ID, LOCAL_ITEM_DIAPER).status).toBe("not_prepared");
+    // 지출도 새 아이의 합계에 섞이지 않는다(soft delete).
+    expect(localBackend.getHome(LOCAL_CHILD_ID).totalExpenseKrw).toBe(0);
+    // 온보딩도 준비물 단계를 다시 묻는다(전 아이의 단계 완료 표시를 물려받지 않는다).
+    localBackend.upsertConsents();
+    expect(localBackend.onboardingStatus().nextStep).toBe("prepared-items");
   });
 
   it("starts the household with the owner alone and names invites after the child", () => {

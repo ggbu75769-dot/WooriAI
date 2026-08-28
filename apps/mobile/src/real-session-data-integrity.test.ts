@@ -55,6 +55,33 @@ describe("Real session data integrity contract", () => {
     expect(itemsChildGate).toBeGreaterThan(-1);
     expect(itemsPreviewFallback).toBeGreaterThan(itemsChildGate);
 
+    // 라운드 49 QA(P2-3): 리포트 탭도 같은 계약 아래로 들어온다. 예전에는 토큰이 있고 아이만
+    // 없는 창에서 픽스처 총액(₩1,245,700)과 "다온이와의 오늘도 소중한 하루였어요"가 실사용자의
+    // 리포트로 그려졌다. 미리보기 카드 블록은 `!hasSession` 그대로 두되, 그 블록에 닿기 전에
+    // 조기 반환이 서므로 도달 경로가 `!authToken` 하나로 좁혀진다.
+    const reportsSource = source("app/(tabs)/reports.tsx");
+    const reportsChildGate = reportsSource.indexOf("if (authToken && !childId) {");
+    const reportsPreviewBlock = reportsSource.indexOf("{!hasSession ? (");
+    expect(reportsChildGate).toBeGreaterThan(-1);
+    expect(reportsPreviewBlock).toBeGreaterThan(reportsChildGate);
+    expect(reportsSource).toContain('testID="reports-child-pending"');
+    expect(reportsSource).toContain('title="아이 정보를 불러오고 있어요"');
+    expect(reportsSource).toContain('router.push("/settings/children")');
+
+    // 더보기 탭의 프로필 카드("다온이 · 24개월")도 같은 규칙이다. 이 탭은 세션에서 설정으로
+    // 가는 유일한 입구라(NAV-121) 화면을 통째로 막지 않는다 -- 대신 픽스처 프로필과 비로그인
+    // 메뉴에 닿는 조건을 둘 다 `!authToken`으로 좁히고, 그 사이에는 스켈레톤 + 아이 선택 안내를
+    // 둔다.
+    const moreSource = source("app/(tabs)/more.tsx");
+    expect(moreSource).toContain("const visibleProfile = authToken ? (home.data?.child ?? loadingProfile) : previewProfile;");
+    expect(moreSource).toContain("const visibleMenuRows = authToken ? sessionMenuRows : previewMenuRowActions;");
+    expect(moreSource).toContain("const isChildPending = Boolean(authToken) && !childId;");
+    expect(moreSource).toContain('testID="more-child-pending"');
+    expect(moreSource).toContain('title="아이 정보를 불러오고 있어요"');
+    // 종전 형태(아이가 없으면 곧바로 픽스처)로 되돌아가지 않는다.
+    expect(moreSource).not.toContain("hasSession ? (home.data?.child ?? loadingProfile) : previewProfile");
+    expect(moreSource).not.toContain("hasSession ? sessionMenuRows : previewMenuRowActions");
+
     const itemDetailSource = source("app/items/[itemTemplateId].tsx");
     expect(itemDetailSource).toContain("const visibleDetail = hasSession ? detail.data! : previewDetail(itemTemplateId);");
 

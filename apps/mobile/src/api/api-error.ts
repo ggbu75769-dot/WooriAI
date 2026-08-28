@@ -100,6 +100,11 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   // 서버 원문("금액은 0보다 큰 원화 정수만 입력할 수 있어요.")의 "원화 정수"만 쉬운 말로 바꿨다.
   EXPENSE_AMOUNT_INVALID: "금액은 0보다 큰 숫자로 입력해 주세요.",
   EXPENSE_ITEM_NAME_REQUIRED: "품목명을 입력해 주세요.",
+  // 라운드 49 QA(P2-4): "샀어요"가 실어 보낸 구매 링크가 서버에 없을 때(링크가 내려갔거나
+  // 오래된 대기 행). 서버 원문 그대로다 — 다시 눌러도 바뀌지 않는 사실이라 재시도를 권하는
+  // 대신 사용자가 지금 할 수 있는 일(링크 없이 저장)을 말한다. 이 코드가 4xx이므로 오프라인
+  // 아웃박스는 이 행을 영원히 재시도하지 않고 실패 행으로 파킹한다(remote-api.ts).
+  LINKED_PRODUCT_LINK_NOT_FOUND: "연결하려던 구매 링크를 찾지 못했어요. 링크 없이 다시 저장해 주세요.",
 
   // --- 엑셀 가져오기 (apps/api/src/imports/import-parser.ts, onboarding/import-pipeline.service.ts) ---
   // 서버 원문이 영어라 한국어로 옮긴다. 행 수·확장자·용량 상한은 서버가 거절하는 조건과 같은 값이다

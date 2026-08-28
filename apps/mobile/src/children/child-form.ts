@@ -78,10 +78,15 @@ export type ChildFormErrors = {
 };
 
 /**
- * Full-form validation shared by the settings edit/add forms. `requireDate` makes an empty
- * pregnant/born date an error (used when editing: the server's normalizeChildInput always keeps
- * a date for those modes, so the form mirrors the server's own messages); the onboarding create
- * form's optional-date behavior corresponds to `requireDate: false`.
+ * Full-form validation shared by the settings edit/add forms **and the onboarding create form**.
+ * `requireDate` makes an empty pregnant/born date an error, mirroring the server's own
+ * normalizeChildInput messages (그 모드에서는 날짜가 반드시 있어야 한다).
+ *
+ * 실기기 피드백 1 이후로 온보딩(app/(onboarding)/child-profile.tsx)도 `requireDate: true`로
+ * 부른다 -- "날짜 없이 태명만" 만든 아이는 시기를 계산할 수 없어 홈·준비템이 통째로 빈 채로
+ * 시작했기 때문이다. 즉 생략(=`requireDate: false`)을 쓰는 화면은 이제 없고, 그 기본값은
+ * "빈 날짜는 아직 오류가 아니다"라는 입력 중 검사를 위한 자리로 남아 있다(단위 테스트가 그
+ * 동작을 고정한다).
  */
 export function validateChildForm(
   stageMode: ChildStageMode | null,

@@ -225,7 +225,10 @@ describe("D1 후속: 화면 아이콘이 탭바와 같은 Ionicons 계열", () =
     "app/(tabs)/more.tsx",
     "app/(tabs)/records.tsx",
     "app/(tabs)/items.tsx",
-    "app/expenses/new.tsx"
+    "app/expenses/new.tsx",
+    // 라운드 49 QA(P3-4): 온보딩 저장 실패 카드(⚠)가 마지막 텍스트 글리프였다. 화면이 아니라
+    // 네 온보딩 단계가 공유하는 컴포넌트라 여기 목록에 이름으로 들어온다.
+    "src/onboarding/step-ui.tsx"
   ] as const;
 
   it("아이콘을 쓰는 화면이 모두 Ionicons를 가져온다", () => {
@@ -242,7 +245,9 @@ describe("D1 후속: 화면 아이콘이 탭바와 같은 Ionicons 계열", () =
     const iconGlyphs = [
       "▦", "▣", "▥", "▮", "▤", "⟳", "☆", "★", "◈", "□", "◆", "●", "↗", "♥", "✿", "🍴",
       // 2차에서 없앤 나머지 글리프(설정 · 더보기 · 기록 · 추천 · 카테고리 타일).
-      "✎", "◎", "⇩", "⇪", "♙", "⌁", "ⓘ", "⌕", "♧", "◐", "♡", "↻", "⏱", "▱", "▭", "⌘", "⌂", "⊕"
+      "✎", "◎", "⇩", "⇪", "♙", "⌁", "ⓘ", "⌕", "♧", "◐", "♡", "↻", "⏱", "▱", "▭", "⌘", "⌂", "⊕",
+      // 라운드 49 QA(P3-4): 온보딩 저장 실패 카드에 남아 있던 경고 글리프.
+      "⚠"
     ];
     for (const screen of screens) {
       const source = readSource(screen);
@@ -267,13 +272,22 @@ describe("D1 후속: 화면 아이콘이 탭바와 같은 Ionicons 계열", () =
     // 같은 code를 공유하는 두 타일("분유/유제품"·"식비")도 서로 다른 아이콘이라 눈으로 구별된다.
     expect(new Set(categoryCatalog.map((entry) => entry.icon)).size).toBe(categoryCatalog.length);
 
+    // 라운드 49 QA(P3-11b): 아래 단언들은 **타일이 그리는 그 Ionicons 블록**에 대해서만
+    // 성립해야 한다. 예전에는 파일 전체에서 `accessible={false}`를 찾아, 화면 어딘가 다른
+    // 아이콘이 그 속성을 들고 있으면 타일이 접근성 트리에 그대로 노출돼도 통과했다.
     const source = readSource("app/expenses/new.tsx");
-    expect(source).toContain("name={category.icon}");
+    const tileComponentStart = source.indexOf("function ExpenseCategoryIconButton");
+    const tileComponentEnd = source.indexOf("export default function NewExpenseScreen");
+    expect(tileComponentStart).toBeGreaterThan(-1);
+    expect(tileComponentEnd).toBeGreaterThan(tileComponentStart);
+    const tileIconBlock = source.slice(tileComponentStart, tileComponentEnd);
+    expect(tileIconBlock).toContain("<Ionicons");
+    expect(tileIconBlock).toContain("name={category.icon}");
     // 장식이므로 접근성 트리에서 감춘다 -- 라벨은 타일의 Text와 accessibilityLabel이 말한다.
-    expect(source).toContain("accessible={false}");
+    expect(tileIconBlock).toContain("accessible={false}");
     // 크기·색은 예전 Text 스타일 토큰을 그대로 읽어 쓴다(선택 시 흰색 반전 포함).
-    expect(source).toContain("size={quickExpenseCategoryTileStyle.iconText.fontSize}");
-    expect(source).toContain("quickExpenseCategoryTileStyle.iconTextSelected.color");
+    expect(tileIconBlock).toContain("size={quickExpenseCategoryTileStyle.iconText.fontSize}");
+    expect(tileIconBlock).toContain("quickExpenseCategoryTileStyle.iconTextSelected.color");
   });
 
   it("오프라인 상태 아이콘이 의미를 유지한 채 Ionicons 이름 테이블이다", () => {
@@ -307,19 +321,47 @@ describe("D1 후속: 화면 아이콘이 탭바와 같은 Ionicons 계열", () =
     for (const row of menuRows) {
       expect(row.icon in ioniconsGlyphMap, `${row.title}: ${row.icon}`).toBe(true);
     }
+
+    /**
+     * 라운드 49 QA(P3-5): 같은 규칙이 **비로그인 미리보기 행**에도 적용된다. 예전에는 더보기
+     * 미리보기의 첫 행만 person-circle-outline(아이 프로필 계열)을 쓰면서 목적지는 가구
+     * 화면(/family)이라, 같은 목적지가 화면마다 다른 그림으로 보였다. 라벨·순서·목적지는
+     * 픽셀 락 때문에 그대로 두고 아이콘만 맞춘다.
+     */
+    const moreSource = readSource("app/(tabs)/more.tsx");
+    const previewRowsStart = moreSource.indexOf("const moreMenuRows = [");
+    const previewRows = moreSource.slice(previewRowsStart, moreSource.indexOf("] as const satisfies", previewRowsStart));
+    expect(previewRowsStart).toBeGreaterThan(-1);
+    expect(previewRows).toContain(`{ icon: "${iconOf("family")}", title: "프로필 관리", route: "/family" }`);
+    // 미리보기 행의 아이콘도 전부 실제 Ionicons 이름이다.
+    for (const match of previewRows.matchAll(/icon: "([^"]+)"/g)) {
+      expect(match[1] in ioniconsGlyphMap, `미리보기 행 아이콘: ${match[1]}`).toBe(true);
+    }
   });
 
+  /**
+   * 라운드 49 QA(P3-11c): 이름이 **어느 종류에 붙는지**까지 고정한다.
+   *
+   * 예전 단언은 다섯 이름이 파일 어딘가에 있기만 하면 통과였다 -- 예산 80%와 100% 아이콘이
+   * 서로 바뀌어도, 주석에만 남고 표에서 사라져도 그대로 초록이었다. 기록 탭의 오프라인 상태
+   * 아이콘(바로 위 테스트)이 이미 쓰는 방식대로 **표의 한 줄씩**을 확인한다.
+   */
   it("알림 종류별 아이콘이 Ionicons 이름 테이블이다", () => {
     const source = readSource("app/notifications.tsx");
     expect(source).toContain('Record<AppNotification["type"], keyof typeof Ionicons.glyphMap>');
-    for (const name of [
-      "wallet-outline",
-      "alert-circle-outline",
-      "sparkles-outline",
-      "bag-check-outline",
-      "stats-chart-outline"
-    ]) {
-      expect(source).toContain(`"${name}"`);
+
+    const tableStart = source.indexOf("const notificationIconByType");
+    expect(tableStart).toBeGreaterThan(-1);
+    const table = source.slice(tableStart, source.indexOf("};", tableStart));
+    for (const [type, name] of [
+      ["budget_80", "wallet-outline"],
+      ["budget_100", "alert-circle-outline"],
+      ["stage_transition", "sparkles-outline"],
+      ["purchase_pending", "bag-check-outline"],
+      ["weekly_summary", "stats-chart-outline"]
+    ] as const) {
+      expect(table, `${type} 행`).toContain(`${type}: "${name}"`);
+      expect(name in ioniconsGlyphMap, `${type}: ${name}`).toBe(true);
     }
     // 알 수 없는 종류는 여전히 아이콘 자리만 비운다(ListRow의 icon은 선택 항목).
     expect(source).toContain("icon={iconName ? <Ionicons");
@@ -337,6 +379,14 @@ describe("D1 후속: 화면 아이콘이 탭바와 같은 Ionicons 계열", () =
     expect(uiSource).toContain("icon: React.ReactNode; label: string");
     expect(uiSource).toContain("icon?: React.ReactNode;");
     // 문자열이면 예전과 똑같이 Text로 그린다 -- 남아 있는 문자열 호출부(설정·기록 탭)는 그대로.
-    expect(uiSource).toContain('{typeof icon === "string" ? <Text');
+    // 라운드 49 QA(P3-8): 단, **빈 문자열은 아이콘 없음**이라 자리를 만들지 않는다.
+    const listRowBlock = uiSource.slice(
+      uiSource.indexOf("export function ListRow"),
+      uiSource.indexOf("export function ProductCard")
+    );
+    expect(listRowBlock).toContain('typeof icon === "string" ? (');
+    expect(listRowBlock).toContain("icon ? (");
+    expect(listRowBlock).toContain("<Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text>");
+    expect(listRowBlock).toContain(") : null");
   });
 });

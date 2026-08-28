@@ -3,14 +3,12 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Alert, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { listItems, LOCAL_SESSION_TOKEN, setPreparedItems } from "../../src/api/client";
-import { LOCAL_ITEM_CARRIER, LOCAL_ITEM_DIAPER } from "../../src/api/local-fixtures";
 import {
   PREPARED_ITEMS_PARTIAL_ALERT_TITLE,
   preparedIdsToSubmit,
   preparedItemsPartialNotice,
   selectPreparedItemOptions,
-  togglePreparedItemId,
-  type PreparedItemOption
+  togglePreparedItemId
 } from "../../src/onboarding/prepared-items-selection";
 import { OnboardingSaveErrorCard, OnboardingStepProgress } from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
@@ -20,35 +18,36 @@ import { AppScreen, Card, PrimaryButton, ScreenHeader, TextButton } from "../../
 import { SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
-// 데모(테스트 세션) 전용 고정 후보. 이 두 id는 standalone 로컬 백엔드에 실제로 있는 픽스처라
-// (src/api/local-fixtures.ts) 체크하면 데모 준비템 목록에도 그대로 반영된다.
-//
-// 라운드 45 UX-Y(P1): 실서버 세션은 더 이상 이 목록을 쓰지 않는다 — 실서버에 없는 id를 보내
-// 서버가 조용히 건너뛰는데도 화면은 "준비 완료"라고 선언하던 허위 성공이었다. 실세션은 아래
-// itemsQuery로 진짜 준비템을 받아 그 id를 보낸다.
-const demoPreparedItemOptions: PreparedItemOption[] = [
-  { id: LOCAL_ITEM_DIAPER, icon: "🧷", label: "기저귀", essential: true },
-  { id: LOCAL_ITEM_CARRIER, icon: "🎒", label: "아기띠", essential: false }
-];
-
 export default function PreparedItemsScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
-  const isDemoSession = authToken === LOCAL_SESSION_TOKEN;
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const completeStep = useOnboardingProgressStore((state) => state.completeStep);
   // 기본값은 전체 해제 — 사용자가 직접 고른 것만 "이미 준비했다"고 선언한다(라운드 45 UX-Y).
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
 
-  const isItemsQueryEnabled = Boolean(authToken && selectedChildId) && !isDemoSession;
+  /**
+   * 라운드 49 QA(P2-2): 데모 세션도 **같은 조회, 같은 판정**을 쓴다.
+   *
+   * 예전에는 데모만 걸음마기 픽스처 2종(기저귀·아기띠)을 고정으로 그렸다. 테스트 로그인이
+   * 0에서 시작하면서 아이의 시기도 사용자가 고르게 됐는데, 임신 중을 고른 사람에게 걸음마기
+   * 물건을 내밀고 "체크한 항목은 준비물 목록에서 완료로 표시할게요"라고 약속하는 셈이었다 --
+   * 그 약속은 지켜지지 않는다(그 아이의 준비템 탭에는 없는 항목이다).
+   *
+   * 데모 토큰(`LOCAL_SESSION_TOKEN`)의 listItems는 client.ts의 isLocalToken 분기가 로컬 백엔드로
+   * 돌리므로 네트워크 요청이 나가지 않는다(준비템 탭이 이미 같은 경로를 쓴다). 로컬 백엔드는
+   * localItemTemplateFixtures를 **선택된 아이의 단계**로 걸러 주므로, 후보 계산은 실세션과
+   * 한 줄도 다르지 않다.
+   */
+  const isItemsQueryEnabled = Boolean(authToken && selectedChildId);
   const itemsQuery = useQuery({
     queryKey: ["onboarding-prepared-items", selectedChildId],
     enabled: isItemsQueryEnabled,
     queryFn: () => listItems(authToken!, selectedChildId!, "now")
   });
 
-  const options = isDemoSession ? demoPreparedItemOptions : selectPreparedItemOptions(itemsQuery.data?.items ?? []);
+  const options = selectPreparedItemOptions(itemsQuery.data?.items ?? []);
   // 비활성 쿼리도 react-query에서는 isPending이라, 로딩 판정에는 "실제로 조회 중"인지를 함께 본다.
   const isLoadingOptions = isItemsQueryEnabled && itemsQuery.isPending;
   const hasOptions = options.length > 0;
@@ -149,7 +148,6 @@ export default function PreparedItemsScreen() {
                 >
                   {checked ? <Text style={{ color: theme.colors.white, fontSize: 14, fontWeight: "800" }}>✓</Text> : null}
                 </View>
-                {item.icon ? <Text style={{ fontSize: 18 }}>{item.icon}</Text> : null}
                 <Text style={{ color: theme.colors.brown, flex: 1, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
                   {item.label}
                 </Text>

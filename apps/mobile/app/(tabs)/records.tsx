@@ -1149,9 +1149,10 @@ export default function RecordsScreen() {
   // 없으면 buildRecordsCategoryChips가 맨 앞에 끼워 넣는다), 못 찾은 경우에도 이름을 지어내지
   // 않도록 categoryFiltered를 따로 넘긴다.
   //
-  // 라운드 34 L7: 문장에 넣는 것은 칩의 표시 라벨이 아니라 **이모지 없는 이름**(plainLabel)이다.
-  // 폴백 8타일 칩의 라벨에는 아이콘이 붙어 있어("🧷 기저귀") 그대로 넣으면 스코프 줄과 달력
-  // 라벨/범례 문장 한가운데로 이모지가 흘러들었다.
+  // 라운드 34 L7: 문장에 넣는 것은 칩의 표시 라벨이 아니라 **문장용 이름**(plainLabel)이다.
+  // 그때는 폴백 8타일 칩의 라벨에 아이콘 이모지가 붙어 있어("🧷 기저귀") 스코프 줄과 달력
+  // 범례 문장 한가운데로 이모지가 흘러들었다. D1 후속으로 그 접두는 사라져 지금은 두 값이
+  // 같지만, 문장 쪽 출처는 계속 plainLabel 하나로 둔다(records-list-view.ts의 필드 주석).
   const selectedCategoryLabel = selectedCategoryId
     ? (categoryChips.find((chip) => chip.id === selectedCategoryId)?.plainLabel ?? null)
     : null;

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyPreBirthFilter,
   bandOffersPreBirthItems,
+  isPreBirthFilterActive,
   isPreBirthItem,
   isPreBirthStage,
   PRE_BIRTH_FILTER_LABEL,
@@ -145,7 +146,35 @@ describe("라운드 43 UX-V: 출산 전 칩 배선", () => {
     expect(items).toContain("currentStage: home.data?.child.currentStage,");
     // 리뷰 M-7: 선택된 시기 밴드도 판정에 들어간다.
     expect(items).toContain("selectedBand: stageLabel");
-    expect(items).toContain("const preBirthFilterActive = offersPreBirthFilter && preBirthOnly;");
+    expect(items).toContain("const preBirthFilterActive = isPreBirthFilterActive({");
+  });
+
+  /**
+   * 라운드 49 QA(P3-3): 찜 칩과 "출산 전" 칩이 서로를 부정하던 모순.
+   *
+   * 찜 목록은 시기 밴드를 무시하는 전 상태 스냅샷이고, 화면은 그 자리에서 "찜한 준비템은
+   * 시기와 상관없이 모두 보여요."라고 말한다. 그런데 시기 필터인 "출산 전"이 그대로 함께
+   * 적용돼, 안내와 목록이 정면으로 어긋났다.
+   */
+  describe("찜 필터와 겹칠 때 (P3-3)", () => {
+    it("찜이 켜져 있으면 시기 좁히기를 적용하지 않는다", () => {
+      expect(isPreBirthFilterActive({ offered: true, preBirthOnly: true, interestedOnly: true })).toBe(false);
+      // 찜을 끄면 켜 두었던 선택이 그대로 다시 적용된다(상태를 지우지 않는다).
+      expect(isPreBirthFilterActive({ offered: true, preBirthOnly: true, interestedOnly: false })).toBe(true);
+    });
+
+    it("칩이 나오지 않는 상황(출생 뒤·다른 밴드)에서는 여전히 꺼져 있다", () => {
+      expect(isPreBirthFilterActive({ offered: false, preBirthOnly: true, interestedOnly: false })).toBe(false);
+      expect(isPreBirthFilterActive({ offered: true, preBirthOnly: false, interestedOnly: false })).toBe(false);
+    });
+
+    it("화면은 그동안 칩을 비활성으로 그리고, 선택 표시도 실제 적용 여부를 따른다", () => {
+      const items = itemsSource();
+      expect(items).toContain("interestedOnly: showInterestedOnly");
+      expect(items).toContain("disabled={showInterestedOnly}");
+      // 켜 둔 채 찜을 누르면 칩이 "선택됨"으로 남아 적용되는 척하면 안 된다.
+      expect(items).toContain("selected={preBirthFilterActive}");
+    });
   });
 
   it("리뷰 M-8: 데모 세션도 홈 요약을 조회해 실제 아이 시기로 판정한다", () => {

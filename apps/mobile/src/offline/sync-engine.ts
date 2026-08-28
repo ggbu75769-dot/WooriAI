@@ -852,6 +852,23 @@ export async function resolveConflictWithMergedPayload(
  * 값이 아니고, 서버 수정 계약(UpdateExpenseDto)에도 자리가 없어 고른들 보낼 수 없다.
  * 라운드 49 C-03: 여기 있는 `merchant`는 이제 실제로 서버까지 간다(remote-api toExpensePatch) —
  * 그전까지는 이 화면이 고르라고 해 놓고 전송에서 그 선택이 사라졌다. */
+/**
+ * 라운드 49 QA(P3-9): "없음"은 두 모양으로 온다 — 서버 스냅숏의 `null`과, 편집 화면이 비운 칸이
+ * 보내는 `""`. 지출 상세는 판매처·메모를 **빈 문자열 그대로** 보낸다(그래야 서버가 "지웠다"로
+ * 알아듣는다 — remote-api.ts toExpensePatch 주석). 그래서 판매처가 원래 없던 지출의 다른 칸만
+ * 고쳐도 대기 payload에는 `""`, 서버에는 `null`이 남고, 충돌이 나면 **바꾼 적 없는 "구매처"가
+ * 충돌 항목으로** 떴다. 그 행은 양쪽 값이 모두 "없음"으로 그려져(conflict-display.ts의 isBlank)
+ * 사용자가 고를 것이 아무것도 없는 유령 행이다.
+ *
+ * 비교에서만 둘을 같은 "없음"으로 본다 — 값 자체(localValue/serverValue)와 전송 규칙은 한 글자도
+ * 바뀌지 않는다. 공백만 있는 문자열도 같은 취급인데, 서버가 cleanOptionalText로 어차피 null로
+ * 정리하는 값이라 화면에 차이로 보여 줄 근거가 없기 때문이다.
+ */
+function blankAsNull(value: unknown): unknown {
+  if (typeof value === "string" && value.trim().length === 0) return null;
+  return value ?? null;
+}
+
 export function diffExpenseFields(
   local: ExpensePayload,
   server: ExpensePayload
@@ -867,6 +884,6 @@ export function diffExpenseFields(
     "expenseType"
   ];
   return fields
-    .filter((field) => JSON.stringify(local[field] ?? null) !== JSON.stringify(server[field] ?? null))
+    .filter((field) => JSON.stringify(blankAsNull(local[field])) !== JSON.stringify(blankAsNull(server[field])))
     .map((field) => ({ field, localValue: local[field], serverValue: server[field] }));
 }

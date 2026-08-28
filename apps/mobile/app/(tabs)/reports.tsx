@@ -440,6 +440,33 @@ export default function ReportsScreen() {
   const trendDirectionColor =
     trendDirection?.tone === "positive" ? theme.colors.semantic.success : theme.colors.gray600;
 
+  // ---------------------------------------------------------------------------------------------
+  // 라운드 49 QA(P2-3) — 홈·준비템(C-07)과 **같은 규칙**을 리포트 탭에도 적용한다.
+  //
+  // 이 화면의 미리보기 폴백도 기준이 `hasSession = authToken && childId`였다. 즉 **토큰은 있는데
+  // 아이를 아직 모르는 창**이 통째로 픽스처로 떨어져, 실사용자가 자기 리포트에서 ₩1,245,700이라는
+  // 있지도 않은 총액과 "지난 달보다 112,000원을 절약했어요!", "다온이와의 오늘도 소중한 하루였어요"를
+  // 자기 기록으로 읽었다. 그 창은 드물지 않다(마지막 아이 삭제 직후 오프라인 · childScopeRejected
+  // 직후 · MOB-116 복구의 유예 3초).
+  //
+  // 비세션(`!authToken`) 분기는 한 글자도 바뀌지 않는다 -- REP-001 픽셀 락 캡처는 세션을 지우고
+  // 찍으므로(app/pixel-lock.tsx) 이 게이트에 닿지 않는다.
+  if (authToken && !childId) {
+    return (
+      <AppScreen>
+        <View testID="reports-child-pending" style={{ gap: theme.spacing.section }}>
+          <SkeletonCard />
+          <SkeletonCard />
+          <EmptyStateCard
+            title="아이 정보를 불러오고 있어요"
+            actionLabel="아이 선택하기"
+            onPress={() => router.push("/settings/children")}
+          />
+        </View>
+      </AppScreen>
+    );
+  }
+
   return (
     <AppScreen
       refreshControl={
