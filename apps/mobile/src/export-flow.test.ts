@@ -93,12 +93,14 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     expect(csvShareToastMessage({ outcomeKnown: false, rowCount: 12, truncated: false })).toBe(
       "기록 12건으로 공유 화면을 열었어요."
     );
-    // 잘림 안내는 어느 쪽이든 사실이라 그대로 붙는다.
+    // 잘림 안내는 어느 쪽이든 사실이라 그대로 붙고, **잘리는 쪽**까지 말한다: 공유 본문은
+    // 날짜 오름차순 목록을 앞에서부터 채우므로 빠지는 것은 뒤쪽 = 최근 기록이다
+    // (라운드 56 B — share-payload.ts 주석 · export-range.ts sortBySpentOnAscending).
     expect(csvShareToastMessage({ outcomeKnown: false, rowCount: 3, truncated: true })).toBe(
-      "기록 3건으로 공유 화면을 열었어요. (용량 제한으로 일부만 포함됐어요)"
+      "기록 3건으로 공유 화면을 열었어요. (용량 제한으로 최근 기록부터 빠졌어요)"
     );
     expect(csvShareToastMessage({ outcomeKnown: true, rowCount: 3, truncated: true })).toContain(
-      "용량 제한으로 일부만 포함됐어요"
+      "용량 제한으로 최근 기록부터 빠졌어요"
     );
   });
 

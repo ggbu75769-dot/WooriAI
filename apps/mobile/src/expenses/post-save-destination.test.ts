@@ -98,9 +98,34 @@ describe("라운드 48 T4(D1) 화면 배선 (app/expenses/new.tsx)", () => {
 
   it("저장 성공 후의 이동이 고정 경로가 아니라 판정 모듈의 목적지를 쓴다", () => {
     expect(newExpenseSource).toContain("const postSaveDestination = resolvePostSaveDestination(params);");
-    expect(newExpenseSource).toContain("setTimeout(() => router.replace(postSaveDestination), 650);");
+    expect(newExpenseSource).toContain(
+      "leaveTimerRef.current = setTimeout(() => router.replace(postSaveDestination), 650);"
+    );
     // 종전의 고정 목적지는 남아 있지 않다.
     expect(newExpenseSource).not.toContain('setTimeout(() => router.replace("/(tabs)/records"), 650)');
+  });
+
+  /**
+   * 라운드 57 QA(P2-3) — 이동 타이머는 **봉합돼 있다**(지출 상세 GAP-056 #6과 같은 관례).
+   *
+   * 봉합이 없으면 저장 직후 사용자가 스스로 시트를 닫아도 650ms 뒤 `router.replace`가 그 화면을
+   * 저장 목적지로 덮어쓴다 — replace라 뒤로 돌아갈 수도 없다.
+   */
+  it("저장 후 이동 타이머를 ref에 담고 언마운트에서 취소한다", () => {
+    // 예약이 ref를 거치지 않고 맨몸으로 걸리는 모양은 남아 있지 않다.
+    expect(newExpenseSource).not.toContain("      setTimeout(() => router.replace(postSaveDestination), 650);");
+    expect(newExpenseSource).toContain("const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);");
+    // 새로 걸기 전에 이전 예약을 지운다(예약이 겹쳐 쌓이지 않는다).
+    const schedule = newExpenseSource.indexOf("leaveTimerRef.current = setTimeout(");
+    expect(schedule).toBeGreaterThan(0);
+    expect(newExpenseSource.slice(schedule - 120, schedule)).toContain(
+      "if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);"
+    );
+    // 언마운트 정리 effect가 있다.
+    const cleanup = newExpenseSource.indexOf("const leaveTimerRef");
+    expect(newExpenseSource.slice(cleanup, cleanup + 260)).toContain(
+      "if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);"
+    );
   });
 
   it("`from` 파라미터를 실제로 받는다(받지 않으면 판정할 값 자체가 없다)", () => {
@@ -172,7 +197,10 @@ describe("라운드 48 T4(D1) 화면 배선 (app/expenses/new.tsx)", () => {
   });
 
   it("저장 중·금액 미입력에는 두 버튼이 함께 잠긴다(보조 버튼만 열려 있는 우회로가 없다)", () => {
-    expect(newExpenseSource.match(/disabled=\{saveExpense\.isPending \|\| isAmountInvalid\}/g) ?? []).toHaveLength(2);
+    // GAP-056 #1: 잠금 판정이 isAmountInvalid -> isSaveBlocked(금액 + 텍스트 길이 상한)로
+    // 넓어졌다. 지키려는 것은 그대로다 -- 두 버튼이 **같은 한 줄**로 잠긴다.
+    expect(newExpenseSource.match(/disabled=\{saveExpense\.isPending \|\| isSaveBlocked\}/g) ?? []).toHaveLength(2);
+    expect(newExpenseSource).toContain("const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;");
   });
 
   it("두 버튼 모두 보기 전용 게이트를 통과한다(라운드 40 J-1)", () => {

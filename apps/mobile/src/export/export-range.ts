@@ -10,6 +10,9 @@ import { EXPORT_MAX_ROWS } from "./expense-csv";
  * by looping that same function month by month. The fetcher is injected so this module stays
  * pure/testable and never imports the network client at runtime.
  *
+ * Every range is collected **newest month first** (GAP-056 #9), so a run that hits the row cap
+ * keeps the most recent history and drops the oldest. The returned list is still sorted ascending.
+ *
  * Ranges:
  * - "month" (이번 달): just the current Seoul yearMonth.
  * - "year" (올해): January of the current Seoul year through the current month.
@@ -240,7 +243,30 @@ export type MonthExpenseFetcher = (yearMonth: string) => Promise<Expense[]>;
 export type CollectExpensesResult = {
   /** Expenses sorted by spentOn ascending (stable). */
   expenses: Expense[];
-  /** True when the EXPORT_MAX_ROWS cap dropped rows. */
+  /**
+   * 행 상한(EXPORT_MAX_ROWS) 때문에 **오래된 쪽이 빠졌을 수 있는가**.
+   *
+   * GAP-056 #9 이후 네 구간 모두 최신 달부터 모으므로, 이 플래그가 켜졌을 때 빠질 수 있는 것은
+   * 언제나 **오래된 쪽**이다. 화면 문구가 그 방향을 말할 수 있는 근거가 여기다.
+   *
+   * ## 라운드 57 QA(P2-12) — 세 갈래가 한 규칙을 쓴다 (관측 사실 기반)
+   *
+   * 예전에는 갈래마다 판정이 달랐다. "전체"는 상한에 닿기만 하면 무조건 `true`였고("잃은 것이
+   * 없는" 정확히-상한 경우까지 잘렸다고 말했다), "직접 선택"·닫힌 구간은 `index > 0`을 함께 봤다.
+   * 그런데 `index > 0`이 뜻하는 것은 "잘렸다"가 아니라 **"열어 보지 않은 과거 달이 남았다"**이다 —
+   * 그 달들이 전부 비어 있었다면 실제로 빠진 행은 하나도 없다. 즉 한쪽은 과하게 알리고, 다른
+   * 쪽은 알리는 근거를 사실보다 세게 말하고 있었다.
+   *
+   * 그래서 규칙을 하나로 맞추되, **수집기가 실제로 관측한 것**만 담는다:
+   *
+   *     truncated = 행을 실제로 버렸다(collected > maxRows) || 상한 때문에 멈춘 시점에
+   *                 아직 **열어 보지 않은** 과거 달이 남아 있다
+   *
+   * 두 번째 항은 "빠졌다"가 아니라 "확인하지 못했다"이다. 여기서 첫 항만 남기는 선택지도 있었지만,
+   * 그러면 상한 때문에 걷다 만 사용자에게 **아무도 아무 말을 하지 않는** 경우가 생긴다(진짜 조용한
+   * 손실). 대신 **문구를 그 세기에 맞춘다** — share-payload.ts의 행 상한 문장이 "빠졌어요"가 아니라
+   * "빠졌을 수 있어요"라고 말하는 이유가 여기다(허위 단정 금지 = 없는 손실을 단언하지 않는다).
+   */
   truncated: boolean;
   /** Number of yearMonth pages fetched (diagnostics/tests). */
   monthsFetched: number;
@@ -255,6 +281,9 @@ function previousYearMonth(yearMonth: string): string {
 
 /**
  * Chronological (ascending) yearMonth pages for the closed-form ranges.
+ *
+ * 목록 자체는 오름차순 그대로다 — 요청 순서는 수집기가 정한다(GAP-056 #9: 뒤에서부터 걷는다).
+ * 이 함수의 답을 그대로 읽는 곳(테스트·파일 이름)이 방향과 무관하게 "고른 달의 목록"만 알면 된다.
  *
  * GAP-054 D#11: "custom"도 닫힌 구간이라 여기에 합류한다 -- `custom`을 넘기지 않거나 값이
  * 깨져 있으면 `normalizeCustomRange`가 이번 달 한 달로 접는다(없는 달을 요청하지 않는다).
@@ -316,9 +345,11 @@ export async function collectExpensesForRange(
         emptyStreak = 0;
         collected.push(...pageExpenses);
         if (collected.length >= maxRows) {
-          // Stopping the walk here means older months are (potentially) dropped; report it as
-          // truncation even in the exact-cap edge case rather than silently losing history.
-          truncated = true;
+          // 라운드 57 QA(P2-12) — 세 갈래가 **한 규칙**을 쓴다(위 `truncated` 주석). 실제로 버린
+          // 행이 있거나(> maxRows), 상한 때문에 걷기를 멈춘 시점에 **아직 열어 보지 않은 과거
+          // 달**이 남아 있으면 true다. "전체"는 언제 끝날지 모르는 뒤로 걷기라, 마지막 걸음
+          // (step === ALL_MAX_MONTHS - 1)에서 상한에 닿은 경우에만 남은 달이 없다.
+          truncated = collected.length > maxRows || step < ALL_MAX_MONTHS - 1;
           collected.length = maxRows;
           break;
         }
@@ -364,25 +395,45 @@ export async function collectExpensesForRange(
       emptyStreak = 0;
       collected.push(...pageExpenses);
       if (collected.length >= maxRows) {
-        // 잘림을 **실제로 잘렸을 때만** 알린다: 행을 버렸거나(>) 아직 안 본 과거 달이 남아
-        // 있을 때(index > 0)다. 마지막 달에서 정확히 상한에 닿았다면 잃은 것이 없으므로
-        // "잘렸어요"라고 말하지 않는다(없는 사실을 알리지 않는다).
+        // 세 갈래 공통 규칙(위 `truncated` 주석): 행을 실제로 버렸거나(>), 상한 때문에 멈춘
+        // 시점에 아직 **열어 보지 않은** 과거 달이 남아 있으면(index > 0) true다.
         truncated = collected.length > maxRows || index > 0;
         collected.length = maxRows;
         break;
       }
     }
   } else {
-    // Closed-form pages (이번 달 1개, 올해 = 최대 12개): fetch them all, then apply the cap
-    // with an exact answer. 두 구간 모두 짧아 빈 달 중단이 아낄 왕복이 없다.
-    for (const yearMonth of yearMonthsForRange(range, todaySeoul, options.custom)) {
-      const pageExpenses = await fetchMonth(yearMonth);
+    /**
+     * Closed-form pages (이번 달 1개, 올해 = 최대 12개).
+     *
+     * GAP-056 #9 — 이 구간도 **최신 달부터 거슬러** 모은다.
+     *
+     * 예전에는 1월부터 오름차순으로 전부 받은 뒤 `collected.length = maxRows`로 잘랐다. 그
+     * 방향이면 상한에 걸렸을 때 남는 것이 **1월·2월**이고 버려지는 것이 이번 달이다 — 사용자가
+     * "올해"를 내보내는 이유(가장 최근까지의 기록)와 정반대의 파일이 나간다. "전체"·"직접 선택"은
+     * 이미 최신 달부터 걸으므로 같은 앱 안에서 두 구간이 서로 반대로 잘리고 있었다.
+     *
+     * 이제 세 구간이 한 규칙이다: **상한에 닿으면 오래된 쪽이 빠진다.** 잘림 사실은 아래
+     * `truncated`로 나가고, 어느 쪽이 빠졌는지는 화면 문구가 말한다(share-payload.ts의
+     * `csvShareToastMessage`).
+     *
+     * 빈 달 중단은 여기에 들이지 않는다 — 두 구간 모두 최대 12개월이라 아낄 왕복이 없고, 그
+     * 규칙은 "기록이 시작되기 전"을 찾는 장치라 한 해 안에서는 의미가 없다. 상한에 닿는 순간
+     * 걷기를 멈추는 것은 "전체"·"직접 선택"과 같다(더 받아 봐야 버릴 행이다).
+     */
+    const months = yearMonthsForRange(range, todaySeoul, options.custom);
+    for (let index = months.length - 1; index >= 0; index -= 1) {
+      const pageExpenses = await fetchMonth(months[index]);
       monthsFetched += 1;
+      if (pageExpenses.length === 0) continue;
       collected.push(...pageExpenses);
-    }
-    if (collected.length > maxRows) {
-      truncated = true;
-      collected.length = maxRows;
+      if (collected.length >= maxRows) {
+        // "전체"·"직접 선택"과 **같은 규칙**(위 `truncated` 주석): 행을 실제로 버렸거나(>),
+        // 상한 때문에 멈춘 시점에 아직 열어 보지 않은 과거 달이 남아 있으면(index > 0) true다.
+        truncated = collected.length > maxRows || index > 0;
+        collected.length = maxRows;
+        break;
+      }
     }
   }
 

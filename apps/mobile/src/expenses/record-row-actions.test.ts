@@ -8,6 +8,8 @@ import {
   buildRepeatExpenseParams,
   isRepeatableExpenseType,
   parseExpensePrefillParams,
+  parseExpensePrefillPaymentMethod,
+  EXPENSE_PREFILL_PAYMENT_METHODS,
   recordRowAccessibilityActions,
   recordRowAccessibilityHint,
   recordRowAccessibilityLabel,
@@ -256,7 +258,10 @@ describe("UX-L(A) '같은 내용으로 또 기록' 프리필 계약", () => {
     expect(parseExpensePrefillParams(params!)).toEqual({
       itemName: "기저귀",
       amountText: "38500",
-      categoryId: "cat-diaper"
+      categoryId: "cat-diaper",
+      // 라운드 55: "또 기록"은 결제 수단을 싣지 않는다(기록 탭은 이 라운드에서 손대지 않는
+      // 화면이라 직렬화 쪽을 넓히지 않았다 — record-row-actions.ts의 계약 주석 참고).
+      paymentMethod: null
     });
   });
 
@@ -268,16 +273,75 @@ describe("UX-L(A) '같은 내용으로 또 기록' 프리필 계약", () => {
   });
 
   it("파라미터가 없거나 배열로 와도 안전하다 (expo-router는 string | string[]을 준다)", () => {
-    expect(parseExpensePrefillParams({})).toEqual({ itemName: "", amountText: "", categoryId: null });
+    expect(parseExpensePrefillParams({})).toEqual({
+      itemName: "",
+      amountText: "",
+      categoryId: null,
+      paymentMethod: null
+    });
     expect(parseExpensePrefillParams({ itemName: ["기저귀", "분유"], amountKrw: ["38500"], categoryId: [] })).toEqual({
       itemName: "기저귀",
       amountText: "38500",
-      categoryId: null
+      categoryId: null,
+      paymentMethod: null
     });
     expect(parseExpensePrefillParams({ itemName: "  기저귀  ", categoryId: " cat-diaper " })).toEqual({
       itemName: "기저귀",
       amountText: "",
-      categoryId: "cat-diaper"
+      categoryId: "cat-diaper",
+      paymentMethod: null
+    });
+  });
+});
+
+/**
+ * 라운드 55 트랙 A — 프리필 계약에 더해진 `paymentMethod`(설계 §1.4의 "추가할 것 하나").
+ *
+ * 정기 지출 카드의 "기록하기"가 템플릿에 저장된 결제 수단을 함께 넘긴다. 파싱 규칙은 이 파일의
+ * 나머지와 같다: **아는 값만 통과, 나머지는 조용히 null**. 링크로 들어온 값 때문에 시트가
+ * 저장 가드에 걸리거나 사용자가 고른 적 없는 결제 수단으로 저장되는 경로를 만들지 않는다.
+ */
+describe("라운드 55 결제 수단 프리필", () => {
+  it("빠른 기록 시트의 네 값만 통과한다", () => {
+    for (const method of EXPENSE_PREFILL_PAYMENT_METHODS) {
+      expect(parseExpensePrefillPaymentMethod(method), method).toBe(method);
+      expect(parseExpensePrefillParams({ paymentMethod: method }).paymentMethod).toBe(method);
+    }
+    expect(EXPENSE_PREFILL_PAYMENT_METHODS).toEqual(["card", "cash", "transfer", "mobile_pay"]);
+  });
+
+  it("서버 enum의 unknown·오타·빈 값은 조용히 null이다 (화면 기본값이 그대로 남는다)", () => {
+    for (const value of ["unknown", "카드", "CARD", "", "  ", null, undefined, 7, {}]) {
+      expect(parseExpensePrefillPaymentMethod(value), String(value)).toBeNull();
+    }
+  });
+
+  it("배열·공백으로 와도 첫 값을 다듬어 읽는다 (expo-router 계약)", () => {
+    expect(parseExpensePrefillPaymentMethod([" transfer ", "cash"])).toBe("transfer");
+    expect(parseExpensePrefillPaymentMethod([])).toBeNull();
+  });
+
+  it("직렬화(정기 지출) → 파싱 왕복에서 결제 수단이 살아남는다", async () => {
+    const { recurringPrefillParams } = await import("./recurring-template");
+    const params = recurringPrefillParams({
+      id: "local-recurring-1",
+      childId: "child-1",
+      itemName: "기저귀",
+      amountKrw: 38_500,
+      categoryId: "cat-diaper",
+      paymentMethod: "transfer",
+      dayOfMonth: 5,
+      active: true,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      skippedYearMonths: []
+    });
+    expect(params).not.toBeNull();
+
+    expect(parseExpensePrefillParams(params!)).toEqual({
+      itemName: "기저귀",
+      amountText: "38500",
+      categoryId: "cat-diaper",
+      paymentMethod: "transfer"
     });
   });
 });

@@ -18,6 +18,9 @@ import { categoryCatalog } from "../categories";
  */
 const mobileRoot = process.cwd();
 const newExpenseSource = readFileSync(join(mobileRoot, "app/expenses/new.tsx"), "utf8");
+// GAP-056 #1/#2: 길이 가드와 판매처 자동완성은 **두 입력 화면이 같은 모듈**을 쓴다 — 한쪽만
+// 배선되면 같은 값이 화면마다 다른 규칙으로 다뤄지므로 두 소스를 함께 본다.
+const editExpenseSource = readFileSync(join(mobileRoot, "app/expenses/[expenseId].tsx"), "utf8");
 
 describe("UX-C quick-expense auto-fill wiring", () => {
   it("drives the category suggestion from the shared pure module", () => {
@@ -160,5 +163,152 @@ describe("UX-C quick-expense auto-fill wiring", () => {
     expect(newExpenseSource).toContain(
       'const [amountText, setAmountText] = useState(() => (authToken ? prefill.amountText : "38500"));'
     );
+  });
+});
+
+/**
+ * GAP-056 #2 (라운드 56 E 잔여) — 판매처 자동완성 배선 계약.
+ *
+ * 지키려는 것:
+ * 1) 후보 계산은 **순수 모듈 하나**(src/expenses/merchant-suggest.ts)에서만 나온다 — 두 화면이
+ *    각자 매칭·정렬을 쓰면 같은 글자에 다른 후보가 나오고, 단위 테스트가 그것을 못 잡는다.
+ * 2) 원천은 이미 받아 둔 이번 달 캐시뿐이다(새 요청 0건).
+ * 3) 빠른 기록 시트의 칩 줄은 **포커스 게이트 + authToken 게이트** 뒤에 있다 — 휴지 상태
+ *    픽셀과 EXP-001 캡처가 그대로다.
+ * 4) 지출 상세는 **자기 행을 후보에서 뺀다** — 방금 지운 자기 값을 되돌려 주는 칩을 만들지 않는다.
+ */
+describe("GAP-056 #2 판매처 자동완성 배선", () => {
+  it("두 화면 모두 후보를 공용 순수 모듈에서 받는다", () => {
+    for (const source of [newExpenseSource, editExpenseSource]) {
+      expect(source).toContain('from "../../src/expenses/merchant-suggest"');
+      expect(source).toContain("buildMerchantSuggestions(");
+      // 라벨·스크린리더 문장도 모듈이 만든다(화면에 문구를 다시 쓰면 두 문장으로 갈린다).
+      expect(source).toContain("formatMerchantSuggestionChipLabel(suggestion)");
+      expect(source).toContain("accessibilityLabel={merchantSuggestionChipAccessibilityLabel(suggestion)}");
+      expect(source).toContain('accessibilityRole="button"');
+    }
+  });
+
+  it("빠른 기록 시트: 포커스 게이트로만 열리고, 캐시(expenseHistory)만 읽는다", () => {
+    expect(newExpenseSource).toContain("const [merchantFocused, setMerchantFocused] = useState(false);");
+    expect(newExpenseSource).toContain(
+      "authToken && merchantFocused ? buildMerchantSuggestions(merchant, expenseHistory) : []"
+    );
+    expect(newExpenseSource).toContain("onFocus={() => setMerchantFocused(true)}");
+    // 새 요청이 생기지 않는다(이 화면의 useQuery 금지 계약은 위 describe가 이미 고정한다).
+    expect(newExpenseSource).not.toContain("useQuery(");
+  });
+
+  it("빠른 기록 시트: 칩 탭은 판매처 한 칸만 채우고 줄을 접는다", () => {
+    expect(newExpenseSource).toContain("const applyMerchantSuggestion = (merchantName: string) => {");
+    expect(newExpenseSource).toContain("setMerchant(merchantName);");
+    expect(newExpenseSource).toContain("onPress={() => applyMerchantSuggestion(suggestion.merchant)}");
+    // 금액·분류는 이 후보가 아는 사실이 아니다 — 품목 자동완성 칩과 달리 함께 바꾸지 않는다.
+    const applyStart = newExpenseSource.indexOf("const applyMerchantSuggestion = (merchantName: string) => {");
+    const applyBlock = newExpenseSource.slice(applyStart, newExpenseSource.indexOf("\n  };", applyStart));
+    expect(applyBlock).not.toContain("setAmountText(");
+    expect(applyBlock).not.toContain("setSelectedCategory(");
+    // "저장하고 계속 기록"의 폼 초기화도 칩 줄을 접는다(다음 항목의 휴지 상태 = 첫 진입).
+    expect(newExpenseSource).toContain("setMerchantFocused(false);");
+  });
+
+  it("빠른 기록 시트: 칩 줄이 authToken 게이트 안에 있다 (EXP-001 캡처 불변)", () => {
+    const markerStart = newExpenseSource.indexOf("merchantSuggestions.map");
+    expect(markerStart).toBeGreaterThan(0);
+    const before = newExpenseSource.slice(0, markerStart);
+    const gateStart = before.lastIndexOf("{authToken ? (");
+    expect(gateStart).toBeGreaterThan(before.lastIndexOf(") : null}"));
+  });
+
+  it("지출 상세: 같은 캐시를 useMemo로 읽고 자기 행을 뺀다", () => {
+    expect(editExpenseSource).toContain(
+      "buildMerchantSuggestions(merchant, (cachedMonthExpenses ?? []).filter((row) => row.id !== expenseId))"
+    );
+    expect(editExpenseSource).toContain("const merchantSuggestions = useMemo(");
+    expect(editExpenseSource).toContain("[merchantFocused, merchant, cachedMonthExpenses, expenseId]");
+    expect(editExpenseSource).toContain("onPress={() => setMerchant(suggestion.merchant)}");
+  });
+
+  /**
+   * 라운드 57 QA(P2-9) — **두 화면이 같은 포커스 게이트를 쓴다.**
+   *
+   * 지출 상세는 대개 판매처를 고칠 생각 없이 여는 화면인데, 칩 줄이 무조건 그려져(빈 칸이면 최근
+   * 5개) 그 아래 메모·연결 준비템·날짜가 매번 한 줄만큼 밀렸다 — 아무도 요청하지 않은 컨트롤이
+   * 레이아웃을 상시로 밀고 있었다. 게이트를 계산 자리(useMemo)에 두어, 줄이 사라지는 것과 계산이
+   * 없어지는 것이 한 조건에서 나오게 한다.
+   */
+  it("지출 상세도 판매처 칸을 누른 뒤에만 칩 줄을 만든다 (빠른 기록 시트와 같은 게이트)", () => {
+    expect(editExpenseSource).toContain("const [merchantFocused, setMerchantFocused] = useState(false);");
+    expect(editExpenseSource).toContain("onFocus={() => setMerchantFocused(true)}");
+    // 게이트가 렌더가 아니라 **계산**에 걸린다 -- 화면에 없는 목록을 계속 만들지 않는다.
+    const memoStart = editExpenseSource.indexOf("const merchantSuggestions = useMemo(");
+    const memoBlock = editExpenseSource.slice(memoStart, memoStart + 400);
+    expect(memoBlock).toContain("merchantFocused");
+    expect(memoBlock).toContain(": []");
+  });
+});
+
+/**
+ * GAP-056 #1 (라운드 56 A 잔여) — 빠른 기록 시트의 텍스트 길이 가드 배선 계약.
+ *
+ * 지키려는 것: 상한 숫자·문구가 **화면에 다시 적히지 않고**(단일 소스는 text-limits.ts, 서버
+ * `@MaxLength`와 같은 값), 저장이 **로컬 쓰기 전에** 막힌다. 여기서 통과시키면 오프라인
+ * 아웃박스가 로컬 저장을 먼저 성공시키고 flush에서 400을 만나 영구 실패 행이 된다.
+ */
+describe("GAP-056 #1 텍스트 길이 가드 배선 (빠른 기록 시트)", () => {
+  it("세 입력칸의 maxLength가 공용 상수에서 온다", () => {
+    expect(newExpenseSource).toContain('from "../../src/expenses/text-limits"');
+    expect(newExpenseSource).toContain("maxLength={ITEM_NAME_MAX_LENGTH}");
+    expect(newExpenseSource).toContain("maxLength={MERCHANT_MAX_LENGTH}");
+    expect(newExpenseSource).toContain("maxLength={MEMO_MAX_LENGTH}");
+    // 숫자를 화면에 다시 적지 않는다.
+    expect(newExpenseSource).not.toContain("maxLength={100}");
+    expect(newExpenseSource).not.toContain("maxLength={500}");
+  });
+
+  it("안내 문구도 같은 모듈에서 오고, 저장 버튼을 함께 잠근다", () => {
+    expect(newExpenseSource).toContain("itemNameOverLimitMessage()");
+    expect(newExpenseSource).toContain("merchantOverLimitMessage()");
+    expect(newExpenseSource).toContain("memoOverLimitMessage()");
+    expect(newExpenseSource).toContain("const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;");
+    expect(newExpenseSource).toContain("{textOverLimitNotices.map((notice) => (");
+    // 문구를 화면에 다시 쓰지 않는다(지출 상세와 두 문장으로 갈리지 않게).
+    expect(newExpenseSource).not.toContain("자까지 입력할 수 있어요");
+  });
+
+  /**
+   * 라운드 57 QA(P2-10) — **같은 문장은 같은 색이다.**
+   *
+   * `merchantOverLimitMessage()`가 만드는 것은 지출 상세가 danger로 그리는 글자 그대로 같은
+   * 문장인데, 빠른 기록 시트만 coral[700]로 그리고 있었다. 이 저장소에서 "저장을 막는 이유"는
+   * 어디서나 theme.colors.danger이고(19개 화면), coral[700]은 A11Y-117이 정한 **작은 브랜드
+   * 텍스트**의 색이지 오류 색이 아니다. 대비도 오히려 올라간다(6.36:1 → 7.0:1).
+   */
+  it("길이·금액 상한 안내의 색이 지출 상세와 같다 (theme.colors.danger)", () => {
+    const noticeStart = newExpenseSource.indexOf("{isAmountOverLimit ? (");
+    const noticeEnd = newExpenseSource.indexOf("<PrimaryButton", noticeStart);
+    expect(noticeStart).toBeGreaterThan(0);
+    expect(noticeEnd).toBeGreaterThan(noticeStart);
+    const noticeBlock = newExpenseSource.slice(noticeStart, noticeEnd);
+    expect(noticeBlock.match(/color: theme\.colors\.danger, fontSize: 12/g) ?? []).toHaveLength(2);
+    expect(noticeBlock).not.toContain("theme.colors.coral[700]");
+    // 지출 상세가 같은 문장들에 쓰는 색 그대로다.
+    for (const field of ["itemNameError", "merchantError", "memoError", "amountError"]) {
+      expect(editExpenseSource, field).toContain(
+        `<Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{${field}}</Text>`
+      );
+    }
+    // 저장을 잠그지 않는 **안내**(분류)는 coral[700] 그대로다 -- 이 화면에만 있어 어긋날 짝이 없다.
+    const categoryNotice = newExpenseSource.indexOf("{CATEGORY_REQUIRED_NOTICE}");
+    expect(newExpenseSource.slice(categoryNotice - 200, categoryNotice)).toContain("theme.colors.coral[700]");
+  });
+
+  it("저장 직전 가드가 **보낼 값 그대로**를 한 번 더 본다 (지출 상세와 같은 이중 가드)", () => {
+    expect(newExpenseSource).toContain(
+      "hasExpenseTextOverLimit({ itemName, merchant: merchant.trim(), memo })"
+    );
+    // 지출 상세도 같은 모듈의 판정을 로컬 저장 전에 통과한다.
+    expect(editExpenseSource).toContain('from "../../src/expenses/text-limits"');
+    expect(editExpenseSource).toContain("isMerchantOverLimit(trimmedMerchant)");
   });
 });

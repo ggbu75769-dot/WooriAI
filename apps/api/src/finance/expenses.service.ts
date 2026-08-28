@@ -103,10 +103,21 @@ export class ExpensesVersionService {
     return this.hydrateOne(dto as { id: string });
   }
 
+  /**
+   * CS-101(라운드 56): 응답 본문(`expense`)과 **감사 로그용 스냅샷**을 함께 돌려준다.
+   * 삭제(deleteExpense)는 스토어가 `{householdId, before, after}`를 실어 주고 컨트롤러가
+   * 그대로 기록하는데, 수정에는 그 자리가 없어 "금액이 혼자 바뀌었어요" 문의에 답할
+   * 근거가 남지 않았다. before는 CAS/필드 변경 **이전** 행에서 뜬 스냅샷이고
+   * (toExpenseSnapshot — 409 충돌 payload와 같은 모양), after는 그대로 클라이언트에
+   * 나가는 갱신 결과다. householdId도 여기서만 알 수 있다(응답 DTO에는 없다).
+   * 컨트롤러는 `result.expense`만 응답으로 돌려주므로 API 계약은 그대로다.
+   */
   async updateExpense(user: AuthenticatedUser, expenseId: string, body: UpdateExpenseDto) {
     const { expectedVersion, ...fields } = body;
     const raw = await this.prisma.expense.findUnique({ where: { id: expenseId } });
-    this.authorizeExpenseRow(user, raw, true);
+    const row = this.authorizeExpenseRow(user, raw, true);
+    const before = toExpenseSnapshot(row);
+    const audit = { householdId: row.householdId, before };
 
     if (expectedVersion === undefined) {
       const updated = await this.store.updateExpense(user, expenseId, fields);
@@ -114,7 +125,8 @@ export class ExpensesVersionService {
         where: { id: expenseId },
         data: { version: { increment: 1 } }
       });
-      return { ...(updated as Record<string, unknown>), version: bumped.version };
+      const expense = { ...(updated as Record<string, unknown>), version: bumped.version };
+      return { expense, ...audit, after: expense };
     }
 
     const gate = await this.prisma.expense.updateMany({
@@ -128,7 +140,11 @@ export class ExpensesVersionService {
     try {
       const updated = await this.store.updateExpense(user, expenseId, fields);
       const final = await this.prisma.expense.findUnique({ where: { id: expenseId }, select: { version: true } });
-      return { ...(updated as Record<string, unknown>), version: final?.version ?? expectedVersion + 1 };
+      const expense = {
+        ...(updated as Record<string, unknown>),
+        version: final?.version ?? expectedVersion + 1
+      };
+      return { expense, ...audit, after: expense };
     } catch (error) {
       await this.rollbackVersionBump(expenseId, expectedVersion);
       throw error;

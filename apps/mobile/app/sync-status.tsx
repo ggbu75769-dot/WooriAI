@@ -24,7 +24,13 @@ import {
   SYNC_STATUS_SYNCING_LABEL,
   SYNC_STATUS_SYNCING_ROW_MESSAGE
 } from "../src/offline/messages";
-import { isPermissionDeniedSyncError, SYNC_STATUS_PERMISSION_DENIED_HINT } from "../src/offline/permission-denied";
+import {
+  isPermissionDeniedSyncError,
+  isRetryableSyncFailureRow,
+  SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT,
+  SYNC_STATUS_PERMANENT_FAILURE_HINT,
+  SYNC_STATUS_PERMISSION_DENIED_HINT
+} from "../src/offline/permission-denied";
 import { itemStatusLabel } from "../src/items/item-labels";
 import { ITEM_STATUS_QUEUED_MESSAGE } from "../src/items/status-mutation-messages";
 import {
@@ -247,7 +253,16 @@ function ConflictRow({
  *
  * 라운드 47 UX-AB: 단 하나의 예외가 403 권한 거절이다. 재시도가 정의상 무익한 행에까지 재시도
  * 버튼을 남겨 두면 눌러도 같은 403이 돌아오는 버튼을 반복해 누르게 된다 -- 그 자리만 안내 한 줄로
- * 바꾸고 삭제는 그대로 남긴다(판정 근거는 src/offline/permission-denied.ts). */
+ * 바꾸고 삭제는 그대로 남긴다(판정 근거는 src/offline/permission-denied.ts).
+ *
+ * 라운드 57 #8: 그 예외가 **재시도가 무익한 4xx 전부**로 넓어진다. 미래 날짜·금액 상한 초과·
+ * 품목명 누락처럼 서버가 이미 "이 내용으로는 받을 수 없다"고 답한 실패는 같은 payload를 몇 번
+ * 보내도 같은 답이 온다 -- 그런데도 화면은 지금까지 "재시도"를 내밀고 있었다. 이제 status로
+ * 판정해(문구 비교가 아니라) 그 자리를 정직한 안내로 바꾼다. 두 안내 모두 "버리기"는 그대로
+ * 남긴다: 그 행에서 사용자가 취할 수 있는 유일한 유효한 행동이기 때문이다.
+ *
+ * 무엇이 잘못됐는지는 위쪽 `lastError` 줄이 이미 서버 코드별 문구로 말한다(api-error.ts의 표) --
+ * 안내 한 줄은 그 사실을 반복하지 않고 "재시도가 무익하다"는 것만 말한다. */
 const FailedRow = memo(function FailedRow({
   row,
   token,
@@ -257,10 +272,18 @@ const FailedRow = memo(function FailedRow({
   token: string;
   queryClient: ReturnType<typeof useQueryClient>;
 }) {
-  if (isPermissionDeniedSyncError(row.lastError)) {
+  if (isPermissionDeniedSyncError(row)) {
     return (
       <SyncRow row={row}>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMISSION_DENIED_HINT}</Text>
+        <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
+      </SyncRow>
+    );
+  }
+  if (!isRetryableSyncFailureRow(row)) {
+    return (
+      <SyncRow row={row}>
+        <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMANENT_FAILURE_HINT}</Text>
         <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
       </SyncRow>
     );
@@ -320,9 +343,22 @@ function ItemStatusSyncRow({
       {isFailed ? (
         // 라운드 47 UX-AB와 같은 규칙: 403은 재시도가 정의상 무익하므로 그 자리를 안내로 바꾼다
         // (보기 전용 역할이 준비 상태를 바꾸려 한 경우가 정확히 이 자리다).
-        isPermissionDeniedSyncError(row.lastError) ? (
+        isPermissionDeniedSyncError(row) ? (
           <>
             <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMISSION_DENIED_HINT}</Text>
+            <SecondaryButton
+              label={SYNC_STATUS_DISCARD_LABEL}
+              onPress={() => discardOfflineItemStatus(queryClient, row.mutationId)}
+            />
+          </>
+        ) : !isRetryableSyncFailureRow(row) ? (
+          // 라운드 57 #8: 준비템 실패 행도 지출 행과 같은 판정을 받는다. 재시도가 무익한 4xx
+          // (없어진 준비템·잘못된 상태값 등)에서 "재시도"를 내밀지 않는다. 문구만 이 행에서
+          // 실제로 할 수 있는 일에 맞춘다(고칠 '내용'이 없는 행이다 — permission-denied.ts).
+          <>
+            <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
+              {SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT}
+            </Text>
             <SecondaryButton
               label={SYNC_STATUS_DISCARD_LABEL}
               onPress={() => discardOfflineItemStatus(queryClient, row.mutationId)}

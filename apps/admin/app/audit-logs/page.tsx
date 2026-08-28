@@ -1,44 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import {
   isAuthError,
   isTimeoutError,
   listAuditLogs,
   type AdminAuditLogEntry,
-  type AdminAuditLogsPageInfo,
-  type AdminAuditLogsQuery
+  type AdminAuditLogsPageInfo
 } from "../../src/lib/admin-api";
 import {
   auditLogCsvFilename,
   buildAuditLogCsv,
   collectAuditLogsForExport
 } from "../../src/lib/audit-log-csv";
+import {
+  AUDIT_LOG_ACTION_MAX_LENGTH,
+  AUDIT_LOG_ACTION_PRESETS,
+  auditLogActorLabel,
+  auditLogFilterError,
+  auditLogFiltersFromSearchParams,
+  auditLogFiltersToQuery,
+  emptyAuditLogFilters
+} from "../../src/lib/audit-log-filters";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
 const PAGE_SIZE = 20;
 
-type Filters = {
-  action: string;
-  /** yyyy-MM-dd (date input). API로는 하루 시작/끝 ISO 타임스탬프로 변환해 보낸다. */
-  fromDate: string;
-  toDate: string;
-};
-
-function emptyFilters(): Filters {
-  return { action: "", fromDate: "", toDate: "" };
-}
-
-/** 적용된 필터 → 목록/내보내기 공용 쿼리 파라미터 (limit/offset 제외). */
-function filtersToQuery(filters: Filters): Omit<AdminAuditLogsQuery, "limit" | "offset"> {
-  const action = filters.action.trim();
-  return {
-    ...(action ? { action } : {}),
-    ...(filters.fromDate ? { from: new Date(`${filters.fromDate}T00:00:00`).toISOString() } : {}),
-    ...(filters.toDate ? { to: new Date(`${filters.toDate}T23:59:59.999`).toISOString() } : {})
-  };
-}
+/** 액션 프리셋 datalist의 id (입력칸의 list 속성이 가리킨다). */
+const ACTION_PRESET_LIST_ID = "audit-log-action-presets";
 
 /** 클라이언트에서 만든 CSV를 Blob 다운로드로 내려준다 (서버 왕복 없음).
  * UTF-8 BOM은 한국어 셀을 Excel이 바로 읽게 하기 위한 관례적 접두. */
@@ -64,11 +55,6 @@ function formatTarget(entry: AdminAuditLogEntry): string {
   return `${entry.targetType} · ${entry.targetId.slice(0, 8)}…`;
 }
 
-function formatActor(entry: AdminAuditLogEntry): string {
-  if (entry.actorEmail) return entry.actorEmail;
-  if (entry.actorUserId) return `${entry.actorUserId.slice(0, 8)}…`;
-  return "시스템/알 수 없음";
-}
 
 function hasSnapshot(value: unknown): boolean {
   return value !== null && value !== undefined;
@@ -98,8 +84,23 @@ function SnapshotDetails({ entry }: { entry: AdminAuditLogEntry }) {
   );
 }
 
+/**
+ * CS-101: 사용자 조회 화면의 "이 사용자 감사 로그 보기"가
+ * /audit-logs?actorUserId=... 로 들어온다. useSearchParams는 정적 프리렌더 중
+ * Suspense 경계를 요구하므로(Next App Router, /links·/reviews와 같은 관례)
+ * 화면 본체를 감싼다.
+ */
 export default function AuditLogsPage() {
+  return (
+    <Suspense fallback={<p className={styles.emptyState}>불러오는 중...</p>}>
+      <AuditLogsPageContent />
+    </Suspense>
+  );
+}
+
+function AuditLogsPageContent() {
   const { session, clearSession } = useAdminSession();
+  const searchParams = useSearchParams();
 
   const [logs, setLogs] = useState<AdminAuditLogEntry[] | null>(null);
   const [pageInfo, setPageInfo] = useState<AdminAuditLogsPageInfo | null>(null);
@@ -107,8 +108,12 @@ export default function AuditLogsPage() {
   const [loading, setLoading] = useState(false);
 
   // 폼 입력값과 실제 적용된 필터를 분리: "적용" 버튼을 눌러야 조회한다.
-  const [filterForm, setFilterForm] = useState<Filters>(emptyFilters());
-  const [appliedFilters, setAppliedFilters] = useState<Filters>(emptyFilters());
+  // CS-101: 초기값만 URL(?actorUserId=...)에서 1회 읽는다 — 사용자 조회에서
+  // 넘어오면 그 사용자로 이미 좁혀진 목록이 뜬다. 그 뒤 조작은 클라 상태이고
+  // URL은 다시 쓰지 않는다(/links의 UX-X C5 관례와 동일).
+  const [filterForm, setFilterForm] = useState(() => auditLogFiltersFromSearchParams(searchParams));
+  const [appliedFilters, setAppliedFilters] = useState(() => auditLogFiltersFromSearchParams(searchParams));
+  const [filterError, setFilterError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
 
   // ADM-117: CSV 내보내기 진행 상태 + 완료/오류 안내.
@@ -126,7 +131,7 @@ export default function AuditLogsPage() {
       const result = await listAuditLogs({
         limit: PAGE_SIZE,
         offset,
-        ...filtersToQuery(appliedFilters)
+        ...auditLogFiltersToQuery(appliedFilters)
       });
       setLogs(result.auditLogs);
       setPageInfo(result.pageInfo);
@@ -155,7 +160,7 @@ export default function AuditLogsPage() {
     setExportNotice(null);
     setExportError(null);
     try {
-      const query = filtersToQuery(appliedFilters);
+      const query = auditLogFiltersToQuery(appliedFilters);
       const { entries, truncated } = await collectAuditLogsForExport((page) =>
         listAuditLogs({ ...query, ...page })
       );
@@ -205,15 +210,22 @@ export default function AuditLogsPage() {
     );
   }
 
+  // CS-101: 서버가 400으로 되돌려보낼 값(UUID 아닌 행위자 ID 등)은 보내기 전에
+  // 막고 이유를 보여준다 — 그러지 않으면 화면에는 원인을 알 수 없는
+  // "불러오지 못했어요"만 뜬다.
   const applyFilters = () => {
+    const message = auditLogFilterError(filterForm);
+    setFilterError(message);
+    if (message) return;
     setOffset(0);
     setAppliedFilters(filterForm);
   };
 
   const resetFilters = () => {
-    setFilterForm(emptyFilters());
+    setFilterForm(emptyAuditLogFilters());
+    setFilterError(null);
     setOffset(0);
-    setAppliedFilters(emptyFilters());
+    setAppliedFilters(emptyAuditLogFilters());
   };
 
   const currentPage = pageInfo ? Math.floor(pageInfo.offset / PAGE_SIZE) + 1 : 1;
@@ -223,7 +235,13 @@ export default function AuditLogsPage() {
     <div className={styles.page}>
       <div className={styles.pageHeader}>
         <h1>감사 로그</h1>
-        <p>관리자 행위 기록을 시간순으로 확인해요. 계정 관리·콘텐츠 발행 같은 민감한 작업이 모두 남아요.</p>
+        {/* CS-101: 종전 문구는 "관리자 행위"만 말했지만, 이 표에는 앱 사용자의 행위도
+            함께 남는다(지출 수정·삭제, 아이 프로필 삭제, 로그인 등) — CS 문의를 이 화면에서
+            확인하려면 그 사실이 먼저 보여야 한다. */}
+        <p>
+          관리자 행위와 앱 사용자 행위를 함께 시간순으로 확인해요. 계정 관리·콘텐츠 발행 같은 민감한 작업과
+          지출 수정·삭제, 아이 프로필 삭제, 로그인 기록이 남아요.
+        </p>
       </div>
 
       <section className={styles.card}>
@@ -235,12 +253,39 @@ export default function AuditLogsPage() {
               <input
                 id="filter-action"
                 type="text"
-                maxLength={80}
-                placeholder="예: admin.admin_user.update"
+                maxLength={AUDIT_LOG_ACTION_MAX_LENGTH}
+                list={ACTION_PRESET_LIST_ID}
+                placeholder="예: expense.update"
                 value={filterForm.action}
                 onChange={(event) => setFilterForm({ ...filterForm, action: event.target.value })}
               />
-              <span className={styles.hint}>정확히 일치하는 액션만 조회해요.</span>
+              {/* CS-101: 자주 쓰는 액션 프리셋. 직접 입력도 그대로 되고(정확 일치),
+                  목록에 없는 액션도 손으로 적으면 조회된다. */}
+              <datalist id={ACTION_PRESET_LIST_ID}>
+                {AUDIT_LOG_ACTION_PRESETS.map((preset) => (
+                  <option key={preset.action} value={preset.action}>
+                    {preset.label}
+                  </option>
+                ))}
+              </datalist>
+              <span className={styles.hint}>
+                정확히 일치하는 액션만 조회해요. 입력칸을 누르면 자주 쓰는 액션이 뜨고, 직접 입력해도 돼요.
+              </span>
+            </div>
+            <div className={styles.field}>
+              <label htmlFor="filter-actor">행위자 ID</label>
+              <input
+                id="filter-actor"
+                type="text"
+                maxLength={64}
+                placeholder="사용자/어드민 UUID"
+                value={filterForm.actorUserId}
+                onChange={(event) => setFilterForm({ ...filterForm, actorUserId: event.target.value })}
+              />
+              <span className={styles.hint}>
+                한 사람의 행위만 모아 봐요. 사용자 조회 화면의 &ldquo;이 사용자 감사 로그 보기&rdquo;로 들어오면
+                자동으로 채워져요.
+              </span>
             </div>
             <div className={styles.field}>
               <label htmlFor="filter-from">시작일</label>
@@ -262,6 +307,7 @@ export default function AuditLogsPage() {
             </div>
           </div>
         </div>
+        {filterError ? <p className={styles.errorBanner}>{filterError}</p> : null}
         <div className={styles.actions}>
           <button type="button" className={styles.primaryButton} onClick={applyFilters} disabled={loading}>
             필터 적용
@@ -304,7 +350,8 @@ export default function AuditLogsPage() {
               <thead>
                 <tr>
                   <th>시각</th>
-                  <th>관리자</th>
+                  {/* CS-101: 어드민만 남는 표가 아니다 — 열 이름도 "행위자"로 바로잡는다. */}
+                  <th>행위자</th>
                   <th>액션</th>
                   <th>대상</th>
                   <th>상세</th>
@@ -314,7 +361,7 @@ export default function AuditLogsPage() {
                 {logs.map((entry) => (
                   <tr key={entry.id}>
                     <td>{formatDate(entry.createdAt)}</td>
-                    <td title={entry.actorUserId ?? undefined}>{formatActor(entry)}</td>
+                    <td title={entry.actorUserId ?? undefined}>{auditLogActorLabel(entry)}</td>
                     <td>
                       <code>{entry.action}</code>
                     </td>
@@ -327,6 +374,12 @@ export default function AuditLogsPage() {
               </tbody>
             </table>
           </div>
+        ) : null}
+        {logs && logs.length > 0 ? (
+          <p className={styles.hint}>
+            행위자가 &ldquo;사용자(...)&rdquo;로 보이는 행은 어드민 계정이 아닌 행위자예요(앱 사용자, 또는 이미
+            삭제된 어드민 계정). 개인정보 없이 ID 앞 8자만 보여주고, 전체 ID는 칸에 마우스를 올리면 보여요.
+          </p>
         ) : null}
         {pageInfo ? (
           <div className={styles.actions}>

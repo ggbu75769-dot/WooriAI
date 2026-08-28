@@ -18,10 +18,14 @@
  * 순위 근거(스펙 §홈 "세션 상한"):
  *  1. 예산 경고 — 이 화면에서 유일하게 **되돌릴 수 없는 사실**을 말한다(80/100% 도달).
  *  2. 첫 실행 안내 — 빈 홈에서 다음 한 걸음이 없으면 화면이 할 말을 잃는다(DNC-002 루프 1단계).
- *  3. 마일스톤 임박 — 날짜가 정해 놓은 것이라 놓치면 그 시점이 지나간다.
- *  4. 주간 요약 — 이번 주의 사실. 지나가지는 않지만 호흡이 짧다.
- *  5. 예산 넛지(사용률) — 격려·확인 문구라 늦게 봐도 잃는 것이 없다.
- *  6. 지난달 대비 · 7. 누적 총액 — 리포트 탭이 같은 숫자를 더 자세히 말한다(위임 가능).
+ *  3. 정기 지출 리마인더 — 라운드 55 트랙 C(설계 §1.5). 지금 행동하지 않으면 **이번 달 합계가
+ *     실제와 어긋나는** 사실이라, 날짜 안내인 마일스톤보다 금전적 결과가 크다. 그래서 기존
+ *     3~7위를 한 칸씩 뒤로 민다(설계 §6 위험 6: 마일스톤 카드가 한 칸 뒤로 가는 것은 사용자에게
+ *     보이는 변화다).
+ *  4. 마일스톤 임박 — 날짜가 정해 놓은 것이라 놓치면 그 시점이 지나간다.
+ *  5. 주간 요약 — 이번 주의 사실. 지나가지는 않지만 호흡이 짧다.
+ *  6. 예산 넛지(사용률) — 격려·확인 문구라 늦게 봐도 잃는 것이 없다.
+ *  7. 지난달 대비 · 8. 누적 총액 — 리포트 탭이 같은 숫자를 더 자세히 말한다(위임 가능).
  *
  * 이 표에 없는 두 가지:
  *  - **구매 확인 카드**: 순위상으로는 예산 경고 다음이지만, 이 앱에서는 홈 구획이 아니라 전역
@@ -35,6 +39,7 @@
 export type HomeSectionId =
   | "budget-warning"
   | "first-run-guide"
+  | "recurring-reminder"
   | "milestone"
   | "weekly-summary"
   | "budget-nudge"
@@ -45,11 +50,12 @@ export type HomeSectionId =
 export const HOME_SECTION_RANK: Readonly<Record<HomeSectionId, number>> = {
   "budget-warning": 1,
   "first-run-guide": 2,
-  milestone: 3,
-  "weekly-summary": 4,
-  "budget-nudge": 5,
-  "last-month": 6,
-  "cumulative-total": 7
+  "recurring-reminder": 3,
+  milestone: 4,
+  "weekly-summary": 5,
+  "budget-nudge": 6,
+  "last-month": 7,
+  "cumulative-total": 8
 };
 
 /**

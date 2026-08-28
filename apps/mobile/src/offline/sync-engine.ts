@@ -1,7 +1,7 @@
 import { MAX_DELAY_MS, computeNextRetryAtIso } from "./backoff";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import { mergeItemStatusMutation, mergeOutboxMutation } from "./outbox-merge";
-import { isPermissionDeniedSyncError } from "./permission-denied";
+import { isPermissionDeniedSyncError, isRetryableSyncFailureRow, syncFailureReasonOf } from "./permission-denied";
 import {
   generateOfflineId,
   type ExpensePayload,
@@ -94,6 +94,25 @@ function transientServerErrorStatus(error: unknown): number | null {
   const status = (error as { status?: unknown } | null | undefined)?.status;
   return typeof status === "number" && status >= 500 ? status : null;
 }
+
+/**
+ * 라운드 57 #8 — 실패를 행에 남길 때 `lastError`(사람이 읽는 문장) 옆에 함께 저장하는 구조화된
+ * 사유. remote-api.ts가 4xx를 `RemotePermanentError(status, message, body)`로 번역하면서 status와
+ * 서버 봉투(body의 `{ error: { code } }`)를 그대로 실어 보내고, 5xx·네트워크 실패에서는 원본
+ * 오류가 같은 두 필드를 들고 여기까지 온다 — 이 함수는 그 둘을 뽑아 patch 조각으로 만든다.
+ * 뽑는 규칙 자체는 permission-denied.ts가 단독으로 소유한다(판정과 저장이 같은 값을 봐야 한다).
+ */
+function failureReasonPatch(error: unknown): { lastErrorStatus: number | null; lastErrorCode: string | null } {
+  const reason = syncFailureReasonOf(error);
+  return { lastErrorStatus: reason.status, lastErrorCode: reason.code };
+}
+
+/**
+ * 행이 다시 살아날 때(전송 성공·사용자 재시도·충돌 해소) 사유도 함께 지운다. `lastError`만 비우고
+ * 이 둘을 남겨 두면, 다음에 이 행이 화면에 실패로 뜨는 순간 **지난번 실패의 status**로 판정되어
+ * 이미 성격이 달라진 실패에 "다시 보내도 같은 결과예요"가 붙는다.
+ */
+const CLEARED_FAILURE_REASON = { lastErrorStatus: null, lastErrorCode: null } as const;
 
 /** Drops keys whose value is explicitly `undefined` before merging a patch onto a payload. The
  * rest of this codebase's update call sites (e.g. app/expenses/[expenseId].tsx) pass
@@ -203,6 +222,11 @@ export async function recordLocalUpdate(
     payload: mergedPayload,
     syncState: "pending",
     lastError: null,
+    // 라운드 57 QA(P2-4): 사람이 읽는 문장만 지우고 **구조화된 사유**를 남기면, 이 행이 다음에
+    // 화면에 뜨는 순간 지난번 실패의 status/code로 판정된다 -- 방금 사용자가 값을 고쳐 새 시도가
+    // 된 행에 "다시 보내도 같은 결과예요"가 붙는다. 되살아나는 다른 자리들과 같은 규칙이다
+    // (위 CLEARED_FAILURE_REASON 주석 — 전송 성공·사용자 재시도·충돌 해소).
+    ...CLEARED_FAILURE_REASON,
     updatedAt: timestamp
   });
 
@@ -256,6 +280,9 @@ export async function recordLocalDelete(
       syncState: "pending",
       pendingDelete: true,
       lastError: null,
+      // 라운드 57 QA(P2-4): 수정과 같은 이유로 구조화된 사유도 함께 지운다 -- 삭제는 앞선
+      // 생성/수정 실패와 **다른 요청**이라, 그 실패의 status/code를 물려받으면 안 된다.
+      ...CLEARED_FAILURE_REASON,
       updatedAt: timestamp
     });
   }
@@ -581,6 +608,7 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
           version: result.version,
           syncState: stillQueued.length > 0 ? "pending" : "synced",
           lastError: null,
+          ...CLEARED_FAILURE_REASON,
           updatedAt: nowIso()
         });
         summary.synced += 1;
@@ -610,6 +638,7 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
           version: result.version,
           syncState: stillQueued.length > 0 ? "pending" : "synced",
           lastError: null,
+          ...CLEARED_FAILURE_REASON,
           updatedAt: nowIso()
         });
         summary.synced += 1;
@@ -638,14 +667,19 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
           // same 'failed' state as a permanent HTTP error so the existing retry/discard UI
           // handles it instead of leaving the row permanently stuck in an unresolvable
           // 'conflict' state (see resolveConflict* below, which also guards against this).
+          // 라운드 57 #8: 사유는 **비운다**. 이 실패는 HTTP status로 분류할 수 있는 종류가
+          // 아니고(409지만 해소할 스냅숏이 없다는 로컬 판단이다), 사용자에게 남은 두 길인
+          // 재시도·버리기가 모두 유효하다 — 여기에 4xx를 적으면 화면이 재시도를 걷어낸다.
           await store.updateLocalExpense(mutation.targetLocalId, {
             syncState: "failed",
             lastError: error.message,
+            ...CLEARED_FAILURE_REASON,
             updatedAt: nowIso()
           });
           await store.updateOutboxMutation(mutation.mutationId, {
             attemptCount: mutation.attemptCount + 1,
             lastError: error.message,
+            ...CLEARED_FAILURE_REASON,
             inFlight: false
           });
           summary.failed += 1;
@@ -655,9 +689,15 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
           syncState: "conflict",
           conflictCurrent: error.current,
           lastError: error.message,
+          // 충돌 행은 실패 행이 아니다 — 세 가지 해소 선택지를 가진 별도 섹션으로 간다.
+          ...CLEARED_FAILURE_REASON,
           updatedAt: nowIso()
         });
-        await store.updateOutboxMutation(mutation.mutationId, { inFlight: false, lastError: error.message });
+        await store.updateOutboxMutation(mutation.mutationId, {
+          inFlight: false,
+          lastError: error.message,
+          ...CLEARED_FAILURE_REASON
+        });
         summary.conflicted += 1;
         continue;
       }
@@ -673,14 +713,19 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
           summary.synced += 1;
           continue;
         }
+        // 라운드 57 #8: status·code를 행에 남긴다. 이것이 동기화 상태 화면이 "재시도" 버튼과
+        // 정직한 안내 중 무엇을 그릴지 판정하는 유일한 근거다(permission-denied.ts).
+        const reason = failureReasonPatch(error);
         await store.updateLocalExpense(mutation.targetLocalId, {
           syncState: "failed",
           lastError: error.message,
+          ...reason,
           updatedAt: nowIso()
         });
         await store.updateOutboxMutation(mutation.mutationId, {
           attemptCount: mutation.attemptCount + 1,
           lastError: error.message,
+          ...reason,
           inFlight: false
         });
         summary.failed += 1;
@@ -703,6 +748,10 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
       // `break` 대신 `continue`로 이 pass의 나머지 큐를 계속 보낸다(= head-of-line 해제).
       // 승격 후에는 flushOutboxPass 위쪽의 'failed' 스킵 규칙이 이 행을 자동 재시도 대상에서
       // 빼 주므로, 다음 pass부터는 뒤의 mutation들이 정상적으로 진행된다.
+      // 라운드 57 #8: 5xx·네트워크 실패의 사유도 그대로 남긴다. 이 status는 화면에서 **재시도
+      // 가능**으로 읽힌다(isRetryableSyncError) — 서버가 회복되면 같은 요청이 그대로 통과하므로,
+      // 자동 재시도를 포기한 아래 F2 갈래에서도 사용자의 재시도 버튼은 남아야 한다.
+      const transientReason = failureReasonPatch(error);
       if (serverErrorStatus !== null && nextAttempt >= MAX_SERVER_ERROR_ATTEMPTS) {
         await store.updateOutboxMutation(mutation.mutationId, {
           attemptCount: nextAttempt,
@@ -710,11 +759,13 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
           // 여기서는 죽은 백오프 창을 남기지 않고 비워 둔다.
           nextRetryAt: null,
           lastError: SERVER_ERROR_GIVE_UP_MESSAGE,
+          ...transientReason,
           inFlight: false
         });
         await store.updateLocalExpense(mutation.targetLocalId, {
           syncState: "failed",
           lastError: SERVER_ERROR_GIVE_UP_MESSAGE,
+          ...transientReason,
           updatedAt: nowIso()
         });
         summary.failed += 1;
@@ -725,11 +776,13 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
         attemptCount: nextAttempt,
         nextRetryAt: computeNextRetryAtIso(nowIso(), nextAttempt),
         lastError: message,
+        ...transientReason,
         inFlight: false
       });
       await store.updateLocalExpense(mutation.targetLocalId, {
         syncState: "pending",
         lastError: message,
+        ...transientReason,
         updatedAt: nowIso()
       });
       summary.stoppedForNetwork = true;
@@ -855,6 +908,8 @@ async function flushItemStatusPass(
           syncState: "failed",
           attemptCount: row.attemptCount + 1,
           lastError: error.message,
+          // 라운드 57 #8: 지출 행과 **같은 사유 채널**이라 화면 판정도 하나다.
+          ...failureReasonPatch(error),
           inFlight: false,
           updatedAt: nowIso()
         });
@@ -873,12 +928,14 @@ async function flushItemStatusPass(
 
       // F2와 같은 결정적 5xx 탈출구: 상한에 닿으면 'failed'로 올려 사용자 몫으로 넘기고,
       // 뒤에 쌓인 다른 준비템은 이 pass에서 계속 보낸다(head-of-line 해제).
+      const transientReason = failureReasonPatch(error);
       if (serverErrorStatus !== null && nextAttempt >= MAX_SERVER_ERROR_ATTEMPTS) {
         await store.updateItemStatusMutation(row.mutationId, {
           syncState: "failed",
           attemptCount: nextAttempt,
           nextRetryAt: null,
           lastError: SERVER_ERROR_GIVE_UP_MESSAGE,
+          ...transientReason,
           inFlight: false,
           updatedAt: nowIso()
         });
@@ -891,6 +948,7 @@ async function flushItemStatusPass(
         attemptCount: nextAttempt,
         nextRetryAt: computeNextRetryAtIso(nowIso(), nextAttempt),
         lastError: message,
+        ...transientReason,
         inFlight: false,
         updatedAt: nowIso()
       });
@@ -908,6 +966,9 @@ export async function retryFailedItemStatusMutation(store: OfflineStore, mutatio
     attemptCount: 0,
     nextRetryAt: null,
     lastError: null,
+    // 라운드 57 #8: 지난 실패의 status가 남아 있으면 다음 실패가 무엇이든 화면이 지난번 판정을
+    // 그대로 반복한다. 사유는 실패와 함께 쓰이고 되살아날 때 함께 지워진다.
+    ...CLEARED_FAILURE_REASON,
     updatedAt: nowIso()
   });
 }
@@ -939,6 +1000,9 @@ async function fallBackToFailedForUnresolvableConflict(store: OfflineStore, loca
   await store.updateLocalExpense(localId, {
     syncState: "failed",
     lastError: "충돌 정보를 확인할 수 없어요. 다시 시도하거나 삭제해 주세요.",
+    // 라운드 57 #8: HTTP status로 분류할 수 있는 실패가 아니다. 사유를 비워 두면 화면은 예전처럼
+    // 재시도·버리기 둘 다 내놓는다 -- 문구가 이미 그렇게 말하고 있다.
+    ...CLEARED_FAILURE_REASON,
     updatedAt: nowIso()
   });
 }
@@ -955,9 +1019,15 @@ async function fallBackToFailedForUnresolvableConflict(store: OfflineStore, loca
 export async function retryFailedMutation(store: OfflineStore, localId: string): Promise<void> {
   const mutations = await store.listOutboxMutationsForLocalId(localId);
   for (const mutation of mutations) {
-    await store.updateOutboxMutation(mutation.mutationId, { attemptCount: 0, nextRetryAt: null, lastError: null });
+    // 라운드 57 #8: 사유(status/code)도 함께 지운다 -- retryFailedItemStatusMutation 주석 참고.
+    await store.updateOutboxMutation(mutation.mutationId, {
+      attemptCount: 0,
+      nextRetryAt: null,
+      lastError: null,
+      ...CLEARED_FAILURE_REASON
+    });
   }
-  await store.updateLocalExpense(localId, { syncState: "pending", lastError: null });
+  await store.updateLocalExpense(localId, { syncState: "pending", lastError: null, ...CLEARED_FAILURE_REASON });
 }
 
 /** User-triggered "삭제" for a 'failed' row: discards the local row and its queued mutation(s)
@@ -994,12 +1064,23 @@ async function listFailedLocalIds(store: OfflineStore): Promise<string[]> {
  * 라운드 47 UX-AB: 403 권한 거절 행은 제외한다. 화면이 그 행의 개별 "재시도" 버튼을 이미 안내로
  * 바꿔 두었는데(app/sync-status.tsx), 일괄 버튼이 같은 행을 다시 큐에 올리면 화면이 말한 것과
  * 실제 동작이 어긋난다 -- 게다가 재시도해 봐야 같은 403이라 attemptCount만 소모한다.
- * "전체 버리기"는 그대로 전량을 대상으로 한다(버리는 것은 403 행에도 유효한 유일한 선택지다).
+ * 라운드 57 #8에서 그 제외 집합이 **재시도가 무익한 4xx 전부**로 넓어진다(아래 filter 주석).
+ * "전체 버리기"는 그대로 전량을 대상으로 한다(버리는 것은 그 행들에도 유효한 유일한 선택지다).
  */
 export async function retryAllFailedMutations(store: OfflineStore): Promise<number> {
   const rows = await store.listLocalExpenses();
   const localIds = rows
-    .filter((row) => row.syncState === "failed" && !isPermissionDeniedSyncError(row.lastError))
+    .filter(
+      (row) =>
+        row.syncState === "failed" &&
+        // 라운드 57 #8: 라운드 47의 규칙(화면이 재시도 버튼을 걷어낸 행은 일괄 버튼도 건드리지
+        // 않는다)을 403 밖으로 넓힌다. 이제 화면은 403뿐 아니라 재시도가 무익한 4xx 전부에서
+        // 재시도 자리를 안내로 바꾸므로, 여기서 그 행들을 다시 큐에 올리면 화면이 말한 것과 실제
+        // 동작이 어긋난다(게다가 같은 4xx를 다시 받아 attemptCount만 소모한다).
+        // status를 모르는 레거시 행은 두 판정 모두에서 예전 그대로 재시도 대상이다.
+        isRetryableSyncFailureRow(row) &&
+        !isPermissionDeniedSyncError(row)
+    )
     .map((row) => row.localId);
   for (const localId of localIds) {
     await retryFailedMutation(store, localId);
@@ -1090,6 +1171,7 @@ export async function resolveConflictAdoptServer(store: OfflineStore, localId: s
     conflictCurrent: null,
     pendingDelete: false,
     lastError: null,
+    ...CLEARED_FAILURE_REASON,
     updatedAt: nowIso()
   });
 }
@@ -1116,6 +1198,7 @@ export async function resolveConflictReapplyMine(store: OfflineStore, localId: s
       conflictCurrent: null,
       pendingDelete: false,
       lastError: null,
+      ...CLEARED_FAILURE_REASON,
       updatedAt: timestamp
     });
     await store.insertOutboxMutation({
@@ -1139,6 +1222,7 @@ export async function resolveConflictReapplyMine(store: OfflineStore, localId: s
     conflictCurrent: null,
     version: serverVersion,
     lastError: null,
+    ...CLEARED_FAILURE_REASON,
     updatedAt: timestamp
   });
   await store.insertOutboxMutation({
@@ -1185,6 +1269,7 @@ export async function resolveConflictWithMergedPayload(
     conflictCurrent: null,
     version: serverVersion,
     lastError: null,
+    ...CLEARED_FAILURE_REASON,
     updatedAt: timestamp
   });
   await store.insertOutboxMutation({

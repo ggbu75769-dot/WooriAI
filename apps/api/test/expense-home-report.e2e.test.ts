@@ -239,6 +239,21 @@ describe("Expense, budget, home, and report API", () => {
         })
       ])
     );
+
+    // CS-101(라운드 56 트랙 C): 수정도 삭제와 같은 형식으로 남는다. before/after가
+    // 없으면 "금액이 혼자 바뀌었어요" 문의에 어드민이 답할 근거가 없다 —
+    // 바뀐 값(49,800 → 59,800)이 스냅샷 양쪽에 실제로 담겨야 한다.
+    const updateEntry = auditLogger.entries.find(
+      (entry) => entry.action === "expense.update" && entry.targetId === created.id
+    );
+    expect(updateEntry).toBeDefined();
+    expect(updateEntry).toMatchObject({
+      actorUserId: userId,
+      householdId,
+      targetType: "expense",
+      before: expect.objectContaining({ id: created.id, amountKrw: 49800, memo: "첫 기록", version: 1 }),
+      after: expect.objectContaining({ id: created.id, amountKrw: 59800, memo: "수정된 기록", version: 2 })
+    });
   });
 
   it("derives home recentExpenses (newest 3) and totalExpenseKrw (all-time sum) consistently from the same expense set (PERF-103)", async () => {

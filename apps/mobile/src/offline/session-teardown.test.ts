@@ -14,6 +14,10 @@ import {
   registerAppQueryClient,
   resetAppQueryClientRegistryForTests
 } from "../query/query-client-registry";
+import { useAppLockStore } from "../stores/app-lock.store";
+import { useImportResumeStore } from "../stores/import-resume.store";
+import { useRecurringExpenseStore } from "../stores/recurring-expense.store";
+import { readAppLockRecord } from "../security/app-lock-storage";
 import { secureSessionStorage } from "../stores/secure-session-storage";
 import { saveSyncCursor, SYNC_CURSOR_META_KEY } from "./delta-sync";
 import { createMemoryOfflineStore } from "./memory-offline-store";
@@ -50,6 +54,16 @@ const payload: ExpensePayload = {
   itemName: "기저귀"
 };
 
+/** 라운드 55 트랙 C: 계정 데이터를 담은 반복 지출 템플릿 하나(설계 §1.6). */
+const recurringDraft = {
+  childId: "child-1",
+  itemName: "기저귀",
+  amountKrw: 38_500,
+  categoryId: "cat-diaper",
+  paymentMethod: "card",
+  dayOfMonth: 5
+} as const;
+
 /** Fake session-store snapshots (only the identity fields the teardown policy reads). */
 const loggedOut: SessionIdentity = { userId: null, isTestSession: false };
 const userA: SessionIdentity = { userId: "user-a", isTestSession: false };
@@ -79,6 +93,16 @@ async function seedUserScopedState(store: OfflineStore): Promise<void> {
   useHomeFirstRunGuideStore.getState().dismissItemsGuide("child-1");
   useFirstRecordCelebrationStore.getState().observe("child-1", false);
   useFirstRecordCelebrationStore.getState().observe("child-1", true);
+  // 라운드 55 트랙 C: 반복 지출 템플릿(계정 데이터)과 앱 잠금 PIN(브릭 방지)도 같은 목록이다.
+  useRecurringExpenseStore.getState().addTemplate(recurringDraft);
+  // 라운드 56 트랙 D: 가져오기 이어보기 항목(childId·파일명)도 계정 데이터다.
+  useImportResumeStore.getState().rememberImportReview({
+    childId: "child-1",
+    jobId: "job-1",
+    fileName: "가계부.xlsx",
+    createdAt: "2026-08-28T00:00:00.000Z"
+  });
+  await useAppLockStore.getState().enableLock("1234");
 }
 
 async function expectStoreFullyEmpty(store: OfflineStore): Promise<void> {
@@ -100,10 +124,15 @@ async function simulateSessionTransition(
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   usePurchaseFollowupStore.setState({ entries: [] });
   useHomeFirstRunGuideStore.getState().reset();
   useFirstRecordCelebrationStore.getState().reset();
+  // 라운드 55 트랙 C: 잠금 기록은 SecureStore(vitest에서는 인메모리 폴백)에 남으므로 테스트
+  // 사이에 지운다 -- 남기면 다음 테스트의 사전 조건이 조용히 달라진다.
+  useRecurringExpenseStore.getState().resetAll();
+  useImportResumeStore.getState().resetAll();
+  await useAppLockStore.getState().resetAll();
 });
 
 // ---------------------------------------------------------------------------
@@ -625,6 +654,71 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
 
     expect(useHomeFirstRunGuideStore.getState().dismissedItemsGuideChildIds).toEqual([]);
     expect(useFirstRecordCelebrationStore.getState().everHadRecordChildIds).toEqual({});
+  });
+
+  /**
+   * 라운드 55 트랙 C — 반복 지출 템플릿(설계 §1.6)과 앱 잠금 PIN(§2.8)의 teardown 합류.
+   *
+   * 두 스토어가 여기 드는 이유가 서로 다르다:
+   *  - 템플릿은 품목명·금액·분류·판매처를 담은 **계정 데이터**다. 남으면 B가 A의 정기 지출을 본다.
+   *  - PIN은 남으면 **브릭**이다. A 로그아웃 → B 로그인 → B가 A의 PIN 화면에 갇히고, 탈출구인
+   *    로그아웃을 눌러도 다시 로그인하면 또 잠긴다.
+   * 반대로 만료(`expired`)는 정체성이 그대로라 teardown 자체가 발화하지 않는다 — 같은 사람의
+   * PIN과 템플릿을 빼앗지 않는다(수용 기준 #9-8).
+   */
+  it("라운드 55 트랙 C: 계정 전환에서 반복 지출 템플릿과 앱 잠금 PIN이 함께 지워진다", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+    // 사전 조건: A의 템플릿 1건과 A의 PIN이 실제로 저장돼 있다.
+    expect(useRecurringExpenseStore.getState().templates).toHaveLength(1);
+    expect(useAppLockStore.getState().record?.enabled).toBe(true);
+    expect((await readAppLockRecord()).status).toBe("loaded");
+
+    await simulateSessionTransition(store, userA, userB);
+
+    expect(useRecurringExpenseStore.getState().templates).toEqual([]);
+    // 라운드 56 트랙 D: 가져오기 이어보기 항목도 함께 비어야 한다(다음 계정에 파일명이 새지 않게).
+    expect(useImportResumeStore.getState().entry).toBeNull();
+    // 런타임 상태와 SecureStore 키가 **둘 다** 비어야 한다. 하나만 지우면 다음 부팅에서 되살아난다.
+    expect(useAppLockStore.getState().record).toBeNull();
+    expect(await readAppLockRecord()).toEqual({ status: "loaded", record: null });
+    // 기록을 지운 직후의 사실은 "잠금 없음"이다 -- unknown으로 두면 B가 이유 없이 recovery를 본다.
+    expect(useAppLockStore.getState().recordStatus).toBe("loaded");
+    expect(useAppLockStore.getState().unlockedThisForeground).toBe(false);
+  });
+
+  it("라운드 55 트랙 C: 로그아웃에서도 템플릿과 PIN이 남지 않는다 (수용 기준 #4-8)", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+
+    await simulateSessionTransition(store, userA, loggedOut);
+
+    expect(useRecurringExpenseStore.getState().templates).toEqual([]);
+    expect(useImportResumeStore.getState().entry).toBeNull();
+    expect(await readAppLockRecord()).toEqual({ status: "loaded", record: null });
+  });
+
+  it("라운드 55 트랙 C: 만료(expired, 같은 사람)로는 템플릿도 PIN도 잃지 않는다", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+
+    // `clearSession("expired")`가 남기는 상태: 정체성(userId·isTestSession)은 그대로다.
+    await simulateSessionTransition(store, userA, { userId: "user-a", isTestSession: false });
+
+    expect(useRecurringExpenseStore.getState().templates).toHaveLength(1);
+    expect(useImportResumeStore.getState().entry).not.toBeNull();
+    expect(useAppLockStore.getState().record?.enabled).toBe(true);
+    expect((await readAppLockRecord()).status).toBe("loaded");
+  });
+
+  it("라운드 55 트랙 C: 앱 잠금 삭제는 teardown이 끝나기 전에 완료된다 (await -- 다음 부팅까지 남지 않는다)", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+
+    // teardown의 promise가 resolve된 시점에 SecureStore 키가 이미 없어야 한다.
+    await teardownOfflineSessionState(store, { authToken: null });
+
+    expect(await readAppLockRecord()).toEqual({ status: "loaded", record: null });
   });
 
   /**

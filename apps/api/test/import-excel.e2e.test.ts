@@ -351,6 +351,89 @@ describe("Excel import beta API", () => {
       });
   });
 
+  /**
+   * 라운드 57 QA(P2-13) — 컬럼 폭(varchar(120))을 넘는 품목명 행도 **그 행만** 거절된다.
+   *
+   * 무슨 일이 있었나: `import_rows.parsed_item_name`은 varchar(120)인데 가져오기는 사용자가 만든
+   * 파일을 그대로 읽는다. 121자 이상인 셀이 한 줄이라도 있으면 미리보기 행 insert가 DB에서 터지고,
+   * 그 insert는 잡 생성 트랜잭션 안이라 **업로드 전체가 500**으로 끝났다 — 검증 상태를 붙일 기회도
+   * 없이 파일이 통째로 거절된다. 금액(int4)에서 GAP-054 P1-1이 고친 것과 같은 형태의 결함이다.
+   *
+   * 고친 뒤의 계약(금액과 같은 판단): **자르지 않는다.** 잘라 담으면 사용자가 적은 값이 조용히
+   * 짧아지고 원본을 되찾을 길이 없다(허위 절단 금지). 그 행의 품목명을 비우고 별도 검증 상태로
+   * 떨구면, 앱은 그 행을 "가져올 수 없어요 · 원본을 고쳐 다시 올려 주세요"로 보여 준다.
+   */
+  it("라운드 57 P2-13: 120자를 넘는 품목명 행만 떨구고 파일 전체를 500으로 만들지 않는다", async () => {
+    const accessToken = await login(app, "r57-import-item-name-len");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    // 카테고리 키워드("기저귀")를 앞에 두어 두 행 모두 평소처럼 `valid`가 되게 한다 --
+    // 이 테스트가 보는 것은 분류 신뢰도가 아니라 **길이** 하나다.
+    const tooLongName = `기저귀 ${"가".repeat(117)}`; // 121자 (컬럼 폭 초과)
+    const boundaryName = `기저귀 ${"나".repeat(116)}`; // 정확히 120자 (컬럼 폭 경계)
+    const csvContent = [
+      "날짜,적요,금액",
+      "2026-07-06,기저귀 구매,32000",
+      `2026-07-05,${tooLongName},41000`,
+      `2026-07-04,${boundaryName},33000`,
+      ""
+    ].join("\n");
+
+    // 예전에는 이 줄이 500이었다 -- 200이라는 사실 자체가 이 항목의 회귀 방지선이다.
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", "long-item-name.csv")
+        .attach("file", Buffer.from(csvContent, "utf8"), "long-item-name.csv")
+        .expect(200)
+    ).body as ImportJob;
+
+    const rows = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/imports/${job.id}/rows`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.rows as ImportRow[];
+
+    expect(rows).toHaveLength(3);
+    // 길이 오류는 **그 한 행뿐**이다 -- 나머지 두 행은 평소대로 살아 있다.
+    const tooLongRows = rows.filter((row) => row.validationStatus === "item_name_too_long");
+    expect(tooLongRows).toHaveLength(1);
+    const tooLongRow = tooLongRows[0];
+    expect(tooLongRow.selected).toBe(false);
+    // **잘라서** 그럴듯한 이름을 만들지 않는다 -- 담을 수 없으면 비운다(금액과 같은 규칙).
+    expect(tooLongRow.parsedItemName).toBeUndefined();
+    // 담을 수 있는 값은 어디도 잘리지 않는다: 경계값(정확히 120자)이 원문 그대로 살아난다.
+    const boundaryRow = rows.find((row) => row.parsedItemName === boundaryName);
+    expect(boundaryRow, "120자 행이 잘렸거나 사라졌다").toBeDefined();
+    expect(boundaryRow!.parsedItemName).toHaveLength(120);
+    expect(boundaryRow!.validationStatus).toBe("valid");
+    // 짧은 평범한 행도 그대로다.
+    expect(rows.some((row) => row.parsedItemName === "기저귀 구매")).toBe(true);
+
+    // 검수 화면에서 이름을 고치면 그 행도 살아난다(앱 안의 탈출구가 실제로 동작한다).
+    await request(app.getHttpServer())
+      .patch(`/api/v1/imports/${job.id}/rows/${tooLongRow.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ parsedItemName: "정기 결제" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.parsedItemName).toBe("정기 결제");
+        expect(body.validationStatus).toBe("valid");
+      });
+
+    // 확정: 고치지 않은 채로 통째로 선택해도 나머지 행은 평소대로 들어간다(전체 롤백 없음).
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: rows.map((row) => row.id) })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.importedCount).toBe(3);
+      });
+  });
+
   // API-130: 형식 판정이 파일명 확장자에만 기대던 것을 (1) mimetype 1차 관문과
   // (2) 매직바이트 본검사로 나눠 잡는다. 둘 다 기존 400 IMPORT_FILE_TYPE_INVALID
   // 봉투를 그대로 쓴다 — 사용자에게는 "지원하지 않는 파일" 하나의 사실이다.

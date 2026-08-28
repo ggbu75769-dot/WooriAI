@@ -63,14 +63,16 @@ describe("EXP-106 export range collection", () => {
     expect(result.truncated).toBe(false);
   });
 
-  it("올해 loops January through the current month to completion", async () => {
+  it("올해 loops the whole year to completion, newest month first (GAP-056 #9)", async () => {
+    // 달 목록 자체는 오름차순 그대로다 -- 방향을 정하는 것은 수집기다.
     expect(yearMonthsForRange("year", "2026-03-01")).toEqual(["2026-01", "2026-02", "2026-03"]);
     const { fetchMonth, calls } = fetcherFromPages({
       "2026-01": [makeExpense("2026-01-15")],
       "2026-03": [makeExpense("2026-03-05")]
     });
     const result = await collectExpensesForRange(fetchMonth, "year", "2026-03-20");
-    expect(calls).toEqual(["2026-01", "2026-02", "2026-03"]);
+    // GAP-056 #9: "전체"·"직접 선택"과 같은 걷기 방향(최신 달 우선). 결과는 종전대로 오름차순이다.
+    expect(calls).toEqual(["2026-03", "2026-02", "2026-01"]);
     expect(result.monthsFetched).toBe(3);
     expect(result.expenses.map((expense) => expense.spentOn)).toEqual(["2026-01-15", "2026-03-05"]);
   });
@@ -122,6 +124,88 @@ describe("EXP-106 export range collection", () => {
     const over = await collectExpensesForRange(fetchMonth, "year", "2026-02-10", { maxRows: 1 });
     expect(over.truncated).toBe(true);
     expect(over.expenses).toHaveLength(1);
+  });
+
+  /**
+   * GAP-056 #9 — 닫힌 구간("이번 달"·"올해")의 절단 방향.
+   *
+   * 예전에는 1월부터 오름차순으로 모은 뒤 뒤를 잘라, 상한에 걸린 "올해"가 **1월·2월만 담고
+   * 이번 달을 버렸다**. "전체"·"직접 선택"은 이미 반대(최신 우선)라, 같은 앱 안에서 구간마다
+   * 잘리는 쪽이 달랐다. 세 구간이 한 규칙("오래된 쪽이 빠진다")임을 여기서 고정한다.
+   */
+  describe("GAP-056 #9 올해 절단 방향", () => {
+    const yearPages = async (yearMonth: string) => [
+      makeExpense(`${yearMonth}-01`, "a"),
+      makeExpense(`${yearMonth}-02`, "b")
+    ];
+
+    it("상한에 걸리면 최근 달이 남고 오래된 달이 빠진다 (전체 구간과 같은 규칙)", async () => {
+      const result = await collectExpensesForRange(yearPages, "year", "2026-04-10", { maxRows: 3 });
+      expect(result.truncated).toBe(true);
+      expect(result.expenses).toHaveLength(3);
+      // 4월(2건) + 3월(1건). 1월·2월은 요청조차 하지 않는다 -- 어차피 버릴 행이다.
+      expect(result.expenses.map((expense) => expense.spentOn)).toEqual([
+        "2026-03-01",
+        "2026-04-01",
+        "2026-04-02"
+      ]);
+      expect(result.monthsFetched).toBe(2);
+    });
+
+    it("가장 오래된 달에서 정확히 상한에 닿으면 잃은 것이 없으므로 잘림을 알리지 않는다", async () => {
+      // 2026-01 ~ 2026-03, 달마다 2건 = 6건.
+      const result = await collectExpensesForRange(yearPages, "year", "2026-03-10", { maxRows: 6 });
+      expect(result.truncated).toBe(false);
+      expect(result.expenses).toHaveLength(6);
+      expect(result.monthsFetched).toBe(3);
+    });
+
+    it("빈 달은 상한 판정에 끼어들지 않고 그대로 지나간다", async () => {
+      const { fetchMonth, calls } = fetcherFromPages({
+        "2026-01": [makeExpense("2026-01-09")],
+        "2026-05": [makeExpense("2026-05-09")]
+      });
+      const result = await collectExpensesForRange(fetchMonth, "year", "2026-05-31");
+      expect(calls).toEqual(["2026-05", "2026-04", "2026-03", "2026-02", "2026-01"]);
+      expect(result.truncated).toBe(false);
+      expect(result.expenses.map((expense) => expense.spentOn)).toEqual(["2026-01-09", "2026-05-09"]);
+    });
+
+    /**
+     * 라운드 57 QA(P2-12) — **세 갈래가 한 규칙을 쓴다(관측 사실 기반).**
+     *
+     * `truncated`는 "행을 실제로 버렸다(> maxRows)" 또는 "상한 때문에 멈춘 시점에 **아직 열어
+     * 보지 않은** 과거 달이 남았다"이다. 앞의 두 테스트가 그 두 항을 각각 잡고, 아래 두 개는
+     * 예전에 갈라져 있던 자리를 잡는다.
+     */
+    it("아직 열어 보지 않은 과거 달이 남으면 알린다 -- 그 달이 비어 있을 수도 있어 문구가 '있을 수 있어요'다", async () => {
+      // 3월에 2건, 그 앞(1~2월)은 열어 보지도 않은 채 상한에 닿는다.
+      const result = await collectExpensesForRange(yearPages, "year", "2026-03-10", { maxRows: 4 });
+      expect(result.truncated).toBe(true);
+      expect(result.monthsFetched).toBe(2);
+      expect(result.expenses).toHaveLength(4);
+    });
+
+    it("'전체'도 같은 규칙이다 -- 정확히 상한에 닿아도 남은 과거 달이 있으면 알린다", async () => {
+      const { fetchMonth } = fetcherFromPages({
+        "2026-08": [makeExpense("2026-08-01", "a"), makeExpense("2026-08-02", "b")]
+      });
+      const result = await collectExpensesForRange(fetchMonth, "all", "2026-08-14", { maxRows: 2 });
+      // 버린 행은 없지만 8월 앞을 아직 열어 보지 않았다 -- 그 사실을 삼키면 진짜 조용한 손실이 된다.
+      expect(result.truncated).toBe(true);
+      expect(result.monthsFetched).toBe(1);
+      expect(result.expenses).toHaveLength(2);
+    });
+
+    it("한 달짜리 '이번 달' 구간은 방향이 바뀌어도 종전과 같다", async () => {
+      const { fetchMonth, calls } = fetcherFromPages({
+        "2026-08": [makeExpense("2026-08-01", "a"), makeExpense("2026-08-02", "b")]
+      });
+      const result = await collectExpensesForRange(fetchMonth, "month", "2026-08-14", { maxRows: 2 });
+      expect(calls).toEqual(["2026-08"]);
+      expect(result.truncated).toBe(false);
+      expect(result.expenses).toHaveLength(2);
+    });
   });
 });
 

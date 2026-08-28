@@ -101,6 +101,47 @@ describe("NAV-121 settings entry point contract", () => {
 
   // 리뷰 F7: 로그아웃 후에도 selectedChildId가 남아 있으면 두 쿼리 모두 enabled:false라
   // 로딩도 실패도 아닌 상태가 되어 요약 줄이 "불러오는 중..."에 영구히 멈춘다.
+  /**
+   * 라운드 55 트랙 C — SET-002에 붙는 두 진입점(설계 §1.5·§3).
+   *
+   * 정기 지출 관리의 입구는 **둘뿐**이다: 홈 리마인더 카드 하단의 텍스트 버튼과 이 행. 더보기 탭
+   * 세션 메뉴는 7행 고정이 SET-001 compact 기준의 근거라 건드리지 않는다(more-menu.test.ts가
+   * 그 7행을 따로 고정하고 있어, 여기서는 이 화면에 두 행이 생겼다는 사실만 잡는다).
+   */
+  it("라운드 55: SET-002에 정기 지출 관리 · 앱 잠금 두 행이 있다", () => {
+    const settingsSource = source("app/settings/index.tsx");
+    const settingsBlock = settingsSource.slice(settingsSource.indexOf('testID="screen-SET-002"'));
+
+    expect(settingsBlock).toContain('router.push("/expenses/recurring")');
+    expect(settingsBlock).toContain('router.push("/settings/app-lock")');
+    // 행 이름은 화면이 다시 적지 않고 각 기능의 순수 모듈에서 온다(같은 기능이 화면마다 다른
+    // 이름으로 보이던 FIX/F5의 재발 방지).
+    expect(settingsSource).toContain("import { RECURRING_MANAGE_LABEL }");
+    expect(settingsSource).toContain("import { APP_LOCK_TITLE }");
+    expect(settingsBlock).toContain("title={RECURRING_MANAGE_LABEL}");
+    expect(settingsBlock).toContain("title={APP_LOCK_TITLE}");
+  });
+
+  it("라운드 55: 앱 잠금 행의 부제가 APP_LOCK_SCOPE_NOTICE보다 크게 말하지 않는다 (수용 기준 #9-11)", async () => {
+    const settingsSource = source("app/settings/index.tsx");
+    const { APP_LOCK_SCOPE_NOTICE } = await import("./security/app-lock");
+
+    // 범위 고지 자체가 "기기 전체나 계정을 보호하는 기능은 아니에요"라고 말한다 -- 설정 행의
+    // 부제가 그보다 크게 말하면 계약 위반이다.
+    expect(APP_LOCK_SCOPE_NOTICE).toContain("기기 전체나 계정을 보호하는 기능은 아니에요");
+    // 사용자가 읽는 것은 렌더되는 문구뿐이라 주석은 걷어내고 본다(주석은 왜 그렇게 썼는지를
+    // 설명하느라 금지어 자체를 언급할 수 있다).
+    const renderedCopy = settingsSource
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    for (const overclaim of ["안전하게 보호", "완전", "암호화", "지문", "얼굴", "생체"]) {
+      expect(renderedCopy, overclaim).not.toContain(overclaim);
+    }
+    // 정기 지출 행도 마찬가지다: 리마인더이지 자동 기록이 아니다(DNC-013).
+    expect(renderedCopy).not.toContain("자동으로 기록");
+  });
+
   it("says the session is missing instead of loading forever when signed out with a stale selectedChildId", () => {
     const settingsSource = source("app/settings/index.tsx");
 

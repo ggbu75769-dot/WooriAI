@@ -21,6 +21,24 @@ import {
   toDateOnly
 } from "./store-shared";
 
+/**
+ * 라운드 57 QA(P2-13) — `import_rows`의 텍스트 컬럼 폭(`@db.VarChar(120)`).
+ *
+ * DTO의 `@MaxLength(100)`(검수 화면이 고쳐 보내는 값의 계약)이 아니라 **물리적 한계**다. 엑셀
+ * 가져오기는 사용자가 만든 파일을 그대로 읽으므로 계약보다 넓은 값이 들어올 수 있고, 이 숫자를
+ * 넘는 순간 insert가 DB에서 터진다. 두 숫자의 관계는 모바일 text-limits.ts 머리말의 "컬럼은
+ * 120인데 상한이 100인 이유"와 같다.
+ */
+const IMPORT_TEXT_COLUMN_MAX_LENGTH = 120;
+
+/** 이 행의 `validationStatus` — 품목명이 컬럼 폭을 넘어 저장할 수 없었다. */
+const IMPORT_ROW_ITEM_NAME_TOO_LONG_STATUS = "item_name_too_long";
+
+/** 저장할 수 없는 길이인가. 값이 없으면(선택 입력·빈 셀) 길이 문제는 아니다. */
+function isOverImportTextColumn(value: string | null | undefined): boolean {
+  return typeof value === "string" && value.length > IMPORT_TEXT_COLUMN_MAX_LENGTH;
+}
+
 type ImportRowRow = {
   id: string;
   importJobId: string;
@@ -408,12 +426,36 @@ export class ImportPipelineService {
       const duplicateCandidateExpenseId =
         row.dateIso && row.amountKrw != null ? existingExpenseIdByKey.get(`${row.dateIso}|${row.amountKrw}`) ?? null : null;
 
+      /**
+       * 라운드 57 QA(P2-13) — **컬럼 폭을 넘는 품목명이 파일 전체를 500으로 만들지 않게.**
+       *
+       * `import_rows.parsed_item_name`은 `varchar(120)`이다(prisma/schema.prisma). 파일에 121자
+       * 이상인 셀이 한 줄이라도 있으면 아래 `importRow.create`가 DB에서 터지고, 그 insert는
+       * 미리보기 생성 트랜잭션 안이라 **파일 전체가 거절**된다 — 검증 상태를 붙일 기회조차 없다.
+       * 금액(int4)에서 라운드 54 P1-1이 고친 것과 **정확히 같은 형태의 결함**이고, 텍스트 쪽만
+       * 남아 있었다.
+       *
+       * 자르지 않는다. 사용자가 적은 값을 앱이 조용히 짧게 만들면 그 뒤로는 원본을 되찾을 방법이
+       * 없고, 그건 이 저장소의 계약 위반이다(모바일 text-limits.ts 머리말: "조용히 잘라 버리지
+       * 않는다"). 검수 화면에 **원본을 보존한 채로 보여줄 자리도 없다** — 보여줄 값이 곧 저장된
+       * 값이고, 컬럼이 그 길이를 담지 못한다. 그래서 금액과 같은 선택을 한다: 값을 비우고 그
+       * 행만 별도 상태로 떨군다. 사용자에게는 "이 행은 가져올 수 없어요 · 원본 파일에서 고친 뒤
+       * 다시 올려 주세요"로 보이고(모바일 preview-rows.ts는 모르는 상태를 보수적으로 `locked`로
+       * 떨어뜨린다), 같은 파일의 나머지 행은 평소대로 살아난다.
+       *
+       * 판매처는 여기서 방어할 것이 없다: `import_rows.merchant` 컬럼은 있지만 파서가
+       * `merchant`를 만들지 않고(`ParsedImportRow`에 그 필드가 없다) 이 insert도 그 컬럼을 쓰지
+       * 않는다. 없는 경로를 위한 방어를 미리 적어 두면 다음 사람이 그것을 "이미 쓰이는 값"으로
+       * 읽는다 — 파서가 판매처를 만들게 되는 날 같은 자리에서 같은 규칙으로 막으면 된다.
+       */
+      const itemNameTooLong = isOverImportTextColumn(row.itemName);
+
       const base = {
         id: randomUUID(),
         importJobId: "",
         rowIndex: row.rowIndex,
         parsedDate: row.dateIso ? toDateOnly(row.dateIso) : null,
-        parsedItemName: row.itemName,
+        parsedItemName: itemNameTooLong ? null : row.itemName,
         /**
          * GAP-054 라운드 54 P1-1: `import_rows.parsed_amount_krw`도 int4다. 파일이 그 범위를
          * 넘는 값을 들고 오면 **미리보기 행 생성 자체가 500**이라, 검증 상태를 붙이기는커녕
@@ -430,7 +472,12 @@ export class ImportPipelineService {
         duplicateCandidateExpenseId
       };
 
-      const validationStatus = this.validationStatusForImportRow(base);
+      // 길이 초과는 저장된 행만 봐서는 알 수 없다(값을 비웠으므로 "빈 품목명"과 구별되지 않는다).
+      // 그래서 원본을 아는 이 자리에서 상태를 정한다 -- 그래야 화면이 "비어 있다"가 아니라
+      // "너무 길다"라는 **실제 사유**를 말할 수 있다.
+      const validationStatus = itemNameTooLong
+        ? IMPORT_ROW_ITEM_NAME_TOO_LONG_STATUS
+        : this.validationStatusForImportRow(base);
       return { ...base, validationStatus, selected: validationStatus === "valid" };
     });
   }

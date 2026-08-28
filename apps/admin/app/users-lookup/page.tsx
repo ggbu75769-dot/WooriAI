@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { isAuthError, isTimeoutError, lookupAdminEndUsers, type AdminLookupUser } from "../../src/lib/admin-api";
+import { auditLogsHrefForActor } from "../../src/lib/audit-log-filters";
 import {
   AUTH_PROVIDER_LABELS,
   accountStateLabel,
@@ -180,6 +182,24 @@ export default function UsersLookupPage() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* CS-101(라운드 56 트랙 C): 여기까지 오면 "이 사람이 누구인지"는 알 수 있지만
+                      "무엇을 했는지"로 가는 길이 없었다 — 감사 로그는 행위자 필터를 서버·API까지
+                      갖춰 두고도 화면에서 도달할 수단이 없어, 운영자가 UUID를 손으로 옮겨야 했다.
+                      링크가 actorUserId를 프리필해 그 사용자 행위만 남긴 목록으로 보낸다. */}
+                  <div className={styles.actions}>
+                    <Link
+                      href={auditLogsHrefForActor(user.id)}
+                      className={styles.secondaryButton}
+                      style={{ display: "inline-block", textDecoration: "none" }}
+                    >
+                      이 사용자 감사 로그 보기
+                    </Link>
+                  </div>
+                  <p className={styles.hint}>
+                    지출 수정·삭제, 아이 프로필 삭제, 로그인 같은 이 사용자의 행위 기록으로 넘어가요 (감사 로그는
+                    관리자 권한에서만 열려요).
+                  </p>
 
                   <h2>가구</h2>
                   {user.households.length === 0 ? (

@@ -61,7 +61,8 @@ describe("EXP-124 quick-expense create failure wiring", () => {
   });
 
   it("blocks double submits while the save is in flight", () => {
-    expect(newExpenseSource).toContain("disabled={saveExpense.isPending || isAmountInvalid}");
+    // GAP-056 #1: 잠금 판정의 이름만 넓어졌다(isSaveBlocked = 금액 가드 + 텍스트 길이 상한).
+    expect(newExpenseSource).toContain("disabled={saveExpense.isPending || isSaveBlocked}");
   });
 });
 

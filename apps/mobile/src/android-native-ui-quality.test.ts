@@ -106,6 +106,8 @@ describe("Android native UI quality contract", () => {
     expect(expenseSource).toContain('"2025. 05. 24 (토)"');
     expect(expenseSource).toContain("getSeoulToday");
     expect(expenseSource).toContain("authToken ? formatExpenseDate(today) : previewExpenseDate");
-    expect(expenseSource).toContain('disabled={saveExpense.isPending || isAmountInvalid}');
+    // GAP-056 #1: 판정 이름이 isSaveBlocked로 넓어졌다(금액 가드 + 텍스트 길이 상한). 비세션
+    // 캡처 경로에서는 두 항 모두 false라 EXP-001 기준 이미지의 저장 버튼 상태는 그대로다.
+    expect(expenseSource).toContain('disabled={saveExpense.isPending || isSaveBlocked}');
   });
 });

@@ -18,6 +18,10 @@ import {
   ExpenseCsvExportToast,
   useExpenseCsvExport
 } from "../../src/export/ExpenseCsvExport";
+// 라운드 55 트랙 C: 두 진입점의 이름은 화면이 다시 적지 않고 각 기능의 순수 모듈에서 가져온다
+// (같은 기능이 화면마다 다른 이름으로 보이던 FIX/F5의 재발 방지).
+import { RECURRING_MANAGE_LABEL } from "../../src/expenses/recurring-template";
+import { APP_LOCK_TITLE } from "../../src/security/app-lock";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -147,12 +151,33 @@ export default function SettingsScreen() {
           subtitle="이번 달 예산을 조정해요"
           onPress={() => router.push("/budget")}
         />
+        {/* 라운드 55 트랙 C — 반복/고정 지출 관리 진입점(설계 §1.5).
+            입구는 **둘뿐**이다: 홈 리마인더 카드 하단의 텍스트 버튼과 이 행. 더보기 탭은 7행
+            고정이 SET-001 compact 기준의 근거라 건드리지 않는다(src/settings/more-menu.ts).
+            부제가 "자동으로 기록해요"라고 말하지 않는 것이 계약이다 -- 이 기능은 리마인더이지
+            자동 기록이 아니다(DNC-013). */}
+        <ListRow
+          icon={<SettingsRowIcon name="repeat-outline" />}
+          title={RECURRING_MANAGE_LABEL}
+          subtitle="매달 반복되는 지출을 등록해 두고 기록할 때 알려 줘요"
+          onPress={() => router.push("/expenses/recurring")}
+        />
         {/* PUSH-116: 푸시 알림·기기별 수신 관리 (SET-006) */}
         <ListRow
           icon={<SettingsRowIcon name="notifications-circle-outline" />}
           title="알림 설정"
           subtitle="푸시 알림과 기기별 수신을 관리해요"
           onPress={() => router.push("/settings/notifications")}
+        />
+        {/* 라운드 55 트랙 B/C — 앱 잠금(PIN) 진입점.
+            부제는 APP_LOCK_SCOPE_NOTICE보다 **크게 말하지 않는다**(수용 기준 11): 이 잠금이
+            막는 것은 "잠깐 빌려준 폰에서 곁눈질"뿐이고, 기기·계정 보호가 아니다. 범위 고지
+            전문과 생체 인증 미지원 사실은 잠금 설정 화면이 말한다. */}
+        <ListRow
+          icon={<SettingsRowIcon name="lock-closed-outline" />}
+          title={APP_LOCK_TITLE}
+          subtitle="PIN 4자리로 앱을 열 때 한 번 확인해요"
+          onPress={() => router.push("/settings/app-lock")}
         />
         <ListRow
           icon={<SettingsRowIcon name="shield-checkmark-outline" />}

@@ -282,12 +282,22 @@ describe("GAP-054 #6 스토어 통합: 주 1회 · 끄기 · 딥링크", () => {
     }
   });
 
-  it("설정 목록에 이름이 있고, 탭하면 기록 탭으로 간다", () => {
+  it("설정 목록에 이름이 있고, 탭하면 기록 탭 달력으로 간다", () => {
     expect(NOTIFICATION_TYPE_OPTIONS.some((option) => option.type === "record_gap")).toBe(true);
     expect(notificationTypeLabel("record_gap")).toBe("기록 리마인더");
-    expect(notificationTapRoute({ type: "record_gap", dedupeKey: "record_gap:child-1:2026-W34" })).toBe(
-      "/(tabs)/records"
-    );
+    // 라운드 56 D#10: 목적지는 그대로 기록 탭이고, 거기에 "달력으로 열어 달라"가 실린다 --
+    // 이 알림이 가리키는 **빈 며칠**은 리스트에 없는 것이라 달력에서만 보인다.
+    // 라운드 57 QA(P1-1): 거기에 **이번 탭의 회차**가 함께 실린다 -- 회차가 없으면 기록 탭의
+    // 값별 가드가 두 번째 탭을 "지난번과 같은 값"으로 걸러 알림이 죽은 것처럼 보인다.
+    expect(notificationTapRoute({ type: "record_gap", dedupeKey: "record_gap:child-1:2026-W34" }, 4)).toEqual({
+      pathname: "/(tabs)/records",
+      params: { view: "calendar", viewNonce: "4" }
+    });
+    // 회차만 다른 두 번째 탭도 같은 목적지 + 다른 회차다(= 기록 탭이 다시 적용할 수 있다).
+    expect(notificationTapRoute({ type: "record_gap", dedupeKey: "record_gap:child-1:2026-W34" }, 5)).toEqual({
+      pathname: "/(tabs)/records",
+      params: { view: "calendar", viewNonce: "5" }
+    });
   });
 
   it("저장본 검증(sanitize)이 새 종류를 살려 둔다 -- 앱을 다시 열어도 목록에 남는다", () => {

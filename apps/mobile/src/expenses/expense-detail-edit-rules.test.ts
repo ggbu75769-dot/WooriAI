@@ -273,8 +273,15 @@ describe("GAP-054 #2 — 금액 상한(지출 상세·예산 두 화면)", () =>
       readFileSync(join(process.cwd(), "..", "api", "src", relative), "utf8");
     for (const dtoPath of ["finance/dto/expense.dto.ts", "onboarding/dto/upsert-budget.dto.ts"]) {
       const dto = apiSource(dtoPath);
-      expect(dto, dtoPath).toContain('import { MONEY_KRW_MAX } from "@wooriai/contracts";');
+      // 라운드 56 트랙 A(GAP-056 #1): expense.dto.ts는 길이 상한까지 contracts에서 가져오면서
+      // import 문이 여러 줄로 바뀌었다. 고정할 사실은 문장의 모양이 아니라 **어디서 오는가**다
+      // — `MONEY_KRW_MAX`가 @wooriai/contracts에서 오고, @Max가 그 이름을 문다.
+      const importBlock = dto.slice(0, dto.indexOf('from "@wooriai/contracts";'));
+      expect(importBlock, dtoPath).toContain("MONEY_KRW_MAX");
+      expect(dto, dtoPath).toContain('from "@wooriai/contracts";');
       expect(dto, dtoPath).toContain("@Max(MONEY_KRW_MAX)");
+      // 숫자를 손으로 다시 적어 두면 계약과 갈리는 순간을 아무도 모른다.
+      expect(dto, dtoPath).not.toMatch(/@Max\(\d/);
     }
   });
 

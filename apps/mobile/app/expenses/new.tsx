@@ -53,6 +53,15 @@ import {
   itemAutocompleteChipAccessibilityLabel,
   type ItemAutocompleteSuggestion
 } from "../../src/expenses/item-autocomplete";
+/**
+ * GAP-056 #2 — 판매처 자동완성. 지출 상세(app/expenses/[expenseId].tsx)와 **같은 순수 모듈**을
+ * 쓰고, 원천은 아래 자동완성·자동 분류가 이미 읽고 있는 이번 달 캐시 하나뿐이다(새 요청 0건).
+ */
+import {
+  buildMerchantSuggestions,
+  formatMerchantSuggestionChipLabel,
+  merchantSuggestionChipAccessibilityLabel
+} from "../../src/expenses/merchant-suggest";
 import type { MonthExpenses } from "../../src/expenses/month-expenses";
 import {
   canContinueRecording,
@@ -72,6 +81,21 @@ import {
   formatRecentItemChipLabel,
   recentItemChipAccessibilityLabel
 } from "../../src/expenses/recent-items";
+// GAP-056 #1: 텍스트 길이 상한도 금액 상한과 **같은 방식**의 단일 소스에서 온다(숫자를 여기
+// 적지 않는다 — 서버 @MaxLength와 갈리면 오프라인 flush가 400으로 떨어져 영구 실패 행이 된다).
+// 지출 상세(app/expenses/[expenseId].tsx)가 쓰는 그 모듈·그 문구 그대로다.
+import {
+  hasExpenseTextOverLimit,
+  isItemNameOverLimit,
+  isMemoOverLimit,
+  isMerchantOverLimit,
+  itemNameOverLimitMessage,
+  ITEM_NAME_MAX_LENGTH,
+  memoOverLimitMessage,
+  MEMO_MAX_LENGTH,
+  merchantOverLimitMessage,
+  MERCHANT_MAX_LENGTH
+} from "../../src/expenses/text-limits";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
@@ -353,6 +377,8 @@ export default function NewExpenseScreen() {
     // 라운드 49 C-06(b): 구매 확인 카드("샀어요")가 **자기가 이미 아는 사실**을 함께 넘긴다.
     merchant?: string;
     linkedProductLinkId?: string;
+    // 라운드 55 트랙 A: 정기 지출 카드의 "기록하기"가 템플릿에 저장된 결제 수단을 함께 넘긴다.
+    paymentMethod?: string;
   }>();
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
   /**
@@ -431,6 +457,20 @@ export default function NewExpenseScreen() {
    * 바뀌지 않는다.
    */
   const [merchant, setMerchant] = useState(() => (authToken ? prefilledMerchant : ""));
+  /**
+   * GAP-056 #2 — 판매처 칸을 **한 번이라도 건드렸는가**. 자동완성 칩 행의 게이트다.
+   *
+   * 초기값이 false라, 시트를 연 직후의 휴지 상태에는 이 기능이 없던 때와 한 픽셀도 다르지 않다
+   * (EXP-001 픽셀 락은 세션 자체가 없어 판매처 블록이 아예 렌더되지 않지만, 세션이 있는 화면도
+   * 열자마자 칩 줄이 끼어들지 않아야 한다 — 대부분의 기록은 판매처를 적지 않는다).
+   *
+   * 포커스가 떠날 때(onBlur) **되돌리지 않는다.** 이 화면의 스크롤러(src/ui.tsx AppScreen)는
+   * `keyboardShouldPersistTaps` 기본값("never")이라, 키보드가 올라온 상태의 첫 탭은 자식에게
+   * 가지 않고 키보드만 내린다. blur에서 칩을 접으면 그 첫 탭에 칩이 사라져 **두 번째 탭이
+   * 맞을 자리가 없다** — 눌러도 아무 일도 일어나지 않는 칩이 된다. 그래서 칩을 눌러 채웠을 때
+   * (applyMerchantSuggestion)와 "저장하고 계속 기록"의 폼 초기화에서만 접는다.
+   */
+  const [merchantFocused, setMerchantFocused] = useState(false);
   const [memo, setMemo] = useState("");
   // UX-L(A): 프리필 카테고리가 이 화면의 8타일로 옮겨질 때만 그 타일로 시작한다.
   // 라운드 38 H-6: 종전에는 타일 id와 **완전히 같을 때만** 복사했다. 그래서 엑셀 가져오기나 지출
@@ -468,7 +508,19 @@ export default function NewExpenseScreen() {
   // 펼친 분류가 몇 개까지 보이는지는 분류별로 따로 센다(기본 6개 -> "더 보기").
   const [expandedCategoryId, setExpandedCategoryId] = useState("");
   const [categoryLimits, setCategoryLimits] = useState<Record<string, number>>({});
-  const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
+  /**
+   * 라운드 55 트랙 A — 결제 수단 프리필.
+   *
+   * 프리필이 없거나(대부분의 진입점) 모르는 값이면 `prefill.paymentMethod`가 null이고, 그때는
+   * `findIndex`가 -1이라 **종전 그대로 0(카드)** 에서 시작한다. 비세션(픽셀 락 캡처 EXP-001)
+   * 에서도 프리필을 보지 않으므로 기준 이미지의 선택 상태가 그대로 남는다.
+   */
+  const prefilledPaymentMethodIndex = authToken
+    ? quickExpensePaymentMethods.findIndex((method) => method.value === prefill.paymentMethod)
+    : -1;
+  const [paymentMethodIndex, setPaymentMethodIndex] = useState(
+    prefilledPaymentMethodIndex >= 0 ? prefilledPaymentMethodIndex : 0
+  );
   const [isGift, setIsGift] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDateMode, setCustomDateMode] = useState(false);
@@ -661,6 +713,27 @@ export default function NewExpenseScreen() {
   const itemAutocompleteChips =
     authToken && !autocompleteApplied ? buildItemAutocompleteSuggestions(itemName, expenseHistory) : [];
 
+  /**
+   * GAP-056 #2 — 판매처 후보(타이핑 중 3개 / 빈 칸이면 최근 5개).
+   *
+   * 원천은 위 자동완성·자동 분류가 이미 읽고 있는 이번 달 캐시(expenseHistory) 하나뿐이라
+   * **새 요청은 0건**이고, 캐시가 비어 있으면(콜드 스타트·판매처를 한 번도 안 적은 사용자)
+   * 빈 배열이라 칩 줄 자체가 없다 — 없는 상호를 지어내지 않는다. 규칙(정규화·매칭·정렬·상한)은
+   * 전부 순수 모듈에 있고, 이 화면에는 한 줄도 없다.
+   */
+  const merchantSuggestions =
+    authToken && merchantFocused ? buildMerchantSuggestions(merchant, expenseHistory) : [];
+
+  /**
+   * 칩 1탭 = 판매처 채우기. 품목 자동완성 칩과 달리 **판매처 한 칸만** 바꾼다(금액·분류는
+   * 이 후보가 아는 사실이 아니다). 채운 뒤에는 칩 줄을 접는다 — 다시 고르고 싶으면 판매처
+   * 칸을 누르면 같은 줄이 돌아온다.
+   */
+  const applyMerchantSuggestion = (merchantName: string) => {
+    setMerchant(merchantName);
+    setMerchantFocused(false);
+  };
+
   const handleItemNameChange = (value: string) => {
     setItemName(value);
     setAutocompleteApplied(false);
@@ -747,6 +820,24 @@ export default function NewExpenseScreen() {
    */
   const continueAfterSaveRef = useRef(false);
   /**
+   * 라운드 57 QA(P2-3) — "저장했어요"를 보여 준 뒤 떠나는 650ms 타이머를 ref에 들고, 언마운트
+   * 때 취소한다. **지출 상세(app/expenses/[expenseId].tsx)의 leaveTimerRef와 같은 관례**이고,
+   * 그 화면이 GAP-056 #6에서 이미 고친 것과 같은 결함이 이 화면에는 남아 있었다.
+   *
+   * 없을 때 무슨 일이 있었나: 저장 성공 직후 사용자가 스스로 시트를 닫거나 탭을 바꾸면 이 화면은
+   * 언마운트되는데, 타이머는 살아남아 650ms 뒤에 `router.replace(postSaveDestination)`을 한 번
+   * 더 호출한다 — 사용자가 방금 고른 화면이 저장 목적지로 **덮어써진다**(replace라 뒤로 돌아갈
+   * 수도 없다). 원인이 화면 밖에서 오는 튐이라 재현하기도 어렵다.
+   *
+   * 새로 걸기 전에 이미 걸린 타이머를 지우는 것도 상세 화면과 같다 — 예약이 겹쳐 쌓이지 않는다.
+   */
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    };
+  }, []);
+  /**
    * 폼을 비우고 같은 화면에 머무는 "다음 항목" 초기화.
    *
    * **비우지 않는 것**: 지출 날짜와 결제 수단. 마트에서 연속으로 적는 상황은 같은 날 같은 카드라,
@@ -763,6 +854,8 @@ export default function NewExpenseScreen() {
     // 값을 남겨 두면, 다른 곳에서 산 다음 항목에 **사용자가 적지 않은 판매처**가 조용히
     // 따라붙는다 -- 이 화면이 "계속 기록"에서 품목·금액을 비우는 것과 같은 판단이다.
     setMerchant("");
+    // GAP-056 #2: 판매처 칩 줄도 접는다 — 다음 항목의 휴지 상태는 첫 진입과 같아야 한다.
+    setMerchantFocused(false);
     setMemo("");
     setIsGift(false);
     // 라운드 51 C-#5: 연속 기록의 리셋도 **미선택**으로 돌아간다. 첫 타일로 되돌리면 다음
@@ -782,7 +875,11 @@ export default function NewExpenseScreen() {
       // GAP-054 #2: 상한 초과도 여기서 멈춘다 -- 버튼은 이미 비활성이지만(isAmountInvalid),
       // 저장 규칙이 화면 상태에만 있으면 다른 경로가 생겼을 때 조용히 빠져나가고, 그 한 건이
       // 오프라인 아웃박스에 무한 재시도 행으로 남는다(로컬 쓰기 **전에** 차단하는 것이 목적이다).
-      if (!authToken || !childId || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || isAmountOverLimitForSave({ hasSession: true, amountText }) || !itemName.trim() || Boolean(dateInputError)) {
+      // GAP-056 #1: 길이 상한도 **로컬 저장 전에** 막는다. 여기서 통과시키면 오프라인 아웃박스가
+      // 로컬 저장을 먼저 성공시키고("기기에 저장했어요") flush에서 400을 만나 되살릴 수 없는
+      // 실패 행이 된다(4xx는 재시도하지 않는다 — src/offline/remote-api.ts). 넘기는 값은
+      // **실제로 보낼 값 그대로**다: 품목명은 원문(payload의 itemName), 판매처는 trim, 메모는 원문.
+      if (!authToken || !childId || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || isAmountOverLimitForSave({ hasSession: true, amountText }) || hasExpenseTextOverLimit({ itemName, merchant: merchant.trim(), memo }) || !itemName.trim() || Boolean(dateInputError)) {
         throw new Error(INVALID_EXPENSE_INPUT_ERROR);
       }
       return createExpenseOffline(authToken, queryClient, {
@@ -881,7 +978,9 @@ export default function NewExpenseScreen() {
         resetFormForNextEntry();
         return;
       }
-      setTimeout(() => router.replace(postSaveDestination), 650);
+      // 라운드 57 QA(P2-3): 타이머를 ref에 담아 언마운트 때 취소한다(위 leaveTimerRef 주석).
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = setTimeout(() => router.replace(postSaveDestination), 650);
     }
   });
   // FMT-127: 금액 표기를 src/money.ts(콤마 + '원', '₩' 금지)로 되돌린다. 예전에는 세션 유무와
@@ -928,6 +1027,32 @@ export default function NewExpenseScreen() {
   const isAmountInvalid =
     Boolean(authToken) &&
     (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0 || isAmountOverLimit || Boolean(dateInputError));
+  /**
+   * GAP-056 #1 — 텍스트 길이 상한 가드(품목명 100 · 판매처 100 · 메모 500).
+   *
+   * 입력 칸의 `maxLength`가 있는데도 이 판정이 필요한 이유는 지출 상세와 같다: 상한은 컬럼
+   * 한계(varchar 120)가 아니라 **계약**이라, 엑셀 가져오기로 들어온 101~120자짜리 값이 "또 기록"
+   * 프리필이나 복원된 초안을 타고 이 칸에 들어올 수 있고 `maxLength`는 새로 치는 글자만 막는다.
+   * 조용히 잘라 버리지 않고 무엇을 줄여야 하는지 말한다.
+   *
+   * 판정 값은 **서버로 실제로 보낼 문자열**이다(payload와 같게: 품목명 원문 · 판매처 trim ·
+   * 메모 원문). 세션이 없는 픽셀 락 캡처는 애초에 고정 시드("기저귀"/빈 메모)라 언제나 빈
+   * 목록이고, EXP-001 기준 이미지는 이 판정으로 한 픽셀도 바뀌지 않는다.
+   */
+  const textOverLimitNotices = authToken
+    ? [
+        isItemNameOverLimit(itemName) ? itemNameOverLimitMessage() : null,
+        isMerchantOverLimit(merchant.trim()) ? merchantOverLimitMessage() : null,
+        isMemoOverLimit(memo) ? memoOverLimitMessage() : null
+      ].filter((notice): notice is string => notice !== null)
+    : [];
+  /**
+   * 저장 버튼을 잠그는 판정 한 곳. 금액 가드와 길이 가드가 **같은 자리**를 지나야 두 저장
+   * 버튼(저장하기 · 저장하고 계속 기록)이 서로 다른 규칙으로 갈리지 않는다. 잠그기만 하고
+   * 이유를 말하지 않으면 "왜 저장이 안 되지"만 남으므로, 두 가드 모두 버튼 바로 위에 안내
+   * 한 줄을 세운다(아래). 뮤테이션 안에도 같은 판정이 한 번 더 있다 — 지출 상세와 같은 이중 가드.
+   */
+  const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;
   /**
    * 라운드 51 C-#5 — 분류 없이 저장을 눌렀을 때.
    *
@@ -1388,34 +1513,74 @@ export default function NewExpenseScreen() {
         {/* 라운드 49 C-03(a): 판매처 입력칸. **authToken 게이트 뒤**에 두는 것이 EXP-001
             픽셀 락 계약이다 -- 캡처는 세션 없이(app/pixel-lock.tsx가 clearSession 후 이동)
             초기 렌더만 찍으므로, 이 분기는 기준 이미지에 나타나지 않는다.
-            자유 텍스트 한 줄이고 선택 사항이다: 상호를 후보 목록에서 고르게 하려면 어딘가에
-            상호 사전이 있어야 하는데 그런 것은 없고, 없는 목록을 흉내 내느니 사용자가 아는
-            이름을 그대로 적게 한다. 값은 저장 payload의 `merchant`로 그대로 나가고 CSV의
-            판매처 열·지출 상세의 판매처 칸에서 같은 문자열로 다시 보인다.
+            자유 텍스트 한 줄이고 선택 사항이다. 값은 저장 payload의 `merchant`로 그대로 나가고
+            CSV의 판매처 열·지출 상세의 판매처 칸에서 같은 문자열로 다시 보인다.
             "샀어요"에서 넘어온 경우에는 플랫폼 이름(쿠팡 등)이 미리 채워져 있고, 사용자가
-            지우거나 고쳐 쓸 수 있다. */}
+            지우거나 고쳐 쓸 수 있다.
+
+            GAP-056 #2: 라운드 49의 "상호 사전이 없다"는 주석은 **더 이상 사실이 아니라** 지웠다 —
+            이 화면이 이미 손에 들고 있는 이번 달 캐시 안에 사용자가 직접 적어 둔 판매처가 있고,
+            아래 칩이 그것만 되돌려 준다(외부 사전도, 새 요청도 없다). */}
         {authToken ? (
-          <TextInput
-            accessibilityLabel="판매처 입력 (선택)"
-            returnKeyType="done"
-            onChangeText={setMerchant}
-            placeholder="판매처를 입력해 주세요 (선택)"
-            style={{
-              backgroundColor: theme.colors.white,
-              borderColor: "rgba(74, 63, 53, 0.10)",
-              borderRadius: 14,
-              borderWidth: 1,
-              color: theme.colors.brown,
-              minHeight: 48,
-              paddingHorizontal: 14
-            }}
-            value={merchant}
-          />
+          <View style={{ gap: 8 }}>
+            <TextInput
+              accessibilityLabel="판매처 입력 (선택)"
+              returnKeyType="done"
+              // GAP-056 #1: 서버 @MaxLength와 같은 숫자(단일 소스는 src/expenses/text-limits.ts).
+              maxLength={MERCHANT_MAX_LENGTH}
+              onChangeText={setMerchant}
+              // GAP-056 #2: 칩 줄의 게이트. 열자마자 끼어들지 않고, 이 칸을 누른 뒤에만 나온다.
+              onFocus={() => setMerchantFocused(true)}
+              placeholder="판매처를 입력해 주세요 (선택)"
+              style={{
+                backgroundColor: theme.colors.white,
+                borderColor: "rgba(74, 63, 53, 0.10)",
+                borderRadius: 14,
+                borderWidth: 1,
+                color: theme.colors.brown,
+                minHeight: 48,
+                paddingHorizontal: 14
+              }}
+              value={merchant}
+            />
+            {/* GAP-056 #2 — 판매처 자동완성 칩. 자리·문법은 품목명 아래 자동완성 줄과 같다
+                (같은 pill·같은 높이·같은 한 줄 가로 스크롤). 라벨과 스크린리더 문장은 모듈이
+                만든다 — 화면에 문구를 다시 쓰면 지출 상세와 두 문장으로 갈린다. */}
+            {merchantSuggestions.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {merchantSuggestions.map((suggestion) => (
+                  <Pressable
+                    key={suggestion.merchant}
+                    accessibilityRole="button"
+                    accessibilityLabel={merchantSuggestionChipAccessibilityLabel(suggestion)}
+                    hitSlop={3}
+                    onPress={() => applyMerchantSuggestion(suggestion.merchant)}
+                    style={{
+                      alignItems: "center",
+                      backgroundColor: theme.colors.white,
+                      borderColor: theme.colors.primary100,
+                      borderRadius: theme.radii.pill,
+                      borderWidth: 1,
+                      justifyContent: "center",
+                      minHeight: 38,
+                      paddingHorizontal: 14
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
+                      {formatMerchantSuggestionChipLabel(suggestion)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : null}
+          </View>
         ) : null}
 
         <TextInput
           accessibilityLabel="메모 입력 (선택)"
           returnKeyType="done"
+          // GAP-056 #1: 서버 @MaxLength와 같은 숫자(단일 소스는 src/expenses/text-limits.ts).
+          maxLength={MEMO_MAX_LENGTH}
           onChangeText={setMemo}
           placeholder="메모를 입력해 주세요 (선택)"
           style={{
@@ -1456,6 +1621,8 @@ export default function NewExpenseScreen() {
             <TextInput
               accessibilityLabel="품목명 입력"
               returnKeyType="done"
+              // GAP-056 #1: 서버 @MaxLength와 같은 숫자(단일 소스는 src/expenses/text-limits.ts).
+              maxLength={ITEM_NAME_MAX_LENGTH}
               onChangeText={handleItemNameChange}
               placeholder="품목명 (예: 기저귀)"
               // DSN-053 P2-C: 요약바의 연필과 빠른 품목의 "직접 입력"이 겨누는 유일한 입력칸.
@@ -1722,18 +1889,46 @@ export default function NewExpenseScreen() {
               저장을 누르기 전에 뜬다: 상한을 넘는 순간 저장 버튼이 비활성이 되므로(위
               isAmountInvalid) 이유를 말해 주지 않으면 "왜 저장이 안 되지"만 남는다. 문구는
               src/expenses/amount-limit.ts 단일 소스(서버 @Max와 같은 숫자)이고, 금액을 줄이면
-              저절로 사라진다. 초기값 기준으로 세션 없는 EXP-001 캡처에서는 언제나 false다. */}
+              저절로 사라진다. 초기값 기준으로 세션 없는 EXP-001 캡처에서는 언제나 false다.
+
+              라운드 57 QA(P2-10) — **색은 theme.colors.danger다.** 조사 결과 이 저장소의 "저장을
+              막는 이유" 문구는 어디서나 danger로 그린다(app/budget.tsx·app/(onboarding)/budget.tsx·
+              app/expenses/[expenseId].tsx·app/family/**·app/import/** 등 19개 화면). coral[700]은
+              A11Y-117이 정한 **작은 브랜드 텍스트**의 색이지(TextButton·eyebrow·가격·증감·배지)
+              오류 색이 아니다. 특히 `amountOverLimitMessage()`·`merchantOverLimitMessage()`가 만드는
+              것은 지출 상세·예산 화면이 danger로 그리는 **글자 그대로 같은 문장**이라, 같은 말이
+              화면마다 다른 색으로 서 있었다. 대비는 오히려 올라간다(coral[700] 6.36:1 → danger
+              #B42318 7.0:1). 바로 위 분류 안내는 그대로 coral[700]이다 — 그 문장은 저장 버튼을
+              잠그지 않는 **안내**이고, 이 화면에만 있어 어긋날 짝이 없다. */}
           {isAmountOverLimit ? (
             <Text
               accessibilityRole="alert"
               accessibilityLiveRegion="polite"
-              style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
+              style={{ color: theme.colors.danger, fontSize: 12, fontWeight: "700" }}
             >
               {AMOUNT_OVER_LIMIT_NOTICE}
             </Text>
           ) : null}
+          {/* GAP-056 #1 — 텍스트 길이 상한 안내. 금액 상한 안내와 **같은 자리·같은 문법**이다:
+              상한을 넘긴 값이 있으면 저장 버튼이 잠기므로(isSaveBlocked) 이유를 여기서 말하지
+              않으면 "왜 저장이 안 되지"만 남는다. 입력 칸 밑이 아니라 버튼 위인 이유는 분류
+              안내와 같다 — 이 폼은 길어서 칸 밑 한 줄은 화면 밖으로 밀린다. 문구는
+              src/expenses/text-limits.ts 단일 소스(서버 @MaxLength와 같은 숫자)이고, 글자를
+              줄이면 저절로 사라진다. 세션 없는 EXP-001 캡처에서는 언제나 빈 목록이다.
+              라운드 57 QA(P2-10): 색도 지출 상세와 같은 theme.colors.danger다 -- 같은 문장(같은
+              모듈이 만든다)이 화면마다 다른 색으로 서지 않게. 근거는 위 금액 안내 주석 참고. */}
+          {textOverLimitNotices.map((notice) => (
+            <Text
+              key={notice}
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={{ color: theme.colors.danger, fontSize: 12, fontWeight: "700" }}
+            >
+              {notice}
+            </Text>
+          ))}
           <PrimaryButton
-            disabled={saveExpense.isPending || isAmountInvalid}
+            disabled={saveExpense.isPending || isSaveBlocked}
             label={saveExpense.isPending ? "저장 중" : "저장하기"}
             // 라운드 40 J-1: 잠긴 역할이면 안내만 띄우고 뮤테이션은 시작하지 않는다(guard 관례).
             // 버튼 자체는 그대로 둔다 -- disabled로 바꾸면 이유를 말할 자리가 사라진다.
@@ -1752,7 +1947,7 @@ export default function NewExpenseScreen() {
               (금액 프리셋 칩·선물 체크박스와 같은 게이트다). */}
           {authToken && canContinueRecording({ linkedItemTemplateId }) ? (
             <SecondaryButton
-              disabled={saveExpense.isPending || isAmountInvalid}
+              disabled={saveExpense.isPending || isSaveBlocked}
               label={CONTINUE_RECORDING_LABEL}
               onPress={expenseGate.guard(() => {
                 if (!prepareSave(true)) return;

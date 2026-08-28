@@ -134,6 +134,19 @@ function toEngineConflictSnapshot(current: ExpenseConflictSnapshot): ConflictSna
  */
 const PERMANENT_FAILURE_MESSAGE = "요청을 처리하지 못했어요.";
 
+/**
+ * 라운드 57 #8 — **실패 사유 채널**: 번역된 오류는 사람이 읽는 문구만이 아니라 `status`와
+ * 서버 봉투(`error.body`의 `{ error: { code, message } }`)를 **함께** 실어 보낸다.
+ *
+ * 왜 이것이 계약인가: sync-engine은 이 두 값을 실패 행의 `last_error_status`/`last_error_code`에
+ * 그대로 저장하고(v2 마이그레이션 — sqlite-offline-store.ts), 동기화 상태 화면은 그 status로
+ * "다시 보내면 성공할 수 있나"를 판정한다(src/offline/permission-denied.ts). 아래 throw에서
+ * `error.status`나 `error.body`를 떨어뜨리면 행에 남는 단서는 문장 하나뿐이 되고, 판정은 라운드
+ * 47의 **문구 글자 비교**로 되돌아간다 — 그 취약함을 걷어내는 것이 이 티켓의 목적이다.
+ *
+ * 5xx·네트워크 실패는 원본 오류를 그대로 다시 던지므로(아래 마지막 줄) 같은 두 필드가 손대지
+ * 않은 채 sync-engine까지 간다 — 별도의 래핑이 필요 없는 이유다.
+ */
 function rethrowAsSyncEngineError(error: unknown): never {
   if (error instanceof ExpenseVersionConflictError) {
     throw new RemoteVersionConflictError(toEngineConflictSnapshot(error.current));
@@ -168,9 +181,10 @@ function toRemoteCreateResult(expense: Expense) {
  * 애초에 존재하지 않는다(상태는 단일 값이라 서버에 버전 게이트가 없다).
  *
  * 분류 계약은 지출과 **같다**: 4xx만 permanent(재시도 무익 → 'failed' 행), 5xx·네트워크·타임아웃은
- * transient(백오프 자동 재시도). 403은 `apiErrorMessage`가 API_ERROR_MESSAGES.FORBIDDEN 문구를
- * 그대로 실어 주므로, 동기화 상태 화면의 권한 거절 판정(src/offline/permission-denied.ts)이
- * 지출 행과 똑같이 동작한다.
+ * transient(백오프 자동 재시도). 사유 채널도 같다(rethrowAsSyncEngineError 주석): `error.status`와
+ * `error.body`의 봉투 코드가 함께 넘어가고, sync-engine이 그 둘을 행에 저장한다. 라운드 57 #8부터
+ * 동기화 상태 화면의 판정은 그 status를 보므로, 준비템 실패 행도 지출 행과 글자 그대로 같은
+ * 안내를 받는다(403 안내 / 재시도 무익 4xx 안내 / 재시도 버튼).
  */
 function rethrowItemStatusError(error: unknown): never {
   if (error instanceof ApiHttpError && error.status < 500) {

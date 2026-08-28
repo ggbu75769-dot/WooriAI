@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capCsvForShare, MAX_SHARE_MESSAGE_BYTES, utf8ByteLength } from "./share-payload";
+import { capCsvForShare, csvShareToastMessage, MAX_SHARE_MESSAGE_BYTES, utf8ByteLength } from "./share-payload";
 
 describe("EXP-106 share payload cap (Share.share message path)", () => {
   it("measures UTF-8 bytes correctly for ASCII, Korean, and astral characters", () => {
@@ -37,5 +37,52 @@ describe("EXP-106 share payload cap (Share.share message path)", () => {
     expect(result.message).toBe("날짜,카테고리,항목,금액(원),메모,출처\r\n");
     expect(result.truncated).toBe(true);
     expect(result.droppedRows).toBe(1);
+  });
+});
+
+/**
+ * GAP-056 #9 — 잘림 안내가 **어느 쪽이 잘렸는지** 말한다.
+ *
+ * 잘림에는 두 종류가 있고 잘리는 쪽이 정반대다: 행 상한은 최신 달부터 모으므로 오래된 기록이
+ * 빠지고(export-range.ts), 공유 본문 용량 제한은 앞에서부터 채우므로 최근 기록이 빠진다
+ * (위 capCsvForShare). 예전에는 둘을 한 플래그로 뭉쳐 "일부만 포함됐어요"만 말했다.
+ */
+describe("GAP-056 #9 CSV 토스트의 잘림 문구", () => {
+  /**
+   * 라운드 57 QA(P2-12) — 행 상한 쪽은 **"빠졌을 수 있어요"**다.
+   *
+   * 이 플래그의 출처(collectExpensesForRange의 truncated)는 "행을 실제로 버렸다"와 "상한 때문에
+   * 멈춰 **열어 보지 못한** 과거 달이 남았다"를 함께 뜻한다. 뒤쪽 경우의 남은 달이 전부 비어
+   * 있었다면 실제로 빠진 행은 없다 -- 그때 "빠졌어요"는 없는 손실을 단언하는 허위 통보다.
+   * 방향(오래된 쪽)은 수집 방향에서 확실하므로 그대로 단언한다.
+   */
+  it("행 상한 쪽은 방향만 단언하고 손실은 '있을 수 있다'까지만 말한다", () => {
+    expect(csvShareToastMessage({ outcomeKnown: true, rowCount: 5000, truncated: false, rowCapTruncated: true })).toBe(
+      "기록 5000건을 내보냈어요. (행 상한에 닿아 오래된 기록이 빠졌을 수 있어요)"
+    );
+  });
+
+  it("용량 제한으로 잘리면 최근 쪽이 빠졌다고 말한다 (라운드 56 B: 실제 잘리는 방향)", () => {
+    // 수집기가 돌려주는 목록은 날짜 오름차순이고(export-range.ts sortBySpentOnAscending)
+    // capCsvForShare는 앞에서부터 채우므로, 빠지는 것은 **뒤쪽 = 최근 기록**이다.
+    expect(csvShareToastMessage({ outcomeKnown: false, rowCount: 3, truncated: true })).toBe(
+      "기록 3건으로 공유 화면을 열었어요. (용량 제한으로 최근 기록부터 빠졌어요)"
+    );
+    // rowCapTruncated를 명시적으로 false로 넘겨도 같은 문장이다(기본값 = 안 잘림).
+    expect(csvShareToastMessage({ outcomeKnown: false, rowCount: 3, truncated: true, rowCapTruncated: false })).toBe(
+      "기록 3건으로 공유 화면을 열었어요. (용량 제한으로 최근 기록부터 빠졌어요)"
+    );
+  });
+
+  it("두 잘림이 함께 일어나면 서로 반대 방향을 각각 말한다", () => {
+    expect(csvShareToastMessage({ outcomeKnown: true, rowCount: 4000, truncated: true, rowCapTruncated: true })).toBe(
+      "기록 4000건을 내보냈어요. (행 상한에 닿아 오래된 기록이 빠졌을 수 있어요 · 용량 제한으로 최근 기록부터 빠졌어요)"
+    );
+  });
+
+  it("잘리지 않았으면 괄호 안내가 아예 붙지 않는다", () => {
+    expect(csvShareToastMessage({ outcomeKnown: true, rowCount: 12, truncated: false, rowCapTruncated: false })).toBe(
+      "기록 12건을 내보냈어요."
+    );
   });
 });

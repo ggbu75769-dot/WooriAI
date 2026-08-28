@@ -355,8 +355,25 @@ describe("라운드 41 UX-U(B-ⓑ/ⓒ) 지출 상세의 나머지 배선", () =>
     expect(screenSource).toContain("if (router.canGoBack()) router.back();");
     expect(screenSource).toContain('else router.replace("/(tabs)/records");');
     // 두 뮤테이션 모두 같은 한 곳을 쓴다 -- 저장과 삭제가 서로 다른 곳으로 가면 안 된다.
+    // GAP-056 #6: 그 예약은 맨몸이 아니라 leaveTimerRef를 거친다(언마운트에서 취소 가능해야 한다).
+    expect(screenSource.match(/leaveTimerRef\.current = setTimeout\(leaveAfterMutation, 650\)/g) ?? []).toHaveLength(2);
     expect(screenSource.match(/setTimeout\(leaveAfterMutation, 650\)/g) ?? []).toHaveLength(2);
     expect(screenSource).not.toContain('setTimeout(() => router.replace("/(tabs)/records"), 650)');
+  });
+
+  /**
+   * 라운드 57 QA(P2-3) — **두 입력 화면이 같은 봉합 관례를 쓴다.**
+   *
+   * 이 화면이 GAP-056 #6에서 고친 것과 똑같은 결함(저장 후 650ms 이동 타이머가 언마운트를 넘어
+   * 살아남아 사용자가 방금 고른 화면을 덮어씀)이 빠른 기록 시트에는 그대로 남아 있었다. 관례가
+   * 한쪽에만 있으면 다음 화면이 또 맨몸 setTimeout으로 시작하므로, 두 화면을 한 자리에서 묶는다.
+   */
+  it("빠른 기록 시트도 같은 leaveTimerRef 관례로 이동 타이머를 봉합한다", () => {
+    for (const screenPath of ["app/expenses/[expenseId].tsx", "app/expenses/new.tsx"]) {
+      const src = source(screenPath);
+      expect(src, screenPath).toContain("const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);");
+      expect(src, screenPath).toContain("if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);");
+    }
   });
 
   it("금액 프리셋 칩은 빠른 기록과 같은 모듈을 쓰고 44dp 타깃을 지킨다", () => {

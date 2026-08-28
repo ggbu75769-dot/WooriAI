@@ -34,11 +34,13 @@ describe("Audit logs API client (ADM-113)", () => {
 });
 
 describe("Audit logs page (ADM-113)", () => {
-  it("lists audit entries with the 시각/관리자/액션/대상/상세 table columns", () => {
+  // CS-101(라운드 56): 행위자 열은 어드민만 남는 자리가 아니라서 "관리자"에서
+  // "행위자"로 이름을 바로잡았다 — 표에는 앱 사용자 행위(expense.update 등)도 함께 뜬다.
+  it("lists audit entries with the 시각/행위자/액션/대상/상세 table columns", () => {
     const source = readSource("app/audit-logs/page.tsx");
     expect(source).toContain("use client");
     expect(source).toContain("listAuditLogs");
-    for (const column of ["<th>시각</th>", "<th>관리자</th>", "<th>액션</th>", "<th>대상</th>", "<th>상세</th>"]) {
+    for (const column of ["<th>시각</th>", "<th>행위자</th>", "<th>액션</th>", "<th>대상</th>", "<th>상세</th>"]) {
       expect(source).toContain(column);
     }
     // 상세 칸은 before/after 스냅샷을 펼쳐 보여준다.
@@ -147,7 +149,7 @@ describe("Audit logs CSV export (ADM-117)", () => {
     expect(source).toContain("buildAuditLogCsv");
     expect(source).toContain("auditLogCsvFilename");
     // 현재 적용된 필터를 목록 조회와 공유한다 (내보내기 전용 API 없음).
-    expect(source).toContain("filtersToQuery(appliedFilters)");
+    expect(source).toContain("auditLogFiltersToQuery(appliedFilters)");
     expect(source).toContain("listAuditLogs({ ...query, ...page })");
   });
 
@@ -164,5 +166,64 @@ describe("Audit logs CSV export (ADM-117)", () => {
     const source = readSource("app/audit-logs/page.tsx");
     expect(source).toContain("truncated");
     expect(source).toContain("상위 1,000건만 내보냈어요");
+  });
+});
+
+// CS-101(라운드 56 트랙 C): "어드민 CS 도달 경로". 서버는 행위자 필터
+// (audit-logs.dto.ts의 actorUserId)와 사용자 행위 기록(expense.update/delete 등)을
+// 이미 갖추고 있었는데, 어드민 화면에는 그 값을 넣을 칸도, 사용자 조회에서
+// 감사 로그로 넘어갈 링크도 없었다. 순수 로직은
+// src/lib/audit-log-filters.test.ts에서 단위 테스트하고, 여기서는 배선을 고정한다.
+describe("Audit logs CS reachability (CS-101)", () => {
+  it("has an actorUserId filter input wired to the shared query builder", () => {
+    const source = readSource("app/audit-logs/page.tsx");
+    expect(source).toContain("행위자 ID");
+    expect(source).toContain("filterForm.actorUserId");
+    expect(source).toContain("auditLogFiltersToQuery");
+    // 서버가 400으로 되돌려보낼 값은 보내기 전에 막고 이유를 보여준다.
+    expect(source).toContain("auditLogFilterError");
+    expect(source).toContain("filterError");
+  });
+
+  it("offers a datalist of frequently used action codes", () => {
+    const source = readSource("app/audit-logs/page.tsx");
+    expect(source).toContain("<datalist");
+    expect(source).toContain("AUDIT_LOG_ACTION_PRESETS");
+    const presets = readSource("src/lib/audit-log-filters.ts");
+    // 프리셋은 API가 실제로 기록하는 액션 문자열이어야 한다.
+    for (const action of ["expense.update", "expense.delete", "admin.admin_user.update"]) {
+      expect(presets).toContain(`action: "${action}"`);
+    }
+  });
+
+  it("prefills the filter from ?actorUserId= inside a Suspense boundary", () => {
+    const source = readSource("app/audit-logs/page.tsx");
+    expect(source).toContain("useSearchParams");
+    expect(source).toContain("<Suspense");
+    expect(source).toContain("auditLogFiltersFromSearchParams(searchParams)");
+  });
+
+  it("describes the page truthfully: user actions are recorded here too", () => {
+    const source = readSource("app/audit-logs/page.tsx");
+    expect(source).toContain("관리자 행위와 앱 사용자 행위를 함께");
+    // 종전의 "관리자 행위 기록을"만 말하던 문구는 남아 있으면 안 된다.
+    expect(source).not.toContain("관리자 행위 기록을 시간순으로");
+  });
+
+  it("labels non-admin actors distinctly without leaking personal data", () => {
+    const source = readSource("app/audit-logs/page.tsx");
+    expect(source).toContain("auditLogActorLabel");
+    const filters = readSource("src/lib/audit-log-filters.ts");
+    expect(filters).toContain("사용자(${shortActorId(entry.actorUserId!)})");
+    // 라벨에 실리는 건 UUID 앞 8자뿐 — 이메일/닉네임은 등장하지 않는다.
+    expect(filters).toContain("actorUserId.slice(0, 8)");
+  });
+
+  it("links from a users-lookup result card into the audit log filtered by that user", () => {
+    const source = readSource("app/users-lookup/page.tsx");
+    expect(source).toContain("이 사용자 감사 로그 보기");
+    expect(source).toContain("auditLogsHrefForActor(user.id)");
+    const filters = readSource("src/lib/audit-log-filters.ts");
+    expect(filters).toContain("/audit-logs?actorUserId=");
   });
 });

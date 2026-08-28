@@ -39,6 +39,7 @@ import {
   type ImportBulkRunHandle,
   type ImportBulkRunOutcome
 } from "../../src/import/bulk-run";
+import { shouldForgetImportResume } from "../../src/import/import-resume";
 import {
   attentionFilterChipLabel,
   buildImportBulkSelectionPlan,
@@ -64,6 +65,7 @@ import {
   resolveImportTargetChildName,
   type ImportRowFilter
 } from "../../src/import/preview-rows";
+import { useImportResumeStore } from "../../src/stores/import-resume.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { Card, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
@@ -458,6 +460,23 @@ export default function ImportPreviewScreen() {
   useEffect(() => {
     if (rowFilter === "attention" && !shouldShowAttentionFilter(attentionCount)) setRowFilter("all");
   }, [attentionCount, rowFilter]);
+
+  /**
+   * 라운드 56 D#5 — **이어서 보기 카드를 지우는 유일한 자리.**
+   *
+   * 카드(app/import/index.tsx)는 "아직 검토할 것이 남아 있다"고 말한다. 그 말이 더는 사실이
+   * 아닌 순간은 둘뿐이다: 잡이 끝났거나(확정·취소·실패) 서버에서 사라졌거나(404 — 만료·삭제).
+   * 판정은 순수 모듈 하나가 갖는다 -- 화면이 상태 문자열을 다시 나열하면 그 목록이 곧 두 번째
+   * 계약이 된다. 네트워크 실패나 아직 오지 않은 응답에는 손대지 않는다(잠깐 끊긴 것을
+   * "없어졌다"로 단정하면 앱이 사용자의 돌아갈 길을 스스로 지운다).
+   *
+   * `importJobId`를 함께 넘기므로 **이 화면이 보고 있는 잡일 때만** 지운다: 옛 링크로 들어간
+   * 화면이 뒤늦게 깨어나도 그 사이 새로 올린 파일의 카드를 지우지 못한다.
+   */
+  const forgetImportReview = useImportResumeStore((state) => state.forgetImportReview);
+  useEffect(() => {
+    if (shouldForgetImportResume({ status, error: job.error })) forgetImportReview(importJobId);
+  }, [status, job.error, importJobId, forgetImportReview]);
 
   /**
    * 라운드 41 K-7: 토글·일괄도 확정과 **같은 게이트**를 지난다.

@@ -21,7 +21,7 @@ import {
   resolveNotificationRowAction,
   type NotificationRowActionKey
 } from "../src/notifications/notification-row-actions";
-import { notificationTapRoute } from "../src/notifications/notification-route";
+import { nextRecordsViewNonce, notificationTapRoute } from "../src/notifications/notification-route";
 import {
   selectUnreadNotificationIds,
   useNotificationStore,
@@ -301,7 +301,12 @@ export default function NotificationsScreen() {
                     // J-7: 점을 지우는 유일한 근거는 "이 줄을 열어 봤다"는 사실이다.
                     // 나머지 줄의 점은 다음 포커스에서도 그대로 남는다.
                     setNewNotificationIds((previous) => removeNotificationMark(previous, entry.id));
-                    router.push(notificationTapRoute(entry));
+                    // 라운드 57 QA(P1-1): 이번 탭의 회차를 함께 넘긴다. 기록 탭은 착지
+                    // 파라미터를 회차 단위로 적용하므로, 회차가 없으면 두 번째 탭부터
+                    // "지난번과 같은 값"으로 걸러져 달력으로 가지 않는다. 카운터가 이 화면의
+                    // state가 아닌 이유는 notification-route.ts의 nextRecordsViewNonce 주석 참고
+                    // (이 화면은 뒤로가기로 언마운트된다).
+                    router.push(notificationTapRoute(entry, nextRecordsViewNonce()));
                   }}
                   style={{ flex: 1 }}
                 >

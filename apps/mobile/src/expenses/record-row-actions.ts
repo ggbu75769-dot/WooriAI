@@ -226,6 +226,14 @@ export function buildRecordRowActionSheet(input: {
 // 날짜(spentOn)는 **일부러 넘기지 않는다**. 이건 과거 기록의 복사가 아니라 새 기록이라,
 // 시트가 늘 하듯 오늘 날짜로 시작해야 한다(지난달 행에서 또 기록을 눌러 지난달로 저장되면
 // 이번 달 합계가 조용히 어긋난다).
+//
+// 라운드 55 트랙 A: 파싱 쪽 계약에 `paymentMethod`가 하나 더해졌다(위 ExpensePrefill).
+// 직렬화 쪽인 아래 `buildRepeatExpenseParams`는 **일부러 그대로 둔다** — 그 함수의 유일한
+// 호출부는 기록 탭의 "같은 내용으로 또 기록"이고, 인자로 서버 행 전체를 넘기므로 여기에
+// paymentMethod를 읽는 줄을 더하면 손대지 않기로 한 화면(app/(tabs)/records.tsx)의 동작이
+// 소스 변경 없이 바뀐다. 정기 지출의 직렬화는 자기 모듈(recurring-template.ts의
+// `recurringPrefillParams`)이 하고, 두 직렬화가 **같은 파라미터 이름**을 쓰므로 파싱은 여전히
+// 이 파일 한 곳이다.
 // ---------------------------------------------------------------------------------------------
 
 /** URL 파라미터로 실려 가는 값(전부 문자열). categoryId는 없을 수 있다. */
@@ -262,6 +270,16 @@ export function buildRepeatExpenseParams(row: {
   };
 }
 
+/**
+ * 라운드 55 트랙 A — 프리필로 실어 보낼 수 있는 결제 수단(설계 §1.4의 "추가할 것 하나").
+ *
+ * 값은 빠른 기록 시트의 세그먼트 컨트롤(app/expenses/new.tsx `quickExpensePaymentMethods`)과
+ * 같다. 서버 enum의 `"unknown"`은 **일부러 빠져 있다**: 사용자가 고른 적 없는 값을 링크로 실어
+ * 보내 화면의 세그먼트를 움직이지 않는다(모르면 화면 기본값 그대로 둔다).
+ */
+export const EXPENSE_PREFILL_PAYMENT_METHODS = ["card", "cash", "transfer", "mobile_pay"] as const;
+export type ExpensePrefillPaymentMethod = (typeof EXPENSE_PREFILL_PAYMENT_METHODS)[number];
+
 /** 빠른 기록 시트가 실제로 쓰는 프리필 값. */
 export type ExpensePrefill = {
   /** 품목명(없으면 빈 문자열 — 기존 계약 그대로). */
@@ -270,12 +288,30 @@ export type ExpensePrefill = {
   amountText: string;
   /** 카테고리 id(없으면 null). 이 id가 시트의 8타일 밖이면 화면이 무시한다. */
   categoryId: string | null;
+  /**
+   * 결제 수단(없거나 모르는 값이면 null = 화면 기본값 "카드" 그대로).
+   *
+   * 라운드 55: 정기 지출 카드의 "기록하기"가 템플릿에 저장된 결제 수단을 함께 넘긴다. 매월
+   * 같은 카드로 나가는 고정 지출인데 시트가 매번 기본값에서 시작하면, 원탭이라고 말해 놓고
+   * 사용자가 매번 한 번 더 눌러야 한다.
+   */
+  paymentMethod: ExpensePrefillPaymentMethod | null;
 };
 
 /** expo-router의 파라미터는 string | string[] 둘 다 올 수 있다 — 첫 값만 읽는다. */
 function firstParamValue(value: unknown): string {
   if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : "";
   return typeof value === "string" ? value : "";
+}
+
+/**
+ * 결제 수단 파라미터 파싱. 화이트리스트 밖의 값(`"unknown"`·오타·다른 앱이 만든 링크)은
+ * **조용히 null**이다 — 위 금액 파싱과 같은 규율이다. 모르는 값 때문에 저장 가드에 걸려
+ * 막히는 화면을 만들지 않고, 그때 시트는 예전처럼 자기 기본값에서 시작한다.
+ */
+export function parseExpensePrefillPaymentMethod(value: unknown): ExpensePrefillPaymentMethod | null {
+  const raw = firstParamValue(value).trim();
+  return EXPENSE_PREFILL_PAYMENT_METHODS.find((method) => method === raw) ?? null;
 }
 
 /**
@@ -287,11 +323,17 @@ export function parseExpensePrefillParams(params: {
   itemName?: unknown;
   amountKrw?: unknown;
   categoryId?: unknown;
+  paymentMethod?: unknown;
 }): ExpensePrefill {
   const itemName = firstParamValue(params.itemName).trim();
   const amountRaw = firstParamValue(params.amountKrw).trim();
   const amountKrw = /^\d+$/.test(amountRaw) ? Number(amountRaw) : Number.NaN;
   const amountText = Number.isInteger(amountKrw) && amountKrw > 0 ? String(amountKrw) : "";
   const categoryId = firstParamValue(params.categoryId).trim();
-  return { itemName, amountText, categoryId: categoryId.length > 0 ? categoryId : null };
+  return {
+    itemName,
+    amountText,
+    categoryId: categoryId.length > 0 ? categoryId : null,
+    paymentMethod: parseExpensePrefillPaymentMethod(params.paymentMethod)
+  };
 }
