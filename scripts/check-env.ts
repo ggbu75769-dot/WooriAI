@@ -95,6 +95,14 @@ const OPTIONAL_SPECS: EnvSpec[] = [
   { key: "AUDIT_LOGS_RETENTION_DAYS", scope: "api", note: "기본 730(GAP-058 #10)" },
   { key: "IMPORT_ROWS_RETENTION_DAYS", scope: "api", note: "기본 90(GAP-060 #5, 검수용 가져오기 행)" },
   {
+    key: "HOUSEHOLD_INVITES_RETENTION_DAYS",
+    scope: "api",
+    // 미설정이 정상: 기본값 90일이 코드에 문서화돼 있고(data-retention-purge.job.ts phase 10),
+    // 수락은 household_members 행이·취소는 감사 로그(730일)가 따로 보존하므로 초대 행 삭제로
+    // 사실을 잃지 않는다. pending(살아 있는 링크)은 어떤 값에서도 대상이 아니다.
+    note: "기본 90(GAP-062 #8, 만료·수락·취소된 가족 초대 행 — 수락/취소 사실은 구성원 행·감사 로그가 보존)"
+  },
+  {
     key: "ADMIN_SESSIONS_RETENTION_DAYS",
     scope: "api",
     // 미설정이 정상: 기본값 30일이 코드에 문서화돼 있고(admin-session-cleanup.job.ts),

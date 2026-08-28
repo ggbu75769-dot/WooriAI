@@ -148,6 +148,55 @@ export const DEFAULT_IMPORT_ROWS_RETENTION_DAYS = 90;
  */
 export const IMPORT_ROWS_PURGEABLE_JOB_STATUSES = ["confirmed", "cancelled", "failed"] as const;
 
+/**
+ * GAP-062 #8: household_invites retention (phase 10).
+ *
+ * `household_invites` was the last table with **no retention period at all**:
+ * rows were only ever deleted as a side effect of purging their author (phase
+ * 3) or their household (the orphan cascade), so every invite a family ever
+ * sent — expired, accepted or cancelled — stayed forever, and the growth is
+ * proportional to the user count. 개인정보 밀도는 낮지만(원문 토큰이 아니라
+ * sha256 해시 · 역할 · 채널 · 가구/사용자 id), "보존 기간이 정해지지 않은
+ * 테이블"이 하나 남아 있는 것 자체가 privacy-policy 정합의 구멍이다.
+ *
+ * **90 days**, the same quarter window as import_rows and for the same kind of
+ * reason rather than by imitation:
+ *  - 이 행이 파기된 뒤에도 사라지는 사실은 없다. 수락된 초대는 `household_members`
+ *    행(role·invited_by_user_id·joined_at)으로, 취소는 감사 로그
+ *    `household.invite.cancel`(before/after 봉투, 730일 창)로 각각 남는다 —
+ *    즉 삭제는 **중복 보존의 해소**이지 기록의 상실이 아니다.
+ *  - 그래도 한 분기를 두는 이유는 CS 조회다: "초대 링크를 보냈는데 왜 안 되나요"에
+ *    답하려면 그 링크가 만료됐는지·취소됐는지·이미 수락됐는지를 이 행에서 읽어야
+ *    하고, 그런 문의는 대개 몇 주 안에 도착한다. 초대 자체의 수명은 7일
+ *    (households/household-runtime.service.ts의 INVITE_TTL_MS)이므로 90일은 그
+ *    13배의 사후 조회 창이다.
+ *  - 그보다 길게 둘 이유는 없다: 정산 근거(400일)도 책임 추적 기록(730일)도 아니다.
+ *
+ * Overridable via HOUSEHOLD_INVITES_RETENTION_DAYS. ⚠️ **짧게 조정하는 것은 PM
+ * 확인 대상이다** — 되돌릴 수 없는 삭제이고, 짧아질수록 위 CS 조회 창이 그대로
+ * 줄어든다(라운드 58 #10 · 60 #5와 같은 관례). 늘리는 방향은 저장 비용이다.
+ */
+export const DEFAULT_HOUSEHOLD_INVITES_RETENTION_DAYS = 90;
+
+/**
+ * Invite statuses phase 10 may purge — the invite's outcome is settled and the
+ * link can never be redeemed again. `household_invites.status`가 가질 수 있는
+ * 값은 이 셋과 `pending`뿐이다(household-runtime.service.ts: 생성은 `pending`,
+ * 만료 표시 UPDATE는 `expired`, 취소 CAS는 `revoked`, 수락 CAS는 `accepted`).
+ *
+ * **`pending`은 일부러 빠져 있다.** 아직 살아 있는 링크이고, 그 행을 지우면
+ * 사용자가 방금 카카오톡으로 보낸 초대가 조용히 죽는다.
+ *
+ * 남는 사각을 정직하게 적어 둔다: 만료 표시는 **게으르다**(누군가 그 가구의 초대
+ * 목록을 열거나 그 토큰을 조회할 때만 UPDATE가 돈다 — 같은 파일 349·386·570).
+ * 그래서 아무도 다시 들여다보지 않은 가구의 초대는 유효기간이 한참 지나도
+ * `pending`으로 남고, 이 단계의 대상이 아니다. 그 행은 어차피 사용될 수 없지만
+ * (모든 조회 경로가 만료 표시를 먼저 한다) 파기되지도 않는다 — 상태가 정해진 행만
+ * 지운다는 이 단계의 규칙을 지키기 위해 남겨 둔 격차이고, 닫으려면 "pending이지만
+ * expires_at이 창 밖" 조건을 별도 판단으로 추가해야 한다.
+ */
+export const HOUSEHOLD_INVITES_PURGEABLE_STATUSES = ["expired", "accepted", "revoked"] as const;
+
 // Poison-row escalation (review M1): after this many CONSECUTIVE ticks in
 // which a phase failed terminally (first attempt AND halved retry), the phase
 // starts skipping head rows of its deterministic ordering — see runPhase.
@@ -201,7 +250,7 @@ function errorMessage(error: unknown): string {
  * idempotency_keys never had one). Deletion order below is therefore not just
  * hygiene — Postgres enforces it.
  *
- * Nine phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
+ * Ten phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
  * run INDEPENDENTLY: each is wrapped in its own try/catch so one poisoned
  * phase can never block the others; a phase's terminal error is reported in
  * the summary (`<phase>Error`) and the later phases still run. A phase whose
@@ -447,6 +496,36 @@ function errorMessage(error: unknown): string {
  *    returns an empty list — the job is not broken, its preview has simply
  *    been destroyed on schedule.
  *
+ * 10. Aged-out family invites (GAP-062 #8). `household_invites` had no
+ *    age-based deletion path either: rows disappeared only when their author
+ *    was purged (phase 3) or their household was orphaned, so an expired /
+ *    accepted / cancelled invite otherwise lived forever. Selection is
+ *    `status IN (expired, accepted, revoked) AND expires_at < now −
+ *    HOUSEHOLD_INVITES_RETENTION_DAYS` ordered (expires_at, id).
+ *
+ *    Timestamp choice — `expires_at`, not `created_at`: the table has no
+ *    updated_at column, so neither "when it was accepted" nor "when it was
+ *    cancelled" is available for every settled row (accepted_at exists only
+ *    for the accepted ones). `expires_at` is the one column that (a) exists on
+ *    every row, (b) is ALWAYS later than the settlement it stands for — all
+ *    three purgeable states can only be reached from `pending`, i.e. before
+ *    the TTL lapses, so the row is destroyed at least a full window after the
+ *    invite actually ended — and (c) is already indexed
+ *    (idx_household_invites_expires_at, until now used only by the lazy
+ *    expiry UPDATE), so this phase needs no new index and no migration.
+ *
+ *    **`pending` rows are never selected** — see
+ *    HOUSEHOLD_INVITES_PURGEABLE_STATUSES for that rule and for the residual
+ *    gap it deliberately leaves (a never-re-read invite stays `pending` past
+ *    its TTL because expiry marking is lazy).
+ *
+ *    Nothing FKs household_invites, so the delete is a plain batched
+ *    deleteMany. Nor does it destroy the only record of anything: an accepted
+ *    invite survives as the `household_members` row it created, and a
+ *    cancelled one as the `household.invite.cancel` audit row (kept under the
+ *    730-day window) — the constant's doc spells out why this is duplicate
+ *    retention rather than evidence.
+ *
  *    Batch note: unlike phases 6-8 the cap counts jobs, and one job holds up
  *    to 2,000 rows (importMaxRows), so a full batch can delete ~400k rows in
  *    one transaction. That is the same shape as the phase-2 child cascade and
@@ -500,6 +579,10 @@ export class DataRetentionPurgeJob implements WorkerJob {
     // 가장 짧다(상수 주석: 승인하지 않은 금융 내역의 사본이라 오래 둘 이유가 없다).
     const importRowsRetentionDays = this.importRowsRetentionDays();
     const importRowsCutoff = new Date(now.getTime() - importRowsRetentionDays * DAY_MS);
+    // GAP-062 #8: 상태가 정해진 가족 초대도 자기 창(기본 90일)을 쓴다 — 창의 기준점은
+    // 초대의 유효기간(expires_at)이다(상수·phase 10 주석).
+    const householdInvitesRetentionDays = this.householdInvitesRetentionDays();
+    const householdInvitesCutoff = new Date(now.getTime() - householdInvitesRetentionDays * DAY_MS);
 
     // Phases run independently (see class doc): a failure in one is captured
     // in the summary and never prevents the later phases from running.
@@ -561,6 +644,13 @@ export class DataRetentionPurgeJob implements WorkerJob {
       (size, skip) => this.purgeImportRows(importRowsCutoff, size, skip),
       { importRowsPurged: 0, importJobPreviewsDrained: 0 }
     );
+    // Phase 10 (GAP-062 #8): 상태가 정해진 가족 초대 보존 창.
+    const householdInvites = await this.runPhase(
+      "householdInvitePurge",
+      batchSize,
+      (size, skip) => this.purgeHouseholdInvites(householdInvitesCutoff, size, skip),
+      { householdInvitesPurged: 0 }
+    );
 
     const summary = {
       retentionDays,
@@ -569,6 +659,7 @@ export class DataRetentionPurgeJob implements WorkerJob {
       affiliateClicksRetentionDays,
       auditLogsRetentionDays,
       importRowsRetentionDays,
+      householdInvitesRetentionDays,
       ...expenses,
       ...children,
       ...users,
@@ -577,7 +668,8 @@ export class DataRetentionPurgeJob implements WorkerJob {
       ...analyticsEvents,
       ...affiliateClicks,
       ...auditLogs,
-      ...importRows
+      ...importRows,
+      ...householdInvites
     };
 
     // Review M1b: all phases have run; if any of them failed terminally,
@@ -1223,6 +1315,48 @@ export class DataRetentionPurgeJob implements WorkerJob {
   }
 
   /**
+   * Phase 10 (GAP-062 #8): family invites whose outcome is settled and whose
+   * TTL lapsed more than HOUSEHOLD_INVITES_RETENTION_DAYS ago (class doc,
+   * item 10).
+   *
+   * Same machinery as phases 6-8 — a plain range predicate, deterministic
+   * (expires_at, id) ordering so the halved retry and the poison-skip window
+   * are strict prefixes of the same sequence, and a batched deleteMany inside
+   * the usual transaction (nothing FKs household_invites). The status filter
+   * is what keeps a live link (`pending`) out of the batch; the range is on
+   * expires_at because it is the only settlement-independent age column the
+   * table has, and it is the indexed one.
+   */
+  private async purgeHouseholdInvites(cutoff: Date, batchSize: number, skip: number) {
+    const where = {
+      status: { in: [...HOUSEHOLD_INVITES_PURGEABLE_STATUSES] },
+      expiresAt: { lt: cutoff }
+    } satisfies Prisma.HouseholdInviteWhereInput;
+    // id tiebreaker: strict total order (see purgeExpenses / review L1).
+    const orderBy = [{ expiresAt: "asc" }, { id: "asc" }] satisfies Prisma.HouseholdInviteOrderByWithRelationInput[];
+    if (skip > 0) {
+      const skipped = await this.prisma.householdInvite.findMany({ where, select: { id: true }, orderBy, take: skip });
+      this.logPoisonSkippedRows("householdInvitePurge", "household_invites", skipped.map((row) => row.id));
+    }
+    const rows = await this.prisma.householdInvite.findMany({
+      where,
+      select: { id: true },
+      orderBy,
+      skip,
+      take: batchSize
+    });
+    if (rows.length === 0) {
+      return { householdInvitesPurged: 0 };
+    }
+    const ids = rows.map((row) => row.id);
+    const deleted = await this.prisma.$transaction(
+      (tx) => tx.householdInvite.deleteMany({ where: { id: { in: ids } } }),
+      PURGE_TX_OPTIONS
+    );
+    return { householdInvitesPurged: deleted.count };
+  }
+
+  /**
    * Returns the subset of userIds still referenced by a NOT NULL FK column on
    * a surviving row — the references that make a hard DELETE of the users row
    * impossible without destroying another member's shared household data.
@@ -1367,5 +1501,10 @@ export class DataRetentionPurgeJob implements WorkerJob {
   private importRowsRetentionDays(): number {
     const raw = Number(process.env.IMPORT_ROWS_RETENTION_DAYS);
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_IMPORT_ROWS_RETENTION_DAYS;
+  }
+
+  private householdInvitesRetentionDays(): number {
+    const raw = Number(process.env.HOUSEHOLD_INVITES_RETENTION_DAYS);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_HOUSEHOLD_INVITES_RETENTION_DAYS;
   }
 }

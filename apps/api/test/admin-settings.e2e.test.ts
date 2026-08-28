@@ -340,4 +340,70 @@ describe("Admin CMS and settings APIs", () => {
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(401);
   });
+
+  /**
+   * GAP-062 #7: 되돌릴 수 없는 두 흐름(가구 탈퇴·계정 삭제)이 감사 로그에 남는다.
+   *
+   * 종전에는 같은 컨트롤러에서 아이 프로필 삭제만 기록됐고, "스스로 나갔다/탈퇴했다"는
+   * 사실은 구성원 행의 `left` 표식과 `users.status=withdrawn`뿐이라 누가·언제·어느 경로로
+   * 그랬는지에 CS가 답할 근거가 없었다. 계정 삭제는 더 심했다 — 파기 잡이 유예 기간 뒤
+   * users 행을 물리 삭제하면 그 계정이 존재했다는 사실 자체가 사라진다.
+   */
+  it("records household.leave and account.delete audit entries for the two irreversible self-service flows", async () => {
+    const accessToken = await login(app, "batch10-settings-audit");
+    const { householdId } = await completeOnboarding(app, accessToken);
+    const auditLogger = moduleRef.get(AuditLoggerService);
+
+    // 확인 문구가 틀리면 아무 일도 없어야 한다 — 실패한 시도는 기록도 남기지 않는다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/settings/households/${householdId}/leave-confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ confirmationText: "WRONG" })
+      .expect(400);
+    expect(auditLogger.entries.filter((entry) => entry.action === "household.leave")).toHaveLength(0);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/settings/households/${householdId}/leave-confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ confirmationText: "LEAVE HOUSEHOLD" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ success: true, flowId: "household_leave" });
+      });
+
+    const leaveEntry = auditLogger.entries.find(
+      (entry) => entry.action === "household.leave" && entry.householdId === householdId
+    );
+    expect(leaveEntry).toMatchObject({
+      actorUserId: expect.any(String),
+      householdId,
+      action: "household.leave",
+      targetType: "household",
+      targetId: householdId,
+      after: { flowId: "household_leave" }
+    });
+    // 봉투에 PII 금지: 지어낸 시각도, 닉네임/이메일도 싣지 않는다(시각은 행의 createdAt).
+    expect(Object.keys(leaveEntry!.after!)).toEqual(["flowId"]);
+
+    await request(app.getHttpServer())
+      .post("/api/v1/settings/account/delete-confirm")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ confirmationText: "DELETE ACCOUNT" })
+      .expect(200);
+
+    const deleteEntry = auditLogger.entries.find(
+      (entry) => entry.action === "account.delete" && entry.actorUserId === leaveEntry!.actorUserId
+    );
+    expect(deleteEntry).toMatchObject({
+      actorUserId: leaveEntry!.actorUserId,
+      action: "account.delete",
+      targetType: "user",
+      after: { flowId: "account_delete" }
+    });
+    // 탈퇴는 참여 중인 **모든** 가구에서 나가는 흐름이라 가구 하나를 골라 적지 않는다.
+    expect(deleteEntry!.householdId).toBeUndefined();
+    // 대상이 곧 행위자다 — 같은 uuid를 target_id에 복사하면 파기 잡 phase 3의
+    // actor_user_id 익명화가 무력화되므로 싣지 않는다.
+    expect(deleteEntry!.targetId).toBeUndefined();
+  });
 });
