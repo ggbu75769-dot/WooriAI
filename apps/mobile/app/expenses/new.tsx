@@ -353,6 +353,8 @@ export default function NewExpenseScreen() {
     // 라운드 49 C-06(b): 구매 확인 카드("샀어요")가 **자기가 이미 아는 사실**을 함께 넘긴다.
     merchant?: string;
     linkedProductLinkId?: string;
+    // 라운드 55 트랙 A: 정기 지출 카드의 "기록하기"가 템플릿에 저장된 결제 수단을 함께 넘긴다.
+    paymentMethod?: string;
   }>();
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
   /**
@@ -468,7 +470,19 @@ export default function NewExpenseScreen() {
   // 펼친 분류가 몇 개까지 보이는지는 분류별로 따로 센다(기본 6개 -> "더 보기").
   const [expandedCategoryId, setExpandedCategoryId] = useState("");
   const [categoryLimits, setCategoryLimits] = useState<Record<string, number>>({});
-  const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
+  /**
+   * 라운드 55 트랙 A — 결제 수단 프리필.
+   *
+   * 프리필이 없거나(대부분의 진입점) 모르는 값이면 `prefill.paymentMethod`가 null이고, 그때는
+   * `findIndex`가 -1이라 **종전 그대로 0(카드)** 에서 시작한다. 비세션(픽셀 락 캡처 EXP-001)
+   * 에서도 프리필을 보지 않으므로 기준 이미지의 선택 상태가 그대로 남는다.
+   */
+  const prefilledPaymentMethodIndex = authToken
+    ? quickExpensePaymentMethods.findIndex((method) => method.value === prefill.paymentMethod)
+    : -1;
+  const [paymentMethodIndex, setPaymentMethodIndex] = useState(
+    prefilledPaymentMethodIndex >= 0 ? prefilledPaymentMethodIndex : 0
+  );
   const [isGift, setIsGift] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDateMode, setCustomDateMode] = useState(false);
