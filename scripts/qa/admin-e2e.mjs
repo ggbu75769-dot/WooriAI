@@ -36,6 +36,16 @@
  * above already produced (the QA-118 CSV export pages the same read-only
  * list API and builds the file client-side).
  *
+ * GAP-063 #9 (round 63) stopped the funnel step from hardcoding the stage count
+ * (it had been red for two rounds after round 61 #5 prefixed the onboarding
+ * stages) — the expectation is now derived from FUNNEL_STAGES itself, labels and
+ * order included. The same round added three read-only steps: the round-61
+ * 온보딩 단계 이탈 card, the audit-log action-preset datalist (round 62 #7's
+ * household.leave/account.delete reaching the screen), and the round-63 MFA
+ * re-enrollment entry point in the account area — that last one only OPENS the
+ * panel and closes it again, and must never submit: submitting would really
+ * disable the dev admin's MFA.
+ *
  * GAP-059 #8 (round 59) added the round-56 CS path: 사용자 조회 search +
  * ?actorUserId deep link into 감사 로그 (steps 11), and load/read steps for
  * 카테고리 관리 · 제휴 고지 문구 · 클릭 통계 (steps 12-14). All four are
@@ -218,6 +228,67 @@ async function loginViaUi(page, email, password) {
   return flow;
 }
 
+/**
+ * GAP-063 #9 (라운드 63): 퍼널 표의 기대값을 **화면의 계약에서 파생**한다.
+ *
+ * 종전에는 퍼널 행 수를 여섯으로 박아 두고 다르면 던졌다. 라운드 61 #5가 퍼널 앞에
+ * 온보딩 4단을 접두하자(지금 10행) 이 스텝이 그대로 빨간불이 됐다 — 회귀가 아니라 하네스가
+ * 늙은 것인데, 그런 실패는 진짜 회귀까지 같이 묻는다. 그래서 숫자를 옮겨 적는 대신
+ * `FUNNEL_STAGES`(apps/admin/app/analytics/page.tsx)를 읽어 **라벨과 순서까지** 기대값으로
+ * 삼는다. 다음에 단이 늘거나 순서가 바뀌면 이 스텝은 자동으로 따라가고, 화면이 계약과 어긋난
+ * 경우에만 실패한다.
+ *
+ * 접두된 온보딩 단은 페이지의 손 미러(`ONBOARDING_STEPS`)에서 오고, 그 미러가 계약
+ * (packages/contracts/src/analytics.ts)과 같은지는 apps/admin의 대조 테스트가 지킨다 —
+ * 여기서는 두 목록의 **개수만** 교차 확인해, 어드민 미러만 늙은 상태에서 e2e가 초록불이
+ * 되는 경우를 막는다.
+ */
+function readFunnelStageContract() {
+  const pageSource = readFileSync(
+    path.join(repoRoot, "apps", "admin", "app", "analytics", "page.tsx"),
+    "utf8"
+  );
+
+  const mirrorBlock = pageSource.split("const ONBOARDING_STEPS:")[1]?.split("];")[0];
+  if (!mirrorBlock) throw new Error("analytics/page.tsx에서 ONBOARDING_STEPS 미러를 찾지 못했습니다");
+  const onboardingLabels = [...mirrorBlock.matchAll(/label: "([^"]+)"/g)].map((m) => `온보딩 · ${m[1]}`);
+  if (onboardingLabels.length === 0) throw new Error("ONBOARDING_STEPS 미러에서 라벨을 하나도 읽지 못했습니다");
+
+  const contractsSource = readFileSync(
+    path.join(repoRoot, "packages", "contracts", "src", "analytics.ts"),
+    "utf8"
+  );
+  const contractList = /export const ONBOARDING_STEPS = \[([^\]]*)\] as const;/.exec(contractsSource)?.[1];
+  const contractSteps = [...(contractList ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  if (contractSteps.length !== onboardingLabels.length) {
+    throw new Error(
+      `어드민 온보딩 미러 ${onboardingLabels.length}단 != 계약 ${contractSteps.length}단 ` +
+        "(packages/contracts/src/analytics.ts의 ONBOARDING_STEPS)"
+    );
+  }
+
+  const funnelBlock = pageSource.split("const FUNNEL_STAGES: FunnelStage[] = [")[1]?.split("\n];")[0];
+  if (!funnelBlock) throw new Error("analytics/page.tsx에서 FUNNEL_STAGES를 찾지 못했습니다");
+  // 접두(spread) 뒤에 오는 명시 단들 — 각 항목이 한 줄이라 줄 단위로 읽는다.
+  const explicitLabels = [...funnelBlock.matchAll(/^\s*\{ key: "[^"]+", label: "([^"]+)"/gm)].map((m) => m[1]);
+  if (explicitLabels.length === 0) throw new Error("FUNNEL_STAGES에서 명시 단을 하나도 읽지 못했습니다");
+
+  return { onboardingLabels, labels: [...onboardingLabels, ...explicitLabels] };
+}
+
+/** 감사 로그 액션 프리셋(datalist 후보)의 원천. 화면에 실제로 그 옵션들이 붙는지 대조한다. */
+function readAuditActionPresets() {
+  const source = readFileSync(
+    path.join(repoRoot, "apps", "admin", "src", "lib", "audit-log-filters.ts"),
+    "utf8"
+  );
+  const block = source.split("export const AUDIT_LOG_ACTION_PRESETS")[1]?.split("\n];")[0];
+  if (!block) throw new Error("audit-log-filters.ts에서 AUDIT_LOG_ACTION_PRESETS를 찾지 못했습니다");
+  const actions = [...block.matchAll(/\{ action: "([^"]+)"/g)].map((m) => m[1]);
+  if (actions.length === 0) throw new Error("AUDIT_LOG_ACTION_PRESETS에서 액션을 하나도 읽지 못했습니다");
+  return actions;
+}
+
 /** QA-114: parse the total count out of the audit-log record card heading
  * ("기록 (총 1,234건)"). */
 async function readAuditTotal(page) {
@@ -344,15 +415,32 @@ async function main() {
     await page.waitForURL("**/analytics", { timeout: NAV_TIMEOUT });
     await page.getByRole("heading", { name: /요약 \(최근 7일\)/ }).waitFor({ timeout: NAV_TIMEOUT });
 
-    // Funnel section: 6 fixed stages. Originally 4 (ADM-009); ANA-127 inserted
-    // 준비템 상세 열람 and ANA-128 split the 구매 확인 answers so the last stage counts
-    // only "샀어요" — see FUNNEL_STAGES in apps/admin/app/analytics/page.tsx.
+    // Funnel section. GAP-063 #9: 단 수를 숫자로 박지 않고 FUNNEL_STAGES에서 파생한다
+    // (readFunnelStageContract 주석 참고 — 라운드 61 #5의 온보딩 4단 접두가 옛 하드코딩 6을
+    // 두 라운드째 빨간불로 만들었다). 라벨과 순서까지 대조하므로 "행 수만 맞는" 회귀도 잡는다.
+    const funnel = readFunnelStageContract();
     const funnelCard = page.locator("section:has(h2:text('KPI 퍼널'))");
     await funnelCard.waitFor();
-    const funnelRows = await funnelCard.locator("table tbody tr").count();
-    if (funnelRows !== 6) throw new Error(`expected 6 funnel rows, got ${funnelRows}`);
+    const funnelRowLocator = funnelCard.locator("table tbody tr");
+    await funnelRowLocator.first().waitFor({ timeout: STEP_TIMEOUT });
+    const funnelRows = await funnelRowLocator.count();
+    if (funnelRows !== funnel.labels.length) {
+      throw new Error(
+        `expected ${funnel.labels.length} funnel rows (FUNNEL_STAGES 계약), got ${funnelRows}`
+      );
+    }
+    // 표는 "1. 온보딩 · 아이 상태 선택"처럼 계약 순서 번호를 스스로 붙인다.
+    const stageCells = await funnelRowLocator.locator("td:nth-child(1)").allInnerTexts();
+    const renderedStages = stageCells.map((text) => text.replace(/\s+/g, " ").trim());
+    const expectedStages = funnel.labels.map((label, index) => `${index + 1}. ${label}`);
+    for (const [index, expected] of expectedStages.entries()) {
+      if (renderedStages[index] !== expected) {
+        throw new Error(`funnel row ${index + 1}: "${renderedStages[index]}" != "${expected}"`);
+      }
+    }
 
-    // Event-count table: the 6 registry events always render (0 counts fine).
+    // Event-count table: the registry events always render (0 counts fine). 하한만
+    // 확인한다 — byName은 계약 레지스트리에서 생성되므로 배포된 API 버전에 따라 더 많을 수 있다.
     const eventCard = page.locator("section:has(h2:text('이벤트별 카운트'))");
     const eventRows = await eventCard.locator("table tbody tr").count();
     if (eventRows < 6) throw new Error(`expected >= 6 event rows, got ${eventRows}`);
@@ -362,7 +450,36 @@ async function main() {
     await btn30.click();
     await page.getByRole("heading", { name: /요약 \(최근 30일\)/ }).waitFor({ timeout: STEP_TIMEOUT });
     if ((await btn30.getAttribute("aria-pressed")) !== "true") throw new Error("30일 toggle not aria-pressed after click");
-    return `funnel rows: ${funnelRows}, event rows: ${eventRows}, 30일 toggle OK`;
+    return (
+      `funnel rows: ${funnelRows} (계약 파생, 앞 ${funnel.onboardingLabels.length}단 온보딩 접두 · 라벨/순서 일치), ` +
+      `event rows: ${eventRows}, 30일 toggle OK`
+    );
+  });
+
+  // ---- Step 5b: 온보딩 단계 이탈 카드 (라운드 61 #5) -------------------------
+  // GAP-063 #9ⓑ: 라운드 61이 신설한 패널을 e2e가 한 번도 방문하지 않았다. 읽기 전용 스텝 —
+  // 세 숫자 카드가 실제로 그려지는지와, 이 화면의 정직성 각주(동의한 사용자만 · 분류 불가)가
+  // 남아 있는지만 본다.
+  await runStep("analytics-onboarding-dropoff-card", page, async () => {
+    const card = page.locator("section:has(h2:text('온보딩 단계 이탈'))");
+    await card.waitFor({ timeout: NAV_TIMEOUT });
+    const labels = ["단계 진입 (이벤트 수)", "온보딩 완료", "완료 1건당 단계 진입"];
+    const values = [];
+    for (const label of labels) {
+      const article = card.locator("article", { hasText: label });
+      if ((await article.count()) !== 1) throw new Error(`온보딩 이탈 카드에 "${label}" 항목이 없어요`);
+      const value = (await article.first().locator("p").nth(1).innerText()).trim();
+      // 건수는 "1,234건", 배수는 "3.2배"/"-" 형태.
+      if (!/^[\d,]+건$|^[\d.]+배$|^-$/.test(value)) throw new Error(`"${label}" 값이 숫자 표기가 아니에요: "${value}"`);
+      values.push(`${label}=${value}`);
+    }
+    // 정직성 각주: 이 수를 신규 사용자 수처럼 읽지 못하게 하는 문장이 남아 있어야 한다.
+    for (const notice of ["통계 수집 동의", "하한"]) {
+      if ((await card.locator("p", { hasText: notice }).count()) < 1) {
+        throw new Error(`온보딩 이탈 카드에서 "${notice}" 고지가 사라졌어요`);
+      }
+    }
+    return values.join(", ");
   });
 
   // ---- Step 6: admin users page ---------------------------------------------
@@ -418,6 +535,24 @@ async function main() {
     const total = await readAuditTotal(page);
     if (total < rowCount) throw new Error(`total (${total}) < visible rows (${rowCount})`);
 
+    // GAP-063 #9ⓒ: 액션 프리셋 datalist가 원천(audit-log-filters.ts의
+    // AUDIT_LOG_ACTION_PRESETS)을 빠짐없이 그리는지. 라운드 62 #7이 더한 household.leave ·
+    // account.delete가 화면까지 닿았는지를 여기서 확인한다(그 두 액션은 "본인이 나가거나
+    // 탈퇴한" CS 문의의 유일한 단서다). 목록은 파일에서 읽는다 — 숫자도 목록도 박지 않는다.
+    const presetActions = readAuditActionPresets();
+    const optionValues = await page
+      .locator("datalist#audit-log-action-presets option")
+      .evaluateAll((nodes) => nodes.map((node) => node.value));
+    const missingPresets = presetActions.filter((action) => !optionValues.includes(action));
+    if (missingPresets.length) {
+      throw new Error(`액션 프리셋이 datalist에 없어요: ${missingPresets.join(", ")}`);
+    }
+    for (const action of ["household.leave", "account.delete"]) {
+      if (!optionValues.includes(action)) {
+        throw new Error(`라운드 62 #7의 액션 프리셋이 화면에 없어요: ${action}`);
+      }
+    }
+
     // Pagination round-trip, only meaningful when there is more than one page
     // (dev DB easily exceeds 20 rows; keep the single-page case green too).
     let pagination = "single page";
@@ -438,7 +573,10 @@ async function main() {
       await page.getByText(/1 \/ [\d,]+ 페이지/).waitFor({ timeout: STEP_TIMEOUT });
       pagination = "다음/이전 page-2 round-trip OK";
     }
-    return `rows: ${rowCount}, total: ${total}, pagination: ${pagination}`;
+    return (
+      `rows: ${rowCount}, total: ${total}, pagination: ${pagination}, ` +
+      `액션 프리셋 ${presetActions.length}종 datalist 반영(household.leave·account.delete 포함)`
+    );
   });
 
   // ---- Step 9: audit-log action filter narrows results (QA-114b) ------------
@@ -751,7 +889,33 @@ async function main() {
     return `total ${totalText}; range toggle ${secondLabel} OK (${buttonCount} options)`;
   });
 
-  // ---- Step 15: audit logs are admin-role-only (QA-114c) --------------------
+  // ---- Step 15: MFA 재등록 입구가 계정 영역에 있다 (GAP-063 #3) --------------
+  // 읽기 전용 스텝: 헤더의 "인증 앱 다시 등록"을 열어 폼과 문구만 확인하고 **절대 제출하지
+  // 않는다** — 제출하면 이 dev 관리자의 MFA가 실제로 해제되고 강제 재등록으로 넘어간다.
+  await runStep("mfa-reenroll-entry-point", page, async () => {
+    const openButton = page.getByRole("button", { name: "인증 앱 다시 등록" });
+    if ((await openButton.count()) !== 1) throw new Error("헤더에 '인증 앱 다시 등록' 버튼이 없어요");
+    await openButton.click();
+    await page.getByRole("heading", { name: "인증 앱 다시 등록" }).waitFor({ timeout: STEP_TIMEOUT });
+
+    // 복구 코드로도 해제할 수 있다는 사실을 화면이 말해야 한다(서버 verifyMfaCode는 이미 받는다).
+    await page.locator("p", { hasText: "복구 코드를 입력해도 돼요" }).first().waitFor({ timeout: STEP_TIMEOUT });
+    const codeInput = page.getByPlaceholder("인증 코드 또는 복구 코드");
+    if ((await codeInput.count()) < 1) throw new Error("코드 입력칸이 없어요");
+    // SEC-101: 해제 뒤 등록을 건너뛸 수 없다는 사실도 같은 화면에 있어야 한다.
+    await page
+      .locator("p", { hasText: "등록을 마치기 전에는 다른 화면을 쓸 수 없고" })
+      .first()
+      .waitFor({ timeout: STEP_TIMEOUT });
+    const submit = page.getByRole("button", { name: "해제하고 다시 등록하기" });
+    if ((await submit.count()) !== 1) throw new Error("'해제하고 다시 등록하기' 버튼이 없어요");
+    // NOTE: 여기서 제출하지 않는다. 패널만 닫고 나간다.
+    await page.getByRole("button", { name: "그만두기" }).click();
+    await page.getByRole("heading", { name: "인증 앱 다시 등록" }).waitFor({ state: "detached", timeout: STEP_TIMEOUT });
+    return "계정 영역에서 열림 · 복구 코드 안내/재등록 강제 고지 표시 · 제출 없이 닫힘";
+  });
+
+  // ---- Step 16: audit logs are admin-role-only (QA-114c) --------------------
   // The dev seed creates editor@wooriai.local (apps/api/prisma/seed.ts,
   // COM-103); there is NO analyst seed account, so only the editor role is
   // exercised. If the editor account is missing (custom DB), SKIP with a note

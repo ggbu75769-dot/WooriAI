@@ -8,6 +8,7 @@ import {
   adminChangePassword,
   adminLogin,
   adminLogout,
+  adminMfaDisable,
   adminMfaSetupStart,
   adminMfaSetupVerify,
   adminVerifyMfaLogin,
@@ -39,8 +40,10 @@ const NAV_ITEMS: Array<{ href: string; label: string; roles?: AdminRole[] }> = [
 export function AdminShell({ children }: { children: ReactNode }) {
   const { session, isReady } = useAdminSession();
   const pathname = usePathname();
-  // ADM-007: 계정 영역(헤더)에서 여는 비밀번호 변경 폼 토글.
-  const [passwordFormOpen, setPasswordFormOpen] = useState(false);
+  // ADM-007: 계정 영역(헤더)에서 여는 폼 토글. GAP-063 #3이 "인증 앱 다시 등록"을 같은
+  // 자리에 더하면서, 두 폼이 동시에 열리지 않도록 하나의 상태로 합쳤다.
+  const [accountPanel, setAccountPanel] = useState<"password" | "mfa" | null>(null);
+  const togglePanel = (panel: "password" | "mfa") => setAccountPanel((open) => (open === panel ? null : panel));
 
   if (!isReady) {
     return <div className={styles.loadingScreen}>불러오는 중...</div>;
@@ -76,16 +79,26 @@ export function AdminShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <button type="button" className={styles.logoutButton} onClick={() => setPasswordFormOpen((open) => !open)}>
+        <button type="button" className={styles.logoutButton} onClick={() => togglePanel("password")}>
           비밀번호 변경
+        </button>
+        {/* GAP-063 #3: 인증 앱을 잃었을 때의 유일한 복구 입구. 비밀번호 변경과 같은 모양·같은 자리. */}
+        <button type="button" className={styles.logoutButton} onClick={() => togglePanel("mfa")}>
+          인증 앱 다시 등록
         </button>
         <LogoutButton />
       </header>
       <main className={styles.main}>
-        {passwordFormOpen ? (
+        {accountPanel === "password" ? (
           <div className={styles.loginCard}>
             <h1>비밀번호 변경</h1>
-            <ChangePasswordForm onDone={() => setPasswordFormOpen(false)} />
+            <ChangePasswordForm onDone={() => setAccountPanel(null)} />
+          </div>
+        ) : null}
+        {accountPanel === "mfa" ? (
+          <div className={styles.loginCard}>
+            <h1>인증 앱 다시 등록</h1>
+            <MfaDisableForm onCancel={() => setAccountPanel(null)} />
           </div>
         ) : null}
         {children}
@@ -182,6 +195,83 @@ function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
         {submitting ? "변경 중..." : "비밀번호 변경"}
       </button>
     </form>
+  );
+}
+
+/**
+ * GAP-063 #3: 인증 앱을 잃은 관리자의 재등록 입구. 서버(POST /admin/auth/mfa/disable,
+ * admin-auth.service.ts의 `disableMfa`)와 클라이언트 래퍼(`adminMfaDisable`)는 이미
+ * 완성돼 있었는데 화면에 부르는 자리가 없어서, 폰을 바꾼 관리자는 복구 코드를 한 장씩
+ * 태우며 로그인하다가 다 쓰면 어드민에서 영구히 잠겼다(남은 복구책은 DB 직접 수정뿐).
+ *
+ * SEC-101 계약은 한 글자도 바뀌지 않는다: 해제는 **세션의 `mfaEnabled`를 false로 내리는
+ * 것까지**이고, 그 순간 AdminShell이 강제 등록 화면(MfaSetupScreen)을 그대로 이어받는다 —
+ * 새 라우트도, 등록을 건너뛰는 길도 만들지 않는다. 서버가 코드 확인을 요구하는 순서(확인 →
+ * 해제 → 재등록 강제)를 화면이 흐리지 않는 유일한 모양이다.
+ *
+ * 실패는 서버 문구를 그대로 보여준다(코드 오류·MFA 잠금·미등록 상태가 서로 다른 사실이라
+ * 한 문장으로 뭉뚱그리지 않는다).
+ */
+function MfaDisableForm({ onCancel }: { onCancel?: () => void }) {
+  const { session, setSession } = useAdminSession();
+
+  const [code, setCode] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!code.trim()) {
+      setFormError("인증 코드 또는 복구 코드를 입력해 주세요.");
+      return;
+    }
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      await adminMfaDisable(code.trim());
+      // 성공 화면을 따로 두지 않는다 — mfaEnabled가 false가 되는 순간 셸이 등록 화면으로
+      // 넘어가고(위 SEC-101 문단), 새 복구 코드는 그 화면이 발급해 보여준다.
+      if (session) setSession({ admin: session.admin, mfaEnabled: false });
+    } catch (error) {
+      setFormError(
+        error instanceof AdminApiError ? error.message : "2단계 인증을 해제하지 못했어요. 다시 시도해 주세요."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <p>인증 앱을 새 기기로 옮기려면 지금 등록을 해제하고 바로 다시 등록해요.</p>
+      <p className={styles.hint}>
+        인증 앱을 쓸 수 없다면 <strong>복구 코드를 입력해도 돼요</strong>. 복구 코드는 한 번만 쓸 수 있어요.
+      </p>
+      <p className={styles.hint}>
+        해제하면 곧바로 등록 화면이 떠요 — 등록을 마치기 전에는 다른 화면을 쓸 수 없고, 지금 가진 복구 코드는 모두
+        무효가 되며 등록을 마칠 때 새 복구 코드를 드려요. 다른 곳의 로그인은 모두 해제되고, 이 세션은 유지돼요.
+      </p>
+      <form className={styles.loginForm} onSubmit={handleSubmit}>
+        <input
+          type="text"
+          inputMode="text"
+          autoComplete="one-time-code"
+          value={code}
+          onChange={(event) => setCode(event.target.value)}
+          placeholder="인증 코드 또는 복구 코드"
+          className={styles.tokenInput}
+        />
+        {formError ? <p className={styles.errorText}>{formError}</p> : null}
+        <button type="submit" className={styles.primaryButton} disabled={submitting}>
+          {submitting ? "해제 중..." : "해제하고 다시 등록하기"}
+        </button>
+      </form>
+      {onCancel ? (
+        <button type="button" className={styles.legacyToggle} onClick={onCancel}>
+          그만두기
+        </button>
+      ) : null}
+    </>
   );
 }
 
