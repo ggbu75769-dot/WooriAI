@@ -65,6 +65,33 @@ async function judgeCurrentPin(record: AppLockRecord, pin: string, nowMs: number
   return "wrong-pin";
 }
 
+/**
+ * 잠금 화면 제출 **한 번분**. `submitPin`이 동시 제출을 합류시키기 위해 밖으로 뽑았다.
+ */
+async function runPinSubmission(record: AppLockRecord | null, pin: string, nowMs: number): Promise<AppLockSubmitResult> {
+  if (!record || !record.enabled) return "no-record";
+  const verdict = await judgeCurrentPin(record, pin, nowMs);
+  if (verdict !== "ok") return verdict;
+  const cleared = clearFailedAttempts(record);
+  useAppLockStore.setState({ record: cleared, unlockedThisForeground: true, backgroundedAtMs: null });
+  if (cleared !== record) await writeAppLockRecord(cleared);
+  return "unlocked";
+}
+
+/**
+ * 진행 중인 잠금 해제 제출(GAP-059 #7). 스토어 상태가 아니라 모듈 지역 변수인 이유: 이 값은
+ * 화면이 그리는 값이 아니라 **중복 실행을 막는 걸쇠**라서, set()으로 흘리면 구독자만 흔든다.
+ *
+ * 왜 필요한가 — 겹친 제출에서 상하는 것은 카운터 자체가 아니다(그것은 setState로 동기 반영된다).
+ * ① 두 제출이 각자 `writeAppLockRecord`를 띄우면 **나중 쓰기가 먼저 끝날 수 있어** 디스크에
+ *    더 낮은 failedCount·더 이른 lockedUntilMs가 남는다 — 강제 종료로 대기를 우회할 수 없어야
+ *    한다는 수용 기준 5가 그 디스크 값에 걸려 있다.
+ * ② 두 응답이 각각 화면 문구를 세워 남은 횟수가 거꾸로 흐른다(문구 되감김).
+ * 그래서 두 번째 호출은 새 제출을 만들지 않고 **먼저 뜬 제출의 결과에 합류한다** — 이중 탭은
+ * 한 번의 의사표시이므로 결과도 하나여야 한다.
+ */
+let inFlightPinSubmission: Promise<AppLockSubmitResult> | null = null;
+
 export type AppLockState = {
   recordStatus: AppLockRecordStatus;
   record: AppLockRecord | null;
@@ -171,14 +198,16 @@ export const useAppLockStore = create<AppLockState>()((set, get) => ({
   },
 
   submitPin: async (pin, nowMs = Date.now()) => {
-    const record = get().record;
-    if (!record || !record.enabled) return "no-record";
-    const verdict = await judgeCurrentPin(record, pin, nowMs);
-    if (verdict !== "ok") return verdict;
-    const cleared = clearFailedAttempts(record);
-    set({ record: cleared, unlockedThisForeground: true, backgroundedAtMs: null });
-    if (cleared !== record) await writeAppLockRecord(cleared);
-    return "unlocked";
+    // 동시 제출 가드(GAP-059 #7 — 위 inFlightPinSubmission 주석). 화면 쪽에도 같은 가드가 있지만
+    // (버튼 비활성 + 재진입 차단), 저장소 쓰기가 겹치는 것은 여기서 끊는 것이 확실하다.
+    if (inFlightPinSubmission) return inFlightPinSubmission;
+    const submission = runPinSubmission(get().record, pin, nowMs);
+    inFlightPinSubmission = submission;
+    try {
+      return await submission;
+    } finally {
+      inFlightPinSubmission = null;
+    }
   },
 
   noteBackgrounded: (nowMs = Date.now()) => {

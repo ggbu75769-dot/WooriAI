@@ -417,3 +417,64 @@ describe("A11Y-117 accessibility round-2 contract", () => {
     expect(notificationsSource).toContain("onPress={confirmClearAll}");
   });
 });
+
+/**
+ * GAP-059 #3 — 잠금 오버레이의 **접근성 투과** 봉합 (docs/5차/round59-scout.md 트랙 C).
+ *
+ * 오버레이는 `<Stack>`·구매 확인 카드와 형제라 z-order로만 위에 온다. 접근성 트리는 z-order로
+ * 잘리지 않으므로, 화면이 덮여 있는 동안에도 TalkBack은 뒤에 남은 금액·품목명을 읽었다 —
+ * 눈으로는 막혔는데 귀로는 열려 있는 상태. 여기서 고정하는 계약은 둘이다.
+ *
+ * ① **잠금 중에는 뒤 트리가 접근성 트리에서 사라진다**(Android `no-hide-descendants` +
+ *    iOS `accessibilityElementsHidden`).
+ * ② **비잠금에서는 아무것도 달라지지 않는다** — 잠금을 켜지 않은 사용자에게는 방패 노드가
+ *    생기지도 않고(수용 기준 2), 픽셀락 빌드에서는 존재할 수 없다(수용 기준 6).
+ *
+ * (다른 화면들과 같은 source-grep 관례 — vitest에서 react-native를 렌더할 수 없다.)
+ * ⚠️ 실기기 TalkBack/VoiceOver 검증은 아직이다. 여기 고정한 것은 코드가 그 두 prop을 잠금
+ * 상태에서만 건다는 사실이지, "실제로 읽히지 않더라"는 실측이 아니다.
+ */
+describe("GAP-059 #3 app lock overlay a11y containment contract", () => {
+  it("wraps only the back tree (Stack + 구매 확인 카드) in the shield, leaving the overlay outside it", () => {
+    const layout = source("app/_layout.tsx");
+    const shieldOpen = layout.indexOf("<AppLockScreenShield>");
+    const shieldClose = layout.indexOf("</AppLockScreenShield>");
+    const stackIndex = layout.indexOf("<Stack ");
+    const followupIndex = layout.indexOf("<PurchaseFollowupLifecycle />");
+    const overlayIndex = layout.indexOf("<AppLockOverlay />");
+
+    expect(shieldOpen).toBeGreaterThan(-1);
+    expect(shieldClose).toBeGreaterThan(shieldOpen);
+    // 감싸는 것은 뒤 트리 둘 뿐이다.
+    expect(stackIndex).toBeGreaterThan(shieldOpen);
+    expect(stackIndex).toBeLessThan(shieldClose);
+    expect(followupIndex).toBeGreaterThan(shieldOpen);
+    expect(followupIndex).toBeLessThan(shieldClose);
+    // 잠금 화면 자신은 방패 **밖**에 있어야 한다 — 안에 넣으면 자기 자신을 접근성 트리에서 지운다.
+    expect(overlayIndex).toBeGreaterThan(shieldClose);
+  });
+
+  it("hides the back tree from TalkBack/VoiceOver only while the lock is holding the screen", () => {
+    const overlaySource = source("src/security/AppLockOverlay.tsx");
+    const shieldBlock = overlaySource.slice(overlaySource.indexOf("export function AppLockScreenShield"));
+    // 두 플랫폼 모두 — 한쪽만 걸면 다른 쪽에서 그대로 읽힌다.
+    expect(shieldBlock).toContain("accessibilityElementsHidden={blocking}");
+    expect(shieldBlock).toContain('importantForAccessibility={blocking ? "no-hide-descendants" : "auto"}');
+    // 덮고 있는 동안의 판정은 오버레이와 같은 한 자리에서 온다(판정표가 두 벌이 되지 않게).
+    expect(shieldBlock).toContain("useAppLockGate()");
+    expect(overlaySource).toContain("function useAppLockGate()");
+    // 뷰 평탄화로 네이티브 노드가 사라졌다 생기지 않도록 — prop만 바뀌어야 한다.
+    expect(shieldBlock).toContain("collapsable={false}");
+  });
+
+  it("adds no node at all for pixel-lock builds and for anyone who has not enabled the lock", () => {
+    const overlaySource = source("src/security/AppLockOverlay.tsx");
+    const shieldBlock = overlaySource.slice(overlaySource.indexOf("export function AppLockScreenShield"));
+    // 방패는 잠금이 켜져 있을 때(또는 recovery)만 서고, 픽셀락 빌드에서는 그 앞에서 끊긴다.
+    expect(shieldBlock).toContain('if (!pixelLockMode && (enabled || status === "recovery")) shieldedRef.current = true;');
+    // 서지 않았으면 자식을 **그대로** 돌려준다 — 감싸는 노드조차 없다(수용 기준 2·6).
+    expect(shieldBlock).toContain("if (!shieldedRef.current) return <>{children}</>;");
+    // 픽셀락 판정은 저장소의 단일 소스를 쓴다(자체 env 리터럴을 새로 적지 않는다).
+    expect(overlaySource).toContain("isPixelLockBuild()");
+  });
+});

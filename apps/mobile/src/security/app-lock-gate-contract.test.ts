@@ -30,7 +30,9 @@ describe("§2.4 오버레이 마운트 위치", () => {
   it("_layout.tsx에서 <Stack>과 구매 확인 카드 **뒤에** 마운트된다", () => {
     const layout = source("app/_layout.tsx");
     expect(layout).toContain("<AppLockOverlay />");
-    expect(layout).toContain('import { AppLockOverlay } from "../src/security/AppLockOverlay"');
+    // GAP-059 #3에서 같은 모듈의 방패(AppLockScreenShield)도 함께 들여온다 — 두 조각은 같은
+    // 게이트 판정을 보므로 같은 파일에서 온다.
+    expect(layout).toContain('import { AppLockOverlay, AppLockScreenShield } from "../src/security/AppLockOverlay"');
 
     const stackIndex = layout.indexOf("<Stack ");
     const followupIndex = layout.indexOf("<PurchaseFollowupLifecycle />");
@@ -261,6 +263,49 @@ describe("GAP-058 #2·#3·P3 — 두 번째 입구와 수동 잠금", () => {
     expect(screen.match(/busy \|\|\s*\n?\s*lockedOut/g) ?? []).toHaveLength(3);
     // 제출 자체도 대기면 스토어를 부르지 않는다(오버레이 submit과 같은 순서).
     expect(screen).toContain("if (!beginSubmit(now)) return;");
+  });
+});
+
+/**
+ * GAP-059 트랙 C — 잠금 완결 III. 두 입구의 동시 제출 가드 대칭(#7)과, 안내가 매인 대상(P3).
+ */
+describe("GAP-059 #7·P3 — 동시 제출 가드와 안내의 hinge", () => {
+  it("오버레이 PIN 제출이 설정 화면과 같은 모양의 busy 가드를 갖는다 (#7)", () => {
+    const overlay = source("src/security/AppLockOverlay.tsx");
+    // ① 버튼 비활성 — 설정 화면 세 폼과 같은 `busy || lockedOut || 길이` 순서다.
+    expect(overlay).toContain("const [busy, setBusy] = useState(false);");
+    expect(overlay).toContain("disabled={busy || lockedOut || pin.length !== APP_LOCK_PIN_LENGTH}");
+    // ② 재진입 차단 — `busy`만으로는 같은 틱의 이중 탭을 막지 못한다(다시 그려지기 전에 들어온다).
+    expect(overlay).toContain("const submittingRef = useRef(false);");
+    expect(overlay).toContain("if (submittingRef.current) return;");
+    expect(overlay).toContain("submittingRef.current = true;");
+    // 성공하면 오버레이가 사라지므로 해제는 finally에서 한 자리로 한다.
+    expect(overlay).toContain("} finally {");
+    // 대기(locked-out) 검사는 가드보다 **먼저**다 — 받을 수 없는 제출로 busy를 켜지 않는다.
+    expect(overlay.indexOf("if (isAppLockLockedOut(record, now))")).toBeLessThan(overlay.indexOf("submittingRef.current = true;"));
+  });
+
+  it("스토어가 동시 제출을 합류시킨다 — 겹친 제출이 SecureStore 쓰기를 두 번 내지 않는다 (#7)", () => {
+    const store = source("src/stores/app-lock.store.ts");
+    expect(store).toContain("let inFlightPinSubmission: Promise<AppLockSubmitResult> | null = null;");
+    expect(store).toContain("if (inFlightPinSubmission) return inFlightPinSubmission;");
+    expect(store).toContain("inFlightPinSubmission = submission;");
+    expect(store).toContain("inFlightPinSubmission = null;");
+    // 판정 자체는 여전히 한 문(judgeCurrentPin)을 지난다 — 정의 1 + submitPin·changePin·disableLock.
+    expect((store.match(/judgeCurrentPin\(/g) ?? []).length).toBe(4);
+  });
+
+  it("오버레이의 입력·안내가 게이트 상태에 매인다 — blocking 뭉치가 아니다 (P3)", () => {
+    const overlay = source("src/security/AppLockOverlay.tsx");
+    const compact = overlay.replace(/\s+/g, " ");
+    // blocking은 loading·locked·recovery를 하나로 뭉친 값이라 그 셋 사이 이동에서 변하지 않는다 —
+    // locked에서 세운 실패 안내가 recovery 화면(입력칸이 없는 화면)에 그대로 남을 수 있었다.
+    expect(compact).toContain('useEffect(() => { setPin(""); setNotice(null); }, [status]);');
+    expect(compact).not.toContain('useEffect(() => { if (blocking) return; setPin("");');
+    // 대기 만료 안내는 status가 그대로인 채 lockedOut만 바뀌는 전이라 위 효과가 지우지 않는다.
+    expect(overlay).toContain("}, [lockedOut, status]);");
+    // 뒤로가기 삼키기는 여전히 "덮고 있는 동안"이 기준이다(안내와 달리 상태별로 갈리지 않는다).
+    expect(overlay).toContain("}, [blocking]);");
   });
 });
 
