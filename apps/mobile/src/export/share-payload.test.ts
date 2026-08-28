@@ -54,19 +54,21 @@ describe("GAP-056 #9 CSV 토스트의 잘림 문구", () => {
     );
   });
 
-  it("용량 제한 문구는 종전 그대로다 (원인을 이미 짚고 있는 문장이라 새로 짓지 않는다)", () => {
+  it("용량 제한으로 잘리면 최근 쪽이 빠졌다고 말한다 (라운드 56 B: 실제 잘리는 방향)", () => {
+    // 수집기가 돌려주는 목록은 날짜 오름차순이고(export-range.ts sortBySpentOnAscending)
+    // capCsvForShare는 앞에서부터 채우므로, 빠지는 것은 **뒤쪽 = 최근 기록**이다.
     expect(csvShareToastMessage({ outcomeKnown: false, rowCount: 3, truncated: true })).toBe(
-      "기록 3건으로 공유 화면을 열었어요. (용량 제한으로 일부만 포함됐어요)"
+      "기록 3건으로 공유 화면을 열었어요. (용량 제한으로 최근 기록부터 빠졌어요)"
     );
     // rowCapTruncated를 명시적으로 false로 넘겨도 같은 문장이다(기본값 = 안 잘림).
     expect(csvShareToastMessage({ outcomeKnown: false, rowCount: 3, truncated: true, rowCapTruncated: false })).toBe(
-      "기록 3건으로 공유 화면을 열었어요. (용량 제한으로 일부만 포함됐어요)"
+      "기록 3건으로 공유 화면을 열었어요. (용량 제한으로 최근 기록부터 빠졌어요)"
     );
   });
 
-  it("두 잘림이 함께 일어나면 두 사실을 모두 적는다", () => {
+  it("두 잘림이 함께 일어나면 서로 반대 방향을 각각 말한다", () => {
     expect(csvShareToastMessage({ outcomeKnown: true, rowCount: 4000, truncated: true, rowCapTruncated: true })).toBe(
-      "기록 4000건을 내보냈어요. (행 상한을 넘어 오래된 기록부터 빠졌어요 · 용량 제한으로 일부만 포함됐어요)"
+      "기록 4000건을 내보냈어요. (행 상한을 넘어 오래된 기록부터 빠졌어요 · 용량 제한으로 최근 기록부터 빠졌어요)"
     );
   });
 

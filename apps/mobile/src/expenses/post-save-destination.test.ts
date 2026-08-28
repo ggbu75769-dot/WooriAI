@@ -172,7 +172,10 @@ describe("라운드 48 T4(D1) 화면 배선 (app/expenses/new.tsx)", () => {
   });
 
   it("저장 중·금액 미입력에는 두 버튼이 함께 잠긴다(보조 버튼만 열려 있는 우회로가 없다)", () => {
-    expect(newExpenseSource.match(/disabled=\{saveExpense\.isPending \|\| isAmountInvalid\}/g) ?? []).toHaveLength(2);
+    // GAP-056 #1: 잠금 판정이 isAmountInvalid -> isSaveBlocked(금액 + 텍스트 길이 상한)로
+    // 넓어졌다. 지키려는 것은 그대로다 -- 두 버튼이 **같은 한 줄**로 잠긴다.
+    expect(newExpenseSource.match(/disabled=\{saveExpense\.isPending \|\| isSaveBlocked\}/g) ?? []).toHaveLength(2);
+    expect(newExpenseSource).toContain("const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;");
   });
 
   it("두 버튼 모두 보기 전용 게이트를 통과한다(라운드 40 J-1)", () => {

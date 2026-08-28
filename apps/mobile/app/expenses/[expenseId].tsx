@@ -62,6 +62,15 @@ import { buildItemHistory } from "../../src/expenses/item-history";
 // 라운드 42 L-5: 이력 재조정을 **정규화된 품목명이 실제로 바뀔 때만** 돌리기 위한 같은 단일 소스
 // (UX-C의 src/expenses/item-name-match.ts) -- buildItemHistory가 안에서 쓰는 정규화와 같은 함수다.
 import { normalizeItemName } from "../../src/expenses/item-name-match";
+/**
+ * GAP-056 #2 — 판매처 자동완성. 빠른 기록 시트(app/expenses/new.tsx)와 **같은 순수 모듈**을
+ * 쓰고, 원천은 "이 품목 이력"이 이미 읽고 있는 이번 달 캐시 하나뿐이다(새 요청 0건).
+ */
+import {
+  buildMerchantSuggestions,
+  formatMerchantSuggestionChipLabel,
+  merchantSuggestionChipAccessibilityLabel
+} from "../../src/expenses/merchant-suggest";
 import type { MonthExpenses } from "../../src/expenses/month-expenses";
 import {
   expenseCreatedByUserId,
@@ -346,6 +355,24 @@ export default function ExpenseDetailScreen() {
     // itemName 자체가 아니라 정규화 값이 의존성이다(위 근거) -- 두 값은 같은 함수로 이어져 있다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cachedMonthExpenses, currentYearMonth, normalizedHistoryItemName, expenseId, offlineSyncSnapshot.rows, historyChildId]
+  );
+
+  /**
+   * GAP-056 #2 — 판매처 자동완성 후보(타이핑 중 3개 / 빈 칸이면 최근 5개).
+   *
+   * 원천은 위 "이 품목 이력"과 **같은 캐시 한 개**(cachedMonthExpenses)라 새 요청이 없다.
+   * 캐시가 없으면 빈 배열이고, 그때 이 화면은 이 기능이 없던 때와 한 픽셀도 다르지 않다.
+   *
+   * **자기 행은 뺀다**: 지금 열려 있는 그 기록이 후보에 섞이면, 판매처를 고치려고 칸을 비운
+   * 사람에게 방금 지운 그 값을 되돌려 주는 칩이 첫 번째로 선다(순수 모듈은 "다 친 값과 같은
+   * 후보"만 거르므로 빈 칸에서는 걸러지지 않는다).
+   *
+   * useMemo인 이유는 이력 재조정과 같다 — 이 화면의 입력은 전부 상태라, 키 한 번마다 이번 달
+   * 전체를 다시 묶고 정렬할 이유가 없다.
+   */
+  const merchantSuggestions = useMemo(
+    () => buildMerchantSuggestions(merchant, (cachedMonthExpenses ?? []).filter((row) => row.id !== expenseId)),
+    [merchant, cachedMonthExpenses, expenseId]
   );
 
   const amountKrw = Number(amountDigits || "0");
@@ -699,6 +726,37 @@ export default function ExpenseDetailScreen() {
                 />
                 {merchantError ? (
                   <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{merchantError}</Text>
+                ) : null}
+                {/* GAP-056 #2 — 판매처 자동완성 칩. 빠른 기록 시트와 **같은 칩 행**(같은 pill·
+                    같은 높이·같은 한 줄 가로 스크롤)이고, 라벨과 스크린리더 문장도 같은 모듈이
+                    만든다. 탭하면 판매처 한 칸만 채운다 — 저장은 여전히 "수정 저장"으로만 일어난다.
+                    후보가 없으면(캐시 없음·판매처를 적은 적 없음) 줄 자체가 없다. */}
+                {merchantSuggestions.length > 0 ? (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    {merchantSuggestions.map((suggestion) => (
+                      <Pressable
+                        key={suggestion.merchant}
+                        accessibilityRole="button"
+                        accessibilityLabel={merchantSuggestionChipAccessibilityLabel(suggestion)}
+                        hitSlop={3}
+                        onPress={() => setMerchant(suggestion.merchant)}
+                        style={{
+                          alignItems: "center",
+                          backgroundColor: theme.colors.white,
+                          borderColor: theme.colors.primary100,
+                          borderRadius: theme.radii.pill,
+                          borderWidth: 1,
+                          justifyContent: "center",
+                          minHeight: 38,
+                          paddingHorizontal: 14
+                        }}
+                      >
+                        <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
+                          {formatMerchantSuggestionChipLabel(suggestion)}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
                 ) : null}
               </View>
 

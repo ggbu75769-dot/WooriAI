@@ -235,10 +235,13 @@ describe("GAP-054 #2 화면 배선 (지출 입력)", () => {
     expect(source).toContain(
       "const isAmountOverLimit = isAmountOverLimitForSave({ hasSession: Boolean(authToken), amountText });"
     );
-    // 종전 금액 가드와 같은 한 곳(isAmountInvalid)에 합류한다 -- 버튼 disabled 식은 그대로다.
+    // 종전 금액 가드와 같은 한 곳(isAmountInvalid)에 합류한다.
     const guardBlock = source.slice(source.indexOf("const isAmountInvalid ="), source.indexOf("라운드 51 C-#5 — 분류 없이"));
     expect(guardBlock).toContain("isAmountOverLimit");
-    expect(source.match(/disabled=\{saveExpense\.isPending \|\| isAmountInvalid\}/g) ?? []).toHaveLength(2);
+    // GAP-056 #1: 버튼 식의 이름이 isAmountInvalid -> isSaveBlocked로 넓어졌다(텍스트 길이 상한이
+    // 같은 자리에 합류했다). 금액 가드는 그 안에 그대로 있고, 두 버튼은 여전히 같은 한 줄을 지난다.
+    expect(source).toContain("const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;");
+    expect(source.match(/disabled=\{saveExpense\.isPending \|\| isSaveBlocked\}/g) ?? []).toHaveLength(2);
   });
 
   it("오프라인 로컬 저장 **전에** 막는다 (뮤테이션 자체가 시작되지 않는다)", () => {

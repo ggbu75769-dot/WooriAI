@@ -370,8 +370,10 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     expect(screen.match(/saveExpense\.mutate\(\)/g) ?? []).toHaveLength(2);
     // 시트 진입 자체는 막지 않는다 -- 열람 후 안내가 이 앱의 관례다.
     expect(screen).not.toContain("if (expenseGate.locked) return null;");
-    // 픽셀락 EXP-001: 저장 버튼의 disabled 조건은 종전 그대로다(비세션은 애초에 잠기지 않는다).
-    expect(screen.match(/disabled=\{saveExpense\.isPending \|\| isAmountInvalid\}/g) ?? []).toHaveLength(2);
+    // 픽셀락 EXP-001: 저장 버튼의 disabled 조건은 여전히 두 버튼이 같은 한 줄이다(비세션은
+    // 애초에 잠기지 않는다 -- GAP-056 #1로 판정 이름이 isSaveBlocked로 넓어졌을 뿐이고, 그
+    // 안의 두 항 모두 세션이 없으면 false다).
+    expect(screen.match(/disabled=\{saveExpense\.isPending \|\| isSaveBlocked\}/g) ?? []).toHaveLength(2);
   });
 
   /**

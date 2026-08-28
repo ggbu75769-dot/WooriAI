@@ -127,7 +127,11 @@ describe("하단 고정 요약바", () => {
   });
 
   it("연속 기록 버튼 배치와 저장 가드가 그대로다", () => {
-    expect(newExpenseSource.match(/disabled=\{saveExpense\.isPending \|\| isAmountInvalid\}/g) ?? []).toHaveLength(2);
+    // GAP-056 #1: 두 버튼이 지나는 가드에 **텍스트 길이 상한**이 합류하면서 판정 이름이
+    // isAmountInvalid -> isSaveBlocked로 넓어졌다(금액 가드는 그 안에 그대로 있다). 지키려는
+    // 것은 종전과 같다 — 저장 버튼 둘이 **같은 한 줄**을 지난다(규칙이 두 벌이 되지 않는다).
+    expect(newExpenseSource).toContain("const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;");
+    expect(newExpenseSource.match(/disabled=\{saveExpense\.isPending \|\| isSaveBlocked\}/g) ?? []).toHaveLength(2);
     expect(newExpenseSource.match(/expenseGate\.guard\(/g) ?? []).toHaveLength(2);
     expect(newExpenseSource).toContain("{authToken && canContinueRecording({ linkedItemTemplateId }) ? (");
   });

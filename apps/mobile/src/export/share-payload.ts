@@ -81,12 +81,16 @@ export function capCsvForShare(csv: string, maxBytes: number = MAX_SHARE_MESSAGE
  *
  *  1. **행 상한**(EXPORT_MAX_ROWS, export-range.ts의 수집 단계) — GAP-056 #9 이후 네 구간이
  *     모두 최신 달부터 모으므로 빠지는 것은 언제나 **오래된 기록**이다.
- *  2. **공유 본문 용량 제한**(capCsvForShare, 위) — 본문을 헤더부터 앞으로 채우고 날짜
- *     오름차순이라, 빠지는 것은 뒤쪽 = **최근 기록**이다.
+ *  2. **공유 본문 용량 제한**(capCsvForShare, 위) — 본문을 헤더부터 앞으로 채우는데 수집기가
+ *     돌려주는 목록은 날짜 **오름차순**이라(export-range.ts의 `sortBySpentOnAscending`),
+ *     빠지는 것은 뒤쪽 = **최근 기록**이다.
  *
  * 방향이 정반대라 "일부만 포함됐어요" 한 문장으로는 사용자가 무엇을 잃었는지 알 수 없다. 그래서
- * 상한 쪽 문장이 잘린 쪽을 직접 말한다. 용량 제한 쪽 문구는 종전 그대로 둔다 — 그 문장은 이미
- * "용량 제한"이라는 원인을 짚고 있고, 두 문장은 함께 붙을 수 있으므로 각자 한 사실만 맡는다.
+ * **두 문장 모두** 잘린 쪽을 직접 말한다(라운드 56 B 잔여). 예전 용량 제한 문구("용량 제한으로
+ * 일부만 포함됐어요")는 거짓은 아니었지만, 바로 옆에 붙는 행 상한 문장이 "오래된 기록부터"라고
+ * 말하는 탓에 같은 괄호 안의 침묵이 "그럼 이쪽도 오래된 쪽이겠거니"로 읽혔다 — 실제로는 정반대
+ * 끝이 빠진, 즉 방금 적은 기록이 빠진 파일이다. 두 문장은 함께 붙을 수 있으므로 각자 자기 원인과
+ * 자기 방향을 한 번씩만 말한다.
  */
 export function csvShareToastMessage(input: {
   /** OS가 공유 완료 여부를 알려 주는가(iOS만 true). */
@@ -103,6 +107,6 @@ export function csvShareToastMessage(input: {
     : `기록 ${input.rowCount}건으로 공유 화면을 열었어요.`;
   const notes: string[] = [];
   if (input.rowCapTruncated) notes.push("행 상한을 넘어 오래된 기록부터 빠졌어요");
-  if (input.truncated) notes.push("용량 제한으로 일부만 포함됐어요");
+  if (input.truncated) notes.push("용량 제한으로 최근 기록부터 빠졌어요");
   return notes.length > 0 ? `${base} (${notes.join(" · ")})` : base;
 }
