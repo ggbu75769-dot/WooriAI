@@ -39,6 +39,22 @@ export default defineConfig({
     // only applies that list (and now fails loudly instead of degrading to shared when
     // it cannot tell which file it belongs to — 라운드 51 D-#4).
     setupFiles: ["./test/helpers/db-lock.setup.ts"],
+    // 라운드 61 A: 위 락의 **정확성 조건**이라 명시적으로 고정한다 (기본값에 기대지 않는다).
+    //
+    // 반납은 setup 파일의 `afterAll(release)`이고, 그것이 "이 스위트는 DB를 더는 건드리지
+    // 않는다"를 뜻하려면 스위트 자신의 정리 훅보다 **뒤에** 돌아야 한다. setup의 훅이 가장
+    // 먼저 등록되므로, after 훅을 역순·순차로 도는 "stack"에서만 그것이 성립한다.
+    // "parallel"이면 정리와 동시에, "list"면 정리보다 먼저 반납된다(둘 다 실측).
+    //
+    // 이 값은 vitest 2.1.9의 resolveConfig가 이미 채우는 기본값과 **같다** — 워커에서 적용값을
+    // 읽어 확인했다. 그래서 이 줄 자체의 실행 시간 비용은 0이다. 라운드 61 A 실측(조용한 창,
+    // 4코어): 고정 전 6회 평균 69.5s(76파일/661테스트) → 고정 후 3회 평균 71.0s
+    // (77파일/672테스트). 늘어난 1.5초는 그 사이 늘어난 테스트 파일 몫이지 이 설정 몫이 아니다.
+    // 고정하는 이유는 속도가 아니라, 같은 버전의 CLI 도움말이 기본값을 "parallel"이라고 적고
+    // 있을 만큼 이 기본값이 불안정한 근거이기 때문이다. test/helpers/shared-db-lock.ts의
+    // `assertReleaseOrderingGuarantee`가 실제 적용값을 워커에서 확인하고,
+    // test/db-lock-release-order.test.ts가 순서 자체를 런타임에 재현한다.
+    sequence: { hooks: "stack" },
     testTimeout: 30_000,
     hookTimeout: 30_000,
     maxWorkers: MAX_WORKERS,
