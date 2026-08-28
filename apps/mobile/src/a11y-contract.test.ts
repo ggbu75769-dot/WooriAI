@@ -1281,3 +1281,145 @@ describe("GAP-065 #7 공유 프리미티브 터치 타깃 계약 (크기 + 2×hi
     expect(readStyleNumber(source("app/(tabs)/more.tsx"), "moreSearchButtonStyle", "height")).toBe(36);
   });
 });
+
+/* ------------------------------------- 라운드 65 트랙 F (GAP-065 #10 — 남은 낭독 계약) */
+
+/**
+ * 트랙 F의 몫은 **A~D가 이미 붙든 계약 위에 남은 공백만** 채우는 것이다. 이번 라운드의 값·문구
+ * 계약은 각 트랙이 자기 모듈 테스트에 넣었고(preview-rows.test.ts · consent-summary.test.ts ·
+ * legal-links.test.ts · date-picker-month.test.ts · 위 GAP-065 #6·#7 블록), 여기 남은 것은 세
+ * 자리뿐이다 — **새로 생긴 컨트롤이 소리로도 같은 것을 말하는가**.
+ *
+ * 세 자리 모두 이 파일의 오랜 관례를 따른다: 화면은 vitest에서 렌더되지 않으므로 소스 문자열로
+ * 고정하고(react-native 네이티브 바인딩 부재), 문구 자체는 순수 모듈의 테스트가 핀한다.
+ */
+
+/**
+ * GAP-065 #2 — **가져오기 검수 행의 분류가 소리로도 도달하는가.**
+ *
+ * 이 라운드 전까지 검수 카드는 분류를 그리지도 않았다(승인 대상의 절반이 미리보기에 없었다).
+ * 줄이 생겼으니 두 가지가 따라와야 한다: ⓐ 잠금 카드는 `accessible` **한 덩어리**라 자식
+ * 텍스트가 따로 읽히지 않으므로 분류를 라벨 문자열에 실어야 들리고, ⓑ 분류를 고르는 컨트롤은
+ * 펼침 상태를 알려야 한다(누르기 전에 "지금 열려 있는가"가 갈린다 — A-4 #23이 "누를 수 있는
+ * 칸과 없는 칸이 소리로 갈리는가"를 물은 것과 같은 규율).
+ */
+describe("GAP-065 #2 가져오기 검수 행의 분류 낭독 계약", () => {
+  const importSource = () => source("app/import/[importJobId].tsx");
+
+  it("분류 고르기 버튼이 라벨 + button 역할 + expanded 상태를 갖는다", () => {
+    const src = importSource();
+    // 문구는 순수 모듈이 고른다(펼침/닫힘 두 문구가 화면에서 갈리지 않는다 —
+    // 값은 preview-rows.test.ts가 핀한다).
+    expect(src).toContain("accessibilityLabel={importRowCategoryEditLabel(expanded)}");
+    expect(src).toContain("accessibilityState={{ expanded }}");
+    // 보이는 글자와 낭독 문장이 같은 한 값이다(눈과 귀가 다른 말을 하지 않는다 — A-3 #20).
+    expect(src).toContain("<Text style={rowCategoryEditStyle}>{importRowCategoryEditLabel(expanded)}</Text>");
+  });
+
+  it("잠금 카드는 한 덩어리로 읽히므로 분류를 라벨 문자열에 싣는다", () => {
+    const src = importSource();
+    const lockedLabel = /accessibilityLabel=\{`\$\{IMPORT_ROW_LOCKED_A11Y_PREFIX\}[^`]*`\}/.exec(src)?.[0] ?? "";
+    expect(lockedLabel, "잠금 카드 라벨").toContain("${importRowCategoryA11ySuffix(category)}");
+    // 잠긴 이유는 여전히 라벨의 마지막에 온다(라운드 41 K-1의 그 문장 — 분류가 끼어들어
+    // "왜 못 고르는지"를 밀어내지 않는다).
+    expect(lockedLabel.endsWith("${IMPORT_ROW_LOCKED_MESSAGE}`}"), "잠금 사유가 마지막이다").toBe(true);
+  });
+
+  it("칩은 공유 CategoryChip이라 selected 상태가 그대로 낭독된다 (새 픽커를 만들지 않는다)", () => {
+    const chipTag = openingTagAfter(importSource(), "{options.map((option) => (", "<CategoryChip");
+    expect(chipTag).toContain("selected={option.id === row.categoryId}");
+    // 선택 상태의 낭독은 프리미티브가 진다(src/ui.tsx의 accessibilityState) — 화면이 다시 적지 않는다.
+    expect(chipTag).not.toContain("accessibilityState");
+  });
+});
+
+/**
+ * GAP-065 #4·#5 — **SET-003 동의 카드에 처음으로 생긴 컨트롤 셋.**
+ *
+ * 종전 이 카드는 읽기 전용 상태 줄뿐이었다. 이제 셋이 선다: 필수 재동의 버튼(미동의일 때만) ·
+ * 선택 동의 스위치 · 약관 [보기] 링크. 셋 다 **화면 전환 없이** 상태가 바뀌거나 앱 밖으로
+ * 나가는 자리라, 소리로만 쓰는 사람에게 사실이 도달할 길을 따로 실어야 한다.
+ *
+ * 값·게이트 계약(언제 뜨는가·무엇을 보내는가)은 consent-summary.test.ts · legal-links.test.ts가
+ * 이미 진다. 여기가 붙드는 것은 **라벨과 낭독**이다.
+ */
+describe("GAP-065 #4·#5 SET-003 동의 카드의 낭독 계약", () => {
+  const privacySource = () => source("app/settings/privacy.tsx");
+
+  it("선택 동의 스위치의 라벨이 **보이는 제목과 같은 한 값**이다", () => {
+    const src = privacySource();
+    const switchTag = openingTagAfter(src, "{consentToggles.map((definition) => (", "<Switch");
+    expect(switchTag).toContain("accessibilityLabel={definition.title}");
+    expect(switchTag).toContain('accessibilityRole="switch"');
+    // 켜짐/꺼짐은 value가 진다 — 문구로 다시 말하지 않는다(같은 사실을 두 번 읽지 않는다).
+    expect(switchTag).toContain("value={consentToggleValue(definition)}");
+    // 바로 위 줄이 눈으로 읽는 같은 제목이다(라벨을 여기서 새로 짓지 않는다).
+    expect(src).toContain("<Text style={consentTitleStyle}>{definition.title}</Text>");
+  });
+
+  it("재동의 성공이 낭독된다 — 카드가 조용히 사라지는 자리다", () => {
+    const src = privacySource();
+    expect(src).toContain("announceForA11y(CONSENT_REQUIRED_DONE_NOTICE);");
+    // 성공하면 미동의 항목이 없어져 버튼·안내가 통째로 사라진다. 화면 전환이 없으므로
+    // announce가 없으면 소리로만 쓰는 사람에게는 아무 일도 일어나지 않은 것과 같다
+    // (구매 확인 프롬프트 A-2 #14와 같은 근거).
+    expect(src).toContain("{pendingRequired.length > 0 ? (");
+  });
+
+  it("[보기] 링크가 **어느 문서인지**를 말한다 (글자는 \"보기\" 두 자뿐이다)", () => {
+    const src = privacySource();
+    expect(src).toContain("accessibilityLabel={`${line.title} 전문 보기`}");
+    expect(src).toContain('accessibilityRole="link"');
+    // 로그인 화면의 같은 링크와 한 벌이다 — 두 자리가 다른 말을 하지 않는다.
+    expect(source("app/(auth)/login.tsx")).toContain("accessibilityLabel={`${label} 전문 보기`}");
+  });
+});
+
+/**
+ * GAP-065 #8 — **아이 날짜 칸에 새로 선 달력 버튼.**
+ *
+ * 아이콘 하나뿐인 버튼이라 라벨이 없으면 낭독할 것이 없고(A-1 `Screen-reader labels`),
+ * 눌러서 펼치는 컨트롤이라 상태가 없으면 "지금 열려 있는가"를 소리로 알 길이 없다.
+ * 두 화면(ONB-002 · SET-005)이 **같은 문법**을 쓰는지도 함께 본다 — 같은 일을 하는 버튼이
+ * 자리마다 다른 말을 하면 학습되지 않는다.
+ *
+ * 칸 라벨의 "왜 못 고르는지"가 방향별 두 문장으로 갈린 것은 위 GAP-061 #8 블록이 이미 붙들었다
+ * (라운드 65 D가 그 계약을 갱신했다). 여기서는 되풀이하지 않는다.
+ */
+describe("GAP-065 #8 아이 생년월일·예정일 달력 버튼의 낭독 계약", () => {
+  const dateScreens = ["app/(onboarding)/child-profile.tsx", "app/settings/children.tsx"] as const;
+
+  /** 달력 버튼의 여는 태그. 라벨 문구에서 위로 거슬러 그 `<Pressable`을 찾는다. */
+  function calendarButtonBlock(path: string): string {
+    const screenSource = source(path);
+    const labelAt = screenSource.indexOf("달력에서 고르기");
+    if (labelAt < 0) throw new Error(`${path}에 달력 버튼이 없다`);
+    const start = screenSource.lastIndexOf("<Pressable", labelAt);
+    if (start < 0) throw new Error(`${path}의 달력 버튼이 Pressable이 아니다`);
+    return screenSource.slice(start, labelAt + 400);
+  }
+
+  it("두 화면 모두 라벨 + button 역할 + expanded 상태를 단다", () => {
+    for (const path of dateScreens) {
+      const buttonBlock = calendarButtonBlock(path);
+      expect(buttonBlock, path).toContain('accessibilityRole="button"');
+      expect(buttonBlock, path).toMatch(/accessibilityState=\{\{ expanded: \w+ \}\}/);
+    }
+  });
+
+  it("라벨이 **어느 날짜 칸인지**를 말한다 — 두 화면이 같은 문법을 쓴다", () => {
+    for (const path of dateScreens) {
+      // `${dateLabel} 달력에서 고르기` — 이름(출산 예정일/출생일)은 requiredDateFieldLabel이
+      // 한 곳에서 정한다(화면이 "예정일"·"생년월일"을 새로 짓지 않는다).
+      expect(source(path), path).toMatch(/accessibilityLabel=\{`\$\{\w+\} 달력에서 고르기`\}/);
+    }
+  });
+
+  it("손타이핑 칸은 그대로 남는다 — 달력이 대체가 아니라 대안이다", () => {
+    for (const path of dateScreens) {
+      const src = source(path);
+      expect(src, path).toContain('placeholder="YYYY-MM-DD"');
+      expect(src, path).toMatch(/accessibilityLabel=\{`\$\{\w+\} 입력`\}/);
+    }
+  });
+});

@@ -7,7 +7,6 @@ import {
   CHILD_STAGE_LABELS,
   CHILD_STAGE_MODE_OPTIONS,
   computeDateError,
-  dateFieldLabel,
   isChildFormValid,
   requiredDateFieldLabel,
   validateChildForm
@@ -21,10 +20,12 @@ describe("MOB-118 shared child form validation (reused from ONB-002)", () => {
     expect(CHILD_STAGE_MODE_OPTIONS.map((option) => option.mode)).toEqual(["pregnant", "born", "manual"]);
   });
 
-  it("labels the date field per stage mode (optional for onboarding, required for settings edit)", () => {
-    expect(dateFieldLabel("pregnant")).toBe("출산 예정일 (선택)");
-    expect(dateFieldLabel("born")).toBe("출생일 (선택)");
-    expect(dateFieldLabel("manual")).toBeNull();
+  /**
+   * 라운드 65 F(정찰 P3): 종전 이 케이스는 `dateFieldLabel`의 "(선택)" 접미사를 함께 못박고
+   * 있었는데, 날짜는 세 폼 모두에서 **필수**다(`requireDate: true`) — 죽은 함수가 화면과 반대되는
+   * 사실을 테스트로 고정하고 있던 자리라 함수와 함께 지웠다.
+   */
+  it("labels the date field per stage mode (날짜는 필수라 접미사가 없다)", () => {
     expect(requiredDateFieldLabel("pregnant")).toBe("출산 예정일");
     expect(requiredDateFieldLabel("born")).toBe("출생일");
     expect(requiredDateFieldLabel("manual")).toBeNull();

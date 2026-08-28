@@ -38,15 +38,18 @@ export const CHILD_STAGE_MODE_OPTIONS: Array<{ mode: ChildStageMode; label: stri
   { mode: "manual", label: "단계를 직접 선택할게요" }
 ];
 
-export function dateFieldLabel(stageMode: string | null) {
-  if (stageMode === "pregnant") return "출산 예정일 (선택)";
-  if (stageMode === "born") return "출생일 (선택)";
-  return null;
-}
+/**
+ * 라운드 65 F(정찰 P3) — `dateFieldLabel`("출산 예정일 **(선택)**" / "출생일 (선택)")을 **지웠다.**
+ *
+ * 제품 코드 참조가 0건이었다(모든 폼이 아래 `requiredDateFieldLabel`을 쓴다). 지운 이유는 죽어
+ * 있어서만이 아니라 **지금 화면과 반대되는 사실을 말하고 있어서**다: 온보딩(ONB-002)은
+ * `validateChildForm(..., { requireDate: true })`로 날짜를 **필수**로 받고, 아이 관리(SET-005)도
+ * 같다. 그런데 그 함수의 유일한 소비자였던 `child-form.test.ts`가 "(선택)"을 값으로 못박고
+ * 있어서, 남겨 두면 다음 사람이 "이 칸은 선택이었구나"로 읽는 근거가 된다(테스트는 저장소가
+ * 자기 사실을 적어 두는 자리다).
+ */
 
-/** Same as dateFieldLabel but without the "(선택)" suffix, for forms where the date is required
- * (editing an existing child: the server always has a date for pregnant/born children and
- * normalizeChildInput refuses to lose it). */
+/** 날짜 칸의 라벨. 날짜는 세 폼 모두에서 필수라 접미사가 없다 — 단계를 직접 고른 경우엔 칸 자체가 없다. */
 export function requiredDateFieldLabel(stageMode: string | null) {
   if (stageMode === "pregnant") return "출산 예정일";
   if (stageMode === "born") return "출생일";
