@@ -362,3 +362,196 @@ describe("GAP-054 P1-2 대기 중인 환불·선물 행", () => {
     expect(controllerSource).not.toContain('expense.expenseType === "refund" ? undefined');
   });
 });
+
+/**
+ * 라운드 59 트랙 A — **보낼 수 없는 행은 합계에서 빼지 않고, 건수로 말한다.**
+ *
+ * 네 자리 중 이 자리만 "제외"가 아니라 "유지 + 고지"인 이유는 모듈 주석(`permanentlyFailedCount`)
+ * 참고: 그 행은 바로 위 목록에 그대로 보이므로, 합계에서만 빠지면 목록의 금액을 다 더해도 총액이
+ * 나오지 않는 화면이 된다(사용자가 그 자리에서 반박할 수 있는 거짓).
+ */
+describe("라운드 59 트랙 A: 영구 실패 행 — 합계 유지 + 건수 노출", () => {
+  const permanentlyFailed = (overrides: Partial<LocalExpenseRow> = {}) =>
+    offlineRow({
+      localId: "local-failed",
+      syncState: "failed",
+      lastError: "미래 날짜의 지출은 저장할 수 없어요.",
+      lastErrorStatus: 400,
+      lastErrorCode: "EXPENSE_FUTURE_DATE",
+      ...overrides
+    });
+
+  it("영구 실패 행의 금액은 월 합계에 그대로 남는다 (목록-합계 모순 금지)", () => {
+    const result = reconcileMonthlyExpenses(
+      [serverExpense({ id: "server-1", amountKrw: 30_000 })],
+      [permanentlyFailed({ payload: { childId, categoryId: "cat-1", amountKrw: 12_000, spentOn: "2026-07-05", itemName: "기저귀" } })],
+      "2026-07"
+    );
+
+    // 목록에도 남고 --
+    expect(result.offlinePendingRows).toHaveLength(1);
+    // -- 합계에도 남는다.
+    expect(result.monthlyTotalKrw).toBe(42_000);
+    // 목록에 보이는 금액의 총합 = 화면의 총액. 이 등식이 이 자리의 계약이다.
+    const listedSum =
+      result.visibleServerExpenses.reduce((sum, expense) => sum + expense.amountKrw, 0) +
+      result.offlinePendingRows.reduce((sum, row) => sum + row.payload.amountKrw, 0);
+    expect(listedSum).toBe(result.monthlyTotalKrw);
+    // 대신 화면이 한 줄을 덧붙일 수 있도록 건수를 내놓는다.
+    expect(result.permanentlyFailedCount).toBe(1);
+  });
+
+  it("일시 실패·대기·충돌 행은 세지 않는다 (그것들은 언젠가 반영된다)", () => {
+    const result = reconcileMonthlyExpenses(
+      [],
+      [
+        permanentlyFailed({ localId: "local-1" }),
+        permanentlyFailed({ localId: "local-2", lastErrorStatus: 503 }), // 5xx = 일시 실패
+        offlineRow({ localId: "local-3", syncState: "pending" }),
+        offlineRow({ localId: "local-4", syncState: "syncing" }),
+        offlineRow({ localId: "local-5", syncState: "conflict" }),
+        // v2 이전 레거시 실패 행(status 없음) -- 확신이 없으므로 "보낼 수 없다"고 세지 않는다.
+        offlineRow({ localId: "local-6", syncState: "failed", lastError: "권한이 없어요." })
+      ],
+      "2026-07"
+    );
+
+    expect(result.offlinePendingRows).toHaveLength(6);
+    expect(result.permanentlyFailedCount).toBe(1);
+  });
+
+  it("목록에 없는 행은 세지 않는다 (고지가 가리키는 것은 '이 중'이다)", () => {
+    // 삭제 대기 행은 목록에서 빠지므로(그 행에는 보여 줄 것이 없다) 건수에서도 빠진다.
+    const deletePending = permanentlyFailed({ localId: "local-del", pendingDelete: true });
+    // 다른 달 행도 마찬가지다.
+    const otherMonth = permanentlyFailed({
+      localId: "local-old",
+      payload: { childId, categoryId: "cat-1", amountKrw: 5_000, spentOn: "2026-06-30", itemName: "기저귀" }
+    });
+
+    const result = reconcileMonthlyExpenses([], [deletePending, otherMonth], "2026-07");
+    expect(result.offlinePendingRows).toHaveLength(0);
+    expect(result.permanentlyFailedCount).toBe(0);
+  });
+
+  it("영구 실패 행이 없으면 0이다 (평소 화면은 한 줄도 늘지 않는다)", () => {
+    const result = reconcileMonthlyExpenses([serverExpense({})], [offlineRow({})], "2026-07");
+    expect(result.permanentlyFailedCount).toBe(0);
+  });
+
+  it("판정 규칙을 여기 다시 적지 않는다 (술어는 permission-denied.ts 한 곳)", () => {
+    const moduleSource = readFileSync(join(process.cwd(), "src/offline/expense-list-reconciliation.ts"), "utf8");
+    // 세는 쪽(countPermanentlyFailedRows)과 가르는 쪽(isPermanentlyFailedSyncRow) 모두 그 모듈에서
+    // 온다 -- 이 파일에는 status·문구 비교가 한 글자도 없어야 한다.
+    expect(moduleSource).toContain(
+      'import { countPermanentlyFailedRows, isPermanentlyFailedSyncRow } from "./permission-denied";'
+    );
+    expect(moduleSource).not.toMatch(/lastErrorStatus/);
+  });
+
+  /**
+   * 라운드 59 통합리뷰 P1-2 — **서버가 거절한 삭제는 화면에서도 성사되지 않는다.**
+   *
+   * 보기 전용 참여자가 지출을 지우면 아웃박스 행이 403으로 굳는다(재시도해도 같은 답이다 —
+   * permission-denied.ts). 그 행은 `pendingDelete`라 아래 목록에서 빠지는데, 종전에는 그 행의
+   * `canonicalId`가 서버 행까지 낡은 것으로 표시해 **양쪽 모두** 화면에서 사라졌다: 서버에 멀쩡히
+   * 있는 지출이 목록에도 합계에도 없는, 화면이 스스로 만든 허위 숫자다.
+   */
+  it("403으로 거절된 삭제 행은 서버 값을 가리지 못한다 (목록·합계에 그대로 남는다)", () => {
+    const server = [serverExpense({ id: "server-1", amountKrw: 30_000 })];
+    const failedDelete = permanentlyFailed({
+      localId: "local-del",
+      canonicalId: "server-1",
+      pendingDelete: true,
+      lastError: "권한이 없어요.",
+      lastErrorStatus: 403,
+      lastErrorCode: "FORBIDDEN"
+    });
+
+    const result = reconcileMonthlyExpenses(server, [failedDelete], "2026-07");
+
+    // 서버 행이 목록에 그대로 선다(그 지출은 지워지지 않았다).
+    expect(result.visibleServerExpenses.map((expense) => expense.id)).toEqual(["server-1"]);
+    // 합계에도 그대로 들어간다.
+    expect(result.monthlyTotalKrw).toBe(30_000);
+    // 로컬 행은 보여 줄 것이 없어 목록에 서지 않고(삭제 대기), 고지 건수도 그 목록을 가리킨다.
+    expect(result.offlinePendingRows).toHaveLength(0);
+    expect(result.permanentlyFailedCount).toBe(0);
+  });
+
+  it("아직 재시도할 수 있는 삭제 대기 행은 종전 그대로 서버 행을 감춘다 (이 수정의 경계)", () => {
+    const server = [serverExpense({ id: "server-1", amountKrw: 30_000 })];
+    const queuedDelete = offlineRow({
+      localId: "local-del",
+      canonicalId: "server-1",
+      syncState: "pending",
+      pendingDelete: true
+    });
+    const transientFailedDelete = permanentlyFailed({
+      localId: "local-del-2",
+      canonicalId: "server-1",
+      pendingDelete: true,
+      lastErrorStatus: 503 // 5xx = 일시 실패, 곧 성사될 수 있다
+    });
+
+    for (const row of [queuedDelete, transientFailedDelete]) {
+      const result = reconcileMonthlyExpenses(server, [row], "2026-07");
+      expect(result.visibleServerExpenses, row.localId).toHaveLength(0);
+      expect(result.monthlyTotalKrw, row.localId).toBe(0);
+    }
+  });
+
+  it("거절된 수정 행은 서버 값에 자리를 내준다 (같은 지출이 두 줄로 서지 않는다)", () => {
+    // 서버 값 30,000원 / 로컬에서 고쳤다가 400으로 굳은 값 12,000원.
+    const server = [serverExpense({ id: "server-1", amountKrw: 30_000 })];
+    const failedEdit = permanentlyFailed({
+      localId: "local-edit",
+      canonicalId: "server-1",
+      payload: { childId, categoryId: "cat-1", amountKrw: 12_000, spentOn: "2026-07-05", itemName: "기저귀" }
+    });
+
+    const result = reconcileMonthlyExpenses(server, [failedEdit], "2026-07");
+
+    // 한 줄만 선다 -- 서버 값이다(로컬의 12,000원은 영영 서버에 닿지 않는다).
+    expect(result.visibleServerExpenses).toHaveLength(1);
+    expect(result.offlinePendingRows).toHaveLength(0);
+    expect(result.monthlyTotalKrw).toBe(30_000);
+    // 목록에 보이는 금액의 총합 = 화면의 총액(이 자리의 계약).
+    expect(result.permanentlyFailedCount).toBe(0);
+  });
+
+  it("서버에 아직 없는 영구 실패 행(생성 거절)은 종전 그대로 목록·합계·건수에 남는다", () => {
+    const created = permanentlyFailed({
+      localId: "local-new",
+      canonicalId: null,
+      payload: { childId, categoryId: "cat-1", amountKrw: 12_000, spentOn: "2026-07-05", itemName: "기저귀" }
+    });
+
+    const result = reconcileMonthlyExpenses([], [created], "2026-07");
+
+    expect(result.offlinePendingRows.map((row) => row.localId)).toEqual(["local-new"]);
+    expect(result.monthlyTotalKrw).toBe(12_000);
+    expect(result.permanentlyFailedCount).toBe(1);
+  });
+
+  /**
+   * 후속 배선 — 건수를 내놓기만 하고 **아무도 읽지 않으면** 이 트랙은 화면에서 없던 일이 된다.
+   * 기록 탭이 그 값을 실제로 받아 요약 줄 아래 한 줄로 말하는지를 여기서 고정한다(값 계약은 위
+   * 네 테스트가 이미 진다).
+   */
+  it("기록 탭이 그 건수를 받아 요약 줄 아래 한 줄로 말한다 (문구는 messages.ts 한 곳)", () => {
+    const recordsSource = readFileSync(join(process.cwd(), "app/(tabs)/records.tsx"), "utf8");
+    // 재조정 결과에서 건수를 실제로 꺼낸다.
+    expect(recordsSource).toContain("permanentlyFailedCount");
+    expect(recordsSource).toContain("unsendableRowsNoticeText(permanentlyFailedCount)");
+    expect(recordsSource).toContain('testID="records-unsendable-notice"');
+    // 0건이면 한 줄도 늘지 않고, 목록을 그리지 않는 상태에서는 "이 중"이 가리킬 것이 없다.
+    // 라운드 59 통합리뷰 P2-8: 필터가 걸린 목록도 같은 이유로 제외한다 -- 이 건수는 필터와 무관한
+    // 그 달 전체인데 "이 중"은 화면에 보이는 목록을 가리키므로, 검색 중에는 지시 대상이 어긋난다.
+    expect(recordsSource).toContain("{showList && !filterScopeSummary && permanentlyFailedCount > 0 ? (");
+    // 문구도 판정도 화면에 다시 적지 않는다(어휘는 messages.ts, 판정은 permission-denied.ts).
+    expect(recordsSource).toContain("unsendableRowsNoticeText");
+    expect(recordsSource).not.toContain("보낼 수 없는 기록");
+    expect(recordsSource).not.toMatch(/lastErrorStatus/);
+  });
+});

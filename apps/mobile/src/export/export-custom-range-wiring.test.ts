@@ -34,8 +34,9 @@ describe("GAP-054 D#11 내보내기 카드의 시작/끝 달 선택", () => {
   it("고른 기간은 수집기에도 그대로 넘어간다 (화면이 보여준 구간 = 내보낸 구간)", () => {
     expect(cardSource).toContain("{ custom: customRange }");
     // 고른 구간이 runExport의 의존성이라, 칩/화살표를 바꾼 뒤 바로 누르면 **그 구간**이 나간다
-    // (GAP-056 #3에서 대기 건수 pendingCount가 같은 이유로 이 목록에 합류했다).
-    expect(cardSource).toContain("customRange, pendingCount, range, showToast]");
+    // (GAP-056 #3에서 대기 건수 pendingCount가, 라운드 59 트랙 A에서 그중 보낼 수 없는 건수
+    // pendingUnsendableCount가 같은 이유로 이 목록에 합류했다).
+    expect(cardSource).toContain("customRange, pendingCount, pendingUnsendableCount, range, showToast]");
   });
 
   it("직접 선택 칩을 고른 동안에만 두 줄이 열린다 (다른 구간은 종전 카드 그대로)", () => {

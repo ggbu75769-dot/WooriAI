@@ -33,7 +33,7 @@ import {
   SYNC_STATUS_PERMANENT_FAILURE_HINT,
   SYNC_STATUS_PERMISSION_DENIED_HINT
 } from "../src/offline/permission-denied";
-import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";
+import { buildFailedRowPrefillParams, FAILED_ROW_OTHER_CHILD_NOTICE } from "../src/expenses/failed-row-prefill";
 import { useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
 import { itemStatusLabel } from "../src/items/item-labels";
 import { ITEM_STATUS_QUEUED_MESSAGE } from "../src/items/status-mutation-messages";
@@ -317,7 +317,32 @@ const FailedRow = memo(function FailedRow({
     // 행이라 되돌릴 수 없다 — 데이터 손실). 그래서 어긋난 행에는 버튼을 내지 않는다.
     // **버리기는 그대로 남는다**: 그 행에서 사용자가 취할 수 있는 행동을 없애지 않는다.
     // 시트에도 같은 판정이 한 겹 더 있다(failed-row-prefill.ts `isFailedRowChildMismatch`).
-    const fixParams = row.payload.childId === selectedChildId ? buildFailedRowPrefillParams(row) : null;
+    const rowChildId = row.payload.childId?.trim() ?? "";
+    const isSelectedChildRow = rowChildId.length > 0 && rowChildId === selectedChildId;
+    // 라운드 59 통합리뷰 P1-3: 프리필 가능 여부는 **아이와 무관한** 행 자체의 성질이다(선물·환불,
+    // 빈 품목명, 0 이하 금액 — failed-row-prefill.ts). 그래서 한 번만 묻고, 아이 게이트는 그
+    // 위에 얹는다: 버튼은 선택된 아이의 행에만, 아래 안내는 "아이만 바꾸면 된다"가 참인 행에만.
+    const prefillParams = buildFailedRowPrefillParams(row);
+    const fixParams = isSelectedChildRow ? prefillParams : null;
+    /**
+     * 라운드 59 #5 — 뗀 버튼 자리에 **사실 한 줄**을 남긴다(라운드 40 J-9: 지우지 않고 말한다).
+     * 종전에는 다른 아이의 행에서 버튼만 조용히 사라져, 같은 실패 행 둘 중 하나에만 버튼이 있는
+     * 이유를 화면이 아무 데서도 말하지 않았다.
+     *
+     * 아이를 아직 고르지 않았을 때는 켜지 않는다: 비교할 아이가 없으니 "다른 아이의 기록이에요"
+     * 가 참이 아니고(모르는 것을 말하지 않는다), 그 상태에서 사용자가 할 일은 아이 선택이라
+     * 화면 전체가 이미 그것을 묻는다. 프리필 자체를 만들 수 없는 행(선물·환불·빈 품목명)에도
+     * 켜지 않는다 — 그 행의 사유는 아이가 아니고, 위 `SYNC_STATUS_PERMANENT_FAILURE_HINT`가
+     * 이미 무엇을 할 수 있는지("고쳐 새로 기록하거나 버려 주세요") 말하고 있다.
+     *
+     * 라운드 59 통합리뷰 P1-3 — 그 마지막 문장이 **주석에만 있었다.** 판정이 프리필 가능성을 보지
+     * 않아, 다른 아이의 선물 행에도 "그 아이를 선택하면 고쳐서 다시 보낼 수 있어요"가 섰다. 아이를
+     * 바꿔도 그 행에는 버튼이 서지 않으므로(선물은 이 시트가 만들 수 없는 구분이다) 그 문장은
+     * 지키지 못할 약속이고, 사용자는 아이를 전환하고 돌아와 아무것도 달라지지 않은 화면을 본다.
+     * 이제 `prefillParams`가 실제로 만들어지는 행에서만 선다 — 안내가 참인 행에서만 뜬다.
+     */
+    const showOtherChildNotice =
+      !isSelectedChildRow && rowChildId.length > 0 && Boolean(selectedChildId?.trim()) && prefillParams !== null;
     return (
       <SyncRow row={row}>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMANENT_FAILURE_HINT}</Text>
@@ -333,7 +358,21 @@ const FailedRow = memo(function FailedRow({
                   explainExpenseEntryLock();
                   return;
                 }
-                router.push({ pathname: "/expenses/new", params: fixParams });
+                /**
+                 * 라운드 59 #2 — **push가 아니라 replace로 연다.**
+                 *
+                 * 저장이 끝나면 시트는 `router.replace`로 이 화면에 돌아온다(목적지 판정은
+                 * src/expenses/post-save-destination.ts, `from=sync-fix`). 여기서 push로 열면
+                 * 그 복귀가 스택에 **같은 화면 두 장**을 남긴다: 사용자가 뒤로가기를 눌러도
+                 * 똑같이 생긴 동기화 상태 화면이 다시 서고, 마지막 실패 행을 고친 직후라면
+                 * 빈 목록의 "닫기"(router.back)가 똑같이 빈 같은 화면으로 되돌아간다.
+                 *
+                 * replace면 왕복이 제자리로 끝난다(이 화면 → 시트 → 이 화면, 깊이 그대로).
+                 * 대가는 시트에서 그냥 뒤로 나갔을 때 이 화면이 아니라 그 아래 화면(기록 탭·홈)
+                 * 으로 나간다는 것인데, 그 두 화면 모두 동기화 배지가 서 있어 한 번 눌러 다시
+                 * 들어올 수 있다 — 스택에 눌러도 아무 일이 없는 뒤로가기를 남기는 쪽이 나쁘다.
+                 */
+                router.replace({ pathname: "/expenses/new", params: fixParams });
               }}
               style={{ flex: 1 }}
             />
@@ -344,7 +383,12 @@ const FailedRow = memo(function FailedRow({
             />
           </View>
         ) : (
-          <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
+          <>
+            {showOtherChildNotice ? (
+              <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{FAILED_ROW_OTHER_CHILD_NOTICE}</Text>
+            ) : null}
+            <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
+          </>
         )}
       </SyncRow>
     );

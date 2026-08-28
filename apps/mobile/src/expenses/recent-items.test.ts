@@ -34,6 +34,39 @@ function row(overrides: {
   };
 }
 
+/**
+ * 라운드 59 통합리뷰 P2-9 — 이 모양(`RecentItemSourceRow`)으로도 **영구 실패 행을 표현할 수
+ * 있어야** 한다. 제외 규칙은 공용 모듈(suggest-source.ts)이 지고 이 모듈은 그 결과 위에서 칩만
+ * 만들지만, 타입에 실패 사유 필드가 없으면 이 모양의 행은 언제나 "실패 아님"으로만 읽혔다.
+ */
+describe("라운드 59 P2-9 영구 실패 행은 칩 후보가 아니다", () => {
+  const failed = (overrides: { itemName: string; createdAt: string }): RecentItemSourceRow => ({
+    ...row(overrides),
+    syncState: "failed",
+    lastError: "품목명은 100자까지 입력할 수 있어요.",
+    lastErrorStatus: 400,
+    lastErrorCode: "EXPENSE_ITEM_NAME_TOO_LONG"
+  });
+
+  it("400으로 굳은 행은 빠지고, 일시 실패(5xx)·대기 행은 종전대로 남는다", () => {
+    const chips = buildRecentItemChips(
+      [
+        failed({ itemName: "실패한 기저귀", createdAt: "2026-08-05T09:00:00.000Z" }),
+        { ...row({ itemName: "5xx 분유", createdAt: "2026-08-04T09:00:00.000Z" }), syncState: "failed", lastErrorStatus: 503 },
+        { ...row({ itemName: "대기 물티슈", createdAt: "2026-08-03T09:00:00.000Z" }), syncState: "pending" }
+      ],
+      CHILD_ID
+    );
+
+    expect(chips.map((chip) => chip.itemName)).toEqual(["5xx 분유", "대기 물티슈"]);
+  });
+
+  it("실패 사유를 모르는 행(레거시·픽스처)은 종전 그대로 후보다", () => {
+    const chips = buildRecentItemChips([row({ itemName: "기저귀", createdAt: "2026-08-05T09:00:00.000Z" })], CHILD_ID);
+    expect(chips.map((chip) => chip.itemName)).toEqual(["기저귀"]);
+  });
+});
+
 describe("buildRecentItemChips (EXP-113)", () => {
   it("returns the newest entries first, regardless of input order", () => {
     const chips = buildRecentItemChips(

@@ -65,6 +65,40 @@ async function judgeCurrentPin(record: AppLockRecord, pin: string, nowMs: number
   return "wrong-pin";
 }
 
+/**
+ * 잠금 화면 제출 **한 번분**. `submitPin`이 동시 제출을 합류시키기 위해 밖으로 뽑았다.
+ */
+async function runPinSubmission(record: AppLockRecord | null, pin: string, nowMs: number): Promise<AppLockSubmitResult> {
+  if (!record || !record.enabled) return "no-record";
+  const verdict = await judgeCurrentPin(record, pin, nowMs);
+  if (verdict !== "ok") return verdict;
+  const cleared = clearFailedAttempts(record);
+  useAppLockStore.setState({ record: cleared, unlockedThisForeground: true, backgroundedAtMs: null });
+  if (cleared !== record) await writeAppLockRecord(cleared);
+  return "unlocked";
+}
+
+/**
+ * 진행 중인 잠금 해제 제출(GAP-059 #7). 스토어 상태가 아니라 모듈 지역 변수인 이유: 이 값은
+ * 화면이 그리는 값이 아니라 **중복 실행을 막는 걸쇠**라서, set()으로 흘리면 구독자만 흔든다.
+ *
+ * 왜 필요한가 — 겹친 제출에서 상하는 것은 카운터 자체가 아니다(그것은 setState로 동기 반영된다).
+ * ① 두 제출이 각자 `writeAppLockRecord`를 띄우면 **나중 쓰기가 먼저 끝날 수 있어** 디스크에
+ *    더 낮은 failedCount·더 이른 lockedUntilMs가 남는다 — 강제 종료로 대기를 우회할 수 없어야
+ *    한다는 수용 기준 5가 그 디스크 값에 걸려 있다.
+ * ② 두 응답이 각각 화면 문구를 세워 남은 횟수가 거꾸로 흐른다(문구 되감김).
+ * 그래서 두 번째 호출은 새 제출을 만들지 않고 **먼저 뜬 제출의 결과에 합류한다** — 이중 탭은
+ * 한 번의 의사표시이므로 결과도 하나여야 한다.
+ *
+ * 라운드 59 통합리뷰 P2-7 — 그래서 **어떤 PIN의 제출인지**를 함께 들고 있다. 합류가 정당한 것은
+ * 두 호출이 같은 값을 말하고 있을 때뿐이다(이중 탭·중복 onPress). 값이 다르면 그것은 서로 다른
+ * 두 번의 의사표시라, 합류시키면 나중 PIN이 **판정조차 되지 않은 채** 앞 PIN의 답을 받는다:
+ * 맞는 PIN이 "wrong-pin"으로 돌아오거나(잠금이 안 풀린다), 틀린 PIN이 "unlocked"를 받아 실패
+ * 횟수가 오르지 않는다(수용 기준 5의 대기가 그만큼 뒤로 밀린다). 다른 값은 합류가 아니라
+ * **순차 처리**다(submitPin의 while 루프).
+ */
+let inFlightPinSubmission: { pin: string; promise: Promise<AppLockSubmitResult> } | null = null;
+
 export type AppLockState = {
   recordStatus: AppLockRecordStatus;
   record: AppLockRecord | null;
@@ -171,14 +205,27 @@ export const useAppLockStore = create<AppLockState>()((set, get) => ({
   },
 
   submitPin: async (pin, nowMs = Date.now()) => {
-    const record = get().record;
-    if (!record || !record.enabled) return "no-record";
-    const verdict = await judgeCurrentPin(record, pin, nowMs);
-    if (verdict !== "ok") return verdict;
-    const cleared = clearFailedAttempts(record);
-    set({ record: cleared, unlockedThisForeground: true, backgroundedAtMs: null });
-    if (cleared !== record) await writeAppLockRecord(cleared);
-    return "unlocked";
+    // 동시 제출 가드(GAP-059 #7 — 위 inFlightPinSubmission 주석). 화면 쪽에도 같은 가드가 있지만
+    // (버튼 비활성 + 재진입 차단), 저장소 쓰기가 겹치는 것은 여기서 끊는 것이 확실하다.
+    //
+    // 라운드 59 통합리뷰 P2-7: 합류는 **같은 PIN일 때만**이다(위 주석의 "이중 탭은 한 번의
+    // 의사표시"). 값이 다르면 서로 다른 두 번의 의사표시이므로 앞 제출이 끝나기를 기다렸다가
+    // **차례로** 판정한다 — 그러지 않으면 1111을 눌렀다가 곧바로 맞는 2222를 넣은 사용자에게
+    // 1111의 답("wrong-pin")이 돌아가고(맞는 PIN이 아예 판정되지 않는다), 반대 순서에서는 틀린
+    // PIN이 "unlocked"를 받아 실패 카운터가 오르지 않는다. 기다린 뒤에 `get().record`를 읽으므로
+    // 두 번째 판정은 앞 제출이 남긴 실패 횟수·대기 시각을 그대로 본다.
+    while (inFlightPinSubmission) {
+      if (inFlightPinSubmission.pin === pin) return inFlightPinSubmission.promise;
+      await inFlightPinSubmission.promise.catch(() => undefined);
+    }
+    const submission = runPinSubmission(get().record, pin, nowMs);
+    inFlightPinSubmission = { pin, promise: submission };
+    try {
+      return await submission;
+    } finally {
+      // 내 제출만 걷는다 — 뒤이어 다른 PIN이 걸어 둔 걸쇠를 지우지 않는다.
+      if (inFlightPinSubmission?.promise === submission) inFlightPinSubmission = null;
+    }
   },
 
   noteBackgrounded: (nowMs = Date.now()) => {

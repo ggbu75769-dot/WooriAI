@@ -10,7 +10,9 @@ import {
   POST_SAVE_DEFAULT_DESTINATION,
   POST_SAVE_HOME_DESTINATION,
   POST_SAVE_ITEMS_DESTINATION,
-  resolvePostSaveDestination
+  POST_SAVE_SYNC_STATUS_DESTINATION,
+  resolvePostSaveDestination,
+  SYNC_FIX_ENTRY_SOURCE
 } from "./post-save-destination";
 import { RECURRING_ENTRY_SOURCE } from "./recurring-template";
 import { OFFLINE_SAVED_MESSAGE, SERVER_CONFIRMED_MESSAGE } from "../offline/messages";
@@ -115,6 +117,69 @@ describe("라운드 58 #7 정기 지출 저장 후 홈 착지", () => {
     const newExpenseSource = source("app/expenses/new.tsx");
     expect(newExpenseSource).toContain("const postSaveDestination = resolvePostSaveDestination(params);");
     expect(newExpenseSource).not.toContain('router.replace("/(tabs)")');
+  });
+});
+
+/**
+ * 라운드 59 #2 — "고쳐서 다시 보내기"의 저장은 **동기화 상태 화면**으로 돌아간다.
+ *
+ * 그 저장은 두 가지 일을 한다: 고친 내용으로 새 기록을 만들고, 확정된 뒤 원본 실패 행을 버린다.
+ * 둘 중 **원본이 사라졌다는 사실이 보이는 화면은 그 하나뿐**이라, 기록 탭으로 보내면 사용자는
+ * 새 기록 한 줄만 보고 실패 행이 정리됐는지는 배지를 눌러 다시 확인해야 했다.
+ */
+describe("라운드 59 #2 고쳐서 다시 보내기 저장 후 착지", () => {
+  it("from=sync-fix는 동기화 상태 화면으로 간다", () => {
+    expect(resolvePostSaveDestination({ from: "sync-fix" })).toBe(POST_SAVE_SYNC_STATUS_DESTINATION);
+    expect(POST_SAVE_SYNC_STATUS_DESTINATION).toBe("/sync-status");
+    // 프리필 모듈이 싣는 값과 같은 문자열이다(양 끝이 갈리면 이 규칙이 조용히 죽는다).
+    expect(SYNC_FIX_ENTRY_SOURCE).toBe("sync-fix");
+    expect(resolvePostSaveDestination({ from: SYNC_FIX_ENTRY_SOURCE })).toBe(POST_SAVE_SYNC_STATUS_DESTINATION);
+  });
+
+  it("아는 값이 됐으므로 파싱에서도 살아남는다 (흉내 낸 값은 아니다)", () => {
+    expect(parseExpenseEntrySource("sync-fix")).toBe("sync-fix");
+    expect(parseExpenseEntrySource([" sync-fix "])).toBe("sync-fix");
+    expect(parseExpenseEntrySource("SYNC-FIX")).toBeNull();
+    expect(parseExpenseEntrySource("sync_fix")).toBeNull();
+    expect(parseExpenseEntrySource("sync-status")).toBeNull();
+  });
+
+  /** 이 규칙이 더한 것은 **한 값의 목적지 하나**뿐이다(기존 4값 불변). */
+  it("기존 네 값과 미지정·오염 값의 목적지는 하나도 바뀌지 않는다", () => {
+    expect(resolvePostSaveDestination({ from: "items" })).toBe(POST_SAVE_ITEMS_DESTINATION);
+    expect(resolvePostSaveDestination({ from: "item-detail" })).toBe(POST_SAVE_ITEMS_DESTINATION);
+    expect(resolvePostSaveDestination({ from: "purchase-followup" })).toBe(POST_SAVE_DEFAULT_DESTINATION);
+    expect(resolvePostSaveDestination({ from: "recurring" })).toBe(POST_SAVE_HOME_DESTINATION);
+    expect(resolvePostSaveDestination({})).toBe(POST_SAVE_DEFAULT_DESTINATION);
+    expect(resolvePostSaveDestination(undefined)).toBe(POST_SAVE_DEFAULT_DESTINATION);
+    for (const value of ["", "   ", "fix", "/sync-status", 42, true, {}, []]) {
+      expect(resolvePostSaveDestination({ from: value }), `from=${JSON.stringify(value)}`).toBe(
+        POST_SAVE_DEFAULT_DESTINATION
+      );
+    }
+  });
+
+  it("빠른 기록 시트는 이번에도 무변경이다 — 목적지 하나가 늘었을 뿐이다", () => {
+    const newExpenseSource = source("app/expenses/new.tsx");
+    // `from`을 이미 읽고 있고, 이동도 판정 모듈의 목적지를 그대로 쓴다.
+    expect(newExpenseSource).toContain("const postSaveDestination = resolvePostSaveDestination(params);");
+    expect(newExpenseSource).toContain(
+      "leaveTimerRef.current = setTimeout(() => router.replace(postSaveDestination), 650);"
+    );
+    // 화면이 자기만의 분기를 만들지 않는다(고정 경로가 남아 있지 않다).
+    expect(newExpenseSource).not.toContain('router.replace("/sync-status")');
+    expect(newExpenseSource).not.toContain('"sync-fix"');
+  });
+
+  /**
+   * 시트의 이동이 `replace`라, 진입점이 push로 열면 복귀가 스택에 **같은 화면 두 장**을 남긴다:
+   * 뒤로가기를 눌러도 똑같은 화면이 다시 서고, 마지막 실패 행을 고친 직후라면 빈 목록의
+   * "닫기"(router.back)가 똑같이 빈 같은 화면으로 되돌아간다. 그래서 진입점이 replace로 연다.
+   */
+  it("진입점(동기화 상태 화면)이 시트를 replace로 열어 왕복이 제자리로 끝난다", () => {
+    const syncStatusSource = source("app/sync-status.tsx");
+    expect(syncStatusSource).toContain('router.replace({ pathname: "/expenses/new", params: fixParams })');
+    expect(syncStatusSource).not.toContain('router.push({ pathname: "/expenses/new"');
   });
 });
 

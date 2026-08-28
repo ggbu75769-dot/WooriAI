@@ -157,6 +157,64 @@ export function countRetryableFailedRows(rows: readonly (SyncFailureRow | null |
 }
 
 /**
+ * 라운드 59 트랙 A — **이 행은 앞으로도 서버에 닿지 못한다**(영구 실패).
+ *
+ * 정의는 논리곱 하나다: `syncState === "failed"` ∧ `!isRetryableSyncFailureRow(row)`. 즉 이미
+ * 실패로 굳었고, 그 실패의 status가 다시 보내도 같은 답이 오는 4xx(400 검증 거부·상한 초과,
+ * 403 권한, 404, 422 …)다.
+ *
+ * ## 왜 `isRetryableSyncFailureRow` 하나로는 부족한가
+ *
+ * 그 판정은 status만 본다 — 행의 상태는 보지 않는다. 그래서 **아직 실패하지 않은** 행(pending·
+ * syncing)도 status가 없다는 이유로 "재시도 가능"이라고 답하는 것이 정상이고, 부정을 취하면
+ * 엉뚱하게 "영구 실패"가 된다. 여기서는 **행의 지금 상태**부터 묻는다: 실패로 굳지 않은 행은
+ * 어떤 경우에도 영구 실패가 아니다. 충돌(`conflict`) 행도 아니다 — 그쪽은 사용자가 고를 수 있는
+ * 해결 경로가 화면에 있다(CONFLICT_BANNER_MESSAGE 갈래).
+ *
+ * ## 레거시 행(status 모름)을 영구 실패로 보지 않는 이유
+ *
+ * v2 마이그레이션 이전에 실패한 행에는 status가 없어 `isRetryableSyncFailureRow`가 **재시도
+ * 가능**을 돌려준다(그 함수의 "모르면 기존 동작" 규율). 그러니 이 술어도 false다. 의도한
+ * 결과다: 아래 네 자리는 사용자에게 "이 기록은 보낼 수 없어요"라고 **단언**하거나 화면에서
+ * 무언가를 **덜어내는** 자리라, 확신이 없는 행을 그 대상으로 삼으면 그 자체가 허위 표시다.
+ *
+ * 같은 이유로 `isPermissionDeniedSyncError`의 문구 폴백을 끌어오지 않는다. 저쪽 폴백은 "재시도
+ * 버튼을 뺀다"(사용자가 잃는 것이 버튼 하나)를 위한 것이고, 여기서는 판정·모집단·고지가 걸린다
+ * — 화면 문구 한 글자를 다듬었다는 이유로 정기 지출 카드가 조용히 켜졌다 꺼지면 안 된다.
+ *
+ * ## 이 술어를 쓰는 네 자리는 서로 **다른 답**을 낸다
+ *
+ * 합계는 유지, 정기 지출 판정은 제외, 리포트·CSV 고지는 어휘 분리, 자동완성 모집단은 제외다.
+ * 근거는 네 모듈이 함께 가리키는 한 문단에 있다(`src/expenses/recurring-template.ts`의
+ * "영구 실패 행의 네 자리"). 이 파일은 **술어만** 정하고, 각 자리의 답은 정하지 않는다.
+ */
+export type SyncStateFailureRow = SyncFailureRow & {
+  /**
+   * `LocalExpenseRow.syncState`(`SyncState`)와 `ItemStatusOutboxRow.syncState`
+   * (`ItemStatusSyncState`)가 그대로 대입되도록 넓은 `string`으로 받는다. 이 모듈은 두 갈래를
+   * 이미 같은 함수로 판정하고 있고(SyncFailureRow 주석), 여기서만 한쪽 유니온으로 좁히면
+   * 준비템 행이 들어올 수 없게 된다.
+   */
+  syncState?: string | null;
+};
+
+/** 실패로 굳은 행의 상태값. 상수로 두는 이유는 아래 판정이 보고 있는 값을 코드로 못 박기 위해서다. */
+export const FAILED_SYNC_STATE = "failed";
+
+export function isPermanentlyFailedSyncRow(row: SyncStateFailureRow | null | undefined): boolean {
+  if (!row) return false;
+  if (row.syncState !== FAILED_SYNC_STATE) return false;
+  return !isRetryableSyncFailureRow(row);
+}
+
+/** 행 목록에서 영구 실패 행의 수. 네 자리 중 **세는** 쪽(합계 고지·리포트·CSV)이 함께 쓴다. */
+export function countPermanentlyFailedRows(
+  rows: readonly (SyncStateFailureRow | null | undefined)[]
+): number {
+  return rows.reduce((count, row) => (isPermanentlyFailedSyncRow(row) ? count + 1 : count), 0);
+}
+
+/**
  * 권한 거절 행에서 "재시도" 버튼 자리를 대신하는 안내. 재시도가 무익하다는 사실만 말하고
  * 무엇을 해야 하는지는 `lastError` 문구가 이미 말하고 있으므로(역할·구성원 확인) 반복하지
  * 않는다. 해요체(DNC-018).

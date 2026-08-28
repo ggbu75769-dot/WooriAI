@@ -33,6 +33,7 @@ import {
   RECURRING_MERCHANT_MAX_LENGTH,
   RECURRING_MERCHANT_TOO_LONG_MESSAGE,
   RECURRING_ITEM_NAME_TOO_LONG_MESSAGE,
+  RECURRING_LIMIT_MESSAGE,
   RECURRING_PAYMENT_METHOD_MESSAGE,
   RECURRING_SKIP_HISTORY_LIMIT,
   RECURRING_TEMPLATE_LIMIT,
@@ -239,6 +240,18 @@ describe("라운드 55 #4 저장 blob 방어 (sanitize)", () => {
     expect(restored[0].itemName).toBe("기저귀");
   });
 
+  /**
+   * 라운드 59 통합리뷰 P2-1 — 판정(아이별)과 문장이 같은 것을 말한다. 라운드 59 #4가 상한을
+   * 아이별로 바꾼 뒤에도 이 문장만 전역처럼 들려서, 둘째의 목록에 3개뿐인 사람이 "저장한 정기
+   * 지출 3개 · 최대 20개" 옆에서 상한 안내를 읽는 자기모순이 남아 있었다.
+   */
+  it("상한 안내가 **아이별**이라고 말한다 (화면 표기와 같은 것을 가리킨다)", () => {
+    expect(RECURRING_LIMIT_MESSAGE).toContain(`아이 한 명당 ${RECURRING_TEMPLATE_LIMIT}개`);
+    // 다음에 할 일까지 한 줄에 담고(DNC-018 해요체), 책망하지 않는다.
+    expect(RECURRING_LIMIT_MESSAGE.endsWith("주세요.")).toBe(true);
+    expect(RECURRING_LIMIT_MESSAGE).not.toContain("너무");
+  });
+
   it("상한을 넘긴 blob은 상한까지만 살린다", () => {
     const templates = Array.from({ length: RECURRING_TEMPLATE_LIMIT + 5 }, (_, index) =>
       template({ id: `local-recurring-${index}` })
@@ -389,6 +402,73 @@ describe("라운드 55 #4 리마인더 판정", () => {
       { childId: CHILD, payload: null }
     ];
     expect(buildRecurringReminder({ ...base, monthExpenses: [], pendingRows: rows })?.rows).toHaveLength(1);
+  });
+
+  /**
+   * 라운드 59 트랙 A — **영구 실패 행은 "기록됨"의 근거가 아니다.**
+   *
+   * 이 자리만 네 자리 중 유일하게 화면에서 무언가를 덜어내는 방향이 정직한 쪽이다: 서버가 400으로
+   * 거절한 기저귀 한 줄이 카드를 끄면, 사용자는 "이미 기록했다"는 앱의 말을 믿고 그 달의 기저귀를
+   * 다시 기록할 기회 자체를 잃는다(그 실패 행은 sync-status 화면에만 있다).
+   */
+  it("영구 실패 행은 기록됨으로 세지 않는다 (실패한 기저귀가 카드를 끄면 안 된다)", () => {
+    const pendingRows = [
+      {
+        childId: CHILD,
+        pendingDelete: false,
+        syncState: "failed",
+        lastErrorStatus: 400,
+        lastErrorCode: "EXPENSE_FUTURE_DATE",
+        payload: { itemName: "기저귀", spentOn: "2026-08-09", expenseType: "expense" }
+      }
+    ];
+    expect(buildRecurringReminder({ ...base, monthExpenses: [], pendingRows })?.rows).toHaveLength(1);
+  });
+
+  it("일시 실패·전송 중·대기·충돌 행은 종전대로 기록됨이다 (언젠가 반영된다)", () => {
+    for (const row of [
+      { syncState: "failed", lastErrorStatus: 503 },
+      { syncState: "failed", lastErrorStatus: 429 },
+      { syncState: "syncing" },
+      { syncState: "pending" },
+      { syncState: "conflict" }
+    ]) {
+      const pendingRows = [
+        {
+          childId: CHILD,
+          pendingDelete: false,
+          ...row,
+          payload: { itemName: "기저귀", spentOn: "2026-08-09", expenseType: "expense" }
+        }
+      ];
+      expect(buildRecurringReminder({ ...base, monthExpenses: [], pendingRows }), JSON.stringify(row)).toBeNull();
+    }
+  });
+
+  it("레거시 실패 행(status 없음)도 종전대로 기록됨이다 — 확신 없이 카드를 켜지 않는다", () => {
+    const pendingRows = [
+      {
+        childId: CHILD,
+        pendingDelete: false,
+        syncState: "failed",
+        lastError: "권한이 없어요.",
+        payload: { itemName: "기저귀", spentOn: "2026-08-09", expenseType: "expense" }
+      }
+    ];
+    expect(buildRecurringReminder({ ...base, monthExpenses: [], pendingRows })).toBeNull();
+  });
+
+  it("syncState를 나르지 않는 호출부는 한 줄도 달라지지 않는다", () => {
+    const pendingRows = [{ childId: CHILD, payload: { itemName: "기저귀", spentOn: "2026-08-09" } }];
+    expect(buildRecurringReminder({ ...base, monthExpenses: [], pendingRows })).toBeNull();
+  });
+
+  it("판정 규칙을 여기 다시 적지 않는다 (술어는 permission-denied.ts 한 곳)", () => {
+    const moduleSource = readFileSync(join(process.cwd(), "src/expenses/recurring-template.ts"), "utf8");
+    expect(moduleSource).toContain('import { isPermanentlyFailedSyncRow } from "../offline/permission-denied";');
+    expect(moduleSource).toContain("if (isPermanentlyFailedSyncRow(row)) continue;");
+    const codeOnly = moduleSource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+    expect(codeOnly).not.toContain(".lastErrorStatus");
   });
 
   it("남은 것이 0건이면 카드를 세우지 않는다 (0을 0이라고 말하지 않는다)", () => {

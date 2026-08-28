@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildSuggestSourceRows,
@@ -367,5 +369,107 @@ describe("GAP-058 #6 소비자 계약 — 통합 목록 하나를 세 함수가 
     ]);
     expect(names(local)).toEqual(["오프라인 기저귀"]);
     expect(names(server)).toEqual(["분유", "물티슈"]);
+  });
+});
+
+/**
+ * 라운드 59 트랙 A — **실패 공장 차단**: 400을 부른 값이 첫 후보로 돌아오지 않는다.
+ *
+ * 아웃박스를 영구 실패로 굳히는 4xx는 대부분 입력값 자체가 원인이다(101자 품목명·상한 초과 금액·
+ * 미래 날짜). 그 행은 로컬 저장이 먼저 성공했으므로 스냅숏에 남고, 이 모듈은 스냅숏을 최근 입력
+ * 순으로 앞에 세운다 — 아무 조치도 하지 않으면 그 값이 다음 기록의 첫 제안이 되고, 탭하는 순간
+ * 같은 400이 하나 더 생긴다.
+ *
+ * 경계 셋(영구/일시/레거시)을 각각 고정한다.
+ */
+describe("라운드 59 트랙 A: 영구 실패 행은 제안 모집단에서 빠진다", () => {
+  const failed = (overrides: Parameters<typeof localRow>[0] & { lastErrorStatus?: number | null; lastError?: string }) => ({
+    ...localRow(overrides),
+    syncState: "failed",
+    ...(overrides.lastErrorStatus !== undefined ? { lastErrorStatus: overrides.lastErrorStatus } : {}),
+    ...(overrides.lastError !== undefined ? { lastError: overrides.lastError } : {})
+  });
+
+  it("400으로 굳은 행은 후보에 없다 (같은 실패를 다시 만들지 않는다)", () => {
+    const rows = [
+      failed({ itemName: "아주아주 긴 품목명", createdAt: "2026-08-10T00:00:00.000Z", lastErrorStatus: 400 }),
+      localRow({ itemName: "기저귀", createdAt: "2026-08-09T00:00:00.000Z" })
+    ];
+
+    const local = partitionSuggestSourceRows({ childId: CHILD_ID, localRows: rows }).local;
+    expect(local.map((row) => row.itemName)).toEqual(["기저귀"]);
+  });
+
+  it("일시 실패(5xx)·전송 중·대기 행은 그대로 남는다 (그 값은 아직 거절되지 않았다)", () => {
+    const rows = [
+      failed({ itemName: "5xx 실패", createdAt: "2026-08-10T00:00:00.000Z", lastErrorStatus: 503 }),
+      { ...localRow({ itemName: "전송 중", createdAt: "2026-08-09T00:00:00.000Z" }), syncState: "syncing" },
+      { ...localRow({ itemName: "대기", createdAt: "2026-08-08T00:00:00.000Z" }), syncState: "pending" },
+      { ...localRow({ itemName: "충돌", createdAt: "2026-08-07T00:00:00.000Z" }), syncState: "conflict" }
+    ];
+
+    const local = partitionSuggestSourceRows({ childId: CHILD_ID, localRows: rows }).local;
+    expect(local.map((row) => row.itemName)).toEqual(["5xx 실패", "전송 중", "대기", "충돌"]);
+  });
+
+  it("레거시 실패 행(status 없음)은 종전 그대로 후보에 남는다", () => {
+    // v2 마이그레이션 이전에 실패한 행에는 status가 없다. 확신 없이 제안을 덜어내면 사용자는
+    // 이유를 알 수 없이 이력을 잃는다 -- "모르면 기존 동작"이 이 판정의 안전한 방향이다.
+    const rows = [failed({ itemName: "옛 실패", createdAt: "2026-08-10T00:00:00.000Z", lastError: "권한이 없어요." })];
+    expect(partitionSuggestSourceRows({ childId: CHILD_ID, localRows: rows }).local.map((r) => r.itemName)).toEqual([
+      "옛 실패"
+    ]);
+  });
+
+  it("syncState를 나르지 않는 호출부(최근 칩 등)는 한 줄도 달라지지 않는다", () => {
+    const rows = [localRow({ itemName: "기저귀", createdAt: "2026-08-10T00:00:00.000Z" })];
+    expect(buildSuggestSourceRows({ childId: CHILD_ID, localRows: rows })).toHaveLength(1);
+    expect(buildRecentItemChips(rows, CHILD_ID).map((chip) => chip.itemName)).toEqual(["기저귀"]);
+  });
+
+  it("영구 실패한 **수정** 행은 서버 쌍둥이에게 대표 자리를 돌려준다", () => {
+    // 그 수정은 앞으로도 반영되지 않는다. 서버에는 마지막으로 받아들여진 값이 멀쩡히 남아 있으니
+    // 이 자리의 사실은 서버 값이다 -- 로컬 대표가 빠졌는데 서버 쌍둥이까지 감추면 그 지출은
+    // 어느 원천에서도 후보로 나오지 않는다(사용자가 이유를 알 수 없이 이력을 잃는 자리다).
+    const rows = [
+      failed({
+        itemName: "고치다 만 이름",
+        createdAt: "2026-08-10T00:00:00.000Z",
+        canonicalId: "exp-1",
+        lastErrorStatus: 400
+      })
+    ];
+    const server = [serverRow({ id: "exp-1", itemName: "기저귀", spentOn: "2026-08-01" })];
+
+    const { local, server: serverPart } = partitionSuggestSourceRows({
+      childId: CHILD_ID,
+      localRows: rows,
+      currentMonthRows: server
+    });
+    expect(local).toHaveLength(0);
+    expect(serverPart.map((row) => row.itemName)).toEqual(["기저귀"]);
+
+    // 반대로 **일시** 실패 행은 여전히 자기 쌍둥이를 감춘다(그 값은 곧 서버 값이 된다).
+    const transient = [
+      failed({
+        itemName: "곧 올라갈 이름",
+        createdAt: "2026-08-10T00:00:00.000Z",
+        canonicalId: "exp-1",
+        lastErrorStatus: 503
+      })
+    ];
+    const transientResult = partitionSuggestSourceRows({
+      childId: CHILD_ID,
+      localRows: transient,
+      currentMonthRows: server
+    });
+    expect(transientResult.local.map((row) => row.itemName)).toEqual(["곧 올라갈 이름"]);
+    expect(transientResult.server).toHaveLength(0);
+  });
+
+  it("판정 규칙을 여기 다시 적지 않는다 (술어는 permission-denied.ts 한 곳)", () => {
+    const moduleSource = readFileSync(join(process.cwd(), "src/expenses/suggest-source.ts"), "utf8");
+    expect(moduleSource).toContain('import { isPermanentlyFailedSyncRow } from "../offline/permission-denied";');
+    expect(moduleSource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")).not.toContain(".lastErrorStatus");
   });
 });

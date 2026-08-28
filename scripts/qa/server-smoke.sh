@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 실서버 핵심 루프 스모크 v2 (확정 계약 기반) — 사용법: dev 서버 기동 후 SMOKE_BASE_URL=<베이스> bash scripts/qa/server-smoke.sh
+# 총 37 체크 (라운드 59 트랙 D에서 31 → 37: 거절 계약 3 + 카테고리 노출 범위 3 — step 4b·5).
 set -uo pipefail
 B="${SMOKE_BASE_URL:-http://localhost:3400/api/v1}"
 J='content-type: application/json'
@@ -47,8 +48,42 @@ PATCH=$(curl -s -X PATCH $B/expenses/$EID -H "$A" -H "$J" -d "{\"amountKrw\":400
 chk "수정(낙관적 잠금)" $(echo "$PATCH" | jq -e '[.. | numbers] | any(. == 40000)' >/dev/null; echo $?)
 chk "스테일 버전 409" $([ "$(curl -s -o /dev/null -w '%{http_code}' -X PATCH $B/expenses/$EID -H "$A" -H "$J" -d "{\"amountKrw\":41000,\"expectedVersion\":$VER}")" = "409" ]; echo $?)
 
-step "5. 카테고리 12종"
+step "4b. 거절 계약: 금액 상한·텍스트 길이 (GAP-054 #2 / GAP-056 #1)"
+# 왜 스모크에 있나: 이 셋은 모바일 오프라인 아웃박스가 **로컬 저장을 먼저 성공**시킨 뒤
+# flush에서야 만나는 400이다(4xx는 재시도하지 않는다 — apps/mobile/src/offline/remote-api.ts).
+# 서버가 실제로 거절하는지 확인해야 "영구 실패 행 방지"의 서버 절반이 실측된다.
+TODAY="$(date +%Y-%m-%d)"
+post_expense() {
+  curl -s -w '\n%{http_code}' -X POST $B/children/$CID/expenses -H "$A" -H "$J" \
+    -H "Idempotency-Key: smoke-reject-$RANDOM" -d "$1"
+}
+# MONEY_KRW_MAX(int4 상한 2,147,483,647) + 1 — 전용 코드로 갈려 나가야 한다.
+REJ=$(post_expense "{\"amountKrw\":2147483648,\"categoryId\":\"$CATID\",\"itemName\":\"상한초과\",\"spentOn\":\"$TODAY\"}")
+RCODE=$(echo "$REJ" | tail -n1); RBODY=$(echo "$REJ" | sed '$d')
+chk "금액 상한 초과 400 + EXPENSE_AMOUNT_TOO_LARGE" $([ "$RCODE" = "400" ] && echo "$RBODY" | jq -e '.error.code == "EXPENSE_AMOUNT_TOO_LARGE"' >/dev/null; echo $?)
+# 길이 위반은 전용 코드가 없다 — VALIDATION_ERROR + details.fields에 해당 필드가 실린다.
+LONG_NAME=$(printf '가%.0s' $(seq 1 101))
+REJ=$(post_expense "{\"amountKrw\":1000,\"categoryId\":\"$CATID\",\"itemName\":\"$LONG_NAME\",\"spentOn\":\"$TODAY\"}")
+RCODE=$(echo "$REJ" | tail -n1); RBODY=$(echo "$REJ" | sed '$d')
+chk "itemName 101자 400 + fields[itemName].maxLength" $([ "$RCODE" = "400" ] && echo "$RBODY" | jq -e '.error.code == "VALIDATION_ERROR" and ([.error.details.fields[]? | select(.field == "itemName") | .constraints.maxLength] | length == 1)' >/dev/null; echo $?)
+LONG_MEMO=$(printf '가%.0s' $(seq 1 501))
+REJ=$(post_expense "{\"amountKrw\":1000,\"categoryId\":\"$CATID\",\"itemName\":\"메모초과\",\"memo\":\"$LONG_MEMO\",\"spentOn\":\"$TODAY\"}")
+RCODE=$(echo "$REJ" | tail -n1); RBODY=$(echo "$REJ" | sed '$d')
+chk "memo 501자 400 + fields[memo].maxLength" $([ "$RCODE" = "400" ] && echo "$RBODY" | jq -e '.error.code == "VALIDATION_ERROR" and ([.error.details.fields[]? | select(.field == "memo") | .constraints.maxLength] | length == 1)' >/dev/null; echo $?)
+
+step "5. 카테고리 12종 + 노출 범위 (CAT-124)"
 chk "목록" $(curl -s $B/categories -H "$A" | jq -e '.categories | length >= 12' >/dev/null; echo $?)
+# 기본 = 고르라고 내밀 카테고리(active && selectable)만 12종.
+DEFCAT=$(curl -s $B/categories -H "$A")
+chk "기본 목록 정확히 12종 + 전부 active·selectable" $(echo "$DEFCAT" | jq -e '(.categories | length) == 12 and (.categories | all(.active == true and .selectable == true))' >/dev/null; echo $?)
+# includeAll=1 = 이름 해석용 전량 21종(정식 12 + 앱 별칭 8 + 가져오기 스텁 1).
+ALLCAT=$(curl -s "$B/categories?includeAll=1" -H "$A")
+chk "includeAll=1 전량 21종(비노출 9 포함)" $(echo "$ALLCAT" | jq -e '(.categories | length) == 21 and ((.categories | map(select(.selectable == false)) | length) == 9)' >/dev/null; echo $?)
+# 화이트리스트 밖의 값은 조용히 12종을 돌려주지 않고 400이어야 한다
+# (`?includeAll=yes`가 통과하면 호출자는 그게 전량인 줄 안다 — query.dto.ts 주석).
+BADCAT=$(curl -s -w '\n%{http_code}' "$B/categories?includeAll=yes" -H "$A")
+BCODE=$(echo "$BADCAT" | tail -n1); BBODY=$(echo "$BADCAT" | sed '$d')
+chk "includeAll 화이트리스트 밖 값 400 VALIDATION_ERROR" $([ "$BCODE" = "400" ] && echo "$BBODY" | jq -e '.error.code == "VALIDATION_ERROR"' >/dev/null; echo $?)
 
 step "6. 준비템: 목록→상태→상세"
 ITEMS=$(curl -s "$B/children/$CID/items?tab=now" -H "$A")

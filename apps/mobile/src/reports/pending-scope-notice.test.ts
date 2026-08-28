@@ -1,9 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SYNC_ROW_PENDING_LABEL } from "../offline/messages";
 import {
-  countPendingExpensesInReportScope,
+  SYNC_ROW_PENDING_LABEL,
+  recordsCountPhrase,
+  unsendableRecordsSuffixText
+} from "../offline/messages";
+import {
+  countPendingScopeBreakdown,
   evaluateReportPendingScopeNotice,
   isSpentOnInReportScope,
   pendingRowYearMonth,
@@ -24,6 +28,8 @@ import {
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+/** 주석을 걷어낸 코드만(근거는 주석에 적고, 규칙은 코드에 한 번만 있어야 한다 — recurring-flow.test.ts 관례). */
+const codeOnly = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
 
 function row(overrides: Partial<PendingScopeExpenseRow> & { spentOn?: string | null }): PendingScopeExpenseRow {
   const { spentOn = "2026-08-05", ...rest } = overrides;
@@ -50,7 +56,7 @@ describe("GAP-054 #3 리포트 대기 건수 판정", () => {
       row({ childId: "child-2" }), // 다른 아이
       row({ spentOn: "2026-07-31" }) // 다른 달
     ];
-    expect(countPendingExpensesInReportScope({ rows, childId: "child-1", scope: monthScope })).toBe(4);
+    expect(countPendingScopeBreakdown({ rows, childId: "child-1", scope: monthScope }).count).toBe(4);
   });
 
   it("삭제 대기 행도 '아직 반영되지 않은 차이'라 함께 센다", () => {
@@ -65,15 +71,16 @@ describe("GAP-054 #3 리포트 대기 건수 판정", () => {
       pendingDelete: true,
       payload: { spentOn: "2026-08-05", amountKrw: 12_000 }
     };
-    expect(
-      countPendingExpensesInReportScope({ rows: [pendingDeleteRow], childId: "child-1", scope: monthScope })
-    ).toBe(1);
+    expect(countPendingScopeBreakdown({ rows: [pendingDeleteRow], childId: "child-1", scope: monthScope }).count).toBe(1);
   });
 
   it("아이를 아직 모르면 아무것도 세지 않는다", () => {
     const rows = [row({})];
-    expect(countPendingExpensesInReportScope({ rows, childId: null, scope: monthScope })).toBe(0);
-    expect(countPendingExpensesInReportScope({ rows, childId: undefined, scope: monthScope })).toBe(0);
+    expect(countPendingScopeBreakdown({ rows, childId: null, scope: monthScope })).toEqual({ count: 0, unsendableCount: 0 });
+    expect(countPendingScopeBreakdown({ rows, childId: undefined, scope: monthScope })).toEqual({
+      count: 0,
+      unsendableCount: 0
+    });
   });
 
   it("기간 경계: 달의 첫날·마지막날은 포함, 앞뒤 달은 제외", () => {
@@ -108,7 +115,7 @@ describe("GAP-054 #3 리포트 대기 건수 판정", () => {
       expect(isSpentOnInReportScope(broken, monthScope), String(broken)).toBe(false);
     }
     const rows = [row({ spentOn: null }), row({ payload: null }), row({ payload: undefined })];
-    expect(countPendingExpensesInReportScope({ rows, childId: "child-1", scope: monthScope })).toBe(0);
+    expect(countPendingScopeBreakdown({ rows, childId: "child-1", scope: monthScope }).count).toBe(0);
   });
 });
 
@@ -126,7 +133,7 @@ describe("GAP-054 P2-4 합산 대상만 센다", () => {
       row({ payload: { spentOn: "2026-08-06", expenseType: "gift" } }),
       row({ payload: { spentOn: "2026-08-07", expenseType: "refund" } })
     ];
-    expect(countPendingExpensesInReportScope({ rows, childId: "child-1", scope: monthScope })).toBe(1);
+    expect(countPendingScopeBreakdown({ rows, childId: "child-1", scope: monthScope }).count).toBe(1);
     expect(evaluateReportPendingScopeNotice({ rows, childId: "child-1", scope: monthScope })?.count).toBe(1);
   });
 
@@ -140,7 +147,7 @@ describe("GAP-054 P2-4 합산 대상만 센다", () => {
 
   it("구분이 없는 레거시 행은 종전대로 지출로 센다 (합계 술어와 같은 관례)", () => {
     const rows = [row({ payload: { spentOn: "2026-08-05" } })];
-    expect(countPendingExpensesInReportScope({ rows, childId: "child-1", scope: monthScope })).toBe(1);
+    expect(countPendingScopeBreakdown({ rows, childId: "child-1", scope: monthScope }).count).toBe(1);
   });
 
   it("술어를 인라인으로 다시 적지 않는다 (합계와 한 곳에서만 정한다)", () => {
@@ -172,12 +179,109 @@ describe("GAP-054 #3 고지 문구", () => {
     });
     expect(notice).toEqual({
       count: 2,
+      // 라운드 59 트랙 A: 영구 실패가 섞이지 않은 평소 화면은 문구가 한 글자도 바뀌지 않는다.
+      unsendableCount: 0,
       text: "동기화 대기 중인 기록 2건은 아래 숫자에 아직 반영되지 않았어요."
     });
     // 문구를 손으로 다시 적지 않는다 -- 상태 이름은 offline/messages.ts가 정한다.
     expect(reportPendingScopeNoticeText(1).startsWith(SYNC_ROW_PENDING_LABEL)).toBe(true);
     // DNC-018 해요체.
     expect(reportPendingScopeNoticeText(1).endsWith("요.")).toBe(true);
+  });
+});
+
+/**
+ * 라운드 59 트랙 A — **영구 실패 행을 "대기"라고 부르지 않는다(어휘 분리).**
+ *
+ * 세는 대상은 그대로다(좁히면 아래 숫자에 그만큼이 빠져 있다는 사실을 아무도 말하지 않는다).
+ * 바뀌는 것은 부르는 이름이다: 주어가 "아직 반영되지 않은 기록"으로 바뀌고, 그중 몇 건이
+ * "보낼 수 없는 기록"인지 뒷문장이 따로 말한다.
+ */
+describe("라운드 59 트랙 A 리포트 고지 — 대기와 '보낼 수 없음'을 가른다", () => {
+  const failedRow = (overrides: Partial<PendingScopeExpenseRow> & { spentOn?: string | null } = {}) =>
+    row({ syncState: "failed", lastErrorStatus: 400, lastErrorCode: "EXPENSE_FUTURE_DATE", ...overrides });
+
+  it("영구 실패 행도 건수에는 그대로 들어가고, 그중 몇 건인지만 따로 센다", () => {
+    const rows = [row({}), failedRow({ spentOn: "2026-08-06" })];
+    expect(countPendingScopeBreakdown({ rows, childId: "child-1", scope: monthScope })).toEqual({
+      count: 2,
+      unsendableCount: 1
+    });
+    // 라운드 59 통합리뷰 P2-2: 총건수만 돌려주던 옛 이름(countPendingExpensesInReportScope)은
+    // 없앴다 -- 프로덕션 호출부가 0이었고, 같은 값을 두 이름으로 부르면 다음 호출부가 "그중 M건"을
+    // 함께 받아 가는지가 이름 선택에 따라 갈린다. 건수는 이 결과의 한 필드다.
+    expect(countPendingScopeBreakdown({ rows, childId: "child-1", scope: monthScope }).count).toBe(2);
+  });
+
+  it("일시 실패·레거시 실패 행은 '보낼 수 없음'이 아니다 (경계 셋)", () => {
+    const rows = [
+      failedRow({ spentOn: "2026-08-01" }), // 영구: 400
+      failedRow({ spentOn: "2026-08-02", lastErrorStatus: 503 }), // 일시: 5xx
+      // 레거시: v2 이전 실패 행 -- status가 없어 판정할 수 없으므로 단언하지 않는다.
+      row({ spentOn: "2026-08-03", syncState: "failed", lastError: "권한이 없어요." })
+    ];
+    expect(countPendingScopeBreakdown({ rows, childId: "child-1", scope: monthScope })).toEqual({
+      count: 3,
+      unsendableCount: 1
+    });
+  });
+
+  it("영구 실패가 섞이면 주어가 '동기화 대기'에서 참인 관측으로 바뀐다", () => {
+    const notice = evaluateReportPendingScopeNotice({
+      rows: [row({}), row({ spentOn: "2026-08-06" }), failedRow({ spentOn: "2026-08-07" })],
+      childId: "child-1",
+      scope: monthScope
+    });
+
+    expect(notice).toEqual({
+      count: 3,
+      unsendableCount: 1,
+      text: "기록 3건은 아래 숫자에 아직 반영되지 않았어요. 그중 1건은 보낼 수 없는 기록이에요."
+    });
+    // 그 문장에는 "대기"가 없다 -- 오지 않을 시점을 약속하지 않는다.
+    expect(notice?.text).not.toContain(SYNC_ROW_PENDING_LABEL);
+    // 조각은 offline/messages.ts의 단일 소스에서 온다(화면·모듈이 다시 적지 않는다).
+    expect(notice?.text).toContain(recordsCountPhrase(3));
+    expect(notice?.text).toContain(unsendableRecordsSuffixText(1));
+  });
+
+  it("영구 실패만 대기 중이면 두 숫자가 같고, 문장은 여전히 둘을 구분해 말한다", () => {
+    const notice = evaluateReportPendingScopeNotice({
+      rows: [failedRow({})],
+      childId: "child-1",
+      scope: monthScope
+    });
+    expect(notice?.count).toBe(1);
+    expect(notice?.unsendableCount).toBe(1);
+    expect(notice?.text).toBe("기록 1건은 아래 숫자에 아직 반영되지 않았어요. 그중 1건은 보낼 수 없는 기록이에요.");
+  });
+
+  it("'그중 M건'은 결코 N을 넘을 수 없다 (두 숫자가 같은 배열에서 나온다)", () => {
+    const rows = [failedRow({}), failedRow({ spentOn: "2026-08-09" }), row({ spentOn: "2026-08-10" })];
+    const breakdown = countPendingScopeBreakdown({ rows, childId: "child-1", scope: monthScope });
+    expect(breakdown.unsendableCount).toBeLessThanOrEqual(breakdown.count);
+    // 기간 밖 영구 실패 행은 어느 숫자에도 들어가지 않는다(모집단이 하나다).
+    const outOfScope = [failedRow({ spentOn: "2026-07-31" })];
+    expect(countPendingScopeBreakdown({ rows: outOfScope, childId: "child-1", scope: monthScope })).toEqual({
+      count: 0,
+      unsendableCount: 0
+    });
+  });
+
+  it("CSV 고지와 **같은 구분 규칙**이다 (술어를 각자 적지 않는다)", () => {
+    const moduleSource = source("src/reports/pending-scope-notice.ts");
+    const exportSource = source("src/export/export-pending-notice.ts");
+    for (const [path, text] of [
+      ["reports", moduleSource],
+      ["export", exportSource]
+    ] as const) {
+      expect(text, path).toContain('import { countPermanentlyFailedRows } from "../offline/permission-denied";');
+      expect(text, path).toContain("recordsCountPhrase(count)");
+      expect(text, path).toContain("unsendableRecordsSuffixText(unsendableCount)");
+      // 문구·판정을 인라인으로 다시 적지 않는다(주석은 근거를 적는 자리라 제외한다).
+      expect(codeOnly(text), path).not.toContain("보낼 수 없는 기록");
+      expect(codeOnly(text), path).not.toContain(".lastErrorStatus");
+    }
   });
 });
 

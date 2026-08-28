@@ -83,6 +83,7 @@ import {
  * 아니면 그 값을 그대로 관리 화면에 실어 보낸다 — 규칙이 화면에 두 벌로 적히지 않게.
  */
 import {
+  formatRecurringTemplateLine,
   recurringTemplatePrefillParams,
   RECURRING_REGISTER_ACTION_LABEL,
   RECURRING_REGISTER_ACTION_NOTICE
@@ -119,6 +120,17 @@ import {
 } from "../../src/offline/sync-controller";
 // 라운드 49 C-05: "연결된 준비템 보기"의 목적지는 경로가 아니라 **전역으로 선택된 아이**로
 // 상세를 부른다 — 그래서 이 화면이 그 값을 알아야 아이가 어긋난 링크를 그리지 않을 수 있다.
+/**
+ * 라운드 59 트랙 B 후속 배선 — "정기 지출로 등록"이 **이미 등록된 지출**인지 알기 위한 판정.
+ *
+ * 저장 거절(recurringDuplicateMessage)이 쓰는 바로 그 순수 함수라, 이 화면이 이름 비교 규칙을
+ * 다시 적지 않는다(관리 화면의 같은 표기와도 한 함수를 지난다 — app/expenses/recurring.tsx).
+ */
+import {
+  findRecurringTemplateByItemName,
+  useRecurringExpenseStore,
+  RECURRING_ALREADY_REGISTERED_LABEL
+} from "../../src/stores/recurring-expense.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { resolveScreenPhase } from "../../src/screen-phase";
@@ -687,6 +699,24 @@ export default function ExpenseDetailScreen() {
    */
   const canRegisterRecurring = Boolean(
     authToken && selectedChildId && expense.data?.childId === selectedChildId && recurringPrefill
+  );
+  /**
+   * 라운드 59 트랙 B 후속 배선 — 이 품목의 정기 지출이 **이미 이 아이에게 있는가**.
+   *
+   * 있으면 버튼을 세우지 않는다: 눌러도 관리 화면의 저장에서 `recurringDuplicateMessage`로
+   * 거절당하므로, 그 왕복(누르기 → 채워진 폼 → 저장 → 거절 → 뒤로)이 통째로 헛걸음이다. 대신
+   * 그 자리에 사실을 적는다(`RECURRING_ALREADY_REGISTERED_LABEL` · 품목 · 금액 · 결제일) --
+   * 사용자는 그 항목이 이미 있다는 것과 어떤 약속인지를 한 줄로 안다.
+   *
+   * 판정은 저장 거절과 **같은 함수** 하나뿐이라(스토어의 순수 함수) 화면이 이름 정규화·아이
+   * 스코프 규칙을 다시 적지 않는다. 저장된 기록의 품목명으로 판정하는 것도 버튼과 같은 근거다
+   * (편집 중인 입력이 아니라 "저장된 이 기록"을 복사하는 진입점이다 -- 위 프리필 주석).
+   */
+  const recurringTemplates = useRecurringExpenseStore((state) => state.templates);
+  const alreadyRegisteredRecurring = findRecurringTemplateByItemName(
+    recurringTemplates,
+    selectedChildId,
+    expense.data?.itemName ?? ""
   );
 
   // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
@@ -1312,13 +1342,25 @@ export default function ExpenseDetailScreen() {
                 저장이 열리지 않는다). 후자는 순수 모듈이 null을 돌려줘 버튼 자체가 서지 않는다. */}
             {canRegisterRecurring && recurringPrefill ? (
               <View testID="expense-to-recurring" style={{ gap: 6 }}>
-                <SecondaryButton
-                  label={RECURRING_REGISTER_ACTION_LABEL}
-                  onPress={() => router.push({ pathname: "/expenses/recurring", params: recurringPrefill })}
-                />
-                <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
-                  {RECURRING_REGISTER_ACTION_NOTICE}
-                </Text>
+                {/* 라운드 59 트랙 B 후속 배선 — 이미 등록된 지출에서는 **버튼 대신 사실**을 적는다
+                    (판정 근거는 위 alreadyRegisteredRecurring 주석). 안내 한 줄도 함께 내린다:
+                    "적어 둘 수 있어요"는 이미 적어 둔 사람에게 참이 아니고, 그 자리에는 지금 있는
+                    약속(품목 · 금액 · 결제일)을 그대로 보여주는 편이 다음 행동에 쓸모 있다. */}
+                {alreadyRegisteredRecurring ? (
+                  <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
+                    {`${RECURRING_ALREADY_REGISTERED_LABEL} · ${formatRecurringTemplateLine(alreadyRegisteredRecurring)}`}
+                  </Text>
+                ) : (
+                  <>
+                    <SecondaryButton
+                      label={RECURRING_REGISTER_ACTION_LABEL}
+                      onPress={() => router.push({ pathname: "/expenses/recurring", params: recurringPrefill })}
+                    />
+                    <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
+                      {RECURRING_REGISTER_ACTION_NOTICE}
+                    </Text>
+                  </>
+                )}
               </View>
             ) : null}
 

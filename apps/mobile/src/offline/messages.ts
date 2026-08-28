@@ -78,6 +78,63 @@ export const SYNC_ROW_CONFLICT_LABEL = "다른 기기와 충돌 · 확인 필요
 export const SYNC_ROW_FAILED_LABEL = "동기화 실패 · 확인 필요";
 export const SYNC_ROW_PENDING_LABEL = "동기화 대기";
 
+/**
+ * 라운드 59 트랙 A — **영구 실패(4xx) 행을 부르는 이름**. "동기화 대기"와 갈라 두는 단일 소스다.
+ *
+ * ## 왜 새 어휘가 필요한가
+ *
+ * `syncState !== "synced"`인 행을 한 단어로 "동기화 대기"라고 부르던 자리가 셋이었다(기록 탭
+ * 합계 고지·리포트 고지·CSV 고지). 그런데 그중 일부는 **기다려도 반영되지 않는다**: 서버가
+ * 400/403/404/422로 거절한 행은 payload가 그대로인 한 몇 번을 보내도 같은 답이 온다
+ * (`isPermanentlyFailedSyncRow` — src/offline/permission-denied.ts). 그 행을 "대기 중"이라고
+ * 부르는 문장은 사용자가 기다리기만 하면 숫자가 맞아떨어진다는 뜻이 되어, 실제로는 영원히
+ * 오지 않을 시점을 약속한다(허위 안내).
+ *
+ * ## 왜 "실패"가 아니라 "보낼 수 없는 기록"인가
+ *
+ * 동기화 상태 화면의 짧은 배지 라벨은 이미 "실패"다(`SYNC_STATUS_FAILED_LABEL`). 그 단어를
+ * 여기서 재사용하면 두 가지가 섞인다 — 그 배지는 **일시 실패**(5xx·네트워크, 다시 보내면 되는
+ * 행)까지 함께 세기 때문이다. 이 어휘가 가리키는 것은 그중 다시 보내도 소용없는 갈래 하나뿐이라,
+ * 상태 이름이 아니라 **할 수 없는 일**로 부른다. 그래야 바로 다음 행동(고쳐서 다시 보내기 ·
+ * 버리기 — SYNC_STATUS_PERMANENT_FAILURE_HINT)이 같은 말에서 이어진다. 해요체(DNC-018).
+ */
+export const SYNC_ROW_UNSENDABLE_LABEL = "보낼 수 없는 기록";
+
+/**
+ * 영구 실패가 섞였을 때 고지의 **주어**. "동기화 대기 중인 기록 N건"을 대신한다 — 이 집합에는
+ * 기다려도 오지 않을 행이 들어 있으므로 "대기"라고 부를 수 없고, 그렇다고 전부를 "보낼 수 없다"고
+ * 하면 대다수(일시 실패·대기)에 대해 거짓이다. 그래서 수식을 **떼기만 한다**: 남는 것은 세어진
+ * 것 자체("기록 N건")이고, 무엇이 참인지는 뒤따르는 술어가 말한다.
+ *
+ * 라운드 59 통합리뷰 P1-1 — 주어에 "아직 반영되지 않은"을 넣고 술어를 "빠져 있어요"로 바꾸던
+ * 종전 문장을 되돌린 자리다. 그 술어는 세는 규칙보다 **세다**: 이 모집단에는 삭제 대기 행(리포트
+ * 숫자에는 아직 들어 있다)과 수정 대기 행(CSV에는 옛 값으로 담긴다)이 섞여 있어, 그 부분집합에
+ * 대해서는 "빠져 있다"가 그냥 거짓이다. 두 갈래의 술어는 이제 한 문장으로 같다 —
+ * "…에 아직 반영되지 않았어요"(라운드 57 QA P1-2가 세운 약한 주장). 갈리는 것은 주어의 수식과
+ * 뒤에 한 문장이 더 붙는지 뿐이다.
+ */
+export function recordsCountPhrase(count: number): string {
+  return `기록 ${count}건`;
+}
+
+/**
+ * 위 주어 뒤에 붙는 구분 한 문장 — 리포트 고지·CSV 고지가 **같은 문장**을 쓴다(둘의 모집단은
+ * 다르지만 구분 규칙은 하나다).
+ */
+export function unsendableRecordsSuffixText(count: number): string {
+  return `그중 ${count}건은 ${SYNC_ROW_UNSENDABLE_LABEL}이에요.`;
+}
+
+/**
+ * 기록 탭 목록 고지. 이 자리만 "그중"이 아니라 "이 중"인 이유: 리포트·CSV의 고지는 **앞 문장이
+ * 센 숫자**를 되받지만(그중), 기록 탭은 바로 위에 **행 목록 자체가 보이는** 자리라 지시 대상이
+ * 문장이 아니라 화면이다. 합계에서 빼지 않는 대신 이 한 줄이 서는 이유는
+ * `src/offline/expense-list-reconciliation.ts`의 `permanentlyFailedCount` 주석 참고.
+ */
+export function unsendableRowsNoticeText(count: number): string {
+  return `이 중 ${count}건은 ${SYNC_ROW_UNSENDABLE_LABEL}이에요.`;
+}
+
 export const SYNC_STATUS_RETRY_LABEL = "재시도";
 export const SYNC_STATUS_DISCARD_LABEL = "삭제";
 

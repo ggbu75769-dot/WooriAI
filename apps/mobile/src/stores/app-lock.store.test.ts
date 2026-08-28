@@ -239,6 +239,103 @@ describe("useAppLockStore", () => {
     expect(gate()).toBe("unlocked");
   });
 
+  /**
+   * GAP-059 #7 — 잠금 화면의 **동시 제출**. 라운드 58이 "카운터 유실"로 적었던 것의 재진단:
+   * 카운터는 setState로 동기 반영되므로 유실되지 않는다. 겹칠 때 실제로 상하는 것은 ① 두 쓰기가
+   * 역순으로 끝나 디스크에 더 낮은 failedCount·더 이른 lockedUntilMs가 남는 것과, ② 두 응답이
+   * 각각 문구를 세워 남은 횟수가 거꾸로 흐르는 것이다. 그래서 제출은 한 번만 나가야 한다.
+   */
+  describe("이중 탭: 제출은 한 번만 나간다 (GAP-059 #7)", () => {
+    it("겹친 두 제출이 하나로 합류하고, 실패도 한 번만 센다", async () => {
+      await useAppLockStore.getState().enableLock("1234");
+      useAppLockStore.setState({ unlockedThisForeground: false });
+
+      // await 없이 연달아 부른다 = 다시 그려지기 전에 두 번째 탭이 들어온 상황.
+      const [first, second] = await Promise.all([
+        useAppLockStore.getState().submitPin("0000", NOW),
+        useAppLockStore.getState().submitPin("0000", NOW)
+      ]);
+
+      // 한 번의 의사표시이므로 결과도 하나다.
+      expect(first).toBe("wrong-pin");
+      expect(second).toBe("wrong-pin");
+      expect(useAppLockStore.getState().record?.failedCount).toBe(1);
+      const stored = await readAppLockRecord();
+      expect(stored.status === "loaded" ? stored.record?.failedCount : null).toBe(1);
+
+      // 가드는 걸쇠일 뿐 — 다음 제출은 정상적으로 나간다.
+      expect(await useAppLockStore.getState().submitPin("1234", NOW)).toBe("unlocked");
+    });
+
+    it("겹친 제출이 SecureStore 쓰기를 두 번 내지 않는다 (역순 완료 경합 차단)", async () => {
+      vi.resetModules();
+      const writeAppLockRecord = vi.fn(async () => true);
+      vi.doMock("../security/app-lock-storage", () => ({
+        APP_LOCK_STORAGE_KEY: "wooriai-app-lock",
+        readAppLockRecord: vi.fn(async () => ({ status: "loaded" as const, record: null })),
+        writeAppLockRecord,
+        clearAppLockRecord: vi.fn(async () => undefined)
+      }));
+      try {
+        const { useAppLockStore: freshStore } = await import("./app-lock.store");
+        expect(await freshStore.getState().enableLock("1234")).toBe("ok");
+        freshStore.setState({ unlockedThisForeground: false });
+        writeAppLockRecord.mockClear();
+
+        await Promise.all([
+          freshStore.getState().submitPin("0000", NOW),
+          freshStore.getState().submitPin("0000", NOW)
+        ]);
+
+        // 실패 등록 쓰기 1회. 두 번이면 어느 쪽이 마지막에 남는지가 완료 순서에 달린다.
+        expect(writeAppLockRecord).toHaveBeenCalledTimes(1);
+        expect(freshStore.getState().record?.failedCount).toBe(1);
+      } finally {
+        vi.doUnmock("../security/app-lock-storage");
+        vi.resetModules();
+      }
+    });
+
+    /**
+     * 라운드 59 통합리뷰 P2-7 — 합류는 **같은 PIN**일 때만이다.
+     *
+     * 합류가 정당한 근거는 "이중 탭은 한 번의 의사표시"인데, 겹친 두 제출의 값이 다르면 그 전제가
+     * 깨진다. 값을 보지 않고 합류시키면 나중 PIN은 판정조차 되지 않은 채 앞 PIN의 답을 받는다.
+     */
+    it("겹친 제출의 PIN이 다르면 합류하지 않고 차례로 판정한다 (맞는 PIN이 삼켜지지 않는다)", async () => {
+      await useAppLockStore.getState().enableLock("1234");
+      useAppLockStore.setState({ unlockedThisForeground: false });
+
+      // 틀린 PIN을 넣은 직후, 다시 그려지기 전에 맞는 PIN이 들어온다.
+      const [wrong, right] = await Promise.all([
+        useAppLockStore.getState().submitPin("0000", NOW),
+        useAppLockStore.getState().submitPin("1234", NOW)
+      ]);
+
+      expect(wrong).toBe("wrong-pin");
+      // 합류했다면 이 값도 "wrong-pin"이고 화면은 열리지 않았을 것이다.
+      expect(right).toBe("unlocked");
+      expect(gate()).toBe("unlocked");
+      // 성공이 실패 이력을 지우는 약속(clearFailedAttempts)도 순서대로 적용됐다.
+      expect(useAppLockStore.getState().record?.failedCount).toBe(0);
+    });
+
+    it("반대 순서에서도 각자 판정된다 — 틀린 PIN이 남의 성공에 업히지 않는다", async () => {
+      await useAppLockStore.getState().enableLock("1234");
+      useAppLockStore.setState({ unlockedThisForeground: false });
+
+      const [right, wrong] = await Promise.all([
+        useAppLockStore.getState().submitPin("1234", NOW),
+        useAppLockStore.getState().submitPin("9999", NOW)
+      ]);
+
+      expect(right).toBe("unlocked");
+      expect(wrong).toBe("wrong-pin");
+      // 두 번째 제출은 앞 제출이 끝난 뒤의 기록을 보고 판정하므로 실패가 실제로 한 번 센다.
+      expect(useAppLockStore.getState().record?.failedCount).toBe(1);
+    });
+  });
+
   it("resetAll(PRIV-104 합류점)이 기록과 런타임 상태를 함께 비운다 (수용 기준 8)", async () => {
     await useAppLockStore.getState().enableLock("1234");
     await useAppLockStore.getState().resetAll();

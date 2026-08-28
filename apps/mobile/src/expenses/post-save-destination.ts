@@ -37,8 +37,19 @@
  * - `purchase-followup` — 구매 확인 카드(src/commerce/PurchaseFollowupPrompt.tsx)의 "샀어요".
  * - `recurring` — 정기 지출의 "기록하기"(홈 카드 src/…/index.tsx · 관리 화면 app/expenses/recurring.tsx).
  *   값 자체는 라운드 55부터 실려 왔고, 라운드 58에서 **아는 값**이 됐다(아래 목적지 규칙).
+ * - `sync-fix` — 동기화 상태 화면의 "고쳐서 다시 보내기"(app/sync-status.tsx). 라운드 59 #2에서
+ *   생겼다(아래 목적지 규칙 — 원본 폐기가 보이는 화면은 그 하나뿐이다).
  */
-export type ExpenseEntrySource = "items" | "item-detail" | "purchase-followup" | "recurring";
+export type ExpenseEntrySource = "items" | "item-detail" | "purchase-followup" | "recurring" | "sync-fix";
+
+/**
+ * 실패 행을 고쳐 다시 보내는 진입점의 `from` 값.
+ *
+ * 정기 지출이 `RECURRING_ENTRY_SOURCE`(recurring-template.ts)를 내보내는 것과 같은 관례다:
+ * 값을 싣는 쪽(src/expenses/failed-row-prefill.ts)과 읽는 쪽(이 파일)이 **같은 문자열 하나**를
+ * 보게 해서, 한쪽만 고쳐지면 규칙이 조용히 죽는 자리를 만들지 않는다.
+ */
+export const SYNC_FIX_ENTRY_SOURCE = "sync-fix";
 
 /** 라우트 파라미터 이름. 붙이는 쪽과 읽는 쪽이 갈리지 않도록 문자열을 한 곳에 둔다. */
 export const EXPENSE_ENTRY_SOURCE_PARAM = "from";
@@ -48,7 +59,7 @@ export const EXPENSE_ENTRY_SOURCE_PARAM = "from";
  * Href로 검사되므로, 없는 경로를 반환하면 typecheck에서 걸린다
  * (src/notifications/notification-route.ts와 같은 장치).
  */
-export type PostSaveDestination = "/(tabs)/records" | "/(tabs)/items" | "/(tabs)";
+export type PostSaveDestination = "/(tabs)/records" | "/(tabs)/items" | "/(tabs)" | "/sync-status";
 
 /** 종전 동작. 출처를 모르거나 규칙이 없는 값은 전부 여기로 떨어진다. */
 export const POST_SAVE_DEFAULT_DESTINATION: PostSaveDestination = "/(tabs)/records";
@@ -62,11 +73,18 @@ export const POST_SAVE_ITEMS_DESTINATION: PostSaveDestination = "/(tabs)/items";
  */
 export const POST_SAVE_HOME_DESTINATION: PostSaveDestination = "/(tabs)";
 
+/**
+ * 동기화 상태 화면. **원본 실패 행이 사라진 것이 보이는 유일한 화면**이다(라운드 59 #2 —
+ * 근거는 아래 `resolvePostSaveDestination` 주석).
+ */
+export const POST_SAVE_SYNC_STATUS_DESTINATION: PostSaveDestination = "/sync-status";
+
 const KNOWN_ENTRY_SOURCES: ReadonlyArray<ExpenseEntrySource> = [
   "items",
   "item-detail",
   "purchase-followup",
-  "recurring"
+  "recurring",
+  SYNC_FIX_ENTRY_SOURCE
 ];
 
 /** expo-router의 파라미터는 string | string[] 둘 다 올 수 있다 — 첫 값만 읽는다. */
@@ -97,6 +115,7 @@ export function parseExpenseEntrySource(value: unknown): ExpenseEntrySource | nu
  *   보내면 하던 일에서 튕겨 나간다. 규칙을 여기 적어 두는 이유는 이 값이 "아직 안 정한 값"이
  *   아니라 **정해서 기본값과 같게 둔 값**이기 때문이다.
  * - `recurring` → **홈**. 아래 문단이 근거다.
+ * - `sync-fix` → **동기화 상태 화면**. 그 아래 문단이 근거다.
  * - 그 외/미지정/오염 → 종전 동작(기록 탭).
  *
  * ## 왜 정기 지출만 홈인가 (라운드 58 #7)
@@ -113,11 +132,28 @@ export function parseExpenseEntrySource(value: unknown): ExpenseEntrySource | nu
  * 되돌린 것(방금 오른 준비율을 보게 한다)과 정확히 같은 이유다. 관리 화면(app/expenses/recurring.tsx)의
  * "기록하기"도 같은 값을 싣는데, 그쪽도 목적지가 홈인 편이 낫다: 그 화면은 "적어 두는" 자리지
  * "기록을 보는" 자리가 아니라, 저장 후 되돌아가 봐야 방금 기록한 사실을 말해 주는 것이 없다.
+ *
+ * ## 왜 고쳐서 다시 보내기만 동기화 상태 화면인가 (라운드 59 #2)
+ *
+ * 이 진입점의 저장은 **두 가지 일**을 한다: 고친 내용으로 새 기록을 만들고, 저장이 확정된 뒤에
+ * 원본 실패 행을 버린다(app/expenses/new.tsx의 `failedLocalId` — src/expenses/failed-row-prefill.ts).
+ * 그런데 그 둘 중 **원본이 사라졌다는 사실이 보이는 화면은 동기화 상태 화면 하나뿐**이다.
+ * 종전처럼 기록 탭으로 보내면 사용자는 새 기록 한 줄만 보고, 방금 고친 그 실패 행이 정말
+ * 정리됐는지는 배지를 눌러 다시 들어가야 안다 — 실패 배지가 아직 다른 행 때문에 남아 있으면
+ * "고쳤는데도 그대로다"로 읽히고, 그 오해는 같은 기록을 한 번 더 적게 만든다. 돌아간 즉시 그
+ * 행이 없어진 목록(과 하나 줄어든 실패 배지)을 보여 주는 편이, 준비템 경로를 준비템 탭으로
+ * 되돌린 것·정기 지출을 홈으로 되돌린 것과 정확히 같은 규칙이다.
+ *
+ * ⚠️ 이 목적지는 **되돌아가는 것**이지 새로 여는 것이 아니다. 시트는 언제나 `router.replace`로
+ * 이동하므로(new.tsx), 동기화 상태 화면을 push해 둔 채 시트를 열면 스택에 같은 화면이 두 장
+ * 쌓인다 — 그래서 진입점(app/sync-status.tsx)이 시트를 **replace로 연다**. 근거는 그쪽 onPress
+ * 주석에 한 번만 적는다(요약하면: 빈 목록의 "닫기"가 똑같이 빈 같은 화면으로 되돌아간다).
  */
 export function resolvePostSaveDestination(params: { from?: unknown } | null | undefined): PostSaveDestination {
   const source = parseExpenseEntrySource(params?.from);
   if (source === "items" || source === "item-detail") return POST_SAVE_ITEMS_DESTINATION;
   if (source === "recurring") return POST_SAVE_HOME_DESTINATION;
+  if (source === SYNC_FIX_ENTRY_SOURCE) return POST_SAVE_SYNC_STATUS_DESTINATION;
   return POST_SAVE_DEFAULT_DESTINATION;
 }
 

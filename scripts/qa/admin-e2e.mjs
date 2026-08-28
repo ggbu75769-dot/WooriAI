@@ -36,6 +36,14 @@
  * above already produced (the QA-118 CSV export pages the same read-only
  * list API and builds the file client-side).
  *
+ * GAP-059 #8 (round 59) added the round-56 CS path: 사용자 조회 search +
+ * ?actorUserId deep link into 감사 로그 (steps 11), and load/read steps for
+ * 카테고리 관리 · 제휴 고지 문구 · 클릭 통계 (steps 12-14). All four are
+ * read-only: the only interactions are search, client-side filters and the
+ * clicks range toggle — no 저장/추가/적용 button is ever clicked. NOTE that
+ * the users-lookup search itself is audit-logged server-side
+ * (admin.user_lookup.search), which is a log row, not app data.
+ *
  * SECURITY:
  *   - ADMIN_BASE_URL is restricted to localhost/127.0.0.1: the script types a
  *     real admin password and TOTP codes into whatever page it is pointed at.
@@ -336,11 +344,13 @@ async function main() {
     await page.waitForURL("**/analytics", { timeout: NAV_TIMEOUT });
     await page.getByRole("heading", { name: /요약 \(최근 7일\)/ }).waitFor({ timeout: NAV_TIMEOUT });
 
-    // Funnel section: 4 fixed stages.
+    // Funnel section: 6 fixed stages. Originally 4 (ADM-009); ANA-127 inserted
+    // 준비템 상세 열람 and ANA-128 split the 구매 확인 answers so the last stage counts
+    // only "샀어요" — see FUNNEL_STAGES in apps/admin/app/analytics/page.tsx.
     const funnelCard = page.locator("section:has(h2:text('KPI 퍼널'))");
     await funnelCard.waitFor();
     const funnelRows = await funnelCard.locator("table tbody tr").count();
-    if (funnelRows !== 4) throw new Error(`expected 4 funnel rows, got ${funnelRows}`);
+    if (funnelRows !== 6) throw new Error(`expected 6 funnel rows, got ${funnelRows}`);
 
     // Event-count table: the 6 registry events always render (0 counts fine).
     const eventCard = page.locator("section:has(h2:text('이벤트별 카운트'))");
@@ -576,7 +586,172 @@ async function main() {
     );
   });
 
-  // ---- Step 11: audit logs are admin-role-only (QA-114c) --------------------
+  // ---- Step 11: user lookup + audit-log deep link (ADM-127 / CS-101) --------
+  // 라운드 56이 연 CS 경로의 끝단: 사용자 조회에서 찾은 사람의 "무엇을 했는지"로
+  // 넘어가는 링크(auditLogsHrefForActor)가 실제로 ?actorUserId를 프리필하는지.
+  await runStep("users-lookup-search-and-audit-deeplink", page, async () => {
+    await page.getByRole("link", { name: "사용자 조회" }).click();
+    await page.waitForURL("**/users-lookup", { timeout: NAV_TIMEOUT });
+    await page.getByRole("heading", { name: "사용자 조회", level: 1 }).waitFor({ timeout: NAV_TIMEOUT });
+    // 개인정보 경계 고지가 화면에 남아 있어야 한다(금액·품목 미표시, 조회는 감사 로그에 남음).
+    await page
+      .locator("p", { hasText: "읽기 전용 화면이에요." })
+      .first()
+      .waitFor({ timeout: STEP_TIMEOUT });
+
+    // dev oauth 스텁이 만드는 최종 사용자의 displayName은 "개발 사용자"
+    // (apps/api/src/households/household-runtime.service.ts ensureDevUser) — server-smoke.sh를
+    // 한 번이라도 돌린 dev DB라면 존재한다. 시드 자체에는 최종 사용자가 없어서
+    // 결과 0건도 정상 상태이므로, 그때는 딥링크를 직접 URL로 검증하고 그 사실을 detail에 남긴다.
+    await page.locator("#user-lookup-query").fill("개발");
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/admin/users-lookup"), { timeout: STEP_TIMEOUT }),
+      page.getByRole("button", { name: "조회", exact: true }).click()
+    ]);
+    await page.getByRole("heading", { name: "조회 결과" }).waitFor({ timeout: STEP_TIMEOUT });
+
+    const deepLinks = page.getByRole("link", { name: "이 사용자 감사 로그 보기" });
+    const hitCount = await deepLinks.count();
+    let actorId;
+    let source;
+    if (hitCount > 0) {
+      const href = await deepLinks.first().getAttribute("href");
+      const match = /[?&]actorUserId=([^&]+)/.exec(href ?? "");
+      if (!match) throw new Error(`deep link href lacks actorUserId: ${href}`);
+      actorId = decodeURIComponent(match[1]);
+      source = `search hit (${hitCount} user card(s))`;
+      await Promise.all([
+        page.waitForURL("**/audit-logs?actorUserId=*", { timeout: NAV_TIMEOUT }),
+        deepLinks.first().click()
+      ]);
+    } else {
+      // 결과 0건이면 빈 상태 문구가 떠야 하고(오류 배너 아님), 딥링크 계약은 URL로 직접 확인한다.
+      await page.locator("p", { hasText: "일치하는 사용자를 찾지 못했어요." }).waitFor({ timeout: STEP_TIMEOUT });
+      actorId = "00000000-0000-4000-8000-000000000000";
+      source = "no search hit — deep-link contract checked via direct URL";
+      await page.goto(`${BASE_URL}/audit-logs?actorUserId=${actorId}`, {
+        waitUntil: "domcontentloaded",
+        timeout: NAV_TIMEOUT
+      });
+    }
+
+    await page.getByRole("heading", { name: "감사 로그", level: 1 }).waitFor({ timeout: NAV_TIMEOUT });
+    // 프리필: 폼 입력값이 URL의 actorUserId와 같아야 한다.
+    const prefilled = await page.locator("#filter-actor").inputValue();
+    if (prefilled !== actorId) throw new Error(`#filter-actor prefill "${prefilled}" != "${actorId}"`);
+    // 그리고 그 값이 **이미 적용된** 상태여야 한다 — 목록이나 빈 상태 중 하나가 뜨고,
+    // "불러오지 못했어요" 배너는 없어야 한다(UUID가 아니면 서버가 400을 준다).
+    await Promise.race([
+      page.locator("table tbody tr").first().waitFor({ timeout: STEP_TIMEOUT }),
+      page.locator("p", { hasText: "조건에 맞는 기록이 없어요." }).waitFor({ timeout: STEP_TIMEOUT })
+    ]);
+    if (await page.locator("p", { hasText: "감사 로그를 불러오지 못했어요." }).count()) {
+      throw new Error("deep link landed on the audit-log error banner");
+    }
+    const rowCount = await page.locator("table tbody tr").count();
+    return `${source}; actorUserId=${actorId} prefilled + applied (rows: ${rowCount})`;
+  });
+
+  // ---- Step 12: categories page (CAT-124 노출 축) ---------------------------
+  await runStep("categories-table-and-filter", page, async () => {
+    await page.getByRole("link", { name: "카테고리 관리" }).click();
+    await page.waitForURL("**/categories", { timeout: NAV_TIMEOUT });
+    await page.getByRole("heading", { name: "카테고리 관리", level: 1 }).waitFor({ timeout: NAV_TIMEOUT });
+
+    const rows = page.locator("table tbody tr");
+    await rows.first().waitFor({ timeout: NAV_TIMEOUT });
+    const total = await rows.count();
+    if (total < 12) throw new Error(`categories table has ${total} rows (expected the 12 canonical rows at minimum)`);
+    for (const header of ["코드", "이름", "표시 순서", "구분", "사용", "노출"]) {
+      if ((await page.locator("table th", { hasText: header }).count()) !== 1) {
+        throw new Error(`missing categories table header: ${header}`);
+      }
+    }
+    // CAT-124: 이 화면은 앱이 보지 못하는 비노출(숨김) 행까지 전량을 보여주는 자리다.
+    const hidden = await page.locator("table tbody tr", { hasText: "숨김" }).count();
+    if (hidden < 1) throw new Error("no 숨김(non-selectable) row rendered — admin list is not showing every row");
+
+    // 구분 필터(클라이언트 측)가 좁히는지 — 앱 별칭만 남으면 전부 숨김이어야 한다.
+    await page.locator("#category-group").selectOption("mobile_alias");
+    await page.waitForFunction(
+      (before) => document.querySelectorAll("table tbody tr").length < before,
+      total,
+      { timeout: STEP_TIMEOUT }
+    );
+    const aliasRows = await rows.count();
+    const aliasHidden = await page.locator("table tbody tr", { hasText: "숨김" }).count();
+    if (aliasHidden !== aliasRows) throw new Error(`앱 별칭 rows ${aliasRows} but only ${aliasHidden} marked 숨김`);
+    await page.locator("#category-group").selectOption("all");
+    await page.waitForFunction((expected) => document.querySelectorAll("table tbody tr").length === expected, total, {
+      timeout: STEP_TIMEOUT
+    });
+    return `rows: ${total} (숨김 ${hidden}), 앱 별칭 filter → ${aliasRows} rows all 숨김, reset OK`;
+  });
+
+  // ---- Step 13: disclosures page (DNC-010 고지 문구) ------------------------
+  await runStep("disclosures-page-loads", page, async () => {
+    await page.getByRole("link", { name: "제휴 고지 문구" }).click();
+    await page.waitForURL("**/disclosures", { timeout: NAV_TIMEOUT });
+    await page.getByRole("heading", { name: "제휴 고지 문구", level: 1 }).waitFor({ timeout: NAV_TIMEOUT });
+    // 읽기 전용 스텝 — 추가/저장 버튼은 절대 누르지 않는다(고지 문구는 DNC-010 대상).
+    // 로드 완료 신호는 "불러오는 중..."이 사라지는 것. 그 뒤 오류 배너가 없어야 한다.
+    await page.waitForFunction(() => !document.body.innerText.includes("불러오는 중..."), undefined, {
+      timeout: STEP_TIMEOUT
+    });
+    if (await page.locator("p", { hasText: "고지 문구 목록을 불러오지 못했어요." }).count()) {
+      throw new Error("disclosures list error banner shown");
+    }
+    // 고지 문구 카드는 각각 <h2>{key}</h2> + textarea (DisclosureRow). 등록된 게 없으면 빈 상태.
+    const headings = (await page.locator("h2").allInnerTexts()).map((text) => text.trim());
+    const disclosureKeys = headings.filter((text) => text !== "새 고지 문구 키 추가");
+    if (disclosureKeys.length === 0) {
+      await page.locator("p", { hasText: "등록된 고지 문구가 없어요." }).waitFor({ timeout: STEP_TIMEOUT });
+      return "no disclosures registered — empty state rendered without an error banner";
+    }
+    // 각 카드에 편집용 textarea가 붙어 있어야 한다(새 키 입력칸 1개 + 카드당 1개).
+    const textareaCount = await page.locator("textarea").count();
+    if (textareaCount !== disclosureKeys.length + 1) {
+      throw new Error(`textarea count ${textareaCount} != ${disclosureKeys.length} cards + 1 new-key field`);
+    }
+    return `disclosure cards: ${disclosureKeys.length} (${disclosureKeys.slice(0, 5).join(", ")})`;
+  });
+
+  // ---- Step 14: clicks page (COM-106 클릭 통계) -----------------------------
+  await runStep("clicks-summary-and-range-toggle", page, async () => {
+    await page.getByRole("link", { name: "클릭 통계" }).click();
+    await page.waitForURL("**/clicks", { timeout: NAV_TIMEOUT });
+    await page.getByRole("heading", { name: "클릭 통계", level: 1 }).waitFor({ timeout: NAV_TIMEOUT });
+
+    const totalCard = page.locator("section:has(h2:text('전체 클릭 수'))");
+    await totalCard.waitFor({ timeout: NAV_TIMEOUT });
+    await page.waitForFunction(
+      () => !document.body.innerText.includes("불러오는 중..."),
+      undefined,
+      { timeout: STEP_TIMEOUT }
+    );
+    if (await page.locator("p", { hasText: "클릭 통계를 불러오지 못했어요" }).count()) {
+      throw new Error("clicks summary error banner shown");
+    }
+    const totalText = (await totalCard.locator("p").first().innerText()).trim();
+    if (!/^[\d,]+회$/.test(totalText)) throw new Error(`total clicks not rendered as a count: "${totalText}"`);
+
+    // 기간 토글: 다른 일수 버튼을 눌러 aria-pressed가 옮겨 가고 요약이 다시 로드되는지.
+    const buttons = page.locator("button", { hasText: /^최근 \d+일$/ });
+    const buttonCount = await buttons.count();
+    if (buttonCount < 2) throw new Error(`expected multiple range buttons, got ${buttonCount}`);
+    const second = buttons.nth(1);
+    const secondLabel = (await second.innerText()).trim();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/admin/affiliate-clicks"), { timeout: STEP_TIMEOUT }),
+      second.click()
+    ]);
+    if ((await second.getAttribute("aria-pressed")) !== "true") {
+      throw new Error(`${secondLabel} toggle not aria-pressed after click`);
+    }
+    return `total ${totalText}; range toggle ${secondLabel} OK (${buttonCount} options)`;
+  });
+
+  // ---- Step 15: audit logs are admin-role-only (QA-114c) --------------------
   // The dev seed creates editor@wooriai.local (apps/api/prisma/seed.ts,
   // COM-103); there is NO analyst seed account, so only the editor role is
   // exercised. If the editor account is missing (custom DB), SKIP with a note
@@ -586,7 +761,7 @@ async function main() {
     results.push({ name: "audit-logs-editor-role-gate", status: "SKIP", detail: `${EDITOR_EMAIL} not in dev DB`, shot: "(none)" });
   } else {
     // Fresh browser context so the editor session cookie never clobbers the
-    // admin session used by steps 1-9.
+    // admin session used by steps 1-14.
     const editorContext = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "ko-KR" });
     const editorPage = await editorContext.newPage();
     editorPage.setDefaultTimeout(STEP_TIMEOUT);

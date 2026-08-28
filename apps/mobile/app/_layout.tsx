@@ -6,7 +6,7 @@ import { ErrorBoundary } from "../src/errors/ErrorBoundary";
 import { useOfflineSyncLifecycle } from "../src/offline/sync-controller";
 import { installAppQueryRefetchWiring } from "../src/query/install-app-refetch";
 import { registerAppQueryClient } from "../src/query/query-client-registry";
-import { AppLockOverlay } from "../src/security/AppLockOverlay";
+import { AppLockOverlay, AppLockScreenShield } from "../src/security/AppLockOverlay";
 import { useSessionStore } from "../src/stores/session.store";
 
 // MOB-117: react-query의 기본 focus/online 리스너는 웹 전용(window focus/online 이벤트)이라
@@ -59,11 +59,20 @@ export default function RootLayout() {
           Kept inside QueryClientProvider — the boundary itself has no provider/store deps. */}
       <ErrorBoundary>
         <OfflineSyncLifecycle />
-        <Stack screenOptions={{ headerShown: false }} />
-        {/* COM-108: mounted after <Stack> so the 구매하셨나요? follow-up card overlays whatever
-            screen is focused. Inert without a real/demo session and never blocks navigation --
-            see src/commerce/PurchaseFollowupPrompt.tsx. */}
-        <PurchaseFollowupLifecycle />
+        {/* GAP-059 #3: 잠금 중 **뒤 화면 트리**를 접근성 트리에서 가리는 방패. 오버레이는
+            <Stack>과 형제라 z-order로만 위에 오고, 접근성 트리는 z-order로 잘리지 않는다 —
+            덮여 있는 동안에도 TalkBack이 뒤의 금액·품목명을 읽었다. 감싸는 범위는 아래 둘
+            (<Stack>과 구매 확인 카드) 뿐이고 잠금 오버레이는 **밖에** 둔다 — 안에 넣으면
+            잠금 화면이 자기 자신을 접근성 트리에서 지운다. 잠금을 켜지 않은 사용자에게는 이
+            노드가 생기지 않고(수용 기준 2), 픽셀락 빌드에서는 존재할 수 없다(수용 기준 6) —
+            근거·대안 비교는 src/security/AppLockOverlay.tsx의 AppLockScreenShield 주석. */}
+        <AppLockScreenShield>
+          <Stack screenOptions={{ headerShown: false }} />
+          {/* COM-108: mounted after <Stack> so the 구매하셨나요? follow-up card overlays whatever
+              screen is focused. Inert without a real/demo session and never blocks navigation --
+              see src/commerce/PurchaseFollowupPrompt.tsx. */}
+          <PurchaseFollowupLifecycle />
+        </AppLockScreenShield>
         {/* 라운드 55 트랙 B (docs/5차/round55-plan.md §2.4): 앱 잠금 오버레이. <Stack>과 구매 확인
             카드 **뒤에** 마운트해야 그 둘을 덮는다 — 구매 확인 카드도 계정 데이터(품목명)를 전역
             오버레이로 그린다. 라우트가 아니라 오버레이인 이유는 뒤로가기·딥링크로 우회할 수 있는
