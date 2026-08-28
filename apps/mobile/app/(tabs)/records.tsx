@@ -113,6 +113,7 @@ import {
   TextButton,
   Toast
 } from "../../src/ui";
+import { AppIcon } from "../../src/design-system";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
@@ -1432,8 +1433,19 @@ export default function RecordsScreen() {
             paddingHorizontal: 6
           }}
         >
-          <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={goToPreviousMonth}>
-            <Text style={{ color: theme.colors.gray900, fontSize: 22, fontWeight: "900" }}>‹</Text>
+          {/* DSN-053 P2-C: 달 내비 화살표를 텍스트 글리프(‹ ›)에서 승인 원본의 아이콘 문법으로
+              옮긴다 -- c20deeb `app/(tabs)/records.tsx`와 같은 chevron 26 + 48dp 터치 타깃이다.
+              글리프는 기기 폰트에 따라 굵기가 제각각이었고, hitSlop만으로는 실제 눌리는 상자가
+              화면에 드러나지 않았다. 이동 규칙·비활성 조건·라벨은 한 글자도 바뀌지 않는다
+              (다음 달 잠금은 색이 아니라 opacity로 말한다 -- gray300 화살표는 AA 미달이었다). */}
+          <Pressable
+            accessibilityLabel="이전 달"
+            accessibilityRole="button"
+            hitSlop={12}
+            onPress={goToPreviousMonth}
+            style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget }}
+          >
+            <AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />
           </Pressable>
           <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
           <Pressable
@@ -1443,8 +1455,15 @@ export default function RecordsScreen() {
             disabled={!canGoNextMonth}
             hitSlop={12}
             onPress={goToNextMonth}
+            style={{
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: theme.touchTarget,
+              minWidth: theme.touchTarget,
+              opacity: canGoNextMonth ? 1 : 0.35
+            }}
           >
-            <Text style={{ color: canGoNextMonth ? theme.colors.gray900 : theme.colors.gray300, fontSize: 22, fontWeight: "900" }}>›</Text>
+            <AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />
           </Pressable>
         </View>
         {/* PERF-102: lightweight month summary from already-fetched data (no extra API call).

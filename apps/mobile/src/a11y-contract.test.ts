@@ -364,7 +364,11 @@ describe("A11Y-117 accessibility round-2 contract", () => {
       expect(screenSource, `${screen} should disable the next arrow`).toContain("canGoToNextPeriod(monthOffset)");
     }
     // Visual dim on the disabled next arrow.
-    expect(source("app/(tabs)/records.tsx")).toContain("canGoNextMonth ? theme.colors.gray900 : theme.colors.gray300");
+    // DSN-053 P2-C: 기록 탭의 화살표가 텍스트 글리프(‹ ›)에서 chevron 아이콘으로 바뀌면서 흐림도
+    // **색 교체에서 opacity로** 옮겼다 -- 리포트 탭(reportReferencePeriodArrowDisabledStyle)과
+    // 승인 원본이 이미 쓰던 방식이고, 색을 gray300으로 떨어뜨리는 쪽은 아이콘이 거의 사라진다.
+    // 계약의 뜻(비활성 화살표는 눈에도 흐리게 보인다)은 그대로다.
+    expect(source("app/(tabs)/records.tsx")).toContain("opacity: canGoNextMonth ? 1 : 0.35");
     expect(source("app/(tabs)/reports.tsx")).toContain("reportReferencePeriodArrowDisabledStyle");
   });
 
