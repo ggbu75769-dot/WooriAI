@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { categoryCatalog } from "../categories";
+import { amountOverLimitMessage, EXPENSE_AMOUNT_MAX_KRW } from "./amount-limit";
 import {
   hasQuickExpenseInput,
+  isAmountOverLimitForSave,
   isCategoryMissingForSave,
   resolveInitialCategoryId,
   shouldClearQuickExpenseDraftOnClose,
   shouldTileFillItemName,
+  AMOUNT_OVER_LIMIT_NOTICE,
   CATEGORY_REQUIRED_NOTICE
 } from "./entry-form-guards";
 
@@ -166,6 +169,98 @@ describe("isCategoryMissingForSave — 분류 없이 저장할 수 없다", () =
     for (const blaming of ["안 골랐", "선택하지", "누락", "필수", "오류"]) {
       expect(CATEGORY_REQUIRED_NOTICE).not.toContain(blaming);
     }
+  });
+});
+
+/**
+ * GAP-054 #2(트랙 C 몫) — 금액 상한.
+ *
+ * 고치는 사실: int4를 넘는 금액은 로컬 저장에 **성공**한 뒤 flush에서 5xx로 떨어져 아웃박스에
+ * 무한 재시도 행으로 남았다(P0-2 poison). 그래서 판정은 "저장을 시작해도 되는가"이고, 막는
+ * 자리는 로컬 쓰기 **전**이다.
+ */
+describe("isAmountOverLimitForSave — 상한 초과는 저장을 시작하지 않는다", () => {
+  it("상한과 같은 값까지는 통과하고, 1원만 넘어도 막는다", () => {
+    expect(isAmountOverLimitForSave({ hasSession: true, amountText: String(EXPENSE_AMOUNT_MAX_KRW) })).toBe(false);
+    expect(isAmountOverLimitForSave({ hasSession: true, amountText: String(EXPENSE_AMOUNT_MAX_KRW + 1) })).toBe(true);
+    // 자릿수를 계속 친 경우(안전 정수 범위 밖)도 초과다.
+    expect(isAmountOverLimitForSave({ hasSession: true, amountText: "99999999999999999999" })).toBe(true);
+  });
+
+  it("한도 값을 하드코딩하지 않고 amount-limit 단일 소스에서 읽는다", () => {
+    expect(EXPENSE_AMOUNT_MAX_KRW).toBe(2_147_483_647);
+    expect(AMOUNT_OVER_LIMIT_NOTICE).toBe(amountOverLimitMessage());
+    expect(AMOUNT_OVER_LIMIT_NOTICE).toContain(EXPENSE_AMOUNT_MAX_KRW.toLocaleString("ko-KR"));
+  });
+
+  it("평범한 금액은 건드리지 않는다", () => {
+    for (const amountText of ["38500", "1", "100000000"]) {
+      expect(isAmountOverLimitForSave({ hasSession: true, amountText })).toBe(false);
+    }
+  });
+
+  it("빈 값·숫자가 아닌 값은 여기서 말하지 않는다(종전 금액 가드의 몫)", () => {
+    for (const amountText of ["", "   ", "abc"]) {
+      expect(isAmountOverLimitForSave({ hasSession: true, amountText })).toBe(false);
+    }
+  });
+
+  it("세션 없는 프리뷰/EXP-001 캡처 경로는 언제나 통과한다", () => {
+    expect(isAmountOverLimitForSave({ hasSession: false, amountText: "38500" })).toBe(false);
+    expect(isAmountOverLimitForSave({ hasSession: false, amountText: String(EXPENSE_AMOUNT_MAX_KRW + 1) })).toBe(false);
+  });
+
+  it("안내 문구는 해요체이고 사용자를 탓하지 않는다(DNC-018)", () => {
+    expect(AMOUNT_OVER_LIMIT_NOTICE.endsWith("요.")).toBe(true);
+    for (const blaming of ["잘못", "오류", "실패", "너무"]) {
+      expect(AMOUNT_OVER_LIMIT_NOTICE).not.toContain(blaming);
+    }
+    // int4·서버 사정을 사용자에게 말하지 않는다 -- 한도라는 사실과 그 값만 말한다.
+    expect(AMOUNT_OVER_LIMIT_NOTICE).not.toContain("int");
+    expect(AMOUNT_OVER_LIMIT_NOTICE).not.toContain("서버");
+  });
+});
+
+describe("GAP-054 #2 화면 배선 (지출 입력)", () => {
+  const source = readFileSync(join(process.cwd(), "app/expenses/new.tsx"), "utf8");
+
+  it("상한 숫자·문구를 화면에 다시 적지 않는다", () => {
+    expect(source).not.toContain("2147483647");
+    expect(source).not.toContain("2_147_483_647");
+    expect(source).toContain("AMOUNT_OVER_LIMIT_NOTICE");
+    expect(source).toContain("isAmountOverLimitForSave");
+  });
+
+  it("저장 버튼 두 개가 같은 가드로 막힌다", () => {
+    expect(source).toContain(
+      "const isAmountOverLimit = isAmountOverLimitForSave({ hasSession: Boolean(authToken), amountText });"
+    );
+    // 종전 금액 가드와 같은 한 곳(isAmountInvalid)에 합류한다 -- 버튼 disabled 식은 그대로다.
+    const guardBlock = source.slice(source.indexOf("const isAmountInvalid ="), source.indexOf("라운드 51 C-#5 — 분류 없이"));
+    expect(guardBlock).toContain("isAmountOverLimit");
+    expect(source.match(/disabled=\{saveExpense\.isPending \|\| isAmountInvalid\}/g) ?? []).toHaveLength(2);
+  });
+
+  it("오프라인 로컬 저장 **전에** 막는다 (뮤테이션 자체가 시작되지 않는다)", () => {
+    const mutationStart = source.indexOf("mutationFn: () => {");
+    const localWrite = source.indexOf("return createExpenseOffline(");
+    expect(mutationStart).toBeGreaterThan(-1);
+    const guard = source.slice(mutationStart, localWrite);
+    expect(guard).toContain("isAmountOverLimitForSave({ hasSession: true, amountText })");
+    expect(guard).toContain("throw new Error(INVALID_EXPENSE_INPUT_ERROR);");
+  });
+
+  it("안내 한 줄은 저장 버튼 바로 위, 분류 안내와 같은 자리다", () => {
+    const notice = source.indexOf("{AMOUNT_OVER_LIMIT_NOTICE}");
+    const categoryNotice = source.indexOf("{CATEGORY_REQUIRED_NOTICE}");
+    const saveButton = source.indexOf('label={saveExpense.isPending ? "저장 중" : "저장하기"}');
+    expect(notice).toBeGreaterThan(categoryNotice);
+    expect(notice).toBeLessThan(saveButton);
+    // 한 곳에서만 말한다(스크린리더가 두 번 읽지 않게).
+    expect(source.match(/\{AMOUNT_OVER_LIMIT_NOTICE\}/g) ?? []).toHaveLength(1);
+    const noticeBlock = source.slice(source.lastIndexOf("{isAmountOverLimit ? (", notice), notice);
+    expect(noticeBlock).toContain('accessibilityRole="alert"');
+    expect(noticeBlock).toContain('accessibilityLiveRegion="polite"');
   });
 });
 

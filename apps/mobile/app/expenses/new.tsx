@@ -32,13 +32,26 @@ import {
   resolveAutoCategorySelection,
   type AutoPickedCategory
 } from "../../src/expenses/category-suggestion";
+import {
+  buildExpenseDatePickerMonth,
+  canGoToNextExpenseDatePickerMonth,
+  canGoToPreviousExpenseDatePickerMonth,
+  expenseDatePickerCellAccessibilityLabel,
+  expenseDatePickerInitialMonth,
+  expenseDatePickerMonthLabel,
+  isExpenseDatePickerCellSelectable,
+  shiftExpenseDatePickerMonth,
+  EXPENSE_DATE_PICKER_HINT
+} from "../../src/expenses/date-picker-month";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
 import { buildEntryContextLine } from "../../src/expenses/entry-context-line";
 import {
+  isAmountOverLimitForSave,
   isCategoryMissingForSave,
   resolveInitialCategoryId,
   shouldClearQuickExpenseDraftOnClose,
   shouldTileFillItemName,
+  AMOUNT_OVER_LIMIT_NOTICE,
   CATEGORY_REQUIRED_NOTICE,
   type QuickExpenseInputSnapshot
 } from "../../src/expenses/entry-form-guards";
@@ -60,6 +73,7 @@ import {
   QUICK_EXPENSE_DEFAULT_LIMIT,
   quickExpenseItemsForCategory
 } from "../../src/expenses/quick-expense-catalog";
+import { CALENDAR_WEEKDAY_LABELS_KO, type CalendarCell, type CalendarMonth } from "../../src/expenses/records-calendar";
 import { parseExpensePrefillParams } from "../../src/expenses/record-row-actions";
 import { expenseMutationErrorMessage, INVALID_EXPENSE_INPUT_ERROR } from "../../src/expenses/save-error-messages";
 import {
@@ -232,6 +246,170 @@ const quickExpenseCategoryTileStyle = StyleSheet.create({
     textAlign: "center"
   }
 });
+
+/**
+ * GAP-054 #7 — 월 달력 픽커의 수치. 격자·판정은 순수 모듈(src/expenses/date-picker-month.ts)에
+ * 있고 여기에는 **모양만** 남는다.
+ *
+ * 칸은 44dp 이상(가로는 7열 flex, 세로는 minHeight 44)이고 달 이동 버튼은 48dp다 — 이 화면의
+ * 다른 터치 타깃(닫기 48, 달력 버튼 48)과 같은 규칙이다. 미래 칸은 눌리지 않으므로 흐린 회색
+ * 숫자로 그린다(비활성 표시이며, 정보 텍스트가 아니다).
+ */
+const quickExpenseDatePickerStyle = StyleSheet.create({
+  card: {
+    backgroundColor: theme.colors.white,
+    borderColor: "rgba(74, 63, 53, 0.10)",
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 6,
+    padding: 10
+  },
+  header: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  monthLabel: {
+    color: theme.colors.brown,
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  navButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
+    minWidth: 48
+  },
+  weekRow: {
+    flexDirection: "row",
+    gap: 2
+  },
+  weekdayLabel: {
+    color: theme.colors.gray600,
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "700",
+    textAlign: "center"
+  },
+  cell: {
+    alignItems: "center",
+    borderColor: "transparent",
+    borderRadius: theme.radii.small,
+    borderWidth: 2,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44
+  },
+  cellToday: {
+    borderColor: theme.colors.mainCoral
+  },
+  cellSelected: {
+    backgroundColor: theme.colors.coral[50],
+    borderColor: theme.colors.mainCoral
+  },
+  cellDay: {
+    color: theme.colors.brown,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  cellDayDisabled: {
+    color: theme.colors.gray300
+  },
+  cellDaySelected: {
+    color: theme.colors.coral[700],
+    fontWeight: "800"
+  },
+  hint: {
+    color: theme.colors.gray600,
+    fontSize: 11
+  }
+});
+
+/**
+ * GAP-054 #7 — 월 달력 픽커의 격자.
+ *
+ * 주 배열은 기록 탭 달력과 **같은** `buildCalendarMonth`가 만든 것을 그대로 그리고(월요일 시작·
+ * 달 앞뒤 빈 칸), 누를 수 있는지·라벨을 뭐라고 읽을지는 전부 순수 모듈이 답한다. 미래 날짜는
+ * `Pressable` 대신 `View`로 그린다 — disabled 버튼도 스크린리더에는 "버튼, 비활성"으로 읽혀
+ * "왜 못 누르지"라는 질문을 남기므로, 라벨이 그 이유를 직접 말하게 한다(기록 탭 달력 관례).
+ */
+function ExpenseDatePickerGrid({
+  month,
+  onSelectDate,
+  selectedIso,
+  todayIso
+}: {
+  month: CalendarMonth;
+  onSelectDate: (dateIso: string) => void;
+  selectedIso: string;
+  todayIso: string;
+}) {
+  const renderCell = (cell: CalendarCell) => {
+    if (cell.date === null) return <View key={cell.key} style={quickExpenseDatePickerStyle.cell} />;
+    const selectable = isExpenseDatePickerCellSelectable(cell, todayIso);
+    const selected = cell.date === selectedIso;
+    const accessibilityLabel =
+      expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso }) ?? undefined;
+    const dayText = (
+      <Text
+        style={[
+          quickExpenseDatePickerStyle.cellDay,
+          selectable ? null : quickExpenseDatePickerStyle.cellDayDisabled,
+          selected ? quickExpenseDatePickerStyle.cellDaySelected : null
+        ]}
+      >
+        {cell.day}
+      </Text>
+    );
+    const cellStyle = [
+      quickExpenseDatePickerStyle.cell,
+      cell.isToday ? quickExpenseDatePickerStyle.cellToday : null,
+      selected ? quickExpenseDatePickerStyle.cellSelected : null
+    ];
+    if (!selectable) {
+      return (
+        <View accessible accessibilityLabel={accessibilityLabel} key={cell.key} style={cellStyle}>
+          {dayText}
+        </View>
+      );
+    }
+    return (
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        key={cell.key}
+        onPress={() => onSelectDate(cell.date as string)}
+        style={({ pressed }) => [...cellStyle, { opacity: pressed ? 0.76 : 1 }]}
+      >
+        {dayText}
+      </Pressable>
+    );
+  };
+  return (
+    <View style={quickExpenseDatePickerStyle.card}>
+      {/* 요일 머리글은 스크린리더에는 소음이다 -- 칸 라벨이 이미 "8월 12일"이라는 완전한
+          날짜를 읽어 준다(기록 탭 달력과 같은 판단). */}
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={quickExpenseDatePickerStyle.weekRow}
+      >
+        {CALENDAR_WEEKDAY_LABELS_KO.map((label) => (
+          <Text key={label} style={quickExpenseDatePickerStyle.weekdayLabel}>
+            {label}
+          </Text>
+        ))}
+      </View>
+      {month.weeks.map((week, weekIndex) => (
+        <View key={`${month.yearMonth}-week-${weekIndex}`} style={quickExpenseDatePickerStyle.weekRow}>
+          {week.map((cell) => renderCell(cell))}
+        </View>
+      ))}
+      <Text style={quickExpenseDatePickerStyle.hint}>{EXPENSE_DATE_PICKER_HINT}</Text>
+    </View>
+  );
+}
 
 type QuickExpenseCategory = (typeof quickExpenseCategories)[number];
 
@@ -475,6 +653,28 @@ export default function NewExpenseScreen() {
   const initialExpenseDate = authToken ? formatExpenseDate(today) : previewExpenseDate;
   const [expenseDateIso, setExpenseDateIso] = useState(() => initialExpenseDate.iso);
   const expenseDate = authToken ? formatExpenseDate(new Date(`${expenseDateIso}T00:00:00`)) : previewExpenseDate;
+  // GAP-054 #7: 달력 픽커의 "오늘" 기준일. `today`는 이미 getSeoulToday()로 만든 서울 날짜라
+  // 여기서 시계를 한 번 더 읽지 않는다(같은 렌더 안에서 두 날짜가 갈리지 않게).
+  const todayIso = formatExpenseDate(today).iso;
+  /**
+   * GAP-054 #7: 픽커가 지금 보고 있는 달("YYYY-MM"). 고른 날짜와 **따로** 들고 있는다 —
+   * 달만 넘겨 보다가 아무 날짜도 안 고르고 닫는 일이 흔하고, 그때 폼의 날짜가 따라 움직이면
+   * 사용자가 고른 적 없는 날짜가 저장된다. 초기값·이동 한계는 전부 순수 모듈이 정한다.
+   */
+  const [pickerYearMonth, setPickerYearMonth] = useState(() =>
+    expenseDatePickerInitialMonth(initialExpenseDate.iso, todayIso)
+  );
+  const pickerMonth = authToken && showDatePicker ? buildExpenseDatePickerMonth(pickerYearMonth, todayIso) : null;
+  /**
+   * GAP-054 #7 — 달력 버튼(P2-C가 만든 48dp `calendar-blank-outline`)이 하는 일.
+   *
+   * 열 때마다 **지금 고른 날짜의 달**에서 시작한다: 지난번에 넘겨 본 달에 그대로 서 있으면,
+   * 방금 칩으로 고른 날짜가 화면 밖에 있는 달력이 열린다. 패널을 접는 동작은 종전 그대로다.
+   */
+  const toggleDatePicker = () => {
+    if (!showDatePicker) setPickerYearMonth(expenseDatePickerInitialMonth(expenseDateIso, todayIso));
+    setShowDatePicker((value) => !value);
+  };
   const recentDateChips = buildRecentDateChips(today);
   // DSN-053 P2-C: 헤더 바로 아래 3칸 pill 행이 쓰는 목록. 종전 14일 칩에서 앞의 셋(오늘·어제·
   // 그제)만 잘라 **시간 순서대로** 뒤집는다 -- 왼쪽이 과거, 오른쪽이 오늘이다.
@@ -760,7 +960,10 @@ export default function NewExpenseScreen() {
       // 라운드 51 C-#5: 분류는 이제 **필수**다. 버튼 쪽에서 안내로 먼저 막지만(아래
       // handleSavePress), 뮤테이션 자체도 분류 없이는 시작하지 않는다 -- 저장 규칙이 화면
       // 핸들러에만 있으면 다른 경로가 생겼을 때 조용히 빠져나간다.
-      if (!authToken || !childId || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
+      // GAP-054 #2: 상한 초과도 여기서 멈춘다 -- 버튼은 이미 비활성이지만(isAmountInvalid),
+      // 저장 규칙이 화면 상태에만 있으면 다른 경로가 생겼을 때 조용히 빠져나가고, 그 한 건이
+      // 오프라인 아웃박스에 무한 재시도 행으로 남는다(로컬 쓰기 **전에** 차단하는 것이 목적이다).
+      if (!authToken || !childId || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || isAmountOverLimitForSave({ hasSession: true, amountText }) || !itemName.trim() || Boolean(dateInputError)) {
         throw new Error(INVALID_EXPENSE_INPUT_ERROR);
       }
       return createExpenseOffline(authToken, queryClient, {
@@ -893,8 +1096,19 @@ export default function NewExpenseScreen() {
   // accessibilityState로 스크린 리더에도 같은 사실을 알린다("지우기"는 계속 눌러야 하므로 그대로).
   const canTapAmountPreset = canAddAmountPreset(amountText);
   const amountKrwValue = Number(amountText);
+  /**
+   * GAP-054 #2(트랙 C 몫) — 금액 상한 가드.
+   *
+   * 서버 amount 컬럼은 int4라 2,147,483,647을 넘는 값은 저장이 아니라 5xx로 끝난다. 그런데 이
+   * 화면의 저장은 **로컬 우선**이라(createExpenseOffline) 그 실패는 "기기에 저장했어요"를 말한
+   * 뒤 백그라운드 flush에서야 나타나고, 아웃박스에 무한 재시도되는 행 하나가 남는다(P0-2).
+   * 그래서 로컬 쓰기 전에 여기서 멈춘다 -- 상한 값도 문구도 src/expenses/amount-limit.ts가
+   * 단일 소스이고(서버 @Max와 같은 숫자), 판정은 순수 함수 한 곳에만 있다.
+   */
+  const isAmountOverLimit = isAmountOverLimitForSave({ hasSession: Boolean(authToken), amountText });
   const isAmountInvalid =
-    Boolean(authToken) && (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0 || Boolean(dateInputError));
+    Boolean(authToken) &&
+    (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0 || isAmountOverLimit || Boolean(dateInputError));
   /**
    * 라운드 51 C-#5 — 분류 없이 저장을 눌렀을 때.
    *
@@ -1078,8 +1292,8 @@ export default function NewExpenseScreen() {
             (validateExpenseDateInput의 isFutureSeoulDate 거부). 눌러도 저장이 막히는 칸을
             내놓느니 같은 자리를 **그제/어제/오늘**로 쓴다 -- 칩 목록 자체는 종전 14일 로직
             (buildRecentDateChips)에서 그대로 잘라 오므로 라벨·iso 규칙이 갈라지지 않는다.
-            달력 버튼은 이번 라운드에서는 기존 14일 칩 패널을 여닫는다(진짜 달력 픽커는 다음
-            라운드 -- docs/5차/budget-app-gap-analysis.md #7). */}
+            GAP-054 #7: 달력 버튼은 이제 **진짜 월 달력 픽커**를 연다(아래 패널). 14일 칩과
+            직접 입력은 같은 패널에 그대로 남는다 -- 어제·그제는 칩이 더 빠르다. */}
         <View accessibilityLabel={`지출 날짜 ${expenseDate.label}`} style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
           <View style={{ flex: 1, flexDirection: "row", gap: 8 }}>
             {quickDateChips.map((chip) => (
@@ -1101,7 +1315,7 @@ export default function NewExpenseScreen() {
             accessibilityRole="button"
             accessibilityState={{ expanded: showDatePicker }}
             disabled={!authToken}
-            onPress={() => setShowDatePicker((value) => !value)}
+            onPress={toggleDatePicker}
             style={({ pressed }) => ({
               alignItems: "center",
               backgroundColor: theme.colors.white,
@@ -1123,6 +1337,71 @@ export default function NewExpenseScreen() {
 
         {authToken && showDatePicker ? (
           <View style={{ gap: 10 }}>
+            {/* GAP-054 #7 — 진짜 월 달력 픽커. 종전에는 이 자리에 14일 칩만 있어서 2주보다
+                오래된 영수증은 ISO를 손으로 쳐야 했다. 격자는 기록 탭 달력과 같은
+                buildCalendarMonth(재사용), 미래 달·미래 날짜 잠금과 라벨은 순수 모듈
+                (src/expenses/date-picker-month.ts)이 정한다.
+                아래 14일 칩·직접 입력은 그대로 남는다 — 어제·그제를 고르는 데는 칩이 더 빠르고,
+                이미 그 손에 익은 경로를 달력이 대체할 이유가 없다. */}
+            {pickerMonth ? (
+              <View style={{ gap: 6 }}>
+                <View style={quickExpenseDatePickerStyle.header}>
+                  <Pressable
+                    accessibilityLabel="이전 달"
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: !canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso) }}
+                    disabled={!canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso)}
+                    onPress={() => setPickerYearMonth((value) => shiftExpenseDatePickerMonth(value, -1, todayIso))}
+                    style={({ pressed }) => [quickExpenseDatePickerStyle.navButton, { opacity: pressed ? 0.76 : 1 }]}
+                  >
+                    <AppIcon
+                      color={
+                        canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso)
+                          ? theme.colors.gray900
+                          : theme.colors.gray300
+                      }
+                      name="chevron-left"
+                      size={26}
+                    />
+                  </Pressable>
+                  <Text accessibilityRole="header" style={quickExpenseDatePickerStyle.monthLabel}>
+                    {expenseDatePickerMonthLabel(pickerYearMonth)}
+                  </Text>
+                  {/* 다음 달 버튼은 이번 달에서 잠긴다 -- 미래 달을 열어 봐야 칸이 전부
+                      비활성이라 아무것도 고를 수 없는 달력이 된다(기록 탭 월 이동과 같은 상한). */}
+                  <Pressable
+                    accessibilityLabel="다음 달"
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: !canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso) }}
+                    disabled={!canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso)}
+                    onPress={() => setPickerYearMonth((value) => shiftExpenseDatePickerMonth(value, 1, todayIso))}
+                    style={({ pressed }) => [quickExpenseDatePickerStyle.navButton, { opacity: pressed ? 0.76 : 1 }]}
+                  >
+                    <AppIcon
+                      color={
+                        canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso)
+                          ? theme.colors.gray900
+                          : theme.colors.gray300
+                      }
+                      name="chevron-right"
+                      size={26}
+                    />
+                  </Pressable>
+                </View>
+                <ExpenseDatePickerGrid
+                  month={pickerMonth}
+                  onSelectDate={(dateIso) => {
+                    // 칩 탭과 **같은 상태 갱신**이다 -- 초안 자동 저장(spentOnIso)·요약 줄·
+                    // 저장 payload가 전부 이 한 값(expenseDateIso)만 본다.
+                    setExpenseDateIso(dateIso);
+                    setCustomDateMode(false);
+                    setCustomDateText("");
+                  }}
+                  selectedIso={expenseDateIso}
+                  todayIso={todayIso}
+                />
+              </View>
+            ) : null}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {recentDateChips.map((chip) => (
                 <CategoryChip
@@ -1666,6 +1945,20 @@ export default function NewExpenseScreen() {
               style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
             >
               {CATEGORY_REQUIRED_NOTICE}
+            </Text>
+          ) : null}
+          {/* GAP-054 #2 — 금액 상한 안내. 분류 안내와 **같은 자리**(저장 버튼 바로 위)이고,
+              저장을 누르기 전에 뜬다: 상한을 넘는 순간 저장 버튼이 비활성이 되므로(위
+              isAmountInvalid) 이유를 말해 주지 않으면 "왜 저장이 안 되지"만 남는다. 문구는
+              src/expenses/amount-limit.ts 단일 소스(서버 @Max와 같은 숫자)이고, 금액을 줄이면
+              저절로 사라진다. 초기값 기준으로 세션 없는 EXP-001 캡처에서는 언제나 false다. */}
+          {isAmountOverLimit ? (
+            <Text
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
+            >
+              {AMOUNT_OVER_LIMIT_NOTICE}
             </Text>
           ) : null}
           <PrimaryButton
