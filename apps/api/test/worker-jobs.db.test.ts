@@ -282,13 +282,27 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     it("cleanup jobs cannot delete rows outside the registered fixture ids", async () => {
       const now = new Date();
       // 스코프에 등록하지 않은 행 = 병렬 스위트가 방금 만든 행과 같은 처지.
+      //
+      // 모양 주의(라운드 61 정리): 생존을 단언할 행은 "만료는 미래, 폐기/소비만 과거"로
+      // 만든다. 만료(expiresAt)가 과거인 행은 이 파일의 잡이 아니어도 죽는다 —
+      // auth.service.ts가 로그인마다 RefreshTokenStore.deleteExpired()(expires_at < now
+      // 전역 삭제)를, kakao-auth.service.begin()이 만료 oauth_transactions 전역 삭제를
+      // 실행하므로, 병렬 스위트의 로그인 한 번이 여기 만료 픽스처를 지워 이 단언을
+      // 플레이크로 만든다(라운드 61 전체 실행에서 실제 재현). 폐기/소비 브랜치는 잡의
+      // 조건(OR)에는 똑같이 걸리면서 그 프로덕션 경로들의 술어 밖이라 면역이다.
       const foreignJti = await createToken(
         randomUUID(),
-        { expiresAt: new Date(now.getTime() - 40 * DAY_MS) },
+        {
+          expiresAt: new Date(now.getTime() + 10 * DAY_MS),
+          revokedAt: new Date(now.getTime() - 40 * DAY_MS)
+        },
         { register: false }
       );
       const foreignState = await createTransaction(
-        { expiresAt: new Date(now.getTime() - 2 * DAY_MS) },
+        {
+          expiresAt: new Date(now.getTime() + 10 * MINUTE_MS),
+          consumedAt: new Date(now.getTime() - 2 * DAY_MS)
+        },
         { register: false }
       );
       const foreignKey = await createIdempotencyKey(randomUUID(), new Date(now.getTime() - MINUTE_MS), {
@@ -546,12 +560,20 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
       const userId = randomUUID();
       const now = new Date();
 
+      // 만료(expiresAt) 브랜치는 "지워진다" 방향만 단언한다. 만료가 과거인 행의 *생존*은
+      // 공유 레인에서 관측 불가다: auth.service.ts 로그인 경로가 deleteExpired()로
+      // expires_at < now 행을 전역 삭제하므로, 병렬 스위트의 로그인이 "최근 만료라 잡은
+      // 남겼다"를 언제든 뒤집는다. 유예 경계의 kept 쪽은 폐기(revokedAt) 브랜치로 고정한다
+      // — 같은 cutoff 산술, 같은 OR 조건이고, 그 경로들의 술어 밖이라 면역이다.
       const expiredOld = await createToken(userId, { expiresAt: new Date(now.getTime() - 40 * DAY_MS) });
       const revokedOld = await createToken(userId, {
         expiresAt: new Date(now.getTime() + 10 * DAY_MS),
         revokedAt: new Date(now.getTime() - 40 * DAY_MS)
       });
-      const expiredRecent = await createToken(userId, { expiresAt: new Date(now.getTime() - DAY_MS) });
+      const revokedRecent = await createToken(userId, {
+        expiresAt: new Date(now.getTime() + 10 * DAY_MS),
+        revokedAt: new Date(now.getTime() - DAY_MS)
+      });
       const usedActive = await createToken(userId, {
         expiresAt: new Date(now.getTime() + 10 * DAY_MS),
         usedAt: new Date(now.getTime() - DAY_MS)
@@ -563,7 +585,7 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
 
       const remaining = await prisma.refreshToken.findMany({ where: { userId }, select: { jti: true } });
       const remainingJtis = remaining.map((row) => row.jti).sort();
-      expect(remainingJtis).toEqual([expiredRecent, usedActive, active].sort());
+      expect(remainingJtis).toEqual([revokedRecent, usedActive, active].sort());
       expect(remainingJtis).not.toContain(expiredOld);
       expect(remainingJtis).not.toContain(revokedOld);
 
@@ -575,8 +597,15 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
       const now = new Date();
       process.env.WORKER_TOKEN_RETENTION_DAYS = "7";
       try {
-        const beyondWindow = await createToken(userId, { expiresAt: new Date(now.getTime() - 10 * DAY_MS) });
-        const withinWindow = await createToken(userId, { expiresAt: new Date(now.getTime() - 3 * DAY_MS) });
+        // 폐기 브랜치 모양인 이유는 위 테스트의 주석 참고(만료 과거 행의 생존은 관측 불가).
+        const beyondWindow = await createToken(userId, {
+          expiresAt: new Date(now.getTime() + 10 * DAY_MS),
+          revokedAt: new Date(now.getTime() - 10 * DAY_MS)
+        });
+        const withinWindow = await createToken(userId, {
+          expiresAt: new Date(now.getTime() + 10 * DAY_MS),
+          revokedAt: new Date(now.getTime() - 3 * DAY_MS)
+        });
 
         const result = await refreshTokenCleanupJob.run(now);
         expect(result.retentionDays).toBe(7);
@@ -600,17 +629,22 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
         expiresAt: new Date(now.getTime() - HOUR_MS),
         consumedAt: new Date(now.getTime() - 2 * DAY_MS)
       });
-      const expiredRecent = await createTransaction({ expiresAt: new Date(now.getTime() - HOUR_MS) });
+      // 만료 과거 행의 생존은 공유 레인에서 관측 불가(카카오 begin()이 만료 행을 전역
+      // 삭제) — kept 쪽 유예 경계는 소비(consumedAt) 브랜치로 고정한다.
+      const consumedRecent = await createTransaction({
+        expiresAt: new Date(now.getTime() + 10 * MINUTE_MS),
+        consumedAt: new Date(now.getTime() - HOUR_MS)
+      });
       const activeState = await createTransaction({ expiresAt: new Date(now.getTime() + 10 * MINUTE_MS) });
 
       await oauthTransactionCleanupJob.run(now);
 
       expect(await prisma.oauthTransaction.findUnique({ where: { state: expiredOld } })).toBeNull();
       expect(await prisma.oauthTransaction.findUnique({ where: { state: consumedOld } })).toBeNull();
-      expect(await prisma.oauthTransaction.findUnique({ where: { state: expiredRecent } })).not.toBeNull();
+      expect(await prisma.oauthTransaction.findUnique({ where: { state: consumedRecent } })).not.toBeNull();
       expect(await prisma.oauthTransaction.findUnique({ where: { state: activeState } })).not.toBeNull();
 
-      await prisma.oauthTransaction.deleteMany({ where: { state: { in: [expiredRecent, activeState] } } });
+      await prisma.oauthTransaction.deleteMany({ where: { state: { in: [consumedRecent, activeState] } } });
     });
   });
 
@@ -711,8 +745,15 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
       const now = new Date();
 
       // 다른 정리 잡들의 조건에는 걸리는 행들 — 이 잡이 돌아도 살아 있어야 한다.
-      const otherJti = await createToken(userId, { expiresAt: new Date(now.getTime() - 40 * DAY_MS) });
-      const otherState = await createTransaction({ expiresAt: new Date(now.getTime() - 2 * DAY_MS) });
+      // (생존 단언이므로 전역 퍼지 면역 모양: 만료는 미래, 폐기/소비만 과거 — 위 주석 참고.)
+      const otherJti = await createToken(userId, {
+        expiresAt: new Date(now.getTime() + 10 * DAY_MS),
+        revokedAt: new Date(now.getTime() - 40 * DAY_MS)
+      });
+      const otherState = await createTransaction({
+        expiresAt: new Date(now.getTime() + 10 * MINUTE_MS),
+        consumedAt: new Date(now.getTime() - 2 * DAY_MS)
+      });
       const otherKey = await createIdempotencyKey(userId, new Date(now.getTime() - MINUTE_MS));
       const session = await createAdminSession(adminUserId, {
         expiresAt: new Date(now.getTime() - 40 * DAY_MS)
