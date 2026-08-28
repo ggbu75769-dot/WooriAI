@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
 import {
   confirmAccountDeletion,
@@ -16,17 +16,23 @@ import {
 } from "../../src/api/client";
 import { resetLocalBackend } from "../../src/api/local-backend";
 import { CHILD_REMOVAL_INVALIDATE_KEYS, planAfterChildRemoval } from "../../src/children/child-deletion";
+import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
 import {
+  collectKnownHouseholdIds,
   describeHouseholdScope,
+  HOUSEHOLD_SCOPE_PARAM,
   householdScopeLeaveNotice,
   householdScopePhrase,
   isChildrenSettled,
+  parseHouseholdScopeParam,
   resolveManagedHouseholdId
 } from "../../src/family/household-scope";
 // 라운드 61 #2: 탈퇴 직후 가구 목록·역할 표를 서버 기준으로 다시 받는 그 경로 그대로
 // (초대 수락과 같은 단일 소스 — app/family/accept/[token].tsx).
 import { revalidateHouseholdRoles } from "../../src/family/useExpenseEntryGate";
+import { useNotificationStore } from "../../src/notifications/notification.store";
 import { buildConsentSummaryLines } from "../../src/settings/consent-summary";
+import { useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -183,7 +189,7 @@ export default function PrivacySettingsScreen() {
     enabled: Boolean(authToken),
     queryFn: () => listChildren(authToken!)
   });
-  const householdId = resolveManagedHouseholdId({
+  const scopedHouseholdId = resolveManagedHouseholdId({
     children: childrenQuery.data?.children,
     childId,
     fallbackHouseholdId,
@@ -191,9 +197,42 @@ export default function PrivacySettingsScreen() {
     childrenSettled: isChildrenSettled({ authToken, isSuccess: childrenQuery.isSuccess, isError: childrenQuery.isError })
   });
   /**
+   * 라운드 62 #4 — 가족 화면이 **가구를 전환한 채로** 보냈다면 그 가구를 나간다.
+   *
+   * 위 판정만으로는 **아이가 하나도 없는 가구를 영영 가리킬 수 없다**(1단계는 선택 아이의 가구,
+   * 3단계는 기본 가구). 그래서 초대를 수락해 들어간 빈 가구는 가족 화면에서 "다른 가구 보기"로
+   * 볼 수만 있고 앱 안에서 나갈 방법이 없었다 — 계정에 영구히 붙어 있는 가구가 생긴다. 전환은
+   * 가족 화면의 지역 상태라(app/family/index.tsx의 `viewedHouseholdId`) 이 화면에서는 보이지
+   * 않으므로, 초대 화면과 **같은 관례**로 파라미터를 받는다(라운드 61 #3).
+   *
+   * 파라미터는 **아는 가구일 때만** 통과한다(collectKnownHouseholdIds 화이트리스트 —
+   * 아이의 가구 · 서버가 말한 목록 · 기본 가구). 모르는 값은 조용히 무시하고 종전의 아이 기준
+   * 판정으로 떨어진다: 되돌릴 수 없는 화면이라 **검증 실패가 차단이면 안 된다** — 모르는 값 하나
+   * 때문에 화면을 잠그면 정작 나갈 수 있어야 할 사람이 못 나간다. 매 렌더에서 다시 검증하므로
+   * (effect로 상태를 만들지 않는다 — 가족 화면·초대 화면의 검증과 같은 형태다) 아이 목록이 늦게
+   * 도착해 화이트리스트가 넓어지면 그때 통과하고, 탈퇴가 끝나 목록에서 사라지면 즉시 되돌아간다.
+   *
+   * 1가구 계정에서는 가족 화면이 전환 자체를 못 하므로 **파라미터가 생기지 않고**, 이 화면은
+   * 종전과 한 글자도 달라지지 않는다(SET-003 픽셀락).
+   */
+  const params = useLocalSearchParams<{ householdId?: string | string[] }>();
+  const requestedHouseholdId = parseHouseholdScopeParam(
+    params[HOUSEHOLD_SCOPE_PARAM],
+    collectKnownHouseholdIds({
+      children: childrenQuery.data?.children,
+      knownHouseholdIds,
+      fallbackHouseholdId
+    })
+  );
+  const householdId = requestedHouseholdId ?? scopedHouseholdId;
+  /**
    * 되돌릴 수 없는 동작이 무엇을 대상으로 하는지 말하는 한 줄. 서버가 내려주는 영향 목록
    * (preview.impact)은 가구를 특정하지 않으므로 클라이언트 라벨로 보완한다 -- 서버 API는
    * 건드리지 않는다. 1가구 계정에서는 null이라 카드가 종전과 한 글자도 달라지지 않는다.
+   *
+   * 라운드 62 #4: 대상이 파라미터로 왔다면 이 라벨도 **그 가구**를 가리킨다(같은 `householdId`를
+   * 읽으므로 자동으로 그렇다) -- 자기가 어느 가구를 나가는지 화면이 정직하게 말하는 것이 이 줄이
+   * 존재하는 이유이고, 대상만 옮겨 가고 라벨이 남으면 그 줄이 곧 거짓말이 된다.
    */
   const householdLeaveNotice = householdScopeLeaveNotice(
     householdScopePhrase(
@@ -211,8 +250,30 @@ export default function PrivacySettingsScreen() {
   });
   const childDelete = useMutation({
     mutationFn: () => confirmChildProfileDeletion(authToken!, childId!, childPreview.data?.confirmationText ?? ""),
+    /**
+     * 라운드 62 #5 — **삭제한 아이의 기기 잔재를 지운다.**
+     *
+     * 종전 뒤처리는 쿼리 캐시뿐이었다(finishChildRemoval의 CHILD_REMOVAL_INVALIDATE_KEYS).
+     * 그런데 기기에 persist되는 아이 단위 상태가 셋 더 있다 -- 정기 지출 템플릿·알림 줄·구매
+     * 대기(`template.childId` · `entry.childId`). 삭제한 아이의 알림은 이름을 해석할 수 없어
+     * 태명 접두도 붙지 않은 채 알림함에 계속 서 있고(눌리면 지금 아이의 화면이 열린다),
+     * 템플릿은 아이별 상한 20칸을 차지한 채 남는다.
+     *
+     * 세 스토어의 `clearForChild`는 **아이 단위 정리 전용** 액션이다 -- PRIV-104 teardown
+     * (`resetAll`, 정체성 전환에만 발화)과 섞지 않는다.
+     *
+     * **가구 탈퇴 경로에서는 부르지 않는다.** 그쪽은 어느 아이가 사라졌는지 모르기 때문이고
+     * (아래 householdLeave의 P3 주석), 여기서는 childId를 손에 쥐고 있다는 것이 차이의 전부다.
+     * 그래서 호출도 공통 뒤처리(finishChildRemoval)가 아니라 **이 자리**에 둔다.
+     */
     onSuccess: async () => {
       childPreview.reset();
+      const removedChildId = childId;
+      if (removedChildId) {
+        useNotificationStore.getState().clearForChild(removedChildId);
+        usePurchaseFollowupStore.getState().clearForChild(removedChildId);
+        useRecurringExpenseStore.getState().clearForChild(removedChildId);
+      }
       await finishChildRemoval("아이 프로필을 삭제했어요.");
     }
   });
@@ -288,6 +349,11 @@ export default function PrivacySettingsScreen() {
        * 고치려면 "어느 아이가 사라졌는가"를 알아야 하는데, 탈퇴 응답도 이후 목록 조회도 그것을
        * 말해 주지 않는다(남은 아이만 온다). 탈퇴 직전 목록과의 차집합을 뜨는 설계가 필요하고,
        * 그건 이 라운드의 "세션 잔재" 한 줄과는 범위가 다르다 -- 근거만 남긴다.
+       *
+       * 라운드 62 #5: **아이 삭제 쪽만** 고쳐졌다(위 childDelete의 clearForChild 세 줄). 그쪽은
+       * 사라지는 아이의 id를 손에 쥐고 있어 정확히 그 아이의 것만 지울 수 있다. 여기서 같은
+       * 액션을 부르지 않는 이유는 위 문단 그대로다 -- 집합을 모르는 채로 부르면 지울 대상을
+       * 지어내는 일이 된다.
        */
       await finishChildRemoval("가구에서 나갔어요.");
     }
@@ -513,12 +579,6 @@ const previewNoticeStyle = {
   fontSize: 12,
   fontWeight: "700",
   marginTop: 4
-} as const;
-
-const pendingNoticeStyle = {
-  color: theme.colors.gray600,
-  fontSize: 12,
-  fontStyle: "italic"
 } as const;
 
 const dangerButtonStyle = {

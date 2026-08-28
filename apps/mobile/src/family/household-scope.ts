@@ -408,3 +408,73 @@ export function householdScopeInviteNotice(phrase: string | null): string | null
 export function householdScopeLeaveNotice(phrase: string | null): string | null {
   return phrase ? `${phrase}에서 나가요.` : null;
 }
+
+/* ------------------------------------------- 화면 → 화면으로 가구를 넘기는 한 벌 (라운드 62 #4) */
+
+/**
+ * 가족 화면의 가구 전환을 **다른 화면까지** 들고 갈 때 쓰는 쿼리 파라미터 이름.
+ *
+ * 라운드 61 #3이 초대 화면에 처음 놓은 그 파라미터다(그때 이름은 `INVITE_HOUSEHOLD_PARAM`).
+ * 라운드 62 #4에서 두 번째 받는 화면이 생기면서(가구 탈퇴) 규칙의 집이 여기로 옮겨 왔다 —
+ * 파라미터 이름도, 아래 화이트리스트 검증도 이 모듈이 이미 지고 있는 "관리 대상 가구" 규율의
+ * 일부이고, 이 모듈의 첫 번째 계약이 **규칙을 두 벌로 만들지 않는 것**이기 때문이다.
+ * 초대 흐름은 종전 이름을 그대로 쓴다(src/family/invite-flow.ts가 이 두 값을 다시 내보낸다).
+ */
+export const HOUSEHOLD_SCOPE_PARAM = "householdId";
+
+/**
+ * 받은 `householdId` 파라미터를 **아는 가구일 때만** 통과시킨다. 모르면 `null`이다.
+ *
+ * 화이트리스트는 호출부가 넘긴다: 이 계정이 아는 가구는 위 `collectKnownHouseholdIds`가 모으는
+ * 그 사실들이고(아이의 가구 · 서버가 말한 목록 · 기본 가구), 그 판정은 받는 화면들이 이미
+ * 쓰고 있다. 목록에 없으면 **조용히 무시**한다 — 호출부는 종전의 아이 기준 판정
+ * (`resolveManagedHouseholdId`)으로 떨어지므로, 딥링크나 손으로 고친 URL이 남의 가구 id를
+ * 들이밀어도 화면이 그 가구를 대상으로 삼거나 "이 가구에서 나가요"라는 거짓 문장을 그리는 일이
+ * 없다. **검증 실패는 차단이 아니라 종전 동작**이라는 규율이 특히 중요한 곳이 탈퇴 화면이다:
+ * 모르는 값 하나 때문에 화면을 잠그면, 정작 나갈 수 있어야 할 사람이 못 나간다.
+ *
+ * 배열 처리는 expo-router 때문이다(`useLocalSearchParams`는 같은 이름이 여러 번 오면 배열을
+ * 준다) — `parseInviteRoleParam`과 같은 규율이다.
+ */
+export function parseHouseholdScopeParam(
+  value: unknown,
+  knownHouseholdIds: readonly string[] | null | undefined
+): string | null {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  const householdId = typeof candidate === "string" ? candidate.trim() : "";
+  if (!householdId) return null;
+  return knownHouseholdIds?.includes(householdId) ? householdId : null;
+}
+
+/**
+ * 라운드 62 #4 — 가족 화면의 **"이 가구에서 나가기"** 진입점 라벨.
+ *
+ * 왜 이 진입점이 필요한가: 탈퇴 대상은 `resolveManagedHouseholdId`가 정하는데, 그 판정은
+ * **아이가 하나도 없는 가구를 구조적으로 가리킬 수 없다**(1단계는 선택 아이의 가구, 3단계는
+ * 기본 가구). 그래서 초대를 수락해 들어간 빈 가구는 "다른 가구 보기"로 볼 수는 있어도 앱 안에서
+ * 나갈 방법이 없었다 — 계정에 영구히 붙어 있는 가구가 생긴다. 전환해서 보고 있는 그 가구를
+ * 탈퇴 화면까지 파라미터로 들고 가면 그 막다른 길이 열린다.
+ *
+ * "이 가구"라고 쓴다: 어느 가구인지는 바로 위 `householdScopeManageNotice` 한 줄이 이미 말하고
+ * 있고(전환 중일 때만 그려지는 진입점이라 그 문장도 반드시 함께 서 있다), 여기서 이름을 한 번
+ * 더 지어내면 가리키는 사실이 두 벌이 된다.
+ */
+export const HOUSEHOLD_SCOPE_LEAVE_LABEL = "이 가구에서 나가기";
+
+/**
+ * 가구 탈퇴 화면으로 가는 목적지. 초대 화면으로 갈 때와 **같은 관례**다
+ * (src/family/invite-flow.ts의 `inviteScreenHref`): 전환 중일 때만 가구를 싣고, 전환하지 않았다면
+ * 아무것도 싣지 않는다 — 두 화면이 같은 입력으로 같은 판정을 내리므로 파라미터가 없는 편이
+ * 정확하고, 그래야 1가구 계정에서는 **파라미터 자체가 생기지 않아** 탈퇴 화면이 종전과 한 글자도
+ * 달라지지 않는다(SET-003 픽셀락).
+ */
+export function leaveScreenHref(householdId?: string | null): {
+  pathname: "/settings/privacy";
+  params: Record<string, string>;
+} {
+  const scopedHouseholdId = householdId?.trim();
+  return {
+    pathname: "/settings/privacy",
+    params: scopedHouseholdId ? { [HOUSEHOLD_SCOPE_PARAM]: scopedHouseholdId } : {}
+  };
+}

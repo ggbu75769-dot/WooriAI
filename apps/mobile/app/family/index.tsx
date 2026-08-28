@@ -16,12 +16,14 @@ import {
 import {
   collectKnownHouseholdIds,
   describeHouseholdScope,
+  HOUSEHOLD_SCOPE_LEAVE_LABEL,
   HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL,
   HOUSEHOLD_SCOPE_SWITCH_LABEL,
   householdScopeManageNotice,
   householdScopePhrase,
   householdSwitchPrompt,
   isChildrenSettled,
+  leaveScreenHref,
   listHouseholdSwitchOptions,
   resolveManagedHouseholdId
 } from "../../src/family/household-scope";
@@ -199,6 +201,11 @@ export default function FamilyScreen() {
    * **전환 중일 때만** 싣는다. 전환하지 않았다면 초대 화면은 이 화면과 같은 입력으로 같은
    * 판정(resolveManagedHouseholdId)을 내리므로 파라미터가 없는 편이 정확하고, 1가구 계정의
    * 링크는 종전과 한 글자도 달라지지 않는다.
+   *
+   * 라운드 62 #4 — 같은 값을 **탈퇴 화면**으로도 들고 간다(아래 "이 가구에서 나가기").
+   * 초대와 탈퇴는 이 화면의 전환을 보지 못하면 각자 아이 기준으로 되돌아가는 두 자리였고,
+   * 탈퇴 쪽 증상은 더 무겁다: 아이가 없는 가구는 그 판정으로 **영영 가리켜지지 않아** 앱 안에서
+   * 나갈 방법 자체가 없었다.
    */
   const switchedHouseholdId = householdId && householdId !== scopedHouseholdId ? householdId : null;
   const hasSession = Boolean(authToken && householdId);
@@ -447,6 +454,22 @@ export default function FamilyScreen() {
           </Pressable>
         ) : null}
 
+        {/* 라운드 62 #4: **전환 중일 때만** 나타나는 탈퇴 진입점. 여기서 나가지 않는다 --
+            누르면 종전의 탈퇴 화면으로 가고(미리보기 → 두 번 확인), 이 화면이 하는 일은 그
+            화면이 스스로는 가리킬 수 없는 가구를 파라미터로 알려 주는 것뿐이다. 전환하지 않은
+            계정(=1가구 계정과 비로그인 미리보기 FAM-001)에서는 이 노드가 그려지지 않는다. */}
+        {switchedHouseholdId ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={HOUSEHOLD_SCOPE_LEAVE_LABEL}
+            accessibilityHint={householdNotice ?? undefined}
+            hitSlop={8}
+            onPress={() => router.push(leaveScreenHref(switchedHouseholdId))}
+          >
+            <Text style={familyHouseholdLeaveStyle}>{HOUSEHOLD_SCOPE_LEAVE_LABEL}</Text>
+          </Pressable>
+        ) : null}
+
         <View style={familyAvatarRowStyle}>
           <FamilyAvatarGroup names={avatarNames} />
           {/* 진입점 ①: 아바타 줄의 `+`. 아이콘 버튼이라 캡션을 놓을 자리가 없으므로, 잠기면
@@ -639,6 +662,16 @@ const familyScopeNoticeStyle = {
 // 강조 보조 텍스트(A11Y-117 대비 규칙에 맞는 coral[700] 12/18)를 그대로 쓴다.
 const familyHouseholdSwitchStyle = {
   color: theme.colors.coral[700],
+  fontSize: 12,
+  fontWeight: "700",
+  lineHeight: 18
+} as const;
+
+// 라운드 62 #4: 탈퇴 진입점의 문자 링크. 전환 입구와 같은 레시피(12/18 · 700)를 쓰되 색만
+// danger다 -- 목적지가 되돌릴 수 없는 화면이라, 나란히 선 두 링크가 같은 무게로 읽히면 안 된다.
+// 새 hex를 만들지 않고 이 화면이 이미 파괴적 액션에 쓰는 그 토큰이다(familyMemberDeleteStyle).
+const familyHouseholdLeaveStyle = {
+  color: theme.colors.danger,
   fontSize: 12,
   fontWeight: "700",
   lineHeight: 18

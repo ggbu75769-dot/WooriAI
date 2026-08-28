@@ -28,6 +28,7 @@
  */
 
 import type { InviteRole } from "../api/client";
+import { HOUSEHOLD_SCOPE_PARAM, parseHouseholdScopeParam } from "./household-scope";
 
 export type InviteRoleChoice = {
   role: InviteRole;
@@ -67,8 +68,14 @@ export const INVITE_ROLE_PARAM = "role";
  * 역할과 **같은 관례**로 실어 보낸다(위 `INVITE_ROLE_PARAM`). 다른 점은 검증 근거뿐이다:
  * 역할은 이 모듈이 아는 세 값이지만, 가구 id는 계정마다 다르므로 아는 값의 목록을 호출부가
  * 넘겨야 한다(`parseInviteHouseholdParam`).
+ *
+ * 라운드 62 #4 — 같은 파라미터를 받는 화면이 하나 더 생겼다(가구 탈퇴, app/settings/privacy.tsx).
+ * 그래서 이름과 검증 규칙의 집은 **가구 규율을 지는 모듈**로 옮겼고(src/family/household-scope.ts의
+ * `HOUSEHOLD_SCOPE_PARAM` · `parseHouseholdScopeParam`), 여기서는 초대 흐름이 쓰던 이름을 그대로
+ * 유지하기 위해 그 값을 다시 내보낸다 — 규칙이 두 벌이 되면 한쪽만 고쳐지는 날이 오고, 그날의
+ * 증상은 "어떤 화면에서만 남의 가구 id가 통과한다"이다.
  */
-export const INVITE_HOUSEHOLD_PARAM = "householdId";
+export const INVITE_HOUSEHOLD_PARAM = HOUSEHOLD_SCOPE_PARAM;
 
 export const INVITE_ROLE_PROMPT_TITLE = "어떤 역할로 초대할까요?";
 export const INVITE_ROLE_PROMPT_CANCEL_LABEL = "취소";
@@ -150,18 +157,12 @@ export function parseInviteRoleParam(value: unknown): InviteRole | null {
  * 그 가구로 초대를 만들지 않는다(서버는 어차피 403으로 답하지만, 그 전에 화면이 "이 가구로
  * 초대해요"라는 거짓 문장을 그리는 일 자체가 없어야 한다).
  *
- * 배열 처리·모르는 값 무시는 위 `parseInviteRoleParam`과 같은 규율이다(expo-router의
- * `useLocalSearchParams`는 같은 이름이 여러 번 오면 배열을 준다).
+ * 라운드 62 #4: 구현은 `parseHouseholdScopeParam` 하나뿐이다(위 `INVITE_HOUSEHOLD_PARAM` 주석의
+ * 이유 그대로) — 초대 화면은 이 이름으로 그 규칙을 부른다. 배열 처리·모르는 값 무시는 위
+ * `parseInviteRoleParam`과 같은 규율이다(expo-router의 `useLocalSearchParams`는 같은 이름이 여러
+ * 번 오면 배열을 준다).
  */
-export function parseInviteHouseholdParam(
-  value: unknown,
-  knownHouseholdIds: readonly string[] | null | undefined
-): string | null {
-  const candidate = Array.isArray(value) ? value[0] : value;
-  const householdId = typeof candidate === "string" ? candidate.trim() : "";
-  if (!householdId) return null;
-  return knownHouseholdIds?.includes(householdId) ? householdId : null;
-}
+export const parseInviteHouseholdParam = parseHouseholdScopeParam;
 
 /**
  * 초대 화면으로 가는 목적지. 역할을 쿼리로 실어 보내 화면이 그 역할로 서 있게 한다
