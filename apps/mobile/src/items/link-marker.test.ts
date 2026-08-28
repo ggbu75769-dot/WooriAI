@@ -16,11 +16,13 @@ import {
   productLinkMarker,
   productLinksDisclosureText,
   productPlatformLabel,
+  purchaseLinkShareMessage,
   SPONSORED_DISCLOSURE_FALLBACK_TEXT,
   SPONSORED_MARKER_CAPTION,
   SPONSORED_MARKER_LABEL,
   withAffiliateDisclosure
 } from "./link-marker";
+import { theme } from "../theme";
 
 const mobileRoot = process.cwd();
 const detailSource = () => readFileSync(join(mobileRoot, "app/items/[itemTemplateId].tsx"), "utf8");
@@ -107,17 +109,21 @@ describe("라운드 43 UX-V (C2): 구매처가 없는 준비템", () => {
     expect(EMPTY_PRODUCT_LINKS_TEXT.split("\n")).toHaveLength(1);
   });
 
-  it("구매 CTA는 링크 유무 게이트를, 고지는 고지 대상 게이트를 쓴다", () => {
+  it("구매 CTA는 열 링크 게이트를, 고지는 고지 대상 게이트를 쓴다", () => {
     const detail = detailSource();
 
     expect(detail).toContain("const hasProductLinks = hasPurchasableLink(visibleDetail.productLinks);");
+    // 판매처 목록 자리(링크 0건이면 안내 한 줄)는 여전히 이 게이트가 정한다.
+    expect(detail).toContain("{hasSession && detailTab === \"info\" ? null : hasProductLinks ? (");
     // 리뷰 M-1: 고지는 링크 **집합** 판정이 정한다(아래 M-1 describe 참고).
     expect(detail).toContain(
       "{affiliateDisclosureText ? <AffiliateDisclosure text={affiliateDisclosureText} /> : null}"
     );
     // 죽은 CTA(눌러도 productLinks[0]이 없어 아무 일도 없던 버튼)는 렌더 자체를 막는다.
+    // 라운드 64 #1: 그 게이트가 `primaryPurchaseLink`(강조를 받을 링크)로 옮겨졌다 — 링크
+    // 0건은 그 값이 undefined라 종전과 같은 결과이고, 전부 스폰서인 경우가 함께 닫힌다.
     const ctaIndex = detail.indexOf('label="바로 구매하기"');
-    const ctaGateIndex = detail.lastIndexOf("{hasProductLinks ? (", ctaIndex);
+    const ctaGateIndex = detail.lastIndexOf("{primaryPurchaseLink ? (", ctaIndex);
     expect(ctaIndex).toBeGreaterThan(-1);
     expect(ctaGateIndex).toBeGreaterThan(-1);
     expect(detail.slice(ctaGateIndex, ctaIndex)).not.toContain(") : null}");
@@ -547,3 +553,176 @@ describe("채워진 구매 CTA 자리: 첫 비스폰서 링크 (DNC-011)", () =>
     expect(ui).not.toContain("backgroundColor: theme.colors.coral[400], minWidth: 72");
   });
 });
+
+/**
+ * 라운드 64 #1 — 이 판정이 **화면에서 가장 강한 버튼에도** 쓰이는가.
+ *
+ * 라운드 43~63 동안 위 describe는 `primaryPurchaseLinkIndex`의 **값**만 촘촘히 고정했고,
+ * "그 값이 실제로 어디에 쓰이는가"는 판매처 행(primaryAction) 한 자리만 봤다. 그 빈칸으로
+ * 전폭 "바로 구매하기"가 판정을 지나지 않고 `productLinks[0]`을 그대로 여는 배선이
+ * 통과했다 — 같은 화면에서 스폰서 행은 외곽선으로 격하되고, 그 한 줄 아래 가장 큰 버튼이
+ * 같은 스폰서 링크를 열었다(DNC-011 우회). 그래서 이 describe는 **배선**을 고정한다.
+ */
+describe("라운드 64 #1: 전폭 구매 CTA도 같은 판정을 지난다 (DNC-011)", () => {
+  it("전폭 CTA가 여는 링크는 판정이 고른 링크다 — productLinks[0]을 직접 열지 않는다", () => {
+    const detail = detailSource();
+
+    expect(detail).toContain(
+      "const primaryPurchaseLink =\n    filledPurchaseRowIndex >= 0 ? visibleDetail.productLinks[filledPurchaseRowIndex] : undefined;"
+    );
+    expect(detail).toContain("onPress={() => handleProductLinkPress(primaryPurchaseLink)}");
+    // 예전 배선(첫 링크를 그대로 여는 길)은 한 자리도 남아 있지 않아야 한다.
+    expect(detail).not.toContain("const firstLink = visibleDetail.productLinks[0];");
+    expect(detail).not.toContain("visibleDetail.productLinks[0]");
+  });
+
+  it("판매처 행의 채움과 전폭 CTA는 **같은** 판정 하나를 읽는다(두 벌 금지)", () => {
+    const detail = detailSource();
+
+    expect(detail).toContain("const filledPurchaseRowIndex = primaryPurchaseLinkIndex(visibleDetail.productLinks);");
+    expect(detail).toContain("primaryAction={hasSession && index === filledPurchaseRowIndex}");
+    // 화면이 스폰서 여부를 자기 손으로 다시 판정하지 않는다(판정은 순수 모듈 하나뿐이다).
+    expect(detail).not.toContain("isSponsored)");
+    expect(detail.match(/primaryPurchaseLinkIndex\(/g)).toHaveLength(1);
+  });
+
+  it("전부 스폰서면 전폭 CTA가 사라진다 — 죽은 버튼도, 강조된 광고도 만들지 않는다", () => {
+    // 판정 쪽: 시드의 그 다섯 품목(유일한 링크가 스폰서)이 여기에 해당한다.
+    expect(primaryPurchaseLinkIndex([{ isSponsored: true }])).toBe(-1);
+    // 배선 쪽: -1이면 링크가 undefined가 되고, 게이트가 그 값을 그대로 읽는다.
+    const links = [{ isSponsored: true }, { isSponsored: true }];
+    const index = primaryPurchaseLinkIndex(links);
+    expect(index >= 0 ? links[index] : undefined).toBeUndefined();
+
+    const detail = detailSource();
+    const ctaIndex = detail.indexOf('label="바로 구매하기"');
+    expect(detail.lastIndexOf("{primaryPurchaseLink ? (", ctaIndex)).toBeGreaterThan(-1);
+  });
+
+  it("구매 경로가 사라지는 것이 아니다 — 그 링크는 판매처 행에 스폰서 표기와 함께 남는다", () => {
+    const sponsoredOnly = [{ isAffiliate: false, isSponsored: true }];
+    const marker = productLinkMarker(sponsoredOnly[0]);
+
+    expect(marker.badgeLabel).toBe(SPONSORED_MARKER_LABEL);
+    expect(marker.caption).toBe(SPONSORED_MARKER_CAPTION);
+    // 그 화면의 고지도 그대로 선다(광고 사실을 말하는 자리가 남는다).
+    expect(productLinksDisclosureText(sponsoredOnly)).toBe(SPONSORED_DISCLOSURE_FALLBACK_TEXT);
+  });
+
+  it("ITEM-002 비세션 프리뷰는 판정이 0이라 렌더가 그대로다(픽셀락 불변)", () => {
+    const detail = detailSource();
+    const preview = detail.slice(detail.indexOf("function previewDetail("), detail.indexOf("export default function"));
+    // 프리뷰 픽스처의 첫 링크는 비스폰서다 -- 판정이 0이므로 전폭 CTA가 종전대로 렌더된다.
+    const firstSponsoredIndex = preview.indexOf("isSponsored: true");
+    const firstNonSponsoredIndex = preview.indexOf("isSponsored: false");
+    expect(firstNonSponsoredIndex).toBeGreaterThan(-1);
+    expect(firstNonSponsoredIndex).toBeLessThan(firstSponsoredIndex);
+    expect(
+      primaryPurchaseLinkIndex([{ isSponsored: false }, { isSponsored: true }, { isSponsored: false }])
+    ).toBe(0);
+  });
+});
+
+/**
+ * 라운드 64 #5ⓐ — 앱 밖으로 나가는 구매 링크에는 고지가 함께 나간다(DNC-010).
+ */
+describe("라운드 64 #5ⓐ: 공유 메시지의 제휴 고지", () => {
+  const url = "https://example.test/r/abc123";
+  const general = { isAffiliate: false, isSponsored: false } as const;
+  const affiliate = { isAffiliate: true, isSponsored: false } as const;
+  const sponsored = { isAffiliate: true, isSponsored: true } as const;
+
+  it("제휴 링크는 고지 한 줄 + URL 두 줄로 나간다", () => {
+    const message = purchaseLinkShareMessage({ url, link: affiliate });
+
+    expect(message).toBe(`${AFFILIATE_DISCLOSURE_FALLBACK_TEXT}\n${url}`);
+    expect(message.split("\n")).toHaveLength(2);
+    expect(message.endsWith(url)).toBe(true);
+  });
+
+  it("스폰서 링크는 광고 사실을 먼저 밝힌다 (DNC-011)", () => {
+    expect(purchaseLinkShareMessage({ url, link: sponsored })).toBe(
+      `${SPONSORED_DISCLOSURE_FALLBACK_TEXT}\n${url}`
+    );
+  });
+
+  it("일반 링크는 종전 그대로 URL 한 줄이다 — 없는 고지를 지어내지 않는다", () => {
+    expect(purchaseLinkShareMessage({ url, link: general })).toBe(url);
+    expect(purchaseLinkShareMessage({ url, link: general, disclosureText: null })).toBe(url);
+    // 빈 문구(공백만)도 고지가 아니다.
+    expect(purchaseLinkShareMessage({ url, link: general, disclosureText: "   " })).toBe(url);
+  });
+
+  it("클릭 응답이 준 운영 문구가 링크 자신의 값보다 앞선다", () => {
+    const message = purchaseLinkShareMessage({
+      url,
+      link: { ...affiliate, disclosureText: "링크에 적힌 옛 문구예요. 수수료를 받아요." },
+      disclosureText: "운영이 편집한 문구예요. 수수료를 받아요."
+    });
+
+    expect(message).toContain("운영이 편집한 문구예요.");
+    expect(message).not.toContain("옛 문구");
+  });
+
+  it("N-2의 수수료 규율이 공유 문구에서도 그대로 돈다 (DNC-010)", () => {
+    // 수수료를 말하지 않는 커스텀 문구는 제휴 링크의 수수료 고지를 지우지 못한다.
+    const message = purchaseLinkShareMessage({ url, link: affiliate, disclosureText: "우리아이 추천 상품이에요" });
+
+    expect(message).toContain(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
+    expect(message.endsWith(url)).toBe(true);
+  });
+
+  it("문구는 화면의 고지와 **같은 판정**에서 나온다(두 벌 금지)", () => {
+    // 링크 하나짜리 집합에 대한 화면 판정과 공유 문구의 첫 줄이 글자 그대로 같아야 한다.
+    for (const link of [general, affiliate, sponsored]) {
+      const screenText = productLinksDisclosureText([link]);
+      const message = purchaseLinkShareMessage({ url, link });
+      expect(message).toBe(screenText ? `${screenText}\n${url}` : url);
+    }
+  });
+
+  it("화면은 이 조립기만 쓴다 — Share.share에 URL을 직접 넣지 않는다", () => {
+    const detail = detailSource();
+
+    expect(detail).toContain("message: purchaseLinkShareMessage({");
+    expect(detail).toContain("url: linkOpenFallback.redirectUrl,");
+    expect(detail).toContain("link: linkOpenFallback.link,");
+    expect(detail).toContain("disclosureText: linkOpenFallback.disclosureText");
+    expect(detail).not.toContain("Share.share({ message: linkOpenFallback.redirectUrl })");
+  });
+});
+
+/**
+ * 라운드 64 #6 — 커머스 상세의 플로팅 크롬 둘(뒤로가기·공유하기)이 저장소 자신의 최소 터치
+ * 타깃(theme.touchTarget = 48)을 만족하는가. 레이아웃이 아니라 히트 영역만 본다.
+ */
+describe("라운드 64 #6: 커머스 크롬의 터치 타깃", () => {
+  it("34dp 크롬 + hitSlop 7 = 48dp (theme.touchTarget)", () => {
+    const detail = detailSource();
+
+    expect(detail).toContain("height: 34,");
+    expect(detail).toContain("const PRODUCT_DETAIL_CHROME_HIT_SLOP = 7;");
+    expect(34 + 2 * PRODUCT_DETAIL_CHROME_HIT_SLOP).toBeGreaterThanOrEqual(theme.touchTarget);
+    // 두 자리 모두 같은 상수를 쓴다(값을 다시 박지 않는다).
+    expect(detail.match(/hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP}/g)).toHaveLength(2);
+    expect(detail).not.toContain("hitSlop={5}");
+  });
+
+  it("렌더는 한 픽셀도 바뀌지 않는다 — 레이아웃 속성은 그대로다 (ITEM-002 픽셀락)", () => {
+    const detail = detailSource();
+    const chromeStyle = detail.slice(
+      detail.indexOf("const productDetailChromeButtonStyle = {"),
+      detail.indexOf("const PRODUCT_DETAIL_CHROME_HIT_SLOP")
+    );
+
+    // 승인 캡처의 34 정사각·반지름 17이 그대로다(hitSlop은 레이아웃 속성이 아니다).
+    expect(chromeStyle).toContain("borderRadius: 17,");
+    expect(chromeStyle).toContain("height: 34,");
+    expect(chromeStyle).toContain("width: 34");
+    expect(chromeStyle).not.toContain("padding");
+    expect(chromeStyle).not.toContain("minHeight");
+  });
+});
+
+/** 크롬 히트 영역 계산에 쓰는 값 — 화면 소스의 상수와 같은 숫자여야 한다(위 테스트가 고정). */
+const PRODUCT_DETAIL_CHROME_HIT_SLOP = 7;

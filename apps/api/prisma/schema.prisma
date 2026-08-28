@@ -487,6 +487,17 @@ model ImportJob {
   importedCount  Int?         @map("imported_count")
   skippedCount   Int?         @map("skipped_count")
   errorCode      String?      @map("error_code") @db.VarChar(80)
+  /// GAP-064 #9 — 이 가져오기가 **승인(확정)된 시각**의 단일 소스. NULL이면 아직 확정된 적이
+  /// 없다는 뜻이다(`preview_ready`·`cancelled`·`failed`). 쓰는 곳은 하나뿐이다:
+  /// `ImportPipelineService.confirmImport`의 확정 CAS(`preview_ready` -> `confirmed`)가
+  /// 상태와 **같은 statement**로 적는다 — 그래서 "status=confirmed면 approved_at이 있다".
+  /// (라운드 64 이전에는 읽기·쓰기가 0인 죽은 컬럼이었다. 이제는 아니다.)
+  ///
+  /// ⚠️ 파기 판정에 쓰이지 않는다: phase 9(미리보기 행 삭제)·phase 11(헤더 마스킹)은 둘 다
+  /// `updated_at`을 정렬·컷오프 컬럼으로 쓴다(data-retention-purge.job.ts). 이 컬럼을 파기
+  /// 창 계산에 끌어다 쓰지 말 것 — 그 순간 두 phase의 근거가 갈린다.
+  /// 승인 **행위자**는 여기 없다(감사 로그 `import.confirm`의 actor가 답한다 —
+  /// imports.controller.ts).
   approvedAt     DateTime?    @map("approved_at") @db.Timestamptz(6)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)

@@ -64,6 +64,33 @@ describe("UX-H 리포트 공유 배선", () => {
     expect(shareTextSource).not.toContain("insight.headline");
   });
 
+  /**
+   * GAP-064 #3 — 화면 머리의 대기 고지가 **공유 문구까지** 따라간다.
+   *
+   * 배선의 요점은 하나다: 건수를 여기서 다시 세지 않고 **위에서 이미 센 값**(`pendingScopeNotice`)을
+   * 그대로 넘긴다. 새 요청도 새 구독도 없고(같은 `useOfflineSyncSnapshot`), 화면의 고지와 공유의
+   * 고지가 서로 다른 건수를 말할 자리도 없다. 기간 게이트가 함께 서는 이유는 그 고지가 **선택한
+   * 기간**(월/분기/연)을 세기 때문이다 — 월간이 아닐 때 그대로 넘기면 분기·연 건수가 월 카드에
+   * 실린다.
+   */
+  it("GAP-064 #3: passes the very pending count already on screen -- month-scoped, no new query", () => {
+    const reportSource = source("app/(tabs)/reports.tsx");
+
+    expect(reportSource).toContain('pending: period === "월간" ? pendingScopeNotice : null');
+    // 건수를 세는 판정은 화면에 **한 번만** 있다(공유용으로 다시 세지 않는다).
+    expect(reportSource.match(/evaluateReportPendingScopeNotice\(/g) ?? []).toHaveLength(1);
+    // 대기 행의 출처도 그대로다 -- 공유가 새 구독/새 조회를 만들지 않는다.
+    expect(reportSource.match(/useOfflineSyncSnapshot\(\)/g) ?? []).toHaveLength(1);
+
+    // 조립기는 건수만 받는다(행도, 기간도 넘기지 않는다 -- F-5와 같은 이유로 소스는 하나다).
+    const shareCall = reportSource.slice(
+      reportSource.indexOf("buildMonthlyShareMessage({"),
+      reportSource.indexOf("const shareMonthlySummary")
+    );
+    expect(shareCall).not.toContain("offlineSyncSnapshot");
+    expect(shareCall).not.toContain("scope:");
+  });
+
   it("hides the share button when there is nothing to share, and swallows cancel", () => {
     const reportSource = source("app/(tabs)/reports.tsx");
 

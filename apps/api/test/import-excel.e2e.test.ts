@@ -633,6 +633,118 @@ describe("Excel import beta API", () => {
     expect((await prisma.importJob.findUnique({ where: { id: otherJob.id } }))?.status).toBe("preview_ready");
   });
 
+  /**
+   * GAP-064 #9: 승인(확정)의 순간이 서버에 남는다 — `import_jobs.approved_at` + `import.confirm`
+   * 감사 로그. DNC-012의 핵심 사건이 종전에는 무기록이었다(approved_at은 읽기·쓰기 0인 죽은
+   * 컬럼이었고 가져오기 컨트롤러에는 감사 로그가 한 건도 없었다).
+   *
+   * 함께 고정하는 계약 셋:
+   *  1. HTTP 응답 모양은 **한 글자도 바뀌지 않는다**(`{ importedCount, skippedCount }`) —
+   *     감사 봉투는 컨트롤러가 벗겨 내고 밖으로 나가지 않는다.
+   *  2. 봉투에 **파일명이 없다** — 파일명은 파기 잡 phase 11이 90일 뒤 마스킹하는 값이라
+   *     730일 보존되는 감사 로그에 복사하면 그 마스킹이 무의미해진다(GAP-063 #6).
+   *  3. 확정되지 않은 요청(400)은 **아무것도 남기지 않는다** — approved_at도 감사 로그도.
+   */
+  it("GAP-064 #9: 확정이 approved_at과 import.confirm 감사 로그를 남기고, 봉투에 파일명이 없다", async () => {
+    const accessToken = await login(app, "import-approval-audit");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = app.get(PrismaService);
+
+    const me = (
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as { user: { id: string }; households: { id: string }[] };
+
+    // 2행 중 1행만 유효(둘째 행은 미래 날짜라 확정에서 빠진다) — before/after의 건수가
+    // 서로 다른 값이어야 "몇 건이 들어가고 몇 건이 빠졌나"를 실제로 검증할 수 있다.
+    const fileName = "카드내역-2026년7월-홍길동.csv";
+    const csv = "날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n2027-01-05,분유 구매,33000\n";
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", fileName)
+        .attach("file", Buffer.from(csv, "utf8"), fileName)
+        .expect(200)
+    ).body as ImportJob;
+
+    const rows = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/imports/${job.id}/rows`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.rows as ImportRow[];
+    expect(rows).toHaveLength(2);
+
+    // 확정 전에는 승인 시각이 없다(NULL = "아직 승인된 적 없다").
+    expect((await prisma.importJob.findUniqueOrThrow({ where: { id: job.id } })).approvedAt).toBeNull();
+
+    const beforeConfirm = Date.now();
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: rows.map((row) => row.id) })
+      .expect(200)
+      // 응답 계약 무변경 — 감사 봉투는 응답으로 나가지 않는다.
+      .expect(({ body }) => {
+        expect(body).toEqual({ importedCount: 1, skippedCount: 1 });
+      });
+
+    const confirmed = await prisma.importJob.findUniqueOrThrow({ where: { id: job.id } });
+    expect(confirmed.status).toBe("confirmed");
+    // status=confirmed면 approved_at이 있다(확정 CAS가 같은 statement로 적는다).
+    expect(confirmed.approvedAt).toBeInstanceOf(Date);
+    expect(confirmed.approvedAt!.getTime()).toBeGreaterThanOrEqual(beforeConfirm - 1000);
+    expect(confirmed.approvedAt!.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+
+    const entries = await prisma.auditLog.findMany({
+      where: { action: "import.confirm", targetId: job.id },
+      orderBy: { createdAt: "asc" }
+    });
+    expect(entries).toHaveLength(1);
+    const entry = entries[0];
+    expect(entry.actorUserId).toBe(me.user.id);
+    expect(entry.householdId).toBe(me.households[0].id);
+    expect(entry.targetType).toBe("import_job");
+    // before는 확정 직전의 잡 그대로다(같은 값이 미리보기 응답에도 있었다).
+    expect(job.rowCount).toBe(2);
+    expect(entry.beforeJson).toEqual({
+      status: "preview_ready",
+      rowCount: job.rowCount,
+      candidateCount: job.candidateCount
+    });
+    expect(entry.afterJson).toEqual({
+      status: "confirmed",
+      importedCount: 1,
+      skippedCount: 1,
+      approvedAt: confirmed.approvedAt!.toISOString()
+    });
+
+    // 파일명(과 그 조각)은 봉투 어디에도 없다 — phase 11이 마스킹하는 값이다.
+    const envelope = JSON.stringify([entry.beforeJson, entry.afterJson]);
+    expect(envelope).not.toContain("홍길동");
+    expect(envelope).not.toContain(".csv");
+    expect(envelope).not.toContain("카드내역");
+
+    // 확정되지 않는 재시도(같은 잡은 두 번 확정할 수 없다)는 아무 기록도 더하지 않는다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: rows.map((row) => row.id) })
+      .expect(400)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("IMPORT_NOT_CONFIRMABLE");
+      });
+    expect(await prisma.auditLog.count({ where: { action: "import.confirm", targetId: job.id } })).toBe(1);
+    // 승인 시각도 그대로다(두 번째 요청은 CAS를 통과하지 못한다).
+    expect(
+      (await prisma.importJob.findUniqueOrThrow({ where: { id: job.id } })).approvedAt?.toISOString()
+    ).toBe(confirmed.approvedAt!.toISOString());
+  });
+
   // API-130: 형식 판정이 파일명 확장자에만 기대던 것을 (1) mimetype 1차 관문과
   // (2) 매직바이트 본검사로 나눠 잡는다. 둘 다 기존 400 IMPORT_FILE_TYPE_INVALID
   // 봉투를 그대로 쓴다 — 사용자에게는 "지원하지 않는 파일" 하나의 사실이다.

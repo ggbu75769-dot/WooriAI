@@ -300,6 +300,34 @@ export class ImportPipelineService {
    * expenses. With the CAS, only the request that wins the `updateMany` proceeds to
    * insert; the loser gets the exact same `IMPORT_NOT_CONFIRMABLE` error a
    * sequential double-confirm already produced before this fix.
+   *
+   * ## GAP-064 #9 — 승인 순간을 서버에 남긴다 (`approved_at` + 감사 봉투)
+   *
+   * 종전에는 이 경로가 **상태와 건수만** 남겼다. DNC-012("미리보기와 승인 전 `expenses`에
+   * 저장하지 않는다")의 핵심 사건인 **승인**이 서버에 사건으로 남지 않았다는 뜻이다:
+   * `import_jobs.approved_at`은 스키마에만 있고 읽지도 쓰지도 않는 죽은 컬럼이었고,
+   * 이 컨트롤러에는 감사 로그가 한 건도 없었다(지출 수정·삭제, 아이 삭제, 가구 탈퇴,
+   * 계정 삭제, 예산 덮어쓰기는 전부 `auditLogger.record`를 지난다). 확정은 쓰기 권한이 있는
+   * **아무 구성원이나** 할 수 있는데(`requireImportJobAccess(user, id, true)`) 잡 행이 아는
+   * 사람은 업로드한 사람(`user_id`)뿐이라, 대개는 만들어진 지출의 `created_by_user_id`로
+   * 승인자를 역추적할 수 있지만 **유효 행이 0건이면 그마저 없다** — 잡은 영구히 `confirmed`가
+   * 되어 다시 확정할 수 없는데(위 CAS) 누가·언제 그렇게 만들었는지 답할 근거가 0이었다.
+   *
+   * 그래서 두 가지를 같이 한다.
+   *  1. **`approved_at`을 확정 CAS와 같은 statement에 적는다**(마이그레이션 0건 — 컬럼은 이미
+   *     있다). CAS는 이 잡을 `confirmed`로 만드는 **유일한** 쓰기이므로, "status=confirmed면
+   *     approved_at이 있다"가 한 statement로 보장된다. 트랜잭션이 롤백되면 둘 다 없다.
+   *  2. 컨트롤러가 감사 로그 한 건(`import.confirm`)을 남긴다 — 봉투 구성은 그쪽 주석 참조.
+   *     여기서는 그 봉투에 실을 **비식별 값만** 골라 `audit`로 돌려준다(HTTP 응답에는 나가지
+   *     않는다 — 컨트롤러가 벗겨 낸다).
+   *
+   * `approved_at`의 뜻은 **"이 가져오기가 승인된 시각"의 단일 소스**다(감사 로그를 조인하지
+   * 않고 잡 행만으로 읽을 수 있는 값이 하나는 있어야 한다 — 어드민이 잡을 조회하게 될 때).
+   *
+   * ⚠️ 파기 판정과는 무관하다: 파기 잡의 phase 9(미리보기 행 삭제)와 phase 11(잡 헤더 마스킹)은
+   * 둘 다 `updated_at`을 정렬·컷오프 컬럼으로 쓴다(data-retention-purge.job.ts). `approved_at`은
+   * 그 판정에 쓰이지 않으며, 이 쓰기가 창을 앞당기거나 늦추지도 않는다 — 확정 CAS는 이 변경
+   * 이전에도 `updated_at`을 갱신했고(`@updatedAt`), 여기서 컬럼 하나가 더 실릴 뿐이다.
    */
   async confirmImport(user: AuthenticatedUser, importJobId: string, input: ConfirmImportInput = {}) {
     const job = await this.requireImportJobAccess(user, importJobId, true);
@@ -313,10 +341,14 @@ export class ImportPipelineService {
     const selectedRows = rows.filter((row) => (hasExplicitSelection ? selectedRowIds.has(row.id) : row.selected));
     const importableRows = selectedRows.filter((row) => this.validationStatusForImportRow(row) === "valid");
 
+    // 승인 시각은 트랜잭션 밖에서 한 번 만든다 — 아래 CAS에 적는 값과 감사 봉투에 싣는 값이
+    // **같은 순간**이어야 한다(둘이 다르면 "언제 승인됐나"에 답이 둘이 된다).
+    const approvedAt = new Date();
+
     const importedCount = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.importJob.updateMany({
         where: { id: importJobId, status: "preview_ready" },
-        data: { status: "confirmed" }
+        data: { status: "confirmed", approvedAt }
       });
       if (claimed.count === 0) {
         throw new BadRequestException({ code: "IMPORT_NOT_CONFIRMABLE", message: "Import job is not ready to confirm." });
@@ -352,9 +384,33 @@ export class ImportPipelineService {
       void this.pushDispatch?.onBudgetRelevantChange(job.childId, yearMonths);
     }
 
+    const skippedCount = selectedRows.length - importedCount;
+
     return {
       importedCount,
-      skippedCount: selectedRows.length - importedCount
+      skippedCount,
+      /**
+       * GAP-064 #9: 감사 봉투에 실을 값(HTTP 응답 아님 — ImportsController가 벗겨 낸다).
+       *
+       * **파일명·행 원문은 싣지 않는다.** `import_jobs.file_name`은 사용자가 붙인 이름이라
+       * 사실상 식별정보이고(GAP-063 #6), 파기 잡 phase 11이 90일 뒤 마스킹하는 값이 바로
+       * 그것이다 — 감사 로그(기본 730일 보존)에 복사하면 라운드 63이 닫은 구멍이 더 긴
+       * 창으로 되살아난다. 여기 있는 것은 상태·건수·시각뿐이다.
+       */
+      audit: {
+        householdId: job.householdId,
+        before: {
+          status: job.status,
+          rowCount: job.rowCount ?? 0,
+          candidateCount: job.candidateCount ?? 0
+        },
+        after: {
+          status: "confirmed",
+          importedCount,
+          skippedCount,
+          approvedAt: approvedAt.toISOString()
+        }
+      }
     };
   }
 

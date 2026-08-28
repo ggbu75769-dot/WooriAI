@@ -44,6 +44,17 @@ export type BulkPreviewRow = {
   matchedTitle: string | null;
   currentAffiliateUrl: string | null;
   newAffiliateUrl: string | null;
+  /**
+   * 라운드 64 D(#4ⓐ): 대상 링크에 **지금 저장돼 있는** 가격(없으면 null).
+   *
+   * 미리보기가 URL만 대조하던 탓에 CSV로 쓴 가격은 어디에서도 확인할 수 없었다 —
+   * 적용 후 받는 것은 `{applied, skipped, errors}` 숫자 셋뿐이고, 타임아웃 뒤 패널이
+   * 권하는 재조회조차 "현재 제휴 URL이 새 URL과 같으면 반영된 것"만 말할 수 있었다
+   * (ProductLinkBulkReplace.tsx). 이 두 칸이 그 대조를 가격까지 넓힌다.
+   */
+  currentPriceSnapshotKrw: number | null;
+  /** 이 행이 쓰려는 가격. CSV에 가격 칸이 비어 있으면 null(= 가격은 그대로 둔다). */
+  newPriceSnapshotKrw: number | null;
   errorCode?: BulkRowErrorCode;
   errorMessage?: string;
 };
@@ -186,6 +197,10 @@ export class ProductLinkBulkService {
         matchedTitle: link?.title ?? null,
         currentAffiliateUrl: link?.affiliateUrl ?? null,
         newAffiliateUrl: null,
+        currentPriceSnapshotKrw: link?.priceSnapshotKrw ?? null,
+        // 오류 행은 아무것도 쓰지 않는다 — 쓰려던 값을 "새 가격"으로 보여주면
+        // 반영될 값처럼 읽힌다.
+        newPriceSnapshotKrw: null,
         errorCode: code,
         errorMessage: ROW_ERROR_MESSAGES[code]
       }
@@ -266,7 +281,9 @@ export class ProductLinkBulkService {
         matchedProductLinkId: link.id,
         matchedTitle: link.title,
         currentAffiliateUrl: link.affiliateUrl,
-        newAffiliateUrl: affiliateUrl
+        newAffiliateUrl: affiliateUrl,
+        currentPriceSnapshotKrw: link.priceSnapshotKrw ?? null,
+        newPriceSnapshotKrw: priceSnapshotKrw ?? null
       },
       update: { link, affiliateUrl, priceSnapshotKrw }
     };

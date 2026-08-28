@@ -207,6 +207,22 @@ describe("AUDIT_LOG_ACTION_PRESETS (CS-101)", () => {
     ).map((preset) => preset.label);
     expect(new Set(labels).size).toBe(2);
   });
+
+  /**
+   * GAP-064 #9: 가져오기 **승인**은 되돌릴 수 없고(확정된 잡은 다시 확정할 수 없다) 가구의
+   * 아무 쓰기 권한자나 실행할 수 있다. "가져왔는데 일부가 안 들어왔어요" 문의에서 누가·언제
+   * 승인했는지는 서버가 새로 기록하기 시작한 `import.confirm`에만 있으므로 프리셋에도 있어야
+   * 한다(잡 행의 approved_at은 시각만 답하고 행위자는 답하지 않는다).
+   */
+  it("covers the import approval CS asks about (가져오기 승인)", () => {
+    const actions = AUDIT_LOG_ACTION_PRESETS.map((preset) => preset.action);
+    expect(actions).toContain("import.confirm");
+    // 지출 수정과 뭉뚱그리지 않는다 — 한 번에 여러 건이 생기는 다른 사건이다.
+    const labels = AUDIT_LOG_ACTION_PRESETS.filter((preset) =>
+      ["import.confirm", "expense.update"].includes(preset.action)
+    ).map((preset) => preset.label);
+    expect(new Set(labels).size).toBe(2);
+  });
 });
 
 describe("auditLogActorLabel (CS-101)", () => {

@@ -81,10 +81,37 @@ export type AdminProfile = { id: string; email: string; displayName: string; rol
 
 export type AdminLoginResult =
   | { status: "mfa_required"; mfaToken: string; expiresIn: number }
-  | { status: "ok"; admin: AdminProfile; mfaEnabled: boolean; session: { token: string; expiresAt: Date } };
+  | {
+      status: "ok";
+      admin: AdminProfile;
+      mfaEnabled: boolean;
+      mfaRecoveryCodesRemaining: number;
+      session: { token: string; expiresAt: Date };
+    };
 
 function toProfile(admin: AdminUser): AdminProfile {
   return { id: admin.id, email: admin.email, displayName: admin.displayName, role: admin.role };
+}
+
+/**
+ * 라운드 64 D(#7) — 이 계정에 **남은 복구 코드 장수**.
+ *
+ * 개수만이다. 값도 해시도 절대 응답에 싣지 않는다(`mfaRecoveryCodes`에는 sha256 해시가
+ * 들어 있고, 그것을 내보낼 이유가 하나도 없다). 라운드 63 #3이 재등록 입구를 세우면서
+ * 화면이 "복구 코드는 한 번만 쓸 수 있어요"라고 말하기 시작했는데, 서버는 잔량을 알고
+ * 있으면서도(로그인 때 쓴 코드를 목록에서 빼고 남은 배열을 다시 쓴다 — verifyMfaCode)
+ * 세션 응답이 나르는 것은 `mfaEnabled` 불리언 하나뿐이라 화면이 물어볼 자리가 없었다.
+ * 그 결과 폰을 바꾼 운영자는 **마지막 한 장을 쓴 사실을 다 쓴 뒤에야** 알았고, 그 시점엔
+ * 재등록 입구(MfaDisableForm)조차 코드를 요구하므로 `admin_users` 직접 UPDATE 말고는
+ * 길이 없었다 — 라운드 63이 없애려던 바로 그 상태다.
+ *
+ * 잔량 노출이 공격자에게 주는 정보는 "몇 번 더 시도할 수 있나"가 아니다: 복구 코드는
+ * 추측 대상이 아니라 소지 대상이고, 이 값은 **로그인을 마친 세션에만** 보인다(login의 ok
+ * 분기 · verify-login · me — 셋 다 세션이 발급된 뒤다). 다음 라운드가 이 판단을 되돌리지
+ * 않도록 근거를 여기에 남긴다.
+ */
+function recoveryCodesRemaining(admin: AdminUser): number {
+  return Array.isArray(admin.mfaRecoveryCodes) ? admin.mfaRecoveryCodes.length : 0;
 }
 
 function requestContext(ip: string | null, userAgent: string | null) {
@@ -157,7 +184,8 @@ export class AdminAuthService {
       adminUserId: admin.id,
       ...requestContext(ip, userAgent)
     });
-    return { status: "ok", admin: toProfile(admin), mfaEnabled: false, session };
+    // MFA 미등록 분기라 복구 코드도 아직 없다(등록을 마칠 때 10장이 발급된다).
+    return { status: "ok", admin: toProfile(admin), mfaEnabled: false, mfaRecoveryCodesRemaining: 0, session };
   }
 
   async verifyLoginMfa(
@@ -165,14 +193,19 @@ export class AdminAuthService {
     code: string,
     ip: string,
     userAgent: string | null
-  ): Promise<{ admin: AdminProfile; mfaEnabled: true; session: { token: string; expiresAt: Date } }> {
+  ): Promise<{
+    admin: AdminProfile;
+    mfaEnabled: true;
+    mfaRecoveryCodesRemaining: number;
+    session: { token: string; expiresAt: Date };
+  }> {
     const payload = verifyAdminMfaPendingToken(mfaToken);
     const admin = await this.prisma.adminUser.findUnique({ where: { id: payload.adminId } });
     if (!admin || !admin.active || !admin.mfaEnabledAt || !admin.totpSecret) {
       throw new UnauthorizedException({ code: "ADMIN_MFA_TOKEN_INVALID", message: "다시 로그인해주세요." });
     }
 
-    const { valid, recoveryCodeUsed } = await this.verifyMfaCode(admin, code);
+    const { valid, recoveryCodeUsed, recoveryCodesRemaining: remaining } = await this.verifyMfaCode(admin, code);
     if (!valid) {
       this.recordMfaFailure(admin.id);
       await this.auditLogger.record({
@@ -198,7 +231,10 @@ export class AdminAuthService {
       adminUserId: admin.id,
       ...requestContext(ip, userAgent)
     });
-    return { admin: toProfile(admin), mfaEnabled: true, session };
+    // 라운드 64 D(#7): 잔량은 **이번 로그인에서 소모한 뒤**의 값이다 — `admin` 행은 코드
+    // 소모 전에 읽은 스냅샷이라 그 배열을 다시 세면 방금 태운 한 장이 남아 있는 것처럼
+    // 보인다. 그래서 verifyMfaCode가 갱신 후 개수를 함께 돌려준다.
+    return { admin: toProfile(admin), mfaEnabled: true, mfaRecoveryCodesRemaining: remaining, session };
   }
 
   async startMfaSetup(admin: AdminUser): Promise<{ otpauthUrl: string; secret: string; email: string }> {
@@ -349,15 +385,24 @@ export class AdminAuthService {
     });
   }
 
-  me(admin: AdminUser): { admin: AdminProfile; mfaEnabled: boolean } {
-    return { admin: toProfile(admin), mfaEnabled: !!admin.mfaEnabledAt };
+  me(admin: AdminUser): { admin: AdminProfile; mfaEnabled: boolean; mfaRecoveryCodesRemaining: number } {
+    return {
+      admin: toProfile(admin),
+      mfaEnabled: !!admin.mfaEnabledAt,
+      // 후방 호환 가산 필드 — `mfaEnabled` 불리언은 그대로다(구버전 어드민 번들 무영향).
+      mfaRecoveryCodesRemaining: recoveryCodesRemaining(admin)
+    };
   }
 
-  private async verifyMfaCode(admin: AdminUser, code: string): Promise<{ valid: boolean; recoveryCodeUsed: boolean }> {
+  private async verifyMfaCode(
+    admin: AdminUser,
+    code: string
+  ): Promise<{ valid: boolean; recoveryCodeUsed: boolean; recoveryCodesRemaining: number }> {
     this.mfa.limiter.assertNotLocked(admin.id);
+    const remainingBefore = recoveryCodesRemaining(admin);
 
     if (admin.totpSecret && (await this.mfa.verifyTotp(admin.totpSecret, code))) {
-      return { valid: true, recoveryCodeUsed: false };
+      return { valid: true, recoveryCodeUsed: false, recoveryCodesRemaining: remainingBefore };
     }
 
     const storedRecoveryCodes = Array.isArray(admin.mfaRecoveryCodes) ? (admin.mfaRecoveryCodes as string[]) : [];
@@ -365,11 +410,12 @@ export class AdminAuthService {
       const { matched, remaining } = this.mfa.consumeRecoveryCode(storedRecoveryCodes, code);
       if (matched) {
         await this.prisma.adminUser.update({ where: { id: admin.id }, data: { mfaRecoveryCodes: remaining } });
-        return { valid: true, recoveryCodeUsed: true };
+        // 방금 태운 한 장을 뺀 값(라운드 64 D #7). 호출부의 `admin` 행은 소모 전 스냅샷이다.
+        return { valid: true, recoveryCodeUsed: true, recoveryCodesRemaining: remaining.length };
       }
     }
 
-    return { valid: false, recoveryCodeUsed: false };
+    return { valid: false, recoveryCodeUsed: false, recoveryCodesRemaining: remainingBefore };
   }
 
   private recordMfaFailure(adminId: string) {

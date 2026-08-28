@@ -621,11 +621,21 @@ export default function ReportsScreen() {
   // 달의 "8월 1일~27일 기준" 줄은 **인사이트 하나에서만** 나온다 — 이 화면이 yearMonth/todayIso를
   // 공유 조립기에 따로 넘기면 두 소스가 어긋나 부분 구간 합계가 한 달치처럼 나갈 수 있었다.
   // 카드가 없으면(말할 근거 없음) null이라 버튼도 붙지 않는다.
+  //
+  // GAP-064 #3 — 화면 머리의 대기 고지가 **공유 문구에는 따라가지 않던** 자리를 닫는다. 화면은
+  // "기록 3건은 아래 숫자에 아직 반영되지 않았어요"를 이미 그리고 있는데, 그 아래 버튼이 내보내는
+  // 금액에는 그 3건이 빠진 채 아무 말도 붙지 않았다 — 보낸 사람만 고지를 본 셈이다.
+  // 넘기는 것은 **위에서 이미 센 그 값 하나**다(`pendingScopeNotice`): 같은 스냅숏·같은 판정이라
+  // 새 요청도 새 집계도 0건이고, 화면의 고지와 공유의 고지가 서로 다른 건수를 말할 자리가 없다.
+  // 기간 게이트를 여기서 명시하는 이유: 그 고지는 **선택한 기간**(월/분기/연)을 세므로 월간이
+  // 아닐 때 그대로 넘기면 분기·연 건수가 "2026년 8월" 카드에 실린다. 지금은 인사이트가 월간에만
+  // 만들어져 결과적으로 막히지만(그러면 문구 자체가 null), 정확성을 그 우연에 기대지 않는다.
   const monthlyShareMessage = buildMonthlyShareMessage({
     monthLabel: reportMonthLabel,
     childName: shareChildName,
     totalExpenseKrw: monthly.data?.totalExpenseKrw ?? 0,
-    insight: monthlyInsight
+    insight: monthlyInsight,
+    pending: period === "월간" ? pendingScopeNotice : null
   });
   const shareMonthlySummary = async () => {
     if (!monthlyShareMessage) return;

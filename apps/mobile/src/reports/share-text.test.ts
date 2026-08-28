@@ -1,6 +1,17 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { cumulativeTotalPendingNoticeText } from "../home/cumulative-total";
 import { buildMonthlyInsight, partialMonthRangeLine, type MonthlyInsight, type MonthlyInsightCategory } from "./monthly-insight";
-import { buildMonthlyShareMessage, joinShareLines, SHARE_APP_LINE, shareTopCategoryLine, shareTotalLine } from "./share-text";
+import { reportPendingScopeNoticeText } from "./pending-scope-notice";
+import {
+  buildMonthlyShareMessage,
+  joinShareLines,
+  monthlySharePendingLine,
+  SHARE_APP_LINE,
+  shareTopCategoryLine,
+  shareTotalLine
+} from "./share-text";
 
 const categoryLabel = (categoryId: string) =>
   ({ "cat-diaper": "기저귀/위생", "cat-feed": "수유/이유식", "cat-cloth": "의류" })[categoryId] ?? "기타";
@@ -75,7 +86,8 @@ describe("UX-H 월간 요약 공유 문구", () => {
       monthLabel: "2026년 8월",
       childName: "다온이",
       totalExpenseKrw: 1_000_000,
-      insight
+      insight,
+      pending: null
     });
 
     expect(message).not.toBeNull();
@@ -99,7 +111,8 @@ describe("UX-H 월간 요약 공유 문구", () => {
       monthLabel: "2026년 7월",
       childName: "다온이",
       totalExpenseKrw: 1_000_000,
-      insight
+      insight,
+      pending: null
     });
 
     expect(message).not.toBeNull();
@@ -117,7 +130,8 @@ describe("UX-H 월간 요약 공유 문구", () => {
       monthLabel: "2026년 8월",
       childName: "다온이",
       totalExpenseKrw: 1_245_700,
-      insight: insightFor({ yearMonth: "2026-08", todayIso: "2026-08-27", totalExpenseKrw: 1_245_700 })
+      insight: insightFor({ yearMonth: "2026-08", todayIso: "2026-08-27", totalExpenseKrw: 1_245_700 }),
+      pending: null
     });
 
     expect(message).toContain("함께한 지출 1,245,700원");
@@ -139,7 +153,8 @@ describe("UX-H 월간 요약 공유 문구", () => {
       monthLabel: "2026년 8월",
       childName: "다온이",
       totalExpenseKrw: 1_000_000,
-      insight
+      insight,
+      pending: null
     });
 
     expect(message).toContain(insight!.shareableHeadline!);
@@ -174,7 +189,8 @@ describe("UX-H 월간 요약 공유 문구", () => {
         monthLabel: "2026년 8월",
         childName: "다온이",
         totalExpenseKrw: 1_000_000,
-        insight
+        insight,
+        pending: null
       })!;
 
       expect(message, String(categoryTop)).not.toContain("예산");
@@ -205,7 +221,8 @@ describe("UX-H 월간 요약 공유 문구", () => {
         monthLabel: "2026년 8월",
         childName: "다온이",
         totalExpenseKrw: 1_000_000,
-        insight: mismatched
+        insight: mismatched,
+        pending: null
       })
     ).toBeNull();
 
@@ -222,7 +239,8 @@ describe("UX-H 월간 요약 공유 문구", () => {
         monthLabel: "2026년 7월",
         childName: "다온이",
         totalExpenseKrw: 1_000_000,
-        insight: complete
+        insight: complete,
+        pending: null
       })
     ).not.toBeNull();
   });
@@ -230,12 +248,13 @@ describe("UX-H 월간 요약 공유 문구", () => {
   it("말할 근거가 없으면(인사이트 없음·총액 0원) null이라 공유 버튼도 붙지 않는다", () => {
     const base = { monthLabel: "2026년 8월", childName: "다온이" };
 
-    expect(buildMonthlyShareMessage({ ...base, totalExpenseKrw: 1_000_000, insight: null })).toBeNull();
+    expect(buildMonthlyShareMessage({ ...base, totalExpenseKrw: 1_000_000, insight: null, pending: null })).toBeNull();
     expect(
       buildMonthlyShareMessage({
         ...base,
         totalExpenseKrw: 0,
-        insight: insightFor({ yearMonth: "2026-08", todayIso: "2026-08-27", totalExpenseKrw: 1_000_000 })
+        insight: insightFor({ yearMonth: "2026-08", todayIso: "2026-08-27", totalExpenseKrw: 1_000_000 }),
+        pending: null
       })
     ).toBeNull();
   });
@@ -245,7 +264,8 @@ describe("UX-H 월간 요약 공유 문구", () => {
       monthLabel: "2026년 8월",
       childName: "콩콩이",
       totalExpenseKrw: 1_000_000,
-      insight: insightFor({ yearMonth: "2026-08", todayIso: "2026-08-27", totalExpenseKrw: 1_000_000 })
+      insight: insightFor({ yearMonth: "2026-08", todayIso: "2026-08-27", totalExpenseKrw: 1_000_000 }),
+      pending: null
     });
 
     expect(message!.endsWith(SHARE_APP_LINE)).toBe(true);
@@ -262,11 +282,157 @@ describe("UX-H 월간 요약 공유 문구", () => {
       monthLabel: "2026년 8월",
       childName: "다온이",
       totalExpenseKrw: 1_000_000,
-      insight: insightFor({ yearMonth: "2026-08", todayIso: "2026-08-27", totalExpenseKrw: 1_000_000 })
+      insight: insightFor({ yearMonth: "2026-08", todayIso: "2026-08-27", totalExpenseKrw: 1_000_000 }),
+      pending: null
     })!;
 
     for (const banned of ["잘하고 있어요", "줄여보세요", "아껴", "최고예요", "절약"]) {
       expect(message, banned).not.toContain(banned);
     }
+  });
+});
+
+/**
+ * GAP-064 #3 — **공유 문구의 대기 고지.**
+ *
+ * 라운드 63이 대기 고지를 화면 세 자리(홈 누적·홈 마일스톤 부제·리포트 누적)로 넓혔지만, 그
+ * 숫자를 앱 밖으로 내보내는 이 경로만 지나치지 않았다. 보낸 사람은 화면에서 "3건은 아직 반영되지
+ * 않았어요"를 봤는데 받는 사람이 받는 것은 그 3건이 빠진 금액뿐이었다 — 이 모듈이 구간 줄
+ * ("8월 1일~27일 기준")로 이미 없앤 결함과 같은 모양이다.
+ *
+ * 여기서 고정하는 것은 셋이다: (1) 줄이 서는 **자리**, (2) 문구가 **한 벌**이라는 사실
+ * (화면 고지·누적 카드와 지시어 하나만 다르다), (3) **대기 0건이면 종전과 바이트가 같다**.
+ */
+describe("GAP-064 #3 월간 공유 문구의 대기 고지", () => {
+  const base = { monthLabel: "2026년 8월", childName: "다온이", totalExpenseKrw: 1_000_000 } as const;
+  const inProgress = () => insightFor({ yearMonth: "2026-08", todayIso: "2026-08-27", totalExpenseKrw: 1_000_000 });
+
+  it("금액을 한정하는 자리에 선다 — 구간 줄 다음, 인사이트 문장 앞", () => {
+    const insight = inProgress();
+    const message = buildMonthlyShareMessage({ ...base, insight, pending: { count: 3, unsendableCount: 0 } });
+
+    expect(message!.split("\n")).toEqual([
+      "📊 다온이의 2026년 8월",
+      "함께한 지출 1,000,000원",
+      "8월 1일~27일 기준",
+      "동기화 대기 중인 기록 3건은 이 금액에 아직 반영되지 않았어요.",
+      insight!.headline,
+      SHARE_APP_LINE
+    ]);
+  });
+
+  it("구간 줄이 없는(이미 끝난) 달에는 금액 바로 아래에 선다", () => {
+    const insight = insightFor({
+      yearMonth: "2026-07",
+      todayIso: "2026-08-27",
+      totalExpenseKrw: 1_000_000,
+      previousMonthTotalKrw: 1_200_000
+    });
+    const message = buildMonthlyShareMessage({
+      ...base,
+      monthLabel: "2026년 7월",
+      insight,
+      pending: { count: 1, unsendableCount: 0 }
+    });
+
+    expect(message!.split("\n")).toEqual([
+      "📊 다온이의 2026년 7월",
+      "함께한 지출 1,000,000원",
+      "동기화 대기 중인 기록 1건은 이 금액에 아직 반영되지 않았어요.",
+      insight!.headline,
+      SHARE_APP_LINE
+    ]);
+  });
+
+  /**
+   * 문구를 두 벌로 만들지 않는다. 화면 고지(`reportPendingScopeNoticeText` — "아래 숫자에")와
+   * 이 줄은 **지시어 하나만** 다르고, 그 갈래를 이미 들고 있는 함수를 그대로 부른다
+   * (src/home/cumulative-total.ts의 같은 계약과 같은 모양의 검산이다).
+   */
+  it("문구는 화면 고지와 한 벌이다 — 지시어만 '아래 숫자에' → '이 금액에'", () => {
+    for (const [count, unsendableCount] of [
+      [1, 0],
+      [3, 0],
+      [5, 2],
+      [2, 2]
+    ] as const) {
+      const line = monthlySharePendingLine({ count, unsendableCount });
+
+      expect(line, `${count}/${unsendableCount}`).toBe(cumulativeTotalPendingNoticeText(count, unsendableCount));
+      expect(line).toBe(reportPendingScopeNoticeText(count, unsendableCount).replace("아래 숫자에", "이 금액에"));
+      // 세게 말하지 않는다: 이 모집단에는 삭제 대기 행(금액에 아직 들어 있다)이 섞인다.
+      expect(line).toContain("아직 반영되지 않았어요");
+      expect(line).not.toContain("빠져 있어요");
+    }
+  });
+
+  it("영구 실패가 섞이면 주어의 '동기화 대기' 수식이 떨어지고 뒷문장이 붙는다", () => {
+    const message = buildMonthlyShareMessage({ ...base, insight: inProgress(), pending: { count: 5, unsendableCount: 2 } })!;
+
+    expect(message).toContain("기록 5건은 이 금액에 아직 반영되지 않았어요. 그중 2건은 보낼 수 없는 기록이에요.");
+    expect(message).not.toContain("동기화 대기 중인 기록 5건");
+  });
+
+  /**
+   * **대다수 경로의 계약**: 대기가 없으면 공유 문구는 라운드 63까지와 **바이트가 같다**.
+   * (`null` = 셀 수 없음/비세션, `count: 0` = 세어 봤더니 0건 — 둘 다 줄이 없다.)
+   */
+  it("대기 0건이면 종전 문자열과 바이트가 같다", () => {
+    const insight = inProgress();
+    const previous = [
+      "📊 다온이의 2026년 8월",
+      "함께한 지출 1,000,000원",
+      "8월 1일~27일 기준",
+      insight!.headline,
+      SHARE_APP_LINE
+    ].join("\n");
+
+    for (const pending of [null, { count: 0, unsendableCount: 0 }] as const) {
+      expect(buildMonthlyShareMessage({ ...base, insight, pending }), String(pending)).toBe(previous);
+    }
+    expect(monthlySharePendingLine(null)).toBeNull();
+    expect(monthlySharePendingLine({ count: 0, unsendableCount: 0 })).toBeNull();
+  });
+
+  /**
+   * 공유를 접는 조건은 늘지 않는다. 구간 줄은 **말할 수 없는** 사실이라 빠지면 공유 자체를
+   * 접었지만(F-5), 대기 건수는 **말할 수 있는** 사실이다 — 말할 수 있는 것을 이유로 공유를
+   * 막는 것은 과하다. 반대로 F-5의 fail-safe는 대기가 있어도 그대로 작동한다.
+   */
+  it("대기가 있다고 공유를 접지 않는다 (F-5 fail-safe는 그대로)", () => {
+    expect(buildMonthlyShareMessage({ ...base, insight: inProgress(), pending: { count: 9, unsendableCount: 9 } })).not.toBeNull();
+
+    const mismatched: MonthlyInsight = { ...inProgress()!, partialRangeLine: null };
+    expect(buildMonthlyShareMessage({ ...base, insight: mismatched, pending: { count: 3, unsendableCount: 0 } })).toBeNull();
+  });
+
+  /** 카드에 실리는 것은 **건수 두 개**뿐이다 — 대기 행의 품목·금액·날짜·id는 입력에 없다. */
+  it("대기 고지가 새로 싣는 식별 정보는 없다", () => {
+    const message = buildMonthlyShareMessage({
+      ...base,
+      childName: "콩콩이",
+      insight: inProgress(),
+      pending: { count: 3, unsendableCount: 1 }
+    })!;
+
+    expect(message).not.toMatch(/https?:\/\//);
+    expect(message).not.toContain("@");
+    expect(message).not.toContain("cat-diaper");
+    // 건수 말고 다른 숫자가 대기 줄에 실리지 않는다.
+    const pendingLine = message.split("\n").find((line) => line.includes("반영되지 않았어요"))!;
+    expect(pendingLine.match(/\d+/g)).toEqual(["3", "1"]);
+  });
+
+  /** 이 모듈은 세지 않는다 — 건수는 화면 고지가 이미 센 값 하나다(집계 규칙이 두 벌이 되지 않게). */
+  it("건수를 다시 세지 않는다 — 오프라인 행을 입력으로 받지 않는다", () => {
+    const shareTextSource = readFileSync(join(process.cwd(), "src/reports/share-text.ts"), "utf8");
+
+    expect(shareTextSource).toContain('import type { PendingScopeBreakdown } from "./pending-scope-notice"');
+    expect(shareTextSource).not.toContain("evaluateReportPendingScopeNotice");
+    expect(shareTextSource).not.toContain("syncState");
+    // 문구도 조각에서 다시 조립하지 않는다(offline/messages.ts를 직접 읽는 순간 세 번째 벌이 된다).
+    expect(shareTextSource).toContain('import { cumulativeTotalPendingNoticeText } from "../home/cumulative-total"');
+    expect(shareTextSource).not.toContain("SYNC_ROW_PENDING_LABEL");
+    expect(shareTextSource).not.toContain("recordsCountPhrase");
   });
 });
