@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { router } from "expo-router";
 import { Text, TextInput, View } from "react-native";
 import {
   APP_LOCK_LOCK_NOW_A11Y_LABEL,
   APP_LOCK_LOCK_NOW_HINT,
   APP_LOCK_LOCK_NOW_LABEL,
+  APP_LOCK_LOCKOUT_CLEARED_NOTICE,
   APP_LOCK_PIN_FORMAT_NOTICE,
   APP_LOCK_PIN_INPUT_LABEL,
   APP_LOCK_PIN_LENGTH,
@@ -16,7 +17,8 @@ import {
   APP_LOCK_LOGOUT_UNSYNCED_LOSS_NOTICE,
   appLockLockoutNotice,
   appLockRemainingLockSeconds,
-  appLockWrongCurrentPinNotice
+  appLockWrongCurrentPinNotice,
+  isAppLockLockedOut
 } from "../../src/security/app-lock";
 import { useAppLockStore, type AppLockMutationResult } from "../../src/stores/app-lock.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -60,11 +62,59 @@ export default function AppLockSettingsScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const wasLockedOutRef = useRef(false);
+
+  /**
+   * 라운드 58 통합리뷰 P2-2 — 대기 안내는 **오버레이와 같은 패턴**이다(GAP-058 P3,
+   * src/security/AppLockOverlay.tsx).
+   *
+   * 무엇이 잘못돼 있었나: 이 화면은 대기 문구를 `setNotice(...)`로 상태에 **굳혀** 두었다.
+   * 문자열은 다시 계산되지 않으므로 "30초 남았어요"의 30이 그대로 멈춰 있고, 30초가 지나
+   * 이미 입력할 수 있게 된 뒤에도 그 문장이 화면에 남았다 — 기다릴 필요가 없는 사람에게
+   * 기다리라고 말하는 거짓이 된다(오버레이가 같은 이유로 이미 고친 결함이다).
+   *
+   * 그래서 같은 네 조각을 그대로 가져온다: 잠금 기록 구독(record) · 매 렌더 계산하는 안내 ·
+   * 1초 타이머 · 대기가 끝나는 순간의 APP_LOCK_LOCKOUT_CLEARED_NOTICE. 대기·남은 횟수 판정은
+   * 잠금 화면과 **같은 기록·같은 함수**를 지난다(입구가 둘이라고 시도 예산이 두 배가 되지 않게 —
+   * GAP-058 #2).
+   */
+  const lockedOut = isAppLockLockedOut(record, nowMs);
+  const lockoutNotice = lockedOut ? appLockLockoutNotice(appLockRemainingLockSeconds(record, nowMs)) : null;
+  /** 대기 중에는 계산된 남은 시간이 먼저다 — 1초마다 N이 실제로 줄어든다. */
+  const displayedNotice = lockoutNotice ?? notice;
 
   useEffect(() => {
     if (!hasSession) return;
     void useAppLockStore.getState().load();
   }, [hasSession]);
+
+  // 대기 중에만 1초마다 다시 그린다(대기가 아니면 타이머를 걸지 않는다 — 오버레이와 같다).
+  useEffect(() => {
+    if (!lockedOut) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [lockedOut]);
+
+  /**
+   * 대기 → 입력 가능으로 넘어가는 순간의 안내 갱신. 위 타이머가 nowMs를 밀어 lockedOut이
+   * false가 되면 여기서 문구를 다시 말한다 — 대기 안내를 읽고 기다리던 사람이 화면을 다시
+   * 보지 않아도 되도록 낭독(announceForA11y)도 함께 한다.
+   *
+   * 폼을 닫아 둔 상태(idle)에서는 말하지 않는다: 입력칸이 없는 화면에 "이제 다시 입력할 수
+   * 있어요"만 떠 있으면 무엇에 대한 말인지 알 수 없다.
+   */
+  useEffect(() => {
+    if (lockedOut) {
+      wasLockedOutRef.current = true;
+      return;
+    }
+    const wasLockedOut = wasLockedOutRef.current;
+    wasLockedOutRef.current = false;
+    if (!wasLockedOut || mode === "idle") return;
+    setNotice(APP_LOCK_LOCKOUT_CLEARED_NOTICE);
+    announceForA11y(APP_LOCK_LOCKOUT_CLEARED_NOTICE);
+  }, [lockedOut, mode]);
 
   const resetForm = (next: Mode) => {
     setMode(next);
@@ -97,10 +147,27 @@ export default function AppLockSettingsScreen() {
     if (result === "locked-out") return appLockLockoutNotice(appLockRemainingLockSeconds(record, nowMs));
     if (result === "wrong-pin") {
       // 방금 5회째를 채웠다면 이 문구가 곧바로 대기 안내로 바뀐다(같은 판정 한 벌).
+      // 라운드 58 통합리뷰 P2-2: 그렇게 굳은 문자열도 대기 동안에는 위 lockoutNotice가 덮고,
+      // 대기가 끝나는 순간 위 효과가 APP_LOCK_LOCKOUT_CLEARED_NOTICE로 갈아 끼운다.
       return record ? appLockWrongCurrentPinNotice(record, nowMs) : APP_LOCK_PIN_FORMAT_NOTICE;
     }
     if (result === "save-failed") return APP_LOCK_SAVE_FAILED_NOTICE;
     return APP_LOCK_PIN_FORMAT_NOTICE;
+  };
+
+  /**
+   * 라운드 58 통합리뷰 P2-2 — 제출 직전에 "지금"을 다시 읽는다. 이 값이 낡아 있으면 남은 초가
+   * 실제보다 길게 보이고(마지막 렌더 시점 기준) 대기 판정도 한 박자 늦는다.
+   * 대기 중이면 스토어를 부르지 않는다: 그 호출은 정의상 `locked-out`으로 끝나고, 문구는 이미
+   * 화면에 흐르고 있다(낭독만 한 번 더 한다 — 오버레이 submit과 같은 순서다).
+   */
+  const beginSubmit = (now: number): boolean => {
+    setNowMs(now);
+    if (isAppLockLockedOut(useAppLockStore.getState().record, now)) {
+      announceForA11y(appLockLockoutNotice(appLockRemainingLockSeconds(useAppLockStore.getState().record, now)));
+      return false;
+    }
+    return true;
   };
 
   const submitEnable = async () => {
@@ -109,6 +176,7 @@ export default function AppLockSettingsScreen() {
       return;
     }
     const now = Date.now();
+    if (!beginSubmit(now)) return;
     setBusy(true);
     const result = await useAppLockStore.getState().enableLock(nextPin);
     setBusy(false);
@@ -125,6 +193,7 @@ export default function AppLockSettingsScreen() {
       return;
     }
     const now = Date.now();
+    if (!beginSubmit(now)) return;
     setBusy(true);
     const result = await useAppLockStore.getState().changePin(currentPin, nextPin, now);
     setBusy(false);
@@ -137,6 +206,7 @@ export default function AppLockSettingsScreen() {
 
   const submitDisable = async () => {
     const now = Date.now();
+    if (!beginSubmit(now)) return;
     setBusy(true);
     const result = await useAppLockStore.getState().disableLock(currentPin, now);
     setBusy(false);
@@ -162,6 +232,9 @@ export default function AppLockSettingsScreen() {
   const pinField = (label: string, value: string, onChange: (next: string) => void) => (
     <TextInput
       accessibilityLabel={label}
+      // 라운드 58 통합리뷰 P2-2: 대기 중에는 입력칸도 잠근다(오버레이의 `editable={!lockedOut}`와
+      // 같다). 받을 수 없는 입력을 받아 두면 사용자는 다 치고 나서야 막힌 것을 안다.
+      editable={!lockedOut}
       keyboardType="number-pad"
       maxLength={APP_LOCK_PIN_LENGTH}
       onChangeText={(text) => onChange(text.replace(/[^0-9]/g, ""))}
@@ -247,13 +320,13 @@ export default function AppLockSettingsScreen() {
             {pinField(APP_LOCK_PIN_INPUT_LABEL, nextPin, setNextPin)}
             <Text style={rowTitleStyle}>한 번 더 입력</Text>
             {pinField("PIN 4자리 다시 입력", confirmPin, setConfirmPin)}
-            {notice ? (
+            {displayedNotice ? (
               <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>
-                {notice}
+                {displayedNotice}
               </Text>
             ) : null}
             <PrimaryButton
-              disabled={busy || nextPin.length !== APP_LOCK_PIN_LENGTH || confirmPin.length !== APP_LOCK_PIN_LENGTH}
+              disabled={busy || lockedOut || nextPin.length !== APP_LOCK_PIN_LENGTH || confirmPin.length !== APP_LOCK_PIN_LENGTH}
               label="잠금 켜기"
               onPress={() => {
                 void submitEnable();
@@ -271,14 +344,15 @@ export default function AppLockSettingsScreen() {
             {pinField(APP_LOCK_PIN_INPUT_LABEL, nextPin, setNextPin)}
             <Text style={rowTitleStyle}>한 번 더 입력</Text>
             {pinField("PIN 4자리 다시 입력", confirmPin, setConfirmPin)}
-            {notice ? (
+            {displayedNotice ? (
               <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>
-                {notice}
+                {displayedNotice}
               </Text>
             ) : null}
             <PrimaryButton
               disabled={
                 busy ||
+                lockedOut ||
                 currentPin.length !== APP_LOCK_PIN_LENGTH ||
                 nextPin.length !== APP_LOCK_PIN_LENGTH ||
                 confirmPin.length !== APP_LOCK_PIN_LENGTH
@@ -297,13 +371,13 @@ export default function AppLockSettingsScreen() {
             <Text style={rowTitleStyle}>지금 쓰는 PIN</Text>
             {pinField("지금 쓰는 PIN 4자리", currentPin, setCurrentPin)}
             <Text style={rowSubtitleStyle}>잠금을 끄면 앱을 열 때 PIN을 묻지 않아요.</Text>
-            {notice ? (
+            {displayedNotice ? (
               <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>
-                {notice}
+                {displayedNotice}
               </Text>
             ) : null}
             <PrimaryButton
-              disabled={busy || currentPin.length !== APP_LOCK_PIN_LENGTH}
+              disabled={busy || lockedOut || currentPin.length !== APP_LOCK_PIN_LENGTH}
               label="잠금 끄기"
               onPress={() => {
                 void submitDisable();

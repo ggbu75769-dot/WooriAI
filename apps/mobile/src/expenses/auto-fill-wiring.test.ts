@@ -278,7 +278,10 @@ describe("GAP-056 #1 텍스트 길이 가드 배선 (빠른 기록 시트)", () 
     expect(newExpenseSource).toContain("itemNameOverLimitMessage()");
     expect(newExpenseSource).toContain("merchantOverLimitMessage()");
     expect(newExpenseSource).toContain("memoOverLimitMessage()");
-    expect(newExpenseSource).toContain("const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;");
+    // 라운드 58 통합리뷰 P1-1: 같은 한 줄에 아이 어긋남 가드가 합류했다(가드는 여전히 한 곳이다).
+    expect(newExpenseSource).toContain(
+      "const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0 || failedRowChildMismatch;"
+    );
     expect(newExpenseSource).toContain("{textOverLimitNotices.map((notice) => (");
     // 문구를 화면에 다시 쓰지 않는다(지출 상세와 두 문장으로 갈리지 않게).
     expect(newExpenseSource).not.toContain("자까지 입력할 수 있어요");
@@ -298,7 +301,9 @@ describe("GAP-056 #1 텍스트 길이 가드 배선 (빠른 기록 시트)", () 
     expect(noticeStart).toBeGreaterThan(0);
     expect(noticeEnd).toBeGreaterThan(noticeStart);
     const noticeBlock = newExpenseSource.slice(noticeStart, noticeEnd);
-    expect(noticeBlock.match(/color: theme\.colors\.danger, fontSize: 12/g) ?? []).toHaveLength(2);
+    // 라운드 58 통합리뷰 P1-1: 이 구간의 "저장을 막는 이유" 문구가 셋이 됐다(금액 · 길이 · 아이
+    // 어긋남). 셋 다 같은 색이어야 한다는 규칙은 그대로다.
+    expect(noticeBlock.match(/color: theme\.colors\.danger, fontSize: 12/g) ?? []).toHaveLength(3);
     expect(noticeBlock).not.toContain("theme.colors.coral[700]");
     // 지출 상세가 같은 문장들에 쓰는 색 그대로다.
     for (const field of ["itemNameError", "merchantError", "memoError", "amountError"]) {

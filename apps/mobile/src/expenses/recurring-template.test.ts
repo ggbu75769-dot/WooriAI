@@ -563,6 +563,35 @@ describe("라운드 58 #1 역방향 프리필 (지출 → 정기 지출)", () =>
     expect(recurringTemplatePrefillParams({})).toBeNull();
   });
 
+  /**
+   * 라운드 58 통합리뷰 P2-3 — 품목명이 계약 상한(100자)을 넘는 행에서는 버튼이 서지 않는다.
+   *
+   * 엑셀 가져오기를 거친 기록은 실제로 101~120자 품목명을 들고 있을 수 있다(가져오기 컬럼은
+   * varchar(120)). 그대로 프리필하면 폼은 채워진 채 열리지만 저장은 상한 문구로 막히고, 칸의
+   * maxLength가 새 글자만 막으므로 사용자는 그 칸을 다 지우기 전까지 빠져나갈 수 없다.
+   */
+  it("품목명이 상한을 넘는 행에서는 프리필을 만들지 않는다 (열자마자 막히는 폼을 열지 않는다)", () => {
+    const boundary = "가".repeat(RECURRING_ITEM_NAME_MAX_LENGTH);
+    const over = "가".repeat(RECURRING_ITEM_NAME_MAX_LENGTH + 1);
+
+    // 경계(정확히 100자)는 저장 가능한 값이므로 그대로 열린다.
+    expect(recurringTemplatePrefillParams({ ...expenseRow, itemName: boundary })?.itemName).toBe(boundary);
+    expect(recurringTemplatePrefillParams({ ...expenseRow, itemName: over })).toBeNull();
+    // 판정은 **저장할 값**(trim된 문자열)으로 한다 — 공백만으로 상한을 넘긴 값은 통과한다.
+    expect(recurringTemplatePrefillParams({ ...expenseRow, itemName: `  ${boundary}  ` })?.itemName).toBe(boundary);
+    // 저장 검증과 같은 자를 쓴다(같은 값이 폼에서도 같은 이유로 막힌다).
+    expect(
+      recurringTemplateValidationError({
+        childId: CHILD,
+        itemName: over,
+        amountKrw: 38_500,
+        categoryId: CATEGORY,
+        paymentMethod: "card",
+        dayOfMonth: 27
+      })
+    ).toBe(RECURRING_ITEM_NAME_TOO_LONG_MESSAGE);
+  });
+
   it("모르는 값은 키 자체를 싣지 않는다 (화면 기본값이 그대로 남는다)", () => {
     const params = recurringTemplatePrefillParams({
       ...expenseRow,
@@ -612,6 +641,10 @@ describe("라운드 58 #1 역방향 프리필 (지출 → 정기 지출)", () =>
     // 파싱도 그 계약의 파서를 그대로 지난다(방어 규칙이 두 벌이 되지 않게).
     const moduleSource = source("src/expenses/recurring-template.ts");
     expect(moduleSource).toContain("parseExpensePrefillParams(params)");
+    // 라운드 58 통합리뷰 P2-6: 파라미터 정규화(string | string[])도 그 계약의 함수를 쓴다 —
+    // 사본이 남아 있으면 언젠가 한쪽만 고쳐져 같은 링크가 화면마다 다른 값을 채운다.
+    expect(moduleSource).toContain("firstPrefillParamValue");
+    expect(moduleSource).not.toContain("function firstParamValue(");
   });
 
   it("결제일은 그 지출의 날짜에서 읽고 지어내지 않는다", () => {

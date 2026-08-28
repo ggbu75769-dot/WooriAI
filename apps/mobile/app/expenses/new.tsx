@@ -76,6 +76,7 @@ import {
 } from "../../src/expenses/quick-expense-catalog";
 import { parseExpensePrefillParams } from "../../src/expenses/record-row-actions";
 import {
+  isFailedRowChildMismatch,
   NO_FAILED_ROW_PREFILL_DATE,
   parseFailedRowLocalId,
   parseFailedRowPrefillText,
@@ -115,7 +116,10 @@ import { previousYearMonth } from "../../src/home/last-month-comparison";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
-import { FAILED_ROW_PREFILL_DATE_RESET_NOTICE } from "../../src/offline/messages";
+import {
+  FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE,
+  FAILED_ROW_PREFILL_DATE_RESET_NOTICE
+} from "../../src/offline/messages";
 import { createExpenseOffline } from "../../src/offline/sync-controller";
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { discardOfflineMutation } from "../../src/offline/sync-controller";
@@ -406,6 +410,9 @@ export default function NewExpenseScreen() {
     memo?: string;
     spentOn?: string;
     failedLocalId?: string;
+    // 라운드 58 통합리뷰 P1-1: 그 행이 **어느 아이의 기록인가**. 지금 선택된 아이와 어긋나면
+    // 저장을 막고 사실을 말한다(아래 failedRowChildMismatch — 이중 방어의 둘째 겹).
+    childId?: string;
   }>();
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
   /**
@@ -586,6 +593,24 @@ export default function NewExpenseScreen() {
     ? resolveFailedRowPrefillDate(params.spentOn, initialExpenseDate.iso)
     : NO_FAILED_ROW_PREFILL_DATE;
   const [expenseDateIso, setExpenseDateIso] = useState(() => prefilledSpentOn.spentOn ?? initialExpenseDate.iso);
+  /**
+   * 라운드 58 통합리뷰 P3-7·P3-8 — 지금 화면의 날짜를 **프리필이 정했는가**(사용자가 아직 손대지
+   * 않았는가).
+   *
+   * 왜 `expenseDateIso === initialExpenseDate.iso`로는 부족했나(P3-7): 폴백 안내는 "오늘로
+   * 두었어요"라고 말하는데, 사용자가 어제로 옮겼다가 다시 오늘 칩을 누르면 그 비교가 다시
+   * 참이 되어 **이미 스스로 고른 사람에게 안내가 되살아났다**. 날짜 값이 아니라 "누가 정했는가"를
+   * 물어야 하는 자리다.
+   *
+   * 연속 기록에서도 같은 값을 본다(P3-8): 프리필이 물려준 날짜는 다음 항목으로 승계하지 않고
+   * 오늘로 되돌리고(resetFormForNextEntry), 사용자가 직접 고른 날짜는 그대로 승계한다.
+   *
+   * 초기값: 프리필이 날짜를 정했거나(spentOn) 정하려다 오늘로 물러선(fellBackToToday) 경우에만
+   * true다. 다른 진입점에서는 언제나 false라 종전과 동작이 같다.
+   */
+  const [dateFollowsPrefill, setDateFollowsPrefill] = useState(
+    () => prefilledSpentOn.spentOn !== null || prefilledSpentOn.fellBackToToday
+  );
   const expenseDate = authToken ? formatExpenseDate(new Date(`${expenseDateIso}T00:00:00`)) : previewExpenseDate;
   // GAP-054 #7: 달력 픽커의 "오늘" 기준일. `today`는 이미 getSeoulToday()로 만든 서울 날짜라
   // 여기서 시계를 한 번 더 읽지 않는다(같은 렌더 안에서 두 날짜가 갈리지 않게).
@@ -976,6 +1001,25 @@ export default function NewExpenseScreen() {
   const resetFormForNextEntry = () => {
     setItemName("");
     setAmountText("");
+    /**
+     * 라운드 58 통합리뷰 P3-8 — 날짜 승계의 **예외 한 가지**.
+     *
+     * 날짜를 비우지 않는 근거(위 주석)는 "마트에서 같은 날 이어 적는다"이고, 그건 사용자가
+     * 스스로 고른 날짜에 대한 이야기다. "고쳐서 다시 보내기"가 물려준 날짜는 다르다: 그건 **그
+     * 실패 행 한 건의 날짜**이지 사용자가 지금 이어 적으려는 항목의 날짜가 아니다. 그대로
+     * 승계하면 이어 적은 새 항목이 몇 주 전 날짜로 조용히 저장되고, 그 달 합계가 사실과
+     * 어긋난다(사용자는 날짜 칸을 다시 보지 않는다 -- 방금 저장이 성공했으니까).
+     *
+     * 그래서 **프리필이 정한 날짜만** 오늘로 되돌리고, 사용자가 직접 고른 날짜는 그대로 둔다
+     * (dateFollowsPrefill이 그 둘을 가른다). 되돌린 뒤에는 프리필이 더는 이 칸을 정하지 않으므로
+     * 날짜 폴백 안내도 함께 사라진다 -- 새 항목에 대해서는 참이 아닌 문장이다.
+     */
+    if (dateFollowsPrefill) {
+      setExpenseDateIso(initialExpenseDate.iso);
+      setCustomDateMode(false);
+      setCustomDateText("");
+      setDateFollowsPrefill(false);
+    }
     // 라운드 49 C-03(a): 판매처도 함께 비운다. 같은 마트에서 이어 적는 경우가 많다고 해서
     // 값을 남겨 두면, 다른 곳에서 산 다음 항목에 **사용자가 적지 않은 판매처**가 조용히
     // 따라붙는다 -- 이 화면이 "계속 기록"에서 품목·금액을 비우는 것과 같은 판단이다.
@@ -1005,7 +1049,10 @@ export default function NewExpenseScreen() {
       // 로컬 저장을 먼저 성공시키고("기기에 저장했어요") flush에서 400을 만나 되살릴 수 없는
       // 실패 행이 된다(4xx는 재시도하지 않는다 — src/offline/remote-api.ts). 넘기는 값은
       // **실제로 보낼 값 그대로**다: 품목명은 원문(payload의 itemName), 판매처는 trim, 메모는 원문.
-      if (!authToken || !childId || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || isAmountOverLimitForSave({ hasSession: true, amountText }) || hasExpenseTextOverLimit({ itemName, merchant: merchant.trim(), memo }) || !itemName.trim() || Boolean(dateInputError)) {
+      // 라운드 58 통합리뷰 P1-1: 아이 어긋남도 **로컬 저장 전에** 여기서 한 번 더 막는다. 버튼은
+      // 이미 비활성이지만(isSaveBlocked), 저장 규칙이 화면 상태에만 있으면 다른 경로가 생겼을 때
+      // 조용히 빠져나가고 그 한 건이 다른 아이 밑으로 굳는다(그리고 원본 실패 행이 폐기된다).
+      if (!authToken || !childId || isFailedRowChildMismatch(params.childId, childId) || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || isAmountOverLimitForSave({ hasSession: true, amountText }) || hasExpenseTextOverLimit({ itemName, merchant: merchant.trim(), memo }) || !itemName.trim() || Boolean(dateInputError)) {
         throw new Error(INVALID_EXPENSE_INPUT_ERROR);
       }
       return createExpenseOffline(authToken, queryClient, {
@@ -1059,13 +1106,19 @@ export default function NewExpenseScreen() {
        * 폐기가 실패해도 저장을 되돌리지 않는다 -- 그 경우 남는 것은 "새 기록 + 원본 실패 행"
        * 이고, 사용자는 동기화 화면에서 그 행을 직접 버릴 수 있다. 반대 방향(새 기록을 지우는
        * 것)이 진짜 손실이다.
+       *
+       * 라운드 58 통합리뷰 P3-9 — **await하지 않는다(void)**. "저장 확정 후에만 버린다"는 계약은
+       * 그대로다: 이 줄은 여전히 onSuccess 안에만 있고(저장이 확정된 뒤에만 실행된다) onError는
+       * 원본을 건드리지 않는다. 바뀌는 것은 순서가 아니라 **대기**다. 폐기는 SQLite 쓰기라
+       * 느려질 수 있는데, await하면 그동안 성공 토스트·캐시 무효화·화면 이동이 전부 뒤로 밀려
+       * 저장이 끝났는데도 시트가 굳은 것처럼 보인다. 결과를 쓰는 곳이 없고 실패해도 무시하는
+       * 작업이라(위 문단) 지연을 이 자리에서 격리한다. catch는 그대로 둔다 -- 처리되지 않은
+       * 거절을 남기지 않기 위해서다.
        */
       if (failedLocalId) {
-        try {
-          await discardOfflineMutation(failedLocalId);
-        } catch {
+        void discardOfflineMutation(failedLocalId).catch(() => {
           // 무시한다(위 주석). 원본 행은 동기화 상태 화면에 그대로 남는다.
-        }
+        });
       }
       clearQuickExpenseDraft();
       setSaveErrorMessage(null);
@@ -1193,12 +1246,27 @@ export default function NewExpenseScreen() {
       ].filter((notice): notice is string => notice !== null)
     : [];
   /**
+   * 라운드 58 통합리뷰 P1-1 — **아이 어긋남 가드**(이중 방어의 둘째 겹).
+   *
+   * 첫 겹은 동기화 상태 화면이다: "고쳐서 다시 보내기"는 지금 선택된 아이의 실패 행에만 선다
+   * (app/sync-status.tsx). 그런데 이 시트가 열려 있는 동안에도 선택된 아이는 바뀔 수 있고
+   * (전역 스토어다), 딥링크·복원된 내비게이션 상태로 이 화면이 직접 열릴 수도 있다.
+   *
+   * 그 상태로 저장하면 아이 A의 지출이 B의 합계에 들어가고, 저장이 확정되는 순간 A의 원본
+   * 실패 행이 폐기된다(아래 onSuccess) — 되돌릴 원본이 없는 **데이터 손실**이다. 그래서 저장을
+   * 막고 아래 안내 한 줄로 이유를 말한다. 입력값은 그대로 남으므로 아이를 되돌리면 이어서
+   * 저장할 수 있다. 판정은 순수 모듈 한 곳에 있다(failed-row-prefill.ts).
+   *
+   * 이 파라미터를 싣지 않는 다른 진입점("또 기록"·준비템·정기 지출)에서는 언제나 false다.
+   */
+  const failedRowChildMismatch = Boolean(authToken) && isFailedRowChildMismatch(params.childId, childId);
+  /**
    * 저장 버튼을 잠그는 판정 한 곳. 금액 가드와 길이 가드가 **같은 자리**를 지나야 두 저장
    * 버튼(저장하기 · 저장하고 계속 기록)이 서로 다른 규칙으로 갈리지 않는다. 잠그기만 하고
    * 이유를 말하지 않으면 "왜 저장이 안 되지"만 남으므로, 두 가드 모두 버튼 바로 위에 안내
    * 한 줄을 세운다(아래). 뮤테이션 안에도 같은 판정이 한 번 더 있다 — 지출 상세와 같은 이중 가드.
    */
-  const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;
+  const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0 || failedRowChildMismatch;
   /**
    * 라운드 51 C-#5 — 분류 없이 저장을 눌렀을 때.
    *
@@ -1393,6 +1461,9 @@ export default function NewExpenseScreen() {
                   selected={!customDateMode && chip.iso === expenseDateIso}
                   onPress={() => {
                     setExpenseDateIso(chip.iso);
+                    // 라운드 58 통합리뷰 P3-7: 여기서부터 날짜는 **사용자가 정한 값**이다. 같은
+                    // 날짜를 다시 고르더라도 프리필로 되돌아가지 않는다(안내가 되살아나지 않게).
+                    setDateFollowsPrefill(false);
                     setCustomDateMode(false);
                     setCustomDateText("");
                   }}
@@ -1425,10 +1496,13 @@ export default function NewExpenseScreen() {
             눌려 있지 않다) -- 그래서 실제 저장될 날짜를 한 줄로 그대로 적는다. */}
         <Text style={{ color: theme.colors.gray600, fontSize: 11, fontWeight: "700" }}>{expenseDate.label}</Text>
         {/* 라운드 58 #5: 실패 행의 날짜를 그대로 쓸 수 없어 오늘로 물러선 경우에만 뜬다. 사용자가
-            날짜를 한 번이라도 옮기면(칩·달력·직접 입력) 사라진다 -- 이미 고른 뒤에도 남아 있으면
-            지금 화면과 어긋나는 말이 된다. 앱이 날짜를 지어내지 않는다는 사실 자체가 이 줄의
-            존재 이유다(문구는 src/offline/messages.ts 단일 소스). */}
-        {prefilledSpentOn.fellBackToToday && expenseDateIso === initialExpenseDate.iso ? (
+            날짜를 한 번이라도 고르면(칩·달력·직접 입력) 사라지고 **다시 나타나지 않는다** -- 이미
+            고른 뒤에도 남아 있으면 지금 화면과 어긋나는 말이 된다. 앱이 날짜를 지어내지 않는다는
+            사실 자체가 이 줄의 존재 이유다(문구는 src/offline/messages.ts 단일 소스).
+            라운드 58 통합리뷰 P3-7: 조건이 날짜 값 비교가 아니라 **누가 정했는가**(dateFollowsPrefill)
+            다. 값으로 비교하면 어제로 옮겼다가 오늘 칩을 다시 누른 사용자에게 안내가 되살아났다 --
+            스스로 오늘을 고른 사람에게 "오늘로 두었어요"는 사실이 아니다. */}
+        {prefilledSpentOn.fellBackToToday && dateFollowsPrefill ? (
           <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>{FAILED_ROW_PREFILL_DATE_RESET_NOTICE}</Text>
         ) : null}
 
@@ -1445,6 +1519,7 @@ export default function NewExpenseScreen() {
                 // 칩 탭과 **같은 상태 갱신**이다 -- 초안 자동 저장(spentOnIso)·요약 줄·
                 // 저장 payload가 전부 이 한 값(expenseDateIso)만 본다.
                 setExpenseDateIso(dateIso);
+                setDateFollowsPrefill(false);
                 setCustomDateMode(false);
                 setCustomDateText("");
               }}
@@ -1459,6 +1534,7 @@ export default function NewExpenseScreen() {
                   selected={!customDateMode && chip.iso === expenseDateIso}
                   onPress={() => {
                     setExpenseDateIso(chip.iso);
+                    setDateFollowsPrefill(false);
                     setCustomDateMode(false);
                     setCustomDateText("");
                   }}
@@ -1481,7 +1557,10 @@ export default function NewExpenseScreen() {
                     setCustomDateText(cleaned);
                     if (cleaned.length > 0) {
                       const error = validateExpenseDateInput(cleaned);
-                      if (!error) setExpenseDateIso(cleaned);
+                      if (!error) {
+                        setExpenseDateIso(cleaned);
+                        setDateFollowsPrefill(false);
+                      }
                     }
                   }}
                   placeholder="YYYY-MM-DD"
@@ -2080,6 +2159,20 @@ export default function NewExpenseScreen() {
               {notice}
             </Text>
           ))}
+          {/* 라운드 58 통합리뷰 P1-1 — 아이 어긋남 안내. 금액·길이 안내와 **같은 자리·같은 문법**
+              이다(저장 버튼 바로 위, danger, alert + live region): 저장 버튼이 잠기는 이유를
+              말하지 않으면 "왜 저장이 안 되지"만 남는다. 문구는 src/offline/messages.ts 단일
+              소스이고, 아이를 되돌리면 저절로 사라진다. 세션 없는 EXP-001 캡처에서는 언제나
+              false다(파라미터 자체가 올 수 없고 판정도 authToken 뒤에 있다). */}
+          {failedRowChildMismatch ? (
+            <Text
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={{ color: theme.colors.danger, fontSize: 12, fontWeight: "700" }}
+            >
+              {FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE}
+            </Text>
+          ) : null}
           <PrimaryButton
             disabled={saveExpense.isPending || isSaveBlocked}
             label={saveExpense.isPending ? "저장 중" : "저장하기"}

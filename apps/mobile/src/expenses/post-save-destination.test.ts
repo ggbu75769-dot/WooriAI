@@ -256,7 +256,10 @@ describe("라운드 48 T4(D1) 화면 배선 (app/expenses/new.tsx)", () => {
     // GAP-056 #1: 잠금 판정이 isAmountInvalid -> isSaveBlocked(금액 + 텍스트 길이 상한)로
     // 넓어졌다. 지키려는 것은 그대로다 -- 두 버튼이 **같은 한 줄**로 잠긴다.
     expect(newExpenseSource.match(/disabled=\{saveExpense\.isPending \|\| isSaveBlocked\}/g) ?? []).toHaveLength(2);
-    expect(newExpenseSource).toContain("const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0;");
+    // 라운드 58 통합리뷰 P1-1: 아이 어긋남 가드도 같은 한 줄에 있다.
+    expect(newExpenseSource).toContain(
+      "const isSaveBlocked = isAmountInvalid || textOverLimitNotices.length > 0 || failedRowChildMismatch;"
+    );
   });
 
   it("두 버튼 모두 보기 전용 게이트를 통과한다(라운드 40 J-1)", () => {

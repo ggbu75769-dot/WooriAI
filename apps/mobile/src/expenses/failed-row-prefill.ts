@@ -54,6 +54,21 @@ export const FAILED_ROW_LOCAL_ID_PARAM = "failedLocalId";
 export type FailedRowPrefillParams = {
   /** 원본 실패 행. 저장 확정 후 이 행을 버린다. */
   failedLocalId: string;
+  /**
+   * 라운드 58 통합리뷰 P1-1 — **이 행이 어느 아이의 기록인가**.
+   *
+   * 이 앱의 기록 시트는 언제나 *지금 선택된 아이* 밑으로 저장한다(new.tsx의 `childId`는
+   * selected-child.store에서 온다). 그런데 실패 행은 아이 A로 만들어졌을 수 있고, 사용자가
+   * 그 사이 아이 B로 전환해 두었을 수도 있다. 그 상태로 "고쳐서 다시 보내기"가 열리면 새
+   * 기록은 B 밑으로 저장되고 **A의 원본은 저장 확정과 함께 폐기된다** — 아이 A의 지출 한 건이
+   * 사용자가 고른 적 없는 아이로 옮겨 앉고, 되돌릴 원본도 없다(서버에 없는 행이다).
+   *
+   * 그래서 방어가 두 겹이다. 첫 겹은 화면이다: 동기화 상태 화면은 이 행이 선택된 아이의
+   * 것일 때만 버튼을 그린다(app/sync-status.tsx). 둘째 겹이 이 값이다 — 링크가 어떤 경로로
+   * 열리든(딥링크·복원된 내비게이션 상태) 시트가 스스로 어긋남을 알아채고 저장을 막는다
+   * (`isFailedRowChildMismatch`).
+   */
+  childId: string;
   itemName: string;
   amountKrw: string;
   /**
@@ -89,7 +104,7 @@ export type FailedRowPrefillInput = {
  * 화면은 버튼 자체를 내놓지 않는다(눌러도 아무 일이 없는 버튼을 만들지 않는 규칙 —
  * record-row-actions.ts 라운드 38 H-7과 같은 판단).
  *
- * null이 되는 세 경우:
+ * null이 되는 네 경우:
  *
  *  1. **선물·환불 행.** 이 시트가 만들 수 있는 구분은 지출/선물뿐이고(환불은 엑셀 가져오기·
  *     서버 경로로만 생긴다), 프리필 계약에는 구분을 싣는 파라미터가 없다. 그대로 열면 선물이
@@ -98,6 +113,9 @@ export type FailedRowPrefillInput = {
  *     "버리기"는 그대로 남으므로 사용자가 갇히지 않는다.
  *  2. **품목명이 빈 행**(손상·레거시 데이터). 시트의 저장 가드가 그대로 막는다.
  *  3. **0 이하·비정수 금액**(DNC-013).
+ *  4. **아이를 말하지 않는 행**(childId가 빈 손상 데이터). 어느 아이의 기록인지 모르는 채로
+ *     시트를 열면 새 기록이 어느 아이 밑으로 가야 하는지도 확인할 수 없다 — 위 `childId`
+ *     주석의 이중 방어가 둘 다 무력해지는 유일한 경우라, 아예 열지 않는다.
  *
  * 값이 없는 선택 필드는 키를 싣지 않는다 — 빈 문자열을 실어 보내면 "사용자가 지운 값"과
  * "원래 없던 값"이 구분되지 않는다.
@@ -107,6 +125,8 @@ export function buildFailedRowPrefillParams(row: FailedRowPrefillInput): FailedR
   if (!isRepeatableExpenseType(payload?.expenseType)) return null;
   const localId = row.localId?.trim() ?? "";
   if (localId.length === 0) return null;
+  const childId = payload?.childId?.trim() ?? "";
+  if (childId.length === 0) return null;
   const itemName = payload?.itemName?.trim() ?? "";
   if (itemName.length === 0) return null;
   if (!Number.isInteger(payload.amountKrw) || payload.amountKrw <= 0) return null;
@@ -123,6 +143,7 @@ export function buildFailedRowPrefillParams(row: FailedRowPrefillInput): FailedR
 
   return {
     failedLocalId: localId,
+    childId,
     itemName,
     amountKrw: String(payload.amountKrw),
     ...(spentOn.length > 0 ? { spentOn } : {}),
@@ -144,6 +165,39 @@ export function parseFailedRowLocalId(value: unknown): string | null {
 /** 판매처·메모처럼 **글자 그대로** 옮기는 프리필 값. 없으면 빈 문자열(= 예전처럼 빈 칸). */
 export function parseFailedRowPrefillText(value: unknown): string {
   return firstPrefillParamValue(value);
+}
+
+/**
+ * 라운드 58 통합리뷰 P1-1 — 이중 방어의 **둘째 겹**: 프리필이 말하는 아이와 지금 선택된 아이가
+ * 어긋나는가.
+ *
+ * 화면(app/sync-status.tsx)이 이미 버튼을 선택된 아이의 행에만 그리므로 정상 동선에서는 언제나
+ * false다. 그런데도 시트가 스스로 한 번 더 묻는 이유는, 그 버튼을 누른 **뒤에** 어긋남이 생길 수
+ * 있기 때문이다: 시트가 열려 있는 동안 다른 탭·다른 기기 동기화로 선택된 아이가 바뀌면(이 앱의
+ * 아이 선택은 전역 스토어다) 저장 시점의 아이는 버튼을 누를 때의 아이가 아니다. 딥링크·복원된
+ * 내비게이션 상태로 이 화면이 직접 열리는 경로도 같은 자리다.
+ *
+ * 어긋나면 화면은 **저장을 막고 사실을 말한다**(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE).
+ * 조용히 지금 아이 밑으로 저장하면 아이 A의 지출이 B의 합계에 들어가고, 저장 확정과 함께 A의
+ * 원본 실패 행이 폐기돼 되돌릴 길이 사라진다(서버에 없는 행이다).
+ *
+ * 판정 규칙:
+ *  - 파라미터가 없으면 **false**. 이 계약을 싣지 않는 다른 진입점("또 기록"·준비템·정기 지출)의
+ *    동작은 한 글자도 바뀌지 않는다.
+ *  - 아이를 아직 고르지 않았으면 **false**. 그 상태의 저장은 시트의 기존 가드가 이미 막고 있고,
+ *    여기서 한 번 더 말하면 "아이를 고르세요"와 "다른 아이의 기록이에요"가 함께 서서 사용자가
+ *    무엇을 해야 하는지 오히려 흐려진다.
+ *  - 둘 다 있고 다르면 **true**.
+ */
+export function isFailedRowChildMismatch(
+  prefillChildId: unknown,
+  selectedChildId: string | null | undefined
+): boolean {
+  const rowChildId = firstPrefillParamValue(prefillChildId).trim();
+  if (rowChildId.length === 0) return false;
+  const selected = selectedChildId?.trim() ?? "";
+  if (selected.length === 0) return false;
+  return rowChildId !== selected;
 }
 
 export type FailedRowPrefillDate = {

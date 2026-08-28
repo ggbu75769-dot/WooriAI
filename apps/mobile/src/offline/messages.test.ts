@@ -5,6 +5,7 @@ import { EXPENSE_CREATE_FAILED_MESSAGE } from "../expenses/save-error-messages";
 import { OFFLINE_AWARE_LOAD_ERROR_SCREENS } from "./offline-aware-screens";
 import {
   CONFLICT_BANNER_MESSAGE,
+  FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE,
   FAILED_ROW_PREFILL_DATE_RESET_NOTICE,
   SYNC_STATUS_FIX_AND_RESEND_LABEL,
   CONFLICT_OPTION_ADOPT_SERVER_LABEL,
@@ -126,6 +127,23 @@ describe("라운드 58 #5 '고쳐서 다시 보내기' 문구", () => {
     expect(newExpense).not.toContain(`"${FAILED_ROW_PREFILL_DATE_RESET_NOTICE}"`);
     expect(syncStatus).toContain("SYNC_STATUS_FIX_AND_RESEND_LABEL");
     expect(newExpense).toContain("FAILED_ROW_PREFILL_DATE_RESET_NOTICE");
+  });
+
+  /**
+   * 라운드 58 통합리뷰 P1-1 — 아이 어긋남 안내. 이 문장이 뜨는 순간은 저장을 막는 순간이라,
+   * 무엇이 사실이고 무엇을 하면 되는지를 한 줄에 담아야 한다(그러지 않으면 "왜 저장이 안 되지"만
+   * 남는다). 조용히 지금 아이 밑으로 저장하면 아이 A의 지출이 B의 합계에 들어가고 원본 실패
+   * 행까지 폐기된다 — 그래서 말한다.
+   */
+  it("아이 어긋남 안내는 사실과 다음에 할 일만 말한다 (DNC-018 해요체, 비난 없음)", () => {
+    expect(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE).toBe(
+      "이 기록은 다른 아이의 기록이에요. 그 아이로 바꾼 뒤에 저장할 수 있어요."
+    );
+    expect(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE.split("\n")).toHaveLength(1);
+    expect(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE).toMatch(/요\.$/);
+    expect(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE).not.toMatch(/확인하세요|하십시오|오류|에러|잘못|실수/);
+    // 무엇을 하면 되는지가 문장 안에 있다(막기만 하고 침묵하지 않는다).
+    expect(FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE).toContain("바꾼 뒤에 저장할 수 있어요");
   });
 });
 

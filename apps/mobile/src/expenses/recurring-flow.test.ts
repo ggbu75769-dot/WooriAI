@@ -316,10 +316,32 @@ describe("라운드 58 #1 역방향 진입 배선 (지출 상세 → 정기 지�
     expect(screen).toContain("useLocalSearchParams");
     expect(screen).toContain("parseRecurringTemplatePrefill(params)");
     // useState 초기값 — 이후 사용자가 고친 값을 파라미터가 되돌리지 않는다.
-    expect(screen).toContain("useState<FormState>(() => formFromPrefill(prefill))");
+    // 라운드 58 통합리뷰 P2-1: 이름을 모르는 분류(캐시 없음)는 프리필에서 빠진다 — 그 판정을
+    // 함께 넘긴다(모르는 id에 "기타"를 씌워 고른 것처럼 보이게 하지 않는다).
+    expect(screen).toContain("useState<FormState>(() => formFromPrefill(prefill, isNamedCategoryId))");
     // 파싱을 화면이 다시 적지 않는다(숫자·화이트리스트 판정이 두 벌이 되지 않게).
     expect(screen).not.toContain("Number(params");
     expect(screen).not.toMatch(/params\.(itemName|amountKrw|categoryId|paymentMethod|dayOfMonth)/);
+  });
+
+  /**
+   * 라운드 58 통합리뷰 P2-1 — 분류 칩의 이름은 **["categories"] 캐시**가 해석한다.
+   *
+   * 종전에는 `categoryNameFor` 하나로 해석했는데, 그 함수는 8타일과 데모 픽스처만 알아서 서버
+   * 시드 카테고리(UUID가 DB마다 다르다)가 전부 "기타"로 적혔다 — 지출 상세에서 넘어온 프리필의
+   * 분류가 정확히 그 값이다. 리포트 도넛 범례·CSV는 같은 이유로 이미 이 캐시를 지나고 있었다.
+   */
+  it("분류 칩 이름을 지어내지 않는다 (캐시 해석 · 새 요청 0건 · 모르면 비운다)", () => {
+    expect(screen).toContain('import { buildCategoryNameLookup, categoryCatalog } from "../../src/categories";');
+    // 새 요청을 만들지 않는다 — 이미 채워진 캐시를 읽기만 한다(useQuery가 아니라 getQueryData).
+    expect(screen).toContain('queryClient.getQueryData<{ categories: CategoryListItem[] }>(["categories"])');
+    expect(screen).not.toContain("useQuery(");
+    expect(screen).toContain("const categoryName = useMemo(() => buildCategoryNameLookup(cachedCategories)");
+    expect(screen).toContain("label: categoryName(form.categoryId)");
+    // "기타" 폴백 하나로 이름을 지어내던 경로는 남지 않는다.
+    expect(screen).not.toContain("categoryNameFor(");
+    // 이름을 모르는 프리필 분류는 칸을 비운다(사용자가 고르게 한다).
+    expect(screen).toContain("prefill.categoryId && isNamedCategoryId(prefill.categoryId) ? prefill.categoryId : null");
   });
 
   it("프리필로 열려도 저장 경로는 스토어 하나뿐이다 (상한 20을 우회하지 않는다)", () => {

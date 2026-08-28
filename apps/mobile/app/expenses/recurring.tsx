@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, Switch, Text, TextInput, View } from "react-native";
-import { LOCAL_SESSION_TOKEN } from "../../src/api/client";
-import { categoryCatalog, categoryNameFor } from "../../src/categories";
+import { LOCAL_SESSION_TOKEN, type CategoryListItem } from "../../src/api/client";
+import { buildCategoryNameLookup, categoryCatalog } from "../../src/categories";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
 import {
   formatRecurringTemplateLine,
@@ -97,13 +98,23 @@ const emptyForm: FormState = {
  *
  * 결제 수단만 기본값을 되살린다: 프리필이 없거나 화이트리스트 밖이면 `null`이 오는데, 이 폼의
  * 세그먼트에는 "고르지 않음"이 없다(빠른 기록 시트와 같이 카드에서 시작한다).
+ *
+ * 라운드 58 통합리뷰 P2-1 — **이름을 모르는 분류는 채우지 않는다**(`isNamedCategoryId`).
+ * 프리필의 분류 id는 서버 정식 카테고리 UUID일 수 있고, 그 이름은 `["categories"]` 캐시에만
+ * 있다. 캐시가 아직 비어 있으면(콜드 스타트·오프라인 첫 실행) 이 화면은 그 id가 무엇인지 말할
+ * 수 없다 — 그때 칩을 세우면 사용자가 고른 적 없는 이름("기타")이 선택된 것처럼 보이고, 그대로
+ * 저장하면 화면이 말한 적 없는 분류가 매월 반복되는 약속으로 굳는다. 그래서 비워 두고 사용자가
+ * 고르게 한다(모르면 지어내지 않는다 — 저장 검증이 "분류를 골라 주세요"로 이어서 안내한다).
  */
-function formFromPrefill(prefill: ReturnType<typeof parseRecurringTemplatePrefill>): FormState {
+function formFromPrefill(
+  prefill: ReturnType<typeof parseRecurringTemplatePrefill>,
+  isNamedCategoryId: (categoryId: string) => boolean
+): FormState {
   return {
     ...emptyForm,
     itemName: prefill.itemName,
     amountDigits: prefill.amountDigits,
-    categoryId: prefill.categoryId,
+    categoryId: prefill.categoryId && isNamedCategoryId(prefill.categoryId) ? prefill.categoryId : null,
     paymentMethod: prefill.paymentMethod ?? emptyForm.paymentMethod,
     dayDigits: prefill.dayDigits
   };
@@ -164,9 +175,36 @@ export default function RecurringExpensesScreen() {
   // 새 객체를 주므로 memo를 걸어도 어차피 다시 돈다 — 있지도 않은 안정성을 암시하지 않는다).
   const prefill = parseRecurringTemplatePrefill(params);
 
+  /**
+   * 라운드 58 통합리뷰 P2-1 — 분류 이름 해석의 원천: 기록 탭·리포트·CSV와 **같은
+   * `["categories"]` 캐시**다.
+   *
+   * 여기서 목록을 새로 부르지 않는다(useQuery가 아니라 getQueryData — 새 요청 0건):
+   * 이 화면은 지출을 만들지 않는 메모 화면이라 열었다는 이유로 네트워크가 돌 이유가 없고,
+   * 그 캐시는 홈·기록 탭이 이미 채워 둔다. 같은 관례가 동기화 상태 화면에도 있다
+   * (app/sync-status.tsx의 `["categories"]` 구독 주석 — 그쪽은 화면이 오래 떠 있어 구독까지
+   * 하고, 이 화면은 프리필을 **여는 순간 한 번** 읽으면 끝이라 읽기만 한다).
+   *
+   * 이름을 못 구하는 id는 `기타`로 부르지 않는다: `isNamedCategoryId`가 false를 돌려주고,
+   * 프리필은 그 분류를 비운 채 열린다(formFromPrefill 주석).
+   */
+  const queryClient = useQueryClient();
+  const cachedCategories = authToken
+    ? queryClient.getQueryData<{ categories: CategoryListItem[] }>(["categories"])?.categories
+    : undefined;
+  const categoryName = useMemo(() => buildCategoryNameLookup(cachedCategories), [cachedCategories]);
+  /** 이 앱이 **이름으로 부를 수 있는** 분류인가(8타일 + 캐시에 실제로 있는 서버 분류). */
+  const isNamedCategoryId = useMemo(() => {
+    const named = new Set<string>(categoryCatalog.map((category) => category.id));
+    for (const category of cachedCategories ?? []) {
+      if (category?.id && category.name?.trim()) named.add(category.id);
+    }
+    return (categoryId: string) => named.has(categoryId);
+  }, [cachedCategories]);
+
   // 프리필은 **화면을 처음 열 때 한 번만** 폼에 들어간다(useState 초기값). 이후 사용자가 고친
   // 값을 파라미터가 다시 덮어쓰면, 링크로 열린 화면에서 타이핑이 되돌려지는 것처럼 보인다.
-  const [form, setForm] = useState<FormState>(() => formFromPrefill(prefill));
+  const [form, setForm] = useState<FormState>(() => formFromPrefill(prefill, isNamedCategoryId));
   const [saveError, setSaveError] = useState<string | null>(null);
   /**
    * 채워진 채로 열린 폼은 "이미 저장된 것"으로 보인다 — 아직 아무것도 저장되지 않았다는 사실을
@@ -183,17 +221,24 @@ export default function RecurringExpensesScreen() {
   );
 
   /**
-   * 프리필된 분류가 이 화면의 8타일 밖일 수 있다 — 지출은 서버 카테고리 목록(정식 12개)으로도
-   * 저장되기 때문이다. 그때 칩 줄에 아무것도 선택돼 보이지 않으면, 폼은 분류를 들고 있는데
-   * 화면은 고르지 않은 것처럼 보인다(그대로 저장하면 사용자가 보지 못한 분류가 남는다).
-   * 지출 상세(app/expenses/[expenseId].tsx)가 같은 상황에서 하는 것과 같은 처리를 한다:
-   * 그 id의 칩을 앞에 세우고 이름은 `categoryNameFor`가 해석한다(원시 id를 화면에 내지 않는다).
+   * 폼이 든 분류가 이 화면의 8타일 밖일 수 있다 — 지출은 서버 카테고리 목록(정식 12개)으로도
+   * 저장되고, 저장해 둔 템플릿을 "수정"으로 열면 그 id가 그대로 폼에 들어온다. 그때 칩 줄에
+   * 아무것도 선택돼 보이지 않으면, 폼은 분류를 들고 있는데 화면은 고르지 않은 것처럼 보인다
+   * (그대로 저장하면 사용자가 보지 못한 분류가 남는다). 그래서 그 id의 칩을 앞에 세운다.
+   *
+   * 라운드 58 통합리뷰 P2-1 — **이름은 `["categories"]` 캐시가 해석한다**(`categoryName` =
+   * buildCategoryNameLookup). 종전에는 `categoryNameFor` 하나로 해석했는데, 그 함수는 8타일과
+   * 데모 픽스처만 알아서 서버 시드 카테고리(UUID가 DB마다 다르다)가 전부 "기타"로 적혔다 —
+   * 리포트 도넛 범례와 CSV가 같은 이유로 이미 이 캐시를 지나고 있었고(src/categories.ts
+   * buildCategoryNameLookup 주석), 이 칩만 남아 있었다. 프리필은 이름을 모르는 id를 애초에
+   * 싣지 않으므로(formFromPrefill) 이 자리에서 "기타"가 보이는 경우는 캐시가 빈 채로 저장해 둔
+   * 템플릿을 수정으로 열 때뿐이고, 그때도 값은 사용자가 저장한 그 분류 그대로다(바꾸지 않는다).
    */
   const categoryChips = useMemo(() => {
     const base = categoryCatalog.map((category) => ({ id: category.id, label: category.label }));
     if (!form.categoryId || base.some((chip) => chip.id === form.categoryId)) return base;
-    return [{ id: form.categoryId, label: categoryNameFor(form.categoryId) }, ...base];
-  }, [form.categoryId]);
+    return [{ id: form.categoryId, label: categoryName(form.categoryId) }, ...base];
+  }, [categoryName, form.categoryId]);
 
   const resetForm = () => {
     setForm(emptyForm);

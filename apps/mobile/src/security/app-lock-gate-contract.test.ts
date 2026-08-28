@@ -228,6 +228,40 @@ describe("GAP-058 #2·#3·P3 — 두 번째 입구와 수동 잠금", () => {
     expect(overlay).toContain("APP_LOCK_LOCKOUT_CLEARED_NOTICE");
     expect(overlay).toContain("setNotice(APP_LOCK_LOCKOUT_CLEARED_NOTICE);");
   });
+
+  /**
+   * 라운드 58 통합리뷰 P2-2 — **설정 화면도 같은 패턴**이다.
+   *
+   * 이 화면은 대기 문구를 `setNotice(...)`로 굳혀 두어 "30초 남았어요"의 30이 멈춰 있었고,
+   * 대기가 끝나 이미 입력할 수 있게 된 뒤에도 그 문장이 남았다 — 오버레이가 P3에서 고친 것과
+   * 같은 결함이 두 번째 입구에만 남아 있었다. 판정은 잠금 화면과 같은 기록·같은 함수를 지난다.
+   */
+  it("설정 화면의 대기 안내도 계산값이고 만료 시 갱신된다 (오버레이와 같은 네 조각)", () => {
+    const screen = source("app/settings/app-lock.tsx");
+    // ① 기록 구독 + ② 매 렌더 계산
+    expect(screen).toContain("const record = useAppLockStore((state) => state.record);");
+    expect(screen).toContain("const lockedOut = isAppLockLockedOut(record, nowMs);");
+    expect(screen).toContain("const lockoutNotice = lockedOut ? appLockLockoutNotice(");
+    expect(screen).toContain("const displayedNotice = lockoutNotice ?? notice;");
+    // ③ 1초 타이머(대기 중에만 건다)
+    expect(screen).toContain("const timer = setInterval(() => setNowMs(Date.now()), 1000);");
+    expect(screen).toContain("return () => clearInterval(timer);");
+    // ④ 만료 순간의 문구 교체 + 낭독
+    expect(screen).toContain("setNotice(APP_LOCK_LOCKOUT_CLEARED_NOTICE);");
+    expect(screen).toContain("announceForA11y(APP_LOCK_LOCKOUT_CLEARED_NOTICE);");
+    // 화면에 그리는 것은 굳은 문자열이 아니라 계산된 값이다(세 폼 전부).
+    expect(screen.match(/\{displayedNotice\}/g) ?? []).toHaveLength(3);
+    expect(screen).not.toContain("{notice}");
+  });
+
+  it("대기 중에는 설정 화면의 입력칸·저장 버튼이 잠긴다 (받을 수 없는 입력을 받지 않는다)", () => {
+    const screen = source("app/settings/app-lock.tsx");
+    expect(screen).toContain("editable={!lockedOut}");
+    // 세 폼(켜기·변경·끄기)의 확인 버튼이 모두 같은 판정을 지난다.
+    expect(screen.match(/busy \|\|\s*\n?\s*lockedOut/g) ?? []).toHaveLength(3);
+    // 제출 자체도 대기면 스토어를 부르지 않는다(오버레이 submit과 같은 순서).
+    expect(screen).toContain("if (!beginSubmit(now)) return;");
+  });
 });
 
 describe("§2.9-10·11 문구 · 화면 계약", () => {

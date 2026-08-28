@@ -7,6 +7,7 @@ import { errorResponseSchema, importJobSchema, importRowSchema, MONEY_KRW_MAX } 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
+import { PrismaService } from "../src/prisma/prisma.service";
 
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -480,6 +481,77 @@ describe("Excel import beta API", () => {
       .expect(({ body }) => {
         expect(body.itemName).toBe(boundaryName);
         expect(body.amountKrw).toBe(22_000);
+      });
+  });
+
+  /**
+   * 라운드 58 통합리뷰 P2-4 — **배포 전에 만들어진 잡**의 110자 행이 검수 화면에서 정직하게 보인다.
+   *
+   * 무슨 일이 남아 있었나: 상태를 묻는 자리가 셋인데(미리보기 생성 · 검수 PATCH · 확정) 읽기
+   * 경로만 저장된 문자열을 그대로 돌려줬다. 그래서 GAP-058 #8 배포 **이전에** 만들어진 잡의
+   * 101~120자 행은 검수 화면에 `valid`로, 체크된 채로 서 있다가 확정에서만 조용히 빠졌다 —
+   * 화면이 보여 준 것과 실제 동작이 다른 자리다.
+   *
+   * 재현 방법: 지금 파이프라인은 그런 행을 만들지 않으므로, 만들어진 행을 DB에서 **옛 상태로
+   * 되돌려** 배포 전 잡을 흉내 낸다(그 시절의 저장 모양 그대로 — valid + 기본 선택).
+   */
+  it("라운드 58 P2-4: 배포 전 저장된 valid 상태를 읽기 경로가 다시 판정해 검수 화면이 사실을 말한다", async () => {
+    const accessToken = await login(app, "r58-import-stale-status");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const overContractName = `기저귀 ${"나".repeat(106)}`; // 110자 (컬럼에는 담기나 계약 초과)
+    const csvContent = [
+      "날짜,적요,금액",
+      "2026-07-06,기저귀 구매,32000",
+      `2026-07-05,${overContractName},33000`,
+      ""
+    ].join("\n");
+
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", "stale-status.csv")
+        .attach("file", Buffer.from(csvContent, "utf8"), "stale-status.csv")
+        .expect(200)
+    ).body as ImportJob;
+
+    // 배포 전 잡 흉내: 그 시절 파이프라인은 이 행을 valid로 판정하고 기본 선택까지 했다.
+    const prisma = app.get(PrismaService);
+    const staleRow = await prisma.importRow.findFirstOrThrow({
+      where: { importJobId: job.id, parsedItemName: overContractName }
+    });
+    await prisma.importRow.update({
+      where: { id: staleRow.id },
+      data: { validationStatus: "valid", selected: true }
+    });
+
+    const rows = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/imports/${job.id}/rows`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.rows as ImportRow[];
+
+    const reviewedRow = rows.find((row) => row.id === staleRow.id);
+    expect(reviewedRow, "110자 행이 목록에서 사라졌다").toBeDefined();
+    // 읽기 경로가 확정과 **같은 자**로 다시 판정한다 -- 저장된 "valid"를 그대로 되풀이하지 않는다.
+    expect(reviewedRow!.validationStatus).toBe("item_name_too_long");
+    // 원문은 그대로다(자르지 않는다 — 사용자가 검수 화면에서 고칠 값이다).
+    expect(reviewedRow!.parsedItemName).toBe(overContractName);
+    // 같은 파일의 짧은 행은 아무 영향을 받지 않는다.
+    const shortRow = rows.find((row) => row.parsedItemName === "기저귀 구매");
+    expect(shortRow!.validationStatus).toBe("valid");
+
+    // 화면이 말한 대로 동작한다: 그 행을 명시적으로 선택해도 확정에서 빠진다(전체 롤백도 없다).
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: rows.map((row) => row.id) })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.importedCount).toBe(1);
+        expect(body.skippedCount).toBe(1);
       });
   });
 

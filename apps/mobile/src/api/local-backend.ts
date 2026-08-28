@@ -1560,7 +1560,11 @@ function toImportRowDto(row: LocalImportRowRecord): ImportRow {
     categoryId: row.categoryId,
     confidence: row.confidence,
     selected: row.selected,
-    validationStatus: row.validationStatus
+    // 라운드 58 통합리뷰 P2-4: 서버와 같은 자리에서 같은 선택을 한다 -- 읽기 경로도 저장된
+    // 문자열을 되풀이하지 않고 **지금** 판정한다(생성·PATCH·확정과 같은 자). 이 데모 백엔드의
+    // 행은 persist blob에 남으므로, 판정이 바뀐 버전에서 옛 blob을 읽는 순간이 정확히 서버가
+    // 겪은 그 어긋남이다(import-pipeline.service.ts displayValidationStatusForImportRow 주석).
+    validationStatus: validationStatusForImportRow(row)
   };
 }
 

@@ -53,6 +53,7 @@ import {
 } from "../src/offline/sync-controller";
 import type { ExpensePayload, ItemStatusOutboxRow, LocalExpenseRow } from "../src/offline/types";
 import { formatKrw } from "../src/money";
+import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
@@ -271,12 +272,18 @@ const FailedRow = memo(function FailedRow({
   row,
   token,
   queryClient,
+  selectedChildId,
   expenseEntryLocked,
   explainExpenseEntryLock
 }: {
   row: LocalExpenseRow;
   token: string;
   queryClient: ReturnType<typeof useQueryClient>;
+  /**
+   * 라운드 58 통합리뷰 P1-1 — 지금 선택된 아이. 아래 "고쳐서 다시 보내기" 게이트의 재료다
+   * (문자열이라 참조가 안정적이고 이 memo를 깨지 않는다).
+   */
+  selectedChildId: string | null;
   /**
    * 라운드 58 #5 / UX-R(M): "고쳐서 다시 보내기"는 **새 지출을 만드는 진입점**이라 보기 전용
    * 참여자에게는 잠긴다(라운드 40 J-9의 역방향 계약 — /expenses/new로 가는 파일은 전부 이
@@ -299,7 +306,18 @@ const FailedRow = memo(function FailedRow({
     // 수 없는 행(선물·환불, 빈 품목명, 0 이하 금액)에서는 params가 null이라 버튼 자체를 내지
     // 않는다 -- 눌러도 아무 일이 없는 버튼을 남기지 않는다(그 행에도 버리기는 그대로 남는다).
     // 원본 행은 여기서 지우지 않는다: 새 저장이 확정된 뒤에 기록 시트가 버린다(failedLocalId).
-    const fixParams = buildFailedRowPrefillParams(row);
+    //
+    // 라운드 58 통합리뷰 P1-1 — **아이 게이트**. 트랙 A의 canRegisterRecurring이 같은 자리에서
+    // 같은 판단을 한다(app/expenses/[expenseId].tsx): "관리 화면은 언제나 **지금 선택된 아이**의
+    // 템플릿을 만든다(app/expenses/recurring.tsx의 `selectedChildId`). 그래서 다른 아이의 지출을
+    // 보다가 이 버튼을 누르면, 사용자가 고른 적 없는 아이 밑으로 정기 지출이 조용히 들어간다".
+    // 기록 시트도 언제나 지금 선택된 아이 밑으로 저장하므로 같은 규칙이 그대로 적용되는데,
+    // 여기서는 대가가 더 크다: 새 저장이 확정되면 **원본 실패 행이 폐기된다**. 즉 아이 A의 행을
+    // B 선택 상태에서 고치면 A의 지출 한 건이 B 밑으로 옮겨 앉고 원본은 사라진다(서버에 없는
+    // 행이라 되돌릴 수 없다 — 데이터 손실). 그래서 어긋난 행에는 버튼을 내지 않는다.
+    // **버리기는 그대로 남는다**: 그 행에서 사용자가 취할 수 있는 행동을 없애지 않는다.
+    // 시트에도 같은 판정이 한 겹 더 있다(failed-row-prefill.ts `isFailedRowChildMismatch`).
+    const fixParams = row.payload.childId === selectedChildId ? buildFailedRowPrefillParams(row) : null;
     return (
       <SyncRow row={row}>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMANENT_FAILURE_HINT}</Text>
@@ -462,6 +480,9 @@ export default function SyncStatusScreen() {
   const expenseGate = useExpenseEntryGate();
   const expenseEntryLocked = expenseGate.locked;
   const explainExpenseEntryLock = expenseGate.explain;
+  // 라운드 58 통합리뷰 P1-1: "고쳐서 다시 보내기"가 여는 시트는 **지금 선택된 아이** 밑으로
+  // 저장한다. 그래서 그 버튼은 이 아이의 행에만 선다(판정 근거는 FailedRow의 fixParams 주석).
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
 
   useEffect(() => {
     void refreshOfflineSyncSnapshot();
@@ -624,6 +645,7 @@ export default function SyncStatusScreen() {
             row={item.row}
             token={authToken ?? ""}
             queryClient={queryClient}
+            selectedChildId={selectedChildId}
             expenseEntryLocked={expenseEntryLocked}
             explainExpenseEntryLock={explainExpenseEntryLock}
           />
@@ -643,7 +665,8 @@ export default function SyncStatusScreen() {
       formatConflictValue,
       queryClient,
       retryAll,
-      retryableFailedCount
+      retryableFailedCount,
+      selectedChildId
     ]
   );
 

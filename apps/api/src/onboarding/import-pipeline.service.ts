@@ -384,8 +384,33 @@ export class ImportPipelineService {
       categoryId: row.categoryId ?? undefined,
       confidence: Number(row.confidence),
       selected: row.selected,
-      validationStatus: row.validationStatus
+      validationStatus: this.displayValidationStatusForImportRow(row)
     };
+  }
+
+  /**
+   * 라운드 58 통합리뷰 P2-4 — 검수 화면에 내보내는 상태는 **저장된 값이 아니라 지금 판정한 값**이다.
+   *
+   * 무엇이 어긋나 있었나: 이 파이프라인에는 상태를 묻는 자리가 셋이다 — 미리보기 생성
+   * (`buildImportRowsFromParsed`) · 검수 PATCH(`updateImportRow`) · 확정(`confirmImport`).
+   * 뒤의 둘은 언제나 `validationStatusForImportRow`를 지나는데, **읽기 경로**(listImportRows →
+   * toImportRowDto)만 미리보기 생성 시점에 저장된 문자열을 그대로 돌려주고 있었다. 그래서 그
+   * 판정이 바뀐 배포(GAP-058 #8: 101~120자 품목명 강등) 이전에 만들어진 잡의 110자 행은
+   * 검수 화면에 여전히 `valid`로, 체크된 채로, "가져올 수 있어요"라는 얼굴로 서 있었다 —
+   * 그리고 확정을 누르면 그 행만 조용히 빠졌다(확정은 다시 판정하므로). 화면이 사용자에게
+   * 참이 아닌 것을 보여 준 뒤 말없이 다르게 행동하는 자리다.
+   *
+   * 세 경로가 같은 자를 쓰면 그 어긋남이 구조적으로 사라진다. 저장된 컬럼은 건드리지 않는다
+   * (읽기 요청이 쓰기를 하지 않는다 — 다음 PATCH가 그 행을 지날 때 자연히 맞춰진다).
+   *
+   * 예외 하나: **121자 이상이라 값을 비운 행**(`item_name_too_long`). 저장된 행만 보면 품목명이
+   * 빈 행과 구별되지 않아 다시 판정하면 `missing_item_name`이 되는데, 그건 사실보다 덜 정확한
+   * 사유다(원본은 비어 있던 것이 아니라 너무 길었다 — buildImportRowsFromParsed 주석). 그 행은
+   * 저장된 상태가 더 정확하므로 그대로 둔다.
+   */
+  private displayValidationStatusForImportRow(row: ImportRowRow) {
+    if (row.validationStatus === IMPORT_ROW_ITEM_NAME_TOO_LONG_STATUS) return row.validationStatus;
+    return this.validationStatusForImportRow(row);
   }
 
   private requireAcceptedImportFile(input: CreateImportJobInput) {

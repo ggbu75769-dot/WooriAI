@@ -1303,7 +1303,13 @@ export default function ExpenseDetailScreen() {
 
                 상한(20개)에 닿아 있으면 그 화면의 저장에서 RECURRING_LIMIT_MESSAGE가 그대로
                 뜬다 — 이 진입점은 상한을 우회하는 두 번째 저장 경로를 만들지 않는다(저장은
-                여전히 스토어 한 곳을 지난다). */}
+                여전히 스토어 한 곳을 지난다).
+
+                왜 상한(20개)은 버튼을 지우지 않는데 품목명 100자 초과는 지우는가(라운드 58
+                통합리뷰 P2-3): 상한은 **사용자가 그 화면에서 지금 풀 수 있는 상태**라(쓰지 않는
+                항목 하나를 지우면 곧바로 저장된다) 안내와 함께 열어 두는 편이 낫고, 100자 초과는
+                이 프리필로는 풀 수 없는 상태다(칸의 maxLength가 새 글자만 막아 다 지우기 전에는
+                저장이 열리지 않는다). 후자는 순수 모듈이 null을 돌려줘 버튼 자체가 서지 않는다. */}
             {canRegisterRecurring && recurringPrefill ? (
               <View testID="expense-to-recurring" style={{ gap: 6 }}>
                 <SecondaryButton

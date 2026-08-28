@@ -41,6 +41,7 @@ import { normalizeItemName } from "./item-name-match";
 import { merchantOverLimitMessage } from "./text-limits";
 import {
   EXPENSE_PREFILL_PAYMENT_METHODS,
+  firstPrefillParamValue,
   isRepeatableExpenseType,
   parseExpensePrefillParams,
   type ExpensePrefillPaymentMethod
@@ -708,6 +709,18 @@ export type RecurringTemplatePrefillParams = {
  *    같은 이유로 같은 행에서 사라지는 것과 한 규칙이다.
  *  - 품목명이 비었거나 금액이 저장 가능한 값이 아닌 행. 채워 봐야 저장 버튼에서 막히는 폼을
  *    열지 않는다(`recurringPrefillParams`와 같은 규율).
+ *  - **품목명이 상한(100자)을 넘는 행**(라운드 58 통합리뷰 P2-3). 엑셀 가져오기를 거친 기록은
+ *    실제로 101~120자짜리 품목명을 들고 있을 수 있다(가져오기 컬럼은 varchar(120)이다). 그대로
+ *    프리필하면 폼은 채워진 채로 열리지만 저장은 `RECURRING_ITEM_NAME_TOO_LONG_MESSAGE`로
+ *    막히고, 입력 칸의 `maxLength`는 **새로 치는 글자만** 막으므로 사용자는 그 칸을 다 지우기
+ *    전까지 빠져나갈 수 없다 — 눌러도 소용없는 버튼과 같은 자리다.
+ *
+ *    ⚠️ failed-row-prefill.ts는 같은 상황에서 **반대로** 판단한다(길이 초과 메모·품목명을 그대로
+ *    싣는다). 규칙이 갈리는 이유는 두 버튼이 사용자에게 약속하는 것이 다르기 때문이다:
+ *    "고쳐서 다시 보내기"는 **이미 실패한 그 기록을 고칠 기회**라 원문이 없으면 고칠 것 자체가
+ *    없고(잘라 실으면 사용자가 적은 값이 영영 사라진다), 이 버튼은 **새 약속을 만드는 입구**라
+ *    저장할 수 없는 값으로 폼을 여는 것이 아무에게도 이롭지 않다. 필요하면 사용자는 관리 화면의
+ *    빈 폼에서 짧은 이름으로 직접 적을 수 있다 — 그 길은 그대로 남는다.
  */
 export function recurringTemplatePrefillParams(
   row: RecurringPrefillExpenseRow
@@ -715,6 +728,8 @@ export function recurringTemplatePrefillParams(
   if (!isRepeatableExpenseType(row.expenseType)) return null;
   const itemName = row.itemName?.trim() ?? "";
   if (itemName.length === 0) return null;
+  // 상한 판정은 저장 검증과 **같은 상수**를 본다(숫자를 여기 다시 적지 않는다).
+  if (itemName.length > RECURRING_ITEM_NAME_MAX_LENGTH) return null;
   const amountKrw = row.amountKrw;
   if (typeof amountKrw !== "number" || !Number.isInteger(amountKrw) || amountKrw <= 0) return null;
   if (isAmountOverLimit(amountKrw)) return null;
@@ -743,20 +758,19 @@ export type RecurringTemplatePrefill = {
   hasPrefill: boolean;
 };
 
-/** expo-router의 파라미터는 string | string[] 둘 다 올 수 있다 — 첫 값만 읽는다. */
-function firstParamValue(value: unknown): string {
-  if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : "";
-  return typeof value === "string" ? value : "";
-}
-
 /**
  * 결제일 파라미터 → 입력칸 문자열. 1~31 밖의 값·숫자가 아닌 값은 **조용히 빈 칸**이다.
  *
  * 기존 프리필 파싱과 같은 규율이다: 링크로 들어온 값을 그대로 믿고 채우면 저장 가드에 걸려
  * 이유 없이 막히는 폼이 된다. 버리면 사용자는 평소처럼 날짜를 고르면 된다.
+ *
+ * 라운드 58 통합리뷰 P2-6: 파라미터 정규화(string | string[])는 프리필 계약의 것을 그대로
+ * 쓴다(`firstPrefillParamValue`). 이 파일에도 같은 함수의 사본이 있었는데, 사본이 남아 있으면
+ * 언젠가 한쪽만 고쳐져 같은 링크가 화면마다 다른 값을 채운다 — record-row-actions.ts가 그
+ * 함수를 내보내는 이유가 정확히 그것이다(그 주석 참고).
  */
 function parseRecurringDayParam(value: unknown): string {
-  const raw = firstParamValue(value).trim();
+  const raw = firstPrefillParamValue(value).trim();
   if (!/^\d{1,2}$/.test(raw)) return "";
   const day = Number(raw);
   return day >= 1 && day <= 31 ? String(day) : "";
