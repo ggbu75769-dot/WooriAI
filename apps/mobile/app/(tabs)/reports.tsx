@@ -66,9 +66,15 @@ const previewCumulativeTotalKrw = 1_245_700;
 // REP-128: 월간 탭 라인 차트가 그리는 막대 수(선택한 달 포함 최근 6개월). 서버 기본값과
 // 같은 값이지만, 캐시 키에 들어가고 요청에도 실리므로 화면 쪽에서 명시한다.
 const MONTHLY_TREND_MONTHS = 6;
-const reportReferenceHorizontalOffset = -16;
-const reportReferenceVerticalOffset = -4;
+// PIX-133(실기기 피드백): 아래 보정 오프셋·스케일은 REP-001 픽셀 캡처를 기준 이미지에
+// 맞추기 위한 값이지 실사용 레이아웃이 아니다. 종전에는 세션 렌더에도 무조건 적용돼
+// 리포트 탭 전체가 왼쪽 16dp·위 4dp 밀려 "꽉 차 보이지 않는" 실기기 결함이 됐다.
+// 캡처 빌드(EXPO_PUBLIC_PIXEL_LOCK=1)에서만 적용한다 — launch-animation의 R49 선례.
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
+const reportReferenceHorizontalOffset = isPixelLockCalibration ? -16 : 0;
+const reportReferenceVerticalOffset = isPixelLockCalibration ? -4 : 0;
 function reportReferenceScaleFrameStyle() {
+  if (!isPixelLockCalibration) return undefined;
   return {
     transform: [
       { translateX: ReportPixelStyles.horizontalOffset },
@@ -852,6 +858,7 @@ export default function ReportsScreen() {
 
 const reportReferenceFrameStyle = {
   gap: 18,
+  // PIX-133: 보정 모드가 아니면 두 값이 0이라 항등 변환이다(실사용 레이아웃 불변).
   transform: [{ translateX: reportReferenceHorizontalOffset }, { translateY: reportReferenceVerticalOffset }]
 };
 

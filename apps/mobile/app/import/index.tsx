@@ -30,7 +30,10 @@ const importDocumentPickerTypes = [
 
 const importUploadScreenId = "pixel-screen-IMP-003 IMP-001 / IMP-002 / IMP-003";
 
+// PIX-133: 보정 변환은 IMP-003 캡처 빌드 전용.
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 function excelPreviewPixelFrameStyle() {
+  if (!isPixelLockCalibration) return undefined;
   return {
     transform: [
       { translateX: ExcelPreviewPixelStyles.horizontalOffset },

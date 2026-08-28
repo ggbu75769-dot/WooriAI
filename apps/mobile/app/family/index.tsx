@@ -40,7 +40,10 @@ const previewMembers = [
 ] as const;
 
 const familyReferenceScreenId = "pixel-screen-FAM-001 FAM-001";
+// PIX-133: 보정 변환은 FAM-001 캡처 빌드 전용(기본값은 항등이지만 튜닝 값 유출을 구조적으로 차단).
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 function familyReferenceFrameStyle() {
+  if (!isPixelLockCalibration) return { gap: 16 } as const;
   return {
     gap: 16,
     transform: [

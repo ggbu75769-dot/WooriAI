@@ -65,12 +65,13 @@ import { theme } from "../../src/theme";
 import { QuickExpensePixelStyles } from "../../src/pixelLock/styles";
 
 const quickExpenseScreenId = "pixel-screen-EXP-001 EXP-001";
-// FMT-127 유지 근거: 이 '₩ 38,500'은 EXP-001 픽셀 락 **캡처에 실제로 찍혀 있는 문자열**이고,
-// src/ui-pixel-lock-flow.test.ts가 이 파일에 이 리터럴이 남아 있는지를 계약으로 고정한다
-// (["app/expenses/new.tsx", "₩ 38,500"]). src/money.ts의 "콤마+원, ₩ 금지" 규칙에는 어긋나지만
-// 기준 이미지를 다시 찍을 수 없는 환경이므로 **캡처 경로만** 예외로 남긴다 -- 세션이 있는
-// 실제 입력 경로는 아래 formattedAmount에서 formatKrw로 정리했다.
-const quickExpenseAmountPreview = "₩ 38,500";
+// FMT-127 근거 정정 (DSN-053 P1): 예전 주석은 '₩' 접두 표기가 "EXP-001 픽셀 락 캡처에 실제로
+// 찍혀 있는 문자열"이라 예외로 남긴다고 적어 두었다. 그 전제가 사실과 달랐다 -- 승인 캡처의
+// 원본(c20deeb `app/expenses/new.tsx`)은 `const quickExpenseAmountPreview = "38,500원";`이고,
+// 캡처에 찍혀 있는 것도 '38,500원'이다. 즉 '₩' 표기는 캡처를 지키기 위한 예외가 아니라 캡처와
+// **어긋난** 표기였고, src/money.ts의 "콤마+원, ₩ 금지" 규칙을 예외 없이 지키는 쪽이 기준
+// 이미지와도 맞는다. 캡처 경로만 리터럴을 쓰는 구조(아래 isPixelLockAmountCapture)는 그대로다.
+const quickExpenseAmountPreview = "38,500원";
 // Fixed date used only when there's no session (preview / pixel-lock capture mode) so the
 // pixel-lock reference screenshot stays deterministic across runs. See src/android-native-ui-quality.test.ts.
 const previewExpenseDate = { iso: "2025-05-24", label: "2025. 05. 24 (토)" };
@@ -126,7 +127,10 @@ function buildRecentDateChips(today: Date) {
   });
 }
 
+// PIX-133: 보정 변환은 EXP-001 캡처 빌드 전용.
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 function quickExpensePixelFrameStyle() {
+  if (!isPixelLockCalibration) return undefined;
   return {
     transform: [
       { translateX: QuickExpensePixelStyles.horizontalOffset },
@@ -311,7 +315,7 @@ export default function NewExpenseScreen() {
    * 구분할 방법이 없다는 뜻이다.
    *
    * EXP-001 픽셀 락: 이 상태는 세션 없이도 존재하지만 값이 늘 ""이고, **입력칸 렌더는
-   * authToken 게이트 뒤**에 있다(아래). 비세션 초기 렌더("₩ 38,500" 캡처 경로)는 한 픽셀도
+   * authToken 게이트 뒤**에 있다(아래). 비세션 초기 렌더("38,500원" 캡처 경로)는 한 픽셀도
    * 바뀌지 않는다.
    */
   const [merchant, setMerchant] = useState(() => (authToken ? prefilledMerchant : ""));
@@ -748,6 +752,11 @@ export default function NewExpenseScreen() {
   // clearSession 후 이동) 고정 시드 "38500"으로만 실행되므로, 그 조합에서만 캡처 문자열을
   // 그대로 유지하면 EXP-001 기준 이미지는 한 픽셀도 바뀌지 않는다. 세션이 있는 모든 입력
   // 경로(= 실제 사용자가 보는 화면)는 이제 formatKrw를 탄다.
+  //
+  // DSN-053 P1 이후: 캡처 문자열이 "38,500원"으로 정정되면서 두 갈래의 결과가 **같은 문자열**이
+  // 됐다(formatKrw(38500) === quickExpenseAmountPreview). 갈래를 남겨 두는 이유는 캡처가 무엇을
+  // 기준으로 굳어 있는지를 코드에 남기기 위해서다 -- 나중에 표기 규칙이 또 흔들리면 여기가
+  // 먼저 갈라지고, 그 사실이 auto-fill-wiring.test.ts의 계약으로 드러난다.
   const isPixelLockAmountCapture = !authToken && amountText === "38500";
   const formattedAmount = isPixelLockAmountCapture ? quickExpenseAmountPreview : formatKrw(Number(amountText || 0));
   // Guards the one-tap quick-expense sheet: with a real/test session, the save button stays

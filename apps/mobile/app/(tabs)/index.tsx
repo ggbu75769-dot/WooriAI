@@ -120,7 +120,11 @@ function reconciledMonthRecords(
   ];
 }
 
+// PIX-133: 홈 보정 변환도 HOME-001 캡처 빌드 전용으로 게이트(기본값은 항등이지만
+// 튜닝 값이 실기기 렌더로 새는 경로를 구조적으로 차단 — 리포트/더보기에서 실제 결함이었다).
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 function homePixelScaleFrameStyle() {
+  if (!isPixelLockCalibration) return undefined;
   return {
     transform: [
       { translateX: HomePixelStyles.scaleHorizontalOffset },
@@ -132,6 +136,7 @@ function homePixelScaleFrameStyle() {
 }
 
 function homePixelFrameStyle() {
+  if (!isPixelLockCalibration) return { gap: theme.spacing.section };
   return {
     gap: theme.spacing.section,
     transform: [{ translateX: HomePixelStyles.horizontalOffset }, { translateY: HomePixelStyles.topOffset }]

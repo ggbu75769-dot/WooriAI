@@ -240,7 +240,14 @@ export default function MoreScreen() {
   );
 }
 
+// PIX-133(실기기 피드백): topOffset/horizontalOffset 기본값 30·여백 보정은 SET-001 픽셀
+// 캡처 정렬용이다. 종전에는 실기기 릴리즈에서도 화면 전체가 오른쪽·아래로 30dp 밀려
+// 오른쪽이 잘려 보였다("꽉 차게 안 보임"). 캡처 빌드에서만 적용한다.
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 function moreReferenceFrameStyle() {
+  if (!isPixelLockCalibration) {
+    return { gap: 18 + MoreSettingsPixelStyles.rowGap, paddingTop: 0 } as const;
+  }
   return {
     gap: 18 + MoreSettingsPixelStyles.rowGap,
     marginHorizontal: MoreSettingsPixelStyles.screenPadding - theme.spacing.screen,

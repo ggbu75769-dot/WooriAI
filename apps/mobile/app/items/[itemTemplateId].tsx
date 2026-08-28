@@ -93,7 +93,10 @@ const UNKNOWN_VIEWER_KEY = "unknown-user";
 const productDetailScreenId = "pixel-screen-ITEM-002 ITEM-002 · ITEM-003 · ITEM-004";
 const productDetailHeaderSpacerStyle = { minHeight: 0 } as const;
 const productDetailViewportOffset = 8;
+// PIX-133: 보정 스케일 변환은 ITEM-002 캡처 빌드 전용.
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 function productDetailReferenceScaleFrameStyle() {
+  if (!isPixelLockCalibration) return undefined;
   return {
     transform: [{ translateY: ProductDetailPixelStyles.topOffset }, { scale: ProductDetailPixelStyles.scale }, { scaleX: ProductDetailPixelStyles.scaleX }]
   } as const;

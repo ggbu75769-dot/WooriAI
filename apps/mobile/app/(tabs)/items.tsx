@@ -113,7 +113,10 @@ const soonTabLabelWhilePreviewingBand = "다른 시기";
 const recommendationScreenId = "pixel-screen-ITEM-001 ITEM-001";
 const recommendationHorizontalOffset = 0;
 const recommendationVerticalOffset = 0;
+// PIX-133: 보정 스케일 변환은 ITEM-001 캡처 빌드 전용(항등 기본값이어도 튜닝 값 유출 차단).
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 function recommendationPixelScaleFrameStyle() {
+  if (!isPixelLockCalibration) return undefined;
   return {
     transform: [
       { translateX: ItemListPixelStyles.horizontalOffset },
