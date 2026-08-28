@@ -210,16 +210,6 @@ const homeBudgetWarningStyle = StyleSheet.create({
     flex: 1,
     gap: 2
   },
-  icon: {
-    fontSize: 16,
-    fontWeight: "800"
-  },
-  iconApproaching: {
-    color: theme.colors.warning
-  },
-  iconExceeded: {
-    color: theme.colors.danger
-  },
   title: {
     color: theme.colors.brown,
     fontSize: 14,
@@ -1273,16 +1263,12 @@ export default function HomeScreen() {
                 theme.shadows.card
               ]}
             >
-              <Text
-                style={[
-                  homeBudgetWarningStyle.icon,
-                  budgetWarning.level === "exceeded"
-                    ? homeBudgetWarningStyle.iconExceeded
-                    : homeBudgetWarningStyle.iconApproaching
-                ]}
-              >
-                ⚠
-              </Text>
+              <Ionicons
+                accessible={false}
+                name={budgetWarning.level === "exceeded" ? "warning" : "warning-outline"}
+                size={16}
+                color={budgetWarning.level === "exceeded" ? theme.colors.danger : theme.colors.warning}
+              />
               <View style={homeBudgetWarningStyle.copy}>
                 <Text style={homeBudgetWarningStyle.title}>{budgetWarning.title}</Text>
                 <Text style={homeBudgetWarningStyle.body}>{budgetWarning.body}</Text>
