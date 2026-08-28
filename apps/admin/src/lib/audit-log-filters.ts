@@ -160,6 +160,10 @@ export const AUDIT_LOG_ACTION_PRESETS: readonly AuditLogActionPreset[] = [
   { action: "auth.login", label: "앱 로그인" },
   { action: "auth.logout", label: "앱 로그아웃" },
   { action: "admin.login", label: "어드민 로그인" },
+  // GAP-063 #3: 인증 앱 재등록 입구가 생기면서 이 두 액션이 실제 CS 동선(운영자가
+  // 인증 앱을 잃음)에 등장한다 — 해제가 있었는지, 복구 코드가 언제 소진됐는지를 여기서 본다.
+  { action: "admin.mfa_disabled", label: "어드민 MFA 해제 (재등록 전)" },
+  { action: "admin.mfa_recovery_code_used", label: "어드민 복구 코드 사용" },
   { action: "admin.user_lookup.search", label: "어드민 사용자 조회" },
   { action: "admin.admin_user.update", label: "어드민 계정 변경" },
   { action: "admin.category.update", label: "카테고리 변경" },
