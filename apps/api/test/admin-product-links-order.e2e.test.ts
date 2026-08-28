@@ -5,6 +5,7 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
+import { PrismaService } from "../src/prisma/prisma.service";
 
 const adminToken = "dev-admin-token";
 
@@ -95,5 +96,60 @@ describe("GET /api/v1/admin/product-links ordering (UX-X C7)", () => {
       second,
       third
     ]);
+  });
+
+  /**
+   * GAP-064 #4 · #8 — 어드민 DTO가 **자기가 쓴 값을 되읽을 수 있는가**.
+   *
+   * ⓐ 가격 두 칸: CSV 일괄 교체가 쓰는 유일한 값인데 어드민 응답에 없었다(헬스는 있고
+   *    가격만 없는 비대칭). 앱 DTO의 "가격 + 확인 시각이 둘 다 있을 때만" 규칙을 여기서
+   *    재사용하지 않는 것이 요점이다 — 어드민이 봐야 하는 것이 바로 그 규칙에 걸려 앱에서
+   *    사라진 행이라, **값은 그대로 싣고** 만료 여부만 서버가 판정해 불리언으로 준다
+   *    (문턱 숫자를 어드민 번들에 다시 박지 않기 위해서다 — 라운드 63 #9).
+   * ⓑ `redirectCode`/`redirectShareUrl`: `/r/:code` 공개 리다이렉트는 완성돼 있었는데 코드를
+   *    노출하는 화면이 없어 도달 불가였다(전 소스에서 그 컬럼을 읽는 곳이 컨트롤러 한 줄뿐).
+   */
+  it("carries the price snapshot and the public share URL (GAP-064 #4 · #8)", async () => {
+    const suffix = randomUUID().slice(0, 8);
+    const itemTemplateId = await createItemTemplate(`가격 왕복 테스트템 ${suffix}`);
+    const freshId = await createProductLink(itemTemplateId, `가격 있는 링크 ${suffix}`);
+    const staleId = await createProductLink(itemTemplateId, `만료된 가격 링크 ${suffix}`);
+    const undatedId = await createProductLink(itemTemplateId, `시각 없는 가격 링크 ${suffix}`);
+
+    const prisma = moduleRef.get(PrismaService);
+    await prisma.productLink.update({
+      where: { id: freshId },
+      data: { priceSnapshotKrw: 159_000, priceCheckedAt: new Date() }
+    });
+    await prisma.productLink.update({
+      where: { id: staleId },
+      // 문턱(LINK_PRICE_MAX_AGE_DAYS)보다 확실히 오래된 값 — 앱은 이미 그리지 않는다.
+      data: { priceSnapshotKrw: 89_000, priceCheckedAt: new Date("2020-01-02T00:00:00.000Z") }
+    });
+    await prisma.productLink.update({
+      where: { id: undatedId },
+      data: { priceSnapshotKrw: 42_000, priceCheckedAt: null }
+    });
+
+    const links = (
+      await request(app.getHttpServer())
+        .get("/api/v1/admin/product-links")
+        .set("x-admin-token", adminToken)
+        .expect(200)
+    ).body.links as Array<Record<string, unknown>>;
+    const byId = new Map(links.map((link) => [link.id as string, link]));
+
+    expect(byId.get(freshId)).toMatchObject({ priceSnapshotKrw: 159_000, priceExpired: false });
+    expect(byId.get(freshId)!.priceCheckedAt).toEqual(expect.any(String));
+    expect(byId.get(staleId)).toMatchObject({ priceSnapshotKrw: 89_000, priceExpired: true });
+    // 확인 시각이 없는 행: 앱은 이 가격을 아예 내려받지 못하지만 어드민은 값을 되읽는다.
+    expect(byId.get(undatedId)).toMatchObject({ priceSnapshotKrw: 42_000, priceCheckedAt: null });
+
+    // #8: 공유 URL은 서버가 조립한다(베이스는 API 환경변수라 브라우저가 읽을 수 없다).
+    const shareLink = byId.get(freshId)!;
+    expect(shareLink.redirectCode).toEqual(expect.any(String));
+    expect(shareLink.redirectShareUrl).toBe(
+      `${(process.env.INVITE_LINK_BASE_URL ?? "https://wooriai.local").replace(/\/+$/, "")}/r/${shareLink.redirectCode}`
+    );
   });
 });

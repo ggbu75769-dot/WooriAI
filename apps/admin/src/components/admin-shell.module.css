@@ -182,6 +182,19 @@
   padding: 8px 12px;
 }
 
+/* GAP-064 #7: 헤더 계정 영역의 "남은 복구 코드 N장". 평상시에는 조용한 회색 한 줄이고,
+   임계(1장) 이하에서만 경고색으로 올라온다 — 매일 보는 헤더라 늘 붉으면 아무도 안 본다. */
+.recoveryNotice {
+  color: #7a7a7a;
+  font-size: 13px;
+}
+
+.recoveryNoticeLow {
+  color: #a13030;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .main {
   margin: 0 auto;
   max-width: 1080px;

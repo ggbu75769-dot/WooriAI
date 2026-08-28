@@ -15,6 +15,7 @@ import {
   type AdminRole
 } from "../lib/admin-api";
 import { useAdminSession } from "../lib/admin-token-context";
+import { recoveryCodesNotice } from "../lib/recovery-codes-view";
 import styles from "./admin-shell.module.css";
 
 // `roles` omitted = visible to every signed-in role. ADM-006: the admin-account
@@ -61,6 +62,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
     return <MfaSetupScreen />;
   }
 
+  // GAP-064 #7: 잔량을 모르는 응답이면 null이라 줄 자체가 없다(0으로 단정하지 않는다).
+  const recoveryNotice = recoveryCodesNotice(session.mfaRecoveryCodesRemaining);
+
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
@@ -86,6 +90,17 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <button type="button" className={styles.logoutButton} onClick={() => togglePanel("mfa")}>
           인증 앱 다시 등록
         </button>
+        {/* GAP-064 #7: 그 입구 **옆**에 남은 복구 코드 장수. 라운드 63이 "복구 코드는 한 번만 쓸 수
+            있어요"라고 말하기 시작했는데 몇 장 남았는지는 어디에도 없어서, 폰을 바꾼 운영자는
+            마지막 한 장을 쓴 사실을 다 쓴 뒤에야 알았다(그 시점엔 재등록 입구조차 코드를 요구하므로
+            DB 직접 수정 말고 길이 없다). 판정·문구는 순수 모듈 하나(src/lib/recovery-codes-view.ts)
+            이고 화면은 그리기만 한다 — 개수만 다루며 코드 값은 서버도 보내지 않는다. */}
+        {recoveryNotice ? (
+          <span className={recoveryNotice.low ? styles.recoveryNoticeLow : styles.recoveryNotice}>
+            {recoveryNotice.text}
+            {recoveryNotice.actionText ? <span> · {recoveryNotice.actionText}</span> : null}
+          </span>
+        ) : null}
         <LogoutButton />
       </header>
       <main className={styles.main}>
@@ -304,7 +319,11 @@ function LoginScreen() {
         setMfaToken(result.mfaToken);
         return;
       }
-      setSession({ admin: result.admin, mfaEnabled: result.mfaEnabled });
+      setSession({
+        admin: result.admin,
+        mfaEnabled: result.mfaEnabled,
+        mfaRecoveryCodesRemaining: result.mfaRecoveryCodesRemaining
+      });
     } catch (error) {
       setSubmitError(error instanceof AdminApiError ? error.message : "로그인하지 못했어요. 다시 시도해 주세요.");
     } finally {
@@ -323,7 +342,13 @@ function LoginScreen() {
     setMfaSubmitting(true);
     try {
       const result = await adminVerifyMfaLogin(mfaToken, mfaCode.trim());
-      setSession({ admin: result.admin, mfaEnabled: result.mfaEnabled });
+      // GAP-064 #7: 복구 코드로 들어온 경우 이 값은 **방금 태운 한 장을 뺀** 잔량이다 —
+      // 그래서 로그인 직후 헤더가 "남은 복구 코드 N장"을 정확히 말한다.
+      setSession({
+        admin: result.admin,
+        mfaEnabled: result.mfaEnabled,
+        mfaRecoveryCodesRemaining: result.mfaRecoveryCodesRemaining
+      });
     } catch (error) {
       setMfaError(error instanceof AdminApiError ? error.message : "인증하지 못했어요. 다시 시도해 주세요.");
     } finally {
@@ -461,7 +486,9 @@ function MfaSetupScreen() {
 
   const finishSetup = () => {
     if (!session) return;
-    setSession({ admin: session.admin, mfaEnabled: true });
+    // GAP-064 #7: 방금 발급해 화면에 보여준 코드가 곧 잔량이다(서버가 그 배열을 그대로 저장했다).
+    // 다음 `me` 응답이 같은 값을 다시 말하므로 두 소스가 어긋날 자리가 없다.
+    setSession({ admin: session.admin, mfaEnabled: true, mfaRecoveryCodesRemaining: recoveryCodes?.length });
   };
 
   const switchAccount = async () => {

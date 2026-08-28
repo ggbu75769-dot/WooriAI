@@ -263,6 +263,25 @@ describe("Admin MFA + cookie session (SEC-101/SEC-102)", () => {
       .expect(200);
     expect(parseSetCookies(usedOnce).admin_session).toBeTruthy();
 
+    /**
+     * GAP-064 #7: 세션 응답이 **남은 장수**를 함께 나른다(개수만 — 값도 해시도 아니다).
+     * 라운드 63이 재등록 입구를 세우며 "복구 코드는 한 번만 쓸 수 있어요"라고 말하기
+     * 시작했는데 잔량은 어디에도 없어서, 운영자는 마지막 한 장을 태운 사실을 다 쓴 뒤에야
+     * 알았다 — 그 시점엔 재등록 입구조차 코드를 요구하므로 DB 직접 수정 말고 길이 없다.
+     * 방금 한 장을 태웠으니 발급된 10장 중 9장이 남아 있어야 한다.
+     */
+    expect(usedOnce.body.mfaRecoveryCodesRemaining).toBe(9);
+    const usedOnceCookies = parseSetCookies(usedOnce);
+    const meAfterRecovery = await request(app.getHttpServer())
+      .get("/api/v1/admin/auth/me")
+      .set("Cookie", cookieHeader(usedOnceCookies))
+      .expect(200);
+    // `me`도 같은 수를 말한다(화면이 새로고침 뒤에도 같은 사실을 읽는다).
+    expect(meAfterRecovery.body.mfaRecoveryCodesRemaining).toBe(9);
+    // 값·해시는 어느 응답에도 실리지 않는다.
+    expect(meAfterRecovery.body).not.toHaveProperty("recoveryCodes");
+    expect(meAfterRecovery.body).not.toHaveProperty("mfaRecoveryCodes");
+
     const auditLogger = moduleRef.get(AuditLoggerService);
     expect(auditLogger.entries.some((entry) => entry.action === "admin.mfa_recovery_code_used")).toBe(true);
 

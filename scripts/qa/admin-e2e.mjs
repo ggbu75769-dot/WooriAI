@@ -407,6 +407,11 @@ async function main() {
     if (rowCount < 1) throw new Error("links table has 0 rows");
     const healthHeader = listCard.locator("th", { hasText: "링크 상태" });
     if ((await healthHeader.count()) !== 1) throw new Error("링크 상태 column header not found");
+    // GAP-064 #4·#8: 헬스 옆에 가격(CSV로 쓴 값의 되읽기)과 공유 링크(/r/:code) 열이 함께 선다.
+    const priceHeader = listCard.locator("th", { hasText: "가격" });
+    if ((await priceHeader.count()) !== 1) throw new Error("가격 column header not found");
+    const shareHeader = listCard.locator("th", { hasText: "공유 링크" });
+    if ((await shareHeader.count()) !== 1) throw new Error("공유 링크 column header not found");
 
     // CSV bulk panel (rendered inline for admin role).
     const bulkCard = page.locator("section:has(h2:text('CSV 일괄 교체'))");
@@ -432,7 +437,9 @@ async function main() {
     const rowDetails = [];
     for (let i = 0; i < previewRowCount; i++) {
       const cells = await previewRows.nth(i).locator("td").allInnerTexts();
-      rowDetails.push(`row${i + 1}[${cells[1]}]: ${cells[5]}`);
+      // 열 순서: 행·상태·대상·현재 URL·새 URL·현재 가격·새 가격·메시지
+      // (GAP-064 #4ⓐ로 가격 두 열이 URL 뒤에 들어와 메시지가 5 -> 7로 밀렸다).
+      rowDetails.push(`row${i + 1}[${cells[1]}] price ${cells[5]}->${cells[6]}: ${cells[7]}`);
       if (!/유효|오류/.test(cells[1])) throw new Error(`preview row ${i + 1} status not Korean 유효/오류: "${cells[1]}"`);
     }
     // NOTE: deliberately NOT clicking 적용 — preview is validate-only.

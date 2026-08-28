@@ -18,6 +18,7 @@ import {
   type ProductLinkBulkApplyResult,
   type ProductLinkBulkPreviewResult
 } from "../lib/admin-api";
+import { linkPriceText } from "../lib/link-price-view";
 import { useAdminSession } from "../lib/admin-token-context";
 import styles from "./admin-page.module.css";
 
@@ -147,7 +148,9 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
       if (isRetryUnsafeTimeoutError(err)) {
         setPreview(null);
         setTimeoutNotice(
-          "적용 요청이 오래 걸려 결과를 확인하지 못했어요. 이미 반영됐을 수 있으니 바로 다시 적용하지 마세요. 현재 링크 상태를 다시 불러왔어요 — 아래 표의 '현재 제휴 URL'이 '새 제휴 URL'과 같으면 이미 반영된 행이에요."
+          // GAP-064 #4ⓐ: 예전에는 이 문장이 URL만 가리켰다 — 같은 CSV로 쓴 가격은 어디에서도
+          // 대조할 수 없었다. 표에 가격 두 열이 생겼으니 안내도 그 자리를 함께 가리킨다.
+          "적용 요청이 오래 걸려 결과를 확인하지 못했어요. 이미 반영됐을 수 있으니 바로 다시 적용하지 마세요. 현재 링크 상태를 다시 불러왔어요 — 아래 표의 '현재 제휴 URL'이 '새 제휴 URL'과, '현재 가격'이 '새 가격'과 같으면 이미 반영된 행이에요."
         );
         onApplied?.();
         setApplying(false);
@@ -276,6 +279,13 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
                   <th>대상 링크</th>
                   <th>현재 제휴 URL</th>
                   <th>새 제휴 URL</th>
+                  {/* GAP-064 #4ⓐ: 가격을 쓰는 유일한 경로가 이 CSV인데, 적용 뒤 받는 것은
+                      {applied, skipped, errors} 숫자 셋뿐이라 **가격이 반영됐는지 확인할 자리가
+                      없었다**(타임아웃 뒤 재조회조차 URL만 대조했다 — 위 recheckCurrentState 주석).
+                      URL과 같은 모양으로 현재/새 값을 나란히 둔다. 가격 칸이 빈 행은 "-"이고,
+                      그건 "0원으로 바꾼다"가 아니라 **가격을 그대로 둔다**는 뜻이다. */}
+                  <th>현재 가격</th>
+                  <th>새 가격</th>
                   <th>메시지</th>
                 </tr>
               </thead>
@@ -297,6 +307,9 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
                     <td>{row.matchedTitle ?? row.matchedProductLinkId ?? "-"}</td>
                     <td>{row.currentAffiliateUrl ?? "(없음)"}</td>
                     <td>{row.newAffiliateUrl ?? "-"}</td>
+                    {/* 금액 서식은 링크 표의 가격 열과 **같은 함수**를 쓴다(두 벌을 만들지 않는다). */}
+                    <td>{linkPriceText({ priceSnapshotKrw: row.currentPriceSnapshotKrw ?? null })}</td>
+                    <td>{linkPriceText({ priceSnapshotKrw: row.newPriceSnapshotKrw ?? null })}</td>
                     <td>{row.status === "valid" ? "교체 예정이에요." : (row.errorMessage ?? row.errorCode ?? "-")}</td>
                   </tr>
                 ))}
