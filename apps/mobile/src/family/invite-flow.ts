@@ -54,6 +54,22 @@ export const DEFAULT_INVITE_ROLE: InviteRole = "co_parent";
 /** 가족 화면 → 초대 화면으로 고른 역할을 넘길 때 쓰는 쿼리 파라미터 이름. */
 export const INVITE_ROLE_PARAM = "role";
 
+/**
+ * 라운드 61 #3 — 가족 화면 → 초대 화면으로 **보고 있던 가구**를 넘길 때 쓰는 파라미터 이름.
+ *
+ * 왜 필요한가: 가족 화면의 가구 전환은 그 화면의 지역 상태다(app/family/index.tsx의
+ * `viewedHouseholdId` — 세션의 기본 가구를 갈아 끼우지 않기 위한 형태다). 그래서 초대 화면은
+ * 전환을 볼 수 없었고, 거기서 다시 아이 기준으로 판정해 **다른 가구**의 초대를 만들었다:
+ * 아이가 아직 없는 가구를 보며 만든 링크가 아이의 가구로 가고(초대받은 사람이 엉뚱한 가구에
+ * 들어온다), 돌아오면 그 초대는 가족 화면의 대기 목록에 없다(C-04의 재발 — 링크를 잃었을 때의
+ * 유일한 복구 경로가 그 목록이다).
+ *
+ * 역할과 **같은 관례**로 실어 보낸다(위 `INVITE_ROLE_PARAM`). 다른 점은 검증 근거뿐이다:
+ * 역할은 이 모듈이 아는 세 값이지만, 가구 id는 계정마다 다르므로 아는 값의 목록을 호출부가
+ * 넘겨야 한다(`parseInviteHouseholdParam`).
+ */
+export const INVITE_HOUSEHOLD_PARAM = "householdId";
+
 export const INVITE_ROLE_PROMPT_TITLE = "어떤 역할로 초대할까요?";
 export const INVITE_ROLE_PROMPT_CANCEL_LABEL = "취소";
 
@@ -125,12 +141,49 @@ export function parseInviteRoleParam(value: unknown): InviteRole | null {
 }
 
 /**
+ * 라운드 61 #3 — 초대 화면이 받은 `householdId` 파라미터를 **아는 가구만** 통과시킨다.
+ *
+ * 화이트리스트는 호출부가 넘긴다: 이 계정이 아는 가구는 `collectKnownHouseholdIds`가 모으는
+ * 그 사실들이고(아이의 가구 · 서버가 말한 목록 · 기본 가구 — src/family/household-scope.ts),
+ * 그 판정은 화면이 이미 쓰고 있다. 목록에 없으면 **조용히 무시**한다(`null`) — 호출부는 종전의
+ * 아이 기준 판정으로 떨어지므로, 딥링크나 손으로 고친 URL이 남의 가구 id를 들이밀어도 이 앱은
+ * 그 가구로 초대를 만들지 않는다(서버는 어차피 403으로 답하지만, 그 전에 화면이 "이 가구로
+ * 초대해요"라는 거짓 문장을 그리는 일 자체가 없어야 한다).
+ *
+ * 배열 처리·모르는 값 무시는 위 `parseInviteRoleParam`과 같은 규율이다(expo-router의
+ * `useLocalSearchParams`는 같은 이름이 여러 번 오면 배열을 준다).
+ */
+export function parseInviteHouseholdParam(
+  value: unknown,
+  knownHouseholdIds: readonly string[] | null | undefined
+): string | null {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  const householdId = typeof candidate === "string" ? candidate.trim() : "";
+  if (!householdId) return null;
+  return knownHouseholdIds?.includes(householdId) ? householdId : null;
+}
+
+/**
  * 초대 화면으로 가는 목적지. 역할을 쿼리로 실어 보내 화면이 그 역할로 서 있게 한다
  * (app/(tabs)/records.tsx의 `router.push({ pathname, params })`와 같은 형태).
+ *
+ * 라운드 61 #3: 가족 화면이 **가구를 전환한 상태**라면 그 가구도 함께 싣는다. 전환하지 않았을
+ * 때는 넘기지 않는다 — 두 화면이 같은 입력으로 같은 판정을 내리므로 파라미터가 없는 편이
+ * 정확하고, 그래야 1가구 계정의 링크가 종전과 한 글자도 달라지지 않는다.
  */
-export function inviteScreenHref(role: InviteRole): {
+export function inviteScreenHref(
+  role: InviteRole,
+  householdId?: string | null
+): {
   pathname: "/family/invite";
   params: Record<string, string>;
 } {
-  return { pathname: "/family/invite", params: { [INVITE_ROLE_PARAM]: role } };
+  const scopedHouseholdId = householdId?.trim();
+  return {
+    pathname: "/family/invite",
+    params: {
+      [INVITE_ROLE_PARAM]: role,
+      ...(scopedHouseholdId ? { [INVITE_HOUSEHOLD_PARAM]: scopedHouseholdId } : {})
+    }
+  };
 }

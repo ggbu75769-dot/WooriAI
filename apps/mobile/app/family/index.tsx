@@ -16,9 +16,11 @@ import {
 import {
   collectKnownHouseholdIds,
   describeHouseholdScope,
+  HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL,
   HOUSEHOLD_SCOPE_SWITCH_LABEL,
   householdScopeManageNotice,
   householdScopePhrase,
+  householdSwitchPrompt,
   isChildrenSettled,
   listHouseholdSwitchOptions,
   resolveManagedHouseholdId
@@ -163,6 +165,14 @@ export default function FamilyScreen() {
    * 기본값을 바꾸는 것이 아니다. `defaultHouseholdId`를 다시 갈아 끼우면 초대 수락이 저지른
    * 그 소실(P1-3)을 이번엔 사용자 손으로 되풀이하게 된다. 화면을 벗어나면 판정은 다시 아이
    * 기준으로 돌아간다 -- 되돌리는 데 아무 조작도 필요 없는 것이 이 형태의 이점이다.
+   *
+   * 라운드 61 #3 P3(전환 지속) — **초대를 만들고 돌아오면 전환은 그대로다.** 초대 화면은
+   * `router.push`로 이 화면 **위에** 쌓이고 헤더의 뒤로가기는 `router.back()`이라, 이 컴포넌트는
+   * 언마운트되지 않는다(= 이 useState가 그대로 살아 있다). 그래서 파라미터 왕복(초대 화면이
+   * 받은 householdId를 다시 실어 돌려주기)을 만들지 않는다 -- 같은 사실을 두 벌로 들면 어긋나는
+   * 날이 오고, 여기서 어긋남은 "돌아왔더니 다른 가구의 대기 목록"이라는 C-04 그 증상이다.
+   * 반대로 탭을 갈아타 이 화면이 스택에서 내려가면 전환은 사라진다 -- 그게 위에 적은 이 형태의
+   * 의도된 성질이다(되돌리는 데 조작이 필요 없다).
    */
   const [viewedHouseholdId, setViewedHouseholdId] = useState<string | null>(null);
   /**
@@ -177,6 +187,20 @@ export default function FamilyScreen() {
   });
   const householdId =
     viewedHouseholdId && knownHouseholdIdList.includes(viewedHouseholdId) ? viewedHouseholdId : scopedHouseholdId;
+  /**
+   * 라운드 61 #3 — **전환 중이라는 사실을 초대 화면까지 들고 간다.**
+   *
+   * 전환은 이 화면의 지역 상태라(위 주석 참고) 초대 화면은 그것을 볼 수 없었고, 거기서 다시
+   * 아이 기준으로 판정해 **다른 가구**의 초대를 만들었다. 아이가 아직 없는 가구를 보며 만든
+   * 초대가 조용히 아이의 가구로 가고(초대받은 사람은 엉뚱한 가구에 들어온다), 돌아오면 그
+   * 초대는 이 화면의 대기 목록에 없다 — 링크를 잃었을 때의 유일한 복구 경로가 바로 그
+   * 목록이므로(라운드 52 C-04), 목록과 생성이 다른 가구를 보는 순간 복구 자체가 막힌다.
+   *
+   * **전환 중일 때만** 싣는다. 전환하지 않았다면 초대 화면은 이 화면과 같은 입력으로 같은
+   * 판정(resolveManagedHouseholdId)을 내리므로 파라미터가 없는 편이 정확하고, 1가구 계정의
+   * 링크는 종전과 한 글자도 달라지지 않는다.
+   */
+  const switchedHouseholdId = householdId && householdId !== scopedHouseholdId ? householdId : null;
   const hasSession = Boolean(authToken && householdId);
   const members = useQuery({
     queryKey: ["household-members", householdId],
@@ -340,7 +364,8 @@ export default function FamilyScreen() {
           : []),
         ...prompt.roles.map((choice) => ({
           text: choice.label,
-          onPress: () => router.push(inviteScreenHref(choice.role))
+          // 라운드 61 #3: 전환 중이면 **그 가구를** 함께 싣는다(아니면 종전과 같은 링크다).
+          onPress: () => router.push(inviteScreenHref(choice.role, switchedHouseholdId))
         }))
       ],
       { cancelable: prompt.cancelable }
@@ -355,16 +380,23 @@ export default function FamilyScreen() {
    * ("아이가 아직 없는 가구"). 지금 보고 있는 가구는 목록에서 표시만 하고 고를 수 없게 둔다.
    */
   const openHouseholdSwitch = () => {
+    // 라운드 61 #1: Android Alert은 버튼을 3개까지만 그린다 -- 종전에는 "닫기 + 가구 수"를
+    // 그대로 넘겨 3가구부터 마지막 후보가 조용히 잘렸다(초대 역할 Alert이 이미 겪고 고친 함정).
+    // 무엇을 남길지는 household-scope.ts가 정한다(후보는 자르지 않고, 닫는 길도 남는다).
+    const prompt = householdSwitchPrompt(Platform.OS, householdSwitchOptions);
     Alert.alert(
-      HOUSEHOLD_SCOPE_SWITCH_LABEL,
-      "관리할 가구를 골라 주세요. 이 화면에서만 바뀌고 아이 선택은 그대로예요.",
+      prompt.title,
+      prompt.message,
       [
-        { text: "닫기", style: "cancel" as const },
-        ...householdSwitchOptions.map((option) => ({
+        ...(prompt.showsCloseButton
+          ? [{ text: HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL, style: "cancel" as const }]
+          : []),
+        ...prompt.options.map((option) => ({
           text: option.isCurrent ? `${option.label} (보는 중)` : option.label,
           onPress: option.isCurrent ? undefined : () => setViewedHouseholdId(option.householdId)
         }))
-      ]
+      ],
+      { cancelable: prompt.cancelable }
     );
   };
   const confirmCancelInvite = (inviteId: string, roleLabel: string) => {

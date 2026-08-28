@@ -10,6 +10,7 @@ import {
   type InviteRole
 } from "../../src/api/client";
 import {
+  collectKnownHouseholdIds,
   describeHouseholdScope,
   householdScopeInviteNotice,
   householdScopePhrase,
@@ -18,8 +19,10 @@ import {
 } from "../../src/family/household-scope";
 import {
   DEFAULT_INVITE_ROLE,
+  INVITE_HOUSEHOLD_PARAM,
   INVITE_ROLE_CHOICES,
   INVITE_ROLE_PARAM,
+  parseInviteHouseholdParam,
   parseInviteRoleParam
 } from "../../src/family/invite-flow";
 import { inviteCreateErrorMessage } from "../../src/family/invite-permissions";
@@ -40,7 +43,7 @@ import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from ".
 export default function FamilyInviteScreen() {
   // 가족 화면에서 고른 역할을 그대로 이어받는다. 딥링크로 무엇이든 들어올 수 있으므로 아는
   // 값만 통과시키고(parseInviteRoleParam), 아니면 종전 기본값으로 선다.
-  const params = useLocalSearchParams<{ role?: string | string[] }>();
+  const params = useLocalSearchParams<{ role?: string | string[]; householdId?: string | string[] }>();
   const [role, setRole] = useState<InviteRole>(() => parseInviteRoleParam(params[INVITE_ROLE_PARAM]) ?? DEFAULT_INVITE_ROLE);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
@@ -69,12 +72,37 @@ export default function FamilyInviteScreen() {
     isSuccess: childrenQuery.isSuccess,
     isError: childrenQuery.isError
   });
-  const householdId = resolveManagedHouseholdId({
+  const scopedHouseholdId = resolveManagedHouseholdId({
     children: childrenQuery.data?.children,
     childId: selectedChildId,
     fallbackHouseholdId,
     childrenSettled
   });
+  /**
+   * 라운드 61 #3 — 가족 화면이 **가구를 전환한 채로** 보냈다면 그 가구로 초대를 만든다.
+   *
+   * 전환은 가족 화면의 지역 상태라 이 화면에서는 보이지 않는다(app/family/index.tsx의
+   * `viewedHouseholdId`). 그래서 아이가 아직 없는 가구를 보며 [초대하기]를 누른 사람이 여기서
+   * 아이 기준 판정으로 되돌아가, **다른 가구**로 부르는 링크를 만들고 있었다 — 그 초대는 돌아간
+   * 가족 화면의 대기 목록에도 없다(C-04 재발: 링크를 잃었을 때의 유일한 복구 경로가 그 목록이다).
+   *
+   * 파라미터는 **아는 가구일 때만** 통과한다. 화이트리스트는 이 앱이 이미 "이 계정이 아는
+   * 가구"로 세고 있는 그 목록이고(collectKnownHouseholdIds — 아이의 가구 · 서버가 말한 목록 ·
+   * 기본 가구), 모르는 값은 조용히 무시하고 종전 판정으로 떨어진다(딥링크·수동 URL 방어).
+   *
+   * 매 렌더에서 다시 검증한다(effect로 상태를 만들지 않는다 — 가족 화면의 전환 검증과 같은
+   * 형태다): 아이 목록이 늦게 도착해 화이트리스트가 넓어지면 그때 통과하고, 탈퇴 등으로 목록에서
+   * 사라지면 즉시 아이 기준 판정으로 되돌아간다.
+   */
+  const requestedHouseholdId = parseInviteHouseholdParam(
+    params[INVITE_HOUSEHOLD_PARAM],
+    collectKnownHouseholdIds({
+      children: childrenQuery.data?.children,
+      knownHouseholdIds,
+      fallbackHouseholdId
+    })
+  );
+  const householdId = requestedHouseholdId ?? scopedHouseholdId;
   // 다가구 계정에서만 붙는 한 줄. 1가구 계정에서는 null이라 화면이 종전 그대로다.
   const householdNotice = householdScopeInviteNotice(
     householdScopePhrase(

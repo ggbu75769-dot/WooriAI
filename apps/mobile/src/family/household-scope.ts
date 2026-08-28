@@ -300,6 +300,90 @@ export function listHouseholdSwitchOptions(input: {
   }));
 }
 
+/* ------------------------------------------------- 전환 Alert의 버튼 판정 (라운드 61 #1) */
+
+/**
+ * RN Alert(Android)의 버튼 상한. Alert.js가 `buttons.slice(0, 3)`으로 **말없이 잘라내고**
+ * 네이티브 AlertDialog에는 positive/negative/neutral 세 자리밖에 없다. 이 앱의 배포 대상은
+ * Android다(app.json).
+ *
+ * 이 저장소는 이미 이 사실을 세 번 적어 두었다(src/expenses/record-row-actions.ts ·
+ * src/notifications/notification-row-actions.ts · src/family/invite-flow.ts) — 관례는 "Alert
+ * 버튼을 만드는 모듈이 자기 상한을 들고 그 근거를 함께 적는다"이다. 네 번째인 이 자리가
+ * 정확히 그 관례를 지나친 곳이었다: 라운드 60이 신설한 "다른 가구 보기"는 버튼이
+ * `1(닫기) + 가구 수`라, **3가구부터 마지막 후보가 조용히 사라졌다**(그 마지막이 대개
+ * `collectKnownHouseholdIds`가 맨 뒤에 넣는 기본 가구 쪽이다).
+ */
+export const ANDROID_ALERT_BUTTON_LIMIT = 3;
+
+/** 전환 Alert의 본문 — 이 전환이 무엇을 바꾸고 무엇을 바꾸지 않는지. */
+export const HOUSEHOLD_SCOPE_SWITCH_MESSAGE =
+  "관리할 가구를 골라 주세요. 이 화면에서만 바뀌고 아이 선택은 그대로예요.";
+
+/** 전환 Alert의 닫기 버튼 라벨(상한에 밀리면 이 버튼부터 뺀다). */
+export const HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL = "닫기";
+
+/**
+ * 후보가 상한을 넘어 **버튼만으로는 전부 누를 수 없을 때** 본문에 덧붙이는 한 줄.
+ *
+ * 약속하지 않는다: 지금 이 형태(Alert)로 나머지에 도달할 길은 없다. 그래서 도달 방법을
+ * 지어내는 대신 사실만 말한다 — 조용히 잘려 나가던 종전과 다른 점이 정확히 이것이다.
+ */
+export const HOUSEHOLD_SCOPE_SWITCH_OVERFLOW_NOTICE = "가구가 많아 여기서는 일부만 고를 수 있어요.";
+
+export type HouseholdSwitchPrompt = {
+  title: string;
+  message: string;
+  /**
+   * 후보 **전부**. 상한을 넘어도 여기서 자르지 않는다 — 자르는 일은 RN이 이미 하고 있고,
+   * 이 판정이 할 일은 그 사실을 되돌려주는 것이지 잘라 낸 결과를 정답인 척 넘기는 것이
+   * 아니다. 전체 목록이 필요한 호출부(후속의 전용 화면)는 이 배열을 그대로 쓴다.
+   */
+  options: readonly HouseholdSwitchOption[];
+  /** 닫기 버튼을 넣어도 후보가 잘리지 않는가. */
+  showsCloseButton: boolean;
+  /** 닫기 버튼이 없을 때 바깥 탭/뒤로가기로 닫을 수 있어야 한다(Android 기본값은 false). */
+  cancelable: boolean;
+  /** 닫기를 빼고도 후보가 상한을 넘는가 = **Alert이라는 형태 자체가 이 계정에 맞지 않다.** */
+  exceedsButtonLimit: boolean;
+  /** 이 플랫폼에서 실제로 눌리는 후보 수(초과하지 않으면 곧 후보 전부). */
+  reachableOptionCount: number;
+};
+
+/**
+ * "다른 가구 보기" Alert의 구성. 플랫폼을 인자로 받는 순수 함수다(호출부가 `Platform.OS`를
+ * 넘긴다 — `inviteRolePrompt`와 같은 형태).
+ *
+ * 규칙은 초대 역할 Alert에서 이미 정해 둔 그대로다: **후보를 자르지 않고 닫기 버튼을 먼저
+ * 뺀다.** 어느 쪽이든 하나는 사라져야 한다면, 사라져도 되는 것은 "닫기"다 — 그 자리는
+ * 바깥 탭/뒤로가기(`cancelable`)가 대신할 수 있지만, 잘려 나간 가구를 대신할 것은 화면에
+ * 아무것도 없다. 2가구 계정(= 오늘 대부분)에서는 닫기가 그대로 남아 종전과 같은 다이얼로그다.
+ *
+ * 후보가 넷 이상이면 닫기를 빼도 상한을 넘는다. 그때는 **초과했다는 사실을 결과로 돌려준다**
+ * (`exceedsButtonLimit`) — 판정이 조용히 성공한 척하지 않아야 다음 라운드가 대안(전체 목록
+ * 화면)을 만들 자리를 알아볼 수 있고, 그때까지는 본문 한 줄이 사용자에게도 같은 사실을 말한다.
+ */
+export function householdSwitchPrompt(
+  platform: string,
+  options: readonly HouseholdSwitchOption[]
+): HouseholdSwitchPrompt {
+  const buttonLimit = platform === "android" ? ANDROID_ALERT_BUTTON_LIMIT : Number.POSITIVE_INFINITY;
+  const showsCloseButton = options.length + 1 <= buttonLimit;
+  const reachableOptionCount = Math.min(options.length, showsCloseButton ? buttonLimit - 1 : buttonLimit);
+  const exceedsButtonLimit = reachableOptionCount < options.length;
+  return {
+    title: HOUSEHOLD_SCOPE_SWITCH_LABEL,
+    message: exceedsButtonLimit
+      ? `${HOUSEHOLD_SCOPE_SWITCH_MESSAGE}\n${HOUSEHOLD_SCOPE_SWITCH_OVERFLOW_NOTICE}`
+      : HOUSEHOLD_SCOPE_SWITCH_MESSAGE,
+    options,
+    showsCloseButton,
+    cancelable: !showsCloseButton,
+    exceedsButtonLimit,
+    reachableOptionCount
+  };
+}
+
 /** 아이 추가 폼(app/settings/children.tsx): 이 아이가 **어느 가구에** 생기는지. */
 export function householdScopeAddChildNotice(phrase: string | null): string | null {
   return phrase ? `${phrase}에 추가돼요.` : null;
