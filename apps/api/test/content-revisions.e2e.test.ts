@@ -6,8 +6,9 @@ import { generate as generateTotp } from "otplib";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hashAdminPassword } from "../src/admin/admin-password";
-import { CONTENT_REVISIONS_LIST_LIMIT } from "../src/admin/content-revisions.service";
+import { CONTENT_REVISIONS_LIST_LIMIT, SYSTEM_WORKER_ACTOR } from "../src/admin/content-revisions.service";
 import { AppModule } from "../src/app.module";
+import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 import { configureApiApp } from "../src/bootstrap";
 import { ScheduledPublishJob } from "../src/worker/jobs/scheduled-publish.job";
 import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
@@ -22,6 +23,7 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
   let app: INestApplication;
   let prisma: PrismaClient;
   let scheduledPublishJob: ScheduledPublishJob;
+  let auditLogger: AuditLoggerService;
 
   beforeAll(async () => {
     deployMigrations();
@@ -46,6 +48,7 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
     await app.init();
 
     scheduledPublishJob = moduleRef.get(ScheduledPublishJob, { strict: false });
+    auditLogger = moduleRef.get(AuditLoggerService, { strict: false });
   });
 
   afterAll(async () => {
@@ -756,6 +759,165 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
         .expect(200);
       expect(published.body.status).toBe("published");
       expect(published.body.scheduledFor).toBeNull();
+    });
+  });
+
+  /**
+   * GAP-066 #7 (known-limitations §J 해소): 리비전으로 발행된 값의 **이전 값**.
+   *
+   * 두 발행 경로의 감사 봉투에는 `after`뿐이라 "무엇에서" 바꿨는지가 서버 어디에도
+   * 없었다. 고지(`disclosures`)는 key당 한 칸 upsert라 덮어쓰는 순간 이전 문구가
+   * 사실 자체로 사라지고, 리비전 행에는 발행할 payload(=새 문구)만 있다 — 그래서
+   * "원래 문구로 되돌려 주세요" CS에서 되돌릴 값이 남는 곳은 이 봉투뿐이다.
+   */
+  describe("publish audit envelope (GAP-066 #7)", () => {
+    let envEditor: { cookie: string; csrfToken: string };
+    let envAdmin: { cookie: string; csrfToken: string };
+
+    beforeAll(async () => {
+      await createAdmin("cr-editor-6@wooriai.local", "editor-password-6", "editor");
+      await createAdmin("cr-admin-10@wooriai.local", "admin-password-10", "admin");
+      envEditor = await loginAndEnroll("cr-editor-6@wooriai.local", "editor-password-6");
+      envAdmin = await loginAndEnroll("cr-admin-10@wooriai.local", "admin-password-10");
+    });
+
+    async function draftAndSubmit(payload: Record<string, unknown>, entityType: string, entityId?: string) {
+      const draft = await request(app.getHttpServer())
+        .post("/api/v1/admin/content-revisions")
+        .set("Cookie", envEditor.cookie)
+        .set("X-CSRF-Token", envEditor.csrfToken)
+        .send(entityId ? { entityType, entityId, payload } : { entityType, payload })
+        .expect(200);
+      const revisionId = draft.body.id as string;
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/content-revisions/${revisionId}/submit`)
+        .set("Cookie", envEditor.cookie)
+        .set("X-CSRF-Token", envEditor.csrfToken)
+        .expect(200);
+      return revisionId;
+    }
+
+    function publishEntry(action: string, revisionId: string) {
+      return auditLogger.entries.find((entry) => entry.action === action && entry.targetId === revisionId);
+    }
+
+    it("records the pre-publish live copy as `before` on approve_publish (고지는 key로 찾는다)", async () => {
+      // 라이브에 이미 서 있는 DNC-010 문구. 초안은 **entityId 없이** 만들어진다 —
+      // 고지는 id가 아니라 key로 주소지정되므로(publishToLive의 upsert-by-key) 이것이
+      // 실제 운영에서 흔한 모양이고, entityId만 보면 before가 늘 null이 되는 자리다.
+      const key = `cr_e2e_audit_before_${Date.now()}`;
+      await prisma.disclosure.create({
+        data: { key, text: "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요." }
+      });
+
+      const revisionId = await draftAndSubmit({ key, text: "제휴 링크예요." }, "disclosure");
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/content-revisions/${revisionId}/approve-publish`)
+        .set("Cookie", envAdmin.cookie)
+        .set("X-CSRF-Token", envAdmin.csrfToken)
+        .expect(200);
+
+      const entry = publishEntry("admin.content_revision.approve_publish", revisionId);
+      // 되돌릴 값 — 바뀌기 **전** 문구가 봉투에 그대로 있다.
+      expect(entry?.before).toEqual({
+        key,
+        text: "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요."
+      });
+      // 어느 문구인지는 after.key가 답한다(targetId는 revision id라 답하지 못한다).
+      expect(entry?.after).toMatchObject({ entityType: "disclosure", key });
+      // 봉투는 운영이 쓴 공개 문구 두 칸뿐 — 사용자 데이터(PII)는 없다.
+      expect(Object.keys(entry!.before!).sort()).toEqual(["key", "text"]);
+      // 라이브는 새 문구로 덮여 이전 문구는 사라졌다. 남은 근거가 위 봉투다.
+      const live = await prisma.disclosure.findUnique({ where: { key } });
+      expect(live?.text).toBe("제휴 링크예요.");
+    });
+
+    it("leaves `before` null when the disclosure key did not exist yet (새 문구 표식)", async () => {
+      const key = `cr_e2e_audit_new_${Date.now()}`;
+      const revisionId = await draftAndSubmit({ key, text: "처음 세우는 고지 문구예요." }, "disclosure");
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/content-revisions/${revisionId}/approve-publish`)
+        .set("Cookie", envAdmin.cookie)
+        .set("X-CSRF-Token", envAdmin.csrfToken)
+        .expect(200);
+
+      const entry = publishEntry("admin.content_revision.approve_publish", revisionId);
+      // 라운드 65 E(admin.disclosure.update)와 같은 표식: null = 그 key가 없던 새 문구.
+      expect(entry?.before ?? null).toBeNull();
+      // 그래도 어느 key를 세운 발행인지는 봉투가 답한다.
+      expect(entry?.after).toMatchObject({ entityType: "disclosure", key });
+    });
+
+    it("records the same `before` on the worker's scheduled publish (사람이 자리에 없는 순간)", async () => {
+      const HOUR_MS = 60 * 60 * 1000;
+      const key = `cr_e2e_audit_sched_${Date.now()}`;
+      await prisma.disclosure.create({ data: { key, text: "예약 전 고지 문구예요." } });
+
+      const revisionId = await draftAndSubmit({ key, text: "예약으로 바뀐 고지 문구예요." }, "disclosure");
+      const futureIso = new Date(Date.now() + HOUR_MS).toISOString();
+      await request(app.getHttpServer())
+        .patch(`/api/v1/admin/content-revisions/${revisionId}/schedule`)
+        .set("Cookie", envAdmin.cookie)
+        .set("X-CSRF-Token", envAdmin.csrfToken)
+        .send({ scheduledFor: futureIso })
+        .expect(200);
+
+      const result = await scheduledPublishJob.run(new Date(Date.now() + 2 * HOUR_MS));
+      expect(result.published).toContain(revisionId);
+
+      const entry = publishEntry("admin.content_revision.scheduled_publish", revisionId);
+      expect(entry?.before).toEqual({ key, text: "예약 전 고지 문구예요." });
+      // 행위자 표기 관례는 그대로다 — 워커 발행은 사람이 아니다.
+      expect(entry?.actorUserId).toBe(SYSTEM_WORKER_ACTOR);
+      expect(entry?.after).toMatchObject({ entityType: "disclosure", key, scheduledFor: futureIso });
+    });
+
+    it("carries a live snapshot for item_template publishes too, with no disclosure `key` in the envelope", async () => {
+      // 1) 신규 생성 발행: 라이브에 아직 행이 없으므로 before는 null이다.
+      const createRevisionId = await draftAndSubmit(
+        {
+          name: "GAP-066 감사 봉투 준비템",
+          necessityLevel: "essential",
+          reasonText: "발행 봉투 e2e.",
+          safetyNote: "반드시 보호자와 함께 쓰세요."
+        },
+        "item_template"
+      );
+      const created = await request(app.getHttpServer())
+        .post(`/api/v1/admin/content-revisions/${createRevisionId}/approve-publish`)
+        .set("Cookie", envAdmin.cookie)
+        .set("X-CSRF-Token", envAdmin.csrfToken)
+        .expect(200);
+      const entityId = created.body.entityId as string;
+      expect(publishEntry("admin.content_revision.approve_publish", createRevisionId)?.before ?? null).toBeNull();
+
+      // 2) 같은 준비템의 안전 주의 문구를 약하게 바꾸는 발행 — "누가 안전 주의를
+      //    약하게 바꿨나"가 고지와 같은 모양의 질문이라 여기에도 before가 있어야 한다.
+      const updateRevisionId = await draftAndSubmit(
+        {
+          name: "GAP-066 감사 봉투 준비템",
+          necessityLevel: "essential",
+          reasonText: "발행 봉투 e2e.",
+          safetyNote: "적당히 쓰세요."
+        },
+        "item_template",
+        entityId
+      );
+      await request(app.getHttpServer())
+        .post(`/api/v1/admin/content-revisions/${updateRevisionId}/approve-publish`)
+        .set("Cookie", envAdmin.cookie)
+        .set("X-CSRF-Token", envAdmin.csrfToken)
+        .expect(200);
+
+      const entry = publishEntry("admin.content_revision.approve_publish", updateRevisionId);
+      expect(entry?.before).toMatchObject({
+        name: "GAP-066 감사 봉투 준비템",
+        safetyNote: "반드시 보호자와 함께 쓰세요."
+      });
+      // 검수 diff가 쓰는 스냅숏과 같은 모양이다(고정 필드 목록 — 봉투가 무한히 자라지 않는다).
+      expect(Array.isArray((entry!.before as { stageCodes?: unknown }).stageCodes)).toBe(true);
+      // 고지가 아닌 발행의 봉투에는 `key`가 없다 — entityId가 이미 그 답을 한다.
+      expect(entry?.after).toEqual({ entityType: "item_template", entityId });
     });
   });
 

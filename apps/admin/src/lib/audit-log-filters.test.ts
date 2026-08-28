@@ -238,6 +238,23 @@ describe("AUDIT_LOG_ACTION_PRESETS (CS-101)", () => {
     ).map((preset) => preset.label);
     expect(new Set(labels).size).toBe(2);
   });
+
+  /**
+   * GAP-066 #9: 같은 고지 문구가 **리비전으로도** 바뀐다. 승인 발행은 프리셋에 있었지만
+   * 예약 발행은 없어서, 사람이 자리에 없는 순간 라이브를 바꾸는 유일한 경로를 CS가 액션
+   * 문자열을 외워 손으로 쳐야 찾을 수 있었다(GAP-066 #7이 그 봉투에 before를 채워도
+   * 찾을 수 없으면 소용이 없다). 두 발행 경로가 나란히 후보로 서야 한다.
+   */
+  it("covers both publish paths CS asks about (승인 발행·예약 발행)", () => {
+    const actions = AUDIT_LOG_ACTION_PRESETS.map((preset) => preset.action);
+    expect(actions).toContain("admin.content_revision.approve_publish");
+    expect(actions).toContain("admin.content_revision.scheduled_publish");
+    // 승인 발행과 뭉뚱그리지 않는다 — 행위자가 사람이 아니라 워커다.
+    const labels = AUDIT_LOG_ACTION_PRESETS.filter((preset) =>
+      ["admin.content_revision.approve_publish", "admin.content_revision.scheduled_publish"].includes(preset.action)
+    ).map((preset) => preset.label);
+    expect(new Set(labels).size).toBe(2);
+  });
 });
 
 describe("auditLogActorLabel (CS-101)", () => {

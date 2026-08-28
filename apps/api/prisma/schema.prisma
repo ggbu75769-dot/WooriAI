@@ -690,6 +690,21 @@ model Disclosure {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   key       String   @unique @db.VarChar(80)
   text      String   @db.Text
+  /// ⚠️ 죽은 플래그(GAP-066 #9에서 확인 — 라운드 65 코드 건강이 권고한 "선언만 있고
+  /// 조건에 안 쓰이는 플래그" 스윕의 유일한 참조 0 항목). **아무도 읽지 않는다**:
+  /// 앱이 읽는 경로(`items-catalog.service.ts`의 `disclosuresByKey`)도, 어드민 목록
+  /// (`adminListDisclosures`)도 `where` 없이 전량을 읽는다. 쓰는 곳은 시드 한 곳뿐이고
+  /// (`prisma/seed.ts` — 언제나 `true`, 컬럼 기본값과 같은 값이라 사실상 no-op)
+  /// 두 실쓰기 경로(`AdminController.updateDisclosure`의 직접 upsert,
+  /// `ContentRevisionsService.publishToLive`의 발행) 어느 쪽도 이 값을 건드리지 않는다.
+  /// 즉 **끄는 수단도, 꺼진 것을 존중하는 판정도 없다.**
+  /// **"이 고지는 지금 쓰이지 않는다"의 근거로 인용하지 말 것** — 값이 무엇이든
+  /// 앱·어드민·클릭 응답은 그 문구를 계속 쓴다.
+  /// 소생시키지 않은 이유(GAP-064 #9 `import_jobs.approved_at`·GAP-065 #9
+  /// `disclosures.updated_by`와 같은 판단 형식, 세 번째 선례): 이 플래그를 존중하게
+  /// 만드는 순간 그것이 곧 **DNC-010이 잠근 고지를 끄는 정식 스위치**가 된다 —
+  /// 구매 CTA 인접 고지를 숨길 수 있는 수단을 만드는 일이라 소생이 곧 계약 위반이다.
+  /// 없애려면 마이그레이션이 필요하므로(도메인 테이블의 파괴적 변경) 별도 티켓 대상이다.
   active    Boolean  @default(true)
   /// ⚠️ 죽은 컬럼(GAP-065 #9에서 확인). 저장소 전체에서 **읽지도 쓰지도 않는다**
   /// (grep 결과가 이 선언 한 줄뿐이다) — 두 쓰기 경로(`AdminController.updateDisclosure`의
