@@ -72,6 +72,8 @@ import {
   resolveExpenseHouseholdId
 } from "../../src/expenses/records-list-view";
 import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
+// 라운드 56 D#10: `view=calendar` 파라미터 규약은 링크를 만드는 알림 목적지 모듈과 **같은 곳**에서 읽는다.
+import { isRecordsCalendarViewParam, RECORDS_VIEW_PARAM } from "../../src/notifications/notification-route";
 import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 // C-03: 드릴다운 파라미터 규약은 링크를 만드는 리포트 탭과 **같은 모듈**에서 읽는다.
@@ -100,6 +102,11 @@ import type { LocalExpenseRow } from "../../src/offline/types";
 import { canGoToNextPeriod, periodLabelForOffset } from "../../src/period-navigation";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
+import {
+  useRecordsViewStore,
+  RECORDS_VIEW_MODE_CALENDAR,
+  RECORDS_VIEW_MODE_LIST
+} from "../../src/stores/records-view.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -742,7 +749,7 @@ export default function RecordsScreen() {
    * 파싱은 전부 순수 모듈에 있다: 파라미터가 없거나 형식이 깨졌거나 미래 월이면 0(이번 달)이라
    * 종전 동작과 완전히 같다.
    */
-  const monthParams = useLocalSearchParams<{ month?: string; categoryId?: string; drilldown?: string }>();
+  const monthParams = useLocalSearchParams<{ month?: string; categoryId?: string; drilldown?: string; view?: string }>();
   const monthParam = Array.isArray(monthParams.month) ? monthParams.month[0] : monthParams.month;
   const [monthOffset, setMonthOffset] = useState(() =>
     resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() })
@@ -811,11 +818,52 @@ export default function RecordsScreen() {
     if (monthParam) setMonthOffset(resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() }));
     setSelectedCategoryId(resolveDrilldownCategoryIdParam(categoryIdParam));
   }, [drilldownNonceParam, monthParam, categoryIdParam]);
-  // UX-D: 리스트/달력 보기. 리포트 탭의 기간 세그먼트(app/(tabs)/reports.tsx의 `period`)와 같은
-  // 관례로 **화면 상태**만 둔다 -- 세션 간 저장은 하지 않는다. 기록 탭의 기본 동작은 "방금 적은
-  // 것을 확인하는 목록"이고, 달력은 그 위에서 잠깐 훑는 뷰다.
-  const [viewMode, setViewMode] = useState<string>(RECORDS_VIEW_LIST);
+  /**
+   * UX-D: 리스트/달력 보기.
+   *
+   * 라운드 56 D#10 — 예전에는 화면 안 `useState`라 **앱을 다시 열 때마다 리스트로 돌아갔다**.
+   * 달력으로 훑는 것이 습관인 사용자는 같은 토글을 매번 다시 눌러야 했다. 이제 선택은
+   * src/stores/records-view.store.ts 한 곳에 있고 세션 간 남는다(저장 값은 화면 라벨이 아니라
+   * `"list" | "calendar"`다 -- 문구를 다듬어도 저장본이 무효가 되지 않는다).
+   *
+   * 화면이 쓰는 값은 여전히 세그먼트 라벨이므로, 라벨 ↔ 저장 값 변환을 이 자리 하나에 둔다.
+   */
+  const setRecordsViewMode = useRecordsViewStore((state) => state.setMode);
+  const viewMode = useRecordsViewStore((state) =>
+    state.mode === RECORDS_VIEW_MODE_CALENDAR ? RECORDS_VIEW_CALENDAR : RECORDS_VIEW_LIST
+  );
+  const setViewMode = useCallback(
+    (next: string) =>
+      setRecordsViewMode(next === RECORDS_VIEW_CALENDAR ? RECORDS_VIEW_MODE_CALENDAR : RECORDS_VIEW_MODE_LIST),
+    [setRecordsViewMode]
+  );
   const isCalendarView = viewMode === RECORDS_VIEW_CALENDAR;
+  /**
+   * 라운드 56 D#10 — **기록 리마인더 알림이 달력으로 착지한다.**
+   *
+   * record_gap 알림이 말하는 사실은 "며칠 동안 기록이 없어요"인데, 리스트로 내려놓으면 그 사람이
+   * 보는 것은 **있는 기록의 목록**이다 -- 알림이 가리킨 빈 며칠은 목록에 없어서 화면 어디에도
+   * 나타나지 않는다. 비어 있는 날을 보여 주는 화면은 달력 격자뿐이라, 알림 목적지가
+   * `view=calendar`를 싣고 이 effect가 그것을 적용한다(파라미터 규약은 링크를 만드는
+   * src/notifications/notification-route.ts와 같은 모듈에서 온다).
+   *
+   * **한 번 적용하고 소모한다.** 이 탭은 한 번 열리면 계속 마운트된 채로 남으므로(알림함은 탭
+   * 위에 쌓인 스택이다) 가드가 없으면 재렌더·뒤로가기·아이 전환마다 사용자가 방금 고른 리스트를
+   * 달력으로 되돌린다 -- `month`(라운드 51 C-#11)·`drilldown`(라운드 52 QA)이 지키는 그 규율
+   * 그대로다. 값이 하나뿐인 파라미터라 회차(nonce) 대신 **적용 여부** 하나로 충분하다.
+   *
+   * 착지는 세그먼트를 직접 누른 것과 같은 경로로 들어가므로(같은 setter) 그 뒤로는 달력이
+   * 기억된다. 사용자가 리스트로 되돌리면 그 선택이 곧바로 덮어쓴다 -- 앱이 정한 것이 사용자가
+   * 정한 것보다 오래 남지 않는다.
+   */
+  const viewParam = monthParams[RECORDS_VIEW_PARAM];
+  const appliedViewParamRef = useRef(false);
+  useEffect(() => {
+    if (appliedViewParamRef.current) return;
+    if (!isRecordsCalendarViewParam(viewParam)) return;
+    appliedViewParamRef.current = true;
+    setRecordsViewMode(RECORDS_VIEW_MODE_CALENDAR);
+  }, [viewParam, setRecordsViewMode]);
   // 달력에서 누른 날짜. 리스트로 전환된 **다음 렌더**에 그 섹션으로 스크롤한다(전환과 스크롤을
   // 한 렌더에서 하려 하면 아직 섹션이 만들어지기 전이라 좌표가 없다).
   const [pendingScrollDate, setPendingScrollDate] = useState<string | null>(null);

@@ -122,8 +122,9 @@ describe("C-03 리포트 → 기록 드릴다운", () => {
 
   it("applies the categoryId param exactly once, with the same appliedRef convention as month", () => {
     expect(recordsSource).toContain('from "../../src/reports/category-drilldown"');
+    // 라운드 56 D#10에서 `view`(달력 착지)가 이 목록에 합류했다 — 드릴다운이 쓰는 세 키는 그대로다.
     expect(recordsSource).toContain(
-      "useLocalSearchParams<{ month?: string; categoryId?: string; drilldown?: string }>()"
+      "useLocalSearchParams<{ month?: string; categoryId?: string; drilldown?: string; view?: string }>()"
     );
     expect(recordsSource).toContain("resolveDrilldownCategoryIdParam(categoryIdParam)");
     expect(recordsSource).toContain("const appliedCategoryParamRef = useRef<string | undefined>(categoryIdParam);");

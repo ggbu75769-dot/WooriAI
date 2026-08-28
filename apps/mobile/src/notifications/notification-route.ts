@@ -16,21 +16,59 @@ import type { AppNotification } from "./notification.store";
  */
 
 /**
+ * 라운드 56 트랙 D(#10) — 기록 탭을 **달력 보기로 열어 달라**고 실어 보내는 파라미터.
+ *
+ * 이름과 값을 여기 두는 이유는 카테고리 드릴다운(src/reports/category-drilldown.ts)과 같다:
+ * 링크를 **만드는 쪽**(이 모듈)과 **읽는 쪽**(app/(tabs)/records.tsx)이 같은 상수를 쓰지 않으면
+ * "보내는데 읽지 못하는" 조합이 조용히 생긴다. 읽기 쪽 방어도 여기 하나뿐이다
+ * (`isRecordsCalendarViewParam`) -- 값이 어긋나면 파라미터가 없던 때와 똑같이 동작한다.
+ */
+export const RECORDS_VIEW_PARAM = "view";
+
+/** 이 파라미터가 가질 수 있는 유일한 값. 리스트는 기본값이라 링크로 지정하지 않는다. */
+export const RECORDS_CALENDAR_VIEW = "calendar";
+
+/** 기록 탭 + 달력 보기 요청. expo-router의 `{ pathname, params }` 목적지 그대로다. */
+export type RecordsCalendarViewRoute = {
+  pathname: "/(tabs)/records";
+  params: { [RECORDS_VIEW_PARAM]: typeof RECORDS_CALENDAR_VIEW };
+};
+
+/**
  * 알림함이 밀 수 있는 목적지. expo-router의 typedRoutes가 켜져 있어(app.json) 이 유니온이
  * 그대로 Href로 검사되므로, 없는 경로를 반환하면 typecheck에서 걸린다.
  */
-export type NotificationRoute = "/budget" | "/(tabs)/records" | "/(tabs)/items" | `/items/${string}`;
+export type NotificationRoute =
+  | "/budget"
+  | "/(tabs)/records"
+  | "/(tabs)/items"
+  | `/items/${string}`
+  | RecordsCalendarViewRoute;
+
+/**
+ * 기록 탭이 받은 `view` 파라미터가 **달력을 요청하는가**.
+ *
+ * expo-router의 `useLocalSearchParams`는 같은 키가 여러 번 오면 배열을 준다 -- 첫 값만 본다
+ * (`month`·`categoryId`·`drilldown`과 같은 관례). 모르는 값은 false라, 그때 화면은 이 파라미터가
+ * 없던 때와 완전히 같다.
+ */
+export function isRecordsCalendarViewParam(raw: string | string[] | undefined | null): boolean {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value === RECORDS_CALENDAR_VIEW;
+}
 
 /**
  * 알림 한 건의 탭 목적지.
  *
  * - budget_80 / budget_100 -> /budget (예산 설정·조정)
  * - weekly_summary -> /(tabs)/records (지난 주 지출 "내역"을 보러 간다)
- * - record_gap -> /(tabs)/records (GAP-054 #6: 며칠이 비었는지 보이는 화면 = 기록 탭. 그 탭의
- *   달력 보기는 화면 안 상태 토글이라(app/(tabs)/records.tsx의 `viewMode`, 세션 간 저장 없음)
- *   링크로 미리 지정할 수 있는 파라미터가 없다 -- 여기서 만들어 낼 수도 없다. 그래서 목적지는
- *   기록 탭이고, 달력은 사용자가 그 화면에서 한 번 누르는 것으로 남는다. 없는 파라미터를 붙여
- *   두면 아무 일도 하지 않는 링크가 된다.)
+ * - record_gap -> /(tabs)/records **달력 보기**(라운드 56 D#10). 이 알림이 말하는 사실은
+ *   "며칠 동안 기록이 없어요"인데, 리스트로 내려놓으면 그 사람이 보는 것은 **있는 기록의
+ *   목록**이다 -- 알림이 말한 "빈 며칠"은 목록에 없는 것이라 화면 어디에도 보이지 않는다.
+ *   비어 있는 날을 보여 주는 화면은 달력 격자 하나뿐이므로(UX-D), 목적지에 `view=calendar`를
+ *   함께 싣는다. 예전 주석이 "링크로 지정할 파라미터가 없다"고 적어 둔 그 파라미터를 이 라운드가
+ *   만들었다. 기록 탭은 이 값을 **한 번만** 적용하고 소모한다(재렌더·뒤로가기가 사용자가 고른
+ *   보기를 되돌리지 않는다 -- `month`·`drilldown`과 같은 재적용 규율).
  * - stage_transition -> /(tabs)/items (새 시기의 준비템)
  * - purchase_pending -> 그 준비템 상세(/items/{id}). dedupeKey에서 itemTemplateId를 못 뽑으면
  *   준비템 목록으로 떨어진다 -- 예전 화면 코드와 같은 폴백이다.
@@ -40,7 +78,9 @@ export type NotificationRoute = "/budget" | "/(tabs)/records" | "/(tabs)/items" 
 export function notificationTapRoute(entry: Pick<AppNotification, "type" | "dedupeKey">): NotificationRoute {
   if (entry.type === "budget_80" || entry.type === "budget_100") return "/budget";
   if (entry.type === "weekly_summary") return "/(tabs)/records";
-  if (entry.type === "record_gap") return "/(tabs)/records";
+  if (entry.type === "record_gap") {
+    return { pathname: "/(tabs)/records", params: { [RECORDS_VIEW_PARAM]: RECORDS_CALENDAR_VIEW } };
+  }
   if (entry.type === "stage_transition") return "/(tabs)/items";
   const itemTemplateId = itemTemplateIdFromPurchaseDedupeKey(entry.dedupeKey);
   if (itemTemplateId) return `/items/${itemTemplateId}`;

@@ -7,6 +7,12 @@ import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiErrorMessage } from "../../src/api/api-error";
 import { createExcelImport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 import {
+  importResumeCardAccessibilityLabel,
+  importResumeCardSubtitle,
+  resolveImportResumeCard,
+  IMPORT_RESUME_CARD_TITLE
+} from "../../src/import/import-resume";
+import {
   IMPORT_UPLOAD_GUIDE_TEXT,
   IMPORT_UPLOAD_SIGN_IN_ALERT_MESSAGE,
   IMPORT_UPLOAD_SIGN_IN_ALERT_TITLE,
@@ -15,6 +21,7 @@ import {
 } from "../../src/import/upload-copy";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { validateImportFile } from "../../src/import-file-validation";
+import { useImportResumeStore } from "../../src/stores/import-resume.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -86,10 +93,23 @@ export default function ImportUploadScreen() {
   const expenseGate = useExpenseEntryGate();
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  // 라운드 56 D#5: 검토 도중 이탈해도 돌아올 길을 남긴다(규칙·문구는 src/import/import-resume.ts).
+  const resumeEntry = useImportResumeStore((state) => state.entry);
+  const rememberImportReview = useImportResumeStore((state) => state.rememberImportReview);
   const upload = useMutation({
     mutationFn: (asset: DocumentPicker.DocumentPickerAsset) =>
       createExcelImport(authToken!, childId!, { uri: asset.uri, name: asset.name, mimeType: asset.mimeType }),
-    onSuccess: (job) => {
+    // 파일명은 **이번 업로드의 변수**에서 온다(화면 state가 아니라) -- state는 이 콜백이 만들어진
+    // 렌더의 값이라 첫 업로드에서는 아직 null이다.
+    onSuccess: (job, asset) => {
+      // jobId가 실제로 생긴 **뒤에만** 적는다. 그 전에 적으면 존재하지 않는 잡을 가리키는
+      // 카드가 남는다.
+      rememberImportReview({
+        childId: job.childId,
+        jobId: job.id,
+        fileName: asset.name,
+        createdAt: new Date().toISOString()
+      });
       router.push(`/import/${job.id}`);
     }
   });
@@ -146,6 +166,16 @@ export default function ImportUploadScreen() {
   const showPreviewMockup = !canUpload;
   const showFileCard = showPreviewMockup || Boolean(selectedFileName);
   const uploadPhase = importUploadPhase({ isUploading: upload.isPending, hasError: Boolean(upload.error) });
+  /**
+   * 라운드 56 D#5: "검토하던 가져오기 이어서 보기" 카드.
+   *
+   * 판정은 순수 모듈에 있다 -- 지금 고른 아이의 가져오기일 때만, 그리고 **로그인 상태에서만**
+   * 그린다. 후자가 IMP-003 픽셀락 계약이다: 비로그인 렌더(=캡처 경로)에는 이 카드가 존재할 수
+   * 없으므로 캡처 화면이 한 픽셀도 바뀌지 않는다.
+   */
+  const resumeCard = resolveImportResumeCard({ entry: resumeEntry, childId, canResume: canUpload });
+  // 알림함과 같은 관례: "언제"는 렌더 시각 기준으로 한 번만 읽는다.
+  const now = Date.now();
 
   return (
     <View testID={importUploadScreenId} style={[styles.screen, { paddingHorizontal: ExcelPreviewPixelStyles.screenPadding }, excelPreviewPixelFrameStyle()]}>
@@ -156,6 +186,33 @@ export default function ImportUploadScreen() {
         <Text style={styles.navigationTitle}>엑셀 업로드</Text>
         <View style={styles.backButton} />
       </View>
+
+      {/* 라운드 56 D#5: 검토 중이던 가져오기로 돌아가는 카드. 서버에는 "내 가져오기 목록"이
+          없으므로(엔드포인트 자체가 없다) 이 카드가 그 잡으로 가는 유일한 길이다. 확정·취소된
+          잡과 사라진 잡(404)은 검수 화면이 저장본을 지우므로 여기 남지 않는다. */}
+      {resumeCard ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={importResumeCardAccessibilityLabel(resumeCard, now)}
+          onPress={() => router.push(`/import/${resumeCard.jobId}`)}
+          style={({ pressed }) => [styles.resumeCard, { opacity: pressed ? 0.82 : 1 }]}
+        >
+          <View accessible={false} style={styles.fileIcon}>
+            <Ionicons
+              accessible={false}
+              name="time-outline"
+              size={styles.fileIconText.fontSize}
+              color={styles.fileIconText.color}
+            />
+          </View>
+          <View style={styles.fileTextColumn}>
+            <Text style={styles.fileName}>{IMPORT_RESUME_CARD_TITLE}</Text>
+            <Text numberOfLines={1} style={styles.fileStatus}>
+              {importResumeCardSubtitle(resumeCard, now)}
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
 
       {/* A11Y-117: 목업 파일 카드("5월 지출내역.xlsx / 업로드 완료")는 장식이므로 TalkBack에서
           통째로 숨긴다. 라운드 41 UX-S: 로그인 사용자에게는 이 카드가 **파일을 고른 뒤에만**
@@ -331,6 +388,22 @@ const styles = StyleSheet.create({
     color: theme.colors.white,
     fontSize: 16,
     fontWeight: "900"
+  },
+  // 라운드 56 D#5: "이어서 보기" 카드. 파일 카드(excelUploadedFileCardStyle)와 **같은 표면
+  // 문법**을 쓰되 자리만 위(marginTop 20)다 -- 새 색·새 그림자를 만들지 않는다. 카드 전체가
+  // 누를 수 있는 대상이므로 최소 터치 타깃을 보장한다.
+  resumeCard: {
+    alignItems: "center",
+    backgroundColor: theme.colors.white,
+    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 20,
+    minHeight: theme.touchTarget,
+    padding: 14,
+    ...theme.shadows.card
   },
   // 라운드 41 UX-S: 로그인·파일 선택 전 안내 카드. 목업 카드와 같은 자리(marginTop 34)·같은
   // 표면 토큰을 쓴다 -- 새 hex 없이 기존 카드 문법 그대로다.
