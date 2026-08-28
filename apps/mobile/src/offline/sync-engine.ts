@@ -1,6 +1,7 @@
 import { MAX_DELAY_MS, computeNextRetryAtIso } from "./backoff";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import { mergeItemStatusMutation, mergeOutboxMutation } from "./outbox-merge";
+import { isDiscardablePendingRow } from "./pending-row-actions";
 import { isBulkRetryableFailedRow, syncFailureReasonOf } from "./permission-denied";
 import {
   generateOfflineId,
@@ -1035,6 +1036,37 @@ export async function retryFailedMutation(store: OfflineStore, localId: string):
 export async function discardFailedMutation(store: OfflineStore, localId: string): Promise<void> {
   await clearOutboxForLocalId(store, localId);
   await store.deleteLocalExpense(localId);
+}
+
+/**
+ * GAP-062 #3 — 동기화 상태 화면의 **대기 행** "버리기".
+ *
+ * 정리 자체는 위 `discardFailedMutation`과 **같은 한 벌**이다(아웃박스 정리 + 로컬 행 삭제).
+ * 여기서 더하는 것은 게이트 하나뿐이다: 화면이 버튼을 그릴 때 쓴 판정
+ * (`isDiscardablePendingRow`)을 **누른 시점의 저장소 행으로 다시 확인한다.**
+ *
+ * 왜 다시 확인하나: 화면이 들고 있는 것은 스냅샷이라 한 박자 낡을 수 있다. 사용자가 버튼을
+ * 보는 사이에 연결이 돌아와 flush pass가 이 행을 집어 갔다면 그 요청은 **이미 나가 있다**
+ * (flushOutboxPass가 보내기 직전에 `syncState: "syncing"` + mutation `inFlight`를 표시한다).
+ * 그 행을 지우면 로컬에서는 사라지고 서버에는 만들어지는 **고아 지출**이 된다 — 앱 안에서
+ * 다시 손댈 수 없는 기록이다. 일괄 액션이 스냅샷 대신 저장소를 읽는 것과 같은 이유다
+ * (`listFailedLocalIds` 주석).
+ *
+ * `inFlight` 표시까지 함께 보는 이유: 행의 `syncState`는 create가 성공한 뒤 아직 보내지 않은
+ * 수정이 남아 있으면 다시 `"pending"`으로 내려간다(H-3, 위 flush 성공 분기). 그 행은
+ * canonicalId가 생겨 순수 판정에서 이미 걸러지지만, 두 겹으로 막아 두는 편이 안전하다 —
+ * 이 함수가 잘못 통과시키는 비용이 데이터 유실이다.
+ *
+ * 버렸으면 true, 그 사이에 조건이 어긋나 아무것도 하지 않았으면 false(화면은 그대로 두면
+ * 된다 — 스냅샷이 곧 그 행의 새 상태를 그린다).
+ */
+export async function discardPendingMutation(store: OfflineStore, localId: string): Promise<boolean> {
+  const row = await store.getLocalExpense(localId);
+  if (!row || !isDiscardablePendingRow(row)) return false;
+  const mutations = await store.listOutboxMutationsForLocalId(localId);
+  if (mutations.some((mutation) => mutation.inFlight)) return false;
+  await discardFailedMutation(store, localId);
+  return true;
 }
 
 /**

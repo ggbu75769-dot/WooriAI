@@ -2,10 +2,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  cumulativeTotalPendingNoticeText,
   CUMULATIVE_TOTAL_SUBTITLE,
   CUMULATIVE_TOTAL_TITLE_PREFIX,
-  evaluateHomeCumulativeTotal
+  evaluateHomeCumulativeTotal,
+  HOME_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID,
+  type CumulativeTotalPendingRow
 } from "./cumulative-total";
+import { reportPendingScopeNoticeText } from "../reports/pending-scope-notice";
 import { evaluateMilestoneCountdown, milestoneSubtitleShowsTotal } from "./milestone-countdown";
 
 /**
@@ -66,6 +70,111 @@ describe("B2 누적 총액 카드 판정 (evaluateHomeCumulativeTotal)", () => {
 
   it("누적이 0원인 계정에도 만들지 않는다(첫 지출 유도 카드의 자리다)", () => {
     expect(evaluateHomeCumulativeTotal({ ...base, totalExpenseKrw: 0 })).toBeNull();
+  });
+});
+
+/**
+ * GAP-062 #9 — 카드가 **오프라인 대기를 밝힌다.**
+ *
+ * 고치는 문제: 같은 화면의 히어로 금액은 재조정된 값인데(reconcileMonthlyExpenses) 이 카드는
+ * 서버 집계를 그대로 쓴다. 오프라인으로 적은 직후 두 숫자가 서로 다른 시점을 말하는데, 부제는
+ * 제외 항목을 밝히면서("선물로 받은 건 제외") 아직 반영되지 않은 기록은 밝히지 않았다.
+ * 재집계는 금지다(누적은 전 기간이라 재조정할 모집단이 없다) — 그래서 숫자가 아니라 사실을 밝힌다.
+ */
+describe("GAP-062 #9 대기 고지", () => {
+  const pending = (overrides: Partial<CumulativeTotalPendingRow> = {}): CumulativeTotalPendingRow => ({
+    syncState: "pending",
+    payload: { expenseType: "expense" },
+    ...overrides
+  });
+
+  it("대기 행이 없으면 카드는 예전과 한 줄도 다르지 않다", () => {
+    expect(evaluateHomeCumulativeTotal(base)?.pendingNotice).toBeNull();
+    // 행을 아예 모르는 호출부(옛 배선·픽스처)도 같은 답을 받는다.
+    expect(evaluateHomeCumulativeTotal({ ...base, pendingRows: [] })?.pendingNotice).toBeNull();
+    expect(evaluateHomeCumulativeTotal(base)?.accessibilityLabel).toBe(
+      `${CUMULATIVE_TOTAL_TITLE_PREFIX} 1,245,700원. ${CUMULATIVE_TOTAL_SUBTITLE}`
+    );
+  });
+
+  it("대기 행이 있으면 이 금액이 그것을 모른다고 밝힌다(숫자는 서버 집계 그대로)", () => {
+    const card = evaluateHomeCumulativeTotal({ ...base, pendingRows: [pending(), pending(), pending()] });
+    expect(card?.title).toBe("지금까지의 지출 합계 1,245,700원");
+    expect(card?.pendingNotice).toBe("동기화 대기 중인 기록 3건은 이 금액에 아직 반영되지 않았어요.");
+    // TalkBack은 눈으로 보는 순서 그대로 듣는다(제목 → 부제 → 고지).
+    expect(card?.accessibilityLabel).toBe(`${card?.title}. ${card?.subtitle}. ${card?.pendingNotice}`);
+  });
+
+  it("이 금액을 움직이지 않는 행(선물·환불)은 세지 않는다 — DNC-015, 합계와 같은 술어", () => {
+    const card = evaluateHomeCumulativeTotal({
+      ...base,
+      pendingRows: [pending({ payload: { expenseType: "gift" } }), pending({ payload: { expenseType: "refund" } })]
+    });
+    expect(card?.pendingNotice).toBeNull();
+    // 구분을 모르는 레거시 행은 종전대로 일반 지출로 센다.
+    expect(
+      evaluateHomeCumulativeTotal({ ...base, pendingRows: [pending({ payload: null })] })?.pendingNotice
+    ).toContain("1건");
+  });
+
+  it("이미 반영된 행(synced)은 세지 않는다", () => {
+    expect(
+      evaluateHomeCumulativeTotal({ ...base, pendingRows: [pending({ syncState: "synced" })] })?.pendingNotice
+    ).toBeNull();
+  });
+
+  it("삭제 대기·실패·충돌도 '아직 반영되지 않은' 차이라 함께 센다", () => {
+    for (const syncState of ["pending", "syncing", "failed", "conflict"]) {
+      expect(
+        evaluateHomeCumulativeTotal({ ...base, pendingRows: [pending({ syncState })] })?.pendingNotice
+      ).toContain("1건");
+    }
+  });
+
+  it("영구 실패(4xx)가 섞이면 주어에서 '동기화 대기 중인'을 떼고 내역을 덧붙인다(라운드 59 어휘)", () => {
+    const card = evaluateHomeCumulativeTotal({
+      ...base,
+      pendingRows: [
+        pending(),
+        pending({ syncState: "failed", lastErrorStatus: 400, lastError: "저장할 수 없어요" })
+      ]
+    });
+    expect(card?.pendingNotice).toBe("기록 2건은 이 금액에 아직 반영되지 않았어요. 그중 1건은 보낼 수 없는 기록이에요.");
+    // 기다려도 오지 않을 행을 "대기 중"이라고 부르지 않는다.
+    expect(card?.pendingNotice).not.toContain("동기화 대기");
+  });
+
+  /**
+   * 리포트 고지와 **같은 문장**이어야 사용자가 같은 상태를 같은 것으로 읽는다. 갈리는 것은
+   * 지시어 하나뿐이다 — 리포트는 화면 아래 숫자들을, 이 카드는 바로 위 제목의 금액을 짚는다.
+   */
+  it("문장은 리포트 고지와 지시어만 다르다(술어·어휘는 같은 단일 소스)", () => {
+    for (const [count, unsendable] of [
+      [3, 0],
+      [5, 2]
+    ] as const) {
+      const home = cumulativeTotalPendingNoticeText(count, unsendable);
+      const report = reportPendingScopeNoticeText(count, unsendable);
+      expect(home).toBe(report.replace("아래 숫자에", "이 금액에"));
+      // 세게 말하지 않는다: 이 모집단에는 삭제 대기 행(금액에 아직 들어 있다)이 섞인다.
+      expect(home).toContain("아직 반영되지 않았어요");
+      expect(home).not.toContain("빠져 있어요");
+    }
+  });
+
+  it("고지가 화면에 그려진다(0건이면 자리 자체가 없다)", () => {
+    expect(homeSource).toContain("cumulativeTotal.pendingNotice ? (");
+    expect(homeSource).toContain(`testID={HOME_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID}`);
+    expect(HOME_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID).toBe("home-cumulative-total-pending-notice");
+    // 행은 이미 구독 중인 스냅샷을 아이로 거른 것 그대로다 -- 새 요청도 새 구독도 없다.
+    expect(homeSource).toContain("pendingRows: childOfflineRows");
+  });
+
+  it("숫자는 서버 집계 그대로다 — 홈이 누적을 다시 더하지 않는다(재집계 금지)", () => {
+    const start = homeSource.indexOf("const cumulativeTotal = evaluateHomeCumulativeTotal({");
+    const call = homeSource.slice(start, homeSource.indexOf("});", start));
+    expect(call).toContain("totalExpenseKrw: home.data?.totalExpenseKrw ?? null");
+    expect(call).not.toContain("reduce(");
   });
 });
 

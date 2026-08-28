@@ -275,6 +275,25 @@ export function syncStatusDiscardAllConfirmMessage(count: number): string {
 }
 
 /**
+ * GAP-062 #3 — **대기 행** 하나를 버리는 행동의 문구.
+ *
+ * 라벨이 개별 실패 행의 "삭제"(`SYNC_STATUS_DISCARD_LABEL`)가 아니라 일괄 액션의 동사
+ * ("버리기")를 쓰는 이유: 이 행은 **되돌릴 수 없다**. 실패 행은 이미 서버가 거절해 멈춰 선
+ * 행이고 화면이 그 사실을 말하고 있지만, 대기 행은 가만히 두면 곧 반영될 멀쩡한 기록이라
+ * 없애는 쪽이 사용자의 값을 실제로 지운다 — 확인 Alert를 거치는 무게(전체 버리기와 같은
+ * 관례)를 라벨도 함께 져야 한다. 그래서 동사 단일 소스를 그대로 쓴다.
+ *
+ * 본문이 "이 기기에만 저장돼 있어요"라고 단언할 수 있는 것은 이 버튼이 **생성 대기 행에만**
+ * 서기 때문이다(src/offline/pending-row-actions.ts — 수정·삭제 대기 행에는 서버 값이 따로
+ * 있어 그 문장이 거짓이 된다). 문장은 전체 버리기 본문과 같은 두 가지를 말한다: 어디에만
+ * 있는지, 되돌릴 수 있는지. 해요체(DNC-018).
+ */
+export const SYNC_STATUS_DISCARD_PENDING_LABEL = SYNC_STATUS_DISCARD_ALL_VERB;
+export const SYNC_STATUS_DISCARD_PENDING_CONFIRM_TITLE = "이 기록을 버릴까요?";
+export const SYNC_STATUS_DISCARD_PENDING_CONFIRM_MESSAGE =
+  "아직 이 기기에만 저장돼 있어요. 버리면 되돌릴 수 없어요.";
+
+/**
  * AUTH-127 — 로그인 화면 안내. 리프레시 토큰이 만료(30일)되거나 재사용 감지로 폐기돼
  * 사용자가 원하지 않은 로그아웃이 일어났을 때만 뜬다(명시적 로그아웃에는 뜨지 않는다).
  * 뒷문장이 오프라인 대기분을 약속하는 이유: AUTH-127이 만료 시 outbox를 보존하기로 했고,

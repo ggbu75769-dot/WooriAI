@@ -55,7 +55,10 @@ import {
   previousYearMonth,
   type ComparableExpenseRecord
 } from "../../src/home/last-month-comparison";
-import { evaluateHomeCumulativeTotal } from "../../src/home/cumulative-total";
+import {
+  evaluateHomeCumulativeTotal,
+  HOME_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID
+} from "../../src/home/cumulative-total";
 import {
   homeMoreSectionsLabel,
   planHomeSections,
@@ -1619,10 +1622,18 @@ export default function HomeScreen() {
   // 그 카드 부제 하나뿐이라 `stageMode !== "born"`(임신기·manual)과 첫돌 이후에는 이 앱이 세는
   // 가장 큰 숫자가 홈 어디에도 없었다. 마일스톤 카드가 이미 같은 금액을 말하고 있으면 접는다
   // (중복 금지 — 판정은 전부 src/home/cumulative-total.ts, 추가 요청 0: 같은 home.data를 읽는다).
+  //
+  // GAP-062 #9 — 이 카드가 **오프라인 대기를 밝힌다.** 같은 화면의 히어로 금액은 재조정된 값인데
+  // (reconcileMonthlyExpenses) 이 카드는 서버 집계를 그대로 쓰므로, 오프라인으로 5건을 적은 직후
+  // 두 숫자가 서로 다른 시점을 말한다. 재집계는 하지 않는다 — 누적은 전 기간이라 클라이언트에
+  // 재조정할 모집단이 아예 없다(H절 "기간 합계 엔드포인트"는 비범위). 그래서 숫자를 고치는 대신
+  // 한 줄로 밝힌다(리포트 탭이 같은 이유로 이미 택한 답). 행은 **이미 구독 중인** 스냅샷을 아이로
+  // 거른 것 그대로라 추가 요청은 0건이고, 세는 규칙은 전부 순수 모듈에 있다.
   const cumulativeTotal = evaluateHomeCumulativeTotal({
     hasSession,
     totalExpenseKrw: home.data?.totalExpenseKrw ?? null,
-    hasMilestoneCard: milestoneCountdown !== null
+    hasMilestoneCard: milestoneCountdown !== null,
+    pendingRows: childOfflineRows
   });
   // 라운드 51 #6 — 홈 준비템 카드(핵심 루프 3단계 입구).
   //
@@ -2023,6 +2034,19 @@ export default function HomeScreen() {
             <Text accessible={false} style={homeCumulativeTotalStyle.subtitle}>
               {cumulativeTotal.subtitle}
             </Text>
+            {/* GAP-062 #9: 이 기기에 아직 반영되지 않은 기록이 있을 때만 서는 한 줄. 0건이면
+                null이라 카드는 예전과 한 줄도 다르지 않다. 카드 전체가 하나의 accessible 노드라
+                (accessibilityLabel에 이 문장이 이미 들어 있다) 여기서는 읽지 않게 둔다 --
+                부제와 같은 규칙이다. 리포트 탭 고지와 같은 어휘·같은 크기(gray600 12/18). */}
+            {cumulativeTotal.pendingNotice ? (
+              <Text
+                accessible={false}
+                testID={HOME_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID}
+                style={homeCumulativeTotalStyle.subtitle}
+              >
+                {cumulativeTotal.pendingNotice}
+              </Text>
+            ) : null}
           </View>
         ) : null;
       default:

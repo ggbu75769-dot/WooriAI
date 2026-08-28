@@ -649,6 +649,11 @@ export default function ExpenseDetailScreen() {
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["expense", expenseId] });
+      // GAP-062 #1: 금액·분류·날짜가 달라지면 리포트 집계와 예산 사용액도 달라진다. 근거 전문은
+      // app/expenses/new.tsx의 같은 두 줄 위에 있다(리포트 탭은 언마운트되지 않아 옛 숫자가 그대로
+      // 남는다 · 비활성 쿼리 무효화는 요청 0건 · 클라이언트 재집계 금지).
+      await queryClient.invalidateQueries({ queryKey: ["report"] });
+      await queryClient.invalidateQueries({ queryKey: ["budget"] });
       // GAP-056 #6: 타이머를 ref에 담아 언마운트 때 취소한다(위 leaveTimerRef 주석).
       if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
       leaveTimerRef.current = setTimeout(leaveAfterMutation, 650);
@@ -668,6 +673,11 @@ export default function ExpenseDetailScreen() {
     onSuccess: async () => {
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      // GAP-062 #1: 지운 금액만큼 리포트 집계와 예산 사용액이 줄어든다 — 근거 전문은
+      // app/expenses/new.tsx의 같은 두 줄 위. 홈·기록 탭은 대기 중인 삭제를 재조정으로 이미
+      // 반영하지만(src/offline/expense-list-reconciliation.ts) 리포트는 서버 집계를 그대로 읽는다.
+      await queryClient.invalidateQueries({ queryKey: ["report"] });
+      await queryClient.invalidateQueries({ queryKey: ["budget"] });
       // GAP-056 #6: 타이머를 ref에 담아 언마운트 때 취소한다(위 leaveTimerRef 주석).
       if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
       leaveTimerRef.current = setTimeout(leaveAfterMutation, 650);

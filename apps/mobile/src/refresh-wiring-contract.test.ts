@@ -97,6 +97,70 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
     expect((homeSource.match(/^\s*queryKey: \[/gm) ?? []).length).toBe(6);
   });
 
+  /**
+   * GAP-062 #1 — **지출 쓰기 4경로가 리포트·예산 캐시를 갱신한다.**
+   *
+   * 고치는 문제: 리포트 탭의 쿼리 키는 전부 `["report", …]`인데(app/(tabs)/reports.tsx) 지출을
+   * 쓰는 네 자리 중 어디도 그 키를 무효화하지 않았다. 리포트 탭은 탭 전환으로 언마운트되지
+   * 않으므로 돌아와도 refetchOnMount가 돌지 않고, `staleTime: 30_000`과 포커스 리페치는 앱
+   * 포그라운드 복귀에만 걸린다 — 즉 리포트를 한 번 열어 둔 사람에게 합계·비중·추이가 기록 전
+   * 값 그대로 남는다. 반면 가져오기 확정과 예산 저장은 이미 같은 키를 무효화하고 있었다(규칙은
+   * 이미 있었고 지출 경로만 지나쳤다). 예산(`usedAmountKrw`)도 같은 상태였다.
+   *
+   * 이 테스트가 고정하는 것은 **무효화 키의 존재**뿐이다. 리포트 숫자를 클라이언트에서 다시
+   * 더하는 것은 금지이고(집계 규칙 두 벌 — src/reports/pending-scope-notice.ts 머리말), 새 쓰기
+   * 경로가 생겼을 때 여기서 먼저 걸리게 하는 것이 목적이다.
+   */
+  it("지출 쓰기 4경로가 리포트 캐시를 갱신한다 (GAP-062 #1)", () => {
+    const invalidations = (body: string) =>
+      (body.match(/queryClient\.invalidateQueries\(\{ queryKey: \["(report|budget)"\] \}\)/g) ?? []).join("|");
+
+    // ① 기록 시트 저장(로컬 우선 — 데모/로컬 백엔드 세션에서는 이 자리가 곧 확정이다).
+    const newExpenseSource = source("app/expenses/new.tsx");
+    const createSuccess = newExpenseSource.slice(
+      newExpenseSource.indexOf("onSuccess: async () => {"),
+      newExpenseSource.indexOf("const isPixelLockAmountCapture")
+    );
+    // ② 수정 저장 / ③ 삭제 — 한 화면의 두 mutation을 각각 확인한다(둘 중 하나만 고치면 반쪽이다).
+    const detailSource = source("app/expenses/[expenseId].tsx");
+    const updateSuccess = detailSource.slice(
+      detailSource.indexOf("const save = useMutation({"),
+      detailSource.indexOf("const remove = useMutation({")
+    );
+    const deleteSuccess = detailSource.slice(
+      detailSource.indexOf("const remove = useMutation({"),
+      detailSource.indexOf("function confirmDelete()")
+    );
+    // ④ 오프라인 flush 확정 — 대기 고지가 사라지는 바로 그 순간이라 여기가 가장 중요하다.
+    const controllerSource = source("src/offline/sync-controller.ts");
+    const flushSuccess = controllerSource.slice(
+      controllerSource.indexOf("if (summary.synced > 0) {"),
+      controllerSource.indexOf("if (summary.itemStatusSynced > 0) {")
+    );
+
+    for (const [label, body] of [
+      ["기록 시트 저장", createSuccess],
+      ["지출 수정", updateSuccess],
+      ["지출 삭제", deleteSuccess],
+      ["오프라인 flush 확정", flushSuccess]
+    ] as const) {
+      expect(body.length, `${label} 분기를 찾지 못했다`).toBeGreaterThan(0);
+      expect(invalidations(body), `${label}이 ["report"]를 무효화하지 않는다`).toContain(
+        'queryClient.invalidateQueries({ queryKey: ["report"] })'
+      );
+      expect(invalidations(body), `${label}이 ["budget"]을 무효화하지 않는다`).toContain(
+        'queryClient.invalidateQueries({ queryKey: ["budget"] })'
+      );
+    }
+
+    // 이 화면은 읽기 전용이다 — 늘린 것은 무효화 키뿐이고, 대기분을 숫자에 섞는 재집계는
+    // 여전히 없다(그 사실을 말하는 것은 고지 한 줄이다 — pending-scope-notice.ts 머리말).
+    const reportsSource = source("app/(tabs)/reports.tsx");
+    expect(reportsSource).toContain("evaluateReportPendingScopeNotice(");
+    // 서버 집계에 로컬 대기 행의 금액을 더하는 자리가 없다(분기 합계는 서버 응답들의 합이다).
+    expect(reportsSource).not.toMatch(/reduce\([^)]*row\.payload\.amountKrw/);
+  });
+
   it("home shows the MOB-117 recent-expenses empty state matching the records-tab first-record copy", () => {
     const homeSource = source("app/(tabs)/index.tsx");
     const recordsSource = source("app/(tabs)/records.tsx");
