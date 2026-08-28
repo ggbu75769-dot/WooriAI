@@ -14,12 +14,40 @@
  *   LOAD_CONCURRENCY  동시 요청 수 (기본 10)
  *   LOAD_WARMUP       시나리오별 워밍업 요청 수, 통계 제외 (기본 10)
  *   LOAD_ADMIN_TOKEN  감사로그 시나리오용 x-admin-token (기본 dev-admin-token)
+ *   LOAD_SEED_ROWS    측정 전에 대상 아이에게 심을 지출 행 수 (기본 0 = 볼륨 축 끔)
+ *   LOAD_SEED_KEEP    1이면 측정 후 시드 행을 지우지 않고 남긴다 (기본 0 = 정리)
+ *   LOAD_SEED_DATABASE_URL  시드가 붙을 DB (기본 DATABASE_URL, 없으면 dev DB URL)
  *
  * 시나리오 (PERF-114에서 확장):
  *   - 기존: /home, /children/:id/expenses(GET·POST), /children/:id/items,
  *     /children/:id/reports/monthly, /health/ready
  *   - 추가: /sync/changes(델타 동기화, JWT), /health/push, /health/worker(무인증),
  *     /admin/audit-logs(관리자 감사로그 목록)
+ *   - 볼륨 축(GAP-060 #8, LOAD_SEED_ROWS>0일 때만): 홈 콜드 스타트 전량 루프,
+ *     지출 목록 깊은 커서 — 아래 "볼륨 축" 절 참고.
+ *
+ * ── 볼륨 축 (GAP-060 #8) ────────────────────────────────────────────────────
+ * known-limitations H절(홈 주간 카드가 이번 달 지출 전량을 커서 루프로 끌어온다)과
+ * F절(깊은 커서)은 **수용한 위험**인데, 그 크기를 한 번도 재 본 적이 없었다. 시드
+ * 데이터 수준(수십 행)에서는 어떤 표도 그 위험을 보여 주지 못한다. 그래서
+ * `LOAD_SEED_ROWS=5000`처럼 볼륨을 주면:
+ *   1. 대상 아이에게 **이번 달** 지출 N행을 DB에 직접 심고(아래 이유로 API POST가
+ *      아니다),
+ *   2. 전량 루프(limit=500 페이지를 hasMore가 false가 될 때까지)와 마지막
+ *      페이지 커서를 재는 시나리오 둘을 추가로 돌린 뒤,
+ *   3. 측정이 끝나면 심은 행을 **하드 삭제**한다(LOAD_SEED_KEEP=1이면 남긴다).
+ *
+ * 왜 API POST가 아니라 DB 직접 삽입인가: ⓐ 5,000번의 POST는 측정 시간을 분 단위로
+ * 늘리고 레이트리밋·멱등키 테이블까지 오염시키며, ⓑ 정리를 DELETE로 하면 소프트
+ * 삭제라 **툼스톤이 남아** /sync/changes 델타에 계속 실려 다음 측정을 오염시킨다.
+ * 시드는 apps/api의 Prisma 클라이언트를 그대로 빌려 쓴다(seed.ts와 같은 경로).
+ *
+ * ⚠️ 시드는 **dev DB 전용**이다. `wooriai_test`를 가리키면 거부한다 — 테스트 DB는
+ * vitest globalSetup의 자산이라 남의 스위트를 깨뜨린다.
+ *
+ * ⚠️ 시각 컬럼은 밀리초로 절단해 넣는다(known-limitations F절 R24-L4): `now()`
+ * 기본값으로 두면 마이크로초가 저장되고, 그 행이 페이지 경계에 걸리면 커서 왕복이
+ * 한 건을 조용히 빠뜨린다 — 즉 커서를 재려고 심은 데이터가 커서를 망가뜨린다.
  *   - /admin/audit-logs는 dev/test 전용 레거시 x-admin-token 폴백(AdminTokenGuard)으로
  *     인증한다. 쿠키 세션 + TOTP MFA 로그인 전체 플로우는 부하 스크립트 범위 밖
  *     (admin-e2e.mjs가 담당). 폴백이 거부되는 환경(비 dev/test)에서는 프로브가
@@ -39,12 +67,23 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 const BASE = (process.env.LOAD_BASE_URL ?? "http://localhost:3400").replace(/\/$/, "");
 const API = `${BASE}/api/v1`;
 const N = intEnv("LOAD_N", 200);
 const CONCURRENCY = intEnv("LOAD_CONCURRENCY", 10);
 const WARMUP = intEnv("LOAD_WARMUP", 10);
+const SEED_ROWS = intEnv("LOAD_SEED_ROWS", 0);
+const SEED_KEEP = process.env.LOAD_SEED_KEEP === "1";
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const DEV_DATABASE_URL = "postgresql://wooriai:wooriai_dev_password@localhost:5432/wooriai_dev";
+/** 시드 행을 되찾기 위한 표식 — 정리(그리고 크래시 후 재실행)가 이 값 하나로 끝난다. */
+const SEED_ITEM_NAME = "load-smoke-seed";
+/** 서버의 지출 목록 limit 상한(EXPENSE_LIST_MAX_LIMIT) = 모바일 전량 루프의 페이지 크기. */
+const PAGE_LIMIT = 500;
 
 function intEnv(name, fallback) {
   const v = Number(process.env[name]);
@@ -128,8 +167,113 @@ function fmt(v) {
   return Number.isFinite(v) ? v.toFixed(1) : "-";
 }
 
+// ── 볼륨 축: dev DB 직접 시드 (GAP-060 #8) ────────────────────────────────────
+
+/**
+ * apps/api가 쓰는 것과 **같은** Prisma 클라이언트를 빌려 온다(seed.ts와 동일 경로).
+ * 루트에는 @prisma/client가 없으므로 apps/api 기준으로 해석한다. 이 스크립트의
+ * "외부 의존성 없음" 계약은 유지된다 — LOAD_SEED_ROWS>0일 때만 지연 로드한다.
+ */
+async function loadPrisma(databaseUrl) {
+  // package.json을 기준점으로 준다 — 디렉터리 경로를 주면 createRequire가 그것을
+  // 파일로 보고 한 단계 위(apps/node_modules)부터 뒤져 못 찾는다.
+  const requireFromApi = createRequire(resolve(REPO_ROOT, "apps/api/package.json"));
+  let entry;
+  try {
+    entry = requireFromApi.resolve("@prisma/client");
+  } catch {
+    throw new Error("@prisma/client를 찾지 못했습니다 — 먼저 `pnpm install`(+ prisma generate)을 실행하세요.");
+  }
+  const { PrismaClient } = await import(entry);
+  return new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+}
+
+/**
+ * 대상 아이에게 **이번 달** 지출 rows행을 심는다. 이번 달인 이유: H절이 말하는
+ * 콜드 스타트 전량 조회도, 기록 탭의 `yearMonth` 목록도 이번 달 범위이기 때문 —
+ * 다른 달에 심으면 재려는 질의가 그 행들을 아예 보지 않는다.
+ */
+async function seedExpenses(prisma, ctx, rows) {
+  const now = new Date();
+  // 달은 시나리오가 쿼리에 넣는 `yearMonth`(UTC 기준 YYYY-MM)에서 그대로 가져온다 —
+  // 여기서 로컬 시각으로 따로 계산하면 월 경계에서 심는 달과 재는 달이 갈릴 수 있다.
+  const [year, month] = ctx.yearMonth.split("-").map(Number);
+  const daysSoFar = Math.max(1, Number(now.toISOString().slice(8, 10)));
+  const batch = [];
+  let created = 0;
+  for (let i = 0; i < rows; i += 1) {
+    // 이번 달 1일~오늘에 고르게 퍼뜨린다(하루에 몰면 keyset 정렬의 타이브레이커만 재게 된다).
+    const day = (i % daysSoFar) + 1;
+    // created_at/updated_at을 서로 다르게 흩뿌려 (spent_on, created_at, id) 정렬과
+    // 델타 동기화 커서가 실제 데이터처럼 갈라지게 한다. **명시적으로** 넣는 것이
+    // 핵심이다(F절 R24-L4): 생략하면 DB의 now() 기본값이 마이크로초를 써서, 커서를
+    // 재려고 심은 행이 커서 왕복에서 한 건씩 새는 원인이 된다. JS Date는 밀리초다.
+    const stamp = new Date(now.getTime() - (rows - i) * 1000);
+    batch.push({
+      householdId: ctx.householdId,
+      childId: ctx.childId,
+      createdByUserId: ctx.userId,
+      categoryId: ctx.categoryId,
+      amountKrw: 1000 + (i % 900) * 10,
+      spentOn: new Date(Date.UTC(year, month - 1, day)),
+      itemName: SEED_ITEM_NAME,
+      memo: "QA-LOAD 볼륨 축 시드 (LOAD_SEED_ROWS — 측정 후 자동 삭제)",
+      createdAt: stamp,
+      updatedAt: stamp
+    });
+    if (batch.length === 500 || i === rows - 1) {
+      const result = await prisma.expense.createMany({ data: batch });
+      created += result.count;
+      batch.length = 0;
+    }
+  }
+  return created;
+}
+
+/**
+ * 시드 행 하드 삭제. API DELETE(소프트 삭제)를 쓰지 않는 이유는 툼스톤이 남아
+ * /sync/changes 델타에 계속 실려 다음 측정을 오염시키기 때문이다. 표식 하나로
+ * 지우므로 이전 실행이 중간에 죽어 남긴 행도 함께 걷힌다.
+ */
+async function cleanupSeededExpenses(prisma, childId) {
+  const deleted = await prisma.expense.deleteMany({ where: { childId, itemName: SEED_ITEM_NAME } });
+  return deleted.count;
+}
+
+/**
+ * 모바일 콜드 스타트와 같은 형태로 이번 달 지출을 hasMore가 끝날 때까지 따라간다
+ * (`fetchMonthExpenses`, 페이지당 500). 페이지 수·행 수와 함께 **마지막 페이지를
+ * 불러오는 커서**(=가장 깊은 커서)를 돌려준다 — F절 깊은 커서 시나리오의 입력이다.
+ */
+async function walkExpensePages(auth, childId, yearMonth) {
+  let cursor = null;
+  let pages = 0;
+  let rows = 0;
+  let deepestCursor = null;
+  for (;;) {
+    const url =
+      `${API}/children/${childId}/expenses?yearMonth=${yearMonth}&limit=${PAGE_LIMIT}` +
+      (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+    const res = await fetch(url, { headers: auth });
+    if (!res.ok) throw new Error(`페이지 조회 실패 ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const body = await res.json();
+    const pageRows = body?.expenses?.length ?? 0;
+    pages += 1;
+    rows += pageRows;
+    // 깊은 커서 시나리오가 첫 페이지와 **같은 크기**의 페이지를 재도록, 꽉 찬
+    // 페이지를 여는 커서 중 가장 깊은 것을 고른다. 마지막 페이지를 그대로 쓰면
+    // 대개 잔여 몇 행뿐이라 "깊어서 싸다"는 착시가 생긴다(깊이가 아니라 크기를 잰 셈).
+    if (cursor && pageRows === PAGE_LIMIT) deepestCursor = cursor;
+    if (!body?.hasMore || !body?.nextCursor) break;
+    cursor = body.nextCursor;
+  }
+  return { pages, rows, deepestCursor };
+}
+
 async function main() {
-  console.log(`# load-smoke  base=${BASE}  N=${N}  concurrency=${CONCURRENCY}  warmup=${WARMUP}`);
+  console.log(
+    `# load-smoke  base=${BASE}  N=${N}  concurrency=${CONCURRENCY}  warmup=${WARMUP}  seedRows=${SEED_ROWS}`
+  );
 
   // ── 1. 인증(1회만 — /auth/*는 레이트리밋이 더 빡빡함) ───────────────────
   const login = await jsonFetch("/auth/oauth-login", {
@@ -140,6 +284,7 @@ async function main() {
   const accessToken = login?.tokens?.accessToken;
   if (!accessToken) throw new Error("로그인 실패: accessToken 없음");
   const auth = { Authorization: `Bearer ${accessToken}` };
+  const userId = login?.user?.id;
   const householdId = login?.user?.households?.[0]?.id;
 
   // ── 2. childId 확보(/children → 없으면 생성) ────────────────────────────
@@ -168,6 +313,33 @@ async function main() {
   const yearMonth = new Date().toISOString().slice(0, 7);
   const spentOn = new Date().toISOString().slice(0, 10);
   const createdExpenseIds = [];
+
+  // ── 3b. 볼륨 축 시드 (GAP-060 #8, LOAD_SEED_ROWS>0일 때만) ───────────────
+  // prisma/childId는 모듈 스코프 seedState에도 남긴다 — 측정이 도중에 터져도
+  // 아래 main().catch가 심어 둔 행을 걷어낼 수 있어야 한다(dev DB 오염 방지).
+  let prisma = null;
+  let deepCursor = null;
+  let walk = null;
+  if (SEED_ROWS > 0) {
+    const databaseUrl = process.env.LOAD_SEED_DATABASE_URL ?? process.env.DATABASE_URL ?? DEV_DATABASE_URL;
+    if (/wooriai_test/.test(databaseUrl)) {
+      throw new Error(
+        `시드 거부: 대상이 테스트 DB입니다(${databaseUrl}). 볼륨 축은 dev DB 전용 — LOAD_SEED_DATABASE_URL로 dev DB를 지정하세요.`
+      );
+    }
+    if (!userId) throw new Error("시드 불가: 로그인 응답에 user.id가 없습니다");
+    prisma = await loadPrisma(databaseUrl);
+    seedState = { prisma, childId };
+    // 이전 실행이 중간에 죽어 남긴 시드가 있으면 먼저 걷어낸다(표식 기반).
+    const stale = await cleanupSeededExpenses(prisma, childId);
+    if (stale > 0) console.log(`seed: 이전 실행 잔여 시드 ${stale}건 정리`);
+    const seeded = await seedExpenses(prisma, { householdId, childId, userId, categoryId, yearMonth }, SEED_ROWS);
+    console.log(`seed: 지출 ${seeded}건 심음 (아이 ${childId}, ${yearMonth}, 표식 itemName="${SEED_ITEM_NAME}")`);
+    // 전량 루프를 1회 걸어 페이지 수와 가장 깊은 커서를 확보한다(측정 전 사전 조사).
+    walk = await walkExpensePages(auth, childId, yearMonth);
+    deepCursor = walk.deepestCursor;
+    console.log(`seed: 이번 달 전량 = ${walk.rows}행 / ${walk.pages}페이지(limit=${PAGE_LIMIT})`);
+  }
 
   const scenarios = [
     {
@@ -231,7 +403,51 @@ async function main() {
     }
   ];
 
-  // ── 3b. 관리자 감사로그 목록 — dev/test 전용 x-admin-token 폴백으로 인증 ──
+  // ── 3c. 볼륨 축 시나리오 (시드가 있을 때만 의미가 있어 조건부로 붙인다) ──
+  if (SEED_ROWS > 0) {
+    scenarios.push({
+      // H절 실측: 모바일 홈이 콜드 스타트에 도는 전량 커서 루프 그 자체.
+      // ⚠️ 이 행의 지연은 요청 1건이 아니라 **루프 전체**(walk.pages개 요청)의 시간이다.
+      name: `홈 콜드 스타트 전량 루프(${walk?.pages ?? "?"}페이지 × ${PAGE_LIMIT})`,
+      // 한 표본이 여러 요청이라 N을 그대로 쓰면 측정만 수 분이 된다.
+      n: Math.max(20, Math.floor(N / 10)),
+      warmup: 2,
+      request: async () => {
+        let cursor = null;
+        let res;
+        for (;;) {
+          const url =
+            `${API}/children/${childId}/expenses?yearMonth=${yearMonth}&limit=${PAGE_LIMIT}` +
+            (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+          res = await fetch(url, { headers: auth });
+          if (!res.ok) return res;
+          const body = await res.clone().json();
+          if (!body?.hasMore || !body?.nextCursor) return res;
+          cursor = body.nextCursor;
+        }
+      }
+    });
+    if (deepCursor) {
+      scenarios.push({
+        // F절 실측: 꽉 찬 마지막 페이지를 여는 커서 — 커서 술어가 깊어져도 인덱스가
+        // 버텨 주는지(R24-M3 후속A의 AND 상한) 같은 크기의 첫 페이지와 나란히 놓고 본다.
+        name: `GET /children/:id/expenses (깊은 커서 · ${PAGE_LIMIT}행 페이지)`,
+        request: () =>
+          fetch(
+            `${API}/children/${childId}/expenses?yearMonth=${yearMonth}&limit=${PAGE_LIMIT}&cursor=${encodeURIComponent(deepCursor)}`,
+            { headers: auth }
+          )
+      });
+    }
+    scenarios.push({
+      // 같은 볼륨에서 첫 페이지(비교 기준) — 위 깊은 커서와 짝이다.
+      name: `GET /children/:id/expenses (첫 페이지 limit=${PAGE_LIMIT})`,
+      request: () =>
+        fetch(`${API}/children/${childId}/expenses?yearMonth=${yearMonth}&limit=${PAGE_LIMIT}`, { headers: auth })
+    });
+  }
+
+  // ── 3d. 관리자 감사로그 목록 — dev/test 전용 x-admin-token 폴백으로 인증 ──
   // (쿠키 세션 + MFA 실플로우는 admin-e2e.mjs 소관. 여기서는 서버가 폴백을
   //  허용하는 경우에만 측정하고, 아니면 사유를 남기고 건너뛴다.)
   const adminToken = process.env.LOAD_ADMIN_TOKEN ?? "dev-admin-token";
@@ -252,9 +468,11 @@ async function main() {
 
   const results = [];
   for (const scenario of scenarios) {
-    await runPool(WARMUP, CONCURRENCY, scenario.request); // 워밍업 — 통계 제외
+    // 시나리오별 n/warmup 재정의(볼륨 축의 전량 루프처럼 표본 1개가 비싼 경우).
+    const scenarioN = scenario.n ?? N;
+    await runPool(scenario.warmup ?? WARMUP, CONCURRENCY, scenario.request); // 워밍업 — 통계 제외
     const started = nowMs();
-    const samples = await runPool(N, CONCURRENCY, scenario.request);
+    const samples = await runPool(scenarioN, CONCURRENCY, scenario.request);
     const wallMs = nowMs() - started;
     const summary = summarize(scenario.name, samples);
     summary.rps = summary.n / (wallMs / 1000);
@@ -281,6 +499,31 @@ async function main() {
     }
   }
 
+  // ── 4b. 볼륨 축 시드 정리(하드 삭제 — 툼스톤을 남기지 않는다) ───────────
+  if (prisma) {
+    try {
+      // 위 4번의 DELETE는 공개 API라 **소프트 삭제**다. 실측을 반복하면 그 툼스톤이
+      // 계속 쌓이고, /sync/changes 델타는 툼스톤도 실어 보내므로 다음 측정의 델타
+      // 시나리오가 실제보다 무거워진다(라운드 60에서 관측: 5회 실행 후 1,050건).
+      // DB 핸들이 이미 열려 있는 이 경로에서만 그 잔여물까지 하드 삭제한다.
+      const tombstones = await prisma.expense.deleteMany({
+        where: { childId, itemName: "load-smoke", deletedAt: { not: null } }
+      });
+      if (tombstones.count > 0) {
+        console.log(`cleanup: POST 시나리오 툼스톤 ${tombstones.count}건 하드 삭제(과거 실행 잔여 포함)`);
+      }
+      if (SEED_KEEP) {
+        console.log(`cleanup: LOAD_SEED_KEEP=1 — 시드 행을 남깁니다(지우려면 같은 스크립트를 다시 돌리거나 itemName="${SEED_ITEM_NAME}" 행을 삭제).`);
+      } else {
+        const removed = await cleanupSeededExpenses(prisma, childId);
+        console.log(`cleanup: 볼륨 축 시드 ${removed}건 하드 삭제 완료`);
+      }
+    } finally {
+      seedState = null;
+      await prisma.$disconnect();
+    }
+  }
+
   // ── 5. 결과 표(markdown) ────────────────────────────────────────────────
   console.log("");
   console.log("| 시나리오 | n | p50(ms) | p95(ms) | p99(ms) | max(ms) | req/s | 429 | err | err% |");
@@ -297,7 +540,22 @@ async function main() {
   process.exitCode = totalErrors > 0 ? 1 : 0;
 }
 
-main().catch((error) => {
+/** 측정이 도중에 터졌을 때 심어 둔 시드를 걷어내기 위한 참조(위 3b 참고). */
+let seedState = null;
+
+main().catch(async (error) => {
   console.error("load-smoke 실패:", error.message);
+  if (seedState && !SEED_KEEP) {
+    try {
+      const removed = await cleanupSeededExpenses(seedState.prisma, seedState.childId);
+      console.error(`cleanup: 실패 경로에서 볼륨 축 시드 ${removed}건 삭제`);
+    } catch (cleanupError) {
+      console.error(
+        `cleanup 경고: 시드 정리 실패(${cleanupError.message}) — dev DB에 itemName="${SEED_ITEM_NAME}" 행이 남았을 수 있습니다.`
+      );
+    } finally {
+      await seedState.prisma.$disconnect().catch(() => {});
+    }
+  }
   process.exit(1);
 });

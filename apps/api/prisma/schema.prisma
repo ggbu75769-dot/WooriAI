@@ -474,10 +474,23 @@ model ImportJob {
   @@map("import_jobs")
 }
 
+/// 업로드한 엑셀/CSV의 **검수용 파싱 결과**(승인 전 원본 줄 포함).
+///
+/// GAP-060 #5 보존: 확정(confirmed)·실패(failed) 잡의 행은
+/// `data_retention_purge` 잡 phase 9가 `IMPORT_ROWS_RETENTION_DAYS`(기본 90일,
+/// 근거는 잡 상수 주석) 경과 후 잡 단위로 통째 삭제한다. 검수 중
+/// (`preview_ready`)인 잡의 행은 사용자 자산이라 대상이 아니며, 그 경우 아이/가구가
+/// 파기될 때(phase 2·3 캐스케이드) 함께 사라진다.
 model ImportRow {
   id                          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   importJobId                 String   @map("import_job_id") @db.Uuid
   rowIndex                    Int      @map("row_index")
+  /// ⚠️ 죽은 컬럼(GAP-060 #5에서 확인). 이름과 달리 **원본 파일 줄이 들어간 적이 없다** —
+  /// 유일한 쓰기 경로인 `ImportPipelineService.createImportJob`이 항상 `{}`를 넣고
+  /// (`apps/api/src/onboarding/import-pipeline.service.ts`), 읽는 코드는 어디에도 없다
+  /// (DTO에도 나가지 않는다). NOT NULL이라 지금은 빈 객체를 채워 넣는 것이 계약이다.
+  /// 없애려면 마이그레이션이 필요하므로 별도 티켓 대상 — 그때까지 이 컬럼을 "원본 보관"
+  /// 근거로 인용하지 말 것(파싱 원문은 파생 컬럼들에만 있다).
   rawJson                     Json     @map("raw_json") @db.JsonB
   parsedDate                  DateTime? @map("parsed_date") @db.Date
   parsedItemName              String?  @map("parsed_item_name") @db.VarChar(120)

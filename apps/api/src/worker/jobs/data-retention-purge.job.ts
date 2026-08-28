@@ -1,5 +1,8 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+// Value import (not `import type`): phase 9 needs Prisma.sql/Prisma.join at
+// runtime to build its status IN (…) list — same usage as admin/*-summary
+// services. The type-only uses below are unchanged.
+import { Prisma } from "@prisma/client";
 import { maskLookupQuery } from "../../admin/admin-users-lookup.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import type { WorkerJob } from "../worker-job";
@@ -84,6 +87,54 @@ export const DEFAULT_AFFILIATE_CLICKS_RETENTION_DAYS = 400;
  */
 export const DEFAULT_AUDIT_LOGS_RETENTION_DAYS = 730;
 
+/**
+ * GAP-060 #5: import_rows retention (phase 9).
+ *
+ * `import_rows` is the parsed **preview** of an uploaded 엑셀/CSV file: one row
+ * per line the parser found, holding the user's raw financial detail (날짜·품목
+ * 명·금액·판매처). Until this constant existed nothing ever deleted them except
+ * the child/household cascade (phase 2/3) — so every file a user ever imported
+ * left its full contents in the database forever, including the lines the user
+ * **did not** approve (`selected = false`). That is exactly what
+ * infra/legal/privacy-policy.html §1 said we do not do ("미리보기에서 승인한
+ * 내역만 저장").
+ *
+ * **90 days**, and the reasoning is the opposite direction of the audit window:
+ *  - The rows stop being 사용자 자산 the moment the job leaves `preview_ready`.
+ *    Once confirmed, the approved lines live on as real `expenses` rows (which
+ *    the user owns, edits and exports); the preview copy is then a duplicate of
+ *    personal data with no product surface that needs it — 검수 화면은 확정 후
+ *    편집이 막히고(`IMPORT_NOT_EDITABLE`), 앱의 어떤 화면도 확정된 잡의 행을
+ *    다시 보여 주지 않는다.
+ *  - What still argues for keeping them a while is **CS 조회 가능성**: "가져
+ *    오기 했는데 3건이 빠졌어요" 류 문의는 원본 파일이 아니라 이 행들(무엇이
+ *    파싱됐고 무엇이 selected=false였는지)이 있어야 답할 수 있다. 그런 문의는
+ *    보통 한두 달 안에 도착하므로 한 분기(90일)면 충분히 덮는다. `failed` 잡도
+ *    같은 이유로 같은 창을 쓴다 — 실패 원인 추적이 늦게 요청될 수 있다.
+ *  - 그보다 길게 둘 이유는 없다: 정산 근거도 책임 추적 기록도 아니고
+ *    (그래서 400/730일 창과 나란히 두지 않는다), 남겨 둘수록 승인하지 않은
+ *    금융 내역의 사본이 서버에 더 오래 남는다. 여기서는 **짧은 쪽이 안전한
+ *    방향**이다.
+ *
+ * Overridable via IMPORT_ROWS_RETENTION_DAYS. ⚠️ **짧게 조정하는 것은 PM/법무
+ * 확인 대상이다** — 위 CS 조회 가능성이 곧 문의 대응 품질이고, 방침 문서
+ * (privacy-policy §3 "검수용 행은 90일 후 파기")가 이 숫자를 그대로 말하고
+ * 있어 코드에서 혼자 줄이면 문서가 거짓이 된다. 늘리는 방향은 개인정보를 더
+ * 오래 들고 있는 것이므로 이 역시 단독 결정 대상이 아니다.
+ */
+export const DEFAULT_IMPORT_ROWS_RETENTION_DAYS = 90;
+
+/**
+ * Import job statuses whose preview rows phase 9 may purge: the import is over
+ * either way (`confirmed` = 승인분이 expenses로 넘어갔다, `failed` = 끝내 못
+ * 넘어갔다). `preview_ready` is deliberately absent — see the phase doc.
+ * `uploaded`/`analyzing`/`cancelled` exist in the enum but no code path writes
+ * them today; leaving them out keeps this phase to statuses whose meaning is
+ * settled (a future `cancelled` writer should be added here on purpose, with
+ * its own thought about whether the user is done with those rows).
+ */
+export const IMPORT_ROWS_PURGEABLE_JOB_STATUSES = ["confirmed", "failed"] as const;
+
 // Poison-row escalation (review M1): after this many CONSECUTIVE ticks in
 // which a phase failed terminally (first attempt AND halved retry), the phase
 // starts skipping head rows of its deterministic ordering — see runPhase.
@@ -137,7 +188,7 @@ function errorMessage(error: unknown): string {
  * idempotency_keys never had one). Deletion order below is therefore not just
  * hygiene — Postgres enforces it.
  *
- * Eight phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
+ * Nine phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
  * run INDEPENDENTLY: each is wrapped in its own try/catch so one poisoned
  * phase can never block the others; a phase's terminal error is reported in
  * the summary (`<phase>Error`) and the later phases still run. A phase whose
@@ -317,10 +368,15 @@ function errorMessage(error: unknown): string {
  *    AUDIT_LOGS_RETENTION_DAYS, default 730 — see the constant's doc for why
  *    the accountability record is kept LONGER than the 400-day telemetry
  *    windows, and why shortening it is a PM/법무 decision rather than a code
- *    one). GAP-058 #10: audit_logs was the last table with no deletion path
- *    at all — phase 3 only nullifies its actorUserId and phase 5 only masks
- *    one legacy field, so it grew forever and the retention question was
- *    never actually answered anywhere. Same shape as phases 6-7: selection is
+ *    one). GAP-058 #10: audit_logs had no age-based deletion path at all —
+ *    phase 3 only nullifies its actorUserId and phase 5 only masks one legacy
+ *    field, so it grew forever and the retention question was never actually
+ *    answered anywhere. (This item used to call audit_logs "the LAST table
+ *    with no deletion path". That was false when written — GAP-060 #5 found
+ *    `import_rows` in exactly the same state, reachable only through the
+ *    child/household cascade — so phase 9 below now answers that one too.
+ *    Neither claim should be restated as "the last one" without walking the
+ *    schema again.) Same shape as phases 6-7: selection is
  *    a plain range on created_at ordered (created_at, id), which is exactly
  *    idx_audit_logs_created_at (ADM-113/000012) — no new index needed — and
  *    nothing FKs audit_logs (its user/household FKs were dropped in 000002),
@@ -331,6 +387,49 @@ function errorMessage(error: unknown): string {
  *    window is deleted outright, which subsumes the scrub. Both orders are
  *    correct — this one just never leaves a raw term behind if the delete
  *    fails.
+ *
+ * 9. Aged-out import preview rows (GAP-060 #5). `import_rows` holds the parsed
+ *    contents of an uploaded 엑셀/CSV file — the user's raw financial lines,
+ *    including the ones they never approved — and until this phase nothing
+ *    deleted them by age: only the phase-2/3 cascade (아이/가구가 통째로
+ *    파기될 때) reached the table at all. So every import a user ever ran kept
+ *    its full preview on the server forever, which contradicted
+ *    privacy-policy §1 ("미리보기에서 승인한 내역만 저장").
+ *
+ *    Driver row = the **import job**, not the row: a job's preview is deleted
+ *    whole (the same "driver row is always purged whole" rule phases 1–4
+ *    follow), so a crash/retry can never leave half a preview behind and a CS
+ *    reader never sees a partial one. Selection is
+ *    `status IN (confirmed, failed) AND updated_at < cutoff AND EXISTS(rows)`,
+ *    ordered (updated_at, id) — the EXISTS clause is what makes the phase
+ *    self-terminating and prevents head-of-line blocking: a job whose rows are
+ *    already gone stays `confirmed` forever and would otherwise occupy the
+ *    oldest-first window every tick (same reasoning as phase 4's NOT EXISTS
+ *    selection). Timestamp choice: `updated_at` is bumped by the confirm CAS
+ *    (`preview_ready` -> `confirmed`) and by any later job write, so it is the
+ *    "import finished" time and can only ever be later than createdAt —
+ *    conservative, never premature.
+ *
+ *    **`preview_ready` jobs are deliberately NOT purged.** Those rows are the
+ *    user's own in-flight work: the review screen is still editable, the
+ *    mobile re-entry card points at that job (import-resume.store.ts), and
+ *    deleting them would silently empty a preview the user is in the middle
+ *    of. An abandoned preview therefore still lives until its child/household
+ *    is purged — a known and accepted gap, narrower than the one this phase
+ *    closes (미확정 잡 하나 vs. 모든 가져오기 이력).
+ *
+ *    The import_jobs row itself survives: it is the user-visible history of
+ *    the import (파일명·건수·시각) and it carries no line-level detail. Only
+ *    the preview rows go. One consequence to keep in mind when reading CS
+ *    tickets: `GET /import-jobs/:id/rows` on a job older than the window
+ *    returns an empty list — the job is not broken, its preview has simply
+ *    been destroyed on schedule.
+ *
+ *    Batch note: unlike phases 6-8 the cap counts jobs, and one job holds up
+ *    to 2,000 rows (importMaxRows), so a full batch can delete ~400k rows in
+ *    one transaction. That is the same shape as the phase-2 child cascade and
+ *    is handled the same way — the halved retry and then poison-skip drain it
+ *    if the 30s transaction proves too small.
  */
 /**
  * Terminal wrapper thrown by run() AFTER all phases have executed, when at
@@ -375,6 +474,10 @@ export class DataRetentionPurgeJob implements WorkerJob {
     // GAP-058 #10: 감사 로그도 자기 창(기본 730일)을 쓴다 — 텔레메트리보다 길다(상수 주석).
     const auditLogsRetentionDays = this.auditLogsRetentionDays();
     const auditLogsCutoff = new Date(now.getTime() - auditLogsRetentionDays * DAY_MS);
+    // GAP-060 #5: 검수용 가져오기 행도 자기 창(기본 90일)을 쓴다 — 이쪽은 반대로
+    // 가장 짧다(상수 주석: 승인하지 않은 금융 내역의 사본이라 오래 둘 이유가 없다).
+    const importRowsRetentionDays = this.importRowsRetentionDays();
+    const importRowsCutoff = new Date(now.getTime() - importRowsRetentionDays * DAY_MS);
 
     // Phases run independently (see class doc): a failure in one is captured
     // in the summary and never prevents the later phases from running.
@@ -429,6 +532,13 @@ export class DataRetentionPurgeJob implements WorkerJob {
       (size, skip) => this.purgeAuditLogs(auditLogsCutoff, size, skip),
       { auditLogsPurged: 0 }
     );
+    // Phase 9 (GAP-060 #5): 검수용 가져오기 행 보존 창.
+    const importRows = await this.runPhase(
+      "importRowPurge",
+      batchSize,
+      (size, skip) => this.purgeImportRows(importRowsCutoff, size, skip),
+      { importRowsPurged: 0, importJobPreviewsDrained: 0 }
+    );
 
     const summary = {
       retentionDays,
@@ -436,6 +546,7 @@ export class DataRetentionPurgeJob implements WorkerJob {
       analyticsEventsRetentionDays,
       affiliateClicksRetentionDays,
       auditLogsRetentionDays,
+      importRowsRetentionDays,
       ...expenses,
       ...children,
       ...users,
@@ -443,7 +554,8 @@ export class DataRetentionPurgeJob implements WorkerJob {
       ...lookupQueries,
       ...analyticsEvents,
       ...affiliateClicks,
-      ...auditLogs
+      ...auditLogs,
+      ...importRows
     };
 
     // Review M1b: all phases have run; if any of them failed terminally,
@@ -1031,6 +1143,64 @@ export class DataRetentionPurgeJob implements WorkerJob {
   }
 
   /**
+   * Phase-9 candidate selection: import jobs that are FINISHED (confirmed or
+   * failed), aged past the window, and still hold preview rows — oldest first
+   * with the id tiebreaker, `offset` implementing the poison-skip window
+   * exactly like the other phases.
+   *
+   * The `EXISTS (import_rows)` clause is load-bearing twice over: it makes the
+   * phase self-terminating (an already-drained job is invisible to it, so the
+   * phase becomes a cheap no-op once the backlog is gone) and it stops drained
+   * jobs — which stay `confirmed` forever — from filling the oldest-first
+   * window every tick and starving the jobs behind them (the head-of-line
+   * problem phase 4's NOT EXISTS selection solves the same way).
+   *
+   * Raw SQL because prisma/schema.prisma declares no relations, so `EXISTS`
+   * over import_rows has no Prisma expression (same reason as phases 4-5).
+   * The `::import_status` casts are required, not decoration: Prisma binds
+   * every parameter as text and `import_status = text` has no operator
+   * (42883), so an uncast placeholder fails the whole phase at runtime.
+   */
+  private selectDrainableImportJobs(cutoff: Date, limit: number, offset: number): Promise<{ id: string }[]> {
+    const statuses = Prisma.join(
+      IMPORT_ROWS_PURGEABLE_JOB_STATUSES.map((status) => Prisma.sql`${status}::import_status`)
+    );
+    return this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT j.id
+      FROM import_jobs j
+      WHERE j.status IN (${statuses})
+        AND j.updated_at < ${cutoff}
+        AND EXISTS (SELECT 1 FROM import_rows r WHERE r.import_job_id = j.id)
+      ORDER BY j.updated_at ASC, j.id ASC
+      LIMIT ${limit} OFFSET ${offset}`;
+  }
+
+  /**
+   * Phase 9 (GAP-060 #5): preview rows of finished imports past their window
+   * (class doc, item 9).
+   *
+   * Driver row is the import JOB, so a preview is always destroyed whole; the
+   * job row itself is kept as the user's import history. `preview_ready` jobs
+   * are never selected — those rows are the user's own in-flight work.
+   */
+  private async purgeImportRows(cutoff: Date, batchSize: number, skip: number) {
+    if (skip > 0) {
+      const skipped = await this.selectDrainableImportJobs(cutoff, skip, 0);
+      this.logPoisonSkippedRows("importRowPurge", "import_jobs(preview)", skipped.map((row) => row.id));
+    }
+    const jobs = await this.selectDrainableImportJobs(cutoff, batchSize, skip);
+    if (jobs.length === 0) {
+      return { importRowsPurged: 0, importJobPreviewsDrained: 0 };
+    }
+    const importJobIds = jobs.map((row) => row.id);
+    const deleted = await this.prisma.$transaction(
+      (tx) => tx.importRow.deleteMany({ where: { importJobId: { in: importJobIds } } }),
+      PURGE_TX_OPTIONS
+    );
+    return { importRowsPurged: deleted.count, importJobPreviewsDrained: importJobIds.length };
+  }
+
+  /**
    * Returns the subset of userIds still referenced by a NOT NULL FK column on
    * a surviving row — the references that make a hard DELETE of the users row
    * impossible without destroying another member's shared household data.
@@ -1170,5 +1340,10 @@ export class DataRetentionPurgeJob implements WorkerJob {
   private auditLogsRetentionDays(): number {
     const raw = Number(process.env.AUDIT_LOGS_RETENTION_DAYS);
     return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_AUDIT_LOGS_RETENTION_DAYS;
+  }
+
+  private importRowsRetentionDays(): number {
+    const raw = Number(process.env.IMPORT_ROWS_RETENTION_DAYS);
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_IMPORT_ROWS_RETENTION_DAYS;
   }
 }
