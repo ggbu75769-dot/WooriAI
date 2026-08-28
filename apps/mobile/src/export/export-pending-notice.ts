@@ -1,4 +1,9 @@
-import { SYNC_ROW_PENDING_LABEL } from "../offline/messages";
+import {
+  SYNC_ROW_PENDING_LABEL,
+  unreflectedRecordsPhrase,
+  unsendableRecordsSuffixText
+} from "../offline/messages";
+import { countPermanentlyFailedRows } from "../offline/permission-denied";
 import { pendingRowYearMonth } from "../reports/pending-scope-notice";
 import { normalizeCustomRange, type CustomExportRange, type ExportRange } from "./export-range";
 
@@ -29,22 +34,38 @@ import { normalizeCustomRange, type CustomExportRange, type ExportRange } from "
  * (expense-csv.ts의 CSV-127 주석). 선물 3건이 대기 중이면 그 3건은 실제로 파일에서 빠진다.
  * 그래서 여기서는 **합산 여부와 무관하게 아직 서버에 없는 행 전부**가 대상이다.
  *
- * ## 대기 행의 두 종류 — 세 모듈이 공유하는 근거 (라운드 57 QA P1-2)
+ * ## 영구 실패 행의 네 자리 — 다섯 모듈이 공유하는 근거 (라운드 59 트랙 A)
  *
  * `syncState !== "synced"`인 행은 한 가지가 아니다. **생성 대기** 행은 서버에 아직 없지만,
- * **수정 대기·삭제 대기** 행이 가리키는 지출은 서버에 이미 있고 그 값이 곧 달라질 뿐이다.
- * 그래서 "아직 서버에 없어요"는 이 집합 전체를 가리키는 참인 문장이 아니다. 세 모듈은 각자의
- * 목적에 맞게 다르게 세되(코드 규칙이 같아질 이유는 없다) **근거는 이 한 문단을 함께 가리킨다**:
+ * **수정 대기·삭제 대기** 행이 가리키는 지출은 서버에 이미 있고 그 값이 곧 달라질 뿐이다
+ * (라운드 57 QA P1-2). 그 위에 라운드 59가 갈래를 하나 더 갈랐다: 서버가 4xx로 거절해 **다시
+ * 보내도 같은 답이 오는** 행이다(`isPermanentlyFailedSyncRow` — src/offline/permission-denied.ts).
+ * 그 행을 "동기화 대기"라고 부르면 오지 않을 시점을 약속하는 것이고, 없는 셈 치면 화면에 보이는
+ * 목록과 숫자가 어긋난다.
  *
- *  - **내보내기 고지**(이 모듈): 전부 센다. CSV는 서버 조회로 만들므로 생성 대기 행은 통째로
- *    빠지고, 수정·삭제 대기 행은 **옛 값**이 실린다 — 셋 다 "이 파일에 아직 반영되지 않은 변경"
- *    이라는 점에서 같다. 그래서 문구도 딱 그 약한 주장까지만 한다(아래 `exportPendingNoticeText`).
- *  - **리포트 고지**(`src/reports/pending-scope-notice.ts`): 아래 숫자를 실제로 움직일 행만
- *    센다(DNC-015). 삭제 대기도 포함이다 — 서버 집계에 아직 **들어 있는** 값이라 역시 "아직
- *    반영되지 않은" 차이다.
- *  - **정기 지출 판정**(`src/expenses/recurring-template.ts`): `syncState`를 아예 보지 않고
- *    **삭제 대기만** 뺀다. 거기서 묻는 것은 "이번 달에 이 품목이 기록됐는가"라 서버가 아는지와
- *    무관하고, 곧 사라질 기록은 "기록됐다"의 근거가 될 수 없다.
+ * 그래서 **네 자리가 각자 다른 답을 낸다.** 한 술어로 통일하지 않는다 — 통일하는 순간 그중
+ * 최소 한 자리가 거짓을 말한다:
+ *
+ *  1. **합계 유지**(`src/offline/expense-list-reconciliation.ts`): 월 합계에서 **빼지 않는다.**
+ *     그 행은 기록 탭 목록에 그대로 서 있어 사용자가 눈으로 셀 수 있다 — 목록에 있는 금액이
+ *     합계에 없으면 앱이 산수를 틀린 것으로 읽힌다. 대신 영구 실패 **건수**를 결과에 실어,
+ *     화면이 고지 한 줄을 덧붙일 수 있게 한다.
+ *  2. **정기 지출 판정**(`src/expenses/recurring-template.ts`의 `recordedItemNamesForMonth`):
+ *     "기록됨"에서 **뺀다.** 묻는 것이 "이번 달에 이 품목을 샀는가"인데 영구 실패 행은 서버에
+ *     결코 닿지 않는다. 실패한 기저귀 한 줄이 카드를 끄면 사용자는 다시 기록할 기회를 잃는다.
+ *     일시 실패·대기 행은 종전대로 센다(그것들은 언젠가 반영된다).
+ *  3. **고지 어휘 분리**(`src/reports/pending-scope-notice.ts` ·
+ *     `src/export/export-pending-notice.ts`): 세는 대상은 그대로 두고 **부르는 이름을 가른다.**
+ *     영구 실패가 섞이면 주어가 "동기화 대기 중인 기록"에서 "아직 반영되지 않은 기록"으로
+ *     바뀌고, 그중 몇 건이 "보낼 수 없는 기록"인지 뒷문장이 따로 말한다(offline/messages.ts).
+ *     두 모듈의 모집단은 다르지만(DNC-015) **구분 규칙은 하나**다.
+ *  4. **자동완성 모집단**(`src/expenses/suggest-source.ts`): 제안에서 **뺀다.** 400을 부른 바로
+ *     그 값이 첫 후보로 돌아오면 사용자는 같은 실패를 다시 만든다(실패 공장). 빼도 잃는 것이
+ *     없다 — 이력은 남고, 그 지출의 서버 값이 있으면 그쪽이 대신 후보가 된다.
+ *
+ * 대기 행을 **세는 방식**이 모듈마다 다른 이유(라운드 57 QA P1-2)는 그대로다: 내보내기 고지는
+ * 전부 세고, 리포트 고지는 아래 숫자를 움직일 행만 세고(DNC-015), 정기 지출 판정은 대기·전송
+ * 중·일시 실패·충돌을 가리지 않고 센다(빼는 것은 삭제 대기와 위 2번의 영구 실패뿐이다).
  *
  * ## 왜 대기 행을 CSV에 합쳐 넣지 않는가 (고지 우선)
  *
@@ -59,6 +80,14 @@ import { normalizeCustomRange, type CustomExportRange, type ExportRange } from "
 export type ExportPendingExpenseRow = {
   childId: string;
   syncState: string;
+  /**
+   * 라운드 59 트랙 A — 영구 실패 갈래를 가르는 데 필요한 실패 사유. 리포트 고지의
+   * `PendingScopeExpenseRow`와 **같은 세 필드**이고(같은 술어가 읽는다), 전부 선택이라 이 값을
+   * 모르는 호출부는 종전 그대로 동작한다.
+   */
+  lastError?: string | null;
+  lastErrorStatus?: number | null;
+  lastErrorCode?: string | null;
   payload?: { spentOn?: string | null } | null;
 };
 
@@ -81,9 +110,18 @@ export type ExportPendingNoticeInput = ExportPendingScope & {
   childId: string | null | undefined;
 };
 
-export type ExportPendingNotice = {
-  /** 이 기간의 대기 건수(1 이상). */
+/**
+ * 라운드 59 트랙 A — 리포트 고지(`PendingScopeBreakdown`)와 **같은 구분**이다. 이름·의미가
+ * 같아야 두 화면의 같은 문장이 같은 규칙에서 나온다는 사실이 코드에서 보인다.
+ */
+export type ExportPendingBreakdown = {
+  /** 이 구간에서 파일에 아직 반영되지 않은 행의 수(영구 실패 포함). */
   count: number;
+  /** 그중 **보낼 수 없는**(영구 실패 4xx) 행의 수. 0이면 종전 문구 그대로다. */
+  unsendableCount: number;
+};
+
+export type ExportPendingNotice = ExportPendingBreakdown & {
   /** 카드에 그리는 한 줄. */
   text: string;
 };
@@ -117,16 +155,31 @@ export function isSpentOnInExportScope(spentOn: unknown, scope: ExportPendingSco
   return yearMonth >= custom.startYearMonth && yearMonth <= custom.endYearMonth;
 }
 
-/** 이 아이·이 구간에서 서버가 아직 모르는 행의 수. 규칙은 이 파일 머리말 참고. */
-export function countPendingExpensesForExport({ rows, childId, ...scope }: ExportPendingNoticeInput): number {
-  if (!childId) return 0;
+/** 이 아이·이 구간에서 서버가 아직 모르는 행. 규칙은 이 파일 머리말 참고. */
+function pendingRowsForExport({ rows, childId, ...scope }: ExportPendingNoticeInput): ExportPendingExpenseRow[] {
+  if (!childId) return [];
   return rows.filter(
     (row) =>
       row.childId === childId &&
       // 합산 술어(countsTowardMonthlyTotal)를 쓰지 않는다 -- 선물·환불도 CSV에서는 빠지는 행이다.
       row.syncState !== "synced" &&
       isSpentOnInExportScope(row.payload?.spentOn, scope)
-  ).length;
+  );
+}
+
+/**
+ * 라운드 59 트랙 A — 건수와 **그중 보낼 수 없는 건수**. 리포트 고지의
+ * `countPendingScopeBreakdown`과 같은 모양이고, 구분 술어(`isPermanentlyFailedSyncRow`)도 하나다.
+ * 두 숫자를 같은 배열에서 뽑는 이유도 같다: "그중 M건"이 N을 넘는 문장이 만들어질 수 없어야 한다.
+ */
+export function countPendingExportBreakdown(input: ExportPendingNoticeInput): ExportPendingBreakdown {
+  const pendingRows = pendingRowsForExport(input);
+  return { count: pendingRows.length, unsendableCount: countPermanentlyFailedRows(pendingRows) };
+}
+
+/** 이 아이·이 구간에서 서버가 아직 모르는 행의 수(영구 실패 포함). 세부는 위 함수. */
+export function countPendingExpensesForExport(input: ExportPendingNoticeInput): number {
+  return countPendingExportBreakdown(input).count;
 }
 
 /**
@@ -143,9 +196,19 @@ export function countPendingExpensesForExport({ rows, childId, ...scope }: Expor
  * 좁히는 대신(그러면 옛 값으로 나가는 행을 아무도 말해 주지 않는다) 문구를 리포트 고지와 **같은
  * 약한 주장**으로 맞춘다: 무엇이 빠졌는지·무엇이 옛 값인지를 구분해 단언하지 않고, "이 파일에
  * 아직 반영되지 않은 변경이 N건 있다"는 관측만 말한다.
+ *
+ * 라운드 59 트랙 A — **영구 실패가 섞이면 어휘를 가른다.** 그 행은 다음 CSV에도, 그다음 CSV에도
+ * 담기지 않는다(payload가 그대로인 한 서버가 같은 4xx를 돌려준다). 그걸 "동기화 대기"라고
+ * 부르면 "다음에 내보내면 들어 있겠지"라는 잘못된 기대를 만들고, 사용자는 같은 파일을 다시
+ * 만들어 확인하게 된다. 그래서 주어를 참인 관측으로 바꾸고("아직 반영되지 않은 기록 N건")
+ * 그중 몇 건이 보낼 수 없는 기록인지 뒷문장이 따로 말한다 — 리포트 고지와 **같은 두 조각**
+ * (offline/messages.ts)이고, 다른 것은 목적어("이 파일" vs "아래 숫자")뿐이다.
  */
-export function exportPendingNoticeText(count: number): string {
-  return `${SYNC_ROW_PENDING_LABEL} 중인 기록 ${count}건은 이 파일에 아직 반영되지 않았어요.`;
+export function exportPendingNoticeText(count: number, unsendableCount = 0): string {
+  if (unsendableCount <= 0) {
+    return `${SYNC_ROW_PENDING_LABEL} 중인 기록 ${count}건은 이 파일에 아직 반영되지 않았어요.`;
+  }
+  return `${unreflectedRecordsPhrase(count)}은 이 파일에 빠져 있어요. ${unsendableRecordsSuffixText(unsendableCount)}`;
 }
 
 /**
@@ -156,11 +219,15 @@ export function exportPendingNoticeText(count: number): string {
  * 토스트에도 같은 문장이 붙는다 — 두 경우 모두 **이 CSV에 아직 반영되지 않았다**는 같은 사실이다.
  *
  * 라운드 57 QA(P1-2): 카드 고지와 **같은 주장**이다(위 `exportPendingNoticeText` 주석). 시제만
- * 다르다 — 카드는 누르기 전, 이 줄은 파일이 나간 뒤다.
+ * 다르다 — 카드는 누르기 전, 이 줄은 파일이 나간 뒤다. 라운드 59 트랙 A의 어휘 분리도 같은
+ * 규칙으로 따라온다: 영구 실패가 섞이면 여기서도 주어가 바뀌고 뒷문장이 붙는다.
  */
-export function exportPendingToastSuffix(count: number): string {
+export function exportPendingToastSuffix(count: number, unsendableCount = 0): string {
   if (count <= 0) return "";
-  return ` ${SYNC_ROW_PENDING_LABEL} 중인 기록 ${count}건은 이 CSV에 아직 반영되지 않았어요.`;
+  if (unsendableCount <= 0) {
+    return ` ${SYNC_ROW_PENDING_LABEL} 중인 기록 ${count}건은 이 CSV에 아직 반영되지 않았어요.`;
+  }
+  return ` ${unreflectedRecordsPhrase(count)}은 이 CSV에 빠져 있어요. ${unsendableRecordsSuffixText(unsendableCount)}`;
 }
 
 /**
@@ -168,7 +235,7 @@ export function exportPendingToastSuffix(count: number): string {
  * "0건이 빠졌어요" 같은 줄은 소음이고, 평소(대다수) 카드를 한 줄 밀어낼 이유가 없다.
  */
 export function evaluateExportPendingNotice(input: ExportPendingNoticeInput): ExportPendingNotice | null {
-  const count = countPendingExpensesForExport(input);
+  const { count, unsendableCount } = countPendingExportBreakdown(input);
   if (count <= 0) return null;
-  return { count, text: exportPendingNoticeText(count) };
+  return { count, unsendableCount, text: exportPendingNoticeText(count, unsendableCount) };
 }

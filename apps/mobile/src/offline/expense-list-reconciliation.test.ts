@@ -362,3 +362,86 @@ describe("GAP-054 P1-2 대기 중인 환불·선물 행", () => {
     expect(controllerSource).not.toContain('expense.expenseType === "refund" ? undefined');
   });
 });
+
+/**
+ * 라운드 59 트랙 A — **보낼 수 없는 행은 합계에서 빼지 않고, 건수로 말한다.**
+ *
+ * 네 자리 중 이 자리만 "제외"가 아니라 "유지 + 고지"인 이유는 모듈 주석(`permanentlyFailedCount`)
+ * 참고: 그 행은 바로 위 목록에 그대로 보이므로, 합계에서만 빠지면 목록의 금액을 다 더해도 총액이
+ * 나오지 않는 화면이 된다(사용자가 그 자리에서 반박할 수 있는 거짓).
+ */
+describe("라운드 59 트랙 A: 영구 실패 행 — 합계 유지 + 건수 노출", () => {
+  const permanentlyFailed = (overrides: Partial<LocalExpenseRow> = {}) =>
+    offlineRow({
+      localId: "local-failed",
+      syncState: "failed",
+      lastError: "미래 날짜의 지출은 저장할 수 없어요.",
+      lastErrorStatus: 400,
+      lastErrorCode: "EXPENSE_FUTURE_DATE",
+      ...overrides
+    });
+
+  it("영구 실패 행의 금액은 월 합계에 그대로 남는다 (목록-합계 모순 금지)", () => {
+    const result = reconcileMonthlyExpenses(
+      [serverExpense({ id: "server-1", amountKrw: 30_000 })],
+      [permanentlyFailed({ payload: { childId, categoryId: "cat-1", amountKrw: 12_000, spentOn: "2026-07-05", itemName: "기저귀" } })],
+      "2026-07"
+    );
+
+    // 목록에도 남고 --
+    expect(result.offlinePendingRows).toHaveLength(1);
+    // -- 합계에도 남는다.
+    expect(result.monthlyTotalKrw).toBe(42_000);
+    // 목록에 보이는 금액의 총합 = 화면의 총액. 이 등식이 이 자리의 계약이다.
+    const listedSum =
+      result.visibleServerExpenses.reduce((sum, expense) => sum + expense.amountKrw, 0) +
+      result.offlinePendingRows.reduce((sum, row) => sum + row.payload.amountKrw, 0);
+    expect(listedSum).toBe(result.monthlyTotalKrw);
+    // 대신 화면이 한 줄을 덧붙일 수 있도록 건수를 내놓는다.
+    expect(result.permanentlyFailedCount).toBe(1);
+  });
+
+  it("일시 실패·대기·충돌 행은 세지 않는다 (그것들은 언젠가 반영된다)", () => {
+    const result = reconcileMonthlyExpenses(
+      [],
+      [
+        permanentlyFailed({ localId: "local-1" }),
+        permanentlyFailed({ localId: "local-2", lastErrorStatus: 503 }), // 5xx = 일시 실패
+        offlineRow({ localId: "local-3", syncState: "pending" }),
+        offlineRow({ localId: "local-4", syncState: "syncing" }),
+        offlineRow({ localId: "local-5", syncState: "conflict" }),
+        // v2 이전 레거시 실패 행(status 없음) -- 확신이 없으므로 "보낼 수 없다"고 세지 않는다.
+        offlineRow({ localId: "local-6", syncState: "failed", lastError: "권한이 없어요." })
+      ],
+      "2026-07"
+    );
+
+    expect(result.offlinePendingRows).toHaveLength(6);
+    expect(result.permanentlyFailedCount).toBe(1);
+  });
+
+  it("목록에 없는 행은 세지 않는다 (고지가 가리키는 것은 '이 중'이다)", () => {
+    // 삭제 대기 행은 목록에서 빠지므로(그 행에는 보여 줄 것이 없다) 건수에서도 빠진다.
+    const deletePending = permanentlyFailed({ localId: "local-del", pendingDelete: true });
+    // 다른 달 행도 마찬가지다.
+    const otherMonth = permanentlyFailed({
+      localId: "local-old",
+      payload: { childId, categoryId: "cat-1", amountKrw: 5_000, spentOn: "2026-06-30", itemName: "기저귀" }
+    });
+
+    const result = reconcileMonthlyExpenses([], [deletePending, otherMonth], "2026-07");
+    expect(result.offlinePendingRows).toHaveLength(0);
+    expect(result.permanentlyFailedCount).toBe(0);
+  });
+
+  it("영구 실패 행이 없으면 0이다 (평소 화면은 한 줄도 늘지 않는다)", () => {
+    const result = reconcileMonthlyExpenses([serverExpense({})], [offlineRow({})], "2026-07");
+    expect(result.permanentlyFailedCount).toBe(0);
+  });
+
+  it("판정 규칙을 여기 다시 적지 않는다 (술어는 permission-denied.ts 한 곳)", () => {
+    const moduleSource = readFileSync(join(process.cwd(), "src/offline/expense-list-reconciliation.ts"), "utf8");
+    expect(moduleSource).toContain('import { countPermanentlyFailedRows } from "./permission-denied";');
+    expect(moduleSource).not.toMatch(/lastErrorStatus/);
+  });
+});

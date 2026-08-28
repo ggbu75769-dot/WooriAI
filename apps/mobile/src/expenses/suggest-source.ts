@@ -44,9 +44,53 @@
  * 내용이 같다고 묶지는 않는다(품목명+금액+날짜 해시 같은 것). 같은 날 같은 물건을 두 번 사는 일은
  * 실제로 있고, 그것은 판매처 빈도에서 **두 번 세는 것이 사실**이기 때문이다.
  *
+ * ## 영구 실패 행의 네 자리 — 다섯 모듈이 공유하는 근거 (라운드 59 트랙 A)
+ *
+ * `syncState !== "synced"`인 행은 한 가지가 아니다. **생성 대기** 행은 서버에 아직 없지만,
+ * **수정 대기·삭제 대기** 행이 가리키는 지출은 서버에 이미 있고 그 값이 곧 달라질 뿐이다
+ * (라운드 57 QA P1-2). 그 위에 라운드 59가 갈래를 하나 더 갈랐다: 서버가 4xx로 거절해 **다시
+ * 보내도 같은 답이 오는** 행이다(`isPermanentlyFailedSyncRow` — src/offline/permission-denied.ts).
+ * 그 행을 "동기화 대기"라고 부르면 오지 않을 시점을 약속하는 것이고, 없는 셈 치면 화면에 보이는
+ * 목록과 숫자가 어긋난다.
+ *
+ * 그래서 **네 자리가 각자 다른 답을 낸다.** 한 술어로 통일하지 않는다 — 통일하는 순간 그중
+ * 최소 한 자리가 거짓을 말한다:
+ *
+ *  1. **합계 유지**(`src/offline/expense-list-reconciliation.ts`): 월 합계에서 **빼지 않는다.**
+ *     그 행은 기록 탭 목록에 그대로 서 있어 사용자가 눈으로 셀 수 있다 — 목록에 있는 금액이
+ *     합계에 없으면 앱이 산수를 틀린 것으로 읽힌다. 대신 영구 실패 **건수**를 결과에 실어,
+ *     화면이 고지 한 줄을 덧붙일 수 있게 한다.
+ *  2. **정기 지출 판정**(`src/expenses/recurring-template.ts`의 `recordedItemNamesForMonth`):
+ *     "기록됨"에서 **뺀다.** 묻는 것이 "이번 달에 이 품목을 샀는가"인데 영구 실패 행은 서버에
+ *     결코 닿지 않는다. 실패한 기저귀 한 줄이 카드를 끄면 사용자는 다시 기록할 기회를 잃는다.
+ *     일시 실패·대기 행은 종전대로 센다(그것들은 언젠가 반영된다).
+ *  3. **고지 어휘 분리**(`src/reports/pending-scope-notice.ts` ·
+ *     `src/export/export-pending-notice.ts`): 세는 대상은 그대로 두고 **부르는 이름을 가른다.**
+ *     영구 실패가 섞이면 주어가 "동기화 대기 중인 기록"에서 "아직 반영되지 않은 기록"으로
+ *     바뀌고, 그중 몇 건이 "보낼 수 없는 기록"인지 뒷문장이 따로 말한다(offline/messages.ts).
+ *     두 모듈의 모집단은 다르지만(DNC-015) **구분 규칙은 하나**다.
+ *  4. **자동완성 모집단**(`src/expenses/suggest-source.ts`): 제안에서 **뺀다.** 400을 부른 바로
+ *     그 값이 첫 후보로 돌아오면 사용자는 같은 실패를 다시 만든다(실패 공장). 빼도 잃는 것이
+ *     없다 — 이력은 남고, 그 지출의 서버 값이 있으면 그쪽이 대신 후보가 된다.
+ *
+ * 대기 행을 **세는 방식**이 모듈마다 다른 이유(라운드 57 QA P1-2)는 그대로다: 내보내기 고지는
+ * 전부 세고, 리포트 고지는 아래 숫자를 움직일 행만 세고(DNC-015), 정기 지출 판정은 대기·전송
+ * 중·일시 실패·충돌을 가리지 않고 센다(빼는 것은 삭제 대기와 위 2번의 영구 실패뿐이다).
+ *
+ * ### 실패 공장이 실제로 어떻게 돌아가는가 (이 모듈이 4번을 하는 이유)
+ *
+ * 아웃박스를 영구 실패로 굳히는 4xx는 대부분 **입력값 자체**가 원인이다: 101자 품목명
+ * (`CreateExpenseDto.itemName`의 @MaxLength(100) → 400), int4를 넘긴 금액, 미래 날짜
+ * (EXPENSE_FUTURE_DATE). 그 값들은 로컬 저장이 먼저 성공했으므로 스냅숏에 남고, 이 모듈은
+ * 스냅숏을 **가장 최근 입력**으로 정렬해 앞에 세운다. 즉 아무 조치도 하지 않으면 400을 부른
+ * 그 품목명·금액이 다음 기록의 첫 후보로 돌아오고, 사용자가 그것을 탭하면 같은 400이 하나 더
+ * 생긴다. 그래서 여기서는 제외가 곧 정직이다 — 이 목록은 "무엇을 적었나"의 기록이 아니라
+ * **"다음에 무엇을 적겠나"의 제안**이기 때문이다.
+ *
  * 저장소/네트워크/React에 의존하지 않는 계산만 담아 vitest 단위 테스트 대상으로 둔다.
  */
 
+import { isPermanentlyFailedSyncRow } from "../offline/permission-denied";
 import type { ItemAutocompleteSourceRow } from "./item-autocomplete";
 import type { MerchantSuggestSourceRow } from "./merchant-suggest";
 
@@ -61,6 +105,21 @@ export type SuggestSourceLocalRow = {
   pendingDelete: boolean;
   /** 이 기기에 기록된 시각(ISO 8601) — 로컬 목록의 "최근 입력" 순서 기준. */
   createdAt: string;
+  /**
+   * 라운드 59 트랙 A — 영구 실패 행을 제안에서 빼는 데 필요한 네 값(헤더의 "네 자리" 4번).
+   *
+   * **전부 선택**이라 이 값을 모르는 호출부는 종전과 똑같이 동작한다 = 실패가 아닌 행으로
+   * 읽힌다. 그래야 이력 필드가 적은 `RecentItemSourceRow`(recent-items.ts)가 계속 그대로
+   * 대입되고, 스냅숏 전량을 넘기는 화면(app/expenses/new.tsx · [expenseId].tsx)은 배선을
+   * 한 줄도 바꾸지 않은 채 새 규칙을 얻는다.
+   *
+   * 판정 규칙을 여기 다시 적지 않는다 — `isPermanentlyFailedSyncRow` 하나가 네 자리 전부의
+   * 술어다(src/offline/permission-denied.ts).
+   */
+  syncState?: string | null;
+  lastError?: string | null;
+  lastErrorStatus?: number | null;
+  lastErrorCode?: string | null;
   /**
    * 동기화가 끝난 행이 들고 있는 서버 지출 id. 이 값이 있으면 같은 id의 서버 행을 버린다.
    * 아직 올라가지 않은 행은 null/미포함이고, 그때는 버릴 짝이 애초에 없다.
@@ -176,7 +235,8 @@ function nonEmptyId(value: string | null | undefined): string | null {
 /**
  * 두 원천을 각각 정리해서 돌려준다(합치지는 않는다).
  *
- * - 로컬: 선택된 아이의 행만, 삭제 대기 제외, 일반 지출만, `createdAt` 내림차순.
+ * - 로컬: 선택된 아이의 행만, 삭제 대기 제외, **영구 실패 제외**(라운드 59 트랙 A — 헤더의
+ *   "네 자리" 4번), 일반 지출만, `createdAt` 내림차순.
  * - 서버: 이번 달 + 지난달을 이어 붙이고 일반 지출만 남긴 뒤, **로컬이 이미 아는 id는 버리고**
  *   `spentOn` 내림차순으로 정렬한다. 같은 id가 두 번 실려 와도 한 번만 남긴다.
  *
@@ -188,14 +248,25 @@ export function partitionSuggestSourceRows(input: SuggestSourceInput): SuggestSo
   const localRows = input.localRows ?? [];
   const childRows = localRows.filter((row) => row.childId === input.childId);
 
-  // 중복 제거 기준: **이 아이의 모든 로컬 행**이 아는 서버 id(삭제 대기 행 포함 — 헤더 참고).
+  // 라운드 59 트랙 A: 영구 실패 행은 제안에서 빠진다(헤더 "실패 공장" 절). 일시 실패·전송 중·
+  // 대기 행은 그대로 남는다 — 그것들이 나르는 값은 아직 서버가 거절하지 않았다.
+  const sendableChildRows = childRows.filter((row) => !isPermanentlyFailedSyncRow(row));
+
+  // 중복 제거 기준: **보낼 수 있는 로컬 행**이 아는 서버 id(삭제 대기 행 포함 — 헤더 참고).
+  //
+  // 영구 실패 행의 canonicalId를 여기서 빼는 이유(라운드 59 트랙 A): 그 id를 계속 "로컬이 아는
+  // 것"으로 두면 서버 쌍둥이까지 함께 사라져, 그 지출은 어느 원천에서도 후보로 나오지 않는다.
+  // 그런데 영구 실패한 것은 **수정 시도**뿐이고 서버에는 마지막으로 받아들여진 값이 멀쩡히
+  // 남아 있다(그 수정은 앞으로도 반영되지 않는다). 그러니 이 자리의 사실은 서버 값이다 —
+  // 로컬 대표가 빠졌으면 대표 자리를 서버 행에 돌려준다. 삭제가 영구 실패한 행도 같다:
+  // 그 지출은 서버에서 지워지지 않았으므로 여전히 이 사용자의 이력이다.
   const knownServerIds = new Set<string>();
-  for (const row of childRows) {
+  for (const row of sendableChildRows) {
     const canonicalId = nonEmptyId(row.canonicalId);
     if (canonicalId) knownServerIds.add(canonicalId);
   }
 
-  const local = childRows.filter((row) => !row.pendingDelete && isPlainExpense(row.payload.expenseType));
+  const local = sendableChildRows.filter((row) => !row.pendingDelete && isPlainExpense(row.payload.expenseType));
   // ISO 8601 문자열은 사전순 비교가 시간순 비교와 일치한다. sort는 복사본(filter 결과) 위에서.
   local.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
 

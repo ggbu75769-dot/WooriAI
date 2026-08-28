@@ -1,9 +1,15 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { OFFLINE_RETRY_NOTICE, SYNC_ROW_PENDING_LABEL } from "../offline/messages";
+import {
+  OFFLINE_RETRY_NOTICE,
+  SYNC_ROW_PENDING_LABEL,
+  unreflectedRecordsPhrase,
+  unsendableRecordsSuffixText
+} from "../offline/messages";
 import {
   countPendingExpensesForExport,
+  countPendingExportBreakdown,
   evaluateExportPendingNotice,
   exportPendingNoticeText,
   exportPendingToastSuffix,
@@ -156,6 +162,8 @@ describe("GAP-056 #3 고지 문구", () => {
     });
     expect(notice).toEqual({
       count: 2,
+      // 라운드 59 트랙 A: 영구 실패가 섞이지 않은 평소 카드는 문구가 한 글자도 바뀌지 않는다.
+      unsendableCount: 0,
       text: "동기화 대기 중인 기록 2건은 이 파일에 아직 반영되지 않았어요."
     });
     expect(exportPendingToastSuffix(2)).toBe(" 동기화 대기 중인 기록 2건은 이 CSV에 아직 반영되지 않았어요.");
@@ -186,20 +194,123 @@ describe("GAP-056 #3 고지 문구", () => {
   });
 
   /**
-   * 세 모듈이 대기 행을 어떻게 취급하는지 **근거를 같은 문장으로** 적어 둔다(코드 규칙은 각자
-   * 목적에 맞게 다르다 — 리뷰가 요구한 것은 근거 정렬이다).
+   * 라운드 59 트랙 A — 영구 실패 행을 어떻게 취급하는지 **근거를 한 문단으로** 적어 둔다.
+   *
+   * 코드 규칙은 자리마다 다르다(합계 유지 · 판정 제외 · 고지 어휘 분리 · 모집단 제외). 다르기
+   * **때문에** 근거가 한 곳에 모여 있어야 한다 — 다음 사람이 "왜 여기만 빼지 않지?"를 각 파일에서
+   * 따로 추측하기 시작하면 넷 중 하나가 조용히 다른 답으로 흘러간다. 라운드 57 QA P1-2가 세 모듈에
+   * 같은 문단을 둔 관례를 그대로 잇고, 자리 넷을 담느라 파일이 다섯이 됐다(고지 어휘 분리 한 자리를
+   * 리포트·CSV 두 모듈이 나눠 진다).
    */
-  it("pendingDelete/수정 대기 취급의 근거가 세 모듈 주석에 같은 문장으로 있다", () => {
-    const shared = "대기 행의 두 종류 — 세 모듈이 공유하는 근거 (라운드 57 QA P1-2)";
-    for (const path of [
-      "src/export/export-pending-notice.ts",
+  it("영구 실패 행 네 자리의 근거가 다섯 모듈 주석에 **글자까지 같은** 문단으로 있다", () => {
+    const heading = "## 영구 실패 행의 네 자리 — 다섯 모듈이 공유하는 근거 (라운드 59 트랙 A)";
+    const owners = [
+      "src/offline/expense-list-reconciliation.ts",
+      "src/expenses/recurring-template.ts",
       "src/reports/pending-scope-notice.ts",
-      "src/expenses/recurring-template.ts"
-    ]) {
+      "src/export/export-pending-notice.ts",
+      "src/expenses/suggest-source.ts"
+    ];
+
+    const paragraphs = owners.map((path) => {
       const moduleSource = source(path);
-      expect(moduleSource, path).toContain(shared);
-      expect(moduleSource, path).toContain("**수정 대기·삭제 대기** 행이 가리키는 지출은 서버에 이미 있고");
+      const start = moduleSource.indexOf(` * ${heading}`);
+      expect(start, `${path}에 공유 문단이 없다`).toBeGreaterThan(-1);
+      const end = moduleSource.indexOf("빼는 것은 삭제 대기와 위 2번의 영구 실패뿐이다).", start);
+      expect(end, `${path}의 공유 문단이 끝맺음까지 오지 않는다`).toBeGreaterThan(start);
+      return moduleSource.slice(start, end);
+    });
+
+    // 다섯 사본이 서로 한 글자도 다르지 않다.
+    for (const [index, path] of owners.entries()) {
+      expect(paragraphs[index], path).toBe(paragraphs[0]);
     }
+
+    // 문단이 실제로 네 자리를 **각자의 이유와 함께** 담고 있다(제목만 같은 껍데기 방지).
+    const shared = paragraphs[0];
+    for (const seat of [
+      "1. **합계 유지**",
+      "2. **정기 지출 판정**",
+      "3. **고지 어휘 분리**",
+      "4. **자동완성 모집단**"
+    ]) {
+      expect(shared, seat).toContain(seat);
+    }
+    expect(shared).toContain("한 술어로 통일하지 않는다");
+    // 라운드 57 QA P1-2의 세 갈래 구분도 이 문단이 계속 진다(대체가 아니라 확장이다).
+    expect(shared).toContain("**수정 대기·삭제 대기** 행이 가리키는 지출은 서버에 이미 있고");
+  });
+});
+
+/**
+ * 라운드 59 트랙 A — CSV 고지도 **"대기"와 "보낼 수 없음"을 가른다.**
+ *
+ * 리포트 고지와 같은 구분 규칙·같은 두 조각을 쓰고, 다른 것은 목적어뿐이다("이 파일"/"이 CSV"
+ * vs "아래 숫자"). 그래야 같은 기기 상태를 두 화면이 같은 말로 부른다(REC-123(H4)).
+ */
+describe("라운드 59 트랙 A CSV 고지 — 대기와 '보낼 수 없음'을 가른다", () => {
+  const failedRow = (overrides: Partial<ExportPendingExpenseRow> & { spentOn?: string } = {}) =>
+    row({ syncState: "failed", lastErrorStatus: 400, lastErrorCode: "EXPENSE_ITEM_NAME_TOO_LONG", ...overrides });
+
+  it("영구 실패 행도 건수에는 그대로 들어간다 (파일에서 빠지는 것은 사실이다)", () => {
+    const rows = [row(), failedRow({ spentOn: "2026-08-06" })];
+    expect(countPendingExportBreakdown({ rows, childId: "child-1", range: "month", todaySeoul: today })).toEqual({
+      count: 2,
+      unsendableCount: 1
+    });
+    expect(countPendingExpensesForExport({ rows, childId: "child-1", range: "month", todaySeoul: today })).toBe(2);
+  });
+
+  it("일시 실패·레거시 실패 행은 '보낼 수 없음'이 아니다 (경계 셋)", () => {
+    const rows = [
+      failedRow({ spentOn: "2026-08-01" }),
+      failedRow({ spentOn: "2026-08-02", lastErrorStatus: 503 }),
+      row({ spentOn: "2026-08-03", syncState: "failed", lastError: "권한이 없어요." })
+    ];
+    expect(countPendingExportBreakdown({ rows, childId: "child-1", range: "month", todaySeoul: today })).toEqual({
+      count: 3,
+      unsendableCount: 1
+    });
+  });
+
+  it("카드 고지와 토스트 꼬리표가 같은 두 조각으로 어휘를 가른다", () => {
+    const input = {
+      rows: [row(), row({ spentOn: "2026-08-06" }), failedRow({ spentOn: "2026-08-07" })],
+      childId: "child-1",
+      range: "month" as const,
+      todaySeoul: today
+    };
+    const notice = evaluateExportPendingNotice(input);
+
+    expect(notice).toEqual({
+      count: 3,
+      unsendableCount: 1,
+      text: "아직 반영되지 않은 기록 3건은 이 파일에 빠져 있어요. 그중 1건은 보낼 수 없는 기록이에요."
+    });
+    expect(exportPendingToastSuffix(3, 1)).toBe(
+      " 아직 반영되지 않은 기록 3건은 이 CSV에 빠져 있어요. 그중 1건은 보낼 수 없는 기록이에요."
+    );
+    // 두 문장 모두 "대기"를 말하지 않는다 -- 오지 않을 시점을 약속하지 않는다.
+    for (const text of [notice!.text, exportPendingToastSuffix(3, 1)]) {
+      expect(text).not.toContain(SYNC_ROW_PENDING_LABEL);
+      expect(text).toContain(unreflectedRecordsPhrase(3));
+      expect(text).toContain(unsendableRecordsSuffixText(1));
+      expect(text.trim().endsWith("요.")).toBe(true);
+    }
+    // 0건이면 꼬리표는 여전히 빈 문자열이다(영구 실패 여부와 무관).
+    expect(exportPendingToastSuffix(0, 0)).toBe("");
+  });
+
+  it("리포트 고지와 **같은 두 조각**을 쓰고 목적어만 다르다", () => {
+    const csv = exportPendingNoticeText(4, 2);
+    const report = reportPendingScopeNoticeText(4, 2);
+    expect(csv).toContain(unreflectedRecordsPhrase(4));
+    expect(report).toContain(unreflectedRecordsPhrase(4));
+    expect(csv).toContain(unsendableRecordsSuffixText(2));
+    expect(report).toContain(unsendableRecordsSuffixText(2));
+    // 갈라지는 것은 목적어 하나뿐이다.
+    expect(csv).toContain("이 파일에 빠져 있어요.");
+    expect(report).toContain("아래 숫자에 빠져 있어요.");
   });
 });
 

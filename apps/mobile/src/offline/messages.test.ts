@@ -27,6 +27,10 @@ import {
   SYNC_ROW_FAILED_LABEL,
   SYNC_ROW_PENDING_DELETE_LABEL,
   SYNC_ROW_PENDING_LABEL,
+  SYNC_ROW_UNSENDABLE_LABEL,
+  unreflectedRecordsPhrase,
+  unsendableRecordsSuffixText,
+  unsendableRowsNoticeText,
   SYNC_STATUS_CONFLICT_LABEL,
   SYNC_STATUS_FAILED_LABEL,
   SYNC_STATUS_PENDING_LABEL,
@@ -360,5 +364,48 @@ describe("UX/C-07 저장 실패 문구", () => {
       "const saveFailedText = useSaveErrorCopy(saveEdit.isError || markChildBorn.isError || addChild.isError);"
     );
     expect(source("app/settings/children.tsx").match(/\{saveFailedText\}/g) ?? []).toHaveLength(3);
+  });
+});
+
+/**
+ * 라운드 59 트랙 A — **"동기화 대기"와 "보낼 수 없는 기록"은 다른 말이다.**
+ *
+ * 영구 실패(4xx) 행은 기다려도 반영되지 않는다. 그 행까지 "대기 중"이라고 부르던 세 자리(기록 탭
+ * 고지·리포트 고지·CSV 고지)가 이제 어휘를 가른다. 조각은 이 파일이 단일 소스로 정하고, 세 자리는
+ * 조립만 한다 -- 같은 사실을 화면마다 다른 말로 부르지 않기 위해서다(REC-123(H4)).
+ */
+describe("라운드 59 트랙 A 영구 실패 어휘", () => {
+  it("상태 이름이 아니라 '할 수 없는 일'로 부른다 (일시 실패와 섞이지 않게)", () => {
+    expect(SYNC_ROW_UNSENDABLE_LABEL).toBe("보낼 수 없는 기록");
+    // 배지의 짧은 라벨("실패")을 재사용하지 않는다 -- 그 배지는 5xx·네트워크 실패까지 함께 센다.
+    expect(SYNC_ROW_UNSENDABLE_LABEL).not.toBe(SYNC_STATUS_FAILED_LABEL);
+    expect(SYNC_ROW_UNSENDABLE_LABEL).not.toContain(SYNC_ROW_PENDING_LABEL);
+  });
+
+  it("주어는 참인 관측 하나만 남긴다 ('대기'도 '전부 실패'도 아니다)", () => {
+    expect(unreflectedRecordsPhrase(5)).toBe("아직 반영되지 않은 기록 5건");
+    expect(unreflectedRecordsPhrase(5)).not.toContain(SYNC_ROW_PENDING_LABEL);
+    expect(unreflectedRecordsPhrase(5)).not.toContain(SYNC_ROW_UNSENDABLE_LABEL);
+  });
+
+  it("내역 문장은 어휘를 다시 적지 않고 라벨에서 만든다 (해요체 DNC-018)", () => {
+    expect(unsendableRecordsSuffixText(2)).toBe("그중 2건은 보낼 수 없는 기록이에요.");
+    expect(unsendableRowsNoticeText(2)).toBe("이 중 2건은 보낼 수 없는 기록이에요.");
+    for (const text of [unsendableRecordsSuffixText(1), unsendableRowsNoticeText(1)]) {
+      expect(text).toContain(SYNC_ROW_UNSENDABLE_LABEL);
+      expect(text.endsWith("요.")).toBe(true);
+      expect(text.split("\n")).toHaveLength(1);
+      // 비난·지시 없음: 무엇을 하라고 시키지 않는다(다음 행동은 동기화 상태 화면이 말한다).
+      expect(text).not.toContain("해 주세요");
+    }
+  });
+
+  it("기록 탭만 '이 중'인 이유는 지시 대상이 문장이 아니라 화면이기 때문이다", () => {
+    expect(unsendableRowsNoticeText(3).startsWith("이 중")).toBe(true);
+    expect(unsendableRecordsSuffixText(3).startsWith("그중")).toBe(true);
+    // 나머지는 글자까지 같은 문장이다(두 자리가 갈라지지 않게).
+    expect(unsendableRowsNoticeText(3).slice("이 중".length)).toBe(
+      unsendableRecordsSuffixText(3).slice("그중".length)
+    );
   });
 });

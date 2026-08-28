@@ -5,8 +5,10 @@ import { API_ERROR_MESSAGES } from "../api/api-error";
 import { createMemoryOfflineStore } from "./memory-offline-store";
 import { SYNC_STATUS_RETRY_ALL_LABEL, SYNC_STATUS_RETRY_LABEL } from "./messages";
 import {
+  countPermanentlyFailedRows,
   countRetryableFailedRows,
   isBulkRetryableFailedRow,
+  isPermanentlyFailedSyncRow,
   isPermissionDeniedSyncError,
   isRetryableSyncError,
   isRetryableSyncFailureRow,
@@ -469,5 +471,89 @@ describe("라운드 47 UX-AB / 라운드 57 #8: sync-status 화면 배선", () =
   it("일괄 액션 문구는 그대로다 — 바뀐 것은 대상 집합뿐이다", () => {
     expect(SYNC_STATUS_RETRY_ALL_LABEL).toBe("전체 재시도");
     expect(SYNC_STATUS_RETRY_LABEL).toBe("재시도");
+  });
+});
+
+/**
+ * 라운드 59 트랙 A — `isPermanentlyFailedSyncRow`: **이 행은 앞으로도 서버에 닿지 못한다.**
+ *
+ * 경계는 셋이다.
+ *  - **영구 실패 행**: syncState "failed" + 재시도 무익한 4xx status → true.
+ *  - **일시 실패 행**: 같은 "failed"라도 5xx·401/408/429·status 모름 → false(언젠가 통과한다).
+ *  - **레거시 행**: v2 이전에 실패해 status가 없는 행 → false. 확신 없이 "보낼 수 없다"고
+ *    단언하거나 화면에서 덜어내지 않는다(그 판단의 근거는 모듈 주석).
+ */
+describe("라운드 59 트랙 A: isPermanentlyFailedSyncRow — 네 자리가 함께 쓰는 술어", () => {
+  it("실패로 굳은 행 + 재시도 무익한 4xx만 영구 실패다", () => {
+    for (const status of [400, 403, 404, 409, 422]) {
+      expect(isPermanentlyFailedSyncRow({ syncState: "failed", lastErrorStatus: status }), String(status)).toBe(true);
+    }
+  });
+
+  it("일시 실패 행(5xx·401·408·429)은 영구 실패가 아니다 — 서버가 회복되면 그대로 통과한다", () => {
+    for (const status of [500, 502, 503, 401, 408, 429]) {
+      expect(isPermanentlyFailedSyncRow({ syncState: "failed", lastErrorStatus: status }), String(status)).toBe(false);
+    }
+    // 네트워크·타임아웃(status 모름)도 마찬가지다.
+    expect(isPermanentlyFailedSyncRow({ syncState: "failed", lastErrorStatus: null })).toBe(false);
+  });
+
+  it("레거시 실패 행(status 없음)은 문구가 403이어도 영구 실패로 보지 않는다", () => {
+    const legacyForbidden = { syncState: "failed", lastError: API_ERROR_MESSAGES.FORBIDDEN };
+    // 재시도 버튼은 예전처럼 사라진다(그 판정은 문구 폴백을 쓴다) --
+    expect(isPermissionDeniedSyncError(legacyForbidden)).toBe(true);
+    expect(isBulkRetryableFailedRow(legacyForbidden)).toBe(false);
+    // -- 그러나 "보낼 수 없는 기록"이라고 **단언**하거나 판정·모집단에서 덜어내지는 않는다.
+    // 화면 문구 한 글자를 다듬었다는 이유로 정기 지출 카드가 켜졌다 꺼지면 안 된다.
+    expect(isPermanentlyFailedSyncRow(legacyForbidden)).toBe(false);
+    expect(isPermanentlyFailedSyncRow({ syncState: "failed", lastError: "알 수 없는 오류" })).toBe(false);
+  });
+
+  it("아직 실패하지 않은 행은 어떤 경우에도 영구 실패가 아니다 (상태부터 묻는다)", () => {
+    for (const syncState of ["pending", "syncing", "synced", "conflict"]) {
+      expect(isPermanentlyFailedSyncRow({ syncState, lastErrorStatus: 400 }), syncState).toBe(false);
+    }
+    expect(isPermanentlyFailedSyncRow(null)).toBe(false);
+    expect(isPermanentlyFailedSyncRow(undefined)).toBe(false);
+    // syncState를 아예 모르는 행(이 필드를 나르지 않는 호출부)도 종전 동작 그대로다.
+    expect(isPermanentlyFailedSyncRow({ lastErrorStatus: 400 })).toBe(false);
+  });
+
+  it("`isRetryableSyncFailureRow` 하나로는 이 질문에 답할 수 없다 (부정만으로는 대기 행이 걸린다)", () => {
+    const pendingRow = { syncState: "pending", lastErrorStatus: null };
+    // 대기 행은 status가 없어 "재시도 가능"으로 읽히고, 그 부정은 false다 -- 여기까지는 같다.
+    expect(isRetryableSyncFailureRow(pendingRow)).toBe(true);
+    // 그러나 status가 남아 있는 채 다시 큐에 오른 행(재시도 직후)은 부정만 취하면 영구 실패가
+    // 된다. 상태를 먼저 묻는 이 술어는 그 행을 걸러 낸다.
+    const requeued = { syncState: "pending", lastErrorStatus: 400 };
+    expect(isRetryableSyncFailureRow(requeued)).toBe(false);
+    expect(isPermanentlyFailedSyncRow(requeued)).toBe(false);
+  });
+
+  it("countPermanentlyFailedRows는 목록에서 그 행만 센다 (세는 자리 셋이 함께 쓴다)", () => {
+    const rows = [
+      { syncState: "failed", lastErrorStatus: 400 },
+      { syncState: "failed", lastErrorStatus: 403 },
+      { syncState: "failed", lastErrorStatus: 503 },
+      { syncState: "failed", lastError: API_ERROR_MESSAGES.FORBIDDEN },
+      { syncState: "pending" },
+      null,
+      undefined
+    ];
+    expect(countPermanentlyFailedRows(rows)).toBe(2);
+    expect(countPermanentlyFailedRows([])).toBe(0);
+  });
+
+  it("실제 실패 행(sync-engine이 400으로 굳힌 행)이 그대로 true로 읽힌다", async () => {
+    const store = createMemoryOfflineStore();
+    const localId = await seedFailedRow(store, "기저귀", "미래 날짜의 지출은 저장할 수 없어요.", {
+      lastErrorStatus: 400,
+      lastErrorCode: "EXPENSE_FUTURE_DATE"
+    });
+    const row = await store.getLocalExpense(localId);
+
+    expect(isPermanentlyFailedSyncRow(row)).toBe(true);
+    // 같은 행이 일괄 재시도 대상에서도 빠져 있다(두 판정이 같은 사실을 말한다).
+    expect(isBulkRetryableFailedRow(row)).toBe(false);
   });
 });

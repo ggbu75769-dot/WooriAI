@@ -36,6 +36,7 @@
  */
 
 import { formatKrw } from "../money";
+import { isPermanentlyFailedSyncRow } from "../offline/permission-denied";
 import { EXPENSE_AMOUNT_MAX_KRW, isAmountOverLimit, amountOverLimitMessage } from "./amount-limit";
 import { normalizeItemName } from "./item-name-match";
 import { merchantOverLimitMessage } from "./text-limits";
@@ -390,6 +391,16 @@ export type RecurringMonthExpenseRow = {
 export type RecurringPendingExpenseRow = {
   childId?: string | null;
   pendingDelete?: boolean | null;
+  /**
+   * 라운드 59 트랙 A — 영구 실패 행을 "기록됨"에서 빼기 위해 필요한 네 값. 전부 선택이라
+   * 이 필드들을 모르는 호출부(테스트 픽스처·`RecentItemSourceRow` 계열)는 종전 그대로 동작한다
+   * = 실패가 아닌 행으로 읽힌다. 판정은 `isPermanentlyFailedSyncRow` 하나뿐이고 규칙을 여기
+   * 다시 적지 않는다(src/offline/permission-denied.ts).
+   */
+  syncState?: string | null;
+  lastError?: string | null;
+  lastErrorStatus?: number | null;
+  lastErrorCode?: string | null;
   payload?: {
     itemName?: string | null;
     spentOn?: string | null;
@@ -504,26 +515,48 @@ export function recurringReminderCopy(
  * 부정하는 셈이다 — record_gap이 P1-3에서 세운 규칙과 같은 이유다(사용자가 그 자리에서 반박할
  * 수 있는 거짓말이 가장 나쁘다).
  *
- * `syncState`는 보지 않는다: `synced` 행은 서버 캐시에도 있어 결과가 같고, 대기·실패·충돌 행은
- * 서버가 모르는 사실이라 반드시 세야 한다. 다만 **삭제 대기 행(`pendingDelete`)은 제외**한다 —
- * 곧 사라질 기록을 근거로 "기록됐다"고 말할 수는 없다(recent-items.ts와 같은 판단).
+ * `syncState`는 **거의** 보지 않는다: `synced` 행은 서버 캐시에도 있어 결과가 같고, 대기·전송
+ * 중·일시 실패·충돌 행은 서버가 모르는 사실이라 반드시 세야 한다. 빼는 것은 둘뿐이다.
+ *  - **삭제 대기 행(`pendingDelete`)** — 곧 사라질 기록을 근거로 "기록됐다"고 말할 수는 없다
+ *    (recent-items.ts와 같은 판단).
+ *  - **영구 실패 행**(라운드 59 트랙 A) — 아래 "네 자리" 문단의 2번. 서버가 4xx로 거절한 행은
+ *    기다려도 반영되지 않으므로, 그 행 하나 때문에 카드가 꺼지면 사용자는 그 달의 정기 지출을
+ *    다시 기록할 **기회 자체**를 잃는다("이미 기록됐다"고 앱이 말해 버렸으니 확인할 길도 없다).
+ *    이 자리만 유일하게 화면에서 무언가를 **덜어내는** 방향이 정직한 쪽이다: 실패한 기저귀 한
+ *    줄은 기저귀를 산 근거가 아니다.
  *
- * ## 대기 행의 두 종류 — 세 모듈이 공유하는 근거 (라운드 57 QA P1-2)
+ * ## 영구 실패 행의 네 자리 — 다섯 모듈이 공유하는 근거 (라운드 59 트랙 A)
  *
  * `syncState !== "synced"`인 행은 한 가지가 아니다. **생성 대기** 행은 서버에 아직 없지만,
- * **수정 대기·삭제 대기** 행이 가리키는 지출은 서버에 이미 있고 그 값이 곧 달라질 뿐이다.
- * 그래서 "아직 서버에 없어요"는 이 집합 전체를 가리키는 참인 문장이 아니다. 세 모듈은 각자의
- * 목적에 맞게 다르게 세되(코드 규칙이 같아질 이유는 없다) **근거는 이 한 문단을 함께 가리킨다**:
+ * **수정 대기·삭제 대기** 행이 가리키는 지출은 서버에 이미 있고 그 값이 곧 달라질 뿐이다
+ * (라운드 57 QA P1-2). 그 위에 라운드 59가 갈래를 하나 더 갈랐다: 서버가 4xx로 거절해 **다시
+ * 보내도 같은 답이 오는** 행이다(`isPermanentlyFailedSyncRow` — src/offline/permission-denied.ts).
+ * 그 행을 "동기화 대기"라고 부르면 오지 않을 시점을 약속하는 것이고, 없는 셈 치면 화면에 보이는
+ * 목록과 숫자가 어긋난다.
  *
- *  - **내보내기 고지**(`src/export/export-pending-notice.ts`): 전부 센다. CSV는 서버 조회로
- *    만들므로 생성 대기 행은 통째로 빠지고, 수정·삭제 대기 행은 **옛 값**이 실린다 — 셋 다
- *    "그 파일에 아직 반영되지 않은 변경"이라는 점에서 같고, 문구도 그 약한 주장까지만 한다.
- *  - **리포트 고지**(`src/reports/pending-scope-notice.ts`): 아래 숫자를 실제로 움직일 행만
- *    센다(DNC-015). 삭제 대기도 포함이다 — 서버 집계에 아직 **들어 있는** 값이라 역시 "아직
- *    반영되지 않은" 차이다.
- *  - **정기 지출 판정**(이 모듈): `syncState`를 아예 보지 않고 **삭제 대기만** 뺀다. 거기서
- *    묻는 것은 "이번 달에 이 품목이 기록됐는가"라 서버가 아는지와 무관하고, 곧 사라질 기록은
- *    "기록됐다"의 근거가 될 수 없다.
+ * 그래서 **네 자리가 각자 다른 답을 낸다.** 한 술어로 통일하지 않는다 — 통일하는 순간 그중
+ * 최소 한 자리가 거짓을 말한다:
+ *
+ *  1. **합계 유지**(`src/offline/expense-list-reconciliation.ts`): 월 합계에서 **빼지 않는다.**
+ *     그 행은 기록 탭 목록에 그대로 서 있어 사용자가 눈으로 셀 수 있다 — 목록에 있는 금액이
+ *     합계에 없으면 앱이 산수를 틀린 것으로 읽힌다. 대신 영구 실패 **건수**를 결과에 실어,
+ *     화면이 고지 한 줄을 덧붙일 수 있게 한다.
+ *  2. **정기 지출 판정**(`src/expenses/recurring-template.ts`의 `recordedItemNamesForMonth`):
+ *     "기록됨"에서 **뺀다.** 묻는 것이 "이번 달에 이 품목을 샀는가"인데 영구 실패 행은 서버에
+ *     결코 닿지 않는다. 실패한 기저귀 한 줄이 카드를 끄면 사용자는 다시 기록할 기회를 잃는다.
+ *     일시 실패·대기 행은 종전대로 센다(그것들은 언젠가 반영된다).
+ *  3. **고지 어휘 분리**(`src/reports/pending-scope-notice.ts` ·
+ *     `src/export/export-pending-notice.ts`): 세는 대상은 그대로 두고 **부르는 이름을 가른다.**
+ *     영구 실패가 섞이면 주어가 "동기화 대기 중인 기록"에서 "아직 반영되지 않은 기록"으로
+ *     바뀌고, 그중 몇 건이 "보낼 수 없는 기록"인지 뒷문장이 따로 말한다(offline/messages.ts).
+ *     두 모듈의 모집단은 다르지만(DNC-015) **구분 규칙은 하나**다.
+ *  4. **자동완성 모집단**(`src/expenses/suggest-source.ts`): 제안에서 **뺀다.** 400을 부른 바로
+ *     그 값이 첫 후보로 돌아오면 사용자는 같은 실패를 다시 만든다(실패 공장). 빼도 잃는 것이
+ *     없다 — 이력은 남고, 그 지출의 서버 값이 있으면 그쪽이 대신 후보가 된다.
+ *
+ * 대기 행을 **세는 방식**이 모듈마다 다른 이유(라운드 57 QA P1-2)는 그대로다: 내보내기 고지는
+ * 전부 세고, 리포트 고지는 아래 숫자를 움직일 행만 세고(DNC-015), 정기 지출 판정은 대기·전송
+ * 중·일시 실패·충돌을 가리지 않고 센다(빼는 것은 삭제 대기와 위 2번의 영구 실패뿐이다).
  */
 export function buildRecurringReminder(input: RecurringReminderInput): RecurringReminder | null {
   // 1. 이번 달 캐시가 아직 없으면 아무 말도 하지 않는다.
@@ -558,7 +591,14 @@ export function buildRecurringReminder(input: RecurringReminderInput): Recurring
   return { yearMonth: input.yearMonth, ...recurringReminderCopy(dueRows) };
 }
 
-/** 이번 달에 이미 기록된 품목명(정규화)의 집합 — 서버 캐시 + 이 기기의 로컬 행. */
+/**
+ * 이번 달에 이미 기록된 품목명(정규화)의 집합 — 서버 캐시 + 이 기기의 로컬 행.
+ *
+ * 로컬 행에서 빼는 것은 **삭제 대기**와 **영구 실패** 둘뿐이다(위 buildRecurringReminder 주석의
+ * "오프라인 대기 행도 '기록됨'으로 센다" 절과 "영구 실패 행의 네 자리" 2번). 판정 규칙을 여기
+ * 다시 적지 않고 술어 하나를 부른다 — 같은 술어가 합계 고지·리포트·CSV·자동완성에서도 쓰이지만,
+ * 그 자리들이 내는 **답**은 여기와 다르다(그 문단 참고).
+ */
 function recordedItemNamesForMonth(input: RecurringReminderInput, childId: string): Set<string> {
   const names = new Set<string>();
   for (const row of input.monthExpenses ?? []) {
@@ -570,6 +610,8 @@ function recordedItemNamesForMonth(input: RecurringReminderInput, childId: strin
   for (const row of input.pendingRows ?? []) {
     if (row.childId !== childId) continue;
     if (row.pendingDelete) continue;
+    // 라운드 59 트랙 A: 보낼 수 없는 행은 "샀다"의 근거가 아니다(일시 실패·대기는 그대로 센다).
+    if (isPermanentlyFailedSyncRow(row)) continue;
     const payload = row.payload;
     if (!payload) continue;
     if (recurringYearMonthOf(payload.spentOn) !== input.yearMonth) continue;

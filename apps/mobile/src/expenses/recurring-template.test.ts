@@ -391,6 +391,73 @@ describe("라운드 55 #4 리마인더 판정", () => {
     expect(buildRecurringReminder({ ...base, monthExpenses: [], pendingRows: rows })?.rows).toHaveLength(1);
   });
 
+  /**
+   * 라운드 59 트랙 A — **영구 실패 행은 "기록됨"의 근거가 아니다.**
+   *
+   * 이 자리만 네 자리 중 유일하게 화면에서 무언가를 덜어내는 방향이 정직한 쪽이다: 서버가 400으로
+   * 거절한 기저귀 한 줄이 카드를 끄면, 사용자는 "이미 기록했다"는 앱의 말을 믿고 그 달의 기저귀를
+   * 다시 기록할 기회 자체를 잃는다(그 실패 행은 sync-status 화면에만 있다).
+   */
+  it("영구 실패 행은 기록됨으로 세지 않는다 (실패한 기저귀가 카드를 끄면 안 된다)", () => {
+    const pendingRows = [
+      {
+        childId: CHILD,
+        pendingDelete: false,
+        syncState: "failed",
+        lastErrorStatus: 400,
+        lastErrorCode: "EXPENSE_FUTURE_DATE",
+        payload: { itemName: "기저귀", spentOn: "2026-08-09", expenseType: "expense" }
+      }
+    ];
+    expect(buildRecurringReminder({ ...base, monthExpenses: [], pendingRows })?.rows).toHaveLength(1);
+  });
+
+  it("일시 실패·전송 중·대기·충돌 행은 종전대로 기록됨이다 (언젠가 반영된다)", () => {
+    for (const row of [
+      { syncState: "failed", lastErrorStatus: 503 },
+      { syncState: "failed", lastErrorStatus: 429 },
+      { syncState: "syncing" },
+      { syncState: "pending" },
+      { syncState: "conflict" }
+    ]) {
+      const pendingRows = [
+        {
+          childId: CHILD,
+          pendingDelete: false,
+          ...row,
+          payload: { itemName: "기저귀", spentOn: "2026-08-09", expenseType: "expense" }
+        }
+      ];
+      expect(buildRecurringReminder({ ...base, monthExpenses: [], pendingRows }), JSON.stringify(row)).toBeNull();
+    }
+  });
+
+  it("레거시 실패 행(status 없음)도 종전대로 기록됨이다 — 확신 없이 카드를 켜지 않는다", () => {
+    const pendingRows = [
+      {
+        childId: CHILD,
+        pendingDelete: false,
+        syncState: "failed",
+        lastError: "권한이 없어요.",
+        payload: { itemName: "기저귀", spentOn: "2026-08-09", expenseType: "expense" }
+      }
+    ];
+    expect(buildRecurringReminder({ ...base, monthExpenses: [], pendingRows })).toBeNull();
+  });
+
+  it("syncState를 나르지 않는 호출부는 한 줄도 달라지지 않는다", () => {
+    const pendingRows = [{ childId: CHILD, payload: { itemName: "기저귀", spentOn: "2026-08-09" } }];
+    expect(buildRecurringReminder({ ...base, monthExpenses: [], pendingRows })).toBeNull();
+  });
+
+  it("판정 규칙을 여기 다시 적지 않는다 (술어는 permission-denied.ts 한 곳)", () => {
+    const moduleSource = readFileSync(join(process.cwd(), "src/expenses/recurring-template.ts"), "utf8");
+    expect(moduleSource).toContain('import { isPermanentlyFailedSyncRow } from "../offline/permission-denied";');
+    expect(moduleSource).toContain("if (isPermanentlyFailedSyncRow(row)) continue;");
+    const codeOnly = moduleSource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+    expect(codeOnly).not.toContain(".lastErrorStatus");
+  });
+
   it("남은 것이 0건이면 카드를 세우지 않는다 (0을 0이라고 말하지 않는다)", () => {
     expect(buildRecurringReminder({ ...base, templates: [], monthExpenses: [] })).toBeNull();
   });
