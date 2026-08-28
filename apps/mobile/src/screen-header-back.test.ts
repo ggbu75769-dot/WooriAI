@@ -26,12 +26,16 @@ const screenHeaderBlock = () => {
 // 라운드 39 I-8: 남아 있던 두 곳도 배선했다 -- app/notifications.tsx(UX-O에서 이미 배선됐는데
 // 이 목록·주석만 낡아 있었다)와 app/budget.tsx(알림 → 예산 직행이 가장 갇히기 쉬운 경로였다).
 // 스택으로만 도달하는 화면 중 나가는 길이 없는 곳은 이제 없다.
+// 라운드 55: 새로 생긴 스택 화면 둘도 같은 계약을 진다 -- 앱 잠금 설정(트랙 B)과 정기 지출
+// 관리(트랙 A). 둘 다 설정 화면·홈 카드에서 push로만 도달하므로 나가는 길이 필요하다.
 const backWiredScreens = [
   "app/settings/index.tsx",
   "app/settings/children.tsx",
   "app/settings/notifications.tsx",
   "app/settings/privacy.tsx",
+  "app/settings/app-lock.tsx",
   "app/expenses/[expenseId].tsx",
+  "app/expenses/recurring.tsx",
   "app/family/invite.tsx",
   "app/import/[importJobId].tsx",
   "app/notifications.tsx",
@@ -82,7 +86,7 @@ describe("UX-Q(C) ScreenHeader 뒤로가기 슬롯", () => {
   });
 });
 
-describe("UX-Q(C) 스택 화면 9곳에 나가는 길이 있다 (라운드 39 I-8: 잔여 0곳)", () => {
+describe("UX-Q(C) 스택 화면 11곳에 나가는 길이 있다 (라운드 39 I-8: 잔여 0곳 · 라운드 55 신규 2곳)", () => {
   for (const relativePath of backWiredScreens) {
     it(`${relativePath}의 ScreenHeader가 router.back()을 배선한다`, () => {
       const screenSource = source(relativePath);

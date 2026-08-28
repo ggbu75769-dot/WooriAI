@@ -16,6 +16,14 @@ import {
 import { ChildSwitchSheet, useChildSwitchSheet } from "../../src/children/ChildSwitchSheet";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
+import {
+  buildRecurringReminder,
+  recurringPrefillParams,
+  RECURRING_MANAGE_LABEL,
+  RECURRING_RECORD_ACTION_LABEL,
+  RECURRING_SKIP_ACTION_LABEL
+} from "../../src/expenses/recurring-template";
+import { useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
 import { evaluateBabyCounter, evaluateBirthTransitionPrompt } from "../../src/home/baby-counter";
 import { resolveThisMonthUsedKrw } from "../../src/home/budget-edit";
 import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "../../src/home/budget-progress";
@@ -676,6 +684,85 @@ const homeCumulativeTotalStyle = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     paddingLeft: 24
+  },
+  title: {
+    color: theme.colors.brown,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 20
+  }
+});
+
+/**
+ * 라운드 55 트랙 C 정기 지출 리마인더 카드.
+ *
+ * 주간 요약·누적 총액과 **같은 흰 카드 골격**(글리프 + 본문)을 쓴다 -- 새 카드 문법을 만들면
+ * 캡처의 리듬이 흔들린다. 행마다 동작이 둘(기록하기 · 이미 기록했어요)이라 그 둘만 색으로
+ * 구분되고, 뜻은 언제나 문장이 진다(색상 단독 전달 금지).
+ *
+ * 코랄 텍스트는 `coral[700]`만 쓴다 -- 그보다 옅은 코랄은 흰/크림 서피스에서 AA 미달이다
+ * (a11y-contract.test.ts의 스윕이 같은 규칙을 강제한다).
+ */
+const homeRecurringReminderStyle = StyleSheet.create({
+  card: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 14,
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  glyph: {
+    color: theme.colors.coral[700],
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  header: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10
+  },
+  manageButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: theme.touchTarget
+  },
+  manageLabel: {
+    color: theme.colors.coral[700],
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  recordAction: {
+    color: theme.colors.coral[700],
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  row: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8
+  },
+  rowLabel: {
+    color: theme.colors.brown,
+    fontSize: 13,
+    lineHeight: 20
+  },
+  rowMain: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: theme.touchTarget
+  },
+  skipAction: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  skipButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: theme.touchTarget
   },
   title: {
     color: theme.colors.brown,
@@ -1524,6 +1611,44 @@ export default function HomeScreen() {
   // 준비 현황 카드가 흡수한 갈래는 아래 카드 목록에서 빠진다 -- 같은 카드를 두 자리에 세우지 않는다.
   const foldableFirstRunGuide = firstRunGuide && firstRunGuide.variant !== "first-items" ? firstRunGuide : null;
   /**
+   * 라운드 55 트랙 C — 정기 지출 리마인더(설계 §1.3·§1.5).
+   *
+   * 판정은 전부 순수 모듈이 한다. 화면이 지키는 것은 **입력의 정직함** 하나다:
+   *
+   *  - `monthExpenses`에 `thisMonthExpenses.data?.expenses`를 **그대로** 넘긴다. `?? []`로 바꾸면
+   *    "이번 달 캐시가 아직 없다"(undefined)와 "이번 달 기록이 0건"(빈 배열)이 한 값으로 뭉개져,
+   *    캐시가 도착하기 전에 이미 기록해 둔 정기 지출까지 "기록에 없어요"로 세게 된다. 순수 모듈은
+   *    undefined를 받으면 아무 말도 하지 않는다(수용 기준 3).
+   *  - `pendingRows`는 이미 구독 중인 오프라인 스냅숏 행 그대로다(추가 요청 0건). 아이 필터·삭제
+   *    대기 제외·이번 달 판정은 모듈이 한다 — 연결 없이 적어 둔 기록을 앱이 부정하지 않기 위한
+   *    규칙이라 화면에서 다시 짜지 않는다(수용 기준 4).
+   *
+   * 비세션 미리보기(HOME-001 캡처 경로)에는 이 카드가 없다: `hasSession`이 false면 childId를
+   * 넘기지 않아 모듈이 null을 낸다. 픽셀락 렌더 분기에는 애초에 이 자리가 존재하지 않는다.
+   */
+  const recurringTemplates = useRecurringExpenseStore((state) => state.templates);
+  const skipRecurringThisMonth = useRecurringExpenseStore((state) => state.skipThisMonth);
+  const recurringReminder = useMemo(
+    () =>
+      buildRecurringReminder({
+        templates: recurringTemplates,
+        childId: hasSession ? childId : null,
+        yearMonth: thisYearMonth,
+        todayIso: seoulToday,
+        monthExpenses: thisMonthExpenses.data?.expenses,
+        pendingRows: offlineSyncSnapshot.rows
+      }),
+    [
+      recurringTemplates,
+      hasSession,
+      childId,
+      thisYearMonth,
+      seoulToday,
+      thisMonthExpenses.data?.expenses,
+      offlineSyncSnapshot.rows
+    ]
+  );
+  /**
    * 히어로 아래에 설 수 있는 카드들. **판정은 위에서 전부 끝났다** -- 여기서 하는 일은 "그중 몇
    * 장을 지금 펼쳐 두는가"뿐이고, 나머지는 같은 화면의 "더 보기"로 접힌다(기능·데이터·알림
    * 평가는 하나도 줄지 않는다). 순위와 상한은 순수 모듈이 값으로 갖고 있다.
@@ -1531,6 +1656,9 @@ export default function HomeScreen() {
   const activeSections: HomeSectionId[] = [];
   if (budgetWarning) activeSections.push("budget-warning");
   if (foldableFirstRunGuide) activeSections.push("first-run-guide");
+  // 라운드 55 트랙 C: 정기 지출 리마인더도 예외 없이 같은 순위표(3위)를 지난다 -- 상한 2장 안에서
+  // 예산 경고·첫 실행 안내와 경쟁하고, 밀리면 "더 보기" 뒤로 접힌다(수용 기준 7).
+  if (recurringReminder) activeSections.push("recurring-reminder");
   if (milestoneCountdown) activeSections.push("milestone");
   if (weeklySummary) activeSections.push("weekly-summary");
   // 예산이 없는 달의 넛지는 카드가 아니라 **히어로 안**에 들어간다(홈의 유일한 예산 입구라
@@ -1635,6 +1763,79 @@ export default function HomeScreen() {
                 }}
               />
             ) : null}
+          </View>
+        ) : null;
+      case "recurring-reminder":
+        return recurringReminder ? (
+          /**
+           * 라운드 55 트랙 C — 정기 지출 리마인더 카드.
+           *
+           * `accessibilityRole="alert"`를 쓰지 않는다(설계 §5 A11Y): 이 카드는 닫으면 끝나는
+           * 일시적 알림이 아니라 이번 달 내내 서 있는 사실이라, alert로 읽히면 화면이 갱신될
+           * 때마다 스크린리더가 같은 말을 가로챈다. alert + liveRegion은 예산 경고 배너 전용이다.
+           *
+           * 문구는 한 글자도 여기서 만들지 않는다 -- 제목·행 라벨·접근성 라벨은 전부 순수 모듈이
+           * 만든 값이다(recurringReminderCopy). 행마다 접근성 요소는 둘뿐이다: "기록하기"
+           * (바깥 Pressable 하나, 안쪽 장식은 숨김)와 별도 버튼인 "이미 기록했어요"
+           * -- 롱프레스 전용 동작 같은 발견 불가 제스처를 만들지 않는다(A11Y-101).
+           */
+          <View key={id} testID="home-recurring-reminder" style={[homeRecurringReminderStyle.card, theme.shadows.card]}>
+            <View style={homeRecurringReminderStyle.header}>
+              <Ionicons
+                accessible={false}
+                name="repeat-outline"
+                size={homeRecurringReminderStyle.glyph.fontSize}
+                color={homeRecurringReminderStyle.glyph.color}
+              />
+              <Text style={homeRecurringReminderStyle.title}>{recurringReminder.title}</Text>
+            </View>
+            {recurringReminder.rows.map((row) => (
+              <View key={row.template.id} style={homeRecurringReminderStyle.row}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={row.recordAccessibilityLabel}
+                  testID={`home-recurring-record-${row.template.id}`}
+                  onPress={expenseGate.guard(() => {
+                    // 프리필을 만들 수 없는 템플릿(손상된 저장 blob 등)은 조용히 빈 시트를 열지
+                    // 않는다 -- 사용자가 "기록하기"를 눌렀는데 아무 값도 없으면 그게 더 나쁘다.
+                    const params = recurringPrefillParams(row.template);
+                    if (!params) return;
+                    router.push({ pathname: "/expenses/new", params });
+                  })}
+                  style={homeRecurringReminderStyle.rowMain}
+                >
+                  <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flex: 1 }}>
+                    <KoreanText style={homeRecurringReminderStyle.rowLabel}>{row.label}</KoreanText>
+                  </View>
+                  <Text accessible={false} style={homeRecurringReminderStyle.recordAction}>
+                    {RECURRING_RECORD_ACTION_LABEL}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={row.skipAccessibilityLabel}
+                  hitSlop={8}
+                  testID={`home-recurring-skip-${row.template.id}`}
+                  // 지출을 만들지 않는다 -- 이번 달 목록에서만 뺀다(DNC-013 · 수용 기준 6).
+                  onPress={() => skipRecurringThisMonth(row.template.id, recurringReminder.yearMonth)}
+                  style={homeRecurringReminderStyle.skipButton}
+                >
+                  <Text accessible={false} style={homeRecurringReminderStyle.skipAction}>
+                    {RECURRING_SKIP_ACTION_LABEL}
+                  </Text>
+                </Pressable>
+              </View>
+            ))}
+            {/* 관리 화면 입구(설계 §1.5): 카드 하단 텍스트 버튼 + 설정 화면 행, 둘뿐이다. */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={RECURRING_MANAGE_LABEL}
+              testID="home-recurring-manage"
+              onPress={() => router.push("/expenses/recurring")}
+              style={homeRecurringReminderStyle.manageButton}
+            >
+              <Text style={homeRecurringReminderStyle.manageLabel}>{RECURRING_MANAGE_LABEL}</Text>
+            </Pressable>
           </View>
         ) : null;
       case "milestone":

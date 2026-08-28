@@ -26,6 +26,20 @@ import {
 
 const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
 const sessionRender = homeSource.slice(homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)"));
+/**
+ * 라운드 55 트랙 C: 접힘 대상 카드의 렌더는 `renderHomeSection`의 switch 안에 있고, 그 함수는
+ * 위 `sessionRender` 표식보다 **앞**에 선언된다(두 렌더 분기가 같은 함수를 쓴다). 그래서 정기
+ * 지출 카드 블록은 case 표식 두 개로 따로 자른다.
+ */
+const recurringCardBlock = homeSource.slice(
+  homeSource.indexOf('case "recurring-reminder":'),
+  homeSource.indexOf('case "milestone":')
+);
+/** "무엇이 없어야 하는가"를 볼 때 쓰는 사본 -- 주석은 금지 사항 자체를 언급하며 이유를 적는다. */
+const recurringCardCode = recurringCardBlock
+  .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/^\s*\/\/.*$/gm, "");
 
 describe("planHomeSections 우선순위 판정", () => {
   it("활성 카드를 순위표대로 줄 세우고 상위 두 장만 펼친다", () => {
@@ -56,6 +70,37 @@ describe("planHomeSections 우선순위 판정", () => {
     // 리포트 탭이 같은 숫자를 더 자세히 말하는 둘은 맨 뒤다(위임 가능).
     expect(HOME_SECTION_RANK["weekly-summary"]).toBeLessThan(HOME_SECTION_RANK["last-month"]);
     expect(HOME_SECTION_RANK["last-month"]).toBeLessThan(HOME_SECTION_RANK["cumulative-total"]);
+  });
+
+  /**
+   * 라운드 55 트랙 C — 정기 지출 리마인더의 자리(설계 §1.5 순위표).
+   *
+   * 값 자체를 고정하는 이유: 순위는 "무엇이 무엇보다 중요한가"라는 판단이고, 이 판단이 바뀌면
+   * 사용자가 보는 카드 순서가 바뀐다(§6 위험 6). 재번호가 조용히 일어나지 않게 표 전체를 적는다.
+   */
+  it("정기 지출 리마인더는 첫 실행 안내 다음, 마일스톤 앞이다 (설계 §1.5)", () => {
+    expect(HOME_SECTION_RANK).toEqual({
+      "budget-warning": 1,
+      "first-run-guide": 2,
+      "recurring-reminder": 3,
+      milestone: 4,
+      "weekly-summary": 5,
+      "budget-nudge": 6,
+      "last-month": 7,
+      "cumulative-total": 8
+    } satisfies Record<HomeSectionId, number>);
+    // 근거: 미기록 정기 지출은 "지금 행동하지 않으면 이번 달 합계가 실제와 어긋나는" 사실이라
+    // 날짜 안내(마일스톤)보다 금전적 결과가 크다. 다만 예산 경고·첫 실행 안내보다는 뒤다.
+    expect(HOME_SECTION_RANK["first-run-guide"]).toBeLessThan(HOME_SECTION_RANK["recurring-reminder"]);
+    expect(HOME_SECTION_RANK["recurring-reminder"]).toBeLessThan(HOME_SECTION_RANK.milestone);
+  });
+
+  it("수용 기준 7: 예산 경고 + 첫 실행 안내가 함께 서면 정기 지출 카드는 '더 보기' 뒤로 접힌다", () => {
+    const plan = planHomeSections({
+      active: ["recurring-reminder", "budget-warning", "first-run-guide"]
+    });
+    expect(plan.visible).toEqual(["budget-warning", "first-run-guide"]);
+    expect(plan.collapsed).toEqual(["recurring-reminder"]);
   });
 
   it("두 장 이하이면 접히는 카드가 없다", () => {
@@ -214,7 +259,7 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     expect(homeSource).toContain("accessibilityState={{ expanded: sectionsExpanded }}");
   });
 
-  it("일곱 카드가 모두 우선순위 목록을 지난다(새 카드를 몰래 히어로 밑에 세우지 않는다)", () => {
+  it("여덟 카드가 모두 우선순위 목록을 지난다(새 카드를 몰래 히어로 밑에 세우지 않는다)", () => {
     const pushes = (homeSource.match(/activeSections\.push\("([a-z-]+)"\)/g) ?? []).map((line) =>
       line.replace(/activeSections\.push\("|"\)/g, "")
     );
@@ -227,10 +272,68 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
           "first-run-guide",
           "last-month",
           "milestone",
+          // 라운드 55 트랙 C: 정기 지출 리마인더도 예외 없이 같은 순위표를 지난다.
+          "recurring-reminder",
           "weekly-summary"
         ] satisfies HomeSectionId[]
       ).sort()
     );
+  });
+
+  /**
+   * 라운드 55 트랙 C — 정기 지출 리마인더 카드의 배선 계약.
+   *
+   * 판정과 문구는 순수 모듈이 갖고 있으므로(recurring-template.test.ts) 여기서 잡는 것은 화면이
+   * 그 값을 **어떻게 넘기고 어떻게 쓰는가**뿐이다. 특히 두 가지가 조용히 뒤집히기 쉽다:
+   * `monthExpenses`의 `?? []`(정직성)와 카드의 `accessibilityRole="alert"`(A11Y).
+   */
+  it("정기 지출 카드: 이번 달 캐시가 없으면 undefined를 그대로 넘긴다 (`?? []` 금지)", () => {
+    expect(homeSource).toContain("monthExpenses: thisMonthExpenses.data?.expenses,");
+    // `?? []`를 붙이면 "캐시 미도착"과 "이번 달 0건"이 한 값으로 뭉개져 틀린 N을 말하게 된다.
+    expect(homeSource).not.toContain("monthExpenses: thisMonthExpenses.data?.expenses ?? []");
+    // 오프라인 대기 행은 이미 구독 중인 스냅숏 그대로다(추가 요청 0건). 아이 필터·삭제 대기
+    // 제외는 순수 모듈이 하므로 화면이 다시 짜지 않는다.
+    expect(homeSource).toContain("pendingRows: offlineSyncSnapshot.rows");
+    expect(homeSource).toContain("buildRecurringReminder({");
+  });
+
+  it("정기 지출 카드: 문구·접근성 라벨을 화면이 다시 적지 않는다", () => {
+    expect(homeSource).toContain('from "../../src/expenses/recurring-template"');
+    expect(recurringCardBlock).toContain("{recurringReminder.title}");
+    expect(recurringCardBlock).toContain("accessibilityLabel={row.recordAccessibilityLabel}");
+    expect(recurringCardBlock).toContain("accessibilityLabel={row.skipAccessibilityLabel}");
+    expect(recurringCardBlock).toContain("{row.label}");
+    expect(recurringCardBlock).toContain("{RECURRING_RECORD_ACTION_LABEL}");
+    expect(recurringCardBlock).toContain("{RECURRING_SKIP_ACTION_LABEL}");
+  });
+
+  it("정기 지출 카드: alert가 아니다 (일시적 알림이 아니라 이번 달 내내 서 있는 사실)", () => {
+    expect(recurringCardCode).not.toContain('accessibilityRole="alert"');
+    expect(recurringCardCode).not.toContain("accessibilityLiveRegion");
+  });
+
+  it("정기 지출 카드: 기록하기는 게이트를 지나 프리필로 열고, 건너뛰기는 지출을 만들지 않는다", () => {
+    // 보기 전용 참여자에게는 홈의 다른 기록 입구와 **같은 게이트**가 안내로 답한다(UX-R(M)).
+    expect(recurringCardBlock).toContain("expenseGate.guard(");
+    expect(recurringCardBlock).toContain("recurringPrefillParams(row.template)");
+    expect(recurringCardBlock).toContain('router.push({ pathname: "/expenses/new", params });');
+    // DNC-013: "이미 기록했어요"는 그 달을 목록에서 빼기만 한다 -- 지출을 만들지 않는다.
+    expect(recurringCardBlock).toContain("skipRecurringThisMonth(row.template.id, recurringReminder.yearMonth)");
+    expect(recurringCardCode).not.toContain("createExpense");
+    expect(recurringCardCode).not.toContain("enqueue");
+    // 관리 화면 입구는 카드 하단 텍스트 버튼 하나(설계 §1.5).
+    expect(recurringCardBlock).toContain('router.push("/expenses/recurring")');
+    expect(recurringCardBlock).toContain("{RECURRING_MANAGE_LABEL}");
+  });
+
+  it("정기 지출 카드는 비세션 프리뷰(HOME-001 캡처 경로)에 존재하지 않는다", () => {
+    const preview = homeSource.slice(
+      homeSource.indexOf("// 비세션 프리뷰 렌더(HOME-001 캡처 경로)"),
+      homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)")
+    );
+    expect(preview).not.toContain("recurringReminder");
+    // 모듈 쪽 게이트: 세션이 없으면 childId를 넘기지 않아 판정 자체가 null이다.
+    expect(homeSource).toContain("childId: hasSession ? childId : null,");
   });
 
   it("캡처 문법: coral[50] 풀블리드 캔버스 위에 히어로 1장 + 구획 3개", () => {

@@ -4,6 +4,8 @@ import { useHomeFirstRunGuideStore } from "../home/first-run-guide.store";
 import { useNotificationStore } from "../notifications/notification.store";
 import { deactivateRegisteredPushDevice } from "../notifications/usePushDeviceRegistration";
 import { clearAppQueryCache } from "../query/query-client-registry";
+import { useAppLockStore } from "../stores/app-lock.store";
+import { useRecurringExpenseStore } from "../stores/recurring-expense.store";
 import { clearSyncCursor } from "./delta-sync";
 import { wipeOfflineStore } from "./sync-engine";
 import type { OfflineStore } from "./types";
@@ -198,8 +200,11 @@ export type SessionTeardownContext = {
  *      awaited: it is a best-effort network call under the OUTGOING token, and teardown must
  *      never be delayed (or failed) by it. Kicked off before the awaits below so it uses the
  *      token while it is still valid;
- *   1. user-scoped zustand store resets (purchase-followup, notifications, and — since round 35's
- *      F5 — the two home first-run stores) — synchronous sets, effective immediately;
+ *   1. user-scoped zustand store resets (purchase-followup, notifications, since round 35's F5 the
+ *      two home first-run stores, and since 라운드 55 트랙 C the recurring-expense templates and
+ *      the app-lock record) — synchronous sets, effective immediately. The app-lock reset also
+ *      returns a promise for its SecureStore key deletion, awaited at the end (§2.8: leaving A's
+ *      PIN behind bricks B — locked out with logout as the only exit, which locks them out again);
  *   2. `wipeOfflineStore` STARTED (not yet awaited) — this must come before any `await` in this
  *      function because the wipe registers itself in sync-engine.ts's `inFlightWipes` map
  *      synchronously. From that moment, any `flushOutbox` call — including one that arrives
@@ -245,11 +250,25 @@ export async function teardownOfflineSessionState(
   //    기록이 A의 이력에 눌려 축하도 유도 카드도 어긋난다.
   useHomeFirstRunGuideStore.getState().reset();
   useFirstRecordCelebrationStore.getState().reset();
+  // 라운드 55 트랙 C(설계 §1.6): 반복 지출 템플릿에 담기는 값(품목명·금액·분류·판매처)은 명백한
+  // **계정 데이터**라 위 목록과 같은 자격으로 든다 -- first-run-guide가 "아이 id로 키가 잡힌
+  // 사용자 단위 상태"라는 이유로 합류한 것과 같다. 대조군인 notification-preferences는 "이
+  // 기기에서 어떤 알림을 볼까"라는 기기 단위 선택이라 일부러 빠져 있다(그 스토어의 헤더 참고).
+  // 동기 set이므로 이 줄에서 이미 유효하다.
+  useRecurringExpenseStore.getState().resetAll();
+  // 라운드 55 트랙 C(설계 §2.8) — **브릭 방지**. 앱 잠금 PIN이 정체성 변경에서 지워지지 않으면
+  // A 로그아웃 → B 로그인 → B가 A의 PIN 화면에 갇히고, 탈출구는 로그아웃뿐이라 무한 루프가 된다.
+  // 런타임 상태는 동기로 비고, SecureStore 키 삭제만 Promise다 -- 이 함수는 이미 async이므로
+  // 아래에서 함께 await한다(삭제 실패가 다음 부팅까지 남는 창을 줄인다).
+  // `clearSession("expired")`는 정체성을 유지하므로 여기 오지 않는다: 만료로 끝난 세션은 PIN을
+  // 잃지 않는다 — 같은 사람이다.
+  const appLockCleared = useAppLockStore.getState().resetAll();
   // Step 2: start the wipe BEFORE the first await so it registers in inFlightWipes
   // synchronously — see the ordering rationale in the doc comment above.
   const wipe = wipeOfflineStore(store);
   await clearSyncCursor(store);
   await wipe;
+  await appLockCleared;
   // Step 5 (라운드 51 QA P3-10): 비운 저장소를 화면 스냅샷에도 반영한다 — 지출 대기 행과
   // 준비템 대기 행이 함께 사라져야 새 계정의 첫 화면이 이전 계정의 건수를 말하지 않는다.
   // wipe **뒤에** 있어야 의미가 있다(그 전에 읽으면 지우기 전 사본을 다시 만든다).
