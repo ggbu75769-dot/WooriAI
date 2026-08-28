@@ -549,6 +549,13 @@ export class ItemsCatalogService {
       name: item.name,
       necessityLevel: item.necessityLevel,
       status: "not_prepared" as const,
+      // 라운드 49 QA(P3-6): 어드민 수정 폼이 분류를 프리필하려면 저장된 값이 필요하다. 폼은
+      // 이미 `item.categoryId ?? ""`로 읽을 준비가 돼 있었는데(apps/admin app/items/page.tsx)
+      // 응답에 이 키가 없어 늘 "분류 없음"으로 열렸고, 운영자가 다른 칸만 고쳐 저장해도 화면과
+      // 저장된 값이 서로 다른 말을 했다. 앱용 DTO(toItemSummaryDto/toItemDetailDto)는 null을
+      // undefined로 정리하지만(계약 optional), 어드민 응답은 **"분류 없음"과 "모름"을 구분해야
+      // 하므로** null을 그대로 싣는다(priceMinKrw/priceMaxKrw와 같은 취급).
+      categoryId: item.categoryId ?? null,
       timingLabel: item.timingLabel,
       priceBandText: priceBandText(item.priceMinKrw, item.priceMaxKrw),
       // ADM-124: 어드민 편집 폼이 가격대를 프리필하려면 표시용 문구(priceBandText)가 아니라

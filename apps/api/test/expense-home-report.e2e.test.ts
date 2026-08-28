@@ -1384,11 +1384,16 @@ describe("Expense, budget, home, and report API", () => {
     ).body.expenses.length as number;
 
     // 형식은 맞지만 존재하지 않는 링크: FK가 거절하므로 지출 행 자체가 생기지 않는다.
+    //
+    // 라운드 49 QA(P2-4): 상태코드를 400으로 **고정**한다. 예전 단언(>= 400)은 500도 통과시켰고
+    // 실제로 500이었다 — 모바일 아웃박스는 5xx를 일시적 실패로 보고 무한 재시도하므로, 절대
+    // 성공할 수 없는 이 요청이 큐 맨 앞에서 뒤의 멀쩡한 지출까지 막는 poison pill이 됐다.
     const missing = await request(app.getHttpServer())
       .post(`/api/v1/children/${childId}/expenses`)
       .set("Authorization", `Bearer ${accessToken}`)
       .send({ ...body, itemName: "없는 링크", linkedProductLinkId: randomUUID() });
-    expect(missing.status).toBeGreaterThanOrEqual(400);
+    expect(missing.status).toBe(400);
+    expect(missing.body.error.code).toBe("LINKED_PRODUCT_LINK_NOT_FOUND");
 
     await request(app.getHttpServer())
       .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)

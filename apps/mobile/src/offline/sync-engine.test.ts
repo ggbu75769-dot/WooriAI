@@ -346,6 +346,26 @@ describe("sync-engine: conflict resolution (design doc §3.4, three branches)", 
     expect(mutations[0].expectedVersion).toBe(currentFromServer.expense.version);
     expect(mutations[0].payload).toEqual(mergedPayload);
   });
+
+  /**
+   * 라운드 49 QA(P3-9): 유령 충돌 행 — 아무도 바꾸지 않은 "구매처"·"메모".
+   *
+   * 지출 상세는 판매처·메모를 비울 때 **빈 문자열**을 보낸다(그래야 서버가 "지웠다"로 알아듣는다).
+   * 그래서 원래 값이 없던 지출의 금액만 고쳐도 대기 payload에는 ""가, 서버에는 null이 남는다.
+   * 그 둘을 다른 값으로 보면 충돌 화면이 "구매처: 없음 / 없음" 같은, 고를 것이 없는 행을 띄웠다.
+   */
+  it("④ 빈 문자열과 null은 같은 '없음'이라 충돌 항목이 되지 않는다", () => {
+    const local: ExpensePayload = { ...payload, merchant: "", memo: "  ", amountKrw: 30_000 };
+    const server: ExpensePayload = { ...payload, merchant: null, memo: null, amountKrw: 10_000 };
+
+    const diff = diffExpenseFields(local, server);
+    expect(diff.map((entry) => entry.field)).toEqual(["amountKrw"]);
+
+    // 진짜로 값이 다른 경우는 종전 그대로 보인다(비운 것도 변경이다).
+    const cleared = diffExpenseFields({ ...payload, merchant: "" }, { ...payload, merchant: "쿠팡" });
+    expect(cleared.map((entry) => entry.field)).toEqual(["merchant"]);
+    expect(cleared[0]).toMatchObject({ localValue: "", serverValue: "쿠팡" });
+  });
 });
 
 describe("sync-engine: H-3 in-flight interleaving safety (diff review)", () => {

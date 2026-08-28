@@ -53,6 +53,7 @@ import {
 import { itemListBadgeLabel, ITEM_PRICE_BAND_FALLBACK_TEXT } from "../../src/items/item-labels";
 import {
   applyPreBirthFilter,
+  isPreBirthFilterActive,
   PRE_BIRTH_FILTER_LABEL,
   shouldOfferPreBirthFilter
 } from "../../src/items/pre-birth-filter";
@@ -525,7 +526,14 @@ export default function ItemsScreen() {
     currentStage: home.data?.child.currentStage,
     selectedBand: stageLabel
   });
-  const preBirthFilterActive = offersPreBirthFilter && preBirthOnly;
+  // 라운드 49 QA(P3-3): 찜 칩이 켜져 있으면 시기 좁히기는 쉰다 -- 바로 위 안내가 "시기와
+  // 상관없이 모두 보여요"라고 말하는 동안 시기 필터가 함께 걸리면 그 안내가 거짓이 된다.
+  // 판정은 순수 모듈이 한다(src/items/pre-birth-filter.ts).
+  const preBirthFilterActive = isPreBirthFilterActive({
+    offered: offersPreBirthFilter,
+    preBirthOnly,
+    interestedOnly: showInterestedOnly
+  });
   const listedItems: Array<ItemSummary | RecommendationPreviewItem> = hasSession
     ? applyPreBirthFilter(
         filterItems<ItemSummary | RecommendationPreviewItem>(sourceItems, itemFilterInput),
@@ -687,10 +695,14 @@ export default function ItemsScreen() {
               {/* 라운드 43 UX-V: "출산 전"만 보기. 같은 줄에 붙는 이유는 필수도 칩과 성격이
                   같아서다 — 서버 왕복 없이 이미 받은 목록을 좁히고, 필수도·검색과 AND로 겹친다.
                   임신 중인 아이의 세션에서만 나타난다(출생 뒤에는 무의미). */}
+              {/* 라운드 49 QA(P3-3): 찜 목록을 보는 동안에는 이 시기 칩이 적용되지 않으므로
+                  비활성으로 그린다 -- 켜 둔 선택(preBirthOnly)은 그대로 두어 찜을 끄면 보고 있던
+                  좁히기가 돌아온다. */}
               {offersPreBirthFilter ? (
                 <CategoryChip
                   label={PRE_BIRTH_FILTER_LABEL}
-                  selected={preBirthOnly}
+                  selected={preBirthFilterActive}
+                  disabled={showInterestedOnly}
                   onPress={() => setPreBirthOnly((on) => !on)}
                 />
               ) : null}

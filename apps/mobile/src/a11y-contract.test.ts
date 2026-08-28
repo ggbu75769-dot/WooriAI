@@ -75,7 +75,12 @@ describe("A11Y-101 accessibility source contract", () => {
     const uiSource = source("src/ui.tsx");
     const chipBlock = uiSource.slice(uiSource.indexOf("export function CategoryChip"));
     expect(chipBlock).toContain('accessibilityRole="button"');
-    expect(chipBlock).toContain("accessibilityState={selected === undefined ? undefined : { selected }}");
+    // 라운드 49 QA(P3-3): 선택 상태에 더해 **비활성**도 알린다 — 지금은 적용되지 않는 칩
+    // (찜 목록에서의 "출산 전")을 눈으로만 흐리게 두면 스크린 리더 사용자는 그대로 누른다.
+    expect(chipBlock).toContain(
+      "selected === undefined ? (disabled ? { disabled: true } : undefined) : { selected, disabled: Boolean(disabled) }"
+    );
+    expect(chipBlock).toContain("disabled={disabled}");
 
     const segmentedBlock = uiSource.slice(
       uiSource.indexOf("export function SegmentedControl"),

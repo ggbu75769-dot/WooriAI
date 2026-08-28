@@ -35,11 +35,11 @@ export type PurchaseFollowupEntry = {
    * 넘겨 `linkedProductLinkId`로 저장되면, "링크 클릭 → 구매 → 기록"이 같은 링크를 가리키는
    * 하나의 사슬이 된다(지금까지는 기록 쪽에서 그 사슬이 끊겨 있었다).
    *
-   * **optional인 이유가 둘이다**: (1) persist v1 blob에는 이 키가 아예 없다 -- 아래
-   * sanitizedEntries가 방어적으로 걸러 undefined로 둔다(ANA-127의 platform과 같은 취급:
-   * 값 하나가 없다고 멀쩡한 대기 항목을 버리지 않는다). (2) 기록부(app/items/
-   * [itemTemplateId].tsx의 handleProductLinkPress)가 아직 이 인자를 넘기지 않는다 --
-   * 그 화면은 이번 트랙의 소유가 아니라 배선은 다음 라운드다.
+   * **optional인 이유**: persist v1 blob에는 이 키가 아예 없다 -- 아래 sanitizedEntries가
+   * 방어적으로 걸러 undefined로 둔다(ANA-127의 platform과 같은 취급: 값 하나가 없다고 멀쩡한
+   * 대기 항목을 버리지 않는다). 기록부(app/items/[itemTemplateId].tsx의
+   * handleProductLinkPress)는 같은 라운드에 배선을 마쳐 이제 `productLinkId: link.id`를 실제로
+   * 넘긴다 -- 즉 새로 쌓이는 대기 항목에는 값이 있고, 예전 blob에서 되살아난 항목에만 없다.
    *
    * ⚠️ DNC-009: 기록·정산용 식별자다. 추천 점수·정렬(src/items/item-ranking.ts)에 유입 금지.
    */

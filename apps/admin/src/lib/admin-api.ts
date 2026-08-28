@@ -110,10 +110,10 @@ export type ItemTemplate = {
   id: string;
   name: string;
   necessityLevel: NecessityLevel;
-  // 라운드 49 C-02(어드민 조각): 준비템의 분류. 어드민 상세 응답은 아직 이 값을
-  // 내려주지 않아서 optional이다 — 수정 폼은 값이 오면 프리필하고, 없으면 빈 선택으로
-  // 시작한다(빈 선택 = PATCH에서 분류를 그대로 둠. 서버가 categoryId 생략을
-  // "유지"로 해석한다). 서버가 나중에 이 필드를 실어 주면 프리필이 저절로 동작한다.
+  // 라운드 49 C-02(어드민 조각) → 49 QA(P3-6): 준비템의 분류. 이제 어드민 응답(목록·생성·
+  // 수정)이 이 값을 실어 주므로 수정 폼이 저장된 분류로 프리필된다(분류가 없으면 null).
+  // optional로 남겨 두는 이유는 이 필드 이전에 캐시된 응답과 섞여도 폼이 깨지지 않게 하기
+  // 위해서다 — 그때는 종전대로 빈 선택으로 시작한다(빈 선택 = PATCH에서 분류를 그대로 둠).
   categoryId?: string | null;
   status: string;
   timingLabel?: string;

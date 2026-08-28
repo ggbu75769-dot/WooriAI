@@ -94,10 +94,57 @@ describe("FAM-121A 수락 성공 후 아이 재선택", () => {
     expect(plan).toEqual({ kind: "keep", href: "/family" });
   });
 
-  it("목록 조회 실패/데모 세션(null)은 허위 전환 안내 없이 기존 동작 유지", () => {
-    expect(planAfterHouseholdJoin({ householdId: "household-new", children: null, currentChildId: null })).toEqual({
+  it("목록 조회 실패(아이는 이미 있음)는 허위 전환 안내 없이 기존 동작 유지", () => {
+    expect(planAfterHouseholdJoin({ householdId: "household-new", children: null, currentChildId: daon.id })).toEqual({
       kind: "keep",
       href: "/family"
+    });
+  });
+
+  /**
+   * 라운드 49 QA(P3-10): 초대 수락 뒤 **볼 아이가 하나도 없는** 사람의 막다른 길.
+   *
+   * /family는 탭 밖 화면이라 하단 탭이 없고, 탭으로 돌아가려 해도 온보딩 게이트가 "/"로
+   * 되돌린다. 데모 세션은 children이 언제나 null이라(허위 전환 안내 금지) 항상 이 자리였고,
+   * 초대 링크로 앱을 처음 연 사용자는 참여 직후 그대로 갇혔다.
+   */
+  describe("볼 아이가 없을 때 (P3-10)", () => {
+    it("데모 세션(children: null)이자 아이가 없으면 온보딩으로 잇는다", () => {
+      const plan = planAfterHouseholdJoin({
+        householdId: "household-new",
+        children: null,
+        currentChildId: null
+      });
+      expect(plan).toEqual({
+        kind: "onboarding",
+        notice: "아직 볼 수 있는 아이가 없어요. 아이 정보를 등록하면 바로 시작할 수 있어요.",
+        href: "/onboarding/child-status"
+      });
+    });
+
+    it("아직 아이가 없는 가구에 참여한 실세션도 같은 길로 간다", () => {
+      const plan = planAfterHouseholdJoin({
+        householdId: "household-empty",
+        children: [],
+        currentChildId: null
+      });
+      expect(plan.kind).toBe("onboarding");
+    });
+
+    it("이미 보고 있는 아이가 있으면 종전대로 가족 화면에 남는다 (탭으로 돌아갈 길이 있다)", () => {
+      const plan = planAfterHouseholdJoin({
+        householdId: "household-empty",
+        children: null,
+        currentChildId: daon.id
+      });
+      expect(plan).toEqual({ kind: "keep", href: "/family" });
+    });
+
+    it("안내는 사실만 말한다 — 있지도 않은 전환을 알리지 않는다", () => {
+      const plan = planAfterHouseholdJoin({ householdId: "h", children: null, currentChildId: null });
+      const notice = plan.kind === "onboarding" ? plan.notice : "";
+      expect(notice).not.toContain("전환했어요");
+      expect(notice).toMatch(/요\.$/);
     });
   });
 
@@ -131,12 +178,22 @@ describe("FAM-121A 수락 성공 후 아이 재선택", () => {
     const keepPlan = planAfterHouseholdJoin({
       householdId: "household-new",
       children: null,
+      // 라운드 49 QA(P3-10): 아이가 하나도 없는 경우는 이제 "keep"이 아니라 "onboarding"이라,
+      // keep 분기를 보려면 이미 보고 있는 아이가 있어야 한다.
+      currentChildId: "child-1"
+    });
+    const onboardingPlan = planAfterHouseholdJoin({
+      householdId: "household-new",
+      children: null,
       currentChildId: null
     });
 
     expect(selectPlan.href).toBe("/(tabs)");
     expect(keepPlan.href).toBe("/family");
     expect(keepPlan.href.startsWith("/(tabs)")).toBe(false);
+    // 온보딩 경로도 탭 셸 뒤가 아니다 -- 게이트를 지나지 않으므로 markHomeReached가 필요 없다.
+    expect(onboardingPlan.href).toBe("/onboarding/child-status");
+    expect(onboardingPlan.href.startsWith("/(tabs)")).toBe(false);
   });
 
   it("아이 목록 + 아이 스코프 캐시 전부에 가구 구성원 목록까지 무효화한다", () => {

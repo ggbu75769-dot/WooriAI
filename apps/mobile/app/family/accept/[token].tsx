@@ -127,6 +127,15 @@ export default function AcceptInviteScreen() {
         ]);
         return;
       }
+      // 라운드 49 QA(P3-10): 볼 아이가 하나도 없는 참여자는 /family(탭 밖)에 갇히는 대신
+      // 온보딩 시작점으로 잇는다 -- 계획과 안내 문구는 순수 모듈이 정한다.
+      if (plan.kind === "onboarding") {
+        announceForA11y(plan.notice);
+        Alert.alert("가족에 참여했어요", `${joinedText}\n${plan.notice}`, [
+          { text: "확인", onPress: () => router.replace(plan.href) }
+        ]);
+        return;
+      }
       Alert.alert("가족에 참여했어요", joinedText, [
         { text: "확인", onPress: () => router.replace(plan.href) }
       ]);

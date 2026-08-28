@@ -13,11 +13,14 @@ import type { ItemSummary } from "../api/client";
  * 그려진 항목"으로 한 번 더 거른다 — 목록이 갱신되며 사라진 항목의 id가 남아 전송되면
  * 다시 같은 허위 성공이 된다.
  */
+/**
+ * 라운드 49 QA(P2-2): 장식용 `icon` 필드가 사라졌다. 그 필드를 채우던 유일한 곳이 데모 전용
+ * 고정 후보(기저귀 🧷 / 아기띠 🎒)였는데, 데모도 이제 실세션과 같은 목록(선택한 아이의 시기로
+ * 거른 준비템)에서 후보를 만들기 때문이다 — 서버 항목에는 이모지가 없다.
+ */
 export type PreparedItemOption = {
   id: string;
   label: string;
-  /** 데모 픽스처만 가진 장식용 이모지 — 실서버 항목에는 없다. */
-  icon?: string;
   essential: boolean;
 };
 

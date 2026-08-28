@@ -156,7 +156,10 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     // D1 후속(실기기 피드백 2): icon은 Ionicons 노드도 받도록 넓어졌다. 문자열이면 예전처럼
     // Text로 그리고, undefined면 여전히 아무 것도 그리지 않는다는 요지는 그대로다.
     expect(listRowBlock).toContain("icon?: React.ReactNode;");
-    expect(listRowBlock).toContain('{typeof icon === "string" ? <Text');
+    // 라운드 49 QA(P3-8): 빈 문자열도 "아이콘 없음"이라 자리를 만들지 않는다 -- 문자열이면
+    // 예전처럼 Text로 그린다는 요지는 그대로다(design-foundation.test.ts가 형태를 고정한다).
+    expect(listRowBlock).toContain('typeof icon === "string" ? (');
+    expect(listRowBlock).toContain("<Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text>");
   });
 
   it("keeps the notification store on the persisted-store conventions (cap, dedupe, teardown)", () => {

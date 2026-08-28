@@ -65,7 +65,13 @@ export type HouseholdJoinPlan =
   /** 새로 참여한 가구의 아이로 전환하고 홈으로. */
   | { kind: "select"; childId: string; notice: string; href: string }
   /** 고를 아이가 없거나 이미 그 가구 아이를 보고 있음 -- 선택을 건드리지 않고 가족 화면으로. */
-  | { kind: "keep"; href: string };
+  | { kind: "keep"; href: string }
+  /**
+   * 라운드 49 QA(P3-10): 참여는 했는데 **볼 아이가 하나도 없다** -- 온보딩을 마치지 않은
+   * 사용자가 초대 링크로 들어온 경우(데모 세션은 항상 여기, `children: null`)와, 아직 아이가
+   * 없는 가구에 참여한 실세션이 모두 이 자리다.
+   */
+  | { kind: "onboarding"; notice: string; href: string };
 
 /**
  * @param householdId 방금 참여한 가구.
@@ -84,6 +90,26 @@ export function planAfterHouseholdJoin(input: {
       typeof child?.id === "string" && child.id.length > 0 && child.householdId === input.householdId
   );
   if (joined.length === 0) {
+    /**
+     * 라운드 49 QA(P3-10) — 막다른 길 제거.
+     *
+     * 고를 아이가 없고 **지금 보고 있는 아이도 없으면**, /family는 갈 곳이 아니다: 탭 밖
+     * 화면이라 하단 탭이 없고, 탭으로 되돌아가려 해도 온보딩 게이트(app/(tabs)/_layout.tsx의
+     * `!hasReachedHome`)가 다시 "/"로 밀어낸다. 데모 세션은 `children`이 언제나 null이라
+     * (허위 전환 안내 금지 규칙) 이 경로에 항상 떨어졌고, 초대 링크로 앱을 처음 연 사용자는
+     * 참여 직후 그대로 갇혔다.
+     *
+     * 가장 단순하고 정직한 길은 **온보딩 시작점**이다 -- 이 사람에게 실제로 남은 일이 아이
+     * 등록 하나뿐이고, 온보딩을 마치면 탭이 열린다. 아이가 이미 있는 사용자(currentChildId)는
+     * 종전대로 가족 화면에 남는다: 그 사람은 탭으로 돌아갈 길이 있다.
+     */
+    if (!input.currentChildId) {
+      return {
+        kind: "onboarding",
+        notice: "아직 볼 수 있는 아이가 없어요. 아이 정보를 등록하면 바로 시작할 수 있어요.",
+        href: "/onboarding/child-status"
+      };
+    }
     return { kind: "keep", href: "/family" };
   }
   if (joined.some((child) => child.id === input.currentChildId)) {

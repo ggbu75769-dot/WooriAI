@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import type { ItemSummary } from "../api/client";
+import * as localBackend from "../api/local-backend";
+import { LOCAL_CHILD_ID } from "../api/local-fixtures";
 import {
   PREPARED_ITEM_OPTION_LIMIT,
   PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE,
@@ -123,9 +125,16 @@ describe("라운드 45 UX-Y(P1) ONB-003 준비물 선택 판정", () => {
       expect(screenSource).toContain("setPreparedItems(authToken, selectedChildId, idsToSubmit)");
     });
 
-    it("데모 픽스처는 데모 토큰 경로에서만 쓴다", () => {
-      expect(screenSource).toContain("const isDemoSession = authToken === LOCAL_SESSION_TOKEN");
-      expect(screenSource).toContain("isDemoSession ? demoPreparedItemOptions :");
+    /**
+     * 라운드 49 QA(P2-2): 데모 전용 고정 후보(걸음마기 픽스처 2종)가 사라졌다. 화면은 세션
+     * 종류와 무관하게 **같은 조회 → 같은 판정**을 쓴다 — 데모 토큰의 listItems는 client.ts가
+     * 로컬 백엔드로 돌리므로 실요청은 여전히 나가지 않는다.
+     */
+    it("데모 전용 고정 후보가 남아 있지 않다 (세션 종류와 무관하게 같은 후보 계산)", () => {
+      expect(screenSource).not.toContain("demoPreparedItemOptions");
+      expect(screenSource).not.toContain("LOCAL_ITEM_DIAPER");
+      expect(screenSource).not.toContain("LOCAL_ITEM_CARRIER");
+      expect(screenSource).toContain("const options = selectPreparedItemOptions(itemsQuery.data?.items ?? []);");
     });
 
     it("기본값은 전체 해제 — 사용자가 고른 것만 준비 완료로 선언한다", () => {
@@ -139,10 +148,8 @@ describe("라운드 45 UX-Y(P1) ONB-003 준비물 선택 판정", () => {
       expect(screenSource).toContain("목록 다시 불러오기");
     });
 
-    it("데모 세션은 서버 목록 쿼리를 아예 켜지 않는다 (데모 토큰으로 실요청 금지)", () => {
-      expect(screenSource).toContain(
-        "const isItemsQueryEnabled = Boolean(authToken && selectedChildId) && !isDemoSession"
-      );
+    it("아이가 정해진 세션이면 목록 쿼리를 켠다 (데모는 로컬 백엔드로 분기되어 실요청이 없다)", () => {
+      expect(screenSource).toContain("const isItemsQueryEnabled = Boolean(authToken && selectedChildId);");
       expect(screenSource).toContain("enabled: isItemsQueryEnabled");
     });
 
@@ -192,6 +199,54 @@ describe("라운드 45 UX-Y(P1) ONB-003 준비물 선택 판정", () => {
       const resumeSource = source("app/(onboarding)/resume.tsx");
       expect(resumeSource).toContain("체크한 준비물은 아직 없어요");
       expect(resumeSource).toContain("summary.preparedItemsCount > 0");
+    });
+  });
+
+  /**
+   * 라운드 49 QA(P2-2): 데모 세션의 후보가 **선택한 아이의 시기**를 따른다.
+   *
+   * 예전 화면은 걸음마기 픽스처 2종을 고정으로 그렸다. 임신 중을 고른 사용자에게 12-24개월
+   * 물건을 내밀면서 "체크한 항목은 준비물 목록에서 완료로 표시할게요"라고 말하는 것은 지킬 수
+   * 없는 약속이다(그 아이의 준비템 탭에는 그 항목이 없다). 화면이 쓰는 것과 같은 두 조각
+   * (로컬 백엔드 listItems → selectPreparedItemOptions)을 그대로 이어 붙여 고정한다.
+   */
+  describe("데모 세션 후보는 아이 단계로 걸러진다 (P2-2)", () => {
+    beforeEach(() => {
+      localBackend.resetLocalBackendForTests();
+    });
+
+    function demoOptionsFor(setStage: () => void) {
+      localBackend.createChild({ nickname: "튼튼이" });
+      setStage();
+      return selectPreparedItemOptions(localBackend.listItems(LOCAL_CHILD_ID, "now").items);
+    }
+
+    it("임신 중 아이에게는 임신 시기 준비물이 나온다", () => {
+      const labels = demoOptionsFor(() =>
+        localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "pregnant", dueDate: "2999-01-01" })
+      ).map((option) => option.label);
+
+      expect(labels.length).toBeGreaterThan(0);
+      expect(labels).toContain("임산부 영양제");
+      // 예전 고정 후보(걸음마기 픽스처)는 이 아이의 후보가 될 수 없다.
+      expect(labels).not.toContain("네이처러브 기저귀 팬티형");
+      expect(labels).not.toContain("베이비 아기띠 힙시트");
+    });
+
+    it("걸음마기 아이에게는 걸음마기 준비물이 나온다 (같은 판정, 다른 시기)", () => {
+      const labels = demoOptionsFor(() =>
+        localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "manual", manualStage: "toddler_1_3" })
+      ).map((option) => option.label);
+
+      expect(labels).toContain("네이처러브 기저귀 팬티형");
+      expect(labels).not.toContain("임산부 영양제");
+    });
+
+    it("후보는 실세션과 같은 모양이다 — 장식용 이모지 필드가 없다", () => {
+      const [option] = demoOptionsFor(() =>
+        localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "manual", manualStage: "toddler_1_3" })
+      );
+      expect(Object.keys(option).sort()).toEqual(["essential", "id", "label"]);
     });
   });
 

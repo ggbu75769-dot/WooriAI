@@ -97,11 +97,14 @@ describe("라운드 41 UX-U(A) 더보기 세션 메뉴 구성", () => {
 describe("라운드 41 UX-U(A) 비로그인 미리보기 메뉴 불변 계약", () => {
   const moreSource = () => source("app/(tabs)/more.tsx");
 
+  // 라운드 49 QA(P3-5): 첫 행의 아이콘만 people-outline으로 바뀌었다 -- 목적지가 가구
+  // 화면(/family)이라 설정·세션 메뉴의 "가족 관리"와 같은 그림이어야 한다(같은 목적지 = 같은
+  // 아이콘). 행 구성·순서·문구·목적지는 여전히 한 글자도 바뀌지 않는다.
   it("미리보기 행 목록(moreMenuRows)이 같은 세 행이고 아이콘만 Ionicons 이름이다", () => {
     expect(moreSource()).toContain(
       [
         "const moreMenuRows = [",
-        '  { icon: "person-circle-outline", title: "프로필 관리", route: "/family" },',
+        '  { icon: "people-outline", title: "프로필 관리", route: "/family" },',
         '  { icon: "download-outline", title: "엑셀로 가져오기", route: "/import" },',
         '  { icon: "shield-checkmark-outline", title: "약관 및 개인정보", route: "/settings/privacy" }',
         "] as const satisfies readonly { icon: keyof typeof Ionicons.glyphMap; title: string; route: string }[];"
@@ -137,6 +140,9 @@ describe("라운드 41 UX-U(A) 비로그인 미리보기 메뉴 불변 계약", 
     expect(src).toContain('const previewProfile = { nickname: "다온이", stageLabel: "24개월" };');
     expect(src).toContain("accessibilityLabel={`${visibleProfile.nickname} 프로필 관리`}");
     expect(src).toContain('router.push(hasSession ? "/(tabs)/records" : "/settings")');
-    expect(src).toContain("const visibleMenuRows = hasSession ? sessionMenuRows : previewMenuRowActions;");
+    // 라운드 49 QA(P2-3): 미리보기(픽스처 프로필·비로그인 메뉴)에 닿는 조건이 `hasSession`의
+    // 반대에서 **`!authToken`**으로 좁혀졌다. 비로그인 렌더는 그대로이고(토큰이 없으면 두 식의
+    // 값이 같다), 토큰은 있는데 아이만 없는 창에서 "다온이 · 24개월"이 그려지던 것만 사라진다.
+    expect(src).toContain("const visibleMenuRows = authToken ? sessionMenuRows : previewMenuRowActions;");
   });
 });

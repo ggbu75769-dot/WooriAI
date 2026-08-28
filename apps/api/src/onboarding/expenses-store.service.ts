@@ -128,6 +128,49 @@ export function decodeExpenseCursor(value: string): ExpenseListCursor {
 }
 
 /**
+ * 라운드 49 QA(P2-4) — 존재하지 않는 `linkedProductLinkId`를 **400으로** 돌려준다.
+ *
+ * 이 값은 형식(UUID)만 검사하고 존재 검증은 DB의 FK
+ * (`fk_expenses_linked_product_link`)에 맡긴다(CreateExpenseDto 주석). 문제는 그 거절이
+ * 번역 없이 새어 나가면 **500**이 된다는 것이었다: 모바일 아웃박스는 5xx를 "일시적 실패"로
+ * 분류해 무한히 다시 보내므로(src/offline/remote-api.ts의 rethrowAsSyncEngineError), 절대
+ * 성공할 수 없는 요청 하나가 큐 맨 앞에서 영원히 재시도되는 poison pill이 된다 — 그 뒤의
+ * 멀쩡한 지출까지 함께 막힌다.
+ *
+ * 4xx로 옮기면 같은 경로가 이 행을 `RemotePermanentError`로 파킹해 동기화 화면의 실패 행으로
+ * 보여 주고(사용자가 버리거나 고칠 수 있다), 나머지 큐는 계속 흐른다.
+ *
+ * 다른 FK 위반은 그대로 다시 던진다 -- 여기서 넓게 삼키면 서버 버그(예: 잘못된
+ * householdId/childId 조합)가 사용자 입력 오류로 위장된다.
+ */
+function isLinkedProductLinkFkViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object" || (error as { code?: string }).code !== "P2003") return false;
+  // Prisma 6은 P2003의 meta에 `constraint`("fk_expenses_linked_product_link")를 담는다.
+  // 예전 판본은 같은 정보를 `field_name`에 넣었으므로 둘 다 본다 — 판본 차이로 조용히
+  // 500으로 되돌아가지 않게(그 회귀는 poison pill의 부활이다).
+  const meta = (error as { meta?: { constraint?: unknown; field_name?: unknown } }).meta;
+  const identifier = `${String(meta?.constraint ?? "")} ${String(meta?.field_name ?? "")}`.toLowerCase();
+  return identifier.includes("linked_product_link");
+}
+
+async function createExpenseRowOrTranslateFk(
+  client: DbClient,
+  args: Parameters<DbClient["expense"]["create"]>[0]
+): Promise<ExpenseRow> {
+  try {
+    return await client.expense.create(args);
+  } catch (error) {
+    if (isLinkedProductLinkFkViolation(error)) {
+      throw new BadRequestException({
+        code: "LINKED_PRODUCT_LINK_NOT_FOUND",
+        message: "연결하려던 구매 링크를 찾지 못했어요. 링크 없이 다시 저장해 주세요."
+      });
+    }
+    throw error;
+  }
+}
+
+/**
  * REF-118: expense CRUD + aggregation split out of the former
  * onboarding-store.service.ts god service. Public HTTP contract (via
  * finance/expenses.service.ts delegation), error codes and response shapes are
@@ -299,7 +342,7 @@ export class ExpensesStoreService {
       await this.requireExistingItemTemplateAnyStatus(input.linkedItemTemplateId, client);
     }
 
-    const created = await client.expense.create({
+    const created = await createExpenseRowOrTranslateFk(client, {
       data: {
         householdId,
         childId,
@@ -314,7 +357,8 @@ export class ExpensesStoreService {
         linkedItemTemplateId: input.linkedItemTemplateId ?? null,
         // 라운드 49 C-06: "샀어요" 경로가 아는 사실(어느 제휴 링크였는지)을 그대로 남긴다.
         // 존재 검증을 별도로 하지 않는 이유는 CreateExpenseDto.linkedProductLinkId 주석 참고 —
-        // 잘못된 id는 FK(fk_expenses_linked_product_link)가 막고, 그 실패는 요청 단위로 끝난다.
+        // 잘못된 id는 FK(fk_expenses_linked_product_link)가 막고, 그 거절은 위 래퍼가 400
+        // LINKED_PRODUCT_LINK_NOT_FOUND로 옮긴다(라운드 49 QA P2-4).
         // ⚠️ DNC-009: 저장만 한다. 이 값이 추천 점수·정렬에 쓰이는 일은 없어야 한다.
         linkedProductLinkId: input.linkedProductLinkId ?? null,
         expenseType: input.expenseType ?? "expense",
