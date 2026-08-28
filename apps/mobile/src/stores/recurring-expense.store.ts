@@ -82,9 +82,15 @@ export const RECURRING_ALREADY_REGISTERED_LABEL = "이미 등록됨";
  * `normalizeItemName`이라 "물 티슈"와 "물티슈"는 같은 항목이고, 아이가 다르면 같은 이름이어도
  * 다른 항목이다(첫째와 둘째가 각자 '기저귀'를 적어 둘 수 있어야 한다).
  *
- * 접점(이 라운드 밖): app/expenses/[expenseId].tsx의 "정기 지출로 등록"이 이 함수로 판정해
- * `RECURRING_ALREADY_REGISTERED_LABEL`을 달면, 눌러 봐야 저장에서 거절당하는 왕복이 없어진다.
- * 그 파일은 라운드 59 트랙 B의 소유가 아니라 배선을 하지 않았다 — 후속 배선용 계약이다.
+ * 접점: app/expenses/[expenseId].tsx의 "정기 지출로 등록"이 이 함수로 판정해 이미 있으면
+ * 버튼 대신 `RECURRING_ALREADY_REGISTERED_LABEL` 한 줄을 세운다 — 눌러 봐야 저장에서
+ * `recurringDuplicateMessage`로 거절당하는 왕복이 없다.
+ *
+ * ⚠️ 라운드 64 트랙 F 정정: 이 문단은 "그 파일은 라운드 59 트랙 B의 소유가 아니라 배선을 하지
+ * 않았다 — 후속 배선용 계약이다"라고 적고 있었지만, 배선은 라운드 58 #1이 이미 끝냈다
+ * (`app/expenses/[expenseId].tsx`의 import · `alreadyRegisteredRecurring` · 그 값을 그리는 줄).
+ * 라운드 63·64 정찰이 두 번 연속 P3로 집어 낸 주석 드리프트라 여기서 사실로 되돌린다 —
+ * "아직 아무도 안 쓴다"고 적힌 함수는 다음 사람이 지워도 되는 것처럼 읽힌다.
  */
 export function findRecurringTemplateByItemName(
   templates: readonly RecurringExpenseTemplate[],

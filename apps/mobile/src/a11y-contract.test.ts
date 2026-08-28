@@ -22,6 +22,17 @@ import {
   resolveCalendarCellAction,
   type CalendarCell
 } from "./expenses/records-calendar";
+// GAP-064 #1: 화면에서 가장 강한 버튼이 **광고를 열지 않는다**는 판정도 순수 모듈의 것이다 --
+// 화면은 그 답(채움을 받을 링크)을 그리기만 한다(라운드 64 트랙 A가 값 계약을 link-marker.test.ts에
+// 고정했고, 여기서는 그 판정이 **낭독되는 버튼**에 실제로 걸려 있는가를 본다).
+import {
+  primaryPurchaseLinkIndex,
+  productLinkMarker,
+  SPONSORED_MARKER_CAPTION,
+  SPONSORED_MARKER_LABEL
+} from "./items/link-marker";
+// GAP-064 #6: 최소 터치 타깃의 단일 소스. 이 숫자를 테스트에 다시 박지 않는다.
+import { theme } from "./theme";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
@@ -821,5 +832,219 @@ describe("GAP-063 #10 라운드 63 신설 UI 접근성 계약", () => {
     // 같은 아이 탭은 no-op이라 announce도 없다(소음 금지) — 판정은 planChildSwitch 한 곳이다.
     expect(source("src/children/child-switch.ts")).toContain("(으)로 전환했어요.");
     expect(notificationsSource).not.toContain("전환했어요");
+  });
+});
+
+/* ------------------------------------------------------------ 라운드 64 (GAP-064 #6 · #1) */
+
+type HitSlopBox = { bottom: number; left: number; right: number; top: number };
+
+/** `const NAME = { bottom: B, left: L, right: R, top: T } as const;`에서 네 변을 읽는다. */
+function readHitSlopBox(sourceText: string, name: string): HitSlopBox {
+  const declaration = new RegExp(`const ${name} = \\{([^}]*)\\} as const;`).exec(sourceText);
+  if (!declaration) throw new Error(`${name} 상수를 소스에서 찾지 못했다`);
+  const side = (key: keyof HitSlopBox) => {
+    const found = new RegExp(`\\b${key}:\\s*(\\d+)`).exec(declaration[1]);
+    // 빠진 변은 RN에서 0이다 — 계약도 그렇게 읽는다(적지 않은 쪽은 넓어지지 않는다).
+    return found ? Number(found[1]) : 0;
+  };
+  return { bottom: side("bottom"), left: side("left"), right: side("right"), top: side("top") };
+}
+
+/** `const NAME = N;` 숫자 상수. */
+function readNumericConstant(sourceText: string, name: string): number {
+  const found = new RegExp(`const ${name} = (\\d+);`).exec(sourceText);
+  if (!found) throw new Error(`${name} 상수를 소스에서 찾지 못했다`);
+  return Number(found[1]);
+}
+
+/** `hitSlop={TOKEN}`이 걸린 Pressable 블록들(그 prop부터 닫는 `</Pressable>`까지). */
+function pressableBlocksWithHitSlop(sourceText: string, hitSlopProp: string): string[] {
+  const blocks: string[] = [];
+  for (
+    let cursor = sourceText.indexOf(hitSlopProp);
+    cursor >= 0;
+    cursor = sourceText.indexOf(hitSlopProp, cursor + hitSlopProp.length)
+  ) {
+    const end = sourceText.indexOf("</Pressable>", cursor);
+    if (end < 0) throw new Error(`${hitSlopProp} 뒤에서 </Pressable>을 찾지 못했다`);
+    blocks.push(sourceText.slice(cursor, end));
+  }
+  return blocks;
+}
+
+/** 각 `hitSlop={TOKEN}` 자리를 감싸는 가장 가까운 `<ScrollView` 여는 태그(앞 160자). */
+function enclosingScrollViewTags(sourceText: string, hitSlopProp: string): string[] {
+  const tags: string[] = [];
+  for (
+    let cursor = sourceText.indexOf(hitSlopProp);
+    cursor >= 0;
+    cursor = sourceText.indexOf(hitSlopProp, cursor + hitSlopProp.length)
+  ) {
+    const open = sourceText.lastIndexOf("<ScrollView", cursor);
+    if (open < 0) throw new Error(`${hitSlopProp} 앞에서 <ScrollView를 찾지 못했다`);
+    tags.push(sourceText.slice(open, open + 160));
+  }
+  return tags;
+}
+
+/** 칩 Pressable의 style에 적힌 minHeight. 없으면 타깃 계산이 성립하지 않으므로 던진다. */
+function chipMinHeight(block: string): number {
+  const found = /minHeight:\s*(\d+)/.exec(block);
+  if (!found) throw new Error("칩 Pressable에서 minHeight를 찾지 못했다");
+  return Number(found[1]);
+}
+
+/**
+ * GAP-064 #6 — **터치 타깃 소스 계약**: (요소 높이 + 2×세로 hitSlop) ≥ `theme.touchTarget`.
+ *
+ * 왜 여기인가. 라운드 64 정찰이 이 파일의 사각을 그대로 짚었다 — 접근성 계약이 57건인데
+ * **터치 타깃을 보는 단언이 0건**이었다. 그래서 매일 누르는 칩 네 자리가 38dp(=48에 10 모자람)로
+ * 태어났고, 다음 칩도 같은 값으로 태어날 참이었다. 라벨·역할·상태는 이 파일이 이미 촘촘히
+ * 붙들고 있는데 **손가락이 닿는가**만 아무도 묻지 않은 셈이다(A-1 Touch targets 줄이 "코드 계약
+ * 없음"이라고 적혀 있던 이유).
+ *
+ * 계약의 모양은 라운드 64 A가 커머스 크롬에 세운 것과 같다(`items/link-marker.test.ts`의
+ * "라운드 64 #6"): 값을 테스트에 다시 박지 않고 **소스의 상수와 소스의 높이**를 읽어 더한다.
+ * 그래서 다음 사람이 칩 높이를 32로 줄이거나 hitSlop을 되돌리면 여기서 빨개진다.
+ *
+ * 세 가지를 함께 붙든다.
+ *  ① 세로 합이 최소 타깃을 채운다.
+ *  ② **가로는 올리지 않는다** — 칩 사이 간격이 8이라 좌우로 5씩 늘리면 이웃 칩과 겹쳐
+ *     "옆 칩이 눌리는" 오탭을 새로 만든다. 종전 3은 줄이지도 않는다(줄이면 히트 영역만 좁아진다).
+ *  ③ **렌더는 불변이다** — `hitSlop`은 레이아웃 속성이 아니므로 EXP-001 픽셀락 기준선이
+ *     이 변경으로 흔들리지 않아야 한다(ITEM-002에 A가 적은 근거와 같다).
+ */
+describe("GAP-064 #6 터치 타깃 소스 계약 (높이 + 2×세로 hitSlop ≥ theme.touchTarget)", () => {
+  const CHIP_HIT_SLOP_PROP = "hitSlop={SUGGEST_CHIP_HIT_SLOP}";
+  /** 입력 보조 칩이 서는 자리. new는 최근 품목·품목 자동완성·판매처 자동완성 셋, 상세는 판매처 하나. */
+  const chipScreens = [
+    { chips: 3, path: "app/expenses/new.tsx" },
+    { chips: 1, path: "app/expenses/[expenseId].tsx" }
+  ] as const;
+
+  it("입력 보조 칩 네 자리가 세로 히트 영역으로 최소 터치 타깃을 채운다", () => {
+    // 가드: 자리 하나가 통째로 빠지면 아래 루프는 조용히 지나간다.
+    expect(chipScreens.reduce((sum, screen) => sum + screen.chips, 0)).toBe(4);
+
+    for (const screen of chipScreens) {
+      const screenSource = source(screen.path);
+      const box = readHitSlopBox(screenSource, "SUGGEST_CHIP_HIT_SLOP");
+      const blocks = pressableBlocksWithHitSlop(screenSource, CHIP_HIT_SLOP_PROP);
+      expect(blocks.length, `${screen.path}의 칩 수`).toBe(screen.chips);
+
+      for (const block of blocks) {
+        const height = chipMinHeight(block);
+        expect(height + box.top + box.bottom, `${screen.path} 칩의 세로 히트 영역`).toBeGreaterThanOrEqual(
+          theme.touchTarget
+        );
+      }
+
+      // 두 화면의 칩은 같은 모듈이 라벨을 만드는 **같은 칩**이다 — 값이 화면마다 갈리지 않는다.
+      expect(box, `${screen.path}의 hitSlop`).toEqual({ bottom: 5, left: 3, right: 3, top: 5 });
+      // 맨 숫자 hitSlop이 남아 있지 않다(다음 칩이 다시 3으로 태어나지 않게).
+      expect(screenSource, `${screen.path}에 남은 맨 숫자 hitSlop`).not.toContain("hitSlop={3}");
+    }
+  });
+
+  it("넓힌 것은 세로뿐이다 — 가로를 올리면 칩 사이 gap 8을 넘어 옆 칩이 눌린다", () => {
+    for (const screen of chipScreens) {
+      const screenSource = source(screen.path);
+      const box = readHitSlopBox(screenSource, "SUGGEST_CHIP_HIT_SLOP");
+
+      // 세로는 대칭으로 갚는다(한쪽만 늘리면 칩이 위/아래로 치우친 히트 영역을 갖는다).
+      expect(box.top, `${screen.path} 세로 대칭`).toBe(box.bottom);
+      // 가로는 이웃과 나눠 쓴다: 두 칩이 각자 left/right만큼 gap 안으로 들어오므로 합이 8 미만이어야 한다.
+      expect(box.left, `${screen.path} 가로 대칭`).toBe(box.right);
+      expect(box.left + box.right, `${screen.path} 가로 합`).toBeLessThan(8);
+      // 그렇다고 0으로 지우지도 않는다 — 이 라운드의 목적과 반대로 히트 영역이 좁아진다.
+      expect(box.left, `${screen.path} 가로 히트 영역`).toBeGreaterThan(0);
+
+      // 그 8이 실제로 이 칩 줄의 간격이다(숫자를 계약에만 적어 두지 않는다).
+      for (const tag of enclosingScrollViewTags(screenSource, CHIP_HIT_SLOP_PROP)) {
+        expect(tag, `${screen.path} 칩 줄의 gap`).toContain("gap: 8");
+      }
+    }
+  });
+
+  it("커머스 상세의 플로팅 크롬도 같은 규칙을 지난다 (라운드 64 A가 붙인 자리)", () => {
+    const detailSource = source("app/items/[itemTemplateId].tsx");
+    const chromeStyle = detailSource.slice(
+      detailSource.indexOf("const productDetailChromeButtonStyle = {"),
+      detailSource.indexOf("const PRODUCT_DETAIL_CHROME_HIT_SLOP")
+    );
+    const chromeHeight = Number(/height:\s*(\d+)/.exec(chromeStyle)?.[1]);
+    const chromeHitSlop = readNumericConstant(detailSource, "PRODUCT_DETAIL_CHROME_HIT_SLOP");
+
+    expect(chromeHeight).toBe(34);
+    expect(chromeHeight + 2 * chromeHitSlop).toBeGreaterThanOrEqual(theme.touchTarget);
+    // 뒤로가기·공유하기 둘 다 같은 상수를 쓴다(값을 자리마다 다시 박지 않는다).
+    expect(pressableBlocksWithHitSlop(detailSource, "hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP}")).toHaveLength(2);
+  });
+
+  it("렌더는 한 픽셀도 바뀌지 않는다 — 칩의 레이아웃 속성은 그대로다 (EXP-001 픽셀락)", () => {
+    for (const screen of chipScreens) {
+      for (const block of pressableBlocksWithHitSlop(source(screen.path), CHIP_HIT_SLOP_PROP)) {
+        // 승인 캡처의 pill 38 · 좌우 여백 14가 그대로다(hitSlop은 레이아웃 속성이 아니다).
+        expect(block, `${screen.path} 칩 높이`).toContain("minHeight: 38,");
+        expect(block, `${screen.path} 칩 여백`).toContain("paddingHorizontal: 14");
+        expect(block, `${screen.path} 칩 모양`).toContain("borderRadius: theme.radii.pill,");
+        // 세로 여백으로 높이를 벌지 않았다 — 그건 렌더가 바뀌는 길이다.
+        expect(block, `${screen.path} 칩 세로 여백`).not.toContain("paddingVertical");
+        expect(block, `${screen.path} 칩 고정 높이`).not.toMatch(/[^n]height:\s*\d/);
+      }
+    }
+  });
+});
+
+/**
+ * GAP-064 #1 — **화면에서 가장 강한 버튼의 낭독 문장과 그 게이트**.
+ *
+ * 접근성 항목인 이유. 이 버튼에는 `accessibilityLabel`이 없다 — 보이는 라벨이 곧 낭독되는
+ * 문장이다(`PrimaryButton`의 role은 A11Y-101이 이미 붙들고 있다). 그래서 "바로 구매하기"라고
+ * 읽히는 자리가 **무엇을 여는가**는 라벨 계약의 일부다: 소리로만 앱을 쓰는 사람에게 이 문장은
+ * 화면에서 가장 강조된 구매 경로라는 뜻인데, 그 뒤에 광고가 걸려 있으면 **표시와 사실이
+ * 갈린다**(DNC-011이 세우려는 구분이 우대로 뒤집힌다).
+ *
+ * 판정은 순수 모듈의 것이고(`primaryPurchaseLinkIndex` — 값 계약은 `items/link-marker.test.ts`가
+ * 촘촘히 고정한다) 화면 파일은 라운드 64 트랙 A의 소유였으므로, 여기서는 GAP-062 #10이 세운
+ * 관례대로 **그 판정이 낭독되는 버튼에 실제로 걸려 있는가**만 최소 소스 계약으로 둔다.
+ */
+describe("GAP-064 #1 전폭 구매 CTA 라벨 계약 (스폰서 판정 게이트 — DNC-011)", () => {
+  const detailSource = () => source("app/items/[itemTemplateId].tsx");
+
+  it("가장 강한 버튼의 라벨이 곧 낭독 문장이고, 그 버튼은 판정이 고른 링크를 연다", () => {
+    const detail = detailSource();
+    expect(detail).toContain('label="바로 구매하기"');
+    // 그 문장은 화면에 **한 번만** 있다 — 주석이나 다른 자리에 같은 말이 늘면 어느 것이
+    // 낭독되는 라벨인지 소스만 보고는 갈리지 않는다(트랙 A가 주석에서 이 문자열을 뺀 이유).
+    expect(detail.match(/바로 구매하기/g)).toHaveLength(1);
+    // 게이트와 목적지가 **같은 한 판정**을 지난다(판매처 행의 채움과도 같은 값이다).
+    expect(detail).toContain("const filledPurchaseRowIndex = primaryPurchaseLinkIndex(visibleDetail.productLinks);");
+    expect(detail).toContain(
+      "filledPurchaseRowIndex >= 0 ? visibleDetail.productLinks[filledPurchaseRowIndex] : undefined"
+    );
+    expect(detail).toContain("onPress={() => handleProductLinkPress(primaryPurchaseLink)}");
+  });
+
+  it("스폰서만 남은 품목에서는 그 버튼이 아예 없다 — '구매하기'라고 읽히는 광고를 만들지 않는다", () => {
+    // 판정: 전부 스폰서면 강조를 받을 링크가 없다(-1).
+    expect(primaryPurchaseLinkIndex([{ isSponsored: true }, { isSponsored: true }])).toBe(-1);
+    // 화면: 그때 버튼은 비활성으로 남는 것이 아니라 **렌더되지 않는다**. 비활성 버튼은
+    // "버튼, 비활성"으로 읽히고 왜 못 누르는지가 남는다(달력 미래 칸 A-4 #23과 같은 규율).
+    expect(detailSource()).toContain("{primaryPurchaseLink ? (");
+    expect(detailSource()).not.toContain('disabled={!primaryPurchaseLink}');
+  });
+
+  it("사라진 자리의 링크는 판매처 행에 **스폰서라고 말한 채** 남는다 (구매 경로가 닫히지 않는다)", () => {
+    const marker = productLinkMarker({ isAffiliate: false, isSponsored: true });
+    expect(marker.badgeLabel).toBe(SPONSORED_MARKER_LABEL);
+    expect(marker.caption).toBe(SPONSORED_MARKER_CAPTION);
+    expect(marker.badgeTone).toBe("warning");
+    // 그 행의 버튼은 판매처 이름을 실은 문장으로 낭독된다 — "구매" 두 글자로는 어느 판매처인지
+    // 소리로 갈리지 않는다(A11Y-101이 고정한 라벨 배선).
+    expect(source("src/ui.tsx")).toContain("accessibilityLabel={`${seller}에서 구매하기`}");
+    // 강조(채움)만 판정을 따르고 행 자체는 서버가 준 순서대로 전부 그려진다(DNC-009 무접촉).
+    expect(detailSource()).toContain("primaryAction={hasSession && index === filledPurchaseRowIndex}");
   });
 });
