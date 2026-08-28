@@ -47,16 +47,31 @@ type ColumnMap = {
  *
  * 고치는 쪽을 **키워드로 정한 이유**: 내보내기 머리글을 `품목`으로 바꾸면 이미 사용자
  * 손에 나가 있는 파일들은 여전히 못 읽는다. 키워드를 넓히면 과거 파일까지 함께 살아난다.
- * 부작용은 좁다 — `적요`·`항목`이 같이 있는 은행 양식에서는 종전과 같이 먼저 나오는 열이
- * 이기고, 이 변경이 바꾸는 것은 "아무 열도 못 찾던" 경우뿐이다.
  *
- * 왕복 계약은 `test/mobile-export-csv-roundtrip.test.ts`가 고정한다(모바일의 헤더 상수를
- * 그대로 읽어 이 파서에 먹인다).
+ * 라운드 65 후속(#2) — **`항목`은 폴백 키워드다(주석 정정).** 라운드 65 A(#1)는 부작용을
+ * "먼저 나오는 열이 이기니 종전과 같다"고 적었지만, 그 문장이 곧 결함이었다: 은행/가계부
+ * 양식에서 `항목`은 **분류 열**의 머리글로 흔히 쓰이고(`날짜 | 항목 | 적요 | 금액`), 열 순서상
+ * `항목`이 `적요`보다 앞에 오므로 종전에 `적요`가 가져가던 품목 열을 **분류 열이 빼앗았다** —
+ * 모든 행의 품목명이 "식비"·"생활" 같은 분류 이름으로 들어온다. 이 앱이 만든 파일을 살리려다
+ * 남의 파일을 망가뜨리는 교환이라 받아들일 수 없다.
+ *
+ * 그래서 `항목`만 `itemFallback`으로 내린다: **구체어(`item`)가 헤더에 하나도 없을 때만**
+ * 품목 열이 된다. 우리 내보내기 CSV(`날짜,항목,금액,분류,메모,구분`)에는 구체어가 없으므로
+ * A(#1)이 살린 왕복은 그대로 살아 있고, 두 후보가 함께 있는 파일은 라운드 65 이전과
+ * **한 글자도 다르지 않게** 동작한다. 열 순서 규칙(먼저 나오는 열이 이긴다)은 같은 등급 안에서
+ * 종전 그대로다.
+ *
+ * 왕복 계약은 `test/mobile-export-csv-roundtrip.test.ts`가 고정하고(모바일의 헤더 상수를
+ * 그대로 읽어 이 파서에 먹인다), 두 후보 공존 케이스는
+ * `test/import-parser-inference.test.ts`가 고정한다.
  */
 const HEADER_KEYWORDS = {
   date: ["날짜", "일자", "거래일", "이용일", "사용일", "결제일", "일시"],
   amount: ["금액", "출금액", "출금", "사용금액", "결제금액", "이용금액", "승인금액", "지출금액"],
-  item: ["내용", "적요", "가맹점명", "가맹점", "상품명", "품목", "항목", "거래내용", "이용가맹점"],
+  /** 품목 열의 **구체어**. 하나라도 헤더에 있으면 그 등급 안에서 먼저 나오는 열이 이긴다. */
+  item: ["내용", "적요", "가맹점명", "가맹점", "상품명", "품목", "거래내용", "이용가맹점"],
+  /** 품목 열의 **폴백어**. 위 구체어가 헤더에 하나도 없을 때만 품목 열로 쓴다. */
+  itemFallback: ["항목"],
   memo: ["메모", "비고", "설명"]
 };
 
@@ -367,6 +382,19 @@ function cellToText(cell: ExcelJS.Cell): string {
 
 function detectHeaderColumns(headerRow: string[]): ColumnMap | null {
   const map: Partial<ColumnMap> = {};
+  /**
+   * 라운드 65 후속(#2): 폴백어(`항목`)는 **구체어가 헤더에 하나도 없을 때만** 품목 열이 된다.
+   * 판정에 필요한 것은 헤더 전체를 한 번 훑은 사실 하나뿐이라, 아래 열 순회 규칙(먼저 나오는
+   * 열이 이긴다)은 그대로 두고 이 술어만 갈아 끼운다.
+   */
+  const hasSpecificItemHeader = headerRow.some((cell) => {
+    const text = cell.trim();
+    return text !== "" && HEADER_KEYWORDS.item.some((k) => text.includes(k));
+  });
+  const matchesItemHeader = (text: string) =>
+    HEADER_KEYWORDS.item.some((k) => text.includes(k)) ||
+    (!hasSpecificItemHeader && HEADER_KEYWORDS.itemFallback.some((k) => text.includes(k)));
+
   headerRow.forEach((cell, idx) => {
     const text = cell.trim();
     if (!text) return;
@@ -374,7 +402,7 @@ function detectHeaderColumns(headerRow: string[]): ColumnMap | null {
       map.dateIdx = idx;
     } else if (map.amountIdx === undefined && HEADER_KEYWORDS.amount.some((k) => text.includes(k))) {
       map.amountIdx = idx;
-    } else if (map.itemIdx === undefined && HEADER_KEYWORDS.item.some((k) => text.includes(k))) {
+    } else if (map.itemIdx === undefined && matchesItemHeader(text)) {
       map.itemIdx = idx;
     } else if (map.memoIdx === undefined && HEADER_KEYWORDS.memo.some((k) => text.includes(k))) {
       map.memoIdx = idx;

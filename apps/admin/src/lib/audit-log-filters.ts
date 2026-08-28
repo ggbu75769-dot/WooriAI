@@ -150,7 +150,13 @@ export type AuditLogActionPreset = {
  * - admin.disclosure.update: apps/api/src/admin/admin.controller.ts (GAP-065 #9 — DNC-010 고지
  *   문구 수정. `disclosures` 행은 key당 한 칸 upsert라 덮어쓰면 이전 문구가 사라지고, admin
  *   역할은 검토(content revision) 없이 바로 덮어쓴다: "고지가 왜 이렇게 바뀌었죠" 문의에서
- *   누가·언제·어떤 문구에서 어떤 문구로 바꿨는지는 이 액션의 before/after에만 있다.
+ *   누가·언제·어떤 문구에서 어떤 문구로 바꿨는지는 **직접 덮어쓰기 경로에 한해** 이 액션의
+ *   before/after에 있다.
+ *   ⚠️ 라운드 65 후속(#7) — 같은 문구가 **리비전으로도** 바뀔 수 있고(editor가 draft→review로
+ *   올린 뒤 발행: `admin.content_revision.approve_publish`, 예약 발행:
+ *   `…scheduled_publish`), 그 두 액션의 봉투에는 `after`뿐이라 **이전 문구가 어디에도 남지
+ *   않는다**(apps/api/src/admin/content-revisions.service.ts). 고지 이력을 되짚을 때는 이 액션만
+ *   보면 구멍이 생긴다 — docs/operations/known-limitations.md §J에 적어 둔 알려진 공백이다.
  *   **어느 키인지도 봉투 안에 있다** — 서버는 UUID가 아닌 targetId를 저장하지 않으므로
  *   행의 targetId는 null이고, key는 before/after의 `key` 필드가 답한다)
  * - auth.login / auth.logout: apps/api/src/auth/auth.service.ts (카카오는 kakao-auth.service.ts)

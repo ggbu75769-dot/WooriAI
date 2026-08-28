@@ -480,3 +480,77 @@ describe("assertImportFileMatchesExtension (API-130)", () => {
     expectTypeInvalid(Buffer.from("날짜,금액\n", "utf16le"), "utf16.csv");
   });
 });
+
+/**
+ * 라운드 65 후속(#2) — **헤더 키워드의 등급(구체어 vs 폴백).**
+ *
+ * 라운드 65 A(#1)가 item 키워드에 `항목`을 넣어 "우리가 내보낸 CSV를 다시 못 읽는" 결함을
+ * 고쳤는데, 그 변경의 부작용을 "열 순서 규칙 그대로라 종전과 같다"고만 적어 두었다. 그런데
+ * `항목`은 은행/가계부 양식에서 **분류 열**의 흔한 머리글이고(`날짜 | 항목 | 적요 | 금액`),
+ * 열 순서상 `적요`보다 앞이라 종전에 `적요`가 가져가던 품목 열을 빼앗았다 — 모든 행의 품목명이
+ * "식비"·"생활" 같은 분류 이름으로 들어온다. 우리 파일을 살리려다 남의 파일을 망가뜨리는 교환이다.
+ *
+ * 그래서 `항목`은 폴백어로 내렸다: **구체어가 헤더에 하나도 없을 때만** 품목 열이 된다.
+ */
+describe("parseImportFile - 헤더 품목 열의 구체어/폴백 등급 (라운드 65 후속 #2)", () => {
+  it("`적요`와 `항목`이 함께 있으면 구체어(`적요`)가 이긴다 — 열 순서와 무관하게", async () => {
+    // 은행 양식: 분류 열(`항목`)이 적요보다 **앞**에 온다. 라운드 65 A(#1) 직후에는 이 파일의
+    // 품목명이 전부 "식비"/"생활"이 됐다.
+    const csv =
+      "거래일자,항목,적요,금액\n" +
+      "2026-07-06,생활,쿠팡 기저귀,32000\n" +
+      "2026-07-05,식비,이마트 분유,33000\n";
+
+    const result = await parseCsv(csv);
+
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.map((row) => row.itemName)).toEqual(["쿠팡 기저귀", "이마트 분유"]);
+    // 날짜·금액은 종전 그대로 잡히고, 품목명에서 나온 분류도 제자리다.
+    expect(result.rows[0]).toMatchObject({ dateIso: "2026-07-06", amountKrw: 32000, categoryCode: "diaper_hygiene" });
+    expect(result.rows[1]).toMatchObject({ dateIso: "2026-07-05", amountKrw: 33000, categoryCode: "feeding_babyfood" });
+  });
+
+  it("`항목`이 구체어보다 **뒤**에 있어도 결과가 같다 (등급이 순서를 이긴다)", async () => {
+    const csv = "거래일자,적요,항목,금액\n2026-07-06,쿠팡 기저귀,생활,32000\n";
+
+    const result = await parseCsv(csv);
+
+    expect(result.rows[0].itemName).toBe("쿠팡 기저귀");
+  });
+
+  it("다른 구체어(`내용`·`상품명`·`가맹점`)와 함께 있어도 `항목`은 물러난다", async () => {
+    for (const [specific, value] of [
+      ["내용", "쿠팡 기저귀"],
+      ["상품명", "쿠팡 기저귀"],
+      ["가맹점", "쿠팡 기저귀"]
+    ] as const) {
+      const csv = `거래일자,항목,${specific},금액\n2026-07-06,생활,${value},32000\n`;
+      const result = await parseCsv(csv);
+      expect(result.rows[0].itemName, `${specific} 이 항목보다 먼저다`).toBe(value);
+    }
+  });
+
+  it("구체어가 하나도 없으면 `항목`이 품목 열이 된다 — 우리가 내보낸 CSV가 그 경우다", async () => {
+    // apps/mobile/src/export/expense-csv.ts의 EXPENSE_CSV_HEADER와 같은 아홉 열.
+    const csv =
+      "날짜,구분,카테고리,항목,판매처,결제수단,금액(원),메모,출처\n" +
+      "2026-07-06,지출,기저귀,쿠팡 기저귀,쿠팡,카드,32000,대용량,수기\n";
+
+    const result = await parseCsv(csv);
+
+    expect(result.rows[0]).toMatchObject({
+      dateIso: "2026-07-06",
+      itemName: "쿠팡 기저귀",
+      amountKrw: 32000,
+      memo: "대용량"
+    });
+  });
+
+  it("같은 등급 안에서는 종전 규칙 그대로 — 먼저 나오는 열이 이긴다", async () => {
+    const csv = "거래일자,적요,상품명,금액\n2026-07-06,쿠팡 기저귀,물티슈,32000\n";
+
+    const result = await parseCsv(csv);
+
+    expect(result.rows[0].itemName).toBe("쿠팡 기저귀");
+  });
+});

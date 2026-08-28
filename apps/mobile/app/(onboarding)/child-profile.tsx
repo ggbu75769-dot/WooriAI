@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { CHILD_STAGE_CODES, getSeoulToday, type ChildStageCode } from "@wooriai/domain";
-import { LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN, upsertConsents } from "../../src/api/client";
 // MOB-118: the date guard (isFutureSeoulDate/isValidCalendarDate wiring), stage labels, and
 // date-field label moved verbatim to src/children/child-form.ts so the settings 아이 관리
 // screen's edit/add forms reuse exactly this screen's validation -- see that module.
@@ -16,6 +16,7 @@ import {
 } from "../../src/children/child-form";
 import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";
 import { createOnboardingChild } from "../../src/onboarding/child-create";
+import { saveWithConsentRecovery } from "../../src/onboarding/consent-recovery";
 import {
   OnboardingSaveErrorCard,
   OnboardingStepProgress,
@@ -86,25 +87,43 @@ export default function ChildProfileScreen() {
     !manualStageError &&
     Boolean(authToken && householdId && draft.stageMode);
 
+  /** 저장 본체. 자동 복구 경로도 **이 함수 그대로**를 다시 부른다(바디도 키도 한 벌뿐이다). */
+  const submitChild = useCallback(async () => {
+    if (!authToken || !householdId || !draft.stageMode) {
+      throw new Error("missing onboarding context");
+    }
+    if (draft.stageMode === "manual" && !manualStage) {
+      throw new Error("missing manual stage selection");
+    }
+    // MOB-101: reuse the same Idempotency-Key across retries of this submission (network
+    // retry, or a resumed app restarting the mutation) so the server never creates a second
+    // child for the household -- see round5a-sprint1-plan.md §4.
+    const idempotencyKey = getOrCreateChildCreateIdempotencyKey();
+    // 바디 조립은 설정 화면의 아이 추가와 같은 shared 모듈에서 온다(단일 소스).
+    return createOnboardingChild(
+      authToken,
+      buildCreateChildBody(householdId, draft.stageMode, { nickname, dateText, manualStage }),
+      idempotencyKey
+    );
+  }, [authToken, dateText, draft.stageMode, getOrCreateChildCreateIdempotencyKey, householdId, manualStage, nickname]);
+
   const save = useMutation({
-    mutationFn: async () => {
-      if (!authToken || !householdId || !draft.stageMode) {
-        throw new Error("missing onboarding context");
-      }
-      if (draft.stageMode === "manual" && !manualStage) {
-        throw new Error("missing manual stage selection");
-      }
-      // MOB-101: reuse the same Idempotency-Key across retries of this submission (network
-      // retry, or a resumed app restarting the mutation) so the server never creates a second
-      // child for the household -- see round5a-sprint1-plan.md §4.
-      const idempotencyKey = getOrCreateChildCreateIdempotencyKey();
-      // 바디 조립은 설정 화면의 아이 추가와 같은 shared 모듈에서 온다(단일 소스).
-      return createOnboardingChild(
-        authToken,
-        buildCreateChildBody(householdId, draft.stageMode, { nickname, dateText, manualStage }),
-        idempotencyKey
-      );
-    },
+    /**
+     * 라운드 65 후속(#1) — **필수 동의 미저장으로 막힌 저장의 1회 자동 복구.**
+     *
+     * 로그인 화면은 동의 저장(PUT /consents) 실패를 삼키고 이 화면으로 보낸다
+     * (app/(auth)/login.tsx — 로그인 자체는 성공했으므로 로그인 실패로 승격하지 않는다).
+     * 그때 서버에는 동의 기록이 없고, `POST /children`은 `CONSENT_REQUIRED`(403)로 막힌다.
+     * 종전에는 그 실패가 일반 저장 실패 문구 + 무한 [재시도]로 끝나 **온보딩이 막다른 길**이
+     * 됐다 — 앱에 다른 재제출 경로가 없었기 때문이다(ONB-006은 `consentsAccepted`가 참일 때만
+     * 뜨고, SET-003의 재동의 버튼은 온보딩을 마쳐야 닿는 탭 안에 있다).
+     *
+     * 그래서 여기서 **한 번만** 스스로 푼다: 동의를 다시 올린 뒤 같은 저장을 한 번 재시도한다.
+     * 같은 Idempotency-Key를 그대로 쓰므로(위 submitChild) 재시도가 아이를 두 번 만들 수 없다.
+     * 규칙(1회 한정, 재동의 실패 시 원래 오류 유지)은 순수 모듈 한 곳에 있고 거기서 테스트된다
+     * (src/onboarding/consent-recovery.ts).
+     */
+    mutationFn: () => saveWithConsentRecovery(submitChild, () => upsertConsents(authToken!)),
     onSuccess: (child) => {
       setSelectedChildId(child.id);
       completeStep("ONB-002");
@@ -257,7 +276,16 @@ export default function ChildProfileScreen() {
           ) : null}
         </Card>
 
-        {save.isError ? <OnboardingSaveErrorCard error={save.error} onRetry={() => save.mutate()} /> : null}
+        {/* 라운드 65 후속(#1): CONSENT_REQUIRED에는 [다시 동의하고 저장]이 선다. 핸들러가
+            같은 mutate인 이유는 mutationFn이 이미 "재동의 → 저장 1회"를 하기 때문이다 —
+            버튼이 말하는 일과 실제로 일어나는 일이 한 자리에서 같다. */}
+        {save.isError ? (
+          <OnboardingSaveErrorCard
+            error={save.error}
+            onReconsent={() => save.mutate()}
+            onRetry={() => save.mutate()}
+          />
+        ) : null}
 
         <PrimaryButton
           disabled={!canSave || save.isPending}

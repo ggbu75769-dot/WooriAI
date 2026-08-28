@@ -75,8 +75,19 @@ describe("ONB-105 save-failure recovery", () => {
     for (const relativePath of savingStepScreens) {
       const screenSource = source(relativePath);
       // 라운드 60 #3: 카드가 실패 종류를 알아야(error) 403을 네트워크 문구와 갈라낼 수 있다.
+      // 라운드 65 후속(#1): ONB-002만 [다시 동의하고 저장]을 하나 더 받으므로(onReconsent)
+      // 한 줄 리터럴 대신 카드·error·onRetry 세 조각으로 본다 -- 셋은 세 화면 모두 같다.
       expect(screenSource, `${relativePath} should show the retry card on save failure`).toContain(
-        "{save.isError ? <OnboardingSaveErrorCard error={save.error} onRetry={() => save.mutate()} /> : null}"
+        "save.isError ? "
+      );
+      expect(screenSource, `${relativePath} should pass the failure to the card`).toContain(
+        "<OnboardingSaveErrorCard"
+      );
+      expect(screenSource, `${relativePath} should let the card branch on the error kind`).toContain(
+        "error={save.error}"
+      );
+      expect(screenSource, `${relativePath} should retry the same mutation`).toContain(
+        "onRetry={() => save.mutate()}"
       );
       // The passive error toast is replaced by the actionable card -- it must not linger.
       expect(screenSource, `${relativePath} should not keep the passive error Toast`).not.toContain("<Toast");
@@ -122,9 +133,10 @@ describe("ONB-105 save-failure recovery", () => {
 
     it("403이면 [재시도] 버튼 자체를 내린다 (다시 눌러도 결과가 같은 자리)", () => {
       expect(stepUiSource).toContain("const forbidden = isOnboardingSaveForbidden(error);");
-      expect(stepUiSource).toContain(
-        '{forbidden ? null : <SecondaryButton accessibilityLabel="저장 재시도" label="재시도" onPress={onRetry} />}'
-      );
+      // 라운드 65 후속(#1): 같은 자리에 CONSENT_REQUIRED 갈래가 하나 더 생겼다 -- 권한 실패는
+      // 종전 그대로 버튼이 없고(`forbidden ? null`), 그 뒤 기본 갈래만 [재시도]다.
+      expect(stepUiSource).toContain(") : forbidden ? null : (");
+      expect(stepUiSource).toContain('<SecondaryButton accessibilityLabel="저장 재시도" label="재시도" onPress={onRetry} />');
     });
   });
 

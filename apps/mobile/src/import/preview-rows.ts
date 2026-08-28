@@ -18,6 +18,7 @@
  * (src/expenses/records-list-view.ts와 같은 관례).
  */
 
+import { IMPORT_STUB_CODE_PREFIX } from "../categories";
 import { formatKrw } from "../money";
 
 /** `ImportRow`(src/api/client.ts)에서 이 모듈이 필요로 하는 구조적 최소치. */
@@ -264,13 +265,37 @@ export function importCategoryNameResolver(
   return (categoryId: string) => nameById.get(categoryId) ?? null;
 }
 
+/**
+ * 라운드 65 후속(#8): "이 분류가 **가져오기 스텁**인가"를 답하는 술어를 만든다.
+ *
+ * 근거는 서버가 내려준 `code`다(`import_stub_default` — 접두사 상수는 src/categories.ts의
+ * `IMPORT_STUB_CODE_PREFIX` 한 곳). 이름이나 목록 소속으로 추측하지 않는다: 그 둘은 같은 답을
+ * 내야 할 이유가 없다.
+ *
+ * `code`를 모르는 값(응답에 없거나 목록에 없는 id)은 **false**다 — 모르면 아무 말도 하지
+ * 않는다(이 모듈의 "모르면 줄을 만들지 않는다"와 같은 규율).
+ */
+export function importStubCategoryPredicate(
+  categories: readonly { id: string; code?: string | null }[] | null | undefined
+): (categoryId: string) => boolean {
+  const stubIds = new Set<string>();
+  for (const category of categories ?? []) {
+    if (category?.id && (category.code ?? "").startsWith(IMPORT_STUB_CODE_PREFIX)) stubIds.add(category.id);
+  }
+  return (categoryId: string) => stubIds.has(categoryId);
+}
+
 export type ImportRowCategoryView = {
   /** 화면에 적을 분류 이름. */
   name: string;
   /**
-   * 이 값이 **고를 수 있는 목록에 없다** = 자동 분류가 못 찾아 스텁으로 떨어진 행.
-   * 목록을 아직 못 받았을 때(options 0건)는 판단 근거가 없으므로 false다 — 캐시가 비었다는
-   * 이유로 멀쩡한 행에 "분류를 골라 주세요"를 붙이지 않는다.
+   * 자동 분류가 못 찾아 **가져오기 스텁**으로 떨어진 행인가. 참이면 "분류를 골라 주세요"가 붙는다.
+   *
+   * 라운드 65 후속(#8) — 판정 근거가 `options.length > 0`(= 고를 수 있는 목록에 없다)이었다.
+   * 그 목록은 별칭·비활성 행을 걸러 낸 **좁힌 목록**이라(src/categories.ts `selectableCategories`),
+   * 스텁이 아닌 멀쩡한 분류도 목록 밖으로 떨어질 수 있다 — 서버가 그 분류를 `selectable: false`나
+   * `active: false`로 내리는 순간, 이미 그 분류로 잘 분류된 행에까지 "자동으로 분류하지
+   * 못했어요"라는 **허위 안내**가 붙는다. 이제 서버가 준 `code`로만 판정한다.
    */
   needsChoice: boolean;
 };
@@ -280,21 +305,26 @@ export type ImportRowCategoryView = {
  *
  * 이름은 두 곳에서 찾는다: 먼저 **고를 수 있는 목록**(칩과 같은 목록이라 라벨이 칩과 한 글자도
  * 다르지 않다), 없으면 전량 목록의 이름 해석. 둘 다 실패하면 null이다.
+ *
+ * `isImportStub`은 위 `importStubCategoryPredicate`가 만든 술어다. 넘기지 않으면(구 호출부)
+ * 아무 행도 "골라 주세요"를 받지 않는다 — 근거 없이 재촉하는 것보다 침묵이 낫다.
  */
 export function importRowCategoryView(
   row: ImportPreviewRow,
   options: readonly ImportCategoryOption[],
-  resolveName: ((categoryId: string) => string | null) | null
+  resolveName: ((categoryId: string) => string | null) | null,
+  isImportStub: ((categoryId: string) => boolean) | null = null
 ): ImportRowCategoryView | null {
   const categoryId = row.categoryId?.trim();
   if (!categoryId) return null;
 
+  // 고를 수 있는 목록에 있는 값은 스텁일 수 없다(그 목록이 스텁을 걸러 낸 결과다).
   const offered = options.find((option) => option.id === categoryId);
   if (offered) return { name: offered.label, needsChoice: false };
 
   const name = resolveName?.(categoryId)?.trim();
   if (!name) return null;
-  return { name, needsChoice: options.length > 0 };
+  return { name, needsChoice: isImportStub?.(categoryId) ?? false };
 }
 
 /**

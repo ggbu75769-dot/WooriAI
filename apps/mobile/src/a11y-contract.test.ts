@@ -1156,18 +1156,19 @@ describe("GAP-065 #6 스크롤 스캐폴드 키보드 계약 (keyboardShouldPers
 describe("GAP-065 #7 공유 프리미티브 터치 타깃 계약 (크기 + 2×hitSlop ≥ theme.touchTarget)", () => {
   const uiSource = () => source("src/ui.tsx");
 
-  /** `<CategoryChip`이 서는 자리와 그 줄의 gap. 인라인 style이면 그 자리에서, 이름 붙은 style이면 선언에서 읽는다. */
+  /**
+   * `<CategoryChip`이 서는 자리와 그 줄의 gap. 인라인 style이면 그 자리에서, 이름 붙은 style이면
+   * 선언에서 읽는다.
+   *
+   * 라운드 65 후속(#4): 화면 목록을 **사람이 적어 두지 않는다.** 종전에는 여덟 경로가 여기
+   * 하드코딩돼 있었고, 같은 라운드가 새로 만든 칩 줄(`app/import/[importJobId].tsx`의 검수
+   * 화면 분류 칩)이 목록에 없어 **이 계약이 그 줄을 한 번도 읽지 않았다** — "더 좁은 줄이 새로
+   * 태어나면 여기서 빨개진다"는 이 테스트의 목적이 조용히 무력화돼 있었다. 이제 컴포넌트 전량
+   * 스캔(`listComponentSources`)에서 칩을 쓰는 파일을 직접 찾으므로, 새 줄이 태어나면 아무도
+   * 목록을 갱신하지 않아도 자동으로 이 판정에 들어온다.
+   */
   function categoryChipRowGaps(): { gap: number; path: string }[] {
-    const screens = [
-      "app/(onboarding)/child-profile.tsx",
-      "app/expenses/recurring.tsx",
-      "app/expenses/[expenseId].tsx",
-      "app/expenses/new.tsx",
-      "app/settings/children.tsx",
-      "app/(tabs)/records.tsx",
-      "app/(tabs)/items.tsx",
-      "src/export/ExpenseCsvExport.tsx"
-    ];
+    const screens = listComponentSources().filter((path) => source(path).includes("<CategoryChip"));
     const found: { gap: number; path: string }[] = [];
     for (const path of screens) {
       const screenSource = source(path);
@@ -1207,7 +1208,12 @@ describe("GAP-065 #7 공유 프리미티브 터치 타깃 계약 (크기 + 2×hi
     // 가로: 라운드 64가 가정한 8이 아니라 **6인 줄이 있다**(준비템 탭). 그 실측을 사람이 옮겨
     // 적지 않고 소스에서 다시 센다 — 더 좁은 줄이 새로 태어나면 여기서 빨개진다.
     const rows = categoryChipRowGaps();
-    expect(rows.length, "칩이 서는 자리 수").toBe(17);
+    expect(rows.length, "칩이 서는 자리 수").toBe(18);
+    // 라운드 65 후속(#4): 목록을 손으로 적던 시절 빠져 있던 줄. 스캔이 실제로 그 줄을 읽는지
+    // 한 번 못 박아 둔다 -- 스캐너가 조용히 빈 목록을 돌려주면 위 개수 단언만으로는 안 잡힌다.
+    expect(rows.map((row) => row.path), "가져오기 검수 화면의 분류 칩 줄도 읽는다").toContain(
+      join("app", "import/[importJobId].tsx")
+    );
     const tightest = Math.min(...rows.map((row) => row.gap));
     expect(tightest, "가장 좁은 칩 줄 간격").toBe(6);
     // 두 이웃이 각자 left/right만큼 그 간격으로 들어온다 — 합이 간격을 넘으면 히트 영역이 겹친다.

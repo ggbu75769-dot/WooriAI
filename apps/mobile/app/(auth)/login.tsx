@@ -11,7 +11,7 @@ import {
   KakaoLoginError,
   loginWithKakao
 } from "../../src/auth/kakao-login";
-import { loginSubtitle } from "../../src/auth/login-copy";
+import { loginCtaLabel, loginFootnote, loginSubtitle } from "../../src/auth/login-copy";
 import { legalDocumentUrls } from "../../src/consent/legal-links";
 import { SESSION_EXPIRED_LOGIN_NOTICE } from "../../src/offline/messages";
 import { shouldShowSessionExpiredNotice } from "../../src/offline/session-expiry";
@@ -179,7 +179,18 @@ export default function LoginScreen() {
        * 생성이 서버에서 필수 동의를 검사하므로(apps/api onboarding-core.service.ts의 createChild
        * → assertRequiredConsents), 순서가 뒤집히면 방금 로그인한 사람이 CONSENT_REQUIRED로
        * 막힌다. 데모 경로는 로컬 백엔드라 그 대기가 사실상 즉시라 `void`로 둔 것이다.
-       * 실패했을 때의 재제출 경로는 이미 있다(app/(onboarding)/resume.tsx · SET-003의 재동의).
+       *
+       * 라운드 65 후속(#1) — **주석 정정.** 여기 "재제출 경로는 이미 있다"고 적으며 든 두 자리는
+       * 실제로는 이 상황에서 닿을 수 없었다:
+       *  - `app/(onboarding)/resume.tsx`(ONB-006)는 app/index.tsx가 `hasResumeWorthyProgress`로
+       *    띄우는데, 그 판정의 첫 줄이 `if (!progress.summary.consentsAccepted) return false`다
+       *    (src/onboarding/resume.ts) — 동의 저장이 실패한 계정은 정확히 그 문 앞에서 걸린다.
+       *  - SET-003(설정 > 약관 및 개인정보)의 재동의 버튼은 **탭 안**에 있고, 탭은 온보딩을
+       *    마쳐야 열린다(app/index.tsx). 온보딩이 막힌 사람은 거기 갈 수 없다.
+       * 그래서 복구는 막힌 그 자리에 둔다: ONB-002(app/(onboarding)/child-profile.tsx)가
+       * CONSENT_REQUIRED를 받으면 동의를 다시 올린 뒤 저장을 1회 재시도하고, 그래도 실패하면
+       * [다시 동의하고 저장] 버튼으로 사용자가 직접 한 번 더 시도한다
+       * (문구·판정은 src/onboarding/step-ui.tsx 한 곳).
        */
       await upsertConsents(result.tokens.accessToken).catch(() => undefined);
       router.replace(inviteResumeHref ?? "/onboarding/child-status");
@@ -339,18 +350,12 @@ export default function LoginScreen() {
                 !requiredAccepted || isLoginPending ? styles.loginButtonTextDisabled : null
               ]}
             >
-              {isLoginPending
-                ? "로그인 중..."
-                : isTestLoginEnabled
-                  ? "테스트 계정으로 시작하기"
-                  : "카카오로 시작하기"}
+              {/* 라운드 65 후속(#6): 갈래는 login-copy.ts 한 곳에 있고, 여기 남는 삼항은
+                  갈래가 아니라 **진행 중 상태** 하나뿐이다. */}
+              {isLoginPending ? "로그인 중..." : loginCtaLabel(isTestLoginEnabled)}
             </Text>
           </Pressable>
-          <Text style={styles.testNotice}>
-            {isTestLoginEnabled
-              ? "기록은 이 기기에만 저장되며 실제 카카오 로그인이 아니에요."
-              : "로그인하면 필수 약관 동의가 계정에 저장돼요."}
-          </Text>
+          <Text style={styles.testNotice}>{loginFootnote(isTestLoginEnabled)}</Text>
           {loginError ? (
             <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.errorCard}>
               <Text style={styles.errorText}>{loginError}</Text>

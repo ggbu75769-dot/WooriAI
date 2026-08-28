@@ -61,6 +61,7 @@ import {
   importRowCategoryView,
   importRowDisplay,
   importRowNotice,
+  importStubCategoryPredicate,
   isImportRowSelectable,
   rollbackImportRowSelection,
   setImportRowSelection,
@@ -140,6 +141,8 @@ type ImportRowListItem = {
   categoryOptions: readonly ImportCategoryOption[];
   /** 목록에 없는 id의 이름 해석. 모르면 null을 돌려주고, 그러면 분류 줄 자체가 사라진다. */
   resolveCategoryName: (categoryId: string) => string | null;
+  /** 라운드 65 후속(#8): "가져오기 스텁인가"를 서버 `code`로 답하는 술어. */
+  isImportStubCategory: (categoryId: string) => boolean;
   categoryExpanded: boolean;
   onExpandCategory: ImportRowCategoryExpandHandler;
   onSelectCategory: ImportRowCategorySelectHandler;
@@ -220,11 +223,13 @@ function ImportRowCategoryBlock({
 const LockedImportRowCard = memo(function LockedImportRowCard({
   row,
   categoryOptions,
-  resolveCategoryName
+  resolveCategoryName,
+  isImportStubCategory
 }: {
   row: ImportRow;
   categoryOptions: readonly ImportCategoryOption[];
   resolveCategoryName: (categoryId: string) => string | null;
+  isImportStubCategory: (categoryId: string) => boolean;
 }) {
   const display = importRowDisplay(row);
   const badge = importRowBadge(row);
@@ -233,7 +238,7 @@ const LockedImportRowCard = memo(function LockedImportRowCard({
    * 잠긴 이유는 그대로다). 이 카드는 `accessible` 한 덩어리라 자식 텍스트가 따로 읽히지
    * 않으므로, 분류는 라벨 문자열에도 함께 실어야 스크린리더에 들린다.
    */
-  const category = importRowCategoryView(row, categoryOptions, resolveCategoryName);
+  const category = importRowCategoryView(row, categoryOptions, resolveCategoryName, isImportStubCategory);
 
   return (
     <View
@@ -267,6 +272,7 @@ function ImportRowCard({
   onToggle,
   categoryOptions,
   resolveCategoryName,
+  isImportStubCategory,
   categoryExpanded,
   onExpandCategory,
   onSelectCategory
@@ -276,6 +282,7 @@ function ImportRowCard({
   onToggle: ImportRowToggleHandler;
   categoryOptions: readonly ImportCategoryOption[];
   resolveCategoryName: (categoryId: string) => string | null;
+  isImportStubCategory: (categoryId: string) => boolean;
   categoryExpanded: boolean;
   onExpandCategory: ImportRowCategoryExpandHandler;
   onSelectCategory: ImportRowCategorySelectHandler;
@@ -285,7 +292,7 @@ function ImportRowCard({
   // K-1: 검토 가능 행이면 "체크 = 확인 완료"라는 사실을 한 줄로 말한다(valid 행에는 null).
   const notice = importRowNotice(row);
   const handlePress = useCallback(() => onToggle(row), [onToggle, row]);
-  const category = importRowCategoryView(row, categoryOptions, resolveCategoryName);
+  const category = importRowCategoryView(row, categoryOptions, resolveCategoryName, isImportStubCategory);
   // 목록을 아직 못 받았으면 고를 것이 없다(빈 칩 줄을 그리지 않는다). 편집을 받지 않는 상태
   // (확정 완료·일괄 실행 중·이 행 반영 중)는 체크박스와 같은 판정 하나를 그대로 쓴다.
   const categoryEditable = !disabled && canEditImportRowCategory(row) && categoryOptions.length > 0;
@@ -346,6 +353,7 @@ function renderImportRow({ item }: ListRenderItemInfo<ImportRowListItem>) {
       onToggle={item.onToggle}
       categoryOptions={item.categoryOptions}
       resolveCategoryName={item.resolveCategoryName}
+      isImportStubCategory={item.isImportStubCategory}
       categoryExpanded={item.categoryExpanded}
       onExpandCategory={item.onExpandCategory}
       onSelectCategory={item.onSelectCategory}
@@ -355,6 +363,7 @@ function renderImportRow({ item }: ListRenderItemInfo<ImportRowListItem>) {
       row={item.row}
       categoryOptions={item.categoryOptions}
       resolveCategoryName={item.resolveCategoryName}
+      isImportStubCategory={item.isImportStubCategory}
     />
   );
 }
@@ -510,6 +519,15 @@ export default function ImportPreviewScreen() {
     [serverCategories]
   );
   const resolveCategoryName = useMemo(() => importCategoryNameResolver(serverCategories), [serverCategories]);
+  /**
+   * 라운드 65 후속(#8): "자동으로 분류하지 못했어요 · 분류를 골라 주세요"를 붙일 근거.
+   *
+   * 종전 판정은 "칩 목록에 없으면 스텁"이었는데, 그 목록은 별칭·비활성 행을 걸러 낸 **좁힌**
+   * 목록이라(`selectableCategories`) 멀쩡히 분류된 행에도 재촉이 붙을 수 있었다. 근거를 서버가
+   * 준 `code`(`import_stub_default`)로 바꾼다 -- 같은 `includeAll=1` 응답 안에 이미 있는 값이라
+   * 새 요청은 0건이다.
+   */
+  const isImportStubCategory = useMemo(() => importStubCategoryPredicate(serverCategories), [serverCategories]);
 
   /**
    * UX-S: 검수 화면이 **어느 아이의 가계부**에 쓰는지 한 줄로 밝힌다.
@@ -600,7 +618,12 @@ export default function ImportPreviewScreen() {
   const updateCategory = useMutation({
     mutationFn: ({ row, categoryId }: { row: ImportRow; categoryId: string }) =>
       updateImportRow(authToken!, importJobId, row.id, { categoryId }),
-    onMutate: ({ row }) => {
+    onMutate: async ({ row }) => {
+      // 라운드 65 후속(#5): 진행 중인 목록 재조회를 먼저 세운다 — `toggleRow.onMutate`와 같은
+      // 한 줄이다. onSuccess가 서버가 돌려준 행을 캐시에 꽂는데, 그 사이 날아가던 refetch가
+      // 뒤늦게 착지하면 **분류를 고르기 전의 행**으로 되돌아간다(사용자가 고른 값이 조용히
+      // 사라지고, 잠금이 풀린 뒤에야 보인다).
+      await queryClient.cancelQueries({ queryKey: rowsQueryKey });
       setPendingRowIds((ids) => {
         const next = new Set(ids);
         next.add(row.id);
@@ -891,6 +914,7 @@ export default function ImportPreviewScreen() {
         onToggle: handleToggle,
         categoryOptions,
         resolveCategoryName,
+        isImportStubCategory,
         categoryExpanded: expandedCategoryRowId === row.id,
         onExpandCategory: handleExpandCategory,
         onSelectCategory: handleSelectCategory
@@ -903,6 +927,7 @@ export default function ImportPreviewScreen() {
       handleSelectCategory,
       handleToggle,
       isBulkRunning,
+      isImportStubCategory,
       isPreviewReady,
       pendingRowIds,
       resolveCategoryName

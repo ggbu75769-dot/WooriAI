@@ -81,7 +81,8 @@ describe("EXP-106 expense CSV builder", () => {
       keywordsByRole[entry[1]] = [...entry[2].matchAll(/"([^"]+)"/g)].map((keyword) => keyword[1]);
     }
     // 표가 실제로 읽혔는지부터 (정규식이 조용히 죽으면 아래 단언이 전부 무의미해진다).
-    expect(Object.keys(keywordsByRole).sort()).toEqual(["amount", "date", "item", "memo"]);
+    // 라운드 65 후속(#2): item 후보가 두 등급으로 갈렸다 — 구체어(`item`)와 폴백(`itemFallback`).
+    expect(Object.keys(keywordsByRole).sort()).toEqual(["amount", "date", "item", "itemFallback", "memo"]);
     for (const role of Object.keys(keywordsByRole)) {
       expect(keywordsByRole[role].length, `${role} 키워드가 비었다`).toBeGreaterThan(0);
     }
@@ -94,13 +95,23 @@ describe("EXP-106 expense CSV builder", () => {
         .sort();
 
     expect(rolesFor("날짜")).toEqual(["date"]);
-    expect(rolesFor("항목")).toEqual(["item"]);
+    // 라운드 65 후속(#2): `항목`은 **폴백**이다 — 구체어(적요·내용·상품명 …)가 헤더에 하나라도
+    // 있으면 그 열이 품목 열이 되고, `항목`은 물러난다(은행 양식에서 `항목`은 분류 열이다).
+    expect(rolesFor("항목")).toEqual(["itemFallback"]);
     expect(rolesFor("금액(원)")).toEqual(["amount"]);
     expect(rolesFor("메모")).toEqual(["memo"]);
     // 나머지 다섯 열은 어떤 역할도 가로채지 않는다. 특히 "결제수단"은 date 키워드 "결제일"·
     // amount 키워드 "결제금액" 어느 쪽도 포함하지 않고, "판매처"는 item 키워드가 아니다.
     for (const column of ["구분", "카테고리", "판매처", "결제수단", "출처"]) {
       expect(rolesFor(column), `${column} 는 어떤 역할도 가져가면 안 된다`).toEqual([]);
+    }
+    // 그래서 **우리 파일에서는 폴백이 실제로 이긴다**: 아홉 열 중 어느 것도 구체어를 물지 않는다.
+    // (하나라도 물면 `항목`이 밀려나고 라운드 65 A(#1)이 살린 왕복이 다시 깨진다.)
+    for (const column of columns) {
+      expect(
+        keywordsByRole.item.some((keyword) => column.includes(keyword)),
+        `${column} 이 item 구체어를 물면 항목 열이 밀려난다`
+      ).toBe(false);
     }
   });
 

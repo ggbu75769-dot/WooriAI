@@ -8,6 +8,13 @@ import { useAnalyticsConsentStore } from "../analytics/flag";
 import { useSessionStore } from "../stores/session.store";
 import { Card, SecondaryButton } from "../ui";
 import { theme } from "../theme";
+// 라운드 65 후속(#1): 동의 미저장 실패의 판정·문구·복구 규칙은 화면이 아니라 순수 모듈에 있다
+// (react-native를 끌고 오지 않아 vitest에서 그대로 단위 테스트한다 -- consent-recovery.test.ts).
+import {
+  isOnboardingConsentRequired,
+  ONBOARDING_CONSENT_REQUIRED_MESSAGE,
+  ONBOARDING_CONSENT_RETRY_ACTION_LABEL
+} from "./consent-recovery";
 import { onboardingSteps, type OnboardingScreenId } from "./steps";
 
 // ONB-105: shared step progress indicator for the four onboarding step screens.
@@ -76,8 +83,12 @@ export function isOnboardingSaveForbidden(error: unknown): boolean {
   return hasApiErrorCode(error, "FORBIDDEN");
 }
 
-/** 저장 실패 -> 화면 문구. 403만 갈라내고 나머지는 종전 문구 그대로다(문구 자체는 안 바뀐다). */
+/**
+ * 저장 실패 -> 화면 문구. 아는 코드 둘만 갈라내고 나머지는 종전 문구 그대로다.
+ * `CONSENT_REQUIRED`를 먼저 본다 — 둘 다 403이지만 이쪽이 더 구체적인 사실이다.
+ */
 export function onboardingSaveErrorMessage(error: unknown): string {
+  if (isOnboardingConsentRequired(error)) return ONBOARDING_CONSENT_REQUIRED_MESSAGE;
   return isOnboardingSaveForbidden(error) ? ONBOARDING_SAVE_FORBIDDEN_MESSAGE : ONBOARDING_SAVE_FAILED_MESSAGE;
 }
 
@@ -87,16 +98,25 @@ export function onboardingSaveErrorMessage(error: unknown): string {
 //
 // 라운드 60 #3: `error`를 받으면 문구가 실패 종류에 따라 갈리고, 403일 때는 [재시도] 버튼
 // 자체를 내린다 -- 다시 눌러도 결과가 같은 자리에 버튼을 두는 것이 무한 재시도의 입구였다.
+//
+// 라운드 65 후속(#1): `CONSENT_REQUIRED`에는 **전용 버튼**이 선다(`onReconsent`). 그냥 [재시도]는
+// 같은 저장을 다시 보낼 뿐이라 결과가 같고, 이 실패를 푸는 유일한 행동은 동의를 서버에 다시
+// 올리는 것이기 때문이다. 배선이 없는 화면(`onReconsent` 미전달)에서는 종전대로 [재시도]가
+// 서고, 그때도 문구만큼은 사실을 말한다 — 버튼이 없다고 거짓 문구로 되돌아가지는 않는다.
 export function OnboardingSaveErrorCard({
   error,
   message,
+  onReconsent,
   onRetry
 }: {
   error?: unknown;
   message?: string;
+  /** CONSENT_REQUIRED 복구: 동의를 다시 올린 뒤 원래 저장을 1회 재시도하는 핸들러. */
+  onReconsent?: () => void;
   onRetry: () => void;
 }) {
   const forbidden = isOnboardingSaveForbidden(error);
+  const consentRequired = isOnboardingConsentRequired(error);
   const text = message ?? onboardingSaveErrorMessage(error);
   return (
     <View accessibilityRole="alert">
@@ -114,7 +134,15 @@ export function OnboardingSaveErrorCard({
           />
           <Text style={{ color: theme.colors.brown, flex: 1, fontSize: theme.typography.body2.fontSize }}>{text}</Text>
         </View>
-        {forbidden ? null : <SecondaryButton accessibilityLabel="저장 재시도" label="재시도" onPress={onRetry} />}
+        {consentRequired && onReconsent ? (
+          <SecondaryButton
+            accessibilityLabel={ONBOARDING_CONSENT_RETRY_ACTION_LABEL}
+            label={ONBOARDING_CONSENT_RETRY_ACTION_LABEL}
+            onPress={onReconsent}
+          />
+        ) : forbidden ? null : (
+          <SecondaryButton accessibilityLabel="저장 재시도" label="재시도" onPress={onRetry} />
+        )}
       </Card>
     </View>
   );

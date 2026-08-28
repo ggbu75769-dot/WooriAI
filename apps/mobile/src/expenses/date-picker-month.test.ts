@@ -350,6 +350,11 @@ describe("라운드 65 D — direction: \"future\"(출산 예정일)", () => {
     const fullTerm = calculateChildStage({ stageMode: "pregnant", dueDate: TODAY, today: TODAY });
     expect("pregnancyWeek" in fullTerm && fullTerm.pregnancyWeek).toBe(EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS);
     expect(EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS).toBe(40);
+    // 라운드 65 후속(정보 반영): **0이면 미래 쪽이 통째로 잠긴다.** `readFullTermPregnancyWeeks`는
+    // 도메인 응답에 `pregnancyWeek`가 없으면 0을 돌려주므로(도메인이 만삭 응답의 모양을 바꾸면
+    // 조용히 그렇게 된다), 출산 예정일 달력이 오늘 이후를 하나도 못 고르는 상태가 아무 오류
+    // 없이 만들어질 수 있다. 위 `toBe(40)`을 새 값으로 갱신하는 날에도 이 하한은 남는다.
+    expect(EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS, "만삭 주차가 0이면 미래 달력이 통째로 잠긴다").toBeGreaterThan(0);
     expect(EXPENSE_DATE_PICKER_MAX_FUTURE_DAYS).toBe(EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS * 7);
     // 그리고 그 값은 **소스에서도** 도메인을 거쳐 들어온다 — 40도 280도 여기 다시 적히지 않는다.
     const moduleSource = readFileSync(join(process.cwd(), "src/expenses/date-picker-month.ts"), "utf8");
