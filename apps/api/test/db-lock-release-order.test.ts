@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { assertReleaseOrderingGuarantee, findConcurrentRuns } from "./helpers/shared-db-lock";
+import { assertReleaseOrderingGuarantee, concurrentRunsWarning, findConcurrentRuns } from "./helpers/shared-db-lock";
 
 /**
  * 라운드 61 A — 공유 DB 락의 **반납 순서 불변식**을 런타임에 고정하는 하네스 테스트.
@@ -54,12 +54,13 @@ describe("공유 DB 락 — 반납 순서 불변식 (라운드 61 A)", () => {
       globalThis as { __vitest_worker__?: { config?: { sequence?: { hooks?: unknown } } } }
     ).__vitest_worker__?.config?.sequence?.hooks;
 
-    // 내부 상태라 읽히지 않을 수 있다(가드도 그때는 검사를 건너뛴다). 다만 읽혔다면
-    // 반드시 "stack"이어야 한다 — 읽히지 않는다면 그 사실 자체를 남긴다.
-    expect(
-      hooks === undefined || hooks === "stack",
-      `적용된 sequence.hooks가 "${String(hooks)}"예요 — 락 반납이 스위트 정리보다 먼저 돌아요.`
-    ).toBe(true);
+    // 라운드 61 S-6: 여기에 있던 `hooks === undefined || hooks === "stack"` 단언은 지웠다.
+    // 바로 아래 단언이 `hooks`를 "stack"으로 못 박으므로 undefined를 허용하는 위 줄과 서로
+    // 모순되게 읽혔다(둘 다 통과하는 값은 "stack" 하나뿐이라, 앞 줄은 아무것도 더 고정하지
+    // 않으면서 "undefined도 괜찮다"는 반대 뜻만 전달했다). 의도 자체는 그대로다 —
+    // `assertReleaseOrderingGuarantee`는 값을 **읽지 못하면** 검사를 건너뛰지만(그 동작은
+    // 아래 "가드가 …" 테스트가 직접 고정한다), 이 저장소가 쓰는 vitest 버전에서는 실제로
+    // 읽혀야 하고 그 값은 "stack"이어야 한다. 읽히지 않으면 그 사실 자체가 여기서 빨간불이 된다.
     expect(
       hooks,
       "__vitest_worker__.config를 읽지 못했어요 — assertReleaseOrderingGuarantee가 조용히 " +
@@ -123,6 +124,81 @@ describe("공유 DB 락 — 반납 순서 불변식 (라운드 61 A)", () => {
     } finally {
       rmSync(registryDir, { recursive: true, force: true });
     }
+  });
+
+  /**
+   * 라운드 61 M-2 — 감지가 globalSetup 한 번뿐이면 **먼저 시작한 실행에는 영영 뜨지 않는다.**
+   * 그 실행이야말로 남의 배타 스위트가 자기 위로 겹쳐 들어와 깨지는 쪽인데, 이유를 한 줄도
+   * 보지 못했다. 그래서 같은 검사를 배타 획득 직후와 teardown에도 둔다(진단 전용).
+   */
+  it("동시 실행 경고를 globalSetup·배타 획득 직후·teardown 세 자리에서 본다", () => {
+    const source = readFileSync(join(API_ROOT, "test", "helpers", "shared-db-lock.ts"), "utf8");
+
+    // ① 배타 스위트가 마커를 잡은 직후 — 그 스위트가 "지금부터 나 혼자"라고 믿기 시작하는 자리.
+    const exclusive = source.slice(
+      source.indexOf("async function acquireExclusive"),
+      source.indexOf("async function acquireShared(")
+    );
+    expect(exclusive).toContain("warnIfConcurrentRuns(");
+    // 마커를 잡은 **뒤**여야 의미가 있다(획득 대기 루프 안에서 매 tick 경고하지 않는다).
+    expect(exclusive.indexOf("warnIfConcurrentRuns(")).toBeGreaterThan(exclusive.indexOf("while (!tryTakeWriterMarker"));
+
+    // ② teardown — 이 실행이 도는 중간에 시작된 남의 실행은 globalSetup이 볼 수 없었다.
+    const teardown = source.slice(source.indexOf("export function removeLockDir"));
+    expect(teardown.slice(0, teardown.indexOf("\n}"))).toContain("warnIfConcurrentRuns(");
+
+    // ③ 진단이 실행을 깨서는 안 된다 — 검사 전체가 예외를 삼킨다.
+    const helper = source.slice(source.indexOf("function warnIfConcurrentRuns"));
+    const body = helper.slice(0, helper.indexOf("\n}\n"));
+    expect(body).toContain("try {");
+    expect(body).toContain("} catch {");
+    expect(body).not.toContain("throw");
+
+    // ④ 자기 자신은 **pid가 아니라 락 디렉터리로** 가린다. 위 ①은 forks 풀의 워커 프로세스에서
+    //    도는데 레지스트리 기록은 globalSetup(메인 프로세스)의 pid로 쓰였으므로, pid 비교만
+    //    믿으면 워커가 자기 실행을 남의 실행으로 보고 매번 헛경고를 낸다.
+    expect(body).toContain("run.lockDir !== selfLockDir");
+  });
+
+  /**
+   * 위 ④의 실제 동작. 같은 실행의 기록(락 디렉터리가 같다)은 pid가 달라도 경고 대상이 아니고,
+   * 락 디렉터리가 다른 기록만 남의 실행이다.
+   */
+  it("같은 실행의 기록은 pid가 달라도 남의 실행으로 세지 않는다 (락 디렉터리로 판정)", () => {
+    const registryDir = mkdtempSync(join(tmpdir(), "wooriai-lock-registry-self-"));
+    try {
+      const selfLockDir = "/tmp/wooriai-api-test-db-lock-4242";
+      const record = (pid: number, lockDir: string) =>
+        JSON.stringify({ pid, startedAt: new Date().toISOString(), lockDir });
+      // globalSetup(메인 프로세스)의 기록 — 워커에서 보면 pid가 다르다.
+      writeFileSync(join(registryDir, "own-globalsetup.json"), record(process.pid, selfLockDir));
+      // 진짜 남의 실행 — 락 디렉터리가 다르다.
+      writeFileSync(join(registryDir, "foreign.json"), record(process.pid, "/tmp/wooriai-api-test-db-lock-9999"));
+
+      // selfPid를 달리 주어 "워커에서 본 모습"을 만든다: pid 비교만으로는 둘 다 남의 실행이다.
+      const byPid = findConcurrentRuns(registryDir, -1);
+      expect(byPid).toHaveLength(2);
+      // 락 디렉터리로 한 겹 더 거르면 진짜 남의 실행 하나만 남는다(warnIfConcurrentRuns의 규칙).
+      expect(byPid.filter((run) => run.lockDir !== selfLockDir).map((run) => run.lockDir)).toEqual([
+        "/tmp/wooriai-api-test-db-lock-9999"
+      ]);
+    } finally {
+      rmSync(registryDir, { recursive: true, force: true });
+    }
+  });
+
+  it("경고 문구가 깨지는 모양의 서명을 그대로 인용하고, 감지 시점을 밝힌다", () => {
+    const text = concurrentRunsWarning(
+      [{ pid: 4242, startedAt: "2026-08-28T00:00:00.000Z", lockDir: "/tmp/whatever" }],
+      "배타 스위트 some.test.ts가 락을 잡은 직후"
+    );
+    // 라운드 61 A가 정한 인용 스타일 — 사용자가 자기 빨간불과 이 경고를 눈으로 잇는 고리다.
+    expect(text).toContain('"expected 2 to be 1"');
+    expect(text).toContain("pid 4242 (2026-08-28T00:00:00.000Z)");
+    // 세 자리가 같은 문구를 쓰되 어디서 잡혔는지는 갈린다(M-2).
+    expect(text).toContain("감지 시점: 배타 스위트 some.test.ts가 락을 잡은 직후");
+    // 실패시키지 않는다는 사실이 문구에서도 읽혀야 한다(지시가 아니라 제안).
+    expect(text).toContain("한 번에 하나만");
   });
 
   it("모든 스위트가 반드시 지나는 acquireSharedDb가 그 가드를 호출한다", () => {

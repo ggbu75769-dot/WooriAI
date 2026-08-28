@@ -43,8 +43,18 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * 않으므로, 로그인 상태의 관리자가 이 잡 때문에 튕기는 일은 구조적으로 불가능하다
  * (`expires_at`/`revoked_at`이 과거 30일보다 더 과거인 행만 후보다).
  *
- * 선택은 `expires_at`/`revoked_at` 위에서만 이뤄지고, 전자는
- * idx_admin_sessions_expires_at이 그대로 서빙한다 — 새 인덱스는 필요 없다.
+ * ## 인덱스 (라운드 61 S-1 정정)
+ *
+ * 이 자리에는 "선택은 expires_at/revoked_at 위에서만 이뤄지고, 전자는
+ * idx_admin_sessions_expires_at이 그대로 서빙한다 — 새 인덱스는 필요 없다"고 적혀 있었다.
+ * **틀린 문장이었다.** 아래 술어는 OR 둘이고(`expires_at < c OR revoked_at < c`), Postgres가
+ * 그 모양을 인덱스로 푸는 방법은 **두 분기 모두** 인덱스로 뽑아 BitmapOr로 합치는 것뿐이다.
+ * revoked_at 쪽에 인덱스가 없으면 BitmapOr가 성립하지 않아 플래너는 테이블 전체 seq scan으로
+ * 되돌아간다 — 즉 있던 expires_at 인덱스도 이 쿼리에서는 쓰이지 않았다.
+ *
+ * 그래서 000021이 `idx_admin_sessions_revoked_at (revoked_at) WHERE revoked_at IS NOT NULL`을
+ * 추가한다. 모양·근거는 refresh-token-cleanup.job.ts가 쓰는 000011 §4의 부분 인덱스와 같고
+ * (술어가 글자까지 같다), 부분 인덱스라 schema.prisma에는 주석으로만 남는다.
  */
 @Injectable()
 export class AdminSessionCleanupJob implements WorkerJob {

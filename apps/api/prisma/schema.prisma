@@ -649,6 +649,10 @@ model AdminSession {
   userAgent   String?   @map("user_agent") @db.Text
   revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
 
+  // 라운드 61 S-1(000021): SQL 전용 부분 인덱스 idx_admin_sessions_revoked_at
+  // (revoked_at) WHERE revoked_at IS NOT NULL 이 별도로 존재한다(정리 워커의
+  // OR revoked_at < cutoff 분기용, Prisma @@index 표현 불가 — 000011의
+  // idx_refresh_tokens_revoked_at과 같은 관례).
   @@index([adminUserId], map: "idx_admin_sessions_admin_user_id")
   @@index([expiresAt], map: "idx_admin_sessions_expires_at")
   @@map("admin_sessions")

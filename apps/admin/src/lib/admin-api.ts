@@ -748,7 +748,16 @@ export type AdminAnalyticsSummary = {
   funnel: AdminAnalyticsFunnel;
   /** ANA-128: purchase_followup_answered의 answer 3갈래 분해. */
   purchaseFollowup: AdminPurchaseFollowupBreakdown;
-  /** 라운드 61 #5: onboarding_step_viewed의 step 단계별 분해 (레지스트리 순서, 0건 포함). */
+  /**
+   * 라운드 61 #5: onboarding_step_viewed의 step 단계별 분해 (레지스트리 순서, 0건 포함).
+   *
+   * 라운드 61 S-2 — 이 타입은 **지금 계약이 무엇을 주기로 했는가**의 미러라 필수로 둔다. 다만
+   * 실행 시점의 응답은 그것과 다를 수 있다(정적 번들이 API보다 앞서 배포되거나 API가 롤백된
+   * 경우 이 키가 아예 없다). 읽는 쪽은 그래서 `?? []`로 방어한다 —
+   * `src/lib/onboarding-steps-view.ts`가 그 자리이고, 왜 0으로 그리는 것이 거짓이 아닌지의
+   * 근거도 그 파일 머리말에 있다. 방어가 없으면 카드 하나가 아니라 분석 페이지 전체가 오류
+   * 경계로 떨어진다.
+   */
   onboardingSteps: AdminOnboardingStepBreakdown[];
   /** count(distinct user_anon_id) in the window. */
   uniqueAnonUsers: number;

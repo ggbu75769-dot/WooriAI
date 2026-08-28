@@ -134,8 +134,23 @@ C-5·C-6에는 코드로 증명할 수 없는 **낭독 순서**와 **제스처 �
   (버전당 한 트랜잭션, 실패 시 통째 롤백, 다운그레이드 감지 — `src/offline/sqlite-offline-store.ts`,
   `src/offline/sqlite-migrations.test.ts`).
   남은 실기기 확인 항목은 "경로가 있는가"가 아니라 **구버전 APK로 만든 실제 기기 데이터가 새
-  빌드에서 마이그레이션되는가**, 그리고 마이그레이션이 실패했을 때 사용자에게 무엇이 보이는가다
-  (round58-scout P3 "마이그레이션 실패 시 사용자 가시성" — 의도된 브릭이지만 표시 미확인).
+  빌드에서 마이그레이션되는가**다.
+  - 그 옆에 있던 "마이그레이션이 실패했을 때 사용자에게 무엇이 보이는가"(round58-scout P3
+    "마이그레이션 실패 시 사용자 가시성" — 의도된 브릭이지만 표시 미확인)는 **열린 질문이 아니라
+    확인 항목으로 좁혀졌다(2026-08-28 갱신).** 코드가 답을 갖고 있기 때문이다: 저장소를 열지
+    못하면 스냅샷이 `storage: "unavailable"`을 싣고(`apps/mobile/src/offline/sync-controller.ts`),
+    두 화면이 그 사실을 말한다.
+  - 그래서 기기에서 볼 것은 다음 두 줄이 **실제로 뜨는가**다(문구 단일 소스는
+    `apps/mobile/src/offline/messages.ts`):
+    1. 동기화 상태 화면(`app/sync-status.tsx`)의 빈 상태에 `OFFLINE_STORAGE_UNAVAILABLE_NOTICE`
+       한 줄 — "모든 기록이 동기화됐어요."가 아니어야 한다. **재오픈 게이트가 그 세션에 딱 한 번
+       재시도하는 동작**(`src/offline/store-open-gate.ts`)까지 포함해 본다: 첫 실패 뒤 화면을
+       다시 열어도 재시도는 더 늘지 않고, 다음 기회는 앱 재시작이다.
+    2. 홈 최하단 동기화 줄(`app/(tabs)/index.tsx`의 `SyncStatusBar`)이 같은 상황에서 `"unknown"`
+       톤(경고)으로 `OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE`를 보여야 한다 — 라운드 61 M-1
+       전에는 빈 스냅샷의 0건을 완료로 읽어 "모든 기록이 동기화됐어요."라고 단언했다
+       (`src/home/home-sync-status.ts`).
+    재현 방법은 기기 저장소를 못 열게 만드는 것이다(저장 공간 고갈, 또는 DB 파일 손상/권한 제거).
 - `startTestSession()`과 persist rehydration의 이론적 경쟁 (실사용 타이밍상 희박)
 - ~~임포트 실제 파싱(xlsx/csv 내용 분석)은 AI 분석 스텁~~ — **더 이상 스텁이 아니다(2026-08-28
   정정).** 서버가 실제 파일을 파싱한다: csv(인코딩 판별 포함)·xlsx 헤더 추론, 날짜/금액/적요 열

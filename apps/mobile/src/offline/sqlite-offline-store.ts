@@ -332,7 +332,22 @@ export const SYNCED_ROW_RETENTION_DAYS = 90;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** 이 시각(ISO 8601)보다 **오래된** synced 행이 파기 대상이다. 경계값 자신은 남는다(`<` 비교). */
+/**
+ * 이 시각(ISO 8601)보다 **오래된** synced 행이 파기 대상이다. 경계값 자신은 남는다(`<` 비교).
+ *
+ * 라운드 61 I-6 — **기기 시계에 기대는 값이다.** `Date.now()`가 크게 앞서 있으면(사용자가 날짜를
+ * 미래로 돌려 둔 기기, 배터리 방전 후의 RTC 오작동) 이 경계가 함께 앞서서, 부팅 한 번에 이
+ * 기기의 synced 이력이 **전량** 파기될 수 있다. 그것을 알고 수용한다:
+ *
+ *  - 파기 대상은 `canonical_id IS NOT NULL`인 행뿐이다(아래 SQL의 4번 조건). 즉 **서버에 사본이
+ *    있는 행**만 지워지므로 데이터 손실이 아니다 — 다음 조회·델타 동기화가 그 지출을 다시 가져온다.
+ *  - 잃는 것은 **오프라인 자동완성 이력**뿐이다(제안 모집단 — src/expenses/suggest-source.ts).
+ *    네트워크가 있으면 서버 값이 다시 채우고, 없으면 최근 칩·품목 제안이 한동안 비는 것이 전부다.
+ *  - 반대로 시계를 믿지 않으려면 "서버가 알려 준 시각"을 따로 들고 있어야 하는데, 이 정리는
+ *    **네트워크 이전**(저장소를 여는 그 순간)에 돌아야 하므로 그런 기준을 쓸 수 없다.
+ *
+ * 시계가 뒤로 크게 어긋난 경우는 반대로 아무것도 지워지지 않을 뿐이라 위험이 없다.
+ */
 export function syncedRowPurgeCutoff(nowMs: number = Date.now(), days: number = SYNCED_ROW_RETENTION_DAYS): string {
   return new Date(nowMs - days * DAY_MS).toISOString();
 }

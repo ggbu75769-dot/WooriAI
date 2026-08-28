@@ -180,9 +180,17 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     childId: canExport ? childId : null,
     range,
     todaySeoul: getSeoulToday(),
-    custom: customRange
+    custom: customRange,
+    // 라운드 61 S-4: 위 `rows`를 믿어도 되는가. 저장소를 못 연 부팅에서는 빈 초깃값이라
+    // 여기서 세면 0건이 되고, 0건이면 이 고지가 통째로 사라져 파일이 전량인 것처럼 읽힌다.
+    storage: offlineSyncSnapshot.storage
   });
   const pendingCount = pendingNotice?.count ?? 0;
+  /**
+   * 라운드 61 S-4 — 토스트 꼬리표가 같은 사실을 읽도록 숫자와 함께 뽑아 둔다
+   * (`pendingUnsendableCount`와 같은 이유 — 매 렌더 새 객체를 의존성에 넣지 않는다).
+   */
+  const pendingStorage = offlineSyncSnapshot.storage;
   /**
    * 라운드 59 트랙 A 후속 배선 — 그중 **보낼 수 없는**(영구 실패 4xx) 건수.
    *
@@ -218,7 +226,7 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
         // GAP-056 #3: 서버에 0건이어도 이 기기에는 대기 행이 있을 수 있다. "기록이 없어요"로
         // 끝내면 방금 오프라인에서 적은 사람에게 그 기록이 사라진 것처럼 읽힌다.
         showToast(
-          `선택한 기간에 내보낼 기록이 없어요.${exportPendingToastSuffix(pendingCount, pendingUnsendableCount)}`,
+          `선택한 기간에 내보낼 기록이 없어요.${exportPendingToastSuffix(pendingCount, pendingUnsendableCount, pendingStorage)}`,
           "error"
         );
         return;
@@ -244,7 +252,7 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
       // 한 줄로 둔다: 이 호출의 인자 모양(성공 단정이 플랫폼 판정을 거친다는 사실)이 곧
       // src/export-flow.test.ts가 지는 계약이다.
       const shareMessage = csvShareToastMessage({ outcomeKnown: outcome.outcomeKnown, rowCount: sharedRowCount, truncated, rowCapTruncated });
-      showToast(`${shareMessage}${exportPendingToastSuffix(pendingCount, pendingUnsendableCount)}`, "success");
+      showToast(`${shareMessage}${exportPendingToastSuffix(pendingCount, pendingUnsendableCount, pendingStorage)}`, "success");
     } catch (error) {
       // CSV-124: 전량을 모으지 못한 경우는 "잠시 후 다시 시도"로 뭉뚱그리면 사용자가 같은 실패를
       // 반복한다. 원인(기록이 너무 많음)과 다음 행동(기간 좁히기)을 그대로 알린다.
@@ -268,7 +276,7 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     } finally {
       setBusy(false);
     }
-  }, [authToken, busy, categories.data?.categories, childId, customRange, pendingCount, pendingUnsendableCount, range, showToast]);
+  }, [authToken, busy, categories.data?.categories, childId, customRange, pendingCount, pendingStorage, pendingUnsendableCount, range, showToast]);
 
   return {
     busy,

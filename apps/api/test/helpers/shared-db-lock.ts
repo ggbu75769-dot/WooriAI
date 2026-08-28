@@ -172,7 +172,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  */
 const RUN_REGISTRY_PREFIX = "wooriai-api-test-runs";
 
-type RunRecord = { pid: number; startedAt: string; lockDir: string };
+export type RunRecord = { pid: number; startedAt: string; lockDir: string };
 
 /** 같은 DATABASE_URL을 쓰는 실행끼리만 서로를 본다 — 다른 DB를 향한 실행은 무관하다. */
 function runRegistryDir(databaseUrl = process.env.DATABASE_URL ?? "unset"): string {
@@ -226,6 +226,59 @@ export function findConcurrentRuns(registryDir = runRegistryDir(), selfPid = pro
  * environment so worker threads inherit it. Called from globalSetup, which runs in
  * the main process before any worker exists.
  */
+/**
+ * 동시 실행 경고 한 덩어리. 문구는 라운드 61 A가 정한 그대로이고(전역 델타가 깨질 때의
+ * 서명 `expected 2 to be 1`을 인용한다), 달라지는 것은 **언제 감지했는지** 한 줄뿐이다.
+ */
+export function concurrentRunsWarning(others: RunRecord[], context: string): string {
+  const list = others.map((run) => `pid ${run.pid} (${run.startedAt})`).join(", ");
+  return (
+    `\n[shared-db-lock] ⚠️ 같은 테스트 DB를 쓰는 api 테스트 실행이 이미 돌고 있어요: ${list}.\n` +
+    `(감지 시점: ${context})\n` +
+    `이 락은 **한 실행 안에서만** 배타를 보장해요(락 디렉터리가 실행 pid로 나뉘어요). 두 실행의 ` +
+    `배타 스위트는 서로를 보지 못한 채 겹쳐 돌고, 전역 델타 단언이 "expected 2 to be 1" 같은 ` +
+    `모양으로 깨질 수 있어요.\n` +
+    `이 실행이 그렇게 깨졌다면 코드가 아니라 이 동시 실행을 먼저 의심해 주세요 — 한 번에 하나만 ` +
+    `돌리거나, DATABASE_URL로 실행마다 다른 DB를 주세요. (라운드 61 A / docs/5차/round61-backlog.md B-1)\n`
+  );
+}
+
+/**
+ * 라운드 61 M-2 — **경고는 실행 중에도, 실행 끝에도 다시 본다.**
+ *
+ * 라운드 61 A가 심은 감지는 `createLockDir`(globalSetup) 한 번뿐이라 **먼저 시작한 실행에는
+ * 영영 뜨지 않았다**: 나중에 시작한 실행만 앞선 실행을 보고, 정작 그 앞선 실행은 자기 위로
+ * 남의 배타 스위트가 겹쳐 들어와 `expected 2 to be 1`로 깨지면서도 이유를 한 줄도 못 봤다.
+ * 그래서 같은 검사를 두 자리에 더 둔다 — 배타 스위트가 마커를 잡은 직후(그 스위트가 곧
+ * 전역 델타를 세기 시작하는 자리)와 teardown(실행 끝에 요약으로 한 번 더).
+ *
+ * **진단 전용이다.** 실패시키지 않고, 예외도 전부 삼킨다 — 이 검사가 실행을 깨면 막으려는
+ * 플레이크보다 나쁘다. 비용은 `readdir` 한 번이고, 배타 스위트는 다섯뿐이라 무시할 수 있다
+ * (test/helpers/exclusive-suites.ts).
+ */
+function warnIfConcurrentRuns(context: string): void {
+  try {
+    // 워커에는 globalSetup이 심은 env가 있지만, 없더라도 같은 DATABASE_URL에서 같은 경로가 나온다.
+    const registryDir = process.env[RUN_REGISTRY_ENV] ?? runRegistryDir();
+    /**
+     * **pid가 아니라 락 디렉터리로 자기 자신을 가린다.** 레지스트리 기록은 globalSetup(메인
+     * 프로세스)이 그 pid로 쓰는데, 이 함수가 도는 자리 하나(`acquireExclusive`)는 vitest의
+     * forks 풀 **워커 프로세스**라 pid가 다르다. `findConcurrentRuns`의 pid 비교만 믿으면 그
+     * 워커는 자기 실행의 globalSetup 기록을 "남의 실행"으로 보고 매번 헛경고를 낸다.
+     *
+     * 한 실행의 워커와 globalSetup이 공유하는 것은 락 디렉터리 경로다(LOCK_DIR_ENV로 상속되고,
+     * 기록에도 `lockDir`로 함께 적힌다 — 정확히 이런 대조를 위해 들어 있는 필드다).
+     */
+    const selfLockDir = process.env[LOCK_DIR_ENV];
+    const others = findConcurrentRuns(registryDir).filter((run) => run.lockDir !== selfLockDir);
+    if (others.length > 0) {
+      console.warn(concurrentRunsWarning(others, context));
+    }
+  } catch {
+    // 진단이 실행을 깨면 안 된다.
+  }
+}
+
 export function createLockDir(): string {
   const dir = join(tmpdir(), `wooriai-api-test-db-lock-${process.pid}`);
   rmSync(dir, { recursive: true, force: true });
@@ -238,15 +291,7 @@ export function createLockDir(): string {
     mkdirSync(registryDir, { recursive: true });
     const others = findConcurrentRuns(registryDir);
     if (others.length > 0) {
-      const list = others.map((run) => `pid ${run.pid} (${run.startedAt})`).join(", ");
-      console.warn(
-        `\n[shared-db-lock] ⚠️ 같은 테스트 DB를 쓰는 api 테스트 실행이 이미 돌고 있어요: ${list}.\n` +
-          `이 락은 **한 실행 안에서만** 배타를 보장해요(락 디렉터리가 실행 pid로 나뉘어요). 두 실행의 ` +
-          `배타 스위트는 서로를 보지 못한 채 겹쳐 돌고, 전역 델타 단언이 "expected 2 to be 1" 같은 ` +
-          `모양으로 깨질 수 있어요.\n` +
-          `이 실행이 그렇게 깨졌다면 코드가 아니라 이 동시 실행을 먼저 의심해 주세요 — 한 번에 하나만 ` +
-          `돌리거나, DATABASE_URL로 실행마다 다른 DB를 주세요. (라운드 61 A / docs/5차/round61-backlog.md B-1)\n`
-      );
+      console.warn(concurrentRunsWarning(others, "globalSetup 시작"));
     }
     // 원자적으로 쓴다(write→rename): 동시에 시작한 다른 실행이 절반만 쓰인 JSON을 읽고
     // "손상된 기록"으로 지워 버리면, 정작 경고해야 할 그 실행을 못 보게 된다.
@@ -267,6 +312,9 @@ export function createLockDir(): string {
 
 /** Removes this run's lock directory. Called from globalSetup's teardown. */
 export function removeLockDir() {
+  // 라운드 61 M-2: 실행 **끝에도** 한 번 더 본다. 이 실행이 도는 중간에 남의 실행이 시작됐다면
+  // globalSetup의 검사는 그것을 볼 수 없었다 — 여기서 뜬 경고가 그 실행의 빨간불을 설명한다.
+  warnIfConcurrentRuns("globalSetup teardown (실행 종료)");
   const registryDir = process.env[RUN_REGISTRY_ENV];
   if (registryDir) {
     rmSync(join(registryDir, `${process.pid}.json`), { force: true });
@@ -407,6 +455,11 @@ async function acquireExclusive(dir: string, id: string): Promise<LockRelease> {
     }
     await sleep(POLL_MS);
   }
+
+  // 라운드 61 M-2: 마커를 잡은 **직후**가 이 실행이 "지금부터 나 혼자"라고 믿기 시작하는
+  // 자리다. 그 믿음이 성립하지 않는 유일한 경우(같은 DB를 향한 남의 실행)를 여기서 한 번 더
+  // 확인한다 — globalSetup의 검사는 이 실행보다 나중에 시작한 실행을 볼 수 없었다.
+  warnIfConcurrentRuns(`배타 스위트 ${id}가 락을 잡은 직후`);
 
   // The marker is held from here on, so no new reader can start: the readers list
   // only shrinks and this wait always terminates.

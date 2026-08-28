@@ -1,9 +1,11 @@
 import {
+  OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE,
   recordsCountPhrase,
   SYNC_ROW_PENDING_LABEL,
   unsendableRecordsSuffixText
 } from "../offline/messages";
 import { countPermanentlyFailedRows } from "../offline/permission-denied";
+import type { OfflineStorageState } from "../offline/sync-controller";
 import { pendingRowYearMonth } from "../reports/pending-scope-notice";
 import { normalizeCustomRange, type CustomExportRange, type ExportRange } from "./export-range";
 
@@ -114,6 +116,18 @@ export type ExportPendingNoticeInput = ExportPendingScope & {
   rows: readonly ExportPendingExpenseRow[];
   /** 지금 고른 아이. 아직 모르면(또는 로그아웃) null -- 그때는 아무것도 세지 않는다. */
   childId: string | null | undefined;
+  /**
+   * 라운드 61 S-4 — 위 `rows`를 **믿어도 되는가**(`useOfflineSyncSnapshot().storage`).
+   *
+   * 홈 최하단 줄이 맞은 것과 같은 뿌리다(M-1, src/home/home-sync-status.ts): 저장소를 열지
+   * 못한 부팅에서 스냅숏은 빈 초기값이라 여기서 세면 0건이 되고, 0건이면 이 고지는 통째로
+   * 사라진다. 그 침묵은 "이 파일에 다 담겼어요"로 읽히는데, 실제로 앱이 아는 것은 0건이 아니라
+   * **모름**이다 — 아직 서버에 못 보낸 지출이 그 파일에서 빠져 있어도 화면이 아무 말도 하지
+   * 않는다(DNC: 허위 데이터 표시 금지).
+   *
+   * 기본값 `"ok"`는 후방 호환이다 — 이 값을 모르는 호출부·테스트는 종전과 같은 결과를 받는다.
+   */
+  storage?: OfflineStorageState;
 };
 
 /**
@@ -162,7 +176,7 @@ export function isSpentOnInExportScope(spentOn: unknown, scope: ExportPendingSco
 }
 
 /** 이 아이·이 구간에서 서버가 아직 모르는 행. 규칙은 이 파일 머리말 참고. */
-function pendingRowsForExport({ rows, childId, ...scope }: ExportPendingNoticeInput): ExportPendingExpenseRow[] {
+function pendingRowsForExport({ rows, childId, storage: _storage, ...scope }: ExportPendingNoticeInput): ExportPendingExpenseRow[] {
   if (!childId) return [];
   return rows.filter(
     (row) =>
@@ -186,6 +200,28 @@ function pendingRowsForExport({ rows, childId, ...scope }: ExportPendingNoticeIn
 export function countPendingExportBreakdown(input: ExportPendingNoticeInput): ExportPendingBreakdown {
   const pendingRows = pendingRowsForExport(input);
   return { count: pendingRows.length, unsendableCount: countPermanentlyFailedRows(pendingRows) };
+}
+
+/**
+ * 라운드 61 S-4 — **저장소를 못 열었을 때**의 고지. 카드("이 파일")와 토스트("이 CSV")가 목적어
+ * 하나만 갈아 끼운 같은 문장을 쓴다(아래 두 함수의 평소 갈래와 같은 관례다).
+ *
+ * ## 왜 건수를 말하지 않는가
+ *
+ * 이 상태에서 스냅숏의 행 목록은 관측이 아니다(빈 초기값 또는 마지막으로 읽어 둔 옛 값 —
+ * sync-controller.ts의 `publishStorageUnavailableSnapshot`). 그 위에서 "N건"을 적으면 앞의 두
+ * 갈래와 똑같은 세기의 단정이 되는데, 그 N은 지금 참인지 알 수 없는 숫자다.
+ *
+ * ## 어휘
+ *
+ * 앞 문장은 홈 최하단 줄·동기화 상태 화면과 **같은 단일 소스**다
+ * (`OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE`, offline/messages.ts) — 한 앱 안에서 같은 상태를
+ * 세 가지 말로 부르지 않는다(REC-123(H4)). 뒷 문장은 평소 갈래의 술어("…에 아직 반영되지
+ * 않았어요")를 **한 단계 더 약하게** 되돌린 형태다: 세는 규칙이 무너진 상태라 "반영되지
+ * 않았다"조차 관측이 아니고, 말할 수 있는 것은 가능성뿐이다. DNC-018 해요체.
+ */
+function exportStorageUnknownNoticeText(target: "이 파일" | "이 CSV"): string {
+  return `${OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE} ${target}에 아직 반영되지 않은 기록이 있을 수 있어요.`;
 }
 
 /**
@@ -215,7 +251,8 @@ export function countPendingExportBreakdown(input: ExportPendingNoticeInput): Ex
  * 모집단의 **수정 대기** 행은 옛 값으로 실제 CSV에 담기므로 그 행에 대해 거짓이다. 두 갈래 모두
  * 관측 하나만 말한다 — "이 파일에 아직 반영되지 않았어요".
  */
-export function exportPendingNoticeText(count: number, unsendableCount = 0): string {
+export function exportPendingNoticeText(count: number, unsendableCount = 0, storage: OfflineStorageState = "ok"): string {
+  if (storage === "unavailable") return exportStorageUnknownNoticeText("이 파일");
   if (unsendableCount <= 0) {
     return `${SYNC_ROW_PENDING_LABEL} 중인 기록 ${count}건은 이 파일에 아직 반영되지 않았어요.`;
   }
@@ -233,7 +270,10 @@ export function exportPendingNoticeText(count: number, unsendableCount = 0): str
  * 다르다 — 카드는 누르기 전, 이 줄은 파일이 나간 뒤다. 라운드 59 트랙 A의 어휘 분리도 같은
  * 규칙으로 따라온다: 영구 실패가 섞이면 여기서도 주어가 바뀌고 뒷문장이 붙는다.
  */
-export function exportPendingToastSuffix(count: number, unsendableCount = 0): string {
+export function exportPendingToastSuffix(count: number, unsendableCount = 0, storage: OfflineStorageState = "ok"): string {
+  // 라운드 61 S-4: 건수가 0이어도 **먼저** 걸린다 — 저장소를 못 연 부팅에서는 그 0이 관측이
+  // 아니라 초기값이라, 여기서 빈 문자열을 돌려주면 토스트가 파일을 전량으로 단정한다.
+  if (storage === "unavailable") return ` ${exportStorageUnknownNoticeText("이 CSV")}`;
   if (count <= 0) return "";
   if (unsendableCount <= 0) {
     return ` ${SYNC_ROW_PENDING_LABEL} 중인 기록 ${count}건은 이 CSV에 아직 반영되지 않았어요.`;
@@ -245,8 +285,18 @@ export function exportPendingToastSuffix(count: number, unsendableCount = 0): st
  * 카드가 부르는 단 하나의 함수. 대기 0건이면 **null**이라 아무것도 그리지 않는다 —
  * "0건이 빠졌어요" 같은 줄은 소음이고, 평소(대다수) 카드를 한 줄 밀어낼 이유가 없다.
  */
+/**
+ * 라운드 61 S-4 — **저장소를 못 열었으면 0건이어도 null이 아니다.** 그때의 0은 "세어 보니
+ * 없더라"가 아니라 "세지 못했다"이고, 이 카드에서 침묵은 "다 담겼어요"로 읽힌다.
+ *
+ * 다만 **아이가 없으면 여전히 null**이다(로그아웃·아이 미선택). 그 상태에서는 내보내기 자체가
+ * 없어 이 고지가 말할 대상(그 파일)이 존재하지 않는다 — `pendingRowsForExport`가 아무것도
+ * 세지 않는 조건과 같은 자리다.
+ */
 export function evaluateExportPendingNotice(input: ExportPendingNoticeInput): ExportPendingNotice | null {
   const { count, unsendableCount } = countPendingExportBreakdown(input);
-  if (count <= 0) return null;
-  return { count, unsendableCount, text: exportPendingNoticeText(count, unsendableCount) };
+  const storage = input.storage ?? "ok";
+  if (!input.childId) return null;
+  if (storage === "ok" && count <= 0) return null;
+  return { count, unsendableCount, text: exportPendingNoticeText(count, unsendableCount, storage) };
 }

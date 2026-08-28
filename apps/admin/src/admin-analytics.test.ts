@@ -8,6 +8,7 @@ import {
   getAdminAnalyticsSummary,
   type AdminAnalyticsSummary
 } from "./lib/admin-api";
+import { classifiedOnboardingStepTotal, onboardingStepCount } from "./lib/onboarding-steps-view";
 
 const adminRoot = process.cwd();
 
@@ -387,13 +388,47 @@ describe("Admin CMS analytics page (ADM-009)", () => {
       expect(block.indexOf("...ONBOARDING_STEPS.map")).toBeLessThan(block.indexOf('key: "onboarding_completed"'));
     });
 
+    /**
+     * 라운드 61 S-5로 갱신: 이 계약을 지키던 것이 페이지 소스 문자열 대조뿐이었다. 글자는
+     * 지키지만 동작은 지키지 못하는 테스트라(같은 뜻의 리팩터링에 빨개지고, 글자가 남은 채
+     * 동작이 틀어지면 통과한다) 두 헬퍼를 순수 모듈로 옮기고 **실제로 호출해** 고정한다
+     * (src/lib/onboarding-steps-view.ts).
+     *
+     * 이 모듈이 지지 않는 책임: "API가 정말 이 배열을 이 순서로 내려주는가"라는 계약 왕복은
+     * 이 앱 밖의 사실이고, apps/api의 어드민 분석 e2e가 실행으로 고정한다.
+     */
     it("단계 수는 API의 onboardingSteps에서 step 값으로 찾아 읽는다 (배열 위치를 믿지 않는다)", () => {
+      // 순서를 뒤집어도 step 값으로 찾으므로 숫자가 엉뚱한 단계에 붙지 않는다.
+      const shuffled = { onboardingSteps: [...SAMPLE_SUMMARY.onboardingSteps].reverse() };
+      expect(onboardingStepCount(SAMPLE_SUMMARY, "child_status")).toBe(14);
+      expect(onboardingStepCount(shuffled, "child_status")).toBe(14);
+      expect(onboardingStepCount(SAMPLE_SUMMARY, "budget")).toBe(10);
+      // 목록에 없는 단계는 실제로 0건이다(API가 전 단계를 0건 포함해 내려준다).
+      expect(onboardingStepCount(SAMPLE_SUMMARY, "no_such_step")).toBe(0);
+      expect(classifiedOnboardingStepTotal(SAMPLE_SUMMARY)).toBe(14 + 12 + 11 + 10);
+      // 화면은 이 두 함수만 부른다 -- 배열을 직접 훑지 않는다.
       const source = readSource("app/analytics/page.tsx");
       expect(source).toContain(
-        "function onboardingStepCount(summary: AdminAnalyticsSummary, step: string): number"
+        'import { classifiedOnboardingStepTotal, onboardingStepCount } from "../../src/lib/onboarding-steps-view";'
       );
-      expect(source).toContain("summary.onboardingSteps.find((entry) => entry.step === step)?.count ?? 0");
-      expect(source).toContain("function classifiedOnboardingStepTotal(summary: AdminAnalyticsSummary): number");
+      expect(source).not.toContain("summary.onboardingSteps");
+    });
+
+    /**
+     * 라운드 61 S-2: `onboardingSteps`는 라운드 61 #5에 붙은 새 필드다. 어드민 정적 번들과
+     * API의 배포 시점은 어긋날 수 있고(번들 선행·API 롤백), 그 응답에서 무방비 `.find()`는
+     * 카드 한 장이 아니라 **분석 페이지 전체**를 오류 경계로 떨어뜨렸다.
+     */
+    it("구버전 API 응답(onboardingSteps 없음)에서도 0으로 그리고 던지지 않는다", () => {
+      for (const summary of [{}, { onboardingSteps: undefined }, { onboardingSteps: null }, { onboardingSteps: [] }]) {
+        expect(() => onboardingStepCount(summary, "budget")).not.toThrow();
+        expect(onboardingStepCount(summary, "budget")).toBe(0);
+        expect(classifiedOnboardingStepTotal(summary)).toBe(0);
+      }
+      // 0으로 그리는 것이 거짓이 아닌 이유: 0건일 때도 API는 그 단계를 0으로 실어 보낸다
+      // (레지스트리 zero-fill) -- 화면에서 두 경우는 원래 같은 그림이고, 지어낸 숫자가 없다.
+      const zeroFilled = { onboardingSteps: SAMPLE_SUMMARY.onboardingSteps.map((entry) => ({ ...entry, count: 0 })) };
+      expect(classifiedOnboardingStepTotal(zeroFilled)).toBe(classifiedOnboardingStepTotal({ onboardingSteps: [] }));
     });
 
     it("분류 불가와 동의 기반 과소 계수를 숨기지 않는다 (허위 데이터 금지)", () => {

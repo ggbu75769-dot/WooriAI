@@ -1736,8 +1736,16 @@ export default function HomeScreen() {
    * 큐는 **둘**이라 둘 다 넘긴다: `counts`는 지출 행만 세고(sync-controller의 의도된 범위),
    * 준비템 상태 변경은 `itemStatusRows`에 따로 쌓인다. 예전에는 counts만 보고 판정해서, 준비템
    * 상태가 서버 반영을 기다리는 동안에도 홈이 "모든 기록이 동기화됐어요"라고 말했다.
+   *
+   * 라운드 61 M-1: `storage`도 함께 넘긴다. 저장소를 못 연 부팅에서는 위 두 값이 "읽어 온 0"이
+   * 아니라 **초기값 0**이라, 그 상태 칸 없이는 이 줄이 다시 완료를 단언한다(같은 상황에서 동기화
+   * 상태 화면은 이미 정직한 한 줄을 띄운다 — 라운드 61 #6).
    */
-  const homeSyncStatus = resolveHomeSyncStatus(offlineSyncSnapshot.counts, offlineSyncSnapshot.itemStatusRows);
+  const homeSyncStatus = resolveHomeSyncStatus(
+    offlineSyncSnapshot.counts,
+    offlineSyncSnapshot.itemStatusRows,
+    offlineSyncSnapshot.storage
+  );
   /**
    * GAP-061 #10: 헤더가 읽어 주는 단계 라벨. 예정일이 유예를 넘겨 지난 임신 프로필에서는 도메인
    * 라벨이 "임신 42주차"에 고착돼 몇 달이고 같은 문장을 되풀이하므로(주차 clamp), 표시층에서만

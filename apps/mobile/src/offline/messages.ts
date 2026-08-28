@@ -136,6 +136,27 @@ export function unsendableRowsNoticeText(count: number): string {
 }
 
 /**
+ * 라운드 61 M-1 — 아래 긴 고지의 **가운데 한 문장**. 저장소를 못 열었을 때 이 앱이 아는 것은
+ * "0건"이 아니라 **모름**이라는 사실만 말한다.
+ *
+ * ## 왜 조각으로 떼어 두는가
+ *
+ * 이 사실을 말해야 하는 자리가 셋인데 길이 예산이 다르다: 동기화 상태 화면의 빈 상태 카드는
+ * 세 문장(무슨 일이 있었나 · 그래서 모르는 것 · 다음에 할 일)을 다 실을 수 있지만, 홈 최하단
+ * 한 줄(design-system/patterns/AsyncState.tsx의 `SyncStatusBar`)과 CSV 내보내기 고지
+ * (src/export/export-pending-notice.ts)는 한 줄짜리 자리다. 그 자리에 새 문장을 지어 넣으면
+ * 같은 상태를 부르는 말이 다시 셋으로 갈린다(REC-123(H4)이 정리한 그 문제).
+ *
+ * 그래서 **새 단정을 만들지 않고 이 한 문장을 나눠 쓴다.** 아래 상수는 이 문장을 그대로
+ * 품으므로 두 자리의 어휘가 구조적으로 어긋날 수 없다(messages.test.ts가 그 포함 관계를 고정).
+ * "열지 못했어요"·"다시 켜면 다시 시도할게요"를 함께 싣지 않는 이유는 짧은 자리의 예산 때문이지
+ * 그 사실을 숨기려는 것이 아니다 — 그 두 문장은 줄을 눌러 들어가는 동기화 상태 화면이 말한다.
+ *
+ * DNC-018: 해요체, 비난·지시형 없음. 건수를 말하지 않는다(0건도 주장할 수 없다).
+ */
+export const OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE = "대기 중인 기록이 있는지 지금은 알 수 없어요.";
+
+/**
  * 라운드 61 #6 — **이 기기의 저장소를 열지 못했을 때** 동기화 상태 화면이 띄우는 한 줄.
  *
  * ## 왜 새 문장이 필요한가
@@ -161,11 +182,17 @@ export function unsendableRowsNoticeText(count: number): string {
  *
  * docs/qa/runtime-verification-required.md의 잔여 리스크 항목("마이그레이션 실패 시 사용자
  * 가시성 — 의도된 브릭이지만 표시 미확인", round58-scout P3)은 지금까지 "실패하면 사용자에게
- * 무엇이 보이는가?"라는 열린 질문이었다. 코드가 답을 갖게 됐으므로 기기에서 볼 것은 하나로
- * 좁혀진다: **저장소를 못 여는 기기에서 이 문장이 실제로 뜨는가.**
+ * 무엇이 보이는가?"라는 열린 질문이었다. 코드가 답을 갖게 됐으므로 기기에서 볼 것은 **뜨는지
+ * 확인하는 일**로 좁혀진다.
+ *
+ * 라운드 61 S-3 — 그 문서의 §5 항목을 실제로 그렇게 갱신했다(그전까지 이 문단만 좁혀졌다고
+ * 적고 있었고 문서는 옛 문장 그대로였다). 지금 그 항목이 이름을 대는 것은 **두 줄**이다:
+ * 이 상수(동기화 상태 화면, 재오픈 게이트 1회 동작 포함)와, 홈 최하단 동기화 줄의 `"unknown"`
+ * 상태(라운드 61 M-1 — src/home/home-sync-status.ts, 문구는 바로 위
+ * `OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE`).
  */
 export const OFFLINE_STORAGE_UNAVAILABLE_NOTICE =
-  "이 기기의 저장소를 열지 못했어요. 대기 중인 기록이 있는지 지금은 알 수 없어요. 앱을 다시 켜면 다시 시도할게요.";
+  `이 기기의 저장소를 열지 못했어요. ${OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE} 앱을 다시 켜면 다시 시도할게요.`;
 
 export const SYNC_STATUS_RETRY_LABEL = "재시도";
 export const SYNC_STATUS_DISCARD_LABEL = "삭제";

@@ -1,0 +1,43 @@
+-- 라운드 61 S-1: 어드민 세션 정리 워커의 `revoked_at` 분기용 부분 인덱스.
+--
+-- ## 무엇이 틀렸었나
+--
+-- 라운드 61 #7이 넣은 정리 잡(apps/api/src/worker/jobs/admin-session-cleanup.job.ts)의
+-- 주석은 "선택은 expires_at/revoked_at 위에서만 이뤄지고, 전자는
+-- idx_admin_sessions_expires_at이 그대로 서빙한다 — 새 인덱스는 필요 없다"고 적었다.
+-- 그런데 실제 술어는 하나가 아니라 OR 둘이다:
+--
+--   WHERE expires_at < cutoff OR revoked_at < cutoff
+--
+-- Postgres가 이 모양을 인덱스로 푸는 방법은 **두 분기 모두** 인덱스로 뽑아 BitmapOr로
+-- 합치는 것뿐이다. 한쪽(revoked_at)에 인덱스가 없으면 BitmapOr 자체가 성립하지 않아
+-- 플래너는 테이블 전체 seq scan으로 되돌아간다 — 즉 있던 인덱스도 이 쿼리에서는 쓰이지
+-- 않는다. "전자는 서빙한다"가 위안이 되지 못하는 이유가 그것이다.
+--
+-- ## 왜 이 모양인가 (000011 §4가 같은 모양의 선례)
+--
+-- 이 테이블·이 쿼리는 refresh_tokens 정리 워커와 술어가 글자까지 같고, PERF-101(000011 §4)이
+-- 그때 실측으로 같은 결론을 내려 같은 인덱스를 넣었다:
+--
+--   CREATE INDEX idx_refresh_tokens_revoked_at ON refresh_tokens (revoked_at)
+--     WHERE revoked_at IS NOT NULL;
+--
+-- 그 실측(2천 행)에서 seq scan 0.60ms/40버퍼 → BitmapOr 0.24ms/44버퍼였고, 정리가 도는
+-- 정상 상태(매치가 적을 때)에는 격차가 더 컸다. admin_sessions는 그보다 작은 테이블이지만
+-- 방향은 같고, **무기한 누적되던 것을 이제 막 정리하기 시작한** 테이블이라(라운드 61 #7)
+-- 첫 실행이 훑는 양이 가장 크다.
+--
+-- 부분 인덱스인 이유도 000011 §4와 같다: 폐기되지 않은 세션(대다수)은 revoked_at이 NULL이라
+-- 인덱스에 실을 이유가 없다. 살아 있는 세션을 만들고 갱신하는 경로(로그인·last_seen_at 갱신)에
+-- 인덱스 유지 비용이 붙지 않는다.
+--
+-- **Prisma @@index로는 표현할 수 없다**(부분 인덱스). 000001의 idx_expenses_not_deleted ·
+-- 000011의 idx_expenses_deleted_purge / idx_refresh_tokens_revoked_at과 같은 SQL 전용 관례이고,
+-- schema.prisma의 AdminSession 모델에는 그 사실을 가리키는 주석만 둔다(refresh_tokens 선례와
+-- 같은 자리·같은 형식).
+--
+-- additive 마이그레이션(CREATE INDEX만, 런칭 전이라 CONCURRENTLY 불필요).
+-- 000001~000020은 수정하지 않는다(DNC-007).
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_revoked_at
+  ON admin_sessions (revoked_at)
+  WHERE revoked_at IS NOT NULL;

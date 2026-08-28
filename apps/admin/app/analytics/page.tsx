@@ -10,6 +10,7 @@ import {
   type AdminPurchaseFollowupBreakdown,
   type AnalyticsSummaryDays
 } from "../../src/lib/admin-api";
+import { classifiedOnboardingStepTotal, onboardingStepCount } from "../../src/lib/onboarding-steps-view";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
@@ -133,17 +134,12 @@ function eventCount(summary: AdminAnalyticsSummary, eventName: string): number {
 }
 
 /**
- * 라운드 61 #5: 기간 내 해당 온보딩 단계의 진입 건수. API가 계약 레지스트리 순서로 전 단계를
- * 0건 포함해 내려주므로, 목록에 없는 단계는 실제로 0건이다(eventCount와 같은 판단).
+ * 라운드 61 S-2/S-5: 두 온보딩 단계 헬퍼(`onboardingStepCount` ·
+ * `classifiedOnboardingStepTotal`)는 `src/lib/onboarding-steps-view.ts`로 옮겼다. 여기 지역
+ * 함수로 있는 동안에는 소스 문자열 대조 테스트만이 그 동작을 지켰고(글자는 지키지만 동작은
+ * 지키지 못한다), `onboardingSteps`가 없는 구버전 API 응답에서 페이지 전체가 오류 경계로
+ * 떨어지는 무방비 읽기가 남아 있었다. 그 모듈이 두 문제를 함께 닫는다(근거는 그 파일 머리말).
  */
-function onboardingStepCount(summary: AdminAnalyticsSummary, step: string): number {
-  return summary.onboardingSteps.find((entry) => entry.step === step)?.count ?? 0;
-}
-
-/** 라운드 61 #5: 4단계로 분류된 합 (step이 없거나 알 수 없는 행은 API가 어느 단계에도 넣지 않는다). */
-function classifiedOnboardingStepTotal(summary: AdminAnalyticsSummary): number {
-  return summary.onboardingSteps.reduce((sum, entry) => sum + entry.count, 0);
-}
 
 /**
  * 라운드 60 #9: 온보딩 **완료 1건당 단계 진입 수**.

@@ -434,3 +434,49 @@ describe.skipIf(!dbAvailable)("R24-M3 expense list keyset index (migration 00001
     expect(plan).toMatch(/Index Cond:[\s\S]*ROW\(spent_on, created_at, id\)/);
   });
 });
+
+/**
+ * 라운드 61 S-1: 마이그레이션 000021_admin_sessions_revoked_at_idx 검증. 위 블록들과 같은
+ * 관례 — 부분 인덱스라 schema.prisma에 `@@index`로 표현할 수 없으므로(000011 §4의
+ * idx_refresh_tokens_revoked_at과 같은 SQL 전용 관례) **이 테스트가 마이그레이션 적용 여부를
+ * 확인하는 유일한 자동 검증**이다.
+ *
+ * 왜 필요했나: 정리 잡(admin-session-cleanup.job.ts)의 술어는
+ * `expires_at < cutoff OR revoked_at < cutoff`인데, OR를 인덱스로 푸는 유일한 방법인 BitmapOr는
+ * **두 분기 모두** 인덱스가 있어야 성립한다. revoked_at 쪽이 비어 있는 동안에는 있던
+ * idx_admin_sessions_expires_at도 이 쿼리에서 쓰이지 못하고 seq scan으로 되돌아갔다
+ * (잡 주석이 반대로 적고 있던 자리 — 라운드 61 S-1이 정정).
+ */
+describe.skipIf(!dbAvailable)("라운드 61 S-1 admin session cleanup index (migration 000021)", () => {
+  let prisma: PrismaClient;
+
+  beforeAll(() => {
+    deployMigrations();
+    prisma = new PrismaClient();
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  async function indexDef(table: string, index: string): Promise<string | undefined> {
+    const rows = await prisma.$queryRaw<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public' AND tablename = ${table} AND indexname = ${index}`;
+    return rows[0]?.indexdef;
+  }
+
+  it("어드민 세션 정리용 부분 인덱스 idx_admin_sessions_revoked_at가 존재한다", async () => {
+    const def = await indexDef("admin_sessions", "idx_admin_sessions_revoked_at");
+    expect(def).toBeDefined();
+    expect(def).toContain("(revoked_at)");
+    // 폐기되지 않은 세션(대다수, revoked_at IS NULL)은 담지 않는다 — 000011 §4와 같은 모양.
+    expect(def).toContain("WHERE (revoked_at IS NOT NULL)");
+  });
+
+  it("OR의 다른 한쪽(idx_admin_sessions_expires_at)도 그대로 있다 — BitmapOr는 둘 다 필요하다", async () => {
+    const def = await indexDef("admin_sessions", "idx_admin_sessions_expires_at");
+    expect(def).toBeDefined();
+    expect(def).toContain("(expires_at)");
+  });
+});
