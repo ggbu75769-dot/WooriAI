@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { countsTowardMonthlyTotal, reconcileMonthlyExpenses } from "./expense-list-reconciliation";
+import { offlineRecordRowSubtitle } from "../expenses/records-list-view";
+import { SYNC_ROW_FAILED_LABEL, SYNC_ROW_PENDING_LABEL } from "./messages";
 import type { LocalExpenseRow } from "./types";
 
 const childId = "child-1";
@@ -268,5 +270,95 @@ describe("CLN-131 합산 술어 단일 소스 (재인라인 가드)", () => {
       localBackendSource,
       "local-backend must not re-inline the DNC-015 predicate -- use countsTowardMonthlyTotal"
     ).not.toMatch(/expenseType === "expense"/);
+  });
+});
+
+/**
+ * GAP-054 라운드 54 P1-2 — **대기 중인 환불 행이 지출로 둔갑하지 않는다.**
+ *
+ * 무슨 일이 있었나: `adoptServerExpense`가 로컬 payload를 만들 때 `refund`를 `undefined`로
+ * 접었다. 값이 없는 payload는 레거시 관례상 **일반 지출**이므로(`countsTowardMonthlyTotal`),
+ * 환불 기록을 오프라인에서 한 글자만 고쳐도 그 순간 기록 탭 합계가 그 금액만큼 부풀고 행의
+ * "환불 ·" 표시가 사라졌다. 서버 값은 멀쩡한데 화면만 거짓을 말하는 상태다(DNC-015).
+ *
+ * 이제 로컬은 사실대로 들고(offline/types.ts `LocalExpenseKind`), 서버 쓰기 계약은
+ * **전송 직전**에만 지킨다(remote-api.ts `expenseTypeForWire` — remote-api.test.ts가 고정).
+ */
+describe("GAP-054 P1-2 대기 중인 환불·선물 행", () => {
+  it("환불 서버 행을 오프라인에서 고쳐도 합계에 더해지지 않는다", () => {
+    const server = [serverExpense({ id: "server-refund", amountKrw: 38_500, expenseType: "refund" })];
+    // adoptServerExpense가 만들어 두는 모양(라운드 54 이후): 서버가 말한 구분 그대로.
+    const offline = [
+      offlineRow({
+        localId: "local-refund",
+        canonicalId: "server-refund",
+        syncState: "pending",
+        payload: {
+          ...offlineRow({}).payload,
+          amountKrw: 38_500,
+          itemName: "유모차 환불",
+          expenseType: "refund"
+        }
+      })
+    ];
+
+    const result = reconcileMonthlyExpenses(server, offline, "2026-07");
+
+    // 낡은 서버 행은 숨고 로컬 대기 행만 보이며, 합계에는 어느 쪽도 더해지지 않는다.
+    expect(result.visibleServerExpenses).toHaveLength(0);
+    expect(result.offlinePendingRows).toHaveLength(1);
+    expect(result.offlinePendingRows[0].payload.expenseType).toBe("refund");
+    expect(result.monthlyTotalKrw).toBe(0);
+  });
+
+  it("선물 행도 같다 — 대기 중이라고 합계에 섞이지 않는다", () => {
+    const server = [serverExpense({ id: "server-gift", amountKrw: 50_000, expenseType: "gift" })];
+    const offline = [
+      offlineRow({
+        localId: "local-gift",
+        canonicalId: "server-gift",
+        syncState: "pending",
+        payload: { ...offlineRow({}).payload, amountKrw: 50_000, expenseType: "gift" }
+      })
+    ];
+
+    const result = reconcileMonthlyExpenses(server, offline, "2026-07");
+
+    expect(result.offlinePendingRows[0].payload.expenseType).toBe("gift");
+    expect(result.monthlyTotalKrw).toBe(0);
+  });
+
+  it("일반 지출 대기 행은 종전 그대로 합계에 든다 (이 수정이 다른 행을 건드리지 않는다)", () => {
+    const offline = [
+      offlineRow({
+        localId: "local-expense",
+        canonicalId: null,
+        payload: { ...offlineRow({}).payload, amountKrw: 7_000, expenseType: "expense" }
+      })
+    ];
+
+    expect(reconcileMonthlyExpenses([], offline, "2026-07").monthlyTotalKrw).toBe(7_000);
+  });
+
+  it("대기 행 부제가 구분을 앞세운다 — 동기화 상태에 따라 '환불 ·'이 사라지지 않는다", () => {
+    const statusLabel = `${SYNC_ROW_PENDING_LABEL} · 7월 5일`;
+    expect(offlineRecordRowSubtitle({ statusLabel, expenseType: "refund" })).toBe(`환불 · ${statusLabel}`);
+    expect(offlineRecordRowSubtitle({ statusLabel, expenseType: "gift" })).toBe(`선물 · ${statusLabel}`);
+    // 기본값 "지출"에는 아무것도 붙지 않는다(서버 행과 같은 규칙) -- 기존 행은 한 글자도 안 바뀐다.
+    for (const plain of ["expense", undefined, null, "reimbursement"]) {
+      expect(offlineRecordRowSubtitle({ statusLabel, expenseType: plain }), String(plain)).toBe(statusLabel);
+    }
+    // 실패·충돌·삭제 대기 줄에도 같은 규칙이 적용된다.
+    expect(offlineRecordRowSubtitle({ statusLabel: SYNC_ROW_FAILED_LABEL, expenseType: "refund" })).toBe(
+      `환불 · ${SYNC_ROW_FAILED_LABEL}`
+    );
+  });
+
+  it("기록 탭이 그 순수 모듈을 실제로 쓴다 (문자열 재인라인 금지)", () => {
+    const recordsSource = readFileSync(join(process.cwd(), "app/(tabs)/records.tsx"), "utf8");
+    expect(recordsSource).toContain("subtitle={offlineRecordRowSubtitle({");
+    // adopt 경로가 다시 refund를 접으면 합계가 조용히 오염된다.
+    const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
+    expect(controllerSource).not.toContain('expense.expenseType === "refund" ? undefined');
   });
 });

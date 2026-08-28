@@ -7,7 +7,8 @@ import {
   getSeoulToday,
   isFutureSeoulDate,
   isMoneyKrw,
-  isValidCalendarDate
+  isValidCalendarDate,
+  MONEY_KRW_MAX
 } from "./money-date";
 
 /** 시드 고정 선형 합동 생성기 — 실행마다 동일한 수열을 재현한다. */
@@ -34,10 +35,17 @@ function daysInMonth(year: number, month: number): number {
 const pad2 = (value: number) => String(value).padStart(2, "0");
 
 describe("금액(KRW) 경계", () => {
-  it("MAX_SAFE_INTEGER 근접 정수를 허용한다", () => {
-    expect(isMoneyKrw(Number.MAX_SAFE_INTEGER)).toBe(true);
-    expect(isMoneyKrw(Number.MAX_SAFE_INTEGER - 1)).toBe(true);
-    expect(assertMoneyKrw(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
+  // GAP-054 라운드 54 P1-1: 상한이 생기기 전에는 MAX_SAFE_INTEGER까지 통과했다. 그 값들은
+  // int4 컬럼에 들어갈 수 없어 저장이 아니라 5xx로 끝나므로, 이제 도메인 술어가 거절한다.
+  it("상한(int4) 경계: 상한 그 자체는 허용하고 한 칸 위부터 거부한다", () => {
+    expect(MONEY_KRW_MAX).toBe(2_147_483_647);
+    expect(isMoneyKrw(MONEY_KRW_MAX)).toBe(true);
+    expect(isMoneyKrw(MONEY_KRW_MAX - 1)).toBe(true);
+    expect(assertMoneyKrw(MONEY_KRW_MAX)).toBe(MONEY_KRW_MAX);
+    expect(isMoneyKrw(MONEY_KRW_MAX + 1)).toBe(false);
+    expect(() => assertMoneyKrw(MONEY_KRW_MAX + 1)).toThrow("EXPENSE_AMOUNT_INVALID");
+    expect(isMoneyKrw(Number.MAX_SAFE_INTEGER)).toBe(false);
+    expect(isMoneyKrw(Number.MAX_SAFE_INTEGER - 1)).toBe(false);
   });
 
   it("0·음수·소수·비수치 입력을 모두 거부한다", () => {
@@ -58,10 +66,10 @@ describe("금액(KRW) 경계", () => {
     expect(isMoneyKrw(49800n as unknown)).toBe(false);
   });
 
-  it("정수 표현 한계 바로 위(2^53)도 Number.isInteger상 정수라 허용된다 — 현행 동작 고정", () => {
-    // 2^53은 IEEE754에서 정수로 표현되므로 현행 구현은 통과시킨다.
-    // KRW 지출 도메인에서 도달 불가능한 값이라 계약 위반은 아니며, 동작을 문서화한다.
-    expect(isMoneyKrw(Number.MAX_SAFE_INTEGER + 1)).toBe(true);
+  it("정수 표현 한계 바로 위(2^53)도 상한 위라 거부된다", () => {
+    // 2^53은 IEEE754에서 정수로 표현되지만 int4 컬럼에는 들어갈 수 없다.
+    expect(isMoneyKrw(Number.MAX_SAFE_INTEGER + 1)).toBe(false);
+    expect(() => assertMoneyKrw(Number.MAX_SAFE_INTEGER + 1)).toThrow("EXPENSE_AMOUNT_INVALID");
   });
 
   it("[속성] 임의 양의 정수 100건: isMoneyKrw 참 + assertMoneyKrw 항등", () => {
@@ -69,10 +77,21 @@ describe("금액(KRW) 경계", () => {
     const randomInt = makeIntPicker(rand);
 
     for (let i = 0; i < 100; i += 1) {
-      const value = randomInt(1, Number.MAX_SAFE_INTEGER);
+      const value = randomInt(1, MONEY_KRW_MAX);
       expect(isMoneyKrw(value)).toBe(true);
       expect(assertMoneyKrw(value)).toBe(value); // 항등(멱등: 재적용해도 동일)
       expect(assertMoneyKrw(assertMoneyKrw(value))).toBe(value);
+    }
+  });
+
+  it("[속성] 상한 위 임의 정수 100건: 항상 거부", () => {
+    const rand = makeLcg(540541);
+    const randomInt = makeIntPicker(rand);
+
+    for (let i = 0; i < 100; i += 1) {
+      const value = randomInt(MONEY_KRW_MAX + 1, Number.MAX_SAFE_INTEGER);
+      expect(isMoneyKrw(value)).toBe(false);
+      expect(() => assertMoneyKrw(value)).toThrow("EXPENSE_AMOUNT_INVALID");
     }
   });
 

@@ -11,8 +11,10 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     expect(homeSource).toContain("action={<NotificationBell />}");
     // UX-J: 두 번째 인자는 홈 주간 카드가 이미 만든 값(새 요청 없음) -- 세션 게이트는 그대로다.
     // 라운드 37 G-1: 그 값은 "아직 모름(undefined)"과 "확정 실패(null)"를 구분해서 넘어간다.
+    // 라운드 54 P1-3: 세 번째 인자는 홈이 이미 구독 중인 오프라인 스냅샷에서 나온 순수 판정이다
+    // (record_gap 억제 근거 -- 새 요청·새 구독 없음).
     expect(homeSource).toContain(
-      "useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification)"
+      "useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification, hasPendingLocalRecords)"
     );
     expect(homeSource).toContain("resolveWeeklySpendForNotification({");
     expect(homeSource).toContain("expensesFailed: thisMonthExpenses.isError || lastMonthExpenses.isError");

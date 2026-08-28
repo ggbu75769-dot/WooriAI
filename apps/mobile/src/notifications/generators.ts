@@ -316,6 +316,29 @@ export function latestRecordedOn(records: ReadonlyArray<RecordedExpenseLike | nu
   return latest;
 }
 
+/** `LocalExpenseRow`(src/offline/types.ts)에서 이 판정에 필요한 것만 — 구조 호환. */
+export type PendingRecordRowLike = { childId?: string | null; syncState?: string | null };
+
+/**
+ * GAP-054 라운드 54 P1-3 — 이 기기에 **아직 서버가 모르는 이 아이의 지출 행**이 있는가.
+ *
+ * 판정 규칙은 리포트 탭 고지(src/reports/pending-scope-notice.ts)·예산 화면
+ * (src/home/budget-edit.ts의 `hasPendingMonthAdjustments`)과 **같다**: `syncState !== "synced"`
+ * 인 행(대기 중인 생성·수정, 삭제 대기, 실패, 충돌)이 하나라도 있으면 서버 스냅샷은 이 기기가
+ * 아는 사실을 아직 모른다. 달로 좁히지 않는 이유는 record_gap이 달 경계와 무관한 "마지막 기록
+ * 시점" 판정이기 때문이다.
+ *
+ * react-native·expo-router에 의존하지 않는 순수 함수다(이 모듈의 규율) — 호출부(홈 화면)가
+ * 이미 구독 중인 스냅샷 행을 그대로 넘긴다. 새 요청도 새 구독도 없다.
+ */
+export function hasPendingRecordsForChild(
+  rows: ReadonlyArray<PendingRecordRowLike | null | undefined> | null | undefined,
+  childId: string | null | undefined
+): boolean {
+  if (!childId || !rows) return false;
+  return rows.some((row) => row?.childId === childId && typeof row?.syncState === "string" && row.syncState !== "synced");
+}
+
 export type RecordGapInput = {
   childId: string;
   /**
@@ -327,26 +350,51 @@ export type RecordGapInput = {
    * - `undefined`: 호출부가 값을 넘기지 않았다(판정 불가) -> 역시 알리지 않는다.
    */
   lastRecordedOn?: string | null;
+  /**
+   * GAP-054 라운드 54 P1-3 — 이 기기에 아직 올라가지 않은 이 아이의 지출 행이 있는가
+   * (`hasPendingRecordsForChild`). `true`면 **발화하지 않는다.**
+   *
+   * 이유: 이 알림의 유일한 근거인 `/home`의 `recentExpenses`는 **서버가 아는 기록**뿐이다.
+   * 며칠째 연결 없이 로컬로만 적어 온 사용자에게 그 목록은 비어 있거나 낡아 있고, 그 상태에서
+   * "마지막 지출 기록이 N일 전"이라고 말하면 방금 적은 기록을 앱이 통째로 부정하는 셈이다 —
+   * 사용자가 반박할 수 있는 거짓말이 가장 나쁜 종류다. 모르는 동안에는 침묵하고, 아웃박스가
+   * 확정돼 `["home"]`이 무효화되면 다음 평가가 정확한 값으로 판단한다(같은 주에는 dedupe가
+   * 한 번만 허용하므로 뒤늦게 두 번 뜨지도 않는다).
+   */
+  hasPendingLocalRecords?: boolean;
   /** Epoch ms "now" -- 서울 달력 날짜와 주 식별자를 여기서 뽑는다. */
   now: number;
 };
 
 /**
- * GAP-054 #6 — "3일 동안 기록이 없어요" 한 건.
+ * GAP-054 #6 — 기록 리마인더 한 건.
  *
  * ## 톤 (DNC-018)
  *
- * 제목은 **사실만** 말한다("N일 동안 기록이 없어요"). "또 잊으셨네요" 같은 책망도, "기록하지
- * 않으면 …" 같은 불안도 만들지 않는다. 본문은 가벼운 초대 한 줄이고, 하라고 시키지 않는다.
- * 목록에 얼어붙는 스냅샷이므로(notification.store.ts) 문장은 그때의 사실로 읽혀야 한다 --
- * 그래서 "지금", "오늘" 같은 시점어를 넣지 않는다.
+ * 제목은 **사실만** 말한다. "또 잊으셨네요" 같은 책망도, "기록하지 않으면 …" 같은 불안도
+ * 만들지 않는다. 본문은 가벼운 초대 한 줄이고, 하라고 시키지 않는다. 목록에 얼어붙는
+ * 스냅샷이므로(notification.store.ts) 문장은 그때의 사실로 읽혀야 한다 -- 그래서 "지금",
+ * "오늘" 같은 시점어를 넣지 않는다.
+ *
+ * ## 라운드 54 P1-3 — 제목이 말하는 "N일"이 무엇인가
+ *
+ * 예전 제목은 "N일 동안 기록이 없어요"였다. 그런데 이 판정이 세는 것은 **지출 날짜**
+ * (`spentOn`)이지 기록한 시각이 아니다. 그래서 3주 전 영수증을 오늘 뒤늦게 적은 사용자에게
+ * 곧바로 "21일 동안 기록이 없어요"가 갔다 -- 방금 기록한 사람에게 기록이 없다고 말하는,
+ * 사용자가 그 자리에서 반박할 수 있는 거짓 단언이다(소급 입력은 가계부에서 가장 흔한 입력이다).
+ *
+ * 그래서 문장을 **판정과 같은 사실**로 바꾼다: "마지막 지출 기록이 N일 전이에요". 이것은
+ * 소급 입력 직후에도 참이다(그 지출의 날짜가 실제로 21일 전이다). 세는 방법은 한 글자도
+ * 바뀌지 않았고, 문장이 세는 것을 정확히 말하게 됐을 뿐이다.
  *
  * ## 언제 뜨는가
  *
- * - 마지막 기록으로부터 `RECORD_GAP_MIN_DAYS`(3)일 이상 지났을 때. 날짜 차이는 서울 달력에서
- *   센다(기기 시간대와 무관 -- iso-week.ts).
+ * - 마지막 지출 날짜로부터 `RECORD_GAP_MIN_DAYS`(3)일 이상 지났을 때. 날짜 차이는 서울
+ *   달력에서 센다(기기 시간대와 무관 -- iso-week.ts).
  * - 기록이 하나도 없으면 뜨지 않는다(위 `lastRecordedOn` 주석).
  * - 미래 날짜의 지출을 적어 둔 경우 차이가 음수라 역시 뜨지 않는다.
+ * - **이 기기에 아직 올라가지 않은 이 아이의 지출 행이 있으면 뜨지 않는다**
+ *   (`hasPendingLocalRecords` 주석 -- 서버 스냅샷이 모르는 기록을 두고 단언하지 않는다).
  *
  * ## 주 1회 (dedupe)
  *
@@ -356,13 +404,15 @@ export type RecordGapInput = {
  * 잊힌 채로 두지도 않는 간격이다.
  */
 export function recordGapNotification(input: RecordGapInput): AppNotificationCandidate | null {
-  const { childId, lastRecordedOn, now } = input;
+  const { childId, lastRecordedOn, hasPendingLocalRecords, now } = input;
   if (!lastRecordedOn) return null;
+  // P1-3: 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 아무 말도 하지 않는다.
+  if (hasPendingLocalRecords) return null;
   const days = isoCalendarDaysBetween(lastRecordedOn, seoulCalendarDate(now));
   if (days === null || days < RECORD_GAP_MIN_DAYS) return null;
   return {
     type: "record_gap",
-    title: `${days}일 동안 기록이 없어요`,
+    title: `마지막 지출 기록이 ${days}일 전이에요`,
     body: "기록 탭에서 지난 며칠을 함께 확인해볼까요?",
     dedupeKey: `record_gap:${childId}:${seoulIsoWeekKey(now)}`,
     childId
@@ -391,6 +441,15 @@ export type HomeNotificationInput = {
    * 계약이 지킨다.
    */
   lastRecordedOn?: string | null;
+  /**
+   * GAP-054 라운드 54 P1-3: 이 기기에 아직 올라가지 않은 이 아이의 지출 행이 있는가
+   * (`hasPendingRecordsForChild`). 홈 화면이 **이미 구독 중인** 오프라인 스냅샷에서 계산해
+   * 넘긴다(리포트 탭의 대기 건수 고지와 같은 주입 방식 — 새 요청도 새 구독도 없다).
+   *
+   * `lastRecordedOn`과 같은 이유로 optional이다: 이 값을 넘기지 않는 호출부(홈 외의 테스트 등)는
+   * record_gap을 판단하는 자리가 아니고, 없으면 종전 동작 그대로다.
+   */
+  hasPendingLocalRecords?: boolean;
 };
 
 /** Everything the home screen's evaluation hook needs in one pure call. */
@@ -429,6 +488,7 @@ export function evaluateHomeNotifications(input: HomeNotificationInput): AppNoti
   const recordGapCandidate = recordGapNotification({
     childId: input.child.id,
     lastRecordedOn: input.lastRecordedOn,
+    hasPendingLocalRecords: input.hasPendingLocalRecords,
     now: input.now
   });
   if (recordGapCandidate) candidates.push(recordGapCandidate);

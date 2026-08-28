@@ -10,6 +10,7 @@ import {
   importRowSchema,
   itemSummarySchema,
   moneyKrwSchema,
+  MONEY_KRW_MAX,
   productLinkSchema,
   reportCategorySchema,
   reportMonthlySchema,
@@ -27,6 +28,27 @@ describe("shared contract schemas", () => {
     expect(moneyKrwSchema.parse(49800)).toBe(49800);
     expect(() => moneyKrwSchema.parse(0)).toThrow();
     expect(() => moneyKrwSchema.parse(1.5)).toThrow();
+  });
+
+  /**
+   * GAP-054 라운드 54 P2-8 — `.max()` 경계. 상한 값 자체는 통과하고 한 칸 위는 거절돼야 한다.
+   * 상수는 이제 `@wooriai/domain`이 단일 소스이고 이 패키지는 그것을 재수출한다(schemas.ts
+   * 상단 주석) — 아래 대조는 재수출이 끊기거나 숫자가 갈리는 순간 빨개진다.
+   */
+  it("caps a single MoneyKRW amount at the int4 column limit", () => {
+    expect(MONEY_KRW_MAX).toBe(2_147_483_647);
+    expect(moneyKrwSchema.parse(MONEY_KRW_MAX)).toBe(MONEY_KRW_MAX);
+    expect(moneyKrwSchema.parse(MONEY_KRW_MAX - 1)).toBe(MONEY_KRW_MAX - 1);
+    expect(() => moneyKrwSchema.parse(MONEY_KRW_MAX + 1)).toThrow();
+    expect(() => moneyKrwSchema.parse(Number.MAX_SAFE_INTEGER)).toThrow();
+    // 요청 계약(생성)도 같은 상한을 문다 -- 스키마 하나만 고쳐서 갈라지지 않게.
+    const base = {
+      categoryId: "11111111-1111-4111-8111-111111111111",
+      spentOn: "2026-07-05",
+      itemName: "기저귀"
+    };
+    expect(createExpenseRequestSchema.parse({ ...base, amountKrw: MONEY_KRW_MAX }).amountKrw).toBe(MONEY_KRW_MAX);
+    expect(() => createExpenseRequestSchema.parse({ ...base, amountKrw: MONEY_KRW_MAX + 1 })).toThrow();
   });
 
   it("validates CreateExpenseRequest shape from OpenAPI", () => {

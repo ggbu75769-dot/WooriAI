@@ -3,6 +3,7 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { MONEY_KRW_MAX, errorResponseSchema } from "@wooriai/contracts";
+import { EXPENSE_AMOUNT_TOO_LARGE_CODE } from "../src/common/filters/global-exception.filter";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -18,6 +19,11 @@ import { configureApiApp } from "../src/bootstrap";
  *
  * 상한 값 자체는 `@wooriai/contracts`의 `MONEY_KRW_MAX`를 그대로 읽는다 — 테스트가 숫자를
  * 따로 적으면 계약이 두 벌이 된다. 마이그레이션은 없다(컬럼이 이미 갖고 있던 한계다).
+ *
+ * 라운드 54 P2-6: 이 거절은 이제 일반 `VALIDATION_ERROR`가 아니라 전용 코드
+ * `EXPENSE_AMOUNT_TOO_LARGE`로 나간다. 상태코드(400)·문구·details는 한 글자도 바뀌지 않고
+ * 코드만 갈린다 — 그래야 파킹된 초과 행을 만난 사용자가 "요청을 처리하지 못했어요." 대신
+ * 한도를 안내받는다(apps/mobile/src/api/api-error.ts 화이트리스트).
  */
 
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -94,7 +100,7 @@ describe("GAP-054 #2 금액 상한 (지출·예산)", () => {
       .expect(400)
       .expect(({ body }) => {
         errorResponseSchema.parse(body);
-        expect(body.error.code).toBe("VALIDATION_ERROR");
+        expect(body.error.code).toBe(EXPENSE_AMOUNT_TOO_LARGE_CODE);
       });
 
     // --- 생성: 경계값(상한 그 자체)은 통과한다 — 상한을 한 칸 좁히면 여기서 빨개진다 ---
@@ -116,7 +122,7 @@ describe("GAP-054 #2 금액 상한 (지출·예산)", () => {
       .expect(400)
       .expect(({ body }) => {
         errorResponseSchema.parse(body);
-        expect(body.error.code).toBe("VALIDATION_ERROR");
+        expect(body.error.code).toBe(EXPENSE_AMOUNT_TOO_LARGE_CODE);
       });
 
     // 거절된 뒤에도 저장된 값은 그대로다(부분 적용이 없다).
@@ -132,7 +138,7 @@ describe("GAP-054 #2 금액 상한 (지출·예산)", () => {
       .expect(400)
       .expect(({ body }) => {
         errorResponseSchema.parse(body);
-        expect(body.error.code).toBe("VALIDATION_ERROR");
+        expect(body.error.code).toBe(EXPENSE_AMOUNT_TOO_LARGE_CODE);
       });
 
     await auth(request(app.getHttpServer()).put(`/api/v1/children/${childId}/budget`))

@@ -335,7 +335,7 @@ describe("REC-123(D1) 기록 탭 wiring contract", () => {
     const insightIndex = recordsSource.indexOf('testID="records-last-month-insight"');
     expect(insightIndex).toBeGreaterThan(recordsSource.indexOf("이번 달 ${monthlyRecordCount}건"));
     // GAP-054 D#8: 검색창 라벨이 판매처를 포함하도록 늘었다 -- 여기서는 자리 기준점으로만 쓴다.
-    expect(insightIndex).toBeLessThan(recordsSource.indexOf('accessibilityLabel="품목명, 판매처, 메모로 검색"'));
+    expect(insightIndex).toBeLessThan(recordsSource.indexOf("accessibilityLabel={RECORDS_SEARCH_PLACEHOLDER}"));
   });
 
   it("compares against the total this screen actually shows, and only while the current month is on screen", () => {

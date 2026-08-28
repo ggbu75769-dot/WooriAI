@@ -16,6 +16,7 @@ import {
   EXPENSE_DATE_PICKER_HINT,
   EXPENSE_DATE_PICKER_MAX_PAST_MONTHS
 } from "./date-picker-month";
+import { MAX_PAST_MONTH_OFFSET } from "./import-landing-month";
 import { buildCalendarMonth, type CalendarCell } from "./records-calendar";
 
 /**
@@ -141,6 +142,46 @@ describe("월 이동 — 미래 월로는 가지 않는다", () => {
     expect(shiftExpenseDatePickerMonth("2026-08", -1, TODAY)).toBe("2026-07");
   });
 
+  /**
+   * GAP-054 라운드 54 P2-8 — 20년 상한이 **한 곳에서만** 정해진다.
+   *
+   * 예전에는 "기록 탭 딥링크의 MAX_PAST_MONTH_OFFSET과 같은 값"이라고 주석으로 적어 두고
+   * 240을 여기 다시 적었다. 주석은 드리프트를 막지 못한다 — 한쪽만 바뀌면 픽커에서는 고를 수
+   * 있는데 기록 탭은 그 달로 가 주지 않는(또는 그 반대) 상태가 조용히 생긴다.
+   */
+  it("과거 상한은 기록 탭 딥링크와 같은 상수를 import한다", () => {
+    expect(EXPENSE_DATE_PICKER_MAX_PAST_MONTHS).toBe(MAX_PAST_MONTH_OFFSET);
+    expect(EXPENSE_DATE_PICKER_MAX_PAST_MONTHS).toBe(240);
+    const moduleSource = readFileSync(join(process.cwd(), "src/expenses/date-picker-month.ts"), "utf8");
+    expect(moduleSource).toContain('import { MAX_PAST_MONTH_OFFSET } from "./import-landing-month";');
+    expect(moduleSource).toContain("export const EXPENSE_DATE_PICKER_MAX_PAST_MONTHS = MAX_PAST_MONTH_OFFSET;");
+  });
+
+  /**
+   * GAP-054 라운드 54 P2-9 — 도달할 수 없는 폴백 두 개를 걷어냈다.
+   *
+   * (1) `shiftExpenseDatePickerMonth` 끝의 `parseYearMonth(next) ? next : yearMonth` 삼항:
+   *     위에서 `current`가 확정됐고 아래 나눗셈이 월을 항상 1~12로 되돌리므로 거짓 갈래가 없다.
+   * (2) `isExpenseDatePickerDateSelectable`의 try/catch: `isFutureSeoulDate`가 던지는 유일한
+   *     경우(형식 불일치)를 그보다 엄격한 ISO 검사가 이미 걸러 낸 뒤였다.
+   *
+   * 도달할 수 없는 폴백은 "여기서 무언가 실패할 수 있다"는 잘못된 인상만 남긴다. 동작은
+   * 그대로라는 것을 아래에서 다시 확인한다(이 describe의 나머지 케이스가 그 증거다).
+   */
+  it("도달 불가 폴백을 걷어내도 동작이 같다", () => {
+    const moduleSource = readFileSync(join(process.cwd(), "src/expenses/date-picker-month.ts"), "utf8");
+    expect(moduleSource).not.toContain("parseYearMonth(next) ? next : yearMonth");
+    expect(moduleSource).not.toContain("} catch {");
+    // 형식이 깨진 입력은 여전히 거부된다(try/catch가 하던 일이 아니라 위 두 줄이 하던 일이다).
+    for (const broken of ["2026-13-01", "2026-08", "not-a-date", ""]) {
+      expect(isExpenseDatePickerDateSelectable(broken, TODAY), broken).toBe(false);
+    }
+    expect(isExpenseDatePickerDateSelectable("2026-08-01", "깨진-기준일")).toBe(false);
+    // 달 이동도 종전과 같은 값을 낸다.
+    expect(shiftExpenseDatePickerMonth("2026-01", -1, TODAY)).toBe("2025-12");
+    expect(shiftExpenseDatePickerMonth("2025-12", 1, TODAY)).toBe("2026-01");
+  });
+
   it("과거는 20년에서 멈춘다(오늘로 돌아오는 길을 잃지 않게)", () => {
     const oldest = shiftExpenseDatePickerMonth("2006-09", -1, TODAY);
     expect(oldest).toBe("2006-08");
@@ -217,24 +258,58 @@ describe("라벨 — 눈으로 보는 사실을 소리로도 전한다", () => {
  * 테스트와 같은 관례로 소스를 읽어 고정한다.
  */
 describe("GAP-054 #7 화면 배선", () => {
-  const source = readFileSync(join(process.cwd(), "app/expenses/new.tsx"), "utf8");
+  /**
+   * 라운드 54 P2-5: 픽커는 두 화면이 공유하는 컴포넌트(src/expenses/ExpenseDatePicker.tsx)로
+   * 옮겨졌다. 모양·수치는 여기서, 화면이 그것을 어떻게 꽂는지는 아래 두 화면 소스에서 본다.
+   */
+  const source = readFileSync(join(process.cwd(), "src/expenses/ExpenseDatePicker.tsx"), "utf8");
+  const entrySheet = readFileSync(join(process.cwd(), "app/expenses/new.tsx"), "utf8");
+  const detailScreen = readFileSync(join(process.cwd(), "app/expenses/[expenseId].tsx"), "utf8");
 
   it("P2-C 달력 버튼(48dp)이 진짜 월 픽커를 연다", () => {
-    expect(source).toContain('accessibilityLabel="지출 날짜 변경"');
-    expect(source).toContain('name="calendar-blank-outline"');
-    expect(source).toContain("setPickerYearMonth(expenseDatePickerInitialMonth(expenseDateIso, todayIso))");
+    expect(entrySheet).toContain('accessibilityLabel="지출 날짜 변경"');
+    expect(entrySheet).toContain('name="calendar-blank-outline"');
+    expect(source).toContain("expenseDatePickerInitialMonth(selectedIso, todayIso)");
     expect(source).toContain("<ExpenseDatePickerGrid");
   });
 
-  it("격자·판정은 전부 순수 모듈에서 온다(화면이 달력을 다시 계산하지 않는다)", () => {
+  /**
+   * 라운드 54 P2-5 — 지출 상세도 **같은 픽커**를 쓴다.
+   *
+   * 그 화면의 날짜 입력은 14일 칩과 ISO 손타이핑뿐이라, 두 주보다 오래된 영수증의 날짜를
+   * 고쳐 적으려면 문자열을 직접 쳐야 했고 한 글자만 틀려도 저장이 막혔다. 두 화면이 달력을
+   * 각자 그리면 같은 앱의 두 달력이 다른 문법을 갖게 되므로, 컴포넌트 하나를 공유한다.
+   */
+  it("두 화면(빠른 기록·지출 상세)이 같은 컴포넌트를 쓴다", () => {
+    for (const [label, screen] of [
+      ["new.tsx", entrySheet],
+      ["[expenseId].tsx", detailScreen]
+    ] as const) {
+      expect(screen, label).toContain('import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";');
+      expect(screen, label).toContain("<ExpenseDatePicker");
+      expect(screen, label).toContain("todayIso={todayIso}");
+      // 화면이 달력을 다시 계산하지 않는다 -- 격자·판정은 컴포넌트 안에서만 쓰인다.
+      expect(screen, label).not.toContain("buildExpenseDatePickerMonth(");
+      expect(screen, label).not.toContain("CALENDAR_WEEKDAY_LABELS_KO");
+    }
+    // 상세 화면은 14일 칩·직접 입력을 그대로 유지한다(달력이 기존 경로를 대체하지 않는다).
+    expect(detailScreen).toContain("recentDateChips.map");
+    expect(detailScreen).toContain('accessibilityLabel="날짜 직접 입력"');
+    // 고른 날짜는 저장 payload가 보는 그 한 값으로 들어간다.
+    expect(detailScreen).toContain("setSpentOnIso(dateIso);");
+    // 세션 게이트: 세션이 없으면 픽커 자체를 그리지 않는다(EXP-003 비세션 경로 불변).
+    expect(detailScreen).toContain("{authToken ? (");
+  });
+
+  it("격자·판정은 전부 순수 모듈에서 온다(컴포넌트가 달력을 다시 계산하지 않는다)", () => {
     expect(source).toContain("buildExpenseDatePickerMonth(pickerYearMonth, todayIso)");
     expect(source).toContain("isExpenseDatePickerCellSelectable(cell, todayIso)");
     expect(source).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso })");
     expect(source).toContain("CALENDAR_WEEKDAY_LABELS_KO.map");
-    // 화면이 records-calendar에서 가져오는 것은 요일 머리글과 타입뿐이다 -- 격자 계산은
-    // 순수 모듈을 거쳐서만 들어온다(화면이 달 길이·주 시작 요일을 직접 세지 않는다).
+    // 컴포넌트가 records-calendar에서 가져오는 것은 요일 머리글과 타입뿐이다 -- 격자 계산은
+    // 순수 모듈을 거쳐서만 들어온다(달 길이·주 시작 요일을 직접 세지 않는다).
     expect(source).toContain(
-      'import { CALENDAR_WEEKDAY_LABELS_KO, type CalendarCell, type CalendarMonth } from "../../src/expenses/records-calendar";'
+      'import { CALENDAR_WEEKDAY_LABELS_KO, type CalendarCell, type CalendarMonth } from "./records-calendar";'
     );
   });
 
@@ -256,23 +331,54 @@ describe("GAP-054 #7 화면 배선", () => {
   });
 
   it("픽커는 고른 날짜를 기존 상태에 그대로 반영한다(초안·저장 payload가 같은 값을 본다)", () => {
-    const handler = source.slice(source.indexOf("onSelectDate={(dateIso) => {"), source.indexOf("selectedIso={expenseDateIso}"));
+    const handler = entrySheet.slice(
+      entrySheet.indexOf("onSelectDate={(dateIso) => {"),
+      entrySheet.indexOf("selectedIso={expenseDateIso}")
+    );
     expect(handler).toContain("setExpenseDateIso(dateIso);");
     expect(handler).toContain("setCustomDateMode(false);");
     expect(handler).toContain('setCustomDateText("");');
-    expect(source).toContain("spentOnIso: expenseDateIso,");
-    expect(source).toContain("spentOn: expenseDate.iso");
+    expect(entrySheet).toContain("spentOnIso: expenseDateIso,");
+    expect(entrySheet).toContain("spentOn: expenseDate.iso");
   });
 
   it("기존 pill 3칸·14일 칩·직접 입력 경로가 그대로 남아 있다", () => {
-    expect(source).toContain("const quickDateChips = recentDateChips.slice(0, 3).reverse();");
-    expect(source).toContain("recentDateChips.map");
-    expect(source).toContain('accessibilityLabel="날짜 직접 입력"');
-    expect(source).toContain('if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";');
+    expect(entrySheet).toContain("const quickDateChips = recentDateChips.slice(0, 3).reverse();");
+    expect(entrySheet).toContain("recentDateChips.map");
+    expect(entrySheet).toContain('accessibilityLabel="날짜 직접 입력"');
+    expect(entrySheet).toContain('if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";');
+  });
+
+  /**
+   * GAP-054 라운드 54 P2-1 — 비활성 표기가 gray300(≈1.24:1)에서 앱 표준 문법으로 옮겨졌다.
+   *
+   * 미래 칸의 숫자는 "그 칸이 며칠인가"를 말하는 유일한 글자다(스크린리더도 같은 날짜를
+   * 읽는다). 눌리지 않는다는 것과 읽히지 않아도 된다는 것은 다른 말이라, 기록 탭 달 내비·
+   * 내보내기 달 스테퍼가 이미 쓰는 **gray900 + opacity 0.35**로 통일한다.
+   */
+  it("비활성(미래 칸·잠긴 달 이동)을 색이 아니라 opacity로 말한다", () => {
+    expect(source).toContain("const PICKER_DISABLED_OPACITY = 0.35;");
+    const disabledDayStyle = source.slice(source.indexOf("cellDayDisabled: {"), source.indexOf("cellDaySelected: {"));
+    expect(disabledDayStyle).toContain("color: theme.colors.gray900");
+    expect(disabledDayStyle).toContain("opacity: PICKER_DISABLED_OPACITY");
+    // 달 이동 chevron도 같은 방식이다 — 색을 바꾸지 않고 버튼을 흐리게 한다.
+    expect(source).toContain(
+      "{ opacity: canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso) ? (pressed ? 0.76 : 1) : PICKER_DISABLED_OPACITY }"
+    );
+    expect(source).toContain(
+      "{ opacity: canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso) ? (pressed ? 0.76 : 1) : PICKER_DISABLED_OPACITY }"
+    );
+    expect(source).toContain('<AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />');
+    expect(source).toContain('<AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />');
+    // 픽커 구역에 gray300이 되살아나면 여기서 먼저 빨개진다.
+    const pickerBlock = source.slice(
+      source.indexOf("const PICKER_DISABLED_OPACITY"),
+      source.indexOf("type QuickExpenseCategory")
+    );
+    expect(pickerBlock).not.toContain("theme.colors.gray300");
   });
 
   it("EXP-001 비세션 캡처 경로 밖이다(세션 게이트 뒤에서만 그린다)", () => {
-    expect(source).toContain("const pickerMonth = authToken && showDatePicker ? buildExpenseDatePickerMonth(");
-    expect(source).toContain("{authToken && showDatePicker ? (");
+    expect(entrySheet).toContain("{authToken && showDatePicker ? (");
   });
 });

@@ -49,16 +49,24 @@ import { useNotificationStore } from "./notification.store";
  * 애초에 저장소를 읽지 못한 기기라, 그 사용자가 껐던 설정도 이미 읽을 수 없는 상태다.
  */
 /**
- * GAP-054 #6 (record_gap) 판정의 모집단에 대하여 — **`/home` 스냅샷이 아는 기록만** 본다.
+ * GAP-054 #6 (record_gap) 판정의 모집단에 대하여 — 라운드 54 P1-3에서 **두 겹으로** 고쳤다.
  *
- * 마지막 기록 날짜는 `home.recentExpenses`(서버가 준 최신 3건)에서 뽑는다. 이 기기에만 있는
- * 오프라인 대기 행은 세지 않으므로, 며칠째 연결 없이 로컬로만 적어 온 사용자에게는 공백이
- * 실제보다 길게 읽힐 수 있다. 그것을 메우려면 이 훅이 오프라인 스냅샷(src/offline/
- * sync-controller.ts)을 구독해야 하는데, 그 모듈은 expo-router·react-native를 정적으로 끌고
- * 들어와 이 파일을 vitest에서 import할 수 없게 만든다(알림 계약 테스트들이 실제로 그렇게
- * 검증한다). 그리고 이 훅의 다른 알림(예산 80/100·주간 폴백)도 **모두** 서버 집계를 근거로
- * 판단하므로, 여기만 다른 모집단을 쓰는 편이 오히려 일관을 깬다. 연결이 돌아와 아웃박스가
- * 확정되면 `["home"]`이 무효화되고 다음 평가는 정확해진다(그리고 같은 주에는 dedupe가 막는다).
+ * 마지막 지출 날짜는 여전히 `home.recentExpenses`(서버가 준 최신 3건)에서 뽑는다. 그 목록은
+ * 이 기기에만 있는 오프라인 대기 행을 모르므로, 며칠째 연결 없이 로컬로만 적어 온 사용자에게는
+ * 공백이 실제보다 길게 읽혔다 — 방금 적은 사람에게 "기록이 없다"고 말하는 허위 단언이다.
+ *
+ * 이 훅이 오프라인 스냅샷(src/offline/sync-controller.ts)을 **직접 구독하지는 않는다**: 그
+ * 모듈은 expo-router·react-native를 정적으로 끌고 들어와 이 파일을 vitest에서 import할 수 없게
+ * 만든다(알림 계약 테스트들이 실제로 그것을 검증한다). 대신 홈 화면이 **이미 구독 중인** 그
+ * 스냅샷에서 순수 함수(`hasPendingRecordsForChild`)로 판정해 `hasPendingLocalRecords`로
+ * 넘겨준다 — 리포트 탭의 대기 건수 고지가 쓰는 것과 같은 주입 방식이고, 새 요청도 새 구독도
+ * 없다. 대기 행이 하나라도 있으면 record_gap은 **발화하지 않는다**(generators.ts).
+ *
+ * 두 번째 겹은 문구다: 제목이 "마지막 지출 기록이 N일 전이에요"로, **판정이 실제로 세는 것**
+ * (지출 날짜)을 말한다. 소급 입력 직후에도 참인 문장이다(generators.ts의 P1-3 주석).
+ *
+ * 연결이 돌아와 아웃박스가 확정되면 `["home"]`이 무효화되고 다음 평가가 정확한 값으로
+ * 판단한다(그리고 같은 주에는 dedupe가 두 번째 발화를 막는다).
  */
 /**
  * rehydrate 안전 밸브의 유예 시간. app/index.tsx의 두 밸브(저장소 rehydrate · 서버 진행도 조회)와
@@ -66,7 +74,16 @@ import { useNotificationStore } from "./notification.store";
  */
 export const NOTIFICATION_HYDRATION_VALVE_MS = 3000;
 
-export function useHomeNotificationEvaluation(home: HomeSummary | undefined, weekly: WeeklySpendResolution) {
+export function useHomeNotificationEvaluation(
+  home: HomeSummary | undefined,
+  weekly: WeeklySpendResolution,
+  /**
+   * GAP-054 라운드 54 P1-3: 이 기기에 아직 올라가지 않은 **이 아이의** 지출 행이 있는가.
+   * 호출부(홈 화면)가 이미 구독 중인 오프라인 스냅샷에서 `hasPendingRecordsForChild`로 계산해
+   * 넘긴다. `true`면 record_gap만 발화하지 않고, 나머지 알림은 종전 그대로다.
+   */
+  hasPendingLocalRecords: boolean
+) {
   useEffect(() => {
     if (!home) return;
     // 밸브가 열린 뒤 늦게 도착한 rehydrate 콜백이 같은 평가를 한 번 더 돌리지 않게 한다
@@ -89,7 +106,9 @@ export function useHomeNotificationEvaluation(home: HomeSummary | undefined, wee
         // GAP-054 #6: 기록 공백 판정의 유일한 입력. `/home`이 이미 들고 온 최신 3건에서 뽑으므로
         // 새 요청도 새 구독도 없다(이 훅의 다른 입력과 같은 태도). 목록이 비어 있으면 null =
         // "기록이 하나도 없다"라, 신규 사용자에게는 발화하지 않는다 -- generators.ts 참고.
-        lastRecordedOn: latestRecordedOn(home.recentExpenses)
+        lastRecordedOn: latestRecordedOn(home.recentExpenses),
+        // P1-3: 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 공백을 단언하지 않는다.
+        hasPendingLocalRecords
       });
       store.ingest(candidates, Date.now());
       store.recordSeenStage(home.child.id, home.child.stageLabel);
@@ -119,5 +138,5 @@ export function useHomeNotificationEvaluation(home: HomeSummary | undefined, wee
       clearTimeout(valve);
       for (const unsubscribe of unsubscribes) unsubscribe();
     };
-  }, [home, weekly]);
+  }, [home, weekly, hasPendingLocalRecords]);
 }

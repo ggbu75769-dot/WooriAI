@@ -70,20 +70,22 @@ describe("GAP-054 #1 — 환불 기록은 수정해도 환불로 남는다", () 
   /**
    * 오프라인 편집 경로도 같은 규칙을 따르는지 **실제로 돌려서** 확인한다.
    *
-   * refund 기록의 로컬 payload에는 애초에 expenseType이 없다(sync-controller의
-   * `adoptServerExpense`가 refund를 undefined로 접는다 — 아래에서 그 사실도 함께 고정한다).
-   * 그 위에 화면이 만든 patch를 얹었을 때 병합 payload에 expenseType이 끼어들지 않아야,
-   * 아웃박스가 나중에 보내는 PATCH에서도 키가 사라진다.
+   * 라운드 54 P1-2로 로컬 payload는 `refund`를 **사실대로** 들고 있다(그래야 기록 탭 합계·행
+   * 표시가 정확하다 — DNC-015). 화면이 만든 patch는 여전히 expenseType을 말하지 않으므로
+   * (`expenseTypeForPatch("refund", …)` = undefined → `omitUndefinedValues`가 키를 지운다)
+   * 병합 payload의 환불이 지출로 덮이지 않는다. 아웃박스 행도 환불을 그대로 들고 있고,
+   * 서버로 나가는 순간에만 remote-api가 그 키를 뺀다(remote-api.test.ts가 고정한다).
    */
-  it("아웃박스 patch에도 expenseType이 실리지 않는다", async () => {
+  it("환불 대기 행: 아웃박스 payload는 환불을 그대로 들고, 화면 patch가 그것을 덮지 않는다", async () => {
     const store = createMemoryOfflineStore();
-    // adoptServerExpense가 refund 기록으로 만들어 두는 모양: expenseType 키가 없다.
+    // adoptServerExpense가 refund 기록으로 만들어 두는 모양: 서버가 말한 값 그대로다.
     const adopted: ExpensePayload = {
       childId: "child-1",
       categoryId: "cat-1",
       amountKrw: 12_000,
       spentOn: "2026-08-01",
-      itemName: "유모차 환불"
+      itemName: "유모차 환불",
+      expenseType: "refund"
     };
     const row = await recordLocalCreate(store, adopted);
 
@@ -93,22 +95,34 @@ describe("GAP-054 #1 — 환불 기록은 수정해도 환불로 남는다", () 
     });
 
     expect(updated.payload.memo).toBe("영수증 확인");
-    expect(updated.payload.expenseType).toBeUndefined();
-    // 실제로 나가는 것은 JSON이다 -- 키 자체가 사라지는지까지 본다.
-    expect(JSON.parse(JSON.stringify({ expenseType: updated.payload.expenseType }))).toEqual({});
+    // 화면이 "지출"로 덮어쓰지 않는다 — 원래 값이 그대로 남는다.
+    expect(updated.payload.expenseType).toBe("refund");
 
     const outbox = await store.listOutboxMutationsForLocalId(row.localId);
+    expect(outbox.length).toBeGreaterThan(0);
     for (const mutation of outbox) {
-      expect(mutation.payload?.expenseType).toBeUndefined();
+      expect(mutation.payload?.expenseType).toBe("refund");
     }
   });
 
-  it("adoptServerExpense가 refund를 로컬 payload에 싣지 않는 규칙이 그대로다", () => {
-    // 이 규칙이 사라지면 위 보존이 조용히 깨진다(로컬 payload에 refund가 들어가고, 서버
-    // UpdateExpenseDto는 refund를 받지 않아 수정 전체가 400이 된다).
-    expect(source("src/offline/sync-controller.ts")).toContain(
-      'expenseType: expense.expenseType === "refund" ? undefined : expense.expenseType'
-    );
+  /**
+   * GAP-054 라운드 54 P1-2로 **규칙의 자리가 옮겨졌다.**
+   *
+   * 예전에는 `adoptServerExpense`가 refund를 접어서 서버 PATCH 계약을 지켰다. 그 접기가
+   * 대기 행을 기록 탭에서 일반 지출로 만들어(합계 오염 + "환불 ·" 소실, DNC-015) 로컬은
+   * 사실대로 들고 **전송 직전에만** 접는 방식으로 바꿨다. 위 보존(환불이 지출로 덮이지 않는
+   * 것)은 그대로 유지되며, 지키는 자리가 sync-controller에서 remote-api로 내려갔을 뿐이다.
+   */
+  it("환불 보존은 이제 전송 직전(remote-api)에서 지켜진다 — adopt는 사실대로 싣는다", () => {
+    const controller = source("src/offline/sync-controller.ts");
+    expect(controller).toContain("expenseType: expense.expenseType");
+    expect(controller).not.toContain('expense.expenseType === "refund" ? undefined');
+
+    const remoteApi = source("src/offline/remote-api.ts");
+    // 접는 함수는 하나뿐이고, 생성·수정 두 경로가 그것을 쓴다.
+    expect(remoteApi).toContain('return expenseType === "refund" ? undefined : expenseType;');
+    expect(remoteApi).toContain("expenseType: expenseTypeForWire(payload.expenseType)");
+    expect(remoteApi.match(/expenseTypeForWire\(payload\.expenseType\)/g)).toHaveLength(2);
   });
 
   it("화면이 삼항 재구성 대신 순수 함수를 쓰고, 환불 배지·비활성 이유를 그린다", () => {
@@ -126,7 +140,29 @@ describe("GAP-054 #1 — 환불 기록은 수정해도 환불로 남는다", () 
     expect(screen).toContain("disabled={isRefund}");
     expect(screen).toContain("accessibilityState={{ checked: isGift }}");
     expect(screen).toContain("accessibilityHint={isRefund ? REFUND_GIFT_DISABLED_REASON : undefined}");
-    expect(screen).toContain("{isRefund ? REFUND_GIFT_DISABLED_REASON : \"선물은 지출 합계에 포함되지 않아요\"}");
+  });
+
+  /**
+   * GAP-054 라운드 54 P2-2 — 비활성 이유 한 줄이 **흐림 밖**에 있다.
+   *
+   * 상자에 걸린 `opacity: 0.4`는 안의 글자까지 함께 흐리게 만든다. gray600 11px가 0.4로
+   * 흐려지면 흰 배경에서 약 1.9:1이라, 왜 누를 수 없는지를 설명하는 바로 그 문장이 화면에서
+   * 가장 읽기 어려운 글자가 됐다. 상자는 그대로 흐리되(누를 수 없다는 사실은 그대로 보인다)
+   * 이유만 밖으로 빼서 gray600 원래 대비(약 6.9:1)로 읽히게 한다.
+   */
+  it("비활성 이유는 opacity 0.4 상자 밖에서 그려진다(대비 확보)", () => {
+    const screen = detailScreen();
+    // 상자의 흐림은 그대로다 -- 비활성 표시 자체를 없애는 것이 아니다.
+    expect(screen).toContain("opacity: isRefund ? 0.4 : 1");
+    // 이유 한 줄은 Pressable 뒤에, 즉 흐림이 걸리지 않는 자리에 있다.
+    const reasonIndex = screen.indexOf('testID="refund-gift-disabled-reason"');
+    expect(reasonIndex).toBeGreaterThan(screen.indexOf("opacity: isRefund ? 0.4 : 1"));
+    expect(reasonIndex).toBeGreaterThan(screen.indexOf("</Pressable>"));
+    expect(screen.slice(reasonIndex, reasonIndex + 400)).toContain("{REFUND_GIFT_DISABLED_REASON}");
+    // 상자 안에는 더 이상 그 문장이 없다(같은 말을 두 번 그리지 않는다).
+    expect(screen).not.toContain('{isRefund ? REFUND_GIFT_DISABLED_REASON : "선물은 지출 합계에 포함되지 않아요"}');
+    // 스크린리더 경로는 그대로다 -- 같은 문장이 체크박스 hint로도 붙어 있다.
+    expect(screen).toContain("accessibilityHint={isRefund ? REFUND_GIFT_DISABLED_REASON : undefined}");
   });
 
   it("환불 문구는 해요체이고 사용자를 탓하지 않는다(DNC-018)", () => {
@@ -207,6 +243,25 @@ describe("GAP-054 #2 — 금액 상한(지출 상세·예산 두 화면)", () =>
     }
   });
 
+  /**
+   * GAP-054 라운드 54 P2-7 — 버튼 활성 판정의 가드 집합을 세 화면이 공유한다.
+   *
+   * 상세 화면의 `canSave`에만 `Number.isInteger`가 빠져 있었다. 숫자만 남기는 정규화를 통과한
+   * 아주 긴 자릿수를 붙여 넣으면 `Number(...)`가 Infinity가 되고, `isAmountOverLimit`은
+   * `Number.isFinite`로 먼저 걸러 "상한 초과 아님"을 돌려준다 — 오류 문구도 없고 버튼도 활성인데
+   * 누르면 저장 직전 가드가 막는, 아무 일도 일어나지 않는 버튼이 된다.
+   */
+  it("저장 버튼 활성 판정에도 정수 가드가 있다(Infinity 붙여넣기 봉합)", () => {
+    const screen = detailScreen();
+    const canSaveBlock = screen.slice(screen.indexOf("const canSave ="), screen.indexOf("const canTapAmountPreset"));
+    expect(canSaveBlock).toContain("Number.isInteger(amountKrw)");
+    expect(canSaveBlock).toContain("amountKrw > 0");
+    expect(canSaveBlock).toContain("!amountError");
+    // 빠른 기록 시트·예산 화면과 같은 가드 집합이다(세 화면이 갈리지 않는다).
+    expect(source("app/expenses/new.tsx")).toContain("!Number.isInteger(amountKrwValue)");
+    expect(source("app/budget.tsx")).toContain("!Number.isInteger(amountKrw)");
+  });
+
   it("저장 직전 가드에도 같은 판정이 들어 있다(버튼 비활성만으로 끝내지 않는다)", () => {
     expect(detailScreen()).toContain("isAmountOverLimit(amountKrw) ||");
     expect(source("app/budget.tsx")).toContain("|| isAmountOverLimit(amountKrw)");
@@ -223,13 +278,24 @@ describe("GAP-054 #2 — 금액 상한(지출 상세·예산 두 화면)", () =>
     }
   });
 
-  it("모바일 상한과 contracts 상한이 같은 숫자다", () => {
-    const contracts = readFileSync(
-      join(process.cwd(), "..", "..", "packages", "contracts", "src", "schemas.ts"),
-      "utf8"
-    );
-    const match = contracts.match(/export const MONEY_KRW_MAX = ([0-9_]+);/);
+  /**
+   * 라운드 54 P1-1: 상한의 단일 소스가 contracts에서 **domain**으로 내려갔다(가져오기 검증이
+   * 도메인 술어만 지나기 때문 — packages/domain/src/money-date.ts 참고). 그래서 대조 대상도
+   * 그 선언이고, contracts는 그 값을 재수출하기만 한다는 사실을 함께 고정한다.
+   */
+  it("모바일 상한과 도메인 상한이 같은 숫자이고, contracts는 그것을 재수출한다", () => {
+    const packageSource = (...segments: string[]) =>
+      readFileSync(join(process.cwd(), "..", "..", "packages", ...segments), "utf8");
+    const domain = packageSource("domain", "src", "money-date.ts");
+    const match = domain.match(/export const MONEY_KRW_MAX = ([0-9_]+);/);
     expect(match, "MONEY_KRW_MAX 선언을 찾지 못했다").not.toBeNull();
     expect(Number(match![1].replace(/_/g, ""))).toBe(EXPENSE_AMOUNT_MAX_KRW);
+    // 도메인 술어가 상한을 실제로 물고 있어야 가져오기 검증이 초과 행을 떨군다.
+    expect(domain).toContain("value <= MONEY_KRW_MAX");
+
+    const contracts = packageSource("contracts", "src", "schemas.ts");
+    expect(contracts).toContain("export { MONEY_KRW_MAX };");
+    // 숫자를 다시 적어 두면 두 층이 갈리는 순간을 아무도 모른다.
+    expect(contracts).not.toMatch(/export const MONEY_KRW_MAX = /);
   });
 });

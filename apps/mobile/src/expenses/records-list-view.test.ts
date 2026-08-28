@@ -11,6 +11,7 @@ import {
   MEMO_SEARCH_SNIPPET_MAX_LENGTH,
   MERCHANT_SEARCH_SNIPPET_LABEL,
   RECORDS_SEARCH_FIELDS_LABEL,
+  RECORDS_SEARCH_PLACEHOLDER,
   buildRecordsCategoryChips,
   buildRecordsEmptyMonthTitle,
   buildRecordsFilteredEmptyState,
@@ -684,7 +685,7 @@ describe("UX-P buildRecordsMonthSummary", () => {
 describe("UX-P buildRecordsSearchScopeNotice", () => {
   it("검색어가 있을 때만 범위를 밝힌다", () => {
     expect(buildRecordsSearchScopeNotice({ searchText: "유모차", monthLabel: "2026년 8월" })).toBe(
-      "'유모차' 검색은 2026년 8월의 품목명·판매처·메모에서만 찾아요"
+      "'유모차' 검색은 2026년 8월의 품목명, 판매처, 메모에서만 찾아요"
     );
   });
 
@@ -696,13 +697,13 @@ describe("UX-P buildRecordsSearchScopeNotice", () => {
 
   it("달이 바뀌면 문장의 달도 함께 바뀐다 (화면의 월 라벨을 그대로 받는다)", () => {
     expect(buildRecordsSearchScopeNotice({ searchText: "유모차", monthLabel: "2026년 6월" })).toBe(
-      "'유모차' 검색은 2026년 6월의 품목명·판매처·메모에서만 찾아요"
+      "'유모차' 검색은 2026년 6월의 품목명, 판매처, 메모에서만 찾아요"
     );
   });
 
   it("검색어 앞뒤 공백은 화면의 필터링과 같은 기준으로 다듬는다", () => {
     expect(buildRecordsSearchScopeNotice({ searchText: "  유모차  ", monthLabel: "2026년 8월" })).toBe(
-      "'유모차' 검색은 2026년 8월의 품목명·판매처·메모에서만 찾아요"
+      "'유모차' 검색은 2026년 8월의 품목명, 판매처, 메모에서만 찾아요"
     );
   });
 
@@ -1109,13 +1110,16 @@ describe("GAP-054 D#8 판매처 검색 갈래", () => {
   });
 
   it("범위 고지와 placeholder가 실제로 훑는 필드를 같은 순서로 말한다", () => {
-    expect(RECORDS_SEARCH_FIELDS_LABEL).toBe("품목명·판매처·메모");
+    expect(RECORDS_SEARCH_FIELDS_LABEL).toBe("품목명, 판매처, 메모");
     expect(buildRecordsSearchScopeNotice({ searchText: "쿠팡", monthLabel: "2026년 8월" })).toBe(
-      "'쿠팡' 검색은 2026년 8월의 품목명·판매처·메모에서만 찾아요"
+      "'쿠팡' 검색은 2026년 8월의 품목명, 판매처, 메모에서만 찾아요"
     );
     const recordsScreen = readFileSync(join(mobileRoot, "app/(tabs)/records.tsx"), "utf8");
-    expect(recordsScreen).toContain('placeholder="품목명, 판매처, 메모로 검색"');
-    expect(recordsScreen).toContain('accessibilityLabel="품목명, 판매처, 메모로 검색"');
+    // 라운드 54 P2-10: placeholder·접근성 라벨도 같은 상수에서 만들어진다 -- 목록을 화면에
+    // 다시 적어 두면 구분자가 또 갈린다(고지는 가운뎃점, 화면은 쉼표였다).
+    expect(RECORDS_SEARCH_PLACEHOLDER).toBe(`${RECORDS_SEARCH_FIELDS_LABEL}로 검색`);
+    expect(recordsScreen).toContain("placeholder={RECORDS_SEARCH_PLACEHOLDER}");
+    expect(recordsScreen).toContain("accessibilityLabel={RECORDS_SEARCH_PLACEHOLDER}");
     // 판매처가 빠진 옛 약속은 화면에 남아 있지 않다.
     expect(recordsScreen).not.toContain("품목명, 메모로 검색");
   });

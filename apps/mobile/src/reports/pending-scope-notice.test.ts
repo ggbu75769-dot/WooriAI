@@ -100,13 +100,55 @@ describe("GAP-054 #3 리포트 대기 건수 판정", () => {
 
   it("깨진 지출 날짜는 어떤 기간에도 세지 않는다(아무 달에나 밀어 넣지 않는다)", () => {
     expect(pendingRowYearMonth("2026-08-05")).toBe("2026-08");
-    expect(pendingRowYearMonth("2026-08")).toBe("2026-08");
-    for (const broken of [undefined, null, "", "202608", "2026/08/05", "어제", 20260805]) {
+    // 라운드 54 P2-9: 일자 없는 "YYYY-MM"은 이제 받지 않는다. 이 함수가 받는 값은 오프라인
+    // payload의 spentOn 하나이고 그것은 계약상 언제나 YYYY-MM-DD다 -- 있지도 않은 입력 모양을
+    // 받아 주면, 진짜로 그런 값이 흘러들었을 때 조용히 정상으로 세게 된다.
+    for (const broken of [undefined, null, "", "2026-08", "202608", "2026/08/05", "어제", 20260805]) {
       expect(pendingRowYearMonth(broken), String(broken)).toBeNull();
       expect(isSpentOnInReportScope(broken, monthScope), String(broken)).toBe(false);
     }
     const rows = [row({ spentOn: null }), row({ payload: null }), row({ payload: undefined })];
     expect(countPendingExpensesInReportScope({ rows, childId: "child-1", scope: monthScope })).toBe(0);
+  });
+});
+
+/**
+ * GAP-054 라운드 54 P2-4 — 고지가 세는 것과 아래 숫자가 세는 것이 **같은 모집단**이어야 한다.
+ *
+ * 리포트의 총 지출·카테고리 비중은 `expense` 구분만 더한다(DNC-015). 선물·환불 대기 행을
+ * 함께 세면 "3건이 아직 반영되지 않았어요"라고 말해 놓고, 그 3건이 동기화된 뒤에도 아래 숫자는
+ * 한 원도 움직이지 않는다 — 사용자를 기다리게 만드는, 사실이 아닌 안내다.
+ */
+describe("GAP-054 P2-4 합산 대상만 센다", () => {
+  it("선물·환불 대기 행은 고지 건수에 들어가지 않는다", () => {
+    const rows = [
+      row({ payload: { spentOn: "2026-08-05", expenseType: "expense" } }),
+      row({ payload: { spentOn: "2026-08-06", expenseType: "gift" } }),
+      row({ payload: { spentOn: "2026-08-07", expenseType: "refund" } })
+    ];
+    expect(countPendingExpensesInReportScope({ rows, childId: "child-1", scope: monthScope })).toBe(1);
+    expect(evaluateReportPendingScopeNotice({ rows, childId: "child-1", scope: monthScope })?.count).toBe(1);
+  });
+
+  it("선물·환불만 대기 중이면 고지 자체가 없다 (움직이지 않을 숫자를 기다리게 하지 않는다)", () => {
+    const rows = [
+      row({ payload: { spentOn: "2026-08-06", expenseType: "gift" } }),
+      row({ payload: { spentOn: "2026-08-07", expenseType: "refund" } })
+    ];
+    expect(evaluateReportPendingScopeNotice({ rows, childId: "child-1", scope: monthScope })).toBeNull();
+  });
+
+  it("구분이 없는 레거시 행은 종전대로 지출로 센다 (합계 술어와 같은 관례)", () => {
+    const rows = [row({ payload: { spentOn: "2026-08-05" } })];
+    expect(countPendingExpensesInReportScope({ rows, childId: "child-1", scope: monthScope })).toBe(1);
+  });
+
+  it("술어를 인라인으로 다시 적지 않는다 (합계와 한 곳에서만 정한다)", () => {
+    const moduleSource = source("src/reports/pending-scope-notice.ts");
+    expect(moduleSource).toContain(
+      'import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";'
+    );
+    expect(moduleSource).not.toMatch(/expenseType === "expense"/);
   });
 });
 
@@ -144,7 +186,12 @@ describe("GAP-054 #3 리포트 화면 배선(소스 검증 -- RN 화면은 vites
 
   it("홈과 같은 오프라인 스냅숏 구독을 재사용하고, 판정은 순수 모듈에 맡긴다", () => {
     const src = reportSource();
-    expect(src).toContain('import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";');
+    expect(src).toContain(
+      'import { refreshOfflineSyncSnapshot, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";'
+    );
+    // 라운드 54 P2-3: 이 탭으로 곧장 들어온 첫 렌더에서도 큐를 한 번 읽어 둔다 -- 콜드 스타트에서
+    // 고지가 한 박자 늦게 뜨면, 그동안 사용자는 고지 없는 숫자를 사실로 읽는다(items.tsx 관례).
+    expect(src).toContain("void refreshOfflineSyncSnapshot();");
     expect(src).toContain("const offlineSyncSnapshot = useOfflineSyncSnapshot();");
     expect(src).toContain("evaluateReportPendingScopeNotice({");
     expect(src).toContain("rows: offlineSyncSnapshot.rows,");

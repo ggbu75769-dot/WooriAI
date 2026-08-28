@@ -65,7 +65,9 @@ import {
   expenseCreatedByUserId,
   formatSpentOn,
   matchRecordSearch,
+  offlineRecordRowSubtitle,
   recordsRowSubtitle,
+  RECORDS_SEARCH_PLACEHOLDER,
   resolveExpenseAuthorLabel,
   resolveExpenseHouseholdId
 } from "../../src/expenses/records-list-view";
@@ -219,15 +221,18 @@ const OfflineExpenseListRow = memo(function OfflineExpenseListRow({ row }: { row
     <ListRow
       icon={offlineStatusIcon(row.syncState)}
       title={row.payload.itemName}
-      subtitle={
-        row.pendingDelete
+      // GAP-054 라운드 54 P1-2: 대기 행도 구분(선물·환불)을 앞세운다 -- 같은 기록의 "환불 ·"이
+      // 동기화 상태에 따라 나타났다 사라지지 않도록. 규칙은 서버 행과 같은 순수 모듈에 있다.
+      subtitle={offlineRecordRowSubtitle({
+        expenseType: row.payload.expenseType,
+        statusLabel: row.pendingDelete
           ? SYNC_ROW_PENDING_DELETE_LABEL
           : row.syncState === "conflict"
             ? SYNC_ROW_CONFLICT_LABEL
             : row.syncState === "failed"
               ? SYNC_ROW_FAILED_LABEL
               : `${SYNC_ROW_PENDING_LABEL} · ${formatSpentOn(row.payload.spentOn)}`
-      }
+      })}
       value={formatKrw(row.payload.amountKrw)}
       onPress={pushSyncStatus}
     />
@@ -1544,12 +1549,14 @@ export default function RecordsScreen() {
 
       {/* GAP-054 D#8: 판매처 갈래가 더해졌으므로 placeholder도 실제로 훑는 곳을 말한다 --
           matchRecordSearch의 갈래 순서(품목명 → 판매처 → 메모)와 같은 순서이고, 범위 고지 줄의
-          RECORDS_SEARCH_FIELDS_LABEL과 같은 목록이다. 약속과 판정이 갈리면 그 자체가 허위 표시다. */}
+          RECORDS_SEARCH_FIELDS_LABEL과 같은 목록이다. 약속과 판정이 갈리면 그 자체가 허위 표시다.
+          라운드 54 P2-10: 그 목록을 여기 다시 적지 않고 **같은 상수에서** 만든다 -- 구분자가
+          자리마다 갈려(고지는 가운뎃점, 여기는 쉼표) 소리로는 다른 문장이 되던 자리다. */}
       <TextInput
-        accessibilityLabel="품목명, 판매처, 메모로 검색"
+        accessibilityLabel={RECORDS_SEARCH_PLACEHOLDER}
         returnKeyType="search"
         onChangeText={setSearchText}
-        placeholder="품목명, 판매처, 메모로 검색"
+        placeholder={RECORDS_SEARCH_PLACEHOLDER}
         style={{
           backgroundColor: theme.colors.white,
           borderColor: "rgba(74, 63, 53, 0.10)",

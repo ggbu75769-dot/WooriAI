@@ -584,6 +584,27 @@ export function expenseTypeSubtitlePrefix(expenseType?: string | null): string |
 }
 
 /**
+ * GAP-054 라운드 54 P1-2 — **오프라인 대기 행**의 부제.
+ *
+ * 대기 행의 부제 자리는 동기화 상태가 쓴다("동기화 대기 · 8월 4일"). 그런데 그 행이 환불이나
+ * 선물이면 그 사실이 어디에도 남지 않는다 — 같은 지출이 서버에 확정되는 순간 "환불 ·"이
+ * 나타나고, 오프라인 수정 중에는 사라졌다가, 동기화가 끝나면 다시 나타난다. 사용자에게는
+ * 같은 기록의 구분이 오락가락하는 것으로 읽히고, 그 사이 합계에서 빠진 이유도 설명되지 않는다.
+ *
+ * 그래서 서버 행과 **같은 자리·같은 규칙**으로 구분을 앞세운다(`buildRecordSubtitle`의 토큰
+ * 순서: 구분 → … → 상태). 기본값 "지출"에는 아무것도 붙이지 않는 규칙도 그대로라, 환불·선물이
+ * 아닌 대기 행은 한 글자도 바뀌지 않는다.
+ */
+export function offlineRecordRowSubtitle(input: {
+  /** 동기화 상태가 이미 만든 한 줄(대기/삭제 대기/실패/충돌). */
+  statusLabel: string;
+  expenseType?: string | null;
+}): string {
+  const typePrefix = expenseTypeSubtitlePrefix(input.expenseType);
+  return typePrefix ? `${typePrefix} · ${input.statusLabel}` : input.statusLabel;
+}
+
+/**
  * REC-121 (D2/K1): composes a 기록 행 subtitle -- "[선물|환불 ·] 카테고리 · 8월 4일".
  *
  * D2: the row used to show only 품목명 / 날짜 / 금액, so two rows for different categories were
@@ -701,8 +722,23 @@ export const MERCHANT_SEARCH_SNIPPET_LABEL = "판매처";
 /**
  * GAP-054 D#8: 검색이 훑는 필드를 문장에 넣을 때 쓰는 이름 — 범위 고지 한 줄과 검색창
  * placeholder가 같은 사실을 말하도록 여기 한 번만 적는다(순서는 갈래 우선순위와 같다).
+ *
+ * 라운드 54 P2-10 — **구분자를 한 형식으로 통일했다.** 같은 목록이 자리마다 다른 문자로
+ * 이어져 있었다: 고지 줄은 가운뎃점("품목명·판매처·메모"), 검색창 placeholder와 접근성 라벨은
+ * 쉼표("품목명, 판매처, 메모"). 눈으로는 사소해 보여도 소리로는 다른 문장이 된다.
+ *
+ * 쉼표로 맞춘 이유: 이 목록은 **읽히는** 자리(접근성 라벨·placeholder)에서 먼저 쓰이는데,
+ * 스크린리더는 쉼표를 짧은 멈춤으로 읽고 가운뎃점은 대개 읽지 않아 "품목명판매처메모"처럼
+ * 붙어 들린다. 그리고 두 화면 문구가 모두 이 상수 하나에서 나오게 해, 다시 갈리는 자리를
+ * 없앤다(placeholder는 아래 `RECORDS_SEARCH_PLACEHOLDER`).
  */
-export const RECORDS_SEARCH_FIELDS_LABEL = "품목명·판매처·메모";
+export const RECORDS_SEARCH_FIELDS_LABEL = "품목명, 판매처, 메모";
+
+/**
+ * 검색창의 placeholder이자 접근성 라벨. 위 목록에서 그대로 만들어지므로, 화면이 약속하는
+ * 범위와 고지 줄이 말하는 범위가 갈릴 수 없다(약속과 판정이 갈리면 그 자체가 허위 표시다).
+ */
+export const RECORDS_SEARCH_PLACEHOLDER = `${RECORDS_SEARCH_FIELDS_LABEL}로 검색`;
 /** 조각의 최대 길이(라벨·말줄임표 제외). 한 줄 부제에 얹을 수 있는 만큼만. */
 export const MEMO_SEARCH_SNIPPET_MAX_LENGTH = 24;
 /** 검색어 앞에 남기는 문맥 길이 -- 어디에 나온 말인지 보이되 검색어가 끝으로 밀리지 않게. */

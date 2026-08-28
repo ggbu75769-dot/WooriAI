@@ -219,7 +219,10 @@ describe("GAP-054 D#11 사용자 지정 기간", () => {
     const result = await collectExpensesForRange(fetchMonth, "custom", today, {
       custom: { startYearMonth: "2025-12", endYearMonth: "2026-02" }
     });
-    expect(calls).toEqual(["2025-12", "2026-01", "2026-02"]);
+    // 라운드 54 P2-10: 요청은 **최신 달부터 거슬러** 나간다("전체" 구간과 같은 걷기 방향) --
+    // 연속 빈 달에서 멈추는 규칙이 "기록이 시작되기 전"에 도달했다는 뜻이 되려면 이 방향이어야
+    // 한다. 결과 목록은 종전대로 날짜 오름차순이다.
+    expect(calls).toEqual(["2026-02", "2026-01", "2025-12"]);
     expect(result.monthsFetched).toBe(3);
     // 양 끝 달은 포함(닫힌 구간)이고, 그 앞뒤 달은 요청조차 하지 않는다.
     expect(result.expenses.map((expense) => expense.spentOn)).toEqual([
@@ -254,6 +257,43 @@ describe("GAP-054 D#11 사용자 지정 기간", () => {
     });
     expect(result.truncated).toBe(true);
     expect(result.expenses).toHaveLength(3);
+  });
+
+  /**
+   * GAP-054 라운드 54 P2-10 — 넓게 고른 기간에 120번의 왕복을 물리지 않는다.
+   *
+   * "전체" 구간이 이미 쓰는 규칙(ALL_EMPTY_MONTH_STOP 연속 빈 달에서 중단)을 그대로 가져오되,
+   * 방향이 핵심이다: **최신 달부터** 거슬러 올라가며 멈춘다. 오래된 쪽부터 올라오며 멈추면
+   * 아직 안 본 최신 달의 기록이 통째로 빠지는 조용한 데이터 손실이 된다.
+   */
+  it("연속 빈 달에서 멈춘다 -- 기록보다 훨씬 넓게 고른 기간이 전 구간을 요청하지 않는다", async () => {
+    const { fetchMonth, calls } = fetcherFromPages({ "2026-08": [makeExpense("2026-08-03")] });
+    const result = await collectExpensesForRange(fetchMonth, "custom", today, {
+      // 2016-09 ~ 2026-08 = 120개월. 기록은 이번 달 한 건뿐이다.
+      custom: { startYearMonth: customRangeBounds(today).earliest, endYearMonth: "2026-08" }
+    });
+
+    // 2026-08(1건) + 그 앞 연속 빈 달 12개 = 13번에서 멈춘다(120번이 아니다).
+    expect(result.monthsFetched).toBe(1 + ALL_EMPTY_MONTH_STOP);
+    expect(calls[0]).toBe("2026-08");
+    expect(calls.at(-1)).toBe("2025-08");
+    expect(result.expenses.map((expense) => expense.spentOn)).toEqual(["2026-08-03"]);
+    // 멈춘 것은 왕복이지 결과가 아니다 -- 버린 행이 없으므로 잘림을 알리지 않는다.
+    expect(result.truncated).toBe(false);
+  });
+
+  it("공백이 12개월에 못 미치면 계속 따라간다(중단이 멀쩡한 기록을 삼키지 않는다)", async () => {
+    const { fetchMonth } = fetcherFromPages({
+      "2026-08": [makeExpense("2026-08-03")],
+      // 2025-10 ~ 2026-07 = 10개월 공백(상한 12 미만)이라 그 너머까지 간다.
+      "2025-09": [makeExpense("2025-09-11")]
+    });
+    const result = await collectExpensesForRange(fetchMonth, "custom", today, {
+      custom: { startYearMonth: "2025-09", endYearMonth: "2026-08" }
+    });
+
+    expect(result.monthsFetched).toBe(12);
+    expect(result.expenses.map((expense) => expense.spentOn)).toEqual(["2025-09-11", "2026-08-03"]);
   });
 
   it("파일 이름은 고른 기간을 담고, 개인 정보는 담지 않는다", () => {

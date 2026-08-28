@@ -1,3 +1,4 @@
+import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";
 import { SYNC_ROW_PENDING_LABEL } from "../offline/messages";
 
 /**
@@ -24,6 +25,13 @@ import { SYNC_ROW_PENDING_LABEL } from "../offline/messages";
  * 대상은 **지출 아웃박스(local_expenses)** 행이다. 준비템 상태 변경(item_status_outbox)은
  * 리포트의 숫자에 들어가지 않으므로 여기서 세지 않는다.
  *
+ * 라운드 54 P2-4: 같은 이유로 **선물·환불 행도 세지 않는다.** 이 줄이 말하는 "아래 숫자"는
+ * 총 지출·카테고리 비중이고, 그 집계는 `expense` 구분만 더한다(DNC-015 —
+ * `countsTowardMonthlyTotal`이 앱 쪽 단일 소스다). 선물 3건이 대기 중일 때 "3건이 아직
+ * 반영되지 않았어요"라고 말하면, 그 3건이 동기화된 뒤에도 아래 숫자는 한 원도 움직이지
+ * 않는다 — 사용자가 기다리게 만드는 사실이 아닌 안내다. 건수를 세는 술어를 합계 술어와
+ * 같은 곳에서 가져와, 고지와 숫자가 **같은 모집단**을 말하게 한다.
+ *
  * 판정은 `src/home/budget-edit.ts`의 `hasPendingMonthAdjustments`와 **같은 규칙**이다:
  * 이 아이의 행 가운데 `syncState !== "synced"`인 것(대기 중인 생성·수정, 삭제 대기, 실패, 충돌)
  * 이면 서버 집계는 그 변경을 아직 모른다. 삭제 대기도 포함된다 — 그 행이 가리키는 지출은 서버
@@ -38,7 +46,7 @@ import { SYNC_ROW_PENDING_LABEL } from "../offline/messages";
 export type PendingScopeExpenseRow = {
   childId: string;
   syncState: string;
-  payload?: { spentOn?: string | null } | null;
+  payload?: { spentOn?: string | null; expenseType?: string | null } | null;
 };
 
 /**
@@ -70,10 +78,15 @@ export const REPORT_PENDING_SCOPE_NOTICE_TEST_ID = "reports-pending-scope-notice
 /**
  * `spentOn`("2026-08-05")에서 연-월("2026-08")을 뽑는다. 형식이 아니면 null이라 그 행은 어떤
  * 기간에도 속하지 않는다 — 깨진 값을 아무 달에나 세어 넣는 것보다 세지 않는 편이 안전하다.
+ *
+ * 라운드 54 P2-9: 일자를 옵셔널로 두던 패턴(`(?:-\d{2})?`)을 걷어냈다. 이 함수가 받는 값은
+ * 오프라인 payload의 `spentOn` 하나뿐이고 그것은 계약상 언제나 `YYYY-MM-DD`다(서버 응답이거나
+ * 입력 화면이 검증한 값). 있지도 않은 입력 모양을 받아 주는 관대함은, 언젠가 진짜로 "YYYY-MM"이
+ * 흘러들었을 때 그것을 조용히 정상으로 세어 버리는 구멍이 된다.
  */
 export function pendingRowYearMonth(spentOn: unknown): string | null {
   if (typeof spentOn !== "string") return null;
-  const match = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(spentOn);
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(spentOn);
   return match ? `${match[1]}-${match[2]}` : null;
 }
 
@@ -91,7 +104,11 @@ export function countPendingExpensesInReportScope({ rows, childId, scope }: Pend
   if (!childId) return 0;
   return rows.filter(
     (row) =>
-      row.childId === childId && row.syncState !== "synced" && isSpentOnInReportScope(row.payload?.spentOn, scope)
+      row.childId === childId &&
+      row.syncState !== "synced" &&
+      // P2-4: 아래 숫자를 실제로 움직일 행만 센다(DNC-015 — 합계와 같은 술어).
+      countsTowardMonthlyTotal(row.payload?.expenseType) &&
+      isSpentOnInReportScope(row.payload?.spentOn, scope)
   ).length;
 }
 

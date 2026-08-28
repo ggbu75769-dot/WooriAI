@@ -17,6 +17,9 @@ import { EXPORT_MAX_ROWS } from "./expense-csv";
  *   empty months are seen (there is no "first expense date" endpoint, so an empty-streak stop
  *   is the pragmatic bound), capped at ALL_MAX_MONTHS lookback either way.
  * - "custom" (직접 선택, GAP-054 D#11): a closed 시작 달~끝 달 yearMonth range the user picks.
+ *   라운드 54 P2-10부터 "all"과 같은 방식으로 걷는다 -- 최신 달부터 거슬러 올라가며
+ *   ALL_EMPTY_MONTH_STOP 연속 빈 달에서 멈춘다(120개월을 고른 사용자에게 120번의 왕복을
+ *   물리지 않는다). 근거는 collectExpensesForRange의 해당 분기 주석.
  *
  * Rows are capped at EXPORT_MAX_ROWS (5000); truncation is reported via the `truncated` flag so
  * the UI can surface it in a toast — CSV has no comment syntax to carry the notice in-band.
@@ -322,18 +325,60 @@ export async function collectExpensesForRange(
       }
       yearMonth = previousYearMonth(yearMonth);
     }
+  } else if (range === "custom") {
+    /**
+     * GAP-054 라운드 54 P2-10 — 사용자 지정 기간에도 **연속 빈 달 중단**을 적용한다.
+     *
+     * 이 구간은 최대 `CUSTOM_RANGE_MAX_MONTHS`(120)개월까지 고를 수 있고, 예전에는 그 달을
+     * 하나도 빠짐없이 요청했다. "작년 1월~올해 12월"처럼 넓게 고른 사용자가 실제로는 6개월치
+     * 기록만 갖고 있어도 120번의 왕복이 그대로 나간다 -- 느린 회선에서는 내보내기 한 번이
+     * 몇 분이 되고, 그 사이 화면은 "내보내는 중..."만 말한다.
+     *
+     * 그래서 "전체" 구간이 이미 쓰는 규칙을 그대로 가져온다: **최신 달부터 거슬러 올라가며**
+     * 연속으로 `ALL_EMPTY_MONTH_STOP`(12)개월이 비면 멈춘다. 방향이 중요하다 -- 오래된 쪽부터
+     * 올라오며 멈추면 아직 안 본 최신 달의 기록이 통째로 빠지지만(그것이야말로 조용한 데이터
+     * 손실이다), 최신 쪽부터 내려가며 멈추는 것은 "기록이 시작되기 전"에 도달했다는 뜻이다.
+     *
+     * 감수하는 것은 "전체"와 **정확히 같은 트레이드오프**다: 기록 이력 한가운데에 12개월보다
+     * 긴 공백이 있으면 그 너머는 따라가지 않는다. 두 구간이 같은 상수·같은 근거를 쓰므로
+     * 한쪽만 바뀌어 서로 다른 답을 내놓는 일이 없다.
+     *
+     * 행 상한에 걸렸을 때 **최근 달을 남기는** 것도 "전체"와 같다(그리고 `normalizeCustomRange`가
+     * 길이를 자를 때 끝 쪽을 남기는 것과 같은 규칙이다).
+     */
+    const customRange = normalizeCustomRange(options.custom, todaySeoul);
+    const months = yearMonthsBetween(customRange);
+    let emptyStreak = 0;
+    for (let index = months.length - 1; index >= 0; index -= 1) {
+      // GAP-054 D#11 행 필터: 월별 페처가 "그 달 전량"만 준다는 전제가 깨져도 사용자가 고르지
+      // 않은 달의 기록이 CSV에 실리지 않는다.
+      const pageExpenses = (await fetchMonth(months[index])).filter((expense) =>
+        isExpenseInCustomRange(expense, customRange)
+      );
+      monthsFetched += 1;
+      if (pageExpenses.length === 0) {
+        emptyStreak += 1;
+        if (emptyStreak >= ALL_EMPTY_MONTH_STOP) break;
+        continue;
+      }
+      emptyStreak = 0;
+      collected.push(...pageExpenses);
+      if (collected.length >= maxRows) {
+        // 잘림을 **실제로 잘렸을 때만** 알린다: 행을 버렸거나(>) 아직 안 본 과거 달이 남아
+        // 있을 때(index > 0)다. 마지막 달에서 정확히 상한에 닿았다면 잃은 것이 없으므로
+        // "잘렸어요"라고 말하지 않는다(없는 사실을 알리지 않는다).
+        truncated = collected.length > maxRows || index > 0;
+        collected.length = maxRows;
+        break;
+      }
+    }
   } else {
-    // Closed-form pages (올해 = 최대 12개, 직접 선택 = 최대 CUSTOM_RANGE_MAX_MONTHS개):
-    // fetch them all, then apply the cap with an exact answer.
-    const customRange = range === "custom" ? normalizeCustomRange(options.custom, todaySeoul) : null;
+    // Closed-form pages (이번 달 1개, 올해 = 최대 12개): fetch them all, then apply the cap
+    // with an exact answer. 두 구간 모두 짧아 빈 달 중단이 아낄 왕복이 없다.
     for (const yearMonth of yearMonthsForRange(range, todaySeoul, options.custom)) {
       const pageExpenses = await fetchMonth(yearMonth);
       monthsFetched += 1;
-      // GAP-054 D#11 행 필터: 월별 페처가 "그 달 전량"만 준다는 전제가 깨져도 사용자가 고르지
-      // 않은 달의 기록이 CSV에 실리지 않는다. 고정 구간은 요청한 달이 곧 구간이라 그대로 담는다.
-      collected.push(
-        ...(customRange ? pageExpenses.filter((expense) => isExpenseInCustomRange(expense, customRange)) : pageExpenses)
-      );
+      collected.push(...pageExpenses);
     }
     if (collected.length > maxRows) {
       truncated = true;

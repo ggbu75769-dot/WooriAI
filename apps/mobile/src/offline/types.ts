@@ -19,7 +19,24 @@ export type SyncState = "pending" | "syncing" | "synced" | "failed" | "conflict"
 export type MutationOperation = "create" | "update" | "delete";
 
 export type ExpensePaymentMethod = "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
+/** 서버 쓰기 계약(Create/UpdateExpenseDto)이 받는 두 값. 사용자가 이 앱에서 고를 수 있는 전부다. */
 export type ExpenseKind = "expense" | "gift";
+/**
+ * GAP-054 라운드 54 P1-2 — **로컬 행이 표현할 수 있는** 구분. 위 두 값에 `refund`가 더해진다.
+ *
+ * 왜 넓히나: `refund`는 이 앱에서 만들 수 없지만(엑셀 가져오기·서버 경로로만 생긴다) 화면에는
+ * 분명히 존재하고, 월 합계에서 빠지는 구분이다(DNC-015 `countsTowardMonthlyTotal`). 그런데
+ * `adoptServerExpense`가 로컬 payload에 담을 때 `refund`를 `undefined`로 접었다 — 그 순간
+ * 레거시 관례상 **일반 지출**이 되어, 환불 기록을 오프라인에서 한 글자만 고쳐도 기록 탭 합계가
+ * 그 금액만큼 부풀고 행의 "환불" 표시가 사라졌다. 서버 값은 멀쩡한데 화면만 거짓을 말하는,
+ * DNC-015가 막으려는 바로 그 상태다.
+ *
+ * 고치는 방향은 "로컬은 사실대로, **전송 직전에만** 접는다"이다. 서버 쓰기 계약은 여전히
+ * expense|gift만 받으므로 `refund`를 실으면 400이 된다(forbidNonWhitelisted). 그래서
+ * `remote-api.ts`의 `toExpensePatch`·`createExpense`가 나가는 순간에만 키를 없애고(부분 갱신이라
+ * 서버 값이 그대로 남는다 — GAP-054 #1이 봉합한 규칙), 화면·합계·충돌 비교는 진짜 값을 본다.
+ */
+export type LocalExpenseKind = ExpenseKind | "refund";
 
 /** The mutable expense fields an offline create/update carries -- mirrors CreateExpenseDto /
  * UpdateExpenseDto's field set (apps/api/src/finance/dto/expense.dto.ts) minus server-assigned
@@ -41,7 +58,12 @@ export type ExpensePayload = {
    * ⚠️ DNC-009: 기록·정산용이며 추천 점수·정렬에 유입 금지.
    */
   linkedProductLinkId?: string | null;
-  expenseType?: ExpenseKind;
+  /**
+   * GAP-054 라운드 54 P1-2: **로컬이 아는 사실 그대로**다(`refund` 포함 — LocalExpenseKind 주석).
+   * 서버로 나갈 때만 `remote-api.ts`가 refund를 걷어낸다. 값이 없는 레거시 행은 종전대로
+   * 일반 지출로 본다(`countsTowardMonthlyTotal`).
+   */
+  expenseType?: LocalExpenseKind;
 };
 
 /** Snapshot of the server's `current` field from a 409 VERSION_CONFLICT response (design doc

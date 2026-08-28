@@ -85,6 +85,7 @@ import type { LocalExpenseRow } from "../../src/offline/types";
 import { formatKrw } from "../../src/money";
 import { resolveWeeklySpendForNotification } from "../../src/notifications/generators";
 import { NotificationBell } from "../../src/notifications/NotificationBell";
+import { hasPendingRecordsForChild } from "../../src/notifications/generators";
 import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
@@ -1144,7 +1145,20 @@ export default function HomeScreen() {
   // 아직 쓰지 않은 dedupeKey로 알림이 **정확히 한 번** 뜬다. 즉 이 선택의 비용은 "조금 늦게",
   // 이득은 "취소할 수 없는 허위 경고를 만들지 않음"이다. 주간 알림에서 잠정값이 그 주의 키를
   // 태우지 않도록 발화를 미룬 라운드 37 G-1과 같은 판단이다(허위 경고 금지가 우선).
-  useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification);
+  /**
+   * GAP-054 라운드 54 P1-3 — 기록 리마인더(record_gap)의 **억제 근거**를 함께 넘긴다.
+   *
+   * 그 알림의 유일한 입력은 `/home`의 최신 3건인데, 그 목록은 이 기기에만 있는 오프라인 대기
+   * 행을 모른다. 며칠째 연결 없이 로컬로만 적어 온 사용자에게 "마지막 지출 기록이 N일 전"이라고
+   * 말하면 방금 적은 기록을 앱이 부정하는 셈이라, 대기 행이 하나라도 있으면 발화를 막는다.
+   *
+   * 값은 **이미 구독 중인** 오프라인 스냅샷(위 `offlineSyncSnapshot`)에서 순수 함수로 나온다 —
+   * 새 요청도 새 구독도 없고, 훅은 여전히 offline 모듈을 import하지 않는다(그 모듈이
+   * react-native를 정적으로 끌고 들어와 알림 계약 테스트가 깨진다). 리포트 탭의 대기 건수
+   * 고지가 쓰는 것과 같은 주입 방식이다.
+   */
+  const hasPendingLocalRecords = hasPendingRecordsForChild(offlineSyncSnapshot.rows, childId);
+  useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification, hasPendingLocalRecords);
   // MOB-117 당겨서 새로고침: 홈 요약·최근 지출은 모두 ["home"] 쿼리에서 나온다. invalidate는
   // 활성 쿼리 refetch 완료까지 resolve되므로 스피너가 실제 완료에 맞춰 닫힌다.
   const queryClient = useQueryClient();

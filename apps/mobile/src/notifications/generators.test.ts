@@ -669,7 +669,7 @@ describe("라운드 51 #7: 예산 알림은 확정(서버) 사용액으로만 �
   it("홈 배선 계약: 알림 훅에는 재조정 값(monthlyUsed)이 아니라 /home 응답이 그대로 간다", () => {
     const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
     expect(homeSource).toContain(
-      "useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification)"
+      "useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification, hasPendingLocalRecords)"
     );
     // 훅 호출에 재조정 값이 섞여 들어가지 않는다(같은 줄에 monthlyUsed가 없다).
     const call = homeSource.slice(

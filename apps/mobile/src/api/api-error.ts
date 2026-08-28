@@ -38,6 +38,10 @@
  * (api-error.test.ts).
  */
 
+// GAP-054 라운드 54 P2-6: 금액 상한 문구는 입력 가드와 같은 단일 소스에서 온다
+// (숫자를 여기 다시 적으면 서버 @Max와 갈라지는 순간을 아무도 모른다).
+import { amountOverLimitMessage } from "../expenses/amount-limit";
+
 /** 서버 오류 응답 봉투(apps/api/src/common/filters/global-exception.filter.ts)에서 꺼낸 값. */
 export type ApiErrorEnvelope = {
   code: string;
@@ -99,6 +103,17 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   EXPENSE_DATE_INVALID: "날짜를 다시 확인해 주세요.",
   // 서버 원문("금액은 0보다 큰 원화 정수만 입력할 수 있어요.")의 "원화 정수"만 쉬운 말로 바꿨다.
   EXPENSE_AMOUNT_INVALID: "금액은 0보다 큰 숫자로 입력해 주세요.",
+  /**
+   * GAP-054 라운드 54 P2-6 — 금액이 저장 가능한 한도를 넘었다(서버 DTO `@Max(MONEY_KRW_MAX)`).
+   *
+   * 이 코드가 없던 동안 그 실패는 일반 400과 함께 "요청을 처리하지 못했어요."로 접혔다.
+   * 4xx라 오프라인 아웃박스는 그 행을 실패 행으로 **파킹**하는데(remote-api.ts), 동기화 상태
+   * 화면에 뜨는 것이 그 막다른 한 문장뿐이라 사용자는 무엇을 고쳐야 큐가 풀리는지 알 수 없었다.
+   *
+   * 문구는 입력 칸 아래 안내와 **같은 모듈**에서 가져온다(src/expenses/amount-limit.ts) —
+   * 같은 한도를 두 자리가 다른 문장으로 말하면 그 자체가 두 개의 계약이 된다.
+   */
+  EXPENSE_AMOUNT_TOO_LARGE: amountOverLimitMessage(),
   EXPENSE_ITEM_NAME_REQUIRED: "품목명을 입력해 주세요.",
   // 라운드 49 QA(P2-4): "샀어요"가 실어 보낸 구매 링크가 서버에 없을 때(링크가 내려갔거나
   // 오래된 대기 행). 서버 원문 그대로다 — 다시 눌러도 바뀌지 않는 사실이라 재시도를 권하는

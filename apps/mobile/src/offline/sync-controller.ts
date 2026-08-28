@@ -268,7 +268,20 @@ export async function adoptServerExpense(expense: Expense): Promise<LocalExpense
     itemName: expense.itemName,
     merchant: expense.merchant,
     memo: expense.memo,
-    expenseType: expense.expenseType === "refund" ? undefined : expense.expenseType
+    /**
+     * GAP-054 라운드 54 P1-2 — **접지 않는다.**
+     *
+     * 예전에는 refund일 때 undefined를 넣는 삼항으로 값을 지웠다. 로컬
+     * payload가 expense|gift만 표현하던 시절의 잔재인데, 그 한 줄 때문에 환불 기록을 오프라인
+     * 에서 수정하는 순간 그 행이 기록 탭에서 **일반 지출**이 됐다(값 없음 = 지출이라는 레거시
+     * 관례 — `countsTowardMonthlyTotal`). 합계가 그 금액만큼 부풀고 행의 "환불 ·" 표시도
+     * 사라진다. 서버 값은 멀쩡한데 화면만 거짓을 말하는 상태다(DNC-015).
+     *
+     * 서버 PATCH 계약(expense|gift만 받는다)은 **전송 직전**에 지킨다 — remote-api.ts의
+     * `toExpensePatch`가 refund일 때 키를 빼고, 부분 갱신이라 서버 값이 그대로 남는다
+     * (GAP-054 #1이 지출 상세에서 세운 규칙과 같은 자리·같은 근거).
+     */
+    expenseType: expense.expenseType
   };
   const timestamp = new Date().toISOString();
 

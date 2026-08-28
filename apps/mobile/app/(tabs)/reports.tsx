@@ -53,7 +53,7 @@ import { buildPeriodTrendPoints } from "../../src/reports/period-trend-points";
 import { buildMonthlyShareMessage } from "../../src/reports/share-text";
 import { evaluateTrendDirection } from "../../src/reports/trend-direction";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
-import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import { refreshOfflineSyncSnapshot, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { EXPENSE_VIEW_ONLY_EMPTY_TITLE } from "../../src/family/record-permissions";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
@@ -219,6 +219,14 @@ export default function ReportsScreen() {
    * 이지만, 그 경로를 판정에 들이지 않도록 hasSession으로 한 번 더 막는다.
    */
   const offlineSyncSnapshot = useOfflineSyncSnapshot();
+  useEffect(() => {
+    // GAP-054 라운드 54 P2-3: 스냅샷은 앱 루트(useOfflineSyncLifecycle)와 저장 경로가 갱신하지만,
+    // 이 탭으로 곧장 들어온 첫 렌더에서도 큐를 한 번 읽어 두어야 위 고지가 한 박자 늦게 나타나지
+    // 않는다(준비템 탭의 대기 배지가 같은 이유로 같은 호출을 한다 — app/(tabs)/items.tsx).
+    // 콜드 스타트에서 "반영되지 않은 기록 3건" 안내가 숫자를 다 그린 뒤에 뜨면, 사용자는 그
+    // 한 박자 동안 아무 고지 없는 숫자를 사실로 읽는다.
+    void refreshOfflineSyncSnapshot();
+  }, []);
   const pendingScopeNotice = hasSession
     ? evaluateReportPendingScopeNotice({
         rows: offlineSyncSnapshot.rows,

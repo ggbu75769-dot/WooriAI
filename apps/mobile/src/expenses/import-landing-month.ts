@@ -37,8 +37,12 @@ const ISO_DATE_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 /**
  * 아무리 과거라도 여기까지만 따라간다(20년). 파일이나 파라미터가 1970-01 같은 값을 들고 와도
  * 기록 탭이 그 달을 열어 빈 화면 + 무의미한 요청을 만드는 대신, 종전대로 이번 달에 선다.
+ *
+ * 라운드 54 P2-8: 지출 입력의 월 달력 픽커도 **같은 상한**을 쓴다(date-picker-month.ts의
+ * `EXPENSE_DATE_PICKER_MAX_PAST_MONTHS`). 값을 양쪽에 적어 두면 한쪽만 바뀌었을 때 "픽커에서는
+ * 고를 수 있는데 기록 탭은 그 달로 가 주지 않는" 상태가 조용히 생기므로 여기가 단일 소스다.
  */
-const MAX_PAST_MONTH_OFFSET = 240;
+export const MAX_PAST_MONTH_OFFSET = 240;
 
 function parseYearMonth(value: string): { year: number; month: number } | null {
   if (!YEAR_MONTH_PATTERN.test(value)) return null;

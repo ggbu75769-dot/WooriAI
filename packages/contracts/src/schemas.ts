@@ -6,6 +6,7 @@ import {
   EXPENSE_TYPES,
   IMPORT_STATUSES,
   ITEM_STATUSES,
+  MONEY_KRW_MAX,
   NECESSITY_LEVELS,
   PAYMENT_METHODS,
   PRODUCT_PLATFORMS
@@ -25,16 +26,29 @@ export const uuidSchema = z.string().uuid();
  * **무한 재시도 poison**이 된다(4xx만 실패 행으로 파킹된다 — apps/mobile/src/offline/
  * remote-api.ts). 진단은 docs/5차/budget-app-gap-analysis.md P0-2.
  *
- * 그래서 같은 숫자가 세 곳을 물게 한다: 이 스키마(수기 단일 소스), 서버 DTO의 `@Max`
- * (apps/api/src/finance/dto/expense.dto.ts · onboarding/dto/upsert-budget.dto.ts — 이 상수를
- * 그대로 import한다), 그리고 모바일 입력 가드(apps/mobile/src/expenses/amount-limit.ts의
- * `EXPENSE_AMOUNT_MAX_KRW`. 모바일은 이 패키지를 의존하지 않아 값을 자기 모듈에 두되, 아래
- * 계약 테스트가 두 숫자가 갈리지 않는지 대조한다).
+ * 라운드 54 P1-1: 숫자의 **단일 소스는 이제 도메인**(`@wooriai/domain`의 `MONEY_KRW_MAX`)이고
+ * 이 줄은 그것을 그대로 재수출한다. 옮긴 이유는 도메인 술어(`isMoneyKrw`/`assertMoneyKrw`)만
+ * 지나는 경로가 실제로 있었기 때문이다 — 엑셀 가져오기 검증이 int4 초과 행을 `valid`로
+ * 판정해 확정 insert에서 파일 전체를 롤백시켰다(자세한 경위는 money-date.ts의 상수 주석).
+ * contracts가 domain을 의존하므로(package.json) 방향은 기존 패키지 그래프 그대로다.
+ *
+ * 같은 숫자를 무는 자리는 **넷**이다:
+ *  1. 도메인 술어 `isMoneyKrw`/`assertMoneyKrw` — 서버의 `requireMoneyKrw`(지출 생성·수정·
+ *     예산 upsert)와 **엑셀 가져오기 행 검증**(apps/api/src/onboarding/import-pipeline.service.ts
+ *     `validationStatusForImportRow`)이 여기를 지난다. 초과 행은 `invalid_amount`가 되어
+ *     그 행만 거절되고 나머지 행은 그대로 들어온다.
+ *  2. 이 스키마(`moneyKrwSchema`)와 그것을 쓰는 요청/응답 계약.
+ *  3. 서버 DTO의 `@Max`(apps/api/src/finance/dto/expense.dto.ts ·
+ *     onboarding/dto/upsert-budget.dto.ts — 이 상수를 그대로 import한다).
+ *  4. 모바일 입력 가드(apps/mobile/src/expenses/amount-limit.ts의 `EXPENSE_AMOUNT_MAX_KRW`.
+ *     모바일은 이 패키지를 의존하지 않아 값을 자기 모듈에 두되,
+ *     apps/mobile/src/expenses/expense-detail-edit-rules.test.ts의 대조 테스트가 도메인 선언과
+ *     두 숫자가 갈리지 않는지 확인한다).
  *
  * 마이그레이션은 필요 없다 — 컬럼 타입을 바꾸는 것이 아니라 **이미 참인 한계를 계약으로
  * 적는 것**이다.
  */
-export const MONEY_KRW_MAX = 2_147_483_647;
+export { MONEY_KRW_MAX };
 
 /**
  * 원화 금액 한 건(지출 1건 · 월 예산 1건). 1원 이상 int4 상한 이하의 정수다.

@@ -41,6 +41,9 @@ import {
 // GAP-054 #2: 금액 상한은 지출 입력 시트·예산 화면과 **같은 모듈**에서 온다(값을 여기 적지 않는다).
 import { amountOverLimitMessage, isAmountOverLimit } from "../../src/expenses/amount-limit";
 // 라운드 41 UX-U(B-ⓐ/ⓓ): source 한 줄과 "이 품목 이력"의 판정은 순수 모듈이 단일 소스다.
+// GAP-054 라운드 54 P2-5: 빠른 기록 시트와 **같은** 달력 픽커(판정은 그 안에서 다시 순수
+// 모듈 src/expenses/date-picker-month.ts로 내려간다 — 이 화면이 달력을 새로 계산하지 않는다).
+import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";
 import { expenseSourceLine } from "../../src/expenses/expense-source-line";
 import { buildItemHistory } from "../../src/expenses/item-history";
 // 라운드 42 L-5: 이력 재조정을 **정규화된 품목명이 실제로 바뀔 때만** 돌리기 위한 같은 단일 소스
@@ -231,6 +234,10 @@ export default function ExpenseDetailScreen() {
   const [customDateMode, setCustomDateMode] = useState(false);
   const [customDateText, setCustomDateText] = useState("");
   const [today] = useState(() => new Date(`${getSeoulToday()}T00:00:00`));
+  // GAP-054 라운드 54 P2-5: 달력 픽커의 "오늘" 기준일. `today`는 이미 getSeoulToday()로 만든
+  // 서울 날짜라 여기서 시계를 한 번 더 읽지 않는다(같은 렌더 안에서 두 날짜가 갈리지 않게 —
+  // 빠른 기록 시트와 같은 방식).
+  const todayIso = formatExpenseDate(today).iso;
   const recentDateChips = buildRecentDateChips(today);
   // MOB-102 (round5a-sprint1-plan.md §3.2, §3.4): an expense loaded here came from the normal
   // server/local-session getExpense call, so it has no offline local_expenses row yet. Editing
@@ -346,7 +353,26 @@ export default function ExpenseDetailScreen() {
         : null;
   const dateInputError = customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
   const spentOnLabel = spentOnIso ? formatExpenseDate(new Date(`${spentOnIso}T00:00:00`)).label : "";
-  const canSave = !itemNameError && !amountError && !dateInputError && amountKrw > 0 && Boolean(authToken && expenseId && localExpenseId);
+  /**
+   * GAP-054 라운드 54 P2-7 — `Number.isInteger`가 이 줄에도 합류한다.
+   *
+   * 저장 직전 가드(save.mutationFn)는 이미 그것을 보고 있는데 버튼 활성 판정만 빠져 있었다.
+   * 그 한 칸이 벌린 틈: 숫자만 남기는 정규화(`amountDigitsOnly`)를 통과한 아주 긴 자릿수를
+   * 붙여 넣으면 `Number(...)`가 `Infinity`가 되고, `isAmountOverLimit`은 `Number.isFinite`로
+   * 먼저 걸러 **false**를 돌려준다(상한 초과가 아니라고 답한다). 그래서 `amountError`는 null,
+   * `amountKrw > 0`은 true — 저장 버튼이 멀쩡히 활성화되고, 눌러야만 저장 직전 가드가
+   * "입력값을 확인해 주세요"로 막는다. 누를 수 있는데 아무 일도 일어나지 않는 버튼이다.
+   *
+   * 빠른 기록 시트(app/expenses/new.tsx)·예산 화면은 이미 같은 가드 집합을 쓴다 — 세 화면의
+   * 판정을 한 벌로 맞춘다.
+   */
+  const canSave =
+    !itemNameError &&
+    !amountError &&
+    !dateInputError &&
+    Number.isInteger(amountKrw) &&
+    amountKrw > 0 &&
+    Boolean(authToken && expenseId && localExpenseId);
   const canTapAmountPreset = canAddAmountPreset(amountDigits);
 
   // 라운드 41 UX-U(B-ⓑ): 저장·삭제가 끝나면 **왔던 자리로** 돌아간다. 예전에는 무조건
@@ -767,6 +793,31 @@ export default function ExpenseDetailScreen() {
                 </Pressable>
                 {showDatePicker ? (
                   <View style={{ gap: 8 }}>
+                    {/* GAP-054 라운드 54 P2-5 — 빠른 기록 시트와 **같은 달력 픽커**
+                        (src/expenses/ExpenseDatePicker.tsx). 이 화면의 날짜 입력은 14일 칩과
+                        ISO 손타이핑뿐이라, 두 주보다 오래된 영수증의 날짜를 고쳐 적으려면
+                        "2026-07-18"을 직접 쳐야 했고 한 글자만 틀려도 저장이 막혔다 — 입력
+                        시트가 트랙 C에서 고친 바로 그 구멍이 수정 화면에 그대로 남아 있었다.
+
+                        새로 만드는 문법은 없다: 48dp 달 이동·미래 날짜 잠금·칸 라벨이 전부
+                        그 컴포넌트(그리고 그 아래 순수 모듈)에서 온다. 아래 14일 칩과 직접
+                        입력은 그대로 남는다 — 어제·그제는 칩이 더 빠르다.
+
+                        세션 게이트: 이 블록 전체가 `expensePhase` 정상 경로 안에 있고,
+                        `authToken`이 없으면 지출 조회 자체가 비활성이라 여기까지 오지 않는다.
+                        그래도 `authToken`을 명시해, 세션 없이 그려지는 경로를 만들지 않는다. */}
+                    {authToken ? (
+                      <ExpenseDatePicker
+                        onSelectDate={(dateIso) => {
+                          // 칩 탭과 **같은 상태 갱신**이다 -- 저장 payload가 이 한 값만 본다.
+                          setSpentOnIso(dateIso);
+                          setCustomDateMode(false);
+                          setCustomDateText("");
+                        }}
+                        selectedIso={spentOnIso || null}
+                        todayIso={todayIso}
+                      />
+                    ) : null}
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                       {recentDateChips.map((chip) => (
                         <CategoryChip
@@ -865,49 +916,73 @@ export default function ExpenseDetailScreen() {
                   expenseType 자체를 보내지 않으므로 켜 봐야 아무 일도 일어나지 않는다 — 그 조용한
                   무시가 이 티켓이 고치려는 바로 그 종류의 거짓말이라, 누를 수 없게 만들고 이유를
                   한 줄로 밝힌다. 환불이 아닌 기존 기록에서는 한 픽셀도 바뀌지 않는다. */}
-              <Pressable
-                accessibilityLabel="선물로 받았어요"
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: isGift }}
-                accessibilityHint={isRefund ? REFUND_GIFT_DISABLED_REASON : undefined}
-                // react-native의 Pressable이 `disabled`를 accessibilityState.disabled로 합쳐
-                // 내려보내므로(Pressable.js), 위 상태 객체에 손대지 않아도 스크린 리더는 이
-                // 체크박스를 "비활성"으로 읽는다 -- A11Y-101 계약 문자열이 그대로 유지된다.
-                disabled={isRefund}
-                onPress={() => setIsGift((value) => !value)}
-                style={{
-                  alignItems: "center",
-                  backgroundColor: theme.colors.white,
-                  borderColor: "rgba(74, 63, 53, 0.10)",
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  flexDirection: "row",
-                  gap: 10,
-                  opacity: isRefund ? 0.4 : 1,
-                  padding: 14
-                }}
-              >
-                <View
+              <View style={{ gap: 6 }}>
+                <Pressable
+                  accessibilityLabel="선물로 받았어요"
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: isGift }}
+                  accessibilityHint={isRefund ? REFUND_GIFT_DISABLED_REASON : undefined}
+                  // react-native의 Pressable이 `disabled`를 accessibilityState.disabled로 합쳐
+                  // 내려보내므로(Pressable.js), 위 상태 객체에 손대지 않아도 스크린 리더는 이
+                  // 체크박스를 "비활성"으로 읽는다 -- A11Y-101 계약 문자열이 그대로 유지된다.
+                  disabled={isRefund}
+                  onPress={() => setIsGift((value) => !value)}
                   style={{
                     alignItems: "center",
-                    backgroundColor: isGift ? theme.colors.mainCoral : theme.colors.white,
-                    borderColor: isGift ? theme.colors.mainCoral : theme.colors.gray300,
-                    borderRadius: 6,
-                    borderWidth: 2,
-                    height: 22,
-                    justifyContent: "center",
-                    width: 22
+                    backgroundColor: theme.colors.white,
+                    borderColor: "rgba(74, 63, 53, 0.10)",
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    flexDirection: "row",
+                    gap: 10,
+                    opacity: isRefund ? 0.4 : 1,
+                    padding: 14
                   }}
                 >
-                  {isGift ? <Text style={{ color: theme.colors.white, fontSize: 14, fontWeight: "900" }}>✓</Text> : null}
-                </View>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>선물로 받았어요</Text>
-                  <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>
-                    {isRefund ? REFUND_GIFT_DISABLED_REASON : "선물은 지출 합계에 포함되지 않아요"}
+                  <View
+                    style={{
+                      alignItems: "center",
+                      backgroundColor: isGift ? theme.colors.mainCoral : theme.colors.white,
+                      borderColor: isGift ? theme.colors.mainCoral : theme.colors.gray300,
+                      borderRadius: 6,
+                      borderWidth: 2,
+                      height: 22,
+                      justifyContent: "center",
+                      width: 22
+                    }}
+                  >
+                    {isGift ? <Text style={{ color: theme.colors.white, fontSize: 14, fontWeight: "900" }}>✓</Text> : null}
+                  </View>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>선물로 받았어요</Text>
+                    {/* 환불 기록에서는 이 자리가 비고, 이유 한 줄이 상자 **밖**에서 또렷하게
+                        말한다(아래 주석). 선물 설명은 켤 수 있는 기록에서만 뜻이 있다. */}
+                    {isRefund ? null : (
+                      <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>
+                        선물은 지출 합계에 포함되지 않아요
+                      </Text>
+                    )}
+                  </View>
+                </Pressable>
+                {/* GAP-054 라운드 54 P2-2 — **이유 한 줄은 흐림 밖에 둔다.**
+
+                    비활성 상자에 걸린 opacity 0.4는 체크박스만이 아니라 그 안의 글자까지 함께
+                    흐리게 만든다. gray600 11px가 0.4로 흐려지면 흰 배경에서 약 1.9:1이라, 왜
+                    누를 수 없는지를 설명하는 **바로 그 문장**이 가장 읽기 어려운 글자가 됐다 —
+                    비활성 표시(상자)와 그 이유(문장)는 같은 흐림을 공유할 이유가 없다.
+
+                    상자는 종전 그대로 흐리고(누를 수 없다는 사실은 그대로 보인다), 이유만 밖으로
+                    빼서 gray600 원래 대비(약 6.9:1)로 읽히게 한다. 스크린리더 쪽은 바뀌지 않는다:
+                    같은 문장이 이미 체크박스의 accessibilityHint로도 붙어 있다. */}
+                {isRefund ? (
+                  <Text
+                    testID="refund-gift-disabled-reason"
+                    style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}
+                  >
+                    {REFUND_GIFT_DISABLED_REASON}
                   </Text>
-                </View>
-              </Pressable>
+                ) : null}
+              </View>
             </Card>
 
             {/* 라운드 41 UX-U(B-ⓓ): "이 품목 이력" -- 같은 품목을 이번 달에 언제 · 얼마에 적었는지

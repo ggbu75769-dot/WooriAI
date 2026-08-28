@@ -5,7 +5,8 @@ import {
   getSeoulToday,
   isFutureSeoulDate,
   isMoneyKrw,
-  isValidCalendarDate
+  isValidCalendarDate,
+  MONEY_KRW_MAX
 } from "./money-date";
 
 describe("money rules", () => {
@@ -15,6 +16,16 @@ describe("money rules", () => {
     expect(isMoneyKrw(0)).toBe(false);
     expect(isMoneyKrw(-1)).toBe(false);
     expect(isMoneyKrw(1.2)).toBe(false);
+  });
+
+  // GAP-054 라운드 54 P1-1: 상한은 int4다 -- 넘는 값은 저장이 아니라 5xx로 끝나므로
+  // 도메인 술어가 먼저 거절한다(가져오기 검증이 그 행만 invalid_amount로 떨군다).
+  it("rejects amounts above the int4 column limit", () => {
+    expect(MONEY_KRW_MAX).toBe(2_147_483_647);
+    expect(isMoneyKrw(MONEY_KRW_MAX)).toBe(true);
+    expect(assertMoneyKrw(MONEY_KRW_MAX)).toBe(MONEY_KRW_MAX);
+    expect(isMoneyKrw(MONEY_KRW_MAX + 1)).toBe(false);
+    expect(() => assertMoneyKrw(MONEY_KRW_MAX + 1)).toThrow("EXPENSE_AMOUNT_INVALID");
   });
 
   it("throws a field-level error for invalid KRW", () => {

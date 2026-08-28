@@ -146,7 +146,9 @@ describe("기록 탭 (구조 변경 없이 문법 정돈)", () => {
   it("달력 뷰·검색·필터 칩·오프라인 배지는 그대로다", () => {
     expect(recordsSource).toContain("<RecordsCalendarGrid");
     // GAP-054 D#8: 검색이 판매처까지 훑게 되면서 문구가 사실에 맞게 늘었다(픽셀·구조는 그대로).
-    expect(recordsSource).toContain('accessibilityLabel="품목명, 판매처, 메모로 검색"');
+    // 라운드 54 P2-10: 문구는 records-list-view의 RECORDS_SEARCH_PLACEHOLDER 하나에서 나온다
+    // (고지 줄과 구분자가 갈리던 자리를 없앴다) -- 검색창 자체는 그대로 남아 있다.
+    expect(recordsSource).toContain("accessibilityLabel={RECORDS_SEARCH_PLACEHOLDER}");
     expect(recordsSource).toContain("categoryChips.map");
     expect(recordsSource).toContain("function offlineStatusIconName(syncState: string): keyof typeof Ionicons.glyphMap");
   });

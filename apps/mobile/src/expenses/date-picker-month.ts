@@ -1,4 +1,5 @@
 import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
+import { MAX_PAST_MONTH_OFFSET } from "./import-landing-month";
 import { buildCalendarMonth, type CalendarCell, type CalendarMonth } from "./records-calendar";
 import { formatSpentOn } from "./records-list-view";
 
@@ -35,9 +36,13 @@ const ISO_DATE_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 /**
  * 과거로 따라갈 수 있는 최대 개월 수(20년). 가계부 입력으로 도달할 이유가 없는 과거이고,
  * ‹ 버튼을 계속 눌러 1900년대까지 내려가면 사용자가 오늘로 돌아오는 길을 잃는다.
- * (기록 탭 딥링크의 `MAX_PAST_MONTH_OFFSET`과 같은 값·같은 근거다.)
+ *
+ * 라운드 54 P2-8: "기록 탭 딥링크의 `MAX_PAST_MONTH_OFFSET`과 같은 값"이라고 **적어만** 두고
+ * 240을 여기 다시 적고 있었다. 주석은 드리프트를 막지 못한다 — 한쪽만 바뀌면 픽커에서는 고를
+ * 수 있는데 기록 탭은 그 달로 가 주지 않는(또는 그 반대) 상태가 조용히 생긴다. 그래서 값을
+ * 그 모듈에서 **가져다 쓴다**(import-landing-month.ts가 단일 소스).
  */
-export const EXPENSE_DATE_PICKER_MAX_PAST_MONTHS = 240;
+export const EXPENSE_DATE_PICKER_MAX_PAST_MONTHS = MAX_PAST_MONTH_OFFSET;
 
 /** 미래 칸의 스크린리더 꼬리말. 왜 못 누르는지를 말한다(DNC-018 해요체). */
 export const EXPENSE_DATE_PICKER_FUTURE_HINT = "아직 오지 않은 날이라 고를 수 없어요";
@@ -82,15 +87,16 @@ function seoulReferenceDate(todayIso: string): Date {
  * `todayIso`를 읽을 수 없으면 **아무 날짜도 고를 수 없다**고 답한다. 기준일을 모르는 채로
  * 달력을 열어 두면 미래 날짜를 눌러 저장이 막히는 화면이 되므로, 그때는 픽커를 비워 두고
  * 종전 경로(14일 칩·직접 입력)에 맡기는 편이 정직하다.
+ *
+ * 라운드 54 P2-9: 예전에는 `isFutureSeoulDate` 호출을 try/catch로 감쌌다. 그 함수가 던지는
+ * 유일한 경우는 인자가 `YYYY-MM-DD` 형식이 아닐 때인데(도메인 money-date.ts의 DATE_ONLY_PATTERN),
+ * 위 두 줄이 그보다 **엄격한** `ISO_DATE_PATTERN`으로 이미 걸러 낸 뒤다 — 도달할 수 없는
+ * catch였다. 실제 방어는 형식 검사 두 줄이 하고 있었으므로 그것만 남긴다.
  */
 export function isExpenseDatePickerDateSelectable(dateIso: string, todayIso: string = getSeoulToday()): boolean {
   if (typeof dateIso !== "string" || !ISO_DATE_PATTERN.test(dateIso)) return false;
   if (typeof todayIso !== "string" || !ISO_DATE_PATTERN.test(todayIso)) return false;
-  try {
-    return !isFutureSeoulDate(dateIso, seoulReferenceDate(todayIso));
-  } catch {
-    return false;
-  }
+  return !isFutureSeoulDate(dateIso, seoulReferenceDate(todayIso));
 }
 
 /**
@@ -149,6 +155,11 @@ export function canGoToPreviousExpenseDatePickerMonth(yearMonth: string, todayIs
  *
  * 갈 수 없는 방향이면 **지금 달을 그대로** 돌려준다 — 화면이 "눌렀는데 아무 일도 없음"을
  * 스스로 그리지 않도록 버튼 비활성 판정(위 두 함수)과 이 함수가 같은 규칙을 쓴다.
+ *
+ * 라운드 54 P2-9: 마지막 줄에 있던 "파싱되면 next, 아니면 지금 달" 삼항을 걷어냈다.
+ * 그 거짓 갈래는 도달할 수 없다 — 위에서 `current`가 확정됐고(연 4자리·월 1~12), 아래 나눗셈은
+ * 월을 항상 1~12로 되돌리며, 화면이 넘기는 `delta`는 ±1이라 연도가 4자리를 벗어나지 않는다.
+ * 도달할 수 없는 폴백은 "여기서 무언가 실패할 수 있다"는 잘못된 인상만 남긴다.
  */
 export function shiftExpenseDatePickerMonth(
   yearMonth: string,
@@ -161,9 +172,7 @@ export function shiftExpenseDatePickerMonth(
   if (delta > 0 && !canGoToNextExpenseDatePickerMonth(yearMonth, todayIso)) return yearMonth;
   if (delta < 0 && !canGoToPreviousExpenseDatePickerMonth(yearMonth, todayIso)) return yearMonth;
   const zeroBased = current.year * 12 + (current.month - 1) + delta;
-  const next = toYearMonth(Math.floor(zeroBased / 12), (zeroBased % 12) + 1);
-  // 한 칸 이동이라도 상한을 넘어설 수 있다(예: 정확히 이번 달로 오는 +1은 허용, 그 너머는 위에서 막힌다).
-  return parseYearMonth(next) ? next : yearMonth;
+  return toYearMonth(Math.floor(zeroBased / 12), (zeroBased % 12) + 1);
 }
 
 /**
