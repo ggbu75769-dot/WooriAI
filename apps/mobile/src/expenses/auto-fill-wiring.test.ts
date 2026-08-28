@@ -65,7 +65,9 @@ describe("UX-C quick-expense auto-fill wiring", () => {
 
   it("drives the typing-linked autocomplete chips from the shared pure module", () => {
     expect(newExpenseSource).toContain('from "../../src/expenses/item-autocomplete"');
-    expect(newExpenseSource).toContain("buildItemAutocompleteSuggestions(itemName, expenseHistory)");
+    // 라운드 58 E(GAP-058 #6): 원천이 이번 달 캐시(expenseHistory)에서 통합 제안 원천으로 바뀌었다
+    // — 아래 "GAP-058 #6 통합 제안 원천 배선" describe가 그 사실을 따로 고정한다.
+    expect(newExpenseSource).toContain("buildItemAutocompleteSuggestions(itemName, suggestRows)");
     expect(newExpenseSource).toContain("formatItemAutocompleteChipLabel(chip, categoryNameForChip(chip.categoryId))");
     // 칩 1탭 = 이름·금액·카테고리 일괄 채움.
     expect(newExpenseSource).toContain("const applyItemAutocompleteChip = (chip: ItemAutocompleteSuggestion) => {");
@@ -189,11 +191,15 @@ describe("GAP-056 #2 판매처 자동완성 배선", () => {
     }
   });
 
-  it("빠른 기록 시트: 포커스 게이트로만 열리고, 캐시(expenseHistory)만 읽는다", () => {
+  it("빠른 기록 시트: 포커스 게이트로만 열리고, 이미 받아 둔 캐시만 읽는다", () => {
     expect(newExpenseSource).toContain("const [merchantFocused, setMerchantFocused] = useState(false);");
+    // 라운드 58 E(GAP-058 #6): 원천은 통합 제안 원천(suggestRows)이고, 계산은 지출 상세와 같은
+    // useMemo 안에 있다(P3 비대칭 해소) — 게이트는 여전히 계산 자리에 걸린다.
     expect(newExpenseSource).toContain(
-      "authToken && merchantFocused ? buildMerchantSuggestions(merchant, expenseHistory) : []"
+      "() => (authToken && merchantFocused ? buildMerchantSuggestions(merchant, suggestRows) : []),"
     );
+    expect(newExpenseSource).toContain("const merchantSuggestions = useMemo(");
+    expect(newExpenseSource).toContain("[authToken, merchantFocused, merchant, suggestRows]");
     expect(newExpenseSource).toContain("onFocus={() => setMerchantFocused(true)}");
     // 새 요청이 생기지 않는다(이 화면의 useQuery 금지 계약은 위 describe가 이미 고정한다).
     expect(newExpenseSource).not.toContain("useQuery(");
@@ -220,12 +226,14 @@ describe("GAP-056 #2 판매처 자동완성 배선", () => {
     expect(gateStart).toBeGreaterThan(before.lastIndexOf(") : null}"));
   });
 
-  it("지출 상세: 같은 캐시를 useMemo로 읽고 자기 행을 뺀다", () => {
+  it("지출 상세: 같은 원천을 useMemo로 읽고 자기 행을 뺀다", () => {
+    // 라운드 58 E(GAP-058 #6): 원천이 통합 제안 원천으로 바뀌어도 **자기 행을 빼는 한 줄은
+    // 그대로**다 — 동기화가 끝난 로컬 행이 서버 id(canonicalId)를 들고 오기 때문이다.
     expect(editExpenseSource).toContain(
-      "buildMerchantSuggestions(merchant, (cachedMonthExpenses ?? []).filter((row) => row.id !== expenseId))"
+      "buildMerchantSuggestions(merchant, suggestRows.filter((row) => row.id !== expenseId))"
     );
     expect(editExpenseSource).toContain("const merchantSuggestions = useMemo(");
-    expect(editExpenseSource).toContain("[merchantFocused, merchant, cachedMonthExpenses, expenseId]");
+    expect(editExpenseSource).toContain("[merchantFocused, merchant, suggestRows, expenseId]");
     expect(editExpenseSource).toContain("onPress={() => setMerchant(suggestion.merchant)}");
   });
 
@@ -310,5 +318,102 @@ describe("GAP-056 #1 텍스트 길이 가드 배선 (빠른 기록 시트)", () 
     // 지출 상세도 같은 모듈의 판정을 로컬 저장 전에 통과한다.
     expect(editExpenseSource).toContain('from "../../src/expenses/text-limits"');
     expect(editExpenseSource).toContain("isMerchantOverLimit(trimmedMerchant)");
+  });
+});
+
+/**
+ * GAP-058 #6 (라운드 58 트랙 E 화면 배선) — 입력 보조가 **한 모집단**을 읽는다.
+ *
+ * 고치는 사실 두 가지(모듈 헤더 src/expenses/suggest-source.ts 참고):
+ *  1) 매달 1일 실종 — 이번 달 캐시만 보던 자동완성이 달이 바뀌는 순간 통째로 사라졌다.
+ *  2) 오프라인 비대칭 — 방금 비행기 모드로 적은 품목이 최근 칩에는 있는데 자동완성에는 없었다.
+ *
+ * 지키려는 것:
+ *  1) 두 화면 모두 통합 원천을 **순수 모듈 하나**(buildSuggestSourceRows)에서 받는다 — 합치는
+ *     규칙이 화면에 다시 쓰이면 단위 테스트가 보호하지 못하는 두 번째 구현이 생긴다.
+ *  2) 재료는 **이미 손에 있는 것**뿐이다: 오프라인 스냅숏 + getQueryData로 읽은 월 캐시 두 달치.
+ *     지난달을 읽는 줄이 useQuery가 되는 순간 "시트를 여는 것만으로 네트워크가 돈다"가 된다.
+ *  3) 새 계산은 전부 authToken 뒤에 있다 — EXP-001 비세션 캡처 경로는 한 줄도 돌지 않는다.
+ *  4) 자동 분류(resolveAutoCategorySelection)의 원천은 **일부러** 그대로 두었다(별개 판단).
+ */
+describe("GAP-058 #6 통합 제안 원천 배선", () => {
+  it("두 화면 모두 통합 원천을 공용 순수 모듈에서 받는다", () => {
+    for (const source of [newExpenseSource, editExpenseSource]) {
+      expect(source).toContain('from "../../src/expenses/suggest-source"');
+      expect(source).toContain("buildSuggestSourceRows({");
+      expect(source).toContain("const suggestRows = useMemo(");
+    }
+  });
+
+  it("빠른 기록 시트: 오프라인 행 + 이번 달·지난달 캐시를 한 목록으로 합친다", () => {
+    expect(newExpenseSource).toContain("childId,\n            localRows: offlineSnapshot.rows,");
+    expect(newExpenseSource).toContain("currentMonthRows: cachedMonthExpenses,");
+    expect(newExpenseSource).toContain("previousMonthRows: cachedPreviousMonthExpenses");
+    expect(newExpenseSource).toContain(
+      "[authToken, childId, offlineSnapshot.rows, cachedMonthExpenses, cachedPreviousMonthExpenses]"
+    );
+  });
+
+  it("지출 상세: 같은 세 재료를 그 화면의 아이(historyChildId)로 좁혀 합친다", () => {
+    expect(editExpenseSource).toContain("childId: historyChildId,");
+    expect(editExpenseSource).toContain("localRows: offlineSyncSnapshot.rows,");
+    expect(editExpenseSource).toContain("currentMonthRows: cachedMonthExpenses,");
+    expect(editExpenseSource).toContain("previousMonthRows: cachedPreviousMonthExpenses");
+    expect(editExpenseSource).toContain(
+      "[authToken, historyChildId, offlineSyncSnapshot.rows, cachedMonthExpenses, cachedPreviousMonthExpenses]"
+    );
+  });
+
+  it("지난달 캐시는 홈과 같은 함수로 세고, **읽기만** 한다 (새 요청 0건)", () => {
+    for (const source of [newExpenseSource, editExpenseSource]) {
+      // 달 경계 계산이 화면에 다시 쓰이지 않는다(12월 → 1월).
+      expect(source).toContain('from "../../src/home/last-month-comparison"');
+      expect(source).toContain("previousYearMonth(currentYearMonth)");
+      // previousMonth를 언급하는 모든 줄이 getQueryData 경로다 — useQuery로 새는 줄이 없다.
+      const previousMonthLines = source
+        .split("\n")
+        .filter((line) => line.includes("previousMonth") && !line.includes("previousYearMonth"));
+      expect(previousMonthLines.length).toBeGreaterThan(0);
+      for (const line of previousMonthLines) {
+        expect(line, line).not.toContain("useQuery");
+      }
+    }
+    expect(newExpenseSource).toContain(
+      'queryClient.getQueryData<MonthExpenses>(["expenses", childId, previousMonth])?.expenses'
+    );
+    expect(editExpenseSource).toContain(
+      'queryClient.getQueryData<MonthExpenses>(["expenses", historyChildId, previousMonth])?.expenses'
+    );
+    // 빠른 기록 시트의 "이 화면에 조회 쿼리 없음" 계약은 그대로다(위 describe와 같은 사실).
+    expect(newExpenseSource).not.toContain("useQuery(");
+  });
+
+  it("새 계산은 전부 authToken 뒤에 있다 (EXP-001 비세션 캡처 경로 불변)", () => {
+    // 세션이 없으면 통합 원천은 계산조차 하지 않고 고정 빈 배열을 돌려준다.
+    for (const source of [newExpenseSource, editExpenseSource]) {
+      expect(source).toContain("const noSuggestRows: SuggestSourceRow[] = [];");
+      expect(source).toContain(": noSuggestRows,");
+    }
+    expect(newExpenseSource).toContain("authToken && childId\n        ? buildSuggestSourceRows({");
+    expect(editExpenseSource).toContain("authToken && historyChildId\n        ? buildSuggestSourceRows({");
+    // 지난달 캐시를 읽는 줄도 같은 게이트 뒤다.
+    expect(newExpenseSource).toContain("authToken && childId && previousMonth");
+    expect(editExpenseSource).toContain("authToken && historyChildId && previousMonth");
+    // 픽셀 락 계약의 두 리터럴은 그대로다(이 배선이 손대는 값이 아니다).
+    expect(newExpenseSource).toContain('const isPixelLockAmountCapture = !authToken && amountText === "38500";');
+    expect(newExpenseSource).toContain('const quickExpenseAmountPreview = "38,500원";');
+  });
+
+  it("자동 분류의 원천은 일부러 그대로다 (이번 달 캐시 — 별개 판단)", () => {
+    // 자동 분류는 후보를 제안하는 것이 아니라 사용자가 손대지 않은 타일을 **대신 누르는** 판정이라,
+    // 원천을 넓히면 저장되는 값이 달라진다. 이 티켓의 범위(세 보조가 서로 다른 데이터를 본다)와는
+    // 다른 판단이므로 함께 바꾸지 않았다 — 화면에도 그 근거가 주석으로 남아 있다.
+    const selectionStart = newExpenseSource.indexOf("const nextSelection = resolveAutoCategorySelection({");
+    expect(selectionStart).toBeGreaterThan(0);
+    const selectionBlock = newExpenseSource.slice(selectionStart, newExpenseSource.indexOf("});", selectionStart));
+    expect(selectionBlock).toContain("history: expenseHistory,");
+    expect(selectionBlock).not.toContain("history: suggestRows");
+    // 그리고 그 근거가 주석으로 남아 있다(다음 사람이 "빠뜨렸다"고 읽지 않도록).
+    expect(selectionBlock).toContain("통합 원천 suggestRows로 바꾸지 않았다");
   });
 });

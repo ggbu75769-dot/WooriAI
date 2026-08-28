@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import {
@@ -87,6 +87,12 @@ import {
   formatRecentItemChipLabel,
   recentItemChipAccessibilityLabel
 } from "../../src/expenses/recent-items";
+/**
+ * GAP-058 #6 — 입력 보조 세 갈래가 함께 읽는 **제안 원천 한 벌**. 이 화면이 이미 손에 들고 있는
+ * 두 배열(오프라인 스냅숏 + 이미 받아 둔 월 캐시)을 합칠 뿐이라 **새 요청은 0건**이다.
+ * 규칙(아이 좁히기·삭제 대기 제외·선물/환불 제외·중복 제거·정렬)은 전부 그 순수 모듈에 있다.
+ */
+import { buildSuggestSourceRows, type SuggestSourceRow } from "../../src/expenses/suggest-source";
 // GAP-056 #1: 텍스트 길이 상한도 금액 상한과 **같은 방식**의 단일 소스에서 온다(숫자를 여기
 // 적지 않는다 — 서버 @MaxLength와 갈리면 오프라인 flush가 400으로 떨어져 영구 실패 행이 된다).
 // 지출 상세(app/expenses/[expenseId].tsx)가 쓰는 그 모듈·그 문구 그대로다.
@@ -103,6 +109,9 @@ import {
   MERCHANT_MAX_LENGTH
 } from "../../src/expenses/text-limits";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+// GAP-058 #6: "지난달"을 세는 규칙은 홈의 지난달 비교 한 줄과 **같은 함수**다 — 달 경계를
+// 화면에서 다시 계산하면 12월→1월에서 두 화면이 다른 달을 가리킬 수 있다.
+import { previousYearMonth } from "../../src/home/last-month-comparison";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
@@ -150,6 +159,10 @@ const quickExpensePaymentMethods = [
 // useEffect의 의존성이 매번 바뀌어 무한 재실행이 된다(react-query는 캐시가 갱신되기 전까지
 // 같은 배열 참조를 돌려주므로, 캐시가 있을 때는 이미 안정적이다).
 const noExpenseHistory: MonthExpenses["expenses"] = [];
+// GAP-058 #6: 세션이 없을 때(픽셀 락 캡처) 통합 제안 원천이 돌려주는 고정 빈 배열. 위와 같은
+// 이유로 매 렌더 새 배열을 만들지 않는다 — 이 값은 아래 useMemo의 결과로 나가고, 그 결과를
+// 다시 의존성으로 받는 계산들이 있다.
+const noSuggestRows: SuggestSourceRow[] = [];
 
 function formatExpenseDate(date: Date) {
   const year = date.getFullYear();
@@ -613,6 +626,45 @@ export default function NewExpenseScreen() {
       ? queryClient.getQueryData<MonthExpenses>(["expenses", childId, currentYearMonth])?.expenses
       : undefined;
   const expenseHistory = cachedMonthExpenses ?? noExpenseHistory;
+  /**
+   * GAP-058 #6 — **지난달 캐시**도 함께 읽는다(같은 방식: getQueryData, 새 요청 0건).
+   *
+   * 이번 달 캐시는 매달 1일 아침에 거의 비어 있다. 어제까지 잘 뜨던 자동완성·판매처 칩이 달이
+   * 바뀌는 순간 통째로 사라지는 것이 여태의 동작이었다 — 사용자의 이력이 사라진 것이 아닌데도.
+   * 홈/기록 탭이 "지난달 같은 시점 대비" 한 줄을 위해 이미 채워 두는 캐시가 있으면 그것을 읽고,
+   * 없으면(콜드 스타트) 그냥 undefined다. 즉 있는 것만 쓰고 없는 것은 부르지 않는다.
+   */
+  const previousMonth = previousYearMonth(currentYearMonth);
+  const cachedPreviousMonthExpenses =
+    authToken && childId && previousMonth
+      ? queryClient.getQueryData<MonthExpenses>(["expenses", childId, previousMonth])?.expenses
+      : undefined;
+  // 라운드 41 K-11과 같은 값(외부 스토어 구독 — 새 요청이 아니다). EXP-113 최근 칩과 UX-K(A)
+  // 맥락 한 줄이 이미 읽고 있던 스냅숏을, 이제 통합 제안 원천도 함께 읽는다.
+  const offlineSnapshot = useOfflineSyncSnapshot();
+  /**
+   * GAP-058 #6 — 품목 자동완성·판매처 칩이 함께 보는 **모집단 하나**.
+   *
+   * 원천은 둘뿐이다: 이 기기의 오프라인 스냅숏 행(방금 비행기 모드에서 적은 것 포함)과 이미
+   * 받아 둔 서버 월 캐시 두 달치. 합치는 규칙(중복 제거·정렬)은 전부 순수 모듈에 있고 이 화면에는
+   * 한 줄도 없다. 세션이 없으면(픽셀 락 캡처 EXP-001) 아예 계산하지 않는다 — 새 계산 전부가
+   * authToken 뒤에 있어 비세션 초기 렌더는 한 픽셀도 바뀌지 않는다.
+   *
+   * useMemo인 이유: 이 화면의 입력은 전부 상태라, 키 한 번마다 두 달치 캐시와 스냅숏 전체를
+   * 다시 합치고 정렬할 이유가 없다(지출 상세의 이력 재조정과 같은 판단, 라운드 42 L-5).
+   */
+  const suggestRows = useMemo(
+    () =>
+      authToken && childId
+        ? buildSuggestSourceRows({
+            childId,
+            localRows: offlineSnapshot.rows,
+            currentMonthRows: cachedMonthExpenses,
+            previousMonthRows: cachedPreviousMonthExpenses
+          })
+        : noSuggestRows,
+    [authToken, childId, offlineSnapshot.rows, cachedMonthExpenses, cachedPreviousMonthExpenses]
+  );
   // 자동완성 칩 부제("· 기저귀")의 카테고리 이름. 이 화면이 실제로 선택할 수 있는 8타일일 때만
   // 붙인다 -- 엑셀 가져오기/지출 수정을 거쳐 서버 정식 카테고리(DB마다 다른 UUID)를 단 행은
   // 이 화면에서 이름을 확신할 수 없고(categoryNameFor는 그런 id를 "기타"로 떨어뜨린다), 칩에
@@ -733,6 +785,15 @@ export default function NewExpenseScreen() {
     if (categoryTouchedRef.current) return;
     const nextSelection = resolveAutoCategorySelection({
       itemName,
+      /**
+       * 라운드 58 E — 여기만 **이번 달 서버 캐시 그대로**다(통합 원천 suggestRows로 바꾸지 않았다).
+       *
+       * 자동 분류는 후보를 제안하는 것이 아니라 사용자가 손대지 않은 타일을 **대신 누르는** 판정이라,
+       * 원천을 넓히면 판정 자체가 달라진다(같은 품목명의 과거 분류가 여러 개일 때 어느 것이 이기는지,
+       * 아직 안 올라간 로컬 행이 그 다툼에 끼는지). 그것은 이 티켓이 고치려는 "세 보조가 서로 다른
+       * 데이터를 본다"와 **별개의 판단**이고, 판정 규칙과 함께 따로 다뤄야 한다. 넓힐 근거가 설
+       * 때까지 이 화면의 저장 결과를 바꾸지 않는 쪽을 고른다.
+       */
       history: expenseHistory,
       currentCategoryId: selectedCategoryId,
       autoPicked: autoPickedCategory,
@@ -752,19 +813,29 @@ export default function NewExpenseScreen() {
   }, [authToken, itemName, expenseHistory, selectedCategoryId, autoPickedCategory]);
 
   // 타이핑 연동 자동완성 후보(상위 3개). 칩으로 한 번 채운 뒤에는 다시 타이핑할 때까지 접힌다.
+  //
+  // GAP-058 #6: 원천이 이번 달 서버 캐시(expenseHistory)에서 **통합 제안 원천**(suggestRows)으로
+  // 바뀌었다 — 최근 칩에는 보이는데 두 글자만 치면 후보에서 사라지던 오프라인 행이 이제 여기에도
+  // 있고, 매달 1일에도 지난달 이력이 남는다. 새 요청은 여전히 0건이다.
   const itemAutocompleteChips =
-    authToken && !autocompleteApplied ? buildItemAutocompleteSuggestions(itemName, expenseHistory) : [];
+    authToken && !autocompleteApplied ? buildItemAutocompleteSuggestions(itemName, suggestRows) : [];
 
   /**
    * GAP-056 #2 — 판매처 후보(타이핑 중 3개 / 빈 칸이면 최근 5개).
    *
-   * 원천은 위 자동완성·자동 분류가 이미 읽고 있는 이번 달 캐시(expenseHistory) 하나뿐이라
-   * **새 요청은 0건**이고, 캐시가 비어 있으면(콜드 스타트·판매처를 한 번도 안 적은 사용자)
-   * 빈 배열이라 칩 줄 자체가 없다 — 없는 상호를 지어내지 않는다. 규칙(정규화·매칭·정렬·상한)은
-   * 전부 순수 모듈에 있고, 이 화면에는 한 줄도 없다.
+   * GAP-058 #6: 원천은 품목 자동완성과 **같은 통합 목록 하나**(suggestRows)다. 이미 화면이 들고
+   * 있는 배열만 합친 것이라 **새 요청은 0건**이고, 두 원천이 모두 비어 있으면(콜드 스타트·판매처를
+   * 한 번도 안 적은 사용자) 빈 배열이라 칩 줄 자체가 없다 — 없는 상호를 지어내지 않는다.
+   * 규칙(정규화·매칭·정렬·상한)은 전부 순수 모듈에 있고, 이 화면에는 한 줄도 없다.
+   *
+   * 라운드 58 E: useMemo인 이유는 지출 상세와 같다(P3 비대칭 해소) — 이 화면의 입력은 전부
+   * 상태라, 같은 재료로 키 한 번마다 두 달치 목록을 다시 묶고 정렬할 이유가 없다. 게이트를
+   * 계산 자리에 두는 것도 그쪽과 같다: 칩 줄이 사라지는 것과 계산이 없어지는 것이 한 조건이다.
    */
-  const merchantSuggestions =
-    authToken && merchantFocused ? buildMerchantSuggestions(merchant, expenseHistory) : [];
+  const merchantSuggestions = useMemo(
+    () => (authToken && merchantFocused ? buildMerchantSuggestions(merchant, suggestRows) : []),
+    [authToken, merchantFocused, merchant, suggestRows]
+  );
 
   /**
    * 칩 1탭 = 판매처 채우기. 품목 자동완성 칩과 달리 **판매처 한 칸만** 바꾼다(금액·분류는
@@ -812,11 +883,24 @@ export default function NewExpenseScreen() {
   //
   // UX-L(B): 그 스냅숏은 **이 기기의** 이력이라, 재설치·기종 변경·두 번째 기기에서는 서버에
   // 기록이 멀쩡히 있어도 칩이 비었다. 로컬에서 칩이 하나도 안 나올 때만 위 자동완성이 이미
-  // 읽고 있는 서버 월 캐시(expenseHistory)로 폴백한다 -- 새 요청은 없고, 로컬이 있으면 예전
-  // 동작 그대로다(우선순위 로컬). 규칙은 전부 src/expenses/recent-items.ts에 있다.
-  const offlineSnapshot = useOfflineSyncSnapshot();
+  // 읽고 있는 서버 월 캐시로 폴백한다 -- 새 요청은 없고, 로컬이 있으면 예전 동작 그대로다
+  // (우선순위 로컬). 규칙은 전부 src/expenses/recent-items.ts에 있다.
+  //
+  // GAP-058 #6: 그 폴백 원천이 **이번 달 + 지난달**로 넓어졌다. 폴백이 필요한 사람은 정확히
+  // "이 기기에 이력이 없는" 사람이고(방금 기종을 바꿨거나 다시 깔았다), 그 사람이 매달 1일에
+  // 앱을 열면 이번 달 캐시도 비어 있어 칩이 또 통째로 사라졌다 -- 서버에는 이력이 멀쩡히 있는데도.
+  // 모듈은 넘겨받은 배열이 어느 달인지 묻지 않고 spentOn 최신순으로만 보므로(recent-items.ts의
+  // RecentItemChipOptions 주석), 이어 붙이는 것 말고 새 인자도 새 요청도 필요 없다.
+  // 스냅숏(offlineSnapshot.rows)을 그대로 넘기는 것은 종전 그대로다 -- 이 칩은 로컬 우선이라
+  // 통합 목록(suggestRows)이 아니라 두 원천을 **갈라서** 받아야 한다.
+  const recentItemServerRows = useMemo(
+    () => [...expenseHistory, ...(cachedPreviousMonthExpenses ?? noExpenseHistory)],
+    [expenseHistory, cachedPreviousMonthExpenses]
+  );
   const recentItemChips =
-    authToken && childId ? buildRecentItemChips(offlineSnapshot.rows, childId, { serverRows: expenseHistory }) : [];
+    authToken && childId
+      ? buildRecentItemChips(offlineSnapshot.rows, childId, { serverRows: recentItemServerRows })
+      : [];
 
   // UX-K(A): 금액 카드 바로 아래에 붙는 "이번 달 지금까지" 한 줄.
   //

@@ -97,7 +97,16 @@ import {
   expenseMutationErrorMessage,
   INVALID_EXPENSE_INPUT_ERROR
 } from "../../src/expenses/save-error-messages";
+/**
+ * GAP-058 #6 — 판매처 후보가 읽는 **제안 원천 한 벌**. 빠른 기록 시트와 같은 모듈·같은 규칙이고,
+ * 재료는 이 화면이 이미 손에 들고 있는 것뿐이다(오프라인 스냅숏 + 이미 받아 둔 월 캐시 두 달치)
+ * — 새 요청은 0건이다.
+ */
+import { buildSuggestSourceRows, type SuggestSourceRow } from "../../src/expenses/suggest-source";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+// GAP-058 #6: "지난달"은 홈의 지난달 비교 한 줄과 **같은 함수**로 센다(달 경계를 화면에서 다시
+// 계산하면 12월→1월에 두 화면이 다른 달을 가리킬 수 있다).
+import { previousYearMonth } from "../../src/home/last-month-comparison";
 import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 // 라운드 41 K-11의 useOfflineSyncSnapshot("이 품목 이력"의 모집단에 이 기기의 오프라인 대기·
@@ -128,6 +137,10 @@ import { theme } from "../../src/theme";
 
 // FMT-127: 금액 표기(콤마)·입력 정규화는 src/money.ts가 단일 소스다 -- 이 화면에 있던
 // toDigits/formatAmount 사본은 (예산 수정·온보딩 예산 화면의 같은 사본들과 함께) 제거했다.
+
+// GAP-058 #6: 세션이나 아이를 아직 모를 때 통합 제안 원천이 돌려주는 고정 빈 배열. 매 렌더 새
+// 배열을 만들면 그것을 의존성으로 받는 useMemo가 매번 다시 돈다.
+const noSuggestRows: SuggestSourceRow[] = [];
 
 function formatExpenseDate(date: Date) {
   const year = date.getFullYear();
@@ -356,6 +369,36 @@ export default function ExpenseDetailScreen() {
       ? queryClient.getQueryData<MonthExpenses>(["expenses", historyChildId, currentYearMonth])?.expenses
       : undefined;
   /**
+   * GAP-058 #6 — 지난달 캐시도 **같은 방식으로 읽기만** 한다(getQueryData, 새 요청 0건).
+   *
+   * 이번 달 캐시는 매달 1일 아침에 거의 비어 있다. 그때 판매처 칩이 통째로 사라지는 것이 여태의
+   * 동작이었다 — 사용자의 이력이 사라진 것이 아닌데도. 홈/기록 탭이 이미 채워 두는 캐시가 있으면
+   * 읽고, 없으면(콜드 스타트) undefined다: 있는 것만 쓰고 없는 것을 부르지 않는다.
+   */
+  const previousMonth = previousYearMonth(currentYearMonth);
+  const cachedPreviousMonthExpenses =
+    authToken && historyChildId && previousMonth
+      ? queryClient.getQueryData<MonthExpenses>(["expenses", historyChildId, previousMonth])?.expenses
+      : undefined;
+  /**
+   * GAP-058 #6 — 빠른 기록 시트와 **같은 모집단**(오프라인 스냅숏 + 월 캐시 두 달치).
+   *
+   * 이 기기에서 방금 오프라인으로 적은 판매처가 이 화면의 후보에도 있어야 한다(같은 사실을 두
+   * 화면이 다르게 아는 상태를 없앤다). 합치는 규칙은 전부 순수 모듈에 있고 화면에는 한 줄도 없다.
+   */
+  const suggestRows = useMemo(
+    () =>
+      authToken && historyChildId
+        ? buildSuggestSourceRows({
+            childId: historyChildId,
+            localRows: offlineSyncSnapshot.rows,
+            currentMonthRows: cachedMonthExpenses,
+            previousMonthRows: cachedPreviousMonthExpenses
+          })
+        : noSuggestRows,
+    [authToken, historyChildId, offlineSyncSnapshot.rows, cachedMonthExpenses, cachedPreviousMonthExpenses]
+  );
+  /**
    * 라운드 42 L-5 — 이력 재조정은 **입력을 칠 때마다**가 아니라 재료가 바뀔 때만 돌린다.
    *
    * 예전에는 `buildItemHistory`를 렌더 본문에서 그냥 불렀다. 그런데 이 화면은 품목·금액·메모
@@ -389,12 +432,16 @@ export default function ExpenseDetailScreen() {
   /**
    * GAP-056 #2 — 판매처 자동완성 후보(타이핑 중 3개 / 빈 칸이면 최근 5개).
    *
-   * 원천은 위 "이 품목 이력"과 **같은 캐시 한 개**(cachedMonthExpenses)라 새 요청이 없다.
-   * 캐시가 없으면 빈 배열이고, 그때 이 화면은 이 기능이 없던 때와 한 픽셀도 다르지 않다.
+   * GAP-058 #6: 원천이 이번 달 캐시 하나에서 **통합 제안 원천**(suggestRows)으로 넓어졌다 —
+   * 재료는 이 화면이 이미 들고 있는 것뿐이라 새 요청은 여전히 0건이고, 두 원천이 다 비면 빈
+   * 배열이라 이 화면은 이 기능이 없던 때와 한 픽셀도 다르지 않다.
    *
    * **자기 행은 뺀다**: 지금 열려 있는 그 기록이 후보에 섞이면, 판매처를 고치려고 칸을 비운
    * 사람에게 방금 지운 그 값을 되돌려 주는 칩이 첫 번째로 선다(순수 모듈은 "다 친 값과 같은
-   * 후보"만 거르므로 빈 칸에서는 걸러지지 않는다).
+   * 후보"만 거르므로 빈 칸에서는 걸러지지 않는다). 통합 목록에서도 **같은 한 줄**이 그대로
+   * 통한다 — 동기화가 끝난 로컬 행이 서버 id(canonicalId)를 들고 오기 때문이다(suggest-source.ts
+   * 의 `id` 주석). 아직 안 올라간 행에는 id가 없지만, 그런 행은 지금 열려 있는 이 서버 기록일
+   * 수 없다.
    *
    * useMemo인 이유는 이력 재조정과 같다 — 이 화면의 입력은 전부 상태라, 키 한 번마다 이번 달
    * 전체를 다시 묶고 정렬할 이유가 없다.
@@ -406,9 +453,9 @@ export default function ExpenseDetailScreen() {
   const merchantSuggestions = useMemo(
     () =>
       merchantFocused
-        ? buildMerchantSuggestions(merchant, (cachedMonthExpenses ?? []).filter((row) => row.id !== expenseId))
+        ? buildMerchantSuggestions(merchant, suggestRows.filter((row) => row.id !== expenseId))
         : [],
-    [merchantFocused, merchant, cachedMonthExpenses, expenseId]
+    [merchantFocused, merchant, suggestRows, expenseId]
   );
 
   const amountKrw = Number(amountDigits || "0");
