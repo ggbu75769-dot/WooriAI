@@ -225,3 +225,39 @@ describe("Admin item templates list: search + link count (UX-X C7)", () => {
     expect(source).toContain("listItemTemplates");
   });
 });
+
+// 라운드 49 C-02(어드민 조각): 준비템 생성/수정 폼의 분류(categoryId) 입력.
+// 이 칸이 없던 동안 시드 밖에서 만든 준비템은 categoryId가 영영 null이었고, 앱의
+// "준비템 → 지출 기록" 분류 프리필이 그 품목에서만 조용히 동작하지 않았다.
+describe("Admin item templates: category (categoryId) input", () => {
+  it("offers a 분류 select in both the create and edit forms, with an explicit empty option", () => {
+    const source = readSource("app/items/page.tsx");
+    expect(source).toContain("categoryId");
+    expect(source).toContain("-category`}>분류</label>");
+    // 빈 선택(분류 없음)은 계속 허용된다.
+    expect(source).toContain('<option value="">분류 없음</option>');
+    // 선택지 계산은 순수 모듈이 담당한다(단위 테스트: src/lib/item-category-options.test.ts).
+    expect(source).toContain("itemCategoryOptions");
+    // 생성 폼과 수정 폼이 같은 필드 컴포넌트를 공유하므로 두 곳 모두에 붙는다.
+    expect(source).toContain("categoryOptions={createCategoryOptions}");
+    expect(source).toContain("categoryOptions={editCategoryOptions}");
+  });
+
+  it("loads the category list from the existing admin categories endpoint, tolerating a failure", () => {
+    const source = readSource("app/items/page.tsx");
+    expect(source).toContain("listAdminCategories");
+    // 분류 목록 실패가 준비템 목록 전체를 막지 않는다.
+    expect(source).toContain("categoryLoadFailed");
+    expect(source).toContain("분류 목록을 불러오지 못해");
+  });
+
+  it("sends categoryId only when one is picked (the server DTO takes a UUID, and an omitted value keeps the stored one)", () => {
+    const source = readSource("app/items/page.tsx");
+    expect(source).toContain("if (form.categoryId) input.categoryId = form.categoryId;");
+    // 수정 폼 안내는 서버 동작(생략 = 유지)과 일치해야 한다 — "지워요"라고 쓰면 허위 안내.
+    expect(source).toContain("비워두면 지금 분류를 그대로 둬요");
+
+    const api = readSource("src/lib/admin-api.ts");
+    expect(api).toContain("categoryId?: string;");
+  });
+});
