@@ -65,7 +65,9 @@ import {
   expenseCreatedByUserId,
   formatSpentOn,
   matchRecordSearch,
+  offlineRecordRowSubtitle,
   recordsRowSubtitle,
+  RECORDS_SEARCH_PLACEHOLDER,
   resolveExpenseAuthorLabel,
   resolveExpenseHouseholdId
 } from "../../src/expenses/records-list-view";
@@ -157,10 +159,11 @@ type RecordsListItem = { key: string; spentOn: string; amountKrw: number; expens
       expense: ServerExpense;
       categoryName: CategoryNameLookup;
       authorLabel: string | null;
-      // 라운드 41 UX-T(C): 메모에서만 검색어가 맞은 행의 근거 조각. `authorLabel`과 같은 규칙으로
-      // **목록을 만들 때 문자열로 해석해 둔다** -- 행에 검색어와 메모를 넘겨 계산하게 하면 행마다
-      // 같은 판정을 반복하고, 검색과 무관한 행까지 매 렌더 다시 그린다(PERF-102 행 memo 유지).
-      memoSnippet: string | null;
+      // 라운드 41 UX-T(C) → GAP-054 D#8: 행 제목에는 없는 곳(메모·판매처)에서 검색어가 맞은
+      // 행의 근거 조각. `authorLabel`과 같은 규칙으로 **목록을 만들 때 문자열로 해석해 둔다** --
+      // 행에 검색어와 원문을 넘겨 계산하게 하면 행마다 같은 판정을 반복하고, 검색과 무관한
+      // 행까지 매 렌더 다시 그린다(PERF-102 행 memo 유지).
+      searchSnippet: string | null;
       onAction: RecordRowActionHandler;
     }
 );
@@ -218,15 +221,18 @@ const OfflineExpenseListRow = memo(function OfflineExpenseListRow({ row }: { row
     <ListRow
       icon={offlineStatusIcon(row.syncState)}
       title={row.payload.itemName}
-      subtitle={
-        row.pendingDelete
+      // GAP-054 라운드 54 P1-2: 대기 행도 구분(선물·환불)을 앞세운다 -- 같은 기록의 "환불 ·"이
+      // 동기화 상태에 따라 나타났다 사라지지 않도록. 규칙은 서버 행과 같은 순수 모듈에 있다.
+      subtitle={offlineRecordRowSubtitle({
+        expenseType: row.payload.expenseType,
+        statusLabel: row.pendingDelete
           ? SYNC_ROW_PENDING_DELETE_LABEL
           : row.syncState === "conflict"
             ? SYNC_ROW_CONFLICT_LABEL
             : row.syncState === "failed"
               ? SYNC_ROW_FAILED_LABEL
               : `${SYNC_ROW_PENDING_LABEL} · ${formatSpentOn(row.payload.spentOn)}`
-      }
+      })}
       value={formatKrw(row.payload.amountKrw)}
       onPress={pushSyncStatus}
     />
@@ -250,13 +256,13 @@ const ServerExpenseListRow = memo(function ServerExpenseListRow({
   expense,
   categoryName,
   authorLabel,
-  memoSnippet,
+  searchSnippet,
   onAction
 }: {
   expense: ServerExpense;
   categoryName: CategoryNameLookup;
   authorLabel: string | null;
-  memoSnippet: string | null;
+  searchSnippet: string | null;
   onAction: RecordRowActionHandler;
 }) {
   const subtitle = recordsRowSubtitle({
@@ -264,8 +270,9 @@ const ServerExpenseListRow = memo(function ServerExpenseListRow({
     authorLabel,
     categoryLabel: categoryName(expense.categoryId),
     dateLabel: formatSpentOn(expense.spentOn),
-    // UX-T(C): 검색 중이 아니거나 품목명이 맞은 행에서는 null이라 부제가 종전과 같다.
-    memoSnippet
+    // UX-T(C): 검색 중이 아니거나 품목명이 맞은 행에서는 null이라 부제가 종전과 같다
+    // (GAP-054 D#8 이후에는 "메모 …" 말고 "판매처 …"도 이 자리에 온다).
+    searchSnippet
   });
   // 아래 ListRow의 `value`와 **같은 식**이다(스크린리더 라벨이 보이는 금액과 갈릴 수 없다).
   const amountLabel = formatKrw(expense.amountKrw);
@@ -361,7 +368,7 @@ function renderRecordsRow({ item }: ListRenderItemInfo<RecordsListItem>) {
       expense={item.expense}
       categoryName={item.categoryName}
       authorLabel={item.authorLabel}
-      memoSnippet={item.memoSnippet}
+      searchSnippet={item.searchSnippet}
       onAction={item.onAction}
     />
   );
@@ -1135,11 +1142,21 @@ export default function RecordsScreen() {
     return {
       visibleExpenses: monthlyServerExpenses.filter((expense) => {
         if (selectedCategoryIds && !selectedCategoryIds.has(expense.categoryId)) return false;
-        return matchRecordSearch({ itemName: expense.itemName, memo: expense.memo, searchText }).matches;
+        return matchRecordSearch({
+          itemName: expense.itemName,
+          merchant: expense.merchant,
+          memo: expense.memo,
+          searchText
+        }).matches;
       }),
       visibleOfflineRows: offlinePendingRows.filter((row) => {
         if (selectedCategoryIds && !selectedCategoryIds.has(row.payload.categoryId)) return false;
-        return matchRecordSearch({ itemName: row.payload.itemName, memo: row.payload.memo, searchText }).matches;
+        return matchRecordSearch({
+          itemName: row.payload.itemName,
+          merchant: row.payload.merchant,
+          memo: row.payload.memo,
+          searchText
+        }).matches;
       })
     };
   }, [monthlyServerExpenses, offlinePendingRows, selectedCategoryIds, searchText]);
@@ -1176,8 +1193,11 @@ export default function RecordsScreen() {
           // 자리 -- 위 필터와 **같은 함수**가 "어디서 맞았는지"까지 돌려주므로, 그 근거를 그대로
           // 부제에 붙인다(품목명에서 맞은 행은 제목이 곧 근거라 null). 검색어가 없으면 null이라
           // 목록은 종전과 완전히 같다(판정·자르기 규칙은 순수 모듈에 있다).
-          memoSnippet: matchRecordSearch({
+          // GAP-054 D#8: 판매처 갈래도 같은 함수에서 나온다 -- 필터가 통과시키는데 근거를
+          // 말하지 못하는 조합이 정의상 생기지 않는다(위 필터와 인자가 한 벌이다).
+          searchSnippet: matchRecordSearch({
             itemName: expense.itemName,
+            merchant: expense.merchant,
             memo: expense.memo,
             searchText: searchText
           }).snippet,
@@ -1527,11 +1547,16 @@ export default function RecordsScreen() {
         </View>
       </View>
 
+      {/* GAP-054 D#8: 판매처 갈래가 더해졌으므로 placeholder도 실제로 훑는 곳을 말한다 --
+          matchRecordSearch의 갈래 순서(품목명 → 판매처 → 메모)와 같은 순서이고, 범위 고지 줄의
+          RECORDS_SEARCH_FIELDS_LABEL과 같은 목록이다. 약속과 판정이 갈리면 그 자체가 허위 표시다.
+          라운드 54 P2-10: 그 목록을 여기 다시 적지 않고 **같은 상수에서** 만든다 -- 구분자가
+          자리마다 갈려(고지는 가운뎃점, 여기는 쉼표) 소리로는 다른 문장이 되던 자리다. */}
       <TextInput
-        accessibilityLabel="품목명, 메모로 검색"
+        accessibilityLabel={RECORDS_SEARCH_PLACEHOLDER}
         returnKeyType="search"
         onChangeText={setSearchText}
-        placeholder="품목명, 메모로 검색"
+        placeholder={RECORDS_SEARCH_PLACEHOLDER}
         style={{
           backgroundColor: theme.colors.white,
           borderColor: "rgba(74, 63, 53, 0.10)",

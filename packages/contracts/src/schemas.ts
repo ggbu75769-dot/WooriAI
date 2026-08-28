@@ -6,6 +6,7 @@ import {
   EXPENSE_TYPES,
   IMPORT_STATUSES,
   ITEM_STATUSES,
+  MONEY_KRW_MAX,
   NECESSITY_LEVELS,
   PAYMENT_METHODS,
   PRODUCT_PLATFORMS
@@ -15,7 +16,47 @@ const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const nullableDateOnlySchema = dateOnlySchema.nullable().optional();
 
 export const uuidSchema = z.string().uuid();
-export const moneyKrwSchema = z.number().int().min(1);
+
+/**
+ * GAP-054 #2 — 원화 금액 한 건의 상한. **계약이자 물리적 사실**이다.
+ *
+ * `expenses.amount_krw` · `budgets.amount_krw`는 Postgres `int4`라 2,147,483,647을 넘는 값은
+ * 저장이 아니라 5xx로 끝난다. 지금까지 이 사실은 어느 계약에도 적혀 있지 않아서, 실패의 모양이
+ * 최악이었다: 모바일 오프라인 아웃박스는 로컬 저장을 먼저 성공시키고 flush에서야 5xx를 만나
+ * **무한 재시도 poison**이 된다(4xx만 실패 행으로 파킹된다 — apps/mobile/src/offline/
+ * remote-api.ts). 진단은 docs/5차/budget-app-gap-analysis.md P0-2.
+ *
+ * 라운드 54 P1-1: 숫자의 **단일 소스는 이제 도메인**(`@wooriai/domain`의 `MONEY_KRW_MAX`)이고
+ * 이 줄은 그것을 그대로 재수출한다. 옮긴 이유는 도메인 술어(`isMoneyKrw`/`assertMoneyKrw`)만
+ * 지나는 경로가 실제로 있었기 때문이다 — 엑셀 가져오기 검증이 int4 초과 행을 `valid`로
+ * 판정해 확정 insert에서 파일 전체를 롤백시켰다(자세한 경위는 money-date.ts의 상수 주석).
+ * contracts가 domain을 의존하므로(package.json) 방향은 기존 패키지 그래프 그대로다.
+ *
+ * 같은 숫자를 무는 자리는 **넷**이다:
+ *  1. 도메인 술어 `isMoneyKrw`/`assertMoneyKrw` — 서버의 `requireMoneyKrw`(지출 생성·수정·
+ *     예산 upsert)와 **엑셀 가져오기 행 검증**(apps/api/src/onboarding/import-pipeline.service.ts
+ *     `validationStatusForImportRow`)이 여기를 지난다. 초과 행은 `invalid_amount`가 되어
+ *     그 행만 거절되고 나머지 행은 그대로 들어온다.
+ *  2. 이 스키마(`moneyKrwSchema`)와 그것을 쓰는 요청/응답 계약.
+ *  3. 서버 DTO의 `@Max`(apps/api/src/finance/dto/expense.dto.ts ·
+ *     onboarding/dto/upsert-budget.dto.ts — 이 상수를 그대로 import한다).
+ *  4. 모바일 입력 가드(apps/mobile/src/expenses/amount-limit.ts의 `EXPENSE_AMOUNT_MAX_KRW`.
+ *     모바일은 이 패키지를 의존하지 않아 값을 자기 모듈에 두되,
+ *     apps/mobile/src/expenses/expense-detail-edit-rules.test.ts의 대조 테스트가 도메인 선언과
+ *     두 숫자가 갈리지 않는지 확인한다).
+ *
+ * 마이그레이션은 필요 없다 — 컬럼 타입을 바꾸는 것이 아니라 **이미 참인 한계를 계약으로
+ * 적는 것**이다.
+ */
+export { MONEY_KRW_MAX };
+
+/**
+ * 원화 금액 한 건(지출 1건 · 월 예산 1건). 1원 이상 int4 상한 이하의 정수다.
+ *
+ * ⚠️ 합계·집계에는 쓰지 않는다 — 여러 건을 더한 값은 이 상한을 넘을 수 있고, 실제로 아래
+ * `homeMonthlyBudgetSchema`·리포트 합계는 각자 `z.number().int()`를 따로 쓴다.
+ */
+export const moneyKrwSchema = z.number().int().min(1).max(MONEY_KRW_MAX);
 
 export const childStageModeSchema = z.enum(CHILD_STAGE_MODES);
 export const childStageCodeSchema = z.enum(CHILD_STAGE_CODES);

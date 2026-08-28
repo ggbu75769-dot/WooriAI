@@ -9,6 +9,9 @@ import {
   normalizeRecordSearchText,
   RECORD_SEARCH_SPANNING_LABEL,
   MEMO_SEARCH_SNIPPET_MAX_LENGTH,
+  MERCHANT_SEARCH_SNIPPET_LABEL,
+  RECORDS_SEARCH_FIELDS_LABEL,
+  RECORDS_SEARCH_PLACEHOLDER,
   buildRecordsCategoryChips,
   buildRecordsEmptyMonthTitle,
   buildRecordsFilteredEmptyState,
@@ -682,7 +685,7 @@ describe("UX-P buildRecordsMonthSummary", () => {
 describe("UX-P buildRecordsSearchScopeNotice", () => {
   it("검색어가 있을 때만 범위를 밝힌다", () => {
     expect(buildRecordsSearchScopeNotice({ searchText: "유모차", monthLabel: "2026년 8월" })).toBe(
-      "'유모차' 검색은 2026년 8월 안에서만 찾아요"
+      "'유모차' 검색은 2026년 8월의 품목명, 판매처, 메모에서만 찾아요"
     );
   });
 
@@ -694,13 +697,13 @@ describe("UX-P buildRecordsSearchScopeNotice", () => {
 
   it("달이 바뀌면 문장의 달도 함께 바뀐다 (화면의 월 라벨을 그대로 받는다)", () => {
     expect(buildRecordsSearchScopeNotice({ searchText: "유모차", monthLabel: "2026년 6월" })).toBe(
-      "'유모차' 검색은 2026년 6월 안에서만 찾아요"
+      "'유모차' 검색은 2026년 6월의 품목명, 판매처, 메모에서만 찾아요"
     );
   });
 
   it("검색어 앞뒤 공백은 화면의 필터링과 같은 기준으로 다듬는다", () => {
     expect(buildRecordsSearchScopeNotice({ searchText: "  유모차  ", monthLabel: "2026년 8월" })).toBe(
-      "'유모차' 검색은 2026년 8월 안에서만 찾아요"
+      "'유모차' 검색은 2026년 8월의 품목명, 판매처, 메모에서만 찾아요"
     );
   });
 
@@ -1006,9 +1009,119 @@ describe("K-12 검색 판정 단일 소스 (matchRecordSearch)", () => {
         expenseType: "expense",
         categoryLabel: "기저귀/위생",
         dateLabel: "8월 4일",
-        memoSnippet: matchRecordSearch({ itemName: "기저귀", memo: "조리원 결제", searchText: "귀 조" }).snippet
+        searchSnippet: matchRecordSearch({ itemName: "기저귀", memo: "조리원 결제", searchText: "귀 조" }).snippet
       })
     ).toBe(`기저귀/위생 · 8월 4일 · ${RECORD_SEARCH_SPANNING_LABEL} · 메모 조리원 결제`);
+  });
+});
+
+/**
+ * GAP-054 D#8 — 판매처 갈래.
+ *
+ * 라운드 49 C-03이 판매처 입력칸을 붙인 뒤로 이 값은 사용자가 직접 적는 필드인데, 검색은
+ * 여전히 품목명·메모만 훑어 "쿠팡"이 0건을 냈다. 갈래를 더하되 **메모 갈래의 규칙을 그대로**
+ * 쓴다(같은 정규화·같은 대소문자 기준·같은 창 자르기·같은 "라벨 + 원문" 모양).
+ */
+describe("GAP-054 D#8 판매처 검색 갈래", () => {
+  it("판매처에서만 맞은 행은 결과에 남고 판매처 조각을 근거로 준다", () => {
+    expect(matchRecordSearch({ itemName: "기저귀", merchant: "쿠팡", memo: null, searchText: "쿠팡" })).toEqual({
+      matches: true,
+      kind: "merchant",
+      snippet: "판매처 쿠팡"
+    });
+    expect(MERCHANT_SEARCH_SNIPPET_LABEL).toBe("판매처");
+  });
+
+  it("판매처를 넘기지 않으면 D#8 이전과 한 글자도 다르지 않다", () => {
+    expect(matchRecordSearch({ itemName: "기저귀", memo: "조리원 결제", searchText: "쿠팡" })).toEqual({
+      matches: false,
+      kind: "none",
+      snippet: null
+    });
+    expect(matchRecordSearch({ itemName: "산후조리", memo: "조리원 2주 이용료", searchText: "조리원" })).toEqual({
+      matches: true,
+      kind: "memo",
+      snippet: "메모 조리원 2주 이용료"
+    });
+  });
+
+  it("품목명이 이미 맞았으면 판매처가 맞아도 조각을 붙이지 않는다 (행 제목이 곧 근거다)", () => {
+    expect(matchRecordSearch({ itemName: "쿠팡 배송비", merchant: "쿠팡", searchText: "쿠팡" })).toEqual({
+      matches: true,
+      kind: "item",
+      snippet: null
+    });
+  });
+
+  it("판매처와 메모가 둘 다 맞으면 더 또렷한 쪽(판매처)을 근거로 준다", () => {
+    expect(
+      matchRecordSearch({ itemName: "기저귀", merchant: "쿠팡", memo: "쿠팡 로켓배송", searchText: "쿠팡" })
+    ).toEqual({ matches: true, kind: "merchant", snippet: "판매처 쿠팡" });
+  });
+
+  it("대소문자·공백 정규화는 메모 갈래와 같은 규칙이다", () => {
+    expect(matchRecordSearch({ itemName: "기저귀", merchant: "Coupang", searchText: "coupang" })).toEqual({
+      matches: true,
+      kind: "merchant",
+      snippet: "판매처 Coupang"
+    });
+    // 여러 줄·연속 공백은 한 칸으로 접은 뒤 비교하고, 조각도 접힌 원문으로 나간다.
+    expect(matchRecordSearch({ itemName: "기저귀", merchant: " 쿠팡\n 로켓설치 ", searchText: "쿠팡  로켓" })).toEqual({
+      matches: true,
+      kind: "merchant",
+      snippet: "판매처 쿠팡 로켓설치"
+    });
+    // 빈 값·공백뿐인 값은 갈래 자체가 성립하지 않는다.
+    for (const merchant of [null, undefined, "   "]) {
+      expect(matchRecordSearch({ itemName: "기저귀", merchant, searchText: "쿠팡" }).matches).toBe(false);
+    }
+  });
+
+  it("긴 판매처도 메모와 같은 창 규칙으로 잘린다 (행 높이가 흔들리지 않는다)", () => {
+    const merchant = "서울 강남 베이비페어 특별 부스 라운지 프리미엄 유아용품 전문관 3층";
+    const snippet = matchRecordSearch({ itemName: "기저귀", merchant, searchText: "프리미엄" }).snippet!;
+    expect(snippet.startsWith("판매처 …")).toBe(true);
+    expect(snippet).toContain("프리미엄");
+    expect(snippet.replace("판매처 ", "").replaceAll("…", "").length).toBe(MEMO_SEARCH_SNIPPET_MAX_LENGTH);
+    // 원문에 없는 말을 지어내지 않는다.
+    expect(merchant).toContain(snippet.replace("판매처 ", "").replaceAll("…", ""));
+  });
+
+  it("경계 걸침은 품목명+메모 그대로다 -- 판매처를 끼워 넣어 새 매치를 만들지 않는다", () => {
+    // "기저귀" + " " + "조리원 결제"에서만 성립하던 갈래는 그대로 성립한다.
+    expect(matchRecordSearch({ itemName: "기저귀", merchant: "쿠팡", memo: "조리원 결제", searchText: "귀 조" }).kind).toBe(
+      "spanning"
+    );
+    // 품목명 끝 + 판매처 앞을 이어야만 맞는 검색어는 **맞지 않는다**(없던 연결을 만들지 않는다).
+    expect(matchRecordSearch({ itemName: "기저귀", merchant: "쿠팡", memo: null, searchText: "귀 쿠" }).matches).toBe(
+      false
+    );
+  });
+
+  it("행 부제에는 판매처 조각도 맨 끝에 붙는다 (조립 규칙은 하나다)", () => {
+    expect(
+      recordsRowSubtitle({
+        expenseType: "expense",
+        categoryLabel: "기저귀/위생",
+        dateLabel: "8월 4일",
+        searchSnippet: matchRecordSearch({ itemName: "기저귀", merchant: "쿠팡", searchText: "쿠팡" }).snippet
+      })
+    ).toBe("기저귀/위생 · 8월 4일 · 판매처 쿠팡");
+  });
+
+  it("범위 고지와 placeholder가 실제로 훑는 필드를 같은 순서로 말한다", () => {
+    expect(RECORDS_SEARCH_FIELDS_LABEL).toBe("품목명, 판매처, 메모");
+    expect(buildRecordsSearchScopeNotice({ searchText: "쿠팡", monthLabel: "2026년 8월" })).toBe(
+      "'쿠팡' 검색은 2026년 8월의 품목명, 판매처, 메모에서만 찾아요"
+    );
+    const recordsScreen = readFileSync(join(mobileRoot, "app/(tabs)/records.tsx"), "utf8");
+    // 라운드 54 P2-10: placeholder·접근성 라벨도 같은 상수에서 만들어진다 -- 목록을 화면에
+    // 다시 적어 두면 구분자가 또 갈린다(고지는 가운뎃점, 화면은 쉼표였다).
+    expect(RECORDS_SEARCH_PLACEHOLDER).toBe(`${RECORDS_SEARCH_FIELDS_LABEL}로 검색`);
+    expect(recordsScreen).toContain("placeholder={RECORDS_SEARCH_PLACEHOLDER}");
+    expect(recordsScreen).toContain("accessibilityLabel={RECORDS_SEARCH_PLACEHOLDER}");
+    // 판매처가 빠진 옛 약속은 화면에 남아 있지 않다.
+    expect(recordsScreen).not.toContain("품목명, 메모로 검색");
   });
 });
 
@@ -1019,7 +1132,7 @@ describe("UX-T recordsRowSubtitle + 메모 스니펫", () => {
         expenseType: "expense",
         categoryLabel: "기저귀/위생",
         dateLabel: "8월 4일",
-        memoSnippet: "메모 조리원 2주 이용료"
+        searchSnippet: "메모 조리원 2주 이용료"
       })
     ).toBe("기저귀/위생 · 8월 4일 · 메모 조리원 2주 이용료");
 
@@ -1029,20 +1142,20 @@ describe("UX-T recordsRowSubtitle + 메모 스니펫", () => {
         authorLabel: "다온맘",
         categoryLabel: "기저귀/위생",
         dateLabel: "8월 4일",
-        memoSnippet: "메모 조리원"
+        searchSnippet: "메모 조리원"
       })
     ).toBe("선물 · 다온맘 · 기저귀/위생 · 8월 4일 · 메모 조리원");
   });
 
   it("스니펫이 없으면 이 기능이 없던 때와 한 글자도 다르지 않다", () => {
     const before = recordsRowSubtitle({ expenseType: "expense", categoryLabel: "기저귀/위생", dateLabel: "8월 4일" });
-    for (const memoSnippet of [null, undefined, "   "]) {
+    for (const searchSnippet of [null, undefined, "   "]) {
       expect(
         recordsRowSubtitle({
           expenseType: "expense",
           categoryLabel: "기저귀/위생",
           dateLabel: "8월 4일",
-          memoSnippet
+          searchSnippet
         })
       ).toBe(before);
     }
@@ -1056,7 +1169,7 @@ describe("UX-T recordsRowSubtitle + 메모 스니펫", () => {
         expenseType: "expense",
         categoryLabel: "기저귀/위생",
         dateLabel: "8월 4일",
-        memoSnippet: recordSearchSnippet({ itemName, memo, searchText: "조리원" })
+        searchSnippet: recordSearchSnippet({ itemName, memo, searchText: "조리원" })
       });
 
     expect(rowSubtitle("조리원 잔금", "2주 이용료")).toBe("기저귀/위생 · 8월 4일");
@@ -1104,8 +1217,8 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).toContain("matchRecordSearch({");
     expect(recordsSource).toContain("memo: expense.memo");
     expect(recordsSource).toContain("searchText: searchText");
-    expect(recordsSource).toContain("memoSnippet: string | null");
-    expect(recordsSource).toContain("memoSnippet={item.memoSnippet}");
+    expect(recordsSource).toContain("searchSnippet: string | null");
+    expect(recordsSource).toContain("searchSnippet={item.searchSnippet}");
     // 행에는 해석된 문자열만 간다 -- 검색어를 행 prop으로 넘겨 행마다 판정하게 하지 않는다.
     expect(recordsSource).not.toContain("searchText={");
     // 검색어가 바뀌면 목록이 다시 만들어져야 스니펫이 따라간다.
@@ -1114,12 +1227,20 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
 
   it("K-12: 필터도 같은 순수 함수를 쓴다 -- 화면에 연결 문자열 판정이 남아 있지 않다", () => {
     // 서버 행과 오프라인 대기 행 둘 다 같은 판정을 지난다.
+    // GAP-054 D#8로 인자가 한 줄에 담기지 않게 됐다 -- 고정하려는 것은 "두 목록이 같은 순수
+    // 함수에 같은 필드를 넘긴다"이지 인자의 줄바꿈 모양이 아니다.
     expect(recordsSource).toContain(
-      "matchRecordSearch({ itemName: expense.itemName, memo: expense.memo, searchText }).matches"
+      ["          itemName: expense.itemName,", "          merchant: expense.merchant,", "          memo: expense.memo,", "          searchText"].join("\n")
     );
     expect(recordsSource).toContain(
-      "matchRecordSearch({ itemName: row.payload.itemName, memo: row.payload.memo, searchText }).matches"
+      [
+        "          itemName: row.payload.itemName,",
+        "          merchant: row.payload.merchant,",
+        "          memo: row.payload.memo,",
+        "          searchText"
+      ].join("\n")
     );
+    expect(recordsSource.match(/matchRecordSearch\(\{/g) ?? []).toHaveLength(3);
     // 스니펫과 갈리던 옛 판정(`${itemName} ${memo}` 연결 문자열 훑기)은 화면에서 사라졌다.
     expect(recordsSource).not.toContain('`${expense.itemName} ${expense.memo ?? ""}`.toLowerCase()');
     expect(recordsSource).not.toContain("const haystack =");

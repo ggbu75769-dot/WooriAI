@@ -6,7 +6,13 @@
  *
  * 라운드 51 C-#5로 카테고리 초기 상태·저장 가드(`resolveInitialCategoryId`,
  * `isCategoryMissingForSave`)가 이 모듈에 합류했다 — 같은 성격의 규칙이고, 같은 화면이 쓴다.
+ *
+ * GAP-054 #2(트랙 C 몫)로 **금액 상한 가드**가 합류했다 — 같은 저장 버튼이 지나는 같은 성격의
+ * 판정이다. 숫자와 문구는 이 모듈이 만들지 않는다: `./amount-limit`이 단일 소스이고(서버
+ * `@Max`와 같은 값), 여기서는 "이 입력으로 저장을 시작해도 되는가"만 답한다.
  */
+
+import { amountOverLimitMessage, isAmountOverLimit } from "./amount-limit";
 
 export type QuickExpenseInputSnapshot = {
   itemName: string;
@@ -151,4 +157,42 @@ export type CategorySaveGuardInput = {
 export function isCategoryMissingForSave({ hasSession, selectedCategoryId }: CategorySaveGuardInput): boolean {
   if (!hasSession) return false;
   return selectedCategoryId === null;
+}
+
+/**
+ * GAP-054 #2 — 금액 상한 초과 안내 한 줄.
+ *
+ * 문구도 숫자도 `./amount-limit`에서 온다(지출 상세·예산 화면과 같은 문장이 나오도록). 여기서
+ * 문자열을 다시 쓰면 화면마다 다른 한도를 말하게 되고, 그중 하나는 반드시 거짓이 된다.
+ */
+export const AMOUNT_OVER_LIMIT_NOTICE = amountOverLimitMessage();
+
+export type AmountLimitGuardInput = {
+  /** 실/테스트 세션이 있는가(= 실제로 저장이 일어나는 화면인가). */
+  hasSession: boolean;
+  /** 금액 입력칸의 현재 값(숫자만 남는 필드지만, 붙여넣기 방어로 문자열 그대로 받는다). */
+  amountText: string;
+};
+
+/**
+ * GAP-054 #2 — 이 금액으로 **저장을 시작해도 되는가**(상한 초과인가).
+ *
+ * 왜 저장 전에 막아야 하는가: 이 화면의 저장은 로컬 우선이다(createExpenseOffline). 서버 amount
+ * 컬럼은 int4라 2,147,483,647을 넘는 값은 flush에서 5xx로 떨어지는데, 그때는 이미 "기기에
+ * 저장했어요"라고 말한 뒤다 — 아웃박스에 영원히 재시도되는 행 하나가 남는다(P0-2 poison).
+ * 그러니 **로컬 쓰기 전에** 멈춘다.
+ *
+ * 빈 값·숫자가 아닌 값은 여기서 판단하지 않는다(false) — 그건 종전 금액 가드(isAmountInvalid)의
+ * 몫이고, 두 가드가 같은 사실을 두 문장으로 말하면 화면이 두 번 말한다.
+ *
+ * 세션이 없는 프리뷰/픽셀 락 경로는 언제나 false다: 그 경로의 금액은 고정 시드 "38500"이고
+ * 저장 자체가 없으므로 EXP-001 기준 이미지는 이 판정으로 한 픽셀도 바뀌지 않는다.
+ */
+export function isAmountOverLimitForSave({ hasSession, amountText }: AmountLimitGuardInput): boolean {
+  if (!hasSession) return false;
+  const digits = typeof amountText === "string" ? amountText.trim() : "";
+  if (digits.length === 0) return false;
+  const amountKrw = Number(digits);
+  if (!Number.isFinite(amountKrw)) return false;
+  return isAmountOverLimit(amountKrw);
 }

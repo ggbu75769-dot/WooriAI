@@ -85,6 +85,21 @@ export const IMPORT_FILE_TOO_LARGE_CODE = "IMPORT_FILE_TOO_LARGE";
 export const IMPORT_FILE_TOO_LARGE_MESSAGE = "Import files must be 10MB or smaller.";
 
 /**
+ * GAP-054 라운드 54 P2-6 — 금액이 int4 상한(`MONEY_KRW_MAX`)을 넘어 거절된 요청의 코드.
+ *
+ * 왜 전용 코드가 필요한가: DTO의 `@Max`는 다른 모든 형식 위반과 함께 `VALIDATION_ERROR` 한
+ * 덩어리로 나갔다. 그런데 이 실패는 **사용자가 고칠 수 있는 단 하나의 원인**을 갖고 있고,
+ * 그 사실을 모르면 모바일 오프라인 아웃박스에 파킹된 초과 행(4xx라 재시도되지 않는다 —
+ * apps/mobile/src/offline/remote-api.ts)이 "요청을 처리하지 못했어요."라는 막다른 문장만
+ * 달고 큐에 남는다. 코드를 갈라 두면 앱이 그 자리에서 한도를 말할 수 있다
+ * (apps/mobile/src/api/api-error.ts의 화이트리스트가 amount-limit 모듈 문구를 쓴다).
+ *
+ * **전역 400 문구는 바꾸지 않는다** — 코드만 갈린다(bootstrap.ts의 exceptionFactory).
+ * 사용자에게 보이는 문장은 앱이 코드로 정하고, 서버 봉투의 `details.fields`도 종전 그대로다.
+ */
+export const EXPENSE_AMOUNT_TOO_LARGE_CODE = "EXPENSE_AMOUNT_TOO_LARGE";
+
+/**
  * multer의 LIMIT_FILE_SIZE 오류 message 원문 (multer/lib/multer-error.js).
  * @nestjs/platform-express의 transformException도 이 message 문자열로 분기해
  * PayloadTooLargeException을 만든다.

@@ -170,6 +170,51 @@ describe("createClientRemoteExpenseApi -- 성공 경로와 client.ts 호출 인�
   });
 
   /**
+   * GAP-054 라운드 54 P1-2 — 로컬은 사실대로, **전송 직전에만** 접는다.
+   *
+   * 로컬 payload가 `refund`를 그대로 들고 있어야 기록 탭 합계·행 표시가 정확해진다
+   * (DNC-015). 서버 쓰기 계약은 expense|gift만 받으므로, 나가는 JSON에서 `expenseType`
+   * **키 자체가 사라지는지**까지 본다 — 값이 undefined여도 실제로 나가는 것은 JSON이다.
+   * PATCH는 부분 갱신이라 키가 없으면 서버의 refund가 그대로 남는다.
+   */
+  it("환불 대기 행: 전송 payload에 expenseType 키가 아예 없다 (서버의 refund가 보존된다)", async () => {
+    updateMock.mockResolvedValue(makeServerExpense({ version: 4, expenseType: "refund" }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    await api.updateExpense("exp-1", makePayload({ expenseType: "refund" }), 3, "idem-refund");
+    const patch = updateMock.mock.calls[0][2] as Record<string, unknown>;
+    expect(patch.expenseType).toBeUndefined();
+    // 직렬화 후에는 키 자체가 없다 — 서버는 "말하지 않은 필드"로 읽고 손대지 않는다.
+    expect("expenseType" in JSON.parse(JSON.stringify(patch))).toBe(false);
+    // 나머지 필드는 평소대로 실린다(환불이라고 수정이 반쪽이 되지 않는다).
+    expect(patch.amountKrw).toBe(12000);
+    expect(patch.memo).toBe("대형 박스");
+  });
+
+  it("선물 대기 행은 종전 그대로 gift를 실어 보낸다 (접는 것은 refund뿐이다)", async () => {
+    updateMock.mockResolvedValue(makeServerExpense({ version: 4, expenseType: "gift" }));
+    createMock.mockResolvedValue(makeServerExpense({ id: "exp-gift", version: 1, expenseType: "gift" }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    await api.updateExpense("exp-1", makePayload({ expenseType: "gift" }), 3, "idem-gift");
+    expect((updateMock.mock.calls[0][2] as Record<string, unknown>).expenseType).toBe("gift");
+    expect("expenseType" in JSON.parse(JSON.stringify(updateMock.mock.calls[0][2]))).toBe(true);
+
+    await api.createExpense(makePayload({ expenseType: "gift" }), "idem-gift-create");
+    expect((createMock.mock.calls[0][2] as Record<string, unknown>).expenseType).toBe("gift");
+  });
+
+  it("생성 경로도 같은 함수로 접는다 (규칙이 두 벌이 되지 않는다)", async () => {
+    createMock.mockResolvedValue(makeServerExpense({ id: "exp-2", version: 1 }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    await api.createExpense(makePayload({ expenseType: "refund" }), "idem-refund-create");
+    const body = createMock.mock.calls[0][2] as Record<string, unknown>;
+    expect(body.expenseType).toBeUndefined();
+    expect("expenseType" in JSON.parse(JSON.stringify(body))).toBe(false);
+  });
+
+  /**
    * 라운드 49 C-03 — 판매처는 결제 수단과 **정확히 같은 구멍**이었다: 충돌 화면이
    * `diffExpenseFields`로 판매처를 고르게 해 놓고, 전송 단계에서 그 선택이 사라졌다.
    * 지출 상세의 판매처 편집도 같은 경로로 나간다.
@@ -356,10 +401,25 @@ describe("409 스냅숏 변환 (toEngineConflictSnapshot)", () => {
     expect("paymentMethod" in snapshot.expense).toBe(false);
   });
 
-  it("expenseType=refund는 undefined로 낮춘다 (오프라인 payload는 expense|gift만 표현)", async () => {
+  /**
+   * GAP-054 라운드 54 P1-2: 스냅숏은 **서버가 말한 값 그대로**다.
+   *
+   * 예전에는 여기서 refund를 undefined로 낮췄다. 로컬 payload가 refund를 사실대로 들게 된
+   * 지금 그 낮추기를 남겨 두면, "다른 기기 값 유지"가 스냅숏을 덮는 순간
+   * (pickPayloadFieldsFromSnapshot은 `key in snapshot`으로 판정하므로 명시된 undefined도
+   * 옮겨진다) 환불이 다시 "값 없음 = 일반 지출"이 된다 — 이 라운드가 없앤 합계 오염이
+   * 충돌 경로로 되돌아온다.
+   */
+  it("expenseType=refund를 스냅숏에 그대로 보존한다 (충돌 해소가 환불을 지우지 않는다)", async () => {
     const error = await conflictFrom(makeServerExpense({ expenseType: "refund" }));
     const snapshot = error.current as { deleted: false; expense: { expenseType?: string } };
-    expect(snapshot.expense.expenseType).toBeUndefined();
+    expect(snapshot.expense.expenseType).toBe("refund");
+    // 로컬도 환불이면 충돌 항목으로 뜨지 않는다(바꾼 적 없는 값을 고르라고 하지 않는다).
+    expect(
+      diffExpenseFields({ ...makePayload(), expenseType: "refund" }, snapshot.expense as ExpensePayload).some(
+        (row) => row.field === "expenseType"
+      )
+    ).toBe(false);
   });
 
   it("expenseType=gift는 그대로 보존한다", async () => {

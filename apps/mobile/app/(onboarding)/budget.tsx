@@ -9,6 +9,8 @@ import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
+// GAP-054 #2: 상한 값·문구는 예산 수정·지출 입력 화면과 **같은 모듈**이 단일 소스다.
+import { amountOverLimitMessage, isAmountOverLimit } from "../../src/expenses/amount-limit";
 import { AppScreen, Card, PrimaryButton, ScreenHeader, TextButton } from "../../src/ui";
 import { theme } from "../../src/theme";
 
@@ -25,7 +27,18 @@ export default function BudgetScreen() {
   const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
 
   const amountKrw = Number(amountDigits || "0");
-  const amountError = amountDigits.length > 0 && amountKrw <= 0 ? "0보다 큰 금액을 입력해 주세요." : null;
+  /**
+   * GAP-054 #2 — 예산 수정 화면(app/budget.tsx)과 **같은 판정·같은 문구**다. `budgets.amount_krw`
+   * (int4) 상한을 넘긴 값은 서버가 400으로 거절하므로(UpsertBudgetDto의 @Max), 온보딩 마지막
+   * 단계에서 저장이 실패해 사용자가 막히는 일이 없게 입력 칸이 먼저 말한다. 기본값(500,000)은
+   * 상한 아래라 이 화면의 첫 렌더는 한 픽셀도 바뀌지 않는다.
+   */
+  const amountError =
+    amountDigits.length > 0 && amountKrw <= 0
+      ? "0보다 큰 금액을 입력해 주세요."
+      : isAmountOverLimit(amountKrw)
+        ? amountOverLimitMessage()
+        : null;
   const canSave = !amountError && amountKrw > 0 && Boolean(authToken && selectedChildId);
 
   // ANA-101 (round5a-sprint2-plan.md §5): the last onboarding step reaching
@@ -44,7 +57,14 @@ export default function BudgetScreen() {
 
   const save = useMutation({
     mutationFn: () => {
-      if (!authToken || !selectedChildId || !Number.isInteger(amountKrw) || amountKrw <= 0) {
+      // GAP-054 #2: 버튼 비활성과 같은 판정을 저장 직전에도 본다(서버 @Max와 같은 숫자).
+      if (
+        !authToken ||
+        !selectedChildId ||
+        !Number.isInteger(amountKrw) ||
+        amountKrw <= 0 ||
+        isAmountOverLimit(amountKrw)
+      ) {
         throw new Error("invalid budget");
       }
       return upsertBudget(authToken, selectedChildId, amountKrw);

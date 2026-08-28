@@ -19,25 +19,32 @@ import {
  */
 
 /** The closed list of types the generators actually produce (NOTI-102 + NOTI-103's
- * weekly_summary). This is what candidate-producing code should be typed against. */
+ * weekly_summary + GAP-054 #6's record_gap). This is what candidate-producing code should be
+ * typed against. */
 export type KnownAppNotificationType =
   | "budget_80"
   | "budget_100"
   | "stage_transition"
   | "purchase_pending"
-  | "weekly_summary";
+  | "weekly_summary"
+  | "record_gap";
 
 /**
- * NOTI-103 compatibility note: `AppNotification["type"]` is deliberately the NOTI-102 literals
- * plus a `(string & {})` escape hatch rather than the closed KnownAppNotificationType union.
- * app/notifications.tsx (NOTI-102 code, out of scope for NOTI-103) types its icon map as an
- * exhaustive `Record<AppNotification["type"], string>`; adding "weekly_summary" as a literal
- * member here would force a same-commit edit of that screen. The widened union keeps the screen
- * compiling unchanged, and it already renders unknown types safely at runtime (ListRow's `icon`
- * prop is optional, and openNotification falls back to /(tabs)/items). Runtime validity of
- * persisted entries is still enforced against the closed VALID_TYPES list in sanitizedEntries.
- * Once app/notifications.tsx learns weekly_summary, this can be re-closed to
- * KnownAppNotificationType.
+ * `AppNotification["type"]`은 NOTI-102 리터럴 넷 + `(string & {})` 탈출구다. 닫힌
+ * `KnownAppNotificationType`이 아닌 이유는 **저장본 호환** 때문이다: 이 타입은 기기에 남아 있는
+ * 예전 앱 버전의 blob에도 붙으므로, 지금 앱이 모르는 종류가 들어 있어도 타입이 먼저 깨지지
+ * 않아야 한다. 런타임 유효성은 아래 닫힌 `VALID_TYPES` 목록이 `sanitizedEntries`에서 진다.
+ *
+ * ⚠️ 라운드 54 P1-4로 **오래된 이유 하나가 사실이 아니게 됐다.** 예전 주석은 "app/
+ * notifications.tsx의 아이콘 맵이 exhaustive Record라 리터럴을 늘리면 같은 커밋에서 그 화면을
+ * 고쳐야 한다"고 적고 있었는데, 두 가지가 모두 틀렸다.
+ *  1. 그 맵의 타입은 `Record<AppNotification["type"], …>`이고 이 유니온에 `(string & {})`가
+ *     있으므로 결국 `Record<string, …>`이다 — 애초에 exhaustive가 아니고, 누락을 컴파일러가
+ *     잡아 주지도 않았다. 실제로 `record_gap`은 아이콘 없이 몇 라운드를 지났다.
+ *  2. 그 화면은 이제 `weekly_summary`와 `record_gap`을 **둘 다** 안다(아이콘 맵에 있다).
+ *
+ * 아이콘 누락은 타입이 아니라 아래 `VALID_TYPES`와 그 화면의 맵을 함께 읽는 테스트로 막는다
+ * (src/notifications/record-gap.test.ts).
  */
 export type AppNotificationType =
   | "budget_80"
@@ -229,7 +236,11 @@ const VALID_TYPES: readonly KnownAppNotificationType[] = [
   "budget_100",
   "stage_transition",
   "purchase_pending",
-  "weekly_summary"
+  "weekly_summary",
+  // GAP-054 #6. weekly_summary와 같은 이유로 AppNotificationType 유니온에는 리터럴로 넣지
+  // 않는다(저장본 호환 -- 위 주석). 저장본 검증은 여기 이 목록이 그대로 지고, 화면 표시
+  // (아이콘·탭 목적지)는 app/notifications.tsx의 맵과 notification-route.ts가 진다.
+  "record_gap"
 ];
 
 /** Defensive shape check for a persisted blob from an unknown/older app version (mirrors the

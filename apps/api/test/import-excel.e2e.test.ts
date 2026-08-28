@@ -3,7 +3,7 @@ import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import ExcelJS from "exceljs";
 import request from "supertest";
-import { errorResponseSchema, importJobSchema, importRowSchema } from "@wooriai/contracts";
+import { errorResponseSchema, importJobSchema, importRowSchema, MONEY_KRW_MAX } from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -266,6 +266,89 @@ describe("Excel import beta API", () => {
     expect(response.body.error.details.fields).toEqual([
       expect.objectContaining({ field: "fileName" })
     ]);
+  });
+
+  /**
+   * GAP-054 라운드 54 P1-1 — int4 상한을 넘는 금액 행은 **그 행만** 거절된다.
+   *
+   * 무슨 일이 있었나: `isMoneyKrw`에 상한이 없어서 `validationStatusForImportRow`가
+   * 2,147,483,647을 넘는 행도 `valid`로 판정했고, 기본 선택까지 된 그 행이 확정
+   * 트랜잭션의 insert에서 DB를 터뜨렸다. 확정은 한 트랜잭션이라 **파일 전체가 롤백**된다 —
+   * 멀쩡한 다른 행까지 하나도 들어가지 않고, 사용자는 어느 행이 문제인지 알 방법이 없었다.
+   *
+   * 고친 뒤의 계약: 초과 행은 `invalid_amount`(기존 검증 상태 관례 그대로)이고 선택되지
+   * 않으며, 같은 파일의 나머지 행은 평소대로 확정된다.
+   */
+  it("GAP-054 P1-1: int4 상한을 넘는 금액 행만 invalid_amount로 떨구고 나머지 행은 살린다", async () => {
+    const accessToken = await login(app, "gap054-import-amount-max");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    // 두 번째 행이 상한(2,147,483,647) + 1이다 — 나머지 두 행은 평범한 지출이다.
+    const csvContent = [
+      "날짜,적요,금액",
+      "2026-07-06,기저귀 구매,32000",
+      `2026-07-05,상한 초과 결제,${MONEY_KRW_MAX + 1}`,
+      "2026-07-04,분유 구매,33000",
+      ""
+    ].join("\n");
+
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", "over-limit.csv")
+        .attach("file", Buffer.from(csvContent, "utf8"), "over-limit.csv")
+        .expect(200)
+    ).body as ImportJob;
+
+    const rows = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/imports/${job.id}/rows`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.rows as ImportRow[];
+
+    expect(rows).toHaveLength(3);
+    const overLimitRow = rows.find((row) => row.parsedItemName === "상한 초과 결제");
+    expect(overLimitRow, "상한 초과 행을 찾지 못했다").toBeDefined();
+    expect(overLimitRow!.validationStatus).toBe("invalid_amount");
+    // 검증에 걸린 행은 기본 선택되지 않는다(선택돼 있으면 확정이 그 행을 집어삼킨다).
+    expect(overLimitRow!.selected).toBe(false);
+    // int4 컬럼에 담을 수 없는 값이라 금액 칸은 비어 있다 — 잘라서 그럴듯한 숫자를 만들지 않는다.
+    expect(overLimitRow!.parsedAmountKrw).toBeUndefined();
+    // 금액 오류는 그 한 행뿐이다 — 나머지 두 행은 멀쩡히 살아 있다.
+    expect(rows.filter((row) => row.validationStatus === "invalid_amount")).toHaveLength(1);
+
+    // 검수 화면에서 그 행의 금액을 다시 상한 위로 고쳐도 DB가 아니라 검증이 막는다(400).
+    await request(app.getHttpServer())
+      .patch(`/api/v1/imports/${job.id}/rows/${overLimitRow!.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ parsedAmountKrw: MONEY_KRW_MAX + 1 })
+      .expect(400)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("EXPENSE_AMOUNT_TOO_LARGE");
+      });
+
+    // 확정: 초과 행을 명시적으로 선택해도 그 행만 건너뛰고 나머지는 들어간다(전체 롤백 없음).
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: rows.map((row) => row.id) })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.importedCount).toBe(2);
+        expect(body.skippedCount).toBe(1);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.expenses).toHaveLength(2);
+        expect(body.totalAmountKrw).toBe(65_000);
+      });
   });
 
   // API-130: 형식 판정이 파일명 확장자에만 기대던 것을 (1) mimetype 1차 관문과

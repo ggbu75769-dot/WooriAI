@@ -32,13 +32,18 @@ import {
   resolveAutoCategorySelection,
   type AutoPickedCategory
 } from "../../src/expenses/category-suggestion";
+// GAP-054 #7 → 라운드 54 P2-5: 달력 픽커는 지출 상세와 **같은 컴포넌트**를 쓴다(판정은 그
+// 안에서 다시 순수 모듈 src/expenses/date-picker-month.ts로 내려간다).
+import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
 import { buildEntryContextLine } from "../../src/expenses/entry-context-line";
 import {
+  isAmountOverLimitForSave,
   isCategoryMissingForSave,
   resolveInitialCategoryId,
   shouldClearQuickExpenseDraftOnClose,
   shouldTileFillItemName,
+  AMOUNT_OVER_LIMIT_NOTICE,
   CATEGORY_REQUIRED_NOTICE,
   type QuickExpenseInputSnapshot
 } from "../../src/expenses/entry-form-guards";
@@ -475,6 +480,20 @@ export default function NewExpenseScreen() {
   const initialExpenseDate = authToken ? formatExpenseDate(today) : previewExpenseDate;
   const [expenseDateIso, setExpenseDateIso] = useState(() => initialExpenseDate.iso);
   const expenseDate = authToken ? formatExpenseDate(new Date(`${expenseDateIso}T00:00:00`)) : previewExpenseDate;
+  // GAP-054 #7: 달력 픽커의 "오늘" 기준일. `today`는 이미 getSeoulToday()로 만든 서울 날짜라
+  // 여기서 시계를 한 번 더 읽지 않는다(같은 렌더 안에서 두 날짜가 갈리지 않게).
+  const todayIso = formatExpenseDate(today).iso;
+  /**
+   * GAP-054 #7 — 달력 버튼(P2-C가 만든 48dp `calendar-blank-outline`)이 하는 일.
+   *
+   * 라운드 54 P2-5: 보고 있는 달은 이제 픽커 컴포넌트(src/expenses/ExpenseDatePicker.tsx)가
+   * 스스로 들고 있다. 이 화면은 **열려 있을 때만** 그것을 그리므로, 열 때마다 "지금 고른
+   * 날짜의 달"에서 다시 시작하는 동작은 그대로다(지난번에 넘겨 본 달에 서 있으면 방금 칩으로
+   * 고른 날짜가 화면 밖에 있는 달력이 열린다). 패널을 접는 동작도 종전 그대로다.
+   */
+  const toggleDatePicker = () => {
+    setShowDatePicker((value) => !value);
+  };
   const recentDateChips = buildRecentDateChips(today);
   // DSN-053 P2-C: 헤더 바로 아래 3칸 pill 행이 쓰는 목록. 종전 14일 칩에서 앞의 셋(오늘·어제·
   // 그제)만 잘라 **시간 순서대로** 뒤집는다 -- 왼쪽이 과거, 오른쪽이 오늘이다.
@@ -760,7 +779,10 @@ export default function NewExpenseScreen() {
       // 라운드 51 C-#5: 분류는 이제 **필수**다. 버튼 쪽에서 안내로 먼저 막지만(아래
       // handleSavePress), 뮤테이션 자체도 분류 없이는 시작하지 않는다 -- 저장 규칙이 화면
       // 핸들러에만 있으면 다른 경로가 생겼을 때 조용히 빠져나간다.
-      if (!authToken || !childId || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
+      // GAP-054 #2: 상한 초과도 여기서 멈춘다 -- 버튼은 이미 비활성이지만(isAmountInvalid),
+      // 저장 규칙이 화면 상태에만 있으면 다른 경로가 생겼을 때 조용히 빠져나가고, 그 한 건이
+      // 오프라인 아웃박스에 무한 재시도 행으로 남는다(로컬 쓰기 **전에** 차단하는 것이 목적이다).
+      if (!authToken || !childId || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || isAmountOverLimitForSave({ hasSession: true, amountText }) || !itemName.trim() || Boolean(dateInputError)) {
         throw new Error(INVALID_EXPENSE_INPUT_ERROR);
       }
       return createExpenseOffline(authToken, queryClient, {
@@ -893,8 +915,19 @@ export default function NewExpenseScreen() {
   // accessibilityState로 스크린 리더에도 같은 사실을 알린다("지우기"는 계속 눌러야 하므로 그대로).
   const canTapAmountPreset = canAddAmountPreset(amountText);
   const amountKrwValue = Number(amountText);
+  /**
+   * GAP-054 #2(트랙 C 몫) — 금액 상한 가드.
+   *
+   * 서버 amount 컬럼은 int4라 2,147,483,647을 넘는 값은 저장이 아니라 5xx로 끝난다. 그런데 이
+   * 화면의 저장은 **로컬 우선**이라(createExpenseOffline) 그 실패는 "기기에 저장했어요"를 말한
+   * 뒤 백그라운드 flush에서야 나타나고, 아웃박스에 무한 재시도되는 행 하나가 남는다(P0-2).
+   * 그래서 로컬 쓰기 전에 여기서 멈춘다 -- 상한 값도 문구도 src/expenses/amount-limit.ts가
+   * 단일 소스이고(서버 @Max와 같은 숫자), 판정은 순수 함수 한 곳에만 있다.
+   */
+  const isAmountOverLimit = isAmountOverLimitForSave({ hasSession: Boolean(authToken), amountText });
   const isAmountInvalid =
-    Boolean(authToken) && (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0 || Boolean(dateInputError));
+    Boolean(authToken) &&
+    (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0 || isAmountOverLimit || Boolean(dateInputError));
   /**
    * 라운드 51 C-#5 — 분류 없이 저장을 눌렀을 때.
    *
@@ -1078,8 +1111,8 @@ export default function NewExpenseScreen() {
             (validateExpenseDateInput의 isFutureSeoulDate 거부). 눌러도 저장이 막히는 칸을
             내놓느니 같은 자리를 **그제/어제/오늘**로 쓴다 -- 칩 목록 자체는 종전 14일 로직
             (buildRecentDateChips)에서 그대로 잘라 오므로 라벨·iso 규칙이 갈라지지 않는다.
-            달력 버튼은 이번 라운드에서는 기존 14일 칩 패널을 여닫는다(진짜 달력 픽커는 다음
-            라운드 -- docs/5차/budget-app-gap-analysis.md #7). */}
+            GAP-054 #7: 달력 버튼은 이제 **진짜 월 달력 픽커**를 연다(아래 패널). 14일 칩과
+            직접 입력은 같은 패널에 그대로 남는다 -- 어제·그제는 칩이 더 빠르다. */}
         <View accessibilityLabel={`지출 날짜 ${expenseDate.label}`} style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
           <View style={{ flex: 1, flexDirection: "row", gap: 8 }}>
             {quickDateChips.map((chip) => (
@@ -1101,7 +1134,7 @@ export default function NewExpenseScreen() {
             accessibilityRole="button"
             accessibilityState={{ expanded: showDatePicker }}
             disabled={!authToken}
-            onPress={() => setShowDatePicker((value) => !value)}
+            onPress={toggleDatePicker}
             style={({ pressed }) => ({
               alignItems: "center",
               backgroundColor: theme.colors.white,
@@ -1123,6 +1156,23 @@ export default function NewExpenseScreen() {
 
         {authToken && showDatePicker ? (
           <View style={{ gap: 10 }}>
+            {/* GAP-054 #7 — 진짜 월 달력 픽커. 종전에는 이 자리에 14일 칩만 있어서 2주보다
+                오래된 영수증은 ISO를 손으로 쳐야 했다. 격자는 기록 탭 달력과 같은
+                buildCalendarMonth(재사용), 미래 달·미래 날짜 잠금과 라벨은 순수 모듈
+                (src/expenses/date-picker-month.ts)이 정한다.
+                아래 14일 칩·직접 입력은 그대로 남는다 — 어제·그제를 고르는 데는 칩이 더 빠르고,
+                이미 그 손에 익은 경로를 달력이 대체할 이유가 없다. */}
+            <ExpenseDatePicker
+              onSelectDate={(dateIso) => {
+                // 칩 탭과 **같은 상태 갱신**이다 -- 초안 자동 저장(spentOnIso)·요약 줄·
+                // 저장 payload가 전부 이 한 값(expenseDateIso)만 본다.
+                setExpenseDateIso(dateIso);
+                setCustomDateMode(false);
+                setCustomDateText("");
+              }}
+              selectedIso={expenseDateIso}
+              todayIso={todayIso}
+            />
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {recentDateChips.map((chip) => (
                 <CategoryChip
@@ -1666,6 +1716,20 @@ export default function NewExpenseScreen() {
               style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
             >
               {CATEGORY_REQUIRED_NOTICE}
+            </Text>
+          ) : null}
+          {/* GAP-054 #2 — 금액 상한 안내. 분류 안내와 **같은 자리**(저장 버튼 바로 위)이고,
+              저장을 누르기 전에 뜬다: 상한을 넘는 순간 저장 버튼이 비활성이 되므로(위
+              isAmountInvalid) 이유를 말해 주지 않으면 "왜 저장이 안 되지"만 남는다. 문구는
+              src/expenses/amount-limit.ts 단일 소스(서버 @Max와 같은 숫자)이고, 금액을 줄이면
+              저절로 사라진다. 초기값 기준으로 세션 없는 EXP-001 캡처에서는 언제나 false다. */}
+          {isAmountOverLimit ? (
+            <Text
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
+            >
+              {AMOUNT_OVER_LIMIT_NOTICE}
             </Text>
           ) : null}
           <PrimaryButton

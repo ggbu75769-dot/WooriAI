@@ -38,7 +38,21 @@ import type { RemoteSyncApi } from "./sync-engine";
  * 여기 **없는** 것들과 그 이유: `childId`·`linkedItemTemplateId`·`linkedProductLinkId`는 서버
  * UpdateExpenseDto에 자리가 없다(수정 대상이 아니다). 실으면 forbidNonWhitelisted로 400이므로
  * 이 누락은 계약이지 버그가 아니다.
+ *
+ * GAP-054 라운드 54 P1-2 — **환불을 접는 유일한 자리**가 여기다.
+ *
+ * 로컬 payload는 이제 `refund`를 사실대로 들고 있다(offline/types.ts `LocalExpenseKind`).
+ * 그래야 기록 탭 합계·행 표시가 환불을 환불로 본다(DNC-015). 하지만 서버 쓰기 계약은 여전히
+ * expense|gift만 받으므로(refund를 실으면 400 VALIDATION_ERROR) 나가는 순간에만 키를 없앤다.
+ * PATCH는 부분 갱신이라 **보내지 않은 필드는 서버가 그대로 둔다** — 그래서 키를 빼는 것만으로
+ * 환불이 서버에도 그대로 남는다(GAP-054 #1이 지출 상세 저장에서 세운 규칙과 같은 근거).
  */
+export function expenseTypeForWire(
+  expenseType: ExpensePayload["expenseType"]
+): "expense" | "gift" | undefined {
+  return expenseType === "refund" ? undefined : expenseType;
+}
+
 function toExpensePatch(payload: ExpensePayload) {
   return {
     categoryId: payload.categoryId,
@@ -48,7 +62,7 @@ function toExpensePatch(payload: ExpensePayload) {
     merchant: payload.merchant ?? undefined,
     memo: payload.memo ?? undefined,
     paymentMethod: payload.paymentMethod,
-    expenseType: payload.expenseType
+    expenseType: expenseTypeForWire(payload.expenseType)
   };
 }
 
@@ -90,7 +104,17 @@ function toEngineConflictSnapshot(current: ExpenseConflictSnapshot): ConflictSna
        */
       ...(expense.paymentMethod != null ? { paymentMethod: expense.paymentMethod } : {}),
       memo: expense.memo,
-      expenseType: expense.expenseType === "refund" ? undefined : expense.expenseType
+      /**
+       * GAP-054 라운드 54 P1-2: 스냅숏도 **서버가 말한 값 그대로** 옮긴다.
+       *
+       * 예전에는 여기서도 refund를 undefined로 접었다. 로컬 payload가 refund를 사실대로 들게
+       * 된 지금 그 접기를 남겨 두면, 충돌 해소가 스냅숏을 로컬 payload에 덮는 순간
+       * (`pickPayloadFieldsFromSnapshot`은 `key in snapshot`으로 판정하므로 명시된 undefined도
+       * 옮겨진다) 환불이 다시 "값 없음 = 일반 지출"로 무너진다 — adoptServerExpense에서 막은
+       * 바로 그 오염이 충돌 경로로 되돌아오는 것이다. 두 값이 같으면 "두 값 나란히 보기"는
+       * 이 필드를 아예 내놓지 않으므로(diffExpenseFields는 다른 값만 낸다) 화면도 그대로다.
+       */
+      expenseType: expense.expenseType
     }
   };
 }
@@ -174,7 +198,10 @@ export function createClientRemoteExpenseApi(token: string): RemoteSyncApi {
             // 라운드 49 C-06: 생성에서만 실린다(수정 계약에는 자리가 없다 — toExpensePatch 주석).
             // ⚠️ DNC-009: 기록·정산용 식별자다. 추천 점수·정렬로 흘러가면 안 된다.
             linkedProductLinkId: payload.linkedProductLinkId ?? undefined,
-            expenseType: payload.expenseType
+            // 라운드 54 P1-2: 생성 계약도 expense|gift만 받는다. 이 앱에서 환불을 새로 만들 수는
+            // 없지만(입력 경로가 없다) 로컬 payload가 refund를 표현할 수 있게 된 이상, 나가는
+            // 자리에서는 수정 경로와 **같은 함수**로 접는다 — 규칙이 두 벌이 되지 않게.
+            expenseType: expenseTypeForWire(payload.expenseType)
           },
           idempotencyKey
         );

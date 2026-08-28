@@ -70,7 +70,10 @@ const notificationIconByType: Record<AppNotification["type"], keyof typeof Ionic
   budget_100: "alert-circle-outline",
   stage_transition: "sparkles-outline",
   purchase_pending: "bag-check-outline",
-  weekly_summary: "stats-chart-outline"
+  weekly_summary: "stats-chart-outline",
+  // GAP-054 라운드 54 P1-4: 아이콘이 없으면 `ListRow`의 icon prop이 undefined가 되어 그 행만
+  // 아이콘 칸 없이 그려진다 — 다른 다섯 종류와 제목 시작 위치가 어긋나 목록이 계단처럼 보인다.
+  record_gap: "time-outline"
 };
 
 export default function NotificationsScreen() {

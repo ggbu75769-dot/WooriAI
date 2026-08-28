@@ -7,7 +7,10 @@ import {
   ValidationPipe
 } from "@nestjs/common";
 import type { NestExpressApplication } from "@nestjs/platform-express";
-import { GlobalExceptionFilter } from "./common/filters/global-exception.filter";
+import {
+  EXPENSE_AMOUNT_TOO_LARGE_CODE,
+  GlobalExceptionFilter
+} from "./common/filters/global-exception.filter";
 import { requestIdMiddleware } from "./common/logging/request-id.middleware";
 import { requestLoggerMiddleware } from "./common/logging/request-logger.middleware";
 import { bodySizeErrorMiddleware } from "./common/security/body-size-error.middleware";
@@ -25,6 +28,24 @@ function validationDetails(errors: ValidationError[]) {
   };
 }
 
+/**
+ * GAP-054 라운드 54 P2-6 — 금액 상한(`@Max(MONEY_KRW_MAX)`) 위반인가.
+ *
+ * `class-validator`의 `Max`는 제약 키를 `max`로 남긴다. 금액 필드의 그 제약 하나만 골라 전용
+ * 코드로 승격하고, 나머지 검증 실패는 한 글자도 바뀌지 않는다. 대상 필드는 두 이름이다 —
+ * 지출·예산의 `amountKrw`와 가져오기 검수 행의 `parsedAmountKrw`(둘 다 int4 컬럼이라 같은
+ * 상한을 문다). 중첩 DTO는 이 API에 없지만, 있어도 안전하도록 children까지 훑는다.
+ */
+const AMOUNT_LIMITED_FIELDS = new Set(["amountKrw", "parsedAmountKrw"]);
+
+function hasAmountTooLargeViolation(errors: ValidationError[]): boolean {
+  return errors.some(
+    (error) =>
+      (AMOUNT_LIMITED_FIELDS.has(error.property) && Boolean(error.constraints?.max)) ||
+      hasAmountTooLargeViolation(error.children ?? [])
+  );
+}
+
 export function createDtoValidationPipe(expectedType?: Type<unknown>) {
   return new ValidationPipe({
       forbidNonWhitelisted: true,
@@ -37,7 +58,9 @@ export function createDtoValidationPipe(expectedType?: Type<unknown>) {
       whitelist: true,
       exceptionFactory: (errors) =>
         new BadRequestException({
-          code: "VALIDATION_ERROR",
+          // P2-6: 금액 상한 위반만 전용 코드로 갈린다. 상태코드·문구·details는 종전 그대로다
+          // (근거는 global-exception.filter.ts의 EXPENSE_AMOUNT_TOO_LARGE_CODE 주석).
+          code: hasAmountTooLargeViolation(errors) ? EXPENSE_AMOUNT_TOO_LARGE_CODE : "VALIDATION_ERROR",
           message: "요청 값을 다시 확인해주세요.",
           details: validationDetails(errors)
         })

@@ -256,10 +256,15 @@ export function buildRecordsMonthSummary(input: {
  * 무엇이 문제였나: 이 화면의 검색은 `["expenses", childId, recordsYearMonth]` — 즉 **보고 있는
  * 한 달치 응답**에만 걸린다. 그런데 화면 어디에도 그 사실이 없어서, "유모차"를 검색해 0건이
  * 나오면 사용자는 "이 앱에 유모차 기록이 없다"고 읽는다. 실제로는 지난달에 적어 뒀을 뿐이다.
- * 검색창의 placeholder("품목명, 메모로 검색")도 범위를 말하지 않는다.
  *
  * 그래서 **검색어가 있을 때만** 요약 줄 아래 한 줄로 범위를 밝힌다. 검색을 하지 않는 동안에는
  * `null`이라 화면이 한 글자도 바뀌지 않는다(F8 스코프 줄과 같은 규칙).
+ *
+ * GAP-054 D#8 — 범위는 **두 가지**다: 어느 달인가(위)와 **어느 필드인가**. 예전에는 필드 범위를
+ * placeholder("품목명, 메모로 검색")만 말했고, 그 문구는 판매처가 검색 대상이 된 뒤로는 사실도
+ * 아니게 됐다. 이제 이 줄이 두 범위를 함께 말하고(`RECORDS_SEARCH_FIELDS_LABEL`),
+ * placeholder는 같은 필드 목록을 같은 순서로 적는다 — 0건이 나왔을 때 "달이 달라서인지,
+ * 훑지 않는 곳에 적어 둬서인지"를 한 문장 안에서 가릴 수 있다.
  *
  * 검색어를 문장에 그대로 싣는 이유: 무엇을 어디에서 찾았는지가 한 문장에 다 있어야 0건 카드의
  * "지난달에서 찾기"가 무슨 뜻인지 따로 설명하지 않아도 된다. 검색어는 사용자가 방금 친 값이고
@@ -276,7 +281,7 @@ export function buildRecordsSearchScopeNotice(input: {
   // 검색 중이 아니거나 달 라벨을 모르면 아무 말도 하지 않는다 — 범위를 반만 말하면
   // "어디에서만"이 빠져 고지의 의미가 없다.
   if (query.length === 0 || monthLabel.length === 0) return null;
-  return `'${query}' 검색은 ${monthLabel} 안에서만 찾아요`;
+  return `'${query}' 검색은 ${monthLabel}의 ${RECORDS_SEARCH_FIELDS_LABEL}에서만 찾아요`;
 }
 
 /** 0건 카드에서 검색어를 유지한 채 이전 달로 넘어가는 보조 액션의 라벨. */
@@ -579,6 +584,27 @@ export function expenseTypeSubtitlePrefix(expenseType?: string | null): string |
 }
 
 /**
+ * GAP-054 라운드 54 P1-2 — **오프라인 대기 행**의 부제.
+ *
+ * 대기 행의 부제 자리는 동기화 상태가 쓴다("동기화 대기 · 8월 4일"). 그런데 그 행이 환불이나
+ * 선물이면 그 사실이 어디에도 남지 않는다 — 같은 지출이 서버에 확정되는 순간 "환불 ·"이
+ * 나타나고, 오프라인 수정 중에는 사라졌다가, 동기화가 끝나면 다시 나타난다. 사용자에게는
+ * 같은 기록의 구분이 오락가락하는 것으로 읽히고, 그 사이 합계에서 빠진 이유도 설명되지 않는다.
+ *
+ * 그래서 서버 행과 **같은 자리·같은 규칙**으로 구분을 앞세운다(`buildRecordSubtitle`의 토큰
+ * 순서: 구분 → … → 상태). 기본값 "지출"에는 아무것도 붙이지 않는 규칙도 그대로라, 환불·선물이
+ * 아닌 대기 행은 한 글자도 바뀌지 않는다.
+ */
+export function offlineRecordRowSubtitle(input: {
+  /** 동기화 상태가 이미 만든 한 줄(대기/삭제 대기/실패/충돌). */
+  statusLabel: string;
+  expenseType?: string | null;
+}): string {
+  const typePrefix = expenseTypeSubtitlePrefix(input.expenseType);
+  return typePrefix ? `${typePrefix} · ${input.statusLabel}` : input.statusLabel;
+}
+
+/**
  * REC-121 (D2/K1): composes a 기록 행 subtitle -- "[선물|환불 ·] 카테고리 · 8월 4일".
  *
  * D2: the row used to show only 품목명 / 날짜 / 금액, so two rows for different categories were
@@ -606,12 +632,18 @@ export function recordsRowSubtitle(input: {
   categoryLabel?: string | null;
   dateLabel: string;
   /**
-   * 라운드 41 UX-T(C): 메모에서만 검색어가 맞은 행에 붙는 근거 조각(`buildMemoSearchSnippet`).
+   * 라운드 41 UX-T(C) → GAP-054 D#8: 행 제목(품목명)에는 없는 곳에서 검색어가 맞았을 때 붙는
+   * 근거 조각(`matchRecordSearch(...).snippet` -- 메모·판매처·경계 걸침).
+   *
+   * 이름이 `memoSnippet`이 아닌 이유: D#8이 판매처 갈래를 더하면서 이 자리에 "판매처 쿠팡"도
+   * 들어온다. 필드 이름이 메모라고 말하는데 판매처가 담기면, 이 파일이 다른 자리에서 지키는
+   * 규칙(라벨은 실제 출처를 말한다)을 필드 이름이 먼저 어긴다.
+   *
    * 검색 중이 아니거나 품목명이 이미 맞은 행에서는 null이고, 그때 부제는 이 기능이 없던 때와
    * **한 글자도 다르지 않다** -- 기존 호출부(홈 `homeRecentExpenseSubtitle` 포함)는 이 필드를
    * 넘기지 않으므로 그대로다.
    */
-  memoSnippet?: string | null;
+  searchSnippet?: string | null;
 }): string {
   const parts: string[] = [];
   const typePrefix = expenseTypeSubtitlePrefix(input.expenseType);
@@ -623,16 +655,16 @@ export function recordsRowSubtitle(input: {
   parts.push(input.dateLabel);
   // 스니펫은 **맨 끝**이다: 앞쪽 토큰(구분·작성자·카테고리·날짜)의 자리가 검색 여부에 따라
   // 움직이면 같은 행이 검색 중에만 다르게 읽힌다.
-  const memoSnippet = input.memoSnippet?.trim();
-  if (memoSnippet) parts.push(memoSnippet);
+  const searchSnippet = input.searchSnippet?.trim();
+  if (searchSnippet) parts.push(searchSnippet);
   return parts.join(" · ");
 }
 
 /**
  * 라운드 41 UX-T(C) → K-12: 기록 탭 검색의 **판정과 근거 조각을 한 함수**로 낸다.
  *
- * 무엇이 문제였나 — 기록 탭 검색은 품목명과 **메모**를 함께 훑고(placeholder도 "품목명, 메모로
- * 검색"이라고 약속한다) 행에 그려지는 것은 품목명 + "카테고리 · 날짜"뿐이라, "조리원"으로 검색해
+ * 무엇이 문제였나 — 기록 탭 검색은 품목명과 **메모**를 함께 훑고(placeholder도 그렇게
+ * 약속한다) 행에 그려지는 것은 품목명 + "카테고리 · 날짜"뿐이라, "조리원"으로 검색해
  * 3건이 나와도 **화면 어디에도 '조리원'이 없다**. 그래서 UX-T(C)가 메모에서만 맞은 행에 근거
  * 조각을 붙였다.
  *
@@ -662,8 +694,51 @@ export function recordsRowSubtitle(input: {
  *
  * 만들어 내는 것은 없다: 조각은 사용자가 직접 적어 둔 메모의 **원문 일부**이고, 앞에 붙는
  * "메모"는 그 출처를 밝히는 라벨이다(입력 폼·CSV 열이 쓰는 것과 같은 단어).
+ *
+ * ## GAP-054 D#8 — 판매처 갈래
+ *
+ * 라운드 49 C-03이 빠른 기록 시트·지출 상세에 **판매처 입력칸**을 붙이면서 이 값은 사용자가
+ * 직접 적는 필드가 됐다(그 전에는 엑셀 가져오기로만 들어왔다). 그런데 검색은 여전히 품목명·
+ * 메모만 훑어서, "쿠팡에서 산 것"을 찾는 가장 자연스러운 검색어가 0건을 냈다 — 그 값은 지출
+ * 상세와 CSV의 "판매처" 열에 멀쩡히 들어 있는데도.
+ *
+ * 그래서 갈래를 하나 더 둔다. 규칙은 **메모 갈래를 그대로 재사용**한다: 같은 정규화(공백 접기),
+ * 같은 대소문자 기준, 같은 창 자르기(`searchSnippetWindow`), 같은 "라벨 + 원문 조각" 모양.
+ * 새로 만든 것은 라벨 하나뿐이고, 그 라벨도 입력칸·CSV 열이 쓰는 같은 단어("판매처")다.
+ *
+ * 갈래 **순서**는 품목명 → 판매처 → 메모 → 경계 걸침이다. 판매처가 메모보다 앞인 이유:
+ * 판매처는 "쿠팡" 같은 짧은 고정 필드라 조각이 곧 값 전체이고("판매처 쿠팡"), 메모 창은
+ * 잘린 문맥이라 근거로서 덜 또렷하다 — 둘 다 맞았다면 더 또렷한 쪽을 보여 준다.
+ * 경계 걸침은 예전 화면 필터가 `${itemName} ${memo}` 연결 문자열을 훑던 자리를 그대로
+ * 보존하는 갈래라 **판매처를 끼워 넣지 않는다**: 없던 연결(품목명+판매처)을 새로 만들면
+ * 그건 호환 보존이 아니라 새 매치를 지어내는 것이다.
  */
 export const MEMO_SEARCH_SNIPPET_LABEL = "메모";
+/**
+ * GAP-054 D#8: 판매처에서 맞은 행의 조각 앞에 붙는 출처 라벨. 지출 상세 행·입력칸·CSV 열이
+ * 쓰는 것과 **같은 단어**라, 사용자가 화면에서 본 이름 그대로 근거를 읽는다.
+ */
+export const MERCHANT_SEARCH_SNIPPET_LABEL = "판매처";
+/**
+ * GAP-054 D#8: 검색이 훑는 필드를 문장에 넣을 때 쓰는 이름 — 범위 고지 한 줄과 검색창
+ * placeholder가 같은 사실을 말하도록 여기 한 번만 적는다(순서는 갈래 우선순위와 같다).
+ *
+ * 라운드 54 P2-10 — **구분자를 한 형식으로 통일했다.** 같은 목록이 자리마다 다른 문자로
+ * 이어져 있었다: 고지 줄은 가운뎃점("품목명·판매처·메모"), 검색창 placeholder와 접근성 라벨은
+ * 쉼표("품목명, 판매처, 메모"). 눈으로는 사소해 보여도 소리로는 다른 문장이 된다.
+ *
+ * 쉼표로 맞춘 이유: 이 목록은 **읽히는** 자리(접근성 라벨·placeholder)에서 먼저 쓰이는데,
+ * 스크린리더는 쉼표를 짧은 멈춤으로 읽고 가운뎃점은 대개 읽지 않아 "품목명판매처메모"처럼
+ * 붙어 들린다. 그리고 두 화면 문구가 모두 이 상수 하나에서 나오게 해, 다시 갈리는 자리를
+ * 없앤다(placeholder는 아래 `RECORDS_SEARCH_PLACEHOLDER`).
+ */
+export const RECORDS_SEARCH_FIELDS_LABEL = "품목명, 판매처, 메모";
+
+/**
+ * 검색창의 placeholder이자 접근성 라벨. 위 목록에서 그대로 만들어지므로, 화면이 약속하는
+ * 범위와 고지 줄이 말하는 범위가 갈릴 수 없다(약속과 판정이 갈리면 그 자체가 허위 표시다).
+ */
+export const RECORDS_SEARCH_PLACEHOLDER = `${RECORDS_SEARCH_FIELDS_LABEL}로 검색`;
 /** 조각의 최대 길이(라벨·말줄임표 제외). 한 줄 부제에 얹을 수 있는 만큼만. */
 export const MEMO_SEARCH_SNIPPET_MAX_LENGTH = 24;
 /** 검색어 앞에 남기는 문맥 길이 -- 어디에 나온 말인지 보이되 검색어가 끝으로 밀리지 않게. */
@@ -685,7 +760,7 @@ export function normalizeRecordSearchText(value: string | null | undefined): str
 }
 
 /** 검색어가 어디서 맞았는가. `none`은 "검색 중이 아님" 또는 "맞지 않음"이다(`matches`가 가른다). */
-export type RecordSearchMatchKind = "none" | "item" | "memo" | "spanning";
+export type RecordSearchMatchKind = "none" | "item" | "merchant" | "memo" | "spanning";
 
 export type RecordSearchMatch = {
   /** 이 행이 검색 결과에 남는가. 검색어가 없으면 항상 true. */
@@ -696,22 +771,30 @@ export type RecordSearchMatch = {
 };
 
 /**
- * 메모에서 잘라 낸 한 조각. `focusIndex` 주변을 창으로 잡되 창이 메모 끝을 넘지 않게 뒤에서
- * 한 번 더 민다. 메모가 짧으면 통째로 돌려준다(말줄임표도 붙지 않는다).
+ * 원문(메모·판매처)에서 잘라 낸 한 조각. `focusIndex` 주변을 창으로 잡되 창이 원문 끝을 넘지
+ * 않게 뒤에서 한 번 더 민다. 원문이 짧으면 통째로 돌려준다(말줄임표도 붙지 않는다).
+ *
+ * GAP-054 D#8에서 이름만 일반화했다 — 판매처 갈래가 **같은 자르기 규칙**을 쓰도록 하기 위해서다
+ * (판매처는 대개 짧아 통째로 나가지만, 긴 값이 들어와도 행 높이가 흔들리지 않는다).
  */
-function memoSnippetWindow(memo: string, focusIndex: number): string {
-  if (memo.length <= MEMO_SEARCH_SNIPPET_MAX_LENGTH) return memo;
+function searchSnippetWindow(text: string, focusIndex: number): string {
+  if (text.length <= MEMO_SEARCH_SNIPPET_MAX_LENGTH) return text;
   const start = Math.max(
     0,
-    Math.min(focusIndex - MEMO_SEARCH_SNIPPET_LEAD_LENGTH, memo.length - MEMO_SEARCH_SNIPPET_MAX_LENGTH)
+    Math.min(focusIndex - MEMO_SEARCH_SNIPPET_LEAD_LENGTH, text.length - MEMO_SEARCH_SNIPPET_MAX_LENGTH)
   );
-  const end = Math.min(memo.length, start + MEMO_SEARCH_SNIPPET_MAX_LENGTH);
-  return `${start > 0 ? ELLIPSIS : ""}${memo.slice(start, end)}${end < memo.length ? ELLIPSIS : ""}`;
+  const end = Math.min(text.length, start + MEMO_SEARCH_SNIPPET_MAX_LENGTH);
+  return `${start > 0 ? ELLIPSIS : ""}${text.slice(start, end)}${end < text.length ? ELLIPSIS : ""}`;
 }
 
 export function matchRecordSearch(input: {
   /** 행 제목(품목명). 여기서 맞으면 화면이 이미 근거를 보여 주고 있다. */
   itemName?: string | null;
+  /**
+   * GAP-054 D#8: `Expense.merchant`(또는 오프라인 행의 payload.merchant) -- 없으면 null.
+   * 넘기지 않으면 이 갈래가 통째로 빠져 D#8 이전과 한 글자도 다르지 않다.
+   */
+  merchant?: string | null;
   /** `Expense.memo`(또는 오프라인 행의 payload.memo) -- 없으면 null. */
   memo?: string | null;
   /** 검색어 원본(트림 전). 비어 있으면 모든 행이 남는다. */
@@ -721,16 +804,27 @@ export function matchRecordSearch(input: {
   if (query.length === 0) return { matches: true, kind: "none", snippet: null };
 
   const itemName = normalizeRecordSearchText(input.itemName);
+  const merchant = normalizeRecordSearchText(input.merchant);
   const memo = normalizeRecordSearchText(input.memo);
 
   if (itemName.toLowerCase().includes(query)) return { matches: true, kind: "item", snippet: null };
+
+  // GAP-054 D#8: 판매처 — 메모와 같은 규칙, 라벨만 다르다. 짧은 고정 필드라 조각이 곧 값이다.
+  const merchantIndex = merchant.toLowerCase().indexOf(query);
+  if (merchantIndex >= 0) {
+    return {
+      matches: true,
+      kind: "merchant",
+      snippet: `${MERCHANT_SEARCH_SNIPPET_LABEL} ${searchSnippetWindow(merchant, merchantIndex)}`
+    };
+  }
 
   const memoIndex = memo.toLowerCase().indexOf(query);
   if (memoIndex >= 0) {
     return {
       matches: true,
       kind: "memo",
-      snippet: `${MEMO_SEARCH_SNIPPET_LABEL} ${memoSnippetWindow(memo, memoIndex)}`
+      snippet: `${MEMO_SEARCH_SNIPPET_LABEL} ${searchSnippetWindow(memo, memoIndex)}`
     };
   }
 
@@ -740,7 +834,7 @@ export function matchRecordSearch(input: {
     return {
       matches: true,
       kind: "spanning",
-      snippet: `${RECORD_SEARCH_SPANNING_LABEL} · ${MEMO_SEARCH_SNIPPET_LABEL} ${memoSnippetWindow(memo, 0)}`
+      snippet: `${RECORD_SEARCH_SPANNING_LABEL} · ${MEMO_SEARCH_SNIPPET_LABEL} ${searchSnippetWindow(memo, 0)}`
     };
   }
 

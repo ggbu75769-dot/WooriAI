@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { BadRequestException, HttpException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import type { ImportStatus } from "@wooriai/domain";
+import { isMoneyKrw, type ImportStatus } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   IMPORT_FILE_TOO_LARGE_CODE,
@@ -374,10 +374,19 @@ export class ImportPipelineService {
       : [];
     const categoryIdByCode = new Map(categories.map((category) => [category.code, category.id]));
 
-    const candidateDates = [...new Set(parsedRows.filter((row) => row.dateIso && row.amountKrw != null).map((row) => row.dateIso!))];
-    const candidateAmounts = [
-      ...new Set(parsedRows.filter((row) => row.dateIso && row.amountKrw != null).map((row) => row.amountKrw!))
-    ];
+    /**
+     * GAP-054 라운드 54 P1-1: 중복 후보 조회의 모집단에는 **저장 가능한 금액만** 넣는다.
+     *
+     * `expenses.amount_krw`는 int4다. 파일에 그 범위를 넘는 값이 한 줄이라도 있으면 아래
+     * `amountKrw: { in: [...] }`가 int4로 바인딩되지 못해 **미리보기 생성 자체가 500**으로
+     *끝났다 — 검증 상태를 붙일 기회도 없이 파일 전체가 거절된다. 어차피 상한 밖 금액과
+     * 같은 지출은 DB에 존재할 수 없으므로(그 값은 애초에 저장될 수 없다) 이 행들은 중복
+     * 후보가 없는 것이 사실이고, 뒤이어 `validationStatusForImportRow`가 그 행만
+     * `invalid_amount`로 떨군다.
+     */
+    const duplicateLookupRows = parsedRows.filter((row) => row.dateIso && isMoneyKrw(row.amountKrw));
+    const candidateDates = [...new Set(duplicateLookupRows.map((row) => row.dateIso!))];
+    const candidateAmounts = [...new Set(duplicateLookupRows.map((row) => row.amountKrw!))];
     const existingExpenses =
       candidateDates.length && candidateAmounts.length
         ? await this.prisma.expense.findMany({
@@ -405,7 +414,16 @@ export class ImportPipelineService {
         rowIndex: row.rowIndex,
         parsedDate: row.dateIso ? toDateOnly(row.dateIso) : null,
         parsedItemName: row.itemName,
-        parsedAmountKrw: row.amountKrw,
+        /**
+         * GAP-054 라운드 54 P1-1: `import_rows.parsed_amount_krw`도 int4다. 파일이 그 범위를
+         * 넘는 값을 들고 오면 **미리보기 행 생성 자체가 500**이라, 검증 상태를 붙이기는커녕
+         * 파일 전체가 거절됐다(마이그레이션 없이 고칠 수 있는 유일한 지점이 여기다).
+         *
+         * 저장할 수 없는 값을 잘라 넣지 않는다(허위 표시 금지) — 금액을 비우고, 아래
+         * `validationStatusForImportRow`가 그 행을 `invalid_amount`로 판정한다. 사용자에게는
+         * "이 행의 금액을 읽지 못했다"로 보이고, 같은 파일의 나머지 행은 평소대로 살아난다.
+         */
+        parsedAmountKrw: isMoneyKrw(row.amountKrw) ? row.amountKrw : null,
         categoryId,
         confidence: row.confidence,
         userReviewed: false,
@@ -435,6 +453,11 @@ export class ImportPipelineService {
 
     if (!row.parsedItemName?.trim()) return "missing_item_name";
 
+    // GAP-054 라운드 54 P1-1: 이 판정은 도메인 술어(`assertMoneyKrw`)를 그대로 지나므로
+    // **int4 상한**까지 함께 본다. 상한이 없던 동안 초과 금액 행이 `valid`로 판정돼 기본
+    // 선택까지 되고, 확정 트랜잭션의 insert에서 DB가 터져 **파일 전체가 롤백**됐다(확정은
+    // 한 트랜잭션이다 — confirmImport 주석). 이제 그 행만 `invalid_amount`가 되어 선택에서
+    // 빠지고, 같은 파일의 나머지 행은 평소대로 들어온다.
     try {
       requireMoneyKrw(row.parsedAmountKrw ?? undefined);
     } catch {

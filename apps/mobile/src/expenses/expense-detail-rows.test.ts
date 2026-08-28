@@ -148,10 +148,12 @@ describe("라운드 48 T3(C3) 연결된 준비템 링크", () => {
 describe("라운드 48 T3 지출 상세 배선", () => {
   const screen = () => source("app/expenses/[expenseId].tsx");
 
-  it("세 값 모두 순수 모듈을 거쳐 읽기 전용 행으로 그려진다", () => {
+  it("세 값 모두 순수 모듈을 거쳐 행으로 그려진다", () => {
     const screenSource = screen();
     expect(screenSource).toContain('} from "../../src/expenses/expense-detail-rows";');
-    expect(screenSource).toContain("const paymentMethodLabel = paymentMethodLabelKo(expense.data?.paymentMethod);");
+    // GAP-054 #10: 결제 수단은 이제 읽기 전용 라벨이 아니라 **편집 컨트롤**이다 -- 문구는
+    // 여전히 순수 모듈을 거친다(paymentMethodControlLabel이 안에서 paymentMethodLabelKo를 쓴다).
+    expect(screenSource).toContain("const paymentMethodLabel = paymentMethodControlLabel(paymentMethod);");
     // 라운드 49 C-05: 링크 판정에 **두 아이 id가 함께** 들어간다(순수 모듈이 어긋남을 거른다).
     expect(screenSource).toContain("const linkedItem = linkedItemTemplateLink(expense.data?.linkedItemTemplateId, {");
     expect(screenSource).toContain("expenseChildId: expense.data?.childId");
@@ -159,7 +161,6 @@ describe("라운드 48 T3 지출 상세 배선", () => {
     expect(screenSource).toContain(
       'import { useSelectedChildStore } from "../../src/stores/selected-child.store";'
     );
-    expect(screenSource).toContain("{paymentMethodLabel ? (");
     expect(screenSource).toContain("{linkedItem ? (");
     expect(screenSource).toContain("{PAYMENT_METHOD_ROW_LABEL}");
     expect(screenSource).toContain("{MERCHANT_ROW_LABEL}");

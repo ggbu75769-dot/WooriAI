@@ -11,6 +11,7 @@ import {
   hasApiErrorCode,
   parseApiErrorEnvelope
 } from "./api-error";
+import { amountOverLimitMessage, EXPENSE_AMOUNT_MAX_KRW } from "../expenses/amount-limit";
 
 /**
  * 라운드 45 UX-Z — 서버 실패 사유가 경계에서 뭉개지지 않는다는 계약.
@@ -134,6 +135,7 @@ describe("화이트리스트 표 — 아는 코드만 문구로 바꾼다", () =
     "EXPENSE_FUTURE_DATE",
     "EXPENSE_DATE_INVALID",
     "EXPENSE_AMOUNT_INVALID",
+    "EXPENSE_AMOUNT_TOO_LARGE",
     "EXPENSE_ITEM_NAME_REQUIRED",
     "IMPORT_TOO_MANY_ROWS",
     "IMPORT_FILE_TYPE_INVALID",
@@ -165,6 +167,29 @@ describe("화이트리스트 표 — 아는 코드만 문구로 바꾼다", () =
       API_ERROR_MESSAGES.LINKED_PRODUCT_LINK_NOT_FOUND
     );
     expect(API_ERROR_MESSAGES.LINKED_PRODUCT_LINK_NOT_FOUND).not.toContain("잠시 후 다시");
+  });
+
+  /**
+   * GAP-054 라운드 54 P2-6 — 상한 초과로 파킹된 행이 이유를 말한다.
+   *
+   * 서버는 이 실패에만 전용 코드를 준다(apps/api/src/bootstrap.ts의 exceptionFactory).
+   * 4xx라 오프라인 아웃박스는 그 행을 실패 행으로 파킹하고, 동기화 상태 화면에 뜨는 문구가
+   * 이 표의 값이다 — 한도를 말해야 사용자가 큐를 풀 수 있다.
+   */
+  it("금액 상한 초과는 한도를 말하고, 문구는 입력 가드와 같은 모듈에서 온다", () => {
+    const error = new ApiHttpError(400, envelope("EXPENSE_AMOUNT_TOO_LARGE", "요청 값을 다시 확인해주세요."));
+    const shown = apiErrorMessage(error, "저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
+    expect(shown).toBe(amountOverLimitMessage());
+    expect(shown).toContain(EXPENSE_AMOUNT_MAX_KRW.toLocaleString("ko-KR"));
+    // 다시 눌러도 결과가 같은 실패라 재시도를 권하지 않는다.
+    expect(shown).not.toContain("잠시 후 다시");
+    // 서버 봉투의 일반 문구가 그대로 새지 않는다.
+    expect(shown).not.toContain("요청 값을");
+    // 숫자를 표에 손으로 적지 않는다 — amount-limit 모듈 하나가 단일 소스다.
+    const apiErrorSource = source("src/api/api-error.ts");
+    expect(apiErrorSource).toContain('import { amountOverLimitMessage } from "../expenses/amount-limit";');
+    expect(apiErrorSource).toContain("EXPENSE_AMOUNT_TOO_LARGE: amountOverLimitMessage(),");
+    expect(apiErrorSource).not.toContain(String(EXPENSE_AMOUNT_MAX_KRW));
   });
 
   it("모르는 코드는 폴백 — 서버 원문을 절대 그대로 노출하지 않는다", () => {
