@@ -281,11 +281,15 @@ describe("UX-R(M) 세션 스토어 배선 (source contract)", () => {
 describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌더할 수 없다)", () => {
   it("모든 지출 생성 진입점이 같은 판정 훅 하나를 거친다", () => {
     const wired: Array<[string, string]> = [
-      // 홈: 퀵액션 · 빈 상태 · FAB · 첫 실행 유도 카드(지출 갈래만).
+      // 홈: 퀵액션(비세션 프리뷰) · "자주 기록해요" 칩(세션) · 빈 상태 · FAB · 첫 실행 유도 카드.
       ["app/(tabs)/index.tsx", 'label="지출 기록" onPress={expenseGate.guard(() => router.push("/expenses/new"))}'],
+      // DSN-053 P2-A: 세션 홈의 기록 입구는 캡처 문법의 칩 4개다 -- 품목 프리필도 같은 게이트를 지난다.
+      ["app/(tabs)/index.tsx", "onPress={expenseGate.guard(() => {"],
       ["app/(tabs)/index.tsx", 'actionLabel="기록하기"'],
       ["app/(tabs)/index.tsx", '<FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />'],
-      ["app/(tabs)/index.tsx", 'if (firstRunGuide.variant === "first-expense" && expenseGate.locked) {'],
+      // DSN-053 P2-A: 첫 실행 안내 카드는 준비템 갈래(first-items)를 준비 현황 카드에 넘기고
+      // 나머지 갈래만 접힘 목록에 남는다 -- 잠금 판정이 붙는 자리는 종전과 같은 지출 갈래다.
+      ["app/(tabs)/index.tsx", 'if (foldableFirstRunGuide.variant === "first-expense" && expenseGate.locked) {'],
       // 기록 탭: 상단 CTA · 빈 상태 · 행 액션(또 기록 · 삭제).
       ["app/(tabs)/records.tsx", 'label="빠른 지출 기록" onPress={expenseGate.guard(() => router.push("/expenses/new"))}'],
       ["app/(tabs)/records.tsx", "if (expenseEntryLocked) {"],

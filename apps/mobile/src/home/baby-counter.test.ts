@@ -283,7 +283,9 @@ describe("UX-A 아기 카운터 화면 배선 계약 (app/(tabs)/index.tsx)", ()
   });
 
   it("단계 라벨을 잃지 않고, 카운터 줄에 소리용 라벨을 붙인다", () => {
-    expect(homeSource).toContain("<Text style={homeBabyCounterStyle.eyebrow}>{visibleHome.child.stageLabel}</Text>");
+    // DSN-053 P2-A: 단계 라벨은 아이브로우가 아니라 캡처 문법의 헤더 두 번째 줄(11/700)에 산다 --
+    // 자리는 바뀌었지만 "카운터가 떠도 단계를 잃지 않는다"는 계약은 그대로다.
+    expect(homeSource).toContain("<KoreanText style={homeHeaderStyle.stage}>{visibleHome.child.stageLabel}</KoreanText>");
     expect(homeSource).toContain("accessibilityLabel={babyCounter.accessibilityLabel}");
     expect(homeSource).toContain('testID="home-baby-counter"');
   });

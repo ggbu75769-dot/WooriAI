@@ -226,27 +226,41 @@ describe("라운드 51 #6 홈 화면 배선 계약", () => {
     expect(homeSource).toContain("guideVariant: firstRunGuide?.variant ?? null");
   });
 
-  it("카드 전체가 버튼이고 목적지는 모듈이 예고한 경로 그대로다", () => {
-    expect(homeSource).toContain("testID={prepNudge.testID}");
-    expect(homeSource).toContain("accessibilityLabel={prepNudge.accessibilityLabel}");
-    expect(homeSource).toContain("router.push(prepNudge.route)");
-    expect(homeSource).toContain("{prepNudge.title}");
-    expect(homeSource).toContain("{prepNudge.subtitle}");
-    expect(homeSource).toContain("{prepNudge.ctaLabel}");
+  /**
+   * DSN-053 P2-A — 이 넛지는 이제 **자기 카드**를 갖지 않는다. 승인 캡처의 홈에는 준비템
+   * 이야기를 할 자리가 ④ "이번 주 준비 현황" 카드 **하나**뿐이라, 첫 실행 안내(first-items)·
+   * 이 넛지·캡처 기본 문구 중 무엇을 말할지 순수 모듈 하나가 고르고(resolveHomePrepCard) 화면은
+   * 고른 값만 그린다. 판정 입력(위 계약)은 그대로이고, 달라진 것은 출력이 서는 자리다.
+   */
+  it("넛지 문구는 준비 현황 카드 한 자리에서만 나온다(같은 말을 두 카드가 반복하지 않는다)", () => {
+    expect(homeSource).toContain("const prepCard = resolveHomePrepCard({");
+    expect(homeSource).toContain("prepNudge,");
+    expect(homeSource).toContain("testID={prepCard.testID}");
+    expect(homeSource).toContain("accessibilityLabel={prepCard.accessibilityLabel}");
+    expect(homeSource).toContain("router.push(prepCard.route)");
+    expect(homeSource).toContain("{prepCard.title}");
+    expect(homeSource).toContain("{prepCard.subtitle}");
+    expect(homeSource).toContain("{prepCard.ctaLabel}");
+    // 예전처럼 넛지 전용 카드를 따로 세우지 않는다.
+    expect(homeSource).not.toContain("testID={prepNudge.testID}");
   });
 
-  it("자리는 지난달 대비 줄과 최근 지출 섹션 사이다(루프 순서: 총액 확인 다음이 준비템)", () => {
-    const weekly = homeSource.indexOf('testID="home-weekly-summary"');
-    const prep = homeSource.indexOf("testID={prepNudge.testID}");
-    const recent = homeSource.indexOf('title="최근 지출"');
-    expect(weekly).toBeGreaterThan(-1);
-    expect(prep).toBeGreaterThan(weekly);
-    expect(prep).toBeLessThan(recent);
+  it("자리는 자주 기록해요 칩과 최근 기록 사이다(루프 순서: 총액 확인 다음이 준비템)", () => {
+    const sessionRender = homeSource.slice(homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)"));
+    const hero = sessionRender.indexOf('testID="home-hero-summary"');
+    const chips = sessionRender.indexOf("HOME_QUICK_RECORD_SECTION_TITLE}");
+    const prep = sessionRender.indexOf("testID={prepCard.testID}");
+    const recent = sessionRender.indexOf("최근 기록\n");
+    expect(hero).toBeGreaterThan(-1);
+    expect(chips).toBeGreaterThan(hero);
+    expect(prep).toBeGreaterThan(chips);
+    expect(recent).toBeGreaterThan(prep);
   });
 
   it("커머스 표면이 아니다 -- 카드에 가격도 구매 링크도 없다(DNC-010/011은 준비템 탭 몫)", () => {
-    const start = homeSource.indexOf("{prepNudge ? (");
+    const start = homeSource.indexOf("{prepCard ? (");
     const card = homeSource.slice(start, homeSource.indexOf("{showRecentExpensesSection ? (", start));
+    expect(start).toBeGreaterThan(-1);
     expect(card).not.toContain("formatKrw");
     expect(card).not.toContain("productLink");
     expect(card).not.toContain("Linking");

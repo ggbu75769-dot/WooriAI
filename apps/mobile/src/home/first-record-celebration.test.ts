@@ -142,14 +142,23 @@ describe("UX-G 축하 배너 문구·배선", () => {
     );
   });
 
-  it("배너는 히어로 카드 바로 아래, 예산 경고 배너보다 앞에 온다", () => {
-    const heroIndex = homeSource.indexOf("<HeroSummaryCard");
-    const celebrationIndex = homeSource.indexOf(`testID={FIRST_RECORD_CELEBRATION_TEST_ID}`);
-    const warningIndex = homeSource.indexOf('testID="home-budget-warning-banner"');
+  it("배너는 히어로 카드 바로 아래, 우선순위 카드들보다 앞에 온다", () => {
+    /**
+     * DSN-053 P2-A: 히어로 아래 카드들은 이제 순수 모듈이 순위를 매기고 상위 1~2장만 펼친다
+     * (src/home/home-section-priority.ts). 그래서 "경고 배너보다 앞"을 소스 위치로 재는 대신,
+     * 축하 배너가 **그 우선순위 목록 밖에서** 히어로 바로 아래에 서 있다는 사실을 고정한다 --
+     * 한 세션에 한 번, 닫으면 끝나는 일시적 알림이라 접힘 대상이 아니다.
+     */
+    const sessionRender = homeSource.slice(homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)"));
+    const heroIndex = sessionRender.indexOf('testID="home-hero-summary"');
+    const celebrationIndex = sessionRender.indexOf(`testID={FIRST_RECORD_CELEBRATION_TEST_ID}`);
+    const prioritySectionsIndex = sessionRender.indexOf("{renderedSections.map(");
 
     expect(heroIndex).toBeGreaterThan(-1);
     expect(celebrationIndex).toBeGreaterThan(heroIndex);
-    expect(celebrationIndex).toBeLessThan(warningIndex);
+    expect(celebrationIndex).toBeLessThan(prioritySectionsIndex);
+    // 접힘 대상 목록에 축하 배너가 들어가지 않는다(카드 다이어트가 축하를 삼키지 않는다).
+    expect(homeSource).not.toContain('activeSections.push("first-record-celebration")');
   });
 
   it("배너가 소리로도 알려지고 장식 글리프는 접근성 트리에서 감춰진다", () => {

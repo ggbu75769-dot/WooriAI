@@ -713,7 +713,9 @@ describe("UX-G 홈 화면 배선", () => {
     expect(homeSource).toContain("guideVariant: firstRunGuide?.variant ?? null");
     expect(homeSource).not.toContain('(!hasAnyExpenseRecord && firstRunGuide?.variant !== "first-expense")');
     expect(homeSource).toContain("{showRecentExpensesSection ? (");
-    expect(homeSource).toContain("{!showRecentExpensesSection ? null : visibleHome.recentExpenses.length === 0 ? (");
+    // DSN-053 P2-A: 헤더와 본문이 같은 <View> 안으로 들어가면서 판정 하나가 섹션 전체를 감싼다
+    // (예전에는 헤더 블록과 본문 블록이 같은 판정을 두 번 읽었다).
+    expect(homeSource).toContain("{visibleHome.recentExpenses.length === 0 ? (");
     // FAB는 전역 관례라 유지한다 -- 근거가 주석으로 남아 있어야 다음 라운드가 다시 지우지 않는다.
     // UX-R(M): FAB 자체는 그대로 서 있고 목적지도 그대로다. 눌렀을 때만 보기 전용 판정을
     // 거친다(expenseGate.guard) -- 잠금은 실세션 + 보기 전용 역할에서만 발동하므로 이 자리의
@@ -725,15 +727,18 @@ describe("UX-G 홈 화면 배선", () => {
   });
 
   it("카드 전체에 소리용 라벨이 붙고 CTA는 버튼 역할을 갖는다", () => {
-    expect(homeSource).toContain("testID={firstRunGuide.testID}");
-    expect(homeSource).toContain("accessibilityLabel={firstRunGuide.accessibilityLabel}");
+    // DSN-053 P2-A: 준비템 갈래(first-items)는 준비 현황 카드가 흡수했고, 남은 갈래만 이 카드로
+    // 그려진다 -- 그 갈래를 가리키는 이름이 foldableFirstRunGuide다(값은 같은 모듈의 결과다).
+    expect(homeSource).toContain("testID={foldableFirstRunGuide.testID}");
+    expect(homeSource).toContain("accessibilityLabel={foldableFirstRunGuide.accessibilityLabel}");
     expect(homeSource).toContain("accessibilityLabel={firstRunGuideCta.label}");
     expect(homeSource).toContain("label={firstRunGuideCta.label}");
     expect(homeSource).toContain("router.push(firstRunGuideCta.route)");
   });
 
   it("준비템 안내는 눌러도·닫아도 1회성 플래그가 남는다", () => {
-    expect(homeSource).toContain('if (firstRunGuide.variant === "first-items") dismissItemsGuide(childId)');
+    // DSN-053 P2-A: 그 안내는 이제 준비 현황 카드의 한 갈래다(resolveHomePrepCard의 source).
+    expect(homeSource).toContain('if (prepCard.source === "first-run-guide") dismissItemsGuide(childId)');
     expect(homeSource).toContain("label={FIRST_ITEMS_GUIDE_DISMISS_LABEL}");
     expect(FIRST_ITEMS_GUIDE_DISMISS_LABEL).toBe("닫기");
   });

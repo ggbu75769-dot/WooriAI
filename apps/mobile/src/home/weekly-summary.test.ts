@@ -425,7 +425,8 @@ describe("UX-A 주간 요약 화면 배선 계약 (app/(tabs)/index.tsx)", () =>
     expect(homeSource).toContain('testID="home-weekly-summary"');
     // D1 후속(실기기 피드백 2): 장식 글리프(▦)는 Ionicons로 바뀌었지만 "접근성 트리에서
     // 감춘다"는 계약은 그대로다 -- 색·크기도 같은 스타일 토큰에서 그대로 읽어 쓴다.
-    expect(homeSource).toContain("accessible={false}\n                  name=\"calendar-outline\"");
+    // 들여쓰기는 계약이 아니다(DSN-053 P2-A에서 카드가 렌더 함수 안으로 들어가며 한 단계 줄었다).
+    expect(homeSource).toMatch(/accessible=\{false\}\s+name="calendar-outline"/);
     expect(homeSource).toContain("size={homeWeeklySummaryStyle.glyph.fontSize}");
     expect(homeSource).toContain("color={homeWeeklySummaryStyle.glyph.color}");
   });
