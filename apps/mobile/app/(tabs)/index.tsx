@@ -56,6 +56,7 @@ import {
   type ComparableExpenseRecord
 } from "../../src/home/last-month-comparison";
 import {
+  cumulativeTotalPendingNotice,
   evaluateHomeCumulativeTotal,
   HOME_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID
 } from "../../src/home/cumulative-total";
@@ -72,7 +73,10 @@ import {
   buildHomeQuickRecordChips,
   HOME_QUICK_RECORD_SECTION_TITLE
 } from "../../src/home/quick-record-chips";
-import { evaluateMilestoneCountdown } from "../../src/home/milestone-countdown";
+import {
+  evaluateMilestoneCountdown,
+  HOME_MILESTONE_PENDING_NOTICE_TEST_ID
+} from "../../src/home/milestone-countdown";
 import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 import { evaluateHomePrepNudge, type PrepNudgeRecommendedItem } from "../../src/home/prep-nudge";
 import { buildPendingItemStatusIndex, effectiveItemStatus } from "../../src/items/pending-status";
@@ -1605,6 +1609,11 @@ export default function HomeScreen() {
   // 라운드 40 J-5: 잠긴 세션의 `view-only` 카드도 같은 자리를 말하므로 함께 접는다 -- 그러지
   // 않으면 "이번 주 첫 기록을 남겨보세요"라는 권유가 보기 전용 참여자에게 되돌아온다.
   const weeklySummary = hasSession && !homeGuideSpeaksForEmptyHome(firstRunGuide?.variant) ? weeklySpend : null;
+  // GAP-063 트랙 A — 전 기간 누적 금액을 그리는 홈의 두 자리(마일스톤 카드 부제 · 누적 카드)가
+  // **같은 문장**으로 대기를 밝힌다. 라운드 62는 누적 카드에만 고지를 붙였는데, 그 카드는
+  // 마일스톤 카드가 서면 접히므로(중복 금지) 생후 0일~첫돌 구간에서는 고지가 한 번도 뜨지
+  // 않았다. 행은 **이미 구독 중인** 스냅샷을 아이로 거른 것 그대로다(새 요청 0건).
+  const cumulativePendingNotice = cumulativeTotalPendingNotice(childOfflineRows);
   const milestoneCountdown = hasSession
     ? evaluateMilestoneCountdown({
         stageMode: selectedChild?.stageMode,
@@ -1613,7 +1622,10 @@ export default function HomeScreen() {
         todayIso: seoulToday,
         // 누적 총액은 홈 캐시가 이미 들고 있는 서버 집계다(선물 제외, DNC-015). 비세션
         // 미리보기 픽스처에는 없는 필드라 home.data에서 직접 읽는다.
-        totalExpenseKrw: home.data?.totalExpenseKrw ?? null
+        totalExpenseKrw: home.data?.totalExpenseKrw ?? null,
+        // 문구·건수는 누적 카드와 같은 단일 소스가 만든다(모듈끼리 순환 import를 만들지 않으려고
+        // 조립만 화면이 한다 — 근거는 milestone-countdown.ts의 pendingNotice 입력 주석).
+        pendingNotice: cumulativePendingNotice
       })
     : null;
   // 라운드 48 B2 — 임신~첫돌 **누적 총액**을 홈이 말하게 한다.
@@ -1932,6 +1944,15 @@ export default function HomeScreen() {
               <View style={homeMilestoneStyle.copy}>
                 <Text style={homeMilestoneStyle.title}>{milestoneCountdown.title}</Text>
                 <Text style={homeMilestoneStyle.subtitle}>{milestoneCountdown.subtitle}</Text>
+                {/* GAP-063 트랙 A: 위 부제의 금액(서버 누적 집계)이 아직 모르는 기록이 있을 때만
+                    서는 한 줄. 0건이면 null이라 카드는 예전과 한 픽셀도 다르지 않다. 문장은 홈
+                    누적 카드·리포트 누적 카드와 같은 단일 소스이고, 스타일도 부제와 같은
+                    gray600 12/18이라 새 치수를 만들지 않는다. */}
+                {milestoneCountdown.pendingNotice ? (
+                  <Text style={homeMilestoneStyle.subtitle} testID={HOME_MILESTONE_PENDING_NOTICE_TEST_ID}>
+                    {milestoneCountdown.pendingNotice}
+                  </Text>
+                ) : null}
                 {/* 라운드 33 F1: 눌렀을 때 실제로 열리는 리포트를 그대로 예고한다. */}
                 <Text style={homeMilestoneStyle.cta}>{milestoneCountdown.ctaLabel}</Text>
               </View>

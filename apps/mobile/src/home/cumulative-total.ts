@@ -129,6 +129,16 @@ export const CUMULATIVE_TOTAL_SUBTITLE = "기록을 시작한 뒤의 지출을 �
 export const HOME_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID = "home-cumulative-total-pending-notice";
 
 /**
+ * GAP-063 트랙 A — **리포트 탭 누적 카드**의 같은 고지 한 줄.
+ *
+ * 식별자를 이 모듈에 두는 이유는 그 카드가 그리는 숫자(`getCumulativeReport`의
+ * `totalExpenseKrw` — `expenseType='expense'`, 삭제 제외, 기간 없음)가 홈 누적 카드와 **같은
+ * 모집단**이기 때문이다. 세는 규칙도 문구도 아래 `cumulativeTotalPendingNotice` 한 벌을
+ * 그대로 부르므로, 두 화면이 다른 말을 하게 될 자리가 없다.
+ */
+export const REPORT_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID = "reports-cumulative-total-pending-notice";
+
+/**
  * GAP-062 #9 — **이 카드가 오프라인 대기를 밝히는 한 줄.**
  *
  * ## 무엇이 문제였나
@@ -168,6 +178,26 @@ export const HOME_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID = "home-cumulative-tot
  * 갈리는 것은 지시어 하나다: 리포트 고지는 화면 아래의 숫자들을 가리켜 "아래 숫자에"라고 하고,
  * 이 카드는 **바로 위 제목의 금액**을 가리키므로 "이 금액에"라고 한다. 같은 자리를 가리키지
  * 않는 두 문장을 한 상수로 묶으면 둘 중 하나가 화면에서 엉뚱한 곳을 짚는다.
+ *
+ * ## GAP-063 트랙 A — 이 문장이 서는 자리가 셋이 됐다
+ *
+ * 라운드 62는 이 줄을 **홈 누적 카드 한 장에만** 붙였는데, 그 카드는 마일스톤 카운트다운
+ * 카드가 서면 스스로 접힌다(아래 `evaluateHomeCumulativeTotal`의 `hasMilestoneCard` 게이트).
+ * 접히는 이유가 "그 카드가 이미 같은 금액을 말하고 있어서"인데 정작 그 카드의 부제는 같은
+ * `totalExpenseKrw`를 **고지 없이** 그렸다 — 즉 대상 사용자의 대다수가 머무는 생후 0일~첫돌
+ * 구간에서는 라운드 62의 고지가 구조적으로 한 번도 뜨지 않았다. 리포트 탭의 누적 카드도
+ * 같은 숫자를 말없이 그린다(그 탭 머리의 고지는 **선택한 기간**만 세므로 무기간인 이 숫자를
+ * 가리키지 못한다 — src/reports/pending-scope-notice.ts).
+ *
+ * 그래서 문구를 새로 만들지 않고 **같은 함수**(아래 `cumulativeTotalPendingNotice`)를 세 자리가
+ * 부른다: 홈 누적 카드 · 홈 마일스톤 카드 부제 · 리포트 탭 누적 카드. 셋 다 지시어가 짚는
+ * 대상이 같다 — 바로 위에 선 전 기간 누적 금액이다.
+ *
+ * 마일스톤 **리포트** 카드(리포트 탭의 창 합계 — "태어나서 100일 동안 N원")는 여기서 뺀다.
+ * 그 숫자의 모집단은 `[출생일, 출생일+100일)`이라는 **제3의 기간**이라, 이 무기간 규칙으로도
+ * 리포트 고지의 월/분기/연 규칙으로도 셀 수 없다. 창 경계를 클라이언트에서 다시 계산하는
+ * 순간 집계 규칙이 두 벌이 되므로(pending-scope-notice.ts 머리말의 판단 그대로), 그 카드는
+ * "고지를 붙인다"가 아니라 별도 판단으로 남긴다 — 모르는 것을 세는 척하지 않는다.
  */
 export function cumulativeTotalPendingNoticeText(count: number, unsendableCount = 0): string {
   if (unsendableCount <= 0) {
@@ -181,6 +211,25 @@ function pendingRowsBehindCumulativeTotal(
   rows: readonly CumulativeTotalPendingRow[]
 ): CumulativeTotalPendingRow[] {
   return rows.filter((row) => row.syncState !== "synced" && countsTowardMonthlyTotal(row.payload?.expenseType));
+}
+
+/**
+ * GAP-063 트랙 A — **전 기간 누적 금액을 그리는 자리라면 어디서든 부르는 한 함수.**
+ *
+ * 넘기는 행은 **이미 이 아이로 걸러진** 오프라인 스냅숏 행이다(홈은 `childOfflineRows`,
+ * 리포트 탭은 같은 스냅숏을 `childId`로 거른 것 — 둘 다 새 요청 0건). 아이를 모르면 빈 배열이
+ * 들어와 null이 나온다: 누구의 대기인지 모르는 채로 건수를 말하지 않는다.
+ *
+ * 0건이면 **null**이라 세 화면 모두 예전과 한 줄도 다르지 않다("0건이 대기 중이에요"는 소음).
+ * 세는 규칙(`syncState !== "synced"` ∧ 이 합계를 움직이는 구분만)과 문구는 위 두 함수 한 벌이
+ * 지므로, 부르는 자리가 늘어도 같은 상황에서 같은 문장이 나온다.
+ */
+export function cumulativeTotalPendingNotice(
+  rows?: readonly CumulativeTotalPendingRow[] | null
+): string | null {
+  const pendingRows = pendingRowsBehindCumulativeTotal(rows ?? []);
+  if (pendingRows.length === 0) return null;
+  return cumulativeTotalPendingNoticeText(pendingRows.length, countPermanentlyFailedRows(pendingRows));
 }
 
 /** 홈 누적 총액 카드를 만든다. 보여줄 이유가 없으면 null(그 자리는 비어 있는다). */
@@ -198,11 +247,9 @@ export function evaluateHomeCumulativeTotal(input: HomeCumulativeTotalInput): Ho
   const subtitle = CUMULATIVE_TOTAL_SUBTITLE;
   // GAP-062 #9: 대기 0건이면 null이라 카드가 예전과 한 줄도 다르지 않다 — "0건이 대기 중이에요"는
   // 소음이고, 대다수인 그 경우에 카드를 한 줄 키울 이유가 없다(리포트 고지와 같은 규칙).
-  const pendingRows = pendingRowsBehindCumulativeTotal(input.pendingRows ?? []);
-  const pendingNotice =
-    pendingRows.length > 0
-      ? cumulativeTotalPendingNoticeText(pendingRows.length, countPermanentlyFailedRows(pendingRows))
-      : null;
+  // GAP-063 트랙 A: 판정을 위 공용 함수로 옮겼다 — 홈 마일스톤 부제·리포트 누적 카드가 같은
+  // 금액을 그리므로 같은 함수를 부른다(결과는 종전과 동치다).
+  const pendingNotice = cumulativeTotalPendingNotice(input.pendingRows);
   return {
     title,
     subtitle,

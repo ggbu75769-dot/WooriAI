@@ -26,6 +26,14 @@ import {
   CHILD_SWITCH_TRIGGER_HINT
 } from "../../src/children/child-switch";
 import { ChildSwitchSheet, useChildSwitchSheet } from "../../src/children/ChildSwitchSheet";
+// GAP-063 트랙 A: 리포트 탭의 누적 카드는 홈 누적 카드와 **같은 숫자**(전 기간 · 선물 제외)를
+// 그린다. 부제와 대기 고지를 여기서 새로 쓰지 않고 그 카드의 단일 소스를 그대로 부른다 —
+// 한 앱이 같은 숫자를 두 정직성 등급으로 말하지 않게.
+import {
+  cumulativeTotalPendingNotice,
+  CUMULATIVE_TOTAL_SUBTITLE,
+  REPORT_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID
+} from "../../src/home/cumulative-total";
 import { formatKrw } from "../../src/money";
 import {
   milestoneOtherCategoriesLine,
@@ -238,6 +246,19 @@ export default function ReportsScreen() {
               ? { unit: "quarter", yearMonths: quarterMonths.map(yearMonthOf) }
               : { unit: "year", year: yearStart.getFullYear() }
       })
+    : null;
+  /**
+   * GAP-063 트랙 A — 위 고지는 **선택한 기간**(월/분기/연)만 센다. 그런데 이 화면 아래쪽 누적
+   * 카드의 숫자는 기간이 없는 전 기간 합계라, 8월을 보고 있을 때 7월에 적어 둔 대기 행은 위
+   * 고지에도 잡히지 않으면서 누적 카드의 값만 낮춘다. 그래서 그 카드는 **자기 모집단의** 고지를
+   * 따로 단다 — 홈 누적 카드와 같은 함수·같은 문장이다(src/home/cumulative-total.ts).
+   *
+   * 재집계는 여기서도 하지 않는다(전 기간에는 재조정할 월 캐시가 없다). 행은 위 고지가 이미
+   * 구독 중인 같은 스냅숏이라 새 요청은 0건이고, 아이로 거르는 것도 같은 규칙이다 — 아이를
+   * 모르면(비세션 미리보기 포함) 아무것도 세지 않는다.
+   */
+  const cumulativePendingNotice = hasSession
+    ? cumulativeTotalPendingNotice(offlineSyncSnapshot.rows.filter((row) => row.childId === childId))
     : null;
 
   // A11Y-117: 월/분기/연 이동 시 새 기간 라벨을 TalkBack으로 읽어주고, 현재 기간(offset 0)
@@ -889,6 +910,20 @@ export default function ReportsScreen() {
                 <Card style={reportReferenceMemoryCardStyle}>
                   <Text style={reportReferenceMemoryTitleStyle}>오늘도 소중한 하루였어요</Text>
                   <Text style={reportReferenceMemoryBodyStyle}>누적 기록 {formatKrw(cumulative.data.totalExpenseKrw)}</Text>
+                  {/* GAP-063 트랙 A: 이 숫자는 홈 누적 카드와 **같은 모집단**이다(전 기간 ·
+                      expenseType='expense'만 — DNC-015). 그 카드는 라운드 48 QA에서 제외 항목을
+                      밝히는 부제를 얻었는데 여기만 말없이 그려, 한 앱이 같은 숫자를 두 정직성
+                      등급으로 말하고 있었다. 문구는 그 카드의 상수를 그대로 쓴다. */}
+                  <Text style={reportReferenceMemoryBodyStyle}>{CUMULATIVE_TOTAL_SUBTITLE}</Text>
+                  {/* 대기 0건이면 null이라 카드는 한 줄도 늘지 않는다(위 판정 주석 참고). */}
+                  {cumulativePendingNotice ? (
+                    <Text
+                      style={reportReferenceMemoryBodyStyle}
+                      testID={REPORT_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID}
+                    >
+                      {cumulativePendingNotice}
+                    </Text>
+                  ) : null}
                 </Card>
               ) : null}
 

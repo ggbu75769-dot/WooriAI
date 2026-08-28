@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  cumulativeTotalPendingNotice,
   cumulativeTotalPendingNoticeText,
   CUMULATIVE_TOTAL_SUBTITLE,
   CUMULATIVE_TOTAL_TITLE_PREFIX,
   evaluateHomeCumulativeTotal,
   HOME_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID,
+  REPORT_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID,
   type CumulativeTotalPendingRow
 } from "./cumulative-total";
 import { reportPendingScopeNoticeText } from "../reports/pending-scope-notice";
@@ -21,6 +23,7 @@ import { evaluateMilestoneCountdown, milestoneSubtitleShowsTotal } from "./miles
  * 모듈의 출력과 맞물리는지**, (3) 홈 배선(세션 게이트·요청 0)을 고정한다.
  */
 const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
+const reportsSource = readFileSync(join(process.cwd(), "app/(tabs)/reports.tsx"), "utf8");
 
 const base = { hasSession: true, totalExpenseKrw: 1_245_700, hasMilestoneCard: false } as const;
 
@@ -267,5 +270,176 @@ describe("B2 홈 배선 계약", () => {
   it("카드가 화면에 그려진다", () => {
     expect(homeSource).toContain('testID="home-cumulative-total"');
     expect(homeSource).toContain("cumulativeTotal.accessibilityLabel");
+  });
+});
+
+/**
+ * GAP-063 트랙 A — **같은 숫자를 그리는 나머지 자리도 같은 말을 한다.**
+ *
+ * 고치는 문제: 라운드 62의 고지는 이 카드 한 장에만 붙었는데, 이 카드는 마일스톤 카드가 서면
+ * 접힌다(위 중복 금지). 그래서 대상 사용자의 대다수가 머무는 **생후 0일~첫돌** 구간에서는
+ * 고지가 구조적으로 절대 뜨지 않았다 — 라운드 62가 없애려던 그림이 카드만 바뀐 채 남았다.
+ * 리포트 탭의 누적 카드도 같은 숫자를 말없이 그렸고, 그 탭 머리의 고지는 **선택한 기간**만
+ * 세므로 무기간인 이 숫자를 가리키지 못한다.
+ *
+ * 답은 재집계가 아니라(전 기간에는 재조정할 모집단이 없다) **같은 문장을 같은 함수로** 세
+ * 자리에 세우는 것이다.
+ */
+describe("GAP-063 같은 금액을 그리는 세 자리가 같은 고지를 쓴다", () => {
+  const pending = (overrides: Partial<CumulativeTotalPendingRow> = {}): CumulativeTotalPendingRow => ({
+    syncState: "pending",
+    payload: { expenseType: "expense" },
+    ...overrides
+  });
+
+  it("공용 함수는 누적 카드가 만드는 고지와 언제나 같은 값을 낸다", () => {
+    const cases: ReadonlyArray<readonly CumulativeTotalPendingRow[]> = [
+      [],
+      [pending()],
+      [pending(), pending(), pending()],
+      [pending(), pending({ syncState: "failed", lastErrorStatus: 400, lastError: "저장할 수 없어요" })],
+      [pending({ payload: { expenseType: "gift" } })],
+      [pending({ syncState: "synced" })]
+    ];
+    for (const rows of cases) {
+      expect(cumulativeTotalPendingNotice(rows)).toBe(
+        evaluateHomeCumulativeTotal({ ...base, pendingRows: rows })?.pendingNotice ?? null
+      );
+    }
+    // 행을 아예 모르는 호출부(아이 미선택·비세션)는 아무것도 세지 않는다.
+    expect(cumulativeTotalPendingNotice()).toBeNull();
+    expect(cumulativeTotalPendingNotice(null)).toBeNull();
+  });
+
+  /**
+   * 이 라운드가 고친 결함 그 자체를 고정한다: 마일스톤 카드가 서는 날 홈은 여전히 대기를 밝힌다.
+   */
+  it("생후 0일~첫돌: 누적 카드가 접혀도 같은 문장이 마일스톤 부제 아래에 남는다", () => {
+    const rows = [pending(), pending(), pending()];
+    const notice = cumulativeTotalPendingNotice(rows);
+    const countdown = evaluateMilestoneCountdown({
+      stageMode: "born",
+      nickname: "다온이",
+      birthDate: "2026-06-01",
+      todayIso: "2026-08-27",
+      totalExpenseKrw: 1_245_700,
+      pendingNotice: notice
+    });
+    const card = evaluateHomeCumulativeTotal({
+      ...base,
+      hasMilestoneCard: countdown !== null,
+      pendingRows: rows
+    });
+
+    // 종전 그대로 누적 카드는 접힌다(중복 금지는 건드리지 않았다).
+    expect(card).toBeNull();
+    // 그런데 고지는 사라지지 않는다 — 접은 카드가 하던 말을 남은 카드가 이어받는다.
+    expect(countdown?.subtitle).toContain("1,245,700원");
+    expect(countdown?.pendingNotice).toBe("동기화 대기 중인 기록 3건은 이 금액에 아직 반영되지 않았어요.");
+    expect(countdown?.accessibilityLabel).toContain(notice!);
+  });
+
+  it("첫돌 이후·임신 단계: 마일스톤 카드가 없으면 종전대로 누적 카드가 그 말을 한다", () => {
+    const rows = [pending()];
+    for (const todayIso of ["2027-06-03", "2030-01-01"]) {
+      const countdown = evaluateMilestoneCountdown({
+        stageMode: "born",
+        nickname: "다온이",
+        birthDate: "2026-06-01",
+        todayIso,
+        totalExpenseKrw: 1_245_700,
+        pendingNotice: cumulativeTotalPendingNotice(rows)
+      });
+      expect(countdown, todayIso).toBeNull();
+      expect(
+        evaluateHomeCumulativeTotal({ ...base, hasMilestoneCard: false, pendingRows: rows })?.pendingNotice,
+        todayIso
+      ).toBe(cumulativeTotalPendingNotice(rows));
+    }
+  });
+});
+
+/**
+ * 리포트 탭 배선 계약(소스 검증) — 이 화면도 vitest에서 렌더할 수 없다(홈과 같은 관례).
+ */
+describe("GAP-063 리포트 탭 누적 카드 배선 계약", () => {
+  it("고지도 부제도 홈 카드의 단일 소스를 그대로 부른다(문구 두 벌 금지)", () => {
+    expect(reportsSource).toContain('from "../../src/home/cumulative-total"');
+    expect(reportsSource).toContain(
+      "cumulativeTotalPendingNotice(offlineSyncSnapshot.rows.filter((row) => row.childId === childId))"
+    );
+    expect(reportsSource).toContain("{CUMULATIVE_TOTAL_SUBTITLE}");
+    expect(reportsSource).toContain(`testID={REPORT_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID}`);
+    expect(REPORT_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID).toBe("reports-cumulative-total-pending-notice");
+  });
+
+  it("고지 판정은 세션·아이가 있을 때만 돈다(모르면 세지 않는다)", () => {
+    expect(reportsSource).toContain("const cumulativePendingNotice = hasSession");
+  });
+
+  it("숫자는 서버 집계 그대로다 — 리포트가 누적을 다시 더하지 않는다(재집계 금지)", () => {
+    const start = reportsSource.indexOf("const cumulativePendingNotice = hasSession");
+    const block = reportsSource.slice(start, start + 400);
+    expect(block).not.toContain("reduce(");
+    expect(block).not.toContain("amountKrw");
+    // 새 요청도 새 구독도 없다 -- 기간 고지가 이미 쓰는 그 스냅숏이다.
+    expect(reportsSource).toContain("const offlineSyncSnapshot = useOfflineSyncSnapshot();");
+    expect(reportsSource.match(/useOfflineSyncSnapshot\(\)/g) ?? []).toHaveLength(1);
+  });
+
+  it("카드 안의 순서는 금액 → 부제 → 고지다(TalkBack이 눈과 같은 순서로 듣는다)", () => {
+    const amountAt = reportsSource.indexOf("누적 기록 {formatKrw(cumulative.data.totalExpenseKrw)}");
+    const subtitleAt = reportsSource.indexOf("{CUMULATIVE_TOTAL_SUBTITLE}", amountAt);
+    const noticeAt = reportsSource.indexOf("{cumulativePendingNotice}", subtitleAt);
+    expect(amountAt).toBeGreaterThan(-1);
+    expect(subtitleAt).toBeGreaterThan(amountAt);
+    expect(noticeAt).toBeGreaterThan(subtitleAt);
+  });
+
+  /**
+   * 마일스톤 **리포트** 카드는 창 합계(`[출생일, 출생일+100일)`)라 제3의 모집단이다. 창 경계를
+   * 클라이언트에서 다시 계산하는 순간 집계 규칙이 두 벌이 되므로 이 라운드는 그 카드에 고지를
+   * 붙이지 않는다 — 모르는 것을 세는 척하지 않는다. 그래서 그 카드의 **공유 문자열도 그대로**다
+   * (공유 카드에 개인정보를 늘리지 않는다는 계약도 함께 보존된다: 실린 식별 정보는 종전처럼
+   * 호출자가 넘긴 아이 이름 하나뿐이다).
+   */
+  it("창 합계 카드(마일스톤 리포트)와 그 공유 문구에는 이 고지를 붙이지 않는다", () => {
+    const milestoneCardAt = reportsSource.indexOf("style={reportMilestoneCardStyle}");
+    expect(milestoneCardAt).toBeGreaterThan(-1);
+    // 누적 카드 고지는 마일스톤 카드보다 **앞**에 있고, 그 뒤로는 다시 나오지 않는다.
+    expect(reportsSource.indexOf("{cumulativePendingNotice}")).toBeLessThan(milestoneCardAt);
+    expect(reportsSource.indexOf("{cumulativePendingNotice}", milestoneCardAt)).toBe(-1);
+
+    const shareSource = readFileSync(join(process.cwd(), "src/reports/milestone-share.ts"), "utf8");
+    const shareTextSource = readFileSync(join(process.cwd(), "src/reports/share-text.ts"), "utf8");
+    for (const source of [shareSource, shareTextSource]) {
+      expect(source).not.toContain("cumulativeTotalPendingNotice");
+      expect(source).not.toContain("반영되지 않았어요");
+      // 대기 행은 공유 문구 모듈에 들어오지 않는다(모집단을 못 세면서 세는 척하지 않는다).
+      expect(source).not.toContain("syncState");
+      expect(source).not.toContain("offlineSyncSnapshot");
+    }
+    // 공유 카드 개인정보 계약도 그대로다: 실리는 식별 정보는 아이 이름 하나뿐이다.
+    expect(shareTextSource).toContain("childId·이메일·계정 식별자는 입력으로 받지도, 출력에 넣지도 않는다");
+  });
+
+  it("REP-001 비세션 미리보기 블록은 한 글자도 달라지지 않는다(픽셀락)", () => {
+    const previewStart = reportsSource.indexOf("{!hasSession ? (");
+    const previewEnd = reportsSource.indexOf(") : activeIsLoading ? (", previewStart);
+    expect(previewStart).toBeGreaterThan(-1);
+    expect(previewEnd).toBeGreaterThan(previewStart);
+    const previewBlock = reportsSource.slice(previewStart, previewEnd);
+    expect(previewBlock).toContain(">다온이와의 오늘도 소중한 하루였어요<");
+    expect(previewBlock).toContain("누적 기록 {formatKrw(cumulativeTotal)}");
+    expect(previewBlock).not.toContain("CUMULATIVE_TOTAL_SUBTITLE");
+    expect(previewBlock).not.toContain("cumulativePendingNotice");
+  });
+
+  it("HOME-001 비세션 미리보기 렌더에도 새 줄이 닿지 않는다(카드 자체가 없다)", () => {
+    const previewStart = homeSource.indexOf("if (!authToken) {");
+    expect(previewStart).toBeGreaterThan(-1);
+    const previewBlock = homeSource.slice(previewStart);
+    expect(previewBlock).not.toContain("milestoneCountdown");
+    expect(previewBlock).not.toContain("cumulativeTotal");
   });
 });
