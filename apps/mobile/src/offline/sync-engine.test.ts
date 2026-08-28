@@ -204,6 +204,52 @@ describe("sync-engine: outbox merge integration via recordLocalUpdate/recordLoca
     expect(await store.getLocalExpense(created.localId)).toBeNull();
     expect(await store.listOutboxMutationsForLocalId(created.localId)).toHaveLength(0);
   });
+
+  /**
+   * 라운드 57 QA(P2-4) — 실패했던 행을 사용자가 **고치거나 지우면** 실패 사유도 함께 사라진다.
+   *
+   * `lastError`(사람이 읽는 문장)만 비우고 구조화된 사유(`lastErrorStatus`/`lastErrorCode`)를
+   * 남기면, 그 행이 다음에 화면에 실패로 뜨는 순간 **지난번 실패의 status**로 판정되어 이미
+   * 성격이 달라진 실패에 "다시 보내도 같은 결과예요"가 붙는다(permission-denied.ts).
+   */
+  it("recordLocalUpdate/recordLocalDelete가 구조화된 실패 사유까지 지운다", async () => {
+    const created = await recordLocalCreate(store, payload);
+    await store.updateLocalExpense(created.localId, {
+      syncState: "failed",
+      lastError: "권한이 없어요. 가족 구성원 여부와 내 역할을 확인해 주세요.",
+      lastErrorStatus: 403,
+      lastErrorCode: "FORBIDDEN"
+    });
+
+    const updated = await recordLocalUpdate(store, created.localId, { amountKrw: 20_000 });
+    expect(updated.syncState).toBe("pending");
+    expect(updated.lastError).toBeNull();
+    expect(updated.lastErrorStatus).toBeNull();
+    expect(updated.lastErrorCode).toBeNull();
+
+    // 삭제 대기로 넘어갈 때도 같다. 서버가 이미 아는 행이어야 삭제가 큐에 남으므로(create+delete는
+    // 둘 다 버려진다) 대기 create를 치우고 canonicalId를 채운 "동기화됐다가 실패한" 행을 만든다.
+    const synced = await recordLocalCreate(store, payload);
+    for (const queued of await store.listOutboxMutationsForLocalId(synced.localId)) {
+      await store.deleteOutboxMutation(queued.mutationId);
+    }
+    await store.updateLocalExpense(synced.localId, {
+      canonicalId: "srv-1",
+      version: 3,
+      syncState: "failed",
+      lastError: "잠시 후 다시 시도해주세요.",
+      lastErrorStatus: 500,
+      lastErrorCode: "INTERNAL_ERROR"
+    });
+    await recordLocalDelete(store, synced.localId);
+
+    const afterDelete = await store.getLocalExpense(synced.localId);
+    expect(afterDelete?.pendingDelete).toBe(true);
+    expect(afterDelete?.syncState).toBe("pending");
+    expect(afterDelete?.lastError).toBeNull();
+    expect(afterDelete?.lastErrorStatus).toBeNull();
+    expect(afterDelete?.lastErrorCode).toBeNull();
+  });
 });
 
 describe("sync-engine: 409 VERSION_CONFLICT transition", () => {

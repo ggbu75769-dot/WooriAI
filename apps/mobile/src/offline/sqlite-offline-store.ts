@@ -170,10 +170,58 @@ export type MigratableDatabase = {
   getFirstAsync<T>(source: string): Promise<T | null>;
 };
 
+/**
+ * `PRAGMA user_version`을 읽지 못했다. **버전을 모르는 채로 마이그레이션을 시작하지 않는다** —
+ * 원인을 그대로 들고 다니는 것이 이 오류의 전부다.
+ */
+export class OfflineDbUserVersionError extends Error {
+  readonly raw: unknown;
+  constructor(raw: unknown) {
+    super(`offline db user_version is not readable as a non-negative integer: ${typeof raw} ${String(raw)}`);
+    this.name = "OfflineDbUserVersionError";
+    this.raw = raw;
+  }
+}
+
+/**
+ * 기기의 스키마 버전.
+ *
+ * 라운드 57 QA(P2-6) — **읽지 못하면 0이 아니라 던진다.** 예전 판은 형식이 어긋나면 조용히 0을
+ * 돌려줬는데, 0은 "새 기기"라는 **구체적인 사실**이라 그 폴백이 곧 거짓말이었다. v1이 전부
+ * `IF NOT EXISTS`라 당장은 무해했지만, 컬럼을 더하는 v2부터는 같은 폴백이 이미 있는 컬럼에
+ * `ALTER … ADD COLUMN`을 다시 던져 **duplicate column으로 앱을 벽돌로 만든다**(그 기기는 아직
+ * 서버에 못 보낸 지출을 들고 있다). 값을 모를 때 할 수 있는 정직한 일은 멈추고 원인을 드러내는
+ * 것뿐이다 — getDb()가 그 거부를 그대로 물고 sync-controller의 오류 경로로 넘긴다.
+ *
+ * 숫자 강제 변환을 한 번 거치는 이유: 드라이버에 따라 정수가 `bigint`나 숫자 문자열로 올 수 있고
+ * (node:sqlite·expo-sqlite의 바인딩 차이), 그건 "읽을 수 없는 값"이 아니라 표현 차이다.
+ */
 async function readUserVersion(db: MigratableDatabase): Promise<number> {
   const row = await db.getFirstAsync<{ user_version?: unknown }>("PRAGMA user_version");
-  const value = row?.user_version;
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+  const raw = row?.user_version;
+  if (raw === null || raw === undefined || raw === "" || typeof raw === "boolean") {
+    throw new OfflineDbUserVersionError(raw);
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) throw new OfflineDbUserVersionError(raw);
+  return value;
+}
+
+/** 우리가 쓰는 `ALTER TABLE … ADD COLUMN`의 테이블/컬럼 이름. 목록은 이 파일의 상수뿐이다. */
+const ADD_COLUMN_PATTERN = /^\s*ALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s+ADD\s+COLUMN\s+([A-Za-z_][A-Za-z0-9_]*)\b/i;
+
+/**
+ * 그 테이블에 그 컬럼이 이미 있는가.
+ *
+ * 이름은 위 패턴이 통과시킨 식별자뿐이고(그 출처는 이 파일의 상수 목록이다) PRAGMA는 파라미터
+ * 바인딩을 받지 않으므로 문자열로 끼워 넣는다 — `PRAGMA user_version = ${n}`이 숫자임을 못 박는
+ * 것과 같은 자리·같은 규율이다.
+ */
+async function hasColumn(db: MigratableDatabase, table: string, column: string): Promise<boolean> {
+  const row = await db.getFirstAsync<{ n?: unknown }>(
+    `SELECT COUNT(*) AS n FROM pragma_table_info('${table}') WHERE name = '${column}'`
+  );
+  return Number(row?.n ?? 0) > 0;
 }
 
 /**
@@ -183,7 +231,13 @@ async function readUserVersion(db: MigratableDatabase): Promise<number> {
  * 후 `OfflineDbMigrationError`로 중단한다. SQLite는 DDL도 user_version도 트랜잭션의 일부라
  * (둘 다 같은 파일 헤더/스키마 페이지를 쓴다) 롤백 후의 DB는 그 버전을 시작하기 전과 **완전히**
  * 같다. 그래서 "컬럼은 생겼는데 user_version은 그대로"(다음 실행에서 duplicate column으로 영구
- * 실패)나 그 반대 같은 반쯤 적용 상태가 생길 수 없다.
+ * 실패)나 그 반대 같은 반쯤 적용 상태가 **이 러너를 거치는 한** 생길 수 없다.
+ *
+ * 라운드 57 QA(P2-6) — 두 번째 방어선: `ALTER TABLE … ADD COLUMN`은 실행 전에 `PRAGMA table_info`로
+ * 그 컬럼이 이미 있는지 물어보고, 있으면 건너뛴다. 트랜잭션은 **이 러너가 만든** 어긋남만 막는다.
+ * 러너 밖에서 어긋난 기기(수기 SQL·백업 복구·`user_version`을 잃은 파일)는 트랜잭션이 구해 주지
+ * 못하고, v1이 전부 `IF NOT EXISTS`인 것과 달리 ALTER에는 SQLite가 그런 절이 없다. 그 기기가
+ * 매 실행 duplicate column으로 영구 실패하면(= 벽돌) 잃는 것은 아직 서버에 못 보낸 지출이다.
  *
  * 다운그레이드(기기의 user_version이 이 빌드가 아는 마지막 버전보다 큰 경우 — 새 버전을 쓰다가
  * 구버전 APK로 되돌린 사용자)에는 **아무것도 하지 않는다.** 되돌릴 SQL을 실행하는 쪽이 훨씬
@@ -206,6 +260,21 @@ export async function runOfflineDbMigrations(
     try {
       await db.execAsync("BEGIN");
       for (const statement of migration.statements) {
+        /**
+         * 라운드 57 QA(P2-6) — `ADD COLUMN`을 **멱등**으로 만든다.
+         *
+         * SQLite에는 `ADD COLUMN IF NOT EXISTS`가 없다. 그래서 v1의 `CREATE TABLE IF NOT EXISTS`가
+         * 갖는 성질(이미 있으면 조용히 통과)을 v2 이후의 ALTER는 갖지 못하고, 컬럼은 생겼는데
+         * 버전은 그대로인 기기가 어떤 이유로든 생기면(수기 SQL·백업 복구·`user_version`을 잃은
+         * 파일) 그 기기는 **매 실행 duplicate column으로 영구 실패**한다 — 아직 서버에 못 보낸
+         * 지출을 들고 벽돌이 된다. 트랜잭션은 반쯤 적용된 상태를 막아 주지만, 이미 어긋난 상태로
+         * 시작하는 기기를 구해 주지는 못한다.
+         *
+         * `PRAGMA table_info`로 한 번 물어보는 값은 정확히 그 사실 하나다: 이 컬럼이 이미 있는가.
+         * 있으면 그 문장만 건너뛴다(다른 문장·버전 승격은 그대로 진행된다).
+         */
+        const addColumn = ADD_COLUMN_PATTERN.exec(statement);
+        if (addColumn && (await hasColumn(db, addColumn[1], addColumn[2]))) continue;
         await db.execAsync(statement);
       }
       await db.execAsync(`PRAGMA user_version = ${migration.version}`);

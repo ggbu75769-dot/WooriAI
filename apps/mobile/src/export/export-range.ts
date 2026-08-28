@@ -244,10 +244,28 @@ export type CollectExpensesResult = {
   /** Expenses sorted by spentOn ascending (stable). */
   expenses: Expense[];
   /**
-   * True when the EXPORT_MAX_ROWS cap dropped rows.
+   * 행 상한(EXPORT_MAX_ROWS) 때문에 **오래된 쪽이 빠졌을 수 있는가**.
    *
-   * GAP-056 #9 이후 **네 구간 모두 최신 달부터** 모으므로, 이 플래그가 켜졌을 때 빠진 것은
-   * 언제나 **오래된 쪽**이다. 화면 문구가 그 방향을 그대로 말할 수 있는 근거가 여기다.
+   * GAP-056 #9 이후 네 구간 모두 최신 달부터 모으므로, 이 플래그가 켜졌을 때 빠질 수 있는 것은
+   * 언제나 **오래된 쪽**이다. 화면 문구가 그 방향을 말할 수 있는 근거가 여기다.
+   *
+   * ## 라운드 57 QA(P2-12) — 세 갈래가 한 규칙을 쓴다 (관측 사실 기반)
+   *
+   * 예전에는 갈래마다 판정이 달랐다. "전체"는 상한에 닿기만 하면 무조건 `true`였고("잃은 것이
+   * 없는" 정확히-상한 경우까지 잘렸다고 말했다), "직접 선택"·닫힌 구간은 `index > 0`을 함께 봤다.
+   * 그런데 `index > 0`이 뜻하는 것은 "잘렸다"가 아니라 **"열어 보지 않은 과거 달이 남았다"**이다 —
+   * 그 달들이 전부 비어 있었다면 실제로 빠진 행은 하나도 없다. 즉 한쪽은 과하게 알리고, 다른
+   * 쪽은 알리는 근거를 사실보다 세게 말하고 있었다.
+   *
+   * 그래서 규칙을 하나로 맞추되, **수집기가 실제로 관측한 것**만 담는다:
+   *
+   *     truncated = 행을 실제로 버렸다(collected > maxRows) || 상한 때문에 멈춘 시점에
+   *                 아직 **열어 보지 않은** 과거 달이 남아 있다
+   *
+   * 두 번째 항은 "빠졌다"가 아니라 "확인하지 못했다"이다. 여기서 첫 항만 남기는 선택지도 있었지만,
+   * 그러면 상한 때문에 걷다 만 사용자에게 **아무도 아무 말을 하지 않는** 경우가 생긴다(진짜 조용한
+   * 손실). 대신 **문구를 그 세기에 맞춘다** — share-payload.ts의 행 상한 문장이 "빠졌어요"가 아니라
+   * "빠졌을 수 있어요"라고 말하는 이유가 여기다(허위 단정 금지 = 없는 손실을 단언하지 않는다).
    */
   truncated: boolean;
   /** Number of yearMonth pages fetched (diagnostics/tests). */
@@ -327,9 +345,11 @@ export async function collectExpensesForRange(
         emptyStreak = 0;
         collected.push(...pageExpenses);
         if (collected.length >= maxRows) {
-          // Stopping the walk here means older months are (potentially) dropped; report it as
-          // truncation even in the exact-cap edge case rather than silently losing history.
-          truncated = true;
+          // 라운드 57 QA(P2-12) — 세 갈래가 **한 규칙**을 쓴다(위 `truncated` 주석). 실제로 버린
+          // 행이 있거나(> maxRows), 상한 때문에 걷기를 멈춘 시점에 **아직 열어 보지 않은 과거
+          // 달**이 남아 있으면 true다. "전체"는 언제 끝날지 모르는 뒤로 걷기라, 마지막 걸음
+          // (step === ALL_MAX_MONTHS - 1)에서 상한에 닿은 경우에만 남은 달이 없다.
+          truncated = collected.length > maxRows || step < ALL_MAX_MONTHS - 1;
           collected.length = maxRows;
           break;
         }
@@ -375,9 +395,8 @@ export async function collectExpensesForRange(
       emptyStreak = 0;
       collected.push(...pageExpenses);
       if (collected.length >= maxRows) {
-        // 잘림을 **실제로 잘렸을 때만** 알린다: 행을 버렸거나(>) 아직 안 본 과거 달이 남아
-        // 있을 때(index > 0)다. 마지막 달에서 정확히 상한에 닿았다면 잃은 것이 없으므로
-        // "잘렸어요"라고 말하지 않는다(없는 사실을 알리지 않는다).
+        // 세 갈래 공통 규칙(위 `truncated` 주석): 행을 실제로 버렸거나(>), 상한 때문에 멈춘
+        // 시점에 아직 **열어 보지 않은** 과거 달이 남아 있으면(index > 0) true다.
         truncated = collected.length > maxRows || index > 0;
         collected.length = maxRows;
         break;
@@ -409,9 +428,8 @@ export async function collectExpensesForRange(
       if (pageExpenses.length === 0) continue;
       collected.push(...pageExpenses);
       if (collected.length >= maxRows) {
-        // "직접 선택"과 같은 규칙: 행을 실제로 버렸거나(>) 아직 안 본 과거 달이 남아 있을 때
-        // (index > 0)만 잘림을 알린다. 마지막(가장 오래된) 달에서 정확히 상한에 닿았다면 잃은
-        // 것이 없으므로 "잘렸어요"라고 말하지 않는다(없는 사실을 알리지 않는다).
+        // "전체"·"직접 선택"과 **같은 규칙**(위 `truncated` 주석): 행을 실제로 버렸거나(>),
+        // 상한 때문에 멈춘 시점에 아직 열어 보지 않은 과거 달이 남아 있으면(index > 0) true다.
         truncated = collected.length > maxRows || index > 0;
         collected.length = maxRows;
         break;

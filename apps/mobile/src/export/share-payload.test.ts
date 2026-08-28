@@ -48,9 +48,17 @@ describe("EXP-106 share payload cap (Share.share message path)", () => {
  * (위 capCsvForShare). 예전에는 둘을 한 플래그로 뭉쳐 "일부만 포함됐어요"만 말했다.
  */
 describe("GAP-056 #9 CSV 토스트의 잘림 문구", () => {
-  it("행 상한으로 잘리면 오래된 쪽이 빠졌다고 말한다", () => {
+  /**
+   * 라운드 57 QA(P2-12) — 행 상한 쪽은 **"빠졌을 수 있어요"**다.
+   *
+   * 이 플래그의 출처(collectExpensesForRange의 truncated)는 "행을 실제로 버렸다"와 "상한 때문에
+   * 멈춰 **열어 보지 못한** 과거 달이 남았다"를 함께 뜻한다. 뒤쪽 경우의 남은 달이 전부 비어
+   * 있었다면 실제로 빠진 행은 없다 -- 그때 "빠졌어요"는 없는 손실을 단언하는 허위 통보다.
+   * 방향(오래된 쪽)은 수집 방향에서 확실하므로 그대로 단언한다.
+   */
+  it("행 상한 쪽은 방향만 단언하고 손실은 '있을 수 있다'까지만 말한다", () => {
     expect(csvShareToastMessage({ outcomeKnown: true, rowCount: 5000, truncated: false, rowCapTruncated: true })).toBe(
-      "기록 5000건을 내보냈어요. (행 상한을 넘어 오래된 기록부터 빠졌어요)"
+      "기록 5000건을 내보냈어요. (행 상한에 닿아 오래된 기록이 빠졌을 수 있어요)"
     );
   });
 
@@ -68,7 +76,7 @@ describe("GAP-056 #9 CSV 토스트의 잘림 문구", () => {
 
   it("두 잘림이 함께 일어나면 서로 반대 방향을 각각 말한다", () => {
     expect(csvShareToastMessage({ outcomeKnown: true, rowCount: 4000, truncated: true, rowCapTruncated: true })).toBe(
-      "기록 4000건을 내보냈어요. (행 상한을 넘어 오래된 기록부터 빠졌어요 · 용량 제한으로 최근 기록부터 빠졌어요)"
+      "기록 4000건을 내보냈어요. (행 상한에 닿아 오래된 기록이 빠졌을 수 있어요 · 용량 제한으로 최근 기록부터 빠졌어요)"
     );
   });
 

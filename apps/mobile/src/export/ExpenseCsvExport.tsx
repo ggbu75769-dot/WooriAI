@@ -222,8 +222,10 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
       const sharedRowCount = built.rowCount - outcome.droppedRows;
       // 라운드 45 O-8: Android는 시트를 닫아도 성공으로 resolve된다(share-csv.ts outcomeKnown).
       // 그 플랫폼에서는 "내보냈어요"라고 단정하지 않고 실제로 일어난 일만 적는다.
-      // GAP-056 #3: 그 뒤에 "대기 N건은 담기지 않았어요"가 붙는다 -- 성공 문장이 대기 건을 덮으면
-      // 사용자는 이 파일을 전량으로 믿는다(0건이면 빈 문자열이라 문장이 길어지지 않는다).
+      // GAP-056 #3: 그 뒤에 "대기 N건은 이 CSV에 아직 반영되지 않았어요"가 붙는다 -- 성공 문장이
+      // 대기 건을 덮으면 사용자는 이 파일을 전량으로 믿는다(0건이면 빈 문자열이라 문장이 길어지지
+      // 않는다). 라운드 57 QA(P1-2): 문구가 "담기지 않았다"를 단언하지 않는 이유는
+      // export-pending-notice.ts 머리말의 "대기 행의 두 종류" 참고.
       // 한 줄로 둔다: 이 호출의 인자 모양(성공 단정이 플랫폼 판정을 거친다는 사실)이 곧
       // src/export-flow.test.ts가 지는 계약이다.
       const shareMessage = csvShareToastMessage({ outcomeKnown: outcome.outcomeKnown, rowCount: sharedRowCount, truncated, rowCapTruncated });
@@ -363,7 +365,8 @@ export function ExpenseCsvExportCard({ controller }: { controller: ExpenseCsvExp
           경로 결정 주석). "CSV로 내보내기"만 보고 첨부 파일을 기다리면 아무 파일도 오지 않으므로,
           무엇이 공유되고 어떻게 엑셀에서 여는지를 버튼 앞에서 밝힌다. */}
       <Text style={exportCardNoticeStyle}>{EXPORT_TEXT_SHARE_NOTICE}</Text>
-      {/* GAP-056 #3: 이 기기에만 있는 기록은 서버 조회로 만드는 CSV에 담기지 않는다. 버튼을
+      {/* GAP-056 #3: 동기화 대기 중인 변경은 서버 조회로 만드는 CSV에 반영되지 않는다(생성 대기는
+          행이 통째로 빠지고, 수정·삭제 대기는 옛 값이 실린다 -- 라운드 57 QA P1-2). 버튼을
           누르기 전에 그 사실을 말해 두면, 사용자는 지금 내보낼지 동기화를 기다릴지 고를 수 있다.
           대기 0건이면 null이라 카드는 예전과 픽셀 하나 다르지 않다(고지 자체가 없다). */}
       {controller.pendingNotice ? (

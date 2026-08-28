@@ -26,11 +26,16 @@ import { sanitizeImportResumeBlob, sanitizeImportResumeEntry, type ImportResumeE
  * 방어적 sanitize를 `migrate`와 `merge` **양쪽**에 문다. 저장 값은 파일명 하나라 SecureStore
  * 어댑터(secure-session-storage.ts)를 쓰지 않는다 -- 그건 세션 토큰만의 특례다.
  *
- * ## PRIV-104(계정 전환 시 초기화) — 아직 배선되지 않았다
- * 여기 담기는 `childId`·`fileName`은 명백한 **계정 데이터**이므로, 세션 정체성이 바뀔 때
- * `resetAll()`이 불려야 한다. 그 호출부는 src/offline/session-teardown.ts의 step 1(사용자 단위
- * zustand 초기화 목록)인데, 그 파일은 라운드 55 트랙 C가 점유 중이라 이 라운드에서 건드리지
- * 않는다. `resetAll()`은 그 한 줄이 들어올 자리를 미리 만들어 둔 것이다(후속 1줄).
+ * ## PRIV-104 (계정 전환 시 초기화)
+ * 여기 담기는 `childId`·`fileName`은 명백한 **계정 데이터**라, 세션 정체성이 바뀔 때 지워져야
+ * 한다. 그 배선은 **들어와 있다**: `src/offline/session-teardown.ts`의 step 1(사용자 단위 zustand
+ * 초기화 목록)이 `useImportResumeStore.getState().resetAll()`을 부른다 — 알림 이력·홈 첫 실행
+ * 상태·반복 지출 템플릿과 같은 자격, 같은 자리다. 동기 set이라 그 줄에서 이미 유효하다.
+ * 대조군인 records-view(리스트/달력 선택)는 "이 기기에서 어떻게 볼까"라는 기기 단위 선택이라
+ * 일부러 빠져 있다(notification-preferences와 같은 범주).
+ *
+ * (라운드 56에서 이 문단은 "아직 배선되지 않았다"였다. 트랙 C가 그 한 줄을 넣은 뒤에도 헤더가
+ * 갱신되지 않아, 코드를 읽는 사람에게 없는 결함을 알리고 있었다 — 라운드 57 QA P2-5에서 정정.)
  */
 
 export type ImportResumeState = {
@@ -46,7 +51,7 @@ export type ImportResumeState = {
    * 카드를 남의 화면이 지우지 못한다.
    */
   forgetImportReview: (jobId?: string) => void;
-  /** PRIV-104: 계정 정체성이 바뀔 때 전부 지운다(위 헤더 참고 — 호출부는 후속). */
+  /** PRIV-104: 계정 정체성이 바뀔 때 전부 지운다(호출부는 src/offline/session-teardown.ts step 1). */
   resetAll: () => void;
 };
 

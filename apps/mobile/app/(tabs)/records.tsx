@@ -73,7 +73,12 @@ import {
 } from "../../src/expenses/records-list-view";
 import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
 // 라운드 56 D#10: `view=calendar` 파라미터 규약은 링크를 만드는 알림 목적지 모듈과 **같은 곳**에서 읽는다.
-import { isRecordsCalendarViewParam, RECORDS_VIEW_PARAM } from "../../src/notifications/notification-route";
+import {
+  isRecordsCalendarViewParam,
+  RECORDS_VIEW_NONCE_PARAM,
+  RECORDS_VIEW_PARAM,
+  resolveRecordsViewNonceParam
+} from "../../src/notifications/notification-route";
 import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 // C-03: 드릴다운 파라미터 규약은 링크를 만드는 리포트 탭과 **같은 모듈**에서 읽는다.
@@ -749,7 +754,14 @@ export default function RecordsScreen() {
    * 파싱은 전부 순수 모듈에 있다: 파라미터가 없거나 형식이 깨졌거나 미래 월이면 0(이번 달)이라
    * 종전 동작과 완전히 같다.
    */
-  const monthParams = useLocalSearchParams<{ month?: string; categoryId?: string; drilldown?: string; view?: string }>();
+  const monthParams = useLocalSearchParams<{
+    month?: string;
+    categoryId?: string;
+    drilldown?: string;
+    view?: string;
+    // 라운드 57 QA(P1-1): 달력 착지의 회차(notification-route.ts의 RECORDS_VIEW_NONCE_PARAM).
+    viewNonce?: string;
+  }>();
   const monthParam = Array.isArray(monthParams.month) ? monthParams.month[0] : monthParams.month;
   const [monthOffset, setMonthOffset] = useState(() =>
     resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() })
@@ -847,23 +859,35 @@ export default function RecordsScreen() {
    * `view=calendar`를 싣고 이 effect가 그것을 적용한다(파라미터 규약은 링크를 만드는
    * src/notifications/notification-route.ts와 같은 모듈에서 온다).
    *
-   * **한 번 적용하고 소모한다.** 이 탭은 한 번 열리면 계속 마운트된 채로 남으므로(알림함은 탭
-   * 위에 쌓인 스택이다) 가드가 없으면 재렌더·뒤로가기·아이 전환마다 사용자가 방금 고른 리스트를
-   * 달력으로 되돌린다 -- `month`(라운드 51 C-#11)·`drilldown`(라운드 52 QA)이 지키는 그 규율
-   * 그대로다. 값이 하나뿐인 파라미터라 회차(nonce) 대신 **적용 여부** 하나로 충분하다.
+   * **회차(nonce) 단위로 적용한다** — 라운드 57 QA(P1-1). 이 탭은 한 번 열리면 계속 마운트된
+   * 채로 남으므로(알림함은 탭 위에 쌓인 스택이다) 가드가 없으면 재렌더·뒤로가기·아이 전환마다
+   * 사용자가 방금 고른 리스트를 달력으로 되돌린다. 그래서 가드 자체는 그대로 필요하다.
+   *
+   * 그런데 예전 판의 가드는 **boolean 한 개**(`appliedViewParamRef`)였다. `view=calendar`는 값이
+   * 하나뿐이라, 알림을 두 번째로 누르면 파라미터가 지난번과 글자 하나 다르지 않아 effect의
+   * deps조차 움직이지 않는다 — 즉 이 착지는 **앱 실행당 한 번만** 동작했고, 두 번째부터는
+   * 사용자에게 알림이 죽은 것처럼 보였다. 드릴다운이 라운드 52 QA에서 겪은 것과 같은 결함이라
+   * 처방도 같게 맞춘다: 링크가 회차를 함께 싣고(`viewNonce`), 이 effect는 **회차가 달라질 때마다**
+   * 다시 적용한다.
+   *
+   * 초기값이 `undefined`인 것은 의도다(null이 아니다). 회차 없는 링크의 회차는 `null`이므로,
+   * "아직 아무것도 적용하지 않음"을 그 null과 구별할 값이 하나 필요하다 — 그래야 회차 없는
+   * 링크(구 빌드·수기 딥링크)도 첫 진입에서 **정확히 한 번** 적용되고, 그 뒤로는 예전 가드와
+   * 똑같이 조용하다.
    *
    * 착지는 세그먼트를 직접 누른 것과 같은 경로로 들어가므로(같은 setter) 그 뒤로는 달력이
    * 기억된다. 사용자가 리스트로 되돌리면 그 선택이 곧바로 덮어쓴다 -- 앱이 정한 것이 사용자가
-   * 정한 것보다 오래 남지 않는다.
+   * 정한 것보다 오래 남지 않는다(같은 회차 안에서는 이 effect가 다시 돌지 않는다).
    */
   const viewParam = monthParams[RECORDS_VIEW_PARAM];
-  const appliedViewParamRef = useRef(false);
+  const viewNonceParam = resolveRecordsViewNonceParam(monthParams[RECORDS_VIEW_NONCE_PARAM]);
+  const appliedViewNonceRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (appliedViewParamRef.current) return;
     if (!isRecordsCalendarViewParam(viewParam)) return;
-    appliedViewParamRef.current = true;
+    if (appliedViewNonceRef.current === viewNonceParam) return;
+    appliedViewNonceRef.current = viewNonceParam;
     setRecordsViewMode(RECORDS_VIEW_MODE_CALENDAR);
-  }, [viewParam, setRecordsViewMode]);
+  }, [viewParam, viewNonceParam, setRecordsViewMode]);
   // 달력에서 누른 날짜. 리스트로 전환된 **다음 렌더**에 그 섹션으로 스크롤한다(전환과 스크롤을
   // 한 렌더에서 하려 하면 아직 섹션이 만들어지기 전이라 좌표가 없다).
   const [pendingScrollDate, setPendingScrollDate] = useState<string | null>(null);

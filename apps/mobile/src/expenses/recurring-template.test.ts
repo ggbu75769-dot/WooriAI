@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { EXPENSE_AMOUNT_MAX_KRW } from "./amount-limit";
+import { merchantOverLimitMessage } from "./text-limits";
 import { parseExpensePrefillParams } from "./record-row-actions";
 import {
   applyRecurringSkip,
@@ -25,6 +28,7 @@ import {
   RECURRING_ITEM_NAME_MAX_LENGTH,
   RECURRING_ITEM_NAME_REQUIRED_MESSAGE,
   RECURRING_MERCHANT_MAX_LENGTH,
+  RECURRING_MERCHANT_TOO_LONG_MESSAGE,
   RECURRING_ITEM_NAME_TOO_LONG_MESSAGE,
   RECURRING_PAYMENT_METHOD_MESSAGE,
   RECURRING_SKIP_HISTORY_LIMIT,
@@ -32,6 +36,8 @@ import {
   type RecurringExpenseTemplate,
   type RecurringTemplateDraft
 } from "./recurring-template";
+
+const source = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
 
 const CHILD = "child-1";
 const CATEGORY = "c0a7e901-0000-4c01-8c01-c47e900ec001";
@@ -136,13 +142,42 @@ describe("라운드 55 #4 입력 검증 (금액 상한은 amount-limit 단일 �
     expect(RECURRING_ITEM_NAME_TOO_LONG_MESSAGE).toContain("100자");
   });
 
-  it("판매처는 상한까지만 담는다 (손상된 blob이 400 나는 프리필을 만들지 못하게)", () => {
+  /**
+   * 라운드 57 QA(P2-11) — 판매처는 **자르지 않고 막는다**(품목명과 같은 방식).
+   *
+   * 예전에는 `buildRecurringTemplate`이 조용히 `slice(0, 100)`했다. text-limits.ts 머리말이 못
+   * 박은 계약("조용히 잘라 버리지 않는다")과 정면으로 어긋나고, 한 폼 안에서 품목명은 막고
+   * 판매처는 자르는 두 규율이 공존했다 — 사용자는 자기가 적은 판매처가 왜 짧아졌는지 알 수 없다.
+   */
+  it("판매처가 상한을 넘으면 조용히 자르지 않고 저장을 막는다", () => {
     expect(RECURRING_MERCHANT_MAX_LENGTH).toBe(100);
-    const built = buildRecurringTemplate(draft({ merchant: "쿠".repeat(150) }), {
+    const tooLong = "쿠".repeat(RECURRING_MERCHANT_MAX_LENGTH + 1);
+    expect(recurringTemplateValidationError(draft({ merchant: tooLong }))).toBe(RECURRING_MERCHANT_TOO_LONG_MESSAGE);
+    // 검증에서 막히므로 템플릿 자체가 만들어지지 않는다(잘린 값이 저장되지 않는다).
+    expect(
+      buildRecurringTemplate(draft({ merchant: tooLong }), {
+        id: "local-recurring-merchant",
+        createdAt: "2026-08-01T00:00:00.000Z"
+      })
+    ).toBeNull();
+    // 경계값(정확히 상한)은 통과하고 **원문 그대로** 담긴다.
+    const exact = "쿠".repeat(RECURRING_MERCHANT_MAX_LENGTH);
+    expect(recurringTemplateValidationError(draft({ merchant: exact }))).toBeNull();
+    const built = buildRecurringTemplate(draft({ merchant: exact }), {
       id: "local-recurring-merchant",
       createdAt: "2026-08-01T00:00:00.000Z"
     });
-    expect(built!.merchant).toHaveLength(RECURRING_MERCHANT_MAX_LENGTH);
+    expect(built!.merchant).toBe(exact);
+    // 문구는 지출 입력 칸과 같은 문장이다(같은 한도를 두 가지로 말하지 않는다).
+    expect(RECURRING_MERCHANT_TOO_LONG_MESSAGE).toBe(merchantOverLimitMessage(RECURRING_MERCHANT_MAX_LENGTH));
+    expect(RECURRING_MERCHANT_TOO_LONG_MESSAGE).toContain("100자");
+    // 선택 입력이라 비어 있는 것은 여전히 통과다.
+    expect(recurringTemplateValidationError(draft({ merchant: undefined }))).toBeNull();
+    expect(recurringTemplateValidationError(draft({ merchant: "   " }))).toBeNull();
+  });
+
+  it("잘라 담는 코드가 남아 있지 않다 (text-limits 계약: 조용한 절단 금지)", () => {
+    expect(source("src/expenses/recurring-template.ts")).not.toContain("slice(0, RECURRING_MERCHANT_MAX_LENGTH)");
   });
 
   it("금액 상한은 지출 입력 칸과 같은 숫자·같은 문장이다 (서버 int4 한계)", () => {

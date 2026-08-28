@@ -820,6 +820,24 @@ export default function NewExpenseScreen() {
    */
   const continueAfterSaveRef = useRef(false);
   /**
+   * 라운드 57 QA(P2-3) — "저장했어요"를 보여 준 뒤 떠나는 650ms 타이머를 ref에 들고, 언마운트
+   * 때 취소한다. **지출 상세(app/expenses/[expenseId].tsx)의 leaveTimerRef와 같은 관례**이고,
+   * 그 화면이 GAP-056 #6에서 이미 고친 것과 같은 결함이 이 화면에는 남아 있었다.
+   *
+   * 없을 때 무슨 일이 있었나: 저장 성공 직후 사용자가 스스로 시트를 닫거나 탭을 바꾸면 이 화면은
+   * 언마운트되는데, 타이머는 살아남아 650ms 뒤에 `router.replace(postSaveDestination)`을 한 번
+   * 더 호출한다 — 사용자가 방금 고른 화면이 저장 목적지로 **덮어써진다**(replace라 뒤로 돌아갈
+   * 수도 없다). 원인이 화면 밖에서 오는 튐이라 재현하기도 어렵다.
+   *
+   * 새로 걸기 전에 이미 걸린 타이머를 지우는 것도 상세 화면과 같다 — 예약이 겹쳐 쌓이지 않는다.
+   */
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    };
+  }, []);
+  /**
    * 폼을 비우고 같은 화면에 머무는 "다음 항목" 초기화.
    *
    * **비우지 않는 것**: 지출 날짜와 결제 수단. 마트에서 연속으로 적는 상황은 같은 날 같은 카드라,
@@ -960,7 +978,9 @@ export default function NewExpenseScreen() {
         resetFormForNextEntry();
         return;
       }
-      setTimeout(() => router.replace(postSaveDestination), 650);
+      // 라운드 57 QA(P2-3): 타이머를 ref에 담아 언마운트 때 취소한다(위 leaveTimerRef 주석).
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = setTimeout(() => router.replace(postSaveDestination), 650);
     }
   });
   // FMT-127: 금액 표기를 src/money.ts(콤마 + '원', '₩' 금지)로 되돌린다. 예전에는 세션 유무와
@@ -1869,12 +1889,22 @@ export default function NewExpenseScreen() {
               저장을 누르기 전에 뜬다: 상한을 넘는 순간 저장 버튼이 비활성이 되므로(위
               isAmountInvalid) 이유를 말해 주지 않으면 "왜 저장이 안 되지"만 남는다. 문구는
               src/expenses/amount-limit.ts 단일 소스(서버 @Max와 같은 숫자)이고, 금액을 줄이면
-              저절로 사라진다. 초기값 기준으로 세션 없는 EXP-001 캡처에서는 언제나 false다. */}
+              저절로 사라진다. 초기값 기준으로 세션 없는 EXP-001 캡처에서는 언제나 false다.
+
+              라운드 57 QA(P2-10) — **색은 theme.colors.danger다.** 조사 결과 이 저장소의 "저장을
+              막는 이유" 문구는 어디서나 danger로 그린다(app/budget.tsx·app/(onboarding)/budget.tsx·
+              app/expenses/[expenseId].tsx·app/family/**·app/import/** 등 19개 화면). coral[700]은
+              A11Y-117이 정한 **작은 브랜드 텍스트**의 색이지(TextButton·eyebrow·가격·증감·배지)
+              오류 색이 아니다. 특히 `amountOverLimitMessage()`·`merchantOverLimitMessage()`가 만드는
+              것은 지출 상세·예산 화면이 danger로 그리는 **글자 그대로 같은 문장**이라, 같은 말이
+              화면마다 다른 색으로 서 있었다. 대비는 오히려 올라간다(coral[700] 6.36:1 → danger
+              #B42318 7.0:1). 바로 위 분류 안내는 그대로 coral[700]이다 — 그 문장은 저장 버튼을
+              잠그지 않는 **안내**이고, 이 화면에만 있어 어긋날 짝이 없다. */}
           {isAmountOverLimit ? (
             <Text
               accessibilityRole="alert"
               accessibilityLiveRegion="polite"
-              style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
+              style={{ color: theme.colors.danger, fontSize: 12, fontWeight: "700" }}
             >
               {AMOUNT_OVER_LIMIT_NOTICE}
             </Text>
@@ -1884,13 +1914,15 @@ export default function NewExpenseScreen() {
               않으면 "왜 저장이 안 되지"만 남는다. 입력 칸 밑이 아니라 버튼 위인 이유는 분류
               안내와 같다 — 이 폼은 길어서 칸 밑 한 줄은 화면 밖으로 밀린다. 문구는
               src/expenses/text-limits.ts 단일 소스(서버 @MaxLength와 같은 숫자)이고, 글자를
-              줄이면 저절로 사라진다. 세션 없는 EXP-001 캡처에서는 언제나 빈 목록이다. */}
+              줄이면 저절로 사라진다. 세션 없는 EXP-001 캡처에서는 언제나 빈 목록이다.
+              라운드 57 QA(P2-10): 색도 지출 상세와 같은 theme.colors.danger다 -- 같은 문장(같은
+              모듈이 만든다)이 화면마다 다른 색으로 서지 않게. 근거는 위 금액 안내 주석 참고. */}
           {textOverLimitNotices.map((notice) => (
             <Text
               key={notice}
               accessibilityRole="alert"
               accessibilityLiveRegion="polite"
-              style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
+              style={{ color: theme.colors.danger, fontSize: 12, fontWeight: "700" }}
             >
               {notice}
             </Text>

@@ -11,13 +11,16 @@ import {
   isSpentOnInExportScope,
   type ExportPendingExpenseRow
 } from "./export-pending-notice";
+import { reportPendingScopeNoticeText } from "../reports/pending-scope-notice";
 
 /**
  * GAP-056 #3 — CSV 내보내기가 오프라인 대기 기록을 조용히 빠뜨리던 문제.
  *
  * 고정하는 계약은 넷이다.
- *  1. 세는 대상: 이 아이의 **아직 서버에 없는** 지출 행 전부(syncState !== "synced"). 리포트
- *     고지와 달리 선물·환불도 센다 -- CSV는 합계가 아니라 행 목록이고, 그 행들도 실제로 빠진다.
+ *  1. 세는 대상: 이 아이의 **서버와 아직 어긋난** 지출 행 전부(syncState !== "synced"). 리포트
+ *     고지와 달리 선물·환불도 센다 -- CSV는 합계가 아니라 행 목록이고, 그 행들도 실제로 어긋난다.
+ *     (라운드 57 QA P1-2: 그 집합에는 "서버에 없는" 생성 대기 행과 "서버에 있으나 옛 값인" 수정·
+ *     삭제 대기 행이 섞여 있다 -- 그래서 문구는 둘 중 하나를 단언하지 않는다.)
  *  2. 기간은 내보내기 칩과 같은 스코프(이번 달·올해·전체·직접 선택)이고 기준은 지출 날짜다.
  *  3. 0건이면 아무것도 그리지 않는다(카드 레이아웃 불변).
  *  4. 문구의 "동기화 대기"는 offline/messages.ts의 단일 소스에서 온다.
@@ -112,10 +115,10 @@ describe("GAP-056 #3 내보내기 기간 스코프", () => {
     expect(isSpentOnInExportScope("2026-07-05", { range: "custom", todaySeoul: today })).toBe(false);
   });
 
-  it("전체는 날짜를 보지 않는다 -- 대기 행은 어느 달이든 서버에 없어 CSV에 담기지 않는다", () => {
+  it("전체는 날짜를 보지 않는다 -- 대기 행의 변경은 어느 달이든 파일에 반영되지 않는다", () => {
     const scope = { range: "all" as const, todaySeoul: today };
     expect(isSpentOnInExportScope("2015-01-01", scope)).toBe(true);
-    // 날짜가 깨진 행도 파일에 담기지 않는 것은 마찬가지라 여기서만은 세어 준다.
+    // 날짜가 깨진 행도 파일에 반영되지 않는 것은 마찬가지라 여기서만은 세어 준다.
     expect(isSpentOnInExportScope(null, scope)).toBe(true);
     expect(isSpentOnInExportScope("2026-08", scope)).toBe(true);
   });
@@ -153,15 +156,50 @@ describe("GAP-056 #3 고지 문구", () => {
     });
     expect(notice).toEqual({
       count: 2,
-      text: "동기화 대기 중인 기록 2건은 아직 서버에 없어 이 파일에 담기지 않아요."
+      text: "동기화 대기 중인 기록 2건은 이 파일에 아직 반영되지 않았어요."
     });
-    expect(exportPendingToastSuffix(2)).toBe(" 동기화 대기 중인 기록 2건은 아직 서버에 없어 CSV에 담기지 않았어요.");
+    expect(exportPendingToastSuffix(2)).toBe(" 동기화 대기 중인 기록 2건은 이 CSV에 아직 반영되지 않았어요.");
     // 문구를 손으로 다시 적지 않는다 -- 상태 이름은 offline/messages.ts가 정한다.
     expect(exportPendingNoticeText(1).startsWith(SYNC_ROW_PENDING_LABEL)).toBe(true);
     expect(exportPendingToastSuffix(1).trim().startsWith(SYNC_ROW_PENDING_LABEL)).toBe(true);
     // DNC-018 해요체.
     expect(exportPendingNoticeText(1).endsWith("요.")).toBe(true);
     expect(exportPendingToastSuffix(1).endsWith("요.")).toBe(true);
+  });
+
+  /**
+   * 라운드 57 QA(P1-2) — **문구가 세는 규칙보다 세게 말하지 않는다.**
+   *
+   * 세는 것은 `syncState !== "synced"` 전부이고 거기에는 **수정 대기** 행이 들어 있다. 그 행이
+   * 가리키는 지출은 서버에 있고 CSV에도 담긴다(옛 값으로). 그러니 "아직 서버에 없어요"·"담기지
+   * 않아요"는 그 행에 대해 두 번 거짓이다. 문구는 리포트 고지와 같은 약한 주장(관측)까지만 한다.
+   */
+  it("문구는 '서버에 없다'·'담기지 않는다'를 단언하지 않는다 (수정 대기 행에는 거짓이다)", () => {
+    for (const text of [exportPendingNoticeText(3), exportPendingToastSuffix(3)]) {
+      expect(text).not.toContain("서버에 없");
+      expect(text).not.toContain("담기지 않");
+      // 남는 주장은 관측 하나: "아직 반영되지 않았다".
+      expect(text).toContain("아직 반영되지 않았어요");
+    }
+    // 리포트 고지와 같은 계열의 문장이다(같은 어휘·같은 세기).
+    expect(reportPendingScopeNoticeText(3)).toContain("아직 반영되지 않았어요");
+  });
+
+  /**
+   * 세 모듈이 대기 행을 어떻게 취급하는지 **근거를 같은 문장으로** 적어 둔다(코드 규칙은 각자
+   * 목적에 맞게 다르다 — 리뷰가 요구한 것은 근거 정렬이다).
+   */
+  it("pendingDelete/수정 대기 취급의 근거가 세 모듈 주석에 같은 문장으로 있다", () => {
+    const shared = "대기 행의 두 종류 — 세 모듈이 공유하는 근거 (라운드 57 QA P1-2)";
+    for (const path of [
+      "src/export/export-pending-notice.ts",
+      "src/reports/pending-scope-notice.ts",
+      "src/expenses/recurring-template.ts"
+    ]) {
+      const moduleSource = source(path);
+      expect(moduleSource, path).toContain(shared);
+      expect(moduleSource, path).toContain("**수정 대기·삭제 대기** 행이 가리키는 지출은 서버에 이미 있고");
+    }
   });
 });
 

@@ -248,6 +248,16 @@ export default function ExpenseDetailScreen() {
    * 빈 칸으로 저장하면 "지웠다"는 뜻이고 서버가 null로 정리한다(메모와 같은 취급).
    */
   const [merchant, setMerchant] = useState("");
+  /**
+   * 라운드 57 QA(P2-9) — 판매처 칩 줄의 **포커스 게이트**. 빠른 기록 시트(app/expenses/new.tsx의
+   * `merchantFocused`)와 같은 규칙이고, 지금까지 이 화면에만 없었다.
+   *
+   * 없을 때 무슨 일이 있었나: 이 화면은 **기존 기록을 열어 보는** 자리라 대개 판매처를 고칠 생각
+   * 없이 들어온다. 그런데 후보 칩 줄이 열자마자 무조건 그려져(빈 칸이면 최근 5개) 그 아래 메모·
+   * 연결 준비템·날짜가 매번 한 줄만큼 밀렸다 — 아무도 요청하지 않은 컨트롤이 레이아웃을 상시로
+   * 밀고 있었다. 칸을 누른 뒤에만 나오면 "고치러 온 사람"에게만 보인다.
+   */
+  const [merchantFocused, setMerchantFocused] = useState(false);
   const [memo, setMemo] = useState("");
   const [spentOnIso, setSpentOnIso] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -369,10 +379,17 @@ export default function ExpenseDetailScreen() {
    *
    * useMemo인 이유는 이력 재조정과 같다 — 이 화면의 입력은 전부 상태라, 키 한 번마다 이번 달
    * 전체를 다시 묶고 정렬할 이유가 없다.
+   *
+   * 라운드 57 QA(P2-9): **판매처 칸을 누른 뒤에만** 후보를 만든다(빠른 기록 시트와 같은 게이트).
+   * 판정을 여기 두면 칩 줄이 사라지는 것과 계산이 없어지는 것이 한 조건에서 나온다 — 렌더 쪽에서만
+   * 감추면 화면에 없는 목록을 매 키 입력마다 계속 만든다.
    */
   const merchantSuggestions = useMemo(
-    () => buildMerchantSuggestions(merchant, (cachedMonthExpenses ?? []).filter((row) => row.id !== expenseId)),
-    [merchant, cachedMonthExpenses, expenseId]
+    () =>
+      merchantFocused
+        ? buildMerchantSuggestions(merchant, (cachedMonthExpenses ?? []).filter((row) => row.id !== expenseId))
+        : [],
+    [merchantFocused, merchant, cachedMonthExpenses, expenseId]
   );
 
   const amountKrw = Number(amountDigits || "0");
@@ -711,6 +728,9 @@ export default function ExpenseDetailScreen() {
                   // GAP-056 #1: 서버 @MaxLength와 같은 숫자(단일 소스는 src/expenses/text-limits.ts).
                   maxLength={MERCHANT_MAX_LENGTH}
                   onChangeText={setMerchant}
+                  // 라운드 57 QA(P2-9): 칩 줄의 게이트. 열자마자 끼어들지 않고, 이 칸을 누른
+                  // 뒤에만 나온다(빠른 기록 시트와 같은 문법).
+                  onFocus={() => setMerchantFocused(true)}
                   placeholder="판매처를 입력해 주세요 (선택)"
                   style={{
                     backgroundColor: theme.colors.beige,
@@ -730,7 +750,9 @@ export default function ExpenseDetailScreen() {
                 {/* GAP-056 #2 — 판매처 자동완성 칩. 빠른 기록 시트와 **같은 칩 행**(같은 pill·
                     같은 높이·같은 한 줄 가로 스크롤)이고, 라벨과 스크린리더 문장도 같은 모듈이
                     만든다. 탭하면 판매처 한 칸만 채운다 — 저장은 여전히 "수정 저장"으로만 일어난다.
-                    후보가 없으면(캐시 없음·판매처를 적은 적 없음) 줄 자체가 없다. */}
+                    후보가 없으면(캐시 없음·판매처를 적은 적 없음) 줄 자체가 없다.
+                    라운드 57 QA(P2-9): 위 칸을 **누른 뒤에만** 후보가 만들어지므로(merchantFocused),
+                    기록을 열어 보기만 하는 사람의 화면은 이 줄만큼 밀리지 않는다. */}
                 {merchantSuggestions.length > 0 ? (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                     {merchantSuggestions.map((suggestion) => (

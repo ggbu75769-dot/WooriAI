@@ -28,10 +28,41 @@ export const RECORDS_VIEW_PARAM = "view";
 /** 이 파라미터가 가질 수 있는 유일한 값. 리스트는 기본값이라 링크로 지정하지 않는다. */
 export const RECORDS_CALENDAR_VIEW = "calendar";
 
+/**
+ * 라운드 57 QA(P1-1) — **이번 착지의 회차**를 싣는 파라미터.
+ *
+ * 왜 필요한가: 기록 탭은 한 번 열리면 계속 마운트된 채로 남고(알림함은 그 탭 위에 쌓인
+ * 스택이다), 착지 파라미터를 **값 단위**로만 걸러 왔다. `view=calendar`는 값이 하나뿐이라
+ * 두 번째 탭부터는 "지난번과 같은 값"이 되어 effect의 deps조차 움직이지 않는다 — 알림을
+ * 다시 눌러도 달력으로 가지 않고, 그 사람에게는 알림이 죽은 것처럼 보인다. 카테고리
+ * 드릴다운이 라운드 52 QA에서 겪은 것과 **같은 결함·같은 처방**이라(그쪽 파라미터는
+ * `src/reports/category-drilldown.ts`의 `RECORDS_DRILLDOWN_NONCE_PARAM`) 이름·형식·읽기 쪽
+ * 방어를 그 관례에 그대로 맞춘다.
+ *
+ * 드릴다운의 `drilldown`을 **재사용하지 않는 이유**: 기록 탭의 드릴다운 effect는 그 회차가
+ * 바뀌면 월·카테고리를 한 묶음으로 다시 적용한다. record_gap 링크에는 그 두 값이 없으므로,
+ * 같은 파라미터를 빌려 쓰면 알림 한 번이 사용자가 걸어 둔 카테고리 필터를 조용히 풀어 버린다.
+ * 회차의 뜻이 화면마다 다르면 안 되니, 착지 대상이 다른 만큼 파라미터도 따로 둔다.
+ */
+export const RECORDS_VIEW_NONCE_PARAM = "viewNonce";
+
+/** 회차로 실을 수 있는 값의 형태. 딥링크로 들어온 긴 쓰레기 값이 눌러앉지 않게 자릿수를 묶는다. */
+const RECORDS_VIEW_NONCE_PATTERN = /^\d{1,12}$/;
+
 /** 기록 탭 + 달력 보기 요청. expo-router의 `{ pathname, params }` 목적지 그대로다. */
 export type RecordsCalendarViewRoute = {
   pathname: "/(tabs)/records";
-  params: { [RECORDS_VIEW_PARAM]: typeof RECORDS_CALENDAR_VIEW };
+  params: {
+    [RECORDS_VIEW_PARAM]: typeof RECORDS_CALENDAR_VIEW;
+    /**
+     * 이번 탭의 회차. 기록 탭은 이 값이 바뀔 때마다 달력 착지를 다시 적용한다.
+     *
+     * 옵셔널인 이유는 형식 방어가 링크를 **만드는 쪽**에 있기 때문이다: 회차로 쓸 수 없는 값이
+     * 들어오면 키 자체를 싣지 않는다(읽는 쪽이 무시할 값을 실어 보내지 않는다). 그때 착지는
+     * 회차가 없던 때와 같이 "첫 진입 1회"로 동작한다.
+     */
+    [RECORDS_VIEW_NONCE_PARAM]?: string;
+  };
 };
 
 /**
@@ -58,6 +89,42 @@ export function isRecordsCalendarViewParam(raw: string | string[] | undefined | 
 }
 
 /**
+ * 기록 탭이 받은 `viewNonce`(회차) 파라미터.
+ *
+ * 배열이면 첫 값만 본다(`view`·`month`·`drilldown`과 같은 관례). 숫자 문자열이 아니면 null이고,
+ * 그때 화면은 **회차가 없던 때와 똑같이** 동작한다 — 첫 착지는 그대로 적용되고, 그 뒤 같은
+ * 링크가 다시 오면 재적용되지 않는다(예전 가드 그대로).
+ *
+ * 비교는 **문자열 그대로** 한다(숫자로 바꾸지 않는다). 기록 탭이 알아야 하는 것은 "지난번과
+ * 다른가" 하나뿐이고, 크기를 비교하는 순간 "더 작은 회차는 무시" 같은 규칙이 생겨 화면 두 곳이
+ * 카운터의 의미에 합의해야 한다(`resolveDrilldownNonceParam`과 같은 판단).
+ */
+export function resolveRecordsViewNonceParam(raw: string | string[] | undefined | null): string | null {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" && RECORDS_VIEW_NONCE_PATTERN.test(value) ? value : null;
+}
+
+/**
+ * 다음 착지 회차. **이 모듈에서 유일하게 순수하지 않은 함수**이고, 그래서 판정
+ * (`notificationTapRoute`)과 분리해 둔다 — 목적지는 여전히 입력만 보고 정해진다.
+ *
+ * 카운터가 화면 state가 아니라 **모듈 스코프**인 이유: 리포트 탭은 계속 마운트된 채로 남아
+ * 자기 state 카운터를 유지할 수 있지만(`app/(tabs)/reports.tsx`의 `drilldownNonce`), 알림함은
+ * 탭 위에 쌓였다가 뒤로가기로 **언마운트되는** 화면이다. 카운터를 화면 안에 두면 다시 들어올
+ * 때마다 0부터 시작해 같은 회차를 다시 보내게 되고, 그건 이 라운드가 고친 바로 그 증상이다.
+ * 시각(Date.now)을 쓰지 않는 이유도 같은 자리에서 나온다: 13자리라 위 형식을 넘고, 같은
+ * 밀리초의 두 번째 탭이 같은 값을 받는다.
+ */
+let recordsViewNonceCounter = 0;
+export function nextRecordsViewNonce(): number {
+  recordsViewNonceCounter += 1;
+  // 형식 상한(12자리)을 넘기 전에 되돌린다. 한 세션에서 도달할 수 없는 방어선이고, 되돌아도
+  // "지난번과 다른 값"이라는 성질은 유지된다.
+  if (recordsViewNonceCounter >= 1_000_000_000_000) recordsViewNonceCounter = 1;
+  return recordsViewNonceCounter;
+}
+
+/**
  * 알림 한 건의 탭 목적지.
  *
  * - budget_80 / budget_100 -> /budget (예산 설정·조정)
@@ -67,19 +134,33 @@ export function isRecordsCalendarViewParam(raw: string | string[] | undefined | 
  *   목록**이다 -- 알림이 말한 "빈 며칠"은 목록에 없는 것이라 화면 어디에도 보이지 않는다.
  *   비어 있는 날을 보여 주는 화면은 달력 격자 하나뿐이므로(UX-D), 목적지에 `view=calendar`를
  *   함께 싣는다. 예전 주석이 "링크로 지정할 파라미터가 없다"고 적어 둔 그 파라미터를 이 라운드가
- *   만들었다. 기록 탭은 이 값을 **한 번만** 적용하고 소모한다(재렌더·뒤로가기가 사용자가 고른
- *   보기를 되돌리지 않는다 -- `month`·`drilldown`과 같은 재적용 규율).
+ *   만들었다. 기록 탭은 이 값을 **회차(nonce) 단위로** 적용한다(라운드 57 QA P1-1): 재렌더·
+ *   뒤로가기는 사용자가 고른 보기를 되돌리지 않고, 알림을 **다시** 누르면 다시 달력으로 간다.
+ *   예전 판은 "앱 실행당 1회"만 적용해(boolean 가드) 두 번째 탭부터 아무 일도 일어나지 않았다.
+ * @param viewNonce record_gap 목적지에 실을 이번 탭의 회차. 화면은 `nextRecordsViewNonce()`가
+ *   주는 값을 그대로 넘긴다. 정수가 아니거나 음수면 회차를 싣지 않는다 — 읽는 쪽이 무시할 값을
+ *   실어 보내면 착지가 조용히 예전 가드로 되돌아가고, 그건 이 라운드가 고친 그 증상이다.
  * - stage_transition -> /(tabs)/items (새 시기의 준비템)
  * - purchase_pending -> 그 준비템 상세(/items/{id}). dedupeKey에서 itemTemplateId를 못 뽑으면
  *   준비템 목록으로 떨어진다 -- 예전 화면 코드와 같은 폴백이다.
  * - 알 수 없는 종류(옛/새 빌드가 남긴 값, AppNotification["type"]이 열려 있다) -> 준비템 목록.
  *   화면이 하던 폴백을 그대로 옮겨 온 것이라 동작 변화가 없다.
  */
-export function notificationTapRoute(entry: Pick<AppNotification, "type" | "dedupeKey">): NotificationRoute {
+export function notificationTapRoute(
+  entry: Pick<AppNotification, "type" | "dedupeKey">,
+  viewNonce?: number
+): NotificationRoute {
   if (entry.type === "budget_80" || entry.type === "budget_100") return "/budget";
   if (entry.type === "weekly_summary") return "/(tabs)/records";
   if (entry.type === "record_gap") {
-    return { pathname: "/(tabs)/records", params: { [RECORDS_VIEW_PARAM]: RECORDS_CALENDAR_VIEW } };
+    const nonce = Number.isInteger(viewNonce) && (viewNonce as number) >= 0 ? String(viewNonce) : "";
+    return {
+      pathname: "/(tabs)/records",
+      params: {
+        [RECORDS_VIEW_PARAM]: RECORDS_CALENDAR_VIEW,
+        ...(RECORDS_VIEW_NONCE_PATTERN.test(nonce) ? { [RECORDS_VIEW_NONCE_PARAM]: nonce } : {})
+      }
+    };
   }
   if (entry.type === "stage_transition") return "/(tabs)/items";
   const itemTemplateId = itemTemplateIdFromPurchaseDedupeKey(entry.dedupeKey);

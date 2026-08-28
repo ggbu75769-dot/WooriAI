@@ -38,6 +38,30 @@ export function mergeOutboxMutation(
   return [...inFlightRows, ...mergeIntoMergeableRows(mergeableRows, incoming)];
 }
 
+/**
+ * 라운드 57 QA(P2-4) — 병합으로 **되살아나는** 행이 앞선 실패의 흔적을 물려받지 않게 한다.
+ *
+ * 준비템 상태 큐가 이미 쓰는 규칙과 같다(아래 `mergeItemStatusMutation`): 새로 접혀 들어온 편집은
+ * **새 의사 표시**라, 앞선 값이 쌓아 둔 백오프(`attemptCount`/`nextRetryAt`)나 실패 문구·사유
+ * (`lastError`/`lastErrorStatus`/`lastErrorCode`)에 갇히면 안 된다. 스프레드(`...pendingUpdate`)로
+ * 그 값들이 그대로 넘어오면 두 가지가 깨진다:
+ *
+ *  - 사용자가 값을 고쳐 400을 벗어난 행이 여전히 옛 status/code를 들고 있어, 화면이 "다시 보내도
+ *    같은 결과예요"(permission-denied.ts의 판정)를 붙인다 — 방금 고친 그 행에 대해 거짓이다.
+ *  - `nextRetryAt`이 남아 있으면 방금 누른 편집이 앞선 실패의 백오프가 끝날 때까지 전송되지 않는다.
+ *
+ * 사용자가 손으로 재시도를 누른 것(`retryFailedMutation`)과 같은 취급이며, 큐에서의 자리
+ * (`mutationId`·`createdAt`·`idempotencyKey`)는 기존 행 것을 그대로 유지한다 — 순서 역전을 만들지
+ * 않으려는 것이 병합의 원래 목적이기 때문이다.
+ */
+const MERGED_RETRY_BUDGET_RESET = {
+  attemptCount: 0,
+  nextRetryAt: null,
+  lastError: null,
+  lastErrorStatus: undefined,
+  lastErrorCode: undefined
+} as const;
+
 function mergeIntoMergeableRows(existing: MutationOutboxRow[], incoming: MutationOutboxRow): MutationOutboxRow[] {
   if (existing.length === 0) {
     return [incoming];
@@ -68,7 +92,8 @@ function mergeIntoMergeableRows(existing: MutationOutboxRow[], incoming: Mutatio
       // requests -- the server receives one create call with the final, up-to-date fields.
       const merged: MutationOutboxRow = {
         ...pendingCreate,
-        payload: { ...(pendingCreate.payload as ExpensePayload), ...(incoming.payload as ExpensePayload) }
+        payload: { ...(pendingCreate.payload as ExpensePayload), ...(incoming.payload as ExpensePayload) },
+        ...MERGED_RETRY_BUDGET_RESET
       };
       return [merged];
     }
@@ -77,7 +102,8 @@ function mergeIntoMergeableRows(existing: MutationOutboxRow[], incoming: Mutatio
     if (pendingUpdate) {
       const merged: MutationOutboxRow = {
         ...pendingUpdate,
-        payload: { ...(pendingUpdate.payload as ExpensePayload), ...(incoming.payload as ExpensePayload) }
+        payload: { ...(pendingUpdate.payload as ExpensePayload), ...(incoming.payload as ExpensePayload) },
+        ...MERGED_RETRY_BUDGET_RESET
       };
       return existing.map((mutation) => (mutation.mutationId === pendingUpdate.mutationId ? merged : mutation));
     }

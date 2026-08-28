@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ImportResumeEntry } from "../import/import-resume";
 import { useImportResumeStore } from "./import-resume.store";
+
+const source = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
 
 /**
  * 라운드 56 트랙 D(#5) — 재진입 저장본의 **생멸**.
@@ -59,6 +63,24 @@ describe("useImportResumeStore", () => {
     state().rememberImportReview(entry);
     state().resetAll();
     expect(state().entry).toBeNull();
+  });
+
+  /**
+   * 라운드 57 QA(P2-5) — 헤더가 "아직 배선되지 않았다"고 적혀 있었지만 배선은 라운드 55 트랙 C가
+   * 이미 넣었다. 문서와 코드가 갈리면 다음 사람이 없는 결함을 고치려 든다(또는 있는 결함으로
+   * 착각해 중복 배선한다). 사실 쪽으로 못 박는다.
+   */
+  it("PRIV-104 배선이 실제로 들어와 있고, 헤더도 그 사실을 말한다", () => {
+    const teardownSource = source("src/offline/session-teardown.ts");
+    expect(teardownSource).toContain('import { useImportResumeStore } from "../stores/import-resume.store";');
+    expect(teardownSource).toContain("useImportResumeStore.getState().resetAll();");
+
+    const storeSource = source("src/stores/import-resume.store.ts");
+    // 옛 제목(사실이 아니게 된 주장)과 "자리만 만들어 뒀다"는 문장은 남아 있지 않다.
+    expect(storeSource).not.toContain("## PRIV-104(계정 전환 시 초기화) — 아직 배선되지 않았다");
+    expect(storeSource).not.toContain("후속 1줄");
+    expect(storeSource).not.toContain("호출부는 후속");
+    expect(storeSource).toContain("그 배선은 **들어와 있다**");
   });
 
   it("바뀌지 않으면 같은 상태를 유지한다 (구독자가 헛돌지 않게)", () => {

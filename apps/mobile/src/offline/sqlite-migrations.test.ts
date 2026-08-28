@@ -34,6 +34,7 @@ import {
   OFFLINE_DB_MIGRATIONS,
   OFFLINE_DB_SCHEMA_VERSION,
   OfflineDbMigrationError,
+  OfflineDbUserVersionError,
   runOfflineDbMigrations,
   type MigratableDatabase,
   type OfflineDbMigration
@@ -182,6 +183,27 @@ function seedLegacyRows(raw: NodeSqliteDatabase): void {
     .run("item-mut-1", "child-1", "tpl-1", "prepared", "젖병", "pending", 0, null, null, "2026-08-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z", 0);
   raw.prepare(`INSERT INTO sync_meta (meta_key, meta_value) VALUES (?, ?)`).run("delta-cursor", "cursor-abc");
 }
+
+/**
+ * 라운드 57 QA(P2-7) — **guard the guard.**
+ *
+ * 아래 두 describe는 `describe.skipIf(!nodeSqlite)`로 감싸여 있다. 그 스킵 조건이 어떤 이유로든
+ * 참이 되면(빌트인 이름이 바뀌거나 `getBuiltinModule`이 사라지거나 러너가 바뀌면) **진짜 SQL로
+ * 도는 검증 전부가 조용히 사라지고 파일은 초록으로 남는다** — 그리고 이 파일의 존재 이유는
+ * 정확히 "문자열만 맞춰 두고 구 기기에서 잘 되겠지"를 없애는 것이었다. 그러니 스킵 자체를
+ * 스킵할 수 없는 단언으로 막는다(a11y-contract.test.ts의 settings 스윕이 경로/글롭이 빗나가면
+ * 공허하게 초록이 되는 것을 막는 것과 같은 관례).
+ */
+describe("라운드 57 QA(P2-7) — 실제 SQLite 검증이 조용히 스킵되지 않는다", () => {
+  it("node:sqlite가 있어야 한다 (없으면 아래 러너 검증이 통째로 사라진다)", () => {
+    expect(typeof builtin, "process.getBuiltinModule must exist in this runtime").toBe("function");
+    expect(nodeSqlite, "node:sqlite must be loadable -- otherwise the runner tests below vanish").toBeDefined();
+    expect(typeof nodeSqlite!.DatabaseSync).toBe("function");
+    // 감싼 래퍼도 실제로 열려야 의미가 있다(모듈은 있는데 열 수 없는 경우까지 잡는다).
+    const { raw } = openTestDb();
+    expect(userVersion(raw)).toBe(0);
+  });
+});
 
 describe("라운드 57 #7 — 마이그레이션 목록의 규약 (순수 값 검증)", () => {
   it("버전은 1부터 1씩 증가하고, 스키마 버전은 목록의 마지막이다", () => {
@@ -393,5 +415,122 @@ describe.skipIf(!nodeSqlite)("라운드 57 #7 — 구 기기 시나리오 (v0 = 
     expect(await runOfflineDbMigrations(db)).toBe(OFFLINE_DB_SCHEMA_VERSION);
     expect(tableNames(raw)).toContain("item_status_outbox");
     expect(columnNames(raw, "item_status_outbox")).toEqual(expect.arrayContaining(["last_error_status", "last_error_code"]));
+  });
+});
+
+/**
+ * 라운드 57 QA(P2-6) — 러너의 **두 방어선**.
+ *  1. `PRAGMA user_version`을 읽지 못하면 0으로 위장하지 않고 던진다(0은 "새 기기"라는 구체적인
+ *     사실이라, 그 폴백이 곧 거짓말이고 v2 이후에는 벽돌의 원인이 된다).
+ *  2. `ALTER TABLE … ADD COLUMN`은 이미 있는 컬럼이면 건너뛴다 — SQLite에 `IF NOT EXISTS`가 없어
+ *     러너 밖에서 어긋난 기기가 매 실행 duplicate column으로 영구 실패하는 것을 막는다.
+ */
+describe("라운드 57 QA(P2-6) — user_version 폴백과 ADD COLUMN 멱등성", () => {
+  /** 위 openTestDb와 같은 래퍼지만 PRAGMA user_version 응답만 바꿔치기한다. */
+  function dbWithUserVersionRow(row: unknown): MigratableDatabase {
+    return {
+      async execAsync() {},
+      async getFirstAsync<T>(sql: string) {
+        return (sql.includes("user_version") ? row : null) as T | null;
+      }
+    };
+  }
+
+  it("형식이 어긋난 user_version은 0으로 위장하지 않고 원인과 함께 던진다", async () => {
+    for (const bad of [null, undefined, "", true, "열두", Number.NaN, -1, 1.5, {}]) {
+      const error = await runOfflineDbMigrations(dbWithUserVersionRow({ user_version: bad })).catch(
+        (caught: unknown) => caught
+      );
+      expect(error, String(bad)).toBeInstanceOf(OfflineDbUserVersionError);
+      // 원인을 그대로 들고 다닌다 -- 진단의 전부다.
+      expect((error as OfflineDbUserVersionError).raw, String(bad)).toBe(
+        Number.isNaN(bad as number) ? (error as OfflineDbUserVersionError).raw : bad
+      );
+    }
+    // 행 자체가 없는 경우도 같다(PRAGMA는 언제나 한 행을 준다 -- 없으면 우리가 모르는 상태다).
+    await expect(runOfflineDbMigrations(dbWithUserVersionRow(null))).rejects.toBeInstanceOf(OfflineDbUserVersionError);
+  });
+
+  it("표현만 다른 정수(문자열·bigint)는 읽어 준다 -- 드라이버 차이지 '읽을 수 없는 값'이 아니다", async () => {
+    // "2"·2n은 곧 2다: 이미 그 버전이므로 아래 목록의 문장은 하나도 실행되지 않는다
+    // (실행되면 execAsync가 아무것도 안 하는 이 스텁에서도 버전이 올라가 값이 달라진다).
+    for (const shaped of ["2", 2, BigInt(2)]) {
+      const reached = await runOfflineDbMigrations(dbWithUserVersionRow({ user_version: shaped }), [
+        { version: 1, statements: ["THIS WOULD THROW IF IT RAN"] },
+        { version: 2, statements: ["THIS WOULD THROW IF IT RAN"] }
+      ]);
+      expect(reached, String(shaped)).toBe(2);
+    }
+  });
+});
+
+describe.skipIf(!nodeSqlite)("라운드 57 QA(P2-6) — ADD COLUMN 멱등성 (실제 SQLite)", () => {
+  it("컬럼은 이미 있는데 user_version만 뒤로 밀린 기기에서도 벽돌이 되지 않는다", async () => {
+    const { db, raw } = openTestDb();
+    await runOfflineDbMigrations(db);
+    const columnsAfterFirst = columnNames(raw, "local_expenses");
+    // 러너 밖에서 어긋난 상태를 그대로 만든다: 컬럼은 v2인데 버전만 v1이다
+    // (수기 SQL·백업 복구·user_version을 잃은 파일에서 실제로 생길 수 있는 조합).
+    raw.exec("PRAGMA user_version = 1");
+
+    const reached = await runOfflineDbMigrations(db);
+
+    expect(reached).toBe(OFFLINE_DB_SCHEMA_VERSION);
+    expect(userVersion(raw)).toBe(OFFLINE_DB_SCHEMA_VERSION);
+    // 컬럼이 두 번 생기지도, 사라지지도 않았다.
+    expect(columnNames(raw, "local_expenses")).toEqual(columnsAfterFirst);
+    for (const table of ["local_expenses", "mutation_outbox", "item_status_outbox"]) {
+      expect(columnNames(raw, table).filter((name) => name === "last_error_status")).toHaveLength(1);
+    }
+  });
+
+  it("건너뛰는 것은 그 ALTER 한 문장뿐이다 -- 같은 버전의 나머지 문장은 그대로 실행된다", async () => {
+    const { db, raw } = openTestDb();
+    await runOfflineDbMigrations(db);
+    raw.exec("ALTER TABLE local_expenses ADD COLUMN half_present TEXT");
+    const partialV3: OfflineDbMigration = {
+      version: 3,
+      statements: [
+        // 이미 있다 -> 건너뛴다.
+        "ALTER TABLE local_expenses ADD COLUMN half_present TEXT",
+        // 없다 -> 실행된다.
+        "ALTER TABLE local_expenses ADD COLUMN brand_new TEXT"
+      ]
+    };
+
+    const reached = await runOfflineDbMigrations(db, [...OFFLINE_DB_MIGRATIONS, partialV3]);
+
+    expect(reached).toBe(3);
+    expect(columnNames(raw, "local_expenses")).toEqual(expect.arrayContaining(["half_present", "brand_new"]));
+    expect(columnNames(raw, "local_expenses").filter((name) => name === "half_present")).toHaveLength(1);
+  });
+
+  it("대상 테이블이 아예 없는 ALTER는 여전히 실패한다 (멱등화가 오류를 삼키지 않는다)", async () => {
+    const { db, raw } = openTestDb();
+    await runOfflineDbMigrations(db);
+    const brokenV3: OfflineDbMigration = {
+      version: 3,
+      statements: ["ALTER TABLE nonexistent_table ADD COLUMN nope TEXT"]
+    };
+
+    await expect(runOfflineDbMigrations(db, [...OFFLINE_DB_MIGRATIONS, brokenV3])).rejects.toBeInstanceOf(
+      OfflineDbMigrationError
+    );
+    expect(userVersion(raw)).toBe(OFFLINE_DB_SCHEMA_VERSION);
+  });
+
+  it("기존 행의 값은 멱등 경로에서도 한 줄도 다치지 않는다", async () => {
+    const { db, raw } = openTestDb();
+    raw.exec(LEGACY_SCHEMA_SQL);
+    seedLegacyRows(raw);
+    await runOfflineDbMigrations(db);
+    raw.exec("PRAGMA user_version = 0");
+
+    await runOfflineDbMigrations(db);
+
+    const expense = raw.prepare("SELECT * FROM local_expenses WHERE local_id = 'local-1'").get();
+    expect(expense?.sync_state).toBe("failed");
+    expect(String(expense?.last_error)).toContain("권한이 없어요");
+    expect(raw.prepare("SELECT COUNT(*) c FROM mutation_outbox").get()?.c).toBe(1);
   });
 });

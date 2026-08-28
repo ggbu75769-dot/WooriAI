@@ -38,6 +38,7 @@
 import { formatKrw } from "../money";
 import { EXPENSE_AMOUNT_MAX_KRW, isAmountOverLimit, amountOverLimitMessage } from "./amount-limit";
 import { normalizeItemName } from "./item-name-match";
+import { merchantOverLimitMessage } from "./text-limits";
 import {
   EXPENSE_PREFILL_PAYMENT_METHODS,
   isRepeatableExpenseType,
@@ -184,6 +185,20 @@ export type RecurringTemplateDraft = {
 export const RECURRING_CHILD_REQUIRED_MESSAGE = "아이를 먼저 선택해 주세요.";
 export const RECURRING_ITEM_NAME_REQUIRED_MESSAGE = "품목명을 입력해 주세요.";
 export const RECURRING_ITEM_NAME_TOO_LONG_MESSAGE = `품목명은 ${RECURRING_ITEM_NAME_MAX_LENGTH}자까지 입력할 수 있어요.`;
+/**
+ * 라운드 57 QA(P2-11) — 판매처 길이 초과. **품목명과 같은 방식**이다.
+ *
+ * 예전에는 이 값만 `buildRecurringTemplate`에서 `slice(0, 100)`으로 **조용히 잘렸다**. 입력 칸의
+ * `maxLength`가 새로 치는 글자를 막으므로 정상 경로에서는 도달하기 어렵지만, 도달하는 순간의
+ * 동작이 이 저장소의 계약과 정면으로 어긋난다: text-limits.ts 머리말이 "조용히 잘라 버리지 않는다
+ * — 무엇이 왜 막혔는지 모르는 채로 두지 않는다"를 명시하고, 같은 파일의 품목명은 실제로 검증
+ * 오류로 막는다(바로 위 줄). 한 폼 안에서 두 칸이 서로 다른 규율을 따르면, 사용자는 자기가 적은
+ * 판매처가 왜 짧아졌는지 알 방법이 없다(저장 후에야 보이고, 원본은 이미 없다).
+ *
+ * 문구는 지출 입력 칸과 같은 문장이다(`merchantOverLimitMessage()` — 같은 한도를 두 가지로 말하지
+ * 않는다). 금액 상한이 `amountOverLimitMessage`를 그대로 쓰는 것과 같은 자리·같은 이유다.
+ */
+export const RECURRING_MERCHANT_TOO_LONG_MESSAGE = merchantOverLimitMessage(RECURRING_MERCHANT_MAX_LENGTH);
 export const RECURRING_AMOUNT_REQUIRED_MESSAGE = "금액을 1원 이상 입력해 주세요.";
 /** 상한 문구는 지출 입력 칸과 **같은 문장**이다(같은 한도를 두 가지로 말하지 않는다). */
 export const RECURRING_AMOUNT_OVER_LIMIT_MESSAGE = amountOverLimitMessage(EXPENSE_AMOUNT_MAX_KRW);
@@ -207,6 +222,9 @@ export function recurringTemplateValidationError(draft: RecurringTemplateDraft):
   const itemName = draft.itemName?.trim() ?? "";
   if (itemName.length === 0) return RECURRING_ITEM_NAME_REQUIRED_MESSAGE;
   if (itemName.length > RECURRING_ITEM_NAME_MAX_LENGTH) return RECURRING_ITEM_NAME_TOO_LONG_MESSAGE;
+  // 라운드 57 QA(P2-11): 판매처도 **자르지 않고 막는다**(위 상수 주석 참고). 선택 입력이라
+  // 비어 있는 것은 통과이고, 적었을 때만 길이를 본다 -- 저장할 값과 같은 trim된 문자열로.
+  if ((draft.merchant?.trim() ?? "").length > RECURRING_MERCHANT_MAX_LENGTH) return RECURRING_MERCHANT_TOO_LONG_MESSAGE;
   if (!Number.isInteger(draft.amountKrw) || draft.amountKrw <= 0) return RECURRING_AMOUNT_REQUIRED_MESSAGE;
   if (isAmountOverLimit(draft.amountKrw)) return RECURRING_AMOUNT_OVER_LIMIT_MESSAGE;
   if (!draft.categoryId || draft.categoryId.trim().length === 0) return RECURRING_CATEGORY_REQUIRED_MESSAGE;
@@ -233,7 +251,9 @@ export function buildRecurringTemplate(
   identity: { id: string; createdAt: string; skippedYearMonths?: readonly string[]; active?: boolean }
 ): RecurringExpenseTemplate | null {
   if (recurringTemplateValidationError(draft) !== null) return null;
-  const merchant = draft.merchant?.trim().slice(0, RECURRING_MERCHANT_MAX_LENGTH) ?? "";
+  // 라운드 57 QA(P2-11): 여기서 자르지 않는다. 상한을 넘은 값은 위 검증에서 이미 막혀
+  // 이 줄에 도달하지 않는다(도달하면 그건 검증이 빠진 것이라, 조용히 자르는 대신 드러나야 한다).
+  const merchant = draft.merchant?.trim() ?? "";
   return {
     id: identity.id,
     childId: draft.childId.trim(),
@@ -465,6 +485,23 @@ export function recurringReminderCopy(
  * `syncState`는 보지 않는다: `synced` 행은 서버 캐시에도 있어 결과가 같고, 대기·실패·충돌 행은
  * 서버가 모르는 사실이라 반드시 세야 한다. 다만 **삭제 대기 행(`pendingDelete`)은 제외**한다 —
  * 곧 사라질 기록을 근거로 "기록됐다"고 말할 수는 없다(recent-items.ts와 같은 판단).
+ *
+ * ## 대기 행의 두 종류 — 세 모듈이 공유하는 근거 (라운드 57 QA P1-2)
+ *
+ * `syncState !== "synced"`인 행은 한 가지가 아니다. **생성 대기** 행은 서버에 아직 없지만,
+ * **수정 대기·삭제 대기** 행이 가리키는 지출은 서버에 이미 있고 그 값이 곧 달라질 뿐이다.
+ * 그래서 "아직 서버에 없어요"는 이 집합 전체를 가리키는 참인 문장이 아니다. 세 모듈은 각자의
+ * 목적에 맞게 다르게 세되(코드 규칙이 같아질 이유는 없다) **근거는 이 한 문단을 함께 가리킨다**:
+ *
+ *  - **내보내기 고지**(`src/export/export-pending-notice.ts`): 전부 센다. CSV는 서버 조회로
+ *    만들므로 생성 대기 행은 통째로 빠지고, 수정·삭제 대기 행은 **옛 값**이 실린다 — 셋 다
+ *    "그 파일에 아직 반영되지 않은 변경"이라는 점에서 같고, 문구도 그 약한 주장까지만 한다.
+ *  - **리포트 고지**(`src/reports/pending-scope-notice.ts`): 아래 숫자를 실제로 움직일 행만
+ *    센다(DNC-015). 삭제 대기도 포함이다 — 서버 집계에 아직 **들어 있는** 값이라 역시 "아직
+ *    반영되지 않은" 차이다.
+ *  - **정기 지출 판정**(이 모듈): `syncState`를 아예 보지 않고 **삭제 대기만** 뺀다. 거기서
+ *    묻는 것은 "이번 달에 이 품목이 기록됐는가"라 서버가 아는지와 무관하고, 곧 사라질 기록은
+ *    "기록됐다"의 근거가 될 수 없다.
  */
 export function buildRecurringReminder(input: RecurringReminderInput): RecurringReminder | null {
   // 1. 이번 달 캐시가 아직 없으면 아무 말도 하지 않는다.

@@ -51,8 +51,10 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     // 옮겼다(종류별 목적지는 notification-route.test.ts가 값으로 검증한다). 화면은 그 판정을
     // 그대로 router.push에 넘기기만 한다.
     expect(screenSource).toContain("markRead(entry.id)");
-    expect(screenSource).toContain("router.push(notificationTapRoute(entry))");
-    expect(screenSource).toContain('import { notificationTapRoute } from "../src/notifications/notification-route";');
+    expect(screenSource).toContain("router.push(notificationTapRoute(entry, nextRecordsViewNonce()))");
+    expect(screenSource).toContain(
+      'import { nextRecordsViewNonce, notificationTapRoute } from "../src/notifications/notification-route";'
+    );
     // 예전의 화면 내 if 사슬은 남아 있지 않다 -- 특히 weekly_summary를 /budget으로 보내던 조건.
     expect(screenSource).not.toContain('entry.type === "weekly_summary"');
     expect(screenSource).not.toContain("function openNotification(");

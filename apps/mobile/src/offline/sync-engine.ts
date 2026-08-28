@@ -222,6 +222,11 @@ export async function recordLocalUpdate(
     payload: mergedPayload,
     syncState: "pending",
     lastError: null,
+    // 라운드 57 QA(P2-4): 사람이 읽는 문장만 지우고 **구조화된 사유**를 남기면, 이 행이 다음에
+    // 화면에 뜨는 순간 지난번 실패의 status/code로 판정된다 -- 방금 사용자가 값을 고쳐 새 시도가
+    // 된 행에 "다시 보내도 같은 결과예요"가 붙는다. 되살아나는 다른 자리들과 같은 규칙이다
+    // (위 CLEARED_FAILURE_REASON 주석 — 전송 성공·사용자 재시도·충돌 해소).
+    ...CLEARED_FAILURE_REASON,
     updatedAt: timestamp
   });
 
@@ -275,6 +280,9 @@ export async function recordLocalDelete(
       syncState: "pending",
       pendingDelete: true,
       lastError: null,
+      // 라운드 57 QA(P2-4): 수정과 같은 이유로 구조화된 사유도 함께 지운다 -- 삭제는 앞선
+      // 생성/수정 실패와 **다른 요청**이라, 그 실패의 status/code를 물려받으면 안 된다.
+      ...CLEARED_FAILURE_REASON,
       updatedAt: timestamp
     });
   }

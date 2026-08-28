@@ -225,8 +225,26 @@ describe("GAP-056 #2 판매처 자동완성 배선", () => {
       "buildMerchantSuggestions(merchant, (cachedMonthExpenses ?? []).filter((row) => row.id !== expenseId))"
     );
     expect(editExpenseSource).toContain("const merchantSuggestions = useMemo(");
-    expect(editExpenseSource).toContain("[merchant, cachedMonthExpenses, expenseId]");
+    expect(editExpenseSource).toContain("[merchantFocused, merchant, cachedMonthExpenses, expenseId]");
     expect(editExpenseSource).toContain("onPress={() => setMerchant(suggestion.merchant)}");
+  });
+
+  /**
+   * 라운드 57 QA(P2-9) — **두 화면이 같은 포커스 게이트를 쓴다.**
+   *
+   * 지출 상세는 대개 판매처를 고칠 생각 없이 여는 화면인데, 칩 줄이 무조건 그려져(빈 칸이면 최근
+   * 5개) 그 아래 메모·연결 준비템·날짜가 매번 한 줄만큼 밀렸다 — 아무도 요청하지 않은 컨트롤이
+   * 레이아웃을 상시로 밀고 있었다. 게이트를 계산 자리(useMemo)에 두어, 줄이 사라지는 것과 계산이
+   * 없어지는 것이 한 조건에서 나오게 한다.
+   */
+  it("지출 상세도 판매처 칸을 누른 뒤에만 칩 줄을 만든다 (빠른 기록 시트와 같은 게이트)", () => {
+    expect(editExpenseSource).toContain("const [merchantFocused, setMerchantFocused] = useState(false);");
+    expect(editExpenseSource).toContain("onFocus={() => setMerchantFocused(true)}");
+    // 게이트가 렌더가 아니라 **계산**에 걸린다 -- 화면에 없는 목록을 계속 만들지 않는다.
+    const memoStart = editExpenseSource.indexOf("const merchantSuggestions = useMemo(");
+    const memoBlock = editExpenseSource.slice(memoStart, memoStart + 400);
+    expect(memoBlock).toContain("merchantFocused");
+    expect(memoBlock).toContain(": []");
   });
 });
 
@@ -256,6 +274,33 @@ describe("GAP-056 #1 텍스트 길이 가드 배선 (빠른 기록 시트)", () 
     expect(newExpenseSource).toContain("{textOverLimitNotices.map((notice) => (");
     // 문구를 화면에 다시 쓰지 않는다(지출 상세와 두 문장으로 갈리지 않게).
     expect(newExpenseSource).not.toContain("자까지 입력할 수 있어요");
+  });
+
+  /**
+   * 라운드 57 QA(P2-10) — **같은 문장은 같은 색이다.**
+   *
+   * `merchantOverLimitMessage()`가 만드는 것은 지출 상세가 danger로 그리는 글자 그대로 같은
+   * 문장인데, 빠른 기록 시트만 coral[700]로 그리고 있었다. 이 저장소에서 "저장을 막는 이유"는
+   * 어디서나 theme.colors.danger이고(19개 화면), coral[700]은 A11Y-117이 정한 **작은 브랜드
+   * 텍스트**의 색이지 오류 색이 아니다. 대비도 오히려 올라간다(6.36:1 → 7.0:1).
+   */
+  it("길이·금액 상한 안내의 색이 지출 상세와 같다 (theme.colors.danger)", () => {
+    const noticeStart = newExpenseSource.indexOf("{isAmountOverLimit ? (");
+    const noticeEnd = newExpenseSource.indexOf("<PrimaryButton", noticeStart);
+    expect(noticeStart).toBeGreaterThan(0);
+    expect(noticeEnd).toBeGreaterThan(noticeStart);
+    const noticeBlock = newExpenseSource.slice(noticeStart, noticeEnd);
+    expect(noticeBlock.match(/color: theme\.colors\.danger, fontSize: 12/g) ?? []).toHaveLength(2);
+    expect(noticeBlock).not.toContain("theme.colors.coral[700]");
+    // 지출 상세가 같은 문장들에 쓰는 색 그대로다.
+    for (const field of ["itemNameError", "merchantError", "memoError", "amountError"]) {
+      expect(editExpenseSource, field).toContain(
+        `<Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{${field}}</Text>`
+      );
+    }
+    // 저장을 잠그지 않는 **안내**(분류)는 coral[700] 그대로다 -- 이 화면에만 있어 어긋날 짝이 없다.
+    const categoryNotice = newExpenseSource.indexOf("{CATEGORY_REQUIRED_NOTICE}");
+    expect(newExpenseSource.slice(categoryNotice - 200, categoryNotice)).toContain("theme.colors.coral[700]");
   });
 
   it("저장 직전 가드가 **보낼 값 그대로**를 한 번 더 본다 (지출 상세와 같은 이중 가드)", () => {
