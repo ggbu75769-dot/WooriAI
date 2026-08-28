@@ -26,6 +26,11 @@ export type NotificationRoute = "/budget" | "/(tabs)/records" | "/(tabs)/items" 
  *
  * - budget_80 / budget_100 -> /budget (예산 설정·조정)
  * - weekly_summary -> /(tabs)/records (지난 주 지출 "내역"을 보러 간다)
+ * - record_gap -> /(tabs)/records (GAP-054 #6: 며칠이 비었는지 보이는 화면 = 기록 탭. 그 탭의
+ *   달력 보기는 화면 안 상태 토글이라(app/(tabs)/records.tsx의 `viewMode`, 세션 간 저장 없음)
+ *   링크로 미리 지정할 수 있는 파라미터가 없다 -- 여기서 만들어 낼 수도 없다. 그래서 목적지는
+ *   기록 탭이고, 달력은 사용자가 그 화면에서 한 번 누르는 것으로 남는다. 없는 파라미터를 붙여
+ *   두면 아무 일도 하지 않는 링크가 된다.)
  * - stage_transition -> /(tabs)/items (새 시기의 준비템)
  * - purchase_pending -> 그 준비템 상세(/items/{id}). dedupeKey에서 itemTemplateId를 못 뽑으면
  *   준비템 목록으로 떨어진다 -- 예전 화면 코드와 같은 폴백이다.
@@ -35,6 +40,7 @@ export type NotificationRoute = "/budget" | "/(tabs)/records" | "/(tabs)/items" 
 export function notificationTapRoute(entry: Pick<AppNotification, "type" | "dedupeKey">): NotificationRoute {
   if (entry.type === "budget_80" || entry.type === "budget_100") return "/budget";
   if (entry.type === "weekly_summary") return "/(tabs)/records";
+  if (entry.type === "record_gap") return "/(tabs)/records";
   if (entry.type === "stage_transition") return "/(tabs)/items";
   const itemTemplateId = itemTemplateIdFromPurchaseDedupeKey(entry.dedupeKey);
   if (itemTemplateId) return `/items/${itemTemplateId}`;

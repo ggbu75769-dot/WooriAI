@@ -7,7 +7,7 @@ import {
 import { budgetUsagePercent } from "../home/budget-progress";
 import type { WeeklySummary } from "../home/weekly-summary";
 import { formatKrw } from "../money";
-import { seoulIsoWeekKey } from "./iso-week";
+import { isIsoCalendarDate, isoCalendarDaysBetween, seoulCalendarDate, seoulIsoWeekKey } from "./iso-week";
 import type { AppNotificationCandidate } from "./notification.store";
 
 /**
@@ -286,6 +286,89 @@ function weeklySummaryTitle(input: WeeklySummaryInput): string | null {
     : `이번 달 지금까지 ${formatKrw(spentKrw)}을 함께했어요`;
 }
 
+/**
+ * GAP-054 #6 — 기록 공백 알림(record_gap)이 발화하는 최소 공백. 3일이다.
+ *
+ * 가계부 앱의 표준 리마인더이고(격차 분석 §P1-6), 이보다 짧으면 주말 하루 쉰 사람에게까지
+ * 말을 걸게 된다. 값이 한 곳에만 있어야 문구("N일 동안")와 판정이 갈리지 않는다.
+ */
+export const RECORD_GAP_MIN_DAYS = 3;
+
+/** 마지막 기록 날짜를 뽑을 때 필요한 최소 모양(HomeSummary.recentExpenses가 그대로 만족한다). */
+export type RecordedExpenseLike = { spentOn?: string | null };
+
+/**
+ * 이 아이의 **마지막 지출 날짜**(YYYY-MM-DD). 기록이 하나도 없으면 null.
+ *
+ * `/home`의 `recentExpenses`는 전 기간 최신 3건이다(정렬 spentOn desc — apps/api의
+ * reporting-store.service.ts). 그래서 목록이 비어 있다는 것은 "이 아이에게 기록이 하나도 없다"와
+ * 같은 뜻이고, 비어 있지 않으면 그 안에 반드시 가장 최근 기록이 들어 있다. 순서에 기대지 않고
+ * 최댓값을 직접 고르는 이유는, 날짜 문자열 비교가 이 형식에서 정확하고(사전식 = 시간순) 정렬
+ * 계약이 바뀌어도 이 판정이 따라 무너지지 않기 때문이다. 날짜 형식이 아닌 값은 건너뛴다.
+ */
+export function latestRecordedOn(records: ReadonlyArray<RecordedExpenseLike | null | undefined>): string | null {
+  let latest: string | null = null;
+  for (const record of records) {
+    const spentOn = record?.spentOn;
+    if (!isIsoCalendarDate(spentOn)) continue;
+    if (latest === null || spentOn > latest) latest = spentOn;
+  }
+  return latest;
+}
+
+export type RecordGapInput = {
+  childId: string;
+  /**
+   * 이 아이의 마지막 지출 날짜(`latestRecordedOn`).
+   * - 문자열: 그 날짜부터 공백을 센다.
+   * - `null`: 기록이 **하나도 없다**(신규 사용자) -> 알리지 않는다. 첫 기록 유도는 홈의 첫 실행
+   *   안내 카드(src/home/first-run-guide.ts)가 이미 맡고 있어서, 여기서 또 말하면 같은 사람에게
+   *   같은 잔소리가 두 번 간다.
+   * - `undefined`: 호출부가 값을 넘기지 않았다(판정 불가) -> 역시 알리지 않는다.
+   */
+  lastRecordedOn?: string | null;
+  /** Epoch ms "now" -- 서울 달력 날짜와 주 식별자를 여기서 뽑는다. */
+  now: number;
+};
+
+/**
+ * GAP-054 #6 — "3일 동안 기록이 없어요" 한 건.
+ *
+ * ## 톤 (DNC-018)
+ *
+ * 제목은 **사실만** 말한다("N일 동안 기록이 없어요"). "또 잊으셨네요" 같은 책망도, "기록하지
+ * 않으면 …" 같은 불안도 만들지 않는다. 본문은 가벼운 초대 한 줄이고, 하라고 시키지 않는다.
+ * 목록에 얼어붙는 스냅샷이므로(notification.store.ts) 문장은 그때의 사실로 읽혀야 한다 --
+ * 그래서 "지금", "오늘" 같은 시점어를 넣지 않는다.
+ *
+ * ## 언제 뜨는가
+ *
+ * - 마지막 기록으로부터 `RECORD_GAP_MIN_DAYS`(3)일 이상 지났을 때. 날짜 차이는 서울 달력에서
+ *   센다(기기 시간대와 무관 -- iso-week.ts).
+ * - 기록이 하나도 없으면 뜨지 않는다(위 `lastRecordedOn` 주석).
+ * - 미래 날짜의 지출을 적어 둔 경우 차이가 음수라 역시 뜨지 않는다.
+ *
+ * ## 주 1회 (dedupe)
+ *
+ * dedupeKey가 `record_gap:{childId}:{서울 ISO 주}`라, 스토어의 dedupe 메모리가 같은 주의
+ * 재평가를 전부 막는다(weekly_summary와 **같은 관례**다 -- 새 억제 장치를 만들지 않는다).
+ * 공백이 이어지면 다음 주 월요일 00:00 KST에 키가 갈리며 한 번 더 뜬다: 매일 조르지 않되
+ * 잊힌 채로 두지도 않는 간격이다.
+ */
+export function recordGapNotification(input: RecordGapInput): AppNotificationCandidate | null {
+  const { childId, lastRecordedOn, now } = input;
+  if (!lastRecordedOn) return null;
+  const days = isoCalendarDaysBetween(lastRecordedOn, seoulCalendarDate(now));
+  if (days === null || days < RECORD_GAP_MIN_DAYS) return null;
+  return {
+    type: "record_gap",
+    title: `${days}일 동안 기록이 없어요`,
+    body: "기록 탭에서 지난 며칠을 함께 확인해볼까요?",
+    dedupeKey: `record_gap:${childId}:${seoulIsoWeekKey(now)}`,
+    childId
+  };
+}
+
 export type HomeNotificationInput = {
   child: { id: string; nickname: string; stageLabel: string };
   monthly: { yearMonth: string; amountKrw: number; usedAmountKrw: number };
@@ -298,6 +381,16 @@ export type HomeNotificationInput = {
    * `undefined` = 아직 모름이라 주간 알림을 이번 평가에서 만들지 않는다.
    */
   weekly: WeeklySpendResolution;
+  /**
+   * GAP-054 #6: 이 아이의 마지막 지출 날짜(`latestRecordedOn(home.recentExpenses)`).
+   *
+   * **optional인 이유**(위 `weekly`가 필수인 것과 다르다): 이 값을 넘기지 않는 호출부는 지금도
+   * 여럿이고(src/home의 콜드 스타트 테스트 등) 그들은 record_gap을 판단할 자리가 아니다. 값이
+   * 없으면 그 알림만 만들어지지 않을 뿐 나머지 평가는 종전과 한 글자도 다르지 않다. 실제 앱
+   * 경로(useHomeNotificationEvaluation)가 늘 넘긴다는 사실은 notification-flow.test.ts의 소스
+   * 계약이 지킨다.
+   */
+  lastRecordedOn?: string | null;
 };
 
 /** Everything the home screen's evaluation hook needs in one pure call. */
@@ -331,5 +424,13 @@ export function evaluateHomeNotifications(input: HomeNotificationInput): AppNoti
     weekly: input.weekly
   });
   if (weeklyCandidate) candidates.push(weeklyCandidate);
+  // GAP-054 #6: 기록 공백. 같은 홈 스냅샷(recentExpenses)에서 나오므로 새 요청도, 새 백그라운드
+  // 작업도 없다 -- 다른 네 종류와 같은 평가 한 번에 합류한다. 기록이 0건이면 만들지 않는다.
+  const recordGapCandidate = recordGapNotification({
+    childId: input.child.id,
+    lastRecordedOn: input.lastRecordedOn,
+    now: input.now
+  });
+  if (recordGapCandidate) candidates.push(recordGapCandidate);
   return candidates;
 }

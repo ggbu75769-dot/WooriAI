@@ -19,13 +19,15 @@ import {
  */
 
 /** The closed list of types the generators actually produce (NOTI-102 + NOTI-103's
- * weekly_summary). This is what candidate-producing code should be typed against. */
+ * weekly_summary + GAP-054 #6's record_gap). This is what candidate-producing code should be
+ * typed against. */
 export type KnownAppNotificationType =
   | "budget_80"
   | "budget_100"
   | "stage_transition"
   | "purchase_pending"
-  | "weekly_summary";
+  | "weekly_summary"
+  | "record_gap";
 
 /**
  * NOTI-103 compatibility note: `AppNotification["type"]` is deliberately the NOTI-102 literals
@@ -229,7 +231,11 @@ const VALID_TYPES: readonly KnownAppNotificationType[] = [
   "budget_100",
   "stage_transition",
   "purchase_pending",
-  "weekly_summary"
+  "weekly_summary",
+  // GAP-054 #6. weekly_summary와 같은 이유로 AppNotificationType 유니온에는 리터럴로 넣지
+  // 않는다(app/notifications.tsx의 아이콘 맵이 exhaustive Record라 같은 커밋의 화면 수정을
+  // 강제하게 된다 -- 위 호환 주석 참고). 저장본 검증은 여기 이 목록이 그대로 진다.
+  "record_gap"
 ];
 
 /** Defensive shape check for a persisted blob from an unknown/older app version (mirrors the

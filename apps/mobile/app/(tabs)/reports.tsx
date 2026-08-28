@@ -45,10 +45,15 @@ import {
   resolveDrilldownMonth
 } from "../../src/reports/category-drilldown";
 import { buildMonthlyInsight, resolveMonthStatus } from "../../src/reports/monthly-insight";
+import {
+  evaluateReportPendingScopeNotice,
+  REPORT_PENDING_SCOPE_NOTICE_TEST_ID
+} from "../../src/reports/pending-scope-notice";
 import { buildPeriodTrendPoints } from "../../src/reports/period-trend-points";
 import { buildMonthlyShareMessage } from "../../src/reports/share-text";
 import { evaluateTrendDirection } from "../../src/reports/trend-direction";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
+import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { EXPENSE_VIEW_ONLY_EMPTY_TITLE } from "../../src/family/record-permissions";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
@@ -201,6 +206,31 @@ export default function ReportsScreen() {
   const yearLabel = `${yearStart.getFullYear()}년`;
 
   const periodLabel = period === "월간" ? reportMonthLabel : period === "분기" ? quarterLabel : yearLabel;
+
+  /**
+   * GAP-054 #3 — 이 기간에 **아직 서버에 반영되지 않은 기록**이 몇 건인가.
+   *
+   * 리포트 탭의 숫자는 전부 서버 집계라, 오프라인으로 적은 기록은 홈·기록 탭에는 이미 보이는데
+   * 여기서만 빠져 있다. 합계를 클라이언트에서 다시 맞추지 않고(집계 규칙이 두 벌이 되는 위험 —
+   * 판단은 src/reports/pending-scope-notice.ts 머리말) 그 사실을 한 줄로 밝히기만 한다.
+   *
+   * 홈과 **같은 구독**(useOfflineSyncSnapshot)이라 새 요청은 0건이고, 기간 판정과 건수 계산은
+   * 전부 순수 모듈이 한다. 비세션 미리보기(REP-001 픽셀락 캡처)는 childId가 없어 어차피 0건
+   * 이지만, 그 경로를 판정에 들이지 않도록 hasSession으로 한 번 더 막는다.
+   */
+  const offlineSyncSnapshot = useOfflineSyncSnapshot();
+  const pendingScopeNotice = hasSession
+    ? evaluateReportPendingScopeNotice({
+        rows: offlineSyncSnapshot.rows,
+        childId,
+        scope:
+          period === "월간"
+            ? { unit: "month", yearMonth: reportYearMonth }
+            : period === "분기"
+              ? { unit: "quarter", yearMonths: quarterMonths.map(yearMonthOf) }
+              : { unit: "year", year: yearStart.getFullYear() }
+      })
+    : null;
 
   // A11Y-117: 월/분기/연 이동 시 새 기간 라벨을 TalkBack으로 읽어주고, 현재 기간(offset 0)
   // 이후로는 "다음" 이동을 막는다(미래 빈 화면 무한 이동 제거) -- src/period-navigation.ts.
@@ -681,6 +711,17 @@ export default function ReportsScreen() {
             )}
           </View>
 
+          {/* GAP-054 #3: 이 기간에 아직 올라가지 않은 기록이 있을 때만 서는 한 줄. 0건이면
+              아무것도 그리지 않으므로 캡처(REP-001) 6구획 레이아웃은 평소 그대로다 -- 비세션
+              미리보기에서는 애초에 판정 자체가 돌지 않는다. 목록도 CTA도 붙이지 않는다(홈의
+              대기 한 줄과 같은 태도: 이 자리의 역할은 요약이지 처리 화면이 아니다 -- 처리는
+              기록 탭 배지 → 동기화 상태 화면이 이미 맡고 있다). */}
+          {pendingScopeNotice ? (
+            <Text style={reportPendingScopeNoticeStyle} testID={REPORT_PENDING_SCOPE_NOTICE_TEST_ID}>
+              {pendingScopeNotice.text}
+            </Text>
+          ) : null}
+
           {!hasSession ? (
             <>
               <LineChartCard title="총 지출" value={formatKrw(monthlyTotal)} />
@@ -934,6 +975,16 @@ const reportReferencePeriodTextStyle = {
   fontSize: 18,
   fontWeight: "800",
   lineHeight: 26
+} as const;
+
+// GAP-054 #3: 기간 상단의 "동기화 대기" 한 줄. 카드도 배지도 아니고 캡션 한 줄이다 -- 화면의
+// 구획을 늘리지 않기 위해서(DSN-053 6구획 유지) 카테고리 드릴다운 안내 줄(아래)과 같은
+// 12/18 gray600 캡션 토큰을 그대로 쓴다.
+const reportPendingScopeNoticeStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 18,
+  paddingHorizontal: 6
 } as const;
 
 const reportReferenceTipCardStyle = StyleSheet.flatten([

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { HomeSummary } from "../api/client";
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
-import { evaluateHomeNotifications, type WeeklySpendResolution } from "./generators";
+import { evaluateHomeNotifications, latestRecordedOn, type WeeklySpendResolution } from "./generators";
 import { useNotificationPreferencesStore } from "./notification-preferences.store";
 import { useNotificationStore } from "./notification.store";
 
@@ -49,6 +49,18 @@ import { useNotificationStore } from "./notification.store";
  * 애초에 저장소를 읽지 못한 기기라, 그 사용자가 껐던 설정도 이미 읽을 수 없는 상태다.
  */
 /**
+ * GAP-054 #6 (record_gap) 판정의 모집단에 대하여 — **`/home` 스냅샷이 아는 기록만** 본다.
+ *
+ * 마지막 기록 날짜는 `home.recentExpenses`(서버가 준 최신 3건)에서 뽑는다. 이 기기에만 있는
+ * 오프라인 대기 행은 세지 않으므로, 며칠째 연결 없이 로컬로만 적어 온 사용자에게는 공백이
+ * 실제보다 길게 읽힐 수 있다. 그것을 메우려면 이 훅이 오프라인 스냅샷(src/offline/
+ * sync-controller.ts)을 구독해야 하는데, 그 모듈은 expo-router·react-native를 정적으로 끌고
+ * 들어와 이 파일을 vitest에서 import할 수 없게 만든다(알림 계약 테스트들이 실제로 그렇게
+ * 검증한다). 그리고 이 훅의 다른 알림(예산 80/100·주간 폴백)도 **모두** 서버 집계를 근거로
+ * 판단하므로, 여기만 다른 모집단을 쓰는 편이 오히려 일관을 깬다. 연결이 돌아와 아웃박스가
+ * 확정되면 `["home"]`이 무효화되고 다음 평가는 정확해진다(그리고 같은 주에는 dedupe가 막는다).
+ */
+/**
  * rehydrate 안전 밸브의 유예 시간. app/index.tsx의 두 밸브(저장소 rehydrate · 서버 진행도 조회)와
  * **같은 3초**다 — 같은 실패 모드를 다루는 자리가 서로 다른 상한을 갖지 않게.
  */
@@ -73,7 +85,11 @@ export function useHomeNotificationEvaluation(home: HomeSummary | undefined, wee
         now: Date.now(),
         // G-1: `?? null`로 평탄화하지 않는다 -- 그 한 글자가 "아직 모른다"를 "확정 실패"로 바꿔
         // 폴백 발화를 만들던 자리다.
-        weekly
+        weekly,
+        // GAP-054 #6: 기록 공백 판정의 유일한 입력. `/home`이 이미 들고 온 최신 3건에서 뽑으므로
+        // 새 요청도 새 구독도 없다(이 훅의 다른 입력과 같은 태도). 목록이 비어 있으면 null =
+        // "기록이 하나도 없다"라, 신규 사용자에게는 발화하지 않는다 -- generators.ts 참고.
+        lastRecordedOn: latestRecordedOn(home.recentExpenses)
       });
       store.ingest(candidates, Date.now());
       store.recordSeenStage(home.child.id, home.child.stageLabel);

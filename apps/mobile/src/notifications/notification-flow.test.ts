@@ -120,7 +120,9 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     // **새 API 호출이 없다**(NOTI-103의 제약 그대로) -- 주간 값이 없을 때만 월 페이스로 폴백한다.
     const generatorsSource = source("src/notifications/generators.ts");
     expect(generatorsSource).toContain("export function weeklySummaryNotification(");
-    expect(generatorsSource).toContain('import { seoulIsoWeekKey } from "./iso-week"');
+    // GAP-054 #6에서 같은 모듈의 서울 달력 헬퍼가 함께 들어와 import 한 줄이 넓어졌다 --
+    // 요지(주 식별자는 iso-week.ts 단일 소스)는 그대로다.
+    expect(generatorsSource).toContain('seoulIsoWeekKey } from "./iso-week"');
     expect(generatorsSource).toContain('import { formatKrw } from "../money"');
     expect(generatorsSource).toContain("dedupeKey: `weekly_summary:${childId}:${seoulIsoWeekKey(now)}`");
     // Wired inside evaluateHomeNotifications, so the hook stays the single evaluation entry point.
