@@ -20,7 +20,9 @@ export type AnalyticsEventName =
   | "affiliate_link_clicked"
   | "purchase_followup_answered"
   // 라운드 39 UX-P: 리포트 공유 버튼 탭(월간 요약 · 마일스톤). 공유 시트를 띄운 것까지만 센다.
-  | "report_share_tapped";
+  | "report_share_tapped"
+  // 라운드 60 #9: 온보딩 단계 진입(ONB-001..ONB-004). 퍼널 1단이 "완료"였던 사각지대를 메운다.
+  | "onboarding_step_viewed";
 
 export type AnalyticsEnvelope = {
   eventName: AnalyticsEventName;

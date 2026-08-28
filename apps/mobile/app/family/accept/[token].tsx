@@ -1,8 +1,15 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Text, View } from "react-native";
 import { hasApiErrorCode } from "../../../src/api/api-error";
-import { acceptInvite, getInvite, listChildren, LOCAL_SESSION_TOKEN } from "../../../src/api/client";
+import {
+  acceptInvite,
+  getInvite,
+  listChildren,
+  LOCAL_SESSION_TOKEN,
+  type AcceptInviteResponse
+} from "../../../src/api/client";
 import {
   HOUSEHOLD_JOIN_INVALIDATE_KEYS,
   loginHrefForInvite,
@@ -65,6 +72,18 @@ export default function AcceptInviteScreen() {
     queryFn: () => getInvite(token)
   });
 
+  /**
+   * 라운드 60 #3: 참여는 성공했는데 **아이 목록 조회가 실패**한 사람이 머무는 자리.
+   *
+   * 예전에는 그 실패가 `.catch(() => null)`로 "아이 없음"과 같은 값이 되어, 아이가 멀쩡히 있는
+   * 가구에 참여한 사람까지 온보딩으로 떨어졌다(= 아이를 한 번 더 만들 수 있었다). 이제는
+   * 화면에 머물면서 **같은 뒤처리만 다시** 태운다 -- 초대 수락(POST)은 이미 성공했으므로 절대
+   * 다시 부르지 않는다(다시 부르면 409 HOUSEHOLD_ALREADY_MEMBER뿐이다).
+   */
+  const [joinedResult, setJoinedResult] = useState<AcceptInviteResponse | null>(null);
+  const [joinRetryNotice, setJoinRetryNotice] = useState<string | null>(null);
+  const [isFinishingJoin, setIsFinishingJoin] = useState(false);
+
   const accept = useMutation({
     mutationFn: () => acceptInvite(authToken!, token),
     /**
@@ -74,6 +93,7 @@ export default function AcceptInviteScreen() {
      * 새 목록 조회 -> 캐시 무효화 -> 계획대로 아이 재선택 + 안내 -> 이동.
      */
     onSuccess: async (result) => {
+      setJoinedResult(result);
       if (!isTestSession) {
         useSessionStore.setState({ defaultHouseholdId: result.household.id });
         // UX-R(M): 참여 응답이 내려준 **내 역할**을 여기서 담는다. 보기 전용·선물 참여
@@ -98,22 +118,48 @@ export default function AcceptInviteScreen() {
         // 스로틀의 전제가 성립하지 않는다. 조회는 백그라운드라 아래 이동 흐름을 붙잡지 않는다.
         revalidateHouseholdRoles({ force: true });
       }
+      await finishHouseholdJoin(result);
+    }
+  });
+
+  /**
+   * 참여 성공 **이후**의 뒤처리 한 벌: 아이 목록 조회 -> 캐시 무효화 -> 계획대로 착지.
+   * 조회 실패("retry" 계획) 때 버튼 하나로 이 함수만 다시 태울 수 있게 mutation 밖으로 뺐다.
+   */
+  async function finishHouseholdJoin(result: AcceptInviteResponse) {
+    setIsFinishingJoin(true);
+    try {
       // 데모(local-backend) 세션은 가구가 하나뿐이라 "다른 가구로 참여"를 모사하지 않는다
       // (FIX-118B(F3)와 같은 정직성 규칙) -- 알 수 없음으로 두어 허위 전환 안내를 막는다.
-      const children = isDemoSession
-        ? null
+      //
+      // 라운드 60 #3: 예전의 `.catch(() => null)`은 **조회 실패**와 **조회하지 않음(데모)**을
+      // 같은 값으로 접었고, 순수 모듈은 둘 다 "아이 없음"으로 읽었다. 이제 실패를 별도의
+      // 사실(childrenLoadFailed)로 실어 보낸다 -- 데모는 실패한 적이 없으므로 false다.
+      const lookup = isDemoSession
+        ? { children: null, failed: false }
         : await listChildren(authToken!)
-            .then((response) => response.children)
-            .catch(() => null);
+            .then((response) => ({ children: response.children, failed: false }))
+            .catch(() => ({ children: null, failed: true }));
       await Promise.all(
         HOUSEHOLD_JOIN_INVALIDATE_KEYS.map((key) => queryClient.invalidateQueries({ queryKey: [...key] }))
       );
       const plan = planAfterHouseholdJoin({
         householdId: result.household.id,
-        children,
-        currentChildId: selectedChildId
+        children: lookup.children,
+        currentChildId: selectedChildId,
+        // UX-R(M)이 이미 담아 둔 그 역할이다 -- 참여 응답만이 이 가구에서의 내 역할을 안다.
+        role: result.household.role,
+        childrenLoadFailed: lookup.failed
       });
       const joinedText = `${result.household.name}과 함께해요.`;
+      // 라운드 60 #3(막다른 길 ②): 조회 실패는 이동하지 않고 화면에 머문다. 안내는 순수 모듈의
+      // 문구를 그대로 쓰고, [다시 시도]가 이 함수를 다시 태운다(수락 POST는 다시 부르지 않는다).
+      if (plan.kind === "retry") {
+        setJoinRetryNotice(plan.notice);
+        announceForA11y(plan.notice);
+        return;
+      }
+      setJoinRetryNotice(null);
       if (plan.kind === "select") {
         setSelectedChildId(plan.childId);
         // 이 분기(= 참여한 가구에 이미 아이가 있음)는 실질적으로 온보딩이 끝난 상태다:
@@ -129,7 +175,10 @@ export default function AcceptInviteScreen() {
       }
       // 라운드 49 QA(P3-10): 볼 아이가 하나도 없는 참여자는 /family(탭 밖)에 갇히는 대신
       // 온보딩 시작점으로 잇는다 -- 계획과 안내 문구는 순수 모듈이 정한다.
-      if (plan.kind === "onboarding") {
+      //
+      // 라운드 60 #3(막다른 길 ①): 아이를 만들 수 없는 역할은 온보딩 대신 "blocked" 안내로
+      // 착지한다. 두 갈래 모두 안내 문구를 그대로 읽어 주므로 처리는 한 자리에서 같다.
+      if (plan.kind === "onboarding" || plan.kind === "blocked") {
         announceForA11y(plan.notice);
         Alert.alert("가족에 참여했어요", `${joinedText}\n${plan.notice}`, [
           { text: "확인", onPress: () => router.replace(plan.href) }
@@ -139,8 +188,10 @@ export default function AcceptInviteScreen() {
       Alert.alert("가족에 참여했어요", joinedText, [
         { text: "확인", onPress: () => router.replace(plan.href) }
       ]);
+    } finally {
+      setIsFinishingJoin(false);
     }
-  });
+  }
 
   return (
     <AppScreen>
@@ -170,6 +221,24 @@ export default function AcceptInviteScreen() {
 
         {accept.isError ? <Text style={{ color: theme.colors.danger }}>{acceptErrorText(accept.error)}</Text> : null}
 
+        {/* 라운드 60 #3(막다른 길 ②): 참여는 됐고 아이 목록만 못 받았다. "아이가 없다"고
+            단정하지 않고 사실만 말한 뒤, 같은 뒤처리만 다시 태우는 [다시 시도]를 준다 --
+            초대 수락(POST)은 이미 성공했으므로 다시 부르지 않는다(409만 남는다). */}
+        {joinRetryNotice && joinedResult ? (
+          <View accessibilityRole="alert">
+            <Card style={{ gap: 10 }}>
+              <Text style={{ color: theme.colors.brown }}>{`${joinedResult.household.name}과 함께해요.`}</Text>
+              <Text style={{ color: theme.colors.danger }}>{joinRetryNotice}</Text>
+              <SecondaryButton
+                accessibilityLabel="가족 정보 다시 불러오기"
+                disabled={isFinishingJoin}
+                label={isFinishingJoin ? "다시 시도하는 중..." : "다시 시도"}
+                onPress={() => void finishHouseholdJoin(joinedResult)}
+              />
+            </Card>
+          </View>
+        ) : null}
+
         {!authToken ? (
           <>
             <Text style={mutedTextStyle}>로그인하면 이 초대로 바로 돌아와서 참여할 수 있어요.</Text>
@@ -189,7 +258,9 @@ export default function AcceptInviteScreen() {
         ) : (
           <PrimaryButton
             label={accept.isPending ? "참여하는 중..." : "가족에 참여하기"}
-            disabled={!invite.data || accept.isPending}
+            // 라운드 60 #3: 이미 참여에 성공했다면(joinedResult) 이 버튼은 다시 눌릴 수 없다 --
+            // 뒤처리만 실패해 화면에 남은 상태에서 다시 누르면 409뿐이다. 재시도는 위 카드가 맡는다.
+            disabled={!invite.data || accept.isPending || Boolean(joinedResult)}
             onPress={() => accept.mutate()}
           />
         )}

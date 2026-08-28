@@ -4,7 +4,11 @@ import { Platform, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { LOCAL_SESSION_TOKEN, upsertBudget } from "../../src/api/client";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
-import { OnboardingSaveErrorCard, OnboardingStepProgress } from "../../src/onboarding/step-ui";
+import {
+  OnboardingSaveErrorCard,
+  OnboardingStepProgress,
+  useOnboardingStepAnalytics
+} from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -25,6 +29,9 @@ export default function BudgetScreen() {
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const completeStep = useOnboardingProgressStore((state) => state.completeStep);
   const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
+
+  // 라운드 60 #9: 단계 진입 계측(onboarding_step_viewed). 동의 OFF면 완전한 no-op이다.
+  useOnboardingStepAnalytics("ONB-004");
 
   const amountKrw = Number(amountDigits || "0");
   /**
@@ -138,7 +145,7 @@ export default function BudgetScreen() {
           ) : null}
         </Card>
 
-        {save.isError ? <OnboardingSaveErrorCard onRetry={() => save.mutate()} /> : null}
+        {save.isError ? <OnboardingSaveErrorCard error={save.error} onRetry={() => save.mutate()} /> : null}
 
         <View style={{ gap: theme.spacing.gap }}>
           <PrimaryButton

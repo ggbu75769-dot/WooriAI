@@ -271,12 +271,51 @@ describe("Admin CMS analytics page (ADM-009)", () => {
     expect(source).toContain("summary.purchaseFollowup");
   });
 
+  /**
+   * 라운드 60 #9: 퍼널의 1단이 "온보딩 완료"라, 그 앞에서 일어난 이탈은 퍼널 안에서는 영영
+   * 보이지 않았다. 단계 진입 계측을 퍼널 **바로 위** 카드로 붙이되, 퍼널의 단계로는 넣지
+   * 않는다 -- 단계 진입은 사람당 최대 4건이라 퍼센트 전환율로 적으면 구조적으로 틀린다.
+   */
+  describe("라운드 60 #9 온보딩 단계 이탈 표기", () => {
+    it("KPI 퍼널 바로 위에 온보딩 단계 이탈 카드를 둔다", () => {
+      const source = readSource("app/analytics/page.tsx");
+      expect(source).toContain("온보딩 단계 이탈 (퍼널 진입 전)");
+      expect(source).toContain('eventCount(summary, "onboarding_step_viewed")');
+      // 순서: 단계 이탈 카드가 KPI 퍼널 섹션보다 앞이다.
+      expect(source.indexOf("온보딩 단계 이탈")).toBeLessThan(source.indexOf("<h2>KPI 퍼널</h2>"));
+    });
+
+    it("퍼널 단계 목록은 그대로다 (진입 이벤트를 단계로 끼워 넣지 않는다)", () => {
+      const source = readSource("app/analytics/page.tsx");
+      const block = source.split("const FUNNEL_STAGES")[1]?.split("];")[0] ?? "";
+      expect(block).not.toContain("onboarding_step_viewed");
+    });
+
+    it("사람 수가 아니라는 사실을 숨기지 않고, 비율 대신 배수로만 적는다 (허위 데이터 금지)", () => {
+      const source = readSource("app/analytics/page.tsx");
+      expect(source).toContain("function stepsPerCompletion(stepViews: number, completions: number): string");
+      // 완료 0건이면 계산 불가 — 0으로 나눈 값을 100%처럼 적지 않는다.
+      expect(source).toContain("if (completions <= 0) return \"-\";");
+      expect(source).toContain("사용자 수가 아니에요");
+      // 진입 대비 완료를 퍼센트 전환율로 적는 경로는 없다.
+      expect(source).not.toContain("conversionRate(stepViews");
+    });
+
+    it("단계별 분해가 아직 없다는 한계를 화면에서 밝힌다", () => {
+      const source = readSource("app/analytics/page.tsx");
+      expect(source).toContain("<strong>어느 단계에서</strong>");
+      expect(source).toContain("요약 API는 이벤트 이름 단위로만 집계해요");
+    });
+  });
+
   it("labels the appended registry events in the per-event table (they arrive via byName, not the 6-name mirror)", () => {
     const source = readSource("app/analytics/page.tsx");
     expect(source).toContain('item_detail_viewed: "준비템 상세 열람"');
     expect(source).toContain('purchase_followup_answered: "구매 확인 응답"');
     // 라운드 39 UX-P가 레지스트리 맨 뒤에 붙인 이름 — 라벨이 없으면 표에 원문 이름이 노출된다.
     expect(source).toContain('report_share_tapped: "리포트 공유"');
+    // 라운드 60 #9가 같은 규칙으로 붙인 이름.
+    expect(source).toContain('onboarding_step_viewed: "온보딩 단계 진입"');
     expect(source).toContain("ANA127_EVENT_LABELS[name]");
     // 레지스트리 밖 이름을 덧붙이는 기존 경로는 그대로 살아 있어야 이 두 이름이 표에 나온다.
     expect(source).toContain("summary.byName.filter((entry) => !(ANALYTICS_EVENT_NAMES as string[]).includes(entry.name))");

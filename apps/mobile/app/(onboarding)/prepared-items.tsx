@@ -10,7 +10,11 @@ import {
   selectPreparedItemOptions,
   togglePreparedItemId
 } from "../../src/onboarding/prepared-items-selection";
-import { OnboardingSaveErrorCard, OnboardingStepProgress } from "../../src/onboarding/step-ui";
+import {
+  OnboardingSaveErrorCard,
+  OnboardingStepProgress,
+  useOnboardingStepAnalytics
+} from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -26,6 +30,9 @@ export default function PreparedItemsScreen() {
   const completeStep = useOnboardingProgressStore((state) => state.completeStep);
   // 기본값은 전체 해제 — 사용자가 직접 고른 것만 "이미 준비했다"고 선언한다(라운드 45 UX-Y).
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
+
+  // 라운드 60 #9: 단계 진입 계측(onboarding_step_viewed). 동의 OFF면 완전한 no-op이다.
+  useOnboardingStepAnalytics("ONB-003");
 
   /**
    * 라운드 49 QA(P2-2): 데모 세션도 **같은 조회, 같은 판정**을 쓴다.
@@ -165,7 +172,7 @@ export default function PreparedItemsScreen() {
           나중에 준비템 탭에서 언제든 다시 체크할 수 있어요.
         </Text>
 
-        {save.isError ? <OnboardingSaveErrorCard onRetry={() => save.mutate()} /> : null}
+        {save.isError ? <OnboardingSaveErrorCard error={save.error} onRetry={() => save.mutate()} /> : null}
 
         <PrimaryButton
           disabled={save.isPending || isLoadingOptions || !authToken || !selectedChildId}

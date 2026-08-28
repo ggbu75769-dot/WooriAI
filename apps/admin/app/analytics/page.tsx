@@ -25,8 +25,13 @@ import styles from "../../src/components/admin-page.module.css";
 const ANA127_EVENT_LABELS: Record<string, string> = {
   item_detail_viewed: "준비템 상세 열람",
   purchase_followup_answered: "구매 확인 응답",
-  report_share_tapped: "리포트 공유"
+  report_share_tapped: "리포트 공유",
+  // 라운드 60 #9: 온보딩 단계 진입. 같은 append-only 규칙으로 레지스트리 맨 뒤에 붙었다.
+  onboarding_step_viewed: "온보딩 단계 진입"
 };
+
+/** 온보딩 단계 수(ONB-001..ONB-004) — packages/contracts/src/analytics.ts의 ONBOARDING_STEPS 길이. */
+const ONBOARDING_STEP_COUNT = 4;
 
 type FunnelStage = {
   /** 단계 식별자(React key). 이벤트 이름이 아니라 단계 이름 — 마지막 단은 이벤트 전체가
@@ -78,6 +83,19 @@ function eventLabel(name: string): string {
  * 목록에 없는 이름은 실제로 0건이다. */
 function eventCount(summary: AdminAnalyticsSummary, eventName: string): number {
   return summary.byName.find((entry) => entry.name === eventName)?.count ?? 0;
+}
+
+/**
+ * 라운드 60 #9: 온보딩 **완료 1건당 단계 진입 수**.
+ *
+ * `onboarding_step_viewed`는 화면당 1건씩 쌓이므로(한 사람이 끝까지 가면 4건) 이 값은
+ * 이탈이 없을 때 4.0에 가깝고, 중간에서 멈춘 사람이 많을수록 커진다. 퍼센트 전환율로 적으면
+ * "진입 대비 완료 25%"처럼 **구조적으로 틀린 숫자**가 되므로 비율이 아니라 배수로 적는다.
+ * 완료가 0이면 계산 불가("-") -- 0으로 나눠 무한대를 쓰거나 100%로 반올림하지 않는다.
+ */
+function stepsPerCompletion(stepViews: number, completions: number): string {
+  if (completions <= 0) return "-";
+  return `${(stepViews / completions).toFixed(1)}배`;
 }
 
 /** 직전 단계 대비 전환율(%). 직전 단계가 0이면 계산 불가("-"). */
@@ -174,6 +192,59 @@ export default function AnalyticsSummaryPage() {
                 </p>
               </article>
             </div>
+          </section>
+
+          {/* 라운드 60 #9: KPI 퍼널 **바로 위**에 온보딩 단계 이탈을 둔다 -- 퍼널의 1단이
+              "온보딩 완료"라, 그 앞에서 일어난 이탈은 퍼널 안에서는 영영 보이지 않는다.
+              퍼널의 단계로 넣지 않는 이유는 정직성이다: 단계 진입은 사람당 최대 4건이라
+              "완료 대비 25%"처럼 구조적으로 틀린 전환율이 나온다(stepsPerCompletion 주석). */}
+          <section className={styles.card}>
+            <h2>온보딩 단계 이탈 (퍼널 진입 전)</h2>
+            {(() => {
+              const stepViews = eventCount(summary, "onboarding_step_viewed");
+              const completions = eventCount(summary, "onboarding_completed");
+              return (
+                <>
+                  <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+                    <article style={{ background: "#FFF8F1", borderRadius: 8, padding: 16 }}>
+                      <p style={{ color: "#7A7A7A", fontSize: 13, margin: 0 }}>단계 진입 (이벤트 수)</p>
+                      <p style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>
+                        {stepViews.toLocaleString("ko-KR")}건
+                      </p>
+                      <p style={{ color: "#7A7A7A", fontSize: 12, margin: "4px 0 0" }}>
+                        온보딩 {ONBOARDING_STEP_COUNT}개 화면 진입의 합계예요
+                      </p>
+                    </article>
+                    <article style={{ background: "#FFF8F1", borderRadius: 8, padding: 16 }}>
+                      <p style={{ color: "#7A7A7A", fontSize: 13, margin: 0 }}>온보딩 완료</p>
+                      <p style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>
+                        {completions.toLocaleString("ko-KR")}건
+                      </p>
+                      <p style={{ color: "#7A7A7A", fontSize: 12, margin: "4px 0 0" }}>아래 퍼널의 1단과 같은 수예요</p>
+                    </article>
+                    <article style={{ background: "#FFF8F1", borderRadius: 8, padding: 16 }}>
+                      <p style={{ color: "#7A7A7A", fontSize: 13, margin: 0 }}>완료 1건당 단계 진입</p>
+                      <p style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>
+                        {stepsPerCompletion(stepViews, completions)}
+                      </p>
+                      <p style={{ color: "#7A7A7A", fontSize: 12, margin: "4px 0 0" }}>
+                        {ONBOARDING_STEP_COUNT}.0배에 가까울수록 이탈이 적어요
+                      </p>
+                    </article>
+                  </div>
+                  <p className={styles.hint}>
+                    ※ 단계 진입은 화면마다 1건씩(사람당 최대 {ONBOARDING_STEP_COUNT}건) 쌓이는 이벤트 수라{" "}
+                    <strong>사용자 수가 아니에요</strong>. 그래서 완료 대비 비율을 퍼센트 전환율로 적지 않고 배수로만
+                    적어요 — 끝까지 간 사람만 있으면 {ONBOARDING_STEP_COUNT}.0배, 중간에서 멈춘 사람이 많을수록 커져요.
+                  </p>
+                  <p className={styles.hint}>
+                    ※ <strong>어느 단계에서</strong> 멈췄는지는 아직 이 표에 없어요. 이벤트 payload에는 단계 값(
+                    <code>step</code>)이 저장되지만, 요약 API는 이벤트 이름 단위로만 집계해요(구매 확인 응답처럼 단계별
+                    분해를 내려주면 그때 여기에 표로 붙일 수 있어요).
+                  </p>
+                </>
+              );
+            })()}
           </section>
 
           <section className={styles.card}>

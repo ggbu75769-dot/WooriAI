@@ -14,7 +14,11 @@ import {
   validateChildForm
 } from "../../src/children/child-form";
 import { createOnboardingChild } from "../../src/onboarding/child-create";
-import { OnboardingSaveErrorCard, OnboardingStepProgress } from "../../src/onboarding/step-ui";
+import {
+  OnboardingSaveErrorCard,
+  OnboardingStepProgress,
+  useOnboardingStepAnalytics
+} from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -43,6 +47,9 @@ export default function ChildProfileScreen() {
   );
   const clearChildCreateIdempotencyKey = useOnboardingProgressStore((state) => state.clearChildCreateIdempotencyKey);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
+
+  // 라운드 60 #9: 단계 진입 계측(onboarding_step_viewed). 동의 OFF면 완전한 no-op이다.
+  useOnboardingStepAnalytics("ONB-002");
 
   // 실기기 피드백 1: 날짜를 **필수**로 받는다(requireDate). 예전에는 "날짜 없이 태명만으로도
   // 계속할 수 있어요"라고 안내했지만, 서버 normalizeChildInput은 pregnant/born에 날짜가 없으면
@@ -193,7 +200,7 @@ export default function ChildProfileScreen() {
           ) : null}
         </Card>
 
-        {save.isError ? <OnboardingSaveErrorCard onRetry={() => save.mutate()} /> : null}
+        {save.isError ? <OnboardingSaveErrorCard error={save.error} onRetry={() => save.mutate()} /> : null}
 
         <PrimaryButton
           disabled={!canSave || save.isPending}

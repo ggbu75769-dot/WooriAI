@@ -77,6 +77,17 @@ export const purchaseFollowupAnswerSchema = z.enum(PURCHASE_FOLLOWUP_ANSWERS);
 export const REPORT_SHARE_TYPES = ["monthly", "milestone"] as const;
 export const reportShareTypeSchema = z.enum(REPORT_SHARE_TYPES);
 
+/**
+ * 라운드 60 #9: 온보딩 4단계(ONB-001..ONB-004)의 단계 식별자. 순서는 앱의 고정된 단계 순서
+ * (apps/mobile/src/onboarding/steps.ts의 onboardingSteps)와 같고, `stepNumber`는 이 배열의
+ * 1부터 세는 위치다.
+ *
+ * 화면 코드(ONB-001…)가 아니라 사람이 읽는 단계 이름을 리터럴로 쓴다 -- 어드민 표에 그대로
+ * 나가는 값이라, 내부 화면 번호보다 무엇을 하는 단계인지가 읽혀야 한다.
+ */
+export const ONBOARDING_STEPS = ["child_status", "child_profile", "prepared_items", "budget"] as const;
+export const onboardingStepSchema = z.enum(ONBOARDING_STEPS);
+
 export const analyticsEventEnvelopeSchema = z
   .object({
     eventName: z.string().min(1).max(64),
@@ -175,6 +186,26 @@ const reportShareTappedV1Payload = z
   })
   .strict();
 
+/**
+ * 라운드 60 #9: 온보딩 **단계 진입**. 지금까지 온보딩 이벤트는 `onboarding_completed` 하나뿐이라
+ * 어드민 KPI 퍼널의 1단이 이미 "완료"였고, 그 앞에서 사람들이 어디서 그만두는지는 어떤
+ * 데이터로도 답할 수 없었다(퍼널의 사각지대).
+ *
+ * 페이로드는 **단계 enum + 정수 하나**뿐이다. 이 네 화면에는 아이 애칭·예정일·출생일·월 예산이
+ * 모두 있지만 그중 무엇도 싣지 않는다 -- 이 레지스트리의 PII 규칙상 문자열 필드는 enum만
+ * 허용되고(analytics.pii-lint), strict 스키마가 나머지 키를 전부 거부한다.
+ *
+ * `stepNumber`가 `step`과 함께 있는 이유: 단계 이름만으로는 순서를 모르는 소비자(어드민 표,
+ * 나중에 붙을 단계별 분해)가 정렬을 위해 이름 목록을 다시 하드코딩하게 된다. 순서는 이벤트가
+ * 스스로 말한다.
+ */
+const onboardingStepViewedV1Payload = z
+  .object({
+    step: onboardingStepSchema,
+    stepNumber: z.number().int().min(1).max(ONBOARDING_STEPS.length)
+  })
+  .strict();
+
 export type AnalyticsEventRegistryEntry = {
   eventName: string;
   eventVersion: number;
@@ -195,7 +226,9 @@ export const analyticsEventRegistry: readonly AnalyticsEventRegistryEntry[] = [
   { eventName: "item_detail_viewed", eventVersion: 1, payloadSchema: itemDetailViewedV1Payload },
   { eventName: "purchase_followup_answered", eventVersion: 1, payloadSchema: purchaseFollowupAnsweredV1Payload },
   // 라운드 39 UX-P. 위 append-only 규칙 그대로 맨 뒤에 붙인다.
-  { eventName: "report_share_tapped", eventVersion: 1, payloadSchema: reportShareTappedV1Payload }
+  { eventName: "report_share_tapped", eventVersion: 1, payloadSchema: reportShareTappedV1Payload },
+  // 라운드 60 #9. 같은 규칙 -- 기존 순서에 끼워 넣지 않고 맨 뒤에만 붙인다.
+  { eventName: "onboarding_step_viewed", eventVersion: 1, payloadSchema: onboardingStepViewedV1Payload }
 ];
 
 function registryKey(eventName: string, eventVersion: number): string {
