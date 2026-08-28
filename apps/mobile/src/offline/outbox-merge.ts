@@ -133,6 +133,10 @@ export function mergeItemStatusMutation(
     attemptCount: 0,
     nextRetryAt: null,
     lastError: null,
+    // 라운드 57: 구조화된 실패 사유도 재시도 예산과 같은 운명이다 -- 스프레드로 낡은
+    // status/code가 pending 행에 눌러앉으면 다음 판정이 지난 실패를 이번 시도의 사실로 읽는다.
+    lastErrorStatus: undefined,
+    lastErrorCode: undefined,
     updatedAt: incoming.updatedAt
   };
   return [...inFlightRows, merged];
