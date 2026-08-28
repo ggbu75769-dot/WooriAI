@@ -3,7 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import { Alert, Image, Pressable, Text, View } from "react-native";
-import { getHome, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import {
+  getHome,
+  listChildren,
+  listHouseholdMembers,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_SESSION_TOKEN
+} from "../../src/api/client";
 // EXP-106 내보내기 흐름은 설정 화면과 공유하는 공용 모듈에 있다 (CLEAN-123/A3).
 import {
   EXPORT_MENU_TITLE,
@@ -13,7 +19,13 @@ import {
   useExpenseCsvExport
 } from "../../src/export/ExpenseCsvExport";
 // 라운드 41 UX-U(A): 로그인 메뉴의 정보 구조(행 구성 · 이름 · 목적지)는 순수 모듈이 단일 소스다.
-import { buildMoreSessionMenuRows, MORE_PROFILE_CARD_ROUTE } from "../../src/settings/more-menu";
+// DSN-053 P2-D: 그 모듈이 구획(MORE_MENU_SECTIONS)까지 정한다 -- 화면은 그 순서대로 그룹 박스만 만든다.
+import {
+  buildMoreSessionMenuRows,
+  MORE_MENU_SECTIONS,
+  MORE_PROFILE_CARD_ROUTE,
+  type MoreMenuSection
+} from "../../src/settings/more-menu";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
@@ -23,9 +35,13 @@ import { theme } from "../../src/theme";
 // 라운드 49 QA(P2-3): EmptyStateCard·SkeletonRow가 더해졌지만 **세션 경로에서만** 그려진다 --
 // 비로그인 미리보기(SET-001 픽셀 락 캡처)의 렌더는 한 픽셀도 바뀌지 않는다.
 import { AppScreen, EmptyStateCard } from "../../src/ui";
+// DSN-053 P2-D: stage pill은 앱이 이미 쓰는 한 벌(coral[50] 배경 · coral[700] 12/700)이다.
+import { StageBadge } from "../../src/ui/StageBadge";
 import { SkeletonRow } from "../../src/ui/Skeleton";
 
 const moreAvatarImage = require("../../assets/illustrations/toddler.png");
+// SET-001 승인 캡처의 가구 카드 마크. 브랜딩 자산은 P0에서 이미 같은 바이트로 맞춰져 있다.
+const moreHouseholdLogoImage = require("../../assets/illustrations/logo_mark.png");
 const moreReferenceScreenId = "pixel-screen-SET-001 SET-001 · FAM-001 · IMP-001";
 // UX-5B-9: 미리보기(로그아웃) 메뉴도 라벨과 목적지가 일치하도록 정리 -- "알림 설정"→/settings,
 // "데이터 백업"→/import, "고객센터"→/settings/privacy 같은 눈속임 라우팅을 제거했다.
@@ -57,11 +73,18 @@ function MoreMenuRow({
   icon,
   title,
   caption,
+  grouped = false,
   onPress
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   caption?: string;
+  /**
+   * DSN-053 P2-D: 세션("프로필") 구획 안의 행 문법 — 최소 높이 64에 coral[50] 원 40 안의
+   * coral[700] 아이콘. **기본값 false**라 비로그인 미리보기(SET-001 픽셀 락 캡처)의 행은
+   * 예전 그대로 44dp 높이 + 14px 인라인 아이콘이다(한 노드도 달라지지 않는다).
+   */
+  grouped?: boolean;
   onPress?: () => void;
 }) {
   return (
@@ -71,18 +94,24 @@ function MoreMenuRow({
       accessibilityState={{ disabled: !onPress }}
       disabled={!onPress}
       onPress={onPress}
-      style={moreMenuRowStyle()}
+      style={grouped ? moreSectionRowStyle : moreMenuRowStyle()}
     >
       {/* 아이콘은 장식이다 -- 행 이름·캡션은 바깥 Pressable의 accessibilityLabel이 읽어 준다.
           크기·색·열 폭은 예전 Text 스타일 토큰(moreMenuIconStyle)에서 그대로 읽어 쓴다. */}
-      <Ionicons
-        accessible={false}
-        name={icon}
-        size={moreMenuIconStyle.fontSize}
-        color={moreMenuIconStyle.color}
-        style={{ width: moreMenuIconStyle.width }}
-      />
-      <Text style={moreMenuTitleStyle}>{title}</Text>
+      {grouped ? (
+        <View style={moreSectionRowIconCircleStyle}>
+          <Ionicons accessible={false} name={icon} size={22} color={theme.colors.coral[700]} />
+        </View>
+      ) : (
+        <Ionicons
+          accessible={false}
+          name={icon}
+          size={moreMenuIconStyle.fontSize}
+          color={moreMenuIconStyle.color}
+          style={{ width: moreMenuIconStyle.width }}
+        />
+      )}
+      <Text style={grouped ? moreSectionRowTitleStyle : moreMenuTitleStyle}>{title}</Text>
       {caption ? <Text style={moreMenuCaptionStyle}>{caption}</Text> : <Text accessible={false} style={moreMenuChevronStyle}>›</Text>}
     </Pressable>
   );
@@ -99,6 +128,33 @@ export default function MoreScreen() {
     enabled: hasSession,
     queryFn: () => getHome(authToken!, childId!)
   });
+  /**
+   * DSN-053 P2-D — 가구 카드의 "보호자 N명 · 아이 M명".
+   *
+   * 두 조회 모두 **앱이 이미 쓰고 있는 캐시 키**를 그대로 읽는다: `["children"]`은 리포트 탭·
+   * 아이 관리 화면과, `["household-members", householdId]`는 가족 화면과 같은 항목이다. 즉
+   * 그 화면들을 한 번이라도 지나온 세션에서는 새 요청이 나가지 않고 캐시가 그대로 그려진다.
+   *
+   * 값이 아직 없으면 **줄 자체를 그리지 않는다**(아래 householdCaption). c20deeb 원본은
+   * `활성 멤버 수 || 1`로 폴백했는데, 그러면 응답 전에는 3인 가구에도 "보호자 1명"이 떴다가
+   * 뒤늦게 바뀐다 -- 세지 않은 수를 세었다고 말하는 자리라 그 폴백은 옮기지 않는다.
+   */
+  const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
+  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const children = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
+  });
+  const members = useQuery({
+    queryKey: ["household-members", householdId],
+    enabled: Boolean(authToken && householdId),
+    queryFn: () => listHouseholdMembers(authToken!, householdId!)
+  });
+  const activeMemberCount = members.data?.members.filter((member) => member.status === "active").length ?? null;
+  const childCount = children.data?.children.length ?? null;
+  const householdCaption =
+    activeMemberCount !== null && childCount !== null ? `보호자 ${activeMemberCount}명 · 아이 ${childCount}명` : null;
   /**
    * 라운드 49 QA(P2-3) — 홈·준비템·리포트(C-07)와 **같은 규칙**: 미리보기 픽스처에 닿는 유일한
    * 경로는 `!authToken`이다.
@@ -137,6 +193,8 @@ export default function MoreScreen() {
     icon: keyof typeof Ionicons.glyphMap;
     title: string;
     caption?: string;
+    /** DSN-053 P2-D: 세션 메뉴만 구획을 갖는다(비로그인 미리보기 행은 예전처럼 한 덩어리다). */
+    section?: MoreMenuSection;
     onPress?: () => void;
   }> =
     buildMoreSessionMenuRows({ exportTitle: EXPORT_MENU_TITLE }).map((row) => {
@@ -144,6 +202,7 @@ export default function MoreScreen() {
       return {
         icon: row.icon,
         title: row.title,
+        section: row.section,
         onPress: route
           ? () => router.push(route)
           : row.id === "export"
@@ -155,6 +214,7 @@ export default function MoreScreen() {
     icon: keyof typeof Ionicons.glyphMap;
     title: string;
     caption?: string;
+    section?: MoreMenuSection;
     onPress?: () => void;
   }> = [
     ...moreMenuRows.map((row) => ({
@@ -176,7 +236,9 @@ export default function MoreScreen() {
     <AppScreen>
       <View testID={moreReferenceScreenId} style={moreReferenceFrameStyle()}>
         <View style={moreHeaderRowStyle}>
-          <Text style={moreTitleStyle}>더보기</Text>
+          {/* DSN-053 P2-D: 세션에서는 이 화면이 승인 캡처의 "프로필"(가구 카드 + 4구획)이다.
+              비로그인 미리보기는 SET-001 캡처 경로라 종전 제목 그대로 둔다. */}
+          <Text style={moreTitleStyle}>{authToken ? "프로필" : "더보기"}</Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={hasSession ? "기록 검색" : "설정"}
@@ -211,6 +273,29 @@ export default function MoreScreen() {
               onPress={() => router.push("/settings/children")}
             />
           </View>
+        ) : authToken ? (
+          /* DSN-053 P2-D 가구 카드: 로고 원 56(마크 38) · "{닉네임}네" 18/800 · 보호자·아이 수 ·
+             stage pill. 목적지는 라운드 41 UX-U(A)가 정한 그대로다(MORE_PROFILE_CARD_ROUTE). */
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              householdCaption
+                ? `${visibleProfile.nickname}네, ${householdCaption}, ${visibleProfile.stageLabel}, 프로필 관리`
+                : `${visibleProfile.nickname}네, ${visibleProfile.stageLabel}, 프로필 관리`
+            }
+            onPress={() => router.push(MORE_PROFILE_CARD_ROUTE)}
+            style={moreHouseholdCardStyle}
+            testID="more-household-card"
+          >
+            <View style={moreHouseholdLogoCircleStyle}>
+              <Image source={moreHouseholdLogoImage} style={moreHouseholdLogoStyle} resizeMode="contain" />
+            </View>
+            <View style={moreHouseholdTextGroupStyle}>
+              <Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>
+              {householdCaption ? <Text style={moreHouseholdMetaStyle}>{householdCaption}</Text> : null}
+            </View>
+            <StageBadge label={visibleProfile.stageLabel} />
+          </Pressable>
         ) : (
           <Pressable
             accessibilityRole="button"
@@ -226,11 +311,41 @@ export default function MoreScreen() {
           </Pressable>
         )}
 
-        <View style={moreMenuGroupStyle()}>
-          {visibleMenuRows.map((row) => (
-            <MoreMenuRow key={row.title} icon={row.icon} title={row.title} caption={row.caption} onPress={row.onPress} />
-          ))}
-        </View>
+        {/* DSN-053 P2-D: 세션 메뉴는 승인 캡처처럼 제목 붙은 그룹 박스 넷으로 나뉜다. 어떤 행이
+            어느 구획인지는 정보 구조 단일 소스(src/settings/more-menu.ts)가 정하므로 여기서는
+            그 순서대로 그리기만 한다 -- 행 문구·목적지·게이트는 한 글자도 바뀌지 않는다.
+            비로그인 미리보기는 예전 그대로 한 덩어리 박스다(SET-001 픽셀 락 캡처 경로). */}
+        {authToken ? (
+          MORE_MENU_SECTIONS.map((section) => {
+            const sectionRows = visibleMenuRows.filter((row) => row.section === section.key);
+            if (sectionRows.length === 0) return null;
+            return (
+              <View key={section.key} style={moreSectionStyle}>
+                <Text accessibilityRole="header" style={moreSectionTitleStyle}>
+                  {section.title}
+                </Text>
+                <View style={moreSectionGroupStyle}>
+                  {sectionRows.map((row) => (
+                    <MoreMenuRow
+                      key={row.title}
+                      grouped
+                      icon={row.icon}
+                      title={row.title}
+                      caption={row.caption}
+                      onPress={row.onPress}
+                    />
+                  ))}
+                </View>
+              </View>
+            );
+          })
+        ) : (
+          <View style={moreMenuGroupStyle()}>
+            {visibleMenuRows.map((row) => (
+              <MoreMenuRow key={row.title} icon={row.icon} title={row.title} caption={row.caption} onPress={row.onPress} />
+            ))}
+          </View>
+        )}
 
         <ExpenseCsvExportCard controller={csvExport} />
 
@@ -309,6 +424,93 @@ const moreChildAgeStyle = {
   fontSize: 12,
   fontWeight: "700",
   lineHeight: 18
+} as const;
+
+// ---------------------------------------------------------------------------------------------
+// DSN-053 P2-D — 세션("프로필") 전용 문법. 아래 토큰들은 위 미리보기 카드/메뉴 스타일을 대체하지
+// 않고 **나란히** 산다: 비로그인 렌더(SET-001 픽셀 락 캡처)는 예전 토큰만 계속 읽는다.
+
+const moreHouseholdCardStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.white,
+  borderColor: "rgba(74, 63, 53, 0.08)",
+  borderRadius: theme.radii.card,
+  borderWidth: 1,
+  flexDirection: "row",
+  gap: 12,
+  minHeight: 88,
+  padding: 16,
+  ...theme.shadows.card
+} as const;
+
+const moreHouseholdLogoCircleStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.coral[50],
+  borderRadius: 28,
+  height: 56,
+  justifyContent: "center",
+  width: 56
+} as const;
+
+const moreHouseholdLogoStyle = { height: 38, width: 38 } as const;
+
+const moreHouseholdTextGroupStyle = { flex: 1, gap: 3, minWidth: 0 } as const;
+
+const moreHouseholdNameStyle = {
+  color: theme.colors.brown,
+  fontSize: 18,
+  fontWeight: "800",
+  lineHeight: 26
+} as const;
+
+const moreHouseholdMetaStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 18
+} as const;
+
+const moreSectionStyle = { gap: 8 } as const;
+
+const moreSectionTitleStyle = {
+  color: theme.colors.gray600,
+  fontSize: 13,
+  fontWeight: "700",
+  lineHeight: 18
+} as const;
+
+const moreSectionGroupStyle = {
+  backgroundColor: theme.colors.white,
+  borderColor: "rgba(74, 63, 53, 0.08)",
+  borderRadius: theme.radii.card,
+  borderWidth: 1,
+  overflow: "hidden"
+} as const;
+
+const moreSectionRowStyle = {
+  alignItems: "center",
+  borderBottomColor: "rgba(74, 63, 53, 0.08)",
+  borderBottomWidth: 1,
+  flexDirection: "row",
+  gap: 12,
+  minHeight: 64,
+  paddingHorizontal: 14
+} as const;
+
+const moreSectionRowIconCircleStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.coral[50],
+  borderRadius: 20,
+  height: 40,
+  justifyContent: "center",
+  width: 40
+} as const;
+
+const moreSectionRowTitleStyle = {
+  color: theme.colors.brown,
+  flex: 1,
+  fontSize: 15,
+  fontWeight: "700",
+  lineHeight: 22
 } as const;
 
 function moreMenuGroupStyle() {

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildMoreSessionMenuRows,
+  MORE_MENU_SECTIONS,
   MORE_MENU_SETTINGS_ONLY_ROUTES,
   MORE_PROFILE_CARD_ROUTE,
   type MoreMenuRowSpec
@@ -71,6 +72,62 @@ describe("라운드 41 UX-U(A) 더보기 세션 메뉴 구성", () => {
       "데이터 내보내기"
     );
     expect(source("app/(tabs)/more.tsx")).toContain("buildMoreSessionMenuRows({ exportTitle: EXPORT_MENU_TITLE })");
+  });
+
+  /**
+   * DSN-053 P2-D: 승인 캡처("프로필")의 메뉴는 제목 붙은 그룹 박스 넷이다. 어떤 행이 어느
+   * 구획인지는 **행 목록과 같은 자리**에서 정해진다 -- 화면이 id를 보고 다시 분류하면 행이
+   * 하나 늘 때 두 곳이 갈리고, 그 순간 어느 구획에도 속하지 못한 행이 화면에서 사라진다.
+   */
+  describe("DSN-053 P2-D 4분할 구획", () => {
+    it("구획은 캡처 순서대로 넷이다", () => {
+      expect(MORE_MENU_SECTIONS.map((section) => section.key)).toEqual(["child", "family", "budgetData", "settings"]);
+      expect(MORE_MENU_SECTIONS.map((section) => section.title)).toEqual(["아이 · 산모", "가족", "예산 · 데이터", "설정"]);
+    });
+
+    it("모든 행이 정확히 한 구획에 속하고, 빈 구획이 없다", () => {
+      const sectionKeys = MORE_MENU_SECTIONS.map((section) => section.key);
+      for (const row of rows()) {
+        expect(sectionKeys, `${row.title}의 구획`).toContain(row.section);
+      }
+      for (const key of sectionKeys) {
+        expect(rows().filter((row) => row.section === key).length, `${key} 구획`).toBeGreaterThan(0);
+      }
+    });
+
+    it("행의 구획 배치가 목적지의 성격과 어긋나지 않는다", () => {
+      const sectionOf = (id: MoreMenuRowSpec["id"]) => rows().find((row) => row.id === id)?.section;
+      expect(sectionOf("children")).toBe("child");
+      expect(sectionOf("family")).toBe("family");
+      // 예산 수정과 지출 데이터 내보내기가 같은 구획이다(둘 다 가계 데이터).
+      expect(sectionOf("budget")).toBe("budgetData");
+      expect(sectionOf("export")).toBe("budgetData");
+      // 알림함 · 설정 · 앱 정보는 앱 자체를 다루는 구획.
+      expect(sectionOf("notifications")).toBe("settings");
+      expect(sectionOf("settings")).toBe("settings");
+      expect(sectionOf("appInfo")).toBe("settings");
+    });
+
+    it("구획을 넣어도 행 구성·순서·목적지는 그대로다(P2-D는 배치만 바꾼다)", () => {
+      expect(rows().map((row) => row.title)).toEqual([
+        "아이 관리",
+        "가족 관리",
+        "예산 수정",
+        "알림함",
+        "설정",
+        "데이터 내보내기",
+        "앱 정보"
+      ]);
+      expect(rows().map((row) => row.route)).toEqual([
+        "/settings/children",
+        "/family",
+        "/budget",
+        "/notifications",
+        "/settings",
+        null,
+        null
+      ]);
+    });
   });
 
   it("모든 행에 제목과 아이콘이 있고 id가 겹치지 않는다", () => {

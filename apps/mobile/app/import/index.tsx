@@ -50,12 +50,12 @@ function excelPreviewPixelFrameStyle() {
  * 따라 네모로 떨어져 6줄의 굵기·크기가 제각각이었다. 색·배경 톤·문구·순서는 그대로다.
  */
 const excelPreviewRows = [
-  { icon: "water-outline", label: "기저귀/위생", amount: "₩425,000", percent: "34%", count: "42건", tone: "#FFF0EA", iconColor: theme.colors.mainCoral },
-  { icon: "restaurant-outline", label: "식비/간식", amount: "₩298,500", percent: "24%", count: "31건", tone: "#FFF5D7", iconColor: theme.colors.warning },
+  { icon: "water-outline", label: "기저귀/위생", amount: "₩425,000", percent: "34%", count: "42건", tone: theme.colors.presentation.previewCoral, iconColor: theme.colors.mainCoral },
+  { icon: "restaurant-outline", label: "식비/간식", amount: "₩298,500", percent: "24%", count: "31건", tone: theme.colors.presentation.previewYellow, iconColor: theme.colors.warning },
   { icon: "cafe-outline", label: "분유/유제품", amount: "₩210,300", percent: "17%", count: "22건", tone: theme.colors.mint, iconColor: theme.colors.secondary500 },
-  { icon: "shirt-outline", label: "의류/잡화", amount: "₩156,200", percent: "13%", count: "18건", tone: "#EAF7F2", iconColor: theme.colors.success },
-  { icon: "book-outline", label: "장난감/도서", amount: "₩89,700", percent: "7%", count: "15건", tone: "#FFECE6", iconColor: theme.colors.subCoral },
-  { icon: "ellipsis-horizontal-outline", label: "기타", amount: "₩66,000", percent: "5%", count: "9건", tone: "#ECECEC", iconColor: theme.colors.gray600 }
+  { icon: "shirt-outline", label: "의류/잡화", amount: "₩156,200", percent: "13%", count: "18건", tone: theme.colors.presentation.previewGreen, iconColor: theme.colors.success },
+  { icon: "book-outline", label: "장난감/도서", amount: "₩89,700", percent: "7%", count: "15건", tone: theme.colors.presentation.previewPeach, iconColor: theme.colors.subCoral },
+  { icon: "ellipsis-horizontal-outline", label: "기타", amount: "₩66,000", percent: "5%", count: "9건", tone: theme.colors.presentation.previewNeutral, iconColor: theme.colors.gray600 }
 ] as const satisfies readonly { icon: keyof typeof Ionicons.glyphMap; label: string; amount: string; percent: string; count: string; tone: string; iconColor: string }[];
 
 function ImportPreviewCategoryRow({ row }: { row: (typeof excelPreviewRows)[number] }) {
