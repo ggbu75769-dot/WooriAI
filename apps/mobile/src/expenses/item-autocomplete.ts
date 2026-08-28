@@ -15,13 +15,26 @@
  * 새 네트워크 요청은 0건이다 — 화면이 이미 받아 둔 캐시를 그대로 넘긴다. 캐시가 비어 있으면
  * 칩이 안 뜰 뿐, 기록 흐름에는 아무 영향이 없다.
  *
+ * GAP-058 #6 — **원천은 이제 그 한 달치보다 넓힐 수 있다.** 위 "데이터 원천은 이번 달 지출 캐시"는
+ * 화면이 그것만 넘겨서 그런 것이지 이 모듈의 한계가 아니었다: 그래서 오프라인 대기 행이 빠지고
+ * (같은 화면의 최근 칩에는 보이는 품목이 여기서는 안 걸린다) 매달 1일이면 후보가 통째로 사라졌다.
+ * `suggest-source.ts`가 오프라인 스냅숏 + 서버 이번 달·지난달 캐시를 한 벌로 합쳐 주고, 그
+ * 통합 행은 아래 소스 타입에 **그대로 대입된다** — 이 함수의 시그니처는 그대로다(아래 주석).
+ *
  * 저장소/네트워크/React에 의존하지 않는 계산만 담아 vitest 단위 테스트 대상으로 둔다.
  */
 
 import { formatKrw } from "../money";
 import { itemNameMatchRank, normalizeItemName, sortByRecency } from "./item-name-match";
 
-/** 과거 기록 행 중 이 모듈이 읽는 필드만 구조적으로 요구한다 — `Expense`가 그대로 대입된다. */
+/**
+ * 과거 기록 행 중 이 모듈이 읽는 필드만 구조적으로 요구한다 — `Expense`가 그대로 대입된다.
+ *
+ * GAP-058 #6: 통합 원천의 행(`SuggestSourceRow` — suggest-source.ts)도 그대로 대입되고, 그
+ * 사실을 그쪽 타입(`SuggestSourceRowFitsItemAutocomplete`)이 컴파일 타임에 고정한다. 즉 화면은
+ * `buildItemAutocompleteSuggestions(itemName, suggestSourceRows)`로 인자만 바꿔 끼우면 되고,
+ * 배선 전인 지금의 호출부(서버 캐시 배열)도 한 글자도 바꾸지 않고 그대로 동작한다.
+ */
 export type ItemAutocompleteSourceRow = {
   itemName: string;
   amountKrw: number;
