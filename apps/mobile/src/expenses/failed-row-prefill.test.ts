@@ -8,12 +8,20 @@ import { discardFailedMutation, flushOutbox, recordLocalCreate, type RemoteSyncA
 import type { ExpensePayload } from "../offline/types";
 import {
   buildFailedRowPrefillParams,
+  FAILED_ROW_OTHER_CHILD_NOTICE,
   isFailedRowChildMismatch,
   NO_FAILED_ROW_PREFILL_DATE,
   parseFailedRowLocalId,
   parseFailedRowPrefillText,
   resolveFailedRowPrefillDate
 } from "./failed-row-prefill";
+import {
+  parseExpenseEntrySource,
+  POST_SAVE_DEFAULT_DESTINATION,
+  POST_SAVE_SYNC_STATUS_DESTINATION,
+  resolvePostSaveDestination,
+  SYNC_FIX_ENTRY_SOURCE
+} from "./post-save-destination";
 import { parseExpensePrefillParams } from "./record-row-actions";
 
 /**
@@ -53,6 +61,8 @@ describe("라운드 58 #5 buildFailedRowPrefillParams — 실패 행 → 프리�
     expect(buildFailedRowPrefillParams({ localId: "local-1", payload: fullPayload })).toEqual({
       failedLocalId: "local-1",
       childId: "child-1",
+      // 라운드 59 #2: 저장 후 착지도 이 계약의 일부다(아래 "저장 후 착지" describe).
+      from: SYNC_FIX_ENTRY_SOURCE,
       itemName: "기저귀",
       amountKrw: "38500",
       spentOn: "2026-08-03",
@@ -82,6 +92,7 @@ describe("라운드 58 #5 buildFailedRowPrefillParams — 실패 행 → 프리�
     expect(params).toEqual({
       failedLocalId: "local-2",
       childId: "child-1",
+      from: SYNC_FIX_ENTRY_SOURCE,
       itemName: "물티슈",
       amountKrw: "1000",
       spentOn: "2026-08-03"
@@ -196,6 +207,7 @@ describe("라운드 58 #5 프리필 왕복 — 시트가 읽는 값이 행의 �
     expect(params).toEqual({
       failedLocalId: created.localId,
       childId: "child-1",
+      from: SYNC_FIX_ENTRY_SOURCE,
       itemName: "기저귀",
       amountKrw: "38500",
       spentOn: "2026-08-03",
@@ -243,6 +255,70 @@ describe("라운드 58 통합리뷰 P1-1 아이 왕복·불일치", () => {
     expect(isFailedRowChildMismatch("child-1", null)).toBe(false);
     expect(isFailedRowChildMismatch("child-1", undefined)).toBe(false);
     expect(isFailedRowChildMismatch("child-1", "  ")).toBe(false);
+  });
+});
+
+/**
+ * 라운드 59 #2 — **저장 후 착지**.
+ *
+ * 이 진입점의 저장은 새 기록을 만들면서 원본 실패 행을 버린다. 그 폐기가 보이는 화면은 동기화
+ * 상태 화면 하나뿐인데, 종전에는 `from`을 싣지 않아 저장 후 기록 탭으로 튕겨 나갔다 — 새 기록
+ * 한 줄만 보이고 "그 실패 행이 정리됐다"는 사실은 어디에도 없었다.
+ */
+describe("라운드 59 #2 고쳐서 다시 보내기 → 저장 후 동기화 상태 화면", () => {
+  it("프리필이 진입점을 함께 싣고, 그 값이 그대로 목적지 판정을 지난다 (왕복)", () => {
+    const params = buildFailedRowPrefillParams({ localId: "local-1", payload: fullPayload });
+
+    expect(params?.from).toBe(SYNC_FIX_ENTRY_SOURCE);
+    expect(SYNC_FIX_ENTRY_SOURCE).toBe("sync-fix");
+    // 싣는 쪽(이 모듈)과 읽는 쪽(post-save-destination)이 같은 문자열 하나를 본다.
+    expect(parseExpenseEntrySource(params!.from)).toBe(SYNC_FIX_ENTRY_SOURCE);
+    expect(resolvePostSaveDestination(params!)).toBe(POST_SAVE_SYNC_STATUS_DESTINATION);
+    expect(POST_SAVE_SYNC_STATUS_DESTINATION).toBe("/sync-status");
+  });
+
+  it("프리필을 만들 수 없는 행에는 착지 계약도 없다 (버튼 자체가 없는 행이다)", () => {
+    // 선물 행 — 이 진입점이 아예 열리지 않으므로 `from`도 실려 가지 않는다.
+    expect(buildFailedRowPrefillParams({ localId: "l", payload: { ...fullPayload, expenseType: "gift" } })).toBeNull();
+    // 그리고 이 계약을 싣지 않는 진입점(예: "같은 내용으로 또 기록")의 저장은 종전 그대로
+    // 기록 탭이다 — `from`이 없으면 목적지도 종전 동작이다.
+    expect(resolvePostSaveDestination({})).toBe(POST_SAVE_DEFAULT_DESTINATION);
+  });
+});
+
+/**
+ * 라운드 59 #5 — 다른 아이의 실패 행에서 **버튼 자리가 비어 있지 않다**.
+ *
+ * 라운드 58 통합리뷰 P1-1이 그 행에서 버튼을 뗀 것은 데이터 손실 때문이었지만(아이 A의 행을 B가
+ * 선택된 상태로 고치면 A의 지출이 B로 옮겨 앉고 원본은 폐기된다), 뗀 자리에 아무 말도 없어서
+ * 사용자는 같은 실패 행 둘 중 하나에만 버튼이 있는 이유를 알 수 없었다(라운드 40 J-9의 예외).
+ */
+describe("라운드 59 #5 다른 아이의 실패 행 — 지우지 않고 사실을 말한다", () => {
+  it("안내 한 줄이 사실과 다음 행동을 함께 말한다 (책망 없는 해요체 — DNC-018)", () => {
+    expect(FAILED_ROW_OTHER_CHILD_NOTICE).toBe("다른 아이의 기록이에요. 그 아이를 선택하면 고쳐서 다시 보낼 수 있어요.");
+    // 사용자가 할 수 있는 일을 말한다 — "할 수 없어요"로 끝나지 않는다.
+    expect(FAILED_ROW_OTHER_CHILD_NOTICE).toContain("선택하면");
+  });
+
+  it("화면이 그 줄을 아이가 어긋난 행에만 세운다 (아이 미선택·프리필 불가 행에는 세우지 않는다)", () => {
+    const src = source("app/sync-status.tsx");
+    const branchStart = src.indexOf("if (!isRetryableSyncFailureRow(row)) {");
+    const branch = src.slice(branchStart, src.indexOf("\n  return (", branchStart));
+
+    // 판정: 행의 아이가 있고, 선택된 아이가 있고, 둘이 다를 때만이다.
+    expect(branch).toContain(
+      "const showOtherChildNotice = !isSelectedChildRow && rowChildId.length > 0 && Boolean(selectedChildId?.trim());"
+    );
+    expect(branch).toContain("{showOtherChildNotice ? (");
+    expect(branch).toContain("{FAILED_ROW_OTHER_CHILD_NOTICE}");
+    // 문구를 화면이 다시 적지 않는다(상수로만 들어간다). 판단 근거를 설명하는 주석은 그 문장을
+    // 인용해도 되므로 코드만 본다 — recurring-flow.test.ts의 codeOnly와 같은 규율이다.
+    const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+    expect(codeOnly).not.toContain("다른 아이의 기록이에요");
+    // 그 행에서도 "버리기"는 그대로 남는다 — 취할 수 있는 행동을 없애지 않는다.
+    expect(branch).toContain(
+      "<SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />"
+    );
   });
 });
 
@@ -327,17 +403,24 @@ describe("라운드 58 #5 sync-status 화면 배선 (소스 계약)", () => {
 
   it("재시도가 무익한 4xx 행에만 '고쳐서 다시 보내기'가 선다", () => {
     const src = screen();
-    expect(src).toContain('import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";');
+    expect(src).toContain(
+      'import { buildFailedRowPrefillParams, FAILED_ROW_OTHER_CHILD_NOTICE } from "../src/expenses/failed-row-prefill";'
+    );
     expect(src).toContain("SYNC_STATUS_FIX_AND_RESEND_LABEL");
     const branchStart = src.indexOf("if (!isRetryableSyncFailureRow(row)) {");
     expect(branchStart).toBeGreaterThan(-1);
     const branch = src.slice(branchStart, src.indexOf("\n  return (", branchStart));
     // 라운드 58 통합리뷰 P1-1: 프리필 조립 자체가 **선택된 아이의 행일 때만** 일어난다.
+    // 라운드 59 #5: 그 판정에 이름이 붙었다(같은 값을 안내 한 줄이 함께 본다).
     expect(branch).toContain(
-      "const fixParams = row.payload.childId === selectedChildId ? buildFailedRowPrefillParams(row) : null;"
+      "const isSelectedChildRow = rowChildId.length > 0 && rowChildId === selectedChildId;"
     );
+    expect(branch).toContain("const fixParams = isSelectedChildRow ? buildFailedRowPrefillParams(row) : null;");
     expect(branch).toContain("label={SYNC_STATUS_FIX_AND_RESEND_LABEL}");
-    expect(branch).toContain('router.push({ pathname: "/expenses/new", params: fixParams })');
+    // 라운드 59 #2: **replace**로 연다 — 저장 후 이 화면으로 돌아오는 복귀도 replace라,
+    // push로 열면 스택에 같은 화면이 두 장 쌓인다(근거는 그 자리 주석).
+    expect(branch).toContain('router.replace({ pathname: "/expenses/new", params: fixParams })');
+    expect(branch).not.toContain('router.push({ pathname: "/expenses/new"');
     // 사유 문장과 안내 한 줄은 그대로 남는다 — 버튼이 설명을 대체하지 않는다.
     expect(branch).toContain("{SYNC_STATUS_PERMANENT_FAILURE_HINT}");
     // 프리필을 만들 수 없는 행(선물·환불 등)에서는 버리기만 남는다.

@@ -33,7 +33,7 @@ import {
   SYNC_STATUS_PERMANENT_FAILURE_HINT,
   SYNC_STATUS_PERMISSION_DENIED_HINT
 } from "../src/offline/permission-denied";
-import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";
+import { buildFailedRowPrefillParams, FAILED_ROW_OTHER_CHILD_NOTICE } from "../src/expenses/failed-row-prefill";
 import { useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
 import { itemStatusLabel } from "../src/items/item-labels";
 import { ITEM_STATUS_QUEUED_MESSAGE } from "../src/items/status-mutation-messages";
@@ -317,7 +317,21 @@ const FailedRow = memo(function FailedRow({
     // 행이라 되돌릴 수 없다 — 데이터 손실). 그래서 어긋난 행에는 버튼을 내지 않는다.
     // **버리기는 그대로 남는다**: 그 행에서 사용자가 취할 수 있는 행동을 없애지 않는다.
     // 시트에도 같은 판정이 한 겹 더 있다(failed-row-prefill.ts `isFailedRowChildMismatch`).
-    const fixParams = row.payload.childId === selectedChildId ? buildFailedRowPrefillParams(row) : null;
+    const rowChildId = row.payload.childId?.trim() ?? "";
+    const isSelectedChildRow = rowChildId.length > 0 && rowChildId === selectedChildId;
+    const fixParams = isSelectedChildRow ? buildFailedRowPrefillParams(row) : null;
+    /**
+     * 라운드 59 #5 — 뗀 버튼 자리에 **사실 한 줄**을 남긴다(라운드 40 J-9: 지우지 않고 말한다).
+     * 종전에는 다른 아이의 행에서 버튼만 조용히 사라져, 같은 실패 행 둘 중 하나에만 버튼이 있는
+     * 이유를 화면이 아무 데서도 말하지 않았다.
+     *
+     * 아이를 아직 고르지 않았을 때는 켜지 않는다: 비교할 아이가 없으니 "다른 아이의 기록이에요"
+     * 가 참이 아니고(모르는 것을 말하지 않는다), 그 상태에서 사용자가 할 일은 아이 선택이라
+     * 화면 전체가 이미 그것을 묻는다. 프리필 자체를 만들 수 없는 행(선물·환불·빈 품목명)에도
+     * 켜지 않는다 — 그 행의 사유는 아이가 아니고, 위 `SYNC_STATUS_PERMANENT_FAILURE_HINT`가
+     * 이미 무엇을 할 수 있는지("고쳐 새로 기록하거나 버려 주세요") 말하고 있다.
+     */
+    const showOtherChildNotice = !isSelectedChildRow && rowChildId.length > 0 && Boolean(selectedChildId?.trim());
     return (
       <SyncRow row={row}>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMANENT_FAILURE_HINT}</Text>
@@ -333,7 +347,21 @@ const FailedRow = memo(function FailedRow({
                   explainExpenseEntryLock();
                   return;
                 }
-                router.push({ pathname: "/expenses/new", params: fixParams });
+                /**
+                 * 라운드 59 #2 — **push가 아니라 replace로 연다.**
+                 *
+                 * 저장이 끝나면 시트는 `router.replace`로 이 화면에 돌아온다(목적지 판정은
+                 * src/expenses/post-save-destination.ts, `from=sync-fix`). 여기서 push로 열면
+                 * 그 복귀가 스택에 **같은 화면 두 장**을 남긴다: 사용자가 뒤로가기를 눌러도
+                 * 똑같이 생긴 동기화 상태 화면이 다시 서고, 마지막 실패 행을 고친 직후라면
+                 * 빈 목록의 "닫기"(router.back)가 똑같이 빈 같은 화면으로 되돌아간다.
+                 *
+                 * replace면 왕복이 제자리로 끝난다(이 화면 → 시트 → 이 화면, 깊이 그대로).
+                 * 대가는 시트에서 그냥 뒤로 나갔을 때 이 화면이 아니라 그 아래 화면(기록 탭·홈)
+                 * 으로 나간다는 것인데, 그 두 화면 모두 동기화 배지가 서 있어 한 번 눌러 다시
+                 * 들어올 수 있다 — 스택에 눌러도 아무 일이 없는 뒤로가기를 남기는 쪽이 나쁘다.
+                 */
+                router.replace({ pathname: "/expenses/new", params: fixParams });
               }}
               style={{ flex: 1 }}
             />
@@ -344,7 +372,12 @@ const FailedRow = memo(function FailedRow({
             />
           </View>
         ) : (
-          <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
+          <>
+            {showOtherChildNotice ? (
+              <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{FAILED_ROW_OTHER_CHILD_NOTICE}</Text>
+            ) : null}
+            <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
+          </>
         )}
       </SyncRow>
     );

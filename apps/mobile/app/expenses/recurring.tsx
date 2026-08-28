@@ -21,7 +21,11 @@ import {
   type RecurringTemplateDraft
 } from "../../src/expenses/recurring-template";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
-import { useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
+import {
+  findRecurringTemplateByItemName,
+  RECURRING_ALREADY_REGISTERED_LABEL,
+  useRecurringExpenseStore
+} from "../../src/stores/recurring-expense.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -221,6 +225,25 @@ export default function RecurringExpensesScreen() {
   );
 
   /**
+   * 라운드 59 P3 — 지금 폼에 적힌 품목명이 **이미 이 아이에게 있는** 항목인가.
+   *
+   * 판정은 스토어의 순수 함수 하나뿐이다(`findRecurringTemplateByItemName` — 저장 거절이 쓰는
+   * 바로 그 함수라 화면과 저장이 갈릴 수 없다). 저장 버튼을 잠그지는 않는다: 사용자가 이름을 한
+   * 글자 더 치는 중일 수 있고, 이 앱의 관례는 **막기 전에 말하는 것**이다. 누르면 스토어가 같은
+   * 사실을 문장으로 돌려준다(recurringDuplicateMessage).
+   *
+   * 수정 중(editingId)에는 자기 자신을 뺀다 — 금액만 고치는 평범한 수정에서 "이미 등록됨"이
+   * 뜨면 화면이 없는 문제를 말하는 셈이다.
+   */
+  const duplicateTemplate = useMemo(
+    () =>
+      findRecurringTemplateByItemName(templates, selectedChildId, form.itemName, {
+        ...(form.editingId ? { excludeId: form.editingId } : {})
+      }),
+    [templates, selectedChildId, form.itemName, form.editingId]
+  );
+
+  /**
    * 폼이 든 분류가 이 화면의 8타일 밖일 수 있다 — 지출은 서버 카테고리 목록(정식 12개)으로도
    * 저장되고, 저장해 둔 템플릿을 "수정"으로 열면 그 id가 그대로 폼에 들어온다. 그때 칩 줄에
    * 아무것도 선택돼 보이지 않으면, 폼은 분류를 들고 있는데 화면은 고르지 않은 것처럼 보인다
@@ -323,6 +346,13 @@ export default function RecurringExpensesScreen() {
                   style={inputStyle}
                   value={form.itemName}
                 />
+                {/* 라운드 59 P3: 이미 있는 항목이면 **저장을 누르기 전에** 말한다. 판정은
+                    스토어의 함수 하나(위 duplicateTemplate) — 화면이 규칙을 다시 적지 않는다. */}
+                {duplicateTemplate ? (
+                  <Text style={rowSubtitleStyle}>
+                    {`${RECURRING_ALREADY_REGISTERED_LABEL} · ${formatRecurringTemplateLine(duplicateTemplate)}`}
+                  </Text>
+                ) : null}
               </View>
 
               <View style={{ gap: 6 }}>
@@ -420,8 +450,12 @@ export default function RecurringExpensesScreen() {
 
               <PrimaryButton label={form.editingId ? "수정 저장" : "저장"} onPress={submit} />
               {form.editingId ? <SecondaryButton label="취소" onPress={resetForm} /> : null}
+              {/* 라운드 59 #4: 세는 것도(이 아이의 템플릿) 상한도(아이 한 명당 20개) 같은
+                  기준이다. 종전에는 판정만 전역이라, 첫째로 상한을 채운 사람이 둘째 화면에서
+                  "0개 · 최대 20개"를 보면서도 저장이 막혔다 — 화면이 앱의 규칙과 다른 말을
+                  하고 있었다. 상한 판정은 스토어에 있다(templateCountForChild). */}
               <Text style={rowSubtitleStyle}>
-                {`저장한 정기 지출 ${childTemplates.length}개 · 최대 ${RECURRING_TEMPLATE_LIMIT}개`}
+                {`저장한 정기 지출 ${childTemplates.length}개 · 아이 한 명당 최대 ${RECURRING_TEMPLATE_LIMIT}개`}
               </Text>
             </Card>
           </View>

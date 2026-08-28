@@ -34,6 +34,7 @@
 
 import { isValidCalendarDate } from "@wooriai/domain";
 import type { ExpensePayload } from "../offline/types";
+import { SYNC_FIX_ENTRY_SOURCE } from "./post-save-destination";
 import {
   EXPENSE_PREFILL_PAYMENT_METHODS,
   firstPrefillParamValue,
@@ -69,6 +70,16 @@ export type FailedRowPrefillParams = {
    * (`isFailedRowChildMismatch`).
    */
   childId: string;
+  /**
+   * 라운드 59 #2 — **저장 후 어디로 돌아갈 것인가**(라우팅 힌트, 화면에 보이지 않는 값).
+   *
+   * `sync-fix`는 곧 "저장이 확정되면 동기화 상태 화면으로 돌아간다"는 뜻이다. 이 값이 없으면
+   * 시트는 종전처럼 기록 탭으로 가는데, 그 화면에는 **원본 실패 행이 사라졌다는 사실**이
+   * 어디에도 없다(판정과 근거는 post-save-destination.ts `resolvePostSaveDestination`).
+   * 문자열을 여기 다시 적지 않고 그 모듈의 상수를 그대로 싣는다 — 양 끝이 갈리면 규칙이
+   * 조용히 죽는다(정기 지출의 `RECURRING_ENTRY_SOURCE`와 같은 관례).
+   */
+  from: typeof SYNC_FIX_ENTRY_SOURCE;
   itemName: string;
   amountKrw: string;
   /**
@@ -144,6 +155,8 @@ export function buildFailedRowPrefillParams(row: FailedRowPrefillInput): FailedR
   return {
     failedLocalId: localId,
     childId,
+    // 라운드 59 #2: 저장 후 착지도 이 계약의 일부다(위 `from` 주석).
+    from: SYNC_FIX_ENTRY_SOURCE,
     itemName,
     amountKrw: String(payload.amountKrw),
     ...(spentOn.length > 0 ? { spentOn } : {}),
@@ -166,6 +179,23 @@ export function parseFailedRowLocalId(value: unknown): string | null {
 export function parseFailedRowPrefillText(value: unknown): string {
   return firstPrefillParamValue(value);
 }
+
+/**
+ * 라운드 59 #5 — 다른 아이의 실패 행에서 **버튼 자리에 서는 한 줄**.
+ *
+ * 라운드 58 통합리뷰 P1-1이 그 행에서 "고쳐서 다시 보내기"를 뗀 것은 옳았지만(아래
+ * `isFailedRowChildMismatch` 주석의 데이터 손실), 뗀 자리에 아무 말도 남기지 않았다. 사용자가
+ * 보는 것은 같은 실패 행 둘 중 하나에만 버튼이 있는 화면이고, 왜 이 행에는 없는지 화면 어디에도
+ * 없다 — 이 앱의 관례(라운드 40 J-9: **지우지 않고 사실을 말한다**)에서 벗어난 유일한 자리였다.
+ *
+ * 무엇을 하면 되는지까지 한 줄에 말한다(아이를 바꾸면 그 행에도 버튼이 선다). 책망 없는 해요체
+ * (DNC-018)이고, "버리기"는 그 행에 그대로 남으므로 사용자가 갇히지도 않는다.
+ *
+ * ⚠️ 자리: 동기화 상태 화면의 문구 단일 소스는 `src/offline/messages.ts`다. 이 상수만 여기 있는
+ * 이유는 라운드 59 트랙 A가 그 파일을 소유해 같은 라운드에서 충돌하기 때문이고, **문구를 옮기는
+ * 것 자체가 다음 라운드의 몫**이다(트랙 B가 새 문구를 자기 소유 모듈에 두기로 한 합의).
+ */
+export const FAILED_ROW_OTHER_CHILD_NOTICE = "다른 아이의 기록이에요. 그 아이를 선택하면 고쳐서 다시 보낼 수 있어요.";
 
 /**
  * 라운드 58 통합리뷰 P1-1 — 이중 방어의 **둘째 겹**: 프리필이 말하는 아이와 지금 선택된 아이가
