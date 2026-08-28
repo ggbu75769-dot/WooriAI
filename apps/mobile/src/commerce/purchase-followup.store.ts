@@ -91,14 +91,26 @@ export const PURCHASE_FOLLOWUP_MIN_AGE_MS = 3 * 60 * 1000;
 /** A click older than this is stale -- silently stop asking. */
 export const PURCHASE_FOLLOWUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /**
- * "아직이요" 답변 예산: 한 번 미루면 나중에 한 번 더 묻고, 두 번째 "아직이요"에서 항목이
- * 만료된다(applySnooze).
+ * **답변 예산**: 한 항목에 대해 사용자가 답을 주고도 대기가 pending으로 남는 일은 최대 이
+ * 횟수까지만 일어난다. 그 상한에 닿으면 항목이 expired로 굳어 다시 묻지 않는다.
  *
- * 라운드 40 J-8 — 이름과 달리 이 값이 세는 것은 **표출 횟수가 아니라 "아직이요" 답변 횟수**다
- * (promptCount를 올리는 곳은 applySnooze 하나뿐이다). 카드가 아이 전환으로 가려졌다가 다시
- * 뜨는 것은 답이 아니므로 여기에 세지 않는다 — 세면 아이를 몇 번 오갔는지에 따라 대기 항목이
- * 조기에 expired로 굳는다. 한 앱 세션 안의 표출 상한은 다른 축이고, 그쪽은
+ * 라운드 40 J-8 — 이 값이 세는 것은 **표출 횟수가 아니라 답변 횟수**다. 카드가 아이 전환으로
+ * 가려졌다가 다시 뜨는 것은 답이 아니므로 여기에 세지 않는다 — 세면 아이를 몇 번 오갔는지에
+ * 따라 대기 항목이 조기에 expired로 굳는다. 한 앱 세션 안의 표출 상한은 다른 축이고, 그쪽은
  * src/commerce/purchase-followup-session.ts가 든다(PURCHASE_FOLLOWUP_MAX_SESSION_PROMPTS).
+ *
+ * 라운드 60 리뷰(P2-10) — 예산을 쓰는 답이 **둘**로 늘었다.
+ *  1. "아직이요"(applySnooze) — 종전 그대로.
+ *  2. "샀어요"를 누르고 기록 시트를 그냥 닫은 경우(applyPurchaseIntent). 라운드 60 트랙 B가
+ *     done 확정을 저장 자리로 옮기면서(PurchaseFollowupPrompt.tsx), 이탈한 항목은 pending으로
+ *     남아 **다음 앱 세션에 같은 물음이 다시 뜬다**. 그 재질문이 아무 예산도 쓰지 않으면 24시간
+ *     창이 닫힐 때까지 몇 번이고 되풀이된다 — "한 클릭당 한 세션에 한 번"이라는 이 기능의
+ *     약속이 세션 축에서만 지켜지고 항목 축에서는 무한이 되는, 라운드 40 J-8과 같은 모양의
+ *     구멍이다. 저장이 실제로 확정되면 항목은 done이 되므로(resolvePurchaseFollowupForExpense)
+ *     이 예산은 **이탈한 경우에만** 소진된다.
+ *
+ * 그래서 상한은 이렇게 읽는다: 한 클릭에 대해 사용자가 답을 주고도 기록이 남지 않는 일은
+ * 최대 두 번까지 봐 주고, 세 번째는 없다.
  */
 export const PURCHASE_FOLLOWUP_MAX_PROMPTS = 2;
 
@@ -183,9 +195,14 @@ export function selectPromptEligibleFollowup(
   return best;
 }
 
-/** "아직이요": counts the prompt that was just answered; the 2nd one auto-expires the entry so
- * we never nag more than PURCHASE_FOLLOWUP_MAX_PROMPTS times per click. */
-export function applySnooze(entries: PurchaseFollowupEntry[], itemTemplateId: string): PurchaseFollowupEntry[] {
+/**
+ * 답변 예산을 한 칸 쓴다: 그 답이 상한에 닿으면 항목은 expired로 굳어 다시 묻지 않는다.
+ * pending이 아닌 항목은 이미 답이 끝난 것이라 건드리지 않는다.
+ *
+ * 라운드 60 리뷰(P2-10): 이 본체를 부르는 곳이 둘이다(아래 두 함수) -- 규칙을 두 벌로 적으면
+ * 한쪽 상한만 고쳐지는 날 "샀어요 이탈"이 다시 무한 재질문이 된다.
+ */
+function consumePromptBudget(entries: PurchaseFollowupEntry[], itemTemplateId: string): PurchaseFollowupEntry[] {
   return entries.map((entry) => {
     if (entry.itemTemplateId !== itemTemplateId || entry.status !== "pending") return entry;
     const promptCount = entry.promptCount + 1;
@@ -195,6 +212,30 @@ export function applySnooze(entries: PurchaseFollowupEntry[], itemTemplateId: st
       status: promptCount >= PURCHASE_FOLLOWUP_MAX_PROMPTS ? "expired" : "pending"
     };
   });
+}
+
+/** "아직이요": counts the prompt that was just answered; the 2nd one auto-expires the entry so
+ * we never nag more than PURCHASE_FOLLOWUP_MAX_PROMPTS times per click. */
+export function applySnooze(entries: PurchaseFollowupEntry[], itemTemplateId: string): PurchaseFollowupEntry[] {
+  return consumePromptBudget(entries, itemTemplateId);
+}
+
+/**
+ * 라운드 60 리뷰(P2-10) — "샀어요"를 눌러 기록 시트를 연 순간.
+ *
+ * 항목은 여기서 done이 되지 않는다(done은 저장이 확정된 자리에서만 붙는다 — 라운드 60 트랙 B).
+ * 사용자가 시트를 그냥 닫으면 항목은 pending으로 남아 다음 앱 세션에 다시 물어야 하는데, 그
+ * 재질문이 예산을 쓰지 않으면 24시간 창이 닫힐 때까지 끝없이 되풀이된다. 그래서 **답을 준
+ * 순간** 한 칸을 쓴다 -- "아직이요"와 같은 축이다(둘 다 답이고, 둘 다 기록을 남기지 않았다).
+ *
+ * 저장이 실제로 확정되면 `resolvePurchaseFollowupForExpense` → `completeFollowup`이 상태를
+ * done으로 덮으므로(applyStatus는 상태를 가리지 않는다) 이 소진은 이탈한 경우에만 남는다.
+ */
+export function applyPurchaseIntent(
+  entries: PurchaseFollowupEntry[],
+  itemTemplateId: string
+): PurchaseFollowupEntry[] {
+  return consumePromptBudget(entries, itemTemplateId);
 }
 
 export function applyStatus(
@@ -210,7 +251,12 @@ export type PurchaseFollowupState = {
   recordLinkClick: (click: PurchaseFollowupClick) => void;
   /** "아직이요" */
   snoozeFollowup: (itemTemplateId: string) => void;
-  /** "샀어요" */
+  /**
+   * 라운드 60 리뷰(P2-10) "샀어요"를 눌러 기록 시트로 간 순간 — 답변 예산 한 칸.
+   * 확정(done)은 저장 자리에서 completeFollowup이 붙인다.
+   */
+  intendPurchaseFollowup: (itemTemplateId: string) => void;
+  /** 저장이 확정된 지출이 대기의 답이었을 때(app/expenses/new.tsx의 onSuccess) */
   completeFollowup: (itemTemplateId: string) => void;
   /** "괜찮아요" */
   dismissFollowup: (itemTemplateId: string) => void;
@@ -274,6 +320,8 @@ export const usePurchaseFollowupStore = create<PurchaseFollowupState>()(
       entries: [],
       recordLinkClick: (click) => set((state) => ({ entries: applyPurchaseLinkClick(state.entries, click) })),
       snoozeFollowup: (itemTemplateId) => set((state) => ({ entries: applySnooze(state.entries, itemTemplateId) })),
+      intendPurchaseFollowup: (itemTemplateId) =>
+        set((state) => ({ entries: applyPurchaseIntent(state.entries, itemTemplateId) })),
       completeFollowup: (itemTemplateId) =>
         set((state) => ({ entries: applyStatus(state.entries, itemTemplateId, "done") })),
       dismissFollowup: (itemTemplateId) =>

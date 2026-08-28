@@ -6,11 +6,15 @@ import { buildPurchaseFollowupAnsweredPayload, type PurchaseFollowupAnswer } fro
 import { LOCAL_SESSION_TOKEN } from "../api/client";
 import { EXPENSE_ENTRY_SOURCE_PARAM } from "../expenses/post-save-destination";
 import { useExpenseEntryGate } from "../family/useExpenseEntryGate";
+import { isPixelLockBuild } from "../pixelLock/build-profile";
+import { resolveAppLockGateStatus } from "../security/app-lock";
+import { useAppLockStore } from "../stores/app-lock.store";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
 import { announceForA11y, Card, PrimaryButton, SecondaryButton, TextButton } from "../ui";
 import { theme } from "../theme";
-import { createPurchaseFollowupSessionGate, evaluateFollowupPrompt } from "./purchase-followup-session";
+import { isPurchaseFollowupHeldByAppLock } from "./purchase-followup-resolution";
+import { createPurchaseFollowupSessionGate, evaluateFollowupPrompt, followupSessionKey } from "./purchase-followup-session";
 import {
   isFollowupForSelectedChild,
   purchaseFollowupMerchantLabel,
@@ -79,8 +83,35 @@ export function PurchaseFollowupLifecycle() {
    * 없으면 아이로 돌아와도 다음 포그라운드 복귀까지 카드가 나타나지 않는다.
    */
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
+  /**
+   * 라운드 60 트랙 B(#6) — 지금 앱 잠금 오버레이가 화면을 덮고 있는가. **읽기만 한다**:
+   * 이 컴포넌트는 app-lock 스토어에 아무것도 쓰지 않고, 잠금 규칙도 다시 적지 않는다 —
+   * 상태 판정은 저장소의 단일 소스(resolveAppLockGateStatus)가, "그래서 카드를 보류하는가"는
+   * 순수 함수 하나(isPurchaseFollowupHeldByAppLock)가 갖는다.
+   *
+   * 왜 필요한가: 이 카드는 콜드 스타트·포그라운드 복귀에 **스스로** 뜨는데 그 두 순간이 곧
+   * 잠금이 PIN을 묻는 순간이다. 카드가 그 뒤에서 판정되면 아래 announceForA11y가 잠긴 화면
+   * 위로 품목명 원문을 읽어 준다(오버레이도 접근성 방패도 명령형 낭독은 막지 못한다).
+   *
+   * 게이트 입력 다섯은 AppLockOverlay의 useAppLockGate와 **같은 값**이다. hasSession은 이미
+   * 위에서 같은 규칙으로 만들었고(실토큰 또는 데모 세션), 픽셀락 판정도 저장소의 단일
+   * 소스(isPixelLockBuild)에서 온다.
+   */
+  const appLockRecordStatus = useAppLockStore((state) => state.recordStatus);
+  const appLockEnabled = useAppLockStore((state) => state.record?.enabled ?? false);
+  const appLockUnlockedThisForeground = useAppLockStore((state) => state.unlockedThisForeground);
+  const appLockHeld = isPurchaseFollowupHeldByAppLock(
+    resolveAppLockGateStatus({
+      pixelLockMode: isPixelLockBuild(),
+      hasSession,
+      recordStatus: appLockRecordStatus,
+      enabled: appLockEnabled,
+      unlockedThisForeground: appLockUnlockedThisForeground
+    })
+  );
   const snoozeFollowup = usePurchaseFollowupStore((state) => state.snoozeFollowup);
-  const completeFollowup = usePurchaseFollowupStore((state) => state.completeFollowup);
+  // 라운드 60 리뷰(P2-10): "샀어요" 이탈 재질문도 답변 예산을 쓴다(스토어의 순수 규칙 재사용).
+  const intendPurchaseFollowup = usePurchaseFollowupStore((state) => state.intendPurchaseFollowup);
   const dismissFollowup = usePurchaseFollowupStore((state) => state.dismissFollowup);
   const [activeFollowup, setActiveFollowup] = useState<PurchaseFollowupEntry | null>(null);
   /**
@@ -95,6 +126,13 @@ export function PurchaseFollowupLifecycle() {
       setActiveFollowup(null);
       return;
     }
+    /**
+     * 라운드 60 트랙 B(#6): 잠금이 덮고 있는 동안에는 **판정 자체를 하지 않는다**. 리스너도
+     * 걸지 않는다 — 잠긴 사이에 온 "active"로 후보를 골라 두면 세션 표출 예산(takeSlot)만
+     * 소진되고 사용자는 그 물음을 본 적이 없다. 잠금이 풀리면 이 effect가 다시 돌아
+     * (appLockHeld가 의존성이다) 조건이 여전한 항목을 그때 판정한다.
+     */
+    if (appLockHeld) return;
     const check = () => {
       // 라운드 39 I-3: 아이가 바뀌어 가려진 카드는 세션 슬롯을 돌려받고 내려간다 — 그래야 그
       // 아이로 돌아왔을 때 다시 묻는다(규칙과 근거는 purchase-followup-session.ts).
@@ -119,15 +157,52 @@ export function PurchaseFollowupLifecycle() {
       unsubscribeHydration();
       subscription.remove();
     };
-  }, [hasSession, selectedChildId]);
+  }, [hasSession, selectedChildId, appLockHeld]);
+
+  /**
+   * 이번 앱 세션에 이미 낭독한 카드의 키(라운드 60 트랙 B #6). 아래 effect의 의존성에 잠금
+   * 상태가 들어오면서, 잠금이 걸렸다 풀리는 것만으로 **같은 카드가 두 번 읽힐** 수 있게 됐다 --
+   * 사용자에게는 새 물음이 하나 더 생긴 것처럼 들린다. 키는 세션 게이트가 쓰는 그 키다
+   * (followupSessionKey -- 같은 준비템의 새 클릭은 다른 키라 다시 읽어 준다).
+   */
+  const announcedKeyRef = useRef<string | null>(null);
 
   // A11Y-115: the card overlays the bottom of whatever screen the user is on, so a screen-reader
   // user gets an audible cue when it appears instead of discovering it by chance.
+  //
+  // 라운드 60 트랙 B(#6): 잠금이 덮고 있는 동안에는 읽지 않는다. 위 판정이 이미 보류되므로
+  // 새 카드가 뜨는 일은 없지만, **이미 떠 있던 카드**가 잠금을 만나는 경로가 남는다(설정의
+  // "지금 잠그기", 60초를 넘긴 백그라운드 복귀). 그때 이 낭독이 나가면 잠긴 화면 위로 품목명
+  // 원문이 새는 것은 마찬가지다.
+  //
+  // 라운드 60 리뷰(P2-1): 억제 범위는 **잠금 전이 하나**다. 종전에는 키가 한 번 기억되면
+  // 앱 세션 내내 남아서, 아이 전환으로 카드가 내려갔다가 그 아이로 돌아와 **다시 선** 카드도
+  // 낭독되지 않았다(라운드 39 I-3이 슬롯을 돌려주며 되살린 그 재표출이다). 화면에 새로 뜬
+  // 물음을 스크린리더 사용자만 듣지 못하는 상태라, 억제가 잡으려던 것(잠금이 걸렸다 풀리는
+  // 것만으로 같은 카드가 두 번 읽히는 일)보다 넓게 잡고 있었다.
+  //
+  // 그래서 **카드가 내려갈 때 기억을 지운다**: 내려간 카드가 다시 서면 그것은 새 물음이다.
+  // 잠금 보류(appLockHeld)는 카드를 내리지 않으므로(첫 effect가 판정 자체를 건너뛴다) 기억이
+  // 그대로 남고, 풀린 뒤 같은 카드는 여전히 다시 읽히지 않는다.
   useEffect(() => {
-    if (activeFollowup) announceForA11y(`『${activeFollowup.itemName}』 구매하셨나요?`);
-  }, [activeFollowup]);
+    if (!activeFollowup) {
+      announcedKeyRef.current = null;
+      return;
+    }
+    if (appLockHeld) return;
+    const key = followupSessionKey(activeFollowup);
+    if (announcedKeyRef.current === key) return;
+    announcedKeyRef.current = key;
+    announceForA11y(`『${activeFollowup.itemName}』 구매하셨나요?`);
+  }, [activeFollowup, appLockHeld]);
 
   if (!hasSession || !activeFollowup) return null;
+  /**
+   * 라운드 60 트랙 B(#6): 잠금 중에는 그리지도 않는다. 오버레이가 어차피 위를 덮지만, 덮고
+   * 있다는 사실에 기대는 대신 이 카드가 스스로 물러난다 -- 대기 항목은 그대로 pending이고
+   * 잠금이 풀리면 같은 카드가 다시 선다(위 두 effect가 그때 다시 돈다).
+   */
+  if (appLockHeld) return null;
   /**
    * 렌더 시점의 아이 게이트(라운드 39 UX-O). 후보 판정에서 이미 걸렀지만, 카드가 떠 있는 동안
    * 설정에서 아이를 바꾸면 화면에 남은 카드가 다른 아이의 것이 된다 -- 그 한 프레임에 "샀어요"를
@@ -137,11 +212,19 @@ export function PurchaseFollowupLifecycle() {
    */
   if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return null;
 
-  const closeWith = (action: (itemTemplateId: string) => void) => {
-    action(activeFollowup.itemTemplateId);
-    // 답을 받은 항목이다 -- 세션 슬롯은 그대로 잡아 둔다(스토어 상태도 pending을 벗어난다).
+  /**
+   * 카드를 화면에서 내린다. 세션 슬롯은 **그대로 잡아 둔다** -- 이 앱 세션에는 이미 물었고
+   * 답(또는 답하러 가는 행동)을 받았으므로 같은 물음을 다시 세우지 않는다.
+   */
+  const closeCard = () => {
     activeFollowupRef.current = null;
     setActiveFollowup(null);
+  };
+
+  const closeWith = (action: (itemTemplateId: string) => void) => {
+    action(activeFollowup.itemTemplateId);
+    // 답을 받은 항목이다 -- 스토어 상태도 pending을 벗어난다.
+    closeCard();
   };
 
   /**
@@ -202,7 +285,32 @@ export function PurchaseFollowupLifecycle() {
             const merchant = purchaseFollowupMerchantLabel(activeFollowup.platform);
             const { productLinkId } = activeFollowup;
             trackAnswer("purchased");
-            closeWith(completeFollowup);
+            /**
+             * 라운드 60 트랙 B(#2 곁가지) — **done 확정은 여기가 아니다.**
+             *
+             * 종전에는 이 자리에서 곧바로 completeFollowup을 불러 대기 항목을 done으로
+             * 굳혔다. 그런데 이 버튼이 실제로 하는 일은 기록 시트를 여는 것뿐이라, 사용자가
+             * 시트를 그냥 닫으면 **기록은 없는데 물음만 사라진 상태**가 남았다: 앱은 다시
+             * 묻지 않고(pending이 아니다) 지출도 없다 -- 핵심 루프가 조용히 끊긴다. 퍼널도
+             * 같은 이유로 부풀었다("샀어요" 수가 곧 구매 수로 읽힌다).
+             *
+             * 이제 done은 **저장이 확정된 자리**에서만 붙는다(app/expenses/new.tsx의
+             * onSuccess + resolvePurchaseFollowupForExpense). 이탈하면 항목은 pending으로
+             * 남아 다음 앱 세션에 다시 물을 수 있다.
+             *
+             * 계측 이벤트(위 trackAnswer)는 그대로 둔다 -- 그것은 저장의 기록이 아니라
+             * **답의 기록**이고, 사용자는 실제로 "샀어요"라고 답했다. 그 답과 뒤따르는
+             * expense_recorded 사이의 간격이 곧 이탈률이라, 여기서 이벤트를 빼면 그 간격을
+             * 잴 수 없다(ANA-127이 세우려던 바로 그 전환율이다).
+             *
+             * 라운드 60 리뷰(P2-10): 다만 **재질문에는 상한이 있어야 한다.** 이탈하면 항목이
+             * pending으로 남는데, 그 재표출이 아무 예산도 쓰지 않으면 24시간 창이 닫힐 때까지
+             * 같은 물음이 앱을 열 때마다 되풀이된다. 그래서 답을 준 이 자리에서 답변 예산
+             * (PURCHASE_FOLLOWUP_MAX_PROMPTS) 한 칸을 쓴다 -- "아직이요"와 같은 축이다.
+             * 저장이 실제로 확정되면 그 자리에서 done으로 덮이므로 이 소진은 이탈에만 남는다.
+             */
+            intendPurchaseFollowup(itemTemplateId);
+            closeCard();
             // 라운드 48 T4(D1): 어디에서 왔는지를 함께 넘긴다. 저장 후 목적지는 그 값으로
             // 정해지는데(src/expenses/post-save-destination.ts), 이 경로는 **종전 그대로 기록
             // 탭**이다 -- 이 카드는 어느 화면 위에도 뜨는 전역 오버레이라 사용자가 준비템 탭을

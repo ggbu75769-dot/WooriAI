@@ -26,6 +26,7 @@ import {
   MORE_PROFILE_CARD_ROUTE,
   type MoreMenuSection
 } from "../../src/settings/more-menu";
+import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
@@ -140,11 +141,26 @@ export default function MoreScreen() {
    * 뒤늦게 바뀐다 -- 세지 않은 수를 세었다고 말하는 자리라 그 폴백은 옮기지 않는다.
    */
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const fallbackHouseholdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const children = useQuery({
     queryKey: ["children"],
     enabled: Boolean(authToken),
     queryFn: () => listChildren(authToken!)
+  });
+  /**
+   * 라운드 60 A — 카드 한 줄 안에서 **두 스코프가 섞여 있었다.**
+   *
+   * "보호자 N명"은 세션 기본 가구의 구성원 수였고, "아이 M명"은 `["children"]`이 내려주는
+   * **모든 가구의** 아이 수였다. 다른 가구 초대를 수락하면 앞의 수는 그 가구로 바뀌고 뒤의 수는
+   * 두 가구의 합이 되어, 한 줄이 서로 다른 두 집단을 세게 된다("보호자 2명 · 아이 3명"인데 그
+   * 가구에는 아이가 하나뿐). 두 수를 **같은 가구**(보고 있는 아이의 가구)로 맞춘다 -- 1가구
+   * 계정에서는 두 값이 종전과 같으므로 문자열도 그대로다.
+   */
+  const householdId = resolveManagedHouseholdId({
+    children: children.data?.children,
+    childId,
+    fallbackHouseholdId,
+    childrenSettled: isChildrenSettled({ authToken, isSuccess: children.isSuccess, isError: children.isError })
   });
   const members = useQuery({
     queryKey: ["household-members", householdId],
@@ -152,7 +168,9 @@ export default function MoreScreen() {
     queryFn: () => listHouseholdMembers(authToken!, householdId!)
   });
   const activeMemberCount = members.data?.members.filter((member) => member.status === "active").length ?? null;
-  const childCount = children.data?.children.length ?? null;
+  const childCount = householdId
+    ? (children.data?.children.filter((child) => child.householdId === householdId).length ?? null)
+    : null;
   const householdCaption =
     activeMemberCount !== null && childCount !== null ? `보호자 ${activeMemberCount}명 · 아이 ${childCount}명` : null;
   /**

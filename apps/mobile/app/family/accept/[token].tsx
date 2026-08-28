@@ -1,10 +1,19 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Text, View } from "react-native";
 import { hasApiErrorCode } from "../../../src/api/api-error";
-import { acceptInvite, getInvite, listChildren, LOCAL_SESSION_TOKEN } from "../../../src/api/client";
 import {
+  acceptInvite,
+  getInvite,
+  listChildren,
+  LOCAL_SESSION_TOKEN,
+  type AcceptInviteResponse
+} from "../../../src/api/client";
+import {
+  HOUSEHOLD_JOIN_ESCAPE_LABEL,
   HOUSEHOLD_JOIN_INVALIDATE_KEYS,
+  householdJoinEscapePlan,
   loginHrefForInvite,
   planAfterHouseholdJoin
 } from "../../../src/children/household-join";
@@ -54,6 +63,9 @@ export default function AcceptInviteScreen() {
   // app/(auth)/login.tsx:145) 초대 링크로 처음 온 사용자는 참여 직후 "/(tabs)"로 보내도 게이트가
   // "/"로 되돌리고, 가구 주인이 예산을 건너뛴 계정이면 온보딩 이어하기(ONB-006)로 떨어졌다.
   const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
+  // 라운드 60 리뷰(P1-1): 재시도 카드의 탈출구가 어디로 가야 하는지는 "이 계정이 탭 셸에 이미
+  // 도달한 적 있는가"로 갈린다 -- 판정은 순수 함수(householdJoinEscapePlan)가 든다.
+  const hasReachedHome = useOnboardingProgressStore((state) => state.hasReachedHome);
   const queryClient = useQueryClient();
   // FAM-121A: 비로그인 방문자가 로그인 화면으로 갈 때 초대 토큰을 함께 실어 보내는 목적지.
   // 로그인 성공 후 app/(auth)/login.tsx가 이 초대 수락 화면으로 되돌려 준다.
@@ -65,6 +77,18 @@ export default function AcceptInviteScreen() {
     queryFn: () => getInvite(token)
   });
 
+  /**
+   * 라운드 60 #3: 참여는 성공했는데 **아이 목록 조회가 실패**한 사람이 머무는 자리.
+   *
+   * 예전에는 그 실패가 `.catch(() => null)`로 "아이 없음"과 같은 값이 되어, 아이가 멀쩡히 있는
+   * 가구에 참여한 사람까지 온보딩으로 떨어졌다(= 아이를 한 번 더 만들 수 있었다). 이제는
+   * 화면에 머물면서 **같은 뒤처리만 다시** 태운다 -- 초대 수락(POST)은 이미 성공했으므로 절대
+   * 다시 부르지 않는다(다시 부르면 409 HOUSEHOLD_ALREADY_MEMBER뿐이다).
+   */
+  const [joinedResult, setJoinedResult] = useState<AcceptInviteResponse | null>(null);
+  const [joinRetryNotice, setJoinRetryNotice] = useState<string | null>(null);
+  const [isFinishingJoin, setIsFinishingJoin] = useState(false);
+
   const accept = useMutation({
     mutationFn: () => acceptInvite(authToken!, token),
     /**
@@ -74,8 +98,30 @@ export default function AcceptInviteScreen() {
      * 새 목록 조회 -> 캐시 무효화 -> 계획대로 아이 재선택 + 안내 -> 이동.
      */
     onSuccess: async (result) => {
+      setJoinedResult(result);
       if (!isTestSession) {
-        useSessionStore.setState({ defaultHouseholdId: result.household.id });
+        /**
+         * 라운드 60 리뷰(P1-3) — **기본 가구를 덮어쓰지 않는다.**
+         *
+         * 종전에는 여기서 `defaultHouseholdId`를 새 가구로 갈아 끼웠다. 그 값은 아이가 없는
+         * 가구를 가리킬 수 있는 **유일한** 값이라(아이 → 가구 판정은 아이가 있어야 선다),
+         * 갈아 끼우는 순간 원래 가구는 앱 안에서 되돌아갈 근거를 잃었다. 트랙 A가 쓰기·관리
+         * 화면을 "보고 있는 아이의 가구"로 옮겨 절반을 막았지만, 아이가 아직 없는 원래 가구는
+         * 여전히 아무 화면도 가리킬 수 없었다.
+         *
+         * 그래서 규칙을 뒤집는다: **알고 있는 가구 목록에 더하기만 한다.** 목록에 더하는 일은
+         * 바로 아래 `setHouseholdRole`이 이미 한다(라운드 40 J-2 — 목록을 알고 있으면 그 하나만
+         * 보탠다), 그리고 그 목록이 곧 가족 화면의 "다른 가구 보기" 후보다
+         * (src/family/household-scope.ts).
+         *
+         * 예외 하나: 기본 가구를 **아직 모르는** 계정(가구 없이 로그인해 초대로 처음 가구가
+         * 생긴 사람)에는 덮어쓸 값 자체가 없다. 이때만 채운다 -- 비워 두면 아이도 가구도 없는
+         * 계정이 되어 가족·설정 화면이 "연결된 가구가 없어요"로 남는다. 로그인 시점의
+         * households[0] 초기화는 그대로다(그것은 첫 진입의 사실이다).
+         */
+        if (!useSessionStore.getState().defaultHouseholdId) {
+          useSessionStore.setState({ defaultHouseholdId: result.household.id });
+        }
         // UX-R(M): 참여 응답이 내려준 **내 역할**을 여기서 담는다. 보기 전용·선물 참여
         // 참여자는 로그인 시점에 이 가구가 아직 없었으므로(초대를 이제 막 수락했다) 로그인
         // 응답만으로는 역할을 영영 알 수 없다 — 이 한 줄이 그 사람들에게 정직한 기록 CTA를
@@ -98,22 +144,48 @@ export default function AcceptInviteScreen() {
         // 스로틀의 전제가 성립하지 않는다. 조회는 백그라운드라 아래 이동 흐름을 붙잡지 않는다.
         revalidateHouseholdRoles({ force: true });
       }
+      await finishHouseholdJoin(result);
+    }
+  });
+
+  /**
+   * 참여 성공 **이후**의 뒤처리 한 벌: 아이 목록 조회 -> 캐시 무효화 -> 계획대로 착지.
+   * 조회 실패("retry" 계획) 때 버튼 하나로 이 함수만 다시 태울 수 있게 mutation 밖으로 뺐다.
+   */
+  async function finishHouseholdJoin(result: AcceptInviteResponse) {
+    setIsFinishingJoin(true);
+    try {
       // 데모(local-backend) 세션은 가구가 하나뿐이라 "다른 가구로 참여"를 모사하지 않는다
       // (FIX-118B(F3)와 같은 정직성 규칙) -- 알 수 없음으로 두어 허위 전환 안내를 막는다.
-      const children = isDemoSession
-        ? null
+      //
+      // 라운드 60 #3: 예전의 `.catch(() => null)`은 **조회 실패**와 **조회하지 않음(데모)**을
+      // 같은 값으로 접었고, 순수 모듈은 둘 다 "아이 없음"으로 읽었다. 이제 실패를 별도의
+      // 사실(childrenLoadFailed)로 실어 보낸다 -- 데모는 실패한 적이 없으므로 false다.
+      const lookup = isDemoSession
+        ? { children: null, failed: false }
         : await listChildren(authToken!)
-            .then((response) => response.children)
-            .catch(() => null);
+            .then((response) => ({ children: response.children, failed: false }))
+            .catch(() => ({ children: null, failed: true }));
       await Promise.all(
         HOUSEHOLD_JOIN_INVALIDATE_KEYS.map((key) => queryClient.invalidateQueries({ queryKey: [...key] }))
       );
       const plan = planAfterHouseholdJoin({
         householdId: result.household.id,
-        children,
-        currentChildId: selectedChildId
+        children: lookup.children,
+        currentChildId: selectedChildId,
+        // UX-R(M)이 이미 담아 둔 그 역할이다 -- 참여 응답만이 이 가구에서의 내 역할을 안다.
+        role: result.household.role,
+        childrenLoadFailed: lookup.failed
       });
       const joinedText = `${result.household.name}과 함께해요.`;
+      // 라운드 60 #3(막다른 길 ②): 조회 실패는 이동하지 않고 화면에 머문다. 안내는 순수 모듈의
+      // 문구를 그대로 쓰고, [다시 시도]가 이 함수를 다시 태운다(수락 POST는 다시 부르지 않는다).
+      if (plan.kind === "retry") {
+        setJoinRetryNotice(plan.notice);
+        announceForA11y(plan.notice);
+        return;
+      }
+      setJoinRetryNotice(null);
       if (plan.kind === "select") {
         setSelectedChildId(plan.childId);
         // 이 분기(= 참여한 가구에 이미 아이가 있음)는 실질적으로 온보딩이 끝난 상태다:
@@ -129,7 +201,15 @@ export default function AcceptInviteScreen() {
       }
       // 라운드 49 QA(P3-10): 볼 아이가 하나도 없는 참여자는 /family(탭 밖)에 갇히는 대신
       // 온보딩 시작점으로 잇는다 -- 계획과 안내 문구는 순수 모듈이 정한다.
-      if (plan.kind === "onboarding") {
+      //
+      // 라운드 60 #3(막다른 길 ①): 아이를 만들 수 없는 역할은 온보딩 대신 "blocked" 안내로
+      // 착지한다. 두 갈래 모두 안내 문구를 그대로 읽어 주므로 처리는 한 자리에서 같다.
+      if (plan.kind === "onboarding" || plan.kind === "blocked") {
+        // 라운드 60 리뷰(P1-2): blocked의 목적지는 이제 탭 셸이다 -- select 분기와 같은 이유로
+        // (온보딩 게이트를 지나는 목적지는 그 둘뿐이다) 홈 도달을 함께 표시한다. 아이를 만들
+        // 권한이 없는 사람에게 온보딩은 애초에 지날 길이 아니므로, 게이트가 되돌리면 그대로
+        // 갇힌다. onboarding 분기는 목적지가 탭 밖이라 종전 그대로 세우지 않는다.
+        if (plan.kind === "blocked") markHomeReached();
         announceForA11y(plan.notice);
         Alert.alert("가족에 참여했어요", `${joinedText}\n${plan.notice}`, [
           { text: "확인", onPress: () => router.replace(plan.href) }
@@ -139,8 +219,10 @@ export default function AcceptInviteScreen() {
       Alert.alert("가족에 참여했어요", joinedText, [
         { text: "확인", onPress: () => router.replace(plan.href) }
       ]);
+    } finally {
+      setIsFinishingJoin(false);
     }
-  });
+  }
 
   return (
     <AppScreen>
@@ -170,6 +252,38 @@ export default function AcceptInviteScreen() {
 
         {accept.isError ? <Text style={{ color: theme.colors.danger }}>{acceptErrorText(accept.error)}</Text> : null}
 
+        {/* 라운드 60 #3(막다른 길 ②): 참여는 됐고 아이 목록만 못 받았다. "아이가 없다"고
+            단정하지 않고 사실만 말한 뒤, 같은 뒤처리만 다시 태우는 [다시 시도]를 준다 --
+            초대 수락(POST)은 이미 성공했으므로 다시 부르지 않는다(409만 남는다). */}
+        {joinRetryNotice && joinedResult ? (
+          <View accessibilityRole="alert">
+            <Card style={{ gap: 10 }}>
+              <Text style={{ color: theme.colors.brown }}>{`${joinedResult.household.name}과 함께해요.`}</Text>
+              <Text style={{ color: theme.colors.danger }}>{joinRetryNotice}</Text>
+              <SecondaryButton
+                accessibilityLabel="가족 정보 다시 불러오기"
+                disabled={isFinishingJoin}
+                label={isFinishingJoin ? "다시 시도하는 중..." : "다시 시도"}
+                onPress={() => void finishHouseholdJoin(joinedResult)}
+              />
+              {/* 라운드 60 리뷰(P1-1): 탈출구. 오프라인처럼 "잠시 후"로 풀리지 않는 실패에서
+                  [다시 시도] 하나만 두면 참여를 마친 사람이 이 화면에 묶인다(수락은 이미
+                  성공했으므로 다시 누를 수도, 뒤로 갈 수도 없다). 목적지는 계정 상태가
+                  정한다 -- 판정은 순수 모듈에 있고 화면은 그 결과만 따른다. */}
+              <SecondaryButton
+                accessibilityLabel="나중에 하고 앱 둘러보기"
+                disabled={isFinishingJoin}
+                label={HOUSEHOLD_JOIN_ESCAPE_LABEL}
+                onPress={() => {
+                  const escape = householdJoinEscapePlan({ currentChildId: selectedChildId, hasReachedHome });
+                  if (escape.marksHomeReached) markHomeReached();
+                  router.replace(escape.href);
+                }}
+              />
+            </Card>
+          </View>
+        ) : null}
+
         {!authToken ? (
           <>
             <Text style={mutedTextStyle}>로그인하면 이 초대로 바로 돌아와서 참여할 수 있어요.</Text>
@@ -189,7 +303,9 @@ export default function AcceptInviteScreen() {
         ) : (
           <PrimaryButton
             label={accept.isPending ? "참여하는 중..." : "가족에 참여하기"}
-            disabled={!invite.data || accept.isPending}
+            // 라운드 60 #3: 이미 참여에 성공했다면(joinedResult) 이 버튼은 다시 눌릴 수 없다 --
+            // 뒤처리만 실패해 화면에 남은 상태에서 다시 누르면 409뿐이다. 재시도는 위 카드가 맡는다.
+            disabled={!invite.data || accept.isPending || Boolean(joinedResult)}
             onPress={() => accept.mutate()}
           />
         )}

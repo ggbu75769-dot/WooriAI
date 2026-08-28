@@ -88,7 +88,7 @@ describe("analytics event envelope (ANA-101, round5a-sprint2-plan.md §5)", () =
 });
 
 describe("analytics event registry lookup", () => {
-  it("has exactly the 9 events at version 1 (6 initial + ANA-127's two purchase-loop events + UX-P's report share)", () => {
+  it("has exactly the 10 events at version 1 (6 initial + ANA-127's two purchase-loop events + UX-P's report share + 라운드 60's onboarding step)", () => {
     const keys = analyticsEventRegistry.map((entry) => `${entry.eventName}@${entry.eventVersion}`).sort();
     expect(keys).toEqual(
       [
@@ -100,7 +100,8 @@ describe("analytics event registry lookup", () => {
         "item_detail_viewed@1",
         "affiliate_link_clicked@1",
         "purchase_followup_answered@1",
-        "report_share_tapped@1"
+        "report_share_tapped@1",
+        "onboarding_step_viewed@1"
       ].sort()
     );
   });
@@ -121,7 +122,30 @@ describe("analytics event registry lookup", () => {
       "item_status_changed",
       "affiliate_link_clicked"
     ]);
-    expect(names.slice(6)).toEqual(["item_detail_viewed", "purchase_followup_answered", "report_share_tapped"]);
+    expect(names.slice(6)).toEqual([
+      "item_detail_viewed",
+      "purchase_followup_answered",
+      "report_share_tapped",
+      // 라운드 60 #9: 같은 append-only 규칙으로 맨 뒤에 붙었다.
+      "onboarding_step_viewed"
+    ]);
+  });
+
+  /**
+   * 라운드 60 #9: 온보딩 단계 진입. 페이로드는 단계 enum + 1..4 정수뿐이라, 자유 문자열이나
+   * 범위를 벗어난 단계 번호는 수집 엔드포인트에서 거절된다(= 화면이 잘못 보내면 조용히
+   * 저장되는 대신 rejected로 드러난다).
+   */
+  it("validates the onboarding_step_viewed v1 payload (단계 enum + 1..4 정수)", () => {
+    const schema = getAnalyticsEventPayloadSchema("onboarding_step_viewed", 1);
+    expect(schema).toBeDefined();
+    expect(schema!.parse({ step: "child_status", stepNumber: 1 })).toEqual({ step: "child_status", stepNumber: 1 });
+    expect(schema!.parse({ step: "budget", stepNumber: 4 })).toEqual({ step: "budget", stepNumber: 4 });
+    // 레지스트리 밖 단계 이름·범위 밖 번호·자유 문자열 필드는 모두 거절된다.
+    expect(schema!.safeParse({ step: "somewhere_else", stepNumber: 1 }).success).toBe(false);
+    expect(schema!.safeParse({ step: "budget", stepNumber: 5 }).success).toBe(false);
+    expect(schema!.safeParse({ step: "budget", stepNumber: 1.5 }).success).toBe(false);
+    expect(schema!.safeParse({ step: "budget", stepNumber: 4, nickname: "다온이" }).success).toBe(false);
   });
 
   it("returns the payload schema for a registered eventName@version", () => {

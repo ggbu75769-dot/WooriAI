@@ -1180,4 +1180,279 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       expect(third.auditLogsPurged).toBe(0);
     });
   });
+
+  describe("import preview retention (phase 9, GAP-060 #5)", () => {
+    afterEach(() => {
+      delete process.env.IMPORT_ROWS_RETENTION_DAYS;
+      delete process.env.AUDIT_LOGS_RETENTION_DAYS;
+      delete process.env.ANALYTICS_EVENTS_RETENTION_DAYS;
+      delete process.env.AFFILIATE_CLICKS_RETENTION_DAYS;
+    });
+
+    /** 이 블록이 쓰는 최소 소유 체계: 살아 있는(삭제 표식 없는) 사용자·가구·아이. */
+    async function createImportOwner() {
+      const user = await createUser();
+      const household = await createHousehold(user.id);
+      const child = await createChild(household.id, null);
+      return { user, household, child };
+    }
+
+    async function createImportJobWithRows(
+      owner: { user: { id: string }; household: { id: string }; child: { id: string } },
+      options: { status: "preview_ready" | "confirmed" | "cancelled" | "failed"; updatedAt: Date; rows?: number }
+    ) {
+      const importJob = await prisma.importJob.create({
+        data: {
+          userId: owner.user.id,
+          householdId: owner.household.id,
+          childId: owner.child.id,
+          fileName: "gap060-preview.xlsx",
+          fileType: "xlsx",
+          fileSizeBytes: BigInt(2048),
+          status: options.status,
+          // @updatedAt 컬럼이지만 create에 명시하면 그 값이 그대로 들어간다
+          // (위 createUser의 updatedAt 오버라이드와 같은 방식).
+          updatedAt: options.updatedAt
+        }
+      });
+      const rowIds: string[] = [];
+      for (let rowIndex = 0; rowIndex < (options.rows ?? 1); rowIndex += 1) {
+        const row = await prisma.importRow.create({
+          data: {
+            importJobId: importJob.id,
+            rowIndex,
+            // 죽은 컬럼(schema.prisma 주석) — 실제 코드 경로와 같이 빈 객체를 넣는다.
+            rawJson: {},
+            parsedItemName: "기저귀",
+            parsedAmountKrw: 12000,
+            selected: rowIndex % 2 === 0
+          }
+        });
+        rowIds.push(row.id);
+      }
+      return { importJob, rowIds };
+    }
+
+    async function cleanupImportFixtures(
+      owner: { user: { id: string }; household: { id: string }; child: { id: string } },
+      importJobIds: string[]
+    ) {
+      await prisma.importRow.deleteMany({ where: { importJobId: { in: importJobIds } } });
+      await prisma.expense.deleteMany({ where: { childId: owner.child.id } });
+      await prisma.importJob.deleteMany({ where: { id: { in: importJobIds } } });
+      await prisma.child.deleteMany({ where: { id: owner.child.id } });
+      await prisma.householdMember.deleteMany({ where: { householdId: owner.household.id } });
+      await prisma.household.deleteMany({ where: { id: owner.household.id } });
+      await prisma.user.deleteMany({ where: { id: owner.user.id } });
+    }
+
+    it("defaults to a 90-day window — the SHORTEST of the age-based windows — and reports it in the summary", async () => {
+      const now = new Date();
+      const summary = await job.run(now);
+      expect(summary.importRowsRetentionDays).toBe(90);
+      // 승인하지 않은 금융 내역의 사본은 정산 근거(400일)·책임 추적 기록(730일)보다
+      // 짧게 두는 것이 이 창의 판단이다 — 숫자 관계를 계약으로 고정한다.
+      expect(summary.importRowsRetentionDays as number).toBeLessThan(summary.analyticsEventsRetentionDays as number);
+      expect(summary.importRowsRetentionDays as number).toBeLessThan(summary.auditLogsRetentionDays as number);
+    });
+
+    it("purges the preview rows of a confirmed import older than the window, keeps the import_jobs row itself, and keeps an import still inside the window", async () => {
+      const now = new Date();
+      const owner = await createImportOwner();
+      const agedOut = await createImportJobWithRows(owner, {
+        status: "confirmed",
+        updatedAt: daysAgo(now, 91),
+        rows: 3
+      });
+      // 경계 바로 안쪽(89일): 같은 확정 잡이어도 살아남아야 한다.
+      const onTheEdge = await createImportJobWithRows(owner, {
+        status: "confirmed",
+        updatedAt: daysAgo(now, 89),
+        rows: 2
+      });
+      // 확정분이 넘어간 실제 지출 — 검수 행 파기가 이것까지 건드리면 안 된다.
+      const importedExpense = await createExpense(owner.household.id, owner.child.id, owner.user.id, null);
+
+      const summary = await job.run(now);
+      expect(summary.importRowsPurged as number).toBeGreaterThanOrEqual(3);
+      expect(summary.importJobPreviewsDrained as number).toBeGreaterThanOrEqual(1);
+
+      expect(await prisma.importRow.count({ where: { importJobId: agedOut.importJob.id } })).toBe(0);
+      expect(await prisma.importRow.count({ where: { importJobId: onTheEdge.importJob.id } })).toBe(2);
+      // 잡 행 자체는 사용자에게 보이는 가져오기 이력이라 남는다.
+      expect(await prisma.importJob.findUnique({ where: { id: agedOut.importJob.id } })).not.toBeNull();
+      expect(await prisma.expense.findUnique({ where: { id: importedExpense.id } })).not.toBeNull();
+
+      await cleanupImportFixtures(owner, [agedOut.importJob.id, onTheEdge.importJob.id]);
+    });
+
+    /**
+     * 라운드 60 리뷰(P2-3): `cancelled`는 이제 실제로 쓰이는 종료 상태다 — 같은 아이에게 새
+     * 가져오기를 시작하면 이전 미확정 미리보기가 이 상태로 넘어간다
+     * (import-pipeline.service.ts의 createImportJob). 그 행들은 사용자가 다 쓴 것이므로
+     * 확정분과 **같은 창**을 쓴다. 이 단계가 그것을 실제로 집어 가는지 고정한다.
+     */
+    it("purges a cancelled (새 가져오기로 대체된) import's rows on the same window", async () => {
+      const now = new Date();
+      const owner = await createImportOwner();
+      const cancelled = await createImportJobWithRows(owner, {
+        status: "cancelled",
+        updatedAt: daysAgo(now, 120),
+        rows: 2
+      });
+      // 경계 안쪽(89일)의 취소 잡은 살아남는다 — 창 자체는 확정분과 같은 90일이다.
+      const recent = await createImportJobWithRows(owner, {
+        status: "cancelled",
+        updatedAt: daysAgo(now, 89),
+        rows: 2
+      });
+
+      await job.run(now);
+
+      expect(await prisma.importRow.count({ where: { importJobId: cancelled.importJob.id } })).toBe(0);
+      expect(await prisma.importRow.count({ where: { importJobId: recent.importJob.id } })).toBe(2);
+      // 잡 행 자체는 가져오기 이력이라 남는다(확정분과 같은 규칙).
+      expect(await prisma.importJob.findUnique({ where: { id: cancelled.importJob.id } })).not.toBeNull();
+
+      await cleanupImportFixtures(owner, [cancelled.importJob.id, recent.importJob.id]);
+    });
+
+    it("purges a failed import's rows on the same window", async () => {
+      const now = new Date();
+      const owner = await createImportOwner();
+      const failed = await createImportJobWithRows(owner, { status: "failed", updatedAt: daysAgo(now, 120), rows: 2 });
+
+      await job.run(now);
+
+      expect(await prisma.importRow.count({ where: { importJobId: failed.importJob.id } })).toBe(0);
+      expect(await prisma.importJob.findUnique({ where: { id: failed.importJob.id } })).not.toBeNull();
+
+      await cleanupImportFixtures(owner, [failed.importJob.id]);
+    });
+
+    it("never touches a preview_ready job's rows, however old — 검수 중인 행은 사용자 자산이다", async () => {
+      const now = new Date();
+      const owner = await createImportOwner();
+      // 1년 넘게 방치된 검수 대기 잡. 그래도 행은 남는다(재진입 카드가 이 잡을 가리킨다).
+      const abandoned = await createImportJobWithRows(owner, {
+        status: "preview_ready",
+        updatedAt: daysAgo(now, 400),
+        rows: 4
+      });
+      // 같은 나이의 확정 잡은 지워진다 — 두 잡의 운명이 갈리는 것이 이 단계의 판정 그 자체.
+      const confirmed = await createImportJobWithRows(owner, {
+        status: "confirmed",
+        updatedAt: daysAgo(now, 400),
+        rows: 4
+      });
+
+      await job.run(now);
+
+      expect(await prisma.importRow.count({ where: { importJobId: abandoned.importJob.id } })).toBe(4);
+      expect(await prisma.importRow.count({ where: { importJobId: confirmed.importJob.id } })).toBe(0);
+
+      await cleanupImportFixtures(owner, [abandoned.importJob.id, confirmed.importJob.id]);
+    });
+
+    it("honors the IMPORT_ROWS_RETENTION_DAYS override independently of the other windows", async () => {
+      const now = new Date();
+      process.env.IMPORT_ROWS_RETENTION_DAYS = "200";
+      const owner = await createImportOwner();
+
+      const beyond = await createImportJobWithRows(owner, { status: "confirmed", updatedAt: daysAgo(now, 250) });
+      // 150일은 기본 창(90)이면 지워질 나이지만 override(200) 안이다 — 이 행이 살아남는다는
+      // 사실이 곧 "env가 실제로 반영됐다"는 증거다.
+      const within = await createImportJobWithRows(owner, { status: "confirmed", updatedAt: daysAgo(now, 150) });
+
+      const summary = await job.run(now);
+      expect(summary.importRowsRetentionDays).toBe(200);
+      // 다른 창은 이 override에 흔들리지 않는다.
+      expect(summary.retentionDays).toBe(30);
+      expect(summary.auditLogsRetentionDays).toBe(730);
+      expect(summary.analyticsEventsRetentionDays).toBe(400);
+
+      expect(await prisma.importRow.count({ where: { importJobId: beyond.importJob.id } })).toBe(0);
+      expect(await prisma.importRow.count({ where: { importJobId: within.importJob.id } })).toBe(1);
+
+      await cleanupImportFixtures(owner, [beyond.importJob.id, within.importJob.id]);
+    });
+
+    it("touches nothing but import_rows: telemetry/audit rows inside their own windows and a fresh expense tombstone all survive", async () => {
+      const now = new Date();
+      const owner = await createImportOwner();
+      const agedOut = await createImportJobWithRows(owner, { status: "confirmed", updatedAt: daysAgo(now, 100) });
+      // 같은 100일 나이의 다른 테이블 행들 — 각자의 창(400·730일) 안이라 살아 있어야 한다.
+      const event = await prisma.analyticsEvent.create({
+        data: {
+          eventName: "app_opened",
+          eventVersion: 1,
+          eventId: randomUUID(),
+          occurredAt: daysAgo(now, 100),
+          userAnonId: `purge-gap060-${randomUUID().slice(0, 8)}`,
+          payload: {}
+        }
+      });
+      const click = await prisma.affiliateClick.create({
+        data: { itemTemplateId, productLinkId, platform: "coupang", clickedAt: daysAgo(now, 100) }
+      });
+      const auditLog = await prisma.auditLog.create({
+        data: {
+          action: "expense.update",
+          targetType: "expense",
+          targetId: randomUUID(),
+          afterJson: { marker: `purge-gap060-${randomUUID().slice(0, 8)}` },
+          createdAt: daysAgo(now, 100)
+        }
+      });
+      // 1단계의 30일 창 안에 있는 지출 툼스톤.
+      const freshTombstone = await createExpense(owner.household.id, owner.child.id, owner.user.id, daysAgo(now, 3));
+
+      await job.run(now);
+
+      expect(await prisma.importRow.count({ where: { importJobId: agedOut.importJob.id } })).toBe(0);
+      expect(await prisma.analyticsEvent.findUnique({ where: { id: event.id } })).not.toBeNull();
+      expect(await prisma.affiliateClick.findUnique({ where: { id: click.id } })).not.toBeNull();
+      expect(await prisma.auditLog.findUnique({ where: { id: auditLog.id } })).not.toBeNull();
+      expect(await prisma.expense.findUnique({ where: { id: freshTombstone.id } })).not.toBeNull();
+
+      await prisma.analyticsEvent.deleteMany({ where: { id: event.id } });
+      await prisma.affiliateClick.deleteMany({ where: { id: click.id } });
+      await prisma.auditLog.deleteMany({ where: { id: auditLog.id } });
+      await cleanupImportFixtures(owner, [agedOut.importJob.id]);
+    });
+
+    it("caps the phase at PURGE_BATCH_SIZE JOBS per tick (a preview is always drained whole), drains across ticks, and then no-ops", async () => {
+      const now = new Date();
+      // 3,000일 넘게 오래된 잡: 다른 스위트는 이만한 나이의 가져오기 잡을 만들지 않으므로
+      // (기본 updatedAt=now) 이 셋이 파기 대상 전부이고 배치 상한이 정확히 관측된다.
+      process.env.PURGE_BATCH_SIZE = "2";
+      const owner = await createImportOwner();
+      const jobs = [
+        await createImportJobWithRows(owner, { status: "confirmed", updatedAt: daysAgo(now, 3002), rows: 3 }),
+        await createImportJobWithRows(owner, { status: "confirmed", updatedAt: daysAgo(now, 3001), rows: 3 }),
+        await createImportJobWithRows(owner, { status: "failed", updatedAt: daysAgo(now, 3000), rows: 3 })
+      ];
+      const importJobIds = jobs.map((entry) => entry.importJob.id);
+
+      const first = await job.run(now);
+      // 상한은 **잡** 2개 — 행 수(6)는 상한이 아니라 결과다.
+      expect(first.importJobPreviewsDrained).toBe(2);
+      expect(first.importRowsPurged).toBe(6);
+      // 오래된 것부터: 셋 중 가장 최근 잡은 첫 틱을 살아남는다.
+      expect(await prisma.importRow.count({ where: { importJobId: importJobIds[2]! } })).toBe(3);
+
+      const second = await job.run(now);
+      expect(second.importJobPreviewsDrained).toBe(1);
+      expect(second.importRowsPurged).toBe(3);
+      expect(await prisma.importRow.count({ where: { importJobId: { in: importJobIds } } })).toBe(0);
+
+      // 자기 종료: 행이 다 빠진 잡은 여전히 confirmed지만 더 이상 선택되지 않는다
+      // (EXISTS 술어) — 이게 없으면 이 잡들이 매 틱 배치 창을 영원히 차지한다.
+      const third = await job.run(now);
+      expect(third.importJobPreviewsDrained).toBe(0);
+      expect(third.importRowsPurged).toBe(0);
+
+      await cleanupImportFixtures(owner, importJobIds);
+    });
+  });
 });

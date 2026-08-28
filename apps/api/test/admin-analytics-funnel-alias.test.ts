@@ -55,8 +55,14 @@ describe("R27(L-5) 어드민 퍼널 별칭 맵 ↔ 이벤트 레지스트리", (
   it("ANA-127 이후 append된 이벤트에는 별칭이 없다 (byName으로만 노출)", () => {
     const appendedNames = registryNames.slice(LEGACY_EVENT_COUNT);
     // 회귀 방지의 핵심: 실제로 append된 이벤트가 존재하는 상태에서 검사한다.
-    // 라운드 39 UX-P가 report_share_tapped를 같은 규칙으로 맨 뒤에 붙였다.
-    expect(appendedNames).toEqual(["item_detail_viewed", "purchase_followup_answered", "report_share_tapped"]);
+    // 라운드 39 UX-P가 report_share_tapped를, 라운드 60 #9가 onboarding_step_viewed를
+    // 같은 규칙으로 맨 뒤에 붙였다 -- 둘 다 별칭 없이 byName으로만 노출된다.
+    expect(appendedNames).toEqual([
+      "item_detail_viewed",
+      "purchase_followup_answered",
+      "report_share_tapped",
+      "onboarding_step_viewed"
+    ]);
     for (const name of appendedNames) {
       expect(FUNNEL_KEY_BY_EVENT_NAME[name]).toBeUndefined();
     }

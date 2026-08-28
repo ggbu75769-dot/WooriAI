@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import type { ChildStageMode } from "@wooriai/domain";
-import { OnboardingStepProgress } from "../../src/onboarding/step-ui";
+import { OnboardingStepProgress, useOnboardingStepAnalytics } from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { AppScreen, Card, ScreenHeader } from "../../src/ui";
 import { theme } from "../../src/theme";
@@ -42,6 +42,9 @@ export default function ChildStatusScreen() {
   const completeStep = useOnboardingProgressStore((state) => state.completeStep);
   const [selectedMode, setSelectedMode] = useState<ChildStageMode | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
+
+  // 라운드 60 #9: 단계 진입 계측(onboarding_step_viewed). 동의 OFF면 완전한 no-op이다.
+  useOnboardingStepAnalytics("ONB-001");
 
   // ONB-105: isNavigating guards against double-taps while pushing to the next screen, but it
   // used to stay true forever -- coming back from ONB-002 left every option disabled with no way

@@ -1,8 +1,21 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, Share, Text, View } from "react-native";
-import { createInvite, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN, type InviteRole } from "../../src/api/client";
+import {
+  createInvite,
+  listChildren,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_SESSION_TOKEN,
+  type InviteRole
+} from "../../src/api/client";
+import {
+  describeHouseholdScope,
+  householdScopeInviteNotice,
+  householdScopePhrase,
+  isChildrenSettled,
+  resolveManagedHouseholdId
+} from "../../src/family/household-scope";
 import {
   DEFAULT_INVITE_ROLE,
   INVITE_ROLE_CHOICES,
@@ -11,6 +24,7 @@ import {
 } from "../../src/family/invite-flow";
 import { inviteCreateErrorMessage } from "../../src/family/invite-permissions";
 import { formatInviteExpiry } from "../../src/family/memberLabels";
+import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
@@ -32,7 +46,46 @@ export default function FamilyInviteScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const knownHouseholdIds = useSessionStore((state) => state.householdIds);
+  const fallbackHouseholdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
+  /**
+   * 라운드 60 A — 초대는 **보고 있는 아이의 가구**로 만든다.
+   *
+   * 종전에는 세션의 `defaultHouseholdId`였다. 다른 가구 초대를 수락하면 그 값이 영구히 바뀌므로
+   * (app/family/accept/[token].tsx), 수락한 사용자가 원래 가구로 배우자를 부르려 해도 링크는
+   * 늘 **새로 들어간 가구**로 만들어졌다 -- 가족 화면(대기 초대 목록)과도 다른 가구를 보게 된다.
+   * 판정과 폴백 규칙은 src/family/household-scope.ts 한 곳에 있고, 아이 목록은 다른 화면들과
+   * 같은 `["children"]` 캐시라 대개 새 요청이 없다.
+   */
+  const childrenQuery = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
+  });
+  // 세션이 없으면 기다릴 조회 자체가 없다(쿼리가 disabled라 영원히 pending이다).
+  const childrenSettled = isChildrenSettled({
+    authToken,
+    isSuccess: childrenQuery.isSuccess,
+    isError: childrenQuery.isError
+  });
+  const householdId = resolveManagedHouseholdId({
+    children: childrenQuery.data?.children,
+    childId: selectedChildId,
+    fallbackHouseholdId,
+    childrenSettled
+  });
+  // 다가구 계정에서만 붙는 한 줄. 1가구 계정에서는 null이라 화면이 종전 그대로다.
+  const householdNotice = householdScopeInviteNotice(
+    householdScopePhrase(
+      describeHouseholdScope({
+        householdId,
+        children: childrenQuery.data?.children,
+        knownHouseholdIds,
+        fallbackHouseholdId
+      })
+    )
+  );
 
   /**
    * 라운드 52 QA P2-2 — 만든 초대가 "대기 중인 초대"에 곧바로 뜨게 한다.
@@ -74,6 +127,9 @@ export default function FamilyInviteScreen() {
           onBack={() => router.back()}
         />
 
+        {/* 라운드 60 A: 이 링크가 어느 가구로 부르는지 -- 다가구 계정에서만 나타난다. */}
+        {householdNotice ? <Text style={mutedTextStyle}>{householdNotice}</Text> : null}
+
         <Card style={{ gap: 8 }}>
           {INVITE_ROLE_CHOICES.map((option) => (
             <Pressable
@@ -94,7 +150,11 @@ export default function FamilyInviteScreen() {
           ))}
         </Card>
 
-        {!householdId ? <Text style={mutedTextStyle}>가구 정보가 없어서 초대를 만들 수 없어요.</Text> : null}
+        {/* 라운드 60 A: 아이 목록을 기다리는 동안에는 아직 "가구 정보가 없다"고 단정하지 않는다
+            -- 조회가 끝났는데도 가구를 못 찾은 경우에만 종전 문구를 그대로 말한다. */}
+        {childrenSettled && !householdId ? (
+          <Text style={mutedTextStyle}>가구 정보가 없어서 초대를 만들 수 없어요.</Text>
+        ) : null}
 
         <PrimaryButton
           label={invite.isPending ? "링크 만드는 중..." : "초대 링크 만들기"}

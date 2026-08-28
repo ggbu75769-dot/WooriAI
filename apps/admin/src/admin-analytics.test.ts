@@ -223,7 +223,7 @@ describe("Admin CMS analytics page (ADM-009)", () => {
    */
   it("labels the last stage as purchased-only and says exactly that in the footnote", () => {
     const source = readSource("app/analytics/page.tsx");
-    expect(source).toContain('label: "구매 확인 (구매했어요)"');
+    expect(source).toContain('label: "구매 확인 응답 (샀어요)"');
     expect(source).toContain("&quot;샀어요&quot;로 답한 건수만");
     // 3갈래 합계를 마지막 단계로 쓰던 옛 각주는 남아 있지 않다.
     expect(source).not.toContain("샀어요·아직이요·괜찮아요 합계");
@@ -234,12 +234,51 @@ describe("Admin CMS analytics page (ADM-009)", () => {
   });
 
   /**
+   * 라운드 60 리뷰(P2-5) — 마지막 단은 **답**이지 구매가 아니다.
+   *
+   * 라운드 60 트랙 B가 "샀어요" 버튼에서 done 확정을 떼어 저장 자리로 옮겼다(모바일
+   * PurchaseFollowupPrompt.tsx). 그 버튼은 기록 화면을 열 뿐이라 사용자가 화면을 닫으면 답만
+   * 남고 지출은 없다 — 이 수를 "실구매"라고 부르면 앱이 이미 고친 부풀림을 어드민이 되살린다.
+   */
+  it("never calls the last funnel stage 실구매 — it counts an answer, not a record", () => {
+    const source = readSource("app/analytics/page.tsx");
+    // 옛 단정(전환율 = 실구매 비율)은 남아 있지 않다.
+    expect(source).not.toContain("링크 클릭 → 실구매 비율이에요");
+    expect(source).not.toContain("구매 확인 응답 (링크 클릭 → 실구매)");
+    // 그 자리에 사실이 적힌다: 답이지 기록이 아니다.
+    expect(source).toContain("<strong>답이지 기록이 아니에요</strong>");
+    expect(source).toContain("구매 확인 응답 (링크 클릭 → 샀어요 응답)");
+  });
+
+  /**
+   * 라운드 60 리뷰(P2-8): 온보딩 단계 수는 계약(packages/contracts/src/analytics.ts의
+   * `ONBOARDING_STEPS`)이 정한다. 어드민은 그 패키지를 의존성으로 들지 않으므로 값을 손으로
+   * 적어 두고, **여기서 대조**한다 — 레지스트리에 단계가 하나 늘면 이 테스트가 깨진다.
+   */
+  it("keeps ONBOARDING_STEP_COUNT in sync with the contracts registry (대조 테스트)", () => {
+    const source = readSource("app/analytics/page.tsx");
+    const declared = Number(source.match(/const ONBOARDING_STEP_COUNT = (\d+);/)?.[1]);
+    expect(Number.isInteger(declared)).toBe(true);
+
+    const contractsSource = readSource(join("..", "..", "packages", "contracts", "src", "analytics.ts"));
+    const steps = contractsSource.match(/export const ONBOARDING_STEPS = \[([^\]]*)\] as const;/)?.[1];
+    expect(steps, "packages/contracts/src/analytics.ts should declare ONBOARDING_STEPS").toBeTruthy();
+    const stepCount = [...steps!.matchAll(/"[a-z_]+"/g)].length;
+    expect(stepCount).toBeGreaterThan(0);
+
+    expect(
+      declared,
+      `ONBOARDING_STEP_COUNT(${declared})가 계약의 ONBOARDING_STEPS 길이(${stepCount})와 달라요`
+    ).toBe(stepCount);
+  });
+
+  /**
    * ANA-128: 3갈래 분해 표 + 응답률/구매율 카드. 분해 합계가 이벤트 이름 총계보다 작을 수
    * 있다는 사실(answer 없는 레거시·손상 페이로드)을 숨기지 않고 "분류 불가"로 드러낸다.
    */
   it("renders the purchase-followup breakdown with 응답률/구매율 and an unclassified row", () => {
     const source = readSource("app/analytics/page.tsx");
-    expect(source).toContain("구매 확인 응답 (링크 클릭 → 실구매)");
+    expect(source).toContain("구매 확인 응답 (링크 클릭 → 샀어요 응답)");
     expect(source).toContain("응답률 (클릭 대비 응답)");
     expect(source).toContain("구매율 (클릭 대비 샀어요)");
     // 3갈래가 모두 표에 있고, 각 행은 payload의 answer 리터럴을 그대로 밝힌다.
@@ -271,12 +310,51 @@ describe("Admin CMS analytics page (ADM-009)", () => {
     expect(source).toContain("summary.purchaseFollowup");
   });
 
+  /**
+   * 라운드 60 #9: 퍼널의 1단이 "온보딩 완료"라, 그 앞에서 일어난 이탈은 퍼널 안에서는 영영
+   * 보이지 않았다. 단계 진입 계측을 퍼널 **바로 위** 카드로 붙이되, 퍼널의 단계로는 넣지
+   * 않는다 -- 단계 진입은 사람당 최대 4건이라 퍼센트 전환율로 적으면 구조적으로 틀린다.
+   */
+  describe("라운드 60 #9 온보딩 단계 이탈 표기", () => {
+    it("KPI 퍼널 바로 위에 온보딩 단계 이탈 카드를 둔다", () => {
+      const source = readSource("app/analytics/page.tsx");
+      expect(source).toContain("온보딩 단계 이탈 (퍼널 진입 전)");
+      expect(source).toContain('eventCount(summary, "onboarding_step_viewed")');
+      // 순서: 단계 이탈 카드가 KPI 퍼널 섹션보다 앞이다.
+      expect(source.indexOf("온보딩 단계 이탈")).toBeLessThan(source.indexOf("<h2>KPI 퍼널</h2>"));
+    });
+
+    it("퍼널 단계 목록은 그대로다 (진입 이벤트를 단계로 끼워 넣지 않는다)", () => {
+      const source = readSource("app/analytics/page.tsx");
+      const block = source.split("const FUNNEL_STAGES")[1]?.split("];")[0] ?? "";
+      expect(block).not.toContain("onboarding_step_viewed");
+    });
+
+    it("사람 수가 아니라는 사실을 숨기지 않고, 비율 대신 배수로만 적는다 (허위 데이터 금지)", () => {
+      const source = readSource("app/analytics/page.tsx");
+      expect(source).toContain("function stepsPerCompletion(stepViews: number, completions: number): string");
+      // 완료 0건이면 계산 불가 — 0으로 나눈 값을 100%처럼 적지 않는다.
+      expect(source).toContain("if (completions <= 0) return \"-\";");
+      expect(source).toContain("사용자 수가 아니에요");
+      // 진입 대비 완료를 퍼센트 전환율로 적는 경로는 없다.
+      expect(source).not.toContain("conversionRate(stepViews");
+    });
+
+    it("단계별 분해가 아직 없다는 한계를 화면에서 밝힌다", () => {
+      const source = readSource("app/analytics/page.tsx");
+      expect(source).toContain("<strong>어느 단계에서</strong>");
+      expect(source).toContain("요약 API는 이벤트 이름 단위로만 집계해요");
+    });
+  });
+
   it("labels the appended registry events in the per-event table (they arrive via byName, not the 6-name mirror)", () => {
     const source = readSource("app/analytics/page.tsx");
     expect(source).toContain('item_detail_viewed: "준비템 상세 열람"');
     expect(source).toContain('purchase_followup_answered: "구매 확인 응답"');
     // 라운드 39 UX-P가 레지스트리 맨 뒤에 붙인 이름 — 라벨이 없으면 표에 원문 이름이 노출된다.
     expect(source).toContain('report_share_tapped: "리포트 공유"');
+    // 라운드 60 #9가 같은 규칙으로 붙인 이름.
+    expect(source).toContain('onboarding_step_viewed: "온보딩 단계 진입"');
     expect(source).toContain("ANA127_EVENT_LABELS[name]");
     // 레지스트리 밖 이름을 덧붙이는 기존 경로는 그대로 살아 있어야 이 두 이름이 표에 나온다.
     expect(source).toContain("summary.byName.filter((entry) => !(ANALYTICS_EVENT_NAMES as string[]).includes(entry.name))");

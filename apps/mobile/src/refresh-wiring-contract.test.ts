@@ -60,6 +60,43 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
     expect(source("app/(tabs)/items.tsx")).toContain('queryClient.invalidateQueries({ queryKey: ["items"] })');
   });
 
+  /**
+   * GAP-060 #10 — 홈의 당겨서 새로고침이 **화면이 읽는 캐시 전부**를 갱신한다.
+   *
+   * 고치는 문제: 홈의 숫자는 한 쿼리에서 오지 않는다. 히어로·진행바·최근 기록은
+   * `["home", childId]`(서버 집계)이고 주간 카드와 "지난달 같은 시점 대비" 한 줄은
+   * `["expenses", childId, 이번 달/지난달]`을 클라이언트에서 더한 값이라, `["home"]`만
+   * 무효화하면 히어로만 새 값이 되고 주간 카드는 옛 캐시에 남는다 — 한 화면의 두 숫자가
+   * 서로 다른 시점을 말한다. 나머지(분류 · 지난달 예산 · 아이 목록)와 오프라인 스냅숏도
+   * 홈이 실제로 읽는 원천이라 같은 당김에 함께 실린다(기록 탭 관례).
+   */
+  it("홈 새로고침은 홈이 읽는 6개 캐시 + 오프라인 스냅숏을 병렬로 갱신한다 (GAP-060 #10)", () => {
+    const homeSource = source("app/(tabs)/index.tsx");
+    // 병렬 실행 관례는 리포트·준비템 탭과 같다(Promise.all 한 덩어리).
+    expect(homeSource).toContain("usePullToRefresh(() =>\n    Promise.all([");
+    for (const key of [
+      '{ queryKey: ["home"] }',
+      '{ queryKey: ["categories"] }',
+      '{ queryKey: ["expenses", childId, thisYearMonth] }',
+      '{ queryKey: ["expenses", childId, lastYearMonth] }',
+      '{ queryKey: ["budget", childId, lastYearMonth] }',
+      '{ queryKey: ["children"] }'
+    ]) {
+      expect(homeSource, `홈 새로고침이 ${key}를 갱신하지 않는다`).toContain(
+        `queryClient.invalidateQueries(${key})`
+      );
+    }
+    // 기록 탭과 같은 스냅숏 갱신(서버 값만 새로 받고 대기/실패 행을 두면 재조정의 한쪽만 최신이 된다).
+    expect(homeSource).toContain("refreshOfflineSyncSnapshot()");
+    expect(homeSource).toContain('import { refreshOfflineSyncSnapshot, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";');
+    // 달을 고정해 무효화한다: ["expenses"] 프리픽스를 통째로 날리면 기록 탭이 훑어 둔 다른 달
+    // 캐시까지 로딩으로 되돌아간다.
+    expect(homeSource).not.toContain('invalidateQueries({ queryKey: ["expenses"] })');
+    // 홈이 켜는 useQuery는 이 여섯 개가 전부다 -- 일곱 번째가 생기면 이 수가 어긋나 새로고침
+    // 범위를 다시 보게 된다.
+    expect((homeSource.match(/^\s*queryKey: \[/gm) ?? []).length).toBe(6);
+  });
+
   it("home shows the MOB-117 recent-expenses empty state matching the records-tab first-record copy", () => {
     const homeSource = source("app/(tabs)/index.tsx");
     const recordsSource = source("app/(tabs)/records.tsx");

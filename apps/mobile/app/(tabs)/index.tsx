@@ -83,7 +83,7 @@ import {
   ListRow as SurfaceListRow,
   SyncStatusBar
 } from "../../src/design-system";
-import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import { refreshOfflineSyncSnapshot, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import {
   OFFLINE_RECORDING_ENTRY_LABEL,
   OFFLINE_RECORDING_STILL_AVAILABLE_NOTICE,
@@ -1246,10 +1246,50 @@ export default function HomeScreen() {
    */
   const hasPendingLocalRecords = hasPendingRecordsForChild(offlineSyncSnapshot.rows, childId);
   useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification, hasPendingLocalRecords);
-  // MOB-117 당겨서 새로고침: 홈 요약·최근 지출은 모두 ["home"] 쿼리에서 나온다. invalidate는
-  // 활성 쿼리 refetch 완료까지 resolve되므로 스피너가 실제 완료에 맞춰 닫힌다.
+  /**
+   * MOB-117 당겨서 새로고침 → GAP-060 #10: **이 화면이 실제로 읽는 캐시 전부**를 갱신한다.
+   *
+   * 종전에는 `["home"]` 하나만 무효화했다. 그런데 홈이 그리는 숫자는 한 쿼리에서 오지 않는다 —
+   * 히어로 카드·최근 기록·예산 진행바는 `["home", childId]`(서버 집계)이고, **주간 카드**와
+   * "지난달 같은 시점 대비" 한 줄은 `["expenses", childId, 이번 달/지난달]` 두 캐시를 클라이언트에서
+   * 더한 값이다(위 UX-A·REP-121 주석). 그래서 당겨서 새로고침은 히어로만 새 값으로 바꾸고 주간
+   * 카드는 옛 캐시에 그대로 남겼다 — 다른 기기에서 기록한 지출이 있으면 **한 화면의 두 숫자가
+   * 서로 다른 시점을 말하는** 상태가 되고, 사용자가 그것을 고칠 방법은 앱을 껐다 켜는 것뿐이었다
+   * (기록 탭을 들렀다 오면 공유 캐시라 그때 갈림이 풀린다 — 재현이 들쭉날쭉했던 이유).
+   *
+   * 나머지 셋도 같은 이유로 함께 넣는다: `["categories"]`(최근 기록 행의 분류 색·글리프),
+   * 지난달 `["budget", childId, 지난달]`(예산 넛지 부제 — 라운드 48 B1(c)), `["children"]`
+   * (아기 카운터·마일스톤이 읽는 dueDate/birthDate와 아이 전환 시트 목록). 홈이 읽는 쿼리는
+   * 이 여섯이 전부다.
+   *
+   * `refreshOfflineSyncSnapshot()`은 기록 탭 관례 그대로다(app/(tabs)/records.tsx) — 홈의 히어로
+   * 사용액·주간 카드·동기화 바는 서버 값을 이 기기의 대기/실패 행과 재조정해서 말하므로, 서버만
+   * 새로 받고 스냅숏을 두면 재조정의 한쪽만 최신이 된다.
+   *
+   * 병렬 실행·`Promise.all` 형태는 리포트·준비템 탭과 같다. `invalidateQueries`는 활성 쿼리의
+   * refetch 완료까지 resolve되므로 스피너가 실제 완료에 맞춰 닫히고, 비활성 쿼리(첫 페인트 전의
+   * 지난달 지출·예산이 없는 달의 지난달 예산)는 stale 표시만 되고 즉시 resolve된다 — 새로고침이
+   * 켜지지 않은 요청을 억지로 켜지 않는다.
+   *
+   * 달을 고정해 무효화하는 이유(`["expenses"]` 프리픽스가 아니라 정확한 키 두 개): 기록 탭이
+   * 훑어 둔 다른 달 캐시까지 통째로 날리면, 홈을 당긴 사용자가 기록 탭으로 갔을 때 이미 있던
+   * 목록이 다시 로딩으로 돌아간다. 홈이 쓰는 두 달만 갱신하면 충분하다.
+   *
+   * `childId`가 null일 수 있는 경로는 없다: RefreshControl 자체가 `hasSession`(authToken && childId)
+   * 일 때만 붙는다(아래 `refreshControl`).
+   */
   const queryClient = useQueryClient();
-  const { refreshing, onRefresh } = usePullToRefresh(() => queryClient.invalidateQueries({ queryKey: ["home"] }));
+  const { refreshing, onRefresh } = usePullToRefresh(() =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["home"] }),
+      queryClient.invalidateQueries({ queryKey: ["categories"] }),
+      queryClient.invalidateQueries({ queryKey: ["expenses", childId, thisYearMonth] }),
+      queryClient.invalidateQueries({ queryKey: ["expenses", childId, lastYearMonth] }),
+      queryClient.invalidateQueries({ queryKey: ["budget", childId, lastYearMonth] }),
+      queryClient.invalidateQueries({ queryKey: ["children"] }),
+      refreshOfflineSyncSnapshot()
+    ])
+  );
   // DSN-053 P2-A: 히어로 아래 카드는 우선순위 상위 1~2장만 펼쳐 두고 나머지는 이 상태로 접는다.
   // 접힘은 **렌더만**이다 -- 판정 훅·데이터·알림 평가는 종전 그대로 전부 돈다(기능 무손실).
   const [sectionsExpanded, setSectionsExpanded] = useState(false);

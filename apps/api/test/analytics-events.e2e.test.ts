@@ -86,6 +86,21 @@ describe("Analytics events API (/v1/analytics/events)", () => {
     };
   }
 
+  /**
+   * 라운드 60 #9: 온보딩 단계 진입. 페이로드는 단계 enum + 1..4 정수뿐이다
+   * (packages/contracts/src/analytics.ts의 ONBOARDING_STEPS / onboardingStepViewedV1Payload).
+   */
+  function onboardingStepViewedEnvelope(step = "child_status", stepNumber = 1) {
+    return {
+      eventName: "onboarding_step_viewed",
+      eventVersion: 1,
+      eventId: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      platform: "android",
+      payload: { step, stepNumber }
+    };
+  }
+
   function postEvents(accessToken: string, events: unknown[]) {
     return request(app.getHttpServer())
       .post("/api/v1/analytics/events")
@@ -160,6 +175,50 @@ describe("Analytics events API (/v1/analytics/events)", () => {
 
     const rejectedRow = await prisma.analyticsEvent.findUnique({ where: { eventId: tampered.eventId } });
     expect(rejectedRow).toBeNull();
+  });
+
+  /**
+   * 라운드 60 #9 — 레지스트리에 새로 append된 `onboarding_step_viewed`가 실제로 **수집되는지**
+   * (죽은 계측이 아닌지) 그리고 **단계 값이 검증되는지**를 이 엔드포인트에서 고정한다.
+   * 수집 엔드포인트는 레지스트리에 없는 이름/스키마에 맞지 않는 페이로드를 EVENT_NOT_REGISTERED /
+   * 스키마 실패로 버리므로, 여기서 통과한다는 것이 곧 "계약과 클라이언트가 맞다"는 증거다.
+   */
+  it("accepts the registry's onboarding_step_viewed and stores only the step enum + integer", async () => {
+    const { accessToken } = await login("analytics-onboarding-step");
+    const first = onboardingStepViewedEnvelope("child_status", 1);
+    const last = onboardingStepViewedEnvelope("budget", 4);
+
+    const response = await postEvents(accessToken, [first, last]).expect(200);
+    expect(response.body).toEqual({ accepted: 2, rejected: [] });
+
+    const rows = await prisma.analyticsEvent.findMany({
+      where: { eventId: { in: [first.eventId, last.eventId] } }
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row.eventId === first.eventId)!.payload).toEqual({ step: "child_status", stepNumber: 1 });
+    expect(rows.find((row) => row.eventId === last.eventId)!.payload).toEqual({ step: "budget", stepNumber: 4 });
+    // 온보딩 화면에 있는 값들(애칭·예정일·월 예산)은 어느 것도 페이로드에 들어가지 않는다.
+    for (const row of rows) {
+      expect(JSON.stringify(row.payload)).not.toMatch(/nickname|birthDate|dueDate|amountKrw|childName/i);
+    }
+  });
+
+  it("rejects an onboarding_step_viewed whose step is not a registered enum literal, without failing the batch", async () => {
+    const { accessToken } = await login("analytics-onboarding-step-bad");
+    const badStep = onboardingStepViewedEnvelope("some_other_screen", 1);
+    const badNumber = onboardingStepViewedEnvelope("budget", 9);
+    const valid = onboardingStepViewedEnvelope("prepared_items", 3);
+
+    const response = await postEvents(accessToken, [badStep, badNumber, valid]).expect(200);
+    expect(response.body.accepted).toBe(1);
+    expect(response.body.rejected).toEqual([
+      { index: 0, reason: expect.any(String) },
+      { index: 1, reason: expect.any(String) }
+    ]);
+
+    expect(await prisma.analyticsEvent.count({ where: { eventId: badStep.eventId } })).toBe(0);
+    expect(await prisma.analyticsEvent.count({ where: { eventId: badNumber.eventId } })).toBe(0);
+    expect(await prisma.analyticsEvent.count({ where: { eventId: valid.eventId } })).toBe(1);
   });
 
   it("rejects a batch of more than 50 events with 400 instead of partially processing it", async () => {

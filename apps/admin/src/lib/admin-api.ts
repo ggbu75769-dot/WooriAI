@@ -697,8 +697,13 @@ export type AdminAnalyticsFunnel = {
 
 /**
  * ANA-128: 구매 확인 프롬프트(COM-108) 응답을 payload의 answer별로 쪼갠 값.
- * byName의 `purchase_followup_answered`는 세 갈래의 합계라서 구매 건수가 아니다 —
- * 링크 클릭 → 실구매 전환율은 `purchased`로만 계산해야 한다.
+ * byName의 `purchase_followup_answered`는 세 갈래의 합계라서 "샀어요" 건수가 아니다 —
+ * 링크 클릭 → "샀어요" 응답률은 `purchased`로만 계산해야 한다.
+ *
+ * 라운드 60 리뷰(P2-5): `purchased`도 **답의 수이지 구매의 수가 아니다.** 라운드 60 트랙 B가
+ * "샀어요" 버튼에서 done 확정을 떼어 저장 자리로 옮긴 뒤(모바일 PurchaseFollowupPrompt.tsx),
+ * 그 버튼은 기록 화면을 열 뿐이라 사용자가 화면을 닫으면 답만 남고 지출은 없다. 실제 구매는
+ * `expense_recorded`가 말한다.
  *
  * 세 값의 합 <= byName 총계일 수 있다: answer가 없거나(레거시·손상 페이로드)
  * 알 수 없는 값인 행은 API가 어느 갈래에도 넣지 않고 무시한다.

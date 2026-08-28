@@ -93,6 +93,7 @@ const OPTIONAL_SPECS: EnvSpec[] = [
   { key: "ANALYTICS_EVENTS_RETENTION_DAYS", scope: "api", note: "기본 400(SEC-130)" },
   { key: "AFFILIATE_CLICKS_RETENTION_DAYS", scope: "api", note: "기본 400(SEC-130)" },
   { key: "AUDIT_LOGS_RETENTION_DAYS", scope: "api", note: "기본 730(GAP-058 #10)" },
+  { key: "IMPORT_ROWS_RETENTION_DAYS", scope: "api", note: "기본 90(GAP-060 #5, 검수용 가져오기 행)" },
   { key: "PUSH_ENABLED", scope: "api", note: "opt-in — 꺼짐이 정상, 부팅 시 1회 안내 로그" },
   { key: "FCM_SERVICE_ACCOUNT_PATH", scope: "api", note: "PUSH_ENABLED=1일 때만 필요(파일 경로, 내용 아님)" },
   { key: "FCM_TOKEN_HTTP_TIMEOUT_MS", scope: "api", note: "기본 5000(RES-130)" },

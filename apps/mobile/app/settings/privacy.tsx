@@ -16,6 +16,13 @@ import {
 } from "../../src/api/client";
 import { resetLocalBackend } from "../../src/api/local-backend";
 import { CHILD_REMOVAL_INVALIDATE_KEYS, planAfterChildRemoval } from "../../src/children/child-deletion";
+import {
+  describeHouseholdScope,
+  householdScopeLeaveNotice,
+  householdScopePhrase,
+  isChildrenSettled,
+  resolveManagedHouseholdId
+} from "../../src/family/household-scope";
 import { buildConsentSummaryLines } from "../../src/settings/consent-summary";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -113,7 +120,8 @@ export default function PrivacySettingsScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const knownHouseholdIds = useSessionStore((state) => state.householdIds);
+  const fallbackHouseholdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const clearSession = useSessionStore((state) => state.clearSession);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const clearChild = useSelectedChildStore((state) => state.clearSelectedChildId);
@@ -157,6 +165,43 @@ export default function PrivacySettingsScreen() {
     enabled: Boolean(authToken),
     queryFn: () => getPrivacySettings(authToken!)
   });
+
+  /**
+   * 라운드 60 A — **어느 가구를 나가는가.**
+   *
+   * 탈퇴 대상은 세션의 `defaultHouseholdId`였다. 그 값은 다른 가구 초대를 수락하는 순간 영구히
+   * 바뀌므로, 수락한 사용자가 "가구 탈퇴"를 누르면 자기 본가구가 아니라 **방금 들어간 가구**를
+   * 나가게 되고(또는 그 반대), 화면 어디에도 어느 가구인지 적혀 있지 않았다. 이제 대상은 보고
+   * 있는 아이의 가구이고, 그 가구를 가리킬 수 있으면 아래 한 줄로 말한다. 아이 목록은 다른
+   * 화면들과 같은 `["children"]` 캐시다(대개 이미 채워져 있다).
+   */
+  const childrenQuery = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
+  });
+  const householdId = resolveManagedHouseholdId({
+    children: childrenQuery.data?.children,
+    childId,
+    fallbackHouseholdId,
+    // 세션이 없으면 기다릴 조회 자체가 없다(쿼리가 disabled라 영원히 pending이다).
+    childrenSettled: isChildrenSettled({ authToken, isSuccess: childrenQuery.isSuccess, isError: childrenQuery.isError })
+  });
+  /**
+   * 되돌릴 수 없는 동작이 무엇을 대상으로 하는지 말하는 한 줄. 서버가 내려주는 영향 목록
+   * (preview.impact)은 가구를 특정하지 않으므로 클라이언트 라벨로 보완한다 -- 서버 API는
+   * 건드리지 않는다. 1가구 계정에서는 null이라 카드가 종전과 한 글자도 달라지지 않는다.
+   */
+  const householdLeaveNotice = householdScopeLeaveNotice(
+    householdScopePhrase(
+      describeHouseholdScope({
+        householdId,
+        children: childrenQuery.data?.children,
+        knownHouseholdIds,
+        fallbackHouseholdId
+      })
+    )
+  );
 
   const childPreview = useMutation({
     mutationFn: () => previewChildProfileDeletion(authToken!, childId!)
@@ -298,6 +343,8 @@ export default function PrivacySettingsScreen() {
             <StatusBadge label="주의" tone="warning" />
           </View>
           <Text style={mutedTextStyle}>{flowCopy.household_leave.description}</Text>
+          {/* 라운드 60 A: 다가구 계정에서만 나타나는 대상 표기(어느 가구를 나가는지). */}
+          {householdLeaveNotice ? <Text style={mutedTextStyle}>{householdLeaveNotice}</Text> : null}
           <SecondaryButton
             label={householdPreview.isPending ? "확인하는 중..." : flowCopy.household_leave.previewLabel}
             disabled={!authToken || !householdId || householdPreview.isPending}
