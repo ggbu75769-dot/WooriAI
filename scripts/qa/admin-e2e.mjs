@@ -398,7 +398,9 @@ async function main() {
     await rows.first().waitFor({ timeout: NAV_TIMEOUT });
     const rowCount = await rows.count();
     if (rowCount < 1) throw new Error("audit-log table has 0 rows");
-    for (const header of ["시각", "관리자", "액션", "대상", "상세"]) {
+    // CS-101(라운드 56): 행위자 열은 어드민 계정만 남는 자리가 아니라서(앱 사용자의
+    // expense.update/delete 등도 같은 표에 뜬다) 열 이름이 "관리자" → "행위자"로 바뀌었다.
+    for (const header of ["시각", "행위자", "액션", "대상", "상세"]) {
       if ((await page.locator("table th", { hasText: header }).count()) !== 1) {
         throw new Error(`missing audit table header: ${header}`);
       }
