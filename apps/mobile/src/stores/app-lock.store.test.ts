@@ -158,6 +158,87 @@ describe("useAppLockStore", () => {
     expect(await readAppLockRecord()).toEqual({ status: "loaded", record: null });
   });
 
+  /**
+   * GAP-058 #2 — 설정 화면은 현재 PIN을 묻는 **두 번째 입구**다. 오버레이만 대기를 지키면
+   * 여기서 무제한으로 찍어 볼 수 있으므로 판정도 예산도 한 벌이어야 한다.
+   */
+  describe("설정 화면 경로도 같은 판정·같은 실패 예산을 지난다 (GAP-058 #2)", () => {
+    it("5회 틀리면 대기가 걸리고, 대기 중에는 변경·해제·잠금 해제가 모두 거부된다", async () => {
+      await useAppLockStore.getState().enableLock("1234");
+
+      // 형식 오류는 예산을 태우지 않는다(오타로 대기를 부르지 않는다 — 잠금 화면과 같은 규칙).
+      expect(await useAppLockStore.getState().changePin("12", "5678", NOW)).toBe("invalid-format");
+      expect(useAppLockStore.getState().record?.failedCount).toBe(0);
+
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        expect(await useAppLockStore.getState().changePin("0000", "5678", NOW)).toBe("wrong-pin");
+      }
+      expect(isAppLockLockedOut(useAppLockStore.getState().record, NOW)).toBe(false);
+
+      // 5회째는 잠금 끄기 쪽 입구에서 났다 — 예산이 하나이므로 그것으로 대기가 선다.
+      expect(await useAppLockStore.getState().disableLock("0000", NOW)).toBe("wrong-pin");
+      expect(isAppLockLockedOut(useAppLockStore.getState().record, NOW)).toBe(true);
+
+      // 대기 중에는 맞는 PIN도 받지 않는다 — 세 입구 전부.
+      expect(await useAppLockStore.getState().changePin("1234", "5678", NOW + 1000)).toBe("locked-out");
+      expect(await useAppLockStore.getState().disableLock("1234", NOW + 1000)).toBe("locked-out");
+      expect(await useAppLockStore.getState().submitPin("1234", NOW + 1000)).toBe("locked-out");
+
+      // 거부는 아무것도 바꾸지 않았다: 잠금은 그대로 켜져 있고 PIN도 그대로다.
+      const duringLockout = await readAppLockRecord();
+      expect(duringLockout.status === "loaded" ? duringLockout.record?.failedCount : null).toBe(5);
+      expect(duringLockout.status === "loaded" ? duringLockout.record?.lockedUntilMs : null).toBe(NOW + 30_000);
+      expect(verifyPin(useAppLockStore.getState().record!, "1234")).toBe(true);
+
+      // 대기가 지나면 변경이 되고, 성공은 실패 기록을 지운다.
+      expect(await useAppLockStore.getState().changePin("1234", "5678", NOW + 30_000)).toBe("ok");
+      expect(useAppLockStore.getState().record?.failedCount).toBe(0);
+      expect(useAppLockStore.getState().record?.lockedUntilMs).toBeNull();
+      const afterChange = await readAppLockRecord();
+      const changed = afterChange.status === "loaded" ? afterChange.record : null;
+      expect(changed?.failedCount).toBe(0);
+      expect(changed?.lockedUntilMs).toBeNull();
+      expect(verifyPin(changed!, "5678")).toBe(true);
+    });
+
+    it("실패 카운터를 잠금 화면과 함께 쓴다 — 입구가 둘이어도 예산은 5회다", async () => {
+      await useAppLockStore.getState().enableLock("1234");
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        expect(await useAppLockStore.getState().submitPin("0000", NOW)).toBe("wrong-pin");
+      }
+      expect(await useAppLockStore.getState().changePin("0000", "5678", NOW)).toBe("wrong-pin");
+      expect(useAppLockStore.getState().record?.failedCount).toBe(4);
+      expect(isAppLockLockedOut(useAppLockStore.getState().record, NOW)).toBe(false);
+
+      expect(await useAppLockStore.getState().disableLock("0000", NOW)).toBe("wrong-pin");
+      expect(useAppLockStore.getState().record?.failedCount).toBe(5);
+      expect(isAppLockLockedOut(useAppLockStore.getState().record, NOW)).toBe(true);
+    });
+
+    it("설정 화면에서 잠금을 끄면 실패 기록도 함께 사라진다", async () => {
+      await useAppLockStore.getState().enableLock("1234");
+      expect(await useAppLockStore.getState().disableLock("0000", NOW)).toBe("wrong-pin");
+      expect(useAppLockStore.getState().record?.failedCount).toBe(1);
+
+      expect(await useAppLockStore.getState().disableLock("1234", NOW)).toBe("ok");
+      expect(useAppLockStore.getState().record).toBeNull();
+      expect(await readAppLockRecord()).toEqual({ status: "loaded", record: null });
+    });
+  });
+
+  it("지금 잠그기: 기록은 그대로 두고 이번 포그라운드 통과만 무른다 (GAP-058 #3)", async () => {
+    await useAppLockStore.getState().enableLock("1234");
+    expect(gate()).toBe("unlocked");
+
+    useAppLockStore.getState().lockNow();
+    expect(gate()).toBe("locked");
+    // PIN을 지우는 것이 아니다 — 같은 PIN으로 다시 열린다.
+    expect(useAppLockStore.getState().record).not.toBeNull();
+    expect(await useAppLockStore.getState().submitPin("1234", NOW)).toBe("unlocked");
+    expect(gate()).toBe("unlocked");
+  });
+
   it("resetAll(PRIV-104 합류점)이 기록과 런타임 상태를 함께 비운다 (수용 기준 8)", async () => {
     await useAppLockStore.getState().enableLock("1234");
     await useAppLockStore.getState().resetAll();

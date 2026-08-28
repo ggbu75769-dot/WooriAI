@@ -305,6 +305,16 @@ export const APP_LOCK_LOGOUT_KEEPS_SERVER_DATA_NOTICE = "기록은 서버에 있
 export const APP_LOCK_LOGOUT_UNSYNCED_LOSS_NOTICE = "아직 서버에 올라가지 않은 기록은 로그아웃할 때 사라져요.";
 export const APP_LOCK_FORGOT_PIN_MESSAGE = `${APP_LOCK_LOGOUT_KEEPS_SERVER_DATA_NOTICE}\n${APP_LOCK_LOGOUT_UNSYNCED_LOSS_NOTICE}`;
 
+/**
+ * 설정 화면의 수동 잠금(GAP-058 #3).
+ *
+ * 이 잠금의 위협 모델은 "잠깐 폰을 빌려줄 때" 하나인데(APP_LOCK_SCOPE_NOTICE), 지금까지 잠그는
+ * 길은 앱을 60초 넘게 백그라운드에 두는 것뿐이었다 — 폰을 건네기 직전에 잠글 수단이 없었다.
+ */
+export const APP_LOCK_LOCK_NOW_LABEL = "지금 잠그기";
+export const APP_LOCK_LOCK_NOW_A11Y_LABEL = "지금 잠그기, 바로 PIN 입력 화면으로 잠가요";
+export const APP_LOCK_LOCK_NOW_HINT = "폰을 잠깐 건네주기 전에 눌러요. 다시 열려면 PIN이 필요해요.";
+
 export const APP_LOCK_PIN_FORMAT_NOTICE = "숫자 4자리로 입력해 주세요.";
 export const APP_LOCK_PIN_MISMATCH_NOTICE = "두 번 입력한 PIN이 서로 달라요. 다시 입력해 주세요.";
 export const APP_LOCK_SAVE_FAILED_NOTICE = "잠금을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
@@ -315,12 +325,35 @@ export function appLockLockoutNotice(remainingSeconds: number): string {
 }
 
 /**
+ * 대기가 **끝난 순간**의 안내(GAP-058 P3).
+ *
+ * 남은 시간이 0이 되면 화면은 이미 입력을 받는데 문구만 "N초 남았어요"에 멈춰 있으면 그 문구가
+ * 거짓이 된다 — 사용자는 기다릴 필요가 없는데 기다린다. 그래서 0에 닿는 순간 이 문장으로 바꾼다.
+ */
+export const APP_LOCK_LOCKOUT_CLEARED_NOTICE = "이제 다시 입력할 수 있어요.";
+
+/** 오답 안내 한 틀. 앞머리만 다르고(어느 PIN이 틀렸는지) 나머지 판정은 한 곳이다. */
+function wrongPinNotice(lead: string, record: AppLockRecord, nowMs: number): string {
+  const remainingSeconds = appLockRemainingLockSeconds(record, nowMs);
+  if (remainingSeconds > 0) return appLockLockoutNotice(remainingSeconds);
+  const remainingAttempts = APP_LOCK_MAX_ATTEMPTS - (record.failedCount % APP_LOCK_MAX_ATTEMPTS);
+  return `${lead} ${remainingAttempts}번 더 틀리면 잠시 기다려야 해요.`;
+}
+
+/**
  * 틀렸을 때의 안내. 남은 횟수를 말해 주되 책망하지 않는다.
  * 대기가 걸린 상태면 위 대기 문구가 우선한다.
  */
 export function appLockWrongPinNotice(record: AppLockRecord, nowMs: number): string {
-  const remainingSeconds = appLockRemainingLockSeconds(record, nowMs);
-  if (remainingSeconds > 0) return appLockLockoutNotice(remainingSeconds);
-  const remainingAttempts = APP_LOCK_MAX_ATTEMPTS - (record.failedCount % APP_LOCK_MAX_ATTEMPTS);
-  return `PIN이 맞지 않아요. ${remainingAttempts}번 더 틀리면 잠시 기다려야 해요.`;
+  return wrongPinNotice("PIN이 맞지 않아요.", record, nowMs);
+}
+
+/**
+ * 설정 화면(두 번째 입구)의 오답 안내 — 폼에 PIN 입력칸이 셋이라 어느 것이 틀렸는지 밝힌다.
+ *
+ * 남은 횟수는 잠금 화면과 **같은** 카운터에서 온다(GAP-058 #2). 입구가 둘이라고 시도 예산이
+ * 두 배가 되면 5회 제한이 사실상 10회가 된다.
+ */
+export function appLockWrongCurrentPinNotice(record: AppLockRecord, nowMs: number): string {
+  return wrongPinNotice("지금 쓰는 PIN이 맞지 않아요.", record, nowMs);
 }

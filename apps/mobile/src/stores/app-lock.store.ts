@@ -30,11 +30,40 @@ import { clearAppLockRecord, readAppLockRecord, writeAppLockRecord } from "../se
  * (src/security/AppLockOverlay.tsx).
  */
 
-/** 잠금 설정/변경/해제 시도의 결과. 화면은 이 값으로 문구를 고른다. */
-export type AppLockMutationResult = "ok" | "invalid-format" | "wrong-pin" | "save-failed";
+/**
+ * 잠금 설정/변경/해제 시도의 결과. 화면은 이 값으로 문구를 고른다.
+ *
+ * `locked-out`이 여기 있는 이유(GAP-058 #2): 설정 화면도 현재 PIN을 묻는 **두 번째 입구**다.
+ * 오버레이만 대기를 지키면 설정 화면에서 무제한으로 찍어 볼 수 있다.
+ */
+export type AppLockMutationResult = "ok" | "invalid-format" | "wrong-pin" | "save-failed" | "locked-out";
 
 /** 잠금 화면의 PIN 제출 결과. */
 export type AppLockSubmitResult = "unlocked" | "wrong-pin" | "invalid-format" | "locked-out" | "no-record";
+
+/** 현재 PIN 판정의 결과. `ok`면 호출부가 자기 일(변경·해제·잠금 해제)을 이어서 한다. */
+type AppLockVerdict = "ok" | "locked-out" | "invalid-format" | "wrong-pin";
+
+/**
+ * 현재 PIN 판정 **한 벌** — 잠금 화면(submitPin)과 설정 화면(changePin·disableLock)이 모두
+ * 이 문을 지난다.
+ *
+ * 판정 순서는 잠금 화면이 쓰던 그대로다: 대기 검사 → 형식 검사 → 대조, 틀리면 실패 등록.
+ * 실패 카운터·대기 시각은 SecureStore 한 기록에 있으므로 **입구가 둘이어도 예산은 하나다**.
+ * 형식 오류는 실패로 세지 않는다(오타로 대기를 부르지 않는다 — 잠금 화면과 같은 규칙).
+ *
+ * 실패 등록의 저장 실패는 삼킨다: 이번 세션의 카운터는 set으로 이미 올라갔고(강제 종료를
+ * 이기려면 저장이 필요할 뿐이다), 여기서 throw하면 화면이 이유 없이 멈춘다.
+ */
+async function judgeCurrentPin(record: AppLockRecord, pin: string, nowMs: number): Promise<AppLockVerdict> {
+  if (appLockRemainingLockMs(record, nowMs) > 0) return "locked-out";
+  if (!isValidPinFormat(pin)) return "invalid-format";
+  if (verifyPin(record, pin)) return "ok";
+  const failed = registerFailedAttempt(record, nowMs);
+  useAppLockStore.setState({ record: failed });
+  await writeAppLockRecord(failed);
+  return "wrong-pin";
+}
 
 export type AppLockState = {
   recordStatus: AppLockRecordStatus;
@@ -48,13 +77,18 @@ export type AppLockState = {
   load: () => Promise<void>;
   /** 잠금 켜기. 이미 켜져 있으면 PIN 변경은 changePin을 쓴다. */
   enableLock: (pin: string) => Promise<AppLockMutationResult>;
-  changePin: (currentPin: string, nextPin: string) => Promise<AppLockMutationResult>;
-  disableLock: (currentPin: string) => Promise<AppLockMutationResult>;
+  /** 현재 PIN을 묻는다 — 잠금 화면과 같은 대기·실패 예산을 지난다(judgeCurrentPin). */
+  changePin: (currentPin: string, nextPin: string, nowMs?: number) => Promise<AppLockMutationResult>;
+  /** 현재 PIN을 묻는다 — 잠금 화면과 같은 대기·실패 예산을 지난다(judgeCurrentPin). */
+  disableLock: (currentPin: string, nowMs?: number) => Promise<AppLockMutationResult>;
   /** 잠금 화면의 입력. 실패 카운터·대기는 SecureStore에 곧바로 반영된다. */
   submitPin: (pin: string, nowMs?: number) => Promise<AppLockSubmitResult>;
   noteBackgrounded: (nowMs?: number) => void;
   noteForegrounded: (nowMs?: number) => void;
-  /** 지금 즉시 잠근다(테스트·수동 잠금용). */
+  /**
+   * 지금 즉시 잠근다 — 설정 화면의 "지금 잠그기"(GAP-058 #3)와 테스트가 쓴다.
+   * 기록은 건드리지 않는다: 이번 포그라운드의 통과만 무르므로 다음 렌더에서 오버레이가 뜬다.
+   */
   lockNow: () => void;
   /**
    * PRIV-104 teardown 합류 지점(§2.8) — 기록을 지우고 런타임 상태를 초기값으로 되돌린다.
@@ -111,22 +145,26 @@ export const useAppLockStore = create<AppLockState>()((set, get) => ({
     return "ok";
   },
 
-  changePin: async (currentPin, nextPin) => {
+  changePin: async (currentPin, nextPin, nowMs = Date.now()) => {
     const current = get().record;
     if (!current || !current.enabled) return "wrong-pin";
-    if (!verifyPin(current, currentPin)) return "wrong-pin";
+    const verdict = await judgeCurrentPin(current, currentPin, nowMs);
+    if (verdict !== "ok") return verdict;
     const next = createAppLockRecord(nextPin);
     if (!next) return "invalid-format";
     if (!(await writeAppLockRecord(next))) return "save-failed";
+    // 새 기록은 failedCount 0 · 대기 없음으로 태어난다 — 성공했으니 실패 기록을 지우는 셈이다
+    // (submitPin의 clearFailedAttempts와 같은 약속).
     set({ recordStatus: "loaded", record: next, unlockedThisForeground: true });
     return "ok";
   },
 
-  disableLock: async (currentPin) => {
+  disableLock: async (currentPin, nowMs = Date.now()) => {
     const current = get().record;
     if (!current || !current.enabled) return "ok";
-    if (!isValidPinFormat(currentPin)) return "invalid-format";
-    if (!verifyPin(current, currentPin)) return "wrong-pin";
+    const verdict = await judgeCurrentPin(current, currentPin, nowMs);
+    if (verdict !== "ok") return verdict;
+    // 기록을 통째로 지우므로 실패 카운터·대기도 함께 사라진다.
     await clearAppLockRecord();
     set({ recordStatus: "loaded", record: null, unlockedThisForeground: true, backgroundedAtMs: null });
     return "ok";
@@ -135,16 +173,8 @@ export const useAppLockStore = create<AppLockState>()((set, get) => ({
   submitPin: async (pin, nowMs = Date.now()) => {
     const record = get().record;
     if (!record || !record.enabled) return "no-record";
-    if (appLockRemainingLockMs(record, nowMs) > 0) return "locked-out";
-    if (!isValidPinFormat(pin)) return "invalid-format";
-    if (!verifyPin(record, pin)) {
-      const failed = registerFailedAttempt(record, nowMs);
-      set({ record: failed });
-      // 저장에 실패해도 이번 세션의 카운터는 유지된다(위 set). 저장이 되면 강제 종료 후에도
-      // 남는다 — 수용 기준 5가 요구하는 것은 그쪽이다.
-      await writeAppLockRecord(failed);
-      return "wrong-pin";
-    }
+    const verdict = await judgeCurrentPin(record, pin, nowMs);
+    if (verdict !== "ok") return verdict;
     const cleared = clearFailedAttempts(record);
     set({ record: cleared, unlockedThisForeground: true, backgroundedAtMs: null });
     if (cleared !== record) await writeAppLockRecord(cleared);

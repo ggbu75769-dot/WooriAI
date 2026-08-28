@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, BackHandler, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { subscribeAppStateChange } from "../offline/connectivity";
@@ -12,6 +12,7 @@ import { SkeletonCard } from "../ui/Skeleton";
 import {
   APP_LOCK_COPY,
   APP_LOCK_FORGOT_PIN_LABEL,
+  APP_LOCK_LOCKOUT_CLEARED_NOTICE,
   APP_LOCK_FORGOT_PIN_MESSAGE,
   APP_LOCK_FORGOT_PIN_TITLE,
   APP_LOCK_PIN_FORMAT_NOTICE,
@@ -69,6 +70,18 @@ export function AppLockOverlay() {
   });
   const blocking = status === "loading" || status === "locked" || status === "recovery";
   const lockedOut = status === "locked" && isAppLockLockedOut(record, nowMs);
+  const wasLockedOutRef = useRef(false);
+
+  /**
+   * 대기 안내는 상태에 굳히지 않고 **매 렌더 계산한다**(GAP-058 P3).
+   *
+   * 문자열로 담아 두면 아래 1초 타이머가 다시 그려도 "N초 남았어요"의 N이 그대로 멈춰 있고,
+   * 대기가 끝난 뒤까지 그 문장이 남는다 — 이미 입력할 수 있는데 기다리라고 말하는 거짓이 된다.
+   * 남은 시간이 0이 되는 순간 이 값은 null이 되고, 아래 효과가 안내를 "이제 다시 입력할 수
+   * 있어요."로 갈아 끼운다.
+   */
+  const lockoutNotice = lockedOut ? appLockLockoutNotice(appLockRemainingLockSeconds(record, nowMs)) : null;
+  const displayedNotice = lockoutNotice ?? notice;
 
   // 세션이 생긴 뒤 1회 읽는다. 픽셀락/비세션에서는 SecureStore를 건드리지도 않는다.
   useEffect(() => {
@@ -104,6 +117,24 @@ export function AppLockOverlay() {
     return () => clearInterval(timer);
   }, [lockedOut]);
 
+  /**
+   * 대기 → 입력 가능으로 넘어가는 순간의 안내 갱신(GAP-058 P3). 위 타이머가 nowMs를 밀어
+   * lockedOut이 false가 되면 여기서 문구를 다시 말한다 — 대기 안내를 읽고 기다리던 사람이
+   * 화면을 다시 보지 않아도 되도록 낭독(announceForA11y)도 함께 한다.
+   */
+  useEffect(() => {
+    if (lockedOut) {
+      wasLockedOutRef.current = true;
+      return;
+    }
+    const wasLockedOut = wasLockedOutRef.current;
+    wasLockedOutRef.current = false;
+    // 잠금이 아예 사라진 경우(해제·계정 전환)에는 아래 정리 효과가 안내를 비우는 것이 맞다.
+    if (!wasLockedOut || status !== "locked") return;
+    setNotice(APP_LOCK_LOCKOUT_CLEARED_NOTICE);
+    announceForA11y(APP_LOCK_LOCKOUT_CLEARED_NOTICE);
+  }, [lockedOut, status]);
+
   // 잠금이 풀리거나 사라지면 입력·안내를 비운다(다음 잠금에 이전 안내가 남지 않게).
   useEffect(() => {
     if (blocking) return;
@@ -117,9 +148,8 @@ export function AppLockOverlay() {
     const now = Date.now();
     setNowMs(now);
     if (isAppLockLockedOut(record, now)) {
-      const message = appLockLockoutNotice(appLockRemainingLockSeconds(record, now));
-      setNotice(message);
-      announceForA11y(message);
+      // 문구 자체는 lockoutNotice가 매 렌더 계산한다(남은 초가 흐르도록). 여기서는 낭독만 한다.
+      announceForA11y(appLockLockoutNotice(appLockRemainingLockSeconds(record, now)));
       return;
     }
     const result = await useAppLockStore.getState().submitPin(pin, now);
@@ -201,9 +231,10 @@ export function AppLockOverlay() {
         </View>
       ) : null}
 
-      {notice ? (
+      {/* 대기 중에는 계산된 남은 시간 안내가 먼저다 — 1초마다 N이 실제로 줄어든다. */}
+      {displayedNotice ? (
         <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={noticeStyle}>
-          {notice}
+          {displayedNotice}
         </Text>
       ) : null}
 

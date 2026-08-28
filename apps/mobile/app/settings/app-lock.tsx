@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { Text, TextInput, View } from "react-native";
 import {
+  APP_LOCK_LOCK_NOW_A11Y_LABEL,
+  APP_LOCK_LOCK_NOW_HINT,
+  APP_LOCK_LOCK_NOW_LABEL,
   APP_LOCK_PIN_FORMAT_NOTICE,
   APP_LOCK_PIN_INPUT_LABEL,
   APP_LOCK_PIN_LENGTH,
@@ -10,9 +13,12 @@ import {
   APP_LOCK_SCOPE_NOTICE,
   APP_LOCK_TITLE,
   APP_LOCK_LOGOUT_KEEPS_SERVER_DATA_NOTICE,
-  APP_LOCK_LOGOUT_UNSYNCED_LOSS_NOTICE
+  APP_LOCK_LOGOUT_UNSYNCED_LOSS_NOTICE,
+  appLockLockoutNotice,
+  appLockRemainingLockSeconds,
+  appLockWrongCurrentPinNotice
 } from "../../src/security/app-lock";
-import { useAppLockStore } from "../../src/stores/app-lock.store";
+import { useAppLockStore, type AppLockMutationResult } from "../../src/stores/app-lock.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { announceForA11y, AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
@@ -80,11 +86,29 @@ export default function AppLockSettingsScreen() {
     announceForA11y(message);
   };
 
+  /**
+   * 실패 결과 → 문구. 세 폼(켜기·변경·끄기)이 같은 판정을 지나므로 문구도 한 자리에서 고른다.
+   *
+   * 대기(`locked-out`)와 남은 횟수는 잠금 화면과 **같은** 기록에서 온다(GAP-058 #2) — 설정
+   * 화면에서 무제한으로 찍어 보고 그 사이 오버레이만 기다리게 만들 수 없다.
+   */
+  const failureNotice = (result: AppLockMutationResult, nowMs: number): string => {
+    const record = useAppLockStore.getState().record;
+    if (result === "locked-out") return appLockLockoutNotice(appLockRemainingLockSeconds(record, nowMs));
+    if (result === "wrong-pin") {
+      // 방금 5회째를 채웠다면 이 문구가 곧바로 대기 안내로 바뀐다(같은 판정 한 벌).
+      return record ? appLockWrongCurrentPinNotice(record, nowMs) : APP_LOCK_PIN_FORMAT_NOTICE;
+    }
+    if (result === "save-failed") return APP_LOCK_SAVE_FAILED_NOTICE;
+    return APP_LOCK_PIN_FORMAT_NOTICE;
+  };
+
   const submitEnable = async () => {
     if (nextPin !== confirmPin) {
       fail(APP_LOCK_PIN_MISMATCH_NOTICE);
       return;
     }
+    const now = Date.now();
     setBusy(true);
     const result = await useAppLockStore.getState().enableLock(nextPin);
     setBusy(false);
@@ -92,7 +116,7 @@ export default function AppLockSettingsScreen() {
       succeed("앱 잠금을 켰어요.");
       return;
     }
-    fail(result === "save-failed" ? APP_LOCK_SAVE_FAILED_NOTICE : APP_LOCK_PIN_FORMAT_NOTICE);
+    fail(failureNotice(result, now));
   };
 
   const submitChange = async () => {
@@ -100,33 +124,39 @@ export default function AppLockSettingsScreen() {
       fail(APP_LOCK_PIN_MISMATCH_NOTICE);
       return;
     }
+    const now = Date.now();
     setBusy(true);
-    const result = await useAppLockStore.getState().changePin(currentPin, nextPin);
+    const result = await useAppLockStore.getState().changePin(currentPin, nextPin, now);
     setBusy(false);
     if (result === "ok") {
       succeed("PIN을 바꿨어요.");
       return;
     }
-    if (result === "wrong-pin") {
-      fail("지금 쓰는 PIN이 맞지 않아요.");
-      return;
-    }
-    fail(result === "save-failed" ? APP_LOCK_SAVE_FAILED_NOTICE : APP_LOCK_PIN_FORMAT_NOTICE);
+    fail(failureNotice(result, now));
   };
 
   const submitDisable = async () => {
+    const now = Date.now();
     setBusy(true);
-    const result = await useAppLockStore.getState().disableLock(currentPin);
+    const result = await useAppLockStore.getState().disableLock(currentPin, now);
     setBusy(false);
     if (result === "ok") {
       succeed("앱 잠금을 껐어요.");
       return;
     }
-    if (result === "wrong-pin") {
-      fail("지금 쓰는 PIN이 맞지 않아요.");
-      return;
-    }
-    fail(APP_LOCK_PIN_FORMAT_NOTICE);
+    fail(failureNotice(result, now));
+  };
+
+  /**
+   * "지금 잠그기"(GAP-058 #3). 이 잠금의 위협 모델이 "잠깐 빌려준 폰"인데 지금까지는 앱을
+   * 60초 넘게 백그라운드에 둬야만 잠겼다 — 건네기 직전에 잠글 수단이 없었다.
+   *
+   * 화면을 옮기지 않는다: 오버레이가 전역이라 상태만 되돌리면 그 자리에서 덮인다.
+   */
+  const lockNow = () => {
+    resetForm("idle");
+    useAppLockStore.getState().lockNow();
+    announceForA11y("앱을 잠갔어요. PIN을 입력해 주세요.");
   };
 
   const pinField = (label: string, value: string, onChange: (next: string) => void) => (
@@ -196,6 +226,12 @@ export default function AppLockSettingsScreen() {
           <View style={{ gap: theme.spacing.gap }}>
             {enabled ? (
               <>
+                <PrimaryButton
+                  accessibilityLabel={APP_LOCK_LOCK_NOW_A11Y_LABEL}
+                  label={APP_LOCK_LOCK_NOW_LABEL}
+                  onPress={lockNow}
+                />
+                <Text style={rowSubtitleStyle}>{APP_LOCK_LOCK_NOW_HINT}</Text>
                 <SecondaryButton label="PIN 변경" onPress={() => resetForm("change")} />
                 <SecondaryButton label="잠금 끄기" onPress={() => resetForm("disable")} />
               </>

@@ -6,6 +6,10 @@ import {
   APP_LOCK_FORGOT_PIN_MESSAGE,
   APP_LOCK_GRACE_MS,
   APP_LOCK_LOCKOUT_MAX_MS,
+  APP_LOCK_LOCKOUT_CLEARED_NOTICE,
+  APP_LOCK_LOCK_NOW_A11Y_LABEL,
+  APP_LOCK_LOCK_NOW_HINT,
+  APP_LOCK_LOCK_NOW_LABEL,
   APP_LOCK_LOGOUT_KEEPS_SERVER_DATA_NOTICE,
   APP_LOCK_LOGOUT_UNSYNCED_LOSS_NOTICE,
   APP_LOCK_MAX_ATTEMPTS,
@@ -14,6 +18,7 @@ import {
   appLockLockoutNotice,
   appLockRemainingLockMs,
   appLockRemainingLockSeconds,
+  appLockWrongCurrentPinNotice,
   appLockWrongPinNotice,
   clearFailedAttempts,
   createAppLockRecord,
@@ -264,8 +269,12 @@ describe("문구 (DNC-018 · 수용 기준 7·10·11)", () => {
       APP_LOCK_COPY.recovery.body,
       APP_LOCK_SCOPE_NOTICE,
       APP_LOCK_FORGOT_PIN_MESSAGE,
+      APP_LOCK_LOCKOUT_CLEARED_NOTICE,
+      APP_LOCK_LOCK_NOW_A11Y_LABEL,
+      APP_LOCK_LOCK_NOW_HINT,
       appLockLockoutNotice(30),
-      appLockWrongPinNotice(record({ failedCount: 1 }), NOW)
+      appLockWrongPinNotice(record({ failedCount: 1 }), NOW),
+      appLockWrongCurrentPinNotice(record({ failedCount: 1 }), NOW)
     ];
     for (const copy of all) {
       expect(copy).not.toMatch(/지문|얼굴|생체|Face|Touch/i);
@@ -284,5 +293,34 @@ describe("문구 (DNC-018 · 수용 기준 7·10·11)", () => {
     // 대기가 걸린 상태에서는 남은 횟수 대신 대기 안내가 우선한다.
     const locked = registerFailedAttempt(afterFour, NOW);
     expect(appLockWrongPinNotice(locked, NOW)).toBe(appLockLockoutNotice(30));
+  });
+
+  it("설정 화면 오답 안내는 어느 PIN인지만 다르고 남은 횟수·대기는 같은 판정에서 온다 (GAP-058 #2)", () => {
+    const afterOne = registerFailedAttempt(record(), NOW);
+    expect(appLockWrongCurrentPinNotice(afterOne, NOW)).toContain("지금 쓰는 PIN이 맞지 않아요.");
+    expect(appLockWrongCurrentPinNotice(afterOne, NOW)).toContain("4번 더");
+    // 대기가 걸리면 두 입구가 **같은** 문장을 말한다.
+    const locked = registerFailedAttempt({ ...record(), failedCount: 4 }, NOW);
+    expect(appLockWrongCurrentPinNotice(locked, NOW)).toBe(appLockLockoutNotice(30));
+    expect(appLockWrongCurrentPinNotice(locked, NOW)).toBe(appLockWrongPinNotice(locked, NOW));
+  });
+
+  it("대기가 끝난 순간의 문구가 따로 있다 — 'N초 남았어요'가 남으면 거짓이다 (GAP-058 P3)", () => {
+    expect(APP_LOCK_LOCKOUT_CLEARED_NOTICE).not.toContain("남았어요");
+    expect(APP_LOCK_LOCKOUT_CLEARED_NOTICE).toContain("다시 입력할 수 있어요");
+    const locked = registerFailedAttempt({ ...record(), failedCount: 4 }, NOW);
+    // 대기가 살아 있는 동안에만 남은 초 안내가 나온다.
+    expect(appLockRemainingLockSeconds(locked, NOW + 29_000)).toBe(1);
+    expect(appLockRemainingLockSeconds(locked, NOW + 30_000)).toBe(0);
+  });
+
+  it("수동 잠금 문구가 이 잠금의 위협 모델과 같은 말을 한다 (GAP-058 #3)", () => {
+    expect(APP_LOCK_LOCK_NOW_LABEL).toBe("지금 잠그기");
+    // 접근성 라벨은 라벨 문구를 포함해 화면에 보이는 것과 읽히는 것이 어긋나지 않게 한다.
+    expect(APP_LOCK_LOCK_NOW_A11Y_LABEL).toContain(APP_LOCK_LOCK_NOW_LABEL);
+    expect(APP_LOCK_LOCK_NOW_HINT).toContain("PIN");
+    // 범위 고지(잠깐 빌려준 폰)와 같은 상황을 말한다 — 더 크게 약속하지 않는다.
+    expect(APP_LOCK_LOCK_NOW_HINT).not.toContain("완전");
+    expect(APP_LOCK_SCOPE_NOTICE).toContain("잠깐 폰을 빌려준");
   });
 });

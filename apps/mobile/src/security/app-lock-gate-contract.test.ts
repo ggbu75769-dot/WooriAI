@@ -188,6 +188,48 @@ describe("§2.6 PIN 분실 · 정직 고지", () => {
   });
 });
 
+describe("GAP-058 #2·#3·P3 — 두 번째 입구와 수동 잠금", () => {
+  it("설정 화면이 대기(locked-out)를 문구로 다루고, 그 문구를 잠금 화면과 같은 상수에서 가져온다", () => {
+    const screen = source("app/settings/app-lock.tsx");
+    expect(screen).toContain('result === "locked-out"');
+    expect(screen).toContain("appLockLockoutNotice(");
+    expect(screen).toContain("appLockRemainingLockSeconds(");
+    // 세 폼이 같은 판정을 지나므로 문구 선택도 한 자리다.
+    expect(screen).toContain("failureNotice(result, now)");
+  });
+
+  it("현재 PIN 판정이 스토어 한 함수를 지난다 — 대기 검사·실패 등록이 입구마다 갈리지 않는다", () => {
+    const store = source("src/stores/app-lock.store.ts");
+    expect(store).toContain("async function judgeCurrentPin(");
+    // 세 액션 전부 같은 문을 지난다(직접 verifyPin으로 우회하지 않는다).
+    const callers = store.match(/judgeCurrentPin\(/g) ?? [];
+    expect(callers.length).toBe(4); // 정의 1 + submitPin · changePin · disableLock
+    expect(store).toContain('return "locked-out"');
+    expect(store).toContain("registerFailedAttempt(record, nowMs)");
+  });
+
+  it("lockNow가 죽은 코드가 아니다 — 설정 화면의 '지금 잠그기'가 부른다 (#3)", () => {
+    const screen = source("app/settings/app-lock.tsx");
+    expect(screen).toContain("useAppLockStore.getState().lockNow()");
+    expect(screen).toContain("APP_LOCK_LOCK_NOW_LABEL");
+    expect(screen).toContain("accessibilityLabel={APP_LOCK_LOCK_NOW_A11Y_LABEL}");
+    // 잠금은 상태만 되돌린다 — 화면을 옮기면 오버레이 계약(라우트 아님)이 깨진다.
+    expect(screen).not.toContain('router.replace("/lock")');
+
+    const callers = listAppSources().filter((relativePath) => /\.lockNow\(\)/.test(source(relativePath)));
+    expect(callers).toContain(join("app/settings/app-lock.tsx"));
+  });
+
+  it("오버레이의 대기 안내가 계산값이라 만료 시 갱신된다 (P3)", () => {
+    const overlay = source("src/security/AppLockOverlay.tsx");
+    // 문자열을 상태에 굳히지 않는다 — 굳히면 남은 초가 멈추고 만료 뒤에도 남는다.
+    expect(overlay).toContain("const lockoutNotice = lockedOut ? appLockLockoutNotice(");
+    expect(overlay).toContain("const displayedNotice = lockoutNotice ?? notice;");
+    expect(overlay).toContain("APP_LOCK_LOCKOUT_CLEARED_NOTICE");
+    expect(overlay).toContain("setNotice(APP_LOCK_LOCKOUT_CLEARED_NOTICE);");
+  });
+});
+
 describe("§2.9-10·11 문구 · 화면 계약", () => {
   it("두 화면 어디에도 생체 인증이 등장하지 않는다", () => {
     for (const relativePath of ["src/security/AppLockOverlay.tsx", "app/settings/app-lock.tsx", "src/security/app-lock.ts"]) {
