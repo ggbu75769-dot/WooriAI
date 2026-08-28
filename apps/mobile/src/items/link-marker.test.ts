@@ -76,7 +76,11 @@ describe("라운드 43 UX-V (C3): 구매 링크 표기 판정", () => {
     // 기본값 "무료배송"은 ITEM-002 픽셀 락 기준 이미지를 위해 컴포넌트에만 남아 있고,
     // 실제 데이터를 그리는 세션 경로는 넘겨받은 caption을 쓴다.
     expect(uiSource()).toContain("caption = \"무료배송\"");
-    expect(detailSource()).toContain("caption={hasSession ? productPlatformLabel(link.platform) : undefined}");
+    // 라운드 52 C-01: 세션 캡션에 가격 확인 시각이 덧붙지만(withLinkPriceCaption), 캡션의
+    // **기본 재료는 여전히 플랫폼 라벨**이고 비세션 경로는 undefined 그대로다.
+    expect(detailSource()).toContain(
+      "caption={hasSession ? withLinkPriceCaption(productPlatformLabel(link.platform), linkPrice) : undefined}"
+    );
   });
 
   it("화면이 배지·캡션을 직접 3분기하지 않고 모듈 판정을 쓴다", () => {
@@ -472,7 +476,12 @@ describe("라운드 44 리뷰 N-1: 데모 픽스처가 실제로 그리는 고�
 
 describe("라운드 43 UX-V (C4): 비교가 아닌 가격 비교", () => {
   it("세션 경로의 판매처 행에는 같은 가격대를 되풀이하지 않는다", () => {
-    expect(detailSource()).toContain('price={hasSession ? "" : visibleDetail.priceBandText ?? ""}');
+    // 라운드 52 C-01: 세션 경로의 가격 칸은 **링크별 스냅샷 가격**으로 채워졌다. 어느
+    // 쪽이든 세 행에 같은 가격대(priceBandText)를 되풀이하지 않는다는 사실은 그대로다 --
+    // 그 값은 세션 경로에서 여전히 카드 상단에만 나온다(아래 케이스가 고정한다).
+    expect(detailSource()).toContain(
+      'price={hasSession ? linkPrice?.priceText ?? "" : visibleDetail.priceBandText ?? ""}'
+    );
   });
 
   it("세션 경로 제목은 눌리지 않는 탭 흉내 대신 섹션 제목이다", () => {

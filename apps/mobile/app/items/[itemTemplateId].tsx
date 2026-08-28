@@ -29,6 +29,7 @@ import {
   productLinksDisclosureText,
   productPlatformLabel
 } from "../../src/items/link-marker";
+import { resolveLinkPriceDisplay, withLinkPriceCaption } from "../../src/items/link-price";
 import { itemStatusBadgeLabel } from "../../src/items/item-labels";
 import { itemTrustNotes } from "../../src/items/item-trust-notes";
 import { linkedExpenseRow } from "../../src/items/linked-expense";
@@ -649,6 +650,11 @@ export default function ItemDetailScreen() {
                 // 예전에는 배지만 3분기하고 캡션은 스폰서 여부로만 갈라, 일반 링크에
                 // "일반" 배지와 "제휴 링크" 캡션이 나란히 붙는 모순이 있었다.
                 const linkMarker = productLinkMarker(link);
+                // 라운드 52 C-01: 가격과 그 확인 시각을 **한 판정에서 함께** 받는다
+                // (src/items/link-price.ts). 둘 중 하나라도 없으면 null이고, 그때 이 행은
+                // 종전 그대로 가격 칸을 비운다 -- 값만 크게 찍고 언제 확인한 값인지를
+                // 빠뜨리는 배선을 만들 수 없게, 두 조각이 같은 객체에서만 나온다.
+                const linkPrice = hasSession ? resolveLinkPriceDisplay(link) : null;
                 return (
                   <View key={link.id} style={{ gap: 6 }}>
                     <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
@@ -658,14 +664,21 @@ export default function ItemDetailScreen() {
                       ) : null}
                     </View>
                     {/* UX-5B-1: 링크별 가짜 판매가 대신, API가 주는 가격대만 표시 (없으면 빈칸).
-                        C4: 세션 경로에서는 그마저 비운다 — 세 판매처 행에 **같은** 가격대를
+                        C4: 세션 경로에서는 그마저 비웠다 — 세 판매처 행에 **같은** 가격대를
                         나란히 찍으면 서로 다른 값을 견준 것처럼 읽히는데, 그 값은 이미 카드
-                        상단에 큰 글씨로 한 번 나와 있다. 판매처별 실판매가는 API에 없다.
-                        C3: 판매처 아래 한 줄도 "무료배송"(근거 없음) 대신 실제 platform 값. */}
+                        상단에 큰 글씨로 한 번 나와 있다.
+                        C3: 판매처 아래 한 줄도 "무료배송"(근거 없음) 대신 실제 platform 값.
+
+                        라운드 52 C-01: 이제 **판매처별 실판매가가 API에 있다**(라운드 51 #9의
+                        priceSnapshotKrw). 그래서 세션 경로의 빈 가격 칸에 그 값을 넣되, 같은
+                        행 캡션에 "언제 확인한 값인지"를 반드시 붙인다 — 두 문자열이 같은 판정
+                        객체(linkPrice)에서만 나오므로 한쪽만 그릴 수 없다. 가격이 없는 링크는
+                        linkPrice가 null이라 가격 칸도 캡션도 종전 그대로다.
+                        비세션 프리뷰(ITEM-002 픽셀 락 캡처)는 한 글자도 건드리지 않는다. */}
                     <ProductComparisonRow
                       seller={link.title}
-                      price={hasSession ? "" : visibleDetail.priceBandText ?? ""}
-                      caption={hasSession ? productPlatformLabel(link.platform) : undefined}
+                      price={hasSession ? linkPrice?.priceText ?? "" : visibleDetail.priceBandText ?? ""}
+                      caption={hasSession ? withLinkPriceCaption(productPlatformLabel(link.platform), linkPrice) : undefined}
                       onPress={() => handleProductLinkPress(link)}
                     />
                   </View>

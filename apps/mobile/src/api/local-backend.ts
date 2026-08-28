@@ -1299,7 +1299,14 @@ export function getItemDetail(_childId: string, itemTemplateId: string): ItemDet
       title: link.title,
       isAffiliate: link.isAffiliate,
       isSponsored: link.isSponsored,
-      disclosureText: link.disclosureText ?? undefined
+      disclosureText: link.disclosureText ?? undefined,
+      // 라운드 52 C-01: 데모도 실서버와 **같은 규칙**으로 가격을 싣는다 — 가격과 확인 시각이
+      // 둘 다 있을 때만 둘 다, 아니면 두 키 자체를 뺀다(계약 productLinkSchema의 refine,
+      // 서버 toProductLinkDto와 동일). 데모라고 해서 시각 없는 가격을 흘려보내면, 화면이
+      // 정직 규칙을 지키는지 데모 경로에서는 확인할 수 없게 된다.
+      ...(link.priceSnapshotKrw !== null && link.priceCheckedAt !== null
+        ? { priceSnapshotKrw: link.priceSnapshotKrw, priceCheckedAt: link.priceCheckedAt }
+        : {})
     }));
 
   return {
