@@ -406,4 +406,57 @@ describe("Admin CMS and settings APIs", () => {
     // actor_user_id 익명화가 무력화되므로 싣지 않는다.
     expect(deleteEntry!.targetId).toBeUndefined();
   });
+
+  /**
+   * GAP-065 #9: DNC-010 고지 문구는 key당 한 칸 upsert라 덮어쓰면 이전 문구가 사라진다.
+   * admin 역할은 검토(content revision) 없이 이 경로로 바로 덮어쓰므로, 고지가 약해진 뒤
+   * 되돌릴 값이 남는 곳은 이 봉투뿐이다. 종전에는 `after`만 있어 "무엇에서" 바꿨는지
+   * 서버가 몰랐다.
+   */
+  it("records admin.disclosure.update with a before/after copy pair (DNC-010)", async () => {
+    const auditLogger = moduleRef.get(AuditLoggerService);
+    // 키는 전역이라 고정 문자열을 쓰면 다음 실행에서 before가 null이 아니게 된다.
+    const key = `gap065-probe-${randomUUID()}`;
+
+    await request(app.getHttpServer())
+      .put(`/api/v1/admin/disclosures/${key}`)
+      .set("x-admin-token", adminToken)
+      .send({ text: "  처음 세우는 고지 문구예요.  " })
+      .expect(200)
+      .expect(({ body }) => {
+        // 응답은 종전과 같은 {key, text} 그대로다 — 봉투가 응답으로 새지 않는다.
+        expect(body).toEqual({ key, text: "처음 세우는 고지 문구예요." });
+      });
+
+    const created = auditLogger.entries.find(
+      (entry) => entry.action === "admin.disclosure.update" && entry.targetId === key
+    );
+    expect(created).toMatchObject({
+      action: "admin.disclosure.update",
+      targetType: "disclosures",
+      targetId: key,
+      // before가 null이면 "그 key가 없던 새 문구" — 오타 키로 저장했을 때의 표식이다.
+      before: null,
+      // 저장된 값(trim 후)을 싣는다 — 요청 body 원문이 아니라 앱이 읽게 될 값이다.
+      after: { key, text: "처음 세우는 고지 문구예요." }
+    });
+
+    await request(app.getHttpServer())
+      .put(`/api/v1/admin/disclosures/${key}`)
+      .set("x-admin-token", adminToken)
+      .send({ text: "약해진 고지 문구예요." })
+      .expect(200);
+
+    const overwritten = auditLogger.entries.filter(
+      (entry) => entry.action === "admin.disclosure.update" && entry.targetId === key
+    );
+    expect(overwritten).toHaveLength(2);
+    expect(overwritten[1]).toMatchObject({
+      before: { key, text: "처음 세우는 고지 문구예요." },
+      after: { key, text: "약해진 고지 문구예요." }
+    });
+    // 봉투는 key와 text 두 칸뿐이다 — 고지는 운영이 쓴 공개 문구이고, 사용자 데이터(PII)는 없다.
+    expect(Object.keys(overwritten[1]!.before!).sort()).toEqual(["key", "text"]);
+    expect(Object.keys(overwritten[1]!.after!).sort()).toEqual(["key", "text"]);
+  });
 });

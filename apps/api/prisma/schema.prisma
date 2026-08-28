@@ -668,6 +668,17 @@ model Disclosure {
   key       String   @unique @db.VarChar(80)
   text      String   @db.Text
   active    Boolean  @default(true)
+  /// ⚠️ 죽은 컬럼(GAP-065 #9에서 확인). 저장소 전체에서 **읽지도 쓰지도 않는다**
+  /// (grep 결과가 이 선언 한 줄뿐이다) — 두 쓰기 경로(`AdminController.updateDisclosure`의
+  /// 직접 upsert, `ContentRevisionsService.publishToLive`의 발행) 어느 쪽도 채우지 않아
+  /// 값은 항상 null이고, DTO로도 나가지 않는다.
+  /// **"마지막 수정자"의 근거로 인용하지 말 것** — 그 답은 감사 로그에 있다:
+  /// 행위자는 `audit_logs.actor_user_id`, 시각은 그 행의 `created_at`,
+  /// 바뀐 문구는 `admin.disclosure.update`의 before/after 봉투다
+  /// (admin.controller.ts). 소생시키지 않은 이유: 이 값을 조인 없이 읽어야 하는
+  /// 화면이 아직 없고(`import_jobs.approved_at`과 다른 점이다 — GAP-064 #9),
+  /// 어드민 계정 id를 행에 복사하면 계정 삭제 때 정리 대상이 하나 늘어난다.
+  /// 없애려면 마이그레이션이 필요하므로 별도 티켓 대상이다.
   updatedBy String?  @map("updated_by") @db.VarChar(120)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)

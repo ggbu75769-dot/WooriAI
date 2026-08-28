@@ -9,6 +9,7 @@ import {
   type Disclosure
 } from "../../src/lib/admin-api";
 import { useAdminSession } from "../../src/lib/admin-token-context";
+import { disclosureKeyBadge } from "../../src/lib/disclosure-keys";
 import styles from "../../src/components/admin-page.module.css";
 
 // COM-103: an editor's save goes through draft -> submit for review instead of
@@ -63,9 +64,17 @@ function DisclosureRow({
     }
   };
 
+  // GAP-065 #9: 이 경로는 키를 검증하지 않고 upsert하므로 오타 키도 "저장했어요"가 된다.
+  // 저장을 막는 대신(나중에 쓸 키를 미리 막게 된다) 앱이 그 키를 읽는지 사실만 적는다.
+  const badge = disclosureKeyBadge(disclosure.key);
+
   return (
     <div className={styles.card}>
-      <h2>{disclosure.key}</h2>
+      <h2>
+        {disclosure.key}{" "}
+        <span className={`${styles.badge} ${badge.appRead ? styles.badgeActive : ""}`}>{badge.label}</span>
+      </h2>
+      <p className={styles.hint}>{badge.hint}</p>
       {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
       <div className={styles.field}>
         <textarea value={text} onChange={(event) => setText(event.target.value)} />
@@ -169,6 +178,8 @@ export default function DisclosuresPage() {
           <div className={styles.field}>
             <label htmlFor="new-disclosure-key">키</label>
             <input id="new-disclosure-key" type="text" value={newKey} onChange={(event) => setNewKey(event.target.value)} />
+            {/* GAP-065 #9: 오타 키가 태어나는 자리다 — 저장 전에 같은 사실을 미리 보여 준다. */}
+            {newKey.trim() ? <p className={styles.hint}>{disclosureKeyBadge(newKey).label}</p> : null}
           </div>
         </div>
         <div className={styles.field}>

@@ -147,6 +147,12 @@ export type AuditLogActionPreset = {
  *   **승인**. DNC-012의 핵심 사건이고 되돌릴 수 없다: "가져왔는데 일부가 안 들어왔어요" 문의에서
  *   누가·언제 승인했고 몇 줄짜리 파일에서 몇 건이 들어가고 빠졌는지는 이 액션에만 있다.
  *   봉투에 파일명은 없다 — 파일명은 보존기간이 지나면 마스킹되는 값이라 감사 로그에 복사하지 않는다)
+ * - admin.disclosure.update: apps/api/src/admin/admin.controller.ts (GAP-065 #9 — DNC-010 고지
+ *   문구 수정. `disclosures` 행은 key당 한 칸 upsert라 덮어쓰면 이전 문구가 사라지고, admin
+ *   역할은 검토(content revision) 없이 바로 덮어쓴다: "고지가 왜 이렇게 바뀌었죠" 문의에서
+ *   누가·언제·어떤 문구에서 어떤 문구로 바꿨는지는 이 액션의 before/after에만 있다.
+ *   **어느 키인지도 봉투 안에 있다** — 서버는 UUID가 아닌 targetId를 저장하지 않으므로
+ *   행의 targetId는 null이고, key는 before/after의 `key` 필드가 답한다)
  * - auth.login / auth.logout: apps/api/src/auth/auth.service.ts (카카오는 kakao-auth.service.ts)
  * - admin.*: apps/api/src/admin/* (admin-auth / admin-users / admin-categories /
  *   content-revisions / admin.controller / admin-users-lookup)
@@ -174,7 +180,8 @@ export const AUDIT_LOG_ACTION_PRESETS: readonly AuditLogActionPreset[] = [
   { action: "admin.category.update", label: "카테고리 변경" },
   { action: "admin.content_revision.approve_publish", label: "콘텐츠 승인·발행" },
   { action: "admin.product_link.update", label: "상품 링크 수정" },
-  { action: "admin.item_template.update", label: "준비템 수정" }
+  { action: "admin.item_template.update", label: "준비템 수정" },
+  { action: "admin.disclosure.update", label: "고지 문구 수정 (제휴·스폰서)" }
 ];
 
 export type AuditLogActor = Pick<AdminAuditLogEntry, "actorUserId" | "actorEmail">;

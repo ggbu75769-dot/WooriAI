@@ -223,6 +223,21 @@ describe("AUDIT_LOG_ACTION_PRESETS (CS-101)", () => {
     ).map((preset) => preset.label);
     expect(new Set(labels).size).toBe(2);
   });
+
+  /**
+   * GAP-065 #9: 고지 문구(DNC-010)는 key당 한 칸 upsert라 덮어쓰면 이전 문구가 사라지고,
+   * admin 역할은 검토를 거치지 않고 바로 덮어쓴다. "고지가 왜 이렇게 바뀌었죠"에 답할
+   * 근거는 `admin.disclosure.update`의 before/after뿐이므로 프리셋에도 있어야 한다.
+   */
+  it("covers the disclosure copy CS asks about (고지 문구 덮어쓰기)", () => {
+    const actions = AUDIT_LOG_ACTION_PRESETS.map((preset) => preset.action);
+    expect(actions).toContain("admin.disclosure.update");
+    // 상품 링크 수정과 뭉뚱그리지 않는다 — 링크 하나가 아니라 종별 기본 문구가 통째로 바뀐다.
+    const labels = AUDIT_LOG_ACTION_PRESETS.filter((preset) =>
+      ["admin.disclosure.update", "admin.product_link.update"].includes(preset.action)
+    ).map((preset) => preset.label);
+    expect(new Set(labels).size).toBe(2);
+  });
 });
 
 describe("auditLogActorLabel (CS-101)", () => {
