@@ -243,35 +243,65 @@ async function loginViaUi(page, email, password) {
  * 여기서는 두 목록의 **개수만** 교차 확인해, 어드민 미러만 늙은 상태에서 e2e가 초록불이
  * 되는 경우를 막는다.
  */
+/**
+ * 라운드 63 리뷰 #8 — **파싱 실패는 회귀가 아닐 수 있다.**
+ *
+ * 아래 판독은 소스 서식에 기댄다(정규식·문자열 split). 그래서 실패했을 때 가능한 원인이 둘이다:
+ * ① 계약이 실제로 사라졌다, ② 프리티어·리팩터로 **서식만 바뀌었다**. 종전 메시지는 ①만 말해서,
+ * ②일 때 읽는 사람이 화면부터 뒤지게 만들었다 — 이 하네스가 늙어서 낸 빨간불이 진짜 회귀를 같이
+ * 묻는다는 것이 애초에 이 함수를 만든 이유(GAP-063 #9)와 같은 실패다. 그래서 모든 실패 메시지에
+ * 그 가능성을 함께 적는다.
+ */
+const FORMAT_HINT =
+  "화면이 계약을 잃었을 수도 있지만, **서식이 바뀌었을 뿐일 수도 있습니다**(줄바꿈·따옴표·타입 주석 등). " +
+  "이 판독기(scripts/qa/admin-e2e.mjs readFunnelStageContract)의 패턴을 먼저 확인하세요.";
+
 function readFunnelStageContract() {
   const pageSource = readFileSync(
     path.join(repoRoot, "apps", "admin", "app", "analytics", "page.tsx"),
     "utf8"
   );
 
-  const mirrorBlock = pageSource.split("const ONBOARDING_STEPS:")[1]?.split("];")[0];
-  if (!mirrorBlock) throw new Error("analytics/page.tsx에서 ONBOARDING_STEPS 미러를 찾지 못했습니다");
-  const onboardingLabels = [...mirrorBlock.matchAll(/label: "([^"]+)"/g)].map((m) => `온보딩 · ${m[1]}`);
-  if (onboardingLabels.length === 0) throw new Error("ONBOARDING_STEPS 미러에서 라벨을 하나도 읽지 못했습니다");
+  // 타입 주석이 붙든 안 붙든("const ONBOARDING_STEPS: X = [" / "const ONBOARDING_STEPS = [") 읽는다.
+  const mirrorBlock = pageSource.split(/const ONBOARDING_STEPS\b[^=]*=\s*\[/)[1]?.split("];")[0];
+  if (!mirrorBlock) {
+    throw new Error(`analytics/page.tsx에서 ONBOARDING_STEPS 미러를 찾지 못했습니다. ${FORMAT_HINT}`);
+  }
+  const onboardingLabels = [...mirrorBlock.matchAll(/label:\s*"([^"]+)"/g)].map((m) => `온보딩 · ${m[1]}`);
+  if (onboardingLabels.length === 0) {
+    throw new Error(`ONBOARDING_STEPS 미러에서 라벨을 하나도 읽지 못했습니다. ${FORMAT_HINT}`);
+  }
 
   const contractsSource = readFileSync(
     path.join(repoRoot, "packages", "contracts", "src", "analytics.ts"),
     "utf8"
   );
-  const contractList = /export const ONBOARDING_STEPS = \[([^\]]*)\] as const;/.exec(contractsSource)?.[1];
-  const contractSteps = [...(contractList ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  const contractList = /export const ONBOARDING_STEPS[^=]*=\s*\[([^\]]*)\]\s*as const/.exec(contractsSource)?.[1];
+  if (contractList === undefined) {
+    throw new Error(
+      `packages/contracts/src/analytics.ts에서 ONBOARDING_STEPS를 찾지 못했습니다. ${FORMAT_HINT}`
+    );
+  }
+  const contractSteps = [...contractList.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
   if (contractSteps.length !== onboardingLabels.length) {
+    // 이쪽은 서식 문제가 아니라 **개수가 실제로 갈린 것**이라 힌트를 붙이지 않는다.
     throw new Error(
       `어드민 온보딩 미러 ${onboardingLabels.length}단 != 계약 ${contractSteps.length}단 ` +
         "(packages/contracts/src/analytics.ts의 ONBOARDING_STEPS)"
     );
   }
 
-  const funnelBlock = pageSource.split("const FUNNEL_STAGES: FunnelStage[] = [")[1]?.split("\n];")[0];
-  if (!funnelBlock) throw new Error("analytics/page.tsx에서 FUNNEL_STAGES를 찾지 못했습니다");
-  // 접두(spread) 뒤에 오는 명시 단들 — 각 항목이 한 줄이라 줄 단위로 읽는다.
-  const explicitLabels = [...funnelBlock.matchAll(/^\s*\{ key: "[^"]+", label: "([^"]+)"/gm)].map((m) => m[1]);
-  if (explicitLabels.length === 0) throw new Error("FUNNEL_STAGES에서 명시 단을 하나도 읽지 못했습니다");
+  const funnelBlock = pageSource.split(/const FUNNEL_STAGES\b[^=]*=\s*\[/)[1]?.split("\n];")[0];
+  if (!funnelBlock) {
+    throw new Error(`analytics/page.tsx에서 FUNNEL_STAGES를 찾지 못했습니다. ${FORMAT_HINT}`);
+  }
+  // 접두(spread) 뒤에 오는 명시 단들. 한 줄 서식에만 매달리지 않도록 `{ key, label` 사이의
+  // 공백·줄바꿈을 허용한다 — 다만 순서(key → label)까지 벌리지는 않는다(그러면 이 블록 밖의
+  // 임의 객체까지 주워 오기 시작한다).
+  const explicitLabels = [...funnelBlock.matchAll(/\{\s*key:\s*"[^"]+",\s*label:\s*"([^"]+)"/g)].map((m) => m[1]);
+  if (explicitLabels.length === 0) {
+    throw new Error(`FUNNEL_STAGES에서 명시 단을 하나도 읽지 못했습니다. ${FORMAT_HINT}`);
+  }
 
   return { onboardingLabels, labels: [...onboardingLabels, ...explicitLabels] };
 }

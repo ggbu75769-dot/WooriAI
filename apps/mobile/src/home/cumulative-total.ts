@@ -223,10 +223,25 @@ function pendingRowsBehindCumulativeTotal(
  * 0건이면 **null**이라 세 화면 모두 예전과 한 줄도 다르지 않다("0건이 대기 중이에요"는 소음).
  * 세는 규칙(`syncState !== "synced"` ∧ 이 합계를 움직이는 구분만)과 문구는 위 두 함수 한 벌이
  * 지므로, 부르는 자리가 늘어도 같은 상황에서 같은 문장이 나온다.
+ *
+ * ## 라운드 63 리뷰 #3 — 금액도 여기서 본다(규칙이 두 벌이 되지 않게)
+ *
+ * 문장이 "**이 금액에** 아직 반영되지 않았어요"이므로, 짚을 금액이 화면에 없으면 이 줄은 아무
+ * 것도 가리키지 못한다. 홈의 두 자리는 그 사실을 이미 각자 지키고 있었다 — 누적 카드는
+ * `milestoneSubtitleShowsTotal`을 통과하지 못하면 카드 자체를 만들지 않고, 마일스톤 카드는
+ * 부제가 권유 문장일 때 고지를 떼어 낸다. 그런데 라운드 63이 세 번째 자리(리포트 탭 누적 카드)를
+ * 붙이면서 그 게이트를 함께 가져가지 않아, 누적 0원 계정의 리포트 탭에서만 "0원에 아직 반영되지
+ * 않았어요"가 섰다. **같은 규칙이 두 벌 반이 된 것**이라 규칙을 함수 쪽으로 끌어온다: 금액을
+ * 인자로 받고, 말할 금액이 없으면(모름 · 0원) null이다. 판정은 홈 두 자리가 쓰던 그
+ * `milestoneSubtitleShowsTotal` 그대로라 새 규칙이 생기지 않는다.
+ *
+ * 인자는 **필수**다. 선택으로 두면 다음에 네 번째 자리를 붙이는 사람이 다시 빠뜨린다.
  */
 export function cumulativeTotalPendingNotice(
-  rows?: readonly CumulativeTotalPendingRow[] | null
+  rows: readonly CumulativeTotalPendingRow[] | null | undefined,
+  totalExpenseKrw: number | null | undefined
 ): string | null {
+  if (!milestoneSubtitleShowsTotal(totalExpenseKrw)) return null;
   const pendingRows = pendingRowsBehindCumulativeTotal(rows ?? []);
   if (pendingRows.length === 0) return null;
   return cumulativeTotalPendingNoticeText(pendingRows.length, countPermanentlyFailedRows(pendingRows));
@@ -249,7 +264,9 @@ export function evaluateHomeCumulativeTotal(input: HomeCumulativeTotalInput): Ho
   // 소음이고, 대다수인 그 경우에 카드를 한 줄 키울 이유가 없다(리포트 고지와 같은 규칙).
   // GAP-063 트랙 A: 판정을 위 공용 함수로 옮겼다 — 홈 마일스톤 부제·리포트 누적 카드가 같은
   // 금액을 그리므로 같은 함수를 부른다(결과는 종전과 동치다).
-  const pendingNotice = cumulativeTotalPendingNotice(input.pendingRows);
+  // 리뷰 #3: 금액 게이트도 그 함수가 진다. 여기서는 위 `milestoneSubtitleShowsTotal` 조기 반환을
+  // 이미 통과했으므로 언제나 참이고, 값이 바뀌는 자리는 리포트 탭이다.
+  const pendingNotice = cumulativeTotalPendingNotice(input.pendingRows, input.totalExpenseKrw);
   return {
     title,
     subtitle,

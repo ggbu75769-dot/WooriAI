@@ -340,9 +340,29 @@ describe("칸 접근성 라벨", () => {
     expect(calendarLegendText()).toBe(CALENDAR_LEGEND_TEXT);
     expect(calendarLegendText(null)).toBe(CALENDAR_LEGEND_TEXT);
     expect(calendarLegendText("  ")).toBe(CALENDAR_LEGEND_TEXT);
-    expect(calendarLegendText("기저귀/위생 필터")).toBe(
-      `${CALENDAR_LEGEND_TEXT} 지금은 기저귀/위생 필터 기준으로 보고 있어요.`
-    );
+    expect(calendarLegendText("기저귀/위생 필터")).toContain("지금은 기저귀/위생 필터 기준으로 보고 있어요.");
+  });
+
+  /**
+   * 라운드 63 리뷰 #4 — **필터가 걸린 달력에서 "기록이 없는 날"은 거짓이다.**
+   *
+   * 칸의 `hasRecords`는 필터가 걸린 목록에서 나온 값이라 그 조건 안에서만 참이다. 그래서 기저귀
+   * 필터를 켠 채 보면 그날 분유 지출이 있어도 칸이 비어 보이고 `"record-new"`가 되는데, 범례가
+   * 무조건 "기록이 없는 날짜"라고 말하면 화면이 없다고 말한 적 없는 사실을 단정한다.
+   */
+  it("리뷰 #4: 필터가 걸리면 범례의 주어도 그 스코프로 좁는다 (문구는 한 벌)", () => {
+    const filtered = calendarLegendText("기저귀/위생 필터");
+    // 두 자리 모두 좁혀진다 -- 한쪽만 좁히면 한 줄 안에서 스스로 어긋난다.
+    expect(filtered).toContain("이 조건의 기록이 있는 날짜를 누르면");
+    expect(filtered).toContain("이 조건의 기록이 없는 날짜를 누르면");
+    // 무조건 문장이 남아 있지 않다(필터 문장과 무필터 문장이 두 벌로 갈리지 않는다).
+    expect(filtered).not.toContain(CALENDAR_LEGEND_TEXT);
+    expect(filtered).not.toContain("이동하고, 기록이 없는 날짜");
+    // 음영 설명과 스코프 꼬리말은 종전 그대로다.
+    expect(filtered.startsWith("색이 진할수록 그날 지출이 많아요. ")).toBe(true);
+    expect(filtered.endsWith(" 지금은 기저귀/위생 필터 기준으로 보고 있어요.")).toBe(true);
+    // 필터가 없으면 한 글자도 달라지지 않는다.
+    expect(calendarLegendText()).not.toContain("이 조건의");
   });
 
   /**

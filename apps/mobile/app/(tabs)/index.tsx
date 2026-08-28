@@ -1613,7 +1613,9 @@ export default function HomeScreen() {
   // **같은 문장**으로 대기를 밝힌다. 라운드 62는 누적 카드에만 고지를 붙였는데, 그 카드는
   // 마일스톤 카드가 서면 접히므로(중복 금지) 생후 0일~첫돌 구간에서는 고지가 한 번도 뜨지
   // 않았다. 행은 **이미 구독 중인** 스냅샷을 아이로 거른 것 그대로다(새 요청 0건).
-  const cumulativePendingNotice = cumulativeTotalPendingNotice(childOfflineRows);
+  // 리뷰 #3: 금액 게이트는 이제 그 함수가 진다(짚을 금액이 없으면 null) — 마일스톤 카드의
+  // 자체 게이트와 같은 판정이라 결과는 종전과 동치다.
+  const cumulativePendingNotice = cumulativeTotalPendingNotice(childOfflineRows, home.data?.totalExpenseKrw ?? null);
   const milestoneCountdown = hasSession
     ? evaluateMilestoneCountdown({
         stageMode: selectedChild?.stageMode,

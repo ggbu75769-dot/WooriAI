@@ -287,11 +287,17 @@ export default function ManageChildrenScreen() {
    * **검증 실패는 차단이 아니다.** 매 렌더에서 다시 검증하므로(effect로 상태를 만들지 않는다)
    * 아이 목록이 늦게 도착해 화이트리스트가 넓어지면 그때 통과한다.
    *
-   * 이 값 하나가 **생성 대상·역할 게이트·대상 표기 셋 다**의 근거다(아래 `addChild`의
-   * `buildCreateChildBody(householdId!, …)`, `["household-members", householdId]`,
-   * `addHouseholdNotice`). 셋이 갈리면 A 가구 owner가 B 가구에서 편집 컨트롤을 얻거나, 라벨이 곧
-   * 거짓말이 된다. 서버는 그대로다 -- `POST /children`은 이미 본문의 householdId를 받고 그 가구의
-   * 역할을 가드로 검사한다(apps/api children.controller.ts).
+   * 이 값 하나가 **추가 폼 셋**(생성 대상 `buildCreateChildBody(householdId!, …)` · 그 가구의
+   * 역할 `["household-members", householdId]` · 대상 표기 `addHouseholdNotice`)의 근거다. 셋이
+   * 갈리면 라벨이 곧 거짓말이 된다. 서버는 그대로다 -- `POST /children`은 이미 본문의 householdId를
+   * 받고 그 가구의 역할을 가드로 검사한다(apps/api children.controller.ts).
+   *
+   * ⚠️ **여기까지다.** 라운드 63 리뷰 #1: 이 값이 아래 **목록**의 게이트(편집 · 출생 전환 ·
+   * 보기 전용 안내)까지 지배하면 안 된다 — 그 목록은 파라미터 가구의 아이가 아니라 이 계정이
+   * 아는 **전 가구의 아이**이기 때문이다(`children.data.children` 그대로). 지배하게 두면 빈 가구
+   * B의 owner가 B로 전환해 들어온 순간 시가 가구 A(viewer)의 아이 행에 [편집]이 서고, 눌러야
+   * 403을 만난다 — 라운드 40이 없앤 **보기 전용 허위 표시**의 부활이다. 역방향(A owner가 B
+   * viewer로 전환)에서는 정작 자기 아이의 편집이 사라진다.
    *
    * 1가구 계정에서는 가족 화면이 전환 자체를 못 하므로 **파라미터가 생기지 않고**, 이 화면은
    * 종전과 한 글자도 달라지지 않는다(SET-005).
@@ -306,16 +312,41 @@ export default function ManageChildrenScreen() {
     })
   );
   const householdId = requestedHouseholdId ?? scopedHouseholdId;
-  // Role gate (same lookup convention as app/family/index.tsx): editing is owner/co_parent
-  // only; while members are still loading we default to view-only rather than flashing edit
-  // controls a viewer must not use.
+  /**
+   * **목록**의 역할 게이트 — 근거는 언제나 `scopedHouseholdId`(선택된 아이의 가구, 없으면 기본
+   * 가구)다. 라운드 63 리뷰 #1로 파라미터 가구와 분리했다: 위 주석의 근거를 참고.
+   *
+   * (더 정직한 형태는 각 행의 `child.householdId`별로 묻는 것이지만, 그러려면 가구마다 멤버
+   * 조회가 하나씩 생긴다 — 이번 라운드는 **종전 판정 복원**까지만 한다. 오늘도 목록에는 여러
+   * 가구의 아이가 섞여 있을 수 있고 그 경우의 게이트는 종전과 똑같이 부정확하다: 이 리뷰가
+   * 되돌리는 것은 파라미터가 그 부정확함을 **새로 키운** 부분이다.)
+   *
+   * Role gate (same lookup convention as app/family/index.tsx): editing is owner/co_parent
+   * only; while members are still loading we default to view-only rather than flashing edit
+   * controls a viewer must not use.
+   */
+  const scopedMembers = useQuery({
+    queryKey: ["household-members", scopedHouseholdId],
+    enabled: Boolean(authToken && scopedHouseholdId),
+    queryFn: () => listHouseholdMembers(authToken!, scopedHouseholdId!)
+  });
+  const myRole = scopedMembers.data?.members.find((member) => member.userId === userId)?.role;
+  const canEditChildren = myRole === "owner" || myRole === "co_parent";
+  /**
+   * **추가 폼**의 역할 게이트 — 근거는 파라미터가 가리키는 대상 가구(`householdId`)다. 생성이
+   * 실제로 가는 곳의 역할을 물어야 빈 가구 B의 owner가 B에 아이를 만들 수 있고(라운드 63 #7),
+   * 반대로 뷰어로 전환해 들어온 가구에는 추가 폼이 서지 않는다.
+   *
+   * 전환하지 않은 계정에서는 `householdId === scopedHouseholdId`라 **쿼리 키가 같다** — react-query가
+   * 같은 캐시 항목을 공유하므로 요청은 한 번뿐이고 두 판정은 언제나 같은 값이다(SET-005 불변).
+   */
   const members = useQuery({
     queryKey: ["household-members", householdId],
     enabled: Boolean(authToken && householdId),
     queryFn: () => listHouseholdMembers(authToken!, householdId!)
   });
-  const myRole = members.data?.members.find((member) => member.userId === userId)?.role;
-  const canEditChildren = myRole === "owner" || myRole === "co_parent";
+  const myAddRole = members.data?.members.find((member) => member.userId === userId)?.role;
+  const canAddChild = myAddRole === "owner" || myAddRole === "co_parent";
 
   const invalidateChildScopedQueries = async () => {
     await queryClient.invalidateQueries({ queryKey: ["children"] });
@@ -484,6 +515,10 @@ export default function ManageChildrenScreen() {
    * 화면의 전환 목록이 같은 자리에서 이미 쓰는 **사실 표기**를 그대로 재사용한다
    * (`HOUSEHOLD_SCOPE_EMPTY_LABEL` — 이름을 지어내는 것이 아니라 "아이가 아직 없는 가구"라는
    * 사실이다). 파라미터가 없는 계정에서는 이 자리가 생기지 않으므로 1가구 계정은 종전 그대로다.
+   *
+   * 라운드 63 리뷰 #1: 여기서 읽는 멤버는 **대상 가구**의 것(`members`)이다 — 이 줄이 가리키는
+   * 대상이 생성이 실제로 가는 그 가구이기 때문이다. 목록 게이트가 보는 `scopedMembers`와 갈리는
+   * 것이 정상이고, 전환하지 않은 계정에서는 둘이 같은 캐시 항목이다.
    */
   const addHouseholdNotice = householdScopeAddChildNotice(
     householdScopePhrase(
@@ -613,24 +648,26 @@ export default function ManageChildrenScreen() {
           })}
         </View>
 
-        {hasSession && !canEditChildren && members.isSuccess ? (
+        {/* 이 안내는 **목록의 편집**이 왜 없는지를 말하므로 목록과 같은 판정을 쓴다(리뷰 #1). */}
+        {hasSession && !canEditChildren && scopedMembers.isSuccess ? (
           <Card>
             <Text style={mutedTextStyle}>보기 전용 멤버는 아이 정보를 수정할 수 없어요.</Text>
           </Card>
         ) : null}
 
         {/* FIX-118B(F3): 데모 세션에서는 추가가 실제로 일어나지 않으므로 버튼 대신 안내만 둔다. */}
-        {hasSession && canEditChildren && isDemoSession ? (
+        {/* 아래 셋은 전부 **추가**의 게이트라 대상 가구의 역할(canAddChild)을 묻는다(리뷰 #1). */}
+        {hasSession && canAddChild && isDemoSession ? (
           <Card>
             <Text style={mutedTextStyle}>데모에서는 아이를 추가할 수 없어요. 로그인하면 아이를 추가할 수 있어요.</Text>
           </Card>
         ) : null}
 
-        {hasSession && canEditChildren && !isDemoSession && !addOpen ? (
+        {hasSession && canAddChild && !isDemoSession && !addOpen ? (
           <SecondaryButton accessibilityLabel="아이 추가" label="아이 추가" onPress={startAdd} />
         ) : null}
 
-        {hasSession && canEditChildren && !isDemoSession && addOpen ? (
+        {hasSession && canAddChild && !isDemoSession && addOpen ? (
           <Card style={{ gap: theme.spacing.gap }}>
             <Text style={addTitleStyle}>새 아이 추가</Text>
             {addHouseholdNotice ? <Text style={mutedTextStyle}>{addHouseholdNotice}</Text> : null}

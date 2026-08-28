@@ -132,8 +132,11 @@ describe("GAP-063 마일스톤 부제의 대기 고지", () => {
     expect(card?.accessibilityLabel).toBe("100일까지 13일 남았어요. 지금까지 총 지출 1,245,700원. 100일 리포트 보기");
     // 대기 0건일 때도 같다 — 그때 화면은 예전과 한 픽셀도 다르지 않다.
     expect(
-      evaluateMilestoneCountdown({ ...base, todayIso: "2026-08-27", pendingNotice: cumulativeTotalPendingNotice([]) })
-        ?.pendingNotice
+      evaluateMilestoneCountdown({
+        ...base,
+        todayIso: "2026-08-27",
+        pendingNotice: cumulativeTotalPendingNotice([], base.totalExpenseKrw)
+      })?.pendingNotice
     ).toBeNull();
   });
 
@@ -209,7 +212,9 @@ describe("UX-A 마일스톤 카드 배선 계약", () => {
    * 계약이다. 누적 카드와 다른 소스에서 문장을 만들면 같은 금액을 두 문장으로 말하게 된다.
    */
   it("고지는 누적 카드와 같은 단일 소스가 만든 문자열을 그대로 넘긴다(문구 두 벌 금지)", () => {
-    expect(homeSource).toContain("const cumulativePendingNotice = cumulativeTotalPendingNotice(childOfflineRows);");
+    expect(homeSource).toContain(
+      "const cumulativePendingNotice = cumulativeTotalPendingNotice(childOfflineRows, home.data?.totalExpenseKrw ?? null);"
+    );
     expect(homeSource).toContain("pendingNotice: cumulativePendingNotice");
     // 이 모듈은 문장을 조립하지도, 건수를 세지도 않는다 -- 어휘 단일 소스도 건수 술어도
     // 여기 들어오지 않는다. 그리고 누적 카드가 이미 이 파일을 import하므로 반대 방향

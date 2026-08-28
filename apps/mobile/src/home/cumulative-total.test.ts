@@ -302,13 +302,44 @@ describe("GAP-063 같은 금액을 그리는 세 자리가 같은 고지를 쓴�
       [pending({ syncState: "synced" })]
     ];
     for (const rows of cases) {
-      expect(cumulativeTotalPendingNotice(rows)).toBe(
+      expect(cumulativeTotalPendingNotice(rows, base.totalExpenseKrw)).toBe(
         evaluateHomeCumulativeTotal({ ...base, pendingRows: rows })?.pendingNotice ?? null
       );
     }
     // 행을 아예 모르는 호출부(아이 미선택·비세션)는 아무것도 세지 않는다.
-    expect(cumulativeTotalPendingNotice()).toBeNull();
-    expect(cumulativeTotalPendingNotice(null)).toBeNull();
+    expect(cumulativeTotalPendingNotice(undefined, base.totalExpenseKrw)).toBeNull();
+    expect(cumulativeTotalPendingNotice(null, base.totalExpenseKrw)).toBeNull();
+  });
+
+  /**
+   * 라운드 63 리뷰 #3 — **짚을 금액이 없으면 고지도 없다(세 자리 같은 규칙).**
+   *
+   * 문장이 "이 금액에 아직 반영되지 않았어요"이므로 금액이 0원이거나 모르면 가리킬 것이 없다.
+   * 홈의 두 자리는 각자 그 게이트를 갖고 있었는데(누적 카드는 카드 자체를 만들지 않고, 마일스톤
+   * 카드는 부제가 권유 문장일 때 고지를 뗀다) 세 번째 자리(리포트 탭)만 금액을 보지 않아 규칙이
+   * 갈렸다. 이제 판정은 공용 함수 한 곳이 진다.
+   */
+  it("누적이 0원·모름이면 세 자리 어디에도 고지가 서지 않는다", () => {
+    const rows = [pending(), pending()];
+    for (const totalExpenseKrw of [0, null, undefined, Number.NaN]) {
+      expect(cumulativeTotalPendingNotice(rows, totalExpenseKrw), String(totalExpenseKrw)).toBeNull();
+      // 홈 누적 카드는 종전대로 카드 자체가 없고,
+      expect(evaluateHomeCumulativeTotal({ ...base, totalExpenseKrw, pendingRows: rows })).toBeNull();
+      // 마일스톤 카드도 종전대로 고지를 떼어 낸다(부제가 권유 문장이다).
+      const countdown = evaluateMilestoneCountdown({
+        stageMode: "born",
+        nickname: "다온이",
+        birthDate: "2026-06-01",
+        todayIso: "2026-08-27",
+        totalExpenseKrw,
+        pendingNotice: cumulativeTotalPendingNotice(rows, totalExpenseKrw)
+      });
+      expect(countdown?.pendingNotice, String(totalExpenseKrw)).toBeNull();
+    }
+    // 금액이 있으면 종전 그대로 선다.
+    expect(cumulativeTotalPendingNotice(rows, 1_245_700)).toBe(
+      "동기화 대기 중인 기록 2건은 이 금액에 아직 반영되지 않았어요."
+    );
   });
 
   /**
@@ -316,7 +347,7 @@ describe("GAP-063 같은 금액을 그리는 세 자리가 같은 고지를 쓴�
    */
   it("생후 0일~첫돌: 누적 카드가 접혀도 같은 문장이 마일스톤 부제 아래에 남는다", () => {
     const rows = [pending(), pending(), pending()];
-    const notice = cumulativeTotalPendingNotice(rows);
+    const notice = cumulativeTotalPendingNotice(rows, base.totalExpenseKrw);
     const countdown = evaluateMilestoneCountdown({
       stageMode: "born",
       nickname: "다온이",
@@ -348,13 +379,13 @@ describe("GAP-063 같은 금액을 그리는 세 자리가 같은 고지를 쓴�
         birthDate: "2026-06-01",
         todayIso,
         totalExpenseKrw: 1_245_700,
-        pendingNotice: cumulativeTotalPendingNotice(rows)
+        pendingNotice: cumulativeTotalPendingNotice(rows, 1_245_700)
       });
       expect(countdown, todayIso).toBeNull();
       expect(
         evaluateHomeCumulativeTotal({ ...base, hasMilestoneCard: false, pendingRows: rows })?.pendingNotice,
         todayIso
-      ).toBe(cumulativeTotalPendingNotice(rows));
+      ).toBe(cumulativeTotalPendingNotice(rows, base.totalExpenseKrw));
     }
   });
 });
@@ -366,7 +397,7 @@ describe("GAP-063 리포트 탭 누적 카드 배선 계약", () => {
   it("고지도 부제도 홈 카드의 단일 소스를 그대로 부른다(문구 두 벌 금지)", () => {
     expect(reportsSource).toContain('from "../../src/home/cumulative-total"');
     expect(reportsSource).toContain(
-      "cumulativeTotalPendingNotice(offlineSyncSnapshot.rows.filter((row) => row.childId === childId))"
+      "cumulativeTotalPendingNotice(\n        offlineSyncSnapshot.rows.filter((row) => row.childId === childId),\n        cumulative.data?.totalExpenseKrw ?? null\n      )"
     );
     expect(reportsSource).toContain("{CUMULATIVE_TOTAL_SUBTITLE}");
     expect(reportsSource).toContain(`testID={REPORT_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID}`);

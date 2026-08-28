@@ -1023,16 +1023,25 @@ describe("라운드 63 #7 아이 추가를 전환한 가구로 (파라미터 관
     expect(screenSource).not.toContain("createChild");
   });
 
-  it("아이 관리 화면은 같은 화이트리스트로 받고, 그 하나의 값이 생성·역할·표기의 근거다 (소스 계약)", () => {
+  it("아이 관리 화면은 같은 화이트리스트로 받고, 그 하나의 값이 추가 폼 셋(생성·역할·표기)의 근거다 (소스 계약)", () => {
     const screenSource = source("app/settings/children.tsx");
     expect(screenSource).toContain("const requestedHouseholdId = parseHouseholdScopeParam(");
     expect(screenSource).toContain("collectKnownHouseholdIds({");
     expect(screenSource).toContain("const householdId = requestedHouseholdId ?? scopedHouseholdId;");
     expect(screenSource).toContain("const scopedHouseholdId = resolveManagedHouseholdId({");
-    // 셋이 갈리면 A 가구 owner가 B 가구에서 편집 컨트롤을 얻거나 라벨이 곧 거짓말이 된다.
+    // 셋이 갈리면 라벨이 곧 거짓말이 된다.
     expect(screenSource).toContain("buildCreateChildBody(householdId!, input.stageMode, input.values)");
     expect(screenSource).toContain('queryKey: ["household-members", householdId]');
     expect(screenSource).toContain("const addHouseholdNotice = householdScopeAddChildNotice(");
+    /**
+     * 라운드 63 리뷰 #1 — 그 근거는 **추가 폼까지**다. 목록은 파라미터 가구의 아이가 아니라 전
+     * 가구의 아이라(`children.data.children` 그대로), 편집·출생 전환·보기 전용 안내까지 파라미터가
+     * 지배하면 빈 가구 B의 owner가 A(viewer)의 아이에 [편집]을 얻는다(403 · 라운드 40 회귀).
+     * 자세한 고정은 src/children/manage-children-flow.test.ts.
+     */
+    expect(screenSource).toContain('queryKey: ["household-members", scopedHouseholdId]');
+    expect(screenSource).toContain('const canAddChild = myAddRole === "owner" || myAddRole === "co_parent"');
+    expect(screenSource).toContain("hasSession && !canEditChildren && scopedMembers.isSuccess");
     // 이 흐름의 주인공(아이가 없는 가구)은 이름도 가리킬 아이도 없어 표기 판정이 언제나 null이다 --
     // 전환해 들어왔을 때만 전환 목록과 **같은 사실 표기**로 내려간다(지어낸 이름이 아니다).
     expect(screenSource).toContain(") ?? (requestedHouseholdId ? HOUSEHOLD_SCOPE_EMPTY_LABEL : null)");

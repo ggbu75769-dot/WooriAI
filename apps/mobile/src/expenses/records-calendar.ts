@@ -442,18 +442,43 @@ export function isCalendarCellInteractive(cell: CalendarCell): boolean {
  */
 export const CALENDAR_FUTURE_HINT = "아직 오지 않은 날이라 기록할 수 없어요";
 
+/** 음영의 뜻 — 필터와 무관하게 언제나 같은 사실이다(진할수록 그날 합이 크다). */
+const CALENDAR_LEGEND_HEATMAP_TEXT = "색이 진할수록 그날 지출이 많아요.";
+
+/**
+ * 라운드 63 리뷰 #4 — 두 번째 문장의 주어는 **필터 스코프를 따른다.**
+ *
+ * 무엇이 거짓이었나: 달력의 칸은 필터가 걸린 목록에서 나온 그룹이라(화면이 그대로 넘긴다)
+ * `hasRecords`도 **그 필터 안에서만** 참이다. 그래서 기저귀 필터를 켠 채로 보면, 그날 분유
+ * 지출이 있어도 칸은 비어 보이고 눌렀을 때 `"record-new"`가 된다 — 그 동작은 옳지만
+ * (그 조건의 기록이 없는 것은 사실이다) 범례가 "기록이 없는 날짜"라고 단정하면 **없다고 말한
+ * 적 없는 사실**을 말하게 된다. 칸 라벨은 이미 `calendarFilterScopePrefix`로 같은 문제를 피하고
+ * 있었는데(라운드 34 L5) 범례만 무조건이었다.
+ *
+ * 문구를 두 벌로 만들지 않는다: 조각은 아래 함수 하나가 만들고, 필터 없는 문장
+ * (`CALENDAR_LEGEND_TEXT`)도 그 함수의 결과다 — 즉 한쪽만 고쳐지는 날이 없다.
+ */
+function calendarLegendActionText(scoped: boolean): string {
+  // 접두가 아니라 주어를 한정한다: "이 조건의 기록" — 칸 라벨의 접두("… 기준, ")와 같은 사실을
+  // 범례의 문장 구조에 맞춰 말한 것이다.
+  const records = scoped ? "이 조건의 기록" : "기록";
+  return `${records}이 있는 날짜를 누르면 그날 기록으로 이동하고, ${records}이 없는 날짜를 누르면 그날로 기록할 수 있어요.`;
+}
+
 /** 달력 아래 한 줄 안내(DNC-018 해요체). 음영이 무엇을 뜻하는지 말해주지 않으면 그냥 색일 뿐이다. */
-export const CALENDAR_LEGEND_TEXT =
-  "색이 진할수록 그날 지출이 많아요. 기록이 있는 날짜를 누르면 그날 기록으로 이동하고, 기록이 없는 날짜를 누르면 그날로 기록할 수 있어요.";
+export const CALENDAR_LEGEND_TEXT = `${CALENDAR_LEGEND_HEATMAP_TEXT} ${calendarLegendActionText(false)}`;
 
 /**
  * 라운드 34 L5: 범례 한 줄 — 필터가 걸렸으면 **무엇의 히트맵인지**를 덧붙인다.
  *
  * 칸 라벨의 접두(위)와 같은 사실을 눈으로 보는 사람에게도 달력 **안에서** 말한다. 필터가 없으면
  * 예전 문장 그대로다(기존 화면 한 글자도 안 바뀐다).
+ *
+ * 라운드 63 리뷰 #4: 필터가 걸리면 두 번째 문장의 주어도 그 스코프로 좁힌다(위 함수 참고) —
+ * 꼬리말만 붙이고 "기록이 없는 날짜"를 그대로 두면 범례가 그 한 줄 안에서 스스로 어긋난다.
  */
 export function calendarLegendText(filterLabel?: string | null): string {
   const label = filterLabel?.trim();
   if (!label) return CALENDAR_LEGEND_TEXT;
-  return `${CALENDAR_LEGEND_TEXT} 지금은 ${label} 기준으로 보고 있어요.`;
+  return `${CALENDAR_LEGEND_HEATMAP_TEXT} ${calendarLegendActionText(true)} 지금은 ${label} 기준으로 보고 있어요.`;
 }
