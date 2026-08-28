@@ -803,7 +803,8 @@ describe("GAP-063 #10 라운드 63 신설 UI 접근성 계약", () => {
     const privacySource = source("app/settings/privacy.tsx");
     expect(privacySource).toContain("const childDeleteNotice = childScopeDeleteNotice(childDeleteLabel);");
     expect(privacySource).toContain("{childDeleteNotice ? <Text style={mutedTextStyle}>{childDeleteNotice}</Text> : null}");
-    expect(privacySource).toContain('Alert.alert(childScopeDeleteConfirmTitle(childDeleteLabel) ?? "정말 삭제할까요?"');
+    // 라운드 66 트랙 B(#6)에서 Alert 인자가 여러 줄로 나뉘었다 — 제목 규칙은 그대로다.
+    expect(privacySource).toContain('childScopeDeleteConfirmTitle(childDeleteLabel) ?? "정말 삭제할까요?"');
     // 문구 단일 소스는 순수 모듈이다 — 화면이 같은 문장을 다시 적으면 두 벌이 된다.
     expect(privacySource).not.toContain("프로필을 삭제해요");
     expect(privacySource).not.toContain("프로필을 삭제할까요");

@@ -13,6 +13,10 @@ import {
   parseRecurringTemplatePrefill,
   recurringPrefillParams,
   recurringRecordAccessibilityLabel,
+  RECURRING_ALREADY_REGISTERED_LABEL,
+  RECURRING_AUTO_RECORD_NOTICE_BODY,
+  RECURRING_AUTO_RECORD_NOTICE_TITLE,
+  RECURRING_DEVICE_ONLY_NOTICE,
   RECURRING_ITEM_NAME_MAX_LENGTH,
   RECURRING_MERCHANT_MAX_LENGTH,
   RECURRING_PREFILL_NOTICE,
@@ -24,11 +28,9 @@ import {
   type RecurringTemplateDraft
 } from "../../src/expenses/recurring-template";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
-import {
-  findRecurringTemplateByItemName,
-  RECURRING_ALREADY_REGISTERED_LABEL,
-  useRecurringExpenseStore
-} from "../../src/stores/recurring-expense.store";
+// 라운드 66 트랙 B(P3 1번): 문구는 전부 recurring-template.ts에서 온다 — 여기서 오는 것은
+// 판정(findRecurringTemplateByItemName)과 스토어뿐이다.
+import { findRecurringTemplateByItemName, useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -339,12 +341,17 @@ export default function RecurringExpensesScreen() {
           onBack={() => router.back()}
         />
 
-        {/* DNC-013을 사용자 말로 옮긴 한 줄. 화면에서 가장 먼저 읽히는 자리에 둔다. */}
+        {/* DNC-013을 사용자 말로 옮긴 한 줄. 화면에서 가장 먼저 읽히는 자리에 둔다.
+            라운드 66 트랙 B(P3 1번): 세 문장 모두 정기 지출 문구의 단일 소스에서 온다
+            (src/expenses/recurring-template.ts) -- 화면은 읽기만 한다. */}
         <Card style={{ gap: 6 }}>
-          <Text style={rowTitleStyle}>자동으로 기록되지는 않아요</Text>
-          <Text style={rowSubtitleStyle}>
-            여기에 적어 두면 그 달에 아직 기록에 없을 때 홈에서 알려드려요. 지출은 확인하고 저장할 때만 남아요.
-          </Text>
+          <Text style={rowTitleStyle}>{RECURRING_AUTO_RECORD_NOTICE_TITLE}</Text>
+          <Text style={rowSubtitleStyle}>{RECURRING_AUTO_RECORD_NOTICE_BODY}</Text>
+          {/* 라운드 66 트랙 B(#4): 이 목록이 **어디에 사는지**. 앱이 한 번도 하지 않던 말이라
+              (저장소 전체에서 "이 기기"는 앱 잠금·푸시 등록·테스트 로그인 셋뿐이고 전부 기기
+              설정에 대한 말이다) 기기를 바꾼 사람은 목록이 왜 비었는지 알 길이 없었다. 서버
+              동기화를 약속하지 않는 이유는 상수 주석에 있다. */}
+          <Text style={rowSubtitleStyle}>{RECURRING_DEVICE_ONLY_NOTICE}</Text>
         </Card>
 
         {!canManage ? (

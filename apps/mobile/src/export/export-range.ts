@@ -212,30 +212,94 @@ export function customRangeLabel(range: CustomExportRange): string {
 const EXPORT_FILE_NAME_PREFIX = "우리아이-지출";
 
 /**
+ * 파일 이름에 실을 수 있는 아이 이름의 최대 글자 수.
+ *
+ * 태명 컬럼은 `VarChar(60)`이라(apps/api prisma schema의 `Child.nickname`) 60자짜리 이름이
+ * 실제로 저장될 수 있다. 그 길이를 그대로 이름 가운데에 끼우면 기간이 뒤로 밀려 **파일 목록에서
+ * 잘려 보이는 쪽이 기간**이 된다 — 이 이름이 존재하는 이유(무엇이 담겼는지 파일만 보고 안다)를
+ * 스스로 깨는 셈이다. 20자면 태명이 잘리는 일은 사실상 없고, 잘리더라도 앞부분이 남아 두 아이를
+ * 구별하는 목적은 그대로 선다.
+ */
+export const EXPORT_FILE_NAME_CHILD_MAX_LENGTH = 20;
+
+/**
+ * 이름에서 떨구는 문자. 두 종류다.
+ *  1. **파일 이름에 쓸 수 없는 것**: 경로 구분자(`/` `\`), 윈도우 예약 문자(`: * ? " < > |`), 제어 문자.
+ *  2. **이 이름 형식이 스스로 쓰는 구분자**(`-` · `~`). 태명에 그 글자가 들어 있으면 사람도 기계도
+ *     어디까지가 이름이고 어디부터가 기간인지 셀 수 없다(`우리아이-지출-다-온-2026-08.csv`).
+ * 공백은 아래에서 따로 떨군다(접두가 이미 "공백을 쓰지 않는다"는 규칙을 세워 두었다).
+ */
+// eslint-disable-next-line no-control-regex
+const FILE_NAME_UNSAFE_PATTERN = /[\\/:*?"<>|~\-\u0000-\u001f\u007f]/g;
+
+/**
+ * 라운드 66 트랙 B(#3) — 파일 이름에 넣을 수 있는 모양으로 다듬은 아이 이름, 또는 `null`.
+ *
+ * 다듬은 결과가 비면(이름이 전부 못 쓰는 문자였거나 애초에 없거나) `null`이고, 그때 파일 이름은
+ * **종전과 한 글자도 다르지 않다** — 지어낸 자리 채움("아이")을 만들지 않는다. `resolveChildScopeLabel`
+ * (src/children/child-switch.ts)이 아이가 하나인 계정에서 이미 `null`을 주므로, 다자녀가 아닌
+ * 사용자에게는 이 함수가 애초에 호출되어도 결과가 같다.
+ *
+ * 새 정규화 규칙을 짓지 않는다: 떨구는 문자 집합은 위 상수 한 곳이고, 잘라 내는 길이도 위 상수
+ * 하나다(두 값이 화면·파일 이름으로 갈리지 않게 이 모듈에만 둔다).
+ */
+export function exportFileNameChildSegment(childLabel: string | null | undefined): string | null {
+  if (typeof childLabel !== "string") return null;
+  const cleaned = childLabel
+    .replace(FILE_NAME_UNSAFE_PATTERN, "")
+    // 공백은 붙여 쓴다(접두의 규칙 그대로 — 어느 OS에서도 그대로 쓸 수 있는 이름).
+    .replace(/\s+/g, "")
+    // 앞뒤 점은 숨김 파일·확장자 오인을 부른다.
+    .replace(/^\.+|\.+$/g, "");
+  if (cleaned.length === 0) return null;
+  return cleaned.slice(0, EXPORT_FILE_NAME_CHILD_MAX_LENGTH);
+}
+
+/**
  * 저장할 파일 이름. 이 흐름은 파일을 만들지 않고 **본문 텍스트**를 공유하므로(share-csv.ts),
  * 사용자가 메일·메모에 붙여 넣은 뒤 직접 이름을 붙여야 한다 — 그때 무엇으로 저장해야 기간이
  * 드러나는지를 화면이 미리 말해 준다("붙여 넣고 .csv로 저장하면" 안내와 한 벌이다).
  *
- * 이름에 담기는 것은 **고른 기간뿐**이다. 아이 이름 같은 개인 정보를 파일 이름에 넣지 않는다 --
- * 공유 시트 미리보기와 받는 쪽 파일 목록에 그대로 드러나는 자리이기 때문이다.
+ * ## 라운드 66 트랙 B(#3) — 이름은 **어느 아이인지**도 말한다
+ *
+ * 예전 주석은 여기서 "아이 이름 같은 개인 정보를 파일 이름에 넣지 않는다"고 못박고 있었다.
+ * 그 규칙이 만든 실제 결과가 이것이다: 두 아이를 키우는 사람이 기기를 바꾸기 전에 첫째와 둘째를
+ * 각각 내보내면 화면이 **똑같은 이름**을 제시하고, 그대로 저장하면 앞의 파일을 덮어쓴다. 덮어쓴
+ * 사실조차 알 수 없다 — CSV 본문에도 아이 열이 없어 **내용으로도 두 파일이 구별되지 않기**
+ * 때문이다. 그리고 그 반대편에는 재가져오기가 있어(라운드 65 A), 잘못된 파일을 잘못된 아이에게
+ * 넣는 조합이 조용히 성립한다.
+ *
+ * 판단을 뒤집은 근거는 "새로 드러나는 정보가 없다"는 사실이다: 태명은 사용자가 스스로 지어 화면
+ * 곳곳에 이미 떠 있는 값이고, **이 앱의 공유 문구가 이미 같은 값을 싣고 나간다**(마일스톤·월간
+ * 공유 카드). 즉 공유 시트에 태명이 등장하는 것 자체는 이번에 생기는 일이 아니다. 그리고 이름은
+ * **아이가 둘 이상일 때만** 붙는다(`resolveChildScopeLabel`이 1아이 계정에서 null이다) — 혼동할
+ * 사람이 없는 계정에서는 종전 이름 그대로다.
+ *
+ * **CSV 본문에는 아이 열을 더하지 않는다.** 헤더는 라운드 65 A의 왕복 계약이 걸린 자리이고
+ * (apps/api/test/mobile-export-csv-roundtrip.test.ts), 열이 하나 늘면 이미 사용자 손에 나가 있는
+ * 파일과 새 파일의 열 수가 갈린다. 아이는 **파일 이름**이 말하는 편이 그 왕복을 건드리지 않는다.
  */
 export function exportFileName(input: {
   range: ExportRange;
   todaySeoul: string;
   custom?: Partial<CustomExportRange> | null;
+  /** 다자녀 계정의 태명(`resolveChildScopeLabel`). 없으면/1아이면 종전 이름 그대로다. */
+  childLabel?: string | null;
 }): string {
   const currentYearMonth = customRangeBounds(input.todaySeoul).latest;
+  const child = exportFileNameChildSegment(input.childLabel);
+  const prefix = child ? `${EXPORT_FILE_NAME_PREFIX}-${child}` : EXPORT_FILE_NAME_PREFIX;
   if (input.range === "custom") {
     const range = normalizeCustomRange(input.custom, input.todaySeoul);
     const span =
       range.startYearMonth === range.endYearMonth
         ? range.startYearMonth
         : `${range.startYearMonth}~${range.endYearMonth}`;
-    return `${EXPORT_FILE_NAME_PREFIX}-${span}.csv`;
+    return `${prefix}-${span}.csv`;
   }
-  if (input.range === "year") return `${EXPORT_FILE_NAME_PREFIX}-${currentYearMonth.slice(0, 4)}.csv`;
-  if (input.range === "all") return `${EXPORT_FILE_NAME_PREFIX}-전체.csv`;
-  return `${EXPORT_FILE_NAME_PREFIX}-${currentYearMonth}.csv`;
+  if (input.range === "year") return `${prefix}-${currentYearMonth.slice(0, 4)}.csv`;
+  if (input.range === "all") return `${prefix}-전체.csv`;
+  return `${prefix}-${currentYearMonth}.csv`;
 }
 
 export type MonthExpenseFetcher = (yearMonth: string) => Promise<Expense[]>;

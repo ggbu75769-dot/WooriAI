@@ -183,3 +183,94 @@ describe("CLEAN-123(A3) data-portability symmetry", () => {
     expect(source("app/(tabs)/more.tsx")).not.toContain("exportCardStyle");
   });
 });
+
+/**
+ * 라운드 66 트랙 B(#3) — **어느 아이의 기록인가.**
+ *
+ * 내보내기는 선택된 아이 한 명의 기록만 모으는데(`listExpenses(authToken, childId, …)`) 메뉴 행에도
+ * 카드에도 파일 이름에도 CSV 본문에도 그 사실이 없었다. 라운드 48 T4가 4탭·빠른 기록 시트·예산
+ * 화면에 태명을 붙인 스윕에서 이 흐름만 빠져 있던 자리다.
+ */
+describe("라운드 66 트랙 B(#3) 내보내기의 아이 표기", () => {
+  const cardSource = source(sharedExportModule);
+
+  it("라벨은 라운드 48 T4의 한 벌에서 온다 (새 어휘를 만들지 않는다)", () => {
+    expect(cardSource).toContain('from "../children/child-switch"');
+    expect(cardSource).toContain("resolveChildScopeLabel(childId, children.data?.children)");
+    // 표시용은 줄표, 소리는 쉼표 -- 라운드 49 C-08이 정한 두 구분자 그대로.
+    expect(cardSource).toContain('withChildScopeLabel("내보낼 기간", controller.childScopeLabel)');
+    expect(cardSource).toContain('withSpokenChildScopeLabel("내보낼 기간", controller.childScopeLabel)');
+    // 이름 해석을 화면이 다시 적지 않는다(아이가 몇 명인지 세는 규칙이 두 벌이 되지 않게).
+    expect(cardSource).not.toContain("children.length >= 2");
+  });
+
+  it("아이 목록은 다른 화면과 같은 캐시 한 벌이고, 파일 이름까지 같은 라벨이 흐른다", () => {
+    expect(cardSource).toContain('queryKey: ["children"]');
+    expect(cardSource).toContain("listChildren(authToken!)");
+    expect(cardSource).toContain(
+      "exportFileName({ range, todaySeoul: getSeoulToday(), custom: customRange, childLabel: childScopeLabel })"
+    );
+  });
+
+  it("소비 화면 둘은 한 줄도 바뀌지 않는다 (SET-001 · 공용 모듈을 부르기만 한다)", () => {
+    for (const screen of ["app/(tabs)/more.tsx", "app/settings/index.tsx"]) {
+      const screenSource = source(screen);
+      expect(screenSource, `${screen}는 스코프 라벨을 스스로 만들지 않는다`).not.toContain("resolveChildScopeLabel");
+      expect(screenSource, `${screen}의 메뉴 제목은 종전 한 벌 그대로다`).toContain("EXPORT_MENU_TITLE");
+    }
+    // 메뉴 행 제목은 그대로다 -- 그 행을 그리는 두 화면이 이 트랙의 무접촉 대상이기 때문이다.
+    expect(cardSource).toContain('export const EXPORT_MENU_TITLE = "데이터 내보내기(CSV)"');
+  });
+
+  it("CSV 헤더와 행 형식은 한 글자도 바뀌지 않는다 (라운드 65 A의 왕복 계약)", () => {
+    const csvSource = source("src/export/expense-csv.ts");
+    expect(csvSource).toContain(
+      'export const EXPENSE_CSV_HEADER = "날짜,구분,카테고리,항목,판매처,결제수단,금액(원),메모,출처"'
+    );
+    // 아이는 파일 **이름**이 말한다 -- 본문에 열이 하나 늘면 이미 나가 있는 파일과 열 수가 갈린다.
+    expect(csvSource).not.toContain("childLabel");
+    expect(csvSource).not.toContain("nickname");
+  });
+});
+
+/**
+ * 라운드 66 트랙 B(#6) — **되돌릴 수 없는 삭제가 내보내기를 안내한다.**
+ *
+ * 두 기능이 한 화면 거리에 있는데 서로를 몰랐다: 삭제·탈퇴 화면(app/settings/privacy.tsx)의 부모가
+ * 바로 내보내기 카드를 든 설정 화면이다. 30일 재가입 제한은 정직하게 말해 주면서, 1년치 기록을
+ * 꺼낼 수 있었다는 사실은 아무도 말하지 않았다.
+ */
+describe("라운드 66 트랙 B(#6) 삭제 전에 내보내기를 안내한다", () => {
+  const privacySource = source("app/settings/privacy.tsx");
+
+  it("아이 삭제·계정 삭제 Alert 본문이 내보내기를 가리키고, 그 자리로 가는 버튼이 함께 선다", () => {
+    expect(privacySource).toContain(
+      'const EXPORT_BEFORE_DELETE_NOTICE = "필요하면 먼저 설정 > 데이터 내보내기로 기록을 저장해 주세요.";'
+    );
+    expect(privacySource).toContain("destructiveAlertMessage(flowCopy.child_profile_delete.exportNotice)");
+    expect(privacySource).toContain("destructiveAlertMessage(flowCopy.account_delete.exportNotice)");
+    expect(privacySource).toContain("{ text: EXPORT_BEFORE_DELETE_ACTION_LABEL, onPress: goToExportScreen }");
+    expect(privacySource).toContain('const EXPORT_SCREEN_ROUTE = "/settings";');
+    // 되돌릴 수 없다는 사실은 그대로 앞에 선다(문장을 갈아 끼운 것이 아니라 늘린 것이다).
+    expect(privacySource).toContain('const IRREVERSIBLE_NOTICE = "이 작업은 되돌릴 수 없어요.";');
+  });
+
+  it("가구 탈퇴에는 붙지 않는다 — 남의 가구 데이터를 복사해 가라는 말이 되기 때문", () => {
+    expect(privacySource).toContain("destructiveAlertMessage(flowCopy.household_leave.exportNotice)");
+    expect(privacySource).toContain("exportNotice: null");
+    const leaveBlock = privacySource.slice(
+      privacySource.indexOf("const confirmHouseholdLeaveAction"),
+      privacySource.indexOf("const confirmAccountDelete")
+    );
+    expect(leaveBlock).not.toContain("EXPORT_BEFORE_DELETE_ACTION_LABEL");
+    expect(leaveBlock).not.toContain("goToExportScreen");
+  });
+
+  it("카드 렌더는 손대지 않는다 (라운드 63·65가 건 '1아이 계정 결과 불변' 계약)", () => {
+    // 늘어난 것은 Alert 본문과 버튼뿐이다 -- 새 문구가 카드에 그려지지 않는다.
+    expect(privacySource).not.toContain("<Text style={mutedTextStyle}>{EXPORT_BEFORE_DELETE_NOTICE}</Text>");
+    // 서버 호출·미리보기 경로는 한 글자도 바뀌지 않았다.
+    expect(privacySource).toContain("previewChildProfileDeletion(authToken!, childId!)");
+    expect(privacySource).toContain("previewAccountDeletion(authToken!)");
+  });
+});

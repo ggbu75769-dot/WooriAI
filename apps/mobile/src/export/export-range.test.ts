@@ -9,8 +9,10 @@ import {
   customRangeBounds,
   customRangeLabel,
   defaultCustomRange,
+  EXPORT_FILE_NAME_CHILD_MAX_LENGTH,
   EXPORT_RANGE_OPTIONS,
   exportFileName,
+  exportFileNameChildSegment,
   isExpenseInCustomRange,
   normalizeCustomRange,
   shiftCustomRange,
@@ -380,7 +382,7 @@ describe("GAP-054 D#11 사용자 지정 기간", () => {
     expect(result.expenses.map((expense) => expense.spentOn)).toEqual(["2025-09-11", "2026-08-03"]);
   });
 
-  it("파일 이름은 고른 기간을 담고, 개인 정보는 담지 않는다", () => {
+  it("파일 이름은 고른 기간을 담는다 (아이 이름이 없으면 종전과 한 글자도 같다)", () => {
     expect(exportFileName({ range: "month", todaySeoul: today })).toBe("우리아이-지출-2026-08.csv");
     expect(exportFileName({ range: "year", todaySeoul: today })).toBe("우리아이-지출-2026.csv");
     expect(exportFileName({ range: "all", todaySeoul: today })).toBe("우리아이-지출-전체.csv");
@@ -395,6 +397,57 @@ describe("GAP-054 D#11 사용자 지정 기간", () => {
     expect(
       exportFileName({ range: "custom", todaySeoul: today, custom: { startYearMonth: "2026-06", endYearMonth: "2026-02" } })
     ).toBe("우리아이-지출-2026-02~2026-06.csv");
+
+    // 라운드 66 트랙 B(#3): 라벨이 없으면(1아이 계정 · 캐시 미도착) **네 갈래 모두** 위와 같다.
+    for (const childLabel of [null, undefined, "", "   "]) {
+      expect(exportFileName({ range: "month", todaySeoul: today, childLabel })).toBe("우리아이-지출-2026-08.csv");
+      expect(exportFileName({ range: "all", todaySeoul: today, childLabel })).toBe("우리아이-지출-전체.csv");
+    }
+  });
+
+  /**
+   * 라운드 66 트랙 B(#3) — 두 아이의 백업 파일이 같은 이름이던 자리.
+   *
+   * 내보내기는 선택된 아이 한 명의 기록만 모으는데(ExpenseCsvExport.tsx의 `listExpenses(…, childId, …)`)
+   * 파일 이름에도 CSV 본문에도 그 사실이 없었다 — 둘째를 같은 이름으로 저장하면 첫째 파일이
+   * 덮어쓰이고, 내용으로도 구별되지 않는다(본문에 아이 열이 없다). 아이는 **이름**이 말한다.
+   */
+  it("다자녀 계정에서는 파일 이름이 어느 아이인지 말한다 (네 갈래 모두)", () => {
+    expect(exportFileName({ range: "month", todaySeoul: today, childLabel: "다온" })).toBe(
+      "우리아이-지출-다온-2026-08.csv"
+    );
+    expect(exportFileName({ range: "year", todaySeoul: today, childLabel: "다온" })).toBe("우리아이-지출-다온-2026.csv");
+    expect(exportFileName({ range: "all", todaySeoul: today, childLabel: "다온" })).toBe("우리아이-지출-다온-전체.csv");
+    expect(
+      exportFileName({
+        range: "custom",
+        todaySeoul: today,
+        custom: { startYearMonth: "2025-11", endYearMonth: "2026-01" },
+        childLabel: "다온"
+      })
+    ).toBe("우리아이-지출-다온-2025-11~2026-01.csv");
+    // 두 아이의 같은 기간이 서로 다른 이름이 된다(덮어쓰기가 성립하지 않는다).
+    expect(exportFileName({ range: "month", todaySeoul: today, childLabel: "솔이" })).not.toBe(
+      exportFileName({ range: "month", todaySeoul: today, childLabel: "다온" })
+    );
+  });
+
+  it("파일 이름에 쓸 수 없는 문자·형식 구분자는 떨구고, 남는 것이 없으면 이름을 붙이지 않는다", () => {
+    // 경로 구분자·윈도우 예약 문자·제어 문자.
+    expect(exportFileNameChildSegment('다/온\이:*?"<>|')).toBe("다온이");
+    // 이 이름 형식이 스스로 쓰는 구분자(- · ~)와 공백.
+    expect(exportFileNameChildSegment("다-온 ~ 이")).toBe("다온이");
+    // 앞뒤 점(숨김 파일·확장자 오인).
+    expect(exportFileNameChildSegment("..다온..")).toBe("다온");
+    // 다 떨구면 null -- 자리 채움("아이")을 지어내지 않고 이름이 종전 그대로다.
+    for (const value of [null, undefined, "", "   ", "///", "..."]) {
+      expect(exportFileNameChildSegment(value)).toBeNull();
+    }
+    expect(exportFileName({ range: "month", todaySeoul: today, childLabel: "///" })).toBe("우리아이-지출-2026-08.csv");
+    // 긴 태명(컬럼은 VarChar(60))은 기간을 뒤로 밀지 않도록 잘린다.
+    const long = "가".repeat(60);
+    expect(exportFileNameChildSegment(long)).toHaveLength(EXPORT_FILE_NAME_CHILD_MAX_LENGTH);
+    expect(exportFileName({ range: "month", todaySeoul: today, childLabel: long }).endsWith("-2026-08.csv")).toBe(true);
   });
 
   it("고정 3구간의 동작은 D#11 이전과 한 글자도 다르지 않다", async () => {

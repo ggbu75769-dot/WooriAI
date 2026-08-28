@@ -88,6 +88,7 @@ import {
 import {
   formatRecurringTemplateLine,
   recurringTemplatePrefillParams,
+  RECURRING_ALREADY_REGISTERED_LABEL,
   RECURRING_REGISTER_ACTION_LABEL,
   RECURRING_REGISTER_ACTION_NOTICE
 } from "../../src/expenses/recurring-template";
@@ -129,11 +130,9 @@ import {
  * 저장 거절(recurringDuplicateMessage)이 쓰는 바로 그 순수 함수라, 이 화면이 이름 비교 규칙을
  * 다시 적지 않는다(관리 화면의 같은 표기와도 한 함수를 지난다 — app/expenses/recurring.tsx).
  */
-import {
-  findRecurringTemplateByItemName,
-  useRecurringExpenseStore,
-  RECURRING_ALREADY_REGISTERED_LABEL
-} from "../../src/stores/recurring-expense.store";
+// 라운드 66 트랙 B(P3 1번): 표기 문구(RECURRING_ALREADY_REGISTERED_LABEL)는 정기 지출 문구의
+// 단일 소스인 recurring-template.ts로 옮겨 갔다 — 스토어에서 오는 것은 판정과 상태뿐이다.
+import { findRecurringTemplateByItemName, useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { resolveScreenPhase } from "../../src/screen-phase";
