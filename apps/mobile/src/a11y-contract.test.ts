@@ -4,11 +4,24 @@ import { describe, expect, it } from "vitest";
 // GAP-062 #10: 가구 전환 Alert의 **버튼 라벨**은 순수 모듈이 만든다 -- 화면 파일이 아니라 그
 // 산출을 붙든다(Alert 버튼에는 accessibilityLabel/State를 걸 수 없어, 낭독되는 것은 버튼 글자뿐이다).
 import {
+  childScopeDeleteConfirmTitle,
+  childScopeDeleteNotice,
+  HOUSEHOLD_SCOPE_ADD_CHILD_LABEL,
+  HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE,
   HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL,
   HOUSEHOLD_SCOPE_SWITCH_OVERFLOW_NOTICE,
   householdSwitchPrompt,
   type HouseholdSwitchOption
 } from "./family/household-scope";
+// GAP-063 #10: 달력 칸의 "왜 못 누르는가"도 순수 모듈이 정한다 -- 화면은 그 답을 그리기만 한다.
+import {
+  buildCalendarMonth,
+  calendarCellAccessibilityLabel,
+  CALENDAR_FUTURE_HINT,
+  CALENDAR_LEGEND_TEXT,
+  resolveCalendarCellAction,
+  type CalendarCell
+} from "./expenses/records-calendar";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
@@ -693,5 +706,120 @@ describe("GAP-062 #6 단계 라벨 표시층 배선 (더보기 · 온보딩 이�
     // 진행도 응답에 dueDate가 없어 날짜는 캐시에서 **읽기만** 한다(새 요청 0건).
     expect(resumeSource).toContain('queryClient.getQueryData<{ children: Child[] }>(["children"])');
     expect(resumeSource).not.toContain("useQuery({");
+  });
+});
+
+/**
+ * GAP-063 #10 — 라운드 63이 신설한 UI 넷 + 라운드 62가 스윕 밖에 두고 간 낭독 한 줄
+ * (docs/qa/accessibility-offline-checklist.md **A-4** #23~#26 · **A-3** #22).
+ *
+ * 다섯 자리의 공통점은 **눈으로는 보이지만 귀로는 따로 실어야 도달한다**는 것이다:
+ *  - 달력 칸(#23): 이 라운드부터 기록 없는 칸의 대다수가 눌린다. 이유를 적지 않으면
+ *    "8월 6일, 지출 없음"(눌린다)과 "8월 30일, 지출 없음"(안 눌린다)이 **똑같이 들린다**.
+ *  - 아이 삭제 카드·Alert(#24): RN Alert에서 낭독되는 것은 제목·본문·버튼 글자뿐이라(A-3 #18과
+ *    같은 제약) 마지막 확인이 대상을 말하지 않으면 화면을 떠난 뒤에는 알 길이 없다.
+ *  - 아이 추가 진입점(#25)·추가 성공 안내(#26): 전자는 **어디로 데려가는지**를 누르기 전에,
+ *    후자는 **전역 선택 아이가 바뀌었다**는 사실을 화면 전환 없이 말해야 한다.
+ *  - 알림 탭의 아이 전환(#22, 라운드 62 #2): 착지한 화면이 누구의 것인지가 소리로만 갈린다.
+ *
+ * 화면 파일은 전부 다른 트랙(A·B·C)의 소유였으므로 판정은 **순수 모듈의 산출**로 붙들고 화면
+ * 쪽은 최소 소스 계약만 둔다 — GAP-062 #10이 세운 관례 그대로다.
+ */
+describe("GAP-063 #10 라운드 63 신설 UI 접근성 계약", () => {
+  /** 2026-08-27이 오늘인 달: 06일에 기록이 있고, 28일은 아직 오지 않은 날이다. */
+  const august = buildCalendarMonth("2026-08", [{ date: "2026-08-06", totalKrw: 12_000, hasSubtotal: true }], "2026-08-27");
+  const cellOn = (date: string): CalendarCell => {
+    const cell = august?.weeks.flat().find((candidate) => candidate.date === date);
+    if (!cell) throw new Error(`${date} 칸이 격자에 없다`);
+    return cell;
+  };
+
+  it("누를 수 없는 달력 칸만 **왜** 못 누르는지를 말한다 (누를 수 있는 칸의 문장은 종전 그대로)", () => {
+    // 미래 = 비대화형 + 이유. 날짜 픽커가 GAP-061 #8에서 고정한 관례를 이 달력에도 적용한다.
+    expect(resolveCalendarCellAction(cellOn("2026-08-28"))).toBeNull();
+    expect(calendarCellAccessibilityLabel(cellOn("2026-08-28"))).toContain(CALENDAR_FUTURE_HINT);
+    // 문장은 "고를 수 없다"가 아니라 "기록할 수 없다"다 — 이 칸은 날짜 선택지가 아니라 기록
+    // 입구다(미래를 막는 규칙 자체는 여전히 한 벌 — DNC-013).
+    expect(CALENDAR_FUTURE_HINT).toContain("기록할 수 없어요");
+    // 누를 수 있는 두 종류(기록 있는 날 · 기록 없는 지난 날)에는 꼬리말이 붙지 않는다.
+    for (const [date, action] of [
+      ["2026-08-06", "open-records"],
+      ["2026-08-05", "record-new"]
+    ] as const) {
+      expect(resolveCalendarCellAction(cellOn(date)), date).toBe(action);
+      expect(calendarCellAccessibilityLabel(cellOn(date)), date).not.toContain(CALENDAR_FUTURE_HINT);
+    }
+    // 화면은 판정을 다시 하지 않고, 누를 수 없는 칸을 disabled 버튼이 아니라 **라벨만 있는
+    // 비대화형 자리**로 그린다("버튼, 비활성"으로 읽히면 '왜 못 누르지'가 남는다).
+    const recordsSource = source("app/(tabs)/records.tsx");
+    expect(recordsSource).toContain("const action = resolveCalendarCellAction(cell);");
+    expect(recordsSource).toContain("const accessibilityLabel = calendarCellAccessibilityLabel(cell, { filterLabel }) ?? undefined;");
+    expect(recordsSource).toContain("<View accessible accessibilityLabel={accessibilityLabel} style={cellStyle}>");
+    expect(recordsSource).toContain('onPress={() => (action === "record-new" ? onRecordForDate(date) : onSelectDate(date))}');
+  });
+
+  it("달력 범례가 새 목적지 둘을 말하고, 화면이 그 문장을 다시 적지 않는다", () => {
+    // 음영만으로는 색일 뿐이고, 이제 "누르면 무엇이 되는가"가 칸마다 둘로 갈린다.
+    expect(CALENDAR_LEGEND_TEXT).toContain("그날 기록으로 이동");
+    expect(CALENDAR_LEGEND_TEXT).toContain("그날로 기록");
+    const recordsSource = source("app/(tabs)/records.tsx");
+    expect(recordsSource).toContain("<Text style={calendarLegendStyle}>{calendarLegendText(filterLabel)}</Text>");
+    expect(recordsSource).not.toContain("색이 진할수록");
+  });
+
+  it("아이 삭제는 카드와 확인 Alert **두 자리**에서 어느 아이인지 말하고, 모르면 종전 문구 그대로다", () => {
+    expect(childScopeDeleteNotice("솔이")).toBe("솔이 프로필을 삭제해요.");
+    expect(childScopeDeleteConfirmTitle("솔이")).toBe("솔이 프로필을 삭제할까요?");
+    // 이름을 못 풀면(1아이 계정·캐시 없음) null이고 호출부는 종전 문구로 떨어진다 —
+    // **모르면 지어내지 않는다**(SET-004 픽셀락).
+    for (const unknown of [null, undefined, "", "   "]) {
+      expect(childScopeDeleteNotice(unknown), String(unknown)).toBeNull();
+      expect(childScopeDeleteConfirmTitle(unknown), String(unknown)).toBeNull();
+    }
+    const privacySource = source("app/settings/privacy.tsx");
+    expect(privacySource).toContain("const childDeleteNotice = childScopeDeleteNotice(childDeleteLabel);");
+    expect(privacySource).toContain("{childDeleteNotice ? <Text style={mutedTextStyle}>{childDeleteNotice}</Text> : null}");
+    expect(privacySource).toContain('Alert.alert(childScopeDeleteConfirmTitle(childDeleteLabel) ?? "정말 삭제할까요?"');
+    // 문구 단일 소스는 순수 모듈이다 — 화면이 같은 문장을 다시 적으면 두 벌이 된다.
+    expect(privacySource).not.toContain("프로필을 삭제해요");
+    expect(privacySource).not.toContain("프로필을 삭제할까요");
+  });
+
+  it("\"이 가구에 아이 추가하기\"가 라벨 있는 버튼이고, 어느 가구인지를 누르기 전에 힌트로 말한다", () => {
+    expect(HOUSEHOLD_SCOPE_ADD_CHILD_LABEL).toBe("이 가구에 아이 추가하기");
+    // 버튼 글자에 내부 id가 새지 않는다(A11Y-115와 같은 규율).
+    expect(HOUSEHOLD_SCOPE_ADD_CHILD_LABEL).not.toMatch(/[0-9a-f]{8}-/);
+    const familySource = source("app/family/index.tsx");
+    const entry = familySource.slice(familySource.indexOf("accessibilityLabel={HOUSEHOLD_SCOPE_ADD_CHILD_LABEL}"));
+    expect(entry.slice(0, 400)).toContain("accessibilityHint={householdNotice ?? undefined}");
+    expect(entry.slice(0, 400)).toContain("onPress={() => router.push(addChildScreenHref(switchedHouseholdId))}");
+    // 힌트는 바로 위 관리 표기를 그대로 물어 온다 — 이름을 여기서 한 번 더 짓지 않으므로
+    // 보이는 줄과 들리는 힌트가 갈릴 자리가 없다.
+    expect(familySource).toContain("householdScopeManageNotice(");
+  });
+
+  it("전환해 들어와 아이를 추가하면 **선택 아이가 바뀐다는 사실**까지 낭독된다", () => {
+    expect(HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE).toBe("지금부터 이 아이 화면으로 바뀌어요.");
+    const childrenSource = source("app/settings/children.tsx");
+    // 전환해 들어온 흐름에서만 붙는다 — 파라미터가 없는 계정(1가구 포함)에서는 토스트도
+    // 낭독도 종전과 한 글자도 다르지 않다(SET-005).
+    expect(childrenSource).toContain('const switchNotice = requestedHouseholdId ? ` ${HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE}` : "";');
+    // 보이는 토스트와 낭독이 같은 사실을 말한다(눈과 귀가 다른 말을 듣지 않는다).
+    expect(childrenSource).toContain("showToast(`${addedNotice}${switchNotice}`, \"success\");");
+    expect(childrenSource).toContain(
+      "announceForA11y(`${input.values.nickname.trim()}를 추가하고 선택했어요.${switchNotice}`);"
+    );
+  });
+
+  it("알림함 탭이 아이를 바꿀 때 전환 한 벌의 announce를 그대로 지난다 (문구를 새로 짓지 않는다)", () => {
+    // 라운드 62 #2가 연 입구다: 화면 전환과 동시에 전역 선택 아이가 바뀌므로, 말하지 않으면
+    // 착지한 예산·기록 화면이 **누구의 것인지** 소리로는 알 수 없다.
+    const notificationsSource = source("app/notifications.tsx");
+    const block = notificationsSource.slice(notificationsSource.indexOf("const switchToNotificationChild"));
+    expect(block.slice(0, 500)).toContain("applyChildSwitch(selectedChildId, child, {");
+    expect(block.slice(0, 500)).toContain("announce: announceForA11y");
+    // 같은 아이 탭은 no-op이라 announce도 없다(소음 금지) — 판정은 planChildSwitch 한 곳이다.
+    expect(source("src/children/child-switch.ts")).toContain("(으)로 전환했어요.");
+    expect(notificationsSource).not.toContain("전환했어요");
   });
 });
