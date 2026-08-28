@@ -12,19 +12,24 @@ import {
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
   syncStatusBadgeLabel,
   syncStatusDiscardAllConfirmMessage,
+  syncStatusDiscardFailedExpensesLabel,
+  syncStatusRetryFailedExpensesLabel,
   SYNC_STATUS_CONFLICT_LABEL,
   SYNC_STATUS_DISCARD_ALL_CONFIRM_TITLE,
   SYNC_STATUS_DISCARD_ALL_LABEL,
   SYNC_STATUS_DISCARD_LABEL,
   SYNC_STATUS_FAILED_LABEL,
   SYNC_STATUS_PENDING_LABEL,
-  SYNC_STATUS_RETRY_ALL_LABEL,
   SYNC_STATUS_RETRY_LABEL,
-  SYNC_STATUS_SYNCING_LABEL
+  SYNC_STATUS_SYNCING_LABEL,
+  SYNC_STATUS_SYNCING_ROW_MESSAGE
 } from "../src/offline/messages";
 import { isPermissionDeniedSyncError, SYNC_STATUS_PERMISSION_DENIED_HINT } from "../src/offline/permission-denied";
+import { itemStatusLabel } from "../src/items/item-labels";
+import { ITEM_STATUS_QUEUED_MESSAGE } from "../src/items/status-mutation-messages";
 import {
   discardAllOfflineMutations,
+  discardOfflineItemStatus,
   discardOfflineMutation,
   diffExpenseFieldsForDisplay,
   refreshOfflineSyncSnapshot,
@@ -32,10 +37,11 @@ import {
   resolveConflictKeepMine,
   resolveConflictKeepServer,
   retryAllOfflineMutations,
+  retryOfflineItemStatus,
   retryOfflineMutation,
   useOfflineSyncSnapshot
 } from "../src/offline/sync-controller";
-import type { ExpensePayload, LocalExpenseRow } from "../src/offline/types";
+import type { ExpensePayload, ItemStatusOutboxRow, LocalExpenseRow } from "../src/offline/types";
 import { formatKrw } from "../src/money";
 import { useSessionStore } from "../src/stores/session.store";
 import { Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge, TextButton } from "../src/ui";
@@ -62,7 +68,12 @@ type SyncListItem =
   | { kind: "section"; key: string; title: string; actions?: "failed-bulk" }
   | { kind: "conflict"; key: string; row: LocalExpenseRow }
   | { kind: "failed"; key: string; row: LocalExpenseRow }
-  | { kind: "pending"; key: string; row: LocalExpenseRow };
+  | { kind: "pending"; key: string; row: LocalExpenseRow }
+  // 라운드 51 C-10: 준비템 상태 변경도 같은 두 섹션(실패 → 대기)에 섞여 들어온다. 행 종류는
+  // 배지로 구분한다 -- 사용자에게는 "아직 반영되지 않은 것들"이 한 화면에 모여 있는 편이 낫고,
+  // 무엇에 대한 대기인지는 행이 스스로 말해야 한다.
+  | { kind: "item-status-failed"; key: string; row: ItemStatusOutboxRow }
+  | { kind: "item-status-pending"; key: string; row: ItemStatusOutboxRow };
 
 function SyncRow({ row, children }: { row: LocalExpenseRow; children?: React.ReactNode }) {
   return (
@@ -272,11 +283,73 @@ const PendingRow = memo(function PendingRow({ row }: { row: LocalExpenseRow }) {
   return (
     <SyncRow row={row}>
       <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
-        {row.syncState === "syncing" ? "동기화 중이에요." : "연결되면 자동으로 반영할게요."}
+        {row.syncState === "syncing" ? SYNC_STATUS_SYNCING_ROW_MESSAGE : "연결되면 자동으로 반영할게요."}
       </Text>
     </SyncRow>
   );
 });
+
+/**
+ * 라운드 51 C-10 — 준비템 상태 변경 행.
+ *
+ * 지출 행(SyncRow)과 나란히 서므로 같은 카드 문법을 쓰되, 왼쪽 위에 "준비템" 배지를 달아 무엇에
+ * 대한 대기인지 한눈에 갈리게 한다. 오른쪽에는 금액 자리 대신 **바뀔 상태 이름**을 그린다
+ * (목록·상세와 같은 단어 -- src/items/item-labels.ts). 충돌 섹션에는 절대 오지 않는다: 상태는
+ * 단일 값이라 서버 충돌 개념이 없다(마지막 쓰기 승리).
+ */
+function ItemStatusSyncRow({
+  row,
+  token,
+  queryClient
+}: {
+  row: ItemStatusOutboxRow;
+  token: string;
+  queryClient: ReturnType<typeof useQueryClient>;
+}) {
+  const isFailed = row.syncState === "failed";
+  return (
+    <Card style={{ gap: 8 }}>
+      <View style={{ alignItems: "center", flexDirection: "row", gap: 8, justifyContent: "space-between" }}>
+        <View style={{ alignItems: "center", flexDirection: "row", flexShrink: 1, gap: 6 }}>
+          <StatusBadge label="준비템" />
+          <Text style={{ color: theme.colors.brown, flexShrink: 1, fontSize: 14, fontWeight: "700" }}>{row.itemName}</Text>
+        </View>
+        <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{itemStatusLabel(row.status)}</Text>
+      </View>
+      {row.lastError ? <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{row.lastError}</Text> : null}
+      {isFailed ? (
+        // 라운드 47 UX-AB와 같은 규칙: 403은 재시도가 정의상 무익하므로 그 자리를 안내로 바꾼다
+        // (보기 전용 역할이 준비 상태를 바꾸려 한 경우가 정확히 이 자리다).
+        isPermissionDeniedSyncError(row.lastError) ? (
+          <>
+            <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMISSION_DENIED_HINT}</Text>
+            <SecondaryButton
+              label={SYNC_STATUS_DISCARD_LABEL}
+              onPress={() => discardOfflineItemStatus(queryClient, row.mutationId)}
+            />
+          </>
+        ) : (
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <SecondaryButton
+              label={SYNC_STATUS_RETRY_LABEL}
+              onPress={() => token && retryOfflineItemStatus(token, queryClient, row.mutationId)}
+              style={{ flex: 1 }}
+            />
+            <SecondaryButton
+              label={SYNC_STATUS_DISCARD_LABEL}
+              onPress={() => discardOfflineItemStatus(queryClient, row.mutationId)}
+              style={{ flex: 1 }}
+            />
+          </View>
+        )
+      ) : (
+        <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
+          {row.syncState === "syncing" ? SYNC_STATUS_SYNCING_ROW_MESSAGE : ITEM_STATUS_QUEUED_MESSAGE}
+        </Text>
+      )}
+    </Card>
+  );
+}
 
 function SectionTitle({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
@@ -340,7 +413,16 @@ export default function SyncStatusScreen() {
   const pendingRows = snapshot.rows.filter((row) => row.syncState === "pending" || row.syncState === "syncing");
   const failedRows = snapshot.rows.filter((row) => row.syncState === "failed");
   const conflictRows = snapshot.rows.filter((row) => row.syncState === "conflict");
-  const hasAny = pendingRows.length + failedRows.length + conflictRows.length > 0;
+  // 라운드 51 C-10: 준비템 상태 큐. 충돌 갈래는 없다(상태에는 버전 충돌이 없다).
+  const pendingItemStatusRows = snapshot.itemStatusRows.filter((row) => row.syncState !== "failed");
+  const failedItemStatusRows = snapshot.itemStatusRows.filter((row) => row.syncState === "failed");
+  const hasAny =
+    pendingRows.length +
+      failedRows.length +
+      conflictRows.length +
+      pendingItemStatusRows.length +
+      failedItemStatusRows.length >
+    0;
 
   /** SYNC-127 "전체 재시도": 실패 행 전부를 한 번에 되돌린 뒤 flush 한 번. 100건이면 예전에는
    * 버튼을 100번 눌러 flush를 100번 트리거해야 했다. */
@@ -371,17 +453,34 @@ export default function SyncStatusScreen() {
     listData.push({ kind: "section", key: "section-conflict", title: SYNC_STATUS_CONFLICT_LABEL });
     for (const row of conflictRows) listData.push({ kind: "conflict", key: `conflict-${row.localId}`, row });
   }
-  if (failedRows.length > 0) {
-    listData.push({ kind: "section", key: "section-failed", title: SYNC_STATUS_FAILED_LABEL, actions: "failed-bulk" });
+  if (failedRows.length + failedItemStatusRows.length > 0) {
+    listData.push({
+      kind: "section",
+      key: "section-failed",
+      title: SYNC_STATUS_FAILED_LABEL,
+      // 라운드 51 QA(P2-3): 일괄 액션은 **지출 실패 행이 있을 때만** 그린다. 준비템 실패만
+      // 남은 섹션에서는 두 버튼이 눌려도 다룰 행이 0건이라(대상이 지출 큐뿐이다) 눌리는 죽은
+      // 버튼과 "0건" 확인창만 만들었다.
+      ...(failedRows.length > 0 ? { actions: "failed-bulk" as const } : {})
+    });
     for (const row of failedRows) listData.push({ kind: "failed", key: `failed-${row.localId}`, row });
+    // C-10: 준비템 실패 행은 같은 섹션 뒤에 붙는다. 일괄 액션(재시도/버리기)은 여전히
+    // **지출 행만** 대상이다 -- 그 두 버튼이 부르는 컨트롤러 함수가 지출 큐의 것이라,
+    // 라벨이 대상과 건수를 직접 말한다("지출 3건 재시도").
+    for (const row of failedItemStatusRows) {
+      listData.push({ kind: "item-status-failed", key: `item-status-failed-${row.mutationId}`, row });
+    }
   }
-  if (pendingRows.length > 0) {
+  if (pendingRows.length + pendingItemStatusRows.length > 0) {
     listData.push({
       kind: "section",
       key: "section-pending",
       title: `${SYNC_STATUS_PENDING_LABEL} / ${SYNC_STATUS_SYNCING_LABEL}`
     });
     for (const row of pendingRows) listData.push({ kind: "pending", key: `pending-${row.localId}`, row });
+    for (const row of pendingItemStatusRows) {
+      listData.push({ kind: "item-status-pending", key: `item-status-pending-${row.mutationId}`, row });
+    }
   }
 
   const renderSyncRow = useCallback(
@@ -391,17 +490,14 @@ export default function SyncStatusScreen() {
           <SectionTitle title={item.title}>
             {item.actions === "failed-bulk" ? (
               <View style={{ flexDirection: "row", gap: 8 }}>
+                {/* 라운드 51 QA(P2-3): 라벨이 대상(지출)과 건수를 함께 말하므로 스크린리더용
+                    문구를 따로 두지 않는다 -- 두 문장이 갈라질 자리를 만들지 않는다. */}
                 <TextButton
-                  label={SYNC_STATUS_RETRY_ALL_LABEL}
-                  accessibilityLabel={`${SYNC_STATUS_RETRY_ALL_LABEL}, ${failedRows.length}건`}
+                  label={syncStatusRetryFailedExpensesLabel(failedRows.length)}
                   onPress={retryAll}
                   disabled={!authToken}
                 />
-                <TextButton
-                  label={SYNC_STATUS_DISCARD_ALL_LABEL}
-                  accessibilityLabel={`${SYNC_STATUS_DISCARD_ALL_LABEL}, ${failedRows.length}건`}
-                  onPress={discardAll}
-                />
+                <TextButton label={syncStatusDiscardFailedExpensesLabel(failedRows.length)} onPress={discardAll} />
               </View>
             ) : null}
           </SectionTitle>
@@ -420,6 +516,9 @@ export default function SyncStatusScreen() {
       if (item.kind === "failed") {
         return <FailedRow row={item.row} token={authToken ?? ""} queryClient={queryClient} />;
       }
+      if (item.kind === "item-status-failed" || item.kind === "item-status-pending") {
+        return <ItemStatusSyncRow row={item.row} token={authToken ?? ""} queryClient={queryClient} />;
+      }
       return <PendingRow row={item.row} />;
     },
     [authToken, discardAll, failedRows.length, formatConflictValue, queryClient, retryAll]
@@ -429,10 +528,19 @@ export default function SyncStatusScreen() {
     <View testID="screen-EXP-005" style={{ gap: theme.spacing.gap, paddingBottom: theme.spacing.gap }}>
       <ScreenHeader eyebrow="동기화" title="동기화 상태" subtitle="아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요." />
 
-      {/* REC-123(H4): 배지/섹션 제목 문구는 기록 탭과 같은 src/offline/messages.ts에서 온다. */}
+      {/* REC-123(H4): 배지/섹션 제목 문구는 기록 탭과 같은 src/offline/messages.ts에서 온다.
+          라운드 51 C-10: 이 화면의 배지는 목록에 실제로 그리는 행 수를 세므로 준비템 상태 행까지
+          포함한다(기록 탭 배지는 지출만 센다 -- 그쪽 목록에는 준비템 행이 없기 때문이다:
+          SyncSnapshot.counts 주석). */}
       <View style={{ flexDirection: "row", gap: 8 }}>
-        <StatusBadge label={syncStatusBadgeLabel("pending", pendingRows.length)} tone={pendingRows.length > 0 ? "warning" : "neutral"} />
-        <StatusBadge label={syncStatusBadgeLabel("failed", failedRows.length)} tone={failedRows.length > 0 ? "warning" : "neutral"} />
+        <StatusBadge
+          label={syncStatusBadgeLabel("pending", pendingRows.length + pendingItemStatusRows.length)}
+          tone={pendingRows.length + pendingItemStatusRows.length > 0 ? "warning" : "neutral"}
+        />
+        <StatusBadge
+          label={syncStatusBadgeLabel("failed", failedRows.length + failedItemStatusRows.length)}
+          tone={failedRows.length + failedItemStatusRows.length > 0 ? "warning" : "neutral"}
+        />
         <StatusBadge label={syncStatusBadgeLabel("conflict", conflictRows.length)} tone={conflictRows.length > 0 ? "warning" : "neutral"} />
       </View>
     </View>

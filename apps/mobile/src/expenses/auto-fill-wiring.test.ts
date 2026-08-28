@@ -25,13 +25,17 @@ describe("UX-C quick-expense auto-fill wiring", () => {
     // 라운드 33 F3: 추천 적용/되돌리기 판정 전체가 순수 모듈(resolveAutoCategorySelection)에 있다 --
     // 화면에는 규칙이 한 줄도 없어서 단위 테스트가 실제 동작을 그대로 보호한다.
     expect(newExpenseSource).toContain("const nextSelection = resolveAutoCategorySelection({");
-    expect(newExpenseSource).toContain("defaultCategoryId: quickExpenseCategories[0].id");
+    // 라운드 51 C-#5: 근거가 사라졌을 때 돌아갈 자리가 첫 타일에서 **미선택**으로 바뀌었다.
+    expect(newExpenseSource).toContain("defaultCategoryId: null");
+    expect(newExpenseSource).not.toContain("defaultCategoryId: quickExpenseCategories[0].id");
     expect(newExpenseSource).toContain("AUTO_CATEGORY_CAPTION");
   });
 
   it("F3: 자동 선택은 근거가 사라지면 되돌아가고, 그 판정에 현재 선택과 직전 자동 선택을 넘긴다", () => {
     // 화면이 넘기지 않으면 순수 모듈이 "지금 눌려 있는 것이 기계가 고른 값인지" 알 수 없다.
-    expect(newExpenseSource).toContain("currentCategoryId: selectedCategory.id");
+    // 라운드 51 C-#5: 미선택이 가능해지면서 id는 `string | null`이다.
+    expect(newExpenseSource).toContain("currentCategoryId: selectedCategoryId");
+    expect(newExpenseSource).toContain("const selectedCategoryId = selectedCategory?.id ?? null;");
     expect(newExpenseSource).toContain("autoPicked: autoPickedCategory");
     expect(newExpenseSource).toContain("if (!isSameAutoPickedCategory(autoPickedCategory, nextSelection.autoPicked)) {");
     // 자동 선택 상태는 boolean이 아니라 "어떤 이름으로 무엇을 골랐는지"다.
@@ -40,16 +44,20 @@ describe("UX-C quick-expense auto-fill wiring", () => {
     expect(newExpenseSource).not.toContain("setAutoPickedCategory(false)");
   });
 
-  it("F4: 카테고리 기본값은 '기타'가 아니라 8타일 중 첫 타일이다 (주석이 사실과 맞는지)", () => {
-    // UX-L(A): '또 기록' 프리필로 8타일 안의 분류가 오면 그 타일로 시작한다. 프리필이 없거나
-    // 8타일 밖이면(prefilledCategory === null) 예전과 같은 첫 타일이다 -- 지키려는 사실은 그대로.
-    expect(newExpenseSource).toContain("useState(prefilledCategory ?? quickExpenseCategories[0])");
+  it("라운드 51 C-#5: 기본 카테고리 고정이 사라졌고, 모듈 주석이 그 사실을 말한다", () => {
+    // 예전 사실(F4): 초기값이 무조건 8타일 중 첫 타일 "기저귀"였다 -- 그래서 추천이 안 붙는
+    // 품목이 전부 기저귀로 저장됐다. 그 초기값은 이제 소스에 남아 있지 않다.
+    expect(newExpenseSource).not.toContain("useState(prefilledCategory ?? quickExpenseCategories[0])");
+    expect(newExpenseSource).toContain("resolveInitialCategoryId({");
+    // 카탈로그 순서 자체는 그대로다(픽셀 락 캡처가 첫 타일 하이라이트를 포함한다).
     expect(categoryCatalog[0].label).toBe("기저귀");
     expect(categoryCatalog[0].code).not.toBe("etc");
     const suggestionModuleSource = readFileSync(join(mobileRoot, "src/expenses/category-suggestion.ts"), "utf8");
     // 예전 주석의 거짓 전제("기타는 이미 기본값")가 되살아나지 않는다.
     expect(suggestionModuleSource).not.toContain("기타\"는 이미 기본값");
-    expect(suggestionModuleSource).toContain("기본 선택값은 8타일 중 첫 타일인 \"기저귀\"");
+    // 그리고 "첫 타일이 기본값"이라는 (이제는 옛) 사실이 현재형으로 남아 있지도 않다.
+    expect(suggestionModuleSource).toContain("미선택");
+    expect(suggestionModuleSource).toContain("라운드 51 C-#5");
   });
 
   it("drives the typing-linked autocomplete chips from the shared pure module", () => {
@@ -71,9 +79,10 @@ describe("UX-C quick-expense auto-fill wiring", () => {
     expect(newExpenseSource).toContain("if (categoryTouchedRef.current) return;");
     // 직접 선택으로 치는 네 경로: 카테고리 타일 / 최근 품목 칩 / 자동완성 칩 / 임시 저장 복원.
     expect(newExpenseSource.match(/categoryTouchedRef\.current = true;/g)?.length).toBeGreaterThanOrEqual(4);
-    // 추천은 같은 타일이면 상태를 갈아끼우지 않는다(렌더 루프 방지).
+    // 추천은 같은 타일이면 상태를 갈아끼우지 않는다(렌더 루프 방지). 라운드 51 C-#5로 양쪽이
+    // null일 수 있어 옵셔널 체이닝으로 비교한다(둘 다 미선택이면 그대로 둔다).
     expect(newExpenseSource).toContain(
-      "setSelectedCategory((current) => (current.id === suggestedCategory.id ? current : suggestedCategory));"
+      "setSelectedCategory((current) => (current?.id === suggestedCategory?.id ? current : suggestedCategory));"
     );
   });
 

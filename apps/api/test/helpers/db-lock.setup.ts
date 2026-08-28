@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { afterAll, expect } from "vitest";
+import { EXCLUSIVE_SUITES } from "./exclusive-suites";
 import { acquireSharedDb } from "./shared-db-lock";
 
 /**
@@ -8,66 +9,35 @@ import { acquireSharedDb } from "./shared-db-lock";
  * lock before the file itself is loaded. Registered via `setupFiles` in
  * vitest.config.ts, so no individual suite has to know the mechanism exists.
  *
- * Almost every suite scopes what it reads and writes to identifiers it generated
- * itself (see the note at the bottom of test/helpers/test-db.ts) and so runs fully in
- * parallel. `EXCLUSIVE_SUITES` below is the authoritative list of the ones that cannot
- * — everything else in the repo (comments, docs) should point at it rather than repeat
- * a count, which is how the "four suites"/"~66 files" prose went stale (R31 리뷰 F1).
- * They are exceptions because they read or write state that is database-wide by
- * definition:
- *
- *   - the three admin aggregate suites snapshot a total before and after and assert
- *     on the delta, and those endpoints count every row in wooriai_test. They also
- *     reconcile two fields of a SINGLE response against each other (dailyTotals sum
- *     == windowTotal, byPlatform sum == totalClicks); the service computes those with
- *     separate concurrent queries, so even one foreign INSERT landing between them
- *     makes an honest response fail the reconciliation;
- *   - `categories.e2e` pins the exact seeded category list (12 selectable / 21 total),
- *     which any suite that inserts a category would change;
- *   - `data-retention-purge` runs the purge job, which deletes withdrawn users and
- *     orphaned households across the whole database — including rows other suites
- *     are still using.
- *
- * TEST-132 removed `link-health.db` from this list — it was never an original entry:
- * the round-30 review (F2) added it here to stop a global write from trampling other
- * suites, and TEST-132 removed the global write instead. It used to mark every product
- * link outside its own fixtures as freshly checked (a `updateMany` over the whole
- * table) so that the job's global candidate batch would only contain its own rows —
- * a database-wide write that trampled other suites' links. The job's candidate query
- * is still global, so the suite now bounds the *population* instead of writing to it:
- * the Prisma client it hands the job ANDs `id IN (its own links)` onto the job's own
- * `findMany` where clause, leaving the job's conditions, ordering and batch cap
- * untouched. Exact-count assertions (`checked: N`) survive intact, and a harness test
- * asserts the scope really is in effect so it cannot silently regress to global.
- *
- * TEST-131 removed `items-commerce` from this list. Nothing in it verified global
- * state: it compared a `tab=all` snapshot against the union of the four status tabs
- * (now scoped to the catalog rows that provably existed for the whole test, so a
- * template another suite creates or drops mid-test cannot skew either side), and two
- * of its tests corrupted a *seeded* product link's URL in place to exercise the click
- * guards (now their own throwaway 준비템 + 링크, so a parallel suite clicking the
- * seeded link can never see the corrupted row). See that file for the details.
- *
- * See test/helpers/shared-db-lock.ts for the protocol. Add a file here only if it
- * genuinely cannot scope itself — an exclusive suite stalls the whole worker pool
- * while it runs, so the list is a cost, not a default.
+ * *Which* suites need the database to themselves — and why each one does — lives in
+ * test/helpers/exclusive-suites.ts (`EXCLUSIVE_SUITES`); this file only applies it.
+ * See test/helpers/shared-db-lock.ts for the locking protocol itself.
  */
-const EXCLUSIVE_SUITES = new Set([
-  "admin-dashboard-summary.e2e.test.ts",
-  "admin-analytics-summary.e2e.test.ts",
-  "admin-affiliate-click-breakdown.e2e.test.ts",
-  "categories.e2e.test.ts",
-  "data-retention-purge.db.test.ts"
-]);
 
 // Vitest populates the worker's test path before it executes setup files, so this
 // resolves to the file this setup run belongs to.
-const testPath = expect.getState().testPath ?? "";
-const mode = EXCLUSIVE_SUITES.has(basename(testPath)) ? "exclusive" : "shared";
+//
+// 라운드 51 D-#4: 비어 있으면 **던진다**. 예전에는 `?? ""`로 흘려보냈는데,
+// basename("")은 ""이고 ""는 EXCLUSIVE_SUITES에 없으므로 배타 스위트가 조용히 shared로
+// 강등됐다 — 그러면 전역 델타를 세는 admin-dashboard-summary 같은 스위트가 다른 파일과
+// 겹쳐 돌면서 간헐적으로 실패한다(원인은 로그 어디에도 남지 않는다). 락 모드를 정할 수
+// 없다는 것은 이 게이트가 아무것도 보장하지 못한다는 뜻이므로, 잘못된 통과 대신 즉시
+// 실패한다.
+const testPath = expect.getState().testPath;
+if (!testPath) {
+  throw new Error(
+    "[db-lock.setup] 이 setup 실행이 어느 테스트 파일의 것인지 알 수 없어요 " +
+      "(expect.getState().testPath가 비어 있음). 배타 스위트가 조용히 공유 모드로 " +
+      "강등되는 것을 막기 위해 여기서 중단해요 — vitest 버전/실행 방식을 확인해 주세요."
+  );
+}
+
+const suiteFileName = basename(testPath);
+const mode = EXCLUSIVE_SUITES.has(suiteFileName) ? "exclusive" : "shared";
 
 // Top-level await: the gate closes before the test file's own module graph loads,
 // which keeps it independent of `sequence.hooks` ordering between this setup file's
 // hooks and the suite's.
-const release = await acquireSharedDb(mode, `${basename(testPath) || "unknown"}-${randomUUID()}`);
+const release = await acquireSharedDb(mode, `${suiteFileName}-${randomUUID()}`);
 
 afterAll(release);

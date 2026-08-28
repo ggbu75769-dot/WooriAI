@@ -1,4 +1,4 @@
-import type { LocalExpenseRow, MutationOutboxRow, OfflineStore } from "./types";
+import type { ItemStatusOutboxRow, LocalExpenseRow, MutationOutboxRow, OfflineStore } from "./types";
 
 /**
  * In-memory `OfflineStore` implementation. Used by tests (vitest can't run native SQLite -- see
@@ -12,6 +12,10 @@ export function createMemoryOfflineStore(): OfflineStore {
   // Tracks outbox insertion order independent of Map iteration order (which happens to be
   // insertion order in JS, but this is explicit and survives updates-in-place).
   const outboxOrder: string[] = [];
+  // 라운드 51 C-10: 준비템 상태 큐. 지출 아웃박스와 같은 관례(삽입 순서 배열 + 행 Map)로
+  // 둬서 SQLite 구현(`item_status_outbox` 테이블, created_at 정렬)과 1:1로 맞춘다.
+  const itemStatusOutbox = new Map<string, ItemStatusOutboxRow>();
+  const itemStatusOrder: string[] = [];
 
   return {
     async insertLocalExpense(row) {
@@ -48,6 +52,10 @@ export function createMemoryOfflineStore(): OfflineStore {
       localExpenses.clear();
       outbox.clear();
       outboxOrder.length = 0;
+      // PRIV-104: 준비템 상태 큐도 같은 계정 단위 상태다 -- 다음 계정의 토큰으로 이전 계정이
+      // 눌러 둔 준비 상태가 날아가면 안 된다.
+      itemStatusOutbox.clear();
+      itemStatusOrder.length = 0;
       meta.clear();
     },
 
@@ -76,6 +84,32 @@ export function createMemoryOfflineStore(): OfflineStore {
       return outboxOrder
         .filter((id) => outbox.has(id) && outbox.get(id)!.targetLocalId === localId)
         .map((id) => ({ ...outbox.get(id)! }));
+    },
+
+    async insertItemStatusMutation(row) {
+      itemStatusOutbox.set(row.mutationId, { ...row });
+      itemStatusOrder.push(row.mutationId);
+    },
+    async updateItemStatusMutation(mutationId, patch) {
+      const row = itemStatusOutbox.get(mutationId);
+      if (!row) return;
+      itemStatusOutbox.set(mutationId, { ...row, ...patch });
+    },
+    async deleteItemStatusMutation(mutationId) {
+      itemStatusOutbox.delete(mutationId);
+      const index = itemStatusOrder.indexOf(mutationId);
+      if (index !== -1) itemStatusOrder.splice(index, 1);
+    },
+    async listItemStatusMutations() {
+      return itemStatusOrder.filter((id) => itemStatusOutbox.has(id)).map((id) => ({ ...itemStatusOutbox.get(id)! }));
+    },
+    async listItemStatusMutationsForItem(childId, itemTemplateId) {
+      return itemStatusOrder
+        .filter((id) => {
+          const row = itemStatusOutbox.get(id);
+          return Boolean(row && row.childId === childId && row.itemTemplateId === itemTemplateId);
+        })
+        .map((id) => ({ ...itemStatusOutbox.get(id)! }));
     }
   };
 }

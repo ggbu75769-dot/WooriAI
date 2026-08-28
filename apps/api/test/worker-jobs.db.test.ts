@@ -35,7 +35,7 @@ const DAY_MS = 24 * HOUR_MS;
 //     아래 stale-recovery 테스트는 run(scheduledFor + 1분) — 즉 미래 시각 — 으로
 //     한 번 더 도는데, content-revisions.e2e.test.ts가 "+1시간 뒤 예약"으로 세워 둔
 //     리비전이 정확히 그 그물에 걸려 남의 테스트가 깨진다.
-// 두 스위트 모두 EXCLUSIVE_SUITES(test/helpers/db-lock.setup.ts)가 아니라 워커
+// 두 스위트 모두 EXCLUSIVE_SUITES(test/helpers/exclusive-suites.ts)가 아니라 워커
 // 여럿에서 나란히 돌 수 있으므로 이건 이론이 아니라 실제 경합이다.
 //
 // 해법은 link-health.db.test.ts의 TEST-132 기법 복제다: 잡 소스는 그대로 두고,

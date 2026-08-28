@@ -16,6 +16,7 @@ import { ChildSwitchSheet, useChildSwitchSheet } from "../../src/children/ChildS
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
 import { evaluateBabyCounter, evaluateBirthTransitionPrompt } from "../../src/home/baby-counter";
+import { resolveThisMonthUsedKrw } from "../../src/home/budget-edit";
 import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "../../src/home/budget-progress";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import {
@@ -47,6 +48,8 @@ import {
 } from "../../src/home/last-month-comparison";
 import { evaluateHomeCumulativeTotal } from "../../src/home/cumulative-total";
 import { evaluateMilestoneCountdown } from "../../src/home/milestone-countdown";
+import { evaluateHomePrepNudge, type PrepNudgeRecommendedItem } from "../../src/home/prep-nudge";
+import { buildPendingItemStatusIndex, effectiveItemStatus } from "../../src/items/pending-status";
 import { evaluateWeeklySummary } from "../../src/home/weekly-summary";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
@@ -93,9 +96,12 @@ import { HomePixelStyles } from "../../src/pixelLock/styles/HomePixelStyles";
  * 합계(monthlyTotalKrw)가 아니라 **행 목록**을 돌려주는 이유는 주간 요약이 "이번 주 월요일부터
  * 오늘까지"를 스스로 잘라야 하기 때문이다(records.tsx의 지난달 비교와 같은 이유).
  *
- * 범위 주석: REP-121 "지난달 같은 시점 대비" 한 줄은 종전 데이터 경로(서버 목록 원본)를 그대로
- * 둔다 — 이번 라운드의 지적은 신규 주간 카드에 한정되고, 그 줄의 이번 달 항은 /home 서버 집계라
- * 재조정된 지난달 항과 짝을 맞추려면 별도 판단이 필요하다(별건으로 남긴다).
+ * 라운드 33 F6이 남긴 범위 주석 — "REP-121 '지난달 같은 시점 대비' 한 줄은 종전 데이터 경로(서버
+ * 목록 원본)를 그대로 둔다. 그 줄의 이번 달 항은 /home 서버 집계라 재조정된 지난달 항과 짝을
+ * 맞추려면 별도 판단이 필요하다(별건으로 남긴다)" — 는 라운드 51 #7에서 정리됐다. 이제 그 줄의
+ * 이번 달 항도 같은 재조정을 통과한 값(`monthlyUsed`)이라, 지난달 항만 서버 원본으로 남기면
+ * **비대칭이 반대로 뒤집힌다**(이번 달의 대기 행만 세고 지난달의 대기 행은 안 세는 비교). 그래서
+ * 두 항 모두 이 함수의 결과를 쓴다 — 비교는 같은 술어로 만든 두 값 사이에서만 성립한다.
  */
 function reconciledMonthRecords(
   serverExpenses: Expense[] | undefined,
@@ -459,6 +465,59 @@ const homeMilestoneStyle = StyleSheet.create({
   }
 });
 
+/**
+ * 라운드 51 #6 홈 준비템 카드.
+ *
+ * 눌러서 준비템 탭으로 가는 카드라 마일스톤 카드와 **같은 골격**(아이콘 박스 + 카피 + › 화살표)을
+ * 그대로 쓴다 — 홈에서 "누르면 이동한다"는 약속은 한 가지 모양으로만 말한다. 아이콘도 퀵액션
+ * "추천템"과 같은 cube-outline이라, 같은 곳으로 가는 두 입구가 같은 그림을 쓴다.
+ */
+const homePrepNudgeStyle = StyleSheet.create({
+  card: {
+    alignItems: "center",
+    backgroundColor: theme.colors.white,
+    borderRadius: 18,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 64,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  copy: {
+    flex: 1,
+    gap: 4
+  },
+  cta: {
+    color: theme.colors.coral[700],
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 16
+  },
+  icon: {
+    color: theme.colors.coral[700],
+    fontSize: 20,
+    fontWeight: "800"
+  },
+  iconBox: {
+    alignItems: "center",
+    backgroundColor: theme.colors.peach,
+    borderRadius: 14,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  subtitle: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    lineHeight: 18
+  },
+  title: {
+    color: theme.colors.brown,
+    fontSize: 14,
+    fontWeight: "800"
+  }
+});
+
 // UX-G 첫 실행 안내 카드(첫 지출 유도 / 준비템 첫 안내). 빈 홈에서 이 카드가 "다음 한 걸음"
 // 이므로 다른 카드보다 눈에 띄어야 한다 -- peach 배경 + 큰 CTA 버튼. 의미는 전부 문장이 지고
 // (색상 단독 전달 금지) 제목·부제는 brown 본문색이라 peach 위에서 대비가 충분하다(A11Y-117).
@@ -690,6 +749,32 @@ export default function HomeScreen() {
     () => (childId ? offlineSyncSnapshot.rows.filter((row) => row.childId === childId) : []),
     [offlineSyncSnapshot.rows, childId]
   );
+  /**
+   * 라운드 51 QA(P2-2) — 홈의 준비템 이야기도 **아직 전송되지 않은 상태 변경**을 반영한다.
+   *
+   * 준비템 상태 변경은 오프라인 큐를 타므로(src/offline/types.ts의 ItemStatusOutboxRow), 목록
+   * 탭·상세는 이미 그 대기 값을 서버 응답보다 앞세워 그린다(src/items/pending-status.ts).
+   * 홈만 서버 `/home` 응답의 status를 그대로 읽고 있어서, 오프라인에서 "준비 완료"를 누르고
+   * 홈으로 돌아오면 그 준비템이 여전히 "지금 시기 준비템"으로 이름이 불리고 첫 실행 안내의
+   * 개수에도 계속 잡혔다 -- 같은 순간 준비템 탭은 준비 완료로 말한다.
+   *
+   * 이 화면은 이미 오프라인 스냅샷을 구독하고 있으므로(위 offlineSyncSnapshot) 추가 요청은
+   * 0건이다. 아이로 한 번 거르는 것까지 순수 모듈이 한다(준비템 id는 아이가 달라도 같은 값이라
+   * 거르지 않으면 첫째의 대기 값이 둘째에게 보인다).
+   */
+  const pendingItemStatusIndex = useMemo(
+    () => buildPendingItemStatusIndex(offlineSyncSnapshot.itemStatusRows, childId),
+    [offlineSyncSnapshot.itemStatusRows, childId]
+  );
+  const recommendedItemsWithPendingStatus = useMemo<PrepNudgeRecommendedItem[] | null>(() => {
+    const items = home.data?.recommendedItems ?? null;
+    if (!items) return null;
+    if (pendingItemStatusIndex.size === 0) return items;
+    return items.map((item) => {
+      const pending = pendingItemStatusIndex.get(item.id);
+      return pending ? { ...item, status: effectiveItemStatus(item.status, pending) } : item;
+    });
+  }, [home.data?.recommendedItems, pendingItemStatusIndex]);
   const weeklyThisMonthRecords = useMemo(
     () => reconciledMonthRecords(thisMonthExpenses.data?.expenses, childOfflineRows, thisYearMonth),
     [thisMonthExpenses.data, childOfflineRows, thisYearMonth]
@@ -812,6 +897,22 @@ export default function HomeScreen() {
   // UX-J: 주간 요약 알림이 홈 주간 카드와 같은 숫자를 말하도록 이미 계산된 값을 함께 넘긴다
   // (새 요청 없음). 라운드 37 G-1: 아직 판정할 수 없으면(지출 캐시 로딩 중) 주간 알림을 미루고,
   // 확정 실패했을 때만 월 페이스 문구로 폴백한다 -- 위 weeklySpendForNotification 참고.
+  //
+  // 라운드 51 #7 — 예산 알림 입력만은 **서버 확정값**을 유지한다(의도된 예외).
+  //
+  // 화면(히어로·진행바·경고 배너·넛지)은 아래에서 오프라인 대기 행까지 재조정한 사용액을 쓰지만,
+  // 이 훅에는 종전대로 `home.data`(= 서버 집계)를 그대로 넘긴다. 근거는 두 값의 **되돌릴 수
+  // 있는가**가 다르기 때문이다:
+  //  - 배너·진행바는 **라이브**다. 대기 행이 동기화 전에 지워지거나 충돌로 값이 바뀌면 다음
+  //    프레임에 즉시 사라지거나 줄어든다 — 틀린 상태가 화면에 남지 않는다.
+  //  - 알림은 **스냅숏**이다. 목록에 남고(src/notifications/generators.ts 헤더), dedupeKey가
+  //    `budget_80:{childId}:{yearMonth}` 하나뿐이라 그 달에 딱 한 번만 발화한다. 오프라인
+  //    잠정치로 조기 발화하면 그 뒤 서버가 확정한 값이 임계 아래여도 알림을 되돌릴 수 없고,
+  //    같은 달에 다시 알릴 수도 없다.
+  // 반대 방향의 손실은 없다: 대기 행이 실제로 동기화되면 서버 집계가 그만큼 올라가고, 그때
+  // 아직 쓰지 않은 dedupeKey로 알림이 **정확히 한 번** 뜬다. 즉 이 선택의 비용은 "조금 늦게",
+  // 이득은 "취소할 수 없는 허위 경고를 만들지 않음"이다. 주간 알림에서 잠정값이 그 주의 키를
+  // 태우지 않도록 발화를 미룬 라운드 37 G-1과 같은 판단이다(허위 경고 금지가 우선).
   useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification);
   // MOB-117 당겨서 새로고침: 홈 요약·최근 지출은 모두 ["home"] 쿼리에서 나온다. invalidate는
   // 활성 쿼리 refetch 완료까지 resolve되므로 스피너가 실제 완료에 맞춰 닫힌다.
@@ -963,7 +1064,37 @@ export default function HomeScreen() {
   // 여기부터 authToken이 있으면 childId도 있고(위 분기), 그러면 hasSession이 참이라 위 로딩·에러
   // 분기를 지나 home.data가 있다. 남은 갈림길은 "세션인가 아닌가" 하나뿐이다.
   const visibleHome = authToken ? home.data! : previewHome;
-  const monthlyUsed = visibleHome.monthly.usedAmountKrw;
+  // 라운드 51 #7 — 홈의 "이번 달 사용액"을 **한 값**으로 모은다.
+  //
+  // 문제: 히어로 금액·진행바·80/100% 경고·넛지·지난달 대비 한 줄은 전부 서버 집계
+  // (`monthly.usedAmountKrw`)만 봤는데, **같은 화면의 주간 카드**는 오프라인 대기 행까지
+  // 재조정한 값을 말한다(라운드 33 F6). 그래서 비행기 모드에서 5만 원을 기록하면 주간 카드는
+  // 그 5만 원을 더한 숫자를, 바로 위 히어로는 더하지 않은 숫자를 동시에 보여 줬다 — 한 화면의
+  // 두 숫자가 다른 모집단을 말하는, 예산 화면이 라운드 39 I-6에서 이미 고친 것과 같은 종류의
+  // 어긋남이다.
+  //
+  // 그래서 그때 만든 판정을 **그대로** 재사용한다(src/home/budget-edit.ts
+  // `resolveThisMonthUsedKrw`, 시그니처 무변경). 우선순위·함정 처리도 전부 그 모듈에 있다:
+  //  - 이 달에 아직 서버가 모르는 로컬 변경이 **실제로 있을 때만** 캐시 재조정 값이 앞선다;
+  //  - 그렇지 않으면 서버 집계가 이긴다 — 지출 캐시가 아직 비어 있는 콜드 스타트에서
+  //    재조정 값(0)이 서버 집계를 이겨 "0원 사용"이라는 허위 표시를 만들던 라운드 40 J-4의
+  //    함정이 바로 그것이다. 다른 기기에서 기록한 지출도 그 경로로만 살아남는다.
+  // 넘기는 캐시는 주간 카드가 이미 읽고 있는 `["expenses", childId, 이번 달]` 그대로라 **추가
+  // 요청이 0**이고, 오프라인 스냅숏도 이미 구독 중인 것이다(childId 필터는 모듈이 한다).
+  //
+  // 세션 게이트: 비세션 미리보기(previewHome)는 픽셀락 HOME-001 캡처의 원본이라 서버 픽스처
+  // 값을 그대로 쓴다. 그 경로는 쿼리도 childId도 없어 판정 결과가 어차피 같지만, 게이트를
+  // 명시해 캡처 문자열이 기기 상태에 따라 흔들릴 여지 자체를 없앤다.
+  const serverMonthlyUsedKrw = visibleHome.monthly.usedAmountKrw;
+  const monthlyUsed = hasSession
+    ? resolveThisMonthUsedKrw({
+        cachedExpenses: thisMonthExpenses.data?.expenses ?? null,
+        offline: { rows: offlineSyncSnapshot.rows, childId, yearMonth: thisYearMonth },
+        // /home 응답의 월 집계가 곧 "홈 캐시의 usedAmountKrw"다(이 화면에는 별도 budget 쿼리가
+        // 없다). 모듈의 폴백 순서상 이 값이 항상 캐시 없는 콜드 스타트를 받아 준다.
+        homeUsedKrw: serverMonthlyUsedKrw
+      }) ?? serverMonthlyUsedKrw
+    : serverMonthlyUsedKrw;
   const budget = visibleHome.monthly.amountKrw;
   // HOME-127: 퍼센트 판정은 src/home/budget-progress.ts가 한다. 종전에는 여기서
   // `(monthlyUsed / Math.max(1, budget)) * 100`으로 냈는데, /home은 예산 미설정 달에
@@ -983,11 +1114,14 @@ export default function HomeScreen() {
   // REP-121: 세션이 있을 때만 계산한다 -- 비세션 픽셀락 미리보기(previewHome)에는 지난달 데이터가
   // 없으므로 한 줄이 아예 렌더되지 않고, 미리보기 스크린샷은 기존과 동일하게 유지된다. 지난달에
   // 기록이 없는 첫 달 사용자도 순수 모듈이 null을 돌려줘 렌더되지 않는다.
+  // 라운드 51 #7: 두 항이 **같은 술어**를 통과한 값이다 — 이번 달은 위 `monthlyUsed`(서버 집계
+  // 또는 오프라인 재조정), 지난달은 주간 카드가 이미 만든 재조정 행 목록(`weeklyLastMonthRecords`,
+  // 새 요청 0). 한쪽만 대기 행을 세면 비교 자체가 없는 차이를 만든다(위 reconciledMonthRecords 주석).
   const lastMonthInsight = hasSession
     ? evaluateLastMonthComparison({
         todayIso: seoulToday,
         thisMonthToDateKrw: monthlyUsed,
-        lastMonthRecords: lastMonthExpenses.data?.expenses ?? null
+        lastMonthRecords: weeklyLastMonthRecords
       })
     : null;
   // HOME-127: 넛지 카드의 문구·경로도 같은 순수 모듈이 고른다.
@@ -1021,7 +1155,8 @@ export default function HomeScreen() {
   const firstRunGuide = evaluateHomeFirstRunGuide({
     hasSession,
     hasAnyExpenseRecord,
-    recommendedItemCount: countUnpreparedRecommendedItems(home.data?.recommendedItems ?? []),
+    // 라운드 51 QA(P2-2): 아직 전송되지 않은 상태 변경까지 반영한 배열을 센다(위 memo).
+    recommendedItemCount: countUnpreparedRecommendedItems(recommendedItemsWithPendingStatus ?? []),
     recentRecordCount: weeklyThisMonthRecords?.length ?? null,
     serverRecentExpenseCount: home.data ? home.data.recentExpenses.length : null,
     itemsGuideDismissed: childId ? dismissedItemsGuideChildIds.includes(childId) : false,
@@ -1112,6 +1247,22 @@ export default function HomeScreen() {
     hasSession,
     totalExpenseKrw: home.data?.totalExpenseKrw ?? null,
     hasMilestoneCard: milestoneCountdown !== null
+  });
+  // 라운드 51 #6 — 홈 준비템 카드(핵심 루프 3단계 입구).
+  //
+  // 홈은 `/home` 응답으로 `recommendedItems`를 매번 받으면서(서버가 지금 시기 "now" 탭을 정렬해
+  // 최대 3건으로 잘라 준다) 그것을 첫 실행 안내의 **개수 게이트**로만 쓰고 이름·상태를 버렸다.
+  // 그 안내는 막 시작한 사람에게만 뜨므로(first-run-guide.ts의 F6/F3/H-5 게이트), 기록이 몇 건만
+  // 쌓이면 준비템으로 가는 입구가 퀵액션 아이콘 하나로 줄어든다. 같은 응답을 그대로 읽어(추가
+  // 요청 0) 카드 하나를 만든다 — 판정·문구·상태 라벨 재사용은 전부 순수 모듈에 있다
+  // (src/home/prep-nudge.ts). 첫 실행 안내가 떠 있으면 접히므로 두 카드가 같은 말을 하지 않고,
+  // 세션 게이트가 모듈 안에 있어 비세션 HOME-001 미리보기에는 이 자리가 통째로 없다.
+  // 라운드 51 QA(P2-2): 목록·상세와 같은 값을 말하도록 대기 중인 상태 변경을 얹은 배열을 넘긴다
+  // (추가 요청 0 -- 홈이 이미 구독 중인 오프라인 스냅샷에서 온다).
+  const prepNudge = evaluateHomePrepNudge({
+    hasSession,
+    recommendedItems: recommendedItemsWithPendingStatus,
+    guideVariant: firstRunGuide?.variant ?? null
   });
   // NOTI-102: 알림 센터가 실제 기능이 되어 UX-5B-8에서 숨겼던 홈 알림 벨을 미확인 배지와 함께 복원.
   return (
@@ -1444,6 +1595,44 @@ export default function HomeScreen() {
               />
               <Text style={homeLastMonthInsightStyle.text}>{lastMonthInsight.text}</Text>
             </View>
+          ) : null}
+
+          {prepNudge ? (
+            // 라운드 51 #6: 자리는 "이번 달 돈 이야기"(히어로 · 경고 · 주간 · 예산 넛지 · 지난달
+            // 대비)가 끝난 뒤, 최근 지출 목록 앞이다 -- 핵심 루프에서 준비템 확인은 총액 확인
+            // **다음** 단계이고(DNC-002), 목록 앞에 두면 카드가 목록에 섞여 읽히지 않는다.
+            // 카드 전체가 하나의 버튼이고 목적지는 CTA 문구가 예고한 준비템 탭 그대로다.
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={prepNudge.accessibilityLabel}
+              testID={prepNudge.testID}
+              onPress={() => router.push(prepNudge.route)}
+            >
+              <Card style={homePrepNudgeStyle.card}>
+                <View style={homePrepNudgeStyle.iconBox}>
+                  <Ionicons
+                    accessible={false}
+                    name="cube-outline"
+                    size={homePrepNudgeStyle.icon.fontSize}
+                    color={homePrepNudgeStyle.icon.color}
+                  />
+                </View>
+                <View style={homePrepNudgeStyle.copy}>
+                  <Text style={homePrepNudgeStyle.title}>{prepNudge.title}</Text>
+                  {/* 이름 줄은 길어질 수 있어 두 줄에서 자른다 -- 잘려도 카드가 말하는 사실
+                      (제목 + CTA)은 그대로 남는다. */}
+                  <Text numberOfLines={2} style={homePrepNudgeStyle.subtitle}>
+                    {prepNudge.subtitle}
+                  </Text>
+                  <Text style={homePrepNudgeStyle.cta}>{prepNudge.ctaLabel}</Text>
+                </View>
+                <View accessible={false} style={homeBudgetNudgeArrowStyle.button}>
+                  <Text accessible={false} style={homeBudgetNudgeArrowStyle.glyph}>
+                    ›
+                  </Text>
+                </View>
+              </Card>
+            </Pressable>
           ) : null}
 
           {showRecentExpensesSection ? (

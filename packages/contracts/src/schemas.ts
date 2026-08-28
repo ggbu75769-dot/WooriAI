@@ -276,14 +276,36 @@ export const listItemsQuerySchema = z.object({
   stageBand: stageBandLabelSchema.optional()
 });
 
-export const productLinkSchema = z.object({
-  id: uuidSchema,
-  platform: productPlatformSchema,
-  title: z.string().min(1),
-  isAffiliate: z.boolean(),
-  isSponsored: z.boolean(),
-  disclosureText: z.string().optional()
-});
+/**
+ * 라운드 51 #9 — 판매처별 가격(가산 optional). 이번 라운드는 계약만이고 표시 UI는 없다.
+ *
+ * `priceSnapshotKrw`는 "언젠가 확인한 값"이라 언제 확인했는지를 함께 말하지 않으면
+ * 사용자가 현재가로 읽는다 — 그것이 곧 허위 표시다(DNC-009와 같은 정직 원칙). 그래서
+ * **두 필드는 항상 함께 있거나 함께 없다**. 서버가 그 규칙을 강제하고
+ * (apps/api/src/onboarding/items-catalog.service.ts toProductLinkDto), 계약도 아래
+ * refine으로 같은 규칙을 거절선으로 삼는다 — 한쪽만 실은 응답은 계약 위반이다.
+ *
+ * 화면은 다음 라운드에 배선하되, 가격을 그릴 때는 반드시 `priceCheckedAt` 기준 시각을
+ * 함께 보여야 한다(값만 크게 쓰고 시각을 숨기면 이 규칙을 우회하는 것과 같다).
+ *
+ * 가격은 표시 전용이다 — 추천 점수·정렬에는 절대 넣지 않는다(DNC-009).
+ */
+export const productLinkSchema = z
+  .object({
+    id: uuidSchema,
+    platform: productPlatformSchema,
+    title: z.string().min(1),
+    isAffiliate: z.boolean(),
+    isSponsored: z.boolean(),
+    disclosureText: z.string().optional(),
+    priceSnapshotKrw: z.number().int().min(0).optional(),
+    /** ISO 8601 UTC 문자열. 이 값이 없으면 가격도 없어야 한다(위 주석). */
+    priceCheckedAt: z.string().datetime().optional()
+  })
+  .refine(
+    (link) => (link.priceSnapshotKrw === undefined) === (link.priceCheckedAt === undefined),
+    { message: "가격과 가격 확인 시각은 함께 있어야 해요.", path: ["priceCheckedAt"] }
+  );
 
 export const itemDetailSchema = itemSummarySchema.extend({
   reasonText: z.string().min(1),

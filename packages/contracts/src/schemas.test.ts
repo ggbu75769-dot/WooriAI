@@ -260,6 +260,40 @@ describe("shared contract schemas", () => {
     ).toBe(false);
   });
 
+  /**
+   * 라운드 51 #9: 판매처별 가격은 **확인 시각과 짝**이다. 기준 시각 없는 스냅샷 가격은
+   * 사용자가 현재가로 읽으므로 그 자체가 허위 표시라, 계약이 한쪽만 실린 응답을 거절한다.
+   * 서버도 같은 규칙을 강제한다(apps/api items-catalog.service.ts toProductLinkDto).
+   */
+  it("가격과 가격 확인 시각은 함께 있거나 함께 없다 (라운드 51 #9)", () => {
+    const base = {
+      id: "44444444-4444-4444-8444-444444444444",
+      platform: "coupang" as const,
+      title: "카시트 보기",
+      isAffiliate: true,
+      isSponsored: false
+    };
+
+    // 둘 다 없는 응답(이 필드를 모르는 구버전 서버)은 그대로 통과한다 — 가산 optional.
+    expect(productLinkSchema.parse(base).id).toBe(base.id);
+
+    const priced = productLinkSchema.parse({
+      ...base,
+      priceSnapshotKrw: 249_000,
+      priceCheckedAt: "2026-08-01T03:00:00.000Z"
+    });
+    expect(priced.priceSnapshotKrw).toBe(249_000);
+    expect(priced.priceCheckedAt).toBe("2026-08-01T03:00:00.000Z");
+
+    // 가격만 / 시각만은 계약 위반이다.
+    expect(() => productLinkSchema.parse({ ...base, priceSnapshotKrw: 249_000 })).toThrow();
+    expect(() => productLinkSchema.parse({ ...base, priceCheckedAt: "2026-08-01T03:00:00.000Z" })).toThrow();
+    // 시각은 ISO 8601이어야 한다(날짜만 있는 문자열은 시점을 말하지 못한다).
+    expect(() =>
+      productLinkSchema.parse({ ...base, priceSnapshotKrw: 249_000, priceCheckedAt: "2026-08-01" })
+    ).toThrow();
+  });
+
   // CAT-101: GET /categories 응답 계약.
   it("validates the categories list contract including nullable iconName and display order", () => {
     const parsed = listCategoriesResponseSchema.parse({

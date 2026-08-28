@@ -2,9 +2,11 @@ import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../src/analytics/client";
+import { LOCAL_SESSION_TOKEN } from "../src/api/client";
 import { localChildId, useLocalBackendStore } from "../src/api/local-backend";
 import { shouldShowSessionExpiredNotice } from "../src/offline/session-expiry";
 import { fetchOnboardingProgressForSelectedChild } from "../src/onboarding/onboarding-progress-scope";
+import { hasResumeWorthyProgress } from "../src/onboarding/resume";
 import {
   shouldAttemptSelectedChildRecovery,
   useSelectedChildRecovery
@@ -41,12 +43,19 @@ function storesHydrated() {
 }
 
 /**
- * MOB-101 (round5a-sprint1-plan.md §4): once hydrated with a real (non-test) session that
- * hasn't locally reached home yet, this is the single place that asks the server where
- * onboarding was left off, so app restart / re-login / token refresh restores the exact
- * interrupted step instead of always sending the user back to ONB-001. `hasReachedHome` is
- * trusted once true (no repeat network round trip needed for already-onboarded sessions); the
- * server check only runs for the "not sure yet" case.
+ * MOB-101 (round5a-sprint1-plan.md §4): once hydrated with a session that hasn't locally
+ * reached home yet, this is the single place that asks the server where onboarding was left
+ * off, so app restart / re-login / token refresh restores the exact interrupted step instead
+ * of always sending the user back to ONB-001. `hasReachedHome` is trusted once true (no repeat
+ * network round trip needed for already-onboarded sessions); the server check only runs for the
+ * "not sure yet" case.
+ *
+ * 라운드 51 #2: 데모(테스트) 세션도 이 조회를 탄다. 예전에는 `isTestSession` 한 줄로 막혀
+ * 있었는데, 그 예외 때문에 온보딩 도중 앱을 닫은 데모 사용자는 매번 ONB-001부터 다시
+ * 시작했고 -- createChild는 로컬의 아이 한 자리를 통째로 교체하므로 -- 방금 입력한 태명이
+ * 그대로 사라졌다. 데모의 진행도는 로컬 백엔드가 실서버와 같은 계약으로 이미 미러하고
+ * 있으므로(src/api/local-backend.ts onboardingStatus), 이 조회는 데모에서 **요청 0건**의
+ * 순수 로컬 조회다(client.ts의 isLocalToken 분기).
  */
 type ProgressFetchState = "idle" | "loading" | "done";
 
@@ -77,6 +86,13 @@ export default function IndexScreen() {
   const [hasResumeTarget, setHasResumeTarget] = useState(false);
   // R19-C(F1): 다자녀 복구 안내를 사용자가 확인했는지. 확인 전까지 /(tabs) 이동을 잡아둔다.
   const [recoveryNoticeAcknowledged, setRecoveryNoticeAcknowledged] = useState(false);
+  /**
+   * 라운드 51 #2: 진행도 조회에 쓸 토큰. 저장소의 다른 화면과 **같은 관례**다
+   * (app/(onboarding)/prepared-items.tsx 등: `accessToken ?? (isTestSession ? LOCAL : null)`).
+   * 데모 세션은 실토큰이 없으므로 이 값이 없으면 예전처럼 조회 자체가 돌지 않는다 --
+   * 로그아웃 상태(둘 다 없음)에서 아무 요청도 하지 않던 동작은 그대로다.
+   */
+  const progressToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
 
   useEffect(() => {
     if (hydrated) {
@@ -117,7 +133,7 @@ export default function IndexScreen() {
   }, [hydrated, accessToken]);
 
   useEffect(() => {
-    if (!hydrated || isTestSession || !accessToken || hasReachedHome || progressFetch !== "idle") {
+    if (!hydrated || !progressToken || hasReachedHome || progressFetch !== "idle") {
       return;
     }
     setProgressFetch("loading");
@@ -129,7 +145,11 @@ export default function IndexScreen() {
     // childId 없이 1회 재시도한다 -- 예전에는 아래 catch가 그 실패를 삼켜 이미 온보딩을 끝낸
     // 사용자를 ONB-001로 되돌려보냈다. 무효로 판명된 selectedChildId는 지워서, 다음 렌더에서
     // MOB-116 복구(GET /children 목록 기반 재선택)가 이어받게 한다.
-    fetchOnboardingProgressForSelectedChild(accessToken, selectedChildId)
+    //
+    // 라운드 51 #2: 데모 세션은 여기서 `LOCAL_SESSION_TOKEN`을 넘긴다(progressToken). 그러면
+    // client.ts가 네트워크 대신 로컬 백엔드의 onboardingStatus()를 부르고, 아래 분기는 실세션과
+    // 완전히 같은 {completed, nextStep, canRestart, summary} 계약 위에서 돈다.
+    fetchOnboardingProgressForSelectedChild(progressToken, selectedChildId)
       .then(({ progress, childScopeRejected }) => {
         if (childScopeRejected) {
           clearSelectedChildId();
@@ -140,8 +160,9 @@ export default function IndexScreen() {
         }
         // Only worth an interstitial resume screen once there is real progress to show
         // (consents already accepted, i.e. past the very first step) -- otherwise this is
-        // just a fresh account and should start at ONB-001 like today.
-        if (progress.summary.consentsAccepted) {
+        // just a fresh account and should start at ONB-001 like today. 데모 세션의 기준은
+        // 조금 더 엄격하다 -- hasResumeWorthyProgress 주석 참고.
+        if (hasResumeWorthyProgress(progress, isTestSession)) {
           setResumeProgress(progress);
           setHasResumeTarget(true);
         }
@@ -155,7 +176,7 @@ export default function IndexScreen() {
   }, [
     hydrated,
     isTestSession,
-    accessToken,
+    progressToken,
     hasReachedHome,
     progressFetch,
     selectedChildId,
@@ -282,7 +303,9 @@ export default function IndexScreen() {
     );
   }
 
-  if (!isTestSession && !hasReachedHome) {
+  // 라운드 51 #2: 데모 세션도 같은 관문을 지난다(예전에는 `!isTestSession &&`이 막았다).
+  // 진행도 조회가 끝나기 전에 리다이렉트가 나가면 이어하기 판정 자체가 없는 것과 같다.
+  if (!hasReachedHome) {
     // FIX-118A (m-9): "idle" must hold the redirect just like "loading" does. The server
     // progress check above runs in an effect, i.e. only AFTER this render commits — so on any
     // render where `hasReachedHome` has just become false (a cold start, or MOB-116's no-child
@@ -292,8 +315,11 @@ export default function IndexScreen() {
     // the first onboarding step even though the server has resume-worthy progress.
     // Holding on "idle" is deadlock-free: this branch's conditions are exactly the ones that
     // make the progress effect run, so it always moves to "loading" on the very next commit,
-    // and the 3s valve above bounds "loading".
-    if (progressFetch !== "done") {
+    // and the 3s valve above bounds "loading". `progressToken`을 함께 보는 것은 그 등식을
+    // 문자 그대로 유지하기 위해서다 -- 토큰이 없으면 조회가 돌지 않으므로 기다릴 대상도
+    // 없다(지금 이 지점에 토큰 없이 도달하는 경로는 없지만, 위 로그아웃 분기가 바뀌어도
+    // 빈 화면으로 굳지 않는다).
+    if (progressToken && progressFetch !== "done") {
       return null;
     }
     if (hasResumeTarget) {

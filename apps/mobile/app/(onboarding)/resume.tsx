@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Redirect, router } from "expo-router";
 import { Text, View } from "react-native";
-import { upsertConsents } from "../../src/api/client";
+import { LOCAL_SESSION_TOKEN, upsertConsents } from "../../src/api/client";
 import { formatKrw } from "../../src/money";
 import { routeForOnboardingNextStep } from "../../src/onboarding/resume";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
@@ -20,6 +20,12 @@ const nextStepLabels: Record<string, string> = {
 
 export default function OnboardingResumeScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
+  const isTestSession = useSessionStore((state) => state.isTestSession);
+  /**
+   * 라운드 51 #2: 데모 세션도 이 화면에 도달한다(app/index.tsx의 진행도 조회가 더 이상
+   * 테스트 세션을 건너뛰지 않는다). 저장소의 다른 화면과 같은 관례로 토큰을 고른다.
+   */
+  const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const progress = useOnboardingResumeStore((state) => state.progress);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
   const completeStep = useOnboardingProgressStore((state) => state.completeStep);
@@ -51,11 +57,12 @@ export default function OnboardingResumeScreen() {
     if (summary.preparedItemsCount !== null) {
       completeStep("ONB-003");
     }
-    if (nextStep === "consents" && accessToken) {
+    if (nextStep === "consents" && authToken) {
       // Defensive resubmission: consents are stored as an idempotent upsert server-side, so
       // resending them here is always safe -- this only matters if a previous login's
       // upsertConsents call was lost to a network error after oauth-login already succeeded.
-      void upsertConsents(accessToken).catch(() => undefined);
+      // 데모 세션도 같은 재제출을 탄다(로컬 백엔드의 upsertConsents 역시 멱등이다).
+      void upsertConsents(authToken).catch(() => undefined);
     }
     router.replace(routeForOnboardingNextStep(nextStep));
   }

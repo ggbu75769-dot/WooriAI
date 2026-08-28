@@ -19,20 +19,32 @@ import { createMemoryOfflineStore } from "./memory-offline-store";
 import { createClientRemoteExpenseApi } from "./remote-api";
 import {
   diffExpenseFields,
+  discardFailedItemStatusMutation,
   discardFailedMutation,
   flushOutbox,
   recordLocalCreate,
   recordLocalDelete,
+  recordLocalItemStatus,
   recordLocalUpdate,
+  recoverInterruptedSyncState,
   resolveConflictAdoptServer,
   resolveConflictReapplyMine,
   resolveConflictWithMergedPayload,
   retryAllFailedMutations,
   discardAllFailedMutations,
+  retryFailedItemStatusMutation,
   retryFailedMutation,
   type FlushSummary
 } from "./sync-engine";
-import { generateOfflineId, type ExpensePayload, type LocalExpenseRow, type OfflineStore } from "./types";
+import { patchItemStatusInQueryData } from "../items/pending-status";
+import {
+  generateOfflineId,
+  type ExpensePayload,
+  type ItemStatusOutboxRow,
+  type ItemStatusPayload,
+  type LocalExpenseRow,
+  type OfflineStore
+} from "./types";
 import type { Expense } from "../api/client";
 
 /**
@@ -64,9 +76,24 @@ async function getOfflineStore(): Promise<OfflineStore> {
 
 export type SyncStatusCounts = { pending: number; syncing: number; failed: number; conflict: number };
 
-export type SyncSnapshot = { counts: SyncStatusCounts; rows: LocalExpenseRow[] };
+export type SyncSnapshot = {
+  /**
+   * 지출 행 기준 집계. 라운드 51 C-10에서도 **지출만** 센다 -- 기록 탭 배지(app/(tabs)/records.tsx)가
+   * 이 숫자로 "동기화되지 않은 **기록**"을 말하는데, 준비 상태 변경까지 섞으면 그 배지를 눌러
+   * 연 목록에 없는 건수가 배지에만 잡힌다. 준비템 대기 건수는 아래 배열로 따로 읽는다
+   * (동기화 상태 화면이 두 줄기를 함께 세어 머리말 배지를 만든다).
+   */
+  counts: SyncStatusCounts;
+  rows: LocalExpenseRow[];
+  /** 라운드 51 C-10: 아직 서버에 닿지 않은 준비템 상태 변경(item_status_outbox). */
+  itemStatusRows: ItemStatusOutboxRow[];
+};
 
-const emptySnapshot: SyncSnapshot = { counts: { pending: 0, syncing: 0, failed: 0, conflict: 0 }, rows: [] };
+const emptySnapshot: SyncSnapshot = {
+  counts: { pending: 0, syncing: 0, failed: 0, conflict: 0 },
+  rows: [],
+  itemStatusRows: []
+};
 
 let latestSnapshot: SyncSnapshot = emptySnapshot;
 const snapshotListeners = new Set<() => void>();
@@ -87,7 +114,8 @@ async function refreshSnapshot(): Promise<void> {
     if (row.syncState === "synced") continue;
     counts[row.syncState] += 1;
   }
-  latestSnapshot = { counts, rows };
+  const itemStatusRows = await store.listItemStatusMutations();
+  latestSnapshot = { counts, rows, itemStatusRows };
   notifySnapshotListeners();
 }
 
@@ -158,6 +186,15 @@ async function attemptFlush(token: string, queryClient: QueryClient): Promise<Fl
       platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
     });
   }
+  // 라운드 51 C-10: 준비 상태가 서버에 확정된 pass에서도 준비템 화면들을 갱신한다. 지출 갈래와
+  // **따로** 판정하는 이유는 FlushSummary 주석에 있다 -- 여기서는 목록·상세·홈(준비율)만
+  // 무효화하고, 지출 전용 플래시 문구("…비용에 더해둘게요")와 expense_synced 이벤트는 내지
+  // 않는다. 준비 상태만 바뀐 pass에서 그 둘이 발화하면 있지도 않은 지출을 기록했다고 말하는 셈이다.
+  if (summary.itemStatusSynced > 0) {
+    await queryClient.invalidateQueries({ queryKey: ["items"] });
+    await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
+    await queryClient.invalidateQueries({ queryKey: ["home"] });
+  }
   return summary;
 }
 
@@ -165,6 +202,22 @@ async function flushInBackground(token: string, queryClient: QueryClient): Promi
   const online = await isCurrentlyOnline();
   if (!online) return;
   await attemptFlush(token, queryClient).catch(() => undefined);
+}
+
+/**
+ * 라운드 51 QA(P3-7) — 앱 시작 시 한 번: 전송 도중 죽으며 남은 표시를 되돌리고(엔진의
+ * recoverInterruptedSyncState), 그 결과를 화면 스냅샷에 반영한 뒤 평소의 첫 flush로 넘어간다.
+ * 순서가 중요하다 -- 되돌리기가 flush보다 **먼저** 끝나야 그 행들이 이번 pass에 실린다.
+ * 저장소 실패는 여기서 삼킨다(다른 백그라운드 오프라인 작업과 같은 최선 노력 태도).
+ */
+async function recoverAndFlushOnStart(token: string, queryClient: QueryClient): Promise<void> {
+  try {
+    await recoverInterruptedSyncState(await getOfflineStore());
+  } catch {
+    // 되돌리기에 실패해도 아래 flush는 그대로 시도한다.
+  }
+  await refreshSnapshot().catch(() => undefined);
+  await flushInBackground(token, queryClient);
 }
 
 /** Records a new expense locally first (design doc §3.2 step 1) and kicks off a background
@@ -261,6 +314,61 @@ export async function deleteExpenseOffline(token: string, queryClient: QueryClie
   await recordLocalDelete(store, localId);
   await refreshSnapshot();
   void flushInBackground(token, queryClient);
+}
+
+/**
+ * 라운드 51 C-10 — 준비템 상태 변경의 오프라인 우선 저장. 지출 저장(createExpenseOffline)과
+ * 같은 모양이다: 로컬 큐에 먼저 남기고, 온라인이면 백그라운드로 한 번 밀어 보고, **네트워크를
+ * 기다리지 않고** 곧바로 resolve한다.
+ *
+ * 여기서 캐시를 함께 적어 두는 것(setQueriesData)이 낙관 반영이다. 화면은 이 값을 그리고,
+ * 아직 서버에 닿지 않았다는 사실은 대기 배지가 말한다(src/items/pending-status.ts). 무효화
+ * (invalidateQueries)는 **하지 않는다**: 아직 서버는 옛 값을 들고 있으므로 지금 다시 물으면
+ * 방금 누른 값이 되돌아온다. 목록 재조회는 전송이 확정된 뒤 attemptFlush가 한 번만 한다 --
+ * 그 덕에 상태를 누를 때마다 나가던 목록·스냅샷·홈 3요청이 사라진다.
+ */
+export async function updateItemStatusOffline(
+  token: string,
+  queryClient: QueryClient,
+  payload: ItemStatusPayload
+): Promise<ItemStatusOutboxRow> {
+  const store = await getOfflineStore();
+  const row = await recordLocalItemStatus(store, payload);
+  // 이미 받아 둔 캐시만 고쳐 쓴다(새 요청 0건). 판정·모양 처리는 순수 모듈이 한다.
+  queryClient.setQueriesData({ queryKey: ["items"] }, (data: unknown) =>
+    patchItemStatusInQueryData(data, payload.itemTemplateId, payload.status)
+  );
+  queryClient.setQueriesData({ queryKey: ["item-detail"] }, (data: unknown) =>
+    patchItemStatusInQueryData(data, payload.itemTemplateId, payload.status)
+  );
+  await refreshSnapshot();
+  void flushInBackground(token, queryClient);
+  return row;
+}
+
+/** 동기화 상태 화면의 준비템 행 "재시도". 지출 행과 같은 모양(되돌리기 → 스냅샷 → flush 한 번). */
+export async function retryOfflineItemStatus(
+  token: string,
+  queryClient: QueryClient,
+  mutationId: string
+): Promise<void> {
+  const store = await getOfflineStore();
+  await retryFailedItemStatusMutation(store, mutationId);
+  await refreshSnapshot();
+  void flushInBackground(token, queryClient);
+}
+
+/**
+ * 동기화 상태 화면의 준비템 행 "삭제": 대기 중인 변경을 버린다. 서버에 닿은 적이 없으므로
+ * 되돌릴 것이 없고, 화면은 다음 조회에서 서버가 말하는 상태로 돌아간다 -- 그래서 버린 즉시
+ * 낙관 반영도 걷어야 한다(준비템 캐시 무효화 한 번).
+ */
+export async function discardOfflineItemStatus(queryClient: QueryClient, mutationId: string): Promise<void> {
+  const store = await getOfflineStore();
+  await discardFailedItemStatusMutation(store, mutationId);
+  await refreshSnapshot();
+  await queryClient.invalidateQueries({ queryKey: ["items"] });
+  await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
 }
 
 // ---------------------------------------------------------------------------
@@ -387,8 +495,8 @@ async function pullDeltaInBackground(token: string, queryClient: QueryClient): P
 export function useOfflineSyncLifecycle(token: string | null, queryClient: QueryClient): void {
   useEffect(() => {
     if (!token) return;
-    void refreshSnapshot();
-    void flushInBackground(token, queryClient);
+    // 라운드 51 QA(P3-7): 첫 스냅샷·첫 flush 앞에 "죽은 전송 표시 되돌리기"가 붙는다.
+    void recoverAndFlushOnStart(token, queryClient);
     void pullDeltaInBackground(token, queryClient);
 
     const handle = startConnectivityWatcher(() => {
@@ -463,7 +571,14 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
           // therefore lands after it. See clearSessionScopedQueryCache's contract.
           clearSessionScopedQueryCache();
           void getOfflineStore()
-            .then((store) => teardownOfflineSessionState(store, { authToken: outgoingToken }))
+            .then((store) =>
+              teardownOfflineSessionState(store, {
+                authToken: outgoingToken,
+                // 라운드 51 QA(P3-10): wipe가 끝나면 화면이 읽는 스냅샷도 다시 만든다. 함수를
+                // 넘기는 이유는 순환 import 회피다(session-teardown.ts의 컨텍스트 주석 참고).
+                refreshSyncSnapshot: refreshSnapshot
+              })
+            )
             .catch(() => undefined);
         }
       }),

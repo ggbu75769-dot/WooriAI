@@ -13,7 +13,7 @@ import { join } from "node:path";
  * other file runs fully in parallel. That is far cheaper than the old run-wide
  * single-thread pin: a few short serialization points instead of every file.
  *
- * `EXCLUSIVE_SUITES` in test/helpers/db-lock.setup.ts is the single source of truth for
+ * `EXCLUSIVE_SUITES` in test/helpers/exclusive-suites.ts is the single source of truth for
  * *which* suites those are and why. This comment deliberately quotes no count — R31
  * 리뷰 F1: the counts that used to live here ("the four short suites", "~66 files")
  * drifted out of date every time the list moved, and a stale number in a comment is
@@ -103,8 +103,8 @@ export function removeLockDir() {
 }
 
 function lockDir(): string | null {
-  // Absent when a suite is run without globalSetup; the gate then simply no-ops
-  // rather than pretending to serialize anything.
+  // Absent when a suite is run without globalSetup — see `acquireSharedDb` for what
+  // happens then (it is no longer a silent no-op).
   return process.env[LOCK_DIR_ENV] ?? null;
 }
 
@@ -284,12 +284,39 @@ async function acquireShared(dir: string, id: string): Promise<LockRelease> {
 }
 
 /**
+ * 라운드 51 D-#4: globalSetup 없이 돈 실행에서 락 디렉터리가 없을 때의 옵트아웃.
+ *
+ * 예전에는 그 경우를 **말없이** no-op으로 넘겼다. 그러면 배타 스위트도 아무 보호 없이
+ * 돌면서 통과/실패가 그날의 운에 달리고, 실패해도 "락이 없었다"는 사실이 어디에도
+ * 남지 않는다. 기본값은 이제 실패다. 다만 단일 파일을 손으로 돌려 보는 습관
+ * (`vitest run test/foo.test.ts`는 이 저장소 설정에서는 globalSetup을 함께 돌리지만,
+ * 다른 설정/툴로 부르는 경우가 있다)을 깨지 않도록, 이 환경 변수를 1로 두면 예전처럼
+ * no-op 하되 **stderr에 경고를 남긴다**.
+ */
+const ALLOW_NO_LOCK_ENV = "WOORIAI_TEST_ALLOW_NO_LOCK";
+
+/**
  * Acquires the shared test database for the current test file and returns the
  * matching release function (safe to call once, from `afterAll`).
+ *
+ * 락 디렉터리가 없으면(= globalSetup을 거치지 않은 실행) 던진다 — 위
+ * ALLOW_NO_LOCK_ENV 주석 참고. 조용한 통과보다 즉시 실패가 낫다.
  */
 export async function acquireSharedDb(mode: "shared" | "exclusive", id: string): Promise<LockRelease> {
   const dir = lockDir();
   if (!dir) {
+    if (process.env[ALLOW_NO_LOCK_ENV] !== "1") {
+      throw new Error(
+        `[shared-db-lock] 공유 DB 락 디렉터리(${LOCK_DIR_ENV})가 없어요 — globalSetup을 거치지 않은 ` +
+          `실행이에요. 이대로 진행하면 배타 스위트가 아무 보호 없이 다른 파일과 겹쳐 돌아요 ` +
+          `(요청 스위트: ${id} / 모드: ${mode}). \`pnpm --filter api test\`로 실행하거나, ` +
+          `의도한 것이라면 ${ALLOW_NO_LOCK_ENV}=1을 지정해 주세요.`
+      );
+    }
+    console.warn(
+      `[shared-db-lock] ${ALLOW_NO_LOCK_ENV}=1 — 공유 DB 락 없이 진행해요. 병렬 실행 중이라면 ` +
+        `배타 스위트(${id})의 결과를 신뢰할 수 없어요.`
+    );
     return () => {};
   }
   return mode === "exclusive" ? acquireExclusive(dir, id) : acquireShared(dir, id);

@@ -70,6 +70,7 @@ import {
 import { resetLocalBackendForTests, seedLocalDemoFixturesForTests, useLocalBackendStore } from "../api/local-backend";
 import { buildCreateChildBody } from "../children/child-form";
 import { createOnboardingChild } from "../onboarding/child-create";
+import { hasResumeWorthyProgress, routeForOnboardingNextStep } from "../onboarding/resume";
 import {
   LOCAL_CATEGORY_IMPORT,
   LOCAL_CHILD_ID,
@@ -217,6 +218,29 @@ describe("QA-DEMO-JOURNEY: full demo user journey through the API client (local 
     // stage is computed from the birthDate the user just entered (~24 months ago).
     expect(home.child.currentStage).toBe("toddler_1_3");
     expect(home.child.stageLabel).toBeTruthy();
+  });
+
+  /**
+   * 라운드 51 #2: 여기서 앱을 껐다 켜면(= 콜드 스타트) 어떤 화면으로 가는가.
+   *
+   * app/index.tsx는 이제 데모 세션에서도 진행도를 물어보고, 그 답이 "아이는 있고 준비물 단계가
+   * 남았다"이면 ONB-006 이어하기를 거쳐 ONB-003으로 건너뛴다. 예전에는 이 조회 자체가
+   * `isTestSession`으로 막혀 있어 ONB-001로 돌아갔고, 거기서 다시 만든 아이가 로컬의 한 자리를
+   * 통째로 교체해(createChild) 방금 입력한 태명("여정이")이 사라졌다.
+   *
+   * 이 단계는 읽기만 하므로 여정의 상태를 건드리지 않는다 -- 다음 step 2d가 그대로 이어진다.
+   */
+  it("step 2c-r: 지금 앱을 껐다 켜면 이어하기가 ONB-003으로 보내고 입력한 태명이 남는다", async () => {
+    const progress = await getOnboardingProgress(token);
+    expect(progress.completed).toBe(false);
+    expect(progress.nextStep).toBe("prepared-items");
+    expect(progress.summary.child).toMatchObject({ id: LOCAL_CHILD_ID, nickname: "여정이" });
+    // 데모 세션의 이어하기 판정(src/onboarding/resume.ts) -- 아이를 만들었으므로 대상이다.
+    expect(hasResumeWorthyProgress(progress, true)).toBe(true);
+    // ONB-006 "이어서 하기"의 목적지: 아이 생성 화면을 다시 타지 않는다.
+    expect(routeForOnboardingNextStep(progress.nextStep)).toBe("/onboarding/prepared-items");
+    // 그래서 태명은 그대로다(아이를 다시 만들지 않으므로 교체가 일어나지 않는다).
+    expect((await listChildren(token)).children[0].nickname).toBe("여정이");
   });
 
   it("step 2d: submitting prepared items completes the step and is counted in the summary", async () => {

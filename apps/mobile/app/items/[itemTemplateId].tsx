@@ -13,7 +13,7 @@ import {
   buildItemStatusChangedPayload
 } from "../../src/analytics/events";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
-import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
+import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
 import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
 import {
   expenseLinkParams,
@@ -33,6 +33,13 @@ import { itemStatusBadgeLabel } from "../../src/items/item-labels";
 import { itemTrustNotes } from "../../src/items/item-trust-notes";
 import { linkedExpenseRow } from "../../src/items/linked-expense";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+import { useItemStatusGate } from "../../src/items/useItemStatusGate";
+import { buildPendingItemStatusIndex, effectiveItemStatus, pendingItemStatusView } from "../../src/items/pending-status";
+import {
+  refreshOfflineSyncSnapshot,
+  updateItemStatusOffline,
+  useOfflineSyncSnapshot
+} from "../../src/offline/sync-controller";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -41,7 +48,7 @@ import {
   GIFTED_RESET_CONFIRM_CANCEL_LABEL,
   GIFTED_RESET_CONFIRM_TITLE,
   giftedResetConfirmMessage,
-  itemStatusMutationErrorMessage,
+  ITEM_STATUS_LOCAL_SAVE_FAILED_MESSAGE,
   type GiftedResetActionKind
 } from "../../src/items/status-mutation-messages";
 import {
@@ -232,6 +239,9 @@ export default function ItemDetailScreen() {
   // 판정은 src/family/record-permissions.ts 한 곳에 있고, 비세션(ITEM-002 픽셀락 캡처)에서는
   // 애초에 두 입구가 렌더되지 않는다.
   const expenseGate = useExpenseEntryGate();
+  // 라운드 51 #8: 준비 상태(찜하기·선물 받음·준비 완료) 전용 게이트. 서버가 이 PATCH에도 편집
+  // 권한을 요구하므로(items-catalog.service.ts) 같은 판정을 읽고 문구만 준비템의 말로 바꾼다.
+  const itemStatusGate = useItemStatusGate();
   const [clickedTitle, setClickedTitle] = useState<string | null>(null);
   // COM-106 fallback: when Linking.openURL fails (or canOpenURL is false), keep the
   // redirect URL around so we can offer "링크 공유하기" (Share.share) and "다시 시도"
@@ -246,6 +256,16 @@ export default function ItemDetailScreen() {
     enabled: Boolean(authToken && childId && itemTemplateId),
     queryFn: () => getItemDetail(authToken!, childId!, itemTemplateId)
   });
+  // 라운드 51 C-10: 이 준비템에 아직 전송되지 않은 상태 변경이 있는가. 낙관 반영은 캐시 패치가
+  // 이미 해 두지만, 상세를 다시 조회해 서버 값으로 덮이더라도 이 행이 사용자가 마지막으로 누른
+  // 값을 지킨다(판정·문구는 src/items/pending-status.ts).
+  const syncSnapshot = useOfflineSyncSnapshot();
+  const pendingStatusRow = buildPendingItemStatusIndex(syncSnapshot.itemStatusRows, childId).get(itemTemplateId);
+  const pendingStatus = pendingItemStatusView(pendingStatusRow);
+  useEffect(() => {
+    // 목록을 거치지 않고 딥링크로 곧장 들어온 첫 렌더에서도 큐를 읽어 둔다.
+    void refreshOfflineSyncSnapshot();
+  }, []);
 
   // ANA-103: item_status_changed fires only after the server confirmed a status change (both
   // the 찜하기/찜해제 toggle and "지출 없이 준비 완료로 표시"). The payload carries only the coarse
@@ -259,64 +279,66 @@ export default function ItemDetailScreen() {
     });
   };
 
-  const markPrepared = useMutation({
-    mutationFn: () => updateItemStatus(authToken!, childId!, itemTemplateId, "prepared"),
-    onMutate: () => {
-      setStatusErrorMessage(null);
-    },
-    onError: (error) => {
-      setStatusErrorMessage(itemStatusMutationErrorMessage("prepare", error));
-    },
-    onSuccess: async () => {
-      trackItemStatusChanged("prepared");
-      await queryClient.invalidateQueries({ queryKey: ["items"] });
-      await queryClient.invalidateQueries({ queryKey: ["home"] });
-      router.replace("/(tabs)/items");
+  /**
+   * 라운드 51 C-10 — 이 화면의 준비 상태 변경 셋(찜하기/찜해제 · 선물 받음/취소 · 지출 없이
+   * 준비 완료)이 하나의 **오프라인 우선** 경로로 합쳐졌다.
+   *
+   * 예전에는 뮤테이션 셋이 각각 PATCH를 쏘고 성공하면 세 캐시를 무효화했다. 실패는 곧 유실이라
+   * (큐가 없었다) 오프라인에서 누른 "선물로 받았어요"는 사라졌고, 화면은 "잠시 후 다시 시도해
+   * 주세요"라고만 말했다. 이제는 로컬 큐에 남기고 낙관 반영한 뒤 곧바로 돌아온다 -- 전송과
+   * 재시도는 sync-engine이, 실패 안내는 그 행의 배지와 동기화 상태 화면이 맡는다.
+   *
+   * 무효화를 여기서 하지 않는 이유는 목록 탭과 같다: 서버는 아직 옛 값을 들고 있어 지금 다시
+   * 물으면 방금 누른 값이 되돌아온다(sync-controller의 updateItemStatusOffline 주석).
+   *
+   * 라운드 51 #8: 보기 전용 역할이면 큐에 넣지 않고 안내로 답한다 -- 넣어 봐야 403으로 실패
+   * 행이 될 뿐이고, 그 사실을 지금 말해 주는 편이 정직하다.
+   */
+  const applyStatusChange = (status: ItemStatus, options?: { returnToItemsTab?: boolean; onSaved?: () => void }) => {
+    if (!authToken || !childId || !itemTemplateId) return;
+    if (itemStatusGate.locked) {
+      itemStatusGate.explain();
+      return;
     }
-  });
+    setStatusErrorMessage(null);
+    void updateItemStatusOffline(authToken, queryClient, {
+      childId,
+      itemTemplateId,
+      itemName: detail.data?.name ?? "",
+      status
+    })
+      .then(() => {
+        // ANA-103: 서버 확정이 아니라 **사용자 행동** 시점에 보고한다(목록 탭과 같은 근거).
+        // 무엇을 보고할지는 호출부가 정한다 -- 세 진입점이 각자 자기 이벤트를 선언해 두면
+        // 어느 버튼이 무엇을 보고하는지 그 자리에서 읽힌다(예전 뮤테이션 셋의 onSuccess와 같다).
+        options?.onSaved?.();
+        if (options?.returnToItemsTab) {
+          // 준비 완료로 정리한 뒤에는 그 변화가 보이는 화면(준비율·준비완료 탭)으로 돌아간다.
+          router.replace("/(tabs)/items");
+        }
+      })
+      .catch(() => {
+        setStatusErrorMessage(ITEM_STATUS_LOCAL_SAVE_FAILED_MESSAGE);
+      });
+  };
 
   // UX-5B-2: 장바구니 스텁 대신 찜하기/찜해제 토글 -- 서버가 실제로 저장하는 'interested'
-  // 상태를 items 탭과 같은 status PATCH로 기록한다. 찜해제는 'not_prepared'로 되돌린다.
-  const toggleInterested = useMutation({
-    mutationFn: (status: "interested" | "not_prepared") =>
-      updateItemStatus(authToken!, childId!, itemTemplateId, status),
-    onMutate: () => {
-      setStatusErrorMessage(null);
-    },
-    onError: (error, status) => {
-      setStatusErrorMessage(itemStatusMutationErrorMessage(status === "interested" ? "interest" : "uninterest", error));
-    },
-    onSuccess: async (_data, status) => {
-      trackItemStatusChanged(status);
-      await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
-      await queryClient.invalidateQueries({ queryKey: ["items"] });
-      await queryClient.invalidateQueries({ queryKey: ["home"] });
-    }
-  });
+  // 상태를 items 탭과 같은 status 변경으로 기록한다. 찜해제는 'not_prepared'로 되돌린다.
+  const toggleInterested = (status: "interested" | "not_prepared") =>
+    applyStatusChange(status, { onSaved: () => trackItemStatusChanged(status) });
 
   /**
    * ITEM-123 (B4): "선물로 받았어요" — 도메인·DTO·statusLabel에는 있었지만 앱 어디에서도
-   * 고를 수 없던 gifted 상태의 유일한 진입점이다. 찜하기 토글과 같은 관례(같은 status
-   * PATCH, 같은 캐시 무효화, 같은 ANA-103 이벤트)를 쓰고, 되돌리기는 not_prepared로
-   * 돌린다. DNC-015(선물 받은 물건은 지출 합계에서 제외)와도 맞물린다 — 지출을 만들지
-   * 않고 준비 상태만 정리하는 경로다.
+   * 고를 수 없던 gifted 상태의 유일한 진입점이다. 찜하기 토글과 같은 관례(같은 저장 경로,
+   * 같은 ANA-103 이벤트)를 쓰고, 되돌리기는 not_prepared로 돌린다. DNC-015(선물 받은 물건은
+   * 지출 합계에서 제외)와도 맞물린다 — 지출을 만들지 않고 준비 상태만 정리하는 경로다.
    */
-  const markGifted = useMutation({
-    mutationFn: (status: "gifted" | "not_prepared") =>
-      updateItemStatus(authToken!, childId!, itemTemplateId, status),
-    onMutate: () => {
-      setStatusErrorMessage(null);
-    },
-    onError: (error, status) => {
-      setStatusErrorMessage(itemStatusMutationErrorMessage(status === "gifted" ? "gift" : "ungift", error));
-    },
-    onSuccess: async (_data, status) => {
-      trackItemStatusChanged(status);
-      await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
-      await queryClient.invalidateQueries({ queryKey: ["items"] });
-      await queryClient.invalidateQueries({ queryKey: ["home"] });
-    }
-  });
+  const markGifted = (status: "gifted" | "not_prepared") =>
+    applyStatusChange(status, { onSaved: () => trackItemStatusChanged(status) });
+
+  /** 링크를 연 뒤 카드의 "지출 없이 준비 완료로 표시". 저장 뒤 준비템 탭으로 돌아간다. */
+  const markPrepared = () =>
+    applyStatusChange("prepared", { returnToItemsTab: true, onSaved: () => trackItemStatusChanged("prepared") });
 
   const clickLink = useMutation({
     mutationFn: (productLinkId: string) => clickProductLink(authToken!, productLinkId, childId!, "ITEM-003"),
@@ -428,11 +450,15 @@ export default function ItemDetailScreen() {
   }
 
   const visibleDetail = hasSession ? detail.data! : previewDetail(itemTemplateId);
-  const isInterested = visibleDetail.status === "interested";
+  // 라운드 51 C-10: 화면이 말하는 "내 준비 상태"는 대기 중인 변경이 있으면 그 값이다 -- 방금
+  // 누른 값이 이 기기의 진실이고, 서버 응답은 아직 그 사실을 모르는 옛 값이다. 대기 행이 없으면
+  // 종전 그대로 서버 값이라, 비세션 프리뷰(ITEM-002 픽셀락 캡처)에는 영향이 없다.
+  const displayStatus = effectiveItemStatus(visibleDetail.status, pendingStatusRow) as ItemStatus;
+  const isInterested = displayStatus === "interested";
   // 라운드 48 T1(A4): 내 준비 상태 라벨. 목록 카드 배지와 같은 모듈이 정하고
   // (src/items/item-labels.ts), 준비 전(기본값)이면 undefined라 줄 자체가 사라진다.
-  const statusBadgeLabel = itemStatusBadgeLabel(visibleDetail.status);
-  const isGifted = visibleDetail.status === "gifted";
+  const statusBadgeLabel = itemStatusBadgeLabel(displayStatus);
+  const isGifted = displayStatus === "gifted";
   /**
    * 라운드 43 UX-V (C2): 구매처가 하나도 없는 준비템 — 시드 62개 품목 중 4개
    * (영양제·기저귀 재고·이유식 메이커·첫 그림책)가 링크 0개다. 예전에는 그 화면에서도
@@ -472,13 +498,13 @@ export default function ItemDetailScreen() {
     if (isGifted) {
       Alert.alert("선물 받음을 취소할까요?", "다시 준비 전으로 돌아가요.", [
         { text: "취소", style: "cancel" },
-        { text: "되돌리기", onPress: () => markGifted.mutate("not_prepared") }
+        { text: "되돌리기", onPress: () => markGifted("not_prepared") }
       ]);
       return;
     }
     Alert.alert("선물로 받았어요", "이 준비템을 선물로 받은 걸로 표시할까요? 준비완료 탭에서 볼 수 있어요.", [
       { text: "취소", style: "cancel" },
-      { text: "표시하기", onPress: () => markGifted.mutate("gifted") }
+      { text: "표시하기", onPress: () => markGifted("gifted") }
     ]);
   }
   /**
@@ -559,6 +585,18 @@ export default function ItemDetailScreen() {
                 (not_prepared)은 알릴 사실이 없어 줄 자체가 나오지 않는다.
                 세션 게이트: ITEM-002 픽셀 락 캡처(비세션 프리뷰)에는 존재하지 않는다. */}
             {hasSession && statusBadgeLabel ? <StatusBadge label={statusBadgeLabel} /> : null}
+            {/* 라운드 51 C-10: 그 상태가 아직 이 기기에만 있다는 사실. 바로 위 배지가 이미 새
+                값을 말하고 있으므로 여기서는 "언제 반영되는지"만 덧붙인다 -- 문구는 기록 탭의
+                대기/실패 행과 같은 단어를 쓴다(src/offline/messages.ts). 큐가 비면 통째로
+                사라지고, 비세션 프리뷰(ITEM-002 캡처)에는 애초에 대기 행이 없다. */}
+            {hasSession && pendingStatus ? (
+              <View style={{ gap: 4 }}>
+                <StatusBadge label={pendingStatus.badgeLabel} tone="warning" />
+                <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>
+                  {pendingStatus.noticeText}
+                </Text>
+              </View>
+            ) : null}
             {/* 라운드 49 C-04: 준비 상태 바로 아래에 **그 준비로 실제 기록한 지출** 한 줄.
                 지금까지 연결은 "지출 → 준비템" 한 방향으로만 보였고(지출을 저장하면 준비템이
                 준비 완료가 된다, R19-B), 그 반대편인 이 화면에는 얼마를 언제 썼는지가 없었다 --
@@ -684,7 +722,7 @@ export default function ItemDetailScreen() {
           {affiliateDisclosureText ? <AffiliateDisclosure text={affiliateDisclosureText} /> : null}
           <View style={{ flexDirection: "row", gap: 10 }}>
             <SecondaryButton
-              disabled={!hasSession || toggleInterested.isPending}
+              disabled={!hasSession}
               label={isInterested ? "찜해제" : "찜하기"}
               // 라운드 24 L7: 확인 문구는 "interest" 고정이다. 확인이 뜨는 경우는 지금 상태가
               // gifted일 때뿐인데, status가 단일 컬럼이라 그때 isInterested는 항상 false다
@@ -692,7 +730,7 @@ export default function ItemDetailScreen() {
               // 실행되므로 kind는 쓰이지도 않는다.
               onPress={() =>
                 confirmGiftedReset("interest", () =>
-                  toggleInterested.mutate(isInterested ? "not_prepared" : "interested")
+                  toggleInterested(isInterested ? "not_prepared" : "interested")
                 )
               }
               style={{ flex: 1 }}
@@ -722,7 +760,6 @@ export default function ItemDetailScreen() {
               (app/pixel-lock.tsx는 캡처 전 세션을 지운다). */}
           {hasSession ? (
             <SecondaryButton
-              disabled={markGifted.isPending}
               label={isGifted ? "선물 받음 취소" : "선물로 받았어요"}
               accessibilityLabel={
                 isGifted ? `${visibleDetail.name} 선물 받음 취소` : `${visibleDetail.name} 선물로 받았어요`
@@ -804,11 +841,10 @@ export default function ItemDetailScreen() {
                 )}
               />
               <SecondaryButton
-                disabled={markPrepared.isPending}
                 label="지출 없이 준비 완료로 표시"
                 onPress={() => {
                   if (!authToken || !childId) return;
-                  confirmGiftedReset("prepare", () => markPrepared.mutate());
+                  confirmGiftedReset("prepare", () => markPrepared());
                 }}
               />
             </Card>

@@ -629,8 +629,11 @@ describe("UX-G 홈 화면 배선", () => {
   it("홈이 순수 모듈로 카드를 고르고, 서버 응답에서 아직 준비되지 않은 추천만 센다 (F6)", () => {
     expect(homeSource).toContain('from "../../src/home/first-run-guide"');
     expect(homeSource).toContain("const firstRunGuide = evaluateHomeFirstRunGuide({");
+    // 라운드 51 QA(P2-2): 세는 배열이 "서버 응답 + 아직 전송되지 않은 상태 변경"으로 바뀌었다.
+    // 오프라인에서 준비 완료를 누른 항목이 이 개수에 계속 잡히면, 안내 카드가 준비템 탭과
+    // 다른 숫자를 말한다.
     expect(homeSource).toContain(
-      "recommendedItemCount: countUnpreparedRecommendedItems(home.data?.recommendedItems ?? [])"
+      "recommendedItemCount: countUnpreparedRecommendedItems(recommendedItemsWithPendingStatus ?? [])"
     );
     // 요청을 늘리지 않는다 -- 기록 수 게이트는 주간 카드가 이미 쓰는 재조정 결과를 재사용한다.
     expect(homeSource).toContain("recentRecordCount: weeklyThisMonthRecords?.length ?? null");

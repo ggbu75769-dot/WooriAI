@@ -1,10 +1,12 @@
 import { MAX_DELAY_MS, computeNextRetryAtIso } from "./backoff";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
-import { mergeOutboxMutation } from "./outbox-merge";
+import { mergeItemStatusMutation, mergeOutboxMutation } from "./outbox-merge";
 import { isPermissionDeniedSyncError } from "./permission-denied";
 import {
   generateOfflineId,
   type ExpensePayload,
+  type ItemStatusOutboxRow,
+  type ItemStatusPayload,
   type LocalExpenseRow,
   type MutationOutboxRow,
   type OfflineStore
@@ -29,6 +31,22 @@ export interface RemoteExpenseApi {
   ): Promise<RemoteUpdateResult>;
   deleteExpense(canonicalId: string, expectedVersion: number, idempotencyKey: string): Promise<void>;
 }
+
+/**
+ * 라운드 51 C-10 — 준비템 상태 변경의 전송 계약. 지출과 분리한 이유는 큐가 분리된 이유와 같다
+ * (src/offline/types.ts의 ItemStatusOutboxRow 주석): 버전도 충돌도 idempotency 키도 없고,
+ * 서버 계약이 "이 값으로 맞춰라" 한 줄이라 그 자체로 멱등이다.
+ */
+export interface RemoteItemStatusApi {
+  setItemStatus(payload: ItemStatusPayload): Promise<void>;
+}
+
+/**
+ * flushOutbox가 받는 전송 계층. 준비템 상태 전송은 **선택**이다 -- 기존 테스트 페이크
+ * (RemoteExpenseApi만 구현)를 그대로 통과시키고, 그런 transport가 오면 준비템 큐는 손대지
+ * 않은 채 지출만 보낸다(있지도 않은 능력을 부르지 않는다).
+ */
+export type RemoteSyncApi = RemoteExpenseApi & Partial<RemoteItemStatusApi>;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -244,12 +262,28 @@ export async function recordLocalDelete(
 }
 
 export type FlushSummary = {
+  /** 지출 mutation 중 서버가 확정한 건수. 준비템 상태는 아래 별도 칸이다. */
   synced: number;
   failed: number;
   conflicted: number;
+  /**
+   * 라운드 51 C-10: 준비템 상태 큐의 집계. 지출 칸(synced/failed)과 **섞지 않는다** --
+   * 호출부가 지출 확정에만 붙이는 것들이 있기 때문이다: "기록했어요. 이번 달 우리 아이 비용에
+   * 더해둘게요."라는 플래시 문구와 expense_synced 분석 이벤트가 그렇다. 준비 상태 하나만
+   * 전송된 pass에서 그 문구가 뜨면 있지도 않은 지출을 기록했다고 말하는 셈이다.
+   */
+  itemStatusSynced: number;
+  itemStatusFailed: number;
   /** True if the pass stopped early because a mutation failed with what looks like a network
    * error (not a typed 409/4xx) -- further sends in the same pass would likely fail the same
-   * way while offline, so the pass bails out instead of burning through the whole queue. */
+   * way while offline, so the pass bails out instead of burning through the whole queue.
+   *
+   * 라운드 51 QA(P3-6) 의미 명시: **어느 큐에서 멈췄든** 이 칸 하나로 말한다 -- 지출 pass가
+   * 네트워크로 멈췄을 때(flushOutboxPass)와 준비템 pass가 그랬을 때(flushItemStatusPass)가
+   * 같은 값을 세운다. "이 기기가 지금 오프라인으로 보인다"가 이 칸이 뜻하는 전부이고, 그
+   * 판단은 큐와 무관하게 같으므로 칸을 둘로 가르지 않았다(엔진 밖 소비자는 없다 -- 지금
+   * 이 값을 읽는 것은 flushOutbox의 재실행 판단과 테스트뿐이다). 어느 큐가 멈췄는지를
+   * 구분해야 하는 소비자가 생기면 그때 `itemStatusStoppedForNetwork`로 나눈다. */
   stoppedForNetwork: boolean;
 };
 
@@ -269,9 +303,82 @@ const inFlightFlushes = new WeakMap<OfflineStore, Promise<FlushSummary>>();
  * `wipeOfflineStore` below. */
 const inFlightWipes = new WeakMap<OfflineStore, Promise<void>>();
 
-export function flushOutbox(store: OfflineStore, remote: RemoteExpenseApi): Promise<FlushSummary> {
+/**
+ * 라운드 51 QA(P1-1) — pass가 도는 동안 도착한 변경을 위한 "한 번 더" 표시.
+ *
+ * ## 무엇이 문제였나
+ *
+ * 한 pass는 **시작 시점의 스냅숏**만 본다(flushOutboxPass는 listOutboxMutations,
+ * flushItemStatusPass는 listItemStatusMutations를 pass 첫머리에 한 번 읽는다). 그런데 위
+ * 단일 비행 가드는 pass가 도는 동안 들어온 flushOutbox 호출을 **이미 도는 pass의 약속으로
+ * 돌려주기만** 했다. 그래서 A를 보내는 중에 사용자가 B(다른 준비템 상태·다른 지출)를 누르면,
+ * B를 위해 발화한 flushInBackground는 A의 pass에 흡수되고 B는 아무도 보내지 않은 채 남았다.
+ * 온라인인데도 "연결되면 자동으로 반영할게요" 배지가 다음 트리거(재연결·포그라운드 복귀)까지
+ * 무기한 남고, 그 사이 로그아웃하면 PRIV-104 wipe가 **전송된 적 없는 그 변경을 지운다**.
+ *
+ * ## 고친 방법
+ *
+ * 진행 중인 pass에 흡수된 호출은 이 집합에 표시를 남긴다. 지금 pass가 끝나면 flushOutbox가
+ * 표시를 보고 **한 번 더** 돈다 -- 그 pass는 새 스냅숏을 읽으므로 B가 그때 나간다.
+ *
+ * 무한 루프 안전장치 둘:
+ *  - `MAX_FLUSH_RERUNS` 상한(사용자가 계속 누르는 동안 한 호출이 영원히 안 끝나지 않는다);
+ *  - **진전 없으면 종료** -- 추가 pass가 아무것도 확정/실패/충돌시키지 못했으면(예: 남은 행이
+ *    전부 백오프 창 안이거나 'failed') 표시가 또 있어도 멈춘다. 다음 트리거가 이어받는다.
+ *
+ * 계약 불변: 단일 비행 가드(호출은 여전히 하나의 약속을 공유한다)와 wipe 순서
+ * (wipeOfflineStore가 기다리는 것은 재실행까지 포함한 이 약속 하나다)는 그대로다.
+ */
+const pendingFlushReruns = new WeakSet<OfflineStore>();
+
+/** 한 번의 flushOutbox 호출이 이어서 돌 수 있는 추가 pass의 상한(위 주석의 안전장치 ①). */
+export const MAX_FLUSH_RERUNS = 4;
+
+/** 한 pass가 무엇이든 진전시켰는가(안전장치 ②의 판정). */
+function flushPassMadeProgress(summary: FlushSummary): boolean {
+  return (
+    summary.synced + summary.failed + summary.conflicted + summary.itemStatusSynced + summary.itemStatusFailed > 0
+  );
+}
+
+/** 재실행 결과를 호출자가 받는 한 장의 집계에 더한다(호출자는 모든 pass의 합을 본다). */
+function accumulateFlushSummary(total: FlushSummary, pass: FlushSummary): void {
+  total.synced += pass.synced;
+  total.failed += pass.failed;
+  total.conflicted += pass.conflicted;
+  total.itemStatusSynced += pass.itemStatusSynced;
+  total.itemStatusFailed += pass.itemStatusFailed;
+  total.stoppedForNetwork = total.stoppedForNetwork || pass.stoppedForNetwork;
+}
+
+/**
+ * 한 pass = 지출 큐 → (보낼 수 있으면) 준비템 큐.
+ *
+ * 라운드 51 C-10: 준비템 상태 큐는 **같은 pass 안에서** 이어서 보낸다 -- 단일 비행 가드
+ * (inFlightFlushes)와 세션 정리 순서(wipeOfflineStore)를 지출과 그대로 공유하기 위해서다.
+ * 큐가 따로 돌면 wipe가 기다려 주는 대상에서 빠져, 로그아웃 순간 이전 계정의 준비 상태가
+ * 새 계정 토큰으로 나갈 수 있다.
+ *
+ * 지출 pass가 네트워크로 멈췄으면(stoppedForNetwork) 여기서도 보내지 않는다: 같은 기기가
+ * 같은 순간에 오프라인이므로 결과가 뻔하고, 헛된 시도로 백오프만 올린다.
+ */
+async function runFlushPass(store: OfflineStore, remote: RemoteSyncApi): Promise<FlushSummary> {
+  const summary = await flushOutboxPass(store, remote);
+  if (!summary.stoppedForNetwork && typeof remote.setItemStatus === "function") {
+    await flushItemStatusPass(store, remote as RemoteItemStatusApi, summary);
+  }
+  return summary;
+}
+
+export function flushOutbox(store: OfflineStore, remote: RemoteSyncApi): Promise<FlushSummary> {
   const alreadyRunning = inFlightFlushes.get(store);
-  if (alreadyRunning) return alreadyRunning;
+  if (alreadyRunning) {
+    // P1-1: 지금 도는 pass는 이 호출을 부른 변경을 스냅숏에 갖고 있지 않다. 표시만 남기고
+    // 같은 약속을 돌려준 뒤, 저 pass가 끝나면 새 스냅숏으로 한 번 더 돈다.
+    pendingFlushReruns.add(store);
+    return alreadyRunning;
+  }
+  pendingFlushReruns.delete(store);
 
   const pass = (async () => {
     // PRIV-104: a flush requested while a session wipe is running must not read the pre-wipe
@@ -280,12 +387,77 @@ export function flushOutbox(store: OfflineStore, remote: RemoteExpenseApi): Prom
     // finish; the pass then sees the post-wipe (empty) queue and no-ops.
     const wipeInProgress = inFlightWipes.get(store);
     if (wipeInProgress) await wipeInProgress.catch(() => undefined);
-    return flushOutboxPass(store, remote);
+    const summary = await runFlushPass(store, remote);
+
+    for (let rerun = 0; rerun < MAX_FLUSH_RERUNS; rerun += 1) {
+      if (!pendingFlushReruns.has(store)) break;
+      // 이번 재실행이 그 표시를 소비한다 -- 재실행이 도는 동안 또 눌리면 다시 표시된다.
+      pendingFlushReruns.delete(store);
+      // 오프라인으로 멈춘 pass 뒤에 곧바로 또 보내지 않는다: 같은 순간 같은 기기다. 백오프
+      // 창이 그 행들을 이미 예약해 뒀고, 재연결·포그라운드 트리거가 이어받는다.
+      if (summary.stoppedForNetwork) break;
+      const extra = await runFlushPass(store, remote);
+      const progressed = flushPassMadeProgress(extra);
+      accumulateFlushSummary(summary, extra);
+      if (!progressed) break;
+    }
+    pendingFlushReruns.delete(store);
+
+    return summary;
   })().finally(() => {
     inFlightFlushes.delete(store);
   });
   inFlightFlushes.set(store, pass);
   return pass;
+}
+
+/**
+ * 라운드 51 QA(P3-7) — 재시작 자가 치유: 앱이 전송 도중 죽으면서 남은 표시를 정리한다.
+ *
+ * flushOutboxPass는 요청을 보내기 **직전에** 행을 표시한다(지출: 로컬 행 'syncing' +
+ * mutation `inFlight`, 준비템: 행 'syncing' + `inFlight`). 응답을 받으면 그 표시를 되돌리지만,
+ * 그 사이에 앱이 종료되면(사용자가 종료, OS가 메모리 회수, 크래시) 표시가 저장소에 그대로
+ * 남는다. 다음 실행에서 그 행들은:
+ *
+ *  - `inFlight` 때문에 **병합 대상에서 빠진다**(outbox-merge.ts). 같은 지출을 다시 고치거나
+ *    같은 준비템을 다시 누를 때마다 접히지 않고 새 행이 붙어 큐가 끝없이 자란다.
+ *  - 화면에는 "동기화 중"으로 보인다 -- 실제로는 아무 요청도 나가 있지 않은데도.
+ *
+ * 그래서 부팅 시(앱 루트의 useOfflineSyncLifecycle) 한 번, 죽은 표시를 대기 상태로 되돌린다.
+ * 값·페이로드·백오프 예산(attemptCount/nextRetryAt)은 한 글자도 건드리지 않는다 -- 되돌리는
+ * 것은 "지금 전송 중"이라는 표시뿐이다. 되돌린 행 수를 돌려준다(테스트·로깅용).
+ *
+ * **살아 있는 pass가 있으면 아무것도 하지 않는다.** 그 표시는 죽은 것이 아니라 지금 나가 있는
+ * 요청의 것이고, 지우면 그 요청의 응답 도중 도착한 변경이 다시 접혀 유실될 수 있다(H-3).
+ */
+export async function recoverInterruptedSyncState(store: OfflineStore): Promise<number> {
+  if (inFlightFlushes.get(store)) return 0;
+
+  let repaired = 0;
+  const timestamp = nowIso();
+
+  for (const row of await store.listLocalExpenses()) {
+    if (row.syncState !== "syncing") continue;
+    await store.updateLocalExpense(row.localId, { syncState: "pending", updatedAt: timestamp });
+    repaired += 1;
+  }
+  for (const mutation of await store.listOutboxMutations()) {
+    if (!mutation.inFlight) continue;
+    await store.updateOutboxMutation(mutation.mutationId, { inFlight: false });
+    repaired += 1;
+  }
+  for (const row of await store.listItemStatusMutations()) {
+    if (row.syncState !== "syncing" && !row.inFlight) continue;
+    await store.updateItemStatusMutation(row.mutationId, {
+      // 'failed'는 사용자가 재시도/버리기를 고를 상태라 되돌리지 않는다 -- 지우는 것은
+      // 전송 표시뿐이고, 상태는 'syncing'이었을 때만 대기로 내린다.
+      ...(row.syncState === "syncing" ? { syncState: "pending" as const, updatedAt: timestamp } : {}),
+      inFlight: false
+    });
+    repaired += 1;
+  }
+
+  return repaired;
 }
 
 /**
@@ -337,7 +509,14 @@ export function wipeOfflineStore(store: OfflineStore): Promise<void> {
  * impossibly far in the future, which the OFF-115 clock-anomaly rule below self-heals.
  */
 async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): Promise<FlushSummary> {
-  const summary: FlushSummary = { synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false };
+  const summary: FlushSummary = {
+    synced: 0,
+    failed: 0,
+    conflicted: 0,
+    itemStatusSynced: 0,
+    itemStatusFailed: 0,
+    stoppedForNetwork: false
+  };
   const mutations = await store.listOutboxMutations();
   const currentTime = nowIso();
 
@@ -559,6 +738,184 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
   }
 
   return summary;
+}
+
+// ---------------------------------------------------------------------------
+// 라운드 51 C-10 — 준비템 상태 큐 (item_status_outbox)
+//
+// 지출 큐와 나누는 것: 백오프 규칙(backoff.ts), 5xx 시도 상한(MAX_SERVER_ERROR_ATTEMPTS),
+// OFF-115 시계 역행 자가 치유, 4xx=permanent / 5xx·네트워크=transient 분류.
+// 지출 큐와 다른 것: 버전·충돌·idempotency 키가 없고, 같은 준비템의 대기 행은 접히는 대신
+// **최신 값으로 대체**되며(outbox-merge.ts), 성공한 행은 남기지 않고 지운다.
+// ---------------------------------------------------------------------------
+
+/**
+ * 사용자가 준비 상태 버튼을 누른 순간 로컬에 남기는 한 줄. 화면은 이 함수가 resolve되면 곧바로
+ * 낙관 반영을 하고(sync-controller.ts), 서버 왕복을 기다리지 않는다 -- 지출 저장(recordLocalCreate)과
+ * 같은 오프라인 우선 계약이다.
+ *
+ * 같은 (childId, itemTemplateId)에 이미 대기 행이 있으면 새 행을 쌓지 않고 그 행을 최신 값으로
+ * 대체한다(병합 규칙과 그 근거는 outbox-merge.ts의 mergeItemStatusMutation).
+ */
+export async function recordLocalItemStatus(
+  store: OfflineStore,
+  payload: ItemStatusPayload,
+  timestamp: string = nowIso()
+): Promise<ItemStatusOutboxRow> {
+  const existing = await store.listItemStatusMutationsForItem(payload.childId, payload.itemTemplateId);
+  const incoming: ItemStatusOutboxRow = {
+    mutationId: generateOfflineId("istat"),
+    childId: payload.childId,
+    itemTemplateId: payload.itemTemplateId,
+    status: payload.status,
+    itemName: payload.itemName,
+    syncState: "pending",
+    attemptCount: 0,
+    nextRetryAt: null,
+    lastError: null,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+  const merged = mergeItemStatusMutation(existing, incoming);
+  const mergedIds = new Set(merged.map((row) => row.mutationId));
+  for (const old of existing) {
+    if (!mergedIds.has(old.mutationId)) {
+      await store.deleteItemStatusMutation(old.mutationId);
+    }
+  }
+  for (const row of merged) {
+    if (existing.some((old) => old.mutationId === row.mutationId)) {
+      await store.updateItemStatusMutation(row.mutationId, row);
+    } else {
+      await store.insertItemStatusMutation(row);
+    }
+  }
+  // 이 (childId, itemTemplateId)에 지금 걸려 있는 "사용자가 마지막으로 원한 값"을 돌려준다.
+  return merged[merged.length - 1] ?? incoming;
+}
+
+/**
+ * 백오프 창이 아직 안 열렸는가. OFF-115의 시계 역행 자가 치유까지 지출 pass와 같은 규칙을 쓴다
+ * (근거 주석은 flushOutboxPass 안에 있다) -- 창이 MAX_DELAY_MS보다 더 먼 미래면 기기 시계가
+ * 뒤로 갔다는 뜻이라 창을 지우고 이번 pass에서 바로 보낸다.
+ */
+async function isParkedInBackoffWindow(
+  store: OfflineStore,
+  row: ItemStatusOutboxRow,
+  currentTime: string
+): Promise<boolean> {
+  if (!row.nextRetryAt || row.nextRetryAt <= currentTime) return false;
+  const maxPlausibleRetryAt = new Date(new Date(currentTime).getTime() + MAX_DELAY_MS).toISOString();
+  if (row.nextRetryAt <= maxPlausibleRetryAt) return true;
+  await store.updateItemStatusMutation(row.mutationId, { nextRetryAt: null });
+  return false;
+}
+
+/**
+ * 큐에 쌓인 상태 변경을 생성 순서대로 보낸다. 'failed' 행은 건너뛴다 -- 사용자가 동기화 상태
+ * 화면에서 재시도/버리기를 고르거나, 같은 준비템을 다시 눌러(= 새 의사 표시) 대기로 되돌릴 때까지.
+ *
+ * 집계는 같은 `summary`의 **별도 칸**(itemStatusSynced/itemStatusFailed)에 담는다: 준비 상태만
+ * 전송된 pass에서도 준비템 목록·홈 준비율은 갱신돼야 하지만, 지출 확정에만 붙는 플래시 문구와
+ * 분석 이벤트가 함께 발화하면 안 되기 때문이다(FlushSummary 주석 참고).
+ */
+async function flushItemStatusPass(
+  store: OfflineStore,
+  remote: RemoteItemStatusApi,
+  summary: FlushSummary
+): Promise<void> {
+  const rows = await store.listItemStatusMutations();
+  const currentTime = nowIso();
+
+  for (const row of rows) {
+    if (row.syncState === "failed") continue;
+    if (await isParkedInBackoffWindow(store, row, currentTime)) continue;
+
+    // H-3와 같은 이유로 전송 직전에 표시한다: 요청이 나가 있는 동안 도착한 새 탭은 이 행에
+    // 접히지 않고 새 행으로 붙는다(outbox-merge.ts).
+    await store.updateItemStatusMutation(row.mutationId, { inFlight: true, syncState: "syncing" });
+
+    try {
+      await remote.setItemStatus({
+        childId: row.childId,
+        itemTemplateId: row.itemTemplateId,
+        status: row.status,
+        itemName: row.itemName
+      });
+      // 성공한 행은 남기지 않는다 -- 이제 진실은 서버 목록 응답이고, 로컬에 보존할 원본이 없다.
+      await store.deleteItemStatusMutation(row.mutationId);
+      summary.itemStatusSynced += 1;
+      continue;
+    } catch (error) {
+      if (error instanceof RemotePermanentError) {
+        // 4xx는 다시 보내도 같은 답이다. 특히 403은 R48 permission-denied 관례를 그대로 타서
+        // (lastError가 API_ERROR_MESSAGES.FORBIDDEN 문구 그대로), 동기화 상태 화면이 재시도
+        // 버튼 대신 안내를 그린다(src/offline/permission-denied.ts).
+        await store.updateItemStatusMutation(row.mutationId, {
+          syncState: "failed",
+          attemptCount: row.attemptCount + 1,
+          lastError: error.message,
+          inFlight: false,
+          updatedAt: nowIso()
+        });
+        summary.itemStatusFailed += 1;
+        continue;
+      }
+
+      const serverErrorStatus = transientServerErrorStatus(error);
+      const message =
+        serverErrorStatus !== null
+          ? SERVER_TRANSIENT_ERROR_MESSAGE
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      const nextAttempt = row.attemptCount + 1;
+
+      // F2와 같은 결정적 5xx 탈출구: 상한에 닿으면 'failed'로 올려 사용자 몫으로 넘기고,
+      // 뒤에 쌓인 다른 준비템은 이 pass에서 계속 보낸다(head-of-line 해제).
+      if (serverErrorStatus !== null && nextAttempt >= MAX_SERVER_ERROR_ATTEMPTS) {
+        await store.updateItemStatusMutation(row.mutationId, {
+          syncState: "failed",
+          attemptCount: nextAttempt,
+          nextRetryAt: null,
+          lastError: SERVER_ERROR_GIVE_UP_MESSAGE,
+          inFlight: false,
+          updatedAt: nowIso()
+        });
+        summary.itemStatusFailed += 1;
+        continue;
+      }
+
+      await store.updateItemStatusMutation(row.mutationId, {
+        syncState: "pending",
+        attemptCount: nextAttempt,
+        nextRetryAt: computeNextRetryAtIso(nowIso(), nextAttempt),
+        lastError: message,
+        inFlight: false,
+        updatedAt: nowIso()
+      });
+      summary.stoppedForNetwork = true;
+      break;
+    }
+  }
+}
+
+/** 동기화 상태 화면의 행 단위 "재시도"(준비템 행). 지출 쪽 retryFailedMutation과 같은 규칙:
+ * 명시적 재시도는 새 의사 표시라 백오프 예산까지 초기화한다. */
+export async function retryFailedItemStatusMutation(store: OfflineStore, mutationId: string): Promise<void> {
+  await store.updateItemStatusMutation(mutationId, {
+    syncState: "pending",
+    attemptCount: 0,
+    nextRetryAt: null,
+    lastError: null,
+    updatedAt: nowIso()
+  });
+}
+
+/** 동기화 상태 화면의 행 단위 "삭제"(준비템 행): 대기 중인 변경을 버린다. 서버에는 닿은 적이
+ * 없으므로 되돌릴 것도 없고, 화면은 다음 조회에서 서버가 말하는 상태로 돌아간다. */
+export async function discardFailedItemStatusMutation(store: OfflineStore, mutationId: string): Promise<void> {
+  await store.deleteItemStatusMutation(mutationId);
 }
 
 async function clearOutboxForLocalId(store: OfflineStore, localId: string): Promise<void> {

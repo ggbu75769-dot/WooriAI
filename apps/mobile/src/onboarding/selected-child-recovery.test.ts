@@ -235,8 +235,13 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
 
     it("app/index.tsx holds the redirect for BOTH pending progress states (source verification)", () => {
       const indexSource = source("app/index.tsx");
-      expect(indexSource).toContain('if (progressFetch !== "done")');
-      // 이전 구현(loading일 때만 hold)은 idle 한 프레임에 child-status로 새어나갔다.
+      // 라운드 51 #2: 조건에 `progressToken &&`가 앞에 붙었다 -- 토큰이 없으면 조회가 돌지
+      // 않으므로 기다릴 대상도 없다(빈 화면으로 굳지 않기 위한 안전장치). "idle도 함께
+      // 잡아둔다"는 FIX-118A 계약 자체는 그대로다.
+      // 라운드 51 QA(P3-11): 앵커를 조건문 전체로 되돌린다. `progressFetch !== "done"` 조각만
+      // 보면 이 화면 어디에나 있을 수 있는 문자열이라(예: 다른 갈래의 방어 조건) 정작 지켜야 할
+      // "토큰이 있을 때 두 대기 상태를 함께 붙잡는다"는 계약이 깨져도 통과한다.
+      expect(indexSource).toContain('if (progressToken && progressFetch !== "done")');
       expect(indexSource).not.toContain('if (progressFetch === "loading") {\n      return null;');
     });
   });
@@ -344,7 +349,9 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
       // FIX-119B/F5: 호출이 얇은 래퍼(fetchOnboardingProgressForSelectedChild)로 옮겨졌다 --
       // 아이 스코프 질의라는 R19-C(F1) 계약은 그 래퍼 안에서 그대로 유지된다.
       const indexSource = source("app/index.tsx");
-      expect(indexSource).toContain("fetchOnboardingProgressForSelectedChild(accessToken, selectedChildId)");
+      // 라운드 51 #2: 첫 인자가 progressToken(실토큰 ?? 데모 토큰)으로 바뀌었을 뿐,
+      // 두 번째 인자로 아이 스코프를 넘기는 계약은 그대로다.
+      expect(indexSource).toContain("fetchOnboardingProgressForSelectedChild(progressToken, selectedChildId)");
       const scopeSource = source("src/onboarding/onboarding-progress-scope.ts");
       expect(scopeSource).toContain("fetchProgress(token, selectedChildId)");
     });

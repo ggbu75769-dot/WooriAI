@@ -59,7 +59,6 @@ describe("resolveDefaultStageLabel", () => {
   const base = {
     currentStage: "kid_4_7" as ChildStageCode,
     isPixelLockMode: false,
-    isTestSession: false,
     hasManualSelection: false,
     fallback: "12-24개월" as const
   };
@@ -72,8 +71,16 @@ describe("resolveDefaultStageLabel", () => {
     expect(resolveDefaultStageLabel({ ...base, isPixelLockMode: true })).toBe("12-24개월");
   });
 
-  it("falls back for the loginless test session regardless of the current stage", () => {
-    expect(resolveDefaultStageLabel({ ...base, isTestSession: true })).toBe("12-24개월");
+  /**
+   * 라운드 51 #3: 데모(로그인 없는 테스트) 세션 폴백을 없앴다. 그 폴백의 근거였던 "데모 아이는
+   * 생후 24개월 고정 픽스처"가 사라졌기 때문이다 — 데모도 온보딩에서 아이를 직접 입력하므로
+   * 시기는 사용자가 넣은 값이 정한다. 폴백이 남아 있으면 임신 중인 데모 아이의 기본 칩이
+   * "12-24개월"로 굳어 "출산 전" 칩이 구조적으로 도달 불가가 된다(pre-birth-filter.ts).
+   */
+  it("데모 세션에도 별도 폴백이 없다 -- 아이의 실제 시기를 그대로 따른다", () => {
+    expect(resolveDefaultStageLabel({ ...base, currentStage: "pregnancy_mid" as ChildStageCode })).toBe("0-6개월");
+    // 입력 타입에서 isTestSession 자체가 사라졌다(남은 게이트는 픽셀 락과 수동 선택 둘뿐).
+    expect(Object.keys(base)).not.toContain("isTestSession");
   });
 
   it("falls back once the user has made a manual chip selection", () => {

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import { createMemoryOfflineStore } from "./memory-offline-store";
@@ -6,13 +8,15 @@ import {
   flushOutbox,
   recordLocalCreate,
   recordLocalDelete,
+  recordLocalItemStatus,
   recordLocalUpdate,
+  recoverInterruptedSyncState,
   resolveConflictAdoptServer,
   resolveConflictReapplyMine,
   resolveConflictWithMergedPayload,
   type RemoteExpenseApi
 } from "./sync-engine";
-import type { ConflictSnapshot, ExpensePayload, OfflineStore } from "./types";
+import type { ConflictSnapshot, ExpensePayload, ItemStatusPayload, OfflineStore } from "./types";
 
 const payload: ExpensePayload = {
   childId: "child-1",
@@ -90,7 +94,7 @@ describe("sync-engine: recordLocalCreate + flushOutbox", () => {
     const summary = await flushOutbox(store, remote);
 
     expect(order).toEqual(["첫번째", "두번째", "세번째"]);
-    expect(summary).toEqual({ synced: 3, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 3, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     for (const local of [first, second, third]) {
       const row = await store.getLocalExpense(local.localId);
       expect(row?.syncState).toBe("synced");
@@ -135,7 +139,7 @@ describe("sync-engine: recordLocalCreate + flushOutbox", () => {
     const { remote, calls } = createFakeRemote();
     const summary = await flushOutbox(store, remote);
 
-    expect(summary).toEqual({ synced: 20, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 20, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(calls).toHaveLength(20);
     const idempotencyKeys = new Set(calls.map((call) => call.idempotencyKey));
     expect(idempotencyKeys.size).toBe(20);
@@ -158,13 +162,13 @@ describe("sync-engine: recordLocalCreate + flushOutbox", () => {
     const { remote } = createFakeRemote({ permanentFailurePayloadMatch: () => true });
 
     const summary = await flushOutbox(store, remote);
-    expect(summary).toEqual({ synced: 0, failed: 1, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 0, failed: 1, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     const row = await store.getLocalExpense(created.localId);
     expect(row?.syncState).toBe("failed");
 
     // A second flush pass should skip it (still 'failed', no user action taken yet).
     const secondSummary = await flushOutbox(store, remote);
-    expect(secondSummary).toEqual({ synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(secondSummary).toEqual({ synced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
   });
 });
 
@@ -227,7 +231,7 @@ describe("sync-engine: 409 VERSION_CONFLICT transition", () => {
     const { remote } = createFakeRemote({ conflictOnCanonicalId: { id: synced.canonicalId!, current: currentFromServer } });
 
     const summary = await flushOutbox(store, remote);
-    expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 1, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 1, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
 
     const row = await store.getLocalExpense(synced.localId);
     expect(row?.syncState).toBe("conflict");
@@ -480,5 +484,187 @@ describe("sync-engine: H-3 in-flight interleaving safety (diff review)", () => {
     expect(createCallCount).toBe(1);
     expect(first).toEqual(second);
     expect(first.synced).toBe(1);
+  });
+});
+
+/**
+ * 라운드 51 QA(P1-1) — 지출 큐도 준비템 큐와 같은 결함을 갖고 있었다(빈도만 낮다): pass가 도는
+ * 동안 저장된 기록은 그 pass의 스냅숏에 없고, 그 사이의 flush 요청은 단일 비행 가드에 흡수돼
+ * 사라졌다. 두 큐 모두 flushOutbox의 "재실행 표시" 하나로 함께 낫는다.
+ */
+describe("라운드 51 QA(P1-1): pass 중에 저장된 지출도 같은 호출 안에서 이어서 나간다", () => {
+  it("A 전송 중에 저장한 B가 pass 종료 후 자동으로 전송된다", async () => {
+    const store = createMemoryOfflineStore();
+    await recordLocalCreate(store, { ...payload, itemName: "먼저" });
+
+    const sentNames: string[] = [];
+    let releaseFirst!: () => void;
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let markFirstSeen!: () => void;
+    const firstSeen = new Promise<void>((resolve) => {
+      markFirstSeen = resolve;
+    });
+    const remote: RemoteExpenseApi = {
+      async createExpense(created) {
+        sentNames.push(created.itemName);
+        if (sentNames.length === 1) {
+          markFirstSeen();
+          await firstReleased;
+        }
+        return { id: `server-${sentNames.length}`, version: 1 };
+      },
+      async updateExpense() {
+        throw new Error("not used in this test");
+      },
+      async deleteExpense() {
+        throw new Error("not used in this test");
+      }
+    };
+
+    const flush = flushOutbox(store, remote);
+    await firstSeen;
+
+    // createExpenseOffline이 하는 그대로: 로컬에 남기고 곧바로 flush를 한 번 요청한다.
+    await recordLocalCreate(store, { ...payload, itemName: "나중" });
+    expect(flushOutbox(store, remote)).toBe(flush);
+
+    releaseFirst();
+    const summary = await flush;
+
+    expect(sentNames).toEqual(["먼저", "나중"]);
+    expect(summary.synced).toBe(2);
+    expect(await store.listOutboxMutations()).toEqual([]);
+  });
+});
+
+/**
+ * 라운드 51 QA(P3-7) — 전송 도중 앱이 죽으면서 남은 표시의 재시작 자가 치유.
+ *
+ * 남은 `inFlight` 표시는 병합 대상에서 그 행을 빼므로(outbox-merge.ts), 같은 지출을 고칠 때마다
+ * 새 행이 붙어 큐가 끝없이 자란다. 화면에도 "동기화 중"으로 보이는데 실제로 나가 있는 요청은
+ * 없다. 값·페이로드·백오프 예산은 그대로 두고 표시만 되돌린다.
+ */
+describe("라운드 51 QA(P3-7) recoverInterruptedSyncState", () => {
+  const statusPayload: ItemStatusPayload = {
+    childId: "child-1",
+    itemTemplateId: "item-carseat",
+    status: "prepared",
+    itemName: "카시트"
+  };
+
+  it("죽은 'syncing'/inFlight 표시를 대기로 되돌린다 (값·예산은 그대로)", async () => {
+    const store = createMemoryOfflineStore();
+    const created = await recordLocalCreate(store, payload);
+    const [mutation] = await store.listOutboxMutationsForLocalId(created.localId);
+    await store.updateOutboxMutation(mutation.mutationId, { inFlight: true, attemptCount: 3, nextRetryAt: null });
+    await store.updateLocalExpense(created.localId, { syncState: "syncing" });
+    const statusRow = await recordLocalItemStatus(store, statusPayload);
+    await store.updateItemStatusMutation(statusRow.mutationId, { inFlight: true, syncState: "syncing" });
+
+    const repaired = await recoverInterruptedSyncState(store);
+
+    // 지출 로컬 행 + 지출 mutation + 준비템 행 = 3.
+    expect(repaired).toBe(3);
+    expect((await store.getLocalExpense(created.localId))?.syncState).toBe("pending");
+    const [repairedMutation] = await store.listOutboxMutationsForLocalId(created.localId);
+    expect(repairedMutation.inFlight).toBe(false);
+    // 백오프 예산과 페이로드는 한 글자도 건드리지 않는다.
+    expect(repairedMutation.attemptCount).toBe(3);
+    expect(repairedMutation.payload?.itemName).toBe(payload.itemName);
+    const [repairedStatus] = await store.listItemStatusMutations();
+    expect(repairedStatus).toMatchObject({ syncState: "pending", inFlight: false, status: "prepared" });
+  });
+
+  it("되돌린 뒤에는 새 편집이 다시 접힌다 (죽은 표시 때문에 행이 무한히 쌓이지 않는다)", async () => {
+    const store = createMemoryOfflineStore();
+    const created = await recordLocalCreate(store, payload);
+    const [mutation] = await store.listOutboxMutationsForLocalId(created.localId);
+    await store.updateOutboxMutation(mutation.mutationId, { inFlight: true });
+
+    // 되돌리기 전: 죽은 표시가 병합을 막아 편집마다 새 행이 붙는다.
+    await recordLocalUpdate(store, created.localId, { amountKrw: 20_000 });
+    expect(await store.listOutboxMutationsForLocalId(created.localId)).toHaveLength(2);
+
+    const store2 = createMemoryOfflineStore();
+    const created2 = await recordLocalCreate(store2, payload);
+    const [mutation2] = await store2.listOutboxMutationsForLocalId(created2.localId);
+    await store2.updateOutboxMutation(mutation2.mutationId, { inFlight: true });
+    await recoverInterruptedSyncState(store2);
+    await recordLocalUpdate(store2, created2.localId, { amountKrw: 20_000 });
+
+    const merged = await store2.listOutboxMutationsForLocalId(created2.localId);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].operation).toBe("create");
+    expect(merged[0].payload?.amountKrw).toBe(20_000);
+  });
+
+  it("'failed'·'conflict'·정상 대기 행은 건드리지 않는다", async () => {
+    const store = createMemoryOfflineStore();
+    const failed = await recordLocalCreate(store, { ...payload, itemName: "실패" });
+    await store.updateLocalExpense(failed.localId, { syncState: "failed", lastError: "서버 오류" });
+    const conflict = await recordLocalCreate(store, { ...payload, itemName: "충돌" });
+    await store.updateLocalExpense(conflict.localId, { syncState: "conflict" });
+    const pending = await recordLocalCreate(store, { ...payload, itemName: "대기" });
+    const statusRow = await recordLocalItemStatus(store, statusPayload);
+    await store.updateItemStatusMutation(statusRow.mutationId, { syncState: "failed", lastError: "권한이 없어요." });
+
+    expect(await recoverInterruptedSyncState(store)).toBe(0);
+
+    expect((await store.getLocalExpense(failed.localId))?.syncState).toBe("failed");
+    expect((await store.getLocalExpense(conflict.localId))?.syncState).toBe("conflict");
+    expect((await store.getLocalExpense(pending.localId))?.syncState).toBe("pending");
+    expect((await store.listItemStatusMutations())[0].syncState).toBe("failed");
+  });
+
+  it("살아 있는 pass가 있으면 아무것도 하지 않는다 (전송 중 표시를 지우지 않는다)", async () => {
+    const store = createMemoryOfflineStore();
+    const created = await recordLocalCreate(store, payload);
+    let releaseCreate!: (result: { id: string; version: number }) => void;
+    const createResult = new Promise<{ id: string; version: number }>((resolve) => {
+      releaseCreate = resolve;
+    });
+    let markSeen!: () => void;
+    const seen = new Promise<void>((resolve) => {
+      markSeen = resolve;
+    });
+    const remote: RemoteExpenseApi = {
+      async createExpense() {
+        markSeen();
+        return createResult;
+      },
+      async updateExpense() {
+        throw new Error("not used in this test");
+      },
+      async deleteExpense() {
+        throw new Error("not used in this test");
+      }
+    };
+
+    const flush = flushOutbox(store, remote);
+    await seen;
+
+    expect(await recoverInterruptedSyncState(store)).toBe(0);
+    const [inFlightMutation] = await store.listOutboxMutationsForLocalId(created.localId);
+    expect(inFlightMutation.inFlight).toBe(true);
+    expect((await store.getLocalExpense(created.localId))?.syncState).toBe("syncing");
+
+    releaseCreate({ id: "server-1", version: 1 });
+    await flush;
+  });
+
+  it("앱 시작 시 첫 flush **앞에서** 한 번 부른다 (source verification -- 컨트롤러는 vitest에서 실행할 수 없다)", () => {
+    const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
+    expect(controllerSource).toContain("await recoverInterruptedSyncState(await getOfflineStore());");
+    const startBody = controllerSource.slice(controllerSource.indexOf("async function recoverAndFlushOnStart"));
+    // 되돌리기 → 스냅샷 → flush 순서. 순서가 뒤집히면 되돌린 행이 이번 pass에 실리지 않는다.
+    expect(startBody.indexOf("recoverInterruptedSyncState")).toBeLessThan(startBody.indexOf("refreshSnapshot()"));
+    expect(startBody.indexOf("refreshSnapshot()")).toBeLessThan(startBody.indexOf("flushInBackground(token, queryClient)"));
+    const hookBody = controllerSource.slice(controllerSource.indexOf("export function useOfflineSyncLifecycle"));
+    expect(hookBody).toContain("void recoverAndFlushOnStart(token, queryClient);");
+    // 재연결·포그라운드 트리거는 종전 그대로 flush만 한다(되돌리기는 부팅 시 한 번이다).
+    const watcherBody = hookBody.slice(hookBody.indexOf("startConnectivityWatcher"));
+    expect(watcherBody).not.toContain("recoverAndFlushOnStart");
   });
 });

@@ -166,6 +166,19 @@ export function clearSessionScopedQueryCache(): void {
 export type SessionTeardownContext = {
   /** Access token of the session being torn down (or the local test-session token). */
   authToken: string | null;
+  /**
+   * 라운드 51 QA(P3-10) — wipe가 끝난 뒤 화면이 읽는 오프라인 스냅샷을 다시 만든다.
+   *
+   * 스냅샷(sync-controller.ts의 `latestSnapshot`)은 저장소를 구독하지 않고 **명시적으로 다시
+   * 읽을 때만** 갱신되는 메모리 사본이라, 테이블을 비워도 그 사본에는 떠난 계정의 행이 그대로
+   * 남는다. 그 사본을 읽는 화면이 기록 탭 배지·동기화 상태 화면이므로, 계정을 바꾼 직후 새
+   * 사용자가 이전 계정의 대기/실패 건수를 본다(값 자체는 이미 지워졌는데 화면만 옛 사본이다).
+   *
+   * 함수를 **넘겨받는** 이유: sync-controller.ts가 이 모듈을 import하므로 여기서 컨트롤러를
+   * import하면 순환이 된다(query-client-registry.ts 헤더가 같은 이유로 레지스트리를 쓴다).
+   * 넘기지 않으면 그냥 건너뛴다 -- 단위 테스트와 직접 호출자는 종전 그대로다.
+   */
+  refreshSyncSnapshot?: () => void | Promise<void>;
 };
 
 /**
@@ -201,7 +214,11 @@ export type SessionTeardownContext = {
  *      user's cursor. The wipe's own sync_meta clear afterwards is a harmless double-clear;
  *   4. await the wipe — local_expenses + mutation_outbox + sync_meta cleared, sequenced against
  *      any in-flight outbox flush (see its doc comment in sync-engine.ts for the exact race
- *      guarantees).
+ *      guarantees);
+ *   5. 라운드 51 QA(P3-10): refresh the in-memory sync snapshot the screens read, if the caller
+ *      handed one in (`context.refreshSyncSnapshot`) — the wipe empties the tables but not that
+ *      copy, so without this the incoming account's 기록 탭 배지·동기화 상태 화면 still show the
+ *      outgoing account's pending/failed counts until something else happens to re-read.
  *
  * Any store failure propagates to the caller (the controller subscription swallows it — same
  * best-effort stance as every other background offline operation there); the scope-key check in
@@ -233,4 +250,8 @@ export async function teardownOfflineSessionState(
   const wipe = wipeOfflineStore(store);
   await clearSyncCursor(store);
   await wipe;
+  // Step 5 (라운드 51 QA P3-10): 비운 저장소를 화면 스냅샷에도 반영한다 — 지출 대기 행과
+  // 준비템 대기 행이 함께 사라져야 새 계정의 첫 화면이 이전 계정의 건수를 말하지 않는다.
+  // wipe **뒤에** 있어야 의미가 있다(그 전에 읽으면 지우기 전 사본을 다시 만든다).
+  await context.refreshSyncSnapshot?.();
 }

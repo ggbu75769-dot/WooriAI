@@ -40,6 +40,15 @@ export const SYNC_STATUS_SYNCING_LABEL = "동기화 중";
 export const SYNC_STATUS_FAILED_LABEL = "실패";
 export const SYNC_STATUS_CONFLICT_LABEL = "충돌";
 
+/**
+ * 라운드 51 QA(P3-9) — 전송이 실제로 나가 있는 행이 스스로 말하는 한 줄.
+ *
+ * 동기화 상태 화면의 지출 행과 준비템 행이 같은 문장을 각자 인라인 문자열로 들고 있었다.
+ * REC-123(H4)이 정리한 그 문제(같은 상태를 화면·행마다 다른 말로 부르는 것)의 씨앗이라,
+ * 배지 라벨과 **같은 단어**에서 문장을 만들어 한 곳에서만 정한다.
+ */
+export const SYNC_STATUS_SYNCING_ROW_MESSAGE = `${SYNC_STATUS_SYNCING_LABEL}이에요.`;
+
 const SYNC_STATUS_LABELS: Record<SyncStatusKind, string> = {
   pending: SYNC_STATUS_PENDING_LABEL,
   syncing: SYNC_STATUS_SYNCING_LABEL,
@@ -78,9 +87,28 @@ export const SYNC_STATUS_DISCARD_LABEL = "삭제";
  * 버리기 쪽만 "삭제"가 아니라 "버리기"인 이유: 개별 삭제는 한 건이라 취소가 쉽지만, 일괄은
  * 되돌릴 수 없는 파괴적 동작이라 확인 Alert를 거친다 -- 문구도 그만큼 무겁게 읽혀야 한다.
  */
-export const SYNC_STATUS_RETRY_ALL_LABEL = "전체 재시도";
-export const SYNC_STATUS_DISCARD_ALL_LABEL = "전체 버리기";
+/** "버리기" 동사 단일 소스 — 아래 범위별 두 라벨이 같은 단어를 쓴다. */
+const SYNC_STATUS_DISCARD_ALL_VERB = "버리기";
+export const SYNC_STATUS_RETRY_ALL_LABEL = `전체 ${SYNC_STATUS_RETRY_LABEL}`;
+export const SYNC_STATUS_DISCARD_ALL_LABEL = `전체 ${SYNC_STATUS_DISCARD_ALL_VERB}`;
 export const SYNC_STATUS_DISCARD_ALL_CONFIRM_TITLE = "실패한 기록을 모두 버릴까요?";
+
+/**
+ * 라운드 51 QA(P2-3) — 실패 섹션의 일괄 버튼이 **무엇을** 다루는지 문구가 말한다.
+ *
+ * 그 섹션에는 지출 실패 행과 준비템 상태 실패 행이 함께 서는데(app/sync-status.tsx), 두 버튼이
+ * 부르는 컨트롤러 함수는 지출 큐만 다룬다. 그 자리에서 "전체 재시도"라고 하면 라벨이 화면에
+ * 보이는 전부를 가리키는 말로 읽혀, 준비템 실패 행이 남아 있는데도 "전체"를 눌렀다고 믿게 된다.
+ * 그래서 대상(지출)과 건수를 라벨이 직접 말한다 — 스크린리더도 같은 문장을 읽으므로 별도
+ * 접근성 문구를 만들지 않는다.
+ */
+export function syncStatusRetryFailedExpensesLabel(count: number): string {
+  return `지출 ${count}건 ${SYNC_STATUS_RETRY_LABEL}`;
+}
+
+export function syncStatusDiscardFailedExpensesLabel(count: number): string {
+  return `지출 ${count}건 ${SYNC_STATUS_DISCARD_ALL_VERB}`;
+}
 
 /** 확인 Alert 본문. 몇 건이 사라지는지 숫자로 못박고, 서버에 없는 기록이라는 사실을 밝힌다. */
 export function syncStatusDiscardAllConfirmMessage(count: number): string {

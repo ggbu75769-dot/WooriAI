@@ -35,7 +35,9 @@ export default defineConfig({
     // test/helpers/test-db.ts). This gates each file on a readers/writer lock so the
     // few that genuinely cannot -- database-wide aggregates, the exact seeded
     // reference data, the purge job -- still get the database to themselves.
-    // test/helpers/db-lock.setup.ts names them and says why.
+    // test/helpers/exclusive-suites.ts names them and says why; the setup file below
+    // only applies that list (and now fails loudly instead of degrading to shared when
+    // it cannot tell which file it belongs to — 라운드 51 D-#4).
     setupFiles: ["./test/helpers/db-lock.setup.ts"],
     testTimeout: 30_000,
     hookTimeout: 30_000,

@@ -182,3 +182,52 @@ describe("matchesTab 단독 술어", () => {
     }
   });
 });
+
+/**
+ * 라운드 51 #9 (DNC-009) — 가격은 추천·정렬에 유입되지 않는다.
+ *
+ * 이번 라운드에 `product_links.price_snapshot_krw`/`price_checked_at`이 앱 응답에
+ * 실리기 시작했다(items-catalog.service.ts toProductLinkDto). 표시용 값이 순위 판단에
+ * 스며드는 것은 추천 신뢰를 무너뜨리는 가장 흔한 경로이므로, 여기서 두 방향으로 막는다:
+ * (1) 순위 입력에 가격 비슷한 값을 실어도 결과가 한 글자도 달라지지 않는다,
+ * (2) 순위 모듈의 소스에 가격이라는 단어가 등장하지 않는다.
+ *
+ * 서버 e2e 짝: test/product-link-price-honesty.e2e.test.ts(실제 응답의 순서 불변).
+ */
+describe("DNC-009: 가격은 순위에 유입되지 않는다", () => {
+  it("가격처럼 보이는 값을 입력에 실어도 탭·순서 결과가 동일하다", () => {
+    // 가장 싼 것을 우대하든 비싼 것을 우대하든 달라지도록, 카탈로그 순서와 반대로 매긴다.
+    const priced = CATALOG.map((entry, index) => ({
+      ...entry,
+      priceSnapshotKrw: (CATALOG.length - index) * 100_000,
+      priceCheckedAt: new Date().toISOString(),
+      priceMinKrw: index * 1_000,
+      priceMaxKrw: index * 2_000
+    })) as RankableItem[];
+
+    for (const tab of ["now", "soon", "prepared", "not_needed", "all"] as const) {
+      for (const stageBand of [undefined, FUTURE_BAND] as const) {
+        const context = { tab, stageCode: CURRENT_STAGE, stageBand };
+        expect(rankItemsForTab(priced, context).map((entry) => entry.id)).toEqual(
+          rankItemsForTab(CATALOG, context).map((entry) => entry.id)
+        );
+      }
+    }
+  });
+
+  it("순위 모듈과 도메인 정렬 함수의 소스에 가격이 등장하지 않는다", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const sources = [
+      join(__dirname, "..", "src", "onboarding", "item-ranking.ts"),
+      join(__dirname, "..", "..", "..", "packages", "domain", "src", "recommendation.ts")
+    ];
+    for (const path of sources) {
+      const source = readFileSync(path, "utf8");
+      // 주석의 "가격·문구 등 표시용 필드는 순서에 영향을 주지 않는다" 같은 서술은 허용하고,
+      // 실제 식별자(price…)만 본다.
+      const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      expect(code, `${path}에 가격 식별자가 있어요`).not.toMatch(/price/i);
+    }
+  });
+});

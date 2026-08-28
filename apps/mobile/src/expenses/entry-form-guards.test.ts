@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { categoryCatalog } from "../categories";
 import {
   hasQuickExpenseInput,
+  isCategoryMissingForSave,
+  resolveInitialCategoryId,
   shouldClearQuickExpenseDraftOnClose,
-  shouldTileFillItemName
+  shouldTileFillItemName,
+  CATEGORY_REQUIRED_NOTICE
 } from "./entry-form-guards";
 
 describe("hasQuickExpenseInput — 닫기가 초안을 지워도 되는지", () => {
@@ -108,5 +112,118 @@ describe("기록 시트 닫기 배선", () => {
     expect(source).toContain("initial: initialInputSnapshotRef.current");
     // 프리필 값이 기준선이 되도록 첫 렌더의 스냅숏을 ref로 붙든다.
     expect(source).toContain("useRef<QuickExpenseInputSnapshot>({ itemName, amountText, memo })");
+  });
+});
+
+/**
+ * 라운드 51 C-#5 — 기본 카테고리 "기저귀" 고정 제거.
+ *
+ * 고치는 사실: 추천도 프리필도 없는 품목은 사용자가 타일을 누르지 않는 한 전부 첫 타일로
+ * 저장됐고, 리포트·인사이트·홈 타일이 그 오분류를 사실로 그렸다.
+ */
+describe("resolveInitialCategoryId — 라운드 51 C-#5: 미선택으로 시작한다", () => {
+  const previewCategoryId = categoryCatalog[0].id;
+
+  it("세션이 있고 프리필이 없으면 아무것도 선택하지 않는다", () => {
+    expect(resolveInitialCategoryId({ hasSession: true, prefilledCategoryId: null, previewCategoryId })).toBeNull();
+  });
+
+  it("프리필로 분류가 함께 오면 그 타일로 시작한다(종전 그대로)", () => {
+    const prefilled = categoryCatalog[3].id;
+    expect(resolveInitialCategoryId({ hasSession: true, prefilledCategoryId: prefilled, previewCategoryId })).toBe(
+      prefilled
+    );
+    // 세션이 없더라도 프리필이 이긴다 -- 판정 순서가 뒤집히지 않았다는 것까지 고정한다.
+    expect(resolveInitialCategoryId({ hasSession: false, prefilledCategoryId: prefilled, previewCategoryId })).toBe(
+      prefilled
+    );
+  });
+
+  it("EXP-001: 세션 없는 픽셀 락 캡처만 종전대로 첫 타일이 선택돼 있다", () => {
+    expect(resolveInitialCategoryId({ hasSession: false, prefilledCategoryId: null, previewCategoryId })).toBe(
+      previewCategoryId
+    );
+    expect(categoryCatalog[0].label).toBe("기저귀");
+  });
+});
+
+describe("isCategoryMissingForSave — 분류 없이 저장할 수 없다", () => {
+  it("세션이 있는데 미선택이면 막는다", () => {
+    expect(isCategoryMissingForSave({ hasSession: true, selectedCategoryId: null })).toBe(true);
+  });
+
+  it("타일이 하나라도 눌려 있으면 막지 않는다", () => {
+    expect(isCategoryMissingForSave({ hasSession: true, selectedCategoryId: categoryCatalog[2].id })).toBe(false);
+  });
+
+  it("세션 없는 프리뷰/캡처 경로는 언제나 통과한다(그 경로에는 저장 자체가 없다)", () => {
+    expect(isCategoryMissingForSave({ hasSession: false, selectedCategoryId: null })).toBe(false);
+  });
+
+  it("안내 문구는 해요체이고 사용자를 탓하지 않는다(DNC-018)", () => {
+    expect(CATEGORY_REQUIRED_NOTICE).toBe("분류를 골라 주시면 바로 저장할게요");
+    expect(CATEGORY_REQUIRED_NOTICE.endsWith("요")).toBe(true);
+    for (const blaming of ["안 골랐", "선택하지", "누락", "필수", "오류"]) {
+      expect(CATEGORY_REQUIRED_NOTICE).not.toContain(blaming);
+    }
+  });
+});
+
+describe("라운드 51 C-#5 화면 배선", () => {
+  const source = readFileSync(join(process.cwd(), "app/expenses/new.tsx"), "utf8");
+
+  it("초기 선택 상태를 순수 판정에서 받아 온다 (화면에 규칙을 다시 적지 않는다)", () => {
+    expect(source).toContain("const initialCategoryId = resolveInitialCategoryId({");
+    expect(source).toContain("hasSession: Boolean(authToken),");
+    expect(source).toContain("prefilledCategoryId: prefilledCategory?.id ?? null,");
+    expect(source).toContain("previewCategoryId: quickExpenseCategories[0].id");
+    expect(source).toContain("useState<QuickExpenseCategory | null>(");
+    // 종전의 "무조건 첫 타일" 초기값은 남아 있지 않다.
+    expect(source).not.toContain("useState(prefilledCategory ?? quickExpenseCategories[0])");
+  });
+
+  it("미선택은 어느 타일에도 하이라이트가 없는 상태로 그려진다", () => {
+    expect(source).toContain("const selected = selectedCategory !== null && category.label === selectedCategory.label;");
+  });
+
+  it("저장 두 버튼 모두 같은 가드를 지난다", () => {
+    expect(source).toContain(
+      "const isCategoryMissing = isCategoryMissingForSave({ hasSession: Boolean(authToken), selectedCategoryId });"
+    );
+    expect(source).toContain("const prepareSave = (continueRecording: boolean) => {");
+    expect(source).toContain("if (!prepareSave(false)) return;");
+    expect(source).toContain("if (!prepareSave(true)) return;");
+    // 뮤테이션 자체도 분류 없이는 시작하지 않는다(가드가 화면 핸들러에만 있지 않다).
+    expect(source).toContain("!childId || !selectedCategory ||");
+    expect(source).toContain("{CATEGORY_REQUIRED_NOTICE}");
+  });
+
+  /**
+   * 라운드 51 QA(P2-4): 안내가 카테고리 타일 바로 아래에 있으면, 그 아래로 금액·날짜·판매처·
+   * 결제수단·선물 체크박스가 이어지는 이 화면에서는 저장을 누른 사람의 시야 밖이다 -- 눌러도
+   * 아무 일도 일어나지 않는 것처럼 보인다. 저장 실패 배너와 **같은 자리**(저장 버튼 바로 위)로
+   * 옮겨, 누른 곳에서 답하게 한다.
+   */
+  it("분류 안내는 저장 버튼 바로 위에 뜬다 (저장 실패 배너와 같은 자리)", () => {
+    const notice = source.indexOf("{CATEGORY_REQUIRED_NOTICE}");
+    const saveErrorToast = source.indexOf("{saveErrorMessage ? <Toast");
+    const saveButton = source.indexOf('label={saveExpense.isPending ? "저장 중" : "저장하기"}');
+    expect(saveErrorToast).toBeGreaterThan(-1);
+    expect(notice).toBeGreaterThan(saveErrorToast);
+    expect(notice).toBeLessThan(saveButton);
+    // 두 곳에서 같은 문장을 동시에 말하지 않는다(스크린리더가 두 번 읽는다).
+    expect(source.match(/\{CATEGORY_REQUIRED_NOTICE\}/g) ?? []).toHaveLength(1);
+    // 눌린 순간 나타나므로 스크린리더도 함께 읽는다.
+    const noticeBlock = source.slice(source.lastIndexOf("{showCategoryNotice ? (", notice), notice);
+    expect(noticeBlock).toContain('accessibilityRole="alert"');
+    expect(noticeBlock).toContain('accessibilityLiveRegion="polite"');
+  });
+
+  it("연속 기록 리셋도 미선택으로 돌아간다", () => {
+    const resetStart = source.indexOf("const resetFormForNextEntry = () => {");
+    expect(resetStart).toBeGreaterThan(0);
+    const resetBlock = source.slice(resetStart, source.indexOf("\n  };", resetStart));
+    expect(resetBlock).toContain("setSelectedCategory(null);");
+    expect(resetBlock).not.toContain("setSelectedCategory(quickExpenseCategories[0])");
   });
 });

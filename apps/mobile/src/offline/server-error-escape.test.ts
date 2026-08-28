@@ -88,7 +88,7 @@ describe("FIX-119B/F2: 결정적 5xx는 시도 상한에서 'failed'로 승격�
     // 상한 직전까지: 매 pass가 맨 앞에서 막히고 뒤의 둘은 한 번도 전송되지 않는다(= head-of-line).
     for (let attempt = 1; attempt < MAX_SERVER_ERROR_ATTEMPTS; attempt += 1) {
       const summary = await flushOutbox(store, remote);
-      expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: true });
+      expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: true });
       expect(sent).toEqual(Array.from({ length: attempt }, () => "독성"));
 
       const [blocking] = await store.listOutboxMutations();
@@ -105,7 +105,7 @@ describe("FIX-119B/F2: 결정적 5xx는 시도 상한에서 'failed'로 승격�
 
     // 상한 도달 pass: 독성 행만 'failed'로 승격되고, 같은 pass가 뒤의 둘을 이어서 보낸다.
     const escapeSummary = await flushOutbox(store, remote);
-    expect(escapeSummary).toEqual({ synced: 2, failed: 1, conflicted: 0, stoppedForNetwork: false });
+    expect(escapeSummary).toEqual({ synced: 2, failed: 1, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(sent).toEqual([
       ...Array.from({ length: MAX_SERVER_ERROR_ATTEMPTS }, () => "독성"),
       "정상 1",
@@ -138,7 +138,7 @@ describe("FIX-119B/F2: 결정적 5xx는 시도 상한에서 'failed'로 승격�
 
     // 'failed' 행은 자동 재시도 대상이 아니다 -- 백그라운드 flush가 아무것도 보내지 않는다.
     const idle = await flushOutbox(store, remote);
-    expect(idle).toEqual({ synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(idle).toEqual({ synced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(sent).toHaveLength(MAX_SERVER_ERROR_ATTEMPTS);
 
     // 서버가 회복된 뒤 사용자가 '재시도'를 누르면 같은 멱등키로 정상 전송된다.

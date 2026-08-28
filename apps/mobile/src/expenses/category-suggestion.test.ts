@@ -266,6 +266,54 @@ describe("F3 자동 선택 되돌리기 (resolveAutoCategorySelection)", () => {
     });
   });
 
+  /**
+   * 라운드 51 C-#5 — 화면이 실제로 넘기는 값(미선택 시작).
+   *
+   * 세션이 있는 입력 경로에서는 `defaultCategoryId`가 null이고 초기 `currentCategoryId`도
+   * null이다. 되돌아가는 자리만 바뀌고 추천 규칙 자체는 한 줄도 달라지지 않는다.
+   */
+  describe("미선택으로 시작하는 화면(defaultCategoryId: null)", () => {
+    const unselected = { history: [] as CategorySuggestionHistoryRow[], defaultCategoryId: null };
+
+    it("아직 아무것도 안 고른 상태에서 추천이 붙으면 종전과 똑같이 골라 준다", () => {
+      expect(
+        resolveAutoCategorySelection({ ...unselected, itemName: "물티슈", currentCategoryId: null, autoPicked: null })
+      ).toEqual({ categoryId: DIAPER, autoPicked: { itemName: "물티슈", categoryId: DIAPER } });
+    });
+
+    it("추천 근거가 없으면 아무 타일도 고르지 않는다 (기저귀로 떨어지지 않는다)", () => {
+      const noEvidence = resolveAutoCategorySelection({
+        ...unselected,
+        itemName: "가습기",
+        currentCategoryId: null,
+        autoPicked: null
+      });
+      expect(noEvidence).toEqual({ categoryId: null, autoPicked: null });
+      expect(noEvidence.categoryId).not.toBe(DIAPER);
+    });
+
+    it("가습기 시나리오: 근거가 사라지면 첫 타일이 아니라 미선택으로 되돌아간다", () => {
+      const afterTyping = resolveAutoCategorySelection({
+        ...unselected,
+        itemName: "가습기",
+        currentCategoryId: HOSPITAL,
+        autoPicked: { itemName: "병원 진료비", categoryId: HOSPITAL }
+      });
+      expect(afterTyping).toEqual({ categoryId: null, autoPicked: null });
+    });
+
+    it("사람이 고른 선택은 미선택으로도 되돌리지 않는다", () => {
+      expect(
+        resolveAutoCategorySelection({
+          ...unselected,
+          itemName: "가습기",
+          currentCategoryId: TOYS,
+          autoPicked: null
+        })
+      ).toEqual({ categoryId: TOYS, autoPicked: null });
+    });
+  });
+
   it("같은 상태끼리는 같다고 판정한다 (화면 렌더 루프 방지)", () => {
     expect(isSameAutoPickedCategory(null, null)).toBe(true);
     expect(isSameAutoPickedCategory({ itemName: "물티슈", categoryId: DIAPER }, null)).toBe(false);
