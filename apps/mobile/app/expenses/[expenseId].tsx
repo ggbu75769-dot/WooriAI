@@ -77,6 +77,16 @@ import {
   resolveExpenseAuthorLabel,
   resolveExpenseHouseholdId
 } from "../../src/expenses/records-list-view";
+/**
+ * 라운드 58 #1 — "정기 지출로 등록"의 판정·문구·파라미터 조립은 전부 순수 모듈이 한다
+ * (src/expenses/recurring-template.ts). 이 화면은 결과가 null이면 버튼을 그리지 않고, null이
+ * 아니면 그 값을 그대로 관리 화면에 실어 보낸다 — 규칙이 화면에 두 벌로 적히지 않게.
+ */
+import {
+  recurringTemplatePrefillParams,
+  RECURRING_REGISTER_ACTION_LABEL,
+  RECURRING_REGISTER_ACTION_NOTICE
+} from "../../src/expenses/recurring-template";
 import {
   EXPENSE_DELETE_CONFIRM_ACTION_LABEL,
   EXPENSE_DELETE_CONFIRM_CANCEL_LABEL,
@@ -103,7 +113,16 @@ import {
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { resolveScreenPhase } from "../../src/screen-phase";
-import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
+import {
+  AppScreen,
+  Card,
+  CategoryChip,
+  EmptyStateCard,
+  PrimaryButton,
+  ScreenHeader,
+  SecondaryButton,
+  Toast
+} from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
@@ -582,6 +601,46 @@ export default function ExpenseDetailScreen() {
       { text: EXPENSE_DELETE_CONFIRM_ACTION_LABEL, style: "destructive", onPress: () => remove.mutate() }
     ]);
   }
+
+  /**
+   * 라운드 58 #1 — "이건 매달 나가는 돈이네"를 깨닫는 자리에서 정기 지출로 올리는 길.
+   *
+   * 지금까지 템플릿을 만드는 입구는 관리 화면의 **빈 폼** 하나뿐이라, 방금 이 기록을 보고
+   * 깨달은 사람도 품목·금액·분류·결제 수단·결제일을 손으로 다시 옮겨 적어야 했다(옮겨 적는
+   * 동안 숫자가 어긋나도 앱은 알 수 없다).
+   *
+   * **액션시트에는 넣지 않는다**: 기록 행의 액션시트는 이미 수정·또 기록·삭제 세 개이고,
+   * 안드로이드 Alert의 버튼 상한이 3이라(record-row-actions.ts `ANDROID_ALERT_BUTTON_LIMIT`)
+   * 하나를 더하면 취소가 말없이 잘려 나간다. 이 화면에는 자리가 있다.
+   *
+   * 값은 **서버가 말해 준 지금 저장된 기록**에서 읽는다(화면의 편집 상태가 아니라). 저장하지
+   * 않은 입력을 옮기면 아직 어디에도 없는 금액이 매월 반복되는 약속으로 굳고, 타이핑 중에
+   * 버튼이 나타났다 사라지기도 한다 — 이 버튼이 복사하는 것은 "저장된 이 기록"이다.
+   *
+   * 선물·환불 행에서는 순수 모듈이 null을 돌려줘 버튼 자체가 없다(DNC-015: 월 합계에서 빠지는
+   * 기록은 "매월 이만큼 쓴다"의 근거가 될 수 없다).
+   */
+  const recurringPrefill = recurringTemplatePrefillParams({
+    itemName: expense.data?.itemName,
+    amountKrw: expense.data?.amountKrw,
+    categoryId: expense.data?.categoryId,
+    paymentMethod: expense.data?.paymentMethod,
+    spentOn: expense.data?.spentOn,
+    expenseType: expense.data?.expenseType
+  });
+  /**
+   * 세션 게이트 + **아이 게이트**.
+   *
+   * 관리 화면은 언제나 **지금 선택된 아이**의 템플릿을 만든다(app/expenses/recurring.tsx의
+   * `selectedChildId`). 그래서 다른 아이의 지출을 보다가 이 버튼을 누르면, 사용자가 고른 적
+   * 없는 아이 밑으로 정기 지출이 조용히 들어간다 — "연결된 준비템 보기" 링크를 같은 이유로
+   * 같은 조건에서만 그리는 것과 한 규칙이다(라운드 49 C-05).
+   *
+   * 세션이 없으면 그리지 않는다(EXP-003 비세션 캡처 경로 불변).
+   */
+  const canRegisterRecurring = Boolean(
+    authToken && selectedChildId && expense.data?.childId === selectedChildId && recurringPrefill
+  );
 
   // MOB-130: 에러 → 로딩 → 정상 순서는 resolveScreenPhase가 정한다(src/screen-phase.ts).
   // 쿼리가 꺼져 있을 때(토큰/expenseId 없음)는 isPending이 영영 true로 남으므로, 가족 화면과
@@ -1187,6 +1246,29 @@ export default function ExpenseDetailScreen() {
               label={save.isPending ? "저장하는 중" : "수정 저장"}
               onPress={expenseGate.guard(() => save.mutate())}
             />
+
+            {/* 라운드 58 #1 — 역방향 진입(판정·문구는 위 recurringPrefill 주석 참고).
+
+                보기 전용 게이트(expenseGate)를 지나지 않는다: 여기서 저장되는 것은 지출이
+                아니라 **이 기기의 메모**이고, 관리 화면도 같은 이유로 템플릿 CRUD를 게이트
+                뒤에 두지 않는다(app/expenses/recurring.tsx). 이 버튼이 여는 것은 폼일 뿐이라
+                누른 것만으로는 아무것도 저장되지 않는다.
+
+                상한(20개)에 닿아 있으면 그 화면의 저장에서 RECURRING_LIMIT_MESSAGE가 그대로
+                뜬다 — 이 진입점은 상한을 우회하는 두 번째 저장 경로를 만들지 않는다(저장은
+                여전히 스토어 한 곳을 지난다). */}
+            {canRegisterRecurring && recurringPrefill ? (
+              <View testID="expense-to-recurring" style={{ gap: 6 }}>
+                <SecondaryButton
+                  label={RECURRING_REGISTER_ACTION_LABEL}
+                  onPress={() => router.push({ pathname: "/expenses/recurring", params: recurringPrefill })}
+                />
+                <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
+                  {RECURRING_REGISTER_ACTION_NOTICE}
+                </Text>
+              </View>
+            ) : null}
+
             <Pressable
               accessibilityRole="button"
               disabled={remove.isPending}

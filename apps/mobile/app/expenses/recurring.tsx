@@ -1,15 +1,17 @@
 import { useMemo, useState } from "react";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, Switch, Text, TextInput, View } from "react-native";
 import { LOCAL_SESSION_TOKEN } from "../../src/api/client";
-import { categoryCatalog } from "../../src/categories";
+import { categoryCatalog, categoryNameFor } from "../../src/categories";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
 import {
   formatRecurringTemplateLine,
+  parseRecurringTemplatePrefill,
   recurringPrefillParams,
   recurringRecordAccessibilityLabel,
   RECURRING_ITEM_NAME_MAX_LENGTH,
   RECURRING_MERCHANT_MAX_LENGTH,
+  RECURRING_PREFILL_NOTICE,
   RECURRING_RECORD_ACTION_LABEL,
   RECURRING_SKIP_ACTION_LABEL,
   RECURRING_TEMPLATE_LIMIT,
@@ -86,6 +88,27 @@ const emptyForm: FormState = {
   dayDigits: ""
 };
 
+/**
+ * 라운드 58 #1 — 지출 상세에서 넘어온 프리필로 시작하는 폼.
+ *
+ * 파싱은 순수 모듈이 전부 한다(`parseRecurringTemplatePrefill`) — 이 화면은 그 결과를 칸에
+ * 옮겨 담기만 한다. 파라미터가 없으면 값이 전부 비어 있어 `emptyForm`과 같아지므로, 평소처럼
+ * 열린 화면은 예전과 한 픽셀도 다르지 않다.
+ *
+ * 결제 수단만 기본값을 되살린다: 프리필이 없거나 화이트리스트 밖이면 `null`이 오는데, 이 폼의
+ * 세그먼트에는 "고르지 않음"이 없다(빠른 기록 시트와 같이 카드에서 시작한다).
+ */
+function formFromPrefill(prefill: ReturnType<typeof parseRecurringTemplatePrefill>): FormState {
+  return {
+    ...emptyForm,
+    itemName: prefill.itemName,
+    amountDigits: prefill.amountDigits,
+    categoryId: prefill.categoryId,
+    paymentMethod: prefill.paymentMethod ?? emptyForm.paymentMethod,
+    dayDigits: prefill.dayDigits
+  };
+}
+
 function formFromTemplate(template: RecurringExpenseTemplate): FormState {
   return {
     editingId: template.id,
@@ -123,8 +146,34 @@ export default function RecurringExpensesScreen() {
   const removeTemplate = useRecurringExpenseStore((state) => state.removeTemplate);
   const setTemplateActive = useRecurringExpenseStore((state) => state.setTemplateActive);
 
-  const [form, setForm] = useState<FormState>(emptyForm);
+  /**
+   * 라운드 58 #1 — 지출 상세("정기 지출로 등록")가 실어 보낸 프리필.
+   *
+   * 이름은 전부 이 앱에 이미 있는 프리필 계약 그대로이고(itemName·amountKrw·categoryId·
+   * paymentMethod) 새로 생긴 이름은 `dayOfMonth` 하나뿐이다. 값 해석은 한 줄도 여기서 하지
+   * 않는다 — 판정이 화면과 모듈 두 벌이 되지 않게(이 화면의 규율).
+   */
+  const params = useLocalSearchParams<{
+    itemName?: string;
+    amountKrw?: string;
+    categoryId?: string;
+    paymentMethod?: string;
+    dayOfMonth?: string;
+  }>();
+  // 파싱 자체는 문자열 몇 개를 보는 일이라 memo가 필요 없다(useLocalSearchParams는 매 렌더
+  // 새 객체를 주므로 memo를 걸어도 어차피 다시 돈다 — 있지도 않은 안정성을 암시하지 않는다).
+  const prefill = parseRecurringTemplatePrefill(params);
+
+  // 프리필은 **화면을 처음 열 때 한 번만** 폼에 들어간다(useState 초기값). 이후 사용자가 고친
+  // 값을 파라미터가 다시 덮어쓰면, 링크로 열린 화면에서 타이핑이 되돌려지는 것처럼 보인다.
+  const [form, setForm] = useState<FormState>(() => formFromPrefill(prefill));
   const [saveError, setSaveError] = useState<string | null>(null);
+  /**
+   * 채워진 채로 열린 폼은 "이미 저장된 것"으로 보인다 — 아직 아무것도 저장되지 않았다는 사실을
+   * 폼 위 한 줄이 말한다. 저장하거나 다른 항목을 수정하기 시작하면 그 줄은 사실이 아니게 되므로
+   * 함께 사라진다.
+   */
+  const [showPrefillNotice, setShowPrefillNotice] = useState(prefill.hasPrefill);
 
   // 이 화면은 **선택된 아이의** 템플릿만 보여준다. 둘째의 정기 지출이 첫째 화면에 섞이면
   // 어느 아이의 약속인지 사용자가 알 수 없다(홈 카드도 같은 기준으로 고른다).
@@ -133,9 +182,23 @@ export default function RecurringExpensesScreen() {
     [templates, selectedChildId]
   );
 
+  /**
+   * 프리필된 분류가 이 화면의 8타일 밖일 수 있다 — 지출은 서버 카테고리 목록(정식 12개)으로도
+   * 저장되기 때문이다. 그때 칩 줄에 아무것도 선택돼 보이지 않으면, 폼은 분류를 들고 있는데
+   * 화면은 고르지 않은 것처럼 보인다(그대로 저장하면 사용자가 보지 못한 분류가 남는다).
+   * 지출 상세(app/expenses/[expenseId].tsx)가 같은 상황에서 하는 것과 같은 처리를 한다:
+   * 그 id의 칩을 앞에 세우고 이름은 `categoryNameFor`가 해석한다(원시 id를 화면에 내지 않는다).
+   */
+  const categoryChips = useMemo(() => {
+    const base = categoryCatalog.map((category) => ({ id: category.id, label: category.label }));
+    if (!form.categoryId || base.some((chip) => chip.id === form.categoryId)) return base;
+    return [{ id: form.categoryId, label: categoryNameFor(form.categoryId) }, ...base];
+  }, [form.categoryId]);
+
   const resetForm = () => {
     setForm(emptyForm);
     setSaveError(null);
+    setShowPrefillNotice(false);
   };
 
   const submit = () => {
@@ -199,6 +262,10 @@ export default function RecurringExpensesScreen() {
           <View style={{ gap: theme.spacing.gap }}>
             <Text style={sectionTitleStyle}>{form.editingId ? "정기 지출 수정" : "정기 지출 추가"}</Text>
             <Card style={{ gap: 14 }}>
+              {/* 라운드 58 #1: 지출에서 넘어와 이미 채워진 폼일 때만 뜨는 한 줄(문구는 순수 모듈). */}
+              {showPrefillNotice && !form.editingId ? (
+                <Text style={rowSubtitleStyle}>{RECURRING_PREFILL_NOTICE}</Text>
+              ) : null}
               <View style={{ gap: 6 }}>
                 <Text style={fieldLabelStyle}>품목명</Text>
                 <TextInput
@@ -235,7 +302,7 @@ export default function RecurringExpensesScreen() {
               <View style={{ gap: 6 }}>
                 <Text style={fieldLabelStyle}>분류</Text>
                 <View style={chipRowStyle}>
-                  {categoryCatalog.map((category) => (
+                  {categoryChips.map((category) => (
                     <CategoryChip
                       key={category.id}
                       label={category.label}
@@ -366,6 +433,7 @@ export default function RecurringExpensesScreen() {
                     onPress={() => {
                       setForm(formFromTemplate(template));
                       setSaveError(null);
+                      setShowPrefillNotice(false);
                     }}
                   />
                   <Pressable

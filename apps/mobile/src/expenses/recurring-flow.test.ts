@@ -211,7 +211,25 @@ describe("라운드 55 #4 프리필 계약이 한 벌이다 (수용 기준 5)", 
   it("날짜는 계약에 없다 — 새 기록은 오늘이다", () => {
     const moduleSource = source("src/expenses/recurring-template.ts");
     expect(moduleSource).not.toContain("spentOn:");
-    expect(paramsBlock).not.toContain("spentOn");
+    // 라운드 58 #5: /expenses/new의 params 블록에는 이제 `spentOn`이 있다 — 동기화 실패 행의
+    // "고쳐서 다시 보내기" 전용 파라미터이고(src/expenses/failed-row-prefill.ts), 정기 지출과는
+    // 다른 진입점이다(그쪽은 "이미 적은 그 기록"을 다시 쓰는 동선이라 날짜가 사실이다).
+    // 그래서 이 테스트가 고정하는 사실 -- **정기 지출 프리필은 날짜를 싣지 않는다** -- 을
+    // 화면 소스가 아니라 직렬화 결과에서 확인한다(더 정확한 자리다).
+    const params = recurringPrefillParams({
+      id: "local-recurring-1",
+      childId: "child-1",
+      itemName: "기저귀",
+      amountKrw: 38_500,
+      categoryId: "c0a7e901-0000-4c01-8c01-c47e900ec001",
+      paymentMethod: "card",
+      merchant: "쿠팡",
+      dayOfMonth: 5,
+      active: true,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      skippedYearMonths: []
+    });
+    expect(Object.keys(params ?? {})).not.toContain("spentOn");
   });
 });
 
@@ -252,6 +270,74 @@ describe("라운드 55 #4 관리 화면 계약", () => {
     expect(screen).not.toMatch(
       /(?<![A-Za-z])color:\s*theme\.colors\.(?:mainCoral|subCoral|peach|coral\[(?:50|100|200|300|400|500|600)\])/
     );
+  });
+});
+
+/**
+ * 라운드 58 #1 — 역방향 진입("정기 지출로 등록")의 배선.
+ *
+ * 값 판정은 recurring-template.test.ts가 값으로 고정한다. 여기서 잠그는 것은 **화면이 그 판정을
+ * 실제로 지나는가**와, 이 진입점이 만들지 않기로 한 것들이다(액션시트 항목 · 두 번째 저장 경로 ·
+ * 규칙의 두 번째 사본).
+ */
+describe("라운드 58 #1 역방향 진입 배선 (지출 상세 → 정기 지출)", () => {
+  const detail = source("app/expenses/[expenseId].tsx");
+  const screen = source("app/expenses/recurring.tsx");
+
+  it("지출 상세가 순수 모듈의 판정으로 버튼을 세우고, 파라미터도 그 모듈이 만든다", () => {
+    expect(detail).toContain('from "../../src/expenses/recurring-template"');
+    expect(detail).toContain("const recurringPrefill = recurringTemplatePrefillParams({");
+    expect(detail).toContain("label={RECURRING_REGISTER_ACTION_LABEL}");
+    expect(detail).toContain('router.push({ pathname: "/expenses/recurring", params: recurringPrefill })');
+    // 문구도 규칙도 화면에 다시 적지 않는다(선물·환불 제외 판정을 화면이 흉내 내지 않는다).
+    // 문구는 상수로만 들어간다 — 리터럴로 적으면 모듈과 화면이 두 문장으로 갈린다.
+    expect(detail).not.toMatch(/label="정기 지출/);
+    expect(detail).not.toContain("isRepeatableExpenseType");
+  });
+
+  it("세션·아이 게이트를 지난다 (다른 아이 밑으로 조용히 들어가지 않는다)", () => {
+    // 관리 화면은 언제나 **선택된 아이**의 템플릿을 만든다 — 어긋난 상태에서 버튼을 그리면
+    // 사용자가 고른 적 없는 아이에게 정기 지출이 생긴다(라운드 49 C-05와 같은 규칙).
+    expect(detail).toContain("const canRegisterRecurring = Boolean(");
+    expect(detail).toContain("authToken && selectedChildId && expense.data?.childId === selectedChildId");
+    expect(detail).toContain("{canRegisterRecurring && recurringPrefill ? (");
+  });
+
+  it("액션시트에는 항목을 더하지 않는다 (Android Alert 3버튼 상한)", () => {
+    const actions = source("src/expenses/record-row-actions.ts");
+    // 네 번째 버튼을 더하면 RN Alert(Android)이 말없이 하나를 잘라낸다.
+    expect(actions).toContain('export type RecordRowActionKey = "edit" | "repeat" | "delete";');
+    expect(actions).toContain("export const ANDROID_ALERT_BUTTON_LIMIT = 3;");
+    // 기록 목록 화면에도 이 진입점을 만들지 않는다(위 §1.5 테스트가 같은 문자열을 지킨다).
+    expect(source("app/(tabs)/records.tsx")).not.toContain("정기 지출");
+  });
+
+  it("관리 화면은 파라미터를 순수 모듈로 파싱하고 **처음 열 때 한 번만** 폼에 넣는다", () => {
+    expect(screen).toContain("useLocalSearchParams");
+    expect(screen).toContain("parseRecurringTemplatePrefill(params)");
+    // useState 초기값 — 이후 사용자가 고친 값을 파라미터가 되돌리지 않는다.
+    expect(screen).toContain("useState<FormState>(() => formFromPrefill(prefill))");
+    // 파싱을 화면이 다시 적지 않는다(숫자·화이트리스트 판정이 두 벌이 되지 않게).
+    expect(screen).not.toContain("Number(params");
+    expect(screen).not.toMatch(/params\.(itemName|amountKrw|categoryId|paymentMethod|dayOfMonth)/);
+  });
+
+  it("프리필로 열려도 저장 경로는 스토어 하나뿐이다 (상한 20을 우회하지 않는다)", () => {
+    // 저장은 여전히 addTemplate/updateTemplate 결과를 그대로 보여준다 — 상한에 닿으면
+    // 스토어가 RECURRING_LIMIT_MESSAGE를 돌려주고, 화면은 그 문장을 자기가 다시 적지 않는다.
+    expect(screen).toContain("const result = form.editingId ? updateTemplate(form.editingId, draft) : addTemplate(draft);");
+    expect(screen).toContain("setSaveError(result.message);");
+    expect(screen).not.toContain("RECURRING_LIMIT_MESSAGE");
+    expect(detail).not.toContain("addTemplate");
+  });
+
+  it("채워진 채로 열린 폼이 '이미 저장됐다'고 말하지 않는다", () => {
+    // 버튼 아래 한 줄(DNC-013)과 폼 위 한 줄(아직 저장 전) 둘 다 순수 모듈의 문구다.
+    expect(detail).toContain("{RECURRING_REGISTER_ACTION_NOTICE}");
+    expect(screen).toContain("{RECURRING_PREFILL_NOTICE}");
+    const module = source("src/expenses/recurring-template.ts");
+    expect(module).toContain("지출이 자동으로 기록되지는 않아요.");
+    expect(module).toContain("확인하고 저장해 주세요.");
   });
 });
 
