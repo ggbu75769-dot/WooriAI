@@ -5,6 +5,7 @@ import { trackAndFlushAnalyticsEvent } from "../src/analytics/client";
 import { LOCAL_SESSION_TOKEN } from "../src/api/client";
 import { localChildId, useLocalBackendStore } from "../src/api/local-backend";
 import { shouldShowSessionExpiredNotice } from "../src/offline/session-expiry";
+import { COLD_START_HOLD_COPY, type ColdStartHoldReason } from "../src/onboarding/cold-start-hold";
 import { fetchOnboardingProgressForSelectedChild } from "../src/onboarding/onboarding-progress-scope";
 import { hasResumeWorthyProgress } from "../src/onboarding/resume";
 import {
@@ -17,8 +18,41 @@ import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { theme } from "../src/theme";
 import { AppScreen, Card, SecondaryButton, Toast } from "../src/ui";
+import { SkeletonCard } from "../src/ui/Skeleton";
 
 declare const __DEV__: boolean;
+
+/**
+ * 라운드 52 C-09 — 콜드 스타트 홀딩 뷰.
+ *
+ * 예전에는 이 자리들이 전부 `return null`이었다: 스플래시가 내려간 뒤 리다이렉트가 정해질
+ * 때까지(최악 6초, 두 개의 3초 안전 밸브) 흰 화면만 남았다. 판정은 그대로 두고 **그리는 것만**
+ * 바꾼다 — 브랜드 배경(AppScreen) + "지금 무엇을 하고 있는지" 한 줄 + D6 스켈레톤 실루엣.
+ *
+ * 문구·이유 목록은 src/onboarding/cold-start-hold.ts 한 곳에 있다. 이 시점의 앱은 저장소조차
+ * 아직 못 읽었으므로 **아는 사실이 없다** — 아이 이름도 금액도 그리지 않는다(스켈레톤은 값이
+ * 아니라 자리 실루엣이다).
+ *
+ * 접근성: 스켈레톤 자체가 "불러오는 중" 라벨을 갖고 있어(src/ui/Skeleton.tsx) 문구와 겹친다.
+ * 기록 탭 행과 같은 관례로 실루엣을 접근성 트리에서 감추고, 텍스트 두 줄만 읽히게 둔다.
+ */
+function ColdStartHoldView({ reason }: { reason: ColdStartHoldReason }) {
+  const copy = COLD_START_HOLD_COPY[reason];
+  return (
+    <AppScreen>
+      <View testID="screen-cold-start-hold" style={{ gap: theme.spacing.section }}>
+        <View accessible accessibilityLiveRegion="polite" style={{ gap: 6 }}>
+          <Text style={{ color: theme.colors.brown, fontSize: 20, fontWeight: "800" }}>{copy.title}</Text>
+          <Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 19 }}>{copy.body}</Text>
+        </View>
+        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ gap: theme.spacing.gap }}>
+          <SkeletonCard />
+          <SkeletonCard />
+        </View>
+      </View>
+    </AppScreen>
+  );
+}
 
 /**
  * The session store rehydrates from SecureStore (and the onboarding-progress/selected-child
@@ -254,7 +288,8 @@ export default function IndexScreen() {
   }
 
   if (!hydrated) {
-    return null;
+    // C-09: 예전의 `return null`. 판정(무엇을 기다리는가)은 그대로이고 그리는 것만 바뀌었다.
+    return <ColdStartHoldView reason="hydration" />;
   }
 
   if (!accessToken && !isTestSession) {
@@ -287,7 +322,9 @@ export default function IndexScreen() {
         </AppScreen>
       );
     }
-    return null;
+    // C-09: 복구가 도는 동안(에러가 아닌 진행 중). 위 주석대로 이 대기는 훅의 3초 밸브가
+    // 상한을 갖고 있고, 이제 그 3초가 흰 화면이 아니라 홀딩 뷰다.
+    return <ColdStartHoldView reason="child-recovery" />;
   }
 
   // R19-C(F1): 복구가 다자녀 중 첫째를 골라준 경우의 안내. 이 시점에는 selectedChildId가 이미
@@ -320,7 +357,9 @@ export default function IndexScreen() {
     // 없다(지금 이 지점에 토큰 없이 도달하는 경로는 없지만, 위 로그아웃 분기가 바뀌어도
     // 빈 화면으로 굳지 않는다).
     if (progressToken && progressFetch !== "done") {
-      return null;
+      // C-09: 두 대기 상태("idle"·"loading")를 함께 붙잡는 계약은 그대로다 — 그 사이에 흰
+      // 화면 대신 홀딩 뷰를 그린다.
+      return <ColdStartHoldView reason="onboarding-progress" />;
     }
     if (hasResumeTarget) {
       return <Redirect href="/onboarding/resume" />;

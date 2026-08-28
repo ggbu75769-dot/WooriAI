@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { HomeSummary } from "../api/client";
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
 import { evaluateHomeNotifications, type WeeklySpendResolution } from "./generators";
+import { useNotificationPreferencesStore } from "./notification-preferences.store";
 import { useNotificationStore } from "./notification.store";
 
 /**
@@ -25,6 +26,11 @@ import { useNotificationStore } from "./notification.store";
  * 콜드 스타트의 첫 평가가 월 페이스 폴백으로 그 주의 dedupeKey를 소진하던 경합을 끊기 위해서다.
  * 나머지 알림(예산·단계·구매 확인)은 그 평가에서도 평소대로 ingest되고, 주간 알림은 지출 캐시가
  * 도착한 다음 평가에서 실제 주간 문구로 정확히 한 번 뜬다(effect가 `weekly` 변화로 다시 돈다).
+ *
+ * 라운드 52 C-08: 기다리는 저장소가 **둘**이 됐다. 알림 종류별 on/off(notification-preferences.
+ * store.ts)도 persist라, 그 스토어가 올라오기 전에 평가하면 muted 목록이 빈 채로 읽혀 사용자가
+ * 꺼 둔 알림이 콜드 스타트마다 한 번씩 새어 나온다(그리고 그 알림의 dedupeKey가 소모돼, 켜도
+ * 그 달에는 다시 오지 않는 것처럼 보인다). 기존 rehydrate 대기와 같은 규율이다.
  */
 export function useHomeNotificationEvaluation(home: HomeSummary | undefined, weekly: WeeklySpendResolution) {
   useEffect(() => {
@@ -45,11 +51,26 @@ export function useHomeNotificationEvaluation(home: HomeSummary | undefined, wee
       store.ingest(candidates, Date.now());
       store.recordSeenStage(home.child.id, home.child.stageLabel);
     };
-    if (useNotificationStore.persist.hasHydrated()) {
+    // 두 저장소가 **모두** 올라온 다음에만 평가한다(C-08 주석 참고). zustand persist는
+    // hasHydrated를 세운 **뒤** onFinishHydration 리스너를 부르므로, 어느 쪽이 늦게 끝나든
+    // 그 콜백 안의 이 검사가 마지막 한 번만 통과한다 -- 중복 평가도 없다(있어도 dedupe로
+    // 무해하지만, 헛도는 작업을 만들지 않는다).
+    const storesHydrated = () =>
+      useNotificationStore.persist.hasHydrated() && useNotificationPreferencesStore.persist.hasHydrated();
+    if (storesHydrated()) {
       evaluate();
       return;
     }
-    const unsubscribe = useNotificationStore.persist.onFinishHydration(() => evaluate());
-    return () => unsubscribe();
+    const unsubscribes = [
+      useNotificationStore.persist.onFinishHydration(() => {
+        if (storesHydrated()) evaluate();
+      }),
+      useNotificationPreferencesStore.persist.onFinishHydration(() => {
+        if (storesHydrated()) evaluate();
+      })
+    ];
+    return () => {
+      for (const unsubscribe of unsubscribes) unsubscribe();
+    };
   }, [home, weekly]);
 }

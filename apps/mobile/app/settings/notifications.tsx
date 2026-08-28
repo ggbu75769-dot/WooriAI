@@ -9,6 +9,11 @@ import {
   LOCAL_SESSION_TOKEN,
   type UserDeviceSummary
 } from "../../src/api/client";
+import {
+  NOTIFICATION_TYPE_OPTIONS,
+  isNotificationTypeEnabled,
+  useNotificationPreferencesStore
+} from "../../src/notifications/notification-preferences.store";
 import { getPushToken, isPushSupported } from "../../src/notifications/push-token-source";
 import { formatRelativeTime } from "../../src/notifications/relative-time";
 import {
@@ -27,6 +32,19 @@ import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusB
  * 푸시 토큰을 얻을 수 없으므로 토글을 비활성으로 두고 "앱 업데이트 후 사용할 수 있어요"를
  * 안내한다 -- 동작하지 않는 기능을 켜지는 척 노출하지 않는다(DNC의 허위 표시 금지 정신).
  * 활성 절차는 src/notifications/push-token-source.ts 모듈 주석 참고.
+ *
+ * 라운드 52 C-08 "앱 알림함" 섹션: 위의 정직한 비활성 때문에, 이 화면에서 **사용자가 실제로 할
+ * 수 있는 일이 0개**였다 -- 토글은 영구 비활성이고 기기 목록은 비어 있다. 그런데 이 앱에서 실제로
+ * 뜨는 알림은 푸시가 아니라 인앱 알림함(NOTI-102/103의 5종)이고 그건 끌 방법이 없었다. 그래서
+ * 푸시 카드 **위에** 종류별 스위치를 둔다: 지금 켤 수 없는 것(푸시)보다 지금 끌 수 있는 것
+ * (알림함)이 먼저 보여야 한다. 목록·라벨·필터는 src/notifications/notification-preferences.store.ts
+ * 한 곳에서 온다.
+ *
+ * ⚠️ 이 스위치들은 **알림함에 남기는 것만** 끈다. 홈의 예산 경고 배너처럼 화면이 지금 상태를
+ * 그대로 그리는 표시는 이 설정과 무관하다(app/(tabs)/index.tsx) -- 같은 사실을 두 층에서 끄면
+ * 예산을 넘긴 사용자가 그 사실을 아무 데서도 볼 수 없게 된다. 그래서 필터는 알림 "생성"
+ * 지점(notification.store.ts의 ingest) 한 곳에만 걸려 있고, 섹션 이름과 설명도 "알림함"이라고
+ * 말한다.
  */
 
 const deviceListQueryKey = ["my-devices"] as const;
@@ -44,6 +62,10 @@ export default function NotificationSettingsScreen() {
   const hasSession = Boolean(authToken);
   const registeredDeviceId = usePushRegistrationStore((state) => state.registeredDeviceId);
   const queryClient = useQueryClient();
+  // C-08: 인앱 알림함의 종류별 on/off. 서버와 무관한 기기 단위 선택이라 쿼리가 아니라 persist
+  // 스토어를 그대로 구독한다(데모 세션에서도 실세션과 똑같이 동작한다).
+  const mutedNotificationTypes = useNotificationPreferencesStore((state) => state.mutedTypes);
+  const setNotificationTypeEnabled = useNotificationPreferencesStore((state) => state.setTypeEnabled);
 
   // 이 빌드가 푸시를 지원하는지(플래그 on + expo-notifications 설치)는 마운트 시점에 한 번
   // 확정되는 정적 사실 -- 렌더마다 재계산할 필요 없이 초기값으로 고정한다.
@@ -102,9 +124,51 @@ export default function NotificationSettingsScreen() {
   return (
     <AppScreen>
       <View testID="screen-SET-006" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="설정" title="알림 설정" subtitle="푸시 알림과 기기별 수신을 관리해요" onBack={() => router.back()} />
+        {/* C-08: 부제가 이제 화면의 두 섹션을 함께 말한다 -- 예전에는 푸시만 말했는데, 이
+            빌드에서 실제로 손댈 수 있는 것은 위의 앱 알림함 쪽이다. */}
+        <ScreenHeader
+          eyebrow="설정"
+          title="알림 설정"
+          subtitle="앱 알림함과 푸시 알림을 관리해요"
+          onBack={() => router.back()}
+        />
 
         {!hasSession ? <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" /> : null}
+
+        {/* C-08: 지금 실제로 뜨는 알림(인앱 알림함)의 종류별 스위치 -- 푸시 카드보다 위. */}
+        {hasSession ? (
+          <View style={{ gap: theme.spacing.gap }}>
+            <Text style={sectionTitleStyle}>앱 알림함</Text>
+            <Card style={{ gap: 14 }}>
+              <Text style={rowSubtitleStyle}>
+                홈 종 아이콘의 알림함에 어떤 소식을 남길지 고를 수 있어요. 끈 알림은 알림함에 쌓이지 않아요.
+              </Text>
+              {NOTIFICATION_TYPE_OPTIONS.map((option) => {
+                const enabled = isNotificationTypeEnabled(mutedNotificationTypes, option.type);
+                return (
+                  <View key={option.type} style={toggleRowStyle}>
+                    <View style={{ flex: 1, gap: 3, paddingRight: 12 }}>
+                      <Text style={rowTitleStyle}>{option.label}</Text>
+                      <Text style={rowSubtitleStyle}>{option.description}</Text>
+                    </View>
+                    <Switch
+                      accessibilityLabel={option.label}
+                      accessibilityRole="switch"
+                      accessibilityState={{ checked: enabled }}
+                      onValueChange={(next) => setNotificationTypeEnabled(option.type, next)}
+                      thumbColor={theme.colors.white}
+                      trackColor={{ false: theme.colors.gray300, true: theme.colors.mainCoral }}
+                      value={enabled}
+                    />
+                  </View>
+                );
+              })}
+              {/* 되돌릴 수 있다는 사실을 말해 둔다: 끈 동안 만들지 않을 뿐, 다시 켜면 다음
+                  확인부터 평소대로 온다(dedupe 키를 소모하지 않는다 -- 스토어 주석 참고). */}
+              <Text style={noticeTextStyle}>다시 켜면 그다음부터 알림함에 다시 쌓여요.</Text>
+            </Card>
+          </View>
+        ) : null}
 
         {hasSession ? (
           <Card style={{ gap: 10 }}>
@@ -139,7 +203,9 @@ export default function NotificationSettingsScreen() {
               </Text>
             ) : null}
             {/* 인앱 알림(app/notifications.tsx, NOTI-102)과의 관계 안내 */}
-            <Text style={rowSubtitleStyle}>앱 안의 알림함(홈 종 아이콘)은 푸시와 별개로 계속 표시돼요.</Text>
+            <Text style={rowSubtitleStyle}>
+              앱 안의 알림함(홈 종 아이콘)은 푸시와 별개로 계속 표시돼요. 종류별로 끄려면 위의 앱 알림함에서 바꿀 수 있어요.
+            </Text>
           </Card>
         ) : null}
 

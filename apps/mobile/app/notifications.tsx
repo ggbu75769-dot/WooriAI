@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Platform, Pressable, Text, View, type AccessibilityActionEvent } from "react-native";
 import { listChildren, LOCAL_SESSION_TOKEN } from "../src/api/client";
 import {
   mergeNewNotificationMarks,
@@ -12,6 +12,14 @@ import {
   formatNotificationRowTitle,
   resolveNotificationChildLabel
 } from "../src/notifications/notification-child-label";
+import {
+  buildNotificationRowActionSheet,
+  buildNotificationRowActions,
+  notificationRowAccessibilityActions,
+  notificationRowAccessibilityHint,
+  notificationRowAccessibilityLabel,
+  resolveNotificationRowAction
+} from "../src/notifications/notification-row-actions";
 import { notificationTapRoute } from "../src/notifications/notification-route";
 import {
   selectUnreadNotificationIds,
@@ -43,6 +51,12 @@ import { AppScreen, EmptyStateCard, ListRow, ScreenHeader } from "../src/ui";
  *   알림과 묶여 /budget(예산 수정 폼)으로 가던 것을 지출 내역으로 고친다 -- 이유는 그 파일에.
  * - "새 소식" 구분: 이 화면은 포커스와 동시에 전부 읽음 처리하므로 20줄이 전부 같아 보였다.
  *   마운트 시 안읽음 id를 한 번 스냅샷해 그 행에만 좌측 점을 붙인다(읽음 규칙은 그대로).
+ *
+ * 라운드 52 C-10 한 줄 지우기: 정리 수단이 "모두 지우기"뿐이라, 이미 처리한 알림 하나를 치우려면
+ * 아직 안 본 알림까지 통째로 버려야 했다(게다가 dedupe 키가 남아 되돌릴 수 없다). 기록 탭의 행
+ * 액션과 **같은 관례**로 롱프레스 액션시트 + 스크린리더 커스텀 액션을 얹는다 -- 항목·문구·버튼
+ * 구성은 src/notifications/notification-row-actions.ts에 있고, 이 화면은 그것을 RN Alert과
+ * accessibilityActions에 꽂기만 한다. 탭의 기본 동작(읽음 + 목적지 이동)은 그대로다.
  */
 
 /**
@@ -63,6 +77,8 @@ export default function NotificationsScreen() {
   const markAllRead = useNotificationStore((state) => state.markAllRead);
   const markRead = useNotificationStore((state) => state.markRead);
   const clearAll = useNotificationStore((state) => state.clearAll);
+  // C-10: 한 줄 지우기. dedupe 키 유지 규칙은 clearAll과 같다(notification.store.ts).
+  const removeNotificationEntry = useNotificationStore((state) => state.remove);
 
   // R20-C: child names for the multi-child row prefix. Shares the ["children"] query key with
   // app/settings/children.tsx / the onboarding recovery path, so this reads the cache instead of
@@ -146,6 +162,37 @@ export default function NotificationsScreen() {
     ]);
   };
 
+  /**
+   * C-10: 행 하나의 액션시트. 이 화면의 행이 내놓는 동작은 한 줄 지우기 하나뿐이라
+   * 목록은 행마다 같지만, 구성은 순수 모듈에 두어 액션시트와 스크린리더 액션 메뉴가 갈릴 수
+   * 없게 한다(기록 탭 관례).
+   *
+   * 지운 뒤에는 "새 소식" 점 목록에서도 그 id를 뺀다 -- 남겨 두면 같은 id의 알림이 다시 올 수
+   * 없는데도(dedupe 키가 유지된다) 목록에 흔적이 남는다.
+   */
+  const rowActions = buildNotificationRowActions();
+  const deleteNotification = (entry: AppNotification) => {
+    removeNotificationEntry(entry.id);
+    setNewNotificationIds((previous) => removeNotificationMark(previous, entry.id));
+  };
+  const openRowActionSheet = (entry: AppNotification, rowTitle: string) => {
+    const sheet = buildNotificationRowActionSheet({ title: rowTitle, platform: Platform.OS });
+    Alert.alert(
+      sheet.title,
+      sheet.message,
+      sheet.buttons.map((button) => ({
+        text: button.label,
+        style: button.style,
+        ...(button.actionKey ? { onPress: () => deleteNotification(entry) } : {})
+      })),
+      { cancelable: sheet.cancelable }
+    );
+  };
+  const handleRowAccessibilityAction = (event: AccessibilityActionEvent, entry: AppNotification) => {
+    // 이 행이 내놓지 않은 액션 이름(다른 화면의 액션, OS 표준 액션)은 무시한다.
+    if (resolveNotificationRowAction(event.nativeEvent.actionName, rowActions)) deleteNotification(entry);
+  };
+
   const now = Date.now();
 
   return (
@@ -181,6 +228,10 @@ export default function NotificationsScreen() {
             // 알 수 없는 종류(옛 저장본 등)는 조회가 undefined -- ListRow의 icon은 선택 항목이라
             // 아이콘 자리만 비고 나머지 줄은 그대로 그려진다.
             const iconName = notificationIconByType[entry.type];
+            // 아래 ListRow에 넘기는 **바로 그 세 문자열**로 스크린리더 라벨을 만든다
+            // (보이는 것과 읽히는 것이 갈릴 수 없다).
+            const rowTitle = formatNotificationRowTitle(entry.title, childLabel);
+            const timeLabel = formatRelativeTime(entry.createdAt, now);
             return (
               // 점 자리는 새 소식이 아닐 때도 그대로 비워 둔다 -- 자리 폭이 오가면 카드 왼쪽이
               // 줄마다 어긋난다.
@@ -193,23 +244,45 @@ export default function NotificationsScreen() {
                     <View accessible accessibilityLabel="새 소식" style={notificationNewDotStyle} />
                   ) : null}
                 </View>
-                <View style={{ flex: 1 }}>
-                  <ListRow
-                    icon={iconName ? <Ionicons name={iconName} size={20} color={theme.colors.mainCoral} /> : undefined}
-                    // The 태명 prefix is part of the title text, so it is announced as part of the
-                    // row's accessibility label too (ListRow reads its Text children).
-                    title={formatNotificationRowTitle(entry.title, childLabel)}
-                    subtitle={entry.body}
-                    value={formatRelativeTime(entry.createdAt, now)}
-                    onPress={() => {
-                      markRead(entry.id);
-                      // J-7: 점을 지우는 유일한 근거는 "이 줄을 열어 봤다"는 사실이다.
-                      // 나머지 줄의 점은 다음 포커스에서도 그대로 남는다.
-                      setNewNotificationIds((previous) => removeNotificationMark(previous, entry.id));
-                      router.push(notificationTapRoute(entry));
-                    }}
-                  />
-                </View>
+                {/* C-10: 탭(읽음 + 이동)은 그대로, 롱프레스로 액션시트를 연다. 바깥 Pressable
+                    하나가 이 행의 접근성 요소가 되어 커스텀 액션을 갖는다 -- 기록 탭
+                    ServerExpenseListRow와 같은 구조·같은 이유다. */}
+                <Pressable
+                  accessible
+                  accessibilityRole="button"
+                  accessibilityLabel={notificationRowAccessibilityLabel({
+                    title: rowTitle,
+                    body: entry.body,
+                    timeLabel
+                  })}
+                  accessibilityActions={notificationRowAccessibilityActions(rowActions)}
+                  accessibilityHint={notificationRowAccessibilityHint(rowActions)}
+                  onAccessibilityAction={(event) => handleRowAccessibilityAction(event, entry)}
+                  onLongPress={() => openRowActionSheet(entry, rowTitle)}
+                  onPress={() => {
+                    markRead(entry.id);
+                    // J-7: 점을 지우는 유일한 근거는 "이 줄을 열어 봤다"는 사실이다.
+                    // 나머지 줄의 점은 다음 포커스에서도 그대로 남는다.
+                    setNewNotificationIds((previous) => removeNotificationMark(previous, entry.id));
+                    router.push(notificationTapRoute(entry));
+                  }}
+                  style={{ flex: 1 }}
+                >
+                  {/* 안쪽을 잠그는 두 가지 이유는 기록 탭과 같다: (1) 공용 ListRow의 루트
+                      Pressable이 responder를 가져가면 바깥 롱프레스가 오지 않는다,
+                      (2) 감추지 않으면 행 안에 접근성 초점이 둘 생긴다. 그려지는 모양은
+                      예전과 같은 ListRow 그대로다. */}
+                  <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none">
+                    <ListRow
+                      icon={iconName ? <Ionicons name={iconName} size={20} color={theme.colors.mainCoral} /> : undefined}
+                      // The 태명 prefix is part of the title text, so it is announced as part of the
+                      // row's accessibility label too (the outer Pressable builds its label from it).
+                      title={rowTitle}
+                      subtitle={entry.body}
+                      value={timeLabel}
+                    />
+                  </View>
+                </Pressable>
               </View>
             );
           })

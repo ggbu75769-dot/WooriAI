@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { persistStorage } from "../stores/persist-storage";
+import {
+  filterMutedNotificationCandidates,
+  useNotificationPreferencesStore
+} from "./notification-preferences.store";
 
 /**
  * NOTI-102 인앱 알림 센터: no push infra -- notifications are computed client-side from data the
@@ -115,7 +119,9 @@ export type NotificationIngestResult = {
 export function addNotifications(
   entries: AppNotification[],
   seenDedupeKeys: string[],
-  candidates: AppNotificationCandidate[],
+  // 라운드 52 C-08(b): `readonly`인 것은 muted 필터가 걸러 낸 목록이 그대로 들어오기 때문이다
+  // (filterMutedNotificationCandidates는 아무것도 꺼지지 않았을 때 원본 배열을 그대로 돌려준다).
+  candidates: readonly AppNotificationCandidate[],
   now: number
 ): NotificationIngestResult {
   const seen = new Set(seenDedupeKeys);
@@ -183,6 +189,21 @@ export function markNotificationRead(entries: AppNotification[], id: string, now
   return entries.map((entry) => (entry.id === id && entry.readAt === undefined ? { ...entry, readAt: now } : entry));
 }
 
+/**
+ * 라운드 52 C-10 — 알림 한 줄 지우기.
+ *
+ * dedupe 규칙은 "모두 지우기"(clearAll)와 **똑같다**: 목록에서만 빼고 `seenDedupeKeys`는 그대로
+ * 둔다. 지운 알림이 다음 평가에서 곧바로 되살아나면 지운 행위 자체가 무의미해지기 때문이다
+ * (그래서 화면의 액션시트도 "지운 알림은 다시 볼 수 없어요"라고 미리 말한다).
+ *
+ * 없는 id면 **같은 배열**을 돌려준다 — markAllNotificationsRead와 같은 no-op 관례라 구독자가
+ * 헛돌지 않는다.
+ */
+export function removeNotification(entries: AppNotification[], id: string): AppNotification[] {
+  if (!entries.some((entry) => entry.id === id)) return entries;
+  return entries.filter((entry) => entry.id !== id);
+}
+
 export type NotificationState = {
   entries: AppNotification[];
   seenDedupeKeys: string[];
@@ -195,6 +216,8 @@ export type NotificationState = {
   /** "모두 지우기": empties the visible list but keeps seenDedupeKeys so cleared notifications
    * are not immediately re-generated on the next evaluation. */
   clearAll: () => void;
+  /** 라운드 52 C-10 "이 알림 지우기": 한 줄만 뺀다. dedupe 키 유지 규칙은 clearAll과 같다. */
+  remove: (id: string) => void;
   recordSeenStage: (childId: string, stageLabel: string) => void;
   /** Session teardown convention (see purchase-followup.store.ts resetAll): drops every persisted
    * entry and the per-child stage meta so the next account on this device starts clean. */
@@ -272,11 +295,31 @@ export const useNotificationStore = create<NotificationState>()(
       entries: [],
       seenDedupeKeys: [],
       lastSeenStageByChild: {},
+      /**
+       * 라운드 52 C-08(b): 사용자가 끈 종류의 후보는 **여기서** 떨어진다 — ingest가 유일한
+       * 유입구라 어느 호출부(홈 평가 훅, 테스트의 직접 호출)로 들어와도 같은 규칙을 지난다.
+       *
+       * 필터가 `addNotifications`보다 **앞**에 있는 것이 계약의 전부다: 걸러진 후보는 dedupe
+       * 메모리에 닿지 않으므로 키가 소모되지 않고, 다시 켜면 다음 평가에서 평소대로 발화한다
+       * (근거는 filterMutedNotificationCandidates 주석).
+       *
+       * 이 필터는 **알림 생성만** 막는다. 홈의 예산 경고 배너처럼 화면이 지금 상태를 그대로
+       * 그리는 것(app/(tabs)/index.tsx)은 여기와 무관하다 — 같은 사실을 두 층에서 끄면 예산을
+       * 넘긴 사용자가 그 사실을 아무 데서도 볼 수 없게 된다. 이 설정의 이름도 "앱 알림함"이다.
+       */
       ingest: (candidates, now = Date.now()) =>
-        set((state) => addNotifications(state.entries, state.seenDedupeKeys, candidates, now)),
+        set((state) =>
+          addNotifications(
+            state.entries,
+            state.seenDedupeKeys,
+            filterMutedNotificationCandidates(candidates, useNotificationPreferencesStore.getState().mutedTypes),
+            now
+          )
+        ),
       markAllRead: (now = Date.now()) => set((state) => ({ entries: markAllNotificationsRead(state.entries, now) })),
       markRead: (id, now = Date.now()) => set((state) => ({ entries: markNotificationRead(state.entries, id, now) })),
       clearAll: () => set({ entries: [] }),
+      remove: (id) => set((state) => ({ entries: removeNotification(state.entries, id) })),
       recordSeenStage: (childId, stageLabel) =>
         set((state) =>
           state.lastSeenStageByChild[childId] === stageLabel
