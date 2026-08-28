@@ -31,22 +31,36 @@ const ANA127_EVENT_LABELS: Record<string, string> = {
 };
 
 /**
- * 온보딩 단계 수(ONB-001..ONB-004) — packages/contracts/src/analytics.ts의 `ONBOARDING_STEPS` 길이.
+ * 온보딩 단계(ONB-001..ONB-004)의 **손 미러** — 계약(packages/contracts/src/analytics.ts의
+ * `ONBOARDING_STEPS`)이 정한 리터럴과 순서를 그대로 옮겨 적고, 한국어 라벨만 보탠다.
+ * 라벨 문구는 앱의 온보딩 화면 제목(apps/mobile/src/onboarding/steps.ts)과 같은 말이라,
+ * 어드민 표의 단계 이름과 사용자가 본 화면이 어긋나지 않는다.
  *
- * 라운드 60 리뷰(P2-8): 왜 import가 아니라 **손으로 적은 숫자 + 대조 테스트**인가. 이 워크스페이스
+ * 라운드 60 리뷰(P2-8): 왜 import가 아니라 **손 미러 + 대조 테스트**인가. 이 워크스페이스
  * (apps/admin)는 `@wooriai/contracts`를 의존성으로 들지 않는다 — 어드민은 REST 응답만 읽는 Next
  * 앱이고, 계약 패키지를 끌어오면 그 트랜지티브 의존성(zod 등)이 어드민 번들로 따라 들어온다.
- * 그렇다고 숫자를 그냥 두면 레지스트리에 단계가 하나 늘어난 날 이 화면이 조용히 거짓말을 한다
- * ("사람당 최대 4건"·"4.0배에 가까울수록"이 전부 틀린 수가 된다).
+ * 그렇다고 목록을 그냥 두면 레지스트리에 단계가 늘거나 순서가 바뀐 날 이 화면이 조용히 거짓말을
+ * 한다(퍼널 앞 4단의 순서·라벨과 "사람당 최대 4건"이 전부 틀린 말이 된다).
  *
- * 그래서 `admin-analytics.test.ts`가 계약 파일의 `ONBOARDING_STEPS`를 직접 읽어 이 값과 대조한다.
- * 값이 갈리는 순간 테스트가 깨지고, 고칠 곳은 이 한 줄이다.
+ * 그래서 `admin-analytics.test.ts`가 계약 파일의 `ONBOARDING_STEPS`를 직접 읽어 이 목록의
+ * **리터럴과 순서**를 대조한다. 갈리는 순간 테스트가 깨지고, 고칠 곳은 이 배열 하나다.
+ *
+ * API도 같은 계약 배열에서 `onboardingSteps`를 만들므로(analytics-summary.service.ts) 응답의
+ * 순서와 이 미러의 순서는 같다 — 그래도 화면은 응답의 `step` 값으로 찾아 읽지(onboardingStepCount)
+ * 배열 위치를 믿지 않는다.
  */
-const ONBOARDING_STEP_COUNT = 4;
+const ONBOARDING_STEPS: { step: string; label: string }[] = [
+  { step: "child_status", label: "아이 상태 선택" },
+  { step: "child_profile", label: "아이 프로필 입력" },
+  { step: "prepared_items", label: "이미 준비한 물건 체크" },
+  { step: "budget", label: "월 예산 설정" }
+];
+
+const ONBOARDING_STEP_COUNT = ONBOARDING_STEPS.length;
 
 type FunnelStage = {
-  /** 단계 식별자(React key). 이벤트 이름이 아니라 단계 이름 — 마지막 단은 이벤트 전체가
-   * 아니라 그 이벤트의 한 답변만 센다. */
+  /** 단계 식별자(React key). 이벤트 이름이 아니라 단계 이름 — 앞 4단은 한 이벤트의 단계별
+   * 분해이고, 마지막 단은 이벤트 전체가 아니라 그 이벤트의 한 답변만 센다. */
   key: string;
   label: string;
   /** 기간 내 이 단계의 건수. */
@@ -74,8 +88,23 @@ type FunnelStage = {
  * 이벤트 이름 단위 단계는 `funnel` 별칭이 아니라 `byName`에서 읽는다 — 별칭 맵은 API가
  * 레거시 6종으로 동결했고(apps/api/src/admin/analytics-summary.service.ts의
  * FUNNEL_KEY_BY_EVENT_NAME) `byName`은 레지스트리에서 생성되어 항상 전 이벤트를 담는다.
+ *
+ * 라운드 61 #5: 그 앞에 **온보딩 4단**을 접두로 붙였다. 라운드 60 #9가 단계 진입을 계측했지만
+ * 요약 API가 이벤트 이름 단위 집계뿐이라 네 단계의 합계밖에 없었고, 합계는 사람당 최대 4건이라
+ * 퍼널의 단으로 넣으면 "완료 대비 25%" 같은 구조적으로 틀린 전환율이 됐다(그래서 라운드 60은
+ * 퍼널 밖 카드에 배수로만 적었다). 이제 API가 `onboardingSteps`로 단계별 분해를 내려주므로
+ * **한 단계는 한 실행에서 최대 1건**이 되어(모바일 step-ui.tsx의 실행당 1회 억제) 뒤의 단들과
+ * 같은 단위가 된다 — 그래서 이제야 퍼널의 단이 될 수 있다. 접두 순서는 계약 순서 그대로다.
  */
 const FUNNEL_STAGES: FunnelStage[] = [
+  // 라운드 61 #5: 온보딩 4단 접두 — 퍼널의 1단이 "완료"라 그 앞의 이탈이 보이지 않던 사각지대.
+  // 표가 이미 "1. / 2. …"로 번호를 붙이고 접두가 맨 앞이라, 라벨에 단계 번호를 또 적지 않는다
+  // (그 두 번호는 계약 순서상 항상 같은 수다).
+  ...ONBOARDING_STEPS.map((step) => ({
+    key: `onboarding_step_${step.step}`,
+    label: `온보딩 · ${step.label}`,
+    count: (summary: AdminAnalyticsSummary) => onboardingStepCount(summary, step.step)
+  })),
   { key: "onboarding_completed", label: "온보딩 완료", count: (summary) => eventCount(summary, "onboarding_completed") },
   { key: "expense_recorded", label: "지출 기록", count: (summary) => eventCount(summary, "expense_recorded") },
   { key: "item_status_changed", label: "준비템 체크", count: (summary) => eventCount(summary, "item_status_changed") },
@@ -101,6 +130,19 @@ function eventLabel(name: string): string {
  * 목록에 없는 이름은 실제로 0건이다. */
 function eventCount(summary: AdminAnalyticsSummary, eventName: string): number {
   return summary.byName.find((entry) => entry.name === eventName)?.count ?? 0;
+}
+
+/**
+ * 라운드 61 #5: 기간 내 해당 온보딩 단계의 진입 건수. API가 계약 레지스트리 순서로 전 단계를
+ * 0건 포함해 내려주므로, 목록에 없는 단계는 실제로 0건이다(eventCount와 같은 판단).
+ */
+function onboardingStepCount(summary: AdminAnalyticsSummary, step: string): number {
+  return summary.onboardingSteps.find((entry) => entry.step === step)?.count ?? 0;
+}
+
+/** 라운드 61 #5: 4단계로 분류된 합 (step이 없거나 알 수 없는 행은 API가 어느 단계에도 넣지 않는다). */
+function classifiedOnboardingStepTotal(summary: AdminAnalyticsSummary): number {
+  return summary.onboardingSteps.reduce((sum, entry) => sum + entry.count, 0);
 }
 
 /**
@@ -214,13 +256,19 @@ export default function AnalyticsSummaryPage() {
 
           {/* 라운드 60 #9: KPI 퍼널 **바로 위**에 온보딩 단계 이탈을 둔다 -- 퍼널의 1단이
               "온보딩 완료"라, 그 앞에서 일어난 이탈은 퍼널 안에서는 영영 보이지 않는다.
-              퍼널의 단계로 넣지 않는 이유는 정직성이다: 단계 진입은 사람당 최대 4건이라
-              "완료 대비 25%"처럼 구조적으로 틀린 전환율이 나온다(stepsPerCompletion 주석). */}
+              라운드 61 #5: 이 카드가 다루는 **합계**는 여전히 퍼널의 단이 아니다 -- 사람당
+              최대 4건이라 "완료 대비 25%"처럼 구조적으로 틀린 전환율이 나온다(stepsPerCompletion
+              주석). 퍼널로 옮겨간 것은 합계가 아니라 단계별 분해(onboardingSteps)이며, 그쪽은
+              한 단계당 한 실행 1건이라 다른 단들과 단위가 같다. */}
           <section className={styles.card}>
             <h2>온보딩 단계 이탈 (퍼널 진입 전)</h2>
             {(() => {
               const stepViews = eventCount(summary, "onboarding_step_viewed");
               const completions = eventCount(summary, "onboarding_completed");
+              // 라운드 61 #5: 4단계로 분류된 합과, 어느 단계에도 들어가지 못한 나머지.
+              // byName 총계는 step이 없거나 알 수 없는 행까지 포함하므로 분류 합계보다 클 수 있다.
+              const classifiedSteps = classifiedOnboardingStepTotal(summary);
+              const unclassifiedSteps = Math.max(0, stepViews - classifiedSteps);
               return (
                 <>
                   <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
@@ -238,7 +286,9 @@ export default function AnalyticsSummaryPage() {
                       <p style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>
                         {completions.toLocaleString("ko-KR")}건
                       </p>
-                      <p style={{ color: "#7A7A7A", fontSize: 12, margin: "4px 0 0" }}>아래 퍼널의 1단과 같은 수예요</p>
+                      <p style={{ color: "#7A7A7A", fontSize: 12, margin: "4px 0 0" }}>
+                        아래 퍼널의 {ONBOARDING_STEP_COUNT + 1}단과 같은 수예요
+                      </p>
                     </article>
                     <article style={{ background: "#FFF8F1", borderRadius: 8, padding: 16 }}>
                       <p style={{ color: "#7A7A7A", fontSize: 13, margin: 0 }}>완료 1건당 단계 진입</p>
@@ -255,10 +305,22 @@ export default function AnalyticsSummaryPage() {
                     <strong>사용자 수가 아니에요</strong>. 그래서 완료 대비 비율을 퍼센트 전환율로 적지 않고 배수로만
                     적어요 — 끝까지 간 사람만 있으면 {ONBOARDING_STEP_COUNT}.0배, 중간에서 멈춘 사람이 많을수록 커져요.
                   </p>
+                  {/* 라운드 61 #5: 단계별 분해가 생겼으니 "아직 없어요"라던 옛 각주를 사실로 갱신한다. */}
                   <p className={styles.hint}>
-                    ※ <strong>어느 단계에서</strong> 멈췄는지는 아직 이 표에 없어요. 이벤트 payload에는 단계 값(
-                    <code>step</code>)이 저장되지만, 요약 API는 이벤트 이름 단위로만 집계해요(구매 확인 응답처럼 단계별
-                    분해를 내려주면 그때 여기에 표로 붙일 수 있어요).
+                    ※ <strong>어느 단계에서</strong> 멈췄는지는 아래 KPI 퍼널의 앞 {ONBOARDING_STEP_COUNT}단에서 볼 수
+                    있어요 — 요약 API가 이벤트 payload의 단계 값(<code>step</code>)별로 분해해 내려줘요. 단계 하나는 한 앱
+                    실행에서 최대 1건이라 단계끼리는 같은 단위로 비교할 수 있어요(대신 앱을 다시 켜고 이어서 하면 다시
+                    세므로 전환율이 100%를 넘을 수 있어요).
+                  </p>
+                  <p className={styles.hint}>
+                    ※ 단계 값이 없거나 알 수 없는 이벤트({unclassifiedSteps.toLocaleString("ko-KR")}건)는 어느 단계에도
+                    넣지 않아요 — 그래서 {ONBOARDING_STEP_COUNT}단계 합계({classifiedSteps.toLocaleString("ko-KR")}건)가
+                    위 단계 진입 수({stepViews.toLocaleString("ko-KR")}건)보다 작을 수 있어요.
+                  </p>
+                  <p className={styles.hint}>
+                    ※ 단계 진입은 <strong>통계 수집 동의(선택)를 켠 사용자만</strong> 계측돼요. 동의는 기본값이 꺼짐이고
+                    로그인 화면에서 켜므로, 이 수는 실제 온보딩 진입의 <strong>하한</strong>이에요 — 단계 사이 비교에는
+                    쓸 수 있지만 절대 수를 신규 사용자 수처럼 읽으면 안 돼요.
                   </p>
                 </>
               );
@@ -296,6 +358,11 @@ export default function AnalyticsSummaryPage() {
             <p className={styles.hint}>
               ※ 전환율은 사용자 단위 추적이 아니라 기간 내 이벤트 수 기반의 근사치예요. 참고: 같은 기간 앱 실행{" "}
               {summary.funnel.appOpened.toLocaleString("ko-KR")}건.
+            </p>
+            {/* 라운드 61 #5: 접두된 앞 4단은 뒤의 단들과 계측 조건이 다르다 — 그 차이를 표 옆에서 밝힌다. */}
+            <p className={styles.hint}>
+              ※ 앞 {ONBOARDING_STEP_COUNT}단(온보딩 단계)은 <strong>통계 수집 동의를 켠 사용자만</strong> 계측되고, 한
+              단계당 앱 실행 1회에 최대 1건이에요 — 자세한 한계는 위 &quot;온보딩 단계 이탈&quot; 카드의 각주를 봐 주세요.
             </p>
             {/* ANA-128: 마지막 단계는 구매 확인 프롬프트에 "샀어요"로 답한 건수만 센다.
                 (ANA-127 시점에는 요약 API가 이벤트 이름 단위 집계뿐이라 3갈래 합계를 보여주고

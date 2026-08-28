@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { generate as generateTotp } from "otplib";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ONBOARDING_STEPS } from "@wooriai/contracts";
 import { getSeoulToday } from "@wooriai/domain";
 import { hashAdminPassword } from "../src/admin/admin-password";
 import { AppModule } from "../src/app.module";
@@ -42,6 +43,8 @@ type Summary = {
   funnel: Record<(typeof FUNNEL_KEYS)[number], number>;
   // ANA-128: purchase_followup_answered의 payload.answer 3갈래 분해.
   purchaseFollowup: { purchased: number; notPurchased: number; dismissed: number };
+  // 라운드 61 #5: onboarding_step_viewed의 payload.step 단계별 분해.
+  onboardingSteps: { step: string; stepNumber: number; count: number }[];
   uniqueAnonUsers: number;
 };
 
@@ -80,6 +83,11 @@ function byNameCount(summary: Summary, name: string): number {
 
 function dailyCount(summary: Summary, date: string): number {
   return summary.dailyTotals.find((entry) => entry.date === date)?.count ?? 0;
+}
+
+/** 라운드 61 #5: 단계 분해에서 한 단계의 건수 (레지스트리 전 단계가 0건 포함 내려온다). */
+function stepCount(summary: Summary, step: string): number {
+  return summary.onboardingSteps.find((entry) => entry.step === step)?.count ?? 0;
 }
 
 // ADM-009: GET /admin/analytics/summary — KPI 퍼널용 이벤트 집계 (읽기 전용, 모든 관리자 역할).
@@ -168,6 +176,43 @@ describe("Admin analytics summary (ADM-009)", () => {
     });
   }
 
+  /**
+   * 라운드 61 #5 왕복 테스트용 앱 사용자 로그인 (analytics-events.e2e.test.ts와 같은 dev 스텁
+   * 경로). 어드민 세션과 달리 수집 엔드포인트는 일반 사용자 JWT를 요구한다.
+   */
+  async function loginAppUser(prefix: string): Promise<string> {
+    const response = await request(app.getHttpServer())
+      .post("/api/v1/auth/oauth-login")
+      .send({ provider: "kakao", providerToken: `${prefix}-${randomUUID()}` })
+      .expect(200);
+    return response.body.tokens.accessToken as string;
+  }
+
+  /**
+   * 앱이 쓰는 그 경로로 온보딩 단계 이벤트를 보낸다 — 레지스트리 payload 검증(단계 enum +
+   * 1부터 세는 단계 번호)을 통과해야 저장되므로, 이 헬퍼가 성공한다는 것 자체가 계약 준수의
+   * 확인이다. `stepNumber`는 계약 배열 위치에서 만든다(모바일 buildOnboardingStepViewedPayload와
+   * 같은 규칙).
+   */
+  async function submitStepEvents(accessToken: string, steps: { step: string; occurredAt: Date }[]) {
+    const response = await request(app.getHttpServer())
+      .post("/api/v1/analytics/events")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        events: steps.map(({ step, occurredAt }) => ({
+          eventName: "onboarding_step_viewed",
+          eventVersion: 1,
+          eventId: randomUUID(),
+          occurredAt: occurredAt.toISOString(),
+          platform: "android",
+          payload: { step, stepNumber: ONBOARDING_STEPS.indexOf(step as (typeof ONBOARDING_STEPS)[number]) + 1 }
+        }))
+      })
+      .expect(200);
+    expect(response.body.rejected).toEqual([]);
+    expect(response.body.accepted).toBe(steps.length);
+  }
+
   it("rejects unauthenticated requests (401 for a bad session cookie, legacy-guard 403 with no credentials)", async () => {
     await request(app.getHttpServer())
       .get("/api/v1/admin/analytics/summary")
@@ -233,6 +278,21 @@ describe("Admin analytics summary (ADM-009)", () => {
       summary.purchaseFollowup.notPurchased +
       summary.purchaseFollowup.dismissed;
     expect(classified).toBeLessThanOrEqual(byNameCount(summary, "purchase_followup_answered"));
+
+    // 라운드 61 #5: onboardingSteps는 항상 계약 레지스트리(ONBOARDING_STEPS)의 전 단계를
+    // 그 순서로, 0건 포함해 담는다 — 창 안에 어떤 단계가 있었는지에 따라 형태가 달라지지 않는다.
+    expect(summary.onboardingSteps.map((entry) => entry.step)).toEqual([...ONBOARDING_STEPS]);
+    expect(summary.onboardingSteps.map((entry) => entry.stepNumber)).toEqual(
+      ONBOARDING_STEPS.map((_, index) => index + 1)
+    );
+    for (const entry of summary.onboardingSteps) {
+      expect(Number.isInteger(entry.count)).toBe(true);
+      expect(entry.count).toBeGreaterThanOrEqual(0);
+    }
+    // 분해 합계는 이벤트 이름 총계를 넘지 않는다 (step 없는 행은 무시되므로 작을 수는 있다).
+    expect(summary.onboardingSteps.reduce((sum, entry) => sum + entry.count, 0)).toBeLessThanOrEqual(
+      byNameCount(summary, "onboarding_step_viewed")
+    );
 
     // dailyTotals: exactly 7 ascending Seoul-calendar days ending today, and
     // their sum reconciles with totalEvents (same occurredAt window).
@@ -382,6 +442,101 @@ describe("Admin analytics summary (ADM-009)", () => {
     // 그래도 4건 모두 이벤트 이름 총계에는 남는다 (버려지는 것은 분류뿐).
     expect(
       byNameCount(after, "purchase_followup_answered") - byNameCount(before, "purchase_followup_answered")
+    ).toBe(4);
+    expect(after.totalEvents - before.totalEvents).toBe(4);
+  });
+
+  /**
+   * 라운드 61 #5 — **수집 → 분해 왕복**. 라운드 60 #9는 계측(모바일)과 저장(POST
+   * /v1/analytics/events)만 붙였고 읽기 경로가 없어서, 어드민은 네 단계의 합계 하나만 볼 수
+   * 있었다. 이 테스트는 실제 수집 엔드포인트로 단계 이벤트를 보내고(직접 prisma 심기가 아니라
+   * 앱이 쓰는 그 경로 그대로 — 레지스트리 payload 검증까지 통과해야 한다), 어드민 요약이 그것을
+   * 단계별로 쪼개 돌려주는지 확인한다.
+   */
+  it("collects onboarding_step_viewed through the ingestion endpoint and breaks it down by payload.step (수집 → 분해 왕복)", async () => {
+    const email = freshEmail("r61-steps");
+    await createAdmin(email, "analyst");
+    const { cookie } = await loginAndEnroll(email);
+
+    // 델타 비교: 공유 테스트 DB에 다른 스위트의 행이 이미 있을 수 있다.
+    const before7 = await fetchSummary(cookie, 7);
+    const before30 = await fetchSummary(cookie, 30);
+
+    const accessToken = await loginAppUser("r61-steps");
+    // 7일 창: 1단 x2(두 번의 앱 실행), 2단 x1, 3단 x1 — 4단(budget)까지 간 사람은 없다.
+    await submitStepEvents(accessToken, [
+      { step: "child_status", occurredAt: seoulNoonDaysAgo(0) },
+      { step: "child_status", occurredAt: seoulNoonDaysAgo(1) },
+      { step: "child_profile", occurredAt: seoulNoonDaysAgo(0) },
+      { step: "prepared_items", occurredAt: seoulNoonDaysAgo(2) }
+    ]);
+    // 30일 창에만: 4단 x1.
+    await submitStepEvents(accessToken, [{ step: "budget", occurredAt: seoulNoonDaysAgo(12) }]);
+
+    const after7 = await fetchSummary(cookie, 7);
+    const after30 = await fetchSummary(cookie, 30);
+
+    expect(stepCount(after7, "child_status") - stepCount(before7, "child_status")).toBe(2);
+    expect(stepCount(after7, "child_profile") - stepCount(before7, "child_profile")).toBe(1);
+    expect(stepCount(after7, "prepared_items") - stepCount(before7, "prepared_items")).toBe(1);
+    expect(stepCount(after7, "budget") - stepCount(before7, "budget")).toBe(0);
+    // 이벤트 이름 총계는 그대로 4건 증가 — 분해가 총계를 대체하지 않는다(byName 계약 불변).
+    expect(
+      byNameCount(after7, "onboarding_step_viewed") - byNameCount(before7, "onboarding_step_viewed")
+    ).toBe(4);
+    expect(after7.totalEvents - before7.totalEvents).toBe(4);
+    // byName의 순서 계약(레지스트리 처음 6종이 앞)도 그대로다.
+    expect(after7.byName.slice(0, 6).map((entry) => entry.name)).toEqual([...REGISTRY_EVENT_NAMES]);
+
+    // 30일 창은 12일 전 4단까지 포함한다.
+    expect(stepCount(after30, "budget") - stepCount(before30, "budget")).toBe(1);
+    expect(stepCount(after30, "child_status") - stepCount(before30, "child_status")).toBe(2);
+    expect(
+      byNameCount(after30, "onboarding_step_viewed") - byNameCount(before30, "onboarding_step_viewed")
+    ).toBe(5);
+  });
+
+  /**
+   * 라운드 61 #5: step이 없거나(레거시 페이로드) 레지스트리 밖 문자열이면 **무시**한다 —
+   * ANA-128의 answer 분해와 같은 규칙. 그리고 `stepNumber`는 페이로드가 아니라 **계약 배열
+   * 위치**에서 나온다: 아래의 stepNumber=99 행도 budget 단계로 세되, 응답의 stepNumber는 4다.
+   *
+   * 수집 엔드포인트는 이런 페이로드를 애초에 거부하므로(레지스트리 strict 검증) 직접 심는다 —
+   * 옛 빌드가 남긴 행이나 손상된 행을 흉내 내는 것이 이 테스트의 목적이다.
+   */
+  it("ignores onboarding_step_viewed rows whose payload has no usable step, and numbers steps from the contract (not the payload)", async () => {
+    const email = freshEmail("r61-steps-legacy");
+    await createAdmin(email, "analyst");
+    const { cookie } = await loginAndEnroll(email);
+
+    const before = await fetchSummary(cookie, 7);
+    const anon = `r61-legacy-anon-${randomUUID()}`;
+
+    await seedEvent("onboarding_step_viewed", seoulNoonDaysAgo(0), anon, {}); // 레거시: step 없음
+    await seedEvent("onboarding_step_viewed", seoulNoonDaysAgo(0), anon, { step: null }); // 손상: null
+    await seedEvent("onboarding_step_viewed", seoulNoonDaysAgo(0), anon, { step: "budgeting" }); // 미등록 값
+    await prisma.analyticsEvent.create({
+      data: {
+        eventName: "onboarding_step_viewed",
+        eventVersion: 1,
+        eventId: randomUUID(),
+        occurredAt: seoulNoonDaysAgo(0),
+        userAnonId: anon,
+        // 단계 이름은 맞고 번호만 틀린 행 — 순서의 단일 소스가 계약임을 보이는 픽스처.
+        payload: { step: "budget", stepNumber: 99 }
+      }
+    });
+
+    const after = await fetchSummary(cookie, 7);
+
+    expect(stepCount(after, "budget") - stepCount(before, "budget")).toBe(1);
+    expect(stepCount(after, "child_status") - stepCount(before, "child_status")).toBe(0);
+    expect(after.onboardingSteps.map((entry) => entry.stepNumber)).toEqual(
+      ONBOARDING_STEPS.map((_, index) => index + 1)
+    );
+    // 그래도 4건 모두 이벤트 이름 총계에는 남는다 (버려지는 것은 분류뿐).
+    expect(
+      byNameCount(after, "onboarding_step_viewed") - byNameCount(before, "onboarding_step_viewed")
     ).toBe(4);
     expect(after.totalEvents - before.totalEvents).toBe(4);
   });
