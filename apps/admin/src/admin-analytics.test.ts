@@ -493,7 +493,9 @@ describe("Admin CMS analytics page (ADM-009)", () => {
     it("derives the funnel row expectation from FUNNEL_STAGES instead of a literal count", () => {
       const source = harness();
       expect(source).toContain("readFunnelStageContract");
-      expect(source).toContain("const FUNNEL_STAGES: FunnelStage[] = [");
+      // 라운드 63 후속: 파서가 타입 주석·줄바꿈 서식에 매이지 않도록 완화되어, 붙드는 것은
+      // 리터럴 선언 문자열이 아니라 "FUNNEL_STAGES 선언을 정규식으로 찾아 파싱한다"는 사실이다.
+      expect(source).toContain("const FUNNEL_STAGES\\b[^=]*=\\s*\\[");
       expect(source).toContain("funnel.labels.length");
       // 옛 하드코딩(그리고 그 자리에 새 숫자를 다시 적는 일)을 막는다.
       expect(source).not.toMatch(/funnelRows !== \d/);
@@ -502,8 +504,8 @@ describe("Admin CMS analytics page (ADM-009)", () => {
 
     it("reads the onboarding prefix from the page mirror and cross-checks the contracts registry", () => {
       const source = harness();
-      expect(source).toContain("const ONBOARDING_STEPS:");
-      expect(source).toContain("export const ONBOARDING_STEPS = \\[([^\\]]*)\\] as const;");
+      expect(source).toContain("const ONBOARDING_STEPS\\b[^=]*=\\s*\\[");
+      expect(source).toContain("export const ONBOARDING_STEPS[^=]*=\\s*\\[([^\\]]*)\\]\\s*as const");
       expect(source).toContain("온보딩 · ");
     });
 
