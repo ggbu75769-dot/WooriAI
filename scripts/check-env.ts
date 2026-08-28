@@ -126,6 +126,8 @@ const OPTIONAL_SPECS: EnvSpec[] = [
   { key: "EXPO_PUBLIC_KAKAO_CLIENT_ID", scope: "mobile", note: "EXPO_PUBLIC_KAKAO_ENABLED=1일 때만 필요" },
   { key: "EXPO_PUBLIC_KAKAO_REDIRECT_URI", scope: "mobile", note: "카카오 콘솔·OAUTH_KAKAO_REDIRECT_URIS 양쪽에 등록" },
   { key: "EXPO_PUBLIC_PUSH_ENABLED", scope: "mobile", note: "opt-in — 꺼짐이 정상(PUSH-113)" },
+  { key: "EXPO_PUBLIC_TERMS_URL", scope: "mobile", note: "이용약관 호스팅 URL — 없으면 앱에 [보기] 링크가 생기지 않음(GAP-065 #5)" },
+  { key: "EXPO_PUBLIC_PRIVACY_POLICY_URL", scope: "mobile", note: "개인정보처리방침 URL — Play 등록 URL과 같은 값(docs/store/play-listing.md)" },
   { key: "NEXT_PUBLIC_API_BASE_URL", scope: "admin", note: "기본 /api/v1 (same-origin rewrite) — 교차 출처 호출 때만 설정" },
   { key: "ADMIN_API_PROXY_TARGET", scope: "admin", note: "기본 http://localhost:3000 (next.config.js rewrite 대상)" }
 ];
