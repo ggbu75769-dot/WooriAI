@@ -1,7 +1,7 @@
 import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";
 import {
+  recordsCountPhrase,
   SYNC_ROW_PENDING_LABEL,
-  unreflectedRecordsPhrase,
   unsendableRecordsSuffixText
 } from "../offline/messages";
 import { countPermanentlyFailedRows } from "../offline/permission-denied";
@@ -49,19 +49,25 @@ import { countPermanentlyFailedRows } from "../offline/permission-denied";
  * 그래서 **네 자리가 각자 다른 답을 낸다.** 한 술어로 통일하지 않는다 — 통일하는 순간 그중
  * 최소 한 자리가 거짓을 말한다:
  *
- *  1. **합계 유지**(`src/offline/expense-list-reconciliation.ts`): 월 합계에서 **빼지 않는다.**
- *     그 행은 기록 탭 목록에 그대로 서 있어 사용자가 눈으로 셀 수 있다 — 목록에 있는 금액이
- *     합계에 없으면 앱이 산수를 틀린 것으로 읽힌다. 대신 영구 실패 **건수**를 결과에 실어,
- *     화면이 고지 한 줄을 덧붙일 수 있게 한다.
+ *  1. **합계 유지**(`src/offline/expense-list-reconciliation.ts`): 서버에 아직 없는 행(생성이
+ *     거절된 행)은 월 합계에서 **빼지 않는다.** 그 행은 기록 탭 목록에 그대로 서 있어 사용자가
+ *     눈으로 셀 수 있다 — 목록에 있는 금액이 합계에 없으면 앱이 산수를 틀린 것으로 읽힌다. 대신
+ *     영구 실패 **건수**를 결과에 실어, 화면이 고지 한 줄을 덧붙일 수 있게 한다. 반대로 **서버
+ *     지출을 가리키는 행**(수정·삭제가 거절된 행)에서는 그 변경이 영영 닿지 않으므로 **서버 값이
+ *     목록·합계로 되돌아온다**(4번과 같은 규칙 — 죽은 로컬 값이 산 서버 값을 가리지 않는다).
+ *     그러지 않으면 403으로 거절된 삭제가 화면에서만 성사돼, 서버에 멀쩡히 남아 있는 지출 한 줄이
+ *     목록에서도 합계에서도 사라진다.
  *  2. **정기 지출 판정**(`src/expenses/recurring-template.ts`의 `recordedItemNamesForMonth`):
  *     "기록됨"에서 **뺀다.** 묻는 것이 "이번 달에 이 품목을 샀는가"인데 영구 실패 행은 서버에
  *     결코 닿지 않는다. 실패한 기저귀 한 줄이 카드를 끄면 사용자는 다시 기록할 기회를 잃는다.
  *     일시 실패·대기 행은 종전대로 센다(그것들은 언젠가 반영된다).
  *  3. **고지 어휘 분리**(`src/reports/pending-scope-notice.ts` ·
- *     `src/export/export-pending-notice.ts`): 세는 대상은 그대로 두고 **부르는 이름을 가른다.**
- *     영구 실패가 섞이면 주어가 "동기화 대기 중인 기록"에서 "아직 반영되지 않은 기록"으로
- *     바뀌고, 그중 몇 건이 "보낼 수 없는 기록"인지 뒷문장이 따로 말한다(offline/messages.ts).
- *     두 모듈의 모집단은 다르지만(DNC-015) **구분 규칙은 하나**다.
+ *     `src/export/export-pending-notice.ts`): 세는 대상은 그대로 두고 **부르는 이름만 가른다.**
+ *     영구 실패가 섞이면 주어에서 "동기화 대기 중인"이 떨어져 그냥 "기록 N건"이 되고, 그중 몇
+ *     건이 "보낼 수 없는 기록"인지 뒷문장이 따로 말한다(offline/messages.ts). **술어는 두 갈래가
+ *     같다**("…에 아직 반영되지 않았어요"): 이 모집단에는 삭제 대기 행(그 숫자에 아직 들어 있다)과
+ *     수정 대기 행(옛 값으로 담긴다)이 섞여 있어, "빠져 있어요"처럼 세게 말하면 그 부분집합에
+ *     거짓이다. 두 모듈의 모집단은 다르지만(DNC-015) **구분 규칙은 하나**다.
  *  4. **자동완성 모집단**(`src/expenses/suggest-source.ts`): 제안에서 **뺀다.** 400을 부른 바로
  *     그 값이 첫 후보로 돌아오면 사용자는 같은 실패를 다시 만든다(실패 공장). 빼도 잃는 것이
  *     없다 — 이력은 남고, 그 지출의 서버 값이 있으면 그쪽이 대신 후보가 된다.
@@ -174,15 +180,14 @@ function pendingRowsInReportScope({ rows, childId, scope }: PendingScopeNoticeIn
  * 모집단은 위 함수 하나이고, 두 숫자는 같은 배열에서 나온다 — 고지의 앞뒤 문장이 서로 다른
  * 집합을 말하는 일이 구조적으로 불가능해야 한다("그중 M건"이 N보다 클 수 없다).
  * 구분 규칙은 CSV 고지(`src/export/export-pending-notice.ts`)와 **같은 술어**다.
+ *
+ * 라운드 59 통합리뷰 P2-2: 총건수만 돌려주던 옛 이름(`countPendingExpensesInReportScope`)은
+ * **없앴다** — 프로덕션 호출부가 한 곳도 없었다. 건수만 필요하면
+ * `countPendingScopeBreakdown(...).count`다(CSV 고지와 같은 관례).
  */
 export function countPendingScopeBreakdown(input: PendingScopeNoticeInput): PendingScopeBreakdown {
   const pendingRows = pendingRowsInReportScope(input);
   return { count: pendingRows.length, unsendableCount: countPermanentlyFailedRows(pendingRows) };
-}
-
-/** 이 아이·이 기간의 대기 건수(영구 실패 포함). 세부는 `countPendingScopeBreakdown`. */
-export function countPendingExpensesInReportScope(input: PendingScopeNoticeInput): number {
-  return countPendingScopeBreakdown(input).count;
 }
 
 /**
@@ -202,15 +207,22 @@ export function countPendingExpensesInReportScope(input: PendingScopeNoticeInput
  * 본다). 그렇다고 세는 대상에서 빼면 아래 숫자에 그만큼이 빠져 있다는 사실을 아무도 말하지
  * 않는다 — 숫자만 조용히 틀리는 쪽이 더 나쁘다.
  *
- * 그래서 **주어를 바꾸고 내역을 덧붙인다**: 참인 관측("아직 반영되지 않은 기록 N건")만 남기고,
- * 그중 몇 건이 "보낼 수 없는 기록"인지 뒷문장이 따로 말한다. 두 조각 모두 offline/messages.ts의
- * 단일 소스이고, CSV 고지가 **같은 두 조각**을 쓴다(시제·목적어만 다르다).
+ * 그래서 **주어에서 "동기화 대기 중인"만 떼고 내역을 덧붙인다**: 남는 주어는 세어진 것 자체
+ * ("기록 N건")이고, 그중 몇 건이 "보낼 수 없는 기록"인지 뒷문장이 따로 말한다. 두 조각 모두
+ * offline/messages.ts의 단일 소스이고, CSV 고지가 **같은 두 조각**을 쓴다(목적어만 다르다).
+ *
+ * ## 술어는 두 갈래가 같다 (라운드 59 통합리뷰 P1-1)
+ *
+ * 어느 갈래든 문장이 하는 주장은 하나다 — "아래 숫자에 **아직 반영되지 않았어요**". 한때 영구
+ * 실패 갈래만 "빠져 있어요"로 세게 말했는데, 그 말은 세는 규칙보다 세다: 이 모집단에는 **삭제
+ * 대기** 행이 들어 있고 그 행이 가리키는 지출은 아래 숫자에 아직 **들어 있다**(빠진 것이 아니라
+ * 빠져야 할 것이 남아 있다). 부분집합에 거짓인 문장을 쓰지 않는다(라운드 57 QA P1-2의 규율).
  */
 export function reportPendingScopeNoticeText(count: number, unsendableCount = 0): string {
   if (unsendableCount <= 0) {
     return `${SYNC_ROW_PENDING_LABEL} 중인 기록 ${count}건은 아래 숫자에 아직 반영되지 않았어요.`;
   }
-  return `${unreflectedRecordsPhrase(count)}은 아래 숫자에 빠져 있어요. ${unsendableRecordsSuffixText(unsendableCount)}`;
+  return `${recordsCountPhrase(count)}은 아래 숫자에 아직 반영되지 않았어요. ${unsendableRecordsSuffixText(unsendableCount)}`;
 }
 
 /**

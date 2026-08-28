@@ -1594,8 +1594,18 @@ export default function RecordsScreen() {
 
             문구는 messages.ts 한 곳에서 나오고(동기화 상태 화면·리포트·CSV 고지와 같은 어휘),
             0건이면 아예 그리지 않는다 -- 평소 화면은 한 줄도 늘지 않는다. 목록을 그리지 않는
-            상태(로딩·오류)에서도 그리지 않는다: "이 중"이 가리킬 목록이 화면에 없다. */}
-        {showList && permanentlyFailedCount > 0 ? (
+            상태(로딩·오류)에서도 그리지 않는다: "이 중"이 가리킬 목록이 화면에 없다.
+
+            라운드 59 통합리뷰 P2-8 — **필터가 걸려 있을 때도 그리지 않는다.** 이 건수는 필터와
+            무관한 그 달 전체에서 나오는데(reconcileMonthlyExpenses는 검색어·칩을 모르므로 바로 위
+            월 요약 줄과 같은 모집단이다), "이 중"은 **바로 아래 보이는 목록**을 가리킨다. 검색어를
+            친 순간 그 둘이 어긋난다: "조리원"으로 좁혀 2건만 보이는 화면에서 "이 중 3건은 보낼 수
+            없는 기록이에요"는 어떤 셈으로도 맞지 않는다(사용자가 그 자리에서 반박할 수 있다).
+            문구를 필터 무관 사실로 바꾸는 길도 있었지만, 그러면 이 줄만 위 요약 줄 계열이 되고
+            아래 스코프 줄 계열과 층위가 섞인다 -- 필터가 걸린 화면에는 이미 그 사실을 말하는
+            줄(records-filter-scope)이 따로 서 있으므로, 여기서는 **가리킬 대상이 확실할 때만
+            말한다**. 판정은 그 스코프 줄과 같은 단일 소스다(filterScopeSummary가 null = 무필터). */}
+        {showList && !filterScopeSummary && permanentlyFailedCount > 0 ? (
           <Text
             testID="records-unsendable-notice"
             style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}

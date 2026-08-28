@@ -33,6 +33,7 @@ import {
   RECURRING_MERCHANT_MAX_LENGTH,
   RECURRING_MERCHANT_TOO_LONG_MESSAGE,
   RECURRING_ITEM_NAME_TOO_LONG_MESSAGE,
+  RECURRING_LIMIT_MESSAGE,
   RECURRING_PAYMENT_METHOD_MESSAGE,
   RECURRING_SKIP_HISTORY_LIMIT,
   RECURRING_TEMPLATE_LIMIT,
@@ -237,6 +238,18 @@ describe("라운드 55 #4 저장 blob 방어 (sanitize)", () => {
     const restored = sanitizeRecurringTemplates(persisted);
     expect(restored).toHaveLength(1);
     expect(restored[0].itemName).toBe("기저귀");
+  });
+
+  /**
+   * 라운드 59 통합리뷰 P2-1 — 판정(아이별)과 문장이 같은 것을 말한다. 라운드 59 #4가 상한을
+   * 아이별로 바꾼 뒤에도 이 문장만 전역처럼 들려서, 둘째의 목록에 3개뿐인 사람이 "저장한 정기
+   * 지출 3개 · 최대 20개" 옆에서 상한 안내를 읽는 자기모순이 남아 있었다.
+   */
+  it("상한 안내가 **아이별**이라고 말한다 (화면 표기와 같은 것을 가리킨다)", () => {
+    expect(RECURRING_LIMIT_MESSAGE).toContain(`아이 한 명당 ${RECURRING_TEMPLATE_LIMIT}개`);
+    // 다음에 할 일까지 한 줄에 담고(DNC-018 해요체), 책망하지 않는다.
+    expect(RECURRING_LIMIT_MESSAGE.endsWith("주세요.")).toBe(true);
+    expect(RECURRING_LIMIT_MESSAGE).not.toContain("너무");
   });
 
   it("상한을 넘긴 blob은 상한까지만 살린다", () => {

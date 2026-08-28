@@ -195,6 +195,63 @@ describe("라운드 59 #4 정기 지출 상한은 아이별이다", () => {
   });
 
   /**
+   * 라운드 59 통합리뷰 P2-11 — **수정으로 아이를 옮기는 길**에도 같은 상한이 선다.
+   *
+   * 상한 판정이 addTemplate에만 있어서, 첫째의 템플릿 하나를 이미 20개가 찬 둘째로 옮기면 둘째가
+   * 21개가 됐다. 저장은 성공하고, 앱을 다시 켜면 아이별 절단이 그중 하나를 조용히 버린다 —
+   * 사용자가 손쓸 수 없는 소실이라 저장 시점에 막는다(조용히 버리지 않는 이 저장소의 규율).
+   */
+  it("이미 상한이 찬 아이로 옮기는 수정은 저장 대신 안내한다", () => {
+    fillChild(OTHER_CHILD, RECURRING_TEMPLATE_LIMIT);
+    expect(useRecurringExpenseStore.getState().addTemplate(draft({ childId: CHILD, itemName: "유일한 항목" })).ok).toBe(
+      true
+    );
+    const moving = useRecurringExpenseStore
+      .getState()
+      .templates.find((template) => template.childId === CHILD)!;
+
+    const result = useRecurringExpenseStore
+      .getState()
+      .updateTemplate(moving.id, draft({ childId: OTHER_CHILD, itemName: "유일한 항목" }));
+
+    expect(result).toEqual({ ok: false, message: RECURRING_LIMIT_MESSAGE });
+    // 아무것도 옮겨 가지 않았다 — 두 아이의 개수가 그대로다.
+    const templates = useRecurringExpenseStore.getState().templates;
+    expect(templates.filter((template) => template.childId === OTHER_CHILD)).toHaveLength(RECURRING_TEMPLATE_LIMIT);
+    expect(templates.filter((template) => template.childId === CHILD)).toHaveLength(1);
+  });
+
+  it("자리가 남은 아이로 옮기는 수정과 같은 아이 안의 수정은 종전 그대로다", () => {
+    fillChild(OTHER_CHILD, RECURRING_TEMPLATE_LIMIT - 1);
+    expect(useRecurringExpenseStore.getState().addTemplate(draft({ childId: CHILD, itemName: "유일한 항목" })).ok).toBe(
+      true
+    );
+    const moving = useRecurringExpenseStore
+      .getState()
+      .templates.find((template) => template.childId === CHILD)!;
+
+    // 한 자리가 남아 있으므로 옮겨 간다.
+    expect(
+      useRecurringExpenseStore.getState().updateTemplate(moving.id, draft({ childId: OTHER_CHILD, itemName: "유일한 항목" }))
+        .ok
+    ).toBe(true);
+    expect(
+      useRecurringExpenseStore.getState().templates.filter((template) => template.childId === OTHER_CHILD)
+    ).toHaveLength(RECURRING_TEMPLATE_LIMIT);
+
+    // 그리고 그 아이가 꽉 찬 지금도, **같은 아이 안의** 평범한 수정(금액)은 막히지 않는다.
+    const stays = useRecurringExpenseStore.getState().templates.find((template) => template.id === moving.id)!;
+    expect(
+      useRecurringExpenseStore
+        .getState()
+        .updateTemplate(stays.id, draft({ childId: OTHER_CHILD, itemName: "유일한 항목", amountKrw: 41_000 })).ok
+    ).toBe(true);
+    expect(useRecurringExpenseStore.getState().templates.find((template) => template.id === moving.id)?.amountKrw).toBe(
+      41_000
+    );
+  });
+
+  /**
    * 절단도 아이별이어야 한다. 순수 모듈의 `sanitizeRecurringTemplates`는 상한을 목록 **앞에서부터
    * 전역으로** 세어 끊으므로, 스토어가 아이별로 나눠 지나게 하지 않으면 첫째의 20개 뒤에 저장된
    * 둘째의 템플릿이 앱을 다시 켤 때 통째로 사라진다(저장은 됐는데 재시작 후 없어지는 소실).

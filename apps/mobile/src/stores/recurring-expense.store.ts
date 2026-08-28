@@ -134,7 +134,10 @@ export type RecurringExpenseState = {
    * 않고 이유를 돌려준다(라운드 59 #4·P3).
    */
   addTemplate: (draft: RecurringTemplateDraft) => RecurringTemplateSaveResult;
-  /** 기존 템플릿 수정(id·createdAt·skip 이력·active는 그대로 유지된다). */
+  /**
+   * 기존 템플릿 수정(id·createdAt·skip 이력·active는 그대로 유지된다). 아이를 옮기는 수정은
+   * **옮겨 갈 아이의** 상한을 다시 지난다(라운드 59 통합리뷰 P2-11).
+   */
   updateTemplate: (id: string, draft: RecurringTemplateDraft) => RecurringTemplateSaveResult;
   removeTemplate: (id: string) => void;
   setTemplateActive: (id: string, active: boolean) => void;
@@ -250,6 +253,20 @@ export const useRecurringExpenseStore = create<RecurringExpenseState>()(
         if (invalid !== null) return { ok: false, message: invalid };
         const existing = get().templates.find((template) => template.id === id);
         if (!existing) return { ok: false, message: RECURRING_TEMPLATE_MISSING_MESSAGE };
+        // 라운드 59 통합리뷰 P2-11 — **아이를 옮기는 수정도 상한을 지난다.**
+        //
+        // 상한은 아이별인데(라운드 59 #4) 그 판정이 `addTemplate`에만 있었다. 수정은 draft의
+        // childId를 그대로 받으므로, 첫째의 템플릿 하나를 이미 20개가 찬 둘째로 옮기면 둘째가
+        // 21개가 된다 — 저장은 되고, 앱을 다시 켜면 `sanitizedState`의 아이별 절단이 그중 하나를
+        // 조용히 버린다(사용자가 손쓸 수 없는 소실). 그래서 **아이가 실제로 바뀔 때만** 세고,
+        // 같은 아이 안의 평범한 수정(금액·결제일)은 종전 그대로 한 글자도 달라지지 않는다.
+        const nextChildId = draft.childId.trim();
+        if (
+          nextChildId !== existing.childId &&
+          templateCountForChild(get().templates, nextChildId) >= RECURRING_TEMPLATE_LIMIT
+        ) {
+          return { ok: false, message: RECURRING_LIMIT_MESSAGE };
+        }
         // 라운드 59 P3: 이름을 고쳐 **다른 항목과 같아지는** 경우도 중복이다(자기 자신은 뺀다 —
         // 금액만 고치는 평범한 수정이 자기 이름에 걸리면 아무것도 수정할 수 없다).
         const duplicate = findRecurringTemplateByItemName(get().templates, draft.childId, draft.itemName, {

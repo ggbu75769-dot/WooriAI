@@ -287,10 +287,18 @@ describe("GAP-059 #7·P3 — 동시 제출 가드와 안내의 hinge", () => {
 
   it("스토어가 동시 제출을 합류시킨다 — 겹친 제출이 SecureStore 쓰기를 두 번 내지 않는다 (#7)", () => {
     const store = source("src/stores/app-lock.store.ts");
-    expect(store).toContain("let inFlightPinSubmission: Promise<AppLockSubmitResult> | null = null;");
-    expect(store).toContain("if (inFlightPinSubmission) return inFlightPinSubmission;");
-    expect(store).toContain("inFlightPinSubmission = submission;");
-    expect(store).toContain("inFlightPinSubmission = null;");
+    // 라운드 59 통합리뷰 P2-7: 걸쇠는 **값과 함께** 들고 있다 — 합류는 같은 PIN일 때만이고,
+    // 다른 PIN은 앞 제출을 기다렸다 차례로 판정한다(값 계약은 app-lock.store.test.ts가 진다).
+    expect(store).toContain(
+      "let inFlightPinSubmission: { pin: string; promise: Promise<AppLockSubmitResult> } | null = null;"
+    );
+    expect(store).toContain("while (inFlightPinSubmission) {");
+    expect(store).toContain("if (inFlightPinSubmission.pin === pin) return inFlightPinSubmission.promise;");
+    expect(store).toContain("await inFlightPinSubmission.promise.catch(() => undefined);");
+    expect(store).toContain("inFlightPinSubmission = { pin, promise: submission };");
+    expect(store).toContain("if (inFlightPinSubmission?.promise === submission) inFlightPinSubmission = null;");
+    // 값을 보지 않고 통째로 합류시키던 옛 형태로 되돌아가지 않는다.
+    expect(store).not.toContain("if (inFlightPinSubmission) return inFlightPinSubmission;");
     // 판정 자체는 여전히 한 문(judgeCurrentPin)을 지난다 — 정의 1 + submitPin·changePin·disableLock.
     expect((store.match(/judgeCurrentPin\(/g) ?? []).length).toBe(4);
   });

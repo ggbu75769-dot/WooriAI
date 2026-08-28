@@ -305,9 +305,13 @@ describe("라운드 59 #5 다른 아이의 실패 행 — 지우지 않고 사�
     const branchStart = src.indexOf("if (!isRetryableSyncFailureRow(row)) {");
     const branch = src.slice(branchStart, src.indexOf("\n  return (", branchStart));
 
-    // 판정: 행의 아이가 있고, 선택된 아이가 있고, 둘이 다를 때만이다.
+    // 판정: 행의 아이가 있고, 선택된 아이가 있고, 둘이 다르고, **아이만 바꾸면 실제로 버튼이
+    // 서는 행**일 때만이다(라운드 59 통합리뷰 P1-3 — 선물·환불·빈 품목명 행에는 프리필 자체가
+    // 없으므로 "그 아이를 선택하면 …할 수 있어요"가 지키지 못할 약속이 된다).
+    expect(branch).toContain("const prefillParams = buildFailedRowPrefillParams(row);");
+    expect(branch).toContain("const fixParams = isSelectedChildRow ? prefillParams : null;");
     expect(branch).toContain(
-      "const showOtherChildNotice = !isSelectedChildRow && rowChildId.length > 0 && Boolean(selectedChildId?.trim());"
+      "const showOtherChildNotice =\n      !isSelectedChildRow && rowChildId.length > 0 && Boolean(selectedChildId?.trim()) && prefillParams !== null;"
     );
     expect(branch).toContain("{showOtherChildNotice ? (");
     expect(branch).toContain("{FAILED_ROW_OTHER_CHILD_NOTICE}");
@@ -415,7 +419,12 @@ describe("라운드 58 #5 sync-status 화면 배선 (소스 계약)", () => {
     expect(branch).toContain(
       "const isSelectedChildRow = rowChildId.length > 0 && rowChildId === selectedChildId;"
     );
-    expect(branch).toContain("const fixParams = isSelectedChildRow ? buildFailedRowPrefillParams(row) : null;");
+    // 라운드 59 통합리뷰 P1-3: 프리필 조립은 행 자체의 성질이라 한 번만 묻고, 아이 게이트는
+    // 그 위에 얹는다(같은 값을 아래 안내 한 줄이 함께 본다 — 아이만 바꾸면 되는 행인지).
+    expect(branch).toContain("const prefillParams = buildFailedRowPrefillParams(row);");
+    expect(branch).toContain("const fixParams = isSelectedChildRow ? prefillParams : null;");
+    // 아이가 어긋난 행에서는 여전히 버튼이 서지 않는다(데이터 손실 게이트는 그대로다).
+    expect(branch).not.toContain("const fixParams = prefillParams;");
     expect(branch).toContain("label={SYNC_STATUS_FIX_AND_RESEND_LABEL}");
     // 라운드 59 #2: **replace**로 연다 — 저장 후 이 화면으로 돌아오는 복귀도 replace라,
     // push로 열면 스택에 같은 화면이 두 장 쌓인다(근거는 그 자리 주석).

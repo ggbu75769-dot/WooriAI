@@ -28,7 +28,7 @@ import {
   SYNC_ROW_PENDING_DELETE_LABEL,
   SYNC_ROW_PENDING_LABEL,
   SYNC_ROW_UNSENDABLE_LABEL,
-  unreflectedRecordsPhrase,
+  recordsCountPhrase,
   unsendableRecordsSuffixText,
   unsendableRowsNoticeText,
   SYNC_STATUS_CONFLICT_LABEL,
@@ -382,10 +382,14 @@ describe("라운드 59 트랙 A 영구 실패 어휘", () => {
     expect(SYNC_ROW_UNSENDABLE_LABEL).not.toContain(SYNC_ROW_PENDING_LABEL);
   });
 
-  it("주어는 참인 관측 하나만 남긴다 ('대기'도 '전부 실패'도 아니다)", () => {
-    expect(unreflectedRecordsPhrase(5)).toBe("아직 반영되지 않은 기록 5건");
-    expect(unreflectedRecordsPhrase(5)).not.toContain(SYNC_ROW_PENDING_LABEL);
-    expect(unreflectedRecordsPhrase(5)).not.toContain(SYNC_ROW_UNSENDABLE_LABEL);
+  it("주어는 수식을 떼기만 한다 ('대기'도 '전부 실패'도 아니다 — 통합리뷰 P1-1)", () => {
+    expect(recordsCountPhrase(5)).toBe("기록 5건");
+    expect(recordsCountPhrase(5)).not.toContain(SYNC_ROW_PENDING_LABEL);
+    expect(recordsCountPhrase(5)).not.toContain(SYNC_ROW_UNSENDABLE_LABEL);
+    // 주어가 스스로 무엇을 단언하지 않는다 -- 참인 관측은 뒤따르는 술어("…에 아직 반영되지
+    // 않았어요")가 말하고, 그 술어는 영구 실패가 섞이든 아니든 같은 문장이다.
+    expect(recordsCountPhrase(5)).not.toContain("반영");
+    expect(recordsCountPhrase(5)).not.toContain("빠져");
   });
 
   it("내역 문장은 어휘를 다시 적지 않고 라벨에서 만든다 (해요체 DNC-018)", () => {

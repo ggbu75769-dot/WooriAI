@@ -43,6 +43,21 @@ export type RecentItemSourceRow = {
   pendingDelete: boolean;
   /** 행이 로컬 저장소에 기록된 시각(ISO 8601) — "최근 입력" 순서의 기준. */
   createdAt: string;
+  /**
+   * 라운드 59 통합리뷰 P2-9 — **영구 실패 행을 가르는 네 값**(트랙 A의 "네 자리" 4번).
+   *
+   * 이 모듈이 직접 읽지는 않지만, 넘긴 행은 그대로 `partitionSuggestSourceRows`를 지나고
+   * 그쪽이 이 값들로 영구 실패 행을 제안에서 뺀다(suggest-source.ts). 타입에 없으면 이 모양으로
+   * 행을 만드는 호출부·픽스처는 그 규칙을 **표현할 방법이 없어** 언제나 "실패 아님"으로만 읽히고,
+   * 타입만 보고는 왜 400을 부른 값이 후보에서 빠지는지 알 길이 없다.
+   *
+   * 전부 선택이라 이 값을 모르는 호출부의 동작은 종전 그대로다(= 영구 실패가 아닌 행).
+   * 판정 규칙은 여기 적지 않는다 — `isPermanentlyFailedSyncRow` 하나가 단일 소스다.
+   */
+  syncState?: string | null;
+  lastError?: string | null;
+  lastErrorStatus?: number | null;
+  lastErrorCode?: string | null;
   payload: {
     itemName: string;
     amountKrw: number;
@@ -102,6 +117,10 @@ export type RecentItemChipOptions = {
 /**
  * 최근 입력한 지출 행에서 재입력 칩 목록을 만든다.
  * - 선택된 아이(childId)의 행만 사용, 삭제 대기 행 제외
+ * - **영구 실패 행 제외**(라운드 59 트랙 A의 "네 자리" 4번 — 400을 부른 그 값이 첫 후보로
+ *   돌아오면 탭하는 순간 같은 실패가 하나 더 생긴다). 판정·제외는 공용 모듈이 한다
+ *   (`partitionSuggestSourceRows` → `isPermanentlyFailedSyncRow`); 일시 실패·대기 행은 종전대로
+ *   후보다. 라운드 59 통합리뷰 P2-9: 이 줄이 없어서 헤더만 읽으면 규칙이 안 보였다.
  * - expenseType이 "expense"가 아닌 행(선물 등) 제외 — 단 필드가 없는 레거시 행은 expense로 간주
  * - 품목명이 비었거나 금액이 양의 정수가 아닌 행 제외 (DNC-013과 같은 규칙)
  * - createdAt 내림차순(가장 최근 입력 우선)으로 정렬

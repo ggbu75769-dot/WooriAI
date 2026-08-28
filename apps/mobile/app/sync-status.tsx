@@ -319,7 +319,11 @@ const FailedRow = memo(function FailedRow({
     // 시트에도 같은 판정이 한 겹 더 있다(failed-row-prefill.ts `isFailedRowChildMismatch`).
     const rowChildId = row.payload.childId?.trim() ?? "";
     const isSelectedChildRow = rowChildId.length > 0 && rowChildId === selectedChildId;
-    const fixParams = isSelectedChildRow ? buildFailedRowPrefillParams(row) : null;
+    // 라운드 59 통합리뷰 P1-3: 프리필 가능 여부는 **아이와 무관한** 행 자체의 성질이다(선물·환불,
+    // 빈 품목명, 0 이하 금액 — failed-row-prefill.ts). 그래서 한 번만 묻고, 아이 게이트는 그
+    // 위에 얹는다: 버튼은 선택된 아이의 행에만, 아래 안내는 "아이만 바꾸면 된다"가 참인 행에만.
+    const prefillParams = buildFailedRowPrefillParams(row);
+    const fixParams = isSelectedChildRow ? prefillParams : null;
     /**
      * 라운드 59 #5 — 뗀 버튼 자리에 **사실 한 줄**을 남긴다(라운드 40 J-9: 지우지 않고 말한다).
      * 종전에는 다른 아이의 행에서 버튼만 조용히 사라져, 같은 실패 행 둘 중 하나에만 버튼이 있는
@@ -330,8 +334,15 @@ const FailedRow = memo(function FailedRow({
      * 화면 전체가 이미 그것을 묻는다. 프리필 자체를 만들 수 없는 행(선물·환불·빈 품목명)에도
      * 켜지 않는다 — 그 행의 사유는 아이가 아니고, 위 `SYNC_STATUS_PERMANENT_FAILURE_HINT`가
      * 이미 무엇을 할 수 있는지("고쳐 새로 기록하거나 버려 주세요") 말하고 있다.
+     *
+     * 라운드 59 통합리뷰 P1-3 — 그 마지막 문장이 **주석에만 있었다.** 판정이 프리필 가능성을 보지
+     * 않아, 다른 아이의 선물 행에도 "그 아이를 선택하면 고쳐서 다시 보낼 수 있어요"가 섰다. 아이를
+     * 바꿔도 그 행에는 버튼이 서지 않으므로(선물은 이 시트가 만들 수 없는 구분이다) 그 문장은
+     * 지키지 못할 약속이고, 사용자는 아이를 전환하고 돌아와 아무것도 달라지지 않은 화면을 본다.
+     * 이제 `prefillParams`가 실제로 만들어지는 행에서만 선다 — 안내가 참인 행에서만 뜬다.
      */
-    const showOtherChildNotice = !isSelectedChildRow && rowChildId.length > 0 && Boolean(selectedChildId?.trim());
+    const showOtherChildNotice =
+      !isSelectedChildRow && rowChildId.length > 0 && Boolean(selectedChildId?.trim()) && prefillParams !== null;
     return (
       <SyncRow row={row}>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMANENT_FAILURE_HINT}</Text>

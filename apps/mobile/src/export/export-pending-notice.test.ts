@@ -5,11 +5,10 @@ import {
   OFFLINE_RETRY_NOTICE,
   SYNC_ROW_PENDING_LABEL,
   SYNC_ROW_UNSENDABLE_LABEL,
-  unreflectedRecordsPhrase,
+  recordsCountPhrase,
   unsendableRecordsSuffixText
 } from "../offline/messages";
 import {
-  countPendingExpensesForExport,
   countPendingExportBreakdown,
   evaluateExportPendingNotice,
   exportPendingNoticeText,
@@ -59,7 +58,7 @@ describe("GAP-056 #3 내보내기 대기 건수 판정", () => {
       row({ childId: "child-2" }), // 다른 아이
       row({ spentOn: "2026-07-31" }) // 다른 달
     ];
-    expect(countPendingExpensesForExport({ rows, childId: "child-1", range: "month", todaySeoul: today })).toBe(4);
+    expect(countPendingExportBreakdown({ rows, childId: "child-1", range: "month", todaySeoul: today }).count).toBe(4);
   });
 
   it("선물·환불 대기도 센다 -- 리포트 고지와 모집단이 다른 유일한 지점", () => {
@@ -70,12 +69,15 @@ describe("GAP-056 #3 내보내기 대기 건수 판정", () => {
       { childId: "child-1", syncState: "pending", payload: { spentOn: "2026-08-03", expenseType: "refund" } },
       { childId: "child-1", syncState: "pending", payload: { spentOn: "2026-08-04", expenseType: "expense" } }
     ];
-    expect(countPendingExpensesForExport({ rows, childId: "child-1", range: "month", todaySeoul: today })).toBe(3);
+    expect(countPendingExportBreakdown({ rows, childId: "child-1", range: "month", todaySeoul: today }).count).toBe(3);
   });
 
   it("아이를 아직 모르면(또는 로그아웃) 아무것도 세지 않는다", () => {
     for (const childId of [null, undefined, ""]) {
-      expect(countPendingExpensesForExport({ rows: [row()], childId, range: "all", todaySeoul: today })).toBe(0);
+      expect(countPendingExportBreakdown({ rows: [row()], childId, range: "all", todaySeoul: today })).toEqual({
+        count: 0,
+        unsendableCount: 0
+      });
     }
   });
 
@@ -87,7 +89,7 @@ describe("GAP-056 #3 내보내기 대기 건수 판정", () => {
       payload: { spentOn: "2026-08-09" }
     };
     expect(
-      countPendingExpensesForExport({ rows: [pendingDeleteRow], childId: "child-1", range: "month", todaySeoul: today })
+      countPendingExportBreakdown({ rows: [pendingDeleteRow], childId: "child-1", range: "month", todaySeoul: today }).count
     ).toBe(1);
   });
 });
@@ -182,16 +184,31 @@ describe("GAP-056 #3 고지 문구", () => {
    * 세는 것은 `syncState !== "synced"` 전부이고 거기에는 **수정 대기** 행이 들어 있다. 그 행이
    * 가리키는 지출은 서버에 있고 CSV에도 담긴다(옛 값으로). 그러니 "아직 서버에 없어요"·"담기지
    * 않아요"는 그 행에 대해 두 번 거짓이다. 문구는 리포트 고지와 같은 약한 주장(관측)까지만 한다.
+   *
+   * 라운드 59 통합리뷰 P1-1 — **영구 실패 갈래도 이 가드 안에 있다.** 트랙 A가 그 갈래를 새로
+   * 만들면서 여기 루프는 1인자 호출만 돌고 있었고, 그 사이 새 갈래의 문장이 "빠져 있어요"라는
+   * 더 센 주장으로 흘러갔다(삭제 대기·수정 대기 부분집합에 거짓). 세 문장 전부를 같은 루프에
+   * 넣어, 갈래가 하나 더 생겨도 세기가 갈릴 수 없게 한다.
    */
   it("문구는 '서버에 없다'·'담기지 않는다'를 단언하지 않는다 (수정 대기 행에는 거짓이다)", () => {
-    for (const text of [exportPendingNoticeText(3), exportPendingToastSuffix(3)]) {
+    const sentences = [
+      exportPendingNoticeText(3),
+      exportPendingToastSuffix(3),
+      // 영구 실패가 섞인 갈래(2인자) — 주어의 수식만 다르고 주장의 세기는 같아야 한다.
+      exportPendingNoticeText(3, 1),
+      exportPendingToastSuffix(3, 1),
+      reportPendingScopeNoticeText(3),
+      reportPendingScopeNoticeText(3, 1)
+    ];
+    for (const text of sentences) {
       expect(text).not.toContain("서버에 없");
       expect(text).not.toContain("담기지 않");
+      // "빠져 있다"도 같은 세기의 단언이다 -- 삭제 대기 행은 아직 들어 있고, 수정 대기 행은
+      // 옛 값으로 담긴다(둘 다 이 모집단 안에 있다).
+      expect(text).not.toContain("빠져 있");
       // 남는 주장은 관측 하나: "아직 반영되지 않았다".
       expect(text).toContain("아직 반영되지 않았어요");
     }
-    // 리포트 고지와 같은 계열의 문장이다(같은 어휘·같은 세기).
-    expect(reportPendingScopeNoticeText(3)).toContain("아직 반영되지 않았어요");
   });
 
   /**
@@ -259,7 +276,8 @@ describe("라운드 59 트랙 A CSV 고지 — 대기와 '보낼 수 없음'을 
       count: 2,
       unsendableCount: 1
     });
-    expect(countPendingExpensesForExport({ rows, childId: "child-1", range: "month", todaySeoul: today })).toBe(2);
+    // 라운드 59 통합리뷰 P2-2: 총건수만 돌려주던 옛 이름은 없앴다 -- 건수는 이 결과의 한 필드다.
+    expect(countPendingExportBreakdown({ rows, childId: "child-1", range: "month", todaySeoul: today }).count).toBe(2);
   });
 
   it("일시 실패·레거시 실패 행은 '보낼 수 없음'이 아니다 (경계 셋)", () => {
@@ -286,15 +304,15 @@ describe("라운드 59 트랙 A CSV 고지 — 대기와 '보낼 수 없음'을 
     expect(notice).toEqual({
       count: 3,
       unsendableCount: 1,
-      text: "아직 반영되지 않은 기록 3건은 이 파일에 빠져 있어요. 그중 1건은 보낼 수 없는 기록이에요."
+      text: "기록 3건은 이 파일에 아직 반영되지 않았어요. 그중 1건은 보낼 수 없는 기록이에요."
     });
     expect(exportPendingToastSuffix(3, 1)).toBe(
-      " 아직 반영되지 않은 기록 3건은 이 CSV에 빠져 있어요. 그중 1건은 보낼 수 없는 기록이에요."
+      " 기록 3건은 이 CSV에 아직 반영되지 않았어요. 그중 1건은 보낼 수 없는 기록이에요."
     );
     // 두 문장 모두 "대기"를 말하지 않는다 -- 오지 않을 시점을 약속하지 않는다.
     for (const text of [notice!.text, exportPendingToastSuffix(3, 1)]) {
       expect(text).not.toContain(SYNC_ROW_PENDING_LABEL);
-      expect(text).toContain(unreflectedRecordsPhrase(3));
+      expect(text).toContain(recordsCountPhrase(3));
       expect(text).toContain(unsendableRecordsSuffixText(1));
       expect(text.trim().endsWith("요.")).toBe(true);
     }
@@ -305,13 +323,13 @@ describe("라운드 59 트랙 A CSV 고지 — 대기와 '보낼 수 없음'을 
   it("리포트 고지와 **같은 두 조각**을 쓰고 목적어만 다르다", () => {
     const csv = exportPendingNoticeText(4, 2);
     const report = reportPendingScopeNoticeText(4, 2);
-    expect(csv).toContain(unreflectedRecordsPhrase(4));
-    expect(report).toContain(unreflectedRecordsPhrase(4));
+    expect(csv).toContain(recordsCountPhrase(4));
+    expect(report).toContain(recordsCountPhrase(4));
     expect(csv).toContain(unsendableRecordsSuffixText(2));
     expect(report).toContain(unsendableRecordsSuffixText(2));
-    // 갈라지는 것은 목적어 하나뿐이다.
-    expect(csv).toContain("이 파일에 빠져 있어요.");
-    expect(report).toContain("아래 숫자에 빠져 있어요.");
+    // 갈라지는 것은 목적어 하나뿐이다 -- 술어는 두 갈래·두 모듈이 모두 같다(통합리뷰 P1-1).
+    expect(csv).toContain("이 파일에 아직 반영되지 않았어요.");
+    expect(report).toContain("아래 숫자에 아직 반영되지 않았어요.");
   });
 });
 

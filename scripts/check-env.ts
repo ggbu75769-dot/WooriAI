@@ -68,7 +68,10 @@ const REQUIRED_SPECS: EnvSpec[] = [
   {
     key: "AFFILIATE_DISCLOSURE_TEXT",
     scope: "api",
-    note: "DNC-010 고지 문구의 배포 기본값 — 런타임 단일 소스는 disclosure 테이블"
+    // 라운드 59 통합리뷰 P2-10: "배포 기본값"은 사실이 아니었다 — 이 값을 읽는 코드가 한 줄도
+    // 없어서(앱·API·시드 어디에서도 참조하지 않는다) 무엇의 기본값도 되지 못한다. DNC-010 고지
+    // 문구의 런타임 단일 소스는 disclosure 테이블이고, 이 키는 위 6개와 같은 "남은 자리"다.
+    note: "DNC-010 고지 문구 자리 — 현재 앱/API 코드는 직접 읽지 않음(런타임 단일 소스는 disclosure 테이블)"
   },
   { key: "OAUTH_APPLE_CLIENT_ID", scope: "api", note: "애플 로그인 자리(현재 앱 코드는 직접 읽지 않음)" },
   { key: "OAUTH_GOOGLE_CLIENT_ID", scope: "api", note: "구글 로그인 자리(현재 앱 코드는 직접 읽지 않음)" }

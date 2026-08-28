@@ -295,6 +295,45 @@ describe("useAppLockStore", () => {
         vi.resetModules();
       }
     });
+
+    /**
+     * 라운드 59 통합리뷰 P2-7 — 합류는 **같은 PIN**일 때만이다.
+     *
+     * 합류가 정당한 근거는 "이중 탭은 한 번의 의사표시"인데, 겹친 두 제출의 값이 다르면 그 전제가
+     * 깨진다. 값을 보지 않고 합류시키면 나중 PIN은 판정조차 되지 않은 채 앞 PIN의 답을 받는다.
+     */
+    it("겹친 제출의 PIN이 다르면 합류하지 않고 차례로 판정한다 (맞는 PIN이 삼켜지지 않는다)", async () => {
+      await useAppLockStore.getState().enableLock("1234");
+      useAppLockStore.setState({ unlockedThisForeground: false });
+
+      // 틀린 PIN을 넣은 직후, 다시 그려지기 전에 맞는 PIN이 들어온다.
+      const [wrong, right] = await Promise.all([
+        useAppLockStore.getState().submitPin("0000", NOW),
+        useAppLockStore.getState().submitPin("1234", NOW)
+      ]);
+
+      expect(wrong).toBe("wrong-pin");
+      // 합류했다면 이 값도 "wrong-pin"이고 화면은 열리지 않았을 것이다.
+      expect(right).toBe("unlocked");
+      expect(gate()).toBe("unlocked");
+      // 성공이 실패 이력을 지우는 약속(clearFailedAttempts)도 순서대로 적용됐다.
+      expect(useAppLockStore.getState().record?.failedCount).toBe(0);
+    });
+
+    it("반대 순서에서도 각자 판정된다 — 틀린 PIN이 남의 성공에 업히지 않는다", async () => {
+      await useAppLockStore.getState().enableLock("1234");
+      useAppLockStore.setState({ unlockedThisForeground: false });
+
+      const [right, wrong] = await Promise.all([
+        useAppLockStore.getState().submitPin("1234", NOW),
+        useAppLockStore.getState().submitPin("9999", NOW)
+      ]);
+
+      expect(right).toBe("unlocked");
+      expect(wrong).toBe("wrong-pin");
+      // 두 번째 제출은 앞 제출이 끝난 뒤의 기록을 보고 판정하므로 실패가 실제로 한 번 센다.
+      expect(useAppLockStore.getState().record?.failedCount).toBe(1);
+    });
   });
 
   it("resetAll(PRIV-104 합류점)이 기록과 런타임 상태를 함께 비운다 (수용 기준 8)", async () => {
