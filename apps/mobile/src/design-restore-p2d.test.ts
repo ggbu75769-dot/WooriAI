@@ -78,7 +78,10 @@ describe("DSN-053 P2-D 리포트(REP-001) 구획 순서와 월 내비", () => {
     // 28px 아이콘 -- 크기·색은 예전 스타일 토큰에서 그대로 읽는다(A11Y-117 dim 계약 유지).
     expect(src).toContain("fontSize: 28,");
     expect(src).toContain('<AppIcon color={glyph.color} name={direction === "left" ? "chevron-left" : "chevron-right"} size={glyph.fontSize} />');
-    expect(src).toContain("reportReferencePeriodArrowDisabledStyle");
+    // dim은 기록 탭과 같은 opacity 방식이다(색 교체는 아이콘이 거의 사라져서 걷어냈다).
+    expect(src).toContain("const reportReferencePeriodArrowDisabledOpacity = 0.35;");
+    expect(src).toContain("{ opacity: isDisabled ? reportReferencePeriodArrowDisabledOpacity : 1 }");
+    expect(src).not.toContain("color: theme.colors.gray300");
     // 기기 폰트에 휘둘리던 텍스트 글리프 화살표는 남지 않았다.
     expect(src).not.toContain(">‹</Text>");
     expect(src).not.toContain(">›</Text>");

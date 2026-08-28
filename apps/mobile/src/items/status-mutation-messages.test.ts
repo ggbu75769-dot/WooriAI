@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { OFFLINE_SAVED_MESSAGE } from "../offline/messages";
+import { itemStatusLabel } from "./item-labels";
 import {
   GIFTED_RESET_CONFIRM_ACTION_LABEL,
   GIFTED_RESET_CONFIRM_CANCEL_LABEL,
@@ -62,10 +63,14 @@ describe("C-10 준비템 상태 변경 문구 (순수 모듈)", () => {
 });
 
 describe("리뷰 F2 gifted 해제 확인 문구", () => {
-  it("무엇이 바뀌는지를 상태 이름으로 알려준다", () => {
-    expect(giftedResetConfirmMessage("prepare")).toBe("지금은 선물 받음으로 표시돼 있어요. 계속하면 이미 준비 상태로 바뀌어요.");
-    expect(giftedResetConfirmMessage("interest")).toContain("관심 상태로 바뀌어요.");
+  it("무엇이 바뀌는지를 상태 이름으로 알려준다(목록 pill과 같은 어휘)", () => {
+    expect(giftedResetConfirmMessage("prepare")).toBe("지금은 선물 받음으로 표시돼 있어요. 계속하면 보유 상태로 바뀌어요.");
+    expect(giftedResetConfirmMessage("interest")).toContain("알아보기 상태로 바뀌어요.");
     expect(giftedResetConfirmMessage("skip")).toContain("필요 없음 상태로 바뀌어요.");
+    // 문구가 가리키는 상태를 화면이 다른 단어로 부르면 안 된다 -- 라벨은 한 소스에서만 나온다.
+    for (const [kind, status] of [["prepare", "prepared"], ["interest", "interested"], ["skip", "not_needed"]] as const) {
+      expect(giftedResetConfirmMessage(kind)).toContain(`${itemStatusLabel(status)} 상태로 바뀌어요.`);
+    }
   });
 
   /**
@@ -79,11 +84,13 @@ describe("리뷰 F2 gifted 해제 확인 문구", () => {
       'export type GiftedResetActionKind = Extract<ItemStatusActionKind, "prepare" | "interest" | "skip">;'
     );
     const labelTable = messagesSource.slice(
-      messagesSource.indexOf("const GIFTED_RESET_TARGET_LABEL"),
+      messagesSource.indexOf("const GIFTED_RESET_TARGET_STATUS"),
       messagesSource.indexOf("export function giftedResetConfirmMessage")
     );
     expect(labelTable).not.toContain("uninterest");
-    expect(labelTable).not.toContain("준비 전");
+    expect(labelTable).not.toContain("ungift");
+    // 표는 상태 값만 들고, 사람이 읽는 라벨은 item-labels가 만든다.
+    expect(labelTable).not.toContain('"보유"');
   });
 
   it("겁주지 않는 안내 톤이고, 취소/실행 라벨은 앱 Alert 관례를 따른다", () => {

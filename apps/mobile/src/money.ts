@@ -5,14 +5,8 @@
  * no '₩'). Uses `Intl.NumberFormat('ko-KR')` per the spec rather than a hand-rolled regex.
  *
  * Amounts are always rendered as their absolute value -- this helper never emits a leading "-".
- * Sign (income/refund vs. expense) is a presentation concern handled by the caller (see
- * `MoneyText`'s `sign` prop in src/ui/MoneyText.tsx), not by the number formatter itself.
- *
- * (근거 갱신 — DSN-053 P1: R19-E가 `formatKrwParts`/`MoneyKrwParts`를 지운 사유는 "죽은
- * export"였고, 그 판단은 MOB-121이 `src/ui/MoneyText.tsx`를 지운 뒤에 내려진 것이다. 그
- * MoneyText는 승인 캡처(c20deeb)의 금액 표기 규칙 — 숫자와 '원'을 서로 다른 크기로 그리는
- * 위계 — 을 실제로 구현한 유일한 렌더러였다. P1에서 그 컴포넌트를 c20deeb에서 되돌리면서
- * 이 두 export도 함께 살아난다: 지금은 다시 호출부가 있으므로 죽은 export가 아니다.)
+ * Sign (income/refund vs. expense) is a presentation concern handled by the caller, not by the
+ * number formatter itself.
  */
 
 const krwFormatter = new Intl.NumberFormat("ko-KR");
@@ -26,21 +20,8 @@ export function formatKrw(amount: number): string {
   return `${krwFormatter.format(safeAbsoluteAmount(amount))}원`;
 }
 
-export type MoneyKrwParts = {
-  /** Comma-grouped digits, e.g. "12,000". */
-  number: string;
-  /** Always "원". */
-  suffix: string;
-};
-
-/**
- * Same formatting rules as `formatKrw`, split into the numeric part and the '원' suffix so a
- * caller (namely `MoneyText`) can render the suffix one size step smaller than the number, per
- * the D0 hierarchy rule ("'원'은 숫자 대비 1단계 작게·가늘게").
- */
-export function formatKrwParts(amount: number): MoneyKrwParts {
-  return { number: krwFormatter.format(safeAbsoluteAmount(amount)), suffix: "원" };
-}
+// R19-E가 지웠던 formatKrwParts/MoneyKrwParts는 DSN-053 P1에서 MoneyText와 함께 되살아났다가,
+// P2가 그 컴포넌트를 채택하지 않아 다시 제거됐다(유일 호출부 소멸 — R19-E와 같은 판단).
 
 /**
  * FMT-127: strips everything but digits out of a money TextInput's raw text.

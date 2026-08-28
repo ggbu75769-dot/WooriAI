@@ -237,8 +237,10 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     expect(homeSource).toContain("backgroundColor: theme.colors.coral[50]");
     expect(homeSource).toContain("margin: -theme.spacing.screen");
     expect(homeSource).toContain("padding: theme.spacing.screen");
-    // ② 히어로: subCoral · radius 22(theme.radii.card) · 금액 27/800.
-    expect(homeSource).toContain("backgroundColor: theme.colors.subCoral");
+    // ② 히어로: mainCoral · radius 22(theme.radii.card) · 금액 27/800.
+    // 배경은 mainCoral이다 — coral[500] 위의 흰 소형 텍스트(12/700·11)는 3.43:1로 AA 미달이었다.
+    expect(homeSource).toContain("backgroundColor: theme.colors.mainCoral");
+    expect(homeSource).not.toContain("backgroundColor: theme.colors.subCoral");
     expect(homeSource).toContain("borderRadius: theme.radii.card");
     expect(sessionRender).toContain('testID="home-hero-summary"');
     expect(sessionRender).toContain("<Text style={homeHeroStyle.amount}>{formatKrw(monthlyUsed)}</Text>");
@@ -261,7 +263,10 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
 
   it("최근 기록 행은 파스텔 원 아이콘을 쓰고 부제는 공용 헬퍼가 만든다", () => {
     expect(homeSource).toContain('import { expenseCategoryVisual } from "../../src/preparation/item-visuals";');
-    expect(sessionRender).toContain("const visual = expenseCategoryVisual(expense.categoryId);");
+    // 서버 시드 분류 UUID도 code를 거쳐 타일로 해석한다(items 탭과 같은 경로 --
+    // src/categories.ts buildTileCategoryIdResolver). 캐시가 비면 중립 글리프 폴백.
+    expect(homeSource).toContain("buildTileCategoryIdResolver(categoriesQuery.data?.categories)");
+    expect(sessionRender).toContain("resolveExpenseTileCategoryId(expense.categoryId) ?? expense.categoryId");
     expect(sessionRender).toContain("iconBackgroundColor={visual.iconBackgroundColor}");
     expect(sessionRender).toContain("subtitle={homeRecentExpenseSubtitle(expense)}");
   });

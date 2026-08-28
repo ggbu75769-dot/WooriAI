@@ -15,9 +15,20 @@
  * 우선순위는 "사용자가 할 일이 있는 쪽"이 먼저다: 충돌(확인 필요) > 전송 중 > 대기/실패 > 완료.
  * 실패(failed)를 pending과 같은 칸에 두는 이유는 두 경우 모두 **아직 서버에 반영되지 않았다**는
  * 같은 사실을 말하고, 재시도는 동기화 화면이 맡기 때문이다(홈은 요약만 한다).
+ *
+ * **큐는 둘이다.** `SyncStatusCounts`는 지출 행만 센다(src/offline/sync-controller.ts의 주석:
+ * 기록 탭 배지가 "동기화되지 않은 기록"을 말해야 해서 의도적으로 지출만 센다). 준비템 상태
+ * 변경은 별도 아웃박스(`itemStatusRows`)에 쌓인다. 홈의 이 한 줄은 "모든 기록이 동기화됐어요"
+ * 라고 앱 전체를 대신해 말하므로, 지출 큐만 보고 판정하면 준비템 탭이 서버 반영을 기다리는
+ * 동안에도 홈이 완료를 단언한다 -- 사용자가 확인할 수 있는 사실과 어긋나는 표시다. 그래서 두
+ * 큐를 함께 합산한다(동기화 상태 화면이 머리말 배지를 만드는 방식과 같다).
+ *
+ * 준비템 큐에는 'conflict'가 없다(src/offline/types.ts의 `ItemStatusSyncState`) -- 그 큐에서
+ * 올라올 수 있는 상태는 전송 중/대기/실패뿐이다.
  */
 
 import type { AppSyncStatus } from "../design-system/patterns/AsyncState";
+import type { ItemStatusSyncState } from "../offline/types";
 
 export type HomeSyncStatusCounts = {
   pending: number;
@@ -26,10 +37,22 @@ export type HomeSyncStatusCounts = {
   conflict: number;
 };
 
-export function resolveHomeSyncStatus(counts: HomeSyncStatusCounts | null | undefined): AppSyncStatus {
-  if (!counts) return "synced";
-  if (counts.conflict > 0) return "conflict";
-  if (counts.syncing > 0) return "syncing";
-  if (counts.pending > 0 || counts.failed > 0) return "pending";
+/** 준비템 상태 아웃박스 행에서 이 판정이 읽는 유일한 필드. */
+export type HomeSyncItemStatusRow = { syncState: ItemStatusSyncState };
+
+export function resolveHomeSyncStatus(
+  counts: HomeSyncStatusCounts | null | undefined,
+  itemStatusRows?: ReadonlyArray<HomeSyncItemStatusRow> | null
+): AppSyncStatus {
+  const rows = itemStatusRows ?? [];
+  if (counts?.conflict) return "conflict";
+  if (counts?.syncing || rows.some((row) => row.syncState === "syncing")) return "syncing";
+  if (
+    counts?.pending ||
+    counts?.failed ||
+    rows.some((row) => row.syncState === "pending" || row.syncState === "failed")
+  ) {
+    return "pending";
+  }
   return "synced";
 }

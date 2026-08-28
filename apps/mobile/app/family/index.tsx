@@ -367,12 +367,14 @@ export default function FamilyScreen() {
           {/*
             FAM-121B: 대기 중인 초대. Owner-only and session-only, so the non-session
             FAM-001 pixel-lock capture renders nothing extra here -- 흡수 후에도 같다.
-            빈 목록은 행이 하나도 붙지 않는 것으로 그대로 읽힌다(예전의 "대기 중인 초대가
-            없어요." 한 줄은 목록 안에서는 자기 자리를 잃는다).
+            빈 목록에는 "대기 중인 초대가 없어요." 한 줄을 남긴다 — 이 줄이 없으면 초대를
+            보낸 owner가 "0건"과 "아직 안 불러옴"을 구분할 방법이 화면에 없다(적대적 리뷰).
           */}
           {canManageMembers ? (
             pendingInvites.isLoading ? (
               <SkeletonRow />
+            ) : pendingInvites.data && pendingInvites.data.invites.length === 0 ? (
+              <Text style={familyPendingInviteMetaStyle}>대기 중인 초대가 없어요.</Text>
             ) : pendingInvites.isError ? (
               <Pressable
                 accessibilityRole="button"

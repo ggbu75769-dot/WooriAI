@@ -9,7 +9,12 @@
 export { ScreenScaffold } from "./components/ScreenScaffold";
 export { AffiliateDisclosure, AppIcon, AppScreen, Card, CategoryChip, EmptyStateCard, IconButton, ListRow, PrimaryButton, SampleDataBanner, ScreenHeader, SecondaryButton, StatusBadge, TextButton, Toast, type AppIconName } from "./components/ApplicationPrimitives";
 export { AmountDisplay, AppHeader, AppTabBar, ChildSwitcher, OfflineBanner, SectionHeader, SelectionCard, SummaryCard } from "./components/CorePrimitives";
-export { AccessibleDataTable, BottomSheet, BudgetSummary, CheckCard, ItemStatusControl, MoneyField, MoneyText, PreparationItemCard, TopAppBar, itemStatusLabel, modV1ItemStatuses, type ModV1ItemStatus } from "./components/ModV1Primitives";
+// `itemStatusLabel`은 일부러 배럴에 없다: 같은 이름이 `src/items/item-labels.ts`에도 있어서,
+// 배럴로 나가면 import 한 줄을 잘못 골라 상세 화면이 목록과 다른 어휘를 그리는 사고가 열린다
+// (실제로 그렇게 갈라졌던 문제를 어휘 단일화로 닫았다). 어휘 자체가 필요하면
+// `./item-status-vocabulary`를, 화면 라벨이 필요하면 `src/items/item-labels.ts`를 쓴다.
+export { AccessibleDataTable, BottomSheet, BudgetSummary, CheckCard, ItemStatusControl, MoneyField, MoneyText, PreparationItemCard, TopAppBar, modV1ItemStatuses, type ModV1ItemStatus } from "./components/ModV1Primitives";
+export { catalogItemStatusLabel, CATALOG_ONLY_ITEM_STATUS_LABELS, MOD_V1_ITEM_STATUS_LABELS, UNKNOWN_ITEM_STATUS_LABEL } from "./item-status-vocabulary";
 export { KoreanText } from "./components/KoreanText";
 export { EmptyState, ErrorState, LoadingState, OfflineState, SyncStatusBar, type AppSyncStatus } from "./patterns/AsyncState";
 export { balanceCompactKoreanLabel } from "./compact-korean-label";

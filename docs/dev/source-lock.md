@@ -163,7 +163,9 @@ Bottom tabs are fixed as `홈 / 기록 / 준비템 / 리포트`.
 
 ## 8. Locked Design Tokens
 
-From Phase 2:
+From Phase 2 (역사 기록). **브랜드 3종(Primary 500 / Secondary 500 / Background)의 현재 잠금 값은
+`docs/dev/do-not-change.md` DNC-017 v0.5가 상위 소스다** — DSN-053에서 캡처 승인 팔레트(`#C94627` /
+`#267A68` / `#FFFDFC`)로 개정됐다. 아래 목록은 Phase 2 시점의 값을 그대로 남긴 것이다.
 
 - Primary 500: `#FF8A7A`
 - Primary 100: `#FFE6E0`

@@ -4,7 +4,8 @@ import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { getBudget, getHome, listChildren, listExpenses, LOCAL_SESSION_TOKEN, type Expense } from "../../src/api/client";
+import { getBudget, getHome, listCategories, listChildren, listExpenses, LOCAL_SESSION_TOKEN, type Expense } from "../../src/api/client";
+import { buildTileCategoryIdResolver } from "../../src/categories";
 import {
   childSwitchTriggerAccessibilityLabel,
   CHILD_SWITCH_HEADER_ACCESSIBILITY_ACTIONS,
@@ -376,8 +377,13 @@ const homeHeaderStyle = StyleSheet.create({
 });
 
 /**
- * 히어로 1장: bg subCoral · radius 22 · padding 16 · 라벨 12/700 · 금액 27/800 · 트랙 coral[200]
+ * 히어로 1장: bg mainCoral · radius 22 · padding 16 · 라벨 12/700 · 금액 27/800 · 트랙 coral[200]
  * h8에 흰 채움.
+ *
+ * 배경은 캡처 이식 때 subCoral(coral[500] #E85F3B)이었는데, 그 위의 흰 소형 텍스트(라벨 12/700,
+ * 메타 11)는 명암비 3.43:1로 WCAG AA 소형 기준(4.5:1)에 못 미쳤다. mainCoral(#C94627)로 한 단계
+ * 내리면 같은 코랄 계열을 유지하면서 4.76:1이 된다 — 금액 27/800 같은 대형 텍스트는 어느 쪽이든
+ * 통과하지만, 한 카드 안에서 배경을 둘로 쪼갤 수는 없으므로 카드 배경을 옮겼다.
  *
  * 캡처의 "예산 N 중"은 이 앱에서 `budgetProgress.subtext`가 이미 만들고 있는 문장으로 대체한다
  * (UX-J의 "남은 예산 354,300원 · 예산 1,600,000원"). 같은 자리·같은 크기이고, 캡처가 말하던
@@ -394,7 +400,7 @@ const homeHeroStyle = StyleSheet.create({
     fontWeight: "800"
   },
   card: {
-    backgroundColor: theme.colors.subCoral,
+    backgroundColor: theme.colors.mainCoral,
     borderRadius: theme.radii.card,
     gap: 8,
     justifyContent: "center",
@@ -459,7 +465,7 @@ const homeHeroStyle = StyleSheet.create({
   }
 });
 
-/** "자주 기록해요" 칩 4개: white · border gray300 · pill · minH 48 · 11/700(캡처 155-163·204-215). */
+/** "빠른 기록" 칩 4개: white · border gray300 · pill · minH 48 · 11/700(캡처 155-163·204-215). */
 const homeQuickRecordStyle = StyleSheet.create({
   chip: {
     alignItems: "center",
@@ -488,11 +494,16 @@ const homeQuickRecordStyle = StyleSheet.create({
   }
 });
 
-/** 준비 현황 카드(캡처 165-181): package-variant-closed 21 · 제목 15/800 · CTA subCoral minH 52. */
+/**
+ * 준비 현황 카드(캡처 165-181): package-variant-closed 21 · 제목 15/800 · CTA mainCoral minH 52.
+ *
+ * CTA 배경도 히어로와 같은 이유로 subCoral → mainCoral이다: 흰 14/800 라벨이 coral[500] 위에서
+ * 3.43:1이라 소형 텍스트 AA(4.5:1) 미달이었고, mainCoral 위에서는 4.76:1이다.
+ */
 const homePrepCardStyle = StyleSheet.create({
   cta: {
     alignItems: "center",
-    backgroundColor: theme.colors.subCoral,
+    backgroundColor: theme.colors.mainCoral,
     borderRadius: theme.radii.small,
     justifyContent: "center",
     minHeight: 52
@@ -873,6 +884,22 @@ export default function HomeScreen() {
     enabled: Boolean(authToken && childId),
     queryFn: () => getHome(authToken!, childId!)
   });
+  /**
+   * 최근 기록 행의 분류 색·글리프용 공유 `["categories"]` 캐시(items·지출 수정·리포트와 같은
+   * 키·옵션). 이것 없이 `expenseCategoryVisual(categoryId)`만 쓰면 카탈로그의 고정 UUID 8종만
+   * 매칭되고, 서버 시드 분류를 단 지출(엑셀 가져오기·수정 화면 경유)은 전부 중립 receipt
+   * 글리프로 떨어진다 — items 탭과 같은 code 경유 해석을 홈에도 태운다(적대적 리뷰).
+   */
+  const categoriesQuery = useQuery({
+    queryKey: ["categories"],
+    enabled: Boolean(authToken && childId),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => listCategories(authToken!, { includeAll: true })
+  });
+  const resolveExpenseTileCategoryId = useMemo(
+    () => buildTileCategoryIdResolver(categoriesQuery.data?.categories),
+    [categoriesQuery.data?.categories]
+  );
   const hasSession = Boolean(authToken && childId);
   // REP-121: 홈 한 줄 인사이트는 "지난달 같은 일자까지"의 부분 합계를 필요로 한다. /home 응답에는
   // 지난달 값이 없고, 월간 리포트 API(reports/monthly)는 yearMonth 단위 **월 전체** 합계만 주므로
@@ -1501,19 +1528,33 @@ export default function HomeScreen() {
   const collapsedSectionCount = sectionPlan.collapsed.length;
   const renderedSections = sectionsExpanded ? sectionPlan.entries.map((entry) => entry.id) : sectionPlan.visible;
   /**
-   * 캡처 ③ "자주 기록해요" 칩 4개. 고정 문자열을 새로 만들지 않고 지출 기록 화면의 최근 품목
+   * 캡처 ③ "빠른 기록" 칩 4개. 고정 문자열을 새로 만들지 않고 지출 기록 화면의 최근 품목
    * 계산(EXP-113 `buildRecentItemChips`)을 그대로 재사용한다 -- 새 요청 0건이다(이미 구독 중인
    * 오프라인 스냅숏 + 주간 카드가 이미 읽는 이번 달 캐시). 이력이 모자란 칸만 캡처의 고정
    * 3종으로 채운다(규칙은 src/home/quick-record-chips.ts).
+   *
+   * useMemo인 이유: 이 계산은 로컬 행 전체를 훑고 정렬한다(buildRecentItemChips). 홈은 리렌더가
+   * 잦은 화면이라 매 렌더 다시 돌 이유가 없고, 결과 배열이 매번 새 참조면 아래 칩 렌더도 늘
+   * 새로 그린다.
    */
-  const quickRecordChips = buildHomeQuickRecordChips(
-    childId
-      ? buildRecentItemChips(offlineSyncSnapshot.rows, childId, { serverRows: thisMonthExpenses.data?.expenses })
-      : null
+  const quickRecordChips = useMemo(
+    () =>
+      buildHomeQuickRecordChips(
+        childId
+          ? buildRecentItemChips(offlineSyncSnapshot.rows, childId, { serverRows: thisMonthExpenses.data?.expenses })
+          : null
+      ),
+    [childId, offlineSyncSnapshot.rows, thisMonthExpenses.data?.expenses]
   );
-  // 최하단 동기화 줄(스펙 §통합 지점). 상태는 이미 구독 중인 큐 스냅숏에서만 만든다 --
-  // "오프라인"은 렌더 시점에 알 수 없어 말하지 않는다(src/home/home-sync-status.ts).
-  const homeSyncStatus = resolveHomeSyncStatus(offlineSyncSnapshot.counts);
+  /**
+   * 최하단 동기화 줄(스펙 §통합 지점). 상태는 이미 구독 중인 큐 스냅숏에서만 만든다 --
+   * "오프라인"은 렌더 시점에 알 수 없어 말하지 않는다(src/home/home-sync-status.ts).
+   *
+   * 큐는 **둘**이라 둘 다 넘긴다: `counts`는 지출 행만 세고(sync-controller의 의도된 범위),
+   * 준비템 상태 변경은 `itemStatusRows`에 따로 쌓인다. 예전에는 counts만 보고 판정해서, 준비템
+   * 상태가 서버 반영을 기다리는 동안에도 홈이 "모든 기록이 동기화됐어요"라고 말했다.
+   */
+  const homeSyncStatus = resolveHomeSyncStatus(offlineSyncSnapshot.counts, offlineSyncSnapshot.itemStatusRows);
   const headerSpokenLabel = `${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`;
 
   /**
@@ -1894,6 +1935,7 @@ export default function HomeScreen() {
           {/* ② 히어로 1장 -- 캡처 134-153. 금액은 오프라인 대기 행까지 재조정한 `monthlyUsed`다
               (라운드 51 #7: 히어로·진행바·경고·넛지가 같은 한 값을 읽는다). */}
           <View
+            accessible
             accessibilityLabel={
               budgetProgress.hasBudget
                 ? `이번 달 우리 아이 비용 ${formatKrw(monthlyUsed)}, 예산 사용률 ${progress}퍼센트`
@@ -1990,7 +2032,7 @@ export default function HomeScreen() {
             </Pressable>
           ) : null}
 
-          {/* ③ 자주 기록해요 -- 캡처 155-163. 칩은 폼을 미리 채울 뿐, 저장은 지출 기록 화면에서만
+          {/* ③ 빠른 기록 -- 캡처 155-163. 칩은 폼을 미리 채울 뿐, 저장은 지출 기록 화면에서만
               일어난다. 보기 전용 참여자에게는 같은 게이트가 안내로 답한다(UX-R(M)). */}
           <View style={{ gap: 8 }}>
             <Text accessibilityRole="header" style={homeQuickRecordStyle.title}>
@@ -2107,7 +2149,11 @@ export default function HomeScreen() {
               ) : (
                 // HOME-124: 부제는 기록 탭과 **같은 함수**가 만든다(선물/환불 접두 포함).
                 visibleHome.recentExpenses.slice(0, 3).map((expense) => {
-                  const visual = expenseCategoryVisual(expense.categoryId);
+                  // 서버 시드 분류 UUID는 code를 거쳐 카탈로그 타일로 해석한다(items 탭과 동일).
+                  // 대응 타일이 없거나 캐시가 비면 expenseCategoryVisual의 중립 글리프로 떨어진다.
+                  const visual = expenseCategoryVisual(
+                    resolveExpenseTileCategoryId(expense.categoryId) ?? expense.categoryId
+                  );
                   return (
                     <SurfaceListRow
                       key={expense.id}

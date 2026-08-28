@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ITEM_STATUSES, NECESSITY_LEVELS } from "@wooriai/domain";
+import { catalogItemStatusLabel, MOD_V1_ITEM_STATUS_LABELS } from "../design-system/item-status-vocabulary";
+import { toCatalogPlanState } from "../preparation/catalog-contract";
 import { NECESSITY_FILTER_OPTIONS } from "./item-filters";
 import {
   itemListBadgeLabel,
@@ -15,15 +17,48 @@ const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
 describe("라운드 48 T1: 준비 상태 라벨", () => {
-  it("모든 상태에 문구가 있고 예전 목록 문구를 그대로 쓴다", () => {
-    expect(itemStatusLabel("prepared")).toBe("이미 준비");
+  it("어휘는 승인 캡처의 목록 pill과 같다(보유 · 알아보기 · 필요 · 선물)", () => {
+    expect(itemStatusLabel("prepared")).toBe("보유");
+    expect(itemStatusLabel("interested")).toBe("알아보기");
+    expect(itemStatusLabel("not_prepared")).toBe("필요");
+    expect(itemStatusLabel("gifted")).toBe("선물");
     expect(itemStatusLabel("not_needed")).toBe("필요 없음");
-    expect(itemStatusLabel("interested")).toBe("관심");
-    expect(itemStatusLabel("gifted")).toBe("선물 받음");
-    expect(itemStatusLabel("not_prepared")).toBe("준비 전");
     for (const status of ITEM_STATUSES) {
       expect(itemStatusLabel(status).length).toBeGreaterThan(0);
     }
+  });
+
+  it("예전의 상세 전용 어휘는 어디에서도 나오지 않는다(화면끼리 갈라지던 원인)", () => {
+    const shipped = ITEM_STATUSES.map((status) => itemStatusLabel(status));
+    for (const stale of ["이미 준비", "관심", "준비 전", "선물 받음"]) {
+      expect(shipped, `${stale}은 목록 어휘로 대체됐다`).not.toContain(stale);
+    }
+  });
+
+  it("라벨 문자열은 어휘 모듈 하나에서만 나온다(목록 pill과 같은 값)", () => {
+    // 목록 pill(modV1ItemStatuses)도 같은 소스를 읽는다. 그 파일은 react-native를 import해
+    // vitest에서 실행할 수 없으므로 소스 계약으로 고정한다(design-system-restore.test.ts 관례).
+    const primitives = source("src/design-system/components/ModV1Primitives.tsx");
+    expect(primitives).toContain('label: MOD_V1_ITEM_STATUS_LABELS.owned');
+    expect(primitives).toContain("return catalogItemStatusLabel(value);");
+    expect(MOD_V1_ITEM_STATUS_LABELS.owned).toBe("보유");
+    for (const status of ITEM_STATUSES) {
+      expect(itemStatusLabel(status)).toBe(catalogItemStatusLabel(toCatalogPlanState(status)));
+    }
+    // 화면 모듈은 문구를 손으로 다시 적지 않는다 -- 라벨을 돌려주는 곳이 위임 한 줄뿐이다.
+    const labelFn = source("src/items/item-labels.ts").slice(
+      source("src/items/item-labels.ts").indexOf("export function itemStatusLabel"),
+      source("src/items/item-labels.ts").indexOf("export function itemStatusBadgeLabel")
+    );
+    expect(labelFn).toContain("catalogItemStatusLabel(toCatalogPlanState(status)");
+    expect(labelFn).not.toMatch(/return "[^"]+";/);
+  });
+
+  it("design-system 배럴은 itemStatusLabel을 내보내지 않는다(이름 충돌로 다른 어휘가 새는 길을 막는다)", () => {
+    const barrel = source("src/design-system/index.ts");
+    expect(barrel).toContain("./components/ModV1Primitives");
+    expect(barrel).not.toContain("itemStatusLabel,");
+    expect(barrel).toContain("catalogItemStatusLabel");
   });
 
   it("배지로는 준비 전(기본값)을 알리지 않는다", () => {
@@ -52,9 +87,9 @@ describe("라운드 48 T1: 필수도 배지", () => {
 
 describe("라운드 48 T1: 목록 카드 배지 판정", () => {
   it("준비 상태가 있으면 상태 라벨이 우선한다", () => {
-    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "essential" })).toBe("선물 받음");
-    expect(itemListBadgeLabel({ status: "prepared", necessityLevel: "optional" })).toBe("이미 준비");
-    expect(itemListBadgeLabel({ status: "interested", necessityLevel: "convenience" })).toBe("관심");
+    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "essential" })).toBe("선물");
+    expect(itemListBadgeLabel({ status: "prepared", necessityLevel: "optional" })).toBe("보유");
+    expect(itemListBadgeLabel({ status: "interested", necessityLevel: "convenience" })).toBe("알아보기");
   });
 
   it("준비 전이면 필수도 배지로 떨어진다", () => {

@@ -12,6 +12,7 @@ import {
   type AppIconName
 } from "../design-system";
 import { resolvePreparationItemVisual } from "./item-visuals";
+import { pendingSearchSubmission, shouldSyncSearchDraft } from "./search-draft";
 import { resolvePreparationDisplayGroupId, type PreparationDisplayGroupId } from "./preparation-grouping";
 import { compactGridColumnCount, compactGridItemWidth } from "../design-system/responsive";
 
@@ -280,9 +281,17 @@ export function PreparationListParity({
     setExpandedGroups(new Set([firstPopulatedCategory.id]));
   }, [categories, selectedContextKey]);
 
+  /**
+   * 입력 디바운스. **빈 문자열도 하나의 검색어**다.
+   *
+   * 예전에는 `if (!query …) return`이라 입력칸을 다 지워도 `onSearch("")`가 나가지 않았다 --
+   * 사용자는 검색어를 지웠는데 목록은 계속 걸러진 상태로 남아, 화면이 말하는 것과 입력칸이
+   * 말하는 것이 어긋났다. 지금은 "직전에 보낸 검색어가 있었는데 지금 비었다"면 그 사실도
+   * 그대로 보낸다. 처음부터 비어 있던 경우(둘 다 "")는 보낼 변화가 없으므로 그대로 넘어간다.
+   */
   useEffect(() => {
-    const query = searchDraft.trim();
-    if (!query || query === submittedSearch.current) return;
+    const query = pendingSearchSubmission(searchDraft, submittedSearch.current);
+    if (query === null) return;
     const timer = setTimeout(() => {
       submittedSearch.current = query;
       onSearch(query);
@@ -290,9 +299,20 @@ export function PreparationListParity({
     return () => clearTimeout(timer);
   }, [onSearch, searchDraft]);
 
+  /**
+   * 밖에서 검색어가 바뀌면(예: "필터 초기화") 입력칸도 따라간다.
+   *
+   * 예전 조건은 `activeSearchQuery &&`라 **빈 값으로 초기화될 때만** 동기화를 건너뛰었다 --
+   * 초기화 버튼을 눌러 목록은 전체로 돌아왔는데 입력칸에는 옛 검색어가 그대로 남아, 그 글자가
+   * 지금 걸려 있는 필터라고 읽혔다. `submittedSearch`도 함께 맞춰 위 디바운스가 방금 반영된
+   * 값을 되돌려 보내지 않게 한다.
+   */
   useEffect(() => {
     setSearchLimit(20);
-    if (activeSearchQuery && searchDraft !== activeSearchQuery) setSearchDraft(activeSearchQuery);
+    if (shouldSyncSearchDraft(searchDraft, activeSearchQuery)) {
+      submittedSearch.current = activeSearchQuery;
+      setSearchDraft(activeSearchQuery);
+    }
   }, [activeSearchQuery]);
 
   const trackedItems = items.filter((item) => item.plan && !excludedStates.has(item.plan.state));
@@ -346,7 +366,9 @@ export function PreparationListParity({
         <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={{ color: semanticColors.textInverse, fontSize: 15, fontWeight: "800" }}>나의 준비 진행률</Text>
-            <Text style={{ color: semanticColors.textInverse, fontSize: 12, opacity: 0.88 }}>
+            {/* opacity를 걷어냈다: actionPrimary 위 흰 12px에 0.88을 곱하면 약 3.9:1로 WCAG AA
+                소형 텍스트 기준(4.5:1)에 못 미친다. 불투명한 흰색은 4.76:1이다. */}
+            <Text style={{ color: semanticColors.textInverse, fontSize: 12 }}>
               {progress?.summaryText ?? (totalCount ? `${totalCount}개 중 ${completedCount}개 완료` : "아직 준비 상태를 정한 품목이 없어요")}
             </Text>
           </View>

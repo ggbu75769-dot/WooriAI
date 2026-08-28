@@ -3,6 +3,7 @@ import { AccessibilityInfo, findNodeHandle, Modal, Pressable, Text as NativeText
 import { KoreanText as Text } from "./KoreanText";
 import { formatKrw } from "../../money";
 import { balanceCompactKoreanLabel } from "../compact-korean-label";
+import { catalogItemStatusLabel, MOD_V1_ITEM_STATUS_LABELS } from "../item-status-vocabulary";
 import { semanticColors } from "../tokens/color";
 import { radius } from "../tokens/radius";
 import { spacing } from "../tokens/spacing";
@@ -97,15 +98,20 @@ export function MoneyField({ label, value, onChangeText, error, helper, ...props
 
 export type ModV1ItemStatus = "researching" | "planned" | "ordered" | "owned" | "rented" | "gifted" | "replacement_needed" | "retired";
 
+/**
+ * 라벨은 어휘 모듈(../item-status-vocabulary)이 단일 소스다 -- 상세/동기화 화면도 같은 값을
+ * 읽으므로, 여기에 문자열을 다시 적으면 두 화면이 조용히 갈라진다. 아이콘은 이 파일에 남는다
+ * (AppIconName은 react-native 컴포넌트 계층의 타입이다).
+ */
 export const modV1ItemStatuses: ReadonlyArray<{ value: ModV1ItemStatus; label: string; icon: AppIconName }> = [
-  { value: "researching", label: "알아보기", icon: "magnify" },
-  { value: "planned", label: "예정", icon: "calendar-clock" },
-  { value: "ordered", label: "주문", icon: "truck-delivery-outline" },
-  { value: "owned", label: "보유", icon: "check-circle-outline" },
-  { value: "rented", label: "대여", icon: "handshake-outline" },
-  { value: "gifted", label: "선물", icon: "gift-outline" },
-  { value: "replacement_needed", label: "교체", icon: "autorenew" },
-  { value: "retired", label: "종료", icon: "archive-outline" }
+  { value: "researching", label: MOD_V1_ITEM_STATUS_LABELS.researching, icon: "magnify" },
+  { value: "planned", label: MOD_V1_ITEM_STATUS_LABELS.planned, icon: "calendar-clock" },
+  { value: "ordered", label: MOD_V1_ITEM_STATUS_LABELS.ordered, icon: "truck-delivery-outline" },
+  { value: "owned", label: MOD_V1_ITEM_STATUS_LABELS.owned, icon: "check-circle-outline" },
+  { value: "rented", label: MOD_V1_ITEM_STATUS_LABELS.rented, icon: "handshake-outline" },
+  { value: "gifted", label: MOD_V1_ITEM_STATUS_LABELS.gifted, icon: "gift-outline" },
+  { value: "replacement_needed", label: MOD_V1_ITEM_STATUS_LABELS.replacement_needed, icon: "autorenew" },
+  { value: "retired", label: MOD_V1_ITEM_STATUS_LABELS.retired, icon: "archive-outline" }
 ];
 
 const modV1ItemStatusRows = Array.from(
@@ -113,15 +119,16 @@ const modV1ItemStatusRows = Array.from(
   (_, rowIndex) => modV1ItemStatuses.slice(rowIndex * 2, rowIndex * 2 + 2)
 );
 
+/**
+ * 이 파일 안의 카드/컨트롤이 쓰는 라벨 조회. 판정은 전부 어휘 모듈에 있다.
+ *
+ * design-system 배럴(../index.ts)에서는 **내보내지 않는다** -- `src/items/item-labels.ts`에도
+ * 같은 이름의 함수가 있어서, 배럴로 이 이름이 나가면 import 한 줄 잘못 골라 상세 화면이 목록과
+ * 다른 어휘를 그리는 사고가 다시 열린다. 화면은 item-labels 쪽을 쓰고, 그쪽도 결국 이 어휘를
+ * 읽는다.
+ */
 export function itemStatusLabel(value: string | null | undefined) {
-  if (value === "borrowed") return "대여";
-  if (value === "gift_expected") return "선물 예정";
-  if (value === "replacement_due") return "교체 시기";
-  if (value === "replaced") return "교체 완료";
-  if (value === "not_needed") return "필요 없음";
-  if (value === "need") return "필요";
-  if (value === "ended") return "사용 종료";
-  return modV1ItemStatuses.find((entry) => entry.value === value)?.label ?? "미정";
+  return catalogItemStatusLabel(value);
 }
 
 function preparationStatusVisual(status: string | null | undefined) {

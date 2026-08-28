@@ -22,7 +22,13 @@ export const HOME_QUICK_RECORD_ITEM_SLOTS = 3;
 
 export const HOME_QUICK_RECORD_MANUAL_LABEL = "+ 직접 입력";
 
-export const HOME_QUICK_RECORD_SECTION_TITLE = "자주 기록해요";
+/**
+ * 구획 제목. 캡처에는 "자주 기록해요"였지만, 이 칩 목록은 이력이 모자라면 고정 3종(기저귀·
+ * 병원비·분유)으로 채워진다 -- 기록이 하나도 없는 사용자에게 "자주 기록해요"라고 붙이면
+ * 화면이 그 사람의 습관을 아는 척하는 거짓말이 된다. 제목을 이 목록이 실제로 하는 일
+ * ("한 번에 기록을 시작하는 단축키")로 바꾼다. 칩 자체의 뜻·동작·개수는 그대로다.
+ */
+export const HOME_QUICK_RECORD_SECTION_TITLE = "빠른 기록";
 
 export type HomeQuickRecordChip = {
   /** 칩에 보이는 문구. */

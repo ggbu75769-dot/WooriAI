@@ -24,6 +24,7 @@ import {
 import {
   EMPTY_PRODUCT_LINKS_TEXT,
   hasPurchasableLink,
+  primaryPurchaseLinkIndex,
   productLinkMarker,
   productLinksDisclosureText,
   productPlatformLabel
@@ -528,6 +529,13 @@ export default function ItemDetailScreen() {
    */
   const affiliateDisclosureText = productLinksDisclosureText(visibleDetail.productLinks);
   /**
+   * 채워진 "구매하기" 버튼을 받을 판매처 행(src/items/link-marker.ts). 순서상 첫 줄이 아니라
+   * **첫 비스폰서 줄**이다 — 스폰서가 1위로 정렬되면 광고 자리만 가장 강한 CTA를 갖게 되는데,
+   * 그건 스폰서를 구분해 표시하라는 DNC-011을 우대로 뒤집는 것이다. 전부 스폰서면 -1이라
+   * 채워진 버튼이 하나도 없다.
+   */
+  const filledPurchaseRowIndex = primaryPurchaseLinkIndex(visibleDetail.productLinks);
+  /**
    * 라운드 49 C-04: "이 준비템으로 기록한 지출" 한 줄. 세션 게이트·표기·문구는 전부 순수
    * 모듈이 정하고(src/items/linked-expense.ts) 화면은 그리기만 한다 -- 비세션 프리뷰
    * (ITEM-002 픽셀 락 캡처)에서는 null이라 줄 자체가 없다.
@@ -693,9 +701,10 @@ export default function ItemDetailScreen() {
                     <Pressable
                       accessibilityRole="tab"
                       accessibilityState={{ selected }}
-                      hitSlop={6}
                       key={tab.value}
                       onPress={() => setDetailTab(tab.value)}
+                      // 텍스트+패딩(≈31dp)에 hitSlop 6으로는 48dp 타깃 미달이라 높이로 확보한다.
+                      style={{ justifyContent: "flex-end", minHeight: theme.touchTarget }}
                     >
                       <Text
                         style={
@@ -767,10 +776,11 @@ export default function ItemDetailScreen() {
                         linkPrice가 null이라 가격 칸도 캡션도 종전 그대로다.
                         비세션 프리뷰(ITEM-002 픽셀 락 캡처)는 한 글자도 건드리지 않는다. */}
                     <ProductComparisonRow
-                      /* DSN-053 P2-B: 승인 캡처(ITEM-002)의 판매처 행은 **첫 줄만** 채워진
+                      /* DSN-053 P2-B: 승인 캡처(ITEM-002)의 판매처 행은 **한 줄만** 채워진
                          "구매하기"이고 나머지는 외곽선 "구매"다(src/ui.tsx primaryAction 주석).
+                         그 한 줄은 첫 비스폰서 링크다(filledPurchaseRowIndex — DNC-011).
                          비세션 프리뷰는 종전 렌더 그대로 둔다(캡처 불변). */
-                      primaryAction={hasSession && index === 0}
+                      primaryAction={hasSession && index === filledPurchaseRowIndex}
                       seller={link.title}
                       price={hasSession ? linkPrice?.priceText ?? "" : visibleDetail.priceBandText ?? ""}
                       caption={hasSession ? withLinkPriceCaption(productPlatformLabel(link.platform), linkPrice) : undefined}

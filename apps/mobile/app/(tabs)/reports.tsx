@@ -110,7 +110,8 @@ function yearMonthOf(date: Date) {
  * 승인 캡처(REP-001)의 치수는 **48dp 정사각 터치 타깃 안의 28px chevron**이다. 종전에는 세
  * 기간 분기가 각자 `‹`/`›` 글리프를 24px Text로 그려(터치 타깃도 hitSlop 12뿐) 같은 컨트롤이
  * 세 번 복제돼 있었다. 색·크기는 예전 스타일 토큰(reportReferencePeriodArrowStyle)에서 그대로
- * 읽어 쓴다 -- A11Y-117의 "다음 화살표 dim(gray300)" 계약도 같은 토큰에 그대로 남는다.
+ * 읽어 쓴다 -- A11Y-117의 "다음 화살표 dim" 계약은 색 교체가 아니라 기록 탭과 같은
+ * opacity(reportReferencePeriodArrowDisabledOpacity)로 지킨다.
  *
  * prop 이름이 `accessibilityLabel`/`isDisabled`인 이유: 호출부와 이 안쪽이 화면 계약
  * (src/a11y-contract.test.ts · src/android-native-ui-quality.test.ts)이 grep하는 형태
@@ -128,7 +129,7 @@ function ReportPeriodArrow({
   isDisabled?: boolean;
   onPress: () => void;
 }) {
-  const glyph = isDisabled ? reportReferencePeriodArrowDisabledStyle : reportReferencePeriodArrowStyle;
+  const glyph = reportReferencePeriodArrowStyle;
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel}
@@ -137,7 +138,10 @@ function ReportPeriodArrow({
       disabled={isDisabled}
       hitSlop={4}
       onPress={onPress}
-      style={reportReferencePeriodArrowButtonStyle}
+      style={[
+        reportReferencePeriodArrowButtonStyle,
+        { opacity: isDisabled ? reportReferencePeriodArrowDisabledOpacity : 1 }
+      ]}
     >
       <AppIcon color={glyph.color} name={direction === "left" ? "chevron-left" : "chevron-right"} size={glyph.fontSize} />
     </Pressable>
@@ -916,11 +920,14 @@ const reportReferencePeriodArrowButtonStyle = {
   width: theme.touchTarget
 } as const;
 
-// A11Y-117: 다음 화살표 dim (현재 기간에서 미래 이동 불가 -- 색만 gray300으로).
-const reportReferencePeriodArrowDisabledStyle = {
-  ...reportReferencePeriodArrowStyle,
-  color: theme.colors.gray300
-} as const;
+/**
+ * A11Y-117: 다음 화살표 dim (현재 기간에서 미래 이동 불가).
+ *
+ * 흐림은 **opacity**로 준다 — 기록 탭(app/(tabs)/records.tsx의 `opacity: canGoNextMonth ? 1 : 0.35`)과
+ * 같은 방식이다. 종전처럼 색을 gray300으로 갈아끼우면 크림 배경 위에서 chevron이 거의 사라져,
+ * "누를 수 없는 버튼"이 아니라 "없는 버튼"으로 읽혔다. 글리프 색·크기는 활성과 같은 토큰을 쓴다.
+ */
+const reportReferencePeriodArrowDisabledOpacity = 0.35;
 
 const reportReferencePeriodTextStyle = {
   color: theme.colors.brown,

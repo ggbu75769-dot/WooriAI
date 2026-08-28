@@ -799,6 +799,8 @@ export default function ItemsScreen() {
               hitSlop={8}
               onPress={childSwitch.toggle}
               testID="items-child-switch-trigger"
+              // 텍스트 한 줄(≈17dp) + hitSlop 8로는 ≈33dp라 48dp 최소 타깃에 못 미쳤다.
+              style={{ justifyContent: "center", minHeight: theme.touchTarget }}
             >
               <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "800" }}>
                 {childScopeLabel} ⌄

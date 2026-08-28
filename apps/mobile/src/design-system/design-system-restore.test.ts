@@ -9,6 +9,12 @@ import { radius } from "./tokens/radius";
 import { spacing } from "./tokens/spacing";
 import { typography } from "./tokens/typography";
 import { breakpoints, horizontalPaddingForWidth } from "./tokens/breakpoint";
+import {
+  catalogItemStatusLabel,
+  CATALOG_ONLY_ITEM_STATUS_LABELS,
+  MOD_V1_ITEM_STATUS_LABELS,
+  UNKNOWN_ITEM_STATUS_LABEL
+} from "./item-status-vocabulary";
 
 /**
  * DSN-053 P1 — 이식한 design-system의 계약.
@@ -130,6 +136,11 @@ describe("design-system components (c20deeb 이식본)", () => {
     );
   });
 
+  /**
+   * 라벨 문자열 자체는 `item-status-vocabulary.ts`(순수 모듈)로 올라갔다 -- 상세/동기화 화면의
+   * `src/items/item-labels.ts`가 같은 값을 읽어야 두 화면이 같은 단어를 쓴다. 그래서 값은
+   * **런타임으로** 단언하고(그렙보다 강하다), 컴포넌트 쪽은 그 모듈을 실제로 참조하는지만 본다.
+   */
   it("keeps the eight ModV1 준비 상태 labels and their icons", () => {
     const source = readSource("components/ModV1Primitives.tsx");
     for (const [value, label] of [
@@ -141,8 +152,9 @@ describe("design-system components (c20deeb 이식본)", () => {
       ["gifted", "선물"],
       ["replacement_needed", "교체"],
       ["retired", "종료"]
-    ]) {
-      expect(source).toContain(`{ value: "${value}", label: "${label}"`);
+    ] as const) {
+      expect(MOD_V1_ITEM_STATUS_LABELS[value]).toBe(label);
+      expect(source).toContain(`{ value: "${value}", label: MOD_V1_ITEM_STATUS_LABELS.${value}`);
     }
     // 카탈로그 어휘에만 있는 상태도 한국어 라벨을 갖는다 -- 라벨이 없으면 "미정"으로 뭉개진다.
     for (const [value, label] of [
@@ -151,10 +163,25 @@ describe("design-system components (c20deeb 이식본)", () => {
       ["replacement_due", "교체 시기"],
       ["replaced", "교체 완료"],
       ["not_needed", "필요 없음"],
+      ["need", "필요"],
       ["ended", "사용 종료"]
-    ]) {
-      expect(source).toContain(`if (value === "${value}") return "${label}";`);
+    ] as const) {
+      expect(CATALOG_ONLY_ITEM_STATUS_LABELS[value]).toBe(label);
+      expect(catalogItemStatusLabel(value)).toBe(label);
     }
+    expect(catalogItemStatusLabel("아무거나")).toBe(UNKNOWN_ITEM_STATUS_LABEL);
+    expect(catalogItemStatusLabel(null)).toBe(UNKNOWN_ITEM_STATUS_LABEL);
+    // 컴포넌트는 어휘를 손으로 다시 적지 않고 모듈에 위임한다.
+    expect(source).toContain("return catalogItemStatusLabel(value);");
+    expect(source).not.toContain('if (value === "borrowed") return "대여";');
+  });
+
+  it("does not re-export itemStatusLabel from the barrel (같은 이름이 items 쪽에도 있다)", () => {
+    const barrel = readFileSync(join(designSystemRoot, "index.ts"), "utf8");
+    expect(barrel).toContain("modV1ItemStatuses");
+    expect(barrel).not.toContain("itemStatusLabel,");
+    // 어휘가 필요하면 순수 모듈을 쓴다.
+    expect(barrel).toContain('from "./item-status-vocabulary"');
   });
 
   it("keeps the status pill geometry (pill radius · 24 minHeight · 10/700 label)", () => {

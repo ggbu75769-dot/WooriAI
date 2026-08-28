@@ -142,9 +142,21 @@ describe("ITEM-002 상세: 승인 프레임", () => {
     expect(band).toBeLessThan(rows);
   });
 
-  it("판매처 첫 줄이 채워진 구매하기다(나머지는 외곽선)", () => {
-    expect(detailSource()).toContain("primaryAction={hasSession && index === 0}");
+  it("판매처 한 줄만 채워진 구매하기다(나머지는 외곽선) — 그 한 줄은 첫 비스폰서 링크다", () => {
+    const detail = detailSource();
+    expect(detail).toContain("const filledPurchaseRowIndex = primaryPurchaseLinkIndex(visibleDetail.productLinks);");
+    expect(detail).toContain("primaryAction={hasSession && index === filledPurchaseRowIndex}");
+    // 순서만 보고 채우면 스폰서가 1위일 때 광고 자리만 강한 CTA를 갖는다(DNC-011 역행).
+    expect(detail).not.toContain("primaryAction={hasSession && index === 0}");
     expect(source("src/ui.tsx")).toContain('label="구매하기"');
+  });
+
+  it("채워진 구매하기는 기본 mainCoral을 쓴다(coral[400] 오버라이드 없음 — 대비 4.5:1)", () => {
+    const ui = source("src/ui.tsx");
+    // PrimaryButton 기본 배경이 mainCoral(#C94627)이고, 판매처 행이 그걸 덮지 않는다.
+    expect(ui).toContain("backgroundColor: disabled ? theme.colors.gray300 : theme.colors.mainCoral");
+    expect(ui).not.toContain("backgroundColor: theme.colors.coral[400], minWidth: 72");
+    expect(ui).toContain("style={{ minWidth: 72 }}");
   });
 
   it("실가격과 확인 시각은 한 판정에서 함께 오고 캡션 슬롯에 남는다", () => {

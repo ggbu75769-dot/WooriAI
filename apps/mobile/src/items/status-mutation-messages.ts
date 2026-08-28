@@ -29,6 +29,9 @@
  * status-mutation-messages.test.ts와 gifted-status-flow.test.ts).
  */
 
+import type { ItemStatus } from "@wooriai/domain";
+import { itemStatusLabel } from "./item-labels";
+
 /**
  * 어떤 조작인지. 목표 상태(ItemStatus)가 아니라 "조작" 단위인 이유: `not_prepared` 하나가
  * 찜해제와 선물 받음 취소 두 조작의 목표 상태라, 상태만으로는 무엇을 한 것인지 말로 옮길 수 없다.
@@ -86,11 +89,18 @@ export const GIFTED_RESET_CONFIRM_ACTION_LABEL = "계속하기";
  */
 export type GiftedResetActionKind = Extract<ItemStatusActionKind, "prepare" | "interest" | "skip">;
 
-/** 확인 문구에서 "무엇으로 바뀌는지"를 부르는 이름 — items 탭 statusLabel과 같은 표기를 쓴다. */
-const GIFTED_RESET_TARGET_LABEL: Record<GiftedResetActionKind, string> = {
-  prepare: "이미 준비",
-  interest: "관심",
-  skip: "필요 없음"
+/**
+ * 확인 문구에서 "무엇으로 바뀌는지"를 부르는 이름.
+ *
+ * 문자열을 여기 적지 않고 `itemStatusLabel`에서 읽는다 — 이 문장이 가리키는 것은 조작 이름이
+ * 아니라 **바뀐 뒤의 준비 상태**이고, 사용자는 그 상태를 목록 pill과 상세에서 다시 본다.
+ * 예전에는 여기에 "이미 준비"·"관심"을 손으로 적어 둬서, 확인 Alert가 말한 단어와 그 뒤 화면에
+ * 뜨는 단어가 서로 달랐다.
+ */
+const GIFTED_RESET_TARGET_STATUS: Record<GiftedResetActionKind, ItemStatus> = {
+  prepare: "prepared",
+  interest: "interested",
+  skip: "not_needed"
 };
 
 /**
@@ -98,5 +108,5 @@ const GIFTED_RESET_TARGET_LABEL: Record<GiftedResetActionKind, string> = {
  * 무엇이 된다"까지만 말한다.
  */
 export function giftedResetConfirmMessage(kind: GiftedResetActionKind): string {
-  return `지금은 선물 받음으로 표시돼 있어요. 계속하면 ${GIFTED_RESET_TARGET_LABEL[kind]} 상태로 바뀌어요.`;
+  return `지금은 선물 받음으로 표시돼 있어요. 계속하면 ${itemStatusLabel(GIFTED_RESET_TARGET_STATUS[kind])} 상태로 바뀌어요.`;
 }

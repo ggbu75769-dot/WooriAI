@@ -11,7 +11,7 @@ import {
 
 const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
 
-describe("DSN-053 P2-A 자주 기록해요 칩", () => {
+describe("DSN-053 P2-A 빠른 기록 칩", () => {
   it("칩은 언제나 4개다 -- 품목 3칸 + 직접 입력", () => {
     const chips = buildHomeQuickRecordChips([]);
     expect(chips).toHaveLength(HOME_QUICK_RECORD_ITEM_SLOTS + 1);
@@ -69,7 +69,7 @@ describe("DSN-053 P2-A 자주 기록해요 칩", () => {
   });
 });
 
-describe("자주 기록해요 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
+describe("빠른 기록 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
   it("칩 목록은 지출 기록 화면과 같은 최근 품목 계산을 재사용한다(새 요청 0)", () => {
     expect(homeSource).toContain('import { buildRecentItemChips } from "../../src/expenses/recent-items";');
     expect(homeSource).toContain("buildHomeQuickRecordChips(");
@@ -80,7 +80,10 @@ describe("자주 기록해요 화면 배선 계약 (app/(tabs)/index.tsx)", () =
 
   it("칩 문구·제목은 순수 모듈이 단일 소스다", () => {
     expect(homeSource).toContain("HOME_QUICK_RECORD_SECTION_TITLE");
-    expect(HOME_QUICK_RECORD_SECTION_TITLE).toBe("자주 기록해요");
+    // 이력이 0건이면 이 목록은 고정 3종으로 채워진다 -- 그 화면에 "자주 기록해요"라고 적으면
+    // 사용자가 한 적 없는 습관을 단언하는 문구가 된다.
+    expect(HOME_QUICK_RECORD_SECTION_TITLE).toBe("빠른 기록");
+    expect(HOME_QUICK_RECORD_SECTION_TITLE).not.toBe("자주 기록해요");
     // 화면이 "기저귀"·"분유" 같은 고정 문자열을 다시 적지 않는다.
     expect(homeSource).not.toContain('label="기저귀"');
   });

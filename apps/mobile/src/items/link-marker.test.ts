@@ -12,6 +12,7 @@ import {
   FALLBACK_PLATFORM_LABEL,
   GENERAL_MARKER_LABEL,
   hasPurchasableLink,
+  primaryPurchaseLinkIndex,
   productLinkMarker,
   productLinksDisclosureText,
   productPlatformLabel,
@@ -515,5 +516,34 @@ describe("라운드 43 UX-V (C4): 비교가 아닌 가격 비교", () => {
     // 상단 표시(fontSize 26)는 그대로, 행 쪽 중복 표시는 사라졌다.
     expect(detail).toContain("{visibleDetail.priceBandText}</Text>");
     expect(detail).not.toContain('price={visibleDetail.priceBandText ?? ""}');
+  });
+});
+
+describe("채워진 구매 CTA 자리: 첫 비스폰서 링크 (DNC-011)", () => {
+  it("스폰서가 없으면 종전대로 첫 줄이 채워진다", () => {
+    expect(primaryPurchaseLinkIndex([{ isSponsored: false }, { isSponsored: false }])).toBe(0);
+  });
+
+  it("스폰서가 1위로 정렬되면 채움은 그 아래 첫 비스폰서 줄로 내려간다", () => {
+    // 예전 규칙(index === 0)이면 광고 자리만 화면에서 가장 강한 버튼을 가졌다.
+    expect(primaryPurchaseLinkIndex([{ isSponsored: true }, { isSponsored: false }, { isSponsored: false }])).toBe(1);
+    expect(primaryPurchaseLinkIndex([{ isSponsored: true }, { isSponsored: true }, { isSponsored: false }])).toBe(2);
+  });
+
+  it("전부 스폰서면 채워진 버튼이 하나도 없다", () => {
+    expect(primaryPurchaseLinkIndex([{ isSponsored: true }, { isSponsored: true }])).toBe(-1);
+  });
+
+  it("링크가 없거나 목록이 비면 -1이다", () => {
+    expect(primaryPurchaseLinkIndex([])).toBe(-1);
+    expect(primaryPurchaseLinkIndex(undefined)).toBe(-1);
+    expect(primaryPurchaseLinkIndex(null)).toBe(-1);
+  });
+
+  it("판매처 채움 버튼은 mainCoral 기본값을 쓴다(흰 15/700 라벨 대비 확보)", () => {
+    const ui = uiSource();
+    expect(ui).toContain("backgroundColor: disabled ? theme.colors.gray300 : theme.colors.mainCoral");
+    // coral[400](#F98060) 위 흰 글씨는 2.54:1로 WCAG AA 소형 텍스트 기준(4.5:1) 미달이었다.
+    expect(ui).not.toContain("backgroundColor: theme.colors.coral[400], minWidth: 72");
   });
 });

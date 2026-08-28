@@ -116,79 +116,31 @@ describe("D0 theme tokens", () => {
     }
   });
 
-  it("defines a 3-tier tabular-nums money typography scale (hero 30/800, section 17/700, row 15/600)", async () => {
-    const { theme } = await import("./theme");
-    expect(theme.money.hero).toMatchObject({ fontSize: 30, fontWeight: "800", fontVariant: ["tabular-nums"] });
-    expect(theme.money.section).toMatchObject({ fontSize: 17, fontWeight: "700", fontVariant: ["tabular-nums"] });
-    expect(theme.money.row).toMatchObject({ fontSize: 15, fontWeight: "600", fontVariant: ["tabular-nums"] });
-  });
+  // (theme.money 3단 스케일 계약은 유일 소비자였던 src/ui/MoneyText·ListRow가 DSN-053 P2에서
+  // 재삭제되며 함께 제거됐다 — 아래 재삭제 주석 참고.)
 });
 
-// DSN-053 P1: MOB-121(MoneyText)·CLN-130(ListRow)이 "아무 화면도 채택하지 않은 죽은 컴포넌트"
-// 라며 지웠던 두 블록을 c20deeb에서 되돌린다. 승인 캡처의 시각 문법(금액 위계, 왼쪽 원형 아이콘
-// 슬롯 행)이 이 둘을 전제로 하고, P2 화면 트랙이 채택한다.
-
-describe("D0 MoneyText component contract", () => {
-  const source = readSource("src/ui/MoneyText.tsx");
-
-  it("exposes hero|section|row size tiers backed by theme.money", () => {
-    expect(source).toContain('export type MoneyTextSize = "hero" | "section" | "row"');
-    expect(source).toContain("theme.money[size]");
+// DSN-053 P2 후속: P1이 c20deeb에서 되돌렸던 MoneyText/ListRow/EmptyState(src/ui/*)는 P2 화면
+// 트랙이 채택하지 않아 다시 지웠다 — 홈은 design-system의 ListRow(ApplicationPrimitives)를,
+// 빈 상태는 src/ui.tsx의 EmptyStateCard를 채택했다. "소스가 존재한다"는 계약은 미채택 사실을
+// 영원히 놓치므로(MOB-121·CLN-130이 지운 이유 그대로), 여기서는 채택 사실 자체를 계약으로 둔다.
+describe("DSN-053 P2 — D0 컴포넌트 채택 사실 계약", () => {
+  it("홈 세션 렌더는 design-system ListRow를 실제로 import한다 (src/ui/ListRow 부활 금지)", () => {
+    const homeSource = readSource("app/(tabs)/index.tsx");
+    expect(homeSource).toContain("ListRow as SurfaceListRow");
+    expect(existsSync(join(mobileRoot, "src/ui/ListRow.tsx"))).toBe(false);
+    expect(existsSync(join(mobileRoot, "src/ui/MoneyText.tsx"))).toBe(false);
+    expect(existsSync(join(mobileRoot, "src/ui/EmptyState.tsx"))).toBe(false);
   });
 
-  it("renders the 원 suffix a step smaller than the number and applies tabular-nums", () => {
-    expect(source).toContain("formatKrwParts");
-    expect(source).toContain("suffixFontSize");
-    expect(source).toContain("tier.fontSize * 0.6");
-    expect(source).toContain('fontVariant: ["tabular-nums"]');
-  });
-
-  it("prefixes income/refund amounts with + and colors them with semantic.success", () => {
-    expect(source).toContain('sign?: "income" | "refund"');
-    expect(source).toContain("theme.colors.semantic.success");
-    expect(source).toContain('sign ? "+" : ""');
-  });
-
-  it("is backed by a live formatKrwParts export, not a re-inlined formatter", async () => {
-    const { formatKrwParts } = await import("./money");
-    expect(formatKrwParts(38500)).toEqual({ number: "38,500", suffix: "원" });
-    // 부호는 컴포넌트가 붙인다 -- 포맷터는 언제나 절댓값이다.
-    expect(formatKrwParts(-38500)).toEqual({ number: "38,500", suffix: "원" });
-    expect(formatKrwParts(Number.NaN)).toEqual({ number: "0", suffix: "원" });
-  });
-});
-
-describe("D0 ListRow component contract", () => {
-  const source = readSource("src/ui/ListRow.tsx");
-
-  it("is additive -- does not replace the pre-existing ListRow in src/ui.tsx", () => {
-    const legacyUiSource = readSource("src/ui.tsx");
-    expect(legacyUiSource).toContain("export function ListRow(");
-  });
-
-  it("exposes a left circular color icon slot, title+subtitle, and a right value/badge slot", () => {
-    expect(source).toContain("iconBackgroundColor");
-    expect(source).toContain("borderRadius: 20");
-    expect(source).toContain("title: string");
-    expect(source).toContain("subtitle?: string");
-    expect(source).toContain("value?: string");
-    expect(source).toContain("badge?: React.ReactNode");
-  });
-
-  it("keeps the row's touch target at theme.touchTarget regardless of onPress", () => {
-    expect(source).toContain("minHeight: theme.touchTarget");
-  });
-});
-
-describe("D6 EmptyState component contract", () => {
-  const source = readSource("src/ui/EmptyState.tsx");
-
-  it("exposes icon/title/description/cta props", () => {
-    expect(source).toContain("icon?: string");
-    expect(source).toContain("title: string");
-    expect(source).toContain("description?: string");
-    expect(source).toContain("ctaLabel?: string");
-    expect(source).toContain("onPressCta?: () => void");
+  it("src/ui 배럴은 실사용 중인 StageBadge·Skeleton만 export한다", () => {
+    const barrel = readSource("src/ui/index.ts");
+    expect(barrel).toContain('export { StageBadge } from "./StageBadge"');
+    expect(barrel).toContain('export { Skeleton, SkeletonCard, SkeletonRow } from "./Skeleton"');
+    // 주석의 언급은 허용하고 export 경로만 본다 — 배럴에 다시 실리는 것이 금지 대상이다.
+    expect(barrel).not.toContain('from "./MoneyText"');
+    expect(barrel).not.toContain('from "./ListRow"');
+    expect(barrel).not.toContain('from "./EmptyState"');
   });
 });
 

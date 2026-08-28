@@ -177,11 +177,12 @@ describe("준비완료 탭의 선물 배지 (items 탭)", () => {
     // 상태 문구는 화면에 인라인하지 않는다("선물 받음"/"선물"은 모듈이 정한다).
     expect(itemsSource).not.toContain('return "선물 받음";');
     expect(itemsSource).toContain("toPreparationParityItem(rowItem, {");
-    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "essential" })).toBe("선물 받음");
-    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "optional" })).toBe("선물 받음");
-    // 타일 pill의 문구도 디자인 시스템 한 곳에서만 온다.
+    // P1-4: 배지 어휘도 타일 pill과 같은 "선물"이다(예전에는 상세만 "선물 받음"이라 갈렸다).
+    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "essential" })).toBe("선물");
+    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "optional" })).toBe("선물");
+    // 타일 pill의 문구도 어휘 모듈 한 곳에서만 온다.
     expect(source("src/design-system/components/ModV1Primitives.tsx")).toContain(
-      '{ value: "gifted", label: "선물", icon: "gift-outline" }'
+      '{ value: "gifted", label: MOD_V1_ITEM_STATUS_LABELS.gifted, icon: "gift-outline" }'
     );
   });
 });

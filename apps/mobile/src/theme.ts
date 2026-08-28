@@ -160,15 +160,8 @@ export const theme = {
     body2: { fontSize: 13, lineHeight: 20, fontWeight: "400" },
     caption: { fontSize: 11, lineHeight: 16, fontWeight: "400" }
   },
-  // D0 money typography: three-tier hierarchy for amount text (hero/section/row), all
-  // tabular-nums so digits stay aligned. Consumed by src/ui/MoneyText.tsx (hero/section/row) and
-  // src/ui/ListRow.tsx (row) -- both restored in DSN-053 P1 from c20deeb, where they were the
-  // renderers this scale was written for.
-  money: {
-    hero: { fontSize: 30, fontWeight: "800", fontVariant: ["tabular-nums"] },
-    section: { fontSize: 17, fontWeight: "700", fontVariant: ["tabular-nums"] },
-    row: { fontSize: 15, fontWeight: "600", fontVariant: ["tabular-nums"] }
-  },
+  // (D0 money 3단 스케일은 유일 소비자였던 src/ui/MoneyText·ListRow가 DSN-053 P2에서
+  // 재삭제되며 함께 제거됐다 — 화면들은 각자 캡처 수치의 인라인 스타일을 쓴다.)
   shadows: {
     card:
       typeof document !== "undefined"
