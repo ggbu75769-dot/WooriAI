@@ -19,6 +19,7 @@ import {
   SYNC_STATUS_DISCARD_ALL_CONFIRM_TITLE,
   SYNC_STATUS_DISCARD_ALL_LABEL,
   SYNC_STATUS_DISCARD_LABEL,
+  SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE,
   SYNC_STATUS_DISCARD_PENDING_CONFIRM_MESSAGE,
   SYNC_STATUS_DISCARD_PENDING_CONFIRM_TITLE,
   SYNC_STATUS_DISCARD_PENDING_LABEL,
@@ -428,16 +429,27 @@ const FailedRow = memo(function FailedRow({
  * 되돌릴 수 없는 파괴적 동작이라 확인 Alert을 앞에 둔다(전체 버리기·지출 삭제와 같은 관례).
  * 누른 시점에 조건이 어긋났을 수 있으므로(스냅샷은 한 박자 낡는다) 실제 폐기는 저장소를 다시
  * 읽어 판정한다 — 이 화면은 결과를 기다리지 않는다(스냅샷이 곧 새 상태를 그린다).
+ *
+ * 라운드 62 #2: 다만 **거절됐을 때는** 스냅샷만으로 부족하다. 지금 전송 중이라 거절된 경우
+ * (라운드 62 #1의 flush 가드) 행은 그 자리에 그대로 남아, 확인까지 누른 사용자에게는 눌린 것을
+ * 앱이 못 봤다고 읽힌다. 그래서 컨트롤러가 돌려주는 boolean을 받아 거절이면 이 행 안에 한 줄을
+ * 남긴다(SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE). 이 화면에는 records 탭의 플래시 토스트
+ * 같은 화면 전역 자리가 없고, 어차피 특정 행에 대한 답이라 그 행 안이 제자리다. 다시 누르면
+ * 지워지고, 그 사이 행이 확정돼 사라지면 컴포넌트와 함께 사라진다.
  */
 const PendingRow = memo(function PendingRow({ row }: { row: LocalExpenseRow }) {
+  const [discardBlocked, setDiscardBlocked] = useState(false);
   const confirmDiscard = useCallback(() => {
+    setDiscardBlocked(false);
     Alert.alert(SYNC_STATUS_DISCARD_PENDING_CONFIRM_TITLE, SYNC_STATUS_DISCARD_PENDING_CONFIRM_MESSAGE, [
       { text: "취소", style: "cancel" },
       {
         text: SYNC_STATUS_DISCARD_PENDING_LABEL,
         style: "destructive",
         onPress: () => {
-          void discardPendingOfflineMutation(row.localId);
+          void discardPendingOfflineMutation(row.localId).then((discarded) => {
+            if (!discarded) setDiscardBlocked(true);
+          });
         }
       }
     ]);
@@ -448,6 +460,9 @@ const PendingRow = memo(function PendingRow({ row }: { row: LocalExpenseRow }) {
       <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
         {row.syncState === "syncing" ? SYNC_STATUS_SYNCING_ROW_MESSAGE : "연결되면 자동으로 반영할게요."}
       </Text>
+      {discardBlocked ? (
+        <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE}</Text>
+      ) : null}
       {isDiscardablePendingRow(row) ? (
         <SecondaryButton label={SYNC_STATUS_DISCARD_PENDING_LABEL} onPress={confirmDiscard} />
       ) : null}

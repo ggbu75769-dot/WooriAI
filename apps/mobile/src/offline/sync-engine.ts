@@ -1052,15 +1052,24 @@ export async function discardFailedMutation(store: OfflineStore, localId: string
  * 다시 손댈 수 없는 기록이다. 일괄 액션이 스냅샷 대신 저장소를 읽는 것과 같은 이유다
  * (`listFailedLocalIds` 주석).
  *
- * `inFlight` 표시까지 함께 보는 이유: 행의 `syncState`는 create가 성공한 뒤 아직 보내지 않은
- * 수정이 남아 있으면 다시 `"pending"`으로 내려간다(H-3, 위 flush 성공 분기). 그 행은
- * canonicalId가 생겨 순수 판정에서 이미 걸러지지만, 두 겹으로 막아 두는 편이 안전하다 —
- * 이 함수가 잘못 통과시키는 비용이 데이터 유실이다.
+ * ## 창을 닫는 것은 재확인이 아니라 첫 줄의 가드다 (라운드 62 #1)
+ *
+ * 재확인만으로는 부족했다: 이 함수는 네 번 `await`하는데 그 사이가 열려 있어, 확인을 통과한
+ * 바로 그 행을 **진행 중인 flush pass가 집어 갈 수 있다**(확인 시점에는 아직 표시가 없다).
+ * 그래서 확인받고 사라진 행이 몇 초 뒤 목록에 되살아났다. `recoverInterruptedSyncState`가
+ * 같은 이유로 쓰는 선례 그대로, 살아 있는 pass가 있으면 **아무것도 하지 않는다**. pass가
+ * 끝난 뒤 다시 누르면 그때의 행 상태로 판정된다(확정됐으면 버튼 자체가 사라진다).
+ *
+ * 뒤따르는 재확인(`isDiscardablePendingRow` + `inFlight`)은 그 창이 아니라 **다른 원인**을
+ * 막는다: 화면 스냅샷이 낡은 사이 다른 화면·경로에서 그 행이 수정 대기(create 성공 뒤 남은
+ * 수정 — H-3)나 삭제 대기로 바뀌었거나, 이미 정리돼 사라진 경우다.
  *
  * 버렸으면 true, 그 사이에 조건이 어긋나 아무것도 하지 않았으면 false(화면은 그대로 두면
- * 된다 — 스냅샷이 곧 그 행의 새 상태를 그린다).
+ * 된다 — 스냅샷이 곧 그 행의 새 상태를 그린다. 전송 중이라 거절한 경우에는 화면이 그 사실을
+ * 한 줄로 알린다 — app/sync-status.tsx).
  */
 export async function discardPendingMutation(store: OfflineStore, localId: string): Promise<boolean> {
+  if (inFlightFlushes.get(store)) return false;
   const row = await store.getLocalExpense(localId);
   if (!row || !isDiscardablePendingRow(row)) return false;
   const mutations = await store.listOutboxMutationsForLocalId(localId);

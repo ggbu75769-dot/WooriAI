@@ -600,6 +600,13 @@ async function pullDeltaInBackground(token: string, queryClient: QueryClient): P
     );
     if (summary.changeCount > 0 || summary.didResetCursor) {
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      // 라운드 62 #6: GAP-062 #1이 지출 **쓰기** 5경로에 붙인 두 줄이 여기에도 필요하다.
+      // 델타 풀은 **다른 기기의 쓰기**가 이 기기에 도착하는 경로다 — 서버 집계가 실제로
+      // 달라진 상황이라 리포트 합계·비중·추이(`["report"]`)와 예산 사용액(`["budget"]`)이
+      // 옛 값으로 남는다. 리포트 탭은 탭 전환으로 언마운트되지 않아 refetchOnMount도 돌지
+      // 않으므로(같은 티켓의 근거), 열어 둔 사람에게는 그 값이 계속 서 있다.
+      await queryClient.invalidateQueries({ queryKey: ["report"] });
+      await queryClient.invalidateQueries({ queryKey: ["budget"] });
     }
   } catch {
     // Best-effort (design doc §2.3): a failed pull changes nothing locally; the persisted

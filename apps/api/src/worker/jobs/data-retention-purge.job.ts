@@ -496,6 +496,12 @@ function errorMessage(error: unknown): string {
  *    returns an empty list — the job is not broken, its preview has simply
  *    been destroyed on schedule.
  *
+ *    Batch note: unlike phases 6-8 the cap counts jobs, and one job holds up
+ *    to 2,000 rows (importMaxRows), so a full batch can delete ~400k rows in
+ *    one transaction. That is the same shape as the phase-2 child cascade and
+ *    is handled the same way — the halved retry and then poison-skip drain it
+ *    if the 30s transaction proves too small.
+ *
  * 10. Aged-out family invites (GAP-062 #8). `household_invites` had no
  *    age-based deletion path either: rows disappeared only when their author
  *    was purged (phase 3) or their household was orphaned, so an expired /
@@ -525,12 +531,6 @@ function errorMessage(error: unknown): string {
  *    cancelled one as the `household.invite.cancel` audit row (kept under the
  *    730-day window) — the constant's doc spells out why this is duplicate
  *    retention rather than evidence.
- *
- *    Batch note: unlike phases 6-8 the cap counts jobs, and one job holds up
- *    to 2,000 rows (importMaxRows), so a full batch can delete ~400k rows in
- *    one transaction. That is the same shape as the phase-2 child cascade and
- *    is handled the same way — the halved retry and then poison-skip drain it
- *    if the 30s transaction proves too small.
  */
 /**
  * Terminal wrapper thrown by run() AFTER all phases have executed, when at

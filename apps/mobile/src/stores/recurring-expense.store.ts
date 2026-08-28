@@ -143,8 +143,13 @@ export function clearRecurringTemplatesForChild(
 ): RecurringExpenseTemplate[] {
   const target = childId.trim();
   if (target.length === 0) return templates;
-  if (!templates.some((template) => template.childId === target)) return templates;
-  return templates.filter((template) => template.childId !== target);
+  // 라운드 62 #8: 양쪽을 **같은 모양으로** trim한다. 위 주석이 약속하는 것이 그것인데 종전에는
+  // 인자만 다듬고 `template.childId`는 저장된 그대로 비교해, 옛 경로로 들어와 공백이 섞인
+  // 행(저장 시 trim 규약이 붙기 전에 만들어진 것)이 삭제에서 조용히 빠졌다 — 그러면 그 행이
+  // 아이별 20칸을 계속 차지한 채, 관리 화면에는 뜨지 않아 손댈 수도 없는 상태로 남는다.
+  const matchesTarget = (template: RecurringExpenseTemplate) => template.childId.trim() === target;
+  if (!templates.some(matchesTarget)) return templates;
+  return templates.filter((template) => !matchesTarget(template));
 }
 
 /** 저장 시도의 결과. 실패는 예외가 아니라 **값**이다(화면이 문장을 그대로 보여준다). */

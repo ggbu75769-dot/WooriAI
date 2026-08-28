@@ -171,3 +171,62 @@ describe("#7 지출 상세·예산·정기 지출의 아이 스코프 라벨 (�
     }
   });
 });
+
+/**
+ * 라운드 62 #7 — 같은 어휘를 **준비템 상세**까지 들고 간다.
+ *
+ * 왜 이 화면인가: 알림함의 "샀나요?"(purchase_pending)가 데려오는 착지 화면이고, 라운드 62 #2가
+ * 이동 전에 그 알림의 아이로 **전환**하도록 고친 뒤로는 사용자가 보고 있는 아이가 조용히 바뀐 채
+ * 이 화면이 열린다. 여기서 누르는 "이미 샀어요 · 지출로 기록"이 그 바뀐 아이 밑으로 들어가므로,
+ * 화면이 누구의 준비템인지 말하지 않으면 전환 사실이 어디에도 남지 않는다.
+ *
+ * 이 화면에는 `ScreenHeader`가 없어(플로팅 뒤로가기/공유 + 히어로) 정보 카드 안의 한 줄로 붙는다.
+ * 게이트는 기존 관례 그대로 다자녀 ∧ 세션이고, **비세션이 곧 ITEM-002 픽셀락 캡처**라 그 조건이
+ * 캡처 불변을 그대로 지킨다.
+ */
+describe("라운드 62 #7 준비템 상세의 아이 스코프 라벨", () => {
+  const itemDetailSource = () => source("app/items/[itemTemplateId].tsx");
+
+  it("라벨은 공용 한 벌로 해석·조립한다 (화면이 문자열을 다시 잇지 않는다)", () => {
+    const src = itemDetailSource();
+    expect(src).toContain(
+      'import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";'
+    );
+    expect(src).toContain("const childScopeLabel = resolveChildScopeLabel(childId, cachedChildren);");
+    expect(src).toContain('withChildScopeLabel("준비템", childScopeLabel)');
+    expect(src).not.toContain("childScopeLabel} — ");
+    // 어휘 자체는 4탭·쓰기 화면과 같은 값이다.
+    expect(withChildScopeLabel("준비템", "하온이")).toBe("하온이 — 준비템");
+  });
+
+  it("게이트는 둘이다: 세션 ∧ 다자녀 — ITEM-002 픽셀락 캡처(비세션)는 한 글자도 달라지지 않는다", () => {
+    const src = itemDetailSource();
+    // 렌더 게이트(정보 카드 안, 품목명 바로 위).
+    expect(src).toContain("{hasSession && childScopeLabel ? (");
+    // 캐시 읽기 자체가 authToken 뒤에 있다(같은 파일의 다른 세션 게이트들과 같은 형태).
+    expect(src).toContain("const cachedChildren = authToken\n    ? queryClient.getQueryData");
+    // 외동·목록 없음·아이 미확정이면 라벨이 null이라 줄 자체가 생기지 않는다.
+    expect(resolveChildScopeLabel("child-1", [{ id: "child-1", nickname: "다온이" }])).toBeNull();
+    expect(resolveChildScopeLabel("child-1", undefined)).toBeNull();
+    expect(resolveChildScopeLabel(null, [
+      { id: "child-1", nickname: "다온이" },
+      { id: "child-2", nickname: "하온이" }
+    ])).toBeNull();
+  });
+
+  it("새 요청 0건: ['children'] 조회를 켜지 않고 이미 채워진 캐시만 읽는다", () => {
+    const src = itemDetailSource();
+    expect(src).toContain('queryClient.getQueryData<{ children: Child[] }>(["children"])?.children');
+    expect(src).not.toContain('queryKey: ["children"]');
+  });
+
+  it("알림 화면은 전환 사실을 착지 화면에 맡긴다 — 눈에 보이는 잔류 피드백을 두지 않는 근거가 적혀 있다", () => {
+    const notificationsSource = source("app/notifications.tsx");
+    // 전환은 여전히 공용 한 벌을 지난다(이 라운드가 바꾼 것은 주석과 착지 화면뿐이다).
+    expect(notificationsSource).toContain("applyChildSwitch(selectedChildId, child, {");
+    expect(notificationsSource).toContain("announce: announceForA11y");
+    // push로 곧바로 덮이는 화면이라 눈에 보이는 한 줄을 세울 자리가 없다는 판단 근거.
+    expect(notificationsSource).toContain("라운드 62 #7");
+    expect(notificationsSource).toContain("착지 화면이 스스로 말한다");
+  });
+});

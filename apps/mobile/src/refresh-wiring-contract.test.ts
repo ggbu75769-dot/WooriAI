@@ -98,7 +98,7 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
   });
 
   /**
-   * GAP-062 #1 — **지출 쓰기 5경로가 리포트·예산 캐시를 갱신한다.**
+   * GAP-062 #1 — **지출 쓰기 6경로가 리포트·예산 캐시를 갱신한다.**
    *
    * 고치는 문제: 리포트 탭의 쿼리 키는 전부 `["report", …]`인데(app/(tabs)/reports.tsx) 지출을
    * 쓰는 다섯 자리 중 어디도 그 키를 무효화하지 않았다. 리포트 탭은 탭 전환으로 언마운트되지
@@ -110,8 +110,13 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
    * 이 테스트가 고정하는 것은 **무효화 키의 존재**뿐이다. 리포트 숫자를 클라이언트에서 다시
    * 더하는 것은 금지이고(집계 규칙 두 벌 — src/reports/pending-scope-notice.ts 머리말), 새 쓰기
    * 경로가 생겼을 때 여기서 먼저 걸리게 하는 것이 목적이다.
+   *
+   * 라운드 62 #6: 여섯 번째 경로는 **델타 풀**이다(pullDeltaInBackground). 이 기기가 쓴 것은
+   * 아니지만 **다른 기기의 쓰기가 이 기기에 도착하는** 자리라, 서버 집계가 실제로 달라진 뒤
+   * 리포트·예산만 옛 값으로 남는 증상이 다섯 경로와 한 글자도 다르지 않다. 그래서 같은 계약
+   * 아래 둔다 — "지출이 달라졌다고 이 앱이 알게 되는 모든 자리"가 이 목록이다.
    */
-  it("지출 쓰기 5경로가 리포트 캐시를 갱신한다 (GAP-062 #1)", () => {
+  it("지출 쓰기 6경로가 리포트 캐시를 갱신한다 (GAP-062 #1 · 라운드 62 #6)", () => {
     const invalidations = (body: string) =>
       (body.match(/queryClient\.invalidateQueries\(\{ queryKey: \["(report|budget)"\] \}\)/g) ?? []).join("|");
 
@@ -144,13 +149,20 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
       recordsTabSource.indexOf("const removeExpense = useMutation({"),
       recordsTabSource.indexOf("const removeExpenseMutate = removeExpense.mutate;")
     );
+    // ⑥ 델타 풀 — 다른 기기의 쓰기가 이 기기에 도착하는 경로(라운드 62 #6). 같은 컨트롤러의
+    // 다른 함수라, ④와 겹치지 않도록 그 함수 본문만 잘라 본다.
+    const deltaPullBody = controllerSource.slice(
+      controllerSource.indexOf("async function pullDeltaInBackground("),
+      controllerSource.indexOf("export function useOfflineSyncLifecycle")
+    );
 
     for (const [label, body] of [
       ["기록 시트 저장", createSuccess],
       ["지출 수정", updateSuccess],
       ["지출 삭제", deleteSuccess],
       ["오프라인 flush 확정", flushSuccess],
-      ["기록 탭 행 삭제", rowDeleteSuccess]
+      ["기록 탭 행 삭제", rowDeleteSuccess],
+      ["델타 풀", deltaPullBody]
     ] as const) {
       expect(body.length, `${label} 분기를 찾지 못했다`).toBeGreaterThan(0);
       expect(invalidations(body), `${label}이 ["report"]를 무효화하지 않는다`).toContain(
@@ -160,6 +172,10 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
         'queryClient.invalidateQueries({ queryKey: ["budget"] })'
       );
     }
+
+    // 델타 풀은 재연결·포그라운드마다 도는 경로라 **변화가 있을 때만** 무효화한다. 조건 없이
+    // 날리면 열어 둔 리포트가 트리거마다 로딩으로 되돌아간다(다섯 쓰기 경로와 다른 점은 이것뿐).
+    expect(deltaPullBody).toContain("if (summary.changeCount > 0 || summary.didResetCursor) {");
 
     // 이 화면은 읽기 전용이다 — 늘린 것은 무효화 키뿐이고, 대기분을 숫자에 섞는 재집계는
     // 여전히 없다(그 사실을 말하는 것은 고지 한 줄이다 — pending-scope-notice.ts 머리말).

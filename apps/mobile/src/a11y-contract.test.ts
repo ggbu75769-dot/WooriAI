@@ -575,7 +575,8 @@ describe("GAP-059 #3 app lock overlay a11y containment contract", () => {
 
 /**
  * GAP-062 #10 — 라운드 61이 신설한 UI 둘을 접근성 스윕 안으로 들인다
- * (docs/qa/accessibility-offline-checklist.md A-2 #18·#19).
+ * (docs/qa/accessibility-offline-checklist.md **A-3** #18·#19 — 번호는 A-2에서 이어 붙지만
+ * 표는 라운드 61~62 전용으로 따로 섰다).
  *
  * 두 자리 모두 **소리로만 앱을 쓰는 사람에게 사실이 도달하는가**가 쟁점이라 여기 온다.
  *  - 가구 전환 Alert: RN Alert 버튼에는 `accessibilityLabel`도 `accessibilityState`도 걸 수

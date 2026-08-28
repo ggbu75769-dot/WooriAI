@@ -127,6 +127,15 @@ export default function NotificationsScreen() {
    * `applyChildSwitch`를 그대로 쓰는 것이 요점이다: 무효화 키 목록도, 안내 문구도 이 화면에
    * 없다. 같은 아이를 가리키는 알림이면 그 함수가 null을 돌려주고 따뜻한 캐시도 안내도
    * 건드리지 않는다(planChildSwitch).
+   *
+   * 라운드 62 #7 — **왜 이 화면에는 눈에 보이는 전환 피드백이 없나.** 전환이 일어난 사실은
+   * `applyChildSwitch`의 `announce`(screen reader 전용)로만 나간다. 눈으로 볼 한 줄을 여기
+   * 세울 수 없는 이유는 렌더 순서가 아니라 **이 화면이 곧바로 사라지기 때문**이다: 바로 다음
+   * 줄에서 `router.push`가 일어나 목록은 착지 화면에 덮이고, 뒤로 돌아왔을 때 그때의 전환을
+   * 다시 알리는 것은 사실도 아니다(이미 지난 일이다). 그래서 "지금 누구를 보고 있는가"는
+   * **착지 화면이 스스로 말한다** — 최악의 목적지였던 준비템 상세에 아이 스코프 라벨을 붙였다
+   * (app/items/[itemTemplateId].tsx: 거기서 누르는 지출 기록이 그 아이 밑으로 들어간다).
+   * 예산·두 탭은 이미 헤더가 그 이름을 달고 있다(라운드 49·51·60의 같은 어휘).
    */
   const switchToNotificationChild = (entry: AppNotification) => {
     const child = resolveNotificationTapChild(entry, householdChildren);

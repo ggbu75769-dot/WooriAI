@@ -48,6 +48,12 @@
  * outbox의 `inFlight` 표시까지 함께 본다). 일괄 액션이 스냅샷 대신 저장소를 읽는 것과 같은 이유다
  * (SYNC-127 `listFailedLocalIds` 주석).
  *
+ * 다만 **flush와의 경합을 닫는 것은 그 재확인이 아니다**(라운드 62 #1): 재확인을 통과한 뒤에도
+ * `discardPendingMutation`의 남은 `await` 사이에 pass가 같은 행을 집어 갈 수 있어, 그쪽 함수는
+ * 첫 줄에서 살아 있는 pass가 있으면 그대로 돌아선다(`inFlightFlushes` 가드). 재확인이 막는 것은
+ * 그 창이 아니라 스냅샷이 낡은 사이 행이 다른 갈래(수정 대기·삭제 대기·이미 정리됨)로 바뀐
+ * 경우다.
+ *
  * React/react-native/저장소에 의존하지 않는다 — 화면 밖에서 vitest로 검증하기 위해서다.
  */
 

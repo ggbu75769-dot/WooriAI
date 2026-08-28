@@ -4,12 +4,20 @@ import { describe, expect, it } from "vitest";
 import { createMemoryOfflineStore } from "./memory-offline-store";
 import {
   SYNC_STATUS_DISCARD_ALL_LABEL,
+  SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE,
   SYNC_STATUS_DISCARD_PENDING_CONFIRM_MESSAGE,
   SYNC_STATUS_DISCARD_PENDING_CONFIRM_TITLE,
   SYNC_STATUS_DISCARD_PENDING_LABEL
 } from "./messages";
 import { isDiscardablePendingRow } from "./pending-row-actions";
-import { discardPendingMutation, recordLocalCreate, recordLocalDelete, recordLocalUpdate } from "./sync-engine";
+import {
+  discardPendingMutation,
+  flushOutbox,
+  recordLocalCreate,
+  recordLocalDelete,
+  recordLocalUpdate,
+  type RemoteExpenseApi
+} from "./sync-engine";
 import type { ExpensePayload, OfflineStore } from "./types";
 
 /**
@@ -18,10 +26,11 @@ import type { ExpensePayload, OfflineStore } from "./types";
  * 고치는 문제: 대기 행에는 문장 한 줄뿐이라(실패 행에는 셋, 충돌 행에는 셋) 오프라인에서 금액을
  * 잘못 적으면 연결이 돌아올 때까지 고칠 수도 지울 수도 없었다.
  *
- * 이 파일이 고정하는 것은 셋이다: (1) 어떤 대기 행이 대상인지 하는 순수 판정, (2) 누른 시점의
- * 저장소로 그 판정을 **다시** 확인해 전송 중인 행을 지우지 않는다는 엔진 계약(고아 지출 금지),
- * (3) 화면이 그 판정과 확인 Alert을 실제로 지난다는 배선(소스 검증 — react-native 네이티브
- * 바인딩이 없어 화면을 vitest에서 렌더할 수 없다).
+ * 이 파일이 고정하는 것은 셋이다: (1) 어떤 대기 행이 대상인지 하는 순수 판정, (2) 전송 중인 행을
+ * 지우지 않는다는 엔진 계약(고아 지출 금지) — **살아 있는 flush pass 가드**(라운드 62 #1)와
+ * 누른 시점의 저장소 재확인 두 가지가 함께 진다, (3) 화면이 그 판정과 확인 Alert을 실제로
+ * 지나고 거절을 말한다는 배선(소스 검증 — react-native 네이티브 바인딩이 없어 화면을 vitest에서
+ * 렌더할 수 없다).
  */
 
 const mobileRoot = process.cwd();
@@ -98,7 +107,7 @@ describe("GAP-062 #3 discardPendingMutation (저장소 재확인)", () => {
     expect(await store.listOutboxMutationsForLocalId(row.localId)).toHaveLength(1);
   });
 
-  it("행은 'pending'인데 큐에 전송 중 표시가 남아 있으면 그것만으로도 막는다(두 번째 겹)", async () => {
+  it("행은 'pending'인데 큐에 전송 중 표시가 남아 있으면 그것만으로도 막는다", async () => {
     const store = createMemoryOfflineStore();
     const row = await recordLocalCreate(store, payload);
     for (const mutation of await store.listOutboxMutationsForLocalId(row.localId)) {
@@ -107,6 +116,54 @@ describe("GAP-062 #3 discardPendingMutation (저장소 재확인)", () => {
 
     expect(await discardPendingMutation(store, row.localId)).toBe(false);
     expect(await store.getLocalExpense(row.localId)).not.toBeNull();
+  });
+
+  /**
+   * 라운드 62 #1 — 저장소 재확인만으로는 닫히지 않던 창.
+   *
+   * 재확인은 네 `await` 중 첫 둘일 뿐이라, 확인을 통과한 뒤(그 시점에는 아직 아무 표시도 없다)
+   * 남은 `await` 사이에 진행 중인 flush pass가 같은 행을 집어 갈 수 있었다. 그러면 사용자가
+   * 확인까지 눌러 버린 행이 서버에서 확정돼 몇 초 뒤 목록에 되살아난다.
+   *
+   * 그래서 `recoverInterruptedSyncState`와 같은 선례로, 살아 있는 pass가 있으면 첫 줄에서
+   * 그대로 돌아선다. 여기서는 remote의 createExpense를 붙잡아 pass를 실제로 열어 둔 채 확인한다
+   * (sync-engine.test.ts의 "살아 있는 pass가 있으면 아무것도 하지 않는다"와 같은 방식).
+   */
+  it("flush pass가 진행 중이면 폐기를 거부한다 — 확인받고 사라진 행이 되살아나던 자리", async () => {
+    const store = createMemoryOfflineStore();
+    const row = await recordLocalCreate(store, payload);
+
+    let releaseCreate!: (result: { id: string; version: number }) => void;
+    const createResult = new Promise<{ id: string; version: number }>((resolve) => {
+      releaseCreate = resolve;
+    });
+    let markSeen!: () => void;
+    const seen = new Promise<void>((resolve) => {
+      markSeen = resolve;
+    });
+    const remote: RemoteExpenseApi = {
+      async createExpense() {
+        markSeen();
+        return createResult;
+      },
+      async updateExpense() {
+        throw new Error("이 테스트에서는 쓰지 않는다");
+      },
+      async deleteExpense() {
+        throw new Error("이 테스트에서는 쓰지 않는다");
+      }
+    };
+
+    const flush = flushOutbox(store, remote);
+    await seen;
+
+    expect(await discardPendingMutation(store, row.localId)).toBe(false);
+    // 행도 큐도 그대로다 -- 지금 나가 있는 요청의 것이라 지우면 서버에만 남는 고아 지출이 된다.
+    expect(await store.getLocalExpense(row.localId)).not.toBeNull();
+    expect(await store.listOutboxMutationsForLocalId(row.localId)).toHaveLength(1);
+
+    releaseCreate({ id: "exp-server-9", version: 1 });
+    await flush;
   });
 
   it("서버 지출을 가리키는 수정 대기 행은 버리지 않는다(서버 값이 살아 있다)", async () => {
@@ -158,6 +215,24 @@ describe("GAP-062 #3 화면 배선 계약 (app/sync-status.tsx)", () => {
     const alertBlock = src.slice(alertStart, alertEnd);
     expect(alertBlock).toContain('style: "destructive"');
     expect(alertBlock).toContain("discardPendingOfflineMutation(row.localId)");
+  });
+
+  it("라운드 62 #2 — 거절되면(전송 중) 그 행 안에 한 줄을 남긴다: boolean을 버리지 않는다", () => {
+    const src = syncStatusSource();
+    const pendingRow = src.slice(src.indexOf("const PendingRow = memo("), src.indexOf("라운드 51 C-10 — 준비템 상태 변경 행"));
+    // 결과를 받아 거절일 때만 표시한다(성공은 스냅샷이 그린다).
+    expect(pendingRow).toContain("if (!discarded) setDiscardBlocked(true);");
+    expect(pendingRow).toContain("{SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE}");
+    // 다시 누르면 지난 안내부터 걷는다 -- 두 번째 시도의 답이 첫 번째 것으로 읽히면 안 된다.
+    expect(pendingRow).toContain("setDiscardBlocked(false);");
+  });
+
+  it("라운드 62 #2 문구도 messages.ts 단일 소스이고 해요체다(DNC-018)", () => {
+    expect(SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE).toContain("보내는 중");
+    expect(SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE).toContain("버릴 수 없어요");
+    // 영영 못 버린다고 말하지 않는다 -- 지금이 아닐 뿐이라 다음에 할 일을 함께 알린다.
+    expect(SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE).toContain("다시");
+    expect(SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE.endsWith("요.")).toBe(true);
   });
 
   it("폐기는 컨트롤러를 지난다(스냅샷 갱신 한 벌) — 엔진을 직접 부르지 않는다", () => {

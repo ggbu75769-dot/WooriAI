@@ -541,4 +541,22 @@ describe("라운드 62 B(#5) 아이 단위 정리 clearForChild", () => {
     useRecurringExpenseStore.getState().clearForChild(`  ${CHILD}  `);
     expect(useRecurringExpenseStore.getState().templates).toEqual([]);
   });
+
+  /**
+   * 라운드 62 #8 — "같은 모양으로 trim한 값끼리"라는 주석이 **인자 쪽만** 참이었다. 저장된
+   * `childId`는 그대로 비교돼, 저장 시 trim 규약이 붙기 전에 만들어진 persist 행(앞뒤 공백)이
+   * 삭제에서 조용히 빠졌다. 그 행은 아이별 20칸을 계속 차지하면서 관리 화면에는 뜨지 않는다.
+   */
+  it("저장된 쪽에 공백이 섞인 옛 persist 행도 같은 아이로 보고 지운다 (라운드 62 #8)", () => {
+    const store = useRecurringExpenseStore.getState();
+    store.addTemplate(draft());
+    const [saved] = useRecurringExpenseStore.getState().templates;
+    const legacyRows = [{ ...saved, childId: `  ${CHILD}  ` }];
+
+    expect(clearRecurringTemplatesForChild(legacyRows, CHILD)).toEqual([]);
+    // 양쪽 모두 다듬으므로 인자에 공백이 섞여도 같은 답이다.
+    expect(clearRecurringTemplatesForChild(legacyRows, ` ${CHILD} `)).toEqual([]);
+    // 다른 아이는 여전히 남는다(공백을 지웠다고 아무나 걸리지 않는다).
+    expect(clearRecurringTemplatesForChild(legacyRows, OTHER_CHILD)).toBe(legacyRows);
+  });
 });
