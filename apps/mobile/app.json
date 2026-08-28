@@ -13,13 +13,17 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash-icon.png",
+          "image": "./assets/splash-mark.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#FFF6EC"
+          "backgroundColor": "#FFF9F3"
         }
       ]
     ],
+    "notification": {
+      "icon": "./assets/notification-icon.png",
+      "color": "#FF6B4A"
+    },
     "experiments": {
       "typedRoutes": true
     },
@@ -27,7 +31,8 @@
       "package": "kr.wooriai.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#E95E3E"
+        "backgroundColor": "#FFF9F3",
+        "monochromeImage": "./assets/monochrome-icon.png"
       }
     }
   }
