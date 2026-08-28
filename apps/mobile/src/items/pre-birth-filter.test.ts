@@ -130,7 +130,9 @@ describe("라운드 43 UX-V: 출산 전 칩 배선", () => {
     const items = itemsSource();
 
     expect(items).toContain("applyPreBirthFilter(");
-    expect(items).toContain("filterItems<ItemSummary | RecommendationPreviewItem>(visibleItems, itemFilterInput),");
+    // 라운드 49 C-01: 모집단 이름이 `visibleItems` -> `sourceItems`로 바뀌었다(찜 칩이 켜지면
+    // 상태 탭 응답 대신 전 상태 스냅샷의 찜한 항목이 들어온다). 겹치는 방식은 그대로 AND다.
+    expect(items).toContain("filterItems<ItemSummary | RecommendationPreviewItem>(sourceItems, itemFilterInput),");
     expect(items).toContain("hasActiveItemFilter(itemFilterInput) || preBirthFilterActive");
     // 필터 초기화는 세 조건을 함께 푼다.
     expect(items).toContain("setPreBirthOnly(false);");

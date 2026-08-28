@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect } from "react";
@@ -44,9 +45,14 @@ function familyReferenceFrameStyle() {
     ]
   } as const;
 }
+/**
+ * D1 후속(실기기 피드백 2): 행 아이콘을 텍스트 글리프(↗ □)에서 탭바와 같은 Ionicons
+ * outlined 계열로 바꿨다 -- 글리프는 기기 폰트에 따라 굵기·크기가 제각각이라 "예전 아이콘"
+ * 처럼 보였다. 문구·행 구성·순서는 그대로다.
+ */
 const familyInviteRows = [
-  { icon: "↗", title: "링크로 초대", value: "" },
-  { icon: "□", title: "초대 코드 공유", value: "DAON2025" }
+  { icon: "link-outline", title: "링크로 초대", value: "" },
+  { icon: "copy-outline", title: "초대 코드 공유", value: "DAON2025" }
 ] as const;
 
 /**
@@ -62,7 +68,7 @@ function FamilyInviteRow({
   caption,
   onPress
 }: {
-  icon: string;
+  icon: keyof typeof Ionicons.glyphMap;
   title: string;
   value?: string;
   caption?: string;
@@ -79,7 +85,7 @@ function FamilyInviteRow({
       onPress={onPress}
       style={familyInviteRowStyle}
     >
-      <Text style={familyInviteIconStyle}>{icon}</Text>
+      <Ionicons name={icon} size={familyInviteIconStyle.fontSize} color={familyInviteIconStyle.color} style={{ width: familyInviteIconStyle.width }} />
       <Text style={familyInviteTitleStyle}>{title}</Text>
       {value ? <Text style={familyInviteValueStyle}>{value}</Text> : null}
       {caption ? (

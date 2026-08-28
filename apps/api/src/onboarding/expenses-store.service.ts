@@ -26,6 +26,9 @@ export type CreateExpenseInput = {
   paymentMethod?: PaymentMethod;
   memo?: string;
   linkedItemTemplateId?: string;
+  /** 라운드 49 C-06: 눌러서 산 제휴 링크(product_links.id). ⚠️ DNC-009 — 기록·정산용이며
+   *  추천 점수·정렬로 흘러가면 안 된다(store-shared.ts toExpenseDto 주석). */
+  linkedProductLinkId?: string;
   expenseType?: ExpenseType;
   source?: ExpenseSource;
 };
@@ -36,6 +39,9 @@ export type UpdateExpenseInput = {
   spentOn?: string;
   itemName?: string;
   memo?: string | null;
+  /** 라운드 49 C-03: 충돌 병합·지출 상세 편집이 고른 판매처를 실제로 반영하기 위한 additive
+   *  optional. 빈 문자열/null은 "지웠다"는 뜻(cleanOptionalText가 null로 만든다). */
+  merchant?: string | null;
   /** 라운드 48 QA(P2-6): 충돌 병합이 고른 결제 수단을 실제로 반영하기 위한 additive optional. */
   paymentMethod?: PaymentMethod;
   expenseType?: ExpenseType;
@@ -223,6 +229,9 @@ export class ExpensesStoreService {
       data.itemName = itemName;
     }
     if (input.memo !== undefined) data.memo = cleanOptionalText(input.memo ?? undefined);
+    // 라운드 49 C-03: memo와 같은 취급 — 공백만 남은 값은 null로 정리하고, 보내지 않으면
+    // 손대지 않는다(생성 경로 insertExpense의 `cleanOptionalText(input.merchant)`와 동일).
+    if (input.merchant !== undefined) data.merchant = cleanOptionalText(input.merchant ?? undefined);
     // 라운드 48 QA(P2-6): DTO가 이미 PAYMENT_METHODS로 좁혀 두었으므로 여기서는 그대로 옮긴다
     // (생성 경로 insertExpense와 같은 취급). 보내지 않으면 손대지 않는다.
     if (input.paymentMethod !== undefined) data.paymentMethod = input.paymentMethod;
@@ -303,6 +312,11 @@ export class ExpensesStoreService {
         paymentMethod: input.paymentMethod ?? "unknown",
         memo: cleanOptionalText(input.memo),
         linkedItemTemplateId: input.linkedItemTemplateId ?? null,
+        // 라운드 49 C-06: "샀어요" 경로가 아는 사실(어느 제휴 링크였는지)을 그대로 남긴다.
+        // 존재 검증을 별도로 하지 않는 이유는 CreateExpenseDto.linkedProductLinkId 주석 참고 —
+        // 잘못된 id는 FK(fk_expenses_linked_product_link)가 막고, 그 실패는 요청 단위로 끝난다.
+        // ⚠️ DNC-009: 저장만 한다. 이 값이 추천 점수·정렬에 쓰이는 일은 없어야 한다.
+        linkedProductLinkId: input.linkedProductLinkId ?? null,
         expenseType: input.expenseType ?? "expense",
         source: input.source ?? "manual"
       }

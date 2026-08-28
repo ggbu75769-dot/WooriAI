@@ -18,7 +18,14 @@ import {
   LOCAL_SESSION_TOKEN
 } from "../../src/api/client";
 import { buildCategoryNameLookup } from "../../src/categories";
-import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";
+import {
+  childSwitchTriggerAccessibilityLabel,
+  resolveChildScopeLabel,
+  withChildScopeLabel,
+  withSpokenChildScopeLabel,
+  CHILD_SWITCH_TRIGGER_HINT
+} from "../../src/children/child-switch";
+import { ChildSwitchSheet, useChildSwitchSheet } from "../../src/children/ChildSwitchSheet";
 import { formatKrw } from "../../src/money";
 import {
   milestoneOtherCategoriesLine,
@@ -224,6 +231,19 @@ export default function ReportsScreen() {
    * 그대로다(withChildScopeLabel은 라벨이 없으면 원문을 그대로 돌려준다).
    */
   const childScopeLabel = resolveChildScopeLabel(childId, childrenQuery.data?.children);
+  // 라운드 49 C-09: 그 이름이 곧 아이 전환 입구가 된다. 종전에는 리포트에서 둘째 숫자를 보려면
+  // 홈으로 갔다가 돌아와야 했다. 상태·부수효과·시트는 홈/기록 탭과 **같은 한 벌**을 쓴다
+  // (src/children/ChildSwitchSheet.tsx). 이 화면의 쿼리 키는 전부 ["report", …, childId, …]라
+  // 이미 아이별로 갈려 있고, 전환이 그 프리픽스를 통째로 무효화한다.
+  //
+  // REP-001 픽셀락 이중 게이트: hasSession(비세션 캡처에서 false) **그리고** 아이 2명 이상.
+  // 둘 중 하나라도 아니면 아래 헤더는 종전의 <Text>리포트</Text> 그대로다(Pressable로 감싸지도
+  // 않는다) -- withChildScopeLabel의 조건(childScopeLabel)과 정확히 같은 범위다.
+  const childSwitch = useChildSwitchSheet({
+    hasSession,
+    childId,
+    children: childrenQuery.data?.children
+  });
   const milestoneType = selectMilestoneReportType({ birthDate: selectedChild?.birthDate, todayIso: seoulToday });
   // 생년월일을 알기 전에 d100을 먼저 쏘면 첫돌이 지난 아이에게 낭비 요청 + 카드 깜빡임이
   // 생기므로, 아이 목록이 성공/실패로 **결론난 뒤에** 조회한다(실패 시 birthDate 미상 →
@@ -436,9 +456,36 @@ export default function ReportsScreen() {
     >
       <View style={reportReferenceScaleFrameStyle()}>
         <View testID={reportReferenceScreenId} style={reportReferenceFrameStyle}>
-          {/* 라운드 48 T4(D3): 다자녀 가구에서만 "다온이 · 리포트"가 된다. 아이가 하나이거나
-              비세션 미리보기(REP-001 픽셀락 캡처)에서는 라벨이 null이라 종전의 "리포트" 그대로다. */}
-          <Text style={reportReferenceHeaderStyle}>{withChildScopeLabel("리포트", childScopeLabel)}</Text>
+          {/* 라운드 48 T4(D3) → 49 C-08/C-09: 다자녀 가구에서만 "다온이 — 리포트"가 되고, 그
+              제목이 아이 전환 입구가 된다. 구분자가 " · "에서 줄표로 바뀐 이유는 이름이 본문의
+              동급 항목처럼 읽히지 않게 하기 위해서다(소리로는 쉼표 — withSpokenChildScopeLabel).
+              아이가 하나이거나 비세션 미리보기(REP-001 픽셀락 캡처)에서는 라벨이 null·canSwitch가
+              false라 아래 else 분기, 즉 종전의 <Text>리포트</Text> 그대로다. */}
+          {childSwitch.canSwitch && childScopeLabel ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={childSwitchTriggerAccessibilityLabel(
+                withSpokenChildScopeLabel("리포트", childScopeLabel)
+              )}
+              accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
+              hitSlop={8}
+              onPress={childSwitch.toggle}
+              testID="reports-child-switch-trigger"
+            >
+              <Text style={reportReferenceHeaderStyle}>{withChildScopeLabel("리포트", childScopeLabel)}</Text>
+            </Pressable>
+          ) : (
+            <Text style={reportReferenceHeaderStyle}>{withChildScopeLabel("리포트", childScopeLabel)}</Text>
+          )}
+          {childSwitch.canSwitch && childSwitch.isOpen ? (
+            <ChildSwitchSheet
+              testID="reports-child-switch-sheet"
+              options={childSwitch.options}
+              currentChildId={childId}
+              onSelect={childSwitch.switchTo}
+              onClose={childSwitch.close}
+            />
+          ) : null}
 
           <SegmentedControl options={["월간", "분기", "연간"]} value={period} onChange={setPeriod} />
 

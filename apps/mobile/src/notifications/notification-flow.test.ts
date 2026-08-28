@@ -153,8 +153,10 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     // 것이므로 그쪽으로 옮긴다 -- guarded optional icon이라는 요지는 그대로다.
     const listRowSource = source("src/ui.tsx");
     const listRowBlock = listRowSource.slice(listRowSource.indexOf("export function ListRow"), listRowSource.indexOf("export function ProductCard"));
-    expect(listRowBlock).toContain("icon?: string;");
-    expect(listRowBlock).toContain("{icon ? <Text");
+    // D1 후속(실기기 피드백 2): icon은 Ionicons 노드도 받도록 넓어졌다. 문자열이면 예전처럼
+    // Text로 그리고, undefined면 여전히 아무 것도 그리지 않는다는 요지는 그대로다.
+    expect(listRowBlock).toContain("icon?: React.ReactNode;");
+    expect(listRowBlock).toContain('{typeof icon === "string" ? <Text');
   });
 
   it("keeps the notification store on the persisted-store conventions (cap, dedupe, teardown)", () => {

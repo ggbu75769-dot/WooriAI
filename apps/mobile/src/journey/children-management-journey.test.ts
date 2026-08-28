@@ -44,7 +44,7 @@ import {
   updateChild,
   type Child
 } from "../api/client";
-import { resetLocalBackendForTests } from "../api/local-backend";
+import { resetLocalBackendForTests, seedLocalDemoFixturesForTests } from "../api/local-backend";
 import {
   LOCAL_CHILD_ID,
   LOCAL_ITEM_BLOCKS,
@@ -105,6 +105,9 @@ function invalidatedKeys(queryClient: QueryClient): string[] {
 describe("QA-118: 아이 관리 journey (create -> switch -> edit/재계산) through the client modules", () => {
   beforeAll(() => {
     resetLocalBackendForTests();
+    // 실기기 피드백 1: 테스트 로그인은 이제 데이터 0에서 시작한다. 이 여정은 이미 아이가
+    // 있는 세션의 전환·편집을 검증하므로 그 상태를 arrange로 만들어 둔다.
+    seedLocalDemoFixturesForTests();
     useSessionStore.getState().clearSession();
     useSelectedChildStore.getState().clearSelectedChildId();
   });
@@ -140,11 +143,9 @@ describe("QA-118: 아이 관리 journey (create -> switch -> edit/재계산) thr
   // -------------------------------------------------------------------------
   // Step 2 -- the shared add-form path, and why the demo session must not offer it
   // -------------------------------------------------------------------------
-  it("step 2: the add-form path validates and maps the body, but the demo backend renames instead of creating", async () => {
+  it("step 2: the add-form path validates and maps the body, but the demo backend replaces instead of adding", async () => {
     // Same validation the screen's add form runs before submitting (unchanged, shared with
     // onboarding -- this half of the path is what the real server session uses).
-    // A birth date deliberately different from the fixture child's (~24개월) so the rename-only
-    // behavior below is observable: the demo backend keeps the OLD date.
     const values = { nickname: "첫째 여정이", dateText: yearsAgoSeoul(3), manualStage: null };
     const errors = validateChildForm("born", values);
     expect(isChildFormValid(errors)).toBe(true);
@@ -154,23 +155,25 @@ describe("QA-118: 아이 관리 journey (create -> switch -> edit/재계산) thr
     expect(body.dueDate).toBeUndefined();
 
     // FIX-118B(F3), demonstrated: calling createChild in the demo session does NOT add a child --
-    // it returns the existing fixture child's id and merely renames it. Reporting that as
-    // "추가했어요" was a false success, which is why the screen now hides 아이 추가 in demo mode
+    // it returns the same single id and replaces that one profile. Reporting that as "추가했어요"
+    // was a false success, which is why the screen hides 아이 추가 in demo mode
     // (app/settings/children.tsx isDemoSession; pinned in manage-children-flow.test.ts). The
     // journey keeps exercising it here only to lock the demo backend's real behavior in place.
-    const childCountBefore = (await listChildren(token)).children.length;
+    //
+    // 실기기 피드백 1: 교체는 단계 입력까지 비운다 -- 그래야 온보딩을 다시 시작한 사용자가
+    // 이번엔 다른 시기를 골라도 저장이 막히지 않는다(local-backend.ts createChild 주석).
     const created = await createChild(token, body);
     expect(created.id).toBe(LOCAL_CHILD_ID);
+    expect((await listChildren(token)).children).toEqual([]);
 
+    // 온보딩(src/onboarding/child-create.ts)이 하는 것과 같이 단계 입력을 이어 붙이면 다시
+    // 한 명이 된다 -- 두 번째 아이는 끝내 생기지 않는다.
+    await updateChild(token, created.id, { stageMode: "born", birthDate: values.dateText });
     const { children } = await listChildren(token);
-    // No second child: the count is unchanged and the SEEDED child now carries the new nickname.
-    expect(children).toHaveLength(childCountBefore);
     expect(children).toHaveLength(1);
     expect(children[0].id).toBe(LOCAL_CHILD_ID);
     expect(children[0].nickname).toBe("첫째 여정이");
-    // Birth date untouched by the "create" -- further proof it was a rename, not a new record.
-    expect(children[0].birthDate).toBe(journey.firstChild!.birthDate);
-    expect(children[0].birthDate).not.toBe(values.dateText);
+    expect(children[0].birthDate).toBe(values.dateText);
     journey.firstChild = children[0];
   });
 
@@ -266,7 +269,15 @@ describe("QA-118: 아이 관리 journey (create -> switch -> edit/재계산) thr
     const nowIds = (await listItems(token, LOCAL_CHILD_ID, "now")).items.map((item) => item.id);
     const soonIds = (await listItems(token, LOCAL_CHILD_ID, "soon")).items.map((item) => item.id);
     expect(nowIds).toEqual([LOCAL_ITEM_BLOCKS]);
-    expect(soonIds.sort()).toEqual([LOCAL_ITEM_CARRIER, LOCAL_ITEM_DIAPER].sort());
+    // 나머지는 전부 "곧 필요"로 넘어간다 -- 카탈로그가 늘어도(실기기 피드백 1의 임신~첫돌
+    // 준비템 추가) 뜻이 바뀌지 않도록 픽스처에서 기대값을 만든다.
+    expect(soonIds.sort()).toEqual(
+      localItemTemplateFixtures
+        .filter((fixture) => !fixture.stageCodes.includes("kid_4_7"))
+        .map((fixture) => fixture.id)
+        .sort()
+    );
+    expect(soonIds).toEqual(expect.arrayContaining([LOCAL_ITEM_CARRIER, LOCAL_ITEM_DIAPER]));
 
     // Cross-check against the fixtures' stageCodes so a fixture change fails loudly here.
     for (const fixture of localItemTemplateFixtures) {

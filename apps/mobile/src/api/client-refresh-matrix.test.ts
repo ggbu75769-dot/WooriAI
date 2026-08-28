@@ -343,6 +343,13 @@ describe("client.ts 401→refresh retry matrix (COV-T3)", () => {
       const categories = await listCategories(LOCAL_SESSION_TOKEN);
       expect(categories.categories.length).toBeGreaterThan(0);
 
+      // 실기기 피드백 1: 로컬 세션은 아이 없이 시작하므로, 지출을 기록하려면 온보딩과 같은
+      // 방식으로 아이를 먼저 만든다(예전에는 시드가 아이를 미리 만들어 두었다).
+      const localBackend = await import("./local-backend");
+      localBackend.resetLocalBackendForTests();
+      localBackend.createChild({ nickname: "여정이" });
+      localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "manual", manualStage: "toddler_1_3" });
+
       const expense = await createExpenseWithIdempotency(
         LOCAL_SESSION_TOKEN,
         LOCAL_CHILD_ID,

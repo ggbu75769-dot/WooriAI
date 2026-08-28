@@ -1,7 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import type { CategoryCode } from "./categories";
+import { categoryCatalog, type CategoryCode } from "./categories";
+import { buildMoreSessionMenuRows } from "./settings/more-menu";
+
+/**
+ * D1 후속(실기기 피드백 2): 아이콘 **이름**이 실제 Ionicons 글리프인지 확인하려면 글리프 목록이
+ * 필요하다. `@expo/vector-icons`를 import하면 react-native가 딸려 와 이 plain-node 스위트에서
+ * 실행할 수 없으므로, 패키지가 함께 배포하는 글리프맵 JSON만 읽는다(런타임이 실제로 참조하는
+ * 같은 파일이라, 오타는 여기서 그대로 잡힌다).
+ */
+const ioniconsGlyphMap: Record<string, number> = createRequire(import.meta.url)(
+  "@expo/vector-icons/build/vendor/react-native-vector-icons/glyphmaps/Ionicons.json"
+);
 
 // Round 5A design foundation contract (docs/5차/round5a-design-spec.md §D0/§D1/§D6).
 //
@@ -191,5 +203,140 @@ describe("D1 tab bar outlined/filled wiring", () => {
   it("tints the active tab with coral-500", () => {
     expect(source).toContain("theme.colors.coral[500]");
     expect(source).toContain("tabBarActiveTintColor: theme.colors.coral[500]");
+  });
+});
+
+/**
+ * D1 후속 (실기기 APK 피드백 2 "아이콘들이 다 예전걸로 돌아간 것 같음").
+ *
+ * D1은 탭바만 Ionicons로 옮겼고 나머지 화면에는 텍스트 글리프(○●□■☆★◇◆ ▦▣▥▮▤ ⟳ ↗)가
+ * 그대로 남아 있었다. 글리프는 기기 폰트에 따라 굵기·크기가 제각각이거나 네모(tofu)로
+ * 떨어져 "예전 아이콘"으로 보인다. 아래는 그 화면들이 탭바와 **같은 아이콘 계열**을 쓴다는
+ * 계약이다 -- 문구·순서·목적지는 어느 화면에서도 바뀌지 않았다.
+ */
+describe("D1 후속: 화면 아이콘이 탭바와 같은 Ionicons 계열", () => {
+  // 2차(같은 피드백의 "남은 화면"): 설정 · 더보기 · 기록 · 추천 · 빠른 지출 입력까지 넓혔다.
+  const screens = [
+    "app/(tabs)/index.tsx",
+    "app/notifications.tsx",
+    "app/family/index.tsx",
+    "app/import/index.tsx",
+    "app/settings/index.tsx",
+    "app/(tabs)/more.tsx",
+    "app/(tabs)/records.tsx",
+    "app/(tabs)/items.tsx",
+    "app/expenses/new.tsx"
+  ] as const;
+
+  it("아이콘을 쓰는 화면이 모두 Ionicons를 가져온다", () => {
+    for (const screen of screens) {
+      expect(readSource(screen), `${screen} should import Ionicons`).toContain(
+        'import { Ionicons } from "@expo/vector-icons";'
+      );
+    }
+  });
+
+  it("아이콘 자리에 남아 있던 텍스트 글리프가 없다", () => {
+    // 아이콘으로 쓰이던 글리프만 본다. 본문 부호(› 화살표, ✓ 체크)는 대상이 아니고,
+    // 주석/문서 문자열은 아래 검사 대상이 아니도록 '아이콘 자리' 패턴으로만 확인한다.
+    const iconGlyphs = [
+      "▦", "▣", "▥", "▮", "▤", "⟳", "☆", "★", "◈", "□", "◆", "●", "↗", "♥", "✿", "🍴",
+      // 2차에서 없앤 나머지 글리프(설정 · 더보기 · 기록 · 추천 · 카테고리 타일).
+      "✎", "◎", "⇩", "⇪", "♙", "⌁", "ⓘ", "⌕", "♧", "◐", "♡", "↻", "⏱", "▱", "▭", "⌘", "⌂", "⊕"
+    ];
+    for (const screen of screens) {
+      const source = readSource(screen);
+      for (const glyph of iconGlyphs) {
+        expect(source, `${screen} should not render ${glyph} as an icon`).not.toContain(`icon="${glyph}"`);
+        expect(source, `${screen} should not render ${glyph} as an icon`).not.toContain(`>${glyph}<`);
+        expect(source, `${screen} should not render ${glyph} as an icon`).not.toContain(`icon: "${glyph}"`);
+      }
+    }
+  });
+
+  /**
+   * 2차: 8타일 카탈로그(src/categories.ts)는 순수 데이터라 React 노드를 담을 수 없다. 그래서
+   * `icon`을 **Ionicons 이름**으로 바꾸고, 빠른 지출 입력 화면(app/expenses/new.tsx)이 그 이름을
+   * 그린다. 이름이 실제 Ionicons 글리프인지까지 확인한다(오타는 런타임에 물음표로 떨어진다).
+   */
+  it("카테고리 8타일이 Ionicons 이름을 들고, 입력 화면이 그것을 그린다", () => {
+    for (const entry of categoryCatalog) {
+      expect(entry.icon in ioniconsGlyphMap, `${entry.label}: ${entry.icon} should be an Ionicons name`).toBe(true);
+      expect(entry.icon.endsWith("-outline"), `${entry.label}: ${entry.icon} should be outlined`).toBe(true);
+    }
+    // 같은 code를 공유하는 두 타일("분유/유제품"·"식비")도 서로 다른 아이콘이라 눈으로 구별된다.
+    expect(new Set(categoryCatalog.map((entry) => entry.icon)).size).toBe(categoryCatalog.length);
+
+    const source = readSource("app/expenses/new.tsx");
+    expect(source).toContain("name={category.icon}");
+    // 장식이므로 접근성 트리에서 감춘다 -- 라벨은 타일의 Text와 accessibilityLabel이 말한다.
+    expect(source).toContain("accessible={false}");
+    // 크기·색은 예전 Text 스타일 토큰을 그대로 읽어 쓴다(선택 시 흰색 반전 포함).
+    expect(source).toContain("size={quickExpenseCategoryTileStyle.iconText.fontSize}");
+    expect(source).toContain("quickExpenseCategoryTileStyle.iconTextSelected.color");
+  });
+
+  it("오프라인 상태 아이콘이 의미를 유지한 채 Ionicons 이름 테이블이다", () => {
+    const source = readSource("app/(tabs)/records.tsx");
+    expect(source).toContain("function offlineStatusIconName(syncState: string): keyof typeof Ionicons.glyphMap");
+    for (const [state, name] of [
+      ["conflict", "warning-outline"],
+      ["failed", "alert-circle-outline"],
+      ["syncing", "refresh-outline"]
+    ] as const) {
+      expect(source).toContain(`if (syncState === "${state}") return "${name}";`);
+    }
+    // 나머지(대기)는 시계.
+    expect(source).toContain('return "time-outline";');
+  });
+
+  it("설정·더보기의 같은 항목이 같은 아이콘을 쓴다", () => {
+    const settingsSource = readSource("app/settings/index.tsx");
+    const menuRows = buildMoreSessionMenuRows({ exportTitle: "데이터 내보내기" });
+    const iconOf = (id: string) => menuRows.find((row) => row.id === id)!.icon;
+    for (const [id, title] of [
+      ["children", "아이 관리"],
+      ["family", "가족 관리"],
+      ["budget", "예산 수정"]
+    ] as const) {
+      expect(settingsSource, `설정의 "${title}" 행`).toContain(`icon={<SettingsRowIcon name="${iconOf(id)}" />}`);
+    }
+    // 내보내기는 설정·더보기 양쪽에 있고 같은 공유 시트를 연다 -- 아이콘도 한 벌이다.
+    expect(settingsSource).toContain(`icon={<SettingsRowIcon name="${iconOf("export")}" />}`);
+    // 모든 세션 메뉴 아이콘이 실제 Ionicons 이름이다.
+    for (const row of menuRows) {
+      expect(row.icon in ioniconsGlyphMap, `${row.title}: ${row.icon}`).toBe(true);
+    }
+  });
+
+  it("알림 종류별 아이콘이 Ionicons 이름 테이블이다", () => {
+    const source = readSource("app/notifications.tsx");
+    expect(source).toContain('Record<AppNotification["type"], keyof typeof Ionicons.glyphMap>');
+    for (const name of [
+      "wallet-outline",
+      "alert-circle-outline",
+      "sparkles-outline",
+      "bag-check-outline",
+      "stats-chart-outline"
+    ]) {
+      expect(source).toContain(`"${name}"`);
+    }
+    // 알 수 없는 종류는 여전히 아이콘 자리만 비운다(ListRow의 icon은 선택 항목).
+    expect(source).toContain("icon={iconName ? <Ionicons");
+  });
+
+  it("홈 퀵액션 4칸이 Ionicons 노드를 넘긴다", () => {
+    const source = readSource("app/(tabs)/index.tsx");
+    for (const name of ["create-outline", "cube-outline", "bar-chart-outline", "menu-outline"]) {
+      expect(source).toContain(`<QuickActionIcon name="${name}" />`);
+    }
+  });
+
+  it("공용 ListRow·QuickActionIconButton이 노드 아이콘을 받는다(문자열 호환 유지)", () => {
+    const uiSource = readSource("src/ui.tsx");
+    expect(uiSource).toContain("icon: React.ReactNode; label: string");
+    expect(uiSource).toContain("icon?: React.ReactNode;");
+    // 문자열이면 예전과 똑같이 Text로 그린다 -- 남아 있는 문자열 호출부(설정·기록 탭)는 그대로.
+    expect(uiSource).toContain('{typeof icon === "string" ? <Text');
   });
 });

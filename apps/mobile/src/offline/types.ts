@@ -34,6 +34,13 @@ export type ExpensePayload = {
   memo?: string | null;
   paymentMethod?: ExpensePaymentMethod;
   linkedItemTemplateId?: string | null;
+  /**
+   * 라운드 49 C-06: 눌러서 산 제휴 링크 id. **생성에서만 의미가 있다** — 서버
+   * UpdateExpenseDto에는 이 키가 없으므로(수정 대상이 아니다) remote-api의 `toExpensePatch`는
+   * 이 값을 싣지 않는다. 화면에 그리는 값도 아니고 충돌 비교 항목도 아니다.
+   * ⚠️ DNC-009: 기록·정산용이며 추천 점수·정렬에 유입 금지.
+   */
+  linkedProductLinkId?: string | null;
   expenseType?: ExpenseKind;
 };
 

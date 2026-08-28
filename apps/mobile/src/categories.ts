@@ -1,3 +1,8 @@
+// D1 후속(실기기 피드백 2 "아이콘들이 다 예전걸로 돌아간 것 같음"): 카탈로그의 `icon`은 이제
+// 텍스트 글리프(▱ ▤ ⌘ …)가 아니라 **탭바와 같은 Ionicons 이름**이다. 타입 전용 import라
+// 런타임 번들·vitest 실행에는 아무것도 들어오지 않는다(이 모듈은 순수 데이터로 남는다).
+import type { Ionicons } from "@expo/vector-icons";
+
 import { localCategoryNameKo } from "./api/local-fixtures";
 
 /**
@@ -24,7 +29,16 @@ export type CategoryCatalogEntry = {
   id: string;
   code: CategoryCode;
   label: string;
-  icon: string;
+  /**
+   * 타일에 그리는 아이콘 **이름**(Ionicons). 예전에는 문자열 글리프였고 화면이 그것을 Text로
+   * 그렸는데, 기기 폰트에 따라 굵기·크기가 제각각이거나 네모(tofu)로 떨어져 "예전 아이콘"으로
+   * 보였다 -- 탭바(app/(tabs)/_layout.tsx)와 같은 계열로 통일한다.
+   *
+   * 이 값은 데모 백엔드의 `GET /categories` 응답 `iconName`으로도 그대로 나간다
+   * (src/api/local-backend.ts) -- 계약상 `iconName`은 이름 문자열이라(예: 서버 시드의 "diaper")
+   * 글리프보다 오히려 이쪽이 규약에 맞는다.
+   */
+  icon: keyof typeof Ionicons.glyphMap;
 };
 
 /**
@@ -45,15 +59,19 @@ export type CategoryCatalogEntry = {
 // Ids are fixed v4-shaped UUID literals (not slugs) because the real API's DTOs validate
 // `categoryId` with @IsUUID; a readable slug like "cat-diaper_hygiene" would 400 on the real
 // server path. The trailing hex pair encodes the tile index so the literals stay deterministic.
+// 아이콘은 전부 Ionicons outlined 계열(탭바와 같은 톤)이고, 라벨이 말하는 것과 그림이 어긋나지
+// 않게 고른다: 기저귀=물방울(위생), 분유=컵, 식비=식기, 의류=셔츠, 약품/교통은 이 code가
+// 외출/이동(outing_mobility)이라 버스(약 쪽은 아래 "병원/약" 타일이 담당), 병원/약=구급상자,
+// 교육/도서=책, 기타=말줄임표.
 export const categoryCatalog: CategoryCatalogEntry[] = [
-  { id: "c0a7e901-0000-4c01-8c01-c47e900ec001", code: "diaper_hygiene", label: "기저귀", icon: "▱" },
-  { id: "c0a7e901-0000-4c02-8c02-c47e900ec002", code: "feeding_babyfood", label: "분유/유제품", icon: "▤" },
-  { id: "c0a7e901-0000-4c03-8c03-c47e900ec003", code: "feeding_babyfood", label: "식비", icon: "⌘" },
-  { id: "c0a7e901-0000-4c04-8c04-c47e900ec004", code: "clothes_laundry", label: "의류", icon: "⌂" },
-  { id: "c0a7e901-0000-4c05-8c05-c47e900ec005", code: "outing_mobility", label: "약품/교통", icon: "▭" },
-  { id: "c0a7e901-0000-4c06-8c06-c47e900ec006", code: "hospital_checkup", label: "병원/약", icon: "▣" },
-  { id: "c0a7e901-0000-4c07-8c07-c47e900ec007", code: "toys_books", label: "교육/도서", icon: "▥" },
-  { id: "c0a7e901-0000-4c08-8c08-c47e900ec008", code: "etc", label: "기타", icon: "⊕" }
+  { id: "c0a7e901-0000-4c01-8c01-c47e900ec001", code: "diaper_hygiene", label: "기저귀", icon: "water-outline" },
+  { id: "c0a7e901-0000-4c02-8c02-c47e900ec002", code: "feeding_babyfood", label: "분유/유제품", icon: "cafe-outline" },
+  { id: "c0a7e901-0000-4c03-8c03-c47e900ec003", code: "feeding_babyfood", label: "식비", icon: "restaurant-outline" },
+  { id: "c0a7e901-0000-4c04-8c04-c47e900ec004", code: "clothes_laundry", label: "의류", icon: "shirt-outline" },
+  { id: "c0a7e901-0000-4c05-8c05-c47e900ec005", code: "outing_mobility", label: "약품/교통", icon: "bus-outline" },
+  { id: "c0a7e901-0000-4c06-8c06-c47e900ec006", code: "hospital_checkup", label: "병원/약", icon: "medkit-outline" },
+  { id: "c0a7e901-0000-4c07-8c07-c47e900ec007", code: "toys_books", label: "교육/도서", icon: "book-outline" },
+  { id: "c0a7e901-0000-4c08-8c08-c47e900ec008", code: "etc", label: "기타", icon: "ellipsis-horizontal-outline" }
 ];
 
 /**

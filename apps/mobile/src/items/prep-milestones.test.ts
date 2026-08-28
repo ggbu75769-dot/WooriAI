@@ -415,8 +415,11 @@ describe("items tab journey wiring (UX-E)", () => {
     const text = itemsSource();
     expect(text).not.toContain(".sort(");
     expect(text).not.toContain("localeCompare");
-    // 클라이언트 좁히기는 여전히 순서를 보존하는 filterItems 하나뿐이다.
-    expect(text).toContain("filterItems<ItemSummary | RecommendationPreviewItem>(visibleItems, itemFilterInput)");
+    // 클라이언트 좁히기는 여전히 순서를 보존한다. 라운드 49 C-01에서 찜 칩이 더해졌지만
+    // (filterInterestedItems) 그쪽도 순서를 바꾸지 않는 filter 한 번이고, 필수도·검색은
+    // 종전 그대로 filterItems 하나다(모집단 이름만 sourceItems로 바뀌었다).
+    expect(text).toContain("filterItems<ItemSummary | RecommendationPreviewItem>(sourceItems, itemFilterInput)");
+    expect(text).toContain("filterInterestedItems(allStatusItems.data)");
   });
 
   it("adds no analytics events (UX-E는 이벤트 레지스트리 무접촉)", () => {

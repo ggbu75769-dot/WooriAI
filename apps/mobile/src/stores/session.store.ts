@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { ensureLocalBackendSeeded } from "../api/local-backend";
-import { LOCAL_CHILD_ID } from "../api/local-fixtures";
+import { ensureLocalBackendSeeded, localChildId } from "../api/local-backend";
 import { secureSessionStorage } from "./secure-session-storage";
 import { useSelectedChildStore } from "./selected-child.store";
 
@@ -287,8 +286,16 @@ export const useSessionStore = create<SessionState>()(
         }),
       startTestSession: () => {
         ensureLocalBackendSeeded();
-        if (!useSelectedChildStore.getState().selectedChildId) {
-          useSelectedChildStore.getState().setSelectedChildId(LOCAL_CHILD_ID);
+        // 실기기 피드백 1: 테스트 로그인도 실계정 신규 가입과 같이 **아이 없이** 시작한다.
+        // 예전에는 여기서 데모 아이(LOCAL_CHILD_ID)를 골라 두었고, 그래서 온보딩의 아이 정보
+        // 입력을 지나칠 수 있었다. 아이는 온보딩 ONB-002가 만들고 그때 선택도 함께 정해진다.
+        // 아직 아이가 없는데 예전 세션의 선택이 남아 있으면 홈이 없는 아이를 조회하므로 지운다.
+        const existingChildId = localChildId();
+        const selectedChild = useSelectedChildStore.getState();
+        if (existingChildId) {
+          if (!selectedChild.selectedChildId) selectedChild.setSelectedChildId(existingChildId);
+        } else if (selectedChild.selectedChildId) {
+          selectedChild.clearSelectedChildId();
         }
         set({
           accessToken: null,

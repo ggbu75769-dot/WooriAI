@@ -79,11 +79,15 @@ export function applyChildSwitch(
 }
 
 /**
- * 홈 헤더에서 아이를 바꿀 수 있는지. **2명 이상일 때만** true다 — 아이가 하나인 사용자에게는
- * 고를 것이 없으므로 헤더가 종전 그대로(터치 불가) 남는다(HOME-001 픽셀락 캡처는 비세션·1명
- * 미리보기라 이 판정이 항상 false다).
+ * 화면 헤더에서 아이를 바꿀 수 있는지. **2명 이상일 때만** true다 — 아이가 하나인 사용자에게는
+ * 고를 것이 없으므로 헤더가 종전 그대로(터치 불가) 남는다(HOME-001·REP-001 픽셀락 캡처는
+ * 비세션·1명 미리보기라 이 판정이 항상 false다).
+ *
+ * 라운드 49 C-09: 홈 전용 판정이 아니게 됐다(기록·리포트 헤더도 같은 입구를 쓴다). 이름만
+ * `...FromHome` → `...FromScreen`으로 넓혔고 규칙은 한 글자도 바뀌지 않았다 — 호출부가 각자
+ * `children.length >= 2`를 적기 시작하면 한 화면만 1명 가구에서 헤더가 눌리는 종류의 어긋남이 난다.
  */
-export function canSwitchChildFromHome(children: ReadonlyArray<{ id: string }> | null | undefined): boolean {
+export function canSwitchChildFromScreen(children: ReadonlyArray<{ id: string }> | null | undefined): boolean {
   return (children?.length ?? 0) >= 2;
 }
 
@@ -146,8 +150,31 @@ export type ChildScopeRef = {
   nickname: string;
 };
 
-/** 라벨과 본문 사이 구분자. 알림함 행 제목과 같은 관례다. */
-export const CHILD_SCOPE_LABEL_SEPARATOR = " · ";
+// ---------------------------------------------------------------------------------------------
+// 라운드 49 C-08 — 표시용/음성용 구분자 분리
+//
+// 라운드 48은 라벨과 본문을 " · " 하나로 이었다. 그런데 이 접두가 붙는 문장들이 **이미 " · "를
+// 쓰고 있다**:
+//   월 요약   "2026년 8월 42건 · 합계 1,200,000원"  →  "다온이 · 2026년 8월 42건 · 합계 …"
+//   리포트    "리포트"                              →  "다온이 · 리포트"
+// 앞의 것은 구분자가 셋이 되면서 아이 이름이 "8월", "합계"와 **동급 항목**처럼 읽힌다 — 누구의
+// 숫자인지를 말하려던 라벨이 항목 하나로 섞여 버린다. 게다가 접근성 라벨 쪽은 이 화면들의 오랜
+// 관례가 "·를 쉼표로 푼다"(월 요약·필터 스코프 줄·날짜 섹션 헤더)라, 한 화면 안에서 두 관례가
+// 뒤섞여 있었다.
+//
+// 그래서 구분자를 **용도별로** 둘로 나눈다:
+//   - 표시용(눈): 줄표. 이름과 본문의 층위가 달라 보이므로 이름이 항목으로 읽히지 않는다.
+//   - 음성용(귀): 쉼표. 스크린리더가 끊어 읽는 기존 관례를 그대로 따른다.
+//
+// 아이가 하나(또는 라벨 미해석)면 두 함수 모두 **원문을 그대로** 돌려주므로 종전 문자열과 한
+// 글자도 달라지지 않는다(픽셀락 캡처 포함) — 라운드 48이 세운 계약 그대로다.
+// ---------------------------------------------------------------------------------------------
+
+/** 눈으로 읽는 문장에서 라벨과 본문 사이. 본문 안의 " · "와 층위가 갈리도록 줄표를 쓴다. */
+export const CHILD_SCOPE_LABEL_DISPLAY_SEPARATOR = " — ";
+
+/** 스크린리더가 읽는 문장에서 라벨과 본문 사이. 이 화면들의 접근성 라벨 관례(쉼표)와 같다. */
+export const CHILD_SCOPE_LABEL_SPEECH_SEPARATOR = ", ";
 
 /**
  * 지금 보고 있는 화면에 붙일 아이 이름/태명, 또는 붙이지 않을 때 `null`.
@@ -169,12 +196,21 @@ export function resolveChildScopeLabel(
 }
 
 /**
- * 라벨을 붙인 문장. 라벨이 null이면 **원문 그대로**를 돌려준다 — 호출부가 삼항 연산자를 각자
- * 적지 않게 하려는 것이 요점이다(한 화면은 붙이고 한 화면은 빠뜨리는 일이 없도록).
+ * **화면에 그리는** 문장. 라벨이 null이면 **원문 그대로**를 돌려준다 — 호출부가 삼항 연산자를
+ * 각자 적지 않게 하려는 것이 요점이다(한 화면은 붙이고 한 화면은 빠뜨리는 일이 없도록).
  *
  * 이름을 앞에 두는 이유: 스크린리더가 문장을 처음부터 읽으므로, 누구의 숫자인지가 숫자보다
  * 먼저 나와야 한다(알림함 행 제목 formatNotificationRowTitle과 같은 순서).
  */
 export function withChildScopeLabel(text: string, childLabel: string | null): string {
-  return childLabel ? `${childLabel}${CHILD_SCOPE_LABEL_SEPARATOR}${text}` : text;
+  return childLabel ? `${childLabel}${CHILD_SCOPE_LABEL_DISPLAY_SEPARATOR}${text}` : text;
+}
+
+/**
+ * **스크린리더가 읽는** 같은 문장(accessibilityLabel). 표시용과 순서·내용은 같고 구분자만
+ * 쉼표다 — 줄표는 TalkBack/VoiceOver가 "대시"로 읽거나 통째로 삼켜 버려, 눈으로 보는 층위
+ * 구분이 소리로는 전달되지 않는다. 라벨이 null이면 여기서도 원문 그대로다.
+ */
+export function withSpokenChildScopeLabel(text: string, childLabel: string | null): string {
+  return childLabel ? `${childLabel}${CHILD_SCOPE_LABEL_SPEECH_SEPARATOR}${text}` : text;
 }

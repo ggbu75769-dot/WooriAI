@@ -100,6 +100,11 @@ export const createExpenseRequestSchema = z.object({
   paymentMethod: paymentMethodSchema.default("unknown"),
   memo: z.string().max(500).optional(),
   linkedItemTemplateId: uuidSchema.optional(),
+  // 라운드 49 C-06: 어떤 제휴 링크를 눌러서 산 것인지(product_links.id) — 구매 확인 카드의
+  // "샀어요"가 아는 사실을 서버로 넘기는 자리다. 컬럼·FK는 처음부터 있었지만 쓰기 경로가
+  // 없어 늘 null이었다. additive optional이라 보내지 않던 클라이언트는 그대로다.
+  // ⚠️ DNC-009: 기록·정산용이며 추천 점수·정렬에 유입 금지.
+  linkedProductLinkId: uuidSchema.optional(),
   expenseType: z.enum(["expense", "gift"]).default("expense")
 });
 
@@ -120,6 +125,10 @@ export const expenseSchema = z.object({
   paymentMethod: paymentMethodSchema.optional(),
   memo: z.string().nullable().optional(),
   linkedItemTemplateId: uuidSchema.nullable().optional(),
+  // 라운드 49 C-06: 생성 때 저장한 제휴 링크 id의 되읽기(store-shared.ts toExpenseDto).
+  // 라운드 48 T3과 같은 이유로 additive optional이다 — 이 필드가 없던 응답·오프라인 대기
+  // 행·409 스냅숏도 그대로 통과해야 한다. ⚠️ DNC-009: 추천 점수·정렬에 유입 금지.
+  linkedProductLinkId: uuidSchema.nullable().optional(),
   expenseType: expenseTypeSchema.default("expense"),
   source: expenseSourceSchema.default("manual"),
   createdByUserId: uuidSchema.optional(),
@@ -138,6 +147,11 @@ export const updateExpenseRequestSchema = z.object({
   spentOn: dateOnlySchema.optional(),
   itemName: z.string().min(1).max(100).optional(),
   memo: z.string().max(500).optional(),
+  // 라운드 49 C-03: 판매처에도 결제 수단과 **같은 구멍**이 있었다 — 충돌 병합 화면이
+  // 판매처를 비교 항목으로 내놓는데(모바일 `diffExpenseFields`) 수정 계약에 자리가 없어
+  // 고른 값을 보낼 수 없었다. 같은 라운드에 지출 상세 판매처 편집도 이 자리를 쓴다.
+  // 빈 문자열은 "지웠다"는 뜻으로 서버가 null로 정리한다(memo와 동일).
+  merchant: z.string().max(100).optional(),
   // 라운드 48 QA(P2-6): 생성에는 처음부터 있었지만 수정에는 없던 필드. 오프라인 충돌 병합
   // ("두 값 나란히 보기")이 결제 수단도 고르게 하면서 그 선택을 보낼 자리가 없었다 — 서버
   // ValidationPipe가 forbidNonWhitelisted라 실으면 400이라, 화면이 고르라고 해 놓고 조용히
@@ -228,6 +242,12 @@ export const itemSummarySchema = z.object({
   name: z.string().min(1),
   necessityLevel: necessityLevelSchema,
   status: itemStatusSchema,
+  // 라운드 49 C-02: 준비템이 속한 지출 분류(categories.id). 시드 63개 준비템 전부가 값을
+  // 갖고 있었지만(prisma/seed.ts seedItemTemplates) 앱 DTO가 버려서, "준비템 → 지출 기록"
+  // 프리필이 품목명만 넘기고 분류는 늘 기본 타일로 떨어졌다. **additive optional**이다 —
+  // 컬럼 자체가 nullable(item_templates.category_id)이고 구버전 서버 응답도 그대로 통과해야
+  // 한다. 금액은 여기 실리지 않는다: priceBandText는 범위라 특정 값을 프리필하면 허위 표시다.
+  categoryId: uuidSchema.optional(),
   timingLabel: z.string().optional(),
   priceBandText: z.string().optional(),
   stageCodes: z.array(childStageCodeSchema).optional()
@@ -274,6 +294,21 @@ export const itemDetailSchema = itemSummarySchema.extend({
   // 시드에는 처음부터 있었지만 어떤 응답에도 실리지 않던 필드다 — 서버는 항상 boolean을
   // 보내고, 구버전 클라이언트가 깨지지 않도록 계약에서는 optional로 더한다(가산 변경).
   medicalDisclaimerRequired: z.boolean().optional(),
+  // 라운드 49 C-04: 이 준비템에 실제로 연결된 지출(child_item_statuses.expense_id).
+  // 연결은 예전부터 기록됐지만(store-shared.ts markLinkedItemPrepared) 어느 응답에도
+  // 실리지 않아 "지출 → 준비템" 한 방향만 보였다. 상세 단건에서만 조회한다(목록 부하 0).
+  //
+  // 서버는 **삭제되지 않은 지출**(expenses.deleted_at IS NULL)만 싣는다 — 삭제한 지출의
+  // 금액을 계속 보여주면 허위 표시다. 연결이 없거나 그 지출이 삭제됐으면 null이다.
+  // additive optional: 이 필드가 없던 구버전 응답도 그대로 통과한다.
+  linkedExpense: z
+    .object({
+      id: uuidSchema,
+      amountKrw: z.number().int(),
+      spentOn: dateOnlySchema
+    })
+    .nullable()
+    .optional(),
   productLinks: z.array(productLinkSchema)
 });
 

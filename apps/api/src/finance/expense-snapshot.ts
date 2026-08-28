@@ -33,6 +33,13 @@ export function fromDateOnly(date: Date): string {
  * 함께 싣는 이유는 이 함수의 다른 소비자인 **델타 동기화의 upsert 엔트리** 때문이다: 같은 지출이
  * 목록 응답에는 연결을 달고 오고 델타에는 달지 않고 오면, 어느 경로로 캐시가 채워졌느냐에 따라
  * 지출 상세의 "연결된 준비템" 행이 있다 없다 한다.
+ *
+ * 라운드 49 C-06: `linkedProductLinkId`도 같은 이유로 함께 싣는다 — toExpenseDto가 이번에
+ * 그것을 열었으므로(store-shared.ts), 여기서 빠지면 위 "미러" 선언이 또 거짓이 되고 델타로
+ * 채워진 캐시와 목록으로 채워진 캐시가 다시 갈린다. 충돌 **판정** 대상은 아니다:
+ * `linkedItemTemplateId`와 마찬가지로 모바일 `diffExpenseFields`의 표시 집합에 없고
+ * (사용자가 고를 수 있는 값이 아니다) `toEngineConflictSnapshot`도 옮기지 않는다.
+ * ⚠️ DNC-009: 기록·정산용 식별자다 — 추천 점수·정렬로 흘러가면 안 된다(store-shared.ts 주석).
  */
 export function toExpenseSnapshot(expense: PrismaExpense) {
   return {
@@ -46,6 +53,7 @@ export function toExpenseSnapshot(expense: PrismaExpense) {
     paymentMethod: expense.paymentMethod,
     memo: expense.memo ?? null,
     linkedItemTemplateId: expense.linkedItemTemplateId ?? null,
+    linkedProductLinkId: expense.linkedProductLinkId ?? null,
     expenseType: expense.expenseType,
     source: expense.source,
     createdByUserId: expense.createdByUserId,

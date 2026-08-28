@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -13,7 +14,13 @@ import {
   LOCAL_SESSION_TOKEN
 } from "../../src/api/client";
 import { buildCategoryNameLookup, type CategoryNameLookup } from "../../src/categories";
-import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";
+import {
+  childSwitchTriggerAccessibilityLabel,
+  resolveChildScopeLabel,
+  withSpokenChildScopeLabel,
+  CHILD_SWITCH_TRIGGER_HINT
+} from "../../src/children/child-switch";
+import { ChildSwitchSheet, useChildSwitchSheet } from "../../src/children/ChildSwitchSheet";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import {
   buildCalendarMonth,
@@ -167,11 +174,26 @@ function yearMonthOf(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/**
+ * D1 후속(실기기 피드백 2 "아이콘들이 다 예전걸로 돌아간 것 같음"): 오프라인 대기 행의 상태
+ * 글리프(⚠ ! ↻ ⏱)를 탭바(app/(tabs)/_layout.tsx)와 같은 Ionicons outlined 계열로 바꾼다.
+ * 문자열 글리프는 기기 폰트에 따라 굵기·크기가 제각각이거나 네모(tofu)로 떨어졌다.
+ *
+ * 상태별 의미는 그대로다: 충돌=경고, 실패=오류, 전송 중=회전 화살표, 대기=시계. 크기·색은 공용
+ * ListRow가 문자열 글리프를 그릴 때 쓰던 값(coral, 20)이라 행 모양이 종전과 같고, 상태를 말로
+ * 전하는 것은 아래 부제(SYNC_ROW_* 문구)이므로 아이콘은 장식이다.
+ */
+function offlineStatusIconName(syncState: string): keyof typeof Ionicons.glyphMap {
+  if (syncState === "conflict") return "warning-outline";
+  if (syncState === "failed") return "alert-circle-outline";
+  if (syncState === "syncing") return "refresh-outline";
+  return "time-outline";
+}
+
 function offlineStatusIcon(syncState: string) {
-  if (syncState === "conflict") return "⚠";
-  if (syncState === "failed") return "!";
-  if (syncState === "syncing") return "↻";
-  return "⏱";
+  return (
+    <Ionicons accessible={false} name={offlineStatusIconName(syncState)} size={20} color={theme.colors.mainCoral} />
+  );
 }
 
 // Module-scope (stable) press handler for offline rows -- every offline row routes to the same
@@ -837,6 +859,17 @@ export default function RecordsScreen() {
   // 배지, 로컬 대기 행) 재조회를 함께 수행한다. 세션이 없으면(비활성 쿼리) refetch가 잘못된
   // 토큰으로 queryFn을 강제 실행하므로 RefreshControl 자체를 붙이지 않는다.
   const hasRecordsSession = Boolean(authToken && childId);
+  // 라운드 49 C-09: 이 탭에서도 아이를 바꾼다. 종전에는 입구가 홈 헤더와 설정뿐이라 둘째의
+  // 기록을 보려면 기록 → 홈 → (전환) → 기록으로 세 화면을 돌아야 했다. 상태·부수효과·시트는
+  // 홈과 **같은 한 벌**을 쓴다(src/children/ChildSwitchSheet.tsx) -- 캐시 무효화를 여기서
+  // 다시 적으면 한쪽이 빠뜨렸을 때 아이 A의 목록이 아이 B 화면에 남는다(라운드 28).
+  // 목록은 위 childrenQuery(["children"] 캐시)를 그대로 넘기므로 새 요청이 없다. 전환 후
+  // 이 화면의 쿼리는 ["expenses", childId, …] 키라 이미 아이별로 갈려 있다.
+  const childSwitch = useChildSwitchSheet({
+    hasSession: hasRecordsSession,
+    childId,
+    children: childrenQuery.data?.children
+  });
   const { refreshing, onRefresh } = usePullToRefresh(() =>
     Promise.all([expenses.refetch(), refreshOfflineSyncSnapshot()])
   );
@@ -1264,6 +1297,38 @@ export default function RecordsScreen() {
       ) : null}
 
       <View style={{ gap: 6 }}>
+        {/* 라운드 49 C-08/C-09: 아이 이름은 이제 요약 문장 **앞에 붙는 항목**이 아니라 이 블록의
+            첫 줄이다. " · "로 이어 붙이면("다온이 · 2026년 8월 42건 · 합계 …") 구분자가 셋이
+            되면서 이름이 "8월"·"합계"와 동급 항목처럼 읽혔다. 줄을 나누면 층위가 눈에 보이고
+            (아이 → 달 → 그 달의 숫자), 그 줄이 곧 아이 전환 입구가 된다(C-09).
+            달 이동·요약 줄보다 **위**에, 그리고 목록 데이터와 무관하게 그린다 -- 전환 직후
+            새 아이의 조회가 로딩/실패여도 되돌아갈 입구가 남아야 한다(홈 H-9와 같은 판단).
+            아이가 하나이거나 비세션이면 canSwitch·childScopeLabel이 모두 거짓/null이라 이 줄이
+            통째로 없다 = 종전 화면 그대로다. */}
+        {childSwitch.canSwitch && childScopeLabel ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={childSwitchTriggerAccessibilityLabel(childScopeLabel)}
+            accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
+            hitSlop={8}
+            onPress={childSwitch.toggle}
+            testID="records-child-switch-trigger"
+            style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
+          >
+            <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "800" }}>
+              {childScopeLabel}
+            </Text>
+          </Pressable>
+        ) : null}
+        {childSwitch.canSwitch && childSwitch.isOpen ? (
+          <ChildSwitchSheet
+            testID="records-child-switch-sheet"
+            options={childSwitch.options}
+            currentChildId={childId}
+            onSelect={childSwitch.switchTo}
+            onClose={childSwitch.close}
+          />
+        ) : null}
         <View
           style={{
             alignItems: "center",
@@ -1290,15 +1355,16 @@ export default function RecordsScreen() {
         {/* PERF-102: lightweight month summary from already-fetched data (no extra API call).
             라운드 39 UX-P: 문구는 보고 있는 달의 라벨에서 나온다(buildRecordsMonthSummary) --
             아래 합계 카드의 "{recordsMonthLabel} 합계"와 같은 한 문자열이라 표기가 갈릴 수 없다.
-            라운드 48 T4(D3): 다자녀 가구에서만 그 앞에 아이 이름/태명이 붙는다(childScopeLabel).
-            아이가 하나면 라벨이 null이라 아래 두 값 모두 종전 문자열 그대로다. */}
+            라운드 48 T4(D3) → 49 C-08: 보이는 문구는 위 줄이 이미 누구인지 말했으므로 종전
+            그대로 두고, 스크린리더 라벨에만 이름을 쉼표로 앞세운다 -- 소리로는 줄 사이의 층위가
+            전달되지 않아 이 한 줄만 따로 들으면 누구의 숫자인지 알 수 없기 때문이다. */}
         {expenses.data ? (
           <Text
             testID="records-month-summary"
-            accessibilityLabel={withChildScopeLabel(monthSummary.accessibilityLabel, childScopeLabel)}
+            accessibilityLabel={withSpokenChildScopeLabel(monthSummary.accessibilityLabel, childScopeLabel)}
             style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
           >
-            {withChildScopeLabel(monthSummary.text, childScopeLabel)}
+            {monthSummary.text}
           </Text>
         ) : null}
         {/* 라운드 39 UX-P: 검색 범위 고지. 이 화면의 검색은 보고 있는 한 달치 응답

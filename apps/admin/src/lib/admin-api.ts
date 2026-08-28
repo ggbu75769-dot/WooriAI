@@ -110,6 +110,11 @@ export type ItemTemplate = {
   id: string;
   name: string;
   necessityLevel: NecessityLevel;
+  // 라운드 49 C-02(어드민 조각): 준비템의 분류. 어드민 상세 응답은 아직 이 값을
+  // 내려주지 않아서 optional이다 — 수정 폼은 값이 오면 프리필하고, 없으면 빈 선택으로
+  // 시작한다(빈 선택 = PATCH에서 분류를 그대로 둠. 서버가 categoryId 생략을
+  // "유지"로 해석한다). 서버가 나중에 이 필드를 실어 주면 프리필이 저절로 동작한다.
+  categoryId?: string | null;
   status: string;
   timingLabel?: string;
   priceBandText?: string;
@@ -166,6 +171,9 @@ export type ClickSummary = {
 
 export type ItemTemplateInput = {
   name?: string;
+  // 라운드 49 C-02(어드민 조각): 준비템 분류. 서버 DTO(AdminCreate/UpdateItemTemplateDto)가
+  // 이미 받는 값이라 폼만 배선하면 된다. 생략은 "분류 없이 생성"(POST) / "그대로 둠"(PATCH).
+  categoryId?: string;
   necessityLevel?: NecessityLevel;
   timingLabel?: string;
   // ADM-124: PATCH에서 null = "가격대 지우기"(생략은 종전대로 "그대로 두기").

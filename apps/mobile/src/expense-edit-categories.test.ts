@@ -25,6 +25,7 @@ function jsonResponse(status: number, body: unknown): Response {
 describe("local-backend listCategories (demo fixture categories)", () => {
   beforeEach(() => {
     localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
   });
 
   it("includes every category id the seeded demo expenses use, so edit-screen chip preselection matches them", () => {
@@ -84,6 +85,7 @@ describe("local-backend listCategories (demo fixture categories)", () => {
 describe("client.ts listCategories routing", () => {
   beforeEach(() => {
     localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
   });
 
   afterEach(() => {

@@ -62,6 +62,9 @@ import {
   updateExpenseOffline,
   useOfflineSyncSnapshot
 } from "../../src/offline/sync-controller";
+// 라운드 49 C-05: "연결된 준비템 보기"의 목적지는 경로가 아니라 **전역으로 선택된 아이**로
+// 상세를 부른다 — 그래서 이 화면이 그 값을 알아야 아이가 어긋난 링크를 그리지 않을 수 있다.
+import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../../src/ui";
@@ -171,12 +174,27 @@ export default function ExpenseDetailScreen() {
   // 생긴다(순수 모듈이 null을 돌려주면 렌더 자체가 없다) -- 값이 없던 지출·구 서버 응답·
   // 로컬 목업에서는 이 화면이 한 픽셀도 바뀌지 않는다.
   const paymentMethodLabel = paymentMethodLabelKo(expense.data?.paymentMethod);
-  // 판매처는 아직 앱 안에 입력 경로가 없다(엑셀 가져오기/서버 데이터로만 채워진다) --
-  // 그래서 "있으면 보여주는" 행이고, 없다고 빈 칸을 그리지 않는다.
-  const merchantValue = expense.data?.merchant?.trim() ?? "";
-  const linkedItem = linkedItemTemplateLink(expense.data?.linkedItemTemplateId);
+  /**
+   * 라운드 49 C-05: 이 링크는 **지출이 속한 아이와 지금 선택된 아이가 같을 때만** 생긴다.
+   * 목적지(app/items/[itemTemplateId].tsx)가 경로의 childId가 아니라 선택된 아이로 상세를
+   * 부르기 때문에, 어긋난 상태에서 링크를 그리면 "이 지출에 연결된 준비템"이라고 말하고
+   * 다른 아이의 준비 상태를 여는 셈이 된다. 판정과 그 근거는 순수 모듈에 있다
+   * (src/expenses/expense-detail-rows.ts `linkedItemTemplateLink`).
+   */
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
+  const linkedItem = linkedItemTemplateLink(expense.data?.linkedItemTemplateId, {
+    expenseChildId: expense.data?.childId,
+    selectedChildId
+  });
   const [itemName, setItemName] = useState("");
   const [amountDigits, setAmountDigits] = useState("");
+  /**
+   * 라운드 49 C-03: 판매처가 **읽기 전용 행에서 입력칸으로** 바뀐 자리. 값은 저장·CSV·API가
+   * 이미 전부 왕복시키고 있었는데(엑셀 가져오기로 들어온 행에는 실제로 값이 있다) 앱 안에는
+   * 고쳐 쓸 자리가 없어서, 오타 하나를 고치려면 CSV를 내보내 다시 가져오는 수밖에 없었다.
+   * 빈 칸으로 저장하면 "지웠다"는 뜻이고 서버가 null로 정리한다(메모와 같은 취급).
+   */
+  const [merchant, setMerchant] = useState("");
   const [memo, setMemo] = useState("");
   const [spentOnIso, setSpentOnIso] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -203,6 +221,7 @@ export default function ExpenseDetailScreen() {
     if (!expense.data) return;
     setItemName(expense.data.itemName);
     setAmountDigits(String(expense.data.amountKrw));
+    setMerchant(expense.data.merchant ?? "");
     setMemo(expense.data.memo ?? "");
     setSpentOnIso(expense.data.spentOn);
     setCategoryId(expense.data.categoryId);
@@ -227,7 +246,9 @@ export default function ExpenseDetailScreen() {
   const baseCategoryChips =
     fetchedCategories.length > 0
       ? fetchedCategories.map((category) => ({ id: category.id, label: category.name }))
-      : categoryCatalog.map((category) => ({ id: category.id, label: `${category.icon} ${category.label}` }));
+      // D1 후속(실기기 피드백 2): `category.icon`은 이제 Ionicons **이름**이라 라벨 앞에 붙이면
+      // 칩에 "water-outline 의류"가 적힌다. 위 정상 경로(서버 목록)와 같이 이름만 쓴다.
+      : categoryCatalog.map((category) => ({ id: category.id, label: category.label }));
   const categoryChips =
     categoryId && !baseCategoryChips.some((chip) => chip.id === categoryId)
       ? [{ id: categoryId, label: categoryNameFor(categoryId) }, ...baseCategoryChips]
@@ -301,6 +322,9 @@ export default function ExpenseDetailScreen() {
       return updateExpenseOffline(authToken, queryClient, localExpenseId, {
         amountKrw,
         itemName: itemName.trim(),
+        // 라운드 49 C-03: memo와 같은 자리·같은 규칙. 빈 문자열을 그대로 보내야 "지웠다"가
+        // 서버까지 전달된다(undefined로 접으면 서버가 옛 값을 그대로 들고 있는다).
+        merchant: merchant.trim(),
         memo,
         spentOn: spentOnIso || undefined,
         categoryId: categoryId || undefined,
@@ -440,19 +464,35 @@ export default function ExpenseDetailScreen() {
                 </View>
               ) : null}
 
-              {/* 라운드 48 T3(C2): 판매처는 CSV 열로만 존재하던 값이다(앱 안에 입력 경로가
-                  없어 대부분 비어 있다). 값이 실제로 있는 기록 -- 엑셀 가져오기로 들어온
-                  행 -- 에서만 보여준다. 입력 UI 신설은 이번 라운드 범위 밖이다. */}
-              {merchantValue.length > 0 ? (
-                <View style={{ gap: 6 }}>
-                  <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
-                    {MERCHANT_ROW_LABEL}
-                  </Text>
-                  <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
-                    {merchantValue}
-                  </Text>
-                </View>
-              ) : null}
+              {/* 라운드 49 C-03: 판매처가 읽기 전용 행에서 **입력칸**이 됐다. 라운드 48 T3은
+                  "앱 안에 입력 경로가 없다"는 이유로 값이 있을 때만 그리는 행이었는데, 그
+                  사이 빠른 기록 시트에 판매처 입력이 생겨(app/expenses/new.tsx) 사용자가 직접
+                  적은 값이 여기로 들어온다 -- 적을 수는 있는데 고칠 수는 없는 화면이 되면
+                  오타 하나를 CSV 왕복으로만 고칠 수 있다. 라벨 문구는 종전과 같은 모듈 상수를
+                  쓴다(CSV의 열 이름과도 한 단어). 비어 있으면 자리표시자 문구 없이 빈
+                  입력칸이고, 비운 채로 저장하면 판매처를 지운 것으로 처리된다. */}
+              <View style={{ gap: 6 }}>
+                <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+                  {MERCHANT_ROW_LABEL}
+                </Text>
+                <TextInput
+                  accessibilityLabel="판매처 입력 (선택)"
+                  returnKeyType="done"
+                  onChangeText={setMerchant}
+                  placeholder="판매처를 입력해 주세요 (선택)"
+                  style={{
+                    backgroundColor: theme.colors.beige,
+                    borderColor: "transparent",
+                    borderRadius: theme.radii.small,
+                    borderWidth: 1,
+                    color: theme.colors.brown,
+                    fontSize: theme.typography.body1.fontSize,
+                    minHeight: theme.touchTarget,
+                    paddingHorizontal: 14
+                  }}
+                  value={merchant}
+                />
+              </View>
 
               {/* 라운드 48 T3(C3): 핵심 루프("준비템 확인 → 구매 → 기록")의 되돌아가는 길.
                   준비템에서 남긴 지출은 `linkedItemTemplateId`를 들고 있는데 지금까지는 그

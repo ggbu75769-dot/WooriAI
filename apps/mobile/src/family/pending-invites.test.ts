@@ -53,6 +53,7 @@ describe("FAM-121B invite expiry formatting", () => {
 describe("FAM-121B pending invite listing and cancellation (local backend)", () => {
   beforeEach(() => {
     localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
   });
 
   it("lists a created invite as pending without ever exposing the link or token", () => {

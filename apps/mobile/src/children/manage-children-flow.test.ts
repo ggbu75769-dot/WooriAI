@@ -189,6 +189,7 @@ describe("MOB-118 local backend child mirrors", () => {
   it("lists the seeded demo child with the full Child shape", async () => {
     const localBackend = await import("../api/local-backend");
     localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
     const { children } = localBackend.listChildren();
     expect(children).toHaveLength(1);
     expect(children[0]).toMatchObject({
@@ -204,6 +205,7 @@ describe("MOB-118 local backend child mirrors", () => {
   it("updates nickname and birth date and recomputes the stage fields", async () => {
     const localBackend = await import("../api/local-backend");
     localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
     const { children } = localBackend.listChildren();
     const child = children[0];
     const updated = localBackend.updateChild(child.id, { nickname: "새이름", birthDate: "2020-01-01" });
@@ -217,6 +219,7 @@ describe("MOB-118 local backend child mirrors", () => {
   it("rejects a future birth date and an unknown child id", async () => {
     const localBackend = await import("../api/local-backend");
     localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
     const { children } = localBackend.listChildren();
     expect(() => localBackend.updateChild(children[0].id, { birthDate: "2999-01-01" })).toThrow(
       "출생일은 오늘보다 미래일 수 없어요."

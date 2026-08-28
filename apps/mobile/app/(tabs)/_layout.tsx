@@ -45,7 +45,9 @@ export default function TabsLayout() {
       return <Redirect href="/launch-animation" />;
     }
 
-    if (!hasReachedHome && !isTestSession) {
+    // 실기기 피드백 1: `&& !isTestSession` 예외를 뺐다 -- 테스트 로그인도 실계정과 같이
+    // 아이 정보 입력을 포함한 온보딩을 마쳐야 탭에 들어온다.
+    if (!hasReachedHome) {
       // MOB-101: defer to "/" instead of hardcoding ONB-001 -- app/index.tsx is the single
       // place that checks server onboarding progress and can route straight to the resume
       // screen (ONB-006) or the correct interrupted step, instead of always restarting the

@@ -2,8 +2,7 @@ import { Redirect } from "expo-router";
 import { useEffect, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../src/analytics/client";
-import { ensureLocalBackendSeeded } from "../src/api/local-backend";
-import { LOCAL_CHILD_ID } from "../src/api/local-fixtures";
+import { localChildId, useLocalBackendStore } from "../src/api/local-backend";
 import { shouldShowSessionExpiredNotice } from "../src/offline/session-expiry";
 import { fetchOnboardingProgressForSelectedChild } from "../src/onboarding/onboarding-progress-scope";
 import {
@@ -26,12 +25,18 @@ declare const __DEV__: boolean;
  * the landing screen or (MOB-107) send a test session to /(tabs) with no selectedChildId yet --
  * every screen's `Boolean(authToken && childId)` query gate would then race the same hydration,
  * so the index route must hold rendering until all three finish.
+ *
+ * 실기기 피드백 1: 로컬 백엔드 스토어도 기다린다. 테스트 세션의 라우팅이 이제 "로컬에 아이가
+ * 있는가"를 보기 때문에(아래 효과), 그 스토어가 올라오기 전에 판정하면 이미 온보딩을 마친
+ * 데모 사용자를 매 콜드 스타트마다 온보딩으로 되돌려보내게 된다. 아래 3초 안전 밸브가 이
+ * 대기까지 함께 덮는다.
  */
 function storesHydrated() {
   return (
     useSessionStore.persist.hasHydrated() &&
     useOnboardingProgressStore.persist.hasHydrated() &&
-    useSelectedChildStore.persist.hasHydrated()
+    useSelectedChildStore.persist.hasHydrated() &&
+    useLocalBackendStore.persist.hasHydrated()
   );
 }
 
@@ -80,7 +85,8 @@ export default function IndexScreen() {
     const unsubscribes = [
       useSessionStore.persist.onFinishHydration(() => setHydrated(storesHydrated())),
       useOnboardingProgressStore.persist.onFinishHydration(() => setHydrated(storesHydrated())),
-      useSelectedChildStore.persist.onFinishHydration(() => setHydrated(storesHydrated()))
+      useSelectedChildStore.persist.onFinishHydration(() => setHydrated(storesHydrated())),
+      useLocalBackendStore.persist.onFinishHydration(() => setHydrated(storesHydrated()))
     ];
     // Safety valve: zustand persist never fires onFinishHydration (and never flips
     // hasHydrated) when the storage read itself rejects or the stored JSON is
@@ -173,22 +179,37 @@ export default function IndexScreen() {
   }, [progressFetch]);
 
   /**
-   * MOB-107: a hydrated test session with no selectedChildId (e.g. an upgrade install whose
-   * `wooriai-selected-child` blob was missing/corrupt and got reset by that store's `migrate`)
-   * would otherwise redirect straight to /(tabs) below with every screen's
-   * `Boolean(authToken && childId)` query gate permanently false -- Home/준비템/리포트 would
-   * each silently fall back to their logged-out preview UI forever instead of showing real data,
-   * with no way for the user to recover short of reinstalling. The demo/test-session child is
-   * always the same well-known fixture id, so it's always safe to re-derive it here rather than
-   * leave the session stuck.
+   * MOB-107 (실기기 피드백 1로 갱신): 테스트 세션의 selectedChildId를 로컬 백엔드의 사실과
+   * 맞춘다.
+   *
+   * - 로컬에 아이가 있는데 선택이 비어 있으면(`wooriai-selected-child` 블롭이 깨져 migrate가
+   *   비운 업그레이드 설치 등) 그 아이를 다시 고른다 -- 그러지 않으면 모든 화면의
+   *   `Boolean(authToken && childId)` 게이트가 영영 false로 굳어 비세션 미리보기만 보인다.
+   * - 로컬에 아이가 **없으면**(= 온보딩을 아직 안 끝냈다. zero-start 마이그레이션으로 예전
+   *   데모 데이터가 지워진 설치도 여기로 온다) 남아 있는 선택과 완료 표시를 지운다. 예전에는
+   *   고정 데모 아이 id를 무조건 골라 줬는데, 이제 그 아이는 존재하지 않으므로 홈이 없는
+   *   아이를 조회하게 된다. 표시를 지우면 아래 리다이렉트가 온보딩부터 다시 시작시킨다.
    */
   useEffect(() => {
-    if (!hydrated || !isTestSession || selectedChildId) {
+    if (!hydrated || !isTestSession) {
       return;
     }
-    ensureLocalBackendSeeded();
-    setSelectedChildId(LOCAL_CHILD_ID);
-  }, [hydrated, isTestSession, selectedChildId, setSelectedChildId]);
+    const childId = localChildId();
+    if (childId) {
+      if (!selectedChildId) setSelectedChildId(childId);
+      return;
+    }
+    if (selectedChildId) clearSelectedChildId();
+    if (hasReachedHome) resetOnboarding();
+  }, [
+    hydrated,
+    isTestSession,
+    selectedChildId,
+    hasReachedHome,
+    setSelectedChildId,
+    clearSelectedChildId,
+    resetOnboarding
+  ]);
 
   /**
    * MOB-116: same lost-selectedChildId hole for a REAL session. hasReachedHome lives in a
@@ -280,5 +301,8 @@ export default function IndexScreen() {
     }
   }
 
-  return <Redirect href={hasReachedHome || isTestSession ? "/(tabs)" : "/onboarding/child-status"} />;
+  // 실기기 피드백 1: 테스트 세션도 실계정과 **같은 관문**을 지난다. 예전에는 `|| isTestSession`
+  // 때문에 데모 세션이 온보딩을 통째로 건너뛰고 곧장 탭으로 들어갔다(그리고 그 앞에서 데모
+  // 데이터가 미리 심어져 있었다). 이제는 온보딩을 끝내 hasReachedHome이 서야만 탭으로 간다.
+  return <Redirect href={hasReachedHome ? "/(tabs)" : "/onboarding/child-status"} />;
 }

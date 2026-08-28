@@ -58,6 +58,7 @@ export type ExpenseRow = {
   paymentMethod: PaymentMethod;
   memo: string | null;
   linkedItemTemplateId: string | null;
+  linkedProductLinkId: string | null;
   expenseType: ExpenseType;
   source: ExpenseSource;
   createdByUserId: string;
@@ -117,8 +118,19 @@ export type ChildDto = ReturnType<typeof toChildDto>;
  * 얹으면 목록 한 페이지(최대 500건)마다 조인이 따라붙는다. 준비템 이름이 필요한 화면은
  * 이미 있는 `GET /children/:childId/items/:itemTemplateId`로 따로 물어본다.
  *
- * `linkedProductLinkId`는 아직 **어떤 쓰기 경로도 채우지 않는 다크 필드**라 노출하지 않는다
- * (없는 값을 계약에 올려 두면 클라이언트가 영원히 null을 받는 열을 갖게 된다).
+ * 라운드 49 C-06: `linkedProductLinkId`가 더 이상 다크 필드가 아니다 — "샀어요"(구매 확인
+ * 카드)에서 이어지는 생성 경로가 클릭한 제휴 링크의 id를 실어 보내고 insertExpense가 그것을
+ * 저장한다. 저장한 값은 되읽을 수 있어야 하므로(라운드 48 T3이 결제 수단·연결 준비템에서
+ * 세운 것과 같은 규칙: **쓰기 전용 필드를 만들지 않는다**) 여기서 함께 노출한다. 값이 없는
+ * 기록에서는 null이고, 그 자리에 아무 화면도 그리지 않는다.
+ *
+ * ⚠️ DNC-009: 이 필드는 **기록·정산용**이다. 어떤 링크로 샀는지를 남길 뿐이고,
+ * 추천 점수·정렬(apps/mobile/src/items/item-ranking.ts)에 절대 유입되면 안 된다 —
+ * 수수료율이 추천 순서를 바꾸는 순간 사용자에게 보이는 순위가 거짓이 된다. 이 값을
+ * 읽는 코드를 추가할 때 그 경로가 랭킹으로 이어지지 않는지 먼저 확인할 것.
+ *
+ * ⚠️ 스칼라 한 개 추가라 위 PERF-121 규칙(조인 금지)은 그대로 지켜진다. 제휴 링크의
+ * URL·플랫폼·수수료 같은 값은 여기에 얹지 않는다.
  */
 export function toExpenseDto(expense: ExpenseRow) {
   return {
@@ -132,6 +144,7 @@ export function toExpenseDto(expense: ExpenseRow) {
     paymentMethod: expense.paymentMethod,
     memo: expense.memo ?? null,
     linkedItemTemplateId: expense.linkedItemTemplateId ?? null,
+    linkedProductLinkId: expense.linkedProductLinkId ?? null,
     expenseType: expense.expenseType,
     source: expense.source,
     createdByUserId: expense.createdByUserId

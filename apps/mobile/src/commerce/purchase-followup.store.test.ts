@@ -9,6 +9,7 @@ import {
   PURCHASE_FOLLOWUP_MAX_ENTRIES,
   PURCHASE_FOLLOWUP_MAX_PROMPTS,
   PURCHASE_FOLLOWUP_MIN_AGE_MS,
+  purchaseFollowupMerchantLabel,
   selectPromptEligibleFollowup,
   usePurchaseFollowupStore,
   type PurchaseFollowupClick,
@@ -294,5 +295,56 @@ describe("COM-108 persisted store wiring", () => {
     expect(usePurchaseFollowupStore.getState().entries).toEqual([
       expect.objectContaining({ itemTemplateId: "item-diaper", clickedAt: NOW + 5000, status: "pending", promptCount: 0 })
     ]);
+  });
+});
+
+/**
+ * 라운드 49 C-06 — "샀어요"가 아는 사실을 기록 화면에 넘기기 위해 대기 항목이 들고 있어야
+ * 하는 두 값(플랫폼 → 판매처 문구, 눌린 링크 id)의 판정.
+ */
+describe("라운드 49 C-06 구매 확인 → 지출 기록으로 넘기는 사실", () => {
+  it("아는 플랫폼만 판매처 문구가 된다 -- custom/미상은 지어내지 않는다", () => {
+    expect(purchaseFollowupMerchantLabel("coupang")).toBe("쿠팡");
+    expect(purchaseFollowupMerchantLabel("naver")).toBe("네이버");
+    // 우리가 등록한 임의 링크는 상호를 모른다. 빈 칸으로 두고 사용자가 적게 한다.
+    expect(purchaseFollowupMerchantLabel("custom")).toBeUndefined();
+    // 구 blob(ANA-127 이전)에는 platform 자체가 없다.
+    expect(purchaseFollowupMerchantLabel(undefined)).toBeUndefined();
+    expect(purchaseFollowupMerchantLabel(null)).toBeUndefined();
+  });
+
+  it("클릭에 담긴 productLinkId가 대기 항목에 그대로 남는다", () => {
+    const entries = applyPurchaseLinkClick([], click({ productLinkId: "link-9", platform: "coupang" }));
+    expect(entries).toEqual([
+      expect.objectContaining({ productLinkId: "link-9", platform: "coupang", status: "pending" })
+    ]);
+  });
+
+  /**
+   * persist v1 blob에는 `productLinkId` 키가 아예 없다. 값 하나가 없다고 멀쩡한 대기 항목을
+   * 버리면 사용자는 방금 누른 링크에 대한 물음을 잃는다 -- ANA-127이 platform에서 이미 세운
+   * 판단과 같다. 없으면 undefined로 두고 항목은 살린다(그때는 linkedProductLinkId 없이 저장).
+   */
+  it("productLinkId가 없는 옛 blob도 rehydrate에서 살아남고, 그 값만 undefined가 된다", async () => {
+    await persistStorage.setItem(
+      "wooriai-purchase-followup",
+      JSON.stringify({
+        state: {
+          entries: [
+            pendingEntry({ itemTemplateId: "item-old" }),
+            pendingEntry({ itemTemplateId: "item-new", productLinkId: "link-9" }),
+            // 문자열이 아닌 쓰레기 값은 통째로 믿지 않는다(항목 자체는 살린다).
+            { ...pendingEntry({ itemTemplateId: "item-junk" }), productLinkId: 7 }
+          ]
+        },
+        version: 1
+      })
+    );
+    await usePurchaseFollowupStore.persist.rehydrate();
+    const byId = Object.fromEntries(
+      usePurchaseFollowupStore.getState().entries.map((entry) => [entry.itemTemplateId, entry.productLinkId])
+    );
+    expect(byId).toEqual({ "item-old": undefined, "item-new": "link-9", "item-junk": undefined });
+    await persistStorage.removeItem("wooriai-purchase-followup");
   });
 });

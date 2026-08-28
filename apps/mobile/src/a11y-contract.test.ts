@@ -269,12 +269,17 @@ describe("A11Y-115 accessibility sweep contract", () => {
   });
 
   it("hides decorative glyphs (♡, ›, ▣) from the accessibility tree", () => {
+    // D1 후속(실기기 피드백 2): 추천 헤더의 찜 하트(♡)도 Ionicons로 바뀌었지만 "장식이라
+    // 접근성 트리에서 감춘다"는 계약은 그대로다(색·크기도 같은 값을 그대로 쓴다).
     expect(source("app/(tabs)/items.tsx")).toContain(
-      '<Text accessible={false} style={{ color: theme.colors.brown, fontSize: 18 }}>♡</Text>'
+      '<Ionicons accessible={false} name="heart-outline" size={18} color={theme.colors.brown} />'
     );
     expect(source("app/(tabs)/more.tsx")).toContain("<Text accessible={false} style={moreMenuChevronStyle}>›</Text>");
     expect(source("app/family/index.tsx")).toContain("<Text accessible={false} style={familyInviteChevronStyle}>›</Text>");
-    expect(source("app/import/index.tsx")).toContain("<Text accessible={false} style={styles.fileIconText}>▣</Text>");
+    // D1 후속(실기기 피드백 2): 파일 카드의 ▣도 Ionicons로 바뀌었지만 "장식이라 접근성
+    // 트리에서 감춘다"는 계약은 그대로다(색·크기는 같은 스타일 토큰에서 읽어 쓴다).
+    expect(source("app/import/index.tsx")).toContain('accessible={false}\n              name="document-text-outline"');
+    expect(source("app/import/index.tsx")).toContain("size={styles.fileIconText.fontSize}");
     // CLN-130: the ⌁ mark belonged to src/ui.tsx's BrandLogo, a dead export removed along with
     // its assertion — no screen rendered it.
   });

@@ -317,4 +317,50 @@ describe("UI Pixel Lock source contract", () => {
       expect(existsSync(join(mobileRoot, "assets/illustrations", asset)), `${asset} should exist`).toBe(true);
     }
   });
+
+  /**
+   * SPL-001 실기기 잘림 수정: 기준 이미지에 맞춘 고정 박스(390 폭 · paddingTop 112 ·
+   * translateY/scale 보정 · logo cover)는 **픽셀 락 경로 전용**이다. 일반 실행은 화면
+   * 폭/높이에 맞춰 줄어드는 박스를 쓴다 -- 폭 390dp 미만 기기에서 첫 화면이 잘려 보였다.
+   *
+   * 이 테스트가 고정하는 것은 "픽셀 락 값이 픽셀 락 분기 안에 그대로 있다"는 사실이다.
+   * 값 자체(390 / 112 / topOffset / groupScale / introImageMarginTop)는 불변이므로
+   * `?pixelLock=1` 캡처 결과는 예전과 동일하게 유지된다.
+   */
+  it("keeps the SPL-001 fixed reference box inside the pixel-lock branch and renders responsively otherwise", () => {
+    const launchSource = readFileSync(join(mobileRoot, "app/launch-animation.tsx"), "utf8");
+
+    const introBlock = launchSource.slice(
+      launchSource.indexOf("function introImageStyle("),
+      launchSource.indexOf("function splashPixelFrameStyle(")
+    );
+    expect(introBlock).toContain("if (isPixelLockMode) {");
+    // 픽셀 락 가지: 예전 고정 박스 그대로.
+    const pixelLockIntroBranch = introBlock.slice(introBlock.indexOf("if (isPixelLockMode) {"), introBlock.indexOf("const availableWidth"));
+    expect(pixelLockIntroBranch).toContain("height: SplashPixelStyles.introImageHeight");
+    expect(pixelLockIntroBranch).toContain("marginTop: SplashPixelStyles.introImageMarginTop");
+    expect(pixelLockIntroBranch).toContain("width: 390");
+    // 일반 가지: 창 크기에서 계산한다(고정 폭 없음).
+    expect(introBlock).toContain("windowWidth - splashHorizontalPadding");
+    expect(introBlock).toContain("introImageMaxHeightRatio");
+    expect(introBlock).toContain("Math.min(introImageMaxWidth, availableWidth, heightCappedWidth)");
+
+    // 프레임 보정(translateY/scale)과 112 상단 여백도 픽셀 락 전용이다.
+    const frameBlock = launchSource.slice(
+      launchSource.indexOf("function splashPixelFrameStyle("),
+      launchSource.indexOf("export default function LaunchAnimationScreen")
+    );
+    expect(frameBlock).toContain("if (!isPixelLockMode) return null;");
+    expect(frameBlock).toContain("paddingTop: 112");
+    expect(frameBlock).toContain("translateY: SplashPixelStyles.topOffset");
+    expect(frameBlock).toContain("scale: SplashPixelStyles.groupScale");
+
+    // 호출부는 모드를 넘긴다 + 로고 잘림(cover)도 캡처 경로에만 남는다.
+    expect(launchSource).toContain("splashPixelFrameStyle(isPixelLockMode)");
+    expect(launchSource).toContain("introImageStyle(isPixelLockMode, windowWidth, windowHeight)");
+    expect(launchSource).toContain('resizeMode={isPixelLockMode ? "cover" : "contain"}');
+    expect(launchSource).toContain("useWindowDimensions()");
+    // 일반 실행 경로에는 고정 폭/여백이 남아 있지 않다.
+    expect(launchSource).not.toContain("paddingTop: 112 }, splashPixelFrameStyle()");
+  });
 });

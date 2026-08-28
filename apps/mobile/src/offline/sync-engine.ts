@@ -681,6 +681,10 @@ const expensePayloadFieldKeys: ReadonlyArray<keyof ExpensePayload> = [
   "memo",
   "paymentMethod",
   "linkedItemTemplateId",
+  // 라운드 49 C-06: ExpensePayload가 실제로 나르는 필드이므로 위 "전체 필드 집합"이라는
+  // 선언을 지키려면 여기에 있어야 한다. 서버 충돌 스냅숏에는 이 키가 없을 수 있는데,
+  // pickPayloadFieldsFromSnapshot이 `key in snapshot`으로만 옮기므로 그때는 로컬 값이 남는다.
+  "linkedProductLinkId",
   "expenseType"
 ];
 
@@ -841,7 +845,13 @@ export async function resolveConflictWithMergedPayload(
 }
 
 /** Field-by-field diff between the local pending payload and the server's current value, for
- * the "두 값 나란히 보기" screen. */
+ * the "두 값 나란히 보기" screen.
+ *
+ * 표시 집합은 **사용자가 골라서 병합할 수 있는 값**만이다. `childId`·`linkedItemTemplateId`·
+ * `linkedProductLinkId`가 빠져 있는 것은 의도다 — 셋 다 사용자가 충돌 화면에서 고를 수 있는
+ * 값이 아니고, 서버 수정 계약(UpdateExpenseDto)에도 자리가 없어 고른들 보낼 수 없다.
+ * 라운드 49 C-03: 여기 있는 `merchant`는 이제 실제로 서버까지 간다(remote-api toExpensePatch) —
+ * 그전까지는 이 화면이 고르라고 해 놓고 전송에서 그 선택이 사라졌다. */
 export function diffExpenseFields(
   local: ExpensePayload,
   server: ExpensePayload

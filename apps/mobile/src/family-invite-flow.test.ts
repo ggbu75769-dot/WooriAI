@@ -62,8 +62,10 @@ describe("FAM-121A 초대 수락 여정 배선 (source contract -- 화면은 vit
     );
     expect(loginSource).toContain("const inviteResumeHref = resumeHrefAfterLogin(params[INVITE_RESUME_PARAM]);");
     // 카카오/개발 스텁 경로와 테스트 로그인 경로 둘 다 재개하되, 초대가 없으면 기존 목적지 그대로.
+    // 실기기 피드백 1: 테스트 로그인의 기본 목적지가 "/(tabs)"에서 "/"로 바뀌었다 -- 데모 세션도
+    // 온보딩을 마쳐야 탭에 들어가고, 그 판정은 app/index.tsx 한 곳에만 있다.
     expect(loginSource).toContain('router.replace(inviteResumeHref ?? "/onboarding/child-status");');
-    expect(loginSource).toContain('router.replace(inviteResumeHref ?? "/(tabs)");');
+    expect(loginSource).toContain('router.replace(inviteResumeHref ?? "/");');
   });
 
   it("수락 성공이 R19-C 관례대로 캐시 무효화 + 아이 재선택 + 안내를 수행한다", () => {
@@ -83,7 +85,8 @@ describe("FAM-121A 초대 수락 여정 배선 (source contract -- 화면은 vit
     const gateSource = source("app/(tabs)/_layout.tsx");
 
     // 게이트가 여전히 hasReachedHome을 본다는 전제 -- 이 조건이 바뀌면 아래 수정도 재검토해야 한다.
-    expect(gateSource).toContain("if (!hasReachedHome && !isTestSession) {");
+    // 실기기 피드백 1: 데모 세션 예외가 빠져 이제 모든 세션이 같은 관문을 지난다.
+    expect(gateSource).toContain("if (!hasReachedHome) {");
     // 카카오/OIDC 로그인 경로는 markHomeReached를 세우지 않는다(테스트 로그인 경로만 세운다).
     // 따라서 수락 화면이 직접 세워 주지 않으면 "/(tabs)" 진입이 곧바로 "/"로 되돌려진다.
     expect(acceptSource).toContain("state.markHomeReached");

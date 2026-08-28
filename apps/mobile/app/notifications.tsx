@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
 import { Alert, Pressable, Text, View } from "react-native";
@@ -44,12 +45,17 @@ import { AppScreen, EmptyStateCard, ListRow, ScreenHeader } from "../src/ui";
  *   마운트 시 안읽음 id를 한 번 스냅샷해 그 행에만 좌측 점을 붙인다(읽음 규칙은 그대로).
  */
 
-const notificationIconByType: Record<AppNotification["type"], string> = {
-  budget_80: "▮",
-  budget_100: "▮",
-  stage_transition: "☆",
-  purchase_pending: "▣",
-  weekly_summary: "▮"
+/**
+ * D1 후속(실기기 피드백 2): 종류별 아이콘을 텍스트 글리프(▮ ☆ ▣)에서 탭바와 같은 Ionicons
+ * 계열로 바꿨다 -- 글리프는 기기 폰트에 따라 네모/빈칸으로 떨어져 "예전 아이콘"처럼 보였다.
+ * outlined 변형 + coral 한 가지 색으로 탭바 톤을 그대로 따른다.
+ */
+const notificationIconByType: Record<AppNotification["type"], keyof typeof Ionicons.glyphMap> = {
+  budget_80: "wallet-outline",
+  budget_100: "alert-circle-outline",
+  stage_transition: "sparkles-outline",
+  purchase_pending: "bag-check-outline",
+  weekly_summary: "stats-chart-outline"
 };
 
 export default function NotificationsScreen() {
@@ -172,6 +178,9 @@ export default function NotificationsScreen() {
           entries.map((entry) => {
             const childLabel = resolveNotificationChildLabel(entry.childId, householdChildren);
             const isNew = newNotificationIds.includes(entry.id);
+            // 알 수 없는 종류(옛 저장본 등)는 조회가 undefined -- ListRow의 icon은 선택 항목이라
+            // 아이콘 자리만 비고 나머지 줄은 그대로 그려진다.
+            const iconName = notificationIconByType[entry.type];
             return (
               // 점 자리는 새 소식이 아닐 때도 그대로 비워 둔다 -- 자리 폭이 오가면 카드 왼쪽이
               // 줄마다 어긋난다.
@@ -186,7 +195,7 @@ export default function NotificationsScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <ListRow
-                    icon={notificationIconByType[entry.type]}
+                    icon={iconName ? <Ionicons name={iconName} size={20} color={theme.colors.mainCoral} /> : undefined}
                     // The 태명 prefix is part of the title text, so it is announced as part of the
                     // row's accessibility label too (ListRow reads its Text children).
                     title={formatNotificationRowTitle(entry.title, childLabel)}

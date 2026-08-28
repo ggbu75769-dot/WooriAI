@@ -201,6 +201,7 @@ describe("local backend tab 계약 (서버 미러)", () => {
   beforeEach(async () => {
     const localBackend = await import("../api/local-backend");
     localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
   });
 
   it("준비완료 탭에 gifted 항목이 함께 나오고 괜찮아요 탭은 그대로다", async () => {
@@ -252,6 +253,7 @@ describe("준비율에 gifted가 잡힌다 (ITEM-114 x ITEM-123)", () => {
   beforeEach(async () => {
     const localBackend = await import("../api/local-backend");
     localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
   });
 
   it("gifted 필수템이 분모와 분자에 함께 들어간다", async () => {
@@ -261,7 +263,10 @@ describe("준비율에 gifted가 잡힌다 (ITEM-114 x ITEM-123)", () => {
     const before = computeEssentialPrepProgress(listItems(LOCAL_CHILD_ID, "all").items, "12-24개월");
     expect(before).not.toBeNull();
 
-    const essential = listItems(LOCAL_CHILD_ID, "all").items.find(
+    // 준비율을 계산하는 밴드와 **같은 밴드**의 필수템을 고른다 -- 다른 시기의 필수템을
+    // 선물 처리해도 이 밴드의 분자는 움직이지 않는다(실기기 피드백 1로 카탈로그가 임신~첫돌
+    // 시기까지 넓어졌다).
+    const essential = listItems(LOCAL_CHILD_ID, "now", "12-24개월").items.find(
       (item) => item.necessityLevel === "essential" && item.status === "not_prepared"
     );
     expect(essential).toBeDefined();

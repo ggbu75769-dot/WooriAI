@@ -85,21 +85,26 @@ describe("라운드 41 UX-U(A) 더보기 세션 메뉴 구성", () => {
 
 /**
  * SET-001 픽셀 락 캡처는 **비로그인 경로**로 찍힌다(app/pixel-lock.tsx가 세션을 지우고 이동).
- * 그래서 이 티켓은 세션 메뉴와 프로필 카드의 목적지만 바꾸고, 비로그인 렌더는 한 글자도 건드리지
- * 않는다. 그 불변 계약을 소스 그렙으로 못 박는다(react-native 화면은 vitest에서 렌더할 수 없다 --
- * import-flow/export-flow 테스트와 같은 관례).
+ * 그래서 라운드 41 UX-U(A)는 세션 메뉴와 프로필 카드의 목적지만 바꾸고, 비로그인 렌더는 한
+ * 글자도 건드리지 않았다. 그 불변 계약을 소스 그렙으로 못 박는다(react-native 화면은 vitest에서
+ * 렌더할 수 없다 -- import-flow/export-flow 테스트와 같은 관례).
+ *
+ * D1 후속(실기기 APK 피드백 2 "아이콘들이 다 예전걸로 돌아간 것 같음"): 사용자가 직접 요구한
+ * 변경이라 **아이콘만** 탭바와 같은 Ionicons 이름으로 옮겼다. 지키는 요지는 그대로다 -- 행
+ * **구성·순서·문구·목적지**와 비활성 내보내기 행 패턴(캡션 + onPress 없음)은 한 글자도 바뀌지
+ * 않는다. (SET-001 기준 이미지는 아이콘 모양이 달라졌으므로 재캡처 대상이다.)
  */
 describe("라운드 41 UX-U(A) 비로그인 미리보기 메뉴 불변 계약", () => {
   const moreSource = () => source("app/(tabs)/more.tsx");
 
-  it("미리보기 행 목록(moreMenuRows)이 예전 세 행 그대로다", () => {
+  it("미리보기 행 목록(moreMenuRows)이 같은 세 행이고 아이콘만 Ionicons 이름이다", () => {
     expect(moreSource()).toContain(
       [
         "const moreMenuRows = [",
-        '  { icon: "♙", title: "프로필 관리", route: "/family" },',
-        '  { icon: "⌁", title: "엑셀로 가져오기", route: "/import" },',
-        '  { icon: "?", title: "약관 및 개인정보", route: "/settings/privacy" }',
-        "] as const;"
+        '  { icon: "person-circle-outline", title: "프로필 관리", route: "/family" },',
+        '  { icon: "download-outline", title: "엑셀로 가져오기", route: "/import" },',
+        '  { icon: "shield-checkmark-outline", title: "약관 및 개인정보", route: "/settings/privacy" }',
+        "] as const satisfies readonly { icon: keyof typeof Ionicons.glyphMap; title: string; route: string }[];"
       ].join("\n")
     );
   });
@@ -109,9 +114,22 @@ describe("라운드 41 UX-U(A) 비로그인 미리보기 메뉴 불변 계약", 
     expect(previewBlock).toContain("...moreMenuRows.map((row) => ({");
     expect(previewBlock).toContain("      onPress: () => router.push(row.route)");
     expect(previewBlock).toContain(
-      '{ icon: "⇪", title: EXPORT_MENU_TITLE, caption: EXPORT_SIGNED_OUT_CAPTION, onPress: undefined },'
+      '{ icon: "share-outline", title: EXPORT_MENU_TITLE, caption: EXPORT_SIGNED_OUT_CAPTION, onPress: undefined },'
     );
-    expect(previewBlock).toContain('{ icon: "ⓘ", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }');
+    expect(previewBlock).toContain(
+      '{ icon: "information-circle-outline", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }'
+    );
+  });
+
+  it("미리보기 행에 텍스트 글리프가 남아 있지 않다(탭바와 같은 Ionicons 계열)", () => {
+    const src = moreSource();
+    expect(src).toContain('import { Ionicons } from "@expo/vector-icons";');
+    for (const glyph of ["♙", "⌁", "⇪", "ⓘ", "⌕"]) {
+      expect(src, `more.tsx should not render ${glyph} as an icon`).not.toContain(`icon: "${glyph}"`);
+      expect(src, `more.tsx should not render ${glyph} as an icon`).not.toContain(`>${glyph}<`);
+    }
+    // 셰브런(›)은 전역 관례라 그대로 두고, 장식이므로 접근성 트리에서 감춘 상태도 유지한다.
+    expect(src).toContain("<Text accessible={false} style={moreMenuChevronStyle}>›</Text>");
   });
 
   it("미리보기 프로필 값과 카드 라벨 · 헤더 동작이 그대로다", () => {

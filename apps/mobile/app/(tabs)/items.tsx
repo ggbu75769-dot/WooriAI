@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -40,8 +41,12 @@ import {
   type ExpenseLinkPromptScope
 } from "../../src/items/expense-link-prompt";
 import {
+  filterInterestedItems,
   filterItems,
   hasActiveItemFilter,
+  INTERESTED_FILTER_EMPTY_TEXT,
+  INTERESTED_FILTER_LABEL,
+  INTERESTED_FILTER_SCOPE_NOTE,
   NECESSITY_FILTER_OPTIONS,
   type NecessityFilter
 } from "../../src/items/item-filters";
@@ -169,6 +174,11 @@ export default function ItemsScreen() {
   const [stageLabel, setStageLabel] = useState<StageBandLabel>("12-24개월");
   const [hasManualStageSelection, setHasManualStageSelection] = useState(false);
   const [statusTab, setStatusTab] = useState<StatusTabValue>("now");
+  // 라운드 49 C-01: 찜(♡) 칩. 상태 칩 넷과 **같은 줄**에서 서로 배타로 선택되지만, 서버 tab
+  // 파라미터가 아니라 클라이언트 필터라 별도 상태로 둔다 -- 이 칩을 눌러도 목록 요청은 한 건도
+  // 나가지 않고(이미 받아 둔 tab="all" 스냅샷을 거른다), 켜 두었다 끄면 종전 상태 탭이 그대로
+  // 돌아온다(statusTab을 건드리지 않으므로 캐시도 그대로다).
+  const [showInterestedOnly, setShowInterestedOnly] = useState(false);
   // ITEM-121 (B2/B3): 목록을 더 좁히는 클라이언트 전용 조건. 시기/상태와 달리 이미 받은
   // 항목의 필드만 보므로 서버 왕복이 없다(src/items/item-filters.ts).
   const [necessityFilter, setNecessityFilter] = useState<NecessityFilter>("all");
@@ -306,7 +316,10 @@ export default function ItemsScreen() {
     );
   }, [childId, stageLabel, necessityFilter, searchText]);
   const updateStatus = useMutation({
-    mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; itemName: string; status: ItemStatus }) =>
+    // 라운드 49 C-02: `categoryId`는 서버로 보내지 않는다 -- PATCH .../status의 요청 계약은
+    // 그대로다. 성공 뒤 남기는 "지출도 기록할까요?" 줄이 분류까지 프리필하려면 그 행의 분류를
+    // 알아야 하는데, 그 시점에는 행이 목록에서 사라져 있을 수 있어서 여기서 함께 들고 간다.
+    mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; itemName: string; categoryId?: string; status: ItemStatus }) =>
       updateItemStatus(authToken!, childId!, itemTemplateId, status),
     onMutate: (variables) => {
       setStatusErrorMessage(null);
@@ -339,6 +352,10 @@ export default function ItemsScreen() {
         nextExpenseLinkPrompt({
           itemTemplateId: variables.itemTemplateId,
           itemName: variables.itemName,
+          // C-02: 그 행의 지출 분류(응답에 있으면). 프리필이 품목명만 넘기고 분류는 기본
+          // 타일로 떨어지던 구멍을 메운다. 금액은 넘기지 않는다(가격대는 범위라 특정 값을
+          // 지어내는 셈이 된다).
+          categoryId: variables.categoryId,
           status: variables.status,
           // G-3: 지금 보고 있는 목록의 좌표를 함께 박아 둔다.
           scope: { childId, stageLabel, necessityFilter, searchText }
@@ -371,11 +388,12 @@ export default function ItemsScreen() {
    * 단일 소스), 그 밖에는 예전처럼 바로 실행한다.
    */
   const requestStatusChange = (
-    item: { id: string; name: string; status: ItemStatus },
+    item: { id: string; name: string; categoryId?: string; status: ItemStatus },
     status: "prepared" | "not_needed"
   ) => {
     const kind = status === "prepared" ? "prepare" : "skip";
-    const run = () => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status });
+    const run = () =>
+      updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, categoryId: item.categoryId, status });
     if (item.status !== "gifted") {
       run();
       return;
@@ -400,6 +418,36 @@ export default function ItemsScreen() {
   // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
   // 버튼은 그대로 — 문구만 바뀐다(src/offline/messages.ts).
   const loadErrorCopy = useLoadErrorCopy(items.isError);
+  // 라운드 49 C-01: 찜 목록의 원천은 목록 쿼리가 아니라 전 상태 스냅샷이라, 실패 판정도 그쪽을
+  // 따로 봐야 같은 오프라인 인지 문구를 받는다. 훅을 조건부로 부르지 않도록 두 번 부른다
+  // (MOB-130 분기 순서 계약은 items 쿼리 쪽 한 줄을 그대로 유지한다).
+  const interestedLoadErrorCopy = useLoadErrorCopy(showInterestedOnly && allStatusItems.isError);
+
+  /**
+   * 라운드 49 C-07: 로그인은 돼 있는데 **선택된 아이가 없을 때**.
+   *
+   * 예전에는 이 경우도 `hasSession`이 false라 아래에서 비세션 미리보기 픽스처
+   * (previewItems -- "베이비 아기띠 힙시트 ₩89,000 · ★ 4.7 (1,245)")가 그대로 그려졌다.
+   * 로그인한 사용자에게 서버에 존재하지도 않는 상품과 있지도 않은 별점을 **자기 데이터인 양**
+   * 보여준 셈이라, 허위 표시 금지 원칙에 정면으로 어긋난다(그 픽스처는 픽셀 락 캡처 전용이다).
+   *
+   * 아이 선택이 비는 것은 대개 일시적이고 복구 가능한 상태다(src/children의 선택 아이 복구).
+   * 그래서 가짜 목록 대신 지금 무엇이 없는지 말하고 아이 관리로 보낸다.
+   *
+   * ⚠️ 비세션(`authToken === null`) 분기는 이 게이트에 걸리지 않는다 -- ITEM-001 픽셀 락
+   * 캡처(app/pixel-lock.tsx가 세션을 지우고 찍는다)의 렌더는 한 픽셀도 바뀌지 않는다.
+   */
+  if (authToken && !childId) {
+    return (
+      <AppScreen>
+        <EmptyStateCard
+          title="아이를 먼저 선택해 주세요."
+          actionLabel="아이 관리로 가기"
+          onPress={() => router.push("/settings/children")}
+        />
+      </AppScreen>
+    );
+  }
 
   if (hasSession && itemsPhase === "error") {
     return (
@@ -427,7 +475,42 @@ export default function ItemsScreen() {
     );
   }
 
+  // 라운드 49 C-01: 찜 목록의 원천(전 상태 스냅샷)을 못 받았을 때. 상태 탭 목록으로 대신
+  // 채우면 찜하지 않은 항목이 찜 목록인 척 그려지므로, 다른 조회 실패와 같은 카드를 쓴다.
+  if (hasSession && showInterestedOnly && allStatusItems.isError) {
+    return (
+      <AppScreen>
+        <EmptyStateCard
+          title={interestedLoadErrorCopy.title}
+          actionLabel={interestedLoadErrorCopy.actionLabel}
+          onPress={() => allStatusItems.refetch()}
+        />
+      </AppScreen>
+    );
+  }
+
+  // 라운드 49 C-01: 찜 칩이 켜져 있는데 스냅샷이 아직 안 왔을 때. 여기서 그냥 넘어가면 상태
+  // 탭 목록(찜과 무관한 항목들)이 찜 목록인 척 잠깐 그려진다 -- 스켈레톤이 정직하다.
+  // 스냅샷은 준비율(ITEM-114)이 이미 받아 두는 그 쿼리라 새 요청은 생기지 않는다.
+  if (hasSession && showInterestedOnly && !allStatusItems.data) {
+    return (
+      <AppScreen>
+        <View style={{ gap: theme.spacing.gap }}>
+          <SkeletonCard />
+          <SkeletonRow />
+          <SkeletonRow />
+        </View>
+      </AppScreen>
+    );
+  }
+
   const visibleItems = hasSession ? items.data!.items : previewItems;
+  // 라운드 49 C-01: 찜 칩이 켜져 있으면 목록의 모집단이 **상태 탭 응답 대신 전 상태 스냅샷의
+  // 찜한 항목**으로 바뀐다. 서버 왕복은 없다(이미 받아 둔 쿼리) -- 판정은 순수 모듈이 한다
+  // (src/items/item-filters.ts). 스냅샷은 시기 밴드를 무시하므로 찜 목록은 시기 칩을 따르지
+  // 않고, 그 사실은 목록 위 한 줄로 밝힌다(INTERESTED_FILTER_SCOPE_NOTE).
+  const sourceItems: Array<ItemSummary | RecommendationPreviewItem> =
+    showInterestedOnly && allStatusItems.data ? filterInterestedItems(allStatusItems.data) : visibleItems;
   // 시기(stageBand)·상태(tab)는 서버가 이미 걸렀다. 여기서는 필수도 칩과 이름 검색만 적용한다
   // -- 비세션 미리보기에는 두 컨트롤을 노출하지 않으므로 목록도 손대지 않는다.
   const itemFilterInput = { necessity: necessityFilter, searchText };
@@ -445,11 +528,15 @@ export default function ItemsScreen() {
   const preBirthFilterActive = offersPreBirthFilter && preBirthOnly;
   const listedItems: Array<ItemSummary | RecommendationPreviewItem> = hasSession
     ? applyPreBirthFilter(
-        filterItems<ItemSummary | RecommendationPreviewItem>(visibleItems, itemFilterInput),
+        filterItems<ItemSummary | RecommendationPreviewItem>(sourceItems, itemFilterInput),
         preBirthFilterActive
       )
     : visibleItems;
   const isNarrowedByFilter = hasSession && (hasActiveItemFilter(itemFilterInput) || preBirthFilterActive);
+  // C-01: 찜 목록이 비었는데 다른 좁히기 조건은 하나도 안 걸려 있다면, 그건 "필터에 안 맞는다"가
+  // 아니라 **아직 찜한 것이 없다**는 뜻이다. 그때만 전용 문구를 쓴다(필터 초기화 카드는 눌러도
+  // 바뀌는 게 없어 막다른 길이 된다).
+  const showInterestedEmptyState = showInterestedOnly && !isNarrowedByFilter;
   const showEmptyState = hasSession ? listedItems.length === 0 : false;
   const canUpdateStatus = hasSession;
   // ITEM-114: 선택된 시기 밴드(기본 칩은 아이의 현재 시기) 기준 필수템 준비율. 필수템이
@@ -498,13 +585,21 @@ export default function ItemsScreen() {
   // 방금 오른 준비율과 100% 축하 배너가 있는 화면이 바로 이 화면이다 — 기록 탭으로 내보내면
   // 사용자가 방금 만든 변화를 못 본 채 핵심 루프가 끊긴다. 판정은 순수 모듈이 한다
   // (src/expenses/post-save-destination.ts).
-  const openExpenseLinkPrompt = expenseGate.guard((prompt: { itemTemplateId: string; itemName: string }) => {
-    setExpenseLinkPrompt(null);
-    router.push({
-      pathname: "/expenses/new",
-      params: expenseLinkParams({ itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId }, "items")
-    });
-  });
+  const openExpenseLinkPrompt = expenseGate.guard(
+    (prompt: { itemTemplateId: string; itemName: string; categoryId?: string }) => {
+      setExpenseLinkPrompt(null);
+      router.push({
+        pathname: "/expenses/new",
+        // 라운드 49 C-02: 품목명·준비템 id에 더해 **분류**까지 넘긴다. 인라인(행이 아직 보임)과
+        // 떨어져 나온 줄(행이 목록에서 빠짐) 둘 다 같은 조립기를 타므로, 어느 자리에서 눌러도
+        // 같은 프리필이 간다. 분류가 없는 준비템이면 파라미터 키 자체가 생기지 않는다.
+        params: expenseLinkParams(
+          { itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId, categoryId: prompt.categoryId },
+          "items"
+        )
+      });
+    }
+  );
 
   return (
     <AppScreen
@@ -524,7 +619,7 @@ export default function ItemsScreen() {
         <View testID={recommendationScreenId} style={recommendationPixelFrameStyle}>
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
             <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>추천</Text>
-            <Text accessible={false} style={{ color: theme.colors.brown, fontSize: 18 }}>♡</Text>
+            <Ionicons accessible={false} name="heart-outline" size={18} color={theme.colors.brown} />
           </View>
 
           <View style={{ flexDirection: "row", gap: 6, marginHorizontal: -12 }}>
@@ -541,18 +636,41 @@ export default function ItemsScreen() {
             ))}
           </View>
 
-          {/* UX-5B-10b: 상태 필터 (서버 tab 파라미터와 1:1) -- 세션이 있을 때만 의미가 있다. */}
+          {/* UX-5B-10b: 상태 필터 (서버 tab 파라미터와 1:1) -- 세션이 있을 때만 의미가 있다.
+              라운드 49 C-01: 같은 줄 끝에 찜(♡) 칩이 붙는다. 상태 칩 넷과 서로 배타로 보이지만
+              서버로 나가는 값은 아니다 -- 찜은 이미 받아 둔 tab="all" 스냅샷을 거르는 클라이언트
+              필터라 새 요청이 없다. 줄 자체는 hasSession 게이트 안이라 ITEM-001 픽셀 락 캡처
+              (비세션 미리보기)에는 예전처럼 존재하지 않는다. */}
           {hasSession ? (
             <View style={{ flexDirection: "row", gap: 6, marginHorizontal: -12 }}>
               {statusTabOptions.map((option) => (
                 <CategoryChip
                   key={option.value}
                   label={option.value === "soon" && isPreviewingOtherBand ? soonTabLabelWhilePreviewingBand : option.label}
-                  selected={option.value === statusTab}
-                  onPress={() => setStatusTab(option.value)}
+                  selected={!showInterestedOnly && option.value === statusTab}
+                  onPress={() => {
+                    setShowInterestedOnly(false);
+                    setStatusTab(option.value);
+                  }}
                 />
               ))}
+              {/* CategoryChip은 라벨을 그대로 스크린 리더에 읽어 주므로(src/ui.tsx), 라벨 자체가
+                  무엇을 하는 칩인지 말해야 한다 -- 같은 줄의 다른 칩들과 같은 관례다. */}
+              <CategoryChip
+                label={INTERESTED_FILTER_LABEL}
+                selected={showInterestedOnly}
+                onPress={() => setShowInterestedOnly((on) => !on)}
+              />
             </View>
+          ) : null}
+
+          {/* C-01: 찜 목록이 시기 칩을 따르지 않는다는 사실을 그 자리에서 밝힌다 -- 스냅샷이
+              밴드를 무시하도록 서버가 정해 둔 것이라(item-ranking.ts FIX/F4), 말없이 다른
+              규칙을 쓰면 "왜 이 시기가 아닌 물건이 보이지"가 된다. */}
+          {hasSession && showInterestedOnly ? (
+            <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>
+              {INTERESTED_FILTER_SCOPE_NOTE}
+            </Text>
           ) : null}
 
           {/* ITEM-121 (B2): 필수도 칩. 세션 전용이라 픽셀 락 캡처(비세션 미리보기)에는 나오지 않는다. */}
@@ -714,7 +832,15 @@ export default function ItemsScreen() {
           ) : null}
 
           {showEmptyState ? (
-            isNarrowedByFilter ? (
+            showInterestedEmptyState ? (
+              // C-01: 찜한 것이 하나도 없을 때. 찜을 안 한 것을 탓하지 않고(DNC-018), 원래 보던
+              // 상태 탭으로 돌아가는 길만 준다.
+              <EmptyStateCard
+                title={INTERESTED_FILTER_EMPTY_TEXT}
+                actionLabel="준비템 목록 보기"
+                onPress={() => setShowInterestedOnly(false)}
+              />
+            ) : isNarrowedByFilter ? (
               // 필터/검색 때문에 비었을 때는 홈으로 보내는 대신 조건을 풀 수 있게 한다.
               <EmptyStateCard
                 title="검색·필터에 맞는 준비템이 없어요."
@@ -723,6 +849,9 @@ export default function ItemsScreen() {
                   setNecessityFilter("all");
                   setSearchText("");
                   setPreBirthOnly(false);
+                  // C-01: 찜 칩도 같은 "좁히기" 계열이라 함께 푼다 -- 하나만 남으면 초기화를
+                  // 눌러도 목록이 비어 있는 막다른 길이 된다.
+                  setShowInterestedOnly(false);
                 }}
               />
             ) : (
@@ -795,7 +924,15 @@ export default function ItemsScreen() {
                       <TextButton
                         label={itemListExpenseLinkLabel(expenseLinkPlacement, item.name)}
                         accessibilityLabel={itemListExpenseLinkAccessibilityLabel(item.name)}
-                        onPress={() => openExpenseLinkPrompt({ itemTemplateId: item.id, itemName: item.name })}
+                        onPress={() =>
+                          openExpenseLinkPrompt({
+                            itemTemplateId: item.id,
+                            itemName: item.name,
+                            // C-02: 프리뷰 픽스처(RecommendationPreviewItem)에는 분류가 없다 --
+                            // 그때는 undefined라 종전과 같은 파라미터가 나간다.
+                            categoryId: item.categoryId
+                          })
+                        }
                       />
                     ) : null}
                   </View>

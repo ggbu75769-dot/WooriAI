@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 // REL-009 공유 릴리즈 구성은 순수 CJS라 node/vitest에서 그대로 불러올 수 있다
 // (플러그인 require는 함수 참조만 가져오고 실행하지 않는다).
@@ -41,5 +43,48 @@ describe("REL-009 expo-config.shared versionCode 파싱 (WOORIAI_ANDROID_VERSION
     expect(() => applyWooriaiConfig(baseExpo)).toThrowError(
       "WOORIAI_ANDROID_VERSION_CODE는 양의 정수여야 합니다: 0"
     );
+  });
+});
+
+/**
+ * 실기기 APK 피드백 3·4 (첫 로딩 화면 / 앱 아이콘).
+ *
+ * 3: 네이티브 스플래시가 아예 미설정이라 앱이 뜨는 첫 순간이 빈 흰 화면이었고, 그 뒤
+ *    launch-animation 화면이 잘려 보였다. expo-splash-screen을 붙여 첫 프레임부터
+ *    브랜드 배경(크림) + 로고가 보이게 한다.
+ * 4: 아이콘 자산은 새로 그렸지만(지갑 + 아이 얼굴) adaptive foreground가 투명 배경이라
+ *    런처가 쓰는 배경색이 아이콘 그라데이션 상단색과 어긋나 있었다.
+ */
+describe("실기기 피드백 3·4: 네이티브 스플래시 + 앱 아이콘 배선 (app.json)", () => {
+  const appConfig = JSON.parse(readFileSync(join(process.cwd(), "app.json"), "utf8")).expo;
+
+  it("expo-splash-screen 플러그인이 splash-icon 자산·크림 배경으로 설정돼 있다", () => {
+    const splashPlugin = appConfig.plugins.find(
+      (plugin: unknown) => Array.isArray(plugin) && plugin[0] === "expo-splash-screen"
+    );
+    expect(splashPlugin, "app.json plugins에 expo-splash-screen이 있어야 한다").toBeTruthy();
+    expect(splashPlugin[1]).toEqual({
+      image: "./assets/splash-icon.png",
+      imageWidth: 200,
+      resizeMode: "contain",
+      backgroundColor: "#FFF6EC"
+    });
+    expect(existsSync(join(process.cwd(), "assets/splash-icon.png"))).toBe(true);
+  });
+
+  it("expo-splash-screen이 mobile 의존성으로 잠겨 있다 (CI는 frozen-lockfile)", () => {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
+    expect(pkg.dependencies["expo-splash-screen"]).toBeTruthy();
+  });
+
+  it("앱 아이콘·적응형 아이콘 자산이 있고 배경색이 아이콘 코랄과 같다", () => {
+    expect(appConfig.icon).toBe("./assets/icon.png");
+    expect(appConfig.android.adaptiveIcon.foregroundImage).toBe("./assets/adaptive-icon.png");
+    // adaptive foreground는 투명 배경(콘텐츠 78% 축소)이라 런처 배경이 그대로 드러난다.
+    // 아이콘 그라데이션 상단색과 같은 값이어야 테두리가 생기지 않는다.
+    expect(appConfig.android.adaptiveIcon.backgroundColor).toBe("#E95E3E");
+    for (const asset of ["assets/icon.png", "assets/adaptive-icon.png"]) {
+      expect(existsSync(join(process.cwd(), asset)), `${asset} should exist`).toBe(true);
+    }
   });
 });

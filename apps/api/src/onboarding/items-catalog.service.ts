@@ -9,12 +9,15 @@ import { type StageBandLabel } from "../items-commerce/stage-bands";
 import { rankItemsForTab, type ItemTab } from "./item-ranking";
 import { ChildAccessService } from "./child-access.service";
 import { ExpensesStoreService } from "./expenses-store.service";
-import { cleanOptionalText, toChildDto, type DbClient } from "./store-shared";
+import { cleanOptionalText, fromDateOnly, toChildDto, type DbClient } from "./store-shared";
 
 type ItemTemplateRow = {
   id: string;
   code: string;
   name: string;
+  // 라운드 49 C-02: 준비템이 속한 지출 분류(categories.id). 시드 63개 전부에 값이 있는데도
+  // 이 행 타입에 없어서 앱 DTO 조립부에서 존재 자체가 보이지 않았다(Prisma 행에는 늘 있었다).
+  categoryId: string | null;
   necessityLevel: NecessityLevel;
   timingLabel: string | null;
   priceMinKrw: number | null;
@@ -173,7 +176,11 @@ export class ItemsCatalogService {
   async getItemDetail(user: AuthenticatedUser, childId: string, itemTemplateId: string) {
     await this.childAccess.requireChildAccess(user, childId);
     const item = await this.requireItemTemplate(itemTemplateId);
-    const status = await this.itemStatusFor(childId, itemTemplateId);
+    // 라운드 49 C-04: 상태와 연결된 지출 id를 **한 번에** 읽는다(예전 itemStatusFor와 같은
+    // 조회 1건 — select에 컬럼 하나가 더해질 뿐이다).
+    const statusRow = await this.itemStatusRowFor(childId, itemTemplateId);
+    const status = statusRow.status;
+    const linkedExpense = await this.linkedExpenseDto(childId, statusRow.expenseId);
     const linkRows = await this.prisma.productLink.findMany({
       where: { itemTemplateId: item.id, active: true },
       orderBy: { displayOrder: "asc" }
@@ -192,6 +199,10 @@ export class ItemsCatalogService {
       // 라운드 48 T1: 앱 상세가 "구매 전 의사·약사와 상담해 주세요" 안내를 그릴 근거
       // (DNC-020). 가산 필드라 구버전 클라이언트는 무영향이다.
       medicalDisclaimerRequired: item.medicalDisclaimerRequired,
+      // 라운드 49 C-04: 이 준비템으로 실제 기록한 지출(없으면 null). 지금까지 연결은
+      // child_item_statuses.expense_id에 쌓이기만 하고 어느 응답에도 없어서, 앱에서는
+      // "지출 → 준비템"만 보이고 그 반대 방향은 볼 길이 없었다(핵심 루프의 마지막 확인).
+      linkedExpense,
       productLinks: links.map((link) => this.toProductLinkDto(link, disclosures))
     };
   }
@@ -509,6 +520,10 @@ export class ItemsCatalogService {
       name: item.name,
       necessityLevel: item.necessityLevel,
       status,
+      // 라운드 49 C-02: 준비템 → 지출 기록 프리필이 분류까지 넘길 수 있게 하는 가산 필드.
+      // timingLabel과 같은 관례로 null은 undefined로 정리한다(계약 uuid().optional()).
+      // 금액은 싣지 않는다 — priceBandText는 범위라 특정 값을 프리필하면 지어낸 값이 된다.
+      categoryId: item.categoryId ?? undefined,
       // CON-115: DB에서 null인 timingLabel은 undefined로 정리해 계약(z.string().optional())과
       // 모바일 타입(timingLabel?: string)에 맞춘다 — null이 그대로 나가면 계약 위반.
       timingLabel: item.timingLabel ?? undefined,
@@ -614,11 +629,46 @@ export class ItemsCatalogService {
     return ranked.map((entry) => ({ item: itemById.get(entry.id)!, status: entry.status }));
   }
 
-  private async itemStatusFor(childId: string, itemTemplateId: string): Promise<ItemStatus> {
+  /**
+   * 라운드 49 C-04: 상세 한 건의 준비 상태 + 연결된 지출 id.
+   *
+   * 예전 `itemStatusFor`가 status만 돌려주면서 같은 행의 expenseId를 버렸다. 조회 횟수는
+   * 그대로(findUnique 1건)이고 select에 컬럼 하나가 더해질 뿐이다. 행이 없으면 종전과 같이
+   * `not_prepared`(+ 연결 없음)로 본다.
+   */
+  private async itemStatusRowFor(
+    childId: string,
+    itemTemplateId: string
+  ): Promise<{ status: ItemStatus; expenseId: string | null }> {
     const row = await this.prisma.childItemStatus.findUnique({
-      where: { childId_itemTemplateId: { childId, itemTemplateId } }
+      where: { childId_itemTemplateId: { childId, itemTemplateId } },
+      select: { status: true, expenseId: true }
     });
-    return row?.status ?? "not_prepared";
+    return { status: row?.status ?? "not_prepared", expenseId: row?.expenseId ?? null };
+  }
+
+  /**
+   * 라운드 49 C-04: 연결된 지출을 상세 응답에 실을 수 있는 최소 모양으로 읽는다.
+   *
+   * ⚠️ `deletedAt: null`은 선택이 아니라 정확성 조건이다. 지출 삭제(소프트 삭제)는 연결
+   * (child_item_statuses.expense_id)을 되돌리지 않으므로(store-shared.ts deleteExpense 주석),
+   * 필터 없이 읽으면 **사용자가 지운 지출의 금액**이 준비템 상세에 계속 떠 있게 된다 —
+   * 총액과 어긋나는 허위 표시다. 삭제됐으면 연결이 없는 것과 같이 null을 돌려준다.
+   *
+   * `childId`도 함께 건다: 접근 검증은 호출자가 이미 마쳤지만, 다른 아이의 지출 id가
+   * 어떤 경로로든 이 열에 남아 있어도 그 금액이 새어 나가지 않게 한다(방어적 좁히기).
+   */
+  private async linkedExpenseDto(
+    childId: string,
+    expenseId: string | null
+  ): Promise<{ id: string; amountKrw: number; spentOn: string } | null> {
+    if (!expenseId) return null;
+    const expense = await this.prisma.expense.findFirst({
+      where: { id: expenseId, childId, deletedAt: null },
+      select: { id: true, amountKrw: true, spentOn: true }
+    });
+    if (!expense) return null;
+    return { id: expense.id, amountKrw: expense.amountKrw, spentOn: fromDateOnly(expense.spentOn) };
   }
 
   /**

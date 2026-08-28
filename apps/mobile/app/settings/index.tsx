@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Alert, Pressable, Switch, Text, View } from "react-native";
@@ -28,6 +29,20 @@ const summaryUnavailableText = "불러오지 못했어요";
 // 그 상태에서는 ["children"] 쿼리가 enabled:false라 영원히 로딩도, 실패도 아니므로 요약 줄이
 // "불러오는 중..."에 붙박인다 -- 세션이 없다는 사실을 그대로 말한다.
 const summarySignedOutText = "로그인이 필요해요";
+
+/**
+ * D1 후속(실기기 피드백 2 "아이콘들이 다 예전걸로 돌아간 것 같음"): 설정 행의 왼쪽 글리프
+ * (✎ ♥ ₩ ◎ § ⇩ ⇪)를 탭바(app/(tabs)/_layout.tsx)와 같은 Ionicons outlined 계열로 바꾼다.
+ * 문자열 글리프는 기기 폰트에 따라 굵기·크기가 제각각이거나 네모(tofu)로 떨어져 "예전 아이콘"으로
+ * 보였다.
+ *
+ * 크기·색은 공용 ListRow가 문자열 글리프를 그릴 때 쓰던 값(coral, 20)을 그대로 쓴다 -- 행 높이와
+ * 아이콘 열 폭이 종전과 같다. 행 이름·부제는 ListRow가 읽어 주므로 아이콘은 장식이다
+ * (`accessible={false}`).
+ */
+function SettingsRowIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
+  return <Ionicons accessible={false} name={name} size={20} color={theme.colors.mainCoral} />;
+}
 
 export default function SettingsScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -113,7 +128,7 @@ export default function SettingsScreen() {
       <View testID="screen-SET-002" style={{ gap: theme.spacing.gap }}>
         {/* MOB-118: 아이 목록 · 전환 · 편집 · 추가 (SET-005) */}
         <ListRow
-          icon="✎"
+          icon={<SettingsRowIcon name="person-circle-outline" />}
           title="아이 관리"
           subtitle="아이를 전환하거나 정보를 수정해요"
           onPress={() => router.push("/settings/children")}
@@ -121,32 +136,32 @@ export default function SettingsScreen() {
         {/* NAV-121: "아이 · 가구 프로필"과 "가족 관리"가 둘 다 /family로 가던 중복 행을 하나로 합쳤다.
             아이 정보는 위의 아이 관리(SET-005)가, 가구 구성·초대·멤버는 이 행이 담당한다. */}
         <ListRow
-          icon="♥"
+          icon={<SettingsRowIcon name="people-outline" />}
           title="가족 관리"
           subtitle="가구 프로필과 초대 · 멤버를 관리해요"
           onPress={() => router.push("/family")}
         />
         <ListRow
-          icon="₩"
+          icon={<SettingsRowIcon name="wallet-outline" />}
           title="예산 수정"
           subtitle="이번 달 예산을 조정해요"
           onPress={() => router.push("/budget")}
         />
         {/* PUSH-116: 푸시 알림·기기별 수신 관리 (SET-006) */}
         <ListRow
-          icon="◎"
+          icon={<SettingsRowIcon name="notifications-circle-outline" />}
           title="알림 설정"
           subtitle="푸시 알림과 기기별 수신을 관리해요"
           onPress={() => router.push("/settings/notifications")}
         />
         <ListRow
-          icon="§"
+          icon={<SettingsRowIcon name="shield-checkmark-outline" />}
           title="약관 및 개인정보"
           subtitle="동의 내역과 삭제 · 탈퇴를 관리해요"
           onPress={() => router.push("/settings/privacy")}
         />
         <ListRow
-          icon="⇩"
+          icon={<SettingsRowIcon name="download-outline" />}
           title="데이터 가져오기"
           subtitle="엑셀 파일로 지출을 가져와요"
           onPress={() => router.push("/import")}
@@ -156,7 +171,7 @@ export default function SettingsScreen() {
             FIX/F5: 행 제목은 더보기 탭과 같은 EXPORT_MENU_TITLE 한 벌만 쓴다 -- 예전에는 여기만
             "CSV 내보내기"로 인라인돼 있어 같은 기능이 화면마다 다른 이름으로 보였다. */}
         <ListRow
-          icon="⇪"
+          icon={<SettingsRowIcon name="share-outline" />}
           title={EXPORT_MENU_TITLE}
           subtitle={
             csvExport.canExport

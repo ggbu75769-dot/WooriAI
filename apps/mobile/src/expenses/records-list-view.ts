@@ -78,9 +78,14 @@ export function buildRecordsCategoryChips(
   const offered = selectableCategories(categories ?? [], selectedCategoryId);
 
   if (offered.length === 0) {
+    // D1 후속(실기기 피드백 2): 카탈로그의 `icon`은 더 이상 텍스트 글리프가 아니라 Ionicons
+    // **이름**("water-outline" …)이라, 예전처럼 라벨 앞에 붙이면 칩에 "water-outline 기저귀"가
+    // 적힌다. 칩은 CategoryChip의 문자열 라벨이므로 아이콘을 그릴 자리가 없고, 서버 목록이
+    // 있는 아래 정상 경로도 이미 이름만 쓴다(line: `label: name`) -- 폴백만 글리프를 달고
+    // 있던 불일치가 사라진다.
     return categoryCatalog.map((entry) => ({
       id: entry.id,
-      label: `${entry.icon} ${entry.label}`,
+      label: entry.label,
       // L7: 문장에 들어가는 것은 아이콘 없는 이름이다.
       plainLabel: entry.label,
       matchIds: [entry.id]

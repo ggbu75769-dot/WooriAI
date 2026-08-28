@@ -224,16 +224,23 @@ describe("라운드 48 QA(P2-5) 준비템 → 지출 기록 진입점 배선", (
 
   it("준비템 목록 탭의 '지출도 기록할까요?'가 출처를 함께 넘긴다", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain(
-      'expenseLinkParams({ itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId }, "items")'
-    );
+    // 라운드 49 C-02에서 같은 호출에 분류(categoryId)가 하나 더 실렸다 — 이 테스트가 지키는
+    // 사실은 그대로다: 출처("items")가 **이 조립기를 통해** 함께 넘어간다.
+    const promptStart = itemsSource.indexOf("const openExpenseLinkPrompt");
+    expect(promptStart).toBeGreaterThan(-1);
+    const promptBlock = itemsSource.slice(promptStart, itemsSource.indexOf("return (", promptStart));
+    expect(promptBlock).toContain("expenseLinkParams(");
+    expect(promptBlock).toContain("itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId");
+    expect(promptBlock).toContain('"items"');
   });
 
   it("준비템 상세의 두 버튼이 **같은 조립기로** 출처를 넘긴다(버튼마다 목적지가 갈리지 않게)", () => {
     const detailSource = source("app/items/[itemTemplateId].tsx");
+    // 라운드 49 C-02: 같은 조립기 호출에 분류(categoryId)가 더해졌다. 지키는 사실은 그대로다 --
+    // 두 버튼이 **같은 파라미터 조립기**를 타야 목적지가 버튼마다 갈리지 않는다.
     const calls =
       detailSource.match(
-        /expenseLinkParams\(\{ itemName: visibleDetail\.name, itemTemplateId \}, "item-detail"\)/g
+        /expenseLinkParams\(\s*\{ itemName: visibleDetail\.name, itemTemplateId, categoryId: visibleDetail\.categoryId \},\s*"item-detail"\s*\)/g
       ) ?? [];
     // ① 상시 진입점("이미 샀어요 · 지출로 기록") ② 링크 클릭 후 카드의 "지출 기록하고 준비 완료".
     expect(calls).toHaveLength(2);

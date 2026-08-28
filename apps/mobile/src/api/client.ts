@@ -133,6 +133,15 @@ export type Expense = {
    * 링크를 그린다. 품목 이름은 이 응답에 없다 — 이름이 필요하면 준비템 상세를 따로 연다.
    */
   linkedItemTemplateId?: string | null;
+  /**
+   * 라운드 49 C-06: 어떤 제휴 링크를 눌러서 산 것인지(product_links.id). 구매 확인 카드의
+   * "샀어요"에서 이어진 기록에만 값이 있고, 그 밖에는 null/미포함이다.
+   *
+   * ⚠️ DNC-009: **기록·정산용 식별자다.** 추천 점수·정렬(src/items/item-ranking.ts)에
+   * 절대 유입되면 안 된다 — 수수료가 추천 순서를 바꾸는 순간 화면의 순위가 거짓이 된다.
+   * 화면에 그리는 값도 아니다(지금 이 값을 읽는 UI는 없다).
+   */
+  linkedProductLinkId?: string | null;
   expenseType: "expense" | "gift" | "refund";
   source: "manual" | "excel_import" | "purchase_followup" | "admin";
   // MOB-103 (round5a-sprint1-plan.md §2.1): optimistic-concurrency version, 1 on create, +1 on
@@ -249,6 +258,10 @@ export type ItemSummary = {
   name: string;
   necessityLevel: "essential" | "convenience" | "optional";
   status: ItemStatus;
+  // 라운드 49 C-02: 준비템이 속한 지출 분류(categories.id). "준비템 → 지출 기록" 프리필이
+  // 품목명만 넘기고 분류는 늘 기본 타일로 떨어지던 구멍을 메운다. optional인 이유는 두 가지다:
+  // 서버 컬럼 자체가 nullable이고, 로컬 백엔드 픽스처처럼 값을 갖지 않는 경로가 있다.
+  categoryId?: string;
   timingLabel?: string;
   priceBandText?: string;
   stageCodes?: ChildStageCode[];
@@ -271,6 +284,10 @@ export type ItemDetail = ItemSummary & {
   // 라운드 48 T1: 의료/영양제 성격 준비템의 상담 안내 표시 여부(DNC-020). 서버는 항상
   // boolean을 주지만, 로컬 백엔드 픽스처처럼 값을 갖지 않는 경로가 있어 optional이다.
   medicalDisclaimerRequired?: boolean;
+  // 라운드 49 C-04: 이 준비템으로 실제 기록한 지출(연결이 없거나 그 지출이 삭제됐으면 null).
+  // 서버가 삭제되지 않은 지출만 싣는다 — 지운 지출의 금액이 상세에 남으면 총액과 어긋난다.
+  // 로컬 백엔드 픽스처는 아직 이 필드를 만들지 않으므로 optional이다.
+  linkedExpense?: { id: string; amountKrw: number; spentOn: string } | null;
   productLinks: ProductLink[];
 };
 
@@ -816,6 +833,9 @@ export function createExpense(
     paymentMethod?: "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
     memo?: string;
     linkedItemTemplateId?: string;
+    /** 라운드 49 C-06: 눌러서 산 제휴 링크 id(서버 CreateExpenseDto의 미러).
+     *  ⚠️ DNC-009 — 기록·정산용이며 추천 점수·정렬에 유입 금지(Expense 타입 주석 참고). */
+    linkedProductLinkId?: string;
     expenseType?: "expense" | "gift";
   }
 ) {
@@ -865,8 +885,11 @@ export function getExpense(token: string, expenseId: string) {
 // 라운드 48 QA(P2-6): `paymentMethod`가 더해졌다 — 서버 UpdateExpenseDto가 이제 받는다
 // (packages/contracts `updateExpenseRequestSchema`). 충돌 병합 화면이 결제 수단을 고르게 해 놓고
 // 그 선택을 보낼 자리가 없던 구멍을 막는다. optional이라 기존 호출부는 그대로다.
+// 라운드 49 C-03: `merchant`가 더해졌다 — 서버 UpdateExpenseDto가 이제 받는다. 판매처는
+// 충돌 병합 화면의 비교 항목이면서(`diffExpenseFields`) 지출 상세의 편집 대상인데도 보낼
+// 자리가 없어, 결제 수단과 똑같이 **고르게 해 놓고 조용히 무시**하던 필드였다.
 export type UpdateExpenseBody = Partial<
-  Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "paymentMethod">
+  Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "paymentMethod" | "merchant">
 > & {
   expenseType?: "expense" | "gift";
 };
@@ -1011,6 +1034,9 @@ export function createExpenseWithIdempotency(
     paymentMethod?: "unknown" | "cash" | "card" | "transfer" | "mobile_pay";
     memo?: string;
     linkedItemTemplateId?: string;
+    /** 라운드 49 C-06: 위 createExpense와 같은 계약(오프라인 아웃박스 flush가 쓰는 경로).
+     *  ⚠️ DNC-009 — 기록·정산용이며 추천 점수·정렬에 유입 금지. */
+    linkedProductLinkId?: string;
     expenseType?: "expense" | "gift";
   },
   idempotencyKey: string

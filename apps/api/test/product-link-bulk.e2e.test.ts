@@ -159,9 +159,12 @@ describe.skipIf(!dbAvailable)("Admin product-link bulk replace (COM-107-prep, re
     return { cookie, csrfToken };
   }
 
-  async function adminSession() {
-    await createAdmin("bulk-admin@wooriai.local", "bulk-admin-password-1", "admin");
-    return loginAndEnroll("bulk-admin@wooriai.local", "bulk-admin-password-1");
+  // C-11a: 세션과 함께 이 스위트가 쓰는 어드민 계정의 id를 돌려준다 — 감사 로그
+  // 단언을 actorUserId로 좁히려면 필요하다(아래 bulk-apply 테스트 주석 참고).
+  async function adminSession(): Promise<{ id: string; cookie: string; csrfToken: string }> {
+    const admin = await createAdmin("bulk-admin@wooriai.local", "bulk-admin-password-1", "admin");
+    const session = await loginAndEnroll("bulk-admin@wooriai.local", "bulk-admin-password-1");
+    return { id: admin.id, ...session };
   }
 
   it("previews every row without writing: valid matches (by id and by template+platform) and per-row error codes", async () => {
@@ -231,6 +234,9 @@ describe.skipIf(!dbAvailable)("Admin product-link bulk replace (COM-107-prep, re
 
   it("applies only valid rows in a transaction, is idempotent on re-upload, and audit-logs counts without URLs", async () => {
     const admin = await adminSession();
+    // C-11a: 감사 로그를 읽기 전에 시각을 찍어 둔다 — 아래 findMany를 이 테스트가
+    // 만든 행으로 좁히는 하한선이다.
+    const since = new Date();
 
     const csv = [
       "productLinkId,itemTemplate,platform,affiliateUrl,priceSnapshotKrw",
@@ -270,11 +276,23 @@ describe.skipIf(!dbAvailable)("Admin product-link bulk replace (COM-107-prep, re
     expect(second.body).toEqual({ applied: 0, skipped: 2, errors: 1 });
 
     // One summary audit entry per upload: counts only, no URLs.
+    //
+    // C-11a: `action`만으로 조회하면 안 된다. admin-idempotency.e2e.test.ts가 같은
+    // action("admin.product_link.bulk_replace")을 자기 어드민 계정으로 세 번 남기고,
+    // 두 파일 모두 EXCLUSIVE_SUITES(test/helpers/db-lock.setup.ts)가 아니라 워커
+    // 여럿에서 나란히 돌 수 있다 — 그러면 마지막 행이 남의 업로드일 수 있어
+    // 이 단언이 무작위로 깨진다. 같은 저장소의 관례(admin-idempotency.e2e.test.ts의
+    // bulkAuditCount)대로 actorUserId + 이 테스트 시작 시각으로 모집단을 좁힌다.
     const auditRows = await prisma.auditLog.findMany({
-      where: { action: "admin.product_link.bulk_replace" },
+      where: {
+        actorUserId: admin.id,
+        action: "admin.product_link.bulk_replace",
+        createdAt: { gte: since }
+      },
       orderBy: { createdAt: "asc" }
     });
-    expect(auditRows.length).toBeGreaterThanOrEqual(2);
+    // 좁힌 뒤에는 정확히 두 건 — 이 테스트가 올린 업로드 두 번이 전부다.
+    expect(auditRows.length).toBe(2);
     const latest = auditRows[auditRows.length - 1];
     expect(latest.afterJson).toMatchObject({ applied: 0, skipped: 2, errors: 1, totalRows: 3 });
     expect(JSON.stringify(latest.afterJson)).not.toContain("https://");

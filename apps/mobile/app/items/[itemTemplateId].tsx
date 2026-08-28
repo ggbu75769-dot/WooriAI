@@ -31,6 +31,7 @@ import {
 } from "../../src/items/link-marker";
 import { itemStatusBadgeLabel } from "../../src/items/item-labels";
 import { itemTrustNotes } from "../../src/items/item-trust-notes";
+import { linkedExpenseRow } from "../../src/items/linked-expense";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -52,6 +53,7 @@ import {
   ProductComparisonRow,
   SecondaryButton,
   StatusBadge,
+  TextButton,
   Toast
 } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
@@ -457,6 +459,12 @@ export default function ItemDetailScreen() {
    * 남는다(productLinkMarker — DNC-010/DNC-011).
    */
   const affiliateDisclosureText = productLinksDisclosureText(visibleDetail.productLinks);
+  /**
+   * 라운드 49 C-04: "이 준비템으로 기록한 지출" 한 줄. 세션 게이트·표기·문구는 전부 순수
+   * 모듈이 정하고(src/items/linked-expense.ts) 화면은 그리기만 한다 -- 비세션 프리뷰
+   * (ITEM-002 픽셀 락 캡처)에서는 null이라 줄 자체가 없다.
+   */
+  const linkedExpense = linkedExpenseRow({ hasSession, linkedExpense: visibleDetail.linkedExpense });
   // ITEM-123 (B4): 상태를 바꾸기 전 확인 -- 지출 삭제/설정 화면과 같은 Alert 관례
   // (질문형 제목 + "취소" cancel 버튼 + 실행 버튼). 준비 전으로 되돌리는 쪽도 목록에서
   // 항목이 다시 나타나는 눈에 띄는 변화라 같이 확인한다.
@@ -511,6 +519,9 @@ export default function ItemDetailScreen() {
         // ANA-127: carried so the prompt's purchase_followup_answered can report the same
         // `platform` dimension this click's affiliate_link_clicked just reported.
         platform: link.platform,
+        // 라운드 49 C-06(a)가 준비해 둔 선택 인자 배선 -- "샀어요"가 만든 지출이 어떤 상품
+        // 링크에서 왔는지 남긴다(빠진 동안에는 늘 undefined였다).
+        productLinkId: link.id,
         clickedAt: Date.now()
       });
       clickLink.mutate(link.id);
@@ -548,6 +559,24 @@ export default function ItemDetailScreen() {
                 (not_prepared)은 알릴 사실이 없어 줄 자체가 나오지 않는다.
                 세션 게이트: ITEM-002 픽셀 락 캡처(비세션 프리뷰)에는 존재하지 않는다. */}
             {hasSession && statusBadgeLabel ? <StatusBadge label={statusBadgeLabel} /> : null}
+            {/* 라운드 49 C-04: 준비 상태 바로 아래에 **그 준비로 실제 기록한 지출** 한 줄.
+                지금까지 연결은 "지출 → 준비템" 한 방향으로만 보였고(지출을 저장하면 준비템이
+                준비 완료가 된다, R19-B), 그 반대편인 이 화면에는 얼마를 언제 썼는지가 없었다 --
+                핵심 루프의 마지막 칸에서 확인할 수 있는 게 배지뿐이었다.
+
+                값은 전부 서버 응답 그대로다(금액을 가격대에서 추정하지 않는다). 서버가
+                **삭제되지 않은 지출만** 싣고(items-catalog.service.ts linkedExpenseDto), 값이
+                없으면 이 줄 자체가 없다. 세션 게이트는 모듈 안에 있어 ITEM-002 픽셀 락 캡처
+                (비세션 프리뷰)에는 나오지 않는다.
+
+                위치: 제휴 고지와 구매 CTA 사이가 아니라 정보 카드 안이다(DNC-010 인접성 무접촉). */}
+            {linkedExpense ? (
+              <TextButton
+                label={linkedExpense.text}
+                accessibilityLabel={linkedExpense.accessibilityLabel}
+                onPress={() => router.push(linkedExpense.href)}
+              />
+            ) : null}
             {/* UX-5B-1: 별점·최저가 등 API에 없는 가짜 수치는 렌더하지 않는다 -- 실제 응답의
                 가격대(priceBandText)만 보여주고, 없으면 아무것도 표시하지 않는다. */}
             {visibleDetail.priceBandText ? (
@@ -728,7 +757,13 @@ export default function ItemDetailScreen() {
                   // 라운드 48 QA(P2-5): 출처를 함께 넘겨 저장 후 준비템 탭으로 돌아간다 --
                   // 이 기록은 서버가 이 준비템을 준비 완료로 올리므로(R19-B), 결과가 보이는
                   // 화면으로 되돌아가는 것이 맞다(src/expenses/post-save-destination.ts).
-                  params: expenseLinkParams({ itemName: visibleDetail.name, itemTemplateId }, "item-detail")
+                  // 라운드 49 C-02: 준비템의 지출 분류까지 함께 넘긴다 — 서버 DTO에는 있었지만
+                  // (item_templates.category_id) 프리필이 버려서 분류가 늘 기본 타일로 떨어졌다.
+                  // 금액은 넘기지 않는다: priceBandText는 범위라 특정 값을 지어내는 셈이 된다.
+                  params: expenseLinkParams(
+                    { itemName: visibleDetail.name, itemTemplateId, categoryId: visibleDetail.categoryId },
+                    "item-detail"
+                  )
                 })
               )}
             />
@@ -760,7 +795,11 @@ export default function ItemDetailScreen() {
                     // 라운드 48 QA(P2-5): 위 상시 진입점과 **같은 파라미터 조립기**를 탄다.
                     // 두 버튼이 같은 곳으로 가는 같은 행동인데(G-8) 한쪽만 출처를 붙이면
                     // 저장 후 목적지가 어느 버튼을 눌렀느냐로 갈린다.
-                    params: expenseLinkParams({ itemName: visibleDetail.name, itemTemplateId }, "item-detail")
+                    // 라운드 49 C-02: 분류(categoryId)도 같은 조립기가 함께 싣는다.
+                    params: expenseLinkParams(
+                      { itemName: visibleDetail.name, itemTemplateId, categoryId: visibleDetail.categoryId },
+                      "item-detail"
+                    )
                   })
                 )}
               />

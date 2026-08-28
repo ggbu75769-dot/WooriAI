@@ -34,11 +34,55 @@ describe("지출 기록 프리필 파라미터", () => {
       itemName: "젖병",
       itemTemplateId: "tpl-1"
     });
-    // 새 파라미터를 더하지 않는다 -- 저장 경로가 갈라지면 "지출 저장 = 준비 완료" 연결이 한쪽에서만 돈다.
+    // 새 저장 경로를 만들지 않는다 -- 경로가 갈라지면 "지출 저장 = 준비 완료" 연결이 한쪽에서만 돈다.
     expect(Object.keys(expenseLinkParams({ itemName: "젖병", itemTemplateId: "tpl-1" })).sort()).toEqual([
       "itemName",
       "itemTemplateId"
     ]);
+  });
+
+  /**
+   * 라운드 49 C-02: 분류 프리필.
+   *
+   * /expenses/new의 프리필 계약은 이미 categoryId를 읽고 있었고(record-row-actions.ts의
+   * parseExpensePrefillParams — "또 기록"이 쓰던 길), 서버 DTO에도 값이 있었는데
+   * (item_templates.category_id, 시드 63개 전부) 준비템 진입점만 그 값을 버려서 분류가 늘
+   * 기본 타일로 떨어졌다. 계약을 새로 만들지 않고 있는 자리에 값을 실어 준다.
+   */
+  it("C-02: 분류가 있으면 categoryId를 함께 싣는다 (프리필 계약 재사용)", () => {
+    expect(expenseLinkParams({ itemName: "젖병", itemTemplateId: "tpl-1", categoryId: "cat-1" })).toEqual({
+      itemName: "젖병",
+      itemTemplateId: "tpl-1",
+      categoryId: "cat-1"
+    });
+  });
+
+  it("C-02: 분류가 없으면 키 자체를 만들지 않는다 (종전 파라미터와 한 글자도 다르지 않다)", () => {
+    for (const categoryId of [undefined, ""]) {
+      expect(Object.keys(expenseLinkParams({ itemName: "젖병", itemTemplateId: "tpl-1", categoryId })).sort()).toEqual([
+        "itemName",
+        "itemTemplateId"
+      ]);
+    }
+  });
+
+  it("C-02: 출처(from)와 분류는 함께 실릴 수 있다", () => {
+    expect(expenseLinkParams({ itemName: "젖병", itemTemplateId: "tpl-1", categoryId: "cat-1" }, "items")).toEqual({
+      itemName: "젖병",
+      itemTemplateId: "tpl-1",
+      categoryId: "cat-1",
+      from: "items"
+    });
+  });
+
+  /**
+   * 금액은 절대 싣지 않는다. 준비템이 가진 값은 가격대(priceBandText)뿐이라 **범위**이고,
+   * 그 안의 특정 값을 골라 금액 칸에 넣으면 사용자가 쓰지 않은 금액을 앱이 지어내는 셈이다.
+   */
+  it("C-02: 금액은 프리필하지 않는다 (가격대는 범위라 특정 값을 지어낼 수 없다)", () => {
+    const params = expenseLinkParams({ itemName: "젖병", itemTemplateId: "tpl-1", categoryId: "cat-1" }, "items");
+    expect(Object.keys(params)).not.toContain("amountKrw");
+    expect(source("src/items/expense-link-prompt.ts")).not.toContain("amountKrw");
   });
 });
 
@@ -250,9 +294,14 @@ describe("화면 배선 (source contract)", () => {
     expect(detail).toContain('pathname: "/expenses/new"');
     // 라운드 48 QA(P2-5): 같은 프리필 경로에 출처("item-detail") 한 개가 더 실린다 --
     // 저장 후 준비템 탭으로 돌아가기 위해서다(src/expenses/post-save-destination.ts).
-    expect(detail).toContain(
-      'params: expenseLinkParams({ itemName: visibleDetail.name, itemTemplateId }, "item-detail")'
-    );
+    // 라운드 49 C-02: 거기에 분류(categoryId)가 더해진다. 두 진입점(상시 버튼 / 클릭 후 카드)
+    // 모두 같은 조립기를 타야 하므로 **두 번** 나온다 -- 한쪽만 실으면 어느 버튼을 눌렀느냐로
+    // 프리필이 갈린다.
+    const detailPrefillCalls = detail.split(
+      "{ itemName: visibleDetail.name, itemTemplateId, categoryId: visibleDetail.categoryId },"
+    ).length - 1;
+    expect(detailPrefillCalls).toBe(2);
+    expect(detail).toContain('"item-detail"');
     expect(detail).toContain("accessibilityLabel={itemDetailExpenseLinkAccessibilityLabel(visibleDetail.name)}");
     // 문구는 화면에 인라인하지 않는다 -- 순수 모듈이 단일 소스다.
     expect(detail).not.toContain('label="이미 샀어요');

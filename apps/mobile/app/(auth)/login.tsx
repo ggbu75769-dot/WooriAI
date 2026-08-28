@@ -13,7 +13,6 @@ import {
 } from "../../src/auth/kakao-login";
 import { SESSION_EXPIRED_LOGIN_NOTICE } from "../../src/offline/messages";
 import { shouldShowSessionExpiredNotice } from "../../src/offline/session-expiry";
-import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { announceForA11y, AppScreen } from "../../src/ui";
@@ -112,7 +111,6 @@ export default function LoginScreen() {
   const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);
   const setSession = useSessionStore((state) => state.setSession);
   const startTestSession = useSessionStore((state) => state.startTestSession);
-  const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
   const requiredAccepted = termsAccepted && privacyAccepted;
 
   async function login() {
@@ -180,10 +178,14 @@ export default function LoginScreen() {
     // 통계 수집 동의(선택) toggle in settings, so the user can revoke it any time.
     setAnalyticsConsent(analyticsAccepted);
     if (isTestLoginEnabled) {
+      // 실기기 피드백 1: 예전에는 여기서 온보딩 완료 표시를 세워 여정을 통째로 건너뛰고 데모
+      // 데이터가 심어진 탭으로 곧장 들어갔다. 이제 테스트 로그인은 실계정 신규 가입과 같은
+      // 여정을 탄다 -- 데이터 0에서 시작해 온보딩에서 아이 정보부터 직접 입력한다. 목적지를
+      // "/"로 두는 이유는 그 판정(아이가 이미 있는가 = 이미 온보딩을 마쳤는가)이 app/index.tsx
+      // 한 곳에만 있어야 하기 때문이다.
       startTestSession();
-      markHomeReached();
       void upsertConsents(LOCAL_SESSION_TOKEN).catch(() => {});
-      router.replace(inviteResumeHref ?? "/(tabs)");
+      router.replace(inviteResumeHref ?? "/");
       return;
     }
     void login();
@@ -204,8 +206,12 @@ export default function LoginScreen() {
             </View>
           ) : null}
           <Text style={styles.title}>우리 아이의 기록을 시작해요</Text>
+          {/* 실기기 피드백 1: 테스트 빌드의 안내를 사실과 맞춘다 -- 더 이상 "준비된" 데이터가
+              들어 있는 계정이 아니라, 실제 가입과 똑같이 빈 상태에서 아이 정보부터 입력한다. */}
           <Text style={styles.subtitle}>
-            준비된 테스트 계정으로 로그인하고{`\n`}우리아이의 주요 화면을 편하게 둘러보세요.
+            {isTestLoginEnabled
+              ? "테스트 계정도 실제 가입과 똑같이 시작해요.\n아이 정보를 입력하면 바로 기록할 수 있어요."
+              : "준비된 테스트 계정으로 로그인하고\n우리아이의 주요 화면을 편하게 둘러보세요."}
           </Text>
           {/* AUTH-127: 만료 안내는 히어로 바로 아래(동의 카드 위)에 둔다 -- 화면에 들어오자마자
               읽히는 자리이고, 로그인 실패 에러 카드(하단)와 위치가 겹치지 않아 둘이 동시에
@@ -278,7 +284,7 @@ export default function LoginScreen() {
           </Pressable>
           <Text style={styles.testNotice}>
             {isTestLoginEnabled
-              ? "테스트 데이터는 이 기기에만 저장되며 실제 카카오 로그인이 아니에요."
+              ? "기록은 이 기기에만 저장되며 실제 카카오 로그인이 아니에요."
               : "로그인하면 필수 약관 동의가 계정에 저장돼요."}
           </Text>
           {loginError ? (

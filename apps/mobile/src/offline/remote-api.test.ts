@@ -150,6 +150,7 @@ describe("createClientRemoteExpenseApi -- 성공 경로와 client.ts 호출 인�
         amountKrw: 12000,
         spentOn: "2026-07-14",
         itemName: "기저귀",
+        merchant: "쿠팡",
         memo: "대형 박스",
         paymentMethod: "card",
         expenseType: "expense"
@@ -157,13 +158,65 @@ describe("createClientRemoteExpenseApi -- 성공 경로와 client.ts 호출 인�
       3,
       "idem-update-1"
     );
-    // childId/merchant/linkedItemTemplateId는 client.ts의 UpdateExpenseBody(=서버
+    // childId/linkedItemTemplateId/linkedProductLinkId는 client.ts의 UpdateExpenseBody(=서버
     // UpdateExpenseDto)에 없는 필드라 의도적으로 빠진다 — 넣으면 전역 ValidationPipe가
     // forbidNonWhitelisted라 400으로 거절하므로 이 누락은 계약이지 버그가 아니다.
+    // 라운드 49 C-03: `merchant`는 반대로 **여기 있어야 한다** — 충돌 화면의 비교 항목이자
+    // 지출 상세의 편집 대상인데 patch에서 빠져 있어 조용히 무시되던 필드였다.
     const patch = updateMock.mock.calls[0][2] as Record<string, unknown>;
     expect(Object.keys(patch).sort()).toEqual(
-      ["amountKrw", "categoryId", "expenseType", "itemName", "memo", "paymentMethod", "spentOn"].sort()
+      ["amountKrw", "categoryId", "expenseType", "itemName", "merchant", "memo", "paymentMethod", "spentOn"].sort()
     );
+  });
+
+  /**
+   * 라운드 49 C-03 — 판매처는 결제 수단과 **정확히 같은 구멍**이었다: 충돌 화면이
+   * `diffExpenseFields`로 판매처를 고르게 해 놓고, 전송 단계에서 그 선택이 사라졌다.
+   * 지출 상세의 판매처 편집도 같은 경로로 나간다.
+   */
+  it("updateExpense는 바뀐 판매처를 실어 보내고, 빈 문자열은 '지웠다'로 그대로 보낸다", async () => {
+    updateMock.mockResolvedValue(makeServerExpense({ version: 4 }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    await api.updateExpense("exp-1", makePayload({ merchant: "이마트" }), 3, "idem-update-mc");
+    expect(updateMock.mock.calls[0][2].merchant).toBe("이마트");
+
+    // 빈 문자열은 undefined로 접지 않는다 — 서버가 cleanOptionalText로 null을 만든다.
+    await api.updateExpense("exp-1", makePayload({ merchant: "" }), 3, "idem-update-mc2");
+    expect(updateMock.mock.calls[1][2].merchant).toBe("");
+  });
+
+  it("판매처가 없는 payload(구 대기 행)는 키를 만들지 않아 '변경 없음'으로 간다", async () => {
+    updateMock.mockResolvedValue(makeServerExpense({ version: 4 }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    await api.updateExpense("exp-1", makePayload({ merchant: null }), 3, "idem-update-mc3");
+    expect(updateMock.mock.calls[0][2].merchant).toBeUndefined();
+  });
+
+  /**
+   * 라운드 49 C-06 — "샀어요"에서 온 기록은 어느 제휴 링크였는지를 함께 남긴다. 생성에서만
+   * 실린다: 서버 UpdateExpenseDto에는 이 키가 없으므로 patch에 넣으면 400이다.
+   * ⚠️ DNC-009: 기록·정산용이며 추천 점수·정렬에 유입되지 않는다.
+   */
+  it("createExpense는 linkedProductLinkId를 싣고, updateExpense의 patch에는 넣지 않는다", async () => {
+    createMock.mockResolvedValue(makeServerExpense({ id: "exp-new", version: 1 }));
+    updateMock.mockResolvedValue(makeServerExpense({ version: 4 }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    await api.createExpense(makePayload({ linkedProductLinkId: "link-1" }), "idem-create-link");
+    expect(createMock.mock.calls[0][2].linkedProductLinkId).toBe("link-1");
+
+    await api.updateExpense("exp-1", makePayload({ linkedProductLinkId: "link-1" }), 3, "idem-update-link");
+    expect(updateMock.mock.calls[0][2]).not.toHaveProperty("linkedProductLinkId");
+  });
+
+  it("linkedProductLinkId가 없는 payload는 생성 body에도 키를 만들지 않는다", async () => {
+    createMock.mockResolvedValue(makeServerExpense({ id: "exp-new", version: 1 }));
+    const api = createClientRemoteExpenseApi(TOKEN);
+
+    await api.createExpense(makePayload(), "idem-create-nolink");
+    expect(createMock.mock.calls[0][2].linkedProductLinkId).toBeUndefined();
   });
 
   /**

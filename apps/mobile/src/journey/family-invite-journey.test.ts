@@ -43,7 +43,7 @@ import {
   type Child,
   type HouseholdMember
 } from "../api/client";
-import { resetLocalBackendForTests } from "../api/local-backend";
+import { resetLocalBackendForTests, seedLocalDemoFixturesForTests } from "../api/local-backend";
 import { LOCAL_CHILD_ID, LOCAL_DAD_USER_ID, LOCAL_HOUSEHOLD_ID } from "../api/local-fixtures";
 import { HOUSEHOLD_JOIN_INVALIDATE_KEYS, planAfterHouseholdJoin } from "../children/household-join";
 import { formatInviteExpiry, memberBadge } from "../family/memberLabels";
@@ -80,6 +80,9 @@ const journey: {
 describe("G2: 가족 초대·수락 여정 (local backend)", () => {
   beforeAll(() => {
     resetLocalBackendForTests();
+    // 실기기 피드백 1: 테스트 로그인은 이제 데이터 0에서 시작한다. 이 여정은 "이미 아이와
+    // 가족이 있는 세션"에서의 초대·수락을 검증하므로, 그 상태를 arrange로 직접 만들어 둔다.
+    seedLocalDemoFixturesForTests();
     useSessionStore.getState().clearSession();
     useSessionStore.getState().startTestSession();
   });

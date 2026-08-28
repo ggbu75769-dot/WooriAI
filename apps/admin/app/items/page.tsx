@@ -10,13 +10,16 @@ import {
   createItemTemplate,
   draftAndSubmitContentRevision,
   isAuthError,
+  listAdminCategories,
   listItemTemplates,
   updateItemTemplate,
+  type AdminCategory,
   type ChildStageCode,
   type ItemTemplate,
   type ItemTemplateInput,
   type NecessityLevel
 } from "../../src/lib/admin-api";
+import { itemCategoryOptions, type ItemCategoryOption } from "../../src/lib/item-category-options";
 import {
   EMPTY_ITEM_FILTERS,
   activeProductLinkCount,
@@ -31,6 +34,8 @@ import styles from "../../src/components/admin-page.module.css";
 
 type ItemFormState = {
   name: string;
+  /** 분류 categoryId. ""는 "고르지 않음" — 생성이면 분류 없이 저장, 수정이면 기존 분류 유지. */
+  categoryId: string;
   necessityLevel: NecessityLevel;
   timingLabel: string;
   priceMinKrw: string;
@@ -47,6 +52,7 @@ type ItemFormState = {
 function emptyItemForm(): ItemFormState {
   return {
     name: "",
+    categoryId: "",
     necessityLevel: "essential",
     timingLabel: "",
     priceMinKrw: "",
@@ -70,6 +76,9 @@ function emptyItemForm(): ItemFormState {
 function itemFormFromTemplate(item: ItemTemplate): ItemFormState {
   return {
     name: item.name,
+    // 라운드 49 C-02: 어드민 상세 응답이 categoryId를 실어 주면 그대로 프리필한다.
+    // 아직 안 실어 주는 동안에는 빈 선택으로 시작하고, 빈 선택은 "그대로 둠"이다.
+    categoryId: item.categoryId ?? "",
     necessityLevel: item.necessityLevel,
     timingLabel: item.timingLabel ?? "",
     priceMinKrw: item.priceMinKrw == null ? "" : String(item.priceMinKrw),
@@ -108,6 +117,10 @@ function toItemTemplateInput(form: ItemFormState, mode: "create" | "edit"): Item
     stageCodes: form.stageCodes.length ? form.stageCodes : undefined,
     active: form.active
   };
+  // 라운드 49 C-02: 분류는 고른 경우에만 보낸다. 서버 DTO가 @IsUUID라 ""는 400이고,
+  // 생략은 생성에서 "분류 없음", 수정에서 "기존 분류 유지"다(서버가 categoryId 생략을
+  // undefined로 흘려 보낸다) — 즉 분류 해제는 아직 어느 쪽으로도 표현할 수 없다.
+  if (form.categoryId) input.categoryId = form.categoryId;
   const timingLabel = form.timingLabel.trim();
   const skipReasonText = form.skipReasonText.trim();
   const safetyNote = form.safetyNote.trim();
@@ -145,16 +158,27 @@ function ItemFormFields({
   form,
   onChange,
   idPrefix,
-  mode
+  mode,
+  categoryOptions,
+  categoryLoadFailed
 }: {
   form: ItemFormState;
   onChange: (next: ItemFormState) => void;
   idPrefix: string;
   mode: "create" | "edit";
+  categoryOptions: ItemCategoryOption[];
+  categoryLoadFailed: boolean;
 }) {
   // ADM-124: 수정 폼에서 빈칸은 이제 "지움"이다(예전 안내 "비워두면 값을 바꾸지 않아요"는
   // 실제 동작과 어긋난 데다, 지우는 방법 자체가 없었다).
   const priceHint = mode === "edit" ? "비우면 가격대를 지워요." : "비워두면 가격대를 표시하지 않아요.";
+  // 라운드 49 C-02: 분류는 가격/텍스트 칸과 규칙이 다르다 — 서버가 categoryId 생략을
+  // "그대로 둠"으로 해석하므로 수정에서 빈 선택은 지움이 아니라 유지다. 실제 동작과
+  // 어긋나는 안내를 두지 않으려고 모드별로 문구를 나눈다.
+  const categoryHint =
+    mode === "edit"
+      ? "비워두면 지금 분류를 그대로 둬요(분류 해제는 아직 지원하지 않아요)."
+      : "비워두면 분류 없이 저장해요. 앱에서 지출을 기록할 때 이 분류가 먼저 채워져요.";
   return (
     <div className={styles.form}>
       <div className={styles.formGrid}>
@@ -181,6 +205,28 @@ function ItemFormFields({
               </option>
             ))}
           </select>
+        </div>
+        {/* 라운드 49 C-02: 준비템 분류. 시드 밖에서 만든 준비템은 이 칸이 없던 동안
+            categoryId가 영영 null이라, 앱의 "준비템 → 지출 기록" 분류 프리필이 그
+            품목에서만 조용히 동작하지 않았다. */}
+        <div className={styles.field}>
+          <label htmlFor={`${idPrefix}-category`}>분류</label>
+          <select
+            id={`${idPrefix}-category`}
+            value={form.categoryId}
+            onChange={(event) => onChange({ ...form, categoryId: event.target.value })}
+          >
+            <option value="">분류 없음</option>
+            {categoryOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+          <span className={styles.hint}>{categoryHint}</span>
+          {categoryLoadFailed ? (
+            <span className={styles.hint}>분류 목록을 불러오지 못해 지금은 고를 수 없어요.</span>
+          ) : null}
         </div>
         <div className={styles.field}>
           <label htmlFor={`${idPrefix}-timing`}>타이밍 라벨</label>
@@ -301,6 +347,10 @@ export default function ItemTemplatesPage() {
   const { session, clearSession } = useAdminSession();
   const [items, setItems] = useState<ItemTemplate[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // 라운드 49 C-02: 분류 셀렉트의 선택지. /categories 조회는 어드민 역할 전부에게
+  // 열려 있어(admin-categories.controller.ts) 편집자 계정에서도 그대로 쓴다.
+  const [categories, setCategories] = useState<AdminCategory[]>([]);
+  const [categoryLoadFailed, setCategoryLoadFailed] = useState(false);
 
   const [createForm, setCreateForm] = useState<ItemFormState>(emptyItemForm());
   const [creating, setCreating] = useState(false);
@@ -335,9 +385,30 @@ export default function ItemTemplatesPage() {
     }
   }, [session, clearSession]);
 
+  // 분류 목록은 준비템 목록과 독립적으로 실패할 수 있다. 실패해도 나머지 폼은 그대로
+  // 쓸 수 있어야 하므로(분류만 못 고르는 상태) 목록 전체를 막는 loadError와 섞지 않는다.
+  const loadCategories = useCallback(async () => {
+    if (!session) return;
+    try {
+      const result = await listAdminCategories();
+      setCategories(result.categories);
+      setCategoryLoadFailed(false);
+    } catch (error) {
+      if (isAuthError(error)) {
+        clearSession();
+        return;
+      }
+      setCategoryLoadFailed(true);
+    }
+  }, [session, clearSession]);
+
   useEffect(() => {
     loadItems();
   }, [loadItems]);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
 
   if (!session) return null;
 
@@ -346,6 +417,8 @@ export default function ItemTemplatesPage() {
   const isEditor = session.admin.role === "editor";
 
   const filteredItems = items ? filterItemTemplates(items, filters) : null;
+  const createCategoryOptions = itemCategoryOptions(categories, createForm.categoryId);
+  const editCategoryOptions = itemCategoryOptions(categories, editForm.categoryId);
   const filtersApplied = hasAnyItemFilter(filters);
 
   const handleCreate = async () => {
@@ -435,7 +508,14 @@ export default function ItemTemplatesPage() {
       <section className={styles.card}>
         <h2>새 준비템 추가</h2>
         {isEditor ? <p className={styles.hint}>편집자 계정은 바로 저장하지 않고, 검토 요청을 관리자에게 보내요.</p> : null}
-        <ItemFormFields form={createForm} onChange={setCreateForm} idPrefix="create" mode="create" />
+        <ItemFormFields
+          form={createForm}
+          onChange={setCreateForm}
+          idPrefix="create"
+          mode="create"
+          categoryOptions={createCategoryOptions}
+          categoryLoadFailed={categoryLoadFailed}
+        />
         {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
         {createSuccess ? (
           <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
@@ -557,7 +637,14 @@ export default function ItemTemplatesPage() {
                     {editingId === item.id ? (
                       <tr>
                         <td colSpan={7}>
-                          <ItemFormFields form={editForm} onChange={setEditForm} idPrefix={`edit-${item.id}`} mode="edit" />
+                          <ItemFormFields
+                            form={editForm}
+                            onChange={setEditForm}
+                            idPrefix={`edit-${item.id}`}
+                            mode="edit"
+                            categoryOptions={editCategoryOptions}
+                            categoryLoadFailed={categoryLoadFailed}
+                          />
                           {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
                           {editError ? <p className={styles.errorBanner}>{editError}</p> : null}
                           <div className={styles.actions}>

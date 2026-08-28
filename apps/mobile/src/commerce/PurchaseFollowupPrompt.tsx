@@ -13,6 +13,7 @@ import { theme } from "../theme";
 import { createPurchaseFollowupSessionGate, evaluateFollowupPrompt } from "./purchase-followup-session";
 import {
   isFollowupForSelectedChild,
+  purchaseFollowupMerchantLabel,
   usePurchaseFollowupStore,
   type PurchaseFollowupEntry
 } from "./purchase-followup.store";
@@ -183,6 +184,23 @@ export function PurchaseFollowupLifecycle() {
               return;
             }
             const { itemName, itemTemplateId } = activeFollowup;
+            /**
+             * 라운드 49 C-06(b): 이 카드는 **이미 알고 있는 사실**을 기록 화면에 넘긴다.
+             * 지금까지는 품목 이름과 준비템 id만 넘기고, 어느 플랫폼의 어느 링크를 눌러
+             * 산 것인지는 이 자리에서 그냥 버렸다 -- 그래서 사용자가 방금 쿠팡에서 산
+             * 물건인데도 판매처 칸이 비어 있었고(사용자가 다시 타이핑해야 했다), 지출과
+             * 제휴 링크를 잇는 열(linkedProductLinkId)은 영원히 비어 있었다.
+             *
+             * 두 값 모두 **사실만** 넘긴다: 판매처는 플랫폼을 아는 경우에만
+             * (custom 링크는 상호를 모르므로 넘기지 않는다 -- purchaseFollowupMerchantLabel),
+             * 링크 id는 대기 항목에 실제로 기록돼 있을 때만. 판매처는 프리필이라 기록
+             * 화면에서 사용자가 지우거나 고쳐 쓸 수 있다.
+             *
+             * ⚠️ DNC-009: linkedProductLinkId는 기록·정산용이다 -- 추천 점수·정렬로
+             * 흘러가면 안 된다.
+             */
+            const merchant = purchaseFollowupMerchantLabel(activeFollowup.platform);
+            const { productLinkId } = activeFollowup;
             trackAnswer("purchased");
             closeWith(completeFollowup);
             // 라운드 48 T4(D1): 어디에서 왔는지를 함께 넘긴다. 저장 후 목적지는 그 값으로
@@ -192,7 +210,15 @@ export function PurchaseFollowupLifecycle() {
             // 모이게 하기 위해서다(화면이 출처를 모르면 규칙을 적용할 자리도 없다).
             router.push({
               pathname: "/expenses/new",
-              params: { itemName, itemTemplateId, [EXPENSE_ENTRY_SOURCE_PARAM]: "purchase-followup" }
+              params: {
+                itemName,
+                itemTemplateId,
+                // 모르는 값은 파라미터 자체를 붙이지 않는다(빈 문자열을 넘기면 기록 화면이
+                // "판매처를 지웠다"와 "모른다"를 구분할 수 없다).
+                ...(merchant ? { merchant } : {}),
+                ...(productLinkId ? { linkedProductLinkId: productLinkId } : {}),
+                [EXPENSE_ENTRY_SOURCE_PARAM]: "purchase-followup"
+              }
             });
           }}
         />
