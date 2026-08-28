@@ -59,12 +59,15 @@ describe("UX-Q(C) ScreenHeader 뒤로가기 슬롯", () => {
     expect(block).not.toContain("display: onBack");
   });
 
-  it("터치 타깃은 44dp(theme.touchTarget)를 쓴다 — 새 치수를 만들지 않는다", async () => {
+  it("터치 타깃은 theme.touchTarget을 쓴다 — 새 치수를 만들지 않는다", async () => {
     const uiSource = source("src/ui.tsx");
     const { theme } = await import("./theme");
     expect(uiSource).toContain("height: theme.touchTarget");
     expect(uiSource).toContain("width: theme.touchTarget");
-    expect(theme.touchTarget).toBe(44);
+    // DSN-053 P1: 승인 캡처의 최소 터치 타깃은 48dp다(44는 Round 5A에서 낮춘 값).
+    // 이 테스트가 지키는 요지는 "화면이 44/48 같은 숫자를 직접 적지 않고 토큰을 쓴다"이므로
+    // 값만 갱신한다 — 48은 44보다 크므로 접근성 하한은 그대로 지켜진다.
+    expect(theme.touchTarget).toBe(48);
   });
 
   it("onBack을 넘기지 않는 화면은 ScreenHeader 호출부가 그대로다", () => {

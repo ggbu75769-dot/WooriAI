@@ -30,37 +30,67 @@ function readSource(relativePath: string): string {
   return readFileSync(filePath, "utf8");
 }
 
+// DSN-053 P1: 아래 스케일 값들은 **승인 캡처(c20deeb)의 값**으로 갱신했다
+// (docs/5차/design-restore-spec.md "토큰 롤백 표"). 이 블록이 지키는 요지는 바뀌지 않는다 --
+// "화면이 색 리터럴을 직접 쓰지 않도록 토큰이 한 곳에 있고, 레거시 평면 키는 지워지지 않고
+// 그 토큰으로 재지향된다". 갱신한 것은 그 토큰이 가리키는 **값**뿐이다.
 describe("D0 theme tokens", () => {
   it("defines the coral scale", async () => {
     const { theme } = await import("./theme");
     expect(theme.colors.coral).toEqual({
-      50: "#FFF3F0",
-      100: "#FFE4DD",
-      200: "#FFC9BB",
-      300: "#FFA88E",
-      400: "#F97B5C",
-      500: "#EF6644",
-      600: "#DB4F2E",
-      700: "#B93E23"
+      50: "#FFF4EF",
+      100: "#FFE4D8",
+      200: "#FFC8B5",
+      300: "#FFA58A",
+      400: "#F98060",
+      500: "#E85F3B",
+      600: "#C94627",
+      700: "#A93720",
+      800: "#862D1D",
+      900: "#67251B"
     });
   });
 
   it("defines cream, text, and semantic token groups", async () => {
     const { theme } = await import("./theme");
-    expect(theme.colors.cream).toEqual({ bg: "#FFF8F1", surface: "#FFFFFF", surfaceAlt: "#FFF9F3" });
-    expect(theme.colors.text).toEqual({ primary: "#3D3733", secondary: "#6E645C", tertiary: "#9C918A" });
+    expect(theme.colors.cream).toEqual({ bg: "#FFFDFC", surface: "#FFFFFF", surfaceAlt: "#F8F6F4" });
+    expect(theme.colors.text).toEqual({ primary: "#211E1C", secondary: "#5F5854", tertiary: "#7A716B" });
     expect(theme.colors.semantic).toEqual({
-      success: "#2E9E6B",
-      warning: "#E8A13A",
-      danger: "#D3382F",
-      info: "#5B7FA6"
+      success: "#16794B",
+      warning: "#B45309",
+      danger: "#B42318",
+      info: "#1D4ED8"
+    });
+  });
+
+  it("defines the brand identity and named presentation surfaces", async () => {
+    const { theme } = await import("./theme");
+    expect(theme.colors.brandIdentity).toEqual({
+      canvas: "#FFF9F3",
+      navy: "#17324D",
+      persimmon: "#FF6B4A",
+      butter: "#FFD76A"
+    });
+    // 화면이 raw 리터럴 대신 이름으로 부르는 10개 서피스. 값이 아니라 **이름이 존재한다**는
+    // 것이 요지다 -- 이름이 빠지면 그 자리는 다시 리터럴로 돌아간다.
+    expect(theme.colors.presentation).toEqual({
+      dangerSurface: "#FFF0ED",
+      segmentedTrack: "#F5F0EA",
+      chartPlot: "#FFF4EE",
+      splashStageSurface: "#FFF9F4",
+      importCanvas: "#FFFCFA",
+      previewCoral: "#FFF0EA",
+      previewYellow: "#FFF5D7",
+      previewGreen: "#EAF7F2",
+      previewPeach: "#FFECE6",
+      previewNeutral: "#ECECEC"
     });
   });
 
   it("redirects legacy flat color keys onto the new D0 tokens instead of deleting them", async () => {
     const { theme } = await import("./theme");
-    expect(theme.colors.mainCoral).toBe(theme.colors.coral[500]);
-    expect(theme.colors.subCoral).toBe(theme.colors.coral[400]);
+    expect(theme.colors.mainCoral).toBe(theme.colors.coral[600]);
+    expect(theme.colors.subCoral).toBe(theme.colors.coral[500]);
     expect(theme.colors.peach).toBe(theme.colors.coral[100]);
     expect(theme.colors.beige).toBe(theme.colors.cream.surfaceAlt);
     expect(theme.colors.brown).toBe(theme.colors.text.primary);
@@ -94,13 +124,82 @@ describe("D0 theme tokens", () => {
   });
 });
 
-// MOB-121: the D0 MoneyText contract block was removed along with src/ui/MoneyText.tsx —
-// a dead component no screen adopted; money rendering goes through src/money.ts's formatKrw.
+// DSN-053 P1: MOB-121(MoneyText)·CLN-130(ListRow)이 "아무 화면도 채택하지 않은 죽은 컴포넌트"
+// 라며 지웠던 두 블록을 c20deeb에서 되돌린다. 승인 캡처의 시각 문법(금액 위계, 왼쪽 원형 아이콘
+// 슬롯 행)이 이 둘을 전제로 하고, P2 화면 트랙이 채택한다.
 
-// CLN-130: the D0 ListRow contract block was removed along with src/ui/ListRow.tsx — the
-// "additive, alongside src/ui.tsx" component that no screen ever adopted. Rows go through
-// src/ui.tsx's ListRow (settings, records, notifications), whose touch-target and button-role
-// contracts live in src/a11y-contract.test.ts.
+describe("D0 MoneyText component contract", () => {
+  const source = readSource("src/ui/MoneyText.tsx");
+
+  it("exposes hero|section|row size tiers backed by theme.money", () => {
+    expect(source).toContain('export type MoneyTextSize = "hero" | "section" | "row"');
+    expect(source).toContain("theme.money[size]");
+  });
+
+  it("renders the 원 suffix a step smaller than the number and applies tabular-nums", () => {
+    expect(source).toContain("formatKrwParts");
+    expect(source).toContain("suffixFontSize");
+    expect(source).toContain("tier.fontSize * 0.6");
+    expect(source).toContain('fontVariant: ["tabular-nums"]');
+  });
+
+  it("prefixes income/refund amounts with + and colors them with semantic.success", () => {
+    expect(source).toContain('sign?: "income" | "refund"');
+    expect(source).toContain("theme.colors.semantic.success");
+    expect(source).toContain('sign ? "+" : ""');
+  });
+
+  it("is backed by a live formatKrwParts export, not a re-inlined formatter", async () => {
+    const { formatKrwParts } = await import("./money");
+    expect(formatKrwParts(38500)).toEqual({ number: "38,500", suffix: "원" });
+    // 부호는 컴포넌트가 붙인다 -- 포맷터는 언제나 절댓값이다.
+    expect(formatKrwParts(-38500)).toEqual({ number: "38,500", suffix: "원" });
+    expect(formatKrwParts(Number.NaN)).toEqual({ number: "0", suffix: "원" });
+  });
+});
+
+describe("D0 ListRow component contract", () => {
+  const source = readSource("src/ui/ListRow.tsx");
+
+  it("is additive -- does not replace the pre-existing ListRow in src/ui.tsx", () => {
+    const legacyUiSource = readSource("src/ui.tsx");
+    expect(legacyUiSource).toContain("export function ListRow(");
+  });
+
+  it("exposes a left circular color icon slot, title+subtitle, and a right value/badge slot", () => {
+    expect(source).toContain("iconBackgroundColor");
+    expect(source).toContain("borderRadius: 20");
+    expect(source).toContain("title: string");
+    expect(source).toContain("subtitle?: string");
+    expect(source).toContain("value?: string");
+    expect(source).toContain("badge?: React.ReactNode");
+  });
+
+  it("keeps the row's touch target at theme.touchTarget regardless of onPress", () => {
+    expect(source).toContain("minHeight: theme.touchTarget");
+  });
+});
+
+describe("D6 EmptyState component contract", () => {
+  const source = readSource("src/ui/EmptyState.tsx");
+
+  it("exposes icon/title/description/cta props", () => {
+    expect(source).toContain("icon?: string");
+    expect(source).toContain("title: string");
+    expect(source).toContain("description?: string");
+    expect(source).toContain("ctaLabel?: string");
+    expect(source).toContain("onPressCta?: () => void");
+  });
+});
+
+describe("D0 StageBadge component contract", () => {
+  const source = readSource("src/ui/StageBadge.tsx");
+
+  it("uses coral-50 background with coral-700 text", () => {
+    expect(source).toContain("theme.colors.coral[50]");
+    expect(source).toContain("theme.colors.coral[700]");
+  });
+});
 
 describe("D0/D6 Skeleton component contract", () => {
   const source = readSource("src/ui/Skeleton.tsx");

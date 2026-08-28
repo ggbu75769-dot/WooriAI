@@ -153,7 +153,7 @@ describe("UX-C quick-expense auto-fill wiring", () => {
     expect(newExpenseSource).toContain("if (!authToken) return;\n    if (categoryTouchedRef.current) return;");
     // 픽셀 락 계약 불변: 캡처 조건과 캡처 문자열은 그대로.
     expect(newExpenseSource).toContain('const isPixelLockAmountCapture = !authToken && amountText === "38500";');
-    expect(newExpenseSource).toContain('const quickExpenseAmountPreview = "₩ 38,500";');
+    expect(newExpenseSource).toContain('const quickExpenseAmountPreview = "38,500원";');
     // UX-L(A): 세션이 있을 때의 초기 금액이 "빈 문자열 고정"에서 "프리필 금액(없으면 빈 칸)"이
     // 됐다. 캡처 조건(세션 없음)에서는 프리필이 올 수 없어 여전히 고정 시드 "38500"이다 --
     // EXP-001 기준 이미지는 그대로이고, 시트를 여는 것만으로 금액이 생기지도 않는다.

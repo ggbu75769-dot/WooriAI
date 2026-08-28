@@ -23,8 +23,12 @@ function listSettingsScreenSources(): string[] {
 
 /**
  * FIX-118B(F4): coral text tokens that fail WCAG AA at the sizes these screens actually use.
- * On the cream background (#FFF8F1) coral[500]/mainCoral is 3.16:1 and coral[600] ~3.9:1 -- only
- * coral[700] (#B93E23) clears 4.5:1. Matches the lowercase `color:` prop only, so brand fills
+ *
+ * 값 재검산 (DSN-053 P1, 팔레트가 c20deeb 값으로 롤백됨): 크림 배경(cream.bg #FFFDFC) 위에서
+ * coral[500] "#E85F3B"는 3.38:1, coral[600] "#C94627"는 4.72:1, coral[700] "#A93720"는 6.36:1이다.
+ * coral[600]은 흰 배경 하나만 놓고 보면 AA를 넘지만, 이 화면들이 실제로 쓰는 **연한 코랄 서피스**
+ * (coral[50] "#FFF4EF") 위에서는 4.43:1로 다시 미달한다 -- 그래서 목록에 남겨 둔다. 통과가
+ * 보장되는 것은 coral[700]뿐이다. Matches the lowercase `color:` prop only, so brand fills
  * (backgroundColor/borderColor/tintColor/trackColor) are deliberately untouched, which is the
  * same line A11Y-117 drew for the shared kit (ui.tsx smallCoralText vs PrimaryButton's fill).
  */

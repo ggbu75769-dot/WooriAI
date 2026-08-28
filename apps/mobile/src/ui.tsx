@@ -275,7 +275,7 @@ export function SegmentedControl({
   return (
     <View
       accessibilityRole="tablist"
-      style={{ backgroundColor: "#F5F0EA", borderRadius: theme.radii.pill, flexDirection: "row", padding: 4 }}
+      style={{ backgroundColor: theme.colors.presentation.segmentedTrack, borderRadius: theme.radii.pill, flexDirection: "row", padding: 4 }}
     >
       {options.map((option) => (
         <Pressable
@@ -592,11 +592,18 @@ export function ProductComparisonRow({
   seller,
   price,
   caption = "무료배송",
+  primaryAction = false,
   onPress
 }: {
   seller: string;
   price: string;
   caption?: string;
+  /**
+   * DSN-053 P1: 승인 캡처(ITEM-002)의 판매처 행은 **첫 줄만** 채워진 "구매하기" 버튼
+   * (coral[400] · 최소 폭 72)이고 나머지는 외곽선 "구매"(최소 폭 62)다. 기본값 false라
+   * 이 prop을 넘기지 않는 기존 호출부의 렌더는 한 픽셀도 바뀌지 않는다.
+   */
+  primaryAction?: boolean;
   onPress?: () => void;
 }) {
   return (
@@ -606,12 +613,21 @@ export function ProductComparisonRow({
         {caption ? <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{caption}</Text> : null}
       </View>
       {price ? <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "800" }]}>{price}</Text> : null}
-      <SecondaryButton
-        label="구매"
-        accessibilityLabel={`${seller}에서 구매하기`}
-        onPress={onPress}
-        style={{ minWidth: 62 }}
-      />
+      {primaryAction ? (
+        <PrimaryButton
+          label="구매하기"
+          accessibilityLabel={`${seller}에서 구매하기`}
+          onPress={onPress}
+          style={{ backgroundColor: theme.colors.coral[400], minWidth: 72 }}
+        />
+      ) : (
+        <SecondaryButton
+          label="구매"
+          accessibilityLabel={`${seller}에서 구매하기`}
+          onPress={onPress}
+          style={{ minWidth: 62 }}
+        />
+      )}
     </View>
   );
 }
@@ -768,7 +784,7 @@ export function LineChartCard({
           noticeText
             ? {
                 alignItems: "center",
-                backgroundColor: "#FFF4EE",
+                backgroundColor: theme.colors.presentation.chartPlot,
                 borderRadius: 14,
                 height: 104,
                 justifyContent: "center",
@@ -776,7 +792,7 @@ export function LineChartCard({
                 overflow: "hidden",
                 paddingHorizontal: 16
               }
-            : { backgroundColor: "#FFF4EE", borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }
+            : { backgroundColor: theme.colors.presentation.chartPlot, borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }
         }
         testID={noticeText ? "line-chart-empty-notice" : undefined}
       >

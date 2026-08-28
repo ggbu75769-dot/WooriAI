@@ -167,8 +167,8 @@ describe("라운드 48 T4(D1) 화면 배선 (app/expenses/new.tsx)", () => {
 
   it("보조 버튼은 세션이 있을 때만·준비템 연결이 없을 때만 그려진다(EXP-001 초기 렌더 불변)", () => {
     expect(newExpenseSource).toContain("{authToken && canContinueRecording({ linkedItemTemplateId }) ? (");
-    // 픽셀락 캡처가 찍는 초기 렌더 문자열은 그대로다.
-    expect(newExpenseSource).toContain("₩ 38,500");
+    // 픽셀락 캡처가 찍는 초기 렌더 문자열(DSN-053 P1에서 승인 캡처대로 "38,500원"으로 정정).
+    expect(newExpenseSource).toContain("38,500원");
   });
 
   it("저장 중·금액 미입력에는 두 버튼이 함께 잠긴다(보조 버튼만 열려 있는 우회로가 없다)", () => {
