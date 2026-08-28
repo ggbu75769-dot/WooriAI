@@ -409,10 +409,15 @@ describe("UX-A 주간 요약 화면 배선 계약 (app/(tabs)/index.tsx)", () =>
     expect(recordsSource).toContain("reconcileMonthlyExpenses(serverExpenses ?? [], childOfflineRows, recordsYearMonth)");
   });
 
-  it("F6: REP-121 전월 비교 한 줄의 데이터 경로는 그대로 둔다 (별건)", () => {
-    // 그 줄의 이번 달 항은 /home 서버 집계라, 지난달 항만 재조정하면 두 항의 규칙이 갈린다.
-    expect(homeSource).toContain("lastMonthRecords: lastMonthExpenses.data?.expenses ?? null");
+  it("라운드 51 #7: REP-121 전월 비교 한 줄도 두 항이 같은 재조정을 거친다", () => {
+    // F6은 이 줄을 종전 경로(서버 목록 원본)로 남겼다 -- "그 줄의 이번 달 항은 /home 서버
+    // 집계라, 지난달 항만 재조정하면 두 항의 규칙이 갈린다"는 이유였다(별건으로 남김).
+    // 라운드 51 #7이 이번 달 항(`monthlyUsed`)을 재조정 값으로 바꿨으므로, 지난달 항을 그대로
+    // 두면 **비대칭이 반대로 뒤집힌다**(이번 달 대기 행만 세는 비교). 두 항 모두 주간 카드가
+    // 이미 만든 재조정 결과를 쓴다 -- 새 요청은 늘지 않는다(같은 캐시·같은 함수).
+    expect(homeSource).toContain("lastMonthRecords: weeklyLastMonthRecords");
     expect(homeSource).toContain("thisMonthToDateKrw: monthlyUsed");
+    expect(homeSource).toContain("resolveThisMonthUsedKrw({");
   });
 
   it("카드에 소리용 라벨이 붙고 장식 글리프는 접근성 트리에서 감춰진다", () => {
