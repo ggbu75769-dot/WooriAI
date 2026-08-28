@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Platform, Pressable, RefreshControl, Share, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
@@ -52,6 +52,27 @@ import {
   categoryDrilldownNote,
   resolveDrilldownMonth
 } from "../../src/reports/category-drilldown";
+// GAP-066 트랙 A(#1): 끝난 달의 예산 결과 한 줄. 판정·문구는 전부 순수 모듈에 있고, 예산
+// 퍼센트는 홈 히어로·인사이트와 **같은** evaluateHomeBudgetProgress에서 온다(두 벌 금지).
+import {
+  buildCompletedMonthBudgetLine,
+  monthlyInsightSpokeBudget,
+  COMPLETED_MONTH_BUDGET_LINE_TEST_ID
+} from "../../src/reports/completed-month-budget";
+// GAP-066 트랙 A(#2): 달 라벨 → 월 선택 시트, 그리고 이 탭의 **달 착지 파라미터**(값 + 회차).
+import {
+  monthJumpTriggerAccessibilityLabel,
+  resolveMonthJumpEarliestMonth,
+  resolveMonthJumpOffset,
+  MONTH_JUMP_TRIGGER_HINT
+} from "../../src/month-jump";
+import { MonthJumpSheet } from "../../src/MonthJumpSheet";
+import {
+  resolveReportsMonthLandingNonceParam,
+  resolveReportsMonthLandingParam,
+  REPORTS_MONTH_NONCE_PARAM,
+  REPORTS_MONTH_PARAM
+} from "../../src/reports/month-landing";
 import { buildMonthlyInsight, resolveMonthStatus } from "../../src/reports/monthly-insight";
 import {
   evaluateReportPendingScopeNotice,
@@ -171,6 +192,21 @@ export default function ReportsScreen() {
    * 살아 있고(세션 간 저장 없음), 표시되지도 서버로 나가지도 않는다.
    */
   const [drilldownNonce, setDrilldownNonce] = useState(0);
+  /**
+   * GAP-066 트랙 A(#2) — 월 선택 시트의 열림 상태. 화면 상태로만 살아 있고(세션 간 저장 없음),
+   * 월간 탭에서만 열린다(분기·연간 라벨은 이미 한 번에 3·12개월을 건넌다).
+   */
+  const [monthJumpOpen, setMonthJumpOpen] = useState(false);
+  /**
+   * GAP-066 트랙 A(#2) — 달 착지가 세울 오프셋을 아래 "기간이 바뀌면 0으로" 효과에 넘기는 자리.
+   *
+   * 그 효과는 세그먼트를 바꿀 때마다 오프셋을 0으로 되돌린다(종전 규칙 그대로). 그런데 달 착지는
+   * 분기·연간에서 들어올 수 있고, 그때 `period`를 "월간"으로 바꾸는 순간 같은 커밋에서 세운
+   * 착지 오프셋이 그 효과에 지워진다. 그래서 착지가 **자기 오프셋을 이 ref에 맡기고**, 효과는
+   * 맡겨진 값이 있으면 0 대신 그 값을 세운다(맡긴 값은 한 번 쓰고 비운다 — 그다음 세그먼트
+   * 변경은 종전대로 0이다).
+   */
+  const pendingPeriodResetOffsetRef = useRef<number | null>(null);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -193,14 +229,56 @@ export default function ReportsScreen() {
 
   // Reset navigation offset whenever the selected period changes so "다음/이전"
   // always starts from the current month/quarter/year for the newly selected unit.
+  // GAP-066 트랙 A(#2): 달 착지가 방금 월간으로 바꾼 경우에만, 그 착지 오프셋을 그대로 세운다
+  // (위 pendingPeriodResetOffsetRef 주석 -- 맡긴 값이 없으면 종전과 똑같이 0이다).
   useEffect(() => {
-    setMonthOffset(0);
+    const landedOffset = pendingPeriodResetOffsetRef.current;
+    pendingPeriodResetOffsetRef.current = null;
+    setMonthOffset(landedOffset ?? 0);
+    // 시트는 월간 탭의 컨트롤이다 -- 세그먼트를 옮기면 닫아, 돌아왔을 때 열어 둔 적 없는
+    // 시트가 서 있지 않게 한다.
+    setMonthJumpOpen(false);
   }, [period]);
 
   // Use the Seoul-local calendar day (not the device's local timezone) so report periods
   // line up with the server, which computes "이번 달/분기/연도" in KST.
   const seoulToday = getSeoulToday();
   const baseDate = hasSession ? new Date(`${seoulToday}T00:00:00`) : new Date(2025, 4, 1);
+
+  /**
+   * GAP-066 트랙 A(#2 후속) — **달 착지**: `month=YYYY-MM` + 회차(`monthJump`)로 이 탭의 그 달을
+   * 연다. 규약(이름·형식·방어)은 링크를 만드는 쪽과 같은 모듈에 있다
+   * (src/reports/month-landing.ts) -- 이 화면은 읽기만 한다.
+   *
+   * **회차 단위로** 적용하는 이유는 기록 탭이 드릴다운·달력 착지에서 배운 것과 같다(라운드 52 QA
+   * P1-1 · 라운드 57 QA P1-1): 탭 화면은 한 번 열리면 계속 마운트된 채 남으므로 값만 보고 가드
+   * 하면 같은 달로 두 번째 들어올 때 아무 일도 일어나지 않고(링크가 죽은 것처럼 보인다), 가드가
+   * 아예 없으면 재렌더·아이 전환마다 사용자가 ‹ 로 옮겨 둔 달을 착지가 되감는다.
+   *
+   * 초기값이 `undefined`인 것은 의도다(null이 아니다) — 회차 없는 링크의 회차는 `null`이라,
+   * "아직 아무것도 적용하지 않음"과 구별할 값이 하나 필요하다. 그래야 회차 없는 링크(수기
+   * 딥링크)도 첫 진입에서 정확히 한 번 적용된다.
+   *
+   * 비세션 미리보기(REP-001 픽셀락 캡처)는 파라미터 없이 들어오므로 이 효과가 곧바로 빠져나간다.
+   */
+  const reportParams = useLocalSearchParams<{ month?: string; monthJump?: string }>();
+  const monthLandingParam = resolveReportsMonthLandingParam(reportParams[REPORTS_MONTH_PARAM]);
+  const monthLandingNonce = resolveReportsMonthLandingNonceParam(reportParams[REPORTS_MONTH_NONCE_PARAM]);
+  const appliedMonthLandingNonceRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!monthLandingParam) return;
+    if (appliedMonthLandingNonceRef.current === monthLandingNonce) return;
+    appliedMonthLandingNonceRef.current = monthLandingNonce;
+    // 환산은 시트와 **같은 함수**다 — 미래 월·20년보다 먼 과거는 종전대로 이번 달(0)이다.
+    const landedOffset = resolveMonthJumpOffset(monthLandingParam, getSeoulToday());
+    // 달 착지는 월간 탭의 사실이다. 분기·연간에서 들어오면 세그먼트를 옮기고, 그때 도는
+    // "기간이 바뀌면 0" 효과가 이 오프셋을 지우지 않도록 값을 맡긴다(위 ref 주석).
+    if (period !== "월간") {
+      pendingPeriodResetOffsetRef.current = landedOffset;
+      setPeriod("월간");
+    }
+    setMonthOffset(landedOffset);
+  }, [monthLandingParam, monthLandingNonce, period]);
 
   const reportDate = period === "월간" ? addMonths(baseDate, monthOffset) : baseDate;
   const reportYearMonth = `${reportDate.getFullYear()}-${String(reportDate.getMonth() + 1).padStart(2, "0")}`;
@@ -357,6 +435,27 @@ export default function ReportsScreen() {
     queryFn: () => listChildren(authToken!)
   });
   const selectedChild = childrenQuery.data?.children.find((child) => child.id === childId) ?? null;
+  /**
+   * GAP-066 트랙 A(#2) — 월 선택 시트의 경계.
+   *
+   * 위쪽은 `canGoToNextPeriod`가 이미 말하는 "미래 아님" 규칙 그대로이고, 아래쪽은 **아이의
+   * 생년월일/예정일에서 파생**한다("기록이 있는 가장 오래된 달"을 아는 API가 없다 — 새 엔드포인트는
+   * 이번 범위 밖이다). 그 값은 바로 위 `["children"]` 캐시에서 그대로 읽으므로 **새 요청이 0건**
+   * 이고, 모르면 하한을 두지 않는다(모르면 막지 않는다 — 월 달력 픽커의 관례). 판정은 전부
+   * src/month-jump.ts에 있다.
+   */
+  const monthJumpBounds = {
+    todayIso: seoulToday,
+    earliestYearMonth: resolveMonthJumpEarliestMonth(selectedChild)
+  };
+  // 시트가 고른 달은 **기존 monthOffset으로 환산**해 넘긴다(이 화면의 상태 모양은 그대로다).
+  // 이동 안내는 화살표 이동과 **같은 계산**을 읽어 준다(A11Y-117).
+  const goToMonthFromJump = (yearMonth: string) => {
+    const nextOffset = resolveMonthJumpOffset(yearMonth, seoulToday);
+    setMonthJumpOpen(false);
+    setMonthOffset(nextOffset);
+    announceForA11y(periodLabelForOffset(baseDate, "month", nextOffset));
+  };
   /**
    * 라운드 48 T4(D3): 리포트 제목이 **누구의 리포트인지** 말하게 한다. 다자녀 가구에서는 아이를
    * 전환해도 이 화면이 똑같이 생겨서, 지금 보고 있는 숫자가 누구 것인지 확인할 방법이 화면 안에
@@ -615,6 +714,29 @@ export default function ReportsScreen() {
         })
       : null;
 
+  /**
+   * GAP-066 트랙 A(#1) — **끝난 달의 예산 결과** 한 줄("총 지출" 카드 아래).
+   *
+   * 서버는 어느 달이든 그 달의 예산을 실어 보내는데(monthly.data.budgetAmountKrw), 인사이트
+   * 카드의 2문장 상한이 끝난 달의 예산 문장을 거의 언제나 잘라 냈다 — 그래서 "지난달엔 지켰나"에
+   * 앱이 답하지 못했다. 새 요청도 새 집계도 없다: **이 화면이 이미 받아 둔 값 두 개**를 그대로
+   * 순수 모듈에 넘긴다(재집계 금지 — 서버 값 그대로).
+   *
+   * 게이트가 셋이다: ① 월간 탭에서만(분기·연간에는 합친 예산이라는 것이 존재하지 않는다),
+   * ② 끝난 달에서만(진행 중인 달은 홈이 진행률 바·경고 배너로 이미 말한다 — 모듈이 monthStatus로
+   * 막는다), ③ 인사이트가 그 달의 예산을 이미 말했으면 접는다(라운드 34 L1이 방향 행에서 내린
+   * 것과 같은 중복 방지 — 판정은 인사이트가 공개한 두 값만 읽는 monthlyInsightSpokeBudget).
+   */
+  const completedMonthBudgetLine =
+    hasSession && period === "월간" && monthly.isSuccess && !monthlyInsightSpokeBudget(monthlyInsight)
+      ? buildCompletedMonthBudgetLine({
+          yearMonth: reportYearMonth,
+          monthStatus,
+          budgetAmountKrw: monthly.data.budgetAmountKrw,
+          totalExpenseKrw: monthly.data.totalExpenseKrw
+        })
+      : null;
+
   // UX-H: 월간 요약 공유 문구. 인사이트 카드가 화면에 그린 문장과 "총 지출" 카드가 그린 금액을
   // **그대로** 실어, 보낸 문구와 화면이 어긋날 수 없게 한다(DNC-013/015).
   // 라운드 36 F-1/F-5: 어느 문장을 싣는지("가족에게 보내도 되는" 카테고리 1위 문장)와 진행 중인
@@ -741,7 +863,26 @@ export default function ReportsScreen() {
             {period === "월간" ? (
               <>
                 <ReportPeriodArrow accessibilityLabel="이전 달" direction="left" onPress={goToPreviousPeriod} />
-                <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
+                {/* GAP-066 트랙 A(#2): 달 라벨이 곧 월 선택 시트의 입구다. 선례는 같은 화면에
+                    있다 -- 라운드 49 C-09가 리포트 제목을 아이 전환 입구로 만들 때 <Text>를
+                    Pressable로 **감싸기만** 해 렌더를 바꾸지 않았다. 여기서도 라벨의 스타일·
+                    문자열은 한 글자도 손대지 않는다(레이아웃 속성 무변경).
+                    REP-001 픽셀락 게이트: 비세션 미리보기에서는 hasSession이 false라 아래 else
+                    분기, 즉 종전의 <Text>{periodLabel}</Text> 그대로다. */}
+                {hasSession ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={monthJumpTriggerAccessibilityLabel(periodLabel)}
+                    accessibilityHint={MONTH_JUMP_TRIGGER_HINT}
+                    hitSlop={8}
+                    onPress={() => setMonthJumpOpen((open) => !open)}
+                    testID="reports-month-jump-trigger"
+                  >
+                    <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
+                )}
                 <ReportPeriodArrow accessibilityLabel="다음 달" direction="right" isDisabled={!canGoNextPeriod} onPress={goToNextPeriod} />
               </>
             ) : period === "분기" ? (
@@ -758,6 +899,18 @@ export default function ReportsScreen() {
               </>
             )}
           </View>
+
+          {/* GAP-066 트랙 A(#2): 월 선택 시트. 월간 탭에서 라벨을 눌렀을 때만 그린다 --
+              분기·연간 라벨은 이미 한 번에 3·12개월을 건너므로 붙이지 않는다. */}
+          {hasSession && period === "월간" && monthJumpOpen ? (
+            <MonthJumpSheet
+              testID="reports-month-jump-sheet"
+              selectedYearMonth={reportYearMonth}
+              bounds={monthJumpBounds}
+              onSelect={goToMonthFromJump}
+              onClose={() => setMonthJumpOpen(false)}
+            />
+          ) : null}
 
           {/* GAP-054 #3: 이 기간에 아직 올라가지 않은 기록이 있을 때만 서는 한 줄. 0건이면
               아무것도 그리지 않으므로 캡처(REP-001) 6구획 레이아웃은 평소 그대로다 -- 비세션
@@ -851,6 +1004,16 @@ export default function ReportsScreen() {
                     {trendDirection.arrow} {trendDirection.valueText}
                   </Text>
                 </View>
+              ) : null}
+
+              {/* GAP-066 트랙 A(#1): 끝난 달의 예산 결과 한 줄. 근거가 없는 달(진행 중 · 예산
+                  미설정 · 지출 0원 · 인사이트가 이미 말한 달)에는 null이라 화면이 한 줄도 늘지
+                  않는다 -- 판정과 문구는 전부 순수 모듈에 있다. 캡션 토큰은 바로 위 방향 행 ·
+                  아래 드릴다운 안내 줄과 같은 12/18 gray600이다(구획을 늘리지 않는다). */}
+              {completedMonthBudgetLine ? (
+                <Text style={reportCompletedMonthBudgetStyle} testID={COMPLETED_MONTH_BUDGET_LINE_TEST_ID}>
+                  {completedMonthBudgetLine}
+                </Text>
               ) : null}
 
               {activeCategory.isLoading ? (
@@ -1097,6 +1260,16 @@ const reportTrendDirectionCaptionStyle = {
   color: theme.colors.gray600,
   fontSize: 12,
   lineHeight: 18
+} as const;
+
+// GAP-066 트랙 A(#1): "총 지출" 카드 아래 끝난 달의 예산 결과 한 줄. 방향 행·드릴다운 안내와
+// 같은 12/18 gray600 캡션 토큰이고, 같은 관례로 카드에 붙인다(화면 gap 18을 -10으로 당긴다).
+const reportCompletedMonthBudgetStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 18,
+  marginTop: -10,
+  paddingHorizontal: 6
 } as const;
 
 // C-03: 도넛 카드 바로 아래 "카테고리를 누르면 8월 기록을 보여드려요" 한 줄(분기·연간 전용).
