@@ -1,6 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+// GAP-062 #10: 가구 전환 Alert의 **버튼 라벨**은 순수 모듈이 만든다 -- 화면 파일이 아니라 그
+// 산출을 붙든다(Alert 버튼에는 accessibilityLabel/State를 걸 수 없어, 낭독되는 것은 버튼 글자뿐이다).
+import {
+  HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL,
+  HOUSEHOLD_SCOPE_SWITCH_OVERFLOW_NOTICE,
+  householdSwitchPrompt,
+  type HouseholdSwitchOption
+} from "./family/household-scope";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
@@ -562,5 +570,127 @@ describe("GAP-059 #3 app lock overlay a11y containment contract", () => {
     expect(shieldBlock).toContain("if (!shieldedRef.current) return <>{children}</>;");
     // 픽셀락 판정은 저장소의 단일 소스를 쓴다(자체 env 리터럴을 새로 적지 않는다).
     expect(overlaySource).toContain("isPixelLockBuild()");
+  });
+});
+
+/**
+ * GAP-062 #10 — 라운드 61이 신설한 UI 둘을 접근성 스윕 안으로 들인다
+ * (docs/qa/accessibility-offline-checklist.md A-2 #18·#19).
+ *
+ * 두 자리 모두 **소리로만 앱을 쓰는 사람에게 사실이 도달하는가**가 쟁점이라 여기 온다.
+ *  - 가구 전환 Alert: RN Alert 버튼에는 `accessibilityLabel`도 `accessibilityState`도 걸 수
+ *    없다. 낭독되는 것은 **버튼 글자와 본문뿐**이라, "지금 보고 있는 가구가 어느 것인가"와
+ *    "여기서 고를 수 없는 가구가 있다"는 사실은 그 두 문자열에 실려야만 전달된다.
+ *  - 동기화 상태 화면의 저장소 상태 줄: 저장소를 열지 못한 상태를 색이나 배지 톤이 아니라
+ *    **보이는 문장**으로 말해야 한다(A-1 Numeric alternatives·Error text와 같은 규율).
+ *
+ * 화면 파일(app/family/index.tsx · app/sync-status.tsx)은 이 트랙의 소유가 아니므로, 판정은
+ * 순수 모듈의 **산출**로 붙들고 화면 쪽은 최소 소스 계약만 둔다.
+ */
+describe("GAP-062 #10 라운드 61 신설 UI 접근성 계약", () => {
+  const optionsOf = (count: number, currentIndex = 0): HouseholdSwitchOption[] =>
+    Array.from({ length: count }, (_unused, index) => ({
+      householdId: `h${index + 1}`,
+      label: `가구 ${index + 1}`,
+      isCurrent: index === currentIndex
+    }));
+
+  it("전환 Alert의 버튼 글자가 후보 전부를 이름으로 말하고, 지금 보는 가구는 그 사실을 달고 나온다", () => {
+    const options = optionsOf(2);
+    const prompt = householdSwitchPrompt("android", options);
+    // 버튼 글자는 라벨 그대로다 -- id·uuid가 아니라 사람이 아는 말이어야 낭독이 성립한다(A11Y-115).
+    for (const option of prompt.options) {
+      expect(option.label).not.toMatch(/^h\d+$/);
+      expect(option.label.trim().length).toBeGreaterThan(0);
+    }
+    // 화면은 그 라벨에 "(보는 중)"만 덧붙인다 -- Alert 버튼에는 selected 상태를 걸 수 없으므로
+    // 현재 가구를 알리는 단서가 이 문자열뿐이고, 그 버튼은 누를 수 있는 척하지 않는다.
+    const familySource = source("app/family/index.tsx");
+    expect(familySource).toContain("(보는 중)");
+    expect(familySource).toContain("onPress: option.isCurrent ? undefined :");
+  });
+
+  it("버튼 상한에 밀려 못 고르는 후보가 생기면 본문이 그 사실을 말한다 (조용히 잘리지 않는다)", () => {
+    const prompt = householdSwitchPrompt("android", optionsOf(4));
+    expect(prompt.exceedsButtonLimit).toBe(true);
+    // 낭독되는 것은 제목·본문·버튼 글자뿐이다 -- 그래서 사실은 본문에 실린다.
+    expect(prompt.message).toContain(HOUSEHOLD_SCOPE_SWITCH_OVERFLOW_NOTICE);
+    // 2가구(=오늘 대부분)에서는 본문이 종전 한 줄 그대로고 닫기 버튼도 그대로 남는다.
+    const small = householdSwitchPrompt("android", optionsOf(2));
+    expect(small.message).not.toContain(HOUSEHOLD_SCOPE_SWITCH_OVERFLOW_NOTICE);
+    expect(small.showsCloseButton).toBe(true);
+    expect(HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL.trim().length).toBeGreaterThan(0);
+  });
+
+  it("닫기 버튼이 상한에 밀려 사라지면 다이얼로그를 닫을 다른 길이 반드시 열린다", () => {
+    // 닫는 길이 없는 다이얼로그는 화면을 되돌릴 수 없게 만든다 -- 스크린리더 사용자에게 특히
+    // 그렇다(바깥 탭이 곧 유일한 탈출구가 된다).
+    const prompt = householdSwitchPrompt("android", optionsOf(3));
+    expect(prompt.showsCloseButton).toBe(false);
+    expect(prompt.cancelable).toBe(true);
+  });
+
+  it("저장소를 열지 못한 상태를 동기화 상태 화면이 **보이는 문장**으로 말한다", () => {
+    const syncSource = source("app/sync-status.tsx");
+    // 문구 단일 소스는 src/offline/messages.ts다 -- 화면이 같은 문장을 다시 적으면 두 벌이 된다.
+    expect(syncSource).toContain("OFFLINE_STORAGE_UNAVAILABLE_NOTICE");
+    expect(syncSource).not.toContain("이 기기의 저장소를 열지 못했어요");
+    // 그 문장이 도달하는 자리는 빈 상태 카드의 **제목**이고, 카드 제목은 보이는 Text다
+    // (색·배지 톤만으로 상태를 말하지 않는다 — A-1 Error text와 같은 규율).
+    const emptyCard = source("src/ui.tsx").slice(source("src/ui.tsx").indexOf("export function EmptyStateCard"));
+    expect(emptyCard.slice(0, 600)).toContain(">{title}</Text>");
+    expect(emptyCard.slice(0, 600)).toContain("<SecondaryButton label={actionLabel}");
+  });
+});
+
+/**
+ * GAP-062 #6 — 단계 라벨의 표시층 배선(더보기 "프로필" 카드 · 온보딩 이어하기).
+ *
+ * 라운드 61 #10이 "임신 42주차" 고착을 걷어낸 자리는 셋이었고(홈 헤더·설정 요약·아이 목록),
+ * 이 두 화면은 서버 라벨을 그대로 그려 **같은 아이에 대해 앱이 두 문장을 말했다**. 접근성
+ * 쪽에서 이 배선이 중요한 이유는 더보기 카드에서 그 라벨이 낭독되는 유일한 단계 표기이기
+ * 때문이다(배지는 그림이 아니라 글자지만, 카드의 accessibilityLabel이 따로 조립된다) —
+ * **보이는 줄과 낭독되는 줄이 같은 한 값**이어야 한다.
+ */
+describe("GAP-062 #6 단계 라벨 표시층 배선 (더보기 · 온보딩 이어하기)", () => {
+  it("더보기 세션 카드가 보이는 배지와 낭독 문장에 같은 한 값을 쓴다", () => {
+    const moreSource = source("app/(tabs)/more.tsx");
+    expect(moreSource).toContain('from "../../src/home/stage-display-label"');
+    expect(moreSource).toContain("const sessionStageLabel = resolveStageDisplayLabel({");
+    expect(moreSource).toContain("<StageBadge label={sessionStageLabel} />");
+    expect(moreSource).toContain(
+      "? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`"
+    );
+    expect(moreSource).toContain(": `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`");
+  });
+
+  it("판정의 원천은 이미 조회 중인 ['children'] 캐시이고, 화면이 주차를 다시 세지 않는다", () => {
+    const moreSource = source("app/(tabs)/more.tsx");
+    expect(moreSource).toContain(
+      "const stageSourceChild = home.data ? children.data?.children.find((child) => child.id === childId) : undefined;"
+    );
+    // 판정은 재사용만 한다 -- 유예 일수·주차 계산이 화면에 복제되면 규칙이 두 벌이 된다.
+    expect(moreSource).not.toContain("PREGNANCY_OVERDUE");
+    expect(moreSource).not.toContain("isPregnancyWeekLabelStale");
+  });
+
+  it("SET-001 비로그인 미리보기 카드는 종전 문자열 그대로다 (픽셀락 기준선 불변)", () => {
+    const moreSource = source("app/(tabs)/more.tsx");
+    expect(moreSource).toContain('const previewProfile = { nickname: "다온이", stageLabel: "24개월" };');
+    expect(moreSource).toContain("accessibilityLabel={`${visibleProfile.nickname} 프로필 관리`}");
+    // 미리보기 카드의 두 줄은 예전 값을 그대로 그린다(세션 렌더에서만 판정을 태운다).
+    expect(moreSource).toContain("<Text style={moreChildNameStyle}>{visibleProfile.nickname}</Text>");
+    expect(moreSource).toContain("<Text style={moreChildAgeStyle}>{visibleProfile.stageLabel}</Text>");
+  });
+
+  it("온보딩 이어하기 카드도 같은 판정을 지나고, 날짜를 모르면 서버 라벨 그대로 둔다", () => {
+    const resumeSource = source("app/(onboarding)/resume.tsx");
+    expect(resumeSource).toContain('from "../../src/home/stage-display-label"');
+    expect(resumeSource).toContain("const resumeStageLabel = resumeChild");
+    expect(resumeSource).toContain("? resolveStageDisplayLabel({");
+    expect(resumeSource).toContain("{resumeChild.nickname} · {resumeStageLabel}");
+    // 진행도 응답에 dueDate가 없어 날짜는 캐시에서 **읽기만** 한다(새 요청 0건).
+    expect(resumeSource).toContain('queryClient.getQueryData<{ children: Child[] }>(["children"])');
+    expect(resumeSource).not.toContain("useQuery({");
   });
 });

@@ -1,7 +1,12 @@
 import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { getSeoulToday } from "@wooriai/domain";
 import { Redirect, router } from "expo-router";
 import { Text, View } from "react-native";
-import { LOCAL_SESSION_TOKEN, upsertConsents } from "../../src/api/client";
+import { LOCAL_SESSION_TOKEN, upsertConsents, type Child } from "../../src/api/client";
+// GAP-062 #6(P3): 단계 라벨을 사람에게 보여 주는 자리는 전부 같은 표시층 판정을 지난다
+// (재사용만 — 판정은 src/home/stage-display-label.ts 한 자리에 있다).
+import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 import { formatKrw } from "../../src/money";
 import { routeForOnboardingNextStep } from "../../src/onboarding/resume";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
@@ -26,6 +31,7 @@ export default function OnboardingResumeScreen() {
    * 테스트 세션을 건너뛰지 않는다). 저장소의 다른 화면과 같은 관례로 토큰을 고른다.
    */
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  const queryClient = useQueryClient();
   const progress = useOnboardingResumeStore((state) => state.progress);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
   const completeStep = useOnboardingProgressStore((state) => state.completeStep);
@@ -46,6 +52,31 @@ export default function OnboardingResumeScreen() {
 
   const { summary, nextStep, canRestart } = progress;
   const stepLabel = nextStepLabels[nextStep] ?? "다음 단계";
+  /**
+   * GAP-062 #6(P3) — 이어하기 카드의 단계 라벨.
+   *
+   * 도달 빈도는 낮지만 원인은 더보기 탭·홈 헤더와 **같은 하나**다: 예정일이 유예를 넘겨
+   * 지났는데 출생 전환을 하지 않은 프로필에서 서버 라벨이 "임신 42주차"에 고착된다. 여기서만
+   * 그 문장이 남으면 같은 아이를 두고 화면마다 다른 말을 하게 되므로 같은 함수를 지난다.
+   *
+   * 진행도 응답(`OnboardingChildSummary`)은 `stageMode`는 싣지만 `dueDate`는 싣지 않는다.
+   * 그래서 날짜는 `["children"]` 캐시에서 **읽기만** 한다(`useQuery`가 아니라 `getQueryData` —
+   * 이 화면 때문에 새 요청이 나가지 않는다). 이어하기 화면은 온보딩 초입이라 그 캐시가 아직
+   * 비어 있는 경우가 흔한데, 그때는 판정이 서버 라벨을 **그대로** 돌려준다 — 모르는 날짜를
+   * 근거로 문장을 바꾸지 않는다(모르면 말하지 않는다).
+   */
+  const resumeChild = summary.child;
+  const cachedResumeChild = resumeChild
+    ? queryClient.getQueryData<{ children: Child[] }>(["children"])?.children.find((child) => child.id === resumeChild.id)
+    : undefined;
+  const resumeStageLabel = resumeChild
+    ? resolveStageDisplayLabel({
+        stageMode: cachedResumeChild?.stageMode ?? resumeChild.stageMode,
+        dueDate: cachedResumeChild?.dueDate,
+        todayIso: getSeoulToday(),
+        stageLabel: resumeChild.stageLabel
+      })
+    : "";
 
   function resume() {
     if (!progress) return;
@@ -82,9 +113,9 @@ export default function OnboardingResumeScreen() {
         />
 
         <Card style={{ gap: 10 }}>
-          {summary.child ? (
+          {resumeChild ? (
             <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
-              {summary.child.nickname} · {summary.child.stageLabel}
+              {resumeChild.nickname} · {resumeStageLabel}
             </Text>
           ) : null}
           {summary.preparedItemsCount !== null ? (
