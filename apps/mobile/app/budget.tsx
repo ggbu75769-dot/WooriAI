@@ -13,6 +13,9 @@ import {
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../src/money";
+// GAP-054 #2: 금액 상한의 값·문구는 지출 입력 화면들과 **같은 모듈**에서 온다. 여기에 숫자를
+// 다시 적으면 서버 @Max와 갈라지는 순간을 아무도 모른다(src/expenses/amount-limit.ts).
+import { amountOverLimitMessage, isAmountOverLimit } from "../src/expenses/amount-limit";
 import {
   buildBudgetAdjustChips,
   buildBudgetUsageLine,
@@ -86,7 +89,20 @@ export default function BudgetEditScreen() {
   });
 
   const typedAmountKrw = amountDigits ? Number(amountDigits) : null;
-  const amountError = typedAmountKrw !== null && typedAmountKrw <= 0 ? "0보다 큰 금액을 입력해 주세요." : null;
+  /**
+   * GAP-054 #2 — 0 이하와 함께 **상한 초과**도 여기서 막는다.
+   *
+   * `budgets.amount_krw`는 int4라 2,147,483,647을 넘는 값은 저장이 아니라 서버 오류로 끝난다.
+   * 지금까지 이 화면은 그 사실을 말하지 않고 저장을 시도하게 뒀고, 사용자는 "저장하지
+   * 못했어요. 잠시 후 다시 시도해 주세요."라는 **틀린 안내**(다시 눌러도 절대 성공하지 않는다)
+   * 앞에서 멈췄다. 상한 값·문구는 지출 입력 화면들과 같은 단일 소스에서 가져온다.
+   */
+  const amountError =
+    typedAmountKrw !== null && typedAmountKrw <= 0
+      ? "0보다 큰 금액을 입력해 주세요."
+      : isAmountOverLimit(typedAmountKrw ?? 0)
+        ? amountOverLimitMessage()
+        : null;
 
   // 새 요청 0: 캐시에 있으면 읽고, 없으면 undefined -> 줄/칩을 만들지 않는다.
   const offlineSnapshot = useOfflineSyncSnapshot();
@@ -173,7 +189,9 @@ export default function BudgetEditScreen() {
   const save = useMutation({
     mutationFn: () => {
       const amountKrw = Number(amountDigits || budget.data?.amountKrw);
-      if (!authToken || !childId || !Number.isInteger(amountKrw) || amountKrw <= 0) {
+      // GAP-054 #2: 저장 버튼이 이미 비활성이지만, 서버가 받아 줄 수 없는 값이 요청으로
+      // 나가는 경로를 여기서도 한 번 더 닫는다(서버 @Max와 같은 숫자를 본다).
+      if (!authToken || !childId || !Number.isInteger(amountKrw) || amountKrw <= 0 || isAmountOverLimit(amountKrw)) {
         throw new Error("invalid budget");
       }
       return upsertBudget(authToken, childId, amountKrw);

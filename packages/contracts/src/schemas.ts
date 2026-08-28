@@ -15,7 +15,34 @@ const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const nullableDateOnlySchema = dateOnlySchema.nullable().optional();
 
 export const uuidSchema = z.string().uuid();
-export const moneyKrwSchema = z.number().int().min(1);
+
+/**
+ * GAP-054 #2 — 원화 금액 한 건의 상한. **계약이자 물리적 사실**이다.
+ *
+ * `expenses.amount_krw` · `budgets.amount_krw`는 Postgres `int4`라 2,147,483,647을 넘는 값은
+ * 저장이 아니라 5xx로 끝난다. 지금까지 이 사실은 어느 계약에도 적혀 있지 않아서, 실패의 모양이
+ * 최악이었다: 모바일 오프라인 아웃박스는 로컬 저장을 먼저 성공시키고 flush에서야 5xx를 만나
+ * **무한 재시도 poison**이 된다(4xx만 실패 행으로 파킹된다 — apps/mobile/src/offline/
+ * remote-api.ts). 진단은 docs/5차/budget-app-gap-analysis.md P0-2.
+ *
+ * 그래서 같은 숫자가 세 곳을 물게 한다: 이 스키마(수기 단일 소스), 서버 DTO의 `@Max`
+ * (apps/api/src/finance/dto/expense.dto.ts · onboarding/dto/upsert-budget.dto.ts — 이 상수를
+ * 그대로 import한다), 그리고 모바일 입력 가드(apps/mobile/src/expenses/amount-limit.ts의
+ * `EXPENSE_AMOUNT_MAX_KRW`. 모바일은 이 패키지를 의존하지 않아 값을 자기 모듈에 두되, 아래
+ * 계약 테스트가 두 숫자가 갈리지 않는지 대조한다).
+ *
+ * 마이그레이션은 필요 없다 — 컬럼 타입을 바꾸는 것이 아니라 **이미 참인 한계를 계약으로
+ * 적는 것**이다.
+ */
+export const MONEY_KRW_MAX = 2_147_483_647;
+
+/**
+ * 원화 금액 한 건(지출 1건 · 월 예산 1건). 1원 이상 int4 상한 이하의 정수다.
+ *
+ * ⚠️ 합계·집계에는 쓰지 않는다 — 여러 건을 더한 값은 이 상한을 넘을 수 있고, 실제로 아래
+ * `homeMonthlyBudgetSchema`·리포트 합계는 각자 `z.number().int()`를 따로 쓴다.
+ */
+export const moneyKrwSchema = z.number().int().min(1).max(MONEY_KRW_MAX);
 
 export const childStageModeSchema = z.enum(CHILD_STAGE_MODES);
 export const childStageCodeSchema = z.enum(CHILD_STAGE_CODES);

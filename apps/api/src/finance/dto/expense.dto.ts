@@ -1,5 +1,6 @@
-import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from "class-validator";
+import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from "class-validator";
 import { Type } from "class-transformer";
+import { MONEY_KRW_MAX } from "@wooriai/contracts";
 import { PAYMENT_METHODS, type PaymentMethod } from "@wooriai/domain";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -10,8 +11,20 @@ export class CreateExpenseDto {
   @IsUUID()
   categoryId!: string;
 
+  /**
+   * GAP-054 #2 — 상한은 `@wooriai/contracts`의 `MONEY_KRW_MAX`(= int4 상한)를 그대로 쓴다.
+   *
+   * 없을 때 무슨 일이 있었나: `expenses.amount_krw`는 int4라 이 값을 넘기면 Prisma가 아니라
+   * **DB가** 터져 500으로 나갔다. 모바일 오프라인 아웃박스는 4xx만 실패 행으로 파킹하고 5xx는
+   * 재시도하므로(apps/mobile/src/offline/remote-api.ts), 한 번 들어간 초과 금액은 로컬에서
+   * 영원히 재전송되는 poison 행이 됐다(docs/5차/budget-app-gap-analysis.md P0-2). 400으로
+   * 거절하면 그 루프 자체가 성립하지 않는다.
+   *
+   * 마이그레이션 없음 — 컬럼이 이미 갖고 있던 한계를 계약 층에 적는 것뿐이다.
+   */
   @IsInt()
   @Min(1)
+  @Max(MONEY_KRW_MAX)
   amountKrw!: number;
 
   /**
@@ -81,9 +94,11 @@ export class UpdateExpenseDto {
   @IsUUID()
   categoryId?: string;
 
+  /** GAP-054 #2: 생성과 **같은 상한**이다(근거는 CreateExpenseDto.amountKrw 주석). */
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(MONEY_KRW_MAX)
   amountKrw?: number;
 
   /** F-7: CreateExpenseDto.spentOn과 동일 — 미래 날짜 거부는 서비스 계층(EXPENSE_FUTURE_DATE). */

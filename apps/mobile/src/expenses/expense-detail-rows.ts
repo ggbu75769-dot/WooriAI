@@ -27,6 +27,8 @@
  * 구분(`expenseTypeLabelKo`) 열에서 이미 세운 것과 같은 규칙이다.
  */
 
+import { expenseTypeLabelKo } from "./records-list-view";
+
 /** 상세 화면의 "결제 수단" 행 라벨. */
 export const PAYMENT_METHOD_ROW_LABEL = "결제 수단";
 /** 상세 화면의 "판매처" 행 라벨 — CSV의 같은 열 이름과 한 단어를 쓴다. */
@@ -120,4 +122,143 @@ export function linkedItemTemplateLink(
   if (expenseChildId.length === 0 || selectedChildId.length === 0) return null;
   if (expenseChildId !== selectedChildId) return null;
   return { label: LINKED_ITEM_LINK_LABEL, href: `/items/${id}` };
+}
+
+// ---------------------------------------------------------------------------
+// GAP-054 #1 — 환불 기록이 수정 한 번에 지출로 둔갑하던 자리
+// ---------------------------------------------------------------------------
+
+/**
+ * 무슨 일이 있었나.
+ *
+ * 지출 상세(app/expenses/[expenseId].tsx)는 저장 payload의 `expenseType`을 화면 상태 하나로
+ * **재구성**했다 — `isGift ? "gift" : "expense"`. 그런데 이 화면의 `isGift`는 응답의
+ * `expenseType === "gift"`로만 세팅된다. 원본이 `refund`인 기록을 열면 isGift는 false이고,
+ * 메모 한 글자만 고쳐 저장해도 payload에 `"expense"`가 실려 **환불이 지출로 덮였다.**
+ *
+ * 결과는 조용하고 되돌릴 수 없다: 환불은 월 합계에서 빠지는 구분인데(DNC-015) 지출로 바뀌는
+ * 순간 합계가 오염되고, 앱에는 다시 `refund`로 되돌릴 입력 경로가 아예 없다(서버
+ * CreateExpenseDto·UpdateExpenseDto 모두 expense|gift만 받는다 — 환불은 엑셀 가져오기·
+ * 서버 경로로만 생긴다). 사용자가 화면에서 고른 적 없는 값이 저장되는, 말 그대로 허위 기록이다.
+ *
+ * 고치는 방법은 "환불을 보낼 수 있게" 하는 것이 아니라 **말하지 않는 것**이다. 서버 PATCH는
+ * 부분 갱신이라 키를 빼면 그 필드를 건드리지 않는다(보내지 않은 값은 서버가 그대로 둔다).
+ * 오프라인 아웃박스도 같은 규칙을 이미 갖고 있다: `recordLocalUpdate`가 `undefined` 값을
+ * 걷어내고(`omitUndefinedValues`), 로컬 payload의 expenseType은 refund 기록에서는 애초에
+ * undefined이며(sync-controller의 `adoptServerExpense`가 refund를 undefined로 접는다),
+ * `toExpensePatch`가 `undefined`를 실으면 JSON에서 키 자체가 사라진다. 그래서 이 함수가
+ * `undefined`를 돌려주는 것만으로 온라인·오프라인 두 경로 모두에서 refund가 보존된다.
+ */
+
+/** 원본 구분이 환불인가. 화면은 이 판정 하나로 배지·선물 비활성·payload를 함께 정한다. */
+export function isRefundExpenseType(expenseType?: string | null): boolean {
+  return expenseType === "refund";
+}
+
+/**
+ * 상세 화면 상단의 구분 배지 문구, 또는 배지를 달지 않을 때 `null`.
+ *
+ * **환불에만** 붙인다. 기본값인 "지출"은 거의 모든 기록에 같은 단어를 붙이는 소음이고,
+ * "선물"은 바로 아래 체크박스가 이미 켜진 상태로 말하고 있다 — 같은 사실을 두 번 적지 않는다
+ * (기록 목록 행 부제가 `expenseTypeSubtitlePrefix`로 내린 것과 같은 판단). 환불만 예외인
+ * 이유는 이 화면에 그 사실을 말하는 다른 자리가 하나도 없기 때문이다.
+ *
+ * 문구는 지어내지 않고 기존 단일 소스(`expenseTypeLabelKo`)에서 가져온다 — 기록 탭·CSV의
+ * 구분 열에서 "환불"로 읽은 값이 여기서만 다른 단어가 되지 않게.
+ */
+export function expenseTypeBadgeLabel(expenseType?: string | null): string | null {
+  return isRefundExpenseType(expenseType) ? expenseTypeLabelKo("refund") : null;
+}
+
+/** 배지 옆 한 줄 — 저장해도 구분이 유지된다는 사실만 말한다(해요체, DNC-018). */
+export const REFUND_BADGE_NOTICE = "환불로 기록된 내역이에요. 수정해도 환불로 남아요.";
+
+/**
+ * 환불 기록에서 선물 체크박스를 **비활성으로** 두는 이유 한 줄.
+ *
+ * 환불이면서 선물인 기록은 서버에도 존재할 수 없다(`expense_type`은 셋 중 하나다). 체크박스를
+ * 열어 두면 사용자가 켤 수는 있는데 저장은 위 규칙대로 expenseType을 보내지 않으므로 아무 일도
+ * 일어나지 않는다 — 그 조용한 무시가 이 티켓이 고치려는 바로 그 종류의 거짓말이다. 그래서
+ * 누를 수 없게 만들고, 왜 누를 수 없는지를 함께 적는다.
+ */
+export const REFUND_GIFT_DISABLED_REASON = "환불 기록은 선물로 바꿀 수 없어요.";
+
+/**
+ * 저장 payload에 실을 `expenseType`, 또는 **키를 싣지 않을 때** `undefined`.
+ *
+ * - 원본이 refund: `undefined` — 위 주석대로 서버·아웃박스 양쪽에서 키가 사라져 환불이 남는다.
+ * - 그 밖(gift/expense/값 없음): 종전 그대로 체크박스 상태를 그대로 보낸다. 지출↔선물 토글은
+ *   이 화면의 정상 동작이고 한 글자도 바뀌지 않는다.
+ */
+export function expenseTypeForPatch(
+  originalExpenseType: string | null | undefined,
+  isGift: boolean
+): "gift" | "expense" | undefined {
+  if (isRefundExpenseType(originalExpenseType)) return undefined;
+  return isGift ? "gift" : "expense";
+}
+
+// ---------------------------------------------------------------------------
+// GAP-054 #10 — 결제 수단이 읽기 전용이던 자리
+// ---------------------------------------------------------------------------
+
+/**
+ * 서버 `UpdateExpenseDto`는 라운드 48 QA(P2-6)부터 `paymentMethod`를 받는다. 그런데 상세
+ * 화면은 그 값을 **읽기만** 했다 — 빠른 기록 시트에서 잘못 고른 결제 수단을 앱 안에서 고칠
+ * 방법이 없어, CSV 내보내기·가져오기 왕복이 유일한 수정 경로였다(판매처가 라운드 49 C-03에서
+ * 정확히 같은 이유로 입력칸이 된 것과 같은 구멍이다).
+ *
+ * 선택지·문구는 새로 만들지 않는다: 빠른 기록 시트가 고르게 하는 네 가지
+ * (`PAYMENT_METHOD_LABELS_KO`, 위 드리프트 가드가 대조한다)를 그대로 순환한다. `unknown`은
+ * 목록에 넣지 않는다 — "고르지 않았다"는 서버 기본값이지 사용자가 고를 수 있는 선택지가
+ * 아니고(그래서 `paymentMethodLabelKo`가 null을 돌려준다), 목록에 넣으면 이미 고른 값을 다시
+ * "안 고름"으로 되돌리는 뜻 없는 상태가 생긴다.
+ */
+export const EDITABLE_PAYMENT_METHODS = Object.keys(PAYMENT_METHOD_LABELS_KO) as (keyof typeof PAYMENT_METHOD_LABELS_KO)[];
+
+/** 아직 고르지 않은 기록(`unknown`·값 없음)의 컨트롤 문구 — 없는 값을 지어내지 않는다. */
+export const PAYMENT_METHOD_UNSET_LABEL = "고르지 않았어요";
+
+/** 순환 컨트롤의 접근성 라벨 — 빠른 기록 시트의 같은 컨트롤과 한 글자도 다르지 않다. */
+export const PAYMENT_METHOD_CHANGE_LABEL = "결제 수단 변경";
+
+/** 컨트롤에 그릴 현재 문구. 고른 적 없으면 위 문구로, 고른 값이면 그 라벨로. */
+export function paymentMethodControlLabel(paymentMethod?: string | null): string {
+  return paymentMethodLabelKo(paymentMethod) ?? PAYMENT_METHOD_UNSET_LABEL;
+}
+
+/**
+ * "결제 수단 변경"을 한 번 눌렀을 때의 다음 값 — 빠른 기록 시트의 순환 컨트롤과 같은 관례다.
+ *
+ * 고른 적 없는 기록(`unknown`·값 없음·모르는 코드)에서는 목록의 **첫 값**으로 들어간다.
+ * 되돌아갈 자리가 없다는 뜻이기도 하다: 한 번 고르고 나면 "안 고름"으로는 돌아갈 수 없는데,
+ * 그것이 사실에 맞다 — 사용자가 실제로 골랐기 때문이다.
+ */
+export function nextPaymentMethod(current?: string | null): keyof typeof PAYMENT_METHOD_LABELS_KO {
+  const index = EDITABLE_PAYMENT_METHODS.indexOf(current as keyof typeof PAYMENT_METHOD_LABELS_KO);
+  if (index < 0) return EDITABLE_PAYMENT_METHODS[0];
+  return EDITABLE_PAYMENT_METHODS[(index + 1) % EDITABLE_PAYMENT_METHODS.length];
+}
+
+/**
+ * 저장 payload에 실을 `paymentMethod`, 또는 키를 싣지 않을 때 `undefined`.
+ *
+ * 화면이 한 번도 결제 수단을 건드리지 않았고 원본도 고른 적이 없으면(`unknown`·값 없음)
+ * **키를 싣지 않는다** — 서버 기본값을 굳이 다시 써 넣을 이유가 없고, 오프라인 로컬 payload에
+ * 없던 키를 만들면 충돌 화면이 "바꾼 적 없는 결제 수단"을 비교 항목으로 띄우기 때문이다
+ * (라운드 48 QA(P2-6)가 `toEngineConflictSnapshot`에서 내린 것과 같은 판단).
+ *
+ * **모르는 코드도 싣지 않는다.** 서버가 결제 수단을 하나 더 늘려 이 앱이 모르는 값을 내려보낸
+ * 기록에서 사용자가 결제 수단을 건드리지 않았다면, 그 값을 그대로 되돌려 보내는 것보다 키를
+ * 빼서 서버 값을 그대로 두는 편이 안전하다(보내면 서버 `@IsIn` 검증에 걸려 저장 전체가 400이
+ * 된다 — 결제 수단과 무관한 수정까지 함께 실패한다). 사용자가 컨트롤을 눌러 고른 값은 항상
+ * 이 네 가지 중 하나이므로 편집 경로는 영향을 받지 않는다.
+ */
+export function paymentMethodForPatch(
+  selected?: string | null
+): keyof typeof PAYMENT_METHOD_LABELS_KO | undefined {
+  const code = typeof selected === "string" ? selected.trim() : "";
+  return EDITABLE_PAYMENT_METHODS.includes(code as keyof typeof PAYMENT_METHOD_LABELS_KO)
+    ? (code as keyof typeof PAYMENT_METHOD_LABELS_KO)
+    : undefined;
 }
