@@ -11,8 +11,12 @@ import {
   CHILD_SWITCH_HEADER_TRIGGER_HINT,
   CHILD_SWITCH_SHEET_TITLE,
   CHILD_SWITCH_TRIGGER_HINT,
-  planChildSwitch
+  CHILD_SCOPE_LABEL_SEPARATOR,
+  planChildSwitch,
+  resolveChildScopeLabel,
+  withChildScopeLabel
 } from "./child-switch";
+import { resolveNotificationChildLabel } from "../notifications/notification-child-label";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
@@ -171,5 +175,78 @@ describe("HOME-138 홈 헤더 전환 입구", () => {
       homeSource.indexOf("// UX-A 이번 주 요약")
     );
     expect(styleBlock).toContain("minHeight: theme.touchTarget");
+  });
+});
+
+describe("라운드 48 T4(D3) 다자녀 스코프 라벨", () => {
+  const twoChildren = [
+    { id: "c-1", nickname: "다온이" },
+    { id: "c-2", nickname: "콩콩이" }
+  ];
+
+  it("아이가 2명 이상일 때만 라벨이 붙는다", () => {
+    expect(resolveChildScopeLabel("c-2", twoChildren)).toBe("콩콩이");
+  });
+
+  it("아이가 하나면 null이다 -- 종전 화면과 한 글자도 달라지지 않는다", () => {
+    expect(resolveChildScopeLabel("c-1", [{ id: "c-1", nickname: "다온이" }])).toBeNull();
+    expect(withChildScopeLabel("리포트", resolveChildScopeLabel("c-1", [{ id: "c-1", nickname: "다온이" }]))).toBe(
+      "리포트"
+    );
+  });
+
+  it("목록을 아직/영영 해석할 수 없으면 아무것도 붙이지 않는다(캐시 미도착·조회 실패·비세션)", () => {
+    expect(resolveChildScopeLabel("c-1", undefined)).toBeNull();
+    expect(resolveChildScopeLabel("c-1", null)).toBeNull();
+    expect(resolveChildScopeLabel("c-1", [])).toBeNull();
+  });
+
+  it("선택된 아이를 목록에서 못 찾거나 태명이 비면 이름을 지어내지 않는다", () => {
+    expect(resolveChildScopeLabel(null, twoChildren)).toBeNull();
+    expect(resolveChildScopeLabel(undefined, twoChildren)).toBeNull();
+    expect(resolveChildScopeLabel("c-9", twoChildren)).toBeNull();
+    expect(resolveChildScopeLabel("c-2", [twoChildren[0], { id: "c-2", nickname: "   " }])).toBeNull();
+  });
+
+  it("라벨은 문장 앞에 붙고(스크린리더가 누구의 숫자인지 먼저 읽는다), 없으면 원문 그대로다", () => {
+    expect(withChildScopeLabel("2026년 8월 3건 · 합계 38,500원", "다온이")).toBe(
+      "다온이 · 2026년 8월 3건 · 합계 38,500원"
+    );
+    expect(withChildScopeLabel("리포트", null)).toBe("리포트");
+    expect(CHILD_SCOPE_LABEL_SEPARATOR).toBe(" · ");
+  });
+
+  it("알림함의 아이 표시와 같은 규칙을 쓴다(새 관례를 만들지 않는다)", () => {
+    // 두 모듈 모두 '2명 이상 + 해석 가능한 이름'에서만 라벨을 낸다.
+    expect(resolveNotificationChildLabel("c-2", twoChildren)).toBe(resolveChildScopeLabel("c-2", twoChildren));
+    expect(resolveNotificationChildLabel("c-1", [{ id: "c-1", nickname: "다온이" }])).toBe(
+      resolveChildScopeLabel("c-1", [{ id: "c-1", nickname: "다온이" }])
+    );
+  });
+});
+
+describe("라운드 48 T4(D3) 화면 배선", () => {
+  it("기록 탭 월 요약이 보이는 문구와 스크린리더 라벨 모두에 라벨을 붙인다", () => {
+    const recordsSource = source("app/(tabs)/records.tsx");
+    expect(recordsSource).toContain(
+      'import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";'
+    );
+    // 새 요청 없이 이미 읽고 있는 ["children"] 캐시를 그대로 쓴다.
+    expect(recordsSource).toContain("const childScopeLabel = resolveChildScopeLabel(childId, childrenQuery.data?.children);");
+    expect(recordsSource).toContain("{withChildScopeLabel(monthSummary.text, childScopeLabel)}");
+    expect(recordsSource).toContain(
+      "accessibilityLabel={withChildScopeLabel(monthSummary.accessibilityLabel, childScopeLabel)}"
+    );
+    // 새 useQuery를 만들지 않았다 -- ["children"]는 여전히 한 번만 선언된다.
+    expect(recordsSource.match(/queryKey: \["children"\]/g) ?? []).toHaveLength(1);
+  });
+
+  it("리포트 헤더는 세션·다자녀 조건 뒤에서만 바뀐다(REP-001 비세션 렌더 불변)", () => {
+    const reportSource = source("app/(tabs)/reports.tsx");
+    expect(reportSource).toContain("const childScopeLabel = resolveChildScopeLabel(childId, childrenQuery.data?.children);");
+    expect(reportSource).toContain('<Text style={reportReferenceHeaderStyle}>{withChildScopeLabel("리포트", childScopeLabel)}</Text>');
+    // 아이 목록 쿼리는 세션이 있을 때만 돈다 -- 비세션 미리보기에서는 라벨이 나올 수 없다.
+    expect(reportSource).toContain('queryKey: ["children"],\n    enabled: Boolean(authToken),');
+    expect(reportSource.match(/queryKey: \["children"\]/g) ?? []).toHaveLength(1);
   });
 });

@@ -360,11 +360,14 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     const screen = source("app/expenses/new.tsx");
     expect(screen).toContain("useExpenseEntryGate");
     expect(screen).toContain("const expenseGate = useExpenseEntryGate();");
-    expect(screen).toContain("onPress={expenseGate.guard(() => saveExpense.mutate())}");
+    // 라운드 48 T4(D1): 저장 버튼이 둘이 됐다("저장하기" · "저장하고 계속 기록"). 둘 다 같은
+    // 뮤테이션을 같은 게이트 뒤에서 시작한다 -- 게이트를 우회하는 두 번째 경로가 생기면 안 된다.
+    expect(screen.match(/onPress=\{expenseGate\.guard\(/g) ?? []).toHaveLength(2);
+    expect(screen.match(/saveExpense\.mutate\(\)/g) ?? []).toHaveLength(2);
     // 시트 진입 자체는 막지 않는다 -- 열람 후 안내가 이 앱의 관례다.
     expect(screen).not.toContain("if (expenseGate.locked) return null;");
     // 픽셀락 EXP-001: 저장 버튼의 disabled 조건은 종전 그대로다(비세션은 애초에 잠기지 않는다).
-    expect(screen).toContain("disabled={saveExpense.isPending || isAmountInvalid}");
+    expect(screen.match(/disabled=\{saveExpense\.isPending \|\| isAmountInvalid\}/g) ?? []).toHaveLength(2);
   });
 
   /**

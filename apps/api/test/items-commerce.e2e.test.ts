@@ -37,6 +37,8 @@ import { PrismaService } from "../src/prisma/prisma.service";
 const OWN_TEMPLATE_CODE_PREFIX = "items_commerce_test_";
 /** 어드민 API로 만드는 준비템은 코드가 서버 생성이라, 이름을 잔여물 식별자로 쓴다. */
 const ADM124_TEMPLATE_NAME = "ADM-124 가격대 편집 테스트템";
+/** 라운드 48 T1: 의료 상담 안내 플래그 왕복 테스트가 만드는 준비템(같은 잔여물 관례). */
+const R48_MEDICAL_TEMPLATE_NAME = "R48-T1 의료 안내 테스트템";
 
 /**
  * 이전 실행이 남긴 이 파일 소유의 카탈로그 행을 지운다. 자기 접두/이름에 걸리는 행만
@@ -56,7 +58,13 @@ const ADM124_TEMPLATE_NAME = "ADM-124 가격대 편집 테스트템";
  */
 async function removeOwnCatalogLeftovers(prisma: PrismaClient) {
   const leftovers = await prisma.itemTemplate.findMany({
-    where: { OR: [{ code: { startsWith: OWN_TEMPLATE_CODE_PREFIX } }, { name: ADM124_TEMPLATE_NAME }] },
+    where: {
+      OR: [
+        { code: { startsWith: OWN_TEMPLATE_CODE_PREFIX } },
+        { name: ADM124_TEMPLATE_NAME },
+        { name: R48_MEDICAL_TEMPLATE_NAME }
+      ]
+    },
     select: { id: true }
   });
   if (leftovers.length === 0) return;
@@ -1041,6 +1049,111 @@ describe("Items, commerce, and affiliate API", () => {
         });
     } finally {
       // 테스트 DB는 실행 간 유지되므로 이 템플릿이 다른 스위트의 카탈로그에 남지 않게 정리한다.
+      await prisma.itemTemplateStage.deleteMany({ where: { itemTemplateId: created.id } });
+      await prisma.itemTemplate.delete({ where: { id: created.id } });
+      delete process.env.WOORIAI_ADMIN_TOKEN;
+    }
+  });
+
+  /**
+   * 라운드 48 T1(A2): `medicalDisclaimerRequired`를 계약에 올린다.
+   *
+   * 이 필드는 DB 스키마(item_templates.medical_disclaimer_required)와 시드(영양제·철분제 등
+   * 4건)에는 처음부터 있었지만 **어떤 응답에도 실리지 않아** 앱도 어드민도 볼 수 없었다 —
+   * 의료/영양제 성격 준비템에 "구매 전 의사·약사와 상담해 주세요"를 띄울 근거가 서버에
+   * 있는데 쓰이지 않은 셈이다(DNC-020).
+   *
+   * 여기서 고정하는 것 세 가지:
+   *  - 앱 상세 DTO가 값을 그대로 내보낸다(시드 데이터로 확인 — 앱이 지어낸 값이 아니다).
+   *  - 어드민 생성/목록 DTO가 값을 왕복시켜 운영자가 켜고 끌 수 있다.
+   *  - PATCH 관례는 usedSecondhandOk와 같다: 생략 = 그대로 두기, 보내면 그 값.
+   */
+  it("exposes medicalDisclaimerRequired on the item detail and lets the admin catalog round-trip it", async () => {
+    const adminToken = "test-admin-token-r48-t1";
+    process.env.WOORIAI_ADMIN_TOKEN = adminToken;
+    const accessToken = await login(app, "r48-t1-medical-disclaimer");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = moduleRef.get(PrismaService);
+    const asAdmin = (req: request.Test) => req.set("x-admin-token", adminToken);
+
+    // (1) 시드에 이미 true인 준비템이 있고, 앱 상세가 그 값을 그대로 준다.
+    const seededMedicalItem = await prisma.itemTemplate.findFirst({
+      where: { medicalDisclaimerRequired: true, active: true },
+      orderBy: { displayOrder: "asc" }
+    });
+    expect(seededMedicalItem, "시드에 의료 안내 대상 준비템이 있어야 한다").not.toBeNull();
+    const seededDetail = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items/${seededMedicalItem!.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as Record<string, unknown>;
+    itemDetailSchema.parse(seededDetail);
+    expect(seededDetail.medicalDisclaimerRequired).toBe(true);
+    // DNC-020: 서버는 표시 여부만 알려 준다 — 효능/필요 여부를 단정하는 문구는 만들지 않는다.
+    expect(seededDetail).not.toHaveProperty("medicalDisclaimerText");
+
+    const created = (
+      await asAdmin(request(app.getHttpServer()).post("/api/v1/admin/item-templates"))
+        .send({
+          name: R48_MEDICAL_TEMPLATE_NAME,
+          necessityLevel: "essential",
+          reasonText: "의료 상담 안내 플래그 왕복 고정용.",
+          safetyNote: "복용 전 성분을 확인해 주세요.",
+          medicalDisclaimerRequired: true,
+          // ADM-124 테스트와 같은 격리: 아기 시기 아이만 만드는 다른 스위트의 now/홈 추천에
+          // 끼지 않도록 관계 없는 시기를 붙인다.
+          stageCodes: ["middle_school"],
+          active: true
+        })
+        .expect(200)
+    ).body as { id: string; medicalDisclaimerRequired: boolean };
+
+    try {
+      // (2) 어드민 생성 응답과 목록(편집 폼 프리필의 재료)에 값이 실린다.
+      expect(created.medicalDisclaimerRequired).toBe(true);
+      const listed = (
+        await asAdmin(request(app.getHttpServer()).get("/api/v1/admin/item-templates")).expect(200)
+      ).body.items as Array<{ id: string; medicalDisclaimerRequired: boolean }>;
+      expect(listed.find((entry) => entry.id === created.id)?.medicalDisclaimerRequired).toBe(true);
+
+      // 앱 상세도 같은 값을 본다(어드민이 켠 것이 그대로 사용자 화면 근거가 된다).
+      const appItem = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/children/${childId}/items/${created.id}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body as Record<string, unknown>;
+      itemDetailSchema.parse(appItem);
+      expect(appItem.medicalDisclaimerRequired).toBe(true);
+
+      // (3) 필드를 생략한 PATCH는 값을 건드리지 않는다.
+      await asAdmin(request(app.getHttpServer()).patch(`/api/v1/admin/item-templates/${created.id}`))
+        .send({ reasonText: "플래그와 무관한 수정." })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.medicalDisclaimerRequired).toBe(true);
+        });
+
+      // 끄는 것도 같은 경로다 — 잘못 켠 표시를 운영자가 되돌릴 수 있어야 한다.
+      await asAdmin(request(app.getHttpServer()).patch(`/api/v1/admin/item-templates/${created.id}`))
+        .send({ medicalDisclaimerRequired: false })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.medicalDisclaimerRequired).toBe(false);
+        });
+      const stored = await prisma.itemTemplate.findUniqueOrThrow({ where: { id: created.id } });
+      expect(stored.medicalDisclaimerRequired).toBe(false);
+
+      const clearedAppItem = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/children/${childId}/items/${created.id}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body as Record<string, unknown>;
+      expect(clearedAppItem.medicalDisclaimerRequired).toBe(false);
+    } finally {
+      await prisma.childItemStatus.deleteMany({ where: { itemTemplateId: created.id } });
       await prisma.itemTemplateStage.deleteMany({ where: { itemTemplateId: created.id } });
       await prisma.itemTemplate.delete({ where: { id: created.id } });
       delete process.env.WOORIAI_ADMIN_TOKEN;

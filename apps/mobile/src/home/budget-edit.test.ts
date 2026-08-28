@@ -287,6 +287,73 @@ describe("BUD-001 조정 칩 (buildBudgetAdjustChips)", () => {
 });
 
 /**
+ * 라운드 48 B1(b) — 매달 1일에 예산이 사라지는 자리의 **정직한 이월 제안**.
+ *
+ * 월 예산은 (childId, yearMonth) 유니크이고 이월 규칙이 없다. 서버도 앱도 지난달 값을 몰래
+ * 복사해 새 달의 예산으로 만들지 않는다(사용자가 정한 적 없는 값을 지어내는 것이다) — 대신
+ * 칩으로 **제안만** 하고, 실제 생성은 사람이 눌러 저장할 때 일어난다.
+ */
+describe("B1 이월 제안 칩 (last-month-budget)", () => {
+  it("이번 달 예산이 없고 지난달 예산을 알면 첫 칩으로 붙는다", () => {
+    const chips = buildBudgetAdjustChips({
+      amountDigits: "",
+      currentBudgetKrw: null,
+      lastMonthActualKrw: null,
+      lastMonthBudgetKrw: 1_600_000
+    });
+    expect(chips.map((chip) => chip.id)).toEqual(["last-month-budget", "minus-step", "plus-step"]);
+    const chip = chips[0];
+    expect(chip.label).toBe("지난달과 같은 1,600,000원으로 시작");
+    expect(chip.accessibilityLabel).toBe("지난달과 같은 1,600,000원으로 시작하기");
+    // 라벨이 약속한 금액이 곧 입력칸에 들어가는 금액이다(H-10과 같은 규율).
+    expect(chip.nextDigits).toBe("1600000");
+  });
+
+  it("이번 달 예산이 이미 있으면 만들지 않는다 — '시작'할 것이 없다", () => {
+    const chips = buildBudgetAdjustChips({
+      amountDigits: "",
+      currentBudgetKrw: 1_400_000,
+      lastMonthActualKrw: null,
+      lastMonthBudgetKrw: 1_600_000
+    });
+    expect(chips.map((chip) => chip.id)).toEqual(["minus-step", "plus-step"]);
+  });
+
+  it("지난달에도 예산이 없었으면 종전과 동일하다(조회 실패·미설정 모두 null)", () => {
+    for (const lastMonthBudgetKrw of [null, undefined, 0]) {
+      const chips = buildBudgetAdjustChips({
+        amountDigits: "",
+        currentBudgetKrw: null,
+        lastMonthActualKrw: null,
+        lastMonthBudgetKrw
+      });
+      expect(chips.map((chip) => chip.id)).toEqual(["minus-step", "plus-step"]);
+    }
+  });
+
+  it("상한을 넘는 지난달 예산은 제안하지 않는다(라벨과 입력값이 갈리지 않게 — H-10과 같은 규칙)", () => {
+    const chips = buildBudgetAdjustChips({
+      amountDigits: "",
+      currentBudgetKrw: null,
+      lastMonthActualKrw: null,
+      lastMonthBudgetKrw: BUDGET_MAX_KRW + 1
+    });
+    expect(chips.some((chip) => chip.id === "last-month-budget")).toBe(false);
+  });
+
+  it("이월 칩과 지난달 실지출 칩은 서로 다른 사실이라 함께 설 수 있다", () => {
+    const chips = buildBudgetAdjustChips({
+      amountDigits: "",
+      currentBudgetKrw: null,
+      lastMonthActualKrw: 1_412_000,
+      lastMonthBudgetKrw: 1_600_000
+    });
+    expect(chips.map((chip) => chip.id)).toEqual(["last-month-budget", "minus-step", "plus-step", "last-month"]);
+    expect(chips.map((chip) => chip.nextDigits)).toEqual(["1600000", "0", "100000", "1412000"]);
+  });
+});
+
+/**
  * 라운드 39 I-6 — 예산 화면의 **이번 달 사용액**도 오프라인 재조정을 거친다.
  *
  * 종전에는 이 줄만 서버 집계였다. 같은 화면의 지난달 칩은 재조정된 값이라, 아직 올라가지 않은
@@ -456,8 +523,32 @@ describe("BUD-001 예산 화면 배선 (app/budget.tsx)", () => {
     const screen = screenSource();
     expect(screen).toContain('queryClient.getQueryData<HomeSummary>(["home", childId])');
     expect(screen).toContain('queryClient.getQueryData<{ expenses: Expense[] }>(["expenses", childId, lastYearMonth])');
-    // 새 쿼리를 만들면(useQuery) 화면을 열 때마다 요청이 늘어난다.
-    expect(screen.match(/useQuery\(/g) ?? []).toHaveLength(1);
+    // 이 세 값(이번 달 사용액·지난달 실지출)에 대해서는 여전히 쿼리를 만들지 않는다 -- 캐시에
+    // 이미 있는 데이터라 조회하면 화면을 열 때마다 요청이 늘어난다.
+    expect(screen).not.toContain('useQuery({\n    queryKey: ["expenses"');
+    expect(screen).not.toContain('useQuery({\n    queryKey: ["home"');
+    // 라운드 48 B1(b): 쿼리는 두 개다 -- 이번 달 예산(종전)과 지난달 **예산**. 후자는 어떤
+    // 화면도 캐시에 담아 두지 않는 데이터라 캐시 읽기로는 얻을 수 없고(아래 테스트),
+    // 이번 달 예산이 없다고 확인된 뒤에만 켜진다.
+    expect(screen.match(/useQuery\(/g) ?? []).toHaveLength(2);
+  });
+
+  /**
+   * 라운드 48 B1(b) — 매달 1일에 예산이 사라지는 자리의 이월 제안.
+   *
+   * 지난달 **예산**은 이 앱의 어떤 화면도 받아 두지 않는 데이터라(캐시에 있을 수가 없다)
+   * 조회가 유일한 근거다. 대신 요청을 "이번 달 예산이 없다고 확인된 뒤"로 좁혀, 예산이 있는
+   * 달에는 왕복이 아예 생기지 않게 한다.
+   */
+  it("지난달 예산은 이번 달 예산이 없다고 확인된 뒤에만 1건 조회한다", () => {
+    const screen = screenSource();
+    expect(screen).toContain('queryKey: ["budget", childId, lastYearMonth]');
+    expect(screen).toContain("enabled: Boolean(authToken && childId && lastYearMonth) && budget.data === null");
+    expect(screen).toContain("queryFn: () => getBudget(authToken!, childId!, lastYearMonth!)");
+    // 판정·문구는 순수 모듈이 갖는다 -- 화면은 값만 주입한다.
+    expect(screen).toContain("lastMonthBudgetKrw: lastMonthBudget.data?.amountKrw ?? null");
+    // 앱이 지난달 값을 새 달의 예산으로 몰래 저장하지 않는다(사용자가 탭해야 생성된다).
+    expect(screen).not.toContain("upsertBudget(authToken, childId, lastMonthBudget");
   });
 
   it("판정·문구는 전부 순수 모듈에서 오고 화면이 다시 계산하지 않는다", () => {
@@ -512,5 +603,35 @@ describe("BUD-001 예산 화면 배선 (app/budget.tsx)", () => {
     expect(screen).toContain("minHeight: theme.touchTarget");
     expect(screen).toContain("accessibilityLabel={chip.accessibilityLabel}");
     expect(screen).toContain('accessibilityRole="button"');
+  });
+});
+
+/**
+ * 라운드 48 B1(d) — 온보딩이 "예산은 매달 다시 정한다"는 사실을 **미리** 말한다.
+ *
+ * 예산은 (아이, 연월) 단위로 저장되고 이월되지 않는다. 그 사실을 어디서도 말하지 않으면
+ * 사용자는 9월 1일에 진행바가 사라진 홈을 "고장"으로 읽는다. 온보딩 마지막 단계에서 한 줄로
+ * 밝히고, 매달 초에는 홈 넛지가 지난달 값을 알려 주며 이어 받는다(B1(c)).
+ */
+describe("B1(d) 온보딩 예산 안내 (app/(onboarding)/budget.tsx)", () => {
+  const onboardingSource = () => source("app/(onboarding)/budget.tsx");
+
+  it("매달 재설정한다는 사실을 한 줄로 고지한다", () => {
+    const screen = onboardingSource();
+    expect(screen).toContain("예산은 달마다 따로 설정해요");
+    expect(screen).toContain("매달 초에 홈에서 이어서 설정할 수 있어요");
+    expect(screen).toContain('testID="onboarding-budget-monthly-notice"');
+  });
+
+  it("종전 안내(언제든 바꿀 수 있어요)를 지우지 않는다 — 새 줄은 덧붙임이다", () => {
+    expect(onboardingSource()).toContain("나중에 예산 화면에서 언제든 바꿀 수 있어요.");
+  });
+
+  it("재촉·죄책감 없는 해요체다(DNC-018)", () => {
+    const screen = onboardingSource();
+    const notice = screen.slice(screen.indexOf("예산은 달마다"), screen.indexOf("예산은 달마다") + 60);
+    for (const forbidden of ["해야 해요", "잊지 마", "꼭 ", "!"]) {
+      expect(notice).not.toContain(forbidden);
+    }
   });
 });

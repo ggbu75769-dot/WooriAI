@@ -21,6 +21,14 @@ import {
   presetChipAccessibilityLabel,
   QUICK_AMOUNT_PRESETS_KRW
 } from "../../src/expenses/amount-presets";
+// 라운드 48 T3: 결제 수단 · 판매처 · 연결된 준비템 읽기 전용 행의 문구/판정 단일 소스.
+import {
+  linkedItemTemplateLink,
+  LINKED_ITEM_ROW_LABEL,
+  MERCHANT_ROW_LABEL,
+  paymentMethodLabelKo,
+  PAYMENT_METHOD_ROW_LABEL
+} from "../../src/expenses/expense-detail-rows";
 // 라운드 41 UX-U(B-ⓐ/ⓓ): source 한 줄과 "이 품목 이력"의 판정은 순수 모듈이 단일 소스다.
 import { expenseSourceLine } from "../../src/expenses/expense-source-line";
 import { buildItemHistory } from "../../src/expenses/item-history";
@@ -159,6 +167,14 @@ export default function ExpenseDetailScreen() {
   // 기록("manual")과 모르는 값에는 아무 말도 하지 않으므로(src/expenses/expense-source-line.ts),
   // 지금까지의 대부분의 화면은 한 픽셀도 바뀌지 않는다.
   const sourceLine = expenseSourceLine(expense.data?.source);
+  // 라운드 48 T3: 쓰기 전용이던 필드들의 왕복. 세 값 모두 **응답에 값이 있을 때만** 행이
+  // 생긴다(순수 모듈이 null을 돌려주면 렌더 자체가 없다) -- 값이 없던 지출·구 서버 응답·
+  // 로컬 목업에서는 이 화면이 한 픽셀도 바뀌지 않는다.
+  const paymentMethodLabel = paymentMethodLabelKo(expense.data?.paymentMethod);
+  // 판매처는 아직 앱 안에 입력 경로가 없다(엑셀 가져오기/서버 데이터로만 채워진다) --
+  // 그래서 "있으면 보여주는" 행이고, 없다고 빈 칸을 그리지 않는다.
+  const merchantValue = expense.data?.merchant?.trim() ?? "";
+  const linkedItem = linkedItemTemplateLink(expense.data?.linkedItemTemplateId);
   const [itemName, setItemName] = useState("");
   const [amountDigits, setAmountDigits] = useState("");
   const [memo, setMemo] = useState("");
@@ -406,6 +422,61 @@ export default function ExpenseDetailScreen() {
                   <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
                     {sourceLine.value}
                   </Text>
+                </View>
+              ) : null}
+
+              {/* 라운드 48 T3(C1): 빠른 기록 시트에서 고른 결제 수단을 **처음으로 다시 볼 수
+                  있는 자리**. 문구는 입력 화면과 같은 모듈에서 온다(src/expenses/
+                  expense-detail-rows.ts) -- 같은 값이 두 화면에서 다른 이름을 갖지 않도록.
+                  고르지 않은 기록("unknown")·구 응답에는 라벨이 null이라 행이 없다. */}
+              {paymentMethodLabel ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+                    {PAYMENT_METHOD_ROW_LABEL}
+                  </Text>
+                  <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
+                    {paymentMethodLabel}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* 라운드 48 T3(C2): 판매처는 CSV 열로만 존재하던 값이다(앱 안에 입력 경로가
+                  없어 대부분 비어 있다). 값이 실제로 있는 기록 -- 엑셀 가져오기로 들어온
+                  행 -- 에서만 보여준다. 입력 UI 신설은 이번 라운드 범위 밖이다. */}
+              {merchantValue.length > 0 ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+                    {MERCHANT_ROW_LABEL}
+                  </Text>
+                  <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
+                    {merchantValue}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* 라운드 48 T3(C3): 핵심 루프("준비템 확인 → 구매 → 기록")의 되돌아가는 길.
+                  준비템에서 남긴 지출은 `linkedItemTemplateId`를 들고 있는데 지금까지는 그
+                  연결이 응답에 없어, 이 화면에서 "무엇 때문에 산 것인지"로 돌아갈 방법이
+                  없었다. 지출 응답에는 준비템 **이름이 없으므로** 이름을 물어보는 요청을
+                  새로 만들지도, 그럴듯한 이름을 지어내지도 않는다 -- 링크 문구는 무엇을 볼 수
+                  있는지만 말하고(LINKED_ITEM_LINK_LABEL), 이름은 준비템 상세가 보여준다. */}
+              {linkedItem ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+                    {LINKED_ITEM_ROW_LABEL}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="link"
+                    accessibilityLabel={linkedItem.label}
+                    hitSlop={8}
+                    onPress={() => router.push(linkedItem.href)}
+                    style={{ justifyContent: "center", minHeight: theme.touchTarget }}
+                  >
+                    {/* A11Y-117: 작은 coral 텍스트는 coral[700](5.56:1)만 쓴다. */}
+                    <Text style={{ color: theme.colors.coral[700], fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
+                      {linkedItem.label}
+                    </Text>
+                  </Pressable>
                 </View>
               ) : null}
 

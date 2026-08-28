@@ -45,6 +45,7 @@ import {
   NECESSITY_FILTER_OPTIONS,
   type NecessityFilter
 } from "../../src/items/item-filters";
+import { itemListBadgeLabel, ITEM_PRICE_BAND_FALLBACK_TEXT } from "../../src/items/item-labels";
 import {
   applyPreBirthFilter,
   PRE_BIRTH_FILTER_LABEL,
@@ -100,7 +101,6 @@ type RecommendationPreviewItem = ItemSummary & {
   caption: string;
   image: ImageSourcePropType;
 };
-const recommendationPreviewImages = [recommendationBabyCarrierImage, recommendationDiaperImage, recommendationBlocksImage] as const;
 const recommendationPreviewCaptions = ["★ 4.7 (1,245)", "★ 4.8 (2,154)", "★ 4.6 (982)"] as const;
 const previewItems: RecommendationPreviewItem[] = [
   {
@@ -138,27 +138,30 @@ const previewItems: RecommendationPreviewItem[] = [
   }
 ];
 
-function statusLabel(status: ItemStatus) {
-  if (status === "prepared") return "이미 준비";
-  if (status === "not_needed") return "필요 없음";
-  if (status === "interested") return "관심";
-  if (status === "gifted") return "선물 받음";
-  return "준비 전";
-}
-
-function getRecommendationDisplay(item: ItemSummary | RecommendationPreviewItem, index: number) {
+/**
+ * 라운드 48 T1(A3): 실서버 항목의 배지/사진을 **응답에 있는 사실**로만 만든다.
+ *
+ * 전:
+ *  - `index === 0`인 행에 "BEST" 배지. 서버는 그런 평가를 주지 않고, 정렬이 바뀌면
+ *    "BEST"도 따라 움직였다 — 근거 없는 추천 표시였다(DNC-009/DNC-011 취지).
+ *  - 미리보기용 일러스트 3장을 `index % 3`으로 돌려 붙였다. 62개 준비템 어느 것도 그
+ *    사진과 관계가 없어서, 아기띠 그림이 붙은 "철분제" 같은 카드가 나왔다.
+ *
+ * 후: 배지는 준비 상태 → 필수도 순서로 판정하고(src/items/item-labels.ts), 사진은
+ * 아예 넘기지 않는다 — ProductCard가 이미 이미지 없는 경우 베이지 자리 박스를 그린다.
+ *
+ * 비세션 미리보기(previewItems)는 `"image" in item` 분기로 예전 그대로다: ITEM-001은
+ * 픽셀 락 캡처라 배지 문구·사진·캡션이 한 픽셀도 바뀌면 안 된다.
+ */
+function getRecommendationDisplay(item: ItemSummary | RecommendationPreviewItem) {
   if ("image" in item) {
     return { badge: item.badgeText, caption: item.caption, image: item.image };
   }
 
   return {
-    // ITEM-123 (B4): gifted 항목은 목록 순서와 무관하게 항상 상태 배지를 단다. 준비완료 탭이
-    // prepared와 gifted를 함께 보여주므로("선물로 받아 이미 있다" vs "직접 준비했다"),
-    // 첫 항목만 "BEST"로 덮으면 선물 받은 물건인지 구분할 방법이 사라진다. 문구는
-    // statusLabel을 그대로 재사용해 상태 이름을 한 곳에서만 관리한다.
-    badge: index === 0 && item.status !== "gifted" ? "BEST" : statusLabel(item.status),
+    badge: itemListBadgeLabel(item),
     caption: undefined,
-    image: recommendationPreviewImages[index % recommendationPreviewImages.length]
+    image: undefined
   };
 }
 
@@ -490,11 +493,16 @@ export default function ItemsScreen() {
     scope: expenseLinkPromptScope,
     visibleItemIds: listedItems.map((item) => item.id)
   });
+  // 라운드 48 QA(P2-5): 출처를 함께 넘겨 저장 후 **이 탭으로 돌아오게** 한다. 여기서 남긴
+  // 지출은 서버가 그 준비템을 준비 완료로 올리므로(store-shared.ts markLinkedItemPrepared),
+  // 방금 오른 준비율과 100% 축하 배너가 있는 화면이 바로 이 화면이다 — 기록 탭으로 내보내면
+  // 사용자가 방금 만든 변화를 못 본 채 핵심 루프가 끊긴다. 판정은 순수 모듈이 한다
+  // (src/expenses/post-save-destination.ts).
   const openExpenseLinkPrompt = expenseGate.guard((prompt: { itemTemplateId: string; itemName: string }) => {
     setExpenseLinkPrompt(null);
     router.push({
       pathname: "/expenses/new",
-      params: expenseLinkParams({ itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId })
+      params: expenseLinkParams({ itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId }, "items")
     });
   });
 
@@ -726,8 +734,8 @@ export default function ItemsScreen() {
             )
           ) : (
             <View style={{ gap: 10 }}>
-              {listedItems.map((item, index) => {
-                const display = getRecommendationDisplay(item, index);
+              {listedItems.map((item) => {
+                const display = getRecommendationDisplay(item);
                 // UX-E: 서버 순서상 앞선 미준비 필수템이면 제자리에서 살짝 구분한다. 순서는
                 // 건드리지 않는다 -- 강조는 배경/라벨로만 한다. 스폰서 구분(DNC-011)과 헷갈리지
                 // 않도록 문구는 "먼저 챙기면 좋아요"로 광고성 표현을 쓰지 않는다.
@@ -749,7 +757,7 @@ export default function ItemsScreen() {
                     ) : null}
                     <ProductCard
                       title={item.name}
-                      price={item.priceBandText ?? "가격 정보 확인"}
+                      price={item.priceBandText ?? ITEM_PRICE_BAND_FALLBACK_TEXT}
                       badge={display.badge}
                       caption={display.caption}
                       image={display.image}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Expense } from "../api/client";
 import { buildCategoryNameLookup, categoryCatalog } from "../categories";
+import { paymentMethodLabelKo } from "../expenses/expense-detail-rows";
 import { expenseTypeLabelKo, recordsRowSubtitle } from "../expenses/records-list-view";
 import {
   buildExpenseCsv,
@@ -45,23 +46,31 @@ describe("EXP-106 expense CSV builder", () => {
 
   it("writes the agreed header as the first record", () => {
     const { csv } = buildExpenseCsv([]);
-    expect(csv).toBe(`${UTF8_BOM}날짜,구분,카테고리,항목,판매처,금액(원),메모,출처\r\n`);
-    expect(EXPENSE_CSV_HEADER).toBe("날짜,구분,카테고리,항목,판매처,금액(원),메모,출처");
+    expect(csv).toBe(`${UTF8_BOM}날짜,구분,카테고리,항목,판매처,결제수단,금액(원),메모,출처\r\n`);
+    expect(EXPENSE_CSV_HEADER).toBe("날짜,구분,카테고리,항목,판매처,결제수단,금액(원),메모,출처");
   });
 
-  it("CSV-127: 헤더는 8열이고, 재가져오기가 의존하는 날짜/금액/메모 키워드가 그대로 남는다", () => {
+  it("CSV-127 / 라운드 48 T3: 헤더는 9열이고, 재가져오기가 의존하는 날짜/금액/메모 키워드가 그대로 남는다", () => {
     const columns = EXPENSE_CSV_HEADER.split(",");
-    expect(columns).toHaveLength(8);
+    expect(columns).toHaveLength(9);
     // apps/api/src/imports/import-parser.ts의 HEADER_KEYWORDS가 알아보는 열 -- 내보낸 파일을
     // 그대로 다시 엑셀 가져오기에 넣을 수 있어야 한다는 EXP-106의 계약.
     expect(columns).toContain("날짜");
     expect(columns).toContain("금액(원)");
     expect(columns).toContain("메모");
-    // 새 두 열은 그 키워드 중 어느 것과도 겹치지 않는다(겹치면 가져오기가 엉뚱한 열을 집는다).
-    // 특히 "판매처"는 item 키워드(가맹점/가맹점명/상품명/품목/내용/적요/거래내용/이용가맹점)가 아니다.
-    for (const importKeyword of ["날짜", "일자", "거래일", "금액", "출금", "메모", "비고", "설명", "가맹점", "상품명", "품목", "내용", "적요"]) {
+    // 추가된 열들은 그 키워드 중 어느 것과도 겹치지 않는다(겹치면 가져오기가 엉뚱한 열을 집는다).
+    // 특히 "판매처"는 item 키워드(가맹점/가맹점명/상품명/품목/내용/적요/거래내용/이용가맹점)가 아니고,
+    // "결제수단"은 date 키워드 "결제일"·amount 키워드 "결제금액" 어느 쪽도 포함하지 않는다
+    // (import-parser는 `헤더.includes(키워드)`로 판정한다 -- 겹치면 날짜/금액 열을 가로챈다).
+    for (const importKeyword of [
+      "날짜", "일자", "거래일", "이용일", "사용일", "결제일", "일시",
+      "금액", "출금액", "출금", "사용금액", "결제금액", "이용금액", "승인금액", "지출금액",
+      "내용", "적요", "가맹점명", "가맹점", "상품명", "품목", "거래내용", "이용가맹점",
+      "메모", "비고", "설명"
+    ]) {
       expect(`구분`.includes(importKeyword), `구분 vs ${importKeyword}`).toBe(false);
       expect(`판매처`.includes(importKeyword), `판매처 vs ${importKeyword}`).toBe(false);
+      expect(`결제수단`.includes(importKeyword), `결제수단 vs ${importKeyword}`).toBe(false);
     }
   });
 
@@ -110,7 +119,7 @@ describe("EXP-106 expense CSV builder", () => {
     expect(escapeCsvField("line1\r\nline2")).toBe('"line1\r\nline2"');
 
     const row = expenseToCsvRow(makeExpense({ itemName: "물티슈, 대용량", memo: '아기 "선물"용\n두 줄 메모' }));
-    expect(row).toBe(`2026-08-01,지출,기저귀,"물티슈, 대용량",,45900,"아기 ""선물""용\n두 줄 메모",직접 입력`);
+    expect(row).toBe(`2026-08-01,지출,기저귀,"물티슈, 대용량",,,45900,"아기 ""선물""용\n두 줄 메모",직접 입력`);
 
     // CSV-127: 새 두 열도 같은 이스케이프를 그대로 통과한다 -- 판매처에 쉼표가 든 상호명은
     // 흔하다("쿠팡, 로켓배송"), 따옴표를 안 씌우면 열이 하나 밀려 파일 전체가 어긋난다.
@@ -132,13 +141,50 @@ describe("EXP-106 expense CSV builder", () => {
   });
 
   it("renders a null memo as an empty field", () => {
-    expect(expenseToCsvRow(makeExpense({ memo: null }))).toBe("2026-08-01,지출,기저귀,기저귀 대형,,45900,,직접 입력");
+    expect(expenseToCsvRow(makeExpense({ memo: null }))).toBe("2026-08-01,지출,기저귀,기저귀 대형,,,45900,,직접 입력");
   });
 
   it("CSV-127: 판매처가 없으면 빈 칸이다 (없는 상호를 지어내지 않는다)", () => {
-    expect(expenseToCsvRow(makeExpense({ merchant: null }))).toBe("2026-08-01,지출,기저귀,기저귀 대형,,45900,,직접 입력");
-    expect(expenseToCsvRow(makeExpense({ merchant: undefined }))).toBe("2026-08-01,지출,기저귀,기저귀 대형,,45900,,직접 입력");
-    expect(expenseToCsvRow(makeExpense({ merchant: "쿠팡" }))).toBe("2026-08-01,지출,기저귀,기저귀 대형,쿠팡,45900,,직접 입력");
+    expect(expenseToCsvRow(makeExpense({ merchant: null }))).toBe("2026-08-01,지출,기저귀,기저귀 대형,,,45900,,직접 입력");
+    expect(expenseToCsvRow(makeExpense({ merchant: undefined }))).toBe("2026-08-01,지출,기저귀,기저귀 대형,,,45900,,직접 입력");
+    expect(expenseToCsvRow(makeExpense({ merchant: "쿠팡" }))).toBe("2026-08-01,지출,기저귀,기저귀 대형,쿠팡,,45900,,직접 입력");
+  });
+
+  /**
+   * 라운드 48 T3(C2): 판매처 열은 **입력 경로가 없는 채로 유지**된다. 앱의 어떤 화면도
+   * merchant를 쓰지 않아 직접 기록한 지출은 영원히 이 칸이 비지만, 엑셀 가져오기로 들어온
+   * 행은 값을 갖고 서버도 왕복시킨다. 열을 지우면 이미 내보낸 CSV들과 헤더가 어긋나므로
+   * 지우지 않는다 -- 이 테스트가 그 결정을 고정한다.
+   */
+  it("라운드 48 T3: 판매처 열은 (아직 입력 UI가 없어도) 헤더에 남아 있고, 값이 있으면 그대로 실린다", () => {
+    expect(EXPENSE_CSV_HEADER.split(",")).toContain("판매처");
+    expect(expenseToCsvRow(makeExpense({ merchant: "맘마마트" }))).toContain(",맘마마트,");
+  });
+
+  it("라운드 48 T3(C1): 결제수단 열이 사용자가 고른 값을 그대로 내보낸다", () => {
+    expect(expenseToCsvRow(makeExpense({ paymentMethod: "card" }))).toBe(
+      "2026-08-01,지출,기저귀,기저귀 대형,,카드,45900,,직접 입력"
+    );
+    expect(expenseToCsvRow(makeExpense({ paymentMethod: "transfer" }))).toContain(",계좌 이체,");
+    expect(expenseToCsvRow(makeExpense({ paymentMethod: "mobile_pay" }))).toContain(",모바일 결제,");
+    expect(expenseToCsvRow(makeExpense({ paymentMethod: "cash" }))).toContain(",현금,");
+  });
+
+  it("라운드 48 T3(C1): 결제수단 라벨은 지출 상세 행과 같은 모듈에서 나온다 (앱과 파일의 단어가 갈리지 않도록)", () => {
+    // src/expenses/expense-detail-rows.ts가 단일 소스 -- 상세 화면은 행으로, CSV는 열로 쓴다
+    // (CSV-127이 구분 열에서 세운 것과 같은 규칙).
+    expect(paymentMethodLabelKo("transfer")).toBe("계좌 이체");
+    expect(expenseToCsvRow(makeExpense({ paymentMethod: "transfer" }))).toContain(paymentMethodLabelKo("transfer")!);
+  });
+
+  it("라운드 48 T3(C1): 고르지 않은 결제 수단은 빈 칸이다 ('알 수 없음'을 지어내지 않는다)", () => {
+    for (const empty of [undefined, null, "unknown" as const]) {
+      expect(expenseToCsvRow(makeExpense({ paymentMethod: empty }))).toBe(
+        "2026-08-01,지출,기저귀,기저귀 대형,,,45900,,직접 입력"
+      );
+    }
+    // 모르는 값은 '카드' 따위로 둔갑시키지 않고 원본을 통과시킨다(sourceLabelKo와 같은 관례).
+    expect(expenseToCsvRow(makeExpense({ paymentMethod: "crypto" as Expense["paymentMethod"] }))).toContain(",crypto,");
   });
 
   it("CSV-127: 구분 열이 지출/선물/환불을 나눈다 -- 예전에는 세 가지가 한 덩어리로 나갔다", () => {

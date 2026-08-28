@@ -75,8 +75,10 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(detailSource).not.toContain('label="이미 준비로 표시"');
 
     // COM-108 "샀어요"도 같은 라우트를 타므로 동일한 효과를 얻는다 (별도 상태 API 호출 없음).
+    // 라운드 48 T4(D1): itemName·itemTemplateId는 그대로이고 진입점 표시(from)만 하나 더 붙었다.
     const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
-    expect(promptSource).toContain('router.push({ pathname: "/expenses/new", params: { itemName, itemTemplateId } });');
+    expect(promptSource).toContain('pathname: "/expenses/new"');
+    expect(promptSource).toContain("params: { itemName, itemTemplateId,");
     expect(promptSource).not.toContain("updateItemStatus");
 
     // 데모/테스트 세션의 로컬 백엔드도 같은 고리를 미러링한다 (보존 규칙 포함).
@@ -165,7 +167,10 @@ describe("COM-108 purchase follow-up source contract", () => {
     // 샀어요 routes into the existing quick-expense sheet with the same params the item-detail
     // "지출도 기록하기" action uses -- app/expenses/new.tsx (not edited by COM-108) turns
     // itemTemplateId into linkedItemTemplateId, making the analytics source "followup".
-    expect(promptSource).toContain('router.push({ pathname: "/expenses/new", params: { itemName, itemTemplateId } });');
+    // 라운드 48 T4(D1): 진입점 표시(from=purchase-followup)가 함께 실린다 -- 저장 후 목적지는
+    // 그 값으로 판정되고, 이 경로는 종전 그대로 기록 탭이다(post-save-destination.ts).
+    expect(promptSource).toContain('pathname: "/expenses/new"');
+    expect(promptSource).toContain('[EXPENSE_ENTRY_SOURCE_PARAM]: "purchase-followup"');
     const expenseSource = source("app/expenses/new.tsx");
     expect(expenseSource).toContain('linkedItemTemplateId ? "followup" : "manual"');
     // And the three actions resolve to the store's snooze/complete/dismiss transitions.

@@ -112,7 +112,14 @@ export const expenseSchema = z.object({
   spentOn: dateOnlySchema,
   itemName: z.string().min(1),
   merchant: z.string().nullable().optional(),
+  // 라운드 48 T3: 저장만 되고 어디서도 다시 못 보던 두 필드의 응답 노출
+  // (apps/api/src/onboarding/store-shared.ts toExpenseDto). **additive optional**이라
+  // 두 필드가 없던 시절의 페이로드(409 충돌 스냅숏 toExpenseSnapshot, 오프라인 대기 행,
+  // 구 서버 응답)도 그대로 통과한다 — `.default()`를 걸지 않는 이유는 파싱만으로 없는 값을
+  // "unknown"으로 지어내지 않기 위해서다.
+  paymentMethod: paymentMethodSchema.optional(),
   memo: z.string().nullable().optional(),
+  linkedItemTemplateId: uuidSchema.nullable().optional(),
   expenseType: expenseTypeSchema.default("expense"),
   source: expenseSourceSchema.default("manual"),
   createdByUserId: uuidSchema.optional(),
@@ -131,6 +138,11 @@ export const updateExpenseRequestSchema = z.object({
   spentOn: dateOnlySchema.optional(),
   itemName: z.string().min(1).max(100).optional(),
   memo: z.string().max(500).optional(),
+  // 라운드 48 QA(P2-6): 생성에는 처음부터 있었지만 수정에는 없던 필드. 오프라인 충돌 병합
+  // ("두 값 나란히 보기")이 결제 수단도 고르게 하면서 그 선택을 보낼 자리가 없었다 — 서버
+  // ValidationPipe가 forbidNonWhitelisted라 실으면 400이라, 화면이 고르라고 해 놓고 조용히
+  // 무시했다. additive optional이라 보내지 않던 클라이언트는 그대로다.
+  paymentMethod: paymentMethodSchema.optional(),
   expenseType: z.enum(["expense", "gift"]).optional(),
   expectedVersion: z.number().int().min(1).optional()
 });
@@ -258,6 +270,10 @@ export const itemDetailSchema = itemSummarySchema.extend({
   skipReasonText: z.string().nullable().optional(),
   usedSecondhandOk: z.boolean(),
   safetyNote: z.string().nullable().optional(),
+  // 라운드 48 T1: 의료/영양제 성격이라 전문가 확인이 필요한 준비템 표시(DNC-020). 스키마와
+  // 시드에는 처음부터 있었지만 어떤 응답에도 실리지 않던 필드다 — 서버는 항상 boolean을
+  // 보내고, 구버전 클라이언트가 깨지지 않도록 계약에서는 optional로 더한다(가산 변경).
+  medicalDisclaimerRequired: z.boolean().optional(),
   productLinks: z.array(productLinkSchema)
 });
 

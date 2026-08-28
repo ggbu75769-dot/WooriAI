@@ -123,3 +123,58 @@ export function childSwitchTriggerAccessibilityLabel(headerText: string): string
 export function childSwitchOptionAccessibilityLabel(nickname: string, isCurrent: boolean): string {
   return isCurrent ? `${nickname}, 현재 선택` : `${nickname}(으)로 전환`;
 }
+
+// ---------------------------------------------------------------------------------------------
+// 라운드 48 T4(D3) — 다자녀 스코프 라벨
+//
+// 기록 탭의 월 요약("2026년 8월 12건 · 합계 340,000원")과 리포트 탭의 제목("리포트")은 **어느
+// 아이의 숫자인지 말하지 않는다**. 아이가 둘 이상인 가구에서는 전환 뒤 화면이 똑같이 생겨서,
+// 방금 무엇을 보고 있는지 확인할 방법이 화면 안에 없다(설정 → 아이 관리까지 들어가야 한다).
+// 두 화면 다 이미 ["children"] 캐시를 읽고 있으므로 새 요청 없이 이름 한 조각만 덧붙인다.
+//
+// 규칙은 알림함의 아이 표시(src/notifications/notification-child-label.ts)와 **같다** — 새
+// 관례를 만들지 않는다:
+//   1. 아이가 2명 이상일 때만 붙인다. 1명이면 모든 줄에 같은 이름이 붙어 정보가 아니라 소음이고,
+//      무엇보다 **종전 화면과 한 글자도 달라지지 않아야 한다**(픽셀락 캡처 포함).
+//   2. 이름을 해석하지 못하면(캐시 미도착·실패, 목록에 없는 childId, 빈 태명) 아무것도 붙이지
+//      않는다. "아이" 같은 자리 채움이나 빈 접두사를 만들지 않는다(허위/빈 표시 금지).
+// ---------------------------------------------------------------------------------------------
+
+/** 이 판정이 필요로 하는 `Child`(src/api/client.ts)의 최소 형태. */
+export type ChildScopeRef = {
+  id: string;
+  nickname: string;
+};
+
+/** 라벨과 본문 사이 구분자. 알림함 행 제목과 같은 관례다. */
+export const CHILD_SCOPE_LABEL_SEPARATOR = " · ";
+
+/**
+ * 지금 보고 있는 화면에 붙일 아이 이름/태명, 또는 붙이지 않을 때 `null`.
+ *
+ * @param childId  선택된 아이 id(선택 전이면 null/undefined).
+ * @param children ["children"] 캐시의 목록. 로딩 중·비활성(비세션 미리보기)이면 undefined다.
+ */
+export function resolveChildScopeLabel(
+  childId: string | null | undefined,
+  children: readonly ChildScopeRef[] | null | undefined
+): string | null {
+  // 아이가 하나(또는 몇인지 모름)면 종전 화면 그대로 둔다.
+  if (!children || children.length < 2) return null;
+  if (!childId) return null;
+  const match = children.find((child) => child.id === childId);
+  if (!match) return null;
+  const nickname = match.nickname.trim();
+  return nickname.length > 0 ? nickname : null;
+}
+
+/**
+ * 라벨을 붙인 문장. 라벨이 null이면 **원문 그대로**를 돌려준다 — 호출부가 삼항 연산자를 각자
+ * 적지 않게 하려는 것이 요점이다(한 화면은 붙이고 한 화면은 빠뜨리는 일이 없도록).
+ *
+ * 이름을 앞에 두는 이유: 스크린리더가 문장을 처음부터 읽으므로, 누구의 숫자인지가 숫자보다
+ * 먼저 나와야 한다(알림함 행 제목 formatNotificationRowTitle과 같은 순서).
+ */
+export function withChildScopeLabel(text: string, childLabel: string | null): string {
+  return childLabel ? `${childLabel}${CHILD_SCOPE_LABEL_SEPARATOR}${text}` : text;
+}

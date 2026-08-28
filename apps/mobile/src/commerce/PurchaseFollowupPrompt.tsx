@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { buildPurchaseFollowupAnsweredPayload, type PurchaseFollowupAnswer } from "../analytics/events";
 import { LOCAL_SESSION_TOKEN } from "../api/client";
+import { EXPENSE_ENTRY_SOURCE_PARAM } from "../expenses/post-save-destination";
 import { useExpenseEntryGate } from "../family/useExpenseEntryGate";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
@@ -184,7 +185,15 @@ export function PurchaseFollowupLifecycle() {
             const { itemName, itemTemplateId } = activeFollowup;
             trackAnswer("purchased");
             closeWith(completeFollowup);
-            router.push({ pathname: "/expenses/new", params: { itemName, itemTemplateId } });
+            // 라운드 48 T4(D1): 어디에서 왔는지를 함께 넘긴다. 저장 후 목적지는 그 값으로
+            // 정해지는데(src/expenses/post-save-destination.ts), 이 경로는 **종전 그대로 기록
+            // 탭**이다 -- 이 카드는 어느 화면 위에도 뜨는 전역 오버레이라 사용자가 준비템 탭을
+            // 보고 있었다는 보장이 없다. 파라미터를 지금 붙여 두는 이유는 판정이 값 하나로
+            // 모이게 하기 위해서다(화면이 출처를 모르면 규칙을 적용할 자리도 없다).
+            router.push({
+              pathname: "/expenses/new",
+              params: { itemName, itemTemplateId, [EXPENSE_ENTRY_SOURCE_PARAM]: "purchase-followup" }
+            });
           }}
         />
         <View style={{ flexDirection: "row", gap: 10 }}>

@@ -18,6 +18,7 @@ import {
   LOCAL_SESSION_TOKEN
 } from "../../src/api/client";
 import { buildCategoryNameLookup } from "../../src/categories";
+import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";
 import { formatKrw } from "../../src/money";
 import {
   milestoneOtherCategoriesLine,
@@ -213,6 +214,16 @@ export default function ReportsScreen() {
     queryFn: () => listChildren(authToken!)
   });
   const selectedChild = childrenQuery.data?.children.find((child) => child.id === childId) ?? null;
+  /**
+   * 라운드 48 T4(D3): 리포트 제목이 **누구의 리포트인지** 말하게 한다. 다자녀 가구에서는 아이를
+   * 전환해도 이 화면이 똑같이 생겨서, 지금 보고 있는 숫자가 누구 것인지 확인할 방법이 화면 안에
+   * 없었다. 새 요청은 없다 -- 바로 위 ["children"] 캐시를 그대로 읽는다.
+   *
+   * REP-001 픽셀락: 비세션 미리보기에서는 이 쿼리 자체가 비활성(enabled: authToken)이라 목록이
+   * undefined이고, 아이가 하나인 가구에서도 null이다. 두 경우 모두 제목은 종전의 "리포트"
+   * 그대로다(withChildScopeLabel은 라벨이 없으면 원문을 그대로 돌려준다).
+   */
+  const childScopeLabel = resolveChildScopeLabel(childId, childrenQuery.data?.children);
   const milestoneType = selectMilestoneReportType({ birthDate: selectedChild?.birthDate, todayIso: seoulToday });
   // 생년월일을 알기 전에 d100을 먼저 쏘면 첫돌이 지난 아이에게 낭비 요청 + 카드 깜빡임이
   // 생기므로, 아이 목록이 성공/실패로 **결론난 뒤에** 조회한다(실패 시 birthDate 미상 →
@@ -425,7 +436,9 @@ export default function ReportsScreen() {
     >
       <View style={reportReferenceScaleFrameStyle()}>
         <View testID={reportReferenceScreenId} style={reportReferenceFrameStyle}>
-          <Text style={reportReferenceHeaderStyle}>리포트</Text>
+          {/* 라운드 48 T4(D3): 다자녀 가구에서만 "다온이 · 리포트"가 된다. 아이가 하나이거나
+              비세션 미리보기(REP-001 픽셀락 캡처)에서는 라벨이 null이라 종전의 "리포트" 그대로다. */}
+          <Text style={reportReferenceHeaderStyle}>{withChildScopeLabel("리포트", childScopeLabel)}</Text>
 
           <SegmentedControl options={["월간", "분기", "연간"]} value={period} onChange={setPeriod} />
 

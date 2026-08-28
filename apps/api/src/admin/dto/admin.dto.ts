@@ -61,6 +61,13 @@ export class AdminCreateItemTemplateDto {
   @IsString()
   safetyNote?: string;
 
+  // 라운드 48 T1: 의료/영양제 성격 준비템의 상담 안내 표시 여부(DNC-020). 스키마·시드에는
+  // 있었지만 어드민이 켜고 끌 수 없어 운영자가 손댈 수 없던 값이다. usedSecondhandOk와
+  // 같은 관례로 선택적 boolean이며, 생략하면 기존 값(생성 시 false)이 유지된다.
+  @IsOptional()
+  @IsBoolean()
+  medicalDisclaimerRequired?: boolean;
+
   @IsOptional()
   @IsArray()
   @IsIn([...CHILD_STAGE_CODES], { each: true })
@@ -117,6 +124,13 @@ export class AdminUpdateItemTemplateDto {
   @IsOptional()
   @IsString()
   safetyNote?: string;
+
+  // 라운드 48 T1: 의료/영양제 성격 준비템의 상담 안내 표시 여부(DNC-020). 스키마·시드에는
+  // 있었지만 어드민이 켜고 끌 수 없어 운영자가 손댈 수 없던 값이다. usedSecondhandOk와
+  // 같은 관례로 선택적 boolean이며, 생략하면 기존 값(생성 시 false)이 유지된다.
+  @IsOptional()
+  @IsBoolean()
+  medicalDisclaimerRequired?: boolean;
 
   @IsOptional()
   @IsArray()

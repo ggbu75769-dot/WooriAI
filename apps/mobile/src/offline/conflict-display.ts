@@ -1,4 +1,5 @@
 import { buildCategoryNameLookup, categoryCatalog, type ServerCategoryName } from "../categories";
+import { PAYMENT_METHOD_LABELS_KO } from "../expenses/expense-detail-rows";
 import { formatSpentOn } from "../expenses/records-list-view";
 import { formatKrw } from "../money";
 import { localCategoryNameKo } from "../api/local-fixtures";
@@ -61,15 +62,21 @@ export function conflictUnknownCategoryLabel(categoryId: string): string {
 
 /**
  * 결제 수단 라벨. 지출 입력 화면의 칩(app/expenses/new.tsx `quickExpensePaymentMethods`)과 같은
- * 단어를 쓴다 -- 같은 값이 화면마다 다른 이름으로 보이면 안 된다. "unknown"은 그 화면에 칩이
- * 없는(=고른 적 없는) 값이라 사실 그대로 적는다.
+ * 단어를 쓴다 -- 같은 값이 화면마다 다른 이름으로 보이면 안 된다.
+ *
+ * 라운드 48 QA(P3-1): 네 코드의 문구를 여기에 **다시 적지 않고** 단일 소스에서 가져온다
+ * (src/expenses/expense-detail-rows.ts `PAYMENT_METHOD_LABELS_KO` — 지출 상세·CSV 내보내기와
+ * 같은 표). 예전에는 같은 네 줄이 이 파일에 사본으로 있었고, 그 사본은 입력 화면과 대조하는
+ * 드리프트 가드(expense-detail-rows.test.ts) 밖에 있어서 한쪽만 바뀌어도 아무도 몰랐다 --
+ * 충돌 화면에서만 결제 수단이 다른 단어로 보이는 길이 열려 있었던 셈이다.
+ *
+ * `unknown`만 이 파일이 따로 더한다. 단일 소스는 그 값을 일부러 담지 않는데(지출 상세는 고른 적
+ * 없는 값을 아예 행으로 그리지 않는다), 충돌 화면은 두 후보를 **나란히 놓고 고르게 하는** 자리라
+ * 한쪽이 빈칸이면 무엇과 무엇을 비교하는지 알 수 없다. 그래서 여기서는 사실 그대로 적는다.
  */
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   unknown: "알 수 없음",
-  cash: "현금",
-  card: "카드",
-  transfer: "계좌 이체",
-  mobile_pay: "모바일 결제"
+  ...PAYMENT_METHOD_LABELS_KO
 };
 
 /** 지출 구분 라벨. 기록 행·CSV와 같은 단어(records-list-view.ts의 EXPENSE_TYPE_LABELS_KO). */

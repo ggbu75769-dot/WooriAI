@@ -1182,8 +1182,12 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).toContain("subtitle={`${recordsMonthLabel} 지출 내역을 한눈에 확인해 보세요.`}");
     expect(recordsSource).toContain("const monthSummary = buildRecordsMonthSummary({");
     expect(recordsSource).toContain("monthLabel: recordsMonthLabel,");
-    expect(recordsSource).toContain("{monthSummary.text}");
-    expect(recordsSource).toContain("accessibilityLabel={monthSummary.accessibilityLabel}");
+    // 라운드 48 T4(D3): 두 값 모두 다자녀 라벨을 통과한다 -- 아이가 하나면 원문 그대로다
+    // (withChildScopeLabel, src/children/child-switch.ts).
+    expect(recordsSource).toContain("{withChildScopeLabel(monthSummary.text, childScopeLabel)}");
+    expect(recordsSource).toContain(
+      "accessibilityLabel={withChildScopeLabel(monthSummary.accessibilityLabel, childScopeLabel)}"
+    );
     // 종전 하드코딩 문장은 두 자리 모두에서 사라졌다.
     expect(recordsSource).not.toContain("이번 달 지출 내역을 한눈에 확인해 보세요.");
     expect(recordsSource).not.toContain("이번 달 ${monthlyRecordCount}건");

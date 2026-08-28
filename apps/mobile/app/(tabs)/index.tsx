@@ -3,7 +3,7 @@ import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { getHome, listChildren, listExpenses, LOCAL_SESSION_TOKEN, type Expense } from "../../src/api/client";
+import { getBudget, getHome, listChildren, listExpenses, LOCAL_SESSION_TOKEN, type Expense } from "../../src/api/client";
 import {
   applyChildSwitch,
   canSwitchChildFromHome,
@@ -46,6 +46,7 @@ import {
   previousYearMonth,
   type ComparableExpenseRecord
 } from "../../src/home/last-month-comparison";
+import { evaluateHomeCumulativeTotal } from "../../src/home/cumulative-total";
 import { evaluateMilestoneCountdown } from "../../src/home/milestone-countdown";
 import { evaluateWeeklySummary } from "../../src/home/weekly-summary";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
@@ -383,6 +384,47 @@ const homeWeeklySummaryStyle = StyleSheet.create({
   }
 });
 
+/**
+ * 라운드 48 B2 누적 총액 카드.
+ *
+ * 주간 요약 줄과 **같은 골격**(흰 카드 · 글리프 + 본문)을 쓴다. 마일스톤 카드처럼 화살표와
+ * CTA를 달지 않는 이유는 이 카드가 데려갈 곳을 약속하지 않기 때문이다 — 누적 총액을 그대로
+ * 펼쳐 보여 주는 화면이 따로 없는데 화살표만 붙이면, 문구가 약속하지 않은 이동을 시사하게
+ * 된다(라운드 41 UX-T(B)가 넛지에서 고친 "문구와 목적지의 어긋남"과 같은 종류의 문제다).
+ */
+const homeCumulativeTotalStyle = StyleSheet.create({
+  card: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 14,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  glyph: {
+    color: theme.colors.coral[700],
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  row: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10
+  },
+  subtitle: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingLeft: 24
+  },
+  title: {
+    color: theme.colors.brown,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 20
+  }
+});
+
 // UX-A 100일 · 첫돌 카운트다운: 눌러서 리포트 탭으로 가는 카드라 넛지 카드와 같은 골격
 // (아이콘 박스 + 카피 + › 화살표)을 따른다.
 const homeMilestoneStyle = StyleSheet.create({
@@ -636,6 +678,24 @@ export default function HomeScreen() {
     queryKey: ["expenses", childId, lastYearMonth],
     enabled: Boolean(authToken && childId && lastYearMonth && thisMonthExpenses.isFetched),
     queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, lastYearMonth!, page))
+  });
+  // 라운드 48 B1(c) — 매달 1일에 예산이 사라진 홈이 **이유를 말하게** 한다.
+  //
+  // 월 예산은 (childId, yearMonth) 유니크이고 이월 규칙이 없다. 9월 1일 아침의 홈은 진행바도
+  // 경고도 없이 "월 예산 설정하기"만 남는데, 어제까지 있던 숫자가 왜 사라졌는지는 어디에도
+  // 적혀 있지 않았다. 지난달 값을 알면 넛지 부제가 그 사실을 한 줄로 덧붙인다(문구는 순수
+  // 모듈 src/home/budget-progress.ts). 앱이 예산을 대신 만들어 주는 것은 아니다 — 사용자가
+  // 정한 적 없는 값을 지어내지 않고, 지난달이 얼마였는지만 말한 뒤 /budget으로 보낸다.
+  //
+  // 콜드 스타트 defer 관례(UX-W(C8))를 그대로 따른다: /home 응답이 도착해 **이번 달 예산이
+  // 실제로 없다고 확인된 뒤에만** 켠다. 예산이 있는 달(대다수 사용자)에는 이 왕복이 아예
+  // 생기지 않고, 첫 페인트도 이 요청을 기다리지 않는다. 실패하거나 지난달에도 예산이 없으면
+  // data가 null/undefined라 넛지 문구는 종전과 한 글자도 다르지 않다.
+  const homeHasNoBudgetThisMonth = Boolean(home.data) && !(home.data!.monthly.amountKrw > 0);
+  const lastMonthBudget = useQuery({
+    queryKey: ["budget", childId, lastYearMonth],
+    enabled: Boolean(authToken && childId && lastYearMonth) && homeHasNoBudgetThisMonth,
+    queryFn: () => getBudget(authToken!, childId!, lastYearMonth!)
   });
   // UX-A 아기 카운터·마일스톤 카드가 쓰는 dueDate/birthDate/stageMode는 /home 응답에 없다
   // (HomeSummary.child는 nickname/currentStage/stageLabel만 준다). 새 엔드포인트를 만들지 않고
@@ -936,10 +996,14 @@ export default function HomeScreen() {
   //  - 예산이 있으면 문구·경로 모두 종전과 동일하다. 라운드 13 m-7: 초과 금액은
   //    HOME-BUDGET-113 배너가 상위 정보로 이미 알리므로, 배너가 보이는 동안에는 넛지가
   //    "예산을 N원 초과했어요"를 중복 렌더하지 않는다(hasWarningBanner).
+  //  - 라운드 48 B1(c): 이번 달 예산이 없을 때만, 그리고 세션이 있을 때만 지난달 값을 넘긴다.
+  //    비세션 미리보기(previewHome)는 예산이 있는 픽스처라 이 분기에 닿지도 않지만, 게이트를
+  //    명시해 HOME-001 픽셀락 문자열이 데이터에 따라 흔들릴 여지 자체를 없앤다.
   const budgetNudge = buildHomeBudgetNudge({
     budgetKrw: budget,
     spentKrw: monthlyUsed,
-    hasWarningBanner: Boolean(budgetWarning)
+    hasWarningBanner: Boolean(budgetWarning),
+    lastMonthBudgetKrw: hasSession ? (lastMonthBudget.data?.amountKrw ?? null) : null
   });
   // UX-G: 빈 홈에 놓을 "다음 한 걸음" 카드 하나(첫 지출 유도 / 준비템 첫 안내 중 **하나만**).
   // 판정과 문구는 순수 모듈이 정한다(src/home/first-run-guide.ts) -- 비세션 미리보기는 항상
@@ -1037,6 +1101,17 @@ export default function HomeScreen() {
         totalExpenseKrw: home.data?.totalExpenseKrw ?? null
       })
     : null;
+  // 라운드 48 B2 — 임신~첫돌 **누적 총액**을 홈이 말하게 한다.
+  //
+  // 홈은 이미 서버 누적 집계를 받고 있는데(위 마일스톤 카드가 쓰는 그 값), 화면에 나오는 곳이
+  // 그 카드 부제 하나뿐이라 `stageMode !== "born"`(임신기·manual)과 첫돌 이후에는 이 앱이 세는
+  // 가장 큰 숫자가 홈 어디에도 없었다. 마일스톤 카드가 이미 같은 금액을 말하고 있으면 접는다
+  // (중복 금지 — 판정은 전부 src/home/cumulative-total.ts, 추가 요청 0: 같은 home.data를 읽는다).
+  const cumulativeTotal = evaluateHomeCumulativeTotal({
+    hasSession,
+    totalExpenseKrw: home.data?.totalExpenseKrw ?? null,
+    hasMilestoneCard: milestoneCountdown !== null
+  });
   // NOTI-102: 알림 센터가 실제 기능이 되어 UX-5B-8에서 숨겼던 홈 알림 벨을 미확인 배지와 함께 복원.
   return (
     <AppScreen refreshControl={refreshControl}>
@@ -1289,6 +1364,30 @@ export default function HomeScreen() {
                 </View>
               </Card>
             </Pressable>
+          ) : null}
+
+          {cumulativeTotal ? (
+            // 라운드 48 B2: 마일스톤 카드가 누적 총액을 말하지 않는 시기(임신 단계·manual·첫돌
+            // 이후)에만 나온다. 세션 게이트는 순수 모듈 안에 있어(hasSession), 비세션 HOME-001
+            // 미리보기에는 이 자리가 통째로 없다.
+            <View
+              accessible
+              accessibilityLabel={cumulativeTotal.accessibilityLabel}
+              testID="home-cumulative-total"
+              style={[homeCumulativeTotalStyle.card, theme.shadows.card]}
+            >
+              <View style={homeCumulativeTotalStyle.row}>
+                <Text accessible={false} style={homeCumulativeTotalStyle.glyph}>
+                  ◈
+                </Text>
+                <Text accessible={false} style={homeCumulativeTotalStyle.title}>
+                  {cumulativeTotal.title}
+                </Text>
+              </View>
+              <Text accessible={false} style={homeCumulativeTotalStyle.subtitle}>
+                {cumulativeTotal.subtitle}
+              </Text>
+            </View>
           ) : null}
 
           <View style={{ flexDirection: "row", gap: 8 }}>

@@ -39,6 +39,7 @@ type ItemFormState = {
   skipReasonText: string;
   usedSecondhandOk: boolean;
   safetyNote: string;
+  medicalDisclaimerRequired: boolean;
   stageCodes: ChildStageCode[];
   active: boolean;
 };
@@ -54,6 +55,7 @@ function emptyItemForm(): ItemFormState {
     skipReasonText: "",
     usedSecondhandOk: false,
     safetyNote: "",
+    medicalDisclaimerRequired: false,
     stageCodes: [],
     active: true
   };
@@ -76,6 +78,8 @@ function itemFormFromTemplate(item: ItemTemplate): ItemFormState {
     skipReasonText: item.skipReasonText ?? "",
     usedSecondhandOk: item.usedSecondhandOk,
     safetyNote: item.safetyNote ?? "",
+    // 라운드 48 T1: 서버가 이 값을 내려주기 전 응답과 섞여도 체크박스가 깨지지 않게 기본 false.
+    medicalDisclaimerRequired: item.medicalDisclaimerRequired ?? false,
     stageCodes: item.stageCodes,
     active: item.active
   };
@@ -98,6 +102,9 @@ function toItemTemplateInput(form: ItemFormState, mode: "create" | "edit"): Item
     necessityLevel: form.necessityLevel,
     reasonText: form.reasonText.trim(),
     usedSecondhandOk: form.usedSecondhandOk,
+    // 라운드 48 T1: boolean은 usedSecondhandOk와 같은 관례 — 생성/수정 모두 항상 보낸다
+    // (체크를 푼 것과 안 보낸 것을 구분할 필요가 없다).
+    medicalDisclaimerRequired: form.medicalDisclaimerRequired,
     stageCodes: form.stageCodes.length ? form.stageCodes : undefined,
     active: form.active
   };
@@ -262,6 +269,19 @@ function ItemFormFields({
           onChange={(event) => onChange({ ...form, usedSecondhandOk: event.target.checked })}
         />
         <label htmlFor={`${idPrefix}-secondhand`}>중고 구매 가능</label>
+      </div>
+
+      {/* 라운드 48 T1: 의료/영양제 성격 준비템 표시(DNC-020). 켜면 앱 상세에 "구매 전
+          의사·약사와 상담해 주세요" 안내 카드가 뜬다 — 효능·필요 여부를 단정하는 문구는
+          어디에도 넣지 않는다. */}
+      <div className={styles.checkboxRow}>
+        <input
+          id={`${idPrefix}-medical-disclaimer`}
+          type="checkbox"
+          checked={form.medicalDisclaimerRequired}
+          onChange={(event) => onChange({ ...form, medicalDisclaimerRequired: event.target.checked })}
+        />
+        <label htmlFor={`${idPrefix}-medical-disclaimer`}>의료 상담 안내 필요</label>
       </div>
 
       <div className={styles.checkboxRow}>

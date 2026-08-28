@@ -335,6 +335,104 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
     expect(history.body.revisions.length).toBeGreaterThanOrEqual(4);
   });
 
+  /**
+   * 라운드 48 QA(P2-4) — 검수 화면 diff의 오탐.
+   *
+   * 검수 화면(apps/admin/app/reviews/page.tsx `diffFields`)은 payload와 live 스냅숏의 **키
+   * 합집합**을 돌며 `JSON.stringify(before) !== JSON.stringify(after)`로 "변경됨"을 판정한다.
+   * 그래서 한쪽에만 있는 키는 before가 늘 `(없음)`이라 **무조건 변경됨**으로 뜬다.
+   *
+   * 라운드 48 T1이 `medicalDisclaimerRequired`를 어드민 편집 대상으로 열어(DNC-020) payload에는
+   * 실리게 됐는데 `getLiveSnapshot`의 item_template 분기에는 더해지지 않아, 이 필드를 건드리지
+   * 않은 리비전까지 매번 변경됨으로 표시됐다. 검수자가 진짜 변경점을 가려내지 못하면 그 화면은
+   * 안전장치 노릇을 못 한다.
+   *
+   * 아래는 화면과 **같은 규칙**으로 판정해 두 방향을 함께 못박는다: 값이 같으면 뜨지 않고,
+   * 실제로 바뀌면 여전히 뜬다(스냅숏에 넣느라 판정 자체가 둔해지지 않았다는 확인).
+   */
+  it("live 스냅숏이 medicalDisclaimerRequired를 실어, 값이 그대로인 리비전은 diff에 '변경됨'으로 뜨지 않는다", async () => {
+    await createAdmin("cr-admin-md@wooriai.local", "admin-password-md", "admin");
+    const admin = await loginAndEnroll("cr-admin-md@wooriai.local", "admin-password-md");
+
+    /** 검수 화면 diffFields와 같은 판정(한 필드만). */
+    const isChanged = (live: Record<string, unknown> | null, payload: Record<string, unknown>, field: string) => {
+      const before = live && live[field] !== undefined ? JSON.stringify(live[field]) : "(없음)";
+      const after = payload[field] !== undefined ? JSON.stringify(payload[field]) : "(없음)";
+      return before !== after;
+    };
+
+    // 1) 라이브 준비템 하나(의료 고지 ON). 리비전 흐름 이전의 준비 단계라 직접 생성한다.
+    const itemName = `MD disclaimer diff guard ${randomUUID()}`;
+    const liveItem = await request(app.getHttpServer())
+      .post("/api/v1/admin/item-templates")
+      .set("Cookie", admin.cookie)
+      .set("X-CSRF-Token", admin.csrfToken)
+      .send({
+        name: itemName,
+        necessityLevel: "essential",
+        reasonText: "P2-4 회귀 케이스용.",
+        medicalDisclaimerRequired: true
+      })
+      .expect(200);
+    const itemTemplateId = liveItem.body.id as string;
+    expect(liveItem.body.medicalDisclaimerRequired).toBe(true);
+
+    // 2) 이 필드를 **건드리지 않는** 초안 — 값은 라이브와 같게 실어 보낸다(어드민 폼이 현재
+    //    값을 그대로 다시 제출하는 것과 같은 모양).
+    const unchangedDraft = await request(app.getHttpServer())
+      .post("/api/v1/admin/content-revisions")
+      .set("Cookie", admin.cookie)
+      .set("X-CSRF-Token", admin.csrfToken)
+      .send({
+        entityType: "item_template",
+        entityId: itemTemplateId,
+        payload: {
+          name: itemName,
+          necessityLevel: "essential",
+          reasonText: "P2-4 회귀 케이스용.",
+          medicalDisclaimerRequired: true
+        }
+      })
+      .expect(200);
+
+    const unchangedDetail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/content-revisions/${unchangedDraft.body.id}`)
+      .set("Cookie", admin.cookie)
+      .expect(200);
+
+    // 스냅숏이 그 필드를 **싣는다**(이게 빠져 있던 것이 버그의 원인이다).
+    expect(unchangedDetail.body.live).not.toBeNull();
+    expect(unchangedDetail.body.live).toHaveProperty("medicalDisclaimerRequired", true);
+    // 그래서 화면 규칙으로도 변경됨이 아니다.
+    expect(isChanged(unchangedDetail.body.live, unchangedDetail.body.payload, "medicalDisclaimerRequired")).toBe(false);
+    // 같은 이유로 예전부터 실려 있던 이웃 필드들도 그대로 조용하다(회귀 확인).
+    expect(isChanged(unchangedDetail.body.live, unchangedDetail.body.payload, "name")).toBe(false);
+    expect(isChanged(unchangedDetail.body.live, unchangedDetail.body.payload, "necessityLevel")).toBe(false);
+
+    // 3) 반대 방향: 실제로 값을 바꾸는 초안은 여전히 변경됨으로 뜬다.
+    const changedDraft = await request(app.getHttpServer())
+      .post("/api/v1/admin/content-revisions")
+      .set("Cookie", admin.cookie)
+      .set("X-CSRF-Token", admin.csrfToken)
+      .send({
+        entityType: "item_template",
+        entityId: itemTemplateId,
+        payload: {
+          name: itemName,
+          necessityLevel: "essential",
+          reasonText: "P2-4 회귀 케이스용.",
+          medicalDisclaimerRequired: false
+        }
+      })
+      .expect(200);
+
+    const changedDetail = await request(app.getHttpServer())
+      .get(`/api/v1/admin/content-revisions/${changedDraft.body.id}`)
+      .set("Cookie", admin.cookie)
+      .expect(200);
+    expect(isChanged(changedDetail.body.live, changedDetail.body.payload, "medicalDisclaimerRequired")).toBe(true);
+  });
+
   it("validates disclosure revision payloads against the key+text shape and publishes via upsert-by-key", async () => {
     await createAdmin("cr-editor-2@wooriai.local", "editor-password-2", "editor");
     await createAdmin("cr-admin-3@wooriai.local", "admin-password-3", "admin");

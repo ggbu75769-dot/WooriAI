@@ -551,7 +551,12 @@ function toExpenseDto(expense: LocalExpenseRecord): Expense {
     spentOn: expense.spentOn,
     itemName: expense.itemName,
     merchant: expense.merchant,
+    // 라운드 48 QA(P2-6): 실서버 toExpenseDto/toExpenseSnapshot이 싣는 두 필드를 데모 세션도
+    // 싣는다. 이 함수는 충돌 스냅숏(toConflictSnapshot)의 본체이기도 해서, 빠뜨리면 데모에서만
+    // "두 값 나란히 보기"가 바꾼 적 없는 결제 수단을 충돌로 띄우고 서버 값을 "없음"으로 그린다.
+    paymentMethod: expense.paymentMethod,
     memo: expense.memo,
+    linkedItemTemplateId: expense.linkedItemTemplateId,
     expenseType: expense.expenseType,
     source: expense.source,
     version: expense.version
@@ -791,7 +796,9 @@ export function getExpense(expenseId: string): Expense {
  */
 export function updateExpense(
   expenseId: string,
-  body: Partial<Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "expenseType">>,
+  body: Partial<
+    Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "paymentMethod" | "expenseType">
+  >,
   expectedVersion?: number
 ): Expense {
   const raw = findExpenseRaw(expenseId);
@@ -818,6 +825,9 @@ export function updateExpense(
     updated.itemName = itemName;
   }
   if (body.memo !== undefined) updated.memo = cleanOptionalText(body.memo ?? undefined);
+  // 라운드 48 QA(P2-6): 실서버 PATCH가 결제 수단을 받게 됐으므로 데모/로컬 세션도 같이 받는다 --
+  // 충돌 병합이 고른 값이 실서버에서만 반영되고 데모에서만 사라지면 두 경로가 갈린다.
+  if (body.paymentMethod != null) updated.paymentMethod = body.paymentMethod;
   if (body.expenseType !== undefined) updated.expenseType = body.expenseType;
   updated.updatedAt = new Date().toISOString();
   updated.version = expense.version + 1;

@@ -155,7 +155,12 @@ describe("Expense, budget, home, and report API", () => {
             spentOn: "2026-07-06",
             itemName: "기저귀",
             merchant: "맘마마트",
+            // 라운드 48 T3(C1): 결제 수단은 저장만 되고 어떤 응답에도 실리지 않던
+            // 쓰기 전용 필드였다 — 이제 생성 응답부터 그대로 돌아온다.
+            paymentMethod: "card",
             memo: "첫 기록",
+            // 연결이 없는 지출은 null이다(필드 자체가 빠지지 않는다).
+            linkedItemTemplateId: null,
             expenseType: "expense",
             source: "manual",
             createdByUserId: userId,
@@ -1164,6 +1169,100 @@ describe("Expense, budget, home, and report API", () => {
       .expect(400)
       .expect(({ body }) => {
         expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+  });
+
+  /**
+   * 라운드 48 T3: 쓰기 전용이던 두 필드(`paymentMethod` · `linkedItemTemplateId`)가
+   * **모든 지출 응답 경로**에서 돌아오는지 고정한다 — 생성 · 단건 조회 · 목록 ·
+   * 홈(recentExpenses). 한 곳(store-shared.ts `toExpenseDto`)이 넷을 함께 먹이므로
+   * 여기서 갈릴 일은 없지만, 이 필드들이 다시 조용히 빠지면 사용자는 자기가 고른 값을
+   * 또 볼 수 없게 된다(그게 정확히 이번 라운드 이전의 상태였다).
+   *
+   * `linkedProductLinkId`는 아직 어떤 쓰기 경로도 채우지 않는 다크 필드라 노출하지
+   * 않는다 — 응답에 없다는 것도 함께 고정한다.
+   */
+  it("라운드 48 T3: paymentMethod·linkedItemTemplateId가 생성·조회·목록·홈 응답에 모두 실린다", async () => {
+    const accessToken = await login(app, `r48t3-expense-writeonly-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const items = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items as Array<{ id: string }>;
+    expect(items.length).toBeGreaterThan(0);
+    const linkedItemTemplateId = items[0].id;
+
+    const expectExposed = (body: Record<string, unknown>) => {
+      expenseSchema.parse(body);
+      expect(body).toMatchObject({
+        paymentMethod: "transfer",
+        merchant: "맘마마트",
+        linkedItemTemplateId
+      });
+      // 쓰기 경로가 없는 다크 필드는 열지 않는다.
+      expect(body).not.toHaveProperty("linkedProductLinkId");
+    };
+
+    const created = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          categoryId,
+          amountKrw: 42000,
+          spentOn: "2026-07-06",
+          itemName: "젖병 소독기",
+          merchant: "맘마마트",
+          paymentMethod: "transfer",
+          linkedItemTemplateId
+        })
+        .expect(200)
+        .expect(({ body }) => expectExposed(body))
+    ).body as { id: string };
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => expectExposed(body));
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        const row = (body.expenses as Array<Record<string, unknown>>).find((expense) => expense.id === created.id);
+        expect(row).toBeDefined();
+        expectExposed(row!);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/home?childId=${childId}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        homeSummarySchema.parse(body);
+        const row = (body.recentExpenses as Array<Record<string, unknown>>).find(
+          (expense) => expense.id === created.id
+        );
+        expect(row).toBeDefined();
+        expectExposed(row!);
+      });
+
+    // 연결이 없는 지출은 null로 내려온다 — 필드가 통째로 빠져 클라이언트가 "구 서버"와
+    // 구분하지 못하는 상태를 만들지 않는다. 결제 수단을 고르지 않으면 서버 기본값 "unknown".
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId, amountKrw: 3000, spentOn: "2026-07-06", itemName: "연결 없는 지출" })
+      .expect(200)
+      .expect(({ body }) => {
+        expenseSchema.parse(body);
+        expect(body.linkedItemTemplateId).toBeNull();
+        expect(body.paymentMethod).toBe("unknown");
       });
   });
 
