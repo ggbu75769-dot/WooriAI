@@ -98,10 +98,10 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
   });
 
   /**
-   * GAP-062 #1 — **지출 쓰기 4경로가 리포트·예산 캐시를 갱신한다.**
+   * GAP-062 #1 — **지출 쓰기 5경로가 리포트·예산 캐시를 갱신한다.**
    *
    * 고치는 문제: 리포트 탭의 쿼리 키는 전부 `["report", …]`인데(app/(tabs)/reports.tsx) 지출을
-   * 쓰는 네 자리 중 어디도 그 키를 무효화하지 않았다. 리포트 탭은 탭 전환으로 언마운트되지
+   * 쓰는 다섯 자리 중 어디도 그 키를 무효화하지 않았다. 리포트 탭은 탭 전환으로 언마운트되지
    * 않으므로 돌아와도 refetchOnMount가 돌지 않고, `staleTime: 30_000`과 포커스 리페치는 앱
    * 포그라운드 복귀에만 걸린다 — 즉 리포트를 한 번 열어 둔 사람에게 합계·비중·추이가 기록 전
    * 값 그대로 남는다. 반면 가져오기 확정과 예산 저장은 이미 같은 키를 무효화하고 있었다(규칙은
@@ -111,7 +111,7 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
    * 더하는 것은 금지이고(집계 규칙 두 벌 — src/reports/pending-scope-notice.ts 머리말), 새 쓰기
    * 경로가 생겼을 때 여기서 먼저 걸리게 하는 것이 목적이다.
    */
-  it("지출 쓰기 4경로가 리포트 캐시를 갱신한다 (GAP-062 #1)", () => {
+  it("지출 쓰기 5경로가 리포트 캐시를 갱신한다 (GAP-062 #1)", () => {
     const invalidations = (body: string) =>
       (body.match(/queryClient\.invalidateQueries\(\{ queryKey: \["(report|budget)"\] \}\)/g) ?? []).join("|");
 
@@ -137,12 +137,20 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
       controllerSource.indexOf("if (summary.synced > 0) {"),
       controllerSource.indexOf("if (summary.itemStatusSynced > 0) {")
     );
+    // ⑤ 기록 탭 행 액션시트의 삭제 — 상세 화면과 같은 삭제를 실행하는 다섯 번째 쓰기 경로다
+    // (라운드 62 A가 넷을 고친 직후 통합 검토에서 발견 — 같은 두 줄이 여기도 필요하다).
+    const recordsTabSource = source("app/(tabs)/records.tsx");
+    const rowDeleteSuccess = recordsTabSource.slice(
+      recordsTabSource.indexOf("const removeExpense = useMutation({"),
+      recordsTabSource.indexOf("const removeExpenseMutate = removeExpense.mutate;")
+    );
 
     for (const [label, body] of [
       ["기록 시트 저장", createSuccess],
       ["지출 수정", updateSuccess],
       ["지출 삭제", deleteSuccess],
-      ["오프라인 flush 확정", flushSuccess]
+      ["오프라인 flush 확정", flushSuccess],
+      ["기록 탭 행 삭제", rowDeleteSuccess]
     ] as const) {
       expect(body.length, `${label} 분기를 찾지 못했다`).toBeGreaterThan(0);
       expect(invalidations(body), `${label}이 ["report"]를 무효화하지 않는다`).toContain(

@@ -1073,6 +1073,10 @@ export default function RecordsScreen() {
     // 서버 확정 뒤의 목록 정리는 이 무효화가 맡는다 -- 상세 화면의 삭제와 같은 키다.
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      // GAP-062 #1 후속: 이 액션시트는 다섯 번째 지출 쓰기 경로다 — 지운 금액만큼 리포트
+      // 집계와 예산 사용액이 줄어든다. 근거 전문은 app/expenses/new.tsx의 같은 두 줄 위.
+      await queryClient.invalidateQueries({ queryKey: ["report"] });
+      await queryClient.invalidateQueries({ queryKey: ["budget"] });
     }
   });
   // react-query의 `mutate`는 렌더마다 같은 참조라, 아래 핸들러가 안정된 참조로 남아 행 memo가
