@@ -7,6 +7,8 @@ import {
   RECURRING_MERCHANT_MAX_LENGTH,
   type RecurringExpenseTemplate
 } from "./recurring-template";
+// GAP-056 #1: 지출 입력 화면들이 쓰는 길이 상한의 모바일 단일 소스.
+import { ITEM_NAME_MAX_LENGTH, MERCHANT_MAX_LENGTH } from "./text-limits";
 
 /**
  * 라운드 55 트랙 A — 반복/고정 지출의 **소스 계약**.
@@ -103,17 +105,36 @@ describe("라운드 55 #4 규칙 재사용 (규칙 두 벌 금지)", () => {
    * (createExpenseOffline)이라, 상한이 어긋나면 "기기에 저장했어요"가 먼저 뜬 뒤 flush에서
    * 400을 만나 **영구 실패 행**이 된다 — 금액 상한(amount-limit.ts)이 막으려던 GAP-054 P0-2와
    * 같은 모양이다. 그래서 숫자를 손으로 맞춰 두지 않고 서버 DTO에서 읽어 대조한다.
+   *
+   * 라운드 56 트랙 A(GAP-056 #1): DTO가 더 이상 숫자 리터럴을 들고 있지 않다 — 상한의 단일
+   * 소스가 `@wooriai/contracts`(`EXPENSE_ITEM_NAME_MAX_LENGTH` 등)로 올라갔고 DTO는 그 상수를
+   * `@MaxLength`에 물린다. 그래서 대조도 한 칸 늘어난다: DTO가 **어느 상수를 무는지** 보고,
+   * 그 상수의 선언값을 contracts에서 읽어 템플릿 상수와 맞춘다(숫자 동일성 검증은 그대로다).
    */
-  it("품목명·판매처 상한이 서버 DTO의 @MaxLength와 같은 숫자다", () => {
+  it("품목명·판매처 상한이 서버 DTO가 무는 계약 상수와 같은 숫자다", () => {
     const dto = readFileSync(join(mobileRoot, "../api/src/finance/dto/expense.dto.ts"), "utf8");
-    const itemNameMax = /@MaxLength\((\d+)\)\s*itemName!/.exec(dto);
-    const merchantMax = /@MaxLength\((\d+)\)\s*merchant\?/.exec(dto);
+    const itemNameMax = /@MaxLength\((EXPENSE_ITEM_NAME_MAX_LENGTH)\)\s*itemName!/.exec(dto);
+    const merchantMax = /@MaxLength\((EXPENSE_MERCHANT_MAX_LENGTH)\)\s*merchant\?/.exec(dto);
     // 가드의 가드: DTO 모양이 바뀌어 정규식이 죽으면 조용히 통과해 버린다.
     expect(itemNameMax, "CreateExpenseDto.itemName의 @MaxLength를 찾지 못했다").not.toBeNull();
     expect(merchantMax, "CreateExpenseDto.merchant의 @MaxLength를 찾지 못했다").not.toBeNull();
+    // DTO가 숫자를 다시 적어 두면(리터럴 회귀) 여기서 잡힌다.
+    expect(dto).not.toMatch(/@MaxLength\(\d+\)/);
 
-    expect(RECURRING_ITEM_NAME_MAX_LENGTH).toBe(Number(itemNameMax![1]));
-    expect(RECURRING_MERCHANT_MAX_LENGTH).toBe(Number(merchantMax![1]));
+    // 상한 값 자체는 계약 층 선언에서 읽는다(모바일은 contracts를 의존하지 않아 파일로 읽는다).
+    const contracts = readFileSync(join(mobileRoot, "../../packages/contracts/src/schemas.ts"), "utf8");
+    const declared = (name: string) => {
+      const match = new RegExp(`export const ${name} = ([0-9_]+);`).exec(contracts);
+      expect(match, `${name} 선언을 찾지 못했다`).not.toBeNull();
+      return Number(match![1].replace(/_/g, ""));
+    };
+
+    expect(RECURRING_ITEM_NAME_MAX_LENGTH).toBe(declared(itemNameMax![1]));
+    expect(RECURRING_MERCHANT_MAX_LENGTH).toBe(declared(merchantMax![1]));
+    // 지출 입력 화면들이 쓰는 모바일 단일 소스(GAP-056 #1)와도 같은 숫자다 —
+    // 정기 지출 템플릿만 따로 노는 상한을 갖지 않는다.
+    expect(RECURRING_ITEM_NAME_MAX_LENGTH).toBe(ITEM_NAME_MAX_LENGTH);
+    expect(RECURRING_MERCHANT_MAX_LENGTH).toBe(MERCHANT_MAX_LENGTH);
 
     // 화면 입력 칸도 같은 상수를 쓴다(리터럴을 따로 적으면 다음 사람이 한쪽만 고친다).
     const screenSource = source("app/expenses/recurring.tsx");

@@ -1,6 +1,11 @@
 import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from "class-validator";
 import { Type } from "class-transformer";
-import { MONEY_KRW_MAX } from "@wooriai/contracts";
+import {
+  EXPENSE_ITEM_NAME_MAX_LENGTH,
+  EXPENSE_MEMO_MAX_LENGTH,
+  EXPENSE_MERCHANT_MAX_LENGTH,
+  MONEY_KRW_MAX
+} from "@wooriai/contracts";
 import { PAYMENT_METHODS, type PaymentMethod } from "@wooriai/domain";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -42,14 +47,25 @@ export class CreateExpenseDto {
   @Matches(datePattern)
   spentOn!: string;
 
+  /**
+   * GAP-056 #1 — 길이 상한은 `@wooriai/contracts`의 상수를 그대로 쓴다(값 불변: 100).
+   *
+   * 숫자는 한 글자도 바뀌지 않았다. 바뀐 것은 **그 숫자를 클라이언트도 읽을 수 있게 됐다**는
+   * 점이다: 지금까지 상한이 이 파일의 리터럴로만 존재해서 모바일 입력 칸은 101자를 그대로
+   * 받아들였고, 오프라인 아웃박스가 로컬 저장을 먼저 성공시킨 뒤 flush에서 400을 만나
+   * 영구 실패 행이 됐다(4xx는 재시도하지 않는다 — apps/mobile/src/offline/remote-api.ts).
+   * 금액 상한(`MONEY_KRW_MAX`)을 계약 층으로 올린 것과 같은 이유·같은 방식이다.
+   *
+   * 컬럼은 varchar(120)이라 이 상한은 물리적 한계가 아니라 **계약**이다 — 마이그레이션 없음.
+   */
   @IsString()
   @IsNotEmpty()
-  @MaxLength(100)
+  @MaxLength(EXPENSE_ITEM_NAME_MAX_LENGTH)
   itemName!: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(100)
+  @MaxLength(EXPENSE_MERCHANT_MAX_LENGTH)
   merchant?: string;
 
   @IsOptional()
@@ -58,7 +74,7 @@ export class CreateExpenseDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(EXPENSE_MEMO_MAX_LENGTH)
   memo?: string;
 
   @IsOptional()
@@ -106,15 +122,16 @@ export class UpdateExpenseDto {
   @Matches(datePattern)
   spentOn?: string;
 
+  /** GAP-056 #1: 생성과 **같은 상한**이다(근거는 CreateExpenseDto.itemName 주석). */
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  @MaxLength(100)
+  @MaxLength(EXPENSE_ITEM_NAME_MAX_LENGTH)
   itemName?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(EXPENSE_MEMO_MAX_LENGTH)
   memo?: string;
 
   /**
@@ -131,7 +148,7 @@ export class UpdateExpenseDto {
    */
   @IsOptional()
   @IsString()
-  @MaxLength(100)
+  @MaxLength(EXPENSE_MERCHANT_MAX_LENGTH)
   merchant?: string;
 
   /**

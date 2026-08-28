@@ -132,14 +132,44 @@ export const listCategoriesResponseSchema = z.object({
   categories: z.array(categoryListItemSchema)
 });
 
+/**
+ * GAP-056 #1 — 지출 텍스트 필드 길이 상한. **이 세 줄이 단일 소스다.**
+ *
+ * 지금까지 같은 숫자가 세 벌로 흩어져 있었다: 이 파일의 zod `.max(100)`/`.max(500)`, 서버
+ * DTO의 `@MaxLength(100)`/`@MaxLength(500)`(apps/api/src/finance/dto/expense.dto.ts), 그리고
+ * **클라이언트에는 아예 없었다.** 마지막 항목이 실제 피해였다: 입력 칸이 상한을 모르니 101자
+ * 품목명이 그대로 오프라인 아웃박스에 들어가 로컬 저장만 성공하고, flush에서 400을 만나
+ * 영구 실패 행이 됐다(4xx는 재시도하지 않는다 — apps/mobile/src/offline/remote-api.ts).
+ * 금액 상한 `MONEY_KRW_MAX`가 막은 것과 같은 종류의 루프다.
+ *
+ * 값은 한 글자도 바뀌지 않았다(100·100·500) — 흩어져 있던 리터럴을 이름 하나로 모을 뿐이라
+ * 기존 요청의 통과/거절이 달라지지 않는다.
+ *
+ * 같은 숫자를 무는 자리는 **셋**이다:
+ *  1. 아래 요청 스키마(`createExpenseRequestSchema` · `updateExpenseRequestSchema`).
+ *  2. 서버 DTO의 `@MaxLength`(apps/api/src/finance/dto/expense.dto.ts — 이 상수를 import한다).
+ *  3. 모바일 입력 가드(apps/mobile/src/expenses/text-limits.ts. 모바일은 이 패키지를 의존하지
+ *     않아 값을 자기 모듈에 두되, 그 옆 text-limits.test.ts의 대조 테스트가 여기 선언과 세
+ *     숫자가 갈리지 않는지 확인한다 — amount-limit.ts와 같은 관례).
+ *
+ * ⚠️ 이 값은 컬럼 한계가 아니다. `expenses.item_name` · `expenses.merchant`는 varchar(120)이고
+ * `memo`는 text다. 즉 상한을 넘긴 값이 **물리적으로는 저장 가능**하고, 실제로 엑셀 가져오기
+ * 경로(import_rows의 varchar(120))로는 101~120자가 들어온다. 손입력만 100자로 막히는 이
+ * 비대칭은 알려진 상태이며(docs/5차/round56-scout.md #1 곁가지), 그래서 클라이언트 가드는
+ * "새로 치는 글자"뿐 아니라 **이미 들어 있는 값**도 판정해야 한다.
+ */
+export const EXPENSE_ITEM_NAME_MAX_LENGTH = 100;
+export const EXPENSE_MERCHANT_MAX_LENGTH = 100;
+export const EXPENSE_MEMO_MAX_LENGTH = 500;
+
 export const createExpenseRequestSchema = z.object({
   categoryId: uuidSchema,
   amountKrw: moneyKrwSchema,
   spentOn: dateOnlySchema,
-  itemName: z.string().min(1).max(100),
-  merchant: z.string().max(100).optional(),
+  itemName: z.string().min(1).max(EXPENSE_ITEM_NAME_MAX_LENGTH),
+  merchant: z.string().max(EXPENSE_MERCHANT_MAX_LENGTH).optional(),
   paymentMethod: paymentMethodSchema.default("unknown"),
-  memo: z.string().max(500).optional(),
+  memo: z.string().max(EXPENSE_MEMO_MAX_LENGTH).optional(),
   linkedItemTemplateId: uuidSchema.optional(),
   // 라운드 49 C-06: 어떤 제휴 링크를 눌러서 산 것인지(product_links.id) — 구매 확인 카드의
   // "샀어요"가 아는 사실을 서버로 넘기는 자리다. 컬럼·FK는 처음부터 있었지만 쓰기 경로가
@@ -186,13 +216,13 @@ export const updateExpenseRequestSchema = z.object({
   categoryId: uuidSchema.optional(),
   amountKrw: moneyKrwSchema.optional(),
   spentOn: dateOnlySchema.optional(),
-  itemName: z.string().min(1).max(100).optional(),
-  memo: z.string().max(500).optional(),
+  itemName: z.string().min(1).max(EXPENSE_ITEM_NAME_MAX_LENGTH).optional(),
+  memo: z.string().max(EXPENSE_MEMO_MAX_LENGTH).optional(),
   // 라운드 49 C-03: 판매처에도 결제 수단과 **같은 구멍**이 있었다 — 충돌 병합 화면이
   // 판매처를 비교 항목으로 내놓는데(모바일 `diffExpenseFields`) 수정 계약에 자리가 없어
   // 고른 값을 보낼 수 없었다. 같은 라운드에 지출 상세 판매처 편집도 이 자리를 쓴다.
   // 빈 문자열은 "지웠다"는 뜻으로 서버가 null로 정리한다(memo와 동일).
-  merchant: z.string().max(100).optional(),
+  merchant: z.string().max(EXPENSE_MERCHANT_MAX_LENGTH).optional(),
   // 라운드 48 QA(P2-6): 생성에는 처음부터 있었지만 수정에는 없던 필드. 오프라인 충돌 병합
   // ("두 값 나란히 보기")이 결제 수단도 고르게 하면서 그 선택을 보낼 자리가 없었다 — 서버
   // ValidationPipe가 forbidNonWhitelisted라 실으면 400이라, 화면이 고르라고 해 놓고 조용히

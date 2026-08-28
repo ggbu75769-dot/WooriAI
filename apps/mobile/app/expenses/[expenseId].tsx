@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -40,6 +40,19 @@ import {
 } from "../../src/expenses/expense-detail-rows";
 // GAP-054 #2: 금액 상한은 지출 입력 시트·예산 화면과 **같은 모듈**에서 온다(값을 여기 적지 않는다).
 import { amountOverLimitMessage, isAmountOverLimit } from "../../src/expenses/amount-limit";
+// GAP-056 #1: 텍스트 길이 상한도 금액 상한과 **같은 방식**의 단일 소스에서 온다(숫자를 여기
+// 적지 않는다). 서버 @MaxLength와 갈리면 오프라인 flush가 400으로 떨어져 영구 실패 행이 된다.
+import {
+  isItemNameOverLimit,
+  isMemoOverLimit,
+  isMerchantOverLimit,
+  itemNameOverLimitMessage,
+  ITEM_NAME_MAX_LENGTH,
+  memoOverLimitMessage,
+  MEMO_MAX_LENGTH,
+  merchantOverLimitMessage,
+  MERCHANT_MAX_LENGTH
+} from "../../src/expenses/text-limits";
 // 라운드 41 UX-U(B-ⓐ/ⓓ): source 한 줄과 "이 품목 이력"의 판정은 순수 모듈이 단일 소스다.
 // GAP-054 라운드 54 P2-5: 빠른 기록 시트와 **같은** 달력 픽커(판정은 그 안에서 다시 순수
 // 모듈 src/expenses/date-picker-month.ts로 내려간다 — 이 화면이 달력을 새로 계산하지 않는다).
@@ -336,7 +349,29 @@ export default function ExpenseDetailScreen() {
   );
 
   const amountKrw = Number(amountDigits || "0");
-  const itemNameError = itemName.trim().length === 0 ? "품목을 입력해 주세요." : null;
+  /**
+   * GAP-056 #1 — 비어 있음과 **길이 초과**를 같은 자리에서 말한다.
+   *
+   * 판정은 화면이 실제로 보낼 값으로 한다(품목명·판매처는 `trim()`한 값, 메모는 원문) —
+   * 서버 `@MaxLength`도 받은 문자열의 길이를 그대로 보므로, 두 판정이 같은 값을 봐야
+   * 클라이언트가 통과시킨 입력이 서버에서 400이 되는 어긋남이 없다.
+   *
+   * 입력 칸의 `maxLength`가 있는데도 이 판정이 필요한 이유: 상한(100)은 컬럼 한계(varchar 120)가
+   * 아니라 계약이라, 엑셀 가져오기로 들어온 101~120자짜리 기록이 이미 DB에 있을 수 있다.
+   * 그런 기록을 열면 값은 이미 상한을 넘은 상태이고 `maxLength`는 새로 치는 글자만 막는다 —
+   * 안내 없이 저장을 누르게 두면 로컬 저장만 성공하고 flush에서 400을 만나 영구 실패 행이 된다
+   * (docs/5차/round56-scout.md #1). 조용히 잘라 버리지 않고 무엇을 줄여야 하는지 말한다.
+   */
+  const trimmedItemName = itemName.trim();
+  const trimmedMerchant = merchant.trim();
+  const itemNameError =
+    trimmedItemName.length === 0
+      ? "품목을 입력해 주세요."
+      : isItemNameOverLimit(trimmedItemName)
+        ? itemNameOverLimitMessage()
+        : null;
+  const merchantError = isMerchantOverLimit(trimmedMerchant) ? merchantOverLimitMessage() : null;
+  const memoError = isMemoOverLimit(memo) ? memoOverLimitMessage() : null;
   /**
    * GAP-054 #2 — 0 이하와 **상한 초과**를 같은 자리에서 말한다.
    *
@@ -368,6 +403,9 @@ export default function ExpenseDetailScreen() {
    */
   const canSave =
     !itemNameError &&
+    // GAP-056 #1: 판매처·메모의 길이 초과도 같은 자리에서 버튼을 잠근다.
+    !merchantError &&
+    !memoError &&
     !amountError &&
     !dateInputError &&
     Number.isInteger(amountKrw) &&
@@ -384,6 +422,26 @@ export default function ExpenseDetailScreen() {
     else router.replace("/(tabs)/records");
   }
 
+  /**
+   * GAP-056 #6 — "저장했어요" 토스트를 보여 준 뒤 떠나는 650ms 타이머를 ref에 들고, 언마운트
+   * 때 취소한다(src/export/ExpenseCsvExport.tsx의 toastTimerRef와 같은 관례).
+   *
+   * 없을 때 무슨 일이 있었나: 저장/삭제 성공 직후 사용자가 스스로 뒤로 가거나 탭을 바꾸면 이
+   * 화면은 언마운트되는데, 타이머는 살아남아 650ms 뒤에 `router.back()`을 한 번 더 호출한다 —
+   * 사용자가 방금 고른 화면에서 **또 한 칸 뒤로** 밀리거나(스택이 없으면) 기록 탭으로
+   * 덮어써진다. 원인이 화면 밖에서 오는 튐이라 재현하기도 어렵다.
+   *
+   * 예약하는 자리(두 뮤테이션의 onSuccess)에서는 새로 걸기 전에 이미 걸린 타이머를 지운다:
+   * 저장 성공 직후 삭제까지 이어지는 경로에서 내비게이션이 두 번 예약되지 않게 한다. 목적지는
+   * 종전과 같이 `leaveAfterMutation` 한 곳뿐이다(저장과 삭제가 서로 다른 곳으로 가지 않는다).
+   */
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    };
+  }, []);
+
   const save = useMutation({
     mutationFn: () => {
       if (
@@ -394,7 +452,13 @@ export default function ExpenseDetailScreen() {
         // GAP-054 #2: 저장 직전에도 같은 판정을 한 번 더 본다 — 버튼 비활성만으로는 프리셋
         // 칩 연타처럼 상태가 앞서가는 경로를 다 막지 못한다.
         isAmountOverLimit(amountKrw) ||
-        !itemName.trim() ||
+        !trimmedItemName ||
+        // GAP-056 #1: 길이 상한도 **로컬 저장 전에** 막는다. 여기서 통과시키면 오프라인
+        // 아웃박스가 로컬 저장을 먼저 성공시키고 flush에서 400을 만나 되살릴 수 없는 실패
+        // 행이 된다(4xx는 재시도하지 않는다) — 금액 상한을 여기서 다시 보는 것과 같은 목적이다.
+        isItemNameOverLimit(trimmedItemName) ||
+        isMerchantOverLimit(trimmedMerchant) ||
+        isMemoOverLimit(memo) ||
         Boolean(dateInputError)
       ) {
         throw new Error(INVALID_EXPENSE_INPUT_ERROR);
@@ -434,7 +498,9 @@ export default function ExpenseDetailScreen() {
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["expense", expenseId] });
-      setTimeout(leaveAfterMutation, 650);
+      // GAP-056 #6: 타이머를 ref에 담아 언마운트 때 취소한다(위 leaveTimerRef 주석).
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = setTimeout(leaveAfterMutation, 650);
     }
   });
 
@@ -451,7 +517,9 @@ export default function ExpenseDetailScreen() {
     onSuccess: async () => {
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      setTimeout(leaveAfterMutation, 650);
+      // GAP-056 #6: 타이머를 ref에 담아 언마운트 때 취소한다(위 leaveTimerRef 주석).
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = setTimeout(leaveAfterMutation, 650);
     }
   });
 
@@ -613,11 +681,13 @@ export default function ExpenseDetailScreen() {
                 <TextInput
                   accessibilityLabel="판매처 입력 (선택)"
                   returnKeyType="done"
+                  // GAP-056 #1: 서버 @MaxLength와 같은 숫자(단일 소스는 src/expenses/text-limits.ts).
+                  maxLength={MERCHANT_MAX_LENGTH}
                   onChangeText={setMerchant}
                   placeholder="판매처를 입력해 주세요 (선택)"
                   style={{
                     backgroundColor: theme.colors.beige,
-                    borderColor: "transparent",
+                    borderColor: merchantError ? theme.colors.danger : "transparent",
                     borderRadius: theme.radii.small,
                     borderWidth: 1,
                     color: theme.colors.brown,
@@ -627,6 +697,9 @@ export default function ExpenseDetailScreen() {
                   }}
                   value={merchant}
                 />
+                {merchantError ? (
+                  <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{merchantError}</Text>
+                ) : null}
               </View>
 
               {/* 라운드 48 T3(C3): 핵심 루프("준비템 확인 → 구매 → 기록")의 되돌아가는 길.
@@ -662,6 +735,8 @@ export default function ExpenseDetailScreen() {
                 <TextInput
                   accessibilityLabel="품목 입력"
                   returnKeyType="done"
+                  // GAP-056 #1: 서버 @MaxLength와 같은 숫자(단일 소스는 src/expenses/text-limits.ts).
+                  maxLength={ITEM_NAME_MAX_LENGTH}
                   onChangeText={setItemName}
                   placeholder="품목"
                   style={{
@@ -897,11 +972,15 @@ export default function ExpenseDetailScreen() {
                 <TextInput
                   accessibilityLabel="메모 입력 (선택)"
                   returnKeyType="done"
+                  // GAP-056 #1: 서버 @MaxLength와 같은 숫자(단일 소스는 src/expenses/text-limits.ts).
+                  maxLength={MEMO_MAX_LENGTH}
                   onChangeText={setMemo}
                   placeholder="메모를 입력해 주세요"
                   style={{
                     backgroundColor: theme.colors.beige,
+                    borderColor: memoError ? theme.colors.danger : "transparent",
                     borderRadius: theme.radii.small,
+                    borderWidth: 1,
                     color: theme.colors.brown,
                     fontSize: theme.typography.body1.fontSize,
                     minHeight: theme.touchTarget,
@@ -909,6 +988,9 @@ export default function ExpenseDetailScreen() {
                   }}
                   value={memo}
                 />
+                {memoError ? (
+                  <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{memoError}</Text>
+                ) : null}
               </View>
 
               {/* GAP-054 #1: 환불 기록에서는 이 체크박스를 **누를 수 없다.** 환불이면서 선물인
