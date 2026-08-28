@@ -113,8 +113,16 @@ describe("라운드 48 T4(D1) 화면 배선 (app/expenses/new.tsx)", () => {
 
   it("보조 버튼은 같은 뮤테이션을 타고 성공 후 화면을 떠나지 않는다", () => {
     expect(newExpenseSource).toContain("label={CONTINUE_RECORDING_LABEL}");
-    expect(newExpenseSource).toContain("continueAfterSaveRef.current = true;");
     expect(newExpenseSource).toContain("continueAfterSaveRef.current = false;");
+    /**
+     * 라운드 51 C-#5: "이번 저장이 어느 버튼이었나"를 세우는 자리가 **한 곳**(prepareSave)으로
+     * 모였다 -- 예전에는 onPress 두 곳이 각자 ref를 세웠는데, 그 자리에 분류 가드까지 들어오면
+     * 저장 규칙이 두 벌이 된다. 두 버튼은 여전히 각자 같은 뮤테이션을 부른다(게이트 계약,
+     * src/family/record-permissions.test.ts).
+     */
+    expect(newExpenseSource).toContain("continueAfterSaveRef.current = continueRecording;");
+    expect(newExpenseSource).toContain("if (!prepareSave(false)) return;");
+    expect(newExpenseSource).toContain("if (!prepareSave(true)) return;");
     // 두 버튼 모두 saveExpense.mutate()를 부른다 -- 저장 규칙이 두 벌이 되지 않는다.
     expect(newExpenseSource.match(/saveExpense\.mutate\(\)/g) ?? []).toHaveLength(2);
     const successBranch = newExpenseSource.slice(

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import type { AccessibilityActionEvent, ListRenderItemInfo, SectionListData, ViewStyle } from "react-native";
 import { Alert, Platform, Pressable, RefreshControl, ScrollView, SectionList, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
@@ -21,6 +21,7 @@ import {
   CHILD_SWITCH_TRIGGER_HINT
 } from "../../src/children/child-switch";
 import { ChildSwitchSheet, useChildSwitchSheet } from "../../src/children/ChildSwitchSheet";
+import { resolveInitialMonthOffset } from "../../src/expenses/import-landing-month";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import {
   buildCalendarMonth,
@@ -706,7 +707,35 @@ export default function RecordsScreen() {
   // 새 참조지만 이 둘은 아니라, 의존성에 넣어도 핸들러가 안정적으로 남는다.
   const expenseEntryLocked = expenseGate.locked;
   const explainExpenseEntryLock = expenseGate.explain;
-  const [monthOffset, setMonthOffset] = useState(0);
+  /**
+   * 라운드 51 C-#11 — 착지 월.
+   *
+   * 엑셀 가져오기 확정이 `month=YYYY-MM`을 붙여 이 탭으로 보낸다(app/import/[importJobId].tsx).
+   * 지난 몇 달치를 128건 가져온 사용자를 무조건 이번 달에 내려놓으면 "가져왔는데 안 보인다"가
+   * 된다 -- 기록은 멀쩡히 들어갔고 화면만 다른 달을 보고 있는 것이다.
+   *
+   * **파라미터당 딱 한 번만** 적용한다. 이 탭은 한 번 열리면 계속 마운트된 채로 남으므로
+   * (가져오기 화면은 탭 위에 쌓인 스택이다) 첫 렌더의 초기값만으로는 부족하다 -- 그래서
+   * 지연 초기화(첫 마운트)와, **파라미터 값이 실제로 바뀔 때** 한 번 도는 effect 둘을 함께
+   * 둔다. 이미 적용한 값(appliedMonthParamRef)에는 다시 손대지 않으므로, 재렌더나 아이 전환이
+   * 사용자가 ‹ 로 옮겨 둔 달을 딥링크 파라미터로 되돌리는 일은 없다. 화면 안의 월 이동
+   * (goToPreviousMonth/goToNextMonth)은 종전 로직 그대로다.
+   *
+   * 파싱은 전부 순수 모듈에 있다: 파라미터가 없거나 형식이 깨졌거나 미래 월이면 0(이번 달)이라
+   * 종전 동작과 완전히 같다.
+   */
+  const monthParams = useLocalSearchParams<{ month?: string }>();
+  const monthParam = Array.isArray(monthParams.month) ? monthParams.month[0] : monthParams.month;
+  const [monthOffset, setMonthOffset] = useState(() =>
+    resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() })
+  );
+  const appliedMonthParamRef = useRef<string | undefined>(monthParam);
+  useEffect(() => {
+    if (!monthParam) return;
+    if (appliedMonthParamRef.current === monthParam) return;
+    appliedMonthParamRef.current = monthParam;
+    setMonthOffset(resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() }));
+  }, [monthParam]);
   const [searchText, setSearchText] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   // UX-D: 리스트/달력 보기. 리포트 탭의 기간 세그먼트(app/(tabs)/reports.tsx의 `period`)와 같은

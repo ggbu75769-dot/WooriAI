@@ -381,7 +381,12 @@ describe("UX-L(A) 배선 계약", () => {
     expect(newExpenseSource).toContain(
       "quickExpenseCategories.find((category) => category.id === prefilledCategoryTileId)"
     );
-    // 매핑조차 안 되는 카테고리는 무시하고 기본 타일로 둔다(최근 품목 칩과 같은 판단).
-    expect(newExpenseSource).toContain("const [selectedCategory, setSelectedCategory] = useState(prefilledCategory ?? quickExpenseCategories[0]);");
+    // 매핑조차 안 되는 카테고리는 무시한다(최근 품목 칩과 같은 판단). 라운드 51 C-#5부터 그때
+    // 남는 상태는 "기본 타일"이 아니라 **미선택**이다 -- 아무도 고르지 않은 분류를 앱이
+    // 대신 골라 저장하지 않는다. 프리필이 실린 경우의 동작(그 타일로 시작)은 종전 그대로다.
+    expect(newExpenseSource).toContain("prefilledCategoryId: prefilledCategory?.id ?? null,");
+    expect(newExpenseSource).toContain(
+      "const [selectedCategory, setSelectedCategory] = useState<QuickExpenseCategory | null>("
+    );
   });
 });

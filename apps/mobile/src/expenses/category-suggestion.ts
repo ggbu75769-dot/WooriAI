@@ -21,18 +21,27 @@
  * 이 추천을 적용하지 않는다. 추천은 "아직 안 고른 칸"을 채워 주는 것이지, 사용자의 선택을
  * 정정하는 것이 아니다 — 저장 직전에 분류가 조용히 바뀌면 그건 허위 기록이 된다.
  *
- * ## 기본값에 대한 사실 (라운드 33 F4)
- * 이 화면의 카테고리 **기본 선택값은 8타일 중 첫 타일인 "기저귀"**다(app/expenses/new.tsx의
- * `useState(quickExpenseCategories[0])`, src/categories.ts의 카탈로그 순서). "기타"가 아니다 —
- * 예전 주석은 "기타는 이미 기본값"이라고 적어 두었는데 그건 사실이 아니었고, 그 잘못된 전제
- * 위에서 사전 설계를 읽으면 미매칭 품목의 실제 결과를 오해하게 된다.
+ * ## 기본값에 대한 사실 (라운드 33 F4 → 라운드 51 C-#5에서 고쳐졌다)
+ * **예전 사실**: 이 화면의 카테고리 기본 선택값은 8타일 중 첫 타일인 "기저귀"였다
+ * (app/expenses/new.tsx의 `useState(quickExpenseCategories[0])`, src/categories.ts의 카탈로그
+ * 순서). 그래서 추천이 붙지 않는 품목은 사용자가 타일을 직접 누르지 않는 한 전부 기저귀로
+ * 저장됐고, 리포트·인사이트·홈 타일이 그 오분류를 **사실인 것처럼** 그렸다. 라운드 33 F4는
+ * 그 문제를 "픽셀 락(EXP-001)과 입력 흐름에 영향이 커서 범위 밖"으로 두고 기록만 해 뒀다.
  *
- * 그래서 현실은 이렇다: **추천이 붙지 않는 품목은 사용자가 타일을 직접 누르지 않는 한 "기저귀"로
- * 남는다.** 추천 근거가 사라졌을 때 자동 선택이 그대로 남던 문제는 화면 쪽에서 되돌리도록
- * 고쳤지만(라운드 33 F3, app/expenses/new.tsx), 애초에 아무 추천도 없었던 품목이 첫 타일에
- * 머무는 **초기 기본값** 문제는 그대로 남아 있다. 기본값을 "기타"로 바꾸거나 "선택 없음" 상태를
- * 두는 것은 픽셀 락(EXP-001)과 기존 입력 흐름에 영향이 커서 이번 범위 밖으로 두고, 여기 사실로
- * 기록만 해 둔다.
+ * **지금 사실(라운드 51 C-#5)**: 세션이 있는 실제 입력 경로에서는 **아무것도 선택되지 않은
+ * 상태("미선택")로 시작한다**. 타일에는 선택 하이라이트가 하나도 없고, 분류를 고르지 않은 채
+ * 저장을 누르면 저장이 시작되지 않고 안내 한 줄이 뜬다(entry-form-guards.ts의
+ * `isCategoryMissingForSave` / `CATEGORY_REQUIRED_NOTICE`). "저장하고 계속 기록"의 리셋도
+ * 미선택으로 돌아간다. 즉 **앱이 사용자 대신 분류를 지어내는 자리는 이제 없다.**
+ *
+ * 두 가지는 종전 그대로다.
+ *  - 자동 추천(아래 `resolveAutoCategorySelection`)과 "또 기록" 프리필은 예전과 똑같이 동작한다.
+ *    추천이 붙으면 타일이 눌리고 캡션이 뜨며, 추천 근거가 사라지면 되돌아간다 — 되돌아가는
+ *    자리가 "첫 타일"에서 "미선택"으로 바뀌었을 뿐이라 추가 탭은 0이다.
+ *  - **세션 없는 픽셀 락 캡처 경로**(app/pixel-lock.tsx가 clearSession 후 /expenses/new로
+ *    이동)는 여전히 첫 타일이 선택된 채로 렌더된다 — EXP-001 기준 이미지가 그 하이라이트를
+ *    포함하므로, 비세션 초기 렌더만 종전 상태를 유지한다(entry-form-guards.ts의
+ *    `resolveInitialCategoryId`).
  */
 
 import { categoryCatalog, type CategoryCode } from "../categories";
@@ -206,17 +215,23 @@ export type AutoCategorySelectionInput = {
   itemName: string;
   /** 이번 달 지출 캐시(1순위 근거). 없으면 키워드 사전만 쓴다. */
   history?: readonly CategorySuggestionHistoryRow[];
-  /** 지금 선택돼 있는 타일 id. */
-  currentCategoryId: string;
+  /** 지금 선택돼 있는 타일 id. 아직 아무 타일도 안 눌렸으면 `null`(미선택). */
+  currentCategoryId: string | null;
   /** 직전에 자동으로 골라 준 값(사용자가 직접 고른 뒤라면 화면이 아예 이 판정을 부르지 않는다). */
   autoPicked: AutoPickedCategory | null;
-  /** 근거가 사라졌을 때 돌아갈 기본 타일 id — 8타일 중 첫 타일(화면의 초기 선택값과 같은 값). */
-  defaultCategoryId: string;
+  /**
+   * 근거가 사라졌을 때 돌아갈 값 — **화면의 초기 선택 상태와 같은 값**이다.
+   *
+   * 라운드 51 C-#5: 세션이 있는 실제 입력 경로에서는 이 값이 `null`(미선택)이다. 예전에는
+   * 8타일 중 첫 타일 id("기저귀")였고, 그래서 추천이 사라진 자리에 아무도 고르지 않은 분류가
+   * 눌린 채로 남았다. 되돌아갈 자리가 "미선택"이 되면서 그 오분류의 마지막 경로가 닫혔다.
+   */
+  defaultCategoryId: string | null;
 };
 
 export type AutoCategorySelection = {
-  /** 선택돼 있어야 할 타일 id. */
-  categoryId: string;
+  /** 선택돼 있어야 할 타일 id. `null`이면 아무 타일도 선택되지 않은 상태다. */
+  categoryId: string | null;
   /** 자동 선택 상태(캡션은 이 값이 있을 때만 뜬다). */
   autoPicked: AutoPickedCategory | null;
 };
@@ -230,9 +245,10 @@ export type AutoCategorySelection = {
  * 그 분류로 저장됐다 — 기록이 실제와 달라지는 종류의 버그다.
  *
  * 그래서 근거가 없을 때는 현재 선택이 **아직 기계가 고른 그 값 그대로인지**(autoPicked와 일치)
- * 보고, 그렇다면 기본 타일로 되돌린다. 사용자가 한 번이라도 직접 골랐다면 화면이 이 판정을
- * 부르지 않으므로(categoryTouchedRef) 사람의 선택은 어떤 경우에도 되돌려지지 않는다.
- * 되돌린 뒤 남는 것은 처음 상태(기본 타일 · 캡션 없음)뿐이라 이 판정이 지어내는 값은 없다.
+ * 보고, 그렇다면 `defaultCategoryId`로 되돌린다. 사용자가 한 번이라도 직접 골랐다면 화면이 이
+ * 판정을 부르지 않으므로(categoryTouchedRef) 사람의 선택은 어떤 경우에도 되돌려지지 않는다.
+ * 되돌린 뒤 남는 것은 처음 상태(라운드 51 C-#5 이후: 미선택 · 캡션 없음)뿐이라 이 판정이
+ * 지어내는 값은 없다.
  */
 export function resolveAutoCategorySelection(input: AutoCategorySelectionInput): AutoCategorySelection {
   const suggestion = suggestCategoryId(input.itemName, input.history ?? []);

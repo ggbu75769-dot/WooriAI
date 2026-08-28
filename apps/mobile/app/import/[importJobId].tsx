@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
 import { FlatList, Pressable, Text, View } from "react-native";
+import { getSeoulToday } from "@wooriai/domain";
 import {
   confirmImport,
   getImportJob,
@@ -14,6 +15,11 @@ import {
   type ImportJob,
   type ImportRow
 } from "../../src/api/client";
+import {
+  importLandingMonthNotice,
+  resolveImportLandingMonth,
+  RECORDS_MONTH_PARAM
+} from "../../src/expenses/import-landing-month";
 import { explainExpenseViewOnly, useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import {
   canConfirmImport,
@@ -209,7 +215,19 @@ function FilterChip({ label, selected, onPress }: { label: string; selected: boo
   );
 }
 
-function CompletionSummaryCard({ summary, onDone }: { summary: { importedCount: number; skippedCount: number }; onDone: () => void }) {
+function CompletionSummaryCard({
+  summary,
+  landingNotice,
+  onDone
+}: {
+  summary: { importedCount: number; skippedCount: number };
+  /**
+   * 라운드 51 C-#11: 버튼이 **이번 달이 아닌 달**로 데려갈 때만 붙는 한 줄
+   * (importLandingMonthNotice). 이번 달로 가는 경우에는 null이라 카드가 종전과 똑같다.
+   */
+  landingNotice: string | null;
+  onDone: () => void;
+}) {
   return (
     <Card style={{ gap: 12 }}>
       <Text style={summaryTitleStyle}>가져오기를 완료했어요</Text>
@@ -221,6 +239,7 @@ function CompletionSummaryCard({ summary, onDone }: { summary: { importedCount: 
         <Text style={summaryLabelStyle}>제외한 항목</Text>
         <Text style={summaryValueStyle}>{summary.skippedCount}건</Text>
       </View>
+      {landingNotice ? <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{landingNotice}</Text> : null}
       <PrimaryButton label="가계부에서 확인하기" onPress={onDone} />
     </Card>
   );
@@ -365,9 +384,27 @@ export default function ImportPreviewScreen() {
       });
     }
   });
+  /**
+   * 라운드 51 C-#11 — 확정한 행들의 **대표 월**(YYYY-MM). 없으면 null.
+   *
+   * ref인 이유: 값을 정할 수 있는 유일한 시점이 확정 요청을 만드는 자리(= 어떤 행을 보내는지
+   * 아는 유일한 자리)이고, 읽는 곳은 그 뒤의 onSuccess다. state로 두면 그 사이 렌더를 기다려야
+   * 한다. 화면에 그리는 값은 onSuccess에서 state로 옮긴다.
+   */
+  const landingMonthRef = useRef<string | null>(null);
+  const [landingMonth, setLandingMonth] = useState<string | null>(null);
   const confirm = useMutation({
-    mutationFn: () => confirmImport(authToken!, importJobId, selectedRowIds(rows.data?.rows ?? [])),
+    mutationFn: () => {
+      const rowList = rows.data?.rows ?? [];
+      const confirmedIds = selectedRowIds(rowList);
+      // 실제로 가져가는 행만 본다 -- 확정에서 빠진 행(잠긴 행·체크 해제)의 날짜로 착지 월을
+      // 정하면 사용자가 가져오지 않은 달을 열게 된다.
+      const confirmedIdSet = new Set(confirmedIds);
+      landingMonthRef.current = resolveImportLandingMonth(rowList.filter((row) => confirmedIdSet.has(row.id)));
+      return confirmImport(authToken!, importJobId, confirmedIds);
+    },
     onSuccess: async (result) => {
+      setLandingMonth(landingMonthRef.current);
       setCompletionSummary(result);
       await queryClient.invalidateQueries({ queryKey: ["import-job", importJobId] });
       // Import confirmation changes expense totals that feed every report tab (monthly,
@@ -389,7 +426,24 @@ export default function ImportPreviewScreen() {
   const status = job.data?.status;
   const isPreviewReady = status === "preview_ready";
   const isBulkRunning = bulkProgress !== null;
-  const goToRecords = () => router.replace("/(tabs)/records");
+  /**
+   * 라운드 51 C-#11 — 가져온 기록이 **실제로 있는 달**로 내려놓는다.
+   *
+   * 종전에는 언제나 `router.replace("/(tabs)/records")`라 이번 달이 열렸다. 가져오기의
+   * 절대다수는 지난 몇 달치 가계부라, 128건을 확정하고 "가계부에서 확인하기"를 누른 사용자가
+   * 곧바로 빈 목록을 보는 일이 흔했다("가져왔는데 안 보여요").
+   *
+   * 대표 월을 모르면(날짜를 하나도 못 읽은 파일, 새로고침 후 이미 confirmed 상태로 들어온 화면)
+   * 파라미터를 붙이지 않고 종전 그대로 이동한다. 기록 탭도 파라미터가 없으면 종전과 같다.
+   */
+  const recordsLandingNotice = importLandingMonthNotice({ landingMonth, todayIso: getSeoulToday() });
+  const goToRecords = () => {
+    if (!landingMonth) {
+      router.replace("/(tabs)/records");
+      return;
+    }
+    router.replace({ pathname: "/(tabs)/records", params: { [RECORDS_MONTH_PARAM]: landingMonth } });
+  };
 
   /**
    * 라운드 42 L-3 — "확인 필요만 보기"의 막다른 길.
@@ -766,6 +820,7 @@ export default function ImportPreviewScreen() {
           ListEmptyComponent={
             <CompletionSummaryCard
               summary={completionSummary ?? { importedCount: job.data.importedCount, skippedCount: job.data.rowCount - job.data.importedCount }}
+              landingNotice={recordsLandingNotice}
               onDone={goToRecords}
             />
           }

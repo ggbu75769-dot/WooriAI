@@ -25,8 +25,11 @@ import {
 import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
 import { buildEntryContextLine } from "../../src/expenses/entry-context-line";
 import {
+  isCategoryMissingForSave,
+  resolveInitialCategoryId,
   shouldClearQuickExpenseDraftOnClose,
   shouldTileFillItemName,
+  CATEGORY_REQUIRED_NOTICE,
   type QuickExpenseInputSnapshot
 } from "../../src/expenses/entry-form-guards";
 import {
@@ -318,13 +321,33 @@ export default function NewExpenseScreen() {
   // 수정 화면을 거친 기록(= 서버 정식 카테고리 UUID)에서 "또 기록"을 누르면 품목명·금액은 따라
   // 오는데 분류만 조용히 기본 타일로 떨어졌다 -- 사용자가 방금 고른 그 기록의 분류인데도. 이제
   // 위 매핑으로 code를 거쳐 같은 분류의 타일을 찾는다. 매핑이 없으면(대응 타일이 없는 분류,
-  // 캐시 없음) 예전과 같이 기본 타일로 두고 자동 추천도 평소대로 돈다.
+  // 캐시 없음) 프리필 없이 들어온 것과 똑같이 두고 자동 추천도 평소대로 돈다 -- 라운드 51 C-#5
+  // 이후 그 상태는 "기본 타일"이 아니라 **미선택**이다(바로 아래).
   const prefilledCategoryTileId =
     authToken && prefill.categoryId ? resolveTileCategoryId(prefill.categoryId) : null;
   const prefilledCategory = prefilledCategoryTileId
     ? (quickExpenseCategories.find((category) => category.id === prefilledCategoryTileId) ?? null)
     : null;
-  const [selectedCategory, setSelectedCategory] = useState(prefilledCategory ?? quickExpenseCategories[0]);
+  /**
+   * 라운드 51 C-#5: 초기 선택은 **미선택(null)**이다.
+   *
+   * 종전에는 `prefilledCategory ?? quickExpenseCategories[0]`이라 프리필도 추천도 없는 품목이
+   * 전부 첫 타일("기저귀")로 저장됐고, 그 오분류를 리포트·인사이트·홈 타일이 사실로 그렸다.
+   * 이제 앱이 아는 것이 없으면 아무 타일도 누르지 않고, 저장 직전에 한 번만 고르게 한다.
+   *
+   * 예외 두 가지는 순수 함수(resolveInitialCategoryId)가 갖고 있다: 프리필로 분류가 함께 온
+   * 경우(종전 그대로 그 타일)와 **세션 없는 픽셀 락 캡처**(EXP-001 기준 이미지가 첫 타일의
+   * 선택 하이라이트를 포함하므로 비세션 초기 렌더만 종전 상태를 유지한다).
+   */
+  const initialCategoryId = resolveInitialCategoryId({
+    hasSession: Boolean(authToken),
+    prefilledCategoryId: prefilledCategory?.id ?? null,
+    previewCategoryId: quickExpenseCategories[0].id
+  });
+  const [selectedCategory, setSelectedCategory] = useState<QuickExpenseCategory | null>(
+    () => quickExpenseCategories.find((category) => category.id === initialCategoryId) ?? null
+  );
+  const selectedCategoryId = selectedCategory?.id ?? null;
   const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
   const [isGift, setIsGift] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -406,9 +429,14 @@ export default function NewExpenseScreen() {
       setAmountText(draft.amountText);
       setMemo(draft.memo);
       const matchedCategory = quickExpenseCategories.find((category) => category.id === draft.categoryId);
-      if (matchedCategory) setSelectedCategory(matchedCategory);
       // UX-C: 복원한 분류는 사용자가 이미 보고 있던 값이므로 자동 추천이 덮어쓰지 않는다.
-      categoryTouchedRef.current = true;
+      // 라운드 51 C-#5: 분류가 **없는** 초안(미선택 상태로 시트를 닫은 경우)이 이제 정상적으로
+      // 존재한다. 그때까지 touched로 쳐 버리면 사용자가 고른 적 없는데 자동 추천만 영구히 꺼진
+      // 화면이 된다(자동완성 칩의 F3 판단과 같은 이유) -- 실제로 바꾼 경우에만 세운다.
+      if (matchedCategory) {
+        setSelectedCategory(matchedCategory);
+        categoryTouchedRef.current = true;
+      }
       if (draft.spentOnIso) setExpenseDateIso(draft.spentOnIso);
       setIsGift(draft.isGift);
     });
@@ -437,7 +465,9 @@ export default function NewExpenseScreen() {
         itemName,
         amountText,
         memo,
-        categoryId: selectedCategory.id,
+        // 라운드 51 C-#5: 미선택이면 키 자체를 싣지 않는다 -- 빈 문자열을 적어 두면 복원할 때
+        // 어느 타일도 못 찾는 값이 "분류가 있었다"는 것처럼 읽힌다.
+        ...(selectedCategoryId ? { categoryId: selectedCategoryId } : {}),
         spentOnIso: expenseDateIso,
         isGift
       });
@@ -445,7 +475,7 @@ export default function NewExpenseScreen() {
     return () => {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
-  }, [itemName, amountText, memo, selectedCategory.id, expenseDateIso, isGift, authToken]);
+  }, [itemName, amountText, memo, selectedCategoryId, expenseDateIso, isGift, authToken]);
 
   // UX-C(2/2): 품목명 -> 카테고리 자동 추천. 순수 계산(src/expenses/category-suggestion.ts)이라
   // 디바운스 없이 타이핑마다 돌려도 가볍고, 규칙은 1순위 과거 기록 / 2순위 정적 키워드 사전이다.
@@ -457,28 +487,34 @@ export default function NewExpenseScreen() {
   // 라운드 33 F3: 추천할 근거가 사라지면 캡션만 내리는 것으로는 부족하다. 예전에는 직전 추천으로
   // 눌려 있던 타일이 그대로 남아서, "물티슈"를 지우고 "가습기"를 친 사용자가 아무것도 하지
   // 않았는데도 기저귀/위생 분류로 저장할 수 있었다(캡션이 사라져 있으니 자동으로 골라 준 값이라는
-  // 표시조차 없다). 그래서 근거가 사라지면 **기계가 고른 그 값일 때만** 기본 타일로 되돌린다 --
+  // 표시조차 없다). 그래서 근거가 사라지면 **기계가 고른 그 값일 때만** 초기 상태로 되돌린다 --
   // 사용자가 한 번이라도 손댔으면(categoryTouchedRef) 위에서 이미 반환했으므로 절대 건드리지 않고,
-  // 되돌린 뒤에는 남는 것이 처음 상태(기본 타일 · 캡션 없음)뿐이라 아무것도 지어내지 않는다.
+  // 되돌린 뒤에는 남는 것이 처음 상태(캡션 없음)뿐이라 아무것도 지어내지 않는다.
+  //
+  // 라운드 51 C-#5: 그 "처음 상태"가 첫 타일에서 **미선택(null)**로 바뀌었다 -- 그래서
+  // defaultCategoryId도 null이다. 추천이 붙는 경로(키워드·과거 기록)는 한 줄도 바뀌지 않는다.
   useEffect(() => {
     if (!authToken) return;
     if (categoryTouchedRef.current) return;
     const nextSelection = resolveAutoCategorySelection({
       itemName,
       history: expenseHistory,
-      currentCategoryId: selectedCategory.id,
+      currentCategoryId: selectedCategoryId,
       autoPicked: autoPickedCategory,
-      defaultCategoryId: quickExpenseCategories[0].id
+      defaultCategoryId: null
     });
-    const suggestedCategory = quickExpenseCategories.find((category) => category.id === nextSelection.categoryId);
-    if (!suggestedCategory) return;
-    setSelectedCategory((current) => (current.id === suggestedCategory.id ? current : suggestedCategory));
+    const suggestedCategory =
+      quickExpenseCategories.find((category) => category.id === nextSelection.categoryId) ?? null;
+    // 8타일 밖의 id가 돌아오는 일은 없지만(추천도 카탈로그에서만 고른다), 혹시 그렇다면 지금
+    // 선택을 건드리지 않는다 -- 못 그리는 타일을 고른 척하느니 그대로 두는 편이 정직하다.
+    if (nextSelection.categoryId !== null && !suggestedCategory) return;
+    setSelectedCategory((current) => (current?.id === suggestedCategory?.id ? current : suggestedCategory));
     // 같은 값이면 새 객체로 갈아끼우지 않는다 -- autoPickedCategory가 이 effect의 의존성이라
     // 매번 새 객체를 쓰면 렌더 루프가 된다.
     if (!isSameAutoPickedCategory(autoPickedCategory, nextSelection.autoPicked)) {
       setAutoPickedCategory(nextSelection.autoPicked);
     }
-  }, [authToken, itemName, expenseHistory, selectedCategory.id, autoPickedCategory]);
+  }, [authToken, itemName, expenseHistory, selectedCategoryId, autoPickedCategory]);
 
   // 타이핑 연동 자동완성 후보(상위 3개). 칩으로 한 번 채운 뒤에는 다시 타이핑할 때까지 접힌다.
   const itemAutocompleteChips =
@@ -588,7 +624,9 @@ export default function NewExpenseScreen() {
     setMerchant("");
     setMemo("");
     setIsGift(false);
-    setSelectedCategory(quickExpenseCategories[0]);
+    // 라운드 51 C-#5: 연속 기록의 리셋도 **미선택**으로 돌아간다. 첫 타일로 되돌리면 다음
+    // 항목이 조용히 기저귀로 저장되는 바로 그 오분류가 연속 기록에서 반복된다.
+    setSelectedCategory(null);
     setAutoPickedCategory(null);
     setAutocompleteApplied(false);
     categoryTouchedRef.current = false;
@@ -597,7 +635,10 @@ export default function NewExpenseScreen() {
   const saveExpense = useMutation({
     mutationFn: () => {
       const amountKrw = Number(amountText);
-      if (!authToken || !childId || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
+      // 라운드 51 C-#5: 분류는 이제 **필수**다. 버튼 쪽에서 안내로 먼저 막지만(아래
+      // handleSavePress), 뮤테이션 자체도 분류 없이는 시작하지 않는다 -- 저장 규칙이 화면
+      // 핸들러에만 있으면 다른 경로가 생겼을 때 조용히 빠져나간다.
+      if (!authToken || !childId || !selectedCategory || !Number.isInteger(amountKrw) || amountKrw <= 0 || !itemName.trim() || Boolean(dateInputError)) {
         throw new Error(INVALID_EXPENSE_INPUT_ERROR);
       }
       return createExpenseOffline(authToken, queryClient, {
@@ -649,22 +690,27 @@ export default function NewExpenseScreen() {
       // and `offline` reports the connectivity at record time (the create itself always succeeds
       // locally first -- see createExpenseOffline). A no-op without ANA-102 consent.
       const recordedAmountKrw = Number(amountText);
-      const recordedCategoryId = selectedCategory.id;
+      // 라운드 51 C-#5: 분류 없이는 뮤테이션이 시작되지 않으므로 성공 시점에는 언제나 값이
+      // 있다. 그래도 없는 값을 기본 타일로 메워 보내지는 않는다 -- 그러면 분석 데이터에
+      // 사용자가 고른 적 없는 분류가 사실처럼 남는다(DNC: 허위 데이터 금지). 없으면 침묵한다.
+      const recordedCategoryId = selectedCategoryId;
       const recordedSource = linkedItemTemplateId ? "followup" : "manual";
       // 리뷰 F6: categoryId는 이 화면의 8타일(categoryCatalog) 중 하나뿐이다 — 지출 수정 화면은
       // expense_recorded를 발화하지 않으므로 서버 카테고리 목록 해석은 필요 없다.
-      void isCurrentlyOnline().then((online) => {
-        trackAndFlushAnalyticsEvent(authToken, {
-          eventName: "expense_recorded",
-          payload: buildExpenseRecordedPayload({
-            categoryId: recordedCategoryId,
-            amountKrw: recordedAmountKrw,
-            source: recordedSource,
-            offline: !online
-          }),
-          platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+      if (recordedCategoryId) {
+        void isCurrentlyOnline().then((online) => {
+          trackAndFlushAnalyticsEvent(authToken, {
+            eventName: "expense_recorded",
+            payload: buildExpenseRecordedPayload({
+              categoryId: recordedCategoryId,
+              amountKrw: recordedAmountKrw,
+              source: recordedSource,
+              offline: !online
+            }),
+            platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+          });
         });
-      });
+      }
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
       // R19-B (DNC-002 핵심 루프 마지막 고리): 준비템에서 넘어온 기록이면 서버가 그
@@ -716,6 +762,33 @@ export default function NewExpenseScreen() {
   const amountKrwValue = Number(amountText);
   const isAmountInvalid =
     Boolean(authToken) && (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0 || Boolean(dateInputError));
+  /**
+   * 라운드 51 C-#5 — 분류 없이 저장을 눌렀을 때.
+   *
+   * 버튼을 **비활성으로 만들지 않는 이유**: 비활성 버튼은 이유를 말할 자리가 없다(라운드 40
+   * J-1의 잠금 가드가 같은 판단을 한다). 금액이 비어 있을 때와 달리 여기서는 "무엇을 하면
+   * 되는지"가 한 문장으로 끝나므로, 눌리게 두고 그 한 문장으로 답한다.
+   *
+   * 안내는 분류를 고르는 순간 저절로 사라진다(렌더 조건이 `분류 없음`을 함께 본다) -- 사용자가
+   * 시킨 대로 했는데도 경고가 남아 있는 화면을 만들지 않는다.
+   */
+  const isCategoryMissing = isCategoryMissingForSave({ hasSession: Boolean(authToken), selectedCategoryId });
+  const [categoryNoticeRequested, setCategoryNoticeRequested] = useState(false);
+  const showCategoryNotice = categoryNoticeRequested && isCategoryMissing;
+  /**
+   * 저장 버튼 두 개가 **같은 한 곳**에서 분류 가드를 지나고, 이번 저장이 어느 버튼이었는지도
+   * 여기서 한 번만 기록한다(라운드 48 T4의 continueAfterSaveRef). 막혔으면 false를 돌려주고
+   * 호출부는 그대로 멈춘다 -- 뮤테이션은 시작되지 않고 안내 한 줄만 뜬다.
+   */
+  const prepareSave = (continueRecording: boolean) => {
+    if (isCategoryMissing) {
+      setCategoryNoticeRequested(true);
+      return false;
+    }
+    setCategoryNoticeRequested(false);
+    continueAfterSaveRef.current = continueRecording;
+    return true;
+  };
 
   return (
     <AppScreen>
@@ -980,7 +1053,9 @@ export default function NewExpenseScreen() {
 
         <View style={quickExpenseCategoryGridStyle.grid}>
           {quickExpenseCategories.map((category) => {
-            const selected = category.label === selectedCategory.label;
+            // 라운드 51 C-#5: 미선택(selectedCategory === null)이면 **어느 타일에도** 하이라이트가
+            // 없다 -- 그 부재가 "아직 안 골랐어요"를 말하는 시각 상태다.
+            const selected = selectedCategory !== null && category.label === selectedCategory.label;
             return (
               <ExpenseCategoryIconButton
                 key={`${category.id}-${category.label}`}
@@ -991,6 +1066,8 @@ export default function NewExpenseScreen() {
                   categoryTouchedRef.current = true;
                   setAutoPickedCategory(null);
                   setSelectedCategory(category);
+                  // 라운드 51 C-#5: 안내를 보고 고른 것이므로 안내 요청도 함께 눕힌다.
+                  setCategoryNoticeRequested(false);
                   // UX-K(B-b): 품목명은 **비어 있거나, 직전에 타일이 넣은 라벨 그대로일 때만**
                   // 채운다. 예전에는 무조건 덮어써서, "하기스 밴드형 4단계"를 다 쳐 놓고 분류만
                   // 바꾸려 타일을 누르면 그 이름이 경고 없이 "의류"로 바뀌었다(못 알아채면 실제로
@@ -1010,6 +1087,21 @@ export default function NewExpenseScreen() {
             카테고리를 확정하면 바로 사라진다. 세션 없는 픽셀 락 캡처에서는 렌더되지 않는다. */}
         {authToken && autoPickedCategory ? (
           <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>{AUTO_CATEGORY_CAPTION}</Text>
+        ) : null}
+
+        {/* 라운드 51 C-#5: 분류를 고르지 않은 채 저장을 누른 뒤에만 뜨는 안내 한 줄. 타일 바로
+            아래에 두는 이유는 "무엇을 눌러야 하는지" 옆에서 말하기 위해서다. 포커스가 저장
+            버튼에 있는 상태에서 나타나므로 alert 역할 + live region으로 스크린리더도 함께
+            읽는다(같은 화면의 날짜 입력 오류와 같은 조합). 초기값이 false라 EXP-001 픽셀 락
+            캡처(세션 없음, 저장 시도 없음)에서는 렌더되지 않는다. */}
+        {showCategoryNotice ? (
+          <Text
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+            style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}
+          >
+            {CATEGORY_REQUIRED_NOTICE}
+          </Text>
         ) : null}
 
         {/* 라운드 49 C-03(a): 판매처 입력칸. **authToken 게이트 뒤**에 두는 것이 EXP-001
@@ -1188,7 +1280,7 @@ export default function NewExpenseScreen() {
             // 라운드 40 J-1: 잠긴 역할이면 안내만 띄우고 뮤테이션은 시작하지 않는다(guard 관례).
             // 버튼 자체는 그대로 둔다 -- disabled로 바꾸면 이유를 말할 자리가 사라진다.
             onPress={expenseGate.guard(() => {
-              continueAfterSaveRef.current = false;
+              if (!prepareSave(false)) return;
               saveExpense.mutate();
             })}
           />
@@ -1205,7 +1297,7 @@ export default function NewExpenseScreen() {
               disabled={saveExpense.isPending || isAmountInvalid}
               label={CONTINUE_RECORDING_LABEL}
               onPress={expenseGate.guard(() => {
-                continueAfterSaveRef.current = true;
+                if (!prepareSave(true)) return;
                 saveExpense.mutate();
               })}
             />

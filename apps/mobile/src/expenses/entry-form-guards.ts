@@ -1,8 +1,11 @@
 /**
- * UX-K(B) — 기록 시트에서 "사용자가 친 것"을 지키는 두 개의 작은 판정.
+ * UX-K(B) — 기록 시트에서 "사용자가 친 것"과 "사용자가 고른 것"을 지키는 작은 판정들.
  *
- * 둘 다 화면(app/expenses/new.tsx)에 인라인으로 쓰면 조건이 조용히 뒤집혀도 아무도 못 잡는
+ * 전부 화면(app/expenses/new.tsx)에 인라인으로 쓰면 조건이 조용히 뒤집혀도 아무도 못 잡는
  * 종류의 규칙이라, 순수 함수로 떼어 vitest로 고정한다.
+ *
+ * 라운드 51 C-#5로 카테고리 초기 상태·저장 가드(`resolveInitialCategoryId`,
+ * `isCategoryMissingForSave`)가 이 모듈에 합류했다 — 같은 성격의 규칙이고, 같은 화면이 쓴다.
  */
 
 export type QuickExpenseInputSnapshot = {
@@ -91,4 +94,61 @@ export type TileItemNameFillInput = {
 export function shouldTileFillItemName({ itemName, lastTileFilledItemName }: TileItemNameFillInput): boolean {
   if (itemName.trim().length === 0) return true;
   return lastTileFilledItemName !== null && itemName === lastTileFilledItemName;
+}
+
+/**
+ * 라운드 51 C-#5 — 분류를 고르지 않은 채 저장을 눌렀을 때의 안내(DNC-018 해요체).
+ *
+ * 톤 규칙: 사용자를 탓하지 않는다("선택하지 않았습니다" 아님). 지금 상태가 아니라 **다음에
+ * 무슨 일이 일어나는지**를 말한다 — 한 번만 고르면 저장이 그대로 이어진다.
+ */
+export const CATEGORY_REQUIRED_NOTICE = "분류를 골라 주시면 바로 저장할게요";
+
+export type InitialCategoryInput = {
+  /** 실/테스트 세션이 있는가(= 실제 사용자가 보는 화면인가). */
+  hasSession: boolean;
+  /** "또 기록" 프리필로 8타일 안의 분류가 함께 넘어왔다면 그 타일 id, 아니면 null. */
+  prefilledCategoryId: string | null;
+  /** 세션이 없는 픽셀 락 캡처에서 종전 그대로 선택돼 있어야 하는 타일 id(8타일 중 첫 타일). */
+  previewCategoryId: string;
+};
+
+/**
+ * 라운드 51 C-#5 — 기록 시트의 **초기 카테고리 선택 상태**.
+ *
+ * 고치는 것: 종전 초기값은 무조건 8타일 중 첫 타일("기저귀")이었다. 자동 추천도 프리필도
+ * 붙지 않는 품목(사전에 없고 과거 기록도 없는 이름)은 사용자가 타일을 누르지 않으면 전부
+ * 기저귀로 저장됐고, 리포트·인사이트·홈 타일이 그 오분류를 사실로 그렸다. 앱이 모르는 것을
+ * 지어내지 않으려면 초기 상태가 "미선택"이어야 한다(null).
+ *
+ * 그런데 두 가지는 그대로 둔다.
+ *  1. **프리필**: 사용자가 방금 그 기록을 골라서 온 것이므로 그 분류로 시작한다(종전 동작).
+ *  2. **세션 없는 픽셀 락 캡처**: EXP-001 기준 이미지가 첫 타일의 선택 하이라이트를 포함하고
+ *     있어서, 비세션 초기 렌더만 종전대로 첫 타일을 선택된 상태로 둔다. 그 경로에는 프리필도
+ *     자동 추천도 저장도 없으므로(전부 authToken 게이트 뒤) 오분류가 생길 자리가 없다.
+ */
+export function resolveInitialCategoryId({
+  hasSession,
+  prefilledCategoryId,
+  previewCategoryId
+}: InitialCategoryInput): string | null {
+  if (prefilledCategoryId) return prefilledCategoryId;
+  return hasSession ? null : previewCategoryId;
+}
+
+export type CategorySaveGuardInput = {
+  hasSession: boolean;
+  /** 지금 눌려 있는 타일 id, 미선택이면 null. */
+  selectedCategoryId: string | null;
+};
+
+/**
+ * 라운드 51 C-#5 — 저장을 막아야 하는가(= 분류가 비었는가).
+ *
+ * 세션이 없는 프리뷰/픽셀 락 경로는 애초에 저장 자체가 없고 초기 선택도 첫 타일이라 언제나
+ * false다 — 캡처 경로의 렌더·동작은 이 판정으로 한 글자도 바뀌지 않는다.
+ */
+export function isCategoryMissingForSave({ hasSession, selectedCategoryId }: CategorySaveGuardInput): boolean {
+  if (!hasSession) return false;
+  return selectedCategoryId === null;
 }
