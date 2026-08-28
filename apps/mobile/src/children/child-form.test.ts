@@ -3,6 +3,7 @@ import { CHILD_STAGE_CODES } from "@wooriai/domain";
 import {
   buildCreateChildBody,
   buildUpdateChildBody,
+  childDatePickerDirection,
   CHILD_STAGE_LABELS,
   CHILD_STAGE_MODE_OPTIONS,
   computeDateError,
@@ -27,6 +28,25 @@ describe("MOB-118 shared child form validation (reused from ONB-002)", () => {
     expect(requiredDateFieldLabel("pregnant")).toBe("출산 예정일");
     expect(requiredDateFieldLabel("born")).toBe("출생일");
     expect(requiredDateFieldLabel("manual")).toBeNull();
+  });
+
+  /**
+   * 라운드 65 D — 달력이 열리는 쪽은 **손타이핑 가드와 같은 근거**에서 나온다.
+   *
+   * 출생일만 미래가 금지돼 있고(바로 아래 케이스), 예정일에는 그 금지가 없다. 두 판정이 갈리면
+   * 픽커에서 고른 날짜가 저장 직전에 막히거나(넓은 쪽) 손으로는 칠 수 있는 날짜를 달력만
+   * 잠근다(좁은 쪽).
+   */
+  it("고를 수 있는 쪽이 stageMode에서 나온다 (예정일만 미래로 열린다)", () => {
+    expect(childDatePickerDirection("pregnant")).toBe("future");
+    expect(childDatePickerDirection("born")).toBe("past");
+    expect(childDatePickerDirection("manual")).toBe("past");
+    expect(childDatePickerDirection(null)).toBe("past");
+    // 방향과 가드가 같은 사실을 말한다: 미래를 막는 모드는 달력도 미래를 열지 않는다.
+    expect(computeDateError("born", "2999-01-01")).not.toBeNull();
+    expect(childDatePickerDirection("born")).toBe("past");
+    expect(computeDateError("pregnant", "2999-01-01")).toBeNull();
+    expect(childDatePickerDirection("pregnant")).toBe("future");
   });
 
   it("rejects malformed, impossible, and future birth dates exactly like the onboarding guard", () => {

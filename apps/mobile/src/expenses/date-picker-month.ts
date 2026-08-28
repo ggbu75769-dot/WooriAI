@@ -1,6 +1,7 @@
-import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
+import { calculateChildStage, getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
 import { MAX_PAST_MONTH_OFFSET } from "./import-landing-month";
 import { buildCalendarMonth, type CalendarCell, type CalendarMonth } from "./records-calendar";
+import { shiftIsoDate } from "./records-date-groups";
 import { formatSpentOn } from "./records-list-view";
 
 /**
@@ -28,6 +29,22 @@ import { formatSpentOn } from "./records-list-view";
  *
  * react / react-native 의존 없음 — 화면을 띄우지 않고 vitest로 고정한다(같은 폴더의
  * records-calendar.ts, entry-form-guards.ts와 같은 규율).
+ *
+ * ## 라운드 65 D — 이 픽커를 아이 날짜 입력이 함께 쓴다 (`direction`)
+ *
+ * 온보딩 ONB-002와 설정 SET-005의 생년월일·예정일은 `TextInput` 하나(placeholder "YYYY-MM-DD")
+ * 였고, 안드로이드에서는 숫자 키보드조차 뜨지 않는다(`numbers-and-punctuation`은 iOS 전용 값).
+ * 앱에서 **가장 중요한 한 값**을 첫 실행에서 열 글자 손타이핑으로 받고 있었던 셈이다. 달력을
+ * 하나 더 짓는 대신 여기에 **선택 방향 한 칸**을 가산해 그 화면들이 이 픽커를 그대로 쓴다.
+ *
+ *  - `"past"`(기본): 지출 날짜·출생일 — 종전 그대로 "미래가 아닌 날"만 고를 수 있다. 인자를
+ *    생략한 모든 호출부(지출 두 화면)는 **한 값도 달라지지 않는다**.
+ *  - `"future"`: 출산 예정일 — 미래 쪽이 **만삭까지** 열린다. 과거 쪽은 종전과 같다(손타이핑
+ *    가드 `computeDateError`도 지난 예정일을 막지 않는다 — 예정일이 지난 임신 프로필이 실제로
+ *    존재한다, src/home/stage-display-label.ts).
+ *
+ * 픽커는 손타이핑 가드보다 **좁을 수는 있어도 넓을 수는 없다**: 고른 날짜가 저장 직전에 막히면
+ * 안 되기 때문이다. 만삭 상한은 그 좁은 쪽이라(가드는 먼 미래 예정일도 받는다) 계약을 깨지 않는다.
  */
 
 const YEAR_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -44,11 +61,58 @@ const ISO_DATE_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
  */
 export const EXPENSE_DATE_PICKER_MAX_PAST_MONTHS = MAX_PAST_MONTH_OFFSET;
 
+/**
+ * 고를 수 있는 쪽 — 라운드 65 D.
+ *
+ * 헤더 주석 참고. `"past"`가 기본이라 인자를 생략한 호출부는 종전 동작 그대로다.
+ */
+export type ExpenseDatePickerDirection = "past" | "future";
+
+/**
+ * 미래 방향의 상한 = **만삭 주차**. 새 숫자를 짓지 않고 도메인의 임신 주차 규칙에서 읽는다.
+ *
+ * 읽는 방법: `calculateChildStage`에 "예정일이 곧 오늘"을 물으면 도메인이 만삭 주차를 답한다
+ * (packages/domain/src/stage.ts — 남은 날이 없으면 만삭이다). 즉 그 답은 "예정일이 오늘로부터
+ * 가장 멀 수 있는 거리"이기도 하다. 주차 수나 날수를 여기 숫자로 다시 적으면 도메인이 임신 기간
+ * 규칙을 고쳤을 때 픽커만 옛 상한에 남는다 — `EXPENSE_DATE_PICKER_MAX_PAST_MONTHS`가 기록 탭
+ * 딥링크 상수를 import하는 것과 같은 이유다(라운드 54 P2-8: 주석은 드리프트를 막지 못한다).
+ *
+ * 상한이 필요한 이유: 이 값이 없으면 › 버튼을 계속 눌러 2090년까지 갈 수 있는데, 임신에는
+ * 그런 예정일이 없다.
+ */
+function readFullTermPregnancyWeeks(): number {
+  const probeIso = getSeoulToday();
+  const fullTerm = calculateChildStage({ stageMode: "pregnant", dueDate: probeIso, today: probeIso });
+  return "pregnancyWeek" in fullTerm ? Math.max(0, fullTerm.pregnancyWeek) : 0;
+}
+
+/** 만삭 주차(도메인에서 읽은 값). 안내 문구도 이 숫자를 그대로 읽는다. */
+export const EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS = readFullTermPregnancyWeeks();
+
+/** 만삭까지의 날수 = 오늘로부터 고를 수 있는 미래의 끝(`direction: "future"`에서만 쓰인다). */
+export const EXPENSE_DATE_PICKER_MAX_FUTURE_DAYS = EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS * 7;
+
 /** 미래 칸의 스크린리더 꼬리말. 왜 못 누르는지를 말한다(DNC-018 해요체). */
 export const EXPENSE_DATE_PICKER_FUTURE_HINT = "아직 오지 않은 날이라 고를 수 없어요";
 
+/** `direction: "future"`에서 상한을 넘은 칸의 꼬리말. 주차 수는 도메인에서 읽은 값 그대로다. */
+export const EXPENSE_DATE_PICKER_BEYOND_TERM_HINT = `만삭(${EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS}주)보다 먼 날이라 고를 수 없어요`;
+
 /** 픽커 아래 한 줄 안내. 무엇을 누르면 되는지와 미래가 잠긴 이유를 함께 말한다. */
 export const EXPENSE_DATE_PICKER_HINT = "지난 날짜를 눌러 고를 수 있어요. 아직 오지 않은 날은 고를 수 없어요.";
+
+/** `direction: "future"`(출산 예정일)의 같은 자리 안내. 열린 쪽과 잠긴 쪽을 함께 말한다. */
+export const EXPENSE_DATE_PICKER_FUTURE_DIRECTION_HINT = `날짜를 눌러 고를 수 있어요. 만삭(${EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS}주)보다 먼 날은 고를 수 없어요.`;
+
+/** 픽커 아래 한 줄 안내 — 방향에 맞는 문장 하나. */
+export function expenseDatePickerHint(direction: ExpenseDatePickerDirection = "past"): string {
+  return direction === "future" ? EXPENSE_DATE_PICKER_FUTURE_DIRECTION_HINT : EXPENSE_DATE_PICKER_HINT;
+}
+
+/** 못 누르는 칸의 꼬리말 — 방향마다 이유가 다르다(둘 다 "왜"를 말한다). */
+export function expenseDatePickerUnselectableHint(direction: ExpenseDatePickerDirection = "past"): string {
+  return direction === "future" ? EXPENSE_DATE_PICKER_BEYOND_TERM_HINT : EXPENSE_DATE_PICKER_FUTURE_HINT;
+}
 
 function parseYearMonth(value: string): { year: number; month: number } | null {
   if (typeof value !== "string" || !YEAR_MONTH_PATTERN.test(value)) return null;
@@ -79,7 +143,28 @@ function seoulReferenceDate(todayIso: string): Date {
 }
 
 /**
- * 이 날짜를 고를 수 있는가 = **미래가 아닌가**.
+ * 이 방향에서 **고를 수 있는 마지막 날**.
+ *
+ * `"past"`면 오늘(종전 그대로), `"future"`면 오늘 + 만삭까지의 날수다. 날짜 산술은 같은 폴더의
+ * `shiftIsoDate`를 그대로 쓴다 — 이 폴더에 이미 있는 규칙을 두 벌로 만들지 않는다. 기준일을
+ * 읽을 수 없으면 오늘로 물러서므로(그 값도 못 읽으면 아래 형식 검사가 전부 거른다) 상한이
+ * 지어지는 경우가 없다.
+ */
+function latestSelectableIso(todayIso: string, direction: ExpenseDatePickerDirection): string {
+  if (direction !== "future" || typeof todayIso !== "string") return todayIso;
+  return shiftIsoDate(todayIso, EXPENSE_DATE_PICKER_MAX_FUTURE_DAYS) ?? todayIso;
+}
+
+/**
+ * 마지막으로 **열리는 달**. 달 이동 상한과 처음 서는 달이 같은 값을 보게 하는 자리다
+ * (두 곳이 갈리면 › 로는 갈 수 있는데 열면 그 달에 서 주지 않는 픽커가 된다).
+ */
+function latestSelectableMonth(todayIso: string, direction: ExpenseDatePickerDirection): string {
+  return latestSelectableIso(todayIso, direction).slice(0, 7);
+}
+
+/**
+ * 이 날짜를 고를 수 있는가 = **미래가 아닌가**(`direction: "future"`면 **만삭을 넘지 않는가**).
  *
  * 화면의 손타이핑 가드(`validateExpenseDateInput`)가 쓰는 판정과 같은 도메인 함수다 — 픽커에서
  * 고른 날짜가 저장 직전 가드에 걸려 막히는 일이 생길 수 없다. 오늘은 고를 수 있다(미래가 아니다).
@@ -92,11 +177,18 @@ function seoulReferenceDate(todayIso: string): Date {
  * 유일한 경우는 인자가 `YYYY-MM-DD` 형식이 아닐 때인데(도메인 money-date.ts의 DATE_ONLY_PATTERN),
  * 위 두 줄이 그보다 **엄격한** `ISO_DATE_PATTERN`으로 이미 걸러 낸 뒤다 — 도달할 수 없는
  * catch였다. 실제 방어는 형식 검사 두 줄이 하고 있었으므로 그것만 남긴다.
+ *
+ * 라운드 65 D: 미래 방향도 **같은 도메인 함수**로 답한다 — 기준을 오늘에서 만삭 날짜로 옮길 뿐
+ * "이 날짜가 저 날짜보다 뒤인가"를 새로 적지 않는다(비교를 두 벌로 만들면 두 답이 갈린다).
  */
-export function isExpenseDatePickerDateSelectable(dateIso: string, todayIso: string = getSeoulToday()): boolean {
+export function isExpenseDatePickerDateSelectable(
+  dateIso: string,
+  todayIso: string = getSeoulToday(),
+  direction: ExpenseDatePickerDirection = "past"
+): boolean {
   if (typeof dateIso !== "string" || !ISO_DATE_PATTERN.test(dateIso)) return false;
   if (typeof todayIso !== "string" || !ISO_DATE_PATTERN.test(todayIso)) return false;
-  return !isFutureSeoulDate(dateIso, seoulReferenceDate(todayIso));
+  return !isFutureSeoulDate(dateIso, seoulReferenceDate(latestSelectableIso(todayIso, direction)));
 }
 
 /**
@@ -104,21 +196,30 @@ export function isExpenseDatePickerDateSelectable(dateIso: string, todayIso: str
  * 기록 탭 달력의 `isCalendarCellInteractive`와 같은 근거다(누를 수 있어 보이는데 아무 일도
  * 일어나지 않거나 저장이 막히는 편이, 처음부터 비활성인 것보다 나쁘다).
  */
-export function isExpenseDatePickerCellSelectable(cell: CalendarCell, todayIso: string = getSeoulToday()): boolean {
+export function isExpenseDatePickerCellSelectable(
+  cell: CalendarCell,
+  todayIso: string = getSeoulToday(),
+  direction: ExpenseDatePickerDirection = "past"
+): boolean {
   if (!cell || cell.date === null) return false;
-  return isExpenseDatePickerDateSelectable(cell.date, todayIso);
+  return isExpenseDatePickerDateSelectable(cell.date, todayIso, direction);
 }
 
 /**
  * 픽커를 열었을 때 **처음 보여 줄 달**.
  *
  * 지금 고른 날짜의 달에서 시작한다 — 3월 지출을 고쳐 적으려고 다시 여는 경우 그 달이 그대로
- * 서 있어야 한다. 그 값이 없거나·형식이 깨졌거나·미래 달이거나·20년보다 먼 과거면 이번 달이다
- * (모르면 지어내지 않고 종전 자리에 선다).
+ * 서 있어야 한다. 그 값이 없거나·형식이 깨졌거나·고를 수 없는 달이거나·20년보다 먼 과거면
+ * 이번 달이다(모르면 지어내지 않고 종전 자리에 선다).
+ *
+ * 라운드 65 D: "고를 수 없는 달"의 천장이 방향에 따라 다르다 — `"past"`면 이번 달(종전 그대로),
+ * `"future"`면 만삭이 든 달이다. 저장된 예정일이 넉 달 뒤인 아이를 편집하려고 열었는데 달력이
+ * 이번 달에 서 있으면, 사용자는 자기가 고른 날짜가 어디 있는지 모르는 달력을 보게 된다.
  */
 export function expenseDatePickerInitialMonth(
   selectedIso: string | null | undefined,
-  todayIso: string = getSeoulToday()
+  todayIso: string = getSeoulToday(),
+  direction: ExpenseDatePickerDirection = "past"
 ): string {
   const todayMonth = typeof todayIso === "string" ? todayIso.slice(0, 7) : "";
   const fallback = parseYearMonth(todayMonth) ? todayMonth : getSeoulToday().slice(0, 7);
@@ -126,7 +227,9 @@ export function expenseDatePickerInitialMonth(
   const candidate = selectedIso.slice(0, 7);
   const offset = monthOffsetBetween(fallback, candidate);
   if (offset === null) return fallback;
-  if (offset > 0) return fallback;
+  const boundMonth = typeof todayIso === "string" ? latestSelectableMonth(todayIso, direction) : fallback;
+  const maxFutureOffset = monthOffsetBetween(fallback, boundMonth) ?? 0;
+  if (offset > maxFutureOffset) return fallback;
   if (offset < -EXPENSE_DATE_PICKER_MAX_PAST_MONTHS) return fallback;
   return candidate;
 }
@@ -136,9 +239,16 @@ export function expenseDatePickerInitialMonth(
  *
  * 미래 달을 열면 칸이 전부 비활성이라 아무것도 고를 수 없는 달력이 된다 — 그 달을 열어 주는
  * 대신 버튼을 잠근다(기록 탭 월 이동의 "다음 달 상한"과 같은 규칙).
+ *
+ * 라운드 65 D: `direction: "future"`에서는 그 상한이 **만삭이 든 달**이다. 규칙은 그대로다 —
+ * "고를 수 있는 칸이 하나도 없는 달은 열지 않는다".
  */
-export function canGoToNextExpenseDatePickerMonth(yearMonth: string, todayIso: string = getSeoulToday()): boolean {
-  const offset = monthOffsetBetween(yearMonth, todayIso.slice(0, 7));
+export function canGoToNextExpenseDatePickerMonth(
+  yearMonth: string,
+  todayIso: string = getSeoulToday(),
+  direction: ExpenseDatePickerDirection = "past"
+): boolean {
+  const offset = monthOffsetBetween(yearMonth, latestSelectableMonth(todayIso, direction));
   if (offset === null) return false;
   return offset > 0;
 }
@@ -164,12 +274,13 @@ export function canGoToPreviousExpenseDatePickerMonth(yearMonth: string, todayIs
 export function shiftExpenseDatePickerMonth(
   yearMonth: string,
   delta: number,
-  todayIso: string = getSeoulToday()
+  todayIso: string = getSeoulToday(),
+  direction: ExpenseDatePickerDirection = "past"
 ): string {
   const current = parseYearMonth(yearMonth);
-  if (!current) return expenseDatePickerInitialMonth(null, todayIso);
+  if (!current) return expenseDatePickerInitialMonth(null, todayIso, direction);
   if (!Number.isInteger(delta) || delta === 0) return yearMonth;
-  if (delta > 0 && !canGoToNextExpenseDatePickerMonth(yearMonth, todayIso)) return yearMonth;
+  if (delta > 0 && !canGoToNextExpenseDatePickerMonth(yearMonth, todayIso, direction)) return yearMonth;
   if (delta < 0 && !canGoToPreviousExpenseDatePickerMonth(yearMonth, todayIso)) return yearMonth;
   const zeroBased = current.year * 12 + (current.month - 1) + delta;
   return toYearMonth(Math.floor(zeroBased / 12), (zeroBased % 12) + 1);
@@ -201,6 +312,8 @@ export type ExpenseDatePickerCellLabelInput = {
   selectedIso: string | null;
   /** 오늘(서울 기준). 생략하면 `getSeoulToday()`. */
   todayIso?: string;
+  /** 고를 수 있는 쪽. 생략하면 종전과 같은 `"past"`(라운드 65 D). */
+  direction?: ExpenseDatePickerDirection;
 };
 
 /**
@@ -208,10 +321,14 @@ export type ExpenseDatePickerCellLabelInput = {
  *
  * 눈으로 보는 사람이 테두리·바탕색으로 읽는 세 가지 사실(오늘·선택됨·못 누름)을 말로도 전한다.
  * 달 밖 빈 칸은 null이라 화면이 라벨 없는 자리로 그린다(기록 탭 달력과 같은 관례).
+ *
+ * 라운드 65 D: 못 누르는 이유는 **방향마다 다르다**(오지 않은 날 / 만삭보다 먼 날). 라운드 61 E가
+ * 고정한 계약("왜 못 누르는지까지 말한다")은 그대로이고, 그 이유를 한 문장에 고정하는 대신
+ * 방향에서 고른다 — 예정일 달력에서 "아직 오지 않은 날이라 고를 수 없어요"는 사실이 아니다.
  */
 export function expenseDatePickerCellAccessibilityLabel(
   cell: CalendarCell,
-  { selectedIso, todayIso = getSeoulToday() }: ExpenseDatePickerCellLabelInput
+  { selectedIso, todayIso = getSeoulToday(), direction = "past" }: ExpenseDatePickerCellLabelInput
 ): string | null {
   if (!cell || cell.date === null) return null;
   const parts: string[] = [];
@@ -219,8 +336,8 @@ export function expenseDatePickerCellAccessibilityLabel(
   parts.push(formatSpentOn(cell.date));
   if (selectedIso && cell.date === selectedIso) {
     parts.push("선택됨");
-  } else if (!isExpenseDatePickerCellSelectable(cell, todayIso)) {
-    parts.push(EXPENSE_DATE_PICKER_FUTURE_HINT);
+  } else if (!isExpenseDatePickerCellSelectable(cell, todayIso, direction)) {
+    parts.push(expenseDatePickerUnselectableHint(direction));
   }
   return parts.join(", ");
 }

@@ -53,6 +53,24 @@ export function requiredDateFieldLabel(stageMode: string | null) {
   return null;
 }
 
+/**
+ * 라운드 65 D — 이 날짜 칸의 달력이 **어느 쪽으로 열리는가**.
+ *
+ * 온보딩(ONB-002)·아이 관리(SET-005)의 날짜 칸은 지출 화면과 같은 달력 픽커를 쓴다
+ * (src/expenses/ExpenseDatePicker.tsx — 달력을 두 벌로 만들지 않는다). 그 픽커는 기본이
+ * "미래는 못 고름"인데, **출산 예정일은 미래여야 한다** — 그래서 이 한 줄이 방향을 정한다.
+ *
+ * 판정 근거는 바로 아래 `computeDateError`와 같다: 출생일만 미래가 금지돼 있고(서버도 같은
+ * 규칙이다), 예정일에는 그 금지가 없다. 두 곳이 갈리면 픽커에서 고른 날짜가 저장 직전 가드에
+ * 걸리거나, 반대로 가드가 받는 날짜를 달력이 잠그게 된다.
+ *
+ * 반환 타입은 픽커의 `ExpenseDatePickerDirection`과 같은 두 값이다 — 이 모듈이 지출 폴더를
+ * import하지 않도록 리터럴로 적는다(이 파일은 폼 검증의 순수 모듈이다).
+ */
+export function childDatePickerDirection(stageMode: string | null): "past" | "future" {
+  return stageMode === "pregnant" ? "future" : "past";
+}
+
 // Birth dates (stageMode "born") must not be in the future -- a due date (stageMode "pregnant")
 // is expected to be in the future and is allowed to be in the past too (the parent may already
 // have given birth), so only the calendar-validity check applies there.

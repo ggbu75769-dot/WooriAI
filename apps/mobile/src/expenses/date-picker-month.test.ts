@@ -1,21 +1,28 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
+import { calculateChildStage, getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";
 import {
   buildExpenseDatePickerMonth,
   canGoToNextExpenseDatePickerMonth,
   canGoToPreviousExpenseDatePickerMonth,
   expenseDatePickerCellAccessibilityLabel,
+  expenseDatePickerHint,
   expenseDatePickerInitialMonth,
   expenseDatePickerMonthLabel,
+  expenseDatePickerUnselectableHint,
   isExpenseDatePickerCellSelectable,
   isExpenseDatePickerDateSelectable,
   shiftExpenseDatePickerMonth,
+  EXPENSE_DATE_PICKER_BEYOND_TERM_HINT,
+  EXPENSE_DATE_PICKER_FUTURE_DIRECTION_HINT,
   EXPENSE_DATE_PICKER_FUTURE_HINT,
   EXPENSE_DATE_PICKER_HINT,
+  EXPENSE_DATE_PICKER_MAX_FUTURE_DAYS,
+  EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS,
   EXPENSE_DATE_PICKER_MAX_PAST_MONTHS
 } from "./date-picker-month";
+import { computeDateError } from "../children/child-form";
 import { MAX_PAST_MONTH_OFFSET } from "./import-landing-month";
 import { buildCalendarMonth, type CalendarCell } from "./records-calendar";
 
@@ -246,10 +253,182 @@ describe("라벨 — 눈으로 보는 사실을 소리로도 전한다", () => {
   });
 
   it("안내 문구는 해요체이고 사용자를 탓하지 않는다(DNC-018)", () => {
-    for (const text of [EXPENSE_DATE_PICKER_HINT, EXPENSE_DATE_PICKER_FUTURE_HINT]) {
+    for (const text of [
+      EXPENSE_DATE_PICKER_HINT,
+      EXPENSE_DATE_PICKER_FUTURE_HINT,
+      EXPENSE_DATE_PICKER_FUTURE_DIRECTION_HINT,
+      EXPENSE_DATE_PICKER_BEYOND_TERM_HINT
+    ]) {
       expect(text.endsWith("요.") || text.endsWith("요")).toBe(true);
       for (const blaming of ["잘못", "오류", "실패", "안 됩니다"]) expect(text).not.toContain(blaming);
     }
+  });
+});
+
+/**
+ * 라운드 65 D — 가산 인자 `direction`.
+ *
+ * 이 픽커는 이제 지출 두 화면과 **아이 날짜 입력 두 화면**이 함께 쓴다. 그래서 여기서 가장 먼저
+ * 못박는 것은 새 기능이 아니라 **종전 동작의 불변**이다: 인자를 생략한 호출은 한 값도 달라지지
+ * 않는다(지출 두 화면은 이 인자를 넘기지 않는다 — 그 사실도 아래에서 소스로 확인한다).
+ */
+describe("라운드 65 D — direction 기본값은 종전 동작과 정확히 같다", () => {
+  const dates = ["2026-08-26", TODAY, "2026-08-28", "2026-09-01", "2027-01-01", "2006-08-01", "깨진값", ""];
+  const months = ["2026-06", "2026-08", "2026-09", "2027-06", "2006-08", "2026-13"];
+
+  it("날짜 판정: 생략 = \"past\"", () => {
+    for (const date of dates) {
+      expect(isExpenseDatePickerDateSelectable(date, TODAY), date).toBe(
+        isExpenseDatePickerDateSelectable(date, TODAY, "past")
+      );
+    }
+    // 그리고 그 답은 종전 그대로 "미래가 아닌가"다.
+    expect(isExpenseDatePickerDateSelectable("2026-08-28", TODAY, "past")).toBe(false);
+  });
+
+  it("칸 판정·라벨: 생략 = \"past\"", () => {
+    for (const cell of dayCells("2026-08")) {
+      expect(isExpenseDatePickerCellSelectable(cell, TODAY), cell.date!).toBe(
+        isExpenseDatePickerCellSelectable(cell, TODAY, "past")
+      );
+      expect(expenseDatePickerCellAccessibilityLabel(cell, { selectedIso: null, todayIso: TODAY }), cell.date!).toBe(
+        expenseDatePickerCellAccessibilityLabel(cell, { selectedIso: null, todayIso: TODAY, direction: "past" })
+      );
+    }
+  });
+
+  it("달 이동·처음 서는 달: 생략 = \"past\"", () => {
+    for (const month of months) {
+      expect(canGoToNextExpenseDatePickerMonth(month, TODAY), month).toBe(
+        canGoToNextExpenseDatePickerMonth(month, TODAY, "past")
+      );
+      expect(shiftExpenseDatePickerMonth(month, 1, TODAY), month).toBe(
+        shiftExpenseDatePickerMonth(month, 1, TODAY, "past")
+      );
+      expect(shiftExpenseDatePickerMonth(month, -1, TODAY), month).toBe(
+        shiftExpenseDatePickerMonth(month, -1, TODAY, "past")
+      );
+    }
+    for (const date of dates) {
+      expect(expenseDatePickerInitialMonth(date, TODAY), date).toBe(expenseDatePickerInitialMonth(date, TODAY, "past"));
+    }
+    expect(expenseDatePickerInitialMonth(null, TODAY)).toBe(expenseDatePickerInitialMonth(null, TODAY, "past"));
+  });
+
+  it("안내 문구: 생략 = \"past\"(지출 화면의 그 문장 그대로)", () => {
+    expect(expenseDatePickerHint()).toBe(EXPENSE_DATE_PICKER_HINT);
+    expect(expenseDatePickerUnselectableHint()).toBe(EXPENSE_DATE_PICKER_FUTURE_HINT);
+    expect(expenseDatePickerHint("future")).toBe(EXPENSE_DATE_PICKER_FUTURE_DIRECTION_HINT);
+    expect(expenseDatePickerUnselectableHint("future")).toBe(EXPENSE_DATE_PICKER_BEYOND_TERM_HINT);
+  });
+
+  it("지출 두 화면은 이 인자를 넘기지 않는다(두 화면 무변경의 증거)", () => {
+    for (const path of ["app/expenses/new.tsx", "app/expenses/[expenseId].tsx"]) {
+      const screen = readFileSync(join(process.cwd(), path), "utf8");
+      const pickerTag = screen.slice(screen.indexOf("<ExpenseDatePicker"), screen.indexOf("/>", screen.indexOf("<ExpenseDatePicker")));
+      expect(pickerTag, path).not.toContain("direction");
+    }
+  });
+});
+
+/**
+ * 라운드 65 D — `direction: "future"`(출산 예정일).
+ *
+ * 출산 예정일은 **미래여야 하는** 유일한 날짜다(지출·출생일과 정반대). 그래서 미래 쪽을 열되
+ * 무한히 열지는 않는다 — 상한은 도메인의 임신 주차 규칙에서 읽는다.
+ *
+ * 과거 쪽은 열어 둔다: 손타이핑 가드(`computeDateError`)도 지난 예정일을 막지 않고, 예정일이
+ * 지난 임신 프로필은 실제로 존재한다(src/home/stage-display-label.ts가 그 화면을 위해 있다).
+ * 픽커가 가드보다 좁으면 손으로 칠 수 있는 날짜를 달력만 잠그게 된다.
+ */
+describe("라운드 65 D — direction: \"future\"(출산 예정일)", () => {
+  /** TODAY(2026-08-27)로부터 만삭(280일)이 되는 날. 그 다음 날부터 잠긴다. */
+  const FULL_TERM_DAY = "2027-06-03";
+
+  it("상한을 새로 짓지 않고 도메인의 임신 주차 규칙에서 읽는다", () => {
+    // 도메인은 "예정일이 곧 오늘"이면 만삭 주차를 답한다(packages/domain/src/stage.ts).
+    const fullTerm = calculateChildStage({ stageMode: "pregnant", dueDate: TODAY, today: TODAY });
+    expect("pregnancyWeek" in fullTerm && fullTerm.pregnancyWeek).toBe(EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS);
+    expect(EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS).toBe(40);
+    expect(EXPENSE_DATE_PICKER_MAX_FUTURE_DAYS).toBe(EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS * 7);
+    // 그리고 그 값은 **소스에서도** 도메인을 거쳐 들어온다 — 40도 280도 여기 다시 적히지 않는다.
+    const moduleSource = readFileSync(join(process.cwd(), "src/expenses/date-picker-month.ts"), "utf8");
+    expect(moduleSource).toContain('import { calculateChildStage, getSeoulToday, isFutureSeoulDate } from "@wooriai/domain";');
+    expect(moduleSource).toContain('calculateChildStage({ stageMode: "pregnant", dueDate: probeIso, today: probeIso })');
+    expect(moduleSource).not.toMatch(/\b280\b/);
+    expect(moduleSource).not.toMatch(/\b40\b/);
+  });
+
+  it("오늘·내일·만삭 당일까지 고를 수 있고, 만삭 다음 날부터 잠긴다", () => {
+    expect(isExpenseDatePickerDateSelectable(TODAY, TODAY, "future")).toBe(true);
+    expect(isExpenseDatePickerDateSelectable("2026-08-28", TODAY, "future")).toBe(true);
+    expect(isExpenseDatePickerDateSelectable("2026-12-25", TODAY, "future")).toBe(true);
+    expect(isExpenseDatePickerDateSelectable(FULL_TERM_DAY, TODAY, "future")).toBe(true);
+    expect(isExpenseDatePickerDateSelectable("2027-06-04", TODAY, "future")).toBe(false);
+    expect(isExpenseDatePickerDateSelectable("2028-01-01", TODAY, "future")).toBe(false);
+  });
+
+  it("지난 예정일도 고를 수 있다(손타이핑 가드가 막지 않는 날짜를 달력만 잠그지 않는다)", () => {
+    expect(isExpenseDatePickerDateSelectable("2026-08-26", TODAY, "future")).toBe(true);
+    expect(dayCells("2026-05").every((cell) => isExpenseDatePickerCellSelectable(cell, TODAY, "future"))).toBe(true);
+  });
+
+  it("픽커가 고를 수 있게 한 날짜는 저장 직전 가드도 통과한다", () => {
+    for (const yearMonth of ["2026-05", "2026-08", "2027-06"]) {
+      for (const cell of dayCells(yearMonth)) {
+        if (!isExpenseDatePickerCellSelectable(cell, TODAY, "future")) continue;
+        expect(computeDateError("pregnant", cell.date!), cell.date!).toBeNull();
+      }
+    }
+  });
+
+  it("기준일을 읽을 수 없으면 미래 방향도 열리지 않는다(상한을 지어내지 않는다)", () => {
+    expect(isExpenseDatePickerDateSelectable("2026-08-28", "오늘", "future")).toBe(false);
+    expect(canGoToNextExpenseDatePickerMonth("2026-08", "오늘", "future")).toBe(false);
+  });
+
+  it("달 이동이 만삭이 든 달에서 멈춘다(과거 20년 상한은 그대로)", () => {
+    expect(canGoToNextExpenseDatePickerMonth("2026-08", TODAY, "future")).toBe(true);
+    expect(canGoToNextExpenseDatePickerMonth("2027-05", TODAY, "future")).toBe(true);
+    expect(canGoToNextExpenseDatePickerMonth("2027-06", TODAY, "future")).toBe(false);
+    expect(shiftExpenseDatePickerMonth("2027-05", 1, TODAY, "future")).toBe("2027-06");
+    expect(shiftExpenseDatePickerMonth("2027-06", 1, TODAY, "future")).toBe("2027-06");
+    // 과거 쪽은 방향과 무관하게 종전 그대로다.
+    expect(canGoToPreviousExpenseDatePickerMonth("2006-08", TODAY)).toBe(false);
+    expect(shiftExpenseDatePickerMonth("2026-08", -1, TODAY, "future")).toBe("2026-07");
+  });
+
+  it("저장된 예정일의 달에서 시작한다(past였다면 이번 달로 물러섰을 자리)", () => {
+    expect(expenseDatePickerInitialMonth("2027-02-10", TODAY, "future")).toBe("2027-02");
+    expect(expenseDatePickerInitialMonth("2027-02-10", TODAY, "past")).toBe("2026-08");
+    // 상한 밖·너무 먼 과거는 여전히 이번 달이다(모르면 지어내지 않는다).
+    expect(expenseDatePickerInitialMonth("2027-07-01", TODAY, "future")).toBe("2026-08");
+    expect(expenseDatePickerInitialMonth("1999-01-01", TODAY, "future")).toBe("2026-08");
+    // 그리고 처음 서는 달과 달 이동 상한이 같은 값을 본다(› 로는 가는데 열면 안 서는 일이 없다).
+    expect(expenseDatePickerInitialMonth(FULL_TERM_DAY, TODAY, "future")).toBe("2027-06");
+  });
+
+  it("못 고르는 칸이 **이 화면의** 이유를 말한다(라운드 61 E 계약: 왜 못 누르는지까지)", () => {
+    const juneCells = dayCells("2027-06", TODAY);
+    const byDate = (date: string) => juneCells.find((cell) => cell.date === date)!;
+    expect(
+      expenseDatePickerCellAccessibilityLabel(byDate("2027-06-04"), {
+        selectedIso: null,
+        todayIso: TODAY,
+        direction: "future"
+      })
+    ).toBe(`6월 4일, ${EXPENSE_DATE_PICKER_BEYOND_TERM_HINT}`);
+    // 예정일 달력에서 "아직 오지 않은 날이라 고를 수 없어요"는 사실이 아니다 — 미래 칸은
+    // 이유 없이 그냥 날짜로 읽힌다(고를 수 있으니까).
+    expect(
+      expenseDatePickerCellAccessibilityLabel(byDate("2027-06-03"), {
+        selectedIso: null,
+        todayIso: TODAY,
+        direction: "future"
+      })
+    ).toBe("6월 3일");
+    expect(EXPENSE_DATE_PICKER_BEYOND_TERM_HINT).toContain(`${EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS}주`);
+    expect(EXPENSE_DATE_PICKER_FUTURE_DIRECTION_HINT).toContain(`${EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS}주`);
   });
 });
 
@@ -269,7 +448,7 @@ describe("GAP-054 #7 화면 배선", () => {
   it("P2-C 달력 버튼(48dp)이 진짜 월 픽커를 연다", () => {
     expect(entrySheet).toContain('accessibilityLabel="지출 날짜 변경"');
     expect(entrySheet).toContain('name="calendar-blank-outline"');
-    expect(source).toContain("expenseDatePickerInitialMonth(selectedIso, todayIso)");
+    expect(source).toContain("expenseDatePickerInitialMonth(selectedIso, todayIso, direction)");
     expect(source).toContain("<ExpenseDatePickerGrid");
   });
 
@@ -303,8 +482,8 @@ describe("GAP-054 #7 화면 배선", () => {
 
   it("격자·판정은 전부 순수 모듈에서 온다(컴포넌트가 달력을 다시 계산하지 않는다)", () => {
     expect(source).toContain("buildExpenseDatePickerMonth(pickerYearMonth, todayIso)");
-    expect(source).toContain("isExpenseDatePickerCellSelectable(cell, todayIso)");
-    expect(source).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso })");
+    expect(source).toContain("isExpenseDatePickerCellSelectable(cell, todayIso, direction)");
+    expect(source).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction })");
     expect(source).toContain("CALENDAR_WEEKDAY_LABELS_KO.map");
     // 컴포넌트가 records-calendar에서 가져오는 것은 요일 머리글과 타입뿐이다 -- 격자 계산은
     // 순수 모듈을 거쳐서만 들어온다(달 길이·주 시작 요일을 직접 세지 않는다).
@@ -316,10 +495,10 @@ describe("GAP-054 #7 화면 배선", () => {
   it("월 이동 버튼이 48dp이고 미래 월에서 잠긴다", () => {
     expect(source).toContain('accessibilityLabel="이전 달"');
     expect(source).toContain('accessibilityLabel="다음 달"');
-    expect(source).toContain("disabled={!canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso)}");
+    expect(source).toContain("disabled={!canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso, direction)}");
     expect(source).toContain("disabled={!canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso)}");
-    expect(source).toContain("shiftExpenseDatePickerMonth(value, -1, todayIso)");
-    expect(source).toContain("shiftExpenseDatePickerMonth(value, 1, todayIso)");
+    expect(source).toContain("shiftExpenseDatePickerMonth(value, -1, todayIso, direction)");
+    expect(source).toContain("shiftExpenseDatePickerMonth(value, 1, todayIso, direction)");
     const navStyle = source.slice(source.indexOf("navButton: {"), source.indexOf("weekRow: {"));
     expect(navStyle).toContain("minHeight: 48");
     expect(navStyle).toContain("minWidth: 48");
@@ -366,7 +545,7 @@ describe("GAP-054 #7 화면 배선", () => {
       "{ opacity: canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso) ? (pressed ? 0.76 : 1) : PICKER_DISABLED_OPACITY }"
     );
     expect(source).toContain(
-      "{ opacity: canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso) ? (pressed ? 0.76 : 1) : PICKER_DISABLED_OPACITY }"
+      "{ opacity: canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso, direction) ? (pressed ? 0.76 : 1) : PICKER_DISABLED_OPACITY }"
     );
     expect(source).toContain('<AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />');
     expect(source).toContain('<AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />');
@@ -380,5 +559,90 @@ describe("GAP-054 #7 화면 배선", () => {
 
   it("EXP-001 비세션 캡처 경로 밖이다(세션 게이트 뒤에서만 그린다)", () => {
     expect(entrySheet).toContain("{authToken && showDatePicker ? (");
+  });
+});
+
+/**
+ * 라운드 65 D 화면 배선 — 아이 생년월일·예정일(ONB-002 · SET-005).
+ *
+ * 앱에서 가장 중요한 한 값(단계 밴드·준비템·리포트·홈 히어로가 전부 여기서 나온다)을 첫 실행에서
+ * 열 글자 손타이핑으로 받고 있었다. 안드로이드에서는 숫자 키보드조차 뜨지 않는다
+ * (`numbers-and-punctuation`은 iOS 전용 값 — 그 사실이 두 화면 주석에 적혀 있다).
+ *
+ * 여기서 고정하는 것: ⓐ 두 화면이 **이미 있는 픽커**를 쓴다(새 달력 0개), ⓑ 방향은 폼 모듈의
+ * 판정 한 곳에서 온다(화면이 "예정일은 미래"를 다시 적지 않는다), ⓒ **손타이핑 칸이 그대로
+ * 남는다**(달력은 대안이지 대체가 아니다).
+ */
+describe("라운드 65 D 화면 배선 — 아이 날짜 입력", () => {
+  const onboarding = readFileSync(join(process.cwd(), "app/(onboarding)/child-profile.tsx"), "utf8");
+  const settings = readFileSync(join(process.cwd(), "app/settings/children.tsx"), "utf8");
+
+  it("두 화면이 지출과 **같은 픽커 컴포넌트**를 쓴다(달력을 새로 만들지 않는다)", () => {
+    expect(onboarding).toContain('import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";');
+    expect(settings).toContain('import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";');
+    for (const [label, screen] of [
+      ["child-profile.tsx", onboarding],
+      ["children.tsx", settings]
+    ] as const) {
+      expect(screen, label).toContain("<ExpenseDatePicker");
+      expect(screen, label).toContain("todayIso={todayIso}");
+      // 화면이 격자를 다시 계산하지 않는다 — 판정은 전부 순수 모듈에서 온다.
+      expect(screen, label).not.toContain("buildExpenseDatePickerMonth(");
+      expect(screen, label).not.toContain("CALENDAR_WEEKDAY_LABELS_KO");
+    }
+  });
+
+  it("방향은 폼 모듈의 판정에서 온다(화면이 \"예정일은 미래\"를 다시 적지 않는다)", () => {
+    expect(onboarding).toContain("direction={childDatePickerDirection(draft.stageMode)}");
+    expect(settings).toContain("direction={childDatePickerDirection(stageMode)}");
+    // 출생 전환 카드의 날짜도 출생일이므로 같은 판정을 지난다.
+    expect(settings).toContain('direction={childDatePickerDirection("born")}');
+    for (const [label, screen] of [
+      ["child-profile.tsx", onboarding],
+      ["children.tsx", settings]
+    ] as const) {
+      expect(screen, label).not.toContain('direction="future"');
+      expect(screen, label).not.toContain('direction="past"');
+    }
+    expect(readFileSync(join(process.cwd(), "src/children/child-form.ts"), "utf8")).toContain(
+      "export function childDatePickerDirection"
+    );
+  });
+
+  it("손타이핑 칸이 그대로 남는다(달력은 대안이지 대체가 아니다)", () => {
+    for (const [label, screen] of [
+      ["child-profile.tsx", onboarding],
+      ["children.tsx", settings]
+    ] as const) {
+      expect(screen, label).toContain("accessibilityLabel={`${dateLabel} 입력`}");
+      expect(screen, label).toContain('placeholder="YYYY-MM-DD"');
+      expect(screen, label).toContain("maxLength={10}");
+      expect(screen, label).toContain('keyboardType="numbers-and-punctuation"');
+      // 달력 버튼은 지출 시트와 같은 48dp·같은 아이콘이고, 열림 상태를 소리로도 말한다
+      // (라운드 61 E의 달력 접근성 계약과 같은 관례 — 라벨·역할·상태를 다 갖춘다).
+      expect(screen, label).toContain("accessibilityLabel={`${dateLabel} 달력에서 고르기`}");
+      expect(screen, label).toContain('accessibilityRole="button"');
+      expect(screen, label).toContain('name="calendar-blank-outline"');
+      expect(screen, label).toContain("height: 48,");
+      expect(screen, label).toContain("width: 48");
+    }
+    expect(onboarding).toContain("accessibilityState={{ expanded: datePickerOpen }}");
+    expect(settings).toContain("accessibilityState={{ expanded: pickerOpen }}");
+  });
+
+  it("고른 날짜가 손타이핑 칸과 **같은 상태**로 들어간다(검증·저장이 보는 값이 하나다)", () => {
+    // 온보딩: dateText 하나만 buildCreateChildBody로 간다.
+    const onboardingHandler = onboarding.slice(
+      onboarding.indexOf("onSelectDate={(dateIso) => {"),
+      onboarding.indexOf("selectedIso={dateText}")
+    );
+    expect(onboardingHandler).toContain("setDateText(dateIso);");
+    expect(onboardingHandler).toContain("setDateTouched(true);");
+    // 설정: 세 폼(편집·추가·출생 전환)이 쓰는 그 한 칸의 onChange 그대로.
+    const settingsHandler = settings.slice(
+      settings.indexOf("onSelectDate={(dateIso) => {"),
+      settings.indexOf("selectedIso={value}")
+    );
+    expect(settingsHandler).toContain("onChange(dateIso);");
   });
 });

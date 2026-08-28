@@ -5,11 +5,12 @@ import {
   canGoToNextExpenseDatePickerMonth,
   canGoToPreviousExpenseDatePickerMonth,
   expenseDatePickerCellAccessibilityLabel,
+  expenseDatePickerHint,
   expenseDatePickerInitialMonth,
   expenseDatePickerMonthLabel,
   isExpenseDatePickerCellSelectable,
   shiftExpenseDatePickerMonth,
-  EXPENSE_DATE_PICKER_HINT
+  type ExpenseDatePickerDirection
 } from "./date-picker-month";
 import { CALENDAR_WEEKDAY_LABELS_KO, type CalendarCell, type CalendarMonth } from "./records-calendar";
 import { AppIcon } from "../design-system";
@@ -35,6 +36,16 @@ import { theme } from "../theme";
  *
  * 두 화면 모두 **세션 게이트 뒤**에서만 그린다 — EXP-001/EXP-003 비세션 캡처 경로는 한 픽셀도
  * 바뀌지 않는다.
+ *
+ * ## 라운드 65 D — 아이 날짜 입력(ONB-002 · SET-005)도 이 컴포넌트를 쓴다
+ *
+ * 이름은 `Expense…`로 남는다: 두 지출 화면이 이 이름으로 이 컴포넌트를 부르고 있고, 이름을
+ * 바꾸면 그 두 화면을 고쳐야 한다(이번 트랙의 금지 사항 — 가산 인자의 기본값이 종전 동작과
+ * 같다는 것으로 증명해야 하는 변경이다). 달력을 하나 더 짓지 않는 것이 이 파일의 존재 이유이므로,
+ * 생년월일·예정일도 **같은 문법**(48dp 달 이동 · 44dp 칸 · 못 고르는 이유를 말하는 라벨)을 쓴다.
+ *
+ * 새로 생긴 것은 `direction` 한 칸뿐이고 기본값은 종전 그대로다(`"past"`). 출산 예정일만
+ * `"future"`로 열리며, 그 상한은 도메인의 임신 주차 규칙에서 온다(순수 모듈 주석 참고).
  */
 
 /**
@@ -145,11 +156,13 @@ const expenseDatePickerStyle = StyleSheet.create({
  * "왜 못 누르지"라는 질문을 남기므로, 라벨이 그 이유를 직접 말하게 한다(기록 탭 달력 관례).
  */
 function ExpenseDatePickerGrid({
+  direction,
   month,
   onSelectDate,
   selectedIso,
   todayIso
 }: {
+  direction: ExpenseDatePickerDirection;
   month: CalendarMonth;
   onSelectDate: (dateIso: string) => void;
   selectedIso: string;
@@ -157,10 +170,10 @@ function ExpenseDatePickerGrid({
 }) {
   const renderCell = (cell: CalendarCell) => {
     if (cell.date === null) return <View key={cell.key} style={expenseDatePickerStyle.cell} />;
-    const selectable = isExpenseDatePickerCellSelectable(cell, todayIso);
+    const selectable = isExpenseDatePickerCellSelectable(cell, todayIso, direction);
     const selected = cell.date === selectedIso;
     const accessibilityLabel =
-      expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso }) ?? undefined;
+      expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction }) ?? undefined;
     const dayText = (
       <Text
         style={[
@@ -217,7 +230,7 @@ function ExpenseDatePickerGrid({
           {week.map((cell) => renderCell(cell))}
         </View>
       ))}
-      <Text style={expenseDatePickerStyle.hint}>{EXPENSE_DATE_PICKER_HINT}</Text>
+      <Text style={expenseDatePickerStyle.hint}>{expenseDatePickerHint(direction)}</Text>
     </View>
   );
 }
@@ -229,6 +242,11 @@ export type ExpenseDatePickerProps = {
   todayIso: string;
   /** 칸을 눌렀을 때. 두 화면 모두 14일 칩 탭과 **같은 상태 갱신**을 한다. */
   onSelectDate: (dateIso: string) => void;
+  /**
+   * 라운드 65 D — 고를 수 있는 쪽. 생략하면 종전 그대로 `"past"`(지출 날짜·출생일)이고,
+   * 출산 예정일만 `"future"`다. 지출 두 화면은 이 값을 넘기지 않는다.
+   */
+  direction?: ExpenseDatePickerDirection;
 };
 
 /**
@@ -237,8 +255,15 @@ export type ExpenseDatePickerProps = {
  * 보고 있는 달을 읽을 수 없으면 null이라, 화면은 그때 격자를 접고 14일 칩·직접 입력만 남긴다
  * (순수 모듈 `buildExpenseDatePickerMonth`의 계약).
  */
-export function ExpenseDatePicker({ selectedIso, todayIso, onSelectDate }: ExpenseDatePickerProps) {
-  const [pickerYearMonth, setPickerYearMonth] = useState(() => expenseDatePickerInitialMonth(selectedIso, todayIso));
+export function ExpenseDatePicker({
+  selectedIso,
+  todayIso,
+  onSelectDate,
+  direction = "past"
+}: ExpenseDatePickerProps) {
+  const [pickerYearMonth, setPickerYearMonth] = useState(() =>
+    expenseDatePickerInitialMonth(selectedIso, todayIso, direction)
+  );
   const pickerMonth = buildExpenseDatePickerMonth(pickerYearMonth, todayIso);
   if (!pickerMonth) return null;
   return (
@@ -249,7 +274,7 @@ export function ExpenseDatePicker({ selectedIso, todayIso, onSelectDate }: Expen
           accessibilityRole="button"
           accessibilityState={{ disabled: !canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso) }}
           disabled={!canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso)}
-          onPress={() => setPickerYearMonth((value) => shiftExpenseDatePickerMonth(value, -1, todayIso))}
+          onPress={() => setPickerYearMonth((value) => shiftExpenseDatePickerMonth(value, -1, todayIso, direction))}
           style={({ pressed }) => [
             expenseDatePickerStyle.navButton,
             // P2-1: "더 갈 수 없음"은 색이 아니라 opacity로 말한다 — 기록 탭 달 내비·
@@ -268,21 +293,22 @@ export function ExpenseDatePicker({ selectedIso, todayIso, onSelectDate }: Expen
         <Pressable
           accessibilityLabel="다음 달"
           accessibilityRole="button"
-          accessibilityState={{ disabled: !canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso) }}
-          disabled={!canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso)}
-          onPress={() => setPickerYearMonth((value) => shiftExpenseDatePickerMonth(value, 1, todayIso))}
+          accessibilityState={{ disabled: !canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso, direction) }}
+          disabled={!canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso, direction)}
+          onPress={() => setPickerYearMonth((value) => shiftExpenseDatePickerMonth(value, 1, todayIso, direction))}
           style={({ pressed }) => [
             expenseDatePickerStyle.navButton,
             // P2-1: "더 갈 수 없음"은 색이 아니라 opacity로 말한다 — 기록 탭 달 내비·
             // 내보내기 달 스테퍼와 같은 수치(gray300 화살표는 AA 미달이라 그 화면들이
             // 이미 버린 방식이다).
-            { opacity: canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso) ? (pressed ? 0.76 : 1) : PICKER_DISABLED_OPACITY }
+            { opacity: canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso, direction) ? (pressed ? 0.76 : 1) : PICKER_DISABLED_OPACITY }
           ]}
         >
           <AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />
         </Pressable>
       </View>
       <ExpenseDatePickerGrid
+        direction={direction}
         month={pickerMonth}
         onSelectDate={onSelectDate}
         selectedIso={selectedIso ?? ""}

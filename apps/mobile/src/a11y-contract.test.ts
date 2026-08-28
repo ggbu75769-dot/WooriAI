@@ -503,7 +503,9 @@ describe("GAP-061 #8 정기 지출 · 달력 픽커 접근성 스윕", () => {
 
   it("달력 날짜 셀이 button 역할 + selected 상태 + 사람이 읽는 날짜 라벨을 갖는다", () => {
     const pickerSource = source("src/expenses/ExpenseDatePicker.tsx");
-    expect(pickerSource).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso })");
+    // 라운드 65 D: 같은 픽커를 아이 생년월일·예정일도 쓴다. 라벨 입력에 방향 한 칸이 늘었을 뿐
+    // 계약은 그대로다 — 라벨은 여전히 순수 모듈이 만들고 화면은 그리기만 한다.
+    expect(pickerSource).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction })");
     expect(pickerSource).toContain('accessibilityRole="button"');
     expect(pickerSource).toContain("accessibilityState={{ selected }}");
     // 라벨 문구(오늘/선택됨/날짜)는 순수 모듈이 만들고 date-picker-month.test.ts가 핀한다.
@@ -517,7 +519,18 @@ describe("GAP-061 #8 정기 지출 · 달력 픽커 접근성 스윕", () => {
     expect(pickerSource).toContain("<View accessible accessibilityLabel={accessibilityLabel} key={cell.key} style={cellStyle}>");
     const monthSource = source("src/expenses/date-picker-month.ts");
     expect(monthSource).toContain('export const EXPENSE_DATE_PICKER_FUTURE_HINT = "아직 오지 않은 날이라 고를 수 없어요"');
-    expect(monthSource).toContain("parts.push(EXPENSE_DATE_PICKER_FUTURE_HINT)");
+    /**
+     * 라운드 65 D — 계약 갱신: 이유가 **한 문장에서 두 문장으로** 늘었다.
+     *
+     * 같은 픽커를 출산 예정일이 쓰기 시작했는데, 그 달력에서 못 고르는 칸의 이유는 "아직 오지
+     * 않은 날"이 아니라 "만삭보다 먼 날"이다. 라운드 61 E가 고정한 계약("왜 못 누르는지까지
+     * 말한다")은 그대로이고, 화면이 문구를 고르지 않는다는 규율도 그대로다 — 방향에서 문장을
+     * 고르는 일까지 순수 모듈이 한다. 그래서 여기서 고정하는 것은 "화면이 그 헬퍼를 지난다"이고,
+     * 결과 문자열은 date-picker-month.test.ts가 핀한다.
+     */
+    expect(monthSource).toContain("parts.push(expenseDatePickerUnselectableHint(direction))");
+    expect(monthSource).toContain("export function expenseDatePickerUnselectableHint");
+    expect(monthSource).toContain("export const EXPENSE_DATE_PICKER_BEYOND_TERM_HINT");
   });
 
   it("달력 월 이동 화살표가 라벨 + disabled 상태를 알리고, 요일 머리글은 트리에서 감춘다", () => {
@@ -528,7 +541,7 @@ describe("GAP-061 #8 정기 지출 · 달력 픽커 접근성 스윕", () => {
       "accessibilityState={{ disabled: !canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso) }}"
     );
     expect(pickerSource).toContain(
-      "accessibilityState={{ disabled: !canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso) }}"
+      "accessibilityState={{ disabled: !canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso, direction) }}"
     );
     // 요일 머리글(일~토)은 칸 라벨이 이미 완전한 날짜를 읽어 주므로 소음이다.
     expect(pickerSource).toContain("accessibilityElementsHidden");
