@@ -5,6 +5,7 @@ import { useNotificationStore } from "../notifications/notification.store";
 import { deactivateRegisteredPushDevice } from "../notifications/usePushDeviceRegistration";
 import { clearAppQueryCache } from "../query/query-client-registry";
 import { useAppLockStore } from "../stores/app-lock.store";
+import { useImportResumeStore } from "../stores/import-resume.store";
 import { useRecurringExpenseStore } from "../stores/recurring-expense.store";
 import { clearSyncCursor } from "./delta-sync";
 import { wipeOfflineStore } from "./sync-engine";
@@ -256,6 +257,10 @@ export async function teardownOfflineSessionState(
   // 기기에서 어떤 알림을 볼까"라는 기기 단위 선택이라 일부러 빠져 있다(그 스토어의 헤더 참고).
   // 동기 set이므로 이 줄에서 이미 유효하다.
   useRecurringExpenseStore.getState().resetAll();
+  // 라운드 56 트랙 D(GAP-056 #5): 가져오기 이어보기 항목에는 childId·파일명이 담긴다 --
+  // 명백한 계정 데이터라 같은 자격으로 든다. 대조군 records-view(리스트/달력 선택)는
+  // 기기 단위 선택이라 notification-preferences와 같은 범주로 일부러 빠져 있다.
+  useImportResumeStore.getState().resetAll();
   // 라운드 55 트랙 C(설계 §2.8) — **브릭 방지**. 앱 잠금 PIN이 정체성 변경에서 지워지지 않으면
   // A 로그아웃 → B 로그인 → B가 A의 PIN 화면에 갇히고, 탈출구는 로그아웃뿐이라 무한 루프가 된다.
   // 런타임 상태는 동기로 비고, SecureStore 키 삭제만 Promise다 -- 이 함수는 이미 async이므로

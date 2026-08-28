@@ -15,6 +15,7 @@ import {
   resetAppQueryClientRegistryForTests
 } from "../query/query-client-registry";
 import { useAppLockStore } from "../stores/app-lock.store";
+import { useImportResumeStore } from "../stores/import-resume.store";
 import { useRecurringExpenseStore } from "../stores/recurring-expense.store";
 import { readAppLockRecord } from "../security/app-lock-storage";
 import { secureSessionStorage } from "../stores/secure-session-storage";
@@ -94,6 +95,13 @@ async function seedUserScopedState(store: OfflineStore): Promise<void> {
   useFirstRecordCelebrationStore.getState().observe("child-1", true);
   // 라운드 55 트랙 C: 반복 지출 템플릿(계정 데이터)과 앱 잠금 PIN(브릭 방지)도 같은 목록이다.
   useRecurringExpenseStore.getState().addTemplate(recurringDraft);
+  // 라운드 56 트랙 D: 가져오기 이어보기 항목(childId·파일명)도 계정 데이터다.
+  useImportResumeStore.getState().rememberImportReview({
+    childId: "child-1",
+    jobId: "job-1",
+    fileName: "가계부.xlsx",
+    createdAt: "2026-08-28T00:00:00.000Z"
+  });
   await useAppLockStore.getState().enableLock("1234");
 }
 
@@ -123,6 +131,7 @@ beforeEach(async () => {
   // 라운드 55 트랙 C: 잠금 기록은 SecureStore(vitest에서는 인메모리 폴백)에 남으므로 테스트
   // 사이에 지운다 -- 남기면 다음 테스트의 사전 조건이 조용히 달라진다.
   useRecurringExpenseStore.getState().resetAll();
+  useImportResumeStore.getState().resetAll();
   await useAppLockStore.getState().resetAll();
 });
 
@@ -668,6 +677,8 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
     await simulateSessionTransition(store, userA, userB);
 
     expect(useRecurringExpenseStore.getState().templates).toEqual([]);
+    // 라운드 56 트랙 D: 가져오기 이어보기 항목도 함께 비어야 한다(다음 계정에 파일명이 새지 않게).
+    expect(useImportResumeStore.getState().entry).toBeNull();
     // 런타임 상태와 SecureStore 키가 **둘 다** 비어야 한다. 하나만 지우면 다음 부팅에서 되살아난다.
     expect(useAppLockStore.getState().record).toBeNull();
     expect(await readAppLockRecord()).toEqual({ status: "loaded", record: null });
@@ -683,6 +694,7 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
     await simulateSessionTransition(store, userA, loggedOut);
 
     expect(useRecurringExpenseStore.getState().templates).toEqual([]);
+    expect(useImportResumeStore.getState().entry).toBeNull();
     expect(await readAppLockRecord()).toEqual({ status: "loaded", record: null });
   });
 
@@ -694,6 +706,7 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
     await simulateSessionTransition(store, userA, { userId: "user-a", isTestSession: false });
 
     expect(useRecurringExpenseStore.getState().templates).toHaveLength(1);
+    expect(useImportResumeStore.getState().entry).not.toBeNull();
     expect(useAppLockStore.getState().record?.enabled).toBe(true);
     expect((await readAppLockRecord()).status).toBe("loaded");
   });
