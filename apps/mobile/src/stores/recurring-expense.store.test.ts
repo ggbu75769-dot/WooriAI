@@ -8,6 +8,7 @@ import {
   type RecurringTemplateDraft
 } from "../expenses/recurring-template";
 import {
+  clearRecurringTemplatesForChild,
   findRecurringTemplateByItemName,
   recurringDuplicateMessage,
   RECURRING_ALREADY_REGISTERED_LABEL,
@@ -482,5 +483,62 @@ describe("라운드 55 #4 persist 관례 (저장소의 다른 스토어와 같�
       templates: typeof saved;
     };
     expect(restored.templates).toEqual(saved);
+  });
+});
+
+/**
+ * 라운드 62 트랙 B(#5) — 삭제한 아이의 **기기 잔재** 정리.
+ *
+ * 정기 지출은 눈에 안 보이는 잔재가 아니다: 상한 20개가 아이별이라(라운드 59 #4), 삭제된 아이의
+ * 템플릿이 그 아이 몫의 칸을 계속 차지한 채 남는다. 관리 화면은 선택된 아이의 목록만 그리므로
+ * 사용자가 그것을 찾아 지울 방법도 없다. 배선(finishChildRemoval에서의 호출)은 이 트랙 밖이다.
+ */
+describe("라운드 62 B(#5) 아이 단위 정리 clearForChild", () => {
+  const OTHER_CHILD = "child-2";
+
+  beforeEach(() => {
+    useRecurringExpenseStore.getState().resetAll();
+  });
+
+  it("그 아이의 템플릿만 지우고 다른 아이의 것은 순서 그대로 남는다", () => {
+    const store = useRecurringExpenseStore.getState();
+    store.addTemplate(draft({ itemName: "기저귀" }));
+    store.addTemplate(draft({ childId: OTHER_CHILD, itemName: "분유" }));
+    store.addTemplate(draft({ itemName: "물티슈" }));
+    useRecurringExpenseStore.getState().clearForChild(CHILD);
+    expect(
+      useRecurringExpenseStore.getState().templates.map((template) => [template.childId, template.itemName])
+    ).toEqual([[OTHER_CHILD, "분유"]]);
+  });
+
+  it("지운 아이의 칸이 실제로 돌아온다 (상한 20은 아이별이다)", () => {
+    const store = useRecurringExpenseStore.getState();
+    for (let index = 0; index < RECURRING_TEMPLATE_LIMIT; index += 1) {
+      expect(store.addTemplate(draft({ itemName: `품목${index}` })).ok).toBe(true);
+    }
+    expect(useRecurringExpenseStore.getState().addTemplate(draft({ itemName: "하나 더" }))).toEqual({
+      ok: false,
+      message: RECURRING_LIMIT_MESSAGE
+    });
+    useRecurringExpenseStore.getState().clearForChild(CHILD);
+    expect(useRecurringExpenseStore.getState().addTemplate(draft({ itemName: "하나 더" })).ok).toBe(true);
+  });
+
+  it("빈 childId로는 아무것도 지우지 않고, 지울 것이 없으면 같은 배열을 돌려준다", () => {
+    const store = useRecurringExpenseStore.getState();
+    store.addTemplate(draft());
+    const templates = useRecurringExpenseStore.getState().templates;
+    for (const noop of ["", "   ", "child-gone"]) {
+      expect(clearRecurringTemplatesForChild(templates, noop)).toBe(templates);
+    }
+    useRecurringExpenseStore.getState().clearForChild("");
+    expect(useRecurringExpenseStore.getState().templates).toBe(templates);
+  });
+
+  it("저장 경로와 같은 모양으로 비교한다 (앞뒤 공백은 같은 아이다)", () => {
+    const store = useRecurringExpenseStore.getState();
+    store.addTemplate(draft());
+    useRecurringExpenseStore.getState().clearForChild(`  ${CHILD}  `);
+    expect(useRecurringExpenseStore.getState().templates).toEqual([]);
   });
 });

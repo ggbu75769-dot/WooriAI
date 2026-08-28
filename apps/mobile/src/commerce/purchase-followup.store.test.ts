@@ -4,6 +4,7 @@ import {
   applyPurchaseLinkClick,
   applySnooze,
   applyStatus,
+  clearPurchaseFollowupsForChild,
   isFollowupForSelectedChild,
   isPromptEligible,
   PURCHASE_FOLLOWUP_MAX_AGE_MS,
@@ -396,5 +397,46 @@ describe("라운드 49 C-06 구매 확인 → 지출 기록으로 넘기는 사�
     );
     expect(byId).toEqual({ "item-old": undefined, "item-new": "link-9", "item-junk": undefined });
     await persistStorage.removeItem("wooriai-purchase-followup");
+  });
+});
+
+/**
+ * 라운드 62 트랙 B(#5) — 삭제한 아이의 **기기 잔재** 정리.
+ *
+ * 아이를 지워도 이 기기에는 그 아이를 위해 무엇을 사려 했는지(itemName)와 그 아이의 id가 최대
+ * 24시간 남는다. 카드가 뜨지는 않지만(`isFollowupForSelectedChild` — 그 아이는 이제 선택될 수
+ * 없다) 남길 이유도 없다. 배선(finishChildRemoval에서의 호출)은 이 트랙 밖이다.
+ */
+describe("라운드 62 B(#5) 아이 단위 정리 clearForChild", () => {
+  beforeEach(() => {
+    usePurchaseFollowupStore.getState().resetAll();
+  });
+
+  it("그 아이의 대기 항목만 지우고 다른 아이의 것은 그대로 둔다", () => {
+    const entries = [
+      pendingEntry({ itemTemplateId: "item-a", childId: "child-1" }),
+      pendingEntry({ itemTemplateId: "item-b", childId: "child-2" }),
+      pendingEntry({ itemTemplateId: "item-c", childId: "child-1", status: "done" })
+    ];
+    expect(clearPurchaseFollowupsForChild(entries, "child-1").map((entry) => entry.itemTemplateId)).toEqual([
+      "item-b"
+    ]);
+  });
+
+  it("빈 childId로는 아무것도 지우지 않고, 지울 것이 없으면 같은 배열을 돌려준다", () => {
+    const entries = [pendingEntry({ childId: "child-1" })];
+    expect(clearPurchaseFollowupsForChild(entries, "")).toBe(entries);
+    expect(clearPurchaseFollowupsForChild(entries, "   ")).toBe(entries);
+    expect(clearPurchaseFollowupsForChild(entries, "child-gone")).toBe(entries);
+  });
+
+  it("스토어 액션은 그 아이의 항목만 지운다 (resetAll과 다른 별개 액션)", () => {
+    const store = usePurchaseFollowupStore.getState();
+    store.recordLinkClick(click({ itemTemplateId: "item-a", childId: "child-1" }));
+    store.recordLinkClick(click({ itemTemplateId: "item-b", childId: "child-2" }));
+    usePurchaseFollowupStore.getState().clearForChild("child-1");
+    expect(usePurchaseFollowupStore.getState().entries.map((entry) => entry.itemTemplateId)).toEqual(["item-b"]);
+    usePurchaseFollowupStore.getState().resetAll();
+    expect(usePurchaseFollowupStore.getState().entries).toEqual([]);
   });
 });

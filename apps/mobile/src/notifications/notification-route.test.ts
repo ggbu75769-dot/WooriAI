@@ -8,6 +8,7 @@ import {
   RECORDS_CALENDAR_VIEW,
   RECORDS_VIEW_NONCE_PARAM,
   RECORDS_VIEW_PARAM,
+  resolveNotificationTapChild,
   resolveRecordsViewNonceParam
 } from "./notification-route";
 import { RECORDS_DRILLDOWN_NONCE_PARAM } from "../reports/category-drilldown";
@@ -90,9 +91,8 @@ describe("라운드 56 D#10 record_gap 달력 착지", () => {
     );
     // 링크를 만드는 화면(알림함)도 같은 모듈의 카운터를 쓴다.
     const notificationsSource = source("app/notifications.tsx");
-    expect(notificationsSource).toContain(
-      'import { nextRecordsViewNonce, notificationTapRoute } from "../src/notifications/notification-route";'
-    );
+    expect(notificationsSource).toContain("  nextRecordsViewNonce,");
+    expect(notificationsSource).toContain('} from "../src/notifications/notification-route";');
     expect(notificationsSource).toContain("router.push(notificationTapRoute(entry, nextRecordsViewNonce()));");
   });
 
@@ -220,5 +220,95 @@ describe("라운드 56 D#10 record_gap 달력 착지", () => {
     expect(recordsSource).toContain("<SegmentedControl options={RECORDS_VIEW_OPTIONS} value={viewMode} onChange={setViewMode} />");
     expect(recordsSource).toContain('const RECORDS_VIEW_LIST = "리스트"');
     expect(recordsSource).toContain('const RECORDS_VIEW_CALENDAR = "달력"');
+  });
+});
+
+/**
+ * 라운드 62 트랙 B(#2) — 알림은 **그 알림의 아이**로 데려가야 한다.
+ *
+ * 목적지 넷은 전부 "지금 선택된 아이"로 그려지는 화면인데, 알림 행 제목은 R20-C 이후 다른 아이의
+ * 태명을 접두로 달고 있다. 그래서 "튼튼이 · 이번 달 예산의 80%를 사용했어요"를 누른 사람에게
+ * **다온이의 예산 수정 화면**이 열렸고, 그 화면의 저장은 다온이의 예산을 덮었다(되돌릴 수 없다).
+ *
+ * 판정의 핵심은 "모르면 전환하지 않는다"다 — 지어낸 전환은 이 항목이 고치려는 오기록을 다른
+ * 모양으로 만들 뿐이다.
+ */
+describe("라운드 62 B(#2) 알림 탭이 데려갈 아이", () => {
+  const children = [
+    { id: "child-1", nickname: "다온이" },
+    { id: "child-2", nickname: "튼튼이" }
+  ];
+
+  it("알림이 아는 아이가 목록에 있으면 그 아이(전환 한 벌이 쓸 태명까지)를 돌려준다", () => {
+    expect(resolveNotificationTapChild({ childId: "child-2" }, children)).toEqual({
+      id: "child-2",
+      nickname: "튼튼이"
+    });
+  });
+
+  it("지금 선택된 아이의 알림도 그 아이를 그대로 돌려준다 (no-op 판정은 applyChildSwitch의 몫)", () => {
+    // 이 판정은 "누구인가"만 말한다. "같은 아이면 아무 일도 하지 않는다"는 규칙은 planChildSwitch
+    // 한 곳에 있고(따뜻한 캐시를 날리지 않는다), 여기서 다시 적으면 규칙이 두 벌이 된다.
+    expect(resolveNotificationTapChild({ childId: "child-1" }, children)).toEqual(children[0]);
+  });
+
+  it("childId가 없는 옛 저장본은 전환하지 않는다 (지금 아이로 소급 배정하지 않는다)", () => {
+    expect(resolveNotificationTapChild({}, children)).toBeNull();
+    expect(resolveNotificationTapChild({ childId: undefined }, children)).toBeNull();
+  });
+
+  it("목록에 없는 아이(삭제된 아이)·목록이 아직 없을 때는 전환하지 않는다 — 이동은 종전 그대로", () => {
+    expect(resolveNotificationTapChild({ childId: "child-gone" }, children)).toBeNull();
+    expect(resolveNotificationTapChild({ childId: "child-1" }, undefined)).toBeNull();
+    expect(resolveNotificationTapChild({ childId: "child-1" }, null)).toBeNull();
+    expect(resolveNotificationTapChild({ childId: "child-1" }, [])).toBeNull();
+  });
+
+  it("아이가 하나뿐인 가구에서도 판정은 같다 (표시 게이트를 빌려 오지 않는다)", () => {
+    // 태명 접두는 2명 이상일 때만 붙지만(notification-child-label.ts), 전환은 인원수가 아니라
+    // "이 알림이 다른 아이의 것인가"라는 사실 문제다. 한 명이면 그 한 명이 이미 선택돼 있어
+    // applyChildSwitch가 아무 일도 하지 않는다.
+    const solo = [{ id: "child-1", nickname: "다온이" }];
+    expect(resolveNotificationTapChild({ childId: "child-1" }, solo)).toEqual(solo[0]);
+    expect(resolveNotificationTapChild({ childId: "child-2" }, solo)).toBeNull();
+  });
+
+  it("태명이 비어 있어도 전환한다 — 문구보다 목적지의 정확함이 먼저다", () => {
+    const blank = [{ id: "child-1", nickname: "다온이" }, { id: "child-2", nickname: "  " }];
+    expect(resolveNotificationTapChild({ childId: "child-2" }, blank)).toEqual(blank[1]);
+  });
+
+  /**
+   * 화면 배선 계약: 전환은 **이동보다 먼저**, 그리고 아이 관리 화면·헤더 시트와 **같은 한 벌**로.
+   * 무효화 키나 안내 문구를 이 화면이 손으로 다시 적기 시작하면, 한 벌이 무효화를 빠뜨리는 날
+   * 아이 A의 캐시가 아이 B 화면에 남는다(라운드 28의 A→B 캐시 오염, HOME-138 주석).
+   */
+  it("알림함은 전환 한 벌(applyChildSwitch)을 push 앞에 태운다", () => {
+    const screenSource = source("app/notifications.tsx");
+    expect(screenSource).toContain('import { applyChildSwitch } from "../src/children/child-switch";');
+    expect(screenSource).toContain("  resolveNotificationTapChild");
+    expect(screenSource).toContain("const child = resolveNotificationTapChild(entry, householdChildren);");
+    expect(screenSource).toContain("applyChildSwitch(selectedChildId, child, {");
+    // 전환 한 벌의 세 부수효과는 그 함수가 든다 -- 화면은 바깥 세계만 꽂는다.
+    expect(screenSource).toContain("setSelectedChildId,");
+    expect(screenSource).toContain("invalidateQueries: (input) => queryClient.invalidateQueries(input),");
+    expect(screenSource).toContain("announce: announceForA11y");
+    // 키 목록·안내 문구를 화면이 다시 적지 않는다(child-switch.test.ts의 계약과 같은 요지).
+    expect(screenSource).not.toContain("plan.invalidateKeys");
+    expect(screenSource).not.toContain("CHILD_SCOPED_QUERY_KEY_PREFIXES");
+    expect(screenSource).not.toContain("(으)로 전환했어요");
+    // 순서: 착지 화면은 지금 선택된 아이로 그려지므로 전환이 push보다 앞서야 한다.
+    const tapHandler = screenSource.slice(
+      screenSource.indexOf("markRead(entry.id);"),
+      screenSource.indexOf("router.push(notificationTapRoute(entry, nextRecordsViewNonce()));")
+    );
+    expect(tapHandler).toContain("switchToNotificationChild(entry);");
+  });
+
+  /** 새 쿼리를 만들지 않는다: 전환에 쓰는 목록은 태명 접두가 이미 읽고 있는 그 캐시 하나뿐이다. */
+  it("전환 대상 목록은 태명 접두와 같은 [\"children\"] 캐시를 쓴다 (요청 수 그대로)", () => {
+    const screenSource = source("app/notifications.tsx");
+    expect(screenSource).toContain("resolveNotificationChildLabel(entry.childId, householdChildren)");
+    expect(screenSource.match(/useQuery\(\{/g)?.length ?? 0).toBe(1);
   });
 });

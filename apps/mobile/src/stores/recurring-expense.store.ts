@@ -122,6 +122,31 @@ function templateCountForChild(templates: readonly RecurringExpenseTemplate[], c
   return templates.reduce((count, template) => (template.childId === childId ? count + 1 : count), 0);
 }
 
+/**
+ * 라운드 62 트랙 B(#5) — **삭제된 아이 한 명분**의 템플릿을 지운다.
+ *
+ * 아이 프로필 삭제의 뒤처리는 지금 쿼리 캐시 무효화뿐이라, 사라진 아이의 정기 지출이 이 기기에
+ * 그대로 남는다. 눈에 보이지 않는 잔재가 아니다: 상한 20개는 **아이별**로 세므로
+ * (`templateCountForChild`), 지워진 아이의 템플릿이 그 아이 몫의 20칸을 계속 차지한 채 남는다
+ * (관리 화면은 선택된 아이의 목록만 그리므로 사용자가 그것을 찾아 지울 방법도 없다).
+ *
+ * `resetAll`(PRIV-104 계정 전환)과 섞지 않는 **별도 액션**이다 — 그쪽은 정체성이 바뀔 때 전부
+ * 지우는 계약이고, 이쪽은 같은 사람이 로그인한 채 아이 하나만 지운 경우다.
+ *
+ * 비교는 저장 경로와 **같은 모양**으로 trim한 값끼리 한다(addTemplate·`findRecurringTemplateByItemName`).
+ * 빈 childId로는 아무것도 지우지 않는다. 바뀌는 것이 없으면 **같은 배열**을 돌려준다
+ * (removeTemplate과 같은 no-op 관례).
+ */
+export function clearRecurringTemplatesForChild(
+  templates: RecurringExpenseTemplate[],
+  childId: string
+): RecurringExpenseTemplate[] {
+  const target = childId.trim();
+  if (target.length === 0) return templates;
+  if (!templates.some((template) => template.childId === target)) return templates;
+  return templates.filter((template) => template.childId !== target);
+}
+
 /** 저장 시도의 결과. 실패는 예외가 아니라 **값**이다(화면이 문장을 그대로 보여준다). */
 export type RecurringTemplateSaveResult =
   | { ok: true; template: RecurringExpenseTemplate }
@@ -143,6 +168,11 @@ export type RecurringExpenseState = {
   setTemplateActive: (id: string, active: boolean) => void;
   /** "이번 달은 이미 기록했어요" — 지출을 만들지 않는다. */
   skipThisMonth: (id: string, yearMonth: string) => void;
+  /**
+   * 라운드 62 트랙 B(#5): **아이 하나가 삭제됐을 때** 그 아이의 템플릿을 지운다(규칙은 위
+   * `clearRecurringTemplatesForChild` 주석). PRIV-104 teardown(`resetAll`)과는 별개 액션이다.
+   */
+  clearForChild: (childId: string) => void;
   /** PRIV-104: 계정 정체성이 바뀔 때 전부 지운다. */
   resetAll: () => void;
 };
@@ -314,6 +344,13 @@ export const useRecurringExpenseStore = create<RecurringExpenseState>()(
           // applyRecurringSkip은 바뀌지 않으면 **같은 객체**를 돌려준다.
           if (next === target) return state;
           return { templates: state.templates.map((template) => (template.id === id ? next : template)) };
+        }),
+
+      clearForChild: (childId) =>
+        set((state) => {
+          const templates = clearRecurringTemplatesForChild(state.templates, childId);
+          // 지울 것이 없으면 같은 상태를 유지한다(구독자가 헛돌지 않게).
+          return templates === state.templates ? state : { templates };
         }),
 
       resetAll: () => set((state) => (state.templates.length === 0 ? state : { templates: [] }))

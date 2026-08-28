@@ -211,6 +211,55 @@ export function removeNotification(entries: AppNotification[], id: string): AppN
   return entries.filter((entry) => entry.id !== id);
 }
 
+/**
+ * 라운드 62 트랙 B(#5) — **삭제된 아이 한 명분**의 기기 잔재를 지운다.
+ *
+ * 왜 필요한가: 아이 프로필 삭제의 뒤처리는 지금 쿼리 캐시 무효화뿐이다(CHILD_REMOVAL_INVALIDATE_KEYS).
+ * 기기에 persist된 이 목록은 그대로 남아, 사라진 아이의 알림 줄이 알림함에 계속 서 있다 -- 이름을
+ * 해석할 수 없으니 태명 접두도 붙지 않아(notification-child-label.ts) 어느 아이 것인지조차 보이지
+ * 않고, 그 줄을 누르면 지금 아이의 화면이 열린다.
+ *
+ * `resetAll`(PRIV-104 세션 teardown)과 **섞지 않는 별도 판정**이다: 그쪽은 정체성이 바뀔 때 전부
+ * 지우는 계약이고, 이쪽은 같은 사람이 계속 로그인한 채 아이 하나만 지운 경우다. 두 규칙을 한
+ * 함수에 넣으면 한쪽을 고칠 때 다른 쪽이 함께 움직인다.
+ *
+ * ## `seenDedupeKeys`는 **건드리지 않는다** (dedupe 정책 근거)
+ *
+ * 지울 수도 있었다(정찰 노트가 둘 다 정직하다고 적었다). 남기기를 고르는 이유는 둘이다.
+ *  1. **키의 형식을 여기서 다시 알아야 한다.** dedupe 키는 이 스토어에게 불투명한 문자열이고,
+ *     childId 조각이 어디에 있는지는 종류마다 다르다(`budget_80:{childId}:{yearMonth}`,
+ *     `purchase_pending:{itemTemplateId}:{clickedAt}` — 뒤엣것에는 childId가 아예 없다).
+ *     여기서 키를 파싱하면 generators.ts 말고 **두 번째** 키 형식 소스가 생기고, 형식이 바뀌는
+ *     날 조용히 어긋난다.
+ *  2. **남겨도 아무것도 억제하지 않는다.** 키는 childId(서버가 주는 고유 id)를 품고 있어 지운
+ *     아이의 키가 다른 아이의 알림을 막을 수 없고, 삭제된 아이의 알림이 다시 평가될 일도 없다.
+ *     남은 키는 200칸 상한(NOTIFICATION_MAX_SEEN_KEYS)에서 오래된 순으로 자연히 잊힌다.
+ * 즉 "정확히 지울 수 없는 것은 건드리지 않는다"는 쪽을 택했다.
+ *
+ * `lastSeenStageByChild`는 **함께 지운다** — 그쪽은 childId가 키 자체라 파싱이 필요 없고, 사라진
+ * 아이의 시기 라벨을 계속 들고 있을 이유가 없다.
+ *
+ * 바뀌는 것이 없으면 **같은 참조**를 돌려준다(markAllNotificationsRead와 같은 no-op 관례).
+ */
+export function clearNotificationsForChild(
+  state: Pick<NotificationState, "entries" | "lastSeenStageByChild">,
+  childId: string
+): Pick<NotificationState, "entries" | "lastSeenStageByChild"> {
+  // 빈 id로는 아무것도 지우지 않는다: childId 없는 옛 항목(어느 아이 것인지 모르는 줄)까지
+  // 쓸어 버리는 사고를 원천 차단한다.
+  const target = childId.trim();
+  if (target.length === 0) return state;
+  const entries = state.entries.some((entry) => entry.childId === target)
+    ? state.entries.filter((entry) => entry.childId !== target)
+    : state.entries;
+  let lastSeenStageByChild = state.lastSeenStageByChild;
+  if (Object.prototype.hasOwnProperty.call(lastSeenStageByChild, target)) {
+    const { [target]: _removed, ...rest } = lastSeenStageByChild;
+    lastSeenStageByChild = rest;
+  }
+  return { entries, lastSeenStageByChild };
+}
+
 export type NotificationState = {
   entries: AppNotification[];
   seenDedupeKeys: string[];
@@ -225,6 +274,12 @@ export type NotificationState = {
   clearAll: () => void;
   /** 라운드 52 C-10 "이 알림 지우기": 한 줄만 뺀다. dedupe 키 유지 규칙은 clearAll과 같다. */
   remove: (id: string) => void;
+  /**
+   * 라운드 62 트랙 B(#5): **아이 하나가 삭제됐을 때** 그 아이의 알림 줄과 시기 메타를 지운다.
+   * 규칙·근거는 위 `clearNotificationsForChild` 주석에(특히 seenDedupeKeys를 남기는 이유).
+   * PRIV-104 teardown(`resetAll`)과는 별개 액션이다 -- 호출부는 아이 삭제 뒤처리 한 곳뿐이다.
+   */
+  clearForChild: (childId: string) => void;
   recordSeenStage: (childId: string, stageLabel: string) => void;
   /** Session teardown convention (see purchase-followup.store.ts resetAll): drops every persisted
    * entry and the per-child stage meta so the next account on this device starts clean. */
@@ -331,6 +386,14 @@ export const useNotificationStore = create<NotificationState>()(
       markRead: (id, now = Date.now()) => set((state) => ({ entries: markNotificationRead(state.entries, id, now) })),
       clearAll: () => set({ entries: [] }),
       remove: (id) => set((state) => ({ entries: removeNotification(state.entries, id) })),
+      clearForChild: (childId) =>
+        set((state) => {
+          const next = clearNotificationsForChild(state, childId);
+          // 지울 것이 없으면 상태를 통째로 그대로 둔다(구독자가 헛돌지 않게).
+          return next.entries === state.entries && next.lastSeenStageByChild === state.lastSeenStageByChild
+            ? state
+            : next;
+        }),
       recordSeenStage: (childId, stageLabel) =>
         set((state) =>
           state.lastSeenStageByChild[childId] === stageLabel

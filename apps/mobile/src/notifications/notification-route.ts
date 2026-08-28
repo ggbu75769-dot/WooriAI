@@ -167,3 +167,65 @@ export function notificationTapRoute(
   if (itemTemplateId) return `/items/${itemTemplateId}`;
   return "/(tabs)/items";
 }
+
+// ---------------------------------------------------------------------------------------------
+// 라운드 62 트랙 B(#2) — 목적지와 **함께 정해져야 하는 것**: 어느 아이의 화면인가
+//
+// 위 `notificationTapRoute`가 돌려주는 목적지는 넷 다(/budget · /(tabs)/records ·
+// /(tabs)/items · /items/{id}) **지금 선택된 아이**로 동작하는 화면이다. 그런데 알림 한 건은
+// 자기가 어느 아이의 소식인지 알고 있고(entry.childId — R19-D가 찍는다), 알림함의 행 제목은 그
+// 사실을 이미 화면에 그린다(다자녀 가구의 태명 접두 — notification-child-label.ts). 즉 화면은
+// "튼튼이 · 이번 달 예산의 80%를 사용했어요"라고 말해 놓고, 그 줄을 누르면 **다온이의** 예산
+// 수정 화면을 연다. 그 화면의 [저장]은 다온이의 (childId, yearMonth) 예산을 덮고, 예산 행에는
+// 이월도 이력도 없어 앱 안에서 되돌릴 방법이 없다. purchase_pending은 더 직접적이다 — 다른
+// 아이의 준비템 상세에서 "지출 기록하고 준비 완료"를 누르면 지금 아이의 지출·준비 상태가 바뀐다.
+// 구매 확인 카드가 라운드 39 UX-O에서 `isFollowupForSelectedChild`로 이미 막아 둔 그 오기록을,
+// 알림 경로가 우회하고 있었다.
+//
+// 그래서 목적지 판정 옆에 **아이 판정**을 둔다. 두 판정을 한 함수로 합치지 않은 이유는 두 가지다:
+//  1. 입력이 다르다. 목적지는 회차(viewNonce)를 필요로 하고 아이는 필요로 하지 않으며, 아이는
+//     반대로 `["children"]` 목록을 필요로 한다(목적지는 필요로 하지 않는다).
+//  2. 목적지 호출부의 모양(`router.push(notificationTapRoute(entry, nextRecordsViewNonce()))`)은
+//     이 트랙 밖의 소스 계약 테스트 세 벌이 문자열로 붙들고 있다(new-notification-marks ·
+//     notification-row-actions · notification-flow). 판정을 하나로 합치면 그 계약들이 이 라운드와
+//     무관한 이유로 함께 깨진다.
+// 화면은 이 둘을 "전환 먼저, 그 다음 push" 순서로 배선한다(app/notifications.tsx).
+// ---------------------------------------------------------------------------------------------
+
+/** 이 판정이 필요로 하는 `Child`(src/api/client.ts)의 최소 형태. 아이 표시 판정
+ * (`NotificationChildRef`)과 같은 모양이고, 그대로 `applyChildSwitch`에 넘어간다. */
+export type NotificationTapChildRef = {
+  id: string;
+  nickname: string;
+};
+
+/**
+ * 이 알림을 눌렀을 때 **먼저 전환해야 할 아이**, 또는 전환하지 않을 때 `null`.
+ *
+ * 전환하지 않는 세 경우는 전부 "모르면 지어내지 않는다"다 — 그때 이동은 **종전 그대로**다
+ * (이 라운드 전과 한 글자도 다르지 않게 지금 아이의 화면이 열린다):
+ *  - `entry.childId`가 없다: R19-D 이전 빌드가 남긴 저장본이다. 어느 아이의 소식인지 모르는
+ *    알림을 "지금 아이의 것"으로 단정하면, 이 판정이 막으려는 바로 그 오기록을 우리 손으로
+ *    만든다(purchase-followup.store.ts의 `isFollowupForSelectedChild`가 같은 자리에서 내린
+ *    같은 결론이다 — 소급 배정은 하지 않는다).
+ *  - 목록이 아직 없다: `["children"]` 캐시가 도착하기 전이거나 비세션 미리보기다.
+ *  - 목록에 없는 childId다: 삭제된 아이(또는 다른 가구로 옮겨 간 아이)의 알림이다. 존재하지
+ *    않는 아이로 selectedChildId를 옮기면 모든 화면이 빈 상태로 굳는다.
+ *
+ * 아이가 하나뿐인 가구를 따로 걸러 내지 않는 이유: 그 한 명은 이미 선택돼 있어
+ * `applyChildSwitch`가 아무 일도 하지 않고(planChildSwitch가 null), 목록에 없는 id는 위 규칙에서
+ * 이미 걸린다. 표시(태명 접두)는 2명 이상일 때만이지만 **전환은 인원수와 무관한 사실 문제**라
+ * 그 게이트를 빌려 오지 않는다.
+ *
+ * 태명이 비어 있어도 전환한다. 전환 안내 문구가 어색해질 수는 있어도(문구는 child-switch.ts의
+ * 몫이다) 그것 때문에 전환을 포기하면 **다른 아이의 화면**이 열린다 — 이 판정이 없애려는 바로
+ * 그 결과라, 둘 중에서는 목적지의 정확함이 먼저다.
+ */
+export function resolveNotificationTapChild(
+  entry: Pick<AppNotification, "childId">,
+  children: readonly NotificationTapChildRef[] | null | undefined
+): NotificationTapChildRef | null {
+  if (!entry.childId) return null;
+  if (!children) return null;
+  return children.find((child) => child.id === entry.childId) ?? null;
+}
