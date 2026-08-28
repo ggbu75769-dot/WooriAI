@@ -5,6 +5,22 @@ import { EXCLUSIVE_SUITES } from "./exclusive-suites";
 import { acquireSharedDb } from "./shared-db-lock";
 
 /**
+ * 라운드 60 QA — e2e 스위트가 자라며 인메모리 레이트리밋의 **기본값**(전역 300req/60s,
+ * auth 30/60s)을 한 파일 안에서 실제로 넘기 시작했다(expense-home-report.e2e가 429).
+ * 리밋은 요청 시점에 env를 읽으므로 여기서 시험용 여유 값을 주입한다 — 이 setup은
+ * 모든 테스트 파일 로드 전에 실행된다(vitest setupFiles).
+ *
+ * 프로덕션 방어를 검증하는 security-middleware.e2e는 각 케이스가 자체 값을 설정하고
+ * afterEach에서 지우므로(그 파일의 삭제 목록 참고) 이 기본 주입과 무관하게 종전
+ * 그대로 동작한다. `??=`라 CI/개발자가 명시한 값이 있으면 그것이 이긴다.
+ */
+process.env.RATE_LIMIT_GLOBAL_MAX ??= "100000";
+process.env.RATE_LIMIT_AUTH_MAX ??= "100000";
+process.env.RATE_LIMIT_REDIRECT_MAX ??= "100000";
+process.env.RATE_LIMIT_ANALYTICS_MAX ??= "100000";
+process.env.RATE_LIMIT_ANALYTICS_USER_MAX ??= "100000";
+
+/**
  * PERF-130 setup file: gates every test file on the shared-database readers/writer
  * lock before the file itself is loaded. Registered via `setupFiles` in
  * vitest.config.ts, so no individual suite has to know the mechanism exists.
