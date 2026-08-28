@@ -16,8 +16,24 @@ import {
 import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildExpenseRecordedPayload } from "../../src/analytics/events";
-import { LOCAL_SESSION_TOKEN, type CategoryListItem } from "../../src/api/client";
+import { LOCAL_SESSION_TOKEN, type CategoryListItem, type Child } from "../../src/api/client";
 import { buildTileCategoryIdResolver, buildTileCategoryResolver, categoryCatalog } from "../../src/categories";
+/**
+ * GAP-060 #7(트랙 B 몫) — 쓰기 화면의 아이 스코프 라벨. 4탭(홈·기록·준비템·리포트)이 라운드
+ * 48~49에 세운 어휘를 **그대로** 재사용한다: 라벨 해석도 문장 조립도 이 순수 모듈 하나뿐이라,
+ * 화면마다 "다온이의 지출 기록" 식으로 말이 갈리지 않는다.
+ */
+import {
+  resolveChildScopeLabel,
+  withChildScopeLabel,
+  withSpokenChildScopeLabel
+} from "../../src/children/child-switch";
+/**
+ * 라운드 60 트랙 B(#2) — 저장된 이 지출이 어느 구매 확인 대기의 답인가. 순수 판정은 전부
+ * 그 모듈에 있고 이 화면에는 onSuccess의 호출 두 줄만 있다.
+ */
+import { resolvePurchaseFollowupForExpense } from "../../src/commerce/purchase-followup-resolution";
+import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
 import {
   addAmountPreset,
   canAddAmountPreset,
@@ -636,6 +652,29 @@ export default function NewExpenseScreen() {
     authToken && customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
   const paymentMethod = quickExpensePaymentMethods[paymentMethodIndex];
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  /**
+   * GAP-060 #7 — **이 기록이 누구 앞으로 남는가**.
+   *
+   * 4탭은 라운드 48~49에 전부 아이 이름을 달았는데 정작 **쓰는 화면**에는 하나도 없었다.
+   * 아이 선택은 전역 스토어라 이 시트가 열려 있는 동안에도 바뀌고(알림·딥링크·다른 탭),
+   * 둘째를 보다가 FAB를 누른 사용자는 이 시트만 보고는 어느 아이의 지출인지 알 방법이 없다 --
+   * 저장한 뒤 합계가 엉뚱한 아이 밑에서 늘어난 것을 보고서야 안다.
+   *
+   * **새 요청은 0건이다**(useQuery가 아니라 getQueryData): 이 시트의 오랜 계약은 "여는 것만으로
+   * 네트워크가 돌지 않는다"이고(위 자동완성·자동 분류가 읽는 캐시들과 같은 규칙,
+   * auto-fill-wiring.test.ts), 이름 한 조각을 붙이자고 그 계약을 깨지 않는다. 원천은 홈·기록·
+   * 준비템·리포트·설정이 이미 채워 두는 그 캐시 키(["children"])다 -- 앱을 통해 이 시트에
+   * 닿았다면 거의 언제나 채워져 있고, 비어 있으면(딥링크·콜드 스타트) 라벨이 null이라 화면이
+   * 종전 그대로다. 모르면 말하지 않는다.
+   *
+   * EXP-001 픽셀 락: 캡처는 세션이 없어(authToken null) 캐시를 읽지도 않고 라벨도 null이라
+   * 헤더 문자열이 한 글자도 달라지지 않는다 -- 라벨 판정 자체가 "아이 2명 이상"을 요구하므로
+   * (resolveChildScopeLabel) 외동 가구의 화면도 종전과 같다.
+   */
+  const cachedChildren = authToken
+    ? queryClient.getQueryData<{ children: Child[] }>(["children"])?.children
+    : undefined;
+  const childScopeLabel = resolveChildScopeLabel(childId, cachedChildren);
 
   // UX-C(1/2): 품목명을 치는 동안 읽는 "과거 기록"의 원천 -- 홈/기록 탭이 이미 채워 둔
   // ["expenses", childId, 이번 달] 캐시다. 여기서 새 요청은 절대 하지 않는다(useQuery가 아니라
@@ -1120,6 +1159,26 @@ export default function NewExpenseScreen() {
           // 무시한다(위 주석). 원본 행은 동기화 상태 화면에 그대로 남는다.
         });
       }
+      /**
+       * 라운드 60 트랙 B(GAP-060 #2) — **이 기록이 곧 그 물음의 답이다.**
+       *
+       * 여태 구매 확인 대기를 닫는 곳은 카드의 "샀어요" 하나뿐이라, 사용자가 실제로 지출을
+       * 기록해도 그 클릭은 pending으로 남았다: 다음 포그라운드 복귀에 방금 기록한 물건을
+       * 두고 "『…』 구매하셨나요?"를 다시 묻고, 같은 pending을 읽는 purchase_pending 알림도
+       * 계속 새로 생겼다(src/notifications/generators.ts). 알림 쪽은 손대지 않는다 --
+       * pending이 풀리면 후보에서 저절로 빠진다.
+       *
+       * 판정은 순수 함수가 한다(어느 대기의 답인가 · 아이가 맞는가 · 아직 pending인가).
+       * 이름 추측은 없다: linkedItemTemplateId라는 **사실**이 있을 때만 닫는다.
+       */
+      const answeredFollowupItemTemplateId = resolvePurchaseFollowupForExpense({
+        entries: usePurchaseFollowupStore.getState().entries,
+        childId,
+        linkedItemTemplateId
+      });
+      if (answeredFollowupItemTemplateId) {
+        usePurchaseFollowupStore.getState().completeFollowup(answeredFollowupItemTemplateId);
+      }
       clearQuickExpenseDraft();
       setSaveErrorMessage(null);
       setSavedMessage(continueRecording ? CONTINUE_RECORDING_SAVED_MESSAGE : OFFLINE_SAVED_MESSAGE);
@@ -1388,8 +1447,19 @@ export default function NewExpenseScreen() {
           </Pressable>
           {/* DSN-053 P2-C: 제목 19/800 + 부제 11 (승인 원본의 헤더). 부제는 이 화면이 무엇을
               요구하는지 한 줄로 말한다 -- 아래 요약바가 품목·금액만 묻는 이유이기도 하다. */}
-          <View style={{ alignItems: "center", gap: 2 }}>
-            <Text accessibilityRole="header" style={{ color: theme.colors.gray900, fontSize: 19, fontWeight: "800" }}>지출 기록</Text>
+          {/* GAP-060 #7: 제목이 곧 스코프 라벨의 자리다("다온이 — 지출 기록"). 부제·크기·정렬은
+              그대로이고, 라벨이 없으면(외동·세션 없음·캐시 없음) 문자열도 종전 그대로다.
+              눈에는 줄표, 스크린리더에는 쉼표 -- 4탭이 쓰는 그 두 함수 그대로다(줄표는
+              TalkBack/VoiceOver가 삼키거나 "대시"로 읽어 층위가 소리로 전달되지 않는다). */}
+          <View style={{ alignItems: "center", flexShrink: 1, gap: 2 }}>
+            {/* 긴 태명이 닫기 버튼을 밀어내지 않도록 제목만 한 줄로 자른다(라벨이 없으면 자를
+                것도 없어 종전과 같다). 낭독은 잘리지 않은 accessibilityLabel이 맡는다. */}
+            <Text
+              accessibilityRole="header"
+              accessibilityLabel={withSpokenChildScopeLabel("지출 기록", childScopeLabel)}
+              numberOfLines={1}
+              style={{ color: theme.colors.gray900, fontSize: 19, fontWeight: "800" }}
+            >{withChildScopeLabel("지출 기록", childScopeLabel)}</Text>
             <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>품목을 고르고 금액만 입력하세요</Text>
           </View>
           <View style={{ width: 48 }} />

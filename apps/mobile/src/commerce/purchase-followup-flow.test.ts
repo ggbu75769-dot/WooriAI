@@ -17,7 +17,15 @@ function source(relativePath: string): string {
  * loop unit-tested in purchase-followup.store.test.ts is actually wired into the app.
  */
 describe("COM-108 purchase follow-up source contract", () => {
-  it("records a pending purchase check from the item-detail product-link press, before the server click call", () => {
+  /**
+   * GAP-060 #4 — 대기 등록이 **링크가 실제로 열린 뒤**로 옮겼다.
+   *
+   * 종전에는 등록이 handleProductLinkPress 안, 서버 클릭 기록보다도 앞이었다. 그래서 링크가
+   * 열리지 않은 경우(브라우저 없음·스킴 미지원·서버 클릭 기록 실패)에도 대기가 쌓여, 앱이
+   * 3분 뒤부터 **사용자가 본 적도 없는 상품**을 두고 "구매하셨나요?"라고 물었다. 이제 등록은
+   * openURL이 성공한 자리 한 곳(registerPurchaseFollowup)에서만 일어난다.
+   */
+  it("records a pending purchase check only after the product link actually opened", () => {
     const detailSource = source("app/items/[itemTemplateId].tsx");
     expect(detailSource).toContain('import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";');
     expect(detailSource).toContain("usePurchaseFollowupStore.getState().recordLinkClick({");
@@ -25,18 +33,68 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(detailSource).toContain("priceBandText: visibleDetail.priceBandText ?? undefined");
     expect(detailSource).toContain("clickedAt: Date.now()");
 
-    // Recorded inside the session-gated branch of handleProductLinkPress (canCallLinkApi), and
-    // before the server-side click record fires, so it never runs in preview mode.
-    const recordIndex = detailSource.indexOf("usePurchaseFollowupStore.getState().recordLinkClick({");
+    // 등록 지점은 하나뿐이다(사본이 갈라지면 한쪽만 실패 경로를 지킨다).
+    expect(detailSource.match(/usePurchaseFollowupStore\.getState\(\)\.recordLinkClick\(\{/g) ?? []).toHaveLength(1);
+    expect(detailSource).toContain("const registerPurchaseFollowup = (link: ProductLink) => {");
+
+    // 누름 핸들러(canCallLinkApi 분기)는 이제 서버 클릭 기록만 띄운다 -- 대기 등록은 없다.
     const gateIndex = detailSource.indexOf("if (canCallLinkApi) {");
-    const mutateIndex = detailSource.indexOf("clickLink.mutate(link.id);");
+    const mutateIndex = detailSource.indexOf("clickLink.mutate(link);");
     expect(gateIndex).toBeGreaterThan(-1);
-    expect(recordIndex).toBeGreaterThan(gateIndex);
-    expect(mutateIndex).toBeGreaterThan(recordIndex);
+    expect(mutateIndex).toBeGreaterThan(gateIndex);
+    const pressBranch = detailSource.slice(gateIndex, mutateIndex);
+    expect(pressBranch).not.toContain("recordLinkClick(");
+    expect(pressBranch).not.toContain("registerPurchaseFollowup(");
+    // 계측(affiliate_link_clicked)은 종전 그대로 **누름** 시점에 남는다 -- 사용자가 한 행동의
+    // 기록이라 링크가 열렸는지와는 다른 사실이다.
+    expect(pressBranch).toContain('eventName: "affiliate_link_clicked"');
+
+    // 열린 뒤에만 등록한다: openURL 다음 줄, 그리고 실패 폴백의 재시도 성공 자리.
+    expect(detailSource).toContain("await Linking.openURL(result.redirectUrl);\n        registerPurchaseFollowup(link);");
+    expect(detailSource).toContain(
+      "await Linking.openURL(linkOpenFallback.redirectUrl);\n      // GAP-060 #4"
+    );
+    const retryIndex = detailSource.indexOf("const retryOpenFallbackLink = async () => {");
+    const retryBlock = detailSource.slice(retryIndex, detailSource.indexOf("const shareFallbackLink", retryIndex));
+    expect(retryBlock).toContain("registerPurchaseFollowup(linkOpenFallback.link);");
+    // 실패 분기(catch)는 아무것도 등록하지 않는다.
+    const failureBranch = detailSource.slice(
+      detailSource.indexOf("      } catch {", detailSource.indexOf("onSuccess: async (result, link) => {")),
+      detailSource.indexOf("onError: () => {")
+    );
+    expect(failureBranch).not.toContain("registerPurchaseFollowup(");
 
     // COM-106/COM-101 pins stay intact: exact react-native import line and CTA ordering.
     expect(detailSource).toContain('import { Image, Linking, Pressable, Share, Text, View } from "react-native";');
     expect(detailSource.indexOf("바로 구매하기")).toBeGreaterThan(detailSource.indexOf("{visibleDetail.skipReasonText}"));
+  });
+
+  /**
+   * GAP-060 #4 — 커머스 경로가 오프라인 정직 문구 관례에 합류한다.
+   *
+   * 예산·아이 프로필 저장(라운드 52 C-07), CSV 내보내기(GAP-056 #3), 가족 관리가 이미 지나온
+   * 갈래다: 연결이 아예 없을 때 "잠시 후 다시 시도해 주세요"는 기다릴 대상이 없다는 사실과
+   * 어긋난다. 온라인 문구는 그대로 두고, 오프라인으로 확인됐을 때만 messages.ts의 단일 소스
+   * 문장으로 갈린다(화면에서 문구를 새로 짓지 않는다).
+   */
+  it("tells the offline truth when a purchase link cannot be opened", () => {
+    const detailSource = source("app/items/[itemTemplateId].tsx");
+    expect(detailSource).toContain('import { isCurrentlyOnline } from "../../src/offline/connectivity";');
+    expect(detailSource).toContain('import { OFFLINE_RETRY_NOTICE } from "../../src/offline/messages";');
+    expect(detailSource).toContain("const showLinkFailure = (onlineNotice: string) => {");
+    expect(detailSource).toContain("if (!online) setClickedTitle(OFFLINE_RETRY_NOTICE);");
+    // 라운드 52 QA P3-1과 같은 레이스·언마운트 가드: 늦게 온 폴이 이미 지난 판정으로 화면을
+    // 덮지 않는다(실패 → 재시도 성공 사이에 도착한 오프라인 판정이 성공 문구를 지우던 자리).
+    expect(detailSource).toContain("const linkNoticeSeqRef = useRef(0);");
+    expect(detailSource).toContain("if (linkNoticeSeqRef.current !== seq) return;");
+    expect(detailSource).toContain("linkNoticeSeqRef.current = -1;");
+    // 카드 문구를 쓰는 자리는 한 곳으로 모였다(쓰는 순간 이전 폴의 결과가 지난 것이 된다).
+    expect(detailSource).toContain("const showLinkNotice = (text: string) => {");
+    // 세 실패 경로(서버 클릭 기록 실패 · 첫 열기 실패 · 재시도 실패)가 모두 같은 자리를 지난다.
+    expect(detailSource).toContain('showLinkFailure("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");');
+    expect(detailSource.match(/showLinkFailure\("링크를 열지 못했어요\. 링크를 공유하거나 다시 시도해 주세요\."\);/g) ?? []).toHaveLength(2);
+    // 옛 리터럴 setState는 남아 있지 않다(다시 인라인되면 오프라인에서 틀린 안내가 돌아온다).
+    expect(detailSource).not.toContain('setClickedTitle("링크를 열지 못했어요');
   });
 
   /**
@@ -112,8 +170,10 @@ describe("COM-108 purchase follow-up source contract", () => {
     // 테스트: purchase-followup-session.test.ts), 화면은 **모듈 지역**에 하나만 둔다(리마운트에는
     // 살아남고 콜드 스타트에는 비워지는 것이 "이번 앱 세션"의 정의다).
     expect(promptSource).toContain("const promptSessionGate = createPurchaseFollowupSessionGate();");
+    // 라운드 60 트랙 B(#6): 같은 모듈에서 세션 키(followupSessionKey)도 가져온다 -- 낭독 중복
+    // 방지가 게이트와 **같은 키**를 봐야 "같은 카드"의 뜻이 갈리지 않는다.
     expect(promptSource).toContain(
-      'import { createPurchaseFollowupSessionGate, evaluateFollowupPrompt } from "./purchase-followup-session";'
+      'import { createPurchaseFollowupSessionGate, evaluateFollowupPrompt, followupSessionKey } from "./purchase-followup-session";'
     );
     const gateSource = source("src/commerce/purchase-followup-session.ts");
     expect(gateSource).toContain("if (prompted.has(key)) return false;");
@@ -146,8 +206,9 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(gateSource).toContain("gate.returnSlot(current);");
     // 카드가 떠 있는 동안 아이를 바꿔도 그리지 않는다(그 프레임의 "샀어요"가 곧 오기록).
     expect(promptSource).toContain("if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return null;");
-    // 아이 전환이 effect 재실행 -> 재판정으로 이어진다.
-    expect(promptSource).toContain("}, [hasSession, selectedChildId]);");
+    // 아이 전환이 effect 재실행 -> 재판정으로 이어진다(라운드 60 트랙 B에서 잠금 해제도 같은
+    // 재판정 신호가 됐다 -- 의존성에 appLockHeld가 함께 있다).
+    expect(promptSource).toContain("}, [hasSession, selectedChildId, appLockHeld]);");
     // 다른 아이의 항목은 숨겨질 뿐, 상태를 바꾸는 호출은 없다(그 아이로 돌아오면 다시 뜬다).
     const guardIndex = promptSource.indexOf("if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return null;");
     expect(guardIndex).toBeGreaterThan(promptSource.indexOf("if (!hasSession || !activeFollowup) return null;"));
@@ -175,10 +236,13 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(promptSource).toContain('[EXPENSE_ENTRY_SOURCE_PARAM]: "purchase-followup"');
     const expenseSource = source("app/expenses/new.tsx");
     expect(expenseSource).toContain('linkedItemTemplateId ? "followup" : "manual"');
-    // And the three actions resolve to the store's snooze/complete/dismiss transitions.
-    expect(promptSource).toContain("closeWith(completeFollowup);");
+    // 아직이요/괜찮아요는 그 자리에서 스토어 상태를 바꾼다(snooze/dismiss).
     expect(promptSource).toContain("closeWith(snoozeFollowup)");
     expect(promptSource).toContain("closeWith(dismissFollowup)");
+    // 라운드 60 트랙 B(#2 곁가지): "샀어요"의 done 확정만 **실제 저장 성공**으로 옮겼다 --
+    // 카드는 닫히되 대기는 pending으로 남아, 기록 시트를 그냥 닫으면 다음에 다시 묻는다.
+    // 계약 전문은 purchase-followup-resolution.test.ts에 있다.
+    expect(promptSource).not.toContain("closeWith(completeFollowup)");
   });
 
   it("persists the follow-up store under its own key with defensive rehydration", () => {

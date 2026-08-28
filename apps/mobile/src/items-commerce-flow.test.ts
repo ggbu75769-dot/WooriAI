@@ -135,8 +135,11 @@ describe("Batch 07 mobile items and commerce contract", () => {
     // Fallback state is set from the catch branch of the click-open flow (covers both a
     // thrown openURL and canOpenURL() resolving false, since the `throw` is unconditional
     // for canOpen === false and openURL failures both land in the same catch).
+    // GAP-060 #4: 실패 문구는 공용 갈래(showLinkFailure -- 오프라인이면 OFFLINE_RETRY_NOTICE)를
+    // 지나고, 폴백 상태에는 눌린 링크가 함께 담긴다(재시도로 열렸을 때 구매 확인 대기를 남기려면
+    // 그때 그 링크를 알아야 한다). 담기는 redirectUrl/disclosureText는 종전 그대로다.
     expect(productDetailSource).toContain("linkOpenFallback");
-    expect(productDetailSource).toMatch(/catch\s*{\s*setClickedTitle\([^)]*\);\s*setLinkOpenFallback\(\{ redirectUrl: result\.redirectUrl, disclosureText: result\.disclosureText \}\);\s*}/);
+    expect(productDetailSource).toMatch(/catch\s*{\s*showLinkFailure\([^)]*\);\s*setLinkOpenFallback\(\{ redirectUrl: result\.redirectUrl, disclosureText: result\.disclosureText, link \}\);\s*}/);
 
     // Retry re-attempts Linking.openURL against the same stored redirect URL.
     expect(productDetailSource).toContain("const retryOpenFallbackLink = async () => {");

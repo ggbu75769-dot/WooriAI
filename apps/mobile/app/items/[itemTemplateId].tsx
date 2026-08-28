@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image, Linking, Pressable, Share, Text, View } from "react-native";
@@ -41,6 +41,8 @@ import {
   updateItemStatusOffline,
   useOfflineSyncSnapshot
 } from "../../src/offline/sync-controller";
+import { isCurrentlyOnline } from "../../src/offline/connectivity";
+import { OFFLINE_RETRY_NOTICE } from "../../src/offline/messages";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -289,7 +291,15 @@ export default function ItemDetailScreen() {
   // COM-106 fallback: when Linking.openURL fails (or canOpenURL is false), keep the
   // redirect URL around so we can offer "링크 공유하기" (Share.share) and "다시 시도"
   // instead of leaving the user stuck with just an error message.
-  const [linkOpenFallback, setLinkOpenFallback] = useState<{ redirectUrl: string; disclosureText?: string } | null>(null);
+  //
+  // GAP-060 #4: 눌린 **링크 자체**도 함께 들고 있는다. 구매 확인 대기는 이제 링크가 실제로
+  // 열린 뒤에만 등록되므로(아래 registerPurchaseFollowup), 재시도로 열린 경우에도 같은 사실을
+  // 남기려면 그때 그 링크가 무엇이었는지를 알아야 한다.
+  const [linkOpenFallback, setLinkOpenFallback] = useState<{
+    redirectUrl: string;
+    disclosureText?: string;
+    link: ProductLink;
+  } | null>(null);
   // ITEM-124: 상태 변경(찜하기/선물 받음/준비 완료) 실패 문구. 이 경로는 오프라인 아웃박스를
   // 타지 않아 실패가 곧 유실이라, 화면이 조용히 있으면 안 된다(src/items/status-mutation-messages.ts).
   const [statusErrorMessage, setStatusErrorMessage] = useState<string | null>(null);
@@ -383,22 +393,100 @@ export default function ItemDetailScreen() {
   const markPrepared = () =>
     applyStatusChange("prepared", { returnToItemsTab: true, onSaved: () => trackItemStatusChanged("prepared") });
 
+  /**
+   * GAP-060 #4 — **링크가 실제로 열린 뒤에만** 구매 확인 대기를 남긴다(COM-108).
+   *
+   * 종전에는 이 등록이 handleProductLinkPress 안, 서버 클릭 기록보다도 **앞**에 있었다. 그래서
+   * 링크가 열리지 않은 경우(브라우저가 없다·URL 스킴을 못 연다·서버 클릭 기록이 4xx/5xx로
+   * 실패)에도 대기가 그대로 쌓였고, 앱은 3분 뒤부터 **사용자가 본 적도 없는 상품**을 두고
+   * "『…』 구매하셨나요?"라고 물었다(purchase_pending 알림까지). 사용자가 한 일은 "링크를
+   * 눌렀는데 아무 일도 안 일어났다" 하나뿐인데 앱은 구매를 물은 것이다.
+   *
+   * 취소(롤백)가 아니라 **성공 후 등록**을 고른 이유: 롤백은 "실패했다는 사실을 놓치면 대기가
+   * 남는다"는 경로를 하나 더 만들지만(예외·언마운트·중간에 끼어든 새 클릭), 성공 후 등록은
+   * 열렸다는 사실이 확인된 자리 하나에서만 쓴다 -- 더 단순하고, 틀려도 "묻지 않는" 쪽으로
+   * 틀린다.
+   *
+   * clickedAt도 **열린 시각**이다(3분~24시간 창의 기준). 그래야 창의 뜻("살 시간을 준다")과
+   * 실제가 맞는다.
+   *
+   * ANA-103 affiliate_link_clicked는 종전 그대로 **누름** 시점에 남는다(아래
+   * handleProductLinkPress) -- 그것은 사용자가 한 행동의 기록이고, 여기 대기 항목은 앞으로
+   * 물어볼 물음이라 서로 다른 사실이다.
+   */
+  const registerPurchaseFollowup = (link: ProductLink) => {
+    // COM-108: remember this click as a "pending purchase check" so the app can ask
+    // 『…』 구매하셨나요? on the next foreground return / cold start (3min–24h window) --
+    // see src/commerce/purchase-followup.store.ts + PurchaseFollowupPrompt.tsx.
+    usePurchaseFollowupStore.getState().recordLinkClick({
+      itemTemplateId,
+      itemName: visibleDetail.name,
+      childId: childId!,
+      priceBandText: visibleDetail.priceBandText ?? undefined,
+      // ANA-127: carried so the prompt's purchase_followup_answered can report the same
+      // `platform` dimension this click's affiliate_link_clicked just reported.
+      platform: link.platform,
+      // 라운드 49 C-06(a)가 준비해 둔 선택 인자 배선 -- "샀어요"가 만든 지출이 어떤 상품
+      // 링크에서 왔는지 남긴다(빠진 동안에는 늘 undefined였다).
+      productLinkId: link.id,
+      clickedAt: Date.now()
+    });
+  };
+
+  /**
+   * 이 카드에 마지막으로 쓴 문구의 순번. 아래 폴이 늦게 돌아와 **이미 지난 판정**으로 화면을
+   * 덮어쓰지 않게 하는 걸쇠다(라운드 52 QA P3-1이 저장 실패 문구에서 없앤 그 레이스 --
+   * 실패 → 재시도 성공 사이에 도착한 오프라인 판정이 성공 문구를 지웠다). 언마운트되면
+   * -1이 되어 사라진 화면에 setState가 걸리지 않는다.
+   */
+  const linkNoticeSeqRef = useRef(0);
+  useEffect(() => {
+    return () => {
+      linkNoticeSeqRef.current = -1;
+    };
+  }, []);
+  /** 링크 카드 문구를 쓰는 **한 자리**. 쓰는 순간 이전 폴의 결과는 지난 것이 된다. */
+  const showLinkNotice = (text: string) => {
+    linkNoticeSeqRef.current += 1;
+    setClickedTitle(text);
+  };
+  /**
+   * GAP-060 #4 — 링크 실패 문구의 **오프라인 정직** 갈래. 예산·아이 프로필 저장(라운드 52
+   * C-07), CSV 내보내기(GAP-056 #3), 가족 관리가 이미 지나온 그 관례에 커머스 경로만 빠져
+   * 있었다: 연결이 아예 없을 때 "잠시 후 다시 시도해 주세요"는 사실과 어긋난다(기다릴 대상이
+   * 없고, 다시 눌러도 같은 실패다).
+   *
+   * 온라인 문구는 한 글자도 바꾸지 않고, 오프라인으로 **확인됐을 때만** messages.ts의 단일
+   * 소스 문장으로 갈린다(여기서 문구를 새로 짓지 않는다). 판정은 실패 시점의 폴 한 번이고,
+   * 판정할 수 없는 플랫폼에서는 true라 기존 문구로 안전하게 떨어진다.
+   */
+  const showLinkFailure = (onlineNotice: string) => {
+    showLinkNotice(onlineNotice);
+    const seq = linkNoticeSeqRef.current;
+    void isCurrentlyOnline().then((online) => {
+      // 그 사이에 더 최신 문구가 섰거나(재시도 성공) 화면이 사라졌으면 버린다.
+      if (linkNoticeSeqRef.current !== seq) return;
+      if (!online) setClickedTitle(OFFLINE_RETRY_NOTICE);
+    });
+  };
+
   const clickLink = useMutation({
-    mutationFn: (productLinkId: string) => clickProductLink(authToken!, productLinkId, childId!, "ITEM-003"),
-    onSuccess: async (result) => {
-      setClickedTitle(result.disclosureText ?? "구매 링크");
+    mutationFn: (link: ProductLink) => clickProductLink(authToken!, link.id, childId!, "ITEM-003"),
+    onSuccess: async (result, link) => {
+      showLinkNotice(result.disclosureText ?? "구매 링크");
       setLinkOpenFallback(null);
       try {
         const canOpen = await Linking.canOpenURL(result.redirectUrl);
         if (!canOpen) throw new Error("cannot-open-url");
         await Linking.openURL(result.redirectUrl);
+        registerPurchaseFollowup(link);
       } catch {
-        setClickedTitle("링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.");
-        setLinkOpenFallback({ redirectUrl: result.redirectUrl, disclosureText: result.disclosureText });
+        showLinkFailure("링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.");
+        setLinkOpenFallback({ redirectUrl: result.redirectUrl, disclosureText: result.disclosureText, link });
       }
     },
     onError: () => {
-      setClickedTitle("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");
+      showLinkFailure("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");
       setLinkOpenFallback(null);
     }
   });
@@ -409,10 +497,13 @@ export default function ItemDetailScreen() {
       const canOpen = await Linking.canOpenURL(linkOpenFallback.redirectUrl);
       if (!canOpen) throw new Error("cannot-open-url");
       await Linking.openURL(linkOpenFallback.redirectUrl);
-      setClickedTitle(linkOpenFallback.disclosureText ?? "구매 링크");
+      // GAP-060 #4: 재시도로 열린 것도 **열린 것**이다 -- 첫 시도와 같은 자리에서 같은 사실을
+      // 남긴다(그러지 않으면 재시도로 산 사람에게는 구매 확인이 영영 오지 않는다).
+      registerPurchaseFollowup(linkOpenFallback.link);
+      showLinkNotice(linkOpenFallback.disclosureText ?? "구매 링크");
       setLinkOpenFallback(null);
     } catch {
-      setClickedTitle("링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.");
+      showLinkFailure("링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.");
     }
   };
 
@@ -584,26 +675,12 @@ export default function ItemDetailScreen() {
         payload: buildAffiliateLinkClickedPayload({ platform: link.platform, screenId: "item_detail" }),
         platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
       });
-      // COM-108: remember this click as a "pending purchase check" so the app can ask
-      // 『…』 구매하셨나요? on the next foreground return / cold start (3min–24h window) --
-      // see src/commerce/purchase-followup.store.ts + PurchaseFollowupPrompt.tsx.
-      usePurchaseFollowupStore.getState().recordLinkClick({
-        itemTemplateId,
-        itemName: visibleDetail.name,
-        childId: childId!,
-        priceBandText: visibleDetail.priceBandText ?? undefined,
-        // ANA-127: carried so the prompt's purchase_followup_answered can report the same
-        // `platform` dimension this click's affiliate_link_clicked just reported.
-        platform: link.platform,
-        // 라운드 49 C-06(a)가 준비해 둔 선택 인자 배선 -- "샀어요"가 만든 지출이 어떤 상품
-        // 링크에서 왔는지 남긴다(빠진 동안에는 늘 undefined였다).
-        productLinkId: link.id,
-        clickedAt: Date.now()
-      });
-      clickLink.mutate(link.id);
+      // GAP-060 #4: 구매 확인 대기는 여기서 남기지 않는다 -- 링크가 실제로 열린 뒤에만
+      // (clickLink.onSuccess / retryOpenFallbackLink의 registerPurchaseFollowup) 남긴다.
+      clickLink.mutate(link);
       return;
     }
-    setClickedTitle(link.disclosureText ?? "구매 링크를 확인했어요.");
+    showLinkNotice(link.disclosureText ?? "구매 링크를 확인했어요.");
   };
 
   return (
