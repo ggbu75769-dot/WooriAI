@@ -22,13 +22,15 @@ describe("gifted 상태 진입점 (아이템 상세)", () => {
   it("아이템 상세에 gifted 상태 버튼이 있다 (기존 상태 버튼과 같은 SecondaryButton 관례)", () => {
     const detail = detailSource();
     expect(detail).toContain('label={isGifted ? "선물 받음 취소" : "선물로 받았어요"}');
-    expect(detail).toContain('const isGifted = visibleDetail.status === "gifted";');
-    // 라벨만 있는 버튼이 아니라 실제로 gifted를 서버에 기록한다.
-    expect(detail).toContain('updateItemStatus(authToken!, childId!, itemTemplateId, status)');
-    expect(detail).toContain('mutationFn: (status: "gifted" | "not_prepared") =>');
+    // 라운드 51 C-10: 판정 근거가 서버 응답에서 **대기 중인 값까지 반영한 상태**로 바뀌었다
+    // (낙관 반영 — src/items/pending-status.ts). 대기 행이 없으면 종전과 같은 값이다.
+    expect(detail).toContain('const isGifted = displayStatus === "gifted";');
+    // 라벨만 있는 버튼이 아니라 실제로 gifted를 기록한다 -- 이제 오프라인 큐를 지난다.
+    expect(detail).toContain('const markGifted = (status: "gifted" | "not_prepared") =>');
+    expect(detail).toContain("applyStatusChange(status, { onSaved: () => trackItemStatusChanged(status) })");
     // 되돌리기는 준비 전(not_prepared)으로 -- 찜해제와 같은 관례다.
-    expect(detail).toContain('markGifted.mutate("not_prepared")');
-    expect(detail).toContain('markGifted.mutate("gifted")');
+    expect(detail).toContain('markGifted("not_prepared")');
+    expect(detail).toContain('markGifted("gifted")');
   });
 
   it("확인 흐름(Alert)을 거친 뒤에만 상태가 바뀐다 -- 지출 삭제 등과 같은 관례", () => {
@@ -39,18 +41,23 @@ describe("gifted 상태 진입점 (아이템 상세)", () => {
     // 버튼은 확인 함수만 부르고, mutate는 Alert 콜백 안에서만 호출된다.
     expect(detail).toContain("onPress={confirmGiftedChange}");
     const confirmBlock = detail.slice(detail.indexOf("function confirmGiftedChange()"), detail.indexOf("const canCallLinkApi"));
-    expect(confirmBlock).toContain('markGifted.mutate("gifted")');
-    expect(detail.match(/markGifted\.mutate\(/g)).toHaveLength(2);
+    expect(confirmBlock).toContain('markGifted("gifted")');
+    expect(confirmBlock.match(/markGifted\("/g)).toHaveLength(2);
   });
 
-  it("상태 변경 후 목록·상세·홈 캐시를 모두 무효화한다 (찜하기 토글과 같은 관례)", () => {
+  /**
+   * 라운드 51 C-10: "성공 뒤 세 캐시를 무효화한다"가 뒤집힌 자리다. 저장이 로컬 우선이 되면서
+   * 서버는 아직 옛 값을 들고 있고, 여기서 다시 물으면 방금 누른 값이 되돌아온다. 대신 낙관
+   * 반영을 캐시에 적고(컨트롤러), 재조회는 전송이 확정된 뒤 한 번만 한다.
+   */
+  it("저장 직후에는 재조회하지 않고 낙관 반영만 한다 (재조회는 전송 확정 뒤 한 번)", () => {
     const detail = detailSource();
-    const mutationBlock = detail.slice(detail.indexOf("const markGifted = useMutation({"), detail.indexOf("const clickLink = useMutation({"));
-    expect(mutationBlock).toContain('queryKey: ["item-detail"]');
-    expect(mutationBlock).toContain('queryKey: ["items"]');
-    expect(mutationBlock).toContain('queryKey: ["home"]');
-    // ANA-103: 서버가 확인한 뒤에만 이벤트가 나간다(다른 상태 변경 경로와 동일).
-    expect(mutationBlock).toContain("trackItemStatusChanged(status);");
+    const changeBlock = detail.slice(detail.indexOf("const applyStatusChange = ("), detail.indexOf("const toggleInterested ="));
+    expect(changeBlock).toContain("updateItemStatusOffline(");
+    expect(changeBlock).not.toContain("invalidateQueries");
+    // ANA-103 이벤트는 그대로 나간다 -- 기준만 "서버 확정"에서 "기기 저장"으로 옮겼다.
+    expect(changeBlock).toContain("options?.onSaved?.();");
+    expect(detail).toContain("trackItemStatusChanged(status)");
   });
 
   it("DNC-010: 제휴 고지와 구매 CTA 사이에 끼어들지 않고 CTA 아래에 놓인다", () => {
@@ -75,7 +82,6 @@ describe("gifted 상태 진입점 (아이템 상세)", () => {
     // 기준 이미지에 없던 버튼이 한 줄 더 들어갔다. 같은 화면군의 세션 전용 컨트롤 관례
     // (app/(tabs)/items.tsx의 `{hasSession ? ... : null}`)대로 렌더 자체를 막는다.
     expect(detail).not.toContain("disabled={!hasSession || markGifted.isPending}");
-    expect(detail).toContain("disabled={markGifted.isPending}");
 
     const giftedIndex = detail.indexOf('label={isGifted ? "선물 받음 취소" : "선물로 받았어요"}');
     expect(giftedIndex).toBeGreaterThan(-1);
@@ -108,24 +114,21 @@ describe("gifted를 잃게 만드는 조작은 확인을 거친다 (리뷰 F2)",
     // isInterested는 항상 false다 -- 도달 불가 분기 대신 "interest"를 그대로 넘긴다.
     expect(detail).toContain('confirmGiftedReset("interest", () =>');
     expect(detail).not.toContain('isInterested ? "uninterest" : "interest"');
-    expect(detail).toContain('confirmGiftedReset("prepare", () => markPrepared.mutate());');
+    expect(detail).toContain('confirmGiftedReset("prepare", () => markPrepared());');
     // 확인을 건너뛰던 예전 배선은 남아 있으면 안 된다.
-    expect(detail).not.toContain('onPress={() => toggleInterested.mutate(isInterested ? "not_prepared" : "interested")}');
-    expect(detail).not.toContain("if (authToken && childId) markPrepared.mutate();");
+    expect(detail).not.toContain('onPress={() => toggleInterested(isInterested ? "not_prepared" : "interested")}');
+    expect(detail).not.toContain("if (authToken && childId) markPrepared();");
   });
 
   it("목록: 준비했어요/괜찮아요가 gifted 행에서만 확인을 거친다", () => {
     const items = itemsSource();
     expect(items).toContain('if (item.status !== "gifted") {');
     expect(items).toContain("Alert.alert(GIFTED_RESET_CONFIRM_TITLE, giftedResetConfirmMessage(kind), [");
-    expect(items).toContain('onPress={() => requestStatusChange(item, "prepared")}');
-    expect(items).toContain('onPress={() => requestStatusChange(item, "not_needed")}');
-    expect(items).not.toContain(
-      'onPress={() => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status: "prepared" })}'
-    );
-    expect(items).not.toContain(
-      'onPress={() => updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, status: "not_needed" })}'
-    );
+    // 라운드 51 C-10: 확인 판정이 보는 상태도 낙관 반영을 거친 값이다(rowItem) -- 방금 "선물로
+    // 받았어요"를 누르고 아직 전송되지 않은 행에서 준비했어요를 누르면 그때도 확인이 떠야 한다.
+    expect(items).toContain('onPress={() => requestStatusChange(rowItem, "prepared")}');
+    expect(items).toContain('onPress={() => requestStatusChange(rowItem, "not_needed")}');
+    expect(items).not.toContain("updateStatus.mutate({");
   });
 
   it("확인 Alert은 앱 관례를 따른다 (취소 cancel 버튼 + 단일 소스 문구)", () => {

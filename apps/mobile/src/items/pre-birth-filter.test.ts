@@ -177,24 +177,26 @@ describe("라운드 43 UX-V: 출산 전 칩 배선", () => {
     });
   });
 
-  it("리뷰 M-8: 데모 세션도 홈 요약을 조회해 실제 아이 시기로 판정한다", () => {
+  it("리뷰 M-8 → 라운드 51 #3: 데모 세션도 홈 요약과 **실제 아이 시기**로 판정한다", () => {
     const items = itemsSource();
 
     // 예전에는 `!isTestSession`이 걸려 데모에서는 home.data가 영영 undefined였고, 그 값에
     // 기대는 칩이 구조적으로 절대 뜨지 않았다. 픽셀 락 캡처는 여전히 별도로 막는다.
     expect(items).toContain("const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode;");
     expect(items).not.toContain("&& !isPixelLockMode && !isTestSession");
-    // 기본 칩의 결정성은 그대로다 -- 데모/픽셀 락에서는 고정 밴드를 쓴다.
+
+    // 라운드 51 #3: M-8이 쿼리를 켠 뒤에도 **기본 칩**은 데모에서 "12-24개월"로 굳어 있었다
+    // (resolveDefaultStageLabel의 isTestSession 폴백). 그 밴드에는 임신 시기가 없어서
+    // shouldOfferPreBirthFilter가 데모에서 언제나 false였다 -- 칩이 도달 불가였다는 뜻이다.
+    // 폴백의 근거였던 "데모 아이 = 생후 24개월 고정 픽스처"가 사라졌으므로 폴백도 없앴고,
+    // 이제 데모에서 임신 중인 아이를 만들면 기본 칩이 "0-6개월"이 되어 칩이 실제로 나온다.
     //
-    // 라운드 44 리뷰 N-7: 종전에는 세 줄을 개행·들여쓰기까지 그대로 못박아서(`"isPixelLockMode,
-    // \n    isTestSession,\n    hasManualSelection: false,"`), 포매터가 인자를 한 줄로 접기만 해도
-    // 의미는 그대로인데 테스트가 깨졌다. 못박아야 할 것은 서식이 아니라 **세 인자가 함께
-    // 넘어간다**는 사실이므로, 그 호출부 안에서 셋을 각각 확인한다.
+    // 라운드 44 리뷰 N-7: 서식(개행·들여쓰기)이 아니라 **어떤 인자가 넘어가는가**를 못박는다.
     const defaultBandCallIndex = items.indexOf("hasManualSelection: false,");
     expect(defaultBandCallIndex).toBeGreaterThan(-1);
     const callArgs = items.slice(items.lastIndexOf("(", defaultBandCallIndex), defaultBandCallIndex);
     expect(callArgs).toContain("isPixelLockMode");
-    expect(callArgs).toContain("isTestSession");
+    expect(callArgs).not.toContain("isTestSession");
   });
 
   it("서버로 보내는 stageBand 계약은 건드리지 않는다", () => {

@@ -168,7 +168,14 @@ describe("TEST-114 §1: 100+ queued mutations — order preservation and partial
     // Clear the backoff window (same convention as sync-engine.test.ts) and resume.
     await store.updateOutboxMutation(failedMutation.mutationId, { nextRetryAt: null });
     const secondPass = await flushOutbox(store, remote);
-    expect(secondPass).toEqual({ synced: TOTAL - (FAIL_AT - 1), failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(secondPass).toEqual({
+      synced: TOTAL - (FAIL_AT - 1),
+      failed: 0,
+      conflicted: 0,
+      itemStatusSynced: 0,
+      itemStatusFailed: 0,
+      stoppedForNetwork: false
+    });
 
     // The resumed pass starts at exactly the failed mutation, with ITS OWN key reused, then
     // continues in the original creation order.
@@ -289,7 +296,7 @@ describe("TEST-114 §3: delete then recreate under the same item name", () => {
 
     const { remote, calls } = createRecordingRemote();
     const summary = await flushOutbox(store, remote);
-    expect(summary).toEqual({ synced: 2, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 2, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
 
     // Queue order on the wire: the old row's delete goes out BEFORE the same-named create, so
     // the server never sees two live rows racing on the same name in the other order.
@@ -326,7 +333,7 @@ describe("TEST-114 §3: delete then recreate under the same item name", () => {
     const summary = await flushOutbox(store, remote);
 
     // Only the create went over the wire -- the failed delete is skipped until 재시도/삭제.
-    expect(summary).toEqual({ synced: 1, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 1, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(calls.map((call) => call.op)).toEqual(["create"]);
 
     const recreatedRow = (await store.getLocalExpense(recreated.localId))!;
@@ -490,7 +497,7 @@ describe("TEST-114 §5: backward device-clock jump vs the backoff window", () =>
     // see the OFF-115 test below.)
     vi.setSystemTime(new Date(T0.getTime() - 60 * 1000));
     const rolledBackPass = await flushOutbox(store, remote);
-    expect(rolledBackPass).toEqual({ synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(rolledBackPass).toEqual({ synced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(calls).toHaveLength(1);
     expect((await store.getLocalExpense(mutation.targetLocalId))?.syncState).toBe("pending");
 
@@ -625,13 +632,13 @@ describe("TEST-114 §6: conflict storms and the backoff ceiling", () => {
 
     for (let cycle = 1; cycle <= 3; cycle += 1) {
       const summary = await flushOutbox(store, remote);
-      expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 1, stoppedForNetwork: false });
+      expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 1, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
       // Exactly one request per cycle -- the storm is user-paced, never a hot loop.
       expect(calls.filter((call) => call.op === "update")).toHaveLength(cycle);
 
       // A follow-up automatic flush (reconnect/foreground) sends NOTHING for a conflict row.
       const idleSummary = await flushOutbox(store, remote);
-      expect(idleSummary).toEqual({ synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false });
+      expect(idleSummary).toEqual({ synced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
       expect(calls.filter((call) => call.op === "update")).toHaveLength(cycle);
 
       const mutations = await store.listOutboxMutationsForLocalId(synced.localId);

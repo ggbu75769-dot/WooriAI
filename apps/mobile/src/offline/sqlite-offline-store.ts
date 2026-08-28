@@ -1,5 +1,13 @@
 import * as SQLite from "expo-sqlite";
-import type { LocalExpenseRow, MutationOutboxRow, OfflineStore, SyncState } from "./types";
+import type {
+  ItemStatusOutboxRow,
+  ItemStatusSyncState,
+  ItemStatusValue,
+  LocalExpenseRow,
+  MutationOutboxRow,
+  OfflineStore,
+  SyncState
+} from "./types";
 
 /**
  * expo-sqlite-backed `OfflineStore` (design doc §3.1's `local_expenses` / `mutation_outbox`
@@ -49,6 +57,31 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
           meta_key TEXT PRIMARY KEY NOT NULL,
           meta_value TEXT NOT NULL
         );
+        /*
+         * 라운드 51 C-10 — 준비템 상태 큐. CREATE TABLE IF NOT EXISTS라 기존 기기에서는 빈
+         * 테이블 하나가 더 생길 뿐, 기존 두 테이블의 데이터는 그대로 보존된다(마이그레이션
+         * 스크립트가 따로 필요 없는 순수 추가 변경). 왜 mutation_outbox에 합치지 않았는지는
+         * src/offline/types.ts의 ItemStatusOutboxRow 주석 참고.
+         *
+         * sync_state CHECK 집합이 지출과 다른 것(conflict·synced 없음)도 의도다: 상태 변경에는
+         * 버전 충돌 개념이 없고, 성공한 행은 남기지 않고 지운다.
+         */
+        CREATE TABLE IF NOT EXISTS item_status_outbox (
+          mutation_id TEXT PRIMARY KEY NOT NULL,
+          child_id TEXT NOT NULL,
+          item_template_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          item_name TEXT NOT NULL,
+          sync_state TEXT NOT NULL CHECK (sync_state IN ('pending','syncing','failed')),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          next_retry_at TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          in_flight INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_item_status_outbox_item ON item_status_outbox(child_id, item_template_id);
+        CREATE INDEX IF NOT EXISTS idx_item_status_outbox_created ON item_status_outbox(created_at);
       `);
       return db;
     });
@@ -83,6 +116,38 @@ type MutationOutboxSqlRow = {
   created_at: string;
   in_flight: number;
 };
+
+type ItemStatusOutboxSqlRow = {
+  mutation_id: string;
+  child_id: string;
+  item_template_id: string;
+  status: ItemStatusValue;
+  item_name: string;
+  sync_state: ItemStatusSyncState;
+  attempt_count: number;
+  next_retry_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  in_flight: number;
+};
+
+function fromSqlItemStatus(row: ItemStatusOutboxSqlRow): ItemStatusOutboxRow {
+  return {
+    mutationId: row.mutation_id,
+    childId: row.child_id,
+    itemTemplateId: row.item_template_id,
+    status: row.status,
+    itemName: row.item_name,
+    syncState: row.sync_state,
+    attemptCount: row.attempt_count,
+    nextRetryAt: row.next_retry_at,
+    lastError: row.last_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    inFlight: Boolean(row.in_flight)
+  };
+}
 
 function fromSqlLocalExpense(row: LocalExpenseSqlRow): LocalExpenseRow {
   return {
@@ -211,14 +276,16 @@ export function createSqliteOfflineStore(): OfflineStore {
     },
 
     async clearAll() {
-      // PRIV-104 session teardown: all three tables in one transaction so a crash mid-wipe can
+      // PRIV-104 session teardown: all four tables in one transaction so a crash mid-wipe can
       // never leave a half-cleared state (e.g. expenses gone but their outbox mutations still
-      // queued for the next account's flush pass).
+      // queued for the next account's flush pass). 라운드 51 C-10에서 item_status_outbox가
+      // 같은 트랜잭션에 합류한다 -- 준비 상태 변경도 계정 단위 상태다.
       const db = await getDb();
       await db.execAsync(`
         BEGIN;
         DELETE FROM local_expenses;
         DELETE FROM mutation_outbox;
+        DELETE FROM item_status_outbox;
         DELETE FROM sync_meta;
         COMMIT;
       `);
@@ -294,6 +361,77 @@ export function createSqliteOfflineStore(): OfflineStore {
         localId
       );
       return rows.map(fromSqlMutation);
+    },
+
+    async insertItemStatusMutation(row) {
+      const db = await getDb();
+      await db.runAsync(
+        `INSERT INTO item_status_outbox
+          (mutation_id, child_id, item_template_id, status, item_name, sync_state, attempt_count, next_retry_at, last_error, created_at, updated_at, in_flight)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.mutationId,
+        row.childId,
+        row.itemTemplateId,
+        row.status,
+        row.itemName,
+        row.syncState,
+        row.attemptCount,
+        row.nextRetryAt,
+        row.lastError,
+        row.createdAt,
+        row.updatedAt,
+        row.inFlight ? 1 : 0
+      );
+    },
+
+    async updateItemStatusMutation(mutationId, patch) {
+      const db = await getDb();
+      const existing = await db.getFirstAsync<ItemStatusOutboxSqlRow>(
+        `SELECT * FROM item_status_outbox WHERE mutation_id = ?`,
+        mutationId
+      );
+      if (!existing) return;
+      const merged: ItemStatusOutboxRow = { ...fromSqlItemStatus(existing), ...patch };
+      await db.runAsync(
+        `UPDATE item_status_outbox SET
+          child_id = ?, item_template_id = ?, status = ?, item_name = ?, sync_state = ?,
+          attempt_count = ?, next_retry_at = ?, last_error = ?, updated_at = ?, in_flight = ?
+         WHERE mutation_id = ?`,
+        merged.childId,
+        merged.itemTemplateId,
+        merged.status,
+        merged.itemName,
+        merged.syncState,
+        merged.attemptCount,
+        merged.nextRetryAt,
+        merged.lastError,
+        merged.updatedAt,
+        merged.inFlight ? 1 : 0,
+        mutationId
+      );
+    },
+
+    async deleteItemStatusMutation(mutationId) {
+      const db = await getDb();
+      await db.runAsync(`DELETE FROM item_status_outbox WHERE mutation_id = ?`, mutationId);
+    },
+
+    async listItemStatusMutations() {
+      const db = await getDb();
+      const rows = await db.getAllAsync<ItemStatusOutboxSqlRow>(
+        `SELECT * FROM item_status_outbox ORDER BY created_at ASC`
+      );
+      return rows.map(fromSqlItemStatus);
+    },
+
+    async listItemStatusMutationsForItem(childId, itemTemplateId) {
+      const db = await getDb();
+      const rows = await db.getAllAsync<ItemStatusOutboxSqlRow>(
+        `SELECT * FROM item_status_outbox WHERE child_id = ? AND item_template_id = ? ORDER BY created_at ASC`,
+        childId,
+        itemTemplateId
+      );
+      return rows.map(fromSqlItemStatus);
     }
   };
 }

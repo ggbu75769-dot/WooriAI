@@ -4,13 +4,18 @@ import {
   ExpenseHttpError,
   ExpenseVersionConflictError,
   updateExpenseWithVersion,
+  updateItemStatus,
   type Expense,
   type ExpenseConflictSnapshot
 } from "../api/client";
 import { apiErrorMessage } from "../api/api-error";
+// 라운드 51 C-10: 준비템 상태 PATCH는 requestJson을 타므로 ExpenseHttpError가 아니라
+// ApiHttpError를 던진다(아래 rethrowItemStatusError 주석). 위 줄과 합치지 않는 이유는
+// api-error.test.ts가 그 import 줄을 문자 그대로 고정해 두었기 때문이다.
+import { ApiHttpError } from "../api/api-error";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import type { ConflictSnapshot, ExpensePayload } from "./types";
-import type { RemoteExpenseApi } from "./sync-engine";
+import type { RemoteSyncApi } from "./sync-engine";
 
 /**
  * 라운드 48 QA(P2-6): `paymentMethod`를 함께 보낸다.
@@ -131,7 +136,26 @@ function toRemoteCreateResult(expense: Expense) {
  * client.ts's `isLocalToken` branching). Kept as a thin adapter so sync-engine.ts and its tests
  * never need to know about client.ts, tokens, or HTTP at all.
  */
-export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
+/**
+ * 라운드 51 C-10 — 준비템 상태 PATCH의 오류 번역.
+ *
+ * 지출 경로(`rethrowAsSyncEngineError`)와 분리한 이유: 이 요청은 `requestJson`을 타므로 던지는
+ * 타입이 `ExpenseHttpError`가 아니라 `ApiHttpError`이고(src/api/client.ts), 409 버전 충돌은
+ * 애초에 존재하지 않는다(상태는 단일 값이라 서버에 버전 게이트가 없다).
+ *
+ * 분류 계약은 지출과 **같다**: 4xx만 permanent(재시도 무익 → 'failed' 행), 5xx·네트워크·타임아웃은
+ * transient(백오프 자동 재시도). 403은 `apiErrorMessage`가 API_ERROR_MESSAGES.FORBIDDEN 문구를
+ * 그대로 실어 주므로, 동기화 상태 화면의 권한 거절 판정(src/offline/permission-denied.ts)이
+ * 지출 행과 똑같이 동작한다.
+ */
+function rethrowItemStatusError(error: unknown): never {
+  if (error instanceof ApiHttpError && error.status < 500) {
+    throw new RemotePermanentError(error.status, apiErrorMessage(error, PERMANENT_FAILURE_MESSAGE), error.body);
+  }
+  throw error;
+}
+
+export function createClientRemoteExpenseApi(token: string): RemoteSyncApi {
   return {
     async createExpense(payload, idempotencyKey) {
       try {
@@ -180,6 +204,19 @@ export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
         await deleteExpenseWithVersion(token, canonicalId, expectedVersion, idempotencyKey);
       } catch (error) {
         rethrowAsSyncEngineError(error);
+      }
+    },
+
+    /**
+     * 라운드 51 C-10: 준비템 상태 변경. `itemName`은 큐가 화면 표시용으로 들고 다니는 값이라
+     * **요청에 싣지 않는다**(src/offline/types.ts의 ItemStatusPayload 주석). 서버로 나가는 것은
+     * status 하나뿐이고, 계약(PATCH /children/:childId/items/:itemTemplateId/status)은 그대로다.
+     */
+    async setItemStatus(payload) {
+      try {
+        await updateItemStatus(token, payload.childId, payload.itemTemplateId, payload.status);
+      } catch (error) {
+        rethrowItemStatusError(error);
       }
     }
   };

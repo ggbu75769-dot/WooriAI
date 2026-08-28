@@ -1,17 +1,41 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Alert, Image, Platform, RefreshControl, Text, TextInput, View, type ImageSourcePropType } from "react-native";
+import { Alert, Image, Platform, Pressable, RefreshControl, Text, TextInput, View, type ImageSourcePropType } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildItemStatusChangedPayload } from "../../src/analytics/events";
-import { getHome, listItems, LOCAL_SESSION_TOKEN, updateItemStatus, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import { getHome, listChildren, listItems, LOCAL_SESSION_TOKEN, type ItemStatus, type ItemSummary } from "../../src/api/client";
+import {
+  childSwitchTriggerAccessibilityLabel,
+  CHILD_SWITCH_TRIGGER_HINT,
+  resolveChildScopeLabel,
+  withChildScopeLabel,
+  withSpokenChildScopeLabel
+} from "../../src/children/child-switch";
+import { ChildSwitchSheet, useChildSwitchSheet } from "../../src/children/ChildSwitchSheet";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+import { useItemStatusGate } from "../../src/items/useItemStatusGate";
+import {
+  buildPendingItemStatusIndex,
+  effectiveItemStatus,
+  pendingItemStatusView
+} from "../../src/items/pending-status";
+import { refreshOfflineSyncSnapshot, updateItemStatusOffline, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, CategoryChip, EmptyStateCard, ProductCard, SecondaryButton, TextButton, Toast } from "../../src/ui";
+import {
+  AppScreen,
+  CategoryChip,
+  EmptyStateCard,
+  ProductCard,
+  SecondaryButton,
+  StatusBadge,
+  TextButton,
+  Toast
+} from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
@@ -62,7 +86,7 @@ import {
   GIFTED_RESET_CONFIRM_CANCEL_LABEL,
   GIFTED_RESET_CONFIRM_TITLE,
   giftedResetConfirmMessage,
-  itemStatusMutationErrorMessage
+  ITEM_STATUS_LOCAL_SAVE_FAILED_MESSAGE
 } from "../../src/items/status-mutation-messages";
 
 const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
@@ -189,15 +213,10 @@ export default function ItemsScreen() {
   // (src/items/pre-birth-filter.ts).
   const [preBirthOnly, setPreBirthOnly] = useState(false);
   const [searchText, setSearchText] = useState("");
-  // ITEM-124: 상태 변경 실패 문구. 이 목록 버튼은 지출 기록과 달리 오프라인 아웃박스를 타지
-  // 않아 실패가 곧 유실이다 -- 조용히 넘어가면 사용자는 바뀐 줄 알고 떠난다
-  // (src/items/status-mutation-messages.ts).
+  // ITEM-124 → 라운드 51 C-10: 이제 이 배너가 뜨는 경우는 **기기 저장 자체가 실패**했을 때뿐이다.
+  // 서버 전송 실패는 더 이상 여기서 보이지 않는다 -- 큐에 남아 자동으로 재시도되고, 끝내 거절되면
+  // 그 행에 실패 배지가 붙는다(src/items/pending-status.ts).
   const [statusErrorMessage, setStatusErrorMessage] = useState<string | null>(null);
-  // ITEM-124(L6): 지금 요청이 날아가 있는 행의 itemTemplateId 집합. react-query 뮤테이션 하나를
-  // 목록 전체가 공유하므로 `updateStatus.variables`는 **마지막으로 누른 행**만 가리킨다 -- 그
-  // 값으로 비활성을 판정하면 A행 요청 중에 B행을 누르는 순간 A 버튼이 다시 활성화되어 같은 행에
-  // 중복 PATCH가 나간다. 행 단위 진행 상태는 화면이 직접 들고 있어야 경합에 견딘다.
-  const [pendingStatusIds, setPendingStatusIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   // 라운드 37 UX-I: 방금 "준비했어요"를 누른 행. 그 행에서만 "지출도 기록할까요?" 한 줄이 뜬다
   // (카드/모달 없이 텍스트 링크 하나). 한 번에 하나만 기억하므로 다른 행을 누르면 이전 줄은
   // 조용히 사라진다 -- 목록에 안내가 쌓이지 않게 하기 위해서다. 노출 판정과 문구는 전부
@@ -223,25 +242,36 @@ export default function ItemsScreen() {
   // 서버가 그 저장을 403으로 막으므로, 여기서 같은 판정으로 안내한다
   // (준비 상태 변경 자체는 이 라운드 범위 밖이라 건드리지 않는다).
   const expenseGate = useExpenseEntryGate();
+  // 라운드 51 #8: 준비 상태 변경 전용 게이트. 판정은 위 지출 게이트와 **같은 한 곳**을 읽고
+  // (서버가 두 동작에 같은 편집 권한을 요구한다) 문구만 준비템의 말로 바꾼다.
+  const itemStatusGate = useItemStatusGate();
   const queryClient = useQueryClient();
+  // 라운드 51 C-10: 아직 서버에 닿지 않은 준비 상태 변경. 낙관 반영은 캐시 패치가 이미 해 두지만,
+  // 그 사이 목록이 다시 조회돼 서버 값으로 덮이더라도 이 색인이 사용자가 마지막으로 누른 값을
+  // 그대로 지킨다. 대기/실패 배지의 근거이기도 하다(src/items/pending-status.ts).
+  const syncSnapshot = useOfflineSyncSnapshot();
+  const pendingStatusIndex = buildPendingItemStatusIndex(syncSnapshot.itemStatusRows, childId);
+  useEffect(() => {
+    // 스냅샷은 앱 루트(useOfflineSyncLifecycle)와 저장 경로가 갱신하지만, 이 탭으로 곧장 들어온
+    // 첫 렌더에서도 큐를 읽어 두어야 대기 배지가 한 박자 늦게 나타나지 않는다.
+    void refreshOfflineSyncSnapshot();
+  }, []);
   // Default the selected chip to the child's actual current stage once it's known, unless the
-  // pixel-lock capture is running, we're in the loginless test session (fixture data must render
-  // deterministically), or the user already tapped a chip. Falls back to "12-24개월" otherwise.
+  // pixel-lock capture is running or the user already tapped a chip. Falls back to "12-24개월"
+  // otherwise.
   //
   // 라운드 43 리뷰 M-8: 데모(로그인 없는 테스트) 세션도 홈 요약을 조회한다. 예전에는
   // `!isTestSession`이 여기에 걸려 있어 데모에서는 `home.data`가 영영 undefined였고, 그 값에
   // 기대는 "출산 전" 칩(offersPreBirthFilter)이 **구조적으로** 절대 뜨지 않았다. 데모 세션의
-  // 홈 조회는 로컬 백엔드(src/api/local-backend.ts의 getHome — 픽스처 child)로 가므로 네트워크
-  // 왕복이 없고, 판정 근거가 "쿼리를 껐다"가 아니라 실제 아이 데이터가 된다.
+  // 홈 조회는 로컬 백엔드(src/api/local-backend.ts의 getHome)로 가므로 네트워크 왕복이 없고,
+  // 판정 근거가 "쿼리를 껐다"가 아니라 실제 아이 데이터가 된다.
   //
-  // 기본 칩의 결정성은 그대로다: `resolveDefaultStageLabel`이 여전히 isTestSession을 받아
-  // 데모에서는 고정값("12-24개월")을 돌려준다. 픽셀 락 캡처는 `isPixelLockMode`가 따로 막는다.
-  //
-  // 남는 한계(의도): 로컬 픽스처 child는 born 모드에 생후 24개월(local-backend.ts의
-  // `seoulDateMinusMonths(today, 24)`)이라 currentStage가 임신 시기가 될 수 없다. 즉 데모에서
-  // "출산 전" 칩을 눈으로 보려면 픽스처 아이를 임신 모드로 바꿔야 하는데, 그건 데모 데이터
-  // 계약(홈·리포트·준비율 전부가 이 아이 기준)을 통째로 흔드는 변경이라 이 라운드에서는 하지
-  // 않는다. 여기서는 "칩이 안 뜨는 이유"를 쿼리 비활성이 아닌 실제 시기로 바꿔 둔다.
+  // 라운드 51 #3: 데모의 기본 칩도 **실제 아이 시기**를 따른다. 예전 주석이 전제하던 "데모
+  // 아이는 생후 24개월 픽스처"는 더 이상 사실이 아니다 — `ensureSeeded`가 사용자 데이터를
+  // 하나도 만들지 않게 되면서(local-backend.ts) 데모 아이도 온보딩에서 직접 입력하는 값이다.
+  // 그래서 데모에서 임신 중인 아이를 만들면 기본 칩이 "0-6개월"이 되고, 그 밴드에서만 나오는
+  // "출산 전" 칩도 이제 실제로 도달한다(근거는 stage-bands.ts의 resolveDefaultStageLabel 주석).
+  // 픽셀 락 캡처의 결정성은 `isPixelLockMode`가 그대로 지킨다.
   const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode;
   const home = useQuery({
     queryKey: ["home", childId],
@@ -253,7 +283,6 @@ export default function ItemsScreen() {
   const defaultStageLabel = resolveDefaultStageLabel({
     currentStage: home.data?.child.currentStage,
     isPixelLockMode,
-    isTestSession,
     hasManualSelection: false,
     fallback: "12-24개월"
   });
@@ -316,85 +345,122 @@ export default function ItemsScreen() {
         : prompt
     );
   }, [childId, stageLabel, necessityFilter, searchText]);
-  const updateStatus = useMutation({
-    // 라운드 49 C-02: `categoryId`는 서버로 보내지 않는다 -- PATCH .../status의 요청 계약은
-    // 그대로다. 성공 뒤 남기는 "지출도 기록할까요?" 줄이 분류까지 프리필하려면 그 행의 분류를
-    // 알아야 하는데, 그 시점에는 행이 목록에서 사라져 있을 수 있어서 여기서 함께 들고 간다.
-    mutationFn: ({ itemTemplateId, status }: { itemTemplateId: string; itemName: string; categoryId?: string; status: ItemStatus }) =>
-      updateItemStatus(authToken!, childId!, itemTemplateId, status),
-    onMutate: (variables) => {
-      setStatusErrorMessage(null);
-      // 새 조작이 시작되면 앞선 행의 "지출도 기록할까요?" 줄은 걷는다(한 행에서만 보인다).
-      setExpenseLinkPrompt(null);
-      // 여러 행이 동시에 날아갈 수 있으므로 집합에 더한다(새 Set으로 갈아 끼워 리렌더를 보장).
-      setPendingStatusIds((ids) => {
-        const next = new Set(ids);
-        next.add(variables.itemTemplateId);
-        return next;
+  /**
+   * 라운드 51 C-10 — 상태 변경이 **오프라인 아웃박스**를 탄다.
+   *
+   * 예전에는 react-query 뮤테이션 하나가 PATCH를 쏘고, 성공하면 목록·홈을 무효화하고, 실패하면
+   * 배너를 띄웠다. 실패가 곧 유실이라(큐가 없었다) 오프라인에서 누른 "준비했어요"는 그냥
+   * 사라졌고, 화면은 "잠시 후 다시 시도해 주세요"라고만 말했다.
+   *
+   * 이제 지출 저장과 같은 경로다: 로컬 큐에 남기고(updateItemStatusOffline) 낙관 반영을 캐시에
+   * 적은 뒤 곧바로 돌아온다. 서버 전송은 sync-engine이 연결이 돌아오는 대로 알아서 한다.
+   * 그래서 여기에는 성공/실패 콜백이 없다 -- 실패는 나중에, 그 행의 배지와 동기화 상태 화면이
+   * 말한다. 남은 유일한 오류 경로는 **기기 저장 실패**다.
+   *
+   * 무효화를 여기서 하지 않는 것도 의도다(sync-controller의 updateItemStatusOffline 주석):
+   * 서버는 아직 옛 값을 들고 있어 지금 다시 물으면 방금 누른 값이 되돌아온다. 목록 재조회는
+   * 전송이 확정된 뒤 한 번만 일어나므로, 상태를 누를 때마다 나가던 3요청(목록·전상태 스냅샷·홈)이
+   * 사라진다.
+   */
+  const applyStatusChange = (variables: {
+    itemTemplateId: string;
+    itemName: string;
+    // 라운드 49 C-02: `categoryId`는 서버로 보내지 않는다 -- 아래 "지출도 기록할까요?" 줄이
+    // 분류까지 프리필하려면 그 행의 분류를 알아야 하는데, 그때는 행이 목록에서 사라져 있을 수
+    // 있어서 여기서 함께 들고 간다.
+    categoryId?: string;
+    status: ItemStatus;
+  }) => {
+    if (!authToken || !childId) return;
+    setStatusErrorMessage(null);
+    // 새 조작이 시작되면 앞선 행의 "지출도 기록할까요?" 줄은 걷는다(한 행에서만 보인다).
+    setExpenseLinkPrompt(null);
+    void updateItemStatusOffline(authToken, queryClient, {
+      childId,
+      itemTemplateId: variables.itemTemplateId,
+      itemName: variables.itemName,
+      status: variables.status
+    })
+      .then(() => {
+        // 라운드 37 UX-I: "괜찮아요"(not_needed)에는 남기지 않는다 -- 사지 않기로 한 판단에
+        // 지출 기록을 권하면 판단을 되묻는 잔소리가 된다(DNC-018). 판정은 순수 모듈이 한다.
+        //
+        // C-10: 기준이 "서버 확인"에서 "기기 저장"으로 바뀌었다. 서버 확인을 기다리면 오프라인
+        // 에서는 이 줄이 영영 뜨지 않는데, 마트에서 사 온 물건을 기록하려는 사람이 바로 그
+        // 상황에 있다 -- 지출 기록도 어차피 오프라인 우선이라 이 줄을 눌러도 저장은 된다.
+        setExpenseLinkPrompt(
+          nextExpenseLinkPrompt({
+            itemTemplateId: variables.itemTemplateId,
+            itemName: variables.itemName,
+            categoryId: variables.categoryId,
+            status: variables.status,
+            // G-3: 지금 보고 있는 목록의 좌표를 함께 박아 둔다.
+            scope: { childId, stageLabel, necessityFilter, searchText }
+          })
+        );
+        // ANA-103: 사용자가 상태를 바꾼 사실을 보고한다. C-10 전에는 서버 확정 뒤에 쐈는데,
+        // 이제 그 시점이 몇 시간 뒤일 수도 있고(오프라인) 이벤트가 재는 것은 서버 왕복이 아니라
+        // **사용자 행동**이라 기기 저장 시점으로 옮긴다. 페이로드는 그대로 거친 분류 enum과
+        // 상태뿐이다(품목명은 기기를 떠나지 않는다 -- src/analytics/events.ts). ANA-102 동의가
+        // 없으면 아무 일도 하지 않는다(src/analytics/flag.ts).
+        trackAndFlushAnalyticsEvent(authToken, {
+          eventName: "item_status_changed",
+          payload: buildItemStatusChangedPayload({ itemName: variables.itemName, status: variables.status }),
+          platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
+        });
+      })
+      .catch(() => {
+        setStatusErrorMessage(ITEM_STATUS_LOCAL_SAVE_FAILED_MESSAGE);
       });
-    },
-    onSettled: (_data, _error, variables) => {
-      // 성공·실패 어느 쪽이든 그 행만 푼다 -- 다른 행의 진행 중 상태를 건드리지 않는다.
-      setPendingStatusIds((ids) => {
-        if (!ids.has(variables.itemTemplateId)) return ids;
-        const next = new Set(ids);
-        next.delete(variables.itemTemplateId);
-        return next;
-      });
-    },
-    onError: (error, variables) => {
-      setStatusErrorMessage(itemStatusMutationErrorMessage(variables.status === "prepared" ? "prepare" : "skip", error));
-    },
-    onSuccess: async (_data, variables) => {
-      // 라운드 37 UX-I: 서버가 확인한 뒤에만 남긴다. "괜찮아요"(not_needed)에는 남기지 않는다 --
-      // 사지 않기로 한 판단에 지출 기록을 권하면 판단을 되묻는 잔소리가 된다(DNC-018).
-      // 캐시 무효화(await)보다 **먼저** 세워 둬야 목록이 갱신되는 동안에도 줄이 유지된다.
-      setExpenseLinkPrompt(
-        nextExpenseLinkPrompt({
-          itemTemplateId: variables.itemTemplateId,
-          itemName: variables.itemName,
-          // C-02: 그 행의 지출 분류(응답에 있으면). 프리필이 품목명만 넘기고 분류는 기본
-          // 타일로 떨어지던 구멍을 메운다. 금액은 넘기지 않는다(가격대는 범위라 특정 값을
-          // 지어내는 셈이 된다).
-          categoryId: variables.categoryId,
-          status: variables.status,
-          // G-3: 지금 보고 있는 목록의 좌표를 함께 박아 둔다.
-          scope: { childId, stageLabel, necessityFilter, searchText }
-        })
-      );
-      // ANA-103: fires only after the server confirmed the status change. The payload carries
-      // only the coarse category enum (derived on-device from the item name, which itself never
-      // leaves the device -- src/analytics/events.ts) and the new status. A no-op without
-      // ANA-102 consent (src/analytics/flag.ts).
-      trackAndFlushAnalyticsEvent(authToken, {
-        eventName: "item_status_changed",
-        payload: buildItemStatusChangedPayload({ itemName: variables.itemName, status: variables.status }),
-        platform: Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : undefined
-      });
-      await queryClient.invalidateQueries({ queryKey: ["items"] });
-      await queryClient.invalidateQueries({ queryKey: ["home"] });
-    }
-  });
+  };
   const hasSession = Boolean(authToken && childId);
-
-  // ITEM-124(L6): 항목 단위 진행 중 판정 -- onMutate/onSettled가 관리하는 in-flight 집합만 본다.
-  // 뮤테이션의 공유 variables를 쓰던 예전 판정은 두 행을 잇달아 누르면 먼저 누른 행이 요청 중인데도
-  // 다시 눌리는 구멍이 있었다.
-  const isStatusUpdatePending = (itemTemplateId: string) => pendingStatusIds.has(itemTemplateId);
+  /**
+   * 라운드 51 #10 — 준비템 탭도 "지금 누구의 준비물인가"를 말하고, 그 이름이 곧 아이 전환
+   * 입구가 된다. 다자녀 가구에서 둘째의 준비템을 보려면 홈으로 나갔다 돌아와야 했는데, 준비템은
+   * 아이마다 목록도 준비율도 통째로 다른 화면이라 그 왕복이 특히 잦았다.
+   *
+   * 상태·부수효과·시트는 홈/기록/리포트와 **같은 한 벌**을 쓴다(src/children/ChildSwitchSheet.tsx).
+   * 새 쿼리처럼 보이지만 키가 ["children"]이라 그 화면들·지출 권한 게이트가 이미 채워 둔 캐시를
+   * 그대로 읽는다(staleTime 30초). 전환은 ["items"]·["item-detail"]·["home"]을 통째로 무효화하므로
+   * (child-switch.ts의 CHILD_SCOPED_QUERY_KEY_PREFIXES) 이 탭의 목록·준비율도 함께 갈린다.
+   *
+   * ITEM-001 픽셀락 이중 게이트: hasSession(비세션 캡처에서 false) **그리고** 아이 2명 이상.
+   * 둘 중 하나라도 아니면 헤더는 종전의 <Text>추천</Text> 그대로다(Pressable로 감싸지도 않는다) --
+   * 리포트 탭(REP-001)이 쓰는 것과 같은 조건이다.
+   */
+  const childrenQuery = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
+  });
+  const childScopeLabel = resolveChildScopeLabel(childId, childrenQuery.data?.children);
+  const childSwitch = useChildSwitchSheet({
+    hasSession,
+    childId,
+    children: childrenQuery.data?.children
+  });
 
   /**
    * 리뷰 F2: gifted/prepared/not_needed는 서로 배타적인 단일 status 컬럼이라, 준비완료 탭에서
    * "선물 받음" 배지를 단 행의 준비했어요/괜찮아요를 누르면 선물 받았다는 기록이 아무 말 없이
    * 사라진다. 지금 상태가 gifted인 행에서만 확인을 한 번 거치고(문구는 상세 화면과 같은
    * 단일 소스), 그 밖에는 예전처럼 바로 실행한다.
+   *
+   * 라운드 51 #8: 그 앞에 보기 전용 역할 게이트가 선다. 서버가 준비 상태 쓰기를 편집 역할에만
+   * 허용하므로(items-catalog.service.ts), 잠긴 세션에서는 큐에 넣어 봐야 403으로 실패 행이 될
+   * 뿐이다 -- 버튼을 지우지 않고 눌렀을 때 사실을 말한다(src/items/status-permission.ts).
    */
   const requestStatusChange = (
     item: { id: string; name: string; categoryId?: string; status: ItemStatus },
     status: "prepared" | "not_needed"
   ) => {
+    if (itemStatusGate.locked) {
+      itemStatusGate.explain();
+      return;
+    }
     const kind = status === "prepared" ? "prepare" : "skip";
     const run = () =>
-      updateStatus.mutate({ itemTemplateId: item.id, itemName: item.name, categoryId: item.categoryId, status });
+      applyStatusChange({ itemTemplateId: item.id, itemName: item.name, categoryId: item.categoryId, status });
     if (item.status !== "gifted") {
       run();
       return;
@@ -626,9 +692,40 @@ export default function ItemsScreen() {
       <View style={recommendationPixelScaleFrameStyle()}>
         <View testID={recommendationScreenId} style={recommendationPixelFrameStyle}>
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
-            <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>추천</Text>
+            {/* 라운드 51 #10: 다자녀 가구에서만 "다온이 — 추천"이 되고, 그 제목이 아이 전환
+                입구가 된다. 아이가 하나이거나 비세션 미리보기(ITEM-001 픽셀락 캡처)에서는
+                라벨이 null·canSwitch가 false라 아래 else 분기, 즉 종전의 <Text>추천</Text>
+                그대로다(리포트 탭과 같은 이중 게이트). */}
+            {childSwitch.canSwitch && childScopeLabel ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={childSwitchTriggerAccessibilityLabel(withSpokenChildScopeLabel("추천", childScopeLabel))}
+                accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
+                hitSlop={8}
+                onPress={childSwitch.toggle}
+                testID="items-child-switch-trigger"
+              >
+                <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>
+                  {withChildScopeLabel("추천", childScopeLabel)}
+                </Text>
+              </Pressable>
+            ) : (
+              <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>
+                {withChildScopeLabel("추천", childScopeLabel)}
+              </Text>
+            )}
             <Ionicons accessible={false} name="heart-outline" size={18} color={theme.colors.brown} />
           </View>
+
+          {childSwitch.canSwitch && childSwitch.isOpen ? (
+            <ChildSwitchSheet
+              testID="items-child-switch-sheet"
+              options={childSwitch.options}
+              currentChildId={childId}
+              onSelect={childSwitch.switchTo}
+              onClose={childSwitch.close}
+            />
+          ) : null}
 
           <View style={{ flexDirection: "row", gap: 6, marginHorizontal: -12 }}>
             {tabOptions.map((option) => (
@@ -876,7 +973,14 @@ export default function ItemsScreen() {
           ) : (
             <View style={{ gap: 10 }}>
               {listedItems.map((item) => {
-                const display = getRecommendationDisplay(item);
+                // 라운드 51 C-10: 아직 전송되지 않은 변경이 있으면 그 값이 서버 응답을 이긴다 --
+                // 사용자가 방금 누른 값이 이 기기의 진실이다(판정은 src/items/pending-status.ts).
+                const pendingStatusRow = pendingStatusIndex.get(item.id);
+                const rowItem = pendingStatusRow
+                  ? { ...item, status: effectiveItemStatus(item.status, pendingStatusRow) as ItemStatus }
+                  : item;
+                const pendingStatus = pendingItemStatusView(pendingStatusRow);
+                const display = getRecommendationDisplay(rowItem);
                 // UX-E: 서버 순서상 앞선 미준비 필수템이면 제자리에서 살짝 구분한다. 순서는
                 // 건드리지 않는다 -- 강조는 배경/라벨로만 한다. 스폰서 구분(DNC-011)과 헷갈리지
                 // 않도록 문구는 "먼저 챙기면 좋아요"로 광고성 표현을 쓰지 않는다.
@@ -904,22 +1008,33 @@ export default function ItemsScreen() {
                       image={display.image}
                       onPress={() => router.push(`/items/${item.id}`)}
                     />
+                    {/* C-10: 낙관 반영과 짝을 이루는 정직한 한 줄 -- 바뀐 값은 이미 위 카드에
+                        보이고, 여기서는 그 값이 아직 이 기기에만 있다는 사실을 말한다. 문구는
+                        기록 탭의 대기/실패 행과 **같은 단어**를 쓴다(src/offline/messages.ts).
+                        큐가 비면 통째로 사라지므로 ITEM-001 캡처(비세션)에는 존재하지 않는다. */}
+                    {pendingStatus ? (
+                      <View style={{ gap: 4 }}>
+                        <StatusBadge label={pendingStatus.badgeLabel} tone="warning" />
+                        <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>
+                          {pendingStatus.noticeText}
+                        </Text>
+                      </View>
+                    ) : null}
                     {canUpdateStatus ? (
                       <View style={{ flexDirection: "row", gap: 8 }}>
-                        {/* ITEM-124: 비활성은 항목 단위다 -- 한 행의 요청이 나가는 동안 다른 행까지
-                            잠기면 목록 전체가 멈춘 것처럼 보인다. */}
+                        {/* C-10: 요청 중 비활성이 사라졌다 -- 저장이 로컬이라 기다릴 왕복이 없고,
+                            같은 준비템을 다시 눌러도 대기 행이 최신 값으로 대체될 뿐이다
+                            (outbox-merge.ts). 예전 잠금은 서버 왕복 중 중복 PATCH를 막는 장치였다. */}
                         <SecondaryButton
-                          disabled={isStatusUpdatePending(item.id)}
                           label="준비했어요"
                           accessibilityLabel={`${item.name} 준비했어요`}
-                          onPress={() => requestStatusChange(item, "prepared")}
+                          onPress={() => requestStatusChange(rowItem, "prepared")}
                           style={{ flex: 1 }}
                         />
                         <SecondaryButton
-                          disabled={isStatusUpdatePending(item.id)}
                           label="괜찮아요"
                           accessibilityLabel={`${item.name} 괜찮아요`}
-                          onPress={() => requestStatusChange(item, "not_needed")}
+                          onPress={() => requestStatusChange(rowItem, "not_needed")}
                           style={{ flex: 1 }}
                         />
                       </View>

@@ -122,7 +122,9 @@ describe("라운드 48 T1: 상세 화면 상태 줄", () => {
   it("목록과 같은 라벨 모듈을 쓰고 세션에서만 그린다", () => {
     const detail = source("app/items/[itemTemplateId].tsx");
     expect(detail).toContain('import { itemStatusBadgeLabel } from "../../src/items/item-labels";');
-    expect(detail).toContain("const statusBadgeLabel = itemStatusBadgeLabel(visibleDetail.status);");
+    // 라운드 51 C-10: 라벨의 근거가 서버 값에서 **낙관 반영을 거친 값**으로 바뀌었다
+    // (displayStatus = 대기 중인 변경이 있으면 그 값, 없으면 종전과 같은 서버 값).
+    expect(detail).toContain("const statusBadgeLabel = itemStatusBadgeLabel(displayStatus);");
     expect(detail).toContain("{hasSession && statusBadgeLabel ? <StatusBadge label={statusBadgeLabel} /> : null}");
     // 문구를 화면에서 다시 적지 않는다.
     expect(detail).not.toContain('label="이미 준비"');

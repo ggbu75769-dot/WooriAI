@@ -1,4 +1,4 @@
-import type { ExpensePayload, MutationOutboxRow } from "./types";
+import type { ExpensePayload, ItemStatusOutboxRow, MutationOutboxRow } from "./types";
 
 /**
  * Applies MOB-102 §3.2 point 6's outbox merge rule for a single local_id's queued (unsynced)
@@ -89,4 +89,51 @@ function mergeIntoMergeableRows(existing: MutationOutboxRow[], incoming: Mutatio
   // shouldn't happen in practice (a local_id is only ever created once), but stay additive and
   // defensive rather than throwing.
   return [...existing, incoming];
+}
+
+/**
+ * 라운드 51 C-10 — 준비템 **상태** 큐의 병합 규칙(src/offline/types.ts의 ItemStatusOutboxRow).
+ *
+ * 지출과 규칙이 정반대인 이유: 상태는 필드 여럿을 접어 합치는 값이 아니라 **단일 값**이다.
+ * 같은 준비템을 "찜하기 → 준비했어요"로 잇달아 누르면 서버에 보낼 것은 마지막 하나뿐이고,
+ * 두 번 보내면 중간 상태가 잠깐 서버에 남았다 사라지는 무의미한 왕복이 된다. 그래서 같은
+ * (childId, itemTemplateId)의 대기 행은 **최신 값으로 대체**한다 — 마지막 쓰기 승리.
+ *
+ * 대체하면서도 지키는 것 두 가지.
+ *  - **큐에서의 자리**(mutationId·createdAt)는 기존 행 것을 그대로 쓴다. 새 행으로 갈아 끼우면
+ *    같은 준비템을 다시 누를 때마다 그 항목이 큐 맨 뒤로 밀려, 앞서 대기하던 다른 항목보다
+ *    늦게 나가는 순서 역전이 생긴다.
+ *  - **재시도 예산은 초기화**한다(attemptCount=0, nextRetryAt=null, lastError=null,
+ *    syncState='pending'). 새로 누른 것은 새 의사 표시라, 앞선 값이 쌓아 둔 백오프나 'failed'
+ *    파킹에 갇히면 안 된다 — 사용자가 손으로 재시도를 누른 것(retryFailedMutation)과 같은 취급이다.
+ *
+ * `inFlight` 행은 병합 대상이 아니다(지출 H-3와 같은 이유): 이미 보낸 값과 저장된 값이 갈라진
+ * 채로, 그 응답이 성공하면 뒤늦게 누른 값까지 함께 지워진다. 전송 중이면 새 행을 덧붙이고,
+ * flush가 다음 pass에서 그 행을 보낸다.
+ *
+ * 반환값은 이 (childId, itemTemplateId)에 대한 **교체용 전체 목록**이다(지출 쪽 mergeOutboxMutation과
+ * 같은 계약).
+ */
+export function mergeItemStatusMutation(
+  existing: ItemStatusOutboxRow[],
+  incoming: ItemStatusOutboxRow
+): ItemStatusOutboxRow[] {
+  const inFlightRows = existing.filter((row) => row.inFlight);
+  const mergeable = existing.filter((row) => !row.inFlight);
+  if (mergeable.length === 0) {
+    return [...inFlightRows, incoming];
+  }
+  // 대기 행이 여럿일 수는 없지만(항상 하나로 접힌다), 방어적으로 가장 오래된 것 하나만 남긴다.
+  const [target] = mergeable;
+  const merged: ItemStatusOutboxRow = {
+    ...target,
+    status: incoming.status,
+    itemName: incoming.itemName,
+    syncState: "pending",
+    attemptCount: 0,
+    nextRetryAt: null,
+    lastError: null,
+    updatedAt: incoming.updatedAt
+  };
+  return [...inFlightRows, merged];
 }

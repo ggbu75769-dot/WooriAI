@@ -1,105 +1,60 @@
 /**
- * ITEM-124: 준비템 상태 변경(status PATCH) 실패 문구 + gifted 덮어쓰기 확인 문구의 단일 소스.
+ * 준비템 상태 변경(status PATCH)의 안내 문구 + gifted 덮어쓰기 확인 문구의 단일 소스.
  *
  * 상태 변경은 준비템 탭 행 버튼("준비했어요"/"괜찮아요")과 아이템 상세의 버튼들
- * ("찜하기/찜해제", "선물로 받았어요/선물 받음 취소", "지출 없이 준비 완료로 표시")에서
- * 나가는데, 이 네 뮤테이션은 지금까지 `onSuccess`만 배선되어 있었다. 그래서 오프라인이거나
- * 서버가 5xx를 주면 화면은 아무 말도 하지 않고 그대로 있었다 — 사용자는 눌린 건지 아닌지
- * 알 수 없어 계속 누르거나(중복 요청) 바뀐 줄 알고 떠난다.
+ * ("찜하기/찜해제", "선물로 받았어요/선물 받음 취소", "지출 없이 준비 완료로 표시")에서 나간다.
  *
- * 특히 이 경로는 지출 기록과 달리 **오프라인 아웃박스를 타지 않는다**(src/offline/sync-engine.ts는
- * 지출만 큐잉한다). 즉 실패는 곧 유실이라, "나중에 자동으로 반영할게요"라고 말하면 거짓말이
- * 된다. 문구는 반드시 "아직 저장되지 않았으니 다시 눌러 달라"는 뜻이어야 한다.
+ * ## 라운드 51 C-10에서 계약이 뒤집혔다
  *
- * 실패 원인은 둘로만 나눈다.
- * 1) 연결 문제(네트워크 거절 / 10초 타임아웃 ApiTimeoutError) — 잠시 뒤 되면 풀리는 문제라
- *    "연결" 자체를 언급한다.
- * 2) 그 밖의 모든 실패(4xx/5xx 응답) — 원인을 사용자가 알 수도, 고칠 수도 없으므로 어떤
- *    조작이 저장되지 않았는지만 알려주고 "다시 시도해 주세요"까지만 안내한다.
+ * ITEM-124 시절 이 파일의 계약은 정반대였다: **"자동 반영을 약속하지 않는다."** 근거는 분명했다 —
+ * 그때 이 경로는 오프라인 아웃박스를 타지 않아서(sync-engine.ts가 지출만 큐잉했다) 실패가 곧
+ * 유실이었고, "연결되면 자동으로 반영할게요"는 지키지 못할 약속이었다. 그래서 문구는 전부
+ * "아직 저장되지 않았으니 다시 눌러 주세요"였다.
  *
- * 문구 톤은 DNC-018을 따른다: 해요체 존댓말, 사용자를 탓하지 않고(“잘못 누르셨어요” 금지)
- * 다음에 무엇을 하면 되는지만 담는다. 문형은 이미 앱에서 쓰는
- * "…하지 못했어요. 잠시 후 다시 시도해 주세요."(src/expenses/save-error-messages.ts)를 그대로 잇는다.
+ * C-10이 그 근거를 없앴다. 준비 상태 변경도 이제 `item_status_outbox`에 쌓여
+ * (src/offline/types.ts) 연결이 돌아오면 자동으로 전송된다 — 오프라인에서 눌러도 유실되지 않고,
+ * 지출 기록과 같은 오프라인 우선 경로다. 그러니 이제는 **"다시 눌러 주세요"가 거짓말**이다:
+ * 사용자가 다시 누를 필요가 없는데 다시 누르라고 하면 같은 값을 두 번 큐에 넣게 만든다.
+ *
+ * 그래서 문구를 지출과 같은 관례로 옮긴다(src/offline/messages.ts의 OFFLINE_SAVED_MESSAGE):
+ * 대기 중이면 자동 반영을 약속하고, 서버가 **거절**했을 때만(4xx) 다음 행동을 안내한다.
+ * 조작별 실패 문구 여섯 개와 연결 오류 판정(`isItemStatusConnectionError`)은 이 전환으로
+ * 갈 곳이 없어져 삭제했다 — 화면은 더 이상 전송 실패를 그 자리에서 보지 않는다(전송은 나중에,
+ * 다른 화면에서 일어난다). 실패는 동기화 상태 화면과 행 배지가 말한다.
+ *
+ * 문구 톤은 그대로 DNC-018이다: 해요체 존댓말, 사용자를 탓하지 않고 다음에 무엇을 하면 되는지만.
  *
  * 이 모듈은 react-native/react-query에 의존하지 않는 순수 모듈이라 vitest에서 그대로 테스트한다
  * (화면 자체는 렌더할 수 없어 배선은 소스 grep 계약 테스트가 맡는다 —
- * status-mutation-messages.test.ts의 "ITEM-124 상태 변경 실패 배선" describe와
- * gifted-status-flow.test.ts).
+ * status-mutation-messages.test.ts와 gifted-status-flow.test.ts).
  */
 
 /**
- * 어떤 조작이 실패했는지. 목표 상태(ItemStatus)가 아니라 "조작" 단위인 이유: `not_prepared`
- * 하나가 찜해제와 선물 받음 취소 두 조작의 목표 상태라, 상태만으로는 무엇이 실패했는지
- * 문구로 옮길 수 없다.
+ * 어떤 조작인지. 목표 상태(ItemStatus)가 아니라 "조작" 단위인 이유: `not_prepared` 하나가
+ * 찜해제와 선물 받음 취소 두 조작의 목표 상태라, 상태만으로는 무엇을 한 것인지 말로 옮길 수 없다.
+ * 지금은 아래 gifted 확인 문구가 이 타입을 좁혀 쓴다.
  */
 export type ItemStatusActionKind = "prepare" | "interest" | "uninterest" | "gift" | "ungift" | "skip";
 
-/** 연결이 끊겼거나 요청이 타임아웃된 경우 — 이 경로는 아웃박스가 없어 "자동 반영"을 약속하지 않는다. */
-export const ITEM_STATUS_OFFLINE_MESSAGE = "연결이 끊겨 아직 저장하지 못했어요. 연결된 뒤 다시 눌러 주세요.";
-
-/** "준비했어요" / "지출 없이 준비 완료로 표시" 실패. */
-export const ITEM_STATUS_PREPARE_FAILED_MESSAGE = "준비 완료로 표시하지 못했어요. 잠시 후 다시 시도해 주세요.";
-
-/** "찜하기" 실패. */
-export const ITEM_STATUS_INTEREST_FAILED_MESSAGE = "찜하지 못했어요. 잠시 후 다시 시도해 주세요.";
-
-/** "찜해제" 실패. */
-export const ITEM_STATUS_UNINTEREST_FAILED_MESSAGE = "찜을 해제하지 못했어요. 잠시 후 다시 시도해 주세요.";
-
-/** "선물로 받았어요" 실패. */
-export const ITEM_STATUS_GIFT_FAILED_MESSAGE = "선물 받음으로 표시하지 못했어요. 잠시 후 다시 시도해 주세요.";
-
-/** "선물 받음 취소" 실패. */
-export const ITEM_STATUS_UNGIFT_FAILED_MESSAGE = "선물 받음을 취소하지 못했어요. 잠시 후 다시 시도해 주세요.";
-
-/** "괜찮아요" 실패. */
-export const ITEM_STATUS_SKIP_FAILED_MESSAGE = "괜찮아요로 표시하지 못했어요. 잠시 후 다시 시도해 주세요.";
-
-const FAILED_MESSAGE_BY_KIND: Record<ItemStatusActionKind, string> = {
-  prepare: ITEM_STATUS_PREPARE_FAILED_MESSAGE,
-  interest: ITEM_STATUS_INTEREST_FAILED_MESSAGE,
-  uninterest: ITEM_STATUS_UNINTEREST_FAILED_MESSAGE,
-  gift: ITEM_STATUS_GIFT_FAILED_MESSAGE,
-  ungift: ITEM_STATUS_UNGIFT_FAILED_MESSAGE,
-  skip: ITEM_STATUS_SKIP_FAILED_MESSAGE
-};
+/**
+ * 큐에 들어갔지만 아직 서버에 닿지 않은 변경의 안내 한 줄. 지출 저장의 OFFLINE_SAVED_MESSAGE와
+ * **같은 약속**을 같은 말로 한다("연결되면 자동으로 반영할게요") — 이제 실제로 그렇게 동작하므로
+ * 지킬 수 있는 약속이다(src/offline/sync-engine.ts의 flushItemStatusPass).
+ */
+export const ITEM_STATUS_QUEUED_MESSAGE = "연결되면 자동으로 반영할게요.";
 
 /**
- * 던져진 값에서 비교 가능한 메시지 문자열을 뽑는다. react-query의 onError는 무엇이든 넘겨줄 수
- * 있어(Error, 문자열, undefined) 방어적으로 읽는다.
+ * 서버가 거절해(4xx) 자동 재시도가 멈춘 행의 다음 행동 안내. 사유 자체는 행이 들고 있는
+ * `lastError`가 이미 한국어로 말하고 있으므로(remote-api.ts의 apiErrorMessage) 반복하지 않고,
+ * 어디서 정리할 수 있는지만 덧붙인다.
  */
-function errorMessageOf(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "";
-}
-
-function errorNameOf(error: unknown): string {
-  const name = (error as { name?: unknown } | null | undefined)?.name;
-  return typeof name === "string" ? name : "";
-}
+export const ITEM_STATUS_SYNC_FAILED_HINT = "동기화 상태에서 다시 시도하거나 되돌릴 수 있어요.";
 
 /**
- * 연결 때문에 실패했는가. api 클라이언트는 이 경우 (a) 자체 타임아웃 래퍼가 던지는
- * ApiTimeoutError(name), (b) fetch 자체의 거절(RN "Network request failed" / web "Failed to fetch")
- * 중 하나를 던진다(src/api/client.ts). 서버가 준 응답 본문은 절대 여기 걸리지 않는다 —
- * 응답이 있었다는 건 연결은 됐다는 뜻이다.
+ * 로컬 저장 자체가 실패한 경우(기기 저장소 오류). 서버 왕복 이전이라 큐에도 들어가지 못했고,
+ * 이때만은 정말로 다시 눌러야 한다 — 오프라인과 헷갈리지 않도록 연결을 언급하지 않는다.
  */
-export function isItemStatusConnectionError(error: unknown): boolean {
-  const name = errorNameOf(error);
-  if (name === "ApiTimeoutError" || name === "AbortError") return true;
-  const message = errorMessageOf(error).toLowerCase();
-  return message.includes("network request failed") || message.includes("failed to fetch");
-}
-
-/**
- * 실패 원인 → 사용자에게 보여줄 문구. 알 수 없는 실패는 원문(서버 JSON 본문/스택)을 절대
- * 그대로 노출하지 않고 조작별 안내 문구로 대체한다.
- */
-export function itemStatusMutationErrorMessage(kind: ItemStatusActionKind, error: unknown): string {
-  if (isItemStatusConnectionError(error)) return ITEM_STATUS_OFFLINE_MESSAGE;
-  return FAILED_MESSAGE_BY_KIND[kind];
-}
+export const ITEM_STATUS_LOCAL_SAVE_FAILED_MESSAGE = "준비 상태를 기기에 저장하지 못했어요. 다시 눌러 주세요.";
 
 /**
  * 리뷰 F2: gifted/interested/prepared/not_needed는 서로 배타적인 **단일 status 컬럼**이다.

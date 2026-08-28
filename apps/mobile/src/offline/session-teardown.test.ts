@@ -24,7 +24,13 @@ import {
   teardownOfflineSessionState,
   type SessionIdentity
 } from "./session-teardown";
-import { flushOutbox, recordLocalCreate, wipeOfflineStore, type RemoteExpenseApi } from "./sync-engine";
+import {
+  flushOutbox,
+  recordLocalCreate,
+  recordLocalItemStatus,
+  wipeOfflineStore,
+  type RemoteExpenseApi
+} from "./sync-engine";
 import { useSessionStore } from "../stores/session.store";
 import type { ExpensePayload, OfflineStore } from "./types";
 
@@ -54,6 +60,14 @@ const demoSession: SessionIdentity = { userId: null, isTestSession: true };
  * and a purchase-followup click — one item of every user-scoped state PRIV-104 must clear. */
 async function seedUserScopedState(store: OfflineStore): Promise<void> {
   await recordLocalCreate(store, payload);
+  // 라운드 51 C-10: 준비템 상태 변경도 계정 단위 오프라인 상태다 -- 다음 계정의 토큰으로 이전
+  // 계정이 눌러 둔 준비 상태가 나가면 안 된다.
+  await recordLocalItemStatus(store, {
+    childId: "child-1",
+    itemTemplateId: "item-carseat",
+    status: "prepared",
+    itemName: "카시트"
+  });
   await saveSyncCursor(store, "user-a", "cursor-abc");
   usePurchaseFollowupStore.getState().recordLinkClick({
     itemTemplateId: "item-diaper",
@@ -70,6 +84,7 @@ async function seedUserScopedState(store: OfflineStore): Promise<void> {
 async function expectStoreFullyEmpty(store: OfflineStore): Promise<void> {
   expect(await store.listLocalExpenses()).toEqual([]);
   expect(await store.listOutboxMutations()).toEqual([]);
+  expect(await store.listItemStatusMutations()).toEqual([]);
   expect(await store.getMeta(SYNC_CURSOR_META_KEY)).toBeNull();
 }
 
@@ -475,6 +490,8 @@ describe("PRIV-104 OfflineStore.clearAll", () => {
     expect(transactionBlock).toContain("BEGIN;");
     expect(transactionBlock).toContain("DELETE FROM local_expenses;");
     expect(transactionBlock).toContain("DELETE FROM mutation_outbox;");
+    // 라운드 51 C-10: 준비템 상태 큐도 같은 트랜잭션 안이다(네 테이블).
+    expect(transactionBlock).toContain("DELETE FROM item_status_outbox;");
     expect(transactionBlock).toContain("DELETE FROM sync_meta;");
   });
 });

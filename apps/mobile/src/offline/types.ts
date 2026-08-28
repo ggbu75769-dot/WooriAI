@@ -95,6 +95,75 @@ export type MutationOutboxRow = {
 };
 
 /**
+ * 라운드 51 C-10 — 준비템 상태 변경(prepared/interested/gifted/not_needed/not_prepared)의
+ * 오프라인 큐.
+ *
+ * ## 왜 `mutation_outbox`에 연산 하나를 더하지 않았나
+ *
+ * 처음 후보는 `MutationOperation`에 `item_status_set`을 더하는 것이었다. 세 가지가 막았다.
+ *
+ * 1. `mutation_outbox` 행은 `target_local_id`로 **`local_expenses` 행 하나**를 가리키고,
+ *    flushOutboxPass는 그 행이 없는 mutation을 고아로 보고 **지운다**. 준비 상태 변경에는
+ *    대응하는 지출 행이 없으므로 첫 pass에서 통째로 사라진다 — 가짜 지출 행을 만들어 우회하면
+ *    기록 탭·총액·동기화 배지가 있지도 않은 지출을 세게 된다.
+ * 2. 이 큐에는 **버전도 충돌도 없다.** 상태는 단일 값이라 서버가 409를 줄 일이 없고(마지막
+ *    쓰기 승리), `expected_version`/`conflict_current`/'conflict' sync_state가 전부 무의미하다.
+ *    지출 계약(SyncState CHECK-IN 집합, ConflictSnapshot)을 넓히지 않는 편이 안전하다.
+ * 3. 병합 규칙이 정반대다. 지출은 "필드를 접어 합친다"이고, 상태는 **최신 값이 앞 값을 통째로
+ *    대체한다**(같은 준비템을 찜했다 준비 완료로 바꾸면 보낼 것은 하나뿐이다).
+ *
+ * 그래서 같은 데이터베이스 안의 **별도 테이블**로 둔다: 지출 계약은 한 글자도 바뀌지 않고,
+ * PRIV-104 세션 정리(clearAll)와 flush 트리거는 그대로 공유한다.
+ */
+export type ItemStatusValue = "not_prepared" | "prepared" | "gifted" | "not_needed" | "interested";
+
+/**
+ * 큐 한 줄이 나르는 값. `itemName`은 **화면 표시 전용**이다 — 동기화 상태 화면이 대기/실패 행에
+ * "무엇의 상태인지" 쓰려면 이름이 필요한데, 오프라인에서는 itemTemplateId로 이름을 조회할 방법이
+ * 없다(목록 캐시가 비어 있을 수 있다). 서버로는 절대 보내지 않는다(status 하나만 나간다).
+ */
+export type ItemStatusPayload = {
+  childId: string;
+  itemTemplateId: string;
+  status: ItemStatusValue;
+  /** 표시 전용. 서버 요청 본문에 실리지 않는다. */
+  itemName: string;
+};
+
+/**
+ * 이 큐가 쓰는 상태값. 'conflict'가 없는 것이 지출과의 차이다(위 2번). 'synced'도 없다 —
+ * 성공한 행은 남기지 않고 지운다(로컬에 보존할 원본이 없다: 진실은 서버 목록 응답이다).
+ */
+export type ItemStatusSyncState = "pending" | "syncing" | "failed";
+
+export type ItemStatusOutboxRow = {
+  mutationId: string;
+  childId: string;
+  itemTemplateId: string;
+  status: ItemStatusValue;
+  /** 표시 전용 이름(ItemStatusPayload 참고). */
+  itemName: string;
+  syncState: ItemStatusSyncState;
+  attemptCount: number;
+  nextRetryAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /**
+   * 지출 아웃박스의 `inFlight`와 같은 이유(H-3): 요청이 나가 있는 동안 도착한 새 탭을 이 행에
+   * 접어 넣으면, 보낸 값과 저장된 값이 갈라진 채 응답 성공과 함께 지워진다. 전송 중인 행은
+   * 병합 대상에서 빼고 새 행으로 덧붙인다(outbox-merge.ts).
+   */
+  inFlight?: boolean;
+};
+
+/**
+ * `idempotencyKey`가 없는 이유: 이 요청은 **그 자체로 멱등**이다(PATCH …/status는 "이 값으로
+ * 맞춰라"이고, 서버 계약에도 Idempotency-Key 자리가 없다 — src/api/client.ts updateItemStatus).
+ * 같은 값을 두 번 보내도 결과가 같으므로 재전송 중복 제거 키가 필요 없다.
+ */
+
+/**
  * Storage abstraction (design doc §3.1 note: "vitest는 네이티브 SQLite를 못 돌리므로, 저장
  * 계층을 인터페이스로 추상화"). `sqlite-offline-store.ts` implements this against expo-sqlite
  * for the real app; `memory-offline-store.ts` implements it in plain memory for tests and any
@@ -134,6 +203,18 @@ export interface OfflineStore {
   /** All outbox rows in creation order (the order flush must send them in, per §3.2). */
   listOutboxMutations(): Promise<MutationOutboxRow[]>;
   listOutboxMutationsForLocalId(localId: string): Promise<MutationOutboxRow[]>;
+
+  /**
+   * 라운드 51 C-10 준비템 상태 큐(`item_status_outbox`). 지출 두 테이블과 같은 데이터베이스에
+   * 살고, `clearAll`이 함께 비운다(PRIV-104).
+   */
+  insertItemStatusMutation(row: ItemStatusOutboxRow): Promise<void>;
+  updateItemStatusMutation(mutationId: string, patch: Partial<ItemStatusOutboxRow>): Promise<void>;
+  deleteItemStatusMutation(mutationId: string): Promise<void>;
+  /** 생성 순서 그대로(= flush가 보내는 순서). */
+  listItemStatusMutations(): Promise<ItemStatusOutboxRow[]>;
+  /** 같은 (childId, itemTemplateId)에 걸린 행들 — 병합 규칙이 보는 집합. */
+  listItemStatusMutationsForItem(childId: string, itemTemplateId: string): Promise<ItemStatusOutboxRow[]>;
 }
 
 export function generateOfflineId(prefix: string): string {

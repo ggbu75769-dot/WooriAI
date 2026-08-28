@@ -149,7 +149,7 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     const { remote, calls } = createRecordingRemote();
     const summary = await flushOutbox(store, remote);
 
-    expect(summary).toEqual({ synced: 1, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 1, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(calls).toEqual([
       { op: "delete", canonicalId: synced.canonicalId!, expectedVersion: 1, idempotencyKey }
     ]);
@@ -167,7 +167,7 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     const { remote, calls } = createRecordingRemote();
     const summary = await flushOutbox(store, remote);
 
-    expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(calls).toEqual([]);
     expect(await store.listOutboxMutations()).toHaveLength(0);
   });
@@ -184,7 +184,7 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     });
     const summary = await flushOutbox(store, remote);
 
-    expect(summary).toEqual({ synced: 1, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 1, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(await store.getLocalExpense(synced.localId)).toBeNull();
     expect(await store.listOutboxMutations()).toHaveLength(0);
 
@@ -203,7 +203,7 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     });
     const summary = await flushOutbox(store, remote);
 
-    expect(summary).toEqual({ synced: 0, failed: 1, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 0, failed: 1, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     const row = (await store.getLocalExpense(synced.localId))!;
     expect(row.syncState).toBe("failed");
     // The local edit and its queued mutation are preserved for explicit retry/discard --
@@ -228,7 +228,7 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     });
     const summary = await flushOutbox(store, remote);
 
-    expect(summary).toEqual({ synced: 0, failed: 1, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 0, failed: 1, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     const row = (await store.getLocalExpense(synced.localId))!;
     expect(row.syncState).toBe("failed");
     expect(row.pendingDelete).toBe(true);
@@ -251,7 +251,7 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     });
     const summary = await flushOutbox(store, remote);
 
-    expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 1, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 1, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     const row = (await store.getLocalExpense(synced.localId))!;
     expect(row.syncState).toBe("conflict");
     expect(row.conflictCurrent).toEqual(serverCurrent);
@@ -383,7 +383,7 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     });
     const retrySummary = await flushOutbox(store, goneRemote);
 
-    expect(retrySummary).toEqual({ synced: 1, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(retrySummary).toEqual({ synced: 1, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(retryCalls).toEqual([
       {
         op: "delete",
@@ -458,7 +458,7 @@ describe("COV-T5 §1: offline DELETE of a server-known expense", () => {
     const { remote } = createRecordingRemote({ failDelete: () => new RemoteVersionConflictError(null) });
     const summary = await flushOutbox(store, remote);
 
-    expect(summary).toEqual({ synced: 0, failed: 1, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 0, failed: 1, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     const row = (await store.getLocalExpense(synced.localId))!;
     expect(row.syncState).toBe("failed");
     expect(row.conflictCurrent).toBeNull();
@@ -499,7 +499,7 @@ describe("COV-T5 §2: update-conflict resolution round-trips and edge branches",
     const { remote, calls } = createRecordingRemote();
     const summary = await flushOutbox(store, remote);
 
-    expect(summary).toEqual({ synced: 1, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 1, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(calls).toHaveLength(1);
     const call = calls[0];
     expect(call.op).toBe("update");
@@ -698,7 +698,7 @@ describe("COV-T5 §4: mid-batch network death and idempotent resume", () => {
     // ...and then the create request dies on the network.
     rejectCreate(new TypeError("Network request failed"));
     const firstSummary = await firstFlush;
-    expect(firstSummary).toEqual({ synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: true });
+    expect(firstSummary).toEqual({ synced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: true });
 
     const queued = await store.listOutboxMutationsForLocalId(created.localId);
     expect(queued.map((mutation) => mutation.operation)).toEqual(["create", "update"]);
@@ -708,7 +708,7 @@ describe("COV-T5 §4: mid-batch network death and idempotent resume", () => {
     // An immediate reflush sends NOTHING: the create sits in its backoff window, and the
     // appended update cannot go out before its target has a canonicalId.
     const secondSummary = await flushOutbox(store, dyingRemote);
-    expect(secondSummary).toEqual({ synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(secondSummary).toEqual({ synced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(createAttempts).toBe(1);
 
     // Connectivity returns: the retry sends the create FIRST (reusing its original
@@ -716,7 +716,7 @@ describe("COV-T5 §4: mid-batch network death and idempotent resume", () => {
     await store.updateOutboxMutation(queued[0].mutationId, { nextRetryAt: null });
     const { remote, calls } = createRecordingRemote();
     const thirdSummary = await flushOutbox(store, remote);
-    expect(thirdSummary).toEqual({ synced: 2, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(thirdSummary).toEqual({ synced: 2, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(calls.map((call) => call.op)).toEqual(["create", "update"]);
     expect(calls[0].idempotencyKey).toBe(createMutation.idempotencyKey);
     const updateCall = calls[1];
@@ -748,7 +748,7 @@ describe("COV-T5 §4: mid-batch network death and idempotent resume", () => {
     });
 
     const firstPass = await flushOutbox(store, remote);
-    expect(firstPass).toEqual({ synced: 1, failed: 0, conflicted: 0, stoppedForNetwork: true });
+    expect(firstPass).toEqual({ synced: 1, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: true });
     // Two calls total: first confirmed, second died; the third was never attempted.
     expect(calls.map((call) => call.idempotencyKey)).toEqual([firstKey, secondKey]);
 
@@ -770,7 +770,7 @@ describe("COV-T5 §4: mid-batch network death and idempotent resume", () => {
     // Connectivity returns (clear the backoff window so the pass retries immediately).
     await store.updateOutboxMutation(secondMutation.mutationId, { nextRetryAt: null });
     const secondPass = await flushOutbox(store, remote);
-    expect(secondPass).toEqual({ synced: 2, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(secondPass).toEqual({ synced: 2, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
 
     // Resume sent exactly [second (same key as the failed attempt), third] -- the first
     // mutation's key went over the wire exactly once across both passes.
@@ -811,7 +811,7 @@ describe("COV-T5 §5: wipe (PRIV-104 teardown) clears conflict rows too", () => 
     const { remote, calls } = createRecordingRemote();
     const summary = await flushOutbox(store, remote);
     expect(calls).toEqual([]);
-    expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
   });
 
   it("a wipe requested while the flush that PRODUCES the conflict is still in-flight waits for the pass, then clears the freshly-written conflict bookkeeping", async () => {
