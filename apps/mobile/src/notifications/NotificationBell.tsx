@@ -15,7 +15,7 @@ export function NotificationBell() {
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={unreadCount > 0 ? `알림, 새 알림 ${unreadCount}개` : "알림"}
-      hitSlop={4}
+      hitSlop={NOTIFICATION_BELL_HIT_SLOP}
       onPress={() => router.push("/notifications")}
       style={bellButtonStyle}
     >
@@ -28,6 +28,14 @@ export function NotificationBell() {
     </Pressable>
   );
 }
+
+/**
+ * GAP-065 #7: 36dp 정사각 + 6 = 48(theme.touchTarget). 홈 헤더의 알림 입구는 **이웃 컨트롤이
+ * 없는 자리**라(제목 블록은 텍스트고, 반대편은 화면 여백이다) 네 변을 같이 넓혀도 다른 것의
+ * 몸에 닿지 않는다 — 라운드 64가 칩에서 세로만 넓힌 이유(옆 칩과 겹침)가 여기엔 없다.
+ * 값은 src/ui.tsx의 프리미티브 주석과 같은 규율을 따른다(레이아웃 속성 무접촉 = 렌더 불변).
+ */
+const NOTIFICATION_BELL_HIT_SLOP = 6;
 
 const bellButtonStyle = {
   alignItems: "center",

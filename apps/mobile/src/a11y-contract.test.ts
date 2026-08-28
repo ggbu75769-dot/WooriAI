@@ -1048,3 +1048,223 @@ describe("GAP-064 #1 전폭 구매 CTA 라벨 계약 (스폰서 판정 게이트
     expect(detailSource()).toContain("primaryAction={hasSession && index === filledPurchaseRowIndex}");
   });
 });
+
+/* ------------------------------------------------------------ 라운드 65 (GAP-065 #6 · #7) */
+
+/** `<Tag ...>` 여는 태그 하나. 중괄호 안의 `>`(중첩 JSX·화살표)는 태그 끝으로 세지 않는다. */
+function openingTagAfter(sourceText: string, afterMarker: string, tagStart: string): string {
+  const from = sourceText.indexOf(afterMarker);
+  if (from < 0) throw new Error(`${afterMarker}를 소스에서 찾지 못했다`);
+  // `useRef<ScrollView>(null)` 같은 **타입 인자**는 여는 태그가 아니다 — 태그 이름 뒤에 공백이
+  // 오는 자리만 센다.
+  let start = sourceText.indexOf(tagStart, from);
+  while (start >= 0 && !/\s/.test(sourceText[start + tagStart.length] ?? "")) {
+    start = sourceText.indexOf(tagStart, start + tagStart.length);
+  }
+  if (start < 0) throw new Error(`${afterMarker} 뒤에서 ${tagStart}를 찾지 못했다`);
+  let depth = 0;
+  for (let cursor = start; cursor < sourceText.length; cursor += 1) {
+    const char = sourceText[cursor];
+    if (char === "{") depth += 1;
+    else if (char === "}") depth -= 1;
+    else if (char === ">" && depth === 0) return sourceText.slice(start, cursor + 1);
+  }
+  throw new Error(`${tagStart}의 여는 태그가 닫히지 않았다`);
+}
+
+/** `const NAME = { ... } as const;` 스타일 객체에서 숫자 한 칸. */
+function readStyleNumber(sourceText: string, styleName: string, key: string): number {
+  const declaration = new RegExp(`const ${styleName} = \\{([^}]*)\\} as const;`).exec(sourceText);
+  if (!declaration) throw new Error(`${styleName} 스타일을 소스에서 찾지 못했다`);
+  const found = new RegExp(`\\b${key}:\\s*(\\d+)`).exec(declaration[1]);
+  if (!found) throw new Error(`${styleName}에서 ${key}를 찾지 못했다`);
+  return Number(found[1]);
+}
+
+/**
+ * GAP-065 #6 — **스크롤 스캐폴드의 키보드 계약**.
+ *
+ * RN의 `keyboardShouldPersistTaps` 기본값은 `"never"`다: 키보드가 떠 있는 동안의 **첫 탭은
+ * 자식에게 가지 않고 키보드만 내린다.** 이 앱에서 가장 자주 반복되는 동작이 정확히 그 모양이라
+ * (금액을 치고 → 카테고리 타일/칩/체크박스를 누른다) 사용자에게는 "눌렀는데 반응이 없다"로
+ * 나타난다. 저장소가 그 비용을 이미 자기 주석으로 적어 두었고(app/expenses/new.tsx의
+ * `merchantFocused` — "첫 탭에 칩이 사라져 두 번째 탭이 맞을 자리가 없다"), 이식된 스캐폴드는
+ * 이미 `"handled"`였다. 계약이 붙들 것은 **세 스캐폴드가 같은 답을 명시한다**는 사실이다.
+ *
+ * `"always"`가 아니라 `"handled"`인 이유도 함께 못박는다: `"always"`면 빈 자리를 눌러도 키보드가
+ * 내려가지 않아 "닫는 법을 모르겠다"가 새로 생긴다. `"handled"`는 자식이 처리한 탭만 통과시킨다.
+ */
+describe("GAP-065 #6 스크롤 스캐폴드 키보드 계약 (keyboardShouldPersistTaps=\"handled\")", () => {
+  /** 앱의 화면 스크롤러 셋. 첫 둘이 이번 라운드가 채운 자리, 셋째는 이미 그랬던 이식본이다. */
+  const scaffolds = [
+    { after: "export function AppScreen", path: "src/ui.tsx", tag: "<ScrollView" },
+    { after: "const listHeader =", path: "app/(tabs)/records.tsx", tag: "<SectionList" },
+    { after: "export function ScreenScaffold", path: "src/design-system/components/ScreenScaffold.tsx", tag: "<ScrollView" }
+  ] as const;
+
+  it("세 스캐폴드가 모두 'handled'를 명시한다 (기본값 never에 기대지 않는다)", () => {
+    for (const scaffold of scaffolds) {
+      const tag = openingTagAfter(source(scaffold.path), scaffold.after, scaffold.tag);
+      expect(tag, `${scaffold.path}의 스크롤러`).toContain('keyboardShouldPersistTaps="handled"');
+    }
+  });
+
+  it("'always'는 쓰지 않는다 — 빈 자리를 누르면 키보드가 내려가야 한다", () => {
+    for (const scaffold of scaffolds) {
+      expect(source(scaffold.path), `${scaffold.path}`).not.toContain('keyboardShouldPersistTaps="always"');
+    }
+  });
+
+  it("렌더는 한 픽셀도 바뀌지 않는다 — 스캐폴드의 레이아웃 속성은 그대로다 (픽셀락 6종)", () => {
+    // AppScreen은 전 화면이 지나는 컴포넌트다. 이번 변경은 터치 전달 규칙 한 줄뿐이고,
+    // 배경·여백·간격은 종전 그대로여야 한다(EXP-001·HOME-001·REP-001·ITEM-001·IMP-003·SET-001).
+    const appScreenTag = openingTagAfter(source("src/ui.tsx"), "export function AppScreen", "<ScrollView");
+    expect(appScreenTag).toContain("gap: theme.spacing.section");
+    expect(appScreenTag).toContain("padding: theme.spacing.screen");
+    expect(appScreenTag).toContain("flexGrow: 1");
+  });
+});
+
+/**
+ * GAP-065 #7 — **공유 프리미티브의 터치 타깃 소스 계약**.
+ *
+ * 라운드 64 #6이 세운 계약(위 GAP-064 블록)이 읽는 파일은 화면 셋뿐이라, 같은 값(44)으로 서
+ * 있던 **공유 컴포넌트**는 그대로 통과했다 — 그래서 새 화면이 하나 생길 때마다 44dp 컨트롤이
+ * 자동으로 따라 태어난다. 라운드 64가 소스 계약으로 막으려던 재발 경로가 정확히 거기 열려 있었다.
+ * 그래서 이 블록은 **화면이 아니라 컴포넌트**를 읽는다.
+ *
+ * 계산 방식은 라운드 64와 같다: 값을 테스트에 다시 박지 않고 **소스의 상수와 소스의 크기**를
+ * 읽어 더한다(`theme.touchTarget`도 숫자로 옮겨 적지 않는다).
+ *
+ * 넓히는 축을 고르는 규율도 같다 — **늘린 히트 영역이 이웃 컨트롤의 몸(보이는 픽셀)에 닿으면
+ * 안 된다.** 그래서 축마다 실측한 간격이 천장이고, 그 실측 자체를 아래 첫 테스트가 소스에서
+ * 다시 계산한다(칩 줄의 gap을 사람이 옮겨 적지 않는다).
+ */
+describe("GAP-065 #7 공유 프리미티브 터치 타깃 계약 (크기 + 2×hitSlop ≥ theme.touchTarget)", () => {
+  const uiSource = () => source("src/ui.tsx");
+
+  /** `<CategoryChip`이 서는 자리와 그 줄의 gap. 인라인 style이면 그 자리에서, 이름 붙은 style이면 선언에서 읽는다. */
+  function categoryChipRowGaps(): { gap: number; path: string }[] {
+    const screens = [
+      "app/(onboarding)/child-profile.tsx",
+      "app/expenses/recurring.tsx",
+      "app/expenses/[expenseId].tsx",
+      "app/expenses/new.tsx",
+      "app/settings/children.tsx",
+      "app/(tabs)/records.tsx",
+      "app/(tabs)/items.tsx",
+      "src/export/ExpenseCsvExport.tsx"
+    ];
+    const found: { gap: number; path: string }[] = [];
+    for (const path of screens) {
+      const screenSource = source(path);
+      const lines = screenSource.split("\n");
+      for (let index = 0; index < lines.length; index += 1) {
+        if (!lines[index].includes("<CategoryChip")) continue;
+        let gap: number | undefined;
+        // 칩 자리에서 위로 거슬러 올라가며 가장 가까운 줄 컨테이너를 찾는다(최대 40줄).
+        for (let cursor = index; cursor >= 0 && cursor > index - 40 && gap === undefined; cursor -= 1) {
+          const inline = /gap:\s*(\d+)/.exec(lines[cursor]);
+          if (inline) {
+            gap = Number(inline[1]);
+            break;
+          }
+          const named = /style=\{([A-Za-z][A-Za-z0-9]*)\}/.exec(lines[cursor]);
+          if (named) {
+            const declaration = new RegExp(`const ${named[1]} = \\{([^}]*)\\}`).exec(screenSource);
+            const namedGap = declaration ? /gap:\s*(\d+)/.exec(declaration[1]) : null;
+            if (namedGap) gap = Number(namedGap[1]);
+          }
+        }
+        if (gap === undefined) throw new Error(`${path}:${index + 1} 칩 줄의 gap을 소스에서 찾지 못했다`);
+        found.push({ gap, path });
+      }
+    }
+    return found;
+  }
+
+  it("카테고리 칩: 38 + 세로 5+5 = 48. 가로는 **실측한 칩 사이 간격**이 천장이라 3 그대로다", () => {
+    const box = readHitSlopBox(uiSource(), "CATEGORY_CHIP_HIT_SLOP");
+    const blocks = pressableBlocksWithHitSlop(uiSource(), "hitSlop={CATEGORY_CHIP_HIT_SLOP}");
+    expect(blocks, "CategoryChip은 프리미티브 하나다").toHaveLength(1);
+    expect(chipMinHeight(blocks[0]) + box.top + box.bottom, "칩의 세로 히트 영역").toBeGreaterThanOrEqual(
+      theme.touchTarget
+    );
+
+    // 가로: 라운드 64가 가정한 8이 아니라 **6인 줄이 있다**(준비템 탭). 그 실측을 사람이 옮겨
+    // 적지 않고 소스에서 다시 센다 — 더 좁은 줄이 새로 태어나면 여기서 빨개진다.
+    const rows = categoryChipRowGaps();
+    expect(rows.length, "칩이 서는 자리 수").toBe(17);
+    const tightest = Math.min(...rows.map((row) => row.gap));
+    expect(tightest, "가장 좁은 칩 줄 간격").toBe(6);
+    // 두 이웃이 각자 left/right만큼 그 간격으로 들어온다 — 합이 간격을 넘으면 히트 영역이 겹친다.
+    expect(box.left + box.right, "가로 합").toBeLessThanOrEqual(tightest);
+    expect(box.left, "가로 대칭").toBe(box.right);
+    // 0으로 지우지도 않는다(라운드 64의 판단 — 줄이면 히트 영역만 좁아진다).
+    expect(box.left).toBeGreaterThan(0);
+    // 세로 5는 그 6보다 **작다** — 겹치는 것은 아무도 갖고 있지 않던 빈 띠뿐이고, 이웃 칩의
+    // 몸(보이는 픽셀)에는 닿지 않는다. 종전에 그 자리를 누르면 아무 일도 일어나지 않았다.
+    expect(box.top, "세로 대칭").toBe(box.bottom);
+    expect(box.top, "세로 확장이 이웃 칩의 몸에 닿지 않는다").toBeLessThan(tightest);
+    // 라운드 64가 입력 보조 칩에 쓴 상자와 **같은 값**이다(같은 모양의 칩이 자리마다 갈리지 않는다).
+    expect(box).toEqual(readHitSlopBox(source("app/expenses/new.tsx"), "SUGGEST_CHIP_HIT_SLOP"));
+  });
+
+  it("세그먼트 탭: 세로로 갚고 **가로는 0** — 탭 셋이 맞붙어 있어 4는 옆 탭의 몸을 덮고 있었다", () => {
+    const box = readHitSlopBox(uiSource(), "SEGMENTED_TAB_HIT_SLOP");
+    const blocks = pressableBlocksWithHitSlop(uiSource(), "hitSlop={SEGMENTED_TAB_HIT_SLOP}");
+    expect(blocks, "SegmentedControl의 탭은 한 곳에서 태어난다").toHaveLength(1);
+
+    // 탭 높이는 세로 패딩 + 13px 텍스트의 줄 상자다. 줄 상자 높이는 런타임 폰트 메트릭이라
+    // 소스에서 읽을 수 없으므로, 계약은 **소스가 보증하는 최소 높이**(줄 상자 ≥ fontSize)로
+    // 계산한다 — 실제 높이는 이보다 크다(실측은 a11y 체크리스트 C-1의 손가락 몫).
+    const paddingVertical = Number(/paddingVertical:\s*(\d+)/.exec(blocks[0])?.[1]);
+    const fontSize = Number(/fontSize:\s*(\d+)/.exec(blocks[0])?.[1]);
+    expect(paddingVertical, "탭 세로 패딩").toBe(9);
+    expect(fontSize, "탭 글자 크기").toBe(13);
+    expect(2 * paddingVertical + fontSize + box.top + box.bottom, "탭의 세로 히트 영역").toBeGreaterThanOrEqual(
+      theme.touchTarget
+    );
+    expect(box.top, "세로 대칭").toBe(box.bottom);
+
+    // 가로가 0인 이유는 소스에 그대로 있다: 탭은 `flex: 1`이고 트랙에는 간격이 없다.
+    expect(blocks[0], "탭은 서로 맞붙는다").toContain("flex: 1");
+    const trackTag = openingTagAfter(uiSource(), "export function SegmentedControl", "<View");
+    expect(trackTag, "트랙 자체엔 탭 사이 간격이 없다").not.toContain("gap:");
+    expect(box.left, "맞붙은 이웃에게 가로를 넓히지 않는다").toBe(0);
+    expect(box.right).toBe(0);
+  });
+
+  it("알림 벨·더보기 검색: 36dp 정사각 + 6 = 48 (이웃 컨트롤이 없어 네 변을 함께 넓힌다)", () => {
+    const squares = [
+      { constant: "NOTIFICATION_BELL_HIT_SLOP", path: "src/notifications/NotificationBell.tsx", style: "bellButtonStyle" },
+      { constant: "MORE_SEARCH_HIT_SLOP", path: "app/(tabs)/more.tsx", style: "moreSearchButtonStyle" }
+    ] as const;
+
+    for (const square of squares) {
+      const squareSource = source(square.path);
+      const slop = readNumericConstant(squareSource, square.constant);
+      const height = readStyleNumber(squareSource, square.style, "height");
+      const width = readStyleNumber(squareSource, square.style, "width");
+      expect(height, `${square.path} 정사각`).toBe(width);
+      expect(height + 2 * slop, `${square.path}의 히트 영역`).toBeGreaterThanOrEqual(theme.touchTarget);
+      expect(squareSource, `${square.path}에 남은 맨 숫자 hitSlop`).not.toContain("hitSlop={4}");
+    }
+  });
+
+  it("렌더는 한 픽셀도 바뀌지 않는다 — 프리미티브의 레이아웃 속성은 그대로다 (픽셀락 6종)", () => {
+    const chipBlock = pressableBlocksWithHitSlop(uiSource(), "hitSlop={CATEGORY_CHIP_HIT_SLOP}")[0];
+    // 승인 캡처의 pill 38 · 좌우 여백 14가 그대로다(hitSlop은 레이아웃 속성이 아니다).
+    expect(chipBlock, "칩 높이").toContain("minHeight: 38,");
+    expect(chipBlock, "칩 여백").toContain("paddingHorizontal: 14");
+    // 세로 여백으로 높이를 벌지 않았다 — 그건 렌더가 바뀌는 길이다.
+    expect(chipBlock, "칩 세로 여백").not.toContain("paddingVertical");
+
+    const tabBlock = pressableBlocksWithHitSlop(uiSource(), "hitSlop={SEGMENTED_TAB_HIT_SLOP}")[0];
+    expect(tabBlock, "탭 높이를 새로 박지 않았다").not.toMatch(/[^n]height:\s*\d/);
+    expect(uiSource(), "트랙 패딩").toContain("borderRadius: theme.radii.pill, flexDirection: \"row\", padding: 4");
+
+    expect(readStyleNumber(source("src/notifications/NotificationBell.tsx"), "bellButtonStyle", "height")).toBe(36);
+    expect(readStyleNumber(source("app/(tabs)/more.tsx"), "moreSearchButtonStyle", "height")).toBe(36);
+  });
+});
