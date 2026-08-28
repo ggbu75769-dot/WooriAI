@@ -16,6 +16,7 @@ import { formatKrw } from "../money";
 import {
   LINK_PRICE_CAPTION_SEPARATOR,
   LINK_PRICE_CHECKED_SUFFIX,
+  LINK_PRICE_MAX_AGE_DAYS,
   resolveLinkPriceDisplay,
   withLinkPriceCaption
 } from "./link-price";
@@ -93,22 +94,76 @@ describe("표기 — 금액은 앱 단일 소스, 시각은 서울 달력", () =
   });
 
   it("해가 다른 확인 시각에는 연도를 붙인다 ('1월 2일'이 올해로 읽히지 않게)", () => {
+    // 라운드 52 QA P3-8b: 180일을 넘긴 값은 아예 그리지 않으므로, 연도 표기 규칙은 **아직
+    // 그릴 수 있는 나이의** 해 넘김으로 짚는다(2026-03-01에서 본 2025-12-20 = 71일 전).
     expect(
-      resolveLinkPriceDisplay({ priceSnapshotKrw: 45_900, priceCheckedAt: "2025-01-02T09:00:00.000Z" }, TODAY)!
+      resolveLinkPriceDisplay({ priceSnapshotKrw: 45_900, priceCheckedAt: "2025-12-20T09:00:00.000Z" }, "2026-03-01")!
         .checkedAtCaption
-    ).toBe("2025년 1월 2일 확인");
+    ).toBe("2025년 12월 20일 확인");
   });
 
   it("오래된 값이어도 문구가 신선도를 대신 주장하지 않는다 (해요체·'확인'만)", () => {
     const stale = resolveLinkPriceDisplay(
-      { priceSnapshotKrw: 45_900, priceCheckedAt: "2025-01-02T09:00:00.000Z" },
-      TODAY
+      { priceSnapshotKrw: 45_900, priceCheckedAt: "2025-12-20T09:00:00.000Z" },
+      "2026-03-01"
     )!;
 
     expect(stale.checkedAtCaption.endsWith(LINK_PRICE_CHECKED_SUFFIX)).toBe(true);
     expect(stale.checkedAtCaption).not.toMatch(/지금|현재가|실시간|최저가|최신/);
     // 값 자체도 "최저가"라고 주장하지 않는다 -- 우리는 그 시점에 확인한 한 판매처의 값만 안다.
     expect(stale.priceText).not.toMatch(/최저|할인|특가/);
+  });
+});
+
+/**
+ * 라운드 52 QA P3-8 — 신선도.
+ *
+ * 규칙 3("날짜가 스스로 오래됨을 말한다")은 어느 선까지만 성립한다. 반년 전 가격은 사용자가
+ * 지금 견줄 수 있는 값이 아니고, 그럼에도 큰 글씨로 찍히면 "이 판매처가 더 싸다"는 비교 판단의
+ * 근거가 된다. 그리고 미래 시각은 시계가 어긋났다는 신호일 뿐인데, 그대로 두면 나이 판정이
+ * 음수가 되어 어떤 낡은 값이든 통과시킨다.
+ */
+describe("신선도 — 미래 시각과 너무 오래된 값은 그리지 않는다", () => {
+  const priced = (priceCheckedAt: string, today: string = TODAY) =>
+    resolveLinkPriceDisplay({ priceSnapshotKrw: 45_900, priceCheckedAt }, today);
+
+  it("서울 기준 오늘보다 뒤면 그리지 않는다 (서버·기기 시계 왜곡 방어)", () => {
+    // 서울 2026-08-28 = TODAY(08-27)의 다음 날.
+    expect(priced("2026-08-27T15:00:00.000Z")).toBeNull();
+    // 한참 뒤도 마찬가지.
+    expect(priced("2027-01-01T00:00:00.000Z")).toBeNull();
+  });
+
+  it("오늘 확인한 값은 정상이다 (가장 흔한 정상 케이스를 막지 않는다)", () => {
+    // 서울 2026-08-27 = TODAY.
+    expect(priced("2026-08-27T00:30:00.000Z")!.checkedAtCaption).toBe("8월 27일 확인");
+  });
+
+  it(`확인한 지 ${LINK_PRICE_MAX_AGE_DAYS}일을 넘기면 가격을 표시하지 않는다`, () => {
+    expect(LINK_PRICE_MAX_AGE_DAYS).toBe(180);
+    // 경계는 상수에서 계산한다 -- 숫자를 바꾸면 이 테스트가 함께 따라간다.
+    const todayMillis = Date.UTC(2026, 7, 27);
+    const atAge = (days: number) =>
+      new Date(todayMillis - days * 86_400_000 + 3 * 3_600_000).toISOString();
+
+    // 정확히 상한이면 아직 그린다(경계 포함).
+    expect(priced(atAge(LINK_PRICE_MAX_AGE_DAYS))).not.toBeNull();
+    // 하루만 더 지나면 값도 캡션도 없다 -- 화면은 종전대로 가격 칸을 비운다.
+    expect(priced(atAge(LINK_PRICE_MAX_AGE_DAYS + 1))).toBeNull();
+    expect(priced(atAge(400))).toBeNull();
+  });
+
+  it("오늘을 해석할 수 없으면 나이를 모르므로 그리지 않는다", () => {
+    for (const today of ["", "오늘", "2026-08", "2026/08/27"]) {
+      expect(priced("2026-08-20T09:00:00.000Z", today), today).toBeNull();
+    }
+  });
+
+  it("고정 픽스처는 두 값 모두 여전히 그려진다 (데모·픽셀락 화면 무변경)", () => {
+    expect(resolveLinkPriceDisplay({ priceSnapshotKrw: 89_000, priceCheckedAt: LOCAL_PRICE_CHECKED_AT }, TODAY)).not.toBeNull();
+    expect(
+      resolveLinkPriceDisplay({ priceSnapshotKrw: 89_000, priceCheckedAt: LOCAL_PRICE_CHECKED_AT_OLDER }, TODAY)
+    ).not.toBeNull();
   });
 });
 

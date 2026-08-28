@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, Share, Text, View } from "react-native";
 import { createInvite, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN, type InviteRole } from "../../src/api/client";
@@ -34,8 +34,25 @@ export default function FamilyInviteScreen() {
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
 
+  /**
+   * 라운드 52 QA P2-2 — 만든 초대가 "대기 중인 초대"에 곧바로 뜨게 한다.
+   *
+   * 대기 목록은 가족 화면의 `["household-invites", householdId]` 쿼리다(app/family/index.tsx).
+   * 이 화면이 초대를 **만들고도** 그 캐시를 건드리지 않아서, 뒤로 가면 목록은 초대 전 상태
+   * 그대로였다 — 사용자에게는 "링크는 받았는데 목록에는 없는" 상태로 보이고, 잃어버린 링크의
+   * 유일한 복구 경로(그 목록에서 취소하고 다시 만들기)를 그 자리에서 쓸 수 없다.
+   *
+   * 취소 뮤테이션이 이미 같은 키를 무효화하고 있으므로(같은 화면의 cancelInvite), 생성 쪽에도
+   * 같은 규칙을 둔다: **초대 목록을 바꾸는 자리는 목록 무효화를 동반한다.** 무효화 범위는
+   * 가족 화면의 취소 경로와 같게 `["household-invites"]` 접두 하나다 — 구성원 목록은 초대를
+   * 만든다고 달라지지 않으므로(수락해야 구성원이 된다) 건드리지 않는다.
+   */
+  const queryClient = useQueryClient();
   const invite = useMutation({
-    mutationFn: () => createInvite(authToken!, householdId!, role, "link")
+    mutationFn: () => createInvite(authToken!, householdId!, role, "link"),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["household-invites"] });
+    }
   });
 
   const handleShare = async () => {

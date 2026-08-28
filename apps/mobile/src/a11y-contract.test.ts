@@ -385,8 +385,11 @@ describe("A11Y-117 accessibility round-2 contract", () => {
   it("summarizes the line chart geometry with one label and keeps the preview-only delta out of it", () => {
     const uiSource = source("src/ui.tsx");
     const chartBlock = uiSource.slice(uiSource.indexOf("export function LineChartCard"), uiSource.indexOf("export function DonutChartCard"));
-    expect(chartBlock).toContain("accessibilityLabel={`${title} 추이 차트, 합계 ${value}${hasRealDelta ? `, 지난 달 대비 ${deltaText}` : \"\"}`}");
+    expect(chartBlock).toContain("`${title} 추이 차트, 합계 ${value}${hasRealDelta ? `, 지난 달 대비 ${deltaText}` : \"\"}`");
     expect(chartBlock).toContain('typeof deltaLabel === "string"');
+    // 라운드 52 QA P2-3: 선을 그리지 않는 빈 상태에서는 "추이 차트"라고 읽히지 않는다 --
+    // 그 자리에 실제로 쓰인 문장을 그대로 읽어, 보이는 것과 읽히는 것이 갈리지 않게 한다.
+    expect(chartBlock).toContain("`${title} 합계 ${value}, ${noticeText}`");
     // Fake "+12.5%" preview delta stays visible but hidden from the a11y tree.
     expect(chartBlock).toContain("accessibilityElementsHidden={hasRealDelta ? undefined : true}");
     // R20-A: the share bar (real data) and the preview donut arc are both decorative -- the

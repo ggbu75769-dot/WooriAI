@@ -170,6 +170,34 @@ describe("라운드 52 C-04 초대 생성 배선 계약 (source contract)", () =
     expect(familySource).not.toContain('{ text: "보기 전용"');
   });
 
+  /**
+   * 라운드 52 QA P2-2 — 만든 초대가 대기 목록에 뜨지 않던 자리.
+   *
+   * 대기 목록(app/family/index.tsx의 `["household-invites", householdId]`)은 이 화면이 초대를
+   * 만들어도 갱신되지 않아, 뒤로 가면 초대 전 상태 그대로였다. 링크를 잃어버렸을 때의 유일한
+   * 복구 경로가 바로 그 목록이므로(취소 후 재발급), 목록이 사실과 어긋나면 복구 자체가 막힌다.
+   */
+  it("초대를 만드는 자리는 대기 목록 무효화를 동반한다", () => {
+    const inviteSource = source("app/family/invite.tsx");
+
+    expect(inviteSource).toContain("const queryClient = useQueryClient();");
+    expect(inviteSource).toContain('await queryClient.invalidateQueries({ queryKey: ["household-invites"] });');
+    // 무효화는 생성이 **성공한** 뒤에만 일어난다(실패한 초대는 목록을 바꾸지 않는다).
+    const mutationBlock = inviteSource.slice(
+      inviteSource.indexOf("const invite = useMutation({"),
+      inviteSource.indexOf("const handleShare")
+    );
+    expect(mutationBlock).toContain("onSuccess: async () => {");
+    expect(mutationBlock).toContain('queryKey: ["household-invites"]');
+
+    // 목록을 읽는 쪽과 **같은 키**여야 한다 -- 접두가 어긋나면 무효화가 아무것도 하지 않는다.
+    const familySource = source("app/family/index.tsx");
+    expect(familySource).toContain('queryKey: ["household-invites", householdId]');
+    // 초대 생성은 구성원 목록을 바꾸지 않는다(수락해야 구성원이 된다) -- 넓게 날리지 않는다.
+    expect(mutationBlock).not.toContain("household-members");
+    expect(mutationBlock).not.toContain("invalidateQueries()");
+  });
+
   it("초대 화면이 넘겨받은 역할로 서고, 역할 표는 한 벌만 남는다", () => {
     const inviteSource = source("app/family/invite.tsx");
 

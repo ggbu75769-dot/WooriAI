@@ -73,7 +73,11 @@ import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseR
 import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 // C-03: 드릴다운 파라미터 규약은 링크를 만드는 리포트 탭과 **같은 모듈**에서 읽는다.
-import { resolveDrilldownCategoryIdParam } from "../../src/reports/category-drilldown";
+import {
+  RECORDS_DRILLDOWN_NONCE_PARAM,
+  resolveDrilldownCategoryIdParam,
+  resolveDrilldownNonceParam
+} from "../../src/reports/category-drilldown";
 import {
   syncStatusBadgeLabel,
   syncStatusCountLabel,
@@ -726,7 +730,7 @@ export default function RecordsScreen() {
    * 파싱은 전부 순수 모듈에 있다: 파라미터가 없거나 형식이 깨졌거나 미래 월이면 0(이번 달)이라
    * 종전 동작과 완전히 같다.
    */
-  const monthParams = useLocalSearchParams<{ month?: string; categoryId?: string }>();
+  const monthParams = useLocalSearchParams<{ month?: string; categoryId?: string; drilldown?: string }>();
   const monthParam = Array.isArray(monthParams.month) ? monthParams.month[0] : monthParams.month;
   const [monthOffset, setMonthOffset] = useState(() =>
     resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() })
@@ -764,6 +768,37 @@ export default function RecordsScreen() {
     appliedCategoryParamRef.current = categoryIdParam;
     setSelectedCategoryId(resolveDrilldownCategoryIdParam(categoryIdParam));
   }, [categoryIdParam]);
+  /**
+   * 라운드 52 QA P1-1/P2-1 — **드릴다운 착지는 회차 단위로 다시 적용한다.**
+   *
+   * 위 두 effect는 각자 자기 파라미터의 **값 변화**만 본다. 가져오기 착지(month 하나)에는 그
+   * 규칙이 맞지만, 파라미터가 둘인 드릴다운에서는 두 가지가 깨졌다:
+   *
+   *  - 다른 카테고리로 다시 드릴다운했는데 착지 월이 같으면(연간 탭에서 흔하다) `month`는
+   *    "값이 안 바뀌었다"로 걸러져 재적용되지 않는다. 사용자가 그 사이 ‹ 로 다른 달을 보고
+   *    있었다면 리포트 카드가 한 **"○월 기록을 보여드려요"** 약속이 그대로 깨진다.
+   *  - 같은 카테고리를 다시 누르면 두 값이 모두 그대로라 아무 일도 일어나지 않는다(필터를
+   *    "전체"로 풀어 둔 뒤 다시 눌러도 마찬가지다 — 버튼이 죽은 것처럼 보인다).
+   *
+   * 그래서 링크가 회차(`drilldown` nonce)를 함께 싣고, 이 effect가 **그 회차 단위로** 월과
+   * 카테고리를 한 묶음으로 적용한다. 위 두 effect의 appliedRef를 여기서 함께 갱신하므로
+   * 같은 커밋에서 어느 쪽이 먼저 돌든 적용은 정확히 한 번이고, 결과도 같다.
+   *
+   * nonce가 없는 링크(가져오기 착지)는 이 effect가 곧바로 빠져나가 **종전 가드 그대로**다.
+   * 사용자가 착지 뒤에 옮긴 달·바꾼 칩도 그대로 남는다 — 같은 회차에서는 이 effect가 다시
+   * 돌지 않기 때문이다(재렌더·아이 전환이 착지를 되감지 않는다).
+   */
+  const drilldownNonceParam = resolveDrilldownNonceParam(monthParams[RECORDS_DRILLDOWN_NONCE_PARAM]);
+  const appliedDrilldownNonceRef = useRef<string | null>(drilldownNonceParam);
+  useEffect(() => {
+    if (!drilldownNonceParam) return;
+    if (appliedDrilldownNonceRef.current === drilldownNonceParam) return;
+    appliedDrilldownNonceRef.current = drilldownNonceParam;
+    appliedMonthParamRef.current = monthParam;
+    appliedCategoryParamRef.current = categoryIdParam;
+    if (monthParam) setMonthOffset(resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() }));
+    setSelectedCategoryId(resolveDrilldownCategoryIdParam(categoryIdParam));
+  }, [drilldownNonceParam, monthParam, categoryIdParam]);
   // UX-D: 리스트/달력 보기. 리포트 탭의 기간 세그먼트(app/(tabs)/reports.tsx의 `period`)와 같은
   // 관례로 **화면 상태**만 둔다 -- 세션 간 저장은 하지 않는다. 기록 탭의 기본 동작은 "방금 적은
   // 것을 확인하는 목록"이고, 달력은 그 위에서 잠깐 훑는 뷰다.

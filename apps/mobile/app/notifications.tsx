@@ -18,7 +18,8 @@ import {
   notificationRowAccessibilityActions,
   notificationRowAccessibilityHint,
   notificationRowAccessibilityLabel,
-  resolveNotificationRowAction
+  resolveNotificationRowAction,
+  type NotificationRowActionKey
 } from "../src/notifications/notification-row-actions";
 import { notificationTapRoute } from "../src/notifications/notification-route";
 import {
@@ -175,6 +176,16 @@ export default function NotificationsScreen() {
     removeNotificationEntry(entry.id);
     setNewNotificationIds((previous) => removeNotificationMark(previous, entry.id));
   };
+  const runRowAction = (actionKey: NotificationRowActionKey, entry: AppNotification) => {
+    switch (actionKey) {
+      case "delete":
+        deleteNotification(entry);
+        return;
+      default:
+        // 알 수 없는 키는 아무것도 하지 않는다 -- 파괴적 동작을 기본값으로 두지 않는다.
+        return;
+    }
+  };
   const openRowActionSheet = (entry: AppNotification, rowTitle: string) => {
     const sheet = buildNotificationRowActionSheet({ title: rowTitle, platform: Platform.OS });
     Alert.alert(
@@ -183,14 +194,37 @@ export default function NotificationsScreen() {
       sheet.buttons.map((button) => ({
         text: button.label,
         style: button.style,
-        ...(button.actionKey ? { onPress: () => deleteNotification(entry) } : {})
+        // 라운드 52 QA P3-2: 버튼 → 동작 매핑은 **액션 키로** 한다. 예전에는 `actionKey`가
+        // 있기만 하면 삭제를 실행했다 -- 지금은 동작이 하나뿐이라 결과가 같지만, 항목이
+        // 늘어나는 순간(액션시트 구성은 순수 모듈이 만든다) 취소가 아닌 **모든** 버튼이
+        // 삭제를 실행하는 잠재 오동작이었다. switch는 새 키를 더할 때 여기서 걸린다.
+        ...(button.actionKey ? { onPress: () => runRowAction(button.actionKey!, entry) } : {})
       })),
       { cancelable: sheet.cancelable }
     );
   };
-  const handleRowAccessibilityAction = (event: AccessibilityActionEvent, entry: AppNotification) => {
+  /**
+   * 라운드 52 QA P3-3 — 스크린리더 커스텀 액션도 **확인 단계를 지난다.**
+   *
+   * 눈으로 쓰는 경로에서 한 줄 지우기는 롱프레스로 액션시트를 열고 그 안의 destructive 버튼을
+   * 누르는 두 단계다(액션시트 자체가 확인 단계라, 그래서 Alert을 한 번 더 겹치지 않는다 --
+   * src/notifications/notification-row-actions.ts). 그런데 커스텀 액션 메뉴에서 "이 알림
+   * 지우기"를 고르면 그 자리에서 **즉시** 지워졌다: 되돌릴 수 없는 동작(dedupe 키가 남아 같은
+   * 알림은 다시 오지 않는다)에서 시각 사용자에게만 안전장치가 있고 비시각 사용자에게는
+   * 없었다는 뜻이다.
+   *
+   * 그래서 같은 액션시트를 연다 -- 별도의 확인 Alert을 새로 만들면 두 경로의 문구가 갈릴 수
+   * 있고(이 화면이 액션 구성을 순수 모듈 한 곳에 두는 이유가 바로 그것이다), 액션시트는 이미
+   * "지운 알림은 다시 볼 수 없어요"를 말하고 취소 버튼을 내준다.
+   */
+  const handleRowAccessibilityAction = (
+    event: AccessibilityActionEvent,
+    entry: AppNotification,
+    rowTitle: string
+  ) => {
     // 이 행이 내놓지 않은 액션 이름(다른 화면의 액션, OS 표준 액션)은 무시한다.
-    if (resolveNotificationRowAction(event.nativeEvent.actionName, rowActions)) deleteNotification(entry);
+    if (!resolveNotificationRowAction(event.nativeEvent.actionName, rowActions)) return;
+    openRowActionSheet(entry, rowTitle);
   };
 
   const now = Date.now();
@@ -257,7 +291,7 @@ export default function NotificationsScreen() {
                   })}
                   accessibilityActions={notificationRowAccessibilityActions(rowActions)}
                   accessibilityHint={notificationRowAccessibilityHint(rowActions)}
-                  onAccessibilityAction={(event) => handleRowAccessibilityAction(event, entry)}
+                  onAccessibilityAction={(event) => handleRowAccessibilityAction(event, entry, rowTitle)}
                   onLongPress={() => openRowActionSheet(entry, rowTitle)}
                   onPress={() => {
                     markRead(entry.id);

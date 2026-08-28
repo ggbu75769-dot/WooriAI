@@ -94,10 +94,56 @@ describe("라운드 52 C-10 배선 (source verification -- 화면은 vitest에�
     expect(screenSource).toContain("onLongPress={() => openRowActionSheet(entry, rowTitle)}");
     expect(screenSource).toContain("accessibilityActions={notificationRowAccessibilityActions(rowActions)}");
     expect(screenSource).toContain("accessibilityHint={notificationRowAccessibilityHint(rowActions)}");
-    expect(screenSource).toContain("onAccessibilityAction={(event) => handleRowAccessibilityAction(event, entry)}");
+    expect(screenSource).toContain(
+      "onAccessibilityAction={(event) => handleRowAccessibilityAction(event, entry, rowTitle)}"
+    );
     // 항목·문구 구성은 순수 모듈에서 온다(화면이 문구를 다시 적지 않는다).
     expect(screenSource).toContain('from "../src/notifications/notification-row-actions"');
     expect(screenSource).not.toContain("이 알림 지우기");
+  });
+
+  /**
+   * 라운드 52 QA P3-2 — 액션시트 버튼 → 동작 매핑.
+   *
+   * 예전 배선은 `actionKey`가 **있기만 하면** 삭제를 실행했다. 동작이 하나뿐인 지금은 결과가
+   * 같지만, 항목이 늘어나는 순간 취소가 아닌 모든 버튼이 삭제를 실행한다 -- 되돌릴 수 없는
+   * 동작에서 가장 나쁜 종류의 잠재 오동작이다.
+   */
+  it("액션시트 버튼은 액션 키로 분기한다(비취소 버튼이 전부 삭제를 실행하지 않는다)", () => {
+    const screenSource = screen();
+    expect(screenSource).toContain("onPress: () => runRowAction(button.actionKey!, entry)");
+    expect(screenSource).toContain("const runRowAction = (actionKey: NotificationRowActionKey, entry: AppNotification) => {");
+    expect(screenSource).toContain("switch (actionKey) {");
+    expect(screenSource).toContain('case "delete":');
+    // 알 수 없는 키에서 파괴적 동작이 기본값이 되지 않는다.
+    const runBlock = screenSource.slice(
+      screenSource.indexOf("const runRowAction ="),
+      screenSource.indexOf("const openRowActionSheet =")
+    );
+    expect(runBlock).toContain("default:");
+    expect(runBlock.match(/deleteNotification\(entry\);/g) ?? []).toHaveLength(1);
+    // 액션 키 목록은 순수 모듈이 단일 소스다(화면이 자기 키를 지어내지 않는다).
+    expect(screenSource).toContain("type NotificationRowActionKey");
+  });
+
+  /**
+   * 라운드 52 QA P3-3 — 시각/비시각 안전장치 대칭.
+   *
+   * 눈으로 쓰는 경로는 롱프레스 → 액션시트 → destructive 버튼의 두 단계인데, 스크린리더
+   * 커스텀 액션은 고르는 즉시 지웠다. 되돌릴 수 없는 동작(dedupe 키가 남아 같은 알림은 다시
+   * 오지 않는다)에서 확인 단계가 한쪽에만 있으면 안 된다.
+   */
+  it("스크린리더 커스텀 액션도 삭제 전에 확인 경로(액션시트)를 지난다", () => {
+    const screenSource = screen();
+    const handler = screenSource.slice(
+      screenSource.indexOf("const handleRowAccessibilityAction = ("),
+      screenSource.indexOf("const now = Date.now();")
+    );
+    // 이 행이 내놓지 않은 액션 이름은 여전히 무시한다.
+    expect(handler).toContain("if (!resolveNotificationRowAction(event.nativeEvent.actionName, rowActions)) return;");
+    // 확인 없이 곧바로 지우지 않는다 -- 눈으로 쓰는 경로와 **같은** 액션시트를 연다.
+    expect(handler).toContain("openRowActionSheet(entry, rowTitle);");
+    expect(handler).not.toContain("deleteNotification(");
   });
 
   it("탭의 기본 동작(읽음 -> 점 제거 -> 이동)은 그대로다", () => {

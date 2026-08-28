@@ -31,11 +31,38 @@ import { useNotificationStore } from "./notification.store";
  * store.ts)도 persist라, 그 스토어가 올라오기 전에 평가하면 muted 목록이 빈 채로 읽혀 사용자가
  * 꺼 둔 알림이 콜드 스타트마다 한 번씩 새어 나온다(그리고 그 알림의 dedupeKey가 소모돼, 켜도
  * 그 달에는 다시 오지 않는 것처럼 보인다). 기존 rehydrate 대기와 같은 규율이다.
+ *
+ * 라운드 52 QA P3-5 — **rehydrate가 끝나지 않으면 평가가 영구 정지한다.**
+ *
+ * zustand persist는 저장소 읽기 자체가 실패하거나 저장된 JSON이 깨졌을 때 `onFinishHydration`을
+ * 아예 부르지 않고 `hasHydrated`도 세우지 않는다. 그러면 위 대기는 **영원히** 풀리지 않고, 이
+ * 앱에서 알림이 만들어지는 유일한 자리인 이 훅이 조용히 멎는다 — 예산 80%·100%, 시기 변화,
+ * 구매 확인, 주간 요약이 통째로 사라지고 사용자에게는 아무 단서도 없다(알림함은 그냥 비어
+ * 있다). app/index.tsx가 같은 실패 모드에 대해 3초 안전 밸브를 두는 이유와 정확히 같은
+ * 상황이라(그 화면의 hydration 폴백 주석), 같은 상수·같은 규율의 밸브를 여기에도 둔다.
+ *
+ * 밸브가 열리면 **평가는 진행하되 muted 기본값(= 전부 켬)으로** 돈다. 그 기본값은 스토어가
+ * 올라오지 않았을 때 `mutedTypes`가 실제로 갖는 값이고(빈 목록 — notification-preferences.
+ * store.ts는 "꺼진 것들"을 저장한다), 그래서 이 경로는 새 판단을 지어내지 않는다. 트레이드오프는
+ * 분명하다: **알림이 영영 오지 않는 것**과 **꺼 둔 종류가 한 번 새어 나오는 것** 중 뒤를 고른다 —
+ * 전자는 예산 초과를 놓치는 손실이고 후자는 되돌릴 수 있는 성가심이다. 밸브가 열리는 상황은
+ * 애초에 저장소를 읽지 못한 기기라, 그 사용자가 껐던 설정도 이미 읽을 수 없는 상태다.
  */
+/**
+ * rehydrate 안전 밸브의 유예 시간. app/index.tsx의 두 밸브(저장소 rehydrate · 서버 진행도 조회)와
+ * **같은 3초**다 — 같은 실패 모드를 다루는 자리가 서로 다른 상한을 갖지 않게.
+ */
+export const NOTIFICATION_HYDRATION_VALVE_MS = 3000;
+
 export function useHomeNotificationEvaluation(home: HomeSummary | undefined, weekly: WeeklySpendResolution) {
   useEffect(() => {
     if (!home) return;
+    // 밸브가 열린 뒤 늦게 도착한 rehydrate 콜백이 같은 평가를 한 번 더 돌리지 않게 한다
+    // (dedupe 덕에 결과는 같지만, 헛도는 작업을 만들지 않는다 -- 아래 storesHydrated와 같은 판단).
+    let evaluated = false;
     const evaluate = () => {
+      if (evaluated) return;
+      evaluated = true;
       const store = useNotificationStore.getState();
       const candidates = evaluateHomeNotifications({
         child: { id: home.child.id, nickname: home.child.nickname, stageLabel: home.child.stageLabel },
@@ -69,7 +96,11 @@ export function useHomeNotificationEvaluation(home: HomeSummary | undefined, wee
         if (storesHydrated()) evaluate();
       })
     ];
+    // QA P3-5: rehydrate가 끝나지 않는 기기(저장소 읽기 실패·저장본 손상)에서 평가가 영구
+    // 정지하지 않게 하는 밸브. 열리면 muted 기본값(전부 켬)으로 평가한다 -- 헤더 참고.
+    const valve = setTimeout(evaluate, NOTIFICATION_HYDRATION_VALVE_MS);
     return () => {
+      clearTimeout(valve);
       for (const unsubscribe of unsubscribes) unsubscribe();
     };
   }, [home, weekly]);

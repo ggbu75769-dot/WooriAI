@@ -148,6 +148,7 @@ describe("FIX-119B/F5 app/index.tsx 배선 (source verification -- ui-wiring.tes
   it("clear 이후는 MOB-116 복구가 이어받는다 -- 그 배선이 그대로 남아 있어야 한다", () => {
     const indexSourceText = indexSource();
     expect(indexSourceText).toContain("const clearSelectedChildId = useSelectedChildStore((state) => state.clearSelectedChildId);");
-    expect(indexSourceText).toContain("if (shouldAttemptSelectedChildRecovery(childRecoveryInput))");
+    // QA P3-4: 판정식은 그대로이고, 이름이 붙어 홀딩 판정의 인자가 됐다(cold-start-hold.test.ts).
+    expect(indexSourceText).toContain("const childRecoveryNeeded = shouldAttemptSelectedChildRecovery(childRecoveryInput);");
   });
 });

@@ -97,6 +97,13 @@ function yearMonthOf(date: Date) {
 export default function ReportsScreen() {
   const [period, setPeriod] = useState("월간");
   const [monthOffset, setMonthOffset] = useState(0);
+  /**
+   * 라운드 52 QA P1-1/P2-1 — 카테고리 드릴다운의 **탭 회차 카운터**.
+   *
+   * 착지 링크에 실려 기록 탭이 "이번에 새로 누른 것인가"를 판단하는 유일한 근거다. 화면 상태로만
+   * 살아 있고(세션 간 저장 없음), 표시되지도 서버로 나가지도 않는다.
+   */
+  const [drilldownNonce, setDrilldownNonce] = useState(0);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -389,10 +396,17 @@ export default function ReportsScreen() {
   //    문장 묶음까지 버튼으로 감싸면, TalkBack이 한 덩어리로 읽던 두 문장이 쪼개진다(UX-H가 공유
   //    버튼을 그룹 **형제**로 둔 것과 같은 이유).
   const openCategoryDrilldown = (categoryId: string | undefined) => {
-    const target = buildCategoryDrilldownTarget({ ...drilldownPeriod, categoryId });
+    // 라운드 52 QA P1-1/P2-1: 링크에 **이번 탭의 회차**를 함께 싣는다. 기록 탭은 값별 가드로
+    // 파라미터를 한 번만 적용하므로(가져오기 착지의 규칙), 회차가 없으면 "착지 월이 같은 다른
+    // 카테고리"는 월을 재적용하지 못하고 "같은 카테고리 다시 누르기"는 아무 일도 하지 않는다.
+    // 카운터는 이 화면이 들고 있는 단조 증가 state다 -- Date.now()가 아니라서 테스트에서
+    // 값이 고정되고, 같은 밀리초의 두 번째 탭도 반드시 다른 값을 받는다.
+    const nonce = drilldownNonce + 1;
+    const target = buildCategoryDrilldownTarget({ ...drilldownPeriod, categoryId, nonce });
     // 말이 되지 않는 값(id 없음·형식 어긋남)이면 아무 데도 가지 않는다 -- 엉뚱한 달/필터에
-    // 내려놓느니 누른 자리에 그대로 있는 편이 낫다.
+    // 내려놓느니 누른 자리에 그대로 있는 편이 낫다. 이동하지 않았으므로 회차도 올리지 않는다.
     if (!target) return;
+    setDrilldownNonce(nonce);
     router.push(target);
   };
 
@@ -444,6 +458,20 @@ export default function ReportsScreen() {
     todayIso: seoulToday
   });
   const activePoints = period === "월간" ? monthlyTrendPoints : periodTrend.points;
+  /**
+   * 라운드 52 QA P2-3 — 세션 경로에서 **장식선을 그리지 않는다.**
+   *
+   * LineChartCard는 점이 2개 미만이면 장식용 고정 좌표로 폴백한다(비세션 픽셀락 캡처를 위한
+   * 설계). 그 폴백이 세션 경로에서도 일어나서, 점 하나뿐인 기간에는 그럴듯한 우상향 선이
+   * 사용자의 기록인 척 그려졌다 — C-02가 미래 달 0원 절벽에서 없앤 것과 같은 종류의 거짓
+   * 신호다. 판정과 문구는 순수 모듈에 있고(periodTrend.chartNotice), 화면은 그 값이 있으면
+   * 점을 넘기지 않는다.
+   *
+   * 월간 탭은 이 판정을 거치지 않는다(getTrendReport는 언제나 6개월을 준다). 비세션 미리보기도
+   * 이 분기에 닿지 않는다 — 위쪽 `!hasSession` 가지의 LineChartCard는 손대지 않았다(REP-001).
+   * 아직 데이터가 없는 동안(로딩·실패)에도 chartNotice는 null이라 종전 렌더 그대로다.
+   */
+  const trendChartNotice = period === "월간" ? null : periodTrend.chartNotice;
 
   // UX-F: 월간 탭 상단 "이번 달 한 문장" 인사이트. 새 요청 없이 이 화면이 이미 받아 둔 집계값
   // (monthly 응답의 총액·예산·categoryTop + previousMonth 응답의 지난달 월 전체 합계)만 조합한다
@@ -694,7 +722,11 @@ export default function ReportsScreen() {
                 // 라운드 34 L1: 방향 행을 접은 달(인사이트가 이미 비교를 말했다)에도 델타를 되살리지
                 // 않는다 -- 되살리면 접은 이유였던 중복이 카드 안으로 옮겨 갈 뿐이다.
                 deltaLabel={trendDirection || insightSpokeComparison ? null : deltaLabel}
-                points={activePoints}
+                // 라운드 52 QA P2-3: 그릴 점이 모자라면 **점을 넘기지 않는다**. 넘기면 카드가
+                // 장식용 고정 좌표로 폴백해, 점 하나뿐인 기간(1월의 연간·분기 첫 달)에 그럴듯한
+                // 우상향 선이 사용자의 기록인 척 그려진다. 그 자리에는 사실 한 줄만 남긴다.
+                points={trendChartNotice ? undefined : activePoints}
+                chartNotice={trendChartNotice}
               />
 
               {/* C-02: 분기·연간 차트가 **어느 달까지**를 그린 것인지 한 줄로 말한다. 잘라 낸

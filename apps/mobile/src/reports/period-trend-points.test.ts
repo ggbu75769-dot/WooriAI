@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPeriodTrendPoints,
-  PERIOD_TREND_DECORATIVE_NOTE,
+  PERIOD_TREND_EMPTY_NOTICE,
   PERIOD_TREND_FUTURE_NOTE,
   PERIOD_TREND_MIN_REAL_POINTS
 } from "./period-trend-points";
@@ -38,6 +38,8 @@ describe("C-02 buildPeriodTrendPoints", () => {
     expect(result.caption).toBe("1~8월 기준");
     expect(result.accessibilityLabel).toBe("1~8월 기준");
     expect(result.rendersRealData).toBe(true);
+    // 실데이터 선을 그릴 수 있으면 차트 자리를 대체하지 않는다.
+    expect(result.chartNotice).toBeNull();
   });
 
   it("leaves a finished year alone -- its 0원 months really were 0원", () => {
@@ -51,8 +53,10 @@ describe("C-02 buildPeriodTrendPoints", () => {
     expect(result.points).toEqual(finishedYear);
     expect(result.truncated).toBe(false);
     expect(result.elapsedMonths).toBe(12);
-    // 기간 라벨은 남는다 -- 점 12개가 어느 달들인지 차트 아래에서 읽을 수 있어야 한다.
-    expect(result.caption).toBe("1~12월");
+    // QA P3-7: 기간 라벨은 남되 **자기 설명적**이어야 한다 -- 예전에는 "1~12월"이 아무 서술
+    // 없이 홀로 떠 있어, 무엇을 말하는 값인지(차트 범위인지 필터인지) 알 수 없었다.
+    expect(result.caption).toBe("1~12월 전체");
+    expect(result.accessibilityLabel).toBe("1~12월 전체");
   });
 
   it("truncates a quarter that is still running and keeps a finished quarter whole", () => {
@@ -71,10 +75,10 @@ describe("C-02 buildPeriodTrendPoints", () => {
     });
     expect(finished.points).toEqual([140_000, 96_000, 0]);
     expect(finished.truncated).toBe(false);
-    expect(finished.caption).toBe("4~6월");
+    expect(finished.caption).toBe("4~6월 전체");
   });
 
-  it("admits that the drawn line is decoration when fewer than two months have passed", () => {
+  it("draws an honest empty chart instead of a decorative line when fewer than two months have passed", () => {
     // 1월의 연간 탭: 점 하나만 남으므로 LineChartCard가 장식 좌표로 폴백한다(src/ui.tsx).
     const result = buildPeriodTrendPoints({
       startYearMonth: "2026-01",
@@ -86,9 +90,12 @@ describe("C-02 buildPeriodTrendPoints", () => {
     expect(result.points).toEqual([84_000]);
     expect(result.rendersRealData).toBe(false);
     expect(result.points!.length).toBeLessThan(PERIOD_TREND_MIN_REAL_POINTS);
-    expect(result.caption).toBe(`1월 기준 · ${PERIOD_TREND_DECORATIVE_NOTE}`);
-    // 소리로는 "·" 대신 쉼표.
-    expect(result.accessibilityLabel).toBe(`1월 기준, ${PERIOD_TREND_DECORATIVE_NOTE}`);
+    // QA P2-3: 사실은 차트 **자리**가 말한다 -- 장식선을 그려 놓고 아래 줄에서 해명하지 않는다.
+    expect(result.chartNotice).toBe(PERIOD_TREND_EMPTY_NOTICE);
+    expect(PERIOD_TREND_EMPTY_NOTICE).toBe("기록이 두 달 이상 쌓이면 추이를 보여드려요");
+    // 캡션에는 어느 달까지인지만 남는다(같은 사실을 두 번 말하지 않는다).
+    expect(result.caption).toBe("1월 기준");
+    expect(result.accessibilityLabel).toBe("1월 기준");
   });
 
   it("changes nothing while the data has not arrived (loading / error / no session)", () => {
@@ -98,6 +105,8 @@ describe("C-02 buildPeriodTrendPoints", () => {
       expect(result.caption).toBeNull();
       expect(result.accessibilityLabel).toBeNull();
       expect(result.rendersRealData).toBe(false);
+      // 아직 데이터가 없는 동안에는 차트 자리도 종전 그대로다(로딩 중에 빈 상태를 띄우지 않는다).
+      expect(result.chartNotice).toBeNull();
     }
   });
 
@@ -130,7 +139,9 @@ describe("C-02 buildPeriodTrendPoints", () => {
     expect(result.points).toEqual([]);
     expect(result.elapsedMonths).toBe(0);
     expect(result.rangeLabel).toBeNull();
-    expect(result.caption).toBe(PERIOD_TREND_FUTURE_NOTE);
+    // 지나간 달이 하나도 없는 기간은 이유가 달라 문구도 다르다.
+    expect(result.chartNotice).toBe(PERIOD_TREND_FUTURE_NOTE);
+    expect(result.caption).toBeNull();
     expect(result.rendersRealData).toBe(false);
   });
 

@@ -5,7 +5,7 @@ import { trackAndFlushAnalyticsEvent } from "../src/analytics/client";
 import { LOCAL_SESSION_TOKEN } from "../src/api/client";
 import { localChildId, useLocalBackendStore } from "../src/api/local-backend";
 import { shouldShowSessionExpiredNotice } from "../src/offline/session-expiry";
-import { COLD_START_HOLD_COPY, type ColdStartHoldReason } from "../src/onboarding/cold-start-hold";
+import { COLD_START_HOLD_COPY, coldStartHoldReason, type ColdStartHoldReason } from "../src/onboarding/cold-start-hold";
 import { fetchOnboardingProgressForSelectedChild } from "../src/onboarding/onboarding-progress-scope";
 import { hasResumeWorthyProgress } from "../src/onboarding/resume";
 import {
@@ -283,13 +283,38 @@ export default function IndexScreen() {
   const childRecoveryInput = { hydrated, isTestSession, accessToken, hasReachedHome, selectedChildId };
   const childRecovery = useSelectedChildRecovery(childRecoveryInput, { setSelectedChildId, resetOnboarding });
 
-  if (process.env.EXPO_PUBLIC_PIXEL_LOCK === "1") {
+  /**
+   * 라운드 52 QA P3-4 — 홀딩 판정의 **단일 소스를 실제로 부른다.**
+   *
+   * C-09는 "어떤 상태에서 홀딩 뷰를 그리고 그때 이유가 무엇인가"를 순수 모듈에 값으로 고정해
+   * 두었지만(coldStartHoldReason), 이 화면은 그 함수를 부르지 않고 세 자리에 이유 리터럴을
+   * 직접 적었다. 즉 판정표가 두 벌이었고, 한쪽만 바뀌어도 아무 테스트가 깨지지 않는다 --
+   * 모듈은 "문서"일 뿐 배선이 아니었다. 이제 화면이 그 함수 하나로 이유를 얻고, 아래 세 자리는
+   * 그 결과를 그대로 쓴다.
+   *
+   * **분기 순서와 조건식은 그대로다.** 모듈의 검사 순서가 이 화면의 순서와 같으므로(픽셀락 →
+   * rehydrate → 로그아웃 → 아이 복구 → 진행도 조회), 각 자리에서 이 값은 예전에 그 자리가
+   * 적고 있던 리터럴과 정확히 같은 값이다. 리다이렉트 목적지·복구 안내 카드·에러 카드는
+   * 한 줄도 바뀌지 않는다.
+   */
+  const pixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
+  const childRecoveryNeeded = shouldAttemptSelectedChildRecovery(childRecoveryInput);
+  const holdReason = coldStartHoldReason({
+    pixelLockMode,
+    hydrated,
+    loggedOut: !accessToken && !isTestSession,
+    // 에러 상태는 홀딩이 아니다 -- 재시도 버튼이 있는 카드를 그린다(아래).
+    childRecoveryPending: childRecoveryNeeded && childRecovery.status !== "error",
+    onboardingProgressPending: !hasReachedHome && Boolean(progressToken) && progressFetch !== "done"
+  });
+
+  if (pixelLockMode) {
     return <Redirect href="/pixel-lock?screen=HOME-001" />;
   }
 
-  if (!hydrated) {
+  if (holdReason === "hydration") {
     // C-09: 예전의 `return null`. 판정(무엇을 기다리는가)은 그대로이고 그리는 것만 바뀌었다.
-    return <ColdStartHoldView reason="hydration" />;
+    return <ColdStartHoldView reason={holdReason} />;
   }
 
   if (!accessToken && !isTestSession) {
@@ -307,24 +332,25 @@ export default function IndexScreen() {
   // selectedChildId; no-child clears hasReachedHome), so only the in-flight and error states
   // ever render here -- and the hook's internal timeout valve guarantees the in-flight null
   // cannot outlive the grace period, so no infinite spinner/blank is possible.
-  if (shouldAttemptSelectedChildRecovery(childRecoveryInput)) {
-    if (childRecovery.status === "error") {
-      return (
-        <AppScreen>
-          <View testID="screen-child-recovery-error" style={{ gap: theme.spacing.section }}>
-            <Card style={{ gap: 10 }}>
-              <Text style={{ color: theme.colors.danger }}>
-                아이 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.
-              </Text>
-              <SecondaryButton label="다시 시도" onPress={childRecovery.retry} />
-            </Card>
-          </View>
-        </AppScreen>
-      );
-    }
+  if (childRecoveryNeeded && childRecovery.status === "error") {
+    return (
+      <AppScreen>
+        <View testID="screen-child-recovery-error" style={{ gap: theme.spacing.section }}>
+          <Card style={{ gap: 10 }}>
+            <Text style={{ color: theme.colors.danger }}>
+              아이 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.
+            </Text>
+            <SecondaryButton label="다시 시도" onPress={childRecovery.retry} />
+          </Card>
+        </View>
+      </AppScreen>
+    );
+  }
+
+  if (holdReason === "child-recovery") {
     // C-09: 복구가 도는 동안(에러가 아닌 진행 중). 위 주석대로 이 대기는 훅의 3초 밸브가
     // 상한을 갖고 있고, 이제 그 3초가 흰 화면이 아니라 홀딩 뷰다.
-    return <ColdStartHoldView reason="child-recovery" />;
+    return <ColdStartHoldView reason={holdReason} />;
   }
 
   // R19-C(F1): 복구가 다자녀 중 첫째를 골라준 경우의 안내. 이 시점에는 selectedChildId가 이미
@@ -356,10 +382,12 @@ export default function IndexScreen() {
     // 문자 그대로 유지하기 위해서다 -- 토큰이 없으면 조회가 돌지 않으므로 기다릴 대상도
     // 없다(지금 이 지점에 토큰 없이 도달하는 경로는 없지만, 위 로그아웃 분기가 바뀌어도
     // 빈 화면으로 굳지 않는다).
-    if (progressToken && progressFetch !== "done") {
+    if (holdReason === "onboarding-progress") {
       // C-09: 두 대기 상태("idle"·"loading")를 함께 붙잡는 계약은 그대로다 — 그 사이에 흰
-      // 화면 대신 홀딩 뷰를 그린다.
-      return <ColdStartHoldView reason="onboarding-progress" />;
+      // 화면 대신 홀딩 뷰를 그린다. 조건식은 위 `onboardingProgressPending`에 그대로 있다
+      // (`!hasReachedHome && progressToken && progressFetch !== "done"`) — 이 자리가 이미
+      // `!hasReachedHome` 안이므로 두 표현은 같은 값이다.
+      return <ColdStartHoldView reason={holdReason} />;
     }
     if (hasResumeTarget) {
       return <Redirect href="/onboarding/resume" />;

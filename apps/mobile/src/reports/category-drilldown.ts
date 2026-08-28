@@ -30,7 +30,32 @@
  * 하나만 있던 시절에는 파싱 규칙이 두 파일에 흩어져 있었고, 그 상태로 `categoryId`를 더하면
  * "리포트는 보냈는데 기록 탭이 못 읽는" 조합이 생긴다. 읽기 쪽 방어는
  * `resolveDrilldownCategoryIdParam` 하나뿐이다 — 형식이 어긋난 값은 통째로 무시한다.
+ *
+ * ## 라운드 52 QA P1-1/P2-1 — 왜 nonce가 필요한가
+ * 기록 탭은 딥링크 파라미터를 **값이 바뀔 때 한 번만** 적용한다(라운드 51 C-#11의 appliedRef
+ * 관례). 가져오기 착지에는 그 규칙이 맞다 — 사용자가 ‹ 로 옮겨 둔 달을 재렌더가 되돌리면 안
+ * 되기 때문이다. 그런데 드릴다운은 파라미터가 **둘**이고, 각자 자기 값만 보고 가드하는 순간
+ * 두 구멍이 생겼다.
+ *
+ *  - **P1-1**: 8월에 연간 탭에서 A 카테고리를 눌러 착지 → 기록 탭에서 ‹ 로 6월을 보다가 →
+ *    다시 리포트에서 B 카테고리를 누르면, `categoryId`만 바뀌고 `month`는 같은 "2026-08"이라
+ *    월이 재적용되지 않는다. 화면은 6월에 선 채 B 필터만 걸리고, 카드가 누르기 전에 한
+ *    **"2026년 8월 기록을 보여드려요"** 약속이 깨진다(= 사용자가 보는 숫자와 방금 본 비중이
+ *    다른 달의 것이다).
+ *  - **P2-1**: 같은 카테고리를 다시 누르면 두 값 모두 그대로라 **아무 일도 일어나지 않는다.**
+ *    필터를 "전체"로 풀어 둔 뒤 다시 눌러도 마찬가지다 — 버튼이 죽은 것처럼 보인다.
+ *
+ * 그래서 링크에 **누를 때마다 달라지는 값**(nonce)을 하나 더 싣고, 기록 탭은 그 nonce가 바뀌면
+ * `month`와 `categoryId`를 **한 묶음으로** 다시 적용한다. nonce는 리포트 화면이 들고 있는 단조
+ * 증가 카운터다 — `Date.now()`가 아니다: 시계에 기대면 같은 밀리초의 두 번째 탭이 조용히 무시되고,
+ * 무엇보다 테스트에서 값이 고정되지 않는다(이 앱의 순수 모듈 관례가 시계를 인자로 받는 것과 같은
+ * 이유다).
+ *
+ * **가져오기 경로는 그대로다**: nonce가 없는 링크(`month`만 실은 app/import/[importJobId].tsx)는
+ * 종전 가드 그대로 동작한다 — 이 라운드가 바꾸는 것은 nonce가 실린 링크뿐이다.
  */
+
+import { RECORDS_MONTH_PARAM } from "../expenses/import-landing-month";
 
 const YEAR_MONTH_PATTERN = /^\d{4}-\d{2}$/;
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -47,12 +72,30 @@ export const RECORDS_TAB_PATHNAME = "/(tabs)/records";
  */
 const CATEGORY_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
+/**
+ * 드릴다운 착지 회차를 싣는 파라미터 이름.
+ *
+ * 값은 숫자 문자열이고 **의미는 "몇 번째 탭인가" 하나뿐이다** — 기록 탭은 이 값을 표시하지도,
+ * 저장하지도, 서버에 보내지도 않는다. 바뀌었는지만 본다.
+ */
+export const RECORDS_DRILLDOWN_NONCE_PARAM = "drilldown";
+
+/** nonce로 실을 수 있는 값의 형태. 딥링크로 들어온 긴 쓰레기 값이 눌러앉지 않게 자릿수를 묶는다. */
+const DRILLDOWN_NONCE_PATTERN = /^\d{1,12}$/;
+
 export type CategoryDrilldownTarget = {
   pathname: typeof RECORDS_TAB_PATHNAME;
+  /**
+   * 키 이름은 **상수에서 온다**(라운드 52 QA P3-6). 예전에는 이 타입과 아래 빌더가 `"month"`를
+   * 각자 문자열로 적어, 가져오기 착지가 쓰는 `RECORDS_MONTH_PARAM`과 이중 소스였다 — 한쪽만
+   * 바뀌면 리포트는 보내는데 기록 탭이 못 읽는 조합이 조용히 생긴다.
+   */
   params: {
     /** 착지 월 "YYYY-MM" — 기록 탭의 기존 month 파라미터 규약 그대로(라운드 51 C-#11). */
-    month: string;
+    [RECORDS_MONTH_PARAM]: string;
     categoryId: string;
+    /** 이번 탭의 회차. 기록 탭은 이 값이 바뀌면 위 둘을 한 묶음으로 다시 적용한다. */
+    [RECORDS_DRILLDOWN_NONCE_PARAM]: string;
   };
 };
 
@@ -112,14 +155,29 @@ export function isDrilldownCategoryId(value: unknown): value is string {
 
 /**
  * 리포트가 누른 범례 한 줄 → 기록 탭으로 가는 링크. 말이 되지 않으면 null(화면은 이동하지 않는다).
+ *
+ * `nonce`는 **이번 탭의 회차**다(리포트 화면의 단조 증가 카운터). 착지 월·카테고리가 지난번과
+ * 똑같아도 이 값이 달라지므로, 기록 탭이 "같은 값이니 할 일 없음"으로 넘기지 않는다.
+ * 정수가 아니면 링크를 만들지 않는다 — 읽는 쪽이 무시할 값을 실어 보내면 착지가 조용히
+ * 종전 가드로 되돌아가고, 그건 이 라운드가 고친 바로 그 증상이다.
  */
 export function buildCategoryDrilldownTarget(
-  input: CategoryDrilldownPeriod & { categoryId: string | null | undefined }
+  input: CategoryDrilldownPeriod & { categoryId: string | null | undefined; nonce: number }
 ): CategoryDrilldownTarget | null {
   if (!isDrilldownCategoryId(input.categoryId)) return null;
+  if (!Number.isInteger(input.nonce) || input.nonce < 0) return null;
   const month = resolveDrilldownMonth(input);
   if (month === null) return null;
-  return { pathname: RECORDS_TAB_PATHNAME, params: { month, categoryId: input.categoryId } };
+  const nonce = String(input.nonce);
+  if (!DRILLDOWN_NONCE_PATTERN.test(nonce)) return null;
+  return {
+    pathname: RECORDS_TAB_PATHNAME,
+    params: {
+      [RECORDS_MONTH_PARAM]: month,
+      categoryId: input.categoryId,
+      [RECORDS_DRILLDOWN_NONCE_PARAM]: nonce
+    }
+  };
 }
 
 /**
@@ -162,4 +220,20 @@ export function categoryDrilldownNote(landingMonth: string, monthCount: number):
 export function resolveDrilldownCategoryIdParam(raw: string | string[] | undefined | null): string | null {
   const value = Array.isArray(raw) ? raw[0] : raw;
   return isDrilldownCategoryId(value) ? value : null;
+}
+
+/**
+ * 기록 탭이 받은 `drilldown`(회차) 파라미터.
+ *
+ * 배열이면 첫 값만 본다(`month`·`categoryId`와 같은 관례). 숫자 문자열이 아니면 null이고,
+ * 그때 화면은 **nonce가 없던 때와 똑같이** 동작한다 — 즉 값별 가드(가져오기 착지의 규칙)로
+ * 떨어질 뿐, 엉뚱한 재적용을 만들지 않는다.
+ *
+ * 비교는 **문자열 그대로** 한다(숫자로 바꾸지 않는다). 기록 탭이 알아야 하는 것은 "지난번과
+ * 다른가" 하나뿐이고, 크기를 비교하는 순간 "더 작은 nonce는 무시" 같은 규칙이 생겨 화면 두
+ * 곳이 카운터의 의미에 합의해야 한다.
+ */
+export function resolveDrilldownNonceParam(raw: string | string[] | undefined | null): string | null {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" && DRILLDOWN_NONCE_PATTERN.test(value) ? value : null;
 }

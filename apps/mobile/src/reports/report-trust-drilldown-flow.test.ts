@@ -46,6 +46,38 @@ describe("C-02 분기·연간 추이의 미래 달 절벽", () => {
     expect(reportSource).toContain('<LineChartCard title="총 지출" value={formatKrw(monthlyTotal)} />');
     expect(reportSource).toContain('<DonutChartCard title="카테고리 비중" />');
   });
+
+  /**
+   * 라운드 52 QA P2-3 — 점 하나짜리 기간의 **가짜 장식 추이선**.
+   *
+   * LineChartCard는 점이 2개 미만이면 장식용 고정 좌표로 폴백한다(비세션 픽셀락 캡처를 위한
+   * 설계). 세션 경로에서도 그 폴백이 일어나 1월의 연간 탭·분기 첫 달에 그럴듯한 우상향 선이
+   * 사용자의 기록인 척 그려졌다. 이제 그 자리에는 사실 한 줄만 남는다.
+   */
+  it("hands the chart an honest empty state instead of the decorative line (session path)", () => {
+    expect(reportSource).toContain("const trendChartNotice = period === \"월간\" ? null : periodTrend.chartNotice;");
+    // 점 자체를 넘기지 않는다 -- 넘기면 카드가 다시 장식 좌표로 폴백한다.
+    expect(reportSource).toContain("points={trendChartNotice ? undefined : activePoints}");
+    expect(reportSource).toContain("chartNotice={trendChartNotice}");
+
+    // 비세션 장식 분기는 이 prop에 닿지 않는다(REP-001 픽셀락).
+    const previewBranch = reportSource.slice(
+      reportSource.indexOf("{!hasSession ? ("),
+      reportSource.indexOf(") : activeIsLoading ? (")
+    );
+    expect(previewBranch).not.toContain("chartNotice");
+
+    // 카드는 빈 상태에서 선·점·격자를 통째로 비우고, 읽히는 라벨도 "추이 차트"가 아니다.
+    const uiSource = source("src/ui.tsx");
+    const chartBlock = uiSource.slice(
+      uiSource.indexOf("export function LineChartCard"),
+      uiSource.indexOf("const categoryShareBarHeight")
+    );
+    expect(chartBlock).toContain("const activePoints = noticeText ? [] : drawnPoints;");
+    expect(chartBlock).toContain("const gridLineTops = noticeText ? [] : [25, 50, 75];");
+    expect(chartBlock).toContain("`${title} 합계 ${value}, ${noticeText}`");
+    expect(chartBlock).toContain('testID={noticeText ? "line-chart-empty-notice" : undefined}');
+  });
 });
 
 describe("C-03 리포트 → 기록 드릴다운", () => {
@@ -62,7 +94,8 @@ describe("C-03 리포트 → 기록 드릴다운", () => {
     expect(reportSource).toContain('from "../../src/reports/category-drilldown"');
     expect(reportSource).toContain("onSelect={(slice) => openCategoryDrilldown(slice.categoryId)}");
     expect(reportSource).toContain("selectHint={drilldownHint}");
-    expect(reportSource).toContain("buildCategoryDrilldownTarget({ ...drilldownPeriod, categoryId })");
+    // QA P1-1/P2-1: 링크에는 이번 탭의 회차가 함께 실린다(category-drilldown.test.ts가 규칙을 진다).
+    expect(reportSource).toContain("buildCategoryDrilldownTarget({ ...drilldownPeriod, categoryId, nonce })");
     // 착지 월을 누르기 전에 말한다(분기·연간에서만 보이는 줄).
     expect(reportSource).toContain('testID="reports-category-drilldown-note"');
   });
@@ -89,7 +122,9 @@ describe("C-03 리포트 → 기록 드릴다운", () => {
 
   it("applies the categoryId param exactly once, with the same appliedRef convention as month", () => {
     expect(recordsSource).toContain('from "../../src/reports/category-drilldown"');
-    expect(recordsSource).toContain("useLocalSearchParams<{ month?: string; categoryId?: string }>()");
+    expect(recordsSource).toContain(
+      "useLocalSearchParams<{ month?: string; categoryId?: string; drilldown?: string }>()"
+    );
     expect(recordsSource).toContain("resolveDrilldownCategoryIdParam(categoryIdParam)");
     expect(recordsSource).toContain("const appliedCategoryParamRef = useRef<string | undefined>(categoryIdParam);");
     expect(recordsSource).toContain("if (appliedCategoryParamRef.current === categoryIdParam) return;");

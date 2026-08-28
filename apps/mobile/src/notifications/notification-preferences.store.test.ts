@@ -182,6 +182,32 @@ describe("라운드 52 C-08 화면·훅 배선 (source verification -- 화면은
     expect(hookSource).toContain("useNotificationPreferencesStore.persist.onFinishHydration");
   });
 
+  /**
+   * 라운드 52 QA P3-5 — 그 대기가 **영원히** 풀리지 않는 기기.
+   *
+   * zustand persist는 저장소 읽기가 실패하거나 저장본이 깨졌을 때 onFinishHydration을 부르지도,
+   * hasHydrated를 세우지도 않는다. 밸브가 없으면 이 앱에서 알림이 만들어지는 **유일한 자리**가
+   * 조용히 멎어, 예산 초과조차 알려주지 못한 채 알림함이 그냥 비어 있게 된다.
+   */
+  it("rehydrate가 끝나지 않아도 3초 뒤에는 평가가 진행된다(muted 기본값 = 전부 켬)", async () => {
+    const hookSource = source("src/notifications/useHomeNotificationEvaluation.ts");
+    // app/index.tsx의 두 밸브와 같은 상수·같은 규율(3초).
+    expect(hookSource).toContain("export const NOTIFICATION_HYDRATION_VALVE_MS = 3000;");
+    expect(hookSource).toContain("const valve = setTimeout(evaluate, NOTIFICATION_HYDRATION_VALVE_MS);");
+    // 언마운트/재실행 시 타이머를 반드시 정리한다(사라진 화면에서 평가가 깨어나지 않게).
+    expect(hookSource).toContain("clearTimeout(valve);");
+    // 밸브가 열린 뒤 늦게 도착한 rehydrate 콜백이 같은 평가를 두 번 돌리지 않는다.
+    expect(hookSource).toContain("let evaluated = false;");
+    expect(hookSource).toContain("if (evaluated) return;");
+
+    const { NOTIFICATION_HYDRATION_VALVE_MS } = await import("./useHomeNotificationEvaluation");
+    expect(NOTIFICATION_HYDRATION_VALVE_MS).toBe(3000);
+
+    // 밸브가 열렸을 때 읽히는 muted 목록은 **스토어의 기본값**이다 -- 새 판단을 지어내지 않고,
+    // 그 기본값이 "전부 켬"이라는 사실은 이 파일의 다른 테스트가 이미 고정한다.
+    expect(useNotificationPreferencesStore.getInitialState().mutedTypes).toEqual([]);
+  });
+
   it("설정 화면이 5종 스위치를 푸시 카드 위에 그린다", () => {
     const screenSource = source("app/settings/notifications.tsx");
     expect(screenSource).toContain("NOTIFICATION_TYPE_OPTIONS.map((option)");

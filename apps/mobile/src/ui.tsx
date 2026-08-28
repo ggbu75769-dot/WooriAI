@@ -688,16 +688,30 @@ const donutSegmentPalette = [
   theme.colors.gray300
 ] as const;
 
+/**
+ * 라운드 52 QA P2-3 — `chartNotice`.
+ *
+ * 이 카드는 `points`가 2개 미만이면 **장식용 고정 좌표**로 폴백한다(비세션 픽셀락 캡처를 위한
+ * 설계). 세션 경로에서도 그 폴백이 일어나서, 실제로는 점 하나뿐인 달에 그럴듯한 우상향 선이
+ * 사용자의 기록인 척 그려졌다. `chartNotice`를 넘기면 그 자리에 선 대신 사실 한 줄을 그린다 —
+ * 판정과 문구는 호출부의 순수 모듈(src/reports/period-trend-points.ts)에 있다.
+ *
+ * 이 prop을 **넘기지 않으면 종전 렌더 그대로**다: 비세션 미리보기(REP-001 픽셀락)와 월간 탭은
+ * 이 분기에 닿지 않는다.
+ */
 export function LineChartCard({
   title,
   value,
   deltaLabel,
-  points
+  points,
+  chartNotice
 }: {
   title: string;
   value: string;
   deltaLabel?: string | null;
   points?: number[];
+  /** 차트 자리에 선 대신 그릴 한 줄. 없으면(undefined/null) 종전 그대로 선을 그린다. */
+  chartNotice?: string | null;
 }) {
   const showDelta = deltaLabel !== null;
   // deltaLabel undefined means no real comparison data -- the visible "+12.5%" is preview-only
@@ -709,11 +723,16 @@ export function LineChartCard({
   // the fixed decorative points/segments untouched so the no-session preview render (pixel-lock
   // capture) stays byte-for-byte identical to before.
   const hasRealData = Array.isArray(points) && points.length >= 2;
+  // QA P2-3: 빈 상태 한 줄이 오면 선(실데이터든 장식이든)을 아예 그리지 않는다.
+  const noticeText = typeof chartNotice === "string" && chartNotice.trim().length > 0 ? chartNotice : null;
   const [measuredWidth, setMeasuredWidth] = useState(lineChartFallbackWidth);
-  const activePoints = hasRealData
+  const drawnPoints = hasRealData
     ? normalizeLineChartPoints(points!, measuredWidth, lineChartHeight, lineChartPaddingTop, lineChartPaddingBottom)
     : lineChartPoints;
-  const activeSegments = hasRealData ? lineChartSegmentsFor(activePoints) : lineChartSegments;
+  // QA P2-3: 빈 상태에서는 격자·선·점을 통째로 비운다(장식선이 남아 있으면 고친 것이 없다).
+  const activePoints = noticeText ? [] : drawnPoints;
+  const activeSegments = noticeText ? [] : hasRealData ? lineChartSegmentsFor(drawnPoints) : lineChartSegments;
+  const gridLineTops = noticeText ? [] : [25, 50, 75];
 
   return (
     <Card style={{ gap: 8 }}>
@@ -737,11 +756,34 @@ export function LineChartCard({
         // element that announces a Korean summary (total + real delta only; the preview-only
         // fake delta never enters the label).
         accessible
-        accessibilityLabel={`${title} 추이 차트, 합계 ${value}${hasRealDelta ? `, 지난 달 대비 ${deltaText}` : ""}`}
-        onLayout={hasRealData ? (event) => setMeasuredWidth(event.nativeEvent.layout.width) : undefined}
-        style={{ backgroundColor: "#FFF4EE", borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }}
+        // QA P2-3: 선을 그리지 않는 카드는 "추이 차트"라고 읽히면 안 된다 -- 보이는 것과 읽히는
+        // 것이 갈리지 않게, 빈 상태에서는 그 자리에 실제로 쓰인 문장을 그대로 읽는다.
+        accessibilityLabel={
+          noticeText
+            ? `${title} 합계 ${value}, ${noticeText}`
+            : `${title} 추이 차트, 합계 ${value}${hasRealDelta ? `, 지난 달 대비 ${deltaText}` : ""}`
+        }
+        onLayout={!noticeText && hasRealData ? (event) => setMeasuredWidth(event.nativeEvent.layout.width) : undefined}
+        style={
+          noticeText
+            ? {
+                alignItems: "center",
+                backgroundColor: "#FFF4EE",
+                borderRadius: 14,
+                height: 104,
+                justifyContent: "center",
+                marginTop: 2,
+                overflow: "hidden",
+                paddingHorizontal: 16
+              }
+            : { backgroundColor: "#FFF4EE", borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }
+        }
+        testID={noticeText ? "line-chart-empty-notice" : undefined}
       >
-        {[25, 50, 75].map((top) => (
+        {noticeText ? (
+          <Text style={[textStyles.caption, { color: theme.colors.gray600, textAlign: "center" }]}>{noticeText}</Text>
+        ) : null}
+        {gridLineTops.map((top) => (
           <View key={top} style={{ backgroundColor: "rgba(255, 107, 82, 0.08)", height: 1, left: 0, position: "absolute", right: 0, top }} />
         ))}
         {activeSegments.map((segment, index) => (

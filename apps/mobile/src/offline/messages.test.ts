@@ -268,20 +268,47 @@ describe("UX/C-07 저장 실패 문구", () => {
     }
   });
 
-  it("두 화면이 옛 리터럴 대신 이 단일 소스를 쓰고, 실패 시점에 연결을 확인한다", () => {
+  /**
+   * 라운드 52 QA P3-1 — 두 화면의 손배선을 공용 훅으로 모았다.
+   *
+   * 예전에는 각 화면의 `onError`가 직접 `isCurrentlyOnline().then(setState)`를 띄웠다. 저장
+   * 실패 직후 화면을 떠나면(가장 흔한 반응) 사라진 화면에 setState가 걸리고, 연달아 실패하면
+   * 늦게 도착한 옛 판정이 최신 판정을 덮어쓸 수 있었으며, 한 번 오프라인 문구가 된 상태는
+   * 연결이 돌아와도 복원되지 않았다. 조회 실패 카드(useLoadErrorCopy)가 이미 cancelled
+   * 패턴으로 해결해 둔 문제들이라, 같은 파일의 같은 패턴을 쓰는 훅 하나로 모은다.
+   */
+  it("두 화면이 옛 리터럴 대신 공용 훅을 쓰고, 그 훅이 실패 시점에 연결을 확인한다", () => {
     for (const path of ["app/budget.tsx", "app/settings/children.tsx"] as const) {
       const screenSource = source(path);
-      expect(screenSource, `${path} imports the shared copy`).toContain('src/offline/messages"');
-      expect(screenSource, `${path} resolves the copy`).toContain("resolveSaveErrorCopy({ isOnline })");
-      expect(screenSource, `${path} probes connectivity`).toContain("isCurrentlyOnline()");
+      expect(screenSource, `${path} uses the shared hook`).toContain("useSaveErrorCopy(");
+      expect(screenSource, `${path} imports it from the shared wiring layer`).toContain(
+        'src/offline/use-load-error-copy"'
+      );
+      // 화면이 직접 폴을 띄우지 않는다 -- 그 자리가 언마운트·레이스 구멍이었다.
+      expect(screenSource, `${path} must not poll connectivity by hand`).not.toContain("isCurrentlyOnline()");
       // 재발 방지: 고정 문구가 다시 인라인되면 오프라인에서 틀린 안내가 돌아온다.
       expect(screenSource, `${path} must not inline the old copy again`).not.toContain(
         '"저장하지 못했어요. 잠시 후 다시 시도해 주세요."'
       );
     }
 
+    // 판정은 훅 한 곳에서 순수 함수로 내려온다.
+    const hookSource = source("src/offline/use-load-error-copy.ts");
+    expect(hookSource).toContain("export function useSaveErrorCopy(isError: boolean): string {");
+    expect(hookSource).toContain("resolveSaveErrorCopy({ isOnline: useErrorTimeConnectivity(isError) })");
+    // 조회·저장 두 훅이 **같은** cancelled 패턴 하나를 공유한다(사본이 다시 갈라지지 않게).
+    expect(hookSource.match(/let cancelled = false;/g) ?? []).toHaveLength(1);
+    expect(hookSource).toContain("if (!cancelled) setIsOnline(online);");
+    expect(hookSource).toContain("cancelled = true;");
+    // 에러가 풀리면 판정이 초기값으로 복원된다(연결이 돌아온 뒤의 실패를 오프라인이라 하지 않는다).
+    expect(hookSource).toContain("if (!isError) {");
+
     // 예산 화면은 토스트 한 곳, 아이 관리 화면은 세 뮤테이션(편집·출생 전환·추가)이 같은 자리를 쓴다.
     expect(source("app/budget.tsx")).toContain("<Toast message={saveErrorText} tone=\"error\" />");
-    expect(source("app/settings/children.tsx").match(/onError: reportSaveFailure/g) ?? []).toHaveLength(3);
+    expect(source("app/budget.tsx")).toContain("const saveErrorText = useSaveErrorCopy(save.isError);");
+    expect(source("app/settings/children.tsx")).toContain(
+      "const saveFailedText = useSaveErrorCopy(saveEdit.isError || markChildBorn.isError || addChild.isError);"
+    );
+    expect(source("app/settings/children.tsx").match(/\{saveFailedText\}/g) ?? []).toHaveLength(3);
   });
 });
