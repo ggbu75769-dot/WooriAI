@@ -10,6 +10,9 @@ import { EXPORT_MAX_ROWS } from "./expense-csv";
  * by looping that same function month by month. The fetcher is injected so this module stays
  * pure/testable and never imports the network client at runtime.
  *
+ * Every range is collected **newest month first** (GAP-056 #9), so a run that hits the row cap
+ * keeps the most recent history and drops the oldest. The returned list is still sorted ascending.
+ *
  * Ranges:
  * - "month" (이번 달): just the current Seoul yearMonth.
  * - "year" (올해): January of the current Seoul year through the current month.
@@ -240,7 +243,12 @@ export type MonthExpenseFetcher = (yearMonth: string) => Promise<Expense[]>;
 export type CollectExpensesResult = {
   /** Expenses sorted by spentOn ascending (stable). */
   expenses: Expense[];
-  /** True when the EXPORT_MAX_ROWS cap dropped rows. */
+  /**
+   * True when the EXPORT_MAX_ROWS cap dropped rows.
+   *
+   * GAP-056 #9 이후 **네 구간 모두 최신 달부터** 모으므로, 이 플래그가 켜졌을 때 빠진 것은
+   * 언제나 **오래된 쪽**이다. 화면 문구가 그 방향을 그대로 말할 수 있는 근거가 여기다.
+   */
   truncated: boolean;
   /** Number of yearMonth pages fetched (diagnostics/tests). */
   monthsFetched: number;
@@ -255,6 +263,9 @@ function previousYearMonth(yearMonth: string): string {
 
 /**
  * Chronological (ascending) yearMonth pages for the closed-form ranges.
+ *
+ * 목록 자체는 오름차순 그대로다 — 요청 순서는 수집기가 정한다(GAP-056 #9: 뒤에서부터 걷는다).
+ * 이 함수의 답을 그대로 읽는 곳(테스트·파일 이름)이 방향과 무관하게 "고른 달의 목록"만 알면 된다.
  *
  * GAP-054 D#11: "custom"도 닫힌 구간이라 여기에 합류한다 -- `custom`을 넘기지 않거나 값이
  * 깨져 있으면 `normalizeCustomRange`가 이번 달 한 달로 접는다(없는 달을 요청하지 않는다).
@@ -373,16 +384,38 @@ export async function collectExpensesForRange(
       }
     }
   } else {
-    // Closed-form pages (이번 달 1개, 올해 = 최대 12개): fetch them all, then apply the cap
-    // with an exact answer. 두 구간 모두 짧아 빈 달 중단이 아낄 왕복이 없다.
-    for (const yearMonth of yearMonthsForRange(range, todaySeoul, options.custom)) {
-      const pageExpenses = await fetchMonth(yearMonth);
+    /**
+     * Closed-form pages (이번 달 1개, 올해 = 최대 12개).
+     *
+     * GAP-056 #9 — 이 구간도 **최신 달부터 거슬러** 모은다.
+     *
+     * 예전에는 1월부터 오름차순으로 전부 받은 뒤 `collected.length = maxRows`로 잘랐다. 그
+     * 방향이면 상한에 걸렸을 때 남는 것이 **1월·2월**이고 버려지는 것이 이번 달이다 — 사용자가
+     * "올해"를 내보내는 이유(가장 최근까지의 기록)와 정반대의 파일이 나간다. "전체"·"직접 선택"은
+     * 이미 최신 달부터 걸으므로 같은 앱 안에서 두 구간이 서로 반대로 잘리고 있었다.
+     *
+     * 이제 세 구간이 한 규칙이다: **상한에 닿으면 오래된 쪽이 빠진다.** 잘림 사실은 아래
+     * `truncated`로 나가고, 어느 쪽이 빠졌는지는 화면 문구가 말한다(share-payload.ts의
+     * `csvShareToastMessage`).
+     *
+     * 빈 달 중단은 여기에 들이지 않는다 — 두 구간 모두 최대 12개월이라 아낄 왕복이 없고, 그
+     * 규칙은 "기록이 시작되기 전"을 찾는 장치라 한 해 안에서는 의미가 없다. 상한에 닿는 순간
+     * 걷기를 멈추는 것은 "전체"·"직접 선택"과 같다(더 받아 봐야 버릴 행이다).
+     */
+    const months = yearMonthsForRange(range, todaySeoul, options.custom);
+    for (let index = months.length - 1; index >= 0; index -= 1) {
+      const pageExpenses = await fetchMonth(months[index]);
       monthsFetched += 1;
+      if (pageExpenses.length === 0) continue;
       collected.push(...pageExpenses);
-    }
-    if (collected.length > maxRows) {
-      truncated = true;
-      collected.length = maxRows;
+      if (collected.length >= maxRows) {
+        // "직접 선택"과 같은 규칙: 행을 실제로 버렸거나(>) 아직 안 본 과거 달이 남아 있을 때
+        // (index > 0)만 잘림을 알린다. 마지막(가장 오래된) 달에서 정확히 상한에 닿았다면 잃은
+        // 것이 없으므로 "잘렸어요"라고 말하지 않는다(없는 사실을 알리지 않는다).
+        truncated = collected.length > maxRows || index > 0;
+        collected.length = maxRows;
+        break;
+      }
     }
   }
 

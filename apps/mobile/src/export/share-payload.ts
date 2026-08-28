@@ -73,16 +73,36 @@ export function capCsvForShare(csv: string, maxBytes: number = MAX_SHARE_MESSAGE
  * "기록 n건을 내보냈어요."는 Android에서 **아무것도 안 보낸 사람에게도** 성공을 단정했다.
  * 아는 만큼만 말한다 — 결과를 아는 iOS는 종전대로 성공을 단정하고, 모르는 Android는 실제로
  * 일어난 사실("공유 화면을 열었어요")만 적는다. 잘림 안내는 어느 쪽이든 사실이라 그대로 붙인다.
+ *
+ * ## GAP-056 #9 — 잘림에는 두 종류가 있고, 잘리는 쪽이 서로 다르다
+ *
+ * 예전에는 둘을 `truncated` 한 개로 뭉쳐 "(용량 제한으로 일부만 포함됐어요)" 한 문장만 냈다.
+ * 실제로 일어나는 일은 둘이다:
+ *
+ *  1. **행 상한**(EXPORT_MAX_ROWS, export-range.ts의 수집 단계) — GAP-056 #9 이후 네 구간이
+ *     모두 최신 달부터 모으므로 빠지는 것은 언제나 **오래된 기록**이다.
+ *  2. **공유 본문 용량 제한**(capCsvForShare, 위) — 본문을 헤더부터 앞으로 채우고 날짜
+ *     오름차순이라, 빠지는 것은 뒤쪽 = **최근 기록**이다.
+ *
+ * 방향이 정반대라 "일부만 포함됐어요" 한 문장으로는 사용자가 무엇을 잃었는지 알 수 없다. 그래서
+ * 상한 쪽 문장이 잘린 쪽을 직접 말한다. 용량 제한 쪽 문구는 종전 그대로 둔다 — 그 문장은 이미
+ * "용량 제한"이라는 원인을 짚고 있고, 두 문장은 함께 붙을 수 있으므로 각자 한 사실만 맡는다.
  */
 export function csvShareToastMessage(input: {
   /** OS가 공유 완료 여부를 알려 주는가(iOS만 true). */
   outcomeKnown: boolean;
   /** 공유 본문에 실제로 담긴 행 수. */
   rowCount: number;
+  /** 공유 본문 용량 제한으로 잘렸는가 — 빠지는 것은 뒤쪽(최근) 행이다. */
   truncated: boolean;
+  /** 행 상한으로 잘렸는가 — 빠지는 것은 오래된 행이다(GAP-056 #9). */
+  rowCapTruncated?: boolean;
 }): string {
   const base = input.outcomeKnown
     ? `기록 ${input.rowCount}건을 내보냈어요.`
     : `기록 ${input.rowCount}건으로 공유 화면을 열었어요.`;
-  return input.truncated ? `${base} (용량 제한으로 일부만 포함됐어요)` : base;
+  const notes: string[] = [];
+  if (input.rowCapTruncated) notes.push("행 상한을 넘어 오래된 기록부터 빠졌어요");
+  if (input.truncated) notes.push("용량 제한으로 일부만 포함됐어요");
+  return notes.length > 0 ? `${base} (${notes.join(" · ")})` : base;
 }

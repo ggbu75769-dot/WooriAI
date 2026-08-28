@@ -11,7 +11,16 @@ import { MoreSettingsPixelStyles } from "../pixelLock/styles";
 import { theme } from "../theme";
 import { CategoryChip, SecondaryButton, Toast } from "../ui";
 import { AppIcon } from "../design-system";
+import { isCurrentlyOnline } from "../offline/connectivity";
+import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
+import { refreshOfflineSyncSnapshot, useOfflineSyncSnapshot } from "../offline/sync-controller";
 import { buildExpenseCsv } from "./expense-csv";
+import {
+  evaluateExportPendingNotice,
+  exportPendingToastSuffix,
+  EXPORT_PENDING_NOTICE_TEST_ID,
+  type ExportPendingNotice
+} from "./export-pending-notice";
 import {
   canShiftCustomRange,
   collectExpensesForRange,
@@ -57,6 +66,11 @@ export type ExpenseCsvExportController = {
   canShiftCustomMonth: (edge: "start" | "end", delta: -1 | 1) => boolean;
   /** 지금 고른 구간으로 저장할 파일 이름 -- 텍스트로 붙여 넣은 뒤 무엇으로 저장할지 미리 말한다. */
   fileName: string;
+  /**
+   * GAP-056 #3: 고른 기간에서 **아직 서버에 올라가지 않아 CSV에 담기지 못하는** 기록 고지.
+   * 0건이면 null이라 카드는 아무것도 그리지 않는다(판정은 export-pending-notice.ts).
+   */
+  pendingNotice: ExportPendingNotice | null;
   busy: boolean;
   toast: ExpenseCsvExportToastState | null;
   runExport: () => Promise<void>;
@@ -144,6 +158,32 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
   );
   const fileName = exportFileName({ range, todaySeoul: getSeoulToday(), custom: customRange });
 
+  /**
+   * GAP-056 #3 — 이 기기에만 있어 CSV에 담기지 못하는 기록이 몇 건인가.
+   *
+   * 수집기는 `listExpenses`(서버 조회)만 부르므로 아웃박스에 남은 행은 파일에 실리지 않는다.
+   * 리포트 탭이 같은 문제를 푼 방식(GAP-054 #3)을 그대로 따른다: 숫자를 지어내 합치지 않고,
+   * 화면이 자기가 못 담는 것을 밝히는 한 줄만 둔다. 판정·문구는 전부 순수 모듈이 한다.
+   *
+   * 구독은 홈·리포트와 **같은 것**(useOfflineSyncSnapshot)이라 새 요청은 0건이고, 소비 화면
+   * (더보기 탭·설정)은 한 줄도 바뀌지 않는다 -- 이 카드가 스스로 구독한다.
+   */
+  const offlineSyncSnapshot = useOfflineSyncSnapshot();
+  useEffect(() => {
+    // 리포트 탭(라운드 54 P2-3)과 같은 이유의 한 번 읽기: 앱 루트가 갱신하기 전에 이 화면으로
+    // 곧장 들어온 첫 렌더에서도 큐를 읽어 두어야, 고지가 카드보다 한 박자 늦게 나타나지 않는다.
+    void refreshOfflineSyncSnapshot();
+  }, []);
+  const pendingNotice = evaluateExportPendingNotice({
+    rows: offlineSyncSnapshot.rows,
+    // 세션이 없으면 내보내기 자체가 없다 -- 로그아웃 상태의 잔여 행을 세지 않는다.
+    childId: canExport ? childId : null,
+    range,
+    todaySeoul: getSeoulToday(),
+    custom: customRange
+  });
+  const pendingCount = pendingNotice?.count ?? 0;
+
   const runExport = useCallback(async () => {
     if (!authToken || !childId || busy) return;
     setBusy(true);
@@ -163,7 +203,9 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
         { custom: customRange }
       );
       if (collected.expenses.length === 0) {
-        showToast("선택한 기간에 내보낼 기록이 없어요.", "error");
+        // GAP-056 #3: 서버에 0건이어도 이 기기에는 대기 행이 있을 수 있다. "기록이 없어요"로
+        // 끝내면 방금 오프라인에서 적은 사람에게 그 기록이 사라진 것처럼 읽힌다.
+        showToast(`선택한 기간에 내보낼 기록이 없어요.${exportPendingToastSuffix(pendingCount)}`, "error");
         return;
       }
       const built = buildExpenseCsv(collected.expenses, {
@@ -171,27 +213,45 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
       });
       const outcome = await shareExpenseCsv(built.csv);
       if (!outcome.shared) return; // user closed the share sheet -- not a success, not an error
-      const truncated = collected.truncated || built.truncated || outcome.truncated;
+      // GAP-056 #9: 잘림 두 갈래는 **잘리는 쪽이 반대**라 따로 싣는다(share-payload.ts 주석).
+      // 행 상한 쪽은 최신 달부터 모으므로 오래된 기록이 빠지고, 용량 제한 쪽은 본문을 앞에서부터
+      // 채우므로 최근 기록이 빠진다. built.truncated는 수집기가 이미 같은 상수(EXPORT_MAX_ROWS)로
+      // 자른 뒤라 실제로는 켜지지 않지만, 켜진다면 그것도 행 상한 갈래다.
+      const rowCapTruncated = collected.truncated || built.truncated;
+      const truncated = outcome.truncated;
       const sharedRowCount = built.rowCount - outcome.droppedRows;
       // 라운드 45 O-8: Android는 시트를 닫아도 성공으로 resolve된다(share-csv.ts outcomeKnown).
       // 그 플랫폼에서는 "내보냈어요"라고 단정하지 않고 실제로 일어난 일만 적는다.
-      showToast(
-        csvShareToastMessage({ outcomeKnown: outcome.outcomeKnown, rowCount: sharedRowCount, truncated }),
-        "success"
-      );
+      // GAP-056 #3: 그 뒤에 "대기 N건은 담기지 않았어요"가 붙는다 -- 성공 문장이 대기 건을 덮으면
+      // 사용자는 이 파일을 전량으로 믿는다(0건이면 빈 문자열이라 문장이 길어지지 않는다).
+      // 한 줄로 둔다: 이 호출의 인자 모양(성공 단정이 플랫폼 판정을 거친다는 사실)이 곧
+      // src/export-flow.test.ts가 지는 계약이다.
+      const shareMessage = csvShareToastMessage({ outcomeKnown: outcome.outcomeKnown, rowCount: sharedRowCount, truncated, rowCapTruncated });
+      showToast(`${shareMessage}${exportPendingToastSuffix(pendingCount)}`, "success");
     } catch (error) {
       // CSV-124: 전량을 모으지 못한 경우는 "잠시 후 다시 시도"로 뭉뚱그리면 사용자가 같은 실패를
       // 반복한다. 원인(기록이 너무 많음)과 다음 행동(기간 좁히기)을 그대로 알린다.
-      showToast(
-        error instanceof ExpensePageCollectionError
-          ? "기록이 너무 많아 한 번에 내보낼 수 없어요. 기간을 좁혀서 다시 시도해주세요."
-          : "내보내기에 실패했어요. 잠시 후 다시 시도해주세요.",
-        "error"
-      );
+      if (error instanceof ExpensePageCollectionError) {
+        showToast("기록이 너무 많아 한 번에 내보낼 수 없어요. 기간을 좁혀서 다시 시도해주세요.", "error");
+      } else {
+        /**
+         * GAP-056 #3 — **완전 오프라인**에서 이 흐름은 서버 조회부터 실패한다. 그 자리에서
+         * "잠시 후 다시 시도해주세요"는 사실과 어긋난다: 기다릴 대상이 없고, 다시 눌러도 같은
+         * 실패로 되돌아온다. 라운드 52 C-07(예산·아이 프로필 저장)이 이미 정한 갈래를 그대로
+         * 따른다 -- 온라인 문구는 한 글자도 바꾸지 않고, 오프라인일 때만 messages.ts의 단일
+         * 소스 문장으로 갈린다(문구를 여기서 새로 짓지 않는다).
+         *
+         * 판정은 실패 시점의 폴 한 번이다(app/family/index.tsx의 실패 Alert과 같은 관례).
+         * 판정할 수 없는 플랫폼에서는 true라, 어긋나도 기존 문구로 안전하게 떨어진다.
+         */
+        void isCurrentlyOnline().then((isOnline) => {
+          showToast(isOnline ? "내보내기에 실패했어요. 잠시 후 다시 시도해주세요." : OFFLINE_RETRY_NOTICE, "error");
+        });
+      }
     } finally {
       setBusy(false);
     }
-  }, [authToken, busy, categories.data?.categories, childId, customRange, range, showToast]);
+  }, [authToken, busy, categories.data?.categories, childId, customRange, pendingCount, range, showToast]);
 
   return {
     busy,
@@ -200,6 +260,7 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     cardOpen,
     customRange,
     fileName,
+    pendingNotice,
     range,
     runExport,
     setRange,
@@ -302,6 +363,14 @@ export function ExpenseCsvExportCard({ controller }: { controller: ExpenseCsvExp
           경로 결정 주석). "CSV로 내보내기"만 보고 첨부 파일을 기다리면 아무 파일도 오지 않으므로,
           무엇이 공유되고 어떻게 엑셀에서 여는지를 버튼 앞에서 밝힌다. */}
       <Text style={exportCardNoticeStyle}>{EXPORT_TEXT_SHARE_NOTICE}</Text>
+      {/* GAP-056 #3: 이 기기에만 있는 기록은 서버 조회로 만드는 CSV에 담기지 않는다. 버튼을
+          누르기 전에 그 사실을 말해 두면, 사용자는 지금 내보낼지 동기화를 기다릴지 고를 수 있다.
+          대기 0건이면 null이라 카드는 예전과 픽셀 하나 다르지 않다(고지 자체가 없다). */}
+      {controller.pendingNotice ? (
+        <Text style={exportCardNoticeStyle} testID={EXPORT_PENDING_NOTICE_TEST_ID}>
+          {controller.pendingNotice.text}
+        </Text>
+      ) : null}
       {/* GAP-054 D#11: 위 안내가 시킨 "그 다음 행동"에 필요한 마지막 한 조각 -- 무슨 이름으로
           저장하면 되는지. 고른 기간이 이름 안에 있어 파일만 보고도 무엇인지 알 수 있다. */}
       <Text style={exportCardNoticeStyle}>
