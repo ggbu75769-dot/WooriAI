@@ -195,17 +195,26 @@ describe.skipIf(!dbAvailable)("Admin product-link bulk replace (COM-107-prep, re
     const rowByNumber = new Map<number, Record<string, unknown>>(
       (response.body.rows as Array<{ rowNumber: number }>).map((row) => [row.rowNumber, row])
     );
+    // GAP-064 #4ⓐ: 미리보기 행이 URL뿐 아니라 **가격도** 현재/새 값으로 대조된다. 종전에는
+    // CSV로 쓴 가격이 반영됐는지 확인할 자리가 어디에도 없었다(적용 응답은 숫자 셋뿐이고,
+    // 타임아웃 뒤 재조회조차 URL만 비교했다).
     expect(rowByNumber.get(2)).toMatchObject({
       status: "valid",
       matchedProductLinkId: coupangLinkId,
       currentAffiliateUrl: "https://example.com/dev/affiliate/bulk-a",
-      newAffiliateUrl: "https://link.coupang.com/a/bulk-new-a"
+      newAffiliateUrl: "https://link.coupang.com/a/bulk-new-a",
+      currentPriceSnapshotKrw: null,
+      newPriceSnapshotKrw: 159_000
     });
     expect(rowByNumber.get(3)).toMatchObject({
       status: "valid",
       matchedProductLinkId: naverLinkId,
       currentAffiliateUrl: null,
-      newAffiliateUrl: "https://smartstore.naver.com/wooriai/bulk-new-b"
+      newAffiliateUrl: "https://smartstore.naver.com/wooriai/bulk-new-b",
+      // 가격 칸이 빈 행은 null이다 — "0원으로 바꾼다"가 아니라 **가격을 그대로 둔다**는 뜻이고,
+      // 실제로 이 행은 priceCheckedAt도 건드리지 않는다(아래 적용 테스트가 그 사실을 고정한다).
+      currentPriceSnapshotKrw: null,
+      newPriceSnapshotKrw: null
     });
     expect(rowByNumber.get(4)).toMatchObject({ status: "error", errorCode: "BULK_ROW_URL_INVALID" });
     expect(rowByNumber.get(5)).toMatchObject({ status: "error", errorCode: "BULK_ROW_DOMAIN_NOT_ALLOWED" });

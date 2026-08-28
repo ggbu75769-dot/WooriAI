@@ -443,9 +443,14 @@ describe("GAP-063 리포트 탭 누적 카드 배선 계약", () => {
 
     const shareSource = readFileSync(join(process.cwd(), "src/reports/milestone-share.ts"), "utf8");
     const shareTextSource = readFileSync(join(process.cwd(), "src/reports/share-text.ts"), "utf8");
+    // 창 합계(마일스톤) 공유는 종전 그대로 전면 금지다 — 셀 수 없는 모집단.
+    expect(shareSource).not.toContain("cumulativeTotalPendingNotice");
+    expect(shareSource).not.toContain("반영되지 않았어요");
+    // 월간 공유(share-text.ts)는 라운드 64 #3이 **단일 소스 함수를 통해서만** 고지를
+    // 싣도록 허용했다 — 허용된 것은 cumulativeTotalPendingNoticeText 호출 하나이고,
+    // 행을 직접 세는 일은 여전히 금지다(그 계약은 share-text.test.ts가 마저 고정한다).
+    expect(shareTextSource).toContain('import { cumulativeTotalPendingNoticeText } from "../home/cumulative-total"');
     for (const source of [shareSource, shareTextSource]) {
-      expect(source).not.toContain("cumulativeTotalPendingNotice");
-      expect(source).not.toContain("반영되지 않았어요");
       // 대기 행은 공유 문구 모듈에 들어오지 않는다(모집단을 못 세면서 세는 척하지 않는다).
       expect(source).not.toContain("syncState");
       expect(source).not.toContain("offlineSyncSnapshot");

@@ -1,8 +1,9 @@
 # Accessibility And Offline Checklist
 
-Batch: 14 - 라운드 33~63 신설 화면 반영 · 갱신 2026-08-28 (라운드 63 트랙 F / GAP-063 #10)
-직전 갱신: 라운드 62 트랙 C / GAP-062 #10 · 그 앞: 라운드 61 트랙 E / GAP-061 #8
-직전 배치: Batch 13 - 라운드 33~62 신설 화면 반영
+Batch: 15 - 라운드 33~64 신설 화면 반영 · 갱신 2026-08-28 (라운드 64 트랙 F / GAP-064 #10)
+직전 갱신: 라운드 63 트랙 F / GAP-063 #10 · 그 앞: 라운드 62 트랙 C / GAP-062 #10 ·
+그 앞: 라운드 61 트랙 E / GAP-061 #8
+직전 배치: Batch 14 - 라운드 33~63 신설 화면 반영
 
 > **이 문서를 읽는 법.** 항목은 세 절로 나뉜다.
 > - **A절 — 코드로 고정된 계약**: 소스 스윕 테스트(주로 `apps/mobile/src/a11y-contract.test.ts`)가
@@ -36,6 +37,20 @@ Batch: 14 - 라운드 33~63 신설 화면 반영 · 갱신 2026-08-28 (라운드
 > 사라지는 한 줄**이라 눈으로는 보이지만 귀로는 announce/라벨 조립을 지나지 않으면 도달하지
 > 않는다. A-3의 #21·#22로 들인다(라운드 63 트랙 A가 그 고지를 세 자리로 늘렸으므로 #21은
 > 그 세 자리를 함께 진다). 라운드 63 자신의 신설 UI 넷은 새 **A-4** 표(#23~#26)로 이어 붙인다.
+>
+> **2026-08-28(GAP-064 #10) 갱신.** 라운드 64분은 새 **A-5** 표(#27~#29)다. 앞의 둘은 A절의
+> 익숙한 모양이지만(사실이 소리로 도달하는가 — 전폭 구매 CTA가 여는 곳 · 앱 밖으로 나가는 링크의
+> 고지), **#29는 이 문서에서 성격이 다른 첫 A절 항목이다**: 낭독이 아니라 **손가락이 닿는가**다.
+> A-1의 `Touch targets` 줄이 문서가 생긴 이래 "코드 계약 없음"이라고 적혀 있었고 실제로도 그랬다 —
+> `a11y-contract.test.ts`가 라벨·역할·상태를 촘촘히 붙들면서 **치수를 보는 단언은 0건**이었다
+> (라운드 64 정찰이 이 파일의 사각으로 지목한 그 빈칸이다). 이번 라운드에 "(요소 높이 + 2×세로
+> hitSlop) ≥ `theme.touchTarget`"이 소스 계약이 되면서 그 줄의 근거가 바뀐다.
+>
+> 다만 **C-1은 지우지 않는다.** GAP-061 #8이 A-2 #4·#10을 C절에서 걷어낸 근거는 "코드가 이미
+> 증명한다"였는데, 터치 타깃은 그 조건을 절반만 만족한다 — 코드가 아는 것은 스타일 상수와
+> `hitSlop`의 합이지, 부모 clip·패딩이 그 히트 영역을 실제로 잘라 내는지가 아니다(C-1이 처음부터
+> 적어 둔 이유가 정확히 그것이다). A절과 C절에 같은 항목이 남는 이 문서의 유일한 자리이고,
+> 두 줄이 서로 다른 것을 말한다: A-5 #29는 **계산**, C-1은 **실측**이다.
 
 ## A절. 코드로 고정된 접근성 계약
 
@@ -43,7 +58,7 @@ Batch: 14 - 라운드 33~63 신설 화면 반영 · 갱신 2026-08-28 (라운드
 
 | Area | Check | Expected | 근거 |
 | --- | --- | --- | --- |
-| Touch targets | Buttons, toggles, and row actions are at least 44px high/wide. | No primary action is smaller than 44px. | 코드 계약 없음(치수는 스타일 상수 — C절에서 실측) |
+| Touch targets | Buttons, toggles, and row actions are at least 44px high/wide. **2026-08-28(GAP-064 #6) 정정**: 이 앱의 기준은 44가 아니라 저장소 자신의 토큰 `theme.touchTarget` = **48**이다(더 엄하다). 요소가 그보다 낮으면 세로 `hitSlop`으로 갚되, 가로는 이웃과의 간격을 넘지 않는다. | No primary action is smaller than 44px. 히트 영역까지 합쳐 48을 채운다: (요소 높이 + 2×세로 hitSlop) ≥ `theme.touchTarget`. | `a11y-contract.test.ts` GAP-064 #6(입력 보조 칩 4자리 + 커머스 크롬 2자리 — 값을 테스트에 다시 박지 않고 소스의 상수·높이를 읽어 더한다) + `items/link-marker.test.ts`(라운드 64 #6). **실측은 여전히 C-1**(코드는 계산만 안다 — 부모 clip·패딩이 그 영역을 자르는지는 기기 확인) |
 | Contrast | Primary text, secondary text, warnings, and danger actions are readable on the configured surfaces. | No critical copy relies on low contrast alone. | `a11y-contract.test.ts` A11Y-117(작은 coral 텍스트 coral[700] 스윕) — 나머지 조합은 C절 |
 | Screen-reader labels | Icon-only or terse actions have accessible labels in production UI passes. | Login, expense save, delete, purchase CTA, import confirm, settings delete are understandable. | `a11y-contract.test.ts` A11Y-101/115 |
 | Numeric alternatives | Report totals, budget amounts, and chart-like summaries have visible numeric text. | Users can understand totals without color or graph interpretation. | `a11y-contract.test.ts`(라인차트 기하 요약 라벨) |
@@ -96,6 +111,21 @@ Batch: 14 - 라운드 33~63 신설 화면 반영 · 갱신 2026-08-28 (라운드
 | 25 | 가족 화면 "이 가구에 아이 추가하기" (`app/family/index.tsx`, 라운드 63 #7) | 진입점이 라벨 있는 버튼으로 낭독되는가. **어느 가구로** 데려가는지가 누르기 전에 들리는가. | 라벨은 "이 가구에 아이 추가하기"이고, 어느 가구인지는 힌트가 바로 위 관리 표기(`householdScopeManageNotice` — "○○의 가구를 관리하고 있어요.")를 그대로 물어 온다. 이름을 여기서 한 번 더 지어내지 않으므로 눈에 보이는 줄과 귀에 들리는 힌트가 갈릴 자리가 없다(리포트 범례 드릴다운 힌트와 같은 관례 — A-2 #11). 전환하지 않은 계정에서는 노드 자체가 없다(FAM-001). | `a11y-contract.test.ts` GAP-063 #10 + `family/household-scope.test.ts`(`HOUSEHOLD_SCOPE_ADD_CHILD_LABEL`·`addChildScreenHref`) |
 | 26 | 아이 관리 추가 성공 안내 (`app/settings/children.tsx`, 라운드 63 #7) | 추가 성공이 **전역 선택 아이를 바꾼다**는 사실이 낭독되는가. 전환해 들어오지 않은 흐름에서는 종전과 같은가. | 토스트와 announce가 같은 사실을 말한다 — "○○를 추가하고 선택했어요. **지금부터 이 아이 화면으로 바뀌어요.**" 화면 전환 없이 앱 전체의 대상이 바뀌는 자리라 announce가 필요하다(구매 확인 프롬프트 A-2 #14와 같은 근거). 가구 파라미터가 없는 계정(1가구 포함)에서는 뒷문장이 붙지 않아 종전 문구 그대로다(SET-005). | `a11y-contract.test.ts` GAP-063 #10 + `family/household-scope.test.ts`(`HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE`). 실기기 확인은 `runtime-verification-required.md` §1-1 #47 |
 
+### A-5. 라운드 64 신설 UI (2026-08-28 추가 — GAP-064 #10)
+
+앞의 둘(#27·#28)은 A절의 익숙한 쟁점이다 — **사실이 소리로도 도달하는가**. #29는 성격이 다르다:
+낭독이 아니라 **손가락이 닿는가**이고, A-1의 `Touch targets` 줄이 이 문서가 생긴 이래 처음으로
+코드 계약을 갖게 된 자리다(위 갱신 노트 참고 — 그래도 C-1 실측은 남는다).
+
+화면 파일은 트랙 A의 소유였으므로(F는 문서·스윕과 `hitSlop` 값만 진다) 판정은 순수 모듈의 산출로
+붙들고 화면 쪽은 최소 소스 계약만 둔다 — GAP-062 #10이 세운 관례 그대로다.
+
+| # | 화면 | Check | Expected | 근거 |
+| --- | --- | --- | --- | --- |
+| 27 | 준비템 상세의 전폭 구매 CTA (`app/items/[itemTemplateId].tsx`, 라운드 64 #1) | 화면에서 **가장 강조된 버튼**이 무엇을 여는가. 그 버튼에는 `accessibilityLabel`이 없어 **보이는 라벨이 곧 낭독 문장**인데("바로 구매하기"), 그 문장 뒤에 광고가 걸려 있으면 표시와 사실이 갈린다. 스폰서만 남은 품목에서 버튼이 사라질 때 구매 경로까지 조용히 닫히지는 않는가. | 버튼이 여는 링크는 판매처 행의 채움과 **같은 한 판정**(`primaryPurchaseLinkIndex` — 첫 비스폰서 링크)이다. 전부 스폰서면(-1) 버튼을 **렌더하지 않는다** — 비활성으로 남기면 "버튼, 비활성"으로 읽히고 왜 못 누르는지가 남는다(달력 미래 칸 A-4 #23과 같은 규율). 그 링크는 판매처 행에 스폰서 배지 + "광고/스폰서" 캡션을 단 채 남고, 그 행의 버튼은 "○○에서 구매하기"로 낭독된다 — 광고를 광고라고 말한 자리에서만 누르게 되는 것이 DNC-011의 취지다. 비세션 프리뷰는 판정이 0이라 종전 렌더 그대로(ITEM-002). | `a11y-contract.test.ts` GAP-064 #1(라벨이 곧 낭독 문장·게이트·판매처 행의 스폰서 표기) + `items/link-marker.test.ts`(라운드 64 #1 — `primaryPurchaseLinkIndex` 값 계약). A-1 `Screen-reader labels`의 purchase CTA와 같은 건. 실기기 확인은 `runtime-verification-required.md` §1-1 #49 |
+| 28 | 앱 밖으로 나가는 구매 링크 (`app/items/[itemTemplateId].tsx` "링크 공유하기", 라운드 64 #5ⓐ) | DNC-010은 "구매 CTA **인접** 위치의 제휴 고지를 숨기지 않는다"인데, 링크가 카카오톡으로 건너가는 순간 **인접이라 부를 자리 자체가 없다**. 그러면 고지가 도달하는 길이 남아 있는가. | 문장을 링크와 **함께** 보내는 것 말고는 방법이 없으므로 그렇게 한다: 제휴 링크는 수수료 문장이, 스폰서 링크는 광고 사실이 URL **앞줄**에 붙는다(`purchaseLinkShareMessage`). 문구는 새로 짓지 않고 화면의 `AffiliateDisclosure`와 **같은 판정**(`productLinksDisclosureText`)이 그 링크 하나에 그대로 돈다 — 두 경로가 다른 말을 할 자리가 없다. 일반 링크는 종전 그대로 URL 한 줄이다(없는 고지를 지어내지 않는다 — 라운드 43 M-1과 같은 근거). 운영이 어드민에서 편집한 문구가 앱 기본값보다 앞서되, 수수료를 말하지 않는 커스텀 문구가 제휴 고지를 지우지는 않는다(N-2). | `items/link-marker.test.ts`(라운드 64 #5ⓐ — 종별 문구·우선순위·화면이 조립기만 쓴다) + `items/link-marker.test.ts` 라운드 44 N-2(수수료 규율). 실기기 확인은 `runtime-verification-required.md` §1-1 #50 |
+| 29 | 입력 보조 칩의 터치 타깃 (`app/expenses/new.tsx` · `app/expenses/[expenseId].tsx`, 라운드 64 #6) | 매일 누르는 칩 넷(최근 품목 · 품목 자동완성 · 판매처 자동완성 ×2)이 저장소 자신의 최소 터치 타깃을 채우는가. 넓히면서 **옆 칩을 침범하지는 않는가**. 그리고 **렌더가 바뀌지 않았는가**. | 칩 높이는 38이라 48에 10 모자라고, 그 10을 **세로 `hitSlop`으로만** 갚는다(38 + 5×2 = 48). 가로를 올리지 않는 이유는 칩 사이 간격이 8이기 때문이다 — 좌우로 5씩 늘리면 이웃과 겹쳐(5+5 > 8) 하나를 고치려다 "옆 칩이 눌리는" 오탭을 새로 만든다. 종전 3은 줄이지도 않는다(3+3 < 8이라 겹치지 않고, 0으로 지우면 히트 영역만 좁아진다). `hitSlop`은 레이아웃 속성이 아니라 **렌더는 한 픽셀도 바뀌지 않는다**(EXP-001 픽셀락 기준선 불변 — 커머스 크롬에 라운드 64 A가 적은 근거와 같다). 같은 규칙을 준비템 상세의 플로팅 크롬도 지난다(34 + 7×2 = 48). | `a11y-contract.test.ts` GAP-064 #6(세로 합 ≥ `theme.touchTarget` · 가로 합 < gap 8 · 레이아웃 속성 불변 — 값을 테스트에 다시 박지 않고 소스의 상수와 높이를 읽어 더한다) + `items/link-marker.test.ts`(라운드 64 #6 — 크롬 2자리). A-1 `Touch targets`가 이 라운드부터 가리키는 그 계약이다. **실측은 C-1, 실기기 확인은 `runtime-verification-required.md` §1-1 #52** |
+
 ## B절. 오프라인 및 오류 상태
 
 | Area | Check | Expected |
@@ -118,7 +148,7 @@ Batch: 14 - 라운드 33~63 신설 화면 반영 · 갱신 2026-08-28 (라운드
 
 | # | 확인 항목 | 왜 기기가 필요한가 |
 | --- | --- | --- |
-| C-1 | 터치 영역 44dp 실측 (버튼·토글·행 액션·달력 날짜 셀) | 스타일 상수와 실제 히트 영역이 다를 수 있다(패딩·부모 clip). |
+| C-1 | 터치 영역 실측 (버튼·토글·행 액션·달력 날짜 셀 · 입력 보조 칩) — 기준은 `theme.touchTarget` = **48dp**다(44가 아니다) | 스타일 상수와 실제 히트 영역이 다를 수 있다(패딩·부모 clip). **2026-08-28(GAP-064 #6)**: 계산은 이제 코드가 붙든다(A-5 #29 — 높이 + 2×세로 hitSlop ≥ 48). 여기 남는 것은 그 계산이 기기에서도 참인가, 그리고 **가로를 올리지 않은 판단이 실제로 옳았는가**(옆 칩이 대신 눌리지 않는가)다 — 둘 다 손가락으로만 안다. |
 | C-2 | 대비 실측 (본문/보조/경고/위험 + 다크 모드 강제 기기) | 앱은 light 고정 선언이라 OS 강제 다크에서 무슨 색이 나오는지 화면으로만 확인된다. |
 | C-3 | **잠금 오버레이 TalkBack 투과** — 잠금 중 뒤쪽 화면의 금액·품목이 낭독되는가 | Stack과 오버레이가 형제라 접근성 트리가 z-order로 잘리지 않는다 — **코드 구조상 확정된 투과이고, 실기기 낭독으로 실측한 적은 없다**(라운드 59 통합리뷰 P2-4 표기 정정). 라운드 59 트랙 C가 방패(A-2 #1)로 잘라 냈고 소스 계약도 붙었지만, 실제로 읽히지 않는지는 기기에서만 안다. |
 | C-4 | 잠금 오버레이 진입/해제 시 포커스가 PIN 입력으로 가는가 | 포커스 이동은 런타임 동작이라 소스로 못 본다. |

@@ -15,6 +15,7 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { createDtoValidationPipe } from "../bootstrap";
+import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import { IdempotencyInterceptor } from "../common/idempotency/idempotency.interceptor";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
@@ -75,7 +76,10 @@ function numberField(value: unknown) {
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class ImportsController {
-  constructor(@Inject(ImportPipelineService) private readonly store: ImportPipelineService) {}
+  constructor(
+    @Inject(ImportPipelineService) private readonly store: ImportPipelineService,
+    @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService
+  ) {}
 
   @Post("children/:childId/imports/excel")
   @HttpCode(200)
@@ -136,6 +140,27 @@ export class ImportsController {
     return await this.store.updateImportRow(request.user!, importJobId, rowId, body);
   }
 
+  /**
+   * GAP-064 #9: 확정(승인)을 감사 로그에 남긴다.
+   *
+   * DNC-012는 이 앱의 돈 데이터 신뢰 계약이다 — "미리보기와 **승인** 전 `expenses`에 저장하지
+   * 않는다". 그런데 그 계약의 핵심 사건인 승인만 서버에 흔적이 없었다(지출 수정·삭제, 아이 삭제,
+   * 가구 탈퇴·계정 삭제, 예산 덮어쓰기는 모두 기록된다). 확정은 되돌릴 수 없고
+   * (`preview_ready`만 확정 가능 — import-pipeline.service.ts의 CAS) 가구의 **아무 쓰기 권한자나**
+   * 실행할 수 있어서, "카드 내역을 가져왔는데 일부가 안 들어왔어요" CS에 답하려면 누가·언제·
+   * 몇 건을 승인했는지가 필요하다. 잡 행의 `approved_at`은 시각만 답하고 행위자는 답하지 않는다.
+   *
+   * 봉투는 budget.upsert·expense.update와 같은 모양이고(actor·household·target + before/after),
+   * 그 이상은 싣지 않는다: **상태·건수·시각뿐**이다. **파일명·행 원문은 금지** — 파일명은
+   * 사용자가 붙인 이름이라 사실상 식별정보이고(GAP-063 #6), 파기 잡 phase 11이 90일 뒤
+   * 마스킹하는 값이라 730일 보존되는 감사 로그에 복사하면 그 마스킹이 무의미해진다.
+   * `before.rowCount`/`candidateCount`와 `after.importedCount`/`skippedCount`가 "몇 줄짜리
+   * 파일에서 몇 건이 들어갔나"라는 CS 질문에 답하는 값이고, 어느 것도 개인을 가리키지 않는다.
+   *
+   * 기록 실패는 AuditLoggerService가 삼키므로 가져오기 응답에는 영향이 없고, 멱등 재전송은
+   * 위 IdempotencyInterceptor가 캐시 응답으로 끊어 중복 기록되지 않는다. 볼륨은 지출보다 훨씬
+   * 낮다(가져오기는 드물다) — 마이그레이션 0건의 additive 경로다.
+   */
   @Post("imports/:importJobId/confirm")
   @HttpCode(200)
   @UseInterceptors(IdempotencyInterceptor)
@@ -144,6 +169,18 @@ export class ImportsController {
     @Param("importJobId") importJobId: string,
     @Body(createDtoValidationPipe(ConfirmImportDto)) body: ConfirmImportDto
   ) {
-    return await this.store.confirmImport(request.user!, importJobId, body);
+    // `audit`는 응답 계약이 아니다 — 여기서 벗겨 내고 나머지(importedCount·skippedCount)만
+    // 그대로 내보낸다(응답 모양 무변경).
+    const { audit, ...response } = await this.store.confirmImport(request.user!, importJobId, body);
+    await this.auditLogger.record({
+      actorUserId: request.user!.id,
+      householdId: audit.householdId,
+      action: "import.confirm",
+      targetType: "import_job",
+      targetId: importJobId,
+      before: audit.before,
+      after: audit.after
+    });
+    return response;
   }
 }

@@ -32,6 +32,13 @@ import {
   type LinkFilterState,
   type LinkHealthFilter
 } from "../../src/lib/link-filters";
+import {
+  isLinkPriceVisibleInApp,
+  linkPriceCaption,
+  linkPriceCoverageSummary,
+  linkPriceText
+} from "../../src/lib/link-price-view";
+import { buildShareCopyText, hasShareUrl, shareCopyHint } from "../../src/lib/link-share";
 import { isHttpUrl } from "../../src/lib/validation";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import { ProductLinkBulkReplace } from "../../src/components/ProductLinkBulkReplace";
@@ -288,6 +295,10 @@ function ProductLinksPageContent() {
   // 클라 상태이고 URL은 다시 쓰지 않는다.
   const [filters, setFilters] = useState<LinkFilterState>(() => linkFiltersFromSearchParams(searchParams));
 
+  // GAP-064 #8: "공유 링크 복사"를 누른 행(2초 뒤 원래 라벨로 돌아간다 — CSV 헤더 복사와 같은 관례).
+  const [copiedShareLinkId, setCopiedShareLinkId] = useState<string | null>(null);
+  const [shareCopyError, setShareCopyError] = useState<string | null>(null);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<LinkFormState>(emptyLinkForm(""));
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -361,6 +372,29 @@ function ProductLinksPageContent() {
       setCreateError("저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요.");
     } finally {
       setCreating(false);
+    }
+  };
+
+  /**
+   * GAP-064 #8 — 공개 리다이렉트(`GET /r/:code`)의 공유 URL을 클립보드로.
+   *
+   * **DNC-010이 이 버튼의 조건이다**: 복사되는 것은 URL 한 줄이 아니라 고지 문구와 URL
+   * 한 덩어리다(조립은 순수 모듈 src/lib/link-share.ts 한 자리 — 어드민이 문구를 따로
+   * 짓지 않는다). 제휴도 스폰서도 아닌 일반 링크는 URL 한 줄 그대로다.
+   *
+   * 클립보드 권한이 없는 브라우저를 위해 URL 자체도 같은 칸에 그려 둔다 — 복사가 실패해도
+   * 운영이 손으로 가져갈 수 있어야 한다(안내 문구만 남기고 조용히 실패하지 않는다).
+   */
+  const copyShareLink = async (link: ProductLink) => {
+    const text = buildShareCopyText(link);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setShareCopyError(null);
+      setCopiedShareLinkId(link.id);
+      setTimeout(() => setCopiedShareLinkId((current) => (current === link.id ? null : current)), 2000);
+    } catch {
+      setShareCopyError("클립보드에 복사하지 못했어요. 아래 주소와 고지 문구를 직접 복사해 주세요.");
     }
   };
 
@@ -440,6 +474,14 @@ function ProductLinksPageContent() {
 
       <section className={styles.card}>
         <h2>상품 링크 목록{links ? ` (${linkFilterSummary(links.length, filteredLinks?.length ?? 0)})` : ""}</h2>
+        {/* GAP-064 #4ⓒ: 가격 커버리지 한 줄. 두 수를 **함께** 말하는 것이 요점이다 —
+            "가격이 있는 건수"만 말하면 확인 시각이 없거나 만료돼 **앱에서 이미 사라진** 가격이
+            그대로 가려진다(그 구간이 이 후보가 든 조용한 만료다). 표에 보이는 행을 세므로
+            필터를 걸면 그 범위의 커버리지가 된다. */}
+        {filteredLinks && filteredLinks.length > 0 ? (
+          <p className={styles.hint}>{linkPriceCoverageSummary(filteredLinks)} (표에 보이는 링크 기준)</p>
+        ) : null}
+        {shareCopyError ? <p className={styles.errorBanner}>{shareCopyError}</p> : null}
         {links === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
@@ -549,6 +591,10 @@ function ProductLinksPageContent() {
                   <th>스폰서</th>
                   <th>활성</th>
                   <th>링크 상태</th>
+                  {/* GAP-064 #4: 헬스는 표에 있고 가격만 없던 비대칭을 닫는다(CSV로 쓴 값을 되읽는 유일한 자리). */}
+                  <th>가격</th>
+                  {/* GAP-064 #8: 공개 리다이렉트(/r/:code)를 꺼내 쓰는 자리. 코드를 아는 화면이 하나도 없었다. */}
+                  <th>공유 링크</th>
                   <th />
                 </tr>
               </thead>
@@ -577,6 +623,34 @@ function ProductLinksPageContent() {
                           <span className={styles.hint}> {formatRelativeTime(link.healthCheckedAt)}</span>
                         ) : null}
                       </td>
+                      {/* GAP-064 #4: 값은 그대로 싣고, 앱에 보이지 않는 상태(시각 없음·만료)는
+                          이름으로 말하면서 셀을 흐리게 그린다. 만료 문턱 숫자는 어드민에 없다 —
+                          서버가 계약(LINK_PRICE_MAX_AGE_DAYS)으로 판정한 priceExpired를 읽는다. */}
+                      <td className={isLinkPriceVisibleInApp(link) ? undefined : styles.mutedCell}>
+                        {linkPriceText(link)}
+                        {linkPriceCaption(link) ? (
+                          <span className={styles.hint}> {linkPriceCaption(link)}</span>
+                        ) : null}
+                      </td>
+                      <td>
+                        {hasShareUrl(link) ? (
+                          <>
+                            <button
+                              type="button"
+                              className={styles.secondaryButton}
+                              onClick={() => copyShareLink(link)}
+                            >
+                              {copiedShareLinkId === link.id ? "복사됨" : "공유 링크 복사"}
+                            </button>
+                            <span className={styles.hint}> {link.redirectShareUrl}</span>
+                            {shareCopyHint(link) ? (
+                              <span className={styles.hint}> {shareCopyHint(link)}</span>
+                            ) : null}
+                          </>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                       <td>
                         <button
                           type="button"
@@ -589,7 +663,7 @@ function ProductLinksPageContent() {
                     </tr>
                     {editingId === link.id ? (
                       <tr>
-                        <td colSpan={9}>
+                        <td colSpan={11}>
                           <LinkFormFields
                             form={editForm}
                             onChange={setEditForm}

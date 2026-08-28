@@ -58,7 +58,13 @@ export class AdminAuthController {
     }
 
     this.setSessionCookies(res, result.session);
-    return { mfaRequired: false, admin: result.admin, mfaEnabled: result.mfaEnabled };
+    // 라운드 64 D(#7): 잔량은 세션이 발급되는 분기에서만 나간다(가산 필드 — 종전 두 키 불변).
+    return {
+      mfaRequired: false,
+      admin: result.admin,
+      mfaEnabled: result.mfaEnabled,
+      mfaRecoveryCodesRemaining: result.mfaRecoveryCodesRemaining
+    };
   }
 
   @Post("mfa/verify-login")
@@ -71,7 +77,13 @@ export class AdminAuthController {
   ) {
     const result = await this.adminAuthService.verifyLoginMfa(body.mfaToken, body.code, ip, userAgentOf(request));
     this.setSessionCookies(res, result.session);
-    return { mfaRequired: false, admin: result.admin, mfaEnabled: result.mfaEnabled };
+    // 복구 코드로 로그인했다면 여기 실리는 잔량은 **이번에 태운 한 장을 뺀** 값이다.
+    return {
+      mfaRequired: false,
+      admin: result.admin,
+      mfaEnabled: result.mfaEnabled,
+      mfaRecoveryCodesRemaining: result.mfaRecoveryCodesRemaining
+    };
   }
 
   @Get("me")

@@ -28,7 +28,8 @@ import {
   primaryPurchaseLinkIndex,
   productLinkMarker,
   productLinksDisclosureText,
-  productPlatformLabel
+  productPlatformLabel,
+  purchaseLinkShareMessage
 } from "../../src/items/link-marker";
 import { resolveLinkPriceDisplay, withLinkPriceCaption } from "../../src/items/link-price";
 import { itemStatusBadgeLabel, itemStatusLabel, necessityBadgeLabel } from "../../src/items/item-labels";
@@ -180,14 +181,28 @@ const productDetailChromeButtonStyle = {
   justifyContent: "center",
   width: 34
 } as const;
+/**
+ * 라운드 64 #6 — 이 화면의 플로팅 크롬(뒤로가기·공유하기) 히트 영역.
+ *
+ * 34dp 정사각에 hitSlop 5면 44dp라, 이 저장소가 스스로 못박은 최소 터치 타깃
+ * (`theme.touchTarget = 48`, DSN-053 토큰 표)에 미달이었다. 같은 파일의 탭 밴드는 이미 그
+ * 규율을 명시적으로 지킨다("텍스트+패딩(≈31dp)에 hitSlop 6으로는 48dp 타깃 미달이라 높이로
+ * 확보한다"). 여기서는 높이를 못 늘린다 — 34는 승인 캡처(ITEM-002)의 값이다. 그래서
+ * **hitSlop만** 7로 올린다: 34 + 2×7 = 48. `hitSlop`은 레이아웃 속성이 아니라 히트 영역이라
+ * 렌더는 한 픽셀도 바뀌지 않으므로 ITEM-002 픽셀락 캡처가 그대로다.
+ *
+ * 가로도 함께 늘려도 되는 이유: 기록 화면의 칩들(gap 8)과 달리 이 둘은 `space-between`으로
+ * 화면 좌·우 끝에 하나씩 서 있어 서로의 히트 영역과 만날 일이 없다.
+ */
+const PRODUCT_DETAIL_CHROME_HIT_SLOP = 7;
 
 function ProductDetailNavigation({ onShare }: { onShare: () => void }) {
   return (
     <View style={productDetailFloatingControlsStyle}>
-        <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={5} onPress={() => router.back()} style={productDetailChromeButtonStyle}>
+        <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP} onPress={() => router.back()} style={productDetailChromeButtonStyle}>
           <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800" }}>{"<"}</Text>
         </Pressable>
-        <Pressable accessibilityLabel="공유하기" accessibilityRole="button" hitSlop={5} onPress={onShare} style={productDetailChromeButtonStyle}>
+        <Pressable accessibilityLabel="공유하기" accessibilityRole="button" hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP} onPress={onShare} style={productDetailChromeButtonStyle}>
           <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>[]</Text>
         </Pressable>
     </View>
@@ -536,9 +551,30 @@ export default function ItemDetailScreen() {
     }
   };
 
+  /**
+   * 라운드 64 #5ⓐ — 링크를 앱 밖으로 내보낼 때 **고지를 함께** 내보낸다(DNC-010).
+   *
+   * 예전에는 저장해 둔 리다이렉트 URL 한 줄만 메시지로 나갔다(제휴 URL 그 자체다).
+   * 화면에서는 고지가 구매 CTA 바로 위에 서 있는데, 그 링크가 카카오톡으로 건너가는
+   * 순간 인접이라 부를 자리가 사라져 고지가 통째로 빠졌다 — 받는 사람은 제휴 링크라는 사실을
+   * 들을 근거가 없다.
+   *
+   * 문구를 여기서 짓지 않는다: 조립은 순수 모듈 한 자리(src/items/link-marker.ts의
+   * `purchaseLinkShareMessage`)이고, 그 안에서 화면과 **같은 판정**(`productLinksDisclosureText`)이
+   * 돈다. 일반 링크(제휴도 스폰서도 아님)는 종전 그대로 URL 한 줄이다.
+   *
+   * 나가는 URL 자체는 이 트랙에서 바꾸지 않는다 — 공개 리다이렉트(/r/:code)로 목적지를 옮기는
+   * 판단은 어드민 노출(라운드 64 #8)과 함께 서야 한다.
+   */
   const shareFallbackLink = () => {
     if (!linkOpenFallback) return;
-    void Share.share({ message: linkOpenFallback.redirectUrl });
+    void Share.share({
+      message: purchaseLinkShareMessage({
+        url: linkOpenFallback.redirectUrl,
+        link: linkOpenFallback.link,
+        disclosureText: linkOpenFallback.disclosureText
+      })
+    });
   };
 
   const hasSession = Boolean(authToken && childId && itemTemplateId);
@@ -655,6 +691,32 @@ export default function ItemDetailScreen() {
    * 채워진 버튼이 하나도 없다.
    */
   const filledPurchaseRowIndex = primaryPurchaseLinkIndex(visibleDetail.productLinks);
+  /**
+   * 라운드 64 #1 — 카드 아래 전폭 구매 CTA가 여는 링크. **판매처 행의 채움과 같은 판정**이다.
+   * (라벨 문자열은 아래 PrimaryButton 한 자리에만 둔다 — 여러 계약 테스트가 그 문자열의
+   * 첫 등장 위치로 화면 순서를 대조하므로 주석에 같은 문자열을 다시 적지 않는다.)
+   *
+   * 고치는 문제: 이 버튼은 응답의 첫 링크(productLinks[0])를 그대로 열었다. 바로 위 판매처
+   * 목록은 `filledPurchaseRowIndex`로 스폰서 행을 외곽선으로 격하시켜 놓는데, 그 한 줄 아래
+   * 화면에서 가장 큰 버튼이 **같은 스폰서 링크**를 열었다 — DNC-011이 세우려던 시각 구분이
+   * 통째로 되돌려지는 자리였다. 가정이 아니라 지금 시드로 재현된다(유일한 링크가 스폰서인
+   * 품목 다섯: 유모차·임신일기·물티슈 대용량·보행기·유아 자전거). 운영에서는 더 조용하다 —
+   * 비스폰서 1순위 링크가 워커 헬스로 broken 판정을 받아 뒤로 밀리는 날, 코드 변경도 어드민
+   * 조작도 없이 index 0이 스폰서가 된다.
+   *
+   * 새 판정을 만들지 않는다: `primaryPurchaseLinkIndex`가 이미 답을 알고 있다(스폰서는 순서와
+   * 무관하게 강조를 받지 않는다). 정렬은 한 줄도 건드리지 않는다(DNC-009).
+   *
+   * 전부 스폰서(-1)면 이 버튼을 **렌더하지 않는다** — 링크 0건에서 죽은 버튼을 지운 라운드 43
+   * C2와 같은 규율이다. 구매 경로가 좁아지는 것이 아니다: 그 링크는 판매처 행에 그대로 서
+   * 있고, 그 행에는 스폰서 배지와 "광고/스폰서" 캡션이 붙어 있다. 광고를 광고라고 말한
+   * 자리에서만 누르게 되는 것이 DNC-011의 취지다.
+   *
+   * ITEM-002 픽셀락(비세션 프리뷰)은 index 0이 비스폰서라 판정이 0이고, 버튼은 종전과 똑같이
+   * 렌더된다 — 캡처는 한 픽셀도 달라지지 않는다.
+   */
+  const primaryPurchaseLink =
+    filledPurchaseRowIndex >= 0 ? visibleDetail.productLinks[filledPurchaseRowIndex] : undefined;
   /**
    * 라운드 49 C-04: "이 준비템으로 기록한 지출" 한 줄. 세션 게이트·표기·문구는 전부 순수
    * 모듈이 정하고(src/items/linked-expense.ts) 화면은 그리기만 한다 -- 비세션 프리뷰
@@ -969,14 +1031,15 @@ export default function ItemDetailScreen() {
             />
             {/* C2: 열 링크가 없으면 렌더하지 않는다 — 예전에는 버튼이 그대로 있고 누르면
                 아무 반응이 없었다(productLinks[0] 부재). 없는 기능을 있는 것처럼 보이지
-                않게 하는 쪽이, 눌러 보고 나서야 아는 것보다 낫다. */}
-            {hasProductLinks ? (
+                않게 하는 쪽이, 눌러 보고 나서야 아는 것보다 낫다.
+
+                라운드 64 #1: 그 게이트가 이제 **강조를 받을 링크가 있는가**다(위
+                primaryPurchaseLink 주석). 링크 0건도, 전부 스폰서인 경우도 같은 이유로 여기서
+                버튼이 사라진다 — 화면에서 가장 큰 버튼이 광고를 열지 않는다(DNC-011). */}
+            {primaryPurchaseLink ? (
               <PrimaryButton
                 label="바로 구매하기"
-                onPress={() => {
-                  const firstLink = visibleDetail.productLinks[0];
-                  if (firstLink) handleProductLinkPress(firstLink);
-                }}
+                onPress={() => handleProductLinkPress(primaryPurchaseLink)}
                 style={{ flex: 1 }}
               />
             ) : null}

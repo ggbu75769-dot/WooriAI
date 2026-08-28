@@ -342,7 +342,11 @@ describe("DNC-009 — 가격은 표시 전용이다 (정렬·추천에 유입되
         if (!/\.tsx?$/.test(entry.name)) continue;
         const path = join(entry.parentPath ?? entry.path, entry.name);
         if (path.endsWith(join("src", "items", "link-price.ts"))) continue;
-        if (path.endsWith(join("src", "items", "link-price.test.ts"))) continue;
+        // 라운드 64 M-2: 이 가드가 지키는 것은 **제품 코드**의 결합이다(정렬·추천 소스가
+        // 가격 표시 규칙을 부르면 DNC-009가 흔들린다). 테스트 파일은 그 결합을 만들지
+        // 않으므로 전부 건너뛴다 — 계약 상수 드리프트 가드(src/api/contracts-mirror.test.ts)가
+        // 이 모듈의 LINK_PRICE_MAX_AGE_DAYS를 읽어야 한다.
+        if (/\.test\.tsx?$/.test(entry.name)) continue;
         if (readFileSync(path, "utf8").includes("items/link-price")) {
           importers.push(path.slice(mobileRoot.length + 1));
         }

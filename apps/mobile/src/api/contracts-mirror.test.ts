@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { EXPENSE_LIST_MAX_LIMIT, TREND_REPORT_DEFAULT_MONTHS } from "./client";
+import { LINK_PRICE_MAX_AGE_DAYS } from "../items/link-price";
 
 const contractsSchemasSource = () =>
   readFileSync(join(process.cwd(), "..", "..", "packages", "contracts", "src", "schemas.ts"), "utf8");
@@ -34,6 +35,23 @@ describe("contracts 수기 미러 드리프트 가드", () => {
     expect(Number(defaultMatch![1])).toBe(TREND_REPORT_DEFAULT_MONTHS);
     expect(TREND_REPORT_DEFAULT_MONTHS).toBeGreaterThanOrEqual(1);
     expect(TREND_REPORT_DEFAULT_MONTHS).toBeLessThanOrEqual(Number(maxMatch![1]));
+  });
+
+  /**
+   * 라운드 64 M-2 — 가격 스냅샷 만료 문턱도 같은 수기 미러다(계약과 모바일 두 벌).
+   *
+   * 두 값이 갈라지면 조용히 틀린다: 어드민 표의 "만료" 배지는 **서버가 계약 상수로** 판정한
+   * `priceExpired`를 그리고, 앱은 자기 상수로 그릴지 말지를 정한다. 문턱이 어긋나는 순간
+   * 어드민은 "앱에 보인다"고 말하는데 앱은 안 그리는(혹은 그 반대) 상태가 되고, 그 표가
+   * 드러내려던 '조용한 만료'를 표 자신이 틀리게 보고한다.
+   *
+   * 계약 주석이 근거로 들던 `apps/api/test/mobile-link-price-contract.test.ts`는 존재한 적이
+   * 없었다 — 그래서 가드를 여기(이미 있는 수기 미러 계약 파일)에 세우고 그 주석을 정정했다.
+   */
+  it("LINK_PRICE_MAX_AGE_DAYS가 packages/contracts의 값과 같다", () => {
+    const match = contractsSchemasSource().match(/export const LINK_PRICE_MAX_AGE_DAYS = (\d+);/);
+    expect(match, "packages/contracts에서 LINK_PRICE_MAX_AGE_DAYS를 찾지 못했다").not.toBeNull();
+    expect(Number(match![1])).toBe(LINK_PRICE_MAX_AGE_DAYS);
   });
 
   /**

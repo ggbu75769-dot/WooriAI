@@ -157,6 +157,17 @@ import { theme } from "../../src/theme";
 // 배열을 만들면 그것을 의존성으로 받는 useMemo가 매번 다시 돈다.
 const noSuggestRows: SuggestSourceRow[] = [];
 
+/**
+ * 라운드 64 #6 — 판매처 자동완성 칩의 히트 영역. 값도 근거도 빠른 기록 시트와 **같은 한 벌**이다
+ * (`app/expenses/new.tsx`의 `SUGGEST_CHIP_HIT_SLOP` 주석 — 두 화면의 칩은 같은 모듈이 라벨을
+ * 만들고 같은 pill·같은 높이를 쓴다).
+ *
+ * 요약: 칩 높이 38 + 세로 5×2 = 48(`theme.touchTarget`). 가로는 칩 간 gap 8과 겹치므로 종전 3을
+ * 그대로 둔다(5+5 > 8이면 옆 칩이 눌린다). `hitSlop`은 레이아웃 속성이 아니라 렌더는 불변이다.
+ * 계약은 `src/a11y-contract.test.ts`가 두 화면을 함께 붙든다.
+ */
+const SUGGEST_CHIP_HIT_SLOP = { bottom: 5, left: 3, right: 3, top: 5 } as const;
+
 function formatExpenseDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -935,7 +946,7 @@ export default function ExpenseDetailScreen() {
                         key={suggestion.merchant}
                         accessibilityRole="button"
                         accessibilityLabel={merchantSuggestionChipAccessibilityLabel(suggestion)}
-                        hitSlop={3}
+                        hitSlop={SUGGEST_CHIP_HIT_SLOP}
                         onPress={() => setMerchant(suggestion.merchant)}
                         style={{
                           alignItems: "center",

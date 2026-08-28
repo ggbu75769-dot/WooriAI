@@ -252,3 +252,44 @@ export function primaryPurchaseLinkIndex(
   if (!links || links.length === 0) return -1;
   return links.findIndex((link) => !link.isSponsored);
 }
+
+/* ------------------------------------------------------- 앱 밖으로 나가는 구매 링크 */
+
+/**
+ * 라운드 64 #5ⓐ: 구매 링크를 **앱 밖으로** 보낼 때 함께 나가는 한 줄.
+ *
+ * 고치는 문제: 링크를 자동으로 열지 못했을 때 뜨는 카드의 "링크 공유하기"가 리다이렉트 URL
+ * **한 줄만** 보냈다. 받는 사람은 그것이 제휴 링크라는 사실을 한 번도 듣지 못한 채 그 URL로
+ * 구매한다. DNC-010은 "구매 CTA 인접 위치의 제휴 고지를 숨기지 않는다"는 계약인데, 앱 밖으로
+ * 나간 링크에는 **인접이라 부를 자리 자체가 없다** — 그러면 문장을 링크와 함께 보내는 것
+ * 말고 그 계약을 지킬 방법이 없다.
+ *
+ * 문구를 새로 만들지 않는다: 화면의 `AffiliateDisclosure`가 쓰는 그 판정
+ * (`productLinksDisclosureText`)을 **공유되는 그 링크 하나**에 그대로 적용한다. 그래서
+ *  - 제휴 링크에는 수수료 고지가 반드시 붙고(N-2의 규율이 여기서도 그대로 돈다),
+ *  - 스폰서 링크는 광고임을 먼저 밝히며(DNC-011),
+ *  - 제휴도 스폰서도 아닌 일반 링크는 **종전 그대로 URL 한 줄**이다 — 고지 대상이 없는
+ *    자리에 고지를 지어내지 않는다(라운드 43 M-1과 같은 근거).
+ *
+ * 서버 클릭 응답이 그 링크의 문구를 함께 주면(`disclosureText`) 그것이 우선이다 — 운영이
+ * 어드민에서 편집한 값이 앱의 기본값보다 앞선다. 다만 그 값도 같은 판정을 지나므로, 수수료를
+ * 말하지 않는 커스텀 문구가 제휴 링크의 수수료 고지를 지우는 일은 없다.
+ *
+ * 순수 함수다(Share/Linking 무접촉) — 조립이 한 자리에만 있어 문구가 두 벌이 되지 않는다.
+ */
+export function purchaseLinkShareMessage(input: {
+  url: string;
+  link: ProductLinkDisclosureInput;
+  /** 클릭 응답이 준 그 링크의 고지 문구(있으면 링크 자신의 값보다 우선). */
+  disclosureText?: string | null;
+}): string {
+  const notice = productLinksDisclosureText([
+    {
+      isAffiliate: input.link.isAffiliate,
+      isSponsored: input.link.isSponsored,
+      disclosureText: input.disclosureText ?? input.link.disclosureText
+    }
+  ]);
+  if (!notice) return input.url;
+  return `${notice}\n${input.url}`;
+}

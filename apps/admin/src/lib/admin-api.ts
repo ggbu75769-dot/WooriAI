@@ -104,6 +104,48 @@ export type ProductLink = {
   // COM-105: link_health 워커 잡이 기록한 최근 헬스체크 결과 (ISO 8601 타임스탬프).
   healthStatus: LinkHealthStatus | null;
   healthCheckedAt: string | null;
+  /**
+   * GAP-064 #4: 판매처 가격 스냅샷과 그 확인 시각. 지금까지 이 값을 쓰는 유일한 경로는
+   * CSV 일괄 교체였는데 어드민 어디에서도 되읽을 수 없었다 — 헬스는 표에 배지가 서고
+   * 가격만 없는 비대칭이었다. 앱 응답과 달리 **한쪽만 있는 상태도 그대로 실린다**
+   * (레거시 행: 가격만 있고 확인 시각 NULL). 그 상태를 화면이 이름으로 말한다.
+   *
+   * `priceExpired`는 "앱에서 이미 이 가격이 보이지 않는다"는 서버 판정이다(보존 창을
+   * 넘겼다는 뜻 — 문턱은 packages/contracts의 LINK_PRICE_MAX_AGE_DAYS이고, 그 숫자를
+   * 어드민 번들에 다시 박지 않으려고 서버가 계산해서 불리언으로 내려준다. 라운드 64 M-2:
+   * 그래서 이 주석도 일수를 적지 않는다 — 숫자를 적는 순간 어드민이 자기 사본을 갖는다).
+   * 가산 optional: 이 필드들 이전에 캐시된 응답과 섞여도 표가 깨지지 않는다.
+   */
+  priceSnapshotKrw?: number | null;
+  priceCheckedAt?: string | null;
+  priceExpired?: boolean;
+  /**
+   * GAP-064 #8: 공개 리다이렉트 `GET /api/v1/r/:code`의 코드와 그 공유용 절대 URL.
+   * 라우트·컬럼은 처음부터 완성돼 있었지만 코드를 노출하는 화면이 하나도 없어 도달
+   * 불가였다. URL 조립은 서버가 한다(베이스는 API 환경변수 INVITE_LINK_BASE_URL —
+   * 브라우저에서는 읽을 수 없다).
+   *
+   * 라운드 64 S-1: `redirectShareUrl`은 **활성 링크에만** 실린다(리다이렉트가 active
+   * 행만 302로 보낸다). 그래서 비활성 행에는 이 값이 null이고 화면은 복사 버튼을 아예
+   * 그리지 않는다 — 누르면 404가 나는 버튼을 세우지 않는다. `redirectCode`는 비활성
+   * 행에도 그대로 실린다(되살리면 같은 코드가 다시 도달 가능해진다).
+   *
+   * DNC-010: 이 URL은 혼자 나가면 안 되므로 화면의 복사 동작은 같은 행의
+   * `shareDisclosureText`를 함께 싣는다(src/lib/link-share.ts).
+   */
+  redirectCode?: string | null;
+  redirectShareUrl?: string | null;
+  /**
+   * 라운드 64 M-1: **앱 밖으로 나갈 때** 이 링크에 붙는 고지 문구. 편집·표시용
+   * `disclosureText`(운영이 쓴 값 그대로)와 달리, 제휴 링크에는 수수료 문장이 반드시
+   * 들어 있다 — 판정은 서버 한 곳(apps/api src/items-commerce/share-disclosure.ts)이고
+   * 앱의 `purchaseLinkShareMessage`가 지나는 규율과 같은 것이다. 어드민은 이 값을
+   * 지어내지도 고쳐 쓰지도 않는다.
+   *
+   * 가산 optional: 이 필드 이전에 캐시된 응답에서는 없을 수 있다(그때는 복사 문구가
+   * 고지 없이 URL만 나가는 대신, link-share.ts가 `disclosureText`로 물러선다).
+   */
+  shareDisclosureText?: string | null;
 };
 
 export type ItemTemplate = {
@@ -547,6 +589,11 @@ export type ProductLinkBulkPreviewRow = {
   matchedTitle: string | null;
   currentAffiliateUrl: string | null;
   newAffiliateUrl: string | null;
+  /** GAP-064 #4ⓐ: 대상 링크에 지금 저장된 가격(없으면 null). 적용 전후 대조를 URL에서
+   * 가격까지 넓힌다 — 종전에는 CSV로 쓴 가격이 반영됐는지 확인할 자리가 없었다. */
+  currentPriceSnapshotKrw?: number | null;
+  /** 이 행이 쓰려는 가격. CSV의 가격 칸이 비었으면 null(가격은 그대로 둔다). */
+  newPriceSnapshotKrw?: number | null;
   errorCode?: string;
   errorMessage?: string;
 };
@@ -783,9 +830,16 @@ export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = {
 
 export type AdminProfile = { id: string; email: string; displayName: string; role: AdminRole };
 
+/**
+ * GAP-064 #7: 세션 응답의 `mfaRecoveryCodesRemaining`은 **남은 복구 코드 장수**다.
+ * 값도 해시도 아니고 개수만이며, 세션이 발급된 뒤의 응답에만 실린다(로그인 ok 분기 ·
+ * verify-login · me). 복구 코드로 로그인한 경우 이 값은 방금 태운 한 장을 뺀 값이다.
+ * 가산 필드라 이 키가 없던 응답과 섞여도 화면이 깨지지 않게 optional로 둔다 — 그때는
+ * 잔량 줄을 그리지 않는다(모르는 것을 0으로 단정하지 않는다).
+ */
 export type AdminLoginResult =
   | { mfaRequired: true; mfaToken: string; expiresIn: number }
-  | { mfaRequired: false; admin: AdminProfile; mfaEnabled: boolean };
+  | { mfaRequired: false; admin: AdminProfile; mfaEnabled: boolean; mfaRecoveryCodesRemaining?: number };
 
 export function adminLogin(email: string, password: string) {
   return request<AdminLoginResult>("/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
@@ -799,7 +853,7 @@ export function adminVerifyMfaLogin(mfaToken: string, code: string) {
 }
 
 export function adminMe() {
-  return request<{ admin: AdminProfile; mfaEnabled: boolean }>("/admin/auth/me");
+  return request<{ admin: AdminProfile; mfaEnabled: boolean; mfaRecoveryCodesRemaining?: number }>("/admin/auth/me");
 }
 
 export function adminLogout() {

@@ -9,7 +9,16 @@ import { adminMe, type AdminProfile } from "./admin-api";
 // browser storage or JS memory here. `session` is just a client-side cache of
 // "am I logged in, and has this admin finished MFA enrollment", refreshed via
 // GET /admin/auth/me (which itself relies on the ambient cookie).
-export type AdminSession = { admin: AdminProfile; mfaEnabled: boolean };
+/**
+ * GAP-064 #7: `mfaRecoveryCodesRemaining`은 **남은 복구 코드 장수**다(값도 해시도 아니다 —
+ * 서버가 개수만 보낸다). 로그인을 마친 세션에만 실리므로 이 캐시에 두는 것이 안전하다:
+ * 복구 코드는 추측 대상이 아니라 소지 대상이고, 잔량은 "몇 번 더 시도할 수 있나"가 아니라
+ * "지금 재등록해야 하나"에 답하는 값이다.
+ *
+ * optional인 이유는 이 필드 이전 응답과 섞여도 화면이 깨지지 않게 하기 위해서다 — 그때는
+ * 잔량 줄을 그리지 않는다(모르는 것을 0으로 단정하지 않는다 — recovery-codes-view.ts).
+ */
+export type AdminSession = { admin: AdminProfile; mfaEnabled: boolean; mfaRecoveryCodesRemaining?: number };
 
 type AdminSessionContextValue = {
   session: AdminSession | null;
@@ -28,7 +37,11 @@ export function AdminTokenProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const me = await adminMe();
-      setSessionState({ admin: me.admin, mfaEnabled: me.mfaEnabled });
+      setSessionState({
+        admin: me.admin,
+        mfaEnabled: me.mfaEnabled,
+        mfaRecoveryCodesRemaining: me.mfaRecoveryCodesRemaining
+      });
     } catch {
       setSessionState(null);
     } finally {

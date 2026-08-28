@@ -509,6 +509,88 @@ describe("Items, commerce, and affiliate API", () => {
     }
   });
 
+  /**
+   * GAP-064 #5ⓑ — 클릭 응답만 **종별 기본 고지**를 지나지 않던 자리.
+   *
+   * 앱 DTO와 어드민 DTO는 둘 다 `defaultDisclosureFor`를 지나 링크의 `disclosure_text`가
+   * 비면 어드민이 관리하는 기본 문구로 채워 준다. 클릭 응답만 저장된 값을 그대로 실어서,
+   * 문구 칸을 비운 제휴 링크를 누르면 확인 카드가 고지 대신 "구매 링크"라고만 썼다 —
+   * **구매 CTA에 가장 가까운 자리**에서 고지가 사라지는 DNC-010 위반이다.
+   *
+   * 재현 조건은 이상 상황이 아니라 운영의 정상 경로다(어드민이 문구 칸을 비우고 고지 CMS의
+   * 기본값에 기대는 것 — 그러라고 만든 기능이다). 그래서 이 테스트는 **두 경로가 같은 문구를
+   * 말하는지**를 본다: 상세 목록의 그 링크와 클릭 응답이 글자 그대로 같아야 한다.
+   */
+  it("fills the click response with the default disclosure when the link has none (GAP-064 #5ⓑ)", async () => {
+    const accessToken = await login(app, "round64-click-default-disclosure");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = moduleRef.get(PrismaService);
+    const fixture = await createOwnClickFixture(prisma, {
+      url: "https://example.com/dev/round64-disclosure",
+      affiliateUrl: "https://example.com/dev/affiliate/round64-disclosure"
+    });
+
+    try {
+      // 픽스처는 제휴 링크이면서 문구 재정의가 없다(= 기본 문구에 기대는 상태).
+      const stored = await prisma.productLink.findUnique({ where: { id: fixture.linkId } });
+      expect(stored?.isAffiliate).toBe(true);
+      expect(stored?.disclosureText).toBeNull();
+
+      const detail = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/children/${childId}/items/${fixture.templateId}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body as { productLinks: ProductLink[] };
+      const listed = detail.productLinks.find((link) => link.id === fixture.linkId)!;
+      expect(listed.disclosureText).toEqual(expect.stringContaining("수수료"));
+
+      const clickResponse = await request(app.getHttpServer())
+        .post(`/api/v1/product-links/${fixture.linkId}/click`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ childId, referrerScreenId: "ITEM-003" })
+        .expect(200);
+
+      affiliateClickResponseSchema.parse(clickResponse.body);
+      // 같은 문구다 — 화면이 어느 경로로 오든 사용자가 듣는 말이 하나다.
+      expect(clickResponse.body.disclosureText).toBe(listed.disclosureText);
+    } finally {
+      await removeOwnClickFixture(prisma, fixture);
+    }
+  });
+
+  /**
+   * 고지 대상이 아닌 일반 링크는 종전 그대로 문구가 없다 — 없는 고지를 지어내지 않는다
+   * (라운드 43 M-1의 규율이 클릭 응답에서도 그대로 돈다).
+   */
+  it("still sends no disclosure for a plain (non-affiliate, non-sponsored) link", async () => {
+    const accessToken = await login(app, "round64-click-plain-link");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = moduleRef.get(PrismaService);
+    const fixture = await createOwnClickFixture(prisma, {
+      url: "https://example.com/dev/round64-plain",
+      affiliateUrl: null
+    });
+
+    try {
+      await prisma.productLink.update({
+        where: { id: fixture.linkId },
+        data: { isAffiliate: false, isSponsored: false, disclosureText: null }
+      });
+
+      const clickResponse = await request(app.getHttpServer())
+        .post(`/api/v1/product-links/${fixture.linkId}/click`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ childId, referrerScreenId: "ITEM-003" })
+        .expect(200);
+
+      affiliateClickResponseSchema.parse(clickResponse.body);
+      expect(clickResponse.body.disclosureText).toBeUndefined();
+    } finally {
+      await removeOwnClickFixture(prisma, fixture);
+    }
+  });
+
   it("rejects a click on a product link whose target domain is not on the affiliate allowlist, and does not log it", async () => {
     const accessToken = await login(app, "batch07-click-domain-blocked");
     const { childId } = await completeOnboarding(app, accessToken);

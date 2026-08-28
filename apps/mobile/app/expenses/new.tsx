@@ -190,6 +190,23 @@ const noExpenseHistory: MonthExpenses["expenses"] = [];
 // 다시 의존성으로 받는 계산들이 있다.
 const noSuggestRows: SuggestSourceRow[] = [];
 
+/**
+ * 라운드 64 #6 — 입력 보조 칩(최근 품목 · 품목 자동완성 · 판매처 자동완성)의 히트 영역.
+ *
+ * 칩 자신의 높이는 38이라 저장소가 스스로 정한 최소 터치 타깃(`theme.touchTarget` = 48)에
+ * 10 모자란다. 그 10을 **세로로만** 갚는다 — 38 + 2×5 = 48.
+ *
+ * 가로를 올리지 않는 이유는 칩 사이 간격이 8이기 때문이다(`contentContainerStyle={{ gap: 8 }}`).
+ * 좌우로 5씩 늘리면 이웃 칩의 히트 영역과 겹쳐(5 + 5 > 8) **옆 칩이 눌리는 오탭**이 새로
+ * 생긴다 — 하나를 고치려고 다른 하나를 만드는 셈이다. 종전 값 3은 그대로 둔다: 3 + 3 < 8이라
+ * 겹치지 않고, 0으로 줄이면 이 라운드의 목적과 반대로 가로 히트 영역만 좁아진다.
+ *
+ * `hitSlop`은 레이아웃 속성이 아니다 — 히트 영역만 넓히고 **렌더는 한 픽셀도 바뀌지 않는다**
+ * (EXP-001 픽셀락 기준선 불변, 라운드 64 A가 커머스 상세 크롬에 같은 근거를 적었다).
+ * 계약은 `src/a11y-contract.test.ts`가 "(높이 + 2×세로 hitSlop) ≥ theme.touchTarget"으로 붙든다.
+ */
+const SUGGEST_CHIP_HIT_SLOP = { bottom: 5, left: 3, right: 3, top: 5 } as const;
+
 function formatExpenseDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -1557,7 +1574,7 @@ export default function NewExpenseScreen() {
                   key={chip.itemName}
                   accessibilityRole="button"
                   accessibilityLabel={recentItemChipAccessibilityLabel(chip)}
-                  hitSlop={3}
+                  hitSlop={SUGGEST_CHIP_HIT_SLOP}
                   onPress={() => {
                     setItemName(chip.itemName);
                     lastTileFilledItemNameRef.current = null;
@@ -1934,7 +1951,7 @@ export default function NewExpenseScreen() {
                     key={suggestion.merchant}
                     accessibilityRole="button"
                     accessibilityLabel={merchantSuggestionChipAccessibilityLabel(suggestion)}
-                    hitSlop={3}
+                    hitSlop={SUGGEST_CHIP_HIT_SLOP}
                     onPress={() => applyMerchantSuggestion(suggestion.merchant)}
                     style={{
                       alignItems: "center",
@@ -2033,7 +2050,7 @@ export default function NewExpenseScreen() {
                     key={chip.itemName}
                     accessibilityRole="button"
                     accessibilityLabel={itemAutocompleteChipAccessibilityLabel(chip, categoryNameForChip(chip.categoryId))}
-                    hitSlop={3}
+                    hitSlop={SUGGEST_CHIP_HIT_SLOP}
                     onPress={() => applyItemAutocompleteChip(chip)}
                     style={{
                       alignItems: "center",

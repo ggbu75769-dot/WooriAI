@@ -348,6 +348,29 @@ export const listItemsQuerySchema = z.object({
 });
 
 /**
+ * 라운드 64 D(#4) — 스냅샷 가격을 **그릴 수 있는 나이의 상한**(일). 확인한 지 이 일수를
+ * 넘긴 가격은 앱이 아예 그리지 않는다(apps/mobile/src/items/link-price.ts 규칙 5).
+ *
+ * 왜 계약에 있는가: 이 선은 **앱에만 있는 판정이었고, 그래서 아무에게도 보고되지 않았다** —
+ * 어느 날부터 판매처 가격이 통째로 사라져도 어드민 화면에는 아무 신호가 없었다(헬스는 배지가
+ * 서는데 가격만 없는 비대칭). 어드민이 "이 가격은 앱에서 이미 안 보인다"고 말하려면 같은
+ * 숫자를 알아야 하는데, 그 숫자를 어드민 소스에 다시 박으면 다음에 갈린다(라운드 63 #9의
+ * 교훈). 그래서 문턱을 계약으로 올리고, 서버가 어드민 DTO에서 `priceExpired`를 **계산해서**
+ * 내려보낸다 — 숫자 자체는 어드민 번들에 실리지 않는다.
+ *
+ * 손으로 유지되는 사본이 하나 더 있다: `apps/mobile/src/items/link-price.ts`의
+ * `LINK_PRICE_MAX_AGE_DAYS`(모바일은 @wooriai/contracts를 의존하지 않는다 —
+ * known-limitations §D. 재수출 배선은 후속이다).
+ *
+ * 라운드 64 M-2: 두 값이 어긋나는 순간을 잡는 가드는 **모바일 쪽 수기 미러 계약 테스트**에
+ * 있다 — `apps/mobile/src/api/contracts-mirror.test.ts`의
+ * "LINK_PRICE_MAX_AGE_DAYS가 packages/contracts의 값과 같다". (종전 주석은 존재하지도 않는
+ * `apps/api/test/mobile-link-price-contract.test.ts`를 근거로 들어, 이중 소스가 아무 가드
+ * 없이 놓인 상태를 보호받는 것처럼 적어 두고 있었다.)
+ */
+export const LINK_PRICE_MAX_AGE_DAYS = 180;
+
+/**
  * 라운드 51 #9 — 판매처별 가격(가산 optional). 이번 라운드는 계약만이고 표시 UI는 없다.
  *
  * `priceSnapshotKrw`는 "언젠가 확인한 값"이라 언제 확인했는지를 함께 말하지 않으면

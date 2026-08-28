@@ -143,6 +143,10 @@ export type AuditLogActionPreset = {
  * - budget.upsert: apps/api/src/onboarding/budgets.controller.ts (GAP-063 #5 — 월 예산 설정·덮어쓰기.
  *   budgets 행은 (아이, 연월)당 한 칸이라 덮어쓰면 이전 금액이 사라진다: "왜 갑자기 예산 경고가
  *   뜨죠" 문의에서 누가·언제·얼마에서 얼마로 바꿨는지는 이 액션의 before/after에만 있다)
+ * - import.confirm: apps/api/src/imports/imports.controller.ts (GAP-064 #9 — 엑셀/CSV 가져오기
+ *   **승인**. DNC-012의 핵심 사건이고 되돌릴 수 없다: "가져왔는데 일부가 안 들어왔어요" 문의에서
+ *   누가·언제 승인했고 몇 줄짜리 파일에서 몇 건이 들어가고 빠졌는지는 이 액션에만 있다.
+ *   봉투에 파일명은 없다 — 파일명은 보존기간이 지나면 마스킹되는 값이라 감사 로그에 복사하지 않는다)
  * - auth.login / auth.logout: apps/api/src/auth/auth.service.ts (카카오는 kakao-auth.service.ts)
  * - admin.*: apps/api/src/admin/* (admin-auth / admin-users / admin-categories /
  *   content-revisions / admin.controller / admin-users-lookup)
@@ -152,6 +156,7 @@ export const AUDIT_LOG_ACTION_PRESETS: readonly AuditLogActionPreset[] = [
   { action: "expense.update", label: "지출 수정 (금액·메모 등)" },
   { action: "expense.delete", label: "지출 삭제" },
   { action: "budget.upsert", label: "월 예산 변경 (설정·덮어쓰기)" },
+  { action: "import.confirm", label: "가져오기 승인 (엑셀·CSV 확정)" },
   { action: "child_profile.delete", label: "아이 프로필 삭제" },
   { action: "household.member.remove", label: "가구 구성원 내보내기" },
   { action: "household.invite.cancel", label: "가구 초대 취소" },

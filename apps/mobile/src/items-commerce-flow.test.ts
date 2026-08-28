@@ -145,9 +145,18 @@ describe("Batch 07 mobile items and commerce contract", () => {
     expect(productDetailSource).toContain("const retryOpenFallbackLink = async () => {");
     expect(productDetailSource).toMatch(/retryOpenFallbackLink[\s\S]*?Linking\.canOpenURL\(linkOpenFallback\.redirectUrl\)[\s\S]*?Linking\.openURL\(linkOpenFallback\.redirectUrl\)/);
 
-    // Share uses RN's Share.share (not a new dependency) with the redirect URL as the message.
+    // Share uses RN's Share.share (not a new dependency) with the stored redirect URL.
+    //
+    // 라운드 64 #5ⓐ: 그 메시지에 **제휴 고지가 함께** 실린다(DNC-010) -- 앱 밖으로 나간 링크에는
+    // "구매 CTA 인접"이라 부를 자리가 없어, 문장을 함께 보내는 것 말고 그 계약을 지킬 방법이
+    // 없다. 조립은 순수 모듈 한 자리(src/items/link-marker.ts의 purchaseLinkShareMessage)이고
+    // 문구 계약은 link-marker.test.ts가 진다. 여기서는 **URL이 여전히 그 리다이렉트 URL이라는
+    // 것**과 화면이 문자열을 스스로 잇지 않는다는 것만 본다.
     expect(productDetailSource).toContain("const shareFallbackLink = () => {");
-    expect(productDetailSource).toMatch(/shareFallbackLink[\s\S]*?Share\.share\(\{ message: linkOpenFallback\.redirectUrl \}\)/);
+    expect(productDetailSource).toMatch(
+      /shareFallbackLink[\s\S]*?Share\.share\(\{\s*message: purchaseLinkShareMessage\(\{\s*url: linkOpenFallback\.redirectUrl,/
+    );
+    expect(productDetailSource).not.toMatch(/Share\.share\(\{ message: linkOpenFallback\.redirectUrl \}\)/);
 
     // The fallback card renders both a share action and a "다시 시도" (retry) action.
     expect(productDetailSource).toMatch(/{linkOpenFallback \? \([\s\S]*?링크 공유하기[\s\S]*?다시 시도[\s\S]*?\) : null}/);

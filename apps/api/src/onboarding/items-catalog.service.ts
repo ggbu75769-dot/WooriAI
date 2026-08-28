@@ -1,11 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { getSeoulToday } from "@wooriai/domain";
 import type { ChildStageCode, ItemStatus, NecessityLevel, ProductPlatform } from "@wooriai/domain";
+import { LINK_PRICE_MAX_AGE_DAYS } from "@wooriai/contracts";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
 import { hashClickIp, isAllowedAffiliateUrl, PRODUCT_LINK_NOT_FOUND_ERROR } from "../items-commerce/affiliate-link-guard.util";
 import { type StageBandLabel } from "../items-commerce/stage-bands";
+import { withCommissionDisclosure } from "../items-commerce/share-disclosure";
 import { rankItemsForTab, type ItemTab } from "./item-ranking";
 import { ChildAccessService } from "./child-access.service";
 import { ExpensesStoreService } from "./expenses-store.service";
@@ -58,6 +61,11 @@ type ProductLinkRow = {
   // 둘의 관계 규칙은 toProductLinkDto 주석 참고 — 하나만 있으면 둘 다 내보내지 않는다.
   priceSnapshotKrw?: number | null;
   priceCheckedAt?: Date | null;
+  // 라운드 64 D(#8): 공개 리다이렉트 `GET /r/:code`가 찾는 그 코드(마이그레이션 000007,
+  // NOT NULL UNIQUE). 지금까지 이 컬럼을 읽는 곳은 그 컨트롤러 한 줄뿐이라 라우트가
+  // 도달 불가였다 — 어드민 DTO가 실어 주면서 운영이 공유용 URL을 만들 수 있게 된다.
+  // healthStatus와 같은 이유로 optional(손수 만든 행 호환); Prisma 행에는 늘 있다.
+  redirectCode?: string | null;
 };
 
 export type AdminItemTemplateInput = {
@@ -141,6 +149,72 @@ function sortProductLinksForApp<T extends { displayOrder: number; healthStatus?:
       productLinkHealthRank(left.healthStatus) - productLinkHealthRank(right.healthStatus) ||
       left.displayOrder - right.displayOrder
   );
+}
+
+const MILLIS_PER_DAY = 86_400_000;
+
+/** "YYYY-MM-DD" → 그 날 자정(UTC)의 밀리초. 형식이 어긋나면 null. */
+function dayMillis(dateOnly: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return null;
+  const millis = Date.UTC(Number(dateOnly.slice(0, 4)), Number(dateOnly.slice(5, 7)) - 1, Number(dateOnly.slice(8, 10)));
+  return Number.isFinite(millis) ? millis : null;
+}
+
+/**
+ * 라운드 64 D(#4) — 이 가격 스냅샷이 **앱에서 이미 보이지 않는 나이**인가.
+ *
+ * 앱은 확인한 지 `LINK_PRICE_MAX_AGE_DAYS`(계약)를 넘긴 스냅샷을 아예 그리지 않는다
+ * (apps/mobile/src/items/link-price.ts 규칙 5). 그 판정은 정직하지만 **아무에게도
+ * 보고되지 않았다** — 어느 날부터 가격 비교가 통째로 비어도 운영은 알 길이 없었다.
+ * 이 술어의 결과만 어드민 DTO에 실어(숫자는 싣지 않는다) 표가 그 사실을 말하게 한다.
+ *
+ * 앱과 같은 **서울 달력 날짜 단위**로 센다(UTC 시각을 기기/서버 타임존으로 읽으면 하루가
+ * 밀리고, 만료 경계에서 하루 오차는 곧 틀린 표시다). 시각이 없으면 만료가 아니라
+ * **모름**이므로 false다 — "시각 없음"은 화면이 따로 이름으로 말한다(가격만 있고 시각이
+ * 없는 링크는 앱에 애초에 실리지 않는다는 사실도 같은 자리에서 보여야 한다).
+ * 오늘을 해석할 수 없거나 미래 시각이면 만료로 부르지 않는다(모르는 것을 단정하지 않는다).
+ */
+function isPriceSnapshotExpired(priceCheckedAt: Date | null | undefined, today: string = getSeoulToday()): boolean {
+  if (!priceCheckedAt) return false;
+  let checkedDay: string;
+  try {
+    checkedDay = getSeoulToday(priceCheckedAt);
+  } catch {
+    return false;
+  }
+  const checkedMillis = dayMillis(checkedDay);
+  const todayMillis = dayMillis(today.slice(0, 10));
+  if (checkedMillis === null || todayMillis === null) return false;
+  const ageDays = (todayMillis - checkedMillis) / MILLIS_PER_DAY;
+  if (ageDays < 0) return false;
+  return ageDays > LINK_PRICE_MAX_AGE_DAYS;
+}
+
+/**
+ * 라운드 64 D(#8) — 공개 리다이렉트(`GET /api/v1/r/:code`)의 공유용 절대 URL.
+ *
+ * 베이스 URL 관례는 가족 초대 링크가 이미 쓰는 것 그대로다
+ * (`INVITE_LINK_BASE_URL`, 미설정 시 dev 플레이스홀더 —
+ * apps/api/src/households/household-runtime.service.ts createInvite ·
+ * scripts/check-env.ts). 조립을 **서버가** 하는 이유: 이 값은 API 프로세스의 환경변수라
+ * 어드민 번들(브라우저)에서는 읽을 수 없고, 어드민 오리진(`/api/v1`만 리라이트한다)에
+ * 붙여 만들면 API가 아닌 곳을 가리키는 죽은 링크가 나간다.
+ *
+ * 라운드 64 C-1 — 경로에 **`/api/v1`이 들어간다**. 종전 조립(`${base}/r/${code}`)은 존재하지
+ * 않는 경로를 가리켰다: `AffiliateRedirectController`는 `@Controller("r")`이고 전역 프리픽스
+ * 예외 목록(bootstrap.ts `setGlobalPrefix("api/v1", { exclude: ["invite/:token"] })`)에는
+ * 초대 랜딩만 있어서, 실제로 응답하는 라우트는 `/api/v1/r/:code` 하나뿐이다 — e2e 6곳과
+ * 스모크(scripts/qa/server-smoke.sh), 레이트리밋 주석까지 전부 그 경로를 전제한다.
+ * 그래서 운영이 복사해 뿌린 URL은 전부 404였고, 도달 불가를 고치려던 기능이 도달 불가인
+ * 주소를 내보내고 있었다.
+ *
+ * 초대 링크처럼 프리픽스 없는 **짧은 URL**로 개통하는 선택지는 라우트를 바꾸는 일이라(공개
+ * 경로를 하나 더 여는 별도 판단) 여기서 하지 않는다. 여기서는 **지금 실제로 응답하는 경로**를
+ * 가리키게만 고친다 — 라우트·프리픽스 예외는 그대로다.
+ */
+function publicRedirectShareUrl(redirectCode: string): string {
+  const base = (process.env.INVITE_LINK_BASE_URL ?? "https://wooriai.local").replace(/\/+$/, "");
+  return `${base}/api/v1/r/${redirectCode}`;
 }
 
 function priceBandText(priceMinKrw: number | null, priceMaxKrw: number | null) {
@@ -251,6 +325,12 @@ export class ItemsCatalogService {
       throw new NotFoundException(PRODUCT_LINK_NOT_FOUND_ERROR);
     }
 
+    // 라운드 64 S-4: 고지 문구 조회를 **쓰기 앞**으로 옮긴다. 순수 읽기라(디스클로저 테이블
+    // 조회 한 건 — 클릭 행과 아무 관계가 없다) 순서를 바꿔도 결과가 같지만, 뒤에 두면 조회가
+    // 실패했을 때 클릭은 이미 기록된 채로 500이 나간다: 사용자는 링크를 못 열고, 집계에는
+    // 열린 적 없는 클릭이 쌓인다(허위 수치). 앞에 두면 실패가 "클릭 없음 + 500"으로 정직해진다.
+    const disclosureText = await this.resolveClickDisclosureText(productLink);
+
     // subId is a self-generated uuid (never derived from user/child identifiers) reused as
     // the row's own id, per round5a-sprint2-plan.md §4's "subId=clickId — PII 금지".
     const clickId = randomUUID();
@@ -273,8 +353,30 @@ export class ItemsCatalogService {
     return {
       clickId: click.id,
       redirectUrl,
-      disclosureText: productLink.disclosureText ?? undefined
+      // 라운드 64 D(#5ⓑ): 이 응답만 **종별 기본 고지**를 지나지 않았다. 목록/상세 DTO와
+      // 어드민 DTO는 둘 다 `defaultDisclosureFor`를 지나 링크의 `disclosure_text`가 비면
+      // 어드민이 관리하는 기본 문구(affiliate_purchase / sponsored_product)로 채워 주는데,
+      // 클릭 응답은 저장된 값만 실었다. 재현 조건은 이상 상황이 아니라 **운영의 정상
+      // 경로**다: 어드민이 제휴 링크를 만들며 문구 칸을 비우고 고지 CMS의 기본값에
+      // 기대는 것(그러라고 만든 기능이다). 그 순간 상세 목록은 고지를 말하고, 바로 그
+      // 링크를 눌러 뜨는 확인 카드는 고지 대신 "구매 링크"라고만 썼다 — 구매 CTA에
+      // 가장 가까운 자리에서 고지가 사라지는 DNC-010 위반이다.
+      //
+      // 고지 대상이 아닌 일반 링크는 **종전 그대로 undefined**다(없는 고지를 지어내지
+      // 않는다). 그 경우 조회를 아예 하지 않으므로 클릭 경로에 쿼리가 늘지도 않는다.
+      disclosureText
     };
+  }
+
+  /** 클릭 응답의 고지 문구. 저장된 재정의가 없고 고지 대상일 때만 기본 문구를 읽는다. */
+  private async resolveClickDisclosureText(link: {
+    disclosureText: string | null;
+    isAffiliate: boolean;
+    isSponsored: boolean;
+  }): Promise<string | undefined> {
+    if (link.disclosureText) return link.disclosureText;
+    if (!link.isAffiliate && !link.isSponsored) return undefined;
+    return this.defaultDisclosureFor(link, await this.disclosuresByKey());
   }
 
   /**
@@ -300,7 +402,12 @@ export class ItemsCatalogService {
     const links = await this.prisma.productLink.findMany();
     const disclosures = await this.disclosuresByKey();
     const linksByItem = this.groupBy(links, (link) => link.itemTemplateId);
-    return { items: items.map((item) => this.toAdminItemDetailDto(item, linksByItem.get(item.id) ?? [], disclosures)) };
+    // 라운드 64 정보 반영: "오늘"은 목록당 **한 번** 정한다 — 행마다 다시 계산하면 낭비일 뿐
+    // 아니라, 자정을 걸친 큰 목록에서 앞줄과 뒷줄의 만료 판정 기준일이 갈릴 수 있다.
+    const today = getSeoulToday();
+    return {
+      items: items.map((item) => this.toAdminItemDetailDto(item, linksByItem.get(item.id) ?? [], disclosures, today))
+    };
   }
 
   async adminCreateItemTemplate(input: AdminItemTemplateInput) {
@@ -373,7 +480,10 @@ export class ItemsCatalogService {
       orderBy: [{ itemTemplateId: "asc" }, { displayOrder: "asc" }]
     });
     const disclosures = await this.disclosuresByKey();
-    return { links: links.map((link) => this.toAdminProductLinkDto(link, disclosures)) };
+    // 라운드 64 정보 반영: 만료 판정의 기준일은 목록당 한 번만 읽는다(행마다 getSeoulToday()를
+    // 부르면 자정 경계에서 같은 응답 안의 행들이 서로 다른 "오늘"로 판정될 수 있다).
+    const today = getSeoulToday();
+    return { links: links.map((link) => this.toAdminProductLinkDto(link, disclosures, today)) };
   }
 
   async adminCreateProductLink(input: AdminProductLinkInput) {
@@ -583,7 +693,12 @@ export class ItemsCatalogService {
     };
   }
 
-  private toAdminItemDetailDto(item: ItemTemplateWithStages, links: ProductLinkRow[], disclosures: Map<string, string>) {
+  private toAdminItemDetailDto(
+    item: ItemTemplateWithStages,
+    links: ProductLinkRow[],
+    disclosures: Map<string, string>,
+    today: string = getSeoulToday()
+  ) {
     return {
       id: item.id,
       name: item.name,
@@ -621,11 +736,48 @@ export class ItemsCatalogService {
       activeLinkCount: links.filter((link) => link.active).length,
       productLinks: [...links]
         .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map((link) => this.toAdminProductLinkDto(link, disclosures))
+        .map((link) => this.toAdminProductLinkDto(link, disclosures, today))
     };
   }
 
-  private toAdminProductLinkDto(link: ProductLinkRow, disclosures: Map<string, string>) {
+  /**
+   * 어드민용 링크 DTO. 앱용(toProductLinkDto)과 달리 **값을 감추지 않는다** — 어드민은
+   * 자기가 쓴 값을 되읽어야 하고, 그러려면 "앱에서 보이지 않는 상태"도 함께 보여야 한다.
+   *
+   * 라운드 64 D(#4): 가격 두 필드를 **가산**한다. 지금까지 가격을 쓰는 유일한 경로가
+   * CSV 일괄 교체였는데(product-link-bulk.service.ts) 어드민 어디에서도 그 값을 되읽을
+   * 수 없었다 — 500행을 적용하고 받는 것은 숫자 셋뿐이고, 표에는 `healthStatus`만 있고
+   * 가격 열은 없었다. 앱 DTO의 "둘 다 있을 때만" 규칙은 **여기서는 쓰지 않는다**:
+   * 어드민에는 한쪽만 있는 상태(레거시 행: 가격만 있고 확인 시각 NULL)야말로 봐야 하는
+   * 사실이고, 그 상태를 화면이 이름으로 말한다("시각 없음"). 값은 그대로 싣되,
+   * **앱에서 이미 보이지 않는지**(180일 경과)는 서버가 판정해 `priceExpired`로 내려준다 —
+   * 문턱 숫자(LINK_PRICE_MAX_AGE_DAYS)를 어드민 소스에 다시 박지 않기 위해서다.
+   *
+   * DNC-009: 이 값들은 여전히 **표시 전용**이다. 링크 정렬(sortProductLinksForApp)도
+   * 준비템 추천(item-ranking.ts)도 가격을 보지 않으며 이 변경은 어느 쪽도 건드리지 않는다.
+   *
+   * 라운드 64 D(#8): `redirectCode`와 그 코드로 만든 공유용 절대 URL. DNC-010 때문에
+   * 이 URL은 **혼자 나가면 안 된다** — 같은 행의 공유 전용 문구(`shareDisclosureText`)를
+   * 어드민 화면이 복사 문구에 함께 싣는다(apps/admin src/lib/link-share.ts).
+   *
+   * 라운드 64 S-1: 그 URL은 **활성 링크에만** 싣는다. `GET /api/v1/r/:code`는
+   * `active: true`인 행만 302로 보내므로(redirect.controller.ts), 비활성 행에도 URL을
+   * 실으면 어드민 표에 누르는 순간 404가 나는 버튼이 선다 — 죽은 버튼을 만들지 않는다는
+   * 같은 규율이다(`redirectCode` 자체는 계속 싣는다: 운영이 링크를 되살리면 같은 코드가
+   * 그대로 다시 도달 가능해지는 사실이 어드민에 보여야 한다).
+   *
+   * 라운드 64 M-1: `shareDisclosureText`는 **앱 밖으로 나가는 문구**다. 표시·편집용
+   * `disclosureText`(운영이 쓴 값을 되읽는 칸)는 그대로 두고, 공유에 붙는 문구만 따로
+   * 싣는다 — 제휴 링크면 수수료 문장이 반드시 들어 있다(`withCommissionDisclosure`,
+   * items-commerce/share-disclosure.ts). 앱의 `purchaseLinkShareMessage`가 지나는
+   * 규율(라운드 44 N-2)과 같은 것을 어드민 복사에도 세우는 자리다.
+   */
+  private toAdminProductLinkDto(
+    link: ProductLinkRow,
+    disclosures: Map<string, string>,
+    today: string = getSeoulToday()
+  ) {
+    const disclosureText = link.disclosureText ?? this.defaultDisclosureFor(link, disclosures);
     return {
       id: link.id,
       itemTemplateId: link.itemTemplateId,
@@ -635,12 +787,21 @@ export class ItemsCatalogService {
       affiliateUrl: link.affiliateUrl,
       isAffiliate: link.isAffiliate,
       isSponsored: link.isSponsored,
-      disclosureText: link.disclosureText ?? this.defaultDisclosureFor(link, disclosures),
+      disclosureText,
+      // 제휴가 아닌 링크는 종전 그대로다 — 없는 수수료 고지를 지어내지 않는다(라운드 43 M-1).
+      shareDisclosureText: link.isAffiliate
+        ? withCommissionDisclosure(disclosureText, disclosures.get("affiliate_purchase"))
+        : disclosureText,
       active: link.active,
       // COM-105: worker-written health verdict, surfaced on the admin links
       // page only (the app-facing toProductLinkDto stays unchanged).
       healthStatus: link.healthStatus ?? null,
-      healthCheckedAt: link.healthCheckedAt ?? null
+      healthCheckedAt: link.healthCheckedAt ?? null,
+      priceSnapshotKrw: link.priceSnapshotKrw ?? null,
+      priceCheckedAt: link.priceCheckedAt ?? null,
+      priceExpired: isPriceSnapshotExpired(link.priceCheckedAt, today),
+      redirectCode: link.redirectCode ?? null,
+      redirectShareUrl: link.active && link.redirectCode ? publicRedirectShareUrl(link.redirectCode) : null
     };
   }
 
