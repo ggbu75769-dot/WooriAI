@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { firstBirthdayOf, selectMilestoneReportType } from "../reports/milestone-selection";
-import { evaluateMilestoneCountdown, hundredthDayOf } from "./milestone-countdown";
+import { cumulativeTotalPendingNotice } from "./cumulative-total";
+import {
+  evaluateMilestoneCountdown,
+  HOME_MILESTONE_PENDING_NOTICE_TEST_ID,
+  hundredthDayOf
+} from "./milestone-countdown";
 
 const BIRTH_DATE = "2026-06-02";
 const base = { stageMode: "born", nickname: "다온이", birthDate: BIRTH_DATE, totalExpenseKrw: 1_245_700 } as const;
@@ -110,6 +115,66 @@ describe("UX-A 마일스톤 카드를 만들지 않는 경우", () => {
   });
 });
 
+/**
+ * GAP-063 트랙 A — 이 카드의 부제도 대기를 밝힌다.
+ *
+ * 고치는 문제: 라운드 62는 대기 고지를 홈 **누적 카드 한 장에만** 붙였는데, 그 카드는 이 카드가
+ * 서면 스스로 접힌다(cumulative-total.ts의 중복 금지). 접히는 이유가 "이 카드가 이미 같은 금액을
+ * 말하고 있어서"인데 정작 이 부제는 같은 `totalExpenseKrw`를 고지 없이 그렸다 — 대상 사용자의
+ * 대다수가 머무는 생후 0일~첫돌 구간에서 그 고지가 구조적으로 한 번도 뜨지 않았다.
+ */
+describe("GAP-063 마일스톤 부제의 대기 고지", () => {
+  const NOTICE = "동기화 대기 중인 기록 3건은 이 금액에 아직 반영되지 않았어요.";
+
+  it("고지를 모르는 호출부(옛 배선·픽스처)에는 줄이 생기지 않는다", () => {
+    const card = evaluateMilestoneCountdown({ ...base, todayIso: "2026-08-27" });
+    expect(card?.pendingNotice).toBeNull();
+    expect(card?.accessibilityLabel).toBe("100일까지 13일 남았어요. 지금까지 총 지출 1,245,700원. 100일 리포트 보기");
+    // 대기 0건일 때도 같다 — 그때 화면은 예전과 한 픽셀도 다르지 않다.
+    expect(
+      evaluateMilestoneCountdown({
+        ...base,
+        todayIso: "2026-08-27",
+        pendingNotice: cumulativeTotalPendingNotice([], base.totalExpenseKrw)
+      })?.pendingNotice
+    ).toBeNull();
+  });
+
+  it("대기가 있으면 부제 아래에 서고, TalkBack도 부제와 CTA 사이에서 읽는다", () => {
+    const card = evaluateMilestoneCountdown({ ...base, todayIso: "2026-08-27", pendingNotice: NOTICE });
+    // 숫자는 서버 집계 그대로다 — 고지는 늘고 금액은 그대로다(재집계 금지).
+    expect(card?.subtitle).toBe("지금까지 총 지출 1,245,700원");
+    expect(card?.pendingNotice).toBe(NOTICE);
+    expect(card?.accessibilityLabel).toBe(
+      `100일까지 13일 남았어요. 지금까지 총 지출 1,245,700원. ${NOTICE}. 100일 리포트 보기`
+    );
+    // F1 계약(CTA가 마지막에 온다)은 그대로다.
+    expect(card?.accessibilityLabel.endsWith("100일 리포트 보기")).toBe(true);
+  });
+
+  it("부제가 권유 문장인 달에는 고지를 붙이지 않는다 — '이 금액'이 화면에 없다", () => {
+    for (const totalExpenseKrw of [0, null, undefined]) {
+      const card = evaluateMilestoneCountdown({
+        ...base,
+        totalExpenseKrw,
+        todayIso: "2026-08-27",
+        pendingNotice: NOTICE
+      });
+      expect(card?.subtitle, String(totalExpenseKrw)).toBe("기록을 남기면 그날까지의 지출을 함께 모아드릴게요.");
+      expect(card?.pendingNotice, String(totalExpenseKrw)).toBeNull();
+      expect(card?.accessibilityLabel, String(totalExpenseKrw)).not.toContain("반영되지 않았어요");
+    }
+  });
+
+  it("첫돌 카운트다운·당일 축하 갈래에서도 같은 자리에 선다", () => {
+    for (const todayIso of ["2026-09-10", "2027-06-02"]) {
+      const card = evaluateMilestoneCountdown({ ...base, todayIso, pendingNotice: NOTICE });
+      expect(card?.pendingNotice, todayIso).toBe(NOTICE);
+      expect(card?.accessibilityLabel, todayIso).toContain(`. ${NOTICE}. `);
+    }
+  });
+});
+
 describe("UX-A 마일스톤 카드 배선 계약", () => {
   const moduleSource = readFileSync(join(process.cwd(), "src/home/milestone-countdown.ts"), "utf8");
   const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
@@ -140,5 +205,34 @@ describe("UX-A 마일스톤 카드 배선 계약", () => {
     const cardBlock = homeSource.slice(cardStart, cardStart + 800);
     expect(cardBlock).toContain('router.push("/(tabs)/reports")');
     expect(cardBlock).toContain('accessibilityRole="button"');
+  });
+
+  /**
+   * GAP-063 트랙 A — 고지 문구를 이 모듈이 만들지 않는 이상, **화면이 무엇을 넘기는지**가 곧
+   * 계약이다. 누적 카드와 다른 소스에서 문장을 만들면 같은 금액을 두 문장으로 말하게 된다.
+   */
+  it("고지는 누적 카드와 같은 단일 소스가 만든 문자열을 그대로 넘긴다(문구 두 벌 금지)", () => {
+    expect(homeSource).toContain(
+      "const cumulativePendingNotice = cumulativeTotalPendingNotice(childOfflineRows, home.data?.totalExpenseKrw ?? null);"
+    );
+    expect(homeSource).toContain("pendingNotice: cumulativePendingNotice");
+    // 이 모듈은 문장을 조립하지도, 건수를 세지도 않는다 -- 어휘 단일 소스도 건수 술어도
+    // 여기 들어오지 않는다. 그리고 누적 카드가 이미 이 파일을 import하므로 반대 방향
+    // import를 두지 않는다(순환).
+    expect(moduleSource).not.toContain("offline/messages");
+    expect(moduleSource).not.toContain("countsTowardMonthlyTotal");
+    expect(moduleSource).not.toContain('from "./cumulative-total"');
+  });
+
+  it("고지가 부제와 CTA 사이에 실제로 그려진다(0건이면 자리 자체가 없다)", () => {
+    expect(homeSource).toContain("milestoneCountdown.pendingNotice ? (");
+    expect(homeSource).toContain("testID={HOME_MILESTONE_PENDING_NOTICE_TEST_ID}");
+    expect(HOME_MILESTONE_PENDING_NOTICE_TEST_ID).toBe("home-milestone-pending-notice");
+    const cardStart = homeSource.indexOf("{milestoneCountdown.subtitle}");
+    const noticeAt = homeSource.indexOf("{milestoneCountdown.pendingNotice}", cardStart);
+    const ctaAt = homeSource.indexOf("{milestoneCountdown.ctaLabel}", cardStart);
+    expect(cardStart).toBeGreaterThan(-1);
+    expect(noticeAt).toBeGreaterThan(cardStart);
+    expect(ctaAt).toBeGreaterThan(noticeAt);
   });
 });

@@ -480,4 +480,40 @@ describe("Admin CMS analytics page (ADM-009)", () => {
     expect(api).toContain("uniqueAnonUsers");
     expect(api).toContain("AnalyticsSummaryDays = 7 | 30");
   });
+
+  /**
+   * GAP-063 #9: QA 하네스(scripts/qa/admin-e2e.mjs)가 이 화면의 계약을 **숫자로 박아** 두면
+   * 다음 라운드에 또 깨진다 — 실제로 라운드 61 #5가 온보딩 4단을 접두한 뒤 그 스텝은 두
+   * 라운드째 빨간불이었고, 그런 실패는 진짜 회귀까지 함께 묻는다. 그래서 "박지 않았는가"를
+   * 여기서 고정한다(하네스가 읽는 원천이 이 파일들이므로 대조 자리도 여기다).
+   */
+  describe("admin-e2e 하네스가 퍼널 계약을 숫자로 박지 않는다 (GAP-063 #9)", () => {
+    const harness = () => readSource(join("..", "..", "scripts", "qa", "admin-e2e.mjs"));
+
+    it("derives the funnel row expectation from FUNNEL_STAGES instead of a literal count", () => {
+      const source = harness();
+      expect(source).toContain("readFunnelStageContract");
+      // 라운드 63 후속: 파서가 타입 주석·줄바꿈 서식에 매이지 않도록 완화되어, 붙드는 것은
+      // 리터럴 선언 문자열이 아니라 "FUNNEL_STAGES 선언을 정규식으로 찾아 파싱한다"는 사실이다.
+      expect(source).toContain("const FUNNEL_STAGES\\b[^=]*=\\s*\\[");
+      expect(source).toContain("funnel.labels.length");
+      // 옛 하드코딩(그리고 그 자리에 새 숫자를 다시 적는 일)을 막는다.
+      expect(source).not.toMatch(/funnelRows !== \d/);
+      expect(source).not.toMatch(/expected \d+ funnel rows/);
+    });
+
+    it("reads the onboarding prefix from the page mirror and cross-checks the contracts registry", () => {
+      const source = harness();
+      expect(source).toContain("const ONBOARDING_STEPS\\b[^=]*=\\s*\\[");
+      expect(source).toContain("export const ONBOARDING_STEPS[^=]*=\\s*\\[([^\\]]*)\\]\\s*as const");
+      expect(source).toContain("온보딩 · ");
+    });
+
+    it("visits the round-61 온보딩 단계 이탈 panel and the audit action presets", () => {
+      const source = harness();
+      expect(source).toContain("온보딩 단계 이탈");
+      expect(source).toContain("readAuditActionPresets");
+      expect(source).toContain("AUDIT_LOG_ACTION_PRESETS");
+    });
+  });
 });

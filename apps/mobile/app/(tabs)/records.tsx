@@ -30,7 +30,7 @@ import {
   CALENDAR_WEEKDAY_LABELS_KO,
   dailyTotalsFromDateGroups,
   formatCompactKrw,
-  isCalendarCellInteractive,
+  resolveCalendarCellAction,
   type CalendarCell,
   type CalendarMonth
 } from "../../src/expenses/records-calendar";
@@ -613,11 +613,14 @@ const calendarLegendStyle = {
 const CalendarDayCell = memo(function CalendarDayCell({
   cell,
   filterLabel,
-  onSelectDate
+  onSelectDate,
+  onRecordForDate
 }: {
   cell: CalendarCell;
   filterLabel: string | null;
   onSelectDate: (date: string) => void;
+  /** 라운드 63 C(#8): 기록이 없는(그리고 미래가 아닌) 날 칸의 목적지 — 그날로 기록하기. */
+  onRecordForDate: (date: string) => void;
 }) {
   const date = cell.date;
   if (date === null) return <View style={calendarCellSpacerStyle} />;
@@ -648,12 +651,14 @@ const CalendarDayCell = memo(function CalendarDayCell({
   ];
   const accessibilityLabel = calendarCellAccessibilityLabel(cell, { filterLabel }) ?? undefined;
 
-  // 라운드 34 L4: 그날 기록이 없는 칸은 **누를 수 없다**. 달 밖 빈 칸과 같은 근거로, 눌러도
-  // 이동할 섹션이 목록에 없어 아무 일도 일어나지 않는다(버튼처럼 보이는데 반응이 없는 편이
-  // 비대화형보다 나쁘다). disabled Pressable 대신 아예 View로 그리는 이유: disabled 버튼도
+  // 라운드 34 L4 / 라운드 63 C(#8): 이 칸을 누르면 무엇이 일어나는지는 순수 모듈이 정한다
+  // (resolveCalendarCellAction -- 기록 있는 날은 그날 기록으로, 기록 없는 지난 날은 그날로
+  // 기록하기, 달 밖·미래는 null). 화면은 그 답을 목적지 둘로 옮기기만 한다.
+  const action = resolveCalendarCellAction(cell);
+  // 비대화형 칸을 disabled Pressable 대신 아예 View로 그리는 이유(L4 그대로): disabled 버튼도
   // 스크린리더에는 "버튼, 비활성"으로 읽혀 "왜 못 누르지"라는 질문을 남긴다. 라벨은 그대로
-  // 읽어 주므로 "8월 6일, 지출 없음"이라는 사실은 사라지지 않는다.
-  if (!isCalendarCellInteractive(cell)) {
+  // 읽어 주고, 이제 그 라벨이 이유("아직 오지 않은 날이라…")까지 말한다.
+  if (action === null) {
     return (
       <View accessible accessibilityLabel={accessibilityLabel} style={cellStyle}>
         {cellContent}
@@ -664,7 +669,7 @@ const CalendarDayCell = memo(function CalendarDayCell({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      onPress={() => onSelectDate(date)}
+      onPress={() => (action === "record-new" ? onRecordForDate(date) : onSelectDate(date))}
       style={cellStyle}
     >
       {cellContent}
@@ -676,12 +681,14 @@ const CalendarDayCell = memo(function CalendarDayCell({
 const RecordsCalendarGrid = memo(function RecordsCalendarGrid({
   month,
   filterLabel,
-  onSelectDate
+  onSelectDate,
+  onRecordForDate
 }: {
   month: CalendarMonth;
   /** L5: 필터가 걸렸을 때의 스코프 이름(F8 스코프 줄과 같은 문자열). 없으면 null. */
   filterLabel: string | null;
   onSelectDate: (date: string) => void;
+  onRecordForDate: (date: string) => void;
 }) {
   return (
     // M1: 카드 내부 패딩을 줄여 칸 폭을 벌었다(위 CALENDAR_CARD_PADDING 계산 참고).
@@ -699,7 +706,13 @@ const RecordsCalendarGrid = memo(function RecordsCalendarGrid({
         {month.weeks.map((week, weekIndex) => (
           <View key={`${month.yearMonth}-week-${weekIndex}`} style={calendarWeekRowStyle}>
             {week.map((cell) => (
-              <CalendarDayCell key={cell.key} cell={cell} filterLabel={filterLabel} onSelectDate={onSelectDate} />
+              <CalendarDayCell
+                key={cell.key}
+                cell={cell}
+                filterLabel={filterLabel}
+                onSelectDate={onSelectDate}
+                onRecordForDate={onRecordForDate}
+              />
             ))}
           </View>
         ))}
@@ -1426,6 +1439,31 @@ export default function RecordsScreen() {
     announceForA11y(`${formatSpentOn(date)} 기록`);
   }, []);
 
+  /**
+   * 라운드 63 C(#8) — 달력의 **빈 날 칸** → 그날로 기록하기.
+   *
+   * 왜 이 자리인가: `record_gap` 알림("3일 동안 기록이 없어요")의 목적지가 이 달력이고
+   * (라운드 56 D#10), 그 근거는 "비어 있는 날을 보여 주는 화면은 달력 격자 하나뿐"이다.
+   * 그런데 그 빈 칸이 화면에서 유일하게 손댈 수 없는 것이라 알림이 막다른 길로 착지했다.
+   *
+   * 날짜를 싣는 근거(프리필 계약의 세 번째 경우)는 src/expenses/record-row-actions.ts 머리말에
+   * 함께 적혀 있다 -- 규칙을 두 벌로 만들지 않는다. 파라미터 이름·파싱도 "고쳐서 다시 보내기"와
+   * 같은 것을 쓰므로(`spentOn` → resolveFailedRowPrefillDate) 시트에는 새 파싱이 0건이다.
+   *
+   * 보기 전용 참여자는 여기서 막는다(행 액션의 "또 기록"·삭제와 같은 판정 · 같은 안내) --
+   * 잠긴 칸을 지우는 대신 눌렀을 때 사실을 말하는 것이 이 앱의 관례다.
+   */
+  const handleRecordForCalendarDate = useCallback(
+    (date: string) => {
+      if (expenseEntryLocked) {
+        explainExpenseEntryLock();
+        return;
+      }
+      router.push({ pathname: "/expenses/new", params: { spentOn: date } });
+    },
+    [expenseEntryLocked, explainExpenseEntryLock]
+  );
+
   useEffect(() => {
     if (!pendingScrollDate) return;
     const sectionIndex = sections.findIndex((section) => section.key === pendingScrollDate);
@@ -1708,6 +1746,7 @@ export default function RecordsScreen() {
           month={calendarMonth}
           filterLabel={filterScopeSummary?.scopeLabel ?? null}
           onSelectDate={handleSelectCalendarDate}
+          onRecordForDate={handleRecordForCalendarDate}
         />
       ) : null}
 

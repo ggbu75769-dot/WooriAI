@@ -51,7 +51,13 @@ import {
 // GAP-054 #7 → 라운드 54 P2-5: 달력 픽커는 지출 상세와 **같은 컴포넌트**를 쓴다(판정은 그
 // 안에서 다시 순수 모듈 src/expenses/date-picker-month.ts로 내려간다).
 import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";
-import { clearQuickExpenseDraft, readQuickExpenseDraft, writeQuickExpenseDraft } from "../../src/expenses/draft-storage";
+import {
+  clearQuickExpenseDraft,
+  clearQuickExpenseDraftForChild,
+  isQuickExpenseDraftFromOtherChild,
+  readQuickExpenseDraft,
+  writeQuickExpenseDraft
+} from "../../src/expenses/draft-storage";
 import { buildEntryContextLine } from "../../src/expenses/entry-context-line";
 import {
   isAmountOverLimitForSave,
@@ -653,6 +659,24 @@ export default function NewExpenseScreen() {
   const paymentMethod = quickExpensePaymentMethods[paymentMethodIndex];
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   /**
+   * 라운드 63 C(#4) — 이 화면의 **모든** 초안 정리 경로가 지나는 한 자리.
+   *
+   * 초안은 전역 키 한 벌이므로, 종전의 `clearQuickExpenseDraft()`는 지금 아이와 무관하게
+   * 무엇이든 지웠다. 그래서 복원만 아이 스코프로 막으면 결과가 더 나빠진다: 둘째로 전환한 채
+   * 시트를 열면 첫째의 값은 (옳게) 복원되지 않는데, 곧이어 이 화면의 정리 경로 셋 중 하나가
+   * 그 초안을 지워 버린다 -- 세 곳 모두 "지금 화면에 남길 것이 없다"는 뜻이지 "다른 아이 앞에서
+   * 친 것도 버려라"는 뜻이 아니었다.
+   *  ① 세 칸이 모두 빈 채 디바운스가 도는 순간(라운드 48 T4 D1),
+   *  ② 저장 성공 뒤,
+   *  ③ 아무것도 치지 않고 닫을 때(UX-K B-a).
+   *
+   * 아이를 아직 모르면(선택 전·persist 하이드레이션 전) 종전 그대로 통째로 지운다 -- 그 상태의
+   * 초안은 주인을 적어 두지 못했고, 여기서 남겨 봐야 누구의 것인지 끝내 알 수 없다.
+   * 규칙(주인이 같거나 주인이 없을 때만 지운다)은 순수 모듈 한 곳에 있다(draft-storage.ts).
+   */
+  const clearDraftForCurrentChild = () =>
+    childId ? clearQuickExpenseDraftForChild(childId) : clearQuickExpenseDraft();
+  /**
    * GAP-060 #7 — **이 기록이 누구 앞으로 남는가**.
    *
    * 4탭은 라운드 48~49에 전부 아이 이름을 달았는데 정작 **쓰는 화면**에는 하나도 없었다.
@@ -776,6 +800,19 @@ export default function NewExpenseScreen() {
     if (linkedItemTemplateId) return;
     readQuickExpenseDraft().then((draft) => {
       if (!draft) return;
+      /**
+       * 라운드 63 C(#4) — **다른 아이 앞에서 친 초안은 복원하지 않는다.**
+       *
+       * 이 초안은 전역 키 한 벌인데 저장 대상은 그때그때의 전역 선택 아이다(아래 childId).
+       * 첫째의 시트에서 치다 닫고 그 사이 아이가 둘째로 바뀌면(홈 헤더·아이 관리 화면, 그리고
+       * 라운드 62 #2가 새로 연 알림함 전환) 여기서 첫째의 값이 프리필처럼 되살아나고, 그대로
+       * 저장하면 **둘째의 지출**이 된다 -- 화면 어디에도 "이건 다른 아이 앞에서 치던 값"이라는
+       * 표시가 없다. 지우지는 않는다: 첫째로 돌아오면 그 값은 그대로 살아 있어야 한다.
+       *
+       * 구 blob(초안에 아이가 없는 경우)과 아이를 아직 모르는 경우는 **종전 그대로 복원**된다
+       * -- 판정과 그 근거는 순수 모듈 한 곳에 있다(src/expenses/draft-storage.ts).
+       */
+      if (isQuickExpenseDraftFromOtherChild(draft, childId)) return;
       setItemName(draft.itemName);
       setAmountText(draft.amountText);
       setMemo(draft.memo);
@@ -788,7 +825,14 @@ export default function NewExpenseScreen() {
         setSelectedCategory(matchedCategory);
         categoryTouchedRef.current = true;
       }
-      if (draft.spentOnIso) setExpenseDateIso(draft.spentOnIso);
+      /**
+       * 라운드 63 C(#8): 프리필이 날짜를 정하고 들어온 경우에는 초안의 날짜가 그것을 덮지
+       * 않는다. 달력의 빈 칸("8월 6일")을 눌러 온 사용자가 보는 날짜가 초안에 남아 있던 다른
+       * 날로 조용히 바뀌면, 그건 사용자가 지목한 날이 아니라 앱이 고른 날이다 -- 이 시트가
+       * 날짜를 다루는 규칙(record-row-actions.ts 머리말)이 막으려는 바로 그 형태다.
+       * 다른 진입점에는 `spentOn`이 없어 `prefilledSpentOn.spentOn`이 null이므로 종전 그대로다.
+       */
+      if (draft.spentOnIso && !prefilledSpentOn.spentOn) setExpenseDateIso(draft.spentOnIso);
       setIsGift(draft.isGift);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -809,7 +853,8 @@ export default function NewExpenseScreen() {
     const hasTypedInput = Boolean(itemName.trim() || amountText.trim() || memo.trim());
     draftSaveTimerRef.current = setTimeout(() => {
       if (!hasTypedInput) {
-        clearQuickExpenseDraft();
+        // 라운드 63 C(#4): 지금 아이(또는 주인 없는) 초안만 지운다 -- 위 clearDraftForCurrentChild.
+        clearDraftForCurrentChild();
         return;
       }
       writeQuickExpenseDraft({
@@ -819,6 +864,10 @@ export default function NewExpenseScreen() {
         // 라운드 51 C-#5: 미선택이면 키 자체를 싣지 않는다 -- 빈 문자열을 적어 두면 복원할 때
         // 어느 타일도 못 찾는 값이 "분류가 있었다"는 것처럼 읽힌다.
         ...(selectedCategoryId ? { categoryId: selectedCategoryId } : {}),
+        // 라운드 63 C(#4): **이 값을 어느 아이 앞에서 쳤는가**. 아이를 아직 모르면(선택 전·
+        // persist 하이드레이션 전) 같은 규율로 키 자체를 싣지 않는다 -- 빈 문자열을 적어 두면
+        // "모른다"와 "주인이 없다"가 구분되지 않고, 복원 판정이 그 둘을 다르게 다룰 수 없다.
+        ...(childId ? { childId } : {}),
         spentOnIso: expenseDateIso,
         isGift
       });
@@ -826,7 +875,7 @@ export default function NewExpenseScreen() {
     return () => {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
-  }, [itemName, amountText, memo, selectedCategoryId, expenseDateIso, isGift, authToken]);
+  }, [itemName, amountText, memo, selectedCategoryId, expenseDateIso, isGift, authToken, childId]);
 
   // UX-C(2/2): 품목명 -> 카테고리 자동 추천. 순수 계산(src/expenses/category-suggestion.ts)이라
   // 디바운스 없이 타이핑마다 돌려도 가볍고, 규칙은 1순위 과거 기록 / 2순위 정적 키워드 사전이다.
@@ -1179,7 +1228,9 @@ export default function NewExpenseScreen() {
       if (answeredFollowupItemTemplateId) {
         usePurchaseFollowupStore.getState().completeFollowup(answeredFollowupItemTemplateId);
       }
-      clearQuickExpenseDraft();
+      // 라운드 63 C(#4): 방금 저장한 것은 지금 아이의 기록이다 -- 다른 아이 앞에서 치던 초안까지
+      // 함께 버리지 않는다(위 clearDraftForCurrentChild).
+      clearDraftForCurrentChild();
       setSaveErrorMessage(null);
       setSavedMessage(continueRecording ? CONTINUE_RECORDING_SAVED_MESSAGE : OFFLINE_SAVED_MESSAGE);
       // ANA-103: expense_recorded fires once per successful (local-first) create. The payload is
@@ -1463,7 +1514,9 @@ export default function NewExpenseScreen() {
                   initial: initialInputSnapshotRef.current
                 })
               ) {
-                clearQuickExpenseDraft();
+                // 라운드 63 C(#4): "남길 것이 없다"는 이 화면·이 아이에 대한 판정이다 --
+                // 다른 아이 앞에서 치던 초안은 그대로 둔다(위 clearDraftForCurrentChild).
+                clearDraftForCurrentChild();
               }
               router.back();
             }}

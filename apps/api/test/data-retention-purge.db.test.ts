@@ -1456,6 +1456,249 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
     });
   });
 
+  /**
+   * GAP-063 #6: phase 9는 잡의 **행**만 지우고 헤더는 남겼는데, 그 헤더가 사용자가 고른
+   * **파일명 원문**을 들고 있었다(`김민준_카드내역_2026상반기.xlsx`처럼 이름·카드사·기간이
+   * 한 문자열에 들어간다). 즉 덜 민감한 검수 행은 90일에 지우면서 더 식별성 높은 문자열은
+   * 영구 보존하는 상태였다. `fk_expenses_import_job` 때문에 행은 지울 수 없으므로 phase 11은
+   * **마스킹**만 한다 — 이 블록이 고정하는 것은 "행·FK·비식별 이력은 그대로, 값만 바뀐다"다.
+   */
+  describe("import job header masking (phase 11, GAP-063 #6)", () => {
+    afterEach(() => {
+      delete process.env.IMPORT_ROWS_RETENTION_DAYS;
+      delete process.env.PURGE_BATCH_SIZE;
+    });
+
+    /** 이 블록의 최소 소유 체계 — 살아 있는(삭제 표식 없는) 사용자·가구·아이. */
+    async function createHeaderOwner() {
+      const user = await createUser();
+      const household = await createHousehold(user.id);
+      const child = await createChild(household.id, null);
+      return { user, household, child };
+    }
+
+    /** 파일명은 실사용 모양 그대로 — 마스킹이 무엇을 없애는지가 단언에서 보이게 한다. */
+    function rawFileName() {
+      return `김민준_카드내역_${randomUUID().slice(0, 8)}.xlsx`;
+    }
+
+    async function createHeaderJob(
+      owner: { user: { id: string }; household: { id: string }; child: { id: string } },
+      options: {
+        status: "preview_ready" | "confirmed" | "cancelled" | "failed";
+        updatedAt: Date;
+        fileName?: string;
+        sourceFileUrl?: string | null;
+        rows?: number;
+      }
+    ) {
+      const fileName = options.fileName ?? rawFileName();
+      const importJob = await prisma.importJob.create({
+        data: {
+          userId: owner.user.id,
+          householdId: owner.household.id,
+          childId: owner.child.id,
+          fileName,
+          fileType: "xlsx",
+          fileSizeBytes: BigInt(4096),
+          status: options.status,
+          sourceFileUrl: options.sourceFileUrl ?? null,
+          // @updatedAt 컬럼이지만 create에 명시하면 그 값이 그대로 들어간다.
+          updatedAt: options.updatedAt
+        }
+      });
+      for (let rowIndex = 0; rowIndex < (options.rows ?? 0); rowIndex += 1) {
+        await prisma.importRow.create({
+          data: { importJobId: importJob.id, rowIndex, rawJson: {}, parsedAmountKrw: 9000 }
+        });
+      }
+      return { importJob, fileName };
+    }
+
+    async function cleanupHeaderFixtures(
+      owner: { user: { id: string }; household: { id: string }; child: { id: string } },
+      importJobIds: string[]
+    ) {
+      await prisma.importRow.deleteMany({ where: { importJobId: { in: importJobIds } } });
+      await prisma.expense.deleteMany({ where: { childId: owner.child.id } });
+      await prisma.importJob.deleteMany({ where: { id: { in: importJobIds } } });
+      await prisma.child.deleteMany({ where: { id: owner.child.id } });
+      await prisma.householdMember.deleteMany({ where: { householdId: owner.household.id } });
+      await prisma.household.deleteMany({ where: { id: owner.household.id } });
+      await prisma.user.deleteMany({ where: { id: owner.user.id } });
+    }
+
+    it("masks the filename of a finished import past the window, keeps the row (FK) and the expense it produced, and leaves an in-window import untouched", async () => {
+      const now = new Date();
+      const owner = await createHeaderOwner();
+      const agedOut = await createHeaderJob(owner, { status: "confirmed", updatedAt: daysAgo(now, 91) });
+      // 경계 바로 안쪽(89일) — 같은 확정 잡이어도 파일명이 그대로여야 한다.
+      const onTheEdge = await createHeaderJob(owner, { status: "confirmed", updatedAt: daysAgo(now, 89) });
+      // 그 가져오기가 만든 진짜 지출: fk_expenses_import_job이 잡 행을 붙들고 있다.
+      const importedExpense = await prisma.expense.create({
+        data: {
+          householdId: owner.household.id,
+          childId: owner.child.id,
+          createdByUserId: owner.user.id,
+          categoryId,
+          amountKrw: 38500,
+          spentOn: new Date("2026-01-02"),
+          itemName: "가져온 기저귀",
+          source: "excel_import",
+          importJobId: agedOut.importJob.id
+        }
+      });
+
+      const summary = await job.run(now);
+      expect(summary.importJobHeadersMasked as number).toBeGreaterThanOrEqual(1);
+
+      const masked = await prisma.importJob.findUnique({ where: { id: agedOut.importJob.id } });
+      // 행은 남는다 — 지우면 위 지출이 함께 무너진다.
+      expect(masked).not.toBeNull();
+      expect(masked!.fileName).toBe("[보존기간 경과 파기]");
+      // 원문의 어떤 조각도 남지 않는다.
+      expect(masked!.fileName).not.toContain("김민준");
+      // 비식별 이력(건수·크기·시각·상태)은 그대로다.
+      expect(masked!.fileType).toBe("xlsx");
+      expect(masked!.fileSizeBytes).toBe(BigInt(4096));
+      expect(masked!.status).toBe("confirmed");
+      expect(await prisma.expense.findUnique({ where: { id: importedExpense.id } })).not.toBeNull();
+
+      const untouched = await prisma.importJob.findUnique({ where: { id: onTheEdge.importJob.id } });
+      expect(untouched!.fileName).toBe(onTheEdge.fileName);
+
+      await cleanupHeaderFixtures(owner, [agedOut.importJob.id, onTheEdge.importJob.id]);
+    });
+
+    it("never masks a preview_ready import, however old — 검수 중인 잡은 사용자 자산이다", async () => {
+      const now = new Date();
+      const owner = await createHeaderOwner();
+      const abandoned = await createHeaderJob(owner, { status: "preview_ready", updatedAt: daysAgo(now, 400) });
+      // 같은 나이의 취소된 잡은 마스킹된다 — 두 행의 운명이 갈리는 것이 이 단계의 판정이다.
+      const cancelled = await createHeaderJob(owner, { status: "cancelled", updatedAt: daysAgo(now, 400) });
+
+      await job.run(now);
+
+      expect((await prisma.importJob.findUnique({ where: { id: abandoned.importJob.id } }))!.fileName).toBe(
+        abandoned.fileName
+      );
+      expect((await prisma.importJob.findUnique({ where: { id: cancelled.importJob.id } }))!.fileName).toBe(
+        "[보존기간 경과 파기]"
+      );
+
+      await cleanupHeaderFixtures(owner, [abandoned.importJob.id, cancelled.importJob.id]);
+    });
+
+    /**
+     * 자리표시자를 "빈 문자열"이 아니라 명시적 값으로 둔 이유가 여기서 두 번 일한다:
+     * ⓐ "원래 없었다"(NULL)와 "보존 기간이 지나 지웠다"를 구분하고,
+     * ⓑ 그 값 자체가 선택 술어라 재실행이 같은 행을 다시 고르지 않는다.
+     */
+    it("leaves a NULL source_file_url NULL, masks a present one, and is idempotent / self-terminating", async () => {
+      const now = new Date();
+      const owner = await createHeaderOwner();
+      const withUrl = await createHeaderJob(owner, {
+        status: "confirmed",
+        updatedAt: daysAgo(now, 3100),
+        sourceFileUrl: "https://storage.example/uploads/김민준_카드내역.xlsx"
+      });
+      const withoutUrl = await createHeaderJob(owner, { status: "confirmed", updatedAt: daysAgo(now, 3100) });
+
+      const first = await job.run(now);
+      expect(first.importJobHeadersMasked as number).toBeGreaterThanOrEqual(2);
+
+      const maskedWithUrl = await prisma.importJob.findUnique({ where: { id: withUrl.importJob.id } });
+      expect(maskedWithUrl!.sourceFileUrl).toBe("[보존기간 경과 파기]");
+      const maskedWithoutUrl = await prisma.importJob.findUnique({ where: { id: withoutUrl.importJob.id } });
+      // 애초에 없던 값을 "지웠다"고 말하지 않는다.
+      expect(maskedWithoutUrl!.sourceFileUrl).toBeNull();
+
+      // 재실행: 이미 마스킹된 행은 선택되지 않는다. 3,100일짜리 잡은 이 스위트만 만들므로
+      // 두 번째 틱의 0은 "전부 자기 종료했다"를 뜻한다.
+      const second = await job.run(now);
+      expect(second.importJobHeadersMasked).toBe(0);
+
+      // 마스킹이 updated_at을 밀지 않는다 — 밀면 phase 9/11의 창 밖으로 되돌아가
+      // 그 잡의 검수 행 파기가 늦춰진다(raw SQL을 쓰는 이유).
+      expect(maskedWithUrl!.updatedAt.getTime()).toBe(withUrl.importJob.updatedAt.getTime());
+
+      await cleanupHeaderFixtures(owner, [withUrl.importJob.id, withoutUrl.importJob.id]);
+    });
+
+    /**
+     * phase 9에 합치지 않은 이유를 고정한다: 그 단계의 `EXISTS(import_rows)` 술어는
+     * 행이 이미 빠진 잡을 **보이지 않게** 만들므로, 거기에 마스킹을 얹으면 이 라운드
+     * 이전에 배수된 잡(= 운영 DB에 이미 쌓인 것들)의 파일명이 영원히 남는다.
+     */
+    it("still masks a job whose preview rows were already drained (the gap folding it into phase 9 would leave)", async () => {
+      const now = new Date();
+      const owner = await createHeaderOwner();
+      const drained = await createHeaderJob(owner, { status: "confirmed", updatedAt: daysAgo(now, 3200), rows: 0 });
+      expect(await prisma.importRow.count({ where: { importJobId: drained.importJob.id } })).toBe(0);
+
+      await job.run(now);
+
+      expect((await prisma.importJob.findUnique({ where: { id: drained.importJob.id } }))!.fileName).toBe(
+        "[보존기간 경과 파기]"
+      );
+
+      await cleanupHeaderFixtures(owner, [drained.importJob.id]);
+    });
+
+    it("honors the IMPORT_ROWS_RETENTION_DAYS override — 같은 창을 phase 9와 공유한다", async () => {
+      const now = new Date();
+      process.env.IMPORT_ROWS_RETENTION_DAYS = "200";
+      const owner = await createHeaderOwner();
+      const beyond = await createHeaderJob(owner, { status: "confirmed", updatedAt: daysAgo(now, 250) });
+      // 150일은 기본 창(90)이면 마스킹될 나이지만 override(200) 안이다.
+      const within = await createHeaderJob(owner, { status: "confirmed", updatedAt: daysAgo(now, 150) });
+
+      const summary = await job.run(now);
+      expect(summary.importRowsRetentionDays).toBe(200);
+
+      expect((await prisma.importJob.findUnique({ where: { id: beyond.importJob.id } }))!.fileName).toBe(
+        "[보존기간 경과 파기]"
+      );
+      expect((await prisma.importJob.findUnique({ where: { id: within.importJob.id } }))!.fileName).toBe(
+        within.fileName
+      );
+
+      await cleanupHeaderFixtures(owner, [beyond.importJob.id, within.importJob.id]);
+    });
+
+    it("caps the phase at PURGE_BATCH_SIZE jobs per tick, drains oldest-first across ticks, and then no-ops", async () => {
+      const now = new Date();
+      // 3,000일 넘게 오래된 잡: 다른 스위트는 이만한 나이의 가져오기 잡을 만들지 않으므로
+      // (기본 updatedAt=now) 이 셋이 대상 전부이고 배치 상한이 정확히 관측된다.
+      process.env.PURGE_BATCH_SIZE = "2";
+      const owner = await createHeaderOwner();
+      const jobs = [
+        await createHeaderJob(owner, { status: "confirmed", updatedAt: daysAgo(now, 3302) }),
+        await createHeaderJob(owner, { status: "cancelled", updatedAt: daysAgo(now, 3301) }),
+        await createHeaderJob(owner, { status: "failed", updatedAt: daysAgo(now, 3300) })
+      ];
+      const importJobIds = jobs.map((entry) => entry.importJob.id);
+
+      const first = await job.run(now);
+      expect(first.importJobHeadersMasked).toBe(2);
+      // 오래된 것부터: 셋 중 가장 최근 잡은 첫 틱을 살아남는다.
+      expect((await prisma.importJob.findUnique({ where: { id: importJobIds[2]! } }))!.fileName).toBe(jobs[2]!.fileName);
+
+      const second = await job.run(now);
+      expect(second.importJobHeadersMasked).toBe(1);
+      expect(
+        await prisma.importJob.count({
+          where: { id: { in: importJobIds }, fileName: "[보존기간 경과 파기]" }
+        })
+      ).toBe(3);
+
+      const third = await job.run(now);
+      expect(third.importJobHeadersMasked).toBe(0);
+
+      await cleanupHeaderFixtures(owner, importJobIds);
+    });
+  });
+
   describe("family invite retention (phase 10, GAP-062 #8)", () => {
     afterEach(() => {
       delete process.env.HOUSEHOLD_INVITES_RETENTION_DAYS;

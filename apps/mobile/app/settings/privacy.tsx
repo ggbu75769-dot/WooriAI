@@ -16,8 +16,14 @@ import {
 } from "../../src/api/client";
 import { resetLocalBackend } from "../../src/api/local-backend";
 import { CHILD_REMOVAL_INVALIDATE_KEYS, planAfterChildRemoval } from "../../src/children/child-deletion";
+// 라운드 63 #2: 아이 이름 판정은 이 화면이 다시 적지 않는다 — 라운드 48 T4의 한 벌을 그대로 쓴다.
+import { resolveChildScopeLabel } from "../../src/children/child-switch";
 import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
+// 라운드 63 C(#4): 아이 단위 초안 정리. 모듈은 트랙 C 소유이고 여기서는 **호출만** 한다.
+import { clearQuickExpenseDraftForChild } from "../../src/expenses/draft-storage";
 import {
+  childScopeDeleteConfirmTitle,
+  childScopeDeleteNotice,
   collectKnownHouseholdIds,
   describeHouseholdScope,
   HOUSEHOLD_SCOPE_PARAM,
@@ -245,6 +251,28 @@ export default function PrivacySettingsScreen() {
     )
   );
 
+  /**
+   * 라운드 63 #2 — **어느 아이를 지우는가.**
+   *
+   * 종전에는 세 단계 어디에도 이름이 없었다: 카드 본문이 "이 아이의 …"이고(그 "이 아이"가 누구인지
+   * 화면에 없다), 서버 미리보기는 고정 문자열 목록이라 이름도 건수도 없으며
+   * (apps/api onboarding-core.service.ts의 `childProfileDeleteImpact`), 확인 Alert도 "정말
+   * 삭제할까요?"뿐이었다. 대상은 전역 선택 아이(`childId`)인데, 라운드 62 #2가 알림함에도 아이
+   * 전환 입구를 열면서 **선택 아이가 조용히 바뀌는 순간**이 늘었다 — 그 전환은 이 화면에 아무
+   * 흔적도 남기지 않으므로, 둘째를 지우러 들어와 첫째를 지우고도 화면상 아무것도 다르지 않다.
+   * 결과는 아이 + 그 아이의 비삭제 지출 전량의 soft delete이고 앱 안에 복구 경로가 없다.
+   *
+   * 그래서 카드·확인 Alert 두 자리에 같은 이름을 싣는다(서버 미리보기 문구는 서버 몫이라 그대로
+   * 두고, 그 목록이 뜨는 자리가 이 카드 안이라 같은 한 줄이 함께 읽힌다). **서버는 건드리지 않는다.**
+   *
+   * 이름 판정은 `resolveChildScopeLabel` 한 벌이다(라운드 48 T4) — 아이가 2명 이상일 때만 값을
+   * 내고, 캐시가 아직 없거나 목록에 없는 childId면 null이다. null이면 카드도 Alert도 종전 문구
+   * 그대로다: **모르면 지어내지 않는다.** 목록은 이 화면이 이미 물고 있는 `["children"]`이라
+   * 새 요청이 나가지 않는다.
+   */
+  const childDeleteLabel = resolveChildScopeLabel(childId, childrenQuery.data?.children);
+  const childDeleteNotice = childScopeDeleteNotice(childDeleteLabel);
+
   const childPreview = useMutation({
     mutationFn: () => previewChildProfileDeletion(authToken!, childId!)
   });
@@ -273,6 +301,19 @@ export default function PrivacySettingsScreen() {
         useNotificationStore.getState().clearForChild(removedChildId);
         usePurchaseFollowupStore.getState().clearForChild(removedChildId);
         useRecurringExpenseStore.getState().clearForChild(removedChildId);
+        /**
+         * 라운드 63 C(#4) — 네 번째 잔재: **기록 시트의 오프라인 초안.**
+         *
+         * 세 스토어는 깨끗해졌는데 초안만 살아남으면, 존재하지 않는 아이를 위해 치던 금액이
+         * 다음 진입에서 **남은 아이에게** 프리필처럼 붙는다(그대로 저장하면 남은 아이의
+         * 지출이 된다). 무엇을 지우는지는 모듈이 진다 — 그 아이의 초안이거나 주인을 말하지
+         * 않는 초안일 때만 지우고, 다른 아이의 초안은 그대로 둔다
+         * (src/expenses/draft-storage.ts의 `clearQuickExpenseDraftForChild`).
+         *
+         * 위 셋과 달리 비동기라 await한다: 뒤이어 화면이 이동하므로(finishChildRemoval)
+         * 붙들지 않으면 지우기 전에 이 컴포넌트가 사라질 수 있다.
+         */
+        await clearQuickExpenseDraftForChild(removedChildId);
       }
       await finishChildRemoval("아이 프로필을 삭제했어요.");
     }
@@ -377,7 +418,8 @@ export default function PrivacySettingsScreen() {
 
   const confirmChildDelete = () => {
     if (!childPreview.data || childDelete.isPending) return;
-    Alert.alert("정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", [
+    // 라운드 63 #2: 이름을 알면 제목이 대상을 말하고, 모르면 종전 제목 그대로다.
+    Alert.alert(childScopeDeleteConfirmTitle(childDeleteLabel) ?? "정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", [
       { text: "취소", style: "cancel" },
       { text: "삭제", style: "destructive", onPress: () => childDelete.mutate() }
     ]);
@@ -452,6 +494,9 @@ export default function PrivacySettingsScreen() {
             <StatusBadge label="위험" tone="warning" />
           </View>
           <Text style={mutedTextStyle}>{flowCopy.child_profile_delete.description}</Text>
+          {/* 라운드 63 #2: 다자녀 계정에서만 나타나는 대상 표기(어느 아이를 삭제하는지).
+              가구 탈퇴 카드의 같은 자리와 짝이다 -- 한 화면의 파괴적 카드가 같은 규율로 대상을 말한다. */}
+          {childDeleteNotice ? <Text style={mutedTextStyle}>{childDeleteNotice}</Text> : null}
           <SecondaryButton
             label={childPreview.isPending ? "확인하는 중..." : flowCopy.child_profile_delete.previewLabel}
             disabled={!authToken || !childId || childPreview.isPending}

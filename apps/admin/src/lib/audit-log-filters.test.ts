@@ -192,6 +192,21 @@ describe("AUDIT_LOG_ACTION_PRESETS (CS-101)", () => {
     ).map((preset) => preset.label);
     expect(new Set(labels).size).toBe(2);
   });
+
+  /**
+   * GAP-063 #5: "왜 갑자기 예산 경고가 뜨죠" 문의의 답은 budgets 행에 없다 —
+   * (아이, 연월)당 한 칸이라 덮어쓰면 이전 금액이 사라지기 때문이다. 서버가 새로
+   * 기록하기 시작한 `budget.upsert`가 유일한 근거이므로 프리셋에도 있어야 한다.
+   */
+  it("covers the money-write CS asks about (월 예산 덮어쓰기)", () => {
+    const actions = AUDIT_LOG_ACTION_PRESETS.map((preset) => preset.action);
+    expect(actions).toContain("budget.upsert");
+    // 지출 수정과 뭉뚱그리지 않는다 — 바뀐 대상도 화면 영향도 다르다.
+    const labels = AUDIT_LOG_ACTION_PRESETS.filter((preset) =>
+      ["budget.upsert", "expense.update"].includes(preset.action)
+    ).map((preset) => preset.label);
+    expect(new Set(labels).size).toBe(2);
+  });
 });
 
 describe("auditLogActorLabel (CS-101)", () => {

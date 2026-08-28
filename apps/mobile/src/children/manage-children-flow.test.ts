@@ -116,8 +116,8 @@ describe("MOB-118 아이 관리 screen contract (app/settings/children.tsx)", ()
     expect(screenSource).toContain("const isDemoSession = authToken === LOCAL_SESSION_TOKEN");
     expect(screenSource).toContain("데모에서는 아이를 추가할 수 없어요.");
     // Both the button and the form are gated, and submitAdd refuses as a last line of defense.
-    expect(screenSource).toContain("canEditChildren && !isDemoSession && !addOpen");
-    expect(screenSource).toContain("canEditChildren && !isDemoSession && addOpen");
+    expect(screenSource).toContain("canAddChild && !isDemoSession && !addOpen");
+    expect(screenSource).toContain("canAddChild && !isDemoSession && addOpen");
     expect(screenSource).toContain("|| isDemoSession) return;");
     // 편집(개명)은 데모에서도 실제로 동작하므로 계속 열어 둔다.
     expect(screenSource).toContain("{canEditChildren ? (");
@@ -127,8 +127,44 @@ describe("MOB-118 아이 관리 screen contract (app/settings/children.tsx)", ()
     const screenSource = source(screenPath);
     expect(screenSource).toContain('const canEditChildren = myRole === "owner" || myRole === "co_parent"');
     expect(screenSource).toContain("{canEditChildren ? (");
-    expect(screenSource).toContain("canEditChildren && !isDemoSession && !addOpen");
+    expect(screenSource).toContain("canAddChild && !isDemoSession && !addOpen");
     expect(screenSource).toContain("보기 전용 멤버는 아이 정보를 수정할 수 없어요.");
+  });
+
+  /**
+   * 라운드 63 리뷰 #1 — **전환 파라미터가 목록의 게이트를 지배하지 않는다.**
+   *
+   * 라운드 63 #7이 가구 파라미터를 받으면서 역할 조회를 그 가구 하나로 일원화했는데, 목록은
+   * 파라미터 가구의 아이가 아니라 이 계정이 아는 **전 가구의 아이**다. 그래서 빈 가구 B의
+   * owner가 B로 전환해 들어오면 시가 가구 A(viewer)의 아이 행에 [편집]이 서서 누르면 403을
+   * 만나고(라운드 40이 없앤 보기 전용 허위 표시), 역방향에서는 자기 아이의 편집이 사라졌다.
+   *
+   * 계약: 목록의 세 게이트(편집 · 출생 전환 · 보기 전용 안내)는 `scopedHouseholdId`의 역할을,
+   * 추가 폼 쪽은 대상 가구(`householdId`)의 역할을 본다.
+   */
+  it("전환 파라미터는 추가 폼에만 적용되고 목록의 편집·출생 전환·보기 전용 안내는 아이의 가구를 따른다", () => {
+    const screenSource = source(screenPath);
+    // 목록 쪽 판정의 근거는 파라미터가 아니라 선택된 아이의 가구다.
+    expect(screenSource).toContain('queryKey: ["household-members", scopedHouseholdId]');
+    expect(screenSource).toContain("listHouseholdMembers(authToken!, scopedHouseholdId!)");
+    expect(screenSource).toContain(
+      'const myRole = scopedMembers.data?.members.find((member) => member.userId === userId)?.role;'
+    );
+    expect(screenSource).toContain('const canEditChildren = myRole === "owner" || myRole === "co_parent"');
+    // 추가 쪽 판정의 근거는 생성이 실제로 가는 그 가구다.
+    expect(screenSource).toContain('queryKey: ["household-members", householdId]');
+    expect(screenSource).toContain('const canAddChild = myAddRole === "owner" || myAddRole === "co_parent"');
+    // 목록의 세 게이트가 전부 canEditChildren이고, 추가 게이트는 하나도 섞이지 않는다.
+    expect(screenSource).toContain("{canEditChildren ? (");
+    expect(screenSource).toContain('canEditChildren && canTransitionStageMode(child.stageMode, "born")');
+    expect(screenSource).toContain("canEditChildren && bornChildId === child.id");
+    expect(screenSource).toContain("hasSession && !canEditChildren && scopedMembers.isSuccess");
+    expect(screenSource).not.toContain("canEditChildren && !isDemoSession");
+    // 추가 게이트 셋은 전부 canAddChild다(버튼 · 폼 · 데모 안내).
+    expect(screenSource).toContain("hasSession && canAddChild && isDemoSession");
+    expect(screenSource).toContain("canAddChild && !isDemoSession && !addOpen");
+    expect(screenSource).toContain("canAddChild && !isDemoSession && addOpen");
+    expect(screenSource).not.toContain("canAddChild && canTransitionStageMode");
   });
 
   it("follows the A11Y-101/A11Y-115 conventions (labels, roles, state, hitSlop, announce)", () => {

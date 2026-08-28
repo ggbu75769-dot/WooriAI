@@ -140,6 +140,9 @@ export type AuditLogActionPreset = {
  * - household.member.remove / household.invite.cancel: apps/api/src/households/households.controller.ts
  * - household.leave / account.delete: apps/api/src/settings/settings.controller.ts (GAP-062 #7 —
  *   본인이 스스로 나가거나 탈퇴한 흐름. "내보내기"(household.member.remove)와 다른 액션이다)
+ * - budget.upsert: apps/api/src/onboarding/budgets.controller.ts (GAP-063 #5 — 월 예산 설정·덮어쓰기.
+ *   budgets 행은 (아이, 연월)당 한 칸이라 덮어쓰면 이전 금액이 사라진다: "왜 갑자기 예산 경고가
+ *   뜨죠" 문의에서 누가·언제·얼마에서 얼마로 바꿨는지는 이 액션의 before/after에만 있다)
  * - auth.login / auth.logout: apps/api/src/auth/auth.service.ts (카카오는 kakao-auth.service.ts)
  * - admin.*: apps/api/src/admin/* (admin-auth / admin-users / admin-categories /
  *   content-revisions / admin.controller / admin-users-lookup)
@@ -148,6 +151,7 @@ export type AuditLogActionPreset = {
 export const AUDIT_LOG_ACTION_PRESETS: readonly AuditLogActionPreset[] = [
   { action: "expense.update", label: "지출 수정 (금액·메모 등)" },
   { action: "expense.delete", label: "지출 삭제" },
+  { action: "budget.upsert", label: "월 예산 변경 (설정·덮어쓰기)" },
   { action: "child_profile.delete", label: "아이 프로필 삭제" },
   { action: "household.member.remove", label: "가구 구성원 내보내기" },
   { action: "household.invite.cancel", label: "가구 초대 취소" },
@@ -156,6 +160,10 @@ export const AUDIT_LOG_ACTION_PRESETS: readonly AuditLogActionPreset[] = [
   { action: "auth.login", label: "앱 로그인" },
   { action: "auth.logout", label: "앱 로그아웃" },
   { action: "admin.login", label: "어드민 로그인" },
+  // GAP-063 #3: 인증 앱 재등록 입구가 생기면서 이 두 액션이 실제 CS 동선(운영자가
+  // 인증 앱을 잃음)에 등장한다 — 해제가 있었는지, 복구 코드가 언제 소진됐는지를 여기서 본다.
+  { action: "admin.mfa_disabled", label: "어드민 MFA 해제 (재등록 전)" },
+  { action: "admin.mfa_recovery_code_used", label: "어드민 복구 코드 사용" },
   { action: "admin.user_lookup.search", label: "어드민 사용자 조회" },
   { action: "admin.admin_user.update", label: "어드민 계정 변경" },
   { action: "admin.category.update", label: "카테고리 변경" },

@@ -53,6 +53,19 @@ import { addDays, daysBetween, isDateOnly } from "./day-math";
  * 드러나고, CTA가 "100일 리포트 보기"라고 창을 따로 예고하므로 두 숫자가 다른 것이 자연스럽게
  * 읽힌다. 창 합계를 여기서 다시 계산하지는 않는다: 홈에는 지출 행이 아니라 서버 누적 집계 하나만
  * 있어서, 재계산하면 근거 없는 숫자를 지어내는 셈이 된다.
+ *
+ * ## 대기 고지 (GAP-063 트랙 A)
+ * 그 부제 금액은 **서버 집계 그대로**라 이 기기에 쌓인 대기 행을 모른다. 같은 화면의 히어로는
+ * 재조정된 값이므로(reconcileMonthlyExpenses), 오프라인으로 몇 건을 적은 직후 두 숫자가 서로
+ * 다른 시점을 말한다. 라운드 62가 그 사실을 밝히는 한 줄을 홈 누적 카드에 넣었지만, 그 카드는
+ * **이 카드가 서면 접힌다**(src/home/cumulative-total.ts) — 즉 이 카드가 뜨는 생후 0일~첫돌
+ * 구간에서는 고지가 구조적으로 한 번도 뜨지 않았다. 그래서 같은 줄이 여기에도 선다.
+ *
+ * 문구는 **이 모듈이 만들지 않는다**: 화면이 누적 카드와 같은 단일 소스
+ * (`cumulativeTotalPendingNotice`)로 만든 문자열을 그대로 넘긴다(아래 `pendingNotice` 입력).
+ * 두 카드가 같은 금액을 가리키는데 문장이 갈리면, 카드가 바뀌었을 뿐 사용자는 다른 말을 듣는다.
+ * 대신 **붙일지 말지**는 이 모듈이 정한다 — 부제가 권유 문장인 달(기록 0건)에는 "이 금액에"가
+ * 짚을 금액이 화면에 없으므로 줄을 만들지 않는다.
  */
 
 /** 100일은 태어난 날을 1일로 세어 100번째 날 = 생일 + 99일. */
@@ -76,6 +89,11 @@ export type HomeMilestoneCountdown = {
   title: string;
   /** 카드 부제 — "지금까지 총 지출 1,245,700원"(전 기간 누적, 위 금액 규칙 참고). */
   subtitle: string;
+  /**
+   * GAP-063 트랙 A — 부제의 금액이 아직 모르는 기록을 밝히는 한 줄. 없으면 null이라 카드는
+   * 예전과 한 픽셀도 다르지 않다(위 "대기 고지" 참고).
+   */
+  pendingNotice: string | null;
   /**
    * 지금 이 카드를 누르면 리포트 탭이 실제로 여는 마일스톤 — `selectMilestoneReportType`이
    * 정한다. 카운트다운이 가리키는 `milestone`과 다를 수 있다(100일 다음 날 ~ 첫돌 전날).
@@ -103,7 +121,18 @@ export type HomeMilestoneCountdownInput = {
   todayIso: string;
   /** HomeSummary.totalExpenseKrw (누적 지출, 선물 제외). */
   totalExpenseKrw: number | null | undefined;
+  /**
+   * GAP-063 트랙 A — 위 금액이 아직 모르는 기록을 밝히는 한 줄. **문자열을 받는다**: 문구·건수
+   * 규칙의 단일 소스는 홈 누적 카드 쪽(`cumulativeTotalPendingNotice`)이고, 이 모듈이 그것을
+   * import하면 두 모듈이 서로를 부르는 순환이 된다(누적 카드는 이미 이 파일의
+   * `milestoneSubtitleShowsTotal`을 쓴다). 그래서 조립은 화면이 하고, 이 모듈은 **어디에 놓고
+   * 어떻게 읽어줄지**와 **놓지 않을 조건**만 진다. 생략하면 종전 그대로다(줄이 생기지 않는다).
+   */
+  pendingNotice?: string | null;
 };
+
+/** 고지 한 줄의 식별자(누적 카드 고지의 테스트 id와 같은 관례). */
+export const HOME_MILESTONE_PENDING_NOTICE_TEST_ID = "home-milestone-pending-notice";
 
 const MILESTONE_LABEL: Record<HomeMilestone, string> = {
   d100: "100일",
@@ -153,6 +182,10 @@ export function evaluateMilestoneCountdown(input: HomeMilestoneCountdownInput): 
 
   const label = MILESTONE_LABEL[milestone];
   const subtitle = totalSubtitle(input.totalExpenseKrw);
+  // GAP-063 트랙 A: 고지는 **부제가 실제로 금액을 말할 때만** 붙는다. 기록이 0건인 달의 부제는
+  // 권유 한 줄이라("기록을 남기면 …") "이 금액에 아직 반영되지 않았어요"가 짚을 금액이 화면에
+  // 없다 — 그때는 누적 카드도 뜨지 않으므로(같은 판정) 어느 카드도 없는 금액을 가리키지 않는다.
+  const pendingNotice = milestoneSubtitleShowsTotal(input.totalExpenseKrw) ? (input.pendingNotice ?? null) : null;
   const name = displayNickname(input.nickname);
   const title = daysRemaining === 0 ? `오늘은 ${name}의 ${label}이에요` : `${label}까지 D-${daysRemaining}`;
   const spokenTitle = daysRemaining === 0 ? title : `${label}까지 ${daysRemaining}일 남았어요`;
@@ -171,8 +204,13 @@ export function evaluateMilestoneCountdown(input: HomeMilestoneCountdownInput): 
     daysRemaining,
     title,
     subtitle,
+    pendingNotice,
     reportMilestone,
     ctaLabel,
-    accessibilityLabel: `${spokenTitle}. ${subtitle}. ${ctaLabel}`
+    // 고지는 부제와 CTA 사이에 놓인다 — 화면의 읽기 순서(제목 → 부제 → 고지 → CTA)와 같아야
+    // TalkBack 사용자가 눈으로 보는 사람과 같은 순서로 같은 사실을 듣는다(누적 카드와 같은 규칙).
+    accessibilityLabel: pendingNotice
+      ? `${spokenTitle}. ${subtitle}. ${pendingNotice}. ${ctaLabel}`
+      : `${spokenTitle}. ${subtitle}. ${ctaLabel}`
   };
 }

@@ -13,6 +13,9 @@ import type { RecordsDateGroup } from "./records-date-groups";
  * 음영으로 칠하면 그 답이 스크롤 없이 눈에 들어오고, 칸을 누르면 곧바로 그날 기록(목록)으로 내려간다
  * — 핵심 루프의 "총액 확인"이 월 → 일 → 건으로 끊기지 않고 이어진다.
  *
+ * 라운드 63 C(#8): 기록이 **없는** 날 칸도 이제 목적지가 있다(그날로 기록하기). 두 목적지의
+ * 판정은 `resolveCalendarCellAction` 한 곳이고, 그 근거는 그 함수 주석에 있다.
+ *
  * React / React Native를 import하지 않는 **순수 모듈**이다(같은 폴더 records-date-groups.ts,
  * records-list-view.ts와 같은 규율). 격자 구성·음영 분위·라벨 규칙을 화면을 띄우지 않고 그대로
  * 단위 테스트할 수 있어야 하고, 외부 캘린더 라이브러리를 들이지 않는 이유도 같다 — 주 시작 요일과
@@ -87,6 +90,19 @@ export type CalendarCell = {
    * `totalKrw > 0`으로 대신 판정하면 선물·환불만 있던 날(소계 0)이 비대화형으로 잘못 걸린다.
    */
   hasRecords: boolean;
+  /**
+   * 라운드 63 C(#8): **아직 오지 않은 날**인가(`todayIso` 뒤). 달 밖 빈 칸은 false다.
+   *
+   * 왜 칸이 이 사실을 들고 있나: 아래 `resolveCalendarCellAction`이 기록 없는 날을 "그날로
+   * 기록하기"로 보내는데, 미래 날짜의 지출은 만들 수 없다(DNC-013 — 서버·로컬 백엔드가 모두
+   * 거부하고 시트의 날짜 가드도 막는다). 그 판정을 화면에서 다시 하면 달력마다 미래 경계가
+   * 갈리므로 격자를 만들 때 한 번에 정한다.
+   *
+   * 비교가 문자열 하나인 이유: ISO 날짜는 **사전순 = 시간순**이고, `todayIso`는 이미 서울
+   * 기준으로 만들어져 들어온다(failed-row-prefill.ts의 `resolveFailedRowPrefillDate`와 같은
+   * 근거 -- 같은 렌더 안에서 시계를 두 번 읽어 두 개의 "오늘"이 생기지 않게 한다).
+   */
+  isFuture: boolean;
 };
 
 export type CalendarMonth = {
@@ -235,7 +251,8 @@ export function buildCalendarMonth(
       totalKrw: 0,
       intensity: 0,
       hasGiftOnly: false,
-      hasRecords: false
+      hasRecords: false,
+      isFuture: false
     });
   }
   for (let day = 1; day <= lastDay; day += 1) {
@@ -253,7 +270,8 @@ export function buildCalendarMonth(
       // 기록은 있는데(그룹이 존재) 합산 대상이 하나도 없던 날 = 선물·환불만 있던 날.
       hasGiftOnly: entry !== undefined && !entry.hasSubtotal,
       // 그룹이 존재했다는 사실 자체(금액과 무관) = 그날 목록에 보이는 행이 있다.
-      hasRecords: entry !== undefined
+      hasRecords: entry !== undefined,
+      isFuture: date > todayIso
     });
   }
   while (cells.length % 7 !== 0) {
@@ -267,7 +285,8 @@ export function buildCalendarMonth(
       totalKrw: 0,
       intensity: 0,
       hasGiftOnly: false,
-      hasRecords: false
+      hasRecords: false,
+      isFuture: false
     });
   }
 
@@ -317,6 +336,12 @@ function trimOneDecimal(value: number): string {
  * 뭉뚱그리면 그날 남긴 기록을 없는 일로 만들어 버린다(DNC-015 표시 규칙과 같은 결).
  *
  * 빈 칸(달 밖)은 null — 화면이 라벨 없는 비대화형 자리로 그린다.
+ *
+ * 라운드 63 C(#8): 달 안인데 **누를 수 없는** 칸(= 기록 없는 미래 날짜)은 꼬리말로 이유를
+ * 밝힌다. 이 라운드부터 기록 없는 칸의 대다수가 눌리게 됐으므로("그날로 기록"), 이유를 적지
+ * 않으면 스크린리더 사용자에게 "8월 27일, 지출 없음"(눌린다)과 "8월 30일, 지출 없음"(안 눌린다)이
+ * 똑같이 들린다 -- 날짜 픽커가 라운드 61 #8에서 고정한 관례("고를 수 없는 날은 왜 못 고르는지를
+ * 라벨에 싣는다")를 이 달력에도 그대로 적용한다.
  */
 export function calendarCellAccessibilityLabel(
   cell: CalendarCell,
@@ -326,9 +351,13 @@ export function calendarCellAccessibilityLabel(
   const scopePrefix = calendarFilterScopePrefix(options?.filterLabel);
   const prefix = `${scopePrefix}${cell.isToday ? "오늘, " : ""}`;
   const dateLabel = formatSpentOn(cell.date);
-  if (cell.totalKrw > 0) return `${prefix}${dateLabel}, ${formatKrw(cell.totalKrw)}`;
-  if (cell.hasGiftOnly) return `${prefix}${dateLabel}, 선물·환불 기록만 있어요`;
-  return `${prefix}${dateLabel}, 지출 없음`;
+  // 누를 수 없는 이유는 지금 하나뿐이다(미래). 판정을 여기서 다시 적지 않고
+  // isCalendarCellInteractive에 묻는 이유는 그 규칙이 늘어도 라벨이 따라오게 하기 위해서다
+  // (그 함수 자체가 resolveCalendarCellAction의 파생이라 규칙은 여전히 한 벌이다).
+  const unpickableSuffix = isCalendarCellInteractive(cell) ? "" : `, ${CALENDAR_FUTURE_HINT}`;
+  if (cell.totalKrw > 0) return `${prefix}${dateLabel}, ${formatKrw(cell.totalKrw)}${unpickableSuffix}`;
+  if (cell.hasGiftOnly) return `${prefix}${dateLabel}, 선물·환불 기록만 있어요${unpickableSuffix}`;
+  return `${prefix}${dateLabel}, 지출 없음${unpickableSuffix}`;
 }
 
 /**
@@ -350,27 +379,106 @@ function calendarFilterScopePrefix(filterLabel?: string | null): string {
 }
 
 /**
- * 라운드 34 L4: 이 칸이 **누를 수 있는 칸인지**.
+ * 라운드 63 C(#8): 이 칸을 누르면 **무슨 일이 일어나는가**. null이면 비대화형이다.
  *
- * 달 밖 빈 칸(`date === null`)과 같은 근거로, 그날 기록이 하나도 없는 칸도 비대화형이다 —
- * 누를 대상(그날 섹션)이 목록에 없어서 눌러도 아무 일도 일어나지 않기 때문이다. 화면은 이
- * 판정으로 Pressable 자체를 걸지 말지 정한다(disabled 버튼도 "눌리는 것처럼" 보인다).
+ * - `"open-records"` — 그날 기록으로 이동한다(라운드 34 L4의 종전 동작 그대로).
+ * - `"record-new"` — 그날 날짜를 프리필해 기록 시트를 연다(아래 근거).
+ * - `null` — 달 밖 빈 칸, 그리고 기록이 없는 **미래** 날짜(DNC-013).
+ *
+ * ## 왜 빈 칸이 갈라졌나 (라운드 34 L4 판정의 재진단)
+ *
+ * L4는 기록이 없는 칸을 통째로 비대화형으로 만들었고 근거는 **목록 내비게이션 논리**였다 --
+ * "눌러도 이동할 섹션이 목록에 없다". 그 판단은 옳았지만 그 뒤에 이 화면이 하는 일이
+ * 하나 늘었다: 라운드 56 D#10이 `record_gap` 알림("3일 동안 기록이 없어요")의 목적지를
+ * **이 달력**으로 옮겼고, 그때 적은 근거가 "비어 있는 날을 보여 주는 화면은 달력 격자
+ * 하나뿐"이다(src/notifications/notification-route.ts). 그래서 지금은 알림이 지목한 바로 그
+ * 대상 -- 빈 날 -- 이 화면에서 **유일하게 손댈 수 없는 것**이 된다. 그 사흘을 실제로 적으려면
+ * 보기를 리스트로 되돌리고 → FAB → 시트 → 날짜 칩/픽커에서 그 날을 다시 찾아야 한다(같은 앱
+ * 안에서 달력을 두 번 여는 셈이다). 기록 리마인더의 목적이 "빠진 날을 채우게 하는 것"인데
+ * 마지막 한 걸음만 없었다.
+ *
+ * L4의 원칙("누를 수 있어 보이는데 반응이 없는 편이 비대화형보다 나쁘다")은 한 글자도 바뀌지
+ * 않는다 -- 이제 그 칸에는 **반응할 대상이 생겼을 뿐**이다. 대상이 없는 칸(달 밖·미래)은
+ * 여전히 비대화형이다.
+ *
+ * ## 미래 날짜는 계속 비대화형 (DNC-013)
+ * 아직 오지 않은 날의 지출은 만들 수 없다. 눌러서 시트를 열어 봐야 날짜 가드가 막힌 채로
+ * 열리므로, 여는 것 자체가 반응 없는 버튼과 같다. 라벨은 **왜** 못 누르는지를 말한다
+ * (`calendarCellAccessibilityLabel` -- 지출 기록 시트 날짜 픽커의 같은 관례, 라운드 61 #8).
+ *
+ * 미래인데 기록이 있는 칸(기기 시계가 앞선 오프라인 행 등)은 `"open-records"`다 -- 그 행은
+ * 목록에 실제로 서 있고, 보여 주지 않으면 사용자가 고칠 수도 지울 수도 없다.
+ */
+export type CalendarCellAction = "open-records" | "record-new";
+
+export function resolveCalendarCellAction(cell: CalendarCell): CalendarCellAction | null {
+  if (!cell || cell.date === null) return null;
+  if (cell.hasRecords) return "open-records";
+  if (cell.isFuture) return null;
+  return "record-new";
+}
+
+/**
+ * 라운드 34 L4: 이 칸이 **누를 수 있는 칸인지**. 화면은 이 판정으로 Pressable 자체를 걸지
+ * 말지 정한다(disabled 버튼도 "눌리는 것처럼" 보인다).
+ *
+ * 라운드 63 C(#8): 판정 자체는 위 `resolveCalendarCellAction` 한 곳에 있고 이 함수는 그
+ * 파생이다 -- "누를 수 있는가"와 "누르면 무엇을 하는가"가 두 벌로 갈리면, 라벨은 비대화형이라
+ * 말하는데 화면은 Pressable을 거는(또는 그 반대) 상태가 조용히 생긴다.
  */
 export function isCalendarCellInteractive(cell: CalendarCell): boolean {
-  return cell.date !== null && cell.hasRecords;
+  return resolveCalendarCellAction(cell) !== null;
+}
+
+/**
+ * 라운드 63 C(#8): 누를 수 없는 **미래 칸**의 스크린리더 꼬리말(DNC-018 해요체).
+ *
+ * 왜 픽커의 `EXPENSE_DATE_PICKER_FUTURE_HINT`("아직 오지 않은 날이라 고를 수 없어요")를 그대로
+ * 쓰지 않나: ① 그 상수는 `date-picker-month.ts`에 있고 그 모듈이 이 모듈의 `buildCalendarMonth`를
+ * 이미 가져다 쓰므로, 여기서 되가져오면 순환 import가 된다. ② 두 화면이 사용자에게 말하는 것이
+ * 실제로 다르다 -- 픽커에서는 "이 날짜를 **고를** 수 없다"이고, 여기서는 "이 날짜로 **기록할**
+ * 수 없다"이다(이 칸은 날짜 선택지가 아니라 기록 입구다). 문장이 갈리는 것이 아니라 질문이
+ * 다르며, 미래를 막는 **규칙**은 여전히 한 벌이다(DNC-013).
+ */
+export const CALENDAR_FUTURE_HINT = "아직 오지 않은 날이라 기록할 수 없어요";
+
+/** 음영의 뜻 — 필터와 무관하게 언제나 같은 사실이다(진할수록 그날 합이 크다). */
+const CALENDAR_LEGEND_HEATMAP_TEXT = "색이 진할수록 그날 지출이 많아요.";
+
+/**
+ * 라운드 63 리뷰 #4 — 두 번째 문장의 주어는 **필터 스코프를 따른다.**
+ *
+ * 무엇이 거짓이었나: 달력의 칸은 필터가 걸린 목록에서 나온 그룹이라(화면이 그대로 넘긴다)
+ * `hasRecords`도 **그 필터 안에서만** 참이다. 그래서 기저귀 필터를 켠 채로 보면, 그날 분유
+ * 지출이 있어도 칸은 비어 보이고 눌렀을 때 `"record-new"`가 된다 — 그 동작은 옳지만
+ * (그 조건의 기록이 없는 것은 사실이다) 범례가 "기록이 없는 날짜"라고 단정하면 **없다고 말한
+ * 적 없는 사실**을 말하게 된다. 칸 라벨은 이미 `calendarFilterScopePrefix`로 같은 문제를 피하고
+ * 있었는데(라운드 34 L5) 범례만 무조건이었다.
+ *
+ * 문구를 두 벌로 만들지 않는다: 조각은 아래 함수 하나가 만들고, 필터 없는 문장
+ * (`CALENDAR_LEGEND_TEXT`)도 그 함수의 결과다 — 즉 한쪽만 고쳐지는 날이 없다.
+ */
+function calendarLegendActionText(scoped: boolean): string {
+  // 접두가 아니라 주어를 한정한다: "이 조건의 기록" — 칸 라벨의 접두("… 기준, ")와 같은 사실을
+  // 범례의 문장 구조에 맞춰 말한 것이다.
+  const records = scoped ? "이 조건의 기록" : "기록";
+  return `${records}이 있는 날짜를 누르면 그날 기록으로 이동하고, ${records}이 없는 날짜를 누르면 그날로 기록할 수 있어요.`;
 }
 
 /** 달력 아래 한 줄 안내(DNC-018 해요체). 음영이 무엇을 뜻하는지 말해주지 않으면 그냥 색일 뿐이다. */
-export const CALENDAR_LEGEND_TEXT = "색이 진할수록 그날 지출이 많아요. 기록이 있는 날짜를 누르면 그날 기록으로 이동해요.";
+export const CALENDAR_LEGEND_TEXT = `${CALENDAR_LEGEND_HEATMAP_TEXT} ${calendarLegendActionText(false)}`;
 
 /**
  * 라운드 34 L5: 범례 한 줄 — 필터가 걸렸으면 **무엇의 히트맵인지**를 덧붙인다.
  *
  * 칸 라벨의 접두(위)와 같은 사실을 눈으로 보는 사람에게도 달력 **안에서** 말한다. 필터가 없으면
  * 예전 문장 그대로다(기존 화면 한 글자도 안 바뀐다).
+ *
+ * 라운드 63 리뷰 #4: 필터가 걸리면 두 번째 문장의 주어도 그 스코프로 좁힌다(위 함수 참고) —
+ * 꼬리말만 붙이고 "기록이 없는 날짜"를 그대로 두면 범례가 그 한 줄 안에서 스스로 어긋난다.
  */
 export function calendarLegendText(filterLabel?: string | null): string {
   const label = filterLabel?.trim();
   if (!label) return CALENDAR_LEGEND_TEXT;
-  return `${CALENDAR_LEGEND_TEXT} 지금은 ${label} 기준으로 보고 있어요.`;
+  return `${CALENDAR_LEGEND_HEATMAP_TEXT} ${calendarLegendActionText(true)} 지금은 ${label} 기준으로 보고 있어요.`;
 }
