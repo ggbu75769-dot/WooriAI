@@ -6,6 +6,7 @@ import { ErrorBoundary } from "../src/errors/ErrorBoundary";
 import { useOfflineSyncLifecycle } from "../src/offline/sync-controller";
 import { installAppQueryRefetchWiring } from "../src/query/install-app-refetch";
 import { registerAppQueryClient } from "../src/query/query-client-registry";
+import { AppLockOverlay } from "../src/security/AppLockOverlay";
 import { useSessionStore } from "../src/stores/session.store";
 
 // MOB-117: react-query의 기본 focus/online 리스너는 웹 전용(window focus/online 이벤트)이라
@@ -63,6 +64,12 @@ export default function RootLayout() {
             screen is focused. Inert without a real/demo session and never blocks navigation --
             see src/commerce/PurchaseFollowupPrompt.tsx. */}
         <PurchaseFollowupLifecycle />
+        {/* 라운드 55 트랙 B (docs/5차/round55-plan.md §2.4): 앱 잠금 오버레이. <Stack>과 구매 확인
+            카드 **뒤에** 마운트해야 그 둘을 덮는다 — 구매 확인 카드도 계정 데이터(품목명)를 전역
+            오버레이로 그린다. 라우트가 아니라 오버레이인 이유는 뒤로가기·딥링크로 우회할 수 있는
+            내비게이션 상태를 만들지 않기 위해서다. 픽셀락·비세션·PIN 미설정에서는 null을 반환해
+            기존 화면 트리가 한 노드도 달라지지 않는다. */}
+        <AppLockOverlay />
       </ErrorBoundary>
     </QueryClientProvider>
   );
