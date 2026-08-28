@@ -16,11 +16,26 @@
 export type CategoryShareInput = {
   label: string;
   amountKrw: number;
+  /**
+   * 라운드 52 C-03: 이 조각이 **어느 카테고리인지**. 드릴다운(리포트 범례 → 기록 탭 필터)이
+   * 쓰는 유일한 식별자다.
+   *
+   * 왜 인덱스가 아니라 값으로 들고 다니는가: 이 함수는 금액이 0/음수/비정상인 항목을 **떨어
+   * 뜨리므로**(`isCountable`) 입력 배열과 출력 배열의 인덱스가 어긋날 수 있다. 화면이 인덱스로
+   * categoryId를 되짚으면 "0원 카테고리가 하나 섞인 달"에서 조용히 **한 칸 밀린 엉뚱한 필터**가
+   * 걸린다. 그래서 조각이 자기 id를 함께 들고 나간다.
+   *
+   * 선택 필드다 — 넘기지 않으면(비중 문장을 만드는 monthly-insight 등) 결과에도 없고, 이 필드가
+   * 생기기 전과 동작이 같다.
+   */
+  categoryId?: string;
 };
 
 export type CategoryShareSlice = {
   label: string;
   amountKrw: number;
+  /** 입력 조각의 `categoryId`를 그대로 통과시킨 값(넘기지 않았으면 undefined). */
+  categoryId?: string;
   /** Exact share of the total, 0..1. */
   ratio: number;
   /** Integer percent, largest-remainder corrected so the whole set sums to exactly 100. */
@@ -117,6 +132,9 @@ function flooredWidths(ratios: number[]): number[] {
  * - An empty input, or one whose amounts all drop out, returns [] -- callers render their own
  *   empty state rather than a bar of nothing.
  * - `percent` values always sum to exactly 100; `widthPercent` values always sum to exactly 100.
+ * - 살아남은 조각들은 **입력 순서 그대로**이고 꼬리를 "기타"로 접지도 않는다. 그래서 조각 하나는
+ *   언제나 입력 조각 하나에 1:1로 대응하고, 함께 들고 나온 `categoryId`가 그 조각의 것이 맞다
+ *   (라운드 52 C-03 — category-share.test.ts가 이 성질을 고정한다).
  */
 export function computeCategoryShares(segments: readonly CategoryShareInput[]): CategoryShareSlice[] {
   const countable = segments.filter((segment) => isCountable(segment.amountKrw));
@@ -130,6 +148,7 @@ export function computeCategoryShares(segments: readonly CategoryShareInput[]): 
   return countable.map((segment, index) => ({
     label: segment.label,
     amountKrw: segment.amountKrw,
+    categoryId: segment.categoryId,
     ratio: ratios[index],
     percent: percents[index],
     percentLabel: percents[index] === 0 ? "<1%" : `${percents[index]}%`,

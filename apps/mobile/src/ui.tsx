@@ -5,6 +5,7 @@ import { AccessibilityInfo, Image, Pressable, ScrollView, Text, View } from "rea
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { formatKrw } from "./money";
 import { computeCategoryShares } from "./reports/category-share";
+import type { CategoryShareSlice } from "./reports/category-share";
 import { theme } from "./theme";
 
 type ChildrenProps = {
@@ -801,13 +802,24 @@ const categoryShareBarHeight = 14;
  *
  * Without `segments` (the logged-out preview / pixel-lock capture) the original decorative donut
  * is rendered byte-for-byte unchanged -- same convention as LineChartCard's placeholder line.
+ *
+ * 라운드 52 C-03: `onSelect`를 넘기면 **범례 줄이 눌리는 버튼**이 된다(리포트 → 기록 드릴다운).
+ * 넘기지 않으면 줄은 종전과 똑같은 정적 View이고, 위 **비세션 장식 분기는 어느 쪽이든 한 글자도
+ * 닿지 않는다**(REP-001 픽셀락). 선택 가능한 줄만 44dp 터치 타깃으로 키운다 — 캡션 한 줄 높이의
+ * 버튼은 손가락으로 정확히 누를 수 없고, hitSlop으로 늘리면 이웃 줄의 영역과 겹친다.
  */
 export function DonutChartCard({
   title,
-  segments
+  segments,
+  onSelect,
+  selectHint
 }: {
   title: string;
-  segments?: Array<{ label: string; amountKrw: number }>;
+  segments?: Array<{ label: string; amountKrw: number; categoryId?: string }>;
+  /** 범례 줄을 눌렀을 때. 조각은 자기 `categoryId`를 들고 있다(인덱스로 되짚지 않는다). */
+  onSelect?: (slice: CategoryShareSlice, index: number) => void;
+  /** 누르기 전에 어디로 가는지 말해 주는 접근성 힌트. */
+  selectHint?: string | null;
 }) {
   if (segments) {
     const shares = computeCategoryShares(segments);
@@ -850,26 +862,53 @@ export function DonutChartCard({
             />
           ))}
         </View>
-        <View style={{ gap: 5 }}>
-          {shares.map((slice, index) => (
+        <View style={{ gap: onSelect ? 0 : 5 }}>
+          {shares.map((slice, index) => {
+            // 줄 안쪽은 두 분기가 **같은 조각**을 쓴다 -- 눌리는 줄과 눌리지 않는 줄이 다르게
+            // 보이면 같은 데이터가 세션마다 다른 카드로 읽힌다.
+            const row = (
+              <>
+                <View
+                  style={{ backgroundColor: donutSegmentPalette[index % donutSegmentPalette.length], borderRadius: 4, height: 8, width: 8 }}
+                />
+                <Text style={[textStyles.caption, { color: theme.colors.gray600, flex: 1 }]}>{slice.label}</Text>
+                <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{formatKrw(slice.amountKrw)}</Text>
+                <Text style={[textStyles.caption, { color: theme.colors.brown, fontWeight: "700", minWidth: 34, textAlign: "right" }]}>
+                  {slice.percentLabel}
+                </Text>
+                {onSelect ? (
+                  // 누를 수 있다는 것을 보이게 하는 표식. 소리로는 accessibilityRole="button"이
+                  // 같은 사실을 말하므로 글리프는 라벨에 넣지 않는다.
+                  <Text style={[textStyles.caption, { color: theme.colors.gray300, fontWeight: "800" }]}>›</Text>
+                ) : null}
+              </>
+            );
+
             // A11Y-117: one element per legend row so TalkBack announces "기저귀/위생, 34%,
             // 340,000원" instead of three disconnected fragments.
-            <View
-              accessible
-              accessibilityLabel={`${slice.label}, ${slice.percentLabel}, ${formatKrw(slice.amountKrw)}`}
-              key={`${slice.label}-${index}`}
-              style={{ alignItems: "center", flexDirection: "row", gap: 6 }}
-            >
+            return onSelect ? (
+              <Pressable
+                accessible
+                accessibilityHint={selectHint ?? undefined}
+                accessibilityLabel={`${slice.label}, ${slice.percentLabel}, ${formatKrw(slice.amountKrw)}`}
+                accessibilityRole="button"
+                key={`${slice.label}-${index}`}
+                onPress={() => onSelect(slice, index)}
+                style={{ alignItems: "center", flexDirection: "row", gap: 6, minHeight: 44 }}
+              >
+                {row}
+              </Pressable>
+            ) : (
               <View
-                style={{ backgroundColor: donutSegmentPalette[index % donutSegmentPalette.length], borderRadius: 4, height: 8, width: 8 }}
-              />
-              <Text style={[textStyles.caption, { color: theme.colors.gray600, flex: 1 }]}>{slice.label}</Text>
-              <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{formatKrw(slice.amountKrw)}</Text>
-              <Text style={[textStyles.caption, { color: theme.colors.brown, fontWeight: "700", minWidth: 34, textAlign: "right" }]}>
-                {slice.percentLabel}
-              </Text>
-            </View>
-          ))}
+                accessible
+                accessibilityLabel={`${slice.label}, ${slice.percentLabel}, ${formatKrw(slice.amountKrw)}`}
+                key={`${slice.label}-${index}`}
+                style={{ alignItems: "center", flexDirection: "row", gap: 6 }}
+              >
+                {row}
+              </View>
+            );
+          })}
         </View>
       </Card>
     );

@@ -160,7 +160,12 @@ describe("라운드 51 C-#11 화면 배선", () => {
 
   it("기록 탭은 파라미터를 **값당 한 번만** 적용한다(재렌더에 다시 적용하지 않는다)", () => {
     expect(recordsSource).toContain('from "../../src/expenses/import-landing-month"');
-    expect(recordsSource).toContain("const monthParams = useLocalSearchParams<{ month?: string }>();");
+    // 라운드 52 C-03이 같은 호출에 `categoryId`를 더했다(리포트 드릴다운) -- month 쪽 규약은
+    // 그대로이므로 여기서는 month 키가 여전히 이 호출에서 온다는 것만 고정한다.
+    expect(recordsSource).toContain("const monthParams = useLocalSearchParams<{ month?: string;");
+    expect(recordsSource).toContain(
+      "const monthParam = Array.isArray(monthParams.month) ? monthParams.month[0] : monthParams.month;"
+    );
     // 첫 마운트: 지연 초기화로 초기 오프셋을 정한다.
     expect(recordsSource).toContain(
       "const [monthOffset, setMonthOffset] = useState(() =>\n    resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() })\n  );"

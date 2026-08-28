@@ -72,6 +72,8 @@ import {
 import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
 import { formatKrw } from "../../src/money";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
+// C-03: 드릴다운 파라미터 규약은 링크를 만드는 리포트 탭과 **같은 모듈**에서 읽는다.
+import { resolveDrilldownCategoryIdParam } from "../../src/reports/category-drilldown";
 import {
   syncStatusBadgeLabel,
   syncStatusCountLabel,
@@ -724,7 +726,7 @@ export default function RecordsScreen() {
    * 파싱은 전부 순수 모듈에 있다: 파라미터가 없거나 형식이 깨졌거나 미래 월이면 0(이번 달)이라
    * 종전 동작과 완전히 같다.
    */
-  const monthParams = useLocalSearchParams<{ month?: string }>();
+  const monthParams = useLocalSearchParams<{ month?: string; categoryId?: string }>();
   const monthParam = Array.isArray(monthParams.month) ? monthParams.month[0] : monthParams.month;
   const [monthOffset, setMonthOffset] = useState(() =>
     resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() })
@@ -737,7 +739,31 @@ export default function RecordsScreen() {
     setMonthOffset(resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() }));
   }, [monthParam]);
   const [searchText, setSearchText] = useState("");
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  /**
+   * 라운드 52 C-03 — 리포트 카테고리 드릴다운의 착지 필터.
+   *
+   * 리포트 탭의 도넛 범례가 `month=YYYY-MM&categoryId=…`를 붙여 이 탭으로 보낸다. 달 파라미터
+   * (라운드 51 C-#11)와 **완전히 같은 관례**다: 지연 초기화 + 값이 실제로 바뀔 때만 도는 effect,
+   * 그리고 이미 적용한 값(appliedCategoryParamRef)에는 다시 손대지 않는다 -- 그래서 사용자가
+   * 착지한 뒤 칩을 직접 바꾸거나 "전체"로 풀면 재렌더가 그것을 딥링크 값으로 되돌리지 않는다.
+   *
+   * 형식 방어는 파라미터를 만드는 쪽과 같은 모듈에 있다(resolveDrilldownCategoryIdParam):
+   * 값이 없거나 형식이 깨졌으면 null이라 필터가 걸리지 않고 화면은 종전과 똑같다. 형식은 맞지만
+   * 이 가구에 없는 id는 목록이 비동기라 여기서 걸러낼 수 없는데, 그때는 칩 폴백
+   * (buildRecordsCategoryChips)이 그 id로 칩 하나를 만들어 0건 + "필터 해제"를 보여준다 --
+   * 최악의 경우도 빈 목록과 탈출구이지, 엉뚱한 기록이 그 카테고리인 척하지는 않는다.
+   */
+  const categoryIdParam = Array.isArray(monthParams.categoryId) ? monthParams.categoryId[0] : monthParams.categoryId;
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(() =>
+    resolveDrilldownCategoryIdParam(categoryIdParam)
+  );
+  const appliedCategoryParamRef = useRef<string | undefined>(categoryIdParam);
+  useEffect(() => {
+    if (!categoryIdParam) return;
+    if (appliedCategoryParamRef.current === categoryIdParam) return;
+    appliedCategoryParamRef.current = categoryIdParam;
+    setSelectedCategoryId(resolveDrilldownCategoryIdParam(categoryIdParam));
+  }, [categoryIdParam]);
   // UX-D: 리스트/달력 보기. 리포트 탭의 기간 세그먼트(app/(tabs)/reports.tsx의 `period`)와 같은
   // 관례로 **화면 상태**만 둔다 -- 세션 간 저장은 하지 않는다. 기록 탭의 기본 동작은 "방금 적은
   // 것을 확인하는 목록"이고, 달력은 그 위에서 잠깐 훑는 뷰다.
