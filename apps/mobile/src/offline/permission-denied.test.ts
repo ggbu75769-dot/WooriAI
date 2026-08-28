@@ -5,6 +5,8 @@ import { API_ERROR_MESSAGES } from "../api/api-error";
 import { createMemoryOfflineStore } from "./memory-offline-store";
 import { SYNC_STATUS_RETRY_ALL_LABEL, SYNC_STATUS_RETRY_LABEL } from "./messages";
 import {
+  countRetryableFailedRows,
+  isBulkRetryableFailedRow,
   isPermissionDeniedSyncError,
   isRetryableSyncError,
   isRetryableSyncFailureRow,
@@ -121,6 +123,71 @@ describe("라운드 57 #8: isRetryableSyncError — 다시 보내면 성공할 �
     expect(isRetryableSyncFailureRow({ lastError: "…", lastErrorStatus: null })).toBe(true);
     expect(isRetryableSyncFailureRow({ lastError: "…", lastErrorStatus: 400 })).toBe(false);
     expect(isRetryableSyncFailureRow(null)).toBe(true);
+  });
+});
+
+describe("라운드 58 #4: isBulkRetryableFailedRow / countRetryableFailedRows — 일괄 재시도의 대상", () => {
+  it("재시도가 무익한 4xx와 403은 대상이 아니고, 그 밖은 예전 그대로 대상이다", () => {
+    expect(isBulkRetryableFailedRow({ lastError: "서버 오류", lastErrorStatus: 503 })).toBe(true);
+    expect(isBulkRetryableFailedRow({ lastError: "…", lastErrorStatus: 401 })).toBe(true);
+    expect(isBulkRetryableFailedRow({ lastError: "…", lastErrorStatus: 400 })).toBe(false);
+    expect(isBulkRetryableFailedRow({ lastError: "…", lastErrorStatus: 403 })).toBe(false);
+  });
+
+  it("status를 모르는 레거시 행은 재시도 대상이지만, 문구가 403이면 제외된다", () => {
+    // 이 한 줄이 논리곱이 필요한 이유다: 첫 판정만으로는 레거시 403 행이 통과해 버린다.
+    expect(isRetryableSyncFailureRow({ lastError: API_ERROR_MESSAGES.FORBIDDEN })).toBe(true);
+    expect(isBulkRetryableFailedRow({ lastError: API_ERROR_MESSAGES.FORBIDDEN })).toBe(false);
+    expect(isBulkRetryableFailedRow({ lastError: "서버 오류" })).toBe(true);
+  });
+
+  it("계수는 목록에서 그 판정을 통과한 행만 센다 (라벨이 말할 숫자)", () => {
+    const rows = [
+      { lastError: "서버 오류", lastErrorStatus: 503 },
+      { lastError: "미래 날짜의 지출은 저장할 수 없어요.", lastErrorStatus: 400 },
+      { lastError: API_ERROR_MESSAGES.FORBIDDEN, lastErrorStatus: 403 },
+      { lastError: "타임아웃" }
+    ];
+
+    expect(rows).toHaveLength(4);
+    expect(countRetryableFailedRows(rows)).toBe(2);
+    expect(countRetryableFailedRows([])).toBe(0);
+  });
+
+  it("재시도 가능한 행이 하나도 없으면 0이다 — 화면은 이때 버튼을 그리지 않는다", () => {
+    const rows = [
+      { lastError: "…", lastErrorStatus: 400 },
+      { lastError: "…", lastErrorStatus: 403 },
+      { lastError: "…", lastErrorStatus: 422 }
+    ];
+
+    expect(countRetryableFailedRows(rows)).toBe(0);
+  });
+
+  it("엔진이 실제로 되돌리는 행 수와 같은 숫자다 (라벨이 거짓이 될 수 없다)", async () => {
+    const store = createMemoryOfflineStore();
+    await seedFailedRow(store, "기저귀", "서버 오류", { lastErrorStatus: 503 });
+    await seedFailedRow(store, "물티슈", "미래 날짜의 지출은 저장할 수 없어요.", { lastErrorStatus: 400 });
+    await seedFailedRow(store, "분유", API_ERROR_MESSAGES.FORBIDDEN, { lastErrorStatus: 403 });
+
+    const failedRows = (await store.listLocalExpenses()).filter((row) => row.syncState === "failed");
+    const labelCount = countRetryableFailedRows(failedRows);
+
+    expect(labelCount).toBe(1);
+    expect(await retryAllFailedMutations(store)).toBe(labelCount);
+  });
+
+  it("전부 무익한 실패만 남으면 라벨 건수도 엔진 결과도 0이다", async () => {
+    const store = createMemoryOfflineStore();
+    await seedFailedRow(store, "기저귀", "…", { lastErrorStatus: 400 });
+    await seedFailedRow(store, "분유", API_ERROR_MESSAGES.FORBIDDEN, { lastErrorStatus: 403 });
+
+    const failedRows = (await store.listLocalExpenses()).filter((row) => row.syncState === "failed");
+
+    expect(countRetryableFailedRows(failedRows)).toBe(0);
+    expect(await retryAllFailedMutations(store)).toBe(0);
+    // 버리기는 그대로 전량이 대상이다 -- 그 행들에도 유효한 유일한 선택지다.
+    expect(failedRows).toHaveLength(2);
   });
 });
 

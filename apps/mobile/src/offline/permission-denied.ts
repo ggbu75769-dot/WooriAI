@@ -126,6 +126,37 @@ export function isPermissionDeniedSyncError(
 }
 
 /**
+ * 라운드 58 #4 — **일괄 재시도가 실제로 다시 큐에 올릴 행인가.**
+ *
+ * 위 두 판정의 논리곱이다. 따로 두지 않고 이름을 준 이유: 이 조합이 두 곳에서 **같아야만 하는**
+ * 질문이기 때문이다.
+ *  1. 실패 섹션의 일괄 버튼 라벨("지출 3건 재시도" — messages.ts)이 말하는 건수.
+ *  2. 그 버튼이 부르는 `retryAllFailedMutations`(sync-engine.ts)가 실제로 되돌리는 행.
+ *
+ * 라운드 47·57이 재시도 자리를 안내로 바꾸면서 (2)의 대상은 좁아졌는데 (1)은 실패 행을 전량
+ * 세고 있었다 — 403 한 건과 400 두 건만 남은 화면이 "지출 3건 재시도"를 내밀고, 눌러도 0건이
+ * 큐에 오른다. 라벨이 거짓이었다는 뜻이다. 이제 양쪽이 이 함수 하나를 부른다.
+ *
+ * 왜 논리곱이 필요한가(=`isRetryableSyncFailureRow` 하나로 부족한 이유): status를 아는 403 행은
+ * 이미 첫 판정에서 걸러지지만, v2 이전에 실패해 status가 없는 **레거시 403 행**은 status를
+ * 모른다는 이유로 "재시도 가능"으로 통과한다. 그 행의 403 여부는 두 번째 판정(문구 폴백)만
+ * 답할 수 있다.
+ */
+export function isBulkRetryableFailedRow(row: SyncFailureRow | null | undefined): boolean {
+  return isRetryableSyncFailureRow(row) && !isPermissionDeniedSyncError(row);
+}
+
+/**
+ * 실패 행 목록에서 **재시도 버튼이 다룰 수 있는** 행의 수. 화면은 이 숫자로 라벨을 만들고,
+ * 0이면 버튼 자체를 내놓지 않는다(라운드 51 P2-3이 "준비템 실패만 남은 섹션"에서 세운 규칙의
+ * 확장이다 — 눌러도 아무 일이 없는 버튼을 남기지 않는다). "전체 버리기"는 이 계수를 쓰지
+ * 않는다: 버리는 것은 재시도가 무익한 행에도 유효한 유일한 선택지라 대상이 실패 행 전량이다.
+ */
+export function countRetryableFailedRows(rows: readonly (SyncFailureRow | null | undefined)[]): number {
+  return rows.reduce((count, row) => (isBulkRetryableFailedRow(row) ? count + 1 : count), 0);
+}
+
+/**
  * 권한 거절 행에서 "재시도" 버튼 자리를 대신하는 안내. 재시도가 무익하다는 사실만 말하고
  * 무엇을 해야 하는지는 `lastError` 문구가 이미 말하고 있으므로(역할·구성원 확인) 반복하지
  * 않는다. 해요체(DNC-018).

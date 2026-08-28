@@ -75,6 +75,12 @@ import {
   quickExpenseItemsForCategory
 } from "../../src/expenses/quick-expense-catalog";
 import { parseExpensePrefillParams } from "../../src/expenses/record-row-actions";
+import {
+  NO_FAILED_ROW_PREFILL_DATE,
+  parseFailedRowLocalId,
+  parseFailedRowPrefillText,
+  resolveFailedRowPrefillDate
+} from "../../src/expenses/failed-row-prefill";
 import { expenseMutationErrorMessage, INVALID_EXPENSE_INPUT_ERROR } from "../../src/expenses/save-error-messages";
 import {
   buildRecentItemChips,
@@ -100,8 +106,10 @@ import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
+import { FAILED_ROW_PREFILL_DATE_RESET_NOTICE } from "../../src/offline/messages";
 import { createExpenseOffline } from "../../src/offline/sync-controller";
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
+import { discardOfflineMutation } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, SecondaryButton, Toast } from "../../src/ui";
@@ -379,6 +387,12 @@ export default function NewExpenseScreen() {
     linkedProductLinkId?: string;
     // 라운드 55 트랙 A: 정기 지출 카드의 "기록하기"가 템플릿에 저장된 결제 수단을 함께 넘긴다.
     paymentMethod?: string;
+    // 라운드 58 #5: 동기화 실패 행의 "고쳐서 다시 보내기"가 그 행의 payload를 그대로 싣고 온다
+    // (src/expenses/failed-row-prefill.ts). 메모·날짜는 이 진입점에서만 오는 값이고,
+    // failedLocalId가 있으면 저장이 확정된 뒤 그 원본 행을 버린다(아래 onSuccess).
+    memo?: string;
+    spentOn?: string;
+    failedLocalId?: string;
   }>();
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
   /**
@@ -407,6 +421,16 @@ export default function NewExpenseScreen() {
   // 날짜는 계약에 없다: 새 기록이므로 아래 initialExpenseDate가 늘 그렇듯 오늘로 시작한다.
   const prefill = parseExpensePrefillParams(params);
   const prefilledItemName = prefill.itemName;
+  /**
+   * 라운드 58 #5 — "고쳐서 다시 보내기"로 들어왔는가. 값이 있으면 **그 실패 행을 다시 쓰는
+   * 중**이라는 뜻이고, 저장이 확정된 뒤에만 원본을 버린다(아래 saveExpense.onSuccess).
+   * 저장 전에 버리면 저장이 실패했을 때 원본도 새 기록도 없다 — 서버에 없는 행이라 되돌릴
+   * 방법이 없다(이중 손실 금지).
+   */
+  const failedLocalId = parseFailedRowLocalId(params.failedLocalId);
+  // 메모 프리필도 그 진입점에서만 온다. 다른 진입점에는 이 파라미터가 없어 빈 문자열이다
+  // (= 예전 그대로 빈 칸에서 시작한다).
+  const prefilledMemo = parseFailedRowPrefillText(params.memo);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -471,7 +495,9 @@ export default function NewExpenseScreen() {
    * (applyMerchantSuggestion)와 "저장하고 계속 기록"의 폼 초기화에서만 접는다.
    */
   const [merchantFocused, setMerchantFocused] = useState(false);
-  const [memo, setMemo] = useState("");
+  // 라운드 58 #5: 실패 행을 다시 쓰는 경우에만 메모가 채워져 있다. 다른 진입점·비세션(픽셀 락
+  // 캡처)에서는 파라미터가 없어 종전 그대로 빈 칸이다.
+  const [memo, setMemo] = useState(() => (authToken ? prefilledMemo : ""));
   // UX-L(A): 프리필 카테고리가 이 화면의 8타일로 옮겨질 때만 그 타일로 시작한다.
   // 라운드 38 H-6: 종전에는 타일 id와 **완전히 같을 때만** 복사했다. 그래서 엑셀 가져오기나 지출
   // 수정 화면을 거친 기록(= 서버 정식 카테고리 UUID)에서 "또 기록"을 누르면 품목명·금액은 따라
@@ -530,7 +556,23 @@ export default function NewExpenseScreen() {
   // src/android-native-ui-quality.test.ts) -- this seeds the initial selected date; past-date
   // selection below can move `expenseDateIso` away from today for a real/test session.
   const initialExpenseDate = authToken ? formatExpenseDate(today) : previewExpenseDate;
-  const [expenseDateIso, setExpenseDateIso] = useState(() => initialExpenseDate.iso);
+  /**
+   * 라운드 58 #5 — 실패 행의 지출 날짜 프리필.
+   *
+   * 이 화면의 프리필 계약은 여태 날짜를 싣지 않았고(record-row-actions.ts의 "날짜 미전달"),
+   * "고쳐서 다시 보내기"만 그 명시적 예외다: 새로 사는 물건이 아니라 **이미 적은 그 기록**을
+   * 다시 쓰는 동선이라, 오늘로 갈아 끼우면 사용자가 고른 적 없는 날짜가 기록에 남는다.
+   *
+   * 다만 원본 날짜가 미래면(기기 시계가 앞섰거나 자정 경계 — 그래서 400으로 실패한 바로 그
+   * 행이다) 이 시트의 날짜 가드가 거부한다. 그때는 오늘로 물러서되 **말없이 바꾸지 않고**
+   * 아래 안내 한 줄로 밝힌다. 판정은 순수 모듈에 있다(failed-row-prefill.ts).
+   *
+   * 비세션(픽셀 락 캡처)은 프리필을 보지 않는다 — EXP-001 기준 이미지의 고정 날짜 그대로다.
+   */
+  const prefilledSpentOn = authToken
+    ? resolveFailedRowPrefillDate(params.spentOn, initialExpenseDate.iso)
+    : NO_FAILED_ROW_PREFILL_DATE;
+  const [expenseDateIso, setExpenseDateIso] = useState(() => prefilledSpentOn.spentOn ?? initialExpenseDate.iso);
   const expenseDate = authToken ? formatExpenseDate(new Date(`${expenseDateIso}T00:00:00`)) : previewExpenseDate;
   // GAP-054 #7: 달력 픽커의 "오늘" 기준일. `today`는 이미 getSeoulToday()로 만든 서울 날짜라
   // 여기서 시계를 한 번 더 읽지 않는다(같은 렌더 안에서 두 날짜가 갈리지 않게).
@@ -921,6 +963,26 @@ export default function NewExpenseScreen() {
       // 남기지 않는다). 다음 저장은 버튼이 다시 세운다.
       const continueRecording = continueAfterSaveRef.current;
       continueAfterSaveRef.current = false;
+      /**
+       * 라운드 58 #5 — "고쳐서 다시 보내기"의 마지막 절반: 원본 실패 행 폐기.
+       *
+       * **여기가 유일하게 옳은 자리다.** 이 콜백은 로컬 저장이 확정된 뒤에만 돈다
+       * (createExpenseOffline은 SQLite 우선 저장이라 오프라인에서도 여기까지 온다 — 그래서
+       * 이 동선은 연결이 없어도 그대로 완결된다). 저장 실패는 onError로 가고, 그쪽은 원본을
+       * 건드리지 않는다: 사용자는 고치던 값을 그대로 들고 다시 누르면 되고, 실패 행도 제자리에
+       * 남는다(같은 기록이 두 번 사라지는 일이 없다).
+       *
+       * 폐기가 실패해도 저장을 되돌리지 않는다 -- 그 경우 남는 것은 "새 기록 + 원본 실패 행"
+       * 이고, 사용자는 동기화 화면에서 그 행을 직접 버릴 수 있다. 반대 방향(새 기록을 지우는
+       * 것)이 진짜 손실이다.
+       */
+      if (failedLocalId) {
+        try {
+          await discardOfflineMutation(failedLocalId);
+        } catch {
+          // 무시한다(위 주석). 원본 행은 동기화 상태 화면에 그대로 남는다.
+        }
+      }
       clearQuickExpenseDraft();
       setSaveErrorMessage(null);
       setSavedMessage(continueRecording ? CONTINUE_RECORDING_SAVED_MESSAGE : OFFLINE_SAVED_MESSAGE);
@@ -1278,6 +1340,13 @@ export default function NewExpenseScreen() {
         {/* 고른 날짜는 pill 라벨만으로는 알 수 없다(달력 패널에서 2주 전을 고르면 어느 칩도
             눌려 있지 않다) -- 그래서 실제 저장될 날짜를 한 줄로 그대로 적는다. */}
         <Text style={{ color: theme.colors.gray600, fontSize: 11, fontWeight: "700" }}>{expenseDate.label}</Text>
+        {/* 라운드 58 #5: 실패 행의 날짜를 그대로 쓸 수 없어 오늘로 물러선 경우에만 뜬다. 사용자가
+            날짜를 한 번이라도 옮기면(칩·달력·직접 입력) 사라진다 -- 이미 고른 뒤에도 남아 있으면
+            지금 화면과 어긋나는 말이 된다. 앱이 날짜를 지어내지 않는다는 사실 자체가 이 줄의
+            존재 이유다(문구는 src/offline/messages.ts 단일 소스). */}
+        {prefilledSpentOn.fellBackToToday && expenseDateIso === initialExpenseDate.iso ? (
+          <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>{FAILED_ROW_PREFILL_DATE_RESET_NOTICE}</Text>
+        ) : null}
 
         {authToken && showDatePicker ? (
           <View style={{ gap: 10 }}>
