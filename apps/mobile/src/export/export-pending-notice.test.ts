@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   OFFLINE_RETRY_NOTICE,
   SYNC_ROW_PENDING_LABEL,
+  SYNC_ROW_UNSENDABLE_LABEL,
   unreflectedRecordsPhrase,
   unsendableRecordsSuffixText
 } from "../offline/messages";
@@ -351,10 +352,29 @@ describe("GAP-056 #3 내보내기 카드 배선", () => {
   it("성공·빈 결과 토스트가 대기 건을 덮지 않는다", () => {
     const src = cardSource();
     // 성공 문구 뒤에 꼬리표가 붙는다(0건이면 빈 문자열이라 종전 문장 그대로다).
-    expect(src).toContain("}${exportPendingToastSuffix(pendingCount)}`");
-    expect(src).toContain('`선택한 기간에 내보낼 기록이 없어요.${exportPendingToastSuffix(pendingCount)}`');
+    expect(src).toContain("}${exportPendingToastSuffix(pendingCount, pendingUnsendableCount)}`");
+    expect(src).toContain(
+      '`선택한 기간에 내보낼 기록이 없어요.${exportPendingToastSuffix(pendingCount, pendingUnsendableCount)}`'
+    );
     // 대기 건수가 바뀌면 다음 내보내기의 문구도 바뀐다(고정 클로저에 갇히지 않는다).
-    expect(src).toContain("customRange, pendingCount, range, showToast]");
+    expect(src).toContain("customRange, pendingCount, pendingUnsendableCount, range, showToast]");
+  });
+
+  /**
+   * 라운드 59 트랙 A 후속 배선 — **카드 고지와 토스트가 같은 어휘를 쓴다.**
+   *
+   * 두 조각을 가르는 규칙은 순수 모듈 하나(`exportPendingToastSuffix`의 두 번째 인자)인데, 카드만
+   * 그 값을 지나고 토스트는 첫 인자만 넘겨서 같은 기기 상태를 한 화면 안에서 두 말로 불렀다.
+   */
+  it("토스트 꼬리표도 '보낼 수 없는 기록'을 가른다 (카드 고지와 같은 두 조각)", () => {
+    const src = cardSource();
+    // 값은 카드 고지가 이미 계산해 둔 것을 그대로 쓴다 -- 카드가 세는 규칙을 다시 적지 않는다.
+    expect(src).toContain("const pendingUnsendableCount = pendingNotice?.unsendableCount ?? 0;");
+    // 꼬리표 호출 두 곳 모두 두 인자를 넘긴다(한 곳만 넘기면 어휘가 다시 갈린다).
+    expect(src.match(/exportPendingToastSuffix\(pendingCount, pendingUnsendableCount\)/g) ?? []).toHaveLength(2);
+    expect(src).not.toMatch(/exportPendingToastSuffix\(pendingCount\)/);
+    // 문구는 여전히 순수 모듈 한 곳에서만 나온다.
+    expect(src).not.toContain(SYNC_ROW_UNSENDABLE_LABEL);
   });
 
   it("완전 오프라인 실패는 '잠시 후 다시'가 아니라 messages.ts의 정직 문구다 (라운드 52 C-07 선례)", () => {

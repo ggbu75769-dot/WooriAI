@@ -444,4 +444,23 @@ describe("라운드 59 트랙 A: 영구 실패 행 — 합계 유지 + 건수 �
     expect(moduleSource).toContain('import { countPermanentlyFailedRows } from "./permission-denied";');
     expect(moduleSource).not.toMatch(/lastErrorStatus/);
   });
+
+  /**
+   * 후속 배선 — 건수를 내놓기만 하고 **아무도 읽지 않으면** 이 트랙은 화면에서 없던 일이 된다.
+   * 기록 탭이 그 값을 실제로 받아 요약 줄 아래 한 줄로 말하는지를 여기서 고정한다(값 계약은 위
+   * 네 테스트가 이미 진다).
+   */
+  it("기록 탭이 그 건수를 받아 요약 줄 아래 한 줄로 말한다 (문구는 messages.ts 한 곳)", () => {
+    const recordsSource = readFileSync(join(process.cwd(), "app/(tabs)/records.tsx"), "utf8");
+    // 재조정 결과에서 건수를 실제로 꺼낸다.
+    expect(recordsSource).toContain("permanentlyFailedCount");
+    expect(recordsSource).toContain("unsendableRowsNoticeText(permanentlyFailedCount)");
+    expect(recordsSource).toContain('testID="records-unsendable-notice"');
+    // 0건이면 한 줄도 늘지 않고, 목록을 그리지 않는 상태에서는 "이 중"이 가리킬 것이 없다.
+    expect(recordsSource).toContain("{showList && permanentlyFailedCount > 0 ? (");
+    // 문구도 판정도 화면에 다시 적지 않는다(어휘는 messages.ts, 판정은 permission-denied.ts).
+    expect(recordsSource).toContain("unsendableRowsNoticeText");
+    expect(recordsSource).not.toContain("보낼 수 없는 기록");
+    expect(recordsSource).not.toMatch(/lastErrorStatus/);
+  });
 });

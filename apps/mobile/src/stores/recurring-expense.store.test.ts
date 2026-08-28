@@ -344,6 +344,29 @@ describe("라운드 59 P3 중복 가드", () => {
     // 상한 표기도 아이별이라고 말한다(판정과 같은 기준 — 라운드 59 #4).
     expect(screen).toContain("아이 한 명당 최대 ${RECURRING_TEMPLATE_LIMIT}개");
   });
+
+  /**
+   * 후속 배선 — 역방향 진입("정기 지출로 등록")도 **같은 판정**을 지난다.
+   *
+   * 예전에는 이미 등록된 지출에서도 버튼이 그대로 서 있어, 누르면 채워진 폼이 열리고 저장에서
+   * `recurringDuplicateMessage`로 거절당했다(누르기 → 폼 → 저장 → 거절 → 뒤로 = 헛걸음).
+   * 이제 그 자리에는 버튼 대신 이미 있는 약속 한 줄이 선다.
+   */
+  it("지출 상세의 역방향 진입도 같은 판정으로 '이미 등록됨'을 단다 (헛걸음 왕복 제거)", () => {
+    const detail = source("app/expenses/[expenseId].tsx");
+    expect(detail).toContain('from "../../src/stores/recurring-expense.store"');
+    expect(detail).toContain("const recurringTemplates = useRecurringExpenseStore((state) => state.templates);");
+    expect(detail).toContain("findRecurringTemplateByItemName(");
+    // 판정 인자는 목록 · 선택된 아이 · **저장된 기록의 품목명**이다(편집 중인 입력이 아니다).
+    expect(detail).toContain("recurringTemplates,\n    selectedChildId,\n    expense.data?.itemName ?? \"\"");
+    // 있으면 버튼 대신 표기, 없으면 종전 버튼 그대로.
+    expect(detail).toContain("{alreadyRegisteredRecurring ? (");
+    expect(detail).toContain("{RECURRING_ALREADY_REGISTERED_LABEL} · ${formatRecurringTemplateLine(");
+    expect(detail).toContain("label={RECURRING_REGISTER_ACTION_LABEL}");
+    // 문구·규칙을 화면이 다시 적지 않는다.
+    expect(detail).not.toContain("이미 등록됨");
+    expect(detail).not.toContain("normalizeItemName(template");
+  });
 });
 
 describe("라운드 55 #4 persist 관례 (저장소의 다른 스토어와 같다)", () => {

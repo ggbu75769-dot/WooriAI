@@ -183,6 +183,18 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     custom: customRange
   });
   const pendingCount = pendingNotice?.count ?? 0;
+  /**
+   * 라운드 59 트랙 A 후속 배선 — 그중 **보낼 수 없는**(영구 실패 4xx) 건수.
+   *
+   * 카드 고지(`pendingNotice.text`)는 이미 두 조각으로 어휘를 가르는데, 토스트 꼬리표만 이 값을
+   * 넘기지 않아 같은 기기 상태를 한 화면 안에서 두 말로 부르고 있었다("아직 반영되지 않은 …"
+   * 뒤에 붙어야 할 구분 문장이 토스트에서만 빠졌다). 판정·문구는 순수 모듈 한 곳이고
+   * (export-pending-notice.ts), 0건이면 두 자리 모두 종전 문장 그대로다.
+   *
+   * 숫자로 뽑아 두는 이유: `pendingNotice`는 매 렌더 새 객체라 그대로 의존성에 넣으면
+   * `runExport`가 렌더마다 새로 만들어진다(pendingCount와 같은 관례).
+   */
+  const pendingUnsendableCount = pendingNotice?.unsendableCount ?? 0;
 
   const runExport = useCallback(async () => {
     if (!authToken || !childId || busy) return;
@@ -205,7 +217,10 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
       if (collected.expenses.length === 0) {
         // GAP-056 #3: 서버에 0건이어도 이 기기에는 대기 행이 있을 수 있다. "기록이 없어요"로
         // 끝내면 방금 오프라인에서 적은 사람에게 그 기록이 사라진 것처럼 읽힌다.
-        showToast(`선택한 기간에 내보낼 기록이 없어요.${exportPendingToastSuffix(pendingCount)}`, "error");
+        showToast(
+          `선택한 기간에 내보낼 기록이 없어요.${exportPendingToastSuffix(pendingCount, pendingUnsendableCount)}`,
+          "error"
+        );
         return;
       }
       const built = buildExpenseCsv(collected.expenses, {
@@ -229,7 +244,7 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
       // 한 줄로 둔다: 이 호출의 인자 모양(성공 단정이 플랫폼 판정을 거친다는 사실)이 곧
       // src/export-flow.test.ts가 지는 계약이다.
       const shareMessage = csvShareToastMessage({ outcomeKnown: outcome.outcomeKnown, rowCount: sharedRowCount, truncated, rowCapTruncated });
-      showToast(`${shareMessage}${exportPendingToastSuffix(pendingCount)}`, "success");
+      showToast(`${shareMessage}${exportPendingToastSuffix(pendingCount, pendingUnsendableCount)}`, "success");
     } catch (error) {
       // CSV-124: 전량을 모으지 못한 경우는 "잠시 후 다시 시도"로 뭉뚱그리면 사용자가 같은 실패를
       // 반복한다. 원인(기록이 너무 많음)과 다음 행동(기간 좁히기)을 그대로 알린다.
@@ -253,7 +268,7 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     } finally {
       setBusy(false);
     }
-  }, [authToken, busy, categories.data?.categories, childId, customRange, pendingCount, range, showToast]);
+  }, [authToken, busy, categories.data?.categories, childId, customRange, pendingCount, pendingUnsendableCount, range, showToast]);
 
   return {
     busy,
