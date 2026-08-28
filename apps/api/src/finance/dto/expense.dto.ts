@@ -52,6 +52,25 @@ export class CreateExpenseDto {
   @IsUUID()
   linkedItemTemplateId?: string;
 
+  /**
+   * 라운드 49 C-06: 어떤 제휴 링크를 눌러서 산 것인지(product_links.id). 컬럼과 FK는
+   * 처음부터 있었지만(`expenses.linked_product_link_id` → `fk_expenses_linked_product_link`)
+   * **어떤 쓰기 경로도 이 값을 채우지 않았다** — 구매 확인 카드의 "샀어요"가 링크 클릭에서
+   * 지출 기록까지 이어지는 유일한 경로인데, 그 경로가 자기가 아는 사실(어느 링크였는지)을
+   * 서버에 넘길 자리가 없었다. 전역 ValidationPipe가 `forbidNonWhitelisted`라 DTO에 없는
+   * 키는 400이므로, 열지 않으면 클라이언트가 보낼 방법 자체가 없다.
+   *
+   * ⚠️ DNC-009: **기록·정산용 식별자다.** 추천 점수·정렬(모바일 item-ranking.ts)에 유입
+   * 금지 — 수수료가 추천 순서를 바꾸면 사용자가 보는 순위가 거짓이 된다.
+   *
+   * 존재 검증은 하지 않는다(linkedItemTemplateId와 다른 취급): 이 값은 화면에 아무것도
+   * 그리지 않는 기록용 스칼라라 잘못된 id의 유일한 결과는 FK 위반뿐이고, 그 방어는 DB
+   * 제약이 이미 한다. 형식(UUID)만 여기서 본다.
+   */
+  @IsOptional()
+  @IsUUID()
+  linkedProductLinkId?: string;
+
   @IsOptional()
   @IsIn([...creatableExpenseTypes])
   expenseType?: CreatableExpenseType;
@@ -82,6 +101,23 @@ export class UpdateExpenseDto {
   @IsString()
   @MaxLength(500)
   memo?: string;
+
+  /**
+   * 라운드 49 C-03: 결제 수단(아래)과 **정확히 같은 구멍**이 판매처에도 있었다. 오프라인
+   * 충돌 해소의 "두 값 나란히 보기"는 판매처를 비교 항목으로 내놓는데
+   * (apps/mobile/src/offline/sync-engine.ts `diffExpenseFields`의 표시 집합에 "merchant"가
+   * 있다), 이 DTO에 필드가 없어 사용자가 거기서 고른 값을 클라이언트가 보낼 수 없었다
+   * (`forbidNonWhitelisted` → 실으면 400). 화면은 고르라고 하고 무엇을 고르든 서버 값이
+   * 그대로 남는 **조용한 무시**였다. 같은 라운드에서 지출 상세에 판매처 편집이 생기면서
+   * 그 구멍이 실제 입력 경로로도 이어졌다.
+   *
+   * 빈 문자열은 "지웠다"는 뜻이다 — 서비스 계층의 `cleanOptionalText`가 memo와 똑같이
+   * null로 바꾼다. 보내지 않으면 손대지 않는다(additive optional).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  merchant?: string;
 
   /**
    * 라운드 48 QA(P2-6): 생성(CreateExpenseDto)에는 처음부터 있었지만 수정에는 없던 필드.

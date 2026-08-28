@@ -1179,8 +1179,10 @@ describe("Expense, budget, home, and report API", () => {
    * 여기서 갈릴 일은 없지만, 이 필드들이 다시 조용히 빠지면 사용자는 자기가 고른 값을
    * 또 볼 수 없게 된다(그게 정확히 이번 라운드 이전의 상태였다).
    *
-   * `linkedProductLinkId`는 아직 어떤 쓰기 경로도 채우지 않는 다크 필드라 노출하지
-   * 않는다 — 응답에 없다는 것도 함께 고정한다.
+   * 라운드 49 C-06: `linkedProductLinkId`는 더 이상 다크 필드가 아니다 — 구매 확인 카드의
+   * "샀어요"에서 이어진 생성 경로가 그 값을 실어 보내고 서버가 저장한다. 여기서는 **보내지
+   * 않은 기록에서 null로 내려오는지**를 고정하고(필드가 통째로 빠져 "구 서버"와 구분되지
+   * 않는 상태를 만들지 않는다), 실제 저장·노출은 아래 라운드 49 C-06 테스트가 맡는다.
    */
   it("라운드 48 T3: paymentMethod·linkedItemTemplateId가 생성·조회·목록·홈 응답에 모두 실린다", async () => {
     const accessToken = await login(app, `r48t3-expense-writeonly-${randomUUID()}`);
@@ -1202,8 +1204,8 @@ describe("Expense, budget, home, and report API", () => {
         merchant: "맘마마트",
         linkedItemTemplateId
       });
-      // 쓰기 경로가 없는 다크 필드는 열지 않는다.
-      expect(body).not.toHaveProperty("linkedProductLinkId");
+      // 라운드 49 C-06: 보내지 않았으므로 값은 null이다 — 키 자체가 빠지지는 않는다.
+      expect(body.linkedProductLinkId).toBeNull();
     };
 
     const created = (
@@ -1262,7 +1264,191 @@ describe("Expense, budget, home, and report API", () => {
       .expect(({ body }) => {
         expenseSchema.parse(body);
         expect(body.linkedItemTemplateId).toBeNull();
+        expect(body.linkedProductLinkId).toBeNull();
         expect(body.paymentMethod).toBe("unknown");
+      });
+  });
+
+  /**
+   * 라운드 49 C-06 — 링크 클릭에서 지출 기록까지의 사슬을 서버가 실제로 잇는다.
+   *
+   * 이 컬럼(`expenses.linked_product_link_id`)과 FK는 처음부터 있었는데 **어떤 쓰기 경로도
+   * 채우지 않아** 언제나 null이었다: 구매 확인 카드는 어느 링크를 눌렀는지 알고 있었지만
+   * 그 사실을 서버에 넘길 자리가 없었고(전역 ValidationPipe가 forbidNonWhitelisted라 DTO에
+   * 없는 키는 400), 저장된 적이 없으니 응답에도 실을 이유가 없었다. 이제 셋이 함께 열린다.
+   *
+   * ⚠️ DNC-009: 이 값은 기록·정산용이다. 추천 점수·정렬에 유입되면 안 되고, 이 테스트가
+   * 확인하는 것도 "저장되고 되읽힌다"까지다.
+   */
+  it("라운드 49 C-06: linkedProductLinkId가 생성 시 저장되고 모든 응답 경로에 실린다", async () => {
+    const accessToken = await login(app, `r49c06-linked-product-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const items = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items as Array<{ id: string }>;
+    expect(items.length).toBeGreaterThan(0);
+
+    // 이 아이의 준비템에 실제로 달려 있는 제휴 링크 하나를 그대로 쓴다(FK가 요구하는 것은
+    // product_links에 존재하는 id다). 어느 시드 항목에 링크가 달려 있는지는 카탈로그 사정이라
+    // 첫 항목으로 단정하지 않고, 링크가 있는 항목을 찾을 때까지 훑는다.
+    let linkedItemTemplateId = "";
+    let linkedProductLinkId = "";
+    for (const item of items) {
+      const detail = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/children/${childId}/items/${item.id}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body as { productLinks?: Array<{ id: string }> };
+      const link = detail.productLinks?.[0];
+      if (link) {
+        linkedItemTemplateId = item.id;
+        linkedProductLinkId = link.id;
+        break;
+      }
+    }
+    expect(linkedProductLinkId, "시드 준비템 중 최소 하나에는 제휴 링크가 있어야 한다").toBeTruthy();
+
+    const created = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          categoryId,
+          amountKrw: 21000,
+          spentOn: "2026-07-06",
+          itemName: "젖병",
+          merchant: "쿠팡",
+          linkedItemTemplateId,
+          linkedProductLinkId
+        })
+        .expect(200)
+        .expect(({ body }) => {
+          expenseSchema.parse(body);
+          expect(body.linkedProductLinkId).toBe(linkedProductLinkId);
+          // C-03: 같은 요청의 판매처도 그대로 왕복한다.
+          expect(body.merchant).toBe("쿠팡");
+        })
+    ).body as { id: string };
+
+    // 단건 조회·목록도 같은 값을 준다(toExpenseDto 하나가 넷을 함께 먹인다).
+    await request(app.getHttpServer())
+      .get(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expenseSchema.parse(body);
+        expect(body.linkedProductLinkId).toBe(linkedProductLinkId);
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        const row = (body.expenses as Array<Record<string, unknown>>).find((expense) => expense.id === created.id);
+        expect(row?.linkedProductLinkId).toBe(linkedProductLinkId);
+      });
+  });
+
+  /**
+   * 라운드 49 C-06 — 유효하지 않은 링크 id의 처리. 형식이 UUID가 아니면 DTO가 400
+   * VALIDATION_ERROR로 잡고, 형식은 맞지만 존재하지 않는 id는 DB의 FK
+   * (`fk_expenses_linked_product_link`)가 막는다. 어느 쪽도 **잘못된 값이 조용히 저장되지
+   * 않는다**는 것이 이 테스트가 지키는 계약이다(존재 검증을 서비스 계층에 또 두지 않은 근거 —
+   * CreateExpenseDto.linkedProductLinkId 주석 참고).
+   */
+  it("라운드 49 C-06: 형식이 틀린 linkedProductLinkId는 400, 존재하지 않는 id는 저장되지 않는다", async () => {
+    const accessToken = await login(app, `r49c06-linked-product-invalid-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+    const body = { categoryId, amountKrw: 1000, spentOn: "2026-07-06", itemName: "형식 오류" };
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ ...body, linkedProductLinkId: "not-a-uuid" })
+      .expect(400)
+      .expect(({ body: error }) => {
+        expect(error.error.code).toBe("VALIDATION_ERROR");
+      });
+
+    const before = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.expenses.length as number;
+
+    // 형식은 맞지만 존재하지 않는 링크: FK가 거절하므로 지출 행 자체가 생기지 않는다.
+    const missing = await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ ...body, itemName: "없는 링크", linkedProductLinkId: randomUUID() });
+    expect(missing.status).toBeGreaterThanOrEqual(400);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body: list }) => {
+        expect(list.expenses).toHaveLength(before);
+      });
+  });
+
+  /**
+   * 라운드 49 C-03 — 판매처가 PATCH로 고쳐진다.
+   *
+   * 없어서 무슨 일이 있었나: 판매처는 저장·표시·CSV·목록이 전부 왕복시키는 값인데 **수정
+   * 계약에만 자리가 없었다.** 오프라인 충돌 해소의 "두 값 나란히 보기"는 판매처를 비교
+   * 항목으로 내놓으므로(모바일 `diffExpenseFields`) 사용자가 거기서 값을 골랐는데도 그
+   * 선택이 서버에 닿지 못했고(DTO에 없는 키는 400이라 아예 실을 수 없다), 같은 라운드에 생긴
+   * 지출 상세의 판매처 편집도 같은 벽에 막혔을 것이다.
+   */
+  it("라운드 49 C-03: PATCH가 판매처를 고치고, 빈 문자열은 null로 정리한다", async () => {
+    const accessToken = await login(app, `r49c03-merchant-patch-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const created = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ categoryId, amountKrw: 12000, spentOn: "2026-07-06", itemName: "물티슈", merchant: "맘마마트" })
+        .expect(200)
+    ).body as { id: string };
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ merchant: "이마트" })
+      .expect(200)
+      .expect(({ body }) => {
+        expenseSchema.parse(body);
+        expect(body.merchant).toBe("이마트");
+      });
+
+    // 보내지 않은 요청은 판매처를 손대지 않는다(additive optional의 핵심).
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ itemName: "물티슈 대용량" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.merchant).toBe("이마트");
+      });
+
+    // 빈 문자열은 "지웠다" — memo와 같은 cleanOptionalText 취급이라 null이 된다.
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ merchant: "   " })
+      .expect(200)
+      .expect(({ body }) => {
+        expenseSchema.parse(body);
+        expect(body.merchant).toBeNull();
       });
   });
 

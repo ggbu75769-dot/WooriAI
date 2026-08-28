@@ -28,11 +28,14 @@ import { expenseTypeLabelKo } from "../expenses/records-list-view";
  *   "결제수단" contains none of the date/amount/item/memo keywords (note "결제일"/"결제금액" ARE
  *   keywords -- "결제수단" contains neither string, which is what keeps it from stealing a column).
  *   `unknown`/absent exports as an empty field, never as "알 수 없음".
- * - 판매처(`merchant`) has NO input path in the app today -- no screen writes it (the quick sheet
- *   and the detail screen never ask for a 상호), so the column is empty for every app-authored
- *   expense. It is deliberately KEPT: excel-imported rows and future/manual data can carry it, the
- *   API round-trips it, and dropping the column would break header compatibility with every CSV
- *   already exported. Adding an input for it is a separate piece of work.
+ * - 판매처(`merchant`) 열은 라운드 49 C-03까지 **앱이 채울 수 없는 열**이었다: 저장·표시·CSV·API가
+ *   전부 이 값을 왕복시키는데 정작 그것을 적을 화면이 하나도 없어서, 앱에서 만든 기록의 이 열은
+ *   언제나 비어 있고 값이 있는 행은 엑셀 가져오기로 들어온 것뿐이었다. 이제 빠른 기록 시트
+ *   (app/expenses/new.tsx의 판매처 입력칸 -- 세션이 있을 때만 렌더된다, EXP-001 픽셀 락)와
+ *   지출 상세의 판매처 입력칸(app/expenses/[expenseId].tsx)이 둘 다 이 값을 쓴다. 구매 확인
+ *   카드의 "샀어요"로 들어오는 기록에는 눌린 링크의 플랫폼 이름(쿠팡/네이버)이 미리 채워지고,
+ *   사용자가 지우거나 고쳐 쓸 수 있다. 이 파일이 하는 일은 종전과 동일하다 -- 값이 있으면 그
+ *   문자열 그대로 내보내고, 없으면 빈 칸이다.
  * - 금액(원) is the raw integer `amountKrw` (e.g. "45900"), NOT src/money.ts's formatted
  *   "45,900원" — formatted amounts would both break re-import and confuse spreadsheet math.
  * - Category labels come from src/categories.ts, the same mapping the records/reports screens

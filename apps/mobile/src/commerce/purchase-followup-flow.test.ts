@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -76,9 +76,11 @@ describe("COM-108 purchase follow-up source contract", () => {
 
     // COM-108 "샀어요"도 같은 라우트를 타므로 동일한 효과를 얻는다 (별도 상태 API 호출 없음).
     // 라운드 48 T4(D1): itemName·itemTemplateId는 그대로이고 진입점 표시(from)만 하나 더 붙었다.
+    // 라운드 49 C-06(b): 거기에 이 카드가 **이미 아는 사실**(판매처·눌린 링크 id)이 더해졌다.
     const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
     expect(promptSource).toContain('pathname: "/expenses/new"');
-    expect(promptSource).toContain("params: { itemName, itemTemplateId,");
+    expect(promptSource).toContain("itemName,");
+    expect(promptSource).toContain("itemTemplateId,");
     expect(promptSource).not.toContain("updateItemStatus");
 
     // 데모/테스트 세션의 로컬 백엔드도 같은 고리를 미러링한다 (보존 규칙 포함).
@@ -185,5 +187,75 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(storeSource).toContain("createJSONStorage(() => persistStorage)");
     expect(storeSource).toContain("migrate:");
     expect(storeSource).toContain("merge:");
+  });
+});
+
+/**
+ * 라운드 49 C-06 — "샀어요"가 **자기가 이미 아는 사실**을 기록 화면에 넘긴다.
+ *
+ * 그전까지 이 경로는 품목 이름과 준비템 id만 넘기고, 어느 플랫폼의 어느 링크를 눌러 산
+ * 것인지는 그 자리에서 버렸다. 결과는 두 가지였다: (1) 방금 쿠팡에서 산 물건인데도 판매처
+ * 칸이 비어 있어 사용자가 다시 타이핑해야 했고, (2) 지출과 제휴 링크를 잇는 열
+ * (expenses.linked_product_link_id)은 컬럼과 FK가 있는데도 영원히 비어 있었다.
+ */
+describe("라운드 49 C-06 '샀어요'가 아는 사실 넘기기", () => {
+  it("프롬프트가 판매처(플랫폼 라벨)와 눌린 링크 id를 프리필 파라미터로 넘긴다", () => {
+    const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
+    // 라벨 판정은 화면이 아니라 스토어의 순수 함수가 단일 소스다(사실만 말한다: custom은 없음).
+    expect(promptSource).toContain("purchaseFollowupMerchantLabel(activeFollowup.platform)");
+    expect(promptSource).toContain("const { productLinkId } = activeFollowup;");
+    // 모르는 값은 파라미터 자체를 붙이지 않는다 -- 빈 문자열은 "지웠다"와 구분되지 않는다.
+    expect(promptSource).toContain("...(merchant ? { merchant } : {})");
+    expect(promptSource).toContain("...(productLinkId ? { linkedProductLinkId: productLinkId } : {})");
+  });
+
+  it("빠른 기록 시트가 그 두 파라미터를 받아 판매처를 프리필하고 링크 id를 저장에 싣는다", () => {
+    const expenseSource = source("app/expenses/new.tsx");
+    expect(expenseSource).toContain("merchant?: string;");
+    expect(expenseSource).toContain("linkedProductLinkId?: string;");
+    expect(expenseSource).toContain('const prefilledMerchant = params.merchant ? String(params.merchant) : "";');
+    // 프리필은 입력칸의 초기값일 뿐이라 사용자가 지우거나 고쳐 쓸 수 있다.
+    expect(expenseSource).toContain('useState(() => (authToken ? prefilledMerchant : ""))');
+    expect(expenseSource).toContain("...(linkedProductLinkId ? { linkedProductLinkId } : {})");
+  });
+
+  /**
+   * DNC-009: linkedProductLinkId는 **기록·정산용**이다. 이 값이 추천 점수·정렬로 흘러가면
+   * 수수료가 추천 순서를 바꾸는 것이고, 그 순간 사용자가 보는 순위는 거짓이 된다. 준비템
+   * 쪽 모듈 어디에도 이 값이 등장하지 않는다는 사실을 못박는다 -- 파일 이름을 하나 고정하지
+   * 않고 디렉터리를 훑는 이유는, 랭킹 모듈이 나중에 쪼개지거나 이름이 바뀌어도 이 계약이
+   * 계속 유효해야 하기 때문이다.
+   */
+  it("DNC-009: 준비템 쪽 코드(추천·정렬 포함)는 제휴 링크 id를 알지 못한다", () => {
+    const itemsDir = join(mobileRoot, "src/items");
+    const files = readdirSync(itemsDir).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"));
+    expect(files.length).toBeGreaterThan(0);
+    for (const name of files) {
+      const text = readFileSync(join(itemsDir, name), "utf8");
+      expect(text, `src/items/${name}`).not.toContain("linkedProductLinkId");
+      expect(text, `src/items/${name}`).not.toContain("productLinkId");
+    }
+  });
+});
+
+/**
+ * 라운드 49 C-03(a) — 판매처 입력칸이 빠른 기록 시트에 생겼다. EXP-001 픽셀 락 계약상
+ * **세션이 없을 때는 렌더되지 않아야 한다**: 캡처는 세션 없이(app/pixel-lock.tsx가 clearSession
+ * 후 이동) 초기 렌더만 찍으므로, authToken 게이트 뒤에 있는 한 기준 이미지는 그대로다.
+ */
+describe("라운드 49 C-03 판매처 입력칸의 픽셀 락 게이트", () => {
+  it("판매처 입력칸은 authToken 게이트 뒤에서만 렌더된다", () => {
+    const expenseSource = source("app/expenses/new.tsx");
+    const inputIndex = expenseSource.indexOf('accessibilityLabel="판매처 입력 (선택)"');
+    expect(inputIndex).toBeGreaterThan(-1);
+    // 입력칸 바로 앞에 authToken 삼항 게이트가 있고, 그 사이에 다른 JSX 요소가 끼지 않는다.
+    const before = expenseSource.slice(0, inputIndex);
+    const gateIndex = before.lastIndexOf("{authToken ? (");
+    expect(gateIndex).toBeGreaterThan(-1);
+    expect(before.slice(gateIndex)).not.toContain("</");
+    // 저장 payload에도 사용자가 적었을 때만 실린다(빈 칸이면 키 자체가 없다).
+    expect(expenseSource).toContain("...(merchant.trim() ? { merchant: merchant.trim() } : {})");
+    // 픽셀 락 캡처 경로의 리터럴은 그대로 살아 있다(ui-pixel-lock-flow.test.ts와 같은 계약).
+    expect(expenseSource).toContain("₩ 38,500");
   });
 });

@@ -93,16 +93,45 @@ describe("라운드 48 T3(C1) 결제 수단 라벨", () => {
 });
 
 describe("라운드 48 T3(C3) 연결된 준비템 링크", () => {
-  it("연결이 있으면 준비템 상세 경로를 만든다", () => {
-    expect(linkedItemTemplateLink("11111111-1111-4111-8111-111111111111")).toEqual({
+  const CHILD_A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+  const CHILD_B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
+  const ITEM = "11111111-1111-4111-8111-111111111111";
+  const sameChild = { expenseChildId: CHILD_A, selectedChildId: CHILD_A };
+
+  it("연결이 있고 아이가 같으면 준비템 상세 경로를 만든다", () => {
+    expect(linkedItemTemplateLink(ITEM, sameChild)).toEqual({
       label: LINKED_ITEM_LINK_LABEL,
-      href: "/items/11111111-1111-4111-8111-111111111111"
+      href: `/items/${ITEM}`
     });
   });
 
   it("연결이 없으면 행 자체가 없다", () => {
     for (const empty of ["", "   ", null, undefined, 3 as unknown as string]) {
-      expect(linkedItemTemplateLink(empty as string | null | undefined), String(empty)).toBeNull();
+      expect(linkedItemTemplateLink(empty as string | null | undefined, sameChild), String(empty)).toBeNull();
+    }
+  });
+
+  /**
+   * 라운드 49 C-05 — 목적지(app/items/[itemTemplateId].tsx)는 경로의 id로 아이를 알지 못하고
+   * **전역으로 선택된 아이**로 상세를 부른다. 그래서 A의 지출 상세에서 이 링크를 누르면 B의
+   * 준비템이 열릴 수 있었다: 화면은 "이 지출에 연결된 준비템"이라고 말하면서 다른 아이의 준비
+   * 상태를 보여주는, 사실과 다른 안내다. 어긋나면 링크를 아예 만들지 않는다.
+   */
+  it("지출의 아이와 지금 선택된 아이가 다르면 링크를 만들지 않는다", () => {
+    expect(linkedItemTemplateLink(ITEM, { expenseChildId: CHILD_A, selectedChildId: CHILD_B })).toBeNull();
+  });
+
+  /** 이 모듈의 관례: 확실하지 않으면 행을 만들지 않는다(스토어 rehydrate 전·응답 도착 전). */
+  it("두 아이 id 중 하나라도 모르면 링크를 만들지 않는다", () => {
+    for (const scope of [
+      { expenseChildId: CHILD_A, selectedChildId: null },
+      { expenseChildId: CHILD_A, selectedChildId: undefined },
+      { expenseChildId: CHILD_A, selectedChildId: "   " },
+      { expenseChildId: null, selectedChildId: CHILD_A },
+      { expenseChildId: undefined, selectedChildId: CHILD_A },
+      { expenseChildId: "", selectedChildId: "" }
+    ]) {
+      expect(linkedItemTemplateLink(ITEM, scope), JSON.stringify(scope)).toBeNull();
     }
   });
 
@@ -123,9 +152,14 @@ describe("라운드 48 T3 지출 상세 배선", () => {
     const screenSource = screen();
     expect(screenSource).toContain('} from "../../src/expenses/expense-detail-rows";');
     expect(screenSource).toContain("const paymentMethodLabel = paymentMethodLabelKo(expense.data?.paymentMethod);");
-    expect(screenSource).toContain("const linkedItem = linkedItemTemplateLink(expense.data?.linkedItemTemplateId);");
+    // 라운드 49 C-05: 링크 판정에 **두 아이 id가 함께** 들어간다(순수 모듈이 어긋남을 거른다).
+    expect(screenSource).toContain("const linkedItem = linkedItemTemplateLink(expense.data?.linkedItemTemplateId, {");
+    expect(screenSource).toContain("expenseChildId: expense.data?.childId");
+    expect(screenSource).toContain("selectedChildId");
+    expect(screenSource).toContain(
+      'import { useSelectedChildStore } from "../../src/stores/selected-child.store";'
+    );
     expect(screenSource).toContain("{paymentMethodLabel ? (");
-    expect(screenSource).toContain("{merchantValue.length > 0 ? (");
     expect(screenSource).toContain("{linkedItem ? (");
     expect(screenSource).toContain("{PAYMENT_METHOD_ROW_LABEL}");
     expect(screenSource).toContain("{MERCHANT_ROW_LABEL}");
@@ -135,13 +169,30 @@ describe("라운드 48 T3 지출 상세 배선", () => {
 
   it("값이 없을 때 빈 자리표시자를 그리지 않는다(조건부 렌더만 있다)", () => {
     const screenSource = screen();
-    // "결제 수단"·"판매처"·"연결된 준비템" 문구는 화면에 리터럴로 박히지 않는다 -- 전부
-    // 모듈 상수를 거치므로, 문구를 고치는 자리가 한 곳뿐이다.
+    // 행 라벨 문구는 화면에 리터럴로 박히지 않는다 -- 전부 모듈 상수를 거치므로, 문구를
+    // 고치는 자리가 한 곳뿐이다(판매처 입력칸의 placeholder/접근성 라벨은 별개 문구다).
     expect(screenSource).not.toContain('"결제 수단"');
-    expect(screenSource).not.toContain('"판매처"');
     expect(screenSource).not.toContain('"연결된 준비템"');
     expect(PAYMENT_METHOD_ROW_LABEL).toBe("결제 수단");
     expect(MERCHANT_ROW_LABEL).toBe("판매처");
+  });
+
+  /**
+   * 라운드 49 C-03(b) — 판매처가 **읽기 전용 행에서 입력칸으로** 바뀌었다.
+   *
+   * 라운드 48 T3은 "앱 안에 입력 경로가 없다"는 이유로 값이 있을 때만 그리는 행으로 뒀는데,
+   * 그 사이 빠른 기록 시트에 판매처 입력이 생겨 사용자가 직접 적은 값이 이 화면으로 들어온다.
+   * 적을 수는 있는데 고칠 수는 없으면, 오타 하나를 CSV 내보내기-가져오기 왕복으로만 고칠 수
+   * 있다. 값은 다른 편집 필드와 같은 저장 경로(updateExpenseOffline → PATCH)로 나간다.
+   */
+  it("판매처는 응답 값으로 seeding되어 편집·저장 경로에 실린다", () => {
+    const screenSource = screen();
+    expect(screenSource).toContain('setMerchant(expense.data.merchant ?? "");');
+    expect(screenSource).toContain("onChangeText={setMerchant}");
+    expect(screenSource).toContain("value={merchant}");
+    // 빈 문자열을 그대로 보내야 "지웠다"가 서버까지 간다(undefined면 옛 값이 남는다).
+    expect(screenSource).toContain("merchant: merchant.trim(),");
+    expect(screenSource).toContain('accessibilityLabel="판매처 입력 (선택)"');
   });
 
   it("연결 링크는 접근성 라벨을 갖고, 새 hex 색을 만들지 않는다(A11Y-117 coral[700])", () => {

@@ -217,8 +217,26 @@ export default function NewExpenseScreen() {
     amountKrw?: string;
     categoryId?: string;
     from?: string;
+    // 라운드 49 C-06(b): 구매 확인 카드("샀어요")가 **자기가 이미 아는 사실**을 함께 넘긴다.
+    merchant?: string;
+    linkedProductLinkId?: string;
   }>();
   const linkedItemTemplateId = params.itemTemplateId ? String(params.itemTemplateId) : undefined;
+  /**
+   * 라운드 49 C-06(b): 눌러서 산 제휴 링크 id. 저장 payload에만 실리고 화면에는 아무것도
+   * 그리지 않는다(사용자가 고칠 값이 아니다).
+   *
+   * ⚠️ DNC-009: **기록·정산용이다.** 이 값이 추천 점수·정렬(src/items/item-ranking.ts)로
+   * 흘러가면 안 된다 — 수수료가 추천 순서를 바꾸는 순간 사용자가 보는 순위가 거짓이 된다.
+   */
+  const linkedProductLinkId = params.linkedProductLinkId ? String(params.linkedProductLinkId) : undefined;
+  /**
+   * 라운드 49 C-06(b): 판매처 프리필. "샀어요"는 어느 플랫폼의 링크를 눌렀는지를 알고 있으므로
+   * (쿠팡/네이버) 그 **사실만** 넘긴다 — 링크가 custom이면 상호를 모르므로 아무것도 넘기지
+   * 않는다(모르는 상호를 지어내지 않는다, purchase-followup.store.ts의 라벨 판정 참고).
+   * 프리필일 뿐이라 사용자가 지우거나 고쳐 쓸 수 있다.
+   */
+  const prefilledMerchant = params.merchant ? String(params.merchant) : "";
   // 라운드 48 T4(D1): 저장 뒤 어디로 갈지는 **어디에서 왔는지**가 정한다. 판정과 방어적 파싱은
   // 전부 순수 모듈에 있고(src/expenses/post-save-destination.ts), 모르는 값·미지정은 종전
   // 그대로 기록 탭이라 아직 `from`을 붙이지 않은 진입점의 동작은 한 글자도 바뀌지 않는다.
@@ -269,6 +287,17 @@ export default function NewExpenseScreen() {
   // UX-L(A): 세션이 있으면 프리필 금액(없으면 빈 칸 -- 예전과 같다). 세션 없는 픽셀 락 캡처는
   // 프리필 자체가 올 수 없어 고정 시드 "38500" 그대로다(EXP-001 기준 이미지 불변).
   const [amountText, setAmountText] = useState(() => (authToken ? prefill.amountText : "38500"));
+  /**
+   * 라운드 49 C-03(a): 판매처 입력. 저장·표시·CSV·API는 이미 이 값을 전부 왕복시키고
+   * 있었는데(엑셀 가져오기로 들어온 행에는 값이 있다) **입력 경로만 없어서** 앱에서 만든
+   * 기록의 판매처 열은 언제나 비어 있었다 -- 마트에서 산 것과 온라인에서 산 것을 나중에
+   * 구분할 방법이 없다는 뜻이다.
+   *
+   * EXP-001 픽셀 락: 이 상태는 세션 없이도 존재하지만 값이 늘 ""이고, **입력칸 렌더는
+   * authToken 게이트 뒤**에 있다(아래). 비세션 초기 렌더("₩ 38,500" 캡처 경로)는 한 픽셀도
+   * 바뀌지 않는다.
+   */
+  const [merchant, setMerchant] = useState(() => (authToken ? prefilledMerchant : ""));
   const [memo, setMemo] = useState("");
   // UX-L(A): 프리필 카테고리가 이 화면의 8타일로 옮겨질 때만 그 타일로 시작한다.
   // 라운드 38 H-6: 종전에는 타일 id와 **완전히 같을 때만** 복사했다. 그래서 엑셀 가져오기나 지출
@@ -539,6 +568,10 @@ export default function NewExpenseScreen() {
   const resetFormForNextEntry = () => {
     setItemName("");
     setAmountText("");
+    // 라운드 49 C-03(a): 판매처도 함께 비운다. 같은 마트에서 이어 적는 경우가 많다고 해서
+    // 값을 남겨 두면, 다른 곳에서 산 다음 항목에 **사용자가 적지 않은 판매처**가 조용히
+    // 따라붙는다 -- 이 화면이 "계속 기록"에서 품목·금액을 비우는 것과 같은 판단이다.
+    setMerchant("");
     setMemo("");
     setIsGift(false);
     setSelectedCategory(quickExpenseCategories[0]);
@@ -559,10 +592,15 @@ export default function NewExpenseScreen() {
         amountKrw,
         spentOn: expenseDate.iso,
         itemName,
+        // 라운드 49 C-03(a): 사용자가 적었을 때만 싣는다 -- 빈 칸이면 예전과 똑같이 키가 없다.
+        ...(merchant.trim() ? { merchant: merchant.trim() } : {}),
         paymentMethod: paymentMethod.value,
         memo,
         expenseType: isGift ? "gift" : "expense",
-        ...(linkedItemTemplateId ? { linkedItemTemplateId } : {})
+        ...(linkedItemTemplateId ? { linkedItemTemplateId } : {}),
+        // 라운드 49 C-06(b): "샀어요"에서 왔다면 어느 제휴 링크였는지도 함께 남긴다
+        // (⚠️ DNC-009 -- 기록·정산용이며 추천 점수·정렬에 유입 금지).
+        ...(linkedProductLinkId ? { linkedProductLinkId } : {})
       });
     },
     // 다음 저장 시도가 시작되면 이전 실패 배너를 먼저 지운다 -- 재시도는 저장 버튼을 다시
@@ -958,6 +996,34 @@ export default function NewExpenseScreen() {
             카테고리를 확정하면 바로 사라진다. 세션 없는 픽셀 락 캡처에서는 렌더되지 않는다. */}
         {authToken && autoPickedCategory ? (
           <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>{AUTO_CATEGORY_CAPTION}</Text>
+        ) : null}
+
+        {/* 라운드 49 C-03(a): 판매처 입력칸. **authToken 게이트 뒤**에 두는 것이 EXP-001
+            픽셀 락 계약이다 -- 캡처는 세션 없이(app/pixel-lock.tsx가 clearSession 후 이동)
+            초기 렌더만 찍으므로, 이 분기는 기준 이미지에 나타나지 않는다.
+            자유 텍스트 한 줄이고 선택 사항이다: 상호를 후보 목록에서 고르게 하려면 어딘가에
+            상호 사전이 있어야 하는데 그런 것은 없고, 없는 목록을 흉내 내느니 사용자가 아는
+            이름을 그대로 적게 한다. 값은 저장 payload의 `merchant`로 그대로 나가고 CSV의
+            판매처 열·지출 상세의 판매처 칸에서 같은 문자열로 다시 보인다.
+            "샀어요"에서 넘어온 경우에는 플랫폼 이름(쿠팡 등)이 미리 채워져 있고, 사용자가
+            지우거나 고쳐 쓸 수 있다. */}
+        {authToken ? (
+          <TextInput
+            accessibilityLabel="판매처 입력 (선택)"
+            returnKeyType="done"
+            onChangeText={setMerchant}
+            placeholder="판매처를 입력해 주세요 (선택)"
+            style={{
+              backgroundColor: theme.colors.white,
+              borderColor: "rgba(74, 63, 53, 0.10)",
+              borderRadius: 14,
+              borderWidth: 1,
+              color: theme.colors.brown,
+              minHeight: 48,
+              paddingHorizontal: 14
+            }}
+            value={merchant}
+          />
         ) : null}
 
         <TextInput

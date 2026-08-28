@@ -23,6 +23,16 @@ import type { RemoteExpenseApi } from "./sync-engine";
  * 서버가 이 키를 받게 된 것도 같은 라운드다(apps/api UpdateExpenseDto). 그 전에는 실어 보낼
  * 수도 없었다 — 전역 ValidationPipe가 `forbidNonWhitelisted`라 모르는 키가 하나라도 있으면
  * 요청 전체가 400으로 떨어졌기 때문이다.
+ *
+ * 라운드 49 C-03: `merchant`가 정확히 같은 이유로 합류한다 — `diffExpenseFields`의 표시 집합에
+ * 처음부터 있던 필드인데 여기서 빠져 있어, 충돌 화면에서 판매처를 골라도 서버 값이 그대로
+ * 남았다. 같은 라운드에 지출 상세의 판매처 편집도 이 경로로 나간다. `memo`와 같은 정규화를
+ * 쓴다: 빈 문자열은 그대로 보내 서버가 null로 정리하게 하고(= "지웠다"), null/미지정만
+ * undefined로 접어 키 자체를 빼 서버 값을 건드리지 않는다.
+ *
+ * 여기 **없는** 것들과 그 이유: `childId`·`linkedItemTemplateId`·`linkedProductLinkId`는 서버
+ * UpdateExpenseDto에 자리가 없다(수정 대상이 아니다). 실으면 forbidNonWhitelisted로 400이므로
+ * 이 누락은 계약이지 버그가 아니다.
  */
 function toExpensePatch(payload: ExpensePayload) {
   return {
@@ -30,6 +40,7 @@ function toExpensePatch(payload: ExpensePayload) {
     amountKrw: payload.amountKrw,
     spentOn: payload.spentOn,
     itemName: payload.itemName,
+    merchant: payload.merchant ?? undefined,
     memo: payload.memo ?? undefined,
     paymentMethod: payload.paymentMethod,
     expenseType: payload.expenseType
@@ -136,6 +147,9 @@ export function createClientRemoteExpenseApi(token: string): RemoteExpenseApi {
             paymentMethod: payload.paymentMethod,
             memo: payload.memo ?? undefined,
             linkedItemTemplateId: payload.linkedItemTemplateId ?? undefined,
+            // 라운드 49 C-06: 생성에서만 실린다(수정 계약에는 자리가 없다 — toExpensePatch 주석).
+            // ⚠️ DNC-009: 기록·정산용 식별자다. 추천 점수·정렬로 흘러가면 안 된다.
+            linkedProductLinkId: payload.linkedProductLinkId ?? undefined,
             expenseType: payload.expenseType
           },
           idempotencyKey

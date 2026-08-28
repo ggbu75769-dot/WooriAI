@@ -30,6 +30,20 @@ export type PurchaseFollowupEntry = {
    * 플랫폼별로 나뉜다. Optional because entries persisted by a pre-ANA-127 build have none --
    * the prompt omits the field rather than guessing one. */
   platform?: PurchaseFollowupPlatform;
+  /**
+   * 라운드 49 C-06(a): 눌린 제휴 링크의 id(product_links.id). "샀어요"가 그대로 지출 생성에
+   * 넘겨 `linkedProductLinkId`로 저장되면, "링크 클릭 → 구매 → 기록"이 같은 링크를 가리키는
+   * 하나의 사슬이 된다(지금까지는 기록 쪽에서 그 사슬이 끊겨 있었다).
+   *
+   * **optional인 이유가 둘이다**: (1) persist v1 blob에는 이 키가 아예 없다 -- 아래
+   * sanitizedEntries가 방어적으로 걸러 undefined로 둔다(ANA-127의 platform과 같은 취급:
+   * 값 하나가 없다고 멀쩡한 대기 항목을 버리지 않는다). (2) 기록부(app/items/
+   * [itemTemplateId].tsx의 handleProductLinkPress)가 아직 이 인자를 넘기지 않는다 --
+   * 그 화면은 이번 트랙의 소유가 아니라 배선은 다음 라운드다.
+   *
+   * ⚠️ DNC-009: 기록·정산용 식별자다. 추천 점수·정렬(src/items/item-ranking.ts)에 유입 금지.
+   */
+  productLinkId?: string;
   /** Date.now() at click time -- passed in by the caller so the pure logic stays clock-free. */
   clickedAt: number;
   status: PurchaseFollowupStatus;
@@ -43,8 +57,32 @@ export type PurchaseFollowupClick = {
   childId: string;
   priceBandText?: string;
   platform?: PurchaseFollowupPlatform;
+  /** 라운드 49 C-06(a): 눌린 링크의 id — 위 엔트리 필드와 같은 값·같은 optional 사유. */
+  productLinkId?: string;
   clickedAt: number;
 };
+
+/**
+ * 라운드 49 C-06(b): 대기 항목이 아는 플랫폼 → "샀어요"가 빠른 기록 시트에 프리필할 **판매처
+ * 문구**, 또는 말할 수 있는 것이 없을 때 `undefined`.
+ *
+ * 사실만 말한다: 쿠팡 링크를 눌렀다는 것은 판매처가 쿠팡이라는 뜻이므로 그대로 적어 준다.
+ * 반대로 `custom`(우리가 등록한 임의 링크)과 값 없음(구 blob)에서는 **상호를 모른다** --
+ * 그럴듯한 이름을 지어내느니 빈 칸으로 두고 사용자가 적게 한다. 이 앱의 다른 라벨 판정과
+ * 같은 규칙이다(src/expenses/expense-detail-rows.ts의 "모르면 행을 만들지 않는다").
+ *
+ * 프리필일 뿐이라 사용자가 지우거나 고쳐 쓸 수 있고, 저장되는 값은 사용자가 화면에서 본
+ * 그 문자열이다.
+ */
+export const PURCHASE_FOLLOWUP_MERCHANT_LABELS: Partial<Record<PurchaseFollowupPlatform, string>> = {
+  coupang: "쿠팡",
+  naver: "네이버"
+};
+
+export function purchaseFollowupMerchantLabel(platform?: PurchaseFollowupPlatform | null): string | undefined {
+  if (!platform) return undefined;
+  return PURCHASE_FOLLOWUP_MERCHANT_LABELS[platform];
+}
 
 /** Only the most recent N clicks are remembered (oldest dropped first). */
 export const PURCHASE_FOLLOWUP_MAX_ENTRIES = 5;
@@ -212,11 +250,19 @@ function sanitizedEntries(value: unknown): PurchaseFollowupEntry[] {
       // stripped rather than dropping an otherwise valid pending purchase check with it.
       const platformValid =
         typeof entry.platform === "string" && (VALID_PLATFORMS as readonly string[]).includes(entry.platform);
-      entries.push(
-        platformValid
-          ? (candidate as PurchaseFollowupEntry)
-          : ({ ...(candidate as PurchaseFollowupEntry), platform: undefined })
-      );
+      /**
+       * 라운드 49 C-06(a): `productLinkId`는 persist v1 blob에 **없는 키**다(이 필드가 생기기
+       * 전에 저장된 대기 항목). platform과 같은 취급으로, 없거나 문자열이 아니면 undefined로
+       * 두고 항목 자체는 살린다 -- 이 값이 없다고 해서 "샀어요"로 지출을 남기지 못할 이유가
+       * 없다(그때는 linkedProductLinkId 없이 저장될 뿐이다). version은 그대로 1이다: 저장된
+       * 데이터를 고쳐 쓰는 마이그레이션이 아니라 없는 값을 없는 대로 읽는 것뿐이다.
+       */
+      const productLinkIdValid = typeof entry.productLinkId === "string" && entry.productLinkId.length > 0;
+      entries.push({
+        ...(candidate as PurchaseFollowupEntry),
+        platform: platformValid ? (entry.platform as PurchaseFollowupPlatform) : undefined,
+        productLinkId: productLinkIdValid ? (entry.productLinkId as string) : undefined
+      });
     }
   }
   return entries.slice(-PURCHASE_FOLLOWUP_MAX_ENTRIES);

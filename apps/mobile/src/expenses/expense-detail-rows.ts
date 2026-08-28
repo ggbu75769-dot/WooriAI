@@ -18,7 +18,9 @@
  *    고른 값이 상세에서 "이체"로 보이면 같은 값이 두 이름을 갖는다. 그래서 매핑을 화면이
  *    아니라 이 모듈에 두고, 아래 테스트(expense-detail-rows.test.ts)가 입력 화면
  *    (app/expenses/new.tsx의 `quickExpensePaymentMethods`)의 리터럴과 대조해 드리프트를 막는다.
- *    입력 화면 자체는 EXP-001 픽셀 락 캡처 경로라 이번 라운드에서 건드리지 않는다.
+ *    입력 화면은 EXP-001 픽셀 락 캡처 경로다. 라운드 49에서 그 화면에 판매처 입력칸을 더할
+ *    때도 **세션이 있을 때만 렌더되는 자리**(authToken 게이트 뒤)에만 손을 댔다 — 비세션
+ *    초기 렌더는 한 픽셀도 바뀌지 않는다.
  *
  * CSV 내보내기(src/export/expense-csv.ts)도 `paymentMethodLabelKo`를 여기서 가져다 쓴다 --
  * 앱에서 "모바일 결제"로 읽은 값이 엑셀에서 다른 단어로 보이면 안 된다는, CSV-127이
@@ -71,13 +73,51 @@ export type LinkedItemTemplateLink = {
 };
 
 /**
- * "연결된 준비템 보기" 링크, 또는 연결이 없을 때 `null`.
+ * 이 링크가 어느 아이의 맥락에서 눌리는지 — 라운드 49 C-05.
  *
- * 준비템 상세는 자기 화면에서 선택된 아이(`useSelectedChildStore`)로 상세를 부르므로
- * 경로에 childId를 실을 필요가 없다 — 기록 탭·알림함이 쓰는 것과 같은 `/items/{id}` 형태다.
+ * `expenseChildId`는 **이 지출이 속한 아이**(지출 응답이 항상 싣는 값이고, 상세 화면이 이미
+ * 다른 용도로 읽고 있다), `selectedChildId`는 **지금 앱에서 선택된 아이**다.
  */
-export function linkedItemTemplateLink(linkedItemTemplateId?: string | null): LinkedItemTemplateLink | null {
+export type LinkedItemScope = {
+  expenseChildId?: string | null;
+  selectedChildId?: string | null;
+};
+
+/**
+ * "연결된 준비템 보기" 링크, 또는 링크를 만들지 않을 때 `null`.
+ *
+ * 목적지(app/items/[itemTemplateId].tsx)는 경로의 childId가 아니라 **전역으로 선택된 아이**
+ * (`useSelectedChildStore`)로 상세를 부른다 — 기록 탭·알림함이 쓰는 것과 같은 `/items/{id}`
+ * 형태라 경로만 보고는 어느 아이인지 알 수 없다.
+ *
+ * 라운드 49 C-05: 그래서 이 링크는 **아이가 어긋나면 아예 만들지 않는다.** 예전에는 지출이
+ * 속한 아이를 보지 않고 링크를 그려서, A의 지출 상세(딥링크·알림함·검색으로 지금 선택된
+ * 아이와 무관하게 열릴 수 있다)에서 "연결된 준비템 보기"를 누르면 **B의 준비템 상세**가
+ * 열렸다 — 화면은 "이 지출에 연결된 준비템"이라고 말하는데 실제로 보여주는 것은 다른 아이의
+ * 준비 상태인, 사실과 다른 안내였다. 형제 판정이 이미 같은 결론을 내고 있다
+ * (src/commerce/purchase-followup.store.ts `isFollowupForSelectedChild`,
+ * src/items/expense-link-prompt.ts의 `ExpenseLinkPromptScope`).
+ *
+ * 이 파일의 관례대로 **확실하지 않으면 행을 만들지 않는다**(위 헤더 주석):
+ * - 두 아이 id가 다르면 만들지 않는다(위 오연결 그 자체).
+ * - 둘 중 하나라도 없으면 만들지 않는다 — 선택된 아이 스토어가 아직 rehydrate 전이거나
+ *   지출 응답이 아직 없는 순간이다. 어느 아이로 갈지 모르는 링크를 그려 두느니 잠깐
+ *   행이 없는 편이 낫고, 값이 채워지면 화면이 다시 렌더되면서 행이 나타난다. 링크를
+ *   누른 김에 선택된 아이를 지출 쪽으로 바꿔 주는 "친절"도 하지 않는다 — 그 한 번의 탭이
+ *   앱 전체(홈·기록·리포트)의 아이를 소리 없이 갈아치우기 때문이다.
+ *
+ * `scope`는 **선택 인자가 아니다**: 빠뜨리면 아이를 보지 않던 예전 동작으로 조용히 되돌아가므로
+ * 호출부가 항상 두 값을 함께 넘기도록 타입으로 강제한다(selectPromptEligibleFollowup과 같은 이유).
+ */
+export function linkedItemTemplateLink(
+  linkedItemTemplateId: string | null | undefined,
+  scope: LinkedItemScope
+): LinkedItemTemplateLink | null {
   const id = typeof linkedItemTemplateId === "string" ? linkedItemTemplateId.trim() : "";
   if (id.length === 0) return null;
+  const expenseChildId = typeof scope.expenseChildId === "string" ? scope.expenseChildId.trim() : "";
+  const selectedChildId = typeof scope.selectedChildId === "string" ? scope.selectedChildId.trim() : "";
+  if (expenseChildId.length === 0 || selectedChildId.length === 0) return null;
+  if (expenseChildId !== selectedChildId) return null;
   return { label: LINKED_ITEM_LINK_LABEL, href: `/items/${id}` };
 }
