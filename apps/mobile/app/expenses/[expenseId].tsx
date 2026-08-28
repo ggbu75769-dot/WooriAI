@@ -246,7 +246,9 @@ export default function ExpenseDetailScreen() {
   const baseCategoryChips =
     fetchedCategories.length > 0
       ? fetchedCategories.map((category) => ({ id: category.id, label: category.name }))
-      : categoryCatalog.map((category) => ({ id: category.id, label: `${category.icon} ${category.label}` }));
+      // D1 후속(실기기 피드백 2): `category.icon`은 이제 Ionicons **이름**이라 라벨 앞에 붙이면
+      // 칩에 "water-outline 의류"가 적힌다. 위 정상 경로(서버 목록)와 같이 이름만 쓴다.
+      : categoryCatalog.map((category) => ({ id: category.id, label: category.label }));
   const categoryChips =
     categoryId && !baseCategoryChips.some((chip) => chip.id === categoryId)
       ? [{ id: categoryId, label: categoryNameFor(categoryId) }, ...baseCategoryChips]

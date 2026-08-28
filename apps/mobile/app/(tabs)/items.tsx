@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -618,7 +619,7 @@ export default function ItemsScreen() {
         <View testID={recommendationScreenId} style={recommendationPixelFrameStyle}>
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
             <Text style={{ color: theme.colors.brown, fontSize: 22, fontWeight: "800" }}>추천</Text>
-            <Text accessible={false} style={{ color: theme.colors.brown, fontSize: 18 }}>♡</Text>
+            <Ionicons accessible={false} name="heart-outline" size={18} color={theme.colors.brown} />
           </View>
 
           <View style={{ flexDirection: "row", gap: 6, marginHorizontal: -12 }}>

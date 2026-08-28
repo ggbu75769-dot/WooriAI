@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
@@ -201,7 +202,20 @@ function ExpenseCategoryIconButton({
       style={quickExpenseCategoryTileStyle.button}
     >
       <View style={[quickExpenseCategoryTileStyle.iconBox, selected ? quickExpenseCategoryTileStyle.iconBoxSelected : null]}>
-        <Text style={[quickExpenseCategoryTileStyle.iconText, selected ? quickExpenseCategoryTileStyle.iconTextSelected : null]}>{category.icon}</Text>
+        {/* D1 후속(실기기 피드백 2): 타일 글리프(▱ ▤ ⌘ …)를 탭바와 같은 Ionicons로 바꿨다.
+            크기·색은 예전 Text 스타일 토큰(iconText / iconTextSelected)에서 그대로 읽어 쓰므로
+            선택 시 흰색으로 반전되는 동작도 종전과 같다. 라벨은 바로 아래 Text와 Pressable의
+            accessibilityLabel이 말하므로 아이콘 자체는 장식이다. */}
+        <Ionicons
+          accessible={false}
+          name={category.icon}
+          size={quickExpenseCategoryTileStyle.iconText.fontSize}
+          color={
+            selected
+              ? quickExpenseCategoryTileStyle.iconTextSelected.color
+              : quickExpenseCategoryTileStyle.iconText.color
+          }
+        />
       </View>
       <Text numberOfLines={1} style={quickExpenseCategoryTileStyle.label}>
         {category.label}

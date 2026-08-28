@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import Constants from "expo-constants";
 import { router } from "expo-router";
@@ -25,11 +26,15 @@ const moreAvatarImage = require("../../assets/illustrations/toddler.png");
 const moreReferenceScreenId = "pixel-screen-SET-001 SET-001 · FAM-001 · IMP-001";
 // UX-5B-9: 미리보기(로그아웃) 메뉴도 라벨과 목적지가 일치하도록 정리 -- "알림 설정"→/settings,
 // "데이터 백업"→/import, "고객센터"→/settings/privacy 같은 눈속임 라우팅을 제거했다.
+// D1 후속(실기기 피드백 2 "아이콘들이 다 예전걸로 돌아간 것 같음"): 행 글리프(♙ ⌁ ?)를
+// 탭바(app/(tabs)/_layout.tsx)와 같은 Ionicons outlined 계열로 바꾼다. 문구·순서·목적지는
+// 그대로다 -- 같은 항목은 설정 화면(app/settings/index.tsx)·세션 메뉴(src/settings/more-menu.ts)와
+// 같은 아이콘을 쓴다(프로필=person-circle, 가져오기=download, 약관·개인정보=shield-checkmark).
 const moreMenuRows = [
-  { icon: "♙", title: "프로필 관리", route: "/family" },
-  { icon: "⌁", title: "엑셀로 가져오기", route: "/import" },
-  { icon: "?", title: "약관 및 개인정보", route: "/settings/privacy" }
-] as const;
+  { icon: "person-circle-outline", title: "프로필 관리", route: "/family" },
+  { icon: "download-outline", title: "엑셀로 가져오기", route: "/import" },
+  { icon: "shield-checkmark-outline", title: "약관 및 개인정보", route: "/settings/privacy" }
+] as const satisfies readonly { icon: keyof typeof Ionicons.glyphMap; title: string; route: string }[];
 
 const previewProfile = { nickname: "다온이", stageLabel: "24개월" };
 // Shown only while a real/test session's home query is still loading, so the no-session preview
@@ -40,7 +45,17 @@ const loadingProfile = { nickname: "...", stageLabel: "..." };
 // 실제 앱 설정의 버전을 표시한다. (패키지명은 expo-application 미설치로 표시하지 않는다.)
 const appInfoText = `버전 ${Constants.expoConfig?.version ?? "알 수 없음"}`;
 
-function MoreMenuRow({ icon, title, caption, onPress }: { icon: string; title: string; caption?: string; onPress?: () => void }) {
+function MoreMenuRow({
+  icon,
+  title,
+  caption,
+  onPress
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  caption?: string;
+  onPress?: () => void;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -50,7 +65,15 @@ function MoreMenuRow({ icon, title, caption, onPress }: { icon: string; title: s
       onPress={onPress}
       style={moreMenuRowStyle()}
     >
-      <Text style={moreMenuIconStyle}>{icon}</Text>
+      {/* 아이콘은 장식이다 -- 행 이름·캡션은 바깥 Pressable의 accessibilityLabel이 읽어 준다.
+          크기·색·열 폭은 예전 Text 스타일 토큰(moreMenuIconStyle)에서 그대로 읽어 쓴다. */}
+      <Ionicons
+        accessible={false}
+        name={icon}
+        size={moreMenuIconStyle.fontSize}
+        color={moreMenuIconStyle.color}
+        style={{ width: moreMenuIconStyle.width }}
+      />
       <Text style={moreMenuTitleStyle}>{title}</Text>
       {caption ? <Text style={moreMenuCaptionStyle}>{caption}</Text> : <Text accessible={false} style={moreMenuChevronStyle}>›</Text>}
     </Pressable>
@@ -87,7 +110,12 @@ export default function MoreScreen() {
   // NAV-121: 로그인 상태에서 /settings로 가는 유일한 진입점 -- 이 행이 없으면 알림 설정 · 통계 동의
   //   철회 · 로그아웃에 도달할 방법이 없다. (비로그인 미리보기는 헤더 ⌕ 버튼이 /settings로 간다.)
   // EXP-106: 엑셀 가져오기의 반대 방향(데이터 이동성) -- 지출 기록을 CSV로 공유 시트에 내보낸다.
-  const sessionMenuRows: Array<{ icon: string; title: string; caption?: string; onPress?: () => void }> =
+  const sessionMenuRows: Array<{
+    icon: keyof typeof Ionicons.glyphMap;
+    title: string;
+    caption?: string;
+    onPress?: () => void;
+  }> =
     buildMoreSessionMenuRows({ exportTitle: EXPORT_MENU_TITLE }).map((row) => {
       const route = row.route;
       return {
@@ -100,7 +128,12 @@ export default function MoreScreen() {
             : () => Alert.alert("앱 정보", appInfoText)
       };
     });
-  const previewMenuRowActions: Array<{ icon: string; title: string; caption?: string; onPress?: () => void }> = [
+  const previewMenuRowActions: Array<{
+    icon: keyof typeof Ionicons.glyphMap;
+    title: string;
+    caption?: string;
+    onPress?: () => void;
+  }> = [
     ...moreMenuRows.map((row) => ({
       icon: row.icon,
       title: row.title,
@@ -108,9 +141,9 @@ export default function MoreScreen() {
     })),
     // EXP-106: 미리보기(로그아웃)에서는 내보낼 세션 데이터가 없으므로 비활성 행 패턴
     // (캡션 + onPress 없음)으로 로그인 준비 안내만 보여준다.
-    { icon: "⇪", title: EXPORT_MENU_TITLE, caption: EXPORT_SIGNED_OUT_CAPTION, onPress: undefined },
+    { icon: "share-outline", title: EXPORT_MENU_TITLE, caption: EXPORT_SIGNED_OUT_CAPTION, onPress: undefined },
     // UX-5B-9: "앱 정보"는 어딘가로 위장 이동하는 대신 실제 버전 정보를 보여준다.
-    { icon: "ⓘ", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }
+    { icon: "information-circle-outline", title: "앱 정보", onPress: () => Alert.alert("앱 정보", appInfoText) }
   ];
   const visibleMenuRows = hasSession ? sessionMenuRows : previewMenuRowActions;
 
@@ -126,7 +159,13 @@ export default function MoreScreen() {
             onPress={handleSearchPress}
             style={moreSearchButtonStyle}
           >
-            <Text style={moreSearchTextStyle}>⌕</Text>
+            {/* 돋보기 글리프(⌕)도 같은 Ionicons 계열로. 라벨은 바깥 Pressable이 읽어 준다. */}
+            <Ionicons
+              accessible={false}
+              name="search-outline"
+              size={moreSearchTextStyle.fontSize}
+              color={moreSearchTextStyle.color}
+            />
           </Pressable>
         </View>
 

@@ -103,23 +103,28 @@ describe("buildRecordsCategoryChips", () => {
       const chips = buildRecordsCategoryChips(empty, null);
       expect(chips).toHaveLength(categoryCatalog.length);
       expect(chips[0].id).toBe(categoryCatalog[0].id);
-      expect(chips[0].label).toBe(`${categoryCatalog[0].icon} ${categoryCatalog[0].label}`);
+      expect(chips[0].label).toBe(categoryCatalog[0].label);
       expect(chips[0].matchIds).toEqual([categoryCatalog[0].id]);
     }
   });
 
   /**
-   * 라운드 34 L7: 폴백 칩의 라벨에는 아이콘 이모지가 붙는다. 칩에는 그대로 두되, **문장으로
-   * 흘러가는 이름**은 이모지 없는 값이어야 한다 -- 스코프 줄/달력 라벨 한가운데 이모지가 끼면
-   * 스크린리더가 아이콘 이름을 카테고리 이름처럼 읽는다.
+   * 라운드 34 L7이 지키려던 요지: **문장으로 흘러가는 이름**(plainLabel)에는 아이콘이 섞이지
+   * 않는다 -- 스코프 줄/달력 라벨 한가운데 아이콘이 끼면 스크린리더가 아이콘을 카테고리 이름처럼
+   * 읽는다.
+   *
+   * D1 후속(실기기 피드백 2): 카탈로그의 `icon`이 텍스트 글리프에서 Ionicons **이름**
+   * ("water-outline" …)으로 바뀌면서, 폴백 칩이 그것을 라벨 앞에 붙이면 칩에 "water-outline
+   * 기저귀"가 적힌다. 그래서 폴백도 서버 목록 경로와 같이 이름만 쓴다 -- L7의 요지(문장에
+   * 아이콘 금지)는 오히려 더 강해졌다: 이제 **표시 라벨에도** 아이콘 문자열이 없다.
    */
-  it("L7: 폴백 칩은 표시 라벨(이모지 포함)과 문장용 plainLabel을 따로 준다", () => {
+  it("L7: 폴백 칩의 표시 라벨과 문장용 plainLabel 어디에도 아이콘 문자열이 없다", () => {
     const fallback = buildRecordsCategoryChips([], null);
     for (const [index, chip] of fallback.entries()) {
       const entry = categoryCatalog[index];
-      expect(chip.label).toBe(`${entry.icon} ${entry.label}`);
+      expect(chip.label).toBe(entry.label);
       expect(chip.plainLabel).toBe(entry.label);
-      // 이모지는 표시 라벨에만 남는다.
+      expect(chip.label).not.toContain(entry.icon);
       expect(chip.plainLabel).not.toContain(entry.icon);
     }
 

@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -173,11 +174,26 @@ function yearMonthOf(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/**
+ * D1 후속(실기기 피드백 2 "아이콘들이 다 예전걸로 돌아간 것 같음"): 오프라인 대기 행의 상태
+ * 글리프(⚠ ! ↻ ⏱)를 탭바(app/(tabs)/_layout.tsx)와 같은 Ionicons outlined 계열로 바꾼다.
+ * 문자열 글리프는 기기 폰트에 따라 굵기·크기가 제각각이거나 네모(tofu)로 떨어졌다.
+ *
+ * 상태별 의미는 그대로다: 충돌=경고, 실패=오류, 전송 중=회전 화살표, 대기=시계. 크기·색은 공용
+ * ListRow가 문자열 글리프를 그릴 때 쓰던 값(coral, 20)이라 행 모양이 종전과 같고, 상태를 말로
+ * 전하는 것은 아래 부제(SYNC_ROW_* 문구)이므로 아이콘은 장식이다.
+ */
+function offlineStatusIconName(syncState: string): keyof typeof Ionicons.glyphMap {
+  if (syncState === "conflict") return "warning-outline";
+  if (syncState === "failed") return "alert-circle-outline";
+  if (syncState === "syncing") return "refresh-outline";
+  return "time-outline";
+}
+
 function offlineStatusIcon(syncState: string) {
-  if (syncState === "conflict") return "⚠";
-  if (syncState === "failed") return "!";
-  if (syncState === "syncing") return "↻";
-  return "⏱";
+  return (
+    <Ionicons accessible={false} name={offlineStatusIconName(syncState)} size={20} color={theme.colors.mainCoral} />
+  );
 }
 
 // Module-scope (stable) press handler for offline rows -- every offline row routes to the same
