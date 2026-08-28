@@ -58,18 +58,18 @@ describe("REL-009 expo-config.shared versionCode 파싱 (WOORIAI_ANDROID_VERSION
 describe("실기기 피드백 3·4: 네이티브 스플래시 + 앱 아이콘 배선 (app.json)", () => {
   const appConfig = JSON.parse(readFileSync(join(process.cwd(), "app.json"), "utf8")).expo;
 
-  it("expo-splash-screen 플러그인이 splash-icon 자산·크림 배경으로 설정돼 있다", () => {
+  it("expo-splash-screen 플러그인이 Sprout Wallet splash-mark 자산·크림 배경으로 설정돼 있다 (DSN-053 P0)", () => {
     const splashPlugin = appConfig.plugins.find(
       (plugin: unknown) => Array.isArray(plugin) && plugin[0] === "expo-splash-screen"
     );
     expect(splashPlugin, "app.json plugins에 expo-splash-screen이 있어야 한다").toBeTruthy();
     expect(splashPlugin[1]).toEqual({
-      image: "./assets/splash-icon.png",
+      image: "./assets/splash-mark.png",
       imageWidth: 200,
       resizeMode: "contain",
-      backgroundColor: "#FFF6EC"
+      backgroundColor: "#FFF9F3"
     });
-    expect(existsSync(join(process.cwd(), "assets/splash-icon.png"))).toBe(true);
+    expect(existsSync(join(process.cwd(), "assets/splash-mark.png"))).toBe(true);
   });
 
   it("expo-splash-screen이 mobile 의존성으로 잠겨 있다 (CI는 frozen-lockfile)", () => {
@@ -80,9 +80,11 @@ describe("실기기 피드백 3·4: 네이티브 스플래시 + 앱 아이콘 �
   it("앱 아이콘·적응형 아이콘 자산이 있고 배경색이 아이콘 코랄과 같다", () => {
     expect(appConfig.icon).toBe("./assets/icon.png");
     expect(appConfig.android.adaptiveIcon.foregroundImage).toBe("./assets/adaptive-icon.png");
-    // adaptive foreground는 투명 배경(콘텐츠 78% 축소)이라 런처 배경이 그대로 드러난다.
-    // 아이콘 그라데이션 상단색과 같은 값이어야 테두리가 생기지 않는다.
-    expect(appConfig.android.adaptiveIcon.backgroundColor).toBe("#E95E3E");
+    // DSN-053 P0: c20deeb Sprout Wallet 원본 복원 — 아이콘 배경과 같은 크림(#FFF9F3).
+    // monochrome은 Android 13+ 테마 아이콘용(원본 계보와 동일).
+    expect(appConfig.android.adaptiveIcon.backgroundColor).toBe("#FFF9F3");
+    expect(appConfig.android.adaptiveIcon.monochromeImage).toBe("./assets/monochrome-icon.png");
+    expect(appConfig.notification).toEqual({ icon: "./assets/notification-icon.png", color: "#FF6B4A" });
     for (const asset of ["assets/icon.png", "assets/adaptive-icon.png"]) {
       expect(existsSync(join(process.cwd(), asset)), `${asset} should exist`).toBe(true);
     }

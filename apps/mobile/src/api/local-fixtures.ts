@@ -90,8 +90,27 @@ export type LocalProductLinkFixture = {
   isAffiliate: boolean;
   isSponsored: boolean;
   disclosureText: string | null;
+  /**
+   * 라운드 52 C-01: 판매처별 가격 스냅샷과 그 확인 시각. 실서버와 같은 규칙으로
+   * **둘 다 있거나 둘 다 없다**(local-backend getItemDetail이 그 짝을 그대로 내보낸다).
+   * 값은 아래 LOCAL_PRICE_CHECKED_AT_* 고정 상수다 — 자세한 이유는 그 주석 참고.
+   */
+  priceSnapshotKrw: number | null;
+  priceCheckedAt: string | null;
   displayOrder: number;
 };
+
+/**
+ * 데모 링크의 가격 확인 시각 — **고정 상수**다. `new Date()`/`Date.now()`로 만들지 않는다.
+ *
+ * 실행할 때마다 "오늘 확인함"이 되면 데모가 늘 갓 확인한 가격인 척하게 되는데, 실제로는
+ * 픽스처에 박아 둔 숫자일 뿐이다(허위 신선도). 서버 시드도 같은 이유로 재실행만으로는
+ * 확인 시각을 오늘로 밀지 않는다(apps/api/prisma/seed.ts resolveSeedPriceCheckedAt).
+ * 값은 UTC ISO — 09:00Z는 서울 18:00이라 두 달력 어디서도 날짜가 갈리지 않는다.
+ */
+export const LOCAL_PRICE_CHECKED_AT = "2026-08-20T09:00:00.000Z";
+/** 같은 상세 화면에서 확인 시각이 행마다 다를 수 있다는 사실을 데모에서도 보이게 하는 짝. */
+export const LOCAL_PRICE_CHECKED_AT_OLDER = "2026-07-02T09:00:00.000Z";
 
 export type LocalItemTemplateFixture = {
   id: string;
@@ -270,6 +289,10 @@ export const localProductLinkFixtures: LocalProductLinkFixture[] = [
     isAffiliate: true,
     isSponsored: false,
     disclosureText: "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
+    // 가격은 해당 준비템의 가격대(150,000~700,000원) 안에 둔다 — 데모가 스스로 어긋난
+    // 숫자를 말하지 않게.
+    priceSnapshotKrw: 289_000,
+    priceCheckedAt: LOCAL_PRICE_CHECKED_AT,
     displayOrder: 10
   },
   {
@@ -282,6 +305,11 @@ export const localProductLinkFixtures: LocalProductLinkFixture[] = [
     isAffiliate: false,
     isSponsored: false,
     disclosureText: null,
+    // 가격을 확인해 둔 적 없는 링크. 데모에도 이 경우를 남겨 둔다 — 모든 행에 숫자가
+    // 채워져 있으면 "가격은 언제나 있는 값"으로 보이고, 실제 화면의 빈 가격 칸(종전 동작)이
+    // 데모에서 한 번도 관찰되지 않는다.
+    priceSnapshotKrw: null,
+    priceCheckedAt: null,
     displayOrder: 10
   },
   {
@@ -294,6 +322,10 @@ export const localProductLinkFixtures: LocalProductLinkFixture[] = [
     isAffiliate: true,
     isSponsored: false,
     disclosureText: "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
+    // 가격대 100,000~1,200,000원. 확인 시각이 오래된 쪽 상수를 써서, 캡션이 그 사실을
+    // 숨기지 않고 그대로 말한다는 것을 데모에서도 볼 수 있게 한다.
+    priceSnapshotKrw: 459_000,
+    priceCheckedAt: LOCAL_PRICE_CHECKED_AT_OLDER,
     displayOrder: 10
   },
   {
@@ -306,6 +338,10 @@ export const localProductLinkFixtures: LocalProductLinkFixture[] = [
     isAffiliate: true,
     isSponsored: false,
     disclosureText: "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
+    // 기저귀는 데모에서 링크가 둘인 유일한 준비템이라, 판매처별로 **다른** 가격과 **다른**
+    // 확인 시각이 나란히 보이는 자리다(가격대 42,900~48,900원).
+    priceSnapshotKrw: 45_900,
+    priceCheckedAt: LOCAL_PRICE_CHECKED_AT,
     displayOrder: 10
   },
   {
@@ -323,6 +359,11 @@ export const localProductLinkFixtures: LocalProductLinkFixture[] = [
     // CTA 옆에 그대로 렌더됐다. 실사용 문구로 바꾼다: 광고임을 먼저 밝히고(DNC-011) 같은
     // 줄에서 수수료 고지를 잇는다(DNC-010). 해요체(DNC-018).
     disclosureText: "스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.",
+    // 스폰서 링크라고 해서 가격을 더 싸게 적지 않는다 — 같은 준비템의 일반 제휴 링크보다
+    // 비싸다(45,900 < 47,900). 광고비를 받은 자리가 값싸 보이도록 데모를 꾸미지 않는다
+    // (DNC-009·DNC-011).
+    priceSnapshotKrw: 47_900,
+    priceCheckedAt: LOCAL_PRICE_CHECKED_AT_OLDER,
     displayOrder: 20
   },
   {
@@ -335,6 +376,9 @@ export const localProductLinkFixtures: LocalProductLinkFixture[] = [
     isAffiliate: true,
     isSponsored: false,
     disclosureText: "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
+    // 가격대가 한 점(89,000원)인 준비템이라 스냅샷도 그 값이다.
+    priceSnapshotKrw: 89_000,
+    priceCheckedAt: LOCAL_PRICE_CHECKED_AT,
     displayOrder: 10
   },
   {
@@ -347,6 +391,9 @@ export const localProductLinkFixtures: LocalProductLinkFixture[] = [
     isAffiliate: false,
     isSponsored: false,
     disclosureText: null,
+    // 가격 확인 이력이 없는 두 번째 링크(위 기저귀 첫 준비와 같은 이유).
+    priceSnapshotKrw: null,
+    priceCheckedAt: null,
     displayOrder: 10
   }
 ];

@@ -20,7 +20,7 @@ import {
   sumLastMonthActualKrw
 } from "../src/home/budget-edit";
 import { previousYearMonth } from "../src/home/last-month-comparison";
-import { useLoadErrorCopy } from "../src/offline/use-load-error-copy";
+import { useLoadErrorCopy, useSaveErrorCopy } from "../src/offline/use-load-error-copy";
 import { useOfflineSyncSnapshot } from "../src/offline/sync-controller";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../src/ui";
 import { SkeletonCard } from "../src/ui/Skeleton";
@@ -162,6 +162,14 @@ export default function BudgetEditScreen() {
     lastMonthBudgetKrw: lastMonthBudget.data?.amountKrw ?? null
   });
 
+  // 라운드 52 C-07: 예산 저장은 아웃박스를 거치지 않는 서버 직행 쓰기라, 오프라인에서는 그냥
+  // 실패한다. 그때 "잠시 후 다시 시도해 주세요"는 기다릴 대상이 있다는 뜻이라 사실과 어긋난다 --
+  // 실패한 그 순간에 연결을 한 번 확인해 문구를 고른다(src/offline/messages.ts).
+  //
+  // 라운드 52 QA P3-1: 그 확인은 조회 실패 카드와 **같은 공용 훅**이 한다(useSaveErrorCopy).
+  // 예전에는 이 화면이 onError에서 직접 폴을 띄워, 저장 실패 직후 뒤로 가면 사라진 화면에
+  // setState가 걸리고(언마운트 미가드), 연달아 실패하면 늦게 도착한 옛 판정이 최신 판정을
+  // 덮어쓸 수 있었다. 훅은 cancelled 패턴으로 둘 다 막고, 에러가 풀리면 문구도 복원한다.
   const save = useMutation({
     mutationFn: () => {
       const amountKrw = Number(amountDigits || budget.data?.amountKrw);
@@ -186,6 +194,9 @@ export default function BudgetEditScreen() {
   });
 
   const canSave = !amountError && Boolean(authToken && childId) && (amountDigits.length > 0 || Boolean(budget.data));
+
+  // C-07 문구(온라인이면 종전 그대로, 오프라인이면 기다릴 대상이 없다는 사실).
+  const saveErrorText = useSaveErrorCopy(save.isError);
 
   // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
   // 버튼은 그대로 -- 문구만 바뀐다(src/offline/messages.ts).
@@ -279,7 +290,7 @@ export default function BudgetEditScreen() {
               )}
             </Card>
 
-            {save.isError ? <Toast message="저장하지 못했어요. 잠시 후 다시 시도해 주세요." tone="error" /> : null}
+            {save.isError ? <Toast message={saveErrorText} tone="error" /> : null}
 
             <PrimaryButton
               disabled={!canSave || save.isPending}

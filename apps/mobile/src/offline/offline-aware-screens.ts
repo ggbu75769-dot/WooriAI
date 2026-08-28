@@ -21,6 +21,9 @@ export const OFFLINE_AWARE_LOAD_ERROR_SCREENS: ReadonlyArray<string> = [
   "app/(tabs)/records.tsx",
   "app/(tabs)/reports.tsx",
   "app/budget.tsx",
+  // 라운드 52 C-05: 가족 화면도 같은 단일 소스로 들어왔다 -- 구성원 목록 조회가 실패했을 때
+  // 오프라인이면 "잠시 후 다시"가 사실과 어긋나는 것은 다른 화면과 똑같다.
+  "app/family/index.tsx",
   "app/items/[itemTemplateId].tsx"
 ];
 

@@ -140,3 +140,44 @@ describe("computeCategoryShares", () => {
     expect(sumOf(slices.map((slice) => slice.widthPercent))).toBeCloseTo(100, 9);
   });
 });
+
+/**
+ * 라운드 52 C-03: 드릴다운이 서 있는 땅.
+ *
+ * 리포트 범례를 누르면 그 조각의 카테고리로 기록 탭이 걸러진다. 그 대응이 성립하려면 조각 하나가
+ * 입력 조각 하나에 정확히 대응해야 한다 -- 이 함수가 꼬리를 "기타"로 접거나 순서를 바꾸는 순간
+ * 화면은 **조용히 엉뚱한 카테고리**를 필터링한다(0건이면 그나마 티가 나지만, 다른 카테고리의
+ * 기록이 뜨면 그게 곧 허위 표시다). 그래서 그 성질을 여기서 못 박는다.
+ */
+describe("C-03 드릴다운 대응 (꼬리 접기 없음 · id 통과)", () => {
+  it("keeps every countable slice in input order and folds no tail into 기타", () => {
+    const input = Array.from({ length: 12 }, (_, index) => ({
+      label: `c${index}`,
+      amountKrw: 1_000_000 - index * 80_000,
+      categoryId: `id-${index}`
+    }));
+    const slices = computeCategoryShares(input);
+
+    expect(slices).toHaveLength(input.length);
+    expect(slices.map((slice) => slice.label)).toEqual(input.map((segment) => segment.label));
+    expect(slices.map((slice) => slice.categoryId)).toEqual(input.map((segment) => segment.categoryId));
+    expect(slices.map((slice) => slice.label)).not.toContain("기타");
+  });
+
+  it("carries each slice's own categoryId even when zero-amount entries are dropped", () => {
+    // 인덱스로 되짚었다면 여기서 한 칸씩 밀린다: 걸러지는 것은 1번인데 출력 1번은 원래 2번이다.
+    const slices = computeCategoryShares([
+      { label: "기저귀/위생", amountKrw: 340_000, categoryId: "cat-diaper" },
+      { label: "빈 카테고리", amountKrw: 0, categoryId: "cat-empty" },
+      { label: "수유/이유식", amountKrw: 160_000, categoryId: "cat-feeding" }
+    ]);
+
+    expect(slices.map((slice) => slice.categoryId)).toEqual(["cat-diaper", "cat-feeding"]);
+    expect(slices[1].label).toBe("수유/이유식");
+  });
+
+  it("leaves categoryId undefined for callers that do not pass one (unchanged behaviour)", () => {
+    const slices = computeCategoryShares([{ label: "기저귀/위생", amountKrw: 10_000 }]);
+    expect(slices[0].categoryId).toBeUndefined();
+  });
+});

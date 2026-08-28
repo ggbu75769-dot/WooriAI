@@ -2,25 +2,30 @@ import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Platform, Pressable, Text, View } from "react-native";
 import {
   cancelHouseholdInvite,
-  createInvite,
   listHouseholdInvites,
   listHouseholdMembers,
   LOCAL_HOUSEHOLD_ID,
   LOCAL_SESSION_TOKEN,
   LOCAL_USER_ID,
-  removeHouseholdMember,
-  type InviteRole
+  removeHouseholdMember
 } from "../../src/api/client";
 import {
-  INVITE_CREATE_FAILED_ALERT_TITLE,
-  INVITE_OWNER_ONLY_CAPTION,
-  inviteCreateErrorMessage,
-  isInviteEntryPointLocked
-} from "../../src/family/invite-permissions";
+  INVITE_ROLE_PROMPT_CANCEL_LABEL,
+  inviteRolePrompt,
+  inviteScreenHref
+} from "../../src/family/invite-flow";
+import { INVITE_OWNER_ONLY_CAPTION, isInviteEntryPointLocked } from "../../src/family/invite-permissions";
+import {
+  memberMutationAlertTitle,
+  memberMutationErrorMessage,
+  type FamilyMemberMutationKind
+} from "../../src/family/member-mutation-messages";
 import { formatInviteExpiry, memberBadge, memberRoleLabel } from "../../src/family/memberLabels";
+import { isCurrentlyOnline } from "../../src/offline/connectivity";
+import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
@@ -128,22 +133,17 @@ export default function FamilyScreen() {
   // canManageMembers가 false라, 그 값으로 가리면 FAM-001 픽셀락 캡처가 찍는 화면에서 초대 행이
   // 통째로 사라져 락이 깨진다. 잠금은 "실세션인데 owner가 아닐 때"만이다.
   const inviteLocked = isInviteEntryPointLocked({ hasSession, myRole });
-  const quickInvite = useMutation({
-    mutationFn: (role: InviteRole) => createInvite(authToken!, householdId!, role, "link"),
-    // 종전에는 onError가 아예 없어서, 공동부모가 초대 버튼을 누르면 요청이 403으로 죽고 화면은
-    // 아무 말도 하지 않았다(무반응). 이제 잠금이 먼저 막지만, 잠금이 못 잡는 경우(초대 직후
-    // 역할 강등 등 구성원 캐시와 서버가 갈리는 순간)에도 실패를 반드시 말한다.
-    onError: (error) => {
-      Alert.alert(INVITE_CREATE_FAILED_ALERT_TITLE, inviteCreateErrorMessage(error));
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["household-members"] });
-      await queryClient.invalidateQueries({ queryKey: ["household-invites"] });
-      router.push("/family/invite");
-    }
-  });
+  // 라운드 52 C-05: 두 파괴적 동작(구성원 삭제·초대 취소)의 실패를 반드시 말한다. 실패한 그
+  // 순간에 연결을 한 번 확인해(오프라인이면 "잠시 후 다시"가 거짓말이 된다) 문구를 고른다 —
+  // 판정·문구는 src/family/member-mutation-messages.ts 한 곳에 있다.
+  const alertMutationFailure = (kind: FamilyMemberMutationKind, error: unknown) => {
+    void isCurrentlyOnline().then((isOnline) => {
+      Alert.alert(memberMutationAlertTitle(kind), memberMutationErrorMessage(kind, error, { isOnline }));
+    });
+  };
   const removeMember = useMutation({
     mutationFn: (memberId: string) => removeHouseholdMember(authToken!, householdId!, memberId),
+    onError: (error) => alertMutationFailure("remove_member", error),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
     }
@@ -162,6 +162,7 @@ export default function FamilyScreen() {
   }, [hasSession, householdId, myRole, setHouseholdRole]);
   const cancelInvite = useMutation({
     mutationFn: (inviteId: string) => cancelHouseholdInvite(authToken!, householdId!, inviteId),
+    onError: (error) => alertMutationFailure("cancel_invite", error),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["household-invites"] });
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
@@ -175,12 +176,16 @@ export default function FamilyScreen() {
     hasData: Boolean(members.data)
   });
 
+  // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
+  // 버튼은 그대로 -- 문구만 바뀐다(src/offline/messages.ts).
+  const loadErrorCopy = useLoadErrorCopy(members.isError);
+
   if (hasSession && membersPhase === "error") {
     return (
       <AppScreen>
         <EmptyStateCard
-          title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
+          title={loadErrorCopy.title}
+          actionLabel={loadErrorCopy.actionLabel}
           onPress={() => members.refetch()}
         />
       </AppScreen>
@@ -204,16 +209,40 @@ export default function FamilyScreen() {
 
   const visibleMembers = hasSession ? members.data!.members : previewMembers;
   const avatarNames = visibleMembers.map((member) => ("avatar" in member ? member.avatar : member.displayName));
+  /**
+   * 라운드 52 C-04/C-06: 여기서는 **초대를 만들지 않는다.**
+   *
+   * 종전에는 역할을 고르는 즉시 서버에 초대를 만들고 응답(inviteUrl)을 버린 채 빈 초대 폼으로
+   * 이동했다. 토큰은 서버에 해시로만 남아 그 링크는 두 번 다시 볼 수 없으므로, 첫 초대는
+   * 만들어지는 순간 유실되고 "대기 중인 초대"에는 정체를 알 수 없는 행만 남았다. 고른 역할도
+   * 전달되지 않아 초대 화면은 늘 공동부모로 서 있었다(= 고른 것과 다른 역할이 하나 더 만들어짐).
+   *
+   * 이제 이 화면은 **역할만 정해 초대 화면으로 넘긴다.** 링크 생성은 결과를 그 자리에서 보여
+   * 주고 공유·복사까지 내주는 초대 화면 한 곳에서만 일어난다(src/family/invite-flow.ts).
+   * 선택지도 그 화면과 같은 표를 읽어 세 역할이 모두 나온다(선물 참여 포함).
+   */
   const openInvite = () => {
     if (!(authToken && householdId)) {
       router.push("/family/invite");
       return;
     }
-    Alert.alert("어떤 역할로 초대할까요?", "함께할 역할을 선택해 주세요.", [
-      { text: "취소", style: "cancel" },
-      { text: "공동부모", onPress: () => quickInvite.mutate("co_parent") },
-      { text: "보기 전용", onPress: () => quickInvite.mutate("viewer") }
-    ]);
+    // Android Alert은 버튼을 3개까지만 그린다 -- 취소를 함께 넣으면 역할 하나가 조용히 잘린다.
+    // 무엇을 남길지는 invite-flow.ts가 정한다(역할 셋은 언제나 남고, 닫는 길도 남는다).
+    const prompt = inviteRolePrompt(Platform.OS);
+    Alert.alert(
+      prompt.title,
+      prompt.message,
+      [
+        ...(prompt.showsCancelButton
+          ? [{ text: INVITE_ROLE_PROMPT_CANCEL_LABEL, style: "cancel" as const }]
+          : []),
+        ...prompt.roles.map((choice) => ({
+          text: choice.label,
+          onPress: () => router.push(inviteScreenHref(choice.role))
+        }))
+      ],
+      { cancelable: prompt.cancelable }
+    );
   };
   const confirmCancelInvite = (inviteId: string, roleLabel: string) => {
     Alert.alert(`${roleLabel} 초대를 취소할까요?`, "이미 보낸 초대 링크는 바로 사용할 수 없게 돼요.", [

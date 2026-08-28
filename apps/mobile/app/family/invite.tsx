@@ -1,34 +1,58 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, Share, Text, View } from "react-native";
 import { createInvite, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN, type InviteRole } from "../../src/api/client";
+import {
+  DEFAULT_INVITE_ROLE,
+  INVITE_ROLE_CHOICES,
+  INVITE_ROLE_PARAM,
+  parseInviteRoleParam
+} from "../../src/family/invite-flow";
 import { inviteCreateErrorMessage } from "../../src/family/invite-permissions";
 import { formatInviteExpiry } from "../../src/family/memberLabels";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
 
-const roleOptions: Array<{ role: InviteRole; label: string; description: string }> = [
-  { role: "co_parent", label: "공동부모", description: "지출 기록과 예산을 함께 관리할 수 있어요" },
-  { role: "viewer", label: "보기 전용", description: "기록만 확인할 수 있어요" },
-  { role: "gift_participant", label: "선물 참여", description: "선물 준비 목록만 함께 볼 수 있어요" }
-];
+// 라운드 52 C-04: 역할 표는 src/family/invite-flow.ts가 단일 소스다 -- 이 화면의 라디오 목록과
+// 가족 화면의 역할 Alert이 같은 표를 읽는다(문구·순서는 여기 있던 것 그대로다).
 
-// UX-Q(A): 실패 문구는 src/family/invite-permissions.ts가 단일 소스다. 여기 있던 일반 재시도
-// 문구(INVITE_CREATE_FAILED_MESSAGE)는 그대로 남고, 403(가족 초대는 관리자만)만 재시도를 권하지
-// 않는 전용 문구로 갈라진다 — 권한이 없어서 막힌 사람에게 "다시 시도해 주세요"는 거짓말이다.
+// UX-Q(A): 실패 문구는 src/family/invite-permissions.ts가 단일 소스다. 일반 재시도 문구
+// (INVITE_CREATE_FAILED_MESSAGE)와 403(가족 초대는 관리자만) 전용 문구가 갈라져 있고, 초대 생성이
+// 일어나는 자리가 이 화면 하나뿐이므로 두 문구가 나가는 자리도 아래 에러 줄 하나다 --
+// 권한이 없어서 막힌 사람에게 "다시 시도해 주세요"는 거짓말이다.
 
 export default function FamilyInviteScreen() {
-  const [role, setRole] = useState<InviteRole>("co_parent");
+  // 가족 화면에서 고른 역할을 그대로 이어받는다. 딥링크로 무엇이든 들어올 수 있으므로 아는
+  // 값만 통과시키고(parseInviteRoleParam), 아니면 종전 기본값으로 선다.
+  const params = useLocalSearchParams<{ role?: string | string[] }>();
+  const [role, setRole] = useState<InviteRole>(() => parseInviteRoleParam(params[INVITE_ROLE_PARAM]) ?? DEFAULT_INVITE_ROLE);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
 
+  /**
+   * 라운드 52 QA P2-2 — 만든 초대가 "대기 중인 초대"에 곧바로 뜨게 한다.
+   *
+   * 대기 목록은 가족 화면의 `["household-invites", householdId]` 쿼리다(app/family/index.tsx).
+   * 이 화면이 초대를 **만들고도** 그 캐시를 건드리지 않아서, 뒤로 가면 목록은 초대 전 상태
+   * 그대로였다 — 사용자에게는 "링크는 받았는데 목록에는 없는" 상태로 보이고, 잃어버린 링크의
+   * 유일한 복구 경로(그 목록에서 취소하고 다시 만들기)를 그 자리에서 쓸 수 없다.
+   *
+   * 취소 뮤테이션이 이미 같은 키를 무효화하고 있으므로(같은 화면의 cancelInvite), 생성 쪽에도
+   * 같은 규칙을 둔다: **초대 목록을 바꾸는 자리는 목록 무효화를 동반한다.** 무효화 범위는
+   * 가족 화면의 취소 경로와 같게 `["household-invites"]` 접두 하나다 — 구성원 목록은 초대를
+   * 만든다고 달라지지 않으므로(수락해야 구성원이 된다) 건드리지 않는다.
+   */
+  const queryClient = useQueryClient();
   const invite = useMutation({
-    mutationFn: () => createInvite(authToken!, householdId!, role, "link")
+    mutationFn: () => createInvite(authToken!, householdId!, role, "link"),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["household-invites"] });
+    }
   });
 
   const handleShare = async () => {
@@ -51,7 +75,7 @@ export default function FamilyInviteScreen() {
         />
 
         <Card style={{ gap: 8 }}>
-          {roleOptions.map((option) => (
+          {INVITE_ROLE_CHOICES.map((option) => (
             <Pressable
               key={option.role}
               accessibilityRole="button"

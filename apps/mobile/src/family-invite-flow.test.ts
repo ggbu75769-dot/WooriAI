@@ -23,7 +23,10 @@ describe("Batch 08 mobile family invite contract", () => {
       ["app/(tabs)/_layout.tsx", "더보기"],
       ["app/family/index.tsx", "FAM-001"],
       ["app/family/index.tsx", "listHouseholdMembers"],
-      ["app/family/index.tsx", "createInvite"],
+      // 라운드 52 C-04: 가족 화면의 `createInvite` 기대는 뺐다 -- 그 화면이 초대를 만들면 응답으로만
+      // 볼 수 있는 링크를 보여 줄 자리가 없어 그대로 유실된다. 생성은 초대 화면 한 곳이고(아래),
+      // 가족 화면이 그 경로를 다시 들이지 않는다는 계약은 src/family/invite-flow.test.ts가 진다.
+      ["app/family/index.tsx", "inviteScreenHref"],
       ["app/family/invite.tsx", "FAM-002"],
       ["app/family/invite.tsx", "createInvite"],
       ["app/family/accept/[token].tsx", "FAM-003"],

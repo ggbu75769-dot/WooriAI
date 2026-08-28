@@ -38,7 +38,14 @@ import {
   milestoneWindowPhrase
 } from "../../src/reports/milestone-share";
 import { selectMilestoneReportType } from "../../src/reports/milestone-selection";
+import {
+  buildCategoryDrilldownTarget,
+  categoryDrilldownHint,
+  categoryDrilldownNote,
+  resolveDrilldownMonth
+} from "../../src/reports/category-drilldown";
 import { buildMonthlyInsight, resolveMonthStatus } from "../../src/reports/monthly-insight";
+import { buildPeriodTrendPoints } from "../../src/reports/period-trend-points";
 import { buildMonthlyShareMessage } from "../../src/reports/share-text";
 import { evaluateTrendDirection } from "../../src/reports/trend-direction";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
@@ -90,6 +97,13 @@ function yearMonthOf(date: Date) {
 export default function ReportsScreen() {
   const [period, setPeriod] = useState("월간");
   const [monthOffset, setMonthOffset] = useState(0);
+  /**
+   * 라운드 52 QA P1-1/P2-1 — 카테고리 드릴다운의 **탭 회차 카운터**.
+   *
+   * 착지 링크에 실려 기록 탭이 "이번에 새로 누른 것인가"를 판단하는 유일한 근거다. 화면 상태로만
+   * 살아 있고(세션 간 저장 없음), 표시되지도 서버로 나가지도 않는다.
+   */
+  const [drilldownNonce, setDrilldownNonce] = useState(0);
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -347,9 +361,54 @@ export default function ReportsScreen() {
   const deltaLabel = !hasSession ? undefined : deltaPercent === null ? null : `${deltaPercent > 0 ? "+" : ""}${deltaPercent}%`;
 
   const categoryData = activeCategory.data?.categories ?? [];
+  // 라운드 52 C-03: `categoryId`를 **버리지 않는다**. 예전에는 여기서 이름만 남겨서, 범례가
+  // "기저귀/위생 34%"까지 말해 놓고도 그 34%가 어떤 기록인지로 갈 방법이 화면에 없었다.
+  // 조각이 자기 id를 들고 다니므로 0원 카테고리가 섞여 걸러지더라도(computeCategoryShares의
+  // isCountable) 인덱스가 밀려 엉뚱한 필터가 걸릴 여지가 없다.
   const categorySegments = activeCategory.data
-    ? categoryData.map((entry) => ({ label: categoryName(entry.categoryId), amountKrw: entry.amountKrw }))
+    ? categoryData.map((entry) => ({
+        label: categoryName(entry.categoryId),
+        amountKrw: entry.amountKrw,
+        categoryId: entry.categoryId
+      }))
     : undefined;
+
+  // 라운드 52 C-03: 범례 한 줄 → 기록 탭의 그 카테고리. 착지 월 규칙(진행 중이면 현재 달, 끝난
+  // 기간이면 마지막 달)과 파라미터 형식은 전부 src/reports/category-drilldown.ts에 있다 --
+  // 링크를 만드는 이 화면과 읽는 기록 탭이 같은 모듈을 쓴다.
+  const drilldownPeriod = {
+    startYearMonth: period === "월간" ? reportYearMonth : period === "분기" ? yearMonthOf(quarterStart) : `${yearStart.getFullYear()}-01`,
+    monthCount: period === "월간" ? 1 : period === "분기" ? 3 : 12,
+    todayIso: seoulToday
+  };
+  const drilldownMonth = hasSession ? resolveDrilldownMonth(drilldownPeriod) : null;
+  // 분기·연간에서는 한 달로 좁혀 간다는 사실을 **누르기 전에** 말한다(카드 아래 한 줄 + 힌트).
+  // 월간 탭은 착지 월이 보고 있는 달 그대로라 보이는 줄이 없다(같은 사실을 두 번 말하지 않는다).
+  const drilldownHint = drilldownMonth ? categoryDrilldownHint(drilldownMonth) : null;
+  const drilldownNote = drilldownMonth ? categoryDrilldownNote(drilldownMonth, drilldownPeriod.monthCount) : null;
+  // 드릴다운 입구를 **범례 한 곳**으로만 두는 이유(검토 후 의도적으로 뺀 두 자리):
+  //  - **마일스톤 카드**의 1위 카테고리 줄: 그 카드가 말하는 창은 100일/첫돌, 즉 여러 달에 걸친
+  //    구간이다. 기록 탭은 한 달치 화면이라 어느 달로 보내도 카드가 보여 준 비중과 다른 숫자에
+  //    내려놓게 된다 -- "가장 많이 든 건 기저귀 42%"를 누르고 도착한 달의 1위가 다른 카테고리인
+  //    상황을 앱이 스스로 만든다. 착지 월 규칙이 정직하게 성립하지 않는 자리다.
+  //  - **월간 인사이트 카드**의 1위 문장: 착지는 정확하지만(그 달·그 카테고리) 바로 아래 도넛
+  //    범례의 첫 줄이 같은 곳으로 가는 같은 입구다. 두 번째 입구를 만들면서 카드의 accessible
+  //    문장 묶음까지 버튼으로 감싸면, TalkBack이 한 덩어리로 읽던 두 문장이 쪼개진다(UX-H가 공유
+  //    버튼을 그룹 **형제**로 둔 것과 같은 이유).
+  const openCategoryDrilldown = (categoryId: string | undefined) => {
+    // 라운드 52 QA P1-1/P2-1: 링크에 **이번 탭의 회차**를 함께 싣는다. 기록 탭은 값별 가드로
+    // 파라미터를 한 번만 적용하므로(가져오기 착지의 규칙), 회차가 없으면 "착지 월이 같은 다른
+    // 카테고리"는 월을 재적용하지 못하고 "같은 카테고리 다시 누르기"는 아무 일도 하지 않는다.
+    // 카운터는 이 화면이 들고 있는 단조 증가 state다 -- Date.now()가 아니라서 테스트에서
+    // 값이 고정되고, 같은 밀리초의 두 번째 탭도 반드시 다른 값을 받는다.
+    const nonce = drilldownNonce + 1;
+    const target = buildCategoryDrilldownTarget({ ...drilldownPeriod, categoryId, nonce });
+    // 말이 되지 않는 값(id 없음·형식 어긋남)이면 아무 데도 가지 않는다 -- 엉뚱한 달/필터에
+    // 내려놓느니 누른 자리에 그대로 있는 편이 낫다. 이동하지 않았으므로 회차도 올리지 않는다.
+    if (!target) return;
+    setDrilldownNonce(nonce);
+    router.push(target);
+  };
 
   // 세션 경로의 절약 팁 카드는 제거했다 (허위 비교 제거).
   //
@@ -382,7 +441,37 @@ export default function ReportsScreen() {
       : undefined;
   const yearlyPoints =
     period === "연간" && yearly.isSuccess ? yearly.data!.monthlyTotals.map((entry) => entry.totalExpenseKrw) : undefined;
-  const activePoints = period === "월간" ? monthlyTrendPoints : period === "분기" ? quarterPoints : yearlyPoints;
+
+  // 라운드 52 C-02: 분기·연간의 **미래 달 0원 절벽**을 잘라 낸다.
+  //
+  // 서버는 연간 리포트의 monthlyTotals를 12개월 전부 채워 주고(기록 없는 달은 0원), 분기 탭도
+  // 그 분기의 세 달을 각각 물어보므로 아직 오지 않은 달이 0원으로 온다. 그대로 그리면 8월에 연간
+  // 탭을 열었을 때 9~12월이 바닥에 눌어붙은 선이 되어 "연말에 지출이 끊겼다"는 사실 주장이 된다.
+  // 서버는 그대로 두고(그 배열은 합계의 근거이자 정직한 계약이다) 화면이 현재 달까지만 그린다 --
+  // 판정과 캡션 문구는 전부 src/reports/period-trend-points.ts에 있다. 끝난 연도/분기는 자르지
+  // 않는다(그때의 0원은 전부 사실이다). 월간 탭은 이 모듈을 거치지 않는다 -- getTrendReport는
+  // 선택한 달로 **끝나는** 6개월이라 미래 달이 애초에 없다.
+  const periodTrend = buildPeriodTrendPoints({
+    startYearMonth:
+      period === "분기" ? yearMonthOf(quarterStart) : `${yearStart.getFullYear()}-01`,
+    points: period === "분기" ? quarterPoints : period === "연간" ? yearlyPoints : undefined,
+    todayIso: seoulToday
+  });
+  const activePoints = period === "월간" ? monthlyTrendPoints : periodTrend.points;
+  /**
+   * 라운드 52 QA P2-3 — 세션 경로에서 **장식선을 그리지 않는다.**
+   *
+   * LineChartCard는 점이 2개 미만이면 장식용 고정 좌표로 폴백한다(비세션 픽셀락 캡처를 위한
+   * 설계). 그 폴백이 세션 경로에서도 일어나서, 점 하나뿐인 기간에는 그럴듯한 우상향 선이
+   * 사용자의 기록인 척 그려졌다 — C-02가 미래 달 0원 절벽에서 없앤 것과 같은 종류의 거짓
+   * 신호다. 판정과 문구는 순수 모듈에 있고(periodTrend.chartNotice), 화면은 그 값이 있으면
+   * 점을 넘기지 않는다.
+   *
+   * 월간 탭은 이 판정을 거치지 않는다(getTrendReport는 언제나 6개월을 준다). 비세션 미리보기도
+   * 이 분기에 닿지 않는다 — 위쪽 `!hasSession` 가지의 LineChartCard는 손대지 않았다(REP-001).
+   * 아직 데이터가 없는 동안(로딩·실패)에도 chartNotice는 null이라 종전 렌더 그대로다.
+   */
+  const trendChartNotice = period === "월간" ? null : periodTrend.chartNotice;
 
   // UX-F: 월간 탭 상단 "이번 달 한 문장" 인사이트. 새 요청 없이 이 화면이 이미 받아 둔 집계값
   // (monthly 응답의 총액·예산·categoryTop + previousMonth 응답의 지난달 월 전체 합계)만 조합한다
@@ -633,8 +722,28 @@ export default function ReportsScreen() {
                 // 라운드 34 L1: 방향 행을 접은 달(인사이트가 이미 비교를 말했다)에도 델타를 되살리지
                 // 않는다 -- 되살리면 접은 이유였던 중복이 카드 안으로 옮겨 갈 뿐이다.
                 deltaLabel={trendDirection || insightSpokeComparison ? null : deltaLabel}
-                points={activePoints}
+                // 라운드 52 QA P2-3: 그릴 점이 모자라면 **점을 넘기지 않는다**. 넘기면 카드가
+                // 장식용 고정 좌표로 폴백해, 점 하나뿐인 기간(1월의 연간·분기 첫 달)에 그럴듯한
+                // 우상향 선이 사용자의 기록인 척 그려진다. 그 자리에는 사실 한 줄만 남긴다.
+                points={trendChartNotice ? undefined : activePoints}
+                chartNotice={trendChartNotice}
               />
+
+              {/* C-02: 분기·연간 차트가 **어느 달까지**를 그린 것인지 한 줄로 말한다. 잘라 낸
+                  기간에는 "1~8월 기준", 아직 두 달이 쌓이지 않아 LineChartCard가 장식선으로
+                  폴백한 경우에는 그 선이 기록이 아니라는 사실을 같은 줄이 덧붙인다. 월간 탭에는
+                  이 줄이 없고(periodTrend.caption === null), 비세션 미리보기는 이 분기 자체에
+                  닿지 않는다(REP-001 픽셀락). */}
+              {periodTrend.caption ? (
+                <View
+                  accessible
+                  accessibilityLabel={periodTrend.accessibilityLabel ?? periodTrend.caption}
+                  style={reportTrendDirectionRowStyle}
+                  testID="reports-period-trend-caption"
+                >
+                  <Text style={reportTrendDirectionCaptionStyle}>{periodTrend.caption}</Text>
+                </View>
+              ) : null}
 
               {showTrendDirectionRow && trendDirection ? (
                 <View
@@ -672,7 +781,20 @@ export default function ReportsScreen() {
                 />
               ) : (
                 // 월간/분기/연간 모두 categoryPeriod로 해당 기간만 집계한 비중을 보여준다 (REP-104).
-                <DonutChartCard title={categoryCardTitle} segments={categorySegments} />
+                // C-03: 범례 줄이 곧 기록 탭 입구다. 조각이 들고 온 categoryId를 그대로 쓴다.
+                <>
+                  <DonutChartCard
+                    title={categoryCardTitle}
+                    segments={categorySegments}
+                    onSelect={(slice) => openCategoryDrilldown(slice.categoryId)}
+                    selectHint={drilldownHint}
+                  />
+                  {drilldownNote ? (
+                    <Text style={reportCategoryDrilldownNoteStyle} testID="reports-category-drilldown-note">
+                      {drilldownNote}
+                    </Text>
+                  ) : null}
+                </>
               )}
 
               {cumulative.isLoading ? (
@@ -819,6 +941,16 @@ const reportTrendDirectionCaptionStyle = {
   color: theme.colors.gray600,
   fontSize: 12,
   lineHeight: 18
+} as const;
+
+// C-03: 도넛 카드 바로 아래 "카테고리를 누르면 8월 기록을 보여드려요" 한 줄(분기·연간 전용).
+// 방향 행과 같은 관례로 카드에 붙인다(화면 gap 18을 -10으로 당긴다).
+const reportCategoryDrilldownNoteStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 18,
+  marginTop: -10,
+  paddingHorizontal: 6
 } as const;
 
 const reportTrendDirectionValueStyle = {

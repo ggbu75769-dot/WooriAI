@@ -5,6 +5,7 @@ import {
   markNotificationRead,
   NOTIFICATION_MAX_ENTRIES,
   NOTIFICATION_MAX_SEEN_KEYS,
+  removeNotification,
   selectUnreadCount,
   selectUnreadNotificationIds,
   useNotificationStore,
@@ -316,5 +317,45 @@ describe("NOTI-102 persisted store wiring", () => {
       seenDedupeKeys: ["weekly_summary:child-1:2026-W34"],
       lastSeenStageByChild: {}
     });
+  });
+});
+
+/**
+ * 라운드 52 C-10 — 알림 한 줄 지우기.
+ *
+ * 정리 수단이 "모두 지우기"뿐이라, 이미 처리한 알림 하나를 치우려면 아직 안 본 알림까지 통째로
+ * 버려야 했다. dedupe 규칙은 clearAll과 **똑같아야** 한다 — 지운 줄이 다음 평가에서 되살아나면
+ * 지운 행위 자체가 무의미하다.
+ */
+describe("라운드 52 C-10 알림 한 줄 지우기", () => {
+  beforeEach(() => {
+    useNotificationStore.getState().resetAll();
+  });
+
+  it("그 줄만 빼고 나머지 순서는 그대로다", () => {
+    const { entries } = addNotifications(
+      [],
+      [],
+      [candidate({ dedupeKey: "a" }), candidate({ dedupeKey: "b" }), candidate({ dedupeKey: "c" })],
+      NOW
+    );
+    expect(removeNotification(entries, "notif:b").map((entry) => entry.id)).toEqual(["notif:a", "notif:c"]);
+  });
+
+  it("없는 id면 같은 배열을 그대로 돌려준다(무의미한 리렌더 없음)", () => {
+    const { entries } = addNotifications([], [], [candidate({ dedupeKey: "a" })], NOW);
+    expect(removeNotification(entries, "notif:missing")).toBe(entries);
+    expect(removeNotification([], "notif:a")).toEqual([]);
+  });
+
+  it("스토어 remove는 dedupe 키를 유지한다 -- 지운 알림은 다시 오지 않는다(clearAll과 같은 규칙)", () => {
+    const store = useNotificationStore.getState();
+    store.ingest([candidate({ dedupeKey: "a" }), candidate({ dedupeKey: "b" })], NOW);
+    useNotificationStore.getState().remove("notif:a");
+    expect(useNotificationStore.getState().entries.map((entry) => entry.id)).toEqual(["notif:b"]);
+    // 키는 남아 있으므로 같은 후보가 다시 평가돼도 되살아나지 않는다.
+    expect(useNotificationStore.getState().seenDedupeKeys).toContain("a");
+    useNotificationStore.getState().ingest([candidate({ dedupeKey: "a" })], NOW + 1);
+    expect(useNotificationStore.getState().entries.map((entry) => entry.id)).toEqual(["notif:b"]);
   });
 });

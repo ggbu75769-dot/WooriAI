@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { isCurrentlyOnline } from "./connectivity";
-import { resolveLoadErrorCopy, type LoadErrorCopy } from "./messages";
+import { resolveLoadErrorCopy, resolveSaveErrorCopy, type LoadErrorCopy } from "./messages";
 
 /**
  * UX-N 조회 실패 카드 공용 훅. 화면의 "지금 에러 상태인가"를 받아, 에러로 **전환되는 순간에만**
@@ -44,6 +44,44 @@ export const OFFLINE_RECORDING_STILL_AVAILABLE_NOTICE = "기록은 지금도 남
 export const OFFLINE_RECORDING_ENTRY_LABEL = "지금 기록하기";
 
 export function useLoadErrorCopy(isError: boolean): LoadErrorCopy {
+  return resolveLoadErrorCopy({ isOnline: useErrorTimeConnectivity(isError) });
+}
+
+/**
+ * 라운드 52 QA P3-1 — **저장 실패** 문구의 같은 공용 훅.
+ *
+ * 라운드 52 C-07은 예산·아이 프로필 저장 실패에 오프라인 인지 문구를 붙이면서, 두 화면이
+ * 각자 `onError`에서 `isCurrentlyOnline().then(setState)`를 호출하게 두었다. 그 배선에는
+ * 조회 실패 쪽이 이미 해결해 둔 두 문제가 그대로 남아 있었다:
+ *
+ *  1. **언마운트 미가드** — 저장 실패 직후 사용자가 뒤로 가면(가장 흔한 반응이다) 뒤늦게
+ *     resolve된 프로미스가 사라진 화면에 setState를 건다. 이 저장소의 규율은
+ *     "never setState after unmount"이고(app/settings/children.tsx의 토스트 타이머 ref,
+ *     기록 탭의 rAF 핸들), 여기만 예외일 이유가 없다.
+ *  2. **레이스와 복원 없음** — 연달아 두 번 실패하면 두 프로미스가 경합해 나중에 도착한
+ *     **옛 판정**이 최신 판정을 덮어쓸 수 있다. 그리고 한 번 오프라인 판정으로 바뀐 상태는
+ *     되돌아오지 않아, 연결이 복구된 뒤의 실패까지 오프라인 문구로 읽혔다.
+ *
+ * 그래서 판정 자체를 `useLoadErrorCopy`와 **같은 cancelled 패턴** 하나로 모은다(아래
+ * `useErrorTimeConnectivity`): 에러로 **전환되는 순간에만** 한 번 확인하고, 에러가 풀리면
+ * 초기값으로 되돌리며, effect가 정리될 때 이전 폴의 결과를 버린다.
+ *
+ * 인자는 "지금 저장 실패 상태인가"다. 한 화면에서 여러 뮤테이션이 같은 자리 문구를 쓰면
+ * (아이 관리 화면의 편집·출생 전환·추가) 그 셋의 OR을 넘긴다 — 어느 것이 실패했든 사용자가
+ * 보는 문장은 하나이므로 판정도 하나면 된다.
+ */
+export function useSaveErrorCopy(isError: boolean): string {
+  return resolveSaveErrorCopy({ isOnline: useErrorTimeConnectivity(isError) });
+}
+
+/**
+ * "에러로 전환되는 순간의 연결 상태". 두 훅이 공유하는 유일한 배선이다.
+ *
+ * cancelled 플래그가 하는 일: effect가 정리되면(에러 해제·언마운트·연속 실패로 인한 재실행)
+ * 그 전에 띄운 폴의 결과를 **버린다**. 그래서 사라진 화면에 setState가 걸리지 않고, 늦게
+ * 도착한 옛 판정이 최신 판정을 덮어쓰지도 않는다.
+ */
+function useErrorTimeConnectivity(isError: boolean): boolean {
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
@@ -61,5 +99,5 @@ export function useLoadErrorCopy(isError: boolean): LoadErrorCopy {
     };
   }, [isError]);
 
-  return resolveLoadErrorCopy({ isOnline });
+  return isOnline;
 }

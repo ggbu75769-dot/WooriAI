@@ -30,6 +30,7 @@ import {
 } from "../../src/children/child-form";
 import { getOrCreateChildCreateKey, rotateChildCreateKey } from "../../src/children/child-create-idempotency";
 import { applyChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES } from "../../src/children/child-switch";
+import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -45,8 +46,6 @@ import {
   StatusBadge,
   Toast
 } from "../../src/ui";
-
-const saveFailedText = "저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
 
 const emptyForm: ChildFormValues = { nickname: "", dateText: "", manualStage: null };
 
@@ -202,6 +201,21 @@ export default function ManageChildrenScreen() {
   const [form, setForm] = useState<ChildFormValues>(emptyForm);
   const [showErrors, setShowErrors] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
+  /**
+   * 라운드 52 C-07: 아이 프로필 저장/추가는 아웃박스를 거치지 않는 서버 직행 쓰기라 오프라인에서는
+   * 그냥 실패한다. 그때 "잠시 후 다시 시도해 주세요"는 기다릴 대상이 있다는 뜻이라 사실과
+   * 어긋난다 -- 실패한 그 순간에 연결을 한 번 확인해 문구를 고른다(src/offline/messages.ts).
+   * 세 뮤테이션(편집·출생 전환·추가)이 같은 자리 문구를 쓰므로 판정도 하나다.
+   *
+   * 라운드 52 QA P3-1: 그 확인은 조회 실패 카드와 **같은 공용 훅**이 한다(useSaveErrorCopy).
+   * 예전에는 각 뮤테이션의 onError가 직접 폴을 띄워, 저장 실패 직후 화면을 떠나면 사라진
+   * 화면에 setState가 걸렸다 -- 이 화면이 토스트 타이머에 대해 지키는 "never setState after
+   * unmount" 규율을 문구 쪽만 지키지 않고 있던 셈이다. 훅의 cancelled 패턴이 그 자리를 덮고,
+   * 세 뮤테이션이 모두 성공/초기 상태로 돌아가면 문구도 기본값으로 복원된다.
+   *
+   * 세 상태의 OR을 넘기는 이유: 실패한 뮤테이션이 무엇이든 사용자가 보는 문장은 아래 한
+   * 자리이므로(각 카드의 danger 텍스트), 판정도 하나면 된다.
+   */
   // Same timer-in-ref discipline as more.tsx's export toast: never setState after unmount.
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // FIX-118B(F2): Idempotency-Key holder for 아이 추가 -- see child-create-idempotency.ts.
@@ -301,6 +315,9 @@ export default function ManageChildrenScreen() {
       announceForA11y(`${input.values.nickname.trim()}를 추가하고 선택했어요.`);
     }
   });
+
+  // C-07/QA P3-1: 세 뮤테이션이 함께 쓰는 저장 실패 문구(위 주석 참고).
+  const saveFailedText = useSaveErrorCopy(saveEdit.isError || markChildBorn.isError || addChild.isError);
 
   // HOME-138: 전환의 부수효과 순서(스토어 쓰기 → 아이 스코프 캐시 무효화 → 안내)는
   // applyChildSwitch 한 곳에만 있다 -- 홈 헤더 1탭 전환이 같은 함수를 부른다.

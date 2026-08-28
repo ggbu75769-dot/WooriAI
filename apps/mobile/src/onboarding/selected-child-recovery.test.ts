@@ -241,7 +241,13 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
       // 라운드 51 QA(P3-11): 앵커를 조건문 전체로 되돌린다. `progressFetch !== "done"` 조각만
       // 보면 이 화면 어디에나 있을 수 있는 문자열이라(예: 다른 갈래의 방어 조건) 정작 지켜야 할
       // "토큰이 있을 때 두 대기 상태를 함께 붙잡는다"는 계약이 깨져도 통과한다.
-      expect(indexSource).toContain('if (progressToken && progressFetch !== "done")');
+      // 라운드 52 QA(P3-4): 그 조건식은 이제 홀딩 판정 함수의 **인자**로 그대로 옮겨 갔다
+      // (판정표가 화면과 모듈에 두 벌이던 것을 한 벌로 모았다 -- cold-start-hold.test.ts).
+      // 계약은 한 글자도 바뀌지 않았다: 토큰이 있을 때 "idle"과 "loading"을 함께 붙잡는다.
+      expect(indexSource).toContain(
+        'onboardingProgressPending: !hasReachedHome && Boolean(progressToken) && progressFetch !== "done"'
+      );
+      expect(indexSource).toContain('if (holdReason === "onboarding-progress") {');
       expect(indexSource).not.toContain('if (progressFetch === "loading") {\n      return null;');
     });
   });
@@ -312,7 +318,9 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
     it("mounts the recovery hook in app/index.tsx and holds the /(tabs) redirect while recovery is pending", () => {
       const indexSource = source("app/index.tsx");
       expect(indexSource).toContain("useSelectedChildRecovery(childRecoveryInput, { setSelectedChildId, resetOnboarding })");
-      expect(indexSource).toContain("if (shouldAttemptSelectedChildRecovery(childRecoveryInput))");
+      // QA P3-4: 판정식은 그대로이고, 이름이 붙어 홀딩 판정의 인자가 됐다.
+      expect(indexSource).toContain("const childRecoveryNeeded = shouldAttemptSelectedChildRecovery(childRecoveryInput);");
+      expect(indexSource).toContain('childRecoveryPending: childRecoveryNeeded && childRecovery.status !== "error",');
       // The already-onboarded fast path pinned by test-login-flow.test.ts must survive
       // (실기기 피드백 1: 데모 세션 예외 `|| isTestSession`이 빠졌다).
       expect(indexSource).toContain('hasReachedHome ? "/(tabs)" : "/onboarding/child-status"');
