@@ -13,10 +13,32 @@ describe("Real session data integrity contract", () => {
     expect(client.removeHouseholdMember).toEqual(expect.any(Function));
   });
 
+  /**
+   * 라운드 49 C-07 — 이 테스트의 제목이 말하는 그대로를 실제로 고정한다.
+   *
+   * 종전 계약은 `hasSession ? 서버 데이터 : 미리보기`였는데, `hasSession = authToken && childId`
+   * 라서 **토큰은 있는데 아이가 아직 없는** 상태가 전부 미리보기로 떨어졌다. 그건 "세션이 없다"가
+   * 아니라 "아이를 아직 모른다"이고, 실사용자에게 픽스처("다온이"의 가짜 지출 3건)를 자기 기록인
+   * 양 보여주는 허위 표시다. 그 상태는 실제로 생긴다:
+   *   - 설정에서 마지막 아이를 지운 뒤 오프라인,
+   *   - onboarding-progress-scope가 childScopeRejected로 selectedChildId를 막 지운 직후,
+   *   - MOB-116 복구가 GET /children을 기다리는 최대 3초의 유예 창.
+   *
+   * 그래서 미리보기 폴백의 기준은 **`!authToken` 하나**다. 토큰이 있는 동안에는 화면이 모르는
+   * 것을 모른다고 말한다(홈은 스켈레톤 + "아이 정보를 불러오고 있어요" + 아이 선택 입구).
+   * 비세션 분기는 그대로라 HOME-001·ITEM-001 픽셀락 캡처(authToken === null 렌더)는 불변이다.
+   */
   it("never falls back to preview/fixture data once a real session is present", () => {
     const homeSource = source("app/(tabs)/index.tsx");
     expect(homeSource).toContain("const hasSession = Boolean(authToken && childId);");
-    expect(homeSource).toContain("const visibleHome = hasSession ? home.data! : previewHome;");
+    expect(homeSource).toContain("const visibleHome = authToken ? home.data! : previewHome;");
+    // 토큰이 있는데 아이를 모르는 창은 픽스처가 아니라 로딩/복구 안내로 간다.
+    expect(homeSource).toContain("if (authToken && !childId) {");
+    expect(homeSource).toContain('testID="home-child-pending"');
+    expect(homeSource).toContain('title="아이 정보를 불러오고 있어요"');
+    expect(homeSource).toContain('router.push("/settings/children")');
+    // 종전 형태로 되돌아가지 않는다.
+    expect(homeSource).not.toContain("hasSession ? home.data! : previewHome");
     // MOB-130: 로딩/에러 판정은 resolveScreenPhase가 한다 -- 손으로 적은
     // `home.isLoading || !home.data`가 에러 분기를 가로채던 형태로 되돌아가지 않는다.
     // 분기 순서 자체는 src/screen-phase.test.ts가 고정한다.
@@ -24,8 +46,14 @@ describe("Real session data integrity contract", () => {
     expect(homeSource).toContain("isError: home.isError");
     expect(homeSource).toContain("hasData: Boolean(home.data)");
 
+    // 준비템 탭도 **같은 규칙**을 따른다(파일 소유는 다르지만 계약은 하나다): 토큰이 있는데
+    // 아이가 없는 창은 픽스처가 아니라 조기 반환으로 빠지고, 미리보기 폴백은 그 뒤에만 남는다
+    // = 폴백에 닿는 유일한 경로가 `!authToken`이다.
     const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain("const visibleItems = hasSession ? items.data!.items : previewItems;");
+    const itemsChildGate = itemsSource.indexOf("if (authToken && !childId) {");
+    const itemsPreviewFallback = itemsSource.indexOf(": previewItems;");
+    expect(itemsChildGate).toBeGreaterThan(-1);
+    expect(itemsPreviewFallback).toBeGreaterThan(itemsChildGate);
 
     const itemDetailSource = source("app/items/[itemTemplateId].tsx");
     expect(itemDetailSource).toContain("const visibleDetail = hasSession ? detail.data! : previewDetail(itemTemplateId);");

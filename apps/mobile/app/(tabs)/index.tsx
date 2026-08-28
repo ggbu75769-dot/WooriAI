@@ -1,19 +1,17 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getBudget, getHome, listChildren, listExpenses, LOCAL_SESSION_TOKEN, type Expense } from "../../src/api/client";
 import {
-  applyChildSwitch,
-  canSwitchChildFromHome,
-  childSwitchOptionAccessibilityLabel,
   childSwitchTriggerAccessibilityLabel,
   CHILD_SWITCH_HEADER_ACCESSIBILITY_ACTIONS,
   CHILD_SWITCH_HEADER_TRIGGER_HINT,
   CHILD_SWITCH_SHEET_TITLE,
   CHILD_SWITCH_TRIGGER_HINT
 } from "../../src/children/child-switch";
+import { ChildSwitchSheet, useChildSwitchSheet } from "../../src/children/ChildSwitchSheet";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";
 import { evaluateBabyCounter, evaluateBirthTransitionPrompt } from "../../src/home/baby-counter";
@@ -66,9 +64,7 @@ import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
-  announceForA11y,
   AppScreen,
-  BottomSheetFrame,
   Card,
   EmptyStateCard,
   FloatingActionButton,
@@ -77,7 +73,6 @@ import {
   PrimaryButton,
   QuickActionIconButton,
   ScreenHeader,
-  StatusBadge,
   TextButton
 } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
@@ -313,6 +308,10 @@ const homeBabyCounterStyle = StyleSheet.create({
  * 아래 스타일은 공용 ScreenHeader와 **같은 토큰**을 쓴다. 카운터가 없는 헤더(수동 단계 등)에서
  * 제목만 Pressable로 감싸야 하는데 ScreenHeader는 title을 문자열로만 받기 때문에, 전환이
  * 가능한 경우에만 같은 골격을 이 화면에서 직접 그린다(불가능한 경우는 종전대로 ScreenHeader).
+ *
+ * 라운드 49 C-09: 시트 **행**의 스타일(row/rowName)은 여기 없다 — 기록·리포트 탭이 같은 시트를
+ * 쓰게 되면서 공용 모듈로 옮겼다(src/children/ChildSwitchSheet.tsx의 childSwitchSheetStyle).
+ * 아래 남은 것은 홈 **헤더**만의 골격이다.
  */
 const homeChildSwitchStyle = StyleSheet.create({
   copy: {
@@ -323,19 +322,6 @@ const homeChildSwitchStyle = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     justifyContent: "space-between"
-  },
-  row: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between",
-    minHeight: theme.touchTarget
-  },
-  rowName: {
-    color: theme.colors.brown,
-    flex: 1,
-    fontSize: theme.typography.body1.fontSize,
-    fontWeight: "700"
   },
   subtitle: {
     color: theme.colors.gray600,
@@ -619,9 +605,6 @@ export default function HomeScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
-  const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
-  // HOME-138: 헤더 탭으로 여는 아이 전환 시트의 열림 상태. 조기 반환(에러/로딩)보다 위에 둔다.
-  const [childSwitchOpen, setChildSwitchOpen] = useState(false);
   const home = useQuery({
     queryKey: ["home", childId],
     enabled: Boolean(authToken && childId),
@@ -837,16 +820,13 @@ export default function HomeScreen() {
   // HOME-138: 아이 전환은 아이 관리 화면과 **같은 경로**(applyChildSwitch)로만 일어난다.
   // 여기서 스토어 쓰기·캐시 무효화를 손으로 다시 적으면 한쪽이 무효화를 빠뜨렸을 때 아이 A의
   // 홈/기록/리포트 캐시가 아이 B 화면에 그대로 남는다(라운드 28의 A→B 캐시 오염).
+  //
+  // 라운드 49 C-09: 그 배선(열림 상태 + 탭 처리 + 시트 JSX)이 이제 기록·리포트 탭과 **한 벌**이다
+  // (src/children/ChildSwitchSheet.tsx). 홈의 동작·문구·픽셀은 그대로고, 달라진 것은 같은 코드를
+  // 세 화면이 나눠 쓴다는 사실뿐이다. 목록은 여전히 이미 읽고 있는 ["children"] 캐시다(새 요청 0).
   const switchableChildren = childrenQuery.data?.children ?? [];
-  const canSwitchChild = hasSession && canSwitchChildFromHome(switchableChildren);
-  const handleChildSwitch = (child: { id: string; nickname: string }) => {
-    setChildSwitchOpen(false);
-    applyChildSwitch(childId, child, {
-      setSelectedChildId,
-      invalidateQueries: (input) => queryClient.invalidateQueries(input),
-      announce: announceForA11y
-    });
-  };
+  const childSwitch = useChildSwitchSheet({ hasSession, childId, children: switchableChildren });
+  const canSwitchChild = childSwitch.canSwitch;
   // 라운드 38 H-9: 전환 시트와 그 입구는 **정상 홈과 에러 홈이 함께 쓴다**. 아래 에러 조기
   // 반환이 헤더보다 위에 있어서, 아이 B로 전환한 직후 네트워크가 끊기면 화면에 남는 것이 실패
   // 카드뿐이었다 -- 아이 A로 되돌아갈 입구가 홈에서 사라져 설정 → 아이 관리로 우회해야 했다
@@ -854,29 +834,15 @@ export default function HomeScreen() {
   // 만들어 두 상태에서 같은 것을 그린다 -- 두 벌로 적으면 한쪽만 고쳐지는 종류의 버그가 된다.
   const childSwitchHeaderText = selectedChild?.nickname ?? CHILD_SWITCH_SHEET_TITLE;
   const childSwitchSheet =
-    canSwitchChild && childSwitchOpen ? (
+    canSwitchChild && childSwitch.isOpen ? (
       // 목록은 ["children"] 캐시(설정 · 리포트와 같은 키)를 그대로 읽는다 -- 새 요청 0.
-      <View testID="home-child-switch-sheet">
-        <BottomSheetFrame title={CHILD_SWITCH_SHEET_TITLE} showHandle={false}>
-          {switchableChildren.map((child) => {
-            const isCurrent = child.id === childId;
-            return (
-              <Pressable
-                key={child.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isCurrent }}
-                accessibilityLabel={childSwitchOptionAccessibilityLabel(child.nickname, isCurrent)}
-                onPress={() => handleChildSwitch(child)}
-                style={homeChildSwitchStyle.row}
-              >
-                <Text style={homeChildSwitchStyle.rowName}>{child.nickname}</Text>
-                {isCurrent ? <StatusBadge label="현재 선택" tone="success" /> : null}
-              </Pressable>
-            );
-          })}
-          <TextButton label="닫기" onPress={() => setChildSwitchOpen(false)} />
-        </BottomSheetFrame>
-      </View>
+      <ChildSwitchSheet
+        testID="home-child-switch-sheet"
+        options={childSwitch.options}
+        currentChildId={childId}
+        onSelect={childSwitch.switchTo}
+        onClose={childSwitch.close}
+      />
     ) : null;
 
   // 세션 없는 미리보기에는 새로고침할 서버 데이터가 없으므로 RefreshControl을 붙이지 않는다.
@@ -913,7 +879,7 @@ export default function HomeScreen() {
                 accessibilityLabel={childSwitchTriggerAccessibilityLabel(childSwitchHeaderText)}
                 accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
                 hitSlop={8}
-                onPress={() => setChildSwitchOpen((open) => !open)}
+                onPress={childSwitch.toggle}
                 testID="home-child-switch-trigger"
               >
                 <Text style={homeChildSwitchStyle.title}>{childSwitchHeaderText}</Text>
@@ -961,7 +927,42 @@ export default function HomeScreen() {
     );
   }
 
-  const visibleHome = hasSession ? home.data! : previewHome;
+  // ---------------------------------------------------------------------------------------------
+  // 라운드 49 C-07 — 실세션에는 **절대** 미리보기 픽스처를 그리지 않는다.
+  //
+  // 종전 게이트는 `hasSession = authToken && childId`였고, 그 아래 한 줄이 `hasSession ? 서버
+  // 데이터 : previewHome`이었다. 즉 **토큰은 있는데 childId가 null인 상태**가 전부 미리보기로
+  // 떨어졌다 -- 실사용자가 자기 홈에서 "다온이"의 가짜 지출 3건(45,900원 기저귀 …)을 자기 기록
+  // 으로 읽는다. 그 상태는 드물지 않다:
+  //   1. 설정에서 마지막 아이를 지운 뒤 오프라인(다음 화면 전환이 서버를 못 부른다),
+  //   2. onboarding-progress-scope가 childScopeRejected로 selectedChildId를 막 지운 직후,
+  //   3. MOB-116 복구가 GET /children을 기다리는 최대 3초의 유예 창.
+  // 셋 다 "아직 아이를 모른다"이지 "로그아웃 상태"가 아니다.
+  //
+  // 그래서 미리보기 폴백을 **비세션(!authToken)** 한 경우로 좁히고, 토큰이 있는 동안에는 모르는
+  // 것을 모른다고 말한다. 비세션 분기는 한 글자도 바뀌지 않는다(HOME-001 픽셀락 캡처는
+  // authToken === null 렌더다).
+  if (authToken && !childId) {
+    return (
+      <AppScreen>
+        <View testID="home-child-pending" style={{ gap: theme.spacing.section }}>
+          <SkeletonCard />
+          <SkeletonRow />
+          {/* 스켈레톤만 두면 3초 유예가 지나도 화면이 말을 하지 않는다. 사실 한 줄과, 스스로
+              풀 수 있는 길(아이 선택)을 함께 둔다 -- 죄책감 없는 해요체(DNC-018). */}
+          <EmptyStateCard
+            title="아이 정보를 불러오고 있어요"
+            actionLabel="아이 선택하기"
+            onPress={() => router.push("/settings/children")}
+          />
+        </View>
+      </AppScreen>
+    );
+  }
+
+  // 여기부터 authToken이 있으면 childId도 있고(위 분기), 그러면 hasSession이 참이라 위 로딩·에러
+  // 분기를 지나 home.data가 있다. 남은 갈림길은 "세션인가 아닌가" 하나뿐이다.
+  const visibleHome = authToken ? home.data! : previewHome;
   const monthlyUsed = visibleHome.monthly.usedAmountKrw;
   const budget = visibleHome.monthly.amountKrw;
   // HOME-127: 퍼센트 판정은 src/home/budget-progress.ts가 한다. 종전에는 여기서
@@ -1140,10 +1141,10 @@ export default function HomeScreen() {
                     accessibilityHint={CHILD_SWITCH_HEADER_TRIGGER_HINT}
                     accessibilityActions={CHILD_SWITCH_HEADER_ACCESSIBILITY_ACTIONS}
                     onAccessibilityAction={(event) => {
-                      if (event.nativeEvent.actionName === "activate") setChildSwitchOpen((open) => !open);
+                      if (event.nativeEvent.actionName === "activate") childSwitch.toggle();
                     }}
                     hitSlop={8}
-                    onPress={() => setChildSwitchOpen((open) => !open)}
+                    onPress={childSwitch.toggle}
                     testID="home-child-switch-trigger"
                   >
                     <Text testID="home-baby-counter" style={homeBabyCounterStyle.title}>
@@ -1178,7 +1179,7 @@ export default function HomeScreen() {
                   )}
                   accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
                   hitSlop={8}
-                  onPress={() => setChildSwitchOpen((open) => !open)}
+                  onPress={childSwitch.toggle}
                   testID="home-child-switch-trigger"
                 >
                   <Text style={homeChildSwitchStyle.title}>

@@ -520,7 +520,10 @@ describe("HOME-124 홈 화면 배선 (app/(tabs)/index.tsx)", () => {
   it("미리보기 픽스처 분기는 건드리지 않는다 (HOME-001 캡처 경로)", () => {
     expect(homeSource).toContain('spentOn: "오늘"');
     expect(homeSource).toContain('spentOn: "05.20"');
-    expect(homeSource).toContain("const visibleHome = hasSession ? home.data! : previewHome;");
+    // 라운드 49 C-07: 픽스처로 떨어지는 조건이 `hasSession`(= 토큰 AND 아이)에서 **비세션**
+    // 하나로 좁혀졌다. 토큰이 있는데 아이가 아직 없는 창에서 이 3건이 실사용자 홈에 뜨던 것을
+    // 막는다 -- 계약 본체는 src/real-session-data-integrity.test.ts.
+    expect(homeSource).toContain("const visibleHome = authToken ? home.data! : previewHome;");
   });
 });
 
@@ -1182,12 +1185,16 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).toContain("subtitle={`${recordsMonthLabel} 지출 내역을 한눈에 확인해 보세요.`}");
     expect(recordsSource).toContain("const monthSummary = buildRecordsMonthSummary({");
     expect(recordsSource).toContain("monthLabel: recordsMonthLabel,");
-    // 라운드 48 T4(D3): 두 값 모두 다자녀 라벨을 통과한다 -- 아이가 하나면 원문 그대로다
-    // (withChildScopeLabel, src/children/child-switch.ts).
-    expect(recordsSource).toContain("{withChildScopeLabel(monthSummary.text, childScopeLabel)}");
+    // 라운드 48 T4(D3) → 49 C-08: 보이는 문구는 순수 모듈의 문장 그대로다(아이 이름은 위 줄로
+    // 올라갔다). 스크린리더 라벨만 이름을 **쉼표로** 앞세운다 -- 줄 사이 층위는 소리로 전달되지
+    // 않으므로, 이 한 줄만 따로 들으면 누구의 숫자인지 알 수 없기 때문이다.
+    expect(recordsSource).toContain("{monthSummary.text}");
     expect(recordsSource).toContain(
-      "accessibilityLabel={withChildScopeLabel(monthSummary.accessibilityLabel, childScopeLabel)}"
+      "accessibilityLabel={withSpokenChildScopeLabel(monthSummary.accessibilityLabel, childScopeLabel)}"
     );
+    // 요약 문장 자체에 이름을 이어 붙이던 형태로 되돌아가지 않는다(구분자가 셋이 되어 이름이
+    // "8월"·"합계"와 동급 항목처럼 읽혔다).
+    expect(recordsSource).not.toContain("withChildScopeLabel(monthSummary.text");
     // 종전 하드코딩 문장은 두 자리 모두에서 사라졌다.
     expect(recordsSource).not.toContain("이번 달 지출 내역을 한눈에 확인해 보세요.");
     expect(recordsSource).not.toContain("이번 달 ${monthlyRecordCount}건");
