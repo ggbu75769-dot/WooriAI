@@ -5,6 +5,7 @@ import {
   attentionFilterChipLabel,
   buildImportBulkSelectionPlan,
   canBulkSelectImportRows,
+  canEditImportRowCategory,
   confirmableSelectedRowIds,
   countImportRowsNeedingAttention,
   countUnappliedReviewedRows,
@@ -12,7 +13,11 @@ import {
   formatImportRowDate,
   importBulkProgressLabel,
   importBulkSelectionLabel,
+  importCategoryNameResolver,
   importRowBadge,
+  importRowCategoryA11ySuffix,
+  importRowCategoryEditLabel,
+  importRowCategoryView,
   importRowDisplay,
   importRowNotice,
   importRowSelectability,
@@ -23,9 +28,14 @@ import {
   resolveImportTargetChildName,
   rollbackImportRowSelection,
   setImportRowSelection,
+  shouldPatchImportRowCategory,
   shouldShowAttentionFilter,
   toggleImportRowSelection,
   IMPORT_ATTENTION_FILTER_EMPTY_TEXT,
+  IMPORT_ROW_CATEGORY_EDIT_CLOSE_LABEL,
+  IMPORT_ROW_CATEGORY_EDIT_LABEL,
+  IMPORT_ROW_CATEGORY_LABEL,
+  IMPORT_ROW_CATEGORY_STUB_HINT,
   IMPORT_ROW_LOCKED_MESSAGE,
   IMPORT_ROW_REVIEW_MESSAGE,
   IMPORT_ROW_REVIEWABLE_STATUSES,
@@ -561,5 +571,157 @@ describe("UX-S 검수 화면 배선 (app/import/[importJobId].tsx)", () => {
     expect(src).not.toContain("!targetChildNotice &&");
     // 새 hex 금지 -- 이 화면은 theme 토큰만 쓴다.
     expect(src).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+});
+
+/**
+ * 라운드 65 A(#2) — 검수 화면의 **분류 표시·편집**.
+ *
+ * 서버 PATCH는 `categoryId`를 진작부터 받고 있었는데(apps/api/src/imports/dto/import.dto.ts)
+ * 화면은 읽은 값을 되돌려 보낼 뿐이었고, 행 카드에는 분류를 그리는 줄조차 없었다. 자동 분류는
+ * 품목명 키워드 표가 정하므로 가맹점 이름(쿠팡·이마트·올리브영)뿐인 카드 내역은 대부분
+ * 스텁 분류("가져오기 기본")로 떨어지는데, 사용자는 **승인 전에 그 사실을 볼 수 없었다**.
+ */
+describe("A(#2) 행 분류 표시 (importRowCategoryView)", () => {
+  const options = [
+    { id: "cat-diaper", label: "기저귀/위생" },
+    { id: "cat-feeding", label: "수유/이유식" }
+  ];
+  const resolve = importCategoryNameResolver([
+    { id: "cat-diaper", name: "기저귀/위생" },
+    { id: "cat-feeding", name: "수유/이유식" },
+    { id: "cat-import-stub", name: "가져오기 기본" }
+  ]);
+
+  it("고를 수 있는 목록에 있는 분류는 칩과 같은 라벨로 보이고, 고르라고 재촉하지 않는다", () => {
+    expect(importRowCategoryView(row({ categoryId: "cat-diaper" }), options, resolve)).toEqual({
+      name: "기저귀/위생",
+      needsChoice: false
+    });
+  });
+
+  it("스텁 분류로 떨어진 행은 이름을 보여 주되 '골라 주세요'가 함께 붙는다", () => {
+    expect(importRowCategoryView(row({ categoryId: "cat-import-stub" }), options, resolve)).toEqual({
+      name: "가져오기 기본",
+      needsChoice: true
+    });
+  });
+
+  it("categoryId가 없으면 줄 자체를 만들지 않는다 (없는 값을 지어내지 않는다)", () => {
+    expect(importRowCategoryView(row({ categoryId: undefined }), options, resolve)).toBeNull();
+    expect(importRowCategoryView(row({ categoryId: "   " }), options, resolve)).toBeNull();
+  });
+
+  it("이름을 해석하지 못하면 '기타'로 단언하지 않고 줄을 지운다", () => {
+    // buildCategoryNameLookup은 모르는 id를 "기타"로 떨어뜨린다 -- 아직 승인하지 않은 행에는
+    // 그 단언이 거짓이 될 수 있으므로 이 모듈은 null을 쓴다.
+    expect(resolve("모르는-id")).toBeNull();
+    expect(importRowCategoryView(row({ categoryId: "모르는-id" }), options, resolve)).toBeNull();
+  });
+
+  it("분류 목록을 아직 못 받았으면(0건) 멀쩡한 행에 '골라 주세요'를 붙이지 않는다", () => {
+    expect(importRowCategoryView(row({ categoryId: "cat-import-stub" }), [], resolve)).toEqual({
+      name: "가져오기 기본",
+      needsChoice: false
+    });
+    expect(importRowCategoryView(row({ categoryId: "cat-diaper" }), [], null)).toBeNull();
+  });
+
+  it("잠금 카드는 accessible 한 덩어리라 분류를 라벨에도 싣는다", () => {
+    const view = importRowCategoryView(row({ categoryId: "cat-diaper" }), options, resolve);
+    expect(importRowCategoryA11ySuffix(view)).toBe(`, ${IMPORT_ROW_CATEGORY_LABEL} 기저귀/위생`);
+    expect(importRowCategoryA11ySuffix(null)).toBe("");
+  });
+});
+
+describe("A(#2) 분류 편집 판정", () => {
+  it("잠긴 행에는 분류 픽커를 열지 않는다 (분류를 바꿔도 잠긴 이유는 그대로다)", () => {
+    expect(canEditImportRowCategory(row())).toBe(true);
+    expect(canEditImportRowCategory(row({ validationStatus: "duplicate_candidate" }))).toBe(true);
+    expect(canEditImportRowCategory(row({ validationStatus: "missing_item_name" }))).toBe(false);
+    expect(canEditImportRowCategory(row({ validationStatus: "invalid_amount" }))).toBe(false);
+    // 체크박스를 그리는 판정과 같은 자를 쓴다(두 벌로 갈리면 다시 침묵하는 컨트롤이 생긴다).
+    for (const status of ["valid", "duplicate_candidate", "low_confidence_duplicate_candidate", "missing_date"]) {
+      expect(canEditImportRowCategory(row({ validationStatus: status }))).toBe(
+        isImportRowSelectable(row({ validationStatus: status }))
+      );
+    }
+  });
+
+  it("이미 그 분류면 PATCH를 보내지 않는다 (빈 요청이 userReviewed만 세우는 것을 막는다)", () => {
+    expect(shouldPatchImportRowCategory(row({ categoryId: "cat-diaper" }), "cat-feeding")).toBe(true);
+    expect(shouldPatchImportRowCategory(row({ categoryId: "cat-diaper" }), "cat-diaper")).toBe(false);
+    expect(shouldPatchImportRowCategory(row({ categoryId: undefined }), "cat-diaper")).toBe(true);
+    expect(shouldPatchImportRowCategory(row({ categoryId: "cat-diaper" }), "  ")).toBe(false);
+  });
+
+  it("펼침 버튼 문구는 한 자리에서 갈린다", () => {
+    expect(importRowCategoryEditLabel(false)).toBe(IMPORT_ROW_CATEGORY_EDIT_LABEL);
+    expect(importRowCategoryEditLabel(true)).toBe(IMPORT_ROW_CATEGORY_EDIT_CLOSE_LABEL);
+    expect(IMPORT_ROW_CATEGORY_EDIT_LABEL).not.toBe(IMPORT_ROW_CATEGORY_EDIT_CLOSE_LABEL);
+  });
+
+  it("문구는 해요체이고 없는 기능을 약속하지 않는다 (DNC-018)", () => {
+    for (const text of [
+      IMPORT_ROW_CATEGORY_STUB_HINT,
+      IMPORT_ROW_CATEGORY_EDIT_LABEL,
+      IMPORT_ROW_CATEGORY_EDIT_CLOSE_LABEL
+    ]) {
+      expect(text).not.toMatch(/(습니다|하십시오|하세요\.$)/);
+    }
+    expect(IMPORT_ROW_CATEGORY_STUB_HINT).toContain("골라 주세요");
+    expect(IMPORT_ROW_CATEGORY_LABEL).toBe("분류");
+  });
+});
+
+describe("A(#2) 분류 표시·편집 배선 (app/import/[importJobId].tsx)", () => {
+  const screen = () => source("app/import/[importJobId].tsx");
+
+  it("칩 목록은 지출 수정 화면과 같은 모듈(selectableCategories)을 지난 목록만 쓴다", () => {
+    const src = screen();
+    expect(src).toContain('import { selectableCategories } from "../../src/categories";');
+    expect(src).toContain("selectableCategories(serverCategories ?? []).map(");
+    // 새 픽커를 만들지 않는다 -- 공유 CategoryChip을 쓴다.
+    expect(src).toContain("<CategoryChip");
+    // 행의 현재 값을 selectableCategories에 넘기면 스텁이 칩으로 되살아난다(=고를 수 있게 된다).
+    expect(src).not.toContain("selectableCategories(serverCategories ?? [], row.categoryId)");
+  });
+
+  it("이름 해석은 공유 캐시 하나에서 오고 includeAll 규약을 지킨다(CAT-124)", () => {
+    const src = screen();
+    expect(src).toContain('queryKey: ["categories"]');
+    expect(src).toContain("listCategories(authToken!, { includeAll: true })");
+    expect(src).toContain("importCategoryNameResolver(serverCategories)");
+    // 세션이 없으면 요청 자체가 없다(IMP-003 캡처 경로 불변).
+    expect(src).toContain("enabled: Boolean(authToken),");
+  });
+
+  it("PATCH는 categoryId 하나만 싣고, 그 행만 잠근다", () => {
+    const src = screen();
+    expect(src).toContain("updateImportRow(authToken!, importJobId, row.id, { categoryId })");
+    expect(src).toContain("shouldPatchImportRowCategory(row, categoryId)");
+    // 보기 전용 참여자는 다른 편집 경로와 같은 게이트를 지난다(라운드 41 K-7).
+    expect(src).toContain("explainExpenseViewOnly();");
+    // 확정 버튼이 보는 그 집합에 이 행도 들어간다(반영 중 확정으로 행이 조용히 빠지지 않는다).
+    expect(src).toContain("const updateCategory = useMutation({");
+    expect(src).toContain("next.add(row.id);");
+  });
+
+  it("분류 줄은 값이 있을 때만 그리고, 잠금 카드에도 보인다", () => {
+    const src = screen();
+    expect(src).toContain("importRowCategoryView(row, categoryOptions, resolveCategoryName)");
+    expect(src).toContain("{category.needsChoice ? <Text style={rowNoticeStyle}>{IMPORT_ROW_CATEGORY_STUB_HINT}</Text> : null}");
+    expect(src).toContain("importRowCategoryA11ySuffix(category)");
+    // 체크박스 역할·상태는 종전 문자열 그대로다(A11Y 계약).
+    expect(src).toContain("accessibilityState={{ checked: row.selected, disabled }}");
+  });
+
+  it("칩은 펼친 한 행에만 마운트한다 (2,000행 가상화 유지)", () => {
+    const src = screen();
+    expect(src).toContain("const [expandedCategoryRowId, setExpandedCategoryRowId] = useState<string | null>(null);");
+    expect(src).toContain("categoryExpanded: expandedCategoryRowId === row.id,");
+    expect(src).toContain("{expanded ? (");
+    // 분류 줄 자체를 listData에서 만들면(새 객체) 전 행 memo가 깨진다 -- 계산은 행 안에서 한다.
+    expect(src).not.toContain("category: importRowCategoryView(");
   });
 });

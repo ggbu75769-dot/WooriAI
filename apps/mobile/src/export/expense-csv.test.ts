@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Expense } from "../api/client";
 import { buildCategoryNameLookup, categoryCatalog } from "../categories";
@@ -50,27 +52,55 @@ describe("EXP-106 expense CSV builder", () => {
     expect(EXPENSE_CSV_HEADER).toBe("날짜,구분,카테고리,항목,판매처,결제수단,금액(원),메모,출처");
   });
 
-  it("CSV-127 / 라운드 48 T3: 헤더는 9열이고, 재가져오기가 의존하는 날짜/금액/메모 키워드가 그대로 남는다", () => {
+  /**
+   * 라운드 65 A(#1) — **서버 키워드 표를 소스에서 읽어** 대조한다(수기 미러 계약,
+   * src/api/contracts-mirror.test.ts와 같은 관례).
+   *
+   * 종전에는 이 테스트가 키워드 26개를 **여기에 다시 적어** 두고 새 열이 그것들과 겹치지
+   * 않는지만 봤다. 그래서 정작 반대 방향 — "우리가 내보내는 열을 서버가 알아보기는 하는가" —
+   * 은 아무도 묻지 않았고, `항목`(품목명 열)이 item 키워드에 없다는 사실이 그대로 통과했다
+   * (`"항목".includes("품목")`은 거짓이다). 내보낸 파일을 다시 올리면 전 행이
+   * `missing_item_name`으로 잠기는 결함이 그 사이로 나갔다.
+   *
+   * 실제 파싱까지 돌려 보는 왕복 e2e는 서버 쪽에 있다
+   * (apps/api/test/mobile-export-csv-roundtrip.test.ts). 이쪽은 그 계약의 **모바일 거울**이다.
+   */
+  it("CSV-127 / 라운드 48 T3 / 라운드 65 A: 9열이 서버 HEADER_KEYWORDS에서 의도한 역할로만 잡힌다", () => {
     const columns = EXPENSE_CSV_HEADER.split(",");
     expect(columns).toHaveLength(9);
-    // apps/api/src/imports/import-parser.ts의 HEADER_KEYWORDS가 알아보는 열 -- 내보낸 파일을
-    // 그대로 다시 엑셀 가져오기에 넣을 수 있어야 한다는 EXP-106의 계약.
-    expect(columns).toContain("날짜");
-    expect(columns).toContain("금액(원)");
-    expect(columns).toContain("메모");
-    // 추가된 열들은 그 키워드 중 어느 것과도 겹치지 않는다(겹치면 가져오기가 엉뚱한 열을 집는다).
-    // 특히 "판매처"는 item 키워드(가맹점/가맹점명/상품명/품목/내용/적요/거래내용/이용가맹점)가 아니고,
-    // "결제수단"은 date 키워드 "결제일"·amount 키워드 "결제금액" 어느 쪽도 포함하지 않는다
-    // (import-parser는 `헤더.includes(키워드)`로 판정한다 -- 겹치면 날짜/금액 열을 가로챈다).
-    for (const importKeyword of [
-      "날짜", "일자", "거래일", "이용일", "사용일", "결제일", "일시",
-      "금액", "출금액", "출금", "사용금액", "결제금액", "이용금액", "승인금액", "지출금액",
-      "내용", "적요", "가맹점명", "가맹점", "상품명", "품목", "거래내용", "이용가맹점",
-      "메모", "비고", "설명"
-    ]) {
-      expect(`구분`.includes(importKeyword), `구분 vs ${importKeyword}`).toBe(false);
-      expect(`판매처`.includes(importKeyword), `판매처 vs ${importKeyword}`).toBe(false);
-      expect(`결제수단`.includes(importKeyword), `결제수단 vs ${importKeyword}`).toBe(false);
+
+    const parserSource = readFileSync(
+      join(process.cwd(), "..", "..", "apps", "api", "src", "imports", "import-parser.ts"),
+      "utf8"
+    );
+    const block = /const HEADER_KEYWORDS = \{([\s\S]*?)\n\};/.exec(parserSource);
+    expect(block, "HEADER_KEYWORDS 리터럴을 import-parser.ts에서 찾지 못했다").not.toBeNull();
+
+    const keywordsByRole: Record<string, string[]> = {};
+    for (const entry of block![1].matchAll(/(\w+):\s*\[([^\]]*)\]/g)) {
+      keywordsByRole[entry[1]] = [...entry[2].matchAll(/"([^"]+)"/g)].map((keyword) => keyword[1]);
+    }
+    // 표가 실제로 읽혔는지부터 (정규식이 조용히 죽으면 아래 단언이 전부 무의미해진다).
+    expect(Object.keys(keywordsByRole).sort()).toEqual(["amount", "date", "item", "memo"]);
+    for (const role of Object.keys(keywordsByRole)) {
+      expect(keywordsByRole[role].length, `${role} 키워드가 비었다`).toBeGreaterThan(0);
+    }
+
+    // 서버 판정은 `헤더.includes(키워드)`다 — 한 열이 두 역할에 걸리면 else-if 사슬의 순서가
+    // 결과를 정하므로, 열마다 걸리는 역할 집합을 **정확히** 못 박는다.
+    const rolesFor = (column: string) =>
+      Object.keys(keywordsByRole)
+        .filter((role) => keywordsByRole[role].some((keyword) => column.includes(keyword)))
+        .sort();
+
+    expect(rolesFor("날짜")).toEqual(["date"]);
+    expect(rolesFor("항목")).toEqual(["item"]);
+    expect(rolesFor("금액(원)")).toEqual(["amount"]);
+    expect(rolesFor("메모")).toEqual(["memo"]);
+    // 나머지 다섯 열은 어떤 역할도 가로채지 않는다. 특히 "결제수단"은 date 키워드 "결제일"·
+    // amount 키워드 "결제금액" 어느 쪽도 포함하지 않고, "판매처"는 item 키워드가 아니다.
+    for (const column of ["구분", "카테고리", "판매처", "결제수단", "출처"]) {
+      expect(rolesFor(column), `${column} 는 어떤 역할도 가져가면 안 된다`).toEqual([]);
     }
   });
 

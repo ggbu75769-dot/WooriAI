@@ -2,11 +2,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
-import { FlatList, Pressable, Text, View } from "react-native";
+import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import {
   confirmImport,
   getImportJob,
+  listCategories,
   listImportRows,
   LOCAL_SESSION_TOKEN,
   updateImportRow,
@@ -15,6 +16,9 @@ import {
   type ImportJob,
   type ImportRow
 } from "../../src/api/client";
+// 라운드 65 A(#2): 검수 화면이 내미는 분류 목록은 **지출 수정 화면과 같은 모듈**을 지난다 --
+// 퀵타일 별칭·가져오기 스텁·노출 제외 분류를 화면마다 다시 걸러 내지 않는다(CAT-124).
+import { selectableCategories } from "../../src/categories";
 import {
   importLandingMonthNotice,
   resolveImportLandingMonth,
@@ -43,32 +47,50 @@ import { shouldForgetImportResume } from "../../src/import/import-resume";
 import {
   attentionFilterChipLabel,
   buildImportBulkSelectionPlan,
+  canEditImportRowCategory,
   confirmableSelectedRowIds,
   countImportRowsNeedingAttention,
   countUnappliedReviewedRows,
   filterImportRows,
   importBulkProgressLabel,
   importBulkSelectionLabel,
+  importCategoryNameResolver,
   importRowBadge,
+  importRowCategoryA11ySuffix,
+  importRowCategoryEditLabel,
+  importRowCategoryView,
   importRowDisplay,
   importRowNotice,
   isImportRowSelectable,
   rollbackImportRowSelection,
   setImportRowSelection,
+  shouldPatchImportRowCategory,
   shouldShowAttentionFilter,
   toggleImportRowSelection,
   IMPORT_ATTENTION_FILTER_EMPTY_TEXT,
+  IMPORT_ROW_CATEGORY_LABEL,
+  IMPORT_ROW_CATEGORY_STUB_HINT,
   IMPORT_ROW_LOCKED_A11Y_PREFIX,
   IMPORT_ROW_LOCKED_MESSAGE,
   IMPORT_TARGET_CHILD_LABEL,
   importTargetChildNotice,
   resolveImportTargetChildName,
+  type ImportCategoryOption,
+  type ImportRowCategoryView,
   type ImportRowFilter
 } from "../../src/import/preview-rows";
 import { useImportResumeStore } from "../../src/stores/import-resume.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { Card, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
+import {
+  Card,
+  CategoryChip,
+  EmptyStateCard,
+  PrimaryButton,
+  ScreenHeader,
+  SecondaryButton,
+  StatusBadge
+} from "../../src/ui";
 
 /**
  * 확정 요청에 실을 행 id. 판정 자체(확정 가능 + 선택됨)는 순수 모듈이 갖고 있다 --
@@ -98,13 +120,90 @@ const webScrollHiddenStyle = {
 } as unknown as ViewStyle;
 
 type ImportRowToggleHandler = (row: ImportRow) => void;
+type ImportRowCategoryExpandHandler = (rowId: string) => void;
+type ImportRowCategorySelectHandler = (row: ImportRow, categoryId: string) => void;
 
-/** FlatList 한 항목. 행 memo가 깨지지 않도록 **이미 계산된 값**만 담는다(함수는 안정된 참조). */
+/**
+ * FlatList 한 항목. 행 memo가 깨지지 않도록 **이미 계산된 값**(또는 렌더마다 같은 참조)만
+ * 담는다.
+ *
+ * 라운드 65 A(#2): 분류 줄은 여기서 미리 계산하지 **않는다** -- `importRowCategoryView`가
+ * 돌려주는 객체는 매번 새 참조라, 여기 담으면 어느 행 하나가 바뀔 때마다 2,000행 전부의 memo가
+ * 깨진다. 대신 목록·해석 함수(둘 다 useMemo로 안정된 참조)를 넘기고 계산은 행 안에서 한다 --
+ * 값은 같고 참조만 안정된다.
+ */
 type ImportRowListItem = {
   row: ImportRow;
   disabled: boolean;
   onToggle: ImportRowToggleHandler;
+  /** `selectableCategories`를 지난 목록(= 지출 수정 화면의 칩과 같은 목록). */
+  categoryOptions: readonly ImportCategoryOption[];
+  /** 목록에 없는 id의 이름 해석. 모르면 null을 돌려주고, 그러면 분류 줄 자체가 사라진다. */
+  resolveCategoryName: (categoryId: string) => string | null;
+  categoryExpanded: boolean;
+  onExpandCategory: ImportRowCategoryExpandHandler;
+  onSelectCategory: ImportRowCategorySelectHandler;
 };
+
+/** 행 카드의 분류 줄 + (편집 가능할 때) 칩 목록. 새 픽커를 만들지 않고 CategoryChip을 쓴다. */
+function ImportRowCategoryBlock({
+  row,
+  category,
+  options,
+  editable,
+  expanded,
+  onExpand,
+  onSelect
+}: {
+  row: ImportRow;
+  category: ImportRowCategoryView;
+  options: readonly ImportCategoryOption[];
+  editable: boolean;
+  expanded: boolean;
+  onExpand: ImportRowCategoryExpandHandler;
+  onSelect: ImportRowCategorySelectHandler;
+}) {
+  const handleExpand = useCallback(() => onExpand(row.id), [onExpand, row.id]);
+
+  return (
+    <View style={{ gap: 6 }}>
+      <View style={summaryRowStyle}>
+        <Text style={summaryLabelStyle}>{IMPORT_ROW_CATEGORY_LABEL}</Text>
+        <Text style={summaryValueStyle}>{category.name}</Text>
+      </View>
+      {/* 스텁 분류(자동 분류 실패)로 떨어진 행만 이 한 줄을 받는다 -- 승인 전에 보이게 하는 것이
+          이 라운드의 요점이다. */}
+      {category.needsChoice ? <Text style={rowNoticeStyle}>{IMPORT_ROW_CATEGORY_STUB_HINT}</Text> : null}
+      {editable ? (
+        <View style={{ gap: 6 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={importRowCategoryEditLabel(expanded)}
+            accessibilityState={{ expanded }}
+            hitSlop={8}
+            onPress={handleExpand}
+          >
+            <Text style={rowCategoryEditStyle}>{importRowCategoryEditLabel(expanded)}</Text>
+          </Pressable>
+          {/* PERF: 칩은 **펼친 행에만** 마운트한다 -- 2,000행 상한에서 행마다 12개 칩을 항상
+              그리면 가상화가 아끼려던 것을 그대로 다시 쓴다. */}
+          {expanded ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {options.map((option) => (
+                <CategoryChip
+                  key={option.id}
+                  label={option.label}
+                  selected={option.id === row.categoryId}
+                  onPress={() => onSelect(row, option.id)}
+                />
+              ))}
+            </ScrollView>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 /**
  * 정말로 확정 불가한 행. 체크박스를 그리지 않는 이유:
@@ -118,14 +217,28 @@ type ImportRowListItem = {
  * 아래 선택 가능 카드로 간다 -- 여기에 두면 가져올 방법 자체가 사라지고, 아래 안내문("원본
  * 파일에서 고친 뒤 다시 올려 주세요")까지 거짓이 된다(다시 올려도 판정은 같다).
  */
-const LockedImportRowCard = memo(function LockedImportRowCard({ row }: { row: ImportRow }) {
+const LockedImportRowCard = memo(function LockedImportRowCard({
+  row,
+  categoryOptions,
+  resolveCategoryName
+}: {
+  row: ImportRow;
+  categoryOptions: readonly ImportCategoryOption[];
+  resolveCategoryName: (categoryId: string) => string | null;
+}) {
   const display = importRowDisplay(row);
   const badge = importRowBadge(row);
+  /**
+   * 라운드 65 A(#2): 잠긴 행도 **분류는 보여 준다**(고치지는 못한다 -- 분류를 바꿔도 이 행이
+   * 잠긴 이유는 그대로다). 이 카드는 `accessible` 한 덩어리라 자식 텍스트가 따로 읽히지
+   * 않으므로, 분류는 라벨 문자열에도 함께 실어야 스크린리더에 들린다.
+   */
+  const category = importRowCategoryView(row, categoryOptions, resolveCategoryName);
 
   return (
     <View
       accessible
-      accessibilityLabel={`${IMPORT_ROW_LOCKED_A11Y_PREFIX}, ${display.title}, ${display.amountText}, ${display.dateText}, ${IMPORT_ROW_LOCKED_MESSAGE}`}
+      accessibilityLabel={`${IMPORT_ROW_LOCKED_A11Y_PREFIX}, ${display.title}, ${display.amountText}, ${display.dateText}${importRowCategoryA11ySuffix(category)}, ${IMPORT_ROW_LOCKED_MESSAGE}`}
       style={rowCardLockedStyle}
     >
       <View style={rowHeaderStyle}>
@@ -136,6 +249,12 @@ const LockedImportRowCard = memo(function LockedImportRowCard({ row }: { row: Im
       </View>
       <Text style={rowAmountStyle}>{display.amountText}</Text>
       <Text style={rowDateStyle}>{display.dateText}</Text>
+      {category ? (
+        <View style={summaryRowStyle}>
+          <Text style={summaryLabelStyle}>{IMPORT_ROW_CATEGORY_LABEL}</Text>
+          <Text style={summaryValueStyle}>{category.name}</Text>
+        </View>
+      ) : null}
       {badge ? <StatusBadge label={badge.label} tone={badge.tone} /> : null}
       <Text style={rowNoticeStyle}>{IMPORT_ROW_LOCKED_MESSAGE}</Text>
     </View>
@@ -145,37 +264,71 @@ const LockedImportRowCard = memo(function LockedImportRowCard({ row }: { row: Im
 function ImportRowCard({
   row,
   disabled,
-  onToggle
+  onToggle,
+  categoryOptions,
+  resolveCategoryName,
+  categoryExpanded,
+  onExpandCategory,
+  onSelectCategory
 }: {
   row: ImportRow;
   disabled: boolean;
   onToggle: ImportRowToggleHandler;
+  categoryOptions: readonly ImportCategoryOption[];
+  resolveCategoryName: (categoryId: string) => string | null;
+  categoryExpanded: boolean;
+  onExpandCategory: ImportRowCategoryExpandHandler;
+  onSelectCategory: ImportRowCategorySelectHandler;
 }) {
   const display = importRowDisplay(row);
   const badge = importRowBadge(row);
   // K-1: 검토 가능 행이면 "체크 = 확인 완료"라는 사실을 한 줄로 말한다(valid 행에는 null).
   const notice = importRowNotice(row);
   const handlePress = useCallback(() => onToggle(row), [onToggle, row]);
+  const category = importRowCategoryView(row, categoryOptions, resolveCategoryName);
+  // 목록을 아직 못 받았으면 고를 것이 없다(빈 칩 줄을 그리지 않는다). 편집을 받지 않는 상태
+  // (확정 완료·일괄 실행 중·이 행 반영 중)는 체크박스와 같은 판정 하나를 그대로 쓴다.
+  const categoryEditable = !disabled && canEditImportRowCategory(row) && categoryOptions.length > 0;
 
+  /**
+   * 라운드 65 A(#2): 체크박스 영역과 분류 영역을 **형제**로 나눈다. 예전에는 카드 자체가
+   * 체크박스 Pressable이었는데, 그 안에 칩을 넣으면 ⓐ 칩 탭이 체크 토글과 겹치고 ⓑ
+   * `accessible`한 체크박스가 자식을 삼켜 칩이 스크린리더에 닿지 않는다. 카드의 테두리·여백은
+   * 바깥 View가 그대로 물려받아 렌더는 종전과 같고(IMP-003 픽셀락은 비세션 업로드 화면
+   * app/import/index.tsx라 이 화면은 캡처 밖이다), 체크 영역이 곧 터치 타깃인 것도 그대로다.
+   */
   return (
-    <Pressable
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: row.selected, disabled }}
-      disabled={disabled}
-      onPress={handlePress}
-      style={[rowCardStyle, row.selected ? rowCardSelectedStyle : null, disabled ? rowCardDisabledStyle : null]}
-    >
-      <View style={rowHeaderStyle}>
-        <View style={checkboxStyle(row.selected)}>{row.selected ? <Text style={checkmarkStyle}>✓</Text> : null}</View>
-        <Text style={rowTitleStyle}>{display.title}</Text>
-      </View>
-      <Text style={rowAmountStyle}>{display.amountText}</Text>
-      {/* UX-S: 같은 품목·같은 금액이 여러 줄인 파일(정기 구매)에서 어떤 줄인지 구분하려면 날짜가
-          있어야 한다. */}
-      <Text style={rowDateStyle}>{display.dateText}</Text>
-      {badge ? <StatusBadge label={badge.label} tone={badge.tone} /> : null}
-      {notice ? <Text style={rowNoticeStyle}>{notice}</Text> : null}
-    </Pressable>
+    <View style={[rowCardStyle, row.selected ? rowCardSelectedStyle : null, disabled ? rowCardDisabledStyle : null]}>
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: row.selected, disabled }}
+        disabled={disabled}
+        onPress={handlePress}
+        style={rowCardMainStyle}
+      >
+        <View style={rowHeaderStyle}>
+          <View style={checkboxStyle(row.selected)}>{row.selected ? <Text style={checkmarkStyle}>✓</Text> : null}</View>
+          <Text style={rowTitleStyle}>{display.title}</Text>
+        </View>
+        <Text style={rowAmountStyle}>{display.amountText}</Text>
+        {/* UX-S: 같은 품목·같은 금액이 여러 줄인 파일(정기 구매)에서 어떤 줄인지 구분하려면 날짜가
+            있어야 한다. */}
+        <Text style={rowDateStyle}>{display.dateText}</Text>
+        {badge ? <StatusBadge label={badge.label} tone={badge.tone} /> : null}
+        {notice ? <Text style={rowNoticeStyle}>{notice}</Text> : null}
+      </Pressable>
+      {category ? (
+        <ImportRowCategoryBlock
+          row={row}
+          category={category}
+          options={categoryOptions}
+          editable={categoryEditable}
+          expanded={categoryExpanded}
+          onExpand={onExpandCategory}
+          onSelect={onSelectCategory}
+        />
+      ) : null}
+    </View>
   );
 }
 
@@ -187,9 +340,22 @@ const SelectableImportRowCard = memo(ImportRowCard);
 // 참조가 그대로다(기록 탭과 같은 관례).
 function renderImportRow({ item }: ListRenderItemInfo<ImportRowListItem>) {
   return isImportRowSelectable(item.row) ? (
-    <SelectableImportRowCard row={item.row} disabled={item.disabled} onToggle={item.onToggle} />
+    <SelectableImportRowCard
+      row={item.row}
+      disabled={item.disabled}
+      onToggle={item.onToggle}
+      categoryOptions={item.categoryOptions}
+      resolveCategoryName={item.resolveCategoryName}
+      categoryExpanded={item.categoryExpanded}
+      onExpandCategory={item.onExpandCategory}
+      onSelectCategory={item.onSelectCategory}
+    />
   ) : (
-    <LockedImportRowCard row={item.row} />
+    <LockedImportRowCard
+      row={item.row}
+      categoryOptions={item.categoryOptions}
+      resolveCategoryName={item.resolveCategoryName}
+    />
   );
 }
 
@@ -267,6 +433,11 @@ export default function ImportPreviewScreen() {
    * 그냥 return이라 버튼을 눌러도 아무 일도, 아무 말도 없었다(고장과 구분되지 않았다).
    */
   const [bulkClaimBlocked, setBulkClaimBlocked] = useState(false);
+  /**
+   * 라운드 65 A(#2): 분류 칩을 펼쳐 둔 행. **한 번에 하나만** 펼친다 -- 2,000행 목록에서 모든
+   * 행이 칩 12개를 항상 들고 있으면 가상화가 아끼려던 것을 그대로 다시 쓴다.
+   */
+  const [expandedCategoryRowId, setExpandedCategoryRowId] = useState<string | null>(null);
 
   const rowsQueryKey = useMemo(() => ["import-rows", importJobId] as const, [importJobId]);
 
@@ -311,6 +482,34 @@ export default function ImportPreviewScreen() {
     enabled: Boolean(authToken && importJobId && job.data?.status !== "analyzing"),
     queryFn: () => listImportRows(authToken!, importJobId)
   });
+
+  /**
+   * 라운드 65 A(#2) — 분류 이름 해석과 칩 목록의 원천.
+   *
+   * 리포트·기록 탭과 **같은 공유 캐시**(`["categories"]`)를 쓴다: 이미 채워져 있으면 요청 없이
+   * 그 값을 그대로 읽고, 비어 있으면 여기서 한 번 채운다. `getQueryData` 읽기만으로 두지 않는
+   * 이유는 이 화면이 값을 **고치는** 화면이기 때문이다 -- 더보기 > 가져오기로 곧장 들어온
+   * 사용자(캐시가 빈 흔한 경로)에게 칩 줄이 통째로 사라지면 이 라운드가 여는 길이 닫힌다.
+   *
+   * CAT-124: includeAll=1 -- 같은 응답 하나가 칩 목록(selectableCategories로 좁힘)과 스텁·별칭
+   * id의 이름 해석을 동시에 먹인다(기록 탭과 같은 규약, src/categories-cache-contract.test.ts).
+   * 비세션(IMP-003 캡처 경로)에서는 authToken이 없어 요청 자체가 없다.
+   */
+  const categories = useQuery({
+    queryKey: ["categories"],
+    enabled: Boolean(authToken),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => listCategories(authToken!, { includeAll: true })
+  });
+  const serverCategories = categories.data?.categories;
+  // 지출 수정 화면과 같은 필터를 지난 목록 = 화면이 **내밀어도 되는** 분류만. 여기서는 행의
+  // 현재 값을 넘기지 않는다: 스텁("가져오기 기본")을 칩으로 되살려 다시 고르게 하면, 이 라운드가
+  // 없애려는 바로 그 상태를 사용자가 손으로 만들 수 있게 된다.
+  const categoryOptions = useMemo<ImportCategoryOption[]>(
+    () => selectableCategories(serverCategories ?? []).map((category) => ({ id: category.id, label: category.name })),
+    [serverCategories]
+  );
+  const resolveCategoryName = useMemo(() => importCategoryNameResolver(serverCategories), [serverCategories]);
 
   /**
    * UX-S: 검수 화면이 **어느 아이의 가계부**에 쓰는지 한 줄로 밝힌다.
@@ -386,6 +585,43 @@ export default function ImportPreviewScreen() {
       });
     }
   });
+  /**
+   * 라운드 65 A(#2) — 분류 편집 PATCH.
+   *
+   * 서버는 이 필드를 진작부터 받고 있었다(`UpdateImportRowDto.categoryId`). 보내는 것은
+   * `categoryId` **하나뿐**이다 -- 나머지 필드는 서버가 현재 값과 병합하므로(같은 서비스의
+   * merge 규칙) 화면이 읽은 값을 되돌려 실을 이유가 없다.
+   *
+   * 낙관적 갱신을 하지 않는 이유: 이 PATCH는 `userReviewed`를 세우며 `validationStatus`까지
+   * 다시 계산한다(검토 가능 행이 valid로 바뀐다). 그 결과를 화면이 미리 흉내 내면 L-2가 닫아 둔
+   * "체크는 켜졌는데 서버는 모르는" 창이 분류 쪽에 새로 열린다. 대신 그 행만 `pendingRowIds`로
+   * 잠그고(확정 버튼도 같은 값을 본다) 서버가 돌려준 행을 그대로 캐시에 꽂는다.
+   */
+  const updateCategory = useMutation({
+    mutationFn: ({ row, categoryId }: { row: ImportRow; categoryId: string }) =>
+      updateImportRow(authToken!, importJobId, row.id, { categoryId }),
+    onMutate: ({ row }) => {
+      setPendingRowIds((ids) => {
+        const next = new Set(ids);
+        next.add(row.id);
+        return next;
+      });
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData<ImportRowsResponse>(rowsQueryKey, (current) =>
+        current ? { rows: current.rows.map((row) => (row.id === updated.id ? updated : row)) } : current
+      );
+    },
+    onSettled: (_data, _error, { row }) => {
+      setPendingRowIds((ids) => {
+        if (!ids.has(row.id)) return ids;
+        const next = new Set(ids);
+        next.delete(row.id);
+        return next;
+      });
+    }
+  });
+
   /**
    * 라운드 51 C-#11 — 확정한 행들의 **대표 월**(YYYY-MM). 없으면 null.
    *
@@ -504,6 +740,30 @@ export default function ImportPreviewScreen() {
       toggleMutate(row);
     },
     [gateLocked, toggleMutate]
+  );
+
+  /**
+   * 라운드 65 A(#2): 칩 목록은 한 번에 한 행만 펼친다(다시 누르면 접힌다). 다른 행을 펼치면
+   * 앞 행은 자동으로 접힌다 -- 상태가 id 하나라 그 규칙이 곧 자료 구조다.
+   */
+  const handleExpandCategory = useCallback<ImportRowCategoryExpandHandler>((rowId) => {
+    setExpandedCategoryRowId((current) => (current === rowId ? null : rowId));
+  }, []);
+
+  const updateCategoryMutate = updateCategory.mutate;
+  const handleSelectCategory = useCallback<ImportRowCategorySelectHandler>(
+    (row, categoryId) => {
+      if (gateLocked) {
+        explainExpenseViewOnly();
+        return;
+      }
+      // 고른 순간 닫는다(고르는 것이 이 목록의 유일한 일이다). 이미 그 분류면 PATCH를 보내지
+      // 않는다 -- 값이 그대로인 요청도 서버에서는 `userReviewed`를 세우는 "확인했어요"가 된다.
+      setExpandedCategoryRowId(null);
+      if (!shouldPatchImportRowCategory(row, categoryId)) return;
+      updateCategoryMutate({ row, categoryId });
+    },
+    [gateLocked, updateCategoryMutate]
   );
 
   const filteredRows = useMemo(() => filterImportRows(rowList, rowFilter), [rowList, rowFilter]);
@@ -628,9 +888,25 @@ export default function ImportPreviewScreen() {
         // 잠기는 것은 **그 행 하나**뿐이다(진행 중이거나, 일괄 작업 중이거나, 서버가 편집을 더는
         // 받지 않는 상태). 예전처럼 목록 전체가 굳지 않는다.
         disabled: !canToggleImportRow({ isPreviewReady, isBulkRunning, isRowPending: pendingRowIds.has(row.id) }),
-        onToggle: handleToggle
+        onToggle: handleToggle,
+        categoryOptions,
+        resolveCategoryName,
+        categoryExpanded: expandedCategoryRowId === row.id,
+        onExpandCategory: handleExpandCategory,
+        onSelectCategory: handleSelectCategory
       })),
-    [filteredRows, handleToggle, isBulkRunning, isPreviewReady, pendingRowIds]
+    [
+      categoryOptions,
+      expandedCategoryRowId,
+      filteredRows,
+      handleExpandCategory,
+      handleSelectCategory,
+      handleToggle,
+      isBulkRunning,
+      isPreviewReady,
+      pendingRowIds,
+      resolveCategoryName
+    ]
   );
 
   const showList = !rows.isLoading && !rows.isError && rowList.length > 0;
@@ -791,7 +1067,9 @@ export default function ImportPreviewScreen() {
 
   const listFooter = (
     <View style={{ gap: theme.spacing.gap, marginTop: theme.spacing.section }}>
-      {toggleRow.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+      {toggleRow.isError || updateCategory.isError ? (
+        <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text>
+      ) : null}
       {/* 라운드 40 J-6: 확정은 서버에서 **편집 권한**을 요구한다(import-pipeline.service.ts의
           `requireImportJobAccess(user, id, true)` → 403). 게이트가 없으면 보기 전용 참여자가
           업로드·검수를 다 끝낸 뒤 마지막 버튼에서 "불러오지 못했어요. 잠시 후 다시 시도해
@@ -958,6 +1236,22 @@ const rowCardStyle = {
   // 44dp 터치 타깃: 카드 자체가 체크박스라 카드 높이가 곧 터치 타깃이다.
   minHeight: theme.touchTarget,
   padding: theme.spacing.card
+} as const;
+
+/**
+ * 카드 안에서 **체크박스로 동작하는 영역**. 카드의 테두리·배경·여백은 바깥 View(rowCardStyle)가
+ * 그대로 갖고, 이 블록은 종전 카드 내부와 같은 간격만 갖는다(라운드 65 A #2 전과 렌더 동일).
+ */
+const rowCardMainStyle = {
+  gap: 6
+} as const;
+
+// A11Y-117: 12px 텍스트 버튼 -- coral[500]은 흰 배경에서 3.16:1(AA 미달)이라 coral[700]을 쓴다
+// (지출 상세의 "직접 입력" 토글과 같은 자리·같은 값).
+const rowCategoryEditStyle = {
+  color: theme.colors.coral[700],
+  fontSize: 12,
+  fontWeight: "700"
 } as const;
 
 const rowCardSelectedStyle = {

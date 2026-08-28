@@ -1,6 +1,9 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import ExcelJS from "exceljs";
 import iconv from "iconv-lite";
 import request from "supertest";
@@ -10,6 +13,28 @@ import { configureApiApp } from "../src/bootstrap";
 import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
 
 const dbAvailable = await isDatabaseAvailable();
+
+/**
+ * 라운드 65 A(#1) — 모바일 내보내기의 헤더 상수를 **소스에서 그대로** 읽는다. 문자열을 여기에
+ * 다시 적으면 두 벌이 되고, 그 순간 이 왕복 테스트는 "우리가 정말 내보내는 파일"이 아니라
+ * "우리가 내보낸다고 믿는 파일"을 검사하게 된다. 파서 단위의 같은 계약은
+ * test/mobile-export-csv-roundtrip.test.ts에 있고, 이 파일은 그 위에 **확정까지**를 얹는다.
+ */
+function exportedCsvHeader(): string {
+  const path = join(
+    fileURLToPath(new URL("..", import.meta.url)),
+    "..",
+    "..",
+    "apps",
+    "mobile",
+    "src",
+    "export",
+    "expense-csv.ts"
+  );
+  const match = /export const EXPENSE_CSV_HEADER = "([^"]+)";/.exec(readFileSync(path, "utf8"));
+  expect(match, `EXPENSE_CSV_HEADER literal not found in ${path}`).not.toBeNull();
+  return match![1];
+}
 const importStubCategoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 type ImportJob = {
@@ -327,6 +352,88 @@ describe.skipIf(!dbAvailable)("Import CSV/XLSX real parsing (real Postgres)", ()
       parsedAmountKrw: 15000,
       validationStatus: "valid"
     });
+  });
+
+  /**
+   * 라운드 65 A(#1) — **우리가 내보낸 CSV를 그대로 다시 올린다.**
+   *
+   * 실패 시나리오는 이랬다: 기기를 바꾸려고 [내보내기]로 받은 파일을 그대로 올리면 파싱은
+   * 성공하고 미리보기도 열리는데, `항목`(품목명 열)이 서버 키워드에 없어 **모든 행의 품목명이
+   * 비고** 전 행이 `missing_item_name`으로 잠겼다. 확정 버튼이 가져가는 행은 0건이고, 화면은
+   * "원본 파일에서 고친 뒤 다시 올려 주세요"라고 말하는데 그 원본이 이 앱이 만든 파일이었다.
+   *
+   * 그래서 이 테스트는 파싱이 아니라 **확정 결과**를 본다 -- 지출이 실제로 생겨야 통과한다.
+   */
+  it("라운드 65 A: 앱이 내보낸 형태의 CSV가 그대로 다시 들어와 확정까지 된다 (0건 잠금 회귀 금지)", async () => {
+    const accessToken = await login("import-parsing-roundtrip");
+    const { childId } = await completeOnboarding(accessToken, "왕복-아이");
+
+    const header = exportedCsvHeader();
+    expect(header.split(",")).toContain("항목");
+
+    // 내보내기가 실제로 쓰는 열 순서·값 모양 그대로(날짜,구분,카테고리,항목,판매처,결제수단,
+    // 금액(원),메모,출처). 금액은 포맷하지 않은 정수, 레코드는 CRLF, 앞에 UTF-8 BOM.
+    const csvContent =
+      `﻿${header}\r\n` +
+      "2026-07-06,지출,기저귀/위생,기저귀 대용량,쿠팡,카드,32000,정기배송,직접 입력\r\n" +
+      "2026-07-05,선물,장난감/도서,장난감 기차,,카드,20000,,직접 입력\r\n" +
+      "2026-07-04,지출,수유/이유식,분유 2단계,이마트,,45900,,엑셀 가져오기\r\n";
+
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", "wooriai-export.csv")
+        .attach("file", Buffer.from(csvContent, "utf8"), "wooriai-export.csv")
+        .expect(200)
+    ).body as ImportJob;
+
+    expect(job.rowCount).toBe(3);
+    expect(job.candidateCount).toBe(3);
+
+    const rows = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/imports/${job.id}/rows`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.rows as ImportRow[];
+
+    expect(rows).toHaveLength(3);
+    // 품목명은 `항목` 열에서 온다 -- `카테고리` 열(왼쪽 이웃)이 그 자리를 가로채면 안 된다.
+    expect(rows.map((row) => row.parsedItemName)).toEqual(["기저귀 대용량", "장난감 기차", "분유 2단계"]);
+    expect(rows.map((row) => row.parsedDate)).toEqual(["2026-07-06", "2026-07-05", "2026-07-04"]);
+    expect(rows.map((row) => row.parsedAmountKrw)).toEqual([32000, 20000, 45900]);
+    // 잠긴 행이 하나도 없다 = 확정 버튼이 3건을 가져간다(종전에는 0건이었다).
+    expect(rows.every((row) => row.validationStatus === "valid")).toBe(true);
+    expect(rows.every((row) => row.selected)).toBe(true);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: [] })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ importedCount: 3, skippedCount: 0 });
+      });
+
+    const expenses = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as { expenses: Array<{ expenseType: string; itemName: string }>; totalAmountKrw: number };
+
+    expect(expenses.expenses).toHaveLength(3);
+    expect(expenses.totalAmountKrw).toBe(97900);
+
+    /**
+     * **알려진 한계(의도적)**: `구분` 열은 파서의 ParsedImportRow에 자리가 없어 왕복하지 않는다.
+     * "선물"이라고 적혀 있던 행도 일반 지출로 들어오므로, DNC-015가 합계에서 빼 두는 그 구분이
+     * 재가져오기에서 사라진다 -- 그래서 위 합계 97,900원에 20,000원이 포함된다. 되살리려면
+     * `import_rows` 스키마와 확정 경로(insertExpense) 변경이 함께 필요해 DNC-012·DNC-015 판단이
+     * 선행이다(라운드 65 A의 범위 밖). 그 사실을 값으로 남겨 다음 라운드가 다시 발견하지 않게 한다.
+     */
+    expect(expenses.expenses.every((expense) => expense.expenseType === "expense")).toBe(true);
   });
 
   it("parses an XLSX workbook (exceljs) with a Korean header row", async () => {

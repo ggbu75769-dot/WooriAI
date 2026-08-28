@@ -26,6 +26,12 @@ export type ImportPreviewRow = {
   parsedDate?: string;
   parsedItemName?: string;
   parsedAmountKrw?: number;
+  /**
+   * 라운드 65 A(#2): 서버는 이 값을 진작부터 내려주고 있었는데(`toImportRowDto`) 화면이 한 번도
+   * 그리지 않았다 — 승인 대상의 절반이 미리보기에 없었다는 뜻이다(DNC-012가 지키려는 것이
+   * "미리보기와 승인"이다).
+   */
+  categoryId?: string;
   confidence: number;
   selected: boolean;
   validationStatus: string;
@@ -196,6 +202,130 @@ export function importRowBadge(row: ImportPreviewRow): ImportRowBadge | null {
   if (row.validationStatus === "duplicate_candidate") return { label: "이미 있는 지출과 같아 보여요", tone: "warning" };
   if (!isImportRowConfirmable(row)) return { label: "확인이 필요해요", tone: "warning" };
   return null;
+}
+
+/* -------------------------------------------------------------------- 분류 */
+
+/**
+ * 라운드 65 A(#2) — **검수 화면이 분류를 보여주지도, 고치지도 못했다.**
+ *
+ * 서버 `PATCH /imports/:jobId/rows/:rowId`는 `selected`만이 아니라 `categoryId`·
+ * `parsedItemName`·`parsedAmountKrw`를 받아 다시 검증한다(import.dto.ts). 그런데 화면은 그 세
+ * 필드를 **읽은 값 그대로 되돌려 보낼 뿐**이었고, 행 카드에는 분류를 그리는 줄조차 없었다.
+ *
+ * 그 사이 실제 카드 내역은 대부분 스텁 분류로 떨어진다: 분류는 품목명 **키워드 표**가 정하는데
+ * (import-parser.ts의 CATEGORY_KEYWORDS) 카드 적요는 `쿠팡`·`이마트`·`올리브영` 같은 가맹점
+ * 이름이라 어느 낱말과도 맞지 않고, 맞지 않은 행은 전부 `가져오기 기본`으로 간다. 그 분류는
+ * `selectable=false`라 기록 탭 필터 칩이 없고 리포트에서도 한 덩어리로 뭉친다. 200행을
+ * 가져오면 대부분이 그 상태인데 **승인 전에는 볼 수도 없고** 승인 뒤에는 200건을 하나씩 열어
+ * 고쳐야 했다.
+ *
+ * 이번 몫은 두 가지다: **보이게 하고**, **고칠 수 있게**. 품목명·금액 편집은 범위 밖이다
+ * (2,000행 가상화 목록 안의 텍스트 입력은 초점·키보드 문제를 함께 데려온다 — 그리고 잠금 행
+ * 자체는 같은 라운드의 #1이 없앤다).
+ */
+
+/** 칩 하나 = 고를 수 있는 분류 하나. 목록은 `selectableCategories`를 지난 것만 넘긴다. */
+export type ImportCategoryOption = { id: string; label: string };
+
+export const IMPORT_ROW_CATEGORY_LABEL = "분류";
+
+/**
+ * 이 행의 분류가 **앱이 내미는 목록에 없을 때** 붙는 한 줄. 실질적으로는 가져오기 스텁
+ * (`가져오기 기본`)이거나 운영자가 노출을 끈 분류다. "틀렸다"고 말하지 않는다 — 자동 분류가
+ * 못 찾았다는 사실과 지금 할 수 있는 일만 말한다(해요체 DNC-018).
+ */
+export const IMPORT_ROW_CATEGORY_STUB_HINT = "자동으로 분류하지 못했어요 · 분류를 골라 주세요";
+
+export const IMPORT_ROW_CATEGORY_EDIT_LABEL = "분류 고르기";
+export const IMPORT_ROW_CATEGORY_EDIT_CLOSE_LABEL = "분류 목록 닫기";
+
+/** 펼침 상태에 따른 버튼 문구(두 문구가 갈리지 않도록 한 자리에서 고른다). */
+export function importRowCategoryEditLabel(expanded: boolean): string {
+  return expanded ? IMPORT_ROW_CATEGORY_EDIT_CLOSE_LABEL : IMPORT_ROW_CATEGORY_EDIT_LABEL;
+}
+
+/**
+ * `categoryId` -> 이름, **모르면 null**.
+ *
+ * `buildCategoryNameLookup`(src/categories.ts)을 쓰지 않는 이유: 그쪽은 못 찾은 id를 "기타"로
+ * 떨어뜨린다. 이미 저장된 지출의 라벨에는 그게 맞지만, 여기서는 **아직 승인하지 않은 행**의
+ * 분류라 모르는 값을 "기타"라고 단언하면 사용자가 승인할 대상을 잘못 읽는다. 모르면 줄 자체를
+ * 만들지 않는 편이 정직하다(대상 아이 줄과 같은 규칙).
+ */
+export function importCategoryNameResolver(
+  categories: readonly { id: string; name: string }[] | null | undefined
+): (categoryId: string) => string | null {
+  const nameById = new Map<string, string>();
+  for (const category of categories ?? []) {
+    const name = category?.name?.trim();
+    if (category?.id && name) nameById.set(category.id, name);
+  }
+  return (categoryId: string) => nameById.get(categoryId) ?? null;
+}
+
+export type ImportRowCategoryView = {
+  /** 화면에 적을 분류 이름. */
+  name: string;
+  /**
+   * 이 값이 **고를 수 있는 목록에 없다** = 자동 분류가 못 찾아 스텁으로 떨어진 행.
+   * 목록을 아직 못 받았을 때(options 0건)는 판단 근거가 없으므로 false다 — 캐시가 비었다는
+   * 이유로 멀쩡한 행에 "분류를 골라 주세요"를 붙이지 않는다.
+   */
+  needsChoice: boolean;
+};
+
+/**
+ * 행 카드의 분류 줄, 그리지 않을 때 `null`.
+ *
+ * 이름은 두 곳에서 찾는다: 먼저 **고를 수 있는 목록**(칩과 같은 목록이라 라벨이 칩과 한 글자도
+ * 다르지 않다), 없으면 전량 목록의 이름 해석. 둘 다 실패하면 null이다.
+ */
+export function importRowCategoryView(
+  row: ImportPreviewRow,
+  options: readonly ImportCategoryOption[],
+  resolveName: ((categoryId: string) => string | null) | null
+): ImportRowCategoryView | null {
+  const categoryId = row.categoryId?.trim();
+  if (!categoryId) return null;
+
+  const offered = options.find((option) => option.id === categoryId);
+  if (offered) return { name: offered.label, needsChoice: false };
+
+  const name = resolveName?.(categoryId)?.trim();
+  if (!name) return null;
+  return { name, needsChoice: options.length > 0 };
+}
+
+/**
+ * 이 행의 분류를 지금 고칠 수 있는가.
+ *
+ * 잠긴 행(`locked`)은 제외한다 — 분류를 바꿔도 그 행이 잠긴 이유(날짜·금액·품목명)는 그대로라
+ * 누를 수 있는 척이 된다. 서버가 편집을 받는 상태인지(preview_ready)는 화면이 이미 아는 값이라
+ * 호출부가 함께 본다.
+ */
+export function canEditImportRowCategory(row: ImportPreviewRow): boolean {
+  return isImportRowSelectable(row);
+}
+
+/**
+ * 이미 그 분류인 행에는 PATCH를 보내지 않는다. 서버는 어떤 PATCH에서도 `userReviewed`를
+ * 세우므로(import-pipeline.service.ts), 값이 그대로인 요청도 검토 표식을 남긴다 — 사용자가
+ * 아무것도 고르지 않은 것과 같은 탭에서 그 표식이 생기면 "확인했어요"의 뜻이 흐려진다.
+ */
+export function shouldPatchImportRowCategory(row: ImportPreviewRow, categoryId: string): boolean {
+  const next = categoryId.trim();
+  if (!next) return false;
+  return (row.categoryId ?? "") !== next;
+}
+
+/**
+ * 잠금 카드의 스크린리더 라벨. 잠금 카드는 `accessible` 한 덩어리라(자식 텍스트가 따로 읽히지
+ * 않는다) 분류도 이 문자열에 함께 실어야 들린다.
+ */
+export function importRowCategoryA11ySuffix(category: ImportRowCategoryView | null): string {
+  if (!category) return "";
+  return `, ${IMPORT_ROW_CATEGORY_LABEL} ${category.name}`;
 }
 
 /* ------------------------------------------------------------------ 필터 칩 */

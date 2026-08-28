@@ -7,9 +7,24 @@ import { expenseTypeLabelKo } from "../expenses/records-list-view";
  * EXP-106 데이터 내보내기: pure CSV building for expense rows.
  *
  * Deliberate choices (mirrors the api-side import conventions so round-tripping works):
- * - Header is 날짜,구분,카테고리,항목,판매처,결제수단,금액(원),메모,출처 — the 날짜/금액/메모 keywords
- *   are ones apps/api/src/imports/import-parser.ts's HEADER_KEYWORDS already recognizes, so a file
- *   we export can be fed straight back into the excel import.
+ * - Header is 날짜,구분,카테고리,항목,판매처,결제수단,금액(원),메모,출처 — 날짜/항목/금액(원)/메모 are the
+ *   four columns apps/api/src/imports/import-parser.ts's HEADER_KEYWORDS recognizes (date/item/
+ *   amount/memo), so a file we export can be fed straight back into the excel import.
+ *
+ *   라운드 65 A(#1): 그 문장은 **오랫동안 사실이 아니었다**. `항목`이 서버의 item 키워드에 없어서
+ *   (`"항목".includes("품목")`은 거짓이다) 재가져오기의 itemIdx가 -1이 되고, 모든 행이 품목명 없이
+ *   들어와 `missing_item_name`으로 잠겼다 — 확정 대상 0건. 고친 쪽은 **서버 키워드**다(이 헤더가
+ *   아니라): 이미 사용자 손에 나가 있는 파일들까지 함께 살아나야 하므로, 이 문자열은 **한 글자도
+ *   바꾸지 않는다**. 두 사실을 맞대 보는 테스트가 이제 양쪽에 있다 —
+ *   apps/api/test/mobile-export-csv-roundtrip.test.ts(이 헤더를 읽어 실제 파서에 먹인다)와
+ *   이 파일의 expense-csv.test.ts(서버 키워드 표를 읽어 열별 역할을 못 박는다).
+ *
+ * - 왕복의 **알려진 한계**: 파서의 `ParsedImportRow`에는 date/item/amount/memo 네 칸뿐이라
+ *   구분·카테고리·판매처·결제수단·출처는 재가져오기에서 **버려진다**. 특히 `구분`이 사라지면
+ *   선물·환불 행이 전부 지출로 되돌아온다 — CSV-127이 그 열을 더한 이유(DNC-015가 합계에서 빼는
+ *   행을 구분할 수 없다)를 우리 가져오기가 되살리는 셈이다. 되살리려면 `import_rows`에 칸을
+ *   더하는 스키마 변경과 확정 경로(insertExpense) 변경이 함께 필요해 DNC-012·DNC-015 판단이
+ *   선행이므로 라운드 65 A의 범위 밖으로 두고, 그 사실만 위 왕복 테스트가 값으로 고정한다.
  * - CSV-127 added 구분 and 판매처. Both were already on every exported expense (`expenseType`,
  *   `merchant`) and both were silently dropped, so an exported file flattened 지출·선물·환불 into
  *   one indistinguishable list — the 선물 rows that DNC-015 deliberately keeps OUT of the 합계
