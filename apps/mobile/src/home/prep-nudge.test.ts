@@ -132,15 +132,36 @@ describe("라운드 51 #6 evaluateHomePrepNudge -- interested(찜) 재발견 갈
     const nudge = evaluateHomePrepNudge(input({ recommendedItems: withInterested }));
     expect(nudge!.items[0].statusLabel).toBe(itemStatusBadgeLabel("interested"));
     expect(nudge!.items[0].statusLabel).toBe("관심");
-    // 라벨이 붙은 항목만 괄호로 밝힌다 -- 어느 것이 찜인지 줄에서 바로 읽힌다.
-    expect(nudge!.subtitle).toBe("베이비 아기띠 힙시트(관심) · 네이처러브 기저귀 팬티형");
-    expect(nudge!.items[1].statusLabel).toBeUndefined();
+    expect(nudge!.subtitle).toBe("베이비 아기띠 힙시트(관심)");
+  });
+
+  /**
+   * 라운드 51 QA(P3-12): 제목이 "관심 표시해 둔 준비템"을 말하면 줄에 서는 것도 관심 항목뿐이어야
+   * 한다. 예전에는 관심이 하나만 있어도 제목이 바뀌고 목록에는 관심이 아닌 추천까지 함께 서서,
+   * 표시한 적 없는 항목까지 찜한 것처럼 읽혔다.
+   */
+  it("찜 갈래의 목록에는 관심 항목만 선다(제목이 말하지 않은 항목을 끼우지 않는다)", () => {
+    const nudge = evaluateHomePrepNudge(input({ recommendedItems: withInterested }));
+    expect(nudge!.items.map((entry) => entry.id)).toEqual(["i1"]);
+    expect(nudge!.items.every((entry) => entry.statusLabel === itemStatusBadgeLabel("interested"))).toBe(true);
+    expect(nudge!.subtitle).not.toContain("네이처러브 기저귀 팬티형");
+  });
+
+  it("관심 항목이 여럿이면 서버 순서 그대로 함께 말한다", () => {
+    const twoInterested = [
+      item("i1", "베이비 아기띠 힙시트", "interested"),
+      item("i2", "네이처러브 기저귀 팬티형"),
+      item("i3", "젖병 소독기", "interested")
+    ];
+    const nudge = evaluateHomePrepNudge(input({ recommendedItems: twoInterested }));
+    expect(nudge!.items.map((entry) => entry.id)).toEqual(["i1", "i3"]);
+    expect(nudge!.subtitle).toBe("베이비 아기띠 힙시트(관심) · 젖병 소독기(관심)");
   });
 
   it("소리용 문장은 쉼표로 잇는다(가운뎃점은 스크린리더에서 경계로 읽히지 않는다)", () => {
     const nudge = evaluateHomePrepNudge(input({ recommendedItems: withInterested }));
     expect(nudge!.accessibilityLabel).toBe(
-      `${HOME_PREP_NUDGE_INTERESTED_TITLE}. 베이비 아기띠 힙시트 관심, 네이처러브 기저귀 팬티형. ${HOME_PREP_NUDGE_CTA_LABEL}`
+      `${HOME_PREP_NUDGE_INTERESTED_TITLE}. 베이비 아기띠 힙시트 관심. ${HOME_PREP_NUDGE_CTA_LABEL}`
     );
   });
 });
@@ -189,7 +210,12 @@ describe("라운드 51 #6 홈 화면 배선 계약", () => {
 
   it("판정은 순수 모듈이 하고, 화면은 이미 받은 /home 응답만 읽는다(추가 요청 0)", () => {
     expect(homeSource).toContain("const prepNudge = evaluateHomePrepNudge({");
-    expect(homeSource).toContain("recommendedItems: home.data?.recommendedItems ?? null");
+    // 라운드 51 QA(P2-2): 넘기는 배열은 /home 응답에 **대기 중인 상태 변경**을 얹은 것이다.
+    // 요청은 여전히 0건 늘어난다 -- 값의 출처는 홈이 이미 구독 중인 오프라인 스냅샷이다.
+    expect(homeSource).toContain("recommendedItems: recommendedItemsWithPendingStatus");
+    expect(homeSource).toContain("const items = home.data?.recommendedItems ?? null;");
+    expect(homeSource).toContain("buildPendingItemStatusIndex(offlineSyncSnapshot.itemStatusRows, childId)");
+    expect(homeSource).toContain("effectiveItemStatus(item.status, pending)");
     // 준비템 탭의 캐시를 새로 켜지 않는다 -- 홈의 쿼리 수는 종전 그대로 5개다
     // (home / 이번 달 지출 / 지난달 지출 / 지난달 예산 / children).
     expect(homeSource).not.toContain('queryKey: ["items"');

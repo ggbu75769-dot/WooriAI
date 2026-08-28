@@ -25,7 +25,8 @@ import type { HomeFirstRunGuideVariant } from "./first-run-guide";
  *
  *  - `interested` — **찜 재발견**. 관심 표시만 해 두고 잊은 항목이 지금 시기 추천에 남아 있으면
  *    그 사실을 먼저 말한다. 사용자가 이미 의사를 표시한 항목이라 "골라뒀어요"보다 구체적인
- *    사실이고, 준비템 탭에 들어가야만 보이던 상태였다.
+ *    사실이고, 준비템 탭에 들어가야만 보이던 상태였다. 이 갈래의 줄에는 **관심 항목만** 선다
+ *    (라운드 51 QA P3-12 — 제목이 말하는 것과 목록이 보여주는 것을 일치시킨다).
  *  - `recommended` — 그 외. 아직 준비 전인 추천 준비템의 이름을 그대로 보여준다.
  *
  * ## 접는 조건(중복 금지)
@@ -191,13 +192,27 @@ export function evaluateHomePrepNudge(input: HomePrepNudgeInput): HomePrepNudge 
   const items = selectPrepNudgeItems(input.recommendedItems);
   if (items.length === 0) return null;
 
-  const hasInterested = items.some((item) => item.statusLabel === itemStatusBadgeLabel("interested"));
+  /**
+   * 라운드 51 QA(P3-12) — 찜 갈래에서는 **목록도 관심 항목만** 남긴다.
+   *
+   * 예전에는 관심 항목이 하나라도 있으면 제목만 "관심 표시해 둔 준비템이 있어요"로 바뀌고 줄에는
+   * 관심이 아닌 추천까지 함께 섰다. 제목이 목록 전체를 가리키는 문장으로 읽히므로, 관심 표시한
+   * 적 없는 항목까지 찜한 것처럼 말하는 셈이었다(허위 표시 금지). 제목을 목록 전체에 맞게 넓히는
+   * 대신 목록을 제목에 맞게 좁힌다 -- 이 갈래의 목적 자체가 "찜해 두고 잊은 것"의 재발견이고,
+   * 관심이 아닌 추천은 다음번 recommended 갈래가 같은 자리에서 그대로 말한다.
+   */
+  const interestedLabel = itemStatusBadgeLabel("interested");
+  const interestedItems = items.filter((item) => item.statusLabel === interestedLabel);
+  const hasInterested = interestedItems.length > 0;
   const variant: HomePrepNudgeVariant = hasInterested ? "interested" : "recommended";
+  const shownItems = hasInterested ? interestedItems : items;
   const title = hasInterested ? HOME_PREP_NUDGE_INTERESTED_TITLE : HOME_PREP_NUDGE_RECOMMENDED_TITLE;
   // 화면용 줄은 가운뎃점으로 잇고(홈의 다른 카드와 같은 구분자), 소리용 문장은 쉼표로 잇는다 --
   // "·"는 스크린리더에서 이름 경계로 읽히지 않는다(주간 카드·아기 카운터와 같은 판단).
-  const subtitle = items.map((item) => (item.statusLabel ? `${item.name}(${item.statusLabel})` : item.name)).join(" · ");
-  const spokenItems = items
+  const subtitle = shownItems
+    .map((item) => (item.statusLabel ? `${item.name}(${item.statusLabel})` : item.name))
+    .join(" · ");
+  const spokenItems = shownItems
     .map((item) => (item.statusLabel ? `${item.name} ${item.statusLabel}` : item.name))
     .join(", ");
 
@@ -207,7 +222,7 @@ export function evaluateHomePrepNudge(input: HomePrepNudgeInput): HomePrepNudge 
     subtitle,
     ctaLabel: HOME_PREP_NUDGE_CTA_LABEL,
     route: HOME_PREP_NUDGE_ROUTE,
-    items,
+    items: shownItems,
     testID: HOME_PREP_NUDGE_TEST_ID,
     accessibilityLabel: `${title}. ${spokenItems}. ${HOME_PREP_NUDGE_CTA_LABEL}`
   };

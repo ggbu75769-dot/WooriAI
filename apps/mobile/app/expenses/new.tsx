@@ -1089,21 +1089,6 @@ export default function NewExpenseScreen() {
           <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>{AUTO_CATEGORY_CAPTION}</Text>
         ) : null}
 
-        {/* 라운드 51 C-#5: 분류를 고르지 않은 채 저장을 누른 뒤에만 뜨는 안내 한 줄. 타일 바로
-            아래에 두는 이유는 "무엇을 눌러야 하는지" 옆에서 말하기 위해서다. 포커스가 저장
-            버튼에 있는 상태에서 나타나므로 alert 역할 + live region으로 스크린리더도 함께
-            읽는다(같은 화면의 날짜 입력 오류와 같은 조합). 초기값이 false라 EXP-001 픽셀 락
-            캡처(세션 없음, 저장 시도 없음)에서는 렌더되지 않는다. */}
-        {showCategoryNotice ? (
-          <Text
-            accessibilityRole="alert"
-            accessibilityLiveRegion="polite"
-            style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}
-          >
-            {CATEGORY_REQUIRED_NOTICE}
-          </Text>
-        ) : null}
-
         {/* 라운드 49 C-03(a): 판매처 입력칸. **authToken 게이트 뒤**에 두는 것이 EXP-001
             픽셀 락 계약이다 -- 캡처는 세션 없이(app/pixel-lock.tsx가 clearSession 후 이동)
             초기 렌더만 찍으므로, 이 분기는 기준 이미지에 나타나지 않는다.
@@ -1274,6 +1259,23 @@ export default function NewExpenseScreen() {
             않는다. */}
         {saveErrorMessage ? <Toast message={saveErrorMessage} tone="error" /> : null}
         {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}
+        {/* 라운드 51 C-#5 + 라운드 51 QA(P2-4): 분류를 고르지 않은 채 저장을 누른 뒤에만 뜨는
+            안내 한 줄. 자리는 **저장 버튼 바로 위**다(저장 실패 배너와 같은 자리 관례) --
+            타일 아래에 두던 예전 자리는 금액·날짜·판매처·결제수단·선물 체크박스 아래로 밀려
+            화면 밖이라, 저장을 눌러도 아무 반응이 없는 것처럼 보였다. 눌린 버튼 옆에서 답하고,
+            무엇을 하면 되는지는 문구가 말한다(문구는 src/expenses/entry-form-guards.ts).
+            포커스가 저장 버튼에 있는 상태에서 나타나므로 alert 역할 + live region으로
+            스크린리더도 함께 읽는다. 초기값이 false라 EXP-001 픽셀 락 캡처(세션 없음, 저장
+            시도 없음)에서는 렌더되지 않는다. */}
+        {showCategoryNotice ? (
+          <Text
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+            style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}
+          >
+            {CATEGORY_REQUIRED_NOTICE}
+          </Text>
+        ) : null}
           <PrimaryButton
             disabled={saveExpense.isPending || isAmountInvalid}
             label={saveExpense.isPending ? "저장 중" : "저장하기"}

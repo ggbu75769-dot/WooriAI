@@ -87,6 +87,14 @@ export class ProductLinkBulkService {
       if (link.affiliateUrl !== affiliateUrl) return true;
       if (!link.isAffiliate) return true;
       if (priceSnapshotKrw !== undefined && link.priceSnapshotKrw !== priceSnapshotKrw) return true;
+      // 라운드 51 QA(P2-5): 값이 같아도 **확인 시각이 비어 있으면** 갱신 대상이다.
+      //
+      // 아래 주석이 "CSV에 가격 칸이 있으면 값이 같아도 now로 갱신한다"고 말하는데, 이 필터가
+      // 값만 비교해서 그 행을 통째로 skipped로 걸러 냈다. 그 어긋남이 실제로 다치는 자리는
+      // priceCheckedAt이 NULL인 채 가격만 있는 레거시 행이다: 앱은 확인 시각이 없는 가격을
+      // 아예 내려받지 못하므로(items-catalog.service.ts toProductLinkDto), 운영자가 같은 값을
+      // 다시 올려 시각을 채우려 해도 영원히 skipped가 되어 그 가격이 화면에 나타나지 않았다.
+      if (priceSnapshotKrw !== undefined && link.priceCheckedAt === null) return true;
       return false;
     });
 
@@ -99,7 +107,9 @@ export class ProductLinkBulkService {
     // 가격 칸이 없는 행(priceSnapshotKrw === undefined)은 시각도 건드리지 않는다 —
     // 제휴 URL만 교체한 것은 가격을 확인한 것이 아니다. 갱신 자체가 일어나지 않는
     // 행(위 changed 필터에서 걸러진 무변경 행)도 마찬가지로 시각이 그대로 남아,
-    // 같은 CSV 재업로드는 여전히 완전한 no-op이다.
+    // **시각이 이미 있는** 행에 대한 같은 CSV 재업로드는 여전히 완전한 no-op이다
+    // (라운드 51 QA P2-5: 시각이 비어 있는 행만 한 번 더 갱신 대상이 되고, 그 한 번으로
+    // 시각이 채워지면 그다음 재업로드부터는 다시 no-op이다).
     const priceConfirmedAt = new Date();
     await this.prisma.$transaction(
       changed.map(({ link, affiliateUrl, priceSnapshotKrw }) =>

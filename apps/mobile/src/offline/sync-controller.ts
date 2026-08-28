@@ -26,6 +26,7 @@ import {
   recordLocalDelete,
   recordLocalItemStatus,
   recordLocalUpdate,
+  recoverInterruptedSyncState,
   resolveConflictAdoptServer,
   resolveConflictReapplyMine,
   resolveConflictWithMergedPayload,
@@ -201,6 +202,22 @@ async function flushInBackground(token: string, queryClient: QueryClient): Promi
   const online = await isCurrentlyOnline();
   if (!online) return;
   await attemptFlush(token, queryClient).catch(() => undefined);
+}
+
+/**
+ * 라운드 51 QA(P3-7) — 앱 시작 시 한 번: 전송 도중 죽으며 남은 표시를 되돌리고(엔진의
+ * recoverInterruptedSyncState), 그 결과를 화면 스냅샷에 반영한 뒤 평소의 첫 flush로 넘어간다.
+ * 순서가 중요하다 -- 되돌리기가 flush보다 **먼저** 끝나야 그 행들이 이번 pass에 실린다.
+ * 저장소 실패는 여기서 삼킨다(다른 백그라운드 오프라인 작업과 같은 최선 노력 태도).
+ */
+async function recoverAndFlushOnStart(token: string, queryClient: QueryClient): Promise<void> {
+  try {
+    await recoverInterruptedSyncState(await getOfflineStore());
+  } catch {
+    // 되돌리기에 실패해도 아래 flush는 그대로 시도한다.
+  }
+  await refreshSnapshot().catch(() => undefined);
+  await flushInBackground(token, queryClient);
 }
 
 /** Records a new expense locally first (design doc §3.2 step 1) and kicks off a background
@@ -478,8 +495,8 @@ async function pullDeltaInBackground(token: string, queryClient: QueryClient): P
 export function useOfflineSyncLifecycle(token: string | null, queryClient: QueryClient): void {
   useEffect(() => {
     if (!token) return;
-    void refreshSnapshot();
-    void flushInBackground(token, queryClient);
+    // 라운드 51 QA(P3-7): 첫 스냅샷·첫 flush 앞에 "죽은 전송 표시 되돌리기"가 붙는다.
+    void recoverAndFlushOnStart(token, queryClient);
     void pullDeltaInBackground(token, queryClient);
 
     const handle = startConnectivityWatcher(() => {
@@ -554,7 +571,14 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
           // therefore lands after it. See clearSessionScopedQueryCache's contract.
           clearSessionScopedQueryCache();
           void getOfflineStore()
-            .then((store) => teardownOfflineSessionState(store, { authToken: outgoingToken }))
+            .then((store) =>
+              teardownOfflineSessionState(store, {
+                authToken: outgoingToken,
+                // 라운드 51 QA(P3-10): wipe가 끝나면 화면이 읽는 스냅샷도 다시 만든다. 함수를
+                // 넘기는 이유는 순환 import 회피다(session-teardown.ts의 컨텍스트 주석 참고).
+                refreshSyncSnapshot: refreshSnapshot
+              })
+            )
             .catch(() => undefined);
         }
       }),

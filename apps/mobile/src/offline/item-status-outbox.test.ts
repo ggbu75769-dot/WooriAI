@@ -9,6 +9,7 @@ import { isPermissionDeniedSyncError } from "./permission-denied";
 import {
   discardFailedItemStatusMutation,
   flushOutbox,
+  MAX_FLUSH_RERUNS,
   MAX_SERVER_ERROR_ATTEMPTS,
   recordLocalCreate,
   recordLocalItemStatus,
@@ -300,6 +301,165 @@ describe("C-10 준비템 상태 큐 · 전송", () => {
     expect(summary.stoppedForNetwork).toBe(true);
     expect(calls).toEqual(["expense"]);
     expect(await itemRows(store)).toHaveLength(1);
+  });
+});
+
+/**
+ * 라운드 51 QA(P1-1) — pass가 도는 동안 도착한 변경.
+ *
+ * 한 pass는 시작 시점의 스냅숏만 보고, 단일 비행 가드는 그 사이의 flush 요청을 이미 도는 pass의
+ * 약속으로 돌려주기만 했다. 그래서 A를 보내는 중에 누른 B는 아무도 보내지 않은 채 큐에 남아,
+ * 온라인인데도 대기 배지가 다음 트리거까지 남고 그 전에 로그아웃하면 wipe가 지운다.
+ * 리뷰가 재현한 시나리오(A 전송 중 B 탭) 그대로 고정한다.
+ */
+describe("라운드 51 QA(P1-1) 전송 중 도착한 준비템 상태 변경", () => {
+  /** A를 전송 중으로 붙잡아 두고, 그 사이에 B를 누르는 상황을 만든다. */
+  function createBlockingRemote() {
+    const calls: string[] = [];
+    let releaseFirst!: () => void;
+    let markFirstCallSeen!: () => void;
+    const firstCallReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstCallSeen = new Promise<void>((resolve) => {
+      markFirstCallSeen = resolve;
+    });
+    const remote: RemoteSyncApi = {
+      async createExpense() {
+        throw new Error("이 테스트는 지출을 보내지 않아요.");
+      },
+      async updateExpense() {
+        throw new Error("이 테스트는 지출을 보내지 않아요.");
+      },
+      async deleteExpense() {
+        throw new Error("이 테스트는 지출을 보내지 않아요.");
+      },
+      async setItemStatus(payload) {
+        calls.push(payload.itemTemplateId);
+        if (calls.length === 1) {
+          markFirstCallSeen();
+          await firstCallReleased;
+        }
+      }
+    };
+    return { remote, calls, firstCallSeen, releaseFirst };
+  }
+
+  it("A 전송 중에 누른 B는 그 pass가 끝난 뒤 같은 호출 안에서 이어서 나간다", async () => {
+    const store = createMemoryOfflineStore();
+    await recordLocalItemStatus(store, statusPayload());
+    const { remote, calls, firstCallSeen, releaseFirst } = createBlockingRemote();
+
+    const flush = flushOutbox(store, remote);
+    await firstCallSeen;
+
+    // 화면 저장 경로가 하는 그대로: 로컬 큐에 남기고 곧바로 flush를 한 번 요청한다.
+    await recordLocalItemStatus(
+      store,
+      statusPayload({ itemTemplateId: "item-bottle", itemName: "젖병", status: "interested" })
+    );
+    const secondRequest = flushOutbox(store, remote);
+    // 단일 비행 가드는 그대로다 -- 두 번째 요청은 새 pass를 열지 않고 같은 약속을 받는다.
+    expect(secondRequest).toBe(flush);
+
+    releaseFirst();
+    const summary = await flush;
+
+    // 고치기 전에는 ["item-carseat"]에서 멈췄고, 젖병은 큐에 남은 채 대기 배지만 남았다.
+    expect(calls).toEqual(["item-carseat", "item-bottle"]);
+    expect(summary.itemStatusSynced).toBe(2);
+    expect(await itemRows(store)).toEqual([]);
+  });
+
+  it("아무도 다시 요청하지 않았으면 다시 돌지 않는다 (pass는 여전히 한 번이다)", async () => {
+    const store = createMemoryOfflineStore();
+    await recordLocalItemStatus(store, statusPayload());
+    const { remote, calls, firstCallSeen, releaseFirst } = createBlockingRemote();
+
+    const flush = flushOutbox(store, remote);
+    await firstCallSeen;
+    // 큐에는 들어갔지만 flush 요청은 하지 않았다(예: 다른 코드가 저장소에만 쓴 경우).
+    await recordLocalItemStatus(store, statusPayload({ itemTemplateId: "item-bottle", itemName: "젖병" }));
+    releaseFirst();
+    await flush;
+
+    expect(calls).toEqual(["item-carseat"]);
+    expect(await itemRows(store)).toHaveLength(1);
+  });
+
+  it("계속 누르는 동안에도 한 호출이 영원히 돌지 않는다 (재실행 상한)", async () => {
+    const store = createMemoryOfflineStore();
+    await recordLocalItemStatus(store, statusPayload({ itemTemplateId: "item-0", itemName: "0번" }));
+    const calls: string[] = [];
+    let next = 1;
+    const remote: RemoteSyncApi = {
+      async createExpense() {
+        throw new Error("이 테스트는 지출을 보내지 않아요.");
+      },
+      async updateExpense() {
+        throw new Error("이 테스트는 지출을 보내지 않아요.");
+      },
+      async deleteExpense() {
+        throw new Error("이 테스트는 지출을 보내지 않아요.");
+      },
+      async setItemStatus(payload) {
+        calls.push(payload.itemTemplateId);
+        // 전송이 나가 있는 매 순간 사용자가 또 누른다 -- 새 행 + 그 저장 경로의 flush 요청.
+        await recordLocalItemStatus(store, statusPayload({ itemTemplateId: `item-${next}`, itemName: `${next}번` }));
+        next += 1;
+        void flushOutbox(store, remote);
+      }
+    };
+
+    const summary = await flushOutbox(store, remote);
+
+    expect(calls).toHaveLength(1 + MAX_FLUSH_RERUNS);
+    expect(summary.itemStatusSynced).toBe(1 + MAX_FLUSH_RERUNS);
+    // 마지막에 눌린 한 줄은 큐에 남아 다음 트리거(재연결·포그라운드·다음 저장)가 가져간다.
+    expect(await itemRows(store)).toHaveLength(1);
+  });
+
+  it("오프라인으로 멈춘 pass 뒤에는 재실행하지 않는다 (같은 순간 같은 기기다)", async () => {
+    const store = createMemoryOfflineStore();
+    await recordLocalItemStatus(store, statusPayload());
+    const calls: string[] = [];
+    let markFirstCallSeen!: () => void;
+    const firstCallSeen = new Promise<void>((resolve) => {
+      markFirstCallSeen = resolve;
+    });
+    let releaseFirst!: () => void;
+    const firstCallReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const remote: RemoteSyncApi = {
+      async createExpense() {
+        throw new Error("이 테스트는 지출을 보내지 않아요.");
+      },
+      async updateExpense() {
+        throw new Error("이 테스트는 지출을 보내지 않아요.");
+      },
+      async deleteExpense() {
+        throw new Error("이 테스트는 지출을 보내지 않아요.");
+      },
+      async setItemStatus(payload) {
+        calls.push(payload.itemTemplateId);
+        markFirstCallSeen();
+        await firstCallReleased;
+        throw new TypeError("Network request failed");
+      }
+    };
+
+    const flush = flushOutbox(store, remote);
+    await firstCallSeen;
+    await recordLocalItemStatus(store, statusPayload({ itemTemplateId: "item-bottle", itemName: "젖병" }));
+    void flushOutbox(store, remote);
+    releaseFirst();
+    const summary = await flush;
+
+    expect(summary.stoppedForNetwork).toBe(true);
+    // 헛된 재시도로 백오프만 올리지 않는다 -- 두 줄 모두 큐에 남아 다음 트리거를 기다린다.
+    expect(calls).toEqual(["item-carseat"]);
+    expect(await itemRows(store)).toHaveLength(2);
   });
 });
 

@@ -262,8 +262,10 @@ describe("delta-sync: session teardown invalidation", () => {
     expect(controllerSource).toContain("useSessionStore.subscribe");
     expect(controllerSource).toContain("isSessionIdentityChange(previous, state)");
     // FIX-118A added the outgoing session's token as a second argument (best-effort push-device
-    // deactivation); the cursor-clearing contract this test pins is unchanged.
-    expect(controllerSource).toContain("teardownOfflineSessionState(store, { authToken: outgoingToken })");
+    // deactivation), 라운드 51 QA(P3-10) added the post-wipe snapshot refresh; the cursor-clearing
+    // contract this test pins is unchanged by both.
+    expect(controllerSource).toContain("teardownOfflineSessionState(store, {");
+    expect(controllerSource).toContain("authToken: outgoingToken,");
 
     // The pull resumes via the persisted-cursor pipeline, scoped by userId, not a bare one-shot.
     expect(controllerSource).toContain("runDeltaPull(");

@@ -12,15 +12,17 @@ import {
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
   syncStatusBadgeLabel,
   syncStatusDiscardAllConfirmMessage,
+  syncStatusDiscardFailedExpensesLabel,
+  syncStatusRetryFailedExpensesLabel,
   SYNC_STATUS_CONFLICT_LABEL,
   SYNC_STATUS_DISCARD_ALL_CONFIRM_TITLE,
   SYNC_STATUS_DISCARD_ALL_LABEL,
   SYNC_STATUS_DISCARD_LABEL,
   SYNC_STATUS_FAILED_LABEL,
   SYNC_STATUS_PENDING_LABEL,
-  SYNC_STATUS_RETRY_ALL_LABEL,
   SYNC_STATUS_RETRY_LABEL,
-  SYNC_STATUS_SYNCING_LABEL
+  SYNC_STATUS_SYNCING_LABEL,
+  SYNC_STATUS_SYNCING_ROW_MESSAGE
 } from "../src/offline/messages";
 import { isPermissionDeniedSyncError, SYNC_STATUS_PERMISSION_DENIED_HINT } from "../src/offline/permission-denied";
 import { itemStatusLabel } from "../src/items/item-labels";
@@ -281,7 +283,7 @@ const PendingRow = memo(function PendingRow({ row }: { row: LocalExpenseRow }) {
   return (
     <SyncRow row={row}>
       <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
-        {row.syncState === "syncing" ? "동기화 중이에요." : "연결되면 자동으로 반영할게요."}
+        {row.syncState === "syncing" ? SYNC_STATUS_SYNCING_ROW_MESSAGE : "연결되면 자동으로 반영할게요."}
       </Text>
     </SyncRow>
   );
@@ -342,7 +344,7 @@ function ItemStatusSyncRow({
         )
       ) : (
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
-          {row.syncState === "syncing" ? "동기화 중이에요." : ITEM_STATUS_QUEUED_MESSAGE}
+          {row.syncState === "syncing" ? SYNC_STATUS_SYNCING_ROW_MESSAGE : ITEM_STATUS_QUEUED_MESSAGE}
         </Text>
       )}
     </Card>
@@ -452,11 +454,19 @@ export default function SyncStatusScreen() {
     for (const row of conflictRows) listData.push({ kind: "conflict", key: `conflict-${row.localId}`, row });
   }
   if (failedRows.length + failedItemStatusRows.length > 0) {
-    listData.push({ kind: "section", key: "section-failed", title: SYNC_STATUS_FAILED_LABEL, actions: "failed-bulk" });
+    listData.push({
+      kind: "section",
+      key: "section-failed",
+      title: SYNC_STATUS_FAILED_LABEL,
+      // 라운드 51 QA(P2-3): 일괄 액션은 **지출 실패 행이 있을 때만** 그린다. 준비템 실패만
+      // 남은 섹션에서는 두 버튼이 눌려도 다룰 행이 0건이라(대상이 지출 큐뿐이다) 눌리는 죽은
+      // 버튼과 "0건" 확인창만 만들었다.
+      ...(failedRows.length > 0 ? { actions: "failed-bulk" as const } : {})
+    });
     for (const row of failedRows) listData.push({ kind: "failed", key: `failed-${row.localId}`, row });
-    // C-10: 준비템 실패 행은 같은 섹션 뒤에 붙는다. 일괄 액션(전체 재시도/버리기)은 여전히
-    // **지출 행만** 대상이다 -- 그 두 버튼이 부르는 컨트롤러 함수가 지출 큐의 것이고, 라벨이
-    // 말하는 "전체"가 조용히 다른 큐까지 삼키면 안 된다.
+    // C-10: 준비템 실패 행은 같은 섹션 뒤에 붙는다. 일괄 액션(재시도/버리기)은 여전히
+    // **지출 행만** 대상이다 -- 그 두 버튼이 부르는 컨트롤러 함수가 지출 큐의 것이라,
+    // 라벨이 대상과 건수를 직접 말한다("지출 3건 재시도").
     for (const row of failedItemStatusRows) {
       listData.push({ kind: "item-status-failed", key: `item-status-failed-${row.mutationId}`, row });
     }
@@ -480,17 +490,14 @@ export default function SyncStatusScreen() {
           <SectionTitle title={item.title}>
             {item.actions === "failed-bulk" ? (
               <View style={{ flexDirection: "row", gap: 8 }}>
+                {/* 라운드 51 QA(P2-3): 라벨이 대상(지출)과 건수를 함께 말하므로 스크린리더용
+                    문구를 따로 두지 않는다 -- 두 문장이 갈라질 자리를 만들지 않는다. */}
                 <TextButton
-                  label={SYNC_STATUS_RETRY_ALL_LABEL}
-                  accessibilityLabel={`${SYNC_STATUS_RETRY_ALL_LABEL}, ${failedRows.length}건`}
+                  label={syncStatusRetryFailedExpensesLabel(failedRows.length)}
                   onPress={retryAll}
                   disabled={!authToken}
                 />
-                <TextButton
-                  label={SYNC_STATUS_DISCARD_ALL_LABEL}
-                  accessibilityLabel={`${SYNC_STATUS_DISCARD_ALL_LABEL}, ${failedRows.length}건`}
-                  onPress={discardAll}
-                />
+                <TextButton label={syncStatusDiscardFailedExpensesLabel(failedRows.length)} onPress={discardAll} />
               </View>
             ) : null}
           </SectionTitle>

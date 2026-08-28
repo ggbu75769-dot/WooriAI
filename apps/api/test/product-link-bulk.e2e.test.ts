@@ -356,7 +356,11 @@ describe.skipIf(!dbAvailable)("Admin product-link bulk replace (COM-107-prep, re
     expect(afterPriceRow.priceSnapshotKrw).toBe(12_000);
     expect(afterPriceRow.priceCheckedAt!.getTime()).toBeGreaterThanOrEqual(beforePriceRow.getTime());
 
-    // 3) 같은 CSV 재업로드(무변경)는 skipped — 시각도 그대로다(멱등성 유지).
+    // 3) 같은 CSV 재업로드(무변경, **시각이 이미 있는 행**)는 skipped — 시각도 그대로다.
+    //    라운드 51 QA(P2-5): 멱등성은 "확인 시각이 채워진 행"을 기준으로 말한다. 시각이 비어
+    //    있는 행은 아래 회복 케이스처럼 한 번 더 갱신 대상이 되고, 그 한 번이 지나면 여기와
+    //    똑같이 완전한 no-op이 된다.
+    expect(afterPriceRow.priceCheckedAt).not.toBeNull();
     expect((await apply(`${link.id},,,https://link.coupang.com/a/price-updated,12000`)).body).toMatchObject({
       applied: 0,
       skipped: 1
@@ -365,6 +369,77 @@ describe.skipIf(!dbAvailable)("Admin product-link bulk replace (COM-107-prep, re
     expect(afterReupload.priceCheckedAt?.toISOString()).toBe(afterPriceRow.priceCheckedAt?.toISOString());
 
     await prisma.productLink.delete({ where: { id: link.id } });
+  });
+
+  /**
+   * 라운드 51 QA(P2-5) — 확인 시각이 비어 있는 **레거시 가격 행**의 회복.
+   *
+   * 앱은 price_checked_at이 없는 가격을 아예 내려받지 못한다(items-catalog.service.ts의
+   * toProductLinkDto). 그래서 가격만 있고 시각이 NULL인 행은 화면에서 영영 가격이 없는 링크다.
+   * 운영자가 같은 값을 다시 올려 "이 가격이 맞다"고 확인해 주는 것이 그 행을 되살리는 유일한
+   * 경로인데, 예전 changed 필터는 값만 비교해 그 행을 skipped로 걸렀다(주석은 갱신한다고
+   * 말하고 동작은 건너뛰던 자리).
+   */
+  it("가격은 있는데 확인 시각이 비어 있던 레거시 행은 같은 값 재업로드로 되살아난다 (라운드 51 QA P2-5)", async () => {
+    const admin = await adminSession();
+    const template = await prisma.itemTemplate.findFirstOrThrow({ where: { code: templateCode } });
+    const affiliateUrl = "https://link.coupang.com/a/legacy-price-recovery";
+    // 시각 없이 가격만 들고 있는 행 — 제휴 URL·isAffiliate까지 CSV와 이미 같은 값이라,
+    // 값 비교만으로는 "바뀔 것이 하나도 없는" 행이다.
+    const link = await prisma.productLink.create({
+      data: {
+        itemTemplateId: template.id,
+        platform: "custom",
+        title: `레거시 가격 행 ${randomUUID().slice(0, 8)}`,
+        url: "https://example.com/dev/bulk-legacy-price",
+        affiliateUrl,
+        isAffiliate: true,
+        priceSnapshotKrw: 10_000,
+        priceCheckedAt: null
+      }
+    });
+
+    async function apply(csvRow: string) {
+      return await request(app.getHttpServer())
+        .post("/api/v1/admin/product-links/bulk-apply")
+        .set("Cookie", admin.cookie)
+        .set("X-CSRF-Token", admin.csrfToken)
+        .send({ csv: ["productLinkId,itemTemplate,platform,affiliateUrl,priceSnapshotKrw", csvRow].join("\n") })
+        .expect(200);
+    }
+
+    const before = new Date();
+    expect((await apply(`${link.id},,,${affiliateUrl},10000`)).body).toMatchObject({ applied: 1, skipped: 0, errors: 0 });
+
+    const recovered = await prisma.productLink.findUniqueOrThrow({ where: { id: link.id } });
+    expect(recovered.priceSnapshotKrw).toBe(10_000);
+    expect(recovered.affiliateUrl).toBe(affiliateUrl);
+    expect(recovered.priceCheckedAt).not.toBeNull();
+    expect(recovered.priceCheckedAt!.getTime()).toBeGreaterThanOrEqual(before.getTime());
+
+    // 한 번 채워진 뒤에는 같은 CSV가 다시 no-op이다(멱등성은 그대로).
+    expect((await apply(`${link.id},,,${affiliateUrl},10000`)).body).toMatchObject({ applied: 0, skipped: 1 });
+    const afterReupload = await prisma.productLink.findUniqueOrThrow({ where: { id: link.id } });
+    expect(afterReupload.priceCheckedAt?.toISOString()).toBe(recovered.priceCheckedAt?.toISOString());
+
+    // 가격 칸이 빈 행은 여전히 시각을 만들지 않는다 — URL 교체는 가격 확인이 아니다.
+    const urlOnlyLink = await prisma.productLink.create({
+      data: {
+        itemTemplateId: template.id,
+        platform: "custom",
+        title: `레거시 가격 행(URL만) ${randomUUID().slice(0, 8)}`,
+        url: "https://example.com/dev/bulk-legacy-price-url-only",
+        priceSnapshotKrw: 10_000,
+        priceCheckedAt: null
+      }
+    });
+    expect(
+      (await apply(`${urlOnlyLink.id},,,https://link.coupang.com/a/legacy-url-only,`)).body
+    ).toMatchObject({ applied: 1, errors: 0 });
+    const afterUrlOnly = await prisma.productLink.findUniqueOrThrow({ where: { id: urlOnlyLink.id } });
+    expect(afterUrlOnly.priceCheckedAt).toBeNull();
+
+    await prisma.productLink.deleteMany({ where: { id: { in: [link.id, urlOnlyLink.id] } } });
   });
 
   it("enforces the AFFILIATE_ALLOWED_DOMAINS allowlist from the environment", async () => {

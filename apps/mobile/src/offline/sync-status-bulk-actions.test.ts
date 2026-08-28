@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { createMemoryOfflineStore } from "./memory-offline-store";
 import {
   syncStatusDiscardAllConfirmMessage,
+  syncStatusDiscardFailedExpensesLabel,
+  syncStatusRetryFailedExpensesLabel,
   SYNC_STATUS_DISCARD_ALL_CONFIRM_TITLE,
   SYNC_STATUS_DISCARD_ALL_LABEL,
   SYNC_STATUS_DISCARD_LABEL,
@@ -151,9 +153,11 @@ describe("SYNC-127 sync-status screen virtualization (source verification -- the
     expect(src).not.toContain("<ScrollView");
   });
 
-  it("offers 전체 재시도 / 전체 버리기, and puts a destructive-action confirmation in front of the discard", () => {
+  it("offers 일괄 재시도 / 버리기, and puts a destructive-action confirmation in front of the discard", () => {
     const src = syncStatusSource();
-    expect(src).toContain("SYNC_STATUS_RETRY_ALL_LABEL");
+    // 라운드 51 QA(P2-3): 두 버튼의 라벨은 대상(지출)과 건수를 함께 말하는 함수에서 온다.
+    expect(src).toContain("syncStatusRetryFailedExpensesLabel(failedRows.length)");
+    expect(src).toContain("syncStatusDiscardFailedExpensesLabel(failedRows.length)");
     expect(src).toContain("SYNC_STATUS_DISCARD_ALL_LABEL");
     expect(src).toContain("retryAllOfflineMutations(authToken, queryClient)");
     expect(src).toContain("discardAllOfflineMutations()");
@@ -180,7 +184,8 @@ describe("SYNC-127 sync-status screen virtualization (source verification -- the
       "syncStatusBadgeLabel",
       "모든 기록이 동기화됐어요.",
       "연결되면 자동으로 반영할게요.",
-      "동기화 중이에요."
+      // 라운드 51 QA(P3-9): 문장은 그대로이고 출처만 단일 소스가 됐다(messages.ts).
+      "SYNC_STATUS_SYNCING_ROW_MESSAGE"
     ]) {
       expect(src, `sync-status.tsx should still contain ${pinned}`).toContain(pinned);
     }
@@ -201,6 +206,43 @@ describe("SYNC-127 sync-status screen virtualization (source verification -- the
     expect(retryAllBody).toContain("await retryAllFailedMutations(store);");
     expect(retryAllBody).toContain("await refreshSnapshot();");
     expect(retryAllBody.slice(0, retryAllBody.indexOf("}")).match(/flushInBackground/g) ?? []).toHaveLength(1);
+  });
+});
+
+/**
+ * 라운드 51 QA(P2-3) — 실패 섹션에 준비템 상태 실패 행만 남았을 때.
+ *
+ * 그 섹션의 일괄 버튼 둘은 지출 큐만 다루므로(retryAll/discardAll → 지출 컨트롤러), 지출 실패가
+ * 0건이면 눌러도 아무 일이 없는 버튼과 "0건을 버릴까요?" 확인창만 남았다. 화면은 runtime으로
+ * 렌더할 수 없으므로(react-native 네이티브 바인딩) 조합 규칙은 소스로, 문구는 순수 함수로 고정한다.
+ */
+describe("라운드 51 QA(P2-3) 실패 섹션 일괄 액션의 범위", () => {
+  const syncStatusSource = () => source("app/sync-status.tsx");
+
+  it("지출 실패 행이 없으면 일괄 액션을 아예 만들지 않는다 (섹션은 준비템 행만으로도 선다)", () => {
+    const src = syncStatusSource();
+    expect(src).toContain("if (failedRows.length + failedItemStatusRows.length > 0) {");
+    expect(src).toContain('...(failedRows.length > 0 ? { actions: "failed-bulk" as const } : {})');
+    // 예전의 무조건 부착은 남아 있지 않다.
+    expect(src).not.toContain('title: SYNC_STATUS_FAILED_LABEL, actions: "failed-bulk"');
+  });
+
+  it("두 버튼은 대상(지출)과 건수를 라벨로 말한다 -- 스크린리더 문구를 따로 두지 않는다", () => {
+    expect(syncStatusRetryFailedExpensesLabel(3)).toBe("지출 3건 재시도");
+    expect(syncStatusDiscardFailedExpensesLabel(3)).toBe("지출 3건 버리기");
+    // 개별 행 버튼과 같은 동사를 쓴다(한 화면에서 같은 동작을 다른 말로 부르지 않는다).
+    expect(syncStatusRetryFailedExpensesLabel(1)).toContain(SYNC_STATUS_RETRY_LABEL);
+    expect(syncStatusDiscardAllConfirmMessage(3)).toContain("3건");
+    const src = syncStatusSource();
+    expect(src).not.toContain("accessibilityLabel={`${SYNC_STATUS_RETRY_ALL_LABEL}");
+  });
+
+  it("확인 Alert의 건수도 지출 실패 행 수다 (버리는 대상과 같은 숫자)", () => {
+    const src = syncStatusSource();
+    const discardAllBody = src.slice(src.indexOf("const discardAll = useCallback("), src.indexOf("const listData"));
+    expect(discardAllBody).toContain("const count = failedRows.length;");
+    expect(discardAllBody).toContain("if (count === 0) return;");
+    expect(discardAllBody).not.toContain("failedItemStatusRows");
   });
 });
 

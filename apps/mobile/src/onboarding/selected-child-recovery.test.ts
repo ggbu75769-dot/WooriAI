@@ -238,7 +238,10 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
       // 라운드 51 #2: 조건에 `progressToken &&`가 앞에 붙었다 -- 토큰이 없으면 조회가 돌지
       // 않으므로 기다릴 대상도 없다(빈 화면으로 굳지 않기 위한 안전장치). "idle도 함께
       // 잡아둔다"는 FIX-118A 계약 자체는 그대로다.
-      expect(indexSource).toContain('progressFetch !== "done"');
+      // 라운드 51 QA(P3-11): 앵커를 조건문 전체로 되돌린다. `progressFetch !== "done"` 조각만
+      // 보면 이 화면 어디에나 있을 수 있는 문자열이라(예: 다른 갈래의 방어 조건) 정작 지켜야 할
+      // "토큰이 있을 때 두 대기 상태를 함께 붙잡는다"는 계약이 깨져도 통과한다.
+      expect(indexSource).toContain('if (progressToken && progressFetch !== "done")');
       expect(indexSource).not.toContain('if (progressFetch === "loading") {\n      return null;');
     });
   });

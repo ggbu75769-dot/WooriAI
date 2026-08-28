@@ -627,11 +627,51 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
     expect(useFirstRecordCelebrationStore.getState().everHadRecordChildIds).toEqual({});
   });
 
+  /**
+   * 라운드 51 QA(P3-10) — 지운 뒤에 화면이 읽는 사본까지 다시 만든다.
+   *
+   * 스냅샷(sync-controller.ts의 latestSnapshot)은 저장소를 구독하지 않는 메모리 사본이라, 테이블을
+   * 비워도 그 사본에는 떠난 계정의 대기/실패 행이 남는다. 그 사본을 읽는 것이 기록 탭 배지와
+   * 동기화 상태 화면이므로, 계정을 바꾼 직후 새 사용자가 이전 계정의 건수를 본다.
+   */
+  it("라운드 51 QA(P3-10): wipe가 **끝난 뒤에** 화면 스냅샷을 다시 만든다", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+    const observed: Array<{ expenses: number; itemStatuses: number }> = [];
+
+    await teardownOfflineSessionState(store, {
+      authToken: null,
+      refreshSyncSnapshot: async () => {
+        observed.push({
+          expenses: (await store.listLocalExpenses()).length,
+          itemStatuses: (await store.listItemStatusMutations()).length
+        });
+      }
+    });
+
+    // 정확히 한 번, 그리고 그 순간 저장소는 이미 비어 있다 -- 순서가 반대면 지우기 전 사본을
+    // 다시 만들어 아무것도 고쳐지지 않는다.
+    expect(observed).toEqual([{ expenses: 0, itemStatuses: 0 }]);
+  });
+
+  it("스냅샷 갱신 함수를 넘기지 않으면 종전 그대로다 (선택 인자)", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+
+    await teardownOfflineSessionState(store, { authToken: null });
+
+    await expectStoreFullyEmpty(store);
+  });
+
   it("sync-controller mounts the teardown from the same session-store subscription as the cursor invalidation (source verification -- the controller is not runtime-testable under vitest, see its header comment)", () => {
     const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
     const subscriptionBody = controllerSource.slice(controllerSource.indexOf("useSessionStore.subscribe"));
     expect(subscriptionBody).toContain("isSessionIdentityChange(previous, state)");
-    expect(subscriptionBody).toContain("teardownOfflineSessionState(store, { authToken: outgoingToken })");
+    expect(subscriptionBody).toContain("teardownOfflineSessionState(store, {");
+    expect(subscriptionBody).toContain("authToken: outgoingToken,");
+    // 라운드 51 QA(P3-10): wipe가 끝나면 화면이 읽는 스냅샷도 다시 만든다 -- 컨트롤러가 그
+    // 함수를 넘긴다(순환 import 회피, session-teardown.ts의 컨텍스트 주석 참고).
+    expect(subscriptionBody).toContain("refreshSyncSnapshot: refreshSnapshot");
     // FIX-118A: the token handed to teardown is the OUTGOING session's (the store already holds
     // the incoming one when the subscription fires).
     expect(subscriptionBody).toContain(

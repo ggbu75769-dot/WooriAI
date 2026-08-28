@@ -48,7 +48,8 @@ import {
 } from "../../src/home/last-month-comparison";
 import { evaluateHomeCumulativeTotal } from "../../src/home/cumulative-total";
 import { evaluateMilestoneCountdown } from "../../src/home/milestone-countdown";
-import { evaluateHomePrepNudge } from "../../src/home/prep-nudge";
+import { evaluateHomePrepNudge, type PrepNudgeRecommendedItem } from "../../src/home/prep-nudge";
+import { buildPendingItemStatusIndex, effectiveItemStatus } from "../../src/items/pending-status";
 import { evaluateWeeklySummary } from "../../src/home/weekly-summary";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
@@ -748,6 +749,32 @@ export default function HomeScreen() {
     () => (childId ? offlineSyncSnapshot.rows.filter((row) => row.childId === childId) : []),
     [offlineSyncSnapshot.rows, childId]
   );
+  /**
+   * 라운드 51 QA(P2-2) — 홈의 준비템 이야기도 **아직 전송되지 않은 상태 변경**을 반영한다.
+   *
+   * 준비템 상태 변경은 오프라인 큐를 타므로(src/offline/types.ts의 ItemStatusOutboxRow), 목록
+   * 탭·상세는 이미 그 대기 값을 서버 응답보다 앞세워 그린다(src/items/pending-status.ts).
+   * 홈만 서버 `/home` 응답의 status를 그대로 읽고 있어서, 오프라인에서 "준비 완료"를 누르고
+   * 홈으로 돌아오면 그 준비템이 여전히 "지금 시기 준비템"으로 이름이 불리고 첫 실행 안내의
+   * 개수에도 계속 잡혔다 -- 같은 순간 준비템 탭은 준비 완료로 말한다.
+   *
+   * 이 화면은 이미 오프라인 스냅샷을 구독하고 있으므로(위 offlineSyncSnapshot) 추가 요청은
+   * 0건이다. 아이로 한 번 거르는 것까지 순수 모듈이 한다(준비템 id는 아이가 달라도 같은 값이라
+   * 거르지 않으면 첫째의 대기 값이 둘째에게 보인다).
+   */
+  const pendingItemStatusIndex = useMemo(
+    () => buildPendingItemStatusIndex(offlineSyncSnapshot.itemStatusRows, childId),
+    [offlineSyncSnapshot.itemStatusRows, childId]
+  );
+  const recommendedItemsWithPendingStatus = useMemo<PrepNudgeRecommendedItem[] | null>(() => {
+    const items = home.data?.recommendedItems ?? null;
+    if (!items) return null;
+    if (pendingItemStatusIndex.size === 0) return items;
+    return items.map((item) => {
+      const pending = pendingItemStatusIndex.get(item.id);
+      return pending ? { ...item, status: effectiveItemStatus(item.status, pending) } : item;
+    });
+  }, [home.data?.recommendedItems, pendingItemStatusIndex]);
   const weeklyThisMonthRecords = useMemo(
     () => reconciledMonthRecords(thisMonthExpenses.data?.expenses, childOfflineRows, thisYearMonth),
     [thisMonthExpenses.data, childOfflineRows, thisYearMonth]
@@ -1128,7 +1155,8 @@ export default function HomeScreen() {
   const firstRunGuide = evaluateHomeFirstRunGuide({
     hasSession,
     hasAnyExpenseRecord,
-    recommendedItemCount: countUnpreparedRecommendedItems(home.data?.recommendedItems ?? []),
+    // 라운드 51 QA(P2-2): 아직 전송되지 않은 상태 변경까지 반영한 배열을 센다(위 memo).
+    recommendedItemCount: countUnpreparedRecommendedItems(recommendedItemsWithPendingStatus ?? []),
     recentRecordCount: weeklyThisMonthRecords?.length ?? null,
     serverRecentExpenseCount: home.data ? home.data.recentExpenses.length : null,
     itemsGuideDismissed: childId ? dismissedItemsGuideChildIds.includes(childId) : false,
@@ -1229,9 +1257,11 @@ export default function HomeScreen() {
   // 요청 0) 카드 하나를 만든다 — 판정·문구·상태 라벨 재사용은 전부 순수 모듈에 있다
   // (src/home/prep-nudge.ts). 첫 실행 안내가 떠 있으면 접히므로 두 카드가 같은 말을 하지 않고,
   // 세션 게이트가 모듈 안에 있어 비세션 HOME-001 미리보기에는 이 자리가 통째로 없다.
+  // 라운드 51 QA(P2-2): 목록·상세와 같은 값을 말하도록 대기 중인 상태 변경을 얹은 배열을 넘긴다
+  // (추가 요청 0 -- 홈이 이미 구독 중인 오프라인 스냅샷에서 온다).
   const prepNudge = evaluateHomePrepNudge({
     hasSession,
-    recommendedItems: home.data?.recommendedItems ?? null,
+    recommendedItems: recommendedItemsWithPendingStatus,
     guideVariant: firstRunGuide?.variant ?? null
   });
   // NOTI-102: 알림 센터가 실제 기능이 되어 UX-5B-8에서 숨겼던 홈 알림 벨을 미확인 배지와 함께 복원.

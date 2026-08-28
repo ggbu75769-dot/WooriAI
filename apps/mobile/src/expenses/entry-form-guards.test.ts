@@ -198,6 +198,27 @@ describe("라운드 51 C-#5 화면 배선", () => {
     expect(source).toContain("{CATEGORY_REQUIRED_NOTICE}");
   });
 
+  /**
+   * 라운드 51 QA(P2-4): 안내가 카테고리 타일 바로 아래에 있으면, 그 아래로 금액·날짜·판매처·
+   * 결제수단·선물 체크박스가 이어지는 이 화면에서는 저장을 누른 사람의 시야 밖이다 -- 눌러도
+   * 아무 일도 일어나지 않는 것처럼 보인다. 저장 실패 배너와 **같은 자리**(저장 버튼 바로 위)로
+   * 옮겨, 누른 곳에서 답하게 한다.
+   */
+  it("분류 안내는 저장 버튼 바로 위에 뜬다 (저장 실패 배너와 같은 자리)", () => {
+    const notice = source.indexOf("{CATEGORY_REQUIRED_NOTICE}");
+    const saveErrorToast = source.indexOf("{saveErrorMessage ? <Toast");
+    const saveButton = source.indexOf('label={saveExpense.isPending ? "저장 중" : "저장하기"}');
+    expect(saveErrorToast).toBeGreaterThan(-1);
+    expect(notice).toBeGreaterThan(saveErrorToast);
+    expect(notice).toBeLessThan(saveButton);
+    // 두 곳에서 같은 문장을 동시에 말하지 않는다(스크린리더가 두 번 읽는다).
+    expect(source.match(/\{CATEGORY_REQUIRED_NOTICE\}/g) ?? []).toHaveLength(1);
+    // 눌린 순간 나타나므로 스크린리더도 함께 읽는다.
+    const noticeBlock = source.slice(source.lastIndexOf("{showCategoryNotice ? (", notice), notice);
+    expect(noticeBlock).toContain('accessibilityRole="alert"');
+    expect(noticeBlock).toContain('accessibilityLiveRegion="polite"');
+  });
+
   it("연속 기록 리셋도 미선택으로 돌아간다", () => {
     const resetStart = source.indexOf("const resetFormForNextEntry = () => {");
     expect(resetStart).toBeGreaterThan(0);
