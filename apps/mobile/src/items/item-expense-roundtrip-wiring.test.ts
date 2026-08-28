@@ -30,18 +30,20 @@ describe("C-01 찜 칩 (클라이언트 필터, 서버 왕복 0)", () => {
 
   it("새 요청을 만들지 않는다 -- 이미 받아 둔 tab=\"all\" 스냅샷을 거른다", () => {
     const items = itemsSource();
-    expect(items).toContain("filterInterestedItems(allStatusItems.data)");
-    // 서버 tab 파라미터 집합은 그대로다(찜은 서버 탭이 아니다).
-    expect(items).toContain('listItems(authToken!, childId!, statusTab, requestedStageBand)');
+    // DSN-053 P2-B: 그 스냅샷이 곧 목록이라(상태 탭 조회 없음) 찜은 같은 배열을 한 번 더
+    // 거르는 클라이언트 필터로 남는다.
+    expect(items).toContain("filterInterestedItems(visibleItems)");
+    expect(items).toContain('listItems(authToken!, childId!, "all")');
     expect(items).not.toContain('listItems(authToken!, childId!, "interested"');
     // 목록 쿼리 키에도 찜이 끼지 않는다 = 칩을 눌러도 캐시가 갈리지 않는다.
-    expect(items).toContain('queryKey: ["items", childId, statusTab, requestedStageBand ?? "current-stage"]');
+    expect(items).toContain('queryKey: ["items", childId, "catalog"]');
   });
 
-  it("찜을 켜도 상태 탭 값(statusTab)은 건드리지 않는다 (끄면 보던 탭으로 돌아온다)", () => {
+  it("찜을 끄면 보던 목록이 그대로 돌아온다 (다른 상태를 건드리지 않는다)", () => {
     const items = itemsSource();
     expect(items).toContain("const [showInterestedOnly, setShowInterestedOnly] = useState(false);");
-    expect(items).toContain("selected={!showInterestedOnly && option.value === statusTab}");
+    expect(items).toContain("onPress={() => setShowInterestedOnly((on) => !on)}");
+    expect(items).toContain("selected={showInterestedOnly}");
   });
 
   it("찜 목록이 시기 칩을 따르지 않는다는 사실을 화면이 그 자리에서 밝힌다", () => {
@@ -49,23 +51,23 @@ describe("C-01 찜 칩 (클라이언트 필터, 서버 왕복 0)", () => {
     expect(items).toContain("{INTERESTED_FILTER_SCOPE_NOTE}");
   });
 
-  it("스냅샷이 오기 전/실패했을 때 상태 탭 목록을 찜 목록인 척 그리지 않는다", () => {
+  it("스냅샷이 오기 전/실패했을 때 다른 목록을 찜 목록인 척 그리지 않는다", () => {
     const items = itemsSource();
-    // 아직 안 왔으면 스켈레톤, 실패했으면 재시도 카드 -- 어느 쪽도 다른 목록으로 대신 채우지 않는다.
-    expect(items).toContain("if (hasSession && showInterestedOnly && allStatusItems.isError) {");
-    expect(items).toContain("if (hasSession && showInterestedOnly && !allStatusItems.data) {");
-    expect(items).toContain("onPress={() => allStatusItems.refetch()}");
+    // DSN-053 P2-B: 찜의 원천이 목록 그 자체가 됐다 -- 스냅샷이 아직 없으면 화면 전체가
+    // 스켈레톤이고 실패하면 재시도 카드다(별도 분기를 둘 필요가 없어졌다).
+    expect(items).toContain('if (hasSession && itemsPhase === "error") {');
+    expect(items).toContain('if (hasSession && itemsPhase === "loading") {');
+    expect(items).toContain("onPress={() => items.refetch()}");
     // 실패 문구도 오프라인 인지 공용 소스를 쓴다(UX-N).
-    expect(items).toContain("const interestedLoadErrorCopy = useLoadErrorCopy(showInterestedOnly && allStatusItems.isError);");
+    expect(items).toContain("const loadErrorCopy = useLoadErrorCopy(items.isError);");
   });
 
-  it("찜 칩 줄 전체가 hasSession 게이트 안에 있다 (ITEM-001 비세션 캡처 불변)", () => {
+  it("찜 칩이 세션 렌더에만 있다 (ITEM-001 비세션 캡처 불변)", () => {
     const items = itemsSource();
-    const statusRowIndex = items.indexOf("{statusTabOptions.map((option) => (");
-    const gateIndex = items.lastIndexOf("{hasSession ? (", statusRowIndex);
+    const previewReturnIndex = items.indexOf("if (!hasSession) {");
     const chipIndex = items.indexOf("label={INTERESTED_FILTER_LABEL}");
-    expect(gateIndex).toBeGreaterThan(-1);
-    expect(chipIndex).toBeGreaterThan(gateIndex);
+    expect(previewReturnIndex).toBeGreaterThan(-1);
+    expect(chipIndex).toBeGreaterThan(previewReturnIndex);
     // 비세션 미리보기 픽스처(ITEM-001 기준 이미지)는 그대로 남아 있다.
     expect(items).toContain("const visibleItems = hasSession ? items.data!.items : previewItems;");
   });

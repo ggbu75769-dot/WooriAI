@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { preparationDisplayGroupIds, resolvePreparationDisplayGroupId } from "./preparation-grouping";
 import { expenseCategoryVisual, htmlPreparationItemVisuals, resolvePreparationItemVisual } from "./item-visuals";
-import { toCatalogPlanState, toPreparationParityItem } from "./catalog-contract";
+import { resolvePreparationTimelineBucket, toCatalogPlanState, toPreparationParityItem } from "./catalog-contract";
 import { categoryCatalog } from "../categories";
 import { theme } from "../theme";
 
@@ -156,10 +156,13 @@ describe("catalog adapter (현재 ItemSummary → c20deeb 카탈로그 어휘)",
 describe("PreparationListParity source contract", () => {
   const source = readSource("src/preparation/PreparationListParity.tsx");
 
-  it("hides groups with fewer than five confirmed items and grows 5 → 10 → 20 → 40 → all", () => {
+  it("hides groups smaller than the caller's minimum (default 5) and grows 5 → 10 → 20 → 40 → all", () => {
     expect(source).toContain("const INITIAL_GROUP_LIMIT = 5;");
-    expect(source).toContain("group.items.length >= INITIAL_GROUP_LIMIT");
-    expect(source).toContain("band.items.length >= INITIAL_GROUP_LIMIT");
+    // DSN-053 P2-B: 최소 그룹 크기가 호출부 인자가 됐다. 기본값은 원본과 같은 5라 픽셀 락
+    // 렌더는 그대로이고, 준비템 탭은 1을 넘겨 실제로 있는 품목이 숨지 않게 한다.
+    expect(source).toContain("minimumGroupSize = INITIAL_GROUP_LIMIT");
+    expect(source).toContain("group.items.length > 0 && group.items.length >= minimumGroupSize");
+    expect(source).toContain("band.items.length > 0 && band.items.length >= minimumGroupSize");
     const limitFn = source.slice(
       source.indexOf("export function nextPreparationGroupLimit"),
       source.indexOf("const displayGroups")
@@ -210,5 +213,53 @@ describe("PreparationListParity source contract", () => {
 
   it("reads its catalog vocabulary through the adapter, not from a screen-local literal union", () => {
     expect(source).toContain('import type { CatalogPlanState, CatalogTimelineBucket } from "./catalog-contract";');
+  });
+
+  /**
+   * DSN-053 P2-B: 준비템 탭이 이 화면을 그대로 쓰기 위해 열어 둔 슬롯들. 전부 **선택적**이라
+   * 넘기지 않으면 원본 렌더(픽셀 락 경로)가 한 줄도 바뀌지 않는다.
+   */
+  it("keeps every P2-B slot optional so the original render is the default", () => {
+    for (const slot of [
+      "categoryGroups?: readonly PreparationCategoryGroup[];",
+      "minimumGroupSize?: number;",
+      "progress?: PreparationProgressSummary | null;",
+      "topBarTrailing?: ReactNode;",
+      "beforeSegment?: ReactNode;",
+      "auxiliaryFilters?: ReactNode;",
+      "notices?: ReactNode;",
+      "emptyState?: ReactNode;",
+      "renderItemFooter?: (item: PreparationParityItem) => ReactNode;",
+      "onMissingReport?: () => void;"
+    ]) {
+      expect(source, slot).toContain(slot);
+    }
+    // 히어로 수치를 넘기면 그 값만 그린다 -- 컴포넌트가 다시 세지 않는다.
+    expect(source).toContain("const totalCount = progress ? progress.totalCount : trackedItems.length;");
+    expect(source).toContain("const completedCount = progress ? progress.completedCount : completedItems.length;");
+  });
+});
+
+describe("timeline bucket 판정 (현재 계약 → 시기별 밴드)", () => {
+  const openItem = { status: "not_prepared" as const };
+
+  it("정리된 상태는 밴드와 무관하게 정리된 품목으로 간다", () => {
+    expect(resolvePreparationTimelineBucket({ status: "prepared" }, "12-24개월")).toBe("completed");
+    expect(resolvePreparationTimelineBucket({ status: "gifted" }, "12-24개월")).toBe("completed");
+    expect(resolvePreparationTimelineBucket({ status: "not_needed" }, "12-24개월")).toBe("not_needed");
+  });
+
+  it("보고 있는 밴드에 걸치면 지금, 지나간 밴드면 밀린 항목이다", () => {
+    expect(resolvePreparationTimelineBucket({ ...openItem, stageCodes: ["toddler_1_3"] }, "12-24개월")).toBe("this_week");
+    expect(resolvePreparationTimelineBucket({ ...openItem, stageCodes: ["newborn_0_3"] }, "12-24개월")).toBe("overdue");
+  });
+
+  it("다음 밴드는 곧, 그보다 뒤는 여유 있게로 간다", () => {
+    expect(resolvePreparationTimelineBucket({ ...openItem, stageCodes: ["infant_7_12"] }, "0-6개월")).toBe("this_month");
+    expect(resolvePreparationTimelineBucket({ ...openItem, stageCodes: ["toddler_1_3"] }, "0-6개월")).toBe("next_stage");
+  });
+
+  it("밴드를 특정할 수 없으면 급하다고 주장하지 않는다", () => {
+    expect(resolvePreparationTimelineBucket({ ...openItem, timingLabel: "출산 직후" }, "12-24개월")).toBe("this_month");
   });
 });

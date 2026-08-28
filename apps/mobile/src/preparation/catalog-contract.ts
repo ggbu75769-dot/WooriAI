@@ -19,6 +19,7 @@
  * 직접 쓰는 것이 목표다(P2 준비템 트랙).
  */
 import type { ItemStatus, ItemSummary } from "../api/client";
+import { bandDefinitions, itemMatchesBand, type StageBandLabel } from "../items/stage-bands";
 import type { PreparationParityItem } from "./PreparationListParity";
 
 /** c20deeb `src/api/client.ts:345` 그대로. */
@@ -67,6 +68,43 @@ export function toCatalogPlanState(status: ItemStatus): CatalogPlanState {
   return planStateByItemStatus[status];
 }
 
+/** 시기 밴드 순서(이른 시기 → 늦은 시기). 밴드 정의가 단일 소스다(손으로 복제하지 않는다). */
+const bandOrder: readonly StageBandLabel[] = bandDefinitions.map((band) => band.label);
+
+/**
+ * DSN-053 P2-B — 시기별 밴드에 쓸 `timelineBucket`을 **이미 가진 사실만으로** 정한다.
+ *
+ * 지어내는 값이 아니다. 두 가지 사실만 본다.
+ *  1. 준비 상태(`status`) — 준비 완료·선물은 정리된 항목이고, 괜찮아요는 제외한 항목이다.
+ *  2. 그 품목이 걸치는 시기 밴드(`stageCodes`/`timingLabel`) vs **지금 보고 있는 밴드**.
+ *     이 비교는 서버가 now/soon 탭을 가르는 술어와 같은 것이다
+ *     (apps/api/src/onboarding/item-ranking.ts의 `isInSelectedPeriod`) — 화면이 밴드별
+ *     목록을 4번 조회하는 대신 같은 판정을 한 번의 전 상태 스냅샷 위에서 한다.
+ *
+ * 판정은 `src/items/stage-bands.ts`의 `itemMatchesBand` 하나만 쓴다(밴드 ↔ 스테이지 코드
+ * 매핑을 여기에 다시 적지 않는다).
+ *
+ * 밴드를 특정할 수 없는 품목(스테이지 코드가 없고 `timingLabel`도 어느 밴드 라벨과 같지
+ * 않은 경우)은 `this_month`로 둔다 — "지금 확인해야 한다"는 급함을 근거 없이 주장하지 않고,
+ * 그렇다고 목록에서 사라지게 하지도 않는다.
+ */
+export function resolvePreparationTimelineBucket(
+  item: Pick<ItemSummary, "status" | "stageCodes" | "timingLabel">,
+  selectedBand: StageBandLabel
+): CatalogTimelineBucket {
+  if (item.status === "prepared" || item.status === "gifted") return "completed";
+  if (item.status === "not_needed") return "not_needed";
+  if (itemMatchesBand(item, selectedBand)) return "this_week";
+
+  const selectedIndex = bandOrder.indexOf(selectedBand);
+  const itemIndex = bandOrder.findIndex((label) => itemMatchesBand(item, label));
+  if (itemIndex === -1) return "this_month";
+  // 지나간 시기인데 아직 정리되지 않았다 = 밀린 항목. 원본의 "지금 준비해요" 밴드가
+  // overdue와 this_week를 함께 담는다(PreparationListParity의 timingBands).
+  if (itemIndex < selectedIndex) return "overdue";
+  return itemIndex === selectedIndex + 1 ? "this_month" : "next_stage";
+}
+
 /**
  * `ItemSummary` 하나를 파리티 화면이 받는 모양으로 올린다.
  *
@@ -75,8 +113,10 @@ export function toCatalogPlanState(status: ItemStatus): CatalogPlanState {
  * 아이디를 그대로 쓴다 — 그러면 그룹핑은 정규식에 걸리지 않아 `family_records`로 떨어지는데,
  * 이는 "모르면 기타로 둔다"는 원본의 기본값과 같은 처리다(없는 분류를 지어내지 않는다).
  *
- * `timelineBucket`은 현재 계약에 대응하는 값이 없어 **넘기지 않는다**. 넘기지 않은 항목은
- * 시기별 탭의 어느 밴드에도 들어가지 않는다(원본 로직 그대로).
+ * `timelineBucket`은 서버 응답에 그대로 실려 오는 값이 아니라 **호출부가 정해서 넘기는** 값이다.
+ * 넘기지 않으면 그 항목은 시기별 탭의 어느 밴드에도 들어가지 않는다(원본 로직 그대로).
+ * 준비템 탭은 위 `resolvePreparationTimelineBucket`이 지금 보고 있는 시기 밴드 기준으로
+ * 정한 값을 넘긴다.
  */
 export function toPreparationParityItem(
   item: ItemSummary,

@@ -12,7 +12,6 @@ import {
   FALLBACK_PLATFORM_LABEL,
   GENERAL_MARKER_LABEL,
   hasPurchasableLink,
-  PRODUCT_LINKS_SECTION_TITLE,
   productLinkMarker,
   productLinksDisclosureText,
   productPlatformLabel,
@@ -485,18 +484,27 @@ describe("라운드 43 UX-V (C4): 비교가 아닌 가격 비교", () => {
     );
   });
 
-  it("세션 경로 제목은 눌리지 않는 탭 흉내 대신 섹션 제목이다", () => {
+  /**
+   * DSN-053 P2-B: 승인 디자인(ITEM-002)의 "가격 비교 / 제품 정보" 밴드가 돌아왔다. C4가
+   * 금지한 것은 밴드가 아니라 **누를 수 없는 것을 탭처럼 그리는 일**이었으므로, 돌아온 밴드는
+   * 실제로 눌려서 카드 아래 내용을 바꾼다(구매처 목록 ↔ 제품 정보 줄).
+   */
+  it("세션 경로의 탭 밴드는 실제로 눌리는 탭이다(죽은 탭 흉내 금지)", () => {
     const detail = detailSource();
 
-    expect(PRODUCT_LINKS_SECTION_TITLE).toBe("구매처");
-    expect(detail).toContain("{PRODUCT_LINKS_SECTION_TITLE}");
-    expect(detail).toContain('accessibilityRole="header"');
-    // 프리뷰(ITEM-002 픽셀 락 캡처) 경로의 문구는 기준 이미지 그대로 남는다.
-    expect(detail).toContain("가격 비교");
-    expect(detail).toContain("제품 정보");
-    const sessionBranchIndex = detail.indexOf("{hasSession ? (\n              <View style={{ borderBottomColor");
+    expect(detail).toContain('{ value: "price", label: "가격 비교" }');
+    expect(detail).toContain('{ value: "info", label: "제품 정보" }');
+    expect(detail).toContain('accessibilityRole="tablist"');
+    expect(detail).toContain('accessibilityRole="tab"');
+    expect(detail).toContain("accessibilityState={{ selected }}");
+    expect(detail).toContain("onPress={() => setDetailTab(tab.value)}");
+    // 탭을 옮기면 실제로 렌더가 갈린다 -- 두 갈래가 모두 있어야 탭이 하는 일이 있다.
+    expect(detail).toContain('{hasSession && detailTab === "info" ? (');
+    expect(detail).toContain('{hasSession && detailTab === "info" ? null : hasProductLinks ? (');
+
+    // 프리뷰(ITEM-002 픽셀 락 캡처) 경로는 상태 없는 정적 밴드 그대로다.
+    const sessionBranchIndex = detail.indexOf('{hasSession ? (\n              <View\n                accessibilityRole="tablist"');
     expect(sessionBranchIndex).toBeGreaterThan(-1);
-    // 두 문구는 그 삼항의 **프리뷰 가지**(`) : (` 이후)에만 렌더된다.
     const previewBranchIndex = detail.indexOf(") : (", sessionBranchIndex);
     expect(detail.lastIndexOf("가격 비교")).toBeGreaterThan(previewBranchIndex);
     expect(detail.lastIndexOf("제품 정보")).toBeGreaterThan(previewBranchIndex);

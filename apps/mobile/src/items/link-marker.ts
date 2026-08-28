@@ -77,9 +77,6 @@ export function productPlatformLabel(platform: string | undefined | null): strin
  */
 export const EMPTY_PRODUCT_LINKS_TEXT = "아직 등록된 구매처가 없어요.";
 
-/** C4: 세션 경로의 판매처 목록 제목. 값이 하나뿐인 "가격 비교"를 대신한다. */
-export const PRODUCT_LINKS_SECTION_TITLE = "구매처";
-
 /** 링크가 하나라도 있어야 구매 CTA가 의미를 가진다. */
 export function hasPurchasableLink(links: ReadonlyArray<unknown> | undefined | null): boolean {
   return Boolean(links && links.length > 0);

@@ -24,13 +24,12 @@ import {
 import {
   EMPTY_PRODUCT_LINKS_TEXT,
   hasPurchasableLink,
-  PRODUCT_LINKS_SECTION_TITLE,
   productLinkMarker,
   productLinksDisclosureText,
   productPlatformLabel
 } from "../../src/items/link-marker";
 import { resolveLinkPriceDisplay, withLinkPriceCaption } from "../../src/items/link-price";
-import { itemStatusBadgeLabel } from "../../src/items/item-labels";
+import { itemStatusBadgeLabel, itemStatusLabel, necessityBadgeLabel } from "../../src/items/item-labels";
 import { itemTrustNotes } from "../../src/items/item-trust-notes";
 import { linkedExpenseRow } from "../../src/items/linked-expense";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
@@ -64,6 +63,8 @@ import {
   TextButton,
   Toast
 } from "../../src/ui";
+// DSN-053 P2-B: 승인 디자인의 히어로 글리프. 디자인 시스템은 읽기 전용으로만 가져다 쓴다.
+import { AppIcon } from "../../src/design-system";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
@@ -129,17 +130,26 @@ function productDetailHeroImageStyle() {
   } as const;
 }
 /**
- * 라운드 48 T1(A3c): 세션 경로에는 히어로 사진이 없다.
+ * 라운드 48 T1(A3c) → DSN-053 P2-B: 세션 경로에는 **상품 사진이 없다**. 카드 자체는 있다.
  *
  * `productImage`(기저귀 팩 일러스트) 한 장이 시드 62개 품목 **전부**의 대표 사진으로
  * 붙어 있었다 — 카시트 상세에도 기저귀 사진이 떴다. 응답에 상품 이미지가 없으므로 그릴
- * 사실이 없고, 없는 사진을 지어내느니 비워 두는 편이 낫다. 대신 상단에 떠 있는
- * 뒤로가기/공유 버튼(absolute, top 16 + height 34)이 카드 제목 위에 겹치지 않도록
- * 그만큼의 자리만 남긴다.
+ * 사실이 없다. A3c는 그래서 히어로를 통째로 빈 자리(높이 44)로 바꿨는데, 승인 디자인
+ * (ITEM-002)의 상단은 베이지 히어로 카드다 — 사진을 지어내지 않으면서 그 프레임을 되살리려면
+ * 카드 안에 **중립 글리프**를 두면 된다(c20deeb의 세션 분기와 같은 처리).
  *
- * 비세션 프리뷰(ITEM-002 픽셀 락 캡처)는 예전 히어로 카드를 그대로 그린다.
+ * 비세션 프리뷰(ITEM-002 픽셀 락 캡처)는 예전 히어로 카드와 사진을 그대로 그린다.
  */
-const productDetailSessionHeroSpacerStyle = { height: 44 } as const;
+function productDetailSessionHeroPlaceholderStyle() {
+  return {
+    alignItems: "center",
+    backgroundColor: theme.colors.beige,
+    borderRadius: ProductDetailPixelStyles.cardRadius,
+    height: ProductDetailPixelStyles.heroHeight,
+    justifyContent: "center",
+    width: "100%"
+  } as const;
+}
 
 function productDetailInfoCardStyle() {
   return {
@@ -178,6 +188,31 @@ function ProductDetailNavigation({ onShare }: { onShare: () => void }) {
         </Pressable>
     </View>
   );
+}
+
+/**
+ * DSN-053 P2-B — 승인 디자인(ITEM-002)의 정보 카드 탭 밴드. 라벨은 캡처 그대로다.
+ */
+const PRODUCT_DETAIL_TABS = [
+  { value: "price", label: "가격 비교" },
+  { value: "info", label: "제품 정보" }
+] as const;
+type ProductDetailTab = (typeof PRODUCT_DETAIL_TABS)[number]["value"];
+
+/**
+ * "제품 정보" 탭이 세우는 줄들 — **응답에 실제로 있는 값만** 담는다(없으면 줄이 없다).
+ *
+ * 필수도가 `optional`이면 줄을 세우지 않는다: 필수도 축의 기본값이라 알릴 사실이 없다는
+ * 판정이 이미 순수 모듈에 있고(src/items/item-labels.ts necessityBadgeLabel), 여기서 그
+ * 판정을 뒤집으면 두 화면이 같은 값을 다르게 말한다.
+ */
+function productDetailFacts(detail: ItemDetail, displayStatus: ItemStatus): Array<{ label: string; value: string }> {
+  const facts: Array<{ label: string; value: string }> = [];
+  if (detail.timingLabel) facts.push({ label: "준비 시기", value: detail.timingLabel });
+  const necessity = necessityBadgeLabel(detail.necessityLevel);
+  if (necessity) facts.push({ label: "필수도", value: necessity });
+  facts.push({ label: "내 준비 상태", value: itemStatusLabel(displayStatus) });
+  return facts;
 }
 
 function previewDetail(itemTemplateId: string): ItemDetail {
@@ -246,6 +281,9 @@ export default function ItemDetailScreen() {
   // 라운드 51 #8: 준비 상태(찜하기·선물 받음·준비 완료) 전용 게이트. 서버가 이 PATCH에도 편집
   // 권한을 요구하므로(items-catalog.service.ts) 같은 판정을 읽고 문구만 준비템의 말로 바꾼다.
   const itemStatusGate = useItemStatusGate();
+  // DSN-053 P2-B: 정보 카드의 "가격 비교 / 제품 정보" 탭. 기본값은 가격 비교 -- 핵심 루프의
+  // 다음 칸(구매처 확인)이 첫 화면에서 바로 보여야 한다.
+  const [detailTab, setDetailTab] = useState<ProductDetailTab>("price");
   const [clickedTitle, setClickedTitle] = useState<string | null>(null);
   // COM-106 fallback: when Linking.openURL fails (or canOpenURL is false), keep the
   // redirect URL around so we can offer "링크 공유하기" (Share.share) and "다시 시도"
@@ -574,7 +612,11 @@ export default function ItemDetailScreen() {
           <View testID={productDetailScreenId} style={productDetailHeaderSpacerStyle} />
 
           {hasSession ? (
-            <View style={productDetailSessionHeroSpacerStyle} />
+            <Card style={productDetailHeroCardStyle()}>
+              <View style={productDetailSessionHeroPlaceholderStyle()}>
+                <AppIcon color={theme.colors.coral[600]} name="package-variant-closed" size={64} />
+              </View>
+            </Card>
           ) : (
             <Card style={productDetailHeroCardStyle()}>
               <Image source={productImage} style={productDetailHeroImageStyle()} resizeMode="cover" />
@@ -620,23 +662,53 @@ export default function ItemDetailScreen() {
               />
             ) : null}
             {/* UX-5B-1: 별점·최저가 등 API에 없는 가짜 수치는 렌더하지 않는다 -- 실제 응답의
-                가격대(priceBandText)만 보여주고, 없으면 아무것도 표시하지 않는다. */}
+                가격대(priceBandText)만 보여주고, 없으면 아무것도 표시하지 않는다.
+                DSN-053 P2-B: 승인 디자인의 "예상 가격대" 라벨이 그 값 위에 선다. 라벨과 값은
+                한 덩어리라 값이 없으면 라벨도 나오지 않는다 -- 빈 가격 아래 라벨만 남으면
+                "가격대가 있는데 못 불러왔다"로 읽힌다. */}
             {visibleDetail.priceBandText ? (
-              <Text style={{ color: theme.colors.gray900, fontSize: 26, fontWeight: "800" }}>{visibleDetail.priceBandText}</Text>
+              <View style={{ gap: 4 }}>
+                {/* 라벨은 세션 렌더에만 붙인다 -- ITEM-002 픽셀 락 캡처(비세션 프리뷰)의
+                    렌더는 이 트랙에서 한 글자도 바꾸지 않기로 한 계약이다. */}
+                {hasSession ? (
+                  <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>예상 가격대</Text>
+                ) : null}
+                <Text style={{ color: theme.colors.gray900, fontSize: 26, fontWeight: "800" }}>{visibleDetail.priceBandText}</Text>
+              </View>
             ) : null}
 
-            {/* 라운드 43 UX-V (C4): 세션 경로는 단순 섹션 제목 한 줄이다. 예전에는
-                "가격 비교 / 제품 정보" 두 칸이 밑줄까지 두르고 탭처럼 생겼는데 어느 쪽도
-                눌리지 않는 죽은 텍스트였다 — 누를 수 없는 것을 탭처럼 그리지 않는다.
-                비세션 프리뷰(ITEM-002 픽셀 락 캡처)는 기준 이미지 그대로 둔다. */}
+            {/* 라운드 43 UX-V (C4) → DSN-053 P2-B: 승인 디자인의 "가격 비교 / 제품 정보" 밴드가
+                돌아오되, **실제로 눌리는 탭**이다. C4가 없앤 것은 밴드 자체가 아니라 "누를 수
+                없는 것을 탭처럼 그리는 것"이었다 — 두 칸이 각각 카드 아래 내용을 바꾸므로 그
+                금지는 그대로 지켜진다. 비세션 프리뷰(ITEM-002 픽셀 락 캡처)는 상태가 없는
+                기준 이미지 그대로 둔다. */}
             {hasSession ? (
-              <View style={{ borderBottomColor: theme.colors.gray300, borderBottomWidth: 1, paddingTop: 8 }}>
-                <Text
-                  accessibilityRole="header"
-                  style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800", paddingBottom: 9 }}
-                >
-                  {PRODUCT_LINKS_SECTION_TITLE}
-                </Text>
+              <View
+                accessibilityRole="tablist"
+                style={{ borderBottomColor: theme.colors.gray300, borderBottomWidth: 1, flexDirection: "row", gap: 28, paddingTop: 8 }}
+              >
+                {PRODUCT_DETAIL_TABS.map((tab) => {
+                  const selected = detailTab === tab.value;
+                  return (
+                    <Pressable
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected }}
+                      hitSlop={6}
+                      key={tab.value}
+                      onPress={() => setDetailTab(tab.value)}
+                    >
+                      <Text
+                        style={
+                          selected
+                            ? { borderBottomColor: theme.colors.gray900, borderBottomWidth: 2, color: theme.colors.brown, fontSize: 13, fontWeight: "800", paddingBottom: 9 }
+                            : { color: theme.colors.gray600, fontSize: 13, fontWeight: "700", paddingBottom: 9 }
+                        }
+                      >
+                        {tab.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
             ) : (
               <View style={{ borderBottomColor: theme.colors.gray300, borderBottomWidth: 1, flexDirection: "row", gap: 28, paddingTop: 8 }}>
@@ -647,8 +719,24 @@ export default function ItemDetailScreen() {
               </View>
             )}
 
-            {hasProductLinks ? (
-              visibleDetail.productLinks.map((link) => {
+            {/* "제품 정보" 탭 -- 서버 응답에 실제로 있는 값만 줄로 세운다(없는 항목은 줄 자체가
+                없다). 아래 설명 카드(왜 필요해요? 등)를 여기로 옮겨 오지 않는다: 그 카드들은
+                탭과 무관하게 계속 보여야 하는 내용이다. */}
+            {hasSession && detailTab === "info" ? (
+              <View accessibilityLabel="제품 정보" style={{ gap: 8 }}>
+                {productDetailFacts(visibleDetail, displayStatus).map((fact) => (
+                  <View key={fact.label} style={{ alignItems: "flex-start", flexDirection: "row", gap: 12 }}>
+                    <Text style={{ color: theme.colors.gray600, fontSize: 13, width: 92 }}>{fact.label}</Text>
+                    <Text style={{ color: theme.colors.brown, flex: 1, fontSize: 13, fontWeight: "700", lineHeight: 20 }}>
+                      {fact.value}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            {hasSession && detailTab === "info" ? null : hasProductLinks ? (
+              visibleDetail.productLinks.map((link, index) => {
                 // C3: 배지와 캡션을 한 판정에서 함께 받는다(src/items/link-marker.ts).
                 // 예전에는 배지만 3분기하고 캡션은 스폰서 여부로만 갈라, 일반 링크에
                 // "일반" 배지와 "제휴 링크" 캡션이 나란히 붙는 모순이 있었다.
@@ -679,6 +767,10 @@ export default function ItemDetailScreen() {
                         linkPrice가 null이라 가격 칸도 캡션도 종전 그대로다.
                         비세션 프리뷰(ITEM-002 픽셀 락 캡처)는 한 글자도 건드리지 않는다. */}
                     <ProductComparisonRow
+                      /* DSN-053 P2-B: 승인 캡처(ITEM-002)의 판매처 행은 **첫 줄만** 채워진
+                         "구매하기"이고 나머지는 외곽선 "구매"다(src/ui.tsx primaryAction 주석).
+                         비세션 프리뷰는 종전 렌더 그대로 둔다(캡처 불변). */
+                      primaryAction={hasSession && index === 0}
                       seller={link.title}
                       price={hasSession ? linkPrice?.priceText ?? "" : visibleDetail.priceBandText ?? ""}
                       caption={hasSession ? withLinkPriceCaption(productPlatformLabel(link.platform), linkPrice) : undefined}

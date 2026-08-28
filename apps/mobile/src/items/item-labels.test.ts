@@ -82,23 +82,27 @@ describe("라운드 48 T1: 목록 화면 배선", () => {
     expect(items).not.toContain('index === 0 && item.status !== "gifted" ? "BEST"');
     expect(items).not.toContain("recommendationPreviewImages[index % recommendationPreviewImages.length]");
     expect(items).not.toContain("const recommendationPreviewImages");
-    // 배지 판정은 순수 모듈 하나다.
-    expect(items).toContain("badge: itemListBadgeLabel(item)");
+    /**
+     * DSN-053 P2-B: 세션 목록이 승인 디자인의 준비 타일(아이콘 + 이름 + 상태 pill)이 되면서
+     * 붙일 배지도 사진도 없어졌다 -- 근거 없는 평가가 들어올 자리 자체가 사라졌다. 상태 문구는
+     * 여전히 화면 밖(디자인 시스템/모듈)에서만 온다.
+     */
+    expect(items).not.toContain("badge: itemListBadgeLabel(item)");
+    expect(items).not.toContain('badge="');
     expect(items).toContain('from "../../src/items/item-labels"');
-    // 사진은 넘기지 않는다 -- ProductCard가 자리 박스를 그린다(ui.tsx의 image optional).
-    expect(items).toContain("image: undefined");
   });
 
   it("비세션 미리보기(ITEM-001 픽셀 락)의 배지·사진·캡션은 그대로다", () => {
     const items = itemsSource();
     // 프리뷰 분기와 픽스처 값은 손대지 않는다(캡처 픽셀 불변).
-    expect(items).toContain('if ("image" in item) {');
     expect(items).toContain("return { badge: item.badgeText, caption: item.caption, image: item.image };");
     expect(items).toContain('badgeText: "BEST"');
     expect(items).toContain('badgeText: "NEW"');
     expect(items).toContain("image: recommendationBabyCarrierImage");
     expect(items).toContain("image: recommendationDiaperImage");
     expect(items).toContain("image: recommendationBlocksImage");
+    // 프리뷰 픽스처 전용 함수라 실서버 항목이 이 경로로 들어올 수 없다.
+    expect(items).toContain("function getRecommendationDisplay(item: RecommendationPreviewItem) {");
   });
 
   it("가격대가 없을 때의 문구는 눌리는 행동처럼도, 약속처럼도 읽히지 않는다", () => {
@@ -121,11 +125,14 @@ describe("라운드 48 T1: 목록 화면 배선", () => {
 describe("라운드 48 T1: 상세 화면 상태 줄", () => {
   it("목록과 같은 라벨 모듈을 쓰고 세션에서만 그린다", () => {
     const detail = source("app/items/[itemTemplateId].tsx");
-    expect(detail).toContain('import { itemStatusBadgeLabel } from "../../src/items/item-labels";');
+    expect(detail).toContain('from "../../src/items/item-labels"');
+    expect(detail).toContain("itemStatusBadgeLabel");
     // 라운드 51 C-10: 라벨의 근거가 서버 값에서 **낙관 반영을 거친 값**으로 바뀌었다
     // (displayStatus = 대기 중인 변경이 있으면 그 값, 없으면 종전과 같은 서버 값).
     expect(detail).toContain("const statusBadgeLabel = itemStatusBadgeLabel(displayStatus);");
     expect(detail).toContain("{hasSession && statusBadgeLabel ? <StatusBadge label={statusBadgeLabel} /> : null}");
+    // DSN-053 P2-B: "제품 정보" 탭의 상태 줄도 같은 모듈이 문구를 정한다.
+    expect(detail).toContain('facts.push({ label: "내 준비 상태", value: itemStatusLabel(displayStatus) });');
     // 문구를 화면에서 다시 적지 않는다.
     expect(detail).not.toContain('label="이미 준비"');
     expect(detail).not.toContain('label="선물 받음"');

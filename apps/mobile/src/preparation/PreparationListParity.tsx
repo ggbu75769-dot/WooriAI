@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Keyboard, Pressable, TextInput, View, useWindowDimensions } from "react-native";
 import { KoreanText as Text } from "../design-system/components/KoreanText";
 import type { CatalogPlanState, CatalogTimelineBucket } from "./catalog-contract";
@@ -22,6 +22,51 @@ export type PreparationParityItem = {
   timelineBucket?: CatalogTimelineBucket;
   dueWindowLabel?: string;
   plan?: { state: CatalogPlanState; dueDate?: string | null } | null;
+  /**
+   * DSN-053 P2-B: 분류 섹션을 **호출부가 정한 분류 축**으로 그릴 때 그 그룹 id.
+   * `categoryGroups`를 넘기지 않으면 이 값은 쓰이지 않고 원본의 10그룹 라우팅
+   * (`resolvePreparationDisplayGroupId`)이 그대로 돈다.
+   */
+  groupId?: string;
+};
+
+/**
+ * DSN-053 P2-B — 분류 섹션 카드의 그룹 정의. 원본(c20deeb)은 카탈로그 도메인 코드
+ * (`R4-C10-001`)로 10그룹을 라우팅했는데, 현재 준비템 계약에는 그 코드가 없다
+ * (`ItemSummary`에 있는 분류 축은 지출 분류 `categoryId` 하나뿐이다). 그래서 그룹 목록을
+ * 호출부가 넘길 수 있게 열어 둔다 — 원본 로직은 기본값으로 그대로 남는다.
+ */
+export type PreparationCategoryGroup = {
+  id: string;
+  name: string;
+  icon: AppIconName;
+  tint: string;
+  color: string;
+};
+
+/**
+ * DSN-053 P2-B — 진행률 히어로가 그릴 수치. 넘기지 않으면 원본대로 `items`에서 직접 센다.
+ *
+ * 준비템 탭은 이 값을 넘긴다: 화면에 이미 **정직하게 계산된** 준비율이 있고
+ * (src/items/prep-progress.ts + prep-milestones.ts — 분모는 지금 시기 필수템, 표시 퍼센트는
+ * 개수 판정에 맞춘 캡을 거친 값), 프레임만 승인 디자인으로 바뀌는 것이기 때문이다.
+ */
+export type PreparationProgressSummary = {
+  totalCount: number;
+  completedCount: number;
+  /** 이미 캡(prepDisplayPercent)을 거친 0-100 정수. 이 컴포넌트는 다시 계산하지 않는다. */
+  displayPercent: number;
+  /**
+   * 개수 줄을 대신할 한 문장. 없으면 승인 카피("N개 중 M개 완료")를 그대로 쓴다.
+   *
+   * 준비템 탭이 이 값을 넘기는 이유: 그 화면의 분모는 **지금 시기 필수템**이라, 목록에 수십
+   * 개가 보이는 동안 "8개 중 6개 완료"만 적으면 무엇을 센 숫자인지 알 수 없다. 모듈이 만든
+   * 문장은 그 범위를 함께 말한다(src/items/prep-milestones.ts headline).
+   */
+  summaryText?: string;
+  accessibilityLabel: string;
+  /** 바 아래 한 줄(구간 문구). */
+  detailText: string;
 };
 
 type SortMode = "category" | "timing";
@@ -102,13 +147,23 @@ function SegmentedControl({ value, onChange }: { value: SortMode; onChange: (val
   );
 }
 
-function ItemGrid({ items, columns, onItemPress }: { items: PreparationParityItem[]; columns: number; onItemPress: (item: PreparationParityItem) => void }) {
+function ItemGrid({
+  items,
+  columns,
+  onItemPress,
+  renderItemFooter
+}: {
+  items: PreparationParityItem[];
+  columns: number;
+  onItemPress: (item: PreparationParityItem) => void;
+  renderItemFooter?: (item: PreparationParityItem) => ReactNode;
+}) {
   return (
     <View accessibilityLabel={`${columns}열 준비 품목`} style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.xs }}>
       {items.map((item) => {
         const visual = resolvePreparationItemVisual({ code: item.code, nameKo: item.nameKo, primaryCategory: null });
         return (
-          <View key={item.id} style={{ width: compactGridItemWidth(columns) }}>
+          <View key={item.id} style={{ gap: spacing.xxs, width: compactGridItemWidth(columns) }}>
             <PreparationItemCard
               hint={item.dueWindowLabel}
               icon={visual.icon}
@@ -118,6 +173,11 @@ function ItemGrid({ items, columns, onItemPress }: { items: PreparationParityIte
               status={item.plan?.state}
               title={item.nameKo}
             />
+            {/* DSN-053 P2-B: 타일 아래 슬롯. 준비템 탭은 여기에 오프라인 대기 배지와 상태
+                변경(준비했어요/괜찮아요)·"지출도 기록할까요?" 한 줄을 그린다 — 타일 자체는
+                승인 디자인 그대로 두고(디자인 시스템 컴포넌트는 읽기 전용) 기존 기능이
+                제자리를 잃지 않게 한다. 넘기지 않으면 원본 렌더 그대로다. */}
+            {renderItemFooter ? renderItemFooter(item) : null}
           </View>
         );
       })}
@@ -137,7 +197,16 @@ export function PreparationListParity({
   onMissingReport,
   onSearch,
   activeSearchQuery = "",
-  onClearSearch = () => undefined
+  onClearSearch = () => undefined,
+  categoryGroups,
+  minimumGroupSize = INITIAL_GROUP_LIMIT,
+  progress,
+  topBarTrailing,
+  beforeSegment,
+  auxiliaryFilters,
+  notices,
+  emptyState,
+  renderItemFooter
 }: {
   items: PreparationParityItem[];
   selectedContextKey: string | null;
@@ -147,10 +216,35 @@ export function PreparationListParity({
   onBack: () => void;
   onRetry: () => void;
   onItemPress: (item: PreparationParityItem) => void;
-  onMissingReport: () => void;
+  /** 없으면 "누락 신고" 줄과 검색 빈 화면의 신고 버튼을 그리지 않는다(죽은 버튼 금지). */
+  onMissingReport?: () => void;
   onSearch: (query: string) => void;
   activeSearchQuery?: string;
   onClearSearch?: () => void;
+  /** 분류 축을 호출부가 정할 때의 그룹 목록. 없으면 원본 10그룹. */
+  categoryGroups?: readonly PreparationCategoryGroup[];
+  /** 이 개수 미만인 그룹/밴드는 그리지 않는다(원본 기본값 5). */
+  minimumGroupSize?: number;
+  /** 진행률 히어로가 그릴 수치. 없으면 `items`에서 직접 센다(원본 동작). */
+  progress?: PreparationProgressSummary | null;
+  /** TopAppBar 우측 슬롯(준비템 탭은 아이 전환 입구를 둔다). */
+  topBarTrailing?: ReactNode;
+  /** 히어로와 세그먼트 사이 한 줄(스펙 §통합 지점의 찜 칩 자리). */
+  beforeSegment?: ReactNode;
+  /**
+   * 세그먼트 바로 아래 보조 칩 줄(준비템 탭은 시기 밴드·필수도·출산 전 칩을 둔다).
+   *
+   * 스펙(§통합 지점)은 이 칩들을 "시기별 보조 칩"으로 격하하라고 하지만, **분류별에서도
+   * 보이게** 둔다: 필수도·출산 전은 목록 자체를 좁히는 조건이라 세그먼트를 바꿨다고 적용이
+   * 멈추지 않는다. 켜져 있는 좁히기를 화면에서 감추면 "왜 이 품목이 안 보이지"가 된다.
+   */
+  auxiliaryFilters?: ReactNode;
+  /** 검색 아래, 목록 위 안내 슬롯(축하 배너·저장 실패 배너 등). */
+  notices?: ReactNode;
+  /** 그릴 그룹이 하나도 없을 때 원본 카드 대신 쓸 노드. */
+  emptyState?: ReactNode;
+  /** 타일 아래 슬롯. */
+  renderItemFooter?: (item: PreparationParityItem) => ReactNode;
 }) {
   const { fontScale, width } = useWindowDimensions();
   const columns = compactGridColumnCount(width, fontScale);
@@ -164,18 +258,20 @@ export function PreparationListParity({
   const autoExpandedContext = useRef<string | null | undefined>(undefined);
   const submittedSearch = useRef("");
 
-  const categories = useMemo(() => displayGroups
+  const categories = useMemo(() => (categoryGroups ?? displayGroups)
     .map((group) => ({
       ...group,
-      items: items.filter((item) => resolvePreparationDisplayGroupId(item) === group.id)
+      items: items.filter((item) =>
+        (categoryGroups ? item.groupId : resolvePreparationDisplayGroupId(item)) === group.id
+      )
     }))
-    .filter((group) => group.items.length >= INITIAL_GROUP_LIMIT), [items]);
+    .filter((group) => group.items.length > 0 && group.items.length >= minimumGroupSize), [categoryGroups, items, minimumGroupSize]);
   const populatedTimingBands = useMemo(() => timingBands
     .map((band) => ({
       ...band,
       items: items.filter((item) => item.timelineBucket && band.buckets.includes(item.timelineBucket))
     }))
-    .filter((band) => band.items.length >= INITIAL_GROUP_LIMIT), [items]);
+    .filter((band) => band.items.length > 0 && band.items.length >= minimumGroupSize), [items, minimumGroupSize]);
 
   useEffect(() => {
     const firstPopulatedCategory = categories.find((group) => group.items.length > 0);
@@ -202,7 +298,15 @@ export function PreparationListParity({
   const trackedItems = items.filter((item) => item.plan && !excludedStates.has(item.plan.state));
   const completedItems = trackedItems.filter((item) => item.plan?.state && completedStates.has(item.plan.state));
   const plannedItems = trackedItems.filter((item) => !item.plan?.state || !completedStates.has(item.plan.state));
-  const progress = trackedItems.length ? Math.round((completedItems.length / trackedItems.length) * 100) : 0;
+  // 히어로가 그릴 수치. `progress`가 오면 그 값이 유일한 근거다 -- 화면이 이미 정직하게 센 값을
+  // 여기서 다시 세면 두 수치가 조용히 갈린다(같은 화면 안에서 서로를 부정하는 숫자 금지).
+  const totalCount = progress ? progress.totalCount : trackedItems.length;
+  const completedCount = progress ? progress.completedCount : completedItems.length;
+  const progressPercent = progress
+    ? progress.displayPercent
+    : trackedItems.length
+      ? Math.round((completedItems.length / trackedItems.length) * 100)
+      : 0;
   const displayedItems = items;
 
   const toggleGroup = (id: string) => setExpandedGroups((current) => {
@@ -229,11 +333,11 @@ export function PreparationListParity({
 
   return (
     <View accessibilityLabel={`ITEM-001 내 준비 목록, 선택된 아이 ${selectedContextName}`} style={{ gap: 14 }}>
-      <TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비 목록" />
+      <TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비 목록" trailing={topBarTrailing} />
 
       <Pressable
         accessibilityHint="준비 상태별 품목을 펼치거나 접어요."
-        accessibilityLabel={`나의 준비 진행률, ${trackedItems.length}개 중 ${completedItems.length}개 완료`}
+        accessibilityLabel={progress ? progress.accessibilityLabel : `나의 준비 진행률, ${totalCount}개 중 ${completedCount}개 완료`}
         accessibilityRole="button"
         accessibilityState={{ expanded: progressExpanded }}
         onPress={() => setProgressExpanded((value) => !value)}
@@ -243,24 +347,33 @@ export function PreparationListParity({
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={{ color: semanticColors.textInverse, fontSize: 15, fontWeight: "800" }}>나의 준비 진행률</Text>
             <Text style={{ color: semanticColors.textInverse, fontSize: 12, opacity: 0.88 }}>
-              {trackedItems.length ? `${trackedItems.length}개 중 ${completedItems.length}개 완료` : "아직 준비 상태를 정한 품목이 없어요"}
+              {progress?.summaryText ?? (totalCount ? `${totalCount}개 중 ${completedCount}개 완료` : "아직 준비 상태를 정한 품목이 없어요")}
             </Text>
           </View>
           <AppIcon color={semanticColors.textInverse} name={progressExpanded ? "chevron-up" : "chevron-down"} size={24} />
         </View>
-        <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: progress }} style={{ backgroundColor: "rgba(255,255,255,0.28)", borderRadius: 999, height: 9, overflow: "hidden" }}>
-          <View style={{ backgroundColor: semanticColors.textInverse, borderRadius: 999, height: 9, width: `${progress}%` }} />
+        <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: progressPercent }} style={{ backgroundColor: "rgba(255,255,255,0.28)", borderRadius: 999, height: 9, overflow: "hidden" }}>
+          <View style={{ backgroundColor: semanticColors.textInverse, borderRadius: 999, height: 9, width: `${progressPercent}%` }} />
         </View>
         {progressExpanded ? (
           <View style={{ borderTopColor: "rgba(255,255,255,0.28)", borderTopWidth: 1, gap: 8, paddingTop: 12 }}>
-            <Text style={{ color: semanticColors.textInverse, fontSize: 13, fontWeight: "800" }}>준비 중 {plannedItems.length}개 · 완료 {completedItems.length}개</Text>
+            {/* 접힌 히어로를 펼치면 지금 어디까지 왔는지 한 줄 + 이름 몇 개. 수치를 호출부가
+                넘겨 준 경우에는 그 구간 문구를 쓴다 -- 여기서 개수를 다시 세면 바로 위 줄과
+                분모가 다른 두 숫자가 한 카드 안에 함께 서게 된다. */}
+            <Text style={{ color: semanticColors.textInverse, fontSize: 13, fontWeight: "800" }}>
+              {progress ? progress.detailText : `준비 중 ${plannedItems.length}개 · 완료 ${completedItems.length}개`}
+            </Text>
             {plannedItems.slice(0, 4).map((item) => <Text key={`planned-${item.id}`} style={{ color: semanticColors.textInverse, fontSize: 12 }}>• 준비 중 · {item.nameKo}</Text>)}
             {completedItems.slice(0, 4).map((item) => <Text key={`completed-${item.id}`} style={{ color: semanticColors.textInverse, fontSize: 12 }}>• 완료 · {item.nameKo}</Text>)}
           </View>
         ) : null}
       </Pressable>
 
+      {beforeSegment}
+
       <SegmentedControl onChange={setSortMode} value={sortMode} />
+
+      {auxiliaryFilters}
 
       <View style={{ alignItems: "center", flexDirection: "row", gap: spacing.xs }}>
         <TextInput
@@ -277,6 +390,8 @@ export function PreparationListParity({
           <AppIcon color={semanticColors.textInverse} name="magnify" size={23} />
         </Pressable>
       </View>
+
+      {notices}
 
       {loading ? (
         <EmptyStateCard actionLabel="잠시만요" title="준비 품목을 불러오고 있어요." />
@@ -299,19 +414,21 @@ export function PreparationListParity({
           </View>
           {displayedItems.length ? (
             <>
-              <ItemGrid columns={columns} items={displayedItems.slice(0, searchLimit)} onItemPress={onItemPress} />
+              <ItemGrid columns={columns} items={displayedItems.slice(0, searchLimit)} onItemPress={onItemPress} renderItemFooter={renderItemFooter} />
               {searchLimit < displayedItems.length ? (
                 <Pressable accessibilityRole="button" onPress={() => setSearchLimit((current) => Math.min(displayedItems.length, current * 2))} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
                   <Text style={{ color: semanticColors.actionPrimary, fontSize: 13, fontWeight: "800" }}>검색 결과 더 보기 ({Math.min(searchLimit, displayedItems.length)}/{displayedItems.length})</Text>
                 </Pressable>
               ) : null}
             </>
-          ) : (
+          ) : onMissingReport ? (
             <EmptyStateCard actionLabel="없는 품목 신고" onPress={onMissingReport} title="검색 결과가 없어요." />
+          ) : (
+            <EmptyStateCard actionLabel="검색 지우기" onPress={onClearSearch} title="검색 결과가 없어요." />
           )}
         </View>
       ) : displayedItems.length === 0 || (sortMode === "category" ? categories.length === 0 : populatedTimingBands.length === 0) ? (
-        <EmptyStateCard actionLabel="준비 홈" onPress={onBack} title="5개 이상 확인된 준비 품목 그룹이 없어요." />
+        emptyState ?? <EmptyStateCard actionLabel="준비 홈" onPress={onBack} title="5개 이상 확인된 준비 품목 그룹이 없어요." />
       ) : sortMode === "category" ? (
         <View style={{ gap: 12 }}>
           {categories.map((group) => {
@@ -345,7 +462,7 @@ export function PreparationListParity({
                 </Pressable>
                 {expanded ? (
                   <View style={{ gap: 8, paddingBottom: 14, paddingHorizontal: 14 }}>
-                    <ItemGrid columns={columns} items={visibleGroupItems} onItemPress={onItemPress} />
+                    <ItemGrid columns={columns} items={visibleGroupItems} onItemPress={onItemPress} renderItemFooter={renderItemFooter} />
                     {visibleGroupItems.length < groupItems.length ? (
                       <Pressable accessibilityRole="button" onPress={() => setGroupLimits((current) => ({ ...current, [group.id]: nextPreparationGroupLimit(limit, groupItems.length) }))} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
                         <Text style={{ color: semanticColors.actionPrimary, fontSize: 13, fontWeight: "800" }}>더 보기 ({visibleGroupItems.length}/{groupItems.length} · {groupItems.length - visibleGroupItems.length}개 남음)</Text>
@@ -392,7 +509,7 @@ export function PreparationListParity({
                 </Pressable>
                 {expanded ? (
                   <View style={{ gap: 8, paddingBottom: 14, paddingHorizontal: 14 }}>
-                    <ItemGrid columns={columns} items={visibleBandItems} onItemPress={onItemPress} />
+                    <ItemGrid columns={columns} items={visibleBandItems} onItemPress={onItemPress} renderItemFooter={renderItemFooter} />
                     {visibleBandItems.length < bandItems.length ? (
                       <Pressable accessibilityRole="button" onPress={() => setGroupLimits((current) => ({ ...current, [limitKey]: nextPreparationGroupLimit(limit, bandItems.length) }))} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
                         <Text style={{ color: semanticColors.actionPrimary, fontSize: 13, fontWeight: "800" }}>더 보기 ({visibleBandItems.length}/{bandItems.length} · {bandItems.length - visibleBandItems.length}개 남음)</Text>
@@ -411,9 +528,12 @@ export function PreparationListParity({
         </View>
       )}
 
-      <Pressable accessibilityRole="button" onPress={onMissingReport} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
-        <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>찾는 품목이 없나요? <Text style={{ color: semanticColors.actionPrimary, fontWeight: "800" }}>누락 신고하기</Text></Text>
-      </Pressable>
+      {/* 신고를 받을 곳이 있을 때만 그린다 -- 눌러도 아무 일도 일어나지 않는 줄은 두지 않는다. */}
+      {onMissingReport ? (
+        <Pressable accessibilityRole="button" onPress={onMissingReport} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
+          <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>찾는 품목이 없나요? <Text style={{ color: semanticColors.actionPrimary, fontWeight: "800" }}>누락 신고하기</Text></Text>
+        </Pressable>
+      ) : null}
 
     </View>
   );

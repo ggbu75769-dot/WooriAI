@@ -114,15 +114,18 @@ describe("라운드 43 UX-V: 출산 전 필터 판정", () => {
 });
 
 describe("라운드 43 UX-V: 출산 전 칩 배선", () => {
-  it("세션 게이트 안, 필수도 칩과 같은 줄에 붙는다 (ITEM-001 캡처 불변)", () => {
+  it("세션 렌더의 보조 칩 줄에서 필수도 칩과 같은 줄에 붙는다 (ITEM-001 캡처 불변)", () => {
     const items = itemsSource();
     const necessityRowIndex = items.indexOf("NECESSITY_FILTER_OPTIONS.map");
     const chipIndex = items.indexOf("{offersPreBirthFilter ? (");
 
     expect(necessityRowIndex).toBeGreaterThan(-1);
     expect(chipIndex).toBeGreaterThan(necessityRowIndex);
-    // 그 줄 전체가 `{hasSession ? (` 게이트 안이다 = 비세션 픽셀 락 캡처에는 없다.
-    expect(items.lastIndexOf("{hasSession ? (", necessityRowIndex)).toBeGreaterThan(-1);
+    // DSN-053 P2-B: 게이트가 삼항에서 **이른 반환**으로 바뀌었다 -- 비세션(픽셀 락 ITEM-001
+    // 캡처)은 그 위에서 먼저 반환되므로, 두 칩이 있는 세션 렌더에는 도달하지 않는다.
+    const previewReturnIndex = items.indexOf("if (!hasSession) {");
+    expect(previewReturnIndex).toBeGreaterThan(-1);
+    expect(necessityRowIndex).toBeGreaterThan(previewReturnIndex);
     expect(items).toContain("label={PRE_BIRTH_FILTER_LABEL}");
     expect(PRE_BIRTH_FILTER_LABEL).toBe("출산 전");
   });
@@ -199,12 +202,13 @@ describe("라운드 43 UX-V: 출산 전 칩 배선", () => {
     expect(callArgs).not.toContain("isTestSession");
   });
 
-  it("서버로 보내는 stageBand 계약은 건드리지 않는다", () => {
+  it("좁히기 조건은 목록 쿼리 키에 끼지 않는다 (칩을 눌러도 요청이 나가지 않는다)", () => {
     const items = itemsSource();
 
-    // 시기 칩 → stageBand 왕복은 그대로. 새 필터는 클라이언트 전용이라 쿼리 키에 끼지 않는다.
-    expect(items).toContain("listItems(authToken!, childId!, statusTab, requestedStageBand)");
-    expect(items).toContain('queryKey: ["items", childId, statusTab, requestedStageBand ?? "current-stage"]');
+    // DSN-053 P2-B: 목록은 상태로도 시기로도 거르지 않는 스냅샷 한 건이다. 출산 전·필수도·
+    // 검색·찜은 전부 그 위의 클라이언트 좁히기라 쿼리 키에 아무것도 더하지 않는다.
+    expect(items).toContain('queryKey: ["items", childId, "catalog"]');
     expect(items).not.toContain("preBirthOnly, requestedStageBand");
+    expect(items).not.toContain("necessityFilter]");
   });
 });
